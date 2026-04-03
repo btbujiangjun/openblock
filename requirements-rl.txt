@@ -1,0 +1,5 @@
+# 可选：PyTorch 自博弈训练
+# - Apple Silicon：安装官方 torch  wheel 后可使用 --device mps
+# - NVIDIA：--device cuda
+numpy>=1.22
+torch>=2.0.0

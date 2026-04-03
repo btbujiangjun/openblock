@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Block Blast - Strategy Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #0f3460;
+            --accent: #e94560;
+            --accent-secondary: #533483;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --success: #00d9ff;
+            --warning: #ffc107;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--accent-secondary);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            color: var(--accent);
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-card);
+            color: white;
+        }
+        
+        .btn:hover { filter: brightness(1.2); }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .tab.active {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .tab:hover:not(.active) {
+            background: var(--bg-card);
+        }
+        
+        .panel {
+            display: none;
+        }
+        
+        .panel.active { display: block; }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        .card h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: var(--success);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 5px;
+        }
+        
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--accent-secondary);
+            border-radius: 6px;
+            color: white;
+            font-size: 14px;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-box {
+            background: var(--bg-card);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-box .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--success);
+        }
+        
+        .stat-box .label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+        
+        .behavior-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .behavior-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        
+        .behavior-item .time {
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+        
+        .behavior-item.place { border-left: 3px solid var(--success); }
+        .behavior-item.clear { border-left: 3px solid var(--warning); }
+        .behavior-item.failed { border-left: 3px solid var(--accent); }
+        
+        .replay-container {
+            position: relative;
+            margin-top: 20px;
+        }
+        
+        #replay-canvas {
+            background: var(--bg-card);
+            border-radius: 8px;
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .replay-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .replay-controls input[type="range"] {
+            width: 200px;
+        }
+        
+        .session-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        
+        .session-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .session-item:hover {
+            background: var(--accent-secondary);
+        }
+        
+        .session-item .info {
+            flex: 1;
+        }
+        
+        .session-item .score {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--success);
+            margin-right: 20px;
+        }
+        
+        .session-item .meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .event-log {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            background: var(--bg-card);
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .event-log .event {
+            padding: 4px 0;
+            border-bottom: 1px solid var(--bg-secondary);
+        }
+        
+        .event-log .timestamp {
+            color: var(--text-secondary);
+            margin-right: 10px;
+        }
+        
+        .event-log .type {
+            color: var(--warning);
+            margin-right: 10px;
+        }
+        
+        .event-log .data {
+            color: var(--success);
+        }
+        
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .leaderboard-table th,
+        .leaderboard-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--accent-secondary);
+        }
+        
+        .leaderboard-table th {
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        
+        .leaderboard-table td.score {
+            font-weight: bold;
+            color: var(--success);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Block Blast - Strategy Dashboard</h1>
+        <div class="header-actions">
+            <button class="btn btn-secondary" onclick="refreshData()">Refresh</button>
+            <button class="btn btn-secondary" onclick="exportData()">Export</button>
+        </div>
+    </div>
+    
+    <div class="tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="sessions">Sessions</button>
+        <button class="tab" data-tab="replay">Replay</button>
+        <button class="tab" data-tab="leaderboard">Leaderboard</button>
+    </div>
+    
+    <div id="overview" class="panel active">
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="value" id="total-games">0</div>
+                <div class="label">Total Games</div>
+            </div>
+            <div class="stat-box">
+                <div class="value" id="best-score">0</div>
+                <div class="label">Best Score</div>
+            </div>
+            <div class="stat-box">
+                <div class="value" id="avg-score">0</div>
+                <div class="label">Avg Score</div>
+            </div>
+            <div class="stat-box">
+                <div class="value" id="total-clears">0</div>
+                <div class="label">Total Clears</div>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>Analytics</h3>
+                <div class="form-group">
+                    <label>User ID</label>
+                    <input type="text" id="analytics-user-id" placeholder="Enter user ID">
+                </div>
+                <button class="btn btn-primary" onclick="loadAnalytics()">Load Analytics</button>
+                <div id="analytics-results" style="margin-top: 20px;"></div>
+            </div>
+            
+            <div class="card">
+                <h3>Recent Events</h3>
+                <div class="behavior-list" id="event-list"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="sessions" class="panel">
+        <div class="card">
+            <h3>Game Sessions</h3>
+            <div class="form-group">
+                <label>Filter by User ID</label>
+                <input type="text" id="session-user-id" placeholder="Enter user ID (leave empty for all)">
+            </div>
+            <button class="btn btn-primary" onclick="loadSessions()">Load Sessions</button>
+            <div class="session-list" id="session-list" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+    
+    <div id="replay" class="panel">
+        <div class="grid">
+            <div class="card">
+                <h3>Session Replay</h3>
+                <div class="form-group">
+                    <label>Session ID</label>
+                    <input type="number" id="replay-session-id" placeholder="Enter session ID">
+                </div>
+                <button class="btn btn-primary" onclick="loadReplay()">Load Replay</button>
+                
+                <div class="replay-container" id="replay-container" style="display: none;">
+                    <canvas id="replay-canvas" width="342" height="342"></canvas>
+                    <div class="replay-controls">
+                        <button class="btn btn-secondary" id="replay-start">Start</button>
+                        <button class="btn btn-secondary" id="replay-pause">Pause</button>
+                        <input type="range" id="replay-slider" min="0" max="100" value="0">
+                        <span id="replay-time">0:00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Event Log</h3>
+                <div class="event-log" id="event-log"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="leaderboard" class="panel">
+        <div class="card">
+            <h3>Top Scores</h3>
+            <div class="form-row" style="margin-bottom: 20px;">
+                <div class="form-group">
+                    <label>Strategy</label>
+                    <select id="leaderboard-strategy">
+                        <option value="">All</option>
+                        <option value="easy">Easy</option>
+                        <option value="normal">Normal</option>
+                        <option value="hard">Hard</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Limit</label>
+                    <select id="leaderboard-limit">
+                        <option value="10">Top 10</option>
+                        <option value="25">Top 25</option>
+                        <option value="50">Top 50</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <button class="btn btn-primary" onclick="loadLeaderboard()">Load</button>
+                </div>
+            </div>
+            <table class="leaderboard-table" id="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>User ID</th>
+                        <th>Best Score</th>
+                        <th>Games</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = localStorage.getItem('api_url') || 'http://localhost:5000';
+        let currentReplay = null;
+        let replayIndex = 0;
+        let replayPlaying = false;
+        let replayInterval = null;
+        
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+        
+        async function api(endpoint, options = {}) {
+            try {
+                const res = await fetch(`${API_URL}${endpoint}`, {
+                    headers: { 'Content-Type': 'application/json', ...options.headers },
+                    ...options
+                });
+                return await res.json();
+            } catch (e) {
+                console.error('API Error:', e);
+                return { error: e.message };
+            }
+        }
+        
+        async function refreshData() {
+            const stats = await api('/api/stats');
+            document.getElementById('total-games').textContent = stats.total_games || 0;
+            document.getElementById('best-score').textContent = stats.best_score || 0;
+            document.getElementById('avg-score').textContent = stats.avg_score || 0;
+            document.getElementById('total-clears').textContent = stats.total_clears || 0;
+            
+            const behaviors = await api('/api/behaviors?limit=50');
+            renderEvents(behaviors);
+        }
+        
+        function renderEvents(events) {
+            const container = document.getElementById('event-list');
+            container.innerHTML = events.map(e => `
+                <div class="behavior-item ${e.event_type.replace('_', '-')}">
+                    <div>
+                        <strong>${e.event_type}</strong>
+                        <div class="time">${new Date(e.timestamp * 1000).toLocaleTimeString()}</div>
+                    </div>
+                    <div>${JSON.stringify(e.data || {}).substring(0, 50)}</div>
+                </div>
+            `).join('');
+        }
+        
+        async function loadAnalytics() {
+            const userId = document.getElementById('analytics-user-id').value;
+            const params = new URLSearchParams();
+            if (userId) params.append('user_id', userId);
+            
+            const data = await api(`/api/analytics/behaviors?${params}`);
+            const results = document.getElementById('analytics-results');
+            
+            results.innerHTML = `
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="value">${data.total_sessions || 0}</div>
+                        <div class="label">Sessions</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="value">${data.place_count || 0}</div>
+                        <div class="label">Placements</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="value">${data.clear_count || 0}</div>
+                        <div class="label">Clears</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="value">${(data.accuracy || 0).toFixed(1)}%</div>
+                        <div class="label">Accuracy</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        async function loadSessions() {
+            const userId = document.getElementById('session-user-id').value;
+            const params = new URLSearchParams();
+            if (userId) params.append('user_id', userId);
+            
+            const sessions = await api(`/api/sessions?${params}`);
+            const container = document.getElementById('session-list');
+            
+            container.innerHTML = sessions.map(s => `
+                <div class="session-item" onclick="loadReplayForSession(${s.id})">
+                    <div class="info">
+                        <strong>Session #${s.id}</strong>
+                        <div class="meta">
+                            Strategy: ${s.strategy} | 
+                            Duration: ${formatDuration(s.duration)} | 
+                            ${new Date(s.start_time * 1000).toLocaleString()}
+                        </div>
+                    </div>
+                    <div class="score">${s.score}</div>
+                </div>
+            `).join('');
+        }
+        
+        function formatDuration(seconds) {
+            if (!seconds) return 'N/A';
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        async function loadReplay() {
+            const sessionId = document.getElementById('replay-session-id').value;
+            if (!sessionId) return;
+            await loadReplayForSession(parseInt(sessionId));
+        }
+        
+        async function loadReplayForSession(sessionId) {
+            const replay = await api(`/api/replay/${sessionId}`);
+            if (replay.error) {
+                alert('Replay not found');
+                return;
+            }
+            
+            currentReplay = replay.events || [];
+            replayIndex = 0;
+            replayPlaying = false;
+            
+            if (replayInterval) clearInterval(replayInterval);
+            
+            document.getElementById('replay-container').style.display = 'block';
+            document.getElementById('replay-slider').max = currentReplay.length;
+            document.getElementById('replay-slider').value = 0;
+            
+            renderEventLog(currentReplay);
+            drawReplayState(null);
+        }
+        
+        function renderEventLog(events) {
+            const container = document.getElementById('event-log');
+            container.innerHTML = events.map((e, i) => `
+                <div class="event" id="event-${i}">
+                    <span class="timestamp">[${i}]</span>
+                    <span class="type">${e.event_type}</span>
+                    <span class="data">${JSON.stringify(e.data || {}).substring(0, 80)}</span>
+                </div>
+            `).join('');
+        }
+        
+        function drawReplayState(event) {
+            const canvas = document.getElementById('replay-canvas');
+            const ctx = canvas.getContext('2d');
+            const cellSize = 38;
+            
+            ctx.fillStyle = '#D4DDE4';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = '#C5D3DE';
+            for (let y = 0; y < 9; y++) {
+                for (let x = 0; x < 9; x++) {
+                    ctx.fillRect(x * cellSize + 1, y * cellSize + 1, cellSize - 2, cellSize - 2);
+                }
+            }
+            
+            if (event && event.game_state && event.game_state.grid) {
+                const grid = event.game_state.grid;
+                const colors = ['#70AD47', '#5B9BD5', '#ED7D31', '#FFC000', '#4472C4', '#9E480E', '#E74856', '#8764B8'];
+                
+                for (let y = 0; y < 9; y++) {
+                    for (let x = 0; x < 9; x++) {
+                        if (grid[y] && grid[y][x] !== null) {
+                            ctx.fillStyle = colors[grid[y][x]] || '#888';
+                            ctx.fillRect(x * cellSize + 2, y * cellSize + 2, cellSize - 4, cellSize - 4);
+                        }
+                    }
+                }
+            }
+        }
+        
+        document.getElementById('replay-start').addEventListener('click', () => {
+            replayPlaying = true;
+            replayInterval = setInterval(() => {
+                if (replayIndex < currentReplay.length) {
+                    const event = currentReplay[replayIndex];
+                    drawReplayState(event);
+                    
+                    document.getElementById('replay-slider').value = replayIndex;
+                    document.getElementById('replay-time').textContent = `${replayIndex}/${currentReplay.length}`;
+                    
+                    const logItem = document.getElementById(`event-${replayIndex}`);
+                    if (logItem) {
+                        logItem.style.background = 'var(--accent-secondary)';
+                        logItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                    
+                    replayIndex++;
+                } else {
+                    replayPlaying = false;
+                    clearInterval(replayInterval);
+                }
+            }, 500);
+        });
+        
+        document.getElementById('replay-pause').addEventListener('click', () => {
+            replayPlaying = false;
+            if (replayInterval) clearInterval(replayInterval);
+        });
+        
+        document.getElementById('replay-slider').addEventListener('input', (e) => {
+            replayIndex = parseInt(e.target.value);
+            const event = currentReplay[replayIndex];
+            drawReplayState(event);
+            document.getElementById('replay-time').textContent = `${replayIndex}/${currentReplay.length}`;
+        });
+        
+        async function loadLeaderboard() {
+            const strategy = document.getElementById('leaderboard-strategy').value;
+            const limit = document.getElementById('leaderboard-limit').value;
+            
+            const params = new URLSearchParams();
+            if (strategy) params.append('strategy', strategy);
+            params.append('limit', limit);
+            
+            const leaderboard = await api(`/api/leaderboard?${params}`);
+            
+            const tbody = document.querySelector('#leaderboard-table tbody');
+            tbody.innerHTML = leaderboard.map((item, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td>${item.user_id.substring(0, 20)}</td>
+                    <td class="score">${item.best_score}</td>
+                    <td>${item.games}</td>
+                </tr>
+            `).join('');
+        }
+        
+        async function exportData() {
+            const userId = localStorage.getItem('bb_user_id');
+            if (!userId) {
+                alert('No user ID found');
+                return;
+            }
+            
+            const data = await api(`/api/export?user_id=${userId}`);
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `blockblast-export-${Date.now()}.json`;
+            a.click();
+        }
+        
+        refreshData();
+    </script>
+</body>
+</html>

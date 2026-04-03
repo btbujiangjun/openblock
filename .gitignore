@@ -1,0 +1,16 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.DS_Store
+*.db
+.env
+.env.local
+web/.env
+web/.env.local
+coverage/
+*.log
+# 本地 RL 权重（体积大，训练产物）
+rl_checkpoints/*.pt
+rl_checkpoints/*.safetensors
+rl_checkpoints/*.npz

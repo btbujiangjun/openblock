@@ -1,0 +1,471 @@
+:root {
+    --bg-color: #E8EEF1;
+    --grid-bg: #D4DDE4;
+    --cell-empty: #C5D3DE;
+    --accent-color: #5B9BD5;
+    --accent-dark: #4472C4;
+    --text-primary: #2C3E50;
+    --text-secondary: #5D7A96;
+    --success: #70AD47;
+    --warning: #ED7D31;
+    --shadow: rgba(44, 62, 80, 0.15);
+    --border-radius: 8px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg-color);
+    color: var(--text-primary);
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+}
+
+#app {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.header h1 {
+    font-size: 22px;
+    color: var(--accent-dark);
+    font-weight: 600;
+}
+
+.stats-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.stat-box {
+    background: white;
+    padding: 5px 12px;
+    border-radius: var(--border-radius);
+    text-align: center;
+    box-shadow: 0 2px 8px var(--shadow);
+    min-width: 60px;
+}
+
+.stat-label {
+    font-size: 9px;
+    color: #3d5266;
+    letter-spacing: 0.3px;
+    font-weight: 600;
+}
+
+.stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent-dark);
+}
+
+#game-wrapper {
+    position: relative;
+    border-radius: var(--border-radius);
+}
+
+/* RL 自博弈盘面演示：避免演示过程中误触棋盘与待选区 */
+body.game-rl-preview #game-wrapper,
+body.game-rl-preview .block-dock {
+    pointer-events: none;
+    cursor: default;
+}
+
+#game-grid {
+    display: block;
+    background: var(--grid-bg);
+    border-radius: var(--border-radius);
+    box-shadow: 0 4px 20px var(--shadow);
+}
+
+#game-wrapper.shake {
+    animation: shake 0.3s ease-out;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translate(0, 0); }
+    25% { transform: translate(-4px, 2px); }
+    50% { transform: translate(4px, -2px); }
+    75% { transform: translate(-2px, 4px); }
+}
+
+#drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    display: none;
+    opacity: 0.85;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+}
+
+.block-dock {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    margin-top: 10px;
+    min-height: 80px;
+    padding: 10px;
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 8px var(--shadow);
+}
+
+.dock-block {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    min-width: 50px;
+    min-height: 50px;
+    transition: opacity 0.15s ease;
+}
+
+.dock-block:active {
+    cursor: grabbing;
+}
+
+.screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* 不透明，避免透过叠层看到背后 HUD 导致发灰、对比度崩溃 */
+    background: #E8EEF1;
+    z-index: 200;
+}
+
+.screen.active {
+    display: flex;
+}
+
+#menu h1 {
+    font-size: 42px;
+    color: var(--accent-dark);
+    margin-bottom: 5px;
+    font-weight: 700;
+}
+
+.subtitle {
+    font-size: 14px;
+    color: #2c3e50;
+    margin-bottom: 20px;
+    max-width: 280px;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.btn {
+    padding: 12px 35px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    text-transform: none;
+    margin: 4px;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent-color), var(--accent-dark));
+    color: white;
+    box-shadow: 0 4px 12px rgba(91, 155, 213, 0.4);
+}
+
+.btn-primary:hover {
+    filter: brightness(1.1);
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, #A0A0A0, #808080);
+    color: white;
+}
+
+#game-over h2 {
+    font-size: 32px;
+    margin-bottom: 10px;
+    color: var(--warning);
+}
+
+.final-score {
+    font-size: 20px;
+    margin-bottom: 15px;
+}
+
+/* —— RL 自博弈面板（AlphaGo 式自博弈 + 策略梯度，线性版） */
+.rl-panel {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 70;
+    max-width: min(288px, 46vw);
+    max-height: 48vh;
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid #cfd9e3;
+    border-radius: var(--border-radius);
+    padding: 8px 10px;
+    font-size: 11px;
+    color: #2c3e50;
+    box-shadow: 0 2px 12px var(--shadow);
+    line-height: 1.35;
+}
+
+.rl-panel-title {
+    font-size: 11px;
+    margin: 0 0 4px;
+    color: #4472c4;
+    text-transform: none;
+    font-weight: 700;
+}
+
+.rl-panel-hint {
+    margin: 0 0 8px;
+    font-size: 9px;
+    color: #5d7a96;
+}
+
+.rl-backend-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0 0 8px;
+    font-size: 9px;
+    color: #3d5266;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.rl-backend-toggle input {
+    margin-top: 2px;
+}
+
+.rl-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 8px;
+    margin-bottom: 6px;
+}
+
+.rl-stats div {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 10px;
+}
+
+.rl-stats strong {
+    color: #4472c4;
+    font-weight: 700;
+}
+
+.rl-last-wrap {
+    margin: 0 0 6px;
+    font-size: 10px;
+    color: #3d5266;
+}
+
+.rl-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.rl-btn {
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: linear-gradient(135deg, var(--accent-color), var(--accent-dark));
+    color: #fff;
+}
+
+.rl-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.rl-btn-secondary {
+    background: #8a9bab;
+}
+
+.rl-log {
+    margin: 0;
+    padding: 6px;
+    background: #f0f4f8;
+    border-radius: 4px;
+    font-size: 9px;
+    color: #4a5f73;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 72px;
+    overflow: auto;
+}
+
+.strategy-panel {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    background: white;
+    padding: 8px;
+    border-radius: var(--border-radius);
+    z-index: 60;
+    box-shadow: 0 2px 8px var(--shadow);
+}
+
+.strategy-panel h3 {
+    font-size: 10px;
+    margin-bottom: 5px;
+    color: #2c3e50;
+    font-weight: 700;
+}
+
+.strategy-btns {
+    display: flex;
+    gap: 3px;
+}
+
+.strategy-btn {
+    padding: 5px 10px;
+    font-size: 11px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: #c5d3de;
+    color: #2c3e50;
+    font-weight: 600;
+    transition: background 0.15s ease;
+}
+
+.strategy-btn:hover {
+    background: #b8c8d4;
+}
+
+.strategy-btn.active {
+    background: var(--accent-color);
+    color: white;
+}
+
+.float-score {
+    position: fixed;
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--success);
+    pointer-events: none;
+    animation: floatUp 0.6s ease-out forwards;
+    z-index: 200;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.float-combo {
+    color: var(--warning);
+    font-size: 28px;
+}
+
+@keyframes floatUp {
+    0% { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateY(-30px) scale(1.2); }
+}
+
+.achievement-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    color: #333;
+    padding: 20px 30px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: bold;
+    text-align: center;
+    z-index: 300;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    animation: achievementPop 0.5s ease-out;
+}
+
+.achievement-popup .title {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+@keyframes achievementPop {
+    0% { transform: translate(-50%, -50%) scale(0); }
+    50% { transform: translate(-50%, -50%) scale(1.1); }
+    100% { transform: translate(-50%, -50%) scale(1); }
+}
+
+.no-moves-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(237, 125, 49, 0.95);
+    color: white;
+    padding: 20px 40px;
+    border-radius: 12px;
+    font-size: 24px;
+    font-weight: bold;
+    z-index: 500;
+    animation: noMovesPulse 0.5s ease-in-out;
+}
+
+@keyframes noMovesPulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.1); }
+}
+
+/* 菜单/结束页打开时隐藏背后游戏壳，避免半透明叠层与误触 */
+body.game-shell-hidden #app {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+body.game-shell-hidden .strategy-panel {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+@media (max-width: 400px) {
+    .header h1 { font-size: 18px; }
+    .stat-box { padding: 4px 8px; min-width: 50px; }
+    .stat-value { font-size: 14px; }
+    .block-dock { gap: 10px; padding: 8px; }
+    .btn { padding: 10px 25px; font-size: 12px; }
+    .strategy-panel { bottom: 5px; right: 5px; }
+}

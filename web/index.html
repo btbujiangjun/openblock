@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Block Blast — 方块消除益智游戏">
+    <title>Block Blast</title>
+    <!-- 与 main.css 一致：全屏层不透明，避免透过菜单看到背后 HUD 发灰 -->
+    <style>
+      .screen {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: none;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #E8EEF1;
+      }
+      .screen.active {
+        display: flex;
+      }
+      #boot-error {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: 12px;
+        transform: translateX(-50%);
+        z-index: 400;
+        max-width: 92vw;
+        padding: 10px 14px;
+        background: #c0392b;
+        color: #fff;
+        font-size: 13px;
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        text-align: center;
+        line-height: 1.4;
+      }
+      #boot-error:not([hidden]) {
+        display: block;
+      }
+    </style>
+    <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+    <div id="app">
+        <div class="header"><h1>Block Blast</h1></div>
+        <div class="stats-bar">
+            <div class="stat-box"><div class="stat-label">得分</div><div class="stat-value" id="score">0</div></div>
+            <div class="stat-box"><div class="stat-label">最佳</div><div class="stat-value" id="best">0</div></div>
+        </div>
+        <div id="game-wrapper">
+            <canvas id="game-grid" width="342" height="342" aria-label="游戏网格"></canvas>
+            <canvas id="drag-ghost" aria-hidden="true"></canvas>
+        </div>
+        <div class="block-dock" id="dock"></div>
+    </div>
+    <div id="menu" class="screen active">
+        <h1>Block Blast</h1>
+        <div class="subtitle">填满整行或整列即可消除！</div>
+        <button type="button" class="btn btn-primary" id="start-btn">开始</button>
+    </div>
+    <div id="game-over" class="screen">
+        <h2>无路可走</h2>
+        <div class="final-score" id="over-score">得分：0</div>
+        <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>
+        <button type="button" class="btn btn-secondary" id="menu-btn">菜单</button>
+    </div>
+    <aside id="rl-panel" class="rl-panel" aria-label="强化学习自博弈">
+        <h3 class="rl-panel-title">RL 自博弈</h3>
+        <p class="rl-panel-hint">参考 AlphaGo：自博弈 + REINFORCE。可选 <strong>PyTorch 后端</strong>（需 <code>pip install torch</code> 并启动 Flask）：热加载权重、持续学习落盘；未勾选时用浏览器线性模型 + localStorage。</p>
+        <label class="rl-backend-toggle"><input type="checkbox" id="rl-use-pytorch" /> 使用 PyTorch 后端（<span id="rl-backend-status">未检测</span>）</label>
+        <div class="rl-stats">
+            <div><span>训练局数</span><strong id="rl-episodes">0</strong></div>
+            <div><span>近均分</span><strong id="rl-avg-score">—</strong></div>
+            <div><span>胜率</span><strong id="rl-winrate">—</strong></div>
+            <div><span>最佳</span><strong id="rl-best">0</strong></div>
+        </div>
+        <p class="rl-last-wrap">上一局：<span id="rl-last">—</span></p>
+        <div class="rl-actions">
+            <button type="button" class="rl-btn" id="rl-start">开始训练</button>
+            <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled>停止</button>
+            <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估一局</button>
+        </div>
+        <pre class="rl-log" id="rl-log"></pre>
+    </aside>
+    <div class="strategy-panel">
+        <h3>难度</h3>
+        <div class="strategy-btns">
+            <button type="button" class="strategy-btn" data-level="easy">简单</button>
+            <button type="button" class="strategy-btn active" data-level="normal">普通</button>
+            <button type="button" class="strategy-btn" data-level="hard">困难</button>
+        </div>
+    </div>
+    <div id="boot-error" hidden role="alert"></div>
+    <script type="module" src="./src/main.js"></script>
+    <script>
+      (function () {
+        function hint() {
+          if (window.blockBlastGame) return;
+          var el = document.getElementById('boot-error');
+          if (!el || !el.hidden) return;
+          el.hidden = false;
+          el.textContent = '游戏脚本未加载。请在项目根目录执行 npm run dev，用浏览器打开终端里的本地地址；不要用 file:// 直接打开 HTML。';
+        }
+        window.addEventListener('load', function () {
+          setTimeout(hint, 3500);
+        });
+      })();
+    </script>
+</body>
+</html>
