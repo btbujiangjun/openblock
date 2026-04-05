@@ -4,7 +4,8 @@
 import { LinearAgent } from './linearAgent.js';
 import { trainSelfPlay, runSelfPlayEpisode, WIN_SCORE_THRESHOLD } from './trainer.js';
 import { isRlPytorchBackendPreferred } from '../config.js';
-import { fetchRlStatus } from './pytorchBackend.js';
+import { fetchRlStatus, fetchTrainingLog } from './pytorchBackend.js';
+import { updateRlTrainingCharts } from './rlTrainingCharts.js';
 
 const WIN_WINDOW = 80;
 const AVG_WINDOW = 40;
@@ -36,6 +37,13 @@ export function initRLPanel(game) {
     const outLog = el('rl-log');
     const chkPytorch = el('rl-use-pytorch');
     const outBackendStatus = el('rl-backend-status');
+    const outServerLog = el('rl-server-log');
+    const btnRefreshLog = el('rl-refresh-server-log');
+    const chartRoot = el('rl-chart-root');
+    const chkChartAuto = el('rl-chart-auto');
+    const selChartTail = el('rl-chart-tail');
+    const btnRefreshCharts = el('rl-refresh-charts');
+    let chartPollTimer = null;
 
     let agent = LinearAgent.load();
     let totalEpisodes = 0;
@@ -76,6 +84,7 @@ export function initRLPanel(game) {
         chkPytorch.addEventListener('change', () => {
             persistPytorchToggle();
             void refreshBackendStatus();
+            void refreshTrainingCharts();
         });
     }
 
@@ -86,12 +95,79 @@ export function initRLPanel(game) {
         try {
             const st = await fetchRlStatus();
             if (st.available) {
-                outBackendStatus.textContent = `${st.device || '?'} · 已训 ${st.episodes ?? 0} 局`;
+                const ck = st.checkpoint_loaded ? '已热加载' : '新初始化';
+                outBackendStatus.textContent = `${st.device || '?'} · ${ck} · ${st.episodes ?? 0} 局 · 每${st.save_every ?? '?'}局存盘`;
             } else {
                 outBackendStatus.textContent = st.reason ? `不可用：${st.reason}` : '不可用';
             }
-        } catch (e) {
+        } catch {
             outBackendStatus.textContent = '无法连接 API';
+        }
+        void refreshServerTrainingLog();
+    }
+
+    function syncChartPoll() {
+        if (chartPollTimer) {
+            clearInterval(chartPollTimer);
+            chartPollTimer = null;
+        }
+        if (chkChartAuto?.checked && running && readUseBackend()) {
+            chartPollTimer = setInterval(() => void refreshTrainingCharts(), 5000);
+        }
+    }
+
+    async function refreshTrainingCharts() {
+        if (!chartRoot) {
+            return;
+        }
+        try {
+            const tail = Math.max(50, parseInt(String(selChartTail?.value || '800'), 10) || 800);
+            const data = await fetchTrainingLog(tail);
+            updateRlTrainingCharts(chartRoot, data.entries || []);
+        } catch {
+            chartRoot.replaceChildren();
+            const p = document.createElement('p');
+            p.className = 'rl-dash-empty';
+            p.textContent = '无法加载曲线数据（请启动 Flask 并勾选 PyTorch 后端）';
+            chartRoot.appendChild(p);
+        }
+    }
+
+    async function refreshServerTrainingLog() {
+        if (!outServerLog) {
+            return;
+        }
+        try {
+            const data = await fetchTrainingLog(60);
+            if (data.exists === false || !data.entries?.length) {
+                outServerLog.textContent =
+                    data.exists === false
+                        ? '尚无日志文件（启动 npm run server:rl 并训练后写入 training.jsonl）'
+                        : '日志为空';
+                return;
+            }
+            const rows = data.entries.slice(-14).map((e) => {
+                const t = e.ts ? new Date(e.ts * 1000).toLocaleTimeString() : '?';
+                if (e.event === 'train_episode') {
+                    const lp = e.loss_policy != null && Number.isFinite(Number(e.loss_policy)) ? Number(e.loss_policy).toFixed(2) : '—';
+                    const lv = e.loss_value != null && Number.isFinite(Number(e.loss_value)) ? Number(e.loss_value).toFixed(2) : '—';
+                    return `[${t}] ep${e.episodes} Lπ ${lp} Lv ${lv}`;
+                }
+                if (e.event === 'checkpoint_saved') {
+                    return `[${t}] 已保存 ${e.reason || ''} ep${e.episodes}`;
+                }
+                if (e.event === 'server_init') {
+                    return `[${t}] 启动 ${e.device} 局数${e.episodes} ${e.checkpoint_loaded ? '热加载' : '新模型'}`;
+                }
+                if (e.event === 'load_api') {
+                    return `[${t}] API 加载 ep${e.episodes}`;
+                }
+                return `[${t}] ${JSON.stringify(e).slice(0, 100)}`;
+            });
+            outServerLog.textContent = rows.join('\n');
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            outServerLog.textContent = `无法拉取训练日志：${msg}`;
         }
     }
 
@@ -129,8 +205,9 @@ export function initRLPanel(game) {
     function onEpisode(info) {
         if (typeof info.serverEpisodes === 'number') {
             totalEpisodes = info.serverEpisodes;
-        } else if (!info.fromBackend) {
-            totalEpisodes++;
+        } else {
+            // 线性模型每局 +1；后端若未带回局数则 +1 兜底，避免界面卡住
+            totalEpisodes += 1;
         }
         recentScores.push(info.score);
         recentWins.push(info.won);
@@ -174,6 +251,11 @@ export function initRLPanel(game) {
                 : '开始自博弈（浏览器线性模型 + localStorage），可随时停止'
         );
 
+        if (useBackend) {
+            syncChartPoll();
+            void refreshTrainingCharts();
+        }
+
         await trainSelfPlay({
             agent,
             episodes: 5000,
@@ -197,7 +279,10 @@ export function initRLPanel(game) {
                 ? '本轮训练结束或已停止，权重已由服务端保存（见 RL_CHECKPOINT_SAVE）'
                 : '本轮训练结束或已停止，权重已写入 localStorage'
         );
+        syncChartPoll();
         void refreshBackendStatus();
+        void refreshServerTrainingLog();
+        void refreshTrainingCharts();
     }
 
     if (btnStart) {
@@ -208,6 +293,18 @@ export function initRLPanel(game) {
             controller?.abort();
             logLine('已请求停止…');
         };
+    }
+    if (btnRefreshLog) {
+        btnRefreshLog.onclick = () => void refreshServerTrainingLog();
+    }
+    if (btnRefreshCharts) {
+        btnRefreshCharts.onclick = () => void refreshTrainingCharts();
+    }
+    if (chkChartAuto) {
+        chkChartAuto.addEventListener('change', () => syncChartPoll());
+    }
+    if (selChartTail) {
+        selChartTail.addEventListener('change', () => void refreshTrainingCharts());
     }
     if (btnEpisode) {
         btnEpisode.onclick = async () => {
@@ -263,6 +360,7 @@ export function initRLPanel(game) {
 
     updateStats();
     void refreshBackendStatus();
+    void refreshTrainingCharts();
     void (async () => {
         try {
             const st = await fetchRlStatus();

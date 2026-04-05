@@ -3,15 +3,16 @@
 
 用法:
   pip install -r requirements-rl.txt
-  python -m rl_pytorch.train --episodes 2000 --device auto --save rl_checkpoints/bb_policy.pt
+  python -m rl_pytorch.train --episodes 2000 --device auto --save-every 100 --save rl_checkpoints/bb_policy.pt
 
---device auto: 优先 cuda，其次 mps，否则 cpu。
+--device auto：macOS 上优先 **MPS**；其他平台为 CUDA → MPS → CPU。详见 device.py。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 import time
@@ -23,35 +24,27 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 
 from .config import WIN_SCORE_THRESHOLD
+from .device import maybe_mps_synchronize, resolve_training_device, tensor_to_device
 from .features import build_phi_batch
 from .model import PolicyValueNet
 from .simulator import BlockBlastSimulator
 
 
-def resolve_device(preference: str) -> torch.device:
-    pref = (preference or "auto").lower().strip()
-    if pref == "auto":
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        mps_b = getattr(torch.backends, "mps", None)
-        if mps_b is not None and mps_b.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
-    if pref == "cuda":
-        if not torch.cuda.is_available():
-            print("CUDA 不可用，回退 CPU", file=sys.stderr)
-            return torch.device("cpu")
-        return torch.device("cuda")
-    if pref == "mps":
-        mps_b = getattr(torch.backends, "mps", None)
-        if mps_b is None or not mps_b.is_available():
-            print("MPS 不可用（需 Apple Silicon + 支持 MPS 的 PyTorch），回退 CPU", file=sys.stderr)
-            return torch.device("cpu")
-        return torch.device("mps")
-    if pref == "cpu":
-        return torch.device("cpu")
-    print(f"未知 --device={preference!r}，使用 CPU", file=sys.stderr)
-    return torch.device("cpu")
+def _normalize_advantages(adv: torch.Tensor, min_std: float = 1e-4) -> torch.Tensor:
+    adv = torch.nan_to_num(adv, nan=0.0, posinf=0.0, neginf=0.0)
+    adv = torch.clamp(adv, -500.0, 500.0)
+    if adv.numel() < 2:
+        return torch.clamp(adv, -30.0, 30.0)
+    std = adv.std(unbiased=False)
+    if float(std) < min_std:
+        return torch.clamp(adv, -30.0, 30.0)
+    out = (adv - adv.mean()) / (std + 1e-8)
+    return torch.clamp(out, -30.0, 30.0)
+
+
+def _clamp_log_probs_pg(log_probs: torch.Tensor) -> torch.Tensor:
+    x = torch.nan_to_num(log_probs, nan=0.0, posinf=0.0, neginf=-50.0)
+    return x.clamp(min=-50.0, max=0.0)
 
 
 def collect_episode(net: PolicyValueNet, device: torch.device, temperature: float) -> dict:
@@ -59,6 +52,7 @@ def collect_episode(net: PolicyValueNet, device: torch.device, temperature: floa
     log_probs: list[torch.Tensor] = []
     states: list[torch.Tensor] = []
     rewards: list[float] = []
+    entropies: list[torch.Tensor] = []
 
     while True:
         if sim.is_terminal():
@@ -71,8 +65,8 @@ def collect_episode(net: PolicyValueNet, device: torch.device, temperature: floa
         if phi_np.shape[0] == 0:
             break
 
-        phi = torch.from_numpy(phi_np).to(device)
-        s = torch.from_numpy(state_np).to(device)
+        phi = tensor_to_device(torch.from_numpy(phi_np), device)
+        s = tensor_to_device(torch.from_numpy(state_np), device)
 
         logits = net.forward_policy_logits(phi)
         if temperature > 1e-6:
@@ -81,6 +75,7 @@ def collect_episode(net: PolicyValueNet, device: torch.device, temperature: floa
         dist = Categorical(logits=logits)
         idx = dist.sample()
         log_p = dist.log_prob(idx)
+        entropies.append(dist.entropy())
 
         a = legal[int(idx.item())]
         r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
@@ -94,6 +89,7 @@ def collect_episode(net: PolicyValueNet, device: torch.device, temperature: floa
         "log_probs": log_probs,
         "states": states,
         "rewards": rewards,
+        "entropies": entropies,
         "score": sim.score,
         "steps": sim.steps,
         "clears": sim.total_clears,
@@ -119,8 +115,14 @@ def train_loop(
     value_coef: float,
     gamma: float,
     log_every: int,
+    save_every: int,
     ckpt_path: Path | None,
     resume: Path | None,
+    entropy_coef: float = 0.015,
+    normalize_adv: bool = True,
+    grad_clip: float = 1.0,
+    adv_min_std: float = 1e-4,
+    value_huber_beta: float = 150.0,
 ) -> int:
     opt = torch.optim.Adam(net.parameters(), lr=lr)
     start_ep = 0
@@ -140,7 +142,8 @@ def train_loop(
     t0 = time.perf_counter()
 
     for e in range(start_ep, start_ep + episodes):
-        temp = max(0.4, 1.0 - (e - start_ep) * 0.002)
+        # 按全局局数衰减（续训时不会把温度拉回 1.0）
+        temp = max(0.35, 1.0 - e * 0.002)
 
         ep = collect_episode(net, device, temperature=temp)
         rewards = ep["rewards"]
@@ -151,22 +154,42 @@ def train_loop(
         if not ep["log_probs"]:
             continue
 
-        returns = episode_returns(rewards, gamma).to(device)
+        returns = tensor_to_device(episode_returns(rewards, gamma), device)
+        returns = torch.nan_to_num(returns, nan=0.0, posinf=1e5, neginf=-1e5)
+        returns = torch.clamp(returns, -1e5, 1e5)
         states_t = torch.stack(ep["states"], dim=0)
         log_probs_t = torch.stack(ep["log_probs"], dim=0)
+        entropies_t = torch.stack(ep["entropies"], dim=0)
 
         values = net.forward_value(states_t)
+        values = torch.nan_to_num(values, nan=0.0, posinf=1e5, neginf=-1e5)
+        values = torch.clamp(values, -1e5, 1e5)
+        log_probs_t = _clamp_log_probs_pg(log_probs_t)
+
         adv = returns - values.detach()
+        if normalize_adv:
+            adv = _normalize_advantages(adv, min_std=adv_min_std)
+        else:
+            adv = torch.nan_to_num(adv, nan=0.0, posinf=1e3, neginf=-1e3)
+            adv = torch.clamp(adv, -100.0, 100.0)
 
         policy_loss = -(log_probs_t * adv).mean()
-        value_loss = F.mse_loss(values, returns)
+        value_loss = F.smooth_l1_loss(
+            values, returns, reduction="mean", beta=max(value_huber_beta, 1e-6)
+        )
+        entropy_mean = torch.nan_to_num(entropies_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
 
-        loss = policy_loss + value_coef * value_loss
+        loss = policy_loss + value_coef * value_loss - entropy_coef * entropy_mean
 
         opt.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-        opt.step()
+        if torch.isfinite(loss).item():
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max(grad_clip, 1e-8))
+            opt.step()
+        else:
+            opt.zero_grad(set_to_none=True)
+        if device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes"):
+            maybe_mps_synchronize(device)
 
         if (e + 1) % log_every == 0:
             dt = time.perf_counter() - t0
@@ -177,12 +200,14 @@ def train_loop(
             print(
                 f"episode {e + 1}  |  device={device.type}  |  last_score={ep['score']:.0f}  |  "
                 f"avg100={avg:.1f}  |  win%_last{log_every}={wr:.1f}%  |  last_steps={ep['steps']}  |  "
-                f"loss_pi={policy_loss.item():.4f}  loss_v={value_loss.item():.4f}  |  {dt:.1f}s",
+                f"loss_pi={policy_loss.item():.4f}  loss_v={value_loss.item():.4f}  "
+                f"H={entropy_mean.item():.3f}  |  {dt:.1f}s",
                 file=sys.stderr,
             )
             t0 = time.perf_counter()
 
-        if ckpt_path and (e + 1) % max(log_every, 1) == 0:
+        se = max(1, save_every)
+        if ckpt_path and (e + 1) % se == 0:
             ckpt_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
                 {
@@ -200,9 +225,33 @@ def train_loop(
 def main() -> None:
     p = argparse.ArgumentParser(description="Block Blast PyTorch 自博弈 RL（支持 MPS/CUDA）")
     p.add_argument("--episodes", type=int, default=1000)
-    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--lr", type=float, default=1.5e-4, help="Adam；与浏览器后端 RL_LR 默认一致")
     p.add_argument("--gamma", type=float, default=0.99)
-    p.add_argument("--value-coef", type=float, default=0.5)
+    p.add_argument("--value-coef", type=float, default=0.18, help="价值头损失权重（与 RL_VALUE_COEF 默认一致）")
+    p.add_argument(
+        "--value-huber-beta",
+        type=float,
+        default=150.0,
+        help="smooth_l1 的 beta，回报尺度大时缓和 value loss",
+    )
+    p.add_argument(
+        "--adv-min-std",
+        type=float,
+        default=1e-4,
+        help="advantage 标准差低于此则不做去均值标准化，避免整段 A 变 0",
+    )
+    p.add_argument(
+        "--entropy-coef",
+        type=float,
+        default=0.015,
+        help="策略熵 bonus（越大探索越强）；0 关闭",
+    )
+    p.add_argument(
+        "--no-adv-norm",
+        action="store_true",
+        help="关闭每局 advantage 标准化",
+    )
+    p.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪范数")
     p.add_argument("--width", type=int, default=256)
     p.add_argument("--policy-depth", type=int, default=4)
     p.add_argument("--value-depth", type=int, default=4)
@@ -212,11 +261,17 @@ def main() -> None:
         "--device",
         type=str,
         default="auto",
-        help="auto | mps | cuda | cpu（auto：cuda > mps > cpu）",
+        help="auto | mps | cuda | cpu（auto：macOS 优先 MPS，其余平台 CUDA>MPS>CPU）",
     )
     p.add_argument("--save", type=str, default="rl_checkpoints/bb_policy.pt")
     p.add_argument("--resume", type=str, default="")
-    p.add_argument("--log-every", type=int, default=50)
+    p.add_argument("--log-every", type=int, default=50, help="每隔多少局打印一行统计")
+    p.add_argument(
+        "--save-every",
+        type=int,
+        default=100,
+        help="每隔多少局保存 checkpoint（默认 100，减少写盘）",
+    )
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -225,7 +280,7 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    device = resolve_device(args.device)
+    device = resolve_training_device(args.device)
     print(f"使用设备: {device}", file=sys.stderr)
 
     net = PolicyValueNet(
@@ -246,8 +301,14 @@ def main() -> None:
         value_coef=args.value_coef,
         gamma=args.gamma,
         log_every=args.log_every,
+        save_every=args.save_every,
         ckpt_path=save_path,
         resume=resume_path,
+        entropy_coef=args.entropy_coef,
+        normalize_adv=not args.no_adv_norm,
+        grad_clip=args.grad_clip,
+        adv_min_std=args.adv_min_std,
+        value_huber_beta=args.value_huber_beta,
     )
 
     save_path.parent.mkdir(parents=True, exist_ok=True)

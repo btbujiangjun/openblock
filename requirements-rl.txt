@@ -1,5 +1,5 @@
 # 可选：PyTorch 自博弈训练
-# - Apple Silicon：安装官方 torch  wheel 后可使用 --device mps
+# - Apple Silicon：安装官方 PyTorch（CPU 版亦含 MPS），--device auto 在 Mac 上默认走 MPS
 # - NVIDIA：--device cuda
 numpy>=1.22
 torch>=2.0.0

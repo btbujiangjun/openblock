@@ -4,7 +4,12 @@
 import { BlockBlastSimulator } from './simulator.js';
 import { extractStateFeatures, extractActionFeatures } from './features.js';
 import { LinearAgent } from './linearAgent.js';
-import { selectActionRemote, trainEpisodeRemote, saveRemoteCheckpoint } from './pytorchBackend.js';
+import {
+    fetchRlStatus,
+    saveRemoteCheckpoint,
+    selectActionRemote,
+    trainEpisodeRemote
+} from './pytorchBackend.js';
 
 /** 视为「胜局」的最低得分（用于界面胜率） */
 export const WIN_SCORE_THRESHOLD = 220;
@@ -157,21 +162,49 @@ export async function trainSelfPlay(opts) {
     const useBackend = Boolean(opts.useBackend);
 
     if (useBackend) {
+        let baseEp = 0;
+        try {
+            const st = await fetchRlStatus();
+            if (st.available && typeof st.episodes === 'number') {
+                baseEp = st.episodes;
+            }
+        } catch {
+            /* ignore */
+        }
         for (let e = 0; e < episodes; e++) {
             if (signal?.aborted) {
                 break;
             }
 
-            const temp = Math.max(0.4, 1 - e * 0.002);
+            // 与 rl_pytorch.train 一致：按「全局局数」衰减温度，续训时不会回到高温
+            const globalEp = baseEp + e;
+            const temp = Math.max(0.35, 1.0 - globalEp * 0.002);
             const ep = await runSelfPlayEpisode(null, temp, {}, { useBackend: true });
             let serverEpisodes = null;
             let lossPi = null;
             let lossV = null;
             if (ep.trajectory.length > 0) {
-                const res = await trainEpisodeRemote(ep.trajectory);
-                serverEpisodes = res.episodes;
-                lossPi = res.loss_policy;
-                lossV = res.loss_value;
+                try {
+                    const res = await trainEpisodeRemote(ep.trajectory, {
+                        score: ep.score,
+                        won: ep.won,
+                        gameSteps: ep.steps
+                    });
+                    serverEpisodes = res.episodes;
+                    lossPi = res.loss_policy;
+                    lossV = res.loss_value;
+                } catch (err) {
+                    console.warn('[RL backend] train_episode failed:', err);
+                }
+            }
+            // 以服务端 /api/rl/status 为准同步局数，避免请求失败或空轨迹时界面卡住
+            try {
+                const st = await fetchRlStatus();
+                if (st.available && typeof st.episodes === 'number') {
+                    serverEpisodes = st.episodes;
+                }
+            } catch (err) {
+                console.warn('[RL backend] status sync failed:', err);
             }
 
             onEpisode?.({

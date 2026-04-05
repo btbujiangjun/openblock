@@ -25,7 +25,11 @@ async function postJson(path, body) {
  */
 export async function fetchRlStatus() {
     const res = await fetch(`${base()}/api/rl/status`);
-    return res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        return { available: false, reason: data.reason || data.error || `HTTP ${res.status}` };
+    }
+    return data;
 }
 
 /**
@@ -46,19 +50,26 @@ export async function selectActionRemote(phiList, stateFeat, temperature) {
 
 /**
  * @param {object[]} trajectory trainer 中每步对象（含 phiList, stateFeat, chosenIdx, reward）
+ * @param {{ score?: number, won?: boolean, gameSteps?: number }} [meta] 写入 training.jsonl 供看板
  */
-export async function trainEpisodeRemote(trajectory) {
+export async function trainEpisodeRemote(trajectory, meta = {}) {
     const steps = trajectory.map((tr) => ({
         phi: tr.phiList.map((row) => Array.from(row)),
         state: Array.from(tr.stateFeat),
         idx: tr.chosenIdx,
         reward: tr.reward
     }));
-    return postJson('/api/rl/train_episode', {
-        steps,
-        gamma: 0.99,
-        value_coef: 0.5
-    });
+    const body = { steps };
+    if (typeof meta.score === 'number' && Number.isFinite(meta.score)) {
+        body.score = meta.score;
+    }
+    if (typeof meta.won === 'boolean') {
+        body.won = meta.won;
+    }
+    if (typeof meta.gameSteps === 'number' && Number.isFinite(meta.gameSteps)) {
+        body.game_steps = meta.gameSteps;
+    }
+    return postJson('/api/rl/train_episode', body);
 }
 
 export async function saveRemoteCheckpoint(path) {
@@ -67,4 +78,17 @@ export async function saveRemoteCheckpoint(path) {
 
 export async function loadRemoteCheckpoint(path) {
     return postJson('/api/rl/load', { path });
+}
+
+/**
+ * @param {number} [tail]
+ * @returns {Promise<{ path: string, entries: object[], exists?: boolean }>}
+ */
+export async function fetchTrainingLog(tail = 80) {
+    const res = await fetch(`${base()}/api/rl/training_log?tail=${tail}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
 }

@@ -14,3 +14,4 @@ coverage/
 rl_checkpoints/*.pt
 rl_checkpoints/*.safetensors
 rl_checkpoints/*.npz
+rl_checkpoints/training.jsonl

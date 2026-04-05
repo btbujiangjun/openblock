@@ -1,5 +1,0 @@
-{
-  "checkpoint": "rl_checkpoints/bb_policy.pt",
-  "episodes": 2000,
-  "note": "\u4e0e rl_pytorch \u6a21\u62df\u5668\u4e00\u81f4\uff1b\u5bfc\u51fa\u5230\u6d4f\u89c8\u5668\u9700\u53e6\u884c\u8f6c\u6362\u6743\u91cd\u6216 ONNX\u3002"
-}

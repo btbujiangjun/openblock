@@ -43,12 +43,12 @@ npm run preview
 ```bash
 pip install -r requirements-rl.txt
 # Apple Silicon 上通常可用 GPU：--device mps；默认 --device auto（cuda > mps > cpu）
-python -m rl_pytorch.train --episodes 2000 --device auto --save rl_checkpoints/bb_policy.pt
+python -m rl_pytorch.train --episodes 2000 --device auto --save-every 100 --save rl_checkpoints/bb_policy.pt
 ```
 
 `--resume` 可断点续训；`--width` / `--policy-depth` / `--value-depth` 可调网络规模。
 
-**与网页 RL 面板联动（热启动 + 持续学习）**：先训练或准备好 `rl_checkpoints/bb_policy.pt`，启动 Flask 时设置环境变量 `RL_CHECKPOINT`（可选 `RL_CHECKPOINT_SAVE`、`RL_DEVICE=mps`）。网页勾选「使用 PyTorch 后端」，自博弈在浏览器模拟、策略在服务端更新并周期性保存。详见 `docs/PROJECT.md` 与根目录 `.env.example`。
+**与网页 RL 面板联动（热启动 + 持续学习）**：先训练或准备好 `rl_checkpoints/bb_policy.pt`，启动 Flask 时设置环境变量 `RL_CHECKPOINT`（可选 `RL_CHECKPOINT_SAVE`）。**Mac（Apple Silicon）** 上 `RL_DEVICE=auto` 与 `python -m rl_pytorch.train --device auto` 均会优先使用 **MPS**。`npm run server:rl` 已默认 **`RL_AUTOLOAD=1`**（若存在 `rl_checkpoints/bb_policy.pt` 则热加载）、**`RL_SAVE_EVERY=100`** 定期存盘（降低写盘频率以加快训练）、**`RL_TRAINING_LOG=rl_checkpoints/training.jsonl`** 追加训练日志；页面 RL 面板可「刷新日志」拉取 `/api/rl/training_log`。详见 `docs/PROJECT.md` 与 `.env.example`。
 
 ### 环境变量（前端）
 

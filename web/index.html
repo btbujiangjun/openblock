@@ -86,8 +86,27 @@
             <button type="button" class="rl-btn" id="rl-start">开始训练</button>
             <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled>停止</button>
             <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估一局</button>
+            <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="拉取服务端 training.jsonl">刷新日志</button>
         </div>
+        <p class="rl-server-log-label">服务端训练日志（<code>training.jsonl</code>）</p>
+        <pre class="rl-log rl-server-log" id="rl-server-log" aria-live="polite"></pre>
         <pre class="rl-log" id="rl-log"></pre>
+    </aside>
+    <aside id="rl-dash-panel" class="rl-dash-panel" aria-label="RL 训练看板">
+        <h3 class="rl-dash-title">训练看板</h3>
+        <p class="rl-dash-hint">曲线来自 <code>train_episode</code>。得分/胜率需日志含 <code>score</code>/<code>won</code>（新版前端训练会自动写入）；旧数据无得分字段时摘要会提示。</p>
+        <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
+        <div class="rl-dash-toolbar">
+            <label class="rl-dash-auto"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
+            <select id="rl-chart-tail" class="rl-dash-select" title="拉取最近条数">
+                <option value="400">最近 400 条</option>
+                <option value="800" selected>最近 800 条</option>
+                <option value="1600">最近 1600 条</option>
+                <option value="3000">最近 3000 条</option>
+            </select>
+            <button type="button" class="rl-dash-refresh" id="rl-refresh-charts">刷新图表</button>
+        </div>
+        <div id="rl-chart-root" class="rl-chart-root"></div>
     </aside>
     <div class="strategy-panel">
         <h3>难度</h3>
