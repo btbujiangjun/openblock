@@ -390,7 +390,7 @@
                 <button class="btn btn-primary" onclick="loadReplay()">Load Replay</button>
                 
                 <div class="replay-container" id="replay-container" style="display: none;">
-                    <canvas id="replay-canvas" width="342" height="342"></canvas>
+                    <canvas id="replay-canvas" width="304" height="304"></canvas>
                     <div class="replay-controls">
                         <button class="btn btn-secondary" id="replay-start">Start</button>
                         <button class="btn btn-secondary" id="replay-pause">Pause</button>
@@ -607,8 +607,8 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
             ctx.fillStyle = '#C5D3DE';
-            for (let y = 0; y < 9; y++) {
-                for (let x = 0; x < 9; x++) {
+            for (let y = 0; y < 8; y++) {
+                for (let x = 0; x < 8; x++) {
                     ctx.fillRect(x * cellSize + 1, y * cellSize + 1, cellSize - 2, cellSize - 2);
                 }
             }
@@ -617,8 +617,8 @@
                 const grid = event.game_state.grid;
                 const colors = ['#70AD47', '#5B9BD5', '#ED7D31', '#FFC000', '#4472C4', '#9E480E', '#E74856', '#8764B8'];
                 
-                for (let y = 0; y < 9; y++) {
-                    for (let x = 0; x < 9; x++) {
+                for (let y = 0; y < 8; y++) {
+                    for (let x = 0; x < 8; x++) {
                         if (grid[y] && grid[y][x] !== null) {
                             ctx.fillStyle = colors[grid[y][x]] || '#888';
                             ctx.fillRect(x * cellSize + 2, y * cellSize + 2, cellSize - 4, cellSize - 4);

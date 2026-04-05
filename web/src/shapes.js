@@ -1,46 +1,26 @@
 /**
- * Block Blast - Shape Definitions
- * All block shapes with categories
+ * 多连块定义：数据来自 shared/shapes.json，与 rl_pytorch / rl_mlx 共用。
  */
-export const SHAPES = {
-    lines: [
-        { id: '1x4', name: '1x4 Line', category: 'lines', data: [[1,1,1,1]] },
-        { id: '4x1', name: '4x1 Line', category: 'lines', data: [[1],[1],[1],[1]] }
-    ],
-    squares: [
-        { id: '2x2', name: '2x2 Square', category: 'squares', data: [[1,1],[1,1]] },
-        { id: '3x3', name: '3x3 Square', category: 'squares', data: [[1,1,1],[1,1,1],[1,1,1]] }
-    ],
-    tshapes: [
-        { id: 't-up', name: 'T Up', category: 'tshapes', data: [[1,1,1],[0,1,0]] },
-        { id: 't-down', name: 'T Down', category: 'tshapes', data: [[0,1,0],[1,1,1]] },
-        { id: 't-left', name: 'T Left', category: 'tshapes', data: [[0,1],[1,1],[0,1]] },
-        { id: 't-right', name: 'T Right', category: 'tshapes', data: [[1,0],[1,1],[1,0]] }
-    ],
-    zshapes: [
-        { id: 'z-h', name: 'Z Horizontal', category: 'zshapes', data: [[1,1,0],[0,1,1]] },
-        { id: 'z-h2', name: 'Z Horizontal 2', category: 'zshapes', data: [[0,1,1],[1,1,0]] },
-        { id: 'z-v', name: 'Z Vertical', category: 'zshapes', data: [[0,1],[1,1],[1,0]] },
-        { id: 'z-v2', name: 'Z Vertical 2', category: 'zshapes', data: [[1,0],[1,1],[0,1]] }
-    ],
-    lshapes: [
-        { id: 'l-1', name: 'L Shape 1', category: 'lshapes', data: [[1,0],[1,0],[1,1]] },
-        { id: 'l-2', name: 'L Shape 2', category: 'lshapes', data: [[1,1,1],[1,0,0]] },
-        { id: 'l-3', name: 'L Shape 3', category: 'lshapes', data: [[1,1],[0,1],[0,1]] },
-        { id: 'l-4', name: 'L Shape 4', category: 'lshapes', data: [[0,0,1],[1,1,1]] }
-    ],
-    jshapes: [
-        { id: 'j-1', name: 'J Shape 1', category: 'jshapes', data: [[0,1],[0,1],[1,1]] },
-        { id: 'j-2', name: 'J Shape 2', category: 'jshapes', data: [[1,0,0],[1,1,1]] },
-        { id: 'j-3', name: 'J Shape 3', category: 'jshapes', data: [[1,1],[1,0],[1,0]] },
-        { id: 'j-4', name: 'J Shape 4', category: 'jshapes', data: [[1,1,1],[0,0,1]] }
-    ]
-};
+import shapesBundle from '../../shared/shapes.json';
+
+const ORDER = shapesBundle.categoryOrder;
+const BY = shapesBundle.byCategory;
+
+/** @type {Record<string, Array<{ id: string, name: string, category: string, data: number[][] }>>} */
+export const SHAPES = {};
+for (const cat of ORDER) {
+    const list = BY[cat] || [];
+    SHAPES[cat] = list.map((s) => ({
+        id: s.id,
+        name: s.name || s.id,
+        category: s.category || cat,
+        data: s.data
+    }));
+}
 
 export function getAllShapes() {
-    const categories = ['lines', 'squares', 'tshapes', 'zshapes', 'lshapes', 'jshapes'];
     const all = [];
-    for (const cat of categories) {
+    for (const cat of ORDER) {
         if (SHAPES[cat]) {
             all.push(...SHAPES[cat]);
         }
@@ -54,7 +34,7 @@ export function getShapesByCategory(category) {
 
 export function getShapeCategory(shapeId) {
     for (const category in SHAPES) {
-        if (SHAPES[category].some(s => s.id === shapeId)) {
+        if (SHAPES[category].some((s) => s.id === shapeId)) {
             return category;
         }
     }
@@ -63,8 +43,34 @@ export function getShapeCategory(shapeId) {
 
 export function getShapeById(id) {
     for (const category in SHAPES) {
-        const shape = SHAPES[category].find(s => s.id === id);
-        if (shape) return shape;
+        const shape = SHAPES[category].find((s) => s.id === id);
+        if (shape) {
+            return shape;
+        }
     }
     return null;
+}
+
+/**
+ * 按类别权重随机选一个形状（同类内均匀）；用于开局铺盘与补块兜底，与 generateBlocks 的 per-shape 权重一致。
+ * @param {Record<string, number>} [weights]
+ */
+export function pickShapeByCategoryWeights(weights) {
+    const all = getAllShapes();
+    if (all.length === 0) {
+        return null;
+    }
+    const wmap = weights && typeof weights === 'object' ? weights : {};
+    let total = 0;
+    for (const shape of all) {
+        total += wmap[getShapeCategory(shape.id)] ?? 1;
+    }
+    let r = Math.random() * total;
+    for (const shape of all) {
+        r -= wmap[getShapeCategory(shape.id)] ?? 1;
+        if (r <= 0) {
+            return shape;
+        }
+    }
+    return all[0];
 }

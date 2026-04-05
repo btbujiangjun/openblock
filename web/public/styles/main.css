@@ -1,4 +1,7 @@
 :root {
+    /* 与 web/src/config.js CONFIG.CELL_SIZE 一致；候选块预览最高按 4 行计（如 4×1） */
+    --dock-cell-size: 38px;
+    --dock-max-shape-rows: 4;
     --bg-color: #E8EEF1;
     --grid-bg: #D4DDE4;
     --cell-empty: #C5D3DE;
@@ -33,19 +36,59 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    /* 勿用 center：候选区高度随块形状变化时，整列会重新垂直居中，棋盘会上下「跳」 */
+    justify-content: flex-start;
     padding: 10px;
+    padding-top: max(10px, env(safe-area-inset-top, 0px));
+    box-sizing: border-box;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .header {
-    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     margin-bottom: 8px;
 }
 
 .header h1 {
     font-size: 22px;
-    color: var(--accent-dark);
+    color: var(--h1-color, var(--accent-dark));
     font-weight: 600;
+    text-align: center;
+}
+
+.skin-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.skin-picker label {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.skin-picker select {
+    min-width: 10rem;
+    max-width: min(42vw, 14rem);
+    padding: 4px 8px;
+    font-size: 12px;
+    border: 1px solid var(--select-border, rgba(44, 62, 80, 0.18));
+    border-radius: 6px;
+    background: var(--select-bg, #fff);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px var(--shadow);
+    cursor: pointer;
+}
+
+.skin-picker select:focus {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 1px;
 }
 
 .stats-bar {
@@ -55,7 +98,7 @@ body {
 }
 
 .stat-box {
-    background: white;
+    background: var(--stat-surface, #fff);
     padding: 5px 12px;
     border-radius: var(--border-radius);
     text-align: center;
@@ -65,7 +108,7 @@ body {
 
 .stat-label {
     font-size: 9px;
-    color: #3d5266;
+    color: var(--stat-label-color, #3d5266);
     letter-spacing: 0.3px;
     font-weight: 600;
 }
@@ -79,6 +122,7 @@ body {
 #game-wrapper {
     position: relative;
     border-radius: var(--border-radius);
+    flex-shrink: 0;
 }
 
 /* RL 自博弈盘面演示：避免演示过程中误触棋盘与待选区 */
@@ -93,17 +137,6 @@ body.game-rl-preview .block-dock {
     background: var(--grid-bg);
     border-radius: var(--border-radius);
     box-shadow: 0 4px 20px var(--shadow);
-}
-
-#game-wrapper.shake {
-    animation: shake 0.3s ease-out;
-}
-
-@keyframes shake {
-    0%, 100% { transform: translate(0, 0); }
-    25% { transform: translate(-4px, 2px); }
-    50% { transform: translate(4px, -2px); }
-    75% { transform: translate(-2px, 4px); }
 }
 
 #drag-ghost {
@@ -121,7 +154,9 @@ body.game-rl-preview .block-dock {
     align-items: center;
     gap: 15px;
     margin-top: 10px;
-    min-height: 80px;
+    flex-shrink: 0;
+    /* 预留当前形状集最大预览高度（4 格），避免换块时条带高度突变带动上方视觉跳动 */
+    min-height: calc(var(--dock-max-shape-rows) * var(--dock-cell-size) + 24px);
     padding: 10px;
     background: white;
     border-radius: var(--border-radius);
@@ -132,9 +167,11 @@ body.game-rl-preview .block-dock {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
+    /* 与 CONFIG.DOCK_PREVIEW_MAX_CELLS × CELL_SIZE 一致，形状在槽内由 canvas translate 居中 */
+    width: calc(var(--dock-max-shape-rows) * var(--dock-cell-size));
+    height: calc(var(--dock-max-shape-rows) * var(--dock-cell-size));
     cursor: grab;
-    min-width: 50px;
-    min-height: 50px;
     transition: opacity 0.15s ease;
 }
 
@@ -595,6 +632,100 @@ body.game-shell-hidden #app {
 body.game-shell-hidden .strategy-panel {
     visibility: hidden;
     pointer-events: none;
+}
+
+#menu .btn + .btn {
+    margin-top: 10px;
+}
+
+.replay-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    max-width: 320px;
+    text-align: center;
+    line-height: 1.45;
+    margin: 8px 0 16px;
+}
+
+.replay-list {
+    list-style: none;
+    width: min(400px, 92vw);
+    max-height: 42vh;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.replay-list-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 12px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    background: #fff;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 8px var(--shadow);
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.replay-list-item:hover {
+    outline: 2px solid var(--accent-color);
+}
+
+.replay-item-meta {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.replay-item-strategy {
+    color: var(--accent-dark);
+    font-weight: 600;
+}
+
+.replay-item-score,
+.replay-item-steps {
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.replay-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+#replay-view-screen,
+#replay-list-screen {
+    background: rgba(232, 238, 241, 0.9);
+    backdrop-filter: blur(5px);
+}
+
+.replay-toolbar {
+    width: min(420px, 94vw);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.replay-slider-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.replay-slider-wrap input[type='range'] {
+    width: 100%;
+}
+
+.replay-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
 }
 
 @media (max-width: 400px) {

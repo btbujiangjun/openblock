@@ -1,6 +1,6 @@
 """
 策略 / 价值双塔，带残差 MLP（MLX）。
-对合法动作特征 φ∈R^22 与状态 ψ∈R^15 分别做深层编码。
+对合法动作特征 φ 与状态 ψ 分别做深层编码（维度见 shared/game_rules.json）。
 """
 
 from __future__ import annotations
@@ -32,9 +32,9 @@ class ResidualMLPBlock(nn.Module):
 class PolicyValueNet(nn.Module):
     def __init__(
         self,
-        width: int = 256,
-        policy_depth: int = 4,
-        value_depth: int = 4,
+        width: int = 384,
+        policy_depth: int = 6,
+        value_depth: int = 5,
         mlp_ratio: float = 2.0,
     ):
         super().__init__()

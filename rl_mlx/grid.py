@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import copy
 import random
-from .shapes_data import get_all_shapes
+from .shapes_data import pick_random_shape_weighted
 
 
 class Grid:
-    def __init__(self, size: int = 9):
+    def __init__(self, size: int = 8):
         self.size = size
         self.cells: list[list[int | None]] = self._empty()
 
@@ -133,15 +133,14 @@ class Grid:
                     break
         return fills
 
-    def init_board(self, fill_ratio: float) -> None:
+    def init_board(self, fill_ratio: float, shape_weights: dict[str, float] | None = None) -> None:
         self.clear()
-        all_shapes = get_all_shapes()
         placed_cells = 0
         target = int(self.size * self.size * fill_ratio)
         for _ in range(100):
             if placed_cells >= target:
                 break
-            shape = random.choice(all_shapes)
+            shape = pick_random_shape_weighted(shape_weights)
             data = shape["data"]
             w, h = len(data[0]), len(data)
             x = random.randint(0, max(0, self.size - w))

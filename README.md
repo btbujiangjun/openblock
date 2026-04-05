@@ -1,6 +1,6 @@
 # OpenBlock（Block Blast）
 
-网页方块消除游戏：拖拽多连块填满行/列即可得分；本地 **IndexedDB** 持久化会话、行为与回放；可选 **Flask + SQLite** 后端做聚合分析与排行榜。
+网页方块消除游戏：拖拽多连块填满行/列即可得分；会话、行为、统计与回放经 **Flask API** 写入仓库内 **SQLite**（`blockblast.db`，可用 `BLOCKBLAST_DB_PATH` 覆盖）。开发时需同时跑 `npm run dev` 与 `npm run server`。
 
 ## 仓库结构
 
@@ -18,7 +18,7 @@
 ## 环境要求
 
 - Node.js 18+（前端开发与构建）
-- Python 3.10+（可选后端）
+- Python 3.10+（持久化与可选分析 API）
 
 ## 快速开始
 
@@ -55,11 +55,12 @@ python -m rl_pytorch.train --episodes 2000 --device auto --save-every 100 --save
 在**仓库根目录**或 `web/` 下创建 `.env.local`（参见根目录 `.env.example`）：
 
 - `VITE_API_BASE_URL` — API 根地址，默认 `http://localhost:5000`
-- `VITE_SYNC_BACKEND` — 设为 `true` 时，在可访问后端的前提下同步会话与行为批次
+- `VITE_USE_SQLITE_DB` — 默认启用；为 `false` 时前端拒绝初始化（无浏览器 IndexedDB 回退）
+- `VITE_SYNC_BACKEND` — 设为 `true` 时使用第二套远端会话同步（`PUT` 结束会话会更新 `user_stats`；与主 SQLite 流程并存时易重复计分，一般保持 `false`）
 
 Vite 已配置 `envDir: '..'`，根目录 `.env*` 会被加载。
 
-### 后端（可选）
+### 后端（持久化必需）
 
 ```bash
 pip install -r requirements.txt
@@ -87,7 +88,7 @@ npm run server
 ## 代码约定
 
 - **单一数据源**：游戏逻辑仅维护于 `web/src/`，禁止再回到巨型内联脚本。
-- **可选后端**：`BackendSync` 在 `VITE_SYNC_BACKEND=true` 时上报；失败只打日志，不阻断本地玩法。
+- **后端**：`Database` 通过 `fetch` 调用 Flask；`BackendSync` 仅在 `VITE_SYNC_BACKEND=true` 且未走 SQLite 主路径时额外同步（避免与 `PATCH /api/session` 重复结束会话）。
 - **成就 id**：与 `ACHIEVEMENTS_BY_ID` 中字符串一致（如 `score_100`、`ten_games`）。
 
 ## 许可证

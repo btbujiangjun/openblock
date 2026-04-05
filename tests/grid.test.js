@@ -8,11 +8,11 @@ describe('Grid', () => {
     let grid;
     
     beforeEach(() => {
-        grid = new Grid(9);
+        grid = new Grid(8);
     });
     
     it('should initialize with empty cells', () => {
-        expect(grid.size).toBe(9);
+        expect(grid.size).toBe(8);
         expect(grid.cells.every(row => row.every(cell => cell === null))).toBe(true);
     });
     
@@ -42,18 +42,18 @@ describe('Grid', () => {
     });
     
     it('should detect full rows', () => {
-        for (let x = 0; x < 9; x++) grid.cells[0][x] = 1;
+        for (let x = 0; x < 8; x++) grid.cells[0][x] = 1;
         expect(grid.checkLines().count).toBe(1);
     });
     
     it('should detect full columns', () => {
-        for (let y = 0; y < 9; y++) grid.cells[y][0] = 1;
+        for (let y = 0; y < 8; y++) grid.cells[y][0] = 1;
         expect(grid.checkLines().count).toBe(1);
     });
     
     it('should clear both rows and columns', () => {
-        for (let x = 0; x < 9; x++) grid.cells[0][x] = 1;
-        for (let y = 0; y < 9; y++) grid.cells[y][0] = 1;
+        for (let x = 0; x < 8; x++) grid.cells[0][x] = 1;
+        for (let y = 0; y < 8; y++) grid.cells[y][0] = 1;
         expect(grid.checkLines().count).toBe(2);
     });
     
@@ -68,8 +68,8 @@ describe('Grid', () => {
     });
     
     it('should detect when no moves available', () => {
-        for (let y = 0; y < 9; y++) {
-            for (let x = 0; x < 9; x++) {
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
                 grid.cells[y][x] = 1;
             }
         }

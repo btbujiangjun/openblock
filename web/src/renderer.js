@@ -1,8 +1,9 @@
 /**
  * Block Blast - Renderer
- * Canvas rendering with visual effects
+ * Canvas rendering；盘面与方块样式随 `skins.js` 当前主题变化
  */
-import { CONFIG, COLORS } from './config.js';
+import { CONFIG } from './config.js';
+import { getActiveSkin, getBlockColors } from './skins.js';
 
 function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -22,11 +23,214 @@ function darkenColor(hex, percent) {
 function lightenColor(hex, percent) {
     const rgb = hexToRgb(hex);
     if (!rgb) return hex;
-    return `rgb(${Math.min(255, Math.floor(rgb.r + (255 - rgb.r) * percent))}, ${min(255, Math.floor(rgb.g + (255 - rgb.g) * percent))}, ${Math.min(255, Math.floor(rgb.b + (255 - rgb.b) * percent))})`;
+    return `rgb(${Math.min(255, Math.floor(rgb.r + (255 - rgb.r) * percent))}, ${Math.min(255, Math.floor(rgb.g + (255 - rgb.g) * percent))}, ${Math.min(255, Math.floor(rgb.b + (255 - rgb.b) * percent))})`;
 }
 
-function min(a, b) {
-    return a < b ? a : b;
+/** @param {CanvasRenderingContext2D} ctx */
+function roundRectPath(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x, y, w, h, rr);
+    } else {
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+    }
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cellPx 格左上角 x（整格坐标）
+ */
+function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
+    const inset = skin.blockInset;
+    const size = Math.max(1, cellS - inset * 2);
+    const bx = cellPx + inset;
+    const by = cellPy + inset;
+    const r = skin.blockRadius;
+
+    if (skin.blockStyle === 'flat') {
+        ctx.fillStyle = color;
+        if (r > 0) {
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+            ctx.lineWidth = 1;
+            roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+            ctx.stroke();
+        } else {
+            ctx.fillRect(bx, by, size, size);
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
+        }
+        return;
+    }
+
+    if (skin.blockStyle === 'glass') {
+        ctx.save();
+        if (r > 0) {
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.clip();
+        }
+        const vg = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + cellS);
+        vg.addColorStop(0, lightenColor(color, 0.22));
+        vg.addColorStop(0.4, color);
+        vg.addColorStop(1, darkenColor(color, 0.06));
+        ctx.fillStyle = vg;
+        ctx.fillRect(bx, by, size, size);
+        const hl = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + size * 0.58);
+        hl.addColorStop(0, 'rgba(255,255,255,0.5)');
+        hl.addColorStop(0.28, 'rgba(255,255,255,0.14)');
+        hl.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = hl;
+        ctx.fillRect(bx, by, size, size * 0.58);
+        ctx.restore();
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+        ctx.lineWidth = 1.15;
+        if (r > 0) {
+            roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
+        }
+        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        ctx.lineWidth = 1;
+        if (r > 0) {
+            roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
+            ctx.stroke();
+        }
+        return;
+    }
+
+    if (skin.blockStyle === 'metal') {
+        ctx.save();
+        if (r > 0) {
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.clip();
+        }
+        const mg = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + cellS);
+        mg.addColorStop(0, lightenColor(color, 0.32));
+        mg.addColorStop(0.12, darkenColor(color, 0.08));
+        mg.addColorStop(0.42, lightenColor(color, 0.18));
+        mg.addColorStop(0.48, lightenColor(color, 0.38));
+        mg.addColorStop(0.54, darkenColor(color, 0.06));
+        mg.addColorStop(0.78, lightenColor(color, 0.08));
+        mg.addColorStop(1, darkenColor(color, 0.28));
+        ctx.fillStyle = mg;
+        ctx.fillRect(bx, by, size, size);
+        ctx.restore();
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = 1.2;
+        if (r > 0) {
+            roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+            ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(0,0,0,0.32)';
+        ctx.lineWidth = 1;
+        if (r > 0) {
+            roundRectPath(ctx, bx + 1.2, by + 1.2, size - 2.4, size - 2.4, Math.max(0, r - 1));
+            ctx.stroke();
+        }
+        return;
+    }
+
+    if (skin.blockStyle === 'neon') {
+        const g = ctx.createLinearGradient(cellPx, cellPy, cellPx + cellS, cellPy);
+        g.addColorStop(0, lightenColor(color, 0.1));
+        g.addColorStop(0.45, color);
+        g.addColorStop(1, darkenColor(color, 0.18));
+        ctx.save();
+        if (r > 0) {
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.clip();
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(bx, by, size, size);
+        ctx.restore();
+
+        ctx.strokeStyle = lightenColor(color, 0.22);
+        ctx.lineWidth = 1.5;
+        if (r > 0) {
+            roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+            ctx.stroke();
+        } else {
+            ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
+        }
+
+        ctx.save();
+        if (r > 0) {
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.clip();
+        }
+        const hl = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + size * 0.48);
+        hl.addColorStop(0, 'rgba(255,255,255,0.28)');
+        hl.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = hl;
+        ctx.fillRect(bx, by, size, size * 0.48);
+        ctx.restore();
+        return;
+    }
+
+    // glossy
+    ctx.save();
+    if (r > 0) {
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+    }
+    const gradient = ctx.createLinearGradient(cellPx, cellPy, cellPx + cellS, cellPy);
+    gradient.addColorStop(0, darkenColor(color, 0.15));
+    gradient.addColorStop(0.2, color);
+    gradient.addColorStop(0.5, lightenColor(color, 0.15));
+    gradient.addColorStop(1, darkenColor(color, 0.2));
+    ctx.fillStyle = gradient;
+    ctx.fillRect(bx, by, size, size);
+    const hl = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + size * 0.5);
+    hl.addColorStop(0, 'rgba(255,255,255,0.5)');
+    hl.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = hl;
+    ctx.fillRect(bx, by, size, size * 0.5);
+    ctx.restore();
+
+    const tri = Math.max(2, size * 0.12);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(bx + tri, by + tri);
+    ctx.lineTo(bx + size * 0.38, by + tri);
+    ctx.lineTo(bx + tri, by + size * 0.38);
+    ctx.closePath();
+    ctx.fill();
+
+    if (r > 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+        ctx.lineWidth = 1.25;
+        roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.26)';
+        ctx.lineWidth = 1;
+        roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
+        ctx.stroke();
+    } else {
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(bx, by + size);
+        ctx.lineTo(bx, by);
+        ctx.lineTo(bx + size, by);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.moveTo(bx + size, by);
+        ctx.lineTo(bx + size, by + size);
+        ctx.lineTo(bx, by + size);
+        ctx.stroke();
+    }
 }
 
 export class Renderer {
@@ -58,18 +262,20 @@ export class Renderer {
     }
 
     renderBackground() {
+        const skin = getActiveSkin();
+        const g = skin.gridGap;
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
-        this.ctx.fillStyle = '#D4DDE4';
+        this.ctx.fillStyle = skin.gridOuter;
         this.ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20);
 
-        this.ctx.fillStyle = '#C5D3DE';
+        this.ctx.fillStyle = skin.gridCell;
         for (let y = 0; y < this.gridSize; y++) {
             for (let x = 0; x < this.gridSize; x++) {
-                const px = x * this.cellSize + 1;
-                const py = y * this.cellSize + 1;
-                this.ctx.fillRect(px, py, this.cellSize - 2, this.cellSize - 2);
+                const px = x * this.cellSize + g;
+                const py = y * this.cellSize + g;
+                this.ctx.fillRect(px, py, this.cellSize - 2 * g, this.cellSize - 2 * g);
             }
         }
 
@@ -77,13 +283,18 @@ export class Renderer {
     }
 
     renderGrid(grid) {
+        const skin = getActiveSkin();
+        const palette = getBlockColors();
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
         for (let y = 0; y < this.gridSize; y++) {
             for (let x = 0; x < this.gridSize; x++) {
                 if (grid.cells[y][x] !== null) {
-                    this.drawBlock(x, y, COLORS[grid.cells[y][x]]);
+                    const c = palette[grid.cells[y][x]];
+                    if (c) {
+                        this.drawBlock(x, y, c, skin);
+                    }
                 }
             }
         }
@@ -93,6 +304,8 @@ export class Renderer {
 
     renderPreview(x, y, block) {
         if (!block) return;
+        const skin = getActiveSkin();
+        const palette = getBlockColors();
 
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
@@ -101,7 +314,8 @@ export class Renderer {
         for (let py = 0; py < block.height; py++) {
             for (let px = 0; px < block.width; px++) {
                 if (block.shape[py][px]) {
-                    this.drawBlock(x + px, y + py, COLORS[block.colorIdx]);
+                    const c = palette[block.colorIdx];
+                    if (c) this.drawBlock(x + px, y + py, c, skin);
                 }
             }
         }
@@ -111,116 +325,50 @@ export class Renderer {
 
     renderClearCells(cells) {
         if (!cells || cells.length === 0) return;
+        const skin = getActiveSkin();
+        const inset = skin.blockInset;
 
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
+        const br = skin.blockRadius;
         for (const cell of cells) {
-            const px = cell.x * this.cellSize + 2;
-            const py = cell.y * this.cellSize + 2;
-            const size = this.cellSize - 4;
+            const px = cell.x * this.cellSize + inset;
+            const py = cell.y * this.cellSize + inset;
+            const size = this.cellSize - inset * 2;
 
-            this.ctx.fillStyle = '#FFFFFF';
-            this.ctx.globalAlpha = 0.9;
-            this.ctx.fillRect(px, py, size, size);
+            this.ctx.fillStyle = skin.clearFlash;
+            this.ctx.globalAlpha = 0.92;
+            if (br > 0) {
+                roundRectPath(this.ctx, px, py, size, size, br);
+                this.ctx.fill();
+            } else {
+                this.ctx.fillRect(px, py, size, size);
+            }
         }
 
         this.ctx.restore();
     }
 
-    drawBlock(x, y, color) {
+    /** @param {object} [skin] 来自 getActiveSkin()；省略则内部读取 */
+    drawBlock(x, y, color, skin) {
         const s = this.cellSize;
         const px = x * s;
         const py = y * s;
-        const inset = 2;
-        const size = s - inset * 2;
-
-        const gradient = this.ctx.createLinearGradient(px, py, px + s, py);
-        gradient.addColorStop(0, darkenColor(color, 0.15));
-        gradient.addColorStop(0.2, color);
-        gradient.addColorStop(0.5, lightenColor(color, 0.15));
-        gradient.addColorStop(1, darkenColor(color, 0.2));
-        this.ctx.fillStyle = gradient;
-        this.ctx.fillRect(px + inset, py + inset, size, size);
-
-        const hl = this.ctx.createLinearGradient(px, py, px, py + size * 0.5);
-        hl.addColorStop(0, 'rgba(255,255,255,0.5)');
-        hl.addColorStop(1, 'rgba(255,255,255,0)');
-        this.ctx.fillStyle = hl;
-        this.ctx.fillRect(px + inset, py + inset, size, size * 0.5);
-
-        this.ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        this.ctx.beginPath();
-        this.ctx.moveTo(px + inset + 3, py + inset + 3);
-        this.ctx.lineTo(px + inset + size * 0.35, py + inset + 3);
-        this.ctx.lineTo(px + inset + 3, py + inset + size * 0.35);
-        this.ctx.closePath();
-        this.ctx.fill();
-
-        this.ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-        this.ctx.lineWidth = 1.5;
-        this.ctx.beginPath();
-        this.ctx.moveTo(px + inset, py + size + inset);
-        this.ctx.lineTo(px + inset, py + inset);
-        this.ctx.lineTo(px + size + inset, py + inset);
-        this.ctx.stroke();
-
-        this.ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-        this.ctx.beginPath();
-        this.ctx.moveTo(px + size + inset, py + inset);
-        this.ctx.lineTo(px + size + inset, py + size + inset);
-        this.ctx.lineTo(px + inset, py + size + inset);
-        this.ctx.stroke();
+        paintBlockCell(this.ctx, px, py, s, color, skin || getActiveSkin());
     }
 
     drawDockBlock(ctx, x, y, color, cellSize) {
         const s = cellSize || this.cellSize;
         const px = x * s;
         const py = y * s;
-        const inset = 2;
-        const size = s - inset * 2;
-
-        const gradient = ctx.createLinearGradient(px, py, px + s, py);
-        gradient.addColorStop(0, darkenColor(color, 0.15));
-        gradient.addColorStop(0.2, color);
-        gradient.addColorStop(0.5, lightenColor(color, 0.15));
-        gradient.addColorStop(1, darkenColor(color, 0.2));
-        ctx.fillStyle = gradient;
-        ctx.fillRect(px + inset, py + inset, size, size);
-
-        const hl = ctx.createLinearGradient(px, py, px, py + size * 0.5);
-        hl.addColorStop(0, 'rgba(255,255,255,0.5)');
-        hl.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = hl;
-        ctx.fillRect(px + inset, py + inset, size, size * 0.5);
-
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.beginPath();
-        ctx.moveTo(px + inset + 3, py + inset + 3);
-        ctx.lineTo(px + inset + size * 0.35, py + inset + 3);
-        ctx.lineTo(px + inset + 3, py + inset + size * 0.35);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(px + inset, py + size + inset);
-        ctx.lineTo(px + inset, py + inset);
-        ctx.lineTo(px + size + inset, py + inset);
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-        ctx.beginPath();
-        ctx.moveTo(px + size + inset, py + inset);
-        ctx.lineTo(px + size + inset, py + size + inset);
-        ctx.lineTo(px + inset, py + size + inset);
-        ctx.stroke();
+        paintBlockCell(ctx, px, py, s, color, getActiveSkin());
     }
 
     addParticles(cells) {
+        const palette = getBlockColors();
         for (const cell of cells) {
-            const color = COLORS[cell.color] || '#FFFFFF';
+            const color = palette[cell.color] || '#FFFFFF';
             for (let i = 0; i < 8; i++) {
                 this.particles.push({
                     x: cell.x * this.cellSize + this.cellSize / 2,
@@ -279,10 +427,13 @@ export class Renderer {
         }
 
         const progress = elapsed / this.shakeDuration;
-        const intensity = this.shakeIntensity * (1 - progress);
+        const damp = 1 - progress;
+        const intensity = this.shakeIntensity * damp;
+        // 用确定性振荡代替每帧随机偏移，避免与 rAF 叠加产生「频闪」感
+        const wobble = (elapsed / 1000) * 38;
         this.shakeOffset = {
-            x: (Math.random() - 0.5) * intensity * 2,
-            y: (Math.random() - 0.5) * intensity * 2
+            x: Math.sin(wobble) * intensity * 0.55,
+            y: Math.sin(wobble * 1.3 + 0.7) * intensity * 0.5
         };
     }
 

@@ -1,4 +1,4 @@
-"""策略 / 价值双塔 + 残差 MLP（PyTorch）。φ∈R^22，ψ∈R^15。"""
+"""策略 / 价值双塔 + 残差 MLP（PyTorch）。φ、ψ 维度由 shared/game_rules.json 的 featureEncoding 决定（维度见 shared/game_rules.json 的 phiDim/stateDim）。"""
 
 from __future__ import annotations
 
@@ -29,9 +29,9 @@ class ResidualMLPBlock(nn.Module):
 class PolicyValueNet(nn.Module):
     def __init__(
         self,
-        width: int = 256,
-        policy_depth: int = 4,
-        value_depth: int = 4,
+        width: int = 384,
+        policy_depth: int = 6,
+        value_depth: int = 5,
         mlp_ratio: float = 2.0,
     ):
         super().__init__()

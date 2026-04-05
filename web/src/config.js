@@ -1,15 +1,21 @@
 /**
  * 游戏常量、策略与成就配置。
  * API 基址优先读取 Vite 环境变量，其次 localStorage（便于运行时覆盖）。
+ * 难度与得分等玩法参数默认来自 shared/game_rules.json（经 gameRules.js）。
  */
+import { GAME_RULES, buildDefaultStrategiesMap } from './gameRules.js';
+import { CLASSIC_PALETTE } from './skins.js';
+
+const _defaultSid = GAME_RULES.defaultStrategyId || 'normal';
+const _defaultGrid = GAME_RULES.strategies[_defaultSid]?.gridWidth ?? 8;
 
 export const CONFIG = {
-    GRID_SIZE: 9,
+    GRID_SIZE: _defaultGrid,
     CELL_SIZE: 38,
     /** 落点吸附：仅在以「指针粗对齐」为锚点的切比雪夫半径内选最近合法位，不做全盘策略 */
     PLACE_SNAP_RADIUS: 2,
-    DB_NAME: 'BlockBlastDB',
-    DB_VERSION: 4
+    /** 待选区单坑预览边长（格），与 shapes 最大边长一致，避免换块时槽位高度变化带动整页视觉抖动 */
+    DOCK_PREVIEW_MAX_CELLS: 4
 };
 
 /** @returns {string} 规范化后的 API 根 URL（无末尾斜杠） */
@@ -35,6 +41,18 @@ export function isBackendSyncEnabled() {
 }
 
 /**
+ * 为 `true`（默认）时本地持久化走 SQLite API（`server.py`），不再使用浏览器 IndexedDB。
+ * 设为 `false` 时 `Database.init()` 会失败；仅用于明确禁用或静态托管无后端场景。
+ */
+export function isSqliteClientDatabase() {
+    const v = import.meta.env.VITE_USE_SQLITE_DB;
+    if (v === 'false' || v === '0') {
+        return false;
+    }
+    return true;
+}
+
+/**
  * 为 `true` 时 RL 面板优先使用 `/api/rl/*`（rl_pytorch），否则用浏览器线性模型 + localStorage。
  * 也可运行时 localStorage `rl_use_pytorch` = '1'。
  */
@@ -49,10 +67,8 @@ export function isRlPytorchBackendPreferred() {
     }
 }
 
-export const COLORS = [
-    '#70AD47', '#5B9BD5', '#ED7D31', '#FFC000',
-    '#4472C4', '#9E480E', '#E74856', '#8764B8'
-];
+/** 经典调色板；运行时棋盘/消除粒子请用 `getBlockColors()`（见 skins.js） */
+export const COLORS = CLASSIC_PALETTE;
 
 export const ACHIEVEMENTS = {
     firstClear: { id: 'first_clear', name: 'First Clear', desc: 'Clear your first line', icon: '⭐' },
@@ -72,71 +88,7 @@ export const ACHIEVEMENTS_BY_ID = Object.fromEntries(
     Object.values(ACHIEVEMENTS).map((a) => [a.id, a])
 );
 
-export const DEFAULT_STRATEGIES = {
-    easy: {
-        id: 'easy',
-        name: 'Easy',
-        fillRatio: 0.15,
-        scoring: {
-            singleLine: 10,
-            multiLine: 30,
-            combo: 50
-        },
-        shapeWeights: {
-            lines: 1.5,
-            squares: 1.5,
-            tshapes: 1.2,
-            zshapes: 1.2,
-            lshapes: 1.2,
-            jshapes: 1.2
-        },
-        gridWidth: 9,
-        gridHeight: 9,
-        colorCount: 8
-    },
-    normal: {
-        id: 'normal',
-        name: 'Normal',
-        fillRatio: 0.20,
-        scoring: {
-            singleLine: 20,
-            multiLine: 60,
-            combo: 100
-        },
-        shapeWeights: {
-            lines: 1.5,
-            squares: 1.5,
-            tshapes: 1.2,
-            zshapes: 1.2,
-            lshapes: 1.2,
-            jshapes: 1.2
-        },
-        gridWidth: 9,
-        gridHeight: 9,
-        colorCount: 8
-    },
-    hard: {
-        id: 'hard',
-        name: 'Hard',
-        fillRatio: 0.25,
-        scoring: {
-            singleLine: 30,
-            multiLine: 90,
-            combo: 150
-        },
-        shapeWeights: {
-            lines: 1.5,
-            squares: 1.5,
-            tshapes: 1.2,
-            zshapes: 1.2,
-            lshapes: 1.2,
-            jshapes: 1.2
-        },
-        gridWidth: 9,
-        gridHeight: 9,
-        colorCount: 8
-    }
-};
+export const DEFAULT_STRATEGIES = buildDefaultStrategiesMap();
 
 /** 与 DEFAULT_STRATEGIES 相同，保留别名以兼容测试与外部引用 */
 export const STRATEGIES = DEFAULT_STRATEGIES;

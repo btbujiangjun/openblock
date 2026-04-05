@@ -1,9 +1,9 @@
 /**
- * 自博弈回合 + REINFORCE 更新（同一策略与自己对局，沿轨迹更新）
+ * 自博弈回合 + REINFORCE 更新（同一策略与自己对局，沿轨迹更新）。
+ * 对局循环只通过 RlGameplayEnvironment，与具体棋盘规则解耦。
  */
-import { BlockBlastSimulator } from './simulator.js';
-import { extractStateFeatures, extractActionFeatures } from './features.js';
-import { LinearAgent } from './linearAgent.js';
+import { RlGameplayEnvironment } from './gameEnvironment.js';
+import { GAME_RULES } from '../gameRules.js';
 import {
     fetchRlStatus,
     saveRemoteCheckpoint,
@@ -11,8 +11,7 @@ import {
     trainEpisodeRemote
 } from './pytorchBackend.js';
 
-/** 视为「胜局」的最低得分（用于界面胜率） */
-export const WIN_SCORE_THRESHOLD = 220;
+export { WIN_SCORE_THRESHOLD } from '../gameRules.js';
 
 /**
  * 跑完一局自博弈，返回统计与轨迹（用于学习）
@@ -23,38 +22,21 @@ export const WIN_SCORE_THRESHOLD = 220;
  */
 export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opts = {}) {
     const useBackend = Boolean(opts.useBackend);
-    const sim = new BlockBlastSimulator('normal');
+    const env = new RlGameplayEnvironment();
     const trajectory = [];
 
     if (hooks.onEpisodeStart) {
-        await hooks.onEpisodeStart(sim);
+        await hooks.onEpisodeStart(env.simulator);
     }
 
     while (true) {
-        if (sim.isTerminal()) {
+        if (env.isTerminal()) {
             break;
         }
 
-        const legal = sim.getLegalActions();
+        const { legal, stateFeat, phiList } = env.buildDecisionBatch();
         if (legal.length === 0) {
             break;
-        }
-
-        const stateFeat = extractStateFeatures(sim.grid, sim.dock);
-        const phiList = [];
-        for (const a of legal) {
-            const wouldClear = sim.countClearsIfPlaced(a.blockIdx, a.gx, a.gy);
-            phiList.push(
-                extractActionFeatures(
-                    stateFeat,
-                    a.blockIdx,
-                    a.gx,
-                    a.gy,
-                    sim.dock[a.blockIdx].shape,
-                    wouldClear,
-                    sim.grid.size
-                )
-            );
         }
 
         let choice;
@@ -82,7 +64,7 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
         }
 
         const action = legal[choice.idx];
-        const reward = sim.step(action.blockIdx, action.gx, action.gy);
+        const reward = env.step(action.blockIdx, action.gx, action.gy);
 
         trajectory.push({
             stateFeat: choice.stateFeat,
@@ -93,7 +75,7 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
         });
 
         if (hooks.onAfterStep) {
-            await hooks.onAfterStep(sim, {
+            await hooks.onAfterStep(env.simulator, {
                 reward,
                 action,
                 stepIndex: trajectory.length
@@ -101,13 +83,23 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
         }
     }
 
-    const won = sim.score >= WIN_SCORE_THRESHOLD;
+    const sp = Number(GAME_RULES.rlRewardShaping?.stuckPenalty);
+    if (
+        trajectory.length > 0 &&
+        !env.won &&
+        env.isTerminal() &&
+        Number.isFinite(sp) &&
+        sp !== 0
+    ) {
+        trajectory[trajectory.length - 1].reward += sp;
+    }
+
     return {
-        score: sim.score,
-        steps: sim.steps,
-        placements: sim.placements,
-        totalClears: sim.totalClears,
-        won,
+        score: env.score,
+        steps: env.steps,
+        placements: env.simulator.placements,
+        totalClears: env.totalClears,
+        won: env.won,
         trajectory
     };
 }

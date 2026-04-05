@@ -49,13 +49,19 @@
 </head>
 <body>
     <div id="app">
-        <div class="header"><h1>Block Blast</h1></div>
+        <div class="header">
+            <h1>Block Blast</h1>
+            <div class="skin-picker">
+                <label for="skin-select">主题</label>
+                <select id="skin-select" aria-label="棋盘主题"></select>
+            </div>
+        </div>
         <div class="stats-bar">
             <div class="stat-box"><div class="stat-label">得分</div><div class="stat-value" id="score">0</div></div>
             <div class="stat-box"><div class="stat-label">最佳</div><div class="stat-value" id="best">0</div></div>
         </div>
         <div id="game-wrapper">
-            <canvas id="game-grid" width="342" height="342" aria-label="游戏网格"></canvas>
+            <canvas id="game-grid" width="304" height="304" aria-label="游戏网格"></canvas>
             <canvas id="drag-ghost" aria-hidden="true"></canvas>
         </div>
         <div class="block-dock" id="dock"></div>
@@ -64,6 +70,28 @@
         <h1>Block Blast</h1>
         <div class="subtitle">填满整行或整列即可消除！</div>
         <button type="button" class="btn btn-primary" id="start-btn">开始</button>
+        <button type="button" class="btn btn-secondary" id="menu-replay-btn">对局回放</button>
+    </div>
+    <div id="replay-list-screen" class="screen">
+        <h2>对局回放</h2>
+        <p class="replay-hint">按时间顺序记录开局盘面、每轮待选块与成功落子；序列经后端写入 SQLite（需运行 Flask）。</p>
+        <ul id="replay-session-list" class="replay-list"></ul>
+        <button type="button" class="btn btn-secondary" id="replay-list-back">返回菜单</button>
+    </div>
+    <div id="replay-view-screen" class="screen">
+        <h2 id="replay-view-title">回放</h2>
+        <p class="replay-hint">拖动滑块逐步查看；播放将自动前进。对局中不可操作棋盘。</p>
+        <div class="replay-toolbar">
+            <label class="replay-slider-wrap">
+                <span id="replay-frame-label">帧 0 / 0</span>
+                <input type="range" id="replay-slider" min="0" max="0" value="0" />
+            </label>
+            <div class="replay-btns">
+                <button type="button" class="btn btn-primary" id="replay-play">播放</button>
+                <button type="button" class="btn btn-secondary" id="replay-pause">暂停</button>
+                <button type="button" class="btn btn-secondary" id="replay-view-back">返回列表</button>
+            </div>
+        </div>
     </div>
     <div id="game-over" class="screen">
         <h2>无路可走</h2>

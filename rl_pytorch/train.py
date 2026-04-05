@@ -24,8 +24,9 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 
 from .config import WIN_SCORE_THRESHOLD
+from .game_rules import RL_REWARD_SHAPING
 from .device import maybe_mps_synchronize, resolve_training_device, tensor_to_device
-from .features import build_phi_batch
+from .features import PHI_DIM, STATE_FEATURE_DIM, build_phi_batch
 from .model import PolicyValueNet
 from .simulator import BlockBlastSimulator
 
@@ -45,6 +46,16 @@ def _normalize_advantages(adv: torch.Tensor, min_std: float = 1e-4) -> torch.Ten
 def _clamp_log_probs_pg(log_probs: torch.Tensor) -> torch.Tensor:
     x = torch.nan_to_num(log_probs, nan=0.0, posinf=0.0, neginf=-50.0)
     return x.clamp(min=-50.0, max=0.0)
+
+
+def _effective_entropy_coef(global_ep: int, base: float) -> float:
+    """与 rl_backend 一致：随局数线性降低熵系数。"""
+    lo = float(os.environ.get("RL_ENTROPY_COEF_MIN", "0.004"))
+    span = float(os.environ.get("RL_ENTROPY_DECAY_EPISODES", "12000"))
+    if span <= 0 or base <= lo:
+        return base
+    t = min(1.0, max(0, global_ep) / span)
+    return base - (base - lo) * t
 
 
 def collect_episode(net: PolicyValueNet, device: torch.device, temperature: float) -> dict:
@@ -85,6 +96,10 @@ def collect_episode(net: PolicyValueNet, device: torch.device, temperature: floa
         rewards.append(r)
 
     won = sim.score >= WIN_SCORE_THRESHOLD
+    sp = float(RL_REWARD_SHAPING.get("stuckPenalty") or 0.0)
+    if rewards and not won and sp and (sim.is_terminal() or not sim.get_legal_actions()):
+        rewards[-1] += sp
+
     return {
         "log_probs": log_probs,
         "states": states,
@@ -140,6 +155,7 @@ def train_loop(
     wins = 0
     scores: list[float] = []
     t0 = time.perf_counter()
+    return_scale = float(os.environ.get("RL_RETURN_SCALE", "0.025"))
 
     for e in range(start_ep, start_ep + episodes):
         # 按全局局数衰减（续训时不会把温度拉回 1.0）
@@ -157,6 +173,8 @@ def train_loop(
         returns = tensor_to_device(episode_returns(rewards, gamma), device)
         returns = torch.nan_to_num(returns, nan=0.0, posinf=1e5, neginf=-1e5)
         returns = torch.clamp(returns, -1e5, 1e5)
+        if return_scale != 1.0:
+            returns = returns * return_scale
         states_t = torch.stack(ep["states"], dim=0)
         log_probs_t = torch.stack(ep["log_probs"], dim=0)
         entropies_t = torch.stack(ep["entropies"], dim=0)
@@ -179,7 +197,8 @@ def train_loop(
         )
         entropy_mean = torch.nan_to_num(entropies_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
 
-        loss = policy_loss + value_coef * value_loss - entropy_coef * entropy_mean
+        ent_eff = _effective_entropy_coef(e + 1, entropy_coef)
+        loss = policy_loss + value_coef * value_loss - ent_eff * entropy_mean
 
         opt.zero_grad()
         if torch.isfinite(loss).item():
@@ -214,7 +233,16 @@ def train_loop(
                     "model": net.state_dict(),
                     "optimizer": opt.state_dict(),
                     "episodes": e + 1,
-                    "meta": {"gamma": gamma, "lr": lr, "device": str(device)},
+                    "meta": {
+                        "gamma": gamma,
+                        "lr": lr,
+                        "device": str(device),
+                        "width": net.policy_stem.out_features,
+                        "policy_depth": len(net.policy_blocks),
+                        "value_depth": len(net.value_blocks),
+                        "phi_dim": PHI_DIM,
+                        "state_dim": STATE_FEATURE_DIM,
+                    },
                 },
                 ckpt_path,
             )
@@ -252,9 +280,14 @@ def main() -> None:
         help="关闭每局 advantage 标准化",
     )
     p.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪范数")
-    p.add_argument("--width", type=int, default=256)
-    p.add_argument("--policy-depth", type=int, default=4)
-    p.add_argument("--value-depth", type=int, default=4)
+    p.add_argument(
+        "--width",
+        type=int,
+        default=384,
+        help="隐层宽度；高维空间观测（棋盘+待选块）建议 ≥384",
+    )
+    p.add_argument("--policy-depth", type=int, default=6)
+    p.add_argument("--value-depth", type=int, default=5)
     p.add_argument("--mlp-ratio", type=float, default=2.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -323,6 +356,8 @@ def main() -> None:
                 "policy_depth": args.policy_depth,
                 "value_depth": args.value_depth,
                 "mlp_ratio": args.mlp_ratio,
+                "phi_dim": PHI_DIM,
+                "state_dim": STATE_FEATURE_DIM,
                 "win_threshold": WIN_SCORE_THRESHOLD,
                 "device": str(device),
             },

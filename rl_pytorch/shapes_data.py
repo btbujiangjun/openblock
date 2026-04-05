@@ -1,45 +1,34 @@
-"""与 web/src/shapes.js 一致的多连块定义。"""
+"""多连块定义：来自 shared/shapes.json，与 web/src/shapes.js 一致。"""
 
-SHAPES = {
-    "lines": [
-        {"id": "1x4", "category": "lines", "data": [[1, 1, 1, 1]]},
-        {"id": "4x1", "category": "lines", "data": [[1], [1], [1], [1]]},
-    ],
-    "squares": [
-        {"id": "2x2", "category": "squares", "data": [[1, 1], [1, 1]]},
-        {"id": "3x3", "category": "squares", "data": [[1, 1, 1], [1, 1, 1], [1, 1, 1]]},
-    ],
-    "tshapes": [
-        {"id": "t-up", "category": "tshapes", "data": [[1, 1, 1], [0, 1, 0]]},
-        {"id": "t-down", "category": "tshapes", "data": [[0, 1, 0], [1, 1, 1]]},
-        {"id": "t-left", "category": "tshapes", "data": [[0, 1], [1, 1], [0, 1]]},
-        {"id": "t-right", "category": "tshapes", "data": [[1, 0], [1, 1], [1, 0]]},
-    ],
-    "zshapes": [
-        {"id": "z-h", "category": "zshapes", "data": [[1, 1, 0], [0, 1, 1]]},
-        {"id": "z-h2", "category": "zshapes", "data": [[0, 1, 1], [1, 1, 0]]},
-        {"id": "z-v", "category": "zshapes", "data": [[0, 1], [1, 1], [1, 0]]},
-        {"id": "z-v2", "category": "zshapes", "data": [[1, 0], [1, 1], [0, 1]]},
-    ],
-    "lshapes": [
-        {"id": "l-1", "category": "lshapes", "data": [[1, 0], [1, 0], [1, 1]]},
-        {"id": "l-2", "category": "lshapes", "data": [[1, 1, 1], [1, 0, 0]]},
-        {"id": "l-3", "category": "lshapes", "data": [[1, 1], [0, 1], [0, 1]]},
-        {"id": "l-4", "category": "lshapes", "data": [[0, 0, 1], [1, 1, 1]]},
-    ],
-    "jshapes": [
-        {"id": "j-1", "category": "jshapes", "data": [[0, 1], [0, 1], [1, 1]]},
-        {"id": "j-2", "category": "jshapes", "data": [[1, 0, 0], [1, 1, 1]]},
-        {"id": "j-3", "category": "jshapes", "data": [[1, 1], [1, 0], [1, 0]]},
-        {"id": "j-4", "category": "jshapes", "data": [[1, 1, 1], [0, 0, 1]]},
-    ],
-}
+from __future__ import annotations
+
+import json
+import random
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_PATH = _ROOT / "shared" / "shapes.json"
+
+with open(_PATH, encoding="utf-8") as _f:
+    _BUNDLE = json.load(_f)
+
+ORDER: list[str] = list(_BUNDLE["categoryOrder"])
+SHAPES: dict[str, list[dict]] = {}
+for cat in ORDER:
+    SHAPES[cat] = []
+    for s in _BUNDLE["byCategory"].get(cat, []):
+        SHAPES[cat].append(
+            {
+                "id": s["id"],
+                "category": s.get("category") or cat,
+                "data": s["data"],
+            }
+        )
 
 
 def get_all_shapes():
-    order = ["lines", "squares", "tshapes", "zshapes", "lshapes", "jshapes"]
     out = []
-    for k in order:
+    for k in ORDER:
         out.extend(SHAPES[k])
     return out
 
@@ -48,5 +37,20 @@ def shape_category(shape_id: str) -> str:
     for shapes in SHAPES.values():
         for s in shapes:
             if s["id"] == shape_id:
-                return s["category"]
+                return str(s["category"])
     return "squares"
+
+
+def pick_random_shape_weighted(shape_weights: dict[str, float] | None = None) -> dict:
+    """与 web pickShapeByCategoryWeights 一致：按类别权重选一条形状。"""
+    all_shapes = get_all_shapes()
+    if not all_shapes:
+        raise RuntimeError("shapes.json 无形状")
+    sw = shape_weights or {}
+    total = sum(sw.get(shape_category(s["id"]), 1.0) for s in all_shapes)
+    r = random.random() * total
+    for s in all_shapes:
+        r -= sw.get(shape_category(s["id"]), 1.0)
+        if r <= 0:
+            return s
+    return all_shapes[0]

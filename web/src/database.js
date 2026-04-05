@@ -1,12 +1,36 @@
 /**
- * Block Blast - Database Layer
- * IndexedDB wrapper for local storage with complete behavior tracking
+ * 持久化：通过 Flask 后端写入仓库根目录 SQLite（blockblast.db，见 server.py）。
+ * 需先启动 `npm run server` 或 `python3 server.py`，并配置 VITE_API_BASE_URL。
  */
-import { CONFIG, ACHIEVEMENTS_BY_ID } from './config.js';
+import { getApiBaseUrl, isSqliteClientDatabase, ACHIEVEMENTS_BY_ID } from './config.js';
+
+async function apiJson(path, options = {}) {
+    const base = getApiBaseUrl().replace(/\/+$/, '');
+    const res = await fetch(`${base}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+        ...options
+    });
+    const text = await res.text();
+    let data = null;
+    if (text) {
+        try {
+            data = JSON.parse(text);
+        } catch {
+            data = { _raw: text };
+        }
+    }
+    if (!res.ok) {
+        const err = new Error(data?.error || `HTTP ${res.status} ${path}`);
+        err.status = res.status;
+        err.body = data;
+        throw err;
+    }
+    return data;
+}
 
 export class Database {
     constructor() {
-        this.db = null;
+        this._ready = false;
         this.userId = this.getUserId();
     }
 
@@ -20,211 +44,133 @@ export class Database {
     }
 
     async init() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
-
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-
-                if (!db.objectStoreNames.contains('sessions')) {
-                    const sessions = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
-                    sessions.createIndex('userId', 'userId', { unique: false });
-                    sessions.createIndex('strategy', 'strategy', { unique: false });
-                    sessions.createIndex('startTime', 'startTime', { unique: false });
-                }
-
-                if (!db.objectStoreNames.contains('behaviors')) {
-                    const behaviors = db.createObjectStore('behaviors', { keyPath: 'id', autoIncrement: true });
-                    behaviors.createIndex('sessionId', 'sessionId', { unique: false });
-                    behaviors.createIndex('userId', 'userId', { unique: false });
-                    behaviors.createIndex('timestamp', 'timestamp', { unique: false });
-                    behaviors.createIndex('eventType', 'eventType', { unique: false });
-                }
-
-                if (!db.objectStoreNames.contains('scores')) {
-                    const scores = db.createObjectStore('scores', { keyPath: 'id', autoIncrement: true });
-                    scores.createIndex('userId', 'userId', { unique: false });
-                    scores.createIndex('timestamp', 'timestamp', { unique: false });
-                }
-
-                if (!db.objectStoreNames.contains('achievements')) {
-                    db.createObjectStore('achievements', { keyPath: 'id' });
-                }
-
-                if (!db.objectStoreNames.contains('stats')) {
-                    db.createObjectStore('stats', { keyPath: 'key' });
-                }
-
-                if (!db.objectStoreNames.contains('strategies')) {
-                    db.createObjectStore('strategies', { keyPath: 'id' });
-                }
-
-                if (!db.objectStoreNames.contains('replays')) {
-                    const replays = db.createObjectStore('replays', { keyPath: 'id', autoIncrement: true });
-                    replays.createIndex('sessionId', 'sessionId', { unique: false });
-                    replays.createIndex('userId', 'userId', { unique: false });
-                }
-            };
-
-            request.onsuccess = () => {
-                this.db = request.result;
-                resolve(this.db);
-            };
-
-            request.onerror = () => {
-                reject(request.error);
-            };
-        });
+        if (!isSqliteClientDatabase()) {
+            throw new Error(
+                'VITE_USE_SQLITE_DB 已禁用或未配置；当前构建仅支持 SQLite 后端持久化，请先启用并启动 Flask（npm run server）。'
+            );
+        }
+        try {
+            await apiJson('/api/health');
+        } catch (e) {
+            console.error('SQLite API 不可用（请先启动 server.py 并检查 VITE_API_BASE_URL）:', e);
+            throw e;
+        }
+        this._ready = true;
     }
 
     async saveSession(session) {
-        const tx = this.db.transaction(['sessions'], 'readwrite');
-        const store = tx.objectStore('sessions');
-        return new Promise((resolve, reject) => {
-            const data = {
-                ...session,
-                userId: this.userId,
+        const data = await apiJson('/api/session', {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: this.userId,
                 startTime: session.startTime || Date.now(),
-                status: 'active'
-            };
-            const request = store.add(data);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+                score: session.score ?? 0,
+                strategy: session.strategy,
+                strategyConfig: session.strategyConfig || {}
+            })
         });
+        const id = data.session_id ?? data.id;
+        if (id == null) {
+            throw new Error('saveSession: 未返回 session_id');
+        }
+        return id;
     }
 
     async updateSession(sessionId, updates) {
-        const tx = this.db.transaction(['sessions'], 'readwrite');
-        const store = tx.objectStore('sessions');
-        return new Promise((resolve, reject) => {
-            const getRequest = store.get(sessionId);
-            getRequest.onsuccess = () => {
-                const session = { ...getRequest.result, ...updates };
-                const putRequest = store.put(session);
-                putRequest.onsuccess = () => resolve(session);
-                putRequest.onerror = () => reject(putRequest.error);
-            };
+        return apiJson(`/api/session/${sessionId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(updates)
         });
     }
 
     async getSession(sessionId) {
-        const tx = this.db.transaction(['sessions'], 'readonly');
-        const store = tx.objectStore('sessions');
-        return new Promise((resolve, reject) => {
-            const request = store.get(sessionId);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
+        return apiJson(`/api/session/${sessionId}`);
     }
 
     async getSessionsByUser(limit = 100) {
-        const tx = this.db.transaction(['sessions'], 'readonly');
-        const store = tx.objectStore('sessions');
-        const index = store.index('userId');
-        return new Promise((resolve, reject) => {
-            const request = index.getAll(this.userId);
-            request.onsuccess = () => {
-                const results = request.result.sort((a, b) => b.startTime - a.startTime).slice(0, limit);
-                resolve(results);
-            };
-            request.onerror = () => reject(request.error);
-        });
+        const list = await apiJson(
+            `/api/sessions?user_id=${encodeURIComponent(this.userId)}&limit=${limit}`
+        );
+        return Array.isArray(list) ? list : [];
     }
 
     async saveBehavior(behavior) {
-        const tx = this.db.transaction(['behaviors'], 'readwrite');
-        const store = tx.objectStore('behaviors');
-        return new Promise((resolve, reject) => {
-            const data = {
-                ...behavior,
-                userId: this.userId,
-                timestamp: Date.now()
-            };
-            const request = store.add(data);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+        await apiJson('/api/behavior/batch', {
+            method: 'POST',
+            body: JSON.stringify({
+                behaviors: [
+                    {
+                        session_id: behavior.sessionId,
+                        userId: this.userId,
+                        eventType: behavior.eventType,
+                        data: behavior.data ?? {},
+                        gameState: behavior.gameState ?? {},
+                        timestamp: behavior.timestamp ?? Date.now()
+                    }
+                ]
+            })
         });
     }
 
     async saveBehaviors(behaviors) {
-        const tx = this.db.transaction(['behaviors'], 'readwrite');
-        const store = tx.objectStore('behaviors');
-        const promises = behaviors.map(b => {
-            return new Promise((resolve, reject) => {
-                const data = { ...b, userId: this.userId, timestamp: Date.now() };
-                const request = store.add(data);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+        if (!behaviors.length) {
+            return;
+        }
+        const batch = behaviors.map((b) => ({
+            session_id: b.sessionId,
+            userId: this.userId,
+            eventType: b.eventType,
+            data: b.data ?? {},
+            gameState: b.gameState ?? {},
+            timestamp: b.timestamp ?? Date.now()
+        }));
+        await apiJson('/api/behavior/batch', {
+            method: 'POST',
+            body: JSON.stringify({ behaviors: batch })
         });
-        return Promise.all(promises);
     }
 
     async getBehaviorsBySession(sessionId) {
-        const tx = this.db.transaction(['behaviors'], 'readonly');
-        const store = tx.objectStore('behaviors');
-        const index = store.index('sessionId');
-        return new Promise((resolve, reject) => {
-            const request = index.getAll(sessionId);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
+        return apiJson(`/api/behaviors/${sessionId}`);
     }
 
     async getBehaviorsByType(eventType, limit = 1000) {
-        const tx = this.db.transaction(['behaviors'], 'readonly');
-        const store = tx.objectStore('behaviors');
-        const index = store.index('eventType');
-        return new Promise((resolve, reject) => {
-            const request = index.getAll(eventType);
-            request.onsuccess = () => {
-                resolve(request.result.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit));
-            };
-            request.onerror = () => reject(request.error);
+        const q = new URLSearchParams({
+            user_id: this.userId,
+            event_type: eventType,
+            limit: String(limit)
         });
+        return apiJson(`/api/behaviors?${q}`);
     }
 
     async saveScore(score, strategy) {
-        const tx = this.db.transaction(['scores'], 'readwrite');
-        const store = tx.objectStore('scores');
-        return new Promise((resolve, reject) => {
-            const data = {
-                userId: this.userId,
+        await apiJson('/api/score', {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: this.userId,
                 score,
-                strategy,
-                timestamp: Date.now()
-            };
-            const request = store.add(data);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+                strategy
+            })
         });
     }
 
     async getBestScore() {
-        const tx = this.db.transaction(['scores'], 'readonly');
-        const store = tx.objectStore('scores');
-        const index = store.index('userId');
-        return new Promise((resolve) => {
-            const request = index.getAll(this.userId);
-            request.onsuccess = () => {
-                if (request.result.length === 0) {
-                    resolve(0);
-                } else {
-                    resolve(Math.max(...request.result.map(x => x.score)));
-                }
-            };
-            request.onerror = () => resolve(0);
-        });
+        const data = await apiJson(`/api/scores/best?user_id=${encodeURIComponent(this.userId)}`);
+        return Number(data?.best ?? 0);
     }
 
     async getStats() {
-        const tx = this.db.transaction(['stats'], 'readonly');
-        const store = tx.objectStore('stats');
-        return new Promise((resolve) => {
-            const request = store.get('global');
-            request.onsuccess = () => resolve(request.result || this.getDefaultStats());
-            request.onerror = () => resolve(this.getDefaultStats());
-        });
+        const data = await apiJson(`/api/client/stats?user_id=${encodeURIComponent(this.userId)}`);
+        return {
+            key: 'global',
+            totalGames: data.totalGames ?? 0,
+            totalScore: data.totalScore ?? 0,
+            totalClears: data.totalClears ?? 0,
+            maxCombo: data.maxCombo ?? 0,
+            perfectPlacements: data.perfectPlacements ?? 0,
+            totalPlacements: data.totalPlacements ?? 0,
+            totalMisses: data.totalMisses ?? 0
+        };
     }
 
     getDefaultStats() {
@@ -241,43 +187,37 @@ export class Database {
     }
 
     async updateStats(updates) {
-        const tx = this.db.transaction(['stats'], 'readwrite');
-        const store = tx.objectStore('stats');
-        const current = await this.getStats();
-        const newStats = { ...current, ...updates, key: 'global' };
-        return new Promise((resolve) => {
-            store.put(newStats);
-            resolve(newStats);
+        const body = { user_id: this.userId, ...updates };
+        await apiJson('/api/client/stats', {
+            method: 'PUT',
+            body: JSON.stringify(body)
         });
+        return this.getStats();
     }
 
     async getAchievements() {
-        const tx = this.db.transaction(['achievements'], 'readonly');
-        const store = tx.objectStore('achievements');
-        return new Promise((resolve) => {
-            const request = store.getAll();
-            request.onsuccess = () => resolve(request.result.map(a => a.id));
-            request.onerror = () => resolve([]);
-        });
+        const rows = await apiJson(`/api/achievements/${encodeURIComponent(this.userId)}`);
+        if (!Array.isArray(rows)) {
+            return [];
+        }
+        return rows.map((r) => r.id).filter(Boolean);
     }
 
     async unlockAchievement(id) {
-        const unlocked = await this.getAchievements();
-        if (!unlocked.includes(id)) {
-            const tx = this.db.transaction(['achievements'], 'readwrite');
-            const store = tx.objectStore('achievements');
-            return new Promise((resolve) => {
-                store.add({ id, unlockedAt: Date.now() });
-                resolve(true);
-            });
+        const earned = await this.getAchievements();
+        if (earned.includes(id)) {
+            return false;
         }
-        return false;
+        await apiJson('/api/achievement', {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: this.userId,
+                achievement_id: id
+            })
+        });
+        return true;
     }
 
-    /**
-     * @param {object} gameStats
-     * @param {{ durationMs?: number }} [options]
-     */
     async checkAndUnlockAchievements(gameStats, options = {}) {
         const unlocked = [];
         const earned = await this.getAchievements();
@@ -323,70 +263,83 @@ export class Database {
     }
 
     async saveStrategy(strategy) {
-        const tx = this.db.transaction(['strategies'], 'readwrite');
-        const store = tx.objectStore('strategies');
-        return new Promise((resolve, reject) => {
-            const request = store.put({ ...strategy, updatedAt: Date.now() });
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+        await apiJson('/api/client/strategies', {
+            method: 'PUT',
+            body: JSON.stringify({
+                user_id: this.userId,
+                id: strategy.id,
+                payload: strategy
+            })
         });
     }
 
     async getStrategies() {
-        const tx = this.db.transaction(['strategies'], 'readonly');
-        const store = tx.objectStore('strategies');
-        return new Promise((resolve, reject) => {
-            const request = store.getAll();
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+        return apiJson(`/api/client/strategies?user_id=${encodeURIComponent(this.userId)}`);
+    }
+
+    async upsertMoveSequence(sessionId, frames) {
+        if (sessionId == null) {
+            return;
+        }
+        await apiJson(`/api/move-sequence/${sessionId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                user_id: this.userId,
+                frames
+            })
         });
     }
 
+    async getMoveSequence(sessionId) {
+        if (sessionId == null) {
+            return null;
+        }
+        try {
+            const data = await apiJson(`/api/move-sequence/${sessionId}`);
+            const f = data?.frames;
+            if (!Array.isArray(f) || f.length === 0) {
+                return null;
+            }
+            return f;
+        } catch (e) {
+            console.warn('getMoveSequence failed:', sessionId, e);
+            return null;
+        }
+    }
+
     async saveReplay(sessionId, events) {
-        const tx = this.db.transaction(['replays'], 'readwrite');
-        const store = tx.objectStore('replays');
-        return new Promise((resolve, reject) => {
-            const data = {
-                sessionId,
-                userId: this.userId,
-                events: JSON.stringify(events),
-                createdAt: Date.now()
-            };
-            const request = store.add(data);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+        await apiJson('/api/replays', {
+            method: 'POST',
+            body: JSON.stringify({
+                session_id: sessionId,
+                user_id: this.userId,
+                events
+            })
         });
     }
 
     async getReplaysBySession(sessionId) {
-        const tx = this.db.transaction(['replays'], 'readonly');
-        const store = tx.objectStore('replays');
-        const index = store.index('sessionId');
-        return new Promise((resolve, reject) => {
-            const request = index.getAll(sessionId);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
+        try {
+            const data = await apiJson(`/api/replay/${sessionId}`);
+            return Array.isArray(data?.events) ? data.events : [];
+        } catch (e) {
+            if (e.status === 404) {
+                return [];
+            }
+            throw e;
+        }
     }
 
     async getAllReplays(limit = 50) {
-        const tx = this.db.transaction(['replays'], 'readonly');
-        const store = tx.objectStore('replays');
-        return new Promise((resolve, reject) => {
-            const request = store.getAll();
-            request.onsuccess = () => {
-                resolve(request.result.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit));
-            };
-            request.onerror = () => reject(request.error);
-        });
+        return apiJson(
+            `/api/replays?user_id=${encodeURIComponent(this.userId)}&limit=${limit}`
+        );
     }
 
     async clearAllData() {
-        const stores = ['sessions', 'behaviors', 'scores', 'achievements', 'stats', 'strategies', 'replays'];
-        for (const storeName of stores) {
-            const tx = this.db.transaction([storeName], 'readwrite');
-            const store = tx.objectStore(storeName);
-            store.clear();
-        }
+        await apiJson('/api/client/clear', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: this.userId })
+        });
     }
 }

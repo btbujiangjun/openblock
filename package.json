@@ -1,7 +1,7 @@
 {
   "name": "openblock",
   "version": "1.0.0",
-  "description": "Block Blast — 网页方块消除游戏，含本地 IndexedDB 与可选 Flask 分析后端",
+  "description": "Block Blast — 网页方块消除游戏，经 Flask 将会话与统计持久化到 SQLite",
   "type": "module",
   "scripts": {
     "predev": "node scripts/ensure-vite.mjs",
@@ -13,7 +13,7 @@
     "test": "vitest run",
     "lint": "eslint web/src tests",
     "server": "python3 server.py",
-    "server:rl": "env RL_CHECKPOINT_SAVE=rl_checkpoints/bb_policy.pt RL_TRAINING_LOG=rl_checkpoints/training.jsonl RL_SAVE_EVERY=500 RL_DEVICE=auto RL_AUTOLOAD=1 RL_LR=1.5e-4 RL_GAMMA=0.99 RL_VALUE_COEF=0.18 RL_VALUE_HUBER_BETA=150 RL_ENTROPY_COEF=0.015 RL_ADV_NORM=1 RL_ADV_MIN_STD=1e-4 RL_GRAD_CLIP=1.0 python3 server.py"
+    "server:rl": "env RL_CHECKPOINT_SAVE=rl_checkpoints/bb_policy.pt RL_TRAINING_LOG=rl_checkpoints/training.jsonl RL_SAVE_EVERY=500 RL_DEVICE=auto RL_AUTOLOAD=1 RL_LR=1.5e-4 RL_GAMMA=0.99 RL_VALUE_COEF=0.18 RL_VALUE_HUBER_BETA=150 RL_ENTROPY_COEF=0.015 RL_ENTROPY_COEF_MIN=0.004 RL_ENTROPY_DECAY_EPISODES=12000 RL_RETURN_SCALE=0.025 RL_ADV_NORM=1 RL_ADV_MIN_STD=1e-4 RL_GRAD_CLIP=1.0 python3 server.py"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

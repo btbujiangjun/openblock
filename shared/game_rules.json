@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
+  "winScoreThreshold": 220,
+  "defaultStrategyId": "normal",
+  "rlTrainingStrategyId": "normal",
+  "rlRewardShaping": {
+    "comment": "仅影响 RL 训练用即时奖励，不改变盘面计分 score。用于缓解「无消除则整段回报为 0」导致的梯度消失。",
+    "placeBonus": 0.16,
+    "densePerClear": 2.5,
+    "winBonus": 50,
+    "stuckPenalty": -1.2
+  },
+  "featureEncoding": {
+    "comment": "state = 15 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块形状掩码；phi = state + 7 维动作描述。改维度须同步 features.js / features.py 并重训。",
+    "maxGridWidth": 8,
+    "dockMaskSide": 5,
+    "stateScalarDim": 15,
+    "gridSpatialDim": 64,
+    "dockSpatialDim": 75,
+    "stateDim": 154,
+    "actionDim": 7,
+    "phiDim": 161,
+    "dockSlots": 3,
+    "almostFullLineRatio": 0.78,
+    "actionNorm": {
+      "maxBlockIndex": 3,
+      "shapeSpan": 5,
+      "maxCells": 10,
+      "maxClearsHint": 5
+    }
+  },
+  "strategies": {
+    "easy": {
+      "id": "easy",
+      "name": "Easy",
+      "fillRatio": 0.15,
+      "scoring": { "singleLine": 10, "multiLine": 30, "combo": 50 },
+      "shapeWeights": {
+        "lines": 2.15,
+        "rects": 1.65,
+        "squares": 1.45,
+        "tshapes": 1.05,
+        "zshapes": 1.05,
+        "lshapes": 1.05,
+        "jshapes": 1.05
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    },
+    "normal": {
+      "id": "normal",
+      "name": "Normal",
+      "fillRatio": 0.2,
+      "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
+      "shapeWeights": {
+        "lines": 2.0,
+        "rects": 1.55,
+        "squares": 1.35,
+        "tshapes": 1.12,
+        "zshapes": 1.12,
+        "lshapes": 1.12,
+        "jshapes": 1.12
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    },
+    "hard": {
+      "id": "hard",
+      "name": "Hard",
+      "fillRatio": 0.25,
+      "scoring": { "singleLine": 30, "multiLine": 90, "combo": 150 },
+      "shapeWeights": {
+        "lines": 1.92,
+        "rects": 1.55,
+        "squares": 1.42,
+        "tshapes": 1.18,
+        "zshapes": 1.18,
+        "lshapes": 1.18,
+        "jshapes": 1.18
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    }
+  }
+}

@@ -3,70 +3,11 @@
  */
 import { Grid } from '../grid.js';
 import { getStrategy } from '../config.js';
-import { getAllShapes, getShapeCategory } from '../shapes.js';
+import { getAllShapes } from '../shapes.js';
+import { RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
+import { generateDockShapes, generateBlocksForGrid } from './blockSpawn.js';
 
-/**
- * @param {Grid} grid
- * @param {object} strategyConfig
- */
-export function generateBlocksForGrid(grid, strategyConfig) {
-    const blocks = [];
-    const usedIds = {};
-    const allShapes = getAllShapes();
-    const weights = strategyConfig.shapeWeights;
-
-    const scored = allShapes
-        .map((shape) => {
-            const canPlace = grid.canPlaceAnywhere(shape.data);
-            const gapFills = canPlace ? grid.countGapFills(shape.data) : 0;
-            const category = getShapeCategory(shape.id);
-            const weight = weights[category] || 1;
-            return { shape, canPlace, gapFills, weight, category };
-        })
-        .filter((s) => s.canPlace);
-
-    if (scored.length === 0) {
-        return [];
-    }
-
-    scored.sort((a, b) => b.gapFills - a.gapFills);
-
-    const clearCandidates = scored.filter((s) => s.gapFills > 0);
-    if (clearCandidates.length > 0) {
-        const idx = Math.floor(Math.random() * Math.min(3, clearCandidates.length));
-        blocks.push(clearCandidates[idx].shape);
-        usedIds[clearCandidates[idx].shape.id] = true;
-    }
-
-    const remaining = scored.filter((s) => !usedIds[s.shape.id]);
-
-    while (blocks.length < 3 && remaining.length > 0) {
-        const totalWeight = remaining.reduce((sum, s) => sum + s.weight, 0);
-        let rand = Math.random() * totalWeight;
-        let selectedIdx = 0;
-        for (let i = 0; i < remaining.length; i++) {
-            rand -= remaining[i].weight;
-            if (rand <= 0) {
-                selectedIdx = i;
-                break;
-            }
-        }
-        blocks.push(remaining[selectedIdx].shape);
-        usedIds[remaining[selectedIdx].shape.id] = true;
-        remaining.splice(selectedIdx, 1);
-    }
-
-    for (let i = blocks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
-    }
-
-    while (blocks.length < 3) {
-        blocks.push(allShapes[Math.floor(Math.random() * allShapes.length)]);
-    }
-
-    return blocks.slice(0, 3);
-}
+export { generateDockShapes, generateBlocksForGrid };
 
 export class BlockBlastSimulator {
     /**
@@ -81,7 +22,7 @@ export class BlockBlastSimulator {
         const cfg = getStrategy(this.strategyId);
         this.strategyConfig = cfg;
         this.scoring = cfg.scoring;
-        this.grid = new Grid(cfg.gridWidth || 9);
+        this.grid = new Grid(cfg.gridWidth || 8);
         this.grid.initBoard(cfg.fillRatio, cfg.shapeWeights);
         this.score = 0;
         this.totalClears = 0;
@@ -91,7 +32,7 @@ export class BlockBlastSimulator {
     }
 
     _spawnDock() {
-        const shapes = generateBlocksForGrid(this.grid, this.strategyConfig);
+        const shapes = generateDockShapes(this.grid, this.strategyConfig);
         const colors = [0, 1, 2, 3, 4, 5, 6, 7];
         for (let i = colors.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -155,20 +96,23 @@ export class BlockBlastSimulator {
             return 0;
         }
 
+        const prevScore = this.score;
         this.grid.place(b.shape, b.colorIdx, gx, gy);
         this.placements++;
         this.steps++;
 
         const result = this.grid.checkLines();
         let gain = 0;
+        let clears = 0;
         if (result.count > 0) {
-            this.totalClears += result.count;
-            if (result.count === 1) {
+            clears = result.count;
+            this.totalClears += clears;
+            if (clears === 1) {
                 gain = this.scoring.singleLine;
-            } else if (result.count === 2) {
+            } else if (clears === 2) {
                 gain = this.scoring.multiLine;
             } else {
-                gain = this.scoring.combo + (result.count - 2) * this.scoring.multiLine;
+                gain = this.scoring.combo + (clears - 2) * this.scoring.multiLine;
             }
             this.score += gain;
         }
@@ -179,6 +123,20 @@ export class BlockBlastSimulator {
             this._spawnDock();
         }
 
-        return gain;
+        const rs = RL_REWARD_SHAPING;
+        let r = gain;
+        const pb = Number(rs.placeBonus);
+        if (Number.isFinite(pb) && pb !== 0) {
+            r += pb;
+        }
+        const dc = Number(rs.densePerClear);
+        if (Number.isFinite(dc) && dc !== 0 && clears > 0) {
+            r += dc * clears;
+        }
+        const wb = Number(rs.winBonus);
+        if (Number.isFinite(wb) && wb !== 0 && this.score >= WIN_SCORE_THRESHOLD && prevScore < WIN_SCORE_THRESHOLD) {
+            r += wb;
+        }
+        return r;
     }
 }

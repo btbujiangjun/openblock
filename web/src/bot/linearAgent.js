@@ -49,7 +49,7 @@ function dot(a, b) {
     return s;
 }
 
-const STORAGE_KEY = 'bb_rl_linear_agent_v1';
+const STORAGE_KEY = 'bb_rl_linear_agent_v2';
 
 export class LinearAgent {
     constructor() {

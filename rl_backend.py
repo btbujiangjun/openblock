@@ -12,6 +12,9 @@ Flask 路由：对接 rl_pytorch 策略网络，供浏览器自博弈「热启�
   RL_VALUE_COEF       价值损失权重，默认 0.18（缓和 value 尖峰对总梯度的占比）
   RL_VALUE_HUBER_BETA smooth_l1 的 beta，默认 150（回报尺度大时压低 loss_value 数值尖峰）
   RL_ENTROPY_COEF     策略熵 bonus 系数（越大越敢探索），默认 0.015；设 0 关闭
+  RL_ENTROPY_COEF_MIN 熵系数线性衰减下限（配合 RL_ENTROPY_DECAY_EPISODES），默认 0.004
+  RL_ENTROPY_DECAY_EPISODES  从 RL_ENTROPY_COEF 线性降到 MIN 的局数，默认 12000；设 0 关闭衰减
+  RL_RETURN_SCALE     蒙特卡洛回报缩放（仅训练用），默认 0.025，使 V(s) 与 smooth_l1 更稳；设 1 关闭
   RL_ADV_NORM         设为 1 时对每局 advantage 做零均值单位方差（REINFORCE 更稳），默认 1
   RL_ADV_MIN_STD      低于该标准差时不做去均值标准化（避免短局/平坦 V 时整段 A≈0 无策略梯度），默认 1e-4
   RL_GRAD_CLIP        梯度裁剪范数，默认 1.0
@@ -114,6 +117,17 @@ def _normalize_advantages(adv: "torch.Tensor", min_std: float = 1e-4) -> "torch.
     return torch.clamp(out, -30.0, 30.0)
 
 
+def _effective_entropy_coef(global_episode: int) -> float:
+    """随全局局数线性降低熵奖励，减轻后期仍高探索、难收敛的问题。"""
+    base = float(os.environ.get("RL_ENTROPY_COEF", "0.015"))
+    lo = float(os.environ.get("RL_ENTROPY_COEF_MIN", "0.004"))
+    span = float(os.environ.get("RL_ENTROPY_DECAY_EPISODES", "12000"))
+    if span <= 0 or base <= lo:
+        return base
+    t = min(1.0, max(0, global_episode) / span)
+    return base - (base - lo) * t
+
+
 def _clamp_log_probs_pg(log_probs: torch.Tensor) -> torch.Tensor:
     """再算一遍 forward 时，曾采样动作的 log π 可能为 -∞，与 advantage 相乘会得到 NaN。"""
     x = torch.nan_to_num(log_probs, nan=0.0, posinf=0.0, neginf=-50.0)
@@ -157,19 +171,20 @@ except ImportError as e:
 
 def _default_meta():
     return {
-        "width": int(os.environ.get("RL_WIDTH", "256")),
-        "policy_depth": int(os.environ.get("RL_POLICY_DEPTH", "4")),
-        "value_depth": int(os.environ.get("RL_VALUE_DEPTH", "4")),
+        "width": int(os.environ.get("RL_WIDTH", "384")),
+        "policy_depth": int(os.environ.get("RL_POLICY_DEPTH", "6")),
+        "value_depth": int(os.environ.get("RL_VALUE_DEPTH", "5")),
         "mlp_ratio": float(os.environ.get("RL_MLP_RATIO", "2.0")),
     }
 
 
 def _build_model(meta: dict) -> PolicyValueNet:
+    d = _default_meta()
     return PolicyValueNet(
-        width=meta.get("width", 256),
-        policy_depth=meta.get("policy_depth", 4),
-        value_depth=meta.get("value_depth", 4),
-        mlp_ratio=meta.get("mlp_ratio", 2.0),
+        width=meta.get("width", d["width"]),
+        policy_depth=meta.get("policy_depth", d["policy_depth"]),
+        value_depth=meta.get("value_depth", d["value_depth"]),
+        mlp_ratio=meta.get("mlp_ratio", d["mlp_ratio"]),
     )
 
 
@@ -319,7 +334,7 @@ def create_rl_blueprint() -> Blueprint:
 
     @bp.route("/api/rl/select_action", methods=["POST"])
     def rl_select_action():
-        """body: { phi: number[][], state: number[15], temperature: number } -> { index: int }"""
+        """body: { phi: number[][], state: number[] (ψ 长度见 featureEncoding.stateDim), temperature } -> { index }"""
         if torch is None:
             return jsonify({"error": "torch not installed"}), 503
         try:
@@ -350,7 +365,7 @@ def create_rl_blueprint() -> Blueprint:
     def rl_train_episode():
         """
         body: {
-          steps: [{ phi: number[][], state: number[15], idx: number, reward: number }],
+          steps: [{ phi: number[][], state: number[] (ψ), idx: number, reward: number }],
           gamma?: number, value_coef?: number
         }
         未传的 gamma/value_coef 等由环境变量 RL_* 决定（见文件头注释）。
@@ -368,8 +383,8 @@ def create_rl_blueprint() -> Blueprint:
             return jsonify({"error": "steps required"}), 400
         gamma = float(data.get("gamma", os.environ.get("RL_GAMMA", "0.99")))
         value_coef = float(data.get("value_coef", os.environ.get("RL_VALUE_COEF", "0.18")))
-        entropy_coef = float(os.environ.get("RL_ENTROPY_COEF", "0.015"))
         value_huber_beta = float(os.environ.get("RL_VALUE_HUBER_BETA", "150"))
+        return_scale = float(os.environ.get("RL_RETURN_SCALE", "0.025"))
         adv_norm = os.environ.get("RL_ADV_NORM", "1").lower() not in ("0", "false", "no", "")
         adv_min_std = float(os.environ.get("RL_ADV_MIN_STD", "1e-4"))
         grad_clip = float(os.environ.get("RL_GRAD_CLIP", "1.0"))
@@ -392,6 +407,8 @@ def create_rl_blueprint() -> Blueprint:
             returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
             returns_t = torch.nan_to_num(returns_t, nan=0.0, posinf=1e5, neginf=-1e5)
             returns_t = torch.clamp(returns_t, -1e5, 1e5)
+            if return_scale != 1.0:
+                returns_t = returns_t * return_scale
 
             log_probs_list = []
             values_list = []
@@ -430,7 +447,9 @@ def create_rl_blueprint() -> Blueprint:
                 values, returns_t, reduction="mean", beta=max(value_huber_beta, 1e-6)
             )
             entropy_mean = torch.nan_to_num(entropies_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
-            loss = policy_loss + value_coef * value_loss - entropy_coef * entropy_mean
+            ep_next = _state["episodes"] + 1
+            entropy_coef_eff = _effective_entropy_coef(ep_next)
+            loss = policy_loss + value_coef * value_loss - entropy_coef_eff * entropy_mean
 
             model.train()
             opt.zero_grad()

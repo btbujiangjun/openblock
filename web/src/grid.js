@@ -2,10 +2,10 @@
  * Block Blast - Grid Logic
  * Manages the game board and line detection
  */
-import { getAllShapes, getShapeCategory } from './shapes.js';
+import { pickShapeByCategoryWeights } from './shapes.js';
 
 export class Grid {
-    constructor(size = 9) {
+    constructor(size = 8) {
         this.size = size;
         this.cells = this.createEmptyGrid();
     }
@@ -290,12 +290,14 @@ export class Grid {
 
     initBoard(fillRatio, weights) {
         this.clear();
-        const allShapes = getAllShapes();
         let placedCells = 0;
         const targetCells = Math.floor(this.size * this.size * fillRatio);
 
         for (let attempts = 0; attempts < 100 && placedCells < targetCells; attempts++) {
-            const shape = allShapes[Math.floor(Math.random() * allShapes.length)];
+            const shape = pickShapeByCategoryWeights(weights);
+            if (!shape) {
+                break;
+            }
             const x = Math.floor(Math.random() * (this.size - shape.data[0].length + 1));
             const y = Math.floor(Math.random() * (this.size - shape.data.length + 1));
 
@@ -325,7 +327,7 @@ export class Grid {
     }
 
     fromJSON(data) {
-        this.size = data.size || 9;
+        this.size = data.size || 8;
         this.cells = data.cells;
     }
 }

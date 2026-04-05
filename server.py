@@ -60,6 +60,76 @@ def _migrate_behaviors_columns(cursor):
                 pass
 
 
+def _migrate_schema(cursor):
+    """补列、迁移成就表结构、建 move_sequences / client_strategies。"""
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(sessions)")
+        sess_cols = {row[1] for row in cursor.fetchall()}
+        if "game_stats" not in sess_cols:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN game_stats TEXT")
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(achievements)")
+        ach_cols = {row[1] for row in cursor.fetchall()}
+        if "achievement_id" not in ach_cols:
+            cursor.execute("ALTER TABLE achievements RENAME TO achievements_legacy")
+            cursor.execute(
+                """
+                CREATE TABLE achievements (
+                    user_id TEXT NOT NULL,
+                    achievement_id TEXT NOT NULL,
+                    unlocked_at INTEGER DEFAULT (strftime('%s', 'now')),
+                    PRIMARY KEY (user_id, achievement_id)
+                )
+                """
+            )
+            try:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO achievements (user_id, achievement_id, unlocked_at)
+                    SELECT user_id, id, unlocked_at FROM achievements_legacy
+                    """
+                )
+            except sqlite3.OperationalError:
+                pass
+            cursor.execute("DROP TABLE IF EXISTS achievements_legacy")
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS move_sequences (
+            session_id INTEGER PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            frames TEXT NOT NULL,
+            updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS client_strategies (
+            id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+            PRIMARY KEY (id, user_id)
+        )
+        """
+    )
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_stats'")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(user_stats)")
+        st_cols = {row[1] for row in cursor.fetchall()}
+        if "perfect_placements" not in st_cols:
+            cursor.execute(
+                "ALTER TABLE user_stats ADD COLUMN perfect_placements INTEGER DEFAULT 0"
+            )
+
+
 def init_db():
     """Initialize database schema"""
     with app.app_context():
@@ -77,6 +147,7 @@ def init_db():
                 end_time INTEGER,
                 duration INTEGER,
                 status TEXT DEFAULT 'active',
+                game_stats TEXT,
                 created_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
         ''')
@@ -122,10 +193,10 @@ def init_db():
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS achievements (
-                id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
+                achievement_id TEXT NOT NULL,
                 unlocked_at INTEGER DEFAULT (strftime('%s', 'now')),
-                UNIQUE(id, user_id)
+                PRIMARY KEY (user_id, achievement_id)
             )
         ''')
 
@@ -141,6 +212,7 @@ def init_db():
         ''')
 
         _migrate_behaviors_columns(cursor)
+        _migrate_schema(cursor)
 
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_behaviors_session ON behaviors(session_id)
@@ -166,19 +238,24 @@ def init_db():
 
 @app.route('/api/session', methods=['POST'])
 def create_session():
-    """Create a new game session"""
+    """Create a new game session（start_time 毫秒，与浏览器 Date.now() 一致）"""
     data = request.get_json() or {}
-    user_id = data.get('user_id', '')
+    user_id = data.get('user_id', '') or data.get('userId', '')
     strategy = data.get('strategy', 'normal')
-    strategy_config = json.dumps(data.get('strategyConfig', {}))
+    strategy_config = json.dumps(data.get('strategyConfig', data.get('strategy_config', {})))
+    start_ms = data.get('startTime') or data.get('start_time')
+    if start_ms is None:
+        start_ms = int(time.time() * 1000)
+    else:
+        start_ms = int(start_ms)
 
     db = get_db()
     cursor = db.cursor()
 
     cursor.execute('''
-        INSERT INTO sessions (user_id, strategy, strategy_config, start_time)
-        VALUES (?, ?, ?, ?)
-    ''', (user_id, strategy, strategy_config, int(time.time())))
+        INSERT INTO sessions (user_id, strategy, strategy_config, start_time, score, status)
+        VALUES (?, ?, ?, ?, ?, 'active')
+    ''', (user_id, strategy, strategy_config, start_ms, int(data.get('score', 0))))
 
     db.commit()
     session_id = cursor.lastrowid
@@ -187,17 +264,95 @@ def create_session():
         INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)
     ''', (user_id,))
     cursor.execute('''
-        UPDATE user_stats SET total_games = total_games + 1, last_seen = ?
-        WHERE user_id = ?
+        UPDATE user_stats SET last_seen = ? WHERE user_id = ?
     ''', (int(time.time()), user_id))
     db.commit()
 
-    return jsonify({'success': True, 'session_id': session_id})
+    return jsonify({'success': True, 'session_id': session_id, 'id': session_id})
+
+
+def _row_session_api(row) -> dict:
+    if row is None:
+        return {}
+    sc = row["strategy_config"] if "strategy_config" in row.keys() else None
+    gs = row["game_stats"] if "game_stats" in row.keys() else None
+    st = row["start_time"]
+    if st is not None and st < 10**11:
+        st = int(st * 1000)
+    et = row["end_time"]
+    if et is not None and et < 10**11:
+        et = int(et * 1000)
+    return {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "strategy": row["strategy"],
+        "strategyConfig": json.loads(sc or "{}"),
+        "score": row["score"],
+        "startTime": st,
+        "endTime": et,
+        "duration": row["duration"],
+        "status": row["status"],
+        "gameStats": json.loads(gs or "null") if gs else None,
+    }
+
+
+@app.route("/api/session/<int:session_id>", methods=["GET"])
+def get_session(session_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(_row_session_api(row))
+
+
+@app.route("/api/session/<int:session_id>", methods=["PATCH"])
+def patch_session(session_id):
+    """部分更新会话（前端 IndexedDB updateSession 的替代）"""
+    data = request.get_json() or {}
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "not_found"}), 404
+    u = dict(row)
+    if "score" in data:
+        u["score"] = int(data["score"])
+    if "status" in data:
+        u["status"] = str(data["status"])
+    if data.get("endTime") is not None:
+        et = int(data["endTime"])
+        if et < 10**11:
+            et = int(et * 1000)
+        u["end_time"] = et
+    if data.get("gameStats") is not None:
+        u["game_stats"] = json.dumps(data["gameStats"], ensure_ascii=False)
+    if data.get("strategyConfig") is not None:
+        u["strategy_config"] = json.dumps(data["strategyConfig"], ensure_ascii=False)
+    cur.execute(
+        """
+        UPDATE sessions SET score = ?, status = ?, end_time = ?, game_stats = ?, strategy_config = ?
+        WHERE id = ?
+        """,
+        (
+            u.get("score", row["score"]),
+            u.get("status", row["status"]),
+            u.get("end_time", row["end_time"]),
+            u.get("game_stats", row["game_stats"] if "game_stats" in row.keys() else None),
+            u.get("strategy_config", row["strategy_config"]),
+            session_id,
+        ),
+    )
+    db.commit()
+    cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
+    return jsonify(_row_session_api(cur.fetchone()))
 
 
 @app.route('/api/session/<int:session_id>', methods=['PUT'])
 def end_session(session_id):
-    """End a game session"""
+    """结束会话（可选同步）；毫秒时间戳"""
     data = request.get_json() or {}
     score = data.get('score', 0)
     duration = data.get('duration', 0)
@@ -205,18 +360,22 @@ def end_session(session_id):
     db = get_db()
     cursor = db.cursor()
 
-    end_time = int(time.time())
+    end_time = int(time.time() * 1000)
     cursor.execute('''
         SELECT start_time, user_id, strategy FROM sessions WHERE id = ?
     ''', (session_id,))
     row = cursor.fetchone()
 
     if row:
-        actual_duration = end_time - row['start_time']
+        st = row['start_time']
+        if st is not None and st < 10**11:
+            st = int(st * 1000)
+        actual_duration_ms = max(0, end_time - st)
+        actual_duration_sec = max(1, actual_duration_ms // 1000) if duration == 0 else int(duration)
         cursor.execute('''
             UPDATE sessions SET score = ?, end_time = ?, duration = ?, status = 'completed'
             WHERE id = ?
-        ''', (score, end_time, actual_duration or duration, session_id))
+        ''', (score, end_time, actual_duration_sec, session_id))
 
         cursor.execute('''
             UPDATE user_stats SET
@@ -225,7 +384,7 @@ def end_session(session_id):
                 total_play_time = total_play_time + ?,
                 last_seen = ?
             WHERE user_id = ?
-        ''', (score, score, actual_duration or duration, end_time, row['user_id']))
+        ''', (score, score, actual_duration_sec, end_time // 1000, row['user_id']))
 
         cursor.execute('''
             INSERT INTO scores (user_id, score, strategy) VALUES (?, ?, ?)
@@ -275,16 +434,24 @@ def record_behaviors_batch():
     cursor = db.cursor()
 
     for b in behaviors:
+        sid = b.get('session_id') if b.get('session_id') is not None else b.get('sessionId')
+        ts = b.get('timestamp')
+        if ts is None:
+            ts = int(time.time() * 1000)
+        else:
+            ts = int(ts)
+            if ts < 10**12:
+                ts *= 1000
         cursor.execute('''
             INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, timestamp)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (
-            b.get('session_id'),
+            sid,
             b.get('userId', ''),
             b.get('eventType', ''),
             json.dumps(b.get('data', {})),
             json.dumps(b.get('gameState', {})),
-            b.get('timestamp', int(time.time()))
+            ts,
         ))
 
     db.commit()
@@ -481,8 +648,9 @@ def save_achievement():
     cursor = db.cursor()
 
     cursor.execute('''
-        INSERT OR IGNORE INTO achievements (id, user_id) VALUES (?, ?)
-    ''', (achievement_id, user_id))
+        INSERT OR IGNORE INTO achievements (user_id, achievement_id, unlocked_at)
+        VALUES (?, ?, ?)
+    ''', (user_id, achievement_id, int(time.time())))
 
     db.commit()
 
@@ -496,10 +664,12 @@ def get_achievements(user_id):
     cursor = db.cursor()
 
     cursor.execute('''
-        SELECT id, unlocked_at FROM achievements WHERE user_id = ?
+        SELECT achievement_id, unlocked_at FROM achievements WHERE user_id = ?
     ''', (user_id,))
 
-    return jsonify([{'id': row['id'], 'unlocked_at': row['unlocked_at']} for row in cursor.fetchall()])
+    return jsonify(
+        [{'id': row['achievement_id'], 'unlocked_at': row['unlocked_at']} for row in cursor.fetchall()]
+    )
 
 
 @app.route('/api/analytics/behaviors', methods=['GET'])
@@ -615,18 +785,252 @@ def get_sessions():
 
     sessions = []
     for row in cursor.fetchall():
-        sessions.append({
-            'id': row['id'],
-            'user_id': row['user_id'],
-            'strategy': row['strategy'],
-            'score': row['score'],
-            'start_time': row['start_time'],
-            'end_time': row['end_time'],
-            'duration': row['duration'],
-            'status': row['status']
-        })
+        sessions.append(_row_session_api(row))
 
     return jsonify(sessions)
+
+
+@app.route("/api/move-sequence/<int:session_id>", methods=["PUT"])
+def put_move_sequence(session_id):
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    frames = data.get("frames")
+    if frames is None:
+        return jsonify({"success": False, "error": "frames required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO move_sequences (session_id, user_id, frames, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET
+            frames = excluded.frames,
+            updated_at = excluded.updated_at,
+            user_id = excluded.user_id
+        """,
+        (session_id, user_id, json.dumps(frames, ensure_ascii=False), int(time.time())),
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/move-sequence/<int:session_id>", methods=["GET"])
+def get_move_sequence(session_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT frames FROM move_sequences WHERE session_id = ?", (session_id,))
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"frames": None})
+    try:
+        return jsonify({"frames": json.loads(row["frames"] or "[]")})
+    except json.JSONDecodeError:
+        return jsonify({"frames": None})
+
+
+@app.route("/api/client/stats", methods=["GET"])
+def get_client_stats():
+    user_id = request.args.get("user_id", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM user_stats WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        return jsonify(
+            {
+                "key": "global",
+                "totalGames": 0,
+                "totalScore": 0,
+                "totalClears": 0,
+                "maxCombo": 0,
+                "perfectPlacements": 0,
+                "totalPlacements": 0,
+                "totalMisses": 0,
+            }
+        )
+    return jsonify(
+        {
+            "key": "global",
+            "totalGames": row["total_games"] or 0,
+            "totalScore": row["total_score"] or 0,
+            "totalClears": row["total_clears"] or 0,
+            "maxCombo": row["max_combo"] or 0,
+            "perfectPlacements": row["perfect_placements"] or 0,
+            "totalPlacements": row["total_placements"] or 0,
+            "totalMisses": row["total_misses"] or 0,
+        }
+    )
+
+
+@app.route("/api/client/stats", methods=["PUT"])
+def put_client_stats():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)", (user_id,))
+    mapping = [
+        ("totalGames", "total_games"),
+        ("totalScore", "total_score"),
+        ("totalClears", "total_clears"),
+        ("maxCombo", "max_combo"),
+        ("perfectPlacements", "perfect_placements"),
+        ("totalPlacements", "total_placements"),
+        ("totalMisses", "total_misses"),
+    ]
+    sets = []
+    vals = []
+    for js_key, col in mapping:
+        if js_key in data:
+            sets.append(f"{col} = ?")
+            vals.append(int(data[js_key]))
+    if not sets:
+        return jsonify({"success": True})
+    vals.append(int(time.time()))
+    vals.append(user_id)
+    cur.execute(
+        f"UPDATE user_stats SET {', '.join(sets)}, last_seen = ? WHERE user_id = ?",
+        vals,
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/scores/best", methods=["GET"])
+def get_best_score():
+    user_id = request.args.get("user_id", "")
+    if not user_id:
+        return jsonify({"best": 0})
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT MAX(score) AS m FROM scores WHERE user_id = ?", (user_id,))
+    row = cur.fetchone()
+    return jsonify({"best": int(row["m"] or 0)})
+
+
+@app.route("/api/replays", methods=["GET"])
+def list_replays():
+    user_id = request.args.get("user_id", "")
+    limit = request.args.get("limit", 50, type=int)
+    if not user_id:
+        return jsonify([])
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT id, session_id, user_id, events, created_at FROM replays
+        WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
+        """,
+        (user_id, limit),
+    )
+    out = []
+    for row in cur.fetchall():
+        try:
+            ev = json.loads(row["events"] or "[]")
+        except json.JSONDecodeError:
+            ev = []
+        out.append(
+            {
+                "id": row["id"],
+                "sessionId": row["session_id"],
+                "userId": row["user_id"],
+                "events": ev,
+                "createdAt": row["created_at"],
+            }
+        )
+    return jsonify(out)
+
+
+@app.route("/api/replays", methods=["POST"])
+def post_replay():
+    data = request.get_json() or {}
+    session_id = data.get("session_id") or data.get("sessionId")
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    events = data.get("events", [])
+    if session_id is None:
+        return jsonify({"success": False, "error": "session_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO replays (session_id, user_id, events, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (session_id, user_id, json.dumps(events, ensure_ascii=False), int(time.time())),
+    )
+    db.commit()
+    return jsonify({"success": True, "id": cur.lastrowid})
+
+
+@app.route("/api/client/strategies", methods=["GET"])
+def get_client_strategies():
+    user_id = request.args.get("user_id", "")
+    if not user_id:
+        return jsonify([])
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, payload, updated_at FROM client_strategies WHERE user_id = ?",
+        (user_id,),
+    )
+    out = []
+    for row in cur.fetchall():
+        try:
+            out.append(json.loads(row["payload"] or "{}"))
+        except json.JSONDecodeError:
+            pass
+    return jsonify(out)
+
+
+@app.route("/api/client/clear", methods=["POST"])
+def clear_user_data():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    for table, col in (
+        ("behaviors", "user_id"),
+        ("sessions", "user_id"),
+        ("scores", "user_id"),
+        ("achievements", "user_id"),
+        ("replays", "user_id"),
+        ("client_strategies", "user_id"),
+        ("user_stats", "user_id"),
+    ):
+        cur.execute(f"DELETE FROM {table} WHERE {col} = ?", (user_id,))
+    cur.execute("DELETE FROM move_sequences WHERE user_id = ?", (user_id,))
+    db.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/client/strategies", methods=["PUT"])
+def put_client_strategy():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    sid = data.get("id", "")
+    if not user_id or not sid:
+        return jsonify({"error": "user_id and id required"}), 400
+    payload = json.dumps(data.get("payload") or data, ensure_ascii=False)
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO client_strategies (id, user_id, payload, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(id, user_id) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        """,
+        (sid, user_id, payload, int(time.time())),
+    )
+    db.commit()
+    return jsonify({"success": True})
 
 
 @app.route('/api/health', methods=['GET'])

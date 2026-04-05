@@ -2,9 +2,11 @@
  * Block Blast - Main Game Controller
  * Full game logic with behavior tracking
  */
-import { CONFIG, COLORS, getStrategy, GAME_EVENTS } from './config.js';
-import { getAllShapes, getShapeCategory } from './shapes.js';
+import { CONFIG, getStrategy, GAME_EVENTS } from './config.js';
+import { getActiveSkinId, getBlockColors, setActiveSkinId, SKIN_LIST, applySkinToDocument, getActiveSkin } from './skins.js';
 import { Grid } from './grid.js';
+import { generateDockShapes } from './bot/blockSpawn.js';
+import { buildInitFrame, buildPlaceFrame, buildSpawnFrame, replayStateAt } from './moveSequence.js';
 import { Database } from './database.js';
 import { Renderer } from './renderer.js';
 import { BackendSync } from './services/backendSync.js';
@@ -32,6 +34,14 @@ export class Game {
         this.isGameOver = false;
         /** 自博弈盘面演示时禁止玩家操作 */
         this.rlPreviewLocked = false;
+        /** 回放播放中禁止玩家操作 */
+        this.replayPlaybackLocked = false;
+
+        /** @type {object[]} 本局 init → spawn → place… 序列，写入 moveSequences */
+        this.moveSequence = [];
+        this._movePersistTimer = null;
+        /** @type {object[] | null} 当前回放用的帧副本 */
+        this._replayFrames = null;
 
         this.gameStats = {
             score: 0,
@@ -52,7 +62,7 @@ export class Game {
             await this.db.init();
             this.bestScore = await this.db.getBestScore();
         } catch (err) {
-            console.error('IndexedDB 初始化失败（无痕模式或权限受限时常见）:', err);
+            console.error('SQLite API 初始化失败:', err);
             this.bestScore = 0;
         }
         this.bindEvents();
@@ -61,9 +71,12 @@ export class Game {
         this.render();
     }
 
-    /** 全屏菜单打开时隐藏主界面与难度条，避免半透明叠层导致发灰、误触 */
+    /** 主菜单 / 结束页打开时隐藏主界面与难度条；回放页需看到棋盘，不计入 */
     updateShellVisibility() {
-        const overlayOpen = Boolean(document.querySelector('.screen.active'));
+        const menu = document.getElementById('menu');
+        const over = document.getElementById('game-over');
+        const overlayOpen =
+            Boolean(menu?.classList.contains('active')) || Boolean(over?.classList.contains('active'));
         document.body.classList.toggle('game-shell-hidden', overlayOpen);
     }
 
@@ -89,6 +102,18 @@ export class Game {
             };
         });
 
+        const skinSelect = document.getElementById('skin-select');
+        if (skinSelect) {
+            skinSelect.innerHTML = SKIN_LIST.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+            skinSelect.value = getActiveSkinId();
+            skinSelect.addEventListener('change', () => {
+                if (setActiveSkinId(skinSelect.value)) {
+                    applySkinToDocument(getActiveSkin());
+                    this.markDirty();
+                }
+            });
+        }
+
         document.addEventListener('mousemove', e => this.onMove(e));
         document.addEventListener('touchmove', e => this.onMove(e), { passive: false });
         document.addEventListener('mouseup', () => this.onEnd());
@@ -101,6 +126,9 @@ export class Game {
             this.score = 0;
             this.isGameOver = false;
             this.behaviors = [];
+            this.moveSequence = [];
+            this._replayFrames = null;
+            this.replayPlaybackLocked = false;
             this.gameStats = {
                 score: 0,
                 clears: 0,
@@ -124,11 +152,13 @@ export class Game {
                     strategyConfig: strategyConfig
                 });
             } catch (e) {
-                console.warn('本地会话未写入（IndexedDB 不可用）:', e);
+                console.warn('会话未写入 SQLite API（请确认已启动 server.py 且 VITE_API_BASE_URL 正确）:', e);
                 this.sessionId = null;
             }
 
-            await this.backendSync.startSession(this.strategy, strategyConfig);
+            this._captureInitFrame(strategyConfig);
+
+            await this.backendSync.startSession(this.strategy, strategyConfig, this.sessionId);
 
             try {
                 const stats = await this.db.getStats();
@@ -139,9 +169,9 @@ export class Game {
 
             this.spawnBlocks();
             this.hideScreens();
+            this.endReplay();
             this.updateUI();
             this.markDirty();
-            this.render();
             this.checkGameOver();
         } catch (err) {
             console.error('开始游戏失败:', err);
@@ -150,66 +180,9 @@ export class Game {
                 banner.hidden = false;
                 banner.textContent =
                     '无法进入对局：' + (err instanceof Error ? err.message : String(err)) +
-                    '。若使用 file:// 打开，请改用 npm run dev。';
+                    '。请使用 npm run dev，并另开终端运行 npm run server（SQLite 持久化）。';
             }
         }
-    }
-
-    generateBlocks(strategyConfig) {
-        const blocks = [];
-        const usedIds = {};
-        const allShapes = getAllShapes();
-        const weights = strategyConfig.shapeWeights;
-
-        const scored = allShapes.map(shape => {
-            const canPlace = this.grid.canPlaceAnywhere(shape.data);
-            const gapFills = canPlace ? this.grid.countGapFills(shape.data) : 0;
-            const category = getShapeCategory(shape.id);
-            const weight = weights[category] || 1;
-            return { shape, canPlace, gapFills, weight, category };
-        }).filter(s => s.canPlace);
-
-        if (scored.length === 0) return [];
-
-        scored.sort((a, b) => b.gapFills - a.gapFills);
-
-        const clearCandidates = scored.filter(s => s.gapFills > 0);
-        if (clearCandidates.length > 0) {
-            const idx = Math.floor(Math.random() * Math.min(3, clearCandidates.length));
-            blocks.push(clearCandidates[idx].shape);
-            usedIds[clearCandidates[idx].shape.id] = true;
-        }
-
-        const remaining = scored.filter(s => !usedIds[s.shape.id]);
-
-        while (blocks.length < 3 && remaining.length > 0) {
-            const totalWeight = remaining.reduce((sum, s) => sum + s.weight, 0);
-            let rand = Math.random() * totalWeight;
-            let selectedIdx = 0;
-
-            for (let i = 0; i < remaining.length; i++) {
-                rand -= remaining[i].weight;
-                if (rand <= 0) {
-                    selectedIdx = i;
-                    break;
-                }
-            }
-
-            blocks.push(remaining[selectedIdx].shape);
-            usedIds[remaining[selectedIdx].shape.id] = true;
-            remaining.splice(selectedIdx, 1);
-        }
-
-        for (let i = blocks.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
-        }
-
-        while (blocks.length < 3) {
-            blocks.push(allShapes[Math.floor(Math.random() * allShapes.length)]);
-        }
-
-        return blocks.slice(0, 3);
     }
 
     /**
@@ -247,18 +220,25 @@ export class Game {
             div.className = 'dock-block';
             div.dataset.index = String(i);
 
+            const cell = CONFIG.CELL_SIZE;
+            const slotCells = CONFIG.DOCK_PREVIEW_MAX_CELLS;
+            const slotPx = slotCells * cell;
             const canvas = document.createElement('canvas');
-            canvas.width = block.width * CONFIG.CELL_SIZE;
-            canvas.height = block.height * CONFIG.CELL_SIZE;
+            canvas.width = slotPx;
+            canvas.height = slotPx;
             const ctx = canvas.getContext('2d');
-
+            const ox = (slotPx - block.width * cell) / 2;
+            const oy = (slotPx - block.height * cell) / 2;
+            ctx.save();
+            ctx.translate(ox, oy);
             for (let y = 0; y < block.height; y++) {
                 for (let x = 0; x < block.width; x++) {
                     if (block.shape[y][x]) {
-                        this.renderer.drawDockBlock(ctx, x, y, COLORS[block.colorIdx], CONFIG.CELL_SIZE);
+                        this.renderer.drawDockBlock(ctx, x, y, getBlockColors()[block.colorIdx], cell);
                     }
                 }
             }
+            ctx.restore();
 
             if (block.placed) {
                 div.style.visibility = 'hidden';
@@ -268,7 +248,7 @@ export class Game {
             const blk = block;
             const startDrag = (e) => {
                 e.preventDefault();
-                if (this.rlPreviewLocked || blk.placed || this.isAnimating || this.isGameOver) {
+                if (this.rlPreviewLocked || this.replayPlaybackLocked || blk.placed || this.isAnimating || this.isGameOver) {
                     return;
                 }
                 const touch = e.touches ? e.touches[0] : e;
@@ -284,7 +264,7 @@ export class Game {
 
     spawnBlocks() {
         const strategyConfig = getStrategy(this.strategy);
-        const shapes = this.generateBlocks(strategyConfig);
+        const shapes = generateDockShapes(this.grid, strategyConfig);
 
         const colors = [0, 1, 2, 3, 4, 5, 6, 7];
         for (let i = colors.length - 1; i > 0; i--) {
@@ -302,6 +282,8 @@ export class Game {
                 placed: false
             });
         }
+
+        this._pushSpawnToSequence(descriptors);
 
         this.populateDockUI(descriptors, {
             logSpawn: true,
@@ -347,7 +329,7 @@ export class Game {
     }
 
     startDrag(index, x, y) {
-        if (this.rlPreviewLocked) {
+        if (this.rlPreviewLocked || this.replayPlaybackLocked) {
             return;
         }
         const block = this.dockBlocks[index];
@@ -384,7 +366,7 @@ export class Game {
         for (let y = 0; y < block.height; y++) {
             for (let x = 0; x < block.width; x++) {
                 if (block.shape[y][x]) {
-                    this.renderer.drawDockBlock(this.ghostCtx, x, y, COLORS[block.colorIdx], CONFIG.CELL_SIZE);
+                    this.renderer.drawDockBlock(this.ghostCtx, x, y, getBlockColors()[block.colorIdx], CONFIG.CELL_SIZE);
                 }
             }
         }
@@ -421,7 +403,7 @@ export class Game {
     }
 
     onMove(e) {
-        if (this.rlPreviewLocked || !this.drag || !this.dragBlock || this.isAnimating) {
+        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
             return;
         }
         e.preventDefault();
@@ -469,7 +451,7 @@ export class Game {
     }
 
     onEnd() {
-        if (this.rlPreviewLocked || !this.drag || !this.dragBlock || this.isAnimating) {
+        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
             return;
         }
 
@@ -499,6 +481,7 @@ export class Game {
 
         if (placedPos) {
             this.grid.place(this.dragBlock.shape, this.dragBlock.colorIdx, placedPos.x, placedPos.y);
+            this._pushPlaceToSequence(this.drag.index, placedPos.x, placedPos.y);
             this.gameStats.placements++;
 
             this.logBehavior(GAME_EVENTS.PLACE, {
@@ -545,6 +528,10 @@ export class Game {
 
     playClearEffect(result) {
         const self = this;
+        /** onEnd 会在本函数返回后立刻清空 drag/dragBlock，动画结束回调须用此处快照 */
+        const dockIndex = this.drag.index;
+        const dockSlot = this.dockBlocks[dockIndex];
+
         this.isAnimating = true;
 
         const strategyConfig = getStrategy(this.strategy);
@@ -569,11 +556,8 @@ export class Game {
 
         this.renderer.addParticles(result.cells);
         this.renderer.setClearCells(result.cells);
-        this.renderer.setShake(8, 300);
-
-        const wrapper = document.getElementById('game-wrapper');
-        wrapper.classList.add('shake');
-        setTimeout(() => wrapper.classList.remove('shake'), 300);
+        // 仅使用画布内 shakeOffset，避免与 #game-wrapper CSS 动画叠加造成跳跃/闪烁
+        this.renderer.setShake(6, 320);
 
         this.showFloatScore(clearScore, result.count >= 3 ? 'combo' : result.count >= 2 ? 'multi' : '');
 
@@ -593,9 +577,13 @@ export class Game {
                 self.renderer.setClearCells([]);
                 self.markDirty();
 
-                self.dragBlock.placed = true;
-                const dockBlock = document.querySelector(`.dock-block[data-index="${self.drag.index}"]`);
-                if (dockBlock) dockBlock.style.visibility = 'hidden';
+                if (dockSlot) {
+                    dockSlot.placed = true;
+                }
+                const dockEl = document.querySelector(`.dock-block[data-index="${dockIndex}"]`);
+                if (dockEl) {
+                    dockEl.style.visibility = 'hidden';
+                }
 
                 if (self.dockBlocks.every(b => b.placed)) {
                     self.spawnBlocks();
@@ -668,6 +656,8 @@ export class Game {
             return;
         }
 
+        await this._flushMoveSequence();
+
         await this.db.updateSession(this.sessionId, {
             endTime: Date.now(),
             score: this.score,
@@ -685,6 +675,115 @@ export class Game {
 
         const durationSec = Math.max(1, Math.floor((Date.now() - this.gameStats.startTime) / 1000));
         await this.backendSync.endSession(this.score, durationSec);
+    }
+
+    _captureInitFrame(strategyConfig) {
+        if (!this.sessionId) {
+            this.moveSequence = [];
+            return;
+        }
+        this.moveSequence = [buildInitFrame(this.strategy, this.grid, strategyConfig.scoring)];
+        this._schedulePersistMoves();
+    }
+
+    _pushSpawnToSequence(descriptors) {
+        if (!this.sessionId) {
+            return;
+        }
+        this.moveSequence.push(buildSpawnFrame(descriptors));
+        this._schedulePersistMoves();
+    }
+
+    _pushPlaceToSequence(dockIndex, gx, gy) {
+        if (!this.sessionId) {
+            return;
+        }
+        this.moveSequence.push(buildPlaceFrame(dockIndex, gx, gy));
+        this._schedulePersistMoves();
+    }
+
+    _schedulePersistMoves() {
+        if (!this.sessionId) {
+            return;
+        }
+        clearTimeout(this._movePersistTimer);
+        this._movePersistTimer = setTimeout(() => {
+            this._movePersistTimer = null;
+            void this.db.upsertMoveSequence(this.sessionId, this.moveSequence).catch((err) => {
+                console.warn('upsertMoveSequence:', err);
+            });
+        }, 500);
+    }
+
+    async _flushMoveSequence() {
+        if (!this.sessionId || this.moveSequence.length === 0) {
+            return;
+        }
+        clearTimeout(this._movePersistTimer);
+        this._movePersistTimer = null;
+        await this.db.upsertMoveSequence(this.sessionId, this.moveSequence);
+    }
+
+    /**
+     * @param {object[]} frames 深拷贝后的序列
+     */
+    /** @returns {boolean} 是否已进入回放（首帧合法且已应用） */
+    beginReplayFromFrames(frames) {
+        if (!Array.isArray(frames) || frames.length === 0) {
+            console.warn('beginReplayFromFrames: 需要非空 frames 数组');
+            return false;
+        }
+        const first = frames[0];
+        if (!first || first.t !== 'init' || !first.grid) {
+            console.warn('beginReplayFromFrames: 首帧须为含 grid 的 init');
+            return false;
+        }
+        this._replayFrames = frames.map((f) => JSON.parse(JSON.stringify(f)));
+        this.replayPlaybackLocked = true;
+        this.isGameOver = false;
+        this.isAnimating = false;
+        document.body.classList.add('game-replay-mode');
+        this.applyReplayFrameIndex(0);
+        return true;
+    }
+
+    endReplay() {
+        this._replayFrames = null;
+        this.replayPlaybackLocked = false;
+        document.body.classList.remove('game-replay-mode');
+    }
+
+    /**
+     * @param {number} lastInclusive 应用到 frames[0..lastInclusive]
+     */
+    applyReplayFrameIndex(lastInclusive) {
+        if (!this._replayFrames?.length) {
+            return;
+        }
+        const st = replayStateAt(this._replayFrames, lastInclusive);
+        if (!st) {
+            return;
+        }
+        this.strategy = st.strategy;
+        this.grid.size = st.gridJSON.size;
+        this.renderer.setGridSize(this.grid.size);
+        this.grid.fromJSON(st.gridJSON);
+        this.score = st.score;
+        this.previewPos = null;
+        this.previewBlock = null;
+        this.drag = null;
+        this.dragBlock = null;
+        this.ghostCanvas.style.display = 'none';
+        this.renderer.clearParticles();
+        this.renderer.setClearCells([]);
+        this.populateDockUI(st.dockDescriptors, { logSpawn: false });
+        this.updateUI();
+        this.markDirty();
+    }
+
+    /** @returns {number} 最后一帧下标（含） */
+    getReplayMaxIndex() {
+        return Math.max(0, (this._replayFrames?.length ?? 1) - 1);
     }
 
     logBehavior(eventType, data) {
@@ -746,16 +845,10 @@ export class Game {
     }
 
     markDirty() {
-        this.renderer.clear();
-        this.renderer.renderBackground();
-        this.renderer.renderGrid(this.grid);
-        if (this.previewPos && this.previewBlock) {
-            this.renderer.renderPreview(this.previewPos.x, this.previewPos.y, this.previewBlock);
-        }
-        this.renderer.renderClearCells(this.renderer.clearCells);
-        this.renderer.renderParticles();
+        this.render();
     }
 
+    /** 整帧重绘（含消除高亮与粒子）；与 markDirty 等价，避免漏画 clearCells 导致闪烁 */
     render() {
         this.renderer.clear();
         this.renderer.renderBackground();
@@ -763,6 +856,7 @@ export class Game {
         if (this.previewPos && this.previewBlock) {
             this.renderer.renderPreview(this.previewPos.x, this.previewPos.y, this.previewBlock);
         }
+        this.renderer.renderClearCells(this.renderer.clearCells);
         this.renderer.renderParticles();
     }
 }

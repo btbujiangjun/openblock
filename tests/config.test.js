@@ -7,7 +7,7 @@ import { SHAPES, getAllShapes } from '../web/src/shapes.js';
 
 describe('Config', () => {
     it('should have valid GRID_SIZE', () => {
-        expect(CONFIG.GRID_SIZE).toBe(9);
+        expect(CONFIG.GRID_SIZE).toBe(8);
     });
 
     it('should have valid CELL_SIZE', () => {
@@ -55,13 +55,7 @@ describe('SHAPES', () => {
 
     it('should combine all shapes', () => {
         const all = getAllShapes();
-        const expected =
-            SHAPES.lines.length +
-            SHAPES.squares.length +
-            SHAPES.tshapes.length +
-            SHAPES.zshapes.length +
-            SHAPES.lshapes.length +
-            SHAPES.jshapes.length;
+        const expected = Object.values(SHAPES).reduce((n, arr) => n + arr.length, 0);
         expect(all.length).toBe(expected);
     });
 });

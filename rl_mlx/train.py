@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 import time
@@ -22,6 +23,7 @@ import mlx.optimizers as optim
 import numpy as np
 
 from .config import WIN_SCORE_THRESHOLD
+from .game_rules import RL_REWARD_SHAPING
 from .features import build_phi_batch
 from .model import PolicyValueNet
 from .simulator import BlockBlastSimulator
@@ -70,6 +72,10 @@ def collect_episode(model: PolicyValueNet, temperature: float) -> dict:
         )
 
     won = sim.score >= WIN_SCORE_THRESHOLD
+    sp = float(RL_REWARD_SHAPING.get("stuckPenalty") or 0.0)
+    if trajectory and not won and sp and (sim.is_terminal() or not sim.get_legal_actions()):
+        trajectory[-1]["reward"] = float(trajectory[-1]["reward"]) + sp
+
     return {
         "trajectory": trajectory,
         "score": sim.score,
@@ -173,7 +179,10 @@ def train_loop(
             continue
 
         rewards = [tr["reward"] for tr in traj]
+        ret_scale = float(os.environ.get("RL_RETURN_SCALE", "0.025"))
         returns_np = episode_returns(rewards, gamma)
+        if ret_scale != 1.0:
+            returns_np = returns_np * ret_scale
         returns_mx = mx.array(returns_np)
 
         loss_fn = reinforce_loss_fn(traj, returns_mx, value_coef)
