@@ -19,6 +19,7 @@ class BlockBlastSimulator:
 
     def reset(self) -> None:
         cfg = strategy_python(self.strategy_id)
+        self.win_score_threshold = WIN_SCORE_THRESHOLD
         self.strategy_config = cfg
         self.scoring = cfg["scoring"]
         self.grid = Grid(cfg["grid_width"])
@@ -108,6 +109,7 @@ class BlockBlastSimulator:
         if dc and clears > 0:
             r += dc * clears
         wb = float(rs.get("winBonus") or 0.0)
-        if wb and self.score >= WIN_SCORE_THRESHOLD and prev_score < WIN_SCORE_THRESHOLD:
+        thr = getattr(self, "win_score_threshold", WIN_SCORE_THRESHOLD)
+        if wb and self.score >= thr and prev_score < thr:
             r += wb
         return r

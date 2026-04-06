@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
   "winScoreThreshold": 220,
+  "rlCurriculum": {
+    "comment": "仅 Python 自博弈（rl_pytorch/simulator）使用：胜利门槛从 winThresholdStart 线性升至 winThresholdEnd；网页人机对战仍只用 winScoreThreshold。可用环境变量 RL_CURRICULUM=0 关闭。",
+    "enabled": true,
+    "winThresholdStart": 120,
+    "winThresholdEnd": 220,
+    "rampEpisodes": 40000
+  },
   "defaultStrategyId": "normal",
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {

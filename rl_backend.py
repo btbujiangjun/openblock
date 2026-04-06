@@ -19,8 +19,9 @@ Flask 路由：对接 rl_pytorch 策略网络，供浏览器自博弈「热启�
   RL_ADV_MIN_STD      低于该标准差时不做去均值标准化（避免短局/平坦 V 时整段 A≈0 无策略梯度），默认 1e-4
   RL_GRAD_CLIP        梯度裁剪范数，默认 1.0
   RL_SAVE_EVERY       每训练 N 局落盘 checkpoint，默认 500（减少磁盘 I/O 利于提速）
-  RL_MPS_SYNC         设为 1 时训练步后对 MPS 同步（多线程下更稳，略降吞吐）
+  RL_MPS_SYNC         设为 1 时训练步后对 MPS 同步（多线程下更稳，**默认关闭**以利 M4/MPS 吞吐）
   PYTORCH_ENABLE_MPS_FALLBACK  未实现算子回退 CPU（见 PyTorch 文档）
+  PYTORCH_MPS_HIGH_WATERMARK_RATIO  可选 0.0~1.0，调节 MPS 显存水位（须在进程早期设置，见 README）
 """
 
 from __future__ import annotations
@@ -159,8 +160,14 @@ try:
     import torch.nn.functional as F
     from torch.distributions import Categorical
 
-    from rl_pytorch.device import maybe_mps_synchronize, resolve_training_device, tensor_to_device
-    from rl_pytorch.model import PolicyValueNet
+    from rl_pytorch.device import (
+        adam_for_training,
+        apply_throughput_tuning,
+        maybe_mps_synchronize,
+        resolve_training_device,
+        tensor_to_device,
+    )
+    from rl_pytorch.model import PolicyValueNet, SharedPolicyValueNet
 except ImportError as e:
     torch = None
     resolve_training_device = None  # type: ignore
@@ -175,16 +182,23 @@ def _default_meta():
         "policy_depth": int(os.environ.get("RL_POLICY_DEPTH", "6")),
         "value_depth": int(os.environ.get("RL_VALUE_DEPTH", "5")),
         "mlp_ratio": float(os.environ.get("RL_MLP_RATIO", "2.0")),
+        "arch": os.environ.get("RL_ARCH", "split"),
     }
 
 
-def _build_model(meta: dict) -> PolicyValueNet:
+def _build_model(meta: dict):
     d = _default_meta()
+    arch = str(meta.get("arch", d["arch"]))
+    width = int(meta.get("width", d["width"]))
+    mlp_ratio = float(meta.get("mlp_ratio", d["mlp_ratio"]))
+    if arch == "shared":
+        sd = int(meta.get("shared_depth", meta.get("policy_depth", d["policy_depth"])))
+        return SharedPolicyValueNet(width=width, shared_depth=sd, mlp_ratio=mlp_ratio)
     return PolicyValueNet(
-        width=meta.get("width", d["width"]),
-        policy_depth=meta.get("policy_depth", d["policy_depth"]),
-        value_depth=meta.get("value_depth", d["value_depth"]),
-        mlp_ratio=meta.get("mlp_ratio", d["mlp_ratio"]),
+        width=width,
+        policy_depth=int(meta.get("policy_depth", d["policy_depth"])),
+        value_depth=int(meta.get("value_depth", d["value_depth"])),
+        mlp_ratio=mlp_ratio,
     )
 
 
@@ -194,7 +208,8 @@ def _load_checkpoint_into_model(path: Path, device: torch.device) -> dict:
     except TypeError:
         ckpt = torch.load(path, map_location=device)
     meta = ckpt.get("meta") or {}
-    arch = {**_default_meta(), **{k: meta[k] for k in ("width", "policy_depth", "value_depth", "mlp_ratio") if k in meta}}
+    merge_keys = ("width", "policy_depth", "value_depth", "mlp_ratio", "arch", "shared_depth")
+    arch = {**_default_meta(), **{k: meta[k] for k in merge_keys if k in meta}}
     model = _build_model(arch)
     model.load_state_dict(ckpt["model"])
     model.to(device)
@@ -216,6 +231,7 @@ def _ensure_initialized():
         if _state["model"] is not None:
             return
         device = resolve_training_device(os.environ.get("RL_DEVICE", "auto"))
+        apply_throughput_tuning(device)
         _state["device"] = device
         save_path = Path(os.environ.get("RL_CHECKPOINT_SAVE", DEFAULT_CKPT_NAME))
         _state["save_path"] = save_path
@@ -228,7 +244,7 @@ def _ensure_initialized():
             _state["episodes"] = loaded["episodes"]
             _state["meta"] = loaded["meta"]
             _state["checkpoint_loaded"] = str(load_path.resolve())
-            _state["optimizer"] = torch.optim.Adam(_state["model"].parameters(), lr=lr)
+            _state["optimizer"] = adam_for_training(_state["model"].parameters(), lr=lr)
             osh = loaded.get("optimizer_state")
             if osh:
                 try:
@@ -244,7 +260,7 @@ def _ensure_initialized():
             _state["episodes"] = 0
             _state["meta"] = meta
             _state["checkpoint_loaded"] = None
-            _state["optimizer"] = torch.optim.Adam(_state["model"].parameters(), lr=lr)
+            _state["optimizer"] = adam_for_training(_state["model"].parameters(), lr=lr)
 
     _append_training_log(
         {

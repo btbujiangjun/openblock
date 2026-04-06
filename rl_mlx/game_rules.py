@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -41,3 +42,22 @@ NORMAL_STRATEGY = strategy_python()
 WIN_SCORE_THRESHOLD = int(_DATA["winScoreThreshold"])
 FEATURE_ENCODING = dict(_DATA["featureEncoding"])
 RL_REWARD_SHAPING = dict(_DATA.get("rlRewardShaping") or {})
+_RL_CURRICULUM = dict(_DATA.get("rlCurriculum") or {})
+
+
+def rl_curriculum_enabled() -> bool:
+    if os.environ.get("RL_CURRICULUM", "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    return bool(_RL_CURRICULUM.get("enabled", False))
+
+
+def rl_win_threshold_for_episode(episode_1based: int) -> int:
+    end_cfg = int(_DATA.get("winScoreThreshold", 220))
+    if not rl_curriculum_enabled():
+        return end_cfg
+    start = int(_RL_CURRICULUM.get("winThresholdStart", 120))
+    end = int(_RL_CURRICULUM.get("winThresholdEnd", end_cfg))
+    span = max(1, int(_RL_CURRICULUM.get("rampEpisodes", 40000)))
+    t = min(1.0, max(0, episode_1based - 1) / span)
+    v = start + (end - start) * t
+    return int(round(v))

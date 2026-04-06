@@ -66,8 +66,21 @@ def _migrate_schema(cursor):
     if cursor.fetchone():
         cursor.execute("PRAGMA table_info(sessions)")
         sess_cols = {row[1] for row in cursor.fetchall()}
-        if "game_stats" not in sess_cols:
-            cursor.execute("ALTER TABLE sessions ADD COLUMN game_stats TEXT")
+        for col_name, decl in (
+            ("game_stats", "TEXT"),
+            ("strategy_config", "TEXT"),
+            ("status", "TEXT DEFAULT 'active'"),
+            ("end_time", "INTEGER"),
+            ("duration", "INTEGER"),
+            ("created_at", "INTEGER DEFAULT (strftime('%s', 'now'))"),
+            ("strategy", "TEXT DEFAULT 'normal'"),
+            ("score", "INTEGER DEFAULT 0"),
+        ):
+            if col_name not in sess_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {decl}")
+                except sqlite3.OperationalError:
+                    pass
 
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'")
     if cursor.fetchone():
@@ -128,6 +141,17 @@ def _migrate_schema(cursor):
             cursor.execute(
                 "ALTER TABLE user_stats ADD COLUMN perfect_placements INTEGER DEFAULT 0"
             )
+        for col_name, decl in (
+            ("total_clears", "INTEGER DEFAULT 0"),
+            ("max_combo", "INTEGER DEFAULT 0"),
+            ("total_placements", "INTEGER DEFAULT 0"),
+            ("total_misses", "INTEGER DEFAULT 0"),
+        ):
+            if col_name not in st_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE user_stats ADD COLUMN {col_name} {decl}")
+                except sqlite3.OperationalError:
+                    pass
 
 
 def init_db():
@@ -828,6 +852,87 @@ def get_move_sequence(session_id):
         return jsonify({"frames": None})
 
 
+@app.route("/api/replay-sessions", methods=["GET"])
+def list_replay_sessions():
+    """
+    当前用户的对局回放列表（仅含已有 move_sequences 且首帧为 init 的局）。
+    按 start_time 降序，一次返回会话字段 + frames，避免前端 N+1 请求漏列。
+    """
+    user_id = request.args.get("user_id", "")
+    lim = max(1, min(200, request.args.get("limit", 80, type=int)))
+    if not user_id:
+        return jsonify([])
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT s.id, s.user_id, s.strategy, s.strategy_config, s.score, s.start_time,
+               s.end_time, s.duration, s.status, s.game_stats, m.frames AS move_frames
+        FROM sessions s
+        INNER JOIN move_sequences m ON m.session_id = s.id AND m.user_id = s.user_id
+        WHERE s.user_id = ?
+        ORDER BY s.start_time DESC
+        LIMIT ?
+        """,
+        (user_id, lim * 4),
+    )
+    out = []
+    for row in cur.fetchall():
+        rd = {k: row[k] for k in row.keys() if k != "move_frames"}
+        try:
+            frames = json.loads(row["move_frames"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(frames, list) or len(frames) < 1:
+            continue
+        fst = frames[0]
+        if not isinstance(fst, dict) or fst.get("t") != "init" or not fst.get("grid"):
+            continue
+        item = _row_session_api(rd)
+        item["frames"] = frames
+        out.append(item)
+        if len(out) >= lim:
+            break
+    return jsonify(out)
+
+
+@app.route("/api/replay-sessions/delete", methods=["POST"])
+def delete_replay_sessions_batch():
+    """
+    批量删除当前用户的对局及关联数据（move_sequences、behaviors、replays、sessions）。
+    body: { "user_id": string, "session_ids": number[] }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = (data.get("user_id") or "").strip()
+    raw_ids = data.get("session_ids") or data.get("ids") or []
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return jsonify({"error": "session_ids required"}), 400
+    clean_ids = []
+    for x in raw_ids[:80]:
+        try:
+            clean_ids.append(int(x))
+        except (TypeError, ValueError):
+            continue
+    if not clean_ids:
+        return jsonify({"error": "no valid session ids"}), 400
+    db = get_db()
+    cur = db.cursor()
+    deleted = []
+    for sid in clean_ids:
+        cur.execute("SELECT id FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id))
+        if not cur.fetchone():
+            continue
+        cur.execute("DELETE FROM behaviors WHERE session_id = ?", (sid,))
+        cur.execute("DELETE FROM replays WHERE session_id = ?", (sid,))
+        cur.execute("DELETE FROM move_sequences WHERE session_id = ?", (sid,))
+        cur.execute("DELETE FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id))
+        deleted.append(sid)
+    db.commit()
+    return jsonify({"success": True, "deleted": deleted, "count": len(deleted)})
+
+
 @app.route("/api/client/stats", methods=["GET"])
 def get_client_stats():
     user_id = request.args.get("user_id", "")
@@ -850,16 +955,24 @@ def get_client_stats():
                 "totalMisses": 0,
             }
         )
+    keys = row.keys()
+
+    def _col(name: str, default=0):
+        if name not in keys:
+            return default
+        v = row[name]
+        return default if v is None else v
+
     return jsonify(
         {
             "key": "global",
-            "totalGames": row["total_games"] or 0,
-            "totalScore": row["total_score"] or 0,
-            "totalClears": row["total_clears"] or 0,
-            "maxCombo": row["max_combo"] or 0,
-            "perfectPlacements": row["perfect_placements"] or 0,
-            "totalPlacements": row["total_placements"] or 0,
-            "totalMisses": row["total_misses"] or 0,
+            "totalGames": _col("total_games"),
+            "totalScore": _col("total_score"),
+            "totalClears": _col("total_clears"),
+            "maxCombo": _col("max_combo"),
+            "perfectPlacements": _col("perfect_placements"),
+            "totalPlacements": _col("total_placements"),
+            "totalMisses": _col("total_misses"),
         }
     )
 

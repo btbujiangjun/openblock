@@ -43,6 +43,7 @@ npm run preview
 ```bash
 pip install -r requirements-rl.txt
 # Apple Silicon 上通常可用 GPU：--device mps；默认 --device auto（cuda > mps > cpu）
+# M4/MPS 吞吐：`rl_pytorch.train` 与 Flask `/api/rl/train_episode` 会在 MPS 上自动 `set_float32_matmul_precision('high')` 并使用 Adam `foreach=True`；勿开 `RL_MPS_SYNC` 除非需要同步排错（见 `.env.example`）
 python -m rl_pytorch.train --episodes 2000 --device auto --save-every 100 --save rl_checkpoints/bb_policy.pt
 ```
 

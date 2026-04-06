@@ -5,12 +5,19 @@
 Linux/Windows 上 `auto` 顺序为 CUDA → MPS → CPU。
 
 若某算子在 MPS 上未实现，可设置环境变量 ``PYTORCH_ENABLE_MPS_FALLBACK=1`` 自动回退 CPU。
+
+M4 / MPS 吞吐相关环境变量（见仓库根目录 ``.env.example``）：
+  ``RL_TORCH_COMPILE`` — 设为 1 时对 ``PolicyValueNet`` 尝试 ``torch.compile``（首局可能较慢）
+  ``RL_MPS_SYNC`` — 仅多线程 Flask 下必要时设为 1；单进程训练保持 0 以减少同步开销
 """
 
 from __future__ import annotations
 
+import os
 import sys
 import warnings
+
+_mps_throughput_applied = False
 
 
 def resolve_training_device(preference: str = "auto"):
@@ -68,3 +75,32 @@ def maybe_mps_synchronize(device) -> None:
     mps_b = getattr(torch.backends, "mps", None)
     if mps_b is not None and mps_b.is_available():
         torch.mps.synchronize()
+
+
+def apply_throughput_tuning(device) -> None:
+    """
+    单机 **MPS**（Apple Silicon，含 M4）训练吞吐：在首处 ``import torch`` 之后、首次 GPU 计算前调用一次即可。
+
+    - ``torch.set_float32_matmul_precision('high')``：允许更快 FP32 矩阵乘实现（略损数值冗余，RL 通常可接受）。
+    """
+    import torch
+
+    if getattr(device, "type", None) != "mps":
+        return
+    try:
+        torch.set_float32_matmul_precision("high")
+    except Exception:
+        pass
+
+
+def adam_for_training(params, lr: float, **kwargs):
+    """
+    Adam，优先 ``foreach=True``（PyTorch 2+ 在 MPS/CUDA 上常减少 Python 循环开销）。
+    不支持时回退默认构造。
+    """
+    import torch
+
+    try:
+        return torch.optim.Adam(params, lr=lr, foreach=True, **kwargs)
+    except TypeError:
+        return torch.optim.Adam(params, lr=lr, **kwargs)

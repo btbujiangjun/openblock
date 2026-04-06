@@ -94,6 +94,31 @@ export class Database {
         return Array.isArray(list) ? list : [];
     }
 
+    /**
+     * 可回放对局：带 frames，按开局时间倒序（服务端已排序）。
+     * 每项为会话 API 字段 + frames；与 GET /api/replay-sessions 一致。
+     */
+    async listReplaySessions(limit = 80) {
+        const rows = await apiJson(
+            `/api/replay-sessions?user_id=${encodeURIComponent(this.userId)}&limit=${limit}`
+        );
+        return Array.isArray(rows) ? rows : [];
+    }
+
+    /**
+     * 删除对局及关联 move_sequences / behaviors / replays（须为本用户 session id）。
+     * @param {number[]} sessionIds
+     */
+    async deleteReplaySessions(sessionIds) {
+        if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
+            return { success: true, deleted: [], count: 0 };
+        }
+        return apiJson('/api/replay-sessions/delete', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: this.userId, session_ids: sessionIds })
+        });
+    }
+
     async saveBehavior(behavior) {
         await apiJson('/api/behavior/batch', {
             method: 'POST',

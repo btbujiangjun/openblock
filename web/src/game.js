@@ -55,6 +55,8 @@ export class Game {
 
         this.behaviors = [];
         this.backendSync = new BackendSync(this.db.userId);
+        /** @type {ReturnType<typeof setTimeout> | null} */
+        this._noMovesTimer = null;
     }
 
     async init() {
@@ -125,6 +127,7 @@ export class Game {
             this.grid.clear();
             this.score = 0;
             this.isGameOver = false;
+            this._endGameInFlight = null;
             this.behaviors = [];
             this.moveSequence = [];
             this._replayFrames = null;
@@ -142,7 +145,6 @@ export class Game {
             const strategyConfig = getStrategy(this.strategy);
             this.grid.size = strategyConfig.gridWidth || CONFIG.GRID_SIZE;
             this.renderer.setGridSize(this.grid.size);
-            this.grid.initBoard(strategyConfig.fillRatio, strategyConfig.shapeWeights);
 
             try {
                 this.sessionId = await this.db.saveSession({
@@ -156,8 +158,6 @@ export class Game {
                 this.sessionId = null;
             }
 
-            this._captureInitFrame(strategyConfig);
-
             await this.backendSync.startSession(this.strategy, strategyConfig, this.sessionId);
 
             try {
@@ -167,7 +167,34 @@ export class Game {
                 console.warn('统计未更新:', e);
             }
 
-            this.spawnBlocks();
+            const maxOpeningTries = 48;
+            let openingPlayable = false;
+            for (let k = 0; k < maxOpeningTries; k++) {
+                clearTimeout(this._movePersistTimer);
+                this._movePersistTimer = null;
+                this.grid.initBoard(strategyConfig.fillRatio, strategyConfig.shapeWeights);
+                this._captureInitFrame(strategyConfig);
+                this.spawnBlocks({ logSpawn: false });
+                const rem = this.dockBlocks.filter((b) => !b.placed);
+                if (this.grid.hasAnyMove(rem)) {
+                    openingPlayable = true;
+                    break;
+                }
+            }
+            if (!openingPlayable) {
+                const softFill = Math.min(0.12, Math.max(0.06, (strategyConfig.fillRatio || 0.2) * 0.45));
+                clearTimeout(this._movePersistTimer);
+                this._movePersistTimer = null;
+                this.grid.initBoard(softFill, strategyConfig.shapeWeights);
+                this._captureInitFrame(strategyConfig);
+                this.spawnBlocks({ logSpawn: false });
+            }
+            if (this.sessionId && this.dockBlocks.length) {
+                this.logBehavior(GAME_EVENTS.SPAWN_BLOCKS, {
+                    shapes: this.dockBlocks.map((b) => b.id)
+                });
+            }
+
             this.hideScreens();
             this.endReplay();
             this.updateUI();
@@ -262,9 +289,13 @@ export class Game {
         }
     }
 
-    spawnBlocks() {
+    /**
+     * @param {{ logSpawn?: boolean }} [opts] logSpawn 默认 true；开局重试时 false，由 start 末尾统一记一条 spawn
+     */
+    spawnBlocks(opts = {}) {
         const strategyConfig = getStrategy(this.strategy);
         const shapes = generateDockShapes(this.grid, strategyConfig);
+        const logSpawn = opts.logSpawn !== false;
 
         const colors = [0, 1, 2, 3, 4, 5, 6, 7];
         for (let i = colors.length - 1; i > 0; i--) {
@@ -286,7 +317,7 @@ export class Game {
         this._pushSpawnToSequence(descriptors);
 
         this.populateDockUI(descriptors, {
-            logSpawn: true,
+            logSpawn,
             spawnShapeIds: shapes.map((s) => s.id)
         });
     }
@@ -598,6 +629,8 @@ export class Game {
     }
 
     checkGameOver() {
+        if (this.isGameOver) return;
+        if (document.querySelector('.no-moves-overlay')) return;
         const remaining = this.dockBlocks.filter(b => !b.placed);
         if (!this.grid.hasAnyMove(remaining)) {
             this.showNoMovesWarning();
@@ -605,50 +638,106 @@ export class Game {
     }
 
     showNoMovesWarning() {
-        const warning = document.createElement('div');
-        warning.className = 'no-moves-overlay';
-        warning.setAttribute('role', 'alert');
-        warning.textContent = '没有可用步数';
-        document.body.appendChild(warning);
+        clearTimeout(this._noMovesTimer);
+        this._noMovesTimer = null;
+        document.querySelectorAll('.no-moves-overlay').forEach((el) => el.remove());
 
-        setTimeout(() => {
-            warning.remove();
-            void this.endGame();
-        }, 1500);
+        const wrap = document.createElement('div');
+        wrap.className = 'no-moves-overlay';
+        wrap.setAttribute('role', 'alertdialog');
+        wrap.setAttribute('aria-live', 'assertive');
+
+        const msg = document.createElement('div');
+        msg.className = 'no-moves-overlay-msg';
+        msg.textContent = '没有可用步数';
+        wrap.appendChild(msg);
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-primary no-moves-restart-btn';
+        btn.textContent = '再来一局';
+        btn.onclick = () => {
+            btn.disabled = true;
+            clearTimeout(this._noMovesTimer);
+            this._noMovesTimer = null;
+            void (async () => {
+                try {
+                    await this.endGame();
+                    wrap.remove();
+                    await this.start();
+                } catch (e) {
+                    console.error(e);
+                    wrap.remove();
+                    const overScore = document.getElementById('over-score');
+                    if (overScore) overScore.textContent = `得分：${this.score}`;
+                    this.showScreen('game-over');
+                }
+            })();
+        };
+        wrap.appendChild(btn);
+
+        document.body.appendChild(wrap);
+
+        this._noMovesTimer = setTimeout(() => {
+            this._noMovesTimer = null;
+            void (async () => {
+                try {
+                    await this.endGame();
+                } finally {
+                    wrap.remove();
+                }
+            })();
+        }, 2500);
     }
 
     async endGame() {
+        if (this._endGameInFlight) {
+            return this._endGameInFlight;
+        }
         this.isGameOver = true;
 
-        this.logBehavior(GAME_EVENTS.GAME_OVER, {
-            finalScore: this.score,
-            totalClears: this.gameStats.clears,
-            maxCombo: this.gameStats.maxCombo,
-            duration: Date.now() - this.gameStats.startTime
-        });
+        this._endGameInFlight = (async () => {
+            try {
+                this.logBehavior(GAME_EVENTS.GAME_OVER, {
+                    finalScore: this.score,
+                    totalClears: this.gameStats.clears,
+                    maxCombo: this.gameStats.maxCombo,
+                    duration: Date.now() - this.gameStats.startTime
+                });
 
-        await this.saveSession();
+                await this.saveSession();
 
-        if (this.score > this.bestScore) {
-            this.bestScore = this.score;
-            await this.db.saveScore(this.score, this.strategy);
+                if (this.score > this.bestScore) {
+                    this.bestScore = this.score;
+                    await this.db.saveScore(this.score, this.strategy);
+                }
+
+                const stats = await this.db.getStats();
+                await this.db.updateStats({
+                    totalScore: stats.totalScore + this.score,
+                    totalClears: stats.totalClears + this.gameStats.clears,
+                    maxCombo: Math.max(stats.maxCombo || 0, this.gameStats.maxCombo),
+                    totalPlacements: (stats.totalPlacements || 0) + this.gameStats.placements,
+                    totalMisses: (stats.totalMisses || 0) + this.gameStats.misses
+                });
+
+                const durationMs = Date.now() - this.gameStats.startTime;
+                const unlocked = await this.db.checkAndUnlockAchievements(this.gameStats, { durationMs });
+                unlocked.forEach((a) => this.showAchievement(a));
+            } catch (e) {
+                console.error('endGame', e);
+            } finally {
+                const overScore = document.getElementById('over-score');
+                if (overScore) overScore.textContent = `得分：${this.score}`;
+                this.showScreen('game-over');
+            }
+        })();
+
+        try {
+            await this._endGameInFlight;
+        } finally {
+            this._endGameInFlight = null;
         }
-
-        const stats = await this.db.getStats();
-        await this.db.updateStats({
-            totalScore: stats.totalScore + this.score,
-            totalClears: stats.totalClears + this.gameStats.clears,
-            maxCombo: Math.max(stats.maxCombo || 0, this.gameStats.maxCombo),
-            totalPlacements: (stats.totalPlacements || 0) + this.gameStats.placements,
-            totalMisses: (stats.totalMisses || 0) + this.gameStats.misses
-        });
-
-        const durationMs = Date.now() - this.gameStats.startTime;
-        const unlocked = await this.db.checkAndUnlockAchievements(this.gameStats, { durationMs });
-        unlocked.forEach((a) => this.showAchievement(a));
-
-        document.getElementById('over-score').textContent = `得分：${this.score}`;
-        this.showScreen('game-over');
     }
 
     async saveSession() {
