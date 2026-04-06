@@ -30,7 +30,8 @@ describe('moveSequence replay', () => {
 
         const st = replayStateAt(frames, frames.length - 1);
         expect(st).not.toBeNull();
-        expect(st.score).toBe(10);
+        /* 末行填满后共 8 整行 + 8 整列 → 16 线；combo + 14×multiLine = 50 + 420 = 470 */
+        expect(st.score).toBe(470);
         expect(st.dockDescriptors.length).toBe(1);
         expect(st.dockDescriptors[0].placed).toBe(true);
     });

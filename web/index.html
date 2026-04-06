@@ -45,20 +45,41 @@
         display: block;
       }
     </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body>
     <div id="app">
         <div class="header">
-            <h1>Block Blast</h1>
-            <div class="skin-picker">
-                <label for="skin-select">主题</label>
-                <select id="skin-select" aria-label="棋盘主题"></select>
+            <h1 class="app-wordmark" aria-label="Block Blast">
+                <span class="app-wordmark__line">
+                    <span class="app-wordmark__block">Block</span>
+                    <span class="app-wordmark__blast">Blast</span>
+                </span>
+            </h1>
+            <div class="header-skin">
+                <div class="skin-picker">
+                    <label for="skin-select">主题</label>
+                    <select id="skin-select" aria-label="棋盘主题"></select>
+                </div>
             </div>
         </div>
         <div class="stats-bar">
             <div class="stat-box"><div class="stat-label">得分</div><div class="stat-value" id="score">0</div></div>
             <div class="stat-box"><div class="stat-label">最佳</div><div class="stat-value" id="best">0</div></div>
+        </div>
+        <div class="progression-hud" id="progression-hud" aria-label="玩家等级">
+            <div class="progression-hud-row">
+                <span class="progression-level" id="prog-level">Lv.1</span>
+                <span class="progression-title" id="prog-title">新手</span>
+                <span class="progression-streak" id="prog-streak" hidden></span>
+            </div>
+            <div class="progression-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="prog-track">
+                <div class="progression-fill" id="prog-fill"></div>
+            </div>
+            <div class="progression-xp-text" id="prog-xp-text">0 / 100 XP</div>
         </div>
         <div id="game-wrapper">
             <canvas id="game-grid" width="304" height="304" aria-label="游戏网格"></canvas>
@@ -67,7 +88,12 @@
         <div class="block-dock" id="dock"></div>
     </div>
     <div id="menu" class="screen active">
-        <h1>Block Blast</h1>
+        <h1 class="app-wordmark app-wordmark--hero" aria-label="Block Blast">
+            <span class="app-wordmark__line">
+                <span class="app-wordmark__block">Block</span>
+                <span class="app-wordmark__blast">Blast</span>
+            </span>
+        </h1>
         <div class="subtitle">填满整行或整列即可消除！</div>
         <button type="button" class="btn btn-primary" id="start-btn">开始</button>
         <button type="button" class="btn btn-secondary" id="menu-replay-btn">对局回放</button>
@@ -106,6 +132,7 @@
     <div id="game-over" class="screen">
         <h2>无路可走</h2>
         <div class="final-score" id="over-score">得分：0</div>
+        <div class="final-xp" id="over-xp" hidden></div>
         <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>
         <button type="button" class="btn btn-secondary" id="menu-btn">菜单</button>
     </div>
@@ -153,6 +180,7 @@
             <button type="button" class="strategy-btn active" data-level="normal">普通</button>
             <button type="button" class="strategy-btn" data-level="hard">困难</button>
         </div>
+        <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>
     </div>
     <div id="boot-error" hidden role="alert"></div>
     <script type="module" src="./src/main.js"></script>

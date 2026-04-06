@@ -80,7 +80,10 @@ export const ACHIEVEMENTS = {
     tenGames: { id: 'ten_games', name: 'Dedicated', desc: 'Play 10 games', icon: '🎮' },
     perfectGame: { id: 'perfect_game', name: 'Perfect Game', desc: 'Score over 500 in one game', icon: '🏆' },
     combo: { id: 'combo', name: 'Combo King', desc: 'Clear 10+ lines in one game', icon: '🌟' },
-    speedRunner: { id: 'speed_runner', name: 'Speed Runner', desc: 'Complete a game in under 2 minutes', icon: '⚡' }
+    speedRunner: { id: 'speed_runner', name: 'Speed Runner', desc: 'Complete a game in under 2 minutes', icon: '⚡' },
+    level5: { id: 'level_5', name: '初窥门径', desc: '玩家等级达到 5', icon: '📈' },
+    level10: { id: 'level_10', name: '渐入佳境', desc: '玩家等级达到 10', icon: '⬆️' },
+    level25: { id: 'level_25', name: '登堂入室', desc: '玩家等级达到 25', icon: '🎖️' }
 };
 
 /** 按成就业务 id（如 score_100）索引，供解锁逻辑使用 */

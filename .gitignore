@@ -10,8 +10,6 @@ web/.env
 web/.env.local
 coverage/
 *.log
-# 本地 RL 权重（体积大，训练产物）
-rl_checkpoints/*.pt
-rl_checkpoints/*.safetensors
-rl_checkpoints/*.npz
-rl_checkpoints/training.jsonl
+# 本地 RL 权重与备份（体积大，训练产物）
+rl_checkpoints/
+rl_checkpoints_bak/

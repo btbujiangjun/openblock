@@ -19,3 +19,15 @@
 - 只调难度/分数字段：编辑 `shared/game_rules.json`（必要时同步检查 Python/JS 模拟器是否仍适用同一套 `scoring` 键名映射）。
 - 改方块集合：编辑 `shared/shapes.json`，并确认各端 `shapes_data` / `shapes.js` 能加载（无需改 trainer）。
 - 改观测或网络输入维度：改 `featureEncoding` + `features.js` / `features.py` + 模型与权重。
+
+## PyTorch 与浏览器线性模型：收敛速度差异（简析）
+
+| 因素 | 线性 `LinearAgent` | PyTorch `PolicyValueNet` / `SharedPolicyValueNet` |
+|------|---------------------|---------------------------------------------------|
+| 参数量 | ≈161（策略）+154（价值） | 默认约 **256 宽 × 残差块**（可调 `--width` / `--*-depth`） |
+| 每局梯度步数 | `reinforceUpdate` 对轨迹**逐步**更新 | `train.py` 默认对**整局**一次 `backward`（等价 batch 更大、步长相对小） |
+| 回报与价值 | 蒙特卡洛回报，无缩放 | `RL_RETURN_SCALE`（默认 **0.032**）+ GAE + `smooth_l1` 价值头 |
+| 探索 | 温度 softmax | 温度衰减 + Dirichlet + 熵 bonus，利于探索但有效策略更新更「钝」 |
+| 动作空间 | 同环境：每步大量合法放置 | 高方差策略梯度；**shared** 架构减轻重复编码 φ 的开销 |
+
+**调参建议**：新训默认已改为 `--arch shared --width 256 --policy-depth 4`、`--lr 3e-4`、环境变量 `RL_RETURN_SCALE=0.032`；旧 checkpoint 若用 384/双塔，加载时仍以 **checkpoint 内 meta** 为准，勿混用结构。需要与旧版行为一致时可显式 `RL_WIDTH=384` `RL_ARCH=split` `RL_LR=1.5e-4`。

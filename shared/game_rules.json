@@ -10,6 +10,19 @@
     "rampEpisodes": 40000
   },
   "defaultStrategyId": "normal",
+  "dynamicDifficulty": {
+    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。",
+    "enabled": true,
+    "milestones": [0, 45, 90, 135, 180],
+    "spawnStress": [0, 0.18, 0.38, 0.58, 0.78]
+  },
+  "runDifficulty": {
+    "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
+    "enabled": true,
+    "maxStreak": 6,
+    "fillBonusPerGame": 0.01,
+    "spawnStressBonusPerGame": 0.045
+  },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
     "comment": "仅影响 RL 训练用即时奖励，不改变盘面计分 score。用于缓解「无消除则整段回报为 0」导致的梯度消失。",

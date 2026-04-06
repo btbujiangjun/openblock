@@ -258,7 +258,7 @@ export function initRLPanel(game) {
 
         await trainSelfPlay({
             agent,
-            episodes: 5000,
+            episodes: 500000,
             signal: controller.signal,
             onEpisode,
             useBackend

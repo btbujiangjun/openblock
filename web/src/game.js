@@ -2,8 +2,24 @@
  * Block Blast - Main Game Controller
  * Full game logic with behavior tracking
  */
-import { CONFIG, getStrategy, GAME_EVENTS } from './config.js';
-import { getActiveSkinId, getBlockColors, setActiveSkinId, SKIN_LIST, applySkinToDocument, getActiveSkin } from './skins.js';
+import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
+import { resolveLayeredStrategy } from './difficulty.js';
+import { GAME_RULES } from './gameRules.js';
+import {
+    applyGameEndProgression,
+    loadProgress,
+    getLevelProgress,
+    titleForLevel
+} from './progression.js';
+import {
+    getActiveSkinId,
+    getBlockColors,
+    setActiveSkinId,
+    SKIN_LIST,
+    applySkinToDocument,
+    getActiveSkin,
+    SKINS
+} from './skins.js';
 import { Grid } from './grid.js';
 import { generateDockShapes } from './bot/blockSpawn.js';
 import { buildInitFrame, buildPlaceFrame, buildSpawnFrame, replayStateAt } from './moveSequence.js';
@@ -25,6 +41,8 @@ export class Game {
         this.dockBlocks = [];
         this.sessionId = null;
         this.strategy = 'normal';
+        /** 连战计数：主菜单「开始」清零；再来一局 / 死局重开 +1 */
+        this.runStreak = 0;
 
         this.drag = null;
         this.dragBlock = null;
@@ -87,13 +105,17 @@ export class Game {
         const retryBtn = document.getElementById('retry-btn');
         const menuBtn = document.getElementById('menu-btn');
         if (startBtn) {
-            startBtn.onclick = () => void this.start();
+            startBtn.onclick = () => void this.start({ fromChain: false });
         }
         if (retryBtn) {
-            retryBtn.onclick = () => void this.start();
+            retryBtn.onclick = () => void this.start({ fromChain: true });
         }
         if (menuBtn) {
-            menuBtn.onclick = () => this.showScreen('menu');
+            menuBtn.onclick = () => {
+                this.runStreak = 0;
+                this._updateRunStreakHint();
+                this.showScreen('menu');
+            };
         }
 
         document.querySelectorAll('.strategy-btn').forEach(btn => {
@@ -101,16 +123,17 @@ export class Game {
                 document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.strategy = btn.dataset.level;
+                this.runStreak = 0;
+                this._updateRunStreakHint();
             };
         });
 
         const skinSelect = document.getElementById('skin-select');
         if (skinSelect) {
-            skinSelect.innerHTML = SKIN_LIST.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
-            skinSelect.value = getActiveSkinId();
+            this.refreshSkinSelectOptions();
             skinSelect.addEventListener('change', () => {
                 if (setActiveSkinId(skinSelect.value)) {
-                    applySkinToDocument(getActiveSkin());
+                    /* setActiveSkinId 内已 applySkinToDocument；勿再 getActiveSkin()，否则 storage 失败时会覆盖成旧主题 */
                     this.markDirty();
                 }
             });
@@ -122,8 +145,82 @@ export class Game {
         document.addEventListener('touchend', () => this.onEnd());
     }
 
-    async start() {
+    _updateRunStreakHint() {
+        const el = document.getElementById('strategy-run-hint');
+        if (!el) return;
+        const rd = GAME_RULES.runDifficulty;
+        if (rd?.enabled && this.runStreak > 0) {
+            el.hidden = false;
+            el.textContent = `连战第 ${this.runStreak} 局：初始更挤、出块略难（回菜单重置）`;
+        } else {
+            el.hidden = true;
+            el.textContent = '';
+        }
+    }
+
+    refreshSkinSelectOptions() {
+        const skinSelect = document.getElementById('skin-select');
+        if (!skinSelect) {
+            return;
+        }
+        skinSelect.innerHTML = SKIN_LIST.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+        let current = getActiveSkinId();
+        if (!SKINS[current]) {
+            setActiveSkinId('classic');
+            current = 'classic';
+            applySkinToDocument(getActiveSkin());
+        }
+        skinSelect.value = current;
+    }
+
+    _updateProgressionHud() {
+        const st = loadProgress();
+        const xp = st.totalXp;
+        const { level, frac, levelStartXp, nextLevelXp } = getLevelProgress(xp);
+        const title = titleForLevel(level);
+        const span = Math.max(1, nextLevelXp - levelStartXp);
+        const cur = xp - levelStartXp;
+
+        const elLv = document.getElementById('prog-level');
+        const elTitle = document.getElementById('prog-title');
+        const elFill = document.getElementById('prog-fill');
+        const elXp = document.getElementById('prog-xp-text');
+        const elStreak = document.getElementById('prog-streak');
+        const elTrack = document.getElementById('prog-track');
+        if (elLv) elLv.textContent = `Lv.${level}`;
+        if (elTitle) elTitle.textContent = title;
+        if (elFill) elFill.style.width = `${Math.round(frac * 10000) / 100}%`;
+        if (elXp) elXp.textContent = `${cur} / ${span} XP`;
+        if (elStreak) {
+            if (st.dailyStreak > 0) {
+                elStreak.hidden = false;
+                elStreak.textContent = `连续 ${st.dailyStreak} 天`;
+            } else {
+                elStreak.hidden = true;
+                elStreak.textContent = '';
+            }
+        }
+        if (elTrack) {
+            elTrack.setAttribute('aria-valuenow', String(Math.round(frac * 100)));
+        }
+    }
+
+    showProgressionToast(title, bodyHtml) {
+        const el = document.createElement('div');
+        el.className = 'achievement-popup progression-toast';
+        el.innerHTML = `<div class="title">${title}</div>${bodyHtml}`;
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 3200);
+    }
+
+    async start(opts = {}) {
         try {
+            if (opts.fromChain) {
+                this.runStreak = (this.runStreak || 0) + 1;
+            } else {
+                this.runStreak = 0;
+            }
+
             this.grid.clear();
             this.score = 0;
             this.isGameOver = false;
@@ -142,8 +239,9 @@ export class Game {
                 startTime: Date.now()
             };
 
-            const strategyConfig = getStrategy(this.strategy);
-            this.grid.size = strategyConfig.gridWidth || CONFIG.GRID_SIZE;
+            const baseStrategy = getStrategy(this.strategy);
+            const layeredOpen = resolveLayeredStrategy(this.strategy, 0, this.runStreak);
+            this.grid.size = layeredOpen.gridWidth || CONFIG.GRID_SIZE;
             this.renderer.setGridSize(this.grid.size);
 
             try {
@@ -151,14 +249,14 @@ export class Game {
                     startTime: Date.now(),
                     score: 0,
                     strategy: this.strategy,
-                    strategyConfig: strategyConfig
+                    strategyConfig: baseStrategy
                 });
             } catch (e) {
                 console.warn('会话未写入 SQLite API（请确认已启动 server.py 且 VITE_API_BASE_URL 正确）:', e);
                 this.sessionId = null;
             }
 
-            await this.backendSync.startSession(this.strategy, strategyConfig, this.sessionId);
+            await this.backendSync.startSession(this.strategy, baseStrategy, this.sessionId);
 
             try {
                 const stats = await this.db.getStats();
@@ -172,8 +270,8 @@ export class Game {
             for (let k = 0; k < maxOpeningTries; k++) {
                 clearTimeout(this._movePersistTimer);
                 this._movePersistTimer = null;
-                this.grid.initBoard(strategyConfig.fillRatio, strategyConfig.shapeWeights);
-                this._captureInitFrame(strategyConfig);
+                this.grid.initBoard(layeredOpen.fillRatio, layeredOpen.shapeWeights);
+                this._captureInitFrame(baseStrategy);
                 this.spawnBlocks({ logSpawn: false });
                 const rem = this.dockBlocks.filter((b) => !b.placed);
                 if (this.grid.hasAnyMove(rem)) {
@@ -182,11 +280,11 @@ export class Game {
                 }
             }
             if (!openingPlayable) {
-                const softFill = Math.min(0.12, Math.max(0.06, (strategyConfig.fillRatio || 0.2) * 0.45));
+                const softFill = Math.min(0.12, Math.max(0.06, (layeredOpen.fillRatio || 0.2) * 0.45));
                 clearTimeout(this._movePersistTimer);
                 this._movePersistTimer = null;
-                this.grid.initBoard(softFill, strategyConfig.shapeWeights);
-                this._captureInitFrame(strategyConfig);
+                this.grid.initBoard(softFill, layeredOpen.shapeWeights);
+                this._captureInitFrame(baseStrategy);
                 this.spawnBlocks({ logSpawn: false });
             }
             if (this.sessionId && this.dockBlocks.length) {
@@ -197,6 +295,7 @@ export class Game {
 
             this.hideScreens();
             this.endReplay();
+            this._updateRunStreakHint();
             this.updateUI();
             this.markDirty();
             this.checkGameOver();
@@ -293,8 +392,8 @@ export class Game {
      * @param {{ logSpawn?: boolean }} [opts] logSpawn 默认 true；开局重试时 false，由 start 末尾统一记一条 spawn
      */
     spawnBlocks(opts = {}) {
-        const strategyConfig = getStrategy(this.strategy);
-        const shapes = generateDockShapes(this.grid, strategyConfig);
+        const layered = resolveLayeredStrategy(this.strategy, this.score, this.runStreak);
+        const shapes = generateDockShapes(this.grid, layered);
         const logSpawn = opts.logSpawn !== false;
 
         const colors = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -585,15 +684,23 @@ export class Game {
             scoreGain: clearScore
         });
 
-        this.renderer.addParticles(result.cells);
+        const isCombo = result.count >= 3;
+        this.renderer.addParticles(result.cells, { lines: result.count });
         this.renderer.setClearCells(result.cells);
+        if (isCombo) {
+            this.renderer.triggerComboFlash(result.count);
+        }
         // 仅使用画布内 shakeOffset，避免与 #game-wrapper CSS 动画叠加造成跳跃/闪烁
-        this.renderer.setShake(6, 320);
+        this.renderer.setShake(isCombo ? 11 : 6, isCombo ? 520 : 320);
 
-        this.showFloatScore(clearScore, result.count >= 3 ? 'combo' : result.count >= 2 ? 'multi' : '');
+        this.showFloatScore(
+            clearScore,
+            isCombo ? 'combo' : result.count >= 2 ? 'multi' : '',
+            result.count
+        );
 
         const animStart = Date.now();
-        const animDuration = 400;
+        const animDuration = isCombo ? 580 : 400;
 
         const animate = () => {
             self.renderer.updateShake();
@@ -664,7 +771,7 @@ export class Game {
                 try {
                     await this.endGame();
                     wrap.remove();
-                    await this.start();
+                    await this.start({ fromChain: true });
                 } catch (e) {
                     console.error(e);
                     wrap.remove();
@@ -697,6 +804,8 @@ export class Game {
         this.isGameOver = true;
 
         this._endGameInFlight = (async () => {
+            /** @type {ReturnType<typeof applyGameEndProgression> | null} */
+            let progressionResult = null;
             try {
                 this.logBehavior(GAME_EVENTS.GAME_OVER, {
                     finalScore: this.score,
@@ -726,9 +835,62 @@ export class Game {
                 unlocked.forEach((a) => this.showAchievement(a));
             } catch (e) {
                 console.error('endGame', e);
+            }
+
+            try {
+                progressionResult = applyGameEndProgression({
+                    score: this.score,
+                    gameStats: this.gameStats,
+                    strategy: this.strategy,
+                    runStreak: this.runStreak ?? 0
+                });
+                for (const aid of progressionResult.achievementIds) {
+                    const meta = ACHIEVEMENTS_BY_ID[aid];
+                    if (!meta) continue;
+                    try {
+                        if (await this.db.unlockAchievement(aid)) {
+                            this.showAchievement(meta);
+                        }
+                    } catch (ae) {
+                        console.warn('unlock level achievement', ae);
+                    }
+                }
+                if (progressionResult.leveledUp && progressionResult.achievementIds.length === 0) {
+                    this.showProgressionToast(
+                        '等级提升',
+                        `<div>Lv.${progressionResult.oldLevel} → Lv.${progressionResult.newLevel} · ${titleForLevel(progressionResult.newLevel)}</div>`
+                    );
+                }
+                for (const sid of progressionResult.newlyUnlockedSkins) {
+                    const skin = SKINS[sid];
+                    if (skin) {
+                        this.showProgressionToast(
+                            '主题解锁',
+                            `<div>${skin.name} · 在标题下「主题」中切换</div>`
+                        );
+                    }
+                }
+                this.refreshSkinSelectOptions();
+            } catch (pe) {
+                console.error('progression', pe);
             } finally {
                 const overScore = document.getElementById('over-score');
                 if (overScore) overScore.textContent = `得分：${this.score}`;
+                const overXp = document.getElementById('over-xp');
+                if (overXp) {
+                    if (progressionResult) {
+                        overXp.hidden = false;
+                        let t = `+${progressionResult.xpGained} 经验`;
+                        if (progressionResult.leveledUp) {
+                            t += ` · 升至 Lv.${progressionResult.newLevel}`;
+                        }
+                        overXp.textContent = t;
+                    } else {
+                        overXp.hidden = true;
+                        overXp.textContent = '';
+                    }
+                }
+                this._updateProgressionHud();
                 this.showScreen('game-over');
             }
         })();
@@ -903,19 +1065,29 @@ export class Game {
         setTimeout(() => el.remove(), 3000);
     }
 
-    showFloatScore(score, type) {
+    showFloatScore(score, type, linesCleared = 0) {
         const el = document.createElement('div');
-        el.className = 'float-score' + (type === 'combo' ? ' float-combo' : '');
-        el.textContent = type === 'combo' ? 'COMBO +' + score : type === 'multi' ? 'DOUBLE +' + score : '+' + score;
+        const isCombo = type === 'combo';
+        el.className = 'float-score' + (isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '');
+        if (isCombo && linesCleared >= 3) {
+            el.textContent = `COMBO ×${linesCleared}  +${score}`;
+        } else {
+            el.textContent = type === 'multi' ? 'DOUBLE +' + score : '+' + score;
+        }
         el.style.left = '50%';
-        el.style.top = '25%';
+        el.style.top = isCombo ? '22%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), 600);
+        setTimeout(() => el.remove(), isCombo ? 900 : 600);
     }
 
     hideScreens() {
         document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
+        const overXp = document.getElementById('over-xp');
+        if (overXp) {
+            overXp.hidden = true;
+            overXp.textContent = '';
+        }
         this.updateShellVisibility();
     }
 
@@ -931,6 +1103,7 @@ export class Game {
     updateUI() {
         document.getElementById('score').textContent = this.score;
         document.getElementById('best').textContent = this.bestScore;
+        this._updateProgressionHud();
     }
 
     markDirty() {
@@ -939,6 +1112,7 @@ export class Game {
 
     /** 整帧重绘（含消除高亮与粒子）；与 markDirty 等价，避免漏画 clearCells 导致闪烁 */
     render() {
+        this.renderer.decayComboFlash();
         this.renderer.clear();
         this.renderer.renderBackground();
         this.renderer.renderGrid(this.grid);
@@ -946,6 +1120,7 @@ export class Game {
             this.renderer.renderPreview(this.previewPos.x, this.previewPos.y, this.previewBlock);
         }
         this.renderer.renderClearCells(this.renderer.clearCells);
+        this.renderer.renderComboFlash();
         this.renderer.renderParticles();
     }
 }

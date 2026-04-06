@@ -46,6 +46,7 @@ export const CLASSIC_PALETTE = [
  *   blockColors: string[],
  *   gridOuter: string,
  *   gridCell: string,
+ *   gridLine?: string | false,
  *   gridGap: number,
  *   blockInset: number,
  *   blockRadius: number,
@@ -164,27 +165,29 @@ export const SKINS = {
         id: 'frost',
         name: '雾霜',
         blockColors: [
-            '#94c5e8', '#b8d4eb', '#c4b5fd', '#a5f3d9',
-            '#fcd34d', '#fbcfe8', '#bfdbfe', '#ddd6fe'
+            '#4f8fd4', '#6b8fd8', '#8b7fd8', '#3db89a',
+            '#e6a820', '#e07aaa', '#3d9ee6', '#9b7fd8'
         ],
-        gridOuter: '#e2e8f0',
-        gridCell: '#f1f5f9',
+        gridOuter: '#94a3b8',
+        gridCell: '#f8fafc',
+        gridLine: 'rgba(51,65,85,0.22)',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
         blockStyle: 'glass',
         clearFlash: 'rgba(255,255,255,0.95)',
-        cssBg: '#f0f4f8'
+        cssBg: '#eef2f7'
     },
     sage: {
         id: 'sage',
         name: '森雾',
         blockColors: [
-            '#6b9f7a', '#8fbc8f', '#5a9b84', '#a3c9a8',
-            '#7cb87c', '#98c9a3', '#4a9b7c', '#b5d4be'
+            '#4d8a5e', '#6fa87a', '#3d8a6a', '#7fb88a',
+            '#5cb065', '#72b882', '#2d7a62', '#8bc49a'
         ],
-        gridOuter: '#dce8df',
-        gridCell: '#ecf2ed',
+        gridOuter: '#a8bdb0',
+        gridCell: '#f4faf6',
+        gridLine: 'rgba(45,74,58,0.2)',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 6,
@@ -218,11 +221,12 @@ export const SKINS = {
         id: 'pastel',
         name: '马卡龙',
         blockColors: [
-            '#A8E6CF', '#A8D8EA', '#FFD3B6', '#FFAAA5',
-            '#C7CEEA', '#E2F0CB', '#FFB7B2', '#D4A5D4'
+            '#5ec9a0', '#5ab8d4', '#f0a868', '#f07870',
+            '#8898d8', '#9ec86e', '#f09890', '#b888c8'
         ],
-        gridOuter: '#E8E4E1',
-        gridCell: '#D8D4D0',
+        gridOuter: '#b8b0a8',
+        gridCell: '#f5f2ee',
+        gridLine: 'rgba(80,64,56,0.18)',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 6,

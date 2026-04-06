@@ -91,7 +91,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         ctx.fillRect(bx, by, size, size * 0.58);
         ctx.restore();
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+        ctx.strokeStyle = skin.uiDark ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.32)';
         ctx.lineWidth = 1.15;
         if (r > 0) {
             roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
@@ -99,7 +99,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         } else {
             ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
         }
-        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        ctx.strokeStyle = skin.uiDark ? 'rgba(0,0,0,0.1)' : 'rgba(15,23,42,0.2)';
         ctx.lineWidth = 1;
         if (r > 0) {
             roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
@@ -247,6 +247,8 @@ export class Renderer {
         this.shakeIntensity = 0;
         this.shakeDuration = 0;
         this.shakeStart = 0;
+        /** COMBO（多消）全屏暖色闪光强度 0~1，每帧衰减 */
+        this._comboFlash = 0;
     }
 
     /** 与逻辑层 Grid 尺寸对齐（策略可改边长） */
@@ -276,6 +278,31 @@ export class Renderer {
                 const px = x * this.cellSize + g;
                 const py = y * this.cellSize + g;
                 this.ctx.fillRect(px, py, this.cellSize - 2 * g, this.cellSize - 2 * g);
+            }
+        }
+
+        if (skin.gridLine !== false) {
+            const w = this.gridSize * this.cellSize;
+            let lineStyle = skin.gridLine;
+            if (!lineStyle) {
+                lineStyle = skin.uiDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.16)';
+            }
+            this.ctx.strokeStyle = lineStyle;
+            this.ctx.lineWidth = 1;
+            this.ctx.lineCap = 'butt';
+            for (let i = 1; i < this.gridSize; i++) {
+                const p = i * this.cellSize + 0.5;
+                this.ctx.beginPath();
+                this.ctx.moveTo(p, 0);
+                this.ctx.lineTo(p, w);
+                this.ctx.stroke();
+            }
+            for (let j = 1; j < this.gridSize; j++) {
+                const p = j * this.cellSize + 0.5;
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, p);
+                this.ctx.lineTo(w, p);
+                this.ctx.stroke();
             }
         }
 
@@ -365,22 +392,75 @@ export class Renderer {
         paintBlockCell(ctx, px, py, s, color, getActiveSkin());
     }
 
-    addParticles(cells) {
+    /**
+     * @param {{ x: number, y: number, color: number }[]} cells
+     * @param {{ lines?: number }} [opts] lines≥3 时视为 COMBO，粒子更密、带金色火花
+     */
+    addParticles(cells, opts = {}) {
+        const lines = opts.lines ?? 1;
+        const isCombo = lines >= 3;
         const palette = getBlockColors();
+        const perCell = isCombo ? 15 : 8;
+        const speed = isCombo ? 1.55 : 1;
         for (const cell of cells) {
             const color = palette[cell.color] || '#FFFFFF';
-            for (let i = 0; i < 8; i++) {
+            for (let i = 0; i < perCell; i++) {
+                const ang = Math.random() * Math.PI * 2;
+                const sp = (3 + Math.random() * 10) * speed;
                 this.particles.push({
                     x: cell.x * this.cellSize + this.cellSize / 2,
                     y: cell.y * this.cellSize + this.cellSize / 2,
-                    vx: (Math.random() - 0.5) * 12,
-                    vy: (Math.random() - 0.5) * 12 - 3,
+                    vx: Math.cos(ang) * sp + (Math.random() - 0.5) * 3,
+                    vy: Math.sin(ang) * sp + (Math.random() - 0.5) * 3 - 4,
                     color,
                     life: 1,
-                    size: 4 + Math.random() * 4
+                    size: (isCombo ? 3 : 4) + Math.random() * (isCombo ? 5 : 4)
                 });
             }
+            if (isCombo) {
+                for (let j = 0; j < 6; j++) {
+                    this.particles.push({
+                        x: cell.x * this.cellSize + this.cellSize / 2,
+                        y: cell.y * this.cellSize + this.cellSize / 2,
+                        vx: (Math.random() - 0.5) * 18,
+                        vy: (Math.random() - 0.5) * 18 - 6,
+                        color: j % 2 === 0 ? '#FFD700' : '#FFF8DC',
+                        life: 1,
+                        size: 2 + Math.random() * 3
+                    });
+                }
+            }
         }
+    }
+
+    /** 多消时全屏边缘暖光（与 _comboFlash 配合） */
+    triggerComboFlash(lineCount) {
+        const n = Math.max(3, lineCount);
+        this._comboFlash = Math.min(0.95, 0.28 + n * 0.09);
+    }
+
+    decayComboFlash() {
+        if (this._comboFlash <= 0) return;
+        this._comboFlash *= 0.86;
+        if (this._comboFlash < 0.018) this._comboFlash = 0;
+    }
+
+    renderComboFlash() {
+        if (this._comboFlash <= 0) return;
+        const a = this._comboFlash;
+        const cx = this.canvas.width * 0.5;
+        const cy = this.canvas.height * 0.5;
+        const r = Math.max(this.canvas.width, this.canvas.height) * 0.72;
+        const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, `rgba(255, 230, 140, ${0.22 * a})`);
+        g.addColorStop(0.35, `rgba(255, 170, 60, ${0.12 * a})`);
+        g.addColorStop(0.65, `rgba(255, 120, 40, ${0.05 * a})`);
+        g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        this.ctx.save();
+        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+        this.ctx.fillStyle = g;
+        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.canvas.width, this.canvas.height);
+        this.ctx.restore();
     }
 
     updateParticles() {
@@ -439,6 +519,7 @@ export class Renderer {
 
     clearParticles() {
         this.particles = [];
+        this._comboFlash = 0;
     }
 
     setClearCells(cells) {

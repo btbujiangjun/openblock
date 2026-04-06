@@ -7,6 +7,12 @@
   - **根节点 Dirichlet 噪声**（自博弈）：与 AZ 类似，在合法动作上混合探索性先验，缓解过早坍缩。
   - **开局更高温度**：前若干步放大 temperature，鼓励开局多样性。
 
+相对浏览器 **LinearAgent**（161 维线性 softmax + 价值基线）显得「收敛慢」的常见原因：
+  1) **参数量**：残差 MLP 百万级参数 vs 线性 ~315 维，同样局数下可辨识信号更稀疏。
+  2) **每局更新次数**：`trainer.js` 对轨迹**逐步** REINFORCE；本脚本默认对整局做一次 batched backward（与线性不等价）；可用更高 lr / 更小网络 / 略提高 RL_RETURN_SCALE 补偿。
+  3) **探索与方差**：Dirichlet、温度、熵系数与 advantage 标准化会压低有效策略步长；回报再经 RL_RETURN_SCALE 缩小，价值头需对齐该尺度。
+  4) **决策空间**：每步合法放置可达数百，策略梯度方差高；课程学习拉长「满分门槛」爬坡时，早期指标与后期不可直接比。
+
 用法:
   pip install -r requirements-rl.txt
   python -m rl_pytorch.train --episodes 2000 --device auto --save-every 100 --save rl_checkpoints/bb_policy.pt
@@ -291,7 +297,7 @@ def train_loop(
     value_huber_beta: float = 150.0,
     gae_lambda: float = 0.95,
     temp_floor: float = 0.35,
-    explore_first_moves: int = 24,
+    explore_first_moves: int = 18,
     explore_temp_mult: float = 1.35,
     dirichlet_epsilon: float = 0.22,
     dirichlet_alpha: float = 0.28,
@@ -322,7 +328,7 @@ def train_loop(
     wins = 0
     scores: list[float] = []
     t0 = time.perf_counter()
-    return_scale = float(os.environ.get("RL_RETURN_SCALE", "0.025"))
+    return_scale = float(os.environ.get("RL_RETURN_SCALE", "0.032"))
 
     for e in range(start_ep, start_ep + episodes):
         global_ep = e + 1
@@ -431,7 +437,12 @@ def train_loop(
 def main() -> None:
     p = argparse.ArgumentParser(description="Block Blast PyTorch 自博弈 RL（支持 MPS/CUDA）")
     p.add_argument("--episodes", type=int, default=1000)
-    p.add_argument("--lr", type=float, default=1.5e-4, help="Adam；与浏览器后端 RL_LR 默认一致")
+    p.add_argument(
+        "--lr",
+        type=float,
+        default=3e-4,
+        help="Adam；默认略高于旧版 1.5e-4，利于大网络在自博弈下的有效更新（可用环境变量 RL_LR 覆盖后端）",
+    )
     p.add_argument("--gamma", type=float, default=0.99)
     p.add_argument("--value-coef", type=float, default=0.18, help="价值头损失权重（与 RL_VALUE_COEF 默认一致）")
     p.add_argument(
@@ -461,11 +472,16 @@ def main() -> None:
     p.add_argument(
         "--width",
         type=int,
-        default=384,
-        help="隐层宽度；高维空间观测（棋盘+待选块）建议 ≥384",
+        default=256,
+        help="隐层宽度；φ 仅 161 维，默认 256 较 384 更易在早期自博弈中拟合（旧 checkpoint 可能为 384，须与之一致才能加载）",
     )
-    p.add_argument("--policy-depth", type=int, default=6)
-    p.add_argument("--value-depth", type=int, default=5)
+    p.add_argument(
+        "--policy-depth",
+        type=int,
+        default=4,
+        help="策略塔深度；shared 架构下为共享主干深度",
+    )
+    p.add_argument("--value-depth", type=int, default=4)
     p.add_argument("--mlp-ratio", type=float, default=2.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -486,9 +502,9 @@ def main() -> None:
     p.add_argument(
         "--arch",
         type=str,
-        default="split",
+        default="shared",
         choices=("split", "shared"),
-        help="split=策略/价值双塔（与旧 checkpoint 兼容）；shared=AlphaZero 式共享主干（新训推荐，算子更少）",
+        help="shared=共享主干（默认，合法步多时更省算力、样本效率更好）；split=双塔（与部分旧 checkpoint 兼容）",
     )
     p.add_argument(
         "--gae-lambda",

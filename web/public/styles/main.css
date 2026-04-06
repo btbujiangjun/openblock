@@ -7,8 +7,8 @@
     --cell-empty: #C5D3DE;
     --accent-color: #5B9BD5;
     --accent-dark: #4472C4;
-    --text-primary: #2C3E50;
-    --text-secondary: #5D7A96;
+    --text-primary: #1e293b;
+    --text-secondary: #475569;
     --success: #70AD47;
     --warning: #ED7D31;
     --shadow: rgba(44, 62, 80, 0.15);
@@ -53,11 +53,113 @@ body {
     margin-bottom: 8px;
 }
 
-.header h1 {
-    font-size: 22px;
-    color: var(--h1-color, var(--accent-dark));
-    font-weight: 600;
+/* 产品字标：Syne + 双色渐变（方块冷色 / 消除暖色） */
+.app-wordmark {
+    margin: 0;
+    padding: 0;
+    font-family: 'Syne', ui-rounded, 'Segoe UI', system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.045em;
+    line-height: 1.08;
     text-align: center;
+}
+
+.app-wordmark__line {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.28em;
+}
+
+.app-wordmark__block {
+    background: linear-gradient(155deg, #1e40af 0%, #38bdf8 48%, #06b6d4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 2px 8px rgba(56, 189, 248, 0.4));
+}
+
+.app-wordmark__blast {
+    background: linear-gradient(155deg, #c2410c 0%, #fb923c 45%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 2px 8px rgba(251, 146, 60, 0.42));
+}
+
+.header .app-wordmark {
+    font-size: clamp(1.2rem, 4.2vw, 1.65rem);
+}
+
+.app-wordmark--hero {
+    font-size: clamp(2.1rem, 8.5vw, 3rem);
+    margin-bottom: 6px;
+    letter-spacing: -0.05em;
+}
+
+/* 标题与得分条之间；主菜单打开时随 #app 隐藏；风格参考 macOS 表单控件（对比度、圆角、细边框） */
+.header-skin {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin: 4px 0 6px;
+    position: relative;
+    z-index: 90;
+}
+
+.header-skin .skin-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px 6px 16px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--stat-surface, #ffffff) 88%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 10%, transparent);
+    box-shadow:
+        0 0 0 0.5px color-mix(in srgb, var(--text-primary, #1d1d1f) 6%, transparent),
+        0 1px 3px color-mix(in srgb, var(--text-primary, #000) 8%, transparent);
+    backdrop-filter: saturate(1.1) blur(8px);
+    -webkit-backdrop-filter: saturate(1.1) blur(8px);
+}
+
+.header-skin .skin-picker label {
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: -0.02em;
+    color: color-mix(in srgb, var(--text-primary, #1d1d1f) 92%, var(--text-secondary, #6e6e73));
+    flex-shrink: 0;
+}
+
+.header-skin .skin-picker select {
+    min-width: 11.5rem;
+    max-width: min(52vw, 16rem);
+    padding: 5px 30px 5px 11px;
+    font-size: 13px;
+    line-height: 1.25;
+    font-weight: 500;
+    border-radius: 5px;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 14%, transparent);
+    background-color: color-mix(in srgb, var(--select-bg, #ffffff) 96%, var(--stat-surface, #f5f5f7));
+    color: var(--text-primary, #1d1d1f);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
+    cursor: pointer;
+    user-select: auto;
+    -webkit-user-select: auto;
+    touch-action: manipulation;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236e6e73' d='M0 0h10L5 6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.header-skin .skin-picker select:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent-color, #007aff) 65%, var(--text-primary));
+    box-shadow:
+        inset 0 1px 0 color-mix(in srgb, #fff 60%, transparent),
+        0 0 0 3px color-mix(in srgb, var(--accent-color, #007aff) 28%, transparent);
 }
 
 .skin-picker {
@@ -84,6 +186,11 @@ body {
     color: var(--text-primary);
     box-shadow: 0 1px 3px var(--shadow);
     cursor: pointer;
+    user-select: auto;
+    -webkit-user-select: auto;
+    touch-action: manipulation;
+    position: relative;
+    z-index: 2;
 }
 
 .skin-picker select:focus {
@@ -108,7 +215,7 @@ body {
 
 .stat-label {
     font-size: 9px;
-    color: var(--stat-label-color, #3d5266);
+    color: var(--stat-label-color, #334155);
     letter-spacing: 0.3px;
     font-weight: 600;
 }
@@ -117,6 +224,75 @@ body {
     font-size: 16px;
     font-weight: 600;
     color: var(--accent-dark);
+}
+
+.progression-hud {
+    width: min(100%, 280px);
+    margin: 0 auto 8px;
+    padding: 6px 10px;
+    border-radius: var(--border-radius);
+    background: var(--stat-surface, rgba(255, 255, 255, 0.92));
+    box-shadow: 0 2px 8px var(--shadow);
+}
+
+.progression-hud-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-primary, #2c3e50);
+}
+
+.progression-level {
+    color: var(--accent-dark);
+}
+
+.progression-title {
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+.progression-streak {
+    margin-left: auto;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--stat-label-color, #475569);
+}
+
+.progression-track {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+}
+
+.progression-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent-color, #38bdf8), var(--accent-dark, #7dd3fc));
+    transition: width 0.35s ease;
+}
+
+.progression-xp-text {
+    margin-top: 4px;
+    font-size: 9px;
+    color: var(--stat-label-color, #475569);
+    text-align: right;
+}
+
+.final-xp {
+    margin-top: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent-dark);
+}
+
+.progression-toast .title {
+    font-size: 14px;
 }
 
 #game-wrapper {
@@ -198,11 +374,8 @@ body.game-rl-preview .block-dock {
     display: flex;
 }
 
-#menu h1 {
-    font-size: 42px;
-    color: var(--accent-dark);
-    margin-bottom: 5px;
-    font-weight: 700;
+#menu .app-wordmark {
+    margin-bottom: 8px;
 }
 
 .subtitle {
@@ -527,6 +700,14 @@ body.game-rl-preview .block-dock {
     font-weight: 700;
 }
 
+.strategy-run-hint {
+    margin: 6px 0 0;
+    max-width: 200px;
+    font-size: 9px;
+    line-height: 1.35;
+    color: #6b7c8c;
+}
+
 .strategy-btns {
     display: flex;
     gap: 3px;
@@ -565,13 +746,43 @@ body.game-rl-preview .block-dock {
 }
 
 .float-combo {
-    color: var(--warning);
-    font-size: 28px;
+    color: #e67e22;
+    font-size: clamp(22px, 5vw, 32px);
+    letter-spacing: 0.04em;
+    animation: comboScorePop 0.88s ease-out forwards;
+    text-shadow:
+        0 0 12px rgba(255, 200, 80, 0.95),
+        0 0 24px rgba(255, 140, 40, 0.55),
+        0 2px 6px rgba(0, 0, 0, 0.35);
+    filter: drop-shadow(0 0 8px rgba(255, 180, 60, 0.6));
+}
+
+.float-multi {
+    color: #27ae60;
+    font-size: 22px;
 }
 
 @keyframes floatUp {
     0% { opacity: 1; transform: translateY(0) scale(1); }
     100% { opacity: 0; transform: translateY(-30px) scale(1.2); }
+}
+
+@keyframes comboScorePop {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(8px) scale(0.65);
+    }
+    18% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1.12);
+    }
+    42% {
+        transform: translateX(-50%) translateY(-4px) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-36px) scale(1.08);
+    }
 }
 
 .achievement-popup {
@@ -844,7 +1055,7 @@ body.game-shell-hidden .strategy-panel {
 }
 
 @media (max-width: 400px) {
-    .header h1 { font-size: 18px; }
+    .header .app-wordmark { font-size: 1.05rem; }
     .stat-box { padding: 4px 8px; min-width: 50px; }
     .stat-value { font-size: 14px; }
     .block-dock { gap: 10px; padding: 8px; }
