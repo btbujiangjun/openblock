@@ -34,6 +34,7 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import torch
@@ -100,7 +101,7 @@ def _clamp_log_probs_pg(log_probs: torch.Tensor) -> torch.Tensor:
     return x.clamp(min=-50.0, max=0.0)
 
 
-AnyNet = PolicyValueNet | SharedPolicyValueNet | LightPolicyValueNet | LightSharedPolicyValueNet
+AnyNet = Union[PolicyValueNet, SharedPolicyValueNet, LightPolicyValueNet, LightSharedPolicyValueNet]
 
 
 class _ValueForward(torch.nn.Module):
