@@ -16,6 +16,10 @@
 | `api.js` | REST 客户端 |
 | `services/backendSync.js` | `VITE_SYNC_BACKEND` 且非 SQLite 主存储时，额外建会话/刷 batch/结束会话；SQLite 主路径下由 `database.js` 写入，避免重复 |
 | `bot/` | 无头模拟器 + 线性 REINFORCE 自博弈（`simulator.js`、`linearAgent.js`、`trainer.js`、`rlPanel.js`） |
+| `bot/blockSpawn.js` | 出块执行层：接受策略权重 + `spawnHints`，生成三连块（含 solvability 验证） |
+| `playerProfile.js` | 玩家实时能力画像：滑动窗口行为追踪 → 多维技能 + 状态信号（心流 / 节奏 / 挫败 / 差一点） |
+| `adaptiveSpawn.js` | 自适应出块策略引擎：8 信号融合 → 10 档 profile 插值 + spawnHints。详见 **`docs/ADAPTIVE_SPAWN.md`** |
+| `difficulty.js` | 原有 score→stress 难度映射（被 `adaptiveSpawn.js` 内部调用） |
 
 ## PyTorch RL（`rl_pytorch/`）
 

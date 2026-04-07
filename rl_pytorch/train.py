@@ -1,11 +1,16 @@
 """
-自博弈 + 策略梯度（价值基线），PyTorch；支持 **MPS**（Apple GPU）/ CUDA / CPU。
+自博弈 + PPO / REINFORCE 策略梯度（价值基线），PyTorch；支持 **MPS**（Apple GPU）/ CUDA / CPU。
 
 架构选择（--arch）：
-  light-shared  默认，~20K 参数；2 层 64 宽共享主干，匹配 161D 手工特征的有效策略维度
+  conv-shared   新默认；CNN 棋盘编码 + 128 宽共享主干，~150K 参数，空间感知能力远超 MLP
+  light-shared  2 层 64 宽共享主干 + 动作投射，~20K 参数
   light         ~28K 参数双塔
-  shared        残差 MLP 共享主干（~1.2M 参数，旧默认）
+  shared        残差 MLP 共享主干（~1.2M 参数）
   split         残差 MLP 双塔
+
+训练算法（--ppo-epochs）：
+  --ppo-epochs 1   → 单步 REINFORCE（向后兼容旧行为）
+  --ppo-epochs 3-6 → PPO：同一批数据多轮梯度更新，样本效率提升 3-5 倍
 
 GPU 加速设计：
   - 采集阶段 no_grad + 存 numpy，不构建计算图
@@ -17,10 +22,11 @@ GPU 加速设计：
     （``RL_CUDA_DP_VALUE=1`` 默认开启；设为 0 关闭）。主卡由 ``--device cuda`` / ``cuda:0`` 决定。
 
 用法:
-  CUDA_VISIBLE_DEVICES=0,1 python -m rl_pytorch.train --episodes 5000 --device cuda --batch-episodes 16
-  RL_CUDA_DEVICE_IDS=all python -m rl_pytorch.train --device cuda
-  python -m rl_pytorch.train --n-workers 4 --batch-episodes 16   # 多核并行采集
-  python -m rl_pytorch.train --arch shared --width 256 --policy-depth 4  # 兼容旧 checkpoint
+  python -m rl_pytorch.train --episodes 50000 --device auto              # 默认 conv-shared + PPO
+  python -m rl_pytorch.train --arch conv-shared --ppo-epochs 4           # CNN + PPO（推荐）
+  python -m rl_pytorch.train --arch light-shared --ppo-epochs 1          # 旧行为：轻量 + REINFORCE
+  CUDA_VISIBLE_DEVICES=0,1 python -m rl_pytorch.train --device cuda --batch-episodes 16
+  python -m rl_pytorch.train --n-workers 4 --batch-episodes 16
 
 --device：``auto`` | ``cpu`` | ``mps`` | ``cuda`` | ``cuda:N``。详见 ``rl_pytorch/device.py``。
 """
@@ -53,7 +59,13 @@ from .device import (
     tensor_to_device,
 )
 from .features import PHI_DIM, STATE_FEATURE_DIM, build_phi_batch
-from .model import LightPolicyValueNet, LightSharedPolicyValueNet, PolicyValueNet, SharedPolicyValueNet
+from .model import (
+    ConvSharedPolicyValueNet,
+    LightPolicyValueNet,
+    LightSharedPolicyValueNet,
+    PolicyValueNet,
+    SharedPolicyValueNet,
+)
 from .simulator import BlockBlastSimulator
 
 # ---------------------------------------------------------------------------
@@ -63,10 +75,10 @@ _pool_net: AnyNet | None = None
 _pool_device = torch.device("cpu")
 
 
-def _pool_worker_init(arch: str, width: int, pd: int, vd: int, mr: float):
+def _pool_worker_init(arch: str, width: int, pd: int, vd: int, mr: float, cc: int = 32):
     """每个 worker 进程初始化一份模型（CPU）。"""
     global _pool_net, _pool_device
-    _pool_net = build_policy_net(arch, width, pd, vd, mr, _pool_device)
+    _pool_net = build_policy_net(arch, width, pd, vd, mr, _pool_device, conv_channels=cc)
     _pool_net.eval()
 
 
@@ -101,7 +113,7 @@ def _clamp_log_probs_pg(log_probs: torch.Tensor) -> torch.Tensor:
     return x.clamp(min=-50.0, max=0.0)
 
 
-AnyNet = Union[PolicyValueNet, SharedPolicyValueNet, LightPolicyValueNet, LightSharedPolicyValueNet]
+AnyNet = Union[PolicyValueNet, SharedPolicyValueNet, LightPolicyValueNet, LightSharedPolicyValueNet, ConvSharedPolicyValueNet]
 
 
 class _ValueForward(torch.nn.Module):
@@ -133,7 +145,11 @@ def _checkpoint_meta(
         "state_dim": STATE_FEATURE_DIM,
         "arch": arch,
     }
-    if isinstance(net, LightSharedPolicyValueNet):
+    if isinstance(net, ConvSharedPolicyValueNet):
+        meta["width"] = net.width
+        meta["conv_channels"] = net.conv_channels
+        meta["action_embed_dim"] = net.action_embed_dim
+    elif isinstance(net, LightSharedPolicyValueNet):
         meta["width"] = net.width
         meta["action_embed_dim"] = net.action_embed_dim
     elif isinstance(net, LightPolicyValueNet):
@@ -159,8 +175,11 @@ def build_policy_net(
     value_depth: int,
     mlp_ratio: float,
     device: torch.device,
+    conv_channels: int = 32,
 ) -> AnyNet:
-    arch = (arch or "light-shared").lower()
+    arch = (arch or "conv-shared").lower()
+    if arch == "conv-shared":
+        return ConvSharedPolicyValueNet(width=width, conv_channels=conv_channels).to(device)
     if arch == "light-shared":
         return LightSharedPolicyValueNet(width=width).to(device)
     if arch == "light":
@@ -200,7 +219,8 @@ def _dirichlet_epsilon_for_ep(global_ep: int, base: float) -> float:
 
 
 def _temperature_for_move(global_ep: int, step_idx: int, temp_floor: float, explore_first_moves: int, explore_mult: float) -> float:
-    base = max(temp_floor, 1.0 - global_ep * 0.002)
+    decay_rate = float(os.environ.get("RL_TEMP_DECAY_RATE", "0.0003"))
+    base = max(temp_floor, 1.0 - global_ep * decay_rate)
     if explore_first_moves > 0 and step_idx < explore_first_moves:
         base *= explore_mult
     return max(temp_floor, base)
@@ -294,6 +314,7 @@ def collect_episode(
         with torch.no_grad():
             phi = tensor_to_device(torch.from_numpy(phi_np), device)
             logits = net.forward_policy_logits(phi)
+            clean_lp = F.log_softmax(logits, dim=-1)
 
         temp = _temperature_for_move(
             global_ep, step_idx, temp_floor, explore_first_moves, explore_temp_mult
@@ -303,15 +324,17 @@ def collect_episode(
             logits, temp, d_eps, dirichlet_alpha
         )
 
-        a = legal[int(idx.item())]
+        chosen = int(idx.item())
+        a = legal[chosen]
         r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
 
         trajectory.append({
             "state": state_np.copy(),
             "action_feats": phi_np[:, STATE_FEATURE_DIM:].copy(),
             "n_actions": phi_np.shape[0],
-            "chosen_idx": int(idx.item()),
+            "chosen_idx": chosen,
             "reward": r,
+            "old_log_prob": float(clean_lp[chosen].item()),
         })
         step_idx += 1
 
@@ -340,70 +363,17 @@ def episode_returns(rewards: list[float], gamma: float) -> torch.Tensor:
     return torch.tensor(out, dtype=torch.float32)
 
 
-def _reevaluate_and_update(
+def _forward_and_log_probs(
     net: AnyNet,
-    opt: torch.optim.Optimizer,
-    batch: list[dict],
+    states_t: torch.Tensor,
+    action_feats_t: torch.Tensor,
+    n_actions_t: torch.Tensor,
+    all_n_actions: list[int],
+    total_steps: int,
     device: torch.device,
-    gamma: float,
-    gae_lambda: float,
-    return_scale: float,
-    value_coef: float,
-    entropy_coef: float,
-    normalize_adv: bool,
-    adv_min_std: float,
-    value_huber_beta: float,
-    grad_clip: float,
-) -> dict | None:
-    """GPU 批量再评估：把全部 step 的 state/action 拼成大张量，一次过 GPU。"""
-    valid = [ep for ep in batch if ep["trajectory"]]
-    if not valid:
-        return None
-
-    all_states: list[np.ndarray] = []
-    all_action_feats: list[np.ndarray] = []
-    all_n_actions: list[int] = []
-    all_chosen: list[int] = []
-    all_rewards: list[float] = []
-    ep_lengths: list[int] = []
-
-    for ep in valid:
-        traj = ep["trajectory"]
-        ep_lengths.append(len(traj))
-        for step in traj:
-            all_states.append(step["state"])
-            all_action_feats.append(step["action_feats"])
-            all_n_actions.append(step["n_actions"])
-            all_chosen.append(step["chosen_idx"])
-            all_rewards.append(step["reward"])
-
-    total_steps = len(all_states)
-    if total_steps == 0:
-        return None
-
-    states_t = tensor_to_device(torch.from_numpy(np.stack(all_states)), device)
-    action_feats_t = tensor_to_device(
-        torch.from_numpy(np.concatenate(all_action_feats, axis=0)), device
-    )
-    n_actions_t = torch.tensor(all_n_actions, device=device, dtype=torch.long)
-
-    # --- 可选：CUDA 多卡上对价值头 data_parallel（light / light-shared）---
-    values_precomputed: torch.Tensor | None = None
-    dp_ids = resolve_cuda_device_ids_for_data_parallel()
-    use_dp_value = (
-        device.type == "cuda"
-        and len(dp_ids) > 1
-        and os.environ.get("RL_CUDA_DP_VALUE", "1").lower() not in ("0", "false", "no")
-        and isinstance(net, (LightPolicyValueNet, LightSharedPolicyValueNet))
-    )
-    if use_dp_value:
-        from torch.nn.parallel import data_parallel as dp_fn
-
-        values_precomputed = dp_fn(
-            _ValueForward(net), states_t, device_ids=dp_ids, output_device=device
-        )
-
-    # --- 单次融合前向 ---
+    values_precomputed: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """前向传播 → 返回 (log_prob_2d, values, mask, col_range)。"""
     if hasattr(net, "forward_batched"):
         if values_precomputed is not None:
             logits_flat, values_flat = net.forward_batched(
@@ -429,22 +399,90 @@ def _reevaluate_and_update(
 
     values_flat = torch.nan_to_num(values_flat, nan=0.0, posinf=1e5, neginf=-1e5).clamp(-1e5, 1e5)
 
-    # --- 向量化 per-step log_prob 与 entropy（消除 Python 循环）---
     max_n = int(n_actions_t.max().item())
     padded = logits_flat.new_full((total_steps, max_n), float("-inf"))
     col_range = torch.arange(max_n, device=device)
     mask = col_range.unsqueeze(0) < n_actions_t.unsqueeze(1)
     padded[mask] = logits_flat
-
     lp_2d = torch.log_softmax(padded, dim=1)
+    return lp_2d, values_flat, mask, col_range
+
+
+def _reevaluate_and_update(
+    net: AnyNet,
+    opt: torch.optim.Optimizer,
+    batch: list[dict],
+    device: torch.device,
+    gamma: float,
+    gae_lambda: float,
+    return_scale: float,
+    value_coef: float,
+    entropy_coef: float,
+    normalize_adv: bool,
+    adv_min_std: float,
+    value_huber_beta: float,
+    grad_clip: float,
+    ppo_epochs: int = 1,
+    ppo_clip: float = 0.2,
+) -> dict | None:
+    """GPU 批量再评估 + PPO/REINFORCE 更新。
+
+    ppo_epochs=1 → 原始 REINFORCE；ppo_epochs>1 → PPO clipped surrogate。
+    """
+    valid = [ep for ep in batch if ep["trajectory"]]
+    if not valid:
+        return None
+
+    all_states: list[np.ndarray] = []
+    all_action_feats: list[np.ndarray] = []
+    all_n_actions: list[int] = []
+    all_chosen: list[int] = []
+    all_rewards: list[float] = []
+    all_old_lp: list[float] = []
+    ep_lengths: list[int] = []
+
+    for ep in valid:
+        traj = ep["trajectory"]
+        ep_lengths.append(len(traj))
+        for step in traj:
+            all_states.append(step["state"])
+            all_action_feats.append(step["action_feats"])
+            all_n_actions.append(step["n_actions"])
+            all_chosen.append(step["chosen_idx"])
+            all_rewards.append(step["reward"])
+            all_old_lp.append(step.get("old_log_prob", 0.0))
+
+    total_steps = len(all_states)
+    if total_steps == 0:
+        return None
+
+    states_t = tensor_to_device(torch.from_numpy(np.stack(all_states)), device)
+    action_feats_t = tensor_to_device(
+        torch.from_numpy(np.concatenate(all_action_feats, axis=0)), device
+    )
+    n_actions_t = torch.tensor(all_n_actions, device=device, dtype=torch.long)
     chosen_t = torch.tensor(all_chosen, device=device, dtype=torch.long).unsqueeze(1)
-    lp_t = _clamp_log_probs_pg(lp_2d.gather(1, chosen_t).squeeze(1))
+    old_lp_t = tensor_to_device(torch.tensor(all_old_lp, dtype=torch.float32), device)
 
-    probs_2d = lp_2d.exp() * mask.float()
-    ent_t = -(probs_2d * lp_2d.masked_fill(~mask, 0.0)).sum(dim=1)
+    dp_ids = resolve_cuda_device_ids_for_data_parallel()
+    use_dp_value = (
+        device.type == "cuda"
+        and len(dp_ids) > 1
+        and os.environ.get("RL_CUDA_DP_VALUE", "1").lower() not in ("0", "false", "no")
+        and isinstance(net, (LightPolicyValueNet, LightSharedPolicyValueNet, ConvSharedPolicyValueNet))
+    )
+    values_dp: torch.Tensor | None = None
+    if use_dp_value:
+        from torch.nn.parallel import data_parallel as dp_fn
+        values_dp = dp_fn(_ValueForward(net), states_t, device_ids=dp_ids, output_device=device)
 
-    # --- 每局 GAE（纯 CPU numpy，避免逐步 MPS 同步）→ 跨局 advantage 归一化 ---
-    vals_np = values_flat.detach().cpu().numpy()
+    # --- 首次前向：用于 GAE 计算（advantage 在所有 PPO epoch 共用）---
+    lp_2d_init, values_init, mask, _col = _forward_and_log_probs(
+        net, states_t, action_feats_t, n_actions_t, all_n_actions, total_steps, device, values_dp,
+    )
+
+    # --- GAE（纯 CPU numpy）---
+    vals_np = values_init.detach().cpu().numpy()
     adv_np = np.empty(total_steps, dtype=np.float32)
     rets_np = np.empty(total_steps, dtype=np.float32)
     v_off = 0
@@ -473,32 +511,57 @@ def _reevaluate_and_update(
         r_off += ep_len
 
     adv_cat = tensor_to_device(torch.from_numpy(adv_np), device)
-    rets_cat = tensor_to_device(torch.from_numpy(np.nan_to_num(rets_np, nan=0.0, posinf=1e5, neginf=-1e5).clip(-1e5, 1e5)), device)
-
+    rets_cat = tensor_to_device(
+        torch.from_numpy(np.nan_to_num(rets_np, nan=0.0, posinf=1e5, neginf=-1e5).clip(-1e5, 1e5)), device
+    )
     if normalize_adv:
         adv_cat = _normalize_advantages(adv_cat, min_std=adv_min_std)
     else:
         adv_cat = torch.nan_to_num(adv_cat, nan=0.0, posinf=1e3, neginf=-1e3).clamp(-100, 100)
 
-    policy_loss = -(lp_t * adv_cat).mean()
-    value_loss = F.smooth_l1_loss(values_flat, rets_cat, reduction="mean", beta=max(value_huber_beta, 1e-6))
-    entropy_mean = torch.nan_to_num(ent_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
+    last_result: dict | None = None
+    n_epochs = max(1, ppo_epochs)
 
-    loss = policy_loss + value_coef * value_loss - entropy_coef * entropy_mean
+    for epoch_i in range(n_epochs):
+        if epoch_i == 0:
+            lp_2d = lp_2d_init
+            values_flat = values_init
+        else:
+            lp_2d, values_flat, mask, _col = _forward_and_log_probs(
+                net, states_t, action_feats_t, n_actions_t, all_n_actions, total_steps, device,
+            )
 
-    opt.zero_grad()
-    if torch.isfinite(loss).item():
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(net.parameters(), max(grad_clip, 1e-8))
-        opt.step()
-    else:
-        opt.zero_grad(set_to_none=True)
+        new_lp = _clamp_log_probs_pg(lp_2d.gather(1, chosen_t).squeeze(1))
+        probs_2d = lp_2d.exp() * mask.float()
+        ent_t = -(probs_2d * lp_2d.masked_fill(~mask, 0.0)).sum(dim=1)
 
-    return {
-        "policy_loss": float(policy_loss.item()),
-        "value_loss": float(value_loss.item()),
-        "entropy": float(entropy_mean.item()),
-    }
+        if n_epochs > 1:
+            ratio = torch.exp(new_lp - old_lp_t)
+            surr1 = ratio * adv_cat
+            surr2 = torch.clamp(ratio, 1.0 - ppo_clip, 1.0 + ppo_clip) * adv_cat
+            policy_loss = -torch.min(surr1, surr2).mean()
+        else:
+            policy_loss = -(new_lp * adv_cat).mean()
+
+        value_loss = F.smooth_l1_loss(values_flat, rets_cat, reduction="mean", beta=max(value_huber_beta, 1e-6))
+        entropy_mean = torch.nan_to_num(ent_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
+        loss = policy_loss + value_coef * value_loss - entropy_coef * entropy_mean
+
+        opt.zero_grad()
+        if torch.isfinite(loss).item():
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), max(grad_clip, 1e-8))
+            opt.step()
+        else:
+            opt.zero_grad(set_to_none=True)
+
+        last_result = {
+            "policy_loss": float(policy_loss.item()),
+            "value_loss": float(value_loss.item()),
+            "entropy": float(entropy_mean.item()),
+        }
+
+    return last_result
 
 
 def train_loop(
@@ -523,12 +586,14 @@ def train_loop(
     explore_temp_mult: float = 1.2,
     dirichlet_epsilon: float = 0.08,
     dirichlet_alpha: float = 0.28,
-    train_arch: str = "light-shared",
+    train_arch: str = "conv-shared",
     mlp_ratio: float = 2.0,
     policy_depth_arg: int = 4,
     value_depth_arg: int = 4,
     batch_episodes: int = 8,
     n_workers: int = 1,
+    ppo_epochs: int = 4,
+    ppo_clip: float = 0.2,
 ) -> int:
     import multiprocessing as mp
 
@@ -555,12 +620,13 @@ def train_loop(
     pool = None
     actual_workers = max(1, n_workers)
     if actual_workers > 1:
-        w = getattr(net, "width", 64)
+        w = getattr(net, "width", 128)
+        cc = getattr(net, "conv_channels", 32)
         ctx = mp.get_context("spawn")
         pool = ctx.Pool(
             actual_workers,
             initializer=_pool_worker_init,
-            initargs=(train_arch, w, policy_depth_arg, value_depth_arg, mlp_ratio),
+            initargs=(train_arch, w, policy_depth_arg, value_depth_arg, mlp_ratio, cc),
         )
         print(f"多进程采集: {actual_workers} workers (CPU inference → GPU update)", file=sys.stderr)
 
@@ -608,12 +674,13 @@ def train_loop(
                     wins += 1
             ep_cursor += bs
 
-            # --- GPU 批量更新 ---
+            # --- GPU 批量更新（PPO 或 REINFORCE）---
             ent_eff = _effective_entropy_coef(ep_cursor, entropy_coef)
             result = _reevaluate_and_update(
                 net, opt, batch, device, gamma, gae_lambda,
                 return_scale, value_coef, ent_eff, normalize_adv,
                 adv_min_std, value_huber_beta, grad_clip,
+                ppo_epochs=ppo_epochs, ppo_clip=ppo_clip,
             )
             if result:
                 last_update = result
@@ -634,11 +701,11 @@ def train_loop(
                 lp_str = f"{last_update['policy_loss']:.4f}" if last_update else "N/A"
                 lv_str = f"{last_update['value_loss']:.4f}" if last_update else "N/A"
                 he_str = f"{last_update['entropy']:.3f}" if last_update else "N/A"
+                ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
                 print(
-                    f"episode {ep_cursor}  |  device={device.type}  |  win_thr={wt}  |  last_score={last_ep['score']:.0f}  |  "
-                    f"avg100={avg:.1f}  |  win%_last{eps_since}={wr:.1f}%  |  last_steps={last_ep['steps']}  |  "
-                    f"loss_pi={lp_str}  loss_v={lv_str}  "
-                    f"H={he_str}  |  {dt:.1f}s",
+                    f"ep {ep_cursor}  |  {ppo_tag}  |  dev={device.type}  |  thr={wt}  |  "
+                    f"sc={last_ep['score']:.0f}  avg100={avg:.1f}  win%={wr:.1f}%  steps={last_ep['steps']}  |  "
+                    f"π={lp_str}  V={lv_str}  H={he_str}  |  {dt:.1f}s",
                     file=sys.stderr,
                 )
                 t0 = time.perf_counter()
@@ -705,8 +772,8 @@ def main() -> None:
     p.add_argument(
         "--width",
         type=int,
-        default=64,
-        help="隐层宽度；light 系列默认 64（~20K 参数）；旧 shared/split 用 256",
+        default=128,
+        help="隐层宽度；conv-shared 默认 128（~150K 参数）；light 系列用 64；旧 shared/split 用 256",
     )
     p.add_argument(
         "--policy-depth",
@@ -735,15 +802,33 @@ def main() -> None:
     p.add_argument(
         "--arch",
         type=str,
-        default="light-shared",
-        choices=("light-shared", "light", "shared", "split"),
-        help="light-shared=轻量共享（默认，~20K）；light=轻量双塔（~28K）；shared/split=旧版重模型",
+        default="conv-shared",
+        choices=("conv-shared", "light-shared", "light", "shared", "split"),
+        help="conv-shared=CNN棋盘+共享主干（默认，~150K）；light-shared=轻量共享（~20K）；shared/split=旧版重模型",
+    )
+    p.add_argument(
+        "--conv-channels",
+        type=int,
+        default=32,
+        help="conv-shared 架构的 CNN 通道数",
     )
     p.add_argument(
         "--batch-episodes",
         type=int,
-        default=8,
-        help="采集多少局后做一次梯度更新（batch REINFORCE，降低方差）",
+        default=16,
+        help="采集多少局后做一次梯度更新（PPO 需要更大 batch 才稳定）",
+    )
+    p.add_argument(
+        "--ppo-epochs",
+        type=int,
+        default=4,
+        help="每批数据的 PPO 更新轮数；1=退化为 REINFORCE",
+    )
+    p.add_argument(
+        "--ppo-clip",
+        type=float,
+        default=0.2,
+        help="PPO clipped surrogate ε；仅 ppo-epochs>1 时生效",
     )
     p.add_argument(
         "--gae-lambda",
@@ -815,13 +900,15 @@ def main() -> None:
         value_depth=args.value_depth,
         mlp_ratio=args.mlp_ratio,
         device=device,
+        conv_channels=getattr(args, "conv_channels", 32),
     )
 
     resume_path = Path(args.resume) if args.resume else None
     save_path = Path(args.save)
 
+    algo_label = f"PPO(epochs={args.ppo_epochs}, clip={args.ppo_clip})" if args.ppo_epochs > 1 else "REINFORCE"
     n_params = sum(p.numel() for p in net.parameters())
-    print(f"架构: {arch}  |  参数量: {n_params:,}", file=sys.stderr)
+    print(f"架构: {arch}  |  参数量: {n_params:,}  |  算法: {algo_label}", file=sys.stderr)
 
     total_eps = train_loop(
         net,
@@ -851,6 +938,8 @@ def main() -> None:
         value_depth_arg=args.value_depth,
         batch_episodes=args.batch_episodes,
         n_workers=args.n_workers,
+        ppo_epochs=args.ppo_epochs,
+        ppo_clip=args.ppo_clip,
     )
 
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -866,6 +955,8 @@ def main() -> None:
     )
     final_meta["win_threshold"] = WIN_SCORE_THRESHOLD
     final_meta["gae_lambda"] = args.gae_lambda
+    final_meta["ppo_epochs"] = args.ppo_epochs
+    final_meta["ppo_clip"] = args.ppo_clip
     final_meta["rl_curriculum"] = rl_curriculum_enabled()
     torch.save(
         {

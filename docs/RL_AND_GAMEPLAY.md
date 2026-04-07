@@ -14,6 +14,12 @@
 3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（含棋盘栅格化占用与待选区形状掩码，见 JSON 内 `maxGridWidth` / `dockMaskSide` 等）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
 4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。
 
+## 自适应出块（网页端）
+
+网页端出块由 `adaptiveSpawn.js` 替代原有 `resolveLayeredStrategy`，综合 8 个玩家行为信号在 10 档策略权重 profile 间实时插值，并向 `blockSpawn.js` 传递 `spawnHints`（消行保证 / 尺寸偏好 / 多样性提升）。RL 训练（Python 侧 `simulator.py`）不受此影响，仍使用固定策略。
+
+完整设计文档见 **`docs/ADAPTIVE_SPAWN.md`**。
+
 ## 修改玩法时建议顺序
 
 - 只调难度/分数字段：编辑 `shared/game_rules.json`（必要时同步检查 Python/JS 模拟器是否仍适用同一套 `scoring` 键名映射）。

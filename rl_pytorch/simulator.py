@@ -108,6 +108,12 @@ class BlockBlastSimulator:
         dc = float(rs.get("densePerClear") or 0.0)
         if dc and clears > 0:
             r += dc * clears
+        mcb = float(rs.get("multiClearBonus") or 0.0)
+        if mcb and clears >= 2:
+            r += mcb * (clears - 1)
+        svl = float(rs.get("survivalPerStep") or 0.0)
+        if svl:
+            r += svl
         wb = float(rs.get("winBonus") or 0.0)
         thr = getattr(self, "win_score_threshold", WIN_SCORE_THRESHOLD)
         if wb and self.score >= thr and prev_score < thr:

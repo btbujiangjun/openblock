@@ -3,7 +3,8 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
-import { resolveLayeredStrategy } from './difficulty.js';
+import { resolveAdaptiveStrategy } from './adaptiveSpawn.js';
+import { PlayerProfile } from './playerProfile.js';
 import { GAME_RULES } from './gameRules.js';
 import {
     applyGameEndProgression,
@@ -75,6 +76,9 @@ export class Game {
         this.backendSync = new BackendSync(this.db.userId);
         /** @type {ReturnType<typeof setTimeout> | null} */
         this._noMovesTimer = null;
+
+        /** 玩家实时能力画像（跨局持久化） */
+        this.playerProfile = PlayerProfile.load();
     }
 
     async init() {
@@ -239,8 +243,10 @@ export class Game {
                 startTime: Date.now()
             };
 
+            this.playerProfile.recordNewGame();
+
             const baseStrategy = getStrategy(this.strategy);
-            const layeredOpen = resolveLayeredStrategy(this.strategy, 0, this.runStreak);
+            const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0);
             this.grid.size = layeredOpen.gridWidth || CONFIG.GRID_SIZE;
             this.renderer.setGridSize(this.grid.size);
 
@@ -392,9 +398,12 @@ export class Game {
      * @param {{ logSpawn?: boolean }} [opts] logSpawn 默认 true；开局重试时 false，由 start 末尾统一记一条 spawn
      */
     spawnBlocks(opts = {}) {
-        const layered = resolveLayeredStrategy(this.strategy, this.score, this.runStreak);
+        const layered = resolveAdaptiveStrategy(
+            this.strategy, this.playerProfile, this.score, this.runStreak, this.grid.getFillRatio()
+        );
         const shapes = generateDockShapes(this.grid, layered);
         const logSpawn = opts.logSpawn !== false;
+        this.playerProfile.recordSpawn();
 
         const colors = [0, 1, 2, 3, 4, 5, 6, 7];
         for (let i = colors.length - 1; i > 0; i--) {
@@ -651,6 +660,8 @@ export class Game {
             });
 
             const result = this.grid.checkLines();
+            this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
+
             if (result.count > 0) {
                 this.playClearEffect(result);
             } else {
@@ -672,6 +683,7 @@ export class Game {
             }
         } else {
             this.gameStats.misses++;
+            this.playerProfile.recordMiss();
             this.logBehavior(GAME_EVENTS.PLACE_FAILED, {
                 blockIndex: this.drag.index,
                 blockId: this.dragBlock.id
@@ -955,6 +967,8 @@ export class Game {
 
         const durationSec = Math.max(1, Math.floor((Date.now() - this.gameStats.startTime) / 1000));
         await this.backendSync.endSession(this.score, durationSec);
+
+        this.playerProfile.save();
     }
 
     _captureInitFrame(strategyConfig) {

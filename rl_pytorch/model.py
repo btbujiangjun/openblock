@@ -2,8 +2,9 @@
 策略 / 价值网络（PyTorch）。
 φ、ψ 维度由 shared/game_rules.json featureEncoding 决定。
 
-提供四种架构（--arch）：
-  light-shared  — 默认；2 层 64 宽共享主干 + 动作投射，~20K 参数，匹配 161D 手工特征的有效复杂度
+提供五种架构（--arch）：
+  conv-shared   — 新默认；CNN 棋盘编码 + 128 宽共享主干，~150K 参数，空间感知能力远超 MLP
+  light-shared  — 2 层 64 宽共享主干 + 动作投射，~20K 参数
   light         — 2 层 64 宽双塔，~28K 参数
   shared        — 多层残差共享主干（旧默认，~1.2M 参数）
   split         — 多层残差双塔
@@ -15,6 +16,119 @@ import torch
 import torch.nn as nn
 
 from .features import ACTION_FEATURE_DIM, PHI_DIM, STATE_FEATURE_DIM
+
+_SCALAR_DIM = 15
+_GRID_SIDE = 8
+_GRID_FLAT = _GRID_SIDE * _GRID_SIDE
+_DOCK_MASK_SIDE = 5
+_DOCK_SLOTS = 3
+_DOCK_FLAT = _DOCK_SLOTS * _DOCK_MASK_SIDE * _DOCK_MASK_SIDE
+
+
+# ---------------------------------------------------------------------------
+# Conv model — CNN 棋盘编码 + 共享 MLP 主干；对 8×8 空间模式有天然感知
+# ---------------------------------------------------------------------------
+
+class ConvSharedPolicyValueNet(nn.Module):
+    """
+    CNN 棋盘编码器 + 共享 MLP 主干 + 动作融合策略头 + 深价值头。
+
+    从 STATE_FEATURE_DIM (154) 状态向量拆出三段：
+      scalars[:15]    → 直连
+      grid[15:79]     → reshape(1,8,8) → Conv2d → 全局平均池化 → channels 维
+      dock[79:154]    → 直连 (3×5×5 待选块掩码)
+
+    三段拼合走宽 MLP 得到 h(s)；策略为 h(s)⊕ψ(a)→logit，价值为 h(s)→MLP→V。
+    ~150K 参数 (width=128, conv_channels=32, action_embed_dim=48)。
+    """
+
+    def __init__(
+        self,
+        width: int = 128,
+        conv_channels: int = 32,
+        action_embed_dim: int = 48,
+    ):
+        super().__init__()
+        self.width = width
+        self.conv_channels = conv_channels
+        self.action_embed_dim = action_embed_dim
+
+        self.grid_conv = nn.Sequential(
+            nn.Conv2d(1, conv_channels, 3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(conv_channels, conv_channels, 3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(conv_channels, conv_channels, 3, padding=1),
+            nn.GELU(),
+        )
+        grid_out_dim = conv_channels
+
+        trunk_in = _SCALAR_DIM + grid_out_dim + _DOCK_FLAT
+        self.trunk_norm = nn.LayerNorm(trunk_in)
+        self.trunk_fc1 = nn.Linear(trunk_in, width)
+        self.trunk_fc2 = nn.Linear(width, width)
+        self.trunk_fc3 = nn.Linear(width, width)
+
+        self.action_proj = nn.Linear(ACTION_FEATURE_DIM, action_embed_dim)
+        self.policy_fuse = nn.Sequential(
+            nn.Linear(width + action_embed_dim, width),
+            nn.GELU(),
+            nn.Linear(width, 1),
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(width, width // 2),
+            nn.GELU(),
+            nn.Linear(width // 2, 1),
+        )
+
+    def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
+        """s: [B, 154] → h: [B, width]"""
+        scalars = s[:, :_SCALAR_DIM]
+        grid = s[:, _SCALAR_DIM:_SCALAR_DIM + _GRID_FLAT].reshape(-1, 1, _GRID_SIDE, _GRID_SIDE)
+        dock = s[:, _SCALAR_DIM + _GRID_FLAT:]
+
+        g = self.grid_conv(grid)
+        g = g.mean(dim=(-2, -1))
+
+        x = torch.cat([scalars, g, dock], dim=-1)
+        x = self.trunk_norm(x)
+        x = nn.functional.gelu(self.trunk_fc1(x))
+        x = x + nn.functional.gelu(self.trunk_fc2(x))
+        x = x + nn.functional.gelu(self.trunk_fc3(x))
+        return x
+
+    def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
+        if phi.shape[0] == 0:
+            return phi.new_zeros((0,))
+        state0 = phi[0:1, :STATE_FEATURE_DIM]
+        h = self._encode_state(state0)
+        a = phi[:, STATE_FEATURE_DIM:]
+        ae = nn.functional.gelu(self.action_proj(a))
+        h_exp = h.expand(a.shape[0], -1)
+        x = torch.cat([h_exp, ae], dim=-1)
+        return self.policy_fuse(x).squeeze(-1)
+
+    def forward_value(self, state_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        return self.value_head(h).squeeze(-1)
+
+    def forward_batched(
+        self,
+        state_feats: torch.Tensor,
+        action_feats: torch.Tensor,
+        actions_per_step: torch.Tensor,
+        values_precomputed: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        h = self._encode_state(state_feats)
+        if values_precomputed is not None:
+            values = values_precomputed
+        else:
+            values = self.value_head(h).squeeze(-1)
+        ae = nn.functional.gelu(self.action_proj(action_feats))
+        h_exp = torch.repeat_interleave(h, actions_per_step, dim=0)
+        x = torch.cat([h_exp, ae], dim=-1)
+        logits = self.policy_fuse(x).squeeze(-1)
+        return logits, values
 
 
 # ---------------------------------------------------------------------------

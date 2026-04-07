@@ -23,13 +23,129 @@
     "fillBonusPerGame": 0.01,
     "spawnStressBonusPerGame": 0.045
   },
+  "adaptiveSpawn": {
+    "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
+    "enabled": true,
+    "profileWindow": 15,
+    "smoothingFactor": 0.15,
+    "fastConvergenceWindow": 5,
+    "fastConvergenceAlpha": 0.35,
+    "profiles": [
+      {
+        "id": "onboarding",
+        "label": "新手引导",
+        "stress": -0.2,
+        "comment": "首局前 5 轮出块：极高线条/矩形权重，最小化不规则块，让新手建立信心和基本操作习惯",
+        "shapeWeights": { "lines": 3.0, "rects": 2.2, "squares": 1.8, "tshapes": 0.45, "zshapes": 0.35, "lshapes": 0.45, "jshapes": 0.45 }
+      },
+      {
+        "id": "recovery",
+        "label": "紧急救场",
+        "stress": -0.1,
+        "comment": "板面接近满时触发：大量线条便于消行自救，不规则块降到最低",
+        "shapeWeights": { "lines": 2.8, "rects": 2.0, "squares": 1.3, "tshapes": 0.6, "zshapes": 0.5, "lshapes": 0.6, "jshapes": 0.6 }
+      },
+      {
+        "id": "comfort",
+        "label": "舒适体验",
+        "stress": 0.0,
+        "comment": "低技能/挫败后恢复信心：消行友好块为主，偶尔引入简单不规则块",
+        "shapeWeights": { "lines": 2.5, "rects": 1.85, "squares": 1.6, "tshapes": 0.75, "zshapes": 0.65, "lshapes": 0.75, "jshapes": 0.75 }
+      },
+      {
+        "id": "momentum",
+        "label": "连击催化",
+        "stress": 0.1,
+        "comment": "combo 后或节奏释放期：偏向能串联消行的块型（线条+小矩形），催化连击正反馈",
+        "shapeWeights": { "lines": 2.4, "rects": 1.75, "squares": 1.55, "tshapes": 0.85, "zshapes": 0.78, "lshapes": 0.82, "jshapes": 0.82 }
+      },
+      {
+        "id": "guided",
+        "label": "引导成长",
+        "stress": 0.2,
+        "comment": "中低技能稳步成长：逐步引入更多不规则块，保持可控挑战",
+        "shapeWeights": { "lines": 2.3, "rects": 1.7, "squares": 1.5, "tshapes": 0.95, "zshapes": 0.88, "lshapes": 0.92, "jshapes": 0.92 }
+      },
+      {
+        "id": "breathing",
+        "label": "节奏呼吸",
+        "stress": 0.3,
+        "comment": "紧张周期后的释放窗口：略低于标准难度，给玩家喘息空间",
+        "shapeWeights": { "lines": 2.15, "rects": 1.65, "squares": 1.45, "tshapes": 1.0, "zshapes": 0.95, "lshapes": 1.0, "jshapes": 1.0 }
+      },
+      {
+        "id": "balanced",
+        "label": "均衡标准",
+        "stress": 0.4,
+        "comment": "心流核心区：与 normal 策略一致，各类块型均衡出现",
+        "shapeWeights": { "lines": 2.0, "rects": 1.55, "squares": 1.35, "tshapes": 1.12, "zshapes": 1.12, "lshapes": 1.12, "jshapes": 1.12 }
+      },
+      {
+        "id": "variety",
+        "label": "新鲜变化",
+        "stress": 0.5,
+        "comment": "防止审美疲劳：刻意拉平权重增加形状多样性，给中等玩家带来新鲜感",
+        "shapeWeights": { "lines": 1.85, "rects": 1.5, "squares": 1.4, "tshapes": 1.2, "zshapes": 1.18, "lshapes": 1.15, "jshapes": 1.15 }
+      },
+      {
+        "id": "challenge",
+        "label": "进阶挑战",
+        "stress": 0.65,
+        "comment": "中高手区间：不规则块明显增多，需要更多空间规划能力",
+        "shapeWeights": { "lines": 1.7, "rects": 1.4, "squares": 1.5, "tshapes": 1.3, "zshapes": 1.3, "lshapes": 1.25, "jshapes": 1.25 }
+      },
+      {
+        "id": "intense",
+        "label": "极限考验",
+        "stress": 0.85,
+        "comment": "高手专属：T/Z/L/J 权重超过线条，最大化空间规划压力",
+        "shapeWeights": { "lines": 1.45, "rects": 1.3, "squares": 1.55, "tshapes": 1.42, "zshapes": 1.48, "lshapes": 1.38, "jshapes": 1.38 }
+      }
+    ],
+    "pacing": {
+      "comment": "节奏张弛：每 cycleLength 轮出块为一个周期，前 tensionPhases 轮略加压，后面轮次释放。参考音乐副歌-间奏结构，避免单调递增的难度导致倦怠。",
+      "enabled": true,
+      "cycleLength": 5,
+      "tensionPhases": 3,
+      "tensionBonus": 0.04,
+      "releaseBonus": -0.12
+    },
+    "engagement": {
+      "comment": "参与度信号：首局保护、挫败回弹、差一点放大、新鲜感注入。",
+      "firstSessionSpawns": 5,
+      "firstSessionStressOverride": -0.15,
+      "frustrationThreshold": 4,
+      "frustrationRelief": -0.18,
+      "nearMissStressBonus": -0.1,
+      "nearMissClearGuarantee": 2,
+      "noveltyDiversityBoost": 0.15
+    },
+    "flowZone": {
+      "comment": "心流参数：多维阈值判定心流状态，各 adjust 值叠加到 stress。",
+      "thinkTimeLowMs": 1200,
+      "thinkTimeHighMs": 10000,
+      "thinkTimeVarianceHigh": 8000000,
+      "clearRateIdeal": 0.32,
+      "clearRateTolerance": 0.12,
+      "missRateWorry": 0.28,
+      "recoveryFillThreshold": 0.82,
+      "recoveryDuration": 4,
+      "skillAdjustScale": 0.3,
+      "flowBoredAdjust": 0.08,
+      "flowAnxiousAdjust": -0.12,
+      "recoveryAdjust": -0.2,
+      "comboRewardAdjust": 0.05
+    }
+  },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
-    "comment": "仅影响 RL 训练用即时奖励，不改变盘面计分 score。用于缓解「无消除则整段回报为 0」导致的梯度消失。",
-    "placeBonus": 0.16,
+    "comment": "仅影响 RL 训练用即时奖励，不改变盘面计分 score。用于缓解「无消除则整段回报为 0」导致的梯度消失。multiClearBonus 鼓励一次多行消除；survivalPerStep 鼓励长期存活。",
+    "placeBonus": 0.12,
     "densePerClear": 2.5,
+    "multiClearBonus": 1.8,
     "winBonus": 50,
-    "stuckPenalty": -1.2
+    "stuckPenalty": -2.0,
+    "survivalPerStep": 0.04
   },
   "featureEncoding": {
     "comment": "state = 15 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块形状掩码；phi = state + 7 维动作描述。改维度须同步 features.js / features.py 并重训。",

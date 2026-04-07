@@ -1,7 +1,14 @@
 /**
- * 候选块出块算法层：仅依赖 Grid + 策略里的 shapeWeights，与 UI / 会话无关。
- * 根据盘面填充率提升「合法落点较多 / 较小块」的权重，并在中高填充下尽量拒绝
- * 「任意顺序都无法全部放下」的三连块组合，以降低开局即怼死的概率。
+ * 候选块出块算法层：依赖 Grid + 策略里的 shapeWeights + spawnHints。
+ *
+ * spawnHints（来自自适应引擎）：
+ *   clearGuarantee  (0-3) 三连块中至少 N 个能触发即时消行
+ *   sizePreference  (-1~1) 负=偏小块，正=偏大块
+ *   diversityBoost  (0~1) 越高→三连块品类越多样
+ *
+ * 核心不变量：
+ *   1. 在中高填充下仍验证 tripletSequentiallySolvable（避免不公平死局）
+ *   2. 保证最低机动性（minMobilityTarget）
  */
 
 import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights } from '../shapes.js';
@@ -154,6 +161,11 @@ function minPlacementsOf(chosen) {
  */
 export function generateDockShapes(grid, strategyConfig) {
     const weights = strategyConfig.shapeWeights || {};
+    const hints = strategyConfig.spawnHints || {};
+    const clearTarget = Math.max(0, Math.min(3, hints.clearGuarantee ?? 1));
+    const sizePref = hints.sizePreference ?? 0;
+    const divBoost = hints.diversityBoost ?? 0;
+
     const allShapes = getAllShapes();
     const fill = grid.getFillRatio();
 
@@ -191,20 +203,27 @@ export function generateDockShapes(grid, strategyConfig) {
     for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
         const blocks = [];
         const usedIds = {};
+        const usedCategories = {};
         const mobTarget = minMobilityTarget(fill, attempt);
-
         const chosenMeta = [];
+        let clearCount = 0;
 
+        /* -- 阶段 1：填充消行候选（受 clearGuarantee 控制）-- */
         const clearCandidates = scored.filter((s) => s.gapFills > 0);
-        if (clearCandidates.length > 0) {
-            const k = Math.min(3, clearCandidates.length);
-            const idx = Math.floor(Math.random() * k);
-            const first = clearCandidates[idx];
-            blocks.push(first.shape);
-            usedIds[first.shape.id] = true;
-            chosenMeta.push({ shape: first.shape, placements: first.placements });
+        const clearSeats = Math.min(clearTarget, clearCandidates.length, 2);
+        for (let ci = 0; ci < clearSeats; ci++) {
+            const avail = clearCandidates.filter(s => !usedIds[s.shape.id]);
+            if (avail.length === 0) break;
+            const k = Math.min(3, avail.length);
+            const pick = avail[Math.floor(Math.random() * k)];
+            blocks.push(pick.shape);
+            usedIds[pick.shape.id] = true;
+            usedCategories[pick.category] = (usedCategories[pick.category] || 0) + 1;
+            chosenMeta.push({ shape: pick.shape, placements: pick.placements });
+            clearCount++;
         }
 
+        /* -- 阶段 2：加权抽样补齐 -- */
         const augmentPool = (list) => {
             const bulkyCells = chosenMeta.reduce((s, m) => s + shapeCellCount(m.shape.data), 0);
             const wantSmall = fill > 0.52 && bulkyCells >= 10;
@@ -215,14 +234,30 @@ export function generateDockShapes(grid, strategyConfig) {
                 if (fill > 0.45 && minPlacementsOf(chosenMeta) < mobTarget + 2) {
                     w *= 1 + pc / (8 + fill * 24);
                 }
-                if (wantSmall) {
-                    const cells = shapeCellCount(s.shape.data);
-                    if (cells <= 4) {
-                        w *= 1.65;
-                    } else if (cells >= 8) {
-                        w *= 0.72;
-                    }
+
+                /* sizePreference: <0 偏小块, >0 偏大块 */
+                const cells = shapeCellCount(s.shape.data);
+                if (sizePref < -0.01) {
+                    if (cells <= 4) w *= 1 + Math.abs(sizePref) * 1.5;
+                    else if (cells >= 8) w *= 1 - Math.abs(sizePref) * 0.5;
+                } else if (sizePref > 0.01) {
+                    if (cells >= 6) w *= 1 + sizePref * 1.2;
+                    else if (cells <= 3) w *= 1 - sizePref * 0.4;
+                } else if (wantSmall) {
+                    if (cells <= 4) w *= 1.65;
+                    else if (cells >= 8) w *= 0.72;
                 }
+
+                /* diversityBoost: 惩罚已选品类 */
+                if (divBoost > 0 && usedCategories[s.category]) {
+                    w *= Math.max(0.2, 1 - divBoost * usedCategories[s.category]);
+                }
+
+                /* clearGuarantee: 还差消行块时提升消行候选权重 */
+                if (clearCount < clearTarget && s.gapFills > 0) {
+                    w *= 1.6;
+                }
+
                 return { entry: s, w };
             });
         };
@@ -232,52 +267,45 @@ export function generateDockShapes(grid, strategyConfig) {
         while (blocks.length < 3 && remaining.length > 0) {
             const pool = augmentPool(remaining);
             const pick = pickWeighted(pool);
-            usedIds[pick.entry.shape.id] = true;
-            blocks.push(pick.entry.shape);
-            chosenMeta.push({ shape: pick.entry.shape, placements: pick.entry.placements });
+            const entry = pick.entry;
+            usedIds[entry.shape.id] = true;
+            usedCategories[entry.category] = (usedCategories[entry.category] || 0) + 1;
+            blocks.push(entry.shape);
+            chosenMeta.push({ shape: entry.shape, placements: entry.placements });
+            if (entry.gapFills > 0) clearCount++;
             remaining = scored.filter((s) => !usedIds[s.shape.id]);
         }
 
         while (blocks.length < 3) {
             const p = pickShapeByCategoryWeights(weights);
-            if (!p) {
-                break;
-            }
+            if (!p) break;
             blocks.push(p);
             chosenMeta.push({ shape: p, placements: countLegalPlacements(grid, p.data) });
         }
 
         const triplet = blocks.slice(0, 3);
-        if (triplet.length < 3) {
-            continue;
-        }
+        if (triplet.length < 3) continue;
 
         const minPc = Math.min(
             countLegalPlacements(grid, triplet[0].data),
             countLegalPlacements(grid, triplet[1].data),
             countLegalPlacements(grid, triplet[2].data)
         );
-
-        if (minPc < mobTarget) {
-            continue;
-        }
+        if (minPc < mobTarget) continue;
 
         if (fill >= FILL_SURVIVABILITY_ON) {
             const datas = triplet.map((s) => s.data);
-            if (!tripletSequentiallySolvable(grid, datas)) {
-                continue;
-            }
+            if (!tripletSequentiallySolvable(grid, datas)) continue;
         }
 
         for (let i = triplet.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [triplet[i], triplet[j]] = [triplet[j], triplet[i]];
         }
-
         return triplet;
     }
 
-    /** 兜底：仍返回可下子三连（尽量带机动性加权的一次抽样） */
+    /* 兜底：尽量带机动性加权的一次抽样 */
     const blocks = [];
     const usedIds = {};
     const clearCandidates = scored.filter((s) => s.gapFills > 0);
@@ -298,11 +326,8 @@ export function generateDockShapes(grid, strategyConfig) {
     }
     while (blocks.length < 3) {
         const p = pickShapeByCategoryWeights(weights);
-        if (p) {
-            blocks.push(p);
-        } else {
-            break;
-        }
+        if (p) blocks.push(p);
+        else break;
     }
     return blocks.slice(0, 3);
 }
