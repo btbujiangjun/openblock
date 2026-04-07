@@ -224,22 +224,24 @@ export const SKINS = {
             '#5ec9a0', '#5ab8d4', '#f0a868', '#f07870',
             '#8898d8', '#9ec86e', '#f09890', '#b888c8'
         ],
-        gridOuter: '#b8b0a8',
-        gridCell: '#f5f2ee',
-        gridLine: 'rgba(80,64,56,0.18)',
+        /* 外框略深、格内更亮、网格线更清晰，直角盘面下更易数格 */
+        gridOuter: '#8f867c',
+        gridCell: '#faf8f5',
+        gridLine: 'rgba(45, 38, 32, 0.22)',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 6,
         blockStyle: 'flat',
         clearFlash: 'rgba(255,255,255,0.85)',
-        cssBg: '#F2EFE9'
+        /* 整体页底稍沉，衬托中间棋盘 */
+        cssBg: '#e4ddd4'
     },
     retro: {
         id: 'retro',
         name: '像素',
         blockColors: [
             '#00C853', '#2962FF', '#FF6D00', '#FFD600',
-            '#6200EA', '#C51162', '#D50000', '#AA00FF'
+            '#9575FF', '#EC407A', '#FF5252', '#E040FB'
         ],
         gridOuter: '#263238',
         gridCell: '#37474F',

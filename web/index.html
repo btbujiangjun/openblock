@@ -81,11 +81,14 @@
             </div>
             <div class="progression-xp-text" id="prog-xp-text">0 / 100 XP</div>
         </div>
-        <div id="game-wrapper">
-            <canvas id="game-grid" width="304" height="304" aria-label="游戏网格"></canvas>
-            <canvas id="drag-ghost" aria-hidden="true"></canvas>
+        <div class="play-stack" aria-label="游戏区">
+            <div id="game-wrapper">
+                <canvas id="game-grid" width="304" height="304" aria-label="游戏网格"></canvas>
+            </div>
+            <div class="block-dock" id="dock"></div>
         </div>
-        <div class="block-dock" id="dock"></div>
+        <!-- 必须挂在 #app 下，勿放在 .play-stack 内：backdrop-filter 会使 fixed 相对祖先，拖动时撑出滚动条 -->
+        <canvas id="drag-ghost" width="1" height="1" aria-hidden="true"></canvas>
     </div>
     <div id="menu" class="screen active">
         <h1 class="app-wordmark app-wordmark--hero" aria-label="Block Blast">

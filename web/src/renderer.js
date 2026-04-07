@@ -233,6 +233,11 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 }
 
+function syncGridCanvasCssVar(canvas) {
+    if (typeof document === 'undefined') return;
+    document.documentElement.style.setProperty('--grid-canvas-width', `${canvas.width}px`);
+}
+
 export class Renderer {
     constructor(canvas) {
         this.canvas = canvas;
@@ -241,6 +246,7 @@ export class Renderer {
         this.gridSize = CONFIG.GRID_SIZE;
         this.canvas.width = this.gridSize * this.cellSize;
         this.canvas.height = this.gridSize * this.cellSize;
+        syncGridCanvasCssVar(this.canvas);
         this.particles = [];
         this.clearCells = [];
         this.shakeOffset = { x: 0, y: 0 };
@@ -257,6 +263,7 @@ export class Renderer {
         this.gridSize = n;
         this.canvas.width = n * this.cellSize;
         this.canvas.height = n * this.cellSize;
+        syncGridCanvasCssVar(this.canvas);
     }
 
     clear() {

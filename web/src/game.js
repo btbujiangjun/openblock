@@ -445,6 +445,8 @@ export class Game {
         this.previewBlock = null;
         this.drag = null;
         this.dragBlock = null;
+        this._resetGhostDomStyles();
+        document.body.classList.remove('block-drag-active');
         this.ghostCanvas.style.display = 'none';
         this.renderer.clearParticles();
         this.renderer.setClearCells([]);
@@ -458,6 +460,23 @@ export class Game {
         document.body.classList.toggle('game-rl-preview', this.rlPreviewLocked);
     }
 
+    /** 棋盘上每一格在屏幕上的像素边长（#game-grid 可能被 CSS 缩放） */
+    _boardDisplayCellSize() {
+        const rect = this.canvas.getBoundingClientRect();
+        const n = Math.max(1, this.grid.size);
+        const w = rect.width;
+        if (!(w > 0)) {
+            return CONFIG.CELL_SIZE;
+        }
+        return w / n;
+    }
+
+    /** 清除幽灵画布的内联宽高，避免与 bitmap 尺寸不一致 */
+    _resetGhostDomStyles() {
+        this.ghostCanvas.style.width = '';
+        this.ghostCanvas.style.height = '';
+    }
+
     startDrag(index, x, y) {
         if (this.rlPreviewLocked || this.replayPlaybackLocked) {
             return;
@@ -467,9 +486,14 @@ export class Game {
 
         this.drag = { index };
         this.dragBlock = block;
+        this._resetGhostDomStyles();
         this.ghostCanvas.width = block.width * CONFIG.CELL_SIZE;
         this.ghostCanvas.height = block.height * CONFIG.CELL_SIZE;
+        const cellDisp = this._boardDisplayCellSize();
+        this.ghostCanvas.style.width = `${block.width * cellDisp}px`;
+        this.ghostCanvas.style.height = `${block.height * cellDisp}px`;
         this.ghostCanvas.style.display = 'block';
+        document.body.classList.add('block-drag-active');
         this.updateGhostPosition(x, y);
         this.renderGhost();
 
@@ -483,8 +507,10 @@ export class Game {
     }
 
     updateGhostPosition(x, y) {
-        this.ghostCanvas.style.left = (x - this.ghostCanvas.width / 2) + 'px';
-        this.ghostCanvas.style.top = (y - this.ghostCanvas.height / 2) + 'px';
+        const gw = this.ghostCanvas.offsetWidth || this.ghostCanvas.width;
+        const gh = this.ghostCanvas.offsetHeight || this.ghostCanvas.height;
+        this.ghostCanvas.style.left = `${x - gw / 2}px`;
+        this.ghostCanvas.style.top = `${y - gh / 2}px`;
     }
 
     renderGhost() {
@@ -508,12 +534,13 @@ export class Game {
     ghostAimOnGrid() {
         const ghostRect = this.ghostCanvas.getBoundingClientRect();
         const rect = this.canvas.getBoundingClientRect();
+        const cellDisp = this._boardDisplayCellSize();
         const relX = ghostRect.left + ghostRect.width / 2 - rect.left;
         const relY = ghostRect.top + ghostRect.height / 2 - rect.top;
-        const pad = CONFIG.CELL_SIZE;
+        const pad = cellDisp;
         return {
-            aimCx: relX / CONFIG.CELL_SIZE,
-            aimCy: relY / CONFIG.CELL_SIZE,
+            aimCx: relX / cellDisp,
+            aimCy: relY / cellDisp,
             overBoard: relX >= -pad && relY >= -pad && relX <= rect.width + pad && relY <= rect.height + pad
         };
     }
@@ -603,7 +630,9 @@ export class Game {
             );
         }
 
+        this._resetGhostDomStyles();
         this.ghostCanvas.style.display = 'none';
+        document.body.classList.remove('block-drag-active');
         this.ghostCtx.clearRect(0, 0, this.ghostCanvas.width, this.ghostCanvas.height);
 
         const dockCanvas = document.querySelector(`.dock-block[data-index="${this.drag.index}"] canvas`);
@@ -1024,6 +1053,8 @@ export class Game {
         this.previewBlock = null;
         this.drag = null;
         this.dragBlock = null;
+        this._resetGhostDomStyles();
+        document.body.classList.remove('block-drag-active');
         this.ghostCanvas.style.display = 'none';
         this.renderer.clearParticles();
         this.renderer.setClearCells([]);

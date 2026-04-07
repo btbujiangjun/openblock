@@ -13,7 +13,7 @@
     "test": "vitest run",
     "lint": "eslint web/src tests",
     "server": "python3 server.py",
-    "server:rl": "env RL_CHECKPOINT_SAVE=rl_checkpoints/bb_policy.pt RL_TRAINING_LOG=rl_checkpoints/training.jsonl RL_SAVE_EVERY=500 RL_DEVICE=auto RL_AUTOLOAD=1 RL_LR=1.5e-4 RL_GAMMA=0.99 RL_VALUE_COEF=0.18 RL_VALUE_HUBER_BETA=150 RL_ENTROPY_COEF=0.012 RL_ENTROPY_COEF_MIN=0.003 RL_ENTROPY_DECAY_EPISODES=8000 RL_RETURN_SCALE=0.025 RL_ADV_NORM=1 RL_ADV_MIN_STD=1e-4 RL_GRAD_CLIP=1.0 RL_CURRICULUM=1 python3 server.py"
+    "server:rl": "env RL_CHECKPOINT_SAVE=rl_checkpoints/bb_policy.pt RL_TRAINING_LOG=rl_checkpoints/training.jsonl RL_SAVE_EVERY=500 RL_DEVICE=auto RL_AUTOLOAD=1 RL_LR=1e-3 RL_GAMMA=0.99 RL_VALUE_COEF=0.25 RL_VALUE_HUBER_BETA=10 RL_ENTROPY_COEF=0.01 RL_ENTROPY_COEF_MIN=0.004 RL_ENTROPY_DECAY_EPISODES=12000 RL_RETURN_SCALE=0.1 RL_ADV_NORM=1 RL_ADV_MIN_STD=1e-4 RL_GRAD_CLIP=1.0 RL_CURRICULUM=1 python3 server.py"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

@@ -1,4 +1,13 @@
-"""策略 / 价值双塔 + 残差 MLP（PyTorch）。φ、ψ 维度由 shared/game_rules.json 的 featureEncoding 决定（维度见 shared/game_rules.json 的 phiDim/stateDim）。"""
+"""
+策略 / 价值网络（PyTorch）。
+φ、ψ 维度由 shared/game_rules.json featureEncoding 决定。
+
+提供四种架构（--arch）：
+  light-shared  — 默认；2 层 64 宽共享主干 + 动作投射，~20K 参数，匹配 161D 手工特征的有效复杂度
+  light         — 2 层 64 宽双塔，~28K 参数
+  shared        — 多层残差共享主干（旧默认，~1.2M 参数）
+  split         — 多层残差双塔
+"""
 
 from __future__ import annotations
 
@@ -7,6 +16,103 @@ import torch.nn as nn
 
 from .features import ACTION_FEATURE_DIM, PHI_DIM, STATE_FEATURE_DIM
 
+
+# ---------------------------------------------------------------------------
+# Light models — 匹配游戏策略空间的低有效维度（与线性模型同数量级表达力）
+# ---------------------------------------------------------------------------
+
+class LightPolicyValueNet(nn.Module):
+    """双塔 2 层 MLP，~28K 参数。"""
+
+    def __init__(self, width: int = 64):
+        super().__init__()
+        self.width = width
+        self.policy_fc1 = nn.Linear(PHI_DIM, width)
+        self.policy_fc2 = nn.Linear(width, width)
+        self.policy_head = nn.Linear(width, 1)
+        self.value_fc1 = nn.Linear(STATE_FEATURE_DIM, width)
+        self.value_fc2 = nn.Linear(width, width)
+        self.value_head = nn.Linear(width, 1)
+
+    def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
+        x = nn.functional.gelu(self.policy_fc1(phi))
+        x = nn.functional.gelu(self.policy_fc2(x))
+        return self.policy_head(x).squeeze(-1)
+
+    def forward_value(self, state_feat: torch.Tensor) -> torch.Tensor:
+        x = nn.functional.gelu(self.value_fc1(state_feat))
+        x = nn.functional.gelu(self.value_fc2(x))
+        return self.value_head(x).squeeze(-1)
+
+    def forward_batched(
+        self,
+        state_feats: torch.Tensor,
+        action_feats: torch.Tensor,
+        actions_per_step: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Fused: values [K] + policy logits [total_actions] in large GPU batches."""
+        values = self.forward_value(state_feats)
+        s_exp = torch.repeat_interleave(state_feats, actions_per_step, dim=0)
+        phi = torch.cat([s_exp, action_feats], dim=-1)
+        logits = self.forward_policy_logits(phi)
+        return logits, values
+
+
+class LightSharedPolicyValueNet(nn.Module):
+    """共享主干 2 层 MLP + 动作投射 + 融合头，~20K 参数；状态只编码一次。"""
+
+    def __init__(self, width: int = 64, action_embed_dim: int = 32):
+        super().__init__()
+        self.width = width
+        self.action_embed_dim = action_embed_dim
+        self.state_fc1 = nn.Linear(STATE_FEATURE_DIM, width)
+        self.state_fc2 = nn.Linear(width, width)
+        self.action_proj = nn.Linear(ACTION_FEATURE_DIM, action_embed_dim)
+        self.policy_fuse = nn.Sequential(
+            nn.Linear(width + action_embed_dim, width),
+            nn.GELU(),
+            nn.Linear(width, 1),
+        )
+        self.value_head = nn.Linear(width, 1)
+
+    def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
+        x = nn.functional.gelu(self.state_fc1(s))
+        return nn.functional.gelu(self.state_fc2(x))
+
+    def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
+        if phi.shape[0] == 0:
+            return phi.new_zeros((0,))
+        state0 = phi[0:1, :STATE_FEATURE_DIM]
+        h = self._encode_state(state0)
+        a = phi[:, STATE_FEATURE_DIM:]
+        ae = nn.functional.gelu(self.action_proj(a))
+        h_exp = h.expand(a.shape[0], -1)
+        x = torch.cat([h_exp, ae], dim=-1)
+        return self.policy_fuse(x).squeeze(-1)
+
+    def forward_value(self, state_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        return self.value_head(h).squeeze(-1)
+
+    def forward_batched(
+        self,
+        state_feats: torch.Tensor,
+        action_feats: torch.Tensor,
+        actions_per_step: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Fused: encode states once → values [K] + policy logits [total_actions]."""
+        h = self._encode_state(state_feats)
+        values = self.value_head(h).squeeze(-1)
+        ae = nn.functional.gelu(self.action_proj(action_feats))
+        h_exp = torch.repeat_interleave(h, actions_per_step, dim=0)
+        x = torch.cat([h_exp, ae], dim=-1)
+        logits = self.policy_fuse(x).squeeze(-1)
+        return logits, values
+
+
+# ---------------------------------------------------------------------------
+# Heavy models — 残差 MLP；用于超大规模训练或从旧 checkpoint 续训
+# ---------------------------------------------------------------------------
 
 class ResidualMLPBlock(nn.Module):
     """Pre-LayerNorm + GELU FFN + 残差。"""
@@ -48,7 +154,6 @@ class PolicyValueNet(nn.Module):
         self.value_head = nn.Linear(width, 1)
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
-        """phi: [N, PHI_DIM] -> logits [N]"""
         x = self.policy_stem(phi)
         x = nn.functional.gelu(x)
         for blk in self.policy_blocks:
@@ -56,7 +161,6 @@ class PolicyValueNet(nn.Module):
         return self.policy_head(x).squeeze(-1)
 
     def forward_value(self, state_feat: torch.Tensor) -> torch.Tensor:
-        """state_feat: [B, STATE_FEATURE_DIM] -> [B]"""
         x = self.value_stem(state_feat)
         x = nn.functional.gelu(x)
         for blk in self.value_blocks:
@@ -65,7 +169,7 @@ class PolicyValueNet(nn.Module):
 
 
 class SharedPolicyValueNet(nn.Module):
-    """AlphaZero 风格：状态只过一套残差塔，策略头对 (h(s), ψ(a)) 打分，避免对每个合法步重复整段 φ 编码。"""
+    """AlphaZero 风格：状态只过一套残差塔，策略头对 (h(s), ψ(a)) 打分。"""
 
     def __init__(
         self,
@@ -98,7 +202,6 @@ class SharedPolicyValueNet(nn.Module):
         return x
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
-        """phi: [N, PHI_DIM]，各行 state 段须与首行一致（与 build_phi_batch 一致）。"""
         if phi.shape[0] == 0:
             return phi.new_zeros((0,))
         state0 = phi[0:1, :STATE_FEATURE_DIM]
