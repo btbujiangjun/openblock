@@ -1,19 +1,34 @@
 """
-训练设备解析与 CPU→Apple GPU 传输辅助。
+训练设备解析与 CPU→GPU 传输辅助。
 
-在 **macOS** 上，`auto` 优先使用 **MPS**（Metal），便于 Apple Silicon 上高效训练；
-Linux/Windows 上 `auto` 顺序为 CUDA → MPS → CPU。
+支持后端：
+  - **CUDA**（Linux/Windows 多卡；``cuda`` / ``cuda:0`` / ``cuda:1``）
+  - **MPS**（macOS Apple Silicon）
+  - **CPU**
 
-若某算子在 MPS 上未实现，可设置环境变量 ``PYTORCH_ENABLE_MPS_FALLBACK=1`` 自动回退 CPU。
+``auto`` 策略：
+  - **darwin**：MPS → CPU（通常无 CUDA）
+  - **其它**：CUDA → MPS → CPU
 
-M4 / MPS 吞吐相关环境变量（见仓库根目录 ``.env.example``）：
-  ``RL_TORCH_COMPILE`` — 设为 1 时对 ``PolicyValueNet`` 尝试 ``torch.compile``（首局可能较慢）
-  ``RL_MPS_SYNC`` — 仅多线程 Flask 下必要时设为 1；单进程训练保持 0 以减少同步开销
+多卡训练（CUDA）：
+  - 环境变量 ``RL_CUDA_DEVICE_IDS``：``all`` / ``0,1`` / ``0``；与 ``resolve_cuda_device_ids_for_data_parallel()`` 配合，
+    在 ``train.py`` 中对价值头使用 ``torch.nn.parallel.data_parallel``（可选，见 ``RL_CUDA_DP_VALUE``）。
+  - 也可在启动前设置 ``CUDA_VISIBLE_DEVICES=0,1`` 限定可见卡。
+
+CUDA 吞吐（可选环境变量）：
+  - ``RL_CUDA_BENCHMARK=1`` — 启用 cudnn benchmark（输入尺寸固定时有利）
+  - ``RL_CUDA_TF32`` — 默认等价开启 TF32 矩阵乘（设为 0 关闭）
+
+M4 / MPS：
+  - ``RL_TORCH_COMPILE`` / ``RL_MPS_SYNC`` 见仓库说明
+
+若某算子在 MPS 上未实现，可设置 ``PYTORCH_ENABLE_MPS_FALLBACK=1``。
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
 import warnings
 
@@ -22,20 +37,36 @@ _mps_throughput_applied = False
 
 def resolve_training_device(preference: str = "auto"):
     """
-    :param preference: ``auto`` | ``mps`` | ``cuda`` | ``cpu``
+    :param preference:
+        ``auto`` | ``cpu`` | ``mps`` | ``cuda`` | ``cuda:0`` | ``cuda:1`` | …
     """
     import torch
 
-    pref = (preference or "auto").lower().strip()
+    pref = (preference or "auto").strip().lower()
+
+    # cuda:N
+    m = re.match(r"^cuda\s*:\s*(\d+)\s*$", pref)
+    if m:
+        if not torch.cuda.is_available():
+            warnings.warn("CUDA 不可用，回退 CPU", stacklevel=2)
+            return torch.device("cpu")
+        idx = int(m.group(1))
+        if idx < 0 or idx >= torch.cuda.device_count():
+            warnings.warn(
+                f"cuda:{idx} 无效（当前 device_count={torch.cuda.device_count()}），使用 cuda:0",
+                stacklevel=2,
+            )
+            idx = 0
+        return torch.device(f"cuda:{idx}")
+
     if pref == "auto":
-        # Apple：通常无 CUDA，优先 MPS 可少一次无效检测并直达 GPU
         if sys.platform == "darwin":
             mps_b = getattr(torch.backends, "mps", None)
             if mps_b is not None and mps_b.is_available():
                 return torch.device("mps")
             return torch.device("cpu")
         if torch.cuda.is_available():
-            return torch.device("cuda")
+            return torch.device("cuda:0")
         mps_b = getattr(torch.backends, "mps", None)
         if mps_b is not None and mps_b.is_available():
             return torch.device("mps")
@@ -44,7 +75,7 @@ def resolve_training_device(preference: str = "auto"):
         if not torch.cuda.is_available():
             warnings.warn("CUDA 不可用，使用 CPU", stacklevel=2)
             return torch.device("cpu")
-        return torch.device("cuda")
+        return torch.device("cuda:0")
     if pref == "mps":
         mps_b = getattr(torch.backends, "mps", None)
         if mps_b is None or not mps_b.is_available():
@@ -55,6 +86,47 @@ def resolve_training_device(preference: str = "auto"):
         return torch.device("cpu")
     warnings.warn(f"未知 device={preference!r}，使用 CPU", stacklevel=2)
     return torch.device("cpu")
+
+
+def cuda_device_indices_available() -> list[int]:
+    """当前进程可见的 CUDA 设备下标列表（受 CUDA_VISIBLE_DEVICES 影响）。"""
+    import torch
+
+    if not torch.cuda.is_available():
+        return []
+    return list(range(torch.cuda.device_count()))
+
+
+def resolve_cuda_device_ids_for_data_parallel() -> list[int]:
+    """
+    用于 ``torch.nn.parallel.data_parallel`` 的 device_ids（从 0 起的相对下标）。
+
+    环境变量 ``RL_CUDA_DEVICE_IDS``：
+      - 未设置或空：``[0]``
+      - ``all`` / ``*``：全部可见卡
+      - ``0,1``：指定下标（相对当前可见设备集合）
+    """
+    import torch
+
+    raw = os.environ.get("RL_CUDA_DEVICE_IDS", "").strip().lower()
+    n = torch.cuda.device_count()
+    if n <= 0:
+        return []
+    if not raw:
+        return [0]
+    if raw in ("all", "*"):
+        return list(range(n))
+    out: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if not part.isdigit():
+            continue
+        i = int(part)
+        if 0 <= i < n:
+            out.append(i)
+    return out if out else [0]
 
 
 def tensor_to_device(tensor, device, non_blocking: bool | None = None):
@@ -79,18 +151,52 @@ def maybe_mps_synchronize(device) -> None:
 
 def apply_throughput_tuning(device) -> None:
     """
-    单机 **MPS**（Apple Silicon，含 M4）训练吞吐：在首处 ``import torch`` 之后、首次 GPU 计算前调用一次即可。
+    在首次 GPU 计算前调用一次。
 
-    - ``torch.set_float32_matmul_precision('high')``：允许更快 FP32 矩阵乘实现（略损数值冗余，RL 通常可接受）。
+    - **MPS**：``torch.set_float32_matmul_precision('high')``
+    - **CUDA**：可选 cudnn benchmark、TF32（见模块文档字符串）
     """
     import torch
 
-    if getattr(device, "type", None) != "mps":
+    dev_type = getattr(device, "type", None)
+    if dev_type == "mps":
+        global _mps_throughput_applied
+        if _mps_throughput_applied:
+            return
+        try:
+            torch.set_float32_matmul_precision("high")
+        except Exception:
+            pass
+        _mps_throughput_applied = True
         return
+
+    if dev_type == "cuda":
+        if os.environ.get("RL_CUDA_BENCHMARK", "").lower() in ("1", "true", "yes"):
+            torch.backends.cudnn.benchmark = True
+        tf32_on = os.environ.get("RL_CUDA_TF32", "1").lower() not in ("0", "false", "no")
+        try:
+            torch.backends.cuda.matmul.allow_tf32 = tf32_on
+            torch.backends.cudnn.allow_tf32 = tf32_on
+        except Exception:
+            pass
+        return
+
+
+def device_summary_line(device) -> str:
+    """一行可打印的设备与 CUDA 卡信息（用于训练日志）。"""
+    import torch
+
+    d = getattr(device, "type", "?")
+    if d != "cuda":
+        return f"device={device}"
+    idx = device.index if device.index is not None else 0
+    name = ""
     try:
-        torch.set_float32_matmul_precision("high")
+        name = torch.cuda.get_device_name(idx)
     except Exception:
-        pass
+        name = "?"
+    n = torch.cuda.device_count()
+    return f"device={device}  ({name})  |  可见 CUDA 卡数: {n}"
 
 
 def adam_for_training(params, lr: float, **kwargs):

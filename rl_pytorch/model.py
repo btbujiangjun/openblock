@@ -49,9 +49,16 @@ class LightPolicyValueNet(nn.Module):
         state_feats: torch.Tensor,
         action_feats: torch.Tensor,
         actions_per_step: torch.Tensor,
+        values_precomputed: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Fused: values [K] + policy logits [total_actions] in large GPU batches."""
-        values = self.forward_value(state_feats)
+        """Fused: values [K] + policy logits [total_actions] in large GPU batches.
+
+        ``values_precomputed``：多卡时对价值头已做 ``data_parallel`` 时可传入，跳过重算 ``forward_value``。
+        """
+        if values_precomputed is not None:
+            values = values_precomputed
+        else:
+            values = self.forward_value(state_feats)
         s_exp = torch.repeat_interleave(state_feats, actions_per_step, dim=0)
         phi = torch.cat([s_exp, action_feats], dim=-1)
         logits = self.forward_policy_logits(phi)
@@ -99,10 +106,17 @@ class LightSharedPolicyValueNet(nn.Module):
         state_feats: torch.Tensor,
         action_feats: torch.Tensor,
         actions_per_step: torch.Tensor,
+        values_precomputed: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Fused: encode states once → values [K] + policy logits [total_actions]."""
+        """Fused: encode states once → values [K] + policy logits [total_actions].
+
+        ``values_precomputed``：多卡并行价值头时传入，仍会在本设备上算 ``_encode_state`` 供策略支路使用。
+        """
         h = self._encode_state(state_feats)
-        values = self.value_head(h).squeeze(-1)
+        if values_precomputed is not None:
+            values = values_precomputed
+        else:
+            values = self.value_head(h).squeeze(-1)
         ae = nn.functional.gelu(self.action_proj(action_feats))
         h_exp = torch.repeat_interleave(h, actions_per_step, dim=0)
         x = torch.cat([h_exp, ae], dim=-1)

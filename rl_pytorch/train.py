@@ -13,13 +13,16 @@ GPU 加速设计：
   - log_prob / entropy 向量化 padded log_softmax，零 Python 循环
   - GAE 纯 CPU numpy，避免逐步 MPS→CPU 同步
   - --n-workers 多进程并行采集（CPU 推理），GPU 专做批量更新
+  - **CUDA 多卡**：环境变量 ``RL_CUDA_DEVICE_IDS=all`` 或 ``0,1``；价值头用 ``torch.nn.parallel.data_parallel``
+    （``RL_CUDA_DP_VALUE=1`` 默认开启；设为 0 关闭）。主卡由 ``--device cuda`` / ``cuda:0`` 决定。
 
 用法:
-  python -m rl_pytorch.train --episodes 5000 --device auto
+  CUDA_VISIBLE_DEVICES=0,1 python -m rl_pytorch.train --episodes 5000 --device cuda --batch-episodes 16
+  RL_CUDA_DEVICE_IDS=all python -m rl_pytorch.train --device cuda
   python -m rl_pytorch.train --n-workers 4 --batch-episodes 16   # 多核并行采集
   python -m rl_pytorch.train --arch shared --width 256 --policy-depth 4  # 兼容旧 checkpoint
 
---device auto：macOS 上优先 MPS；其他平台为 CUDA → MPS → CPU。详见 device.py。
+--device：``auto`` | ``cpu`` | ``mps`` | ``cuda`` | ``cuda:N``。详见 ``rl_pytorch/device.py``。
 """
 
 from __future__ import annotations
@@ -39,7 +42,15 @@ from torch.distributions import Categorical, Dirichlet
 
 from .config import WIN_SCORE_THRESHOLD
 from .game_rules import RL_REWARD_SHAPING, rl_curriculum_enabled, rl_win_threshold_for_episode
-from .device import adam_for_training, apply_throughput_tuning, maybe_mps_synchronize, resolve_training_device, tensor_to_device
+from .device import (
+    adam_for_training,
+    apply_throughput_tuning,
+    device_summary_line,
+    maybe_mps_synchronize,
+    resolve_cuda_device_ids_for_data_parallel,
+    resolve_training_device,
+    tensor_to_device,
+)
 from .features import PHI_DIM, STATE_FEATURE_DIM, build_phi_batch
 from .model import LightPolicyValueNet, LightSharedPolicyValueNet, PolicyValueNet, SharedPolicyValueNet
 from .simulator import BlockBlastSimulator
@@ -90,6 +101,17 @@ def _clamp_log_probs_pg(log_probs: torch.Tensor) -> torch.Tensor:
 
 
 AnyNet = PolicyValueNet | SharedPolicyValueNet | LightPolicyValueNet | LightSharedPolicyValueNet
+
+
+class _ValueForward(torch.nn.Module):
+    """供 ``data_parallel`` 仅前向价值头（与主网共享参数）。"""
+
+    def __init__(self, net: AnyNet):
+        super().__init__()
+        self.net = net
+
+    def forward(self, state_feat: torch.Tensor) -> torch.Tensor:
+        return self.net.forward_value(state_feat)
 
 
 def _checkpoint_meta(
@@ -364,9 +386,30 @@ def _reevaluate_and_update(
     )
     n_actions_t = torch.tensor(all_n_actions, device=device, dtype=torch.long)
 
+    # --- 可选：CUDA 多卡上对价值头 data_parallel（light / light-shared）---
+    values_precomputed: torch.Tensor | None = None
+    dp_ids = resolve_cuda_device_ids_for_data_parallel()
+    use_dp_value = (
+        device.type == "cuda"
+        and len(dp_ids) > 1
+        and os.environ.get("RL_CUDA_DP_VALUE", "1").lower() not in ("0", "false", "no")
+        and isinstance(net, (LightPolicyValueNet, LightSharedPolicyValueNet))
+    )
+    if use_dp_value:
+        from torch.nn.parallel import data_parallel as dp_fn
+
+        values_precomputed = dp_fn(
+            _ValueForward(net), states_t, device_ids=dp_ids, output_device=device
+        )
+
     # --- 单次融合前向 ---
     if hasattr(net, "forward_batched"):
-        logits_flat, values_flat = net.forward_batched(states_t, action_feats_t, n_actions_t)
+        if values_precomputed is not None:
+            logits_flat, values_flat = net.forward_batched(
+                states_t, action_feats_t, n_actions_t, values_precomputed=values_precomputed
+            )
+        else:
+            logits_flat, values_flat = net.forward_batched(states_t, action_feats_t, n_actions_t)
     elif isinstance(net, SharedPolicyValueNet):
         values_flat = net.forward_value(states_t)
         parts: list[torch.Tensor] = []
@@ -677,7 +720,7 @@ def main() -> None:
         "--device",
         type=str,
         default="auto",
-        help="auto | mps | cuda | cpu",
+        help="auto | cpu | mps | cuda | cuda:N（多卡见 RL_CUDA_DEVICE_IDS、RL_CUDA_DP_VALUE）",
     )
     p.add_argument("--save", type=str, default="rl_checkpoints/bb_policy.pt")
     p.add_argument("--resume", type=str, default="")
@@ -753,7 +796,15 @@ def main() -> None:
 
     device = resolve_training_device(args.device)
     apply_throughput_tuning(device)
-    print(f"使用设备: {device}", file=sys.stderr)
+    print(f"使用设备: {device_summary_line(device)}", file=sys.stderr)
+    if device.type == "cuda":
+        dp_ids = resolve_cuda_device_ids_for_data_parallel()
+        if len(dp_ids) > 1:
+            dp_on = os.environ.get("RL_CUDA_DP_VALUE", "1").lower() not in ("0", "false", "no")
+            print(
+                f"  CUDA data_parallel 卡: {dp_ids}  |  价值头多卡: {'on' if dp_on else 'off'} (RL_CUDA_DP_VALUE)",
+                file=sys.stderr,
+            )
 
     arch = args.arch.strip().lower()
     net = build_policy_net(
