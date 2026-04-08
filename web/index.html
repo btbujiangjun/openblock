@@ -132,12 +132,16 @@
             </div>
         </div>
     </div>
-    <div id="game-over" class="screen">
-        <h2>无路可走</h2>
-        <div class="final-score" id="over-score">得分：0</div>
-        <div class="final-xp" id="over-xp" hidden></div>
-        <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>
-        <button type="button" class="btn btn-secondary" id="menu-btn">菜单</button>
+    <div id="game-over" class="screen game-over-overlay">
+        <div class="game-over-card">
+            <p class="game-over-label">游戏结束</p>
+            <div class="game-over-score" id="over-score">0</div>
+            <div class="final-xp" id="over-xp" hidden></div>
+            <div class="game-over-actions">
+                <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>
+                <button type="button" class="btn btn-secondary" id="menu-btn">菜单</button>
+            </div>
+        </div>
     </div>
     <div class="app-side-left" aria-label="左侧工具栏">
     <aside id="player-insight-panel" class="side-panel-base player-insight-panel" aria-label="玩家画像与自适应策略">
@@ -181,12 +185,16 @@
             <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled>停止</button>
             <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估</button>
             <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="刷新日志">日志</button>
-            <span class="rl-last-wrap">上局：<span id="rl-last">—</span></span>
         </div>
-        <div class="rl-logs-wrap" aria-label="训练日志">
-            <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
-            <div class="rl-log-sep" role="separator" aria-hidden="true"></div>
-            <pre class="rl-log rl-log--episode" id="rl-log"></pre>
+        <div class="rl-logs-wrap" aria-label="训练损失与进展">
+            <div class="rl-log-pane">
+                <div class="rl-log-pane-head insight-why-title">训练损失</div>
+                <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
+            </div>
+            <div class="rl-log-pane">
+                <div class="rl-log-pane-head insight-why-title">训练进展</div>
+                <pre class="rl-log rl-log--episode" id="rl-progress-log" aria-live="polite"></pre>
+            </div>
         </div>
     </aside>
     </div>

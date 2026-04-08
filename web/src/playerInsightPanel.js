@@ -69,11 +69,22 @@ function _buildWhyLines(insight) {
     }
     if (insight.skillLevel != null) {
         lines.push(
-            `技能估计 ${_pct(insight.skillLevel)}：偏高时略加压、偏低时略减压（见 flowZone.skillAdjustScale）。`
+            `技能估计 ${_pct(insight.skillLevel)}：偏高时略加压、偏低时略减压。`
         );
     }
-    lines.push(_flowExplain(insight.flowState));
+    if (insight.flowDeviation != null) {
+        const fd = insight.flowDeviation;
+        const fdDesc = fd < 0.25 ? '沉浸区' : fd < 0.5 ? '轻度偏移' : '显著偏移';
+        lines.push(`心流偏移 F(t)=${fd.toFixed(2)}（${fdDesc}）→ ${insight.flowState} 方向修正幅度随偏移放大。`);
+    } else {
+        lines.push(_flowExplain(insight.flowState));
+    }
     lines.push(_pacingExplain(insight.pacingPhase));
+    if (insight.feedbackBias != null && Math.abs(insight.feedbackBias) > 0.005) {
+        const fb = insight.feedbackBias;
+        const dir = fb > 0 ? '消行好于预期→微加压' : '消行不足→微减压';
+        lines.push(`闭环反馈 ${fb > 0 ? '+' : ''}${fb.toFixed(3)}：出块后 4 步${dir}。`);
+    }
     if (insight.frustration >= (GAME_RULES.adaptiveSpawn?.engagement?.frustrationThreshold ?? 4)) {
         lines.push('连续多步未消行 → 触发挫败救济（降压 + 消行友好 + 偏小快）。');
     }
@@ -88,6 +99,9 @@ function _buildWhyLines(insight) {
     }
     if (insight.momentum > 0.25) {
         lines.push('近期消行率上升 → 轻微 combo 奖励加压（正反馈）。');
+    }
+    if (insight.profileAtSpawn?.afkCount > 0) {
+        lines.push(`窗口内 ${insight.profileAtSpawn.afkCount} 次 AFK（>15s）已排除出指标计算。`);
     }
     return lines;
 }
@@ -125,8 +139,11 @@ function _render(game) {
 
     if (elState) {
         const flowIcon = liveFlow === 'flow' ? '●' : liveFlow === 'bored' ? '▲' : '▼';
+        const fd = p.flowDeviation;
+        const fdCls = fd < 0.25 ? 'ok' : fd < 0.5 ? 'warn' : 'danger';
         const parts = [
             `<span class="insight-tag insight-tag--${liveFlow}">${flowIcon} ${liveFlow}</span>`,
+            `<span class="insight-signal insight-signal--${fdCls}">F ${fd.toFixed(2)}</span>`,
             `<span class="insight-tag">${p.pacingPhase}</span>`,
             `<span class="insight-tag">${p.sessionPhase}</span>`,
         ];
@@ -138,7 +155,18 @@ function _render(game) {
         const frCls = fr >= 4 ? 'danger' : fr >= 2 ? 'warn' : 'ok';
         parts.push(`<span class="insight-signal insight-signal--${frCls}">未消 ${fr}</span>`);
 
-        parts.push(`<span class="insight-kv">轮次 <strong>${p.spawnRoundIndex}</strong></span>`);
+        const fb = p.feedbackBias;
+        if (Math.abs(fb) > 0.005) {
+            const fbCls = fb > 0.03 ? 'ok' : fb < -0.03 ? 'danger' : 'warn';
+            parts.push(`<span class="insight-signal insight-signal--${fbCls}">闭环 ${fb > 0 ? '+' : ''}${fb.toFixed(3)}</span>`);
+        }
+
+        const afk = p.metrics.afkCount;
+        if (afk > 0) {
+            parts.push(`<span class="insight-signal insight-signal--warn">AFK ${afk}</span>`);
+        }
+
+        parts.push(`<span class="insight-tag">轮次 ${p.spawnRoundIndex}</span>`);
 
         if (p.hadRecentNearMiss) parts.push('<span class="insight-signal insight-signal--warn">⚡ 近失</span>');
         if (p.needsRecovery) parts.push('<span class="insight-signal insight-signal--danger">↻ 恢复</span>');
@@ -152,14 +180,28 @@ function _render(game) {
             .map((w) => `<span class="insight-weight">${CAT_LABEL[w.category] || w.category} ${w.weight.toFixed(1)}</span>`)
             .join('');
         const h = ins.spawnHints;
-        const hintLine = h
-            ? `清${h.clearGuarantee} 尺${(h.sizePreference ?? 0).toFixed(1)} 多${(h.diversityBoost ?? 0).toFixed(1)}`
-            : '';
+        const stressStr = typeof s === 'number' ? s.toFixed(2) : '—';
+        const fillStr = `${(ins.boardFill * 100).toFixed(0)}%`;
+        const fdStr = ins.flowDeviation != null ? ins.flowDeviation.toFixed(2) : '—';
+        const fbStr = ins.feedbackBias != null ? (ins.feedbackBias >= 0 ? '+' : '') + ins.feedbackBias.toFixed(3) : '—';
+        const metricPills = [
+            `<span class="insight-weight">stress ${stressStr}</span>`,
+            `<span class="insight-weight">F(t) ${fdStr}</span>`,
+            `<span class="insight-weight">闭环 ${fbStr}</span>`,
+            `<span class="insight-weight">fill ${fillStr}</span>`
+        ];
+        if (h) {
+            metricPills.push(
+                `<span class="insight-weight">清${h.clearGuarantee}</span>`,
+                `<span class="insight-weight">尺${(h.sizePreference ?? 0).toFixed(1)}</span>`,
+                `<span class="insight-weight">多${(h.diversityBoost ?? 0).toFixed(1)}</span>`
+            );
+        }
         elSpawn.innerHTML = `
-            <p>stress <strong class="insight-stress-val">${typeof s === 'number' ? s.toFixed(2) : '—'}</strong>
-               fill <strong>${(ins.boardFill * 100).toFixed(0)}%</strong>
-               ${hintLine ? `<span class="insight-kv">${hintLine}</span>` : ''}</p>
-            <div class="insight-weights">${weights}</div>`;
+            <div class="insight-spawn-stack">
+                <div class="insight-weights">${metricPills.join('')}</div>
+                <div class="insight-weights">${weights}</div>
+            </div>`;
     } else if (elSpawn) {
         elSpawn.innerHTML = '<span class="insight-muted">开局后显示</span>';
     }

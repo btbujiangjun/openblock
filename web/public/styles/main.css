@@ -318,12 +318,7 @@ body.block-drag-active #app {
     text-align: right;
 }
 
-.final-xp {
-    margin-top: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--accent-dark);
-}
+/* .final-xp 样式见 .game-over-card .final-xp */
 
 .progression-toast .title {
     font-size: 14px;
@@ -505,15 +500,73 @@ body.game-rl-preview .block-dock {
     color: white;
 }
 
-#game-over h2 {
-    font-size: 32px;
-    margin-bottom: 10px;
-    color: var(--warning);
+/* ── 游戏结束浮层 ── */
+.game-over-overlay {
+    background: rgba(0, 0, 0, 0.45) !important;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
 }
 
-.final-score {
-    font-size: 20px;
-    margin-bottom: 15px;
+.game-over-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 32px 44px 28px;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--bg-card, #f0f4f8) 92%, transparent);
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.18),
+        0 1.5px 6px rgba(0, 0, 0, 0.08);
+    animation: gameOverCardIn 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    min-width: 260px;
+    max-width: 340px;
+}
+
+@keyframes gameOverCardIn {
+    from { opacity: 0; transform: scale(0.82) translateY(24px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.game-over-label {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary, #6b7f8e);
+}
+
+.game-over-score {
+    font-size: 52px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin: 2px 0 0;
+    background: linear-gradient(135deg, var(--warning, #e67e22) 0%, #f39c12 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.game-over-card .final-xp {
+    margin: 4px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-dark, #1976d2);
+    letter-spacing: 0.01em;
+}
+
+.game-over-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 18px;
+    width: 100%;
+}
+
+.game-over-actions .btn {
+    width: 100%;
 }
 
 /* —— 左侧栏：玩家画像 + RL —— */
@@ -754,17 +807,18 @@ body.game-rl-preview .block-dock {
     margin: 0 0 3px;
 }
 
-.insight-stress-val {
-    color: #e74c3c;
-    font-weight: 700;
-    font-size: 10px;
+/* 投放参数：指标行与形状权重两行，样式均为 insight-weight 胶囊 */
+.insight-spawn-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .insight-weights {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: 4px;
+    margin-top: 0;
 }
 
 .insight-weight {
@@ -938,59 +992,74 @@ body.game-rl-preview .block-dock {
     font-weight: 700;
 }
 
-.rl-last-wrap {
-    margin: 0;
-    margin-left: auto;
-    font-size: 7.5px;
-    color: var(--text-secondary, #3d5266);
-    white-space: nowrap;
-}
-
 .rl-header-row,
 .rl-stats,
 .rl-actions {
     flex-shrink: 0;
 }
 
-/* 单一滚动区：在 RL 卡片内 flex 伸展，与主列/右栏底缘对齐 */
+/* 在 RL 卡片内占满剩余高度：两卡片均分 + 中间留白区隔，样式对齐 insight 等卡片 */
 .rl-logs-wrap {
     flex: 1 1 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow-x: hidden;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--text-primary, #000) 5%, transparent);
-    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    gap: 8px;
+    overflow: hidden;
+    padding: 2px 0 0;
+    background: transparent;
+    border: none;
 }
 
-.rl-log-sep {
-    flex-shrink: 0;
-    height: 1px;
-    margin: 0;
-    background: color-mix(in srgb, var(--text-primary, #1e293b) 12%, transparent);
-}
-
-.rl-logs-wrap .rl-log {
-    flex: 0 0 auto;
-    margin: 0;
+/* 与 .insight-why-section / .insight-hints-wrap 同一套卡片壳（方框、边框、圆角） */
+.rl-log-pane {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: 4px 6px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    border-radius: 4px;
+}
+
+.rl-log-pane-head {
+    flex-shrink: 0;
+}
+
+/* 紧凑单行：行内不换行，过长时横向滚动（覆盖全局 .rl-log 的 pre-wrap） */
+.rl-logs-wrap .rl-log {
+    flex: 1 1 0;
+    min-height: 0;
+    align-self: stretch;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
     background: transparent;
     border-radius: 0;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
     font-size: 7.5px;
     line-height: 1.28;
+    letter-spacing: -0.01em;
     max-height: none;
-    color: var(--text-primary, #334155);
+    color: var(--text-primary, #1e293b);
+    white-space: pre;
+    word-break: normal;
+    overflow-wrap: normal;
+    overflow-x: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .rl-log--server {
-    padding-bottom: 3px;
+    padding-bottom: 0;
 }
 
 .rl-log--episode {
-    padding-top: 3px;
+    padding-top: 0;
 }
 
 .rl-server-log-label {
@@ -1238,7 +1307,7 @@ body.game-rl-preview .block-dock {
     color: #e67e22;
     font-size: clamp(22px, 5vw, 32px);
     letter-spacing: 0.04em;
-    animation: comboScorePop 0.88s ease-out forwards;
+    animation: comboScorePop 1.38s ease-out forwards;
     text-shadow:
         0 0 12px rgba(255, 200, 80, 0.95),
         0 0 24px rgba(255, 140, 40, 0.55),
@@ -1261,16 +1330,17 @@ body.game-rl-preview .block-dock {
         opacity: 0;
         transform: translateX(-50%) translateY(8px) scale(0.65);
     }
-    18% {
+    14% {
         opacity: 1;
         transform: translateX(-50%) translateY(0) scale(1.12);
     }
-    42% {
+    55% {
+        opacity: 1;
         transform: translateX(-50%) translateY(-4px) scale(1);
     }
     100% {
         opacity: 0;
-        transform: translateX(-50%) translateY(-36px) scale(1.08);
+        transform: translateX(-50%) translateY(-32px) scale(1.06);
     }
 }
 

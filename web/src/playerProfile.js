@@ -28,6 +28,12 @@ import { GAME_RULES } from './gameRules.js';
 
 const STORAGE_KEY = 'openblock_player_profile';
 const SKILL_DECAY_HOURS = 24;
+function _afkThreshold() {
+    return (_cfg().afk?.thresholdMs) ?? 15_000;
+}
+function _fb() {
+    return _cfg().feedback ?? {};
+}
 
 function _cfg() {
     return GAME_RULES.adaptiveSpawn ?? {};
@@ -55,6 +61,11 @@ export class PlayerProfile {
 
         this._totalLifetimePlacements = 0;
         this._totalLifetimeGames = 0;
+
+        /** 闭环反馈：出块后跟踪窗口内的消行效果 → 微调 stress 偏移 */
+        this._feedbackBias = 0;
+        this._feedbackStepsLeft = 0;
+        this._feedbackClearsInWindow = 0;
     }
 
     /* ================================================================== */
@@ -64,6 +75,9 @@ export class PlayerProfile {
     recordSpawn() {
         this._lastActionTs = Date.now();
         this._spawnCounter++;
+        this._feedbackBias *= (_fb().decay ?? 0.8);
+        this._feedbackStepsLeft = (_fb().horizon ?? 4);
+        this._feedbackClearsInWindow = 0;
     }
 
     /**
@@ -91,6 +105,20 @@ export class PlayerProfile {
             this._consecutiveNonClears = 0;
         } else {
             this._consecutiveNonClears++;
+        }
+
+        if (this._feedbackStepsLeft > 0) {
+            this._feedbackStepsLeft--;
+            if (cleared) this._feedbackClearsInWindow += linesCleared;
+            if (this._feedbackStepsLeft === 0) {
+                const fb = _fb();
+                const expected = fb.expected ?? 1;
+                const alpha = fb.alpha ?? 0.02;
+                const clamp = fb.biasClamp ?? 0.15;
+                const delta = this._feedbackClearsInWindow - expected;
+                this._feedbackBias += delta * alpha;
+                this._feedbackBias = Math.max(-clamp, Math.min(clamp, this._feedbackBias));
+            }
         }
 
         const fz = _cfg().flowZone ?? {};
@@ -131,24 +159,28 @@ export class PlayerProfile {
     /*  基础指标                                                           */
     /* ================================================================== */
 
-    /** @returns {{ thinkMs:number, clearRate:number, comboRate:number, missRate:number }} */
+    /** @returns {{ thinkMs:number, clearRate:number, comboRate:number, missRate:number, afkCount:number }} */
     get metrics() {
         const recent = this._recentMoves();
         if (recent.length === 0) {
-            return { thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1 };
+            return { thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1, afkCount: 0 };
         }
         const placed = recent.filter(m => !m.miss);
-        const clearCount = placed.filter(m => m.cleared).length;
-        const comboCount = placed.filter(m => m.lines >= 2).length;
+        const afkMs = _afkThreshold();
+        const active = placed.filter(m => m.thinkMs < afkMs);
+        const afkCount = placed.length - active.length;
+        const clearCount = active.filter(m => m.cleared).length;
+        const comboCount = active.filter(m => m.lines >= 2).length;
         return {
-            thinkMs: placed.length > 0
-                ? placed.reduce((s, m) => s + m.thinkMs, 0) / placed.length
+            thinkMs: active.length > 0
+                ? active.reduce((s, m) => s + m.thinkMs, 0) / active.length
                 : 3000,
-            clearRate: placed.length > 0 ? clearCount / placed.length : 0.3,
+            clearRate: active.length > 0 ? clearCount / active.length : 0.3,
             comboRate: clearCount > 0 ? comboCount / clearCount : 0,
             missRate: recent.length > 0
                 ? recent.filter(m => m.miss).length / recent.length
-                : 0
+                : 0,
+            afkCount
         };
     }
 
@@ -207,12 +239,42 @@ export class PlayerProfile {
     /* ================================================================== */
 
     /**
+     * 量化心流偏移度 F(t) = |boardPressure / skillLevel − 1|
+     * boardPressure 综合棋盘填充、消行率不足、认知负荷等因子。
+     * F(t) 越小越沉浸。
+     * @returns {number} 0~2（通常 0~1）
+     */
+    get flowDeviation() {
+        const recent = this._recentMoves();
+        if (recent.length < 3) return 0;
+
+        const m = this.metrics;
+        const placed = recent.filter(r => !r.miss && r.thinkMs < _afkThreshold());
+        const avgFill = placed.length > 0
+            ? placed.reduce((s, r) => s + r.fill, 0) / placed.length
+            : 0.3;
+
+        const fillPressure = avgFill;
+        const clearDeficit = 1 - Math.min(1, m.clearRate / 0.4);
+        const loadPressure = this.cognitiveLoad;
+        const boardPressure = fillPressure * 0.45 + clearDeficit * 0.35 + loadPressure * 0.2;
+
+        const skill = Math.max(0.05, this.skillLevel);
+        const ratio = boardPressure / skill;
+        return Math.abs(ratio - 1);
+    }
+
+    /**
      * 心流状态：bored（无聊→加压）/ flow（心流→维持）/ anxious（焦虑→减压）
+     * 基于量化 flowDeviation + 方向判定，替代纯启发式阈值。
      * @returns {'bored'|'flow'|'anxious'}
      */
     get flowState() {
         const recent = this._recentMoves();
         if (recent.length < 5) return 'flow';
+
+        const fd = this.flowDeviation;
+        if (fd < 0.25) return 'flow';
 
         const m = this.metrics;
         const fz = _cfg().flowZone ?? {};
@@ -236,6 +298,8 @@ export class PlayerProfile {
         }
 
         if (this.cognitiveLoad > 0.7 && m.clearRate < 0.25) return 'anxious';
+
+        if (fd > 0.5 && m.clearRate > 0.4) return 'bored';
 
         return 'flow';
     }
@@ -308,6 +372,11 @@ export class PlayerProfile {
 
     get lifetimePlacements() {
         return this._totalLifetimePlacements;
+    }
+
+    /** 闭环反馈偏移量，正值=玩家消行多于预期→可加压，负值=消行不足→应减压 */
+    get feedbackBias() {
+        return this._feedbackBias;
     }
 
     /**

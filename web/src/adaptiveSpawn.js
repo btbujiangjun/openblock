@@ -104,11 +104,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const skill = profile.skillLevel;
     const skillAdjust = (skill - 0.5) * (fz.skillAdjustScale ?? 0.3);
 
-    /* ---------- 心流调节 ---------- */
+    /* ---------- 心流调节（连续 F(t) + 方向修正） ---------- */
     const flow = profile.flowState;
+    const flowDev = profile.flowDeviation;
     let flowAdjust = 0;
-    if (flow === 'bored') flowAdjust = fz.flowBoredAdjust ?? 0.08;
-    else if (flow === 'anxious') flowAdjust = fz.flowAnxiousAdjust ?? -0.12;
+    if (flow === 'bored') flowAdjust = (fz.flowBoredAdjust ?? 0.08) * Math.min(2, 1 + flowDev);
+    else if (flow === 'anxious') flowAdjust = (fz.flowAnxiousAdjust ?? -0.12) * Math.min(2, 1 + flowDev);
 
     /* ---------- 节奏张弛 ---------- */
     let pacingAdjust = 0;
@@ -133,6 +134,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         ? (eng.nearMissStressBonus ?? -0.1)
         : 0;
 
+    /* ---------- 闭环反馈偏移 ---------- */
+    const feedbackBias = profile.feedbackBias ?? 0;
+
     /* ---------- 综合 stress ---------- */
     let stress = scoreStress
         + runMods.stressBonus
@@ -142,7 +146,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         + recoveryAdjust
         + frustRelief
         + comboAdjust
-        + nearMissAdjust;
+        + nearMissAdjust
+        + feedbackBias;
 
     /* ---------- 特殊覆写：新手保护 ---------- */
     if (profile.isInOnboarding) {
@@ -197,6 +202,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         },
         _adaptiveStress: stress,
         _flowState: flow,
+        _flowDeviation: flowDev,
+        _feedbackBias: feedbackBias,
         _skillLevel: skill,
         _pacingPhase: profile.pacingPhase,
         _momentum: profile.momentum,

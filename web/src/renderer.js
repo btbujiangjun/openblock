@@ -442,6 +442,8 @@ export class Renderer {
         const palette = getBlockColors();
         const perCell = isCombo ? 15 : 8;
         const speed = isCombo ? 1.55 : 1;
+        /** combo 时粒子衰减慢一些，与暖光/浮动字停留时间一致 */
+        const lifeDecay = isCombo ? 0.019 : 0.03;
         for (const cell of cells) {
             const color = palette[cell.color] || '#FFFFFF';
             for (let i = 0; i < perCell; i++) {
@@ -453,7 +455,8 @@ export class Renderer {
                     vx: Math.cos(ang) * sp + (Math.random() - 0.5) * 3,
                     vy: Math.sin(ang) * sp + (Math.random() - 0.5) * 3 - 4,
                     color,
-                    life: 1,
+                    life: isCombo ? 1.12 : 1,
+                    lifeDecay,
                     size: (isCombo ? 3 : 4) + Math.random() * (isCombo ? 5 : 4)
                 });
             }
@@ -465,7 +468,8 @@ export class Renderer {
                         vx: (Math.random() - 0.5) * 18,
                         vy: (Math.random() - 0.5) * 18 - 6,
                         color: j % 2 === 0 ? '#FFD700' : '#FFF8DC',
-                        life: 1,
+                        life: 1.15,
+                        lifeDecay: 0.016,
                         size: 2 + Math.random() * 3
                     });
                 }
@@ -481,7 +485,8 @@ export class Renderer {
 
     decayComboFlash() {
         if (this._comboFlash <= 0) return;
-        this._comboFlash *= 0.86;
+        /* 略慢于普通消行闪光，使 combo 暖光多停留约半秒量级 */
+        this._comboFlash *= 0.91;
         if (this._comboFlash < 0.018) this._comboFlash = 0;
     }
 
@@ -509,7 +514,8 @@ export class Renderer {
             p.x += p.vx;
             p.y += p.vy;
             p.vy += 0.5;
-            p.life -= 0.03;
+            const decay = p.lifeDecay ?? 0.03;
+            p.life -= decay;
             if (p.life <= 0) {
                 this.particles.splice(i, 1);
             }

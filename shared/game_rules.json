@@ -120,8 +120,20 @@
       "nearMissClearGuarantee": 2,
       "noveltyDiversityBoost": 0.15
     },
+    "feedback": {
+      "comment": "闭环反馈：出块后 horizon 步内统计消行效果，与 expected 比较后乘 alpha 更新 bias（每轮衰减 decay），bias 叠加到 stress。",
+      "horizon": 4,
+      "expected": 1,
+      "alpha": 0.02,
+      "decay": 0.8,
+      "biasClamp": 0.15
+    },
+    "afk": {
+      "comment": "AFK 检测：thinkMs 超过 thresholdMs 的操作排除出 metrics，避免离开/后台干扰能力估计。",
+      "thresholdMs": 15000
+    },
     "flowZone": {
-      "comment": "心流参数：多维阈值判定心流状态，各 adjust 值叠加到 stress。",
+      "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",
       "thinkTimeLowMs": 1200,
       "thinkTimeHighMs": 10000,
       "thinkTimeVarianceHigh": 8000000,

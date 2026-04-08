@@ -114,6 +114,8 @@ export class Game {
             strategyId: this.strategy,
             stress: layered._adaptiveStress,
             flowState: layered._flowState,
+            flowDeviation: layered._flowDeviation,
+            feedbackBias: layered._feedbackBias,
             skillLevel: layered._skillLevel,
             pacingPhase: layered._pacingPhase,
             momentum: layered._momentum,
@@ -123,10 +125,12 @@ export class Game {
             fillRatio: layered.fillRatio,
             shapeWeightsTop: _topShapeWeightEntries(layered.shapeWeights, 5)
         };
+        const m = p.metrics;
         this._lastAdaptiveInsight.profileAtSpawn = {
-            thinkMs: p.metrics.thinkMs,
-            clearRate: p.metrics.clearRate,
-            missRate: p.metrics.missRate,
+            thinkMs: m.thinkMs,
+            clearRate: m.clearRate,
+            missRate: m.missRate,
+            afkCount: m.afkCount,
             cognitiveLoad: p.cognitiveLoad,
             engagementAPM: p.engagementAPM,
             hadRecentNearMiss: p.hadRecentNearMiss,
@@ -151,13 +155,11 @@ export class Game {
         this.render();
     }
 
-    /** 主菜单 / 结束页打开时隐藏主界面与难度条；回放页需看到棋盘，不计入 */
+    /** 主菜单打开时隐藏主界面与难度条；game-over 浮层保留棋盘可见 */
     updateShellVisibility() {
         const menu = document.getElementById('menu');
-        const over = document.getElementById('game-over');
-        const overlayOpen =
-            Boolean(menu?.classList.contains('active')) || Boolean(over?.classList.contains('active'));
-        document.body.classList.toggle('game-shell-hidden', overlayOpen);
+        const menuOpen = Boolean(menu?.classList.contains('active'));
+        document.body.classList.toggle('game-shell-hidden', menuOpen);
     }
 
     bindEvents() {
@@ -878,7 +880,7 @@ export class Game {
                     console.error(e);
                     wrap.remove();
                     const overScore = document.getElementById('over-score');
-                    if (overScore) overScore.textContent = `得分：${this.score}`;
+                    if (overScore) overScore.textContent = this.score;
                     this.showScreen('game-over');
                 }
             })();
@@ -977,7 +979,7 @@ export class Game {
                 console.error('progression', pe);
             } finally {
                 const overScore = document.getElementById('over-score');
-                if (overScore) overScore.textContent = `得分：${this.score}`;
+                if (overScore) overScore.textContent = this.score;
                 const overXp = document.getElementById('over-xp');
                 if (overXp) {
                     if (progressionResult) {
@@ -1184,7 +1186,7 @@ export class Game {
         el.style.top = isCombo ? '22%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), isCombo ? 900 : 600);
+        setTimeout(() => el.remove(), isCombo ? 1450 : 600);
     }
 
     hideScreens() {

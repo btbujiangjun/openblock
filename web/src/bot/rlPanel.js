@@ -9,6 +9,8 @@ import { updateRlTrainingCharts } from './rlTrainingCharts.js';
 
 const WIN_WINDOW = 80;
 const AVG_WINDOW = 40;
+/** 「训练进展」预置行数上限（含上局、批量摘要等） */
+const EPISODE_LOG_MAX_LINES = 80;
 const VIZ_STEP_MS = 220;
 const LS_RL_PYTORCH = 'rl_use_pytorch';
 
@@ -33,8 +35,6 @@ export function initRLPanel(game) {
     const outAvg = el('rl-avg-score');
     const outWin = el('rl-winrate');
     const outBest = el('rl-best');
-    const outLast = el('rl-last');
-    const outLog = el('rl-log');
     const chkPytorch = el('rl-use-pytorch');
     const outBackendStatus = el('rl-backend-status');
     const outServerLog = el('rl-server-log');
@@ -151,7 +151,7 @@ export function initRLPanel(game) {
                 if (e.event === 'train_episode') {
                     const lp = e.loss_policy != null && Number.isFinite(Number(e.loss_policy)) ? Number(e.loss_policy).toFixed(2) : '—';
                     const lv = e.loss_value != null && Number.isFinite(Number(e.loss_value)) ? Number(e.loss_value).toFixed(2) : '—';
-                    return `[${t}] ep${e.episodes} Lπ ${lp} Lv ${lv}`;
+                    return `[${t}]#${e.episodes}·Lπ${lp}·Lv${lv}`;
                 }
                 if (e.event === 'checkpoint_saved') {
                     return `[${t}] 已保存 ${e.reason || ''} ep${e.episodes}`;
@@ -171,12 +171,33 @@ export function initRLPanel(game) {
         }
     }
 
+    /** 避免 loss 为字符串等类型时 .toFixed 抛错导致整段 onEpisode 中断、日志空白 */
+    function formatLossSuffix(info) {
+        if (!info) {
+            return '';
+        }
+        const a = info.lossPolicy;
+        const b = info.lossValue;
+        if (a == null || b == null) {
+            return '';
+        }
+        const lp = Number(a);
+        const lv = Number(b);
+        if (!Number.isFinite(lp) || !Number.isFinite(lv)) {
+            return '';
+        }
+        return `·Lπ${lp.toFixed(3)}·Lv${lv.toFixed(3)}`;
+    }
+
     function logLine(msg) {
-        if (!outLog) {
+        const node = document.getElementById('rl-progress-log');
+        if (!node) {
             return;
         }
         const t = new Date().toLocaleTimeString();
-        outLog.textContent = `[${t}] ${msg}\n` + outLog.textContent.split('\n').slice(0, 12).join('\n');
+        const line = `[${t}] ${msg}`;
+        const prev = node.textContent.split('\n').filter((s) => s.length > 0);
+        node.textContent = [line, ...prev.slice(0, EPISODE_LOG_MAX_LINES - 1)].join('\n');
     }
 
     function updateStats() {
@@ -214,18 +235,15 @@ export function initRLPanel(game) {
         if (info.score > bestScore) {
             bestScore = info.score;
         }
-        if (outLast) {
-            const lossHint =
-                info.lossPolicy != null && info.lossValue != null
-                    ? ` · Lπ ${info.lossPolicy.toFixed(3)} Lv ${info.lossValue.toFixed(3)}`
-                    : '';
-            outLast.textContent = `得分 ${info.score} · 步数 ${info.steps} · 消除 ${info.clears}${info.won ? ' · 胜' : ''}${lossHint}`;
-        }
+        const lossHint = formatLossSuffix(info);
+        logLine(
+            `上局·分${info.score}·步${info.steps}·消${info.clears}${info.won ? '·胜' : ''}${lossHint}`
+        );
         updateStats();
         if (totalEpisodes % 10 === 0) {
             const n = Math.min(AVG_WINDOW, recentScores.length);
             const avg = n ? recentScores.slice(-AVG_WINDOW).reduce((a, b) => a + b, 0) / n : 0;
-            logLine(`已训练 ${totalEpisodes} 局 · 近${n}局均分 ${avg.toFixed(0)}`);
+            logLine(`已${totalEpisodes}局·近${n}局均${avg.toFixed(0)}`);
         }
     }
 
@@ -247,8 +265,8 @@ export function initRLPanel(game) {
         }
         logLine(
             useBackend
-                ? '开始自博弈（PyTorch 后端 REINFORCE + 价值头），可随时停止'
-                : '开始自博弈（浏览器线性模型 + localStorage），可随时停止'
+                ? '开始·PyTorch后端·可随时停止'
+                : '开始·浏览器线性模型·可随时停止'
         );
 
         if (useBackend) {
@@ -274,11 +292,7 @@ export function initRLPanel(game) {
         if (btnStop) {
             btnStop.disabled = true;
         }
-        logLine(
-            useBackend
-                ? '本轮训练结束或已停止，权重已由服务端保存（见 RL_CHECKPOINT_SAVE）'
-                : '本轮训练结束或已停止，权重已写入 localStorage'
-        );
+        logLine(useBackend ? '结束·服务端已存盘' : '结束·已写localStorage');
         syncChartPoll();
         void refreshBackendStatus();
         void refreshServerTrainingLog();
@@ -340,11 +354,8 @@ export function initRLPanel(game) {
                     },
                     { useBackend }
                 );
-                if (outLast) {
-                    outLast.textContent = `评估：得分 ${ep.score} · 步数 ${ep.steps} · 消除 ${ep.totalClears}${ep.won ? ' · 胜' : ''}`;
-                }
                 logLine(
-                    `单局评估：${ep.score} 分 · ${ep.trajectory.length} 次决策（${useBackend ? 'PyTorch 推理' : '线性模型'}；不写入滑动均分/胜率）`
+                    `评估·分${ep.score}·步${ep.steps}·消${ep.totalClears}${ep.won ? '·胜' : ''}·${ep.trajectory.length}手·${useBackend ? 'PT' : '线'}·不计入均分`
                 );
             } finally {
                 if (game) {
@@ -373,6 +384,6 @@ export function initRLPanel(game) {
         }
     })();
     logLine(
-        `已加载${readUseBackend() ? '（将尝试 PyTorch 后端）' : '线性策略'}（阈值≥${WIN_SCORE_THRESHOLD} 分计为胜）。`
+        `已加载${readUseBackend() ? '·PT后端' : '·线性'}·胜≥${WIN_SCORE_THRESHOLD}分`
     );
 }
