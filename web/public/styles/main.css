@@ -1,9 +1,14 @@
 :root {
-    /* 与 web/src/config.js CONFIG.CELL_SIZE 一致；候选块预览最高按 4 行计（如 4×1） */
-    --dock-cell-size: 38px;
+    /* 与左右固定侧栏对齐：顶/底各 8px，与 .app-side-left / .rl-dash-panel 一致 */
+    --game-shell-inset: 8px;
+    --game-shell-vfill: calc(100vh - 2 * var(--game-shell-inset));
+    /* 与 web/src/config.js CONFIG.CELL_SIZE 一致；Renderer 会写入 --dock-cell-size / --grid-canvas-width */
+    --dock-cell-size: 42px;
     --dock-max-shape-rows: 4;
-    /* 主棋盘画布宽度（像素）；运行时由 Renderer 与棋盘格数同步 */
-    --grid-canvas-width: 304px;
+    /* 主棋盘画布宽度（像素）；默认 8×CELL_SIZE，运行时由 Renderer 同步 */
+    --grid-canvas-width: 336px;
+    /* 盘面实际 CSS 宽度（与缩放一致）；由 renderer syncGridDisplayPx 写入 */
+    --grid-display-px: 336px;
     /* 三槽候选区单行总宽（3×4 格 + 2×gap12）；与 game.js CONFIG 一致 */
     --dock-row-width: calc(3 * var(--dock-max-shape-rows) * var(--dock-cell-size) + 24px);
     /* 游戏卡内容区宽度：至少容纳棋盘或候选行中较宽者 */
@@ -45,7 +50,10 @@ body.block-drag-active #app {
 
 #app {
     width: 100vw;
+    min-height: 100vh;
+    min-height: 100dvh;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -53,11 +61,19 @@ body.block-drag-active #app {
     justify-content: flex-start;
     padding: 10px;
     padding-top: max(10px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
     box-sizing: border-box;
-    overflow-y: auto;
+    /* 中间列与左右侧栏同高：由 .play-stack flex 伸展到底；极矮屏仍可整页滚动 */
     overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior: contain;
     position: relative;
+}
+
+#app > .header,
+#app > .stats-bar,
+#app > .progression-hud {
+    flex-shrink: 0;
 }
 
 .header {
@@ -313,7 +329,7 @@ body.block-drag-active #app {
     font-size: 14px;
 }
 
-/* 盘面 + 候选区：外卡弱化、棋盘直角以利对齐判断 */
+/* 盘面 + 候选区：外卡弱化、棋盘直角以利对齐判断；纵向伸展与左右栏底对齐 */
 .play-stack {
     display: flex;
     flex-direction: column;
@@ -322,7 +338,9 @@ body.block-drag-active #app {
     box-sizing: border-box;
     width: min(calc(var(--play-inner-span) + 28px), calc(100vw - 20px));
     max-width: calc(100vw - 20px);
-    margin: 4px auto 12px;
+    flex: 1 1 0;
+    min-height: 0;
+    margin: 4px auto 0;
     padding: 12px 12px 14px;
     border-radius: 14px;
     /* 与页面背景多混合，降低「大白盒」存在感 */
@@ -331,10 +349,9 @@ body.block-drag-active #app {
     box-shadow: 0 2px 16px color-mix(in srgb, var(--shadow) 40%, transparent);
     backdrop-filter: saturate(1.06) blur(10px);
     -webkit-backdrop-filter: saturate(1.06) blur(10px);
-    flex-shrink: 0;
     /* 勿 auto：窄屏下会出横向滚动条；拖动幽灵不应依赖此处滚动 */
     overflow-x: hidden;
-    overflow-y: visible;
+    overflow-y: hidden;
 }
 
 #game-wrapper {
@@ -376,6 +393,8 @@ body.game-rl-preview .block-dock {
     pointer-events: none;
     z-index: 10050;
     display: none;
+    flex: 0 0 auto;
+    order: 99;
     opacity: 0.85;
     filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
 }
@@ -385,11 +404,10 @@ body.game-rl-preview .block-dock {
     justify-content: center;
     align-items: center;
     gap: 12px;
-    margin-top: 0;
+    margin-top: auto;
     flex-shrink: 0;
     width: 100%;
     box-sizing: border-box;
-    min-height: calc(var(--dock-max-shape-rows) * var(--dock-cell-size) + 12px);
     padding: 8px 4px 6px;
     background: color-mix(in srgb, var(--cell-empty, var(--grid-bg)) 14%, var(--bg-color, #e8eef1));
     border-radius: 0;
@@ -403,14 +421,17 @@ body.game-rl-preview .block-dock {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: calc(var(--dock-max-shape-rows) * var(--dock-cell-size));
-    height: calc(var(--dock-max-shape-rows) * var(--dock-cell-size));
     cursor: grab;
     transition: opacity 0.15s ease;
 }
 
+/* 候选 canvas 与盘面同比缩放：canvas 固有尺寸 = 4×CELL_SIZE 正方形，
+   CSS 宽度 = 盘面显示宽 / 2，高度 auto 保持宽高比，不变形。 */
 .block-dock canvas {
     display: block;
+    width: calc(var(--grid-display-px, var(--grid-canvas-width)) / 2);
+    height: auto;
+    aspect-ratio: 1 / 1;
 }
 
 .dock-block:active {
@@ -498,14 +519,16 @@ body.game-rl-preview .block-dock {
 /* —— 左侧栏：玩家画像 + RL —— */
 .app-side-left {
     position: fixed;
-    top: 8px;
-    left: 8px;
+    top: var(--game-shell-inset, 8px);
+    left: var(--game-shell-inset, 8px);
     z-index: 70;
     display: flex;
     flex-direction: column;
     gap: 6px;
     width: min(288px, 44vw);
-    height: calc(100vh - 16px);
+    height: var(--game-shell-vfill, calc(100vh - 16px));
+    max-height: var(--game-shell-vfill, calc(100vh - 16px));
+    min-height: 0;
     pointer-events: auto;
 }
 
@@ -523,10 +546,15 @@ body.game-rl-preview .block-dock {
 
 /* —— 玩家画像面板 —— */
 .player-insight-panel {
-    flex: 0 0 auto;
-    overflow: hidden;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: min(48vh, 420px);
+    overflow-x: hidden;
+    overflow-y: auto;
     padding: 8px 10px 10px;
     font-size: 10px;
+    /* 与右侧看板保持一致 */
+    line-height: 1.35;
 }
 
 .insight-toolbar {
@@ -593,12 +621,16 @@ body.game-rl-preview .block-dock {
     max-width: none;
 }
 
-/* 能力指标网格 */
+/* 能力指标网格 — 与右侧 .rl-dash-summary 同风格 */
 .insight-grid {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 4px 10px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
+    padding: 5px 8px;
+    background: color-mix(in srgb, var(--accent-color, #4472c4) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 12%, transparent);
+    border-radius: 4px;
 }
 
 .insight-metric {
@@ -633,11 +665,10 @@ body.game-rl-preview .block-dock {
     transition: width 0.25s ease;
 }
 
-/* 实时状态 */
+/* 实时状态 — 卡片式区块 */
 .insight-divider {
-    height: 1px;
-    background: color-mix(in srgb, var(--text-primary, #1d1d1f) 7%, transparent);
-    margin: 0 0 7px;
+    height: 0;
+    margin: 4px 0;
 }
 
 .insight-state-row {
@@ -645,7 +676,11 @@ body.game-rl-preview .block-dock {
     flex-wrap: wrap;
     align-items: center;
     gap: 5px;
-    margin-bottom: 7px;
+    margin-bottom: 6px;
+    padding: 5px 8px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    border-radius: 4px;
 }
 
 .insight-tag {
@@ -702,11 +737,15 @@ body.game-rl-preview .block-dock {
     font-weight: 600;
 }
 
-/* 投放参数行 */
+/* 投放参数行 — 卡片式区块 */
 .insight-spawn-row {
     font-size: 9px;
     color: var(--text-secondary, #3d5266);
     margin-bottom: 6px;
+    padding: 5px 8px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    border-radius: 4px;
 }
 
 .insight-spawn-row:empty { display: none; }
@@ -742,10 +781,13 @@ body.game-rl-preview .block-dock {
     opacity: 0.7;
 }
 
-/* 策略解释 */
+/* 策略解释 — 卡片式区块 */
 .insight-why-section {
-    border-top: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 7%, transparent);
-    padding-top: 6px;
+    padding: 5px 8px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    border-radius: 4px;
+    margin-bottom: 4px;
 }
 
 .insight-why-title {
@@ -767,10 +809,12 @@ body.game-rl-preview .block-dock {
     margin-top: 2px;
 }
 
-/* 求助建议 */
+/* 求助建议 — 卡片式区块 */
 .insight-hints-wrap {
-    border-top: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 7%, transparent);
-    padding-top: 5px;
+    padding: 5px 8px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    border-radius: 4px;
 }
 
 .hint-card {
@@ -818,10 +862,13 @@ body.game-rl-preview .block-dock {
     position: relative;
     left: auto;
     top: auto;
+    /* 与右侧看板同高：占满左栏剩余高度，日志区内部滚动 */
     flex: 1 1 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
     max-width: 100%;
     overflow: hidden;
     padding: 6px 8px;
@@ -871,7 +918,11 @@ body.game-rl-preview .block-dock {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr 1fr;
     gap: 1px 4px;
-    margin-bottom: 3px;
+    margin-bottom: 4px;
+    padding: 4px 6px;
+    background: color-mix(in srgb, var(--accent-color, #4472c4) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 12%, transparent);
+    border-radius: 4px;
 }
 
 .rl-stats div {
@@ -895,16 +946,57 @@ body.game-rl-preview .block-dock {
     white-space: nowrap;
 }
 
+.rl-header-row,
+.rl-stats,
+.rl-actions {
+    flex-shrink: 0;
+}
+
+/* 单一滚动区：在 RL 卡片内 flex 伸展，与主列/右栏底缘对齐 */
+.rl-logs-wrap {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-primary, #000) 5%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+}
+
+.rl-log-sep {
+    flex-shrink: 0;
+    height: 1px;
+    margin: 0;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 12%, transparent);
+}
+
+.rl-logs-wrap .rl-log {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 4px 6px;
+    background: transparent;
+    border-radius: 0;
+    font-size: 7.5px;
+    line-height: 1.28;
+    max-height: none;
+    color: var(--text-primary, #334155);
+}
+
+.rl-log--server {
+    padding-bottom: 3px;
+}
+
+.rl-log--episode {
+    padding-top: 3px;
+}
+
 .rl-server-log-label {
     margin: 0 0 1px;
     font-size: 7.5px;
     color: var(--text-secondary, #5d7a96);
-}
-
-.rl-server-log {
-    font-size: 7px;
-    margin-bottom: 1px;
-    flex: 2 1 0;
 }
 
 .rl-actions {
@@ -935,6 +1027,7 @@ body.game-rl-preview .block-dock {
     background: color-mix(in srgb, var(--text-primary, #000) 30%, transparent);
 }
 
+/* 独立 .rl-log 规则仅用于未包在 .rl-logs-wrap 内的场景 */
 .rl-log {
     margin: 0;
     padding: 3px 5px;
@@ -944,19 +1037,19 @@ body.game-rl-preview .block-dock {
     color: var(--text-secondary, #4a5f73);
     white-space: pre-wrap;
     word-break: break-word;
-    flex: 1 1 0;
-    min-height: 14px;
-    overflow: auto;
+    min-height: 0;
+    overflow: visible;
 }
 
 /* RL 训练看板（右侧曲线） */
 .rl-dash-panel {
     position: fixed;
-    top: 8px;
-    right: 8px;
+    top: var(--game-shell-inset, 8px);
+    right: var(--game-shell-inset, 8px);
     z-index: 69;
     width: min(380px, 94vw);
-    height: calc(100vh - 16px);
+    height: var(--game-shell-vfill, calc(100vh - 16px));
+    max-height: var(--game-shell-vfill, calc(100vh - 16px));
     display: flex;
     flex-direction: column;
     overflow: hidden;

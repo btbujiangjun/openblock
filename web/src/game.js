@@ -25,7 +25,7 @@ import { Grid } from './grid.js';
 import { generateDockShapes } from './bot/blockSpawn.js';
 import { buildInitFrame, buildPlaceFrame, buildSpawnFrame, replayStateAt } from './moveSequence.js';
 import { Database } from './database.js';
-import { Renderer } from './renderer.js';
+import { Renderer, syncGridDisplayPx } from './renderer.js';
 import { BackendSync } from './services/backendSync.js';
 
 function _topShapeWeightEntries(shapeWeights, n) {
@@ -448,6 +448,7 @@ export class Game {
             div.appendChild(canvas);
             dock.appendChild(div);
         }
+        requestAnimationFrame(() => syncGridDisplayPx(this.canvas));
     }
 
     /**

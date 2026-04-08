@@ -233,9 +233,41 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 }
 
-function syncGridCanvasCssVar(canvas) {
+/** 候选区单槽边长 = 盘面实际显示宽度的一半（4 格 vs 8 格），与格子像素对齐 */
+export function syncGridDisplayPx(canvas) {
+    if (typeof document === 'undefined' || !canvas) return;
+    const w = canvas.getBoundingClientRect().width;
+    if (w > 1) {
+        document.documentElement.style.setProperty('--grid-display-px', `${w}px`);
+    }
+}
+
+const _gridDisplayRo = new WeakMap();
+
+/** 监听棋盘 canvas 的 CSS 尺寸（缩放、侧栏挤压等），保持候选块与盘面一格同大 */
+export function ensureGridDisplayResizeSync(canvas) {
+    if (typeof document === 'undefined' || !canvas || _gridDisplayRo.has(canvas)) {
+        return;
+    }
+    const run = () => {
+        requestAnimationFrame(() => syncGridDisplayPx(canvas));
+    };
+    run();
+    window.addEventListener('resize', run);
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(run);
+        ro.observe(canvas);
+        _gridDisplayRo.set(canvas, ro);
+    }
+}
+
+function syncGridCanvasCssVar(canvas, cellSize) {
     if (typeof document === 'undefined') return;
     document.documentElement.style.setProperty('--grid-canvas-width', `${canvas.width}px`);
+    if (cellSize != null && cellSize > 0) {
+        document.documentElement.style.setProperty('--dock-cell-size', `${cellSize}px`);
+    }
+    requestAnimationFrame(() => syncGridDisplayPx(canvas));
 }
 
 export class Renderer {
@@ -246,7 +278,8 @@ export class Renderer {
         this.gridSize = CONFIG.GRID_SIZE;
         this.canvas.width = this.gridSize * this.cellSize;
         this.canvas.height = this.gridSize * this.cellSize;
-        syncGridCanvasCssVar(this.canvas);
+        syncGridCanvasCssVar(this.canvas, this.cellSize);
+        ensureGridDisplayResizeSync(this.canvas);
         this.particles = [];
         this.clearCells = [];
         this.shakeOffset = { x: 0, y: 0 };
@@ -263,7 +296,7 @@ export class Renderer {
         this.gridSize = n;
         this.canvas.width = n * this.cellSize;
         this.canvas.height = n * this.cellSize;
-        syncGridCanvasCssVar(this.canvas);
+        syncGridCanvasCssVar(this.canvas, this.cellSize);
     }
 
     clear() {

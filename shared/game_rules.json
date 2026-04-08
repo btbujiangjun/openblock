@@ -139,31 +139,36 @@
   },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
-    "comment": "仅影响 RL 训练用即时奖励，不改变盘面计分 score。用于缓解「无消除则整段回报为 0」导致的梯度消失。multiClearBonus 鼓励一次多行消除；survivalPerStep 鼓励长期存活。",
-    "placeBonus": 0.12,
+    "comment": "仅影响 RL 训练用即时奖励，不改变盘面计分 score。holePenaltyPerCell 按新增空洞数惩罚。",
+    "placeBonus": 0.05,
     "densePerClear": 2.5,
     "multiClearBonus": 1.8,
     "winBonus": 50,
-    "stuckPenalty": -2.0,
-    "survivalPerStep": 0.04
+    "stuckPenalty": -3.0,
+    "survivalPerStep": 0.02,
+    "holePenaltyPerCell": -0.08
   },
   "featureEncoding": {
-    "comment": "state = 15 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块形状掩码；phi = state + 7 维动作描述。改维度须同步 features.js / features.py 并重训。",
+    "comment": "state = 23 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块掩码；phi = state + 11 维动作描述。改维度须同步 features.js / features.py 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
-    "stateScalarDim": 15,
+    "stateScalarDim": 23,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
-    "stateDim": 154,
-    "actionDim": 7,
-    "phiDim": 161,
+    "stateDim": 162,
+    "actionDim": 11,
+    "phiDim": 173,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {
       "maxBlockIndex": 3,
       "shapeSpan": 5,
       "maxCells": 10,
-      "maxClearsHint": 5
+      "maxClearsHint": 5,
+      "maxHoles": 16,
+      "maxTransitions": 64,
+      "maxWellDepth": 24,
+      "maxMobility": 192
     }
   },
   "strategies": {

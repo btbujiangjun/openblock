@@ -2,7 +2,7 @@
 自博弈 + PPO / REINFORCE 策略梯度（价值基线），PyTorch；支持 **MPS**（Apple GPU）/ CUDA / CPU。
 
 架构选择（--arch）：
-  conv-shared   新默认；CNN 棋盘编码 + 128 宽共享主干，~150K 参数，空间感知能力远超 MLP
+  conv-shared   默认；残差 CNN 棋盘 + dock MLP + 128 宽共享主干 + 3 层价值头，~132K 参数
   light-shared  2 层 64 宽共享主干 + 动作投射，~20K 参数
   light         ~28K 参数双塔
   shared        残差 MLP 共享主干（~1.2M 参数）
@@ -633,7 +633,7 @@ def train_loop(
     wins = 0
     scores: list[float] = []
     t0 = time.perf_counter()
-    return_scale = float(os.environ.get("RL_RETURN_SCALE", "0.1"))
+    return_scale = float(os.environ.get("RL_RETURN_SCALE", "0.05"))
     last_update: dict | None = None
     last_log_ep = start_ep
     mps_sync = device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes")
@@ -740,11 +740,11 @@ def main() -> None:
     p.add_argument(
         "--lr",
         type=float,
-        default=1e-3,
-        help="Adam；light 模型配合 1e-3 快速收敛（重模型建议 3e-4）",
+        default=3e-4,
+        help="Adam 学习率；PPO 推荐 3e-4",
     )
-    p.add_argument("--gamma", type=float, default=0.99)
-    p.add_argument("--value-coef", type=float, default=0.25, help="价值头损失权重")
+    p.add_argument("--gamma", type=float, default=0.97)
+    p.add_argument("--value-coef", type=float, default=0.5, help="价值头损失权重")
     p.add_argument(
         "--value-huber-beta",
         type=float,
@@ -768,7 +768,7 @@ def main() -> None:
         action="store_true",
         help="关闭 advantage 标准化",
     )
-    p.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪范数")
+    p.add_argument("--grad-clip", type=float, default=0.5, help="梯度裁剪范数")
     p.add_argument(
         "--width",
         type=int,
@@ -804,7 +804,7 @@ def main() -> None:
         type=str,
         default="conv-shared",
         choices=("conv-shared", "light-shared", "light", "shared", "split"),
-        help="conv-shared=CNN棋盘+共享主干（默认，~150K）；light-shared=轻量共享（~20K）；shared/split=旧版重模型",
+        help="conv-shared=残差CNN+dock MLP+共享主干（默认，~132K）；light-shared=轻量共享（~20K）；shared/split=旧版重模型",
     )
     p.add_argument(
         "--conv-channels",
@@ -815,13 +815,13 @@ def main() -> None:
     p.add_argument(
         "--batch-episodes",
         type=int,
-        default=16,
+        default=32,
         help="采集多少局后做一次梯度更新（PPO 需要更大 batch 才稳定）",
     )
     p.add_argument(
         "--ppo-epochs",
         type=int,
-        default=4,
+        default=3,
         help="每批数据的 PPO 更新轮数；1=退化为 REINFORCE",
     )
     p.add_argument(

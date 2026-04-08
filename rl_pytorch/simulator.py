@@ -12,9 +12,76 @@ from .shapes_data import get_all_shapes
 __all__ = ["BlockBlastSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
 
 
+def _count_holes(grid: Grid) -> int:
+    """空洞 = 上方（同列）有已占格子的空格数。"""
+    n = grid.size
+    holes = 0
+    for x in range(n):
+        block_found = False
+        for y in range(n):
+            if grid.cells[y][x] is not None:
+                block_found = True
+            elif block_found:
+                holes += 1
+    return holes
+
+
+def _count_clears_fast(grid: Grid, shape: list[list[int]], gx: int, gy: int) -> int:
+    """就地计算放置后的消除行列数，不做完整 clone。"""
+    n = grid.size
+    cells = grid.cells
+    affected_rows: set[int] = set()
+    affected_cols: set[int] = set()
+    for y, row in enumerate(shape):
+        for x, v in enumerate(row):
+            if v:
+                affected_rows.add(gy + y)
+                affected_cols.add(gx + x)
+
+    count = 0
+    for ry in affected_rows:
+        full = True
+        for cx in range(n):
+            if cells[ry][cx] is None:
+                is_shape_cell = False
+                for sy, sr in enumerate(shape):
+                    for sx, sv in enumerate(sr):
+                        if sv and gx + sx == cx and gy + sy == ry:
+                            is_shape_cell = True
+                            break
+                    if is_shape_cell:
+                        break
+                if not is_shape_cell:
+                    full = False
+                    break
+        if full:
+            count += 1
+
+    for rx in affected_cols:
+        full = True
+        for cy in range(n):
+            if cells[cy][rx] is None:
+                is_shape_cell = False
+                for sy, sr in enumerate(shape):
+                    for sx, sv in enumerate(sr):
+                        if sv and gx + sx == rx and gy + sy == cy:
+                            is_shape_cell = True
+                            break
+                    if is_shape_cell:
+                        break
+                if not is_shape_cell:
+                    full = False
+                    break
+        if full:
+            count += 1
+
+    return count
+
+
 class BlockBlastSimulator:
     def __init__(self, strategy_id: str = "normal"):
         self.strategy_id = strategy_id
+        self._holes_cache: int | None = None
         self.reset()
 
     def reset(self) -> None:
@@ -28,6 +95,7 @@ class BlockBlastSimulator:
         self.total_clears = 0
         self.steps = 0
         self.placements = 0
+        self._holes_cache = None
         self._spawn_dock()
 
     def _spawn_dock(self) -> None:
@@ -47,6 +115,11 @@ class BlockBlastSimulator:
                 }
             )
 
+    def _get_holes(self) -> int:
+        if self._holes_cache is None:
+            self._holes_cache = _count_holes(self.grid)
+        return self._holes_cache
+
     def get_legal_actions(self) -> list[dict[str, int]]:
         actions = []
         for bi, b in enumerate(self.dock):
@@ -60,9 +133,7 @@ class BlockBlastSimulator:
 
     def count_clears_if_placed(self, block_idx: int, gx: int, gy: int) -> int:
         b = self.dock[block_idx]
-        sim = self.grid.clone()
-        sim.place(b["shape"], b["color_idx"], gx, gy)
-        return sim.check_lines()["count"]
+        return _count_clears_fast(self.grid, b["shape"], gx, gy)
 
     def is_terminal(self) -> bool:
         remaining = [b for b in self.dock if not b["placed"]]
@@ -75,6 +146,7 @@ class BlockBlastSimulator:
         if b["placed"] or not self.grid.can_place(b["shape"], gx, gy):
             return 0.0
 
+        holes_before = self._get_holes()
         prev_score = self.score
         self.grid.place(b["shape"], b["color_idx"], gx, gy)
         self.placements += 1
@@ -100,6 +172,9 @@ class BlockBlastSimulator:
         if all(x["placed"] for x in self.dock):
             self._spawn_dock()
 
+        self._holes_cache = None
+        holes_after = self._get_holes()
+
         r = gain
         rs = RL_REWARD_SHAPING
         pb = float(rs.get("placeBonus") or 0.0)
@@ -114,6 +189,13 @@ class BlockBlastSimulator:
         svl = float(rs.get("survivalPerStep") or 0.0)
         if svl:
             r += svl
+
+        hp = float(rs.get("holePenaltyPerCell") or 0.0)
+        if hp:
+            delta_holes = holes_after - holes_before
+            if delta_holes > 0:
+                r += hp * delta_holes
+
         wb = float(rs.get("winBonus") or 0.0)
         thr = getattr(self, "win_score_threshold", WIN_SCORE_THRESHOLD)
         if wb and self.score >= thr and prev_score < thr:

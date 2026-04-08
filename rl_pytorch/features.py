@@ -16,7 +16,7 @@ _AN = dict(_ENC.get("actionNorm") or {})
 _MAX_GRID = int(_ENC.get("maxGridWidth", 8))
 _DOCK_MASK_SIDE = int(_ENC.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(_ENC.get("dockSlots", 3))
-_SCALAR_DIM = int(_ENC.get("stateScalarDim", 15))
+_SCALAR_DIM = int(_ENC.get("stateScalarDim", 23))
 
 STATE_FEATURE_DIM = int(_ENC["stateDim"])
 ACTION_FEATURE_DIM = int(_ENC["actionDim"])
@@ -80,6 +80,104 @@ def _encode_dock_spatial(dock: list[dict]) -> np.ndarray:
     return np.concatenate(parts, axis=0)
 
 
+# ---------------------------------------------------------------------------
+# 棋盘结构分析辅助函数
+# ---------------------------------------------------------------------------
+
+def _count_holes(grid) -> int:
+    """空洞 = 上方（同列）有已占格子的空格数。"""
+    n = grid.size
+    holes = 0
+    for x in range(n):
+        block_found = False
+        for y in range(n):
+            if grid.cells[y][x] is not None:
+                block_found = True
+            elif block_found:
+                holes += 1
+    return holes
+
+
+def _count_transitions(grid) -> tuple[int, int]:
+    """行跳变 = 行内 occupied ↔ empty 的边界数；列跳变同理。"""
+    n = grid.size
+    row_trans = 0
+    col_trans = 0
+    for y in range(n):
+        prev = True  # 边界视为 occupied
+        for x in range(n):
+            cur = grid.cells[y][x] is not None
+            if cur != prev:
+                row_trans += 1
+            prev = cur
+        if not prev:
+            row_trans += 1
+    for x in range(n):
+        prev = True
+        for y in range(n):
+            cur = grid.cells[y][x] is not None
+            if cur != prev:
+                col_trans += 1
+            prev = cur
+        if not prev:
+            col_trans += 1
+    return row_trans, col_trans
+
+
+def _well_depth_sum(grid) -> int:
+    """各列 "井" 深度之和：连续空格且两侧（或墙壁）都被占用。"""
+    n = grid.size
+    total = 0
+    for x in range(n):
+        for y in range(n):
+            if grid.cells[y][x] is not None:
+                continue
+            left_blocked = x == 0 or grid.cells[y][x - 1] is not None
+            right_blocked = x == n - 1 or grid.cells[y][x + 1] is not None
+            if left_blocked and right_blocked:
+                total += 1
+    return total
+
+
+def _lines_close_to_clear(grid) -> tuple[int, int]:
+    """差 1 格和差 2 格就满的行/列数。"""
+    n = grid.size
+    close1 = 0
+    close2 = 0
+    for y in range(n):
+        filled = sum(1 for x in range(n) if grid.cells[y][x] is not None)
+        if filled == n - 1:
+            close1 += 1
+        elif filled == n - 2:
+            close2 += 1
+    for x in range(n):
+        filled = sum(1 for y in range(n) if grid.cells[y][x] is not None)
+        if filled == n - 1:
+            close1 += 1
+        elif filled == n - 2:
+            close2 += 1
+    return close1, close2
+
+
+def _dock_mobility(grid, dock: list[dict]) -> int:
+    """三个待选块的总合法放置位置数。"""
+    n = grid.size
+    total = 0
+    for b in dock:
+        if b.get("placed"):
+            continue
+        shape = b["shape"]
+        for gy in range(n):
+            for gx in range(n):
+                if grid.can_place(shape, gx, gy):
+                    total += 1
+    return total
+
+
+# ---------------------------------------------------------------------------
+# 状态特征提取
+# ---------------------------------------------------------------------------
+
 def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     n = grid.size
     area = n * n
@@ -104,6 +202,17 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     almost_full_cols = sum(1 for cf in col_fill if _AF <= cf < 1)
     unplaced = sum(1 for b in dock if not b["placed"]) / _DOCK
 
+    holes = _count_holes(grid)
+    row_trans, col_trans = _count_transitions(grid)
+    wells = _well_depth_sum(grid)
+    close1, close2 = _lines_close_to_clear(grid)
+    mobility = _dock_mobility(grid, dock)
+
+    max_holes = float(_AN.get("maxHoles", 16))
+    max_trans = float(_AN.get("maxTransitions", 64))
+    max_wells = float(_AN.get("maxWellDepth", 24))
+    max_mob = float(_AN.get("maxMobility", 192))
+
     scalars = np.array(
         [
             filled / area,
@@ -121,6 +230,15 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
             max_row - min_row,
             max_col - min_col,
             (almost_full_rows + almost_full_cols) / (2 * n),
+            # --- 8 new features ---
+            min(holes / max_holes, 1.0),
+            min(row_trans / max_trans, 1.0),
+            min(col_trans / max_trans, 1.0),
+            min(wells / max_wells, 1.0),
+            min(close1 / n, 1.0),
+            min(close2 / n, 1.0),
+            min(mobility / max_mob, 1.0),
+            filled / area,  # max_height proxy: reuse fill ratio (cheap)
         ],
         dtype=np.float32,
     )
@@ -132,6 +250,10 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     return np.concatenate([scalars, grid_flat, dock_flat], axis=0)
 
 
+# ---------------------------------------------------------------------------
+# 动作特征提取
+# ---------------------------------------------------------------------------
+
 def extract_action_features(
     state_feat: np.ndarray,
     block_idx: int,
@@ -140,6 +262,10 @@ def extract_action_features(
     shape: list[list[int]],
     would_clear: int,
     grid_size: int,
+    delta_holes: int = 0,
+    delta_row_trans: int = 0,
+    delta_col_trans: int = 0,
+    post_mobility: int = 0,
 ) -> np.ndarray:
     cells = sum(1 for row in shape for c in row if c)
     h = len(shape)
@@ -148,6 +274,9 @@ def extract_action_features(
     div_sh = float(_AN.get("shapeSpan", 5))
     div_cells = float(_AN.get("maxCells", 10))
     div_clr = float(_AN.get("maxClearsHint", 5))
+    max_holes = float(_AN.get("maxHoles", 16))
+    max_trans = float(_AN.get("maxTransitions", 64))
+    max_mob = float(_AN.get("maxMobility", 192))
     action_part = np.array(
         [
             block_idx / div_b,
@@ -157,21 +286,87 @@ def extract_action_features(
             h / div_sh,
             cells / div_cells,
             would_clear / div_clr,
+            # --- 4 new features ---
+            max(-1.0, min(1.0, delta_holes / max_holes)),
+            max(-1.0, min(1.0, (delta_row_trans + delta_col_trans) / max_trans)),
+            0.0,  # reserved: new_almost_full (computed in build_phi_batch)
+            min(post_mobility / max_mob, 1.0),
         ],
         dtype=np.float32,
     )
     return np.concatenate([state_feat, action_part], axis=0)
 
 
+# ---------------------------------------------------------------------------
+# 增量式动作特征计算（避免完整 clone+check_lines）
+# ---------------------------------------------------------------------------
+
+def _count_holes_for_col(cells, n: int, x: int) -> int:
+    """单列空洞数。"""
+    h = 0
+    found = False
+    for y in range(n):
+        if cells[y][x] is not None:
+            found = True
+        elif found:
+            h += 1
+    return h
+
+
+def _compute_action_deltas(grid, shape: list[list[int]], gx: int, gy: int, dock: list[dict], placed_idx: int):
+    """不做 full clone — 就地模拟一步获取 delta_holes / delta_transitions / post_mobility。"""
+    n = grid.size
+    shape_cells = [(gx + x, gy + y) for y, row in enumerate(shape) for x, v in enumerate(row) if v]
+
+    affected_cols = set()
+    affected_rows = set()
+    for cx, cy in shape_cells:
+        affected_cols.add(cx)
+        affected_rows.add(cy)
+
+    holes_before = 0
+    for col in affected_cols:
+        holes_before += _count_holes_for_col(grid.cells, n, col)
+
+    sim = grid.clone()
+    sim.place(shape, 0, gx, gy)
+    result = sim.check_lines()
+
+    holes_after = _count_holes(sim)
+    holes_before_full = _count_holes(grid)
+    delta_holes = holes_after - holes_before_full
+
+    row_trans_a, col_trans_a = _count_transitions(sim)
+    row_trans_b, col_trans_b = _count_transitions(grid)
+    delta_row_trans = row_trans_a - row_trans_b
+    delta_col_trans = col_trans_a - col_trans_b
+
+    post_mob = 0
+    for bi, b in enumerate(dock):
+        if b.get("placed") or bi == placed_idx:
+            continue
+        for py in range(n):
+            for px in range(n):
+                if sim.can_place(b["shape"], px, py):
+                    post_mob += 1
+
+    return result["count"], delta_holes, delta_row_trans, delta_col_trans, post_mob
+
+
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
-    """would_clear 与 web 端 countClearsIfPlaced 一致。sim: BlockBlastSimulator。"""
+    """增强版：每个合法动作都计算 delta 特征。"""
     state = extract_state_features(sim.grid, sim.dock)
     rows = []
     for a in legal:
         bi = a["block_idx"]
-        wc = sim.count_clears_if_placed(bi, a["gx"], a["gy"])
+        wc, dh, drt, dct, pm = _compute_action_deltas(
+            sim.grid, sim.dock[bi]["shape"], a["gx"], a["gy"], sim.dock, bi
+        )
         phi = extract_action_features(
-            state, bi, a["gx"], a["gy"], sim.dock[bi]["shape"], wc, sim.grid.size
+            state, bi, a["gx"], a["gy"], sim.dock[bi]["shape"], wc, sim.grid.size,
+            delta_holes=dh, delta_row_trans=drt, delta_col_trans=dct, post_mobility=pm,
         )
         rows.append(phi)
-    return state, np.stack(rows, axis=0) if rows else (state, np.zeros((0, PHI_DIM), dtype=np.float32))
+    if rows:
+        return state, np.stack(rows, axis=0)
+    return state, np.zeros((0, PHI_DIM), dtype=np.float32)

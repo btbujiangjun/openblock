@@ -83,7 +83,7 @@
         </div>
         <div class="play-stack" aria-label="游戏区">
             <div id="game-wrapper">
-                <canvas id="game-grid" width="304" height="304" aria-label="游戏网格"></canvas>
+                <canvas id="game-grid" width="336" height="336" aria-label="游戏网格"></canvas>
             </div>
             <div class="block-dock" id="dock"></div>
         </div>
@@ -183,8 +183,11 @@
             <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="刷新日志">日志</button>
             <span class="rl-last-wrap">上局：<span id="rl-last">—</span></span>
         </div>
-        <pre class="rl-log rl-server-log" id="rl-server-log" aria-live="polite"></pre>
-        <pre class="rl-log" id="rl-log"></pre>
+        <div class="rl-logs-wrap" aria-label="训练日志">
+            <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
+            <div class="rl-log-sep" role="separator" aria-hidden="true"></div>
+            <pre class="rl-log rl-log--episode" id="rl-log"></pre>
+        </div>
     </aside>
     </div>
     <aside id="rl-dash-panel" class="rl-dash-panel" aria-label="RL 训练看板">

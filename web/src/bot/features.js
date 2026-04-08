@@ -1,6 +1,6 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
- * 改玩法规则一般只改 JSON；改特征结构时需改此处并与 Python observation 对齐，并重训模型。
+ * state=162 (23 scalars + 64 grid + 75 dock), action=11, phi=173。
  */
 import { FEATURE_ENCODING } from '../gameRules.js';
 
@@ -10,7 +10,7 @@ const DOCK_SLOTS = enc.dockSlots ?? 3;
 const AN = enc.actionNorm || {};
 const MAX_GRID = enc.maxGridWidth ?? 8;
 const DOCK_MASK_SIDE = enc.dockMaskSide ?? 5;
-const STATE_SCALAR_DIM = enc.stateScalarDim ?? 15;
+const STATE_SCALAR_DIM = enc.stateScalarDim ?? 23;
 
 export const STATE_FEATURE_DIM = enc.stateDim;
 export const ACTION_FEATURE_DIM = enc.actionDim;
@@ -24,6 +24,11 @@ if (STATE_FEATURE_DIM !== _expectState) {
         `featureEncoding.stateDim=${STATE_FEATURE_DIM} 与标量+棋盘+待选区期望 ${_expectState} 不一致`
     );
 }
+
+const _MAX_HOLES = AN.maxHoles ?? 16;
+const _MAX_TRANS = AN.maxTransitions ?? 64;
+const _MAX_WELLS = AN.maxWellDepth ?? 24;
+const _MAX_MOB = AN.maxMobility ?? 192;
 
 /**
  * @param {import('../grid.js').Grid} grid
@@ -89,6 +94,111 @@ function encodeDockSpatial(dock) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Board structure analysis helpers (mirrors Python features.py)
+// ---------------------------------------------------------------------------
+
+/** @param {import('../grid.js').Grid} grid */
+function countHoles(grid) {
+    const n = grid.size;
+    let holes = 0;
+    for (let x = 0; x < n; x++) {
+        let blockFound = false;
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) {
+                blockFound = true;
+            } else if (blockFound) {
+                holes++;
+            }
+        }
+    }
+    return holes;
+}
+
+/** @param {import('../grid.js').Grid} grid */
+function countTransitions(grid) {
+    const n = grid.size;
+    let rowTrans = 0;
+    let colTrans = 0;
+    for (let y = 0; y < n; y++) {
+        let prev = true;
+        for (let x = 0; x < n; x++) {
+            const cur = grid.cells[y][x] !== null;
+            if (cur !== prev) rowTrans++;
+            prev = cur;
+        }
+        if (!prev) rowTrans++;
+    }
+    for (let x = 0; x < n; x++) {
+        let prev = true;
+        for (let y = 0; y < n; y++) {
+            const cur = grid.cells[y][x] !== null;
+            if (cur !== prev) colTrans++;
+            prev = cur;
+        }
+        if (!prev) colTrans++;
+    }
+    return { rowTrans, colTrans };
+}
+
+/** @param {import('../grid.js').Grid} grid */
+function wellDepthSum(grid) {
+    const n = grid.size;
+    let total = 0;
+    for (let x = 0; x < n; x++) {
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) continue;
+            const leftBlocked = x === 0 || grid.cells[y][x - 1] !== null;
+            const rightBlocked = x === n - 1 || grid.cells[y][x + 1] !== null;
+            if (leftBlocked && rightBlocked) total++;
+        }
+    }
+    return total;
+}
+
+/** @param {import('../grid.js').Grid} grid */
+function linesCloseToClear(grid) {
+    const n = grid.size;
+    let close1 = 0;
+    let close2 = 0;
+    for (let y = 0; y < n; y++) {
+        let f = 0;
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== null) f++;
+        }
+        if (f === n - 1) close1++;
+        else if (f === n - 2) close2++;
+    }
+    for (let x = 0; x < n; x++) {
+        let f = 0;
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) f++;
+        }
+        if (f === n - 1) close1++;
+        else if (f === n - 2) close2++;
+    }
+    return { close1, close2 };
+}
+
+/** @param {import('../grid.js').Grid} grid @param {{ shape: number[][], placed: boolean }[]} dock */
+function dockMobility(grid, dock) {
+    const n = grid.size;
+    let total = 0;
+    for (const b of dock) {
+        if (b.placed) continue;
+        for (let gy = 0; gy < n; gy++) {
+            for (let gx = 0; gx < n; gx++) {
+                if (grid.canPlace(b.shape, gx, gy)) total++;
+            }
+        }
+    }
+    return total;
+}
+
+// ---------------------------------------------------------------------------
+// State features (162-dim)
+// ---------------------------------------------------------------------------
+
 /**
  * @param {import('../grid.js').Grid} grid
  * @param {{ shape: number[][], colorIdx: number, placed: boolean }[]} dock
@@ -141,6 +251,12 @@ export function extractStateFeatures(grid, dock) {
 
     const unplaced = dock.filter((b) => !b.placed).length / DOCK_SLOTS;
 
+    const holes = countHoles(grid);
+    const { rowTrans, colTrans } = countTransitions(grid);
+    const wells = wellDepthSum(grid);
+    const { close1, close2 } = linesCloseToClear(grid);
+    const mobility = dockMobility(grid, dock);
+
     const scalars = new Float32Array([
         filled / area,
         maxRow,
@@ -156,7 +272,16 @@ export function extractStateFeatures(grid, dock) {
         stdDev(colFill),
         maxRow - minRow,
         maxCol - minCol,
-        (almostFullRows + almostFullCols) / (2 * n)
+        (almostFullRows + almostFullCols) / (2 * n),
+        // --- 8 new features ---
+        Math.min(holes / _MAX_HOLES, 1.0),
+        Math.min(rowTrans / _MAX_TRANS, 1.0),
+        Math.min(colTrans / _MAX_TRANS, 1.0),
+        Math.min(wells / _MAX_WELLS, 1.0),
+        Math.min(close1 / n, 1.0),
+        Math.min(close2 / n, 1.0),
+        Math.min(mobility / _MAX_MOB, 1.0),
+        filled / area,
     ]);
     if (scalars.length !== STATE_SCALAR_DIM) {
         throw new Error(`标量段长度 ${scalars.length} != stateScalarDim ${STATE_SCALAR_DIM}`);
@@ -188,8 +313,14 @@ function stdDev(arr) {
  * @param {number[][]} shape
  * @param {number} wouldClear
  * @param {number} gridSize
+ * @param {number} [deltaHoles=0]
+ * @param {number} [deltaTransitions=0]
+ * @param {number} [postMobility=0]
  */
-export function extractActionFeatures(stateFeat, blockIdx, gx, gy, shape, wouldClear, gridSize) {
+export function extractActionFeatures(
+    stateFeat, blockIdx, gx, gy, shape, wouldClear, gridSize,
+    deltaHoles = 0, deltaTransitions = 0, postMobility = 0,
+) {
     let cells = 0;
     for (let y = 0; y < shape.length; y++) {
         for (let x = 0; x < shape[y].length; x++) {
@@ -211,7 +342,12 @@ export function extractActionFeatures(stateFeat, blockIdx, gx, gy, shape, wouldC
         w / divSh,
         h / divSh,
         cells / divCells,
-        wouldClear / divClr
+        wouldClear / divClr,
+        // --- 4 new features ---
+        Math.max(-1.0, Math.min(1.0, deltaHoles / _MAX_HOLES)),
+        Math.max(-1.0, Math.min(1.0, deltaTransitions / _MAX_TRANS)),
+        0.0,
+        Math.min(postMobility / _MAX_MOB, 1.0),
     ]);
     const out = new Float32Array(stateFeat.length + actionPart.length);
     out.set(stateFeat, 0);

@@ -2,11 +2,13 @@
 策略 / 价值网络（PyTorch）。
 φ、ψ 维度由 shared/game_rules.json featureEncoding 决定。
 
+state=162 (23 scalars + 64 grid + 75 dock), action=11, phi=173。
+
 提供五种架构（--arch）：
-  conv-shared   — 新默认；CNN 棋盘编码 + 128 宽共享主干，~150K 参数，空间感知能力远超 MLP
+  conv-shared   — 默认；残差 CNN 棋盘 + dock MLP + 128 宽共享主干 + 3 层价值头，~132K 参数
   light-shared  — 2 层 64 宽共享主干 + 动作投射，~20K 参数
   light         — 2 层 64 宽双塔，~28K 参数
-  shared        — 多层残差共享主干（旧默认，~1.2M 参数）
+  shared        — 多层残差共享主干（~1.2M 参数）
   split         — 多层残差双塔
 """
 
@@ -17,7 +19,7 @@ import torch.nn as nn
 
 from .features import ACTION_FEATURE_DIM, PHI_DIM, STATE_FEATURE_DIM
 
-_SCALAR_DIM = 15
+_SCALAR_DIM = 23
 _GRID_SIDE = 8
 _GRID_FLAT = _GRID_SIDE * _GRID_SIDE
 _DOCK_MASK_SIDE = 5
@@ -29,17 +31,30 @@ _DOCK_FLAT = _DOCK_SLOTS * _DOCK_MASK_SIDE * _DOCK_MASK_SIDE
 # Conv model — CNN 棋盘编码 + 共享 MLP 主干；对 8×8 空间模式有天然感知
 # ---------------------------------------------------------------------------
 
+class _ResConvBlock(nn.Module):
+    """Conv2d + GELU + Conv2d + residual。"""
+
+    def __init__(self, ch: int):
+        super().__init__()
+        self.conv1 = nn.Conv2d(ch, ch, 3, padding=1)
+        self.conv2 = nn.Conv2d(ch, ch, 3, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = nn.functional.gelu(self.conv1(x))
+        h = self.conv2(h)
+        return nn.functional.gelu(x + h)
+
+
 class ConvSharedPolicyValueNet(nn.Module):
     """
-    CNN 棋盘编码器 + 共享 MLP 主干 + 动作融合策略头 + 深价值头。
+    CNN 棋盘编码器 (残差) + 共享 MLP 主干 + 动作融合策略头 + 3 层价值头。
 
-    从 STATE_FEATURE_DIM (154) 状态向量拆出三段：
-      scalars[:15]    → 直连
-      grid[15:79]     → reshape(1,8,8) → Conv2d → 全局平均池化 → channels 维
-      dock[79:154]    → 直连 (3×5×5 待选块掩码)
+    从 STATE_FEATURE_DIM (162) 状态向量拆出三段：
+      scalars[:23]     → 直连
+      grid[23:87]      → reshape(1,8,8) → Conv→ResConv×2 → 全局平均池化 → channels 维
+      dock[87:162]     → MLP(75→32) 独立编码
 
-    三段拼合走宽 MLP 得到 h(s)；策略为 h(s)⊕ψ(a)→logit，价值为 h(s)→MLP→V。
-    ~150K 参数 (width=128, conv_channels=32, action_embed_dim=48)。
+    三段拼合走宽 MLP 得到 h(s)；策略为 h(s)⊕ψ(a)→logit，价值为 h(s)→3 层 MLP→V。
     """
 
     def __init__(
@@ -53,17 +68,21 @@ class ConvSharedPolicyValueNet(nn.Module):
         self.conv_channels = conv_channels
         self.action_embed_dim = action_embed_dim
 
-        self.grid_conv = nn.Sequential(
+        self.grid_conv_stem = nn.Sequential(
             nn.Conv2d(1, conv_channels, 3, padding=1),
             nn.GELU(),
-            nn.Conv2d(conv_channels, conv_channels, 3, padding=1),
-            nn.GELU(),
-            nn.Conv2d(conv_channels, conv_channels, 3, padding=1),
-            nn.GELU(),
         )
+        self.grid_res1 = _ResConvBlock(conv_channels)
+        self.grid_res2 = _ResConvBlock(conv_channels)
         grid_out_dim = conv_channels
 
-        trunk_in = _SCALAR_DIM + grid_out_dim + _DOCK_FLAT
+        dock_embed_dim = 32
+        self.dock_proj = nn.Sequential(
+            nn.Linear(_DOCK_FLAT, dock_embed_dim),
+            nn.GELU(),
+        )
+
+        trunk_in = _SCALAR_DIM + grid_out_dim + dock_embed_dim
         self.trunk_norm = nn.LayerNorm(trunk_in)
         self.trunk_fc1 = nn.Linear(trunk_in, width)
         self.trunk_fc2 = nn.Linear(width, width)
@@ -76,21 +95,27 @@ class ConvSharedPolicyValueNet(nn.Module):
             nn.Linear(width, 1),
         )
         self.value_head = nn.Sequential(
+            nn.Linear(width, width),
+            nn.GELU(),
             nn.Linear(width, width // 2),
             nn.GELU(),
             nn.Linear(width // 2, 1),
         )
 
     def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
-        """s: [B, 154] → h: [B, width]"""
+        """s: [B, STATE_FEATURE_DIM] → h: [B, width]"""
         scalars = s[:, :_SCALAR_DIM]
         grid = s[:, _SCALAR_DIM:_SCALAR_DIM + _GRID_FLAT].reshape(-1, 1, _GRID_SIDE, _GRID_SIDE)
-        dock = s[:, _SCALAR_DIM + _GRID_FLAT:]
+        dock_raw = s[:, _SCALAR_DIM + _GRID_FLAT:]
 
-        g = self.grid_conv(grid)
+        g = self.grid_conv_stem(grid)
+        g = self.grid_res1(g)
+        g = self.grid_res2(g)
         g = g.mean(dim=(-2, -1))
 
-        x = torch.cat([scalars, g, dock], dim=-1)
+        d = self.dock_proj(dock_raw)
+
+        x = torch.cat([scalars, g, d], dim=-1)
         x = self.trunk_norm(x)
         x = nn.functional.gelu(self.trunk_fc1(x))
         x = x + nn.functional.gelu(self.trunk_fc2(x))

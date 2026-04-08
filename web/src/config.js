@@ -11,7 +11,8 @@ const _defaultGrid = GAME_RULES.strategies[_defaultSid]?.gridWidth ?? 8;
 
 export const CONFIG = {
     GRID_SIZE: _defaultGrid,
-    CELL_SIZE: 38,
+    /** 单格像素；与 main.css --dock-cell-size、盘面/候选区绘制一致 */
+    CELL_SIZE: 42,
     /** 落点吸附：仅在以「指针粗对齐」为锚点的切比雪夫半径内选最近合法位，不做全盘策略 */
     PLACE_SNAP_RADIUS: 2,
     /** 待选区单坑预览边长（格），与 shapes 最大边长一致，避免换块时槽位高度变化带动整页视觉抖动 */
