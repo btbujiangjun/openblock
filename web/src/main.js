@@ -5,6 +5,7 @@
  */
 import { Game } from './game.js';
 import { initRLPanel } from './bot/rlPanel.js';
+import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';
 import { applySkinToDocument, getActiveSkin } from './skins.js';
 
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.blockBlastGame = game;
     /* 先于 game.init() 绑定回放/RL：init 因 API 失败抛错时，回放列表仍可点开（只读会话与 move_sequences） */
     initReplayUI(game);
+    initPlayerInsightPanel(game);
     initRLPanel(game);
     try {
         await game.init();

@@ -297,6 +297,19 @@ export class PlayerProfile {
         return this.isNewPlayer && this._spawnCounter <= (eng.firstSessionSpawns ?? 5);
     }
 
+    /** 本局已完成的出块轮次（每轮 dock 刷新 +1），供调试面板展示 */
+    get spawnRoundIndex() {
+        return this._spawnCounter;
+    }
+
+    get lifetimeGames() {
+        return this._totalLifetimeGames;
+    }
+
+    get lifetimePlacements() {
+        return this._totalLifetimePlacements;
+    }
+
     /**
      * 会话阶段：early（热身）/ peak（巅峰）/ late（疲劳）
      * @returns {'early'|'peak'|'late'}

@@ -139,27 +139,54 @@
         <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>
         <button type="button" class="btn btn-secondary" id="menu-btn">菜单</button>
     </div>
-    <aside id="rl-panel" class="rl-panel" aria-label="强化学习自博弈">
-        <h3 class="rl-panel-title">RL 自博弈</h3>
-        <p class="rl-panel-hint">参考 AlphaGo：自博弈 + REINFORCE。可选 <strong>PyTorch 后端</strong>（需 <code>pip install torch</code> 并启动 Flask）：热加载权重、持续学习落盘；未勾选时用浏览器线性模型 + localStorage。</p>
-        <label class="rl-backend-toggle"><input type="checkbox" id="rl-use-pytorch" /> 使用 PyTorch 后端（<span id="rl-backend-status">未检测</span>）</label>
+    <div class="app-side-left" aria-label="左侧工具栏">
+    <aside id="player-insight-panel" class="side-panel-base player-insight-panel" aria-label="玩家画像与自适应策略">
+        <div class="insight-toolbar">
+            <h3 class="player-insight-title">玩家画像</h3>
+            <div class="insight-toolbar-actions">
+                <div class="strategy-btns">
+                    <button type="button" class="strategy-btn" data-level="easy">简单</button>
+                    <button type="button" class="strategy-btn active" data-level="normal">普通</button>
+                    <button type="button" class="strategy-btn" data-level="hard">困难</button>
+                </div>
+                <span class="insight-sep"></span>
+                <button type="button" class="insight-btn insight-btn--hint" id="insight-hint" title="分析盘面推荐落子">求助</button>
+                <button type="button" class="insight-btn insight-btn--new" id="insight-new-game" title="回主菜单">新局</button>
+                <button type="button" class="insight-btn insight-btn--restart" id="insight-restart" title="连战重开">重开</button>
+            </div>
+        </div>
+        <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>
+        <div id="insight-ability" class="insight-grid"></div>
+        <div class="insight-divider"></div>
+        <div id="insight-state" class="insight-state-row"></div>
+        <div id="insight-spawn" class="insight-spawn-row"></div>
+        <div id="insight-why" class="insight-why-section"></div>
+        <div id="insight-hints-section" class="insight-hints-wrap" hidden>
+            <div id="insight-hints-list"></div>
+        </div>
+    </aside>
+    <aside id="rl-panel" class="side-panel-base rl-panel" aria-label="强化学习自博弈">
+        <div class="rl-header-row">
+            <h3 class="rl-panel-title">RL 自博弈</h3>
+            <label class="rl-backend-toggle"><input type="checkbox" id="rl-use-pytorch" /> PyTorch（<span id="rl-backend-status">未检测</span>）</label>
+        </div>
         <div class="rl-stats">
-            <div><span>训练局数</span><strong id="rl-episodes">0</strong></div>
-            <div><span>近均分</span><strong id="rl-avg-score">—</strong></div>
+            <div><span>局数</span><strong id="rl-episodes">0</strong></div>
+            <div><span>均分</span><strong id="rl-avg-score">—</strong></div>
             <div><span>胜率</span><strong id="rl-winrate">—</strong></div>
             <div><span>最佳</span><strong id="rl-best">0</strong></div>
         </div>
-        <p class="rl-last-wrap">上一局：<span id="rl-last">—</span></p>
         <div class="rl-actions">
             <button type="button" class="rl-btn" id="rl-start">开始训练</button>
             <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled>停止</button>
-            <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估一局</button>
-            <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="拉取服务端 training.jsonl">刷新日志</button>
+            <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估</button>
+            <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="刷新日志">日志</button>
+            <span class="rl-last-wrap">上局：<span id="rl-last">—</span></span>
         </div>
-        <p class="rl-server-log-label">服务端训练日志（<code>training.jsonl</code>）</p>
         <pre class="rl-log rl-server-log" id="rl-server-log" aria-live="polite"></pre>
         <pre class="rl-log" id="rl-log"></pre>
     </aside>
+    </div>
     <aside id="rl-dash-panel" class="rl-dash-panel" aria-label="RL 训练看板">
         <h3 class="rl-dash-title">训练看板</h3>
         <p class="rl-dash-hint">曲线来自 <code>train_episode</code>。得分/胜率需日志含 <code>score</code>/<code>won</code>（新版前端训练会自动写入）；旧数据无得分字段时摘要会提示。</p>
@@ -176,15 +203,6 @@
         </div>
         <div id="rl-chart-root" class="rl-chart-root"></div>
     </aside>
-    <div class="strategy-panel">
-        <h3>难度</h3>
-        <div class="strategy-btns">
-            <button type="button" class="strategy-btn" data-level="easy">简单</button>
-            <button type="button" class="strategy-btn active" data-level="normal">普通</button>
-            <button type="button" class="strategy-btn" data-level="hard">困难</button>
-        </div>
-        <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>
-    </div>
     <div id="boot-error" hidden role="alert"></div>
     <script type="module" src="./src/main.js"></script>
     <script>

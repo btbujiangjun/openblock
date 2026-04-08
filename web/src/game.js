@@ -28,6 +28,14 @@ import { Database } from './database.js';
 import { Renderer } from './renderer.js';
 import { BackendSync } from './services/backendSync.js';
 
+function _topShapeWeightEntries(shapeWeights, n) {
+    if (!shapeWeights || typeof shapeWeights !== 'object') return [];
+    return Object.entries(shapeWeights)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([category, weight]) => ({ category, weight: Number(weight) }));
+}
+
 export class Game {
     constructor() {
         this.grid = new Grid(CONFIG.GRID_SIZE);
@@ -79,6 +87,54 @@ export class Game {
 
         /** 玩家实时能力画像（跨局持久化） */
         this.playerProfile = PlayerProfile.load();
+
+        /** @type {object | null} 上一轮出块时自适应引擎快照（可解释性面板） */
+        this._lastAdaptiveInsight = null;
+        /** @type {(() => void) | null} 由 playerInsightPanel 注入 */
+        this._playerInsightRefresh = null;
+    }
+
+    _refreshPlayerInsightPanel() {
+        if (typeof this._playerInsightRefresh === 'function') {
+            this._playerInsightRefresh();
+        }
+    }
+
+    /**
+     * 在 recordSpawn 之前调用，记录决策瞬间的 stress / hints（与投放一致）
+     * @param {object} layered resolveAdaptiveStrategy 返回值
+     */
+    _captureAdaptiveInsight(layered) {
+        const p = this.playerProfile;
+        this._lastAdaptiveInsight = {
+            adaptiveEnabled: Boolean(GAME_RULES.adaptiveSpawn?.enabled),
+            score: this.score,
+            boardFill: this.grid.getFillRatio(),
+            runStreak: this.runStreak,
+            strategyId: this.strategy,
+            stress: layered._adaptiveStress,
+            flowState: layered._flowState,
+            skillLevel: layered._skillLevel,
+            pacingPhase: layered._pacingPhase,
+            momentum: layered._momentum,
+            frustration: layered._frustration,
+            sessionPhase: layered._sessionPhase,
+            spawnHints: layered.spawnHints ? { ...layered.spawnHints } : null,
+            fillRatio: layered.fillRatio,
+            shapeWeightsTop: _topShapeWeightEntries(layered.shapeWeights, 5)
+        };
+        this._lastAdaptiveInsight.profileAtSpawn = {
+            thinkMs: p.metrics.thinkMs,
+            clearRate: p.metrics.clearRate,
+            missRate: p.metrics.missRate,
+            cognitiveLoad: p.cognitiveLoad,
+            engagementAPM: p.engagementAPM,
+            hadRecentNearMiss: p.hadRecentNearMiss,
+            needsRecovery: p.needsRecovery,
+            isInOnboarding: p.isInOnboarding,
+            recentComboStreak: p.recentComboStreak,
+            spawnRound: p.spawnRoundIndex
+        };
     }
 
     async init() {
@@ -401,6 +457,7 @@ export class Game {
         const layered = resolveAdaptiveStrategy(
             this.strategy, this.playerProfile, this.score, this.runStreak, this.grid.getFillRatio()
         );
+        this._captureAdaptiveInsight(layered);
         const shapes = generateDockShapes(this.grid, layered);
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
@@ -428,6 +485,7 @@ export class Game {
             logSpawn,
             spawnShapeIds: shapes.map((s) => s.id)
         });
+        this._refreshPlayerInsightPanel();
     }
 
     /**
@@ -661,6 +719,7 @@ export class Game {
 
             const result = this.grid.checkLines();
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
+            this._refreshPlayerInsightPanel();
 
             if (result.count > 0) {
                 this.playClearEffect(result);
@@ -684,6 +743,7 @@ export class Game {
         } else {
             this.gameStats.misses++;
             this.playerProfile.recordMiss();
+            this._refreshPlayerInsightPanel();
             this.logBehavior(GAME_EVENTS.PLACE_FAILED, {
                 blockIndex: this.drag.index,
                 blockId: this.dragBlock.id
