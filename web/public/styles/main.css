@@ -835,6 +835,57 @@ body.game-rl-preview .block-dock {
     opacity: 0.7;
 }
 
+/* 实时策略建议 */
+.insight-strategy-section {
+    padding: 5px 8px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+
+.strategy-tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 5px 0;
+}
+
+.strategy-tip + .strategy-tip {
+    border-top: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
+}
+
+.strategy-tip-icon {
+    flex: 0 0 auto;
+    font-size: 13px;
+    line-height: 1;
+    margin-top: 1px;
+}
+
+.strategy-tip-body {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.strategy-tip-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-primary, #1e293b);
+    margin-right: 4px;
+}
+
+.strategy-tip-detail {
+    font-size: 9px;
+    line-height: 1.4;
+    color: var(--text-secondary, #5d7a96);
+}
+
+.strategy-tip--survival .strategy-tip-title { color: var(--warning, #e67e22); }
+.strategy-tip--clear .strategy-tip-title { color: var(--accent-dark, #1976d2); }
+.strategy-tip--build .strategy-tip-title { color: #0d9488; }
+.strategy-tip--pace .strategy-tip-title { color: #7c3aed; }
+.strategy-tip--explore .strategy-tip-title { color: #16a34a; }
+
 /* 策略解释 — 卡片式区块 */
 .insight-why-section {
     padding: 5px 8px;
@@ -1292,37 +1343,144 @@ body.game-rl-preview .block-dock {
     color: white;
 }
 
+/* ── 消行浮动分数 ───────────────────────────────────── */
+
 .float-score {
     position: fixed;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
     font-size: 20px;
-    font-weight: bold;
+    font-weight: 700;
     color: var(--success);
     pointer-events: none;
-    animation: floatUp 0.6s ease-out forwards;
+    animation: floatUp 0.7s ease-out forwards;
     z-index: 200;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
-.float-combo {
-    color: #e67e22;
-    font-size: clamp(22px, 5vw, 32px);
-    letter-spacing: 0.04em;
-    animation: comboScorePop 1.38s ease-out forwards;
-    text-shadow:
-        0 0 12px rgba(255, 200, 80, 0.95),
-        0 0 24px rgba(255, 140, 40, 0.55),
-        0 2px 6px rgba(0, 0, 0, 0.35);
-    filter: drop-shadow(0 0 8px rgba(255, 180, 60, 0.6));
+.float-label {
+    font-size: 0.72em;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.92;
 }
+
+.float-pts {
+    font-size: 1em;
+    font-weight: 700;
+}
+
+/* ── Double (2行) ── */
 
 .float-multi {
     color: #27ae60;
-    font-size: 22px;
+    font-size: clamp(20px, 4.5vw, 28px);
+    animation: multiPop 0.9s ease-out forwards;
+    text-shadow:
+        0 0 8px rgba(39, 174, 96, 0.65),
+        0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+.float-multi .float-label {
+    color: #2ecc71;
+    text-shadow: 0 0 10px rgba(46, 204, 113, 0.6);
+}
+
+/* ── Combo (3+行) ── */
+
+.float-combo {
+    color: #e67e22;
+    font-size: clamp(24px, 5.5vw, 36px);
+    letter-spacing: 0.04em;
+    animation: comboScorePop 1.5s ease-out forwards;
+    text-shadow:
+        0 0 14px rgba(255, 200, 80, 0.95),
+        0 0 28px rgba(255, 140, 40, 0.55),
+        0 2px 6px rgba(0, 0, 0, 0.35);
+    filter: drop-shadow(0 0 10px rgba(255, 180, 60, 0.6));
+}
+
+.float-combo .float-label {
+    font-size: 0.6em;
+    letter-spacing: 0.14em;
+}
+
+/* ── Perfect Clear ── */
+
+.float-perfect {
+    font-size: clamp(28px, 6vw, 44px);
+    letter-spacing: 0.06em;
+    animation: perfectPop 2.2s ease-out forwards;
+    background: linear-gradient(90deg, #FF4444, #FF8800, #FFDD00, #44DD44, #4488FF, #AA44FF);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter:
+        drop-shadow(0 0 12px rgba(255, 200, 100, 0.9))
+        drop-shadow(0 0 24px rgba(255, 100, 200, 0.5));
+}
+
+.float-perfect .float-label {
+    font-size: 0.55em;
+    letter-spacing: 0.18em;
+    background: inherit;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.float-perfect .float-pts {
+    background: inherit;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* ── 连消徽章 ── */
+
+.streak-badge {
+    position: fixed;
+    pointer-events: none;
+    z-index: 201;
+    font-size: clamp(14px, 3vw, 20px);
+    font-weight: 800;
+    color: #ff6b35;
+    letter-spacing: 0.06em;
+    animation: streakSlide 1.6s ease-out forwards;
+    text-shadow:
+        0 0 10px rgba(255, 107, 53, 0.7),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ── 动画定义 ───────────────────────────────────── */
+
 @keyframes floatUp {
-    0% { opacity: 1; transform: translateY(0) scale(1); }
-    100% { opacity: 0; transform: translateY(-30px) scale(1.2); }
+    0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    70% { opacity: 0.8; }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-36px) scale(1.15); }
+}
+
+@keyframes multiPop {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(6px) scale(0.7);
+    }
+    16% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1.08);
+    }
+    40% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-2px) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-30px) scale(1.04);
+    }
 }
 
 @keyframes comboScorePop {
@@ -1330,17 +1488,63 @@ body.game-rl-preview .block-dock {
         opacity: 0;
         transform: translateX(-50%) translateY(8px) scale(0.65);
     }
-    14% {
+    12% {
         opacity: 1;
-        transform: translateX(-50%) translateY(0) scale(1.12);
+        transform: translateX(-50%) translateY(0) scale(1.15);
     }
-    55% {
+    50% {
         opacity: 1;
         transform: translateX(-50%) translateY(-4px) scale(1);
     }
     100% {
         opacity: 0;
-        transform: translateX(-50%) translateY(-32px) scale(1.06);
+        transform: translateX(-50%) translateY(-36px) scale(1.05);
+    }
+}
+
+@keyframes perfectPop {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(12px) scale(0.4);
+        background-position: 0% 50%;
+    }
+    10% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1.25);
+    }
+    20% {
+        transform: translateX(-50%) translateY(-2px) scale(1.0);
+    }
+    60% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-6px) scale(1.02);
+        background-position: 100% 50%;
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-44px) scale(1.08);
+        background-position: 200% 50%;
+    }
+}
+
+@keyframes streakSlide {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(10px) scale(0.7);
+    }
+    14% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1.1);
+    }
+    30% {
+        transform: translateX(-50%) translateY(-2px) scale(1);
+    }
+    70% {
+        opacity: 0.85;
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-24px) scale(0.95);
     }
 }
 

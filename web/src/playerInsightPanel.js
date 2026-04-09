@@ -4,6 +4,7 @@
  */
 import { GAME_RULES } from './gameRules.js';
 import { computeHints } from './hintEngine.js';
+import { generateStrategyTips } from './strategyAdvisor.js';
 
 const CAT_LABEL = {
     lines: '长条',
@@ -18,6 +19,32 @@ const CAT_LABEL = {
 function _pct(x) {
     if (x == null || Number.isNaN(x)) return '—';
     return `${Math.round(Math.max(0, Math.min(1, x)) * 100)}%`;
+}
+
+function _gridMaxHeight(grid) {
+    const n = grid.size;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== 0) return n - y;
+        }
+    }
+    return 0;
+}
+
+function _gridHoles(grid) {
+    const n = grid.size;
+    let holes = 0;
+    for (let x = 0; x < n; x++) {
+        let blocked = false;
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== 0) {
+                blocked = true;
+            } else if (blocked) {
+                holes++;
+            }
+        }
+    }
+    return holes;
 }
 
 function _flowExplain(flow) {
@@ -204,6 +231,31 @@ function _render(game) {
             </div>`;
     } else if (elSpawn) {
         elSpawn.innerHTML = '<span class="insight-muted">开局后显示</span>';
+    }
+
+    const elStrategy = document.getElementById('insight-strategy');
+    if (elStrategy) {
+        const gridInfo = game.grid ? {
+            fillRatio: game.grid.getFillRatio(),
+            maxHeight: _gridMaxHeight(game.grid),
+            holesCount: _gridHoles(game.grid)
+        } : undefined;
+        const tips = generateStrategyTips(p, ins, gridInfo);
+        if (tips.length > 0) {
+            const cards = tips.map(t => {
+                const catCls = `strategy-tip--${t.category}`;
+                return `<div class="strategy-tip ${catCls}">` +
+                    `<span class="strategy-tip-icon">${t.icon}</span>` +
+                    `<div class="strategy-tip-body">` +
+                    `<strong class="strategy-tip-title">${t.title}</strong>` +
+                    `<span class="strategy-tip-detail">${t.detail}</span>` +
+                    `</div></div>`;
+            }).join('');
+            elStrategy.innerHTML =
+                `<p class="insight-why-title">实时策略</p>` + cards;
+        } else {
+            elStrategy.innerHTML = '';
+        }
     }
 
     if (elWhy) {

@@ -79,6 +79,8 @@ export class Game {
             misses: 0,
             startTime: 0
         };
+        /** 连续消行落子计数，未消行的落子重置为 0 */
+        this._clearStreak = 0;
 
         this.behaviors = [];
         this.backendSync = new BackendSync(this.db.userId);
@@ -300,6 +302,7 @@ export class Game {
                 misses: 0,
                 startTime: Date.now()
             };
+            this._clearStreak = 0;
 
             this.playerProfile.recordNewGame();
 
@@ -727,6 +730,7 @@ export class Game {
             if (result.count > 0) {
                 this.playClearEffect(result);
             } else {
+                this._clearStreak = 0;
                 this.logBehavior(GAME_EVENTS.NO_CLEAR, {
                     blockIndex: this.drag.index,
                     blockId: this.dragBlock.id
@@ -762,11 +766,11 @@ export class Game {
 
     playClearEffect(result) {
         const self = this;
-        /** onEnd 会在本函数返回后立刻清空 drag/dragBlock，动画结束回调须用此处快照 */
         const dockIndex = this.drag.index;
         const dockSlot = this.dockBlocks[dockIndex];
 
         this.isAnimating = true;
+        this._clearStreak++;
 
         const strategyConfig = getStrategy(this.strategy);
         const scoring = strategyConfig.scoring;
@@ -774,6 +778,8 @@ export class Game {
         let clearScore = scoring.singleLine * result.count;
         if (result.count === 2) clearScore = scoring.multiLine;
         else if (result.count >= 3) clearScore = scoring.combo + (result.count - 2) * scoring.multiLine;
+
+        const perfectClear = this.grid.getFillRatio() === 0;
 
         this.score += clearScore;
         this.gameStats.score = this.score;
@@ -789,22 +795,41 @@ export class Game {
         });
 
         const isCombo = result.count >= 3;
-        this.renderer.addParticles(result.cells, { lines: result.count });
+        const isDouble = result.count === 2;
+
+        this.renderer.addParticles(result.cells, {
+            lines: result.count,
+            perfectClear
+        });
         this.renderer.setClearCells(result.cells);
-        if (isCombo) {
+
+        if (perfectClear) {
+            this.renderer.triggerPerfectFlash();
+            this.renderer.setShake(16, 720);
+        } else if (isCombo) {
             this.renderer.triggerComboFlash(result.count);
+            this.renderer.setShake(11, 520);
+        } else if (isDouble) {
+            const waveRows = [...new Set(result.cells.map(c => c.y))];
+            this.renderer.triggerDoubleWave(waveRows);
+            this.renderer.setShake(8, 400);
+        } else {
+            this.renderer.setShake(5, 280);
         }
-        // 仅使用画布内 shakeOffset，避免与 #game-wrapper CSS 动画叠加造成跳跃/闪烁
-        this.renderer.setShake(isCombo ? 11 : 6, isCombo ? 520 : 320);
 
-        this.showFloatScore(
-            clearScore,
-            isCombo ? 'combo' : result.count >= 2 ? 'multi' : '',
-            result.count
-        );
+        let effectType = '';
+        if (perfectClear) effectType = 'perfect';
+        else if (isCombo) effectType = 'combo';
+        else if (isDouble) effectType = 'multi';
 
+        this.showFloatScore(clearScore, effectType, result.count);
+
+        if (this._clearStreak >= 3) {
+            this._showStreakBadge(this._clearStreak);
+        }
+
+        const animDuration = perfectClear ? 780 : isCombo ? 580 : isDouble ? 460 : 380;
         const animStart = Date.now();
-        const animDuration = isCombo ? 580 : 400;
 
         const animate = () => {
             self.renderer.updateShake();
@@ -837,6 +862,18 @@ export class Game {
         };
 
         animate();
+    }
+
+    _showStreakBadge(streak) {
+        const el = document.createElement('div');
+        el.className = 'streak-badge';
+        const fires = streak >= 5 ? '🔥🔥🔥' : streak >= 4 ? '🔥🔥' : '🔥';
+        el.textContent = `${fires} ${streak} 连消`;
+        el.style.left = '50%';
+        el.style.top = '14%';
+        el.style.transform = 'translateX(-50%)';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 1600);
     }
 
     checkGameOver() {
@@ -1176,17 +1213,25 @@ export class Game {
     showFloatScore(score, type, linesCleared = 0) {
         const el = document.createElement('div');
         const isCombo = type === 'combo';
-        el.className = 'float-score' + (isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '');
-        if (isCombo && linesCleared >= 3) {
-            el.textContent = `COMBO ×${linesCleared}  +${score}`;
+        const isPerfect = type === 'perfect';
+        const cls = isPerfect ? ' float-perfect' : isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '';
+        el.className = 'float-score' + cls;
+
+        if (isPerfect) {
+            el.innerHTML = `<span class="float-label">PERFECT</span><span class="float-pts">+${score}</span>`;
+        } else if (isCombo && linesCleared >= 3) {
+            el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}</span><span class="float-pts">+${score}</span>`;
+        } else if (type === 'multi') {
+            el.innerHTML = `<span class="float-label">DOUBLE</span><span class="float-pts">+${score}</span>`;
         } else {
-            el.textContent = type === 'multi' ? 'DOUBLE +' + score : '+' + score;
+            el.textContent = '+' + score;
         }
+
         el.style.left = '50%';
-        el.style.top = isCombo ? '22%' : '25%';
+        el.style.top = isPerfect ? '18%' : isCombo ? '22%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), isCombo ? 1450 : 600);
+        setTimeout(() => el.remove(), isPerfect ? 2200 : isCombo ? 1450 : 600);
     }
 
     hideScreens() {
@@ -1221,6 +1266,8 @@ export class Game {
     /** 整帧重绘（含消除高亮与粒子）；与 markDirty 等价，避免漏画 clearCells 导致闪烁 */
     render() {
         this.renderer.decayComboFlash();
+        this.renderer.decayPerfectFlash();
+        this.renderer.decayDoubleWave();
         this.renderer.clear();
         this.renderer.renderBackground();
         this.renderer.renderGrid(this.grid);
@@ -1228,7 +1275,9 @@ export class Game {
             this.renderer.renderPreview(this.previewPos.x, this.previewPos.y, this.previewBlock);
         }
         this.renderer.renderClearCells(this.renderer.clearCells);
+        this.renderer.renderDoubleWave();
         this.renderer.renderComboFlash();
+        this.renderer.renderPerfectFlash();
         this.renderer.renderParticles();
     }
 }

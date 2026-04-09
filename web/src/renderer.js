@@ -288,6 +288,11 @@ export class Renderer {
         this.shakeStart = 0;
         /** COMBO（多消）全屏暖色闪光强度 0~1，每帧衰减 */
         this._comboFlash = 0;
+        this._perfectFlash = 0;
+        this._perfectHue = 0;
+        /** Double 消除：涟漪扩散效果 0~1 */
+        this._doubleWave = 0;
+        this._doubleWaveRows = [];
     }
 
     /** 与逻辑层 Grid 尺寸对齐（策略可改边长） */
@@ -394,6 +399,7 @@ export class Renderer {
         if (!cells || cells.length === 0) return;
         const skin = getActiveSkin();
         const inset = skin.blockInset;
+        const pulse = 0.65 + 0.35 * Math.abs(Math.sin(Date.now() * 0.008));
 
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
@@ -405,13 +411,24 @@ export class Renderer {
             const size = this.cellSize - inset * 2;
 
             this.ctx.fillStyle = skin.clearFlash;
-            this.ctx.globalAlpha = 0.92;
+            this.ctx.globalAlpha = 0.92 * pulse;
             if (br > 0) {
                 roundRectPath(this.ctx, px, py, size, size, br);
                 this.ctx.fill();
             } else {
                 this.ctx.fillRect(px, py, size, size);
             }
+
+            this.ctx.globalAlpha = 0.4 * pulse;
+            this.ctx.shadowColor = skin.clearFlash;
+            this.ctx.shadowBlur = 8;
+            if (br > 0) {
+                roundRectPath(this.ctx, px, py, size, size, br);
+                this.ctx.fill();
+            } else {
+                this.ctx.fillRect(px, py, size, size);
+            }
+            this.ctx.shadowBlur = 0;
         }
 
         this.ctx.restore();
@@ -438,14 +455,22 @@ export class Renderer {
      */
     addParticles(cells, opts = {}) {
         const lines = opts.lines ?? 1;
+        const isPerfect = opts.perfectClear ?? false;
         const isCombo = lines >= 3;
+        const isDouble = lines === 2;
         const palette = getBlockColors();
-        const perCell = isCombo ? 15 : 8;
-        const speed = isCombo ? 1.55 : 1;
-        /** combo 时粒子衰减慢一些，与暖光/浮动字停留时间一致 */
-        const lifeDecay = isCombo ? 0.019 : 0.03;
+
+        const perCell = isPerfect ? 22 : isCombo ? 15 : isDouble ? 11 : 8;
+        const speed = isPerfect ? 2.0 : isCombo ? 1.55 : isDouble ? 1.25 : 1;
+        const lifeDecay = isPerfect ? 0.014 : isCombo ? 0.019 : isDouble ? 0.024 : 0.03;
+        const baseLife = isPerfect ? 1.3 : isCombo ? 1.12 : isDouble ? 1.06 : 1;
+
+        const rainbowColors = ['#FF4444', '#FF8800', '#FFDD00', '#44DD44', '#4488FF', '#AA44FF'];
+
         for (const cell of cells) {
-            const color = palette[cell.color] || '#FFFFFF';
+            const color = isPerfect
+                ? rainbowColors[Math.floor(Math.random() * rainbowColors.length)]
+                : (palette[cell.color] || '#FFFFFF');
             for (let i = 0; i < perCell; i++) {
                 const ang = Math.random() * Math.PI * 2;
                 const sp = (3 + Math.random() * 10) * speed;
@@ -455,26 +480,96 @@ export class Renderer {
                     vx: Math.cos(ang) * sp + (Math.random() - 0.5) * 3,
                     vy: Math.sin(ang) * sp + (Math.random() - 0.5) * 3 - 4,
                     color,
-                    life: isCombo ? 1.12 : 1,
+                    life: baseLife,
                     lifeDecay,
                     size: (isCombo ? 3 : 4) + Math.random() * (isCombo ? 5 : 4)
                 });
             }
-            if (isCombo) {
-                for (let j = 0; j < 6; j++) {
+            if (isCombo || isPerfect) {
+                const sparkCount = isPerfect ? 10 : 6;
+                for (let j = 0; j < sparkCount; j++) {
                     this.particles.push({
                         x: cell.x * this.cellSize + this.cellSize / 2,
                         y: cell.y * this.cellSize + this.cellSize / 2,
-                        vx: (Math.random() - 0.5) * 18,
-                        vy: (Math.random() - 0.5) * 18 - 6,
-                        color: j % 2 === 0 ? '#FFD700' : '#FFF8DC',
-                        life: 1.15,
-                        lifeDecay: 0.016,
-                        size: 2 + Math.random() * 3
+                        vx: (Math.random() - 0.5) * (isPerfect ? 24 : 18),
+                        vy: (Math.random() - 0.5) * (isPerfect ? 24 : 18) - 6,
+                        color: isPerfect
+                            ? rainbowColors[j % rainbowColors.length]
+                            : (j % 2 === 0 ? '#FFD700' : '#FFF8DC'),
+                        life: isPerfect ? 1.35 : 1.15,
+                        lifeDecay: isPerfect ? 0.012 : 0.016,
+                        size: 2 + Math.random() * (isPerfect ? 4 : 3)
                     });
                 }
             }
         }
+    }
+
+    /** Perfect Clear 彩虹脉冲特效 */
+    triggerPerfectFlash() {
+        this._perfectFlash = 1.0;
+        this._perfectHue = 0;
+    }
+
+    decayPerfectFlash() {
+        if (!this._perfectFlash || this._perfectFlash <= 0) return;
+        this._perfectFlash *= 0.955;
+        this._perfectHue = (this._perfectHue + 6) % 360;
+        if (this._perfectFlash < 0.02) this._perfectFlash = 0;
+    }
+
+    renderPerfectFlash() {
+        if (!this._perfectFlash || this._perfectFlash <= 0) return;
+        const a = this._perfectFlash;
+        const cx = this.canvas.width * 0.5;
+        const cy = this.canvas.height * 0.5;
+        const r = Math.max(this.canvas.width, this.canvas.height) * 0.85;
+        const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        const h = this._perfectHue;
+        g.addColorStop(0, `hsla(${h}, 100%, 75%, ${0.3 * a})`);
+        g.addColorStop(0.3, `hsla(${(h + 60) % 360}, 100%, 65%, ${0.15 * a})`);
+        g.addColorStop(0.6, `hsla(${(h + 120) % 360}, 100%, 60%, ${0.06 * a})`);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        this.ctx.save();
+        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+        this.ctx.fillStyle = g;
+        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.canvas.width, this.canvas.height);
+        this.ctx.restore();
+    }
+
+    /** Double 消除涟漪：沿消除行扩散的水平光波 */
+    triggerDoubleWave(clearedRows) {
+        this._doubleWave = 1.0;
+        this._doubleWaveRows = clearedRows;
+    }
+
+    decayDoubleWave() {
+        if (this._doubleWave <= 0) return;
+        this._doubleWave *= 0.94;
+        if (this._doubleWave < 0.02) this._doubleWave = 0;
+    }
+
+    renderDoubleWave() {
+        if (this._doubleWave <= 0 || !this._doubleWaveRows.length) return;
+        const a = this._doubleWave;
+        const spread = (1 - a) * this.canvas.width * 0.6;
+        this.ctx.save();
+        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+        for (const row of this._doubleWaveRows) {
+            const cy = (row + 0.5) * this.cellSize;
+            const g = this.ctx.createLinearGradient(
+                this.canvas.width * 0.5 - spread, cy,
+                this.canvas.width * 0.5 + spread, cy
+            );
+            g.addColorStop(0, `rgba(46, 204, 113, 0)`);
+            g.addColorStop(0.3, `rgba(46, 204, 113, ${0.25 * a})`);
+            g.addColorStop(0.5, `rgba(255, 255, 255, ${0.35 * a})`);
+            g.addColorStop(0.7, `rgba(46, 204, 113, ${0.25 * a})`);
+            g.addColorStop(1, `rgba(46, 204, 113, 0)`);
+            this.ctx.fillStyle = g;
+            this.ctx.fillRect(0, cy - this.cellSize * 0.6, this.canvas.width, this.cellSize * 1.2);
+        }
+        this.ctx.restore();
     }
 
     /** 多消时全屏边缘暖光（与 _comboFlash 配合） */
@@ -566,6 +661,8 @@ export class Renderer {
     clearParticles() {
         this.particles = [];
         this._comboFlash = 0;
+        this._perfectFlash = 0;
+        this._doubleWave = 0;
     }
 
     setClearCells(cells) {
