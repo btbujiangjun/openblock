@@ -814,6 +814,10 @@ def get_sessions():
     return jsonify(sessions)
 
 
+# 与 web/src/moveSequence.js MIN_PERSIST_MOVE_FRAMES 一致：过短序列不写入，避免回放列表垃圾数据
+_MIN_MOVE_FRAMES = 5
+
+
 @app.route("/api/move-sequence/<int:session_id>", methods=["PUT"])
 def put_move_sequence(session_id):
     data = request.get_json() or {}
@@ -821,6 +825,13 @@ def put_move_sequence(session_id):
     frames = data.get("frames")
     if frames is None:
         return jsonify({"success": False, "error": "frames required"}), 400
+    if not isinstance(frames, list) or len(frames) < _MIN_MOVE_FRAMES:
+        return jsonify(
+            {
+                "success": False,
+                "error": f"frames must have at least {_MIN_MOVE_FRAMES} entries",
+            }
+        ), 400
     db = get_db()
     cur = db.cursor()
     cur.execute(
@@ -883,7 +894,7 @@ def list_replay_sessions():
             frames = json.loads(row["move_frames"] or "[]")
         except (json.JSONDecodeError, TypeError):
             continue
-        if not isinstance(frames, list) or len(frames) < 1:
+        if not isinstance(frames, list) or len(frames) < _MIN_MOVE_FRAMES:
             continue
         fst = frames[0]
         if not isinstance(fst, dict) or fst.get("t") != "init" or not fst.get("grid"):

@@ -1,3 +1,10 @@
+import {
+    displayScoreFromReplayFrames,
+    formatPlayerStateForReplay,
+    getPlayerStateAtFrameIndex,
+    nextDistinctReplayFrameIndex
+} from './moveSequence.js';
+
 /**
  * 对局序列回放 UI（帧数据来自 SQLite / move_sequences）
  * @param {import('./game.js').Game} game
@@ -18,12 +25,15 @@ export function initReplayUI(game) {
     const selectAllCb = document.getElementById('replay-select-all');
     const selectedCountEl = document.getElementById('replay-selected-count');
     const deleteSelectedBtn = document.getElementById('replay-delete-selected');
+    const playerStateEl = document.getElementById('replay-player-state');
 
     if (!menuReplayBtn || !listScreen || !viewScreen || !slider) {
         return;
     }
 
     let playTimer = null;
+    /** @type {object[] | null} 当前打开的回放帧（供玩家状态同步展示） */
+    let replayFramesRef = null;
 
     function show(el) {
         document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
@@ -93,6 +103,10 @@ export function initReplayUI(game) {
 
     async function openList() {
         stopPlay();
+        replayFramesRef = null;
+        if (playerStateEl) {
+            playerStateEl.textContent = '';
+        }
         game.endReplay?.();
         sessionListEl.innerHTML = '';
         if (selectAllCb) {
@@ -126,16 +140,17 @@ export function initReplayUI(game) {
                     const li = document.createElement('li');
                     li.className = 'replay-list-item';
                     const t = new Date(s.startTime || s.endTime || Date.now());
-                    const score = s.score != null ? s.score : '—';
+                    const derived = displayScoreFromReplayFrames(frames);
+                    const score =
+                        derived != null ? derived : s.score != null && s.score !== '' ? s.score : '—';
                     li.innerHTML = `
                         <label class="replay-item-check">
                             <input type="checkbox" class="replay-select-cb" data-session-id="${sid}" aria-label="选择本条回放" />
                         </label>
                         <div class="replay-item-main" role="button" tabindex="0" aria-label="打开回放">
                             <span class="replay-item-meta">${t.toLocaleString()}</span>
-                            <span class="replay-item-strategy">${s.strategy || '?'}</span>
-                            <span class="replay-item-score">${score} 分</span>
                             <span class="replay-item-steps">${frames.length} 帧</span>
+                            <span class="replay-item-score">${score} 分</span>
                         </div>`;
                     const mainEl = li.querySelector('.replay-item-main');
                     const cb = li.querySelector('.replay-select-cb');
@@ -192,20 +207,41 @@ export function initReplayUI(game) {
         if (!game.beginReplayFromFrames(frames)) {
             return;
         }
+        replayFramesRef = frames;
         const maxIdx = game.getReplayMaxIndex();
         slider.min = '0';
         slider.max = String(maxIdx);
         slider.value = '0';
         if (titleEl) {
-            titleEl.textContent = `回放 · ${session.strategy || '?'} · ${session.score != null ? session.score + ' 分' : ''}`;
+            const derived = displayScoreFromReplayFrames(frames);
+            const sc =
+                derived != null
+                    ? derived
+                    : session.score != null && session.score !== ''
+                      ? session.score
+                      : '—';
+            titleEl.textContent = sc === '—' ? '回放' : `回放 · ${sc} 分`;
         }
         updateLabel(0, maxIdx);
         show(viewScreen);
     }
 
+    function frameTypeLabel(frames, idx) {
+        const t = frames?.[idx]?.t;
+        if (t === 'init') return '开局';
+        if (t === 'spawn') return '出块';
+        if (t === 'place') return '落子';
+        return t || '—';
+    }
+
     function updateLabel(idx, maxIdx) {
         if (label) {
-            label.textContent = `帧 ${idx} / ${maxIdx}`;
+            const ft = frameTypeLabel(replayFramesRef, idx);
+            label.textContent = `帧 ${idx} / ${maxIdx} · ${ft}`;
+        }
+        if (playerStateEl) {
+            const ps = getPlayerStateAtFrameIndex(replayFramesRef, idx);
+            playerStateEl.textContent = formatPlayerStateForReplay(ps);
         }
     }
 
@@ -220,17 +256,29 @@ export function initReplayUI(game) {
         if (playTimer) {
             return;
         }
+        const mx = Number(slider.max);
+        let v = Number(slider.value);
+        if (v >= mx) {
+            v = 0;
+            slider.value = '0';
+            game.applyReplayFrameIndex(0);
+            updateLabel(0, mx);
+        }
         playTimer = setInterval(() => {
-            let v = Number(slider.value);
-            const mx = Number(slider.max);
-            if (v >= mx) {
+            const cur = Number(slider.value);
+            if (cur >= mx) {
                 stopPlay();
                 return;
             }
-            v += 1;
-            slider.value = String(v);
-            game.applyReplayFrameIndex(v);
-            updateLabel(v, mx);
+            if (!replayFramesRef?.length) {
+                stopPlay();
+                return;
+            }
+            /* 跳过 replayStateAt 中无效 place 等导致的「连续相同画面」，避免长时间停在同一帧 */
+            const nextIdx = nextDistinctReplayFrameIndex(replayFramesRef, cur, mx);
+            slider.value = String(nextIdx);
+            game.applyReplayFrameIndex(nextIdx);
+            updateLabel(nextIdx, mx);
         }, 550);
     });
 
@@ -242,6 +290,10 @@ export function initReplayUI(game) {
     });
     viewBack?.addEventListener('click', () => {
         stopPlay();
+        replayFramesRef = null;
+        if (playerStateEl) {
+            playerStateEl.textContent = '';
+        }
         game.endReplay();
         show(listScreen);
         void openList();

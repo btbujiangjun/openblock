@@ -167,7 +167,7 @@ try:
         resolve_training_device,
         tensor_to_device,
     )
-    from rl_pytorch.model import LightPolicyValueNet, LightSharedPolicyValueNet, PolicyValueNet, SharedPolicyValueNet
+    from rl_pytorch.model import ConvSharedPolicyValueNet, LightPolicyValueNet, LightSharedPolicyValueNet, PolicyValueNet, SharedPolicyValueNet
 except ImportError as e:
     torch = None
     resolve_training_device = None  # type: ignore
@@ -183,7 +183,7 @@ def _default_meta():
         "policy_depth": int(os.environ.get("RL_POLICY_DEPTH", "4")),
         "value_depth": int(os.environ.get("RL_VALUE_DEPTH", "4")),
         "mlp_ratio": float(os.environ.get("RL_MLP_RATIO", "2.0")),
-        "arch": os.environ.get("RL_ARCH", "light-shared"),
+        "arch": os.environ.get("RL_ARCH", "conv-shared"),
     }
 
 
@@ -191,6 +191,10 @@ def _build_model(meta: dict):
     d = _default_meta()
     arch = str(meta.get("arch", d["arch"]))
     width = int(meta.get("width", d["width"]))
+    if arch == "conv-shared":
+        cc = int(meta.get("conv_channels", 16))
+        aed = int(meta.get("action_embed_dim", 48))
+        return ConvSharedPolicyValueNet(width=width, conv_channels=cc, action_embed_dim=aed)
     if arch == "light-shared":
         aed = int(meta.get("action_embed_dim", 32))
         return LightSharedPolicyValueNet(width=width, action_embed_dim=aed)

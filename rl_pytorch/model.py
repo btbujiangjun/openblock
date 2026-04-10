@@ -2,12 +2,12 @@
 策略 / 价值网络（PyTorch）。
 φ、ψ 维度由 shared/game_rules.json featureEncoding 决定。
 
-state=162 (23 scalars + 64 grid + 75 dock), action=11, phi=173。
+state=162 (23 scalars + 64 grid + 75 dock), action=7, phi=169。
 
 提供五种架构（--arch）：
-  conv-shared   — 默认；残差 CNN 棋盘 + dock MLP + 128 宽共享主干 + 3 层价值头，~132K 参数
-  light-shared  — 2 层 64 宽共享主干 + 动作投射，~20K 参数
-  light         — 2 层 64 宽双塔，~28K 参数
+  conv-shared   — 默认；残差 CNN 棋盘 + dock MLP + 64 宽共享主干 + 3 层价值头，~35K 参数
+  light-shared  — 2 层 64 宽共享主干 + 动作投射，~14K 参数
+  light         — 2 层 64 宽双塔，~24K 参数
   shared        — 多层残差共享主干（~1.2M 参数）
   split         — 多层残差双塔
 """

@@ -233,12 +233,14 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 }
 
-/** 候选区单槽边长 = 盘面实际显示宽度的一半（4 格 vs 8 格），与格子像素对齐 */
+/** 将棋盘实际 CSS 尺寸同步到 CSS 变量，同时让候选区格子与棋盘格子等大 */
 export function syncGridDisplayPx(canvas) {
     if (typeof document === 'undefined' || !canvas) return;
     const w = canvas.getBoundingClientRect().width;
     if (w > 1) {
         document.documentElement.style.setProperty('--grid-display-px', `${w}px`);
+        const gridN = Math.round(canvas.width / CONFIG.CELL_SIZE) || CONFIG.GRID_SIZE;
+        document.documentElement.style.setProperty('--dock-cell-size', `${w / gridN}px`);
     }
 }
 
@@ -261,12 +263,9 @@ export function ensureGridDisplayResizeSync(canvas) {
     }
 }
 
-function syncGridCanvasCssVar(canvas, cellSize) {
+function syncGridCanvasCssVar(canvas) {
     if (typeof document === 'undefined') return;
     document.documentElement.style.setProperty('--grid-canvas-width', `${canvas.width}px`);
-    if (cellSize != null && cellSize > 0) {
-        document.documentElement.style.setProperty('--dock-cell-size', `${cellSize}px`);
-    }
     requestAnimationFrame(() => syncGridDisplayPx(canvas));
 }
 
@@ -278,7 +277,7 @@ export class Renderer {
         this.gridSize = CONFIG.GRID_SIZE;
         this.canvas.width = this.gridSize * this.cellSize;
         this.canvas.height = this.gridSize * this.cellSize;
-        syncGridCanvasCssVar(this.canvas, this.cellSize);
+        syncGridCanvasCssVar(this.canvas);
         ensureGridDisplayResizeSync(this.canvas);
         this.particles = [];
         this.clearCells = [];
@@ -301,7 +300,7 @@ export class Renderer {
         this.gridSize = n;
         this.canvas.width = n * this.cellSize;
         this.canvas.height = n * this.cellSize;
-        syncGridCanvasCssVar(this.canvas, this.cellSize);
+        syncGridCanvasCssVar(this.canvas);
     }
 
     clear() {
@@ -400,15 +399,19 @@ export class Renderer {
         const skin = getActiveSkin();
         const inset = skin.blockInset;
         const pulse = 0.65 + 0.35 * Math.abs(Math.sin(Date.now() * 0.008));
+        const t = Date.now() * 0.001;
+        /* 消除瞬间格块略「跳起」再随 pulse 隐去 */
+        const lift = (1.05 - pulse * 0.4) * (2.5 + 3.5 * Math.sin(t * 20));
 
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
         const br = skin.blockRadius;
         for (const cell of cells) {
-            const px = cell.x * this.cellSize + inset;
-            const py = cell.y * this.cellSize + inset;
-            const size = this.cellSize - inset * 2;
+            const full = this.cellSize - inset * 2;
+            const size = full * (0.92 + 0.08 * pulse);
+            const px = cell.x * this.cellSize + inset + (full - size) * 0.5;
+            const py = cell.y * this.cellSize + inset + (full - size) * 0.5 - lift;
 
             this.ctx.fillStyle = skin.clearFlash;
             this.ctx.globalAlpha = 0.92 * pulse;
@@ -460,10 +463,10 @@ export class Renderer {
         const isDouble = lines === 2;
         const palette = getBlockColors();
 
-        const perCell = isPerfect ? 22 : isCombo ? 15 : isDouble ? 11 : 8;
-        const speed = isPerfect ? 2.0 : isCombo ? 1.55 : isDouble ? 1.25 : 1;
-        const lifeDecay = isPerfect ? 0.014 : isCombo ? 0.019 : isDouble ? 0.024 : 0.03;
-        const baseLife = isPerfect ? 1.3 : isCombo ? 1.12 : isDouble ? 1.06 : 1;
+        const perCell = isPerfect ? 24 : isCombo ? 17 : isDouble ? 13 : 10;
+        const speed = isPerfect ? 2.15 : isCombo ? 1.65 : isDouble ? 1.35 : 1.08;
+        const lifeDecay = isPerfect ? 0.010 : isCombo ? 0.014 : isDouble ? 0.018 : 0.022;
+        const baseLife = isPerfect ? 1.55 : isCombo ? 1.30 : isDouble ? 1.18 : 1.10;
 
         const rainbowColors = ['#FF4444', '#FF8800', '#FFDD00', '#44DD44', '#4488FF', '#AA44FF'];
 
@@ -471,14 +474,18 @@ export class Renderer {
             const color = isPerfect
                 ? rainbowColors[Math.floor(Math.random() * rainbowColors.length)]
                 : (palette[cell.color] || '#FFFFFF');
+            const cx = cell.x * this.cellSize + this.cellSize / 2;
+            const cy = cell.y * this.cellSize + this.cellSize / 2;
             for (let i = 0; i < perCell; i++) {
                 const ang = Math.random() * Math.PI * 2;
-                const sp = (3 + Math.random() * 10) * speed;
+                const sp = (3.5 + Math.random() * 11) * speed;
+                /* 先向上「跳」再受重力下落，横向散开 */
+                const jump = 7 + Math.random() * 9;
                 this.particles.push({
-                    x: cell.x * this.cellSize + this.cellSize / 2,
-                    y: cell.y * this.cellSize + this.cellSize / 2,
-                    vx: Math.cos(ang) * sp + (Math.random() - 0.5) * 3,
-                    vy: Math.sin(ang) * sp + (Math.random() - 0.5) * 3 - 4,
+                    x: cx,
+                    y: cy,
+                    vx: Math.cos(ang) * sp * 1.35 + (Math.random() - 0.5) * 5,
+                    vy: Math.sin(ang) * sp * 0.85 - jump,
                     color,
                     life: baseLife,
                     lifeDecay,
@@ -489,15 +496,15 @@ export class Renderer {
                 const sparkCount = isPerfect ? 10 : 6;
                 for (let j = 0; j < sparkCount; j++) {
                     this.particles.push({
-                        x: cell.x * this.cellSize + this.cellSize / 2,
-                        y: cell.y * this.cellSize + this.cellSize / 2,
-                        vx: (Math.random() - 0.5) * (isPerfect ? 24 : 18),
-                        vy: (Math.random() - 0.5) * (isPerfect ? 24 : 18) - 6,
+                        x: cx,
+                        y: cy,
+                        vx: (Math.random() - 0.5) * (isPerfect ? 26 : 20),
+                        vy: (Math.random() - 0.5) * (isPerfect ? 26 : 20) - (8 + Math.random() * 6),
                         color: isPerfect
                             ? rainbowColors[j % rainbowColors.length]
                             : (j % 2 === 0 ? '#FFD700' : '#FFF8DC'),
-                        life: isPerfect ? 1.35 : 1.15,
-                        lifeDecay: isPerfect ? 0.012 : 0.016,
+                        life: isPerfect ? 1.60 : 1.35,
+                        lifeDecay: isPerfect ? 0.009 : 0.012,
                         size: 2 + Math.random() * (isPerfect ? 4 : 3)
                     });
                 }
@@ -513,8 +520,8 @@ export class Renderer {
 
     decayPerfectFlash() {
         if (!this._perfectFlash || this._perfectFlash <= 0) return;
-        this._perfectFlash *= 0.955;
-        this._perfectHue = (this._perfectHue + 6) % 360;
+        this._perfectFlash *= 0.968;
+        this._perfectHue = (this._perfectHue + 5) % 360;
         if (this._perfectFlash < 0.02) this._perfectFlash = 0;
     }
 
@@ -545,8 +552,8 @@ export class Renderer {
 
     decayDoubleWave() {
         if (this._doubleWave <= 0) return;
-        this._doubleWave *= 0.94;
-        if (this._doubleWave < 0.02) this._doubleWave = 0;
+        this._doubleWave *= 0.96;
+        if (this._doubleWave < 0.015) this._doubleWave = 0;
     }
 
     renderDoubleWave() {
@@ -580,9 +587,8 @@ export class Renderer {
 
     decayComboFlash() {
         if (this._comboFlash <= 0) return;
-        /* 略慢于普通消行闪光，使 combo 暖光多停留约半秒量级 */
-        this._comboFlash *= 0.91;
-        if (this._comboFlash < 0.018) this._comboFlash = 0;
+        this._comboFlash *= 0.94;
+        if (this._comboFlash < 0.015) this._comboFlash = 0;
     }
 
     renderComboFlash() {
@@ -608,7 +614,7 @@ export class Renderer {
             const p = this.particles[i];
             p.x += p.vx;
             p.y += p.vy;
-            p.vy += 0.5;
+            p.vy += 0.35;
             const decay = p.lifeDecay ?? 0.03;
             p.life -= decay;
             if (p.life <= 0) {

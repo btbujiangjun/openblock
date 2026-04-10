@@ -36,70 +36,70 @@
         "label": "新手引导",
         "stress": -0.2,
         "comment": "首局前 5 轮出块：极高线条/矩形权重，最小化不规则块，让新手建立信心和基本操作习惯",
-        "shapeWeights": { "lines": 3.0, "rects": 2.2, "squares": 1.8, "tshapes": 0.45, "zshapes": 0.35, "lshapes": 0.45, "jshapes": 0.45 }
+        "shapeWeights": { "lines": 3.18, "rects": 2.2, "squares": 1.8, "tshapes": 0.45, "zshapes": 0.35, "lshapes": 0.53, "jshapes": 0.45 }
       },
       {
         "id": "recovery",
         "label": "紧急救场",
         "stress": -0.1,
         "comment": "板面接近满时触发：大量线条便于消行自救，不规则块降到最低",
-        "shapeWeights": { "lines": 2.8, "rects": 2.0, "squares": 1.3, "tshapes": 0.6, "zshapes": 0.5, "lshapes": 0.6, "jshapes": 0.6 }
+        "shapeWeights": { "lines": 2.95, "rects": 2.0, "squares": 1.3, "tshapes": 0.6, "zshapes": 0.5, "lshapes": 0.68, "jshapes": 0.6 }
       },
       {
         "id": "comfort",
         "label": "舒适体验",
         "stress": 0.0,
         "comment": "低技能/挫败后恢复信心：消行友好块为主，偶尔引入简单不规则块",
-        "shapeWeights": { "lines": 2.5, "rects": 1.85, "squares": 1.6, "tshapes": 0.75, "zshapes": 0.65, "lshapes": 0.75, "jshapes": 0.75 }
+        "shapeWeights": { "lines": 2.65, "rects": 1.85, "squares": 1.6, "tshapes": 0.75, "zshapes": 0.65, "lshapes": 0.83, "jshapes": 0.75 }
       },
       {
         "id": "momentum",
         "label": "连击催化",
         "stress": 0.1,
         "comment": "combo 后或节奏释放期：偏向能串联消行的块型（线条+小矩形），催化连击正反馈",
-        "shapeWeights": { "lines": 2.4, "rects": 1.75, "squares": 1.55, "tshapes": 0.85, "zshapes": 0.78, "lshapes": 0.82, "jshapes": 0.82 }
+        "shapeWeights": { "lines": 2.55, "rects": 1.75, "squares": 1.55, "tshapes": 0.85, "zshapes": 0.78, "lshapes": 0.9, "jshapes": 0.82 }
       },
       {
         "id": "guided",
         "label": "引导成长",
         "stress": 0.2,
         "comment": "中低技能稳步成长：逐步引入更多不规则块，保持可控挑战",
-        "shapeWeights": { "lines": 2.3, "rects": 1.7, "squares": 1.5, "tshapes": 0.95, "zshapes": 0.88, "lshapes": 0.92, "jshapes": 0.92 }
+        "shapeWeights": { "lines": 2.45, "rects": 1.7, "squares": 1.5, "tshapes": 0.95, "zshapes": 0.88, "lshapes": 1.0, "jshapes": 0.92 }
       },
       {
         "id": "breathing",
         "label": "节奏呼吸",
         "stress": 0.3,
         "comment": "紧张周期后的释放窗口：略低于标准难度，给玩家喘息空间",
-        "shapeWeights": { "lines": 2.15, "rects": 1.65, "squares": 1.45, "tshapes": 1.0, "zshapes": 0.95, "lshapes": 1.0, "jshapes": 1.0 }
+        "shapeWeights": { "lines": 2.3, "rects": 1.65, "squares": 1.45, "tshapes": 1.0, "zshapes": 0.95, "lshapes": 1.08, "jshapes": 1.0 }
       },
       {
         "id": "balanced",
         "label": "均衡标准",
         "stress": 0.4,
         "comment": "心流核心区：与 normal 策略一致，各类块型均衡出现",
-        "shapeWeights": { "lines": 2.0, "rects": 1.55, "squares": 1.35, "tshapes": 1.12, "zshapes": 1.12, "lshapes": 1.12, "jshapes": 1.12 }
+        "shapeWeights": { "lines": 2.15, "rects": 1.55, "squares": 1.35, "tshapes": 1.12, "zshapes": 1.12, "lshapes": 1.2, "jshapes": 1.12 }
       },
       {
         "id": "variety",
         "label": "新鲜变化",
         "stress": 0.5,
         "comment": "防止审美疲劳：刻意拉平权重增加形状多样性，给中等玩家带来新鲜感",
-        "shapeWeights": { "lines": 1.85, "rects": 1.5, "squares": 1.4, "tshapes": 1.2, "zshapes": 1.18, "lshapes": 1.15, "jshapes": 1.15 }
+        "shapeWeights": { "lines": 2.0, "rects": 1.5, "squares": 1.4, "tshapes": 1.2, "zshapes": 1.18, "lshapes": 1.23, "jshapes": 1.15 }
       },
       {
         "id": "challenge",
         "label": "进阶挑战",
         "stress": 0.65,
         "comment": "中高手区间：不规则块明显增多，需要更多空间规划能力",
-        "shapeWeights": { "lines": 1.7, "rects": 1.4, "squares": 1.5, "tshapes": 1.3, "zshapes": 1.3, "lshapes": 1.25, "jshapes": 1.25 }
+        "shapeWeights": { "lines": 1.85, "rects": 1.4, "squares": 1.5, "tshapes": 1.3, "zshapes": 1.3, "lshapes": 1.33, "jshapes": 1.25 }
       },
       {
         "id": "intense",
         "label": "极限考验",
         "stress": 0.85,
         "comment": "高手专属：T/Z/L/J 权重超过线条，最大化空间规划压力",
-        "shapeWeights": { "lines": 1.45, "rects": 1.3, "squares": 1.55, "tshapes": 1.42, "zshapes": 1.48, "lshapes": 1.38, "jshapes": 1.38 }
+        "shapeWeights": { "lines": 1.58, "rects": 1.3, "squares": 1.55, "tshapes": 1.42, "zshapes": 1.48, "lshapes": 1.46, "jshapes": 1.38 }
       }
     ],
     "pacing": {
@@ -151,25 +151,27 @@
   },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
-    "comment": "仅影响 RL 训练用即时奖励，不改变盘面计分 score。holePenaltyPerCell 按新增空洞数惩罚。",
-    "placeBonus": 0.05,
-    "densePerClear": 2.5,
-    "multiClearBonus": 1.8,
-    "winBonus": 50,
-    "stuckPenalty": -3.0,
-    "survivalPerStep": 0.02,
-    "holePenaltyPerCell": -0.08
+    "comment": "仅影响 RL 训练用即时奖励。placeBonus/survivalPerStep 已去除（无信息量）。holePenaltyPerCell 加大使每步有负反馈；heightPenalty 鼓励低盘面；gapReductionBonus 奖励填洞。",
+    "placeBonus": 0.0,
+    "densePerClear": 1.0,
+    "multiClearBonus": 3.0,
+    "winBonus": 20,
+    "stuckPenalty": -5.0,
+    "survivalPerStep": 0.0,
+    "holePenaltyPerCell": -0.3,
+    "heightPenalty": -0.05,
+    "gapReductionBonus": 0.5
   },
   "featureEncoding": {
-    "comment": "state = 23 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块掩码；phi = state + 11 维动作描述。改维度须同步 features.js / features.py 并重训。",
+    "comment": "state = 23 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块掩码；phi = state + 7 维动作描述（精简版：去除昂贵的 delta 特征）。改维度须同步 features.js / features.py 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
     "stateScalarDim": 23,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
     "stateDim": 162,
-    "actionDim": 11,
-    "phiDim": 173,
+    "actionDim": 7,
+    "phiDim": 169,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {
@@ -190,12 +192,12 @@
       "fillRatio": 0.15,
       "scoring": { "singleLine": 10, "multiLine": 30, "combo": 50 },
       "shapeWeights": {
-        "lines": 2.15,
+        "lines": 2.3,
         "rects": 1.65,
         "squares": 1.45,
         "tshapes": 1.05,
         "zshapes": 1.05,
-        "lshapes": 1.05,
+        "lshapes": 1.13,
         "jshapes": 1.05
       },
       "gridWidth": 8,
@@ -208,12 +210,12 @@
       "fillRatio": 0.2,
       "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
       "shapeWeights": {
-        "lines": 2.0,
+        "lines": 2.15,
         "rects": 1.55,
         "squares": 1.35,
         "tshapes": 1.12,
         "zshapes": 1.12,
-        "lshapes": 1.12,
+        "lshapes": 1.2,
         "jshapes": 1.12
       },
       "gridWidth": 8,
@@ -226,12 +228,12 @@
       "fillRatio": 0.25,
       "scoring": { "singleLine": 30, "multiLine": 90, "combo": 150 },
       "shapeWeights": {
-        "lines": 1.92,
+        "lines": 2.05,
         "rects": 1.55,
         "squares": 1.42,
         "tshapes": 1.18,
         "zshapes": 1.18,
-        "lshapes": 1.18,
+        "lshapes": 1.26,
         "jshapes": 1.18
       },
       "gridWidth": 8,

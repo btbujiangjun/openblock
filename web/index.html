@@ -115,23 +115,6 @@
         <ul id="replay-session-list" class="replay-list"></ul>
         <button type="button" class="btn btn-secondary" id="replay-list-back">返回菜单</button>
     </div>
-    <div id="replay-view-screen" class="screen screen-replay-view" aria-label="对局回放">
-        <div class="replay-view-panel">
-            <h2 id="replay-view-title">回放</h2>
-            <p class="replay-hint">拖动滑块逐步查看；播放将自动前进。对局中不可操作棋盘。</p>
-            <div class="replay-toolbar">
-                <label class="replay-slider-wrap">
-                    <span id="replay-frame-label">帧 0 / 0</span>
-                    <input type="range" id="replay-slider" min="0" max="0" value="0" />
-                </label>
-                <div class="replay-btns">
-                    <button type="button" class="btn btn-primary" id="replay-play">播放</button>
-                    <button type="button" class="btn btn-secondary" id="replay-pause">暂停</button>
-                    <button type="button" class="btn btn-secondary" id="replay-view-back">返回列表</button>
-                </div>
-            </div>
-        </div>
-    </div>
     <div id="game-over" class="screen game-over-overlay">
         <div class="game-over-card">
             <p class="game-over-label">游戏结束</p>
@@ -198,6 +181,25 @@
             </div>
         </div>
     </aside>
+    <!-- 回放详情：放在左栏底部，不遮挡中央棋盘 -->
+    <div id="replay-view-screen" class="screen screen-replay-view" aria-label="对局回放">
+        <div class="replay-view-panel">
+            <h2 id="replay-view-title">回放</h2>
+            <p class="replay-hint">拖动滑块逐步查看；播放将自动前进。下方同步显示该帧记录时的玩家状态（画像/心流/投放），便于对照调优；旧对局可能无快照。</p>
+            <div class="replay-toolbar">
+                <label class="replay-slider-wrap">
+                    <span id="replay-frame-label">帧 0 / 0</span>
+                    <input type="range" id="replay-slider" min="0" max="0" value="0" />
+                </label>
+                <div class="replay-btns">
+                    <button type="button" class="btn btn-primary" id="replay-play">播放</button>
+                    <button type="button" class="btn btn-secondary" id="replay-pause">暂停</button>
+                    <button type="button" class="btn btn-secondary" id="replay-view-back">返回列表</button>
+                </div>
+            </div>
+            <div id="replay-player-state" class="replay-player-state" aria-label="本帧玩家状态快照"></div>
+        </div>
+    </div>
     </div>
     <aside id="rl-dash-panel" class="rl-dash-panel" aria-label="RL 训练看板">
         <h3 class="rl-dash-title">训练看板</h3>

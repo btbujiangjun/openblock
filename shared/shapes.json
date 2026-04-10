@@ -11,7 +11,9 @@
   "byCategory": {
     "lines": [
       { "id": "1x4", "name": "1×4", "category": "lines", "data": [[1, 1, 1, 1]] },
-      { "id": "4x1", "name": "4×1", "category": "lines", "data": [[1], [1], [1], [1]] }
+      { "id": "4x1", "name": "4×1", "category": "lines", "data": [[1], [1], [1], [1]] },
+      { "id": "1x5", "name": "1×5", "category": "lines", "data": [[1, 1, 1, 1, 1]] },
+      { "id": "5x1", "name": "5×1", "category": "lines", "data": [[1], [1], [1], [1], [1]] }
     ],
     "rects": [
       {
@@ -52,7 +54,11 @@
       { "id": "l-1", "name": "L Shape 1", "category": "lshapes", "data": [[1, 0], [1, 0], [1, 1]] },
       { "id": "l-2", "name": "L Shape 2", "category": "lshapes", "data": [[1, 1, 1], [1, 0, 0]] },
       { "id": "l-3", "name": "L Shape 3", "category": "lshapes", "data": [[1, 1], [0, 1], [0, 1]] },
-      { "id": "l-4", "name": "L Shape 4", "category": "lshapes", "data": [[0, 0, 1], [1, 1, 1]] }
+      { "id": "l-4", "name": "L Shape 4", "category": "lshapes", "data": [[0, 0, 1], [1, 1, 1]] },
+      { "id": "l5-a", "name": "L 五连 0°", "category": "lshapes", "data": [[1, 1, 1], [1, 0, 0], [1, 0, 0]] },
+      { "id": "l5-b", "name": "L 五连 90°", "category": "lshapes", "data": [[1, 1, 1], [0, 0, 1], [0, 0, 1]] },
+      { "id": "l5-c", "name": "L 五连 180°", "category": "lshapes", "data": [[1, 0, 0], [1, 0, 0], [1, 1, 1]] },
+      { "id": "l5-d", "name": "L 五连 270°", "category": "lshapes", "data": [[0, 0, 1], [0, 0, 1], [1, 1, 1]] }
     ],
     "jshapes": [
       { "id": "j-1", "name": "J Shape 1", "category": "jshapes", "data": [[0, 1], [0, 1], [1, 1]] },

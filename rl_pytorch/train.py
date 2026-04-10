@@ -1,8 +1,12 @@
 """
 自博弈 + PPO / REINFORCE 策略梯度（价值基线），PyTorch；支持 **MPS**（Apple GPU）/ CUDA / CPU。
 
+v2 优化：精简动作特征（7 维，无 grid.clone）、奖励重塑（每步有差异化信号）、
+return_scale=1.0（不压缩回报）、小模型（width=64, conv_channels=16, ~35K 参数）、
+大 batch（128 局）、低探索（temp=0.15, 无 Dirichlet）。
+
 架构选择（--arch）：
-  conv-shared   默认；残差 CNN 棋盘 + dock MLP + 128 宽共享主干 + 3 层价值头，~132K 参数
+  conv-shared   默认；残差 CNN 棋盘 + dock MLP + 64 宽共享主干 + 3 层价值头，~35K 参数
   light-shared  2 层 64 宽共享主干 + 动作投射，~20K 参数
   light         ~28K 参数双塔
   shared        残差 MLP 共享主干（~1.2M 参数）
@@ -10,7 +14,7 @@
 
 训练算法（--ppo-epochs）：
   --ppo-epochs 1   → 单步 REINFORCE（向后兼容旧行为）
-  --ppo-epochs 3-6 → PPO：同一批数据多轮梯度更新，样本效率提升 3-5 倍
+  --ppo-epochs 4   → PPO（默认）：同一批数据多轮梯度更新，样本效率提升 3-5 倍
 
 GPU 加速设计：
   - 采集阶段 no_grad + 存 numpy，不构建计算图
@@ -633,7 +637,7 @@ def train_loop(
     wins = 0
     scores: list[float] = []
     t0 = time.perf_counter()
-    return_scale = float(os.environ.get("RL_RETURN_SCALE", "0.05"))
+    return_scale = float(os.environ.get("RL_RETURN_SCALE", "1.0"))
     last_update: dict | None = None
     last_log_ep = start_ep
     mps_sync = device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes")
@@ -740,16 +744,16 @@ def main() -> None:
     p.add_argument(
         "--lr",
         type=float,
-        default=3e-4,
-        help="Adam 学习率；PPO 推荐 3e-4",
+        default=5e-4,
+        help="Adam 学习率；小模型 + 无 return_scale 推荐 5e-4",
     )
-    p.add_argument("--gamma", type=float, default=0.97)
+    p.add_argument("--gamma", type=float, default=0.99)
     p.add_argument("--value-coef", type=float, default=0.5, help="价值头损失权重")
     p.add_argument(
         "--value-huber-beta",
         type=float,
-        default=10.0,
-        help="smooth_l1 beta；return_scale=0.1 时回报在 [-5, 25] 区间，beta=10 合理",
+        default=1.0,
+        help="smooth_l1 beta；return_scale=1 下回报在 [-5, 50] 区间，beta=1 合理",
     )
     p.add_argument(
         "--adv-min-std",
@@ -760,7 +764,7 @@ def main() -> None:
     p.add_argument(
         "--entropy-coef",
         type=float,
-        default=0.01,
+        default=0.005,
         help="策略熵 bonus；0 关闭",
     )
     p.add_argument(
@@ -768,12 +772,12 @@ def main() -> None:
         action="store_true",
         help="关闭 advantage 标准化",
     )
-    p.add_argument("--grad-clip", type=float, default=0.5, help="梯度裁剪范数")
+    p.add_argument("--grad-clip", type=float, default=1.0, help="梯度裁剪范数")
     p.add_argument(
         "--width",
         type=int,
-        default=128,
-        help="隐层宽度；conv-shared 默认 128（~150K 参数）；light 系列用 64；旧 shared/split 用 256",
+        default=64,
+        help="隐层宽度；conv-shared 推荐 64（~35K 参数）；light 系列用 64；旧 shared/split 用 256",
     )
     p.add_argument(
         "--policy-depth",
@@ -809,19 +813,19 @@ def main() -> None:
     p.add_argument(
         "--conv-channels",
         type=int,
-        default=32,
+        default=16,
         help="conv-shared 架构的 CNN 通道数",
     )
     p.add_argument(
         "--batch-episodes",
         type=int,
-        default=32,
-        help="采集多少局后做一次梯度更新（PPO 需要更大 batch 才稳定）",
+        default=128,
+        help="采集多少局后做一次梯度更新（大 batch 提高梯度稳定性）",
     )
     p.add_argument(
         "--ppo-epochs",
         type=int,
-        default=3,
+        default=4,
         help="每批数据的 PPO 更新轮数；1=退化为 REINFORCE",
     )
     p.add_argument(
@@ -839,7 +843,7 @@ def main() -> None:
     p.add_argument(
         "--temp-floor",
         type=float,
-        default=0.3,
+        default=0.15,
         help="温度下限",
     )
     p.add_argument(
@@ -857,14 +861,14 @@ def main() -> None:
     p.add_argument(
         "--dirichlet-epsilon",
         type=float,
-        default=0.08,
-        help="Dirichlet 混合权重初值；训练中衰减；0 关闭",
+        default=0.0,
+        help="Dirichlet 混合权重初值；0 关闭（已有温度采样足够探索）",
     )
     p.add_argument(
         "--dirichlet-alpha",
         type=float,
         default=0.28,
-        help="Dirichlet 总浓度",
+        help="Dirichlet 总浓度（dirichlet-epsilon=0 时无效）",
     )
     p.add_argument(
         "--n-workers",

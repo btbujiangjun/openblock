@@ -16,6 +16,31 @@ const CAT_LABEL = {
     jshapes: 'J 形'
 };
 
+/** 投放区指标悬停说明，与 docs/PANEL_PARAMETERS.md §4 一致 */
+const SPAWN_TOOLTIP = {
+    stress:
+        '综合压力（约 −0.2～1）。由分数档、连战、技能、心流、节奏、恢复、挫败、combo、近失、闭环反馈等叠加后钳制，用于在配置的多档形状权重间插值。',
+    flowDev:
+        '心流偏移 F(t)：挑战与能力匹配的偏离程度；参与无聊/焦虑方向的 stress 微调。',
+    feedback:
+        '闭环反馈：每轮新出块后，在若干步放置窗口内统计消行表现，对 stress 做小幅偏移（正≈好于预期可略加压，负≈不及预期减压）。',
+    boardFill: '当前棋盘占用率（已占格÷总格），不是开局预填比例 fillRatio。',
+    clearG:
+        '消行保证（1～3）：三连候选中至少要有几块具备「落下即可促成消行」的潜力；挫败/恢复/近失/新手等会抬高。',
+    sizePref:
+        '尺寸偏好（约 −1～1）：负值偏向小块便于腾挪，正值偏向大块；挫败/恢复/新手等常为负。',
+    diversity: '品类多样（0～1）：越高三连块越倾向不同品类；无聊心流时常略提高新鲜感。',
+    shapeW: '当前综合压力下，该形状类别的相对抽样权重（数值越大越容易被抽到）。'
+};
+
+function _attrTitle(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function _spawnPill(text, title) {
+    return `<span class="insight-weight" title="${_attrTitle(title)}">${text}</span>`;
+}
+
 function _pct(x) {
     if (x == null || Number.isNaN(x)) return '—';
     return `${Math.round(Math.max(0, Math.min(1, x)) * 100)}%`;
@@ -204,7 +229,11 @@ function _render(game) {
     if (elSpawn && ins) {
         const s = ins.stress;
         const weights = (ins.shapeWeightsTop || [])
-            .map((w) => `<span class="insight-weight">${CAT_LABEL[w.category] || w.category} ${w.weight.toFixed(1)}</span>`)
+            .map(
+                (w) =>
+                    `<span class="insight-weight" title="${_attrTitle(SPAWN_TOOLTIP.shapeW)}">` +
+                    `${CAT_LABEL[w.category] || w.category} ${w.weight.toFixed(1)}</span>`
+            )
             .join('');
         const h = ins.spawnHints;
         const stressStr = typeof s === 'number' ? s.toFixed(2) : '—';
@@ -212,16 +241,16 @@ function _render(game) {
         const fdStr = ins.flowDeviation != null ? ins.flowDeviation.toFixed(2) : '—';
         const fbStr = ins.feedbackBias != null ? (ins.feedbackBias >= 0 ? '+' : '') + ins.feedbackBias.toFixed(3) : '—';
         const metricPills = [
-            `<span class="insight-weight">stress ${stressStr}</span>`,
-            `<span class="insight-weight">F(t) ${fdStr}</span>`,
-            `<span class="insight-weight">闭环 ${fbStr}</span>`,
-            `<span class="insight-weight">fill ${fillStr}</span>`
+            _spawnPill(`压力 ${stressStr}`, SPAWN_TOOLTIP.stress),
+            _spawnPill(`F(t) ${fdStr}`, SPAWN_TOOLTIP.flowDev),
+            _spawnPill(`闭环 ${fbStr}`, SPAWN_TOOLTIP.feedback),
+            _spawnPill(`占用 ${fillStr}`, SPAWN_TOOLTIP.boardFill)
         ];
         if (h) {
             metricPills.push(
-                `<span class="insight-weight">清${h.clearGuarantee}</span>`,
-                `<span class="insight-weight">尺${(h.sizePreference ?? 0).toFixed(1)}</span>`,
-                `<span class="insight-weight">多${(h.diversityBoost ?? 0).toFixed(1)}</span>`
+                _spawnPill(`保消 ${h.clearGuarantee}`, SPAWN_TOOLTIP.clearG),
+                _spawnPill(`尺寸 ${(h.sizePreference ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.sizePref),
+                _spawnPill(`多样 ${(h.diversityBoost ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.diversity)
             );
         }
         elSpawn.innerHTML = `

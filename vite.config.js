@@ -3,6 +3,8 @@
  * 配置文件本身不触发对 vite 包的解析（仍须本地安装 vite 才能启动 dev）。
  * @type {import('vite').UserConfig}
  */
+const devPort = Number.parseInt(process.env.VITE_PORT || '80', 10);
+
 export default {
     root: 'web',
     base: './',
@@ -12,7 +14,13 @@ export default {
         emptyOutDir: true
     },
     server: {
-        port: 3000,
+        /**
+         * 默认 80（http://localhost/）。Unix 上绑定 <1024 需 root：
+         *   npm run dev:80
+         * 无特权时用环境变量改端口，例如：
+         *   VITE_PORT=3000 npm run dev
+         */
+        port: Number.isFinite(devPort) ? devPort : 80,
         strictPort: true,
         open: true
     }

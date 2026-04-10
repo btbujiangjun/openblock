@@ -26,6 +26,20 @@ def _count_holes(grid: Grid) -> int:
     return holes
 
 
+def _max_column_height(grid: Grid) -> int:
+    """最高列的高度（从底部算起有格子的行数）。"""
+    n = grid.size
+    max_h = 0
+    for x in range(n):
+        for y in range(n):
+            if grid.cells[y][x] is not None:
+                h = n - y
+                if h > max_h:
+                    max_h = h
+                break
+    return max_h
+
+
 def _count_clears_fast(grid: Grid, shape: list[list[int]], gx: int, gy: int) -> int:
     """就地计算放置后的消除行列数，不做完整 clone。"""
     n = grid.size
@@ -174,27 +188,38 @@ class BlockBlastSimulator:
 
         self._holes_cache = None
         holes_after = self._get_holes()
+        delta_holes = holes_after - holes_before
 
         r = gain
         rs = RL_REWARD_SHAPING
+
         pb = float(rs.get("placeBonus") or 0.0)
         if pb:
             r += pb
+
         dc = float(rs.get("densePerClear") or 0.0)
         if dc and clears > 0:
             r += dc * clears
+
         mcb = float(rs.get("multiClearBonus") or 0.0)
         if mcb and clears >= 2:
             r += mcb * (clears - 1)
+
         svl = float(rs.get("survivalPerStep") or 0.0)
         if svl:
             r += svl
 
         hp = float(rs.get("holePenaltyPerCell") or 0.0)
-        if hp:
-            delta_holes = holes_after - holes_before
-            if delta_holes > 0:
-                r += hp * delta_holes
+        if hp and delta_holes > 0:
+            r += hp * delta_holes
+
+        grb = float(rs.get("gapReductionBonus") or 0.0)
+        if grb and delta_holes < 0:
+            r += grb * abs(delta_holes)
+
+        hp_h = float(rs.get("heightPenalty") or 0.0)
+        if hp_h:
+            r += hp_h * (_max_column_height(self.grid) / self.grid.size)
 
         wb = float(rs.get("winBonus") or 0.0)
         thr = getattr(self, "win_score_threshold", WIN_SCORE_THRESHOLD)

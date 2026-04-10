@@ -1,6 +1,6 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
- * state=162 (23 scalars + 64 grid + 75 dock), action=11, phi=173。
+ * state=162 (23 scalars + 64 grid + 75 dock), action=7, phi=169。
  */
 import { FEATURE_ENCODING } from '../gameRules.js';
 
@@ -306,6 +306,7 @@ function stdDev(arr) {
 }
 
 /**
+ * 7 维轻量动作特征：位置 + 形状元信息 + 消行预判。不做 grid.clone()。
  * @param {Float32Array} stateFeat
  * @param {number} blockIdx
  * @param {number} gx
@@ -313,13 +314,9 @@ function stdDev(arr) {
  * @param {number[][]} shape
  * @param {number} wouldClear
  * @param {number} gridSize
- * @param {number} [deltaHoles=0]
- * @param {number} [deltaTransitions=0]
- * @param {number} [postMobility=0]
  */
 export function extractActionFeatures(
     stateFeat, blockIdx, gx, gy, shape, wouldClear, gridSize,
-    deltaHoles = 0, deltaTransitions = 0, postMobility = 0,
 ) {
     let cells = 0;
     for (let y = 0; y < shape.length; y++) {
@@ -343,11 +340,6 @@ export function extractActionFeatures(
         h / divSh,
         cells / divCells,
         wouldClear / divClr,
-        // --- 4 new features ---
-        Math.max(-1.0, Math.min(1.0, deltaHoles / _MAX_HOLES)),
-        Math.max(-1.0, Math.min(1.0, deltaTransitions / _MAX_TRANS)),
-        0.0,
-        Math.min(postMobility / _MAX_MOB, 1.0),
     ]);
     const out = new Float32Array(stateFeat.length + actionPart.length);
     out.set(stateFeat, 0);

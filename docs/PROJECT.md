@@ -10,7 +10,7 @@
 | `game.js` | 流程编排：开始/结束局、拖拽、计分、调用存储与可选同步 |
 | `grid.js` | 棋盘、放置、整行/列消除、初始铺块 |
 | `renderer.js` | Canvas 绘制与动效；`setGridSize` 与策略网格边长对齐 |
-| `shapes.js` | 多连块定义与分类 |
+| `shapes.js` | 多连块定义与分类（数据见 `shared/shapes.json`：含 1×4/1×5 长条、五连 L 四朝向等；与 `rl_pytorch/shapes_data.py` 共用） |
 | `config.js` | 常量、策略、成就；`getApiBaseUrl` / `isBackendSyncEnabled` / `isSqliteClientDatabase` |
 | `database.js` | 经 Flask REST 写入 SQLite：会话、行为、分数、成就、回放、move 序列 |
 | `api.js` | REST 客户端 |
@@ -19,6 +19,7 @@
 | `bot/blockSpawn.js` | 出块执行层：接受策略权重 + `spawnHints`，生成三连块（含 solvability 验证） |
 | `playerProfile.js` | 玩家实时能力画像：滑动窗口行为追踪 → 多维技能 + 状态信号（心流 / 节奏 / 挫败 / 差一点） |
 | `adaptiveSpawn.js` | 自适应出块策略引擎：8 信号融合 → 10 档 profile 插值 + spawnHints。详见 **`docs/ADAPTIVE_SPAWN.md`** |
+| `playerInsightPanel.js` | 左侧玩家画像 UI；投放区指标文案与悬停说明见 **`docs/PANEL_PARAMETERS.md`** §4 |
 | `difficulty.js` | 原有 score→stress 难度映射（被 `adaptiveSpawn.js` 内部调用） |
 
 ## PyTorch RL（`rl_pytorch/`）

@@ -209,6 +209,17 @@ export class Grid {
         return false;
     }
 
+    /** 返回该形状在当前盘面上的合法放置位数量 */
+    countValidPlacements(shapeData) {
+        let count = 0;
+        for (let y = 0; y < this.size; y++) {
+            for (let x = 0; x < this.size; x++) {
+                if (this.canPlace(shapeData, x, y)) count++;
+            }
+        }
+        return count;
+    }
+
     wouldClear(shapeData, gx, gy) {
         const temp = this.cells.map(row => [...row]);
         for (let y = 0; y < shapeData.length; y++) {

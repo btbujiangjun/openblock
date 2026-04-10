@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "predev": "node scripts/ensure-vite.mjs",
-    "dev": "vite",
+    "dev": "VITE_PORT=3000 vite",
+    "dev:80": "npm run predev && sudo -E env PATH=\"$PATH\" VITE_PORT=80 ./node_modules/.bin/vite",
     "prebuild": "node scripts/ensure-vite.mjs",
     "build": "vite build",
     "prepreview": "node scripts/ensure-vite.mjs",

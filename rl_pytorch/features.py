@@ -262,11 +262,8 @@ def extract_action_features(
     shape: list[list[int]],
     would_clear: int,
     grid_size: int,
-    delta_holes: int = 0,
-    delta_row_trans: int = 0,
-    delta_col_trans: int = 0,
-    post_mobility: int = 0,
 ) -> np.ndarray:
+    """7 维轻量动作特征：位置 + 形状元信息 + 消行预判。不做 grid.clone()。"""
     cells = sum(1 for row in shape for c in row if c)
     h = len(shape)
     w = len(shape[0])
@@ -274,9 +271,6 @@ def extract_action_features(
     div_sh = float(_AN.get("shapeSpan", 5))
     div_cells = float(_AN.get("maxCells", 10))
     div_clr = float(_AN.get("maxClearsHint", 5))
-    max_holes = float(_AN.get("maxHoles", 16))
-    max_trans = float(_AN.get("maxTransitions", 64))
-    max_mob = float(_AN.get("maxMobility", 192))
     action_part = np.array(
         [
             block_idx / div_b,
@@ -286,85 +280,21 @@ def extract_action_features(
             h / div_sh,
             cells / div_cells,
             would_clear / div_clr,
-            # --- 4 new features ---
-            max(-1.0, min(1.0, delta_holes / max_holes)),
-            max(-1.0, min(1.0, (delta_row_trans + delta_col_trans) / max_trans)),
-            0.0,  # reserved: new_almost_full (computed in build_phi_batch)
-            min(post_mobility / max_mob, 1.0),
         ],
         dtype=np.float32,
     )
     return np.concatenate([state_feat, action_part], axis=0)
 
 
-# ---------------------------------------------------------------------------
-# 增量式动作特征计算（避免完整 clone+check_lines）
-# ---------------------------------------------------------------------------
-
-def _count_holes_for_col(cells, n: int, x: int) -> int:
-    """单列空洞数。"""
-    h = 0
-    found = False
-    for y in range(n):
-        if cells[y][x] is not None:
-            found = True
-        elif found:
-            h += 1
-    return h
-
-
-def _compute_action_deltas(grid, shape: list[list[int]], gx: int, gy: int, dock: list[dict], placed_idx: int):
-    """不做 full clone — 就地模拟一步获取 delta_holes / delta_transitions / post_mobility。"""
-    n = grid.size
-    shape_cells = [(gx + x, gy + y) for y, row in enumerate(shape) for x, v in enumerate(row) if v]
-
-    affected_cols = set()
-    affected_rows = set()
-    for cx, cy in shape_cells:
-        affected_cols.add(cx)
-        affected_rows.add(cy)
-
-    holes_before = 0
-    for col in affected_cols:
-        holes_before += _count_holes_for_col(grid.cells, n, col)
-
-    sim = grid.clone()
-    sim.place(shape, 0, gx, gy)
-    result = sim.check_lines()
-
-    holes_after = _count_holes(sim)
-    holes_before_full = _count_holes(grid)
-    delta_holes = holes_after - holes_before_full
-
-    row_trans_a, col_trans_a = _count_transitions(sim)
-    row_trans_b, col_trans_b = _count_transitions(grid)
-    delta_row_trans = row_trans_a - row_trans_b
-    delta_col_trans = col_trans_a - col_trans_b
-
-    post_mob = 0
-    for bi, b in enumerate(dock):
-        if b.get("placed") or bi == placed_idx:
-            continue
-        for py in range(n):
-            for px in range(n):
-                if sim.can_place(b["shape"], px, py):
-                    post_mob += 1
-
-    return result["count"], delta_holes, delta_row_trans, delta_col_trans, post_mob
-
-
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
-    """增强版：每个合法动作都计算 delta 特征。"""
+    """轻量版：只用 count_clears_if_placed（无 grid.clone），采集速度提升 3-5×。"""
     state = extract_state_features(sim.grid, sim.dock)
     rows = []
     for a in legal:
         bi = a["block_idx"]
-        wc, dh, drt, dct, pm = _compute_action_deltas(
-            sim.grid, sim.dock[bi]["shape"], a["gx"], a["gy"], sim.dock, bi
-        )
+        wc = sim.count_clears_if_placed(bi, a["gx"], a["gy"])
         phi = extract_action_features(
             state, bi, a["gx"], a["gy"], sim.dock[bi]["shape"], wc, sim.grid.size,
-            delta_holes=dh, delta_row_trans=drt, delta_col_trans=dct, post_mobility=pm,
         )
         rows.append(phi)
     if rows:
