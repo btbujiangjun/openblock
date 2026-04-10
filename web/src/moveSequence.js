@@ -299,7 +299,7 @@ export function replayVisualSignature(frames, lastInclusive) {
     if (!st) {
         return '\0';
     }
-    return JSON.stringify({ grid: st.gridJSON, dock: st.dockDescriptors });
+    return JSON.stringify(st.gridJSON);
 }
 
 /**
@@ -343,4 +343,83 @@ export function displayScoreFromReplayFrames(frames) {
     }
     const st = replayStateAt(frames, frames.length - 1);
     return st && typeof st.score === 'number' ? st.score : null;
+}
+
+/* ── Replay Series Metrics ── */
+
+const REPLAY_METRICS = [
+    { key: 'score',         label: '得分',   group: 'game',    extract: ps => ps.score,                fmt: 'int' },
+    { key: 'skill',         label: '技能',   group: 'ability', extract: ps => ps.skill,                fmt: 'pct' },
+    { key: 'boardFill',     label: '板面',   group: 'game',    extract: ps => ps.boardFill,            fmt: 'pct' },
+    { key: 'clearRate',     label: '消行率', group: 'ability', extract: ps => ps.metrics?.clearRate,   fmt: 'pct' },
+    { key: 'stress',        label: '压力',   group: 'spawn',   extract: ps => ps.adaptive?.stress,     fmt: 'f2' },
+    { key: 'flowDeviation', label: 'F(t)',   group: 'state',   extract: ps => ps.flowDeviation,        fmt: 'f2' },
+    { key: 'momentum',      label: '动量',   group: 'state',   extract: ps => ps.momentum,             fmt: 'f2' },
+    { key: 'frustration',   label: '未消行', group: 'state',   extract: ps => ps.frustration,          fmt: 'int' },
+    { key: 'cognitiveLoad', label: '负荷',   group: 'state',   extract: ps => ps.cognitiveLoad,        fmt: 'pct' },
+    { key: 'missRate',      label: '失误',   group: 'ability', extract: ps => ps.metrics?.missRate,    fmt: 'pct' },
+    { key: 'thinkMs',       label: '思考',   group: 'ability', extract: ps => ps.metrics?.thinkMs,     fmt: 'int' },
+    { key: 'feedbackBias',  label: '闭环',   group: 'spawn',   extract: ps => ps.feedbackBias,         fmt: 'f3' },
+];
+
+/**
+ * 从全部帧中提取各关键指标的时间序列，供 sparkline 渲染。
+ * @param {object[]} frames
+ * @returns {{ series: Record<string, { label:string, group:string, fmt:string, points:{idx:number,value:number}[] }>, totalFrames:number, metrics: typeof REPLAY_METRICS } | null}
+ */
+export function collectReplayMetricsSeries(frames) {
+    if (!Array.isArray(frames) || frames.length === 0) return null;
+    const totalFrames = frames.length;
+    /** @type {Record<string, { label:string, group:string, fmt:string, points:{idx:number,value:number}[] }>} */
+    const series = {};
+    for (const m of REPLAY_METRICS) {
+        series[m.key] = { label: m.label, group: m.group, fmt: m.fmt, points: [] };
+    }
+    for (let i = 0; i < totalFrames; i++) {
+        const ps = frames[i]?.ps;
+        if (!ps || typeof ps !== 'object') continue;
+        for (const m of REPLAY_METRICS) {
+            const v = m.extract(ps);
+            if (v != null && !Number.isNaN(Number(v))) {
+                series[m.key].points.push({ idx: i, value: Number(v) });
+            }
+        }
+    }
+    let hasData = false;
+    for (const key in series) {
+        if (series[key].points.length > 0) { hasData = true; break; }
+    }
+    if (!hasData) return null;
+    return { series, totalFrames, metrics: REPLAY_METRICS };
+}
+
+/**
+ * 从玩家状态快照中提取单个指标值。
+ * @param {object|null} ps
+ * @param {string} key
+ * @returns {number|null}
+ */
+export function getMetricFromPS(ps, key) {
+    if (!ps) return null;
+    const m = REPLAY_METRICS.find(d => d.key === key);
+    if (!m) return null;
+    const v = m.extract(ps);
+    return v != null && !Number.isNaN(Number(v)) ? Number(v) : null;
+}
+
+/**
+ * @param {number|null|undefined} value
+ * @param {string} fmt
+ * @returns {string}
+ */
+export function formatMetricValue(value, fmt) {
+    if (value == null || Number.isNaN(Number(value))) return '—';
+    const n = Number(value);
+    switch (fmt) {
+        case 'pct': return Math.round(n * 100) + '%';
+        case 'int': return String(Math.round(n));
+        case 'f2':  return n.toFixed(2);
+        case 'f3':  return (n >= 0 ? '+' : '') + n.toFixed(3);
+        default:    return Number.isInteger(n) ? String(n) : n.toFixed(2);
+    }
 }

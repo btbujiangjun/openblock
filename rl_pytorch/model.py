@@ -97,6 +97,8 @@ class ConvSharedPolicyValueNet(nn.Module):
         self.value_head = nn.Sequential(
             nn.Linear(width, width),
             nn.GELU(),
+            nn.Linear(width, width),
+            nn.GELU(),
             nn.Linear(width, width // 2),
             nn.GELU(),
             nn.Linear(width // 2, 1),

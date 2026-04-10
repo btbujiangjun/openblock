@@ -339,6 +339,6 @@ export class Grid {
 
     fromJSON(data) {
         this.size = data.size || 8;
-        this.cells = data.cells;
+        this.cells = data.cells.map(row => [...row]);
     }
 }

@@ -280,8 +280,7 @@ function _render(game) {
                     `<span class="strategy-tip-detail">${t.detail}</span>` +
                     `</div></div>`;
             }).join('');
-            elStrategy.innerHTML =
-                `<p class="insight-why-title">实时策略</p>` + cards;
+            elStrategy.innerHTML = cards;
         } else {
             elStrategy.innerHTML = '';
         }
@@ -293,7 +292,6 @@ function _render(game) {
         const all = [...bullets, ...hintBullets];
         if (all.length) {
             elWhy.innerHTML =
-                `<p class="insight-why-title">策略解释</p>` +
                 `<ul class="insight-why-list">${all.map((t) => `<li>${t}</li>`).join('')}</ul>`;
         } else {
             elWhy.innerHTML = '';

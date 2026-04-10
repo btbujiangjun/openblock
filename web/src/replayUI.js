@@ -2,8 +2,48 @@ import {
     displayScoreFromReplayFrames,
     formatPlayerStateForReplay,
     getPlayerStateAtFrameIndex,
-    nextDistinctReplayFrameIndex
+    nextDistinctReplayFrameIndex,
+    collectReplayMetricsSeries,
+    getMetricFromPS,
+    formatMetricValue
 } from './moveSequence.js';
+
+/* ── Sparkline helpers (pure, no DOM state) ── */
+
+const SPARK_W = 200;
+const SPARK_H = 24;
+const SPARK_PAD = 3;
+const GROUP_COLORS = { game: '#5b9bd5', ability: '#27ae60', state: '#e67e22', spawn: '#8e44ad' };
+
+function _sparkSVG(points, totalFrames, color) {
+    const cursorAttrs = 'class="spark-cursor" x1="0" y1="0" x2="0" y2="' + SPARK_H +
+        '" stroke="var(--replay-cursor,#e74c3c)" stroke-width="1.2" vector-effect="non-scaling-stroke" opacity="0.7"';
+    if (points.length === 0) {
+        return `<svg class="replay-sparkline" viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none">` +
+            `<line x1="0" y1="${SPARK_H / 2}" x2="${SPARK_W}" y2="${SPARK_H / 2}" stroke="${color}" stroke-width="0.7" opacity="0.25" vector-effect="non-scaling-stroke"/>` +
+            `<line ${cursorAttrs}/></svg>`;
+    }
+    const maxIdx = Math.max(totalFrames - 1, 1);
+    let lo = Infinity, hi = -Infinity;
+    for (const p of points) { if (p.value < lo) lo = p.value; if (p.value > hi) hi = p.value; }
+    const range = hi - lo || 1;
+    const plotH = SPARK_H - SPARK_PAD * 2;
+    const toX = idx => (idx / maxIdx) * SPARK_W;
+    const toY = val => SPARK_PAD + plotH - ((val - lo) / range) * plotH;
+
+    const pts = points.map(p => `${toX(p.idx).toFixed(1)},${toY(p.value).toFixed(1)}`).join(' ');
+    const firstX = toX(points[0].idx).toFixed(1);
+    const lastX = toX(points[points.length - 1].idx).toFixed(1);
+    const fillD = `M${firstX},${SPARK_H} ` +
+        points.map(p => `L${toX(p.idx).toFixed(1)},${toY(p.value).toFixed(1)}`).join(' ') +
+        ` L${lastX},${SPARK_H} Z`;
+
+    return `<svg class="replay-sparkline" viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none">` +
+        `<path d="${fillD}" fill="${color}" opacity="0.1"/>` +
+        `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` +
+        `<line ${cursorAttrs}/>` +
+        `</svg>`;
+}
 
 /**
  * 对局序列回放 UI（帧数据来自 SQLite / move_sequences）
@@ -34,6 +74,91 @@ export function initReplayUI(game) {
     let playTimer = null;
     /** @type {object[] | null} 当前打开的回放帧（供玩家状态同步展示） */
     let replayFramesRef = null;
+
+    /* ── Series view state ── */
+    let _seriesData = null;
+    /** @type {{ key:string, fmt:string, cursorLine:SVGLineElement|null, valueEl:HTMLElement|null, points:{idx:number,value:number}[], lo:number, range:number }[]} */
+    let _seriesCells = [];
+
+    function _clearSeries() {
+        _seriesData = null;
+        _seriesCells = [];
+        if (playerStateEl) {
+            playerStateEl.innerHTML = '';
+            playerStateEl.classList.remove('replay-series-mode');
+        }
+    }
+
+    /**
+     * 从 frames 构建 sparkline 序列面板；成功返回 true，无数据返回 false（调用方降级为文本）。
+     */
+    function _initSeries(frames) {
+        const data = collectReplayMetricsSeries(frames);
+        if (!data || !playerStateEl) {
+            _seriesData = null;
+            _seriesCells = [];
+            return false;
+        }
+        _seriesData = data;
+        _seriesCells = [];
+
+        let html = '<div class="replay-series-header" id="replay-series-header"></div>';
+        html += '<div class="replay-series-grid">';
+        for (const m of data.metrics) {
+            const s = data.series[m.key];
+            const color = GROUP_COLORS[m.group] || '#5b9bd5';
+            html += `<div class="replay-series-cell" data-key="${m.key}">` +
+                `<span class="series-label" style="color:${color}">${m.label}</span>` +
+                `<div class="series-spark-wrap">${_sparkSVG(s.points, data.totalFrames, color)}</div>` +
+                `<span class="series-value">—</span></div>`;
+        }
+        html += '</div>';
+        playerStateEl.innerHTML = html;
+        playerStateEl.classList.add('replay-series-mode');
+
+        for (const m of data.metrics) {
+            const cell = playerStateEl.querySelector(`.replay-series-cell[data-key="${m.key}"]`);
+            if (!cell) continue;
+            const svg = cell.querySelector('.replay-sparkline');
+            const cursorLine = svg?.querySelector('.spark-cursor') ?? null;
+            const valueEl = cell.querySelector('.series-value');
+            const pts = data.series[m.key].points;
+            let lo = Infinity, hi = -Infinity;
+            for (const p of pts) { if (p.value < lo) lo = p.value; if (p.value > hi) hi = p.value; }
+            _seriesCells.push({
+                key: m.key, fmt: m.fmt, cursorLine, valueEl,
+                points: pts, lo, range: hi === lo ? 1 : hi - lo
+            });
+        }
+        return true;
+    }
+
+    function _updateSeries(frameIdx) {
+        if (!_seriesData || _seriesCells.length === 0) return;
+        const maxIdx = Math.max(_seriesData.totalFrames - 1, 1);
+        const cx = (frameIdx / maxIdx) * SPARK_W;
+        const ps = getPlayerStateAtFrameIndex(replayFramesRef, frameIdx);
+
+        const headerEl = document.getElementById('replay-series-header');
+        if (headerEl && ps) {
+            const tags = [
+                ps.flowState || '—',
+                ps.pacingPhase || '—',
+                ps.sessionPhase || '—',
+                'R' + (ps.spawnRound ?? '—')
+            ];
+            headerEl.innerHTML = tags.map(t => `<span class="series-tag">${t}</span>`).join('');
+        }
+
+        for (const c of _seriesCells) {
+            if (c.cursorLine) {
+                c.cursorLine.setAttribute('x1', cx.toFixed(1));
+                c.cursorLine.setAttribute('x2', cx.toFixed(1));
+            }
+            const val = ps ? getMetricFromPS(ps, c.key) : null;
+            if (c.valueEl) c.valueEl.textContent = formatMetricValue(val, c.fmt);
+        }
+    }
 
     function show(el) {
         document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
@@ -104,9 +229,7 @@ export function initReplayUI(game) {
     async function openList() {
         stopPlay();
         replayFramesRef = null;
-        if (playerStateEl) {
-            playerStateEl.textContent = '';
-        }
+        _clearSeries();
         game.endReplay?.();
         sessionListEl.innerHTML = '';
         if (selectAllCb) {
@@ -222,6 +345,10 @@ export function initReplayUI(game) {
                       : '—';
             titleEl.textContent = sc === '—' ? '回放' : `回放 · ${sc} 分`;
         }
+        if (playerStateEl && !_initSeries(frames)) {
+            const ps = getPlayerStateAtFrameIndex(frames, 0);
+            playerStateEl.textContent = formatPlayerStateForReplay(ps);
+        }
         updateLabel(0, maxIdx);
         show(viewScreen);
     }
@@ -239,7 +366,9 @@ export function initReplayUI(game) {
             const ft = frameTypeLabel(replayFramesRef, idx);
             label.textContent = `帧 ${idx} / ${maxIdx} · ${ft}`;
         }
-        if (playerStateEl) {
+        if (_seriesData) {
+            _updateSeries(idx);
+        } else if (playerStateEl) {
             const ps = getPlayerStateAtFrameIndex(replayFramesRef, idx);
             playerStateEl.textContent = formatPlayerStateForReplay(ps);
         }
@@ -291,9 +420,7 @@ export function initReplayUI(game) {
     viewBack?.addEventListener('click', () => {
         stopPlay();
         replayFramesRef = null;
-        if (playerStateEl) {
-            playerStateEl.textContent = '';
-        }
+        _clearSeries();
         game.endReplay();
         show(listScreen);
         void openList();

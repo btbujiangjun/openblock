@@ -3,11 +3,11 @@
   "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
   "winScoreThreshold": 220,
   "rlCurriculum": {
-    "comment": "仅 Python 自博弈（rl_pytorch/simulator）使用：胜利门槛从 winThresholdStart 线性升至 winThresholdEnd；网页人机对战仍只用 winScoreThreshold。可用环境变量 RL_CURRICULUM=0 关闭。",
+    "comment": "胜利门槛从 80 起步，让初学者能拿到 winBonus 正反馈；80k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
     "enabled": true,
-    "winThresholdStart": 120,
+    "winThresholdStart": 80,
     "winThresholdEnd": 220,
-    "rampEpisodes": 40000
+    "rampEpisodes": 80000
   },
   "defaultStrategyId": "normal",
   "dynamicDifficulty": {
@@ -151,16 +151,16 @@
   },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
-    "comment": "仅影响 RL 训练用即时奖励。placeBonus/survivalPerStep 已去除（无信息量）。holePenaltyPerCell 加大使每步有负反馈；heightPenalty 鼓励低盘面；gapReductionBonus 奖励填洞。",
-    "placeBonus": 0.0,
-    "densePerClear": 1.0,
-    "multiClearBonus": 3.0,
-    "winBonus": 20,
-    "stuckPenalty": -5.0,
-    "survivalPerStep": 0.0,
-    "holePenaltyPerCell": -0.3,
-    "heightPenalty": -0.05,
-    "gapReductionBonus": 0.5
+    "comment": "RL 即时奖励。placeBonus 提供密集正基线防止纯负信号；hole/height 惩罚降低避免压制探索；survival 鼓励长局。",
+    "placeBonus": 0.3,
+    "densePerClear": 1.5,
+    "multiClearBonus": 4.0,
+    "winBonus": 25,
+    "stuckPenalty": -3.0,
+    "survivalPerStep": 0.1,
+    "holePenaltyPerCell": -0.15,
+    "heightPenalty": -0.02,
+    "gapReductionBonus": 0.8
   },
   "featureEncoding": {
     "comment": "state = 23 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块掩码；phi = state + 7 维动作描述（精简版：去除昂贵的 delta 特征）。改维度须同步 features.js / features.py 并重训。",

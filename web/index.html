@@ -143,12 +143,23 @@
             </div>
         </div>
         <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>
-        <div id="insight-ability" class="insight-grid"></div>
-        <div class="insight-divider"></div>
-        <div id="insight-state" class="insight-state-row"></div>
-        <div id="insight-spawn" class="insight-spawn-row"></div>
-        <div id="insight-strategy" class="insight-strategy-section"></div>
-        <div id="insight-why" class="insight-why-section"></div>
+        <details class="panel-section" open>
+            <summary class="panel-section-head">能力指标</summary>
+            <div id="insight-ability" class="insight-grid"></div>
+        </details>
+        <details class="panel-section" open>
+            <summary class="panel-section-head">实时状态</summary>
+            <div id="insight-state" class="insight-state-row"></div>
+            <div id="insight-spawn" class="insight-spawn-row"></div>
+        </details>
+        <details class="panel-section">
+            <summary class="panel-section-head">实时策略</summary>
+            <div id="insight-strategy" class="insight-strategy-section"></div>
+        </details>
+        <details class="panel-section">
+            <summary class="panel-section-head">策略解释</summary>
+            <div id="insight-why" class="insight-why-section"></div>
+        </details>
         <div id="insight-hints-section" class="insight-hints-wrap" hidden>
             <div id="insight-hints-list"></div>
         </div>
@@ -158,28 +169,29 @@
             <h3 class="rl-panel-title">RL 自博弈</h3>
             <label class="rl-backend-toggle"><input type="checkbox" id="rl-use-pytorch" /> PyTorch（<span id="rl-backend-status">未检测</span>）</label>
         </div>
-        <div class="rl-stats">
-            <div><span>局数</span><strong id="rl-episodes">0</strong></div>
-            <div><span>均分</span><strong id="rl-avg-score">—</strong></div>
-            <div><span>胜率</span><strong id="rl-winrate">—</strong></div>
-            <div><span>最佳</span><strong id="rl-best">0</strong></div>
-        </div>
-        <div class="rl-actions">
-            <button type="button" class="rl-btn" id="rl-start">开始训练</button>
-            <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled>停止</button>
-            <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估</button>
-            <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="刷新日志">日志</button>
-        </div>
-        <div class="rl-logs-wrap" aria-label="训练损失与进展">
-            <div class="rl-log-pane">
-                <div class="rl-log-pane-head insight-why-title">训练损失</div>
-                <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
+        <details class="panel-section" open>
+            <summary class="panel-section-head">统计 &amp; 操作</summary>
+            <div class="rl-stats">
+                <div><span>局数</span><strong id="rl-episodes">0</strong></div>
+                <div><span>均分</span><strong id="rl-avg-score">—</strong></div>
+                <div><span>胜率</span><strong id="rl-winrate">—</strong></div>
+                <div><span>最佳</span><strong id="rl-best">0</strong></div>
             </div>
-            <div class="rl-log-pane">
-                <div class="rl-log-pane-head insight-why-title">训练进展</div>
-                <pre class="rl-log rl-log--episode" id="rl-progress-log" aria-live="polite"></pre>
+            <div class="rl-actions">
+                <button type="button" class="rl-btn" id="rl-start">开始训练</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled>停止</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="刷新日志">日志</button>
             </div>
-        </div>
+        </details>
+        <details class="panel-section">
+            <summary class="panel-section-head">训练损失</summary>
+            <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
+        </details>
+        <details class="panel-section">
+            <summary class="panel-section-head">训练进展</summary>
+            <pre class="rl-log rl-log--episode" id="rl-progress-log" aria-live="polite"></pre>
+        </details>
     </aside>
     <!-- 回放详情：放在左栏底部，不遮挡中央棋盘 -->
     <div id="replay-view-screen" class="screen screen-replay-view" aria-label="对局回放">
@@ -203,19 +215,25 @@
     </div>
     <aside id="rl-dash-panel" class="rl-dash-panel" aria-label="RL 训练看板">
         <h3 class="rl-dash-title">训练看板</h3>
-        <p class="rl-dash-hint">曲线来自 <code>train_episode</code>。得分/胜率需日志含 <code>score</code>/<code>won</code>（新版前端训练会自动写入）；旧数据无得分字段时摘要会提示。</p>
-        <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
-        <div class="rl-dash-toolbar">
-            <label class="rl-dash-auto"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
-            <select id="rl-chart-tail" class="rl-dash-select" title="拉取最近条数">
-                <option value="400">最近 400 条</option>
-                <option value="800" selected>最近 800 条</option>
-                <option value="1600">最近 1600 条</option>
-                <option value="3000">最近 3000 条</option>
-            </select>
-            <button type="button" class="rl-dash-refresh" id="rl-refresh-charts">刷新图表</button>
-        </div>
-        <div id="rl-chart-root" class="rl-chart-root"></div>
+        <details class="panel-section" open>
+            <summary class="panel-section-head">摘要 &amp; 工具</summary>
+            <p class="rl-dash-hint">曲线来自 <code>train_episode</code>。得分/胜率需日志含 <code>score</code>/<code>won</code>（新版前端训练会自动写入）；旧数据无得分字段时摘要会提示。</p>
+            <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
+            <div class="rl-dash-toolbar">
+                <label class="rl-dash-auto"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
+                <select id="rl-chart-tail" class="rl-dash-select" title="拉取最近条数">
+                    <option value="400">最近 400 条</option>
+                    <option value="800" selected>最近 800 条</option>
+                    <option value="1600">最近 1600 条</option>
+                    <option value="3000">最近 3000 条</option>
+                </select>
+                <button type="button" class="rl-dash-refresh" id="rl-refresh-charts">刷新图表</button>
+            </div>
+        </details>
+        <details class="panel-section" open>
+            <summary class="panel-section-head">训练曲线</summary>
+            <div id="rl-chart-root" class="rl-chart-root"></div>
+        </details>
     </aside>
     <div id="boot-error" hidden role="alert"></div>
     <script type="module" src="./src/main.js"></script>

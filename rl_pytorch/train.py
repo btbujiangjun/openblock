@@ -1,9 +1,9 @@
 """
 自博弈 + PPO / REINFORCE 策略梯度（价值基线），PyTorch；支持 **MPS**（Apple GPU）/ CUDA / CPU。
 
-v2 优化：精简动作特征（7 维，无 grid.clone）、奖励重塑（每步有差异化信号）、
-return_scale=1.0（不压缩回报）、小模型（width=64, conv_channels=16, ~35K 参数）、
-大 batch（128 局）、低探索（temp=0.15, 无 Dirichlet）。
+v3 优化：密集正奖励（placeBonus+survival）防止纯负信号、课程门槛 80→220/80k 局、
+高熵维持（coef=0.025 衰减至 0.008/60k）、temp_floor=0.35、
+中等模型（width=128, conv_channels=32, 4 层 value_head）、大 batch（128 局）。
 
 架构选择（--arch）：
   conv-shared   默认；残差 CNN 棋盘 + dock MLP + 64 宽共享主干 + 3 层价值头，~35K 参数
@@ -203,9 +203,9 @@ def build_policy_net(
 
 
 def _effective_entropy_coef(global_ep: int, base: float) -> float:
-    """与 rl_backend 一致：随局数线性降低熵系数。"""
-    lo = float(os.environ.get("RL_ENTROPY_COEF_MIN", "0.004"))
-    span = float(os.environ.get("RL_ENTROPY_DECAY_EPISODES", "12000"))
+    """随局数线性降低熵系数；衰减周期与课程爬坡对齐。"""
+    lo = float(os.environ.get("RL_ENTROPY_COEF_MIN", "0.008"))
+    span = float(os.environ.get("RL_ENTROPY_DECAY_EPISODES", "60000"))
     if span <= 0 or base <= lo:
         return base
     t = min(1.0, max(0, global_ep) / span)
@@ -223,7 +223,7 @@ def _dirichlet_epsilon_for_ep(global_ep: int, base: float) -> float:
 
 
 def _temperature_for_move(global_ep: int, step_idx: int, temp_floor: float, explore_first_moves: int, explore_mult: float) -> float:
-    decay_rate = float(os.environ.get("RL_TEMP_DECAY_RATE", "0.0003"))
+    decay_rate = float(os.environ.get("RL_TEMP_DECAY_RATE", "0.00005"))
     base = max(temp_floor, 1.0 - global_ep * decay_rate)
     if explore_first_moves > 0 and step_idx < explore_first_moves:
         base *= explore_mult
@@ -614,11 +614,17 @@ def train_loop(
                 f"警告: checkpoint arch={ckpt_arch} 与当前 --arch {train_arch} 不一致，加载可能失败",
                 file=sys.stderr,
             )
-        net.load_state_dict(ckpt["model"])
-        if "optimizer" in ckpt:
-            opt.load_state_dict(ckpt["optimizer"])
-        start_ep = int(ckpt.get("episodes", 0))
-        print(f"已从 {resume} 恢复，继续自第 {start_ep} 局", file=sys.stderr)
+        try:
+            net.load_state_dict(ckpt["model"])
+            if "optimizer" in ckpt:
+                opt.load_state_dict(ckpt["optimizer"])
+            start_ep = int(ckpt.get("episodes", 0))
+            print(f"已从 {resume} 恢复，继续自第 {start_ep} 局", file=sys.stderr)
+        except RuntimeError as e:
+            print(
+                f"警告: checkpoint 权重与当前模型不兼容，忽略旧权重从头训练: {e}",
+                file=sys.stderr,
+            )
 
     # --- 多进程 worker pool ---
     pool = None
@@ -744,11 +750,11 @@ def main() -> None:
     p.add_argument(
         "--lr",
         type=float,
-        default=5e-4,
-        help="Adam 学习率；小模型 + 无 return_scale 推荐 5e-4",
+        default=3e-4,
+        help="Adam 学习率；128 宽模型推荐 3e-4",
     )
     p.add_argument("--gamma", type=float, default=0.99)
-    p.add_argument("--value-coef", type=float, default=0.5, help="价值头损失权重")
+    p.add_argument("--value-coef", type=float, default=1.0, help="价值头损失权重；加大以加速 value 拟合")
     p.add_argument(
         "--value-huber-beta",
         type=float,
@@ -764,8 +770,8 @@ def main() -> None:
     p.add_argument(
         "--entropy-coef",
         type=float,
-        default=0.005,
-        help="策略熵 bonus；0 关闭",
+        default=0.025,
+        help="策略熵 bonus；防止策略过早确定化",
     )
     p.add_argument(
         "--no-adv-norm",
@@ -776,8 +782,8 @@ def main() -> None:
     p.add_argument(
         "--width",
         type=int,
-        default=64,
-        help="隐层宽度；conv-shared 推荐 64（~35K 参数）；light 系列用 64；旧 shared/split 用 256",
+        default=128,
+        help="隐层宽度；conv-shared 推荐 128（~132K 参数）；加大以提高价值/策略拟合能力",
     )
     p.add_argument(
         "--policy-depth",
@@ -813,8 +819,8 @@ def main() -> None:
     p.add_argument(
         "--conv-channels",
         type=int,
-        default=16,
-        help="conv-shared 架构的 CNN 通道数",
+        default=32,
+        help="conv-shared 架构的 CNN 通道数；增大以捕捉更丰富的空间模式",
     )
     p.add_argument(
         "--batch-episodes",
@@ -843,19 +849,19 @@ def main() -> None:
     p.add_argument(
         "--temp-floor",
         type=float,
-        default=0.15,
-        help="温度下限",
+        default=0.35,
+        help="温度下限；保持足够随机性以防过早收敛",
     )
     p.add_argument(
         "--explore-first-moves",
         type=int,
-        default=10,
+        default=15,
         help="开局前若干步温度乘 explore-temp-mult；0 关闭",
     )
     p.add_argument(
         "--explore-temp-mult",
         type=float,
-        default=1.2,
+        default=1.5,
         help="与 explore-first-moves 联用",
     )
     p.add_argument(
