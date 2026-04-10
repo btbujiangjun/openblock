@@ -394,6 +394,56 @@ export class Renderer {
         this.ctx.restore();
     }
 
+    /**
+     * 悬浮合法落点且将触发消行时：待消除格子的提示（under 在半透明预览下层，over 描边盖在预览上）
+     * @param {{ x: number, y: number, color?: number }[]} cells
+     * @param {'under' | 'over'} layer
+     */
+    renderPreviewClearHint(cells, layer) {
+        if (!cells || cells.length === 0) return;
+        const skin = getActiveSkin();
+        const inset = skin.blockInset;
+        const br = skin.blockRadius;
+        const pulse = 0.55 + 0.45 * Math.abs(Math.sin(Date.now() * 0.007));
+        const s = this.cellSize;
+
+        this.ctx.save();
+        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+
+        for (const cell of cells) {
+            const px = cell.x * s + inset;
+            const py = cell.y * s + inset;
+            const full = s - inset * 2;
+            const size = full;
+
+            if (layer === 'under') {
+                this.ctx.fillStyle = `rgba(255, 210, 90, ${0.12 + 0.18 * pulse})`;
+                this.ctx.globalAlpha = 1;
+                if (br > 0) {
+                    roundRectPath(this.ctx, px, py, size, size, br);
+                    this.ctx.fill();
+                } else {
+                    this.ctx.fillRect(px, py, size, size);
+                }
+            } else {
+                this.ctx.strokeStyle = `rgba(255, 200, 60, ${0.55 + 0.4 * pulse})`;
+                this.ctx.lineWidth = 2.25;
+                this.ctx.globalAlpha = 0.92;
+                this.ctx.shadowColor = 'rgba(255, 220, 120, 0.65)';
+                this.ctx.shadowBlur = 5 + 4 * pulse;
+                if (br > 0) {
+                    roundRectPath(this.ctx, px + 0.5, py + 0.5, size - 1, size - 1, Math.max(0, br - 0.5));
+                    this.ctx.stroke();
+                } else {
+                    this.ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1);
+                }
+                this.ctx.shadowBlur = 0;
+            }
+        }
+
+        this.ctx.restore();
+    }
+
     renderClearCells(cells) {
         if (!cells || cells.length === 0) return;
         const skin = getActiveSkin();

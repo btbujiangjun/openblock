@@ -101,6 +101,42 @@ export class Game {
         this._lastAdaptiveInsight = null;
         /** @type {(() => void) | null} 由 playerInsightPanel 注入 */
         this._playerInsightRefresh = null;
+        /** 本局「实时状态」序列快照（与 move_sequence 中 ps 结构一致），供左侧 sparkline */
+        this._insightLiveHistory = [];
+        /** 悬浮预览将消行时，驱动描边脉冲的 rAF */
+        this._previewClearRaf = null;
+    }
+
+    _cancelPreviewClearAnim() {
+        if (this._previewClearRaf != null) {
+            cancelAnimationFrame(this._previewClearRaf);
+            this._previewClearRaf = null;
+        }
+    }
+
+    /** 在拖拽且预览位会触发消行时，持续重绘以播放待消除高亮 */
+    _ensurePreviewClearAnim() {
+        if (this._previewClearRaf != null) {
+            return;
+        }
+        const loop = () => {
+            this._previewClearRaf = null;
+            if (!this.drag || !this.previewPos || !this.previewBlock) {
+                return;
+            }
+            const oc = this.grid.previewClearOutcome(
+                this.previewBlock.shape,
+                this.previewPos.x,
+                this.previewPos.y,
+                this.previewBlock.colorIdx
+            );
+            if (!oc?.cells?.length) {
+                return;
+            }
+            this.markDirty();
+            this._previewClearRaf = requestAnimationFrame(loop);
+        };
+        this._previewClearRaf = requestAnimationFrame(loop);
     }
 
     _refreshPlayerInsightPanel() {
@@ -300,6 +336,7 @@ export class Game {
             this.moveSequence = [];
             this._replayFrames = null;
             this.replayPlaybackLocked = false;
+            this._insightLiveHistory = [];
             this.gameStats = {
                 score: 0,
                 clears: 0,
@@ -681,6 +718,7 @@ export class Game {
         const { aimCx, aimCy, overBoard } = this.ghostAimOnGrid();
 
         if (!overBoard) {
+            this._cancelPreviewClearAnim();
             if (this.previewPos) {
                 this.previewPos = null;
                 this.previewBlock = null;
@@ -709,10 +747,24 @@ export class Game {
                 this.previewBlock = this.dragBlock;
                 this.markDirty();
             }
-        } else if (this.previewPos) {
-            this.previewPos = null;
-            this.previewBlock = null;
-            this.markDirty();
+            const oc = this.grid.previewClearOutcome(
+                this.dragBlock.shape,
+                best.x,
+                best.y,
+                this.dragBlock.colorIdx
+            );
+            if (oc?.cells?.length) {
+                this._ensurePreviewClearAnim();
+            } else {
+                this._cancelPreviewClearAnim();
+            }
+        } else {
+            this._cancelPreviewClearAnim();
+            if (this.previewPos) {
+                this.previewPos = null;
+                this.previewBlock = null;
+                this.markDirty();
+            }
         }
     }
 
@@ -720,6 +772,8 @@ export class Game {
         if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
             return;
         }
+
+        this._cancelPreviewClearAnim();
 
         const { aimCx, aimCy, overBoard } = this.ghostAimOnGrid();
         let placedPos = null;
@@ -1397,8 +1451,23 @@ export class Game {
         this.renderer.clear();
         this.renderer.renderBackground();
         this.renderer.renderGrid(this.grid);
+        let previewClearCells = null;
+        if (this.previewPos && this.previewBlock) {
+            previewClearCells = this.grid.previewClearOutcome(
+                this.previewBlock.shape,
+                this.previewPos.x,
+                this.previewPos.y,
+                this.previewBlock.colorIdx
+            );
+        }
+        if (previewClearCells?.cells?.length) {
+            this.renderer.renderPreviewClearHint(previewClearCells.cells, 'under');
+        }
         if (this.previewPos && this.previewBlock) {
             this.renderer.renderPreview(this.previewPos.x, this.previewPos.y, this.previewBlock);
+        }
+        if (previewClearCells?.cells?.length) {
+            this.renderer.renderPreviewClearHint(previewClearCells.cells, 'over');
         }
         this.renderer.renderClearCells(this.renderer.clearCells);
         this.renderer.renderDoubleWave();

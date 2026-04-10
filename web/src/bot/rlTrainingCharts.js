@@ -58,7 +58,7 @@ function drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts) {
     const padL = 46;
     const padR = 10;
     const padT = 20;
-    const padB = 24;
+    const padB = 30;
     const plotW = cssW - padL - padR;
     const plotH = cssH - padT - padB;
 
@@ -164,7 +164,7 @@ function paint(canvas, title, x, series, chartOpts) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const parent = canvas.parentElement;
     const cssW = Math.max(260, parent?.clientWidth || canvas.clientWidth || 320);
-    const cssH = 108;
+    const cssH = 118;
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
     canvas.width = Math.floor(cssW * dpr);

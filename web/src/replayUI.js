@@ -7,43 +7,7 @@ import {
     getMetricFromPS,
     formatMetricValue
 } from './moveSequence.js';
-
-/* ── Sparkline helpers (pure, no DOM state) ── */
-
-const SPARK_W = 200;
-const SPARK_H = 24;
-const SPARK_PAD = 3;
-const GROUP_COLORS = { game: '#5b9bd5', ability: '#27ae60', state: '#e67e22', spawn: '#8e44ad' };
-
-function _sparkSVG(points, totalFrames, color) {
-    const cursorAttrs = 'class="spark-cursor" x1="0" y1="0" x2="0" y2="' + SPARK_H +
-        '" stroke="var(--replay-cursor,#e74c3c)" stroke-width="1.2" vector-effect="non-scaling-stroke" opacity="0.7"';
-    if (points.length === 0) {
-        return `<svg class="replay-sparkline" viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none">` +
-            `<line x1="0" y1="${SPARK_H / 2}" x2="${SPARK_W}" y2="${SPARK_H / 2}" stroke="${color}" stroke-width="0.7" opacity="0.25" vector-effect="non-scaling-stroke"/>` +
-            `<line ${cursorAttrs}/></svg>`;
-    }
-    const maxIdx = Math.max(totalFrames - 1, 1);
-    let lo = Infinity, hi = -Infinity;
-    for (const p of points) { if (p.value < lo) lo = p.value; if (p.value > hi) hi = p.value; }
-    const range = hi - lo || 1;
-    const plotH = SPARK_H - SPARK_PAD * 2;
-    const toX = idx => (idx / maxIdx) * SPARK_W;
-    const toY = val => SPARK_PAD + plotH - ((val - lo) / range) * plotH;
-
-    const pts = points.map(p => `${toX(p.idx).toFixed(1)},${toY(p.value).toFixed(1)}`).join(' ');
-    const firstX = toX(points[0].idx).toFixed(1);
-    const lastX = toX(points[points.length - 1].idx).toFixed(1);
-    const fillD = `M${firstX},${SPARK_H} ` +
-        points.map(p => `L${toX(p.idx).toFixed(1)},${toY(p.value).toFixed(1)}`).join(' ') +
-        ` L${lastX},${SPARK_H} Z`;
-
-    return `<svg class="replay-sparkline" viewBox="0 0 ${SPARK_W} ${SPARK_H}" preserveAspectRatio="none">` +
-        `<path d="${fillD}" fill="${color}" opacity="0.1"/>` +
-        `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` +
-        `<line ${cursorAttrs}/>` +
-        `</svg>`;
-}
+import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 
 /**
  * 对局序列回放 UI（帧数据来自 SQLite / move_sequences）
@@ -106,10 +70,10 @@ export function initReplayUI(game) {
         html += '<div class="replay-series-grid">';
         for (const m of data.metrics) {
             const s = data.series[m.key];
-            const color = GROUP_COLORS[m.group] || '#5b9bd5';
+            const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
             html += `<div class="replay-series-cell" data-key="${m.key}">` +
                 `<span class="series-label" style="color:${color}">${m.label}</span>` +
-                `<div class="series-spark-wrap">${_sparkSVG(s.points, data.totalFrames, color)}</div>` +
+                `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
                 `<span class="series-value">—</span></div>`;
         }
         html += '</div>';

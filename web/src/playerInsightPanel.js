@@ -5,6 +5,8 @@
 import { GAME_RULES } from './gameRules.js';
 import { computeHints } from './hintEngine.js';
 import { generateStrategyTips } from './strategyAdvisor.js';
+import { collectSeriesFromSnapshots, getMetricFromPS, formatMetricValue } from './moveSequence.js';
+import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 
 const CAT_LABEL = {
     lines: '长条',
@@ -107,6 +109,124 @@ function _hintsExplain(h) {
     return out;
 }
 
+const LIVE_HISTORY_MAX = 160;
+
+/**
+ * 与 `buildPlayerStateSnapshot` / 回放 `ps` 对齐，供 `REPLAY_METRICS` 抽取
+ * @param {import('./game.js').Game} game
+ */
+function _buildLiveSnapshotForSeries(game) {
+    const p = game.playerProfile;
+    const ins = game._lastAdaptiveInsight;
+    const m = p.metrics;
+    /** @type {Record<string, unknown>} */
+    const slim = {
+        pv: 1,
+        phase: 'live',
+        score: game.score,
+        boardFill: game.grid?.getFillRatio?.() ?? 0,
+        skill: p.skillLevel,
+        momentum: p.momentum,
+        cognitiveLoad: p.cognitiveLoad,
+        engagementAPM: p.engagementAPM,
+        flowDeviation: p.flowDeviation,
+        flowState: p.flowState,
+        pacingPhase: p.pacingPhase,
+        frustration: p.frustrationLevel,
+        sessionPhase: p.sessionPhase,
+        spawnRound: p.spawnRoundIndex,
+        feedbackBias: p.feedbackBias,
+        metrics: {
+            thinkMs: m.thinkMs,
+            clearRate: m.clearRate,
+            comboRate: m.comboRate,
+            missRate: m.missRate,
+            afkCount: m.afkCount
+        }
+    };
+    if (ins && typeof ins === 'object') {
+        slim.adaptive = {
+            stress: ins.stress,
+            flowDeviation: ins.flowDeviation,
+            feedbackBias: ins.feedbackBias,
+            skillLevel: ins.skillLevel,
+            fillRatio: ins.fillRatio,
+            flowState: ins.flowState,
+            pacingPhase: ins.pacingPhase,
+            momentum: ins.momentum,
+            frustration: ins.frustration,
+            sessionPhase: ins.sessionPhase,
+            spawnHints: ins.spawnHints ?? null,
+            shapeWeightsTop: ins.shapeWeightsTop ?? null
+        };
+    }
+    return slim;
+}
+
+function _appendLiveInsightSample(game) {
+    if (game.replayPlaybackLocked) {
+        return;
+    }
+    if (!Array.isArray(game._insightLiveHistory)) {
+        game._insightLiveHistory = [];
+    }
+    game._insightLiveHistory.push(_buildLiveSnapshotForSeries(game));
+    while (game._insightLiveHistory.length > LIVE_HISTORY_MAX) {
+        game._insightLiveHistory.shift();
+    }
+}
+
+/**
+ * 实时状态：与回放面板同款指标 sparkline，游标始终在本局最新样本
+ */
+function _renderInsightStateSeries(game, elState) {
+    _appendLiveInsightSample(game);
+    const hist = game._insightLiveHistory || [];
+    const data = collectSeriesFromSnapshots(hist);
+    if (!data || hist.length === 0) {
+        elState.className = 'insight-state-row';
+        elState.innerHTML =
+            '<span class="insight-muted">开局后随出块/落子刷新，与回放同款指标曲线。</span>';
+        return;
+    }
+    const lastIdx = hist.length - 1;
+    const lastPs = hist[lastIdx];
+    const maxIdx = Math.max(data.totalFrames - 1, 1);
+    const cx = (lastIdx / maxIdx) * SPARK_W;
+
+    let html =
+        '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>';
+    html += '<div class="replay-series-grid insight-live-series-grid">';
+    for (const m of data.metrics) {
+        const s = data.series[m.key];
+        const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+        html +=
+            `<div class="replay-series-cell" data-key="${m.key}">` +
+            `<span class="series-label" style="color:${color}">${m.label}</span>` +
+            `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
+            `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
+    }
+    html += '</div>';
+    elState.innerHTML = html;
+    elState.className = 'insight-state-row insight-state-series';
+
+    const head = document.getElementById('insight-live-series-head');
+    if (head && lastPs) {
+        const tags = [
+            lastPs.flowState || '—',
+            lastPs.pacingPhase || '—',
+            lastPs.sessionPhase || '—',
+            'R' + (lastPs.spawnRound ?? '—')
+        ];
+        head.innerHTML = tags.map((t) => `<span class="series-tag">${t}</span>`).join('');
+    }
+
+    elState.querySelectorAll('.replay-sparkline .spark-cursor').forEach((line) => {
+        line.setAttribute('x1', cx.toFixed(1));
+        line.setAttribute('x2', cx.toFixed(1));
+    });
+}
+
 function _buildWhyLines(insight) {
     const lines = [];
     if (!insight?.adaptiveEnabled) {
@@ -164,7 +284,6 @@ function _render(game) {
 
     const p = game.playerProfile;
     const ins = game._lastAdaptiveInsight;
-    const liveFlow = p.flowState;
     const liveSkill = p.skillLevel;
 
     const elAbility = document.getElementById('insight-ability');
@@ -190,40 +309,27 @@ function _render(game) {
     }
 
     if (elState) {
-        const flowIcon = liveFlow === 'flow' ? '●' : liveFlow === 'bored' ? '▲' : '▼';
-        const fd = p.flowDeviation;
-        const fdCls = fd < 0.25 ? 'ok' : fd < 0.5 ? 'warn' : 'danger';
-        const parts = [
-            `<span class="insight-tag insight-tag--${liveFlow}">${flowIcon} ${liveFlow}</span>`,
-            `<span class="insight-signal insight-signal--${fdCls}">F ${fd.toFixed(2)}</span>`,
-            `<span class="insight-tag">${p.pacingPhase}</span>`,
-            `<span class="insight-tag">${p.sessionPhase}</span>`,
-        ];
-        const mom = p.momentum;
-        const momCls = mom > 0.15 ? 'ok' : mom < -0.15 ? 'danger' : 'warn';
-        parts.push(`<span class="insight-signal insight-signal--${momCls}">动量 ${mom.toFixed(2)}</span>`);
-
-        const fr = p.frustrationLevel;
-        const frCls = fr >= 4 ? 'danger' : fr >= 2 ? 'warn' : 'ok';
-        parts.push(`<span class="insight-signal insight-signal--${frCls}">未消 ${fr}</span>`);
-
-        const fb = p.feedbackBias;
-        if (Math.abs(fb) > 0.005) {
-            const fbCls = fb > 0.03 ? 'ok' : fb < -0.03 ? 'danger' : 'warn';
-            parts.push(`<span class="insight-signal insight-signal--${fbCls}">闭环 ${fb > 0 ? '+' : ''}${fb.toFixed(3)}</span>`);
-        }
-
+        _renderInsightStateSeries(game, elState);
         const afk = p.metrics.afkCount;
-        if (afk > 0) {
-            parts.push(`<span class="insight-signal insight-signal--warn">AFK ${afk}</span>`);
+        const flags = [];
+        if (afk > 0) flags.push(`AFK ${afk}`);
+        if (p.hadRecentNearMiss) flags.push('近失');
+        if (p.needsRecovery) flags.push('恢复');
+        if (p.isInOnboarding) flags.push('新手');
+        if (flags.length) {
+            const note = document.createElement('div');
+            note.className = 'insight-live-flags';
+            note.innerHTML = flags
+                .map((t) => `<span class="insight-signal insight-signal--warn">${t}</span>`)
+                .join(' ');
+            if (!elState.querySelector('.insight-live-flags')) {
+                elState.appendChild(note);
+            } else {
+                elState.querySelector('.insight-live-flags').replaceWith(note);
+            }
+        } else {
+            elState.querySelector('.insight-live-flags')?.remove();
         }
-
-        parts.push(`<span class="insight-tag">轮次 ${p.spawnRoundIndex}</span>`);
-
-        if (p.hadRecentNearMiss) parts.push('<span class="insight-signal insight-signal--warn">⚡ 近失</span>');
-        if (p.needsRecovery) parts.push('<span class="insight-signal insight-signal--danger">↻ 恢复</span>');
-        if (p.isInOnboarding) parts.push('<span class="insight-signal insight-signal--ok">✦ 新手</span>');
-        elState.innerHTML = parts.join('');
     }
 
     if (elSpawn && ins) {
@@ -352,9 +458,14 @@ function _renderHints(game) {
                 game.previewBlock = b;
                 game.previewPos = { x: gx, y: gy };
                 game.markDirty();
+                const oc = game.grid.previewClearOutcome(b.shape, gx, gy, b.colorIdx);
+                if (oc?.cells?.length) {
+                    game._ensurePreviewClearAnim();
+                }
             }
         };
         card.onmouseleave = () => {
+            game._cancelPreviewClearAnim();
             game.previewBlock = null;
             game.previewPos = null;
             game.markDirty();

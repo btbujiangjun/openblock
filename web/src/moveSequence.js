@@ -347,7 +347,8 @@ export function displayScoreFromReplayFrames(frames) {
 
 /* ── Replay Series Metrics ── */
 
-const REPLAY_METRICS = [
+/** 回放时间序列与实时状态序列共用字段定义 */
+export const REPLAY_METRICS = [
     { key: 'score',         label: '得分',   group: 'game',    extract: ps => ps.score,                fmt: 'int' },
     { key: 'skill',         label: '技能',   group: 'ability', extract: ps => ps.skill,                fmt: 'pct' },
     { key: 'boardFill',     label: '板面',   group: 'game',    extract: ps => ps.boardFill,            fmt: 'pct' },
@@ -390,6 +391,46 @@ export function collectReplayMetricsSeries(frames) {
         if (series[key].points.length > 0) { hasData = true; break; }
     }
     if (!hasData) return null;
+    return { series, totalFrames, metrics: REPLAY_METRICS };
+}
+
+/**
+ * 由本局内顺序快照（结构与 `buildPlayerStateSnapshot` / `frames[].ps` 一致）计算序列，供实时面板。
+ * @param {object[]} snapshots
+ * @returns {{ series: Record<string, { label:string, group:string, fmt:string, points:{idx:number,value:number}[] }>, totalFrames:number, metrics: typeof REPLAY_METRICS } | null}
+ */
+export function collectSeriesFromSnapshots(snapshots) {
+    if (!Array.isArray(snapshots) || snapshots.length === 0) {
+        return null;
+    }
+    const totalFrames = snapshots.length;
+    /** @type {Record<string, { label:string, group:string, fmt:string, points:{idx:number,value:number}[] }>} */
+    const series = {};
+    for (const m of REPLAY_METRICS) {
+        series[m.key] = { label: m.label, group: m.group, fmt: m.fmt, points: [] };
+    }
+    for (let i = 0; i < totalFrames; i++) {
+        const ps = snapshots[i];
+        if (!ps || typeof ps !== 'object') {
+            continue;
+        }
+        for (const m of REPLAY_METRICS) {
+            const v = m.extract(ps);
+            if (v != null && !Number.isNaN(Number(v))) {
+                series[m.key].points.push({ idx: i, value: Number(v) });
+            }
+        }
+    }
+    let hasData = false;
+    for (const key in series) {
+        if (series[key].points.length > 0) {
+            hasData = true;
+            break;
+        }
+    }
+    if (!hasData) {
+        return null;
+    }
     return { series, totalFrames, metrics: REPLAY_METRICS };
 }
 

@@ -75,14 +75,15 @@ describe('moveSequence replay', () => {
         expect(displayScoreFromReplayFrames(noPs)).toBe(replayStateAt(noPs, noPs.length - 1)?.score ?? null);
     });
 
-    it('replayVisualSignature differs after spawn (dock) even if grid unchanged', () => {
+    it('replayVisualSignature is grid-only: spawn without place keeps same grid signature', () => {
         const scoring = { singleLine: 10, multiLine: 30, combo: 50 };
         const grid = new Grid(8);
         const frames = [
             buildInitFrame('normal', grid, scoring),
             buildSpawnFrame([{ id: '1x1', shape: [[1]], colorIdx: 0, placed: false }])
         ];
-        expect(replayVisualSignature(frames, 0)).not.toBe(replayVisualSignature(frames, 1));
+        expect(replayVisualSignature(frames, 0)).toBe(replayVisualSignature(frames, 1));
+        /* 无新盘面变化时自动播放跳到区间末尾 */
         expect(nextDistinctReplayFrameIndex(frames, 0, 1)).toBe(1);
     });
 });

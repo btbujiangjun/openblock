@@ -2,6 +2,11 @@
     /* 与左右固定侧栏对齐：顶/底各 8px，与 .app-side-left / .rl-dash-panel 一致 */
     --game-shell-inset: 8px;
     --game-shell-vfill: calc(100vh - 2 * var(--game-shell-inset));
+    /* 左右侧栏同宽；窄屏用 clamp 保证中间列仍有最小呼吸宽度 */
+    --app-side-rail-width: clamp(120px, calc((100vw - 380px) * 0.5), 300px);
+    --app-side-rail-gap: 10px;
+    /* 主列与 fixed 侧栏对齐，避免棋盘被遮挡 */
+    --app-center-hpad: calc(var(--game-shell-inset) + var(--app-side-rail-width) + var(--app-side-rail-gap));
     /* 候选区单格显示像素；与棋盘格子等大，运行时由 syncGridDisplayPx 动态同步 */
     --dock-cell-size: 38px;
     --dock-max-shape-rows: 5;
@@ -59,7 +64,8 @@ body.block-drag-active #app {
     align-items: center;
     /* 勿用 center：候选区高度随块形状变化时，整列会重新垂直居中，棋盘会上下「跳」 */
     justify-content: flex-start;
-    padding: 10px;
+    padding-left: max(10px, var(--app-center-hpad));
+    padding-right: max(10px, var(--app-center-hpad));
     padding-top: max(10px, env(safe-area-inset-top, 0px));
     padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
     box-sizing: border-box;
@@ -232,7 +238,7 @@ body.block-drag-active #app {
     gap: 12px;
     margin: 0 auto 6px;
     width: min(100%, calc(var(--play-inner-span) + 28px));
-    max-width: calc(100vw - 20px);
+    max-width: 100%;
     justify-content: center;
 }
 
@@ -260,7 +266,7 @@ body.block-drag-active #app {
 
 .progression-hud {
     width: min(100%, calc(var(--play-inner-span) + 28px));
-    max-width: calc(100vw - 20px);
+    max-width: 100%;
     margin: 0 auto 8px;
     padding: 6px 10px;
     border-radius: var(--border-radius);
@@ -331,8 +337,8 @@ body.block-drag-active #app {
     align-items: center;
     gap: 10px;
     box-sizing: border-box;
-    width: min(calc(var(--play-inner-span) + 28px), calc(100vw - 20px));
-    max-width: calc(100vw - 20px);
+    width: min(calc(var(--play-inner-span) + 28px), 100%);
+    max-width: 100%;
     flex: 1 1 0;
     min-height: 0;
     margin: 4px auto 0;
@@ -579,7 +585,7 @@ body.game-rl-preview .block-dock {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    width: min(288px, 44vw);
+    width: var(--app-side-rail-width, clamp(120px, calc((100vw - 380px) * 0.5), 300px));
     height: var(--game-shell-vfill, calc(100vh - 16px));
     max-height: var(--game-shell-vfill, calc(100vh - 16px));
     min-height: 0;
@@ -786,6 +792,31 @@ body.game-rl-preview .block-dock {
     align-items: center;
     gap: 5px;
     padding: 5px 8px;
+}
+
+/* 实时状态：与回放同款 sparkline 网格 */
+.insight-state-row.insight-state-series {
+    display: block;
+    flex-wrap: nowrap;
+    padding: 6px 6px 8px;
+    max-height: min(38vh, 340px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.insight-state-row.insight-state-series .replay-series-grid {
+    margin-top: 2px;
+}
+
+.insight-live-flags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
 }
 
 .panel-section > .insight-state-row {
@@ -1252,7 +1283,7 @@ body.game-rl-preview .block-dock {
     top: var(--game-shell-inset, 8px);
     right: var(--game-shell-inset, 8px);
     z-index: 69;
-    width: min(380px, 94vw);
+    width: var(--app-side-rail-width, clamp(120px, calc((100vw - 380px) * 0.5), 300px));
     height: var(--game-shell-vfill, calc(100vh - 16px));
     max-height: var(--game-shell-vfill, calc(100vh - 16px));
     display: flex;
@@ -1372,6 +1403,10 @@ body.game-rl-preview .block-dock {
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    /* 最后一幅图（滑动胜率等）滚到底时轴标签不被裁切 */
+    padding-bottom: 16px;
+    box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
 }
 
 .rl-chart-wrap {

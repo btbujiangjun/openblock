@@ -250,6 +250,71 @@ export class Grid {
         return false;
     }
 
+    /**
+     * 推演：若在此位置放置方块，放置后哪些整行/整列会被填满（与 checkLines 判定一致，不落子）。
+     * @param {number[][]} shapeData
+     * @param {number} gx
+     * @param {number} gy
+     * @param {number} colorIdx 与真实落子一致，用于着色推演
+     * @returns {{ rows: number[], cols: number[], cells: { x: number, y: number, color: number }[] } | null} 不可放置时为 null
+     */
+    previewClearOutcome(shapeData, gx, gy, colorIdx) {
+        if (!this.canPlace(shapeData, gx, gy)) {
+            return null;
+        }
+        const temp = this.cells.map((row) => [...row]);
+        for (let y = 0; y < shapeData.length; y++) {
+            for (let x = 0; x < shapeData[y].length; x++) {
+                if (shapeData[y][x]) {
+                    temp[gy + y][gx + x] = colorIdx;
+                }
+            }
+        }
+
+        const fullRows = [];
+        const fullCols = [];
+        for (let y = 0; y < this.size; y++) {
+            if (temp[y].every((c) => c !== null)) {
+                fullRows.push(y);
+            }
+        }
+        for (let x = 0; x < this.size; x++) {
+            let colFull = true;
+            for (let y = 0; y < this.size; y++) {
+                if (temp[y][x] === null) {
+                    colFull = false;
+                    break;
+                }
+            }
+            if (colFull) {
+                fullCols.push(x);
+            }
+        }
+
+        const clearedSet = {};
+        const cells = [];
+        for (const y of fullRows) {
+            for (let x = 0; x < this.size; x++) {
+                const key = `${x},${y}`;
+                if (!clearedSet[key]) {
+                    clearedSet[key] = true;
+                    cells.push({ x, y, color: temp[y][x] });
+                }
+            }
+        }
+        for (const x of fullCols) {
+            for (let y = 0; y < this.size; y++) {
+                const key = `${x},${y}`;
+                if (!clearedSet[key]) {
+                    clearedSet[key] = true;
+                    cells.push({ x, y, color: temp[y][x] });
+                }
+            }
+        }
+
+        return { rows: fullRows, cols: fullCols, cells };
+    }
+
     findGapPositions() {
         const gaps = [];
 

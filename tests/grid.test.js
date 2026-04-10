@@ -76,4 +76,20 @@ describe('Grid', () => {
         const blocks = [{ shape: [[1]], placed: false }];
         expect(grid.hasAnyMove(blocks)).toBe(false);
     });
+
+    it('previewClearOutcome matches checkLines after hypothetical place', () => {
+        for (let x = 0; x < 7; x++) {
+            grid.cells[0][x] = 2;
+        }
+        const shape = [[1]];
+        const oc = grid.previewClearOutcome(shape, 7, 0, 0);
+        expect(oc).not.toBeNull();
+        expect(oc.rows).toContain(0);
+        expect(oc.cells.length).toBe(8);
+
+        grid.place(shape, 0, 7, 0);
+        const after = grid.checkLines();
+        expect(after.count).toBe(1);
+        expect(after.cells.length).toBe(8);
+    });
 });
