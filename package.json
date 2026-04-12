@@ -1,7 +1,7 @@
 {
   "name": "openblock",
   "version": "1.0.0",
-  "description": "Block Blast — 网页方块消除游戏，经 Flask 将会话与统计持久化到 SQLite",
+  "description": "Open Block — 网页方块益智游戏，经 Flask 将会话与统计持久化到 SQLite",
   "type": "module",
   "scripts": {
     "predev": "node scripts/ensure-vite.mjs",

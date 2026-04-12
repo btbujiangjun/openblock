@@ -53,12 +53,18 @@ export async function selectActionRemote(phiList, stateFeat, temperature) {
  * @param {{ score?: number, won?: boolean, gameSteps?: number }} [meta] 写入 training.jsonl 供看板
  */
 export async function trainEpisodeRemote(trajectory, meta = {}) {
-    const steps = trajectory.map((tr) => ({
-        phi: tr.phiList.map((row) => Array.from(row)),
-        state: Array.from(tr.stateFeat),
-        idx: tr.chosenIdx,
-        reward: tr.reward
-    }));
+    const steps = trajectory.map((tr) => {
+        const row = {
+            phi: tr.phiList.map((row) => Array.from(row)),
+            state: Array.from(tr.stateFeat),
+            idx: tr.chosenIdx,
+            reward: tr.reward
+        };
+        if (typeof tr.holes_after === 'number' && Number.isFinite(tr.holes_after)) {
+            row.holes_after = tr.holes_after;
+        }
+        return row;
+    });
     const body = { steps };
     if (typeof meta.score === 'number' && Number.isFinite(meta.score)) {
         body.score = meta.score;

@@ -99,7 +99,7 @@ function encodeDockSpatial(dock) {
 // ---------------------------------------------------------------------------
 
 /** @param {import('../grid.js').Grid} grid */
-function countHoles(grid) {
+export function countHoles(grid) {
     const n = grid.size;
     let holes = 0;
     for (let x = 0; x < n; x++) {

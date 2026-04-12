@@ -103,6 +103,13 @@ class ConvSharedPolicyValueNet(nn.Module):
             nn.GELU(),
             nn.Linear(width // 2, 1),
         )
+        fuse_in = width + action_embed_dim
+        hid = max(width // 2, 32)
+        self.hole_aux_head = nn.Sequential(
+            nn.Linear(fuse_in, hid),
+            nn.GELU(),
+            nn.Linear(hid, 1),
+        )
 
     def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
         """s: [B, STATE_FEATURE_DIM] → h: [B, width]"""
@@ -157,6 +164,13 @@ class ConvSharedPolicyValueNet(nn.Module):
         logits = self.policy_fuse(x).squeeze(-1)
         return logits, values
 
+    def forward_hole_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        """预测落子后归一化空洞数 ∈[0,1] 量级（训练目标由外部除以 holeAuxTargetMax）。"""
+        h = self._encode_state(state_feat)
+        ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
+        x = torch.cat([h, ae], dim=-1)
+        return self.hole_aux_head(x).squeeze(-1)
+
 
 # ---------------------------------------------------------------------------
 # Light models — 匹配游戏策略空间的低有效维度（与线性模型同数量级表达力）
@@ -174,6 +188,11 @@ class LightPolicyValueNet(nn.Module):
         self.value_fc1 = nn.Linear(STATE_FEATURE_DIM, width)
         self.value_fc2 = nn.Linear(width, width)
         self.value_head = nn.Linear(width, 1)
+        self.hole_aux_head = nn.Sequential(
+            nn.Linear(PHI_DIM, width),
+            nn.GELU(),
+            nn.Linear(width, 1),
+        )
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
         x = nn.functional.gelu(self.policy_fc1(phi))
@@ -205,6 +224,10 @@ class LightPolicyValueNet(nn.Module):
         logits = self.forward_policy_logits(phi)
         return logits, values
 
+    def forward_hole_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
+        return self.hole_aux_head(phi).squeeze(-1)
+
 
 class LightSharedPolicyValueNet(nn.Module):
     """共享主干 2 层 MLP + 动作投射 + 融合头，~20K 参数；状态只编码一次。"""
@@ -222,6 +245,13 @@ class LightSharedPolicyValueNet(nn.Module):
             nn.Linear(width, 1),
         )
         self.value_head = nn.Linear(width, 1)
+        fuse_in = width + action_embed_dim
+        hid = max(width // 2, 32)
+        self.hole_aux_head = nn.Sequential(
+            nn.Linear(fuse_in, hid),
+            nn.GELU(),
+            nn.Linear(hid, 1),
+        )
 
     def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
         x = nn.functional.gelu(self.state_fc1(s))
@@ -263,6 +293,12 @@ class LightSharedPolicyValueNet(nn.Module):
         x = torch.cat([h_exp, ae], dim=-1)
         logits = self.policy_fuse(x).squeeze(-1)
         return logits, values
+
+    def forward_hole_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
+        x = torch.cat([h, ae], dim=-1)
+        return self.hole_aux_head(x).squeeze(-1)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +343,11 @@ class PolicyValueNet(nn.Module):
             [ResidualMLPBlock(width, mlp_ratio) for _ in range(value_depth)]
         )
         self.value_head = nn.Linear(width, 1)
+        self.hole_aux_head = nn.Sequential(
+            nn.Linear(PHI_DIM, width),
+            nn.GELU(),
+            nn.Linear(width, 1),
+        )
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
         x = self.policy_stem(phi)
@@ -321,6 +362,10 @@ class PolicyValueNet(nn.Module):
         for blk in self.value_blocks:
             x = blk(x)
         return self.value_head(x).squeeze(-1)
+
+    def forward_hole_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
+        return self.hole_aux_head(phi).squeeze(-1)
 
 
 class SharedPolicyValueNet(nn.Module):
@@ -348,6 +393,12 @@ class SharedPolicyValueNet(nn.Module):
             nn.Linear(width, 1),
         )
         self.value_head = nn.Linear(width, 1)
+        hid = max(width // 2, 32)
+        self.hole_aux_head = nn.Sequential(
+            nn.Linear(fusion_in, hid),
+            nn.GELU(),
+            nn.Linear(hid, 1),
+        )
 
     def _encode_state(self, state_feat: torch.Tensor) -> torch.Tensor:
         x = self.shared_stem(state_feat)
@@ -371,3 +422,9 @@ class SharedPolicyValueNet(nn.Module):
     def forward_value(self, state_feat: torch.Tensor) -> torch.Tensor:
         h = self._encode_state(state_feat)
         return self.value_head(h).squeeze(-1)
+
+    def forward_hole_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        ae = self.action_proj(chosen_action_feat)
+        x = torch.cat([h, ae], dim=-1)
+        return self.hole_aux_head(x).squeeze(-1)

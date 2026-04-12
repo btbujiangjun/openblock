@@ -29,6 +29,10 @@
     --warning: #ED7D31;
     --shadow: rgba(44, 62, 80, 0.15);
     --border-radius: 8px;
+    /* 字标与 canvas 方块对齐（skins.applySkinToDocument 会覆盖） */
+    --skin-wm-inset-frac: 0.05;
+    --skin-wm-radius-frac: 0.125;
+    --skin-wm-gridgap-frac: 0.125;
 }
 
 * {
@@ -39,7 +43,11 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg-color);
+    background:
+        radial-gradient(120% 85% at 50% -25%, color-mix(in srgb, #c7d2fe 38%, transparent), transparent 58%),
+        radial-gradient(90% 55% at 100% 100%, color-mix(in srgb, #fdba74 16%, transparent), transparent 52%),
+        radial-gradient(75% 50% at 0% 85%, color-mix(in srgb, #a5b4fc 14%, transparent), transparent 48%),
+        linear-gradient(168deg, #f1f5f9 0%, var(--bg-color) 42%, #dbe4ed 100%);
     color: var(--text-primary);
     overflow: hidden;
     touch-action: none;
@@ -90,49 +98,270 @@ body.block-drag-active #app {
     margin-bottom: 8px;
 }
 
-/* 产品字标：Syne + 双色渐变（方块冷色 / 消除暖色） */
+/* 品牌字标：像素方块拼字（无底板、无外框），由 blockWordmark.js 注入 */
 .app-wordmark {
     margin: 0;
     padding: 0;
-    font-family: 'Syne', ui-rounded, 'Segoe UI', system-ui, sans-serif;
-    font-weight: 800;
-    letter-spacing: -0.045em;
-    line-height: 1.08;
+    line-height: 0;
     text-align: center;
 }
 
-.app-wordmark__line {
-    display: inline-flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: baseline;
-    gap: 0.28em;
-}
-
-.app-wordmark__block {
-    background: linear-gradient(155deg, #1e40af 0%, #38bdf8 48%, #06b6d4 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    filter: drop-shadow(0 2px 8px rgba(56, 189, 248, 0.4));
-}
-
-.app-wordmark__blast {
-    background: linear-gradient(155deg, #c2410c 0%, #fb923c 45%, #fbbf24 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    filter: drop-shadow(0 2px 8px rgba(251, 146, 60, 0.42));
-}
-
 .header .app-wordmark {
-    font-size: clamp(1.2rem, 4.2vw, 1.65rem);
+    --wm-cell: 5.25px;
+    padding: 7px 16px 9px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--stat-surface, #ffffff) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 10%, transparent);
+    box-shadow:
+        0 1px 0 color-mix(in srgb, #ffffff 35%, transparent) inset,
+        0 8px 28px color-mix(in srgb, var(--shadow, rgba(0, 0, 0, 0.2)) 55%, transparent);
+    backdrop-filter: saturate(1.15) blur(10px);
+    -webkit-backdrop-filter: saturate(1.15) blur(10px);
 }
 
 .app-wordmark--hero {
-    font-size: clamp(2.1rem, 8.5vw, 3rem);
-    margin-bottom: 6px;
-    letter-spacing: -0.05em;
+    margin-bottom: 0;
+}
+
+.app-wordmark--hero .app-wordmark-pixel {
+    --wm-cell: 9.5px;
+}
+
+.app-wordmark-pixel {
+    position: relative;
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 0.38em;
+    isolation: isolate;
+}
+
+.header .app-wordmark-pixel {
+    transform: scale(1.06);
+    transform-origin: center bottom;
+}
+
+/* 词间分隔：与两侧词组拉开，避免读成 OpenBlock */
+.app-wordmark-pixel__sep {
+    display: inline-flex;
+    align-items: flex-end;
+    flex-shrink: 0;
+    margin-inline: 0.28em;
+}
+
+.app-wordmark--hero .app-wordmark-pixel__sep {
+    margin-inline: 0.4em;
+}
+
+/* 字标背后柔光氛围（无描边底板） */
+.app-wordmark-pixel::before {
+    content: '';
+    position: absolute;
+    inset: -14px -22px -12px -22px;
+    border-radius: 50%;
+    background:
+        radial-gradient(ellipse 72% 88% at 50% 32%, rgba(255, 255, 255, 0.75), transparent 58%),
+        radial-gradient(ellipse 58% 50% at 18% 88%, rgba(129, 140, 248, 0.2), transparent 55%),
+        radial-gradient(ellipse 58% 50% at 84% 86%, rgba(251, 146, 60, 0.18), transparent 55%);
+    filter: blur(10px);
+    opacity: 0.9;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.app-wordmark-pixel > * {
+    position: relative;
+    z-index: 1;
+}
+
+.app-wordmark-pixel__word {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 0.14em;
+}
+
+/* 词尾 / 词首与中间分隔拉开，避免 Open 与 Block 读成一体（如 n 贴 B） */
+.app-wordmark-pixel__word:first-of-type > .wm-letter:last-child {
+    margin-inline-end: 0.26em;
+}
+
+.app-wordmark-pixel__word:last-of-type > .wm-letter:first-child {
+    margin-inline-start: 0.26em;
+}
+
+.app-wordmark--hero .app-wordmark-pixel__word:first-of-type > .wm-letter:last-child {
+    margin-inline-end: 0.32em;
+}
+
+.app-wordmark--hero .app-wordmark-pixel__word:last-of-type > .wm-letter:first-child {
+    margin-inline-start: 0.32em;
+}
+
+/* 同一词内：大写 O/B 后紧跟小写再外推（布局已用 bump，此处防视觉仍偏近） */
+.app-wordmark-pixel__word .wm-letter--accent + .wm-letter {
+    margin-inline-start: 0.14em;
+}
+
+.app-wordmark--hero .app-wordmark-pixel__word .wm-letter--accent + .wm-letter {
+    margin-inline-start: 0.18em;
+}
+
+.wm-letter {
+    --wm-letter-bump: 1;
+    display: grid;
+    gap: max(1px, calc(var(--wm-cell) * var(--wm-letter-bump) * var(--skin-wm-gridgap-frac, 0.1)));
+    line-height: 0;
+}
+
+/* 大写 O、B：仅用 bump 放大网格（无 scale），外晕略收 */
+.wm-letter--accent {
+    margin-inline: 0;
+    filter: drop-shadow(0 3px 10px rgba(79, 70, 229, 0.32))
+        drop-shadow(0 2px 8px rgba(234, 88, 12, 0.2));
+    z-index: 2;
+}
+
+.header .wm-letter--accent {
+    filter: drop-shadow(0 2px 7px rgba(79, 70, 229, 0.28))
+        drop-shadow(0 1px 5px rgba(234, 88, 12, 0.16));
+}
+
+.wm-cell {
+    box-sizing: border-box;
+    width: calc(var(--wm-cell) * var(--wm-letter-bump));
+    height: calc(var(--wm-cell) * var(--wm-letter-bump));
+    min-width: 2px;
+    min-height: 2px;
+    border-radius: max(1px, calc(var(--wm-cell) * var(--wm-letter-bump) * var(--skin-wm-radius-frac, 0.13)));
+}
+
+.wm-cell--void {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* glossy（默认）：对齐 renderer.js glossy 段落的体色 + 顶高光 + 双边线 */
+.wm-cell--cool {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0) 48%),
+        linear-gradient(90deg, color-mix(in srgb, #4f46e5 100%, #000 18%) 0%, #6366f1 22%, color-mix(in srgb, #818cf8 100%, #fff 12%) 50%, color-mix(in srgb, #4f46e5 100%, #000 22%) 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 28%, rgba(30, 27, 100, 0.35));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.42),
+        inset 0 -1px 0 rgba(15, 23, 42, 0.22),
+        0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell) * var(--wm-letter-bump) * 0.32) rgba(49, 46, 129, 0.28);
+}
+
+.wm-cell--warm {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0) 46%),
+        linear-gradient(90deg, color-mix(in srgb, #c2410c 100%, #000 16%) 0%, #ea580c 28%, color-mix(in srgb, #fbbf24 100%, #fff 10%) 52%, color-mix(in srgb, #9a3412 100%, #000 18%) 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 22%, rgba(90, 30, 10, 0.4));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.36),
+        inset 0 -1px 0 rgba(50, 18, 6, 0.22),
+        0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell) * var(--wm-letter-bump) * 0.3) rgba(120, 45, 15, 0.26);
+}
+
+.wm-cell--mid {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 44%),
+        linear-gradient(118deg, #4f46e5 0%, #7c3aed 36%, #ea580c 68%, #fb923c 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 20%, rgba(60, 40, 120, 0.35));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.34),
+        inset 0 -1px 0 rgba(30, 27, 75, 0.18),
+        0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.08) calc(var(--wm-cell) * var(--wm-letter-bump) * 0.28) rgba(60, 40, 120, 0.22);
+}
+
+[data-skin-block-style='flat'] .wm-cell:not(.wm-cell--void) {
+    background: var(--wm-flat-fill, #6366f1);
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    box-shadow: none;
+}
+
+[data-skin-block-style='flat'] .wm-cell--cool {
+    --wm-flat-fill: #5b63d9;
+}
+
+[data-skin-block-style='flat'] .wm-cell--warm {
+    --wm-flat-fill: #e07020;
+}
+
+[data-skin-block-style='flat'] .wm-cell--mid {
+    --wm-flat-fill: #8b5cf6;
+}
+
+[data-skin-block-style='glass'] .wm-cell:not(.wm-cell--void) {
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.45),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+        0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+[data-skin-block-style='glass'] .wm-cell--cool {
+    background:
+        linear-gradient(180deg, color-mix(in srgb, #a5b4fc 55%, #fff) 0%, #6366f1 42%, color-mix(in srgb, #4f46e5 100%, #000 8%) 100%);
+}
+
+[data-skin-block-style='glass'] .wm-cell--warm {
+    background:
+        linear-gradient(180deg, color-mix(in srgb, #fcd34d 40%, #fff) 0%, #ea580c 45%, color-mix(in srgb, #c2410c 100%, #000 6%) 100%);
+}
+
+[data-skin-block-style='metal'] .wm-cell--cool {
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, #a5b4fc 70%, #fff) 0%,
+        color-mix(in srgb, #6366f1 100%, #000 12%) 14%,
+        #6366f1 42%,
+        color-mix(in srgb, #818cf8 100%, #fff 18%) 50%,
+        color-mix(in srgb, #312e81 100%, #000 6%) 100%
+    );
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.5),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.18),
+        0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+[data-skin-block-style='metal'] .wm-cell--warm {
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, #fde68a 55%, #fff) 0%,
+        color-mix(in srgb, #ea580c 100%, #000 10%) 16%,
+        #ea580c 44%,
+        color-mix(in srgb, #fb923c 100%, #fff 15%) 52%,
+        color-mix(in srgb, #7c2d12 100%, #000 8%) 100%
+    );
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.42),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.16),
+        0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+[data-skin-block-style='neon'] .wm-cell:not(.wm-cell--void) {
+    border: 1px solid color-mix(in srgb, #fff 35%, transparent);
+    box-shadow:
+        0 0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.45) color-mix(in srgb, currentColor 55%, transparent),
+        inset 0 0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.25) rgba(255, 255, 255, 0.12);
+}
+
+[data-skin-block-style='neon'] .wm-cell--cool {
+    color: #818cf8;
+    background: linear-gradient(90deg, #4f46e5, #a5b4fc 55%, #6366f1);
+}
+
+[data-skin-block-style='neon'] .wm-cell--warm {
+    color: #fb923c;
+    background: linear-gradient(90deg, #c2410c, #fb923c 50%, #f97316);
+}
+
+[data-skin-block-style='neon'] .wm-cell--mid {
+    color: #c084fc;
+    background: linear-gradient(90deg, #6366f1, #f472b6 45%, #fb923c);
 }
 
 /* 标题与得分条之间；主菜单打开时随 #app 隐藏；风格参考 macOS 表单控件（对比度、圆角、细边框） */
@@ -243,11 +472,17 @@ body.block-drag-active #app {
 }
 
 .stat-box {
-    background: var(--stat-surface, #fff);
+    background:
+        linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, transparent 48%),
+        linear-gradient(180deg, var(--stat-surface, #fff) 0%, color-mix(in srgb, var(--stat-surface, #fff) 88%, #e2e8f0) 100%);
     padding: 5px 12px;
     border-radius: var(--border-radius);
     text-align: center;
-    box-shadow: 0 2px 8px var(--shadow);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.75) inset,
+        0 4px 14px color-mix(in srgb, var(--shadow) 55%, transparent),
+        0 1px 3px rgba(0, 0, 0, 0.06);
     min-width: 60px;
 }
 
@@ -270,9 +505,14 @@ body.block-drag-active #app {
     margin: 0 auto 8px;
     padding: 6px 10px;
     border-radius: var(--border-radius);
-    background: var(--stat-surface, rgba(255, 255, 255, 0.92));
+    background:
+        linear-gradient(175deg, rgba(255, 255, 255, 0.5) 0%, transparent 42%),
+        var(--stat-surface, rgba(255, 255, 255, 0.92));
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 5%, transparent);
     /* 柔和扩散，避免底边像一条硬分割线 */
-    box-shadow: 0 4px 18px color-mix(in srgb, var(--shadow) 75%, transparent);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.55) inset,
+        0 6px 22px color-mix(in srgb, var(--shadow) 65%, transparent);
 }
 
 .progression-hud-row {
@@ -344,10 +584,20 @@ body.block-drag-active #app {
     margin: 4px auto 0;
     padding: 12px 12px 14px;
     border-radius: 14px;
-    /* 与页面背景多混合，降低「大白盒」存在感 */
-    background: color-mix(in srgb, var(--stat-surface, #ffffff) 52%, var(--bg-color, #e8eef1));
-    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 5%, transparent);
-    box-shadow: 0 2px 16px color-mix(in srgb, var(--shadow) 40%, transparent);
+    /* 与页面背景多混合 + 顶光渐变，略抬升的「卡」质感 */
+    background:
+        radial-gradient(ellipse 95% 58% at 50% 0%, rgba(255, 255, 255, 0.42), transparent 55%),
+        linear-gradient(
+            172deg,
+            color-mix(in srgb, var(--stat-surface, #ffffff) 62%, #eef2f7) 0%,
+            color-mix(in srgb, var(--stat-surface, #ffffff) 48%, var(--bg-color, #e8eef1)) 48%,
+            color-mix(in srgb, var(--bg-color, #dce4ec) 65%, var(--stat-surface, #ffffff)) 100%
+        );
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.65) inset,
+        0 10px 32px color-mix(in srgb, var(--shadow) 45%, transparent),
+        0 2px 6px rgba(0, 0, 0, 0.05);
     backdrop-filter: saturate(1.06) blur(10px);
     -webkit-backdrop-filter: saturate(1.06) blur(10px);
     /* 勿 auto：窄屏下会出横向滚动条；拖动幽灵不应依赖此处滚动 */
@@ -450,8 +700,12 @@ body.game-rl-preview .block-dock {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    /* 不透明，避免透过叠层看到背后 HUD 导致发灰、对比度崩溃 */
-    background: #E8EEF1;
+    /* 不透明叠层 + 环境渐变与顶光，与 body 层次呼应 */
+    background:
+        radial-gradient(ellipse 88% 72% at 50% 12%, rgba(255, 255, 255, 0.52), transparent 58%),
+        radial-gradient(ellipse 70% 50% at 88% 78%, color-mix(in srgb, #fdba74 14%, transparent), transparent 50%),
+        radial-gradient(ellipse 65% 48% at 10% 82%, color-mix(in srgb, #a5b4fc 16%, transparent), transparent 50%),
+        linear-gradient(168deg, #f0f5f9 0%, #e6eef5 46%, #dce6ef 100%);
     z-index: 200;
 }
 
@@ -460,16 +714,7 @@ body.game-rl-preview .block-dock {
 }
 
 #menu .app-wordmark {
-    margin-bottom: 8px;
-}
-
-.subtitle {
-    font-size: 14px;
-    color: #2c3e50;
-    margin-bottom: 20px;
-    max-width: 280px;
-    text-align: center;
-    line-height: 1.4;
+    margin-bottom: 28px;
 }
 
 .btn {
@@ -493,18 +738,35 @@ body.game-rl-preview .block-dock {
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, var(--accent-color), var(--accent-dark));
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, transparent 42%),
+        linear-gradient(135deg, var(--accent-color), var(--accent-dark));
     color: white;
-    box-shadow: 0 4px 12px rgba(91, 155, 213, 0.4);
+    border: 1px solid color-mix(in srgb, #ffffff 28%, rgba(30, 60, 120, 0.35));
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.35) inset,
+        0 6px 18px rgba(68, 114, 196, 0.42),
+        0 2px 4px rgba(0, 0, 0, 0.12);
 }
 
 .btn-primary:hover {
-    filter: brightness(1.1);
+    filter: brightness(1.06);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.4) inset,
+        0 8px 22px rgba(68, 114, 196, 0.48),
+        0 2px 5px rgba(0, 0, 0, 0.14);
 }
 
 .btn-secondary {
-    background: linear-gradient(135deg, #A0A0A0, #808080);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, transparent 45%),
+        linear-gradient(135deg, #b8b8b8, #6e6e6e);
     color: white;
+    border: 1px solid color-mix(in srgb, #ffffff 22%, rgba(0, 0, 0, 0.2));
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.28) inset,
+        0 5px 14px rgba(0, 0, 0, 0.18),
+        0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* ── 游戏结束浮层 ── */
@@ -1800,6 +2062,13 @@ body.game-shell-hidden .app-side-left {
     pointer-events: none;
 }
 
+#menu .btn {
+    width: min(280px, calc(100vw - 48px));
+    max-width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+}
+
 #menu .btn + .btn {
     margin-top: 10px;
 }
@@ -2201,7 +2470,12 @@ body.game-shell-hidden .app-side-left {
 }
 
 @media (max-width: 400px) {
-    .header .app-wordmark { font-size: 1.05rem; }
+    .header .app-wordmark {
+        --wm-cell: 3.5px;
+    }
+    .app-wordmark--hero .app-wordmark-pixel {
+        --wm-cell: 7.5px;
+    }
     .stat-box { padding: 4px 8px; min-width: 50px; }
     .stat-value { font-size: 14px; }
     .play-stack { padding: 10px 8px 12px; gap: 10px; border-radius: 12px; }

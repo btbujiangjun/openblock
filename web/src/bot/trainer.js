@@ -3,6 +3,7 @@
  * 对局循环只通过 RlGameplayEnvironment，与具体棋盘规则解耦。
  */
 import { RlGameplayEnvironment } from './gameEnvironment.js';
+import { countHoles } from './features.js';
 import { GAME_RULES } from '../gameRules.js';
 import {
     fetchRlStatus,
@@ -71,7 +72,8 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
             phiList: choice.phiList,
             probs: choice.probs,
             chosenIdx: choice.chosenIdx,
-            reward
+            reward,
+            holes_after: countHoles(env.simulator.grid)
         });
 
         if (hooks.onAfterStep) {

@@ -1,5 +1,5 @@
 /**
- * Block Blast - Renderer
+ * Open Block - Renderer
  * Canvas rendering；盘面与方块样式随 `skins.js` 当前主题变化
  */
 import { CONFIG } from './config.js';

@@ -52,7 +52,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical, Dirichlet
 
 from .config import WIN_SCORE_THRESHOLD
-from .game_rules import RL_REWARD_SHAPING, rl_curriculum_enabled, rl_win_threshold_for_episode
+from .game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING, rl_curriculum_enabled, rl_win_threshold_for_episode
 from .device import (
     adam_for_training,
     apply_throughput_tuning,
@@ -202,6 +202,20 @@ def build_policy_net(
     ).to(device)
 
 
+def _hole_aux_coef_and_denom() -> tuple[float, float]:
+    """空洞辅助损失：系数来自 rlRewardShaping.holeAuxLossCoef 或 RL_HOLE_AUX_COEF；目标除以 holeAuxTargetMax / maxHoles。"""
+    if (raw := os.environ.get("RL_HOLE_AUX_COEF", "").strip()) != "":
+        coef = float(raw)
+    else:
+        coef = float(RL_REWARD_SHAPING.get("holeAuxLossCoef") or 0.0)
+    raw_max = RL_REWARD_SHAPING.get("holeAuxTargetMax")
+    if raw_max is not None:
+        denom = float(raw_max)
+    else:
+        denom = float((FEATURE_ENCODING.get("actionNorm") or {}).get("maxHoles") or 16.0)
+    return coef, max(denom, 1e-6)
+
+
 def _effective_entropy_coef(global_ep: int, base: float) -> float:
     """随局数线性降低熵系数；衰减周期与课程爬坡对齐。"""
     lo = float(os.environ.get("RL_ENTROPY_COEF_MIN", "0.008"))
@@ -339,6 +353,7 @@ def collect_episode(
             "chosen_idx": chosen,
             "reward": r,
             "old_log_prob": float(clean_lp[chosen].item()),
+            "holes_after": int(sim.count_holes()),
         })
         step_idx += 1
 
@@ -443,6 +458,7 @@ def _reevaluate_and_update(
     all_chosen: list[int] = []
     all_rewards: list[float] = []
     all_old_lp: list[float] = []
+    all_holes_after: list[float] = []
     ep_lengths: list[int] = []
 
     for ep in valid:
@@ -455,6 +471,8 @@ def _reevaluate_and_update(
             all_chosen.append(step["chosen_idx"])
             all_rewards.append(step["reward"])
             all_old_lp.append(step.get("old_log_prob", 0.0))
+            if "holes_after" in step:
+                all_holes_after.append(float(step["holes_after"]))
 
     total_steps = len(all_states)
     if total_steps == 0:
@@ -467,6 +485,23 @@ def _reevaluate_and_update(
     n_actions_t = torch.tensor(all_n_actions, device=device, dtype=torch.long)
     chosen_t = torch.tensor(all_chosen, device=device, dtype=torch.long).unsqueeze(1)
     old_lp_t = tensor_to_device(torch.tensor(all_old_lp, dtype=torch.float32), device)
+
+    hole_coef, hole_denom = _hole_aux_coef_and_denom()
+    use_hole_aux = (
+        hole_coef > 1e-12
+        and callable(getattr(net, "forward_hole_aux", None))
+        and len(all_holes_after) == total_steps
+    )
+    holes_target: torch.Tensor | None = None
+    chosen_action_feats: torch.Tensor | None = None
+    if use_hole_aux:
+        step_starts = torch.zeros(total_steps + 1, dtype=torch.long, device=device)
+        step_starts[1:] = torch.cumsum(n_actions_t, dim=0)
+        chosen_rows = step_starts[:-1] + chosen_t.squeeze(1)
+        chosen_action_feats = action_feats_t[chosen_rows]
+        holes_target = (
+            torch.tensor(all_holes_after, dtype=torch.float32, device=device) / hole_denom
+        ).clamp(0.0, 1.0)
 
     dp_ids = resolve_cuda_device_ids_for_data_parallel()
     use_dp_value = (
@@ -549,7 +584,16 @@ def _reevaluate_and_update(
 
         value_loss = F.smooth_l1_loss(values_flat, rets_cat, reduction="mean", beta=max(value_huber_beta, 1e-6))
         entropy_mean = torch.nan_to_num(ent_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
-        loss = policy_loss + value_coef * value_loss - entropy_coef * entropy_mean
+        hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if use_hole_aux and holes_target is not None and chosen_action_feats is not None:
+            pred_h = net.forward_hole_aux(states_t, chosen_action_feats)
+            hole_aux_loss = F.smooth_l1_loss(pred_h, holes_target, reduction="mean", beta=1.0)
+        loss = (
+            policy_loss
+            + value_coef * value_loss
+            - entropy_coef * entropy_mean
+            + hole_coef * hole_aux_loss
+        )
 
         opt.zero_grad()
         if torch.isfinite(loss).item():
@@ -563,6 +607,8 @@ def _reevaluate_and_update(
             "policy_loss": float(policy_loss.item()),
             "value_loss": float(value_loss.item()),
             "entropy": float(entropy_mean.item()),
+            "loss_hole_aux": float(hole_aux_loss.item()),
+            "hole_aux_coef": float(hole_coef),
         }
 
     return last_result
@@ -615,7 +661,13 @@ def train_loop(
                 file=sys.stderr,
             )
         try:
-            net.load_state_dict(ckpt["model"])
+            inco = net.load_state_dict(ckpt["model"], strict=False)
+            if inco.missing_keys or inco.unexpected_keys:
+                print(
+                    f"注意: checkpoint 非严格加载 missing={len(inco.missing_keys)} "
+                    f"unexpected={len(inco.unexpected_keys)}（如新增 hole_aux 头时属正常）",
+                    file=sys.stderr,
+                )
             if "optimizer" in ckpt:
                 opt.load_state_dict(ckpt["optimizer"])
             start_ep = int(ckpt.get("episodes", 0))
@@ -711,11 +763,14 @@ def train_loop(
                 lp_str = f"{last_update['policy_loss']:.4f}" if last_update else "N/A"
                 lv_str = f"{last_update['value_loss']:.4f}" if last_update else "N/A"
                 he_str = f"{last_update['entropy']:.3f}" if last_update else "N/A"
+                hole_str = ""
+                if last_update and last_update.get("hole_aux_coef", 0) > 1e-12:
+                    hole_str = f"  hole={last_update.get('loss_hole_aux', 0):.4f}"
                 ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
                 print(
                     f"ep {ep_cursor}  |  {ppo_tag}  |  dev={device.type}  |  thr={wt}  |  "
                     f"sc={last_ep['score']:.0f}  avg100={avg:.1f}  win%={wr:.1f}%  steps={last_ep['steps']}  |  "
-                    f"π={lp_str}  V={lv_str}  H={he_str}  |  {dt:.1f}s",
+                    f"π={lp_str}  V={lv_str}  H={he_str}{hole_str}  |  {dt:.1f}s",
                     file=sys.stderr,
                 )
                 t0 = time.perf_counter()

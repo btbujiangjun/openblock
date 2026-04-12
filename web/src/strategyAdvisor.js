@@ -146,7 +146,7 @@ export function generateStrategyTips(profile, insight, gridInfo) {
         tips.length = 0;
         tips.push({
             icon: '✨', title: '欢迎新手',
-            detail: '先熟悉拖拽放块操作。块放在棋盘上时，填满整行或整列会自动消除得分。',
+            detail: '先熟悉拖拽放块：贴齐边缘、从底部铺路，尽量少留空洞，便于后续整理盘面。',
             priority: 1, category: 'explore'
         });
         tips.push({

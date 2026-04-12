@@ -160,7 +160,9 @@
     "survivalPerStep": 0.1,
     "holePenaltyPerCell": -0.15,
     "heightPenalty": -0.02,
-    "gapReductionBonus": 0.8
+    "gapReductionBonus": 0.8,
+    "holeAuxLossCoef": 0.12,
+    "holeAuxTargetMax": 16
   },
   "featureEncoding": {
     "comment": "state = 23 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块掩码；phi = state + 7 维动作描述（精简版：去除昂贵的 delta 特征）。改维度须同步 features.js / features.py 并重训。",

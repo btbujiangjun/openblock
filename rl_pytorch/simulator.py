@@ -134,6 +134,10 @@ class BlockBlastSimulator:
             self._holes_cache = _count_holes(self.grid)
         return self._holes_cache
 
+    def count_holes(self) -> int:
+        """当前盘面空洞格数（与即时奖励塑形、训练辅助损失一致）。"""
+        return self._get_holes()
+
     def get_legal_actions(self) -> list[dict[str, int]]:
         actions = []
         for bi, b in enumerate(self.dock):

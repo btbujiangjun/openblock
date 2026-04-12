@@ -1,5 +1,5 @@
 /**
- * Block Blast - Main Game Controller
+ * Open Block - Main Game Controller
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
@@ -57,7 +57,7 @@ export class Game {
         this.dockBlocks = [];
         this.sessionId = null;
         this.strategy = 'normal';
-        /** 连战计数：主菜单「开始」清零；再来一局 / 死局重开 +1 */
+        /** 连战计数：主菜单「开始游戏」清零；再来一局 / 死局重开 +1 */
         this.runStreak = 0;
 
         this.drag = null;

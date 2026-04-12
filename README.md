@@ -1,6 +1,6 @@
-# OpenBlock（Block Blast）
+# Open Block
 
-网页方块消除游戏：拖拽多连块填满行/列即可得分；会话、行为、统计与回放经 **Flask API** 写入仓库内 **SQLite**（`blockblast.db`，可用 `BLOCKBLAST_DB_PATH` 覆盖）。开发时需同时跑 `npm run dev` 与 `npm run server`。
+网页方块益智游戏：拖拽多连块布局盘面、成行/列可得分；会话、行为、统计与回放经 **Flask API** 写入仓库内 **SQLite**（`blockblast.db`，可用 `BLOCKBLAST_DB_PATH` 覆盖）。开发时需同时跑 `npm run dev` 与 `npm run server`。
 
 ## 仓库结构
 

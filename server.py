@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Block Blast Backend - Flask + SQLite
+Open Block Backend - Flask + SQLite
 Complete user behavior tracking and analytics
 """
 
@@ -1215,5 +1215,5 @@ def create_app():
 if __name__ == '__main__':
     _port = int(os.environ.get('PORT', '5000'))
     _debug = os.environ.get('FLASK_DEBUG', '1') == '1'
-    print(f'Block Blast API — http://0.0.0.0:{_port}  (db: {DATABASE})')
+    print(f'Open Block API — http://0.0.0.0:{_port}  (db: {DATABASE})')
     app.run(host='0.0.0.0', port=_port, debug=_debug)

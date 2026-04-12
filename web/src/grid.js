@@ -1,5 +1,5 @@
 /**
- * Block Blast - Grid Logic
+ * Open Block - Grid Logic
  * Manages the game board and line detection
  */
 import { pickShapeByCategoryWeights } from './shapes.js';

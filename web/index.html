@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="description" content="Block Blast — 方块消除益智游戏">
-    <title>Block Blast</title>
+    <meta name="description" content="Open Block — 空间与节奏的益智体验">
+    <title>Open Block</title>
     <!-- 与 main.css 一致：全屏层不透明，避免透过菜单看到背后 HUD 发灰 -->
     <style>
       .screen {
@@ -45,20 +45,12 @@
         display: block;
       }
     </style>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body>
     <div id="app">
         <div class="header">
-            <h1 class="app-wordmark" aria-label="Block Blast">
-                <span class="app-wordmark__line">
-                    <span class="app-wordmark__block">Block</span>
-                    <span class="app-wordmark__blast">Blast</span>
-                </span>
-            </h1>
+            <h1 class="app-wordmark" aria-label="Open Block"></h1>
             <div class="header-skin">
                 <div class="skin-picker">
                     <label for="skin-select">主题</label>
@@ -91,14 +83,8 @@
         <canvas id="drag-ghost" width="1" height="1" aria-hidden="true"></canvas>
     </div>
     <div id="menu" class="screen active">
-        <h1 class="app-wordmark app-wordmark--hero" aria-label="Block Blast">
-            <span class="app-wordmark__line">
-                <span class="app-wordmark__block">Block</span>
-                <span class="app-wordmark__blast">Blast</span>
-            </span>
-        </h1>
-        <div class="subtitle">填满整行或整列即可消除！</div>
-        <button type="button" class="btn btn-primary" id="start-btn">开始</button>
+        <h1 class="app-wordmark app-wordmark--hero" aria-label="Open Block"></h1>
+        <button type="button" class="btn btn-primary" id="start-btn">开始游戏</button>
         <button type="button" class="btn btn-secondary" id="menu-replay-btn">对局回放</button>
     </div>
     <div id="replay-list-screen" class="screen">

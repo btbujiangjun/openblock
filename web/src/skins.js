@@ -472,6 +472,13 @@ export function applySkinToDocument(skin) {
         root.style.removeProperty(k);
     }
 
+    /* 字标像素格与 canvas 方块：同源 blockInset / blockRadius / gridGap / blockStyle */
+    const wmRef = 40;
+    root.style.setProperty('--skin-wm-inset-frac', String(skin.blockInset / wmRef));
+    root.style.setProperty('--skin-wm-radius-frac', String(skin.blockRadius / wmRef));
+    root.style.setProperty('--skin-wm-gridgap-frac', String((2 * skin.blockInset + (skin.gridGap ?? 1)) / wmRef));
+    root.dataset.skinBlockStyle = skin.blockStyle;
+
     root.style.setProperty('--grid-bg', skin.gridOuter);
     root.style.setProperty('--cell-empty', skin.gridCell);
     if (skin.cssBg) {

@@ -19,7 +19,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         super().end_headers()
 
-print(f"Block Blast dev server running at http://localhost:{PORT}")
+print(f"Open Block dev server running at http://localhost:{PORT}")
 print("Press Ctrl+C to stop")
 with socketserver.TCPServer(("", PORT), Handler) as httpd:
     httpd.serve_forever()

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Block Blast - Strategy Dashboard</title>
+    <title>Open Block — Strategy Dashboard</title>
     <style>
         :root {
             --bg-color: #1a1a2e;
@@ -315,7 +315,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>Block Blast - Strategy Dashboard</h1>
+        <h1>Open Block — Strategy Dashboard</h1>
         <div class="header-actions">
             <button class="btn btn-secondary" onclick="refreshData()">Refresh</button>
             <button class="btn btn-secondary" onclick="exportData()">Export</button>
@@ -697,7 +697,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `blockblast-export-${Date.now()}.json`;
+            a.download = `open-block-export-${Date.now()}.json`;
             a.click();
         }
         
