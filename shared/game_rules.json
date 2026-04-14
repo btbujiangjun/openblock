@@ -151,29 +151,41 @@
   },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
-    "comment": "RL 即时奖励。placeBonus 提供密集正基线防止纯负信号；hole/height 惩罚降低避免压制探索；survival 鼓励长局。",
-    "placeBonus": 0.3,
-    "densePerClear": 1.5,
-    "multiClearBonus": 4.0,
+    "comment": "v5 精简奖励：仅 得分增量 + 势函数塑形 + winBonus + stuckPenalty；其余噪声项已移除，改由直接监督三头学习。",
     "winBonus": 25,
-    "stuckPenalty": -3.0,
-    "survivalPerStep": 0.1,
-    "holePenaltyPerCell": -0.15,
-    "heightPenalty": -0.02,
-    "gapReductionBonus": 0.8,
+    "stuckPenalty": -5.0,
     "holeAuxLossCoef": 0.12,
-    "holeAuxTargetMax": 16
+    "holeAuxTargetMax": 16,
+    "clearPredLossCoef": 0.15,
+    "boardQualityLossCoef": 0.5,
+    "feasibilityLossCoef": 0.3,
+    "survivalLossCoef": 0.2,
+    "potentialShaping": {
+      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。",
+      "enabled": true,
+      "coef": 0.5,
+      "holeWeight": -0.40,
+      "transitionWeight": -0.08,
+      "wellWeight": -0.15,
+      "closeToFullWeight": 0.35,
+      "mobilityWeight": 0.12
+    },
+    "outcomeValueMix": {
+      "comment": "v5 纯 outcome 价值目标：mix=1.0 → V 学习预测 final_score/threshold，低方差。",
+      "enabled": true,
+      "mix": 1.0
+    }
   },
   "featureEncoding": {
-    "comment": "state = 23 维全局统计 + maxGridWidth² 棋盘占用 + dockSlots×dockMaskSide² 待选块掩码；phi = state + 7 维动作描述（精简版：去除昂贵的 delta 特征）。改维度须同步 features.js / features.py 并重训。",
+    "comment": "state = 23 维标量 + 64 棋盘 + 75 dock = 162；action = 12 维（v4：原 7 + 5 棋盘交互特征）；phi = 174。改维度须同步 features.js / features.py 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
     "stateScalarDim": 23,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
     "stateDim": 162,
-    "actionDim": 7,
-    "phiDim": 169,
+    "actionDim": 12,
+    "phiDim": 174,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {
@@ -184,7 +196,9 @@
       "maxHoles": 16,
       "maxTransitions": 64,
       "maxWellDepth": 24,
-      "maxMobility": 192
+      "maxMobility": 192,
+      "maxAdjacent": 20,
+      "nearFullThreshold": 0.75
     }
   },
   "strategies": {

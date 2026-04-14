@@ -1,4 +1,4 @@
-"""与 web/src/bot/simulator.js 对齐的无头对局。"""
+"""与 web/src/bot/simulator.js 对齐的无头对局（v5：精简奖励 + 直接监督信号）。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,19 @@ from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .shapes_data import get_all_shapes
 
-__all__ = ["BlockBlastSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
+__all__ = ["BlockBlastSimulator", "board_potential", "generate_blocks_for_grid", "generate_dock_shapes"]
+
+_BOARD_POT_NORM = 30.0   # board_potential 归一化分母
+_SURVIVAL_NORM  = 30.0   # 生存步数归一化分母
+
+_POT_CFG = dict((RL_REWARD_SHAPING.get("potentialShaping") or {}))
+_POT_ENABLED = bool(_POT_CFG.get("enabled", False))
+_POT_COEF = float(_POT_CFG.get("coef", 0.5))
+_POT_W_HOLE = float(_POT_CFG.get("holeWeight", -0.4))
+_POT_W_TRANS = float(_POT_CFG.get("transitionWeight", -0.08))
+_POT_W_WELL = float(_POT_CFG.get("wellWeight", -0.15))
+_POT_W_CLOSE = float(_POT_CFG.get("closeToFullWeight", 0.35))
+_POT_W_MOB = float(_POT_CFG.get("mobilityWeight", 0.12))
 
 
 def _count_holes(grid: Grid) -> int:
@@ -24,6 +36,88 @@ def _count_holes(grid: Grid) -> int:
             elif block_found:
                 holes += 1
     return holes
+
+
+def _count_transitions(grid: Grid) -> int:
+    n = grid.size
+    total = 0
+    for y in range(n):
+        prev = True
+        for x in range(n):
+            cur = grid.cells[y][x] is not None
+            if cur != prev:
+                total += 1
+            prev = cur
+        if not prev:
+            total += 1
+    for x in range(n):
+        prev = True
+        for y in range(n):
+            cur = grid.cells[y][x] is not None
+            if cur != prev:
+                total += 1
+            prev = cur
+        if not prev:
+            total += 1
+    return total
+
+
+def _well_depth_sum(grid: Grid) -> int:
+    n = grid.size
+    total = 0
+    for x in range(n):
+        for y in range(n):
+            if grid.cells[y][x] is not None:
+                continue
+            left = x == 0 or grid.cells[y][x - 1] is not None
+            right = x == n - 1 or grid.cells[y][x + 1] is not None
+            if left and right:
+                total += 1
+    return total
+
+
+def _close_to_full_count(grid: Grid) -> int:
+    n = grid.size
+    count = 0
+    for y in range(n):
+        f = sum(1 for x in range(n) if grid.cells[y][x] is not None)
+        if f >= n - 2:
+            count += 1
+    for x in range(n):
+        f = sum(1 for y in range(n) if grid.cells[y][x] is not None)
+        if f >= n - 2:
+            count += 1
+    return count
+
+
+def _dock_mobility(grid: Grid, dock: list[dict]) -> int:
+    n = grid.size
+    total = 0
+    for b in dock:
+        if b.get("placed"):
+            continue
+        shape = b["shape"]
+        for gy in range(n):
+            for gx in range(n):
+                if grid.can_place(shape, gx, gy):
+                    total += 1
+    return total
+
+
+def board_potential(grid: Grid, dock: list[dict]) -> float:
+    """势函数 Φ(s)：加权盘面结构质量，用于 Δ 塑形。值域约 [-30, +10]。"""
+    holes = _count_holes(grid)
+    trans = _count_transitions(grid)
+    wells = _well_depth_sum(grid)
+    close = _close_to_full_count(grid)
+    mob = _dock_mobility(grid, dock)
+    return (
+        _POT_W_HOLE * holes
+        + _POT_W_TRANS * trans
+        + _POT_W_WELL * wells
+        + _POT_W_CLOSE * close
+        + _POT_W_MOB * (mob / 10.0)
+    )
 
 
 def _max_column_height(grid: Grid) -> int:
@@ -96,6 +190,7 @@ class BlockBlastSimulator:
     def __init__(self, strategy_id: str = "normal"):
         self.strategy_id = strategy_id
         self._holes_cache: int | None = None
+        self._last_clears: int = 0
         self.reset()
 
     def reset(self) -> None:
@@ -110,6 +205,7 @@ class BlockBlastSimulator:
         self.steps = 0
         self.placements = 0
         self._holes_cache = None
+        self._last_clears = 0
         self._spawn_dock()
 
     def _spawn_dock(self) -> None:
@@ -159,12 +255,37 @@ class BlockBlastSimulator:
             return False
         return not self.grid.has_any_move(self.dock)
 
+    def check_feasibility(self) -> float:
+        """1.0 if ALL remaining dock blocks can be placed (at least one legal move each), else 0.0."""
+        for b in self.dock:
+            if b["placed"]:
+                continue
+            has_move = False
+            for gy in range(self.grid.size):
+                for gx in range(self.grid.size):
+                    if self.grid.can_place(b["shape"], gx, gy):
+                        has_move = True
+                        break
+                if has_move:
+                    break
+            if not has_move:
+                return 0.0
+        return 1.0
+
+    def get_supervision_signals(self) -> dict[str, float]:
+        """一次调用返回所有直接监督目标值（board_quality / feasibility）。"""
+        return {
+            "board_quality": board_potential(self.grid, self.dock) / _BOARD_POT_NORM,
+            "feasibility": self.check_feasibility(),
+        }
+
     def step(self, block_idx: int, gx: int, gy: int) -> float:
         b = self.dock[block_idx]
         if b["placed"] or not self.grid.can_place(b["shape"], gx, gy):
             return 0.0
 
         holes_before = self._get_holes()
+        pot_before = board_potential(self.grid, self.dock) if _POT_ENABLED else 0.0
         prev_score = self.score
         self.grid.place(b["shape"], b["color_idx"], gx, gy)
         self.placements += 1
@@ -172,11 +293,11 @@ class BlockBlastSimulator:
 
         result = self.grid.check_lines()
         gain = 0.0
-        clears = 0
+        self._last_clears = 0
         if result["count"] > 0:
-            clears = int(result["count"])
-            self.total_clears += clears
-            c = clears
+            self._last_clears = int(result["count"])
+            c = self._last_clears
+            self.total_clears += c
             s = self.scoring
             if c == 1:
                 gain = float(s["single_line"])
@@ -191,40 +312,16 @@ class BlockBlastSimulator:
             self._spawn_dock()
 
         self._holes_cache = None
-        holes_after = self._get_holes()
-        delta_holes = holes_after - holes_before
 
+        # v5: 精简奖励 = 得分增量 + 势函数塑形 + 胜利奖励
+        # 其余「每步放置质量」由直接监督头学习，不注入奖励
         r = gain
+
+        if _POT_ENABLED:
+            pot_after = board_potential(self.grid, self.dock)
+            r += _POT_COEF * (pot_after - pot_before)
+
         rs = RL_REWARD_SHAPING
-
-        pb = float(rs.get("placeBonus") or 0.0)
-        if pb:
-            r += pb
-
-        dc = float(rs.get("densePerClear") or 0.0)
-        if dc and clears > 0:
-            r += dc * clears
-
-        mcb = float(rs.get("multiClearBonus") or 0.0)
-        if mcb and clears >= 2:
-            r += mcb * (clears - 1)
-
-        svl = float(rs.get("survivalPerStep") or 0.0)
-        if svl:
-            r += svl
-
-        hp = float(rs.get("holePenaltyPerCell") or 0.0)
-        if hp and delta_holes > 0:
-            r += hp * delta_holes
-
-        grb = float(rs.get("gapReductionBonus") or 0.0)
-        if grb and delta_holes < 0:
-            r += grb * abs(delta_holes)
-
-        hp_h = float(rs.get("heightPenalty") or 0.0)
-        if hp_h:
-            r += hp_h * (_max_column_height(self.grid) / self.grid.size)
-
         wb = float(rs.get("winBonus") or 0.0)
         thr = getattr(self, "win_score_threshold", WIN_SCORE_THRESHOLD)
         if wb and self.score >= thr and prev_score < thr:

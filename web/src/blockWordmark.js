@@ -1,6 +1,6 @@
 /**
- * 「Open · Block」品牌字标：5×n 像素格拼字，无底板/无描边外框。
- * 大写 O、B：更实的环形/双拱；小写 o 略收；分隔符收窄以利紧凑排布。
+ * 「Open ★ Block」品牌字标：字母为 5×n 像素格；词间为高窄四芒星（SVG + 呼吸动画）；
+ * 大写 O 角上 🎮（两处 h1 同步挂载，风格统一、大小可异）。
  */
 
 /** @type {Record<string, string[]>} 每行用 0/1，高 5 行 */
@@ -16,21 +16,22 @@ const LETTERS = {
     B: ['1111110', '1100111', '1111110', '1100111', '1111110'],
     l: ['01000', '01000', '01000', '01000', '01110'],
     c: ['01110', '10001', '10000', '10001', '01110'],
-    k: ['10001', '10010', '11100', '10010', '10001'],
-    /* 3 列窄分隔，整体更紧凑 */
-    '·': ['010', '010', '111', '010', '010']
+    k: ['10001', '10010', '11100', '10010', '10001']
 };
 
 /**
  * @param {string[]} lines
  * @param {'cool' | 'warm' | 'mid'} side
- * @param {{ accent?: boolean }} [opts]
+ * @param {{ accent?: boolean; peekCorner?: 'tl' | 'tr' | 'bl' | 'br'; peekEmoji?: string }} [opts]
  */
 function letterEl(lines, side, opts = {}) {
     const h = lines.length;
     const w = Math.max(...lines.map((r) => r.length), 1);
     const wrap = document.createElement('div');
     wrap.className = 'wm-letter' + (opts.accent ? ' wm-letter--accent' : '');
+    if (opts.peekCorner) {
+        wrap.classList.add('wm-letter--peek-emoji');
+    }
     /* 大写 O/B 用更大网格轨道代替 transform:scale，避免与相邻字母布局重叠粘连 */
     const bump = opts.accent ? 1.24 : 1;
     wrap.style.setProperty('--wm-letter-bump', String(bump));
@@ -48,13 +49,17 @@ function letterEl(lines, side, opts = {}) {
             wrap.appendChild(cell);
         }
     }
+    if (opts.peekCorner) {
+        const peek = document.createElement('span');
+        peek.className = `wm-letter__peek wm-letter__peek--${opts.peekCorner}`;
+        peek.setAttribute('aria-hidden', 'true');
+        peek.textContent = opts.peekEmoji || '✨';
+        wrap.appendChild(peek);
+    }
     return wrap;
 }
 
 function lookupBitmap(char) {
-    if (char === '·' || char === '•') {
-        return LETTERS['·'];
-    }
     if (LETTERS[char]) {
         return LETTERS[char];
     }
@@ -83,9 +88,66 @@ function wordGroup(word, side) {
         }
         const accent =
             (side === 'cool' && char === 'O') || (side === 'warm' && char === 'B');
-        g.appendChild(letterEl(lookupBitmap(char), side, { accent }));
+        const peekCorner =
+            side === 'cool' && char === 'O' ? 'tr' : undefined;
+        const peekEmoji =
+            side === 'cool' && char === 'O' ? '🎮' : undefined;
+        g.appendChild(letterEl(lookupBitmap(char), side, { accent, peekCorner, peekEmoji }));
     }
     return g;
+}
+
+/** 词间分隔：高窄四芒星 + 中心辉光（viewBox 24×48），两处字标共用同一 DOM 工厂 */
+function createCrossStarEl() {
+    const wrap = document.createElement('span');
+    wrap.className = 'app-wordmark-pixel__crossstar';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'app-wordmark-pixel__crossstar-svg');
+    svg.setAttribute('viewBox', '0 0 24 48');
+    svg.setAttribute('focusable', 'false');
+    svg.setAttribute('aria-hidden', 'true');
+
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const grad = document.createElementNS('http://www.w3.org/2000/svg', 'radialGradient');
+    grad.setAttribute('id', 'starGlow');
+    for (const [off, color] of [['0%', '#fff8e1'], ['45%', '#facc15'], ['100%', 'rgba(250,204,21,0)']]) {
+        const s = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+        s.setAttribute('offset', off);
+        s.setAttribute('stop-color', color);
+        grad.appendChild(s);
+    }
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+
+    const glow = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    glow.setAttribute('cx', '12');
+    glow.setAttribute('cy', '24');
+    glow.setAttribute('rx', '8');
+    glow.setAttribute('ry', '16');
+    glow.setAttribute('fill', 'url(#starGlow)');
+    glow.setAttribute('opacity', '0.55');
+    svg.appendChild(glow);
+
+    const star = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    star.setAttribute('d',
+        'M12 0.5 L13.4 21 L23 24 L13.4 27 L12 47.5 L10.6 27 L1 24 L10.6 21 Z'
+    );
+    star.setAttribute('fill', '#fbbf24');
+    star.setAttribute('stroke', '#d97706');
+    star.setAttribute('stroke-width', '0.4');
+    star.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(star);
+
+    const core = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    core.setAttribute('cx', '12');
+    core.setAttribute('cy', '24');
+    core.setAttribute('r', '2.8');
+    core.setAttribute('fill', '#fff8e1');
+    core.setAttribute('opacity', '0.92');
+    svg.appendChild(core);
+
+    wrap.appendChild(svg);
+    return wrap;
 }
 
 /**
@@ -100,9 +162,8 @@ function mountInto(h1) {
     root.appendChild(wordGroup(a, 'cool'));
     const sepWrap = document.createElement('div');
     sepWrap.className = 'app-wordmark-pixel__sep';
-    const dot = letterEl(LETTERS['·'], 'mid');
-    dot.classList.add('wm-letter--sep');
-    sepWrap.appendChild(dot);
+    sepWrap.setAttribute('aria-hidden', 'true');
+    sepWrap.appendChild(createCrossStarEl());
     root.appendChild(sepWrap);
     root.appendChild(wordGroup(b, 'warm'));
     h1.appendChild(root);

@@ -254,6 +254,62 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
 # 动作特征提取
 # ---------------------------------------------------------------------------
 
+def _near_full_ratio(grid, shape: list[list[int]], gx: int, gy: int) -> float:
+    """放块后有多少格子落在填充率 ≥ 0.75 的行/列上（占 block cells 比例）。"""
+    n = grid.size
+    threshold = float(_AN.get("nearFullThreshold", 0.75)) * n
+    cells = grid.cells
+    count = 0
+    total = 0
+    for sy, row in enumerate(shape):
+        for sx, v in enumerate(row):
+            if not v:
+                continue
+            total += 1
+            py, px = gy + sy, gx + sx
+            row_fill = sum(1 for x2 in range(n) if cells[py][x2] is not None)
+            col_fill = sum(1 for y2 in range(n) if cells[y2][px] is not None)
+            if row_fill >= threshold or col_fill >= threshold:
+                count += 1
+    return count / max(total, 1)
+
+
+def _adjacent_occupied(grid, shape: list[list[int]], gx: int, gy: int) -> int:
+    """放块后各 cell 四邻中已被占据的数量合计。"""
+    n = grid.size
+    cells = grid.cells
+    adj = 0
+    block_set: set[tuple[int, int]] = set()
+    for sy, row in enumerate(shape):
+        for sx, v in enumerate(row):
+            if v:
+                block_set.add((gy + sy, gx + sx))
+    for (py, px) in block_set:
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            ny, nx = py + dy, px + dx
+            if 0 <= ny < n and 0 <= nx < n and (ny, nx) not in block_set and cells[ny][nx] is not None:
+                adj += 1
+    return adj
+
+
+def _covers_holes(grid, shape: list[list[int]], gx: int, gy: int) -> int:
+    """放块格子下方（同列）有空洞的数量。"""
+    n = grid.size
+    cells = grid.cells
+    count = 0
+    for sy, row in enumerate(shape):
+        for sx, v in enumerate(row):
+            if not v:
+                continue
+            px = gx + sx
+            py = gy + sy
+            for below in range(py + 1, n):
+                if cells[below][px] is None:
+                    count += 1
+                    break
+    return count
+
+
 def extract_action_features(
     state_feat: np.ndarray,
     block_idx: int,
@@ -262,8 +318,10 @@ def extract_action_features(
     shape: list[list[int]],
     would_clear: int,
     grid_size: int,
+    grid=None,
+    dock: list[dict] | None = None,
 ) -> np.ndarray:
-    """7 维轻量动作特征：位置 + 形状元信息 + 消行预判。不做 grid.clone()。"""
+    """12 维动作特征（v4）：原 7 + 5 棋盘交互特征。grid/dock 可选，传入时才计算后 5 维。"""
     cells = sum(1 for row in shape for c in row if c)
     h = len(shape)
     w = len(shape[0])
@@ -271,23 +329,32 @@ def extract_action_features(
     div_sh = float(_AN.get("shapeSpan", 5))
     div_cells = float(_AN.get("maxCells", 10))
     div_clr = float(_AN.get("maxClearsHint", 5))
-    action_part = np.array(
-        [
-            block_idx / div_b,
-            gx / grid_size,
-            gy / grid_size,
-            w / div_sh,
-            h / div_sh,
-            cells / div_cells,
-            would_clear / div_clr,
-        ],
-        dtype=np.float32,
-    )
+    div_adj = float(_AN.get("maxAdjacent", 20))
+    base = [
+        block_idx / div_b,
+        gx / grid_size,
+        gy / grid_size,
+        w / div_sh,
+        h / div_sh,
+        cells / div_cells,
+        would_clear / div_clr,
+    ]
+    if grid is not None:
+        nf = _near_full_ratio(grid, shape, gx, gy)
+        unplaced_after = sum(1 for b in (dock or []) if not b.get("placed")) - 1
+        blocks_remain = max(0, unplaced_after) / 3.0
+        adj = min(_adjacent_occupied(grid, shape, gx, gy) / div_adj, 1.0)
+        max_h_after = max(gy + h, 0) / grid_size
+        holes_risk = min(_covers_holes(grid, shape, gx, gy) / max(cells, 1), 1.0)
+        base.extend([nf, blocks_remain, adj, max_h_after, holes_risk])
+    else:
+        base.extend([0.0, 0.0, 0.0, 0.0, 0.0])
+    action_part = np.array(base, dtype=np.float32)
     return np.concatenate([state_feat, action_part], axis=0)
 
 
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
-    """轻量版：只用 count_clears_if_placed（无 grid.clone），采集速度提升 3-5×。"""
+    """v4: 传入 grid/dock 计算棋盘交互特征（无 grid.clone）。"""
     state = extract_state_features(sim.grid, sim.dock)
     rows = []
     for a in legal:
@@ -295,6 +362,7 @@ def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         wc = sim.count_clears_if_placed(bi, a["gx"], a["gy"])
         phi = extract_action_features(
             state, bi, a["gx"], a["gy"], sim.dock[bi]["shape"], wc, sim.grid.size,
+            grid=sim.grid, dock=sim.dock,
         )
         rows.append(phi)
     if rows:

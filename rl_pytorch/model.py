@@ -1,15 +1,16 @@
 """
-策略 / 价值网络（PyTorch）。
-φ、ψ 维度由 shared/game_rules.json featureEncoding 决定。
+策略 / 价值网络（PyTorch）- v5。
 
-state=162 (23 scalars + 64 grid + 75 dock), action=7, phi=169。
+v5 核心改动（不收敛根因修复）：
+  - DockBoardAttention: 每个 dock 块对棋盘 CNN 特征做交叉注意力，替代 flat MLP；
+    让网络理解「哪个块能补哪行」的组合信息
+  - 三个直接监督头（不依赖稀疏 MC returns，每步都有即时梯度）：
+    board_quality_head: 回归 board_potential 棋盘质量分
+    feasibility_head:   二分类 "剩余块是否全部可放"
+    survival_head:      回归 "还能活多少步 / 30"
+  - clear_pred_head（v4 保留）：4 类消行预测
 
-提供五种架构（--arch）：
-  conv-shared   — 默认；残差 CNN 棋盘 + dock MLP + 64 宽共享主干 + 3 层价值头，~35K 参数
-  light-shared  — 2 层 64 宽共享主干 + 动作投射，~14K 参数
-  light         — 2 层 64 宽双塔，~24K 参数
-  shared        — 多层残差共享主干（~1.2M 参数）
-  split         — 多层残差双塔
+state=162 (23 scalars + 64 grid + 75 dock), action=12, phi=174。
 """
 
 from __future__ import annotations
@@ -25,6 +26,45 @@ _GRID_FLAT = _GRID_SIDE * _GRID_SIDE
 _DOCK_MASK_SIDE = 5
 _DOCK_SLOTS = 3
 _DOCK_FLAT = _DOCK_SLOTS * _DOCK_MASK_SIDE * _DOCK_MASK_SIDE
+
+
+# ---------------------------------------------------------------------------
+# Dock-Board Cross-Attention — 让每个 dock 块"看"棋盘空间特征
+# ---------------------------------------------------------------------------
+
+class DockBoardAttention(nn.Module):
+    """每个 dock 块（5×5 mask）对 CNN 棋盘空间特征做 cross-attention。
+
+    Q = dock_mask(25) → Linear → [head_dim]
+    K, V = grid_conv(C, H, W) → Conv1×1 → [head_dim, H*W]
+    Output = softmax(Q·K / √d) · V → [3, head_dim] → flatten → [3*head_dim]
+
+    这让网络回答「这个 L 形块放在哪片区域最合适？」——替代 flat MLP(75→32) 的盲压缩。
+    """
+
+    def __init__(self, dock_cell_dim: int = 25, grid_channels: int = 32, head_dim: int = 16):
+        super().__init__()
+        self.head_dim = head_dim
+        self.q_proj = nn.Linear(dock_cell_dim, head_dim)
+        self.k_proj = nn.Conv2d(grid_channels, head_dim, 1)
+        self.v_proj = nn.Conv2d(grid_channels, head_dim, 1)
+        self.out_proj = nn.Linear(head_dim, head_dim)
+
+    def forward(self, dock_masks: torch.Tensor, grid_feat: torch.Tensor) -> torch.Tensor:
+        """
+        dock_masks: [B, 3, 25]  (3 dock blocks, each 5×5 flattened)
+        grid_feat:  [B, C, 8, 8] (CNN features before global average pooling)
+        Returns:    [B, 3 * head_dim]
+        """
+        B = dock_masks.shape[0]
+        q = self.q_proj(dock_masks)  # [B, 3, hd]
+        k = self.k_proj(grid_feat).reshape(B, self.head_dim, -1)  # [B, hd, 64]
+        v = self.v_proj(grid_feat).reshape(B, self.head_dim, -1)  # [B, hd, 64]
+        attn = torch.bmm(q, k) / (self.head_dim ** 0.5)  # [B, 3, 64]
+        attn = nn.functional.softmax(attn, dim=-1)
+        ctx = torch.bmm(attn, v.transpose(1, 2))  # [B, 3, hd]
+        ctx = self.out_proj(ctx)  # [B, 3, hd]
+        return ctx.reshape(B, -1)  # [B, 3*hd]
 
 
 # ---------------------------------------------------------------------------
@@ -46,15 +86,18 @@ class _ResConvBlock(nn.Module):
 
 
 class ConvSharedPolicyValueNet(nn.Module):
-    """
-    CNN 棋盘编码器 (残差) + 共享 MLP 主干 + 动作融合策略头 + 3 层价值头。
+    """v5: CNN 棋盘编码 + DockBoardAttention 交叉注意力 + 直接监督三头。
 
-    从 STATE_FEATURE_DIM (162) 状态向量拆出三段：
+    从 STATE_FEATURE_DIM (162) 拆三段：
       scalars[:23]     → 直连
-      grid[23:87]      → reshape(1,8,8) → Conv→ResConv×2 → 全局平均池化 → channels 维
-      dock[87:162]     → MLP(75→32) 独立编码
+      grid[23:87]      → reshape(1,8,8) → Conv→ResConv×2 → 两路输出：
+                          (a) 全局池化 → conv_channels 维
+                          (b) 空间特征 [C,8,8] 供 dock cross-attention
+      dock[87:162]     → reshape(3,5,5) → DockBoardAttention(grid_spatial) → 3×head_dim 维
 
-    三段拼合走宽 MLP 得到 h(s)；策略为 h(s)⊕ψ(a)→logit，价值为 h(s)→3 层 MLP→V。
+    三段拼合走 trunk → h(s)；策略 = h(s)⊕ψ(a)→logit；价值 = h(s)→MLP→V。
+    直接监督三头（board_quality / feasibility / survival）从 h(s) 出发，
+    每步都有即时梯度，不依赖稀疏 MC returns。
     """
 
     def __init__(
@@ -62,6 +105,7 @@ class ConvSharedPolicyValueNet(nn.Module):
         width: int = 128,
         conv_channels: int = 32,
         action_embed_dim: int = 48,
+        dock_attn_head_dim: int = 16,
     ):
         super().__init__()
         self.width = width
@@ -74,15 +118,15 @@ class ConvSharedPolicyValueNet(nn.Module):
         )
         self.grid_res1 = _ResConvBlock(conv_channels)
         self.grid_res2 = _ResConvBlock(conv_channels)
-        grid_out_dim = conv_channels
 
-        dock_embed_dim = 32
-        self.dock_proj = nn.Sequential(
-            nn.Linear(_DOCK_FLAT, dock_embed_dim),
-            nn.GELU(),
+        self.dock_board_attn = DockBoardAttention(
+            dock_cell_dim=_DOCK_MASK_SIDE * _DOCK_MASK_SIDE,
+            grid_channels=conv_channels,
+            head_dim=dock_attn_head_dim,
         )
+        dock_ctx_dim = _DOCK_SLOTS * dock_attn_head_dim  # 3 × 16 = 48
 
-        trunk_in = _SCALAR_DIM + grid_out_dim + dock_embed_dim
+        trunk_in = _SCALAR_DIM + conv_channels + dock_ctx_dim  # 23 + 32 + 48 = 103
         self.trunk_norm = nn.LayerNorm(trunk_in)
         self.trunk_fc1 = nn.Linear(trunk_in, width)
         self.trunk_fc2 = nn.Linear(width, width)
@@ -97,8 +141,6 @@ class ConvSharedPolicyValueNet(nn.Module):
         self.value_head = nn.Sequential(
             nn.Linear(width, width),
             nn.GELU(),
-            nn.Linear(width, width),
-            nn.GELU(),
             nn.Linear(width, width // 2),
             nn.GELU(),
             nn.Linear(width // 2, 1),
@@ -106,9 +148,19 @@ class ConvSharedPolicyValueNet(nn.Module):
         fuse_in = width + action_embed_dim
         hid = max(width // 2, 32)
         self.hole_aux_head = nn.Sequential(
-            nn.Linear(fuse_in, hid),
-            nn.GELU(),
-            nn.Linear(hid, 1),
+            nn.Linear(fuse_in, hid), nn.GELU(), nn.Linear(hid, 1),
+        )
+        self.clear_pred_head = nn.Sequential(
+            nn.Linear(fuse_in, hid), nn.GELU(), nn.Linear(hid, 4),
+        )
+        self.board_quality_head = nn.Sequential(
+            nn.Linear(width, hid), nn.GELU(), nn.Linear(hid, 1),
+        )
+        self.feasibility_head = nn.Sequential(
+            nn.Linear(width, hid), nn.GELU(), nn.Linear(hid, 1),
+        )
+        self.survival_head = nn.Sequential(
+            nn.Linear(width, hid), nn.GELU(), nn.Linear(hid, 1),
         )
 
     def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
@@ -119,12 +171,13 @@ class ConvSharedPolicyValueNet(nn.Module):
 
         g = self.grid_conv_stem(grid)
         g = self.grid_res1(g)
-        g = self.grid_res2(g)
-        g = g.mean(dim=(-2, -1))
+        g = self.grid_res2(g)          # [B, C, 8, 8]
+        g_pooled = g.mean(dim=(-2, -1))  # [B, C]
 
-        d = self.dock_proj(dock_raw)
+        dock_3 = dock_raw.reshape(-1, _DOCK_SLOTS, _DOCK_MASK_SIDE * _DOCK_MASK_SIDE)
+        dock_ctx = self.dock_board_attn(dock_3, g)  # [B, 48]
 
-        x = torch.cat([scalars, g, d], dim=-1)
+        x = torch.cat([scalars, g_pooled, dock_ctx], dim=-1)
         x = self.trunk_norm(x)
         x = nn.functional.gelu(self.trunk_fc1(x))
         x = x + nn.functional.gelu(self.trunk_fc2(x))
@@ -171,12 +224,60 @@ class ConvSharedPolicyValueNet(nn.Module):
         x = torch.cat([h, ae], dim=-1)
         return self.hole_aux_head(x).squeeze(-1)
 
+    def forward_clear_pred(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        """预测落子后消行数 [B, 4] logits（0/1/2/3+ 四类）。"""
+        h = self._encode_state(state_feat)
+        ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
+        x = torch.cat([h, ae], dim=-1)
+        return self.clear_pred_head(x)
+
+    def forward_board_quality(self, state_feat: torch.Tensor) -> torch.Tensor:
+        """回归棋盘质量分（归一化后的 board_potential）。"""
+        h = self._encode_state(state_feat)
+        return self.board_quality_head(h).squeeze(-1)
+
+    def forward_feasibility(self, state_feat: torch.Tensor) -> torch.Tensor:
+        """logits: 剩余 dock 块是否全部可放。"""
+        h = self._encode_state(state_feat)
+        return self.feasibility_head(h).squeeze(-1)
+
+    def forward_survival(self, state_feat: torch.Tensor) -> torch.Tensor:
+        """回归 steps_remaining / 30（归一化生存步数）。"""
+        h = self._encode_state(state_feat)
+        return self.survival_head(h).squeeze(-1)
+
+    def forward_aux_all(self, state_feats: torch.Tensor) -> dict[str, torch.Tensor]:
+        """一次编码，并行输出三个辅助头的预测值。"""
+        h = self._encode_state(state_feats)
+        return {
+            "board_quality": self.board_quality_head(h).squeeze(-1),
+            "feasibility": self.feasibility_head(h).squeeze(-1),
+            "survival": self.survival_head(h).squeeze(-1),
+        }
+
 
 # ---------------------------------------------------------------------------
 # Light models — 匹配游戏策略空间的低有效维度（与线性模型同数量级表达力）
 # ---------------------------------------------------------------------------
 
-class LightPolicyValueNet(nn.Module):
+class _AuxStubsMixin:
+    """为没有三头直接监督的轻量架构提供返回零张量的 stub。"""
+
+    def forward_board_quality(self, state_feat: torch.Tensor) -> torch.Tensor:
+        return state_feat.new_zeros(state_feat.shape[0])
+
+    def forward_feasibility(self, state_feat: torch.Tensor) -> torch.Tensor:
+        return state_feat.new_zeros(state_feat.shape[0])
+
+    def forward_survival(self, state_feat: torch.Tensor) -> torch.Tensor:
+        return state_feat.new_zeros(state_feat.shape[0])
+
+    def forward_aux_all(self, state_feats: torch.Tensor) -> dict[str, torch.Tensor]:
+        z = state_feats.new_zeros(state_feats.shape[0])
+        return {"board_quality": z, "feasibility": z, "survival": z}
+
+
+class LightPolicyValueNet(_AuxStubsMixin, nn.Module):
     """双塔 2 层 MLP，~28K 参数。"""
 
     def __init__(self, width: int = 64):
@@ -192,6 +293,11 @@ class LightPolicyValueNet(nn.Module):
             nn.Linear(PHI_DIM, width),
             nn.GELU(),
             nn.Linear(width, 1),
+        )
+        self.clear_pred_head = nn.Sequential(
+            nn.Linear(PHI_DIM, width),
+            nn.GELU(),
+            nn.Linear(width, 4),
         )
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
@@ -228,8 +334,12 @@ class LightPolicyValueNet(nn.Module):
         phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
         return self.hole_aux_head(phi).squeeze(-1)
 
+    def forward_clear_pred(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
+        return self.clear_pred_head(phi)
 
-class LightSharedPolicyValueNet(nn.Module):
+
+class LightSharedPolicyValueNet(_AuxStubsMixin, nn.Module):
     """共享主干 2 层 MLP + 动作投射 + 融合头，~20K 参数；状态只编码一次。"""
 
     def __init__(self, width: int = 64, action_embed_dim: int = 32):
@@ -251,6 +361,11 @@ class LightSharedPolicyValueNet(nn.Module):
             nn.Linear(fuse_in, hid),
             nn.GELU(),
             nn.Linear(hid, 1),
+        )
+        self.clear_pred_head = nn.Sequential(
+            nn.Linear(fuse_in, hid),
+            nn.GELU(),
+            nn.Linear(hid, 4),
         )
 
     def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
@@ -300,6 +415,12 @@ class LightSharedPolicyValueNet(nn.Module):
         x = torch.cat([h, ae], dim=-1)
         return self.hole_aux_head(x).squeeze(-1)
 
+    def forward_clear_pred(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
+        x = torch.cat([h, ae], dim=-1)
+        return self.clear_pred_head(x)
+
 
 # ---------------------------------------------------------------------------
 # Heavy models — 残差 MLP；用于超大规模训练或从旧 checkpoint 续训
@@ -323,7 +444,7 @@ class ResidualMLPBlock(nn.Module):
         return x + h
 
 
-class PolicyValueNet(nn.Module):
+class PolicyValueNet(_AuxStubsMixin, nn.Module):
     def __init__(
         self,
         width: int = 384,
@@ -348,6 +469,11 @@ class PolicyValueNet(nn.Module):
             nn.GELU(),
             nn.Linear(width, 1),
         )
+        self.clear_pred_head = nn.Sequential(
+            nn.Linear(PHI_DIM, width),
+            nn.GELU(),
+            nn.Linear(width, 4),
+        )
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
         x = self.policy_stem(phi)
@@ -367,8 +493,12 @@ class PolicyValueNet(nn.Module):
         phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
         return self.hole_aux_head(phi).squeeze(-1)
 
+    def forward_clear_pred(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
+        return self.clear_pred_head(phi)
 
-class SharedPolicyValueNet(nn.Module):
+
+class SharedPolicyValueNet(_AuxStubsMixin, nn.Module):
     """AlphaZero 风格：状态只过一套残差塔，策略头对 (h(s), ψ(a)) 打分。"""
 
     def __init__(
@@ -399,6 +529,11 @@ class SharedPolicyValueNet(nn.Module):
             nn.GELU(),
             nn.Linear(hid, 1),
         )
+        self.clear_pred_head = nn.Sequential(
+            nn.Linear(fusion_in, hid),
+            nn.GELU(),
+            nn.Linear(hid, 4),
+        )
 
     def _encode_state(self, state_feat: torch.Tensor) -> torch.Tensor:
         x = self.shared_stem(state_feat)
@@ -428,3 +563,9 @@ class SharedPolicyValueNet(nn.Module):
         ae = self.action_proj(chosen_action_feat)
         x = torch.cat([h, ae], dim=-1)
         return self.hole_aux_head(x).squeeze(-1)
+
+    def forward_clear_pred(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        ae = self.action_proj(chosen_action_feat)
+        x = torch.cat([h, ae], dim=-1)
+        return self.clear_pred_head(x)

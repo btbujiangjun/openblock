@@ -1,5 +1,5 @@
 /**
- * 与主游戏一致的无头对局，用于自博弈与策略训练
+ * 与主游戏一致的无头对局，用于自博弈与策略训练（v5：含直接监督信号）
  */
 import { Grid } from '../grid.js';
 import { getStrategy } from '../config.js';
@@ -7,7 +7,106 @@ import { getAllShapes } from '../shapes.js';
 import { RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
 import { generateDockShapes, generateBlocksForGrid } from './blockSpawn.js';
 
+const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
+const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;
+const _POT_W_TRANS = Number(_POT_CFG.transitionWeight) || -0.08;
+const _POT_W_WELL = Number(_POT_CFG.wellWeight) || -0.15;
+const _POT_W_CLOSE = Number(_POT_CFG.closeToFullWeight) || 0.35;
+const _POT_W_MOB = Number(_POT_CFG.mobilityWeight) || 0.12;
+const _POT_COEF = Number(_POT_CFG.coef) || 0.5;
+const _POT_ENABLED = Boolean(_POT_CFG.enabled);
+const _BOARD_POT_NORM = 30.0;
+
 export { generateDockShapes, generateBlocksForGrid };
+
+function _countHoles(grid) {
+    const n = grid.size;
+    let holes = 0;
+    for (let x = 0; x < n; x++) {
+        let found = false;
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) found = true;
+            else if (found) holes++;
+        }
+    }
+    return holes;
+}
+
+function _countTransitions(grid) {
+    const n = grid.size;
+    let t = 0;
+    for (let y = 0; y < n; y++) {
+        let prev = true;
+        for (let x = 0; x < n; x++) {
+            const cur = grid.cells[y][x] !== null;
+            if (cur !== prev) t++;
+            prev = cur;
+        }
+        if (!prev) t++;
+    }
+    for (let x = 0; x < n; x++) {
+        let prev = true;
+        for (let y = 0; y < n; y++) {
+            const cur = grid.cells[y][x] !== null;
+            if (cur !== prev) t++;
+            prev = cur;
+        }
+        if (!prev) t++;
+    }
+    return t;
+}
+
+function _wellDepthSum(grid) {
+    const n = grid.size;
+    let total = 0;
+    for (let x = 0; x < n; x++) {
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) continue;
+            const left = x === 0 || grid.cells[y][x - 1] !== null;
+            const right = x === n - 1 || grid.cells[y][x + 1] !== null;
+            if (left && right) total++;
+        }
+    }
+    return total;
+}
+
+function _closeToFullCount(grid) {
+    const n = grid.size;
+    let count = 0;
+    for (let y = 0; y < n; y++) {
+        let f = 0;
+        for (let x = 0; x < n; x++) if (grid.cells[y][x] !== null) f++;
+        if (f >= n - 2) count++;
+    }
+    for (let x = 0; x < n; x++) {
+        let f = 0;
+        for (let y = 0; y < n; y++) if (grid.cells[y][x] !== null) f++;
+        if (f >= n - 2) count++;
+    }
+    return count;
+}
+
+function _dockMobility(grid, dock) {
+    const n = grid.size;
+    let total = 0;
+    for (const b of dock) {
+        if (b.placed) continue;
+        for (let gy = 0; gy < n; gy++)
+            for (let gx = 0; gx < n; gx++)
+                if (grid.canPlace(b.shape, gx, gy)) total++;
+    }
+    return total;
+}
+
+export function boardPotential(grid, dock) {
+    return (
+        _POT_W_HOLE * _countHoles(grid)
+        + _POT_W_TRANS * _countTransitions(grid)
+        + _POT_W_WELL * _wellDepthSum(grid)
+        + _POT_W_CLOSE * _closeToFullCount(grid)
+        + _POT_W_MOB * (_dockMobility(grid, dock) / 10)
+    );
+}
 
 export class BlockBlastSimulator {
     /**
@@ -87,8 +186,28 @@ export class BlockBlastSimulator {
         return !this.grid.hasAnyMove(remaining);
     }
 
+    checkFeasibility() {
+        const n = this.grid.size;
+        for (const b of this.dock) {
+            if (b.placed) continue;
+            let ok = false;
+            for (let gy = 0; gy < n && !ok; gy++)
+                for (let gx = 0; gx < n && !ok; gx++)
+                    if (this.grid.canPlace(b.shape, gx, gy)) ok = true;
+            if (!ok) return 0;
+        }
+        return 1;
+    }
+
+    getSupervisionSignals() {
+        return {
+            board_quality: boardPotential(this.grid, this.dock) / _BOARD_POT_NORM,
+            feasibility: this.checkFeasibility(),
+        };
+    }
+
     /**
-     * @returns {number} 本步获得的分数增量
+     * @returns {number} 本步获得的即时奖励
      */
     step(blockIdx, gx, gy) {
         const b = this.dock[blockIdx];
@@ -96,6 +215,7 @@ export class BlockBlastSimulator {
             return 0;
         }
 
+        const potBefore = _POT_ENABLED ? boardPotential(this.grid, this.dock) : 0;
         const prevScore = this.score;
         this.grid.place(b.shape, b.colorIdx, gx, gy);
         this.placements++;
@@ -116,24 +236,18 @@ export class BlockBlastSimulator {
             }
             this.score += gain;
         }
+        this._lastClears = clears;
 
         b.placed = true;
-
         if (this.dock.every((x) => x.placed)) {
             this._spawnDock();
         }
 
-        const rs = RL_REWARD_SHAPING;
         let r = gain;
-        const pb = Number(rs.placeBonus);
-        if (Number.isFinite(pb) && pb !== 0) {
-            r += pb;
+        if (_POT_ENABLED) {
+            r += _POT_COEF * (boardPotential(this.grid, this.dock) - potBefore);
         }
-        const dc = Number(rs.densePerClear);
-        if (Number.isFinite(dc) && dc !== 0 && clears > 0) {
-            r += dc * clears;
-        }
-        const wb = Number(rs.winBonus);
+        const wb = Number(RL_REWARD_SHAPING?.winBonus);
         if (Number.isFinite(wb) && wb !== 0 && this.score >= WIN_SCORE_THRESHOLD && prevScore < WIN_SCORE_THRESHOLD) {
             r += wb;
         }

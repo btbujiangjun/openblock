@@ -1,38 +1,18 @@
 """
-自博弈 + PPO / REINFORCE 策略梯度（价值基线），PyTorch；支持 **MPS**（Apple GPU）/ CUDA / CPU。
+自博弈 + PPO / REINFORCE 策略梯度，PyTorch — v5 直接监督重构。
 
-v3 优化：密集正奖励（placeBonus+survival）防止纯负信号、课程门槛 80→220/80k 局、
-高熵维持（coef=0.025 衰减至 0.008/60k）、temp_floor=0.35、
-中等模型（width=128, conv_channels=32, 4 层 value_head）、大 batch（128 局）。
+v5 核心改动（修复不收敛根因）：
+  - 纯 outcome 价值目标：V 学习预测 final_score/threshold（低方差、无信用分配问题）
+  - 三个直接监督辅助损失（每步即时梯度，不依赖稀疏 MC returns）：
+    board_quality_loss: MSE，回归 board_potential（棋盘结构质量）
+    feasibility_loss:   BCE，预测"剩余 dock 块是否全部可放"
+    survival_loss:      MSE，回归 steps_to_end / 30（生存预期）
+  - 精简奖励：仅保留得分增量 + 势函数塑形 + 胜利奖励；
+    placeBonus / holePenalty / heightPenalty 等噪声项已移除
+  - DockBoardAttention（conv-shared 架构）：dock 块对棋盘 CNN 特征做交叉注意力
+  - 保留 v4 的 clear_pred / hole_aux / PPO / LR warmup / value clip
 
-架构选择（--arch）：
-  conv-shared   默认；残差 CNN 棋盘 + dock MLP + 64 宽共享主干 + 3 层价值头，~35K 参数
-  light-shared  2 层 64 宽共享主干 + 动作投射，~20K 参数
-  light         ~28K 参数双塔
-  shared        残差 MLP 共享主干（~1.2M 参数）
-  split         残差 MLP 双塔
-
-训练算法（--ppo-epochs）：
-  --ppo-epochs 1   → 单步 REINFORCE（向后兼容旧行为）
-  --ppo-epochs 4   → PPO（默认）：同一批数据多轮梯度更新，样本效率提升 3-5 倍
-
-GPU 加速设计：
-  - 采集阶段 no_grad + 存 numpy，不构建计算图
-  - 更新阶段 forward_batched 一次性处理全部 step 的 state/action（共享编码一次算完）
-  - log_prob / entropy 向量化 padded log_softmax，零 Python 循环
-  - GAE 纯 CPU numpy，避免逐步 MPS→CPU 同步
-  - --n-workers 多进程并行采集（CPU 推理），GPU 专做批量更新
-  - **CUDA 多卡**：环境变量 ``RL_CUDA_DEVICE_IDS=all`` 或 ``0,1``；价值头用 ``torch.nn.parallel.data_parallel``
-    （``RL_CUDA_DP_VALUE=1`` 默认开启；设为 0 关闭）。主卡由 ``--device cuda`` / ``cuda:0`` 决定。
-
-用法:
-  python -m rl_pytorch.train --episodes 50000 --device auto              # 默认 conv-shared + PPO
-  python -m rl_pytorch.train --arch conv-shared --ppo-epochs 4           # CNN + PPO（推荐）
-  python -m rl_pytorch.train --arch light-shared --ppo-epochs 1          # 旧行为：轻量 + REINFORCE
-  CUDA_VISIBLE_DEVICES=0,1 python -m rl_pytorch.train --device cuda --batch-episodes 16
-  python -m rl_pytorch.train --n-workers 4 --batch-episodes 16
-
---device：``auto`` | ``cpu`` | ``mps`` | ``cuda`` | ``cuda:N``。详见 ``rl_pytorch/device.py``。
+--device：``auto`` | ``cpu`` | ``mps`` | ``cuda`` | ``cuda:N``
 """
 
 from __future__ import annotations
@@ -70,7 +50,7 @@ from .model import (
     PolicyValueNet,
     SharedPolicyValueNet,
 )
-from .simulator import BlockBlastSimulator
+from .simulator import BlockBlastSimulator, board_potential, _BOARD_POT_NORM, _SURVIVAL_NORM
 
 # ---------------------------------------------------------------------------
 # 多进程 worker（CPU 推理采集，GPU 专做更新）
@@ -200,6 +180,46 @@ def build_policy_net(
         value_depth=value_depth,
         mlp_ratio=mlp_ratio,
     ).to(device)
+
+
+def _clear_pred_coef() -> float:
+    if (raw := os.environ.get("RL_CLEAR_PRED_COEF", "").strip()) != "":
+        return float(raw)
+    return float(RL_REWARD_SHAPING.get("clearPredLossCoef") or 0.15)
+
+
+def _outcome_value_mix() -> float:
+    """v5 默认 1.0（纯 outcome 价值目标）。"""
+    ocfg = RL_REWARD_SHAPING.get("outcomeValueMix") or {}
+    if (raw := os.environ.get("RL_OUTCOME_VALUE_MIX", "").strip()) != "":
+        return float(raw)
+    if not ocfg.get("enabled", False):
+        return 1.0
+    return float(ocfg.get("mix", 1.0))
+
+
+def _board_quality_coef() -> float:
+    if (raw := os.environ.get("RL_BQ_COEF", "").strip()) != "":
+        return float(raw)
+    return float(RL_REWARD_SHAPING.get("boardQualityLossCoef") or 0.5)
+
+
+def _feasibility_coef() -> float:
+    if (raw := os.environ.get("RL_FEAS_COEF", "").strip()) != "":
+        return float(raw)
+    return float(RL_REWARD_SHAPING.get("feasibilityLossCoef") or 0.3)
+
+
+def _survival_coef() -> float:
+    if (raw := os.environ.get("RL_SURV_COEF", "").strip()) != "":
+        return float(raw)
+    return float(RL_REWARD_SHAPING.get("survivalLossCoef") or 0.2)
+
+
+def _lr_warmup(step: int, warmup_steps: int, base_lr: float) -> float:
+    if warmup_steps <= 0 or step >= warmup_steps:
+        return base_lr
+    return base_lr * (step + 1) / warmup_steps
 
 
 def _hole_aux_coef_and_denom() -> tuple[float, float]:
@@ -345,7 +365,9 @@ def collect_episode(
         chosen = int(idx.item())
         a = legal[chosen]
         r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+        clears_step = min(getattr(sim, "_last_clears", 0), 3)
 
+        sup = sim.get_supervision_signals()
         trajectory.append({
             "state": state_np.copy(),
             "action_feats": phi_np[:, STATE_FEATURE_DIM:].copy(),
@@ -354,6 +376,9 @@ def collect_episode(
             "reward": r,
             "old_log_prob": float(clean_lp[chosen].item()),
             "holes_after": int(sim.count_holes()),
+            "clears": clears_step,
+            "board_quality": sup["board_quality"],
+            "feasibility": sup["feasibility"],
         })
         step_idx += 1
 
@@ -361,6 +386,10 @@ def collect_episode(
     sp = float(RL_REWARD_SHAPING.get("stuckPenalty") or 0.0)
     if trajectory and not won and sp and (sim.is_terminal() or not sim.get_legal_actions()):
         trajectory[-1]["reward"] += sp
+
+    total = len(trajectory)
+    for i in range(total):
+        trajectory[i]["steps_to_end"] = total - i - 1
 
     return {
         "trajectory": trajectory,
@@ -444,10 +473,7 @@ def _reevaluate_and_update(
     ppo_epochs: int = 1,
     ppo_clip: float = 0.2,
 ) -> dict | None:
-    """GPU 批量再评估 + PPO/REINFORCE 更新。
-
-    ppo_epochs=1 → 原始 REINFORCE；ppo_epochs>1 → PPO clipped surrogate。
-    """
+    """v5: outcome 价值目标 + 直接监督三头 + GAE advantage + PPO。"""
     valid = [ep for ep in batch if ep["trajectory"]]
     if not valid:
         return None
@@ -459,11 +485,19 @@ def _reevaluate_and_update(
     all_rewards: list[float] = []
     all_old_lp: list[float] = []
     all_holes_after: list[float] = []
+    all_clears: list[int] = []
+    all_board_quality: list[float] = []
+    all_feasibility: list[float] = []
+    all_steps_to_end: list[float] = []
     ep_lengths: list[int] = []
+    ep_scores: list[float] = []
+    ep_thresholds: list[float] = []
 
     for ep in valid:
         traj = ep["trajectory"]
         ep_lengths.append(len(traj))
+        ep_scores.append(float(ep.get("score", 0)))
+        ep_thresholds.append(float(ep.get("win_threshold", WIN_SCORE_THRESHOLD)))
         for step in traj:
             all_states.append(step["state"])
             all_action_feats.append(step["action_feats"])
@@ -473,6 +507,10 @@ def _reevaluate_and_update(
             all_old_lp.append(step.get("old_log_prob", 0.0))
             if "holes_after" in step:
                 all_holes_after.append(float(step["holes_after"]))
+            all_clears.append(int(step.get("clears", 0)))
+            all_board_quality.append(float(step.get("board_quality", 0.0)))
+            all_feasibility.append(float(step.get("feasibility", 1.0)))
+            all_steps_to_end.append(float(step.get("steps_to_end", 0)))
 
     total_steps = len(all_states)
     if total_steps == 0:
@@ -487,21 +525,50 @@ def _reevaluate_and_update(
     old_lp_t = tensor_to_device(torch.tensor(all_old_lp, dtype=torch.float32), device)
 
     hole_coef, hole_denom = _hole_aux_coef_and_denom()
+    clear_pred_coef = _clear_pred_coef()
+    outcome_mix = _outcome_value_mix()
+    bq_coef = _board_quality_coef()
+    feas_coef = _feasibility_coef()
+    surv_coef = _survival_coef()
+
+    step_starts = torch.zeros(total_steps + 1, dtype=torch.long, device=device)
+    step_starts[1:] = torch.cumsum(n_actions_t, dim=0)
+    chosen_rows = step_starts[:-1] + chosen_t.squeeze(1)
+    chosen_action_feats = action_feats_t[chosen_rows]
+
     use_hole_aux = (
         hole_coef > 1e-12
         and callable(getattr(net, "forward_hole_aux", None))
         and len(all_holes_after) == total_steps
     )
     holes_target: torch.Tensor | None = None
-    chosen_action_feats: torch.Tensor | None = None
     if use_hole_aux:
-        step_starts = torch.zeros(total_steps + 1, dtype=torch.long, device=device)
-        step_starts[1:] = torch.cumsum(n_actions_t, dim=0)
-        chosen_rows = step_starts[:-1] + chosen_t.squeeze(1)
-        chosen_action_feats = action_feats_t[chosen_rows]
         holes_target = (
             torch.tensor(all_holes_after, dtype=torch.float32, device=device) / hole_denom
         ).clamp(0.0, 1.0)
+
+    use_clear_pred = (
+        clear_pred_coef > 1e-12
+        and callable(getattr(net, "forward_clear_pred", None))
+        and len(all_clears) == total_steps
+    )
+    clears_target: torch.Tensor | None = None
+    if use_clear_pred:
+        clears_target = torch.tensor(
+            [min(c, 3) for c in all_clears], dtype=torch.long, device=device
+        )
+
+    # --- 直接监督目标 ---
+    has_aux_heads = callable(getattr(net, "forward_aux_all", None))
+    bq_target_t = tensor_to_device(
+        torch.tensor(all_board_quality, dtype=torch.float32), device
+    )
+    feas_target_t = tensor_to_device(
+        torch.tensor(all_feasibility, dtype=torch.float32), device
+    )
+    surv_target_t = tensor_to_device(
+        torch.tensor([s / _SURVIVAL_NORM for s in all_steps_to_end], dtype=torch.float32), device
+    ).clamp(0.0, 1.0)
 
     dp_ids = resolve_cuda_device_ids_for_data_parallel()
     use_dp_value = (
@@ -515,21 +582,22 @@ def _reevaluate_and_update(
         from torch.nn.parallel import data_parallel as dp_fn
         values_dp = dp_fn(_ValueForward(net), states_t, device_ids=dp_ids, output_device=device)
 
-    # --- 首次前向：用于 GAE 计算（advantage 在所有 PPO epoch 共用）---
     lp_2d_init, values_init, mask, _col = _forward_and_log_probs(
         net, states_t, action_feats_t, n_actions_t, all_n_actions, total_steps, device, values_dp,
     )
 
-    # --- GAE（纯 CPU numpy）---
+    # --- 价值目标：outcome-based（纯终局得分） + GAE advantage ---
     vals_np = values_init.detach().cpu().numpy()
     adv_np = np.empty(total_steps, dtype=np.float32)
     rets_np = np.empty(total_steps, dtype=np.float32)
     v_off = 0
     r_off = 0
-    for ep_len in ep_lengths:
+    for ep_i, ep_len in enumerate(ep_lengths):
         v = vals_np[v_off : v_off + ep_len]
         r = np.array([all_rewards[r_off + j] * return_scale for j in range(ep_len)], dtype=np.float32)
         t_len = ep_len
+
+        # GAE advantages（用于策略梯度）
         if gae_lambda > 1e-8:
             next_v = np.zeros(t_len, dtype=np.float32)
             if t_len > 1:
@@ -546,6 +614,13 @@ def _reevaluate_and_update(
                 g = float(r[i]) + gamma * g
                 rets_np[v_off + i] = g
             adv_np[v_off : v_off + ep_len] = rets_np[v_off : v_off + ep_len] - v
+
+        # outcome 价值目标（替换 GAE returns 用于 value loss）
+        outcome_val = float(np.clip(ep_scores[ep_i] / max(ep_thresholds[ep_i], 1), 0.0, 2.0))
+        if outcome_mix > 1e-8:
+            for i in range(ep_len):
+                rets_np[v_off + i] = (1.0 - outcome_mix) * rets_np[v_off + i] + outcome_mix * outcome_val
+
         v_off += ep_len
         r_off += ep_len
 
@@ -557,6 +632,8 @@ def _reevaluate_and_update(
         adv_cat = _normalize_advantages(adv_cat, min_std=adv_min_std)
     else:
         adv_cat = torch.nan_to_num(adv_cat, nan=0.0, posinf=1e3, neginf=-1e3).clamp(-100, 100)
+
+    values_old_for_clip = values_init.detach()
 
     last_result: dict | None = None
     n_epochs = max(1, ppo_epochs)
@@ -582,17 +659,49 @@ def _reevaluate_and_update(
         else:
             policy_loss = -(new_lp * adv_cat).mean()
 
-        value_loss = F.smooth_l1_loss(values_flat, rets_cat, reduction="mean", beta=max(value_huber_beta, 1e-6))
+        v_clipped = values_old_for_clip + torch.clamp(
+            values_flat - values_old_for_clip, -ppo_clip, ppo_clip
+        )
+        vl_unclipped = F.smooth_l1_loss(values_flat, rets_cat, reduction="none", beta=max(value_huber_beta, 1e-6))
+        vl_clipped = F.smooth_l1_loss(v_clipped, rets_cat, reduction="none", beta=max(value_huber_beta, 1e-6))
+        value_loss = torch.max(vl_unclipped, vl_clipped).mean()
+
         entropy_mean = torch.nan_to_num(ent_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
+
         hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
-        if use_hole_aux and holes_target is not None and chosen_action_feats is not None:
+        if use_hole_aux and holes_target is not None:
             pred_h = net.forward_hole_aux(states_t, chosen_action_feats)
             hole_aux_loss = F.smooth_l1_loss(pred_h, holes_target, reduction="mean", beta=1.0)
+
+        clear_pred_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if use_clear_pred and clears_target is not None:
+            clear_logits = net.forward_clear_pred(states_t, chosen_action_feats)
+            clear_pred_loss = F.cross_entropy(clear_logits, clears_target, reduction="mean")
+
+        # --- v5 直接监督三头 ---
+        bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if has_aux_heads and (bq_coef > 1e-12 or feas_coef > 1e-12 or surv_coef > 1e-12):
+            aux = net.forward_aux_all(states_t)
+            if bq_coef > 1e-12:
+                bq_loss = F.smooth_l1_loss(aux["board_quality"], bq_target_t, reduction="mean", beta=1.0)
+            if feas_coef > 1e-12:
+                feas_loss = F.binary_cross_entropy_with_logits(
+                    aux["feasibility"], feas_target_t, reduction="mean"
+                )
+            if surv_coef > 1e-12:
+                surv_loss = F.smooth_l1_loss(aux["survival"], surv_target_t, reduction="mean", beta=1.0)
+
         loss = (
             policy_loss
             + value_coef * value_loss
             - entropy_coef * entropy_mean
             + hole_coef * hole_aux_loss
+            + clear_pred_coef * clear_pred_loss
+            + bq_coef * bq_loss
+            + feas_coef * feas_loss
+            + surv_coef * surv_loss
         )
 
         opt.zero_grad()
@@ -608,7 +717,12 @@ def _reevaluate_and_update(
             "value_loss": float(value_loss.item()),
             "entropy": float(entropy_mean.item()),
             "loss_hole_aux": float(hole_aux_loss.item()),
+            "loss_clear_pred": float(clear_pred_loss.item()),
+            "loss_bq": float(bq_loss.item()),
+            "loss_feas": float(feas_loss.item()),
+            "loss_surv": float(surv_loss.item()),
             "hole_aux_coef": float(hole_coef),
+            "clear_pred_coef": float(clear_pred_coef),
         }
 
     return last_result
@@ -700,10 +814,18 @@ def train_loop(
     last_log_ep = start_ep
     mps_sync = device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes")
 
+    warmup_batches = int(os.environ.get("RL_LR_WARMUP_BATCHES", "20"))
+    batch_count = 0
+
     ep_cursor = start_ep
     try:
         while ep_cursor < start_ep + episodes:
             bs = min(batch_episodes, start_ep + episodes - ep_cursor)
+
+            if warmup_batches > 0:
+                effective_lr = _lr_warmup(batch_count, warmup_batches, lr)
+                for pg in opt.param_groups:
+                    pg["lr"] = effective_lr
 
             # --- 采集一个 batch ---
             if pool is not None:
@@ -746,6 +868,7 @@ def train_loop(
             )
             if result:
                 last_update = result
+            batch_count += 1
             if mps_sync:
                 maybe_mps_synchronize(device)
 
@@ -766,6 +889,14 @@ def train_loop(
                 hole_str = ""
                 if last_update and last_update.get("hole_aux_coef", 0) > 1e-12:
                     hole_str = f"  hole={last_update.get('loss_hole_aux', 0):.4f}"
+                if last_update and last_update.get("clear_pred_coef", 0) > 1e-12:
+                    hole_str += f"  clr={last_update.get('loss_clear_pred', 0):.4f}"
+                if last_update and last_update.get("loss_bq", 0) > 1e-6:
+                    hole_str += f"  bq={last_update['loss_bq']:.4f}"
+                if last_update and last_update.get("loss_feas", 0) > 1e-6:
+                    hole_str += f"  feas={last_update['loss_feas']:.4f}"
+                if last_update and last_update.get("loss_surv", 0) > 1e-6:
+                    hole_str += f"  surv={last_update['loss_surv']:.4f}"
                 ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
                 print(
                     f"ep {ep_cursor}  |  {ppo_tag}  |  dev={device.type}  |  thr={wt}  |  "
@@ -898,8 +1029,8 @@ def main() -> None:
     p.add_argument(
         "--gae-lambda",
         type=float,
-        default=0.95,
-        help="GAE λ；0 关闭 GAE",
+        default=0.85,
+        help="GAE λ；v5 默认 0.85（outcome 目标下 V 收敛更快，可用较低 λ 降方差）",
     )
     p.add_argument(
         "--temp-floor",

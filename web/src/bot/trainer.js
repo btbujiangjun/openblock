@@ -67,13 +67,17 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
         const action = legal[choice.idx];
         const reward = env.step(action.blockIdx, action.gx, action.gy);
 
+        const sup = env.simulator.getSupervisionSignals();
         trajectory.push({
             stateFeat: choice.stateFeat,
             phiList: choice.phiList,
             probs: choice.probs,
             chosenIdx: choice.chosenIdx,
             reward,
-            holes_after: countHoles(env.simulator.grid)
+            holes_after: countHoles(env.simulator.grid),
+            clears: Math.min(env.simulator._lastClears || 0, 3),
+            board_quality: sup.board_quality,
+            feasibility: sup.feasibility,
         });
 
         if (hooks.onAfterStep) {
@@ -94,6 +98,10 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
         sp !== 0
     ) {
         trajectory[trajectory.length - 1].reward += sp;
+    }
+    const total = trajectory.length;
+    for (let i = 0; i < total; i++) {
+        trajectory[i].steps_to_end = total - i - 1;
     }
 
     return {

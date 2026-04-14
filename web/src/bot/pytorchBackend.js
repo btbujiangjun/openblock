@@ -63,6 +63,10 @@ export async function trainEpisodeRemote(trajectory, meta = {}) {
         if (typeof tr.holes_after === 'number' && Number.isFinite(tr.holes_after)) {
             row.holes_after = tr.holes_after;
         }
+        if (typeof tr.clears === 'number') row.clears = tr.clears;
+        if (typeof tr.board_quality === 'number') row.board_quality = tr.board_quality;
+        if (typeof tr.feasibility === 'number') row.feasibility = tr.feasibility;
+        if (typeof tr.steps_to_end === 'number') row.steps_to_end = tr.steps_to_end;
         return row;
     });
     const body = { steps };

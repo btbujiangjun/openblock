@@ -305,8 +305,11 @@ function stdDev(arr) {
     return Math.sqrt(v);
 }
 
+const _NEAR_FULL_THRESH = AN.nearFullThreshold ?? 0.75;
+const _MAX_ADJ = AN.maxAdjacent ?? 20;
+
 /**
- * 7 维轻量动作特征：位置 + 形状元信息 + 消行预判。不做 grid.clone()。
+ * 12 维动作特征（v4）：原 7 + 5 棋盘交互特征。
  * @param {Float32Array} stateFeat
  * @param {number} blockIdx
  * @param {number} gx
@@ -314,16 +317,17 @@ function stdDev(arr) {
  * @param {number[][]} shape
  * @param {number} wouldClear
  * @param {number} gridSize
+ * @param {import('../grid.js').Grid} [grid] 传入时才计算后 5 维
+ * @param {{ shape: number[][], placed: boolean }[]} [dock]
  */
 export function extractActionFeatures(
     stateFeat, blockIdx, gx, gy, shape, wouldClear, gridSize,
+    grid, dock,
 ) {
-    let cells = 0;
+    let cellCount = 0;
     for (let y = 0; y < shape.length; y++) {
         for (let x = 0; x < shape[y].length; x++) {
-            if (shape[y][x]) {
-                cells++;
-            }
+            if (shape[y][x]) cellCount++;
         }
     }
     const h = shape.length;
@@ -332,14 +336,77 @@ export function extractActionFeatures(
     const divSh = AN.shapeSpan ?? 5;
     const divCells = AN.maxCells ?? 10;
     const divClr = AN.maxClearsHint ?? 5;
+
+    let nearFull = 0, blocksRemain = 0, adjRatio = 0, heightAfter = 0, holesRisk = 0;
+    if (grid) {
+        const n = grid.size;
+        const thresh = _NEAR_FULL_THRESH * n;
+        let nfCount = 0;
+        const blockSet = new Set();
+        for (let sy = 0; sy < h; sy++) {
+            for (let sx = 0; sx < w; sx++) {
+                if (!shape[sy][sx]) continue;
+                blockSet.add(`${gy + sy},${gx + sx}`);
+            }
+        }
+        for (let sy = 0; sy < h; sy++) {
+            for (let sx = 0; sx < w; sx++) {
+                if (!shape[sy][sx]) continue;
+                const py = gy + sy, px = gx + sx;
+                let rowF = 0, colF = 0;
+                for (let x2 = 0; x2 < n; x2++) { if (grid.cells[py][x2] !== null) rowF++; }
+                for (let y2 = 0; y2 < n; y2++) { if (grid.cells[y2][px] !== null) colF++; }
+                if (rowF >= thresh || colF >= thresh) nfCount++;
+            }
+        }
+        nearFull = nfCount / Math.max(cellCount, 1);
+
+        if (dock) {
+            const unplacedAfter = dock.filter(b => !b.placed).length - 1;
+            blocksRemain = Math.max(0, unplacedAfter) / 3;
+        }
+
+        let adj = 0;
+        for (const key of blockSet) {
+            const [py, px] = key.split(',').map(Number);
+            for (const [dy, dx] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+                const ny = py + dy, nx = px + dx;
+                if (ny >= 0 && ny < n && nx >= 0 && nx < n
+                    && !blockSet.has(`${ny},${nx}`)
+                    && grid.cells[ny][nx] !== null) {
+                    adj++;
+                }
+            }
+        }
+        adjRatio = Math.min(adj / _MAX_ADJ, 1.0);
+        heightAfter = Math.max(gy + h, 0) / gridSize;
+
+        let holesCount = 0;
+        for (let sy = 0; sy < h; sy++) {
+            for (let sx = 0; sx < w; sx++) {
+                if (!shape[sy][sx]) continue;
+                const px = gx + sx, py = gy + sy;
+                for (let below = py + 1; below < n; below++) {
+                    if (grid.cells[below][px] === null) { holesCount++; break; }
+                }
+            }
+        }
+        holesRisk = Math.min(holesCount / Math.max(cellCount, 1), 1.0);
+    }
+
     const actionPart = new Float32Array([
         blockIdx / divB,
         gx / gridSize,
         gy / gridSize,
         w / divSh,
         h / divSh,
-        cells / divCells,
+        cellCount / divCells,
         wouldClear / divClr,
+        nearFull,
+        blocksRemain,
+        adjRatio,
+        heightAfter,
+        holesRisk,
     ]);
     const out = new Float32Array(stateFeat.length + actionPart.length);
     out.set(stateFeat, 0);
@@ -365,7 +432,9 @@ export function buildDecisionBatch(sim) {
                 a.gy,
                 sim.dock[a.blockIdx].shape,
                 wouldClear,
-                sim.grid.size
+                sim.grid.size,
+                sim.grid,
+                sim.dock,
             )
         );
     }

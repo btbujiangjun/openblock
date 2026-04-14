@@ -168,7 +168,7 @@ try:
         resolve_training_device,
         tensor_to_device,
     )
-    from rl_pytorch.features import STATE_FEATURE_DIM
+    from rl_pytorch.features import STATE_FEATURE_DIM, ACTION_FEATURE_DIM
     from rl_pytorch.game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING
     from rl_pytorch.model import ConvSharedPolicyValueNet, LightPolicyValueNet, LightSharedPolicyValueNet, PolicyValueNet, SharedPolicyValueNet
 except ImportError as e:
@@ -177,6 +177,14 @@ except ImportError as e:
     tensor_to_device = None  # type: ignore
     maybe_mps_synchronize = None  # type: ignore
     _state["error"] = f"import failed: {e}"
+
+
+def _clear_pred_coef() -> float:
+    if torch is None:
+        return 0.0
+    if (raw := os.environ.get("RL_CLEAR_PRED_COEF", "").strip()) != "":
+        return float(raw)
+    return float(RL_REWARD_SHAPING.get("clearPredLossCoef") or 0.15)
 
 
 def _hole_aux_coef_and_denom() -> tuple[float, float]:
@@ -524,27 +532,74 @@ def create_rl_blueprint() -> Blueprint:
             ep_next = _state["episodes"] + 1
             entropy_coef_eff = _effective_entropy_coef(ep_next)
             hole_coef, hole_denom = _hole_aux_coef_and_denom()
+            cp_coef = _clear_pred_coef()
             hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+            clear_pred_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+            state_mat = None
+            chosen_a = None
             if (
-                hole_coef > 1e-12
-                and callable(getattr(model, "forward_hole_aux", None))
+                (hole_coef > 1e-12 or cp_coef > 1e-12)
                 and all("holes_after" in st for st in steps)
             ):
                 state_rows = [st["state"] for st in steps]
                 act_rows = [st["phi"][int(st["idx"])][STATE_FEATURE_DIM:] for st in steps]
-                targ_list = [float(st["holes_after"]) / hole_denom for st in steps]
                 state_mat = tensor_to_device(torch.tensor(state_rows, dtype=torch.float32), device)
                 chosen_a = tensor_to_device(torch.tensor(act_rows, dtype=torch.float32), device)
+            if (
+                hole_coef > 1e-12
+                and callable(getattr(model, "forward_hole_aux", None))
+                and state_mat is not None
+            ):
+                targ_list = [float(st["holes_after"]) / hole_denom for st in steps]
                 targ_t = tensor_to_device(torch.tensor(targ_list, dtype=torch.float32), device).clamp(
                     0.0, 1.0
                 )
                 pred = model.forward_hole_aux(state_mat, chosen_a)
                 hole_aux_loss = F.smooth_l1_loss(pred, targ_t, reduction="mean", beta=1.0)
+            if (
+                cp_coef > 1e-12
+                and callable(getattr(model, "forward_clear_pred", None))
+                and state_mat is not None
+                and all("clears" in st for st in steps)
+            ):
+                clears_tgt = tensor_to_device(
+                    torch.tensor([min(int(st.get("clears", 0)), 3) for st in steps], dtype=torch.long), device
+                )
+                clear_logits = model.forward_clear_pred(state_mat, chosen_a)
+                clear_pred_loss = F.cross_entropy(clear_logits, clears_tgt, reduction="mean")
+
+            bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+            feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+            surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+            has_aux = callable(getattr(model, "forward_aux_all", None))
+            if has_aux and state_mat is not None:
+                aux = model.forward_aux_all(state_mat)
+                bq_c = float(RL_REWARD_SHAPING.get("boardQualityLossCoef") or 0.5)
+                feas_c = float(RL_REWARD_SHAPING.get("feasibilityLossCoef") or 0.3)
+                surv_c = float(RL_REWARD_SHAPING.get("survivalLossCoef") or 0.2)
+                if bq_c > 1e-12 and all("board_quality" in st for st in steps):
+                    bq_tgt = tensor_to_device(
+                        torch.tensor([float(st["board_quality"]) for st in steps], dtype=torch.float32), device
+                    )
+                    bq_loss = bq_c * F.smooth_l1_loss(aux["board_quality"], bq_tgt, beta=1.0)
+                if feas_c > 1e-12 and all("feasibility" in st for st in steps):
+                    feas_tgt = tensor_to_device(
+                        torch.tensor([float(st["feasibility"]) for st in steps], dtype=torch.float32), device
+                    )
+                    feas_loss = feas_c * F.binary_cross_entropy_with_logits(aux["feasibility"], feas_tgt)
+                if surv_c > 1e-12 and all("steps_to_end" in st for st in steps):
+                    surv_tgt = tensor_to_device(
+                        torch.tensor([float(st["steps_to_end"]) / 30.0 for st in steps], dtype=torch.float32), device
+                    ).clamp(0.0, 1.0)
+                    surv_loss = surv_c * F.smooth_l1_loss(aux["survival"], surv_tgt, beta=1.0)
+
             loss = (
                 policy_loss
                 + value_coef * value_loss
                 - entropy_coef_eff * entropy_mean
                 + hole_coef * hole_aux_loss
+                + cp_coef * clear_pred_loss
+                + bq_loss + feas_loss + surv_loss
             )
 
             model.train()
@@ -576,6 +631,10 @@ def create_rl_blueprint() -> Blueprint:
                 "loss_policy": _log_float(policy_loss),
                 "loss_value": _log_float(value_loss),
                 "loss_hole_aux": _log_float(hole_aux_loss),
+                "loss_clear_pred": _log_float(clear_pred_loss),
+                "loss_bq": _log_float(bq_loss),
+                "loss_feas": _log_float(feas_loss),
+                "loss_surv": _log_float(surv_loss),
                 "entropy": _log_float(entropy_mean),
                 "step_count": tlen,
                 "optimizer_step": stepped,
@@ -601,6 +660,10 @@ def create_rl_blueprint() -> Blueprint:
                     "loss_policy": _log_float(policy_loss),
                     "loss_value": _log_float(value_loss),
                     "loss_hole_aux": _log_float(hole_aux_loss),
+                    "loss_clear_pred": _log_float(clear_pred_loss),
+                    "loss_bq": _log_float(bq_loss),
+                    "loss_feas": _log_float(feas_loss),
+                    "loss_surv": _log_float(surv_loss),
                     "entropy": _log_float(entropy_mean),
                     "optimizer_step": stepped,
                 }
