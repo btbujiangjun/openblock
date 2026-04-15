@@ -5,8 +5,85 @@
 import { GAME_RULES } from './gameRules.js';
 import { computeHints } from './hintEngine.js';
 import { generateStrategyTips } from './strategyAdvisor.js';
-import { collectSeriesFromSnapshots, getMetricFromPS, formatMetricValue } from './moveSequence.js';
+import {
+    collectSeriesFromSnapshots,
+    getMetricFromPS,
+    formatMetricValue,
+    REPLAY_METRICS
+} from './moveSequence.js';
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
+import { getSpawnMode } from './spawnModel.js';
+import { UI_ICONS } from './uiIcons.js';
+
+/** 能力指标区（与 REPLAY_METRICS 对齐的键 + APM） */
+const ABILITY_METRIC_ROWS = [
+    { key: 'skill', label: '技能', tooltipKey: 'skill' },
+    { key: 'clearRate', label: '消行', tooltipKey: 'clearRate' },
+    { key: 'missRate', label: '失误', tooltipKey: 'missRate' },
+    { key: 'thinkMs', label: '思考', tooltipKey: 'thinkMs' },
+    { key: 'cognitiveLoad', label: '负荷', tooltipKey: 'cognitiveLoad' },
+    {
+        key: 'engagementAPM',
+        label: 'APM',
+        tooltip:
+            '参与操作频率（次/分量级）：反映手速与投入程度；过低可能偏冷清，过高可能伴随负荷上升，均参与心流与难度微调。'
+    }
+];
+
+const _METRIC_TOOLTIP_BY_KEY = Object.fromEntries(
+    REPLAY_METRICS.map((m) => [m.key, m.tooltip || ''])
+);
+
+/** 实时状态顶栏标签（心流 / 节奏 / 会话阶段 / 出块轮） */
+const LIVE_TAG_TITLE = {
+    flow: {
+        bored: '心流三态·无聊：挑战相对偏低，系统可略加压以增加趣味与投入。',
+        flow: '心流三态·心流：挑战与能力较匹配，维持当前难度与反馈节奏。',
+        anxious: '心流三态·焦虑：挑战偏高或失误偏多，系统倾向减压与消行友好投放。'
+    },
+    pacing: {
+        tension: '节奏相位·紧张期：与释放期交替，略提高张力，形成起伏感。',
+        release: '节奏相位·释放期：略降低压力，给玩家喘息与正反馈空间。'
+    },
+    session: {
+        early: '会话阶段·热身：开局不久，整体可更友好，帮助建立节奏。',
+        peak: '会话阶段·巅峰：主要对局时段，难度按常规定义执行。',
+        late: '会话阶段·疲劳：连续游玩较久，可略放缓压力以降低疲劳挫败。'
+    }
+};
+
+function _tooltipForLiveTag(tagText) {
+    if (tagText == null || tagText === '—') {
+        return '本项暂无有效采样（开局或未记录）。';
+    }
+    const s = String(tagText);
+    if (/^R\d+$/.test(s)) {
+        return '本局已完成的出块轮次：每刷新一轮候选块（dock）计数 +1，用于观察进程与策略弧线。';
+    }
+    if (s === 'R—' || /^R[^0-9]/.test(s)) {
+        return '出块轮次：尚未计数或本局未刷新候选块。';
+    }
+    if (LIVE_TAG_TITLE.flow[s]) return LIVE_TAG_TITLE.flow[s];
+    if (LIVE_TAG_TITLE.pacing[s]) return LIVE_TAG_TITLE.pacing[s];
+    if (LIVE_TAG_TITLE.session[s]) return LIVE_TAG_TITLE.session[s];
+    return '实时状态标签：与玩家画像快照同步。';
+}
+
+const LIVE_FLAG_TITLE = {
+    AFK: '在最近统计窗口内，单次停顿超过阈值（如 15s）记为一次 AFK；该时段常从部分指标中排除，避免拖垮均值。',
+    近失: '上一步在较满板面上落子但未消行，形成「差一点就消」的局面；可触发近失策略（略降压、提高消行保证）。',
+    恢复: '盘面曾处于高填充后的短期恢复模式：更倾向小格、易落子、易消行的投放，帮助脱困。',
+    新手: '处于新手或首局保护窗口：整体压力上限压低，形状更规整易学，降低上手挫败。'
+};
+
+function _tooltipForLiveFlag(text) {
+    const t = String(text).trim();
+    if (t.startsWith('AFK')) return LIVE_FLAG_TITLE.AFK;
+    if (t === '近失') return LIVE_FLAG_TITLE['近失'];
+    if (t === '恢复') return LIVE_FLAG_TITLE['恢复'];
+    if (t === '新手') return LIVE_FLAG_TITLE['新手'];
+    return '本局实时状态标志。';
+}
 
 const CAT_LABEL = {
     lines: '长条',
@@ -18,7 +95,7 @@ const CAT_LABEL = {
     jshapes: 'J 形'
 };
 
-/** 投放区指标悬停说明，与 docs/PANEL_PARAMETERS.md §4 一致 */
+/** 投放区指标悬停说明 */
 const SPAWN_TOOLTIP = {
     stress:
         '综合压力（约 −0.2～1）。由分数档、连战、技能、心流、节奏、恢复、挫败、combo、近失、闭环反馈等叠加后钳制，用于在配置的多档形状权重间插值。',
@@ -32,11 +109,33 @@ const SPAWN_TOOLTIP = {
     sizePref:
         '尺寸偏好（约 −1～1）：负值偏向小块便于腾挪，正值偏向大块；挫败/恢复/新手等常为负。',
     diversity: '品类多样（0～1）：越高三连块越倾向不同品类；无聊心流时常略提高新鲜感。',
-    shapeW: '当前综合压力下，该形状类别的相对抽样权重（数值越大越容易被抽到）。'
+    shapeW: '当前综合压力下，该形状类别的相对抽样权重（数值越大越容易被抽到）。',
+    comboChain: 'Combo 链强度（0～1）：越高越偏好续链消行块。受连续消行状态驱动。',
+    multiClear: '多消鼓励（0～1）：越高越偏好能同时消多行的块。受盘面和轮空状态驱动。',
+    rhythm: '节奏相位：setup=搭建蓄力期 / payoff=收获消行期 / neutral=中性。',
+    sessionArc: 'Session 弧线：warmup=热身 / peak=巅峰 / cooldown=收官。',
+    holes: '盘面空洞数：填充列下方的空格，空洞越多越难消行。',
+    flatness: '表面平整度（0~1）：列高度方差越小越平整，1=完全平整。',
+    nearFull:
+        '近满行/列数：距离整行或整列填满仅差 1～2 格的条数，越多表示越容易通过少量放置触发多消，是 Layer1 多消潜力的重要信号。'
 };
 
 function _attrTitle(s) {
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+/** 策略解释等窄栏文案：去掉句末标点以省宽 */
+function _stripTrailingSentencePunct(s) {
+    let t = String(s).trimEnd();
+    while (t.length > 0) {
+        const last = t[t.length - 1];
+        if (last === '。' || last === '．' || last === '.') {
+            t = t.slice(0, -1).trimEnd();
+            continue;
+        }
+        break;
+    }
+    return t;
 }
 
 function _spawnPill(text, title) {
@@ -103,10 +202,62 @@ function _hintsExplain(h) {
     if (db > 0.05) {
         out.push(`新鲜感 +${db.toFixed(2)}：三连块品类惩罚重复，增加变化。`);
     }
+    const cc = h.comboChain ?? 0;
+    if (cc > 0.2) {
+        out.push(`Combo 催化 ${cc.toFixed(2)}：偏好能续链消行的块型。`);
+    }
+    const mc = h.multiClearBonus ?? 0;
+    if (mc > 0.2) {
+        out.push(`多消鼓励 ${mc.toFixed(2)}：偏好能同时消多行的块型。`);
+    }
+    if (h.rhythmPhase === 'payoff') {
+        out.push('节奏相位：收获期——出块偏向消行友好。');
+    } else if (h.rhythmPhase === 'setup') {
+        out.push('节奏相位：搭建期——出块偏向中等构型块。');
+    }
+    if (h.sessionArc === 'warmup') {
+        out.push('Session 弧线：热身——出块友好，帮助建立节奏。');
+    } else if (h.sessionArc === 'cooldown') {
+        out.push('Session 弧线：收官——适度放缓压力。');
+    }
+    if (h.scoreMilestone) {
+        out.push('🎉 里程碑达成！本轮出块特别友好。');
+    }
     if (out.length === 0) {
         out.push('本轮无额外 spawnHints（默认随机权重内抽样）。');
     }
     return out;
+}
+
+/** 顶栏与 flow/R49 同行：当前出块算法（与侧栏单选项联动） */
+function _spawnModePrimaryChipHtml() {
+    const mode = getSpawnMode();
+    const primary =
+        mode === 'model'
+            ? {
+                  text: `${UI_ICONS.generativeRecommend} 生成式推荐`,
+                  title: '侧栏已选「生成式推荐」：下轮起块将请求模型（不可用则自动回退规则）。',
+              }
+            : {
+                  text: `${UI_ICONS.ruleAlgorithm} 规则算法`,
+                  title: '侧栏已选「规则算法」：下轮起块由规则引擎生成。',
+              };
+    return (
+        `<span class="insight-weight insight-weight--mode-primary insight-spawn-mode-chip" title="${_attrTitle(primary.title)}">` +
+        `${primary.text}</span>`
+    );
+}
+
+/** 仅「上轮回退」提示行（主模式 chip 已上移到实时状态顶栏） */
+function _spawnModeFallbackRowHtml(ins) {
+    if (ins?.spawnSource !== 'rule-fallback') {
+        return '';
+    }
+    return (
+        `<div class="insight-weights">` +
+        `<span class="insight-weight insight-weight--spawn-note" title="上一轮模型不可用或请求失败，实际使用了规则出块">${UI_ICONS.spawnFallback} 上轮已回退规则</span>` +
+        `</div>`
+    );
 }
 
 const LIVE_HISTORY_MAX = 160;
@@ -184,9 +335,15 @@ function _renderInsightStateSeries(game, elState) {
     const hist = game._insightLiveHistory || [];
     const data = collectSeriesFromSnapshots(hist);
     if (!data || hist.length === 0) {
-        elState.className = 'insight-state-row';
+        elState.className = 'insight-state-row insight-state-series';
         elState.innerHTML =
+            '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>' +
             '<span class="insight-muted">开局后随出块/落子刷新，与回放同款指标曲线。</span>';
+        const headEmpty = document.getElementById('insight-live-series-head');
+        if (headEmpty) {
+            headEmpty.innerHTML =
+                '<div class="insight-live-head-tags"></div>' + _spawnModePrimaryChipHtml();
+        }
         return;
     }
     const lastIdx = hist.length - 1;
@@ -200,8 +357,9 @@ function _renderInsightStateSeries(game, elState) {
     for (const m of data.metrics) {
         const s = data.series[m.key];
         const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+        const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
         html +=
-            `<div class="replay-series-cell" data-key="${m.key}">` +
+            `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
             `<span class="series-label" style="color:${color}">${m.label}</span>` +
             `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
             `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
@@ -218,7 +376,14 @@ function _renderInsightStateSeries(game, elState) {
             lastPs.sessionPhase || '—',
             'R' + (lastPs.spawnRound ?? '—')
         ];
-        head.innerHTML = tags.map((t) => `<span class="series-tag">${t}</span>`).join('');
+        const tagsHtml = tags
+            .map(
+                (t) =>
+                    `<span class="series-tag" title="${_attrTitle(_tooltipForLiveTag(t))}">${t}</span>`
+            )
+            .join('');
+        head.innerHTML =
+            `<div class="insight-live-head-tags">${tagsHtml}</div>` + _spawnModePrimaryChipHtml();
     }
 
     elState.querySelectorAll('.replay-sparkline .spark-cursor').forEach((line) => {
@@ -235,8 +400,10 @@ function _buildWhyLines(insight) {
     }
     const s = insight.stress;
     if (typeof s === 'number') {
+        const diffLabel = insight.strategyId === 'easy' ? '简单' : insight.strategyId === 'hard' ? '困难' : '普通';
+        const biasStr = insight.difficultyBias ? ` 难度偏移${insight.difficultyBias > 0 ? '+' : ''}${insight.difficultyBias.toFixed(2)}` : '';
         lines.push(
-            `综合压力 stress=${s.toFixed(2)}（0~1 越高越接近「困难」形权重档；含分数、连战、心流、节奏等信号）。`
+            `综合压力 stress=${s.toFixed(2)}（${diffLabel}模式${biasStr}；含分数、连战、心流、节奏等信号）`
         );
     }
     if (insight.skillLevel != null) {
@@ -293,19 +460,18 @@ function _render(game) {
 
     if (elAbility) {
         const m = p.metrics;
-        elAbility.innerHTML = `
-            <div class="insight-metric"><span>技能</span><strong>${_pct(liveSkill)}</strong></div>
-            <div class="insight-metric"><span>消行</span><strong>${(m.clearRate * 100).toFixed(0)}%</strong></div>
-            <div class="insight-metric"><span>失误</span><strong>${(m.missRate * 100).toFixed(0)}%</strong></div>
-            <div class="insight-metric"><span>思考</span><strong>${Math.round(m.thinkMs)}ms</strong></div>
-            <div class="insight-metric"><span>负荷</span><strong>${_pct(p.cognitiveLoad)}</strong></div>
-            <div class="insight-metric"><span>APM</span><strong>${p.engagementAPM.toFixed(1)}</strong></div>
-            <div class="insight-bar"><div class="insight-bar-fill"></div></div>
-        `;
-        const fill = elAbility.querySelector('.insight-bar-fill');
-        if (fill && liveSkill != null && !Number.isNaN(liveSkill)) {
-            fill.style.width = `${Math.round(Math.max(0, Math.min(1, liveSkill)) * 100)}%`;
-        }
+        const abilityHtml = ABILITY_METRIC_ROWS.map((row) => {
+            const tt = row.tooltip || _METRIC_TOOLTIP_BY_KEY[row.tooltipKey] || '';
+            let val = '—';
+            if (row.key === 'skill') val = _pct(liveSkill);
+            else if (row.key === 'clearRate') val = `${(m.clearRate * 100).toFixed(0)}%`;
+            else if (row.key === 'missRate') val = `${(m.missRate * 100).toFixed(0)}%`;
+            else if (row.key === 'thinkMs') val = `${Math.round(m.thinkMs)}ms`;
+            else if (row.key === 'cognitiveLoad') val = _pct(p.cognitiveLoad);
+            else if (row.key === 'engagementAPM') val = p.engagementAPM.toFixed(1);
+            return `<div class="insight-metric" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
+        }).join('');
+        elAbility.innerHTML = abilityHtml;
     }
 
     if (elState) {
@@ -320,7 +486,10 @@ function _render(game) {
             const note = document.createElement('div');
             note.className = 'insight-live-flags';
             note.innerHTML = flags
-                .map((t) => `<span class="insight-signal insight-signal--warn">${t}</span>`)
+                .map(
+                    (t) =>
+                        `<span class="insight-signal insight-signal--warn" title="${_attrTitle(_tooltipForLiveFlag(t))}">${t}</span>`
+                )
                 .join(' ');
             if (!elState.querySelector('.insight-live-flags')) {
                 elState.appendChild(note);
@@ -358,14 +527,49 @@ function _render(game) {
                 _spawnPill(`尺寸 ${(h.sizePreference ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.sizePref),
                 _spawnPill(`多样 ${(h.diversityBoost ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.diversity)
             );
+            if (h.rhythmPhase && h.rhythmPhase !== 'neutral') {
+                const phaseLabel = h.rhythmPhase === 'payoff' ? '收获' : '搭建';
+                metricPills.push(_spawnPill(`节奏 ${phaseLabel}`, SPAWN_TOOLTIP.rhythm));
+            }
+            if (h.sessionArc) {
+                const arcLabel = { warmup: '热身', peak: '巅峰', cooldown: '收官' }[h.sessionArc] ?? h.sessionArc;
+                metricPills.push(_spawnPill(`弧线 ${arcLabel}`, SPAWN_TOOLTIP.sessionArc));
+            }
         }
-        elSpawn.innerHTML = `
-            <div class="insight-spawn-stack">
-                <div class="insight-weights">${metricPills.join('')}</div>
-                <div class="insight-weights">${weights}</div>
-            </div>`;
+
+        const layer2Pills = [];
+        if (h) {
+            const cc = h.comboChain ?? 0;
+            if (cc > 0.1) layer2Pills.push(_spawnPill(`连击 ${cc.toFixed(2)}`, SPAWN_TOOLTIP.comboChain));
+            const mc = h.multiClearBonus ?? 0;
+            if (mc > 0.1) layer2Pills.push(_spawnPill(`多消 ${mc.toFixed(2)}`, SPAWN_TOOLTIP.multiClear));
+        }
+
+        const diagPills = [];
+        const diag = ins.spawnDiagnostics;
+        if (diag?.layer1) {
+            const l1 = diag.layer1;
+            if (l1.holes > 0) diagPills.push(_spawnPill(`空洞 ${l1.holes}`, SPAWN_TOOLTIP.holes));
+            diagPills.push(_spawnPill(`平整 ${l1.flatness.toFixed(2)}`, SPAWN_TOOLTIP.flatness));
+            if (l1.nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${l1.nearFullLines}`, SPAWN_TOOLTIP.nearFull));
+        }
+
+        const fallbackRow = _spawnModeFallbackRowHtml(ins);
+
+        const allRows = [
+            fallbackRow,
+            `<div class="insight-weights">${metricPills.join('')}</div>`,
+            layer2Pills.length ? `<div class="insight-weights">${layer2Pills.join('')}</div>` : '',
+            diagPills.length ? `<div class="insight-weights">${diagPills.join('')}</div>` : '',
+            `<div class="insight-weights">${weights}</div>`
+        ].filter(Boolean).join('');
+
+        elSpawn.innerHTML = `<div class="insight-spawn-stack">${allRows}</div>`;
     } else if (elSpawn) {
-        elSpawn.innerHTML = '<span class="insight-muted">开局后显示</span>';
+        elSpawn.innerHTML =
+            `<div class="insight-spawn-stack">` +
+            `<span class="insight-muted">开局后显示投放参数（出块模式见上方实时状态顶栏）</span>` +
+            `</div>`;
     }
 
     const elStrategy = document.getElementById('insight-strategy');
@@ -398,7 +602,7 @@ function _render(game) {
         const all = [...bullets, ...hintBullets];
         if (all.length) {
             elWhy.innerHTML =
-                `<ul class="insight-why-list">${all.map((t) => `<li>${t}</li>`).join('')}</ul>`;
+                `<ul class="insight-why-list">${all.map((t) => `<li>${_stripTrailingSentencePunct(t)}</li>`).join('')}</ul>`;
         } else {
             elWhy.innerHTML = '';
         }

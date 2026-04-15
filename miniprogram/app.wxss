@@ -1,0 +1,23 @@
+/**
+ * Open Block 微信小程序 — 全局样式
+ * 配色与 web/public/styles/main.css 保持一致
+ */
+
+page {
+  --bg-primary: #0f0f23;
+  --bg-surface: #1a1a2e;
+  --bg-card: #16213e;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0b8;
+  --accent: #e94560;
+  --accent-glow: rgba(233, 69, 96, 0.4);
+  --gold: #f4d35e;
+  --grid-line: rgba(255, 255, 255, 0.06);
+  --grid-bg: #0a0a1a;
+
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  height: 100%;
+  overflow: hidden;
+}

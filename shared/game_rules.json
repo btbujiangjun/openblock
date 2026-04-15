@@ -205,8 +205,8 @@
     "easy": {
       "id": "easy",
       "name": "Easy",
-      "fillRatio": 0.15,
-      "scoring": { "singleLine": 10, "multiLine": 30, "combo": 50 },
+      "fillRatio": 0,
+      "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
       "shapeWeights": {
         "lines": 2.3,
         "rects": 1.65,
@@ -242,7 +242,7 @@
       "id": "hard",
       "name": "Hard",
       "fillRatio": 0.25,
-      "scoring": { "singleLine": 30, "multiLine": 90, "combo": 150 },
+      "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
       "shapeWeights": {
         "lines": 2.05,
         "rects": 1.55,

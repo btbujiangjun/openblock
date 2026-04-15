@@ -5,6 +5,9 @@
 
 const STORAGE_KEY = 'openblock_skin';
 
+/** 首次访问或未存储时的默认主题 */
+export const DEFAULT_SKIN_ID = 'titanium';
+
 /** 切换主题时写入 documentElement 的可选变量（浅色主题会 remove） */
 const THEME_VAR_KEYS = [
     '--text-primary',
@@ -438,12 +441,12 @@ export function getActiveSkinId() {
     } catch {
         /* ignore */
     }
-    return 'classic';
+    return DEFAULT_SKIN_ID;
 }
 
 /** @returns {Skin} */
 export function getActiveSkin() {
-    return SKINS[getActiveSkinId()] || SKINS.classic;
+    return SKINS[getActiveSkinId()] || SKINS[DEFAULT_SKIN_ID];
 }
 
 export function getBlockColors() {

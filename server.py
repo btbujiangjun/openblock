@@ -5,12 +5,48 @@ Complete user behavior tracking and analytics
 """
 
 import os
+import sys
 import sqlite3
 import json
 import time
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
+
+
+def _load_repo_dotenv():
+    """将仓库根目录 `.env` / `.env.local` 载入 os.environ（先 .env 不覆盖已有环境变量，再 .env.local 强制覆盖）。"""
+    root = Path(__file__).resolve().parent
+
+    def _apply(path: Path, override: bool):
+        if not path.is_file():
+            return
+        try:
+            raw = path.read_text(encoding='utf-8')
+        except OSError:
+            return
+        for line in raw.splitlines():
+            s = line.strip()
+            if not s or s.startswith('#') or '=' not in s:
+                continue
+            k, _, v = s.partition('=')
+            k, v = k.strip(), v.strip()
+            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                v = v[1:-1]
+            if not k:
+                continue
+            if override:
+                os.environ[k] = v
+            else:
+                os.environ.setdefault(k, v)
+
+    _apply(root / '.env', False)
+    _apply(root / '.env.local', True)
+
+
+_load_repo_dotenv()
 
 _DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blockblast.db')
 DATABASE = os.environ.get('BLOCKBLAST_DB_PATH', _DEFAULT_DB)
@@ -1204,6 +1240,186 @@ except Exception as _rl_ex:
     print('RL API (/api/rl/*) 未启用:', _rl_ex)
 
 
+# =====================================================================
+#  Spawn Transformer: 训练 / 推理 / 状态 API
+# =====================================================================
+
+_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
+_SPAWN_MODEL_PATH = os.path.join(_MODELS_DIR, 'spawn_transformer.pt')
+_SPAWN_STATUS_PATH = os.path.join(_MODELS_DIR, 'spawn_train_status.json')
+_spawn_train_proc = None  # background training subprocess
+_spawn_model_cache = None  # loaded model for inference
+
+
+@app.route('/api/spawn-model/status', methods=['GET'])
+def spawn_model_status():
+    """查询训练状态和模型是否可用。"""
+    status = {}
+    if os.path.exists(_SPAWN_STATUS_PATH):
+        try:
+            with open(_SPAWN_STATUS_PATH) as f:
+                status = json.load(f)
+        except Exception:
+            pass
+
+    model_available = os.path.exists(_SPAWN_MODEL_PATH)
+    global _spawn_train_proc
+    running = _spawn_train_proc is not None and _spawn_train_proc.poll() is None
+
+    return jsonify({
+        'modelAvailable': model_available,
+        'trainingRunning': running,
+        **status,
+    })
+
+
+@app.route('/api/spawn-model/train', methods=['POST'])
+def spawn_model_train():
+    """启动后台训练进程。"""
+    import subprocess
+    global _spawn_train_proc
+
+    if _spawn_train_proc is not None and _spawn_train_proc.poll() is None:
+        return jsonify({'success': False, 'error': '训练已在运行中'}), 409
+
+    data = request.get_json() or {}
+    epochs = int(data.get('epochs', 50))
+    min_score = int(data.get('minScore', 0))
+    max_sessions = int(data.get('maxSessions', 500))
+
+    os.makedirs(_MODELS_DIR, exist_ok=True)
+    with open(_SPAWN_STATUS_PATH, 'w') as f:
+        json.dump({'phase': 'starting', 'progress': 0, 'message': '启动训练进程…'}, f)
+
+    cmd = [
+        sys.executable, '-m', 'rl_pytorch.spawn_model.train',
+        '--db', DATABASE,
+        '--epochs', str(epochs),
+        '--min-score', str(min_score),
+        '--max-sessions', str(max_sessions),
+    ]
+    _spawn_train_proc = subprocess.Popen(
+        cmd,
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    return jsonify({'success': True, 'pid': _spawn_train_proc.pid})
+
+
+@app.route('/api/spawn-model/stop', methods=['POST'])
+def spawn_model_stop():
+    """停止训练进程。"""
+    global _spawn_train_proc
+    if _spawn_train_proc is None or _spawn_train_proc.poll() is not None:
+        return jsonify({'success': False, 'error': '无运行中的训练'}), 404
+
+    _spawn_train_proc.terminate()
+    _spawn_train_proc = None
+    return jsonify({'success': True})
+
+
+def _load_spawn_model():
+    """延迟加载模型（自动兼容 v1/v2）。"""
+    global _spawn_model_cache
+    if _spawn_model_cache is not None:
+        return _spawn_model_cache
+
+    if not os.path.exists(_SPAWN_MODEL_PATH):
+        return None
+
+    try:
+        import torch
+        from rl_pytorch.spawn_model.model import SpawnTransformerV2
+
+        checkpoint = torch.load(_SPAWN_MODEL_PATH, map_location='cpu', weights_only=False)
+        cfg = checkpoint.get('config', {})
+        model = SpawnTransformerV2(
+            d_model=cfg.get('d_model', 128),
+            nhead=cfg.get('nhead', 4),
+            num_layers=cfg.get('num_layers', 2),
+            dim_ff=cfg.get('dim_ff', 256),
+            dropout=0,
+        )
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model.eval()
+        _spawn_model_cache = model
+        return model
+    except Exception as e:
+        print(f'SpawnTransformer 加载失败: {e}')
+        return None
+
+
+@app.route('/api/spawn-model/reload', methods=['POST'])
+def spawn_model_reload():
+    """重新加载模型（训练完成后调用）。"""
+    global _spawn_model_cache
+    _spawn_model_cache = None
+    model = _load_spawn_model()
+    if model is None:
+        return jsonify({'success': False, 'error': '模型文件不存在或加载失败'}), 404
+    return jsonify({'success': True, 'params': model.count_params()})
+
+
+@app.route('/api/spawn-model/predict', methods=['POST'])
+def spawn_model_predict():
+    """
+    推理：给定盘面状态，返回推荐的 3 个形状 ID（v2：支持 24 维 context + 目标难度）。
+    body: { board, context, history, temperature?, targetDifficulty? }
+    """
+    model = _load_spawn_model()
+    if model is None:
+        return jsonify({'success': False, 'error': '模型未加载'}), 503
+
+    try:
+        import torch
+        import numpy as np
+        from rl_pytorch.spawn_model.dataset import SHAPE_VOCAB, CONTEXT_DIM
+
+        data = request.get_json() or {}
+        board_raw = data.get('board', [])
+        context_raw = data.get('context', [])
+        history_raw = data.get('history', [])
+        temperature = float(data.get('temperature', 0.8))
+        target_diff = data.get('targetDifficulty')
+
+        board = np.zeros((1, 8, 8), dtype=np.float32)
+        for y in range(min(8, len(board_raw))):
+            row = board_raw[y] if y < len(board_raw) else []
+            for x in range(min(8, len(row))):
+                if row[x] is not None and row[x] != 0:
+                    board[0][y][x] = 1.0
+
+        context = np.zeros((1, CONTEXT_DIM), dtype=np.float32)
+        for i in range(min(CONTEXT_DIM, len(context_raw))):
+            context[0][i] = float(context_raw[i] or 0)
+
+        history = np.zeros((1, 3, 3), dtype=np.int64)
+        for i in range(min(3, len(history_raw))):
+            row = history_raw[i] if i < len(history_raw) else []
+            for j in range(min(3, len(row))):
+                history[0][i][j] = int(row[j] or 0)
+
+        board_t = torch.from_numpy(board)
+        context_t = torch.from_numpy(context)
+        history_t = torch.from_numpy(history)
+
+        td = float(target_diff) if target_diff is not None else None
+        indices = model.predict(board_t, context_t, history_t,
+                                target_difficulty=td, temperature=temperature)
+        shape_ids = [SHAPE_VOCAB[idx] if idx < len(SHAPE_VOCAB) else SHAPE_VOCAB[0] for idx in indices]
+
+        return jsonify({
+            'success': True,
+            'shapes': shape_ids,
+            'indices': indices,
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 init_db()
 
 
@@ -1212,8 +1428,20 @@ def create_app():
     return app
 
 
+def _flask_port():
+    """与前端 OPENBLOCK_API_ORIGIN / VITE_API_BASE_URL 中的端口一致；显式 PORT 优先。"""
+    if os.environ.get('PORT'):
+        return int(os.environ['PORT'])
+    base = os.environ.get('OPENBLOCK_API_ORIGIN') or os.environ.get('VITE_API_BASE_URL')
+    if base:
+        u = urlparse(base.strip())
+        if u.port is not None:
+            return u.port
+    return 5000
+
+
 if __name__ == '__main__':
-    _port = int(os.environ.get('PORT', '5000'))
+    _port = _flask_port()
     _debug = os.environ.get('FLASK_DEBUG', '1') == '1'
     print(f'Open Block API — http://0.0.0.0:{_port}  (db: {DATABASE})')
     app.run(host='0.0.0.0', port=_port, debug=_debug)

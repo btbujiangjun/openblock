@@ -448,7 +448,8 @@
     </div>
 
     <script>
-        const API_URL = localStorage.getItem('api_url') || 'http://localhost:5000';
+        /* 与仓库根 .env 中 OPENBLOCK_API_ORIGIN 对齐；可在此用 localStorage api_url 临时覆盖 */
+        const API_URL = localStorage.getItem('api_url') || 'http://0.0.0.0:5000';
         let currentReplay = null;
         let replayIndex = 0;
         let replayPlaying = false;

@@ -1,6 +1,7 @@
 /**
  * 游戏常量、策略与成就配置。
- * API 基址优先读取 Vite 环境变量，其次 localStorage（便于运行时覆盖）。
+ * API 基址：构建时由仓库根 `.env` 的 OPENBLOCK_API_ORIGIN（或 VITE_API_BASE_URL）经 Vite 注入为
+ * import.meta.env.VITE_API_BASE_URL；运行时可用 localStorage `api_url` 覆盖（便于调试）。
  * 难度与得分等玩法参数默认来自 shared/game_rules.json（经 gameRules.js）。
  */
 import { GAME_RULES, buildDefaultStrategiesMap } from './gameRules.js';
@@ -33,7 +34,7 @@ export function getApiBaseUrl() {
     } catch {
         /* private mode */
     }
-    return 'http://localhost:5000';
+    return 'http://0.0.0.0:5000';
 }
 
 /** 为 `true` 时向 Flask 后端同步会话与行为（需可访问的 API） */

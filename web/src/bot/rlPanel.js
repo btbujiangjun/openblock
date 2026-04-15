@@ -5,6 +5,7 @@ import { LinearAgent } from './linearAgent.js';
 import { trainSelfPlay, runSelfPlayEpisode, WIN_SCORE_THRESHOLD } from './trainer.js';
 import { isRlPytorchBackendPreferred } from '../config.js';
 import { fetchRlStatus, fetchTrainingLog } from './pytorchBackend.js';
+import { appendBrowserTrainEpisode, getBrowserTrainingLog } from './browserTrainingLog.js';
 import { updateRlTrainingCharts } from './rlTrainingCharts.js';
 
 const WIN_WINDOW = 80;
@@ -111,8 +112,9 @@ export function initRLPanel(game) {
             clearInterval(chartPollTimer);
             chartPollTimer = null;
         }
-        if (chkChartAuto?.checked && running && readUseBackend()) {
-            chartPollTimer = setInterval(() => void refreshTrainingCharts(), 5000);
+        if (chkChartAuto?.checked && running) {
+            const ms = readUseBackend() ? 5000 : 2000;
+            chartPollTimer = setInterval(() => void refreshTrainingCharts(), ms);
         }
     }
 
@@ -120,15 +122,20 @@ export function initRLPanel(game) {
         if (!chartRoot) {
             return;
         }
+        const tail = Math.max(50, parseInt(String(selChartTail?.value || '800'), 10) || 800);
+        if (!readUseBackend()) {
+            const data = getBrowserTrainingLog(tail);
+            updateRlTrainingCharts(chartRoot, data.entries || []);
+            return;
+        }
         try {
-            const tail = Math.max(50, parseInt(String(selChartTail?.value || '800'), 10) || 800);
             const data = await fetchTrainingLog(tail);
             updateRlTrainingCharts(chartRoot, data.entries || []);
         } catch {
             chartRoot.replaceChildren();
             const p = document.createElement('p');
             p.className = 'rl-dash-empty';
-            p.textContent = '无法加载曲线数据（请启动 Flask 并勾选 PyTorch 后端）';
+            p.textContent = '无法加载服务端曲线（请启动 Flask 并勾选 PyTorch 后端）';
             chartRoot.appendChild(p);
         }
     }
@@ -230,6 +237,17 @@ export function initRLPanel(game) {
             // 线性模型每局 +1；后端若未带回局数则 +1 兜底，避免界面卡住
             totalEpisodes += 1;
         }
+        if (!info.fromBackend && info.trainMetrics) {
+            appendBrowserTrainEpisode({
+                episodes: totalEpisodes,
+                loss_policy: info.trainMetrics.lossPolicy,
+                loss_value: info.trainMetrics.lossValue,
+                entropy: info.trainMetrics.entropy,
+                step_count: info.trainMetrics.stepCount,
+                score: info.score,
+                won: info.won === true
+            });
+        }
         recentScores.push(info.score);
         recentWins.push(info.won);
         if (info.score > bestScore) {
@@ -269,10 +287,8 @@ export function initRLPanel(game) {
                 : '开始·浏览器线性模型·可随时停止'
         );
 
-        if (useBackend) {
-            syncChartPoll();
-            void refreshTrainingCharts();
-        }
+        syncChartPoll();
+        void refreshTrainingCharts();
 
         await trainSelfPlay({
             agent,

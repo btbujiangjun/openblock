@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
+  "winScoreThreshold": 220,
+  "rlCurriculum": {
+    "comment": "胜利门槛从 80 起步，让初学者能拿到 winBonus 正反馈；80k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
+    "enabled": true,
+    "winThresholdStart": 80,
+    "winThresholdEnd": 220,
+    "rampEpisodes": 80000
+  },
+  "defaultStrategyId": "normal",
+  "dynamicDifficulty": {
+    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。",
+    "enabled": true,
+    "milestones": [0, 45, 90, 135, 180],
+    "spawnStress": [0, 0.18, 0.38, 0.58, 0.78]
+  },
+  "runDifficulty": {
+    "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
+    "enabled": true,
+    "maxStreak": 6,
+    "fillBonusPerGame": 0.01,
+    "spawnStressBonusPerGame": 0.045
+  },
+  "adaptiveSpawn": {
+    "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
+    "enabled": true,
+    "profileWindow": 15,
+    "smoothingFactor": 0.15,
+    "fastConvergenceWindow": 5,
+    "fastConvergenceAlpha": 0.35,
+    "profiles": [
+      {
+        "id": "onboarding",
+        "label": "新手引导",
+        "stress": -0.2,
+        "comment": "首局前 5 轮出块：极高线条/矩形权重，最小化不规则块，让新手建立信心和基本操作习惯",
+        "shapeWeights": { "lines": 3.18, "rects": 2.2, "squares": 1.8, "tshapes": 0.45, "zshapes": 0.35, "lshapes": 0.53, "jshapes": 0.45 }
+      },
+      {
+        "id": "recovery",
+        "label": "紧急救场",
+        "stress": -0.1,
+        "comment": "板面接近满时触发：大量线条便于消行自救，不规则块降到最低",
+        "shapeWeights": { "lines": 2.95, "rects": 2.0, "squares": 1.3, "tshapes": 0.6, "zshapes": 0.5, "lshapes": 0.68, "jshapes": 0.6 }
+      },
+      {
+        "id": "comfort",
+        "label": "舒适体验",
+        "stress": 0.0,
+        "comment": "低技能/挫败后恢复信心：消行友好块为主，偶尔引入简单不规则块",
+        "shapeWeights": { "lines": 2.65, "rects": 1.85, "squares": 1.6, "tshapes": 0.75, "zshapes": 0.65, "lshapes": 0.83, "jshapes": 0.75 }
+      },
+      {
+        "id": "momentum",
+        "label": "连击催化",
+        "stress": 0.1,
+        "comment": "combo 后或节奏释放期：偏向能串联消行的块型（线条+小矩形），催化连击正反馈",
+        "shapeWeights": { "lines": 2.55, "rects": 1.75, "squares": 1.55, "tshapes": 0.85, "zshapes": 0.78, "lshapes": 0.9, "jshapes": 0.82 }
+      },
+      {
+        "id": "guided",
+        "label": "引导成长",
+        "stress": 0.2,
+        "comment": "中低技能稳步成长：逐步引入更多不规则块，保持可控挑战",
+        "shapeWeights": { "lines": 2.45, "rects": 1.7, "squares": 1.5, "tshapes": 0.95, "zshapes": 0.88, "lshapes": 1.0, "jshapes": 0.92 }
+      },
+      {
+        "id": "breathing",
+        "label": "节奏呼吸",
+        "stress": 0.3,
+        "comment": "紧张周期后的释放窗口：略低于标准难度，给玩家喘息空间",
+        "shapeWeights": { "lines": 2.3, "rects": 1.65, "squares": 1.45, "tshapes": 1.0, "zshapes": 0.95, "lshapes": 1.08, "jshapes": 1.0 }
+      },
+      {
+        "id": "balanced",
+        "label": "均衡标准",
+        "stress": 0.4,
+        "comment": "心流核心区：与 normal 策略一致，各类块型均衡出现",
+        "shapeWeights": { "lines": 2.15, "rects": 1.55, "squares": 1.35, "tshapes": 1.12, "zshapes": 1.12, "lshapes": 1.2, "jshapes": 1.12 }
+      },
+      {
+        "id": "variety",
+        "label": "新鲜变化",
+        "stress": 0.5,
+        "comment": "防止审美疲劳：刻意拉平权重增加形状多样性，给中等玩家带来新鲜感",
+        "shapeWeights": { "lines": 2.0, "rects": 1.5, "squares": 1.4, "tshapes": 1.2, "zshapes": 1.18, "lshapes": 1.23, "jshapes": 1.15 }
+      },
+      {
+        "id": "challenge",
+        "label": "进阶挑战",
+        "stress": 0.65,
+        "comment": "中高手区间：不规则块明显增多，需要更多空间规划能力",
+        "shapeWeights": { "lines": 1.85, "rects": 1.4, "squares": 1.5, "tshapes": 1.3, "zshapes": 1.3, "lshapes": 1.33, "jshapes": 1.25 }
+      },
+      {
+        "id": "intense",
+        "label": "极限考验",
+        "stress": 0.85,
+        "comment": "高手专属：T/Z/L/J 权重超过线条，最大化空间规划压力",
+        "shapeWeights": { "lines": 1.58, "rects": 1.3, "squares": 1.55, "tshapes": 1.42, "zshapes": 1.48, "lshapes": 1.46, "jshapes": 1.38 }
+      }
+    ],
+    "pacing": {
+      "comment": "节奏张弛：每 cycleLength 轮出块为一个周期，前 tensionPhases 轮略加压，后面轮次释放。参考音乐副歌-间奏结构，避免单调递增的难度导致倦怠。",
+      "enabled": true,
+      "cycleLength": 5,
+      "tensionPhases": 3,
+      "tensionBonus": 0.04,
+      "releaseBonus": -0.12
+    },
+    "engagement": {
+      "comment": "参与度信号：首局保护、挫败回弹、差一点放大、新鲜感注入。",
+      "firstSessionSpawns": 5,
+      "firstSessionStressOverride": -0.15,
+      "frustrationThreshold": 4,
+      "frustrationRelief": -0.18,
+      "nearMissStressBonus": -0.1,
+      "nearMissClearGuarantee": 2,
+      "noveltyDiversityBoost": 0.15
+    },
+    "feedback": {
+      "comment": "闭环反馈（敏感版）：更短窗口、更高 alpha、更慢衰减，bias 变化更易在面板/stress 上体现；仍钳制在 biasClamp。",
+      "horizon": 3,
+      "expected": 1,
+      "alpha": 0.055,
+      "decay": 0.93,
+      "biasClamp": 0.22
+    },
+    "afk": {
+      "comment": "AFK 检测：thinkMs 超过 thresholdMs 的操作排除出 metrics，避免离开/后台干扰能力估计。",
+      "thresholdMs": 15000
+    },
+    "flowZone": {
+      "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",
+      "thinkTimeLowMs": 1200,
+      "thinkTimeHighMs": 10000,
+      "thinkTimeVarianceHigh": 8000000,
+      "clearRateIdeal": 0.32,
+      "clearRateTolerance": 0.12,
+      "missRateWorry": 0.28,
+      "recoveryFillThreshold": 0.82,
+      "recoveryDuration": 4,
+      "skillAdjustScale": 0.3,
+      "flowBoredAdjust": 0.08,
+      "flowAnxiousAdjust": -0.12,
+      "recoveryAdjust": -0.2,
+      "comboRewardAdjust": 0.05
+    }
+  },
+  "rlTrainingStrategyId": "normal",
+  "rlRewardShaping": {
+    "comment": "v5 精简奖励：仅 得分增量 + 势函数塑形 + winBonus + stuckPenalty；其余噪声项已移除，改由直接监督三头学习。",
+    "winBonus": 25,
+    "stuckPenalty": -5.0,
+    "holeAuxLossCoef": 0.12,
+    "holeAuxTargetMax": 16,
+    "clearPredLossCoef": 0.15,
+    "boardQualityLossCoef": 0.5,
+    "feasibilityLossCoef": 0.3,
+    "survivalLossCoef": 0.2,
+    "potentialShaping": {
+      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。",
+      "enabled": true,
+      "coef": 0.5,
+      "holeWeight": -0.40,
+      "transitionWeight": -0.08,
+      "wellWeight": -0.15,
+      "closeToFullWeight": 0.35,
+      "mobilityWeight": 0.12
+    },
+    "outcomeValueMix": {
+      "comment": "v5 纯 outcome 价值目标：mix=1.0 → V 学习预测 final_score/threshold，低方差。",
+      "enabled": true,
+      "mix": 1.0
+    }
+  },
+  "featureEncoding": {
+    "comment": "state = 23 维标量 + 64 棋盘 + 75 dock = 162；action = 12 维（v4：原 7 + 5 棋盘交互特征）；phi = 174。改维度须同步 features.js / features.py 并重训。",
+    "maxGridWidth": 8,
+    "dockMaskSide": 5,
+    "stateScalarDim": 23,
+    "gridSpatialDim": 64,
+    "dockSpatialDim": 75,
+    "stateDim": 162,
+    "actionDim": 12,
+    "phiDim": 174,
+    "dockSlots": 3,
+    "almostFullLineRatio": 0.78,
+    "actionNorm": {
+      "maxBlockIndex": 3,
+      "shapeSpan": 5,
+      "maxCells": 10,
+      "maxClearsHint": 5,
+      "maxHoles": 16,
+      "maxTransitions": 64,
+      "maxWellDepth": 24,
+      "maxMobility": 192,
+      "maxAdjacent": 20,
+      "nearFullThreshold": 0.75
+    }
+  },
+  "strategies": {
+    "easy": {
+      "id": "easy",
+      "name": "Easy",
+      "fillRatio": 0.15,
+      "scoring": { "singleLine": 10, "multiLine": 30, "combo": 50 },
+      "shapeWeights": {
+        "lines": 2.3,
+        "rects": 1.65,
+        "squares": 1.45,
+        "tshapes": 1.05,
+        "zshapes": 1.05,
+        "lshapes": 1.13,
+        "jshapes": 1.05
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    },
+    "normal": {
+      "id": "normal",
+      "name": "Normal",
+      "fillRatio": 0.2,
+      "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
+      "shapeWeights": {
+        "lines": 2.15,
+        "rects": 1.55,
+        "squares": 1.35,
+        "tshapes": 1.12,
+        "zshapes": 1.12,
+        "lshapes": 1.2,
+        "jshapes": 1.12
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    },
+    "hard": {
+      "id": "hard",
+      "name": "Hard",
+      "fillRatio": 0.25,
+      "scoring": { "singleLine": 30, "multiLine": 90, "combo": 150 },
+      "shapeWeights": {
+        "lines": 2.05,
+        "rects": 1.55,
+        "squares": 1.42,
+        "tshapes": 1.18,
+        "zshapes": 1.18,
+        "lshapes": 1.26,
+        "jshapes": 1.18
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    }
+  }
+}

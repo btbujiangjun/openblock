@@ -1,0 +1,30 @@
+<!--
+  Open Block 微信小程序 — 主菜单
+-->
+<view class="menu-page">
+  <view class="logo-area">
+    <text class="logo-title">Open</text>
+    <text class="logo-star">✦</text>
+    <text class="logo-title">Block</text>
+  </view>
+  <text class="logo-subtitle">方块消除</text>
+
+  <view class="menu-actions">
+    <view class="menu-btn menu-btn--primary" bindtap="onStartNormal">
+      <text class="menu-btn-text">开始游戏</text>
+      <text class="menu-btn-sub">Normal</text>
+    </view>
+    <view class="menu-btn" bindtap="onStartEasy">
+      <text class="menu-btn-text">简单模式</text>
+      <text class="menu-btn-sub">Easy</text>
+    </view>
+    <view class="menu-btn" bindtap="onStartHard">
+      <text class="menu-btn-text">挑战模式</text>
+      <text class="menu-btn-sub">Hard</text>
+    </view>
+  </view>
+
+  <view class="menu-footer">
+    <text class="footer-text">Open Source Block Blast</text>
+  </view>
+</view>

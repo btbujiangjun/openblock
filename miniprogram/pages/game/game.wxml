@@ -1,0 +1,68 @@
+<!--
+  Open Block 微信小程序 — 游戏页面
+  Canvas 2D 绘制棋盘 + touch 事件驱动拖拽放置
+-->
+<view class="game-page">
+
+  <!-- 顶部状态栏 -->
+  <view class="status-bar">
+    <view class="stat">
+      <text class="stat-label">得分</text>
+      <text class="stat-value">{{score}}</text>
+    </view>
+    <view class="stat">
+      <text class="stat-label">步数</text>
+      <text class="stat-value">{{steps}}</text>
+    </view>
+    <view class="stat">
+      <text class="stat-label">消行</text>
+      <text class="stat-value">{{totalClears}}</text>
+    </view>
+  </view>
+
+  <!-- 棋盘 Canvas -->
+  <view class="grid-wrapper">
+    <canvas
+      type="2d"
+      id="game-canvas"
+      class="game-canvas"
+      style="width: {{canvasW}}px; height: {{canvasH}}px;"
+      bindtouchstart="onGridTouchStart"
+      bindtouchmove="onGridTouchMove"
+      bindtouchend="onGridTouchEnd"
+    />
+  </view>
+
+  <!-- 候选块（dock） -->
+  <view class="dock">
+    <view
+      wx:for="{{dock}}"
+      wx:key="index"
+      class="dock-slot {{item.placed ? 'dock-slot--placed' : ''}} {{dragIdx === index ? 'dock-slot--dragging' : ''}}"
+      data-idx="{{index}}"
+      bindtouchstart="onDockTouchStart"
+      bindtouchmove="onDockTouchMove"
+      bindtouchend="onDockTouchEnd"
+    >
+      <canvas
+        wx:if="{{!item.placed}}"
+        type="2d"
+        id="dock-canvas-{{index}}"
+        class="dock-canvas"
+        style="width: {{dockSlotSize}}px; height: {{dockSlotSize}}px;"
+      />
+      <view wx:else class="dock-placed-mark">✓</view>
+    </view>
+  </view>
+
+  <!-- 游戏结束遮罩 -->
+  <view wx:if="{{gameOver}}" class="game-over-overlay" bindtap="onRestart">
+    <view class="game-over-card">
+      <text class="game-over-title">游戏结束</text>
+      <text class="game-over-score">得分：{{score}}</text>
+      <text class="game-over-clears">消行：{{totalClears}}</text>
+      <view class="game-over-btn">再来一局</view>
+    </view>
+  </view>
+
+</view>

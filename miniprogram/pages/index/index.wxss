@@ -1,0 +1,82 @@
+/* Open Block 微信小程序 — 主菜单样式 */
+
+.menu-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 0 48rpx;
+  background-color: var(--bg-primary);
+}
+
+.logo-area {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 8rpx;
+}
+.logo-title {
+  font-size: 72rpx;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+.logo-star {
+  font-size: 48rpx;
+  color: var(--gold);
+  filter: drop-shadow(0 0 6rpx var(--gold));
+}
+.logo-subtitle {
+  font-size: 28rpx;
+  color: var(--text-secondary);
+  margin-bottom: 80rpx;
+  letter-spacing: 0.2em;
+}
+
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+  width: 100%;
+  max-width: 520rpx;
+}
+.menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32rpx 40rpx;
+  background: var(--bg-card);
+  border-radius: 20rpx;
+  border: 2rpx solid rgba(255, 255, 255, 0.06);
+}
+.menu-btn--primary {
+  background: var(--accent);
+  border-color: transparent;
+}
+.menu-btn-text {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.menu-btn--primary .menu-btn-text {
+  color: #fff;
+}
+.menu-btn-sub {
+  font-size: 24rpx;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+.menu-btn--primary .menu-btn-sub {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.menu-footer {
+  position: fixed;
+  bottom: 48rpx;
+}
+.footer-text {
+  font-size: 22rpx;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}

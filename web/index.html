@@ -51,16 +51,18 @@
     <div id="app">
         <div class="header">
             <h1 class="app-wordmark" aria-label="Open Block"></h1>
+        </div>
+        <div class="score-theme-row">
             <div class="header-skin">
                 <div class="skin-picker">
                     <label for="skin-select">主题</label>
                     <select id="skin-select" aria-label="棋盘主题"></select>
                 </div>
             </div>
-        </div>
-        <div class="stats-bar">
-            <div class="stat-box"><div class="stat-label">得分</div><div class="stat-value" id="score">0</div></div>
-            <div class="stat-box"><div class="stat-label">最佳</div><div class="stat-value" id="best">0</div></div>
+            <div class="stats-bar">
+                <div class="stat-box"><div class="stat-label">得分</div><div class="stat-value" id="score">0</div></div>
+                <div class="stat-box"><div class="stat-label">最佳</div><div class="stat-value" id="best">0</div></div>
+            </div>
         </div>
         <div class="progression-hud" id="progression-hud" aria-label="玩家等级">
             <div class="progression-hud-row">
@@ -112,10 +114,11 @@
             </div>
         </div>
     </div>
+    <!-- 侧栏 emoji 与 web/src/uiIcons.js 对齐（静态 HTML 需与 JS 常量同步修改） -->
     <div class="app-side-left" aria-label="左侧工具栏">
     <aside id="player-insight-panel" class="side-panel-base player-insight-panel" aria-label="玩家画像与自适应策略">
         <div class="insight-toolbar">
-            <h3 class="player-insight-title">玩家画像</h3>
+            <h3 class="player-insight-title"><span class="panel-head-icon" aria-hidden="true">👤</span>玩家画像</h3>
             <div class="insight-toolbar-actions">
                 <div class="strategy-btns">
                     <button type="button" class="strategy-btn" data-level="easy">简单</button>
@@ -130,33 +133,68 @@
         </div>
         <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>
         <details class="panel-section" open>
-            <summary class="panel-section-head">能力指标</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🎚️</span>能力指标</summary>
             <div id="insight-ability" class="insight-grid"></div>
         </details>
         <details class="panel-section" open>
-            <summary class="panel-section-head">实时状态</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📡</span>实时状态</summary>
             <div id="insight-state" class="insight-state-row"></div>
             <div id="insight-spawn" class="insight-spawn-row"></div>
         </details>
         <details class="panel-section">
-            <summary class="panel-section-head">实时策略</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🎯</span>实时策略</summary>
             <div id="insight-strategy" class="insight-strategy-section"></div>
         </details>
         <details class="panel-section">
-            <summary class="panel-section-head">策略解释</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">💬</span>策略解释</summary>
             <div id="insight-why" class="insight-why-section"></div>
         </details>
         <div id="insight-hints-section" class="insight-hints-wrap" hidden>
             <div id="insight-hints-list"></div>
         </div>
     </aside>
-    <aside id="rl-panel" class="side-panel-base rl-panel" aria-label="强化学习自博弈">
+    <aside id="spawn-model-panel" class="side-panel-base spawn-model-panel" aria-label="生成式出块模型">
+        <details class="panel-section" open>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块算法</summary>
+            <div class="spawn-mode-switch">
+                <label class="spawn-mode-label">
+                    <span class="spawn-option-icon" aria-hidden="true">📖</span>
+                    <input type="radio" name="spawn-mode" value="rule" checked /> 规则算法
+                </label>
+                <label class="spawn-mode-label">
+                    <span class="spawn-option-icon" aria-hidden="true">✨</span>
+                    <input type="radio" name="spawn-mode" value="model" /> 生成式推荐
+                </label>
+                <span class="spawn-model-status" id="spawn-model-badge">模型未训练</span>
+            </div>
+        </details>
+        <details class="panel-section">
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🏋️</span>模型训练</summary>
+            <div class="spawn-train-controls">
+                <div class="spawn-train-params">
+                    <label title="训练轮数：模型遍历全部训练样本的次数。轮数越多拟合越充分，但过高可能过拟合；建议 30~100">Epochs <input type="number" id="spawn-train-epochs" value="50" min="5" max="500" step="5" /></label>
+                    <label title="最低分数门槛：仅选取得分 ≥ 此值的对局作为训练数据。提高此值可过滤低质量对局，让模型学习更优秀的出块模式">最低分 <input type="number" id="spawn-train-min-score" value="0" min="0" max="500" step="10" /></label>
+                    <label title="最大对局数：从数据库中按分数降序最多取多少局作为训练集。增大可覆盖更多样的玩法，但训练时间也会增加">最大局数 <input type="number" id="spawn-train-max-sessions" value="500" min="10" max="5000" step="50" /></label>
+                </div>
+                <div class="spawn-train-actions">
+                    <button type="button" class="rl-btn" id="spawn-train-start">开始训练</button>
+                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-train-stop" disabled>停止</button>
+                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-model-reload">重载模型</button>
+                </div>
+                <div class="spawn-train-progress" id="spawn-train-progress" hidden>
+                    <div class="spawn-train-bar"><div class="spawn-train-fill" id="spawn-train-fill"></div></div>
+                    <span class="spawn-train-msg" id="spawn-train-msg"></span>
+                </div>
+            </div>
+        </details>
+    </aside>
+    <aside id="rl-panel" class="side-panel-base rl-panel" aria-label="RL 机器人训练">
         <div class="rl-header-row">
-            <h3 class="rl-panel-title">RL 自博弈</h3>
+            <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>RL机器人</h3>
             <label class="rl-backend-toggle"><input type="checkbox" id="rl-use-pytorch" /> PyTorch（<span id="rl-backend-status">未检测</span>）</label>
         </div>
         <details class="panel-section" open>
-            <summary class="panel-section-head">统计 &amp; 操作</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📋</span>统计 &amp; 操作</summary>
             <div class="rl-stats">
                 <div><span>局数</span><strong id="rl-episodes">0</strong></div>
                 <div><span>均分</span><strong id="rl-avg-score">—</strong></div>
@@ -171,12 +209,12 @@
             </div>
         </details>
         <details class="panel-section">
-            <summary class="panel-section-head">训练损失</summary>
-            <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📜</span>训练进展</summary>
+            <pre class="rl-log rl-log--episode" id="rl-progress-log" aria-live="polite"></pre>
         </details>
         <details class="panel-section">
-            <summary class="panel-section-head">训练进展</summary>
-            <pre class="rl-log rl-log--episode" id="rl-progress-log" aria-live="polite"></pre>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📉</span>训练损失</summary>
+            <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
         </details>
     </aside>
     <!-- 回放详情：放在左栏底部，不遮挡中央棋盘 -->
@@ -200,10 +238,10 @@
     </div>
     </div>
     <aside id="rl-dash-panel" class="rl-dash-panel" aria-label="RL 训练看板">
-        <h3 class="rl-dash-title">训练看板</h3>
+        <h3 class="rl-dash-title"><span class="panel-head-icon" aria-hidden="true">📊</span>训练看板</h3>
         <details class="panel-section" open>
-            <summary class="panel-section-head">摘要 &amp; 工具</summary>
-            <p class="rl-dash-hint">曲线来自 <code>train_episode</code>。得分/胜率需日志含 <code>score</code>/<code>won</code>（新版前端训练会自动写入）；旧数据无得分字段时摘要会提示。</p>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🧰</span>摘要 &amp; 工具</summary>
+            <p class="rl-dash-hint">曲线来自 <code>train_episode</code>：PyTorch 后端读服务端 JSONL；未勾选 PyTorch 时由浏览器训练写入本机（localStorage）并在此出图。得分/胜率需含 <code>score</code>/<code>won</code>。</p>
             <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
             <div class="rl-dash-toolbar">
                 <label class="rl-dash-auto"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
@@ -217,7 +255,7 @@
             </div>
         </details>
         <details class="panel-section" open>
-            <summary class="panel-section-head">训练曲线</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📈</span>训练曲线</summary>
             <div id="rl-chart-root" class="rl-chart-root"></div>
         </details>
     </aside>

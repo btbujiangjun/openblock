@@ -85,7 +85,7 @@ export function resolveLayeredStrategy(baseStrategyId, score, runStreak) {
     const totalStress = Math.min(1, scoreStress + run.stressBonus);
     const shapeWeights = blendShapeWeightsTowardHard(baseStrategyId, totalStress);
     let fillRatio = (base.fillRatio ?? 0.2) + run.fillDelta;
-    fillRatio = Math.min(0.36, Math.max(0.06, fillRatio));
+    fillRatio = Math.min(0.36, Math.max(0, fillRatio));
     return {
         ...base,
         shapeWeights,

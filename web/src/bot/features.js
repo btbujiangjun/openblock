@@ -257,6 +257,16 @@ export function extractStateFeatures(grid, dock) {
     const { close1, close2 } = linesCloseToClear(grid);
     const mobility = dockMobility(grid, dock);
 
+    const colHeights = new Array(n);
+    for (let x = 0; x < n; x++) {
+        let h = 0;
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) { h = n - y; break; }
+        }
+        colHeights[x] = h;
+    }
+    const heightStd = stdDev(colHeights.map(h => h / n));
+
     const scalars = new Float32Array([
         filled / area,
         maxRow,
@@ -273,7 +283,6 @@ export function extractStateFeatures(grid, dock) {
         maxRow - minRow,
         maxCol - minCol,
         (almostFullRows + almostFullCols) / (2 * n),
-        // --- 8 new features ---
         Math.min(holes / _MAX_HOLES, 1.0),
         Math.min(rowTrans / _MAX_TRANS, 1.0),
         Math.min(colTrans / _MAX_TRANS, 1.0),
@@ -281,7 +290,7 @@ export function extractStateFeatures(grid, dock) {
         Math.min(close1 / n, 1.0),
         Math.min(close2 / n, 1.0),
         Math.min(mobility / _MAX_MOB, 1.0),
-        filled / area,
+        heightStd,
     ]);
     if (scalars.length !== STATE_SCALAR_DIM) {
         throw new Error(`标量段长度 ${scalars.length} != stateScalarDim ${STATE_SCALAR_DIM}`);

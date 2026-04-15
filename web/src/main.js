@@ -7,6 +7,7 @@ import { Game } from './game.js';
 import { initRLPanel } from './bot/rlPanel.js';
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';
+import { initSpawnModelPanel } from './spawnModelPanel.js';
 import { applySkinToDocument, getActiveSkin } from './skins.js';
 import { mountBlockWordmarks } from './blockWordmark.js';
 
@@ -20,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initReplayUI(game);
     initPlayerInsightPanel(game);
     initRLPanel(game);
+    initSpawnModelPanel(game);
     try {
         await game.init();
         if (bootErr) {

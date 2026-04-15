@@ -9,6 +9,10 @@ import {
 } from './moveSequence.js';
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 
+function _attrTitle(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
 /**
  * 对局序列回放 UI（帧数据来自 SQLite / move_sequences）
  * @param {import('./game.js').Game} game
@@ -71,7 +75,8 @@ export function initReplayUI(game) {
         for (const m of data.metrics) {
             const s = data.series[m.key];
             const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
-            html += `<div class="replay-series-cell" data-key="${m.key}">` +
+            const tip = m.tooltip || '';
+            html += `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(tip)}">` +
                 `<span class="series-label" style="color:${color}">${m.label}</span>` +
                 `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
                 `<span class="series-value">—</span></div>`;

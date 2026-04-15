@@ -121,6 +121,9 @@ export function buildPlayerStateSnapshot(profile, ctx) {
         hadNearMiss: profile.hadRecentNearMiss,
         isNewPlayer: profile.isNewPlayer,
         recentComboStreak: profile.recentComboStreak,
+        historicalSkill: profile.historicalSkill,
+        trend: profile.trend,
+        confidence: profile.confidence,
         metrics: {
             thinkMs: m.thinkMs,
             clearRate: m.clearRate,
@@ -141,6 +144,9 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             momentum: a.momentum,
             frustration: a.frustration,
             sessionPhase: a.sessionPhase,
+            trend: a.trend,
+            confidence: a.confidence,
+            historicalSkill: a.historicalSkill,
             spawnHints: a.spawnHints ?? null,
             shapeWeightsTop: a.shapeWeightsTop ?? null
         };
@@ -347,20 +353,104 @@ export function displayScoreFromReplayFrames(frames) {
 
 /* ── Replay Series Metrics ── */
 
-/** 回放时间序列与实时状态序列共用字段定义 */
+/** 回放时间序列与实时状态序列共用字段定义（tooltip：鼠标悬停时的物理含义说明） */
 export const REPLAY_METRICS = [
-    { key: 'score',         label: '得分',   group: 'game',    extract: ps => ps.score,                fmt: 'int' },
-    { key: 'skill',         label: '技能',   group: 'ability', extract: ps => ps.skill,                fmt: 'pct' },
-    { key: 'boardFill',     label: '板面',   group: 'game',    extract: ps => ps.boardFill,            fmt: 'pct' },
-    { key: 'clearRate',     label: '消行率', group: 'ability', extract: ps => ps.metrics?.clearRate,   fmt: 'pct' },
-    { key: 'stress',        label: '压力',   group: 'spawn',   extract: ps => ps.adaptive?.stress,     fmt: 'f2' },
-    { key: 'flowDeviation', label: 'F(t)',   group: 'state',   extract: ps => ps.flowDeviation,        fmt: 'f2' },
-    { key: 'momentum',      label: '动量',   group: 'state',   extract: ps => ps.momentum,             fmt: 'f2' },
-    { key: 'frustration',   label: '未消行', group: 'state',   extract: ps => ps.frustration,          fmt: 'int' },
-    { key: 'cognitiveLoad', label: '负荷',   group: 'state',   extract: ps => ps.cognitiveLoad,        fmt: 'pct' },
-    { key: 'missRate',      label: '失误',   group: 'ability', extract: ps => ps.metrics?.missRate,    fmt: 'pct' },
-    { key: 'thinkMs',       label: '思考',   group: 'ability', extract: ps => ps.metrics?.thinkMs,     fmt: 'int' },
-    { key: 'feedbackBias',  label: '闭环',   group: 'spawn',   extract: ps => ps.feedbackBias,         fmt: 'f3' },
+    {
+        key: 'score',
+        label: '得分',
+        group: 'game',
+        extract: ps => ps.score,
+        fmt: 'int',
+        tooltip: '本局累计得分。分数越高通常局面张力越大，也是自适应出块在「多档形状权重」之间切换的重要输入之一。'
+    },
+    {
+        key: 'skill',
+        label: '技能',
+        group: 'ability',
+        extract: ps => ps.skill,
+        fmt: 'pct',
+        tooltip: '综合技能估计（0～100%）：融合本局滑动窗口内的即时表现与历史长周期能力；越高表示系统认为玩家当前操作与决策水平越好，可略提高挑战。'
+    },
+    {
+        key: 'boardFill',
+        label: '板面',
+        group: 'game',
+        extract: ps => ps.boardFill,
+        fmt: 'pct',
+        tooltip: '棋盘占用率：已被方块占据的格子比例。越高表示剩余可落子空间越少、死局风险越大，恢复与救济型出块会更敏感。'
+    },
+    {
+        key: 'clearRate',
+        label: '消行率',
+        group: 'ability',
+        extract: ps => ps.metrics?.clearRate,
+        fmt: 'pct',
+        tooltip: '近期窗口内「落子后成功消行」的步数占比。越高说明玩家持续在有效清除行列，是衡量「打得顺」的核心能力指标之一。'
+    },
+    {
+        key: 'stress',
+        label: '压力',
+        group: 'spawn',
+        extract: ps => ps.adaptive?.stress,
+        fmt: 'f2',
+        tooltip: '自适应综合压力：由分数档、连战、技能、心流偏移、节奏、恢复需求、挫败、连击、近失、闭环反馈等信号叠加并钳制得到，用于在配置的多档形状权重之间插值。'
+    },
+    {
+        key: 'flowDeviation',
+        label: 'F(t)',
+        group: 'state',
+        extract: ps => ps.flowDeviation,
+        fmt: 'f2',
+        tooltip: '心流偏移 F(t)：衡量当前挑战强度与玩家能力匹配程度（0 为理想心流区）。数值升高多表示「偏难或焦虑」；降低多表示「偏易或无聊」，会驱动心流三态与压力微调。'
+    },
+    {
+        key: 'momentum',
+        label: '动量',
+        group: 'state',
+        extract: ps => ps.momentum,
+        fmt: 'f2',
+        tooltip: '动量：反映近期得分/消行是否处于上升趋势（正反馈累积）。为正时常略加压以延续爽感；为负时可能减压避免连跪挫败。'
+    },
+    {
+        key: 'frustration',
+        label: '未消行',
+        group: 'state',
+        extract: ps => ps.frustration,
+        fmt: 'int',
+        tooltip: '连续未消行的步数（挫败计数）。越大表示玩家越久没有有效清除，系统越倾向救济：降压、提高消行友好与偏小尺寸偏好。'
+    },
+    {
+        key: 'cognitiveLoad',
+        label: '负荷',
+        group: 'state',
+        extract: ps => ps.cognitiveLoad,
+        fmt: 'pct',
+        tooltip: '认知负荷：由思考时间、操作密度、局面复杂度等综合估计的决策压力。偏高时常略降难度或缩短「决策窗口」带来的压迫感。'
+    },
+    {
+        key: 'missRate',
+        label: '失误',
+        group: 'ability',
+        extract: ps => ps.metrics?.missRate,
+        fmt: 'pct',
+        tooltip: '近期窗口内坏手/无效放置占比。越高表示失误增多，常与减压、消行友好块型、恢复策略联动。'
+    },
+    {
+        key: 'thinkMs',
+        label: '思考',
+        group: 'ability',
+        extract: ps => ps.metrics?.thinkMs,
+        fmt: 'int',
+        tooltip: '平均思考时间（毫秒）：从候选块出现到落子的间隔。过长可能推高焦虑与负荷；过短可能进入无聊区，均会参与心流判断。'
+    },
+    {
+        key: 'feedbackBias',
+        label: '闭环',
+        group: 'spawn',
+        extract: ps => ps.feedbackBias,
+        fmt: 'f3',
+        tooltip: '闭环反馈偏差：上一轮出新块后，在短窗口内实际消行相对「预期」的差值。为正表示好于预期可略加压；为负表示不及预期应减压，用于微调下一轮投放。'
+    }
 ];
 
 /**

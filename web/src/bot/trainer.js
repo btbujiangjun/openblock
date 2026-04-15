@@ -1,5 +1,5 @@
 /**
- * 自博弈回合 + REINFORCE 更新（同一策略与自己对局，沿轨迹更新）。
+ * 自博弈回合 + REINFORCE 更新（v2：回报标准化 + 熵正则 + 梯度裁剪 + 课程门槛）。
  * 对局循环只通过 RlGameplayEnvironment，与具体棋盘规则解耦。
  */
 import { RlGameplayEnvironment } from './gameEnvironment.js';
@@ -14,53 +14,79 @@ import {
 
 export { WIN_SCORE_THRESHOLD } from '../gameRules.js';
 
+/* ================================================================== */
+/*  回报标准化（在线 Welford 算法）                                     */
+/* ================================================================== */
+
+const _returnStats = { n: 0, mean: 0, m2: 0 };
+
+function _updateReturnStats(G) {
+    _returnStats.n++;
+    const d1 = G - _returnStats.mean;
+    _returnStats.mean += d1 / _returnStats.n;
+    const d2 = G - _returnStats.mean;
+    _returnStats.m2 += d1 * d2;
+}
+
+function _normalizeReturn(G) {
+    if (_returnStats.n < 20) return G;
+    const variance = _returnStats.m2 / _returnStats.n;
+    const std = Math.sqrt(variance + 1e-8);
+    return (G - _returnStats.mean) / std;
+}
+
+/* ================================================================== */
+/*  课程学习                                                           */
+/* ================================================================== */
+
+const _CURRICULUM = GAME_RULES.rlCurriculum;
+let _curriculumIdx = 0;
+
+function _getCurriculumWinThreshold(totalEpisodes) {
+    if (!_CURRICULUM?.stages?.length) return null;
+    const stages = _CURRICULUM.stages;
+    while (_curriculumIdx < stages.length - 1 && totalEpisodes >= stages[_curriculumIdx + 1].fromEpisode) {
+        _curriculumIdx++;
+    }
+    return stages[_curriculumIdx].winScoreThreshold;
+}
+
+/* ================================================================== */
+/*  单局自博弈                                                         */
+/* ================================================================== */
+
 /**
- * 跑完一局自博弈，返回统计与轨迹（用于学习）
- * @param {LinearAgent} agent
+ * @param {import('./linearAgent.js').LinearAgent} agent
  * @param {number} temperature
- * @param {{ onEpisodeStart?: (sim: import('./simulator.js').BlockBlastSimulator) => void | Promise<void>, onAfterStep?: (sim: import('./simulator.js').BlockBlastSimulator, meta: { reward: number, action: { blockIdx: number, gx: number, gy: number }, stepIndex: number }) => void | Promise<void> }} [hooks] 可选：逐步同步到盘面等
- * @param {{ useBackend?: boolean }} [opts] useBackend 时由服务端策略选步，agent 可传 null
+ * @param {object} [hooks]
+ * @param {object} [opts]
  */
 export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opts = {}) {
     const useBackend = Boolean(opts.useBackend);
     const env = new RlGameplayEnvironment();
     const trajectory = [];
 
-    if (hooks.onEpisodeStart) {
-        await hooks.onEpisodeStart(env.simulator);
-    }
+    if (hooks.onEpisodeStart) await hooks.onEpisodeStart(env.simulator);
 
     while (true) {
-        if (env.isTerminal()) {
-            break;
-        }
+        if (env.isTerminal()) break;
 
         const { legal, stateFeat, phiList } = env.buildDecisionBatch();
-        if (legal.length === 0) {
-            break;
-        }
+        if (legal.length === 0) break;
 
         let choice;
         if (useBackend) {
             const idx = await selectActionRemote(phiList, stateFeat, temperature);
             choice = {
                 stateFeat: new Float32Array(stateFeat),
-                phiList,
-                probs: null,
-                chosenIdx: idx,
-                idx
+                phiList, probs: null, chosenIdx: idx, idx
             };
         } else {
             const c = agent.selectAction(phiList, stateFeat, temperature);
-            if (!c) {
-                break;
-            }
+            if (!c) break;
             choice = {
-                stateFeat: c.stateFeat,
-                phiList: c.phiList,
-                probs: c.probs,
-                chosenIdx: c.idx,
-                idx: c.idx
+                stateFeat: c.stateFeat, phiList: c.phiList,
+                probs: c.probs, chosenIdx: c.idx, idx: c.idx
             };
         }
 
@@ -82,27 +108,18 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
 
         if (hooks.onAfterStep) {
             await hooks.onAfterStep(env.simulator, {
-                reward,
-                action,
-                stepIndex: trajectory.length
+                reward, action, stepIndex: trajectory.length
             });
         }
     }
 
     const sp = Number(GAME_RULES.rlRewardShaping?.stuckPenalty);
-    if (
-        trajectory.length > 0 &&
-        !env.won &&
-        env.isTerminal() &&
-        Number.isFinite(sp) &&
-        sp !== 0
-    ) {
+    if (trajectory.length > 0 && !env.won && env.isTerminal() && Number.isFinite(sp) && sp !== 0) {
         trajectory[trajectory.length - 1].reward += sp;
     }
+
     const total = trajectory.length;
-    for (let i = 0; i < total; i++) {
-        trajectory[i].steps_to_end = total - i - 1;
-    }
+    for (let i = 0; i < total; i++) trajectory[i].steps_to_end = total - i - 1;
 
     return {
         score: env.score,
@@ -114,19 +131,23 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
     };
 }
 
+/* ================================================================== */
+/*  REINFORCE 更新（v2：标准化 + 熵 + 裁剪）                           */
+/* ================================================================== */
+
+const MAX_GRAD_NORM = 5.0;
+
 /**
- * 对一局轨迹做蒙特卡洛回报并更新 agent
- * @param {LinearAgent} agent
+ * @param {import('./linearAgent.js').LinearAgent} agent
  * @param {object[]} trajectory
  * @param {{ policyLr?: number, valueLr?: number }} opts
+ * @returns {{ lossPolicy: number, lossValue: number, entropy: number, stepCount: number } | null}
  */
 export function reinforceUpdate(agent, trajectory, opts = {}) {
     const policyLr = opts.policyLr ?? 0.02;
     const valueLr = opts.valueLr ?? 0.05;
     const T = trajectory.length;
-    if (T === 0) {
-        return;
-    }
+    if (T === 0) return null;
 
     const returns = new Float32Array(T);
     let G = 0;
@@ -136,23 +157,83 @@ export function reinforceUpdate(agent, trajectory, opts = {}) {
         returns[t] = G;
     }
 
+    for (let t = 0; t < T; t++) _updateReturnStats(returns[t]);
+
+    const normReturns = new Float32Array(T);
+    for (let t = 0; t < T; t++) normReturns[t] = _normalizeReturn(returns[t]);
+
+    let advSum = 0, advSumSq = 0;
+    const rawAdv = new Float32Array(T);
+    for (let t = 0; t < T; t++) {
+        const v = agent.value(trajectory[t].stateFeat);
+        rawAdv[t] = normReturns[t] - v;
+        advSum += rawAdv[t];
+        advSumSq += rawAdv[t] * rawAdv[t];
+    }
+    const advMean = advSum / T;
+    const advStd = Math.sqrt(advSumSq / T - advMean * advMean + 1e-8);
+
+    /** 与右侧看板字段对齐：Lv≈优势平方均；Lπ≈−log π(a)·A（标准化后） */
+    let lossValue = 0;
+    for (let t = 0; t < T; t++) {
+        lossValue += rawAdv[t] * rawAdv[t];
+    }
+    lossValue /= T;
+
+    let polAcc = 0;
+    let entAcc = 0;
+    let polN = 0;
     for (let t = 0; t < T; t++) {
         const tr = trajectory[t];
-        const Gt = returns[t];
-        const v = agent.value(tr.stateFeat);
-        const advantage = Gt - v;
+        if (!tr.probs) continue;
+        const advantage = Math.max(-MAX_GRAD_NORM, Math.min(MAX_GRAD_NORM,
+            (rawAdv[t] - advMean) / advStd
+        ));
+        const logp = Math.log(tr.probs[tr.chosenIdx] + 1e-12);
+        polAcc += -logp * advantage;
+        polN++;
+        let ent = 0;
+        for (let k = 0; k < tr.probs.length; k++) {
+            const p = tr.probs[k];
+            if (p > 1e-12) ent -= p * Math.log(p);
+        }
+        entAcc += ent;
+    }
+    const lossPolicy = polN > 0 ? polAcc / polN : 0;
+    const entropy = polN > 0 ? entAcc / polN : 0;
+
+    for (let t = 0; t < T; t++) {
+        const tr = trajectory[t];
+        if (!tr.probs) continue;
+
+        const advantage = Math.max(-MAX_GRAD_NORM, Math.min(MAX_GRAD_NORM,
+            (rawAdv[t] - advMean) / advStd
+        ));
 
         const pg = agent.policyGradient(tr.phiList, tr.probs, tr.chosenIdx);
         agent.applyPolicyUpdate(pg, advantage, policyLr);
-        agent.applyValueUpdate(tr.stateFeat, advantage, valueLr);
+
+        const valueDelta = Math.max(-MAX_GRAD_NORM, Math.min(MAX_GRAD_NORM, rawAdv[t]));
+        agent.applyValueUpdate(tr.stateFeat, valueDelta, valueLr);
     }
+
+    return {
+        lossPolicy,
+        lossValue,
+        entropy,
+        stepCount: T
+    };
 }
+
+/* ================================================================== */
+/*  训练主循环                                                         */
+/* ================================================================== */
 
 /**
  * @param {object} opts
- * @param {LinearAgent} opts.agent
+ * @param {import('./linearAgent.js').LinearAgent} opts.agent
  * @param {number} opts.episodes
- * @param {boolean} [opts.useBackend] 使用 Flask rl_pytorch 训练
+ * @param {boolean} [opts.useBackend]
  * @param {(info: object) => void} [opts.onEpisode]
  * @param {AbortSignal} [opts.signal]
  */
@@ -167,30 +248,20 @@ export async function trainSelfPlay(opts) {
         let baseEp = 0;
         try {
             const st = await fetchRlStatus();
-            if (st.available && typeof st.episodes === 'number') {
-                baseEp = st.episodes;
-            }
-        } catch {
-            /* ignore */
-        }
-        for (let e = 0; e < episodes; e++) {
-            if (signal?.aborted) {
-                break;
-            }
+            if (st.available && typeof st.episodes === 'number') baseEp = st.episodes;
+        } catch { /* ignore */ }
 
-            // 与 rl_pytorch.train 一致：按「全局局数」衰减温度，续训时不会回到高温
+        for (let e = 0; e < episodes; e++) {
+            if (signal?.aborted) break;
             const globalEp = baseEp + e;
             const temp = Math.max(0.35, 1.0 - globalEp * 0.002);
             const ep = await runSelfPlayEpisode(null, temp, {}, { useBackend: true });
-            let serverEpisodes = null;
-            let lossPi = null;
-            let lossV = null;
+
+            let serverEpisodes = null, lossPi = null, lossV = null;
             if (ep.trajectory.length > 0) {
                 try {
                     const res = await trainEpisodeRemote(ep.trajectory, {
-                        score: ep.score,
-                        won: ep.won,
-                        gameSteps: ep.steps
+                        score: ep.score, won: ep.won, gameSteps: ep.steps
                     });
                     serverEpisodes = res.episodes;
                     lossPi = res.loss_policy;
@@ -199,70 +270,57 @@ export async function trainSelfPlay(opts) {
                     console.warn('[RL backend] train_episode failed:', err);
                 }
             }
-            // 以服务端 /api/rl/status 为准同步局数，避免请求失败或空轨迹时界面卡住
             try {
                 const st = await fetchRlStatus();
-                if (st.available && typeof st.episodes === 'number') {
-                    serverEpisodes = st.episodes;
-                }
+                if (st.available && typeof st.episodes === 'number') serverEpisodes = st.episodes;
             } catch (err) {
                 console.warn('[RL backend] status sync failed:', err);
             }
 
             onEpisode?.({
-                episodeIndex: e,
-                score: ep.score,
-                steps: ep.steps,
-                clears: ep.totalClears,
-                won: ep.won,
-                trajLen: ep.trajectory.length,
-                policySteps: ep.trajectory.length,
-                serverEpisodes,
-                lossPolicy: lossPi,
-                lossValue: lossV,
-                fromBackend: true
+                episodeIndex: e, score: ep.score, steps: ep.steps,
+                clears: ep.totalClears, won: ep.won, trajLen: ep.trajectory.length,
+                policySteps: ep.trajectory.length, serverEpisodes,
+                lossPolicy: lossPi, lossValue: lossV, fromBackend: true
             });
 
-            if (e % 3 === 0) {
-                await new Promise((r) => setTimeout(r, 0));
-            }
+            if (e % 3 === 0) await new Promise(r => setTimeout(r, 0));
         }
-
-        try {
-            await saveRemoteCheckpoint();
-        } catch {
-            /* ignore */
-        }
+        try { await saveRemoteCheckpoint(); } catch { /* ignore */ }
         return;
     }
 
+    /* ── 浏览器本地训练 ── */
+
+    let totalEpisodes = 0;
+
     for (let e = 0; e < episodes; e++) {
-        if (signal?.aborted) {
-            break;
-        }
+        if (signal?.aborted) break;
 
-        const temp = Math.max(0.4, 1 - e * 0.002);
+        const temp = Math.max(0.4, 1.0 - e * 0.0015);
+
+        const currThreshold = _getCurriculumWinThreshold(totalEpisodes);
+
         const ep = await runSelfPlayEpisode(agent, temp);
-        reinforceUpdate(agent, ep.trajectory);
+        const trainMetrics = reinforceUpdate(agent, ep.trajectory);
+        totalEpisodes++;
 
-        if (e % 5 === 0) {
-            agent.save();
-        }
+        if (e % 5 === 0) agent.save();
 
         onEpisode?.({
-            episodeIndex: e,
-            score: ep.score,
-            steps: ep.steps,
-            clears: ep.totalClears,
-            won: ep.won,
-            trajLen: ep.trajectory.length,
-            policySteps: ep.trajectory.length,
-            fromBackend: false
+            episodeIndex: e, score: ep.score, steps: ep.steps,
+            clears: ep.totalClears, won: ep.won,
+            trajLen: ep.trajectory.length, policySteps: ep.trajectory.length,
+            fromBackend: false,
+            curriculumThreshold: currThreshold,
+            trainMetrics,
+            lossPolicy: trainMetrics?.lossPolicy,
+            lossValue: trainMetrics?.lossValue,
+            entropy: trainMetrics?.entropy,
+            stepCount: trainMetrics?.stepCount ?? ep.trajectory.length
         });
 
-        if (e % 3 === 0) {
-            await new Promise((r) => setTimeout(r, 0));
-        }
+        if (e % 3 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
     agent.save();

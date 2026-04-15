@@ -249,7 +249,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null) {
         p.className = 'rl-dash-empty';
         p.textContent =
             rows.length === 0
-                ? '暂无 train_episode 记录。勾选 PyTorch 后端并开始训练后刷新。'
+                ? '暂无 train_episode 记录。勾选 PyTorch 后端训练并刷新，或使用浏览器训练（指标写入本机后自动出曲线）。'
                 : '至少需要 2 条训练记录才能绘制曲线。';
         root.appendChild(p);
         return;

@@ -3,7 +3,7 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
-import { resolveAdaptiveStrategy } from './adaptiveSpawn.js';
+import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from './adaptiveSpawn.js';
 import { PlayerProfile } from './playerProfile.js';
 import { GAME_RULES } from './gameRules.js';
 import {
@@ -19,10 +19,12 @@ import {
     SKIN_LIST,
     applySkinToDocument,
     getActiveSkin,
-    SKINS
+    SKINS,
+    DEFAULT_SKIN_ID
 } from './skins.js';
 import { Grid } from './grid.js';
-import { generateDockShapes } from './bot/blockSpawn.js';
+import { generateDockShapes, resetSpawnMemory, getLastSpawnDiagnostics } from './bot/blockSpawn.js';
+import { getSpawnMode, predictShapes } from './spawnModel.js';
 import {
     buildInitFrame,
     buildPlaceFrame,
@@ -56,7 +58,7 @@ export class Game {
         this.bestScore = 0;
         this.dockBlocks = [];
         this.sessionId = null;
-        this.strategy = 'normal';
+        this.strategy = localStorage.getItem('openblock_strategy') || 'normal';
         /** 连战计数：主菜单「开始游戏」清零；再来一局 / 死局重开 +1 */
         this.runStreak = 0;
 
@@ -89,10 +91,15 @@ export class Game {
         /** 连续消行落子计数，未消行的落子重置为 0 */
         this._clearStreak = 0;
 
+        /** 跨轮出块上下文：传给 adaptiveSpawn + blockSpawn 的三层信号 */
+        this._spawnContext = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false };
+
         this.behaviors = [];
         this.backendSync = new BackendSync(this.db.userId);
         /** @type {ReturnType<typeof setTimeout> | null} */
         this._noMovesTimer = null;
+        /** 模型异步出块进行中，跳过 game over 检查 */
+        this._spawnPending = false;
 
         /** 玩家实时能力画像（跨局持久化） */
         this.playerProfile = PlayerProfile.load();
@@ -158,6 +165,7 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             stress: layered._adaptiveStress,
+            difficultyBias: layered._difficultyBias,
             flowState: layered._flowState,
             flowDeviation: layered._flowDeviation,
             feedbackBias: layered._feedbackBias,
@@ -166,7 +174,15 @@ export class Game {
             momentum: layered._momentum,
             frustration: layered._frustration,
             sessionPhase: layered._sessionPhase,
+            trend: layered._trend,
+            confidence: layered._confidence,
+            historicalSkill: layered._historicalSkill,
+            sessionArc: layered._sessionArc,
+            comboChain: layered._comboChain,
+            rhythmPhase: layered._rhythmPhase,
+            milestoneHit: layered._milestoneHit,
             spawnHints: layered.spawnHints ? { ...layered.spawnHints } : null,
+            spawnDiagnostics: getLastSpawnDiagnostics(),
             fillRatio: layered.fillRatio,
             shapeWeightsTop: _topShapeWeightEntries(layered.shapeWeights, 5)
         };
@@ -190,6 +206,8 @@ export class Game {
         try {
             await this.db.init();
             this.bestScore = await this.db.getBestScore();
+            const stats = await this.db.getStats();
+            this.playerProfile.ingestHistoricalStats(stats);
         } catch (err) {
             console.error('SQLite API 初始化失败:', err);
             this.bestScore = 0;
@@ -230,10 +248,18 @@ export class Game {
                 document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.strategy = btn.dataset.level;
+                localStorage.setItem('openblock_strategy', this.strategy);
                 this.runStreak = 0;
                 this._updateRunStreakHint();
             };
         });
+        /* 恢复上次选中的难度按钮 */
+        const saved = this.strategy;
+        if (saved !== 'normal') {
+            document.querySelectorAll('.strategy-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.level === saved);
+            });
+        }
 
         const skinSelect = document.getElementById('skin-select');
         if (skinSelect) {
@@ -273,8 +299,8 @@ export class Game {
         skinSelect.innerHTML = SKIN_LIST.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
         let current = getActiveSkinId();
         if (!SKINS[current]) {
-            setActiveSkinId('classic');
-            current = 'classic';
+            setActiveSkinId(DEFAULT_SKIN_ID);
+            current = DEFAULT_SKIN_ID;
             applySkinToDocument(getActiveSkin());
         }
         skinSelect.value = current;
@@ -347,11 +373,14 @@ export class Game {
                 startTime: Date.now()
             };
             this._clearStreak = 0;
+            this._spawnContext = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false };
+            resetSpawnMemory();
+            resetAdaptiveMilestone();
 
             this.playerProfile.recordNewGame();
 
             const baseStrategy = getStrategy(this.strategy);
-            const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0);
+            const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, this._spawnContext);
             this.grid.size = layeredOpen.gridWidth || CONFIG.GRID_SIZE;
             this.renderer.setGridSize(this.grid.size);
 
@@ -534,10 +563,62 @@ export class Game {
      */
     spawnBlocks(opts = {}) {
         const layered = resolveAdaptiveStrategy(
-            this.strategy, this.playerProfile, this.score, this.runStreak, this.grid.getFillRatio()
+            this.strategy, this.playerProfile, this.score, this.runStreak,
+            this.grid.getFillRatio(), this._spawnContext
         );
         this._captureAdaptiveInsight(layered);
-        const shapes = generateDockShapes(this.grid, layered);
+
+        const mode = getSpawnMode();
+        if (mode === 'model') {
+            this._spawnBlocksWithModel(layered, opts);
+            return;
+        }
+
+        this._commitSpawn(generateDockShapes(this.grid, layered, this._spawnContext), layered, opts, 'rule');
+    }
+
+    /**
+     * 模型模式：异步请求推理，失败则回退规则算法
+     * @private
+     */
+    _spawnBlocksWithModel(layered, opts) {
+        this._spawnPending = true;
+
+        const history = (this._spawnContext.recentModelHistory || []).slice(-3);
+        while (history.length < 3) history.unshift([0, 0, 0]);
+
+        const finish = (shapes, source) => {
+            this._commitSpawn(shapes, layered, opts, source);
+            this._spawnPending = false;
+            this.checkGameOver();
+        };
+
+        predictShapes(this.grid, this.playerProfile, history, this._lastAdaptiveInsight).then((modelShapes) => {
+            if (modelShapes && modelShapes.length >= 3) {
+                const ids = modelShapes.map(s => {
+                    const vocab = ['1x4','4x1','1x5','5x1','2x3','3x2','2x2','3x3','t-up','t-down','t-left','t-right','z-h','z-h2','z-v','z-v2','l-1','l-2','l-3','l-4','l5-a','l5-b','l5-c','l5-d','j-1','j-2','j-3','j-4'];
+                    return vocab.indexOf(s.id);
+                });
+                if (!this._spawnContext.recentModelHistory) this._spawnContext.recentModelHistory = [];
+                this._spawnContext.recentModelHistory.push(ids);
+                if (this._spawnContext.recentModelHistory.length > 5) this._spawnContext.recentModelHistory.shift();
+
+                finish(modelShapes, 'model');
+            } else {
+                finish(generateDockShapes(this.grid, layered, this._spawnContext), 'rule-fallback');
+            }
+        }).catch(() => {
+            finish(generateDockShapes(this.grid, layered, this._spawnContext), 'rule-fallback');
+        });
+    }
+
+    /**
+     * 共用出块提交逻辑
+     * @private
+     */
+    _commitSpawn(shapes, layered, opts, source) {
+        this._spawnContext.totalRounds++;
+        this._spawnContext.scoreMilestone = false;
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
 
@@ -557,6 +638,9 @@ export class Game {
                 placed: false
             });
         }
+
+        this._lastAdaptiveInsight = this._lastAdaptiveInsight || {};
+        this._lastAdaptiveInsight.spawnSource = source || 'rule';
 
         this._pushSpawnToSequence(descriptors);
 
@@ -821,8 +905,11 @@ export class Game {
             this._pushPlaceToSequence(this.drag.index, placedPos.x, placedPos.y, result);
 
             if (result.count > 0) {
+                this._spawnContext.lastClearCount = result.count;
+                this._spawnContext.roundsSinceClear = 0;
                 this.playClearEffect(result);
             } else {
+                this._spawnContext.lastClearCount = 0;
                 this._clearStreak = 0;
                 this.logBehavior(GAME_EVENTS.NO_CLEAR, {
                     blockIndex: this.drag.index,
@@ -836,6 +923,9 @@ export class Game {
                 if (dockBlock) dockBlock.style.visibility = 'hidden';
 
                 if (this.dockBlocks.every(b => b.placed)) {
+                    if (this._spawnContext.lastClearCount === 0) {
+                        this._spawnContext.roundsSinceClear++;
+                    }
                     this.spawnBlocks();
                 }
 
@@ -996,8 +1086,10 @@ export class Game {
 
     checkGameOver() {
         if (this.isGameOver) return;
+        if (this._spawnPending) return;
         if (document.querySelector('.no-moves-overlay')) return;
         const remaining = this.dockBlocks.filter(b => !b.placed);
+        if (remaining.length === 0) return;
         if (!this.grid.hasAnyMove(remaining)) {
             this.showNoMovesWarning();
         }
@@ -1015,7 +1107,7 @@ export class Game {
 
         const msg = document.createElement('div');
         msg.className = 'no-moves-overlay-msg';
-        msg.textContent = '没有可用步数';
+        msg.textContent = '没可用空间';
         wrap.appendChild(msg);
 
         const btn = document.createElement('button');
@@ -1071,6 +1163,11 @@ export class Game {
                     totalClears: this.gameStats.clears,
                     maxCombo: this.gameStats.maxCombo,
                     duration: Date.now() - this.gameStats.startTime
+                });
+
+                this.playerProfile.recordSessionEnd({
+                    score: this.score,
+                    ...this.gameStats
                 });
 
                 await this.saveSession();

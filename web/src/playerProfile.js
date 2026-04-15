@@ -1,43 +1,65 @@
 /**
- * 玩家实时能力画像（增强版）
+ * 玩家实时能力画像（增强版 · 长周期评估）
  *
- * 基于滑动窗口行为数据计算多维技能指标与实时状态信号，
- * 供自适应出块引擎匹配最优投放策略、维持心流体验。
+ * ┌────────────────────────────────────────────────────────────────────────┐
+ * │  层次              输入                    输出                         │
+ * │  ─────────────     ──────────────          ──────────────────────────  │
+ * │  即时（步级）      thinkMs / cleared        rawSkill → smoothSkill     │
+ * │                    boardFill / miss          momentum / cognitiveLoad  │
+ * │                                             flowState / pacingPhase   │
+ * │                                                                       │
+ * │  中期（局级）      sessionHistory[0..29]     historicalSkill (0~1)     │
+ * │                    得分/消行率/技能快照       trend (-1~1)             │
+ * │                                             confidence (0~1)          │
+ * │                                                                       │
+ * │  长期（聚合）      后端 user_stats            historicalSkill 基线     │
+ * │                    totalGames/Score/Clears    isNewPlayer 更精准       │
+ * └────────────────────────────────────────────────────────────────────────┘
  *
- * ┌─────────────────────────────────────────────────────────────────┐
- * │  输入信号          →   能力维度           →   状态输出           │
- * │  thinkMs              skillLevel(0~1)        flowState           │
- * │  cleared / lines      momentum(-1~1)         pacingPhase         │
- * │  boardFill             cognitiveLoad(0~1)     frustrationLevel    │
- * │  miss                  engagementAPM          sessionPhase        │
- * │  timestamps            clearRate/comboRate     hadRecentNearMiss  │
- * │                                                isNewPlayer        │
- * └─────────────────────────────────────────────────────────────────┘
+ * skillLevel 最终输出 = blend(smoothSkill, historicalSkill, confidence)：
+ *   - 局内有足够步数时（>= 窗口一半），以 smoothSkill 为主
+ *   - 开局冷启动或步数不足时，以 historicalSkill 作为强先验
+ *   - confidence 越高（游戏局数多且近期活跃），短/长期混合越平稳
  *
  * 设计依据：
- *   - 贝叶斯快速收敛：前 fastConvergenceWindow 步用更大 alpha（论文实测拼图 5 步可用）
+ *   - 贝叶斯快速收敛：前 fastConvergenceWindow 步用更大 alpha
+ *   - 长周期回归：对最近 30 局会话摘要做指数加权线性回归，提取 trend
+ *   - 置信度衰减：局数 → 置信上限，离线天数 → 置信折扣
  *   - 心流三态：bored / flow / anxious（Csíkszentmihályi 模型）
- *   - 差一点效应（Near-Miss）：高填充下未消行 → 下轮投放消行友好块，转挫败为动力
- *   - 节奏张弛：spawnCounter 驱动周期相位（tension / release）
- *   - 认知负荷：thinkMs 方差高 → 玩家对特定局面犹豫，认知压力大
+ *   - 差一点效应（Near-Miss）/ 节奏张弛 / 认知负荷
  *
- * 持久化到 localStorage，跨局保留技能估计 + 终身局数。
+ * 持久化到 localStorage，跨局保留技能估计 + 会话历史环 + 终身局数。
  */
 
 import { GAME_RULES } from './gameRules.js';
 
 const STORAGE_KEY = 'openblock_player_profile';
 const SKILL_DECAY_HOURS = 24;
+const SESSION_HISTORY_CAP = 30;
+
 function _afkThreshold() {
     return (_cfg().afk?.thresholdMs) ?? 15_000;
 }
 function _fb() {
     return _cfg().feedback ?? {};
 }
-
 function _cfg() {
     return GAME_RULES.adaptiveSpawn ?? {};
 }
+
+/**
+ * @typedef {{
+ *   score: number,
+ *   placements: number,
+ *   clears: number,
+ *   misses: number,
+ *   maxCombo: number,
+ *   clearRate: number,
+ *   skill: number,
+ *   duration: number,
+ *   ts: number,
+ * }} SessionSummary
+ */
 
 export class PlayerProfile {
     /**
@@ -66,6 +88,14 @@ export class PlayerProfile {
         this._feedbackBias = 0;
         this._feedbackStepsLeft = 0;
         this._feedbackClearsInWindow = 0;
+
+        /* ---- 长周期评估 ---- */
+        /** @type {SessionSummary[]} 最近 SESSION_HISTORY_CAP 局的摘要（按时间升序） */
+        this._sessionHistory = [];
+        /** 从后端聚合统计注入的基线技能（首次 ingest 后有效） */
+        this._statsBaselineSkill = -1;
+        /** 缓存：历史技能 / 趋势 / 置信度（按需重算） */
+        this._cachedHistorical = null;
     }
 
     /* ================================================================== */
@@ -155,6 +185,54 @@ export class PlayerProfile {
         this._totalLifetimeGames++;
     }
 
+    /**
+     * 局末调用：将本局摘要压入会话历史环，供长周期评估。
+     * @param {{ score:number, placements:number, clears:number, misses:number, maxCombo:number }} gameStats
+     */
+    recordSessionEnd(gameStats) {
+        const duration = Date.now() - this._sessionStartTs;
+        const p = gameStats.placements || 1;
+        /** @type {SessionSummary} */
+        const summary = {
+            score: gameStats.score ?? 0,
+            placements: gameStats.placements ?? 0,
+            clears: gameStats.clears ?? 0,
+            misses: gameStats.misses ?? 0,
+            maxCombo: gameStats.maxCombo ?? 0,
+            clearRate: p > 0 ? (gameStats.clears ?? 0) / p : 0,
+            skill: this._smoothSkill,
+            duration,
+            ts: Date.now()
+        };
+        this._sessionHistory.push(summary);
+        if (this._sessionHistory.length > SESSION_HISTORY_CAP) {
+            this._sessionHistory = this._sessionHistory.slice(-SESSION_HISTORY_CAP);
+        }
+        this._cachedHistorical = null;
+    }
+
+    /**
+     * 初始化时注入后端聚合统计，计算长期基线能力。
+     * 仅在 DB 可用时由 game.js 调用一次。
+     * @param {{ totalGames?:number, totalScore?:number, totalClears?:number,
+     *           totalPlacements?:number, totalMisses?:number, maxCombo?:number }} stats
+     */
+    ingestHistoricalStats(stats) {
+        if (!stats || !(stats.totalGames > 0)) return;
+        const games = stats.totalGames;
+        const avgScore = (stats.totalScore ?? 0) / games;
+        const avgClears = (stats.totalClears ?? 0) / Math.max(1, stats.totalPlacements ?? 1);
+        const missRate = (stats.totalMisses ?? 0) / Math.max(1, (stats.totalPlacements ?? 0) + (stats.totalMisses ?? 0));
+
+        const scoreSkill = Math.min(1, avgScore / 2500);
+        const clearSkill = Math.min(1, avgClears / 0.5);
+        const missSkill = 1 - Math.min(1, missRate / 0.25);
+        const comboSkill = Math.min(1, (stats.maxCombo ?? 0) / 6);
+
+        this._statsBaselineSkill = scoreSkill * 0.35 + clearSkill * 0.30 + missSkill * 0.20 + comboSkill * 0.15;
+        this._cachedHistorical = null;
+    }
+
     /* ================================================================== */
     /*  基础指标                                                           */
     /* ================================================================== */
@@ -188,9 +266,48 @@ export class PlayerProfile {
     /*  能力维度                                                           */
     /* ================================================================== */
 
-    /** 综合技能水平 0~1（指数平滑，前 5 步贝叶斯快速收敛） */
+    /**
+     * 综合技能水平 0~1。
+     * 局内步数充足时以实时 smoothSkill 为主；冷启动时以历史基线为锚。
+     * blend = smoothWeight * smoothSkill + (1-smoothWeight) * historicalSkill
+     */
     get skillLevel() {
-        return Math.max(0, Math.min(1, this._smoothSkill));
+        const smooth = Math.max(0, Math.min(1, this._smoothSkill));
+        const hist = this.historicalSkill;
+        if (hist < 0) return smooth;
+
+        const stepsInSession = this._moves.length;
+        const halfWindow = this._window / 2;
+        const smoothWeight = Math.min(1, stepsInSession / halfWindow);
+        const conf = this.confidence;
+        const histWeight = (1 - smoothWeight) * conf;
+        const blended = smooth * (1 - histWeight) + hist * histWeight;
+        return Math.max(0, Math.min(1, blended));
+    }
+
+    /**
+     * 历史技能 0~1：从会话历史环 + 后端统计基线综合计算。
+     * 会话历史用指数加权均值（近期局权重大）。无历史时返回 -1。
+     */
+    get historicalSkill() {
+        const h = this._getHistoricalCache();
+        return h.skill;
+    }
+
+    /**
+     * 长周期趋势 -1（退步）~ 0（稳定）~ 1（进步）。
+     * 对会话历史的 skill 序列做指数加权线性回归。
+     */
+    get trend() {
+        return this._getHistoricalCache().trend;
+    }
+
+    /**
+     * 置信度 0~1：反映历史数据量与新鲜度。
+     * 局数多且近期活跃 → 高置信 → skillLevel 混合更稳定。
+     */
+    get confidence() {
+        return this._getHistoricalCache().confidence;
     }
 
     /**
@@ -346,11 +463,10 @@ export class PlayerProfile {
     }
 
     /**
-     * 新玩家标识：终身放置 < 20 次
-     * 首局保护：新玩家的前 N 轮 spawn 使用 onboarding 策略
+     * 新玩家标识：终身放置 < 20 次且历史不足 3 局
      */
     get isNewPlayer() {
-        return this._totalLifetimePlacements < 20;
+        return this._totalLifetimePlacements < 20 && this._sessionHistory.length < 3;
     }
 
     /**
@@ -399,6 +515,7 @@ export class PlayerProfile {
             smoothSkill: this._smoothSkill,
             totalLifetimePlacements: this._totalLifetimePlacements,
             totalLifetimeGames: this._totalLifetimeGames,
+            sessionHistory: this._sessionHistory.slice(-SESSION_HISTORY_CAP),
             savedAt: Date.now()
         };
     }
@@ -427,6 +544,9 @@ export class PlayerProfile {
         }
         if (data?.totalLifetimeGames != null) {
             p._totalLifetimeGames = data.totalLifetimeGames;
+        }
+        if (Array.isArray(data?.sessionHistory)) {
+            p._sessionHistory = data.sessionHistory.slice(-SESSION_HISTORY_CAP);
         }
         return p;
     }
@@ -468,5 +588,87 @@ export class PlayerProfile {
         const missScore = 1 - Math.min(1, m.missRate / 0.3);
         const loadScore = 1 - this.cognitiveLoad;
         return thinkScore * 0.15 + clearScore * 0.30 + comboScore * 0.20 + missScore * 0.20 + loadScore * 0.15;
+    }
+
+    /**
+     * 计算并缓存长周期指标：historicalSkill、trend、confidence。
+     * @private
+     * @returns {{ skill: number, trend: number, confidence: number }}
+     */
+    _getHistoricalCache() {
+        if (this._cachedHistorical) return this._cachedHistorical;
+
+        const hist = this._sessionHistory;
+        const hasBaseline = this._statsBaselineSkill >= 0;
+        const hasHistory = hist.length >= 2;
+
+        if (!hasBaseline && !hasHistory) {
+            return (this._cachedHistorical = { skill: -1, trend: 0, confidence: 0 });
+        }
+
+        /* ---- 会话历史加权均值（近期权重大） ---- */
+        let histSkill = -1;
+        if (hasHistory) {
+            const decay = 0.85;
+            let wSum = 0;
+            let wTotal = 0;
+            for (let i = 0; i < hist.length; i++) {
+                const w = Math.pow(decay, hist.length - 1 - i);
+                wSum += hist[i].skill * w;
+                wTotal += w;
+            }
+            histSkill = wTotal > 0 ? wSum / wTotal : 0.5;
+        }
+
+        /* ---- 与后端统计基线融合 ---- */
+        let skill;
+        if (histSkill >= 0 && hasBaseline) {
+            const sessionWeight = Math.min(1, hist.length / 10);
+            skill = histSkill * sessionWeight + this._statsBaselineSkill * (1 - sessionWeight);
+        } else if (histSkill >= 0) {
+            skill = histSkill;
+        } else {
+            skill = this._statsBaselineSkill;
+        }
+
+        /* ---- 趋势：指数加权线性回归 ---- */
+        let trend = 0;
+        if (hist.length >= 3) {
+            const n = hist.length;
+            const tDecay = 0.9;
+            let swx = 0, sw = 0, swy = 0, swx2 = 0, swxy = 0;
+            for (let i = 0; i < n; i++) {
+                const wi = Math.pow(tDecay, n - 1 - i);
+                const xi = i / (n - 1);
+                const yi = hist[i].skill;
+                sw += wi;
+                swx += wi * xi;
+                swy += wi * yi;
+                swx2 += wi * xi * xi;
+                swxy += wi * xi * yi;
+            }
+            const denom = sw * swx2 - swx * swx;
+            if (Math.abs(denom) > 1e-12) {
+                const slope = (sw * swxy - swx * swy) / denom;
+                trend = Math.max(-1, Math.min(1, slope * 2));
+            }
+        }
+
+        /* ---- 置信度：局数 + 新鲜度 ---- */
+        const totalGames = Math.max(this._totalLifetimeGames, hist.length);
+        const gameConf = Math.min(1, totalGames / 20);
+        let freshnessConf = 1;
+        if (hist.length > 0) {
+            const lastTs = hist[hist.length - 1].ts;
+            const hoursAgo = (Date.now() - lastTs) / 3_600_000;
+            if (hoursAgo > SKILL_DECAY_HOURS) {
+                freshnessConf = Math.max(0.3, 1 - (hoursAgo - SKILL_DECAY_HOURS) / (SKILL_DECAY_HOURS * 10));
+            }
+        } else if (hasBaseline) {
+            freshnessConf = 0.5;
+        }
+        const confidence = Math.max(0, Math.min(1, gameConf * freshnessConf));
+
+        return (this._cachedHistorical = { skill, trend, confidence });
     }
 }

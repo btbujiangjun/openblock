@@ -29,7 +29,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 Vite 提示的地址（默认 `http://localhost:3000`）。入口脚本为 `web/src/main.js`；样式在 `web/public/styles/main.css`，**勿**仅用「打开根目录的 HTML」配合错误站点根路径（会导致 `/src/main.js` 404、页面无样式且各层叠在一起）。请始终 `npm run dev`，或将静态服务器的站点根设为 `web/`。
+浏览器访问 Vite 提示的地址（默认 `http://0.0.0.0:3000`，亦可用终端中的 Network 局域网 IP）。入口脚本为 `web/src/main.js`；样式在 `web/public/styles/main.css`，**勿**仅用「打开根目录的 HTML」配合错误站点根路径（会导致 `/src/main.js` 404、页面无样式且各层叠在一起）。请始终 `npm run dev`，或将静态服务器的站点根设为 `web/`。
 
 构建产物输出到 `dist/`，可由任意静态服务器托管：
 
@@ -51,15 +51,16 @@ python -m rl_pytorch.train --episodes 2000 --device auto --save-every 100 --save
 
 **与网页 RL 面板联动（热启动 + 持续学习）**：先训练或准备好 `rl_checkpoints/bb_policy.pt`，启动 Flask 时设置环境变量 `RL_CHECKPOINT`（可选 `RL_CHECKPOINT_SAVE`）。**Mac（Apple Silicon）** 上 `RL_DEVICE=auto` 与 `python -m rl_pytorch.train --device auto` 均会优先使用 **MPS**。`npm run server:rl` 已默认 **`RL_AUTOLOAD=1`**（若存在 `rl_checkpoints/bb_policy.pt` 则热加载）、**`RL_SAVE_EVERY=100`** 定期存盘（降低写盘频率以加快训练）、**`RL_TRAINING_LOG=rl_checkpoints/training.jsonl`** 追加训练日志；页面 RL 面板可「刷新日志」拉取 `/api/rl/training_log`。详见 `docs/PROJECT.md` 与 `.env.example`。
 
-### 环境变量（前端）
+### 环境变量（前后端统一 API 地址）
 
-在**仓库根目录**或 `web/` 下创建 `.env.local`（参见根目录 `.env.example`）：
+在**仓库根目录**创建 `.env`（可先复制 `.env.example`）。**只需改一处**即可对齐浏览器与 Flask：
 
-- `VITE_API_BASE_URL` — API 根地址，默认 `http://localhost:5000`
+- **`OPENBLOCK_API_ORIGIN`** — 后端根 URL（无尾斜杠），例如 `http://192.168.1.100:5000`。Vite 构建时会注入为 `import.meta.env.VITE_API_BASE_URL`；`python3 server.py` 会从同一 URL 解析监听端口（仍监听 `0.0.0.0` 以便局域网访问）。若仍配置 **`VITE_API_BASE_URL`** 而未设 `OPENBLOCK_API_ORIGIN`，二者等价兼容。
+- 可选覆盖：显式 **`PORT`** 优先于 URL 中的端口。
 - `VITE_USE_SQLITE_DB` — 默认启用；为 `false` 时前端拒绝初始化（无浏览器 IndexedDB 回退）
-- `VITE_SYNC_BACKEND` — 设为 `true` 时使用第二套远端会话同步（`PUT` 结束会话会更新 `user_stats`；与主 SQLite 流程并存时易重复计分，一般保持 `false`）
+- `VITE_SYNC_BACKEND` — 设为 `true` 时使用第二套远端会话同步（一般保持 `false`）
 
-Vite 已配置 `envDir: '..'`，根目录 `.env*` 会被加载。
+根目录 `.env.local` 可覆盖 `.env` 同名键。解析逻辑见 `scripts/resolve-api-origin.mjs` 与 `server.py` 中的 `_load_repo_dotenv`。
 
 ### 后端（持久化必需）
 
@@ -70,7 +71,7 @@ npm run server
 ```
 
 - 数据库路径：`BLOCKBLAST_DB_PATH`（默认：仓库内 `blockblast.db`）
-- 端口：`PORT`（默认 `5000`）
+- 端口：默认与 `OPENBLOCK_API_ORIGIN` / `VITE_API_BASE_URL` 中端口一致；可用 **`PORT`** 覆盖
 - 调试：`FLASK_DEBUG=1`
 
 生产部署可使用 `gunicorn server:app`（模块导入时已建表）。
