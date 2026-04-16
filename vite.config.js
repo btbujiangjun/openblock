@@ -20,13 +20,19 @@ export default {
         outDir: '../dist',
         emptyOutDir: true
     },
+    preview: {
+        host: true,
+    },
     server: {
         /**
          * 默认 80（http://0.0.0.0/）。Unix 上绑定 <1024 需 root：
          *   npm run dev:80
          * 无特权时用环境变量改端口，例如：
          *   VITE_PORT=3000 npm run dev
+         *
+         * host: true → 监听 0.0.0.0，终端会打印 Network: http://<局域网IP>:端口/，便于 IP 访问。
          */
+        host: true,
         port: Number.isFinite(devPort) ? devPort : 80,
         strictPort: true,
         open: true

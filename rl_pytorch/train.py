@@ -26,6 +26,8 @@ import time
 from pathlib import Path
 from typing import Union
 
+from . import torch_env  # noqa: F401 — 须在 import torch 之前（NNPACK 警告 / CPU 环境）
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -35,6 +37,7 @@ from .config import WIN_SCORE_THRESHOLD
 from .game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING, rl_curriculum_enabled, rl_win_threshold_for_episode
 from .device import (
     adam_for_training,
+    apply_cpu_training_tuning,
     apply_throughput_tuning,
     device_summary_line,
     maybe_mps_synchronize,
@@ -1078,6 +1081,7 @@ def main() -> None:
 
     device = resolve_training_device(args.device)
     apply_throughput_tuning(device)
+    apply_cpu_training_tuning(device)
     print(f"使用设备: {device_summary_line(device)}", file=sys.stderr)
     if device.type == "cuda":
         dp_ids = resolve_cuda_device_ids_for_data_parallel()

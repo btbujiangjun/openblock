@@ -18,17 +18,34 @@ import sys
 import time
 from pathlib import Path
 
+from .. import torch_env  # noqa: F401 — 须在 import torch 之前（NNPACK 警告 / CPU 环境）
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 from torch.utils.data import DataLoader, random_split
 
+from ..device import apply_cpu_training_tuning, apply_throughput_tuning, resolve_training_device
 from .dataset import load_training_data, SpawnDataset, NUM_SHAPES, NUM_CATEGORIES, CONTEXT_DIM
 from .model import SpawnTransformerV2
 
 MODEL_DIR = Path(__file__).resolve().parent.parent.parent / 'models'
 
 EASY_SHAPE_MASK = None
+
+
+def _default_dataloader_workers(device: torch.device) -> int:
+    """CPU 上可选多进程加载；macOS 默认 0，其它平台默认小额度以提速。"""
+    raw = os.environ.get("RL_CPU_DATALOADER_WORKERS", "").strip()
+    if raw.isdigit():
+        return max(0, int(raw))
+    if device.type != "cpu":
+        return 0
+    if sys.platform == "darwin":
+        return 0
+    n = (os.cpu_count() or 4) - 1
+    return max(0, min(4, n))
+
 
 def _get_easy_shape_mask(device):
     """小方块（1~4 格）视为 easy，大/异形方块视为 hard。"""
@@ -120,13 +137,29 @@ def train(args):
     train_size = len(dataset) - val_size
     train_ds, val_ds = random_split(dataset, [train_size, val_size])
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
+    device_pref = os.environ.get("RL_SPAWN_DEVICE", "auto").strip() or "auto"
+    device = resolve_training_device(device_pref)
+    apply_throughput_tuning(device)
+    apply_cpu_training_tuning(device)
 
-    device = torch.device(
-        'cuda' if torch.cuda.is_available()
-        else 'mps' if torch.backends.mps.is_available()
-        else 'cpu'
+    dl_workers = _default_dataloader_workers(device)
+    pin_mem = device.type == "cuda"
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=True,
+        num_workers=dl_workers,
+        persistent_workers=dl_workers > 0,
+        pin_memory=pin_mem,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=dl_workers,
+        persistent_workers=dl_workers > 0,
+        pin_memory=pin_mem,
     )
 
     model = SpawnTransformerV2(

@@ -48,6 +48,12 @@ def _load_repo_dotenv():
 
 _load_repo_dotenv()
 
+# 在进程内首次 import torch 之前设置 NNPACK 等（Spawn 模型加载 / 推理）
+try:
+    import rl_pytorch.torch_env  # noqa: F401
+except ImportError:
+    pass
+
 _DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blockblast.db')
 DATABASE = os.environ.get('BLOCKBLAST_DB_PATH', _DEFAULT_DB)
 
@@ -854,6 +860,37 @@ def get_sessions():
 _MIN_MOVE_FRAMES = 5
 
 
+def _display_score_from_frames(frames):
+    """与 web/src/moveSequence.js displayScoreFromReplayFrames 一致：自末帧向前取 ps.score。"""
+    if not isinstance(frames, list) or len(frames) == 0:
+        return None
+    for i in range(len(frames) - 1, -1, -1):
+        f = frames[i]
+        if not isinstance(f, dict):
+            continue
+        ps = f.get("ps")
+        if isinstance(ps, dict):
+            s = ps.get("score")
+            if isinstance(s, (int, float)) and not isinstance(s, bool):
+                if isinstance(s, float) and s != s:  # NaN
+                    continue
+                return int(s)
+    return None
+
+
+def _effective_list_score(frames, session_score):
+    """回放列表展示用分数：优先帧快照，否则 sessions.score；无法判定则 None。"""
+    d = _display_score_from_frames(frames)
+    if d is not None:
+        return d
+    if session_score is not None:
+        try:
+            return int(session_score)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 @app.route("/api/move-sequence/<int:session_id>", methods=["PUT"])
 def put_move_sequence(session_id):
     data = request.get_json() or {}
@@ -968,6 +1005,59 @@ def delete_replay_sessions_batch():
     cur = db.cursor()
     deleted = []
     for sid in clean_ids:
+        cur.execute("SELECT id FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id))
+        if not cur.fetchone():
+            continue
+        cur.execute("DELETE FROM behaviors WHERE session_id = ?", (sid,))
+        cur.execute("DELETE FROM replays WHERE session_id = ?", (sid,))
+        cur.execute("DELETE FROM move_sequences WHERE session_id = ?", (sid,))
+        cur.execute("DELETE FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id))
+        deleted.append(sid)
+    db.commit()
+    return jsonify({"success": True, "deleted": deleted, "count": len(deleted)})
+
+
+@app.route("/api/replay-sessions/delete-zero-score", methods=["POST"])
+def delete_replay_sessions_zero_score():
+    """
+    删除当前用户下「展示得分为 0」且具备可回放序列的对局（sessions + move_sequences 等），
+    判定规则与回放列表一致（见 _effective_list_score）。
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    user_id = (data.get("user_id") or "").strip()
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT s.id, s.score, m.frames AS move_frames
+        FROM sessions s
+        INNER JOIN move_sequences m ON m.session_id = s.id AND m.user_id = s.user_id
+        WHERE s.user_id = ?
+        """,
+        (user_id,),
+    )
+    delete_ids = []
+    for row in cur.fetchall():
+        try:
+            frames = json.loads(row["move_frames"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(frames, list) or len(frames) < _MIN_MOVE_FRAMES:
+            continue
+        fst = frames[0]
+        if not isinstance(fst, dict) or fst.get("t") != "init" or not fst.get("grid"):
+            continue
+        eff = _effective_list_score(frames, row["score"])
+        if eff is None:
+            continue
+        if eff == 0:
+            delete_ids.append(int(row["id"]))
+
+    deleted = []
+    for sid in delete_ids:
         cur.execute("SELECT id FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id))
         if not cur.fetchone():
             continue

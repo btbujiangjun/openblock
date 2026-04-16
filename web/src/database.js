@@ -119,6 +119,14 @@ export class Database {
         });
     }
 
+    /** 删除展示得分为 0 的可回放对局（与列表分数判定一致，服务端筛选）。 */
+    async deleteZeroScoreReplaySessions() {
+        return apiJson('/api/replay-sessions/delete-zero-score', {
+            method: 'POST',
+            body: JSON.stringify({ user_id: this.userId })
+        });
+    }
+
     async saveBehavior(behavior) {
         await apiJson('/api/behavior/batch', {
             method: 'POST',

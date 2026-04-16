@@ -1,4 +1,5 @@
 import {
+    countPlaceStepsInFrames,
     displayScoreFromReplayFrames,
     formatPlayerStateForReplay,
     getPlayerStateAtFrameIndex,
@@ -33,6 +34,7 @@ export function initReplayUI(game) {
     const selectAllCb = document.getElementById('replay-select-all');
     const selectedCountEl = document.getElementById('replay-selected-count');
     const deleteSelectedBtn = document.getElementById('replay-delete-selected');
+    const deleteZeroScoreBtn = document.getElementById('replay-delete-zero-score');
     const playerStateEl = document.getElementById('replay-player-state');
 
     if (!menuReplayBtn || !listScreen || !viewScreen || !slider) {
@@ -235,13 +237,18 @@ export function initReplayUI(game) {
                     const derived = displayScoreFromReplayFrames(frames);
                     const score =
                         derived != null ? derived : s.score != null && s.score !== '' ? s.score : '—';
+                    const placeSteps = countPlaceStepsInFrames(frames);
+                    const stepsText =
+                        placeSteps > 0
+                            ? `落子 ${placeSteps} 次 · 序列 ${frames.length} 帧`
+                            : `${frames.length} 帧`;
                     li.innerHTML = `
                         <label class="replay-item-check">
                             <input type="checkbox" class="replay-select-cb" data-session-id="${sid}" aria-label="选择本条回放" />
                         </label>
                         <div class="replay-item-main" role="button" tabindex="0" aria-label="打开回放">
                             <span class="replay-item-meta">${t.toLocaleString()}</span>
-                            <span class="replay-item-steps">${frames.length} 帧</span>
+                            <span class="replay-item-steps" title="落子次数为盘面成功放置次数；序列帧数含开局与每轮出块">${stepsText}</span>
                             <span class="replay-item-score">${score} 分</span>
                         </div>`;
                     const mainEl = li.querySelector('.replay-item-main');
@@ -288,6 +295,22 @@ export function initReplayUI(game) {
         try {
             await game.db.deleteReplaySessions(ids);
             await openList();
+        } catch (err) {
+            console.error(err);
+            window.alert(err?.message || String(err));
+        }
+    });
+
+    deleteZeroScoreBtn?.addEventListener('click', async () => {
+        const ok = window.confirm(
+            '确定删除所有「展示得分为 0」的可回放对局？与列表中 0 分判定一致（优先帧内快照分）。此操作不可恢复。'
+        );
+        if (!ok) return;
+        try {
+            const res = await game.db.deleteZeroScoreReplaySessions();
+            const n = res?.count ?? res?.deleted?.length ?? 0;
+            await openList();
+            window.alert(n > 0 ? `已删除 ${n} 条。` : '没有符合「得分为 0」的记录。');
         } catch (err) {
             console.error(err);
             window.alert(err?.message || String(err));

@@ -7,8 +7,28 @@ import { Grid } from './grid.js';
 export const MOVE_SEQUENCE_SCHEMA = 1;
 /** 玩家状态快照内部版本，便于日后扩展字段 */
 export const PLAYER_STATE_SNAPSHOT_VERSION = 1;
-/** 至少多少帧才写入 SQLite（含 init/spawn/place）；过短对局视为无效，不占用回放列表 */
+/**
+ * 至少多少「帧」才写入 SQLite。一帧可为 init / spawn / place 之一；
+ * 总帧数远大于用户落子次数，展示用 {@link countPlaceStepsInFrames}。
+ */
 export const MIN_PERSIST_MOVE_FRAMES = 5;
+
+/**
+ * 序列中用户真实落子次数（`t === 'place'`）。
+ * 与总帧数关系：总帧 ≈ 1（init）+ 轮数×（1 spawn + 至多 3 place）+ 可能未完成的最后一轮 spawn。
+ */
+export function countPlaceStepsInFrames(frames) {
+    if (!Array.isArray(frames)) {
+        return 0;
+    }
+    let n = 0;
+    for (const f of frames) {
+        if (f && f.t === 'place') {
+            n++;
+        }
+    }
+    return n;
+}
 
 /**
  * @param {string} strategy

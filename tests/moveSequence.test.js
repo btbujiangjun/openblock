@@ -7,6 +7,7 @@ import {
     buildInitFrame,
     buildSpawnFrame,
     buildPlaceFrame,
+    countPlaceStepsInFrames,
     displayScoreFromReplayFrames,
     getPlayerStateAtFrameIndex,
     nextDistinctReplayFrameIndex,
@@ -15,6 +16,24 @@ import {
 } from '../web/src/moveSequence.js';
 
 describe('moveSequence replay', () => {
+    it('countPlaceStepsInFrames counts only place frames', () => {
+        const scoring = { singleLine: 10, multiLine: 30, combo: 50 };
+        const grid = new Grid(8);
+        const frames = [
+            buildInitFrame('normal', grid, scoring),
+            buildSpawnFrame([
+                { id: 'a', shape: [[1]], colorIdx: 0, placed: false },
+                { id: 'b', shape: [[1]], colorIdx: 0, placed: false },
+                { id: 'c', shape: [[1]], colorIdx: 0, placed: false }
+            ]),
+            buildPlaceFrame(0, 0, 0),
+            buildPlaceFrame(1, 1, 0),
+            buildPlaceFrame(2, 2, 0)
+        ];
+        expect(frames.length).toBe(5);
+        expect(countPlaceStepsInFrames(frames)).toBe(3);
+    });
+
     it('replays init then spawn then one place with clear', () => {
         const grid = new Grid(8);
         for (let y = 0; y < 7; y++) {

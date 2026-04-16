@@ -22,6 +22,15 @@ CUDA 吞吐（可选环境变量）：
 M4 / MPS：
   - ``RL_TORCH_COMPILE`` / ``RL_MPS_SYNC`` 见仓库说明
 
+**CPU 训练**（见 ``apply_cpu_training_tuning``）：
+
+  - 在任意 ``import torch`` 之前导入 ``rl_pytorch.torch_env``，默认
+    ``TORCH_NNPACK_ENABLED=0``，消除不支持 NNPACK 硬件时的 ``[W... NNPACK.cpp]`` 告警。
+  - ``RL_CPU_NUM_THREADS`` — PyTorch intra-op 线程数；未设则使用 ``cpu_count()``。
+  - ``RL_CPU_INTEROP_THREADS`` — inter-op 并行度；未设则 ``min(4, max(1, n//4))``。
+  - ``RL_CPU_DATALOADER_WORKERS`` — 仅 spawn 模型训练 DataLoader：未设时 Linux/Windows 在 CPU 上默认
+    ``min(4, cpu_count-1)``；macOS 默认 ``0``（避免部分环境多进程反慢）；可显式设为 ``2`` 等。
+
 若某算子在 MPS 上未实现，可设置 ``PYTORCH_ENABLE_MPS_FALLBACK=1``。
 """
 
@@ -147,6 +156,57 @@ def maybe_mps_synchronize(device) -> None:
     mps_b = getattr(torch.backends, "mps", None)
     if mps_b is not None and mps_b.is_available():
         torch.mps.synchronize()
+
+
+def apply_cpu_training_tuning(device) -> None:
+    """
+    在 **CPU** 设备上优化训练吞吐：线程数、matmul 精度；须在 ``import torch`` 之后、首轮大计算前调用一次。
+
+    NNPACK 告警由 ``torch_env`` 在 import torch **之前** 设置 ``TORCH_NNPACK_ENABLED`` 处理。
+    """
+    import torch
+
+    if getattr(device, "type", None) != "cpu":
+        return
+
+    try:
+        n = int(os.environ.get("RL_CPU_NUM_THREADS", "0") or "0")
+        if n <= 0:
+            import multiprocessing as mp
+
+            n = max(1, mp.cpu_count() or 1)
+        torch.set_num_threads(n)
+    except Exception:
+        pass
+
+    try:
+        raw_i = os.environ.get("RL_CPU_INTEROP_THREADS", "").strip()
+        if raw_i.isdigit():
+            k = max(1, int(raw_i))
+        else:
+            nthr = torch.get_num_threads()
+            k = max(1, min(4, max(1, nthr // 4)))
+        if hasattr(torch, "set_num_interop_threads"):
+            torch.set_num_interop_threads(k)
+    except RuntimeError:
+        # 已初始化过或仅能设一次
+        pass
+    except Exception:
+        pass
+
+    try:
+        torch.set_float32_matmul_precision("high")
+    except Exception:
+        pass
+
+    # 部分构建上可显式关闭 NNPACK 后端（env 已在 torch_env 中设置；此处为兜底）
+    try:
+        nnpack = getattr(torch.backends, "nnpack", None)
+        if nnpack is not None and hasattr(nnpack, "enabled"):
+            if os.environ.get("TORCH_NNPACK_ENABLED", "0").lower() in ("0", "false", "no"):
+                nnpack.enabled = False  # type: ignore[misc]
+    except Exception:
+        pass
 
 
 def apply_throughput_tuning(device) -> None:
