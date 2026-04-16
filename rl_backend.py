@@ -161,8 +161,12 @@ try:
     import torch.nn.functional as F
     from torch.distributions import Categorical
 
+    if hasattr(torch.backends, "nnpack"):
+        torch.backends.nnpack.enabled = False
+
     from rl_pytorch.device import (
         adam_for_training,
+        apply_cpu_training_tuning,
         apply_throughput_tuning,
         maybe_mps_synchronize,
         resolve_training_device,
@@ -174,6 +178,7 @@ try:
 except ImportError as e:
     torch = None
     resolve_training_device = None  # type: ignore
+    apply_cpu_training_tuning = None  # type: ignore
     tensor_to_device = None  # type: ignore
     maybe_mps_synchronize = None  # type: ignore
     _state["error"] = f"import failed: {e}"
@@ -285,6 +290,8 @@ def _ensure_initialized():
             return
         device = resolve_training_device(os.environ.get("RL_DEVICE", "auto"))
         apply_throughput_tuning(device)
+        if apply_cpu_training_tuning is not None:
+            apply_cpu_training_tuning(device)
         _state["device"] = device
         save_path = Path(os.environ.get("RL_CHECKPOINT_SAVE", DEFAULT_CKPT_NAME))
         _state["save_path"] = save_path
@@ -363,6 +370,216 @@ def _save_checkpoint(reason: str = "periodic"):
             "path": str(path.resolve()),
         }
     )
+
+
+def _rl_train_episode_inner(
+    data: dict,
+    steps: list,
+    gamma: float,
+    value_coef: float,
+    value_huber_beta: float,
+    return_scale: float,
+    adv_norm: bool,
+    adv_min_std: float,
+    grad_clip: float,
+):
+    """在已校验 steps 形状后执行训练（供 train_episode 捕获异常并返回 JSON）。"""
+    with _rl_lock:
+        model = _state["model"]
+        device = _state["device"]
+        opt = _state["optimizer"]
+
+        rewards = [float(s["reward"]) for s in steps]
+        tlen = len(rewards)
+        if tlen == 0:
+            return jsonify({"ok": True, "episodes": _state["episodes"], "skipped": True})
+
+        returns = []
+        g = 0.0
+        for r in reversed(rewards):
+            g = r + gamma * g
+            returns.insert(0, g)
+        returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
+        returns_t = torch.nan_to_num(returns_t, nan=0.0, posinf=1e5, neginf=-1e5)
+        returns_t = torch.clamp(returns_t, -1e5, 1e5)
+        if return_scale != 1.0:
+            returns_t = returns_t * return_scale
+
+        log_probs_list = []
+        values_list = []
+        entropies_list = []
+        for i, st in enumerate(steps):
+            phi_t = tensor_to_device(torch.tensor(st["phi"], dtype=torch.float32), device)
+            s_t = tensor_to_device(
+                torch.tensor(st["state"], dtype=torch.float32).unsqueeze(0), device
+            )
+            idx = int(st["idx"])
+            logits = _stable_logits(model.forward_policy_logits(phi_t))
+            log_probs = torch.log_softmax(logits, dim=0)
+            log_p = log_probs[idx]
+            p = log_probs.exp()
+            ent = -(p * log_probs).sum()
+            v = model.forward_value(s_t).squeeze(0)
+            log_probs_list.append(log_p)
+            values_list.append(v)
+            entropies_list.append(ent)
+
+        log_probs_t = torch.stack(log_probs_list, dim=0)
+        values = torch.stack(values_list, dim=0)
+        entropies_t = torch.stack(entropies_list, dim=0)
+        values = torch.nan_to_num(values, nan=0.0, posinf=1e5, neginf=-1e5)
+        values = torch.clamp(values, -1e5, 1e5)
+        log_probs_t = _clamp_log_probs_pg(log_probs_t)
+
+        adv = returns_t - values.detach()
+        if adv_norm:
+            adv = _normalize_advantages(adv, min_std=adv_min_std)
+        else:
+            adv = torch.nan_to_num(adv, nan=0.0, posinf=1e3, neginf=-1e3)
+            adv = torch.clamp(adv, -100.0, 100.0)
+        policy_loss = -(log_probs_t * adv).mean()
+        value_loss = F.smooth_l1_loss(
+            values, returns_t, reduction="mean", beta=max(value_huber_beta, 1e-6)
+        )
+        entropy_mean = torch.nan_to_num(entropies_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
+        ep_next = _state["episodes"] + 1
+        entropy_coef_eff = _effective_entropy_coef(ep_next)
+        hole_coef, hole_denom = _hole_aux_coef_and_denom()
+        cp_coef = _clear_pred_coef()
+        hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        clear_pred_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        state_mat = None
+        chosen_a = None
+        if (hole_coef > 1e-12 or cp_coef > 1e-12) and all("holes_after" in st for st in steps):
+            state_rows = [st["state"] for st in steps]
+            act_rows = [st["phi"][int(st["idx"])][STATE_FEATURE_DIM:] for st in steps]
+            state_mat = tensor_to_device(torch.tensor(state_rows, dtype=torch.float32), device)
+            chosen_a = tensor_to_device(torch.tensor(act_rows, dtype=torch.float32), device)
+        if (
+            hole_coef > 1e-12
+            and callable(getattr(model, "forward_hole_aux", None))
+            and state_mat is not None
+        ):
+            targ_list = [float(st["holes_after"]) / hole_denom for st in steps]
+            targ_t = tensor_to_device(torch.tensor(targ_list, dtype=torch.float32), device).clamp(
+                0.0, 1.0
+            )
+            pred = model.forward_hole_aux(state_mat, chosen_a)
+            hole_aux_loss = F.smooth_l1_loss(pred, targ_t, reduction="mean", beta=1.0)
+        if (
+            cp_coef > 1e-12
+            and callable(getattr(model, "forward_clear_pred", None))
+            and state_mat is not None
+            and all("clears" in st for st in steps)
+        ):
+            clears_tgt = tensor_to_device(
+                torch.tensor([min(int(st.get("clears", 0)), 3) for st in steps], dtype=torch.long), device
+            )
+            clear_logits = model.forward_clear_pred(state_mat, chosen_a)
+            clear_pred_loss = F.cross_entropy(clear_logits, clears_tgt, reduction="mean")
+
+        bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        has_aux = callable(getattr(model, "forward_aux_all", None))
+        if has_aux and state_mat is not None:
+            aux = model.forward_aux_all(state_mat)
+            bq_c = float(RL_REWARD_SHAPING.get("boardQualityLossCoef") or 0.5)
+            feas_c = float(RL_REWARD_SHAPING.get("feasibilityLossCoef") or 0.3)
+            surv_c = float(RL_REWARD_SHAPING.get("survivalLossCoef") or 0.2)
+            if bq_c > 1e-12 and all("board_quality" in st for st in steps):
+                bq_tgt = tensor_to_device(
+                    torch.tensor([float(st["board_quality"]) for st in steps], dtype=torch.float32), device
+                )
+                bq_loss = bq_c * F.smooth_l1_loss(aux["board_quality"], bq_tgt, beta=1.0)
+            if feas_c > 1e-12 and all("feasibility" in st for st in steps):
+                feas_tgt = tensor_to_device(
+                    torch.tensor([float(st["feasibility"]) for st in steps], dtype=torch.float32), device
+                )
+                feas_loss = feas_c * F.binary_cross_entropy_with_logits(aux["feasibility"], feas_tgt)
+            if surv_c > 1e-12 and all("steps_to_end" in st for st in steps):
+                surv_tgt = tensor_to_device(
+                    torch.tensor([float(st["steps_to_end"]) / 30.0 for st in steps], dtype=torch.float32), device
+                ).clamp(0.0, 1.0)
+                surv_loss = surv_c * F.smooth_l1_loss(aux["survival"], surv_tgt, beta=1.0)
+
+        loss = (
+            policy_loss
+            + value_coef * value_loss
+            - entropy_coef_eff * entropy_mean
+            + hole_coef * hole_aux_loss
+            + cp_coef * clear_pred_loss
+            + bq_loss
+            + feas_loss
+            + surv_loss
+        )
+
+        model.train()
+        opt.zero_grad()
+        stepped = bool(torch.isfinite(loss).item())
+        if stepped:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max(grad_clip, 1e-8))
+            opt.step()
+        else:
+            opt.zero_grad(set_to_none=True)
+        if device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes"):
+            maybe_mps_synchronize(device)
+
+        _state["episodes"] += 1
+        ep = _state["episodes"]
+
+        save_every = max(1, int(os.environ.get("RL_SAVE_EVERY", "500")))
+        if ep % save_every == 0:
+            _save_checkpoint("periodic")
+
+        def _log_float(t) -> float | None:
+            v = float(t.detach().item())
+            return v if math.isfinite(v) else None
+
+        log_row = {
+            "event": "train_episode",
+            "episodes": ep,
+            "loss_policy": _log_float(policy_loss),
+            "loss_value": _log_float(value_loss),
+            "loss_hole_aux": _log_float(hole_aux_loss),
+            "loss_clear_pred": _log_float(clear_pred_loss),
+            "loss_bq": _log_float(bq_loss),
+            "loss_feas": _log_float(feas_loss),
+            "loss_surv": _log_float(surv_loss),
+            "entropy": _log_float(entropy_mean),
+            "step_count": tlen,
+            "optimizer_step": stepped,
+        }
+        if data.get("score") is not None:
+            try:
+                log_row["score"] = float(data["score"])
+            except (TypeError, ValueError):
+                pass
+        if data.get("won") is not None:
+            log_row["won"] = bool(data["won"])
+        if data.get("game_steps") is not None:
+            try:
+                log_row["game_steps"] = int(data["game_steps"])
+            except (TypeError, ValueError):
+                pass
+        _append_training_log(log_row)
+
+        return jsonify(
+            {
+                "ok": True,
+                "episodes": ep,
+                "loss_policy": _log_float(policy_loss),
+                "loss_value": _log_float(value_loss),
+                "loss_hole_aux": _log_float(hole_aux_loss),
+                "loss_clear_pred": _log_float(clear_pred_loss),
+                "loss_bq": _log_float(bq_loss),
+                "loss_feas": _log_float(feas_loss),
+                "loss_surv": _log_float(surv_loss),
+                "entropy": _log_float(entropy_mean),
+                "optimizer_step": stepped,
+            }
+        )
 
 
 def create_rl_blueprint() -> Blueprint:
@@ -471,202 +688,55 @@ def create_rl_blueprint() -> Blueprint:
         adv_min_std = float(os.environ.get("RL_ADV_MIN_STD", "1e-4"))
         grad_clip = float(os.environ.get("RL_GRAD_CLIP", "1.0"))
 
-        with _rl_lock:
-            model = _state["model"]
-            device = _state["device"]
-            opt = _state["optimizer"]
-
-            rewards = [float(s["reward"]) for s in steps]
-            tlen = len(rewards)
-            if tlen == 0:
-                return jsonify({"ok": True, "episodes": _state["episodes"], "skipped": True})
-
-            returns = []
-            g = 0.0
-            for r in reversed(rewards):
-                g = r + gamma * g
-                returns.insert(0, g)
-            returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
-            returns_t = torch.nan_to_num(returns_t, nan=0.0, posinf=1e5, neginf=-1e5)
-            returns_t = torch.clamp(returns_t, -1e5, 1e5)
-            if return_scale != 1.0:
-                returns_t = returns_t * return_scale
-
-            log_probs_list = []
-            values_list = []
-            entropies_list = []
-            for i, st in enumerate(steps):
-                phi_t = tensor_to_device(torch.tensor(st["phi"], dtype=torch.float32), device)
-                s_t = tensor_to_device(
-                    torch.tensor(st["state"], dtype=torch.float32).unsqueeze(0), device
-                )
+        for i, st in enumerate(steps):
+            phi = st.get("phi")
+            if not isinstance(phi, list) or len(phi) == 0:
+                return jsonify({"error": f"step {i}: phi 须为非空二维数组（每行一条合法动作的 φ）"}), 400
+            try:
                 idx = int(st["idx"])
-                logits = _stable_logits(model.forward_policy_logits(phi_t))
-                log_probs = torch.log_softmax(logits, dim=0)
-                log_p = log_probs[idx]
-                p = log_probs.exp()
-                ent = -(p * log_probs).sum()
-                v = model.forward_value(s_t).squeeze(0)
-                log_probs_list.append(log_p)
-                values_list.append(v)
-                entropies_list.append(ent)
+            except (TypeError, KeyError, ValueError):
+                return jsonify({"error": f"step {i}: 缺少或非法的 idx"}), 400
+            if idx < 0 or idx >= len(phi):
+                return jsonify(
+                    {
+                        "error": f"step {i}: idx={idx} 超出 phi 行数 {len(phi)}",
+                        "hint": "与 /api/rl/select_action 返回的 index 一致，且在当步合法动作数量范围内",
+                    }
+                ), 400
+            state = st.get("state")
+            if not isinstance(state, list) or len(state) != STATE_FEATURE_DIM:
+                return jsonify(
+                    {
+                        "error": f"step {i}: state 长度须为 {STATE_FEATURE_DIM}（当前 {len(state) if isinstance(state, list) else type(state).__name__}）",
+                    }
+                ), 400
 
-            log_probs_t = torch.stack(log_probs_list, dim=0)
-            values = torch.stack(values_list, dim=0)
-            entropies_t = torch.stack(entropies_list, dim=0)
-            values = torch.nan_to_num(values, nan=0.0, posinf=1e5, neginf=-1e5)
-            values = torch.clamp(values, -1e5, 1e5)
-            log_probs_t = _clamp_log_probs_pg(log_probs_t)
-
-            adv = returns_t - values.detach()
-            if adv_norm:
-                adv = _normalize_advantages(adv, min_std=adv_min_std)
-            else:
-                adv = torch.nan_to_num(adv, nan=0.0, posinf=1e3, neginf=-1e3)
-                adv = torch.clamp(adv, -100.0, 100.0)
-            policy_loss = -(log_probs_t * adv).mean()
-            value_loss = F.smooth_l1_loss(
-                values, returns_t, reduction="mean", beta=max(value_huber_beta, 1e-6)
+        try:
+            return _rl_train_episode_inner(
+                data,
+                steps,
+                gamma,
+                value_coef,
+                value_huber_beta,
+                return_scale,
+                adv_norm,
+                adv_min_std,
+                grad_clip,
             )
-            entropy_mean = torch.nan_to_num(entropies_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
-            ep_next = _state["episodes"] + 1
-            entropy_coef_eff = _effective_entropy_coef(ep_next)
-            hole_coef, hole_denom = _hole_aux_coef_and_denom()
-            cp_coef = _clear_pred_coef()
-            hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
-            clear_pred_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
-            state_mat = None
-            chosen_a = None
-            if (
-                (hole_coef > 1e-12 or cp_coef > 1e-12)
-                and all("holes_after" in st for st in steps)
-            ):
-                state_rows = [st["state"] for st in steps]
-                act_rows = [st["phi"][int(st["idx"])][STATE_FEATURE_DIM:] for st in steps]
-                state_mat = tensor_to_device(torch.tensor(state_rows, dtype=torch.float32), device)
-                chosen_a = tensor_to_device(torch.tensor(act_rows, dtype=torch.float32), device)
-            if (
-                hole_coef > 1e-12
-                and callable(getattr(model, "forward_hole_aux", None))
-                and state_mat is not None
-            ):
-                targ_list = [float(st["holes_after"]) / hole_denom for st in steps]
-                targ_t = tensor_to_device(torch.tensor(targ_list, dtype=torch.float32), device).clamp(
-                    0.0, 1.0
-                )
-                pred = model.forward_hole_aux(state_mat, chosen_a)
-                hole_aux_loss = F.smooth_l1_loss(pred, targ_t, reduction="mean", beta=1.0)
-            if (
-                cp_coef > 1e-12
-                and callable(getattr(model, "forward_clear_pred", None))
-                and state_mat is not None
-                and all("clears" in st for st in steps)
-            ):
-                clears_tgt = tensor_to_device(
-                    torch.tensor([min(int(st.get("clears", 0)), 3) for st in steps], dtype=torch.long), device
-                )
-                clear_logits = model.forward_clear_pred(state_mat, chosen_a)
-                clear_pred_loss = F.cross_entropy(clear_logits, clears_tgt, reduction="mean")
+        except Exception as exc:
+            import logging
+            import traceback
 
-            bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
-            feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
-            surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
-            has_aux = callable(getattr(model, "forward_aux_all", None))
-            if has_aux and state_mat is not None:
-                aux = model.forward_aux_all(state_mat)
-                bq_c = float(RL_REWARD_SHAPING.get("boardQualityLossCoef") or 0.5)
-                feas_c = float(RL_REWARD_SHAPING.get("feasibilityLossCoef") or 0.3)
-                surv_c = float(RL_REWARD_SHAPING.get("survivalLossCoef") or 0.2)
-                if bq_c > 1e-12 and all("board_quality" in st for st in steps):
-                    bq_tgt = tensor_to_device(
-                        torch.tensor([float(st["board_quality"]) for st in steps], dtype=torch.float32), device
-                    )
-                    bq_loss = bq_c * F.smooth_l1_loss(aux["board_quality"], bq_tgt, beta=1.0)
-                if feas_c > 1e-12 and all("feasibility" in st for st in steps):
-                    feas_tgt = tensor_to_device(
-                        torch.tensor([float(st["feasibility"]) for st in steps], dtype=torch.float32), device
-                    )
-                    feas_loss = feas_c * F.binary_cross_entropy_with_logits(aux["feasibility"], feas_tgt)
-                if surv_c > 1e-12 and all("steps_to_end" in st for st in steps):
-                    surv_tgt = tensor_to_device(
-                        torch.tensor([float(st["steps_to_end"]) / 30.0 for st in steps], dtype=torch.float32), device
-                    ).clamp(0.0, 1.0)
-                    surv_loss = surv_c * F.smooth_l1_loss(aux["survival"], surv_tgt, beta=1.0)
-
-            loss = (
-                policy_loss
-                + value_coef * value_loss
-                - entropy_coef_eff * entropy_mean
-                + hole_coef * hole_aux_loss
-                + cp_coef * clear_pred_loss
-                + bq_loss + feas_loss + surv_loss
-            )
-
-            model.train()
-            opt.zero_grad()
-            stepped = bool(torch.isfinite(loss).item())
-            if stepped:
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max(grad_clip, 1e-8))
-                opt.step()
-            else:
-                opt.zero_grad(set_to_none=True)
-            if device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes"):
-                maybe_mps_synchronize(device)
-
-            _state["episodes"] += 1
-            ep = _state["episodes"]
-
-            save_every = max(1, int(os.environ.get("RL_SAVE_EVERY", "500")))
-            if ep % save_every == 0:
-                _save_checkpoint("periodic")
-
-            def _log_float(t) -> float | None:
-                v = float(t.detach().item())
-                return v if math.isfinite(v) else None
-
-            log_row = {
-                "event": "train_episode",
-                "episodes": ep,
-                "loss_policy": _log_float(policy_loss),
-                "loss_value": _log_float(value_loss),
-                "loss_hole_aux": _log_float(hole_aux_loss),
-                "loss_clear_pred": _log_float(clear_pred_loss),
-                "loss_bq": _log_float(bq_loss),
-                "loss_feas": _log_float(feas_loss),
-                "loss_surv": _log_float(surv_loss),
-                "entropy": _log_float(entropy_mean),
-                "step_count": tlen,
-                "optimizer_step": stepped,
-            }
-            if data.get("score") is not None:
-                try:
-                    log_row["score"] = float(data["score"])
-                except (TypeError, ValueError):
-                    pass
-            if data.get("won") is not None:
-                log_row["won"] = bool(data["won"])
-            if data.get("game_steps") is not None:
-                try:
-                    log_row["game_steps"] = int(data["game_steps"])
-                except (TypeError, ValueError):
-                    pass
-            _append_training_log(log_row)
-
-            return jsonify(
-                {
-                    "ok": True,
-                    "episodes": ep,
-                    "loss_policy": _log_float(policy_loss),
-                    "loss_value": _log_float(value_loss),
-                    "loss_hole_aux": _log_float(hole_aux_loss),
-                    "loss_clear_pred": _log_float(clear_pred_loss),
-                    "loss_bq": _log_float(bq_loss),
-                    "loss_feas": _log_float(feas_loss),
-                    "loss_surv": _log_float(surv_loss),
-                    "entropy": _log_float(entropy_mean),
-                    "optimizer_step": stepped,
-                }
+            logging.exception("train_episode 失败: %s", exc)
+            return (
+                jsonify(
+                    {
+                        "error": str(exc),
+                        "type": type(exc).__name__,
+                        "traceback": traceback.format_exc(),
+                    }
+                ),
+                500,
             )
 
     @bp.route("/api/rl/save", methods=["POST"])
