@@ -20,5 +20,11 @@ def _bootstrap() -> None:
     if "TORCH_NNPACK_ENABLED" not in os.environ:
         os.environ["TORCH_NNPACK_ENABLED"] = "0"
 
+    # 默认关闭 oneDNN/MKLDNN：部分虚拟机/旧 CPU 上 Conv2d 会报
+    # RuntimeError: could not create a primitive；设 RL_CPU_DISABLE_MKLDNN=0 可恢复加速
+    if os.environ.get("RL_CPU_DISABLE_MKLDNN", "1").lower() not in ("0", "false", "no"):
+        os.environ.setdefault("DNNL_DEFAULT_FPMATH_MODE", "strict")
+        os.environ.setdefault("MKLDNN_VERBOSE", "0")
+
 
 _bootstrap()

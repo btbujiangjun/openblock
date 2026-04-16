@@ -28,6 +28,8 @@ M4 / MPS：
     ``TORCH_NNPACK_ENABLED=0``，消除不支持 NNPACK 硬件时的 ``[W... NNPACK.cpp]`` 告警。
   - ``RL_CPU_NUM_THREADS`` — PyTorch intra-op 线程数；未设则使用 ``cpu_count()``。
   - ``RL_CPU_INTEROP_THREADS`` — inter-op 并行度；未设则 ``min(4, max(1, n//4))``。
+  - ``RL_CPU_DISABLE_MKLDNN`` — 设为 ``1``（默认）时在 CPU 上关闭 oneDNN/MKLDNN 卷积后端。
+    部分虚拟机/旧 CPU 上否则会 ``RuntimeError: could not create a primitive``（Conv2d）；设为 ``0`` 可恢复加速。
   - ``RL_CPU_DATALOADER_WORKERS`` — 仅 spawn 模型训练 DataLoader：未设时 Linux/Windows 在 CPU 上默认
     ``min(4, cpu_count-1)``；macOS 默认 ``0``（避免部分环境多进程反慢）；可显式设为 ``2`` 等。
 
@@ -205,6 +207,15 @@ def apply_cpu_training_tuning(device) -> None:
         if nnpack is not None and hasattr(nnpack, "enabled"):
             if os.environ.get("TORCH_NNPACK_ENABLED", "0").lower() in ("0", "false", "no"):
                 nnpack.enabled = False  # type: ignore[misc]
+    except Exception:
+        pass
+
+    # oneDNN/MKLDNN：部分 CPU/容器上会报 could not create a primitive（Conv2d）；默认关闭，需加速时设 RL_CPU_DISABLE_MKLDNN=0
+    try:
+        if os.environ.get("RL_CPU_DISABLE_MKLDNN", "1").lower() not in ("0", "false", "no"):
+            mkldnn = getattr(torch.backends, "mkldnn", None)
+            if mkldnn is not None and hasattr(mkldnn, "enabled"):
+                mkldnn.enabled = False  # type: ignore[misc]
     except Exception:
         pass
 
