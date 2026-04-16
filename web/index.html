@@ -98,8 +98,10 @@
                 <span>全选</span>
             </label>
             <span class="replay-selected-count" id="replay-selected-count" aria-live="polite">已选 0 条</span>
-            <button type="button" class="btn btn-secondary replay-btn-delete" id="replay-delete-selected" disabled>删除所选</button>
-            <button type="button" class="btn btn-secondary" id="replay-delete-zero-score" title="删除列表中展示为 0 分的对局记录">删除得分为0</button>
+            <div class="replay-list-toolbar-btns" role="group" aria-label="批量操作">
+                <button type="button" class="btn btn-secondary replay-btn-delete" id="replay-delete-selected" disabled>删除所选</button>
+                <button type="button" class="btn btn-secondary" id="replay-delete-zero-score" title="删除列表中展示为 0 分的对局记录">删除得分为0</button>
+            </div>
         </div>
         <ul id="replay-session-list" class="replay-list"></ul>
         <button type="button" class="btn btn-secondary" id="replay-list-back">返回菜单</button>
