@@ -121,7 +121,8 @@ body.block-drag-active #app {
 }
 
 .header .app-wordmark {
-    --wm-cell: 5.25px;
+    --wm-cell-w: 3.6px;
+    --wm-cell-h: 5.4px;
     padding: 7px 16px 9px;
     border-radius: 14px;
     background: color-mix(in srgb, var(--stat-surface, #ffffff) 22%, transparent);
@@ -138,7 +139,8 @@ body.block-drag-active #app {
 }
 
 .app-wordmark--hero .app-wordmark-pixel {
-    --wm-cell: 9.5px;
+    --wm-cell-w: 6.5px;
+    --wm-cell-h: 10px;
 }
 
 .app-wordmark-pixel {
@@ -189,7 +191,7 @@ body.block-drag-active #app {
 }
 
 .app-wordmark-pixel__crossstar-svg {
-    width: clamp(0.6rem, calc(var(--wm-cell) * 2.2), 1.1rem);
+    width: clamp(0.6rem, calc(var(--wm-cell-w, 5px) * 2.2), 1.1rem);
     height: auto;
     aspect-ratio: 1 / 2;
     display: block;
@@ -221,44 +223,25 @@ body.block-drag-active #app {
 }
 
 .header .app-wordmark-pixel__crossstar-svg {
-    width: clamp(0.5rem, calc(var(--wm-cell) * 1.8), 0.8rem);
+    width: clamp(0.5rem, calc(var(--wm-cell-w, 4px) * 1.8), 0.8rem);
 }
 
-/* 大写 O/B 角上极小的 ✨，与像素块同层氛围、低对比 */
-.wm-letter--peek-emoji {
-    position: relative;
-}
-
-.wm-letter__peek {
-    position: absolute;
-    z-index: 3;
+/* icon 方块：emoji 嵌入像素格 */
+.wm-cell--icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.68);
     line-height: 1;
-    font-size: max(0.42rem, calc(var(--wm-cell) * var(--wm-letter-bump) * 0.88));
-    opacity: 0.72;
-    pointer-events: none;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
-    transform: skewX(6deg);
-    transition: opacity 0.3s, transform 0.3s;
+    background: none;
+    border: none;
+    box-shadow: none;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.16));
+    opacity: 0.92;
 }
 
-.wm-letter__peek--tr {
-    top: -0.32em;
-    right: -0.35em;
-}
-
-.wm-letter__peek--tl {
-    top: -0.32em;
-    left: -0.35em;
-}
-
-.app-wordmark--hero .wm-letter__peek {
-    opacity: 0.78;
-    font-size: max(0.48rem, calc(var(--wm-cell) * var(--wm-letter-bump) * 0.82));
-}
-
-.header .wm-letter__peek {
-    opacity: 0.68;
-    font-size: max(0.36rem, calc(var(--wm-cell) * var(--wm-letter-bump) * 0.92));
+.wm-cell--rainbow-icon {
+    filter: drop-shadow(0 1px 2px hsla(var(--wm-rainbow-hue, 0), 70%, 36%, 0.22));
 }
 
 /* 字标背后柔光氛围（无描边底板） */
@@ -317,7 +300,7 @@ body.block-drag-active #app {
 .wm-letter {
     --wm-letter-bump: 1;
     display: grid;
-    gap: max(1px, calc(var(--wm-cell) * var(--wm-letter-bump) * var(--skin-wm-gridgap-frac, 0.1)));
+    gap: max(1px, calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * var(--skin-wm-gridgap-frac, 0.08)));
     line-height: 0;
 }
 
@@ -336,11 +319,11 @@ body.block-drag-active #app {
 
 .wm-cell {
     box-sizing: border-box;
-    width: calc(var(--wm-cell) * var(--wm-letter-bump));
-    height: calc(var(--wm-cell) * var(--wm-letter-bump));
+    width: calc(var(--wm-cell-w, 5px) * var(--wm-letter-bump));
+    height: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump));
     min-width: 2px;
     min-height: 2px;
-    border-radius: max(2px, calc(var(--wm-cell) * var(--wm-letter-bump) * var(--skin-wm-radius-frac, 0.32)));
+    border-radius: max(2px, calc(var(--wm-cell-w, 5px) * var(--wm-letter-bump) * var(--skin-wm-radius-frac, 0.28)));
 }
 
 .wm-cell--void {
@@ -357,7 +340,7 @@ body.block-drag-active #app {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.42),
         inset 0 -1px 0 rgba(15, 23, 42, 0.22),
-        0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell) * var(--wm-letter-bump) * 0.32) rgba(49, 46, 129, 0.28);
+        0 calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.32) rgba(49, 46, 129, 0.28);
 }
 
 .wm-cell--warm {
@@ -368,7 +351,7 @@ body.block-drag-active #app {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.36),
         inset 0 -1px 0 rgba(50, 18, 6, 0.22),
-        0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell) * var(--wm-letter-bump) * 0.3) rgba(120, 45, 15, 0.26);
+        0 calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.3) rgba(120, 45, 15, 0.26);
 }
 
 .wm-cell--mid {
@@ -379,7 +362,7 @@ body.block-drag-active #app {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.34),
         inset 0 -1px 0 rgba(30, 27, 75, 0.18),
-        0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.08) calc(var(--wm-cell) * var(--wm-letter-bump) * 0.28) rgba(60, 40, 120, 0.22);
+        0 calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.08) calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.28) rgba(60, 40, 120, 0.22);
 }
 
 /* 字标彩虹：按列色相 --wm-rainbow-hue（0~360），自左向右完整色谱过渡 */
@@ -392,7 +375,7 @@ body.block-drag-active #app {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.4),
         inset 0 -1px 0 rgba(0, 0, 0, 0.12),
-        0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell) * var(--wm-letter-bump) * 0.32) hsla(var(--h), 72%, 28%, 0.32);
+        0 calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.1) calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.32) hsla(var(--h), 72%, 28%, 0.32);
 }
 
 .app-wordmark-pixel--rainbow .wm-letter--accent {
@@ -481,8 +464,8 @@ body.block-drag-active #app {
 [data-skin-block-style='neon'] .wm-cell:not(.wm-cell--void) {
     border: 1px solid color-mix(in srgb, #fff 35%, transparent);
     box-shadow:
-        0 0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.45) color-mix(in srgb, currentColor 55%, transparent),
-        inset 0 0 calc(var(--wm-cell) * var(--wm-letter-bump) * 0.25) rgba(255, 255, 255, 0.12);
+        0 0 calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.45) color-mix(in srgb, currentColor 55%, transparent),
+        inset 0 0 calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.25) rgba(255, 255, 255, 0.12);
 }
 
 [data-skin-block-style='neon'] .wm-cell--cool {
@@ -2882,10 +2865,12 @@ body.game-shell-hidden .app-side-left {
 
 @media (max-width: 400px) {
     .header .app-wordmark {
-        --wm-cell: 3.5px;
+        --wm-cell-w: 2.4px;
+        --wm-cell-h: 3.8px;
     }
     .app-wordmark--hero .app-wordmark-pixel {
-        --wm-cell: 7.5px;
+        --wm-cell-w: 4.8px;
+        --wm-cell-h: 7.8px;
     }
     .stat-box { padding: 4px 8px; min-width: 50px; }
     .stat-value { font-size: 14px; }
