@@ -304,17 +304,39 @@ body.block-drag-active #app {
     line-height: 0;
 }
 
-/* 大写 O、B：仅用 bump 放大网格（无 scale），外晕略收 */
+/* 大写 O、B：不整字放大，仅左上外缘像素格加粗（见 .wm-cell--accent-*） */
 .wm-letter--accent {
     margin-inline: 0;
-    filter: drop-shadow(0 3px 10px rgba(79, 70, 229, 0.32))
-        drop-shadow(0 2px 8px rgba(234, 88, 12, 0.2));
+    overflow: visible;
+    filter: drop-shadow(0 2px 8px rgba(79, 70, 229, 0.22))
+        drop-shadow(0 1px 5px rgba(234, 88, 12, 0.12));
     z-index: 2;
 }
 
 .header .wm-letter--accent {
-    filter: drop-shadow(0 2px 7px rgba(79, 70, 229, 0.28))
-        drop-shadow(0 1px 5px rgba(234, 88, 12, 0.16));
+    filter: drop-shadow(0 1px 6px rgba(79, 70, 229, 0.18))
+        drop-shadow(0 1px 4px rgba(234, 88, 12, 0.1));
+}
+
+/* O/B：仅「上边」与「每行最左实心」加笔触式加粗，角点统一从左上放大 */
+.wm-letter--accent .wm-cell--accent-edge {
+    position: relative;
+    z-index: 1;
+}
+
+.wm-letter--accent .wm-cell--accent-top.wm-cell--accent-left {
+    transform: scale(1.14);
+    transform-origin: top left;
+}
+
+.wm-letter--accent .wm-cell--accent-top:not(.wm-cell--accent-left) {
+    transform: scaleY(1.12);
+    transform-origin: top center;
+}
+
+.wm-letter--accent .wm-cell--accent-left:not(.wm-cell--accent-top) {
+    transform: scaleX(1.12);
+    transform-origin: left center;
 }
 
 .wm-cell {
@@ -379,13 +401,13 @@ body.block-drag-active #app {
 }
 
 .app-wordmark-pixel--rainbow .wm-letter--accent {
-    filter: drop-shadow(0 3px 12px rgba(0, 0, 0, 0.18))
-        drop-shadow(0 2px 8px hsla(280, 70%, 50%, 0.22));
+    filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.12))
+        drop-shadow(0 1px 6px hsla(280, 55%, 45%, 0.16));
 }
 
 .header .app-wordmark-pixel--rainbow .wm-letter--accent {
-    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.16))
-        drop-shadow(0 1px 5px hsla(260, 65%, 48%, 0.18));
+    filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.1))
+        drop-shadow(0 1px 4px hsla(260, 50%, 42%, 0.12));
 }
 
 [data-skin-block-style='flat'] .wm-cell:not(.wm-cell--void) {

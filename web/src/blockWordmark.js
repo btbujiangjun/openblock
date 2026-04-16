@@ -32,10 +32,14 @@ const LETTERS = {
         '1000',
         '1111',
     ],
+    /*
+     * 小写 n：左竖 + 斜连右竖。避免连续两行相同阶梯（10101×2）造成「折线感」；
+     * 用 11101 过渡，使斜向连接更连贯顺滑。
+     */
     n: [
         '10001',
         '11001',
-        '10101',
+        '11101',
         '10101',
         '10011',
         '10011',
@@ -126,6 +130,15 @@ function wordWidth(word) {
 
 const WORDMARK_STAR_COL_UNITS = 2.4;
 
+/** 当前行最左侧实心列（O/B 仅强化左缘） */
+function leftmostFilledCol(rowStr) {
+    for (let i = 0; i < rowStr.length; i++) {
+        const ch = rowStr[i];
+        if (ch === '1' || ch === '#' || ch === '2') return i;
+    }
+    return -1;
+}
+
 /**
  * @param {string[]} lines
  * @param {'cool' | 'warm'} side
@@ -139,7 +152,8 @@ function letterEl(lines, side, opts = {}) {
     if (opts.char) {
         wrap.dataset.char = opts.char;
     }
-    const bump = opts.accent ? 1.18 : 1;
+    /* O/B：不再整字等比放大，仅上边 + 左边像素格加笔触（见 .wm-cell--accent-*） */
+    const bump = 1;
     wrap.style.setProperty('--wm-letter-bump', String(bump));
     const cw = `calc(var(--wm-cell-w) * var(--wm-letter-bump))`;
     const ch_ = `calc(var(--wm-cell-h) * var(--wm-letter-bump))`;
@@ -155,12 +169,19 @@ function letterEl(lines, side, opts = {}) {
 
     for (let r = 0; r < h; r++) {
         const row = lines[r].padEnd(w, '0');
+        const leftCol = leftmostFilledCol(row);
         for (let c = 0; c < w; c++) {
             const filled = row[c] === '1' || row[c] === '#' || row[c] === '2';
             const iconEmoji = iconLookup[`${r},${c}`];
             const cell = document.createElement('span');
+            const accentTop = Boolean(opts.accent && filled && r === 0);
+            const accentLeft = Boolean(opts.accent && filled && c === leftCol && leftCol >= 0);
+            const edgeClasses =
+                accentTop || accentLeft
+                    ? ` wm-cell--accent-edge${accentTop ? ' wm-cell--accent-top' : ''}${accentLeft ? ' wm-cell--accent-left' : ''}`
+                    : '';
             if (filled && iconEmoji) {
-                cell.className = 'wm-cell wm-cell--icon';
+                cell.className = 'wm-cell wm-cell--icon' + edgeClasses;
                 cell.textContent = iconEmoji;
                 if (rainbow) {
                     const t = (colBase + c) / totalSpan;
@@ -172,10 +193,10 @@ function letterEl(lines, side, opts = {}) {
                 if (rainbow) {
                     const t = (colBase + c) / totalSpan;
                     const hue = ((t * 360) % 360 + 360) % 360;
-                    cell.className = 'wm-cell wm-cell--rainbow';
+                    cell.className = 'wm-cell wm-cell--rainbow' + edgeClasses;
                     cell.style.setProperty('--wm-rainbow-hue', String(hue));
                 } else {
-                    cell.className = `wm-cell wm-cell--${side}`;
+                    cell.className = `wm-cell wm-cell--${side}` + edgeClasses;
                 }
             } else {
                 cell.className = 'wm-cell wm-cell--void';
