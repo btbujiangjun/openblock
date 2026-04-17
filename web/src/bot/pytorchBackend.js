@@ -82,6 +82,24 @@ export async function trainEpisodeRemote(trajectory, meta = {}) {
     return postJson('/api/rl/train_episode', body);
 }
 
+/**
+ * 批量评估 V(s) — 供 1-step lookahead 使用。
+ * @param {Float32Array[]|number[][]} states 一组 state feature vectors
+ * @returns {Promise<number[]>} 对应的 V(s) 值
+ */
+export async function evalValuesRemote(states) {
+    const payload = states.map(s => Array.from(s));
+    const data = await postJson('/api/rl/eval_values', { states: payload });
+    return data.values;
+}
+
+/**
+ * 手动触发 replay buffer 的批量 PPO 更新。
+ */
+export async function flushBufferRemote() {
+    return postJson('/api/rl/flush_buffer', {});
+}
+
 export async function saveRemoteCheckpoint(path) {
     return postJson('/api/rl/save', path ? { path } : {});
 }

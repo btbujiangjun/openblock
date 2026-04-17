@@ -3,11 +3,11 @@
   "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
   "winScoreThreshold": 220,
   "rlCurriculum": {
-    "comment": "胜利门槛从 80 起步，让初学者能拿到 winBonus 正反馈；80k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
+    "comment": "胜利门槛从 40 起步，让初学者能拿到 winBonus 正反馈；40k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
     "enabled": true,
-    "winThresholdStart": 80,
+    "winThresholdStart": 40,
     "winThresholdEnd": 220,
-    "rampEpisodes": 80000
+    "rampEpisodes": 40000
   },
   "defaultStrategyId": "normal",
   "dynamicDifficulty": {
@@ -151,9 +151,9 @@
   },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
-    "comment": "v5 精简奖励：仅 得分增量 + 势函数塑形 + winBonus + stuckPenalty；其余噪声项已移除，改由直接监督三头学习。",
-    "winBonus": 25,
-    "stuckPenalty": -5.0,
+    "comment": "v6 优化奖励：增大势函数系数与终局信号，降低 outcome 混合比例让 V 学会逐步评估。",
+    "winBonus": 35,
+    "stuckPenalty": -8.0,
     "holeAuxLossCoef": 0.12,
     "holeAuxTargetMax": 16,
     "clearPredLossCoef": 0.15,
@@ -161,9 +161,9 @@
     "feasibilityLossCoef": 0.3,
     "survivalLossCoef": 0.2,
     "potentialShaping": {
-      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。",
+      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。v6 增大系数以提供更强逐步信号。",
       "enabled": true,
-      "coef": 0.5,
+      "coef": 0.8,
       "holeWeight": -0.40,
       "transitionWeight": -0.08,
       "wellWeight": -0.15,
@@ -171,9 +171,9 @@
       "mobilityWeight": 0.12
     },
     "outcomeValueMix": {
-      "comment": "v5 纯 outcome 价值目标：mix=1.0 → V 学习预测 final_score/threshold，低方差。",
+      "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。纯 outcome(1.0) 导致 V≈常数，advantage 退化为原始 reward。",
       "enabled": true,
-      "mix": 1.0
+      "mix": 0.5
     }
   },
   "featureEncoding": {

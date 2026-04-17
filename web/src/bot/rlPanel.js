@@ -158,7 +158,9 @@ export function initRLPanel(game) {
                 if (e.event === 'train_episode') {
                     const lp = e.loss_policy != null && Number.isFinite(Number(e.loss_policy)) ? Number(e.loss_policy).toFixed(2) : '—';
                     const lv = e.loss_value != null && Number.isFinite(Number(e.loss_value)) ? Number(e.loss_value).toFixed(2) : '—';
-                    return `[${t}]#${e.episodes}·Lπ${lp}·Lv${lv}`;
+                    const batchTag = e.batch_size ? `×${e.batch_size}` : '';
+                    const sc = typeof e.score === 'number' ? `·sc${Math.round(e.score)}` : '';
+                    return `[${t}]#${e.episodes}${batchTag}·Lπ${lp}·Lv${lv}${sc}`;
                 }
                 if (e.event === 'checkpoint_saved') {
                     return `[${t}] 已保存 ${e.reason || ''} ep${e.episodes}`;

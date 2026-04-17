@@ -103,7 +103,7 @@ const ICON_MAP = {
     // 极简点缀：每个单词保留 1 个 icon
     /* 与 B 一致：顶行左上实心格（O 首行 011110，左上为 c=1） */
     O: [{ r: 0, c: 1, emoji: '🎮' }],
-    B: [{ r: 0, c: 0, emoji: '⭐' }],
+    B: [{ r: 0, c: 0, emoji: '🏆' }],
 };
 
 function lookupBitmap(char) {

@@ -9,10 +9,71 @@ import {
     fetchRlStatus,
     saveRemoteCheckpoint,
     selectActionRemote,
-    trainEpisodeRemote
+    trainEpisodeRemote,
+    evalValuesRemote,
+    flushBufferRemote
 } from './pytorchBackend.js';
 
+import { extractStateFeatures } from './features.js';
+
 export { WIN_SCORE_THRESHOLD } from '../gameRules.js';
+
+/* ================================================================== */
+/*  1-step lookahead：用 V(s') 评估动作质量                            */
+/* ================================================================== */
+
+/**
+ * 对每个合法动作模拟一步，提取后继状态，批量评估 V(s')，
+ * 返回 Q(s,a) = r(s,a) + γ * V(s') 最高的动作（带温度采样）。
+ */
+async function _selectWithLookahead(env, legal, stateFeat, phiList, temperature) {
+    const GAMMA = 0.99;
+    const sim = env.simulator;
+    const savedState = sim.saveState();
+
+    const nextStates = [];
+    const rewards = [];
+
+    for (const action of legal) {
+        sim.restoreState(savedState);
+        const r = sim.step(action.blockIdx, action.gx, action.gy);
+        rewards.push(r);
+        const sf = extractStateFeatures(sim.grid, sim.dock);
+        nextStates.push(sf);
+        sim.restoreState(savedState);
+    }
+
+    let values;
+    try {
+        values = await evalValuesRemote(nextStates);
+    } catch {
+        return selectActionRemote(phiList, stateFeat, temperature);
+    }
+
+    const qValues = legal.map((_, i) => rewards[i] + GAMMA * (values[i] || 0));
+
+    if (temperature < 0.01) {
+        let bestIdx = 0, bestQ = -Infinity;
+        for (let i = 0; i < qValues.length; i++) {
+            if (qValues[i] > bestQ) { bestQ = qValues[i]; bestIdx = i; }
+        }
+        return bestIdx;
+    }
+
+    const maxQ = Math.max(...qValues);
+    const logits = qValues.map(q => (q - maxQ) / Math.max(temperature, 0.01));
+    const expL = logits.map(Math.exp);
+    const sumExp = expL.reduce((a, b) => a + b, 0);
+    const probs = expL.map(e => e / sumExp);
+
+    const r = Math.random();
+    let cum = 0;
+    for (let i = 0; i < probs.length; i++) {
+        cum += probs[i];
+        if (r <= cum) return i;
+    }
+    return probs.length - 1;
+}
 
 /* ================================================================== */
 /*  回报标准化（在线 Welford 算法）                                     */
@@ -76,7 +137,13 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
 
         let choice;
         if (useBackend) {
-            const idx = await selectActionRemote(phiList, stateFeat, temperature);
+            const useLookahead = Boolean(opts.useLookahead) && legal.length <= 120;
+            let idx;
+            if (useLookahead) {
+                idx = await _selectWithLookahead(env, legal, stateFeat, phiList, temperature);
+            } else {
+                idx = await selectActionRemote(phiList, stateFeat, temperature);
+            }
             choice = {
                 stateFeat: new Float32Array(stateFeat),
                 phiList, probs: null, chosenIdx: idx, idx
@@ -246,6 +313,7 @@ export async function trainSelfPlay(opts) {
 
     if (useBackend) {
         let baseEp = 0;
+        const useLookahead = Boolean(opts.useLookahead);
         try {
             const st = await fetchRlStatus();
             if (st.available && typeof st.episodes === 'number') baseEp = st.episodes;
@@ -255,9 +323,13 @@ export async function trainSelfPlay(opts) {
             if (signal?.aborted) break;
             const globalEp = baseEp + e;
             const temp = Math.max(0.35, 1.0 - globalEp * 0.002);
-            const ep = await runSelfPlayEpisode(null, temp, {}, { useBackend: true });
+            const ep = await runSelfPlayEpisode(null, temp, {}, {
+                useBackend: true,
+                useLookahead,
+            });
 
             let serverEpisodes = null, lossPi = null, lossV = null;
+            let buffered = false;
             if (ep.trajectory.length > 0) {
                 try {
                     const res = await trainEpisodeRemote(ep.trajectory, {
@@ -266,26 +338,31 @@ export async function trainSelfPlay(opts) {
                     serverEpisodes = res.episodes;
                     lossPi = res.loss_policy;
                     lossV = res.loss_value;
+                    buffered = Boolean(res.buffered);
                 } catch (err) {
                     console.warn('[RL backend] train_episode failed:', err);
                 }
             }
-            try {
-                const st = await fetchRlStatus();
-                if (st.available && typeof st.episodes === 'number') serverEpisodes = st.episodes;
-            } catch (err) {
-                console.warn('[RL backend] status sync failed:', err);
+            if (!buffered) {
+                try {
+                    const st = await fetchRlStatus();
+                    if (st.available && typeof st.episodes === 'number') serverEpisodes = st.episodes;
+                } catch (err) {
+                    console.warn('[RL backend] status sync failed:', err);
+                }
             }
 
             onEpisode?.({
                 episodeIndex: e, score: ep.score, steps: ep.steps,
                 clears: ep.totalClears, won: ep.won, trajLen: ep.trajectory.length,
                 policySteps: ep.trajectory.length, serverEpisodes,
-                lossPolicy: lossPi, lossValue: lossV, fromBackend: true
+                lossPolicy: lossPi, lossValue: lossV, fromBackend: true,
+                buffered,
             });
 
             if (e % 3 === 0) await new Promise(r => setTimeout(r, 0));
         }
+        try { await flushBufferRemote(); } catch { /* ignore */ }
         try { await saveRemoteCheckpoint(); } catch { /* ignore */ }
         return;
     }

@@ -1893,20 +1893,26 @@ body.game-rl-preview .block-dock {
     overflow: hidden;
 }
 
+.rl-dash-panel > .panel-section:last-of-type[open] > summary.panel-section-head {
+    flex-shrink: 0;
+}
+
 .rl-dash-panel > .panel-section:last-of-type[open] > .rl-chart-root {
     flex: 1 1 0;
+    min-height: 0;
 }
 
 .rl-chart-root {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 3px;
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    /* 最后一幅图（滑动胜率等）滚到底时轴标签不被裁切 */
-    padding-bottom: 16px;
+    /* 最后一幅图（滑动胜率、得分）滚到底时整图 + 轴标签不被裁切 */
+    padding-bottom: 72px;
+    scroll-padding-bottom: 56px;
     box-sizing: border-box;
     -webkit-overflow-scrolling: touch;
 }

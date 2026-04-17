@@ -149,6 +149,29 @@ export class BlockBlastSimulator {
         }
     }
 
+    saveState() {
+        return {
+            cells: this.grid.cells.map(row => [...row]),
+            dock: this.dock.map(b => ({ ...b, shape: b.shape.map(r => [...r]) })),
+            score: this.score,
+            totalClears: this.totalClears,
+            steps: this.steps,
+            placements: this.placements,
+        };
+    }
+
+    restoreState(s) {
+        const n = this.grid.size;
+        for (let y = 0; y < n; y++)
+            for (let x = 0; x < n; x++)
+                this.grid.cells[y][x] = s.cells[y][x];
+        this.dock = s.dock.map(b => ({ ...b, shape: b.shape.map(r => [...r]) }));
+        this.score = s.score;
+        this.totalClears = s.totalClears;
+        this.steps = s.steps;
+        this.placements = s.placements;
+    }
+
     /** @returns {{ blockIdx: number, gx: number, gy: number }[]} */
     getLegalActions() {
         const actions = [];

@@ -31,7 +31,7 @@ _listen_pids() {
   local port=$1
   shift
   local runner=("$@")
-  if ((${#runner[@]})); then
+  if ((${#runner[@]+"1"})); then
     "${runner[@]}" lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true
   else
     lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true
@@ -45,13 +45,13 @@ _port_is_free() {
   local runner=("$@")
   local pids
   if _has_lsof; then
-    pids=$(_listen_pids "$port" "${runner[@]}")
+    pids=$(_listen_pids "$port" "${runner[@]+"${runner[@]}"}")
     [[ -z "${pids//[$' \t\n']}" ]]
   elif _has_fuser; then
-    if ((${#runner[@]})); then
-      ! "${runner[@]}" fuser "${port}/tcp" >/dev/null 2>&1
+    if ((${#runner[@]+"1"})); then
+      "${runner[@]}" fuser "${port}/tcp" >/dev/null 2>&1 && return 1 || return 0
     else
-      ! fuser "${port}/tcp" >/dev/null 2>&1
+      fuser "${port}/tcp" >/dev/null 2>&1 && return 1 || return 0
     fi
   else
     return 1
@@ -67,11 +67,11 @@ _kill_listeners_lsof() {
 
   _kill_round() {
     local sig=$1
-    pids=$(_listen_pids "$port" "${runner[@]}")
+    pids=$(_listen_pids "$port" "${runner[@]+"${runner[@]}"}")
     [[ -z "${pids//[$' \t\n']}" ]] && return 0
     while IFS= read -r pid; do
       [[ -z "$pid" ]] && continue
-      if ((${#runner[@]})); then
+      if ((${#runner[@]+"1"})); then
         "${runner[@]}" kill "-${sig}" "$pid" 2>/dev/null || true
       else
         kill "-${sig}" "$pid" 2>/dev/null || true
@@ -88,7 +88,7 @@ _kill_listeners_fuser() {
   local port=$1
   shift
   local runner=("$@")
-  if ((${#runner[@]})); then
+  if ((${#runner[@]+"1"})); then
     "${runner[@]}" fuser -k "${port}/tcp" >/dev/null 2>&1 || true
   else
     fuser -k "${port}/tcp" >/dev/null 2>&1 || true
@@ -108,24 +108,24 @@ _clear_port() {
   fi
 
   while [[ $tries -lt 20 ]]; do
-    if _port_is_free "$port" "${runner[@]}"; then
+    if _port_is_free "$port" "${runner[@]+"${runner[@]}"}"; then
       return 0
     fi
     if _has_lsof; then
-      _kill_listeners_lsof "$port" "${runner[@]}"
+      _kill_listeners_lsof "$port" "${runner[@]+"${runner[@]}"}"
     else
-      _kill_listeners_fuser "$port" "${runner[@]}"
+      _kill_listeners_fuser "$port" "${runner[@]+"${runner[@]}"}"
     fi
     sleep 0.35
     tries=$((tries + 1))
   done
 
-  if _port_is_free "$port" "${runner[@]}"; then
+  if _port_is_free "$port" "${runner[@]+"${runner[@]}"}"; then
     return 0
   fi
   echo "error: 端口 ${port} 仍被占用，已放弃启动。请检查:" >&2
   if _has_lsof; then
-    if ((${#runner[@]})); then
+    if ((${#runner[@]+"1"})); then
       echo "  sudo lsof -nP -iTCP:${port} -sTCP:LISTEN" >&2
     else
       echo "  lsof -nP -iTCP:${port} -sTCP:LISTEN" >&2

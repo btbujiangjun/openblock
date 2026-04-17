@@ -1,13 +1,15 @@
-"""与 web/src/bot/features.js 一致的数值特征（常数来自 shared/game_rules.json）。"""
+"""与 web/src/bot/features.js 一致的数值特征（常数来自 shared/game_rules.json）。
+
+v6: 内部热路径使用 fast_grid numpy 加速，外部接口不变。
+"""
 
 from __future__ import annotations
 
-import math
-from typing import Sequence
 
 import numpy as np
 
 from .game_rules import FEATURE_ENCODING
+from . import fast_grid as _fg
 
 _ENC = FEATURE_ENCODING
 _AF = float(_ENC.get("almostFullLineRatio", 0.78))
@@ -32,22 +34,14 @@ if STATE_FEATURE_DIM != _expected_state:
     )
 
 
-def _std_dev(arr: Sequence[float]) -> float:
-    if not arr:
-        return 0.0
-    m = sum(arr) / len(arr)
-    v = sum((x - m) ** 2 for x in arr) / len(arr)
-    return math.sqrt(v)
-
 
 def _encode_grid_occupancy(grid) -> np.ndarray:
     """行主序 flatten，棋盘置于左上角，不足 max 则右侧/下侧填 0。"""
+    gnp = _fg.grid_to_np(grid)
     n = grid.size
     out = np.zeros((_MAX_GRID, _MAX_GRID), dtype=np.float32)
-    for y in range(min(n, _MAX_GRID)):
-        row = grid.cells[y]
-        for x in range(min(n, _MAX_GRID)):
-            out[y, x] = 1.0 if row[x] is not None else 0.0
+    m = min(n, _MAX_GRID)
+    out[:m, :m] = (gnp[:m, :m] >= 0).astype(np.float32)
     return out.reshape(-1)
 
 
@@ -81,97 +75,16 @@ def _encode_dock_spatial(dock: list[dict]) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# 棋盘结构分析辅助函数
+# 棋盘结构分析 — 代理到 fast_grid numpy 实现
 # ---------------------------------------------------------------------------
 
-def _count_holes(grid) -> int:
-    """空洞 = 上方（同列）有已占格子的空格数。"""
-    n = grid.size
-    holes = 0
-    for x in range(n):
-        block_found = False
-        for y in range(n):
-            if grid.cells[y][x] is not None:
-                block_found = True
-            elif block_found:
-                holes += 1
-    return holes
-
-
-def _count_transitions(grid) -> tuple[int, int]:
-    """行跳变 = 行内 occupied ↔ empty 的边界数；列跳变同理。"""
-    n = grid.size
-    row_trans = 0
-    col_trans = 0
-    for y in range(n):
-        prev = True  # 边界视为 occupied
-        for x in range(n):
-            cur = grid.cells[y][x] is not None
-            if cur != prev:
-                row_trans += 1
-            prev = cur
-        if not prev:
-            row_trans += 1
-    for x in range(n):
-        prev = True
-        for y in range(n):
-            cur = grid.cells[y][x] is not None
-            if cur != prev:
-                col_trans += 1
-            prev = cur
-        if not prev:
-            col_trans += 1
-    return row_trans, col_trans
-
-
-def _well_depth_sum(grid) -> int:
-    """各列 "井" 深度之和：连续空格且两侧（或墙壁）都被占用。"""
-    n = grid.size
-    total = 0
-    for x in range(n):
-        for y in range(n):
-            if grid.cells[y][x] is not None:
-                continue
-            left_blocked = x == 0 or grid.cells[y][x - 1] is not None
-            right_blocked = x == n - 1 or grid.cells[y][x + 1] is not None
-            if left_blocked and right_blocked:
-                total += 1
-    return total
-
-
-def _lines_close_to_clear(grid) -> tuple[int, int]:
-    """差 1 格和差 2 格就满的行/列数。"""
-    n = grid.size
-    close1 = 0
-    close2 = 0
-    for y in range(n):
-        filled = sum(1 for x in range(n) if grid.cells[y][x] is not None)
-        if filled == n - 1:
-            close1 += 1
-        elif filled == n - 2:
-            close2 += 1
-    for x in range(n):
-        filled = sum(1 for y in range(n) if grid.cells[y][x] is not None)
-        if filled == n - 1:
-            close1 += 1
-        elif filled == n - 2:
-            close2 += 1
-    return close1, close2
-
-
-def _dock_mobility(grid, dock: list[dict]) -> int:
-    """三个待选块的总合法放置位置数。"""
-    n = grid.size
-    total = 0
-    for b in dock:
-        if b.get("placed"):
-            continue
-        shape = b["shape"]
-        for gy in range(n):
-            for gx in range(n):
-                if grid.can_place(shape, gx, gy):
-                    total += 1
-    return total
+def _board_features_cached(grid, dock: list[dict]) -> dict:
+    """一次调用返回所有棋盘结构特征 + mobility（内部缓存 grid→numpy）。"""
+    gnp = _fg.grid_to_np(grid)
+    bf = _fg.fast_board_features(gnp)
+    bf["mobility"] = _fg.fast_dock_mobility(gnp, dock)
+    bf["_grid_np"] = gnp
+    return bf
 
 
 # ---------------------------------------------------------------------------
@@ -181,32 +94,11 @@ def _dock_mobility(grid, dock: list[dict]) -> int:
 def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     n = grid.size
     area = n * n
-    filled = 0
-    row_fill: list[float] = []
-    for y in range(n):
-        r = sum(1 for x in range(n) if grid.cells[y][x] is not None)
-        filled += int(r)
-        row_fill.append(r / n)
+    bf = _board_features_cached(grid, dock)
 
-    col_fill: list[float] = []
-    for x in range(n):
-        c = sum(1 for y in range(n) if grid.cells[y][x] is not None)
-        col_fill.append(c / n)
-
-    max_row = max(row_fill) if row_fill else 0.0
-    min_row = min(row_fill) if row_fill else 0.0
-    max_col = max(col_fill) if col_fill else 0.0
-    min_col = min(col_fill) if col_fill else 0.0
-
-    almost_full_rows = sum(1 for rf in row_fill if _AF <= rf < 1)
-    almost_full_cols = sum(1 for cf in col_fill if _AF <= cf < 1)
+    row_fill = bf["row_fill"]
+    col_fill = bf["col_fill"]
     unplaced = sum(1 for b in dock if not b["placed"]) / _DOCK
-
-    holes = _count_holes(grid)
-    row_trans, col_trans = _count_transitions(grid)
-    wells = _well_depth_sum(grid)
-    close1, close2 = _lines_close_to_clear(grid)
-    mobility = _dock_mobility(grid, dock)
 
     max_holes = float(_AN.get("maxHoles", 16))
     max_trans = float(_AN.get("maxTransitions", 64))
@@ -215,30 +107,29 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
 
     scalars = np.array(
         [
-            filled / area,
-            max_row,
-            min_row,
-            max_col,
-            min_col,
-            almost_full_rows / n,
-            almost_full_cols / n,
+            bf["filled"] / area,
+            bf["max_row"],
+            bf["min_row"],
+            bf["max_col"],
+            bf["min_col"],
+            bf["almost_full_rows"] / n,
+            bf["almost_full_cols"] / n,
             unplaced,
-            sum(row_fill) / n,
-            sum(col_fill) / n,
-            _std_dev(row_fill),
-            _std_dev(col_fill),
-            max_row - min_row,
-            max_col - min_col,
-            (almost_full_rows + almost_full_cols) / (2 * n),
-            # --- 8 new features ---
-            min(holes / max_holes, 1.0),
-            min(row_trans / max_trans, 1.0),
-            min(col_trans / max_trans, 1.0),
-            min(wells / max_wells, 1.0),
-            min(close1 / n, 1.0),
-            min(close2 / n, 1.0),
-            min(mobility / max_mob, 1.0),
-            filled / area,  # max_height proxy: reuse fill ratio (cheap)
+            bf["mean_row"],
+            bf["mean_col"],
+            bf["std_row"],
+            bf["std_col"],
+            bf["max_row"] - bf["min_row"],
+            bf["max_col"] - bf["min_col"],
+            (bf["almost_full_rows"] + bf["almost_full_cols"]) / (2 * n),
+            min(bf["holes"] / max_holes, 1.0),
+            min(bf["row_trans"] / max_trans, 1.0),
+            min(bf["col_trans"] / max_trans, 1.0),
+            min(bf["wells"] / max_wells, 1.0),
+            min(bf["close1"] / n, 1.0),
+            min(bf["close2"] / n, 1.0),
+            min(bf["mobility"] / max_mob, 1.0),
+            bf["filled"] / area,
         ],
         dtype=np.float32,
     )
@@ -254,60 +145,62 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
 # 动作特征提取
 # ---------------------------------------------------------------------------
 
-def _near_full_ratio(grid, shape: list[list[int]], gx: int, gy: int) -> float:
-    """放块后有多少格子落在填充率 ≥ 0.75 的行/列上（占 block cells 比例）。"""
-    n = grid.size
-    threshold = float(_AN.get("nearFullThreshold", 0.75)) * n
-    cells = grid.cells
+_NF_THR = float(_AN.get("nearFullThreshold", 0.75))
+
+
+def _near_full_ratio_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> float:
+    n = occ.shape[0]
+    threshold = _NF_THR * n
+    row_counts = occ.sum(axis=1)
+    col_counts = occ.sum(axis=0)
+    cells_yx = np.argwhere(shape_np > 0)
+    if len(cells_yx) == 0:
+        return 0.0
+    total = len(cells_yx)
     count = 0
-    total = 0
-    for sy, row in enumerate(shape):
-        for sx, v in enumerate(row):
-            if not v:
-                continue
-            total += 1
-            py, px = gy + sy, gx + sx
-            row_fill = sum(1 for x2 in range(n) if cells[py][x2] is not None)
-            col_fill = sum(1 for y2 in range(n) if cells[y2][px] is not None)
-            if row_fill >= threshold or col_fill >= threshold:
-                count += 1
-    return count / max(total, 1)
+    for sy, sx in cells_yx:
+        py, px_ = gy + sy, gx + sx
+        if row_counts[py] >= threshold or col_counts[px_] >= threshold:
+            count += 1
+    return count / total
 
 
-def _adjacent_occupied(grid, shape: list[list[int]], gx: int, gy: int) -> int:
-    """放块后各 cell 四邻中已被占据的数量合计。"""
-    n = grid.size
-    cells = grid.cells
+def _adjacent_occupied_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> int:
+    n = occ.shape[0]
+    cells_yx = np.argwhere(shape_np > 0)
+    if len(cells_yx) == 0:
+        return 0
+    block_mask = np.zeros((n, n), dtype=np.uint8)
     adj = 0
-    block_set: set[tuple[int, int]] = set()
-    for sy, row in enumerate(shape):
-        for sx, v in enumerate(row):
-            if v:
-                block_set.add((gy + sy, gx + sx))
-    for (py, px) in block_set:
+    for sy, sx in cells_yx:
+        block_mask[gy + sy, gx + sx] = 1
+    for sy, sx in cells_yx:
+        py, px_ = gy + sy, gx + sx
         for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            ny, nx = py + dy, px + dx
-            if 0 <= ny < n and 0 <= nx < n and (ny, nx) not in block_set and cells[ny][nx] is not None:
+            ny, nx = py + dy, px_ + dx
+            if 0 <= ny < n and 0 <= nx < n and not block_mask[ny, nx] and occ[ny, nx]:
                 adj += 1
     return adj
 
 
-def _covers_holes(grid, shape: list[list[int]], gx: int, gy: int) -> int:
-    """放块格子下方（同列）有空洞的数量。"""
-    n = grid.size
-    cells = grid.cells
+def _covers_holes_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> int:
+    n = occ.shape[0]
+    cells_yx = np.argwhere(shape_np > 0)
     count = 0
-    for sy, row in enumerate(shape):
-        for sx, v in enumerate(row):
-            if not v:
-                continue
-            px = gx + sx
-            py = gy + sy
-            for below in range(py + 1, n):
-                if cells[below][px] is None:
-                    count += 1
-                    break
+    for sy, sx in cells_yx:
+        px_ = gx + sx
+        py = gy + sy
+        col_below = occ[py + 1:, px_]
+        if len(col_below) > 0 and not col_below.all():
+            count += 1
     return count
+
+
+_DIV_B = float(_AN.get("maxBlockIndex", 3))
+_DIV_SH = float(_AN.get("shapeSpan", 5))
+_DIV_CELLS = float(_AN.get("maxCells", 10))
+_DIV_CLR = float(_AN.get("maxClearsHint", 5))
+_DIV_ADJ = float(_AN.get("maxAdjacent", 20))
 
 
 def extract_action_features(
@@ -322,30 +215,26 @@ def extract_action_features(
     dock: list[dict] | None = None,
 ) -> np.ndarray:
     """12 维动作特征（v4）：原 7 + 5 棋盘交互特征。grid/dock 可选，传入时才计算后 5 维。"""
-    cells = sum(1 for row in shape for c in row if c)
-    h = len(shape)
-    w = len(shape[0])
-    div_b = float(_AN.get("maxBlockIndex", 3))
-    div_sh = float(_AN.get("shapeSpan", 5))
-    div_cells = float(_AN.get("maxCells", 10))
-    div_clr = float(_AN.get("maxClearsHint", 5))
-    div_adj = float(_AN.get("maxAdjacent", 20))
+    shape_np = _fg.shape_to_np(shape)
+    cells = int(shape_np.sum())
+    h, w = shape_np.shape
     base = [
-        block_idx / div_b,
+        block_idx / _DIV_B,
         gx / grid_size,
         gy / grid_size,
-        w / div_sh,
-        h / div_sh,
-        cells / div_cells,
-        would_clear / div_clr,
+        w / _DIV_SH,
+        h / _DIV_SH,
+        cells / _DIV_CELLS,
+        would_clear / _DIV_CLR,
     ]
     if grid is not None:
-        nf = _near_full_ratio(grid, shape, gx, gy)
+        occ = _fg.occupied_mask(_fg.grid_to_np(grid))
+        nf = _near_full_ratio_np(occ, shape_np, gx, gy)
         unplaced_after = sum(1 for b in (dock or []) if not b.get("placed")) - 1
         blocks_remain = max(0, unplaced_after) / 3.0
-        adj = min(_adjacent_occupied(grid, shape, gx, gy) / div_adj, 1.0)
+        adj = min(_adjacent_occupied_np(occ, shape_np, gx, gy) / _DIV_ADJ, 1.0)
         max_h_after = max(gy + h, 0) / grid_size
-        holes_risk = min(_covers_holes(grid, shape, gx, gy) / max(cells, 1), 1.0)
+        holes_risk = min(_covers_holes_np(occ, shape_np, gx, gy) / max(cells, 1), 1.0)
         base.extend([nf, blocks_remain, adj, max_h_after, holes_risk])
     else:
         base.extend([0.0, 0.0, 0.0, 0.0, 0.0])
@@ -354,17 +243,64 @@ def extract_action_features(
 
 
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
-    """v4: 传入 grid/dock 计算棋盘交互特征（无 grid.clone）。"""
+    """v6: numpy 向量化批量特征提取，batch_count_clears 替代逐动作调用。"""
     state = extract_state_features(sim.grid, sim.dock)
+    if not legal:
+        return state, np.zeros((0, PHI_DIM), dtype=np.float32)
+
+    clears = sim.batch_count_clears(legal)
+    gnp = sim._ensure_grid_np()
+    occ = _fg.occupied_mask(gnp)
+    n = sim.grid.size
+
+    row_counts = occ.sum(axis=1)
+    col_counts = occ.sum(axis=0)
+    nf_thr = _NF_THR * n
+
     rows = []
-    for a in legal:
+    for i, a in enumerate(legal):
         bi = a["block_idx"]
-        wc = sim.count_clears_if_placed(bi, a["gx"], a["gy"])
-        phi = extract_action_features(
-            state, bi, a["gx"], a["gy"], sim.dock[bi]["shape"], wc, sim.grid.size,
-            grid=sim.grid, dock=sim.dock,
-        )
-        rows.append(phi)
-    if rows:
-        return state, np.stack(rows, axis=0)
-    return state, np.zeros((0, PHI_DIM), dtype=np.float32)
+        gx, gy = a["gx"], a["gy"]
+        shape = sim.dock[bi]["shape"]
+        shape_np = _fg.shape_to_np(shape)
+        cells_count = int(shape_np.sum())
+        h, w = shape_np.shape
+        wc = int(clears[i])
+
+        cells_yx = np.argwhere(shape_np > 0)
+        nf_count = 0
+        adj_count = 0
+        hole_count = 0
+        for sy, sx in cells_yx:
+            py, px_ = gy + sy, gx + sx
+            if row_counts[py] >= nf_thr or col_counts[px_] >= nf_thr:
+                nf_count += 1
+            for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                ny, nx = py + dy, px_ + dx
+                if 0 <= ny < n and 0 <= nx < n and occ[ny, nx]:
+                    is_block = False
+                    for sy2, sx2 in cells_yx:
+                        if gy + sy2 == ny and gx + sx2 == nx:
+                            is_block = True
+                            break
+                    if not is_block:
+                        adj_count += 1
+            col_below = occ[py + 1:, px_]
+            if len(col_below) > 0 and not col_below.all():
+                hole_count += 1
+
+        nf = nf_count / max(cells_count, 1)
+        unplaced_after = sum(1 for b in sim.dock if not b.get("placed")) - 1
+        blocks_remain = max(0, unplaced_after) / 3.0
+        adj = min(adj_count / _DIV_ADJ, 1.0)
+        max_h_after = max(gy + h, 0) / n
+        holes_risk = min(hole_count / max(cells_count, 1), 1.0)
+
+        action_part = np.array([
+            bi / _DIV_B, gx / n, gy / n, w / _DIV_SH, h / _DIV_SH,
+            cells_count / _DIV_CELLS, wc / _DIV_CLR,
+            nf, blocks_remain, adj, max_h_after, holes_risk,
+        ], dtype=np.float32)
+        rows.append(np.concatenate([state, action_part], axis=0))
+
+    return state, np.stack(rows, axis=0)

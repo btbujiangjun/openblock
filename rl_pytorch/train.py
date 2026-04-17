@@ -45,7 +45,7 @@ from .device import (
     resolve_training_device,
     tensor_to_device,
 )
-from .features import PHI_DIM, STATE_FEATURE_DIM, build_phi_batch
+from .features import PHI_DIM, STATE_FEATURE_DIM, build_phi_batch, extract_state_features
 from .model import (
     ConvSharedPolicyValueNet,
     LightPolicyValueNet,
@@ -325,6 +325,39 @@ def compute_gae_advantages_and_returns(
     return adv, rets
 
 
+def _lookahead_q_values(
+    net: AnyNet,
+    device: torch.device,
+    sim: BlockBlastSimulator,
+    legal: list[dict],
+    gamma: float,
+) -> np.ndarray | None:
+    """1-step lookahead: Q(s,a) = r(s,a) + γ·V(s')。
+
+    对每个合法动作模拟一步，评估后继状态的 V(s')。
+    返回 Q 值数组；若动作数过多（>150）则跳过以节约时间。
+    """
+    n_actions = len(legal)
+    if n_actions == 0 or n_actions > 150:
+        return None
+
+    saved = sim.save_state()
+    rewards = np.empty(n_actions, dtype=np.float32)
+    next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
+
+    for i, a in enumerate(legal):
+        r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+        rewards[i] = r
+        next_states[i] = extract_state_features(sim.grid, sim.dock)
+        sim.restore_state(saved)
+
+    with torch.no_grad():
+        ns_t = tensor_to_device(torch.from_numpy(next_states), device)
+        v_next = net.forward_value(ns_t).cpu().numpy()
+
+    return rewards + gamma * v_next
+
+
 def collect_episode(
     net: AnyNet,
     device: torch.device,
@@ -339,6 +372,9 @@ def collect_episode(
     sim = BlockBlastSimulator("normal")
     sim.win_score_threshold = rl_win_threshold_for_episode(global_ep)
     trajectory: list[dict] = []
+    gamma = float(os.environ.get("RL_GAMMA", "0.99"))
+    use_lookahead = os.environ.get("RL_LOOKAHEAD", "1").lower() not in ("0", "false", "no")
+    lookahead_mix = float(os.environ.get("RL_LOOKAHEAD_MIX", "0.5"))
 
     step_idx = 0
     while True:
@@ -357,12 +393,23 @@ def collect_episode(
             logits = net.forward_policy_logits(phi)
             clean_lp = F.log_softmax(logits, dim=-1)
 
+        q_vals = None
+        if use_lookahead and step_idx >= explore_first_moves:
+            q_vals = _lookahead_q_values(net, device, sim, legal, gamma)
+
+        if q_vals is not None:
+            q_t = tensor_to_device(torch.from_numpy(q_vals), device)
+            q_logits = q_t / max(temp_floor, 0.1)
+            combined = (1.0 - lookahead_mix) * logits + lookahead_mix * q_logits
+        else:
+            combined = logits
+
         temp = _temperature_for_move(
             global_ep, step_idx, temp_floor, explore_first_moves, explore_temp_mult
         )
         d_eps = _dirichlet_epsilon_for_ep(global_ep, dirichlet_epsilon)
         idx, _, _ = _mix_dirichlet_and_sample(
-            logits, temp, d_eps, dirichlet_alpha
+            combined, temp, d_eps, dirichlet_alpha
         )
 
         chosen = int(idx.item())
@@ -449,6 +496,8 @@ def _forward_and_log_probs(
         logits_flat = net.forward_policy_logits(phi_cat)
 
     values_flat = torch.nan_to_num(values_flat, nan=0.0, posinf=1e5, neginf=-1e5).clamp(-1e5, 1e5)
+
+    logits_flat = torch.nan_to_num(logits_flat, nan=0.0, posinf=30.0, neginf=-30.0).clamp(-30.0, 30.0)
 
     max_n = int(n_actions_t.max().item())
     padded = logits_flat.new_full((total_steps, max_n), float("-inf"))
@@ -641,6 +690,10 @@ def _reevaluate_and_update(
     last_result: dict | None = None
     n_epochs = max(1, ppo_epochs)
 
+    _pre_sd: dict | None = None
+    if n_epochs > 1:
+        _pre_sd = {k: v.clone() for k, v in net.state_dict().items()}
+
     for epoch_i in range(n_epochs):
         if epoch_i == 0:
             lp_2d = lp_2d_init
@@ -655,7 +708,8 @@ def _reevaluate_and_update(
         ent_t = -(probs_2d * lp_2d.masked_fill(~mask, 0.0)).sum(dim=1)
 
         if n_epochs > 1:
-            ratio = torch.exp(new_lp - old_lp_t)
+            log_ratio = (new_lp - old_lp_t).clamp(-10.0, 10.0)
+            ratio = torch.exp(log_ratio)
             surr1 = ratio * adv_cat
             surr2 = torch.clamp(ratio, 1.0 - ppo_clip, 1.0 + ppo_clip) * adv_cat
             policy_loss = -torch.min(surr1, surr2).mean()
@@ -681,7 +735,6 @@ def _reevaluate_and_update(
             clear_logits = net.forward_clear_pred(states_t, chosen_action_feats)
             clear_pred_loss = F.cross_entropy(clear_logits, clears_target, reduction="mean")
 
-        # --- v5 直接监督三头 ---
         bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
@@ -696,22 +749,34 @@ def _reevaluate_and_update(
             if surv_coef > 1e-12:
                 surv_loss = F.smooth_l1_loss(aux["survival"], surv_target_t, reduction="mean", beta=1.0)
 
+        def _safe_aux(t):
+            return t if torch.isfinite(t).item() else torch.zeros_like(t)
+
+        policy_loss = _safe_aux(policy_loss)
+        value_loss_safe = _safe_aux(value_loss)
+
         loss = (
             policy_loss
-            + value_coef * value_loss
+            + value_coef * value_loss_safe
             - entropy_coef * entropy_mean
-            + hole_coef * hole_aux_loss
-            + clear_pred_coef * clear_pred_loss
-            + bq_coef * bq_loss
-            + feas_coef * feas_loss
-            + surv_coef * surv_loss
+            + hole_coef * _safe_aux(hole_aux_loss)
+            + clear_pred_coef * _safe_aux(clear_pred_loss)
+            + bq_coef * _safe_aux(bq_loss)
+            + feas_coef * _safe_aux(feas_loss)
+            + surv_coef * _safe_aux(surv_loss)
         )
 
         opt.zero_grad()
+        stepped = False
         if torch.isfinite(loss).item():
             loss.backward()
             torch.nn.utils.clip_grad_norm_(net.parameters(), max(grad_clip, 1e-8))
             opt.step()
+            stepped = True
+            if any(torch.isnan(p).any() for p in net.parameters()):
+                if _pre_sd is not None:
+                    net.load_state_dict(_pre_sd)
+                stepped = False
         else:
             opt.zero_grad(set_to_none=True)
 
@@ -726,9 +791,21 @@ def _reevaluate_and_update(
             "loss_surv": float(surv_loss.item()),
             "hole_aux_coef": float(hole_coef),
             "clear_pred_coef": float(clear_pred_coef),
+            "optimizer_stepped": stepped,
         }
 
+        if not stepped and epoch_i > 0:
+            break
+
     return last_result
+
+
+def _auto_n_workers(device: torch.device) -> int:
+    """自动选择多进程 worker 数：GPU 设备留 1 核给主线程，CPU 模式不启多进程。"""
+    if device.type == "cpu":
+        return 1
+    n_cpu = os.cpu_count() or 1
+    return max(2, min(n_cpu - 1, 6))
 
 
 def train_loop(
@@ -758,7 +835,7 @@ def train_loop(
     policy_depth_arg: int = 4,
     value_depth_arg: int = 4,
     batch_episodes: int = 8,
-    n_workers: int = 1,
+    n_workers: int = 0,
     ppo_epochs: int = 4,
     ppo_clip: float = 0.2,
 ) -> int:
@@ -795,9 +872,9 @@ def train_loop(
                 file=sys.stderr,
             )
 
-    # --- 多进程 worker pool ---
+    # --- 多进程 worker pool（0=自动检测） ---
     pool = None
-    actual_workers = max(1, n_workers)
+    actual_workers = n_workers if n_workers > 0 else _auto_n_workers(device)
     if actual_workers > 1:
         w = getattr(net, "width", 128)
         cc = getattr(net, "conv_channels", 32)
@@ -807,7 +884,7 @@ def train_loop(
             initializer=_pool_worker_init,
             initargs=(train_arch, w, policy_depth_arg, value_depth_arg, mlp_ratio, cc),
         )
-        print(f"多进程采集: {actual_workers} workers (CPU inference → GPU update)", file=sys.stderr)
+        print(f"多进程采集: {actual_workers} workers (CPU inference → GPU update) + pipeline overlap", file=sys.stderr)
 
     wins = 0
     scores: list[float] = []
@@ -820,6 +897,23 @@ def train_loop(
     warmup_batches = int(os.environ.get("RL_LR_WARMUP_BATCHES", "20"))
     batch_count = 0
 
+    # 流水线状态：上一轮异步采集的 AsyncResult
+    _pending_async = None
+    t_collect_ms = 0.0
+    t_train_ms = 0.0
+
+    def _make_pool_args(ep_start: int, count: int):
+        configs = [
+            (ep_start + i + 1, temp_floor, explore_first_moves, explore_temp_mult,
+             dirichlet_epsilon, dirichlet_alpha)
+            for i in range(count)
+        ]
+        chunks: list[list] = [[] for _ in range(actual_workers)]
+        for i, cfg in enumerate(configs):
+            chunks[i % actual_workers].append(cfg)
+        cpu_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
+        return [(cpu_sd, chunk) for chunk in chunks if chunk]
+
     ep_cursor = start_ep
     try:
         while ep_cursor < start_ep + episodes:
@@ -830,20 +924,29 @@ def train_loop(
                 for pg in opt.param_groups:
                     pg["lr"] = effective_lr
 
-            # --- 采集一个 batch ---
+            # --- 采集（含流水线重叠）---
+            tc0 = time.perf_counter()
+
             if pool is not None:
-                cpu_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
-                configs = [
-                    (ep_cursor + i + 1, temp_floor, explore_first_moves, explore_temp_mult,
-                     dirichlet_epsilon, dirichlet_alpha)
-                    for i in range(bs)
-                ]
-                chunks: list[list] = [[] for _ in range(actual_workers)]
-                for i, cfg in enumerate(configs):
-                    chunks[i % actual_workers].append(cfg)
-                args_list = [(cpu_sd, chunk) for chunk in chunks if chunk]
-                results = pool.map(_pool_worker_collect, args_list)
-                batch = [ep for worker_eps in results for ep in worker_eps]
+                if _pending_async is not None:
+                    results = _pending_async.get()
+                    batch = [ep for worker_eps in results for ep in worker_eps]
+                else:
+                    args_list = _make_pool_args(ep_cursor, bs)
+                    results = pool.map(_pool_worker_collect, args_list)
+                    batch = [ep for worker_eps in results for ep in worker_eps]
+
+                tc1 = time.perf_counter()
+                t_collect_ms = (tc1 - tc0) * 1000
+
+                # 预发射下一批采集（与本轮 GPU 训练重叠）
+                next_ep = ep_cursor + bs
+                next_bs = min(batch_episodes, start_ep + episodes - next_ep)
+                if next_bs > 0:
+                    next_args = _make_pool_args(next_ep, next_bs)
+                    _pending_async = pool.map_async(_pool_worker_collect, next_args)
+                else:
+                    _pending_async = None
             else:
                 batch = [
                     collect_episode(
@@ -854,6 +957,8 @@ def train_loop(
                     )
                     for i in range(bs)
                 ]
+                tc1 = time.perf_counter()
+                t_collect_ms = (tc1 - tc0) * 1000
 
             for ep in batch:
                 scores.append(ep["score"])
@@ -862,6 +967,7 @@ def train_loop(
             ep_cursor += bs
 
             # --- GPU 批量更新（PPO 或 REINFORCE）---
+            tt0 = time.perf_counter()
             ent_eff = _effective_entropy_coef(ep_cursor, entropy_coef)
             result = _reevaluate_and_update(
                 net, opt, batch, device, gamma, gae_lambda,
@@ -869,6 +975,9 @@ def train_loop(
                 adv_min_std, value_huber_beta, grad_clip,
                 ppo_epochs=ppo_epochs, ppo_clip=ppo_clip,
             )
+            tt1 = time.perf_counter()
+            t_train_ms = (tt1 - tt0) * 1000
+
             if result:
                 last_update = result
             batch_count += 1
@@ -901,10 +1010,12 @@ def train_loop(
                 if last_update and last_update.get("loss_surv", 0) > 1e-6:
                     hole_str += f"  surv={last_update['loss_surv']:.4f}"
                 ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
+                gpu_pct = 100.0 * t_train_ms / max(t_collect_ms + t_train_ms, 1)
                 print(
                     f"ep {ep_cursor}  |  {ppo_tag}  |  dev={device.type}  |  thr={wt}  |  "
                     f"sc={last_ep['score']:.0f}  avg100={avg:.1f}  win%={wr:.1f}%  steps={last_ep['steps']}  |  "
-                    f"π={lp_str}  V={lv_str}  H={he_str}{hole_str}  |  {dt:.1f}s",
+                    f"π={lp_str}  V={lv_str}  H={he_str}{hole_str}  |  "
+                    f"C={t_collect_ms:.0f}ms T={t_train_ms:.0f}ms GPU≈{gpu_pct:.0f}%  |  {dt:.1f}s",
                     file=sys.stderr,
                 )
                 t0 = time.perf_counter()
@@ -1050,14 +1161,14 @@ def main() -> None:
     p.add_argument(
         "--explore-temp-mult",
         type=float,
-        default=1.5,
-        help="与 explore-first-moves 联用",
+        default=1.3,
+        help="与 explore-first-moves 联用；v6 降为 1.3 配合 Dirichlet 探索",
     )
     p.add_argument(
         "--dirichlet-epsilon",
         type=float,
-        default=0.0,
-        help="Dirichlet 混合权重初值；0 关闭（已有温度采样足够探索）",
+        default=0.15,
+        help="Dirichlet 混合权重初值；v6 默认 0.15 增强早期探索",
     )
     p.add_argument(
         "--dirichlet-alpha",
@@ -1068,8 +1179,8 @@ def main() -> None:
     p.add_argument(
         "--n-workers",
         type=int,
-        default=1,
-        help="多进程并行采集 worker 数；1=单进程（GPU 采集），>1=CPU 多进程采集 + GPU 更新",
+        default=0,
+        help="多进程并行采集 worker 数；0=自动（GPU 设备按 CPU 核数），1=单进程，>1=CPU 多进程 + GPU 更新 + 流水线重叠",
     )
     args = p.parse_args()
 

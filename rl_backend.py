@@ -42,6 +42,8 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import numpy as np
+
 _rl_lock = threading.Lock()
 _log_lock = threading.Lock()
 _state: dict = {
@@ -53,6 +55,7 @@ _state: dict = {
     "checkpoint_loaded": None,
     "save_path": None,
     "meta": {},
+    "replay_buffer": [],
 }
 
 DEFAULT_CKPT_NAME = "rl_checkpoints/bb_policy.pt"
@@ -100,7 +103,7 @@ def _append_training_log(entry: dict) -> None:
 
 def _stable_logits(logits):
     """抑制 MPS 上偶发 NaN/Inf，避免 Categorical 报错。"""
-    return torch.nan_to_num(logits, nan=0.0, posinf=80.0, neginf=-80.0)
+    return torch.nan_to_num(logits, nan=0.0, posinf=30.0, neginf=-30.0).clamp(-30.0, 30.0)
 
 
 def _normalize_advantages(adv: "torch.Tensor", min_std: float = 1e-4) -> "torch.Tensor":
@@ -186,14 +189,17 @@ try:
         tensor_to_device,
     )
     from rl_pytorch.features import STATE_FEATURE_DIM, ACTION_FEATURE_DIM
-    from rl_pytorch.game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING
+    from rl_pytorch.game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING, rl_win_threshold_for_episode
     from rl_pytorch.model import ConvSharedPolicyValueNet, LightPolicyValueNet, LightSharedPolicyValueNet, PolicyValueNet, SharedPolicyValueNet
+    from rl_pytorch.train import _reevaluate_and_update as _batch_ppo_update_fn
 except ImportError as e:
     torch = None
     resolve_training_device = None  # type: ignore
     apply_cpu_training_tuning = None  # type: ignore
     tensor_to_device = None  # type: ignore
     maybe_mps_synchronize = None  # type: ignore
+    rl_win_threshold_for_episode = None  # type: ignore
+    _batch_ppo_update_fn = None  # type: ignore
     _state["error"] = f"import failed: {e}"
 
 
@@ -362,11 +368,16 @@ def _ensure_initialized():
 def _save_checkpoint(reason: str = "periodic"):
     if torch is None or _state["model"] is None:
         return
+    sd = _state["model"].state_dict()
+    if any(torch.isnan(v).any() for v in sd.values()):
+        import logging
+        logging.warning("跳过保存：模型权重包含 NaN（episodes=%d）", _state["episodes"])
+        return
     path = _state["save_path"]
     path.parent.mkdir(parents=True, exist_ok=True)
     device = _state["device"]
     payload = {
-        "model": _state["model"].state_dict(),
+        "model": sd,
         "optimizer": _state["optimizer"].state_dict(),
         "episodes": _state["episodes"],
         "meta": {
@@ -383,6 +394,138 @@ def _save_checkpoint(reason: str = "periodic"):
             "path": str(path.resolve()),
         }
     )
+
+
+def _online_batch_size() -> int:
+    return max(1, int(os.environ.get("RL_BATCH_SIZE", "32")))
+
+
+def _convert_episode_for_ppo(data: dict, steps: list, model, device) -> dict:
+    """将 Flask POST 数据转换为 train.py _reevaluate_and_update 所需的 episode 格式。
+
+    关键步骤：对每步做无梯度前向推理获取 old_log_prob（PPO ratio 需要）。
+    """
+    trajectory = []
+    with torch.no_grad():
+        for st in steps:
+            phi_arr = st["phi"]
+            state_arr = st["state"]
+            idx = int(st["idx"])
+
+            phi_t = tensor_to_device(
+                torch.tensor(phi_arr, dtype=torch.float32), device
+            )
+            logits = _stable_logits(model.forward_policy_logits(phi_t))
+            log_probs = torch.log_softmax(logits, dim=0)
+            old_lp = float(log_probs[idx].item())
+
+            phi_np = np.array(phi_arr, dtype=np.float32)
+            state_np = np.array(state_arr, dtype=np.float32)
+            action_feats = phi_np[:, STATE_FEATURE_DIM:]
+
+            trajectory.append({
+                "state": state_np,
+                "action_feats": action_feats,
+                "n_actions": phi_np.shape[0],
+                "chosen_idx": idx,
+                "reward": float(st["reward"]),
+                "old_log_prob": old_lp,
+                "holes_after": int(st.get("holes_after", 0)),
+                "clears": int(st.get("clears", 0)),
+                "board_quality": float(st.get("board_quality", 0.0)),
+                "feasibility": float(st.get("feasibility", 1.0)),
+                "steps_to_end": int(st.get("steps_to_end", 0)),
+            })
+
+    score = float(data.get("score", 0))
+    won = bool(data.get("won", False))
+    ep_num = _state["episodes"] + len(_state.get("replay_buffer", [])) + 1
+    win_thr = (rl_win_threshold_for_episode(ep_num)
+               if rl_win_threshold_for_episode is not None else 220)
+
+    return {
+        "trajectory": trajectory,
+        "score": score,
+        "steps": len(trajectory),
+        "clears": sum(int(st.get("clears", 0)) for st in steps),
+        "won": won,
+        "win_threshold": win_thr,
+    }
+
+
+def _flush_replay_buffer() -> dict | None:
+    """对 replay buffer 中所有累积 episode 执行一次批量 PPO 更新。"""
+    buf = _state.get("replay_buffer", [])
+    if not buf or _batch_ppo_update_fn is None:
+        return None
+
+    model = _state["model"]
+    device = _state["device"]
+    opt = _state["optimizer"]
+    gamma = float(os.environ.get("RL_GAMMA", "0.99"))
+    gae_lambda = float(os.environ.get("RL_GAE_LAMBDA", "0.85"))
+    return_scale = float(os.environ.get("RL_RETURN_SCALE", "1.0"))
+    value_coef = float(os.environ.get("RL_VALUE_COEF", "1.0"))
+    value_huber_beta = float(os.environ.get("RL_VALUE_HUBER_BETA", "1.0"))
+    normalize_adv = os.environ.get("RL_ADV_NORM", "1").lower() not in ("0", "false", "no", "")
+    adv_min_std = float(os.environ.get("RL_ADV_MIN_STD", "1e-4"))
+    grad_clip = float(os.environ.get("RL_GRAD_CLIP", "1.0"))
+    ppo_epochs = max(1, int(os.environ.get("RL_PPO_EPOCHS_ONLINE", "3")))
+    ppo_clip = float(os.environ.get("RL_PPO_CLIP", "0.2"))
+    ep_next = _state["episodes"] + len(buf)
+    entropy_coef = _effective_entropy_coef(ep_next)
+
+    result = _batch_ppo_update_fn(
+        model, opt, buf, device, gamma, gae_lambda,
+        return_scale, value_coef, entropy_coef, normalize_adv,
+        adv_min_std, value_huber_beta, grad_clip,
+        ppo_epochs=ppo_epochs, ppo_clip=ppo_clip,
+    )
+
+    if device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes"):
+        maybe_mps_synchronize(device)
+
+    _state["episodes"] += len(buf)
+    ep = _state["episodes"]
+
+    save_every = max(1, int(os.environ.get("RL_SAVE_EVERY", "500")))
+    if ep % save_every < len(buf):
+        _save_checkpoint("periodic")
+
+    scores = [e.get("score", 0) for e in buf]
+    wins = sum(1 for e in buf if e.get("won"))
+    r = result or {}
+    def _lf(v):
+        if v is None:
+            return None
+        fv = float(v)
+        return fv if math.isfinite(fv) else None
+    avg_score = sum(scores) / len(scores) if scores else 0
+    win_rate = wins / len(buf) if buf else 0
+    step_lens = [max(0, int(e.get("steps", 0) or 0)) for e in buf]
+    avg_steps = sum(step_lens) / len(step_lens) if step_lens else None
+    _append_training_log({
+        "event": "train_episode",
+        "episodes": ep,
+        "batch_size": len(buf),
+        "ppo_epochs": ppo_epochs,
+        "loss_policy": _lf(r.get("policy_loss")),
+        "loss_value": _lf(r.get("value_loss")),
+        "entropy": _lf(r.get("entropy")),
+        "loss_hole_aux": _lf(r.get("loss_hole_aux")),
+        "loss_clear_pred": _lf(r.get("loss_clear_pred")),
+        "loss_bq": _lf(r.get("loss_bq")),
+        "loss_feas": _lf(r.get("loss_feas")),
+        "loss_surv": _lf(r.get("loss_surv")),
+        "score": avg_score,
+        "won": win_rate > 0.5,
+        "win_count": wins,
+        "win_rate": round(win_rate, 4),
+        "step_count": round(float(avg_steps), 2) if avg_steps is not None else None,
+        "optimizer_step": bool(r.get("optimizer_stepped", False)),
+    })
+    _state["replay_buffer"] = []
+    return result
 
 
 def _rl_train_episode_inner(
@@ -516,15 +659,18 @@ def _rl_train_episode_inner(
                 ).clamp(0.0, 1.0)
                 surv_loss = surv_c * F.smooth_l1_loss(aux["survival"], surv_tgt, beta=1.0)
 
+        def _safe(t):
+            return t if torch.isfinite(t).item() else torch.tensor(0.0, device=device)
+
         loss = (
             policy_loss
             + value_coef * value_loss
             - entropy_coef_eff * entropy_mean
-            + hole_coef * hole_aux_loss
-            + cp_coef * clear_pred_loss
-            + bq_loss
-            + feas_loss
-            + surv_loss
+            + hole_coef * _safe(hole_aux_loss)
+            + cp_coef * _safe(clear_pred_loss)
+            + _safe(bq_loss)
+            + _safe(feas_loss)
+            + _safe(surv_loss)
         )
 
         model.train()
@@ -534,6 +680,9 @@ def _rl_train_episode_inner(
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max(grad_clip, 1e-8))
             opt.step()
+            if any(torch.isnan(p).any() for p in model.parameters()):
+                opt.zero_grad(set_to_none=True)
+                stepped = False
         else:
             opt.zero_grad(set_to_none=True)
         if device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes"):
@@ -725,6 +874,44 @@ def create_rl_blueprint() -> Blueprint:
                 ), 400
 
         try:
+            batch_size = _online_batch_size()
+            use_batch = batch_size > 1 and _batch_ppo_update_fn is not None
+
+            if use_batch:
+                with _rl_lock:
+                    ep_data = _convert_episode_for_ppo(
+                        data, steps, _state["model"], _state["device"]
+                    )
+                    _state["replay_buffer"].append(ep_data)
+                    buf_len = len(_state["replay_buffer"])
+
+                if buf_len < batch_size:
+                    return jsonify({
+                        "ok": True,
+                        "buffered": True,
+                        "buffer_size": buf_len,
+                        "batch_threshold": batch_size,
+                        "episodes": _state["episodes"],
+                    })
+
+                with _rl_lock:
+                    result = _flush_replay_buffer()
+                ep = _state["episodes"]
+
+                def _lf(v):
+                    return float(v) if v is not None and math.isfinite(float(v)) else None
+
+                return jsonify({
+                    "ok": True,
+                    "buffered": False,
+                    "batch_update": True,
+                    "episodes": ep,
+                    "loss_policy": _lf(result.get("policy_loss")) if result else None,
+                    "loss_value": _lf(result.get("value_loss")) if result else None,
+                    "entropy": _lf(result.get("entropy")) if result else None,
+                    "optimizer_step": True,
+                })
+
             return _rl_train_episode_inner(
                 data,
                 steps,
@@ -751,6 +938,57 @@ def create_rl_blueprint() -> Blueprint:
                 ),
                 500,
             )
+
+    @bp.route("/api/rl/eval_values", methods=["POST"])
+    def rl_eval_values():
+        """批量评估 V(s)：body { states: number[][] } → { values: number[] }
+
+        供浏览器端 1-step lookahead：对每个合法动作模拟后提取 state features，
+        批量评估 V(s')，用 Q(s,a) = r(s,a) + γ·V(s') 选择更优动作。
+        """
+        if torch is None:
+            return jsonify({"error": "torch not installed"}), 503
+        try:
+            _ensure_initialized()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        data = request.get_json(force=True, silent=True) or {}
+        states = data.get("states")
+        if not states or not isinstance(states, list):
+            return jsonify({"error": "states required (list of state feature vectors)"}), 400
+        with _rl_lock:
+            model = _state["model"]
+            device = _state["device"]
+            model.eval()
+            with torch.no_grad():
+                s_t = tensor_to_device(
+                    torch.tensor(states, dtype=torch.float32), device
+                )
+                vals = model.forward_value(s_t)
+                values = vals.cpu().tolist()
+            model.train()
+        return jsonify({"values": values})
+
+    @bp.route("/api/rl/flush_buffer", methods=["POST"])
+    def rl_flush_buffer():
+        """手动触发 replay buffer 的批量 PPO 更新（无需等 buffer 满）。"""
+        if torch is None:
+            return jsonify({"error": "torch not installed"}), 503
+        try:
+            _ensure_initialized()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        with _rl_lock:
+            buf_len = len(_state.get("replay_buffer", []))
+            if buf_len == 0:
+                return jsonify({"ok": True, "message": "buffer empty", "episodes": _state["episodes"]})
+            result = _flush_replay_buffer()
+        return jsonify({
+            "ok": True,
+            "episodes": _state["episodes"],
+            "flushed": buf_len,
+            "result": result,
+        })
 
     @bp.route("/api/rl/save", methods=["POST"])
     def rl_save():
