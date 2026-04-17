@@ -184,6 +184,10 @@ class ConvSharedPolicyValueNet(nn.Module):
         x = x + nn.functional.gelu(self.trunk_fc3(x))
         return x
 
+    def forward_trunk(self, s: torch.Tensor) -> torch.Tensor:
+        """共享主干 h(s)，供单机多卡 ``data_parallel`` 切分 batch 维。"""
+        return self._encode_state(s)
+
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
         if phi.shape[0] == 0:
             return phi.new_zeros((0,))
@@ -205,8 +209,12 @@ class ConvSharedPolicyValueNet(nn.Module):
         action_feats: torch.Tensor,
         actions_per_step: torch.Tensor,
         values_precomputed: torch.Tensor | None = None,
+        trunk_hidden: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        h = self._encode_state(state_feats)
+        if trunk_hidden is not None:
+            h = trunk_hidden
+        else:
+            h = self._encode_state(state_feats)
         if values_precomputed is not None:
             values = values_precomputed
         else:
@@ -316,11 +324,14 @@ class LightPolicyValueNet(_AuxStubsMixin, nn.Module):
         action_feats: torch.Tensor,
         actions_per_step: torch.Tensor,
         values_precomputed: torch.Tensor | None = None,
+        trunk_hidden: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Fused: values [K] + policy logits [total_actions] in large GPU batches.
 
         ``values_precomputed``：多卡时对价值头已做 ``data_parallel`` 时可传入，跳过重算 ``forward_value``。
+        ``trunk_hidden``：未使用（双塔结构无单独 trunk）。
         """
+        del trunk_hidden
         if values_precomputed is not None:
             values = values_precomputed
         else:
@@ -372,6 +383,10 @@ class LightSharedPolicyValueNet(_AuxStubsMixin, nn.Module):
         x = nn.functional.gelu(self.state_fc1(s))
         return nn.functional.gelu(self.state_fc2(x))
 
+    def forward_trunk(self, s: torch.Tensor) -> torch.Tensor:
+        """共享主干，供 CUDA 多卡 data_parallel。"""
+        return self._encode_state(s)
+
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
         if phi.shape[0] == 0:
             return phi.new_zeros((0,))
@@ -393,12 +408,17 @@ class LightSharedPolicyValueNet(_AuxStubsMixin, nn.Module):
         action_feats: torch.Tensor,
         actions_per_step: torch.Tensor,
         values_precomputed: torch.Tensor | None = None,
+        trunk_hidden: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Fused: encode states once → values [K] + policy logits [total_actions].
 
         ``values_precomputed``：多卡并行价值头时传入，仍会在本设备上算 ``_encode_state`` 供策略支路使用。
+        ``trunk_hidden``：多卡已对 ``forward_trunk`` 切分时传入，跳过重复编码。
         """
-        h = self._encode_state(state_feats)
+        if trunk_hidden is not None:
+            h = trunk_hidden
+        else:
+            h = self._encode_state(state_feats)
         if values_precomputed is not None:
             values = values_precomputed
         else:

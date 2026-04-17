@@ -114,6 +114,17 @@ class _ValueForward(torch.nn.Module):
         return self.net.forward_value(state_feat)
 
 
+class _TrunkForward(torch.nn.Module):
+    """供 ``data_parallel`` 切分共享主干 batch（与主网共享参数）。"""
+
+    def __init__(self, net: AnyNet):
+        super().__init__()
+        self.net = net
+
+    def forward(self, state_feat: torch.Tensor) -> torch.Tensor:
+        return self.net.forward_trunk(state_feat)
+
+
 def _checkpoint_meta(
     net: AnyNet,
     device: torch.device,
@@ -470,15 +481,18 @@ def _forward_and_log_probs(
     total_steps: int,
     device: torch.device,
     values_precomputed: torch.Tensor | None = None,
+    trunk_hidden: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """前向传播 → 返回 (log_prob_2d, values, mask, col_range)。"""
     if hasattr(net, "forward_batched"):
+        fb_kw: dict = {}
         if values_precomputed is not None:
-            logits_flat, values_flat = net.forward_batched(
-                states_t, action_feats_t, n_actions_t, values_precomputed=values_precomputed
-            )
-        else:
-            logits_flat, values_flat = net.forward_batched(states_t, action_feats_t, n_actions_t)
+            fb_kw["values_precomputed"] = values_precomputed
+        if trunk_hidden is not None:
+            fb_kw["trunk_hidden"] = trunk_hidden
+        logits_flat, values_flat = net.forward_batched(
+            states_t, action_feats_t, n_actions_t, **fb_kw
+        )
     elif isinstance(net, SharedPolicyValueNet):
         values_flat = net.forward_value(states_t)
         parts: list[torch.Tensor] = []
@@ -623,19 +637,40 @@ def _reevaluate_and_update(
     ).clamp(0.0, 1.0)
 
     dp_ids = resolve_cuda_device_ids_for_data_parallel()
-    use_dp_value = (
+    use_dp_trunk = (
         device.type == "cuda"
         and len(dp_ids) > 1
+        and os.environ.get("RL_CUDA_DP_TRUNK", "1").lower() not in ("0", "false", "no")
+        and hasattr(net, "forward_trunk")
+    )
+    use_dp_value_only = (
+        device.type == "cuda"
+        and len(dp_ids) > 1
+        and not use_dp_trunk
         and os.environ.get("RL_CUDA_DP_VALUE", "1").lower() not in ("0", "false", "no")
         and isinstance(net, (LightPolicyValueNet, LightSharedPolicyValueNet, ConvSharedPolicyValueNet))
     )
+    trunk_h_init: torch.Tensor | None = None
     values_dp: torch.Tensor | None = None
-    if use_dp_value:
+    if use_dp_trunk:
         from torch.nn.parallel import data_parallel as dp_fn
+
+        trunk_h_init = dp_fn(_TrunkForward(net), states_t, device_ids=dp_ids, output_device=device)
+    elif use_dp_value_only:
+        from torch.nn.parallel import data_parallel as dp_fn
+
         values_dp = dp_fn(_ValueForward(net), states_t, device_ids=dp_ids, output_device=device)
 
     lp_2d_init, values_init, mask, _col = _forward_and_log_probs(
-        net, states_t, action_feats_t, n_actions_t, all_n_actions, total_steps, device, values_dp,
+        net,
+        states_t,
+        action_feats_t,
+        n_actions_t,
+        all_n_actions,
+        total_steps,
+        device,
+        values_precomputed=values_dp,
+        trunk_hidden=trunk_h_init,
     )
 
     # --- 价值目标：outcome-based（纯终局得分） + GAE advantage ---
@@ -699,8 +734,20 @@ def _reevaluate_and_update(
             lp_2d = lp_2d_init
             values_flat = values_init
         else:
+            trunk_h_e: torch.Tensor | None = None
+            if use_dp_trunk:
+                from torch.nn.parallel import data_parallel as dp_fn
+
+                trunk_h_e = dp_fn(_TrunkForward(net), states_t, device_ids=dp_ids, output_device=device)
             lp_2d, values_flat, mask, _col = _forward_and_log_probs(
-                net, states_t, action_feats_t, n_actions_t, all_n_actions, total_steps, device,
+                net,
+                states_t,
+                action_feats_t,
+                n_actions_t,
+                all_n_actions,
+                total_steps,
+                device,
+                trunk_hidden=trunk_h_e,
             )
 
         new_lp = _clamp_log_probs_pg(lp_2d.gather(1, chosen_t).squeeze(1))
@@ -1197,9 +1244,11 @@ def main() -> None:
     if device.type == "cuda":
         dp_ids = resolve_cuda_device_ids_for_data_parallel()
         if len(dp_ids) > 1:
-            dp_on = os.environ.get("RL_CUDA_DP_VALUE", "1").lower() not in ("0", "false", "no")
+            trunk_on = os.environ.get("RL_CUDA_DP_TRUNK", "1").lower() not in ("0", "false", "no")
+            val_on = os.environ.get("RL_CUDA_DP_VALUE", "1").lower() not in ("0", "false", "no")
             print(
-                f"  CUDA data_parallel 卡: {dp_ids}  |  价值头多卡: {'on' if dp_on else 'off'} (RL_CUDA_DP_VALUE)",
+                f"  CUDA data_parallel 卡: {dp_ids}  |  共享主干: {'on' if trunk_on else 'off'} (RL_CUDA_DP_TRUNK)"
+                f"  |  仅价值头: {'on' if val_on else 'off'} (RL_CUDA_DP_VALUE，无 forward_trunk 时)",
                 file=sys.stderr,
             )
 

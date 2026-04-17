@@ -113,7 +113,9 @@ export async function loadRemoteCheckpoint(path) {
  * @returns {Promise<{ path: string, entries: object[], exists?: boolean }>}
  */
 export async function fetchTrainingLog(tail = 80) {
-    const res = await fetch(`${base()}/api/rl/training_log?tail=${tail}`);
+    const res = await fetch(`${base()}/api/rl/training_log?tail=${tail}`, {
+        cache: 'no-store'
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);

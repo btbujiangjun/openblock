@@ -45,6 +45,8 @@ export function initRLPanel(game) {
     const selChartTail = el('rl-chart-tail');
     const btnRefreshCharts = el('rl-refresh-charts');
     let chartPollTimer = null;
+    /** 局结束后合并刷新看板曲线 + 服务端损失日志，避免每局多次请求 */
+    let dashRefreshTimer = null;
 
     let agent = LinearAgent.load();
     let totalEpisodes = 0;
@@ -107,14 +109,45 @@ export function initRLPanel(game) {
         void refreshServerTrainingLog();
     }
 
+    function scheduleDashRefresh() {
+        if (!chkChartAuto?.checked || !running) {
+            return;
+        }
+        if (dashRefreshTimer != null) {
+            clearTimeout(dashRefreshTimer);
+        }
+        dashRefreshTimer = setTimeout(() => {
+            dashRefreshTimer = null;
+            if (!chkChartAuto?.checked || !running) {
+                return;
+            }
+            void refreshTrainingCharts();
+            if (readUseBackend()) {
+                void refreshServerTrainingLog();
+            }
+        }, 350);
+    }
+
     function syncChartPoll() {
         if (chartPollTimer) {
             clearInterval(chartPollTimer);
             chartPollTimer = null;
         }
+        if (dashRefreshTimer != null) {
+            clearTimeout(dashRefreshTimer);
+            dashRefreshTimer = null;
+        }
         if (chkChartAuto?.checked && running) {
-            const ms = readUseBackend() ? 5000 : 2000;
-            chartPollTimer = setInterval(() => void refreshTrainingCharts(), ms);
+            const ms = readUseBackend() ? 1800 : 1200;
+            chartPollTimer = setInterval(() => {
+                if (!chkChartAuto?.checked || !running) {
+                    return;
+                }
+                void refreshTrainingCharts();
+                if (readUseBackend()) {
+                    void refreshServerTrainingLog();
+                }
+            }, ms);
         }
     }
 
@@ -266,6 +299,7 @@ export function initRLPanel(game) {
             const avg = n ? recentScores.slice(-AVG_WINDOW).reduce((a, b) => a + b, 0) / n : 0;
             logLine(`已${totalEpisodes}局·近${n}局均${avg.toFixed(0)}`);
         }
+        scheduleDashRefresh();
     }
 
     async function startBatch() {

@@ -12,7 +12,9 @@
 
 多卡训练（CUDA）：
   - 环境变量 ``RL_CUDA_DEVICE_IDS``：``all`` / ``0,1`` / ``0``；与 ``resolve_cuda_device_ids_for_data_parallel()`` 配合，
-    在 ``train.py`` 中对价值头使用 ``torch.nn.parallel.data_parallel``（可选，见 ``RL_CUDA_DP_VALUE``）。
+    在 ``train.py`` 的 PPO 更新中对 **共享主干**（``forward_trunk``，conv-shared / light-shared）使用
+    ``torch.nn.parallel.data_parallel`` 切分时间步 batch（默认 **开**，``RL_CUDA_DP_TRUNK``）。
+  - 若无 ``forward_trunk``（如 ``light`` 双塔），可回退为仅对 **价值头** 做多卡前向（``RL_CUDA_DP_VALUE``）。
   - 也可在启动前设置 ``CUDA_VISIBLE_DEVICES=0,1`` 限定可见卡。
 
 CUDA 吞吐（可选环境变量）：
