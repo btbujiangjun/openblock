@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键拉代码、装依赖、杀端口、后台启动 Flask(5000) + Vite(80)。
+# 一键拉代码、装依赖、杀端口、后台启动 Flask(5000) + Vite(默认 3000)。
 # Linux / macOS 通用：优先用 lsof 查 LISTEN 并杀进程（mac 无可靠 fuser -k tcp）；
 # 若无 lsof 则回退到 Linux 常见用法 fuser。
 #
@@ -136,19 +136,21 @@ _clear_port() {
   exit 1
 }
 
+DEV_PORT="${OPENBLOCK_DEV_PORT:-3000}"
+
 _clear_port 5000
-_clear_port 80 sudo
+_clear_port "${DEV_PORT}"
 
 echo "启动 server（日志: logs/server.log）…"
 nohup npm run server > ./logs/server.log 2>&1 &
 SERVER_PID=$!
 disown "${SERVER_PID}" 2>/dev/null || true
 
-echo "启动 dev:80（日志: logs/dev.log）…"
-sudo -E env PATH="$PATH" nohup npm run dev:80 > ./logs/dev.log 2>&1 &
+echo "启动 dev:${DEV_PORT}（日志: logs/dev.log）…"
+nohup npm run dev > ./logs/dev.log 2>&1 &
 DEV_PID=$!
 disown "${DEV_PID}" 2>/dev/null || true
 
-echo "已后台启动: server pid=${SERVER_PID}, dev:80 pid=${DEV_PID}"
+echo "已后台启动: server pid=${SERVER_PID}, dev:${DEV_PORT} pid=${DEV_PID}"
 echo "tail -f logs/server.log   # Flask"
-echo "tail -f logs/dev.log      # Vite :80"
+echo "tail -f logs/dev.log      # Vite :${DEV_PORT}"
