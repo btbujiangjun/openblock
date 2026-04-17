@@ -1,10 +1,18 @@
 /**
- * 不使用 import { defineConfig } from 'vite'，以便在未正确安装依赖时，
- * 配置文件本身不触发对 vite 包的解析（仍须本地安装 vite 才能启动 dev）。
- * API 根地址与仓库根 `.env` 中 OPENBLOCK_API_ORIGIN 对齐（见 scripts/resolve-api-origin.mjs）。
+ * 端口与 API 地址统一从根目录 .env 读取，不依赖启动脚本传参。
  * @type {import('vite').UserConfig}
  */
+import { readFileSync } from 'node:fs';
 import { resolveApiOrigin } from './scripts/resolve-api-origin.mjs';
+
+/* 手动加载 .env 中 VITE_PORT（Node 侧变量，Vite 不会自动注入 process.env） */
+if (!process.env.VITE_PORT) {
+    try {
+        const txt = readFileSync(new URL('.env', import.meta.url), 'utf-8');
+        const m = txt.match(/^\s*VITE_PORT\s*=\s*(\d+)/m);
+        if (m) process.env.VITE_PORT = m[1];
+    } catch { /* .env 不存在时用默认值 */ }
+}
 
 const devPort = Number.parseInt(process.env.VITE_PORT || '80', 10);
 const apiOrigin = resolveApiOrigin();
@@ -25,12 +33,9 @@ export default {
     },
     server: {
         /**
-         * 默认 80（http://0.0.0.0/）。Unix 上绑定 <1024 需 root：
-         *   npm run dev:80
-         * 无特权时用环境变量改端口，例如：
-         *   VITE_PORT=3000 npm run dev
-         *
-         * host: true → 监听 0.0.0.0，终端会打印 Network: http://<局域网IP>:端口/，便于 IP 访问。
+         * 端口从 .env 的 VITE_PORT 读取（默认 80）。<1024 需 root：
+         *   npm run dev:sudo
+         * 也可临时覆盖：VITE_PORT=3000 npm run dev
          */
         host: true,
         port: Number.isFinite(devPort) ? devPort : 80,

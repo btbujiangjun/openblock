@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键拉代码、装依赖、杀端口、后台启动 Flask(5000) + Vite(默认 3000)。
+# 一键拉代码、装依赖、杀端口、后台启动 Flask + Vite。端口从 .env 读取（PORT / VITE_PORT）。
 # Linux / macOS 通用：优先用 lsof 查 LISTEN 并杀进程（mac 无可靠 fuser -k tcp）；
 # 若无 lsof 则回退到 Linux 常见用法 fuser。
 #
@@ -136,21 +136,38 @@ _clear_port() {
   exit 1
 }
 
-DEV_PORT="${OPENBLOCK_DEV_PORT:-3000}"
+# 从 .env 读取端口（与 vite.config.js / server.py 同源）
+_read_env_var() {
+  local key=$1 default=$2
+  local val
+  val=$(grep -E "^\s*${key}\s*=" "${REPO_ROOT}/.env" 2>/dev/null | head -1 | sed 's/^[^=]*=\s*//' | tr -d '[:space:]')
+  echo "${val:-$default}"
+}
 
-_clear_port 5000
-_clear_port "${DEV_PORT}"
+API_PORT=$(_read_env_var PORT 5000)
+DEV_PORT=$(_read_env_var VITE_PORT 80)
 
-echo "启动 server（日志: logs/server.log）…"
+_clear_port "${API_PORT}"
+if [[ "${DEV_PORT}" -lt 1024 ]]; then
+  _clear_port "${DEV_PORT}" sudo
+else
+  _clear_port "${DEV_PORT}"
+fi
+
+echo "启动 server:${API_PORT}（日志: logs/server.log）…"
 nohup npm run server > ./logs/server.log 2>&1 &
 SERVER_PID=$!
 disown "${SERVER_PID}" 2>/dev/null || true
 
 echo "启动 dev:${DEV_PORT}（日志: logs/dev.log）…"
-nohup npm run dev > ./logs/dev.log 2>&1 &
+if [[ "${DEV_PORT}" -lt 1024 ]]; then
+  sudo -E env PATH="$PATH" nohup npm run dev:sudo > ./logs/dev.log 2>&1 &
+else
+  nohup npm run dev > ./logs/dev.log 2>&1 &
+fi
 DEV_PID=$!
 disown "${DEV_PID}" 2>/dev/null || true
 
-echo "已后台启动: server pid=${SERVER_PID}, dev:${DEV_PORT} pid=${DEV_PID}"
-echo "tail -f logs/server.log   # Flask"
-echo "tail -f logs/dev.log      # Vite :${DEV_PORT}"
+echo "已后台启动: server pid=${SERVER_PID}(:${API_PORT}), dev pid=${DEV_PID}(:${DEV_PORT})"
+echo "tail -f logs/server.log   # Flask :${API_PORT}"
+echo "tail -f logs/dev.log      # Vite  :${DEV_PORT}"
