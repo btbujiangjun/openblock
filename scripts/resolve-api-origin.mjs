@@ -48,11 +48,15 @@ export function resolveApiOrigin() {
     const base = path.join(ROOT, '.env');
     const local = path.join(ROOT, '.env.local');
     const merged = { ...parseEnvFile(base), ...parseEnvFile(local) };
-    const raw =
+    const explicit =
         merged.OPENBLOCK_API_ORIGIN ||
         merged.VITE_API_BASE_URL ||
         process.env.OPENBLOCK_API_ORIGIN ||
-        process.env.VITE_API_BASE_URL ||
-        'http://0.0.0.0:5000';
-    return String(raw).replace(/\/+$/, '');
+        process.env.VITE_API_BASE_URL;
+    if (explicit) {
+        return String(explicit).replace(/\/+$/, '');
+    }
+    const host = merged.API_HOST || process.env.API_HOST || '127.0.0.1';
+    const port = merged.PORT || process.env.PORT || '5000';
+    return `http://${host}:${port}`;
 }
