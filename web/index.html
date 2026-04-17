@@ -152,19 +152,20 @@
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">💬</span>策略解释</summary>
             <div id="insight-why" class="insight-why-section"></div>
         </details>
-        <div id="insight-hints-section" class="insight-hints-wrap" hidden>
-            <div id="insight-hints-list"></div>
-        </div>
+        <details id="insight-hints-section" class="panel-section insight-hints-details" hidden aria-label="落子建议">
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">💡</span>落子建议</summary>
+            <div id="insight-hints-list" class="insight-hints-body"></div>
+        </details>
     </aside>
     <aside id="spawn-model-panel" class="side-panel-base spawn-model-panel" aria-label="生成式出块模型">
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块算法</summary>
             <div class="spawn-mode-switch">
-                <label class="spawn-mode-label">
+                <label class="spawn-mode-label" title="使用启发式三层出块（拓扑、自适应 hints、可解性校验）；不依赖神经网络。">
                     <span class="spawn-option-icon" aria-hidden="true">📖</span>
                     <input type="radio" name="spawn-mode" value="rule" checked /> 规则算法
                 </label>
-                <label class="spawn-mode-label">
+                <label class="spawn-mode-label" title="使用已训练的 SpawnTransformer 根据盘面与玩家上下文推荐三连块；服务端不可用或推理失败时自动回退规则算法。">
                     <span class="spawn-option-icon" aria-hidden="true">✨</span>
                     <input type="radio" name="spawn-mode" value="model" /> 生成式推荐
                 </label>
@@ -180,9 +181,9 @@
                     <label title="最大对局数：从数据库中按分数降序最多取多少局作为训练集。增大可覆盖更多样的玩法，但训练时间也会增加">最大局数 <input type="number" id="spawn-train-max-sessions" value="500" min="10" max="5000" step="50" /></label>
                 </div>
                 <div class="spawn-train-actions">
-                    <button type="button" class="rl-btn" id="spawn-train-start">开始训练</button>
-                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-train-stop" disabled>停止</button>
-                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-model-reload">重载模型</button>
+                    <button type="button" class="rl-btn" id="spawn-train-start" title="向服务端提交 SpawnTransformer 训练任务；使用上方 Epochs、最低分、最大局数 筛选数据库对局，进度显示在下方。">开始训练</button>
+                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-train-stop" disabled title="请求中断当前出块模型训练任务（若后端支持取消）。">停止</button>
+                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-model-reload" title="从磁盘重新加载已保存的 spawn_transformer.pt，使「生成式推荐」立即使用新权重而无需整页刷新。">重载模型</button>
                 </div>
                 <div class="spawn-train-progress" id="spawn-train-progress" hidden>
                     <div class="spawn-train-bar"><div class="spawn-train-fill" id="spawn-train-fill"></div></div>
@@ -194,21 +195,21 @@
     <aside id="rl-panel" class="side-panel-base rl-panel" aria-label="RL 机器人训练">
         <div class="rl-header-row">
             <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>RL机器人</h3>
-            <label class="rl-backend-toggle"><input type="checkbox" id="rl-use-pytorch" /> PyTorch（<span id="rl-backend-status">未检测</span>）</label>
+            <label class="rl-backend-toggle" title="勾选后策略推理与训练走 Flask /api/rl PyTorch 服务端；不勾选则使用浏览器内线性智能体与本地日志。"><input type="checkbox" id="rl-use-pytorch" /> PyTorch（<span id="rl-backend-status">未检测</span>）</label>
         </div>
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📋</span>统计 &amp; 操作</summary>
             <div class="rl-stats">
-                <div><span>局数</span><strong id="rl-episodes">0</strong></div>
-                <div><span>均分</span><strong id="rl-avg-score">—</strong></div>
-                <div><span>胜率</span><strong id="rl-winrate">—</strong></div>
-                <div><span>最佳</span><strong id="rl-best">0</strong></div>
+                <div title="本页会话内已完成的自博弈/训练回合总数（从加载页面起累计，非账号终身）。"><span>局数</span><strong id="rl-episodes">0</strong></div>
+                <div title="最近 40 局对局得分的算术平均（窗口不足时按已有局数平均）。用于观察短期水平波动。"><span>均分</span><strong id="rl-avg-score">—</strong></div>
+                <div title="最近 80 局中带胜负结果的局中，达到胜利条件（如分数阈值）的局数占比。"><span>胜率</span><strong id="rl-winrate">—</strong></div>
+                <div title="本页会话内录得的单局最高得分。"><span>最佳</span><strong id="rl-best">0</strong></div>
             </div>
             <div class="rl-actions">
-                <button type="button" class="rl-btn" id="rl-start">开始训练</button>
-                <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled>停止</button>
-                <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode">评估</button>
-                <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="刷新日志">日志</button>
+                <button type="button" class="rl-btn" id="rl-start" title="启动自博弈循环训练线性策略网络（可选 PyTorch 后端时在服务端训练）。局数与统计在上方更新。">开始训练</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled title="停止当前训练循环；已完成的回合与日志保留。">停止</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode" title="仅运行一局自博弈用于快速评估当前策略，不进入连续训练。">评估</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="从服务端拉取 PyTorch 训练损失等日志并显示在下方「训练损失」区域。">日志</button>
             </div>
         </details>
         <details class="panel-section" open>
@@ -247,15 +248,15 @@
             <p class="rl-dash-hint">曲线来自 <code>train_episode</code>：PyTorch 后端读服务端 JSONL；未勾选 PyTorch 时由浏览器训练写入本机（localStorage）并在此出图。得分/胜率需含 <code>score</code>/<code>won</code>。</p>
             <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
             <div class="rl-dash-toolbar">
-                <label class="rl-dash-auto"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
-                <select id="rl-chart-tail" class="rl-dash-select" title="显示最近 N 局的训练曲线">
+                <label class="rl-dash-auto" title="训练进行中时按间隔自动从服务端拉取 training 日志并重绘右侧曲线与摘要；关闭后仅手动点击「刷新图表」更新。"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
+                <select id="rl-chart-tail" class="rl-dash-select" title="按回合序号仅保留最近 N 条 train_episode 再绘制曲线与摘要；选「全部」则使用日志中的全部记录（数据量大时可能较慢）。">
                     <option value="500">最近 500 局</option>
                     <option value="2000" selected>最近 2000 局</option>
                     <option value="5000">最近 5000 局</option>
                     <option value="20000">最近 2 万局</option>
                     <option value="0">全部</option>
                 </select>
-                <button type="button" class="rl-dash-refresh" id="rl-refresh-charts">刷新图表</button>
+                <button type="button" class="rl-dash-refresh" id="rl-refresh-charts" title="立即从服务端拉取 training 日志，更新摘要条与下方各曲线（Lπ、Lv、熵、步数、胜率、得分）。">刷新图表</button>
             </div>
         </details>
         <details class="panel-section" open>

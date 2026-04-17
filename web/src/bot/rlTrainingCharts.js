@@ -225,6 +225,14 @@ const MA_PERF = 40;
 /** 摘要条统计用的最近局数 */
 const SUMMARY_N = 40;
 
+/** @param {string} s */
+function escapeHtmlAttr(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;');
+}
+
 /**
  * @param {HTMLElement | null} el
  * @param {object[]} rows sorted train_episode rows
@@ -263,13 +271,23 @@ function fillSummary(el, rows) {
     const fmt = (v, d = 1) => (v == null ? '—' : v.toFixed(d));
     const fmtPct = (v) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 
+    const tipLast =
+        '训练日志中最后一条 train_episode 对应的回合序号（episodes），即当前已记录到的最新一局编号。';
+    const tipAvgScore = `在最近 ${SUMMARY_N} 条 train_episode 中，对有效 score 字段求算术平均；用于观察近期对局得分水平（受右侧「最近 N 局」裁剪影响）。`;
+    const tipWin = `在最近 ${SUMMARY_N} 条记录上：若存在 win_rate 则对其求平均；否则若有 won（胜负）字段则统计胜率。反映近期胜负走势。`;
+    const tipEnt =
+        '策略分布熵 H(π) 在最近若干局上的平均。偏高表示策略更随机、探索更足；偏低表示策略更尖锐、更确定。';
+    const tipLv = `价值网络损失 loss_value 在最近 ${SUMMARY_N} 局上的平均；已对极端离群值做 IQR 裁剪后再平均，减轻单局尖峰对摘要的干扰。`;
+    const tipNote =
+        '摘要依赖日志中的 score、won/win_rate、entropy、loss_value 等字段；单局 Lv 常有尖峰，解读时优先看图表中深色滑动平均线与本行趋势。';
+
     el.innerHTML = [
-        `<span>末局 <strong>${lastEp}</strong></span> · `,
-        `<span>近${SUMMARY_N}局均分 <strong>${fmt(avgScore, 1)}</strong></span> · `,
-        `<span>近${SUMMARY_N}局胜率 <strong>${winRate == null ? '—' : fmtPct(winRate)}</strong></span> · `,
-        `<span>近${SUMMARY_N}局均熵 <strong>${fmt(avgEnt, 2)}</strong></span> · `,
-        `<span>近${SUMMARY_N}局均Lv <strong>${fmt(avgLv, 1)}</strong></span>`,
-        `<span class="rl-dash-note">单局 Lv 尖峰常见；看<strong>深色滑动线</strong>与本摘要趋势更稳。得分/胜率依赖日志字段 <code>score</code>/<code>won</code>。</span>`
+        `<span title="${escapeHtmlAttr(tipLast)}">末局 <strong>${lastEp}</strong></span> · `,
+        `<span title="${escapeHtmlAttr(tipAvgScore)}">近${SUMMARY_N}局均分 <strong>${fmt(avgScore, 1)}</strong></span> · `,
+        `<span title="${escapeHtmlAttr(tipWin)}">近${SUMMARY_N}局胜率 <strong>${winRate == null ? '—' : fmtPct(winRate)}</strong></span> · `,
+        `<span title="${escapeHtmlAttr(tipEnt)}">近${SUMMARY_N}局均熵 <strong>${fmt(avgEnt, 2)}</strong></span> · `,
+        `<span title="${escapeHtmlAttr(tipLv)}">近${SUMMARY_N}局均Lv <strong>${fmt(avgLv, 1)}</strong></span>`,
+        `<span class="rl-dash-note" title="${escapeHtmlAttr(tipNote)}">单局 Lv 尖峰常见；看<strong>深色滑动线</strong>与本摘要趋势更稳。得分/胜率依赖日志字段 <code>score</code>/<code>won</code>。</span>`
     ].join('');
 }
 
@@ -297,10 +315,14 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     if (rows.length < 2) {
         if (sumEl) {
             sumEl.innerHTML =
-                '<span class="rl-dash-note">数据不足：至少需要 2 条 train_episode 记录。</span>';
+                '<span class="rl-dash-note" title="训练曲线需要至少 2 个回合点才能画折线。请完成自博弈或 PyTorch 训练并写入 train_episode 日志后刷新。">数据不足：至少需要 2 条 train_episode 记录。</span>';
         }
         const p = document.createElement('p');
         p.className = 'rl-dash-empty';
+        p.title =
+            rows.length === 0
+                ? '训练日志中尚无 train_episode 事件。请启动带 PyTorch 后端的训练并确保服务端写入 JSONL，或使用浏览器内训练将指标写入本机后再点「刷新图表」。'
+                : '折线图至少需要两个数据点。请继续训练几局或拉取更多历史日志后再刷新。';
         p.textContent =
             rows.length === 0
                 ? '暂无 train_episode 记录。勾选 PyTorch 后端训练并刷新，或使用浏览器训练（指标写入本机后自动出曲线）。'
@@ -328,9 +350,18 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     const lpMa = rollingMean(lp, MA_LOSS);
     const lvMa = rollingMean(lv, MA_LOSS);
 
-    const mk = (title, series, chartOpts) => {
+    /**
+     * @param {string} title
+     * @param {{ label: string, color: string, y: number[], lineWidth?: number, dash?: number[] }[]} series
+     * @param {{ yMinFloor?: number, yMaxCeil?: number, yTick?: (v: number) => string, cssH?: number, robustClip?: boolean } | undefined} chartOpts
+     * @param {string} [hint] 鼠标悬停整块图表时的说明
+     */
+    const mk = (title, series, chartOpts, hint) => {
         const wrap = document.createElement('div');
         wrap.className = 'rl-chart-wrap';
+        if (hint) {
+            wrap.title = hint;
+        }
         const c = document.createElement('canvas');
         c.className = 'rl-chart-canvas';
         wrap.appendChild(c);
@@ -344,7 +375,8 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             { label: 'Lπ', color: 'rgba(68, 114, 196, 0.18)', y: lp, lineWidth: 0.7 },
             { label: `MA${MA_LOSS}`, color: '#1a3f7a', y: lpMa, lineWidth: 2 }
         ],
-        { robustClip: true }
+        { robustClip: true },
+        `Lπ：策略网络（actor）的损失，与带优势的策略梯度相关。浅色线为逐局值（噪声大），深色线为最近 ${MA_LOSS} 局滑动平均，便于看收敛趋势；纵轴对离群点做了温和裁剪。`
     );
 
     mk(
@@ -353,16 +385,27 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             { label: 'Lv', color: 'rgba(197, 90, 17, 0.18)', y: lv, lineWidth: 0.7 },
             { label: `MA${MA_LOSS}`, color: '#7a2d00', y: lvMa, lineWidth: 2 }
         ],
-        { robustClip: true }
+        { robustClip: true },
+        `Lv：价值网络（critic）的损失，衡量对回报或价值目标的拟合误差。单局尖峰常见，请优先看深色滑动平均线与摘要中的「均Lv」。`
     );
 
-    mk('策略熵 H(π)', [{ label: 'entropy', color: '#5b1f8a', y: ent, lineWidth: 1.5 }], {
-        yMinFloor: 0
-    });
+    mk(
+        '策略熵 H(π)',
+        [{ label: 'entropy', color: '#5b1f8a', y: ent, lineWidth: 1.5 }],
+        {
+            yMinFloor: 0
+        },
+        '策略输出分布的熵。较高表示策略更随机、探索更强；过低可能过早收敛到次优动作。'
+    );
 
-    mk('轨迹长度 step_count（批量为当批均值）', [{ label: 'steps', color: '#3a6b1e', y: st, lineWidth: 1.5 }], {
-        yMinFloor: 0
-    });
+    mk(
+        '轨迹长度 step_count（批量为当批均值）',
+        [{ label: 'steps', color: '#3a6b1e', y: st, lineWidth: 1.5 }],
+        {
+            yMinFloor: 0
+        },
+        '单局环境推进的步数（批量训练时可为批内平均）。步数异常升高或波动可提示环境卡住、局过长或批量设置变化。'
+    );
 
     const wrMa = rollingMean(won01, MA_PERF);
     mk(
@@ -372,7 +415,8 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             yMinFloor: 0,
             yMaxCeil: 1,
             yTick: (v) => `${(v * 100).toFixed(0)}%`
-        }
+        },
+        `最近 ${MA_PERF} 局的滑动平均胜率（0～1）。需日志中含 win_rate 或 won 字段；纵轴以百分比刻度显示。`
     );
 
     const scMa = rollingMean(scores, MA_PERF);
@@ -382,6 +426,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             { label: 'score', color: 'rgba(0, 160, 144, 0.18)', y: scores, lineWidth: 0.7 },
             { label: `MA${MA_PERF}`, color: '#005a52', y: scMa, lineWidth: 2.5 }
         ],
-        { yMinFloor: 0 }
+        { yMinFloor: 0 },
+        `每局游戏得分；浅色为逐局、深色为最近 ${MA_PERF} 局滑动平均。需 train_episode 中含 score 字段。`
     );
 }

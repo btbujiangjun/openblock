@@ -1479,12 +1479,16 @@ body.game-rl-preview .block-dock {
     margin-top: 2px;
 }
 
-/* 求助建议 — 卡片式区块 */
-.insight-hints-wrap {
+/* 求助建议 — 与 .panel-section 折叠标题一致 */
+.insight-hints-body {
     padding: 5px 8px;
-    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
-    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
-    border-radius: 4px;
+}
+
+.panel-section > .insight-hints-body {
+    background: none;
+    border: none;
+    border-radius: 0;
+    margin-bottom: 0;
 }
 
 .hint-card {
@@ -1668,7 +1672,7 @@ body.game-rl-preview .block-dock {
     border: none;
 }
 
-/* 与 .insight-why-section / .insight-hints-wrap 同一套卡片壳（方框、边框、圆角） */
+/* 与 .insight-why-section / .insight-hints-details 同一套卡片壳（方框、边框、圆角） */
 .rl-log-pane {
     flex: 1 1 0;
     min-height: 0;
@@ -1833,6 +1837,22 @@ body.game-rl-preview .block-dock {
 .rl-dash-summary strong {
     color: var(--accent-color, #4472c4);
     font-weight: 700;
+}
+
+/* 带 title 的指标与图表：悬停提示时显示帮助光标 */
+.rl-stats > div[title],
+.rl-dash-summary span[title],
+.rl-chart-wrap[title],
+.spawn-train-params label[title],
+.spawn-train-actions .rl-btn[title],
+.rl-dash-toolbar label[title],
+.rl-dash-toolbar .rl-dash-select[title],
+.rl-dash-toolbar .rl-dash-refresh[title],
+.rl-actions .rl-btn[title],
+.rl-backend-toggle[title],
+.rl-dash-empty[title],
+.spawn-mode-label[title] {
+    cursor: help;
 }
 
 .rl-dash-summary .rl-dash-note {

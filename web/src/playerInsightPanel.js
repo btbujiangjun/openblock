@@ -627,11 +627,13 @@ function _renderHints(game) {
     const hints = computeHints(game.grid, blocks, 3);
     if (hints.length === 0) {
         section.hidden = false;
+        section.open = true;
         list.innerHTML = '<p class="insight-muted">无合法落子可用。</p>';
         return;
     }
 
     section.hidden = false;
+    section.open = true;
     const items = hints.map((h, rank) => {
         const medal = ['🥇', '🥈', '🥉'][rank] ?? `${rank + 1}.`;
         const label = _blockLabel(h.blockIdx);
