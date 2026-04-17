@@ -1839,19 +1839,9 @@ body.game-rl-preview .block-dock {
     font-weight: 700;
 }
 
-/* 带 title 的指标与图表：悬停提示时显示帮助光标 */
+/* 仅关键数值指标使用帮助光标；控件与图表区保留 title 提示但用默认指针 */
 .rl-stats > div[title],
-.rl-dash-summary span[title],
-.rl-chart-wrap[title],
-.spawn-train-params label[title],
-.spawn-train-actions .rl-btn[title],
-.rl-dash-toolbar label[title],
-.rl-dash-toolbar .rl-dash-select[title],
-.rl-dash-toolbar .rl-dash-refresh[title],
-.rl-actions .rl-btn[title],
-.rl-backend-toggle[title],
-.rl-dash-empty[title],
-.spawn-mode-label[title] {
+.rl-dash-summary .rl-dash-metric[title] {
     cursor: help;
 }
 
@@ -1900,7 +1890,18 @@ body.game-rl-preview .block-dock {
     color: #fff;
 }
 
-.rl-dash-refresh:hover {
+/* 与摘要区 .rl-dash-metric 的 help 光标区分：刷新为操作按钮，始终指针 */
+#rl-refresh-charts.rl-dash-refresh {
+    cursor: pointer;
+}
+
+.rl-dash-refresh:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    filter: none;
+}
+
+.rl-dash-refresh:hover:not(:disabled) {
     filter: brightness(1.08);
 }
 
@@ -2858,7 +2859,7 @@ body.game-shell-hidden .app-side-left {
     gap: 3px;
     font-size: 7.5px;
     color: var(--text-primary, #e2e8f0);
-    cursor: help;
+    cursor: default;
 }
 
 .spawn-train-params input {

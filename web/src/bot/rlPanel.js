@@ -87,7 +87,7 @@ export function initRLPanel(game) {
         chkPytorch.addEventListener('change', () => {
             persistPytorchToggle();
             void refreshBackendStatus();
-            void refreshTrainingCharts();
+            void refreshDashboardFull();
         });
     }
 
@@ -113,15 +113,15 @@ export function initRLPanel(game) {
         void refreshServerTrainingLog();
     }
 
-    /** 训练中轻量同步服务端局数（buffer flush 后与面板对齐） */
+    /** 与 Flask 全局局数对齐（训练/空闲均可调用，刷新看板时拉齐左侧「局数」） */
     async function syncEpisodesFromServer() {
-        if (!readUseBackend() || !running) {
+        if (!readUseBackend()) {
             return;
         }
         try {
             const st = await fetchRlStatus();
-            if (st.available && typeof st.episodes === 'number' && st.episodes > totalEpisodes) {
-                totalEpisodes = st.episodes;
+            if (st.available && typeof st.episodes === 'number') {
+                totalEpisodes = Math.max(totalEpisodes, st.episodes);
                 updateStats();
             }
         } catch {
@@ -141,11 +141,7 @@ export function initRLPanel(game) {
             if (!chkChartAuto?.checked || !running) {
                 return;
             }
-            void refreshTrainingCharts();
-            if (readUseBackend()) {
-                void refreshServerTrainingLog();
-                void syncEpisodesFromServer();
-            }
+            void refreshDashboardFull();
         }, 350);
     }
 
@@ -164,11 +160,7 @@ export function initRLPanel(game) {
                 if (!chkChartAuto?.checked || !running) {
                     return;
                 }
-                void refreshTrainingCharts();
-                if (readUseBackend()) {
-                    void refreshServerTrainingLog();
-                    void syncEpisodesFromServer();
-                }
+                void refreshDashboardFull();
             }, ms);
         }
     }
@@ -194,6 +186,19 @@ export function initRLPanel(game) {
             p.textContent = '无法加载服务端曲线（请启动 Flask 并勾选 PyTorch 后端）';
             chartRoot.appendChild(p);
         }
+    }
+
+    /**
+     * 训练看板完整刷新：曲线 + 摘要（updateRlTrainingCharts）；
+     * 勾选 PyTorch 时顺带更新「训练损失」预读与左侧局数与服务端一致。
+     */
+    async function refreshDashboardFull() {
+        await refreshTrainingCharts();
+        if (!readUseBackend()) {
+            return;
+        }
+        await refreshServerTrainingLog();
+        await syncEpisodesFromServer();
     }
 
     async function refreshServerTrainingLog() {
@@ -362,7 +367,7 @@ export function initRLPanel(game) {
         }
 
         syncChartPoll();
-        void refreshTrainingCharts();
+        void refreshDashboardFull();
 
         await trainSelfPlay({
             agent,
@@ -385,8 +390,7 @@ export function initRLPanel(game) {
         logLine(useBackend ? '结束·服务端已存盘' : '结束·已写localStorage');
         syncChartPoll();
         void refreshBackendStatus();
-        void refreshServerTrainingLog();
-        void refreshTrainingCharts();
+        void refreshDashboardFull();
     }
 
     if (btnStart) {
@@ -402,13 +406,15 @@ export function initRLPanel(game) {
         btnRefreshLog.onclick = () => void refreshServerTrainingLog();
     }
     if (btnRefreshCharts) {
-        btnRefreshCharts.onclick = () => void refreshTrainingCharts();
+        /* 「刷新图表」始终可点：拉取最新 training.jsonl 重绘曲线/摘要，并同步服务端局数与损失预读。 */
+        btnRefreshCharts.disabled = false;
+        btnRefreshCharts.onclick = () => void refreshDashboardFull();
     }
     if (chkChartAuto) {
         chkChartAuto.addEventListener('change', () => syncChartPoll());
     }
     if (selChartTail) {
-        selChartTail.addEventListener('change', () => void refreshTrainingCharts());
+        selChartTail.addEventListener('change', () => void refreshDashboardFull());
     }
     if (btnEpisode) {
         btnEpisode.onclick = async () => {
@@ -461,7 +467,7 @@ export function initRLPanel(game) {
 
     updateStats();
     void refreshBackendStatus();
-    void refreshTrainingCharts();
+    void refreshDashboardFull();
     void (async () => {
         try {
             const st = await fetchRlStatus();

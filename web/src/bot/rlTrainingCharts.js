@@ -47,6 +47,15 @@ export function extractTrainEpisodeRows(entries) {
 
 /** 单图 CSS 高度：压缩后固定展示 Lπ / Lv / 熵 / step / 胜率 / 得分 六条曲线 */
 const CHART_CSS_H = 88;
+/** 逐局序列：细线宽；滑动平均仍用 2～2.5 */
+const RAW_LINE_WIDTH = 0.68;
+
+/** 旧版日志或未裁剪的异常标量：不参与折线绘制，避免纵轴被单点拉到 1e30+ */
+function sanitizeLossForChart(v, maxAbs = 1e7) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return NaN;
+    if (Math.abs(v) > maxAbs) return NaN;
+    return v;
+}
 
 /**
  * 智能 y 轴标签：根据数值范围自动选择精度，固定保留 2 位小数。
@@ -167,9 +176,13 @@ function drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts) {
     ctx.fillText(String(xmin), padL, xAxisY);
     ctx.fillText(String(xmax), padL + plotW - 28, xAxisY);
 
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
     for (const s of series) {
         ctx.strokeStyle = s.color;
-        ctx.lineWidth = s.lineWidth ?? 1.5;
+        /* 默认略加粗：高 DPR 下 1.5 以下在窄图里易糊成一条灰线 */
+        ctx.lineWidth = s.lineWidth ?? 1.65;
         ctx.setLineDash(s.dash || []);
         ctx.beginPath();
         let started = false;
@@ -279,15 +292,15 @@ function fillSummary(el, rows) {
         '策略分布熵 H(π) 在最近若干局上的平均。偏高表示策略更随机、探索更足；偏低表示策略更尖锐、更确定。';
     const tipLv = `价值网络损失 loss_value 在最近 ${SUMMARY_N} 局上的平均；已对极端离群值做 IQR 裁剪后再平均，减轻单局尖峰对摘要的干扰。`;
     const tipNote =
-        '摘要依赖日志中的 score、won/win_rate、entropy、loss_value 等字段；单局 Lv 常有尖峰，解读时优先看图表中深色滑动平均线与本行趋势。';
+        '摘要依赖日志中的 score、won/win_rate、entropy、loss_value 等字段；单局 Lv 常有尖峰，解读时优先看图表中粗线滑动平均与本行趋势。';
 
     el.innerHTML = [
-        `<span title="${escapeHtmlAttr(tipLast)}">末局 <strong>${lastEp}</strong></span> · `,
-        `<span title="${escapeHtmlAttr(tipAvgScore)}">近${SUMMARY_N}局均分 <strong>${fmt(avgScore, 1)}</strong></span> · `,
-        `<span title="${escapeHtmlAttr(tipWin)}">近${SUMMARY_N}局胜率 <strong>${winRate == null ? '—' : fmtPct(winRate)}</strong></span> · `,
-        `<span title="${escapeHtmlAttr(tipEnt)}">近${SUMMARY_N}局均熵 <strong>${fmt(avgEnt, 2)}</strong></span> · `,
-        `<span title="${escapeHtmlAttr(tipLv)}">近${SUMMARY_N}局均Lv <strong>${fmt(avgLv, 1)}</strong></span>`,
-        `<span class="rl-dash-note" title="${escapeHtmlAttr(tipNote)}">单局 Lv 尖峰常见；看<strong>深色滑动线</strong>与本摘要趋势更稳。得分/胜率依赖日志字段 <code>score</code>/<code>won</code>。</span>`
+        `<span class="rl-dash-metric" title="${escapeHtmlAttr(tipLast)}">末局 <strong>${lastEp}</strong></span> · `,
+        `<span class="rl-dash-metric" title="${escapeHtmlAttr(tipAvgScore)}">近${SUMMARY_N}局均分 <strong>${fmt(avgScore, 1)}</strong></span> · `,
+        `<span class="rl-dash-metric" title="${escapeHtmlAttr(tipWin)}">近${SUMMARY_N}局胜率 <strong>${winRate == null ? '—' : fmtPct(winRate)}</strong></span> · `,
+        `<span class="rl-dash-metric" title="${escapeHtmlAttr(tipEnt)}">近${SUMMARY_N}局均熵 <strong>${fmt(avgEnt, 2)}</strong></span> · `,
+        `<span class="rl-dash-metric" title="${escapeHtmlAttr(tipLv)}">近${SUMMARY_N}局均Lv <strong>${fmt(avgLv, 1)}</strong></span>`,
+        `<span class="rl-dash-note" title="${escapeHtmlAttr(tipNote)}">单局 Lv 尖峰常见；看<strong>粗线滑动平均</strong>与本摘要趋势更稳。得分/胜率依赖日志字段 <code>score</code>/<code>won</code>。</span>`
     ].join('');
 }
 
@@ -336,8 +349,8 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     }
 
     const x = rows.map((r) => r.episodes);
-    const lp = rows.map((r) => (typeof r.loss_policy === 'number' ? r.loss_policy : NaN));
-    const lv = rows.map((r) => (typeof r.loss_value === 'number' ? r.loss_value : NaN));
+    const lp = rows.map((r) => sanitizeLossForChart(r.loss_policy, 1e8));
+    const lv = rows.map((r) => sanitizeLossForChart(r.loss_value));
     const ent = rows.map((r) => (typeof r.entropy === 'number' ? r.entropy : NaN));
     const st = rows.map((r) => (typeof r.step_count === 'number' ? r.step_count : NaN));
     const scores = rows.map((r) => (typeof r.score === 'number' ? r.score : NaN));
@@ -349,6 +362,14 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
 
     const lpMa = rollingMean(lp, MA_LOSS);
     const lvMa = rollingMean(lv, MA_LOSS);
+
+    /* 双序列：粗线=滑动平均；细线=逐局。色相错开，避免与 MA 混淆 */
+    const C_LP_MA = '#142d52';
+    const C_LP_RAW = 'rgba(0, 188, 212, 0.82)';
+    const C_LV_MA = '#4a1c10';
+    const C_LV_RAW = 'rgba(255, 179, 0, 0.88)';
+    const C_SC_MA = '#004d40';
+    const C_SC_RAW = 'rgba(255, 112, 67, 0.82)';
 
     /**
      * @param {string} title
@@ -370,28 +391,28 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     };
 
     mk(
-        `Lπ 策略损失（浅=逐局，深=MA${MA_LOSS}）`,
+        `Lπ 策略损失（细=逐局，粗=MA${MA_LOSS}）`,
         [
-            { label: 'Lπ', color: 'rgba(68, 114, 196, 0.18)', y: lp, lineWidth: 0.7 },
-            { label: `MA${MA_LOSS}`, color: '#1a3f7a', y: lpMa, lineWidth: 2 }
+            { label: `MA${MA_LOSS}`, color: C_LP_MA, y: lpMa, lineWidth: 2 },
+            { label: 'Lπ', color: C_LP_RAW, y: lp, lineWidth: RAW_LINE_WIDTH }
         ],
         { robustClip: true },
-        `Lπ：策略网络（actor）的损失，与带优势的策略梯度相关。浅色线为逐局值（噪声大），深色线为最近 ${MA_LOSS} 局滑动平均，便于看收敛趋势；纵轴对离群点做了温和裁剪。`
+        `Lπ：策略网络（actor）的损失，与带优势的策略梯度相关。细线为逐局值（噪声大），粗线为最近 ${MA_LOSS} 局滑动平均，便于看收敛趋势；纵轴对离群点做了温和裁剪。`
     );
 
     mk(
-        `Lv 价值损失（浅=逐局，深=MA${MA_LOSS}）`,
+        `Lv 价值损失（细=逐局，粗=MA${MA_LOSS}）`,
         [
-            { label: 'Lv', color: 'rgba(197, 90, 17, 0.18)', y: lv, lineWidth: 0.7 },
-            { label: `MA${MA_LOSS}`, color: '#7a2d00', y: lvMa, lineWidth: 2 }
+            { label: `MA${MA_LOSS}`, color: C_LV_MA, y: lvMa, lineWidth: 2 },
+            { label: 'Lv', color: C_LV_RAW, y: lv, lineWidth: RAW_LINE_WIDTH }
         ],
         { robustClip: true },
-        `Lv：价值网络（critic）的损失，衡量对回报或价值目标的拟合误差。单局尖峰常见，请优先看深色滑动平均线与摘要中的「均Lv」。`
+        `Lv：价值网络（critic）的损失，衡量对回报或价值目标的拟合误差。单局尖峰常见，请优先看粗线滑动平均与摘要中的「均Lv」。`
     );
 
     mk(
         '策略熵 H(π)',
-        [{ label: 'entropy', color: '#5b1f8a', y: ent, lineWidth: 1.5 }],
+        [{ label: 'entropy', color: '#5b1f8a', y: ent, lineWidth: 1.75 }],
         {
             yMinFloor: 0
         },
@@ -400,7 +421,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
 
     mk(
         '轨迹长度 step_count（批量为当批均值）',
-        [{ label: 'steps', color: '#3a6b1e', y: st, lineWidth: 1.5 }],
+        [{ label: 'steps', color: '#2d5a18', y: st, lineWidth: 1.75 }],
         {
             yMinFloor: 0
         },
@@ -410,7 +431,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     const wrMa = rollingMean(won01, MA_PERF);
     mk(
         `近${MA_PERF}局滑动胜率（0–1；批量为窗口内平均）`,
-        [{ label: `winRate MA${MA_PERF}`, color: '#9a1040', y: wrMa, lineWidth: 1.75 }],
+        [{ label: `winRate MA${MA_PERF}`, color: '#8a0e38', y: wrMa, lineWidth: 1.9 }],
         {
             yMinFloor: 0,
             yMaxCeil: 1,
@@ -421,12 +442,12 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
 
     const scMa = rollingMean(scores, MA_PERF);
     mk(
-        `对局得分（浅=逐局，深=MA${MA_PERF} 趋势）`,
+        `对局得分（细=逐局，粗=MA${MA_PERF} 趋势）`,
         [
-            { label: 'score', color: 'rgba(0, 160, 144, 0.18)', y: scores, lineWidth: 0.7 },
-            { label: `MA${MA_PERF}`, color: '#005a52', y: scMa, lineWidth: 2.5 }
+            { label: `MA${MA_PERF}`, color: C_SC_MA, y: scMa, lineWidth: 2.5 },
+            { label: 'score', color: C_SC_RAW, y: scores, lineWidth: RAW_LINE_WIDTH }
         ],
         { yMinFloor: 0 },
-        `每局游戏得分；浅色为逐局、深色为最近 ${MA_PERF} 局滑动平均。需 train_episode 中含 score 字段。`
+        `每局游戏得分；细线为逐局、粗线为最近 ${MA_PERF} 局滑动平均。需 train_episode 中含 score 字段。`
     );
 }

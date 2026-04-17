@@ -674,6 +674,8 @@ def _reevaluate_and_update(
     )
 
     # --- 价值目标：outcome-based（纯终局得分） + GAE advantage ---
+    _vtc = float(os.environ.get("RL_VALUE_TARGET_CLIP", "512"))
+    _gae_dc = float(os.environ.get("RL_GAE_DELTA_CLIP", "80"))
     vals_np = values_init.detach().cpu().numpy()
     adv_np = np.empty(total_steps, dtype=np.float32)
     rets_np = np.empty(total_steps, dtype=np.float32)
@@ -690,6 +692,8 @@ def _reevaluate_and_update(
             if t_len > 1:
                 next_v[:-1] = v[1:]
             deltas = r + gamma * next_v - v
+            if _gae_dc > 0:
+                deltas = np.clip(deltas, -_gae_dc, _gae_dc)
             gae_acc = 0.0
             for i in range(t_len - 1, -1, -1):
                 gae_acc = float(deltas[i]) + gamma * gae_lambda * gae_acc
@@ -711,10 +715,13 @@ def _reevaluate_and_update(
         v_off += ep_len
         r_off += ep_len
 
+    if _vtc > 0:
+        rets_np = np.clip(rets_np, -_vtc, _vtc)
+    rets_clean = np.nan_to_num(rets_np, nan=0.0, posinf=65504.0, neginf=-65504.0)
+    if _vtc > 0:
+        rets_clean = np.clip(rets_clean, -_vtc, _vtc)
     adv_cat = tensor_to_device(torch.from_numpy(adv_np), device)
-    rets_cat = tensor_to_device(
-        torch.from_numpy(np.nan_to_num(rets_np, nan=0.0, posinf=1e5, neginf=-1e5).clip(-1e5, 1e5)), device
-    )
+    rets_cat = tensor_to_device(torch.from_numpy(rets_clean), device)
     if normalize_adv:
         adv_cat = _normalize_advantages(adv_cat, min_std=adv_min_std)
     else:

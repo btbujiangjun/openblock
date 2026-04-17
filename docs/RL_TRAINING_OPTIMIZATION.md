@@ -1,5 +1,7 @@
 # RL Training Optimization v5 — Direct Supervision
 
+> **数值稳定与看板 Lv 爆炸**：见 `docs/RL_TRAINING_NUMERICAL_STABILITY.md`（回报裁剪、GAE delta 裁剪、日志幅值上限）。
+
 ## 1. 根因诊断：为什么 v4 仍然不收敛？
 
 ### v4 的做法和局限
