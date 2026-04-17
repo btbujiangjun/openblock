@@ -31,7 +31,7 @@ _listen_pids() {
   local port=$1
   shift
   local runner=("$@")
-  if ((${#runner[@]+"1"})); then
+  if [[ ${#runner[@]} -gt 0 ]]; then
     "${runner[@]}" lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true
   else
     lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true
@@ -48,7 +48,7 @@ _port_is_free() {
     pids=$(_listen_pids "$port" "${runner[@]+"${runner[@]}"}")
     [[ -z "${pids//[$' \t\n']}" ]]
   elif _has_fuser; then
-    if ((${#runner[@]+"1"})); then
+    if [[ ${#runner[@]} -gt 0 ]]; then
       "${runner[@]}" fuser "${port}/tcp" >/dev/null 2>&1 && return 1 || return 0
     else
       fuser "${port}/tcp" >/dev/null 2>&1 && return 1 || return 0
@@ -71,7 +71,7 @@ _kill_listeners_lsof() {
     [[ -z "${pids//[$' \t\n']}" ]] && return 0
     while IFS= read -r pid; do
       [[ -z "$pid" ]] && continue
-      if ((${#runner[@]+"1"})); then
+      if [[ ${#runner[@]} -gt 0 ]]; then
         "${runner[@]}" kill "-${sig}" "$pid" 2>/dev/null || true
       else
         kill "-${sig}" "$pid" 2>/dev/null || true
@@ -88,7 +88,7 @@ _kill_listeners_fuser() {
   local port=$1
   shift
   local runner=("$@")
-  if ((${#runner[@]+"1"})); then
+  if [[ ${#runner[@]} -gt 0 ]]; then
     "${runner[@]}" fuser -k "${port}/tcp" >/dev/null 2>&1 || true
   else
     fuser -k "${port}/tcp" >/dev/null 2>&1 || true
@@ -125,7 +125,7 @@ _clear_port() {
   fi
   echo "error: 端口 ${port} 仍被占用，已放弃启动。请检查:" >&2
   if _has_lsof; then
-    if ((${#runner[@]+"1"})); then
+    if [[ ${#runner[@]} -gt 0 ]]; then
       echo "  sudo lsof -nP -iTCP:${port} -sTCP:LISTEN" >&2
     else
       echo "  lsof -nP -iTCP:${port} -sTCP:LISTEN" >&2

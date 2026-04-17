@@ -100,6 +100,10 @@ export function initRLPanel(game) {
             if (st.available) {
                 const ck = st.checkpoint_loaded ? '已热加载' : '新初始化';
                 outBackendStatus.textContent = `${st.device || '?'} · ${ck} · ${st.episodes ?? 0} 局 · 每${st.save_every ?? '?'}局存盘`;
+                if (typeof st.episodes === 'number') {
+                    totalEpisodes = Math.max(totalEpisodes, st.episodes);
+                    updateStats();
+                }
             } else {
                 outBackendStatus.textContent = st.reason ? `不可用：${st.reason}` : '不可用';
             }
@@ -107,6 +111,22 @@ export function initRLPanel(game) {
             outBackendStatus.textContent = '无法连接 API';
         }
         void refreshServerTrainingLog();
+    }
+
+    /** 训练中轻量同步服务端局数（buffer flush 后与面板对齐） */
+    async function syncEpisodesFromServer() {
+        if (!readUseBackend() || !running) {
+            return;
+        }
+        try {
+            const st = await fetchRlStatus();
+            if (st.available && typeof st.episodes === 'number' && st.episodes > totalEpisodes) {
+                totalEpisodes = st.episodes;
+                updateStats();
+            }
+        } catch {
+            /* ignore */
+        }
     }
 
     function scheduleDashRefresh() {
@@ -124,6 +144,7 @@ export function initRLPanel(game) {
             void refreshTrainingCharts();
             if (readUseBackend()) {
                 void refreshServerTrainingLog();
+                void syncEpisodesFromServer();
             }
         }, 350);
     }
@@ -146,6 +167,7 @@ export function initRLPanel(game) {
                 void refreshTrainingCharts();
                 if (readUseBackend()) {
                     void refreshServerTrainingLog();
+                    void syncEpisodesFromServer();
                 }
             }, ms);
         }
@@ -270,12 +292,12 @@ export function initRLPanel(game) {
     }
 
     function onEpisode(info) {
-        if (typeof info.serverEpisodes === 'number') {
-            totalEpisodes = info.serverEpisodes;
-        } else {
-            // 线性模型每局 +1；后端若未带回局数则 +1 兜底，避免界面卡住
-            totalEpisodes += 1;
+        const prev = totalEpisodes;
+        let next = prev + 1;
+        if (typeof info.serverEpisodes === 'number' && Number.isFinite(info.serverEpisodes)) {
+            next = Math.max(next, info.serverEpisodes);
         }
+        totalEpisodes = next;
         if (!info.fromBackend && info.trainMetrics) {
             appendBrowserTrainEpisode({
                 episodes: totalEpisodes,
@@ -326,6 +348,18 @@ export function initRLPanel(game) {
                 ? '开始·PyTorch后端·可随时停止'
                 : '开始·浏览器线性模型·可随时停止'
         );
+
+        if (useBackend) {
+            try {
+                const st = await fetchRlStatus();
+                if (st.available && typeof st.episodes === 'number') {
+                    totalEpisodes = st.episodes;
+                    updateStats();
+                }
+            } catch {
+                /* ignore */
+            }
+        }
 
         syncChartPoll();
         void refreshTrainingCharts();
