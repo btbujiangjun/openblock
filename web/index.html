@@ -248,11 +248,12 @@
             <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
             <div class="rl-dash-toolbar">
                 <label class="rl-dash-auto"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
-                <select id="rl-chart-tail" class="rl-dash-select" title="拉取最近条数">
-                    <option value="400">最近 400 条</option>
-                    <option value="800" selected>最近 800 条</option>
-                    <option value="1600">最近 1600 条</option>
-                    <option value="3000">最近 3000 条</option>
+                <select id="rl-chart-tail" class="rl-dash-select" title="显示最近 N 局的训练曲线">
+                    <option value="500">最近 500 局</option>
+                    <option value="2000" selected>最近 2000 局</option>
+                    <option value="5000">最近 5000 局</option>
+                    <option value="20000">最近 2 万局</option>
+                    <option value="0">全部</option>
                 </select>
                 <button type="button" class="rl-dash-refresh" id="rl-refresh-charts">刷新图表</button>
             </div>

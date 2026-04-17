@@ -277,8 +277,9 @@ function fillSummary(el, rows) {
  * @param {HTMLElement | null} root
  * @param {object[]} entries
  * @param {HTMLElement | null} [summaryEl]
+ * @param {number} [maxEpisodes] 仅显示最近 N 局（按 episodes 字段裁剪）；0 或不传表示全部
  */
-export function updateRlTrainingCharts(root, entries, summaryEl = null) {
+export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpisodes = 0) {
     const sumEl = summaryEl ?? document.getElementById('rl-dash-summary');
 
     if (!root) {
@@ -288,7 +289,11 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null) {
         return;
     }
     root.replaceChildren();
-    const rows = extractTrainEpisodeRows(entries);
+    let rows = extractTrainEpisodeRows(entries);
+    if (maxEpisodes > 0 && rows.length > 0) {
+        const cutoff = rows[rows.length - 1].episodes - maxEpisodes;
+        rows = rows.filter((r) => r.episodes >= cutoff);
+    }
     if (rows.length < 2) {
         if (sumEl) {
             sumEl.innerHTML =

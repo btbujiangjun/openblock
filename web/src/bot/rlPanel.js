@@ -122,15 +122,16 @@ export function initRLPanel(game) {
         if (!chartRoot) {
             return;
         }
-        const tail = Math.max(50, parseInt(String(selChartTail?.value || '800'), 10) || 800);
+        const maxEpisodes = parseInt(String(selChartTail?.value || '0'), 10) || 0;
+        const fetchLines = 5000;
         if (!readUseBackend()) {
-            const data = getBrowserTrainingLog(tail);
-            updateRlTrainingCharts(chartRoot, data.entries || []);
+            const data = getBrowserTrainingLog(fetchLines);
+            updateRlTrainingCharts(chartRoot, data.entries || [], null, maxEpisodes);
             return;
         }
         try {
-            const data = await fetchTrainingLog(tail);
-            updateRlTrainingCharts(chartRoot, data.entries || []);
+            const data = await fetchTrainingLog(fetchLines);
+            updateRlTrainingCharts(chartRoot, data.entries || [], null, maxEpisodes);
         } catch {
             chartRoot.replaceChildren();
             const p = document.createElement('p');
