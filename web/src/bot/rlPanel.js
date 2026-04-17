@@ -187,7 +187,8 @@ export function initRLPanel(game) {
                         : '日志为空';
                 return;
             }
-            const rows = data.entries.slice(-14).map((e) => {
+            const tail = data.entries.slice(-24);
+            const rows = [...tail].reverse().map((e) => {
                 const t = e.ts ? new Date(e.ts * 1000).toLocaleTimeString() : '?';
                 if (e.event === 'train_episode') {
                     const lp = e.loss_policy != null && Number.isFinite(Number(e.loss_policy)) ? Number(e.loss_policy).toFixed(2) : '—';
@@ -208,6 +209,7 @@ export function initRLPanel(game) {
                 return `[${t}] ${JSON.stringify(e).slice(0, 100)}`;
             });
             outServerLog.textContent = rows.join('\n');
+            outServerLog.scrollTop = 0;
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             outServerLog.textContent = `无法拉取训练日志：${msg}`;
@@ -241,6 +243,7 @@ export function initRLPanel(game) {
         const line = `[${t}] ${msg}`;
         const prev = node.textContent.split('\n').filter((s) => s.length > 0);
         node.textContent = [line, ...prev.slice(0, EPISODE_LOG_MAX_LINES - 1)].join('\n');
+        node.scrollTop = 0;
     }
 
     function updateStats() {
