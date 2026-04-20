@@ -1535,6 +1535,76 @@ def spawn_model_predict():
 init_db()
 
 
+# =====================================================================
+#  文档门户：/docs  /docs/list  /docs/raw/<filename>
+# =====================================================================
+
+_DOCS_DIR = Path(__file__).resolve().parent / 'docs'
+_WEB_PUBLIC_DIR = Path(__file__).resolve().parent / 'web' / 'public'
+
+_DOC_CATEGORIES = [
+    {'name': '项目概览',  'docs': ['PROJECT.md']},
+    {'name': '商业化',    'docs': ['MONETIZATION.md', 'MONETIZATION_OPTIMIZATION.md',
+                                    'MONETIZATION_PERSONALIZATION.md', 'CASUAL_GAME_ANALYSIS.md']},
+    {'name': '游戏设计',  'docs': ['DIFFICULTY_MODES.md', 'PLAYER_ABILITY_EVALUATION.md',
+                                    'PANEL_PARAMETERS.md', 'REALTIME_STRATEGY.md']},
+    {'name': '出块算法',  'docs': ['SPAWN_ALGORITHM.md', 'ADAPTIVE_SPAWN.md', 'SPAWN_BLOCK_MODELING.md']},
+    {'name': '强化学习',  'docs': ['RL_AND_GAMEPLAY.md', 'RL_ANALYSIS.md',
+                                    'RL_ALPHAZERO_OPTIMIZATION.md', 'RL_BROWSER_OPTIMIZATION.md',
+                                    'RL_TRAINING_OPTIMIZATION.md', 'RL_TRAINING_NUMERICAL_STABILITY.md',
+                                    'RL_TRAINING_DASHBOARD_FLOW.md', 'RL_TRAINING_DASHBOARD_TRENDS.md']},
+    {'name': '部署与扩展', 'docs': ['WECHAT_MINIPROGRAM.md']},
+]
+
+
+@app.route('/docs')
+@app.route('/docs/')
+def docs_portal():
+    """文档门户首页。"""
+    from flask import send_from_directory
+    portal = _WEB_PUBLIC_DIR / 'docs.html'
+    if portal.exists():
+        return send_from_directory(str(_WEB_PUBLIC_DIR), 'docs.html')
+    return '<h1>docs.html not found</h1>', 404
+
+
+@app.route('/docs/list')
+def docs_list():
+    """返回所有文档的分类列表及元信息。"""
+    result = []
+    for cat in _DOC_CATEGORIES:
+        items = []
+        for fname in cat['docs']:
+            path = _DOCS_DIR / fname
+            if path.exists():
+                text = path.read_text('utf-8', errors='replace')
+                # 从第一个 # 标题提取文档标题
+                title = fname
+                for line in text.splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith('# '):
+                        title = stripped[2:].strip()
+                        break
+                items.append({'file': fname, 'title': title})
+        result.append({'category': cat['name'], 'docs': items})
+    return jsonify(result)
+
+
+@app.route('/docs/raw/<filename>')
+def docs_raw(filename):
+    """返回指定文档的原始 Markdown 内容。"""
+    # 安全检查：只允许字母数字下划线和 .md 后缀
+    import re
+    if not re.match(r'^[\w\-]+\.md$', filename, re.ASCII):
+        return jsonify({'error': 'invalid filename'}), 400
+    path = _DOCS_DIR / filename
+    if not path.exists():
+        return jsonify({'error': 'not found'}), 404
+    content = path.read_text('utf-8', errors='replace')
+    return content, 200, {'Content-Type': 'text/plain; charset=utf-8',
+                          'Cache-Control': 'no-cache'}
+
+
 def create_app():
     """WSGI 工厂函数，供 gunicorn 等使用：``gunicorn 'server:create_app()'``。"""
     return app

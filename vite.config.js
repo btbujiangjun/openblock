@@ -32,6 +32,13 @@ export default {
         host: true,
         port: devPort,
         strictPort: true,
-        open: true
+        open: true,
+        proxy: {
+            // 文档 API（/docs/list、/docs/raw/*）→ Flask 后端
+            '/docs/list': { target: apiOrigin, changeOrigin: true },
+            '/docs/raw':  { target: apiOrigin, changeOrigin: true },
+            // 其余 /api/* 也透传（保持与原有行为一致）
+            '/api':       { target: apiOrigin, changeOrigin: true },
+        }
     }
 };

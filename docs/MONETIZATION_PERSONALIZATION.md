@@ -1,5 +1,11 @@
 # 个性化商业化策略设计文档
 
+> **📦 归档声明（2026-04-20）**  
+> 本文档为 **v2 设计稿**，已被完整合并至 [MONETIZATION.md](./MONETIZATION.md)（v3）。  
+> **请以 v3 为唯一事实来源**，本文档不再维护，仅作技术演进历史参考。
+
+---
+
 > 版本 v2 · 2026-04-20  
 > 在 [MONETIZATION_OPTIMIZATION.md](./MONETIZATION_OPTIMIZATION.md)（v1）基础上，补充基于用户行为序列的个性化能力
 

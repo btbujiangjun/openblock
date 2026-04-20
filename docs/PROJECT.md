@@ -18,7 +18,7 @@
 | `bot/` | 无头模拟器 + 线性 REINFORCE 自博弈（`simulator.js`、`linearAgent.js`、`trainer.js`、`rlPanel.js`） |
 | `bot/blockSpawn.js` | 出块执行层：接受策略权重 + `spawnHints`，生成三连块（含 solvability 验证） |
 | `playerProfile.js` | 玩家实时能力画像：滑动窗口行为追踪 → 多维技能 + 状态信号（心流 / 节奏 / 挫败 / 差一点） |
-| `adaptiveSpawn.js` | 自适应出块策略引擎：8 信号融合 → 10 档 profile 插值 + spawnHints。详见 **`docs/ADAPTIVE_SPAWN.md`** |
+| `adaptiveSpawn.js` | 自适应出块策略引擎：**10 信号融合** → stress → 10 档 profile 插值 + spawnHints。详见 **`docs/ADAPTIVE_SPAWN.md`** |
 | `playerInsightPanel.js` | 左侧玩家画像 UI；投放区指标文案与悬停说明见 **`docs/PANEL_PARAMETERS.md`** §4 |
 | `difficulty.js` | 原有 score→stress 难度映射（被 `adaptiveSpawn.js` 内部调用） |
 
@@ -47,6 +47,39 @@
 
 - `tests/grid.test.js`、`tests/config.test.js` 引用 `web/src/*`。
 - Vitest 通过 `define` 注入 `import.meta.env.VITE_*`，避免在 Node 中未定义。
+
+## 商业化子系统（`web/src/monetization/`）
+
+完整设计见 **[`docs/MONETIZATION.md`](./MONETIZATION.md)**（v3，唯一事实来源）。
+
+| 模块 | 职责 |
+|------|------|
+| `index.js` | 商业化插件总入口：`initMonetization(game)` 串联所有子模块 |
+| `MonetizationBus.js` | 事件总线：包装 `game.logBehavior`，解耦观察与核心逻辑 |
+| `featureFlags.js` | 功能开关（`localStorage` 持久化）；广告/IAP 默认关，任务/排行榜/通行证默认开 |
+| `adAdapter.js` | 广告适配层（Stub / 真实 SDK 热插拔） |
+| `adTrigger.js` | 广告触发器：`game_over` 插屏；`no_clear` 近失/挫败激励 |
+| `iapAdapter.js` | IAP 适配层（Stub / 真实支付 SDK 热插拔） |
+| `dailyTasks.js` | 每日三任务系统 |
+| `leaderboard.js` | 在线日榜 |
+| `seasonPass.js` | 30 天赛季通行证（XP 估算 = `score×0.12 + clears×1.5`，min 10） |
+| `pushNotifications.js` | Web Push 召回通知 |
+| `replayShare.js` | 游戏结束分享 |
+| `personalization.js` | 个性化引擎：拉取后端用户画像 + 实时信号 → 商业策略 |
+| `commercialInsight.js` | 将商业策略区块注入玩家画像面板 `#player-insight-panel` |
+| `monPanel.js` | 右下角「商业化训练面板」浮层（总览/画像/模型配置/Flag 开关） |
+
+**后端**：`monetization_backend.py`（Flask Blueprint）提供 `/api/mon/*` 路由：  
+`GET /api/mon/user-profile/<userId>`、`GET /api/mon/aggregate`、  
+`GET|PUT /api/mon/model/config`、`POST /api/mon/strategy/log`。
+
+---
+
+## 文档索引
+
+全部 21 份文档的导航与权威说明见 **[`docs/README.md`](./README.md)**。
+
+---
 
 ## 历史说明
 

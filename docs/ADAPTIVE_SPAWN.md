@@ -95,7 +95,7 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │              adaptiveSpawn.js（策略引擎层）                               │
 │                                                                         │
-│  8 信号融合：                                                           │
+│  10 信号融合：                                                           │
 │    scoreStress + skillAdjust + flowAdjust + pacingAdjust               │
 │    + recoveryAdjust + frustrationRelief + comboReward + nearMissAdjust │
 │                                                                         │
@@ -122,7 +122,7 @@
 |------|------|------|
 | `shared/game_rules.json` | 配置 | 10 档策略权重、节奏参数、参与度参数、心流阈值 |
 | `web/src/playerProfile.js` | 画像 | 滑动窗口行为追踪、多维技能计算、状态判定、持久化 |
-| `web/src/adaptiveSpawn.js` | 引擎 | 8 信号融合 → stress → 10 档插值 + spawnHints |
+| `web/src/adaptiveSpawn.js` | 引擎 | 10 信号融合 → stress → 10 档插值 + spawnHints |
 | `web/src/bot/blockSpawn.js` | 执行 | 接受 spawnHints，生成三连块（保持 solvability 不变量） |
 | `web/src/difficulty.js` | 基础 | 原有 score→stress 映射（被自适应引擎内部调用） |
 | `web/src/game.js` | 集成 | 事件采集 + 调用入口 |

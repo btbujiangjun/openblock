@@ -177,9 +177,9 @@ activity_score = 0.6 × min(1, recent_7d_games/7)
 |------|---------|---------|---------|---------|
 | Whale | 任意 | 月卡通行证 IAP | 付费意愿强 | LTV 约为周卡 3.8× |
 | Whale | frustration ≥ 5 | 提示包 IAP | 未消行 N 次，提示需求明确 | 降低流失率约 18% |
-| Whale | 任意 | **屏蔽插屏广告** | 广告容忍度低，流失成本 > 广告收益 | 保留 LTV |
+| Whale | 任意 | **屏蔽插屏广告** | 广告容忍度低，流失成本 > 广告收益 | 保留 LTV（⚠️ 当前 `adTrigger.js` 未按分群跳过，需接入个性化引擎） |
 | Dolphin | 任意 | 周卡通行证 | 中等用户对低价周期付费接受度高 | 首月留存 +22% |
-| Dolphin | hadNearMiss | 激励视频（near-miss） | 近失时玩家主动性最强 | 转化率 +40% |
+| Dolphin | `hadRecentNearMiss` | 激励视频（near-miss） | 近失时玩家主动性最强 | 转化率 +40% |
 | Dolphin | activity < 0.4 | 推送连签提醒 | 近期活跃度下滑 | D7 留存 +15% |
 | Minnow | game_over | 插屏广告 | 游戏结束是天然断点 | eCPM 最高，留存影响 <2% |
 | Minnow | frustration ≥ 5 | 新手礼包（限时） | 挫败临界是首购最佳窗口 | 首付转化率 +35% |
@@ -256,7 +256,10 @@ detach();       // 恢复原始 logBehavior，停止转发
 | `no_clear` | `profile.hadRecentNearMiss = true` | 激励视频（近失救济） |
 | `no_clear` | `profile.frustrationLevel ≥ 5` | 激励视频（挫败救济） |
 
-每局激励广告上限：`MAX_REWARDED_PER_GAME = 3`（可配）
+每局激励广告上限：`MAX_REWARDED_PER_GAME = 3`（当前硬编码于 `adTrigger.js`）
+
+> ⚠️ **实现说明**：`adTrigger.js` 的阈值（`frustrationLevel ≥ 5`、每局上限 3）目前**硬编码**，尚未读取 `mon_model_config.adTrigger`。  
+> 训练面板中「广告触发阈值」字段可写入数据库，但需手动更新 `adTrigger.js` 中的取值逻辑方可生效。
 
 ### 5.4 iapAdapter（IAP 适配层）
 
@@ -362,6 +365,8 @@ Hay Day 上线 Season Pass 后月收入提升 **56%**（行业参考数据）。
 | `getCommercialInsight()` | 返回可渲染的完整洞察对象 |
 | `buildCommercialWhyLines(state)` | 生成推理摘要 bullet 列表 |
 | `getCurrentSegment()` | 轻量查询当前分群 |
+
+> **阈值说明**：IAP 动作卡片 `active` 标记用 `frustration ≥ 4`；激励广告实际触发（`adTrigger.js`）用 `frustration ≥ 5`。前者为「高亮显示建议」，后者为「播放广告」，阈值有意不同。
 
 `getCommercialInsight()` 返回结构：
 
@@ -654,7 +659,7 @@ setFlag('stubMode', false);
 | 活跃度 | 近 7 日局数 | 三档阈值 + 对应策略 |
 | 技能 | PlayerProfile.skillLevel | 四档标签 + 商业化含义 |
 | 挫败感 | frustrationLevel（实时） | 四档触发阈值 |
-| 近失率 | behaviors 表历史数据 | 触发机制 + 转化率数据 |
+| 近失率 | behaviors 表历史 `no_clear/placements` 比率 | 触发机制 + 转化率数据；注：前端实时触发用 `PlayerProfile.hadRecentNearMiss`（布尔），与历史比率定义不同 |
 | 心流 | PlayerProfile.flowState（实时） | 三态 + 广告抑制/触发逻辑 |
 
 ### 9.2 策略动作卡片
