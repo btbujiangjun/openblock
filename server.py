@@ -1342,6 +1342,15 @@ try:
 except Exception as _rl_ex:
     print('RL API (/api/rl/*) 未启用:', _rl_ex)
 
+try:
+    from monetization_backend import create_mon_blueprint, init_mon_db
+
+    app.register_blueprint(create_mon_blueprint())
+    with app.app_context():
+        init_mon_db()
+except Exception as _mon_ex:
+    print('商业化 API (/api/mon/*) 未启用:', _mon_ex)
+
 
 # =====================================================================
 #  Spawn Transformer: 训练 / 推理 / 状态 API
