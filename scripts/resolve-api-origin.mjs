@@ -41,13 +41,18 @@ function parseEnvFile(filePath) {
     return out;
 }
 
+/** 合并仓库根目录 `.env` 与 `.env.local`（后者覆盖前者）；供 Vite 端口等 Node 侧解析复用。 */
+export function loadRootEnv() {
+    const base = path.join(ROOT, '.env');
+    const local = path.join(ROOT, '.env.local');
+    return { ...parseEnvFile(base), ...parseEnvFile(local) };
+}
+
 /**
  * @returns {string} API 根 URL，无末尾斜杠
  */
 export function resolveApiOrigin() {
-    const base = path.join(ROOT, '.env');
-    const local = path.join(ROOT, '.env.local');
-    const merged = { ...parseEnvFile(base), ...parseEnvFile(local) };
+    const merged = loadRootEnv();
     const explicit =
         merged.OPENBLOCK_API_ORIGIN ||
         merged.VITE_API_BASE_URL ||

@@ -6,7 +6,9 @@
   "scripts": {
     "predev": "node scripts/ensure-vite.mjs",
     "dev": "vite",
-    "dev:sudo": "npm run predev && sudo -E env PATH=\"$PATH\" node node_modules/vite/bin/vite.js",
+    "dev:3000": "npm run predev && env VITE_PORT=3000 vite",
+    "dev:80": "npm run predev && env VITE_PORT=80 vite",
+    "dev:sudo": "npm run predev && sudo -E env PATH=\"$PATH\" VITE_PORT=80 node node_modules/vite/bin/vite.js",
     "prebuild": "node scripts/ensure-vite.mjs",
     "build": "vite build",
     "prepreview": "node scripts/ensure-vite.mjs",

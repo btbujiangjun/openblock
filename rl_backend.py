@@ -570,11 +570,11 @@ def _rl_train_episode_inner(
         if tlen == 0:
             return jsonify({"ok": True, "episodes": _state["episodes"], "skipped": True})
 
-        returns = []
-        g = 0.0
-        for r in reversed(rewards):
-            g = r + gamma * g
-            returns.insert(0, g)
+        returns = [0.0] * tlen
+        acc = 0.0
+        for i in range(tlen - 1, -1, -1):
+            acc = rewards[i] + gamma * acc
+            returns[i] = acc
         returns_t = torch.tensor(returns, dtype=torch.float32, device=device)
         returns_t = torch.nan_to_num(returns_t, nan=0.0, posinf=1e5, neginf=-1e5)
         returns_t = torch.clamp(returns_t, -1e5, 1e5)

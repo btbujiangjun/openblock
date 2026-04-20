@@ -61,12 +61,25 @@ app = Flask(__name__)
 CORS(app)
 
 
+def _configure_sqlite_connection(db):
+    """每连接一次：WAL 提升读写并发；busy_timeout 降低「database is locked」概率。"""
+    try:
+        db.execute('PRAGMA journal_mode=WAL')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        db.execute('PRAGMA busy_timeout=5000')
+    except sqlite3.OperationalError:
+        pass
+
+
 def get_db():
     """Get database connection for current request"""
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
         db.row_factory = sqlite3.Row
+        _configure_sqlite_connection(db)
     return db
 
 

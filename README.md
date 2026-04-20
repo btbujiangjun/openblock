@@ -29,7 +29,7 @@ npm install
 npm run dev
 ```
 
-浏览器访问 Vite 提示的地址（默认 `http://0.0.0.0:3000`，亦可用终端中的 Network 局域网 IP）。入口脚本为 `web/src/main.js`；样式在 `web/public/styles/main.css`，**勿**仅用「打开根目录的 HTML」配合错误站点根路径（会导致 `/src/main.js` 404、页面无样式且各层叠在一起）。请始终 `npm run dev`，或将静态服务器的站点根设为 `web/`。
+浏览器访问 Vite 提示的地址（默认 `http://0.0.0.0:3000`，由根目录 `.env` 的 `VITE_PORT` 控制；亦可用终端中的 Network 局域网 IP）。固定端口可执行 `npm run dev:3000` 或 `npm run dev:80`（后者在 macOS/Linux 上监听 80 通常需 `npm run dev:sudo`）。入口脚本为 `web/src/main.js`；样式在 `web/public/styles/main.css`，**勿**仅用「打开根目录的 HTML」配合错误站点根路径（会导致 `/src/main.js` 404、页面无样式且各层叠在一起）。请始终 `npm run dev`，或将静态服务器的站点根设为 `web/`。
 
 构建产物输出到 `dist/`，可由任意静态服务器托管：
 
@@ -80,7 +80,10 @@ npm run server
 
 | 命令 | 作用 |
 |------|------|
-| `npm run dev` | Vite 开发服务器 |
+| `npm run dev` | Vite 开发服务器（端口见 `.env` 的 `VITE_PORT`，默认 3000） |
+| `npm run dev:3000` | 固定监听 3000 |
+| `npm run dev:80` | 固定监听 80（无特权时可能启动失败，改用 `dev:sudo`） |
+| `npm run dev:sudo` | 以 root 监听 80（`VITE_PORT=80`） |
 | `npm run build` | 生产构建 |
 | `npm run preview` | 预览 `dist/` |
 | `npm test` | Vitest |

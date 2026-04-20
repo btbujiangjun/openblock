@@ -33,4 +33,5 @@
 - 关闭自动刷新、只点「刷新图表」：曲线与摘要应跳变为当前文件内容。
 - 切换「最近 N 局」：立即重绘（同一次 `refreshDashboardFull` 链路）。
 
-更细的数值与损失含义见 `docs/RL_TRAINING_NUMERICAL_STABILITY.md`。
+更细的数值与损失含义见 `docs/RL_TRAINING_NUMERICAL_STABILITY.md`。  
+**趋势判读与训练是否正常**：见 `docs/RL_TRAINING_DASHBOARD_TRENDS.md`。
