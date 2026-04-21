@@ -1328,7 +1328,7 @@ def train_loop(
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Block Blast PyTorch 自博弈 RL（支持 MPS/CUDA）")
+    p = argparse.ArgumentParser(description="Open Block PyTorch 自博弈 RL（支持 MPS/CUDA）")
     p.add_argument("--episodes", type=int, default=5000)
     p.add_argument(
         "--lr",

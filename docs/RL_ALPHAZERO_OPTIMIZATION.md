@@ -446,7 +446,7 @@ RL_Q_DISTILL_COEF=0 python -m rl_pytorch.train --episodes 10000 --save rl_checkp
 | **模型评估门控** | 新>旧 55% 替换 | **eval gate（软/硬模式）** | 已实现 | 硬门控 + 历史最优保留 |
 | **数据并行** | 数千局并行自博弈 | 2-6 CPU workers | 中 | 增加 n_workers，Ray 分布式 |
 
-### 9.2 Block Blast 特有优化方向（后续）
+### 9.2 Open Block 特有优化方向（后续）
 
 1. **完整 MCTS（3-ply+）**：用 `sim.save_state/restore_state` 实现 UCT，需处理出块随机性（期望 Q 或采样 spawn）
 2. **三块全排列 beam**：当前 2-ply 只覆盖「当前块→次块」，可扩展到「当前块→次块→第三块」（3-ply）

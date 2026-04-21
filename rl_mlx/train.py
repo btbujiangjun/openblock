@@ -219,7 +219,7 @@ def train_loop(
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Block Blast MLX 自博弈 RL")
+    p = argparse.ArgumentParser(description="Open Block MLX 自博弈 RL")
     p.add_argument("--episodes", type=int, default=1000)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--gamma", type=float, default=0.99)
