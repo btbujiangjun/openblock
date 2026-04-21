@@ -308,20 +308,26 @@ python -m rl_pytorch.train --eval-gate-every 2000 --eval-gate-games 50 --eval-ga
 
 ---
 
-### 5.4 v7/v8 新增环境变量
+### 5.4 v7/v8/v8.2 环境变量汇总
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `RL_Q_DISTILL_COEF` | 0.1 | Q 蒸馏损失权重；0=关闭 |
-| `RL_Q_DISTILL_TAU` | 1.0 | Q → target_pi 的软化温度 |
-| `RL_BEAM2PLY` | 1 | 2-ply beam 开关；0=退化为 1-step |
-| `RL_EVAL_GATE_HARD` | 0 | 硬门控开关；1=失败时恢复**历史最优**权重（v8 升级） |
-| `RL_BEAM3PLY` | 0 | v8：1=启用 3-ply 全排列 beam（dock=3 时激活） |
-| `RL_ADAPTIVE_CURRICULUM` | 0 | v8：1=启用自适应课程（滑动胜率控速） |
-| `RL_MCTS` | 0 | v8：1=启用轻量 UCT-MCTS（与 beam 互斥，优先级更高） |
-| `RL_MCTS_SIMS` | 20 | v8：MCTS 每步模拟次数 |
-| `RL_MCTS_CPUCT` | 1.5 | v8：UCB 探索系数 |
-| `RL_MCTS_MAX_DEPTH` | 8 | v8：单次模拟最大展开深度 |
+| 变量 | 默认值 | 版本 | 说明 |
+|------|--------|------|------|
+| `RL_Q_DISTILL_COEF` | 0.1 | v7 | Q 蒸馏损失权重；0=关闭 |
+| `RL_Q_DISTILL_TAU` | 1.0 | v7 | Q → target_pi 的软化温度 |
+| `RL_BEAM2PLY` | 1 | v7 | 2-ply beam 开关；0=退化为 1-step |
+| `RL_EVAL_GATE_HARD` | 0 | v8 | 硬门控；1=失败时恢复历史最优权重 |
+| `RL_BEAM3PLY` | 0 | v8 | 1=启用 3-ply 全排列 beam |
+| `RL_ADAPTIVE_CURRICULUM` | 0 | v8 | 1=启用自适应课程（滑动胜率控速） |
+| `RL_MCTS` | 0 | v8 | 1=启用轻量 UCT-MCTS（与 beam 互斥） |
+| `RL_MCTS_SIMS` | 20 | v8 | MCTS 每步模拟次数；≥50 自动切换批量模式 |
+| `RL_MCTS_CPUCT` | 1.5 | v8 | UCB 探索系数 |
+| `RL_MCTS_MAX_DEPTH` | 8 | v8 | 单次模拟最大展开深度 |
+| `RL_MCTS_REUSE` | 1 | v8.1 | MCTS 步内树复用开关 |
+| `RL_MCTS_TRAIN_TEMP` | 1.0 | v8.1 | 训练时访问分布采样温度（0=贪心） |
+| `RL_MCTS_STOCHASTIC` | 0 | v8.1 | 1=随机出块叶子评估（需 SpawnPredictor） |
+| `RL_SPAWN_MODEL_PATH` | - | v8.1 | SpawnTransformerV2 检查点路径 |
+| `RL_MCTS_BATCH_SIZE` | 8 | v8.2 | 批量叶子评估并发模拟数（8~32） |
+| `RL_ZOBRIST_CACHE_SIZE` | 5000 | v8.2 | Zobrist 跨局缓存节点数上限；0/-1=禁用 |
 
 ---
 
@@ -773,11 +779,146 @@ python -m rl_pytorch.train --mcts --mcts-no-reuse --episodes 5000
 
 ---
 
-### 10.3 剩余未来优化方向
+### 10.3 v8.2 落地：Zobrist 持久化 · 完整 MCTS（批量评估）
+
+#### 10.3.1 MCTS 树持久化（Zobrist hash 跨局）
+
+**文件**：`rl_pytorch/mcts.py`（`ZobristHasher`、`ZobristCache`、`MCTSTreeState.try_warm_start`）
+
+v8.1 实现了「步内树复用」，但每局开始仍从零建树。v8.2 在此基础上增加跨局持久化缓存。
+
+**核心思路**：
+
+- **ZobristHasher**：用随机位表对棋盘每格（空/占）和 dock 三槽（有/无）独立编码，XOR 组合为 64-bit hash。两局中若开局布局相同，hash 相同，可识别「曾见过的局面」。
+- **ZobristCache**：LRU 字典 `{hash → MCTSNode}`，默认上限 5000 节点。容量超限驱逐最旧条目。
+- **热启动（warm start）**：每局开始时调用 `tree.try_warm_start(sim)`——若命中缓存，直接沿用旧根节点（携带历史访问统计），等效于「已免费获得若干次模拟」。
+- **局末落盘（flush）**：每局结束调用 `tree.flush_to_cache()`，将最终根节点写回缓存，供后续局复用。
+
+```python
+# 进程级单例缓存（所有 episode 共用）
+from rl_pytorch.mcts import ZobristHasher, ZobristCache, MCTSTreeState
+
+hasher = ZobristHasher(grid_size=8)
+cache  = ZobristCache(hasher, max_size=5000)
+
+tree = MCTSTreeState(zobrist_cache=cache)
+
+# 每局开始
+tree.invalidate()              # 清空步内复用状态
+tree.try_warm_start(sim)       # 尝试从缓存热启动
+# ... 局内正常 MCTS 搜索 ...
+# 每局结束
+tree.flush_to_cache()          # 当前根写回缓存
+```
+
+**适用场景与限制**：
+
+- 同难度/策略的反复训练能逐渐积累缓存命中率，冷启动阶段命中率接近 0。
+- 仅对棋盘二值化（空/非空），不同颜色布局但占格相同的局面会共享节点（可接受的保守近似）。
+- 缓存跨进程不共享；多 worker 并行训练时各 worker 独立维护自己的缓存。
+
+**开关**：`--zobrist-cache-size N`（默认 5000；-1=禁用）或 `RL_ZOBRIST_CACHE_SIZE=N`。
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `game_rules.lightMCTS.zobristCacheSize` | 5000 | 缓存节点数上限 |
+| `RL_ZOBRIST_CACHE_SIZE` | 5000 | 环境变量覆盖 |
+| `--zobrist-cache-size` | 0（读配置） | CLI 参数，-1=禁用 |
+
+---
+
+#### 10.3.2 完整 MCTS（批量叶子评估）
+
+**文件**：`rl_pytorch/mcts.py`（`run_mcts_batched`、`_select_leaf_for_batch`、虚拟 loss 函数）
+
+原始实现（`run_mcts` / `run_mcts_reuse`）每次模拟做 1 次 GPU forward，100 次模拟 = 100 次 GPU 调用，开销随模拟数线性增长。v8.2 引入批量评估，将多次模拟的叶子节点合并为一次 GPU batch forward：
+
+**虚拟 loss 并行模拟（Parallel MCTS with Virtual Loss）**：
+
+```
+每 eval_batch_size 次模拟为一组：
+  Phase 1 – Selection（CPU）：
+    对每次模拟依次做 UCB 选择，到达叶子后施加虚拟 loss（N+1），
+    使后续模拟不倾向于同一路径（类似 AlphaGo 的 virtual loss 机制）
+  Phase 2 – 批量 GPU 推理：
+    将 B 个叶子状态 stack → 一次 net.forward_value(B×state)
+  Phase 3 – Backup（CPU）：
+    移除虚拟 loss，用真实 value 反向更新 Q(s,a)
+```
+
+| 模式 | GPU 调用次数（100 sims） | 适用场景 |
+|------|--------------------------|----------|
+| `run_mcts`（原始） | 100 次 | < 50 次模拟 |
+| `run_mcts_batched`（新） | ~100/8 ≈ 13 次 | ≥ 50 次模拟（自动切换） |
+
+**自动分派**：`mcts_q_proxy` 根据 `n_simulations` 自动选择后端：
+```
+n_simulations < 50  → run_mcts / run_mcts_reuse（逐次 GPU）
+n_simulations ≥ 50  → run_mcts_batched（批量 GPU，自动虚拟 loss）
+```
+
+**使用方式**：
+```bash
+# 标准 100 次模拟（自动启用批量模式）
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 100 --mcts-batch-size 16 \
+  --episodes 50000 --save rl_checkpoints/v8_2.pt
+
+# 高质量搜索（200 次 + 批量 + Zobrist 持久化）
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 200 --mcts-batch-size 32 \
+  --zobrist-cache-size 10000 \
+  --episodes 30000 --save rl_checkpoints/v8_2_full.pt
+
+# 仅批量模式（禁用树复用，用于消融）
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 100 --mcts-no-reuse \
+  --episodes 5000
+```
+
+**新增环境变量**：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RL_MCTS_BATCH_SIZE` | 8 | 批量叶子评估并发模拟数（8~32） |
+| `RL_ZOBRIST_CACHE_SIZE` | 5000 | Zobrist 跨局缓存节点数上限，0/负数=禁用 |
+
+---
+
+#### 10.3.3 完整 v8.2 训练命令
+
+```bash
+# ---- 推荐：全功能 v8.2 ----
+python -m rl_pytorch.train \
+  --episodes 100000 --device auto --arch conv-shared --width 128 \
+  --batch-episodes 128 --ppo-epochs 4 \
+  --adaptive-curriculum \
+  --mcts --mcts-sims 100 --mcts-batch-size 16 \
+  --zobrist-cache-size 5000 \
+  --mcts-train-temp 1.0 \
+  --eval-gate-every 2000 \
+  --save rl_checkpoints/v8_2.pt
+
+# ---- 轻量快速验证（20 sims，无批量） ----
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 20 --episodes 20000 \
+  --save rl_checkpoints/v8_2_quick.pt
+
+# ---- 高质量搜索（200 sims + Zobrist + stochastic） ----
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 200 --mcts-batch-size 32 \
+  --mcts-stochastic --spawn-model-path rl_checkpoints/spawn_v2.pt \
+  --zobrist-cache-size 10000 \
+  --episodes 50000 --save rl_checkpoints/v8_2_full.pt
+```
+
+---
+
+### 10.4 剩余未来优化方向
 
 | 优化 | 难度 | 优先级 | 说明 |
 |------|------|--------|------|
-| MCTS 树持久化（跨局） | 中 | 低 | 当前跨步复用，跨局重建；可用 Zobrist hash 持久化 |
-| 完整 MCTS（增大模拟次数）| 低 | 中 | 当前 10~50 次；增至 100+ 可进一步提升策略质量 |
-| SpawnTransformerV2 联合训练 | 高 | 中 | 目前独立训练；联合训练让 RL 感知出块先验 |
-| Ray 分布式自博弈 | 高 | 低 | 当前 2-6 CPU workers；Ray Actor 可扩展至数十个 |
+| SpawnTransformerV2 联合训练 | 高 | 中 | 目前独立训练；联合训练让 RL 感知出块先验，减少 stochastic MCTS 的模型误差 |
+| Ray 分布式自博弈 | 高 | 低 | 当前 2-6 CPU workers；Ray Actor 可扩展至数十个并行采集 |
+| Zobrist 跨进程共享缓存 | 中 | 低 | 目前各 worker 独立缓存；共享内存（如 Redis/mmapped dict）可提高多 worker 命中率 |
+| 渐进式模拟次数（adaptive sims） | 低 | 低 | 根据局面不确定性动态增减模拟次数，而非固定 N |

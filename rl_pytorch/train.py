@@ -675,6 +675,36 @@ def _beam_3ply_q_values(
     return q3ply
 
 
+# ---------------------------------------------------------------------------
+# 进程级 Zobrist 缓存单例（v8.2）
+# ---------------------------------------------------------------------------
+_GLOBAL_ZOBRIST_CACHE: "ZobristCache | None" = None  # type: ignore[name-defined]
+
+
+def _get_global_zobrist_cache():
+    """返回进程唯一的 ZobristCache 实例。
+
+    大小由 RL_ZOBRIST_CACHE_SIZE 环境变量控制（0 或负数则禁用）。
+    game_rules.json lightMCTS.zobristCacheSize 作为默认值（5000）。
+    """
+    global _GLOBAL_ZOBRIST_CACHE
+    if _GLOBAL_ZOBRIST_CACHE is not None:
+        return _GLOBAL_ZOBRIST_CACHE
+
+    # 读取配置（game_rules._DATA 的顶层 lightMCTS 节点）
+    from .game_rules import _DATA as _GR_DATA  # type: ignore[attr-defined]
+    rules = _GR_DATA.get("lightMCTS", {})
+    default_size = int(rules.get("zobristCacheSize", 5000))
+    size = int(os.environ.get("RL_ZOBRIST_CACHE_SIZE", default_size))
+    if size <= 0:
+        return None   # 禁用
+
+    from .mcts import ZobristHasher, ZobristCache  # type: ignore[attr-defined]
+    hasher = ZobristHasher(grid_size=8)
+    _GLOBAL_ZOBRIST_CACHE = ZobristCache(hasher=hasher, max_size=size)
+    return _GLOBAL_ZOBRIST_CACHE
+
+
 def collect_episode(
     net: AnyNet,
     device: torch.device,
@@ -741,9 +771,14 @@ def collect_episode(
     _beam2ply_topk = int(_beam2ply_cfg.get("topK", 15))
     _beam2ply_max_actions = int(_beam2ply_cfg.get("maxActions", 100))
 
-    # MCTS 树状态（跨步复用）
+    # MCTS 树状态（跨步复用 + 可选 Zobrist 跨局热启动）
     from .mcts import MCTSTreeState as _MCTSTreeState, select_action_from_visits as _select_mcts
-    _mcts_tree = _MCTSTreeState() if _use_mcts_reuse else None
+    if _use_mcts_reuse:
+        _zobrist_cache = _get_global_zobrist_cache()   # 进程级单例
+        _mcts_tree = _MCTSTreeState(zobrist_cache=_zobrist_cache)
+        _mcts_tree.try_warm_start(sim)                 # 尝试从缓存热启动
+    else:
+        _mcts_tree = None
     _prev_dock_remain: int = sum(1 for s in sim.dock if s is not None)
 
     step_idx = 0
@@ -859,6 +894,10 @@ def collect_episode(
     sp = float(RL_REWARD_SHAPING.get("stuckPenalty") or 0.0)
     if trajectory and not won and sp and (sim.is_terminal() or not sim.get_legal_actions()):
         trajectory[-1]["reward"] += sp
+
+    # 局末将当前根节点存入 Zobrist 缓存（供下局热启动）
+    if _mcts_tree is not None:
+        _mcts_tree.flush_to_cache()
 
     total = len(trajectory)
     for i in range(total):
@@ -1889,6 +1928,19 @@ def main() -> None:
         help="使用 DockPointEncoder（PointNet 形状感知编码）替代默认 DockBoardAttention；"
              "需重新训练，与旧 checkpoint 不兼容",
     )
+    p.add_argument(
+        "--mcts-batch-size",
+        type=int,
+        default=0,
+        help="v8.2：批量叶子评估并发模拟数（8~32）；0=使用 game_rules.json 中的 evalBatchSize（默认 8）；"
+             "n_simulations≥50 时自动启用批量模式",
+    )
+    p.add_argument(
+        "--zobrist-cache-size",
+        type=int,
+        default=0,
+        help="v8.2：Zobrist hash 跨局节点缓存上限（节点数）；0=使用 game_rules.json（默认 5000）；-1=禁用",
+    )
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -1930,6 +1982,12 @@ def main() -> None:
         os.environ["RL_MCTS_STOCHASTIC"] = "1"
     if getattr(args, "spawn_model_path", ""):
         os.environ["RL_SPAWN_MODEL_PATH"] = args.spawn_model_path
+    # v8.2 新增
+    if getattr(args, "mcts_batch_size", 0) > 0:
+        os.environ["RL_MCTS_BATCH_SIZE"] = str(args.mcts_batch_size)
+    _zobrist_cache_size = getattr(args, "zobrist_cache_size", 0)
+    if _zobrist_cache_size != 0:
+        os.environ["RL_ZOBRIST_CACHE_SIZE"] = str(_zobrist_cache_size)
     _use_point_encoder = getattr(args, "point_encoder", False)
 
     arch = args.arch.strip().lower()

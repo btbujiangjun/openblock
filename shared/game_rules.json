@@ -216,7 +216,11 @@
       "enabled": false,
       "numSimulations": 20,
       "cPuct": 1.5,
-      "maxDepth": 8
+      "maxDepth": 8,
+      "evalBatchSize": 8,
+      "evalBatchSizeComment": "v8.2：批量叶子节点评估的并发模拟数（8~32）。n_simulations≥50 时自动切换批量模式。",
+      "zobristCacheSize": 5000,
+      "zobristCacheSizeComment": "v8.2：Zobrist hash 跨局节点缓存上限（节点数）。0=禁用跨局持久化。"
     }
   },
   "featureEncoding": {
