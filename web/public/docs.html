@@ -323,6 +323,42 @@
     marked.use({ renderer });
   }
 
+  // ─── 数学公式保护渲染（先于 marked，防止定界符被转义）───
+  // 问题：marked 会把 \( 转成 (、\[ 转成 [，KaTeX auto-render 找不到定界符。
+  // 方案：提取公式占位 → marked 渲染其余内容 → katex.renderToString 还原。
+  function parseMdWithMath(md) {
+    const stored = [];
+    function stash(content, display) {
+      const key = 'XMATH' + stored.length + 'XEND';
+      stored.push({ content, display });
+      return key;
+    }
+    // 按优先级：块级先于行内，避免 $$ 被 $ 误截
+    let s = md
+      .replace(/\\\[([\s\S]+?)\\\]/g,  function(_, c) { return stash(c, true);  })
+      .replace(/\$\$([\s\S]+?)\$\$/g,  function(_, c) { return stash(c, true);  })
+      .replace(/\\\((.+?)\\\)/g,       function(_, c) { return stash(c, false); })
+      .replace(/\$([^\$\n]+?)\$/g, function(_, c) {
+        // 仅含 LaTeX 特殊字符时才视为公式，避免误匹配价格 $5
+        return /[\\{}^_]/.test(c) ? stash(c, false) : '$' + c + '$';
+      });
+
+    let html = typeof marked !== 'undefined' ? marked.parse(s) : '<pre>' + s + '</pre>';
+
+    // 还原为 KaTeX 渲染结果（katex 由 defer 脚本加载，调用时已就绪）
+    if (typeof katex !== 'undefined') {
+      html = html.replace(/XMATH(\d+)XEND/g, function(_, i) {
+        var item = stored[+i];
+        try {
+          return katex.renderToString(item.content, { displayMode: item.display, throwOnError: false, output: 'html' });
+        } catch (e) {
+          return item.display ? '\\[' + item.content + '\\]' : '\\(' + item.content + '\\)';
+        }
+      });
+    }
+    return html;
+  }
+
   // ─── 渲染后处理：标题加 id + 链接分类修正 ───
   // 之所以用 DOM 后处理而非 renderer.link/heading：
   //   marked v12 在 marked.use({ renderer: instance }) 下
@@ -381,22 +417,6 @@
       // 2d. javascript: / mailto: 等 → 不处理
     });
 
-    // 3. 渲染数学公式（KaTeX auto-render）
-    //    支持 \(...\)  \[...\]  $...$  $$...$$  四种定界符
-    if (typeof renderMathInElement === 'function') {
-      try {
-        renderMathInElement(container, {
-          delimiters: [
-            { left: '$$',   right: '$$',   display: true  },
-            { left: '$',    right: '$',    display: false },
-            { left: '\\[',  right: '\\]',  display: true  },
-            { left: '\\(',  right: '\\)',  display: false },
-          ],
-          throwOnError: false,   // 渲染失败时降级为原始文本，不抛异常
-          output: 'html',
-        });
-      } catch (_) {}
-    }
   }
 
   // ─── 状态 ───
@@ -497,7 +517,7 @@
         if (cat.docs.some(d => d.file === filename)) { catName = cat.category; break; }
       }
 
-      const html = typeof marked !== 'undefined' ? marked.parse(md) : `<pre>${md}</pre>`;
+      const html = parseMdWithMath(md);
 
       $main.innerHTML = `
         <nav class="breadcrumb">
