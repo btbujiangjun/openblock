@@ -68,7 +68,7 @@
 |------|------|------|
 | [玩法与强化学习：解耦架构](./RL_AND_GAMEPLAY.md) | game_rules.json 单一数据源；网页自适应与 Python 训练解耦；改玩法顺序 | ✅ 当前 |
 | [RL 分析：复杂度、模型与优化路径](./RL_ANALYSIS.md) | 状态/动作空间；训练瓶颈；课程阈值 40→220 / 40k ep | ✅ 当前 |
-| [AlphaZero 对比与 RL v6 优化方案](./RL_ALPHAZERO_OPTIMIZATION.md) | AlphaZero 三支柱；差距诊断；v6 课程/价值/探索调优建议 | ✅ 当前 |
+| [AlphaZero 对比与 RL v7 优化方案](./RL_ALPHAZERO_OPTIMIZATION.md) | AlphaZero 三支柱；差距诊断；v6/v7 优化（Q蒸馏/2-ply beam/评估门控）；消融实验命令 | ✅ 当前 |
 | [浏览器端 RL 优化 v3](./RL_BROWSER_OPTIMIZATION.md) | 饱和根因；MLP 失败；线性模型 + 回报标准化方案；training.jsonl 联通 | ✅ 当前 |
 | [RL 训练架构 v5：直接监督头](./RL_TRAINING_OPTIMIZATION.md) | v4 不收敛根因；DockBoardAttention；三直接监督头；精简奖励 | ✅ 当前 |
 | [RL 训练：数值稳定与指标解读](./RL_TRAINING_NUMERICAL_STABILITY.md) | Lv 爆炸根因；裁剪与日志上限；环境变量表 | ✅ 当前 |
@@ -114,6 +114,6 @@
 **了解整体架构** → PROJECT.md  
 **了解出块逻辑** → SPAWN_ALGORITHM.md → ADAPTIVE_SPAWN.md → SPAWN_BLOCK_MODELING.md  
 **了解玩家感知** → PLAYER_ABILITY_EVALUATION.md → REALTIME_STRATEGY.md → PANEL_PARAMETERS.md  
-**了解 RL 训练** → RL_AND_GAMEPLAY.md → RL_ANALYSIS.md → RL_TRAINING_OPTIMIZATION.md  
+**了解 RL 训练** → RL_AND_GAMEPLAY.md → RL_ANALYSIS.md → RL_TRAINING_OPTIMIZATION.md → RL_ALPHAZERO_OPTIMIZATION.md（v7 改进）  
 **了解商业化** → MONETIZATION.md（直接看 v3 即可）  
 **领域背景知识** → [DOMAIN_KNOWLEDGE.md](./DOMAIN_KNOWLEDGE.md)
