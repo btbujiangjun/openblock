@@ -219,6 +219,9 @@
     /* KaTeX 公式样式微调 */
     .md-body .katex-display { overflow-x: auto; overflow-y: hidden; padding: .2em 0; }
     .md-body .katex { font-size: 1.05em; }
+    /* 公式等待 KaTeX 就绪时的占位样式 */
+    .katex-pending { display: inline-block; color: var(--text-muted); font-style: italic; font-size: .9em; }
+    .katex-pending::before { content: attr(data-formula); }
 
     /* ─── 加载 / 错误 ─── */
     .status-msg {
@@ -324,14 +327,20 @@
   }
 
   // ─── 数学公式保护渲染（先于 marked，防止定界符被转义）───
-  // 问题：marked 会把 \( 转成 (、\[ 转成 [，KaTeX auto-render 找不到定界符。
-  // 方案：提取公式占位 → marked 渲染其余内容 → katex.renderToString 还原。
+  // 问题：marked 会把 \( 转成 (、\[ 转成 [；KaTeX 以 defer 加载，
+  //       loadList() fetch 极快返回时 katex 可能尚未就绪。
+  // 方案：提取公式 → 替换为 data-* span → marked 处理其余内容 →
+  //       DOM 插入后调用 renderPendingMath()，自动等待 KaTeX 就绪。
   function parseMdWithMath(md) {
     const stored = [];
     function stash(content, display) {
-      const key = 'XMATH' + stored.length + 'XEND';
+      // 用 data 属性保存公式，base64 避免 HTML 特殊字符干扰
+      const idx = stored.length;
       stored.push({ content, display });
-      return key;
+      // display math 用 <div> 块级容器，inline 用 <span>
+      const tag = display ? 'div' : 'span';
+      const safeContent = content.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+      return `<${tag} class="katex-pending" data-formula="${safeContent}" data-display="${display}"></${tag}>`;
     }
     // 按优先级：块级先于行内，避免 $$ 被 $ 误截
     let s = md
@@ -343,20 +352,56 @@
         return /[\\{}^_]/.test(c) ? stash(c, false) : '$' + c + '$';
       });
 
-    let html = typeof marked !== 'undefined' ? marked.parse(s) : '<pre>' + s + '</pre>';
+    return typeof marked !== 'undefined' ? marked.parse(s) : '<pre>' + s + '</pre>';
+  }
 
-    // 还原为 KaTeX 渲染结果（katex 由 defer 脚本加载，调用时已就绪）
-    if (typeof katex !== 'undefined') {
-      html = html.replace(/XMATH(\d+)XEND/g, function(_, i) {
-        var item = stored[+i];
+  // ─── 渲染 DOM 中所有待渲染的数学公式 ───
+  // KaTeX 以 defer 加载；若尚未就绪则轮询等待（最多 10 s）。
+  function renderPendingMath(container) {
+    const els = Array.from(container.querySelectorAll('.katex-pending'));
+    if (!els.length) return;
+
+    function doRender() {
+      els.forEach(function(el) {
+        if (!el.isConnected) return; // 已被替换或文档已切换
+        var formula = el.getAttribute('data-formula')
+          .replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+        var display  = el.getAttribute('data-display') === 'true';
         try {
-          return katex.renderToString(item.content, { displayMode: item.display, throwOnError: false, output: 'html' });
+          var rendered = katex.renderToString(formula, {
+            displayMode: display, throwOnError: false, output: 'html'
+          });
+          // insertAdjacentHTML + remove 避免嵌套多余 wrapper 元素
+          el.insertAdjacentHTML('beforebegin', rendered);
+          el.remove();
         } catch (e) {
-          return item.display ? '\\[' + item.content + '\\]' : '\\(' + item.content + '\\)';
+          el.outerHTML = (display ? '\\[' : '\\(') + formula + (display ? '\\]' : '\\)');
         }
       });
     }
-    return html;
+
+    if (typeof katex !== 'undefined') {
+      doRender();
+    } else {
+      // 轮询等待 KaTeX（最多 100 × 100ms = 10s）
+      var attempts = 0;
+      var timer = setInterval(function() {
+        attempts++;
+        if (typeof katex !== 'undefined') {
+          clearInterval(timer);
+          doRender();
+        } else if (attempts >= 100) {
+          clearInterval(timer);
+          // 超时：降级显示原始 LaTeX
+          els.forEach(function(el) {
+            if (!el.isConnected) return;
+            var f = el.getAttribute('data-formula').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+            var d = el.getAttribute('data-display') === 'true';
+            el.outerHTML = (d ? '\\[' : '\\(') + f + (d ? '\\]' : '\\)');
+          });
+        }
+      }, 100);
+    }
   }
 
   // ─── 渲染后处理：标题加 id + 链接分类修正 ───
@@ -536,7 +581,10 @@
       });
 
       // ── DOM 后处理：修正所有标题 id 和链接 href ──
-      fixRenderedContent(document.getElementById('md-content'));
+      const mdContent = document.getElementById('md-content');
+      fixRenderedContent(mdContent);
+      // 异步渲染数学公式（自动等待 KaTeX defer 脚本就绪）
+      renderPendingMath(mdContent);
 
       // 若指定了锚点则滚过去（跨文档跳转后）
       if (scrollToAnchor) {
