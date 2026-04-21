@@ -296,13 +296,11 @@
   //   · 如需跨域，通过 <meta name="api-base"> 注入绝对地址
   const API_BASE = (document.querySelector('meta[name="api-base"]') || {}).content || '';
 
-  // ─── marked 配置 ───
+  // ─── marked 配置（只用 renderer 做代码高亮，链接/标题通过 DOM 后处理）───
   if (typeof marked !== 'undefined') {
     marked.setOptions({ breaks: true, gfm: true });
 
     const renderer = new marked.Renderer();
-
-    // ── 代码高亮 ──
     renderer.code = function (code, lang) {
       const codeStr = typeof code === 'object' ? (code.text || '') : (code || '');
       const langStr = typeof code === 'object' ? (code.lang || lang || '') : (lang || '');
@@ -315,68 +313,66 @@
       const esc = codeStr.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       return `<pre><code>${esc}</code></pre>`;
     };
+    marked.use({ renderer });
+  }
 
-    // ── 标题：生成 id 以支持锚点导航 ──
-    renderer.heading = function (text, level) {
-      // marked v12 传 token 对象；旧版传字符串
-      const rawText = typeof text === 'object' ? (text.raw || text.text || '') : (text || '');
-      const innerHtml = typeof text === 'object' ? (text.text || text.raw || '') : (text || '');
-      // GitHub 风格 id：去 HTML 标签 → 小写 → 保留中文/字母/数字/连字符 → 空格换横线
-      const id = rawText
-        .replace(/<[^>]+>/g, '')
+  // ─── 渲染后处理：标题加 id + 链接分类修正 ───
+  // 之所以用 DOM 后处理而非 renderer.link/heading：
+  //   marked v12 在 marked.use({ renderer: instance }) 下
+  //   heading/link 覆写不可靠，code 覆写正常，故统一后处理规避 API 差异。
+  function fixRenderedContent(container) {
+    // 1. 为每个标题生成 GitHub 风格 id（支持目录锚点跳转）
+    container.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(el => {
+      if (el.id) return; // 已有 id 则跳过
+      const id = el.textContent
         .toLowerCase()
-        .replace(/[^\w\u4e00-\u9fa5\s\-]/g, '')
+        .replace(/[^\w\u4e00-\u9fa5\s\-]/g, '')  // 保留中文/字母/数字/横线
         .replace(/\s+/g, '-')
         .replace(/-{2,}/g, '-')
         .replace(/^-|-$/g, '');
-      return `<h${level} id="${id}">${innerHtml}</h${level}>\n`;
-    };
+      if (id) el.id = id;
+    });
 
-    // ── 链接：拦截并分类处理 ──
-    renderer.link = function (href, title, text) {
-      // 兼容 marked v12（传 token 对象）和旧版（传字符串）
-      let hrefStr, titleStr, textStr;
-      if (typeof href === 'object' && href !== null) {
-        hrefStr  = href.href  || '';
-        titleStr = href.title || title || '';
-        textStr  = typeof text === 'object' ? (text.text || text.raw || '') : (text || '');
-      } else {
-        hrefStr  = href  || '';
-        titleStr = title || '';
-        textStr  = typeof text === 'object' ? (text.text || text.raw || '') : (text || '');
-      }
-      const titleAttr = titleStr ? ` title="${titleStr}"` : '';
+    // 2. 修正所有链接
+    container.querySelectorAll('a[href]').forEach(el => {
+      const href = el.getAttribute('href') || '';
 
-      // 1. 外部链接 → 新标签页
-      if (/^https?:\/\//.test(hrefStr)) {
-        return `<a href="${hrefStr}" target="_blank" rel="noopener"${titleAttr}>${textStr}</a>`;
+      // 2a. 外部链接 → 新标签页打开
+      if (/^https?:\/\//.test(href)) {
+        el.setAttribute('target', '_blank');
+        el.setAttribute('rel', 'noopener');
+        return;
       }
 
-      // 2. 页内锚点（#xxx）→ 拦截跳转，用 data-anchor 标记，不修改 location.hash
-      if (hrefStr.startsWith('#')) {
-        const anchor = hrefStr.slice(1);
-        return `<a href="javascript:void(0)" class="md-anchor" data-anchor="${anchor}"${titleAttr}>${textStr}</a>`;
+      // 2b. 页内锚点 (#xxx) → 平滑滚动，不触发 hashchange
+      if (href.startsWith('#')) {
+        const anchor = decodeURIComponent(href.slice(1));
+        el.setAttribute('href', 'javascript:void(0)');
+        el.addEventListener('click', e => { e.preventDefault(); scrollToId(anchor); });
+        return;
       }
 
-      // 3. Markdown 文档链接（*.md 或 *.md#section）→ 转为门户内导航
-      if (hrefStr.includes('.md')) {
-        const [filePart, anchorPart] = hrefStr.split('#');
-        const filename = filePart.replace(/^.*[/\\]/, ''); // 取文件名部分
-        if (!filename.endsWith('.md')) {
-          return `<a href="${hrefStr}"${titleAttr}>${textStr}</a>`;
-        }
-        if (anchorPart) {
-          return `<a href="javascript:void(0)" class="doc-nav-link" data-file="${filename}" data-anchor="${anchorPart}"${titleAttr}>${textStr}</a>`;
-        }
-        // 直接跳转文档 —— 利用 hash router 即可
-        return `<a href="#${filename}" class="doc-nav-link"${titleAttr}>${textStr}</a>`;
+      // 2c. Markdown 文档链接 (*.md 或 *.md#section) → 门户内导航
+      if (href.includes('.md')) {
+        const hashIdx = href.indexOf('#');
+        const filePart   = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+        const anchorPart = hashIdx >= 0 ? href.slice(hashIdx + 1) : '';
+        const filename   = filePart.split('/').pop(); // 只取文件名
+        if (!filename.endsWith('.md')) return;
+
+        el.setAttribute('href', 'javascript:void(0)');
+        el.setAttribute('data-file', filename);
+        if (anchorPart) el.setAttribute('data-anchor', anchorPart);
+
+        el.addEventListener('click', e => {
+          e.preventDefault();
+          openDoc(filename, anchorPart || undefined);
+        });
+        return;
       }
 
-      // 4. 其他相对链接（非 md）→ 原样保留（通常是图片等资源）
-      return `<a href="${hrefStr}"${titleAttr}>${textStr}</a>`;
-    };
-
-    marked.use({ renderer });
+      // 2d. javascript: / mailto: 等 → 不处理
+    });
   }
 
   // ─── 状态 ───
@@ -495,23 +491,8 @@
         renderWelcome();
       });
 
-      // ── 绑定页内锚点点击（#xxx → 平滑滚动，不修改 hash） ──
-      $main.querySelectorAll('a.md-anchor[data-anchor]').forEach(el => {
-        el.addEventListener('click', e => {
-          e.preventDefault();
-          scrollToId(el.dataset.anchor);
-        });
-      });
-
-      // ── 绑定跨文档带锚点链接（data-file + data-anchor） ──
-      $main.querySelectorAll('a.doc-nav-link[data-anchor]').forEach(el => {
-        el.addEventListener('click', e => {
-          e.preventDefault();
-          openDoc(el.dataset.file, el.dataset.anchor);
-        });
-      });
-
-      // ── 跨文档无锚点链接已经通过 href="#filename" 由 hashchange 处理 ──
+      // ── DOM 后处理：修正所有标题 id 和链接 href ──
+      fixRenderedContent(document.getElementById('md-content'));
 
       // 若指定了锚点则滚过去（跨文档跳转后）
       if (scrollToAnchor) {
