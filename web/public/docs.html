@@ -289,17 +289,12 @@
 (function () {
   'use strict';
 
-  // ─── API base URL 探测 ───
-  // 1. 优先读 <meta name="api-base"> (Flask 渲染时可注入具体地址)
-  // 2. 若当前在 Vite dev server（端口 ≠ 5000）且未配置代理，回退到 Flask 端口
-  const _metaBase = (document.querySelector('meta[name="api-base"]') || {}).content || '';
-  const _flaskPort = 5000;
-  const _currentPort = Number(location.port) || 80;
-  // 若 meta 为空且当前端口不是 Flask 端口 → 尝试同 host 的 Flask 端口
-  // （Vite proxy 已配置时这个 fallback 不会生效，代理会直接透传）
-  const API_BASE = _metaBase || (_currentPort !== _flaskPort
-    ? `${location.protocol}//${location.hostname}:${_flaskPort}`
-    : '');
+  // ─── API base URL ───
+  // 始终使用相对路径（空字符串），让请求走当前 origin：
+  //   · Vite dev server（3000）→ vite.config.js proxy → Flask（5000）
+  //   · Flask 直接访问（5000） → Flask 自身路由
+  //   · 如需跨域，通过 <meta name="api-base"> 注入绝对地址
+  const API_BASE = (document.querySelector('meta[name="api-base"]') || {}).content || '';
 
   // ─── marked 配置 ───
   if (typeof marked !== 'undefined') {
