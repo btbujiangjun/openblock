@@ -1,11 +1,22 @@
 # OpenBlock 文档导航
 
 > 最后更新：2026-04-20  
-> 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）
+> 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）  
+> 根目录文档：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ---
 
 ## 文档分类
+
+### 0. 开发者指南（二次开发首读）
+
+| 文档 | 说明 | 状态 |
+|------|------|------|
+| [二次开发指南](./DEV_GUIDE.md) | 新增模块/接入 SDK/扩展后端/测试规范；完整代码示例 | ✅ 当前 |
+| [策略定制指南](./STRATEGY_GUIDE.md) | 出块权重/Stress信号/难度/广告/IAP/分群/个性化/RL 策略全集 | ✅ 当前 |
+| [领域知识文档](./DOMAIN_KNOWLEDGE.md) | 游戏机制/心流理论/玩家心理/商业化原理/RL 基础 | ✅ 当前 |
+
+---
 
 ### 1. 项目总览
 
@@ -99,8 +110,10 @@
 
 ### 阅读路线推荐
 
+**新来的开发者（想做定制）** → [ARCHITECTURE.md](../ARCHITECTURE.md) → [DEV_GUIDE.md](./DEV_GUIDE.md) → [STRATEGY_GUIDE.md](./STRATEGY_GUIDE.md)  
 **了解整体架构** → PROJECT.md  
 **了解出块逻辑** → SPAWN_ALGORITHM.md → ADAPTIVE_SPAWN.md → SPAWN_BLOCK_MODELING.md  
 **了解玩家感知** → PLAYER_ABILITY_EVALUATION.md → REALTIME_STRATEGY.md → PANEL_PARAMETERS.md  
 **了解 RL 训练** → RL_AND_GAMEPLAY.md → RL_ANALYSIS.md → RL_TRAINING_OPTIMIZATION.md  
-**了解商业化** → MONETIZATION.md（直接看 v3 即可）
+**了解商业化** → MONETIZATION.md（直接看 v3 即可）  
+**领域背景知识** → [DOMAIN_KNOWLEDGE.md](./DOMAIN_KNOWLEDGE.md)

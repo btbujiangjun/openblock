@@ -63,7 +63,32 @@ export const PRODUCTS = {
 
 let _provider = null;
 
-/** 热替换 IAP SDK Provider */
+/**
+ * @typedef {Object} IapProvider
+ * @property {(productId: string) => Promise<{ success: boolean, receipt?: string }>} purchase
+ *   发起购买；失败时 resolve({success:false})，不应 reject
+ * @property {() => Promise<string[]>} restore
+ *   恢复历史购买，返回 productId 列表
+ * @property {(productId: string) => boolean} isPurchased
+ *   同步检查本地缓存（用于 UI 展示，无需网络）
+ */
+
+/**
+ * 热替换 IAP SDK Provider（运行时调用，无需重载页面）
+ *
+ * @param {IapProvider} p 实现了 purchase / restore / isPurchased 接口的 Provider 对象
+ *
+ * @example
+ * // 接入 Stripe Web SDK
+ * setIapProvider({
+ *   purchase: async (productId) => {
+ *     const { error } = await stripe.redirectToCheckout({ lineItems: [{ price: productId, quantity: 1 }], mode: 'payment' });
+ *     return { success: !error };
+ *   },
+ *   restore: async () => [],  // Stripe 不支持恢复，返回空
+ *   isPurchased: (productId) => !!localStorage.getItem(`stripe_${productId}`),
+ * });
+ */
 export function setIapProvider(p) { _provider = p; }
 
 function _loadPurchases() {

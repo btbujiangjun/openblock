@@ -98,16 +98,42 @@ export const DEFAULT_STRATEGIES = buildDefaultStrategiesMap();
 /** 与 DEFAULT_STRATEGIES 相同，保留别名以兼容测试与外部引用 */
 export const STRATEGIES = DEFAULT_STRATEGIES;
 
+/**
+ * 游戏事件常量
+ *
+ * 通过 MonetizationBus.on(GAME_EVENTS.XXX, handler) 订阅这些事件。
+ * handler 签名：({ data: object, game: GameInstance }) => void
+ *
+ * 各事件的 data 字段：
+ *   PLACE        — { shape, position, cleared, boardFill, combo }
+ *   PLACE_FAILED — { shape, reason }
+ *   CLEAR        — { count, lines, score, combo }
+ *   NO_CLEAR     — { boardFill, nearMiss, placement }
+ *   GAME_OVER    — { finalScore, totalClears, duration, strategy }
+ *   SPAWN_BLOCKS — { shapes, adaptiveInsight, stress }
+ *   SELECT_BLOCK — { blockIndex, shape }
+ *   DRAG_START   — { blockIndex }
+ *   DRAG_END     — { placed: boolean }
+ */
 export const GAME_EVENTS = {
+    /** 成功放置方块 */
     PLACE: 'place',
+    /** 放置失败（位置非法） */
     PLACE_FAILED: 'place_failed',
+    /** 成功消除行/列 */
     CLEAR: 'clear',
+    /** 放置后未触发消行 */
     NO_CLEAR: 'no_clear',
+    /** 游戏结束（无合法位置） */
     GAME_OVER: 'game_over',
+    /** 新一轮出块（3 块候选刷新） */
     SPAWN_BLOCKS: 'spawn_blocks',
+    /** 玩家选中候选块 */
     SELECT_BLOCK: 'select_block',
+    /** 开始拖拽方块 */
     DRAG_START: 'drag_start',
-    DRAG_END: 'drag_end'
+    /** 拖拽结束（放置成功或取消） */
+    DRAG_END: 'drag_end',
 };
 
 export function getStrategy(id) {

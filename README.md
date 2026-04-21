@@ -1,101 +1,241 @@
-# Open Block
+# OpenBlock
 
-网页方块益智游戏：拖拽多连块布局盘面、成行/列可得分；会话、行为、统计与回放经 **Flask API** 写入仓库内 **SQLite**（`blockblast.db`，可用 `BLOCKBLAST_DB_PATH` 覆盖）。开发时需同时跑 `npm run dev` 与 `npm run server`。
+> 开源网页方块益智游戏 · 自适应出块引擎 · 强化学习训练平台 · 可插拔商业化框架
 
-## 仓库结构
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-| 路径 | 说明 |
-|------|------|
-| `web/index.html` | 页面壳，仅挂载脚本入口 |
-| `web/src/` | 业务源码（ESM），按职责拆分模块 |
-| `web/public/styles/main.css` | 全局样式（Vite `public/`，由 `index.html` 直链） |
-| `server.py` | Flask API，`import` 时执行 `init_db()` |
-| `docs/PROJECT.md` | 架构与数据流补充说明 |
-| `tests/` | Vitest 单测 |
-| `web/src/bot/` | 强化学习自博弈（REINFORCE + 基线），左上角面板可调参/看胜率 |
-| `rl_pytorch/` | **PyTorch** 自博弈训练（残差双塔策略/价值网络；**MPS** / CUDA / CPU，见 `requirements-rl.txt`） |
+[English](#english) · [中文说明](#中文说明) · [文档中心](docs/README.md) · [架构文档](ARCHITECTURE.md) · [二次开发](docs/DEV_GUIDE.md)
 
-## 环境要求
+---
 
-- Node.js 18+（前端开发与构建）
-- Python 3.10+（持久化与可选分析 API）
+## English
 
-## 快速开始
+### What is OpenBlock?
 
-### 前端（推荐）
+OpenBlock is an open-source block-puzzle game (inspired by 1010!/Block Blast) built as a **research and customization platform**. Beyond the game itself, it provides:
+
+- **Adaptive Spawn Engine** — 10-signal stress fusion drives real-time difficulty adjustment
+- **Reinforcement Learning Pipeline** — browser-based linear agent + PyTorch/MLX residual network training
+- **Pluggable Monetization Framework** — event-bus-driven IAA/IAP modules with hot-swap adapters
+- **Player Insight System** — real-time skill/flow/frustration profiling with commercial segmentation
+- **SQLite Analytics Backend** — session, behavior, score, and replay persistence via Flask API
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Frontend (Vite + ESM)                    │
+│                                                                 │
+│  ┌──────────┐  ┌───────────────┐  ┌──────────────────────────┐  │
+│  │  Game    │  │ Player System │  │   Spawn Engine           │  │
+│  │ game.js  │→ │ playerProfile │→ │ adaptiveSpawn.js         │  │
+│  │ grid.js  │  │ progression   │  │ blockSpawn.js            │  │
+│  │ renderer │  │ insightPanel  │  │ spawnModel.js            │  │
+│  └────┬─────┘  └───────────────┘  └──────────────────────────┘  │
+│       │                                                         │
+│       ▼  logBehavior (non-invasive hook)                        │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              MonetizationBus (Event Hub)                │    │
+│  │  on('game_over'|'no_clear'|'spawn_blocks'|...)          │    │
+│  └──────┬────────┬──────────┬──────────┬───────────────────┘    │
+│         │        │          │          │                         │
+│    adTrigger  iapAdapter  dailyTasks  personalization           │
+│    seasonPass leaderboard replayShare commercialInsight         │
+│         │                                                        │
+│    featureFlags (localStorage, hot-toggle)                      │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ REST API
+┌────────────────────────▼────────────────────────────────────────┐
+│                     Backend (Flask + SQLite)                     │
+│  /api/session  /api/behavior  /api/score  /api/stats            │
+│  /api/mon/*    /api/rl/*      /api/spawn-model/*  /docs/*       │
+│  monetization_backend.py  rl_backend.py  server.py              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Extension Points
+
+| Point | Interface | Guide |
+|-------|-----------|-------|
+| **Ad SDK** | `setAdProvider({showRewarded, showInterstitial})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#ad-sdk) |
+| **IAP SDK** | `setIapProvider({purchase, restore, isPurchased})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#iap-sdk) |
+| **Spawn Strategy** | `game_rules.json` + `spawnHints` hooks | [Strategy Guide](docs/STRATEGY_GUIDE.md#spawn-strategy) |
+| **Monetization Module** | `MonetizationBus.on()` + feature flag | [Dev Guide](docs/DEV_GUIDE.md#new-monetization-module) |
+| **RL Reward** | `RL_REWARD_SHAPING` in `game_rules.json` | [Dev Guide](docs/DEV_GUIDE.md#rl-reward) |
+| **Difficulty Mode** | `difficultyBias` + `adaptiveSpawn.profiles` | [Strategy Guide](docs/STRATEGY_GUIDE.md#difficulty) |
+
+### Quick Start
+
+**Prerequisites**: Node.js 18+, Python 3.10+
 
 ```bash
+# Clone and install
+git clone https://github.com/your-org/openblock.git
+cd openblock
 npm install
-npm run dev
+pip install -r requirements.txt
+
+# Development (two terminals)
+npm run dev      # Vite dev server → http://localhost:3000
+npm run server   # Flask API      → http://localhost:5000
+
+# Or configure via .env
+cp .env.example .env
 ```
 
-浏览器访问 Vite 提示的地址（默认 `http://0.0.0.0:3000`，由根目录 `.env` 的 `VITE_PORT` 控制；亦可用终端中的 Network 局域网 IP）。固定端口可执行 `npm run dev:3000` 或 `npm run dev:80`（后者在 macOS/Linux 上监听 80 通常需 `npm run dev:sudo`）。入口脚本为 `web/src/main.js`；样式在 `web/public/styles/main.css`，**勿**仅用「打开根目录的 HTML」配合错误站点根路径（会导致 `/src/main.js` 404、页面无样式且各层叠在一起）。请始终 `npm run dev`，或将静态服务器的站点根设为 `web/`。
-
-构建产物输出到 `dist/`，可由任意静态服务器托管：
-
+**Game only** (no backend required):
 ```bash
-npm run build
-npm run preview
+npm run dev
+# Visit http://localhost:3000 — runs fully in browser
 ```
 
-### PyTorch 自博弈训练（可选）
-
+**With RL training**:
 ```bash
 pip install -r requirements-rl.txt
-# Apple Silicon 上通常可用 GPU：--device mps；默认 --device auto（cuda > mps > cpu）
-# M4/MPS 吞吐：`rl_pytorch.train` 与 Flask `/api/rl/train_episode` 会在 MPS 上自动 `set_float32_matmul_precision('high')` 并使用 Adam `foreach=True`；勿开 `RL_MPS_SYNC` 除非需要同步排错（见 `.env.example`）
-python -m rl_pytorch.train --episodes 2000 --device auto --save-every 100 --save rl_checkpoints/bb_policy.pt
+npm run server:rl   # Flask + RL routes + auto-checkpoint
 ```
 
-`--resume` 可断点续训；`--width` / `--policy-depth` / `--value-depth` 可调网络规模。
+### Documentation
 
-**与网页 RL 面板联动（热启动 + 持续学习）**：先训练或准备好 `rl_checkpoints/bb_policy.pt`，启动 Flask 时设置环境变量 `RL_CHECKPOINT`（可选 `RL_CHECKPOINT_SAVE`）。**Mac（Apple Silicon）** 上 `RL_DEVICE=auto` 与 `python -m rl_pytorch.train --device auto` 均会优先使用 **MPS**。`npm run server:rl` 已默认 **`RL_AUTOLOAD=1`**（若存在 `rl_checkpoints/bb_policy.pt` 则热加载）、**`RL_SAVE_EVERY=100`** 定期存盘（降低写盘频率以加快训练）、**`RL_TRAINING_LOG=rl_checkpoints/training.jsonl`** 追加训练日志；页面 RL 面板可「刷新日志」拉取 `/api/rl/training_log`。详见 `docs/PROJECT.md` 与 `.env.example`。
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System layers, module boundaries, data flows |
+| [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md) | Adding modules, extending strategies |
+| [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) | Spawn, difficulty, monetization customization |
+| [docs/DOMAIN_KNOWLEDGE.md](docs/DOMAIN_KNOWLEDGE.md) | Game mechanics, flow theory, RL concepts |
+| [docs/README.md](docs/README.md) | Full documentation index |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 
-### 环境变量（前后端统一 API 地址）
+---
 
-在**仓库根目录**创建 `.env`（可先复制 `.env.example`）。**只需改一处**即可对齐浏览器与 Flask：
+## 中文说明
 
-- **`OPENBLOCK_API_ORIGIN`** — 后端根 URL（无尾斜杠），例如 `http://192.168.1.100:5000`。Vite 构建时会注入为 `import.meta.env.VITE_API_BASE_URL`；`python3 server.py` 会从同一 URL 解析监听端口（仍监听 `0.0.0.0` 以便局域网访问）。若仍配置 **`VITE_API_BASE_URL`** 而未设 `OPENBLOCK_API_ORIGIN`，二者等价兼容。
-- 可选覆盖：显式 **`PORT`** 优先于 URL 中的端口。
-- `VITE_USE_SQLITE_DB` — 默认启用；为 `false` 时前端拒绝初始化（无浏览器 IndexedDB 回退）
-- `VITE_SYNC_BACKEND` — 设为 `true` 时使用第二套远端会话同步（一般保持 `false`）
+### 项目简介
 
-根目录 `.env.local` 可覆盖 `.env` 同名键。解析逻辑见 `scripts/resolve-api-origin.mjs` 与 `server.py` 中的 `_load_repo_dotenv`。
+OpenBlock 是一个开源网页方块益智游戏（类 1010!/Block Blast），同时也是一个**研究与定制平台**，提供：
 
-### 后端（持久化必需）
+- **自适应出块引擎** — 10 维信号融合实时调节难度（心流、挫败、节奏、技能等）
+- **强化学习训练平台** — 浏览器内线性 Agent + PyTorch/MLX 残差网络双轨训练
+- **可插拔商业化框架** — 基于事件总线的 IAA/IAP 模块，广告/支付 SDK 热插拔
+- **玩家洞察系统** — 实时技能/心流/挫败画像 + Whale/Dolphin/Minnow 商业分群
+- **SQLite 分析后端** — 会话、行为、得分、回放全链路 Flask API 持久化
+
+### 功能特点
+
+**游戏核心**
+- 8×8 网格，拖拽放置三连块，整行/列消除得分
+- 三档难度（Easy / Normal / Hard）+ 自适应难度调节
+- 实时玩家画像面板（技能、心流、节奏、挫败、近失）
+- 落子建议（StrategyAdvisor + HintEngine）
+
+**出块引擎**
+- 三层架构：规则约束（Layer 1）→ 体验优化（Layer 2）→ 局内弧线（Layer 3）
+- 10 信号 stress 融合：分数压力 / 连胜加成 / 技能调节 / 心流 / 节奏 / 恢复 / 挫败救济 / Combo 奖励 / 趋势 / 置信门控
+- 可选 SpawnTransformer 模型推理（行为数据驱动）
+
+**RL 训练**
+- 浏览器端：线性 REINFORCE + 价值基线，实时看板
+- PyTorch 端：残差双塔网络（DockBoardAttention + 直接监督头），MPS/CUDA/CPU
+- MLX 端：Apple Silicon 原生加速
+- 课程学习：`winThresholdStart=40 → 220`，40k 局爬坡
+
+**商业化（可选，默认 Stub 模式）**
+- 激励视频 / 插屏广告（SDK 热插拔）
+- IAP 内购（月卡/周卡/礼包，Stub 可测试）
+- 每日任务 / 排行榜 / 赛季通行证 / Web Push / 回放分享
+- 个性化引擎：Whale/Dolphin/Minnow 分群 + 实时信号 → 策略推荐
+
+### 目录结构
+
+```
+openblock/
+├── web/                    # 前端（Vite + ESM）
+│   ├── src/
+│   │   ├── game.js         # 游戏主控制器
+│   │   ├── grid.js         # 棋盘逻辑
+│   │   ├── playerProfile.js# 玩家能力画像
+│   │   ├── adaptiveSpawn.js# 自适应出块引擎
+│   │   ├── bot/            # RL 自博弈（浏览器端）
+│   │   └── monetization/   # 商业化模块（可插拔）
+│   └── public/             # 静态资源
+├── rl_pytorch/             # PyTorch RL 训练
+├── rl_mlx/                 # MLX RL 训练（Apple Silicon）
+├── shared/                 # 共享配置（game_rules.json, shapes.json）
+├── miniprogram/            # 微信小程序适配
+├── docs/                   # 技术文档（在线：/docs）
+│   ├── README.md           # 文档导航
+│   ├── DEV_GUIDE.md        # 二次开发指南
+│   ├── STRATEGY_GUIDE.md   # 策略定制指南
+│   └── DOMAIN_KNOWLEDGE.md # 领域知识
+├── ARCHITECTURE.md         # 系统架构
+├── CONTRIBUTING.md         # 贡献指南
+├── server.py               # Flask 后端
+└── .env.example            # 环境配置模板
+```
+
+### 快速上手
 
 ```bash
+# 克隆并安装
+git clone https://github.com/your-org/openblock.git
+cd openblock
+npm install
 pip install -r requirements.txt
-npm run server
-# 或: python3 server.py
+
+# 开发模式（双终端）
+npm run dev      # Vite 开发服务器 → http://localhost:3000
+npm run server   # Flask API      → http://localhost:5000
+
+# 仅玩游戏（无需后端）
+npm run dev   # 全部功能在浏览器内运行
+
+# 含 RL 训练
+pip install -r requirements-rl.txt
+npm run server:rl
 ```
 
-- 数据库路径：`BLOCKBLAST_DB_PATH`（默认：仓库内 `blockblast.db`）
-- 端口：默认与 `OPENBLOCK_API_ORIGIN` / `VITE_API_BASE_URL` 中端口一致；可用 **`PORT`** 覆盖
-- 调试：`FLASK_DEBUG=1`
+### 配置说明
 
-生产部署可使用 `gunicorn server:app`（模块导入时已建表）。
+复制 `.env.example` 为 `.env`，主要配置项：
 
-## 脚本
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `VITE_PORT` | `3000` | Vite 开发服务器端口 |
+| `OPENBLOCK_API_ORIGIN` | `http://localhost:5000` | 后端 API 地址 |
+| `BLOCKBLAST_DB_PATH` | `./blockblast.db` | SQLite 数据库路径 |
+| `RL_CHECKPOINT_SAVE` | `rl_checkpoints/bb_policy.pt` | RL checkpoint 路径 |
+| `RL_DEVICE` | `auto` | 训练设备（auto/mps/cuda/cpu） |
 
-| 命令 | 作用 |
-|------|------|
-| `npm run dev` | Vite 开发服务器（端口见 `.env` 的 `VITE_PORT`，默认 3000） |
-| `npm run dev:3000` | 固定监听 3000 |
-| `npm run dev:80` | 固定监听 80（无特权时可能启动失败，改用 `dev:sudo`） |
-| `npm run dev:sudo` | 以 root 监听 80（`VITE_PORT=80`） |
-| `npm run build` | 生产构建 |
-| `npm run preview` | 预览 `dist/` |
-| `npm test` | Vitest |
-| `npm run lint` | ESLint（`web/src`、`tests`） |
-| `npm run server` | 启动 Flask |
+### 二次开发
 
-## 代码约定
+详细指南见 [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md)，快速参考：
 
-- **单一数据源**：游戏逻辑仅维护于 `web/src/`，禁止再回到巨型内联脚本。
-- **后端**：`Database` 通过 `fetch` 调用 Flask；`BackendSync` 仅在 `VITE_SYNC_BACKEND=true` 且未走 SQLite 主路径时额外同步（避免与 `PATCH /api/session` 重复结束会话）。
-- **成就 id**：与 `ACHIEVEMENTS_BY_ID` 中字符串一致（如 `score_100`、`ten_games`）。
+```js
+// 接入真实广告 SDK
+import { setAdProvider } from './web/src/monetization/adAdapter.js';
+setAdProvider({
+    showRewarded: (reason) => AdMob.showRewarded(reason),
+    showInterstitial: () => AdMob.showInterstitial(),
+});
 
-## 许可证
+// 新增商业化模块
+import { on } from './web/src/monetization/MonetizationBus.js';
+on('game_over', ({ data, game }) => {
+    // 在游戏结束时触发自定义逻辑，无需修改 game.js
+});
 
-MIT
+// 自定义出块策略
+// 修改 shared/game_rules.json 中的 adaptiveSpawn.profiles
+// 即可调整 stress → 形状权重映射，无需修改引擎代码
+```
+
+### 贡献
+
+欢迎 PR 和 Issue！请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+### 开源协议
+
+MIT License — 详见 [LICENSE](LICENSE)

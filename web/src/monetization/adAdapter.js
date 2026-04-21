@@ -39,10 +39,29 @@ export function setAdsRemoved(val) {
 export function isAdsRemoved() { return _adsRemoved; }
 
 /**
- * 替换底层 SDK Provider（热插拔）
- * provider 需实现：
- *   { showRewarded(reason): Promise<{rewarded:boolean}>,
- *     showInterstitial(): Promise<void> }
+ * @typedef {Object} AdProvider
+ * @property {(reason: string) => Promise<{ rewarded: boolean }>} showRewarded
+ *   展示激励视频广告；玩家完整观看后 resolve({rewarded:true})；跳过/失败 resolve({rewarded:false})；不应 reject
+ * @property {() => Promise<void>} showInterstitial
+ *   展示插屏广告；广告关闭后 resolve；不应 reject
+ */
+
+/**
+ * 热替换底层广告 SDK Provider（运行时调用，无需重载页面）
+ *
+ * @param {AdProvider} provider 实现了 showRewarded / showInterstitial 接口的 Provider 对象
+ *
+ * @example
+ * // 接入 AdMob（以 Google IMA SDK 为例）
+ * setAdProvider({
+ *   showRewarded: async (reason) =>
+ *     new Promise(resolve => AdMob.showRewarded({
+ *       onRewarded: () => resolve({ rewarded: true }),
+ *       onDismissed: () => resolve({ rewarded: false }),
+ *     })),
+ *   showInterstitial: async () =>
+ *     new Promise(resolve => AdMob.showInterstitial({ onDismissed: resolve })),
+ * });
  */
 export function setAdProvider(provider) {
     _provider = provider;
