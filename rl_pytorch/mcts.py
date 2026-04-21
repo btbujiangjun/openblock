@@ -140,8 +140,8 @@ class MCTSTreeState:
     def try_warm_start(self, sim) -> bool:
         """在新局/dock 刷新后，尝试从 Zobrist 缓存中热启动根节点。
 
-        若缓存命中，将 root 指向对应的缓存节点并返回 True；
-        否则保持 root=None，返回 False。
+        读取顺序：本地 LRU（full subtree）→ 跨进程 SharedZobristTable（N+Q 统计）。
+        若命中，将 root 指向对应节点并返回 True；否则保持 root=None，返回 False。
         """
         if self.zobrist_cache is None:
             return False
@@ -150,7 +150,9 @@ class MCTSTreeState:
             dock = sim.dock if hasattr(sim, "dock") else []
             if grid_np is None:
                 return False
-            key, cached_node = self.zobrist_cache.lookup(grid_np, dock)
+            key, cached_node = _zobrist_cache_lookup_with_shared(
+                self.zobrist_cache, grid_np, dock
+            )
             if cached_node is not None:
                 self.root = cached_node
                 self._zobrist_key = key
@@ -160,9 +162,11 @@ class MCTSTreeState:
         return False
 
     def flush_to_cache(self) -> None:
-        """将当前根节点存入 Zobrist 缓存（局末调用）。"""
+        """将当前根节点存入本地 LRU 和跨进程共享表（局末调用）。"""
         if self.zobrist_cache is not None and self.root is not None and self._zobrist_key is not None:
-            self.zobrist_cache.store(self._zobrist_key, self.root)
+            _zobrist_cache_flush_with_shared(
+                self.zobrist_cache, self._zobrist_key, self.root
+            )
 
     def advance(self, chosen_action_idx: int) -> bool:
         """将树根移动到被选中动作的子节点。
@@ -871,5 +875,336 @@ def run_mcts_batched(
 
     sim.restore_state(root_saved)
     return _extract_visit_pi(root, len(legal_root))
+
+
+# ---------------------------------------------------------------------------
+# 跨进程共享转置表（SharedZobristTable）— v8.3
+# ---------------------------------------------------------------------------
+
+class SharedZobristTable:
+    """无锁进程间共享转置表（transposition table）。
+
+    使用 ``multiprocessing.shared_memory.SharedMemory`` 分配固定大小内存，
+    所有 worker 进程通过 ``shm_name`` 附加到同一内存块，
+    **无需 IPC 消息传递**即可读写节点统计（N、Q）。
+
+    数据格式（每槽 8 字节）
+    ----------------------
+    offset 0-3  : uint32  — hash key 低 32 位（快速冲突检测）
+    offset 4-5  : uint16  — N（访问次数，上限 65535）
+    offset 6-7  : float16 — Q（平均价值；-1~1 精度足够）
+
+    索引策略
+    --------
+    ``slot_idx = key % n_slots``（取模映射），冲突时直接覆盖（近似 LRU）。
+    对热启动而言大致正确的 Q 值已足够，轻微覆盖不影响安全性。
+
+    写入竞争
+    --------
+    不加锁：极少数槽位出现并发写入时，N/Q 可能暂时不一致，但不会崩溃。
+    这是引擎设计的标准工程取舍（棋类引擎普遍采用无锁转置表）。
+
+    典型内存占用
+    -----------
+    8192 slots × 8 B = 64 KB；65536 slots × 8 B = 512 KB。
+
+    生命周期
+    --------
+    主进程调用 ``create()`` 建表 → 将 ``.name`` 和 ``.n_slots`` 传给 worker →
+    worker 调用 ``attach()`` 连接 → 程序结束主进程调用 ``close_and_unlink()``。
+    """
+
+    SLOT_BYTES = 8
+    _DTYPE = np.dtype([
+        ("key32", np.uint32),
+        ("N",     np.uint16),
+        ("Q",     np.float16),
+    ])  # 合计 8 bytes/slot
+
+    def __init__(self, n_slots: int, shm):
+        self.n_slots = n_slots
+        self._shm = shm
+        self._table: np.ndarray = np.frombuffer(shm.buf, dtype=self._DTYPE)
+        self.name: str = shm.name
+
+    # ------------------------------------------------------------------
+    @classmethod
+    def create(cls, n_slots: int = 8192) -> "SharedZobristTable":
+        """主进程调用：分配新共享内存并清零。"""
+        from multiprocessing.shared_memory import SharedMemory
+        shm = SharedMemory(create=True, size=n_slots * cls.SLOT_BYTES)
+        # 清零（key=0 表示空槽；hash=0 的冲突极低概率且无害）
+        np.frombuffer(shm.buf, dtype=np.uint8)[:] = 0
+        return cls(n_slots, shm)
+
+    @classmethod
+    def attach(cls, shm_name: str, n_slots: int) -> "SharedZobristTable":
+        """Worker 进程调用：附加到已有共享内存。"""
+        from multiprocessing.shared_memory import SharedMemory
+        shm = SharedMemory(create=False, name=shm_name)
+        return cls(n_slots, shm)
+
+    # ------------------------------------------------------------------
+    def _idx(self, key: int) -> int:
+        return key % self.n_slots
+
+    def lookup(self, key: int) -> "tuple[int, float] | None":
+        """返回 (N, Q) 或 None（未命中/hash 冲突）。"""
+        idx = self._idx(key)
+        slot = self._table[idx]
+        if int(slot["key32"]) != (key & 0xFFFFFFFF):
+            return None
+        n = int(slot["N"])
+        if n == 0:
+            return None
+        return n, float(slot["Q"])
+
+    def store(self, key: int, n: int, q: float) -> None:
+        """写入统计数据；冲突时直接覆盖。"""
+        idx = self._idx(key)
+        self._table[idx] = (key & 0xFFFFFFFF, min(n, 65535), np.float16(q))
+
+    def close(self) -> None:
+        """释放本进程对共享内存的引用（不删除，worker 和主进程均需调用）。"""
+        try:
+            del self._table   # 先释放 numpy buffer 引用
+        except Exception:
+            pass
+        try:
+            self._shm.close()
+        except Exception:
+            pass
+
+    def close_and_unlink(self) -> None:
+        """主进程调用：关闭并删除共享内存段。"""
+        try:
+            del self._table
+        except Exception:
+            pass
+        try:
+            self._shm.close()
+            self._shm.unlink()
+        except Exception:
+            pass
+
+    def stats(self) -> str:
+        occupied = int((self._table["key32"] != 0).sum())
+        return f"SharedZobristTable name={self.name} slots={occupied}/{self.n_slots}"
+
+
+# ---------------------------------------------------------------------------
+# ZobristCache ← SharedZobristTable 整合
+# （在已有 ZobristCache 类上增加共享表感知）
+# ---------------------------------------------------------------------------
+
+def _make_zobrist_cache_with_shared(
+    hasher: ZobristHasher,
+    local_size: int = 5000,
+    shared_table: "SharedZobristTable | None" = None,
+) -> ZobristCache:
+    """构建 ZobristCache，可选附加 SharedZobristTable 作为二级跨进程缓存。
+
+    读取顺序：本地 LRU（full subtree） → 共享表（N+Q 统计热启动）。
+    写入：同时更新本地 LRU 和共享表。
+    """
+    cache = ZobristCache(hasher, max_size=local_size)
+    cache._shared_table = shared_table  # type: ignore[attr-defined]
+    return cache
+
+
+def _zobrist_cache_lookup_with_shared(
+    cache: ZobristCache,
+    grid_np: np.ndarray,
+    dock,
+) -> "tuple[int, _MCTSNode | None]":
+    """感知共享表的 lookup：本地未命中时查共享表做 N/Q 热启动。"""
+    key, node = cache.lookup(grid_np, dock)
+    if node is not None:
+        return key, node
+
+    shared: SharedZobristTable | None = getattr(cache, "_shared_table", None)
+    if shared is None:
+        return key, None
+
+    result = shared.lookup(key)
+    if result is None:
+        return key, None
+
+    n_cached, q_cached = result
+    # 从共享表恢复：创建一个携带历史统计的「虚」根节点
+    hot_node = _MCTSNode()
+    hot_node.N = n_cached
+    hot_node.W = q_cached * n_cached
+    hot_node.Q = q_cached
+    # 存入本地 LRU，后续步可复用
+    cache.store(key, hot_node)
+    cache.hits += 1
+    cache.misses = max(0, cache.misses - 1)   # 补偿 lookup 里的 misses++
+    return key, hot_node
+
+
+def _zobrist_cache_flush_with_shared(
+    cache: ZobristCache,
+    key: int,
+    node: "_MCTSNode",
+) -> None:
+    """感知共享表的 flush：同时写本地 LRU 和共享表。"""
+    cache.store(key, node)
+    shared: SharedZobristTable | None = getattr(cache, "_shared_table", None)
+    if shared is not None and node.N > 0:
+        shared.store(key, node.N, node.Q)
+
+
+# ---------------------------------------------------------------------------
+# 渐进式模拟次数（adaptive sims）— v8.3
+# ---------------------------------------------------------------------------
+
+def run_mcts_adaptive(
+    net,
+    device: "torch.device",
+    sim,
+    min_sims: int = 10,
+    max_sims: int = 100,
+    confidence_ratio: float = 3.0,
+    check_interval: int = 10,
+    c_puct: float = 1.5,
+    max_depth: int = 8,
+    gamma: float = 0.99,
+    eval_batch_size: int = 8,
+    tree_state: "MCTSTreeState | None" = None,
+    spawn_predictor: "SpawnPredictor | None" = None,
+) -> "tuple[np.ndarray | None, int]":
+    """渐进式 MCTS：根据局面不确定性动态调整模拟次数。
+
+    算法
+    ----
+    1. 先运行 ``min_sims`` 次模拟（批量或单步，取决于 min_sims 大小）。
+    2. 每 ``check_interval`` 次检查一次收敛：
+       若 ``visits[top1] / visits[top2] >= confidence_ratio``，提前停止。
+    3. 否则继续，直到达到 ``max_sims``。
+
+    收敛判定
+    --------
+    ``confidence_ratio``：第一名与第二名访问次数之比。
+    - ratio=3.0：第一名访问数 ≥ 第二名的 3 倍时视为「局面明朗」，提前退出。
+    - ratio=2.0：更激进（节省开销）；ratio=5.0：更保守（精度更高）。
+
+    环境变量覆盖
+    ------------
+    - ``RL_MCTS_MIN_SIMS``  : 最小模拟次数
+    - ``RL_MCTS_MAX_SIMS``  : 最大模拟次数（覆盖 max_sims；若设置此值则也覆盖 RL_MCTS_SIMS）
+    - ``RL_MCTS_CONFIDENCE`` : confidence_ratio
+
+    Returns
+    -------
+    (visit_pi, sims_used) — 归一化访问分布 + 实际使用的模拟次数。
+    """
+    env_min = os.environ.get("RL_MCTS_MIN_SIMS")
+    if env_min:
+        min_sims = int(env_min)
+    env_max = os.environ.get("RL_MCTS_MAX_SIMS")
+    if env_max:
+        max_sims = int(env_max)
+    env_conf = os.environ.get("RL_MCTS_CONFIDENCE")
+    if env_conf:
+        confidence_ratio = float(env_conf)
+    env_cpuct = os.environ.get("RL_MCTS_CPUCT")
+    if env_cpuct:
+        c_puct = float(env_cpuct)
+    env_depth = os.environ.get("RL_MCTS_MAX_DEPTH")
+    if env_depth:
+        max_depth = int(env_depth)
+    env_bs = os.environ.get("RL_MCTS_BATCH_SIZE")
+    if env_bs:
+        eval_batch_size = int(env_bs)
+
+    root_saved = sim.save_state()
+    legal_root = sim.get_legal_actions()
+    if not legal_root:
+        return None, 0
+    n_legal = len(legal_root)
+
+    # 决定根节点
+    if tree_state is not None and tree_state.root is not None:
+        root = tree_state.root
+        already_done = root.N
+    else:
+        root = _MCTSNode()
+        if tree_state is not None:
+            tree_state.root = root
+        already_done = 0
+
+    def _run_batch(n: int) -> None:
+        """执行 n 次模拟（批量或单步）。"""
+        if n <= 0:
+            return
+        use_batch = n >= 8
+        if use_batch:
+            bs = min(eval_batch_size, n)
+            done = 0
+            while done < n:
+                batch = min(bs, n - done)
+                paths_list, feats_list, term_flags, leaf_feat_idx = [], [], [], []
+                for _ in range(batch):
+                    sim.restore_state(root_saved)
+                    path, feat, is_term = _select_leaf_for_batch(
+                        root, sim, net, device, c_puct, max_depth
+                    )
+                    paths_list.append(path)
+                    term_flags.append(is_term)
+                    if not is_term and feat is not None:
+                        leaf_feat_idx.append(len(feats_list))
+                        feats_list.append(feat)
+                    else:
+                        leaf_feat_idx.append(-1)
+                    _apply_virtual_loss(path)
+
+                values_arr = None
+                if feats_list:
+                    stacked = np.stack(feats_list, axis=0)
+                    batch_t = tensor_to_device(torch.from_numpy(stacked), device)
+                    with torch.no_grad():
+                        values_arr = net.forward_value(batch_t).cpu().numpy().flatten()
+
+                for idx, (path, is_term) in enumerate(zip(paths_list, term_flags)):
+                    _remove_virtual_loss(path)
+                    fi = leaf_feat_idx[idx]
+                    v = 0.0 if is_term else (float(values_arr[fi]) if values_arr is not None and fi >= 0 else 0.0)
+                    for parent, a_idx in reversed(path):
+                        child = parent.children.setdefault(a_idx, _MCTSNode())
+                        child.N += 1
+                        child.W += v
+                        child.Q = child.W / child.N
+                    root.N += 1
+                done += batch
+        else:
+            for _ in range(n):
+                sim.restore_state(root_saved)
+                _simulate(root, sim, net, device, c_puct, max_depth,
+                          spawn_predictor=spawn_predictor, gamma=gamma)
+
+    def _confidence() -> float:
+        """计算当前 top1/top2 访问比；根动作数 < 2 时返回无穷大。"""
+        counts = [root.children[i].N if i in root.children else 0 for i in range(n_legal)]
+        sorted_counts = sorted(counts, reverse=True)
+        if len(sorted_counts) < 2 or sorted_counts[1] == 0:
+            return float("inf")
+        return sorted_counts[0] / sorted_counts[1]
+
+    # Step 1: 运行最小模拟数（扣除已有统计）
+    initial_n = max(0, min_sims - already_done)
+    _run_batch(initial_n)
+    total_used = already_done + initial_n
+
+    # Step 2: 渐进扩增，每 check_interval 次检查一次收敛
+    while total_used < max_sims:
+        if _confidence() >= confidence_ratio:
+            break   # 提前收敛
+        increment = min(check_interval, max_sims - total_used)
+        _run_batch(increment)
+        total_used += increment
+
+    sim.restore_state(root_saved)
+    return _extract_visit_pi(root, n_legal), total_used
 
 

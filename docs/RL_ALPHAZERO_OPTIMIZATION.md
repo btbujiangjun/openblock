@@ -327,7 +327,13 @@ python -m rl_pytorch.train --eval-gate-every 2000 --eval-gate-games 50 --eval-ga
 | `RL_MCTS_STOCHASTIC` | 0 | v8.1 | 1=随机出块叶子评估（需 SpawnPredictor） |
 | `RL_SPAWN_MODEL_PATH` | - | v8.1 | SpawnTransformerV2 检查点路径 |
 | `RL_MCTS_BATCH_SIZE` | 8 | v8.2 | 批量叶子评估并发模拟数（8~32） |
-| `RL_ZOBRIST_CACHE_SIZE` | 5000 | v8.2 | Zobrist 跨局缓存节点数上限；0/-1=禁用 |
+| `RL_ZOBRIST_CACHE_SIZE` | 5000 | v8.2 | Zobrist 跨局本地 LRU 缓存节点数上限；0/-1=禁用 |
+| `RL_ZOBRIST_SHARED` | 1 | v8.3 | 0=禁用跨进程共享转置表 |
+| `RL_ZOBRIST_SHARED_SLOTS` | 8192 | v8.3 | 共享转置表槽位数（每槽 8 字节） |
+| `RL_MCTS_ADAPTIVE` | 0 | v8.3 | 1=启用渐进式模拟次数 |
+| `RL_MCTS_MIN_SIMS` | sims/4 | v8.3 | adaptive 最小模拟次数 |
+| `RL_MCTS_MAX_SIMS` | - | v8.3 | adaptive 最大模拟次数 |
+| `RL_MCTS_CONFIDENCE` | 3.0 | v8.3 | adaptive 收敛阈值（top1/top2 比） |
 
 ---
 
@@ -914,11 +920,180 @@ python -m rl_pytorch.train \
 
 ---
 
-### 10.4 剩余未来优化方向
+---
+
+### 10.4 v8.3 落地：Zobrist 跨进程共享 + 渐进式模拟次数
+
+#### 10.4.1 Zobrist 跨进程共享转置表（SharedZobristTable）
+
+**文件**：`rl_pytorch/mcts.py`（`SharedZobristTable`、`_make_zobrist_cache_with_shared`、`_zobrist_cache_lookup_with_shared`、`_zobrist_cache_flush_with_shared`）
+
+v8.2 的 `ZobristCache` 是**每个 worker 独立**的本地 LRU，各 worker 之间无法共享局面统计。v8.3 引入无锁共享内存转置表，使所有 worker 的 MCTS 经验汇聚到同一张表，提升跨局冷启动命中率。
+
+**数据结构（每槽 8 字节）**：
+
+```
+offset 0-3 : uint32  — Zobrist hash 低 32 位（冲突检测）
+offset 4-5 : uint16  — N（访问次数，上限 65535）
+offset 6-7 : float16 — Q（平均价值，精度 ~0.001 足够热启动）
+```
+
+总内存：8192 slots × 8 B = **64 KB**（极小）。
+
+**索引策略（无锁转置表）**：
+```
+slot_idx = hash % n_slots
+写入：直接覆盖（冲突时覆盖旧值 = 近似 LRU）
+读取：比对 key_low32，不匹配则 miss
+```
+
+写入竞争（data race）只影响统计精度（N/Q 略有偏差），**不会导致崩溃**——这是棋类引擎的标准工程取舍。
+
+**两级缓存架构**：
+
+```
+读取顺序：本地 LRU（full subtree，最快）
+             ↓ miss
+          SharedZobristTable（N+Q 统计，跨进程）
+             ↓ miss
+          从零建树
+
+写入路径：本地 LRU ← flush_to_cache
+          SharedZobristTable ← flush（同时写入）
+```
+
+**生命周期**：
+```python
+# 主进程（train_loop）
+shared = SharedZobristTable.create(n_slots=8192)  # 分配 64KB 共享内存
+# 将 shared.name, shared.n_slots 传给 worker 初始化函数
+...
+shared.close_and_unlink()   # 程序结束后释放
+
+# Worker 进程（_pool_worker_init）
+shared_local = SharedZobristTable.attach(shm_name, shm_slots)
+# collect_episode 中自动通过 _get_global_zobrist_cache() 挂载
+```
+
+**配置**：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `game_rules.lightMCTS.sharedZobristSlots` | 8192 | 槽位数（8192=64KB，65536=512KB） |
+| `RL_ZOBRIST_SHARED_SLOTS` | 8192 | 环境变量覆盖 |
+| `RL_ZOBRIST_SHARED` | 1 | 0=禁用跨进程共享 |
+| `--zobrist-shared-slots N` | 0（读配置） | CLI |
+| `--no-zobrist-shared` | - | 禁用标志 |
+
+---
+
+#### 10.4.2 渐进式模拟次数（Adaptive Sims）
+
+**文件**：`rl_pytorch/mcts.py`（`run_mcts_adaptive`）
+
+固定 N 次模拟的问题：明朗局面（top action 明显最优）与复杂局面（多个动作评分接近）理应使用不同的搜索深度，而固定 N 无法区分。
+
+**算法**：
+```
+1. 先运行 min_sims 次模拟（快速基础评估）
+2. 每 check_interval 次额外模拟后检查收敛：
+   confidence = visits[top1] / visits[top2]
+   若 confidence ≥ confidence_ratio → 提前停止
+3. 否则继续，直到 max_sims
+```
+
+**收敛判定 —— top1/top2 访问比**：
+
+| `confidence_ratio` | 含义 | 适用场景 |
+|--------------------|------|----------|
+| 2.0 | 第一名访问数 ≥ 第二名 2× | 激进省时（简单局面多） |
+| 3.0（默认） | ≥ 3× | 平衡精度与效率 |
+| 5.0 | ≥ 5× | 保守高质量（搜索充分） |
+
+**期望效果**：
+- 开局/终局等明朗局面：用 min_sims（如 10~20 次）即可收敛，节省 50~80% 搜索时间
+- 关键中局（棋盘半满、多条消除线交叉）：扩增至 max_sims，保持搜索质量
+
+```python
+from rl_pytorch.mcts import run_mcts_adaptive
+
+visit_pi, sims_used = run_mcts_adaptive(
+    net, device, sim,
+    min_sims=10,        # 至少 10 次
+    max_sims=100,       # 最多 100 次
+    confidence_ratio=3.0,   # top1/top2 ≥ 3 提前停止
+    check_interval=10,      # 每 10 次检查一次
+    tree_state=tree,        # 可与树复用结合
+)
+print(f"实际使用模拟次数: {sims_used}")
+```
+
+**开关**：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `RL_MCTS_ADAPTIVE` | 0 | 1=启用渐进式模拟 |
+| `RL_MCTS_MIN_SIMS` | sims/4 | 最小模拟次数 |
+| `RL_MCTS_MAX_SIMS` | - | 最大模拟次数（同时覆盖 RL_MCTS_SIMS） |
+| `RL_MCTS_CONFIDENCE` | 3.0 | 收敛阈值 |
+| `--mcts-adaptive` | - | CLI 开关 |
+| `--mcts-min-sims N` | - | CLI |
+| `--mcts-confidence F` | 3.0 | CLI |
+
+---
+
+#### 10.4.3 完整 v8.3 训练命令
+
+```bash
+# ---- 推荐：v8.3 全功能 ----
+# 渐进式模拟 + 跨进程共享 + 批量评估 + Zobrist 持久化
+python -m rl_pytorch.train \
+  --episodes 100000 --device auto --arch conv-shared --width 128 \
+  --batch-episodes 128 --ppo-epochs 4 \
+  --adaptive-curriculum --eval-gate-every 2000 \
+  --mcts --mcts-sims 100 --mcts-batch-size 16 \
+  --mcts-adaptive --mcts-min-sims 10 --mcts-confidence 3.0 \
+  --zobrist-cache-size 5000 \
+  --save rl_checkpoints/v8_3.pt
+
+# ---- 多 worker（自动启用跨进程共享表） ----
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 50 --mcts-adaptive \
+  --n-workers 4 --episodes 50000 \
+  --save rl_checkpoints/v8_3_mp.pt
+
+# ---- 消融：禁用共享表 ----
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 50 --no-zobrist-shared \
+  --n-workers 4 --episodes 20000
+
+# ---- 高质量搜索（200 sims adaptive + stochastic） ----
+python -m rl_pytorch.train \
+  --mcts --mcts-sims 200 --mcts-batch-size 32 \
+  --mcts-adaptive --mcts-min-sims 20 --mcts-confidence 4.0 \
+  --mcts-stochastic --spawn-model-path rl_checkpoints/spawn_v2.pt \
+  --zobrist-cache-size 10000 --zobrist-shared-slots 32768 \
+  --episodes 50000 --save rl_checkpoints/v8_3_full.pt
+```
+
+---
+
+#### 10.4.4 v8.3 新增环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RL_ZOBRIST_SHARED` | 1 | 0=禁用跨进程共享 Zobrist 表 |
+| `RL_ZOBRIST_SHARED_SLOTS` | 8192 | 共享转置表槽位数 |
+| `RL_MCTS_ADAPTIVE` | 0 | 1=启用渐进式模拟次数 |
+| `RL_MCTS_MIN_SIMS` | sims/4 | adaptive 最小模拟次数 |
+| `RL_MCTS_MAX_SIMS` | - | adaptive 最大模拟次数 |
+| `RL_MCTS_CONFIDENCE` | 3.0 | adaptive 收敛 top1/top2 比阈值 |
+
+---
+
+### 10.5 剩余未来优化方向
 
 | 优化 | 难度 | 优先级 | 说明 |
 |------|------|--------|------|
 | SpawnTransformerV2 联合训练 | 高 | 中 | 目前独立训练；联合训练让 RL 感知出块先验，减少 stochastic MCTS 的模型误差 |
 | Ray 分布式自博弈 | 高 | 低 | 当前 2-6 CPU workers；Ray Actor 可扩展至数十个并行采集 |
-| Zobrist 跨进程共享缓存 | 中 | 低 | 目前各 worker 独立缓存；共享内存（如 Redis/mmapped dict）可提高多 worker 命中率 |
-| 渐进式模拟次数（adaptive sims） | 低 | 低 | 根据局面不确定性动态增减模拟次数，而非固定 N |

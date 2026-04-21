@@ -220,7 +220,13 @@
       "evalBatchSize": 8,
       "evalBatchSizeComment": "v8.2：批量叶子节点评估的并发模拟数（8~32）。n_simulations≥50 时自动切换批量模式。",
       "zobristCacheSize": 5000,
-      "zobristCacheSizeComment": "v8.2：Zobrist hash 跨局节点缓存上限（节点数）。0=禁用跨局持久化。"
+      "zobristCacheSizeComment": "v8.2：Zobrist hash 跨局本地节点缓存上限（节点数）。0=禁用。",
+      "sharedZobristSlots": 8192,
+      "sharedZobristSlotsComment": "v8.3：跨进程共享转置表槽位数（每槽 8 字节）。8192=64KB，65536=512KB。多 worker 时自动启用。",
+      "adaptiveSims": false,
+      "adaptiveSimsComment": "v8.3：渐进式模拟次数开关。true=先跑 minSims，top1/top2 比≥confidence 后提前停止。",
+      "minSims": 10,
+      "confidence": 3.0
     }
   },
   "featureEncoding": {

@@ -67,13 +67,33 @@ from .simulator import OpenBlockSimulator, board_potential, _BOARD_POT_NORM, _SU
 # ---------------------------------------------------------------------------
 _pool_net: AnyNet | None = None
 _pool_device = torch.device("cpu")
+_pool_shared_table = None   # SharedZobristTable 附加对象（worker 端）
 
 
-def _pool_worker_init(arch: str, width: int, pd: int, vd: int, mr: float, cc: int = 32):
-    """每个 worker 进程初始化一份模型（CPU）。"""
-    global _pool_net, _pool_device
+def _pool_worker_init(
+    arch: str,
+    width: int,
+    pd: int,
+    vd: int,
+    mr: float,
+    cc: int = 32,
+    shm_name: str = "",
+    shm_slots: int = 0,
+):
+    """每个 worker 进程初始化一份模型（CPU）。
+
+    shm_name / shm_slots：若非空，附加到主进程创建的 SharedZobristTable，
+    使跨进程 Zobrist 缓存生效。
+    """
+    global _pool_net, _pool_device, _pool_shared_table
     _pool_net = build_policy_net(arch, width, pd, vd, mr, _pool_device, conv_channels=cc)
     _pool_net.eval()
+    if shm_name and shm_slots > 0:
+        try:
+            from .mcts import SharedZobristTable  # type: ignore[attr-defined]
+            _pool_shared_table = SharedZobristTable.attach(shm_name, shm_slots)
+        except Exception:
+            _pool_shared_table = None
 
 
 def _pool_worker_collect(args: tuple) -> list[dict]:
@@ -682,10 +702,11 @@ _GLOBAL_ZOBRIST_CACHE: "ZobristCache | None" = None  # type: ignore[name-defined
 
 
 def _get_global_zobrist_cache():
-    """返回进程唯一的 ZobristCache 实例。
+    """返回进程唯一的 ZobristCache 实例（含可选 SharedZobristTable 后端）。
 
-    大小由 RL_ZOBRIST_CACHE_SIZE 环境变量控制（0 或负数则禁用）。
+    大小由 RL_ZOBRIST_CACHE_SIZE 环境变量控制（0 或负数则禁用本地缓存）。
     game_rules.json lightMCTS.zobristCacheSize 作为默认值（5000）。
+    若 worker 进程已初始化 _pool_shared_table，将其挂载为跨进程共享后端。
     """
     global _GLOBAL_ZOBRIST_CACHE
     if _GLOBAL_ZOBRIST_CACHE is not None:
@@ -697,11 +718,15 @@ def _get_global_zobrist_cache():
     default_size = int(rules.get("zobristCacheSize", 5000))
     size = int(os.environ.get("RL_ZOBRIST_CACHE_SIZE", default_size))
     if size <= 0:
-        return None   # 禁用
+        return None   # 禁用本地缓存
 
-    from .mcts import ZobristHasher, ZobristCache  # type: ignore[attr-defined]
+    from .mcts import ZobristHasher, _make_zobrist_cache_with_shared  # type: ignore[attr-defined]
     hasher = ZobristHasher(grid_size=8)
-    _GLOBAL_ZOBRIST_CACHE = ZobristCache(hasher=hasher, max_size=size)
+    # 挂载跨进程共享表（仅 worker 进程附加了 _pool_shared_table）
+    shared_tbl = globals().get("_pool_shared_table", None)
+    _GLOBAL_ZOBRIST_CACHE = _make_zobrist_cache_with_shared(
+        hasher, local_size=size, shared_table=shared_tbl
+    )
     return _GLOBAL_ZOBRIST_CACHE
 
 
@@ -750,6 +775,13 @@ def collect_episode(
     if use_mcts and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false", "no"):
         from .spawn_predictor import SpawnPredictor as _SP
         _spawn_pred = _SP.load(device=device)
+    # v8.3：渐进式模拟次数
+    _mcts_adaptive = (
+        use_mcts
+        and os.environ.get("RL_MCTS_ADAPTIVE", "0").lower() not in ("0", "false", "no")
+    )
+    _mcts_min_sims = int(os.environ.get("RL_MCTS_MIN_SIMS", max(10, _mcts_sims // 4)))
+    _mcts_confidence = float(os.environ.get("RL_MCTS_CONFIDENCE", "3.0"))
 
     _beam3ply_cfg = RL_REWARD_SHAPING.get("beam3ply") or {}
     use_beam3ply = (
@@ -808,18 +840,37 @@ def collect_episode(
         _visit_pi = None
         if use_lookahead and step_idx >= explore_first_moves:
             if use_mcts:
-                # 轻量 MCTS：访问分布→伪 Q 值（类 AlphaZero 策略目标）
-                from .mcts import mcts_q_proxy as _mcts_fn
-                q_vals = _mcts_fn(
-                    net, device, sim,
-                    n_simulations=_mcts_sims,
-                    c_puct=_mcts_cpuct,
-                    max_depth=_mcts_depth,
-                    gamma=gamma,
-                    spawn_predictor=_spawn_pred,
-                    tree_state=_mcts_tree,
-                )
-                # 同时获取原始访问分布（用于温度采样）
+                if _mcts_adaptive:
+                    # v8.3：渐进式模拟次数（adaptive sims）
+                    from .mcts import run_mcts_adaptive as _adaptive_fn
+                    _visit_pi, _sims_used = _adaptive_fn(
+                        net, device, sim,
+                        min_sims=_mcts_min_sims,
+                        max_sims=_mcts_sims,
+                        confidence_ratio=_mcts_confidence,
+                        c_puct=_mcts_cpuct,
+                        max_depth=_mcts_depth,
+                        tree_state=_mcts_tree,
+                        spawn_predictor=_spawn_pred,
+                    )
+                    if _visit_pi is not None:
+                        eps = 1.0 / max(len(_visit_pi) * 10, 100)
+                        q_arr = np.log(_visit_pi + eps)
+                        q_arr -= q_arr.mean()
+                        q_vals = q_arr
+                else:
+                    # 轻量 MCTS：访问分布→伪 Q 值（类 AlphaZero 策略目标）
+                    from .mcts import mcts_q_proxy as _mcts_fn
+                    q_vals = _mcts_fn(
+                        net, device, sim,
+                        n_simulations=_mcts_sims,
+                        c_puct=_mcts_cpuct,
+                        max_depth=_mcts_depth,
+                        gamma=gamma,
+                        spawn_predictor=_spawn_pred,
+                        tree_state=_mcts_tree,
+                    )
+                # 获取原始访问分布（用于温度采样）
                 if _mcts_tree is not None and _mcts_tree.root is not None:
                     from .mcts import _extract_visit_pi as _evp
                     _visit_pi = _evp(_mcts_tree.root, len(legal))
@@ -1449,17 +1500,46 @@ def train_loop(
                 file=sys.stderr,
             )
 
+    # --- 共享 Zobrist 转置表（跨进程，v8.3） ---
+    _shared_ztable = None
+    _shm_slots = int(os.environ.get("RL_ZOBRIST_SHARED_SLOTS", "0"))
+    if _shm_slots <= 0:
+        from .game_rules import _DATA as _GR_DATA  # type: ignore[attr-defined]
+        _shm_slots = int(_GR_DATA.get("lightMCTS", {}).get("sharedZobristSlots", 8192))
+    _use_shared_ztable = (
+        _shm_slots > 0
+        and os.environ.get("RL_ZOBRIST_SHARED", "1") not in ("0", "false")
+        and os.environ.get("RL_MCTS", "0") in ("1", "true")
+    )
+
     # --- 多进程 worker pool（0=自动检测） ---
     pool = None
     actual_workers = n_workers if n_workers > 0 else _auto_n_workers(device)
     if actual_workers > 1:
         w = getattr(net, "width", 128)
         cc = getattr(net, "conv_channels", 32)
+
+        # 主进程创建共享转置表，把 name + slots 传给 worker 初始化函数
+        shm_name, shm_slots = "", 0
+        if _use_shared_ztable:
+            try:
+                from .mcts import SharedZobristTable  # type: ignore[attr-defined]
+                _shared_ztable = SharedZobristTable.create(n_slots=_shm_slots)
+                shm_name, shm_slots = _shared_ztable.name, _shm_slots
+                print(
+                    f"Zobrist 跨进程共享表: {_shm_slots} slots "
+                    f"({_shm_slots * 8 // 1024} KB, shm={shm_name})",
+                    file=sys.stderr,
+                )
+            except Exception as e:
+                print(f"警告: 共享 Zobrist 表创建失败，退化为本地缓存: {e}", file=sys.stderr)
+
         ctx = mp.get_context("spawn")
         pool = ctx.Pool(
             actual_workers,
             initializer=_pool_worker_init,
-            initargs=(train_arch, w, policy_depth_arg, value_depth_arg, mlp_ratio, cc),
+            initargs=(train_arch, w, policy_depth_arg, value_depth_arg, mlp_ratio, cc,
+                      shm_name, shm_slots),
         )
         print(f"多进程采集: {actual_workers} workers (CPU inference → GPU update) + pipeline overlap", file=sys.stderr)
 
@@ -1715,6 +1795,11 @@ def train_loop(
         if pool is not None:
             pool.close()
             pool.join()
+        if _shared_ztable is not None:
+            try:
+                _shared_ztable.close_and_unlink()
+            except Exception:
+                pass
 
     return ep_cursor
 
@@ -1941,6 +2026,35 @@ def main() -> None:
         default=0,
         help="v8.2：Zobrist hash 跨局节点缓存上限（节点数）；0=使用 game_rules.json（默认 5000）；-1=禁用",
     )
+    p.add_argument(
+        "--zobrist-shared-slots",
+        type=int,
+        default=0,
+        help="v8.3：共享 Zobrist 转置表槽位数（0=使用 game_rules.json 默认 8192）；-1=禁用跨进程共享",
+    )
+    p.add_argument(
+        "--no-zobrist-shared",
+        action="store_true",
+        help="v8.3：禁用跨进程共享 Zobrist 表（默认启用，仅多 worker 时生效）",
+    )
+    p.add_argument(
+        "--mcts-adaptive",
+        action="store_true",
+        help="v8.3：启用渐进式模拟次数（adaptive sims）：先跑 --mcts-min-sims，"
+             "top1/top2 访问比超过 --mcts-confidence 后提前停止，最多跑 --mcts-sims 次",
+    )
+    p.add_argument(
+        "--mcts-min-sims",
+        type=int,
+        default=0,
+        help="v8.3：adaptive 模式下的最小模拟次数（默认 = mcts-sims / 4）",
+    )
+    p.add_argument(
+        "--mcts-confidence",
+        type=float,
+        default=3.0,
+        help="v8.3：adaptive 模式收敛阈值：top1/top2 访问比 ≥ 此值时提前停止（默认 3.0）",
+    )
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -1989,6 +2103,18 @@ def main() -> None:
     if _zobrist_cache_size != 0:
         os.environ["RL_ZOBRIST_CACHE_SIZE"] = str(_zobrist_cache_size)
     _use_point_encoder = getattr(args, "point_encoder", False)
+    # v8.3 新增
+    _zshared_slots = getattr(args, "zobrist_shared_slots", 0)
+    if _zshared_slots != 0:
+        os.environ["RL_ZOBRIST_SHARED_SLOTS"] = str(_zshared_slots)
+    if getattr(args, "no_zobrist_shared", False):
+        os.environ["RL_ZOBRIST_SHARED"] = "0"
+    if getattr(args, "mcts_adaptive", False):
+        os.environ["RL_MCTS_ADAPTIVE"] = "1"
+    if getattr(args, "mcts_min_sims", 0) > 0:
+        os.environ["RL_MCTS_MIN_SIMS"] = str(args.mcts_min_sims)
+    if getattr(args, "mcts_confidence", 3.0) != 3.0:
+        os.environ["RL_MCTS_CONFIDENCE"] = str(args.mcts_confidence)
 
     arch = args.arch.strip().lower()
     net = build_policy_net(
