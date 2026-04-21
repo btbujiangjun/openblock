@@ -12,6 +12,9 @@ import { applySkinToDocument, getActiveSkin } from './skins.js';
 import { mountBlockWordmarks } from './blockWordmark.js';
 import { initMonetization } from './monetization/index.js';
 import { ReviveManager } from './revive.js';
+import { createEffectLayer } from './effects/effectLayer.js';
+import { BlockPool } from './bot/blockPool.js';
+import { generateDockShapes } from './bot/blockSpawn.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootErr = document.getElementById('boot-error');
@@ -24,13 +27,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 复活系统（低侵入性插件：装饰 game.showNoMovesWarning）
     const reviveManager = new ReviveManager({ limit: 1, clearCells: 12 });
     reviveManager.init(game);
-    window.__reviveManager = reviveManager;   // 暴露供测试/调试
-    // 新局开始时重置复活次数（通过 start 事件监听）
+    window.__reviveManager = reviveManager;
+    // 新局开始时重置复活次数
     const _origStart = game.start.bind(game);
     game.start = async (...args) => {
         reviveManager.resetForNewGame();
+        blockPool.resetForNewGame();
         return _origStart(...args);
     };
+
+    // 效果层（解耦渲染调用）：init 后 renderer 已存在，可安全绑定
+    const effectLayer = createEffectLayer(game);
+    window.__effectLayer = effectLayer;
+
+    // 块池管理（新鲜度保障）：包装 generateDockShapes
+    const blockPool = new BlockPool({ recentWindow: 9, penaltyFactor: 0.4 });
+    // 暴露包装后函数供 game.js 通过 window.__spawnFn 读取（可选）
+    window.__blockPool = blockPool;
+    window.__spawnFn = blockPool.wrap(generateDockShapes);
     /* 先于 game.init() 绑定回放/RL：init 因 API 失败抛错时，回放列表仍可点开（只读会话与 move_sequences） */
     initReplayUI(game);
     initPlayerInsightPanel(game);

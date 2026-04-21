@@ -234,36 +234,52 @@
    - 向后兼容：无参调用等价于 mode='endless'
 ```
 
-### 阶段二：关卡系统（2~4 月）
+### 阶段二：关卡系统（已部分落地 ✅）
 
 ```
-4. 关卡/旅行模式骨架
-   - 新增 LevelConfig 配置格式（JSON：初始盘面、目标、可用块集、关卡算法参数）
-   - LevelAlgorithm 出块算法（基于 FallbackSpawner 特化）
-   - 独立关卡结算逻辑（星级/目标完成）
-   - 初期 10~20 个关卡，验证留存提升
+4. 关卡/旅行模式骨架（✅ 已落地）
+   - web/src/level/levelManager.js — LevelManager + LevelConfig 接口
+   - 支持四类目标：score / clear / survival / board
+   - 三星评分系统（可配置 stars.one/two/three 门槛）
+   - applyInitialBoard：预设盘面写入 grid
+   - getAllowedShapes：限制关卡可用块集
+   - SAMPLE_LEVEL_SCORE / CLEAR / SURVIVAL 三个示例关卡
 
-5. 初始盘面系统
-   - 新增 initialBoard.js：支持预设盘面配置
-   - RL 可用于生成「有趣」的初始盘面（难度可控）
+5. 消除规则扩展接口（✅ 已落地）
+   - web/src/clearRules.js — ClearRuleEngine + 三类规则
+   - RowColRule：复现现有行/列消除（向后兼容）
+   - makeZoneClearRule：预设区域消除（关卡专属）
+   - DiagonalRule：对角线消除（扩展玩法）
+   - ClearRuleEngine.apply(grid) 替代 grid.checkLines()
 
-6. 马赛克等专属玩法（可选）
-   - 关卡专属玩法层接口（mode plugin 模式）
+6. 效果层独立（✅ 已落地）
+   - web/src/effects/effectLayer.js — EffectLayer 事件总线
+   - emit('clear'|'combo'|'place'|'revive'|'level_win')
+   - 解耦 game.js 对 renderer.* 的直接调用
+   - reducedMotion 自动适配无障碍需求
+
+7. 块池管理（✅ 已落地）
+   - web/src/bot/blockPool.js — BlockPool 新鲜度保障
+   - recentWindow 防止同形状连续出现
+   - categoryWindow 跨轮品类多样性
+   - wrap(generateFn) 透明代理原始出块函数
 ```
 
-### 阶段三：视觉与体验精细化（持续）
+### 阶段三：关卡内容与体验精细化（后续）
 
 ```
-7. 消除规则扩展接口
-   - 抽象 ClearRule 接口，支持行列 / 对角线 / 区域等规则
-   - 为关卡专属消除规则铺路
+8. 关卡编辑器 / PCGRL 生成
+   - 基于 LevelConfig JSON 格式创建关卡编辑界面
+   - 使用 RL 生成难度可控的初始盘面
 
-8. 效果层独立
-   - 将连击光效、落子动画从 renderer.js 提取到 EffectLayer 模块
-   - 提升视觉表现的可配置性
+9. 马赛克等专属玩法
+   - 基于 ClearRuleEngine 插入关卡专属消除规则
+   - makeZoneClearRule 可直接用于马赛克格子消除
 
-9. 块池管理
-   - 新增 BlockPool 模块：预先生成候选块序列，保证形状多样性与「新鲜度」
+10. game.js 完整集成
+    - start(opts) 接受 levelConfig 参数
+    - 落子后调用 levelManager.checkObjective()
+    - endGame 传递 levelResult 到结算界面
 ```
 
 ---
@@ -288,14 +304,14 @@
 
 | 维度 | 参考架构 | Open Block |
 |------|----------|------------|
-| 产品完整度 | ✅ 完整双模式 + 复活 + 专属玩法 | ⚠️ 无尽单模式，复活缺失 |
+| 产品完整度 | ✅ 完整双模式 + 复活 + 专属玩法 | ✅ 复活已落地；关卡骨架已搭建 |
 | 算法工程化 | ✅ 清晰三级分层，职责明确 | ✅ spawnLayers.js 三层显式分离 |
 | AI/RL 深度 | ❌ 规则驱动，无 RL | ✅✅ PPO+MCTS+SpawnTransformer |
 | 玩家建模 | ❌ 未见 | ✅✅ 多维画像 + 实时信号 |
 | 数据资产 | 未见细节 | ✅✅ 行为序列 + 回放 + RL训练闭环 |
 | 变现触点 | ✅ 复活 = 核心锚点 | ✅ 复活系统已落地（ReviveManager） |
 | 多平台 | 未见 | ✅ Web + 小程序同构 |
-| 可扩展性 | ✅ 层次化，易于插入新规则 | ⚠️ 部分耦合，需重构 |
+| 可扩展性 | ✅ 层次化，易于插入新规则 | ✅ ClearRuleEngine + EffectLayer + LevelManager |
 
 > **结论**：Open Block 在 AI 深度、数据资产和商业化精细化方面已超越参考架构。
 > 阶段一改进（复活系统、出块分层、结算扩展）已于 2026-04-20 全部落地，
@@ -305,5 +321,5 @@
 
 ---
 
-*文档生成日期：2026-04-20 | 最后更新：2026-04-20（阶段一改进落地）*
+*文档生成日期：2026-04-20 | 最后更新：2026-04-20（阶段一 + 阶段二核心改进落地）*
 *对比依据：行业参考架构图（见 assets）+ Open Block 代码库全量扫描*
