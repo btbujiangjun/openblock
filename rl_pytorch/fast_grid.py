@@ -55,7 +55,7 @@ def get_legal_positions(grid_np: np.ndarray, shape_np: np.ndarray) -> np.ndarray
 
 
 def get_all_legal_actions(grid_np: np.ndarray, dock: list[dict]) -> list[dict]:
-    """替代 BlockBlastSimulator.get_legal_actions 的向量化版本。"""
+    """替代 OpenBlockSimulator.get_legal_actions 的向量化版本。"""
     actions: list[dict] = []
     for bi, b in enumerate(dock):
         if b.get("placed"):

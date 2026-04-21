@@ -108,7 +108,7 @@ export function boardPotential(grid, dock) {
     );
 }
 
-export class BlockBlastSimulator {
+export class OpenBlockSimulator {
     /**
      * @param {string} [strategyId]
      */

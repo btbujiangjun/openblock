@@ -1,14 +1,14 @@
 /**
  * @vitest-environment jsdom
  *
- * BlockBlastSimulator：reset / step / getLegalActions / isTerminal / scoring
+ * OpenBlockSimulator：reset / step / getLegalActions / isTerminal / scoring
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BlockBlastSimulator, boardPotential } from '../web/src/bot/simulator.js';
+import { OpenBlockSimulator, boardPotential } from '../web/src/bot/simulator.js';
 
-describe('BlockBlastSimulator', () => {
+describe('OpenBlockSimulator', () => {
     let sim;
-    beforeEach(() => { sim = new BlockBlastSimulator('normal'); });
+    beforeEach(() => { sim = new OpenBlockSimulator('normal'); });
 
     describe('reset', () => {
         it('initializes with score 0', () => {

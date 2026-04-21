@@ -14,7 +14,7 @@ import {
     extractActionFeatures,
     buildDecisionBatch
 } from '../web/src/bot/features.js';
-import { BlockBlastSimulator } from '../web/src/bot/simulator.js';
+import { OpenBlockSimulator } from '../web/src/bot/simulator.js';
 
 function makeDock() {
     return [
@@ -115,7 +115,7 @@ describe('extractActionFeatures', () => {
 
 describe('buildDecisionBatch', () => {
     it('produces matching legal actions and phi vectors', () => {
-        const sim = new BlockBlastSimulator('normal');
+        const sim = new OpenBlockSimulator('normal');
         const { legal, stateFeat, phiList } = buildDecisionBatch(sim);
         expect(legal.length).toBe(phiList.length);
         expect(stateFeat).toBeInstanceOf(Float32Array);
@@ -126,7 +126,7 @@ describe('buildDecisionBatch', () => {
     });
 
     it('legal actions are valid placements', () => {
-        const sim = new BlockBlastSimulator('normal');
+        const sim = new OpenBlockSimulator('normal');
         const { legal } = buildDecisionBatch(sim);
         for (const a of legal) {
             expect(sim.grid.canPlace(sim.dock[a.blockIdx].shape, a.gx, a.gy)).toBe(true);

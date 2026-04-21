@@ -653,7 +653,7 @@ export class Game {
 
     /**
      * 将无头模拟器状态同步到主画布与底部待选块（用于 RL 盘面演示）
-     * @param {import('./bot/simulator.js').BlockBlastSimulator} sim
+     * @param {import('./bot/simulator.js').OpenBlockSimulator} sim
      */
     syncFromSimulator(sim) {
         const j = sim.grid.toJSON();

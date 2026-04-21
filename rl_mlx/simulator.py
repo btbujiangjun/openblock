@@ -9,10 +9,10 @@ from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .shapes_data import get_all_shapes
 
-__all__ = ["BlockBlastSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
+__all__ = ["OpenBlockSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
 
 
-class BlockBlastSimulator:
+class OpenBlockSimulator:
     def __init__(self, strategy_id: str = "normal"):
         self.strategy_id = strategy_id
         self.reset()

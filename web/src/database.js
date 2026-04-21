@@ -1,5 +1,5 @@
 /**
- * 持久化：通过 Flask 后端写入仓库根目录 SQLite（blockblast.db，见 server.py）。
+ * 持久化：通过 Flask 后端写入仓库根目录 SQLite（openblock.db，见 server.py）。
  * 需先启动 `npm run server` 或 `python3 server.py`，并配置 VITE_API_BASE_URL。
  */
 import { getApiBaseUrl, isSqliteClientDatabase, ACHIEVEMENTS_BY_ID } from './config.js';

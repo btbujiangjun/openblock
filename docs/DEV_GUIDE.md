@@ -334,7 +334,7 @@ def create_my_blueprint() -> Blueprint:
         if not user_id:
             return jsonify({'error': 'user_id required'}), 400
 
-        db_path = Path(__file__).parent / 'blockblast.db'
+        db_path = Path(__file__).parent / 'openblock.db'
         with sqlite3.connect(str(db_path)) as db:
             db.row_factory = sqlite3.Row
             rows = db.execute(
@@ -349,7 +349,7 @@ def create_my_blueprint() -> Blueprint:
 
 def init_my_db():
     """初始化数据库表（幂等）。"""
-    db_path = Path(__file__).parent / 'blockblast.db'
+    db_path = Path(__file__).parent / 'openblock.db'
     with sqlite3.connect(str(db_path)) as db:
         db.execute('''
             CREATE TABLE IF NOT EXISTS my_table (

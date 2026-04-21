@@ -2,7 +2,7 @@
 SpawnTransformerV2 训练脚本。
 
 用法:
-  python -m rl_pytorch.spawn_model.train --db blockblast.db --epochs 50 --lr 3e-4
+  python -m rl_pytorch.spawn_model.train --db openblock.db --epochs 50 --lr 3e-4
 
 多任务损失:
   L = w_ce * L_ce + w_div * L_div + w_anti * L_anti
@@ -324,7 +324,7 @@ def train(args):
 
 
 def main():
-    default_db = str(Path(__file__).resolve().parent.parent.parent / 'blockblast.db')
+    default_db = str(Path(__file__).resolve().parent.parent.parent / 'openblock.db')
 
     parser = argparse.ArgumentParser(description='Train SpawnTransformerV2')
     parser.add_argument('--db', type=str, default=default_db)

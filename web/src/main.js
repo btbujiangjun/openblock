@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     applySkinToDocument(getActiveSkin());
     mountBlockWordmarks();
     const game = new Game();
-    window.blockBlastGame = game;
+    window.openBlockGame = game;
     initMonetization(game);
     /* 先于 game.init() 绑定回放/RL：init 因 API 失败抛错时，回放列表仍可点开（只读会话与 move_sequences） */
     initReplayUI(game);

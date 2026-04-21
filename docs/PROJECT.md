@@ -39,7 +39,7 @@
 
 ## 后端要点（`server.py`）
 
-- `DATABASE` 由环境变量 `BLOCKBLAST_DB_PATH` 覆盖。
+- `DATABASE` 由环境变量 `OPENBLOCK_DB_PATH` 覆盖。
 - 模块导入末尾调用 `init_db()`，便于 `gunicorn server:app` 首次即有表结构。
 - `GET /api/export` 已修复对 `user_stats` 的重复 `fetchone()` 问题。
 

@@ -2,7 +2,7 @@
  * RL 训练与「具体玩法」之间的适配层：自博弈只依赖本类，不直接读 grid/dock。
  * 规则与特征维度来自 shared/game_rules.json；棋盘逻辑在 simulator + Grid。
  */
-import { BlockBlastSimulator } from './simulator.js';
+import { OpenBlockSimulator } from './simulator.js';
 import { buildDecisionBatch } from './features.js';
 import { RL_TRAINING_STRATEGY_ID, WIN_SCORE_THRESHOLD } from '../gameRules.js';
 
@@ -11,7 +11,7 @@ export class RlGameplayEnvironment {
      * @param {string} [strategyId] 对应 game_rules.strategies 的键
      */
     constructor(strategyId = RL_TRAINING_STRATEGY_ID) {
-        this._sim = new BlockBlastSimulator(strategyId);
+        this._sim = new OpenBlockSimulator(strategyId);
     }
 
     /** 供「评估一局」可视化等需要同步盘面时使用 */

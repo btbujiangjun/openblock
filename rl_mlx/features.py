@@ -164,7 +164,7 @@ def extract_action_features(
 
 
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
-    """would_clear 与 web 端 countClearsIfPlaced 一致。sim: BlockBlastSimulator。"""
+    """would_clear 与 web 端 countClearsIfPlaced 一致。sim: OpenBlockSimulator。"""
     state = extract_state_features(sim.grid, sim.dock)
     rows = []
     for a in legal:

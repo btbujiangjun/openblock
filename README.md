@@ -205,7 +205,7 @@ npm run server:rl
 |------|------|------|
 | `VITE_PORT` | `3000` | Vite 开发服务器端口 |
 | `OPENBLOCK_API_ORIGIN` | `http://localhost:5000` | 后端 API 地址 |
-| `BLOCKBLAST_DB_PATH` | `./blockblast.db` | SQLite 数据库路径 |
+| `OPENBLOCK_DB_PATH` | `./openblock.db` | SQLite 数据库路径 |
 | `RL_CHECKPOINT_SAVE` | `rl_checkpoints/bb_policy.pt` | RL checkpoint 路径 |
 | `RL_DEVICE` | `auto` | 训练设备（auto/mps/cuda/cpu） |
 

@@ -424,7 +424,7 @@ export function extractActionFeatures(
 }
 
 /**
- * @param {import('./simulator.js').BlockBlastSimulator} sim
+ * @param {import('./simulator.js').OpenBlockSimulator} sim
  * @returns {{ legal: { blockIdx: number, gx: number, gy: number }[], stateFeat: Float32Array, phiList: Float32Array[] }}
  */
 export function buildDecisionBatch(sim) {

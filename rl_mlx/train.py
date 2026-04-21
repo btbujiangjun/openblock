@@ -26,7 +26,7 @@ from .config import WIN_SCORE_THRESHOLD
 from .game_rules import RL_REWARD_SHAPING
 from .features import build_phi_batch
 from .model import PolicyValueNet
-from .simulator import BlockBlastSimulator
+from .simulator import OpenBlockSimulator
 
 
 def _softmax_np(x: np.ndarray, temperature: float) -> np.ndarray:
@@ -39,7 +39,7 @@ def _softmax_np(x: np.ndarray, temperature: float) -> np.ndarray:
 
 def collect_episode(model: PolicyValueNet, temperature: float) -> dict:
     """采样阶段用 numpy 分类分布；反传时在 loss 内重算 log 概率（标准 REINFORCE）。"""
-    sim = BlockBlastSimulator("normal")
+    sim = OpenBlockSimulator("normal")
     trajectory: list[dict] = []
 
     while True:

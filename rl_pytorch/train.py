@@ -53,7 +53,7 @@ from .model import (
     PolicyValueNet,
     SharedPolicyValueNet,
 )
-from .simulator import BlockBlastSimulator, board_potential, _BOARD_POT_NORM, _SURVIVAL_NORM
+from .simulator import OpenBlockSimulator, board_potential, _BOARD_POT_NORM, _SURVIVAL_NORM
 
 # ---------------------------------------------------------------------------
 # 多进程 worker（CPU 推理采集，GPU 专做更新）
@@ -357,7 +357,7 @@ def compute_gae_advantages_and_returns(
 def _lookahead_q_values(
     net: AnyNet,
     device: torch.device,
-    sim: BlockBlastSimulator,
+    sim: OpenBlockSimulator,
     legal: list[dict],
     gamma: float,
 ) -> np.ndarray | None:
@@ -390,7 +390,7 @@ def _lookahead_q_values(
 def _beam_2ply_q_values(
     net: AnyNet,
     device: torch.device,
-    sim: BlockBlastSimulator,
+    sim: OpenBlockSimulator,
     legal: list[dict],
     gamma: float,
     top_k: int = 15,
@@ -493,7 +493,7 @@ def collect_episode(
     dirichlet_alpha: float,
 ) -> dict:
     """no_grad 采集：只存 numpy，不建计算图；更新时由 GPU 批量再评估。"""
-    sim = BlockBlastSimulator("normal")
+    sim = OpenBlockSimulator("normal")
     sim.win_score_threshold = rl_win_threshold_for_episode(global_ep)
     trajectory: list[dict] = []
     gamma = float(os.environ.get("RL_GAMMA", "0.99"))

@@ -233,7 +233,7 @@ postJson('/api/leaderboard', { score: this.data.score, openId: '...' });
 
 复用 `core/bot/` 中的模拟器和特征提取：
 ```javascript
-const { BlockBlastSimulator } = require('../../core/bot/simulator');
+const { OpenBlockSimulator } = require('../../core/bot/simulator');
 const { buildDecisionBatch } = require('../../core/bot/features');
 // 本地推理或调用后端 /api/rl/select_action
 ```

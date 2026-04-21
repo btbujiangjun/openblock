@@ -54,8 +54,9 @@ try:
 except ImportError:
     pass
 
-_DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blockblast.db')
-DATABASE = os.environ.get('BLOCKBLAST_DB_PATH', _DEFAULT_DB)
+_DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'openblock.db')
+# BLOCKBLAST_DB_PATH 作为旧版向后兼容；优先使用 OPENBLOCK_DB_PATH
+DATABASE = os.environ.get('OPENBLOCK_DB_PATH') or os.environ.get('BLOCKBLAST_DB_PATH', _DEFAULT_DB)
 
 app = Flask(__name__)
 CORS(app)

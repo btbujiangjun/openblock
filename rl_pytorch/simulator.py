@@ -13,7 +13,7 @@ from .grid import Grid
 from .shapes_data import get_all_shapes
 from . import fast_grid as _fg
 
-__all__ = ["BlockBlastSimulator", "board_potential", "generate_blocks_for_grid", "generate_dock_shapes"]
+__all__ = ["OpenBlockSimulator", "board_potential", "generate_blocks_for_grid", "generate_dock_shapes"]
 
 _BOARD_POT_NORM = 30.0   # board_potential 归一化分母
 _SURVIVAL_NORM  = 30.0   # 生存步数归一化分母
@@ -55,7 +55,7 @@ def board_potential_np(grid_np: np.ndarray, dock: list[dict]) -> float:
     )
 
 
-class BlockBlastSimulator:
+class OpenBlockSimulator:
     def __init__(self, strategy_id: str = "normal"):
         self.strategy_id = strategy_id
         self._holes_cache: int | None = None

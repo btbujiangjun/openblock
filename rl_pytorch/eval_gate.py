@@ -43,7 +43,7 @@ def run_eval_games(
         dict with keys: win_rate, avg_score, n_games, win_threshold
     """
     from .config import WIN_SCORE_THRESHOLD
-    from .simulator import BlockBlastSimulator
+    from .simulator import OpenBlockSimulator
 
     if win_threshold is None:
         win_threshold = float(WIN_SCORE_THRESHOLD)
@@ -54,7 +54,7 @@ def run_eval_games(
     net.eval()
     with torch.no_grad():
         for _ in range(n_games):
-            sim = BlockBlastSimulator("normal")
+            sim = OpenBlockSimulator("normal")
             sim.win_score_threshold = win_threshold
 
             while not sim.is_terminal():

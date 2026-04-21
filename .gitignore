@@ -15,5 +15,7 @@ coverage/
 # 本地 RL 权重与备份（体积大，训练产物）
 rl_checkpoints/
 rl_checkpoints_bak/
+openblock.db-shm
+openblock.db-wal
 blockblast.db-shm
 blockblast.db-wal

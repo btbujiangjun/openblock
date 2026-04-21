@@ -108,7 +108,7 @@ function boardPotential(grid, dock) {
     );
 }
 
-class BlockBlastSimulator {
+class OpenBlockSimulator {
     /**
      * @param {string} [strategyId]
      */
@@ -255,4 +255,4 @@ class BlockBlastSimulator {
     }
 }
 
-module.exports = { BlockBlastSimulator, boardPotential, generateBlocksForGrid, generateDockShapes };
+module.exports = { OpenBlockSimulator, boardPotential, generateBlocksForGrid, generateDockShapes };
