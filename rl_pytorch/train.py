@@ -230,6 +230,24 @@ def _survival_coef() -> float:
     return float(RL_REWARD_SHAPING.get("survivalLossCoef") or 0.2)
 
 
+def _q_distill_coef() -> float:
+    """Q 分布蒸馏损失系数；来自 rlRewardShaping.qDistillation.coef 或 RL_Q_DISTILL_COEF。"""
+    if (raw := os.environ.get("RL_Q_DISTILL_COEF", "").strip()) != "":
+        return float(raw)
+    cfg = RL_REWARD_SHAPING.get("qDistillation") or {}
+    if not cfg.get("enabled", False):
+        return 0.0
+    return float(cfg.get("coef", 0.1))
+
+
+def _q_distill_tau() -> float:
+    """Q → target_pi 的软化温度；越小分布越尖锐，越大越均匀。"""
+    if (raw := os.environ.get("RL_Q_DISTILL_TAU", "").strip()) != "":
+        return float(raw)
+    cfg = RL_REWARD_SHAPING.get("qDistillation") or {}
+    return float(cfg.get("tau", 1.0))
+
+
 def _lr_warmup(step: int, warmup_steps: int, base_lr: float) -> float:
     if warmup_steps <= 0 or step >= warmup_steps:
         return base_lr
@@ -369,6 +387,101 @@ def _lookahead_q_values(
     return rewards + gamma * v_next
 
 
+def _beam_2ply_q_values(
+    net: AnyNet,
+    device: torch.device,
+    sim: BlockBlastSimulator,
+    legal: list[dict],
+    gamma: float,
+    top_k: int = 15,
+    max_actions: int = 100,
+) -> np.ndarray | None:
+    """三块组合 2-ply beam 搜索：Q_2ply(s,a1) = r1 + γ · max_{a2}[r2 + γ·V(s'')]。
+
+    针对 Block Puzzle 一轮三块的强耦合特性——当 dock 仍有 ≥2 块时，展开第二层
+    以捕捉跨块放置的协同效应。具体流程：
+
+      1. 第一层（全部动作）：计算 r1 + γ·V(s') → Q_1ply
+      2. 按 Q_1ply 选出 top-k 动作做第二层展开
+      3. 第二层所有 s'' 合并批量推理（单次 GPU forward），避免循环内多次调用
+      4. 其余动作保持 Q_1ply 值（退化为 1-step）
+
+    Guard 条件：
+      - n_actions > max_actions：直接返回 None（同 1-step 的 >150 保护）
+      - dock 剩余块 < 2：退化为 1-step lookahead（2-ply 无意义）
+    """
+    n_actions = len(legal)
+    if n_actions == 0 or n_actions > max_actions:
+        return None
+
+    # dock 仅剩 ≤1 块时，2-ply 无额外信息，退化为 1-step
+    blocks_remain = sum(1 for s in sim.dock if s is not None)
+    if blocks_remain < 2:
+        return _lookahead_q_values(net, device, sim, legal, gamma)
+
+    saved = sim.save_state()
+
+    # ——— 第一层：计算所有动作的 r1 + V(s') ———
+    r1_arr = np.empty(n_actions, dtype=np.float32)
+    next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
+    for i, a in enumerate(legal):
+        r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+        next_states[i] = extract_state_features(sim.grid, sim.dock)
+        sim.restore_state(saved)
+
+    with torch.no_grad():
+        ns_t = tensor_to_device(torch.from_numpy(next_states), device)
+        v1 = net.forward_value(ns_t).cpu().numpy().flatten()
+
+    q1 = r1_arr + gamma * v1
+    q2ply = q1.copy()
+
+    # ——— 第二层：对 top-k 批量收集所有 s'' 再统一推理 ———
+    top_k_actual = min(top_k, n_actions)
+    top_k_idxs = np.argsort(q1)[-top_k_actual:]
+
+    # 结构：(action_index, r1, r2_arr, ns2_states)
+    ply2_batches: list[tuple[int, float, np.ndarray, np.ndarray]] = []
+
+    for i in top_k_idxs:
+        a1 = legal[int(i)]
+        r1 = float(sim.step(a1["block_idx"], a1["gx"], a1["gy"]))
+        legal2 = sim.get_legal_actions()
+
+        if not legal2:
+            q2ply[i] = r1  # 第一步后已终局，V=0
+            sim.restore_state(saved)
+            continue
+
+        n2 = len(legal2)
+        saved2 = sim.save_state()
+        r2_arr = np.empty(n2, dtype=np.float32)
+        ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
+        for j, a2 in enumerate(legal2):
+            r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
+            ns2[j] = extract_state_features(sim.grid, sim.dock)
+            sim.restore_state(saved2)
+
+        ply2_batches.append((int(i), r1, r2_arr, ns2))
+        sim.restore_state(saved)
+
+    if ply2_batches:
+        # 合并所有 s'' 做一次批量 V 推理
+        all_ns2 = np.concatenate([b[3] for b in ply2_batches], axis=0)
+        with torch.no_grad():
+            ns2_t = tensor_to_device(torch.from_numpy(all_ns2), device)
+            all_v2 = net.forward_value(ns2_t).cpu().numpy().flatten()
+
+        offset = 0
+        for (i, r1, r2_arr, _ns2) in ply2_batches:
+            n2 = len(r2_arr)
+            v2 = all_v2[offset : offset + n2]
+            q2ply[i] = r1 + gamma * float(np.max(r2_arr + gamma * v2))
+            offset += n2
+
+    return q2ply
+
+
 def collect_episode(
     net: AnyNet,
     device: torch.device,
@@ -386,6 +499,13 @@ def collect_episode(
     gamma = float(os.environ.get("RL_GAMMA", "0.99"))
     use_lookahead = os.environ.get("RL_LOOKAHEAD", "1").lower() not in ("0", "false", "no")
     lookahead_mix = float(os.environ.get("RL_LOOKAHEAD_MIX", "0.5"))
+    _beam2ply_cfg = RL_REWARD_SHAPING.get("beam2ply") or {}
+    use_beam2ply = (
+        _beam2ply_cfg.get("enabled", True)
+        and os.environ.get("RL_BEAM2PLY", "1").lower() not in ("0", "false", "no")
+    )
+    _beam2ply_topk = int(_beam2ply_cfg.get("topK", 15))
+    _beam2ply_max_actions = int(_beam2ply_cfg.get("maxActions", 100))
 
     step_idx = 0
     while True:
@@ -406,7 +526,15 @@ def collect_episode(
 
         q_vals = None
         if use_lookahead and step_idx >= explore_first_moves:
-            q_vals = _lookahead_q_values(net, device, sim, legal, gamma)
+            if use_beam2ply:
+                # 2-ply beam：当 dock≥2 块时展开第二层，否则自动退化为 1-step
+                q_vals = _beam_2ply_q_values(
+                    net, device, sim, legal, gamma,
+                    top_k=_beam2ply_topk,
+                    max_actions=_beam2ply_max_actions,
+                )
+            else:
+                q_vals = _lookahead_q_values(net, device, sim, legal, gamma)
 
         if q_vals is not None:
             q_t = tensor_to_device(torch.from_numpy(q_vals), device)
@@ -440,6 +568,8 @@ def collect_episode(
             "clears": clears_step,
             "board_quality": sup["board_quality"],
             "feasibility": sup["feasibility"],
+            # Q 分布蒸馏目标：存储当前步所有合法动作的 Q 值（用于训练时计算 target_pi）
+            "q_vals": q_vals.tolist() if q_vals is not None else None,
         })
         step_idx += 1
 
@@ -555,6 +685,7 @@ def _reevaluate_and_update(
     all_board_quality: list[float] = []
     all_feasibility: list[float] = []
     all_steps_to_end: list[float] = []
+    all_q_vals: list[np.ndarray | None] = []
     ep_lengths: list[int] = []
     ep_scores: list[float] = []
     ep_thresholds: list[float] = []
@@ -577,6 +708,8 @@ def _reevaluate_and_update(
             all_board_quality.append(float(step.get("board_quality", 0.0)))
             all_feasibility.append(float(step.get("feasibility", 1.0)))
             all_steps_to_end.append(float(step.get("steps_to_end", 0)))
+            qv = step.get("q_vals")
+            all_q_vals.append(np.array(qv, dtype=np.float32) if qv is not None else None)
 
     total_steps = len(all_states)
     if total_steps == 0:
@@ -596,6 +729,8 @@ def _reevaluate_and_update(
     bq_coef = _board_quality_coef()
     feas_coef = _feasibility_coef()
     surv_coef = _survival_coef()
+    q_distill_coef = _q_distill_coef()
+    q_distill_tau = _q_distill_tau()
 
     step_starts = torch.zeros(total_steps + 1, dtype=torch.long, device=device)
     step_starts[1:] = torch.cumsum(n_actions_t, dim=0)
@@ -635,6 +770,21 @@ def _reevaluate_and_update(
     surv_target_t = tensor_to_device(
         torch.tensor([s / _SURVIVAL_NORM for s in all_steps_to_end], dtype=torch.float32), device
     ).clamp(0.0, 1.0)
+
+    # Q 分布蒸馏目标张量（变长 Q 数组 → 对齐到 max_n 的 padded 矩阵）
+    q_vals_padded: torch.Tensor | None = None
+    q_has_vals: torch.Tensor | None = None
+    if q_distill_coef > 1e-12 and len(all_q_vals) == total_steps:
+        max_n_q = int(n_actions_t.max().item())
+        q_padded_np = np.full((total_steps, max_n_q), -1e9, dtype=np.float32)
+        has_q_np = np.zeros(total_steps, dtype=bool)
+        for t_i, qv in enumerate(all_q_vals):
+            if qv is not None and len(qv) == all_n_actions[t_i]:
+                q_padded_np[t_i, : len(qv)] = qv
+                has_q_np[t_i] = True
+        if has_q_np.any():
+            q_vals_padded = tensor_to_device(torch.from_numpy(q_padded_np), device)
+            q_has_vals = torch.from_numpy(has_q_np).to(device)
 
     dp_ids = resolve_cuda_device_ids_for_data_parallel()
     use_dp_trunk = (
@@ -803,6 +953,28 @@ def _reevaluate_and_update(
             if surv_coef > 1e-12:
                 surv_loss = F.smooth_l1_loss(aux["survival"], surv_target_t, reduction="mean", beta=1.0)
 
+        # Q 分布蒸馏：策略头模仿 lookahead Q 的 softmax 分布（AlphaZero 策略改进的轻量实现）
+        q_distill_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if (
+            q_distill_coef > 1e-12
+            and q_vals_padded is not None
+            and q_has_vals is not None
+            and bool(q_has_vals.any().item())
+        ):
+            q_rows = q_vals_padded[q_has_vals]        # (n_q, max_n)
+            q_mask = mask[q_has_vals]                  # (n_q, max_n) bool
+            lp_q = lp_2d[q_has_vals]                  # (n_q, max_n) log-probs
+            tau = max(q_distill_tau, 0.1)
+            # softmax(Q/τ) 作为 target_pi；padded 位置填 -inf → softmax=0
+            target_pi = torch.softmax(
+                q_rows.masked_fill(~q_mask, float("-inf")) / tau, dim=1
+            )
+            # 有效位置上的 CE 损失：-Σ target_pi * log_prob
+            target_pi_safe = target_pi.masked_fill(~q_mask, 0.0)
+            lp_q_safe = lp_q.masked_fill(~q_mask, 0.0)
+            q_distill_loss = -(target_pi_safe * lp_q_safe).sum(dim=1).mean()
+            q_distill_loss = torch.nan_to_num(q_distill_loss, nan=0.0, posinf=0.0, neginf=0.0)
+
         def _safe_aux(t):
             return t if torch.isfinite(t).item() else torch.zeros_like(t)
 
@@ -818,6 +990,7 @@ def _reevaluate_and_update(
             + bq_coef * _safe_aux(bq_loss)
             + feas_coef * _safe_aux(feas_loss)
             + surv_coef * _safe_aux(surv_loss)
+            + q_distill_coef * _safe_aux(q_distill_loss)
         )
 
         opt.zero_grad()
@@ -843,8 +1016,10 @@ def _reevaluate_and_update(
             "loss_bq": float(bq_loss.item()),
             "loss_feas": float(feas_loss.item()),
             "loss_surv": float(surv_loss.item()),
+            "loss_q_distill": float(q_distill_loss.item()),
             "hole_aux_coef": float(hole_coef),
             "clear_pred_coef": float(clear_pred_coef),
+            "q_distill_coef": float(q_distill_coef),
             "optimizer_stepped": stepped,
         }
 
@@ -892,10 +1067,20 @@ def train_loop(
     n_workers: int = 0,
     ppo_epochs: int = 4,
     ppo_clip: float = 0.2,
+    eval_gate_every: int = 0,
+    eval_gate_games: int = 50,
+    eval_gate_win_ratio: float = 0.55,
 ) -> int:
     import multiprocessing as mp
 
     opt = adam_for_training(net.parameters(), lr=lr)
+
+    # 评估门控：记录基线权重（CPU 端），周期性对比候选模型胜率
+    _baseline_sd: dict | None = None
+    _last_gate_ep: int = 0
+    if eval_gate_every > 0:
+        _baseline_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+
     start_ep = 0
     if resume and resume.is_file():
         try:
@@ -1063,6 +1248,8 @@ def train_loop(
                     hole_str += f"  feas={last_update['loss_feas']:.4f}"
                 if last_update and last_update.get("loss_surv", 0) > 1e-6:
                     hole_str += f"  surv={last_update['loss_surv']:.4f}"
+                if last_update and last_update.get("q_distill_coef", 0) > 1e-12:
+                    hole_str += f"  qdst={last_update.get('loss_q_distill', 0):.4f}"
                 ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
                 gpu_pct = 100.0 * t_train_ms / max(t_collect_ms + t_train_ms, 1)
                 print(
@@ -1073,6 +1260,48 @@ def train_loop(
                     file=sys.stderr,
                 )
                 t0 = time.perf_counter()
+
+            # --- 评估门控（软门控：仅记录，不强制回滚；硬门控需 RL_EVAL_GATE_HARD=1）---
+            if (
+                eval_gate_every > 0
+                and _baseline_sd is not None
+                and ep_cursor - _last_gate_ep >= eval_gate_every
+            ):
+                from .eval_gate import eval_gate_check as _gate_fn
+
+                _gate_w = getattr(net, "width", 128)
+                _gate_cc = getattr(net, "conv_channels", 32)
+                _baseline_net = build_policy_net(
+                    train_arch, _gate_w, policy_depth_arg, value_depth_arg,
+                    mlp_ratio, device, conv_channels=_gate_cc,
+                )
+                _baseline_net.load_state_dict(
+                    {k: v.to(device) for k, v in _baseline_sd.items()}
+                )
+                _gate_passed, _gate_m = _gate_fn(
+                    net, _baseline_net, device,
+                    n_games=eval_gate_games,
+                    win_ratio=eval_gate_win_ratio,
+                )
+                _cwr = _gate_m["candidate"]["win_rate"]
+                _bwr = _gate_m["baseline"]["win_rate"]
+                if _gate_passed:
+                    _baseline_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                    print(
+                        f"[EvalGate] ep={ep_cursor}  ✓ PASSED  cand={_cwr:.1%}  base={_bwr:.1%}  → 基线已更新",
+                        file=sys.stderr,
+                    )
+                else:
+                    _hard = os.environ.get("RL_EVAL_GATE_HARD", "0").lower() not in ("0", "false", "no")
+                    if _hard:
+                        net.load_state_dict({k: v.to(device) for k, v in _baseline_sd.items()})
+                    print(
+                        f"[EvalGate] ep={ep_cursor}  ✗ FAILED  cand={_cwr:.1%}  base={_bwr:.1%}"
+                        + ("  [已恢复基线]" if _hard else "  [软门控：继续训练]"),
+                        file=sys.stderr,
+                    )
+                _last_gate_ep = ep_cursor
+                del _baseline_net
 
             # --- 存档 ---
             se = max(1, save_every)
@@ -1236,6 +1465,24 @@ def main() -> None:
         default=0,
         help="多进程并行采集 worker 数；0=自动（GPU 设备按 CPU 核数），1=单进程，>1=CPU 多进程 + GPU 更新 + 流水线重叠",
     )
+    p.add_argument(
+        "--eval-gate-every",
+        type=int,
+        default=0,
+        help="评估门控触发间隔（局数），0=关闭；每隔 N 局对比候选/基线胜率，候选≥基线×win-ratio 才更新基线",
+    )
+    p.add_argument(
+        "--eval-gate-games",
+        type=int,
+        default=50,
+        help="评估门控每侧运行的贪心评估局数",
+    )
+    p.add_argument(
+        "--eval-gate-win-ratio",
+        type=float,
+        default=0.55,
+        help="门控胜率倍数阈值；0.55 = 候选须超过基线胜率的 55%%（AlphaZero 默认标准）",
+    )
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -1307,6 +1554,9 @@ def main() -> None:
         n_workers=args.n_workers,
         ppo_epochs=args.ppo_epochs,
         ppo_clip=args.ppo_clip,
+        eval_gate_every=args.eval_gate_every,
+        eval_gate_games=args.eval_gate_games,
+        eval_gate_win_ratio=args.eval_gate_win_ratio,
     )
 
     save_path.parent.mkdir(parents=True, exist_ok=True)

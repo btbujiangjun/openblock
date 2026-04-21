@@ -213,7 +213,113 @@ buffer 满（默认 32 局）→ 执行批量 PPO（3 epochs）→ 返回 loss
 
 ---
 
-## 五、训练效率优化
+## 五、v7 优化：向 AlphaZero 三大支柱进一步靠拢
+
+在 v6 已验证的基础（1-step lookahead + outcome 混合 + 势函数 + 课程）上，v7 实现三项针对性优化，逐步弥合与 AlphaZero 的核心差距。
+
+### 5.1 Q 分布蒸馏（策略头学搜索目标）
+
+**动机**：AlphaZero 的策略头学习「模仿 MCTS 访问分布」，而不是靠稀疏的 PPO 梯度摸索方向。我们已有 lookahead Q 值，但它们仅用于动作采样的 logit 混合，策略头本身并不学习 Q 分布。
+
+**实现**：在 `_reevaluate_and_update` 中，对每个有 Q 值的步骤额外计算蒸馏损失：
+```python
+target_pi = softmax(Q(s, ·) / τ)            # Q 值 → 目标分布（τ 控制峰值）
+loss_q_distill = -Σ target_pi * log π_θ(·|s)  # CE 损失，与 PPO 损失叠加
+```
+
+**关键设计**：
+- `target_pi` 在收集阶段固定（不随 PPO 多轮 epoch 变化），等价于监督学习目标
+- τ=1.0（默认）：保留 Q 值差异的完整信息；τ→0 退化为硬标签（最优动作独占概率 1）
+- 系数 `coef=0.1`：不干扰主要 PPO 损失，仅提供额外梯度方向
+
+**配置**（`game_rules.json`）：
+```json
+"qDistillation": {
+  "enabled": true,
+  "coef": 0.1,   // 蒸馏损失权重（RL_Q_DISTILL_COEF 覆盖）
+  "tau": 1.0     // 软化温度（RL_Q_DISTILL_TAU 覆盖）
+}
+```
+
+**训练日志**：启用后输出 `qdst=xxx` 损失值，应在训练初期快速下降至 0.1 以下。
+
+---
+
+### 5.2 三块组合 2-ply Beam（捕捉跨块协同）
+
+**动机**：Block Puzzle 每轮放 3 块，当前 1-step lookahead 只看「当前块怎么放」，完全忽略「放完这块后，下一块怎么放」的协同效应。这是游戏结构特有的重要信息。
+
+**实现**（`_beam_2ply_q_values`）：
+```
+Q_2ply(s, a1) = r1 + γ · max_{a2 ∈ legal(s')} [r2 + γ · V(s'')]
+```
+
+**效率设计**（避免 O(n²) GPU 调用）：
+```
+第一层：对所有 n_actions 计算 Q_1ply（1 次批量 GPU 推理）
+         ↓
+选出 top-k（按 Q_1ply 排序，k=15）做第二层展开
+         ↓
+第二层：收集所有 s'' 后做 1 次合并批量推理（而非每个 top-k 单独推理）
+         ↓
+其余动作保持 Q_1ply（退化为 1-step）
+```
+
+**Guard 条件**：
+- dock 剩余块 < 2：自动退化为 1-step lookahead（2-ply 无意义）
+- n_actions > max_actions（默认 100）：跳过，防止动作过多时爆内存
+
+**配置**：
+```json
+"beam2ply": {
+  "enabled": true,
+  "topK": 15,         // 第二层展开的动作数（RL_BEAM2PLY_TOPK 覆盖）
+  "maxActions": 100   // 超出此数时退化为 1-step
+}
+```
+
+环境变量 `RL_BEAM2PLY=0` 可临时关闭，退化为 v6 的 1-step lookahead。
+
+---
+
+### 5.3 评估门控（训练稳定性保障）
+
+**动机**：AlphaZero 第三步「仅当新模型胜率 >55% 才替换基线」，防止训练震荡和灾难性遗忘。v6 无此机制。
+
+**实现**（`rl_pytorch/eval_gate.py`）：
+```python
+# 每 eval_gate_every 局：
+baseline_net.load_state_dict(baseline_sd)       # 加载历史最优权重
+passed, metrics = eval_gate_check(net, baseline_net, device, n_games=50)
+# 候选胜率 >= 基线胜率 × 0.55 → 更新基线
+```
+
+**两种门控模式**：
+- **软门控**（默认）：仅打印日志 `[EvalGate] ✓/✗`，训练继续
+- **硬门控**（`RL_EVAL_GATE_HARD=1`）：失败时恢复到基线权重
+
+**启用方式**：
+```bash
+# 每 2000 局检查一次，50 局贪心评估，候选须超过基线胜率的 55%
+python -m rl_pytorch.train --eval-gate-every 2000 --eval-gate-games 50 --eval-gate-win-ratio 0.55
+```
+
+默认关闭（`--eval-gate-every 0`），适合初始训练阶段不干预。
+
+---
+
+### 5.4 v7 新增环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RL_Q_DISTILL_COEF` | 0.1 | Q 蒸馏损失权重；0=关闭 |
+| `RL_Q_DISTILL_TAU` | 1.0 | Q → target_pi 的软化温度 |
+| `RL_BEAM2PLY` | 1 | 2-ply beam 开关；0=退化为 1-step |
+| `RL_EVAL_GATE_HARD` | 0 | 硬门控开关；1=失败时恢复基线权重 |
+
+---
+
+## 六、训练效率优化
 
 ### 5.1 Simulator State Save/Restore
 
@@ -293,20 +399,57 @@ python -m rl_pytorch.train --episodes 5000 --device auto --save rl_checkpoints/v
 
 ---
 
-## 八、与 AlphaZero 的剩余差距及未来方向
+## 八、预期效果与验证指标（v7 更新）
 
-### 8.1 当前实现仍未覆盖的 AlphaZero 特性
+### 8.1 v7 新增改动的预期效果
 
-| 特性 | AlphaZero | v6 | 差距 | 未来方向 |
-|------|-----------|-----|------|----------|
-| 多步搜索 | MCTS 数百 ply | 1-step lookahead | 大 | 实现轻量 MCTS（10-50 次模拟） |
-| 策略改进目标 | MCTS 访问分布 | PPO 策略梯度 | 中 | 用 Q 值分布替代 REINFORCE 目标 |
-| 模型评估 | 对弈胜率筛选 | 无 | 小 | 加入周期性 vs 旧版对比评估 |
-| 数据并行 | 数千局并行自博弈 | 单进程或少量 worker | 中 | 增加 n_workers，异步采集 |
+| 改动 | 预期效果 | 验证指标 |
+|------|----------|----------|
+| 2-ply beam | 跨块协同得分提升，avg_score +20-40 | `avg100` 曲线，消行频率 |
+| Q 蒸馏（coef=0.1） | 策略头更快收敛，探索阶段更有方向 | `loss_q_distill` 快速降至 0.1 以下 |
+| eval gate | 训练后期稳定性提升，防止震荡 | 连续 5 次门控 PASSED 后胜率无明显回退 |
 
-### 8.2 Block Blast 特有优化方向
+### 8.2 v7 训练命令
 
-1. **3-块组合搜索**：每轮放 3 块，可对三步组合做 beam search（宽度 5-10）
-2. **形状感知编码**：将 dock 块用 GNN 或 PointNet 编码，比 5×5 mask 更精确
-3. **对手建模**：出块分布有规律（adaptiveSpawn），学习预测未来出块
-4. **课程自适应**：根据实际胜率动态调整课程速度，而非固定线性爬坡
+```bash
+# 标准 v7 训练（含评估门控，适合长跑）
+python -m rl_pytorch.train \
+  --episodes 50000 --device auto --arch conv-shared --width 128 \
+  --batch-episodes 128 --ppo-epochs 4 --gae-lambda 0.85 \
+  --dirichlet-epsilon 0.15 \
+  --eval-gate-every 2000 --eval-gate-games 50 \
+  --save rl_checkpoints/v7.pt
+
+# 关键监控指标（v7 新增 qdst）：
+# π= 策略损失  V= 价值损失  H= 熵
+# qdst= Q 蒸馏损失（应快速降至 ~0.05）
+# bq/feas/surv= 辅助头损失
+# [EvalGate] 行= 门控结果（✓/✗）
+
+# 消融实验：关闭 2-ply（比较 v6 vs v7 beam 效果）
+RL_BEAM2PLY=0 python -m rl_pytorch.train --episodes 10000 --save rl_checkpoints/v6_ablation.pt
+
+# 消融实验：关闭 Q 蒸馏
+RL_Q_DISTILL_COEF=0 python -m rl_pytorch.train --episodes 10000 --save rl_checkpoints/v7_no_distill.pt
+```
+
+---
+
+## 九、与 AlphaZero 的剩余差距及未来方向
+
+### 9.1 当前实现与 AlphaZero 的差距（v7 更新）
+
+| 特性 | AlphaZero | v7 现状 | 差距 | 未来方向 |
+|------|-----------|---------|------|----------|
+| **多步搜索** | MCTS 数百 ply | 1-step + **2-ply beam**（top-k）| 中 | 轻量 MCTS（10-50 次模拟） |
+| **策略改进目标** | MCTS 访问分布（监督 CE） | PPO + **Q 蒸馏（coef=0.1）** | 中 | 增大蒸馏权重 / 多步 Q 分布 |
+| **模型评估门控** | 新>旧 55% 替换 | **eval gate（软/硬模式）** | 已实现 | 硬门控 + 历史最优保留 |
+| **数据并行** | 数千局并行自博弈 | 2-6 CPU workers | 中 | 增加 n_workers，Ray 分布式 |
+
+### 9.2 Block Blast 特有优化方向（后续）
+
+1. **完整 MCTS（3-ply+）**：用 `sim.save_state/restore_state` 实现 UCT，需处理出块随机性（期望 Q 或采样 spawn）
+2. **三块全排列 beam**：当前 2-ply 只覆盖「当前块→次块」，可扩展到「当前块→次块→第三块」（3-ply）
+3. **形状感知编码**：将 dock 块用 GNN 或 PointNet 编码，比 5×5 mask 更精确
+4. **对手建模**：出块分布有规律（adaptiveSpawn），学习预测未来出块
+5. **课程自适应**：根据滑动胜率动态调整课程速度，而非固定线性爬坡

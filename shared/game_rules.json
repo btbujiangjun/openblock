@@ -174,6 +174,25 @@
       "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。纯 outcome(1.0) 导致 V≈常数，advantage 退化为原始 reward。",
       "enabled": true,
       "mix": 0.5
+    },
+    "qDistillation": {
+      "comment": "Q 分布蒸馏（v7 新增）：策略头额外学习 lookahead Q 值的 softmax 分布，向 AlphaZero 的「策略学搜索目标」靠拢。coef=0 关闭。tau 控制分布峰值：小→更尖锐、大→接近均匀。",
+      "enabled": true,
+      "coef": 0.1,
+      "tau": 1.0
+    },
+    "beam2ply": {
+      "comment": "三块组合 2-ply beam（v7 新增）：Q_2ply(s,a1)=r1+γ·max_a2[r2+γ·V(s'')]，当 dock 剩余块≥2时激活，捕捉跨块放置协同效应。topK 控制二层展开的动作数（降低开销）。",
+      "enabled": true,
+      "topK": 15,
+      "maxActions": 100
+    },
+    "evalGate": {
+      "comment": "评估门控（v7 新增，参考 AlphaZero 第三步）：每 everyEpisodes 局，贪心对比候选模型与基线模型，候选胜率 >= 基线×winRatio 则更新基线。enabled=false 默认关闭（通过 --eval-gate-every 开启）。",
+      "enabled": false,
+      "everyEpisodes": 2000,
+      "nGames": 50,
+      "winRatio": 0.55
     }
   },
   "featureEncoding": {
