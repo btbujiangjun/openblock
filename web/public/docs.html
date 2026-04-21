@@ -298,24 +298,84 @@
 
   // ─── marked 配置 ───
   if (typeof marked !== 'undefined') {
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-    });
-    // 代码高亮
+    marked.setOptions({ breaks: true, gfm: true });
+
     const renderer = new marked.Renderer();
+
+    // ── 代码高亮 ──
     renderer.code = function (code, lang) {
       const codeStr = typeof code === 'object' ? (code.text || '') : (code || '');
       const langStr = typeof code === 'object' ? (code.lang || lang || '') : (lang || '');
       if (typeof hljs !== 'undefined' && langStr && hljs.getLanguage(langStr)) {
         try {
-          const highlighted = hljs.highlight(codeStr, { language: langStr }).value;
-          return `<pre><code class="hljs language-${langStr}">${highlighted}</code></pre>`;
-        } catch (e) {}
+          const hl = hljs.highlight(codeStr, { language: langStr }).value;
+          return `<pre><code class="hljs language-${langStr}">${hl}</code></pre>`;
+        } catch (_) {}
       }
-      const escaped = codeStr.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      return `<pre><code>${escaped}</code></pre>`;
+      const esc = codeStr.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<pre><code>${esc}</code></pre>`;
     };
+
+    // ── 标题：生成 id 以支持锚点导航 ──
+    renderer.heading = function (text, level) {
+      // marked v12 传 token 对象；旧版传字符串
+      const rawText = typeof text === 'object' ? (text.raw || text.text || '') : (text || '');
+      const innerHtml = typeof text === 'object' ? (text.text || text.raw || '') : (text || '');
+      // GitHub 风格 id：去 HTML 标签 → 小写 → 保留中文/字母/数字/连字符 → 空格换横线
+      const id = rawText
+        .replace(/<[^>]+>/g, '')
+        .toLowerCase()
+        .replace(/[^\w\u4e00-\u9fa5\s\-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/^-|-$/g, '');
+      return `<h${level} id="${id}">${innerHtml}</h${level}>\n`;
+    };
+
+    // ── 链接：拦截并分类处理 ──
+    renderer.link = function (href, title, text) {
+      // 兼容 marked v12（传 token 对象）和旧版（传字符串）
+      let hrefStr, titleStr, textStr;
+      if (typeof href === 'object' && href !== null) {
+        hrefStr  = href.href  || '';
+        titleStr = href.title || title || '';
+        textStr  = typeof text === 'object' ? (text.text || text.raw || '') : (text || '');
+      } else {
+        hrefStr  = href  || '';
+        titleStr = title || '';
+        textStr  = typeof text === 'object' ? (text.text || text.raw || '') : (text || '');
+      }
+      const titleAttr = titleStr ? ` title="${titleStr}"` : '';
+
+      // 1. 外部链接 → 新标签页
+      if (/^https?:\/\//.test(hrefStr)) {
+        return `<a href="${hrefStr}" target="_blank" rel="noopener"${titleAttr}>${textStr}</a>`;
+      }
+
+      // 2. 页内锚点（#xxx）→ 拦截跳转，用 data-anchor 标记，不修改 location.hash
+      if (hrefStr.startsWith('#')) {
+        const anchor = hrefStr.slice(1);
+        return `<a href="javascript:void(0)" class="md-anchor" data-anchor="${anchor}"${titleAttr}>${textStr}</a>`;
+      }
+
+      // 3. Markdown 文档链接（*.md 或 *.md#section）→ 转为门户内导航
+      if (hrefStr.includes('.md')) {
+        const [filePart, anchorPart] = hrefStr.split('#');
+        const filename = filePart.replace(/^.*[/\\]/, ''); // 取文件名部分
+        if (!filename.endsWith('.md')) {
+          return `<a href="${hrefStr}"${titleAttr}>${textStr}</a>`;
+        }
+        if (anchorPart) {
+          return `<a href="javascript:void(0)" class="doc-nav-link" data-file="${filename}" data-anchor="${anchorPart}"${titleAttr}>${textStr}</a>`;
+        }
+        // 直接跳转文档 —— 利用 hash router 即可
+        return `<a href="#${filename}" class="doc-nav-link"${titleAttr}>${textStr}</a>`;
+      }
+
+      // 4. 其他相对链接（非 md）→ 原样保留（通常是图片等资源）
+      return `<a href="${hrefStr}"${titleAttr}>${textStr}</a>`;
+    };
+
     marked.use({ renderer });
   }
 
@@ -398,22 +458,20 @@
   }
 
   // ─── 打开文档 ───
-  async function openDoc(filename) {
+  async function openDoc(filename, scrollToAnchor) {
     _current = filename;
-    location.hash = filename;
+    // 只在 hash 不同时更新，避免页内锚点触发多余的 hashchange
+    if (location.hash !== '#' + filename) location.hash = filename;
     renderSidebar($search.value);
     $main.innerHTML = `<div class="status-msg"><div class="spinner"></div><span>加载中…</span></div>`;
-
-    // 滚动到顶部
     $main.scrollTop = 0;
     window.scrollTo(0, 0);
 
     try {
       const res = await fetch(`${API_BASE}/docs/raw/${encodeURIComponent(filename)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}（文档未找到）`);
       const md = await res.text();
 
-      // 找到文档所属分类名
       let catName = '';
       for (const cat of _categories) {
         if (cat.docs.some(d => d.file === filename)) { catName = cat.category; break; }
@@ -429,15 +487,49 @@
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 4 10 8 6 12"/></svg>
           <span>${filename}</span>
         </nav>
-        <article class="md-body">${html}</article>`;
+        <article class="md-body" id="md-content">${html}</article>`;
 
+      // 面包屑首页
       document.getElementById('bc-home').addEventListener('click', () => {
-        location.hash = '';
+        history.pushState('', document.title, location.pathname);
         renderWelcome();
       });
 
+      // ── 绑定页内锚点点击（#xxx → 平滑滚动，不修改 hash） ──
+      $main.querySelectorAll('a.md-anchor[data-anchor]').forEach(el => {
+        el.addEventListener('click', e => {
+          e.preventDefault();
+          scrollToId(el.dataset.anchor);
+        });
+      });
+
+      // ── 绑定跨文档带锚点链接（data-file + data-anchor） ──
+      $main.querySelectorAll('a.doc-nav-link[data-anchor]').forEach(el => {
+        el.addEventListener('click', e => {
+          e.preventDefault();
+          openDoc(el.dataset.file, el.dataset.anchor);
+        });
+      });
+
+      // ── 跨文档无锚点链接已经通过 href="#filename" 由 hashchange 处理 ──
+
+      // 若指定了锚点则滚过去（跨文档跳转后）
+      if (scrollToAnchor) {
+        setTimeout(() => scrollToId(scrollToAnchor), 80);
+      }
+
     } catch (e) {
       $main.innerHTML = `<div class="status-msg">⚠️ 加载失败：${e.message}</div>`;
+    }
+  }
+
+  // ─── 平滑滚动到元素 ID ───
+  function scrollToId(anchor) {
+    // 尝试直接 id 匹配，再尝试 decodeURIComponent
+    let el = document.getElementById(anchor);
+    if (!el) el = document.getElementById(decodeURIComponent(anchor));
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
 
@@ -455,12 +547,14 @@
 
   // ─── Hash 路由（浏览器前进/后退）───
   window.addEventListener('hashchange', () => {
-    const hash = location.hash.replace('#', '');
-    if (hash && hash.endsWith('.md')) {
-      openDoc(hash);
-    } else {
+    const hash = decodeURIComponent(location.hash.replace('#', ''));
+    if (!hash) {
       renderWelcome();
+    } else if (hash.endsWith('.md')) {
+      // 仅当文档切换时才重新加载（避免页内锚点触发重复加载）
+      if (hash !== _current) openDoc(hash);
     }
+    // 其余情况（页内锚点）由浏览器或 scrollToId 处理，不干预
   });
 
   // ─── 启动 ───
