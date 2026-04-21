@@ -1610,16 +1610,30 @@ def docs_list():
     return jsonify(result)
 
 
+_ROOT_DIR = Path(__file__).resolve().parent
+
+
 @app.route('/docs/raw/<filename>')
 def docs_raw(filename):
-    """返回指定文档的原始 Markdown 内容。"""
-    # 安全检查：只允许字母数字下划线和 .md 后缀
+    """返回指定文档的原始 Markdown 内容。
+
+    查找顺序：
+      1. docs/<filename>       — 专项文档目录
+      2. <root>/<filename>     — 根目录（ARCHITECTURE.md / README.md / CONTRIBUTING.md 等）
+    """
     import re
     if not re.match(r'^[\w\-]+\.md$', filename, re.ASCII):
         return jsonify({'error': 'invalid filename'}), 400
+
+    # 优先 docs/ 目录，再回退到根目录
     path = _DOCS_DIR / filename
     if not path.exists():
-        return jsonify({'error': 'not found'}), 404
+        root_path = _ROOT_DIR / filename
+        if root_path.exists():
+            path = root_path
+        else:
+            return jsonify({'error': 'not found'}), 404
+
     content = path.read_text('utf-8', errors='replace')
     return content, 200, {'Content-Type': 'text/plain; charset=utf-8',
                           'Cache-Control': 'no-cache'}
