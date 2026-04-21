@@ -1552,7 +1552,7 @@ _DOC_CATEGORIES = [
      'docs': ['PROJECT.md']},
     # 2. 品类研究
     {'name': '品类研究',
-     'docs': ['CASUAL_GAME_ANALYSIS.md']},
+     'docs': ['CASUAL_GAME_ANALYSIS.md', 'ARCHITECTURE_COMPARISON.md']},
     # 3. 游戏设计
     {'name': '游戏设计',
      'docs': ['DIFFICULTY_MODES.md']},
