@@ -1,4 +1,4 @@
-# RL Training Optimization v5 — Direct Supervision
+# RL 训练架构 v5：直接监督头
 
 > **数值稳定与看板 Lv 爆炸**：见 `docs/RL_TRAINING_NUMERICAL_STABILITY.md`（回报裁剪、GAE delta 裁剪、日志幅值上限）。  
 > **看板趋势、训练是否正常、优化清单**：见 `docs/RL_TRAINING_DASHBOARD_TRENDS.md`。

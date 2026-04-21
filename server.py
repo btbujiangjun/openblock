@@ -1543,17 +1543,33 @@ _DOCS_DIR = Path(__file__).resolve().parent / 'docs'
 _WEB_PUBLIC_DIR = Path(__file__).resolve().parent / 'web' / 'public'
 
 _DOC_CATEGORIES = [
-    {'name': '项目概览',  'docs': ['PROJECT.md']},
-    {'name': '商业化',    'docs': ['MONETIZATION.md', 'MONETIZATION_OPTIMIZATION.md',
-                                    'MONETIZATION_PERSONALIZATION.md', 'CASUAL_GAME_ANALYSIS.md']},
-    {'name': '游戏设计',  'docs': ['DIFFICULTY_MODES.md', 'PLAYER_ABILITY_EVALUATION.md',
-                                    'PANEL_PARAMETERS.md', 'REALTIME_STRATEGY.md']},
-    {'name': '出块算法',  'docs': ['SPAWN_ALGORITHM.md', 'ADAPTIVE_SPAWN.md', 'SPAWN_BLOCK_MODELING.md']},
-    {'name': '强化学习',  'docs': ['RL_AND_GAMEPLAY.md', 'RL_ANALYSIS.md',
-                                    'RL_ALPHAZERO_OPTIMIZATION.md', 'RL_BROWSER_OPTIMIZATION.md',
-                                    'RL_TRAINING_OPTIMIZATION.md', 'RL_TRAINING_NUMERICAL_STABILITY.md',
-                                    'RL_TRAINING_DASHBOARD_FLOW.md', 'RL_TRAINING_DASHBOARD_TRENDS.md']},
-    {'name': '部署与扩展', 'docs': ['WECHAT_MINIPROGRAM.md']},
+    # 1. 项目总览
+    {'name': '项目总览',
+     'docs': ['PROJECT.md']},
+    # 2. 品类研究
+    {'name': '品类研究',
+     'docs': ['CASUAL_GAME_ANALYSIS.md']},
+    # 3. 游戏设计
+    {'name': '游戏设计',
+     'docs': ['DIFFICULTY_MODES.md']},
+    # 4. 玩家系统
+    {'name': '玩家系统',
+     'docs': ['PLAYER_ABILITY_EVALUATION.md', 'PANEL_PARAMETERS.md', 'REALTIME_STRATEGY.md']},
+    # 5. 出块算法
+    {'name': '出块算法',
+     'docs': ['SPAWN_ALGORITHM.md', 'ADAPTIVE_SPAWN.md', 'SPAWN_BLOCK_MODELING.md']},
+    # 6. 强化学习
+    {'name': '强化学习',
+     'docs': ['RL_AND_GAMEPLAY.md', 'RL_ANALYSIS.md',
+              'RL_ALPHAZERO_OPTIMIZATION.md', 'RL_BROWSER_OPTIMIZATION.md',
+              'RL_TRAINING_OPTIMIZATION.md', 'RL_TRAINING_NUMERICAL_STABILITY.md',
+              'RL_TRAINING_DASHBOARD_FLOW.md', 'RL_TRAINING_DASHBOARD_TRENDS.md']},
+    # 7. 商业化
+    {'name': '商业化',
+     'docs': ['MONETIZATION.md', 'MONETIZATION_OPTIMIZATION.md', 'MONETIZATION_PERSONALIZATION.md']},
+    # 8. 平台扩展
+    {'name': '平台扩展',
+     'docs': ['WECHAT_MINIPROGRAM.md']},
 ]
 
 

@@ -1,4 +1,4 @@
-# 出块算法：建模思路、优化目标、特征与网络结构
+# 出块建模：规则引擎与 SpawnTransformer
 
 > 版本：1.0 | 更新：2026-04-17  
 > 本文在实现细节之上，给出**可复用的设计 rationale**，并与 `docs/SPAWN_ALGORITHM.md`、`docs/ADAPTIVE_SPAWN.md` 互补：后两者偏「模块说明与配置」，本文偏「问题形式化 + ML 侧数学结构」。

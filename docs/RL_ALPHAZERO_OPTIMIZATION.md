@@ -1,4 +1,4 @@
-# AlphaZero 算法分析与 Open Block RL 优化方案（v6）
+# AlphaZero 对比与 RL v6 优化方案
 
 ## 一、AlphaZero 系列论文核心分析
 

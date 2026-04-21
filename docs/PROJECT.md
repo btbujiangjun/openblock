@@ -1,4 +1,4 @@
-# OpenBlock 技术说明
+# OpenBlock 技术总览
 
 本文描述当前实现与数据流，与根目录 `README.md` 配合使用。
 
