@@ -1,6 +1,6 @@
 # 休闲游戏品类分析与系统研究
 
-> 日期：2026-04-08 | 范围：玩家能力评价、心流/挫败状态、游戏策略建模、个性化推荐
+> 日期：2026-04-08 | 最后更新：2026-04-20 | 范围：玩家能力评价、心流/挫败状态、游戏策略建模、个性化推荐、2025-2026 行业数据
 
 ---
 
@@ -275,6 +275,111 @@ P(t) 的代理变量即上文的 **skillLevel**。
 
 ---
 
+---
+
+## 第二部分 — 2025-2026 行业最新研究与数据
+
+### 10 消块品类竞争格局与市场数据
+
+#### 10.1 Block Blast! 的成功解构
+
+Block Blast!（Hungry Studio）是 2025 年消块品类的标杆，其核心竞争力：
+
+| 维度 | 做法 | 效果 |
+|------|------|------|
+| **DDA 系统** | AI 实时检测挫败 → 推送能填入的形状 | D60 留存 19%（超大多数游戏 D7） |
+| **A/B 测试** | 50 个测试/周，3000+ 测试积累 | 每个版本均经过验证的最优化 |
+| **AI 模拟先行** | 先用 AI 模拟玩家筛选方案，再升级到真人测试 | 减少无效迭代成本 |
+| **内容简洁** | 核心循环极致简单，不添加复杂规则 | 低流失，高 D1 留存 |
+
+#### 10.2 第二代消块游戏：静态关卡
+
+Rollic Games 引领第二代消块游戏（Color Block Jam，2025）：
+
+```
+核心差异：不是随机出块，而是预设关卡
+  每关卡包含：预设棋盘初始状态 + 明确通关目标 + 限制可用块集
+  难度控制：关卡设计师直接编辑，精确到每个障碍物
+  变现锚点：在特定"壁垒关"（Level 20/50/100）设置精确的付费墙
+```
+
+Open Block 现状对比：
+- 已有无尽模式（DDA 驱动）≈ 第一代最优实现
+- 尚无静态关卡系统 ≈ 缺少第二代核心竞争力
+- 已有复活系统（ReviveManager）≈ 关键变现锚点已落地
+
+#### 10.3 行业留存基准（2025-2026 Sensor Tower / Adjust 数据）
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  移动游戏留存率基准（2025 数据，Adjust & Sensor Tower）  │
+├──────────────────┬────────┬────────┬────────┬────────────┤
+│  指标            │ D1     │ D7     │ D30    │ 备注       │
+├──────────────────┼────────┼────────┼────────┼────────────┤
+│  全品类均值      │ 27%    │ -      │ -      │            │
+│  休闲（下滑）    │ <27%   │ 下滑   │ 下滑   │ 2022-2025  │
+│  混合休闲        │ >27%   │ 改善中 │ -      │            │
+│  Top 四分位标准  │ 40%+   │ 20%+   │ 10%+   │ 行业目标   │
+│  Block Blast D60 │ -      │ -      │ -      │ 19%（超越）│
+└──────────────────┴────────┴────────┴────────┴────────────┘
+```
+
+#### 10.4 进度驱动商业化（2025 新范式）
+
+研究数据（Airflux 2025）：广告容忍度与投入深度强相关。
+
+```
+新玩家（关卡 1-5）     ← 180+ 秒广告间隔才合适
+投入玩家（关卡 6-15）  ← 60-90 秒可接受
+深度玩家（关卡 16+）   ← 30 秒也可接受
+                        容忍度差距：6 倍
+```
+
+实施效果：
+- 广告收入/用户 **+43%**
+- D7 留存 **+18%**（少了早期广告骚扰）
+
+### 11 方块益智游戏 RL 最新学术进展（2025）
+
+#### 11.1 Tetris Block Puzzle 难度量化（arXiv:2603.18994）
+
+用 SGAZ（Stochastic Gumbel AlphaZero）评估游戏难度：
+
+| 规则变体 | 难度影响 | 结论 |
+|---------|---------|------|
+| 增加 hold 块数 | 显著降低难度 | hold=3 比 hold=0 训练收益高 2x |
+| 增加 preview 数 | 轻微降低难度 | 预览下一块帮助规划 |
+| 添加 T-五联骨牌 | 显著增加难度 | 训练收益降低 40%+ |
+
+**意义**：首次为方块类益智游戏提供**可量化的 AI 难度基准**，为关卡设计者提供理论工具。
+
+#### 11.2 PCGRL 关卡生成（Linköping 2025）
+
+**Solution-down PCGRL**：先设计解法路径，再反向构建关卡，保证 100% 可解且难度可控。
+
+相比传统 PCG（生成后筛选），SDPCGRL：
+- 无效关卡比例大幅降低
+- 结合难度预测器，生成目标难度档的关卡
+- 难度预测器用真实玩家数据训练（尝试次数作为标签）
+
+**Open Block 路线**：SpawnTransformerV2 的玩家行为数据可训练难度预测器。
+
+#### 11.3 AlphaZeroES 单人环境优化（AAMAS 2025）
+
+发现：在单人谜题（Sokoban、2048、TSP）中，直接最大化 Episode 得分比标准 AlphaZero 规划损失更有效。
+
+原因分析：
+```
+AlphaZero 原始训练目标：最小化 MCTS 访问分布的 KL 散度
+AlphaZeroES 训练目标：  直接最大化 Episode 总得分
+
+单人优化 vs 博弈：没有对手需要"反制"，Episode 得分更直接反映目标
+```
+
+对 Open Block 的启示：Open Block RL 是单人优化，值得尝试 ES 微调替代 PPO Loss。
+
+---
+
 ## 参考文献
 
 1. Csikszentmihalyi, M. (1990). *Flow: The Psychology of Optimal Experience*
@@ -284,3 +389,12 @@ P(t) 的代理变量即上文的 **skillLevel**。
 5. Ryan, R.M. & Deci, E.L. (2000). *Self-Determination Theory and the Facilitation of Intrinsic Motivation*
 6. Engagement-Oriented DDA, MDPI Applied Sciences 15(10), 2025
 7. WWW 2017 — *Dynamic Difficulty Adjustment for Maximized Engagement in Digital Games*
+8. arXiv:2603.18994 (2025) — *Evaluating Game Difficulty in Tetris Block Puzzle*（SGAZ）
+9. Johansson, E. (2025) — *Solution-down PCGRL for hyper-casual puzzle games*（Linköping）
+10. AAMAS 2025 — *AlphaZeroES: Direct Score Maximization Outperforms Planning Loss*
+11. arXiv:2504.14636 (2025) — *AlphaZero-Edu: Democratizing Access to AlphaZero*
+12. arXiv:2504.07757 (2025) — *Search-contempt: a hybrid MCTS algorithm*
+13. Sensor Tower (2026) — *State of Gaming 2026*
+14. Adjust (2026) — *Gaming App Insights Report 2026*
+15. Airflux (2025) — *Progression-Based Mobile Game Monetization*
+16. Deconstructor of Fun (2026) — *The Post-Block Blast Playbook*
