@@ -34,7 +34,14 @@ import torch.nn.functional as F
 from torch.distributions import Categorical, Dirichlet
 
 from .config import WIN_SCORE_THRESHOLD
-from .game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING, rl_curriculum_enabled, rl_win_threshold_for_episode
+from .game_rules import (
+    FEATURE_ENCODING,
+    RL_REWARD_SHAPING,
+    rl_curriculum_enabled,
+    rl_win_threshold_for_episode,
+    rl_adaptive_curriculum_config,
+    rl_win_threshold_from_virtual_ep,
+)
 from .device import (
     adam_for_training,
     apply_cpu_training_tuning,
@@ -70,7 +77,12 @@ def _pool_worker_init(arch: str, width: int, pd: int, vd: int, mr: float, cc: in
 
 
 def _pool_worker_collect(args: tuple) -> list[dict]:
-    """Worker：加载最新权重 → 采集若干局 → 返回轨迹。"""
+    """Worker：加载最新权重 → 采集若干局 → 返回轨迹。
+
+    config tuple: (global_ep, temp_floor, explore_first_moves, explore_temp_mult,
+                   dirichlet_epsilon, dirichlet_alpha, win_threshold_override)
+    第 7 个元素 win_threshold_override 为可选（None 表示使用线性课程）。
+    """
     global _pool_net, _pool_device
     state_dict, configs = args
     _pool_net.load_state_dict(state_dict)
@@ -78,6 +90,7 @@ def _pool_worker_collect(args: tuple) -> list[dict]:
         collect_episode(
             _pool_net, _pool_device,
             cfg[0], cfg[1], cfg[2], cfg[3], cfg[4], cfg[5],
+            win_threshold_override=cfg[6] if len(cfg) > 6 else None,
         )
         for cfg in configs
     ]
@@ -482,6 +495,181 @@ def _beam_2ply_q_values(
     return q2ply
 
 
+def _beam_3ply_q_values(
+    net: AnyNet,
+    device: torch.device,
+    sim: OpenBlockSimulator,
+    legal: list[dict],
+    gamma: float,
+    top_k: int = 15,
+    max_actions: int = 100,
+    top_k2: int = 5,
+    max_actions2: int = 50,
+) -> np.ndarray | None:
+    """三块全排列 3-ply beam：Q_3ply(s,a1) = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]].
+
+    扩展 2-ply：对 top_k 中的每个 a1，再对 top_k2 个 a2 展开第三层，
+    全部 s''' 合并一次批量 V 推理。
+
+    Guard 条件：
+      - dock 剩余块 < 3：退化为 2-ply（仍有意义）或 1-step（仅 1 块时）
+      - n_actions > max_actions：直接返回 None
+    """
+    n_actions = len(legal)
+    if n_actions == 0 or n_actions > max_actions:
+        return None
+
+    blocks_remain = sum(1 for s in sim.dock if s is not None)
+    if blocks_remain < 3:
+        # 退化为 2-ply（或 1-step）
+        return _beam_2ply_q_values(net, device, sim, legal, gamma, top_k, max_actions)
+
+    saved = sim.save_state()
+
+    # ——— 第一层：计算所有动作的 r1 + V(s') ———
+    r1_arr = np.empty(n_actions, dtype=np.float32)
+    next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
+    for i, a in enumerate(legal):
+        r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+        next_states[i] = extract_state_features(sim.grid, sim.dock)
+        sim.restore_state(saved)
+
+    with torch.no_grad():
+        ns_t = tensor_to_device(torch.from_numpy(next_states), device)
+        v1 = net.forward_value(ns_t).cpu().numpy().flatten()
+
+    q1 = r1_arr + gamma * v1
+    q3ply = q1.copy()
+
+    top_k_actual = min(top_k, n_actions)
+    top_k_idxs = np.argsort(q1)[-top_k_actual:]
+
+    # ——— 第二 / 三层批量收集 ———
+    # ply3_items: (a1_idx, r1, a2_idx_local, r2, ns3_states_2d)
+    ply2_best: dict[int, tuple[float, np.ndarray, np.ndarray]] = {}  # a1→(r1, r2_arr, ns2)
+
+    for i in top_k_idxs:
+        a1 = legal[int(i)]
+        r1 = float(sim.step(a1["block_idx"], a1["gx"], a1["gy"]))
+        legal2 = sim.get_legal_actions()
+
+        if not legal2 or len(legal2) > max_actions2:
+            q3ply[i] = r1
+            sim.restore_state(saved)
+            continue
+
+        n2 = len(legal2)
+        saved2 = sim.save_state()
+        r2_arr = np.empty(n2, dtype=np.float32)
+        ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
+        for j, a2 in enumerate(legal2):
+            r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
+            ns2[j] = extract_state_features(sim.grid, sim.dock)
+            sim.restore_state(saved2)
+
+        ply2_best[int(i)] = (r1, r2_arr, ns2)
+        sim.restore_state(saved)
+
+    if not ply2_best:
+        return q3ply
+
+    # ——— 第二层 V 批量推理（确定 top_k2 ）———
+    all_ns2_concat = np.concatenate([v[2] for v in ply2_best.values()], axis=0)
+    with torch.no_grad():
+        ns2_t = tensor_to_device(torch.from_numpy(all_ns2_concat), device)
+        all_v2 = net.forward_value(ns2_t).cpu().numpy().flatten()
+
+    # ply3_batches: (a1_idx, r1, r2, ns3_block)
+    ply3_batches: list[tuple[int, float, float, np.ndarray]] = []
+    v2_offset = 0
+    q2_map: dict[int, tuple[float, np.ndarray]] = {}  # a1→(r1, q2_arr)
+    for i, (r1, r2_arr, ns2) in ply2_best.items():
+        n2 = len(r2_arr)
+        v2 = all_v2[v2_offset: v2_offset + n2]
+        q2_arr = r2_arr + gamma * v2
+        q2_map[i] = (r1, q2_arr)
+        v2_offset += n2
+
+    # 对每个 a1，选 top_k2 个 a2 展开第三层
+    for i, (r1, q2_arr) in q2_map.items():
+        n2 = len(q2_arr)
+        top_k2_actual = min(top_k2, n2)
+        top2_idxs = np.argsort(q2_arr)[-top_k2_actual:]
+
+        # 需要重新模拟以收集 ns3
+        a1 = legal[i]
+        sim.step(a1["block_idx"], a1["gx"], a1["gy"])
+        legal2_cur = sim.get_legal_actions()
+        if not legal2_cur:
+            q3ply[i] = r1
+            sim.restore_state(saved)
+            continue
+
+        saved2 = sim.save_state()
+        for j in top2_idxs:
+            if j >= len(legal2_cur):
+                sim.restore_state(saved2)
+                continue
+            a2 = legal2_cur[j]
+            r2_val = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
+            legal3 = sim.get_legal_actions()
+
+            if not legal3:
+                ply3_batches.append((i, r1, r2_val, np.empty((0, STATE_FEATURE_DIM), dtype=np.float32)))
+                sim.restore_state(saved2)
+                continue
+
+            n3 = len(legal3)
+            saved3 = sim.save_state()
+            r3_arr = np.empty(n3, dtype=np.float32)
+            ns3 = np.empty((n3, STATE_FEATURE_DIM), dtype=np.float32)
+            for k, a3 in enumerate(legal3):
+                r3_arr[k] = float(sim.step(a3["block_idx"], a3["gx"], a3["gy"]))
+                ns3[k] = extract_state_features(sim.grid, sim.dock)
+                sim.restore_state(saved3)
+            # 将 (r3, ns3) 打包为 concatenated block：首行存 r3，后续行存 ns3
+            block = np.empty((n3 + 1, STATE_FEATURE_DIM), dtype=np.float32)
+            block[0, :n3] = r3_arr
+            block[1:, :] = ns3
+            ply3_batches.append((i, r1, r2_val, block))
+            sim.restore_state(saved2)
+        sim.restore_state(saved)
+
+    if ply3_batches:
+        # 合并所有 ns3 做一次批量推理
+        ns3_list = []
+        for _, _, _, blk in ply3_batches:
+            if blk.shape[0] > 1:
+                ns3_list.append(blk[1:])
+        if ns3_list:
+            all_ns3 = np.concatenate(ns3_list, axis=0)
+            with torch.no_grad():
+                ns3_t = tensor_to_device(torch.from_numpy(all_ns3), device)
+                all_v3 = net.forward_value(ns3_t).cpu().numpy().flatten()
+
+            v3_off = 0
+            # 用 a1-level 的 best_q3 dict 做 max 聚合
+            best_q3: dict[int, float] = {}
+            for (i, r1, r2_val, blk) in ply3_batches:
+                if blk.shape[0] <= 1:
+                    q3_val = r2_val  # 第三层无动作，V=0
+                else:
+                    n3 = blk.shape[0] - 1
+                    r3_arr = blk[0, :n3]
+                    v3 = all_v3[v3_off: v3_off + n3]
+                    q3_val = float(r2_val + gamma * np.max(r3_arr + gamma * v3))
+                    v3_off += n3
+                # 对同一 a1，取不同 a2 的最大 q3_val
+                if i not in best_q3 or q3_val > best_q3[i]:
+                    best_q3[i] = q3_val
+
+            for i, q3_best in best_q3.items():
+                r1 = q2_map[i][0]
+                q3ply[i] = r1 + gamma * q3_best
+
+    return q3ply
+
+
 def collect_episode(
     net: AnyNet,
     device: torch.device,
@@ -491,18 +679,49 @@ def collect_episode(
     explore_temp_mult: float,
     dirichlet_epsilon: float,
     dirichlet_alpha: float,
+    win_threshold_override: int | None = None,
 ) -> dict:
-    """no_grad 采集：只存 numpy，不建计算图；更新时由 GPU 批量再评估。"""
+    """no_grad 采集：只存 numpy，不建计算图；更新时由 GPU 批量再评估。
+
+    新增参数 win_threshold_override：自适应课程时由 train_loop 动态传入，
+    覆盖基于 global_ep 的线性计算结果。
+    """
     sim = OpenBlockSimulator("normal")
-    sim.win_score_threshold = rl_win_threshold_for_episode(global_ep)
+    if win_threshold_override is not None:
+        sim.win_score_threshold = win_threshold_override
+    else:
+        sim.win_score_threshold = rl_win_threshold_for_episode(global_ep)
     trajectory: list[dict] = []
     gamma = float(os.environ.get("RL_GAMMA", "0.99"))
     use_lookahead = os.environ.get("RL_LOOKAHEAD", "1").lower() not in ("0", "false", "no")
     lookahead_mix = float(os.environ.get("RL_LOOKAHEAD_MIX", "0.5"))
+
+    # --- 搜索策略选择（优先级：MCTS > 3-ply beam > 2-ply beam > 1-step）---
+    _mcts_cfg = RL_REWARD_SHAPING.get("lightMCTS") or {}
+    use_mcts = (
+        _mcts_cfg.get("enabled", False)
+        and os.environ.get("RL_MCTS", "0").lower() not in ("0", "false", "no")
+    )
+    _mcts_sims = int(_mcts_cfg.get("numSimulations", 20))
+    _mcts_cpuct = float(_mcts_cfg.get("cPuct", 1.5))
+    _mcts_depth = int(_mcts_cfg.get("maxDepth", 8))
+
+    _beam3ply_cfg = RL_REWARD_SHAPING.get("beam3ply") or {}
+    use_beam3ply = (
+        _beam3ply_cfg.get("enabled", False)
+        and os.environ.get("RL_BEAM3PLY", "0").lower() not in ("0", "false", "no")
+        and not use_mcts
+    )
+    _b3_topk = int(_beam3ply_cfg.get("topK", 15))
+    _b3_topk2 = int(_beam3ply_cfg.get("topK2", 5))
+    _b3_max = int(_beam3ply_cfg.get("maxActions", 100))
+    _b3_max2 = int(_beam3ply_cfg.get("maxActions2", 50))
+
     _beam2ply_cfg = RL_REWARD_SHAPING.get("beam2ply") or {}
     use_beam2ply = (
         _beam2ply_cfg.get("enabled", True)
         and os.environ.get("RL_BEAM2PLY", "1").lower() not in ("0", "false", "no")
+        and not use_mcts and not use_beam3ply
     )
     _beam2ply_topk = int(_beam2ply_cfg.get("topK", 15))
     _beam2ply_max_actions = int(_beam2ply_cfg.get("maxActions", 100))
@@ -526,7 +745,24 @@ def collect_episode(
 
         q_vals = None
         if use_lookahead and step_idx >= explore_first_moves:
-            if use_beam2ply:
+            if use_mcts:
+                # 轻量 MCTS：访问分布→伪 Q 值（类 AlphaZero 策略目标）
+                from .mcts import mcts_q_proxy as _mcts_fn
+                q_vals = _mcts_fn(
+                    net, device, sim,
+                    n_simulations=_mcts_sims,
+                    c_puct=_mcts_cpuct,
+                    max_depth=_mcts_depth,
+                    gamma=gamma,
+                )
+            elif use_beam3ply:
+                # 3-ply beam：dock=3 时三块全排列，否则自动退化为 2-ply/1-step
+                q_vals = _beam_3ply_q_values(
+                    net, device, sim, legal, gamma,
+                    top_k=_b3_topk, max_actions=_b3_max,
+                    top_k2=_b3_topk2, max_actions2=_b3_max2,
+                )
+            elif use_beam2ply:
                 # 2-ply beam：当 dock≥2 块时展开第二层，否则自动退化为 1-step
                 q_vals = _beam_2ply_q_values(
                     net, device, sim, legal, gamma,
@@ -1071,15 +1307,32 @@ def train_loop(
     eval_gate_games: int = 50,
     eval_gate_win_ratio: float = 0.55,
 ) -> int:
+    import collections
     import multiprocessing as mp
 
     opt = adam_for_training(net.parameters(), lr=lr)
 
-    # 评估门控：记录基线权重（CPU 端），周期性对比候选模型胜率
+    # --- 评估门控：基线权重 + 历史最优保留（v8）---
     _baseline_sd: dict | None = None
     _last_gate_ep: int = 0
+    _best_ever_sd: dict | None = None   # 历史最优模型权重（从不降级）
+    _best_ever_wr: float = 0.0          # 历史最优对应胜率
     if eval_gate_every > 0:
         _baseline_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+        _best_ever_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+
+    # --- 自适应课程（v8）---
+    _adap_cfg = rl_adaptive_curriculum_config()
+    _use_adaptive = _adap_cfg.get("enabled", False) and rl_curriculum_enabled()
+    _adap_window = int(_adap_cfg.get("window", 200))
+    _adap_target_wr = float(_adap_cfg.get("targetWinRate", 0.5))
+    _adap_step_up = float(_adap_cfg.get("stepUp", 2))
+    _adap_step_down = float(_adap_cfg.get("stepDown", 0))
+    _adap_check_every = int(_adap_cfg.get("checkEvery", 50))
+    # 虚拟局数：课程推进速度由滑动胜率决定，可快于/慢于实际局数
+    _virtual_ep: float = 0.0
+    _win_history: collections.deque = collections.deque(maxlen=_adap_window)
+    _last_adap_check_ep: int = 0
 
     start_ep = 0
     if resume and resume.is_file():
@@ -1141,10 +1394,15 @@ def train_loop(
     t_collect_ms = 0.0
     t_train_ms = 0.0
 
-    def _make_pool_args(ep_start: int, count: int):
+    def _make_pool_args(ep_start: int, count: int, win_thr: int | None = None):
+        """构建 pool worker 的参数列表。
+
+        每个 config 为 7-tuple：(global_ep, temp_floor, explore_first_moves,
+            explore_temp_mult, dirichlet_epsilon, dirichlet_alpha, win_threshold_override)
+        """
         configs = [
             (ep_start + i + 1, temp_floor, explore_first_moves, explore_temp_mult,
-             dirichlet_epsilon, dirichlet_alpha)
+             dirichlet_epsilon, dirichlet_alpha, win_thr)
             for i in range(count)
         ]
         chunks: list[list] = [[] for _ in range(actual_workers)]
@@ -1163,6 +1421,12 @@ def train_loop(
                 for pg in opt.param_groups:
                     pg["lr"] = effective_lr
 
+            # --- 自适应课程：计算当前有效胜利门槛 ---
+            if _use_adaptive:
+                cur_win_thr: int | None = rl_win_threshold_from_virtual_ep(int(_virtual_ep))
+            else:
+                cur_win_thr = None  # None = collect_episode 内部按线性课程计算
+
             # --- 采集（含流水线重叠）---
             tc0 = time.perf_counter()
 
@@ -1171,7 +1435,7 @@ def train_loop(
                     results = _pending_async.get()
                     batch = [ep for worker_eps in results for ep in worker_eps]
                 else:
-                    args_list = _make_pool_args(ep_cursor, bs)
+                    args_list = _make_pool_args(ep_cursor, bs, cur_win_thr)
                     results = pool.map(_pool_worker_collect, args_list)
                     batch = [ep for worker_eps in results for ep in worker_eps]
 
@@ -1182,7 +1446,7 @@ def train_loop(
                 next_ep = ep_cursor + bs
                 next_bs = min(batch_episodes, start_ep + episodes - next_ep)
                 if next_bs > 0:
-                    next_args = _make_pool_args(next_ep, next_bs)
+                    next_args = _make_pool_args(next_ep, next_bs, cur_win_thr)
                     _pending_async = pool.map_async(_pool_worker_collect, next_args)
                 else:
                     _pending_async = None
@@ -1193,6 +1457,7 @@ def train_loop(
                         ep_cursor + i + 1, temp_floor,
                         explore_first_moves, explore_temp_mult,
                         dirichlet_epsilon, dirichlet_alpha,
+                        win_threshold_override=cur_win_thr,
                     )
                     for i in range(bs)
                 ]
@@ -1201,9 +1466,29 @@ def train_loop(
 
             for ep in batch:
                 scores.append(ep["score"])
-                if ep["won"]:
+                won = ep["won"]
+                if won:
                     wins += 1
+                if _use_adaptive:
+                    _win_history.append(1 if won else 0)
             ep_cursor += bs
+
+            # --- 自适应课程：每 checkEvery 局更新虚拟进度 ---
+            if _use_adaptive and ep_cursor - _last_adap_check_ep >= _adap_check_every:
+                _last_adap_check_ep = ep_cursor
+                if len(_win_history) >= 10:
+                    recent_wr = sum(_win_history) / len(_win_history)
+                    if recent_wr > _adap_target_wr:
+                        # 超过目标胜率：加速推进（额外增加虚拟局数）
+                        _virtual_ep += _adap_step_up * _adap_check_every
+                    elif recent_wr < _adap_target_wr * 0.6:
+                        # 远低于目标：暂停推进（保持当前虚拟局数）
+                        _virtual_ep += max(0.0, _adap_step_down * _adap_check_every)
+                    else:
+                        # 正常范围：按实际局数推进
+                        _virtual_ep += float(_adap_check_every)
+                else:
+                    _virtual_ep += float(_adap_check_every)
 
             # --- GPU 批量更新（PPO 或 REINFORCE）---
             tt0 = time.perf_counter()
@@ -1233,7 +1518,11 @@ def train_loop(
                 wins = 0
                 last_log_ep = ep_cursor
                 last_ep = batch[-1]
-                wt = last_ep.get("win_threshold", WIN_SCORE_THRESHOLD)
+                # 自适应课程时显示虚拟局数对应的门槛
+                if _use_adaptive and cur_win_thr is not None:
+                    wt = cur_win_thr
+                else:
+                    wt = last_ep.get("win_threshold", WIN_SCORE_THRESHOLD)
                 lp_str = f"{last_update['policy_loss']:.4f}" if last_update else "N/A"
                 lv_str = f"{last_update['value_loss']:.4f}" if last_update else "N/A"
                 he_str = f"{last_update['entropy']:.3f}" if last_update else "N/A"
@@ -1252,8 +1541,10 @@ def train_loop(
                     hole_str += f"  qdst={last_update.get('loss_q_distill', 0):.4f}"
                 ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
                 gpu_pct = 100.0 * t_train_ms / max(t_collect_ms + t_train_ms, 1)
+                # 自适应课程：显示虚拟进度
+                adap_tag = f"  vep={_virtual_ep:.0f}" if _use_adaptive else ""
                 print(
-                    f"ep {ep_cursor}  |  {ppo_tag}  |  dev={device.type}  |  thr={wt}  |  "
+                    f"ep {ep_cursor}  |  {ppo_tag}  |  dev={device.type}  |  thr={wt}{adap_tag}  |  "
                     f"sc={last_ep['score']:.0f}  avg100={avg:.1f}  win%={wr:.1f}%  steps={last_ep['steps']}  |  "
                     f"π={lp_str}  V={lv_str}  H={he_str}{hole_str}  |  "
                     f"C={t_collect_ms:.0f}ms T={t_train_ms:.0f}ms GPU≈{gpu_pct:.0f}%  |  {dt:.1f}s",
@@ -1261,7 +1552,9 @@ def train_loop(
                 )
                 t0 = time.perf_counter()
 
-            # --- 评估门控（软门控：仅记录，不强制回滚；硬门控需 RL_EVAL_GATE_HARD=1）---
+            # --- 评估门控（v8：软/硬门控 + 历史最优保留）---
+            # 软门控（默认）：仅记录，不回滚
+            # 硬门控（RL_EVAL_GATE_HARD=1）：失败时恢复到历史最优（非仅基线）
             if (
                 eval_gate_every > 0
                 and _baseline_sd is not None
@@ -1285,19 +1578,33 @@ def train_loop(
                 )
                 _cwr = _gate_m["candidate"]["win_rate"]
                 _bwr = _gate_m["baseline"]["win_rate"]
+                _hard = os.environ.get("RL_EVAL_GATE_HARD", "0").lower() not in ("0", "false", "no")
+
                 if _gate_passed:
+                    # 候选超过基线 → 更新基线
                     _baseline_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                    # 检查是否超过历史最优
+                    if _cwr > _best_ever_wr:
+                        _best_ever_wr = _cwr
+                        _best_ever_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                        best_tag = "  ★ 历史最优已更新"
+                    else:
+                        best_tag = f"  (历史最优胜率={_best_ever_wr:.1%})"
                     print(
-                        f"[EvalGate] ep={ep_cursor}  ✓ PASSED  cand={_cwr:.1%}  base={_bwr:.1%}  → 基线已更新",
+                        f"[EvalGate] ep={ep_cursor}  ✓ PASSED  cand={_cwr:.1%}  base={_bwr:.1%}"
+                        f"  → 基线已更新{best_tag}",
                         file=sys.stderr,
                     )
                 else:
-                    _hard = os.environ.get("RL_EVAL_GATE_HARD", "0").lower() not in ("0", "false", "no")
-                    if _hard:
-                        net.load_state_dict({k: v.to(device) for k, v in _baseline_sd.items()})
+                    if _hard and _best_ever_sd is not None:
+                        # 硬门控：回滚到历史最优（而非仅当前基线）
+                        net.load_state_dict({k: v.to(device) for k, v in _best_ever_sd.items()})
+                        restore_tag = f"  [已恢复历史最优 best_wr={_best_ever_wr:.1%}]"
+                    else:
+                        restore_tag = "  [软门控：继续训练]"
                     print(
                         f"[EvalGate] ep={ep_cursor}  ✗ FAILED  cand={_cwr:.1%}  base={_bwr:.1%}"
-                        + ("  [已恢复基线]" if _hard else "  [软门控：继续训练]"),
+                        + restore_tag,
                         file=sys.stderr,
                     )
                 _last_gate_ep = ep_cursor
@@ -1483,6 +1790,31 @@ def main() -> None:
         default=0.55,
         help="门控胜率倍数阈值；0.55 = 候选须超过基线胜率的 55%%（AlphaZero 默认标准）",
     )
+    # ── v8 新增参数 ──────────────────────────────────────────────────────
+    p.add_argument(
+        "--adaptive-curriculum",
+        action="store_true",
+        help="启用自适应课程（RL_ADAPTIVE_CURRICULUM=1 亦可）：根据滑动胜率动态调整"
+             "课程门槛推进速度；胜率高则加速，胜率低则减速",
+    )
+    p.add_argument(
+        "--beam3ply",
+        action="store_true",
+        help="启用 3-ply beam（RL_BEAM3PLY=1 亦可）：dock=3 块时三层全排列展开，"
+             "其余情况自动退化为 2-ply；注意显著增加每步采集耗时",
+    )
+    p.add_argument(
+        "--mcts",
+        action="store_true",
+        help="启用轻量 MCTS（RL_MCTS=1 亦可）：用 UCT 搜索取代 beam Q 值，"
+             "访问分布作为策略目标（类 AlphaZero）；与 beam 互斥，MCTS 优先级更高",
+    )
+    p.add_argument(
+        "--mcts-sims",
+        type=int,
+        default=0,
+        help="MCTS 每步模拟次数；0=使用 game_rules.json 中的 lightMCTS.numSimulations（默认 20）",
+    )
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -1505,6 +1837,16 @@ def main() -> None:
                 f"  |  仅价值头: {'on' if val_on else 'off'} (RL_CUDA_DP_VALUE，无 forward_trunk 时)",
                 file=sys.stderr,
             )
+
+    # v8 功能开关（命令行参数 → 环境变量，传递给 collect_episode）
+    if getattr(args, "adaptive_curriculum", False):
+        os.environ["RL_ADAPTIVE_CURRICULUM"] = "1"
+    if getattr(args, "beam3ply", False):
+        os.environ["RL_BEAM3PLY"] = "1"
+    if getattr(args, "mcts", False):
+        os.environ["RL_MCTS"] = "1"
+    if getattr(args, "mcts_sims", 0) > 0:
+        os.environ["RL_MCTS_SIMS"] = str(args.mcts_sims)
 
     arch = args.arch.strip().lower()
     net = build_policy_net(

@@ -193,6 +193,30 @@
       "everyEpisodes": 2000,
       "nGames": 50,
       "winRatio": 0.55
+    },
+    "adaptiveCurriculum": {
+      "comment": "自适应课程（v8 新增）：根据滑动胜率动态调整课程推进速度。winRate>targetWinRate 时每局额外前进 stepUp 虚拟局；winRate<targetWinRate 时每局暂停推进（不倒退）。checkEvery 控制更新频率，window 为滑动窗口大小。enabled=false 使用原固定线性爬坡。",
+      "enabled": false,
+      "window": 200,
+      "targetWinRate": 0.5,
+      "stepUp": 2,
+      "stepDown": 0,
+      "checkEvery": 50
+    },
+    "beam3ply": {
+      "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 剩余块=3 时激活。topK/topK2 分别控制第二/三层展开宽度，防止指数爆炸。",
+      "enabled": false,
+      "topK": 15,
+      "topK2": 5,
+      "maxActions": 100,
+      "maxActions2": 50
+    },
+    "lightMCTS": {
+      "comment": "轻量 UCT-MCTS（v8 新增）：以神经网络 V(s) 替代随机 rollout，numSimulations 次 UCT 搜索后输出访问分布作为策略目标（类 AlphaZero）。enabled=false 默认关闭。与 beam2ply/beam3ply 互斥，lightMCTS 优先级更高。",
+      "enabled": false,
+      "numSimulations": 20,
+      "cPuct": 1.5,
+      "maxDepth": 8
     }
   },
   "featureEncoding": {

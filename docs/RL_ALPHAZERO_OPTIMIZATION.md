@@ -1,4 +1,4 @@
-# AlphaZero 对比与 RL v6 优化方案
+# AlphaZero 对比与 RL 优化方案（v8）
 
 ## 一、AlphaZero 系列论文核心分析
 
@@ -308,14 +308,20 @@ python -m rl_pytorch.train --eval-gate-every 2000 --eval-gate-games 50 --eval-ga
 
 ---
 
-### 5.4 v7 新增环境变量
+### 5.4 v7/v8 新增环境变量
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `RL_Q_DISTILL_COEF` | 0.1 | Q 蒸馏损失权重；0=关闭 |
 | `RL_Q_DISTILL_TAU` | 1.0 | Q → target_pi 的软化温度 |
 | `RL_BEAM2PLY` | 1 | 2-ply beam 开关；0=退化为 1-step |
-| `RL_EVAL_GATE_HARD` | 0 | 硬门控开关；1=失败时恢复基线权重 |
+| `RL_EVAL_GATE_HARD` | 0 | 硬门控开关；1=失败时恢复**历史最优**权重（v8 升级） |
+| `RL_BEAM3PLY` | 0 | v8：1=启用 3-ply 全排列 beam（dock=3 时激活） |
+| `RL_ADAPTIVE_CURRICULUM` | 0 | v8：1=启用自适应课程（滑动胜率控速） |
+| `RL_MCTS` | 0 | v8：1=启用轻量 UCT-MCTS（与 beam 互斥，优先级更高） |
+| `RL_MCTS_SIMS` | 20 | v8：MCTS 每步模拟次数 |
+| `RL_MCTS_CPUCT` | 1.5 | v8：UCB 探索系数 |
+| `RL_MCTS_MAX_DEPTH` | 8 | v8：单次模拟最大展开深度 |
 
 ---
 
@@ -419,37 +425,204 @@ python -m rl_pytorch.train \
   --dirichlet-epsilon 0.15 \
   --eval-gate-every 2000 --eval-gate-games 50 \
   --save rl_checkpoints/v7.pt
-
-# 关键监控指标（v7 新增 qdst）：
-# π= 策略损失  V= 价值损失  H= 熵
-# qdst= Q 蒸馏损失（应快速降至 ~0.05）
-# bq/feas/surv= 辅助头损失
-# [EvalGate] 行= 门控结果（✓/✗）
-
-# 消融实验：关闭 2-ply（比较 v6 vs v7 beam 效果）
-RL_BEAM2PLY=0 python -m rl_pytorch.train --episodes 10000 --save rl_checkpoints/v6_ablation.pt
-
-# 消融实验：关闭 Q 蒸馏
-RL_Q_DISTILL_COEF=0 python -m rl_pytorch.train --episodes 10000 --save rl_checkpoints/v7_no_distill.pt
 ```
 
 ---
 
-## 九、与 AlphaZero 的剩余差距及未来方向
+## 九、v8 优化：课程自适应 + 全排列 Beam + 历史最优门控 + 轻量 MCTS
 
-### 9.1 当前实现与 AlphaZero 的差距（v7 更新）
+### 9.1 自适应课程（Adaptive Curriculum）
 
-| 特性 | AlphaZero | v7 现状 | 差距 | 未来方向 |
+**动机**：v7 课程为固定线性爬坡（40→220 / 40k ep），无法响应模型的实际学习进度。若模型进展快（高胜率），门槛升得太慢；进展慢（低胜率），门槛升得过快导致奖励稀疏。
+
+**实现**（`rl_pytorch/train.py` + `rl_pytorch/game_rules.py`）：
+
+```
+维护虚拟局数 virtual_ep（vs 真实 ep_cursor）
+每 checkEvery 局检查滑动窗口胜率：
+  win_rate > target_win_rate → virtual_ep += stepUp × checkEvery  # 加速推进
+  win_rate < target_win_rate × 0.6 → virtual_ep += 0  # 暂停
+  否则 → virtual_ep += checkEvery  # 正常速度
+win_threshold = rl_win_threshold_from_virtual_ep(virtual_ep)
+```
+
+**关键设计**：
+- 虚拟局数与真实局数解耦，仅控制课程门槛，不影响全局训练进度
+- `stepDown=0` 防止课程倒退（已学到的能力不应被否定）
+- 参数化配置（`game_rules.json → adaptiveCurriculum`）
+
+**启用方式**：
+```bash
+python -m rl_pytorch.train --adaptive-curriculum --episodes 50000
+# 或：RL_ADAPTIVE_CURRICULUM=1 python -m rl_pytorch.train ...
+```
+
+**新增环境变量**：
+
+| 变量 | 说明 |
+|------|------|
+| `RL_ADAPTIVE_CURRICULUM` | 1=启用自适应课程 |
+
+---
+
+### 9.2 三块全排列 3-ply Beam
+
+**动机**：v7 的 2-ply beam 覆盖「当前块→次块」的跨步协同，但 Open Block 每轮 3 块构成完整组合，第三块的放置往往决定是否能触发多消行。3-ply beam 覆盖完整三块序列，捕捉最完整的跨块协同效应。
+
+**实现**（`rl_pytorch/train.py → _beam_3ply_q_values`）：
+
+```
+Q_3ply(s, a1) = r1 + γ · max_{a2}[r2 + γ · max_{a3}[r3 + γ · V(s''')]]
+```
+
+层次开销控制：
+- **第一层**：全部 n_actions 动作（有 maxActions 上限）
+- **第二层**：仅 top_k 个 a1 展开（默认 15）
+- **第三层**：仅 top_k2 个 a2 展开（默认 5），且限制第二层每 a1 下的动作数
+- **批量推理**：所有 \(s'''\) 合并为一次 GPU forward，最小化推理开销
+
+**Guard 条件**：dock 剩余块 < 3 时自动退化为 2-ply；dock = 1 时退化为 1-step。
+
+**启用方式**：
+```bash
+python -m rl_pytorch.train --beam3ply --episodes 50000
+# 或：RL_BEAM3PLY=1 python -m rl_pytorch.train ...
+```
+
+**新增 game_rules.json 配置**：
+```json
+"beam3ply": {
+  "enabled": false, "topK": 15, "topK2": 5,
+  "maxActions": 100, "maxActions2": 50
+}
+```
+
+---
+
+### 9.3 Eval Gate 硬门控 + 历史最优保留
+
+**v7 问题**：硬门控失败时仅恢复到「上一次通过门控时的基线」，若基线权重本身是在某次运气较好的局上通过的，可能并非真正最优。
+
+**v8 改进**（`rl_pytorch/train.py`）：
+
+```
+维护 _best_ever_sd（历史最优权重）+ _best_ever_wr（对应胜率）
+门控 PASSED：若 cand_wr > best_ever_wr → 更新 _best_ever_sd（标注 ★）
+门控 FAILED + 硬门控：恢复到 _best_ever_sd（非 _baseline_sd）
+```
+
+**效果**：确保训练全程永远不低于历史观测到的最优性能点，类似 AlphaZero 的「锦标赛冠军保留」机制。
+
+**启用方式**：
+```bash
+# 软门控（默认）：仅记录
+python -m rl_pytorch.train --eval-gate-every 2000
+
+# 硬门控 + 历史最优
+RL_EVAL_GATE_HARD=1 python -m rl_pytorch.train --eval-gate-every 2000
+```
+
+**日志示例**：
+```
+[EvalGate] ep=4000  ✓ PASSED  cand=62.0%  base=55.0%  → 基线已更新  ★ 历史最优已更新
+[EvalGate] ep=6000  ✗ FAILED  cand=48.0%  base=55.0%  [已恢复历史最优 best_wr=62.0%]
+```
+
+---
+
+### 9.4 轻量 MCTS（UCT，10-50 次模拟）
+
+**动机**：AlphaZero 最核心的创新是「用 MCTS 搜索分布替代网络原始策略作为训练目标」。v8 实现轻量 UCT，以可接受的开销向此目标靠拢。
+
+**算法**（`rl_pytorch/mcts.py`）：
+
+```
+UCB(s, a) = Q(s,a) + c_puct × P(a|s) × √N(s) / (1 + N(s,a))
+
+每次模拟流程：
+1. Selection  : 从根节点向下，按 UCB 选子节点，直到未展开节点或终局/深度限制
+2. Expansion  : 用策略网络输出 P(a|s) 初始化子节点先验
+3. Evaluation : 用价值网络 V(leaf)（替代随机 rollout，低方差）
+4. Backup     : 沿路径更新 Q(s,a) = W(s,a)/N(s,a)
+
+搜索结束后：π(a) = N(root_child_a) / Σ N(root_child)
+π 作为策略改进目标（通过 Q 代理接入 Q-蒸馏损失）
+```
+
+**实现亮点**：
+- 使用 `sim.save_state()/restore_state()` 实现零拷贝树遍历
+- `mcts_q_proxy()` 将访问分布转为对数尺度的伪 Q 值，直接兼容现有 Q 蒸馏框架
+- 无跨步树复用（每步从零建树），适合 10~50 次模拟的轻量场景
+
+**启用方式**：
+```bash
+# 默认 20 次模拟，c_puct=1.5，最大深度 8
+python -m rl_pytorch.train --mcts --episodes 10000
+
+# 自定义模拟次数
+python -m rl_pytorch.train --mcts --mcts-sims 50
+
+# 环境变量方式
+RL_MCTS=1 RL_MCTS_SIMS=30 RL_MCTS_CPUCT=2.0 python -m rl_pytorch.train ...
+```
+
+**新增环境变量**：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RL_MCTS` | 0 | 1=启用轻量 MCTS（优先级高于 beam） |
+| `RL_MCTS_SIMS` | 20 | 每步模拟次数 |
+| `RL_MCTS_CPUCT` | 1.5 | UCB 探索系数 |
+| `RL_MCTS_MAX_DEPTH` | 8 | 单次模拟最大展开深度 |
+| `RL_BEAM3PLY` | 0 | 1=启用 3-ply beam |
+
+**搜索方式优先级**：`MCTS > 3-ply beam > 2-ply beam > 1-step lookahead`
+
+---
+
+### 9.5 v8 综合训练命令
+
+```bash
+# 完整 v8 训练（自适应课程 + 3-ply beam + 历史最优硬门控）
+python -m rl_pytorch.train \
+  --episodes 80000 --device auto --arch conv-shared --width 128 \
+  --batch-episodes 128 --ppo-epochs 4 --gae-lambda 0.85 \
+  --dirichlet-epsilon 0.15 \
+  --adaptive-curriculum \
+  --beam3ply \
+  --eval-gate-every 2000 --eval-gate-games 50 \
+  --save rl_checkpoints/v8.pt
+
+# MCTS 实验（较慢，建议先用小 batch 验证）
+RL_EVAL_GATE_HARD=1 python -m rl_pytorch.train \
+  --episodes 20000 --device auto \
+  --adaptive-curriculum --mcts --mcts-sims 20 \
+  --eval-gate-every 1000 \
+  --save rl_checkpoints/v8_mcts.pt
+
+# 消融实验矩阵
+RL_BEAM3PLY=0 python -m rl_pytorch.train --episodes 10000 --save rl_checkpoints/v8_no3ply.pt
+RL_ADAPTIVE_CURRICULUM=0 python -m rl_pytorch.train --episodes 10000 --save rl_checkpoints/v8_fixedcur.pt
+```
+
+---
+
+## 十、与 AlphaZero 的剩余差距及未来方向
+
+### 10.1 当前实现与 AlphaZero 的差距（v8 更新）
+
+| 特性 | AlphaZero | v8 现状 | 差距 | 未来方向 |
 |------|-----------|---------|------|----------|
-| **多步搜索** | MCTS 数百 ply | 1-step + **2-ply beam**（top-k）| 中 | 轻量 MCTS（10-50 次模拟） |
-| **策略改进目标** | MCTS 访问分布（监督 CE） | PPO + **Q 蒸馏（coef=0.1）** | 中 | 增大蒸馏权重 / 多步 Q 分布 |
-| **模型评估门控** | 新>旧 55% 替换 | **eval gate（软/硬模式）** | 已实现 | 硬门控 + 历史最优保留 |
+| **多步搜索** | MCTS 数百 ply | **1/2/3-ply beam + 轻量 MCTS(10-50)**| 小→中 | 增大 MCTS 模拟次数，树复用 |
+| **策略改进目标** | MCTS 访问分布（监督 CE） | PPO + **Q 蒸馏 + MCTS 访问分布代理** | 小 | 直接用 MCTS π 做 CE 目标 |
+| **模型评估门控** | 新>旧 55% 替换 | **软/硬门控 + ★历史最优保留** | 已实现 | 锦标赛循环赛（多次对弈） |
+| **课程学习** | 固定对手强度递增 | **自适应课程（滑动胜率控速）** | 已实现 | 双向自适应（也可减速） |
 | **数据并行** | 数千局并行自博弈 | 2-6 CPU workers | 中 | 增加 n_workers，Ray 分布式 |
 
-### 9.2 Open Block 特有优化方向（后续）
+### 10.2 Open Block 特有未来优化
 
-1. **完整 MCTS（3-ply+）**：用 `sim.save_state/restore_state` 实现 UCT，需处理出块随机性（期望 Q 或采样 spawn）
-2. **三块全排列 beam**：当前 2-ply 只覆盖「当前块→次块」，可扩展到「当前块→次块→第三块」（3-ply）
-3. **形状感知编码**：将 dock 块用 GNN 或 PointNet 编码，比 5×5 mask 更精确
-4. **对手建模**：出块分布有规律（adaptiveSpawn），学习预测未来出块
-5. **课程自适应**：根据滑动胜率动态调整课程速度，而非固定线性爬坡
+1. **MCTS 树复用**：跨步复用搜索树（复用已访问子树），大幅降低每步开销（AlphaZero 做法）
+2. **形状感知编码**：将 dock 块用 GNN 或 PointNet 编码，比 5×5 mask 更精确
+3. **出块建模集成**：用 SpawnTransformerV2 预测下一轮出块，在 MCTS 模拟中考虑出块分布不确定性
+4. **对手建模 / 自适应出块感知**：出块分布有规律（adaptiveSpawn），学习预测未来出块，将其纳入搜索期望值
+5. **多温度自博弈**：训练局用高温（探索），评估局用零温（贪心），类 AlphaZero 数据生成策略

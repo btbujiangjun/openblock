@@ -53,9 +53,10 @@ def rl_curriculum_enabled() -> bool:
 
 
 def rl_win_threshold_for_episode(episode_1based: int) -> int:
-    """
-    当前训练局（从 1 计）对应的「计胜」分数门槛；用于 simulator 与 collect_episode。
+    """当前训练局（从 1 计）对应的「计胜」分数门槛；用于 simulator 与 collect_episode。
+
     未启用课程时恒为 winScoreThreshold。
+    自适应课程请使用 rl_win_threshold_adaptive()。
     """
     end_cfg = int(_DATA.get("winScoreThreshold", 220))
     if not rl_curriculum_enabled():
@@ -64,5 +65,43 @@ def rl_win_threshold_for_episode(episode_1based: int) -> int:
     end = int(_RL_CURRICULUM.get("winThresholdEnd", end_cfg))
     span = max(1, int(_RL_CURRICULUM.get("rampEpisodes", 40000)))
     t = min(1.0, max(0, episode_1based - 1) / span)
+    v = start + (end - start) * t
+    return int(round(v))
+
+
+# ---------------------------------------------------------------------------
+# 自适应课程配置（v8）
+# ---------------------------------------------------------------------------
+_RL_ADAPTIVE = dict((_DATA.get("rlRewardShaping") or {}).get("adaptiveCurriculum") or {})
+
+
+def rl_adaptive_curriculum_config() -> dict:
+    """读取 adaptiveCurriculum 配置；不启用时返回 {'enabled': False}。"""
+    base = {
+        "enabled": False,
+        "window": 200,
+        "targetWinRate": 0.5,
+        "stepUp": 2,
+        "stepDown": 0,
+        "checkEvery": 50,
+    }
+    base.update(_RL_ADAPTIVE)
+    # 环境变量覆盖
+    if os.environ.get("RL_ADAPTIVE_CURRICULUM", "").strip().lower() in ("1", "true", "yes"):
+        base["enabled"] = True
+    elif os.environ.get("RL_ADAPTIVE_CURRICULUM", "").strip().lower() in ("0", "false", "no"):
+        base["enabled"] = False
+    return base
+
+
+def rl_win_threshold_from_virtual_ep(virtual_ep: int) -> int:
+    """与 rl_win_threshold_for_episode 相同逻辑，但使用虚拟局数（自适应课程用）。"""
+    end_cfg = int(_DATA.get("winScoreThreshold", 220))
+    if not rl_curriculum_enabled():
+        return end_cfg
+    start = int(_RL_CURRICULUM.get("winThresholdStart", 120))
+    end = int(_RL_CURRICULUM.get("winThresholdEnd", end_cfg))
+    span = max(1, int(_RL_CURRICULUM.get("rampEpisodes", 40000)))
+    t = min(1.0, max(0, virtual_ep) / span)
     v = start + (end - start) * t
     return int(round(v))
