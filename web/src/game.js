@@ -36,6 +36,8 @@ import {
 import { Database } from './database.js';
 import { Renderer, syncGridDisplayPx } from './renderer.js';
 import { BackendSync } from './services/backendSync.js';
+import { LevelManager } from './level/levelManager.js';
+import { ClearRuleEngine, RowColRule } from './clearRules.js';
 
 function _topShapeWeightEntries(shapeWeights, n) {
     if (!shapeWeights || typeof shapeWeights !== 'object') return [];
@@ -358,6 +360,10 @@ export class Game {
             this.score = 0;
             this.isGameOver = false;
             this._endGameInFlight = null;
+            this._levelManager = opts.levelConfig ? new LevelManager(opts.levelConfig) : null;
+            this._levelMode = opts.levelConfig ? 'level' : 'endless';
+            const customRules = this._levelManager?.getAllowedClearRules();
+            this._clearEngine = new ClearRuleEngine(customRules ?? [RowColRule]);
             this.behaviors = [];
             this.moveSequence = [];
             this._replayFrames = null;
@@ -405,27 +411,35 @@ export class Game {
                 console.warn('统计未更新:', e);
             }
 
-            const maxOpeningTries = 48;
-            let openingPlayable = false;
-            for (let k = 0; k < maxOpeningTries; k++) {
-                clearTimeout(this._movePersistTimer);
-                this._movePersistTimer = null;
-                this.grid.initBoard(layeredOpen.fillRatio, layeredOpen.shapeWeights);
+            if (this._levelManager) {
+                // 关卡模式：应用关卡初始盘面
+                this._levelManager.applyInitialBoard(this.grid);
                 this._captureInitFrame(baseStrategy);
-                this.spawnBlocks({ logSpawn: false });
-                const rem = this.dockBlocks.filter((b) => !b.placed);
-                if (this.grid.hasAnyMove(rem)) {
-                    openingPlayable = true;
-                    break;
+                const spawnHints = this._levelManager.getSpawnHints();
+                this.spawnBlocks({ logSpawn: false, spawnShapeIds: spawnHints?.forceIds });
+            } else {
+                const maxOpeningTries = 48;
+                let openingPlayable = false;
+                for (let k = 0; k < maxOpeningTries; k++) {
+                    clearTimeout(this._movePersistTimer);
+                    this._movePersistTimer = null;
+                    this.grid.initBoard(layeredOpen.fillRatio, layeredOpen.shapeWeights);
+                    this._captureInitFrame(baseStrategy);
+                    this.spawnBlocks({ logSpawn: false });
+                    const rem = this.dockBlocks.filter((b) => !b.placed);
+                    if (this.grid.hasAnyMove(rem)) {
+                        openingPlayable = true;
+                        break;
+                    }
                 }
-            }
-            if (!openingPlayable) {
-                const softFill = Math.min(0.12, Math.max(0.06, (layeredOpen.fillRatio || 0.2) * 0.45));
-                clearTimeout(this._movePersistTimer);
-                this._movePersistTimer = null;
-                this.grid.initBoard(softFill, layeredOpen.shapeWeights);
-                this._captureInitFrame(baseStrategy);
-                this.spawnBlocks({ logSpawn: false });
+                if (!openingPlayable) {
+                    const softFill = Math.min(0.12, Math.max(0.06, (layeredOpen.fillRatio || 0.2) * 0.45));
+                    clearTimeout(this._movePersistTimer);
+                    this._movePersistTimer = null;
+                    this.grid.initBoard(softFill, layeredOpen.shapeWeights);
+                    this._captureInitFrame(baseStrategy);
+                    this.spawnBlocks({ logSpawn: false });
+                }
             }
             if (this.sessionId && this.dockBlocks.length) {
                 this.logBehavior(GAME_EVENTS.SPAWN_BLOCKS, {
@@ -898,11 +912,20 @@ export class Game {
                 y: placedPos.y
             });
 
-            const result = this.grid.checkLines();
+            // 消除检测：关卡模式使用注入的 ClearRuleEngine，普通模式走 grid.checkLines()
+            const result = this._clearEngine
+                ? this._clearEngine.apply(this.grid)
+                : this.grid.checkLines();
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
             this._refreshPlayerInsightPanel();
 
             this._pushPlaceToSequence(this.drag.index, placedPos.x, placedPos.y, result);
+
+            // 关卡统计回调
+            this._levelManager?.recordPlacement();
+            if (result.count > 0) {
+                this._levelManager?.recordClear(result.count);
+            }
 
             if (result.count > 0) {
                 this._spawnContext.lastClearCount = result.count;
@@ -926,10 +949,20 @@ export class Game {
                     if (this._spawnContext.lastClearCount === 0) {
                         this._spawnContext.roundsSinceClear++;
                     }
+                    this._levelManager?.recordRound();
                     this.spawnBlocks();
                 }
 
                 this.updateUI();
+                // 关卡目标检测
+                if (this._levelManager) {
+                    const objResult = this._levelManager.checkObjective(this);
+                    if (objResult.achieved) {
+                        const levelResult = this._levelManager.getResult(this);
+                        this.endGame({ mode: 'level', levelResult });
+                        return;
+                    }
+                }
                 this.checkGameOver();
             }
         } else {
@@ -1038,10 +1071,22 @@ export class Game {
                 }
 
                 if (self.dockBlocks.every(b => b.placed)) {
+                    self._levelManager?.recordRound();
                     self.spawnBlocks();
                 }
 
                 self.updateUI();
+
+                // 关卡目标检测（消除后）
+                if (self._levelManager) {
+                    const objResult = self._levelManager.checkObjective(self);
+                    if (objResult.achieved) {
+                        const levelResult = self._levelManager.getResult(self);
+                        self.endGame({ mode: 'level', levelResult });
+                        return;
+                    }
+                }
+
                 self.checkGameOver();
             }
         };

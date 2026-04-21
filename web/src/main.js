@@ -15,6 +15,7 @@ import { ReviveManager } from './revive.js';
 import { createEffectLayer } from './effects/effectLayer.js';
 import { BlockPool } from './bot/blockPool.js';
 import { generateDockShapes } from './bot/blockSpawn.js';
+import { initLevelEditorPanel, openLevelEditorPanel } from './levelEditorPanel.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootErr = document.getElementById('boot-error');
@@ -50,6 +51,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     initPlayerInsightPanel(game);
     initRLPanel(game);
     initSpawnModelPanel(game);
+    initLevelEditorPanel(game);
+
+    // 关卡编辑器触发按钮（index.html 中已预留 #level-editor-btn）
+    const leBtn = document.getElementById('level-editor-btn');
+    if (leBtn) leBtn.addEventListener('click', openLevelEditorPanel);
     try {
         await game.init();
         if (bootErr) {

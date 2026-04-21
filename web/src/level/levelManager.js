@@ -128,6 +128,15 @@ export class LevelManager {
     }
 
     /**
+     * 返回关卡专属消除规则列表（供 game.js 初始化 ClearRuleEngine 使用）。
+     * 若关卡未指定自定义规则，返回 null（使用默认行列规则）。
+     * @returns {import('../clearRules.js').ClearRule[]|null}
+     */
+    getAllowedClearRules() {
+        return this.config.clearRules ?? null;
+    }
+
+    /**
      * 返回关卡专属 spawnHints（透传给 generateDockShapes）
      * @returns {object}
      */

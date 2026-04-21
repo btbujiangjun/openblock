@@ -193,15 +193,17 @@
 
 ### Open Block 劣势（相较参考架构）
 
-| 劣势项 | 说明 | 紧迫度 |
-|--------|------|--------|
-| ❌ **无关卡/旅行模式** | 缺少新手引导、内购天然锚点与长期目标感 | 🔴 高 |
-| ❌ **复活系统缺失** | 最高价值变现场景未落地 | 🔴 高 |
-| ⚠️ **出块算法层次扁平** | adaptiveSpawn 无显式分级，调试/扩展困难 | 🟡 中 |
-| ⚠️ **消除规则封闭** | 行/列消除硬编码，无扩展接口 | 🟡 中 |
-| ⚠️ **UI 层耦合** | 清屏、消除等视觉效果与渲染逻辑混合 | 🟡 中 |
-| ⚠️ **无块池管理** | 形状生命周期无显式控制，难以做「保证新鲜度」等策略 | 🟡 中 |
-| ⚠️ **结算界面单一** | 无尽与未来关卡共享 game-over，扩展成本高 | 🟡 中 |
+| 劣势项 | 说明 | 状态 |
+|--------|------|------|
+| ✅ **无关卡/旅行模式** | LevelManager + LevelConfig + game.js 完整集成 + 关卡编辑器 | 已解决 |
+| ✅ **复活系统缺失** | ReviveManager 插件化复活 + 广告接口预留 | 已解决 |
+| ✅ **出块算法层次扁平** | spawnLayers.js 三层显式分离（Fallback/Lane/Global） | 已解决 |
+| ✅ **消除规则封闭** | ClearRuleEngine + RowColRule/ZoneRule/DiagonalRule 可插拔 | 已解决 |
+| ✅ **UI 层耦合** | EffectLayer 事件总线解耦渲染调用 | 已解决 |
+| ✅ **无块池管理** | BlockPool 新鲜度保障 + wrap 透明代理 | 已解决 |
+| ✅ **结算界面单一** | endGame(mode/levelResult) + HTML 星级/目标槽位扩展 | 已解决 |
+| ⚠️ **马赛克视觉深度** | 基础叠加层已实现；商业级粒子/动画效果待丰富 | 进行中 |
+| ⚠️ **关卡内容数量** | 编辑器框架已就绪；正式关卡包需配置和测试 | 进行中 |
 
 ---
 
@@ -265,21 +267,38 @@
    - wrap(generateFn) 透明代理原始出块函数
 ```
 
-### 阶段三：关卡内容与体验精细化（后续）
+### 阶段三：关卡内容与体验精细化（✅ 已完成）
 
 ```
-8. 关卡编辑器 / PCGRL 生成
-   - 基于 LevelConfig JSON 格式创建关卡编辑界面
-   - 使用 RL 生成难度可控的初始盘面
+8. 关卡编辑器 / PCGRL 生成（✅ 已落地）
+   - web/src/levelEditorPanel.js — 完整编辑器 UI
+   - 8×8 可点击网格（鼠标绘制 / 右键调色板）
+   - 关卡目标（score/clear/survival）+ 限制 + 星级配置
+   - 玩法模式：无尽 / 马赛克四象限 / 竖条 / 环形
+   - web/src/level/pcgrl.js — PCGRL 程序化生成
+     * generateBoard：「生成→验证→修正」迭代确保可玩性
+     * generateMosaicBoard：区域感知生成，各区域填充率均衡
+     * validateBoard：简化形状库快速可玩性校验
+   - 「PCGRL 随机生成」一键填充，「导出 JSON」复制配置
+   - 「开始试玩」直接用编辑结果启动游戏
 
-9. 马赛克等专属玩法
-   - 基于 ClearRuleEngine 插入关卡专属消除规则
-   - makeZoneClearRule 可直接用于马赛克格子消除
+9. 马赛克专属玩法（✅ 已落地）
+   - web/src/level/mosaicLevel.js — 三类内置马赛克关卡
+     * MOSAIC_LEVEL_4ZONE：四象限（各 4×4）
+     * MOSAIC_LEVEL_STRIPS：竖条（各 2×8）
+     * MOSAIC_LEVEL_RING：四角 + 中心环形
+   - 预设区域定义：ZONES_QUADRANT / ZONES_STRIPS_V / ZONES_RING
+   - 每个关卡 clearRules 包含 zone + row_col 双规则引擎
+   - createZoneOverlay(game, zones)：CSS 叠加层，ResizeObserver 自动对齐
+   - removeZoneOverlay：关卡结束后清理叠加层
 
-10. game.js 完整集成
-    - start(opts) 接受 levelConfig 参数
-    - 落子后调用 levelManager.checkObjective()
-    - endGame 传递 levelResult 到结算界面
+10. game.js 完整集成（✅ 已落地）
+    - start(opts) 接受 levelConfig → 创建 LevelManager + ClearRuleEngine
+    - 自动调用 applyInitialBoard 写入预设盘面
+    - 落子后调用 recordPlacement() / recordClear() / recordRound()
+    - 每次 spawnBlocks 后通过 checkObjective() 检测胜利/失败
+    - endGame(mode='level', levelResult) 传递结算信息到 UI
+    - _clearEngine 替代 grid.checkLines()（向后兼容：默认 RowColRule）
 ```
 
 ---
@@ -287,15 +306,17 @@
 ## 六、架构演进目标（中期）
 
 ```
-参考架构（成熟商业游戏）           Open Block 目标架构
-─────────────────────────         ──────────────────────────────────
-无尽 + 关卡/旅行              →   无尽 + 关卡/旅行 + AI课程生成
-规则三级算法                  →   规则三级 + SpawnTransformerV2 层
-马赛克等专属玩法              →   可插拔 mode plugin 体系
-复活系统（规则触发）          →   复活系统（AI判断最优触发时机）
-规则回归策略                  →   RL自适应难度（已领先）
-广告/IAP 标准接入             →   个性化策略驱动的精细变现（已领先）
-数据收集（功能型）            →   行为飞轮 + RL闭环（已领先）
+参考架构（成熟商业游戏）           Open Block 当前架构              进一步目标
+─────────────────────────         ─────────────────────────        ──────────────────────
+无尽 + 关卡/旅行              →   ✅ 无尽 + 关卡/旅行完整接入    AI 课程自动生成关卡
+规则三级算法                  →   ✅ 三级 + SpawnTransformerV2   出块 AI 闭环训练
+马赛克等专属玩法              →   ✅ 四象限/竖条/环形 3 类       可插拔 mode plugin
+PCGRL 盘面生成                →   ✅ generateBoard/generateMosaic RL 策略级生成（后端）
+复活系统（规则触发）          →   ✅ ReviveManager AI 接口预留   AI 判断最优触发时机
+消除规则（固定行列）          →   ✅ ClearRuleEngine 可插拔       更多扩展规则（十字/L型）
+规则回归策略                  →   RL 自适应难度（已领先）        SGAZ + Search-Contempt
+广告/IAP 标准接入             →   个性化策略驱动变现（已领先）   实时竞价 + 分群投放
+数据收集（功能型）            →   行为飞轮 + RL 闭环（已领先）   多端分布式训练
 ```
 
 ---
