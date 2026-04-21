@@ -538,4 +538,4 @@ export const PAID_TIERS = [
 
 ---
 
-> 有任何策略定制问题，欢迎在 [GitHub Discussions](../../discussions) 中讨论。
+> 有任何策略定制问题，欢迎在 [GitHub Discussions](https://github.com/btbujiangjun/openblock/discussions) 中讨论。

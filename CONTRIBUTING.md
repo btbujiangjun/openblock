@@ -29,7 +29,7 @@
 
 ### 报告 Bug
 
-1. 搜索已有 [Issues](../../issues)，避免重复
+1. 搜索已有 [Issues](https://github.com/btbujiangjun/openblock/issues)，避免重复
 2. 使用 [Bug Report 模板](.github/ISSUE_TEMPLATE/bug_report.md)
 3. 包含：复现步骤、期望行为、实际行为、环境信息（OS、Node.js/Python 版本、浏览器）
 
@@ -282,7 +282,7 @@ describe('MyModule', () => {
 
 ### 新增商业化模块
 
-详见 [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md#新增商业化模块)。最小模板：
+详见 [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md#2-新增商业化模块)。最小模板：
 
 ```js
 // web/src/monetization/myModule.js

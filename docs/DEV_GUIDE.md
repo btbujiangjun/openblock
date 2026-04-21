@@ -600,4 +600,4 @@ A: 检查 `server.py` 末尾的 try/except 块输出，常见原因：
 
 ---
 
-更多问题请通过 [GitHub Issues](../../issues) 或 [Discussions](../../discussions) 提交。
+更多问题请通过 [GitHub Issues](https://github.com/btbujiangjun/openblock/issues) 或 [Discussions](https://github.com/btbujiangjun/openblock/discussions) 提交。

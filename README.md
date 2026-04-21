@@ -60,12 +60,12 @@ OpenBlock is an open-source block-puzzle game (inspired by 1010!/Block Blast) bu
 
 | Point | Interface | Guide |
 |-------|-----------|-------|
-| **Ad SDK** | `setAdProvider({showRewarded, showInterstitial})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#ad-sdk) |
-| **IAP SDK** | `setIapProvider({purchase, restore, isPurchased})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#iap-sdk) |
-| **Spawn Strategy** | `game_rules.json` + `spawnHints` hooks | [Strategy Guide](docs/STRATEGY_GUIDE.md#spawn-strategy) |
-| **Monetization Module** | `MonetizationBus.on()` + feature flag | [Dev Guide](docs/DEV_GUIDE.md#new-monetization-module) |
-| **RL Reward** | `RL_REWARD_SHAPING` in `game_rules.json` | [Dev Guide](docs/DEV_GUIDE.md#rl-reward) |
-| **Difficulty Mode** | `difficultyBias` + `adaptiveSpawn.profiles` | [Strategy Guide](docs/STRATEGY_GUIDE.md#difficulty) |
+| **Ad SDK** | `setAdProvider({showRewarded, showInterstitial})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#4-广告策略定制-ad-sdk) |
+| **IAP SDK** | `setIapProvider({purchase, restore, isPurchased})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#5-iap-策略定制-iap-sdk) |
+| **Spawn Strategy** | `game_rules.json` + `spawnHints` hooks | [Strategy Guide](docs/STRATEGY_GUIDE.md#1-出块策略定制) |
+| **Monetization Module** | `MonetizationBus.on()` + feature flag | [Dev Guide](docs/DEV_GUIDE.md#2-新增商业化模块) |
+| **RL Reward** | `RL_REWARD_SHAPING` in `game_rules.json` | [Dev Guide](docs/DEV_GUIDE.md#7-自定义-rl-奖励函数) |
+| **Difficulty Mode** | `difficultyBias` + `adaptiveSpawn.profiles` | [Strategy Guide](docs/STRATEGY_GUIDE.md#3-难度模式定制) |
 
 ### Quick Start
 
