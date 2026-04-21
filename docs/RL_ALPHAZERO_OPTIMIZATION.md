@@ -619,10 +619,165 @@ RL_ADAPTIVE_CURRICULUM=0 python -m rl_pytorch.train --episodes 10000 --save rl_c
 | **课程学习** | 固定对手强度递增 | **自适应课程（滑动胜率控速）** | 已实现 | 双向自适应（也可减速） |
 | **数据并行** | 数千局并行自博弈 | 2-6 CPU workers | 中 | 增加 n_workers，Ray 分布式 |
 
-### 10.2 Open Block 特有未来优化
+### 10.2 v8.1 落地：MCTS 树复用 · 多温度自博弈 · 出块建模 · 形状感知编码
 
-1. **MCTS 树复用**：跨步复用搜索树（复用已访问子树），大幅降低每步开销（AlphaZero 做法）
-2. **形状感知编码**：将 dock 块用 GNN 或 PointNet 编码，比 5×5 mask 更精确
-3. **出块建模集成**：用 SpawnTransformerV2 预测下一轮出块，在 MCTS 模拟中考虑出块分布不确定性
-4. **对手建模 / 自适应出块感知**：出块分布有规律（adaptiveSpawn），学习预测未来出块，将其纳入搜索期望值
-5. **多温度自博弈**：训练局用高温（探索），评估局用零温（贪心），类 AlphaZero 数据生成策略
+---
+
+#### 10.2.1 MCTS 树复用（`MCTSTreeState`）
+
+**文件**：`rl_pytorch/mcts.py`
+
+AlphaZero 在每步执行动作后，将对应子树复用作为下一步的搜索根节点，节省约 40% 建树开销。
+
+```python
+# 使用示例
+from rl_pytorch.mcts import MCTSTreeState, run_mcts_reuse, select_action_from_visits
+
+tree = MCTSTreeState()
+while not done:
+    visit_pi = run_mcts_reuse(tree, net, device, sim, n_simulations=20)
+    chosen = select_action_from_visits(visit_pi, temperature=1.0)
+    sim.step(legal[chosen])
+    tree.advance(chosen)    # 复用对应子树
+    if dock_slots_refilled:
+        tree.invalidate()   # dock 刷新后重建
+```
+
+**关键实现细节**：
+- `MCTSTreeState.advance(idx)` 将根指针移动到 `children[idx]`，保留已有统计信息（N/W/Q）
+- `run_mcts_reuse` 在已有 N 次模拟的基础上**追加**不足部分，避免重复计算
+- dock 刷新检测：`cur_dock_remain > prev_dock_remain` → 自动调用 `tree.invalidate()`
+- `n_legal` 校验：动作数改变时（新 dock 布局）强制重建，防止子树索引错乱
+
+**开关**：`RL_MCTS_REUSE=0` 关闭（默认启用），`--mcts-no-reuse` 用于消融实验。
+
+---
+
+#### 10.2.2 多温度自博弈（AlphaZero 风格动作采样）
+
+**文件**：`rl_pytorch/mcts.py` + `rl_pytorch/train.py`
+
+AlphaZero 用访问分布 $\pi(a) \propto N(a)^{1/T}$ 采样训练动作，与温度解耦：
+
+| 场景 | 温度 | 效果 |
+|------|------|------|
+| 训练早期 | T=1.0 | 按访问比例采样，保持探索多样性 |
+| 训练后期 | T→0 | 偏贪心，加速收敛 |
+| 评估推理 | T=0 | 纯贪心（argmax），最优策略执行 |
+
+```python
+from rl_pytorch.mcts import select_action_from_visits
+
+# 训练时（T=1）
+chosen = select_action_from_visits(visit_pi, temperature=1.0)
+
+# 评估时（T=0，贪心）
+best = select_action_from_visits(visit_pi, temperature=0.0)
+```
+
+**开关**：`--mcts-train-temp 0.8`（渐进降温）或 `RL_MCTS_TRAIN_TEMP=1.0`。
+
+---
+
+#### 10.2.3 出块建模集成（SpawnPredictor + 随机 MCTS 展开）
+
+**文件**：`rl_pytorch/spawn_predictor.py`（新建）
+
+利用已有 `SpawnTransformerV2` 预测下一轮出块分布，在 MCTS 叶子节点评估时以多个 dock 采样求**期望 V**，减少「已知确定 dock」带来的乐观偏差。
+
+```python
+from rl_pytorch.spawn_predictor import SpawnPredictor
+
+# 加载预测模型
+predictor = SpawnPredictor.load("rl_checkpoints/spawn_v2.pt", device)
+
+# 在 MCTS 中启用随机出块评估
+visit_pi = run_mcts(net, device, sim, n_simulations=20,
+                   spawn_predictor=predictor)  # 叶子节点 V 用期望值
+
+# 直接预测下一轮形状分布
+p0, p1, p2 = predictor.predict_next_shapes(board_np)   # 三槽各 NUM_SHAPES 维概率
+s0, s1, s2 = predictor.sample_shape_ids(board_np)       # 一组采样形状 ID
+
+# 求期望价值（n_samples 次采样取均值）
+ev = predictor.expected_value(sim, policy_net, device, n_samples=4)
+```
+
+**检查点自动发现**：`RL_SPAWN_MODEL_PATH` > `rl_checkpoints/spawn_v2.pt` > 退化为确定性 dock。
+
+**开关**：`--mcts-stochastic [--spawn-model-path PATH]` 或 `RL_MCTS_STOCHASTIC=1`。
+
+**新增环境变量**：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RL_MCTS_REUSE` | 1 | MCTS 树复用开关 |
+| `RL_MCTS_TRAIN_TEMP` | 1.0 | 训练时访问分布采样温度 |
+| `RL_MCTS_STOCHASTIC` | 0 | 随机出块评估（需 SpawnPredictor） |
+| `RL_SPAWN_MODEL_PATH` | - | SpawnTransformerV2 检查点路径 |
+
+---
+
+#### 10.2.4 形状感知编码（DockPointEncoder）
+
+**文件**：`rl_pytorch/model.py`
+
+当前默认编码 `DockBoardAttention` 将 5×5 mask 视为平坦向量，对形状的几何精确性不足。
+`DockPointEncoder` 将每个 dock 块的占用格子视为点集，用轻量 PointNet 编码：
+
+```
+占用格子坐标 (x_norm, y_norm) → per-point MLP → max pooling → slot embedding
+```
+
+| 编码器 | 参数量 | 特点 |
+|--------|--------|------|
+| `DockBoardAttention`（默认） | ~640 参数 | dock-board 交叉注意力，感知棋盘上下文 |
+| `DockPointEncoder`（新增） | ~640 参数 | 几何精确，平移不变，不依赖棋盘特征 |
+
+**使用方式**：
+```bash
+# 使用 PointNet 形状感知编码（需从头训练，与旧 checkpoint 不兼容）
+python -m rl_pytorch.train --point-encoder --episodes 50000 --save rl_checkpoints/v8_point.pt
+```
+
+**注意**：更改编码器需从头训练，旧 checkpoint 不可直接复用。建议先用默认 DockBoardAttention 训练到一定水平，再对比 PointEncoder 消融实验。
+
+---
+
+#### 10.2.5 完整 v8.1 训练命令
+
+```bash
+# 全功能 v8.1（MCTS 树复用 + 多温度 + 自适应课程 + 历史最优门控）
+python -m rl_pytorch.train \
+  --episodes 80000 --device auto --arch conv-shared --width 128 \
+  --batch-episodes 128 --ppo-epochs 4 \
+  --adaptive-curriculum \
+  --mcts --mcts-sims 20 --mcts-train-temp 1.0 \
+  --eval-gate-every 2000 \
+  --save rl_checkpoints/v8_1.pt
+
+# 随机出块 MCTS（需先训练 SpawnTransformerV2）
+RL_EVAL_GATE_HARD=1 python -m rl_pytorch.train \
+  --mcts --mcts-stochastic \
+  --spawn-model-path rl_checkpoints/spawn_v2.pt \
+  --episodes 30000 --save rl_checkpoints/v8_stochastic.pt
+
+# PointNet 形状编码消融实验
+python -m rl_pytorch.train \
+  --point-encoder --mcts --episodes 20000 \
+  --save rl_checkpoints/v8_point.pt
+
+# 消融：无树复用（对比开销）
+python -m rl_pytorch.train --mcts --mcts-no-reuse --episodes 5000
+```
+
+---
+
+### 10.3 剩余未来优化方向
+
+| 优化 | 难度 | 优先级 | 说明 |
+|------|------|--------|------|
+| MCTS 树持久化（跨局） | 中 | 低 | 当前跨步复用，跨局重建；可用 Zobrist hash 持久化 |
+| 完整 MCTS（增大模拟次数）| 低 | 中 | 当前 10~50 次；增至 100+ 可进一步提升策略质量 |
+| SpawnTransformerV2 联合训练 | 高 | 中 | 目前独立训练；联合训练让 RL 感知出块先验 |
+| Ray 分布式自博弈 | 高 | 低 | 当前 2-6 CPU workers；Ray Actor 可扩展至数十个 |

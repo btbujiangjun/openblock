@@ -187,10 +187,15 @@ def build_policy_net(
     mlp_ratio: float,
     device: torch.device,
     conv_channels: int = 32,
+    use_point_encoder: bool = False,
 ) -> AnyNet:
     arch = (arch or "conv-shared").lower()
     if arch == "conv-shared":
-        return ConvSharedPolicyValueNet(width=width, conv_channels=conv_channels).to(device)
+        return ConvSharedPolicyValueNet(
+            width=width,
+            conv_channels=conv_channels,
+            use_point_encoder=use_point_encoder,
+        ).to(device)
     if arch == "light-shared":
         return LightSharedPolicyValueNet(width=width).to(device)
     if arch == "light":
@@ -700,16 +705,26 @@ def collect_episode(
     _mcts_cfg = RL_REWARD_SHAPING.get("lightMCTS") or {}
     use_mcts = (
         _mcts_cfg.get("enabled", False)
-        and os.environ.get("RL_MCTS", "0").lower() not in ("0", "false", "no")
+        or os.environ.get("RL_MCTS", "0").lower() not in ("0", "false", "no")
     )
     _mcts_sims = int(_mcts_cfg.get("numSimulations", 20))
     _mcts_cpuct = float(_mcts_cfg.get("cPuct", 1.5))
     _mcts_depth = int(_mcts_cfg.get("maxDepth", 8))
+    # v8.1：MCTS 树复用 + 多温度采样 + SpawnPredictor
+    _use_mcts_reuse = (
+        use_mcts
+        and os.environ.get("RL_MCTS_REUSE", "1").lower() not in ("0", "false", "no")
+    )
+    _mcts_train_temp = float(os.environ.get("RL_MCTS_TRAIN_TEMP", "1.0"))
+    _spawn_pred: "SpawnPredictor | None" = None
+    if use_mcts and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false", "no"):
+        from .spawn_predictor import SpawnPredictor as _SP
+        _spawn_pred = _SP.load(device=device)
 
     _beam3ply_cfg = RL_REWARD_SHAPING.get("beam3ply") or {}
     use_beam3ply = (
-        _beam3ply_cfg.get("enabled", False)
-        and os.environ.get("RL_BEAM3PLY", "0").lower() not in ("0", "false", "no")
+        (_beam3ply_cfg.get("enabled", False)
+         or os.environ.get("RL_BEAM3PLY", "0").lower() not in ("0", "false", "no"))
         and not use_mcts
     )
     _b3_topk = int(_beam3ply_cfg.get("topK", 15))
@@ -725,6 +740,11 @@ def collect_episode(
     )
     _beam2ply_topk = int(_beam2ply_cfg.get("topK", 15))
     _beam2ply_max_actions = int(_beam2ply_cfg.get("maxActions", 100))
+
+    # MCTS 树状态（跨步复用）
+    from .mcts import MCTSTreeState as _MCTSTreeState, select_action_from_visits as _select_mcts
+    _mcts_tree = _MCTSTreeState() if _use_mcts_reuse else None
+    _prev_dock_remain: int = sum(1 for s in sim.dock if s is not None)
 
     step_idx = 0
     while True:
@@ -743,7 +763,14 @@ def collect_episode(
             logits = net.forward_policy_logits(phi)
             clean_lp = F.log_softmax(logits, dim=-1)
 
+        # dock 刷新检测（三块放完后 dock 重新生成）→ 失效树复用
+        cur_dock_remain = sum(1 for s in sim.dock if s is not None)
+        if _mcts_tree is not None and cur_dock_remain > _prev_dock_remain:
+            _mcts_tree.invalidate()
+        _prev_dock_remain = cur_dock_remain
+
         q_vals = None
+        _visit_pi = None
         if use_lookahead and step_idx >= explore_first_moves:
             if use_mcts:
                 # 轻量 MCTS：访问分布→伪 Q 值（类 AlphaZero 策略目标）
@@ -754,7 +781,13 @@ def collect_episode(
                     c_puct=_mcts_cpuct,
                     max_depth=_mcts_depth,
                     gamma=gamma,
+                    spawn_predictor=_spawn_pred,
+                    tree_state=_mcts_tree,
                 )
+                # 同时获取原始访问分布（用于温度采样）
+                if _mcts_tree is not None and _mcts_tree.root is not None:
+                    from .mcts import _extract_visit_pi as _evp
+                    _visit_pi = _evp(_mcts_tree.root, len(legal))
             elif use_beam3ply:
                 # 3-ply beam：dock=3 时三块全排列，否则自动退化为 2-ply/1-step
                 q_vals = _beam_3ply_q_values(
@@ -783,14 +816,25 @@ def collect_episode(
             global_ep, step_idx, temp_floor, explore_first_moves, explore_temp_mult
         )
         d_eps = _dirichlet_epsilon_for_ep(global_ep, dirichlet_epsilon)
-        idx, _, _ = _mix_dirichlet_and_sample(
-            combined, temp, d_eps, dirichlet_alpha
-        )
 
-        chosen = int(idx.item())
+        # --- 多温度动作选择 ---
+        # MCTS 模式：优先用访问分布按温度采样（AlphaZero 风格）
+        # 非 MCTS 模式：沿用原有 Dirichlet + softmax 采样
+        if use_mcts and _visit_pi is not None:
+            chosen = _select_mcts(_visit_pi, temperature=_mcts_train_temp)
+        else:
+            idx, _, _ = _mix_dirichlet_and_sample(
+                combined, temp, d_eps, dirichlet_alpha
+            )
+            chosen = int(idx.item())
+
         a = legal[chosen]
         r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
         clears_step = min(getattr(sim, "_last_clears", 0), 3)
+
+        # MCTS 树复用：推进树根到已选动作的子节点
+        if _mcts_tree is not None:
+            _mcts_tree.advance(chosen)
 
         sup = sim.get_supervision_signals()
         trajectory.append({
@@ -804,8 +848,10 @@ def collect_episode(
             "clears": clears_step,
             "board_quality": sup["board_quality"],
             "feasibility": sup["feasibility"],
-            # Q 分布蒸馏目标：存储当前步所有合法动作的 Q 值（用于训练时计算 target_pi）
+            # Q 分布蒸馏目标：MCTS 访问分布 or beam Q 值
             "q_vals": q_vals.tolist() if q_vals is not None else None,
+            # MCTS 访问分布（visit_pi）：用于直接 CE 损失（可选，比 q_proxy 更准确）
+            "visit_pi": _visit_pi.tolist() if _visit_pi is not None else None,
         })
         step_idx += 1
 
@@ -1815,6 +1861,34 @@ def main() -> None:
         default=0,
         help="MCTS 每步模拟次数；0=使用 game_rules.json 中的 lightMCTS.numSimulations（默认 20）",
     )
+    p.add_argument(
+        "--mcts-no-reuse",
+        action="store_true",
+        help="禁用 MCTS 树复用（默认启用）：每步重新建树；用于消融对比",
+    )
+    p.add_argument(
+        "--mcts-train-temp",
+        type=float,
+        default=1.0,
+        help="MCTS 训练时动作采样温度（T=1 按访问频率采样，T=0 贪心，T>1 均匀探索）",
+    )
+    p.add_argument(
+        "--mcts-stochastic",
+        action="store_true",
+        help="MCTS 叶子节点评估时随机采样出块分布（需 SpawnPredictor 检查点）",
+    )
+    p.add_argument(
+        "--spawn-model-path",
+        type=str,
+        default="",
+        help="SpawnTransformerV2 检查点路径；用于 --mcts-stochastic",
+    )
+    p.add_argument(
+        "--point-encoder",
+        action="store_true",
+        help="使用 DockPointEncoder（PointNet 形状感知编码）替代默认 DockBoardAttention；"
+             "需重新训练，与旧 checkpoint 不兼容",
+    )
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -1838,7 +1912,7 @@ def main() -> None:
                 file=sys.stderr,
             )
 
-    # v8 功能开关（命令行参数 → 环境变量，传递给 collect_episode）
+    # v8/v8.1 功能开关（命令行参数 → 环境变量，传递给 collect_episode）
     if getattr(args, "adaptive_curriculum", False):
         os.environ["RL_ADAPTIVE_CURRICULUM"] = "1"
     if getattr(args, "beam3ply", False):
@@ -1847,6 +1921,16 @@ def main() -> None:
         os.environ["RL_MCTS"] = "1"
     if getattr(args, "mcts_sims", 0) > 0:
         os.environ["RL_MCTS_SIMS"] = str(args.mcts_sims)
+    # v8.1 新增
+    if getattr(args, "mcts_no_reuse", False):
+        os.environ["RL_MCTS_REUSE"] = "0"
+    if getattr(args, "mcts_train_temp", 1.0) != 1.0:
+        os.environ["RL_MCTS_TRAIN_TEMP"] = str(args.mcts_train_temp)
+    if getattr(args, "mcts_stochastic", False):
+        os.environ["RL_MCTS_STOCHASTIC"] = "1"
+    if getattr(args, "spawn_model_path", ""):
+        os.environ["RL_SPAWN_MODEL_PATH"] = args.spawn_model_path
+    _use_point_encoder = getattr(args, "point_encoder", False)
 
     arch = args.arch.strip().lower()
     net = build_policy_net(
@@ -1857,6 +1941,7 @@ def main() -> None:
         mlp_ratio=args.mlp_ratio,
         device=device,
         conv_channels=getattr(args, "conv_channels", 32),
+        use_point_encoder=_use_point_encoder,
     )
 
     resume_path = Path(args.resume) if args.resume else None

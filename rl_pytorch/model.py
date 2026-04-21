@@ -68,6 +68,87 @@ class DockBoardAttention(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# DockPointEncoder — 形状感知 PointNet 编码器（v8.1 新增）
+# ---------------------------------------------------------------------------
+
+class DockPointEncoder(nn.Module):
+    """PointNet 风格的 dock 块编码器，替代 5×5 mask 的平坦压缩。
+
+    动机
+    ----
+    5×5 mask（25 维）将形状放置在固定画布中心，丢失了精确的相对坐标关系；
+    PointNet 对每个占用格子编码坐标 (x, y)，通过最大池化聚合成固定维度表示，
+    天然具有平移不变性且对不规则形状更精确。
+
+    输入格式
+    --------
+    5×5 mask（来自 features.py `_encode_shape_mask`）: shape (B, _DOCK_SLOTS, 25)
+    → 内部转换为点集 (x_norm, y_norm, occupancy) → per-point MLP → max pool
+
+    输出
+    ----
+    shape (B, _DOCK_SLOTS, out_dim)  — 与 DockBoardAttention 接口对齐
+
+    设计特点
+    --------
+    - 与现有状态特征维度兼容：out_dim=16（同 dock_attn_head_dim 的默认值）
+    - 空 dock 槽（全零 mask）输出全零向量（无块时无信号）
+    - 参数量极少（~1K）：2 层 MLP + max pool
+    """
+
+    def __init__(self, mask_side: int = 5, hidden_dim: int = 32, out_dim: int = 16):
+        super().__init__()
+        self.mask_side = mask_side
+        self.out_dim = out_dim
+
+        # 每个点的坐标编码：(x_norm, y_norm) → hidden
+        self.point_mlp = nn.Sequential(
+            nn.Linear(2, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, out_dim),
+        )
+        # 将每个 slot 聚合后做一次非线性变换
+        self.slot_proj = nn.Sequential(
+            nn.Linear(out_dim, out_dim),
+            nn.GELU(),
+        )
+
+        # 预计算归一化坐标（常量，注册为 buffer）
+        coords = []
+        for y in range(mask_side):
+            for x in range(mask_side):
+                coords.append([x / (mask_side - 1) - 0.5, y / (mask_side - 1) - 0.5])
+        self.register_buffer(
+            "point_coords",
+            torch.tensor(coords, dtype=torch.float32),  # (25, 2)
+        )
+
+    def forward(self, dock_masks: torch.Tensor) -> torch.Tensor:
+        """
+        dock_masks: (B, _DOCK_SLOTS, mask_side²)  — 同 DockBoardAttention 的 dock 输入
+        Returns:   (B, _DOCK_SLOTS * out_dim)      — 与 DockBoardAttention 返回兼容
+        """
+        B, S, P = dock_masks.shape  # P = mask_side²
+        assert P == self.mask_side ** 2
+
+        # 坐标矩阵：(1, 1, P, 2) → 广播到 (B, S, P, 2)
+        coords = self.point_coords.unsqueeze(0).unsqueeze(0).expand(B, S, P, 2)
+
+        # 每点特征：(B, S, P, out_dim)
+        pt_feat = self.point_mlp(coords)  # (B*S*P, out_dim) 形式经广播
+
+        # 用 mask 加权（空格子贡献 0）
+        mask_w = dock_masks.unsqueeze(-1)  # (B, S, P, 1)
+        pt_feat = pt_feat * mask_w
+
+        # max pooling over points（空 slot 全零）
+        slot_feat, _ = pt_feat.max(dim=2)  # (B, S, out_dim)
+        slot_feat = self.slot_proj(slot_feat)  # (B, S, out_dim)
+
+        return slot_feat.reshape(B, -1)  # (B, S * out_dim)
+
+
+# ---------------------------------------------------------------------------
 # Conv model — CNN 棋盘编码 + 共享 MLP 主干；对 8×8 空间模式有天然感知
 # ---------------------------------------------------------------------------
 
@@ -106,11 +187,19 @@ class ConvSharedPolicyValueNet(nn.Module):
         conv_channels: int = 32,
         action_embed_dim: int = 48,
         dock_attn_head_dim: int = 16,
+        use_point_encoder: bool = False,
     ):
+        """
+        Args:
+            use_point_encoder: True=使用 DockPointEncoder（PointNet 形状感知编码）
+                替代 DockBoardAttention；输出维度相同 (3 × head_dim)，但表示更精确。
+                注：改变此参数后需从头训练，不兼容旧 checkpoint。
+        """
         super().__init__()
         self.width = width
         self.conv_channels = conv_channels
         self.action_embed_dim = action_embed_dim
+        self.use_point_encoder = use_point_encoder
 
         self.grid_conv_stem = nn.Sequential(
             nn.Conv2d(1, conv_channels, 3, padding=1),
@@ -119,11 +208,20 @@ class ConvSharedPolicyValueNet(nn.Module):
         self.grid_res1 = _ResConvBlock(conv_channels)
         self.grid_res2 = _ResConvBlock(conv_channels)
 
-        self.dock_board_attn = DockBoardAttention(
-            dock_cell_dim=_DOCK_MASK_SIDE * _DOCK_MASK_SIDE,
-            grid_channels=conv_channels,
-            head_dim=dock_attn_head_dim,
-        )
+        if use_point_encoder:
+            # PointNet 形状感知编码：不依赖空间 grid 特征，独立编码每个 dock 块
+            self.dock_encoder = DockPointEncoder(
+                mask_side=_DOCK_MASK_SIDE,
+                hidden_dim=conv_channels,
+                out_dim=dock_attn_head_dim,
+            )
+        else:
+            # 默认 DockBoardAttention：dock mask 对 CNN grid 特征做交叉注意力
+            self.dock_board_attn = DockBoardAttention(
+                dock_cell_dim=_DOCK_MASK_SIDE * _DOCK_MASK_SIDE,
+                grid_channels=conv_channels,
+                head_dim=dock_attn_head_dim,
+            )
         dock_ctx_dim = _DOCK_SLOTS * dock_attn_head_dim  # 3 × 16 = 48
 
         trunk_in = _SCALAR_DIM + conv_channels + dock_ctx_dim  # 23 + 32 + 48 = 103
@@ -175,7 +273,12 @@ class ConvSharedPolicyValueNet(nn.Module):
         g_pooled = g.mean(dim=(-2, -1))  # [B, C]
 
         dock_3 = dock_raw.reshape(-1, _DOCK_SLOTS, _DOCK_MASK_SIDE * _DOCK_MASK_SIDE)
-        dock_ctx = self.dock_board_attn(dock_3, g)  # [B, 48]
+        if self.use_point_encoder:
+            # PointNet 形状感知编码：独立编码每个 dock 块的点集
+            dock_ctx = self.dock_encoder(dock_3)   # [B, 48]
+        else:
+            # 默认：dock 对 CNN 棋盘特征做交叉注意力
+            dock_ctx = self.dock_board_attn(dock_3, g)  # [B, 48]
 
         x = torch.cat([scalars, g_pooled, dock_ctx], dim=-1)
         x = self.trunk_norm(x)
