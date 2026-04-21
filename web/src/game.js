@@ -1148,11 +1148,43 @@ export class Game {
         }, 2500);
     }
 
-    async endGame() {
+    /**
+     * @param {object} [opts]
+     * @param {'endless'|'level'|'level-fail'} [opts.mode='endless'] 结算模式
+     * @param {object} [opts.levelResult]  关卡结算数据（stars、objective 等）
+     */
+    async endGame(opts = {}) {
         if (this._endGameInFlight) {
             return this._endGameInFlight;
         }
         this.isGameOver = true;
+        // 写入结算模式，供结算界面读取
+        const gameOverEl = document.getElementById('game-over');
+        const mode = opts.mode ?? 'endless';
+        if (gameOverEl) gameOverEl.dataset.gameMode = mode;
+        // 更新模式标签文字
+        const labelEl = document.getElementById('over-label');
+        if (labelEl) {
+            labelEl.textContent = mode === 'level' ? '关卡完成' :
+                                  mode === 'level-fail' ? '关卡失败' : '游戏结束';
+        }
+        // 关卡额外信息
+        const levelInfoEl = document.getElementById('over-level-info');
+        if (levelInfoEl) {
+            if (opts.levelResult) {
+                levelInfoEl.hidden = false;
+                const starsEl = document.getElementById('over-stars');
+                if (starsEl && opts.levelResult.stars !== undefined) {
+                    starsEl.textContent = '⭐'.repeat(Math.max(0, Math.min(3, opts.levelResult.stars)));
+                }
+                const objEl = document.getElementById('over-objective');
+                if (objEl && opts.levelResult.objective) {
+                    objEl.textContent = opts.levelResult.objective;
+                }
+            } else {
+                levelInfoEl.hidden = true;
+            }
+        }
 
         this._endGameInFlight = (async () => {
             /** @type {ReturnType<typeof applyGameEndProgression> | null} */

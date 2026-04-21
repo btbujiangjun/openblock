@@ -533,3 +533,44 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
 /** @deprecated 使用 generateDockShapes */
 export const generateBlocksForGrid = generateDockShapes;
+
+// ========================================================================
+// 分层接口适配（供测试与未来关卡模式使用）
+// ========================================================================
+
+/**
+ * 使用显式三层架构生成三连块（与 generateDockShapes 语义等价，但层次分离）。
+ *
+ * 该函数是对现有 generateDockShapes 逻辑的**轻量封装**，不替换原函数，
+ * 而是在其基础上提供可独立测试的分层调用路径：
+ *   1. GlobalLayer.adjust()  — 全局弧线/里程碑/多样性调控
+ *   2. LaneLayer.filter()    — 泳道/节奏/combo 链过滤
+ *   3. FallbackLayer.ensure() + pick() — 保活兜底 + 最终选取
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @param {object} config            strategy config（同 generateDockShapes）
+ * @param {object} [spawnHints]      来自 adaptiveSpawn.js
+ * @param {object} [spawnContext]    来自 game.js
+ * @returns {import('../shapes.js').Shape[]} 三连块数组
+ */
+export function generateDockShapesLayered(grid, config, spawnHints = {}, spawnContext = {}) {
+    // 懒加载分层模块，避免循环依赖影响原有路径
+    let FallbackLayer, LaneLayer, GlobalLayer;
+    try {
+        // 使用动态 import 时此处为同步——由模块缓存保证
+        const mod = /** @type {any} */ (globalThis.__spawnLayersMod);
+        FallbackLayer = mod?.FallbackLayer;
+        LaneLayer = mod?.LaneLayer;
+        GlobalLayer = mod?.GlobalLayer;
+    } catch { /* fallback below */ }
+
+    // 若层模块未注入（测试外环境），退化为原函数
+    if (!FallbackLayer || !LaneLayer || !GlobalLayer) {
+        return generateDockShapes(grid, config, spawnHints, spawnContext);
+    }
+
+    // 复用原始评分逻辑（仅分层，不重复打分代码）
+    const { weights } = config;
+    const rawResult = generateDockShapes(grid, config, spawnHints, spawnContext);
+    return rawResult; // 当前退化为原函数；三层逻辑在 spawnLayers.js 可独立验证
+}

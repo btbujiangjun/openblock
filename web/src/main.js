@@ -11,6 +11,7 @@ import { initSpawnModelPanel } from './spawnModelPanel.js';
 import { applySkinToDocument, getActiveSkin } from './skins.js';
 import { mountBlockWordmarks } from './blockWordmark.js';
 import { initMonetization } from './monetization/index.js';
+import { ReviveManager } from './revive.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootErr = document.getElementById('boot-error');
@@ -19,6 +20,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const game = new Game();
     window.openBlockGame = game;
     initMonetization(game);
+
+    // 复活系统（低侵入性插件：装饰 game.showNoMovesWarning）
+    const reviveManager = new ReviveManager({ limit: 1, clearCells: 12 });
+    reviveManager.init(game);
+    window.__reviveManager = reviveManager;   // 暴露供测试/调试
+    // 新局开始时重置复活次数（通过 start 事件监听）
+    const _origStart = game.start.bind(game);
+    game.start = async (...args) => {
+        reviveManager.resetForNewGame();
+        return _origStart(...args);
+    };
     /* 先于 game.init() 绑定回放/RL：init 因 API 失败抛错时，回放列表仍可点开（只读会话与 move_sequences） */
     initReplayUI(game);
     initPlayerInsightPanel(game);

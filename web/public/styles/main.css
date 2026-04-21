@@ -2929,3 +2929,97 @@ body.game-shell-hidden .app-side-left {
     .block-dock { gap: 6px; padding: 10px 8px max(10px, env(safe-area-inset-bottom, 0px)); min-height: unset; }
     .btn { padding: 10px 25px; font-size: 12px; }
 }
+
+/* ===================================================================
+   复活系统（ReviveManager）
+   =================================================================== */
+.revive-overlay {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: reviveIn 0.3s cubic-bezier(.22,1,.36,1) both;
+}
+
+@keyframes reviveIn {
+    from { opacity: 0; transform: translate(-50%, -42%) scale(.9); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.revive-card {
+    background: linear-gradient(145deg, #1a1a2e, #16213e);
+    color: #fff;
+    padding: 28px 32px 24px;
+    border-radius: 18px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08);
+    text-align: center;
+    max-width: min(92vw, 320px);
+    width: 100%;
+}
+
+.revive-icon {
+    font-size: 40px;
+    margin-bottom: 8px;
+    animation: revivePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes revivePulse {
+    0%, 100% { transform: scale(1); }
+    50%       { transform: scale(1.15); }
+}
+
+.revive-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: .5px;
+}
+
+.revive-desc {
+    font-size: 13px;
+    color: #a0aec0;
+    line-height: 1.55;
+    margin-bottom: 18px;
+}
+
+.revive-remain {
+    font-size: 11px;
+    color: #718096;
+}
+
+.revive-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.revive-btn-watch {
+    background: linear-gradient(135deg, #f6ad55, #ed8936);
+    border: none;
+    color: #1a1a2e;
+    font-weight: 700;
+    letter-spacing: .4px;
+}
+
+.revive-btn-watch:hover {
+    filter: brightness(1.1);
+}
+
+/* 结算界面扩展：关卡模式额外信息 */
+.game-over-level-info {
+    margin: 8px 0 4px;
+}
+
+.over-level-stars {
+    font-size: 24px;
+    letter-spacing: 4px;
+    margin-bottom: 4px;
+}
+
+.over-level-objective {
+    font-size: 13px;
+    color: #a0aec0;
+}

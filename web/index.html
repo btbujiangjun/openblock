@@ -106,11 +106,17 @@
         <ul id="replay-session-list" class="replay-list"></ul>
         <button type="button" class="btn btn-secondary" id="replay-list-back">返回菜单</button>
     </div>
-    <div id="game-over" class="screen game-over-overlay">
+    <div id="game-over" class="screen game-over-overlay" data-game-mode="endless">
         <div class="game-over-card">
-            <p class="game-over-label">游戏结束</p>
+            <!-- 模式标签：endless=游戏结束 / level=关卡完成 / level-fail=关卡失败 -->
+            <p class="game-over-label" id="over-label">游戏结束</p>
             <div class="game-over-score" id="over-score">0</div>
             <div class="final-xp" id="over-xp" hidden></div>
+            <!-- 关卡模式额外信息（endless 模式下隐藏） -->
+            <div class="game-over-level-info" id="over-level-info" hidden>
+                <div class="over-level-stars" id="over-stars" aria-label="星级"></div>
+                <div class="over-level-objective" id="over-objective"></div>
+            </div>
             <div class="game-over-actions">
                 <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>
                 <button type="button" class="btn btn-secondary" id="menu-btn">菜单</button>

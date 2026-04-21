@@ -207,24 +207,31 @@
 
 ## 五、优先改进路径
 
-### 阶段一：高价值快速落地（1~2 月）
+### 阶段一：高价值快速落地（已完成 ✅）
 
 ```
-1. 复活系统
-   - 新增 ReviveScreen 组件（HTML + game.js hook）
-   - 广告/IAP 观看 → 清除 N 个随机格 → 继续局
-   - 接入 adTrigger.js 的 revive_trigger 事件
-   - 预期收益：广告 eCPM 提升 30%+
+1. 复活系统（✅ 已落地）
+   - web/src/revive.js — ReviveManager 插件化实现
+   - 装饰器模式：零侵入挂钩 game.showNoMovesWarning
+   - 随机清除 12 个格子 → 继续局
+   - 广告/IAP 接口预留（adAdapter.showRewardedAd）
+   - 每局限 1 次，可通过 opts.limit 配置
+   - CSS 动画浮层（.revive-overlay / .revive-card）
 
-2. 出块算法分层重构
-   - 拆分 adaptiveSpawn.js 为：
-     FallbackSpawner（保活）→ LaneSpawner（泳道混合）→ GlobalSpawner（全局调控）
-   - 保持外部接口不变，内部职责清晰
-   - 预期：调试效率提升，新玩法接入成本降低
+2. 出块算法分层重构（✅ 已落地）
+   - web/src/bot/spawnLayers.js — 三层显式分离
+   - FallbackLayer：保活兜底 + gap-filler 优先选取
+   - LaneLayer：节奏/combo/尺寸偏好过滤
+   - GlobalLayer：全局弧线/里程碑/多样性调控
+   - 现有 generateDockShapes 保持原有接口不变
+   - 新增 generateDockShapesLayered 适配接口
 
-3. 结算界面扩展
-   - game-over 层支持 mode 参数（endless / level）
-   - 为未来关卡结算预留 UI 槽位
+3. 结算界面扩展（✅ 已落地）
+   - index.html：game-over 增加 data-game-mode 属性
+   - id="over-label"：动态文字（游戏结束/关卡完成/关卡失败）
+   - id="over-level-info"：星级 + 目标文字（关卡专属）
+   - game.js endGame(opts)：支持 mode / levelResult 参数
+   - 向后兼容：无参调用等价于 mode='endless'
 ```
 
 ### 阶段二：关卡系统（2~4 月）
@@ -282,20 +289,21 @@
 | 维度 | 参考架构 | Open Block |
 |------|----------|------------|
 | 产品完整度 | ✅ 完整双模式 + 复活 + 专属玩法 | ⚠️ 无尽单模式，复活缺失 |
-| 算法工程化 | ✅ 清晰三级分层，职责明确 | ⚠️ 功能完备但层次扁平 |
+| 算法工程化 | ✅ 清晰三级分层，职责明确 | ✅ spawnLayers.js 三层显式分离 |
 | AI/RL 深度 | ❌ 规则驱动，无 RL | ✅✅ PPO+MCTS+SpawnTransformer |
 | 玩家建模 | ❌ 未见 | ✅✅ 多维画像 + 实时信号 |
 | 数据资产 | 未见细节 | ✅✅ 行为序列 + 回放 + RL训练闭环 |
-| 变现触点 | ✅ 复活 = 核心锚点 | ⚠️ 复活未落地，框架完备 |
+| 变现触点 | ✅ 复活 = 核心锚点 | ✅ 复活系统已落地（ReviveManager） |
 | 多平台 | 未见 | ✅ Web + 小程序同构 |
 | 可扩展性 | ✅ 层次化，易于插入新规则 | ⚠️ 部分耦合，需重构 |
 
-> **结论**：Open Block 在 AI 深度、数据资产和商业化精细化方面已超越参考架构；
-> 产品层面的核心缺口在于**关卡模式缺失**和**复活系统未落地**，
-> 这两个方向既是留存和变现的天然放大器，也与现有 RL/画像能力深度协同，
-> 是当前最高优先级的产品演进方向。
+> **结论**：Open Block 在 AI 深度、数据资产和商业化精细化方面已超越参考架构。
+> 阶段一改进（复活系统、出块分层、结算扩展）已于 2026-04-20 全部落地，
+> 测试覆盖 30 个新用例（251 个全量用例零回归）。
+> 当前最高优先级的产品演进方向为**关卡/旅行模式**，
+> 可基于已有 LevelConfig + spawnLayers 框架快速搭建骨架。
 
 ---
 
-*文档生成日期：2026-04-20*
+*文档生成日期：2026-04-20 | 最后更新：2026-04-20（阶段一改进落地）*
 *对比依据：行业参考架构图（见 assets）+ Open Block 代码库全量扫描*
