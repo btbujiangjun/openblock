@@ -121,16 +121,34 @@ export class ReviveManager {
         overlay.querySelector('.revive-btn-watch')?.addEventListener('click', () => {
             overlay.remove();
             clearTimeout(this._autoSkipTimer);
+            clearInterval(this._countdownTimer);
             this._handleWatchAd();
+        });
+        overlay.querySelector('.revive-btn-iap')?.addEventListener('click', () => {
+            overlay.remove();
+            clearTimeout(this._autoSkipTimer);
+            clearInterval(this._countdownTimer);
+            this._handleIAP();
         });
         overlay.querySelector('.revive-btn-skip')?.addEventListener('click', () => {
             overlay.remove();
             clearTimeout(this._autoSkipTimer);
+            clearInterval(this._countdownTimer);
             this._handleSkip();
         });
 
+        // 倒计时显示
+        let countdown = 4;
+        const countdownEl = overlay.querySelector('#revive-countdown');
+        this._countdownTimer = setInterval(() => {
+            countdown--;
+            if (countdownEl) countdownEl.textContent = countdown;
+            if (countdown <= 0) clearInterval(this._countdownTimer);
+        }, 1000);
+
         // 自动跳过兜底：4 秒无操作则进入原始 warning
         this._autoSkipTimer = setTimeout(() => {
+            clearInterval(this._countdownTimer);
             overlay.remove();
             this._originalShowNoMovesWarning();
         }, 4000);
@@ -144,16 +162,20 @@ export class ReviveManager {
   <p class="revive-title">继续游戏？</p>
   <p class="revive-desc">
     清除 ${this.clearCells} 个格子为你腾出空间
-    <br><span class="revive-remain">剩余复活次数：${remaining}</span>
+    <br><span class="revive-remain">本局剩余复活次数：${remaining}</span>
   </p>
   <div class="revive-actions">
     <button type="button" class="btn btn-primary revive-btn-watch">
-      ▶ 观看广告复活
+      ▶ 观看广告 · 免费复活
+    </button>
+    <button type="button" class="btn revive-btn-iap" title="立即解锁，无需观看广告">
+      💎 解锁无限复活
     </button>
     <button type="button" class="btn btn-secondary revive-btn-skip">
       放弃
     </button>
   </div>
+  <div class="revive-countdown" id="revive-countdown">4</div>
 </div>`;
     }
 
@@ -178,6 +200,23 @@ export class ReviveManager {
         } else {
             this._originalShowNoMovesWarning();
         }
+    }
+
+    /** 用户选择 IAP 解锁无限复活 */
+    async _handleIAP() {
+        try {
+            const { adAdapter } = await import('./monetization/adAdapter.js').catch(() => ({}));
+            if (adAdapter?.purchaseReviveUnlock) {
+                const ok = await adAdapter.purchaseReviveUnlock();
+                if (ok) {
+                    this.limit = 99;  // 解锁无限复活
+                    this._doRevive();
+                    return;
+                }
+            }
+        } catch { /* ignore */ }
+        // IAP 未接入或失败时，降级为观看广告
+        this._handleWatchAd();
     }
 
     /** 用户放弃复活 */

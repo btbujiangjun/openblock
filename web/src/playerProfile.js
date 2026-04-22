@@ -96,6 +96,9 @@ export class PlayerProfile {
         this._statsBaselineSkill = -1;
         /** 缓存：历史技能 / 趋势 / 置信度（按需重算） */
         this._cachedHistorical = null;
+
+        /** 模式偏好追踪：{endless:0, level:0} */
+        this._modeCount = { endless: 0, level: 0 };
     }
 
     /* ================================================================== */
@@ -187,11 +190,12 @@ export class PlayerProfile {
 
     /**
      * 局末调用：将本局摘要压入会话历史环，供长周期评估。
-     * @param {{ score:number, placements:number, clears:number, misses:number, maxCombo:number }} gameStats
+     * @param {{ score:number, placements:number, clears:number, misses:number, maxCombo:number, mode?:string }} gameStats
      */
     recordSessionEnd(gameStats) {
         const duration = Date.now() - this._sessionStartTs;
         const p = gameStats.placements || 1;
+        const mode = gameStats.mode ?? 'endless';
         /** @type {SessionSummary} */
         const summary = {
             score: gameStats.score ?? 0,
@@ -202,13 +206,20 @@ export class PlayerProfile {
             clearRate: p > 0 ? (gameStats.clears ?? 0) / p : 0,
             skill: this._smoothSkill,
             duration,
-            ts: Date.now()
+            ts: Date.now(),
+            mode,
         };
         this._sessionHistory.push(summary);
         if (this._sessionHistory.length > SESSION_HISTORY_CAP) {
             this._sessionHistory = this._sessionHistory.slice(-SESSION_HISTORY_CAP);
         }
         this._cachedHistorical = null;
+        // 更新模式计数
+        if (mode === 'level') {
+            this._modeCount.level = (this._modeCount.level ?? 0) + 1;
+        } else {
+            this._modeCount.endless = (this._modeCount.endless ?? 0) + 1;
+        }
     }
 
     /**
@@ -670,5 +681,72 @@ export class PlayerProfile {
         const confidence = Math.max(0, Math.min(1, gameConf * freshnessConf));
 
         return (this._cachedHistorical = { skill, trend, confidence });
+    }
+
+    /* ================================================================== */
+    /*  扩展维度：sessionTrend / modePref / 五分群                        */
+    /* ================================================================== */
+
+    /**
+     * 会话局数趋势（近 5 局 vs 前 5 局的放置次数变化）
+     * @returns {'rising'|'stable'|'declining'}
+     */
+    get sessionTrend() {
+        const h = this._sessionHistory;
+        if (h.length < 6) return 'stable';
+        const recent = h.slice(-5).reduce((s, e) => s + e.placements, 0) / 5;
+        const older  = h.slice(-10, -5).reduce((s, e) => s + e.placements, 0) / Math.max(1, h.slice(-10, -5).length);
+        const ratio = older > 0 ? recent / older : 1;
+        if (ratio > 1.15) return 'rising';
+        if (ratio < 0.80) return 'declining';
+        return 'stable';
+    }
+
+    /**
+     * 模式偏好
+     * @returns {'endless'|'level'|'mixed'}
+     */
+    get modePref() {
+        const e = this._modeCount.endless ?? 0;
+        const l = this._modeCount.level ?? 0;
+        const total = e + l;
+        if (total === 0) return 'endless';
+        const levelRatio = l / total;
+        if (levelRatio > 0.6) return 'level';
+        if (levelRatio > 0.3) return 'mixed';
+        return 'endless';
+    }
+
+    /**
+     * 五分群分类（对应竞品分析 A–E 类）
+     *
+     * A 轻度休闲：低技能 + 非高频 + 无尽偏好
+     * B 中度无尽：中技能 + 稳定/下降 + 强无尽偏好
+     * C 重度高价值：高技能 + 下降趋势 + 高历史局数
+     * D 中度关卡：任意技能 + 关卡偏好
+     * E 高能玩家：极高技能 + 无尽偏好
+     *
+     * @returns {'A'|'B'|'C'|'D'|'E'}
+     */
+    get segment5() {
+        const skill = this.skillLevel;
+        const trend = this.sessionTrend;
+        const mode  = this.modePref;
+        const games = this._totalLifetimeGames;
+
+        // E 类：极高技能
+        if (skill > 0.82) return 'E';
+
+        // D 类：明显关卡偏好
+        if (mode === 'level' || mode === 'mixed') return 'D';
+
+        // C 类：高技能 + 下降趋势 + 有足够游戏历史
+        if (skill > 0.62 && trend === 'declining' && games >= 20) return 'C';
+
+        // B 类：中技能 + 稳定/上升 + 无尽
+        if (skill > 0.38 && mode === 'endless') return 'B';
+
+        // 默认 A 类
+        return 'A';
     }
 }

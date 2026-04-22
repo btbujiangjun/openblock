@@ -64,8 +64,15 @@
                 </div>
             </div>
             <div class="stats-bar">
-                <div class="stat-box"><div class="stat-label">得分</div><div class="stat-value" id="score">0</div></div>
-                <div class="stat-box"><div class="stat-label">最佳</div><div class="stat-value" id="best">0</div></div>
+                <div class="stat-box">
+                    <div class="stat-label">得分</div>
+                    <div class="stat-value" id="score">0</div>
+                </div>
+                <div class="stat-box stat-box--best">
+                    <div class="stat-label">最佳</div>
+                    <div class="stat-value" id="best">0</div>
+                    <div class="best-gap" id="best-gap" hidden></div>
+                </div>
             </div>
         </div>
         <div class="progression-hud" id="progression-hud" aria-label="玩家等级">
@@ -224,6 +231,11 @@
             <div class="game-over-level-info" id="over-level-info" hidden>
                 <div class="over-level-stars" id="over-stars" aria-label="星级"></div>
                 <div class="over-level-objective" id="over-objective"></div>
+            </div>
+            <!-- 关卡多次失败提示（连败 ≥2 次后显示） -->
+            <div class="level-fail-hint" id="level-fail-hint" hidden>
+                <div class="level-fail-hint-icon">💡</div>
+                <div class="level-fail-hint-text" id="level-fail-hint-text"></div>
             </div>
             <div class="game-over-actions">
                 <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>

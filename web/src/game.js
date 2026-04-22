@@ -369,6 +369,15 @@ export class Game {
             this.score = 0;
             this.isGameOver = false;
             this._endGameInFlight = null;
+            // 关卡模式：同一关卡连续失败计数（用于失败提示）
+            const prevLevelKey = this._currentLevelKey;
+            const newLevelKey = opts.levelConfig ? JSON.stringify(opts.levelConfig?.id ?? opts.levelConfig?.objective) : null;
+            if (newLevelKey && newLevelKey === prevLevelKey) {
+                this._levelFailStreak = (this._levelFailStreak ?? 0) + 1;
+            } else {
+                this._levelFailStreak = 0;
+            }
+            this._currentLevelKey = newLevelKey;
             this._levelManager = opts.levelConfig ? new LevelManager(opts.levelConfig) : null;
             this._levelMode = opts.levelConfig ? 'level' : 'endless';
             const customRules = this._levelManager?.getAllowedClearRules();
@@ -1257,7 +1266,8 @@ export class Game {
 
                 this.playerProfile.recordSessionEnd({
                     score: this.score,
-                    ...this.gameStats
+                    ...this.gameStats,
+                    mode: this._levelMode ?? 'endless',
                 });
 
                 await this.saveSession();
@@ -1337,6 +1347,8 @@ export class Game {
                     }
                 }
                 this._updateProgressionHud();
+                // 关卡失败多次：触发差异化提示
+                this._updateLevelFailHint(mode);
                 this.showScreen('game-over');
             }
         })();
@@ -1623,7 +1635,45 @@ export class Game {
     updateUI() {
         document.getElementById('score').textContent = this.score;
         document.getElementById('best').textContent = this.bestScore;
+        // 最高分差距提示（无尽模式 + 尚未超越时显示）
+        const gapEl = document.getElementById('best-gap');
+        if (gapEl) {
+            const gap = this.bestScore - this.score;
+            if (this._levelMode === 'endless' && gap > 0 && this.bestScore > 0) {
+                gapEl.textContent = `差 ${gap} 分`;
+                gapEl.hidden = false;
+                // 接近最高分时高亮
+                gapEl.className = 'best-gap' + (gap <= this.bestScore * 0.1 ? ' best-gap--close' : '');
+            } else {
+                gapEl.hidden = true;
+            }
+        }
         this._updateProgressionHud();
+    }
+
+    /** 关卡失败多次后，在结算界面展示有针对性的提示 */
+    _updateLevelFailHint(mode) {
+        const hintEl = document.getElementById('level-fail-hint');
+        const textEl = document.getElementById('level-fail-hint-text');
+        if (!hintEl || !textEl) return;
+
+        const streak = this._levelFailStreak ?? 0;
+        if (mode !== 'level-fail' || streak < 1) {
+            hintEl.hidden = true;
+            return;
+        }
+
+        const hints = [
+            '尝试先放置较小的方块，为后续大块留出空间',
+            '优先消除边角区域，保持中央灵活度',
+            '遇到 L/T 型块时，尽量靠边放置',
+            '保持棋盘整洁比追求一次消多行更重要',
+        ];
+        const hint = hints[Math.min(streak - 1, hints.length - 1)];
+        textEl.textContent = streak >= 2
+            ? `已连续失败 ${streak + 1} 次 · ${hint}`
+            : hint;
+        hintEl.hidden = false;
     }
 
     markDirty() {

@@ -16,6 +16,9 @@ import { createEffectLayer } from './effects/effectLayer.js';
 import { BlockPool } from './bot/blockPool.js';
 import { generateDockShapes } from './bot/blockSpawn.js';
 import { initLevelEditorPanel, openLevelEditorPanel } from './levelEditorPanel.js';
+import { initSeasonPass, toggleSeasonPass } from './seasonPass.js';
+import { initPushNotification } from './pushNotification.js';
+import { initChannelAttribution } from './channelAttribution.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootErr = document.getElementById('boot-error');
@@ -56,11 +59,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 关卡编辑器触发按钮（index.html 中已预留 #level-editor-btn）
     const leBtn = document.getElementById('level-editor-btn');
     if (leBtn) leBtn.addEventListener('click', openLevelEditorPanel);
+
+    // 渠道归因（页面加载时解析 UTM 参数）
+    initChannelAttribution();
+
     try {
         await game.init();
         if (bootErr) {
             bootErr.hidden = true;
         }
+
+        // 赛季通行证
+        const seasonPass = initSeasonPass(game);
+        window.__seasonPass = seasonPass;
+        // 菜单中加入赛季入口（若有 #season-pass-btn）
+        document.getElementById('season-pass-btn')?.addEventListener('click', () => toggleSeasonPass());
+
+        // Push 通知（初始化后检查召回，游戏结束时记录活跃）
+        const pushMgr = initPushNotification(game);
+        const _origEndGame = game.endGame.bind(game);
+        game.endGame = async (opts = {}) => {
+            const r = await _origEndGame(opts);
+            pushMgr.onGameEnd();
+            return r;
+        };
+
         // 初始化完成后直接进入游戏，跳过菜单界面
         await game.start({ fromChain: false });
         console.log('Open Block initialized successfully');
