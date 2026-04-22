@@ -245,6 +245,15 @@ export class Game {
             };
         }
 
+        const inGameMenuBtn = document.getElementById('in-game-menu-btn');
+        if (inGameMenuBtn) {
+            inGameMenuBtn.onclick = () => {
+                this.runStreak = 0;
+                this._updateRunStreakHint();
+                this.showScreen('menu');
+            };
+        }
+
         document.querySelectorAll('.strategy-btn').forEach(btn => {
             btn.onclick = () => {
                 document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('active'));
@@ -433,7 +442,11 @@ export class Game {
                     }
                 }
                 if (!openingPlayable) {
-                    const softFill = Math.min(0.12, Math.max(0.06, (layeredOpen.fillRatio || 0.2) * 0.45));
+                    // 用 ?? 而非 ||：避免 fillRatio=0（简单模式空盘）被误判为 falsy
+                    const fillBase = layeredOpen.fillRatio ?? 0.2;
+                    const softFill = fillBase === 0
+                        ? 0
+                        : Math.min(0.12, Math.max(0.06, fillBase * 0.45));
                     clearTimeout(this._movePersistTimer);
                     this._movePersistTimer = null;
                     this.grid.initBoard(softFill, layeredOpen.shapeWeights);

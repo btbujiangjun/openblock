@@ -50,7 +50,11 @@
 <body>
     <div id="app">
         <div class="header">
+            <div class="header-side header-side--left"></div>
             <h1 class="app-wordmark" aria-label="Open Block"></h1>
+            <div class="header-side header-side--right">
+                <button type="button" id="in-game-menu-btn" class="in-game-menu-btn" title="返回菜单">☰</button>
+            </div>
         </div>
         <div class="score-theme-row">
             <div class="header-skin">
@@ -84,11 +88,114 @@
         <!-- 必须挂在 #app 下，勿放在 .play-stack 内：backdrop-filter 会使 fixed 相对祖先，拖动时撑出滚动条 -->
         <canvas id="drag-ghost" width="1" height="1" aria-hidden="true"></canvas>
     </div>
-    <div id="menu" class="screen active">
+    <div id="menu" class="screen">
         <h1 class="app-wordmark app-wordmark--hero" aria-label="Open Block"></h1>
-        <button type="button" class="btn btn-primary" id="start-btn">开始游戏</button>
-        <button type="button" class="btn btn-secondary" id="menu-replay-btn">对局回放</button>
-        <button type="button" class="btn btn-secondary" id="level-editor-btn">🗺 关卡编辑器</button>
+        <div class="menu-grid">
+            <button type="button" class="menu-card menu-card--start" id="start-btn">
+                <span class="menu-card-icon">▶</span>
+                <span class="menu-card-label">开始游戏</span>
+            </button>
+            <button type="button" class="menu-card menu-card--replay" id="menu-replay-btn">
+                <span class="menu-card-icon">📺</span>
+                <span class="menu-card-label">对局回放</span>
+            </button>
+            <button type="button" class="menu-card menu-card--editor" id="level-editor-btn">
+                <span class="menu-card-icon">🗺️</span>
+                <span class="menu-card-label">关卡编辑器</span>
+            </button>
+            <a href="/docs.html" target="_blank" class="menu-card menu-card--docs menu-docs-link">
+                <span class="menu-card-icon">📚</span>
+                <span class="menu-card-label">文档中心</span>
+            </a>
+        </div>
+    </div>
+    <!-- 关卡编辑器屏幕（与回放并列的子功能） -->
+    <div id="level-editor-screen" class="screen level-editor-screen">
+        <div class="le-header">
+            <h2 class="le-title">🗺 关卡编辑器</h2>
+            <button type="button" class="btn btn-secondary le-back-btn" id="le-back-btn">返回菜单</button>
+        </div>
+        <div class="le-body">
+            <!-- 左栏：网格编辑 -->
+            <section class="le-section le-grid-section">
+                <div class="le-section-title">初始盘面</div>
+                <div class="le-grid-toolbar">
+                    <label class="le-label">填充率
+                        <input type="range" id="le-fill-ratio" min="0" max="70" value="25" step="5" class="le-range">
+                        <span id="le-fill-ratio-val">25%</span>
+                    </label>
+                    <button class="le-btn le-btn-ghost" id="le-gen-btn">⚡ PCGRL 生成</button>
+                    <button class="le-btn le-btn-ghost" id="le-clear-btn">🗑 清空</button>
+                </div>
+                <div id="le-grid" class="le-grid" data-size="8" role="grid" aria-label="关卡盘面编辑器"></div>
+                <div class="le-grid-hint">点击格子切换填充 / 右键选择颜色</div>
+            </section>
+            <!-- 右栏：关卡配置 -->
+            <section class="le-section le-config-section">
+                <div class="le-section-title">关卡配置</div>
+                <div class="le-field">
+                    <label class="le-label" for="le-level-name">关卡名称</label>
+                    <input type="text" id="le-level-name" class="le-input" value="我的关卡" maxlength="20">
+                </div>
+                <div class="le-field">
+                    <label class="le-label" for="le-mode">玩法模式</label>
+                    <select id="le-mode" class="le-select">
+                        <option value="endless">无尽模式（行列消除）</option>
+                        <option value="mosaic_quadrant">马赛克 · 四象限</option>
+                        <option value="mosaic_strips">马赛克 · 竖条</option>
+                        <option value="mosaic_ring">马赛克 · 环形</option>
+                    </select>
+                </div>
+                <div class="le-field-group">
+                    <div class="le-section-title" style="margin-top:8px;">胜利目标</div>
+                    <div class="le-row">
+                        <label class="le-label" for="le-obj-type">类型</label>
+                        <select id="le-obj-type" class="le-select">
+                            <option value="score">达到分数</option>
+                            <option value="clear" selected>消除行数</option>
+                            <option value="survival">存活轮数</option>
+                        </select>
+                    </div>
+                    <div class="le-row">
+                        <label class="le-label" for="le-obj-value">目标值</label>
+                        <input type="number" id="le-obj-value" class="le-input le-input-sm" value="5" min="1" max="999">
+                    </div>
+                </div>
+                <div class="le-field-group">
+                    <div class="le-section-title" style="margin-top:8px;">限制条件</div>
+                    <div class="le-row">
+                        <label class="le-label" for="le-max-placements">最大步数</label>
+                        <input type="number" id="le-max-placements" class="le-input le-input-sm" value="30" min="5" max="999">
+                        <span class="le-unit">步</span>
+                    </div>
+                    <div class="le-row">
+                        <label class="le-label" for="le-max-rounds">最大轮数</label>
+                        <input type="number" id="le-max-rounds" class="le-input le-input-sm" value="" placeholder="不限" min="1" max="999">
+                        <span class="le-unit">轮</span>
+                    </div>
+                </div>
+                <div class="le-field-group">
+                    <div class="le-section-title" style="margin-top:8px;">星级门槛（按目标值）</div>
+                    <div class="le-row">
+                        <label class="le-label">⭐ 1星</label>
+                        <input type="number" id="le-star1" class="le-input le-input-sm" value="5" min="1">
+                    </div>
+                    <div class="le-row">
+                        <label class="le-label">⭐⭐ 2星</label>
+                        <input type="number" id="le-star2" class="le-input le-input-sm" value="8" min="1">
+                    </div>
+                    <div class="le-row">
+                        <label class="le-label">⭐⭐⭐ 3星</label>
+                        <input type="number" id="le-star3" class="le-input le-input-sm" value="12" min="1">
+                    </div>
+                </div>
+                <div class="le-actions">
+                    <button class="le-btn le-btn-primary" id="le-play-btn">▶ 开始试玩</button>
+                    <button class="le-btn le-btn-secondary" id="le-export-btn">📋 导出 JSON</button>
+                </div>
+                <textarea id="le-json-out" class="le-json-out" rows="6" readonly placeholder="点击「导出 JSON」查看配置…" hidden></textarea>
+            </section>
+        </div>
     </div>
     <div id="replay-list-screen" class="screen">
         <h2>对局回放</h2>
@@ -177,6 +284,66 @@
                     <input type="radio" name="spawn-mode" value="model" /> 生成式推荐
                 </label>
                 <span class="spawn-model-status" id="spawn-model-badge">模型未训练</span>
+            </div>
+        </details>
+        <details class="panel-section spawn-layers-detail">
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🔬</span>三层算法详解</summary>
+            <div class="spawn-layers-doc">
+                <!-- GlobalLayer -->
+                <div class="sl-layer">
+                    <div class="sl-layer-title">① GlobalLayer <span class="sl-layer-tag">全局调控</span></div>
+                    <p class="sl-layer-desc">结合局内弧线与跨轮记忆，对全量候选做权重偏移，保障多样性、里程碑奖励和挫败缓解。</p>
+                    <table class="sl-params">
+                        <tr><th>参数</th><th>当前值</th><th>说明</th></tr>
+                        <tr title="局内阶段：热身→高峰→冷却；热身偏小块，冷却偏大块">
+                            <td>sessionArc</td><td id="sl-arc">–</td><td>局内弧线</td></tr>
+                        <tr title="刚达到分数里程碑时短暂推送大块（≥4格 ×1.3），制造高峰感">
+                            <td>scoreMilestone</td><td id="sl-milestone">–</td><td>里程碑</td></tr>
+                        <tr title="无消行轮数越多，消行块权重越高（最大 ×2.5）；超过 5 轮无消行时效果明显">
+                            <td>roundsSinceClear</td><td id="sl-rsc">–</td><td>连续无消行</td></tr>
+                        <tr title="最近 3 轮已出现的品类降权 ×0.85，避免同形状连续出现">
+                            <td>recentCategories</td><td id="sl-cats">–</td><td>近期品类</td></tr>
+                    </table>
+                </div>
+                <!-- LaneLayer -->
+                <div class="sl-layer">
+                    <div class="sl-layer-title">② LaneLayer <span class="sl-layer-tag">泳道混合</span></div>
+                    <p class="sl-layer-desc">依据当前策略的 spawnHints 对候选做筛选/重排，实现「setup → payoff」节奏感。</p>
+                    <table class="sl-params">
+                        <tr><th>参数</th><th>当前值</th><th>说明</th></tr>
+                        <tr title="保证至少 N 个能即时消行的块；非消行块权重降至 ×0.7">
+                            <td>clearGuarantee</td><td id="sl-cg">–</td><td>消行保障数</td></tr>
+                        <tr title="-1 偏小块，+1 偏大块；线性缩放块权重">
+                            <td>sizePreference</td><td id="sl-sp">–</td><td>块尺寸偏好</td></tr>
+                        <tr title="0~1：combo 链强度越高，消行块权重倍增（最大 ×2.5）">
+                            <td>comboChain</td><td id="sl-cc">–</td><td>连消链强度</td></tr>
+                        <tr title="setup=铺垫大块；payoff=消行块×1.8；neutral=不干预">
+                            <td>rhythmPhase</td><td id="sl-rp">–</td><td>节奏相位</td></tr>
+                    </table>
+                </div>
+                <!-- FallbackLayer -->
+                <div class="sl-layer">
+                    <div class="sl-layer-title">③ FallbackLayer <span class="sl-layer-tag">兜底保活</span></div>
+                    <p class="sl-layer-desc">最后一关：确保三连块中至少有 1 个可放置，不足时从全量池随机补入；优先选 gap-filler（能触发消行的块）为首槽。</p>
+                    <table class="sl-params">
+                        <tr><th>参数</th><th>当前值</th><th>说明</th></tr>
+                        <tr title="三连块中可放置块的数量；低于 minGuarantee（默认1）时触发补充">
+                            <td>placeableCount</td><td id="sl-pc">–</td><td>可放块数</td></tr>
+                        <tr title="gapFills>0 的块数量；有 gap-filler 时优先放首槽">
+                            <td>gapFillerCount</td><td id="sl-gf">–</td><td>消行块数</td></tr>
+                    </table>
+                    <div class="sl-flow">
+                        <span class="sl-flow-step">候选池</span>
+                        <span class="sl-flow-arrow">→</span>
+                        <span class="sl-flow-step">Global 调权</span>
+                        <span class="sl-flow-arrow">→</span>
+                        <span class="sl-flow-step">Lane 过滤</span>
+                        <span class="sl-flow-arrow">→</span>
+                        <span class="sl-flow-step">Fallback 选3</span>
+                        <span class="sl-flow-arrow">→</span>
+                        <span class="sl-flow-step">出块</span>
+                    </div>
+                </div>
             </div>
         </details>
         <details class="panel-section">

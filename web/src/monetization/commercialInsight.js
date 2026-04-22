@@ -17,6 +17,7 @@
 import { getCommercialInsight, updateRealtimeSignals } from './personalization.js';
 import { getFlag } from './featureFlags.js';
 import { on } from './MonetizationBus.js';
+import { openMonPanel } from './monPanel.js';
 
 const SECTION_ID = 'insight-commercial';
 
@@ -34,16 +35,21 @@ export function initCommercialInsight(game) {
         section = document.createElement('details');
         section.id = SECTION_ID;
         section.className = 'insight-section insight-commercial-section';
-        section.open = true;
+        section.open = false;
         section.innerHTML = `
 <summary class="insight-section-title">
   <span>💰 商业化策略</span>
   <span id="insight-commercial-badge" class="mon-segment-badge"></span>
+  <button type="button" id="mon-panel-open-btn" class="insight-mon-panel-btn" title="模型训练面板">⚙</button>
 </summary>
 <div id="insight-commercial-body" class="insight-commercial-body">
   <p class="insight-muted">正在分析…</p>
 </div>`;
         panel.appendChild(section);
+
+        // 绑定模型训练面板入口（阻止冒泡，防止触发 details 展开/折叠）
+        document.getElementById('mon-panel-open-btn')
+            ?.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openMonPanel(); });
     }
 
     // 链式 patch _playerInsightRefresh

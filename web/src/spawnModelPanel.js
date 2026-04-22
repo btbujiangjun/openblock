@@ -13,8 +13,55 @@ import {
     stopTraining,
     reloadModel,
 } from './spawnModel.js';
+import { resolveAdaptiveStrategy } from './adaptiveSpawn.js';
 
 let _pollTimer = null;
+let _layerRefreshTimer = null;
+
+/** 实时刷新三层参数展示 */
+function _refreshLayerParams(game) {
+    if (!game) return;
+    const ctx = game._spawnContext ?? {};
+    const profile = game.playerProfile;
+
+    // 尝试从当前策略获取 spawnHints
+    let hints = {};
+    try {
+        const strategy = resolveAdaptiveStrategy(
+            game.strategy,
+            profile,
+            game.score ?? 0,
+            game.runStreak ?? 0,
+            game.gameStats?.clears ?? 0,
+            ctx
+        );
+        hints = strategy.spawnHints ?? {};
+    } catch { /* ignore */ }
+
+    // GlobalLayer 参数
+    _set('sl-arc',       ctx.sessionArc ?? '–');
+    _set('sl-milestone', ctx.scoreMilestone ? '✅ 是' : '否');
+    _set('sl-rsc',       ctx.roundsSinceClear ?? 0);
+    const cats = (ctx.recentCategories ?? []).flat().filter(Boolean);
+    _set('sl-cats', cats.length ? cats.slice(-4).join(', ') : '–');
+
+    // LaneLayer 参数
+    _set('sl-cg', hints.clearGuarantee ?? 0);
+    _set('sl-sp', hints.sizePreference != null ? hints.sizePreference.toFixed(2) : '0.00');
+    _set('sl-cc', hints.comboChain != null ? hints.comboChain.toFixed(2) : '0.00');
+    _set('sl-rp', hints.rhythmPhase ?? 'neutral');
+
+    // FallbackLayer 参数（从最后一批 dock 块推断）
+    const dock = game.dockBlocks ?? [];
+    const remaining = dock.filter(b => !b.placed);
+    _set('sl-pc', remaining.length);  // 仍在候选中的块
+    _set('sl-gf', '–');               // gapFills 在运行时计算，此处仅展示块数
+}
+
+function _set(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(val);
+}
 
 export function initSpawnModelPanel(game) {
     const radios = document.querySelectorAll('input[name="spawn-mode"]');
@@ -92,6 +139,10 @@ export function initSpawnModelPanel(game) {
     }
 
     _refreshBadge();
+
+    // 三层参数：每 2 秒刷新一次（面板展开时有意义）
+    _layerRefreshTimer = setInterval(() => _refreshLayerParams(game), 2000);
+    _refreshLayerParams(game);
 
     async function _refreshBadge() {
         try {

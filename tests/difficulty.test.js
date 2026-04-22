@@ -104,6 +104,25 @@ describe('difficulty', () => {
             }
         });
 
+        it('easy 模式：fillRatio 始终为 0，不受连战 runStreak 影响', () => {
+            for (let streak = 0; streak <= 6; streak++) {
+                const s = resolveLayeredStrategy('easy', 0, streak);
+                expect(s.fillRatio).toBe(0);
+            }
+        });
+
+        it('normal 模式：连战后 fillRatio 正常递增', () => {
+            const s0 = resolveLayeredStrategy('normal', 0, 0);
+            const s3 = resolveLayeredStrategy('normal', 0, 3);
+            expect(s3.fillRatio).toBeGreaterThan(s0.fillRatio);
+        });
+
+        it('hard 模式：fillRatio > normal', () => {
+            const sN = resolveLayeredStrategy('normal', 0, 0);
+            const sH = resolveLayeredStrategy('hard', 0, 0);
+            expect(sH.fillRatio).toBeGreaterThan(sN.fillRatio);
+        });
+
         it('higher score leads to stress-shifted weights', () => {
             const low = resolveLayeredStrategy('normal', 0, 0);
             const high = resolveLayeredStrategy('normal', 500, 0);

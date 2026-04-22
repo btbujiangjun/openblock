@@ -267,8 +267,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const shapeWeights = interpolateProfileWeights(cfg.profiles, stress);
 
     /* ---------- fillRatio ---------- */
-    let fillRatio = (base.fillRatio ?? 0.2) + runMods.fillDelta;
-    fillRatio = Math.min(0.36, Math.max(0, fillRatio));
+    // fillRatio=0（如简单模式空盘）不叠加连战加成，保持纯净空盘开局
+    const _baseFill = base.fillRatio ?? 0.2;
+    const fillRatio = _baseFill === 0
+        ? 0
+        : Math.min(0.36, Math.max(0, _baseFill + runMods.fillDelta));
 
     /* ================================================================ */
     /*  spawnHints 三层构建                                              */

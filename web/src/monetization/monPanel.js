@@ -35,20 +35,28 @@ function _injectStyles() {
     style.id = STYLE_ID;
     /* 复用玩家画像面板设计语言：系统字体、CSS 变量、亮色毛玻璃、紧凑字号 */
     style.textContent = `
-/* ── 触发按钮（右下角）── */
-#${BTN_ID} {
-    position: fixed; bottom: 14px; right: 14px; z-index: 9998;
-    width: 30px; height: 30px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent-color, #5B9BD5), var(--accent-dark, #4472C4));
-    color: #fff; font-size: 14px; border: none; cursor: pointer;
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--shadow, rgba(44,62,80,.15)) 60%, transparent);
-    display: flex; align-items: center; justify-content: center;
-    transition: transform .15s, box-shadow .15s;
+/* ── 商业化策略面板内嵌设置图标按钮 ── */
+.insight-mon-panel-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 5px;
+    border: 1px solid color-mix(in srgb, var(--accent-color, #5B9BD5) 35%, transparent);
+    background: color-mix(in srgb, var(--accent-color, #5B9BD5) 12%, transparent);
+    color: var(--accent-color, #5B9BD5);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background .15s, transform .2s;
     font-family: inherit;
 }
-#${BTN_ID}:hover {
-    transform: scale(1.1);
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--accent-color, #5B9BD5) 40%, transparent);
+.insight-mon-panel-btn:hover {
+    background: color-mix(in srgb, var(--accent-color, #5B9BD5) 22%, transparent);
+    transform: rotate(45deg);
 }
 
 /* ── 遮罩层 ── */
@@ -621,21 +629,14 @@ export function initMonPanel(game) {
     _game = game;
     _injectStyles();
 
-    // 悬浮按钮
-    let btn = document.getElementById(BTN_ID);
-    if (!btn) {
-        btn = document.createElement('button');
-        btn.id = BTN_ID;
-        btn.title = '商业化模型训练面板';
-        btn.textContent = '📊';
-        btn.addEventListener('click', () => {
-            if (_panel?.classList.contains('mp-open')) {
-                _closePanel();
-            } else {
-                _openPanel();
-            }
-        });
-        document.body.appendChild(btn);
+}
+
+/** 供外部调用直接打开面板（替代悬浮按钮） */
+export function openMonPanel() {
+    if (_panel?.classList.contains('mp-open')) {
+        _closePanel();
+    } else {
+        _openPanel();
     }
 }
 

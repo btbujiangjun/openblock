@@ -84,8 +84,11 @@ export function resolveLayeredStrategy(baseStrategyId, score, runStreak) {
     const run = getRunDifficultyModifiers(runStreak);
     const totalStress = Math.min(1, scoreStress + run.stressBonus);
     const shapeWeights = blendShapeWeightsTowardHard(baseStrategyId, totalStress);
-    let fillRatio = (base.fillRatio ?? 0.2) + run.fillDelta;
-    fillRatio = Math.min(0.36, Math.max(0, fillRatio));
+    // fillRatio=0（如简单模式空盘）不叠加连战加成，保持纯净空盘开局
+    const baseFill = base.fillRatio ?? 0.2;
+    const fillRatio = baseFill === 0
+        ? 0
+        : Math.min(0.36, baseFill + run.fillDelta);
     return {
         ...base,
         shapeWeights,

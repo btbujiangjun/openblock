@@ -204,6 +204,7 @@ const MON_CSS = `
     background: color-mix(in srgb, var(--accent-color, #5B9BD5) 14%, transparent);
     color: var(--accent-dark, #4472C4);
     border: 1px solid color-mix(in srgb, var(--accent-color, #5B9BD5) 22%, transparent);
+    margin-right: 4px;
 }
 
 .insight-commercial-body {

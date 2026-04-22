@@ -61,6 +61,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (bootErr) {
             bootErr.hidden = true;
         }
+        // 初始化完成后直接进入游戏，跳过菜单界面
+        await game.start({ fromChain: false });
         console.log('Open Block initialized successfully');
     } catch (error) {
         console.error('Failed to initialize game:', error);

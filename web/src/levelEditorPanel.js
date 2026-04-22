@@ -1,29 +1,15 @@
 /**
- * levelEditorPanel.js — 关卡编辑器 UI 面板
+ * levelEditorPanel.js — 关卡编辑器（与回放并列的 screen 子功能）
  *
- * 功能
- * ----
- * - 8×8 可点击网格（切换格子填充/空白）
- * - 目标类型（score / clear / survival / board）和数值配置
- * - 关卡限制（最大步数、最大轮数）
- * - 星级门槛（三档）
- * - 关卡模式选择（endless / 马赛克四象限 / 竖条 / 环形）
- * - "PCGRL 随机生成"按钮：程序化填充初始盘面
- * - "导出 JSON"按钮：显示可复制的 LevelConfig
- * - "开始试玩"按钮：直接加载配置并启动游戏
+ * 使用与回放相同的 game.showScreen / showScreen('menu') 导航模式。
+ * HTML 结构已静态写入 index.html（#level-editor-screen），
+ * 本模块只负责：初始化网格、绑定事件、调用 PCGRL 生成、试玩启动。
  *
- * 使用方式
- * --------
- *   import { initLevelEditorPanel } from './levelEditorPanel.js';
- *   initLevelEditorPanel(game);  // 在 DOMContentLoaded 后调用
- *
- * DOM 依赖
- * --------
- *   <button id="level-editor-btn"> … </button>   （触发按钮，任意位置）
- *   面板元素由本模块动态创建注入 document.body。
+ * 入口：initLevelEditorPanel(game) — 在 DOMContentLoaded 后调用一次
+ * 打开：openLevelEditorPanel()   — 由菜单按钮触发
  */
 
-import { generateBoard, generateMosaicBoard, calcFillRatio } from './level/pcgrl.js';
+import { generateBoard, generateMosaicBoard } from './level/pcgrl.js';
 import {
     MOSAIC_LEVEL_4ZONE,
     MOSAIC_LEVEL_STRIPS,
@@ -33,129 +19,18 @@ import {
 } from './level/mosaicLevel.js';
 
 // -----------------------------------------------------------------------
-// 面板 HTML 模板
-// -----------------------------------------------------------------------
-const PANEL_ID = 'level-editor-panel';
-
-function buildPanelHTML() {
-    return `
-<div id="${PANEL_ID}" class="level-editor-overlay" hidden aria-modal="true" role="dialog" aria-label="关卡编辑器">
-  <div class="level-editor-card">
-    <div class="le-header">
-      <h2 class="le-title">🗺 关卡编辑器</h2>
-      <button class="le-close" id="le-close-btn" aria-label="关闭">✕</button>
-    </div>
-
-    <div class="le-body">
-      <!-- 左栏：网格编辑 -->
-      <section class="le-section le-grid-section">
-        <div class="le-section-title">初始盘面</div>
-        <div class="le-grid-toolbar">
-          <label class="le-label">填充率
-            <input type="range" id="le-fill-ratio" min="0" max="70" value="25" step="5" class="le-range">
-            <span id="le-fill-ratio-val">25%</span>
-          </label>
-          <button class="le-btn le-btn-ghost" id="le-gen-btn">⚡ PCGRL 生成</button>
-          <button class="le-btn le-btn-ghost" id="le-clear-btn">🗑 清空</button>
-        </div>
-        <div id="le-grid" class="le-grid" data-size="8" role="grid" aria-label="关卡盘面编辑器"></div>
-        <div class="le-grid-hint">点击格子切换填充 / 右键选择颜色</div>
-      </section>
-
-      <!-- 右栏：关卡配置 -->
-      <section class="le-section le-config-section">
-        <div class="le-section-title">关卡配置</div>
-
-        <div class="le-field">
-          <label class="le-label" for="le-level-name">关卡名称</label>
-          <input type="text" id="le-level-name" class="le-input" value="我的关卡" maxlength="20">
-        </div>
-
-        <div class="le-field">
-          <label class="le-label" for="le-mode">玩法模式</label>
-          <select id="le-mode" class="le-select">
-            <option value="endless">无尽模式（行列消除）</option>
-            <option value="mosaic_quadrant">马赛克 · 四象限</option>
-            <option value="mosaic_strips">马赛克 · 竖条</option>
-            <option value="mosaic_ring">马赛克 · 环形</option>
-          </select>
-        </div>
-
-        <div class="le-field-group">
-          <div class="le-section-title" style="margin-top:8px;">胜利目标</div>
-          <div class="le-row">
-            <label class="le-label" for="le-obj-type">类型</label>
-            <select id="le-obj-type" class="le-select">
-              <option value="score">达到分数</option>
-              <option value="clear" selected>消除行数</option>
-              <option value="survival">存活轮数</option>
-            </select>
-          </div>
-          <div class="le-row">
-            <label class="le-label" for="le-obj-value">目标值</label>
-            <input type="number" id="le-obj-value" class="le-input le-input-sm" value="5" min="1" max="999">
-          </div>
-        </div>
-
-        <div class="le-field-group">
-          <div class="le-section-title" style="margin-top:8px;">限制条件</div>
-          <div class="le-row">
-            <label class="le-label" for="le-max-placements">最大步数</label>
-            <input type="number" id="le-max-placements" class="le-input le-input-sm" value="30" min="5" max="999">
-            <span class="le-unit">步</span>
-          </div>
-          <div class="le-row">
-            <label class="le-label" for="le-max-rounds">最大轮数</label>
-            <input type="number" id="le-max-rounds" class="le-input le-input-sm" value="" placeholder="不限" min="1" max="999">
-            <span class="le-unit">轮</span>
-          </div>
-        </div>
-
-        <div class="le-field-group">
-          <div class="le-section-title" style="margin-top:8px;">星级门槛（按目标值）</div>
-          <div class="le-row">
-            <label class="le-label">⭐ 1星</label>
-            <input type="number" id="le-star1" class="le-input le-input-sm" value="5" min="1">
-          </div>
-          <div class="le-row">
-            <label class="le-label">⭐⭐ 2星</label>
-            <input type="number" id="le-star2" class="le-input le-input-sm" value="8" min="1">
-          </div>
-          <div class="le-row">
-            <label class="le-label">⭐⭐⭐ 3星</label>
-            <input type="number" id="le-star3" class="le-input le-input-sm" value="12" min="1">
-          </div>
-        </div>
-
-        <!-- 操作按钮 -->
-        <div class="le-actions">
-          <button class="le-btn le-btn-primary" id="le-play-btn">▶ 开始试玩</button>
-          <button class="le-btn le-btn-secondary" id="le-export-btn">📋 导出 JSON</button>
-        </div>
-
-        <!-- JSON 导出区 -->
-        <textarea id="le-json-out" class="le-json-out" rows="6" readonly placeholder="点击「导出 JSON」查看配置…" hidden></textarea>
-      </section>
-    </div>
-  </div>
-</div>
-`;
-}
-
-// -----------------------------------------------------------------------
 // 颜色映射（与游戏主题对应）
 // -----------------------------------------------------------------------
 const CELL_COLORS = ['#e8e8e8', '#ef5350', '#42a5f5', '#66bb6a', '#ffa726', '#ab47bc', '#26c6da'];
-// index 0 = empty，1~6 = 各颜色
 
 // -----------------------------------------------------------------------
-// 核心状态
+// 模块状态
 // -----------------------------------------------------------------------
 let _game = null;
-let _cells = [];       // [y][x] = colorIdx (0=empty)
-let _size = 8;
+let _cells = [];
+const _size = 8;
+let _selectedColor = 1;
 let _activeMosaicOverlay = null;
-let _selectedColor = 1;  // 当前绘制颜色
 
 // -----------------------------------------------------------------------
 // 工具函数
@@ -180,7 +55,6 @@ function buildLevelConfig() {
     const initialBoard = boardFromCells();
     const hasInitBoard = initialBoard.some(row => row.some(c => c !== null));
 
-    // 马赛克模式附加 clearRules
     let mosaicBase = null;
     if (modeVal === 'mosaic_quadrant') mosaicBase = MOSAIC_LEVEL_4ZONE;
     else if (modeVal === 'mosaic_strips') mosaicBase = MOSAIC_LEVEL_STRIPS;
@@ -230,7 +104,7 @@ function renderGrid() {
 
             cell.addEventListener('mousedown', (e) => {
                 e.preventDefault();
-                if (e.button === 2) return;  // 右键由 contextmenu 处理
+                if (e.button === 2) return;
                 toggleCell(x, y);
             });
             cell.addEventListener('contextmenu', (e) => {
@@ -247,11 +121,7 @@ function renderGrid() {
 }
 
 function toggleCell(x, y, forceColor) {
-    if (forceColor !== undefined) {
-        _cells[y][x] = forceColor;
-    } else {
-        _cells[y][x] = _cells[y][x] === 0 ? _selectedColor : 0;
-    }
+    _cells[y][x] = forceColor !== undefined ? forceColor : (_cells[y][x] === 0 ? _selectedColor : 0);
     const cell = document.querySelector(`#le-grid .le-cell[data-x="${x}"][data-y="${y}"]`);
     if (cell) {
         const colorIdx = _cells[y][x];
@@ -280,8 +150,7 @@ function showColorPicker(x, y, cellEl) {
     });
 
     document.body.appendChild(picker);
-    const close = () => picker.remove();
-    setTimeout(() => document.addEventListener('click', close, { once: true }), 0);
+    setTimeout(() => document.addEventListener('click', () => picker.remove(), { once: true }), 0);
 }
 
 // -----------------------------------------------------------------------
@@ -303,13 +172,12 @@ function doGenerate() {
         board = generateBoard({ size: _size, fillRatio });
     }
 
-    // 随机着色（board 中非 null 的格子已有颜色 1~6）
     _cells = board.map(row => row.map(c => (c === null ? 0 : c)));
     renderGrid();
 }
 
 // -----------------------------------------------------------------------
-// 面板初始化 & 事件绑定
+// 初始化
 // -----------------------------------------------------------------------
 
 function initCells() {
@@ -318,25 +186,16 @@ function initCells() {
 
 export function initLevelEditorPanel(game) {
     _game = game;
-
-    // 注入 HTML
-    if (!document.getElementById(PANEL_ID)) {
-        document.body.insertAdjacentHTML('beforeend', buildPanelHTML());
-        injectStyles();
-    }
-
     initCells();
-    renderGrid();
+    injectStyles();
     bindEvents();
 }
 
 function bindEvents() {
-    // 关闭按钮
-    document.getElementById('le-close-btn')?.addEventListener('click', closePanel);
-
-    // 点击遮罩关闭
-    document.getElementById(PANEL_ID)?.addEventListener('click', (e) => {
-        if (e.target.id === PANEL_ID) closePanel();
+    // 返回菜单
+    document.getElementById('le-back-btn')?.addEventListener('click', () => {
+        document.querySelector('.le-color-picker')?.remove();
+        _game?.showScreen('menu');
     });
 
     // 填充率滑块
@@ -357,7 +216,6 @@ function bindEvents() {
     // 导出 JSON
     document.getElementById('le-export-btn')?.addEventListener('click', () => {
         const config = buildLevelConfig();
-        // 序列化时排除 clearRules（函数不可序列化）
         const exportable = { ...config };
         delete exportable.clearRules;
         const jsonOut = document.getElementById('le-json-out');
@@ -371,9 +229,7 @@ function bindEvents() {
     document.getElementById('le-play-btn')?.addEventListener('click', async () => {
         if (!_game) return;
         const config = buildLevelConfig();
-        closePanel();
 
-        // 清理旧叠加层
         if (_activeMosaicOverlay) {
             removeZoneOverlay(_activeMosaicOverlay);
             _activeMosaicOverlay = null;
@@ -381,100 +237,75 @@ function bindEvents() {
 
         await _game.start({ levelConfig: config });
 
-        // 马赛克模式添加区域叠加层
         if (config.zones) {
             _activeMosaicOverlay = createZoneOverlay(_game, config.zones);
-        }
-    });
-
-    // ESC 关闭
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !document.getElementById(PANEL_ID)?.hidden) {
-            closePanel();
         }
     });
 }
 
 export function openLevelEditorPanel() {
-    const panel = document.getElementById(PANEL_ID);
-    if (panel) {
-        panel.hidden = false;
-        renderGrid();
-    }
-}
-
-function closePanel() {
-    const panel = document.getElementById(PANEL_ID);
-    if (panel) panel.hidden = true;
-    document.querySelector('.le-color-picker')?.remove();
+    renderGrid();
+    _game?.showScreen('level-editor-screen');
 }
 
 // -----------------------------------------------------------------------
-// 内联样式注入（避免额外 CSS 文件）
+// 样式注入
 // -----------------------------------------------------------------------
 function injectStyles() {
     if (document.getElementById('le-styles')) return;
     const style = document.createElement('style');
     style.id = 'le-styles';
     style.textContent = `
-.level-editor-overlay {
-    position: fixed; inset: 0; z-index: 1100;
-    background: rgba(0,0,0,.65); backdrop-filter: blur(4px);
-    display: flex; align-items: center; justify-content: center;
-    padding: 16px; box-sizing: border-box;
-}
-.level-editor-card {
-    background: #1e1e2e; border-radius: 16px;
-    width: 100%; max-width: 860px; max-height: 90vh;
-    display: flex; flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0,0,0,.6);
+.level-editor-screen {
+    display: flex !important;
+    flex-direction: column;
+    background: #181825;
+    padding: 0;
     overflow: hidden;
+}
+.level-editor-screen:not(.active) {
+    display: none !important;
 }
 .le-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,.08);
+    padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,.08);
+    flex-shrink: 0;
 }
 .le-title { margin: 0; font-size: 1.1rem; color: #cdd6f4; font-weight: 700; }
-.le-close {
-    background: none; border: none; color: #6c7086; cursor: pointer;
-    font-size: 1.2rem; line-height: 1; padding: 4px 8px; border-radius: 6px;
-    transition: color .15s;
-}
-.le-close:hover { color: #cdd6f4; }
+.le-back-btn { flex-shrink: 0; }
 .le-body {
-    display: flex; gap: 0; overflow: auto; flex: 1;
+    display: flex; gap: 0; overflow: auto; flex: 1; min-height: 0;
 }
 .le-section {
-    padding: 16px 20px; flex: 1; overflow: auto;
+    padding: 14px 18px; flex: 1; overflow: auto;
 }
 .le-grid-section {
     border-right: 1px solid rgba(255,255,255,.07);
-    min-width: 280px; max-width: 380px;
+    min-width: 240px; max-width: 360px; display: flex; flex-direction: column;
 }
-.le-config-section { min-width: 280px; }
+.le-config-section { min-width: 260px; }
 .le-section-title {
-    font-size: .75rem; text-transform: uppercase; letter-spacing: .08em;
-    color: #7f849c; margin-bottom: 10px; font-weight: 600;
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+    color: #7f849c; margin-bottom: 8px; font-weight: 600;
 }
 .le-grid-toolbar {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 .le-grid {
     display: grid; gap: 2px;
     width: 100%; aspect-ratio: 1;
-    margin-bottom: 8px;
+    margin-bottom: 6px; flex-shrink: 0;
 }
 .le-cell {
     border-radius: 3px; cursor: pointer;
     transition: transform .08s, filter .08s;
     border: 1px solid rgba(0,0,0,.18);
-    min-width: 0; min-height: 0;
-    aspect-ratio: 1;
+    min-width: 0; min-height: 0; aspect-ratio: 1;
 }
 .le-cell:hover { transform: scale(1.08); filter: brightness(1.2); }
 .le-cell--filled { box-shadow: inset 0 1px 0 rgba(255,255,255,.25); }
-.le-grid-hint { font-size: .7rem; color: #585b70; }
+.le-grid-hint { font-size: .68rem; color: #585b70; }
 .le-field, .le-field-group { margin-bottom: 10px; }
 .le-row {
     display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
@@ -485,8 +316,7 @@ function injectStyles() {
 }
 .le-input {
     background: #313244; border: 1px solid #45475a; border-radius: 6px;
-    color: #cdd6f4; padding: 5px 8px; font-size: .85rem;
-    flex: 1; min-width: 0;
+    color: #cdd6f4; padding: 5px 8px; font-size: .85rem; flex: 1; min-width: 0;
 }
 .le-input-sm { width: 72px; flex: none; }
 .le-select {
