@@ -18,6 +18,7 @@ import { getCommercialInsight, updateRealtimeSignals } from './personalization.j
 import { getFlag } from './featureFlags.js';
 import { on } from './MonetizationBus.js';
 import { openMonPanel } from './monPanel.js';
+import { getLTVEstimate, renderLTVCard } from './ltvPredictor.js';
 
 const SECTION_ID = 'insight-commercial';
 
@@ -94,7 +95,16 @@ function _refreshCommercialSection(game) {
         badge.style.border = `1px solid ${insight.segmentColor}66`;
     }
 
-    body.innerHTML = _renderBody(insight);
+    // LTV 预测卡片（仅对 D 类/买量用户始终显示，其他用户数据足够时显示）
+    let ltvHtml = '';
+    try {
+        const ltv = getLTVEstimate(game?.playerProfile);
+        if (ltv.segment === 'D' || ltv.confidence !== 'low') {
+            ltvHtml = renderLTVCard(ltv);
+        }
+    } catch { /* ignore */ }
+
+    body.innerHTML = _renderBody(insight) + ltvHtml;
 }
 
 function _segmentShortLabel(seg) {

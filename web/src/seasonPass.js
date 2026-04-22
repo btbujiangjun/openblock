@@ -52,6 +52,8 @@ export class SeasonPass {
         this._ensureData();
         this._injectPanel();
         this._bindEvents(game);
+        // 异步拉取服务端进度并合并（不阻塞初始化）
+        setTimeout(() => this._syncFromBackend(), 1500);
     }
 
     /** 是否付费通行证 */
@@ -128,6 +130,54 @@ export class SeasonPass {
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
         } catch { /* ignore */ }
+        // 异步同步到后端（不阻塞本地逻辑）
+        this._syncToBackend();
+    }
+
+    /** 从后端拉取并与本地合并（本地优先：completed 取并集，points 取最大） */
+    async _syncFromBackend() {
+        try {
+            const userId = this._game?.db?.userId;
+            if (!userId) return;
+            const res = await fetch(`/api/season-pass?user_id=${encodeURIComponent(userId)}&season_id=${this._season.id}`);
+            if (!res.ok) return;
+            const remote = await res.json();
+            if (!remote.exists) return;
+            // 合并：completed 取并集
+            const localCompleted = new Set(this._data.completed ?? []);
+            (remote.completed ?? []).forEach(id => localCompleted.add(id));
+            this._data.completed = [...localCompleted];
+            // 合并：progress 取各字段最大值
+            const rp = remote.progress ?? {};
+            const lp = this._data.progress ?? {};
+            const merged = { ...rp };
+            for (const k of Object.keys(lp)) {
+                merged[k] = Math.max(merged[k] ?? 0, lp[k] ?? 0);
+            }
+            this._data.progress = merged;
+            // 积分取最大
+            this._data.points = Math.max(this._data.points ?? 0, remote.points ?? 0);
+            // 付费状态以远端为准
+            if (remote.premium) this._data.premium = true;
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data)); } catch { /* ignore */ }
+            this._refreshPanel();
+        } catch { /* 离线时静默 */ }
+    }
+
+    /** 将本地进度推送到后端 */
+    async _syncToBackend() {
+        try {
+            const userId = this._game?.db?.userId;
+            if (!userId) return;
+            await fetch('/api/season-pass', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: userId,
+                    ...this._data,
+                }),
+            });
+        } catch { /* 离线时静默 */ }
     }
 
     _injectPanel() {

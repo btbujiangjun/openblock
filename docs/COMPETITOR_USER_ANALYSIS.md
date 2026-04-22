@@ -247,15 +247,96 @@ C 类人均 ARPU 最高但占比极低，核心是延长生命周期：
 
 ---
 
-## 六、后续优化方向
+## 六、第二轮优化（已全部落地）
 
-| 优化点 | 说明 |
-|--------|------|
-| 局间小目标系统 | 为 A 类每 3–5 局提供短期目标（当前仍缺失） |
-| 进阶难度档 | AdaptiveSpawn 针对 B 类添加高分段挑战模式 |
-| 赛季服务端同步 | 当前赛季进度仅存 localStorage，需后端持久化 |
-| LTV 预测模型 | 结合渠道归因 + 用户分群，预测 D 类 LTV 指导买量出价 |
+### ✅ 局间小目标系统（`miniGoals.js`）
+
+**针对**：A 类轻度休闲玩家（无明确目标感，首周留存弱）
+
+**实现**：
+- 每完成 3–5 局后生成新的短期目标（score_target / clear_lines / combo / survival / place_shapes）
+- 目标难度根据 `PlayerProfile.skillLevel` 动态匹配（easy/normal/hard 三档）
+- B/C/E 类高技能用户自动跳过，不打扰流畅体验
+- 目标以紧凑徽章形式显示在游戏 HUD 下方，含实时进度条
+- 完成后触发 Toast 提示，统计连续完成数作为成就感正反馈
+
+**核心文件**：`web/src/miniGoals.js`
 
 ---
 
-*本文档为分析与规划文档，对应代码实现见各模块文件。*
+### ✅ 进阶难度档（`adaptiveSpawn.js`）
+
+**针对**：B 类中度无尽玩家（局数周环比下降，缺持续刺激）
+
+**实现**：
+- 在 `resolveAdaptiveStrategy` 中新增 **B 类挑战模式**触发逻辑
+- 触发条件：`segment5 === 'B'` 或 `sessionTrend !== 'declining'`，且当前分数 ≥ 历史最高分 × 0.8
+- 效果：stress 额外 +0.08~+0.15，出块更复杂、大块比例更高，制造挑战感
+- `_spawnContext.bestScore` 传入历史最高分，避免每次查询 DB
+
+**核心变更**：`web/src/adaptiveSpawn.js`、`web/src/game.js`（`_spawnContext` 注入 `bestScore`）
+
+---
+
+### ✅ 赛季服务端同步（`server.py` + `seasonPass.js`）
+
+**针对**：C 类鲸鱼（多设备/重新安装后进度丢失导致流失）
+
+**实现**：
+- Flask 新增 `/api/season-pass` GET/POST 接口，持久化到 SQLite `season_pass` 表
+- `SeasonPass.init()` 后 1.5s 异步从后端拉取并与本地合并（completed 取并集，progress 取最大，points 取最大）
+- 每次本地进度更新后异步推送到后端（不阻塞游戏逻辑）
+- 离线时静默降级，不影响本地体验
+
+**核心变更**：`server.py`（+100 行）、`web/src/seasonPass.js`（`_syncFromBackend` / `_syncToBackend`）
+
+---
+
+### ✅ LTV 预测模型（`ltvPredictor.js`）
+
+**针对**：D 类买量用户，指导 Applovin/Unity 出价
+
+**实现**：
+
+规则引擎线性模型（可解释性优先）：
+
+```
+LTV_30d = base × segment_coeff × channel_coeff × activity_coeff × skill_coeff
+```
+
+| 系数 | 来源 | 说明 |
+|------|------|------|
+| `segment_coeff` | 竞品分群 ARPU 比（A=1.0, B=2.64, C=9.0, D=5.56, E=0.27） | 五分群相对价值 |
+| `channel_coeff` | 渠道归因（Applovin=1.4, Unity=1.35, organic=1.05） | 买量渠道过滤低质量用户 |
+| `activity_coeff` | 历史局数 + sessionTrend | 活跃度乘数（0.6~1.3） |
+| `skill_coeff` | skillLevel（E类特殊处理） | 技能长寿性加成 |
+
+- 输出：30/60/90 天 LTV + 置信度 + 建议 CPI 出价（LTV_30d × ROI系数）
+- D 类 ROI 系数取 0.6（高价值多出价），其他 0.4
+- 集成到「商业化策略」面板：D 类和数据充足用户（medium/high 置信）自动显示 LTV 预测卡片
+
+**核心文件**：`web/src/monetization/ltvPredictor.js`、`web/src/monetization/commercialInsight.js`
+
+---
+
+## 七、完整实现状态总览
+
+| 优化点 | 类型 | 文件 | 状态 |
+|--------|------|------|------|
+| Easy 模式空白盘面 | 短期 | `difficulty.js` / `adaptiveSpawn.js` | ✅ |
+| 最高分差距 UI | 短期 | `game.js` / `index.html` | ✅ |
+| 关卡连败提示 | 短期 | `game.js` | ✅ |
+| 关卡包（20关） | 中期 | `level/levelPack.js` | ✅ |
+| 五分群 PlayerProfile | 中期 | `playerProfile.js` | ✅ |
+| 复活 IAP 联动 | 中期 | `revive.js` | ✅ |
+| 赛季通行证框架 | 长期 | `seasonPass.js` | ✅ |
+| Push 通知召回 | 长期 | `pushNotification.js` | ✅ |
+| 渠道归因 UTM | 长期 | `channelAttribution.js` | ✅ |
+| **局间小目标系统** | 第二轮 | `miniGoals.js` | ✅ |
+| **B 类进阶难度档** | 第二轮 | `adaptiveSpawn.js` | ✅ |
+| **赛季服务端同步** | 第二轮 | `server.py` / `seasonPass.js` | ✅ |
+| **LTV 预测模型** | 第二轮 | `ltvPredictor.js` | ✅ |
+
+---
+
+*本文档持续更新，对应代码实现见各模块文件。*

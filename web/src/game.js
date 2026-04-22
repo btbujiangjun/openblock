@@ -397,7 +397,7 @@ export class Game {
                 startTime: Date.now()
             };
             this._clearStreak = 0;
-            this._spawnContext = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false };
+            this._spawnContext = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false, bestScore: this.bestScore ?? 0 };
             resetSpawnMemory();
             resetAdaptiveMilestone();
 
@@ -947,6 +947,8 @@ export class Game {
             this._levelManager?.recordPlacement();
             if (result.count > 0) {
                 this._levelManager?.recordClear(result.count);
+                // 小目标：上报消行和 combo
+                try { window.__miniGoals?.onClear(result.count, this.gameStats?.maxCombo ?? 0); } catch { /* ignore */ }
             }
 
             if (result.count > 0) {
@@ -1349,6 +1351,16 @@ export class Game {
                 this._updateProgressionHud();
                 // 关卡失败多次：触发差异化提示
                 this._updateLevelFailHint(mode);
+                // 小目标系统：局末上报（由 main.js 通过 window.__miniGoals 代理）
+                try {
+                    window.__miniGoals?.onGameEnd({
+                        score: this.score,
+                        clears: this.gameStats?.clears ?? 0,
+                        placements: this.gameStats?.placements ?? 0,
+                        maxCombo: this.gameStats?.maxCombo ?? 0,
+                        rounds: this.gameStats?.rounds ?? 0,
+                    });
+                } catch { /* ignore */ }
                 this.showScreen('game-over');
             }
         })();

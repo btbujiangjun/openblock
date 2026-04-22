@@ -19,6 +19,7 @@ import { initLevelEditorPanel, openLevelEditorPanel } from './levelEditorPanel.j
 import { initSeasonPass, toggleSeasonPass } from './seasonPass.js';
 import { initPushNotification } from './pushNotification.js';
 import { initChannelAttribution } from './channelAttribution.js';
+import { initMiniGoals } from './miniGoals.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootErr = document.getElementById('boot-error');
@@ -68,6 +69,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (bootErr) {
             bootErr.hidden = true;
         }
+
+        // 局间小目标（主要服务 A 类用户）
+        const miniGoals = initMiniGoals(game);
+        window.__miniGoals = miniGoals;
 
         // 赛季通行证
         const seasonPass = initSeasonPass(game);

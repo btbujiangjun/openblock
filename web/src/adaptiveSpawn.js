@@ -261,6 +261,24 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         stress = Math.min(stress, eng.firstSessionStressOverride ?? -0.15);
     }
 
+    /* ---------- B 类进阶挑战档：高分段自动加压 ----------
+     * 触发条件：
+     *   1. 玩家分群为 B（中度无尽）或 sessionTrend=stable/rising
+     *   2. 当前分数 ≥ 历史最高分 × 0.8（接近最高分时增加挑战感）
+     *   3. stress 尚未满档（避免叠加溢出）
+     * 效果：stress 额外 +0.08~+0.15，使出块更复杂、填充更密
+     * ---------------------------------------------------------- */
+    const segment5 = profile.segment5 ?? 'A';
+    const sessionTrend = profile.sessionTrend ?? 'stable';
+    const isBClassChallenge = (segment5 === 'B' || sessionTrend !== 'declining')
+        && ctx.bestScore > 0
+        && score >= ctx.bestScore * 0.8
+        && stress < 0.7;
+    if (isBClassChallenge) {
+        const challengeBoost = Math.min(0.15, (score / ctx.bestScore - 0.8) * 0.75);
+        stress = Math.min(0.85, stress + challengeBoost);
+    }
+
     stress = Math.max(-0.2, Math.min(1, stress));
 
     /* ---------- 插值 shapeWeights ---------- */

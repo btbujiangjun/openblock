@@ -1306,6 +1306,97 @@ def health():
     })
 
 
+# ── 赛季通行证 API ────────────────────────────────────────────────────────────
+
+def _ensure_season_pass_table():
+    """确保 season_pass 表存在"""
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS season_pass (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    TEXT NOT NULL,
+            season_id  TEXT NOT NULL,
+            premium    INTEGER NOT NULL DEFAULT 0,
+            progress   TEXT NOT NULL DEFAULT '{}',
+            completed  TEXT NOT NULL DEFAULT '[]',
+            points     INTEGER NOT NULL DEFAULT 0,
+            purchased_at INTEGER,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(user_id, season_id)
+        )
+    """)
+    db.commit()
+
+
+@app.route('/api/season-pass', methods=['GET'])
+def get_season_pass():
+    """获取当前用户赛季通行证进度"""
+    user_id = request.args.get('user_id', '')
+    season_id = request.args.get('season_id', 'S1')
+    if not user_id:
+        return jsonify({'error': 'user_id required'}), 400
+    try:
+        _ensure_season_pass_table()
+        db = get_db()
+        row = db.execute(
+            'SELECT * FROM season_pass WHERE user_id=? AND season_id=?',
+            (user_id, season_id)
+        ).fetchone()
+        if not row:
+            return jsonify({'exists': False})
+        import json as _json
+        return jsonify({
+            'exists': True,
+            'seasonId': row['season_id'],
+            'premium': bool(row['premium']),
+            'progress': _json.loads(row['progress']),
+            'completed': _json.loads(row['completed']),
+            'points': row['points'],
+            'purchasedAt': row['purchased_at'],
+            'updatedAt': row['updated_at'],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/season-pass', methods=['POST', 'PUT'])
+def upsert_season_pass():
+    """上传/同步赛季通行证进度"""
+    data = request.get_json(silent=True) or {}
+    user_id = data.get('user_id', '')
+    season_id = data.get('seasonId', 'S1')
+    if not user_id:
+        return jsonify({'error': 'user_id required'}), 400
+    try:
+        _ensure_season_pass_table()
+        import json as _json
+        db = get_db()
+        now = int(time.time() * 1000)
+        db.execute("""
+            INSERT INTO season_pass (user_id, season_id, premium, progress, completed, points, purchased_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, season_id) DO UPDATE SET
+                premium      = excluded.premium,
+                progress     = excluded.progress,
+                completed    = excluded.completed,
+                points       = excluded.points,
+                purchased_at = excluded.purchased_at,
+                updated_at   = excluded.updated_at
+        """, (
+            user_id, season_id,
+            int(bool(data.get('premium', False))),
+            _json.dumps(data.get('progress', {})),
+            _json.dumps(data.get('completed', [])),
+            int(data.get('points', 0)),
+            data.get('purchasedAt'),
+            now,
+        ))
+        db.commit()
+        return jsonify({'success': True, 'updatedAt': now})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/export', methods=['GET'])
 def export_data():
     """Export all data for a user"""
