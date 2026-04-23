@@ -43,7 +43,7 @@ export function initMonetization(game) {
 
     // 3. 初始化各功能模块
     initAds();
-    initAdTrigger();
+    initAdTrigger(game);  // v2: 传入 game 以支持 A/B 分桶和频控
     initDailyTasks();
     initLeaderboard();
     initSeasonPass();

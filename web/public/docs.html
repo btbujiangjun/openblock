@@ -546,6 +546,10 @@
       <div class="welcome">
         <h1>📚 OpenBlock 文档中心</h1>
         <p>收录全部设计文档、研究报告与技术规范，点击卡片或左侧导航查阅任意文档。</p>
+        <div style="margin:12px 0 20px;display:flex;gap:10px;flex-wrap:wrap">
+          <a href="/ops" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:linear-gradient(135deg,#1a1d27,#22263a);color:#5B9BD5;border:1px solid rgba(91,155,213,.3);border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">📊 运营看板</a>
+          <a href="/" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:linear-gradient(135deg,#22263a,#2a2f45);color:#94a3b8;border:1px solid rgba(148,163,184,.2);border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">🎮 返回游戏</a>
+        </div>
         <div class="welcome-grid">${cardsHtml}</div>
       </div>`;
     $main.querySelectorAll('.welcome-card').forEach(el => {

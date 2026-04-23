@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>运营看板 · Open Block</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --card: #1a1d27;
+  --card2: #22263a;
+  --border: rgba(91,155,213,.18);
+  --accent: #5B9BD5;
+  --accent2: #4472C4;
+  --green: #22c55e;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --text: #e2e8f0;
+  --text2: #94a3b8;
+  --radius: 10px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, 'PingFang SC', sans-serif; font-size: 13px; }
+
+/* ── layout ── */
+.ops-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: var(--card); border-bottom: 1px solid var(--border); }
+.ops-header h1 { font-size: 16px; font-weight: 700; color: var(--accent); }
+.ops-header .controls { display: flex; gap: 8px; align-items: center; }
+select, button { background: var(--card2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+button:hover { background: color-mix(in srgb, var(--accent) 20%, var(--card2)); }
+.ops-body { padding: 20px 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+
+/* ── cards ── */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.card-title { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text2); margin-bottom: 10px; }
+.card--wide { grid-column: span 2; }
+.card--full { grid-column: 1 / -1; }
+
+/* ── kpi metric ── */
+.kpi { display: flex; flex-direction: column; gap: 3px; }
+.kpi-val { font-size: 28px; font-weight: 700; line-height: 1; }
+.kpi-sub { font-size: 10px; color: var(--text2); }
+.kpi-good { color: var(--green); }
+.kpi-warn { color: var(--amber); }
+.kpi-bad  { color: var(--red); }
+
+/* ── retention table ── */
+.ret-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ret-table th { color: var(--text2); font-weight: 600; padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.ret-table td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.ret-bar { display: inline-block; height: 6px; background: var(--accent); border-radius: 3px; min-width: 2px; }
+
+/* ── segment donut (css only) ── */
+.seg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.seg-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: var(--card2); border-radius: 6px; }
+.seg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.seg-label { flex: 1; font-size: 11px; }
+.seg-cnt { font-weight: 700; font-size: 12px; }
+
+/* ── trend chart (sparkline via CSS gradient) ── */
+.trend-bars { display: flex; align-items: flex-end; gap: 3px; height: 60px; margin-top: 6px; }
+.trend-bar { flex: 1; background: color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 2px 2px 0 0; min-height: 3px; transition: height .3s; position: relative; }
+.trend-bar:hover::after { content: attr(data-tip); position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); background: var(--card2); padding: 2px 6px; border-radius: 4px; font-size: 10px; white-space: nowrap; z-index: 9; }
+.trend-labels { display: flex; gap: 3px; margin-top: 4px; }
+.trend-label { flex: 1; text-align: center; font-size: 9px; color: var(--text2); overflow: hidden; text-overflow: clip; }
+
+/* ── top scores ── */
+.score-list { list-style: none; }
+.score-list li { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); font-size: 11px; }
+.score-list li:last-child { border: none; }
+.score-rank { color: var(--text2); min-width: 20px; }
+.score-user { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-val { font-weight: 700; color: var(--accent); }
+
+/* ── ab results ── */
+.ab-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ab-table th { color: var(--text2); font-weight: 600; padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.ab-table td { padding: 5px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent); }
+.ab-winner { color: var(--green); font-weight: 700; }
+
+/* ── loading / error ── */
+.loading { color: var(--text2); text-align: center; padding: 40px; font-size: 12px; }
+.error { color: var(--red); text-align: center; padding: 20px; font-size: 12px; }
+.badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; }
+.badge-green { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+.badge-amber { background: color-mix(in srgb, var(--amber) 15%, transparent); color: var(--amber); }
+.badge-red   { background: color-mix(in srgb, var(--red)   15%, transparent); color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="ops-header">
+  <h1>📊 Open Block · 运营看板</h1>
+  <div class="controls">
+    <select id="days-select">
+      <option value="1">今天</option>
+      <option value="7" selected>近7天</option>
+      <option value="30">近30天</option>
+    </select>
+    <button id="refresh-btn">🔄 刷新</button>
+    <span id="last-refresh" style="color:var(--text2);font-size:10px"></span>
+  </div>
+</div>
+
+<div id="ops-body" class="ops-body">
+  <div class="loading">正在加载数据…</div>
+</div>
+
+<script>
+const SEG_COLORS = { A:'#5B9BD5', B:'#22c55e', C:'#f59e0b', D:'#a855f7', E:'#94a3b8', unknown:'#475569' };
+const SEG_LABELS = { A:'A类·休闲', B:'B类·无尽', C:'C类·重度', D:'D类·关卡', E:'E类·高能', unknown:'未知' };
+
+async function loadDashboard() {
+  const days = document.getElementById('days-select').value;
+  document.getElementById('ops-body').innerHTML = '<div class="loading">正在加载…</div>';
+
+  try {
+    const [dashRes, abRes] = await Promise.all([
+      fetch(`/api/ops/dashboard?days=${days}`),
+      fetch('/api/ab/results'),
+    ]);
+    const dash = await dashRes.json();
+    const abData = abRes.ok ? await abRes.json() : [];
+
+    if (dash.error) throw new Error(dash.error);
+
+    const body = document.getElementById('ops-body');
+    body.innerHTML = '';
+
+    // ── DAU ──
+    body.appendChild(kpiCard('日活用户 (DAU)', dash.activity.dau, '', rateColor(dash.activity.dau, 10, 50)));
+
+    // ── 平均局数 ──
+    body.appendChild(kpiCard('人均局数', dash.activity.avgSessionsPerUser, '局/人', rateColor(dash.activity.avgSessionsPerUser, 3, 6)));
+
+    // ── 平均时长 ──
+    const dur = dash.activity.avgDurationSec;
+    body.appendChild(kpiCard('平均时长', dur ? (dur > 60 ? Math.round(dur/60)+'m' : dur+'s') : '—', '', rateColor(dur, 60, 240)));
+
+    // ── 留存 ──
+    const retCard = card('留存率', 'card--wide');
+    const retTable = document.createElement('table');
+    retTable.className = 'ret-table';
+    retTable.innerHTML = `<tr><th>指标</th><th>数值</th><th>目标</th><th>趋势</th></tr>
+      ${retRow('D1 次日留存', dash.retention.d1, 0.40)}
+      ${retRow('D7 七日留存', dash.retention.d7, 0.20)}`;
+    retCard.appendChild(retTable);
+    body.appendChild(retCard);
+
+    // ── 用户分群 ──
+    const segCard = card('用户分群分布', 'card--wide');
+    const segGrid = document.createElement('div');
+    segGrid.className = 'seg-grid';
+    const total = Object.values(dash.segments).reduce((a,b)=>a+b, 0) || 1;
+    for (const [seg, cnt] of Object.entries(dash.segments)) {
+      if (cnt === 0) continue;
+      const item = document.createElement('div');
+      item.className = 'seg-item';
+      item.innerHTML = `<span class="seg-dot" style="background:${SEG_COLORS[seg]}"></span>
+        <span class="seg-label">${SEG_LABELS[seg]}</span>
+        <span class="seg-cnt">${cnt}</span>
+        <span class="badge badge-${cnt/total>.1?'green':'amber'}">${(cnt/total*100).toFixed(0)}%</span>`;
+      segGrid.appendChild(item);
+    }
+    segCard.appendChild(segGrid);
+    body.appendChild(segCard);
+
+    // ── DAU 趋势 ──
+    const trendCard = card('DAU 趋势', 'card--full');
+    const maxDau = Math.max(...dash.trend.map(t=>t.dau), 1);
+    const barsDiv = document.createElement('div');
+    barsDiv.className = 'trend-bars';
+    const labDiv = document.createElement('div');
+    labDiv.className = 'trend-labels';
+    for (const t of dash.trend) {
+      const bar = document.createElement('div');
+      bar.className = 'trend-bar';
+      bar.style.height = Math.max(3, Math.round(t.dau / maxDau * 60)) + 'px';
+      bar.setAttribute('data-tip', `${t.date}: ${t.dau} 用户`);
+      barsDiv.appendChild(bar);
+      const label = document.createElement('div');
+      label.className = 'trend-label';
+      label.textContent = t.date;
+      labDiv.appendChild(label);
+    }
+    trendCard.appendChild(barsDiv);
+    trendCard.appendChild(labDiv);
+    body.appendChild(trendCard);
+
+    // ── Top 分数 ──
+    const topCard = card('最高分排名');
+    const ul = document.createElement('ul');
+    ul.className = 'score-list';
+    (dash.topScores || []).forEach((row, i) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="score-rank">${i+1}</span><span class="score-user">${row.userId}</span><span class="score-val">${row.score.toLocaleString()}</span>`;
+      ul.appendChild(li);
+    });
+    if (!dash.topScores?.length) ul.innerHTML = '<li style="color:var(--text2)">暂无数据</li>';
+    topCard.appendChild(ul);
+    body.appendChild(topCard);
+
+    // ── A/B 实验结果 ──
+    const abCard = card('A/B 实验结果', 'card--wide');
+    if (!abData.length) {
+      abCard.innerHTML += '<p style="color:var(--text2);font-size:11px">暂无实验数据（需真实用户触发事件后显示）</p>';
+    } else {
+      // 按实验分组
+      const byExp = {};
+      for (const row of abData) {
+        if (!byExp[row.experiment]) byExp[row.experiment] = {};
+        const k = `桶${row.bucket}·${row.event}`;
+        byExp[row.experiment][k] = (byExp[row.experiment][k] || 0) + row.cnt;
+      }
+      const abTable = document.createElement('table');
+      abTable.className = 'ab-table';
+      abTable.innerHTML = '<tr><th>实验</th><th>指标</th><th>对照组（桶0）</th><th>实验组（桶1）</th></tr>';
+      for (const [exp, data] of Object.entries(byExp)) {
+        const events = [...new Set(Object.keys(data).map(k=>k.split('·')[1]))];
+        for (const ev of events) {
+          const b0 = data[`桶0·${ev}`] || 0;
+          const b1 = data[`桶1·${ev}`] || 0;
+          const winner = b1 > b0 * 1.05 ? 'ab-winner' : b0 > b1 * 1.05 ? '' : '';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${exp}</td><td>${ev}</td><td>${b0}</td><td class="${winner}">${b1}</td>`;
+          abTable.appendChild(tr);
+        }
+      }
+      abCard.appendChild(abTable);
+    }
+    body.appendChild(abCard);
+
+    document.getElementById('last-refresh').textContent = '最后更新：' + new Date().toLocaleTimeString('zh-CN');
+
+  } catch (e) {
+    document.getElementById('ops-body').innerHTML = `<div class="error">⚠️ 加载失败：${e.message}<br><small>请确认 Flask 后端正在运行（http://localhost:5000）</small></div>`;
+  }
+}
+
+// ── 工具函数 ──────────────────────────────────────────────────────────────────
+
+function card(title, extraClass = '') {
+  const d = document.createElement('div');
+  d.className = `card ${extraClass}`.trim();
+  const t = document.createElement('div');
+  t.className = 'card-title';
+  t.textContent = title;
+  d.appendChild(t);
+  return d;
+}
+
+function kpiCard(title, val, unit, colorClass) {
+  const c = card(title);
+  const k = document.createElement('div');
+  k.className = 'kpi';
+  k.innerHTML = `<div class="kpi-val ${colorClass}">${val}${unit?'<span style="font-size:12px;font-weight:400;margin-left:2px">'+unit+'</span>':''}</div>`;
+  c.appendChild(k);
+  return c;
+}
+
+function rateColor(val, warn, good) {
+  if (val >= good) return 'kpi-good';
+  if (val >= warn) return 'kpi-warn';
+  return 'kpi-bad';
+}
+
+function retRow(label, val, target) {
+  const pct = (val * 100).toFixed(1);
+  const cls = val >= target ? 'kpi-good' : val >= target * 0.7 ? 'kpi-warn' : 'kpi-bad';
+  const barW = Math.min(100, Math.round(val / target * 100));
+  return `<tr>
+    <td>${label}</td>
+    <td class="${cls}">${pct}%</td>
+    <td style="color:var(--text2)">${(target*100).toFixed(0)}%</td>
+    <td><span class="ret-bar" style="width:${barW}px"></span></td>
+  </tr>`;
+}
+
+// ── 初始化 ────────────────────────────────────────────────────────────────────
+document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
+document.getElementById('days-select').addEventListener('change', loadDashboard);
+loadDashboard();
+</script>
+</body>
+</html>

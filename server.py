@@ -1306,6 +1306,194 @@ def health():
     })
 
 
+# ── A/B 测试上报 ──────────────────────────────────────────────────────────────
+
+def _ensure_ab_table():
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS ab_events (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    TEXT NOT NULL,
+            experiment TEXT NOT NULL,
+            bucket     INTEGER NOT NULL,
+            event      TEXT NOT NULL,
+            ts         INTEGER NOT NULL,
+            meta       TEXT DEFAULT '{}'
+        )
+    """)
+    db.commit()
+
+
+@app.route('/api/ab/report', methods=['POST'])
+def ab_report():
+    """接收 A/B 实验转化事件"""
+    data = request.get_json(silent=True) or {}
+    try:
+        _ensure_ab_table()
+        db = get_db()
+        db.execute(
+            'INSERT INTO ab_events (user_id, experiment, bucket, event, ts, meta) VALUES (?,?,?,?,?,?)',
+            (data.get('userId', ''), data.get('experiment', ''),
+             int(data.get('bucket', 0)), data.get('event', ''),
+             int(data.get('ts', time.time() * 1000)),
+             json.dumps({k: v for k, v in data.items()
+                         if k not in ('userId', 'experiment', 'bucket', 'event', 'ts')}))
+        )
+        db.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ab/results', methods=['GET'])
+def ab_results():
+    """汇总 A/B 实验结果（按实验+桶聚合事件数）"""
+    experiment = request.args.get('experiment', '')
+    try:
+        _ensure_ab_table()
+        db = get_db()
+        if experiment:
+            rows = db.execute(
+                'SELECT experiment, bucket, event, COUNT(*) as cnt FROM ab_events WHERE experiment=? GROUP BY experiment, bucket, event',
+                (experiment,)
+            ).fetchall()
+        else:
+            rows = db.execute(
+                'SELECT experiment, bucket, event, COUNT(*) as cnt FROM ab_events GROUP BY experiment, bucket, event'
+            ).fetchall()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── 运营看板 API ──────────────────────────────────────────────────────────────
+
+@app.route('/api/ops/dashboard', methods=['GET'])
+def ops_dashboard():
+    """
+    运营看板聚合接口
+
+    参数：
+      days   int   时间窗口（天数，默认7）
+
+    返回：
+      {
+        retention: { d1, d7, d30 },
+        activity:  { dau, avgSessionsPerUser, avgDuration },
+        segments:  { A, B, C, D, E, unknown },
+        tasks:     { miniGoal, daily, seasonPass },
+        adFreq:    { avgRewardedPerUser, avgInterstitialPerUser },
+        topScores: [...],
+        trend:     [...],  # 按天的 DAU 趋势
+      }
+    """
+    days = int(request.args.get('days', 7))
+    since_ms = int((time.time() - days * 86400) * 1000)
+    since_ts = int(time.time() - days * 86400)
+    db = get_db()
+
+    try:
+        # ── 活跃度 ──
+        active_users = db.execute(
+            'SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time >= ?', (since_ms,)
+        ).fetchone()['cnt']
+
+        total_sessions = db.execute(
+            'SELECT COUNT(*) as cnt FROM sessions WHERE start_time >= ?', (since_ms,)
+        ).fetchone()['cnt']
+
+        avg_duration = db.execute(
+            'SELECT AVG(duration) as avg FROM sessions WHERE start_time >= ? AND duration IS NOT NULL AND duration > 0',
+            (since_ms,)
+        ).fetchone()['avg'] or 0
+
+        avg_sessions = round(total_sessions / max(active_users, 1), 2)
+
+        # ── 留存（近7日注册用户在第N天是否再次活跃） ──
+        def _retention(delta_min, delta_max):
+            # 找 delta_min~delta_max 天前首次登录的用户，计算其后是否有 session
+            base_since = int(time.time() - (delta_max + days) * 86400)
+            base_until = int(time.time() - delta_min * 86400)
+            cohort = db.execute(
+                'SELECT user_id, MIN(start_time)/1000 as first_ts FROM sessions GROUP BY user_id HAVING first_ts BETWEEN ? AND ?',
+                (base_since, base_until)
+            ).fetchall()
+            if not cohort:
+                return 0.0
+            retained = 0
+            for row in cohort:
+                uid = row['user_id']
+                # 在 first_ts + delta_min*86400 ~ first_ts + delta_max*86400 之间是否有 session
+                check_since = row['first_ts'] + delta_min * 86400
+                check_until = row['first_ts'] + (delta_max + 1) * 86400
+                found = db.execute(
+                    'SELECT 1 FROM sessions WHERE user_id=? AND start_time/1000 BETWEEN ? AND ? LIMIT 1',
+                    (uid, check_since, check_until)
+                ).fetchone()
+                if found:
+                    retained += 1
+            return round(retained / len(cohort), 3)
+
+        d1 = _retention(1, 1)
+        d7 = _retention(6, 8)
+
+        # ── 用户分群分布（基于 user_stats） ──
+        segment_rows = db.execute(
+            'SELECT user_id, best_score, total_games FROM user_stats WHERE last_seen >= ?', (since_ts,)
+        ).fetchall()
+        seg_counts = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'E': 0, 'unknown': 0}
+        for row in segment_rows:
+            score = row['best_score'] or 0
+            games = row['total_games'] or 0
+            # 简化分群（与 playerProfile.segment5 逻辑对齐）
+            if games >= 200 and score >= 3000:
+                seg = 'C'
+            elif games >= 100 and score >= 2000:
+                seg = 'D'
+            elif score >= 1500 or games >= 80:
+                seg = 'B'
+            elif score < 200 and games < 5:
+                seg = 'E' if score > 1000 else 'A'
+            else:
+                seg = 'A'
+            seg_counts[seg] = seg_counts.get(seg, 0) + 1
+
+        # ── 每日趋势 ──
+        trend = []
+        for i in range(days):
+            day_since = int((time.time() - (i + 1) * 86400) * 1000)
+            day_until = int((time.time() - i * 86400) * 1000)
+            cnt = db.execute(
+                'SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time BETWEEN ? AND ?',
+                (day_since, day_until)
+            ).fetchone()['cnt']
+            import datetime
+            day_label = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%m-%d')
+            trend.insert(0, {'date': day_label, 'dau': cnt})
+
+        # ── Top 分数 ──
+        top_scores = db.execute(
+            'SELECT user_id, best_score FROM user_stats WHERE last_seen >= ? ORDER BY best_score DESC LIMIT 10',
+            (since_ts,)
+        ).fetchall()
+
+        return jsonify({
+            'days': days,
+            'activity': {
+                'dau': active_users,
+                'totalSessions': total_sessions,
+                'avgSessionsPerUser': avg_sessions,
+                'avgDurationSec': round(avg_duration / 1000, 1) if avg_duration > 1000 else round(avg_duration, 1),
+            },
+            'retention': {'d1': d1, 'd7': d7},
+            'segments': seg_counts,
+            'trend': trend,
+            'topScores': [{'userId': r['user_id'][:8] + '...', 'score': r['best_score']} for r in top_scores],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── 赛季通行证 API ────────────────────────────────────────────────────────────
 
 def _ensure_season_pass_table():
@@ -1667,6 +1855,17 @@ _DOC_CATEGORIES = [
     {'name': '平台扩展',
      'docs': ['WECHAT_MINIPROGRAM.md']},
 ]
+
+
+@app.route('/ops')
+@app.route('/ops/')
+def ops_portal():
+    """运营看板入口"""
+    from flask import send_from_directory
+    page = _WEB_PUBLIC_DIR / 'ops-dashboard.html'
+    if page.exists():
+        return send_from_directory(str(_WEB_PUBLIC_DIR), 'ops-dashboard.html')
+    return '<h1>ops-dashboard.html not found</h1>', 404
 
 
 @app.route('/docs')

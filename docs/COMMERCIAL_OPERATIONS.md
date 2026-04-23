@@ -541,22 +541,85 @@ recall_gift: {
 
 ## 附录：商业运营 vs 已实现技术能力对照
 
-| 运营需求 | 现有技术能力 | 缺口 |
+| 运营需求 | 现有技术能力 | 状态 |
 |---------|-----------|------|
-| 真实广告收入 | `adAdapter.js` Stub 完备 | ❌ 无真实 SDK 接入 |
-| 真实 IAP 收入 | `iapAdapter.js` Stub 完备 | ❌ 无真实支付接入 |
-| 运营数据监控 | SQLite 完整埋点数据 | ❌ 无运营看板 |
-| A/B 测试 | — | ❌ 完全缺失 |
-| 动态活动下发 | `seasonPass.js` 硬编码 | ❌ 无配置化系统 |
-| 病毒传播 | `replayShare.js` 有代码，无 UI | ⚠️ 有基础，无入口 |
-| 分层召回 | `pushNotification.js` 单层 | ⚠️ 有框架，缺分层 |
-| IAP 首购引导 | 产品目录 4 款 | ⚠️ 缺入门钩子/限时礼包 |
-| 广告频控 | 单局上限 3 次 | ⚠️ 缺日上限/冷却时间 |
+| 真实广告收入 | `adAdapter.js` Stub 完备 | ❌ 无真实 SDK 接入（需申请 AdMob 账号） |
+| 真实 IAP 收入 | `iapAdapter.js` Stub 完备 | ❌ 无真实支付接入（需 Stripe/微信支付） |
+| 动态活动下发 | `seasonPass.js` 硬编码 | ❌ 无配置化系统（P5 待实现） |
+| 病毒传播 | `replayShare.js` 有代码，无 UI | ⚠️ 有基础，无入口（P6 待实现） |
+| 分层召回 | `pushNotification.js` 单层 | ⚠️ 有框架，缺分层（P7 待实现） |
+| 运营数据看板 | `/api/ops/dashboard` + `ops-dashboard.html` | ✅ 已实现 |
+| A/B 测试框架 | `abTest.js`（5个内置实验，哈希分桶） | ✅ 已实现（测试 13/13 通过） |
+| IAP 首购引导 | `starter_pack`(¥3) + `weekly_pass_discount` + `annual_pass` | ✅ 已实现 |
+| 广告频控完善 | 日上限/冷却时间/新用户豁免/体验分 | ✅ 已实现（测试 22/22 通过） |
 | LTV 预测 | `ltvPredictor.js` 完整 | ✅ 已实现（规则引擎） |
 | 用户五分群 | `playerProfile.segment5` | ✅ 已实现 |
 | 赛季通行证 | `seasonPass.js` + 服务端同步 | ✅ 已实现 |
 | 局间小目标 | `miniGoals.js` | ✅ 已实现 |
 | B 类进阶难度 | `adaptiveSpawn.js` 挑战档 | ✅ 已实现 |
+
+## 第一轮代码落地总结
+
+### ✅ P2：A/B 测试框架（`web/src/abTest.js`）
+
+**设计**：哈希分桶（userId × 实验名 → bucket），纯客户端确定，无后端依赖。
+
+**5 个内置实验**：
+
+| 实验名 | 对照组 | 实验组 | 核心指标 |
+|--------|--------|--------|---------|
+| `interstitial_delay` | 立即展示 | 延迟 3s | 广告 CVR、D1 留存 |
+| `rewarded_threshold` | 连续 5 次未消行 | 连续 3 次 | 激励曝光次/用户 |
+| `iap_starter_price` | ¥6 | ¥3 | IAP 首购率 |
+| `revive_countdown` | 8 秒 | 4 秒 | 复活转化率 |
+| `minigoal_difficulty` | 原始 n | n×0.8 | 任务完成率 |
+
+**运营工具**：`forceVariant(exp, bucket)` 可强制 QA 指定变体；`debugReport(userId)` 查看所有实验状态。
+
+**后端接入**：`/api/ab/report` 接收转化事件，`/api/ab/results` 汇总实验结果。
+
+---
+
+### ✅ P3：IAP 价格体系补全（`iapAdapter.js`）
+
+新增 3 款产品：
+
+| 产品 | 价格 | 类型 | 特点 |
+|------|------|------|------|
+| `starter_pack` | ¥3 | 首购限定 | 低门槛首购引导（`firstPurchaseOnly=true`） |
+| `weekly_pass_discount` | ¥8 | 限时折扣 | 48h 倒计时（`expireHours=48`） |
+| `annual_pass` | ¥88 | 年度订阅 | 365天+全皮肤+永久去广告 |
+
+新增工具函数：`canPurchaseStarterPack()`、`getLimitedTimeRemaining()`、`createLimitedTimeOffer()`。
+
+---
+
+### ✅ P4：广告频控完善（`adTrigger.js v2`）
+
+| 控制维度 | 旧版 | 新版 |
+|---------|------|------|
+| 单局激励上限 | 3次 | 3次 |
+| **日激励上限** | ❌ | 12次/天 |
+| **激励冷却** | ❌ | 90s |
+| **日插屏上限** | ❌ | 6次/天 |
+| **插屏冷却** | ❌ | 180s |
+| **新用户豁免** | ❌ | 前3局不展示插屏 |
+| **付费用户静默** | 部分 | 月卡/年卡/annual_pass 完整豁免 |
+| **广告体验分** | ❌ | 自动计算，<60 触发休养期 |
+| **A/B 接入** | ❌ | 插屏延迟/激励阈值 A/B 分桶 |
+
+---
+
+### ✅ P1：运营看板（`/ops` 路由 + `ops-dashboard.html`）
+
+访问 `http://localhost:5000/ops` 查看：
+
+- **活跃度卡片**：DAU / 人均局数 / 平均时长
+- **留存率表**：D1/D7 留存 + 目标基线对比
+- **用户分群分布**：A/B/C/D/E 五分群占比可视化
+- **DAU 趋势图**：按天柱状图（支持 1/7/30 天切换）
+- **Top10 分数排行**
+- **A/B 实验结果汇总**：各实验各桶转化事件数对比
 
 ---
 
