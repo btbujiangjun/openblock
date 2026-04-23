@@ -287,11 +287,11 @@
             <div id="insight-hints-list" class="insight-hints-body"></div>
         </details>
     </aside>
-    <aside id="spawn-model-panel" class="side-panel-base spawn-model-panel" aria-label="生成式出块模型">
+    <aside id="spawn-model-panel" class="side-panel-base spawn-model-panel" aria-label="出块策略">
         <details class="panel-section" open>
-            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块算法</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块策略</summary>
             <div class="spawn-mode-switch">
-                <label class="spawn-mode-label" title="使用启发式三层出块（拓扑、自适应 hints、可解性校验）；不依赖神经网络。">
+                <label class="spawn-mode-label" title="使用启发式三层出块（拓扑感知、自适应体验、局间弧线）；不依赖神经网络。">
                     <span class="spawn-option-icon" aria-hidden="true">📖</span>
                     <input type="radio" name="spawn-mode" value="rule" checked /> 规则算法
                 </label>
@@ -305,57 +305,65 @@
         <details class="panel-section spawn-layers-detail">
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🔬</span>三层算法详解</summary>
             <div class="spawn-layers-doc">
-                <!-- GlobalLayer -->
+                <!-- Layer 1: 盘面拓扑感知 -->
                 <div class="sl-layer">
-                    <div class="sl-layer-title">① GlobalLayer <span class="sl-layer-tag">全局调控</span></div>
-                    <p class="sl-layer-desc">结合局内弧线与跨轮记忆，对全量候选做权重偏移，保障多样性、里程碑奖励和挫败缓解。</p>
+                    <div class="sl-layer-title">① 盘面拓扑感知 <span class="sl-layer-tag">反死局</span></div>
+                    <p class="sl-layer-desc">扫描棋盘即时状态，为每个候选块打分：优先减少空洞、利用临消行、保障最低机动性；填充率超 52% 时额外验证三连块可顺序放置（不产生死局）。</p>
                     <table class="sl-params">
                         <tr><th>参数</th><th>当前值</th><th>说明</th></tr>
-                        <tr title="局内阶段：热身→高峰→冷却；热身偏小块，冷却偏大块">
-                            <td>sessionArc</td><td id="sl-arc">–</td><td>局内弧线</td></tr>
-                        <tr title="刚达到分数里程碑时短暂推送大块（≥4格 ×1.3），制造高峰感">
-                            <td>scoreMilestone</td><td id="sl-milestone">–</td><td>里程碑</td></tr>
-                        <tr title="无消行轮数越多，消行块权重越高（最大 ×2.5）；超过 5 轮无消行时效果明显">
-                            <td>roundsSinceClear</td><td id="sl-rsc">–</td><td>连续无消行</td></tr>
-                        <tr title="最近 3 轮已出现的品类降权 ×0.85，避免同形状连续出现">
-                            <td>recentCategories</td><td id="sl-cats">–</td><td>近期品类</td></tr>
+                        <tr title="当前棋盘已占格数 / 总格数；超过 52% 触发可解性校验">
+                            <td>fill</td><td id="sl-fill">–</td><td>填充率</td></tr>
+                        <tr title="被块覆盖且下方有空格的空洞数；越多越危险，会优先推送能减少空洞的块">
+                            <td>holes</td><td id="sl-holes">–</td><td>空洞数</td></tr>
+                        <tr title="列高度的平整度（0~1）；越低说明高度差距越大，空洞越多">
+                            <td>flatness</td><td id="sl-flatness">–</td><td>平整度</td></tr>
+                        <tr title="行或列中只差 ≤2 格即可消除的数量；越多说明消行机会越好，≥4 时触发清屏加权，≥5 时进入多消窗口期">
+                            <td>nearFullLines</td><td id="sl-nfl">–</td><td>临消行数</td></tr>
+                        <tr title="候选池中能同时消 2 行及以上的块数量；越多说明当前盘面越有利于多消/清屏">
+                            <td>multiClearCands</td><td id="sl-mcc">–</td><td>多消候选数</td></tr>
                     </table>
                 </div>
-                <!-- LaneLayer -->
+                <!-- Layer 2: 局内体验 -->
                 <div class="sl-layer">
-                    <div class="sl-layer-title">② LaneLayer <span class="sl-layer-tag">泳道混合</span></div>
-                    <p class="sl-layer-desc">依据当前策略的 spawnHints 对候选做筛选/重排，实现「setup → payoff」节奏感。</p>
+                    <div class="sl-layer-title">② 局内体验 <span class="sl-layer-tag">节奏催化</span></div>
+                    <p class="sl-layer-desc">依据自适应引擎的 spawnHints 对候选做权重偏移：combo 链活跃时偏好消行块；节奏 payoff 阶段消行块额外加权 ×1.3；clearGuarantee 保障三连块中至少 N 块可消行。</p>
                     <table class="sl-params">
                         <tr><th>参数</th><th>当前值</th><th>说明</th></tr>
-                        <tr title="保证至少 N 个能即时消行的块；非消行块权重降至 ×0.7">
+                        <tr title="0~1：combo 链强度越高，消行块权重倍增（+0.8×comboChain）">
+                            <td>comboChain</td><td id="sl-cc">–</td><td>连消链强度</td></tr>
+                        <tr title="setup=推送大块堆满；payoff=消行块×1.3+多消×1.2；neutral=不干预">
+                            <td>rhythmPhase</td><td id="sl-rp">–</td><td>节奏相位</td></tr>
+                        <tr title="三连块中至少 N 个能即时触发消行；连战/挫败/新手时自动提升至 2">
                             <td>clearGuarantee</td><td id="sl-cg">–</td><td>消行保障数</td></tr>
                         <tr title="-1 偏小块，+1 偏大块；线性缩放块权重">
-                            <td>sizePreference</td><td id="sl-sp">–</td><td>块尺寸偏好</td></tr>
-                        <tr title="0~1：combo 链强度越高，消行块权重倍增（最大 ×2.5）">
-                            <td>comboChain</td><td id="sl-cc">–</td><td>连消链强度</td></tr>
-                        <tr title="setup=铺垫大块；payoff=消行块×1.8；neutral=不干预">
-                            <td>rhythmPhase</td><td id="sl-rp">–</td><td>节奏相位</td></tr>
+                            <td>sizePreference</td><td id="sl-sp">–</td><td>尺寸偏好</td></tr>
                     </table>
                 </div>
-                <!-- FallbackLayer -->
+                <!-- Layer 3: 局间弧线 -->
                 <div class="sl-layer">
-                    <div class="sl-layer-title">③ FallbackLayer <span class="sl-layer-tag">兜底保活</span></div>
-                    <p class="sl-layer-desc">最后一关：确保三连块中至少有 1 个可放置，不足时从全量池随机补入；优先选 gap-filler（能触发消行的块）为首槽。</p>
+                    <div class="sl-layer-title">③ 局间弧线 <span class="sl-layer-tag">全局调控</span></div>
+                    <p class="sl-layer-desc">跨轮记忆与情绪管理：热身阶段偏小块帮助上手；里程碑时短暂推送大块制造高峰感；长时间无消行时提升消行块权重缓解挫败；品类多样性机制避免同形状连续出现。</p>
                     <table class="sl-params">
                         <tr><th>参数</th><th>当前值</th><th>说明</th></tr>
-                        <tr title="三连块中可放置块的数量；低于 minGuarantee（默认1）时触发补充">
-                            <td>placeableCount</td><td id="sl-pc">–</td><td>可放块数</td></tr>
-                        <tr title="gapFills>0 的块数量；有 gap-filler 时优先放首槽">
-                            <td>gapFillerCount</td><td id="sl-gf">–</td><td>消行块数</td></tr>
+                        <tr title="warmup=热身偏小块；peak=正常权重；cooldown=冷却偏大块">
+                            <td>sessionArc</td><td id="sl-arc">–</td><td>局内弧线</td></tr>
+                        <tr title="刚达到分数里程碑时为 true，短暂推送大块 ×1.3 制造高峰感">
+                            <td>scoreMilestone</td><td id="sl-milestone">–</td><td>里程碑</td></tr>
+                        <tr title="距上次消行的出块轮数；超过 5 轮无消行时消行块权重显著提升（×2.5）">
+                            <td>roundsSinceClear</td><td id="sl-rsc">–</td><td>连续无消行</td></tr>
+                        <tr title="最近 3 轮出块的品类记忆；同品类频繁出现则降权（-12%/次），多样性增益越高效果越强">
+                            <td>diversityBoost</td><td id="sl-div">–</td><td>多样性增益</td></tr>
                     </table>
                     <div class="sl-flow">
                         <span class="sl-flow-step">候选池</span>
                         <span class="sl-flow-arrow">→</span>
-                        <span class="sl-flow-step">Global 调权</span>
+                        <span class="sl-flow-step">拓扑打分</span>
                         <span class="sl-flow-arrow">→</span>
-                        <span class="sl-flow-step">Lane 过滤</span>
+                        <span class="sl-flow-step">体验调权</span>
                         <span class="sl-flow-arrow">→</span>
-                        <span class="sl-flow-step">Fallback 选3</span>
+                        <span class="sl-flow-step">弧线修正</span>
+                        <span class="sl-flow-arrow">→</span>
+                        <span class="sl-flow-step">可解性校验</span>
                         <span class="sl-flow-arrow">→</span>
                         <span class="sl-flow-step">出块</span>
                     </div>

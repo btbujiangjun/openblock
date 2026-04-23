@@ -94,9 +94,19 @@ function deriveComboChain(ctx, profile) {
  */
 function deriveMultiClearBonus(ctx, fill) {
     const roundsSinceClear = ctx.roundsSinceClear ?? 0;
-    if (roundsSinceClear > 3) return 0.6;
-    if (fill > 0.55) return 0.3;
-    return 0.1;
+    // ctx.nearFullLines 由 game.js 在每轮出块后从诊断中回写
+    const nearFullLines = ctx.nearFullLines ?? 0;
+
+    // 棋盘临消行极多 → 强烈鼓励多消（清屏机会）
+    if (nearFullLines >= 5) return 1.0;
+    if (nearFullLines >= 3) return 0.8;
+    // 久未消行 → 高多消鼓励
+    if (roundsSinceClear > 3) return 0.7;
+    // 高填充 → 中等多消鼓励
+    if (fill > 0.60) return 0.6;
+    if (fill > 0.45) return 0.4;
+    // 基础鼓励（始终保持一定引导）
+    return 0.15;
 }
 
 /**
@@ -108,7 +118,11 @@ function deriveMultiClearBonus(ctx, fill) {
 function deriveRhythmPhase(profile, ctx) {
     const pacingPhase = profile.pacingPhase;
     const roundsSinceClear = ctx.roundsSinceClear ?? 0;
-    if (pacingPhase === 'release' || roundsSinceClear >= 3) return 'payoff';
+    const nearFullLines = ctx.nearFullLines ?? 0;
+    // 棋盘有多条临消行 → 立即进入 payoff，推送消行块
+    if (nearFullLines >= 3) return 'payoff';
+    // 更早进入 payoff：连续 2 轮无消行即触发（原来 >=3）
+    if (pacingPhase === 'release' || roundsSinceClear >= 2) return 'payoff';
     if (pacingPhase === 'tension' && roundsSinceClear === 0) return 'setup';
     return 'neutral';
 }

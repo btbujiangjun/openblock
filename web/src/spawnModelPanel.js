@@ -14,17 +14,22 @@ import {
     reloadModel,
 } from './spawnModel.js';
 import { resolveAdaptiveStrategy } from './adaptiveSpawn.js';
+import { getLastSpawnDiagnostics } from './bot/blockSpawn.js';
 
 let _pollTimer = null;
 let _layerRefreshTimer = null;
 
-/** 实时刷新三层参数展示 */
+/** 实时刷新三层参数展示（对应 blockSpawn.js 三层架构） */
 function _refreshLayerParams(game) {
     if (!game) return;
     const ctx = game._spawnContext ?? {};
     const profile = game.playerProfile;
 
-    // 尝试从当前策略获取 spawnHints
+    // 从 blockSpawn.js 获取上一轮出块诊断（Layer 1 数据来源）
+    const diag = getLastSpawnDiagnostics();
+
+    // 从 resolveAdaptiveStrategy 获取 spawnHints（Layer 2/3 数据来源）
+    // 注意：第 5 个参数必须传棋盘填充率，而非消行数
     let hints = {};
     try {
         const strategy = resolveAdaptiveStrategy(
@@ -32,30 +37,37 @@ function _refreshLayerParams(game) {
             profile,
             game.score ?? 0,
             game.runStreak ?? 0,
-            game.gameStats?.clears ?? 0,
+            game.grid?.getFillRatio() ?? 0,   // 正确：棋盘填充率
             ctx
         );
         hints = strategy.spawnHints ?? {};
     } catch { /* ignore */ }
 
-    // GlobalLayer 参数
-    _set('sl-arc',       ctx.sessionArc ?? '–');
-    _set('sl-milestone', ctx.scoreMilestone ? '✅ 是' : '否');
-    _set('sl-rsc',       ctx.roundsSinceClear ?? 0);
-    const cats = (ctx.recentCategories ?? []).flat().filter(Boolean);
-    _set('sl-cats', cats.length ? cats.slice(-4).join(', ') : '–');
+    // ── Layer 1: 盘面拓扑感知 ──────────────────────────────────────────────
+    const fill = diag?.layer1?.fill ?? game.grid?.getFillRatio() ?? null;
+    _set('sl-fill',    fill != null ? (fill * 100).toFixed(1) + '%' : '–');
+    _set('sl-holes',   diag?.layer1?.holes ?? '–');
+    _set('sl-flatness', diag?.layer1?.flatness != null
+        ? diag.layer1.flatness.toFixed(2) : '–');
+    const nfl = diag?.layer1?.nearFullLines ?? 0;
+    // 临消行数高亮：≥4 显示清屏预警
+    const nflText = nfl >= 5 ? `${nfl} 🔥清屏机会` : nfl >= 4 ? `${nfl} ⚡多消窗口` : String(nfl);
+    _set('sl-nfl', nfl > 0 ? nflText : '–');
+    _set('sl-mcc', diag?.layer1?.multiClearCandidates ?? '–');
 
-    // LaneLayer 参数
-    _set('sl-cg', hints.clearGuarantee ?? 0);
-    _set('sl-sp', hints.sizePreference != null ? hints.sizePreference.toFixed(2) : '0.00');
+    // ── Layer 2: 局内体验 ─────────────────────────────────────────────────
     _set('sl-cc', hints.comboChain != null ? hints.comboChain.toFixed(2) : '0.00');
     _set('sl-rp', hints.rhythmPhase ?? 'neutral');
+    _set('sl-cg', hints.clearGuarantee ?? 0);
+    _set('sl-sp', hints.sizePreference != null ? hints.sizePreference.toFixed(2) : '0.00');
 
-    // FallbackLayer 参数（从最后一批 dock 块推断）
-    const dock = game.dockBlocks ?? [];
-    const remaining = dock.filter(b => !b.placed);
-    _set('sl-pc', remaining.length);  // 仍在候选中的块
-    _set('sl-gf', '–');               // gapFills 在运行时计算，此处仅展示块数
+    // ── Layer 3: 局间弧线 ─────────────────────────────────────────────────
+    // sessionArc 存在于 spawnHints 中，不在 _spawnContext 中
+    _set('sl-arc',      hints.sessionArc ?? ctx.sessionArc ?? '–');
+    _set('sl-milestone', hints.scoreMilestone ? '✅ 是' : '否');
+    _set('sl-rsc',      diag?.layer3?.roundsSinceClear ?? ctx.roundsSinceClear ?? 0);
+    _set('sl-div',      hints.diversityBoost != null
+        ? hints.diversityBoost.toFixed(2) : '0.00');
 }
 
 function _set(id, val) {

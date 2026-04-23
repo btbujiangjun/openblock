@@ -283,6 +283,9 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const topo = analyzeBoardTopology(grid);
     const doDeepAnalysis = fill > 0.35;
 
+    // 临消行信号：棋盘上有多少行/列只差 ≤2 格即可消除（越多越有多消/清屏机会）
+    const nearFullFactor = Math.min(1.0, topo.nearFullLines / 5);
+
     const scored = allShapes
         .map((shape) => {
             const canPlace = grid.canPlaceAnywhere(shape.data);
@@ -294,11 +297,13 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
             let multiClear = 0;
             let holeReduce = 0;
-            if (doDeepAnalysis) {
+            // 多消潜力：只要该块能填缺口（gapFills>0）就计算，不再受 fill>0.35 限制
+            // fill 低时 nearFullLines 本来也少，计算开销可控
+            if (gapFills > 0) {
                 multiClear = bestMultiClearPotential(grid, shape.data);
-                if (topo.holes > 2 && fill > 0.5) {
-                    holeReduce = bestHoleReduction(grid, shape.data, topo.holes);
-                }
+            }
+            if (doDeepAnalysis && topo.holes > 2 && fill > 0.5) {
+                holeReduce = bestHoleReduction(grid, shape.data, topo.holes);
             }
 
             return { shape, canPlace: true, gapFills, weight, category, placements, multiClear, holeReduce };
@@ -307,7 +312,8 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
     if (scored.length === 0) return [];
 
-    scored.sort((a, b) => b.gapFills - a.gapFills || b.multiClear - a.multiClear);
+    // 优先排多消、再排消行，给 Phase 1 候选池更好的排序
+    scored.sort((a, b) => b.multiClear - a.multiClear || b.gapFills - a.gapFills);
 
     /* --- Layer 2: 品类记忆 --- */
     const mem = getCategoryMemory();
@@ -318,8 +324,11 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         catFreq[cat] = (catFreq[cat] || 0) + 1;
     }
 
+    // 多消候选数统计（供面板展示）
+    const multiClearCandidates = scored.filter(s => s.multiClear >= 2).length;
+
     const diagnostics = {
-        layer1: { fill, holes: topo.holes, flatness: topo.flatness, nearFullLines: topo.nearFullLines, maxColHeight: topo.maxColHeight },
+        layer1: { fill, holes: topo.holes, flatness: topo.flatness, nearFullLines: topo.nearFullLines, maxColHeight: topo.maxColHeight, multiClearCandidates },
         layer2: { comboChain, multiClearBonus, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
@@ -347,7 +356,9 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         const effectiveClearTarget = comboChain > 0.5
             ? Math.min(3, clearTarget + 1)
             : clearTarget;
-        const clearSeats = Math.min(effectiveClearTarget, clearCandidates.length, 2);
+        // 临消行≥4 时允许 3 个槽全部放消行块（清屏窗口期）
+        const maxClearSeats = topo.nearFullLines >= 4 ? 3 : 2;
+        const clearSeats = Math.min(effectiveClearTarget, clearCandidates.length, maxClearSeats);
         for (let ci = 0; ci < clearSeats; ci++) {
             const avail = clearCandidates.filter(s => !usedIds[s.shape.id]);
             if (avail.length === 0) break;
@@ -386,9 +397,20 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     w *= 1 + s.holeReduce * 0.4;
                 }
 
-                /* Layer 1: 多消潜力 — 能同时消多行的块加权 */
-                if (s.multiClear >= 2) {
-                    w *= 1 + (s.multiClear - 1) * (0.3 + multiClearBonus * 0.5);
+                /* Layer 1: 多消潜力 — 指数级强化（mc=2 → ×2.0，mc=3 → ×2.7）*/
+                if (s.multiClear >= 1) {
+                    // 基础倍率 0.6 + multiClearBonus 最高追加 0.6
+                    const mcBase = 0.6 + multiClearBonus * 0.6;
+                    w *= 1 + s.multiClear * mcBase;
+                }
+
+                /* Layer 1: 临消行机会放大 — 有可消行时消行块价值与临消行数正相关 */
+                if (nearFullFactor > 0 && s.gapFills > 0) {
+                    w *= 1 + nearFullFactor * 2.0;
+                }
+                // 清屏窗口期（nearFullLines≥5）：多消块额外加持
+                if (topo.nearFullLines >= 5 && s.multiClear >= 2) {
+                    w *= 1.6;
                 }
 
                 /* Layer 2: combo 链催化 — combo 活跃时偏好消行块 */
@@ -399,10 +421,10 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 /* Layer 2: 节奏相位 */
                 const cells = shapeCellCount(s.shape.data);
                 if (rhythmPhase === 'payoff') {
-                    if (s.gapFills > 0) w *= 1.3;
-                    if (s.multiClear >= 2) w *= 1.2;
+                    if (s.gapFills > 0) w *= 1.7;      // 原 1.3 → 更强的 payoff 推送
+                    if (s.multiClear >= 2) w *= 1.4;    // 原 1.2 → 多消双重加持
                 } else if (rhythmPhase === 'setup') {
-                    if (cells >= 4 && cells <= 6 && s.gapFills === 0) w *= 1.15;
+                    if (cells >= 4 && cells <= 6 && s.gapFills === 0) w *= 1.2;
                 }
 
                 /* sizePreference */
@@ -427,9 +449,10 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     w *= Math.max(0.4, 1 - (memPenalty - 2) * 0.12);
                 }
 
-                /* clearGuarantee 补足 */
+                /* clearGuarantee 补足 — 多消块额外加持 */
                 if (clearCount < clearTarget && s.gapFills > 0) {
                     w *= 1.6;
+                    if (s.multiClear >= 2) w *= 1.3;    // 多消块优先补入
                 }
 
                 /* Layer 3: 里程碑庆祝 — 偏好能产生消行的块 */
