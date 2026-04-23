@@ -1661,7 +1661,8 @@ _DOC_CATEGORIES = [
               'RL_TRAINING_DASHBOARD_FLOW.md', 'RL_TRAINING_DASHBOARD_TRENDS.md']},
     # 7. 商业化
     {'name': '商业化',
-     'docs': ['MONETIZATION.md', 'MONETIZATION_OPTIMIZATION.md', 'MONETIZATION_PERSONALIZATION.md']},
+     'docs': ['MONETIZATION.md', 'MONETIZATION_OPTIMIZATION.md', 'MONETIZATION_PERSONALIZATION.md',
+              'COMMERCIAL_OPERATIONS.md']},
     # 8. 平台扩展
     {'name': '平台扩展',
      'docs': ['WECHAT_MINIPROGRAM.md']},
