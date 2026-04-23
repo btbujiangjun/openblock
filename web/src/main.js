@@ -20,6 +20,7 @@ import { initSeasonPass, toggleSeasonPass } from './seasonPass.js';
 import { initPushNotification } from './pushNotification.js';
 import { initChannelAttribution } from './channelAttribution.js';
 import { initMiniGoals } from './miniGoals.js';
+import { initOpsDashboard, openOpsDashboard } from './opsDashboard.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootErr = document.getElementById('boot-error');
@@ -60,6 +61,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 关卡编辑器触发按钮（index.html 中已预留 #level-editor-btn）
     const leBtn = document.getElementById('level-editor-btn');
     if (leBtn) leBtn.addEventListener('click', openLevelEditorPanel);
+
+    // 运营看板（初始化 Screen + 菜单按钮绑定）
+    initOpsDashboard(game);
+    document.getElementById('ops-menu-btn')?.addEventListener('click', openOpsDashboard);
 
     // 渠道归因（页面加载时解析 UTM 参数）
     initChannelAttribution();
