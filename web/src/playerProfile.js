@@ -48,6 +48,10 @@ function _cfg() {
 }
 
 /**
+ * @typedef {'perfect_hunter'|'multi_clear'|'combo'|'survival'|'balanced'} PlaystyleLabel
+ */
+
+/**
  * @typedef {{
  *   score: number,
  *   placements: number,
@@ -58,6 +62,9 @@ function _cfg() {
  *   skill: number,
  *   duration: number,
  *   ts: number,
+ *   playstyle?: PlaystyleLabel,
+ *   multiClearRate?: number,
+ *   perfectClearRate?: number,
  * }} SessionSummary
  */
 
@@ -208,6 +215,10 @@ export class PlayerProfile {
             duration,
             ts: Date.now(),
             mode,
+            // 玩法偏好快照（局末推断，供历史趋势分析）
+            playstyle: this.playstyle,
+            multiClearRate: this.multiClearRate,
+            perfectClearRate: this.perfectClearRate,
         };
         this._sessionHistory.push(summary);
         if (this._sessionHistory.length > SESSION_HISTORY_CAP) {
@@ -471,6 +482,57 @@ export class PlayerProfile {
 
     get recentComboStreak() {
         return this._comboStreak;
+    }
+
+    /**
+     * 最近滑动窗口内多消率：消行事件中 lines≥2 的比例（0~1）。
+     * 反映玩家主动设置多行消除的偏好强度。
+     */
+    get multiClearRate() {
+        const clears = this._moves.slice(-this._window).filter(m => m.cleared && !m.miss);
+        if (clears.length < 2) return 0;
+        return clears.filter(m => m.lines >= 2).length / clears.length;
+    }
+
+    /**
+     * 最近滑动窗口内清屏率：消行事件中消行后 fill=0（棋盘全空）的比例（0~1）。
+     * 利用 recordPlace 传入的 boardFill 是消行后的值这一特性，fill===0 即为清屏。
+     */
+    get perfectClearRate() {
+        const clears = this._moves.slice(-this._window).filter(m => m.cleared && !m.miss);
+        if (clears.length < 2) return 0;
+        return clears.filter(m => m.fill === 0).length / clears.length;
+    }
+
+    /**
+     * 最近滑动窗口内每次消行平均清除的行列条数。
+     * 1.0 = 每次仅单消；2.5+ = 强多消偏好。
+     */
+    get avgLinesPerClear() {
+        const clears = this._moves.slice(-this._window).filter(m => m.cleared && !m.miss);
+        if (clears.length === 0) return 0;
+        return clears.reduce((s, m) => s + m.lines, 0) / clears.length;
+    }
+
+    /**
+     * 推断玩法风格偏好（取最近窗口行为）。
+     *
+     * 优先级：perfect_hunter > multi_clear > combo > survival > balanced
+     *
+     * - perfect_hunter : 频繁清屏（清屏率 ≥ 5%），追求一次性消空棋盘
+     * - multi_clear    : 多消率 ≥ 40% 或平均消除条数 ≥ 2.5，偏好同时消多行
+     * - combo          : recentComboStreak ≥ 3，连续连消型玩家
+     * - survival       : 消行率 < 25%，以保活为主而非积极消行
+     * - balanced       : 无明显单一偏好
+     *
+     * @returns {PlaystyleLabel}
+     */
+    get playstyle() {
+        if (this.perfectClearRate >= 0.05)                              return 'perfect_hunter';
+        if (this.multiClearRate >= 0.40 || this.avgLinesPerClear >= 2.5) return 'multi_clear';
+        if (this.recentComboStreak >= 3)                                return 'combo';
+        if (this.metrics.clearRate < 0.25)                              return 'survival';
+        return 'balanced';
     }
 
     /**

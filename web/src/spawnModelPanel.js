@@ -60,6 +60,13 @@ function _refreshLayerParams(game) {
     _set('sl-rp', hints.rhythmPhase ?? 'neutral');
     _set('sl-cg', hints.clearGuarantee ?? 0);
     _set('sl-sp', hints.sizePreference != null ? hints.sizePreference.toFixed(2) : '0.00');
+    // 玩法偏好：直接从 profile 读取，中文化标签
+    const playstyleMap = {
+        perfect_hunter: '清屏', multi_clear: '多消',
+        combo: '连消', survival: '生存', balanced: '均衡'
+    };
+    const psRaw = profile?.playstyle ?? 'balanced';
+    _set('sl-playstyle', playstyleMap[psRaw] ?? psRaw);
 
     // ── Layer 3: 局间弧线 ─────────────────────────────────────────────────
     // sessionArc 存在于 spawnHints 中，不在 _spawnContext 中

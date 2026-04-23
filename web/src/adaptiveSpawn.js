@@ -94,9 +94,13 @@ function deriveComboChain(ctx, profile) {
  */
 function deriveMultiClearBonus(ctx, fill) {
     const roundsSinceClear = ctx.roundsSinceClear ?? 0;
-    // ctx.nearFullLines 由 game.js 在每轮出块后从诊断中回写
+    // ctx.nearFullLines / ctx.pcSetup 由 game.js 在每轮出块后从诊断中回写
     const nearFullLines = ctx.nearFullLines ?? 0;
+    const pcSetup = ctx.pcSetup ?? 0;
 
+    // 清屏机会（blockSpawn 诊断确认）→ 最大鼓励
+    if (pcSetup >= 2) return 1.0;
+    if (pcSetup >= 1) return 0.9;
     // 棋盘临消行极多 → 强烈鼓励多消（清屏机会）
     if (nearFullLines >= 5) return 1.0;
     if (nearFullLines >= 3) return 0.8;
@@ -119,9 +123,11 @@ function deriveRhythmPhase(profile, ctx) {
     const pacingPhase = profile.pacingPhase;
     const roundsSinceClear = ctx.roundsSinceClear ?? 0;
     const nearFullLines = ctx.nearFullLines ?? 0;
-    // 棋盘有多条临消行 → 立即进入 payoff，推送消行块
+    const pcSetup = ctx.pcSetup ?? 0;
+    // 清屏机会 / 多临消行 → 立即进入 payoff
+    if (pcSetup >= 1) return 'payoff';
     if (nearFullLines >= 3) return 'payoff';
-    // 更早进入 payoff：连续 2 轮无消行即触发（原来 >=3）
+    // 更早进入 payoff：连续 2 轮无消行即触发
     if (pacingPhase === 'release' || roundsSinceClear >= 2) return 'payoff';
     if (pacingPhase === 'tension' && roundsSinceClear === 0) return 'setup';
     return 'neutral';
@@ -316,10 +322,10 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const comboChain = deriveComboChain(ctx, profile);
 
     /* --- Layer 2: 多消鼓励 --- */
-    const multiClearBonus = deriveMultiClearBonus(ctx, _boardFill ?? 0);
+    let multiClearBonus = deriveMultiClearBonus(ctx, _boardFill ?? 0);
 
     /* --- Layer 2: 节奏相位 --- */
-    const rhythmPhase = deriveRhythmPhase(profile, ctx);
+    let rhythmPhase = deriveRhythmPhase(profile, ctx);
 
     /* --- 原有条件逻辑 --- */
     if (profile.hadRecentNearMiss) {
@@ -367,6 +373,31 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         sizePreference = Math.min(sizePreference, -0.2);
     }
 
+    /* ================================================================ */
+    /*  玩法偏好联动（playstyle → spawnHints 精细调控）                  */
+    /*  在所有条件规则之后执行，作为最终风格对齐层                        */
+    /* ================================================================ */
+    const playstyle = profile.playstyle ?? 'balanced';
+    if (playstyle === 'perfect_hunter') {
+        // 清屏猎人：大幅提升多消潜力块权重 + 保障消行供给
+        // 该玩家主动追求清空棋盘，需要提供更多能触发多行消除的方块组合
+        multiClearBonus = Math.max(multiClearBonus, 0.85);
+        clearGuarantee  = Math.max(clearGuarantee, 2);
+    } else if (playstyle === 'multi_clear') {
+        // 多消玩家：提升多消鼓励，顺势切入 payoff 节奏
+        multiClearBonus = Math.max(multiClearBonus, 0.65);
+        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+    } else if (playstyle === 'combo') {
+        // 连消玩家：comboChain 信号已由 recentComboStreak 自动拉高，
+        // 这里额外保障至少有 2 个消行槽位供续链
+        clearGuarantee = Math.max(clearGuarantee, 2);
+    } else if (playstyle === 'survival') {
+        // 生存型：减压 + 偏小块，降低卡死风险，保障最低可放置性
+        sizePreference = Math.min(sizePreference, -0.25);
+        clearGuarantee = Math.max(clearGuarantee, 1);
+    }
+    // 'balanced'：不做额外调整，沿用上方所有条件规则的结果
+
     return {
         ...base,
         shapeWeights,
@@ -397,6 +428,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _sessionArc: sessionArc,
         _comboChain: comboChain,
         _rhythmPhase: rhythmPhase,
-        _milestoneHit: milestoneCheck.hit
+        _milestoneHit: milestoneCheck.hit,
+        _playstyle: playstyle
     };
 }

@@ -172,7 +172,6 @@ function analyzeBoardTopology(grid) {
 
 /**
  * 评估形状在最佳放置位的"多消潜力"：扫描所有合法位，返回最大可同时消除行列数
- * 限制搜索预算，高填充时只采样部分位置
  * @param {import('../grid.js').Grid} grid
  * @param {number[][]} shapeData
  * @returns {number} 最大消行数（0 = 不触发任何消行）
@@ -191,6 +190,95 @@ function bestMultiClearPotential(grid, shapeData) {
         }
     }
     return best;
+}
+
+/**
+ * 检测棋盘是否处于"清屏准备"状态：
+ * 若将所有临消行/列（≤2 格空缺）补全后消除，棋盘会否清空。
+ *
+ * 算法：
+ *   1. 收集所有"临消行/列"（只差 1-2 格即可满）
+ *   2. 计算这些行/列消除后，棋盘上剩余的被占格数
+ *   3. 若剩余 = 0 且总空缺 ≤ 9 格（约 3 块能填满），返回 2（高确信清屏机会）
+ *      若剩余 ≤ 3 格且总空缺 ≤ 14 格，返回 1（较强机会）
+ *      否则返回 0
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @returns {0|1|2}
+ */
+function analyzePerfectClearSetup(grid) {
+    const n = grid.size;
+    const nearFullRows = [];
+    const nearFullCols = [];
+
+    for (let y = 0; y < n; y++) {
+        let filled = 0;
+        for (let x = 0; x < n; x++) if (grid.cells[y][x] !== null) filled++;
+        if (filled >= n - 2 && filled > 0) nearFullRows.push({ y, empty: n - filled });
+    }
+    for (let x = 0; x < n; x++) {
+        let filled = 0;
+        for (let y = 0; y < n; y++) if (grid.cells[y][x] !== null) filled++;
+        if (filled >= n - 2 && filled > 0) nearFullCols.push({ x, empty: n - filled });
+    }
+
+    if (nearFullRows.length === 0 && nearFullCols.length === 0) return 0;
+
+    // 模拟：若这些行/列全部补满并消除，哪些格子会被清除
+    const clearedSet = new Set();
+    for (const { y } of nearFullRows) {
+        for (let x = 0; x < n; x++) clearedSet.add(x * n + y);
+    }
+    for (const { x } of nearFullCols) {
+        for (let y = 0; y < n; y++) clearedSet.add(x * n + y);
+    }
+
+    // 统计清除后仍有格子被占用的残余数
+    let remainingAfterClear = 0;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== null && !clearedSet.has(x * n + y)) {
+                remainingAfterClear++;
+            }
+        }
+    }
+
+    // 补全所有临消行/列所需的总空格数
+    const totalEmptyNeeded = nearFullRows.reduce((s, r) => s + r.empty, 0)
+                           + nearFullCols.reduce((s, c) => s + c.empty, 0);
+
+    if (remainingAfterClear === 0 && totalEmptyNeeded <= 9) return 2; // 精确清屏机会
+    if (remainingAfterClear <= 3 && totalEmptyNeeded <= 14) return 1; // 强接近清屏
+    return 0;
+}
+
+/**
+ * 判断形状在当前盘面的某个放置位能否直接触发清屏（棋盘全空）。
+ * 只在 pcSetup > 0 时调用（性能门控）。
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @param {number[][]} shapeData
+ * @returns {2|0}  2 = 存在放置位可触发清屏；0 = 不能
+ */
+function bestPerfectClearPotential(grid, shapeData) {
+    const n = grid.size;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (!grid.canPlace(shapeData, x, y)) continue;
+            const g = grid.clone();
+            g.place(shapeData, 0, x, y);
+            g.checkLines();
+            // 若放置+消行后棋盘全空 → 清屏
+            let empty = true;
+            outer: for (let ry = 0; ry < n; ry++) {
+                for (let rx = 0; rx < n; rx++) {
+                    if (g.cells[ry][rx] !== null) { empty = false; break outer; }
+                }
+            }
+            if (empty) return 2;
+        }
+    }
+    return 0;
 }
 
 /**
@@ -286,6 +374,9 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     // 临消行信号：棋盘上有多少行/列只差 ≤2 格即可消除（越多越有多消/清屏机会）
     const nearFullFactor = Math.min(1.0, topo.nearFullLines / 5);
 
+    // 清屏准备信号（0=无 / 1=弱 / 2=强）：若消完临消行则盘面清空
+    const pcSetup = analyzePerfectClearSetup(grid);
+
     const scored = allShapes
         .map((shape) => {
             const canPlace = grid.canPlaceAnywhere(shape.data);
@@ -297,23 +388,31 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
             let multiClear = 0;
             let holeReduce = 0;
-            // 多消潜力：只要该块能填缺口（gapFills>0）就计算，不再受 fill>0.35 限制
-            // fill 低时 nearFullLines 本来也少，计算开销可控
+            let pcPotential = 0;
+
             if (gapFills > 0) {
                 multiClear = bestMultiClearPotential(grid, shape.data);
+                // 清屏机会期：评估该块能否直接触发清屏
+                if (pcSetup > 0) {
+                    pcPotential = bestPerfectClearPotential(grid, shape.data);
+                }
             }
             if (doDeepAnalysis && topo.holes > 2 && fill > 0.5) {
                 holeReduce = bestHoleReduction(grid, shape.data, topo.holes);
             }
 
-            return { shape, canPlace: true, gapFills, weight, category, placements, multiClear, holeReduce };
+            return { shape, canPlace: true, gapFills, weight, category, placements, multiClear, holeReduce, pcPotential };
         })
         .filter(Boolean);
 
     if (scored.length === 0) return [];
 
-    // 优先排多消、再排消行，给 Phase 1 候选池更好的排序
-    scored.sort((a, b) => b.multiClear - a.multiClear || b.gapFills - a.gapFills);
+    // 清屏优先 > 多消优先 > 消行优先
+    scored.sort((a, b) =>
+        b.pcPotential - a.pcPotential ||
+        b.multiClear - a.multiClear ||
+        b.gapFills - a.gapFills
+    );
 
     /* --- Layer 2: 品类记忆 --- */
     const mem = getCategoryMemory();
@@ -324,11 +423,12 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         catFreq[cat] = (catFreq[cat] || 0) + 1;
     }
 
-    // 多消候选数统计（供面板展示）
+    // 候选统计（供面板展示）
     const multiClearCandidates = scored.filter(s => s.multiClear >= 2).length;
+    const perfectClearCandidates = scored.filter(s => s.pcPotential === 2).length;
 
     const diagnostics = {
-        layer1: { fill, holes: topo.holes, flatness: topo.flatness, nearFullLines: topo.nearFullLines, maxColHeight: topo.maxColHeight, multiClearCandidates },
+        layer1: { fill, holes: topo.holes, flatness: topo.flatness, nearFullLines: topo.nearFullLines, maxColHeight: topo.maxColHeight, multiClearCandidates, pcSetup, perfectClearCandidates },
         layer2: { comboChain, multiClearBonus, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
@@ -343,12 +443,18 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         const chosenMeta = [];
         let clearCount = 0;
 
-        /* -- 阶段 1: 消行候选（clearGuarantee + combo 催化 + 多消优先）-- */
+        /* -- 阶段 1: 消行候选（clearGuarantee + combo 催化 + 清屏/多消优先）-- */
         const clearCandidates = scored.filter((s) => s.gapFills > 0);
-        if (comboChain > 0.3 || multiClearBonus > 0.3) {
+
+        // 排序：清屏潜力 > 多消 > combo 加权 > gap 数
+        if (pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3) {
             clearCandidates.sort((a, b) => {
-                const aScore = a.multiClear * (1 + multiClearBonus) + a.gapFills * 0.5;
-                const bScore = b.multiClear * (1 + multiClearBonus) + b.gapFills * 0.5;
+                const aScore = a.pcPotential * 8
+                    + a.multiClear * (1 + multiClearBonus)
+                    + a.gapFills * 0.5;
+                const bScore = b.pcPotential * 8
+                    + b.multiClear * (1 + multiClearBonus)
+                    + b.gapFills * 0.5;
                 return bScore - aScore;
             });
         }
@@ -356,15 +462,24 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         const effectiveClearTarget = comboChain > 0.5
             ? Math.min(3, clearTarget + 1)
             : clearTarget;
-        // 临消行≥4 时允许 3 个槽全部放消行块（清屏窗口期）
-        const maxClearSeats = topo.nearFullLines >= 4 ? 3 : 2;
-        const clearSeats = Math.min(effectiveClearTarget, clearCandidates.length, maxClearSeats);
+
+        // 清屏机会（pcSetup=2）或临消行≥4 时：允许 3 个槽全放消行块
+        const maxClearSeats = (pcSetup >= 2 || topo.nearFullLines >= 4) ? 3 : 2;
+        // 精确清屏机会：强制 3 槽全部用于消行（不再受 clearTarget 约束）
+        const clearSeats = pcSetup >= 2
+            ? Math.min(3, clearCandidates.length)
+            : Math.min(effectiveClearTarget, clearCandidates.length, maxClearSeats);
+
         for (let ci = 0; ci < clearSeats; ci++) {
             const avail = clearCandidates.filter(s => !usedIds[s.shape.id]);
             if (avail.length === 0) break;
 
             let pick;
-            if (multiClearBonus > 0.3 && avail.some(s => s.multiClear >= 2)) {
+            // 清屏机会期：优先选能直接触发清屏的块
+            if (pcSetup >= 1 && avail.some(s => s.pcPotential === 2)) {
+                const perfectPicks = avail.filter(s => s.pcPotential === 2);
+                pick = perfectPicks[Math.floor(Math.random() * Math.min(3, perfectPicks.length))];
+            } else if (multiClearBonus > 0.3 && avail.some(s => s.multiClear >= 2)) {
                 const multi = avail.filter(s => s.multiClear >= 2);
                 pick = multi[Math.floor(Math.random() * Math.min(3, multi.length))];
             } else {
@@ -374,7 +489,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             blocks.push(pick.shape);
             usedIds[pick.shape.id] = true;
             usedCategories[pick.category] = (usedCategories[pick.category] || 0) + 1;
-            chosenMeta.push({ shape: pick.shape, placements: pick.placements, reason: 'clear' });
+            chosenMeta.push({ shape: pick.shape, placements: pick.placements, reason: pcSetup >= 1 ? 'perfectClear' : 'clear' });
             clearCount++;
         }
 
@@ -395,6 +510,15 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 /* Layer 1: 空洞修复 — 高填充时优先减少空洞的块 */
                 if (s.holeReduce > 0 && fill > 0.5) {
                     w *= 1 + s.holeReduce * 0.4;
+                }
+
+                /* Layer 1: 清屏潜力 — 最高优先级倍率 */
+                if (s.pcPotential === 2) {
+                    // 该块放置后可直接触发清屏：极强权重，覆盖一切其他因素
+                    w *= 12.0;
+                } else if (pcSetup >= 1 && s.gapFills > 0) {
+                    // 清屏准备期：gap 填充块大幅加权，pcSetup=2 更强
+                    w *= 1 + pcSetup * 3.0;
                 }
 
                 /* Layer 1: 多消潜力 — 指数级强化（mc=2 → ×2.0，mc=3 → ×2.7）*/

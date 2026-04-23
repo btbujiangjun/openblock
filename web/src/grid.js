@@ -364,25 +364,118 @@ export class Grid {
         return fills;
     }
 
+    /**
+     * 初始化棋盘预填充。
+     *
+     * 改进策略（相比纯随机，显著降低空洞率）：
+     *  1. 对每个候选形状枚举全部有效放置位置
+     *  2. 按"空洞惩罚 + 底部偏好 + 随机扰动"综合评分
+     *  3. 取评分最高的位置放置，形成自然底部堆叠
+     *
+     * 评分公式（越高越优先）：
+     *   score = bottomBonus - holePenalty + jitter
+     *   bottomBonus = (y + sh) / size × 3      （放置越靠底得分越高）
+     *   holePenalty = newHoles × 2.5            （每新增一个空洞扣分）
+     *   jitter      = Math.random() × 0.6       （少量随机性避免完全确定性）
+     *
+     * @param {number} fillRatio  目标填充率（0~1）
+     * @param {object} weights    形状类别权重
+     */
     initBoard(fillRatio, weights) {
         this.clear();
-        let placedCells = 0;
         const targetCells = Math.floor(this.size * this.size * fillRatio);
+        let placedCells = 0;
+        let noProgressStreak = 0;
 
-        for (let attempts = 0; attempts < 100 && placedCells < targetCells; attempts++) {
+        while (placedCells < targetCells && noProgressStreak < 25) {
             const shape = pickShapeByCategoryWeights(weights);
-            if (!shape) {
-                break;
-            }
-            const x = Math.floor(Math.random() * (this.size - shape.data[0].length + 1));
-            const y = Math.floor(Math.random() * (this.size - shape.data.length + 1));
+            if (!shape) break;
 
-            if (this.canPlace(shape.data, x, y) && !this.wouldClear(shape.data, x, y)) {
-                const colorIdx = Math.floor(Math.random() * 8);
-                this.place(shape.data, colorIdx, x, y);
-                placedCells += shape.data.flat().filter(c => c).length;
+            const sh = shape.data.length;
+            const sw = shape.data[0].length;
+            const shapeSize = shape.data.flat().filter(Boolean).length;
+
+            // 枚举全部有效位置，评分后择优放置
+            let best = null;
+            for (let y = 0; y <= this.size - sh; y++) {
+                for (let x = 0; x <= this.size - sw; x++) {
+                    if (!this.canPlace(shape.data, x, y)) continue;
+                    if (this.wouldClear(shape.data, x, y)) continue;
+
+                    const holes = this._countNewHoles(shape.data, x, y);
+                    // 底部偏好：形状底边 (y + sh) 占格高比例
+                    const bottomBonus = ((y + sh) / this.size) * 3;
+                    const score = bottomBonus - holes * 2.5 + Math.random() * 0.6;
+
+                    if (best === null || score > best.score) {
+                        best = { x, y, score };
+                    }
+                }
             }
+
+            if (best === null) {
+                noProgressStreak++;
+                continue;
+            }
+
+            noProgressStreak = 0;
+            const colorIdx = Math.floor(Math.random() * 8);
+            this.place(shape.data, colorIdx, best.x, best.y);
+            placedCells += shapeSize;
         }
+    }
+
+    /**
+     * 计算将 shapeData 放置在 (px, py) 后，在受影响列中新增的空洞数。
+     * 空洞定义：某列中，有占用格正上方存在空格的情况。
+     * 只统计放置后新产生的洞，不含放置前已有的洞。
+     *
+     * @param {number[][]} shapeData
+     * @param {number} px  形状左上角列索引
+     * @param {number} py  形状左上角行索引
+     * @returns {number}
+     */
+    _countNewHoles(shapeData, px, py) {
+        const sh = shapeData.length;
+        const sw = shapeData[0].length;
+        let newHoles = 0;
+
+        for (let dx = 0; dx < sw; dx++) {
+            const col = px + dx;
+            if (col >= this.size) continue;
+
+            // 放置前该列的空洞数
+            let beforeHoles = 0;
+            let hadOccupied = false;
+            for (let y = 0; y < this.size; y++) {
+                if (this.cells[y][col] !== null) {
+                    hadOccupied = true;
+                } else if (hadOccupied) {
+                    beforeHoles++;
+                }
+            }
+
+            // 放置后该列的空洞数（加入形状格）
+            let afterHoles = 0;
+            hadOccupied = false;
+            for (let y = 0; y < this.size; y++) {
+                const shapeFill =
+                    y >= py && y < py + sh && dx < sw
+                        ? Boolean(shapeData[y - py][dx])
+                        : false;
+                const isOccupied = this.cells[y][col] !== null || shapeFill;
+
+                if (isOccupied) {
+                    hadOccupied = true;
+                } else if (hadOccupied) {
+                    afterHoles++;
+                }
+            }
+
+            newHoles += Math.max(0, afterHoles - beforeHoles);
+        }
+
+        return newHoles;
     }
 
     getFillRatio() {

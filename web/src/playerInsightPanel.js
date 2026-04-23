@@ -96,6 +96,24 @@ const CAT_LABEL = {
 };
 
 /** 投放区指标悬停说明 */
+/** 玩法风格标签（中文化） */
+const PLAYSTYLE_LABEL = {
+    perfect_hunter: '清屏猎人',
+    multi_clear: '多消流',
+    combo: '连消流',
+    survival: '生存流',
+    balanced: '均衡',
+};
+
+/** 玩法风格 tooltip */
+const PLAYSTYLE_TOOLTIP = {
+    perfect_hunter: '频繁清屏（消行后 fill=0 占比≥5%）：追求一次性消空棋盘，系统提升多消块权重与消行保障。',
+    multi_clear: '多消玩家（多消率≥40% 或平均消除条数≥2.5）：偏好同时消多行，系统切入 payoff 节奏并提升多消鼓励。',
+    combo: '连消型玩家（连续 combo streak≥3）：连续触发多行消除，系统额外保障 2 个消行槽位供续链。',
+    survival: '生存型玩家（消行率<25%）：以保活为主，系统减压、偏向小块、保障最低可放置性。',
+    balanced: '均衡型：无明显单一偏好，系统按常规自适应策略投放，不做额外风格调整。',
+};
+
 const SPAWN_TOOLTIP = {
     stress:
         '综合压力（约 −0.2～1）。由分数档、连战、技能、心流、节奏、恢复、挫败、combo、近失、闭环反馈等叠加后钳制，用于在配置的多档形状权重间插值。',
@@ -471,6 +489,7 @@ function _render(game) {
             else if (row.key === 'engagementAPM') val = p.engagementAPM.toFixed(1);
             return `<div class="insight-metric" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
         }).join('');
+
         elAbility.innerHTML = abilityHtml;
     }
 
@@ -543,6 +562,13 @@ function _render(game) {
             if (cc > 0.1) layer2Pills.push(_spawnPill(`连击 ${cc.toFixed(2)}`, SPAWN_TOOLTIP.comboChain));
             const mc = h.multiClearBonus ?? 0;
             if (mc > 0.1) layer2Pills.push(_spawnPill(`多消 ${mc.toFixed(2)}`, SPAWN_TOOLTIP.multiClear));
+        }
+        // 玩法偏好 pill（始终展示，让开发者快速感知当前玩家风格对出块的影响）
+        {
+            const ps = game.playerProfile?.playstyle ?? 'balanced';
+            const psLabel = PLAYSTYLE_LABEL[ps] ?? ps;
+            const psTip = PLAYSTYLE_TOOLTIP[ps] ?? '';
+            layer2Pills.push(_spawnPill(`偏好 ${psLabel}`, psTip));
         }
 
         const diagPills = [];

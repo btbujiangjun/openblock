@@ -685,9 +685,10 @@ export class Game {
             spawnShapeIds: shapes.map((s) => s.id)
         });
 
-        // 将本轮临消行数回写到 _spawnContext，供下一轮 adaptiveSpawn 使用
+        // 将本轮临消行数和清屏准备信号回写到 _spawnContext，供下一轮 adaptiveSpawn 使用
         const _diag = getLastSpawnDiagnostics();
         this._spawnContext.nearFullLines = _diag?.layer1?.nearFullLines ?? 0;
+        this._spawnContext.pcSetup       = _diag?.layer1?.pcSetup       ?? 0;
 
         this._refreshPlayerInsightPanel();
     }
