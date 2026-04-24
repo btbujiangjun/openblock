@@ -68,7 +68,7 @@ export const CLASSIC_PALETTE = [
 export const SKINS = {
     classic: {
         id: 'classic',
-        name: '经典',
+        name: '✨ 经典',
         blockColors: [...CLASSIC_PALETTE],
         gridOuter: '#D0D9E2',
         gridCell: '#E2E9F0',
@@ -81,7 +81,7 @@ export const SKINS = {
     },
     titanium: {
         id: 'titanium',
-        name: '钛晶',
+        name: '💎 钛晶',
         blockColors: [
             '#6A9ED4', '#94ADCF', '#78A8DB', '#A3BDE0',
             '#88C0E0', '#7DAAD2', '#B4C8DC', '#8DA6C8'
@@ -103,7 +103,7 @@ export const SKINS = {
     },
     cyber: {
         id: 'cyber',
-        name: '赛博',
+        name: '⚡ 赛博',
         blockColors: [
             '#00E8C8', '#F52885', '#8A3ED0', '#50CCF0',
             '#C040B0', '#5098EF', '#10F5A8', '#FF2070'
@@ -125,7 +125,7 @@ export const SKINS = {
     },
     aurora: {
         id: 'aurora',
-        name: '极光',
+        name: '🌌 极光',
         blockColors: [
             '#5AD8CC', '#8070F0', '#AA90FA', '#38D89E',
             '#28D8F0', '#8590F8', '#C488FC', '#35D8C0'
@@ -147,7 +147,7 @@ export const SKINS = {
     },
     cosmos: {
         id: 'cosmos',
-        name: '星域',
+        name: '🌠 星域',
         blockColors: [
             '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6',
             '#f59e0b', '#6366f1', '#ef4444', '#22d3ee'
@@ -169,7 +169,7 @@ export const SKINS = {
     },
     frost: {
         id: 'frost',
-        name: '雾霜',
+        name: '❄️ 雾霜',
         blockColors: [
             '#5898D8', '#7098DC', '#9088DC', '#48C0A0',
             '#E8B030', '#E088B0', '#48A8E8', '#A088DC'
@@ -186,7 +186,7 @@ export const SKINS = {
     },
     sage: {
         id: 'sage',
-        name: '森雾',
+        name: '🌿 森雾',
         blockColors: [
             '#58986A', '#78B088', '#489078', '#88C098',
             '#60B870', '#7CC090', '#389070', '#98CCA8'
@@ -208,7 +208,7 @@ export const SKINS = {
     },
     midnight: {
         id: 'midnight',
-        name: '午夜',
+        name: '🌙 午夜',
         blockColors: [
             '#34D47A', '#3CA0E0', '#E88828', '#F4CC18',
             '#60B4E8', '#EC5040', '#A460C0', '#20C8A0'
@@ -225,7 +225,7 @@ export const SKINS = {
     },
     pastel: {
         id: 'pastel',
-        name: '马卡龙',
+        name: '🍬 马卡龙',
         blockColors: [
             '#6AD4A8', '#62C0DC', '#F0B070', '#F08078',
             '#90A0E0', '#A8D078', '#F0A098', '#C090D0'
@@ -242,7 +242,7 @@ export const SKINS = {
     },
     retro: {
         id: 'retro',
-        name: '像素',
+        name: '🕹️ 像素',
         blockColors: [
             '#08D060', '#3068FF', '#FF7808', '#FFD800',
             '#9880FF', '#F04880', '#FF5858', '#E448FF'
@@ -259,7 +259,7 @@ export const SKINS = {
     },
     candy: {
         id: 'candy',
-        name: '糖果',
+        name: '🍭 糖果',
         blockColors: [
             '#FF6B8A', '#FFA64D', '#FFD84D', '#7ED87E',
             '#5CB8FF', '#C47DFF', '#FF85B3', '#50E0C0'
@@ -281,7 +281,7 @@ export const SKINS = {
     },
     ocean: {
         id: 'ocean',
-        name: '深海',
+        name: '🌊 深海',
         blockColors: [
             '#00B4D8', '#0090B0', '#48CAE4', '#90E0EF',
             '#00D4AA', '#FFB347', '#FF6B6B', '#ADE8F4'
@@ -303,7 +303,7 @@ export const SKINS = {
     },
     sunset: {
         id: 'sunset',
-        name: '日落',
+        name: '🌅 日落',
         blockColors: [
             '#FF6F61', '#FF9A56', '#FFCC5C', '#88D8B0',
             '#6C8EBF', '#C47ACA', '#FF8FA0', '#FFA86A'
@@ -325,7 +325,7 @@ export const SKINS = {
     },
     lava: {
         id: 'lava',
-        name: '熔岩',
+        name: '🔥 熔岩',
         blockColors: [
             '#FF4040', '#FF6830', '#FF9020', '#FFB818',
             '#E05040', '#D03060', '#FF7848', '#FFA030'
@@ -347,7 +347,7 @@ export const SKINS = {
     },
     sakura: {
         id: 'sakura',
-        name: '樱花',
+        name: '🌸 樱花',
         blockColors: [
             '#F8A0B8', '#E88098', '#F0C0D0', '#B8D8A8',
             '#A0C8E8', '#D0A0E0', '#F0B0C8', '#C8E0B0'
@@ -369,7 +369,7 @@ export const SKINS = {
     },
     arctic: {
         id: 'arctic',
-        name: '极地',
+        name: '🧊 极地',
         blockColors: [
             '#60C8FF', '#80A8FF', '#A0D8F8', '#40E0D0',
             '#70B0FF', '#98C8FF', '#50D0E8', '#B0E0F8'
@@ -391,7 +391,7 @@ export const SKINS = {
     },
     terra: {
         id: 'terra',
-        name: '陶土',
+        name: '🏺 陶土',
         blockColors: [
             '#C87850', '#D4986C', '#B06840', '#D8B090',
             '#A88060', '#C09070', '#E0A878', '#B89878'
@@ -413,7 +413,7 @@ export const SKINS = {
     },
     neonCity: {
         id: 'neonCity',
-        name: '霓虹都市',
+        name: '🌃 霓虹都市',
         blockColors: [
             '#FF2DAA', '#7C4DFF', '#00E5FF', '#76FF03',
             '#FFAB40', '#FF4081', '#448AFF', '#18FFFF'
@@ -540,6 +540,109 @@ export const SKINS = {
             '--accent-color': '#E80050',
             '--accent-dark': '#F84000',
             '--h1-color': '#F8D000'
+        }
+    },
+
+    /* ============================================================
+     *  经典休闲系列（新增）
+     * ============================================================ */
+
+    /** 木纹：原木暖底 + 鲜明积木色彩，1010!/Wood Color Jam 经典风格 */
+    wood: {
+        id: 'wood',
+        name: '🪵 木纹',
+        blockColors: [
+            '#D44820', '#E09828', '#48A030', '#2878C0',
+            '#CC2828', '#A848B8', '#E8C030', '#28A898'
+        ],
+        gridOuter: '#3C1E08',
+        gridCell: '#5C3012',
+        gridLine: 'rgba(28,12,4,0.22)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'glossy',
+        clearFlash: 'rgba(255,195,80,0.90)',
+        cssBg: '#271308',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#D47828',
+            '--accent-dark': '#E8A030',
+            '--h1-color': '#F0C060'
+        }
+    },
+
+    /** 锦鲤：日式锦鲤色系 + 玻璃质感，深色水面背景烘托水下漂浮感 */
+    koi: {
+        id: 'koi',
+        name: '🎏 锦鲤',
+        blockColors: [
+            '#E83020', '#F07830', '#F0C030', '#18A8C8',
+            '#D82888', '#68B838', '#C0B8D0', '#4850D8'
+        ],
+        gridOuter: '#0A2030',
+        gridCell: '#142838',
+        gridLine: 'rgba(20,60,100,0.35)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(80,200,255,0.38)',
+        cssBg: '#081828',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#18A8C8',
+            '--accent-dark': '#40C8E8',
+            '--h1-color': '#80D8F0'
+        }
+    },
+
+    /** 温馨：Lo-Fi/Cozy 暖调混彩，柔和玻璃感，治愈系轻松氛围 */
+    cozy: {
+        id: 'cozy',
+        name: '☕ 温馨',
+        blockColors: [
+            '#E08050', '#D06878', '#7C9868', '#E8C048',
+            '#6888A8', '#C88860', '#A870A0', '#88B888'
+        ],
+        gridOuter: '#C0A888',
+        gridCell: '#F5ECD8',
+        gridLine: 'rgba(120,80,50,0.15)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 9,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(255,220,160,0.88)',
+        cssBg: '#EDE0CC',
+        cssVars: {
+            '--accent-color': '#A87850',
+            '--accent-dark': '#806040',
+            '--h1-color': '#604030'
+        }
+    },
+
+    /** 魔幻：深紫水晶宝石色系 + 玻璃折射，暗夜奇幻氛围 */
+    fantasy: {
+        id: 'fantasy',
+        name: '🔮 魔幻',
+        blockColors: [
+            '#9820E0', '#D040A8', '#4060E8', '#40D0C8',
+            '#6030C0', '#E030A8', '#2090D8', '#A828F0'
+        ],
+        gridOuter: '#180830',
+        gridCell: '#281048',
+        gridLine: 'rgba(100,40,180,0.30)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(180,100,255,0.40)',
+        cssBg: '#100620',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#9820E0',
+            '--accent-dark': '#C040D8',
+            '--h1-color': '#D880FF'
         }
     }
 };
