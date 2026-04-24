@@ -529,9 +529,8 @@ export class Game {
             const dockDpr = Math.round(window.devicePixelRatio || 1) || 1;
             canvas.width  = slotPx * dockDpr;
             canvas.height = slotPx * dockDpr;
-            // 保持 CSS 显示尺寸不变，由 DPR 放大物理像素
-            canvas.style.width  = `${slotPx}px`;
-            canvas.style.height = `${slotPx}px`;
+            // 不设置 inline width/height：由 CSS(.block-dock canvas) 控制显示尺寸
+            // 以确保 flex 压缩时宽高同步收缩（aspect-ratio:1/1 生效），不出现变形。
             const ctx = canvas.getContext('2d');
             ctx.scale(dockDpr, dockDpr);   // 坐标系仍用逻辑像素
             const ox = (slotPx - block.width * cell) / 2;

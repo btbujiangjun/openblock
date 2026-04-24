@@ -7,18 +7,18 @@
     --app-side-rail-gap: 10px;
     /* 主列与 fixed 侧栏对齐，避免棋盘被遮挡 */
     --app-center-hpad: calc(var(--game-shell-inset) + var(--app-side-rail-width) + var(--app-side-rail-gap));
-    /* 候选区单格显示像素（固定值，不再由 syncGridDisplayPx 动态覆盖）
-       4 × 28 = 112px/槽，3 槽 + 20px 间距 = 356px ≤ --grid-canvas-width，不溢出 */
-    --dock-cell-size: 28px;
-    /* 每槽显示格数（仅影响 CSS 宽度，画布仍绘制 5 格，缩放后全部可见） */
+    /* 候选区单格显示像素（固定，不由 syncGridDisplayPx 覆盖）。
+       4 × 36 = 144px/槽，棋盘格(47.5px)与候选格(28.8px)比约 61%，视觉比例合理。 */
+    --dock-cell-size: 36px;
+    /* 每槽 CSS 显示格数（画布仍绘制完整 5 格，59% 缩放后全部可见） */
     --dock-max-shape-rows: 4;
-    /* 主棋盘画布宽度；8×38=304px 原始，设为 380px 让盘面充满卡片，运行时由 Renderer 同步 */
+    /* 主棋盘画布宽度：8 × 38 = 304px 原始，设 380px 让盘面充满卡片，运行时由 Renderer 同步 */
     --grid-canvas-width: 380px;
-    /* 盘面实际 CSS 宽度（与缩放一致）；由 renderer syncGridDisplayPx 写入 */
+    /* 盘面实际 CSS 宽度；由 renderer syncGridDisplayPx 写入 */
     --grid-display-px: 380px;
-    /* 三槽候选区单行总宽：3 × 4 × 28 + 20 = 356px */
+    /* 三槽候选区单行总宽：3 × 4 × 36 + 20 = 452px */
     --dock-row-width: calc(3 * var(--dock-max-shape-rows) * var(--dock-cell-size) + 20px);
-    /* 游戏卡内容区宽度：取棋盘与候选区中较宽者（当前均为 380 vs 356，取 380px） */
+    /* 游戏卡内容区宽度：棋盘 380px vs 候选区 452px，候选区较宽 */
     --play-inner-span: max(var(--grid-canvas-width), var(--dock-row-width));
     --bg-color: #E8EEF1;
     --grid-bg: #D4DDE4;
