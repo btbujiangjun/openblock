@@ -335,6 +335,9 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         ctx.strokeStyle = darkenColor(color, 0.72);
         ctx.lineWidth = 1;
         ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
+
+        // 8. icon 覆盖
+        _paintIcon(ctx, bx, by, size, r, color, skin);
         return;
     }
 

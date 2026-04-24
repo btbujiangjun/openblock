@@ -16,8 +16,8 @@
     --grid-display-px: 380px;
     /* 三槽候选区单行总宽（3×5×dockCell + 2×gap）；与 game.js CONFIG 一致 */
     --dock-row-width: calc(3 * var(--dock-max-shape-rows) * var(--dock-cell-size) + 20px);
-    /* 游戏卡内容区宽度：至少容纳棋盘或候选行中较宽者 */
-    --play-inner-span: max(var(--grid-canvas-width), var(--dock-row-width));
+    /* 游戏卡内容区宽度：以棋盘为基准，候选区在卡内自适应压缩 */
+    --play-inner-span: var(--grid-canvas-width);
     --bg-color: #E8EEF1;
     --grid-bg: #D4DDE4;
     --cell-empty: #C5D3DE;
