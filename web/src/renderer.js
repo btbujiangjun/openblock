@@ -61,12 +61,11 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
     ctx.font = `${fontSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.globalAlpha  = 0.95;
-    // 细腻投影让 emoji 在任何背景上都清晰可辨
-    ctx.shadowColor    = 'rgba(0,0,0,0.28)';
-    ctx.shadowBlur     = 3;
-    ctx.shadowOffsetX  = 0.5;
-    ctx.shadowOffsetY  = 1;
+    ctx.globalAlpha  = 0.96;
+    // 不用 shadowBlur（会导致 emoji 发虚）；改用两次偏移绘制模拟轻量投影
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillText(icon, bx + size * 0.50 + 0.6, by + size * 0.53 + 0.8);
+    ctx.fillStyle = 'black'; // fillText 对 emoji 无效，此处重置让浏览器正常渲染彩色 emoji
     ctx.fillText(icon, bx + size * 0.50, by + size * 0.53);
     ctx.restore();
 }
@@ -422,7 +421,9 @@ export function syncGridDisplayPx(canvas) {
     const w = canvas.getBoundingClientRect().width;
     if (w > 1) {
         document.documentElement.style.setProperty('--grid-display-px', `${w}px`);
-        const gridN = Math.round(canvas.width / CONFIG.CELL_SIZE) || CONFIG.GRID_SIZE;
+        // gridN 从 data 属性读取（Renderer 在 setGridSize/constructor 时写入），
+        // 避免依赖 CONFIG.CELL_SIZE（动态 cellSize 时该值已不等于 canvas.width/gridN）
+        const gridN = parseInt(canvas.dataset.gridSize || '0') || CONFIG.GRID_SIZE;
         document.documentElement.style.setProperty('--dock-cell-size', `${w / gridN}px`);
     }
 }
@@ -448,7 +449,10 @@ export function ensureGridDisplayResizeSync(canvas) {
 
 function syncGridCanvasCssVar(canvas) {
     if (typeof document === 'undefined') return;
-    document.documentElement.style.setProperty('--grid-canvas-width', `${canvas.width}px`);
+    // logicalW 存在时用更精确的值（已适配 DPR）；否则回退到原始计算
+    const lw = canvas._logicalW != null ? canvas._logicalW
+        : canvas.width / ((typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
+    document.documentElement.style.setProperty('--grid-canvas-width', `${lw}px`);
     requestAnimationFrame(() => syncGridDisplayPx(canvas));
 }
 
@@ -458,10 +462,16 @@ export class Renderer {
         this.ctx = canvas.getContext('2d');
         this.cellSize = CONFIG.CELL_SIZE;
         this.gridSize = CONFIG.GRID_SIZE;
-        this.canvas.width = this.gridSize * this.cellSize;
-        this.canvas.height = this.gridSize * this.cellSize;
+        this.dpr = this._readDpr();
+        // 初始按逻辑尺寸设置（layout 完成前 CSS 尺寸未知）
+        this.logicalW = this.gridSize * this.cellSize;
+        this.logicalH = this.gridSize * this.cellSize;
+        this._applyCanvasSize(this.logicalW, this.logicalH);
+        this.canvas.dataset.gridSize = String(this.gridSize);
         syncGridCanvasCssVar(this.canvas);
         ensureGridDisplayResizeSync(this.canvas);
+        // layout 完成后立即校准到真实 CSS 尺寸
+        requestAnimationFrame(() => this._onCanvasResize());
         this.particles = [];
         this.clearCells = [];
         this.shakeOffset = { x: 0, y: 0 };
@@ -475,19 +485,76 @@ export class Renderer {
         /** Double 消除：涟漪扩散效果 0~1 */
         this._doubleWave = 0;
         this._doubleWaveRows = [];
+        // 监听 CSS 尺寸变化，动态保持 canvas 物理像素 = CSS 像素 × DPR
+        this._setupPixelPerfectResize();
+    }
+
+    /** 读取当前屏幕 DPR（取整防止非整数倍模糊） */
+    _readDpr() {
+        return (typeof window !== 'undefined'
+            ? Math.round(window.devicePixelRatio || 1)
+            : 1) || 1;
+    }
+
+    /**
+     * 将 canvas 物理像素设为 logicalW × dpr，并重置坐标系缩放。
+     * canvas.width 赋值会重置 context 变换，必须重新 scale。
+     */
+    _applyCanvasSize(lw, lh) {
+        this.logicalW = lw;
+        this.logicalH = lh;
+        this.canvas._logicalW = lw; // 供 syncGridCanvasCssVar 使用
+        this.canvas.width  = Math.round(lw * this.dpr);
+        this.canvas.height = Math.round(lh * this.dpr);
+        this.ctx.scale(this.dpr, this.dpr);
+    }
+
+    /**
+     * ResizeObserver 回调：当 canvas 的 CSS 显示尺寸改变时，
+     * 将 canvas 物理像素精确对齐到 cssWidth × DPR，
+     * 从根本上消除因 CSS 缩放导致的模糊/毛边。
+     */
+    _onCanvasResize() {
+        if (typeof window === 'undefined') return;
+        const rect = this.canvas.getBoundingClientRect();
+        const cssW = rect.width;
+        const cssH = rect.height;
+        if (cssW < 2 || cssH < 2) return;
+        // 更新 DPR（用户可能跨屏幕移动窗口）
+        this.dpr = this._readDpr();
+        const targetW = Math.round(cssW * this.dpr);
+        const targetH = Math.round(cssH * this.dpr);
+        if (this.canvas.width === targetW && this.canvas.height === targetH) return;
+        // cellSize 随 CSS 尺寸动态调整，保持 gridSize × cellSize = cssW
+        this.cellSize = cssW / this.gridSize;
+        this._applyCanvasSize(cssW, cssH);
+        syncGridDisplayPx(this.canvas);
+    }
+
+    /** 启动 ResizeObserver 持续监听 canvas CSS 尺寸变化 */
+    _setupPixelPerfectResize() {
+        if (typeof ResizeObserver === 'undefined') return;
+        if (this._ppResizeObs) return;
+        this._ppResizeObs = new ResizeObserver(() => {
+            this._onCanvasResize();
+        });
+        this._ppResizeObs.observe(this.canvas);
     }
 
     /** 与逻辑层 Grid 尺寸对齐（策略可改边长） */
     setGridSize(size) {
         const n = Math.max(1, Math.floor(size));
         this.gridSize = n;
-        this.canvas.width = n * this.cellSize;
-        this.canvas.height = n * this.cellSize;
+        this.canvas.dataset.gridSize = String(n);
+        // 保持当前 logicalW，只更新 cellSize 和重绘
+        this.cellSize = this.logicalW / n;
+        // 强制重新对齐物理像素（canvas.width 未变时 _applyCanvasSize 仍重置 ctx scale）
+        this._applyCanvasSize(this.logicalW, this.logicalH);
         syncGridCanvasCssVar(this.canvas);
     }
 
     clear() {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.clearRect(0, 0, this.logicalW, this.logicalH);
     }
 
     renderBackground() {
@@ -497,7 +564,7 @@ export class Renderer {
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
         this.ctx.fillStyle = skin.gridOuter;
-        this.ctx.fillRect(-10, -10, this.canvas.width + 20, this.canvas.height + 20);
+        this.ctx.fillRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
 
         this.ctx.fillStyle = skin.gridCell;
         for (let y = 0; y < this.gridSize; y++) {
@@ -761,9 +828,9 @@ export class Renderer {
     renderPerfectFlash() {
         if (!this._perfectFlash || this._perfectFlash <= 0) return;
         const a = this._perfectFlash;
-        const cx = this.canvas.width * 0.5;
-        const cy = this.canvas.height * 0.5;
-        const r = Math.max(this.canvas.width, this.canvas.height) * 0.85;
+        const cx = this.logicalW * 0.5;
+        const cy = this.logicalH * 0.5;
+        const r = Math.max(this.logicalW, this.logicalH) * 0.85;
         const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
         const h = this._perfectHue;
         g.addColorStop(0, `hsla(${h}, 100%, 75%, ${0.3 * a})`);
@@ -773,7 +840,7 @@ export class Renderer {
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
         this.ctx.fillStyle = g;
-        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.canvas.width, this.canvas.height);
+        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.logicalW, this.logicalH);
         this.ctx.restore();
     }
 
@@ -792,14 +859,14 @@ export class Renderer {
     renderDoubleWave() {
         if (this._doubleWave <= 0 || !this._doubleWaveRows.length) return;
         const a = this._doubleWave;
-        const spread = (1 - a) * this.canvas.width * 0.6;
+        const spread = (1 - a) * this.logicalW * 0.6;
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
         for (const row of this._doubleWaveRows) {
             const cy = (row + 0.5) * this.cellSize;
             const g = this.ctx.createLinearGradient(
-                this.canvas.width * 0.5 - spread, cy,
-                this.canvas.width * 0.5 + spread, cy
+                this.logicalW * 0.5 - spread, cy,
+                this.logicalW * 0.5 + spread, cy
             );
             g.addColorStop(0, `rgba(46, 204, 113, 0)`);
             g.addColorStop(0.3, `rgba(46, 204, 113, ${0.25 * a})`);
@@ -807,7 +874,7 @@ export class Renderer {
             g.addColorStop(0.7, `rgba(46, 204, 113, ${0.25 * a})`);
             g.addColorStop(1, `rgba(46, 204, 113, 0)`);
             this.ctx.fillStyle = g;
-            this.ctx.fillRect(0, cy - this.cellSize * 0.6, this.canvas.width, this.cellSize * 1.2);
+            this.ctx.fillRect(0, cy - this.cellSize * 0.6, this.logicalW, this.cellSize * 1.2);
         }
         this.ctx.restore();
     }
@@ -827,9 +894,9 @@ export class Renderer {
     renderComboFlash() {
         if (this._comboFlash <= 0) return;
         const a = this._comboFlash;
-        const cx = this.canvas.width * 0.5;
-        const cy = this.canvas.height * 0.5;
-        const r = Math.max(this.canvas.width, this.canvas.height) * 0.72;
+        const cx = this.logicalW * 0.5;
+        const cy = this.logicalH * 0.5;
+        const r = Math.max(this.logicalW, this.logicalH) * 0.72;
         const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
         g.addColorStop(0, `rgba(255, 230, 140, ${0.22 * a})`);
         g.addColorStop(0.35, `rgba(255, 170, 60, ${0.12 * a})`);
@@ -838,7 +905,7 @@ export class Renderer {
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
         this.ctx.fillStyle = g;
-        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.canvas.width, this.canvas.height);
+        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.logicalW, this.logicalH);
         this.ctx.restore();
     }
 

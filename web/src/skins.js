@@ -47,6 +47,7 @@ export const CLASSIC_PALETTE = [
  *   id: string,
  *   name: string,
  *   blockColors: string[],
+ *   blockIcons?: string[],
  *   gridOuter: string,
  *   gridCell: string,
  *   gridLine?: string | false,
@@ -435,7 +436,7 @@ export const SKINS = {
      *  卡通 / 趣味系列（新增）
      * ============================================================ */
 
-    /** 卡通乐园：鲜艳原色 + 粗黑描边，充满手绘动画感 */
+    /** 卡通乐园：鲜艳原色 + 柔和描边 + 小动物 icon */
     toon: {
         id: 'toon',
         name: '🎨 卡通乐园',
@@ -443,6 +444,8 @@ export const SKINS = {
             '#FF3B58', '#FF7F11', '#FFD600', '#00C853',
             '#2979FF', '#AA00FF', '#FF4081', '#00BCD4'
         ],
+        // 顺序对应 blockColors：红→橙→黄→绿→蓝→紫→粉→青
+        blockIcons: ['🐻', '🦊', '🐥', '🐸', '🐬', '🦄', '🐱', '🐠'],
         gridOuter: '#6C4EBF',
         gridCell: '#FAFAF7',
         gridLine: 'rgba(100,70,200,0.12)',
@@ -459,7 +462,7 @@ export const SKINS = {
         }
     },
 
-    /** 丛林探险：热带原色 + 卡通描边，黑暗背景突出鲜艳色块 */
+    /** 丛林探险：热带原色 + 柔和描边 + 丛林动物 icon */
     jungle: {
         id: 'jungle',
         name: '🌴 丛林探险',
@@ -467,6 +470,8 @@ export const SKINS = {
             '#43A047', '#F57F17', '#00897B', '#E53935',
             '#1565C0', '#6D4C41', '#FDD835', '#5E35B1'
         ],
+        // 绿→橙→青绿→红→蓝→棕→黄→紫
+        blockIcons: ['🦁', '🐯', '🐊', '🦜', '🦋', '🦧', '🐍', '🦚'],
         gridOuter: '#1B3A1E',
         gridCell: '#253D28',
         gridGap: 2,
@@ -483,7 +488,7 @@ export const SKINS = {
         }
     },
 
-    /** 泡泡糖：马卡龙色调 + 果冻质感，圆润晶莹如软糖 */
+    /** 泡泡糖：马卡龙色调 + 果冻质感 + 海洋萌物 icon */
     bubbly: {
         id: 'bubbly',
         name: '🫧 泡泡糖',
@@ -491,6 +496,8 @@ export const SKINS = {
             '#FF80AB', '#82B1FF', '#CCFF90', '#FFD180',
             '#B9F6CA', '#EA80FC', '#FF6E40', '#84FFFF'
         ],
+        // 粉→蓝→绿→黄→薄荷→紫→橙→青
+        blockIcons: ['🦩', '🐳', '🌿', '🦀', '🐢', '🦑', '🦐', '🐬'],
         gridOuter: '#C48AC8',
         gridCell: '#FFF9FF',
         gridLine: 'rgba(180,100,200,0.12)',

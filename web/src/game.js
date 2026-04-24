@@ -526,9 +526,14 @@ export class Game {
             const slotCells = CONFIG.DOCK_PREVIEW_MAX_CELLS;
             const slotPx = slotCells * cell;
             const canvas = document.createElement('canvas');
-            canvas.width = slotPx;
-            canvas.height = slotPx;
+            const dockDpr = Math.round(window.devicePixelRatio || 1) || 1;
+            canvas.width  = slotPx * dockDpr;
+            canvas.height = slotPx * dockDpr;
+            // 保持 CSS 显示尺寸不变，由 DPR 放大物理像素
+            canvas.style.width  = `${slotPx}px`;
+            canvas.style.height = `${slotPx}px`;
             const ctx = canvas.getContext('2d');
+            ctx.scale(dockDpr, dockDpr);   // 坐标系仍用逻辑像素
             const ox = (slotPx - block.width * cell) / 2;
             const oy = (slotPx - block.height * cell) / 2;
             ctx.save();
@@ -759,10 +764,15 @@ export class Game {
         this.drag = { index };
         this.dragBlock = block;
         this._resetGhostDomStyles();
-        this.ghostCanvas.width = block.width * CONFIG.CELL_SIZE;
-        this.ghostCanvas.height = block.height * CONFIG.CELL_SIZE;
+        const ghostDpr = Math.round(window.devicePixelRatio || 1) || 1;
+        const ghostLogW = block.width  * CONFIG.CELL_SIZE;
+        const ghostLogH = block.height * CONFIG.CELL_SIZE;
+        this.ghostCanvas.width  = ghostLogW * ghostDpr;
+        this.ghostCanvas.height = ghostLogH * ghostDpr;
+        this.ghostCtx = this.ghostCanvas.getContext('2d');
+        this.ghostCtx.scale(ghostDpr, ghostDpr);
         const cellDisp = this._boardDisplayCellSize();
-        this.ghostCanvas.style.width = `${block.width * cellDisp}px`;
+        this.ghostCanvas.style.width  = `${block.width  * cellDisp}px`;
         this.ghostCanvas.style.height = `${block.height * cellDisp}px`;
         this.ghostCanvas.style.display = 'block';
         document.body.classList.add('block-drag-active');
@@ -788,8 +798,9 @@ export class Game {
     renderGhost() {
         const block = this.dragBlock;
         if (!block) return;
-
-        this.ghostCtx.clearRect(0, 0, this.ghostCanvas.width, this.ghostCanvas.height);
+        const _gDpr = Math.round(window.devicePixelRatio || 1) || 1;
+        this.ghostCtx.clearRect(0, 0,
+            this.ghostCanvas.width / _gDpr, this.ghostCanvas.height / _gDpr);
 
         for (let y = 0; y < block.height; y++) {
             for (let x = 0; x < block.width; x++) {
@@ -922,7 +933,9 @@ export class Game {
         this._resetGhostDomStyles();
         this.ghostCanvas.style.display = 'none';
         document.body.classList.remove('block-drag-active');
-        this.ghostCtx.clearRect(0, 0, this.ghostCanvas.width, this.ghostCanvas.height);
+        const _eDpr = Math.round(window.devicePixelRatio || 1) || 1;
+        this.ghostCtx.clearRect(0, 0,
+            this.ghostCanvas.width / _eDpr, this.ghostCanvas.height / _eDpr);
 
         const dockCanvas = document.querySelector(`.dock-block[data-index="${this.drag.index}"] canvas`);
         if (dockCanvas) dockCanvas.style.opacity = '1';
