@@ -141,6 +141,131 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         return;
     }
 
+    /* ── cartoon ──────────────────────────────────────────────────────── */
+    if (skin.blockStyle === 'cartoon') {
+        // 1. 平填主色
+        ctx.fillStyle = color;
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
+
+        // 2. 右下角渐暗（轻微 3D 感）
+        const shadowG = ctx.createLinearGradient(bx, by, bx + size, by + size);
+        shadowG.addColorStop(0,   'rgba(0,0,0,0.00)');
+        shadowG.addColorStop(1,   'rgba(0,0,0,0.20)');
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+        ctx.fillStyle = shadowG;
+        ctx.fillRect(bx, by, size, size);
+        ctx.restore();
+
+        // 3. 粗黑描边（卡通最显著特征）
+        const outlineW = Math.max(1.5, size * 0.07);
+        ctx.strokeStyle = 'rgba(0,0,0,0.74)';
+        ctx.lineWidth = outlineW;
+        roundRectPath(ctx, bx + outlineW * 0.5, by + outlineW * 0.5,
+            size - outlineW, size - outlineW, Math.max(0, r - outlineW * 0.5));
+        ctx.stroke();
+
+        // 4. 左上角白色高光椭圆（卡通光泽感）
+        const shineW = size * 0.30;
+        const shineH = size * 0.16;
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.beginPath();
+        ctx.ellipse(
+            bx + size * 0.30, by + size * 0.26,
+            shineW, shineH,
+            -Math.PI / 5.5, 0, Math.PI * 2
+        );
+        ctx.fill();
+        ctx.restore();
+        return;
+    }
+
+    /* ── jelly ────────────────────────────────────────────────────────── */
+    if (skin.blockStyle === 'jelly') {
+        const rgb = hexToRgb(color) || { r: 120, g: 150, b: 200 };
+        const { r: cr, g: cg, b: cb } = rgb;
+
+        // 1. 半透明彩色主体（上浅下稍深）
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+        const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
+        baseG.addColorStop(0,   `rgba(${cr},${cg},${cb},0.92)`);
+        baseG.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.78)`);
+        baseG.addColorStop(1,   `rgba(${Math.min(cr+18,255)},${Math.min(cg+18,255)},${Math.min(cb+18,255)},0.88)`);
+        ctx.fillStyle = baseG;
+        ctx.fillRect(bx, by, size, size);
+
+        // 2. 上半白色磨砂覆层（果冻/玻璃感）
+        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.60);
+        hlG.addColorStop(0,   'rgba(255,255,255,0.65)');
+        hlG.addColorStop(0.38,'rgba(255,255,255,0.22)');
+        hlG.addColorStop(1,   'rgba(255,255,255,0.00)');
+        ctx.fillStyle = hlG;
+        ctx.fillRect(bx, by, size, size * 0.60);
+        ctx.restore();
+
+        // 3. 亮色内描边
+        const lc = Math.min;
+        ctx.strokeStyle = `rgba(${lc(cr+70,255)},${lc(cg+70,255)},${lc(cb+70,255)},0.85)`;
+        ctx.lineWidth = 1.5;
+        roundRectPath(ctx, bx + 0.8, by + 0.8, size - 1.6, size - 1.6, Math.max(0, r - 0.8));
+        ctx.stroke();
+
+        // 4. 右下暗边（立体感）
+        ctx.strokeStyle = `rgba(${Math.max(cr-50,0)},${Math.max(cg-50,0)},${Math.max(cb-50,0)},0.35)`;
+        ctx.lineWidth = 1.2;
+        roundRectPath(ctx, bx + 1.5, by + 1.5, size - 3, size - 3, Math.max(0, r - 1.5));
+        ctx.stroke();
+
+        // 5. 左上光斑小椭圆
+        const sr = size * 0.11;
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(255,255,255,0.90)';
+        ctx.beginPath();
+        ctx.ellipse(bx + size * 0.27, by + size * 0.24,
+            sr * 1.7, sr, -Math.PI / 4.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+    }
+
+    /* ── pixel8 ───────────────────────────────────────────────────────── */
+    if (skin.blockStyle === 'pixel8') {
+        const half = Math.floor(size / 2);
+        const rest = size - half;
+        // 四象限像素着色（左上最亮，右下最暗，4-tile Gameboy 效果）
+        ctx.fillStyle = lightenColor(color, 0.30);
+        ctx.fillRect(bx, by, half, half);
+        ctx.fillStyle = lightenColor(color, 0.10);
+        ctx.fillRect(bx + half, by, rest, half);
+        ctx.fillStyle = darkenColor(color, 0.06);
+        ctx.fillRect(bx, by + half, half, rest);
+        ctx.fillStyle = darkenColor(color, 0.30);
+        ctx.fillRect(bx + half, by + half, rest, rest);
+        // 深色边框
+        ctx.strokeStyle = darkenColor(color, 0.55);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
+        // 中轴分隔线（模拟像素 tile）
+        ctx.strokeStyle = `rgba(0,0,0,0.20)`;
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(bx + half, by + 1);
+        ctx.lineTo(bx + half, by + size - 1);
+        ctx.moveTo(bx + 1, by + half);
+        ctx.lineTo(bx + size - 1, by + half);
+        ctx.stroke();
+        return;
+    }
+
     if (skin.blockStyle === 'neon') {
         const g = ctx.createLinearGradient(cellPx, cellPy, cellPx + cellS, cellPy);
         g.addColorStop(0, lightenColor(color, 0.1));

@@ -42,7 +42,7 @@ export const CLASSIC_PALETTE = [
 ];
 
 /**
- * @typedef {'glossy' | 'flat' | 'neon' | 'glass' | 'metal'} BlockDrawStyle
+ * @typedef {'glossy' | 'flat' | 'neon' | 'glass' | 'metal' | 'cartoon' | 'jelly' | 'pixel8'} BlockDrawStyle
  * @typedef {{
  *   id: string,
  *   name: string,
@@ -428,6 +428,106 @@ export const SKINS = {
             '--accent-color': '#00E5FF',
             '--accent-dark': '#76FF03',
             '--h1-color': '#FF2DAA'
+        }
+    },
+
+    /* ============================================================
+     *  卡通 / 趣味系列（新增）
+     * ============================================================ */
+
+    /** 卡通乐园：鲜艳原色 + 粗黑描边，充满手绘动画感 */
+    toon: {
+        id: 'toon',
+        name: '🎨 卡通乐园',
+        blockColors: [
+            '#FF3B58', '#FF7F11', '#FFD600', '#00C853',
+            '#2979FF', '#AA00FF', '#FF4081', '#00BCD4'
+        ],
+        gridOuter: '#6C4EBF',
+        gridCell: '#FAFAF7',
+        gridLine: 'rgba(100,70,200,0.12)',
+        gridGap: 2,
+        blockInset: 1,
+        blockRadius: 10,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,255,130,0.90)',
+        cssBg: '#F3EEFF',
+        cssVars: {
+            '--accent-color': '#FF3B58',
+            '--accent-dark': '#C5003E',
+            '--h1-color': '#7B1FA2'
+        }
+    },
+
+    /** 丛林探险：热带原色 + 卡通描边，黑暗背景突出鲜艳色块 */
+    jungle: {
+        id: 'jungle',
+        name: '🌴 丛林探险',
+        blockColors: [
+            '#43A047', '#F57F17', '#00897B', '#E53935',
+            '#1565C0', '#6D4C41', '#FDD835', '#5E35B1'
+        ],
+        gridOuter: '#1B3A1E',
+        gridCell: '#253D28',
+        gridGap: 2,
+        blockInset: 1,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(130,240,130,0.42)',
+        cssBg: '#121F14',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#66BB6A',
+            '--accent-dark': '#A5D6A7',
+            '--h1-color': '#C8E6C9'
+        }
+    },
+
+    /** 泡泡糖：马卡龙色调 + 果冻质感，圆润晶莹如软糖 */
+    bubbly: {
+        id: 'bubbly',
+        name: '🫧 泡泡糖',
+        blockColors: [
+            '#FF80AB', '#82B1FF', '#CCFF90', '#FFD180',
+            '#B9F6CA', '#EA80FC', '#FF6E40', '#84FFFF'
+        ],
+        gridOuter: '#C48AC8',
+        gridCell: '#FFF9FF',
+        gridLine: 'rgba(180,100,200,0.12)',
+        gridGap: 2,
+        blockInset: 1,
+        blockRadius: 14,
+        blockStyle: 'jelly',
+        clearFlash: 'rgba(255,200,255,0.88)',
+        cssBg: '#FEF0FF',
+        cssVars: {
+            '--accent-color': '#CC4FCE',
+            '--accent-dark': '#9B27AF',
+            '--h1-color': '#7B1FA2'
+        }
+    },
+
+    /** 8位街机：像素游戏配色 + 四象限着色，复古 FC / GB 风 */
+    pixel8: {
+        id: 'pixel8',
+        name: '👾 8位街机',
+        blockColors: [
+            '#E40058', '#0058F8', '#00B800', '#F8D800',
+            '#D800CC', '#00E8D8', '#F83800', '#B8F818'
+        ],
+        gridOuter: '#1A0A00',
+        gridCell: '#2C1800',
+        gridGap: 3,
+        blockInset: 0,
+        blockRadius: 0,
+        blockStyle: 'pixel8',
+        clearFlash: '#F8F8F8',
+        cssBg: '#0A0400',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#E40058',
+            '--accent-dark': '#F83800',
+            '--h1-color': '#F8D800'
         }
     }
 };

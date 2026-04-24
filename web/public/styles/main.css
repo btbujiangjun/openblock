@@ -519,6 +519,69 @@ body.block-drag-active #app {
     background: linear-gradient(90deg, #6366f1, #f472b6 45%, #fb923c);
 }
 
+/* cartoon：粗黑描边 + 亮色填充，对应 renderer.js cartoon 段 */
+[data-skin-block-style='cartoon'] .wm-cell:not(.wm-cell--void) {
+    border: 2px solid rgba(0, 0, 0, 0.72);
+    box-shadow: none;
+}
+[data-skin-block-style='cartoon'] .wm-cell--cool {
+    background: #2979FF;
+}
+[data-skin-block-style='cartoon'] .wm-cell--warm {
+    background: #FF7F11;
+}
+[data-skin-block-style='cartoon'] .wm-cell--mid {
+    background: #AA00FF;
+}
+[data-skin-block-style='cartoon'] .wm-cell--rainbow {
+    background: hsl(var(--wm-rainbow-hue), 90%, 52%);
+    border-color: rgba(0, 0, 0, 0.68);
+    box-shadow: none;
+}
+
+/* jelly：半透明磨砂 + 彩色描边，对应 renderer.js jelly 段 */
+[data-skin-block-style='jelly'] .wm-cell:not(.wm-cell--void) {
+    box-shadow: none;
+    border-width: 1.5px;
+    border-style: solid;
+}
+[data-skin-block-style='jelly'] .wm-cell--cool {
+    background: linear-gradient(180deg, rgba(200,215,255,0.72) 0%, rgba(99,102,241,0.82) 100%);
+    border-color: #a5b4fc;
+}
+[data-skin-block-style='jelly'] .wm-cell--warm {
+    background: linear-gradient(180deg, rgba(255,220,170,0.72) 0%, rgba(234,88,12,0.82) 100%);
+    border-color: #fb923c;
+}
+[data-skin-block-style='jelly'] .wm-cell--mid {
+    background: linear-gradient(180deg, rgba(240,200,255,0.72) 0%, rgba(168,85,247,0.82) 100%);
+    border-color: #c084fc;
+}
+[data-skin-block-style='jelly'] .wm-cell--rainbow {
+    background: linear-gradient(180deg,
+        hsla(var(--wm-rainbow-hue), 80%, 88%, 0.70) 0%,
+        hsla(var(--wm-rainbow-hue), 78%, 58%, 0.85) 100%);
+    border-color: hsl(var(--wm-rainbow-hue), 70%, 60%);
+    box-shadow: none;
+}
+
+/* pixel8：像素硬边 + 四象限色块，对应 renderer.js pixel8 段 */
+[data-skin-block-style='pixel8'] .wm-cell:not(.wm-cell--void) {
+    border: 1px solid rgba(0, 0, 0, 0.70);
+    border-radius: 0 !important;
+    box-shadow: none;
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.30) 25%, transparent 25%),
+        var(--wm-px8-fill, #2979FF);
+}
+[data-skin-block-style='pixel8'] .wm-cell--cool { --wm-px8-fill: #0058F8; }
+[data-skin-block-style='pixel8'] .wm-cell--warm { --wm-px8-fill: #F83800; }
+[data-skin-block-style='pixel8'] .wm-cell--mid  { --wm-px8-fill: #D800CC; }
+[data-skin-block-style='pixel8'] .wm-cell--rainbow {
+    --wm-px8-fill: hsl(var(--wm-rainbow-hue), 90%, 50%);
+    border-radius: 0 !important;
+}
+
 /* 与得分条同一行；主菜单打开时随 #app 隐藏；风格参考 macOS 表单控件（对比度、圆角、细边框） */
 .header-skin {
     display: flex;
