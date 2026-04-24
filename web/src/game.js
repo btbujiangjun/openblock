@@ -952,7 +952,8 @@ export class Game {
                 y: placedPos.y
             });
 
-            // 消除检测：关卡模式使用注入的 ClearRuleEngine，普通模式走 grid.checkLines()
+            // 消除检测：始终通过 ClearRuleEngine（普通模式用 RowColRule，关卡模式用自定义规则）
+            // 结果包含 { count, cells, bonusLines }，bonusLines 用于同色行/列双倍加分
             const result = this._clearEngine
                 ? this._clearEngine.apply(this.grid)
                 : this.grid.checkLines();
