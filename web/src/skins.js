@@ -488,29 +488,30 @@ export const SKINS = {
         }
     },
 
-    /** 泡泡糖：马卡龙色调 + 果冻质感 + 海洋萌物 icon */
+    /** 泡泡糖：饱和糖果色 + 果冻质感 + 海洋萌物 icon */
     bubbly: {
         id: 'bubbly',
         name: '🫧 泡泡糖',
+        // 加大饱和度，避免浅色被磨砂层"洗白"
         blockColors: [
-            '#FF80AB', '#82B1FF', '#CCFF90', '#FFD180',
-            '#B9F6CA', '#EA80FC', '#FF6E40', '#84FFFF'
+            '#FF4FA0', '#4898F8', '#42C442', '#FFAA18',
+            '#22C87A', '#CC3EF0', '#FF6228', '#12C4E8'
         ],
         // 粉→蓝→绿→黄→薄荷→紫→橙→青
-        blockIcons: ['🦩', '🐳', '🌿', '🦀', '🐢', '🦑', '🦐', '🐬'],
-        gridOuter: '#C48AC8',
-        gridCell: '#FFF9FF',
-        gridLine: 'rgba(180,100,200,0.12)',
+        blockIcons: ['🦩', '🐳', '🐢', '🦀', '🌿', '🦑', '🦐', '🐬'],
+        gridOuter: '#B060BE',        // 更深的紫色边框，凸显棋盘轮廓
+        gridCell: '#EED8F5',         // 浅薰衣草（取代近白色），空格可辨
+        gridLine: 'rgba(160,70,180,0.26)',  // 更清晰的网格线
         gridGap: 2,
         blockInset: 1,
         blockRadius: 14,
         blockStyle: 'jelly',
-        clearFlash: 'rgba(255,200,255,0.88)',
-        cssBg: '#FEF0FF',
+        clearFlash: 'rgba(255,160,240,0.82)',
+        cssBg: '#F8E8FF',
         cssVars: {
-            '--accent-color': '#CC4FCE',
-            '--accent-dark': '#9B27AF',
-            '--h1-color': '#7B1FA2'
+            '--accent-color': '#C438CE',
+            '--accent-dark': '#9920AA',
+            '--h1-color': '#7010A0'
         }
     },
 

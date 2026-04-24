@@ -239,50 +239,63 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.clip();
 
-        // 1. 半透明主色（顶部略浅，营造光感底色）
+        // 1. 不透明主色渐变（饱和底色，让颜色在磨砂层下依然可见）
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
-        baseG.addColorStop(0,    `rgba(${m(cr+30,255)},${m(cg+30,255)},${m(cb+30,255)},0.90)`);
-        baseG.addColorStop(0.45, `rgba(${cr},${cg},${cb},0.80)`);
-        baseG.addColorStop(1,    `rgba(${m(cr+15,255)},${m(cg+15,255)},${m(cb+15,255)},0.88)`);
+        baseG.addColorStop(0,    `rgba(${m(cr+24,255)},${m(cg+24,255)},${m(cb+24,255)},1.0)`);
+        baseG.addColorStop(0.50, `rgba(${cr},${cg},${cb},1.0)`);
+        baseG.addColorStop(1,    `rgba(${Math.max(cr-12,0)},${Math.max(cg-12,0)},${Math.max(cb-12,0)},1.0)`);
         ctx.fillStyle = baseG;
         ctx.fillRect(bx, by, size, size);
 
-        // 2. 顶部大面积磨砂白（60-65%，果冻/玻璃感核心）
-        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.65);
-        hlG.addColorStop(0,    'rgba(255,255,255,0.72)');
-        hlG.addColorStop(0.32, 'rgba(255,255,255,0.30)');
-        hlG.addColorStop(0.65, 'rgba(255,255,255,0.06)');
+        // 2. 顶部磨砂白覆层（仅覆盖 50%，保留底部颜色区域供 emoji 显示）
+        //    降低顶部 alpha（0.58 → 0.68，在饱和色上看起来晶莹而不"洗白"）
+        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.52);
+        hlG.addColorStop(0,    'rgba(255,255,255,0.60)');
+        hlG.addColorStop(0.38, 'rgba(255,255,255,0.20)');
         hlG.addColorStop(1,    'rgba(255,255,255,0.00)');
         ctx.fillStyle = hlG;
-        ctx.fillRect(bx, by, size, size * 0.65);
+        ctx.fillRect(bx, by, size, size * 0.52);
 
-        // 3. 径向内发光（珍珠/水晶质感）
+        // 3. 底部微弱暗角（增强立体感，也让 emoji 区域与顶部产生自然对比）
+        const btG = ctx.createLinearGradient(bx, by + size * 0.65, bx, by + size);
+        btG.addColorStop(0, 'rgba(0,0,0,0.00)');
+        btG.addColorStop(1, 'rgba(0,0,0,0.12)');
+        ctx.fillStyle = btG;
+        ctx.fillRect(bx, by + size * 0.65, size, size * 0.35);
+
+        // 4. 径向内发光（珍珠光泽）
         const rg = ctx.createRadialGradient(
-            bx + size * 0.50, by + size * 0.35, 0,
-            bx + size * 0.50, by + size * 0.50, size * 0.58
+            bx + size * 0.50, by + size * 0.32, 0,
+            bx + size * 0.50, by + size * 0.50, size * 0.55
         );
-        rg.addColorStop(0, 'rgba(255,255,255,0.10)');
-        rg.addColorStop(1, 'rgba(0,0,0,0.08)');
+        rg.addColorStop(0, 'rgba(255,255,255,0.12)');
+        rg.addColorStop(1, 'rgba(0,0,0,0.00)');
         ctx.fillStyle = rg;
         ctx.fillRect(bx, by, size, size);
 
         ctx.restore();
 
-        // 4. 亮色内描边（玻璃折射边缘，更亮）
-        ctx.strokeStyle = `rgba(${m(cr+90,255)},${m(cg+90,255)},${m(cb+90,255)},0.88)`;
-        ctx.lineWidth = 1.6;
-        roundRectPath(ctx, bx + 0.8, by + 0.8, size - 1.6, size - 1.6, Math.max(0, r - 0.8));
+        // 5. 亮色内描边（玻璃折射边缘）
+        ctx.strokeStyle = `rgba(${m(cr+100,255)},${m(cg+100,255)},${m(cb+100,255)},0.80)`;
+        ctx.lineWidth = 1.8;
+        roundRectPath(ctx, bx + 0.9, by + 0.9, size - 1.8, size - 1.8, Math.max(0, r - 0.9));
         ctx.stroke();
 
-        // 5. 左上角高光光斑
-        const sr = size * 0.09;
+        // 6. 深色细轮廓（让方块在浅色背景上有清晰边界）
+        ctx.strokeStyle = `rgba(${Math.max(cr-60,0)},${Math.max(cg-60,0)},${Math.max(cb-60,0)},0.30)`;
+        ctx.lineWidth = 1;
+        roundRectPath(ctx, bx + 1.5, by + 1.5, size - 3, size - 3, Math.max(0, r - 1.5));
+        ctx.stroke();
+
+        // 7. 左上角高光光斑
+        const sr = size * 0.08;
         ctx.save();
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.clip();
-        ctx.fillStyle = 'rgba(255,255,255,0.94)';
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
         ctx.beginPath();
         ctx.ellipse(bx + size * 0.26, by + size * 0.22,
-            sr * 2.0, sr, -Math.PI / 4.2, 0, Math.PI * 2);
+            sr * 2.2, sr, -Math.PI / 4.2, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
 
