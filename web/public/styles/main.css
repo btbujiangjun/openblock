@@ -7,17 +7,19 @@
     --app-side-rail-gap: 10px;
     /* 主列与 fixed 侧栏对齐，避免棋盘被遮挡 */
     --app-center-hpad: calc(var(--game-shell-inset) + var(--app-side-rail-width) + var(--app-side-rail-gap));
-    /* 候选区单格显示像素；与棋盘格子等大，运行时由 syncGridDisplayPx 动态同步 */
-    --dock-cell-size: 38px;
-    --dock-max-shape-rows: 5;
-    /* 主棋盘画布宽度（像素）；10×38=380px 与 CONFIG.CELL_SIZE 对齐，运行时由 Renderer 同步 */
+    /* 候选区单格显示像素（固定值，不再由 syncGridDisplayPx 动态覆盖）
+       4 × 28 = 112px/槽，3 槽 + 20px 间距 = 356px ≤ --grid-canvas-width，不溢出 */
+    --dock-cell-size: 28px;
+    /* 每槽显示格数（仅影响 CSS 宽度，画布仍绘制 5 格，缩放后全部可见） */
+    --dock-max-shape-rows: 4;
+    /* 主棋盘画布宽度；8×38=304px 原始，设为 380px 让盘面充满卡片，运行时由 Renderer 同步 */
     --grid-canvas-width: 380px;
     /* 盘面实际 CSS 宽度（与缩放一致）；由 renderer syncGridDisplayPx 写入 */
     --grid-display-px: 380px;
-    /* 三槽候选区单行总宽（3×5×dockCell + 2×gap）；与 game.js CONFIG 一致 */
+    /* 三槽候选区单行总宽：3 × 4 × 28 + 20 = 356px */
     --dock-row-width: calc(3 * var(--dock-max-shape-rows) * var(--dock-cell-size) + 20px);
-    /* 游戏卡内容区宽度：以棋盘为基准，候选区在卡内自适应压缩 */
-    --play-inner-span: var(--grid-canvas-width);
+    /* 游戏卡内容区宽度：取棋盘与候选区中较宽者（当前均为 380 vs 356，取 380px） */
+    --play-inner-span: max(var(--grid-canvas-width), var(--dock-row-width));
     --bg-color: #E8EEF1;
     --grid-bg: #D4DDE4;
     --cell-empty: #C5D3DE;
@@ -112,44 +114,53 @@ body.block-drag-active #app {
     justify-content: flex-end;
 }
 
-/* 主题 + 得分/最佳 同一行；极窄屏自动换行 */
+/* 主题 / 能力 / 得分 / 最佳 四项合一行；各项为统一 stat-box */
 .score-theme-row {
     display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
+    flex-wrap: nowrap;
+    align-items: stretch;
     justify-content: center;
-    gap: 10px 14px;
+    gap: 8px;
     width: min(100%, calc(var(--play-inner-span) + 28px));
     max-width: 100%;
     margin: 0 auto 8px;
     box-sizing: border-box;
 }
 
-/* 等级 + 称号：与 stat-box 风格统一，嵌入 score-theme-row 同行 */
+/* 能力框（等级 + 称号）：复用 stat-box 外观，列排列 */
 .header-level {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 5px;
-    padding: 5px 12px 6px;
-    border-radius: var(--border-radius, 10px);
-    background:
-        linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, transparent 48%),
-        linear-gradient(180deg, var(--stat-surface, #fff) 0%,
-            color-mix(in srgb, var(--stat-surface, #fff) 88%, #e2e8f0) 100%);
-    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
-    box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.65) inset,
-        0 2px 8px color-mix(in srgb, var(--shadow, rgba(0,0,0,0.15)) 40%, transparent);
-    font-size: 11px;
-    font-weight: 600;
+    justify-content: center;
+    gap: 2px;
     white-space: nowrap;
-    flex-shrink: 0;
+    min-width: 0;
+    flex-shrink: 1;
+    /* 背景/边框/阴影由 stat-box 统一提供 */
 }
 
-/* header-level 内部：streak 不再占满剩余宽度 */
+.header-level-val {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-dark, #1d4ed8);
+}
+
+.header-level .progression-level {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.header-level .progression-title {
+    font-size: 12px;
+    font-weight: 600;
+}
+
 .header-level .progression-streak {
-    margin-left: 3px;
     font-size: 9px;
     font-weight: 600;
     color: var(--stat-label-color, #475569);
@@ -611,52 +622,36 @@ body.block-drag-active #app {
     border-radius: 0 !important;
 }
 
-/* 与得分条同一行；主菜单打开时随 #app 隐藏；风格参考 macOS 表单控件（对比度、圆角、细边框） */
+/* 主题框：复用 stat-box 外观，内含下拉选择 */
 .header-skin {
     display: flex;
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
+    gap: 2px;
     flex: 0 1 auto;
-    width: auto;
-    max-width: 100%;
-    margin: 0;
+    min-width: 0;
     position: relative;
     z-index: 90;
 }
 
 .header-skin .skin-picker {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 14px 6px 16px;
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--stat-surface, #ffffff) 88%, transparent);
-    border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 10%, transparent);
-    box-shadow:
-        0 0 0 0.5px color-mix(in srgb, var(--text-primary, #1d1d1f) 6%, transparent),
-        0 1px 3px color-mix(in srgb, var(--text-primary, #000) 8%, transparent);
-    backdrop-filter: saturate(1.1) blur(8px);
-    -webkit-backdrop-filter: saturate(1.1) blur(8px);
-}
-
-.header-skin .skin-picker label {
-    font-weight: 500;
-    font-size: 13px;
-    letter-spacing: -0.02em;
-    color: color-mix(in srgb, var(--text-primary, #1d1d1f) 92%, var(--text-secondary, #6e6e73));
-    flex-shrink: 0;
+    justify-content: center;
 }
 
 .header-skin .skin-picker select {
-    min-width: 8.5rem;
-    max-width: min(42vw, 14rem);
-    padding: 5px 30px 5px 11px;
-    font-size: 13px;
+    min-width: 5rem;
+    max-width: min(34vw, 9rem);
+    padding: 2px 20px 2px 6px;
+    font-size: 12px;
+    font-weight: 600;
     line-height: 1.25;
-    font-weight: 500;
-    border-radius: 5px;
+    border-radius: 4px;
     border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 14%, transparent);
-    background-color: color-mix(in srgb, var(--select-bg, #ffffff) 96%, var(--stat-surface, #f5f5f7));
-    color: var(--text-primary, #1d1d1f);
+    background-color: color-mix(in srgb, var(--select-bg, #ffffff) 92%, var(--stat-surface, #f5f5f7));
+    color: var(--accent-dark, var(--text-primary, #1d1d1f));
     box-shadow: none;
     cursor: pointer;
     user-select: auto;
@@ -664,9 +659,9 @@ body.block-drag-active #app {
     touch-action: manipulation;
     -webkit-appearance: none;
     appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236e6e73' d='M0 0h10L5 6z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%236e6e73' d='M0 0h8L4 5z'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 10px center;
+    background-position: right 7px center;
 }
 
 .header-skin .skin-picker select:focus {
@@ -905,12 +900,13 @@ body.game-rl-preview .block-dock {
     justify-content: space-evenly;
     align-items: center;
     align-content: center;
-    gap: 10px;
+    gap: 8px;
     margin-top: auto;
     flex-shrink: 0;
     width: 100%;
     box-sizing: border-box;
-    padding: 12px clamp(10px, 3vw, 22px) max(12px, env(safe-area-inset-bottom, 0px));
+    /* 水平内边距缩小，确保 3 槽 × 112px = 336px 在 364px 可用宽内不溢出 */
+    padding: 12px 8px max(12px, env(safe-area-inset-bottom, 0px));
     min-height: calc(var(--dock-max-shape-rows) * var(--dock-cell-size) + 24px);
     background: color-mix(in srgb, var(--cell-empty, var(--grid-bg)) 14%, var(--bg-color, #e8eef1));
     border-radius: 0;
@@ -929,7 +925,8 @@ body.game-rl-preview .block-dock {
     transition: opacity 0.15s ease;
 }
 
-/* 候选 canvas 以 CELL_SIZE 渲染，CSS 显示宽 = 5 × 棋盘显示格子大小，两者等大 */
+/* 候选 canvas 内部按 CELL_SIZE=38px 绘制 5×5 格，CSS 显示宽 = 4 × --dock-cell-size = 112px。
+   缩放比 112/190 ≈ 59%，5 格全部可见只是更紧凑，块形完整不裁剪。 */
 .block-dock canvas {
     display: block;
     width: calc(var(--dock-max-shape-rows) * var(--dock-cell-size));
@@ -3300,11 +3297,11 @@ body.game-shell-hidden .app-side-left {
         --wm-cell-w: 4.8px;
         --wm-cell-h: 7.8px;
     }
-    .stat-box { padding: 4px 8px; min-width: 50px; }
+    .stat-box { padding: 4px 8px; min-width: 44px; }
     .stat-value { font-size: 14px; }
     .play-stack { padding: 10px 8px 12px; gap: 10px; border-radius: 12px; }
-    .score-theme-row { gap: 8px 10px; justify-content: center; }
-    .header-skin .skin-picker select { min-width: 7rem; max-width: min(48vw, 12rem); }
+    .score-theme-row { gap: 6px; flex-wrap: wrap; justify-content: center; }
+    .header-skin .skin-picker select { min-width: 4rem; max-width: min(32vw, 7rem); }
     .block-dock { gap: 6px; padding: 10px 8px max(10px, env(safe-area-inset-bottom, 0px)); min-height: unset; }
     .btn { padding: 10px 25px; font-size: 12px; }
 }

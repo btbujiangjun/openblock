@@ -56,29 +56,30 @@
                 <button type="button" id="in-game-menu-btn" class="in-game-menu-btn" title="返回菜单">☰</button>
             </div>
         </div>
+        <!-- 四项合一行：主题 / 能力 / 得分 / 最佳，统一 stat-box 风格 -->
         <div class="score-theme-row">
-            <div class="header-skin">
+            <div class="stat-box header-skin" title="选择棋盘主题">
+                <div class="stat-label">主题</div>
                 <div class="skin-picker">
-                    <label for="skin-select">主题</label>
                     <select id="skin-select" aria-label="棋盘主题"></select>
                 </div>
             </div>
-            <!-- 等级 + 称号（从 progression-hud 迁入，统一风格） -->
-            <div class="header-level" aria-label="玩家等级">
-                <span class="progression-level" id="prog-level">Lv.1</span>
-                <span class="progression-title" id="prog-title">新手</span>
-                <span class="progression-streak" id="prog-streak" hidden></span>
+            <div class="stat-box header-level" aria-label="玩家等级">
+                <div class="stat-label">能力</div>
+                <div class="header-level-val">
+                    <span class="progression-level" id="prog-level">Lv.1</span>
+                    <span class="progression-title" id="prog-title">新手</span>
+                    <span class="progression-streak" id="prog-streak" hidden></span>
+                </div>
             </div>
-            <div class="stats-bar">
-                <div class="stat-box">
-                    <div class="stat-label">得分</div>
-                    <div class="stat-value" id="score">0</div>
-                </div>
-                <div class="stat-box stat-box--best">
-                    <div class="stat-label">最佳</div>
-                    <div class="stat-value" id="best">0</div>
-                    <div class="best-gap" id="best-gap" hidden></div>
-                </div>
+            <div class="stat-box">
+                <div class="stat-label">得分</div>
+                <div class="stat-value" id="score">0</div>
+            </div>
+            <div class="stat-box stat-box--best">
+                <div class="stat-label">最佳</div>
+                <div class="stat-value" id="best">0</div>
+                <div class="best-gap" id="best-gap" hidden></div>
             </div>
         </div>
         <!-- progression-hud 隐藏（JS 仍依赖 prog-track/prog-fill/prog-xp-text 更新内部状态） -->

@@ -428,16 +428,14 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     _paintIcon(ctx, bx, by, size, r, color, skin);
 }
 
-/** 将棋盘实际 CSS 尺寸同步到 CSS 变量，同时让候选区格子与棋盘格子等大 */
+/** 将棋盘实际 CSS 宽度同步到 --grid-display-px。
+ *  注意：--dock-cell-size 已改为 CSS :root 中的固定值，不再由此函数动态覆盖，
+ *  避免出现"棋盘格子变大 → dock 槽宽溢出 → overflow:hidden 裁掉候选块"的循环问题。 */
 export function syncGridDisplayPx(canvas) {
     if (typeof document === 'undefined' || !canvas) return;
     const w = canvas.getBoundingClientRect().width;
     if (w > 1) {
         document.documentElement.style.setProperty('--grid-display-px', `${w}px`);
-        // gridN 从 data 属性读取（Renderer 在 setGridSize/constructor 时写入），
-        // 避免依赖 CONFIG.CELL_SIZE（动态 cellSize 时该值已不等于 canvas.width/gridN）
-        const gridN = parseInt(canvas.dataset.gridSize || '0') || CONFIG.GRID_SIZE;
-        document.documentElement.style.setProperty('--dock-cell-size', `${w / gridN}px`);
     }
 }
 
