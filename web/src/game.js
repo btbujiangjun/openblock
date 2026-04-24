@@ -1039,6 +1039,16 @@ export class Game {
         if (result.count === 2) clearScore = scoring.multiLine;
         else if (result.count >= 3) clearScore = scoring.combo + (result.count - 2) * scoring.multiLine;
 
+        // 同 icon 行/列加成：每条全同icon的行或列额外翻倍该行分数
+        const bonusLines = result.bonusLines || [];
+        const bonusCount = bonusLines.length;
+        let iconBonusScore = 0;
+        if (bonusCount > 0) {
+            const perLine = Math.round(clearScore / result.count);
+            iconBonusScore = perLine * bonusCount;
+            clearScore += iconBonusScore;
+        }
+
         const perfectClear = this.grid.getFillRatio() === 0;
 
         this.score += clearScore;
@@ -1063,6 +1073,20 @@ export class Game {
         });
         this.renderer.setClearCells(result.cells);
 
+        // 同 icon 行/列：触发飘字特效
+        if (bonusCount > 0) {
+            const skin = getActiveSkin();
+            const icons = skin.blockIcons;
+            for (const bl of bonusLines) {
+                const icon = icons && icons.length
+                    ? icons[bl.colorIdx % icons.length]
+                    : null;
+                if (icon) {
+                    this.renderer.addIconParticles(bl, icon, 10);
+                }
+            }
+        }
+
         if (perfectClear) {
             this.renderer.triggerPerfectFlash();
             this.renderer.setShake(16, 720);
@@ -1082,7 +1106,7 @@ export class Game {
         else if (isCombo) effectType = 'combo';
         else if (isDouble) effectType = 'multi';
 
-        this.showFloatScore(clearScore, effectType, result.count);
+        this.showFloatScore(clearScore, effectType, result.count, bonusCount > 0 ? iconBonusScore : 0);
 
         if (this._clearStreak >= 3) {
             this._showStreakBadge(this._clearStreak);
@@ -1094,6 +1118,7 @@ export class Game {
         const animate = () => {
             self.renderer.updateShake();
             self.renderer.updateParticles();
+            self.renderer.updateIconParticles();
             self.markDirty();
 
             if (Date.now() - animStart < animDuration) {
@@ -1619,28 +1644,33 @@ export class Game {
         setTimeout(() => el.remove(), 3000);
     }
 
-    showFloatScore(score, type, linesCleared = 0) {
+    showFloatScore(score, type, linesCleared = 0, iconBonus = 0) {
         const el = document.createElement('div');
         const isCombo = type === 'combo';
         const isPerfect = type === 'perfect';
+        const hasIconBonus = iconBonus > 0;
         const cls = isPerfect ? ' float-perfect' : isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '';
-        el.className = 'float-score' + cls;
+        el.className = 'float-score' + cls + (hasIconBonus ? ' float-icon-bonus' : '');
 
         if (isPerfect) {
             el.innerHTML = `<span class="float-label">PERFECT</span><span class="float-pts">+${score}</span>`;
         } else if (isCombo && linesCleared >= 3) {
-            el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}</span><span class="float-pts">+${score}</span>`;
+            const bonusTag = hasIconBonus ? ` <span class="float-icon-tag">×2</span>` : '';
+            el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}${bonusTag}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
-            el.innerHTML = `<span class="float-label">DOUBLE</span><span class="float-pts">+${score}</span>`;
+            const bonusTag = hasIconBonus ? ` <span class="float-icon-tag">×2</span>` : '';
+            el.innerHTML = `<span class="float-label">DOUBLE${bonusTag}</span><span class="float-pts">+${score}</span>`;
+        } else if (hasIconBonus) {
+            el.innerHTML = `<span class="float-label"><span class="float-icon-tag">同色 ×2</span></span><span class="float-pts">+${score}</span>`;
         } else {
             el.textContent = '+' + score;
         }
 
         el.style.left = '50%';
-        el.style.top = isPerfect ? '18%' : isCombo ? '22%' : '25%';
+        el.style.top = isPerfect ? '18%' : isCombo ? '22%' : hasIconBonus ? '28%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), isPerfect ? 2200 : isCombo ? 1450 : 600);
+        setTimeout(() => el.remove(), isPerfect ? 2200 : isCombo ? 1450 : hasIconBonus ? 900 : 600);
     }
 
     hideScreens() {
@@ -1741,5 +1771,6 @@ export class Game {
         this.renderer.renderComboFlash();
         this.renderer.renderPerfectFlash();
         this.renderer.renderParticles();
+        this.renderer.renderIconParticles();
     }
 }

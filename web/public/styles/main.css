@@ -2289,6 +2289,38 @@ body.game-rl-preview .block-dock {
     -webkit-text-fill-color: transparent;
 }
 
+/* ── 同色消除 icon bonus ── */
+
+.float-icon-bonus {
+    color: #9b59b6;
+    font-size: clamp(18px, 4vw, 26px);
+    animation: multiPop 1.0s ease-out forwards;
+    text-shadow:
+        0 0 10px rgba(155, 89, 182, 0.7),
+        0 2px 4px rgba(0, 0, 0, 0.22);
+}
+
+.float-icon-tag {
+    display: inline-block;
+    background: linear-gradient(135deg, #f39c12, #e74c3c);
+    color: #fff;
+    font-size: 0.75em;
+    font-weight: 900;
+    padding: 1px 6px;
+    border-radius: 6px;
+    margin-left: 4px;
+    vertical-align: middle;
+    text-shadow: none;
+    letter-spacing: 0;
+    animation: iconTagPulse 0.6s ease-out;
+}
+
+@keyframes iconTagPulse {
+    0%   { transform: scale(0.6); opacity: 0; }
+    60%  { transform: scale(1.15); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
 /* ── 连消徽章 ── */
 
 .streak-badge {

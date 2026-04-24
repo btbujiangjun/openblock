@@ -148,6 +148,25 @@ export class Grid {
             }
         }
 
+        // 在清除格子前检测同色（同icon）行列，用于后续加分和特效
+        const bonusLines = [];
+        for (const y of fullRows) {
+            const first = this.cells[y][0];
+            if (first !== null && this.cells[y].every(c => c === first)) {
+                bonusLines.push({ type: 'row', idx: y, colorIdx: first });
+            }
+        }
+        for (const x of fullCols) {
+            const first = this.cells[0][x];
+            if (first !== null) {
+                let allSame = true;
+                for (let y = 1; y < this.size; y++) {
+                    if (this.cells[y][x] !== first) { allSame = false; break; }
+                }
+                if (allSame) bonusLines.push({ type: 'col', idx: x, colorIdx: first });
+            }
+        }
+
         for (const y of fullRows) {
             for (let x = 0; x < this.size; x++) {
                 const key = x + ',' + y;
@@ -181,7 +200,7 @@ export class Grid {
         }
 
         const lines = fullRows.length + fullCols.length;
-        return { count: lines, cells: clearedCells };
+        return { count: lines, cells: clearedCells, bonusLines };
     }
 
     hasAnyMove(blocks) {

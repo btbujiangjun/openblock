@@ -484,6 +484,7 @@ export class Renderer {
         // layout 完成后立即校准到真实 CSS 尺寸
         requestAnimationFrame(() => this._onCanvasResize());
         this.particles = [];
+        this.iconParticles = [];
         this.clearCells = [];
         this.shakeOffset = { x: 0, y: 0 };
         this.shakeIntensity = 0;
@@ -1056,9 +1057,78 @@ export class Renderer {
 
     clearParticles() {
         this.particles = [];
+        this.iconParticles = [];
         this._comboFlash = 0;
         this._perfectFlash = 0;
         this._doubleWave = 0;
+    }
+
+    /**
+     * 为同icon消除行/列添加飘字特效。
+     * @param {{ type:'row'|'col', idx:number }} bonusLine  来自 grid.checkLines() 的 bonusLine 对象
+     * @param {string} icon  要漂浮的 emoji 字符
+     * @param {number} [count=8]  粒子数量
+     */
+    addIconParticles(bonusLine, icon, count = 8) {
+        const size = this.gridSize;
+        const cs = this.cellSize;
+        for (let i = 0; i < count; i++) {
+            let x, y;
+            if (bonusLine.type === 'row') {
+                x = (Math.random() * size) * cs;
+                y = (bonusLine.idx + 0.5) * cs;
+            } else {
+                x = (bonusLine.idx + 0.5) * cs;
+                y = (Math.random() * size) * cs;
+            }
+            const fontSize = 18 + Math.floor(Math.random() * 18);
+            this.iconParticles.push({
+                x,
+                y,
+                vx: (Math.random() - 0.5) * 2.8,
+                vy: -(2.5 + Math.random() * 3.5),
+                icon,
+                fontSize,
+                life: 1.0,
+                lifeDecay: 0.012 + Math.random() * 0.008,
+                rotation: (Math.random() - 0.5) * 0.6,
+                rotSpeed: (Math.random() - 0.5) * 0.04
+            });
+        }
+    }
+
+    updateIconParticles() {
+        for (let i = this.iconParticles.length - 1; i >= 0; i--) {
+            const p = this.iconParticles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.06;
+            p.rotation += p.rotSpeed;
+            p.life -= p.lifeDecay;
+            if (p.life <= 0) this.iconParticles.splice(i, 1);
+        }
+    }
+
+    renderIconParticles() {
+        if (!this.iconParticles.length) return;
+        const ctx = this.ctx;
+        const sx = this.shakeOffset.x;
+        const sy = this.shakeOffset.y;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (const p of this.iconParticles) {
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.font = `${p.fontSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
+            ctx.save();
+            ctx.translate(p.x + sx, p.y + sy);
+            ctx.rotate(p.rotation);
+            ctx.fillStyle = 'black';
+            ctx.fillText(p.icon, 0, 0);
+            ctx.restore();
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
     }
 
     setClearCells(cells) {
