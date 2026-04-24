@@ -39,6 +39,48 @@ import { BackendSync } from './services/backendSync.js';
 import { LevelManager } from './level/levelManager.js';
 import { ClearRuleEngine, RowColRule } from './clearRules.js';
 
+/**
+ * 在 clearEngine.apply() / grid.checkLines() **之前**（格子尚未置 null）扫描
+ * 满行/满列，判断是否全为同一 icon（优先）或同一 colorIdx（无 icon 皮肤）。
+ * 这是 bonus 加分/特效的唯一正确入口。
+ *
+ * @param {import('./grid.js').Grid} grid
+ * @param {import('./skins.js').Skin|null} skin
+ * @returns {Array<{type:'row'|'col', idx:number, colorIdx:number, icon:string|null}>}
+ */
+function _detectBonusLines(grid, skin) {
+    const n = grid.size;
+    const blockIcons = skin?.blockIcons;
+    const getIcon = ci => (blockIcons?.length ? blockIcons[ci % blockIcons.length] : null);
+    const result = [];
+
+    for (let y = 0; y < n; y++) {
+        const row = grid.cells[y];
+        if (row.some(c => c === null)) continue;
+        const icon0 = getIcon(row[0]);
+        const allSame = icon0 !== null
+            ? row.every(c => getIcon(c) === icon0)
+            : row.every(c => c === row[0]);
+        if (allSame) result.push({ type: 'row', idx: y, colorIdx: row[0], icon: icon0 });
+    }
+
+    for (let x = 0; x < n; x++) {
+        const col = [];
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] === null) { col.length = 0; break; }
+            col.push(grid.cells[y][x]);
+        }
+        if (!col.length) continue;
+        const icon0 = getIcon(col[0]);
+        const allSame = icon0 !== null
+            ? col.every(c => getIcon(c) === icon0)
+            : col.every(c => c === col[0]);
+        if (allSame) result.push({ type: 'col', idx: x, colorIdx: col[0], icon: icon0 });
+    }
+
+    return result;
+}
+
 function _topShapeWeightEntries(shapeWeights, n) {
     if (!shapeWeights || typeof shapeWeights !== 'object') return [];
     return Object.entries(shapeWeights)
@@ -952,11 +994,16 @@ export class Game {
                 y: placedPos.y
             });
 
-            // 消除检测：始终通过 ClearRuleEngine（普通模式用 RowColRule，关卡模式用自定义规则）
-            // 结果包含 { count, cells, bonusLines }，bonusLines 用于同色行/列双倍加分
+            // Bonus 检测必须在 apply/checkLines 之前，此时格子尚未被置 null
+            const _bonusLinesSnap = _detectBonusLines(this.grid, getActiveSkin());
+
+            // 消除检测：关卡模式使用注入的 ClearRuleEngine，普通模式走 grid.checkLines()
             const result = this._clearEngine
                 ? this._clearEngine.apply(this.grid)
                 : this.grid.checkLines();
+
+            // 将 snap 到的 bonus 信息合并进 result（只在真正有消除时生效）
+            result.bonusLines = result.count > 0 ? _bonusLinesSnap : [];
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
             this._refreshPlayerInsightPanel();
 
@@ -1074,17 +1121,17 @@ export class Game {
         });
         this.renderer.setClearCells(result.cells);
 
-        // 同 icon 行/列：触发飘字特效
+        // 同 icon/同色 行/列：触发飘屏 icon + 彩色炸裂特效
         if (bonusCount > 0) {
-            const skin = getActiveSkin();
-            const icons = skin.blockIcons;
+            const palette = getBlockColors();
             for (const bl of bonusLines) {
-                const icon = icons && icons.length
-                    ? icons[bl.colorIdx % icons.length]
-                    : null;
-                if (icon) {
-                    this.renderer.addIconParticles(bl, icon, 10);
+                const cssColor = palette[bl.colorIdx] || '#FFD700';
+                // 飘 icon 粒子（有 icon 时）
+                if (bl.icon) {
+                    this.renderer.addIconParticles(bl, bl.icon, 20);
                 }
+                // 彩色色块炸裂粒子（总是触发，强化视觉）
+                this.renderer.addBonusLineBurst(bl, cssColor, 24);
             }
         }
 
@@ -1093,13 +1140,13 @@ export class Game {
             this.renderer.setShake(16, 720);
         } else if (isCombo) {
             this.renderer.triggerComboFlash(result.count);
-            this.renderer.setShake(11, 520);
+            this.renderer.setShake(bonusCount > 0 ? 14 : 11, bonusCount > 0 ? 680 : 520);
         } else if (isDouble) {
             const waveRows = [...new Set(result.cells.map(c => c.y))];
             this.renderer.triggerDoubleWave(waveRows);
-            this.renderer.setShake(8, 400);
+            this.renderer.setShake(bonusCount > 0 ? 12 : 8, bonusCount > 0 ? 560 : 400);
         } else {
-            this.renderer.setShake(5, 280);
+            this.renderer.setShake(bonusCount > 0 ? 10 : 5, bonusCount > 0 ? 480 : 280);
         }
 
         let effectType = '';
@@ -1113,7 +1160,9 @@ export class Game {
             this._showStreakBadge(this._clearStreak);
         }
 
-        const animDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
+        // icon bonus 时延长动画至 2200ms，确保粒子完整播放后才被清除
+        const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
+        const animDuration = bonusCount > 0 ? Math.max(baseDuration, 2200) : baseDuration;
         const animStart = Date.now();
 
         const animate = () => {

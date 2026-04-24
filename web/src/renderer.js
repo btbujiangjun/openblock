@@ -1064,35 +1064,94 @@ export class Renderer {
     }
 
     /**
-     * 为同icon消除行/列添加飘字特效。
-     * @param {{ type:'row'|'col', idx:number }} bonusLine  来自 grid.checkLines() 的 bonusLine 对象
-     * @param {string} icon  要漂浮的 emoji 字符
-     * @param {number} [count=8]  粒子数量
+     * 同 icon/色 行/列消除：沿整行或整列喷射 emoji 粒子。
+     * 粒子以扇形向上炸开，字号大、寿命长，构成「飘屏」效果。
+     * @param {{ type:'row'|'col', idx:number }} bonusLine
+     * @param {string} icon  emoji 字符
+     * @param {number} [count=20]
      */
-    addIconParticles(bonusLine, icon, count = 8) {
-        const size = this.gridSize;
+    addIconParticles(bonusLine, icon, count = 20) {
+        const n = this.gridSize;
         const cs = this.cellSize;
         for (let i = 0; i < count; i++) {
             let x, y;
             if (bonusLine.type === 'row') {
-                x = (Math.random() * size) * cs;
-                y = (bonusLine.idx + 0.5) * cs;
+                x = cs * (Math.random() * n);
+                y = cs * (bonusLine.idx + 0.5);
             } else {
-                x = (bonusLine.idx + 0.5) * cs;
-                y = (Math.random() * size) * cs;
+                x = cs * (bonusLine.idx + 0.5);
+                y = cs * (Math.random() * n);
             }
-            const fontSize = 18 + Math.floor(Math.random() * 18);
+            // 扇形炸开：集中向上，横向随机散开
+            const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.6;
+            const speed = 2.5 + Math.random() * 6.5;
             this.iconParticles.push({
-                x,
-                y,
-                vx: (Math.random() - 0.5) * 2.8,
-                vy: -(2.5 + Math.random() * 3.5),
+                x, y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
                 icon,
-                fontSize,
+                fontSize: 24 + Math.floor(Math.random() * 24), // 24–48px
                 life: 1.0,
-                lifeDecay: 0.012 + Math.random() * 0.008,
-                rotation: (Math.random() - 0.5) * 0.6,
-                rotSpeed: (Math.random() - 0.5) * 0.04
+                lifeDecay: 0.007 + Math.random() * 0.005,      // 1.4–2.4s @ 60fps
+                rotation: (Math.random() - 0.5) * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 0.10
+            });
+        }
+    }
+
+    /**
+     * 同 icon/色 行/列消除：沿行或列喷射彩色方形色块粒子（不依赖 emoji）。
+     * @param {{ type:'row'|'col', idx:number }} bonusLine
+     * @param {string} cssColor  CSS 颜色字符串
+     * @param {number} [count=24]
+     */
+    addBonusLineBurst(bonusLine, cssColor, count = 24) {
+        const n = this.gridSize;
+        const cs = this.cellSize;
+        const gold = '#FFD700';
+        const white = '#FFFFFF';
+        for (let i = 0; i < count; i++) {
+            let x, y;
+            if (bonusLine.type === 'row') {
+                x = cs * (Math.random() * n);
+                y = cs * (bonusLine.idx + 0.5);
+            } else {
+                x = cs * (bonusLine.idx + 0.5);
+                y = cs * (Math.random() * n);
+            }
+            // 全方向炸开（偏上）
+            const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.4;
+            const speed = 3 + Math.random() * 9;
+            // 交替用色块颜色、金色、白色增加层次
+            const color = i % 3 === 0 ? gold : i % 3 === 1 ? cssColor : white;
+            this.particles.push({
+                x, y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - (2 + Math.random() * 3),
+                color,
+                life: 1.0 + Math.random() * 0.5,     // 1.0–1.5 起始
+                lifeDecay: 0.008 + Math.random() * 0.006,  // 1.1–2.1s
+                size: 4 + Math.random() * 8            // 4–12px，比普通粒子大
+            });
+        }
+        // 额外金色火花
+        for (let j = 0; j < 10; j++) {
+            let x, y;
+            if (bonusLine.type === 'row') {
+                x = cs * (Math.random() * n);
+                y = cs * (bonusLine.idx + 0.5);
+            } else {
+                x = cs * (bonusLine.idx + 0.5);
+                y = cs * (Math.random() * n);
+            }
+            this.particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 22,
+                vy: -(8 + Math.random() * 10),
+                color: gold,
+                life: 1.3,
+                lifeDecay: 0.010,
+                size: 2 + Math.random() * 3
             });
         }
     }
@@ -1102,7 +1161,8 @@ export class Renderer {
             const p = this.iconParticles[i];
             p.x += p.vx;
             p.y += p.vy;
-            p.vy += 0.06;
+            p.vy += 0.09;   // 重力，使粒子先冲上后下落
+            p.vx *= 0.985;  // 轻微阻力
             p.rotation += p.rotSpeed;
             p.life -= p.lifeDecay;
             if (p.life <= 0) this.iconParticles.splice(i, 1);
@@ -1118,7 +1178,8 @@ export class Renderer {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         for (const p of this.iconParticles) {
-            ctx.globalAlpha = Math.max(0, p.life);
+            const alpha = Math.max(0, Math.min(1, p.life));
+            ctx.globalAlpha = alpha;
             ctx.font = `${p.fontSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
             ctx.save();
             ctx.translate(p.x + sx, p.y + sy);
