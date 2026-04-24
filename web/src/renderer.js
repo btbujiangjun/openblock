@@ -96,6 +96,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             ctx.lineWidth = 1;
             ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
         }
+        _paintIcon(ctx, bx, by, size, r, color, skin);
         return;
     }
 
@@ -133,6 +134,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
             ctx.stroke();
         }
+        _paintIcon(ctx, bx, by, size, r, color, skin);
         return;
     }
 
@@ -162,6 +164,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             roundRectPath(ctx, bx + 1.2, by + 1.2, size - 2.4, size - 2.4, Math.max(0, r - 1));
             ctx.stroke();
         }
+        _paintIcon(ctx, bx, by, size, r, color, skin);
         return;
     }
 
@@ -362,6 +365,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         ctx.fillStyle = hl;
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.fill();
+        _paintIcon(ctx, bx, by, size, r, color, skin);
         return;
     }
 
@@ -491,6 +495,8 @@ export class Renderer {
         /** Double 消除：涟漪扩散效果 0~1 */
         this._doubleWave = 0;
         this._doubleWaveRows = [];
+        /** 盘面水印离屏缓存 { canvas, id, W, H }，皮肤/尺寸变化时自动重建 */
+        this._wmCache = null;
         // 监听 CSS 尺寸变化，动态保持 canvas 物理像素 = CSS 像素 × DPR
         this._setupPixelPerfectResize();
     }
@@ -534,7 +540,61 @@ export class Renderer {
         // cellSize 随 CSS 尺寸动态调整，保持 gridSize × cellSize = cssW
         this.cellSize = cssW / this.gridSize;
         this._applyCanvasSize(cssW, cssH);
+        this._wmCache = null; // 尺寸变化时水印缓存失效
         syncGridDisplayPx(this.canvas);
+    }
+
+    /**
+     * 将 skin.boardWatermark.icons 预渲染到离屏 canvas。
+     * 采用 5 点梅花布局（四角象限中心 + 正中），皮肤/尺寸变化时重建。
+     */
+    _buildWmBitmap(skin) {
+        const wm = skin.boardWatermark;
+        if (!wm?.icons?.length) { this._wmCache = null; return; }
+
+        const W = this.logicalW;
+        const H = this.logicalH;
+        const oc = document.createElement('canvas');
+        oc.width  = Math.round(W * this.dpr);
+        oc.height = Math.round(H * this.dpr);
+        const cx = oc.getContext('2d');
+        cx.scale(this.dpr, this.dpr);
+
+        const icons  = wm.icons;
+        const sz     = Math.round(Math.min(W, H) * (wm.scale ?? 0.24));
+        cx.font          = `${Math.round(sz * 0.88)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
+        cx.textAlign     = 'center';
+        cx.textBaseline  = 'middle';
+
+        // 梅花 5 点：左上 / 右上 / 正中 / 左下 / 右下
+        const pts = [
+            [W * 0.23, H * 0.23],
+            [W * 0.77, H * 0.23],
+            [W * 0.50, H * 0.50],
+            [W * 0.23, H * 0.77],
+            [W * 0.77, H * 0.77],
+        ];
+        pts.forEach(([x, y], i) => cx.fillText(icons[i % icons.length], x, y));
+
+        this._wmCache = { canvas: oc, id: skin.id, W, H };
+    }
+
+    /** 将水印叠加到盘面（绘制前调用 _buildWmBitmap 确保缓存有效） */
+    _renderBoardWatermark(skin) {
+        const wm = skin.boardWatermark;
+        if (!wm?.icons?.length) return;
+        const W = this.logicalW, H = this.logicalH;
+        if (!this._wmCache ||
+            this._wmCache.id !== skin.id ||
+            this._wmCache.W  !== W ||
+            this._wmCache.H  !== H) {
+            this._buildWmBitmap(skin);
+        }
+        if (!this._wmCache?.canvas) return;
+        this.ctx.save();
+        this.ctx.globalAlpha = wm.opacity ?? 0.07;
+        this.ctx.drawImage(this._wmCache.canvas, 0, 0, W, H);
+        this.ctx.restore();
     }
 
     /** 启动 ResizeObserver 持续监听 canvas CSS 尺寸变化 */
@@ -600,6 +660,9 @@ export class Renderer {
                 }
             }
         }
+
+        // 盘面水印：在空格色之上、网格线之下叠加主题 emoji（离屏缓存，仅皮肤/尺寸变化时重建）
+        this._renderBoardWatermark(skin);
 
         if (skin.gridLine !== false) {
             const w = this.gridSize * this.cellSize;

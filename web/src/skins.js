@@ -44,11 +44,13 @@ export const CLASSIC_PALETTE = [
 /**
  * @typedef {'glossy' | 'flat' | 'neon' | 'glass' | 'metal' | 'cartoon' | 'jelly' | 'pixel8'} BlockDrawStyle
  * @typedef {'sunken'} CellStyle
+ * @typedef {{ icons: string[], opacity?: number, scale?: number }} BoardWatermark
  * @typedef {{
  *   id: string,
  *   name: string,
  *   blockColors: string[],
  *   blockIcons?: string[],
+ *   boardWatermark?: BoardWatermark,
  *   gridOuter: string,
  *   gridCell: string,
  *   gridLine?: string | false,
@@ -86,6 +88,7 @@ export const SKINS = {
     classic: {
         id: 'classic',
         name: '✨ 经典',
+        boardWatermark: { icons: ['🎮', '⭐'], opacity: 0.07 },
         blockColors: [
             '#80D455', '#5BB8F8', '#FF8830', '#FFD000',
             '#5088F8', '#FF5040', '#FF70A0', '#AA80FF'
@@ -110,6 +113,7 @@ export const SKINS = {
     titanium: {
         id: 'titanium',
         name: '💎 钛晶',
+        boardWatermark: { icons: ['💠', '🔷'], opacity: 0.07 },
         blockColors: [
             '#6AAEE8', '#94BDDF', '#78B8EB', '#A8CCF0',
             '#88D0F0', '#7DBAE2', '#B4D8EC', '#8DB6D8'
@@ -138,6 +142,7 @@ export const SKINS = {
     cyber: {
         id: 'cyber',
         name: '⚡ 赛博',
+        boardWatermark: { icons: ['⚡', '💻'], opacity: 0.08 },
         blockColors: [
             '#00E8C8', '#F52885', '#8A3ED0', '#50CCF0',
             '#3B82F6', '#EC4899', '#10F5A8', '#FF2070'
@@ -162,6 +167,7 @@ export const SKINS = {
     aurora: {
         id: 'aurora',
         name: '🌌 极光',
+        boardWatermark: { icons: ['🌌', '✨'], opacity: 0.07 },
         blockColors: [
             '#5AD8CC', '#8070F0', '#AA90FA', '#38D89E',
             '#28D8F0', '#8590F8', '#C488FC', '#60C8FF'
@@ -186,6 +192,7 @@ export const SKINS = {
     neonCity: {
         id: 'neonCity',
         name: '🌃 霓虹都市',
+        boardWatermark: { icons: ['🌃', '🏙️'], opacity: 0.07 },
         blockColors: [
             '#FF2DAA', '#7C4DFF', '#00E5FF', '#76FF03',
             '#FFAB40', '#FF4081', '#448AFF', '#18FFFF'
@@ -214,6 +221,7 @@ export const SKINS = {
     ocean: {
         id: 'ocean',
         name: '🌊 深海',
+        boardWatermark: { icons: ['🦈', '🐠'], opacity: 0.07 },
         blockColors: [
             '#00C8F0', '#0098C8', '#48D4E4', '#90F0FF',
             '#00E4C0', '#FFB347', '#FF7878', '#20E8FF'
@@ -238,6 +246,7 @@ export const SKINS = {
     sunset: {
         id: 'sunset',
         name: '🌅 日落',
+        boardWatermark: { icons: ['🌅', '☀️'], opacity: 0.08 },
         blockColors: [
             '#FF7761', '#FF9A56', '#FFCC5C', '#88D8B0',
             '#8098CF', '#D478CA', '#FF8FA0', '#FFB870'
@@ -262,6 +271,7 @@ export const SKINS = {
     lava: {
         id: 'lava',
         name: '🔥 熔岩',
+        boardWatermark: { icons: ['🌋', '🔥'], opacity: 0.07 },
         blockColors: [
             '#FF4040', '#FF6830', '#FF9020', '#FFB818',
             '#E84040', '#FF3868', '#FF7848', '#FFA830'
@@ -290,6 +300,7 @@ export const SKINS = {
     sakura: {
         id: 'sakura',
         name: '🌸 樱花',
+        boardWatermark: { icons: ['🌸', '🌺'], opacity: 0.09 },
         blockColors: [
             '#FF4490', '#FF2870', '#FFB0D8', '#78D860',
             '#78B8F0', '#CC60E8', '#FFBA30', '#58D890'
@@ -314,6 +325,7 @@ export const SKINS = {
     koi: {
         id: 'koi',
         name: '🎏 锦鲤',
+        boardWatermark: { icons: ['🎏', '🐟'], opacity: 0.08 },
         blockColors: [
             '#E42018', '#F07828', '#F0C820', '#C8D0F0',
             '#E880A8', '#38A8B8', '#C83868', '#D0A858'
@@ -342,6 +354,7 @@ export const SKINS = {
     candy: {
         id: 'candy',
         name: '🍭 糖果',
+        boardWatermark: { icons: ['🍭', '🍬'], opacity: 0.09 },
         blockColors: [
             '#FF4466', '#FF8820', '#FFD020', '#44E848',
             '#22AAFF', '#BB44FF', '#FF44BB', '#22E8CC'
@@ -366,6 +379,7 @@ export const SKINS = {
     bubbly: {
         id: 'bubbly',
         name: '🫧 泡泡糖',
+        boardWatermark: { icons: ['🫧', '🐡'], opacity: 0.09 },
         blockColors: [
             '#FF4FA0', '#4898F8', '#42C442', '#FFAA18',
             '#22C87A', '#CC3EF0', '#FF6228', '#12C4E8'
@@ -395,6 +409,7 @@ export const SKINS = {
     toon: {
         id: 'toon',
         name: '🎨 卡通乐园',
+        boardWatermark: { icons: ['🎪', '🎠'], opacity: 0.08 },
         blockColors: [
             '#FF3B58', '#FF7F11', '#FFD600', '#00C853',
             '#2979FF', '#AA00FF', '#FF4081', '#00BCD4'
@@ -420,6 +435,7 @@ export const SKINS = {
     pixel8: {
         id: 'pixel8',
         name: '👾 8位街机',
+        boardWatermark: { icons: ['👾', '🕹️'], opacity: 0.09 },
         blockColors: [
             '#E80050', '#005CF8', '#10C010', '#F8D000',
             '#D000C8', '#00D8D0', '#F84000', '#B0F000'
@@ -454,6 +470,7 @@ export const SKINS = {
     dawn: {
         id: 'dawn',
         name: '☀️ 晨光',
+        boardWatermark: { icons: ['☀️', '🌤️'], opacity: 0.09 },
         blockColors: [
             '#E04820', '#2880E8', '#F09020', '#28A840',
             '#A828D0', '#28C8B8', '#E03060', '#6038E8'
@@ -487,6 +504,7 @@ export const SKINS = {
     macaroon: {
         id: 'macaroon',
         name: '🍬 马卡龙',
+        boardWatermark: { icons: ['🍬', '🧁'], opacity: 0.09 },
         blockColors: [
             '#F04878', '#3898E8', '#F09028', '#38B850',
             '#A040D8', '#28C8A8', '#F06858', '#8850D8'
@@ -524,6 +542,7 @@ export const SKINS = {
     food: {
         id: 'food',
         name: '🍕 美食',
+        boardWatermark: { icons: ['🍕', '🍔'], opacity: 0.08 },
         blockColors: [
             '#E83020', '#F09020', '#F8D020', '#60B830',
             '#A06030', '#D87040', '#F05878', '#9848D0'
@@ -552,6 +571,7 @@ export const SKINS = {
     music: {
         id: 'music',
         name: '🎵 音乐',
+        boardWatermark: { icons: ['🎵', '🎸'], opacity: 0.08 },
         blockColors: [
             '#FF3060', '#FF9020', '#FFE820', '#40E840',
             '#3088FF', '#E040FF', '#FF60A0', '#40E8E8'
@@ -580,6 +600,7 @@ export const SKINS = {
     pets: {
         id: 'pets',
         name: '🐾 萌宠',
+        boardWatermark: { icons: ['🐾', '🐶'], opacity: 0.09 },
         blockColors: [
             '#E84838', '#F09428', '#F8D030', '#48B838',
             '#4888E8', '#D848B8', '#F87858', '#48C8C0'
@@ -614,6 +635,7 @@ export const SKINS = {
     universe: {
         id: 'universe',
         name: '🪐 宇宙',
+        boardWatermark: { icons: ['🪐', '⭐'], opacity: 0.07 },
         blockColors: [
             '#E84020', '#F09030', '#D8C820', '#3898D0',
             '#D040D0', '#20B0C0', '#D88020', '#6040C8'
@@ -643,6 +665,7 @@ export const SKINS = {
     fantasy: {
         id: 'fantasy',
         name: '🔮 魔幻',
+        boardWatermark: { icons: ['🔮', '✨'], opacity: 0.08 },
         blockColors: [
             '#9828D8', '#2848C8', '#18B848', '#D82020',
             '#D8A820', '#1898C8', '#C81880', '#6030B8'
@@ -661,7 +684,70 @@ export const SKINS = {
             '--accent-dark':  '#BB50F0',
             '--h1-color':     '#CC88FF'
         }
-    }
+    },
+
+    // ── 新增皮肤 ──────────────────────────────────────────────────────────
+    // 主题：猛兽丛林（深夜丛林，凶猛野兽）
+    beast: {
+        id: 'beast',
+        name: '🦁 猛兽',
+        boardWatermark: { icons: ['🦁', '🐯'], opacity: 0.08 },
+        blockColors: [
+            '#E8A020', // 狮子金
+            '#E84020', // 血橙
+            '#28A838', // 丛林绿
+            '#D86820', // 虎纹橙
+            '#3068B8', // 暴风蓝
+            '#E8D040', // 骨白黄
+            '#C07828', // 铜棕
+            '#7038B0', // 黑豹紫
+        ],
+        gridOuter:   '#150C04',
+        gridCell:    '#221608',
+        gridGap:     1,
+        blockInset:  2,
+        blockRadius: 6,
+        blockStyle:  'glossy',
+        clearFlash:  'rgba(255,180,30,0.50)',
+        cssBg:       '#0E0802',
+        uiDark:      true,
+        cssVars: {
+            '--accent-color': '#D8900A',
+            '--accent-dark':  '#F0B030',
+            '--h1-color':     '#FFD060'
+        }
+    },
+
+    // 主题：恶魔地狱（硫磺地狱火、暗黑魔法）
+    demon: {
+        id: 'demon',
+        name: '😈 恶魔',
+        boardWatermark: { icons: ['😈', '💀'], opacity: 0.08 },
+        blockColors: [
+            '#D81818', // 地狱红
+            '#E89020', // 硫磺黄
+            '#8818D0', // 暗魔紫
+            '#E83020', // 鲜血橙
+            '#E0A0D8', // 幽灵粉
+            '#6040A8', // 深影紫
+            '#AA1040', // 深红
+            '#20C840', // 毒液绿
+        ],
+        gridOuter:   '#0A0412',
+        gridCell:    '#180828',
+        gridGap:     1,
+        blockInset:  2,
+        blockRadius: 5,
+        blockStyle:  'glass',
+        clearFlash:  'rgba(200,20,30,0.45)',
+        cssBg:       '#060210',
+        uiDark:      true,
+        cssVars: {
+            '--accent-color': '#CC1830',
+            '--accent-dark':  '#E83050',
+            '--h1-color':     '#FF5070'
+        }
+    },
 };
 
 export const SKIN_LIST = Object.values(SKINS);
