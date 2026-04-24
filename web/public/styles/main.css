@@ -2641,7 +2641,9 @@ body.game-shell-hidden .app-side-left {
     margin-bottom: 4px;
 }
 #app > .header .app-wordmark {
-    padding: 4px 14px 5px;
+    /* scale(1.06)+skewX(-6deg) 会让两端各溢出约 18px，需足够水平 padding */
+    padding: 4px 28px 5px;
+    overflow: visible;
 }
 
 /* mini-goal-badge 注入在 progression-hud 之后，功能与 progression-hud 重叠，隐藏 */
