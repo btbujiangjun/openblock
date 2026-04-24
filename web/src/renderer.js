@@ -304,32 +304,47 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         return;
     }
 
-    /* ── pixel8 ───────────────────────────────────────────────────────── */
+    /* ── pixel8（NES/FC 浮雕凸起）─────────────────────────────────────── */
     if (skin.blockStyle === 'pixel8') {
-        const half = Math.floor(size / 2);
-        const rest = size - half;
-        // 四象限像素着色（左上最亮，右下最暗，4-tile Gameboy 效果）
-        ctx.fillStyle = lightenColor(color, 0.30);
-        ctx.fillRect(bx, by, half, half);
-        ctx.fillStyle = lightenColor(color, 0.10);
-        ctx.fillRect(bx + half, by, rest, half);
-        ctx.fillStyle = darkenColor(color, 0.06);
-        ctx.fillRect(bx, by + half, half, rest);
-        ctx.fillStyle = darkenColor(color, 0.30);
-        ctx.fillRect(bx + half, by + half, rest, rest);
-        // 深色边框
-        ctx.strokeStyle = darkenColor(color, 0.55);
+        // 经典"凸起瓦片"效果：亮顶左 + 暗右下 + 极亮/极暗四角
+        const ew = Math.max(1, Math.round(size * 0.14)); // 高光/阴影边缘宽度
+
+        // 1. 主体填色（边缘内侧略微加暗，凸显浮雕对比）
+        ctx.fillStyle = color;
+        ctx.fillRect(bx, by, size, size);
+        ctx.fillStyle = darkenColor(color, 0.10);
+        ctx.fillRect(bx + ew, by + ew, size - ew * 2, size - ew * 2);
+
+        // 2. 顶部亮边（最亮，光线从左上方来）
+        ctx.fillStyle = lightenColor(color, 0.55);
+        ctx.fillRect(bx + ew, by, size - ew * 2, ew);
+
+        // 3. 左侧亮边（略暗于顶部）
+        ctx.fillStyle = lightenColor(color, 0.40);
+        ctx.fillRect(bx, by + ew, ew, size - ew * 2);
+
+        // 4. 底部阴影边
+        ctx.fillStyle = darkenColor(color, 0.50);
+        ctx.fillRect(bx + ew, by + size - ew, size - ew * 2, ew);
+
+        // 5. 右侧阴影边
+        ctx.fillStyle = darkenColor(color, 0.38);
+        ctx.fillRect(bx + size - ew, by + ew, ew, size - ew * 2);
+
+        // 6. 四个角像素（点睛：让边缘交汇处自然过渡）
+        ctx.fillStyle = lightenColor(color, 0.72); // 极亮：顶左角
+        ctx.fillRect(bx, by, ew, ew);
+        ctx.fillStyle = lightenColor(color, 0.48); // 次亮：顶右角
+        ctx.fillRect(bx + size - ew, by, ew, ew);
+        ctx.fillStyle = darkenColor(color, 0.38); // 次暗：底左角
+        ctx.fillRect(bx, by + size - ew, ew, ew);
+        ctx.fillStyle = darkenColor(color, 0.62); // 极暗：底右角
+        ctx.fillRect(bx + size - ew, by + size - ew, ew, ew);
+
+        // 7. 外轮廓（最深色，清晰定界）
+        ctx.strokeStyle = darkenColor(color, 0.72);
         ctx.lineWidth = 1;
         ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
-        // 中轴分隔线（模拟像素 tile）
-        ctx.strokeStyle = `rgba(0,0,0,0.20)`;
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(bx + half, by + 1);
-        ctx.lineTo(bx + half, by + size - 1);
-        ctx.moveTo(bx + 1, by + half);
-        ctx.lineTo(bx + size - 1, by + half);
-        ctx.stroke();
         return;
     }
 
@@ -579,12 +594,32 @@ export class Renderer {
         this.ctx.fillStyle = skin.gridOuter;
         this.ctx.fillRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
 
+        const cs = this.cellSize - 2 * g; // 单格可见尺寸
         this.ctx.fillStyle = skin.gridCell;
         for (let y = 0; y < this.gridSize; y++) {
             for (let x = 0; x < this.gridSize; x++) {
                 const px = x * this.cellSize + g;
                 const py = y * this.cellSize + g;
-                this.ctx.fillRect(px, py, this.cellSize - 2 * g, this.cellSize - 2 * g);
+                this.ctx.fillRect(px, py, cs, cs);
+            }
+        }
+
+        // 空格凹陷效果（与 pixel8 凸起方块配合，增强视觉深度）
+        if (skin.cellStyle === 'sunken' && cs > 4) {
+            const ew = Math.max(1, Math.round(cs * 0.11));
+            for (let y = 0; y < this.gridSize; y++) {
+                for (let x = 0; x < this.gridSize; x++) {
+                    const px = x * this.cellSize + g;
+                    const py = y * this.cellSize + g;
+                    // 顶/左：暗边（凹陷阴影）
+                    this.ctx.fillStyle = 'rgba(0,0,0,0.32)';
+                    this.ctx.fillRect(px, py, cs, ew);
+                    this.ctx.fillRect(px, py + ew, ew, cs - ew);
+                    // 底/右：亮边（凹陷反光）
+                    this.ctx.fillStyle = 'rgba(255,255,255,0.07)';
+                    this.ctx.fillRect(px, py + cs - ew, cs, ew);
+                    this.ctx.fillRect(px + cs - ew, py + ew, ew, cs - ew * 2);
+                }
             }
         }
 

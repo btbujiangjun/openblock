@@ -43,6 +43,7 @@ export const CLASSIC_PALETTE = [
 
 /**
  * @typedef {'glossy' | 'flat' | 'neon' | 'glass' | 'metal' | 'cartoon' | 'jelly' | 'pixel8'} BlockDrawStyle
+ * @typedef {'sunken'} CellStyle
  * @typedef {{
  *   id: string,
  *   name: string,
@@ -55,6 +56,7 @@ export const CLASSIC_PALETTE = [
  *   blockInset: number,
  *   blockRadius: number,
  *   blockStyle: BlockDrawStyle,
+ *   cellStyle?: CellStyle,
  *   clearFlash: string,
  *   cssBg?: string,
  *   uiDark?: boolean,
@@ -499,10 +501,10 @@ export const SKINS = {
         ],
         // 粉→蓝→绿→黄→薄荷→紫→橙→青
         blockIcons: ['🦩', '🐳', '🐢', '🦀', '🌿', '🦑', '🦐', '🐬'],
-        gridOuter: '#B060BE',        // 更深的紫色边框，凸显棋盘轮廓
-        gridCell: '#EED8F5',         // 浅薰衣草（取代近白色），空格可辨
-        gridLine: 'rgba(160,70,180,0.26)',  // 更清晰的网格线
-        gridGap: 2,
+        gridOuter: '#C8A0D4',        // 柔和中紫，与其他皮肤边框色调一致
+        gridCell: '#F0E2F8',         // 接近边框的淡薰衣草，对比度收敛
+        gridLine: 'rgba(160,90,180,0.14)', // 极轻网格线（同 frost/pastel 风格）
+        gridGap: 1,                  // 与其他浅色皮肤保持一致
         blockInset: 1,
         blockRadius: 14,
         blockStyle: 'jelly',
@@ -515,27 +517,29 @@ export const SKINS = {
         }
     },
 
-    /** 8位街机：像素游戏配色 + 四象限着色，复古 FC / GB 风 */
+    /** 8位街机：NES/FC 配色 + 浮雕凸起瓦片 + 空格凹陷，复古游戏立体感 */
     pixel8: {
         id: 'pixel8',
         name: '👾 8位街机',
         blockColors: [
-            '#E40058', '#0058F8', '#00B800', '#F8D800',
-            '#D800CC', '#00E8D8', '#F83800', '#B8F818'
+            '#E80050', '#005CF8', '#10C010', '#F8D000',
+            '#D000C8', '#00D8D0', '#F84000', '#B0F000'
         ],
-        gridOuter: '#1A0A00',
-        gridCell: '#2C1800',
-        gridGap: 3,
+        gridOuter: '#120800',    // 极深的近黑棕，作为边框/屏幕边缘
+        gridCell: '#2E1C0A',     // 比外框明显亮的深棕，空格清晰可辨
+        gridLine: false,         // 由 gridGap 间距形成自然网格，不叠加线条
+        gridGap: 2,              // 适中间距（原3→2），方块更整齐
         blockInset: 0,
         blockRadius: 0,
         blockStyle: 'pixel8',
-        clearFlash: '#F8F8F8',
-        cssBg: '#0A0400',
+        cellStyle: 'sunken',     // 空格凹陷效果，与凸起方块形成对比
+        clearFlash: '#F8F8F0',
+        cssBg: '#0A0500',
         uiDark: true,
         cssVars: {
-            '--accent-color': '#E40058',
-            '--accent-dark': '#F83800',
-            '--h1-color': '#F8D800'
+            '--accent-color': '#E80050',
+            '--accent-dark': '#F84000',
+            '--h1-color': '#F8D000'
         }
     }
 };
