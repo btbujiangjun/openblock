@@ -63,6 +63,12 @@
                     <select id="skin-select" aria-label="棋盘主题"></select>
                 </div>
             </div>
+            <!-- 等级 + 称号（从 progression-hud 迁入，统一风格） -->
+            <div class="header-level" aria-label="玩家等级">
+                <span class="progression-level" id="prog-level">Lv.1</span>
+                <span class="progression-title" id="prog-title">新手</span>
+                <span class="progression-streak" id="prog-streak" hidden></span>
+            </div>
             <div class="stats-bar">
                 <div class="stat-box">
                     <div class="stat-label">得分</div>
@@ -75,12 +81,8 @@
                 </div>
             </div>
         </div>
-        <div class="progression-hud" id="progression-hud" aria-label="玩家等级">
-            <div class="progression-hud-row">
-                <span class="progression-level" id="prog-level">Lv.1</span>
-                <span class="progression-title" id="prog-title">新手</span>
-                <span class="progression-streak" id="prog-streak" hidden></span>
-            </div>
+        <!-- progression-hud 隐藏（JS 仍依赖 prog-track/prog-fill/prog-xp-text 更新内部状态） -->
+        <div class="progression-hud" id="progression-hud" aria-label="玩家等级" hidden>
             <div class="progression-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="prog-track">
                 <div class="progression-fill" id="prog-fill"></div>
             </div>

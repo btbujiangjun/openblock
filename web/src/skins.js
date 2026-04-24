@@ -433,30 +433,31 @@ export const SKINS = {
         }
     },
 
-    /** 8位街机（整合像素）：NES 标准 6 色 + 浮雕方块 + 凹陷空格，焦黑木纹底 */
+    /** 街机（像素格斗）：NES/SNK 鲜艳配色 + 浮雕方块 + 拳皇/街机经典 icon */
     pixel8: {
         id: 'pixel8',
-        name: '👾 8位街机',
-        boardWatermark: { icons: ['👾', '🕹️'], opacity: 0.09 },
+        name: '🕹️ 街机',
+        boardWatermark: { icons: ['🥊', '👾', '🕹️', '⚔️'], opacity: 0.10, scale: 0.72 },
+        blockIcons: ['🥊', '👊', '⚡', '🔥', '💥', '⚔️', '💫', '👾'],
         blockColors: [
-            '#FF2870', '#2878FF', '#10C010', '#F8D000',
-            '#F030E8', '#00D8D0', '#FF5818', '#B0F000'
+            '#FF2050', '#1E6FFF', '#00C818', '#F8C800',
+            '#E020E0', '#00C8C8', '#FF5010', '#A0F000'
         ],
-        gridOuter: '#120800',
-        gridCell:  '#2E1C0A',
+        gridOuter: '#100600',
+        gridCell:  '#241408',
         gridLine: false,
         gridGap: 2,
         blockInset: 0,
         blockRadius: 0,
         blockStyle: 'pixel8',
         cellStyle: 'sunken',
-        clearFlash: '#F8F8F0',
-        cssBg: '#0A0500',
+        clearFlash: '#FFFFF0',
+        cssBg: '#080300',
         uiDark: true,
         cssVars: {
-            '--accent-color': '#E80050',
-            '--accent-dark':  '#F84000',
-            '--h1-color':     '#F8D000'
+            '--accent-color': '#FF2050',
+            '--accent-dark':  '#FF6020',
+            '--h1-color':     '#F8C800'
         }
     },
 

@@ -126,6 +126,35 @@ body.block-drag-active #app {
     box-sizing: border-box;
 }
 
+/* 等级 + 称号：与 stat-box 风格统一，嵌入 score-theme-row 同行 */
+.header-level {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px 6px;
+    border-radius: var(--border-radius, 10px);
+    background:
+        linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, transparent 48%),
+        linear-gradient(180deg, var(--stat-surface, #fff) 0%,
+            color-mix(in srgb, var(--stat-surface, #fff) 88%, #e2e8f0) 100%);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.65) inset,
+        0 2px 8px color-mix(in srgb, var(--shadow, rgba(0,0,0,0.15)) 40%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* header-level 内部：streak 不再占满剩余宽度 */
+.header-level .progression-streak {
+    margin-left: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--stat-label-color, #475569);
+}
+
 /* 品牌字标：像素方块拼字（无底板、无外框），由 blockWordmark.js 注入 */
 .app-wordmark {
     margin: 0;
@@ -2545,6 +2574,11 @@ body.game-shell-hidden .app-side-left {
 
 /* 游戏时隐藏顶部字标 header（返回菜单由技能包 🎮 按钮承担，header 在游戏中冗余） */
 #app > .header {
+    display: none;
+}
+
+/* mini-goal-badge 注入在 progression-hud 之后，功能与 progression-hud 重叠，隐藏 */
+#mini-goal-badge {
     display: none;
 }
 
