@@ -43,6 +43,35 @@ function roundRectPath(ctx, x, y, w, h, r) {
 }
 
 /**
+ * 在方块中心绘制 skin.blockIcons 里对应的小动物 emoji（尺寸足够时）。
+ * 会自动添加投影以保证在任何颜色底色上清晰可读。
+ * @param {CanvasRenderingContext2D} ctx
+ */
+function _paintIcon(ctx, bx, by, size, r, color, skin) {
+    if (!skin.blockIcons || size < 14) return;
+    const colorIdx = skin.blockColors ? skin.blockColors.indexOf(color) : -1;
+    const icon = colorIdx >= 0
+        ? skin.blockIcons[colorIdx % skin.blockIcons.length]
+        : skin.blockIcons[0];
+    if (!icon) return;
+    const fontSize = Math.max(10, Math.round(size * 0.56));
+    ctx.save();
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.clip();
+    ctx.font = `${fontSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha  = 0.95;
+    // 细腻投影让 emoji 在任何背景上都清晰可辨
+    ctx.shadowColor    = 'rgba(0,0,0,0.28)';
+    ctx.shadowBlur     = 3;
+    ctx.shadowOffsetX  = 0.5;
+    ctx.shadowOffsetY  = 1;
+    ctx.fillText(icon, bx + size * 0.50, by + size * 0.53);
+    ctx.restore();
+}
+
+/**
  * @param {CanvasRenderingContext2D} ctx
  * @param {number} cellPx 格左上角 x（整格坐标）
  */
@@ -141,99 +170,125 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         return;
     }
 
-    /* ── cartoon ──────────────────────────────────────────────────────── */
+    /* ── cartoon（晶莹透亮版）────────────────────────────────────────── */
     if (skin.blockStyle === 'cartoon') {
-        // 1. 平填主色
-        ctx.fillStyle = color;
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.fill();
-
-        // 2. 右下角渐暗（轻微 3D 感）
-        const shadowG = ctx.createLinearGradient(bx, by, bx + size, by + size);
-        shadowG.addColorStop(0,   'rgba(0,0,0,0.00)');
-        shadowG.addColorStop(1,   'rgba(0,0,0,0.20)');
         ctx.save();
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.clip();
-        ctx.fillStyle = shadowG;
-        ctx.fillRect(bx, by, size, size);
-        ctx.restore();
 
-        // 3. 粗黑描边（卡通最显著特征）
-        const outlineW = Math.max(1.5, size * 0.07);
-        ctx.strokeStyle = 'rgba(0,0,0,0.74)';
-        ctx.lineWidth = outlineW;
-        roundRectPath(ctx, bx + outlineW * 0.5, by + outlineW * 0.5,
-            size - outlineW, size - outlineW, Math.max(0, r - outlineW * 0.5));
-        ctx.stroke();
-
-        // 4. 左上角白色高光椭圆（卡通光泽感）
-        const shineW = size * 0.30;
-        const shineH = size * 0.16;
-        ctx.save();
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.clip();
-        ctx.fillStyle = 'rgba(255,255,255,0.75)';
-        ctx.beginPath();
-        ctx.ellipse(
-            bx + size * 0.30, by + size * 0.26,
-            shineW, shineH,
-            -Math.PI / 5.5, 0, Math.PI * 2
-        );
-        ctx.fill();
-        ctx.restore();
-        return;
-    }
-
-    /* ── jelly ────────────────────────────────────────────────────────── */
-    if (skin.blockStyle === 'jelly') {
-        const rgb = hexToRgb(color) || { r: 120, g: 150, b: 200 };
-        const { r: cr, g: cg, b: cb } = rgb;
-
-        // 1. 半透明彩色主体（上浅下稍深）
-        ctx.save();
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.clip();
+        // 1. 上浅下稍暗的主色渐变（取代纯平填，立体感更自然）
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
-        baseG.addColorStop(0,   `rgba(${cr},${cg},${cb},0.92)`);
-        baseG.addColorStop(0.5, `rgba(${cr},${cg},${cb},0.78)`);
-        baseG.addColorStop(1,   `rgba(${Math.min(cr+18,255)},${Math.min(cg+18,255)},${Math.min(cb+18,255)},0.88)`);
+        baseG.addColorStop(0,    lightenColor(color, 0.22));
+        baseG.addColorStop(0.50, color);
+        baseG.addColorStop(1,    darkenColor(color, 0.14));
         ctx.fillStyle = baseG;
         ctx.fillRect(bx, by, size, size);
 
-        // 2. 上半白色磨砂覆层（果冻/玻璃感）
-        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.60);
-        hlG.addColorStop(0,   'rgba(255,255,255,0.65)');
-        hlG.addColorStop(0.38,'rgba(255,255,255,0.22)');
-        hlG.addColorStop(1,   'rgba(255,255,255,0.00)');
+        // 2. 顶部大面积磨砂白覆层（晶莹感核心，占 50%）
+        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.52);
+        hlG.addColorStop(0,    'rgba(255,255,255,0.68)');
+        hlG.addColorStop(0.40, 'rgba(255,255,255,0.24)');
+        hlG.addColorStop(1,    'rgba(255,255,255,0.00)');
         ctx.fillStyle = hlG;
-        ctx.fillRect(bx, by, size, size * 0.60);
+        ctx.fillRect(bx, by, size, size * 0.52);
+
+        // 3. 微弱底部暗角（增强立体感）
+        const btG = ctx.createLinearGradient(bx, by + size * 0.70, bx, by + size);
+        btG.addColorStop(0, 'rgba(0,0,0,0.00)');
+        btG.addColorStop(1, 'rgba(0,0,0,0.14)');
+        ctx.fillStyle = btG;
+        ctx.fillRect(bx, by + size * 0.70, size, size * 0.30);
+
         ctx.restore();
 
-        // 3. 亮色内描边
-        const lc = Math.min;
-        ctx.strokeStyle = `rgba(${lc(cr+70,255)},${lc(cg+70,255)},${lc(cb+70,255)},0.85)`;
-        ctx.lineWidth = 1.5;
-        roundRectPath(ctx, bx + 0.8, by + 0.8, size - 1.6, size - 1.6, Math.max(0, r - 0.8));
-        ctx.stroke();
-
-        // 4. 右下暗边（立体感）
-        ctx.strokeStyle = `rgba(${Math.max(cr-50,0)},${Math.max(cg-50,0)},${Math.max(cb-50,0)},0.35)`;
+        // 4. 亮色内边框（玻璃折射边缘）
+        ctx.strokeStyle = 'rgba(255,255,255,0.60)';
         ctx.lineWidth = 1.2;
-        roundRectPath(ctx, bx + 1.5, by + 1.5, size - 3, size - 3, Math.max(0, r - 1.5));
+        roundRectPath(ctx, bx + 0.6, by + 0.6, size - 1.2, size - 1.2, Math.max(0, r - 0.6));
         ctx.stroke();
 
-        // 5. 左上光斑小椭圆
-        const sr = size * 0.11;
+        // 5. 柔和暗色外框（轻量定界，非粗黑线）
+        ctx.strokeStyle = 'rgba(30,15,60,0.32)';
+        ctx.lineWidth = 1;
+        roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
+        ctx.stroke();
+
+        // 6. 左上角高光光斑（点睛）
+        const sr = size * 0.09;
         ctx.save();
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.clip();
-        ctx.fillStyle = 'rgba(255,255,255,0.90)';
+        ctx.fillStyle = 'rgba(255,255,255,0.88)';
         ctx.beginPath();
-        ctx.ellipse(bx + size * 0.27, by + size * 0.24,
-            sr * 1.7, sr, -Math.PI / 4.2, 0, Math.PI * 2);
+        ctx.ellipse(bx + size * 0.27, by + size * 0.23,
+            sr * 2.0, sr, -Math.PI / 4.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
+
+        // 7. emoji icon
+        _paintIcon(ctx, bx, by, size, r, color, skin);
+        return;
+    }
+
+    /* ── jelly（晶莹珠光版）──────────────────────────────────────────── */
+    if (skin.blockStyle === 'jelly') {
+        const rgb = hexToRgb(color) || { r: 120, g: 150, b: 200 };
+        const { r: cr, g: cg, b: cb } = rgb;
+        const m = Math.min;
+
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+
+        // 1. 半透明主色（顶部略浅，营造光感底色）
+        const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
+        baseG.addColorStop(0,    `rgba(${m(cr+30,255)},${m(cg+30,255)},${m(cb+30,255)},0.90)`);
+        baseG.addColorStop(0.45, `rgba(${cr},${cg},${cb},0.80)`);
+        baseG.addColorStop(1,    `rgba(${m(cr+15,255)},${m(cg+15,255)},${m(cb+15,255)},0.88)`);
+        ctx.fillStyle = baseG;
+        ctx.fillRect(bx, by, size, size);
+
+        // 2. 顶部大面积磨砂白（60-65%，果冻/玻璃感核心）
+        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.65);
+        hlG.addColorStop(0,    'rgba(255,255,255,0.72)');
+        hlG.addColorStop(0.32, 'rgba(255,255,255,0.30)');
+        hlG.addColorStop(0.65, 'rgba(255,255,255,0.06)');
+        hlG.addColorStop(1,    'rgba(255,255,255,0.00)');
+        ctx.fillStyle = hlG;
+        ctx.fillRect(bx, by, size, size * 0.65);
+
+        // 3. 径向内发光（珍珠/水晶质感）
+        const rg = ctx.createRadialGradient(
+            bx + size * 0.50, by + size * 0.35, 0,
+            bx + size * 0.50, by + size * 0.50, size * 0.58
+        );
+        rg.addColorStop(0, 'rgba(255,255,255,0.10)');
+        rg.addColorStop(1, 'rgba(0,0,0,0.08)');
+        ctx.fillStyle = rg;
+        ctx.fillRect(bx, by, size, size);
+
+        ctx.restore();
+
+        // 4. 亮色内描边（玻璃折射边缘，更亮）
+        ctx.strokeStyle = `rgba(${m(cr+90,255)},${m(cg+90,255)},${m(cb+90,255)},0.88)`;
+        ctx.lineWidth = 1.6;
+        roundRectPath(ctx, bx + 0.8, by + 0.8, size - 1.6, size - 1.6, Math.max(0, r - 0.8));
+        ctx.stroke();
+
+        // 5. 左上角高光光斑
+        const sr = size * 0.09;
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(255,255,255,0.94)';
+        ctx.beginPath();
+        ctx.ellipse(bx + size * 0.26, by + size * 0.22,
+            sr * 2.0, sr, -Math.PI / 4.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 6. emoji icon
+        _paintIcon(ctx, bx, by, size, r, color, skin);
         return;
     }
 
@@ -356,6 +411,9 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         ctx.lineTo(bx, by + size);
         ctx.stroke();
     }
+
+    // glossy 兜底样式也支持 blockIcons（未来皮肤扩展用）
+    _paintIcon(ctx, bx, by, size, r, color, skin);
 }
 
 /** 将棋盘实际 CSS 尺寸同步到 CSS 变量，同时让候选区格子与棋盘格子等大 */
