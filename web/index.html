@@ -90,6 +90,15 @@
             <div id="game-wrapper">
                 <canvas id="game-grid" width="336" height="336" aria-label="游戏网格"></canvas>
             </div>
+            <!-- 技能包：纯符号圆形按钮，作为增值服务入口 -->
+            <div class="skill-bar" id="skill-bar" aria-label="技能包">
+                <button type="button" class="skill-btn skill-btn--hint" id="insight-hint"
+                        title="💡 AI提示 — 分析盘面推荐最优落子">💡</button>
+                <button type="button" class="skill-btn skill-btn--restart" id="insight-restart"
+                        title="🔁 重开 — 重新开始本局">🔁</button>
+                <button type="button" class="skill-btn skill-btn--new" id="insight-new-game"
+                        title="🎮 换局 — 返回主菜单">🎮</button>
+            </div>
             <div class="block-dock" id="dock"></div>
         </div>
         <!-- 必须挂在 #app 下，勿放在 .play-stack 内：backdrop-filter 会使 fixed 相对祖先，拖动时撑出滚动条 -->
@@ -258,10 +267,6 @@
                     <button type="button" class="strategy-btn active" data-level="normal">普通</button>
                     <button type="button" class="strategy-btn" data-level="hard">困难</button>
                 </div>
-                <span class="insight-sep"></span>
-                <button type="button" class="insight-btn insight-btn--hint" id="insight-hint" title="分析盘面推荐落子">求助</button>
-                <button type="button" class="insight-btn insight-btn--new" id="insight-new-game" title="回主菜单">新局</button>
-                <button type="button" class="insight-btn insight-btn--restart" id="insight-restart" title="连战重开">重开</button>
             </div>
         </div>
         <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>

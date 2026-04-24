@@ -10,10 +10,10 @@
     /* 候选区单格显示像素；与棋盘格子等大，运行时由 syncGridDisplayPx 动态同步 */
     --dock-cell-size: 38px;
     --dock-max-shape-rows: 5;
-    /* 主棋盘画布宽度（像素）；默认 8×CELL_SIZE，运行时由 Renderer 同步 */
-    --grid-canvas-width: 304px;
+    /* 主棋盘画布宽度（像素）；10×38=380px 与 CONFIG.CELL_SIZE 对齐，运行时由 Renderer 同步 */
+    --grid-canvas-width: 380px;
     /* 盘面实际 CSS 宽度（与缩放一致）；由 renderer syncGridDisplayPx 写入 */
-    --grid-display-px: 304px;
+    --grid-display-px: 380px;
     /* 三槽候选区单行总宽（3×5×dockCell + 2×gap）；与 game.js CONFIG 一致 */
     --dock-row-width: calc(3 * var(--dock-max-shape-rows) * var(--dock-cell-size) + 20px);
     /* 游戏卡内容区宽度：至少容纳棋盘或候选行中较宽者 */
@@ -803,7 +803,7 @@ body.block-drag-active #app {
     flex: 1 1 0;
     min-height: 0;
     margin: 4px auto 0;
-    padding: 12px 12px 14px;
+    padding: 12px 4px 14px;
     border-radius: 14px;
     /* 与页面背景多混合 + 顶光渐变，略抬升的「卡」质感 */
     background:
@@ -1212,6 +1212,54 @@ body.game-rl-preview .block-dock {
 .insight-btn--new  { background: linear-gradient(135deg, #4472c4, #2f5aa0); }
 .insight-btn--restart { background: linear-gradient(135deg, #e67e22, #d35400); }
 .insight-btn:hover { filter: brightness(1.08); }
+
+/* ═══════════════════════════════════════════════════════════════════
+ * 技能包工具栏（盘面正下方、候选块上方）
+ * 小尺寸半透明毛玻璃风格，融入暗色游戏 UI
+ * ═══════════════════════════════════════════════════════════════════ */
+.skill-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 4px 0 0;
+    flex-shrink: 0;
+}
+
+.skill-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.07);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    transition: background 0.15s, transform 0.1s, filter 0.1s;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    outline: none;
+}
+
+.skill-btn:hover       { background: rgba(255,255,255,0.14); transform: translateY(-1px); }
+.skill-btn:active      { transform: translateY(1px); filter: brightness(0.9); }
+.skill-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.45); outline-offset: 2px; }
+
+/* 各按钮仅用极淡色调区分，不抢视觉 */
+.skill-btn--hint    { border-color: rgba(74,222,128,0.12); }
+.skill-btn--restart { border-color: rgba(251,146,60,0.12); }
+.skill-btn--new     { border-color: rgba(96,165,250,0.12); }
+
+@media (max-width: 480px) {
+    .skill-bar { gap: 8px; }
+    .skill-btn { width: 34px; height: 34px; font-size: 18px; }
+}
 
 .player-insight-panel .strategy-run-hint {
     margin: 0 0 4px;
@@ -2493,6 +2541,11 @@ body.game-shell-hidden .app-side-left {
 
 @media (max-width: 360px) {
     .menu-grid { grid-template-columns: 1fr; width: min(220px, calc(100vw - 48px)); }
+}
+
+/* 游戏时隐藏顶部字标 header（返回菜单由技能包 🎮 按钮承担，header 在游戏中冗余） */
+#app > .header {
+    display: none;
 }
 
 /* 游戏内菜单按钮（右上角边缘） */

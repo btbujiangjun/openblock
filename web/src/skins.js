@@ -90,8 +90,8 @@ export const SKINS = {
         name: '✨ 经典',
         boardWatermark: { icons: ['🎮', '⭐'], opacity: 0.07 },
         blockColors: [
-            '#80D455', '#5BB8F8', '#FF8830', '#FFD000',
-            '#5088F8', '#FF5040', '#FF70A0', '#AA80FF'
+            '#80D455', '#5BB8F8', '#FF9840', '#FFD820',
+            '#80A8FF', '#FF7868', '#FF98C0', '#C8A8FF'
         ],
         gridOuter: '#1C2630',
         gridCell:  '#2E3E50',
@@ -144,7 +144,7 @@ export const SKINS = {
         name: '⚡ 赛博',
         boardWatermark: { icons: ['⚡', '💻'], opacity: 0.08 },
         blockColors: [
-            '#00E8C8', '#F52885', '#8A3ED0', '#50CCF0',
+            '#00E8C8', '#F52885', '#B060F0', '#50CCF0',
             '#3B82F6', '#EC4899', '#10F5A8', '#FF2070'
         ],
         gridOuter: '#060214',
@@ -194,7 +194,7 @@ export const SKINS = {
         name: '🌃 霓虹都市',
         boardWatermark: { icons: ['🌃', '🏙️'], opacity: 0.07 },
         blockColors: [
-            '#FF2DAA', '#7C4DFF', '#00E5FF', '#76FF03',
+            '#FF2DAA', '#9B72FF', '#00E5FF', '#76FF03',
             '#FFAB40', '#FF4081', '#448AFF', '#18FFFF'
         ],
         gridOuter: '#0B0F1A',
@@ -222,6 +222,8 @@ export const SKINS = {
         id: 'ocean',
         name: '🌊 深海',
         boardWatermark: { icons: ['🦈', '🐠'], opacity: 0.07 },
+        // 深海生物：🦈鲨鱼 / 🐳蓝鲸 / 🐙章鱼 / 🦑鱿鱼 / 🐠热带鱼 / 🦞龙虾 / 🐡河豚 / 🦭海豹
+        blockIcons: ['🦈', '🐳', '🐙', '🦑', '🐠', '🦞', '🐡', '🦭'],
         blockColors: [
             '#00C8F0', '#0098C8', '#48D4E4', '#90F0FF',
             '#00E4C0', '#FFB347', '#FF7878', '#20E8FF'
@@ -327,8 +329,8 @@ export const SKINS = {
         name: '🎏 锦鲤',
         boardWatermark: { icons: ['🎏', '🐟'], opacity: 0.08 },
         blockColors: [
-            '#E42018', '#F07828', '#F0C820', '#C8D0F0',
-            '#E880A8', '#38A8B8', '#C83868', '#D0A858'
+            '#FF5040', '#F07828', '#F0C820', '#C8D0F0',
+            '#E880A8', '#38A8B8', '#F05888', '#D0A858'
         ],
         gridOuter: '#040E18',
         gridCell:  '#081C2C',
@@ -357,7 +359,7 @@ export const SKINS = {
         boardWatermark: { icons: ['🍭', '🍬'], opacity: 0.09 },
         blockColors: [
             '#FF4466', '#FF8820', '#FFD020', '#44E848',
-            '#22AAFF', '#BB44FF', '#FF44BB', '#22E8CC'
+            '#22AAFF', '#CC66FF', '#FF44BB', '#22E8CC'
         ],
         gridOuter: '#1A0828',
         gridCell:  '#280E40',
@@ -381,8 +383,8 @@ export const SKINS = {
         name: '🫧 泡泡糖',
         boardWatermark: { icons: ['🫧', '🐡'], opacity: 0.09 },
         blockColors: [
-            '#FF4FA0', '#4898F8', '#42C442', '#FFAA18',
-            '#22C87A', '#CC3EF0', '#FF6228', '#12C4E8'
+            '#FF72BB', '#4898F8', '#42C442', '#FFAA18',
+            '#22C87A', '#E060FF', '#FF8848', '#12C4E8'
         ],
         blockIcons: ['🦩', '🐳', '🐢', '🦀', '🌿', '🦑', '🦐', '🐬'],
         gridOuter: '#2A1048',
@@ -411,8 +413,8 @@ export const SKINS = {
         name: '🎨 卡通乐园',
         boardWatermark: { icons: ['🎪', '🎠'], opacity: 0.08 },
         blockColors: [
-            '#FF3B58', '#FF7F11', '#FFD600', '#00C853',
-            '#2979FF', '#AA00FF', '#FF4081', '#00BCD4'
+            '#FF5570', '#FF7F11', '#FFD600', '#00C853',
+            '#5590FF', '#DD60FF', '#FF6098', '#00BCD4'
         ],
         blockIcons: ['🐻', '🦊', '🐥', '🦁', '🦜', '🦄', '🐬', '🦋'],
         gridOuter: '#2A1860',
@@ -437,8 +439,8 @@ export const SKINS = {
         name: '👾 8位街机',
         boardWatermark: { icons: ['👾', '🕹️'], opacity: 0.09 },
         blockColors: [
-            '#E80050', '#005CF8', '#10C010', '#F8D000',
-            '#D000C8', '#00D8D0', '#F84000', '#B0F000'
+            '#FF2870', '#2878FF', '#10C010', '#F8D000',
+            '#F030E8', '#00D8D0', '#FF5818', '#B0F000'
         ],
         gridOuter: '#120800',
         gridCell:  '#2E1C0A',
@@ -471,9 +473,10 @@ export const SKINS = {
         id: 'dawn',
         name: '☀️ 晨光',
         boardWatermark: { icons: ['☀️', '🌤️'], opacity: 0.09 },
+        // 浅色盘面需用深色方块（深度饱和色，WCAG对比 ≥4.5）
         blockColors: [
-            '#E04820', '#2880E8', '#F09020', '#28A840',
-            '#A828D0', '#28C8B8', '#E03060', '#6038E8'
+            '#B02000', '#0050C0', '#A85800', '#187030',
+            '#8010B0', '#006868', '#C01040', '#4020C8'
         ],
         gridOuter: '#8A7040',
         gridCell:  '#F8F0E0',
@@ -505,9 +508,10 @@ export const SKINS = {
         id: 'macaroon',
         name: '🍬 马卡龙',
         boardWatermark: { icons: ['🍬', '🧁'], opacity: 0.09 },
+        // 浅色盘面需用深色方块（深度饱和色，WCAG对比 ≥4.5）
         blockColors: [
-            '#F04878', '#3898E8', '#F09028', '#38B850',
-            '#A040D8', '#28C8A8', '#F06858', '#8850D8'
+            '#C01860', '#0058C0', '#B06000', '#1A7830',
+            '#8020C0', '#007860', '#C02020', '#5828B0'
         ],
         gridOuter: '#A09088',
         gridCell:  '#FAF6F0',
@@ -544,8 +548,8 @@ export const SKINS = {
         name: '🍕 美食',
         boardWatermark: { icons: ['🍕', '🍔'], opacity: 0.08 },
         blockColors: [
-            '#E83020', '#F09020', '#F8D020', '#60B830',
-            '#A06030', '#D87040', '#F05878', '#9848D0'
+            '#FF5040', '#F09020', '#F8D020', '#60B830',
+            '#E09050', '#D87040', '#F05878', '#C068F0'
         ],
         blockIcons: ['🍕', '🍔', '🍜', '🍣', '🎂', '🍦', '🍩', '🥑'],
         gridOuter: '#18100A',
@@ -601,9 +605,10 @@ export const SKINS = {
         id: 'pets',
         name: '🐾 萌宠',
         boardWatermark: { icons: ['🐾', '🐶'], opacity: 0.09 },
+        // 浅色盘面需用深色方块（深度饱和色，WCAG对比 ≥4.5）
         blockColors: [
-            '#E84838', '#F09428', '#F8D030', '#48B838',
-            '#4888E8', '#D848B8', '#F87858', '#48C8C0'
+            '#B82020', '#A05800', '#7A6000', '#187020',
+            '#1050B8', '#901078', '#C02820', '#006060'
         ],
         blockIcons: ['🐶', '🐱', '🐰', '🐹', '🐸', '🦜', '🐢', '🐠'],
         gridOuter: '#C0B090',
@@ -638,7 +643,7 @@ export const SKINS = {
         boardWatermark: { icons: ['🪐', '⭐'], opacity: 0.07 },
         blockColors: [
             '#E84020', '#F09030', '#D8C820', '#3898D0',
-            '#D040D0', '#20B0C0', '#D88020', '#6040C8'
+            '#D040D0', '#20B0C0', '#D88020', '#9070F0'
         ],
         blockIcons: ['🌍', '🌙', '⭐', '🪐', '☄️', '🌠', '🔭', '🛸'],
         gridOuter: '#04020E',
@@ -667,8 +672,8 @@ export const SKINS = {
         name: '🔮 魔幻',
         boardWatermark: { icons: ['🔮', '✨'], opacity: 0.08 },
         blockColors: [
-            '#9828D8', '#2848C8', '#18B848', '#D82020',
-            '#D8A820', '#1898C8', '#C81880', '#6030B8'
+            '#CC48FF', '#5080F0', '#18B848', '#E82020',
+            '#E8B820', '#20B0D8', '#E020A0', '#9060E0'
         ],
         gridOuter: '#08041A',
         gridCell:  '#120830',
@@ -694,14 +699,14 @@ export const SKINS = {
         boardWatermark: { icons: ['🦁', '🐯'], opacity: 0.08 },
         blockIcons: ['🦁', '🐯', '🦅', '🐺', '🐆', '🐻', '🦏', '🦈'],
         blockColors: [
-            '#E8A020', // 🦁 狮子金
-            '#D86820', // 🐯 虎纹橙
-            '#3068B8', // 🦅 苍鹰蓝
-            '#A0A8C0', // 🐺 狼灰
-            '#C07828', // 🐆 豹纹铜
-            '#784028', // 🐻 棕熊棕
-            '#909898', // 🦏 犀牛铁灰
-            '#2080B8', // 🦈 鲨鱼蓝
+            '#F0A820', // 🦁 狮子金
+            '#F07030', // 🐯 虎纹橙
+            '#5090D8', // 🦅 苍鹰蓝
+            '#B0B8C8', // 🐺 狼灰
+            '#D08830', // 🐆 豹纹铜
+            '#E08050', // 🐻 棕熊铜（原深棕→亮铜，提升对比）
+            '#A0A8A8', // 🦏 犀牛铁灰
+            '#40A0D8', // 🦈 鲨鱼蓝
         ],
         gridOuter:   '#150C04',
         gridCell:    '#221608',
@@ -725,16 +730,17 @@ export const SKINS = {
         id: 'greece',
         name: '🏛️ 希腊神话',
         boardWatermark: { icons: ['🏛️', '⚡'], opacity: 0.08 },
-        blockIcons: ['⚡', '🔱', '🏛️', '🌞', '🏹', '🍇', '🦚', '💀'],
+        // 八神专属符号：⚡宙斯 / 🔱波塞冬 / 🦉雅典娜 / ☀️阿波罗 / 🌙阿尔忒弥斯 / 🍇狄俄尼索斯 / 🌺阿芙罗狄忒 / ☠️哈迪斯
+        blockIcons: ['⚡', '🔱', '🦉', '☀️', '🌙', '🍇', '🌺', '☠️'],
         blockColors: [
             '#E8C030', // ⚡ 宙斯（雷霆金）
-            '#2880D8', // 🔱 波塞冬（海洋蓝）
+            '#4898E8', // 🔱 波塞冬（海洋蓝，加亮）
             '#90C040', // 🏛️ 雅典娜（橄榄绿）
             '#F07828', // 🌞 阿波罗（烈日橙）
             '#90B8D8', // 🏹 阿尔忒弥斯（月光银蓝）
-            '#9828B8', // 🍇 狄俄尼索斯（葡萄紫）
+            '#D050E8', // 🍇 狄俄尼索斯（明亮葡萄紫）
             '#20A8B8', // 🦚 赫拉（孔雀青）
-            '#4838B8', // 💀 哈迪斯（冥界深蓝）
+            '#7860E0', // 💀 哈迪斯（明亮冥界蓝）
         ],
         gridOuter:   '#08080E',
         gridCell:    '#10101C',
@@ -757,15 +763,17 @@ export const SKINS = {
         id: 'demon',
         name: '😈 恶魔',
         boardWatermark: { icons: ['😈', '💀'], opacity: 0.08 },
+        // 小鬼主题：😈恶魔 / 👿愤怒小鬼 / 💀骷髅 / ☠️毒骷髅 / 🔥地狱火 / 🦇蝙蝠 / ⚔️恶魔之刃 / 🕷️毒蛛
+        blockIcons: ['😈', '👿', '💀', '☠️', '🔥', '🦇', '⚔️', '🕷️'],
         blockColors: [
-            '#D81818', // 地狱红
-            '#E89020', // 硫磺黄
-            '#8818D0', // 暗魔紫
-            '#E83020', // 鲜血橙
-            '#E0A0D8', // 幽灵粉
-            '#6040A8', // 深影紫
-            '#AA1040', // 深红
-            '#20C840', // 毒液绿
+            '#F03030', // 地狱红（加亮）
+            '#F0A020', // 硫磺黄
+            '#CC40FF', // 暗魔紫（加亮为明亮紫）
+            '#FF5030', // 鲜血橙（加亮）
+            '#E8A0D8', // 幽灵粉
+            '#9870D8', // 深影紫（加亮）
+            '#E03060', // 深红（加亮）
+            '#20D848', // 毒液绿
         ],
         gridOuter:   '#0A0412',
         gridCell:    '#180828',
@@ -789,16 +797,17 @@ export const SKINS = {
         id: 'jurassic',
         name: '🦕 侏罗纪',
         boardWatermark: { icons: ['🦕', '🦖'], opacity: 0.08 },
-        blockIcons: ['🦕', '🦖', '🐊', '🦎', '🥚', '🌿', '🌋', '💎'],
+        // 全恐龙/远古爬行类：🦕腕龙 / 🦖霸王龙 / 🐉翼龙 / 🦎迅猛龙 / 🐊棘龙 / 🐍蛇颈龙 / 🐢海龟 / 🦖暴龙
+        blockIcons: ['🦕', '🦖', '🐉', '🦎', '🐊', '🐍', '🐢', '🦖'],
         blockColors: [
-            '#4AA828', // 🦕 蜥脚类绿（植食巨兽）
-            '#D84020', // 🦖 霸王龙红（顶级掠食者）
-            '#70A048', // 🐊 鳄鱼橄榄绿
-            '#98C838', // 🦎 蜥蜴亮绿
-            '#E8C040', // 🥚 恐龙蛋琥珀黄
-            '#289858', // 🌿 蕨类深绿
-            '#D06020', // 🌋 火山橙（熔浆）
-            '#D0A828', // 💎 琥珀金（化石）
+            '#50C030', // 🦕 腕龙绿（植食巨兽，加亮）
+            '#F05030', // 🦖 霸王龙红（顶级掠食者，加亮）
+            '#9060F0', // 🐉 翼龙紫（天空霸主，加亮）
+            '#A8D840', // 🦎 迅猛龙亮绿（疾速猎手）
+            '#80B850', // 🐊 棘龙橄榄（水陆两栖）
+            '#30A8B8', // 🐍 蛇颈龙青（深海游弋）
+            '#D0A030', // 🦴 化石琥珀（远古遗骸）
+            '#F0C840', // 🥚 恐龙蛋金黄（生命起源）
         ],
         gridOuter:   '#080E04',
         gridCell:    '#101A08',
@@ -813,6 +822,39 @@ export const SKINS = {
             '--accent-color': '#5AC030',
             '--accent-dark':  '#80E050',
             '--h1-color':     '#B0F060'
+        }
+    },
+
+    // 主题：花仙子（精灵·花卉·魔法，少女清新风，每色对应一种花灵 icon）
+    // 🧚花仙子 / 🌸樱花精 / 🦋蝶仙 / 🌺玫瑰精 / 🌷郁金香 / ✨魔法星 / 🍄蘑菇精 / 🌈彩虹灵
+    fairy: {
+        id: 'fairy',
+        name: '🧚 花仙子',
+        boardWatermark: { icons: ['🧚', '🌸'], opacity: 0.08 },
+        blockIcons: ['🧚', '🌸', '🦋', '🌺', '🌷', '✨', '🍄', '🌈'],
+        blockColors: [
+            '#D060F0', // 🧚 花仙子紫（精灵）
+            '#F060A0', // 🌸 樱花粉（浪漫）
+            '#60A0F8', // 🦋 蝶翼蓝（自由）
+            '#F07060', // 🌺 玫瑰珊瑚（热情）
+            '#F040A0', // 🌷 郁金香玫红
+            '#F0D830', // ✨ 魔法金（星光）
+            '#F09040', // 🍄 蘑菇橙（童话）
+            '#40D0E8', // 🌈 彩虹青（梦幻）
+        ],
+        gridOuter:   '#100820',
+        gridCell:    '#1A1030',
+        gridGap:     1,
+        blockInset:  2,
+        blockRadius: 9,
+        blockStyle:  'glass',
+        clearFlash:  'rgba(240,150,240,0.52)',
+        cssBg:       '#0C0618',
+        uiDark:      true,
+        cssVars: {
+            '--accent-color': '#D060F0',
+            '--accent-dark':  '#E890FF',
+            '--h1-color':     '#F0B8FF'
         }
     },
 };
