@@ -100,24 +100,24 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 
     if (skin.blockStyle === 'glass') {
-        ctx.save();
-        if (r > 0) {
-            roundRectPath(ctx, bx, by, size, size, r);
-            ctx.clip();
-        }
-        const vg = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + cellS);
-        vg.addColorStop(0, lightenColor(color, 0.22));
+        // 主色渐变 — 直接 fill 圆角路径，获得原生路径抗锯齿
+        const vg = ctx.createLinearGradient(bx, by, bx, by + size);
+        vg.addColorStop(0,   lightenColor(color, 0.22));
         vg.addColorStop(0.4, color);
-        vg.addColorStop(1, darkenColor(color, 0.06));
+        vg.addColorStop(1,   darkenColor(color, 0.06));
         ctx.fillStyle = vg;
-        ctx.fillRect(bx, by, size, size);
-        const hl = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + size * 0.58);
-        hl.addColorStop(0, 'rgba(255,255,255,0.5)');
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
+
+        // 顶部高光：渐变在 58% 处淡出，直接 fill 同一路径（不再 clip + fillRect）
+        const hl = ctx.createLinearGradient(bx, by, bx, by + size);
+        hl.addColorStop(0,    'rgba(255,255,255,0.50)');
         hl.addColorStop(0.28, 'rgba(255,255,255,0.14)');
-        hl.addColorStop(1, 'rgba(255,255,255,0)');
+        hl.addColorStop(0.58, 'rgba(255,255,255,0.00)');
+        hl.addColorStop(1,    'rgba(255,255,255,0.00)');
         ctx.fillStyle = hl;
-        ctx.fillRect(bx, by, size, size * 0.58);
-        ctx.restore();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
         ctx.strokeStyle = skin.uiDark ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.32)';
         ctx.lineWidth = 1.15;
@@ -127,7 +127,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         } else {
             ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
         }
-        ctx.strokeStyle = skin.uiDark ? 'rgba(0,0,0,0.1)' : 'rgba(15,23,42,0.2)';
+        ctx.strokeStyle = skin.uiDark ? 'rgba(0,0,0,0.10)' : 'rgba(15,23,42,0.20)';
         ctx.lineWidth = 1;
         if (r > 0) {
             roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
@@ -137,22 +137,18 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 
     if (skin.blockStyle === 'metal') {
-        ctx.save();
-        if (r > 0) {
-            roundRectPath(ctx, bx, by, size, size, r);
-            ctx.clip();
-        }
-        const mg = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + cellS);
-        mg.addColorStop(0, lightenColor(color, 0.32));
+        // 金属拉丝渐变 — 直接 fill 圆角路径
+        const mg = ctx.createLinearGradient(bx, by, bx, by + size);
+        mg.addColorStop(0,    lightenColor(color, 0.32));
         mg.addColorStop(0.12, darkenColor(color, 0.08));
         mg.addColorStop(0.42, lightenColor(color, 0.18));
         mg.addColorStop(0.48, lightenColor(color, 0.38));
         mg.addColorStop(0.54, darkenColor(color, 0.06));
         mg.addColorStop(0.78, lightenColor(color, 0.08));
-        mg.addColorStop(1, darkenColor(color, 0.28));
+        mg.addColorStop(1,    darkenColor(color, 0.28));
         ctx.fillStyle = mg;
-        ctx.fillRect(bx, by, size, size);
-        ctx.restore();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
         ctx.strokeStyle = 'rgba(255,255,255,0.55)';
         ctx.lineWidth = 1.2;
@@ -171,58 +167,52 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
 
     /* ── cartoon（晶莹透亮版）────────────────────────────────────────── */
     if (skin.blockStyle === 'cartoon') {
-        ctx.save();
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.clip();
-
-        // 1. 上浅下稍暗的主色渐变（取代纯平填，立体感更自然）
+        // 1. 主色渐变 — 直接 fill 圆角路径，原生路径抗锯齿，彻底消除毛边
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
         baseG.addColorStop(0,    lightenColor(color, 0.22));
         baseG.addColorStop(0.50, color);
         baseG.addColorStop(1,    darkenColor(color, 0.14));
         ctx.fillStyle = baseG;
-        ctx.fillRect(bx, by, size, size);
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
-        // 2. 顶部大面积磨砂白覆层（晶莹感核心，占 50%）
-        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.52);
+        // 2. 顶部磨砂白：渐变在 52% 处淡出为透明，直接 fill 同一路径（不再 clip）
+        const hlG = ctx.createLinearGradient(bx, by, bx, by + size);
         hlG.addColorStop(0,    'rgba(255,255,255,0.68)');
         hlG.addColorStop(0.40, 'rgba(255,255,255,0.24)');
+        hlG.addColorStop(0.52, 'rgba(255,255,255,0.00)');
         hlG.addColorStop(1,    'rgba(255,255,255,0.00)');
         ctx.fillStyle = hlG;
-        ctx.fillRect(bx, by, size, size * 0.52);
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
-        // 3. 微弱底部暗角（增强立体感）
-        const btG = ctx.createLinearGradient(bx, by + size * 0.70, bx, by + size);
-        btG.addColorStop(0, 'rgba(0,0,0,0.00)');
-        btG.addColorStop(1, 'rgba(0,0,0,0.14)');
+        // 3. 底部暗角：渐变在 70% 前透明，直接 fill 同一路径
+        const btG = ctx.createLinearGradient(bx, by, bx, by + size);
+        btG.addColorStop(0.68, 'rgba(0,0,0,0.00)');
+        btG.addColorStop(1,    'rgba(0,0,0,0.14)');
         ctx.fillStyle = btG;
-        ctx.fillRect(bx, by + size * 0.70, size, size * 0.30);
-
-        ctx.restore();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
         // 4. 亮色内边框（玻璃折射边缘）
-        ctx.strokeStyle = 'rgba(255,255,255,0.60)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.62)';
         ctx.lineWidth = 1.2;
         roundRectPath(ctx, bx + 0.6, by + 0.6, size - 1.2, size - 1.2, Math.max(0, r - 0.6));
         ctx.stroke();
 
-        // 5. 柔和暗色外框（轻量定界，非粗黑线）
-        ctx.strokeStyle = 'rgba(30,15,60,0.32)';
+        // 5. 柔和暗色外框
+        ctx.strokeStyle = 'rgba(30,15,60,0.30)';
         ctx.lineWidth = 1;
         roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
         ctx.stroke();
 
-        // 6. 左上角高光光斑（点睛）
+        // 6. 左上角高光光斑（位置在内部，无需 clip）
         const sr = size * 0.09;
-        ctx.save();
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.clip();
         ctx.fillStyle = 'rgba(255,255,255,0.88)';
         ctx.beginPath();
         ctx.ellipse(bx + size * 0.27, by + size * 0.23,
             sr * 2.0, sr, -Math.PI / 4.5, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
 
         // 7. emoji icon
         _paintIcon(ctx, bx, by, size, r, color, skin);
@@ -235,35 +225,37 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         const { r: cr, g: cg, b: cb } = rgb;
         const m = Math.min;
 
-        ctx.save();
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.clip();
-
-        // 1. 不透明主色渐变（饱和底色，让颜色在磨砂层下依然可见）
+        // 1. 不透明主色渐变 — 直接 fill 圆角路径，原生路径抗锯齿
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
         baseG.addColorStop(0,    `rgba(${m(cr+24,255)},${m(cg+24,255)},${m(cb+24,255)},1.0)`);
         baseG.addColorStop(0.50, `rgba(${cr},${cg},${cb},1.0)`);
         baseG.addColorStop(1,    `rgba(${Math.max(cr-12,0)},${Math.max(cg-12,0)},${Math.max(cb-12,0)},1.0)`);
         ctx.fillStyle = baseG;
-        ctx.fillRect(bx, by, size, size);
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
-        // 2. 顶部磨砂白覆层（仅覆盖 50%，保留底部颜色区域供 emoji 显示）
-        //    降低顶部 alpha（0.58 → 0.68，在饱和色上看起来晶莹而不"洗白"）
-        const hlG = ctx.createLinearGradient(bx, by, bx, by + size * 0.52);
+        // 2. 顶部磨砂白：渐变在 52% 处淡出，直接 fill（不再 clip）
+        const hlG = ctx.createLinearGradient(bx, by, bx, by + size);
         hlG.addColorStop(0,    'rgba(255,255,255,0.60)');
         hlG.addColorStop(0.38, 'rgba(255,255,255,0.20)');
+        hlG.addColorStop(0.52, 'rgba(255,255,255,0.00)');
         hlG.addColorStop(1,    'rgba(255,255,255,0.00)');
         ctx.fillStyle = hlG;
-        ctx.fillRect(bx, by, size, size * 0.52);
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
-        // 3. 底部微弱暗角（增强立体感，也让 emoji 区域与顶部产生自然对比）
-        const btG = ctx.createLinearGradient(bx, by + size * 0.65, bx, by + size);
-        btG.addColorStop(0, 'rgba(0,0,0,0.00)');
-        btG.addColorStop(1, 'rgba(0,0,0,0.12)');
+        // 3. 底部暗角：渐变在 65% 前透明，直接 fill
+        const btG = ctx.createLinearGradient(bx, by, bx, by + size);
+        btG.addColorStop(0.63, 'rgba(0,0,0,0.00)');
+        btG.addColorStop(1,    'rgba(0,0,0,0.12)');
         ctx.fillStyle = btG;
-        ctx.fillRect(bx, by + size * 0.65, size, size * 0.35);
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
-        // 4. 径向内发光（珍珠光泽）
+        // 4. 径向内发光（珍珠光泽）— clip 限制在内部，不影响外边缘
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
         const rg = ctx.createRadialGradient(
             bx + size * 0.50, by + size * 0.32, 0,
             bx + size * 0.50, by + size * 0.50, size * 0.55
@@ -272,7 +264,6 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         rg.addColorStop(1, 'rgba(0,0,0,0.00)');
         ctx.fillStyle = rg;
         ctx.fillRect(bx, by, size, size);
-
         ctx.restore();
 
         // 5. 亮色内描边（玻璃折射边缘）
@@ -281,25 +272,21 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         roundRectPath(ctx, bx + 0.9, by + 0.9, size - 1.8, size - 1.8, Math.max(0, r - 0.9));
         ctx.stroke();
 
-        // 6. 深色细轮廓（让方块在浅色背景上有清晰边界）
+        // 6. 深色细轮廓
         ctx.strokeStyle = `rgba(${Math.max(cr-60,0)},${Math.max(cg-60,0)},${Math.max(cb-60,0)},0.30)`;
         ctx.lineWidth = 1;
         roundRectPath(ctx, bx + 1.5, by + 1.5, size - 3, size - 3, Math.max(0, r - 1.5));
         ctx.stroke();
 
-        // 7. 左上角高光光斑
+        // 7. 左上角高光光斑（位置在内部，无需 clip）
         const sr = size * 0.08;
-        ctx.save();
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.clip();
         ctx.fillStyle = 'rgba(255,255,255,0.92)';
         ctx.beginPath();
         ctx.ellipse(bx + size * 0.26, by + size * 0.22,
             sr * 2.2, sr, -Math.PI / 4.2, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
 
-        // 6. emoji icon
+        // 8. emoji icon
         _paintIcon(ctx, bx, by, size, r, color, skin);
         return;
     }
@@ -349,18 +336,14 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 
     if (skin.blockStyle === 'neon') {
-        const g = ctx.createLinearGradient(cellPx, cellPy, cellPx + cellS, cellPy);
-        g.addColorStop(0, lightenColor(color, 0.1));
+        // 主色渐变 — 直接 fill 圆角路径
+        const g = ctx.createLinearGradient(bx, by, bx + size, by);
+        g.addColorStop(0,    lightenColor(color, 0.10));
         g.addColorStop(0.45, color);
-        g.addColorStop(1, darkenColor(color, 0.18));
-        ctx.save();
-        if (r > 0) {
-            roundRectPath(ctx, bx, by, size, size, r);
-            ctx.clip();
-        }
+        g.addColorStop(1,    darkenColor(color, 0.18));
         ctx.fillStyle = g;
-        ctx.fillRect(bx, by, size, size);
-        ctx.restore();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
 
         ctx.strokeStyle = lightenColor(color, 0.22);
         ctx.lineWidth = 1.5;
@@ -371,39 +354,34 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
         }
 
-        ctx.save();
-        if (r > 0) {
-            roundRectPath(ctx, bx, by, size, size, r);
-            ctx.clip();
-        }
-        const hl = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + size * 0.48);
-        hl.addColorStop(0, 'rgba(255,255,255,0.28)');
-        hl.addColorStop(1, 'rgba(255,255,255,0)');
+        // 顶部高光：渐变在 48% 处淡出，直接 fill（不再 clip）
+        const hl = ctx.createLinearGradient(bx, by, bx, by + size);
+        hl.addColorStop(0,    'rgba(255,255,255,0.28)');
+        hl.addColorStop(0.48, 'rgba(255,255,255,0.00)');
+        hl.addColorStop(1,    'rgba(255,255,255,0.00)');
         ctx.fillStyle = hl;
-        ctx.fillRect(bx, by, size, size * 0.48);
-        ctx.restore();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
         return;
     }
 
-    // glossy
-    ctx.save();
-    if (r > 0) {
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.clip();
-    }
-    const gradient = ctx.createLinearGradient(cellPx, cellPy, cellPx + cellS, cellPy);
-    gradient.addColorStop(0, darkenColor(color, 0.15));
+    // glossy — 所有层均直接 fill 圆角路径，消除 clip 毛边
+    const gradient = ctx.createLinearGradient(bx, by, bx + size, by);
+    gradient.addColorStop(0,   darkenColor(color, 0.15));
     gradient.addColorStop(0.2, color);
     gradient.addColorStop(0.5, lightenColor(color, 0.15));
-    gradient.addColorStop(1, darkenColor(color, 0.2));
+    gradient.addColorStop(1,   darkenColor(color, 0.20));
     ctx.fillStyle = gradient;
-    ctx.fillRect(bx, by, size, size);
-    const hl = ctx.createLinearGradient(cellPx, cellPy, cellPx, cellPy + size * 0.5);
-    hl.addColorStop(0, 'rgba(255,255,255,0.5)');
-    hl.addColorStop(1, 'rgba(255,255,255,0)');
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.fill();
+
+    const hl = ctx.createLinearGradient(bx, by, bx, by + size);
+    hl.addColorStop(0,   'rgba(255,255,255,0.50)');
+    hl.addColorStop(0.50,'rgba(255,255,255,0.00)');
+    hl.addColorStop(1,   'rgba(255,255,255,0.00)');
     ctx.fillStyle = hl;
-    ctx.fillRect(bx, by, size, size * 0.5);
-    ctx.restore();
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.fill();
 
     const tri = Math.max(2, size * 0.12);
     ctx.fillStyle = 'rgba(255,255,255,0.55)';

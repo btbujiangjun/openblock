@@ -64,353 +64,125 @@ export const CLASSIC_PALETTE = [
  * }} Skin
  */
 
+/**
+ * 皮肤总量：15 款
+ * 盘面设计基准：参考 neonCity —— gridOuter（极深）+ gridCell（深色可见空格）
+ * 方块须与 gridCell 形成明显明度/色相反差。
+ *
+ * 合并历史：
+ *   cosmos  → cyber        frost / arctic → aurora
+ *   midnight→ neonCity     pastel         → candy
+ *   retro   → pixel8       jungle         → toon
+ *   sage / terra / wood / cozy             → 移除
+ */
 /** @type {Record<string, Skin>} */
 export const SKINS = {
+
+    /* ══════════════════════════════════════════
+     *  基础 / 经典
+     * ══════════════════════════════════════════ */
+
+    /** 经典：高饱和积木配色，深色中性盘面突显鲜亮方块 */
     classic: {
         id: 'classic',
         name: '✨ 经典',
-        blockColors: [...CLASSIC_PALETTE],
-        gridOuter: '#D0D9E2',
-        gridCell: '#E2E9F0',
+        blockColors: [
+            '#80D455', '#5BB8F8', '#FF8830', '#FFD000',
+            '#5088F8', '#FF5040', '#FF70A0', '#AA80FF'
+        ],
+        gridOuter: '#1C2630',
+        gridCell:  '#2E3E50',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 5,
         blockStyle: 'glossy',
-        clearFlash: 'rgba(255,255,255,0.90)',
-        cssBg: '#EDF1F5'
+        clearFlash: 'rgba(220,240,255,0.90)',
+        cssBg: '#141C24',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#5BB8F8',
+            '--accent-dark':  '#80D455',
+            '--h1-color':     '#C0E0FF'
+        }
     },
+
+    /** 钛晶：蓝灰金属质感，极深冷色盘面烘托金属光泽 */
     titanium: {
         id: 'titanium',
         name: '💎 钛晶',
         blockColors: [
-            '#6A9ED4', '#94ADCF', '#78A8DB', '#A3BDE0',
-            '#88C0E0', '#7DAAD2', '#B4C8DC', '#8DA6C8'
+            '#6AAEE8', '#94BDDF', '#78B8EB', '#A8CCF0',
+            '#88D0F0', '#7DBAE2', '#B4D8EC', '#8DB6D8'
         ],
-        gridOuter: '#1a2030',
-        gridCell: '#252e40',
+        gridOuter: '#0A1020',
+        gridCell:  '#182030',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 5,
         blockStyle: 'metal',
-        clearFlash: 'rgba(200, 220, 245, 0.42)',
-        cssBg: '#111820',
+        clearFlash: 'rgba(200,220,245,0.42)',
+        cssBg: '#080C18',
         uiDark: true,
         cssVars: {
             '--accent-color': '#7eb8ff',
-            '--accent-dark': '#a5d8ff',
-            '--h1-color': '#cfe8ff'
+            '--accent-dark':  '#a5d8ff',
+            '--h1-color':     '#cfe8ff'
         }
     },
+
+    /* ══════════════════════════════════════════
+     *  暗色科技
+     * ══════════════════════════════════════════ */
+
+    /** 赛博（整合星域）：高压电光 + 宇宙粒子，极暗底色 */
     cyber: {
         id: 'cyber',
         name: '⚡ 赛博',
         blockColors: [
             '#00E8C8', '#F52885', '#8A3ED0', '#50CCF0',
-            '#C040B0', '#5098EF', '#10F5A8', '#FF2070'
+            '#3B82F6', '#EC4899', '#10F5A8', '#FF2070'
         ],
-        gridOuter: '#0e0424',
-        gridCell: '#18103A',
+        gridOuter: '#060214',
+        gridCell:  '#0C0826',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 5,
         blockStyle: 'neon',
-        clearFlash: 'rgba(80, 204, 240, 0.38)',
-        cssBg: '#0A0320',
+        clearFlash: 'rgba(80,204,240,0.38)',
+        cssBg: '#04010E',
         uiDark: true,
         cssVars: {
             '--accent-color': '#50CCF0',
-            '--accent-dark': '#00E8C8',
-            '--h1-color': '#F52885'
+            '--accent-dark':  '#00E8C8',
+            '--h1-color':     '#F52885'
         }
     },
+
+    /** 极光（整合极地）：冰川极光玻璃感，深海蓝底 */
     aurora: {
         id: 'aurora',
         name: '🌌 极光',
         blockColors: [
             '#5AD8CC', '#8070F0', '#AA90FA', '#38D89E',
-            '#28D8F0', '#8590F8', '#C488FC', '#35D8C0'
+            '#28D8F0', '#8590F8', '#C488FC', '#60C8FF'
         ],
-        gridOuter: '#0E1C30',
-        gridCell: '#162E44',
+        gridOuter: '#04101C',
+        gridCell:  '#0C1C2E',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 6,
         blockStyle: 'glass',
-        clearFlash: 'rgba(170, 245, 210, 0.38)',
-        cssBg: '#0A1624',
+        clearFlash: 'rgba(170,245,210,0.38)',
+        cssBg: '#020C18',
         uiDark: true,
         cssVars: {
             '--accent-color': '#38D89E',
-            '--accent-dark': '#72EAB8',
-            '--h1-color': '#A8F4FC'
+            '--accent-dark':  '#72EAB8',
+            '--h1-color':     '#A8F4FC'
         }
     },
-    cosmos: {
-        id: 'cosmos',
-        name: '🌠 星域',
-        blockColors: [
-            '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6',
-            '#f59e0b', '#6366f1', '#ef4444', '#22d3ee'
-        ],
-        gridOuter: '#050814',
-        gridCell: '#0f172a',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 5,
-        blockStyle: 'neon',
-        clearFlash: 'rgba(147, 197, 253, 0.3)',
-        cssBg: '#030712',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#818cf8',
-            '--accent-dark': '#a5b4fc',
-            '--h1-color': '#e0e7ff'
-        }
-    },
-    frost: {
-        id: 'frost',
-        name: '❄️ 雾霜',
-        blockColors: [
-            '#5898D8', '#7098DC', '#9088DC', '#48C0A0',
-            '#E8B030', '#E088B0', '#48A8E8', '#A088DC'
-        ],
-        gridOuter: '#98A8BC',
-        gridCell: '#F6F8FC',
-        gridLine: 'rgba(50, 65, 85, 0.18)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 7,
-        blockStyle: 'glass',
-        clearFlash: 'rgba(255,255,255,0.92)',
-        cssBg: '#EEF2F8'
-    },
-    sage: {
-        id: 'sage',
-        name: '🌿 森雾',
-        blockColors: [
-            '#58986A', '#78B088', '#489078', '#88C098',
-            '#60B870', '#7CC090', '#389070', '#98CCA8'
-        ],
-        gridOuter: '#A8C0B0',
-        gridCell: '#F2F9F5',
-        gridLine: 'rgba(45, 74, 58, 0.16)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 6,
-        blockStyle: 'glossy',
-        clearFlash: 'rgba(255,255,255,0.90)',
-        cssBg: '#ECF4EE',
-        cssVars: {
-            '--accent-color': '#60A088',
-            '--accent-dark': '#408868',
-            '--h1-color': '#306050'
-        }
-    },
-    midnight: {
-        id: 'midnight',
-        name: '🌙 午夜',
-        blockColors: [
-            '#34D47A', '#3CA0E0', '#E88828', '#F4CC18',
-            '#60B4E8', '#EC5040', '#A460C0', '#20C8A0'
-        ],
-        gridOuter: '#1C2028',
-        gridCell: '#282C36',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 5,
-        blockStyle: 'neon',
-        clearFlash: 'rgba(240, 244, 248, 0.38)',
-        cssBg: '#14161E',
-        uiDark: true
-    },
-    pastel: {
-        id: 'pastel',
-        name: '🍬 马卡龙',
-        blockColors: [
-            '#6AD4A8', '#62C0DC', '#F0B070', '#F08078',
-            '#90A0E0', '#A8D078', '#F0A098', '#C090D0'
-        ],
-        gridOuter: '#A8A098',
-        gridCell: '#FAF8F6',
-        gridLine: 'rgba(60, 50, 40, 0.16)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 7,
-        blockStyle: 'flat',
-        clearFlash: 'rgba(255,255,255,0.88)',
-        cssBg: '#F0EBE4'
-    },
-    retro: {
-        id: 'retro',
-        name: '🕹️ 像素',
-        blockColors: [
-            '#08D060', '#3068FF', '#FF7808', '#FFD800',
-            '#9880FF', '#F04880', '#FF5858', '#E448FF'
-        ],
-        gridOuter: '#2A363E',
-        gridCell: '#3A4A54',
-        gridGap: 2,
-        blockInset: 1,
-        blockRadius: 0,
-        blockStyle: 'flat',
-        clearFlash: '#EEF2F4',
-        cssBg: '#1E2830',
-        uiDark: true
-    },
-    candy: {
-        id: 'candy',
-        name: '🍭 糖果',
-        blockColors: [
-            '#FF6B8A', '#FFA64D', '#FFD84D', '#7ED87E',
-            '#5CB8FF', '#C47DFF', '#FF85B3', '#50E0C0'
-        ],
-        gridOuter: '#E8D0C8',
-        gridCell: '#FFF8F4',
-        gridLine: 'rgba(180, 140, 120, 0.18)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 8,
-        blockStyle: 'glossy',
-        clearFlash: 'rgba(255, 240, 245, 0.92)',
-        cssBg: '#FFF0EC',
-        cssVars: {
-            '--accent-color': '#FF6B8A',
-            '--accent-dark': '#E05070',
-            '--h1-color': '#D04870'
-        }
-    },
-    ocean: {
-        id: 'ocean',
-        name: '🌊 深海',
-        blockColors: [
-            '#00B4D8', '#0090B0', '#48CAE4', '#90E0EF',
-            '#00D4AA', '#FFB347', '#FF6B6B', '#ADE8F4'
-        ],
-        gridOuter: '#0A2A3C',
-        gridCell: '#143848',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 6,
-        blockStyle: 'glass',
-        clearFlash: 'rgba(144, 224, 239, 0.35)',
-        cssBg: '#081E2C',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#48CAE4',
-            '--accent-dark': '#90E0EF',
-            '--h1-color': '#ADE8F4'
-        }
-    },
-    sunset: {
-        id: 'sunset',
-        name: '🌅 日落',
-        blockColors: [
-            '#FF6F61', '#FF9A56', '#FFCC5C', '#88D8B0',
-            '#6C8EBF', '#C47ACA', '#FF8FA0', '#FFA86A'
-        ],
-        gridOuter: '#2C1B30',
-        gridCell: '#3A2840',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 6,
-        blockStyle: 'glossy',
-        clearFlash: 'rgba(255, 200, 150, 0.40)',
-        cssBg: '#201424',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#FF9A56',
-            '--accent-dark': '#FFCC5C',
-            '--h1-color': '#FFDAB9'
-        }
-    },
-    lava: {
-        id: 'lava',
-        name: '🔥 熔岩',
-        blockColors: [
-            '#FF4040', '#FF6830', '#FF9020', '#FFB818',
-            '#E05040', '#D03060', '#FF7848', '#FFA030'
-        ],
-        gridOuter: '#1A0C08',
-        gridCell: '#2C1810',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 4,
-        blockStyle: 'metal',
-        clearFlash: 'rgba(255, 180, 80, 0.40)',
-        cssBg: '#120808',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#FF6830',
-            '--accent-dark': '#FFB818',
-            '--h1-color': '#FFD0A0'
-        }
-    },
-    sakura: {
-        id: 'sakura',
-        name: '🌸 樱花',
-        blockColors: [
-            '#F8A0B8', '#E88098', '#F0C0D0', '#B8D8A8',
-            '#A0C8E8', '#D0A0E0', '#F0B0C8', '#C8E0B0'
-        ],
-        gridOuter: '#C8B0B8',
-        gridCell: '#FFF4F8',
-        gridLine: 'rgba(180, 100, 130, 0.14)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 8,
-        blockStyle: 'glass',
-        clearFlash: 'rgba(255, 230, 240, 0.90)',
-        cssBg: '#F8EEF2',
-        cssVars: {
-            '--accent-color': '#E88098',
-            '--accent-dark': '#D06080',
-            '--h1-color': '#C05878'
-        }
-    },
-    arctic: {
-        id: 'arctic',
-        name: '🧊 极地',
-        blockColors: [
-            '#60C8FF', '#80A8FF', '#A0D8F8', '#40E0D0',
-            '#70B0FF', '#98C8FF', '#50D0E8', '#B0E0F8'
-        ],
-        gridOuter: '#101828',
-        gridCell: '#1A2838',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 5,
-        blockStyle: 'glass',
-        clearFlash: 'rgba(160, 216, 248, 0.35)',
-        cssBg: '#0C1420',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#60C8FF',
-            '--accent-dark': '#A0D8F8',
-            '--h1-color': '#D0ECFF'
-        }
-    },
-    terra: {
-        id: 'terra',
-        name: '🏺 陶土',
-        blockColors: [
-            '#C87850', '#D4986C', '#B06840', '#D8B090',
-            '#A88060', '#C09070', '#E0A878', '#B89878'
-        ],
-        gridOuter: '#8C7868',
-        gridCell: '#F8F0E8',
-        gridLine: 'rgba(100, 70, 50, 0.16)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 5,
-        blockStyle: 'flat',
-        clearFlash: 'rgba(255, 248, 230, 0.88)',
-        cssBg: '#EDE4D8',
-        cssVars: {
-            '--accent-color': '#C87850',
-            '--accent-dark': '#A06038',
-            '--h1-color': '#784830'
-        }
-    },
+
+    /** 霓虹都市（整合午夜，盘面基准参考款）：RGB 霓虹灯光压近黑底 */
     neonCity: {
         id: 'neonCity',
         name: '🌃 霓虹都市',
@@ -419,26 +191,207 @@ export const SKINS = {
             '#FFAB40', '#FF4081', '#448AFF', '#18FFFF'
         ],
         gridOuter: '#0B0F1A',
-        gridCell: '#151C2E',
+        gridCell:  '#151C2E',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 5,
         blockStyle: 'neon',
-        clearFlash: 'rgba(0, 229, 255, 0.35)',
+        clearFlash: 'rgba(0,229,255,0.35)',
         cssBg: '#080C16',
         uiDark: true,
         cssVars: {
             '--accent-color': '#00E5FF',
-            '--accent-dark': '#76FF03',
-            '--h1-color': '#FF2DAA'
+            '--accent-dark':  '#76FF03',
+            '--h1-color':     '#FF2DAA'
         }
     },
 
-    /* ============================================================
-     *  卡通 / 趣味系列（新增）
-     * ============================================================ */
+    /* ══════════════════════════════════════════
+     *  自然元素
+     * ══════════════════════════════════════════ */
 
-    /** 卡通乐园：鲜艳原色 + 柔和描边 + 小动物 icon */
+    /** 深海：珊瑚 / 荧光鱼 / 海水青，深渊暗底 */
+    ocean: {
+        id: 'ocean',
+        name: '🌊 深海',
+        blockColors: [
+            '#00C8F0', '#0098C8', '#48D4E4', '#90F0FF',
+            '#00E4C0', '#FFB347', '#FF7878', '#20E8FF'
+        ],
+        gridOuter: '#040E18',
+        gridCell:  '#081C28',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(144,224,239,0.35)',
+        cssBg: '#020A14',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#48CAE4',
+            '--accent-dark':  '#90E0EF',
+            '--h1-color':     '#ADE8F4'
+        }
+    },
+
+    /** 日落：黄金 / 橙红 / 玫瑰紫暖色系，暮光深紫底 */
+    sunset: {
+        id: 'sunset',
+        name: '🌅 日落',
+        blockColors: [
+            '#FF7761', '#FF9A56', '#FFCC5C', '#88D8B0',
+            '#8098CF', '#D478CA', '#FF8FA0', '#FFB870'
+        ],
+        gridOuter: '#160A14',
+        gridCell:  '#261424',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'glossy',
+        clearFlash: 'rgba(255,200,150,0.40)',
+        cssBg: '#0E0610',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#FF9A56',
+            '--accent-dark':  '#FFCC5C',
+            '--h1-color':     '#FFDAB9'
+        }
+    },
+
+    /** 熔岩：火红 / 橙黄熔浆，焦炭暗底（改 glossy 更贴近流体感） */
+    lava: {
+        id: 'lava',
+        name: '🔥 熔岩',
+        blockColors: [
+            '#FF4040', '#FF6830', '#FF9020', '#FFB818',
+            '#E84040', '#FF3868', '#FF7848', '#FFA830'
+        ],
+        gridOuter: '#0E0604',
+        gridCell:  '#1E0C08',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 4,
+        blockStyle: 'glossy',
+        clearFlash: 'rgba(255,180,80,0.40)',
+        cssBg: '#080402',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#FF6830',
+            '--accent-dark':  '#FFB818',
+            '--h1-color':     '#FFD0A0'
+        }
+    },
+
+    /* ══════════════════════════════════════════
+     *  日系美学
+     * ══════════════════════════════════════════ */
+
+    /** 樱花：夜樱场景——深红黑夜底，粉红/翠绿/金黄方块如花瓣飘落 */
+    sakura: {
+        id: 'sakura',
+        name: '🌸 樱花',
+        blockColors: [
+            '#FF4490', '#FF2870', '#FFB0D8', '#78D860',
+            '#78B8F0', '#CC60E8', '#FFBA30', '#58D890'
+        ],
+        gridOuter: '#180810',
+        gridCell:  '#280C1C',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(255,180,220,0.50)',
+        cssBg: '#100608',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#FF4490',
+            '--accent-dark':  '#FF80C0',
+            '--h1-color':     '#FFBAD8'
+        }
+    },
+
+    /** 锦鲤：朱红/金黄/橙橘/樱粉等锦鲤体色，银白替换近黑块，深水底 */
+    koi: {
+        id: 'koi',
+        name: '🎏 锦鲤',
+        blockColors: [
+            '#E42018', '#F07828', '#F0C820', '#C8D0F0',
+            '#E880A8', '#38A8B8', '#C83868', '#D0A858'
+        ],
+        gridOuter: '#040E18',
+        gridCell:  '#081C2C',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 9,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(80,200,255,0.38)',
+        cssBg: '#020A14',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#38A8B8',
+            '--accent-dark':  '#60C8D8',
+            '--h1-color':     '#90DDF0'
+        }
+    },
+
+    /* ══════════════════════════════════════════
+     *  休闲甜系
+     * ══════════════════════════════════════════ */
+
+    /** 糖果（整合马卡龙）：超饱和纯色糖块，深浆果夜底凸显甜味 */
+    candy: {
+        id: 'candy',
+        name: '🍭 糖果',
+        blockColors: [
+            '#FF4466', '#FF8820', '#FFD020', '#44E848',
+            '#22AAFF', '#BB44FF', '#FF44BB', '#22E8CC'
+        ],
+        gridOuter: '#1A0828',
+        gridCell:  '#280E40',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'glossy',
+        clearFlash: 'rgba(255,200,255,0.88)',
+        cssBg: '#120420',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#FF44BB',
+            '--accent-dark':  '#CC2288',
+            '--h1-color':     '#FFB8E8'
+        }
+    },
+
+    /** 泡泡糖：Q 弹果冻海洋生物，深紫底衬托高饱和果冻色 */
+    bubbly: {
+        id: 'bubbly',
+        name: '🫧 泡泡糖',
+        blockColors: [
+            '#FF4FA0', '#4898F8', '#42C442', '#FFAA18',
+            '#22C87A', '#CC3EF0', '#FF6228', '#12C4E8'
+        ],
+        blockIcons: ['🦩', '🐳', '🐢', '🦀', '🌿', '🦑', '🦐', '🐬'],
+        gridOuter: '#2A1048',
+        gridCell:  '#401870',
+        gridGap: 1,
+        blockInset: 1,
+        blockRadius: 14,
+        blockStyle: 'jelly',
+        clearFlash: 'rgba(255,160,240,0.82)',
+        cssBg: '#1C0838',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#CC3EF0',
+            '--accent-dark':  '#9920AA',
+            '--h1-color':     '#DD80FF'
+        }
+    },
+
+    /* ══════════════════════════════════════════
+     *  卡通 / 复古
+     * ══════════════════════════════════════════ */
+
+    /** 卡通乐园（整合丛林）：原色积木 + 混合萌物图标，深漫画紫底 */
     toon: {
         id: 'toon',
         name: '🎨 卡通乐园',
@@ -446,78 +399,24 @@ export const SKINS = {
             '#FF3B58', '#FF7F11', '#FFD600', '#00C853',
             '#2979FF', '#AA00FF', '#FF4081', '#00BCD4'
         ],
-        // 顺序对应 blockColors：红→橙→黄→绿→蓝→紫→粉→青
-        blockIcons: ['🐻', '🦊', '🐥', '🐸', '🐬', '🦄', '🐱', '🐠'],
-        gridOuter: '#6C4EBF',
-        gridCell: '#FAFAF7',
-        gridLine: 'rgba(100,70,200,0.12)',
+        blockIcons: ['🐻', '🦊', '🐥', '🦁', '🦜', '🦄', '🐬', '🦋'],
+        gridOuter: '#2A1860',
+        gridCell:  '#3A2478',
         gridGap: 2,
         blockInset: 1,
         blockRadius: 10,
         blockStyle: 'cartoon',
         clearFlash: 'rgba(255,255,130,0.90)',
-        cssBg: '#F3EEFF',
-        cssVars: {
-            '--accent-color': '#FF3B58',
-            '--accent-dark': '#C5003E',
-            '--h1-color': '#7B1FA2'
-        }
-    },
-
-    /** 丛林探险：热带原色 + 柔和描边 + 丛林动物 icon */
-    jungle: {
-        id: 'jungle',
-        name: '🌴 丛林探险',
-        blockColors: [
-            '#43A047', '#F57F17', '#00897B', '#E53935',
-            '#1565C0', '#6D4C41', '#FDD835', '#5E35B1'
-        ],
-        // 绿→橙→青绿→红→蓝→棕→黄→紫
-        blockIcons: ['🦁', '🐯', '🐊', '🦜', '🦋', '🦧', '🐍', '🦚'],
-        gridOuter: '#1B3A1E',
-        gridCell: '#253D28',
-        gridGap: 2,
-        blockInset: 1,
-        blockRadius: 8,
-        blockStyle: 'cartoon',
-        clearFlash: 'rgba(130,240,130,0.42)',
-        cssBg: '#121F14',
+        cssBg: '#1A1040',
         uiDark: true,
         cssVars: {
-            '--accent-color': '#66BB6A',
-            '--accent-dark': '#A5D6A7',
-            '--h1-color': '#C8E6C9'
+            '--accent-color': '#AA00FF',
+            '--accent-dark':  '#DD40FF',
+            '--h1-color':     '#E880FF'
         }
     },
 
-    /** 泡泡糖：饱和糖果色 + 果冻质感 + 海洋萌物 icon */
-    bubbly: {
-        id: 'bubbly',
-        name: '🫧 泡泡糖',
-        // 加大饱和度，避免浅色被磨砂层"洗白"
-        blockColors: [
-            '#FF4FA0', '#4898F8', '#42C442', '#FFAA18',
-            '#22C87A', '#CC3EF0', '#FF6228', '#12C4E8'
-        ],
-        // 粉→蓝→绿→黄→薄荷→紫→橙→青
-        blockIcons: ['🦩', '🐳', '🐢', '🦀', '🌿', '🦑', '🦐', '🐬'],
-        gridOuter: '#C8A0D4',        // 柔和中紫，与其他皮肤边框色调一致
-        gridCell: '#F0E2F8',         // 接近边框的淡薰衣草，对比度收敛
-        gridLine: 'rgba(160,90,180,0.14)', // 极轻网格线（同 frost/pastel 风格）
-        gridGap: 1,                  // 与其他浅色皮肤保持一致
-        blockInset: 1,
-        blockRadius: 14,
-        blockStyle: 'jelly',
-        clearFlash: 'rgba(255,160,240,0.82)',
-        cssBg: '#F8E8FF',
-        cssVars: {
-            '--accent-color': '#C438CE',
-            '--accent-dark': '#9920AA',
-            '--h1-color': '#7010A0'
-        }
-    },
-
-    /** 8位街机：NES/FC 配色 + 浮雕凸起瓦片 + 空格凹陷，复古游戏立体感 */
+    /** 8位街机（整合像素）：NES 标准 6 色 + 浮雕方块 + 凹陷空格，焦黑木纹底 */
     pixel8: {
         id: 'pixel8',
         name: '👾 8位街机',
@@ -525,124 +424,242 @@ export const SKINS = {
             '#E80050', '#005CF8', '#10C010', '#F8D000',
             '#D000C8', '#00D8D0', '#F84000', '#B0F000'
         ],
-        gridOuter: '#120800',    // 极深的近黑棕，作为边框/屏幕边缘
-        gridCell: '#2E1C0A',     // 比外框明显亮的深棕，空格清晰可辨
-        gridLine: false,         // 由 gridGap 间距形成自然网格，不叠加线条
-        gridGap: 2,              // 适中间距（原3→2），方块更整齐
+        gridOuter: '#120800',
+        gridCell:  '#2E1C0A',
+        gridLine: false,
+        gridGap: 2,
         blockInset: 0,
         blockRadius: 0,
         blockStyle: 'pixel8',
-        cellStyle: 'sunken',     // 空格凹陷效果，与凸起方块形成对比
+        cellStyle: 'sunken',
         clearFlash: '#F8F8F0',
         cssBg: '#0A0500',
         uiDark: true,
         cssVars: {
             '--accent-color': '#E80050',
-            '--accent-dark': '#F84000',
-            '--h1-color': '#F8D000'
+            '--accent-dark':  '#F84000',
+            '--h1-color':     '#F8D000'
         }
     },
 
-    /* ============================================================
-     *  经典休闲系列（新增）
-     * ============================================================ */
+    /* ══════════════════════════════════════════
+     *  浅色系（与暗色形成互补，保留自然光感）
+     * ══════════════════════════════════════════ */
 
-    /** 木纹：原木暖底 + 鲜明积木色彩，1010!/Wood Color Jam 经典风格 */
-    wood: {
-        id: 'wood',
-        name: '🪵 木纹',
+    /**
+     * 晨光：暖奶油盘面 + 高饱和冷暖交替积木，晨间自然光感。
+     * 浅底设计：gridOuter 作暖金色边框，gridCell 象牙白空格，
+     * 鲜艳方块在浅底上形成足够明度反差。
+     */
+    dawn: {
+        id: 'dawn',
+        name: '☀️ 晨光',
         blockColors: [
-            '#D44820', '#E09828', '#48A030', '#2878C0',
-            '#CC2828', '#A848B8', '#E8C030', '#28A898'
+            '#E04820', '#2880E8', '#F09020', '#28A840',
+            '#A828D0', '#28C8B8', '#E03060', '#6038E8'
         ],
-        gridOuter: '#3C1E08',
-        gridCell: '#5C3012',
-        gridLine: 'rgba(28,12,4,0.22)',
+        gridOuter: '#8A7040',
+        gridCell:  '#F8F0E0',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'glossy',
+        clearFlash: 'rgba(255,235,180,0.90)',
+        cssBg: '#F0E8D4',
+        cssVars: {
+            '--text-primary':     '#1E1810',
+            '--text-secondary':   '#5C4830',
+            '--accent-color':     '#C05820',
+            '--accent-dark':      '#904010',
+            '--shadow':           'rgba(0,0,0,0.14)',
+            '--h1-color':         '#6A3818',
+            '--stat-surface':     'rgba(255,248,232,0.92)',
+            '--stat-label-color': '#7A6040',
+            '--select-bg':        '#FFF4E4',
+            '--select-border':    'rgba(160,120,60,0.25)'
+        }
+    },
+
+    /**
+     * 马卡龙：哑光平涂 + 暖白盘面，饱和甜点色提升可读性。
+     * 保留经典 pastel 风格，修正低对比问题。
+     */
+    macaroon: {
+        id: 'macaroon',
+        name: '🍬 马卡龙',
+        blockColors: [
+            '#F04878', '#3898E8', '#F09028', '#38B850',
+            '#A040D8', '#28C8A8', '#F06858', '#8850D8'
+        ],
+        gridOuter: '#A09088',
+        gridCell:  '#FAF6F0',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
-        blockStyle: 'glossy',
-        clearFlash: 'rgba(255,195,80,0.90)',
-        cssBg: '#271308',
-        uiDark: true,
+        blockStyle: 'flat',
+        clearFlash: 'rgba(255,240,255,0.90)',
+        cssBg: '#F2EDE4',
         cssVars: {
-            '--accent-color': '#D47828',
-            '--accent-dark': '#E8A030',
-            '--h1-color': '#F0C060'
+            '--text-primary':     '#1E1818',
+            '--text-secondary':   '#5C4848',
+            '--accent-color':     '#C04878',
+            '--accent-dark':      '#A03060',
+            '--shadow':           'rgba(0,0,0,0.12)',
+            '--h1-color':         '#8A3060',
+            '--stat-surface':     'rgba(255,250,248,0.92)',
+            '--stat-label-color': '#7A5060',
+            '--select-bg':        '#FFF4F6',
+            '--select-border':    'rgba(180,120,140,0.25)'
         }
     },
 
-    /** 锦鲤：日式锦鲤色系 + 玻璃质感，深色水面背景烘托水下漂浮感 */
-    koi: {
-        id: 'koi',
-        name: '🎏 锦鲤',
+    /* ══════════════════════════════════════════
+     *  Icon 主题系列（方块 icon 为首要标识）
+     * ══════════════════════════════════════════ */
+
+    /**
+     * 美食：食材原色方块 + 美食 emoji，暗系料理底映衬色泽。
+     * 参考 1010! Food DLC 的"色块即食材"设计语言。
+     */
+    food: {
+        id: 'food',
+        name: '🍕 美食',
         blockColors: [
-            '#E83020', '#F07830', '#F0C030', '#18A8C8',
-            '#D82888', '#68B838', '#C0B8D0', '#4850D8'
+            '#E83020', '#F09020', '#F8D020', '#60B830',
+            '#A06030', '#D87040', '#F05878', '#9848D0'
         ],
-        gridOuter: '#0A2030',
-        gridCell: '#142838',
-        gridLine: 'rgba(20,60,100,0.35)',
+        blockIcons: ['🍕', '🍔', '🍜', '🍣', '🎂', '🍦', '🍩', '🥑'],
+        gridOuter: '#18100A',
+        gridCell:  '#281808',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'glossy',
+        clearFlash: 'rgba(255,200,100,0.88)',
+        cssBg: '#100A04',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#F09020',
+            '--accent-dark':  '#F8D020',
+            '--h1-color':     '#FFD8A0'
+        }
+    },
+
+    /**
+     * 音乐节：舞台追光色 + 乐器 emoji，极暗演出场底色。
+     * Neon 渲染模拟聚光灯质感。
+     */
+    music: {
+        id: 'music',
+        name: '🎵 音乐',
+        blockColors: [
+            '#FF3060', '#FF9020', '#FFE820', '#40E840',
+            '#3088FF', '#E040FF', '#FF60A0', '#40E8E8'
+        ],
+        blockIcons: ['🎸', '🎹', '🎺', '🥁', '🎻', '🎷', '🎤', '🎧'],
+        gridOuter: '#100818',
+        gridCell:  '#1C0C28',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(255,100,200,0.40)',
+        cssBg: '#08040F',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#E040FF',
+            '--accent-dark':  '#FF3060',
+            '--h1-color':     '#FF80D0'
+        }
+    },
+
+    /**
+     * 萌宠：卡通风格 + 宠物 emoji，浅暖奶油盘面（浅色系 icon 主题）。
+     * 与丛林/卡通乐园区别：家养萌宠 + 浅色背景，更治愈柔和。
+     */
+    pets: {
+        id: 'pets',
+        name: '🐾 萌宠',
+        blockColors: [
+            '#E84838', '#F09428', '#F8D030', '#48B838',
+            '#4888E8', '#D848B8', '#F87858', '#48C8C0'
+        ],
+        blockIcons: ['🐶', '🐱', '🐰', '🐹', '🐸', '🦜', '🐢', '🐠'],
+        gridOuter: '#C0B090',
+        gridCell:  '#F5EDDC',
+        gridGap: 2,
+        blockInset: 1,
+        blockRadius: 10,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,240,180,0.88)',
+        cssBg: '#EDE4CE',
+        cssVars: {
+            '--text-primary':     '#1E1810',
+            '--text-secondary':   '#5C4830',
+            '--accent-color':     '#C05820',
+            '--accent-dark':      '#904010',
+            '--shadow':           'rgba(0,0,0,0.14)',
+            '--h1-color':         '#6A3818',
+            '--stat-surface':     'rgba(255,248,232,0.92)',
+            '--stat-label-color': '#7A6040',
+            '--select-bg':        '#FFF4E4',
+            '--select-border':    'rgba(160,120,60,0.25)'
+        }
+    },
+
+    /**
+     * 宇宙：八大行星 + 天体 emoji，近黑星空底。
+     * Glass 渲染模拟行星玻璃球体质感。
+     */
+    universe: {
+        id: 'universe',
+        name: '🪐 宇宙',
+        blockColors: [
+            '#E84020', '#F09030', '#D8C820', '#3898D0',
+            '#D040D0', '#20B0C0', '#D88020', '#6040C8'
+        ],
+        blockIcons: ['🌍', '🌙', '⭐', '🪐', '☄️', '🌠', '🔭', '🛸'],
+        gridOuter: '#04020E',
+        gridCell:  '#0A0618',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 8,
         blockStyle: 'glass',
-        clearFlash: 'rgba(80,200,255,0.38)',
-        cssBg: '#081828',
+        clearFlash: 'rgba(100,80,200,0.40)',
+        cssBg: '#020108',
         uiDark: true,
         cssVars: {
-            '--accent-color': '#18A8C8',
-            '--accent-dark': '#40C8E8',
-            '--h1-color': '#80D8F0'
+            '--accent-color': '#6040C8',
+            '--accent-dark':  '#9060E8',
+            '--h1-color':     '#C0A0FF'
         }
     },
 
-    /** 温馨：Lo-Fi/Cozy 暖调混彩，柔和玻璃感，治愈系轻松氛围 */
-    cozy: {
-        id: 'cozy',
-        name: '☕ 温馨',
-        blockColors: [
-            '#E08050', '#D06878', '#7C9868', '#E8C048',
-            '#6888A8', '#C88860', '#A870A0', '#88B888'
-        ],
-        gridOuter: '#C0A888',
-        gridCell: '#F5ECD8',
-        gridLine: 'rgba(120,80,50,0.15)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 9,
-        blockStyle: 'glass',
-        clearFlash: 'rgba(255,220,160,0.88)',
-        cssBg: '#EDE0CC',
-        cssVars: {
-            '--accent-color': '#A87850',
-            '--accent-dark': '#806040',
-            '--h1-color': '#604030'
-        }
-    },
+    /* ══════════════════════════════════════════
+     *  奇幻
+     * ══════════════════════════════════════════ */
 
-    /** 魔幻：深紫水晶宝石色系 + 玻璃折射，暗夜奇幻氛围 */
+    /** 魔幻：紫水晶/蓝宝石/祖母绿/红宝石等宝石矿物配色，近黑深紫底 */
     fantasy: {
         id: 'fantasy',
         name: '🔮 魔幻',
         blockColors: [
-            '#9820E0', '#D040A8', '#4060E8', '#40D0C8',
-            '#6030C0', '#E030A8', '#2090D8', '#A828F0'
+            '#9828D8', '#2848C8', '#18B848', '#D82020',
+            '#D8A820', '#1898C8', '#C81880', '#6030B8'
         ],
-        gridOuter: '#180830',
-        gridCell: '#281048',
-        gridLine: 'rgba(100,40,180,0.30)',
+        gridOuter: '#08041A',
+        gridCell:  '#120830',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
         blockStyle: 'glass',
-        clearFlash: 'rgba(180,100,255,0.40)',
-        cssBg: '#100620',
+        clearFlash: 'rgba(160,80,255,0.40)',
+        cssBg: '#040210',
         uiDark: true,
         cssVars: {
-            '--accent-color': '#9820E0',
-            '--accent-dark': '#C040D8',
-            '--h1-color': '#D880FF'
+            '--accent-color': '#9828D8',
+            '--accent-dark':  '#BB50F0',
+            '--h1-color':     '#CC88FF'
         }
     }
 };
