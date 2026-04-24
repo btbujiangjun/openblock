@@ -167,7 +167,8 @@ export const SKINS = {
     aurora: {
         id: 'aurora',
         name: '🌌 冰川极光',
-        boardWatermark: { icons: ['🌌', '✨'], opacity: 0.07 },
+        boardWatermark: { icons: ['🐧', '🐻‍❄️', '❄️', '🌌'], opacity: 0.08 },
+        blockIcons: ['🐧', '🐻‍❄️', '🦭', '🦊', '🦌', '🐋', '🦅', '🐟'],
         blockColors: [
             '#5AD8CC', '#8070F0', '#AA90FA', '#38D89E',
             '#28D8F0', '#8590F8', '#C488FC', '#60C8FF'
@@ -433,12 +434,12 @@ export const SKINS = {
         }
     },
 
-    /** 街机（拳皇/格斗）：NES/SNK 鲜艳配色 + glossy 方块 + 格斗游戏经典 icon */
+    /** 街机（魂斗罗/经典动作）：NES/SNK 鲜艳配色 + glossy 方块 + 经典街机动作游戏 icon */
     pixel8: {
         id: 'pixel8',
         name: '🕹️ 街机格斗',
-        boardWatermark: { icons: ['🥊', '👾', '🕹️', '⚔️'], opacity: 0.10, scale: 0.72 },
-        blockIcons: ['🥊', '👊', '⚡', '🔥', '💥', '⚔️', '💫', '👾'],
+        boardWatermark: { icons: ['🔫', '💣', '👾', '🎮'], opacity: 0.10, scale: 0.72 },
+        blockIcons: ['🔫', '💣', '🚀', '🪖', '⭐', '👾', '🎯', '🎮'],
         blockColors: [
             '#FF2050', '#1E78FF', '#00C030', '#F8C000',
             '#CC00CC', '#00B8C8', '#FF5800', '#90E000'
