@@ -687,20 +687,21 @@ export const SKINS = {
     },
 
     // ── 新增皮肤 ──────────────────────────────────────────────────────────
-    // 主题：猛兽丛林（深夜丛林，凶猛野兽）
+    // 主题：冒险（凶猛野兽，方块显示猛兽 icon）
     beast: {
         id: 'beast',
-        name: '🦁 猛兽',
+        name: '🗺️ 冒险',
         boardWatermark: { icons: ['🦁', '🐯'], opacity: 0.08 },
+        blockIcons: ['🦁', '🐯', '🦅', '🐺', '🐆', '🐻', '🦏', '🦈'],
         blockColors: [
-            '#E8A020', // 狮子金
-            '#E84020', // 血橙
-            '#28A838', // 丛林绿
-            '#D86820', // 虎纹橙
-            '#3068B8', // 暴风蓝
-            '#E8D040', // 骨白黄
-            '#C07828', // 铜棕
-            '#7038B0', // 黑豹紫
+            '#E8A020', // 🦁 狮子金
+            '#D86820', // 🐯 虎纹橙
+            '#3068B8', // 🦅 苍鹰蓝
+            '#A0A8C0', // 🐺 狼灰
+            '#C07828', // 🐆 豹纹铜
+            '#784028', // 🐻 棕熊棕
+            '#909898', // 🦏 犀牛铁灰
+            '#2080B8', // 🦈 鲨鱼蓝
         ],
         gridOuter:   '#150C04',
         gridCell:    '#221608',
@@ -715,6 +716,39 @@ export const SKINS = {
             '--accent-color': '#D8900A',
             '--accent-dark':  '#F0B030',
             '--h1-color':     '#FFD060'
+        }
+    },
+
+    // 主题：希腊神话（奥林匹斯诸神，每色对应一位神明专属符号）
+    // 宙斯⚡ / 波塞冬🔱 / 雅典娜🏛️ / 阿波罗🌞 / 阿尔忒弥斯🏹 / 狄俄尼索斯🍇 / 赫拉🦚 / 哈迪斯💀
+    greece: {
+        id: 'greece',
+        name: '🏛️ 希腊神话',
+        boardWatermark: { icons: ['🏛️', '⚡'], opacity: 0.08 },
+        blockIcons: ['⚡', '🔱', '🏛️', '🌞', '🏹', '🍇', '🦚', '💀'],
+        blockColors: [
+            '#E8C030', // ⚡ 宙斯（雷霆金）
+            '#2880D8', // 🔱 波塞冬（海洋蓝）
+            '#90C040', // 🏛️ 雅典娜（橄榄绿）
+            '#F07828', // 🌞 阿波罗（烈日橙）
+            '#90B8D8', // 🏹 阿尔忒弥斯（月光银蓝）
+            '#9828B8', // 🍇 狄俄尼索斯（葡萄紫）
+            '#20A8B8', // 🦚 赫拉（孔雀青）
+            '#4838B8', // 💀 哈迪斯（冥界深蓝）
+        ],
+        gridOuter:   '#08080E',
+        gridCell:    '#10101C',
+        gridGap:     1,
+        blockInset:  2,
+        blockRadius: 7,
+        blockStyle:  'glossy',
+        clearFlash:  'rgba(230,195,40,0.52)',
+        cssBg:       '#050508',
+        uiDark:      true,
+        cssVars: {
+            '--accent-color': '#C8A010',
+            '--accent-dark':  '#E8C038',
+            '--h1-color':     '#FFD870'
         }
     },
 
@@ -746,6 +780,39 @@ export const SKINS = {
             '--accent-color': '#CC1830',
             '--accent-dark':  '#E83050',
             '--h1-color':     '#FF5070'
+        }
+    },
+
+    // 主题：侏罗纪（远古恐龙纪元，方块显示侏罗纪典型生物 icon）
+    // 🦕 蜥脚类 / 🦖 霸王龙 / 🐊 鳄鱼 / 🦎 蜥蜴 / 🥚 恐龙蛋 / 🌿 蕨类 / 🌋 火山 / 💎 琥珀
+    jurassic: {
+        id: 'jurassic',
+        name: '🦕 侏罗纪',
+        boardWatermark: { icons: ['🦕', '🦖'], opacity: 0.08 },
+        blockIcons: ['🦕', '🦖', '🐊', '🦎', '🥚', '🌿', '🌋', '💎'],
+        blockColors: [
+            '#4AA828', // 🦕 蜥脚类绿（植食巨兽）
+            '#D84020', // 🦖 霸王龙红（顶级掠食者）
+            '#70A048', // 🐊 鳄鱼橄榄绿
+            '#98C838', // 🦎 蜥蜴亮绿
+            '#E8C040', // 🥚 恐龙蛋琥珀黄
+            '#289858', // 🌿 蕨类深绿
+            '#D06020', // 🌋 火山橙（熔浆）
+            '#D0A828', // 💎 琥珀金（化石）
+        ],
+        gridOuter:   '#080E04',
+        gridCell:    '#101A08',
+        gridGap:     1,
+        blockInset:  2,
+        blockRadius: 5,
+        blockStyle:  'glossy',
+        clearFlash:  'rgba(160,220,60,0.50)',
+        cssBg:       '#060C02',
+        uiDark:      true,
+        cssVars: {
+            '--accent-color': '#5AC030',
+            '--accent-dark':  '#80E050',
+            '--h1-color':     '#B0F060'
         }
     },
 };
