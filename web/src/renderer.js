@@ -792,9 +792,8 @@ export class Renderer {
         const skin = getActiveSkin();
         const inset = skin.blockInset;
         const pulse = 0.65 + 0.35 * Math.abs(Math.sin(Date.now() * 0.008));
-        const t = Date.now() * 0.001;
-        /* 消除瞬间格块略「跳起」再随 pulse 隐去 */
-        const lift = (1.05 - pulse * 0.4) * (2.5 + 3.5 * Math.sin(t * 20));
+        /* 轻微抬起：不用 epoch 高频 sin，避免高亮阶段过长时「跳动」 */
+        const lift = (1.05 - pulse * 0.4) * (2.2 + 2.8 * pulse);
 
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);

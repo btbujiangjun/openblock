@@ -81,6 +81,32 @@ export function detectBonusLines(grid, skin) {
     return result;
 }
 
+/** 整行/列同色或同 icon：每条命中线在「行摊分」基底上按该倍数加分（与 UI ×N 一致） */
+export const ICON_BONUS_LINE_MULT = 5;
+
+/**
+ * @param {string} strategyId
+ * @param {{ count: number, bonusLines?: Array<unknown> }} result
+ * @returns {{ baseScore: number, iconBonusScore: number, clearScore: number }}
+ */
+export function computeClearScore(strategyId, result) {
+    const scoring = getStrategy(strategyId).scoring;
+    const c = result?.count ?? 0;
+    let baseScore = 0;
+    if (c === 1) baseScore = scoring.singleLine * c;
+    else if (c === 2) baseScore = scoring.multiLine;
+    else if (c >= 3) baseScore = scoring.combo + (c - 2) * scoring.multiLine;
+
+    const bonusLines = result?.bonusLines || [];
+    const bonusCount = bonusLines.length;
+    if (c <= 0 || bonusCount <= 0) {
+        return { baseScore, iconBonusScore: 0, clearScore: baseScore };
+    }
+    const perLine = Math.round(baseScore / c);
+    const iconBonusScore = perLine * bonusCount * (ICON_BONUS_LINE_MULT - 1);
+    return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
+}
+
 function _topShapeWeightEntries(shapeWeights, n) {
     if (!shapeWeights || typeof shapeWeights !== 'object') return [];
     return Object.entries(shapeWeights)
@@ -1122,22 +1148,9 @@ export class Game {
         this.isAnimating = true;
         this._clearStreak++;
 
-        const strategyConfig = getStrategy(this.strategy);
-        const scoring = strategyConfig.scoring;
-
-        let clearScore = scoring.singleLine * result.count;
-        if (result.count === 2) clearScore = scoring.multiLine;
-        else if (result.count >= 3) clearScore = scoring.combo + (result.count - 2) * scoring.multiLine;
-
-        // 同 icon 行/列加成：每条全同icon的行或列额外翻倍该行分数
         const bonusLines = result.bonusLines || [];
         const bonusCount = bonusLines.length;
-        let iconBonusScore = 0;
-        if (bonusCount > 0) {
-            const perLine = Math.round(clearScore / result.count);
-            iconBonusScore = perLine * bonusCount;
-            clearScore += iconBonusScore;
-        }
+        const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
 
         const perfectClear = this.grid.getFillRatio() === 0;
 
@@ -1156,6 +1169,12 @@ export class Game {
 
         const isCombo = result.count >= 3;
         const isDouble = result.count === 2;
+        const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
+        const bonusHoldMs = bonusCount > 0
+            ? Math.min(5600, 3800 + bonusCount * 800)
+            : 0;
+        const animDuration = bonusCount > 0 ? Math.max(baseDuration, bonusHoldMs) : baseDuration;
+        const bonusShakeMs = bonusCount > 0 ? baseDuration : 0;
 
         this.renderer.addParticles(result.cells, {
             lines: result.count,
@@ -1178,16 +1197,16 @@ export class Game {
 
         if (perfectClear) {
             this.renderer.triggerPerfectFlash();
-            this.renderer.setShake(bonusCount > 0 ? 19 : 16, bonusCount > 0 ? 980 : 720);
+            this.renderer.setShake(16, bonusCount > 0 ? bonusShakeMs : 720);
         } else if (isCombo) {
             this.renderer.triggerComboFlash(result.count);
-            this.renderer.setShake(bonusCount > 0 ? 19 : 11, bonusCount > 0 ? 1050 : 520);
+            this.renderer.setShake(bonusCount > 0 ? 15 : 11, bonusCount > 0 ? bonusShakeMs : 520);
         } else if (isDouble) {
             const waveRows = [...new Set(result.cells.map(c => c.y))];
             this.renderer.triggerDoubleWave(waveRows);
-            this.renderer.setShake(bonusCount > 0 ? 16 : 8, bonusCount > 0 ? 900 : 400);
+            this.renderer.setShake(bonusCount > 0 ? 13 : 8, bonusCount > 0 ? bonusShakeMs : 400);
         } else {
-            this.renderer.setShake(bonusCount > 0 ? 14 : 5, bonusCount > 0 ? 820 : 280);
+            this.renderer.setShake(bonusCount > 0 ? 11 : 5, bonusCount > 0 ? bonusShakeMs : 280);
         }
 
         let effectType = '';
@@ -1196,26 +1215,29 @@ export class Game {
         else if (isDouble) effectType = 'multi';
 
         this.showFloatScore(clearScore, effectType, result.count, bonusCount > 0 ? iconBonusScore : 0);
+        if (bonusCount > 0 && iconBonusScore > 0) {
+            this.showBonusScoreNearBoard(iconBonusScore, animDuration);
+        }
 
         if (this._clearStreak >= 3) {
             this._showStreakBadge(this._clearStreak);
         }
 
-        // 同色/同 icon bonus：显著延长消除动画，让粒子与光晕播完
-        const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
-        const bonusHoldMs = bonusCount > 0
-            ? Math.min(5600, 3800 + bonusCount * 800)
-            : 0;
-        const animDuration = bonusCount > 0 ? Math.max(baseDuration, bonusHoldMs) : baseDuration;
         const animStart = Date.now();
+        let clearFlashEnded = false;
 
         const animate = () => {
+            const elapsed = Date.now() - animStart;
             self.renderer.updateShake();
             self.renderer.updateParticles();
             self.renderer.updateIconParticles();
+            if (!clearFlashEnded && elapsed >= baseDuration) {
+                clearFlashEnded = true;
+                self.renderer.setClearCells([]);
+            }
             self.markDirty();
 
-            if (Date.now() - animStart < animDuration) {
+            if (elapsed < animDuration) {
                 requestAnimationFrame(animate);
             } else {
                 self.isAnimating = false;
@@ -1593,12 +1615,8 @@ export class Game {
         if (!this.sessionId) {
             return;
         }
-        const scoring = getStrategy(this.strategy).scoring;
         const c = lineResult?.count ?? 0;
-        let lineScore = 0;
-        if (c === 1) lineScore = scoring.singleLine;
-        else if (c === 2) lineScore = scoring.multiLine;
-        else if (c >= 3) lineScore = scoring.combo + (c - 2) * scoring.multiLine;
+        const { clearScore: lineScore } = computeClearScore(this.strategy, lineResult);
         const scoreAfterStep = this.score + lineScore;
 
         const ps = buildPlayerStateSnapshot(this.playerProfile, {
@@ -1738,24 +1756,50 @@ export class Game {
         setTimeout(() => el.remove(), 3000);
     }
 
+    /**
+     * 棋盘区域旁显示同色/同 icon 额外得分（与飘 icon 粒子阶段同步）
+     * @param {number} bonusPts
+     * @param {number} holdMs  与消除粒子阶段总长一致
+     */
+    showBonusScoreNearBoard(bonusPts, holdMs) {
+        const canvas = document.getElementById('game-grid');
+        if (!canvas || !(bonusPts > 0)) return;
+        const r = canvas.getBoundingClientRect();
+        const el = document.createElement('div');
+        el.className = 'board-bonus-score-pop';
+        el.setAttribute('role', 'status');
+        el.innerHTML =
+            `<span class="bbs-mult">×${ICON_BONUS_LINE_MULT}</span>` +
+            `<span class="bbs-label">加成</span>` +
+            `<span class="bbs-val">+${bonusPts}</span>`;
+        el.style.left = `${r.left + r.width * 0.5}px`;
+        el.style.top = `${r.top + r.height * 0.38}px`;
+        document.body.appendChild(el);
+        requestAnimationFrame(() => el.classList.add('bbs--in'));
+        const outAt = Math.max(800, holdMs - 420);
+        setTimeout(() => el.classList.add('bbs--out'), outAt);
+        setTimeout(() => el.remove(), outAt + 500);
+    }
+
     showFloatScore(score, type, linesCleared = 0, iconBonus = 0) {
         const el = document.createElement('div');
         const isCombo = type === 'combo';
         const isPerfect = type === 'perfect';
         const hasIconBonus = iconBonus > 0;
+        const multTag = `<span class="float-icon-tag">×${ICON_BONUS_LINE_MULT}</span>`;
         const cls = isPerfect ? ' float-perfect' : isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '';
         el.className = 'float-score' + cls + (hasIconBonus ? ' float-icon-bonus' : '');
 
         if (isPerfect) {
             el.innerHTML = `<span class="float-label">PERFECT</span><span class="float-pts">+${score}</span>`;
         } else if (isCombo && linesCleared >= 3) {
-            const bonusTag = hasIconBonus ? ` <span class="float-icon-tag">×2</span>` : '';
+            const bonusTag = hasIconBonus ? ` ${multTag}` : '';
             el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}${bonusTag}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
-            const bonusTag = hasIconBonus ? ` <span class="float-icon-tag">×2</span>` : '';
+            const bonusTag = hasIconBonus ? ` ${multTag}` : '';
             el.innerHTML = `<span class="float-label">DOUBLE${bonusTag}</span><span class="float-pts">+${score}</span>`;
         } else if (hasIconBonus) {
-            el.innerHTML = `<span class="float-label"><span class="float-icon-tag">同色 ×2</span></span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${multTag}<span class="float-icon-sub">同色加成</span></span><span class="float-pts">+${score}</span>`;
         } else {
             el.textContent = '+' + score;
         }

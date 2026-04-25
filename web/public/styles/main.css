@@ -2317,6 +2317,72 @@ body.game-rl-preview .block-dock {
     animation: iconTagPulse 0.6s ease-out;
 }
 
+.float-icon-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.55em;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    opacity: 0.9;
+}
+
+/* 棋盘旁：同色/同 icon 加成得分（与飘 icon 同步） */
+.board-bonus-score-pop {
+    position: fixed;
+    z-index: 120;
+    transform: translate(-50%, -50%) scale(0.65);
+    opacity: 0;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    text-align: center;
+    transition:
+        opacity 0.35s ease,
+        transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.board-bonus-score-pop.bbs--in {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.board-bonus-score-pop.bbs--out {
+    opacity: 0;
+    transform: translate(-50%, -85%) scale(0.92);
+}
+
+.board-bonus-score-pop .bbs-mult {
+    font-size: clamp(22px, 5vw, 34px);
+    font-weight: 900;
+    background: linear-gradient(135deg, #f39c12, #e74c3c);
+    color: #fff;
+    padding: 2px 12px;
+    border-radius: 10px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    box-shadow:
+        0 0 18px rgba(255, 200, 80, 0.55),
+        0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.board-bonus-score-pop .bbs-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    color: color-mix(in srgb, var(--text-primary, #1e293b) 72%, #a855f7);
+    text-transform: uppercase;
+}
+
+.board-bonus-score-pop .bbs-val {
+    font-size: clamp(18px, 4.2vw, 28px);
+    font-weight: 800;
+    color: #fbbf24;
+    text-shadow:
+        0 0 12px rgba(251, 191, 36, 0.65),
+        0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
 @keyframes iconTagPulse {
     0%   { transform: scale(0.6); opacity: 0; }
     60%  { transform: scale(1.15); }

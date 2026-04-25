@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { Grid } from '../web/src/grid.js';
 import { ClearRuleEngine, RowColRule } from '../web/src/clearRules.js';
-import { detectBonusLines } from '../web/src/game.js';
+import { detectBonusLines, computeClearScore, ICON_BONUS_LINE_MULT } from '../web/src/game.js';
 
 function fillRow(grid, row, values) {
     for (let x = 0; x < grid.size; x++) grid.cells[row][x] = values[x];
@@ -18,6 +18,13 @@ function fillCol(grid, col, values) {
 }
 
 describe('bonus line feature', () => {
+    it(`computeClearScore：每条 bonus 线为 ${ICON_BONUS_LINE_MULT} 倍行摊分（单消 +1 bonus 线）`, () => {
+        const r = computeClearScore('normal', { count: 1, bonusLines: [{ type: 'row', idx: 0 }] });
+        expect(r.baseScore).toBe(20);
+        expect(r.iconBonusScore).toBe(80);
+        expect(r.clearScore).toBe(100);
+    });
+
     it('整行同 icon（不同 colorIdx）可触发 bonus', () => {
         const g = new Grid(8);
         const skin = { blockIcons: ['A', 'B', 'C', 'D'] };
