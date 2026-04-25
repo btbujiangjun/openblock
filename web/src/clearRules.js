@@ -45,8 +45,7 @@ export const RowColRule = {
 
     /**
      * @param {import('./grid.js').Grid} grid
-     * @returns {{ cells: Array<{x:number,y:number,color:number}>, lines: number,
-     *            bonusLines: Array<{type:'row'|'col', idx:number, colorIdx:number}> }}
+     * @returns {{ cells: Array<{x:number,y:number,color:number}>, lines: number }}
      */
     detect(grid) {
         const n = grid.size;
@@ -62,25 +61,6 @@ export const RowColRule = {
                 if (grid.cells[y][x] === null) { full = false; break; }
             }
             if (full) fullCols.push(x);
-        }
-
-        // 同色消除检测（在清格前）：整行/列 colorIdx 完全相同 → 加入 bonusLines
-        const bonusLines = [];
-        for (const y of fullRows) {
-            const first = grid.cells[y][0];
-            if (first !== null && grid.cells[y].every(c => c === first)) {
-                bonusLines.push({ type: 'row', idx: y, colorIdx: first });
-            }
-        }
-        for (const x of fullCols) {
-            const first = grid.cells[0][x];
-            if (first !== null) {
-                let allSame = true;
-                for (let y = 1; y < n; y++) {
-                    if (grid.cells[y][x] !== first) { allSame = false; break; }
-                }
-                if (allSame) bonusLines.push({ type: 'col', idx: x, colorIdx: first });
-            }
         }
 
         const seen = new Set();
@@ -105,7 +85,7 @@ export const RowColRule = {
             }
         }
 
-        return { cells, lines: fullRows.length + fullCols.length, bonusLines };
+        return { cells, lines: fullRows.length + fullCols.length };
     },
 };
 
@@ -224,13 +204,11 @@ export class ClearRuleEngine {
     /**
      * 检测所有规则的触发格子（不修改 grid）
      * @param {import('./grid.js').Grid} grid
-     * @returns {{ cells: Array<{x,y,color}>, lines: number,
-     *            bonusLines: Array<{type:'row'|'col', idx:number, colorIdx:number}> }}
+     * @returns {{ cells: Array<{x,y,color}>, lines: number }}
      */
     detect(grid) {
         const seen = new Set();
         const cells = [];
-        const bonusLines = [];
         let lines = 0;
 
         for (const rule of this.rules) {
@@ -243,24 +221,23 @@ export class ClearRuleEngine {
                 }
             }
             lines += result.lines;
-            if (result.bonusLines) bonusLines.push(...result.bonusLines);
         }
 
-        return { cells, lines, bonusLines };
+        return { cells, lines };
     }
 
     /**
      * 检测 + 执行消除：将触发格子置为 null
      * 返回值与 grid.checkLines() 相同（{ count, cells }），向后兼容。
      * @param {import('./grid.js').Grid} grid
-     * @returns {{ count: number, cells: Array<{x,y,color}>, bonusLines: Array<{type,idx,colorIdx}> }}
+     * @returns {{ count: number, cells: Array<{x,y,color}> }}
      */
     apply(grid) {
-        const { cells, lines, bonusLines } = this.detect(grid);
+        const { cells, lines } = this.detect(grid);
         for (const cell of cells) {
             grid.cells[cell.y][cell.x] = null;
         }
-        return { count: lines, cells, bonusLines };
+        return { count: lines, cells };
     }
 
     /** 向规则列表末尾追加一条规则（链式调用） */
