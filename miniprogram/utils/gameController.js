@@ -11,11 +11,15 @@ const { Grid } = require('../core/grid');
 const { getAllShapes, pickShapeByCategoryWeights } = require('../core/shapes');
 const { GAME_RULES } = require('../core/gameRules');
 const { getStrategy } = require('../core/config');
+const { computeClearScore, detectBonusLines } = require('../core/bonusScoring');
+const { LevelManager } = require('../core/levelManager');
 const { vibrateShort } = require('../adapters/platform');
 
 class GameController {
   constructor(strategyId = 'normal', opts = {}) {
     this.strategyId = strategyId;
+    this.levelConfig = opts.levelConfig || null;
+    this.skin = opts.skin || null;
     this.onStateChange = opts.onStateChange || (() => {});
     this.onLineClear = opts.onLineClear || (() => {});
     this.onGameOver = opts.onGameOver || (() => {});
@@ -34,6 +38,14 @@ class GameController {
     this.steps = 0;
     this.dock = [];
     this.gameOver = false;
+    this._levelManager = this.levelConfig ? new LevelManager(this.levelConfig) : null;
+    this._levelMode = this._levelManager ? 'level' : 'endless';
+    this.levelObjective = '';
+    this.levelStars = 0;
+    if (this._levelManager) {
+      this._levelManager.applyInitialBoard(this.grid);
+      this.levelObjective = this._levelManager.checkObjective(this).objective || '';
+    }
     this._spawnDock();
     this.onStateChange(this._snapshot());
   }
@@ -89,34 +101,64 @@ class GameController {
     this.grid.place(b.shape, b.colorIdx, gx, gy);
     this.steps++;
     b.placed = true;
+    this._levelManager?.recordPlacement();
 
+    const bonusLinesSnap = detectBonusLines(this.grid, this.skin);
     const result = this.grid.checkLines();
+    result.bonusLines = result.count > 0 ? bonusLinesSnap : [];
     let gain = 0;
     let clears = 0;
     if (result.count > 0) {
       clears = result.count;
       this.totalClears += clears;
-      const s = this.scoring;
-      if (clears === 1) gain = s.singleLine;
-      else if (clears === 2) gain = s.multiLine;
-      else gain = s.combo + (clears - 2) * s.multiLine;
+      const { clearScore } = computeClearScore(this.strategyId, result);
+      gain = clearScore;
       this.score += gain;
       vibrateShort();
-      this.onLineClear({ clears, gain, cleared: result.cleared });
+      this._levelManager?.recordClear(clears);
+      this.onLineClear({
+        clears,
+        gain,
+        cells: result.cells || [],
+        bonusLines: result.bonusLines || [],
+      });
     }
 
     if (this.dock.every((d) => d.placed)) {
+      this._levelManager?.recordRound();
       this._spawnDock();
     }
 
+    if (this._levelManager) {
+      const objResult = this._levelManager.checkObjective(this);
+      this.levelObjective = objResult.objective || '';
+      if (objResult.done) {
+        this.levelStars = objResult.stars || 0;
+        this.gameOver = true;
+        this.onGameOver({
+          score: this.score,
+          steps: this.steps,
+          clears: this.totalClears,
+          mode: objResult.mode || 'level',
+          levelResult: this._levelManager.getResult(this),
+        });
+      }
+    }
+
     const remaining = this.dock.filter((d) => !d.placed);
-    if (remaining.length > 0 && !this.grid.hasAnyMove(this.dock)) {
+    if (!this.gameOver && remaining.length > 0 && !this.grid.hasAnyMove(this.dock)) {
       this.gameOver = true;
-      this.onGameOver({ score: this.score, steps: this.steps, clears: this.totalClears });
+      this.onGameOver({
+        score: this.score,
+        steps: this.steps,
+        clears: this.totalClears,
+        mode: this._levelMode === 'level' ? 'level-fail' : 'endless',
+        levelResult: this._levelManager ? this._levelManager.getResult(this) : null,
+      });
     }
 
     this.onStateChange(this._snapshot());
-    return { gain, clears, cleared: result.cleared || [] };
+    return { gain, clears, cleared: result.cells || [] };
   }
 
   _snapshot() {
@@ -126,6 +168,10 @@ class GameController {
       totalClears: this.totalClears,
       dock: this.dock,
       gameOver: this.gameOver,
+      levelMode: this._levelMode,
+      levelObjective: this.levelObjective,
+      levelStars: this.levelStars,
+      levelId: this.levelConfig?.id || '',
     };
   }
 }

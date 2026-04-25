@@ -31,6 +31,7 @@ import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights } from '../s
 const MAX_SPAWN_ATTEMPTS = 22;
 const FILL_SURVIVABILITY_ON = 0.52;
 const SURVIVE_SEARCH_BUDGET = 14000;
+const CRITICAL_FILL = 0.68;
 
 /* ================================================================== */
 /*  基础工具                                                           */
@@ -75,7 +76,7 @@ function dfsPlaceOrder(grid, orderedShapes, depth, budget) {
     for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
             if (!grid.canPlace(s, x, y)) continue;
-            if (budget.n <= 0) return true;
+            if (budget.n <= 0) return !!budget.exhaustAsPass;
             budget.n--;
             const next = placeAndClear(grid, s, x, y);
             if (dfsPlaceOrder(next, orderedShapes, depth + 1, budget)) return true;
@@ -84,13 +85,16 @@ function dfsPlaceOrder(grid, orderedShapes, depth, budget) {
     return false;
 }
 
-function tripletSequentiallySolvable(grid, threeData) {
+function tripletSequentiallySolvable(grid, threeData, opts = {}) {
     if (threeData.length !== 3) return true;
     const [a, b, c] = threeData;
-    const budget = { n: SURVIVE_SEARCH_BUDGET };
+    const budget = {
+        n: opts.searchBudget ?? SURVIVE_SEARCH_BUDGET,
+        exhaustAsPass: opts.exhaustAsPass ?? true
+    };
     for (const perm of permutations3(a, b, c)) {
         if (dfsPlaceOrder(grid, perm, 0, budget)) return true;
-        if (budget.n <= 0) return true;
+        if (budget.n <= 0 && budget.exhaustAsPass) return true;
     }
     return false;
 }
@@ -98,9 +102,10 @@ function tripletSequentiallySolvable(grid, threeData) {
 function minMobilityTarget(fill, attempt) {
     const relax = Math.floor(attempt / 5);
     let t = 1;
-    if (fill >= 0.88) t = 8;
-    else if (fill >= 0.75) t = 5;
-    else if (fill >= 0.62) t = 3;
+    if (fill >= 0.88) t = 10;
+    else if (fill >= 0.75) t = 7;
+    else if (fill >= 0.68) t = 5;
+    else if (fill >= 0.62) t = 4;
     else if (fill >= 0.48) t = 2;
     return Math.max(1, t - relax);
 }
@@ -366,6 +371,8 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
     const allShapes = getAllShapes();
     const fill = grid.getFillRatio();
+    const roundsSinceClear = ctx.roundsSinceClear ?? 0;
+    const inDangerZone = fill >= CRITICAL_FILL || roundsSinceClear >= 3;
 
     /* --- Layer 1: 盘面拓扑分析 --- */
     const topo = analyzeBoardTopology(grid);
@@ -621,7 +628,13 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
         if (fill >= FILL_SURVIVABILITY_ON) {
             const datas = triplet.map((s) => s.data);
-            if (!tripletSequentiallySolvable(grid, datas)) continue;
+            const strictSearch = inDangerZone && attempt < Math.floor(MAX_SPAWN_ATTEMPTS * 0.7);
+            if (!tripletSequentiallySolvable(grid, datas, {
+                searchBudget: strictSearch ? SURVIVE_SEARCH_BUDGET * 2 : SURVIVE_SEARCH_BUDGET,
+                exhaustAsPass: !strictSearch
+            })) {
+                continue;
+            }
         }
 
         /* 通过校验 — 打乱顺序 + 记录诊断 */

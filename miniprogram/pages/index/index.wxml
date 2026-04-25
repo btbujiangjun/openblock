@@ -10,6 +10,21 @@
   <text class="logo-subtitle">方块消除</text>
 
   <view class="menu-actions">
+    <view class="menu-config">
+      <view class="config-row">
+        <text class="config-label">皮肤</text>
+        <picker mode="selector" range="{{skins}}" range-key="name" value="{{skinIndex}}" bindchange="onSkinChange">
+          <view class="config-picker">{{selectedSkinName}}</view>
+        </picker>
+      </view>
+      <view class="config-row">
+        <text class="config-label">关卡</text>
+        <picker mode="selector" range="{{levels}}" range-key="name" value="{{levelIndex}}" bindchange="onLevelChange">
+          <view class="config-picker">{{selectedLevelName}}</view>
+        </picker>
+      </view>
+    </view>
+
     <view class="menu-btn menu-btn--primary" bindtap="onStartNormal">
       <text class="menu-btn-text">开始游戏</text>
       <text class="menu-btn-sub">Normal</text>
@@ -21,6 +36,10 @@
     <view class="menu-btn" bindtap="onStartHard">
       <text class="menu-btn-text">挑战模式</text>
       <text class="menu-btn-sub">Hard</text>
+    </view>
+    <view class="menu-btn menu-btn--level" bindtap="onStartLevel">
+      <text class="menu-btn-text">关卡模式</text>
+      <text class="menu-btn-sub">{{selectedLevelId}}</text>
     </view>
   </view>
 

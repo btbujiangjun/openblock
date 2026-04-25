@@ -7,7 +7,12 @@
 import { describe, it, expect } from 'vitest';
 import { Grid } from '../web/src/grid.js';
 import { ClearRuleEngine, RowColRule } from '../web/src/clearRules.js';
-import { detectBonusLines, computeClearScore, ICON_BONUS_LINE_MULT } from '../web/src/game.js';
+import {
+    detectBonusLines,
+    computeClearScore,
+    ICON_BONUS_LINE_MULT,
+    bonusEffectHoldMs,
+} from '../web/src/game.js';
 
 function fillRow(grid, row, values) {
     for (let x = 0; x < grid.size; x++) grid.cells[row][x] = values[x];
@@ -23,6 +28,12 @@ describe('bonus line feature', () => {
         expect(r.baseScore).toBe(20);
         expect(r.iconBonusScore).toBe(80);
         expect(r.clearScore).toBe(100);
+    });
+
+    it('bonusEffectHoldMs 落在 3000–5000ms', () => {
+        expect(bonusEffectHoldMs(1)).toBe(3400);
+        expect(bonusEffectHoldMs(6)).toBe(5000);
+        expect(bonusEffectHoldMs(0)).toBe(0);
     });
 
     it('整行同 icon（不同 colorIdx）可触发 bonus', () => {

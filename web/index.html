@@ -63,18 +63,20 @@
                 <div class="skin-picker">
                     <select id="skin-select" aria-label="棋盘主题"></select>
                 </div>
+                <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
             </div>
             <div class="stat-box header-level" aria-label="玩家等级">
                 <div class="stat-label">能力</div>
                 <div class="header-level-val">
                     <span class="progression-level" id="prog-level">Lv.1</span>
                     <span class="progression-title" id="prog-title">新手</span>
-                    <span class="progression-streak" id="prog-streak" hidden></span>
                 </div>
+                <span class="progression-streak stat-subline" id="prog-streak" hidden></span>
             </div>
             <div class="stat-box">
                 <div class="stat-label">得分</div>
                 <div class="stat-value" id="score">0</div>
+                <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
             </div>
             <div class="stat-box stat-box--best">
                 <div class="stat-label">最佳</div>
@@ -91,6 +93,7 @@
         </div>
         <div class="play-stack" aria-label="游戏区">
             <div id="game-wrapper">
+                <div class="game-board-flow-bg" aria-hidden="true"></div>
                 <canvas id="game-grid" width="336" height="336" aria-label="游戏网格"></canvas>
             </div>
             <!-- 技能包：纯符号圆形按钮，作为增值服务入口 -->

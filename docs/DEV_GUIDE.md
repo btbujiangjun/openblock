@@ -485,12 +485,33 @@ export function updateRealtimeSignals(profile) {
 
 ## 10. 微信小程序适配
 
-小程序核心逻辑与 Web 版共享（`miniprogram/core/` 镜像自 `web/src/`）。
+小程序核心逻辑与 Web 版共享（`miniprogram/core/` 镜像自 `web/src/`）。**提审与正式发布流程**见 [WECHAT_RELEASE.md](./WECHAT_RELEASE.md)。
 
 适配新功能步骤：
 1. 在 `web/src/` 开发并测试功能
 2. 将相关逻辑复制到 `miniprogram/core/`（或通过 `sync-core.sh` 同步）
 3. 使用 `miniprogram/adapters/` 中的适配器替换 Web API（`localStorage` → Storage API 等）
+
+常用同步命令：
+
+```bash
+# 核心规则/出块/难度/提示/RL 逻辑
+bash scripts/sync-core.sh
+
+# Web 皮肤核心字段（含 blockIcons）→ 小程序
+node scripts/sync-miniprogram-skins.cjs
+```
+
+同步后建议至少检查：
+
+```bash
+node --check miniprogram/core/adaptiveSpawn.js
+node --check miniprogram/core/bot/blockSpawn.js
+node --check miniprogram/core/skins.js
+node --check miniprogram/pages/game/game.js
+```
+
+当前小程序已对齐的 Web 能力包括：26 款皮肤（含 `blockIcons`）、20 关关卡包、同色/同 icon bonus 计分、完整消行动画链，以及出块危险态保命策略。
 
 适配器接口参见 [WECHAT_MINIPROGRAM.md](./WECHAT_MINIPROGRAM.md)。
 

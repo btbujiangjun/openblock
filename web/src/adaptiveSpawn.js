@@ -350,6 +350,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         sizePreference = Math.min(sizePreference, -0.2);
         clearGuarantee = Math.max(clearGuarantee, 1);
     }
+    // 连续多轮无消行时进入救援态，强制提高可解压出块比例
+    if ((ctx.roundsSinceClear ?? 0) >= 2) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+    }
+    if ((ctx.roundsSinceClear ?? 0) >= 4) {
+        clearGuarantee = Math.max(clearGuarantee, 3);
+        sizePreference = Math.min(sizePreference, -0.35);
+    }
 
     /* --- Layer 2: combo 活跃时提高消行保证 --- */
     if (comboChain > 0.5) {

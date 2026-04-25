@@ -1,5 +1,7 @@
 # 微信小程序适配说明
 
+**发布与审核全流程**（账号、上传、提审、上线、回滚）见 **[WECHAT_RELEASE.md](./WECHAT_RELEASE.md)**。
+
 ## 1. 概述
 
 `miniprogram/` 目录是 Open Block 的**微信小程序适配版本**，与 `web/` 共享核心游戏逻辑，
@@ -27,7 +29,7 @@ miniprogram/
 │   ├── network.js            # fetch → wx.request（Promise 封装）
 │   └── platform.js           # 屏幕尺寸、振动反馈、Toast 等
 │
-├── core/                     # ★ 从 web/src 自动同步的纯逻辑（ES→CJS）
+├── core/                     # ★ 从 web/src 自动同步的纯逻辑（ES→CJS）+ 小程序手写对齐层
 │   ├── grid.js               # 棋盘与消行
 │   ├── shapes.js             # 形状数据
 │   ├── gameRules.js          # 游戏规则（来自 shared/game_rules.json）
@@ -35,6 +37,10 @@ miniprogram/
 │   ├── difficulty.js          # 动态难度
 │   ├── adaptiveSpawn.js      # 自适应出块
 │   ├── hintEngine.js         # 提示引擎
+│   ├── bonusScoring.js       # 同色/同 icon bonus 计分与检测（手写对齐）
+│   ├── skins.js              # Web 皮肤核心字段（26 款，脚本同步）
+│   ├── levelManager.js       # 关卡目标/星级/失败判定
+│   ├── levelPack.js          # 20 关关卡包（CJS）
 │   ├── game_rules.json       # 共享规则数据
 │   ├── shapes.json           # 共享形状数据
 │   └── bot/                  # RL / Bot 逻辑
@@ -134,6 +140,12 @@ bash scripts/sync-core.sh
 touch 事件 → 计算网格坐标 → controller.place() → 更新状态 → renderer.drawGrid() → Canvas 刷新
 ```
 
+当前小程序渲染层已对齐 Web 端主要棋盘体验：
+
+- `blockIcons`：从 `core/skins.js` 读取，并在棋盘/候选块 Canvas 中绘制 emoji 图标。
+- 消行动画链：`setClearCells` 闪白、`triggerComboFlash`、`triggerPerfectFlash`、`triggerDoubleWave`、`triggerBonusMatchFlash`、`addBonusLineBurst` 粒子与 `setShake` 震屏。
+- 顶栏：得分 / 步数 / 消行 / 最佳使用三行栅格，`bestGap` 通过 `wx.setStorageSync` 记录的 `openblock_best_<strategyId>` 计算。
+
 ### 4.4 操作方式
 
 - **拖拽放置**：长按 dock 候选块 → 拖到棋盘上 → 松手放置
@@ -148,6 +160,19 @@ touch 事件 → 计算网格坐标 → controller.place() → 更新状态 → 
 bash scripts/sync-core.sh
 ```
 
+### 与 Web 对齐的手写层（发布前建议 diff）
+
+| 能力 | Web | 小程序 |
+|------|-----|--------|
+| 整行/列同色 bonus 加分 | `web/src/game.js`（`computeClearScore`） | `miniprogram/core/bonusScoring.js` + `utils/gameController.js` |
+| 同色 bonus 粒子 | `web/src/renderer.js`（`addBonusLineBurst` 等） | `miniprogram/utils/renderer.js` + `pages/game/game.js`（`requestAnimationFrame`） |
+| 顶栏三行栅格 / 最佳与分差 | `web/index.html` + `main.css` | `pages/game/game.wxml` + `game.wxss`；最佳分 `wx.setStorageSync` 键名 `openblock_best_<strategyId>` |
+| 皮肤 `blockIcons` / 颜色 / 网格字段 | `web/src/skins.js` | `miniprogram/core/skins.js`；用 `scripts/sync-miniprogram-skins.cjs` 从 Web 同步 26 款 |
+| 关卡模式 | `web/src/level/levelManager.js` + `levelPack.js` | `miniprogram/core/levelManager.js` + `levelPack.js`；菜单页可选 20 关 |
+| 出块保命策略 | `web/src/bot/blockSpawn.js` + `adaptiveSpawn.js` | `miniprogram/core/bot/blockSpawn.js` + `adaptiveSpawn.js`；危险态严格可解性与无消行救援态同步 |
+
+### 自动同步脚本行为
+
 该脚本执行以下操作：
 1. 复制 `shared/game_rules.json` 和 `shared/shapes.json` 到 `core/`
 2. 复制 10 个纯逻辑 JS 文件到 `core/`
@@ -159,13 +184,32 @@ bash scripts/sync-core.sh
 - 修改了 `web/src/grid.js`、`shapes.js` 等核心逻辑
 - 修改了 `shared/game_rules.json`（策略、得分、形状权重）
 - 新增了 bot/RL 特征或模拟器改动
+- 修改了 `web/src/skins.js` 中皮肤核心字段时，运行：
+  ```bash
+  node scripts/sync-miniprogram-skins.cjs
+  ```
+  该脚本会同步 `id/name/blockColors/blockIcons/gridOuter/gridCell/gridGap/blockInset/blockRadius/blockStyle/clearFlash` 到 `miniprogram/core/skins.js`。
 
 ### 不需要同步的
 
 - `web/src/renderer.js` → 小程序版在 `utils/renderer.js`
 - `web/src/game.js` → 小程序版在 `utils/gameController.js` + `pages/game/game.js`
-- `web/src/skins.js` → 主题数据可选复用，应用方式不同
+- `web/src/skins.js` → 通过 `scripts/sync-miniprogram-skins.cjs` 同步核心渲染字段，UI CSS 变量仍由小程序样式自行管理
 - 所有 DOM 操作的 UI 模块
+
+### 小程序关卡模式
+
+`miniprogram/core/levelPack.js` 当前包含 Web 同款 20 关，菜单页通过 picker 选择关卡后以 `mode=level&levelId=Lxx` 进入 `pages/game/game`。
+
+关卡目标字段兼容两种格式：
+
+| Web 关卡字段 | 小程序解释 |
+|--------------|------------|
+| `objective.type = 'score'` + `target` | 达到目标分数通关 |
+| `objective.type = 'clear'` + `target` | 累计消行达到目标通关 |
+| `objective.type = 'survival'` + `minRounds` | 出块轮数达到目标通关 |
+| `maxRounds` / `maxPlacements` | 超限失败 |
+| `starThresholds` | 1/2/3 星门槛 |
 
 ## 6. 后端连接（可选）
 

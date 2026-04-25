@@ -149,6 +149,55 @@ body.block-drag-active #app {
     min-width: 0;
     padding: 6px 14px;
     position: relative;
+    /* 三行栅格：标签 / 主内容 / 辅文，与相邻栏对齐 */
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    justify-items: center;
+    align-items: center;
+    row-gap: 2px;
+}
+
+.score-theme-row .stat-label {
+    align-self: end;
+}
+
+.score-theme-row .skin-picker,
+.score-theme-row .stat-value,
+.score-theme-row .header-level-val {
+    align-self: center;
+}
+
+.score-theme-row .stat-subline--spacer,
+.score-theme-row .best-gap,
+.score-theme-row .progression-streak {
+    align-self: start;
+    width: 100%;
+    text-align: center;
+}
+
+.score-theme-row .progression-streak {
+    margin-left: 0;
+}
+
+/* 与 .best-gap 辅文行同高占位，避免「得分」等栏少一行时主数字上移 */
+.score-theme-row .stat-subline--spacer {
+    visibility: hidden;
+    pointer-events: none;
+    min-height: calc(9px * 1.25 + 1px);
+    margin-top: 1px;
+    line-height: 1.25;
+    font-size: 9px;
+    width: 100%;
+}
+
+/* hidden 仍占位，与无尽模式「差 xx 分」、连续登录行对齐 */
+.score-theme-row .best-gap[hidden],
+.score-theme-row .progression-streak[hidden] {
+    display: block !important;
+    visibility: hidden;
+    min-height: calc(9px * 1.25 + 1px);
+    margin-top: 1px;
+    overflow: hidden;
 }
 
 /* 各节之间的细分隔线 */
@@ -896,6 +945,37 @@ body.block-drag-active #app {
     align-self: center;
 }
 
+/* 棋盘底板：缓慢流动的渐变（canvas 上空格半透明叠加以透出此层） */
+.game-board-flow-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(
+        122deg,
+        color-mix(in srgb, var(--grid-bg) 78%, var(--cell-empty) 22%),
+        color-mix(in srgb, var(--cell-empty) 72%, var(--accent-color, #38bdf8) 28%),
+        color-mix(in srgb, var(--grid-bg) 70%, var(--accent-color, #38bdf8) 30%),
+        color-mix(in srgb, var(--cell-empty) 82%, var(--grid-bg) 18%),
+        color-mix(in srgb, var(--grid-bg) 85%, var(--cell-empty) 15%)
+    );
+    background-size: 320% 320%;
+    animation: boardBgFlow 52s ease-in-out infinite alternate;
+}
+
+@keyframes boardBgFlow {
+    0% {
+        background-position: 4% 22%;
+    }
+    50% {
+        background-position: 48% 48%;
+    }
+    100% {
+        background-position: 88% 72%;
+    }
+}
+
 /* RL 机器人盘面演示：避免演示过程中误触棋盘与待选区 */
 body.game-rl-preview #game-wrapper,
 body.game-rl-preview .block-dock {
@@ -904,11 +984,13 @@ body.game-rl-preview .block-dock {
 }
 
 #game-grid {
+    position: relative;
+    z-index: 1;
     display: block;
     width: min(100%, var(--grid-canvas-width));
     height: auto;
     aspect-ratio: 1;
-    background: var(--grid-bg);
+    background: transparent;
     border-radius: 0;
     /* 直角盘面 + 略强的外轮廓与轻微浮起，视觉焦点在棋盘 */
     box-shadow:
@@ -2289,135 +2371,112 @@ body.game-rl-preview .block-dock {
     -webkit-text-fill-color: transparent;
 }
 
-/* ── 同色消除 icon bonus ── */
+/* ── 同色消除 icon bonus：「100(5x)」单次艺术字；仅 showFloatScore 一处，避免与棋盘旁重复 ── */
 
 .float-icon-bonus {
-    color: #9b59b6;
-    font-size: clamp(22px, 4.8vw, 34px);
-    animation: iconBonusEpic 2.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-    text-shadow:
-        0 0 14px rgba(255, 215, 100, 0.55),
-        0 0 22px rgba(155, 89, 182, 0.85),
-        0 2px 6px rgba(0, 0, 0, 0.28);
-    filter: drop-shadow(0 0 12px rgba(200, 120, 255, 0.45));
-}
-
-.float-icon-tag {
-    display: inline-block;
-    background: linear-gradient(135deg, #f39c12, #e74c3c);
-    color: #fff;
-    font-size: 0.75em;
-    font-weight: 900;
-    padding: 1px 6px;
-    border-radius: 6px;
-    margin-left: 4px;
-    vertical-align: middle;
-    text-shadow: none;
-    letter-spacing: 0;
-    animation: iconTagPulse 0.6s ease-out;
-}
-
-.float-icon-sub {
-    display: block;
-    margin-top: 2px;
-    font-size: 0.55em;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    opacity: 0.9;
-}
-
-/* 棋盘旁：同色/同 icon 加成得分（与飘 icon 同步） */
-.board-bonus-score-pop {
-    position: fixed;
-    z-index: 120;
-    transform: translate(-50%, -50%) scale(0.65);
-    opacity: 0;
+    --icon-bonus-pop-ms: 4000ms;
+    animation: none;
     pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    text-align: center;
-    transition:
-        opacity 0.35s ease,
-        transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.board-bonus-score-pop.bbs--in {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-}
-
-.board-bonus-score-pop.bbs--out {
-    opacity: 0;
-    transform: translate(-50%, -85%) scale(0.92);
-}
-
-.board-bonus-score-pop .bbs-mult {
-    font-size: clamp(22px, 5vw, 34px);
+.float-bonus-art {
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    justify-content: center;
+    transform-origin: center;
+    gap: 0.03em;
+    font-family:
+        ui-sans-serif,
+        system-ui,
+        "PingFang SC",
+        "Hiragino Sans GB",
+        "Microsoft YaHei",
+        "Noto Sans SC",
+        sans-serif;
     font-weight: 900;
-    background: linear-gradient(135deg, #f39c12, #e74c3c);
-    color: #fff;
-    padding: 2px 12px;
-    border-radius: 10px;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-    box-shadow:
-        0 0 18px rgba(255, 200, 80, 0.55),
-        0 4px 14px rgba(0, 0, 0, 0.2);
+    font-size: clamp(30px, 6.2vw, 52px);
+    letter-spacing: 0.02em;
+    line-height: 1.05;
+    white-space: nowrap;
+    filter:
+        drop-shadow(0 2px 0 rgba(88, 28, 28, 0.45))
+        drop-shadow(0 0 22px rgba(251, 191, 36, 0.55))
+        drop-shadow(0 0 36px rgba(192, 38, 211, 0.35));
+    animation: bonusScoreArtPop var(--icon-bonus-pop-ms, 4000ms) cubic-bezier(0.16, 1, 0.32, 1) forwards;
 }
 
-.board-bonus-score-pop .bbs-label {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.2em;
-    color: color-mix(in srgb, var(--text-primary, #1e293b) 72%, #a855f7);
-    text-transform: uppercase;
+.float-bonus-num {
+    display: inline-block;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    background: linear-gradient(
+        118deg,
+        #fffbeb 0%,
+        #fde68a 18%,
+        #f59e0b 42%,
+        #ea580c 58%,
+        #c026d3 78%,
+        #7c3aed 100%
+    );
+    background-size: 140% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
-.board-bonus-score-pop .bbs-val {
-    font-size: clamp(18px, 4.2vw, 28px);
+.float-bonus-mult-wrap {
+    display: inline-block;
+    font-size: 0.4em;
     font-weight: 800;
-    color: #fbbf24;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    color: #fde68a;
+    -webkit-text-fill-color: #fef3c7;
     text-shadow:
-        0 0 12px rgba(251, 191, 36, 0.65),
-        0 2px 6px rgba(0, 0, 0, 0.35);
+        0 0 10px rgba(251, 191, 36, 0.75),
+        0 1px 2px rgba(0, 0, 0, 0.45);
+    transform: translateY(-0.04em);
+    opacity: 0.96;
 }
 
-@keyframes iconTagPulse {
-    0%   { transform: scale(0.6); opacity: 0; }
-    60%  { transform: scale(1.15); }
-    100% { transform: scale(1); opacity: 1; }
-}
-
-/* 同色/同 icon 消除：更长、更强的浮动分展示 */
-@keyframes iconBonusEpic {
+/* 得分 (5x)：单次弹出 → 稳态 → 末段上浮淡出（不循环） */
+@keyframes bonusScoreArtPop {
     0% {
+        transform: scale(0.06) translateY(18px);
         opacity: 0;
-        transform: translateX(-50%) translateY(14px) scale(0.55);
-        filter: drop-shadow(0 0 4px rgba(200, 120, 255, 0.3));
+        letter-spacing: 0.32em;
+        filter: blur(8px)
+            drop-shadow(0 2px 0 rgba(88, 28, 28, 0.35))
+            drop-shadow(0 0 12px rgba(251, 191, 36, 0.3));
     }
-    10% {
+    14% {
         opacity: 1;
-        transform: translateX(-50%) translateY(-4px) scale(1.12);
+        letter-spacing: 0.06em;
+        filter: blur(0)
+            drop-shadow(0 2px 0 rgba(88, 28, 28, 0.45))
+            drop-shadow(0 0 24px rgba(251, 191, 36, 0.55));
     }
-    22% {
-        transform: translateX(-50%) translateY(2px) scale(1.02);
+    24% {
+        transform: scale(1.28) translateY(-6px);
     }
     38% {
-        transform: translateX(-50%) translateY(-8px) scale(1.08);
+        transform: scale(0.94) translateY(2px);
     }
-    55% {
+    52% {
+        transform: scale(1.06) translateY(-4px);
+    }
+    68% {
+        transform: scale(1) translateY(0);
         opacity: 1;
-        transform: translateX(-50%) translateY(-14px) scale(1);
-    }
-    78% {
-        opacity: 0.92;
-        transform: translateX(-50%) translateY(-28px) scale(1.02);
     }
     100% {
+        transform: scale(0.88) translateY(-16px);
         opacity: 0;
-        transform: translateX(-50%) translateY(-52px) scale(0.96);
-        filter: drop-shadow(0 0 20px rgba(255, 200, 80, 0.2));
+        letter-spacing: 0.02em;
+        filter: blur(2px)
+            drop-shadow(0 0 8px rgba(192, 38, 211, 0.2));
     }
 }
 

@@ -276,6 +276,17 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 | 新手引导 | 2 | -0.4 | 0 |
 | 无聊 | 1 | 0 | 0.15 |
 | 疲劳+下滑 | 1 | -0.2 | 0 |
+| 连续无消行(≥2轮) | ≥2 | 保持原值 | 保持原值 |
+| 连续无消行(≥4轮) | ≥3 | ≤ -0.35 | 保持原值 |
+
+### 保命态说明
+
+`adaptiveSpawn.js` 会把连续无消行转换为更强的 `spawnHints`：
+
+- `roundsSinceClear ≥ 2`：提高到 `clearGuarantee ≥ 2`，让下一轮更容易出现消行/解压块。
+- `roundsSinceClear ≥ 4`：提高到 `clearGuarantee ≥ 3`，并将 `sizePreference` 压到 `≤ -0.35`，优先小块与可消行块。
+
+最终是否能出仍由 `blockSpawn.js` 的机动性与可解性约束把关；高填充或久未消行时还会进入严格可解性校验，详见 [SPAWN_ALGORITHM.md](./SPAWN_ALGORITHM.md) 与 [SPAWN_BLOCK_MODELING.md](./SPAWN_BLOCK_MODELING.md)。
 
 ---
 

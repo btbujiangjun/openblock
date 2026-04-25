@@ -89,6 +89,12 @@ export const ICON_BONUS_LINE_MULT = 5;
  * @param {{ count: number, bonusLines?: Array<unknown> }} result
  * @returns {{ baseScore: number, iconBonusScore: number, clearScore: number }}
  */
+/** 同色/同 icon bonus：粒子 + UI 整段时长（目标约 3–5 秒） */
+export function bonusEffectHoldMs(bonusCount) {
+    if (bonusCount <= 0) return 0;
+    return Math.min(5000, Math.max(3000, 3000 + bonusCount * 400));
+}
+
 export function computeClearScore(strategyId, result) {
     const scoring = getStrategy(strategyId).scoring;
     const c = result?.count ?? 0;
@@ -182,6 +188,9 @@ export class Game {
         this._insightLiveHistory = [];
         /** 悬浮预览将消行时，驱动描边脉冲的 rAF */
         this._previewClearRaf = null;
+        /** 空闲时轻量重绘，驱动盘面大水印缓缓飘动 */
+        this._wmAmbientRaf = null;
+        this._lastWmAmbientAt = 0;
     }
 
     _cancelPreviewClearAnim() {
@@ -286,6 +295,25 @@ export class Game {
         this.updateShellVisibility();
         this.updateUI();
         this.render();
+        this._startWatermarkAmbientLoop();
+    }
+
+    /** 主菜单关闭且非消除动画时，节流重绘以更新 boardWatermark 飘移 */
+    _startWatermarkAmbientLoop() {
+        if (typeof window === 'undefined') return;
+        if (this._wmAmbientRaf != null) return;
+        const tick = () => {
+            this._wmAmbientRaf = requestAnimationFrame(tick);
+            const menu = document.getElementById('menu');
+            if (menu?.classList.contains('active')) return;
+            if (this.isAnimating) return;
+            const now = performance.now();
+            /* ~30fps 即可看清飘动；过慢则相位变化仍太小 */
+            if (now - this._lastWmAmbientAt < 32) return;
+            this._lastWmAmbientAt = now;
+            this.markDirty();
+        };
+        this._wmAmbientRaf = requestAnimationFrame(tick);
     }
 
     /** 主菜单打开时隐藏主界面与难度条；game-over 浮层保留棋盘可见 */
@@ -692,6 +720,9 @@ export class Game {
             const cvs = div.querySelector('canvas');
             if (!cvs) return;
             const ctx = cvs.getContext('2d');
+            const dockDpr = Math.max(1, Math.round((cvs.width || slotPx) / slotPx));
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.scale(dockDpr, dockDpr);
             ctx.clearRect(0, 0, slotPx, slotPx);
             const ox = (slotPx - block.width * cell) / 2;
             const oy = (slotPx - block.height * cell) / 2;
@@ -1170,9 +1201,7 @@ export class Game {
         const isCombo = result.count >= 3;
         const isDouble = result.count === 2;
         const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
-        const bonusHoldMs = bonusCount > 0
-            ? Math.min(5600, 3800 + bonusCount * 800)
-            : 0;
+        const bonusHoldMs = bonusEffectHoldMs(bonusCount);
         const animDuration = bonusCount > 0 ? Math.max(baseDuration, bonusHoldMs) : baseDuration;
         const bonusShakeMs = bonusCount > 0 ? baseDuration : 0;
 
@@ -1186,12 +1215,20 @@ export class Game {
         if (bonusCount > 0) {
             const palette = getBlockColors();
             this.renderer.triggerBonusMatchFlash(bonusCount);
+            const iconLineSpecs = bonusLines
+                .filter(bl => bl.icon)
+                .map(bl => ({ bonusLine: bl, icon: bl.icon }));
+            if (iconLineSpecs.length) {
+                this.renderer.beginBonusIconGush(iconLineSpecs, animDuration);
+            }
+            const colorLineSpecs = bonusLines.map(bl => ({
+                bonusLine: bl,
+                cssColor: palette[bl.colorIdx] || '#FFD700'
+            }));
+            this.renderer.beginBonusColorGush(colorLineSpecs, animDuration);
             for (const bl of bonusLines) {
                 const cssColor = palette[bl.colorIdx] || '#FFD700';
-                if (bl.icon) {
-                    this.renderer.addIconParticles(bl, bl.icon, 46);
-                }
-                this.renderer.addBonusLineBurst(bl, cssColor, 56);
+                this.renderer.addBonusLineBurst(bl, cssColor, 40);
             }
         }
 
@@ -1214,10 +1251,13 @@ export class Game {
         else if (isCombo) effectType = 'combo';
         else if (isDouble) effectType = 'multi';
 
-        this.showFloatScore(clearScore, effectType, result.count, bonusCount > 0 ? iconBonusScore : 0);
-        if (bonusCount > 0 && iconBonusScore > 0) {
-            this.showBonusScoreNearBoard(iconBonusScore, animDuration);
-        }
+        this.showFloatScore(
+            clearScore,
+            effectType,
+            result.count,
+            bonusCount > 0 ? iconBonusScore : 0,
+            bonusCount > 0 ? animDuration : 0
+        );
 
         if (this._clearStreak >= 3) {
             this._showStreakBadge(this._clearStreak);
@@ -1757,66 +1797,51 @@ export class Game {
     }
 
     /**
-     * 棋盘区域旁显示同色/同 icon 额外得分（与飘 icon 粒子阶段同步）
-     * @param {number} bonusPts
-     * @param {number} holdMs  与消除粒子阶段总长一致
+     * @param {number} [bonusUiHoldMs=0]  有同色 bonus 时传入与粒子阶段相同的 hold（ms），用于顶栏分数与粒子同步消失
      */
-    showBonusScoreNearBoard(bonusPts, holdMs) {
-        const canvas = document.getElementById('game-grid');
-        if (!canvas || !(bonusPts > 0)) return;
-        const r = canvas.getBoundingClientRect();
-        const el = document.createElement('div');
-        el.className = 'board-bonus-score-pop';
-        el.setAttribute('role', 'status');
-        el.innerHTML =
-            `<span class="bbs-mult">×${ICON_BONUS_LINE_MULT}</span>` +
-            `<span class="bbs-label">加成</span>` +
-            `<span class="bbs-val">+${bonusPts}</span>`;
-        el.style.left = `${r.left + r.width * 0.5}px`;
-        el.style.top = `${r.top + r.height * 0.38}px`;
-        document.body.appendChild(el);
-        requestAnimationFrame(() => el.classList.add('bbs--in'));
-        const outAt = Math.max(800, holdMs - 420);
-        setTimeout(() => el.classList.add('bbs--out'), outAt);
-        setTimeout(() => el.remove(), outAt + 500);
-    }
-
-    showFloatScore(score, type, linesCleared = 0, iconBonus = 0) {
+    showFloatScore(score, type, linesCleared = 0, iconBonus = 0, bonusUiHoldMs = 0) {
         const el = document.createElement('div');
         const isCombo = type === 'combo';
         const isPerfect = type === 'perfect';
         const hasIconBonus = iconBonus > 0;
-        const multTag = `<span class="float-icon-tag">×${ICON_BONUS_LINE_MULT}</span>`;
+
+        if (hasIconBonus) {
+            el.className = 'float-score float-icon-bonus';
+            if (bonusUiHoldMs > 0) {
+                el.style.setProperty('--icon-bonus-pop-ms', `${Math.round(bonusUiHoldMs)}ms`);
+            }
+            el.innerHTML =
+                `<span class="float-bonus-art" role="status">` +
+                `<span class="float-bonus-num">${score}</span>` +
+                `<span class="float-bonus-mult-wrap">(${ICON_BONUS_LINE_MULT}x)</span>` +
+                `</span>`;
+            el.style.left = '50%';
+            el.style.top = isPerfect ? '18%' : isCombo ? '22%' : '28%';
+            el.style.transform = 'translateX(-50%)';
+            document.body.appendChild(el);
+            const floatHoldMs = bonusUiHoldMs > 0 ? Math.round(bonusUiHoldMs) : 4000;
+            setTimeout(() => el.remove(), floatHoldMs);
+            return;
+        }
+
         const cls = isPerfect ? ' float-perfect' : isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '';
-        el.className = 'float-score' + cls + (hasIconBonus ? ' float-icon-bonus' : '');
+        el.className = 'float-score' + cls;
 
         if (isPerfect) {
             el.innerHTML = `<span class="float-label">PERFECT</span><span class="float-pts">+${score}</span>`;
         } else if (isCombo && linesCleared >= 3) {
-            const bonusTag = hasIconBonus ? ` ${multTag}` : '';
-            el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}${bonusTag}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
-            const bonusTag = hasIconBonus ? ` ${multTag}` : '';
-            el.innerHTML = `<span class="float-label">DOUBLE${bonusTag}</span><span class="float-pts">+${score}</span>`;
-        } else if (hasIconBonus) {
-            el.innerHTML = `<span class="float-label">${multTag}<span class="float-icon-sub">同色加成</span></span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">DOUBLE</span><span class="float-pts">+${score}</span>`;
         } else {
             el.textContent = '+' + score;
         }
 
         el.style.left = '50%';
-        el.style.top = isPerfect ? '18%' : isCombo ? '22%' : hasIconBonus ? '28%' : '25%';
+        el.style.top = isPerfect ? '18%' : isCombo ? '22%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        const floatHoldMs = isPerfect
-            ? 2200
-            : (isCombo && hasIconBonus)
-                ? 3000
-                : isCombo
-                    ? 1450
-                    : hasIconBonus
-                        ? 2800
-                        : 600;
+        const floatHoldMs = isPerfect ? 2200 : isCombo ? 1450 : 600;
         setTimeout(() => el.remove(), floatHoldMs);
     }
 

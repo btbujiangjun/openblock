@@ -1,6 +1,6 @@
 # OpenBlock 文档导航
 
-> 最后更新：2026-04-20  
+> 最后更新：2026-04-25  
 > 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）  
 > 根目录文档：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 
@@ -91,7 +91,8 @@
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
-| [微信小程序适配说明](./WECHAT_MINIPROGRAM.md) | miniprogram/ 结构；adapters/；sync-core.sh；与 web 共享逻辑；平台差异 | ✅ 当前 |
+| [微信小程序适配说明](./WECHAT_MINIPROGRAM.md) | miniprogram/ 结构；adapters/；sync-core.sh；26 款皮肤、20 关关卡、动画链与出块保命同步 | ✅ 当前 |
+| [微信小程序发布流程](./WECHAT_RELEASE.md) | 账号与类目、本地检查、上传、提审、上线、回滚与运维清单 | ✅ 当前 |
 
 ---
 
@@ -102,6 +103,9 @@
 | 问题 | 答案 | 来源 |
 |------|------|------|
 | 自适应 stress 信号维数 | **10 个**（scoreStress / runStreakStress / skillAdjust / flowAdjust / pacingAdjust / recoveryAdjust / frustrationRelief / comboReward / trendAdjust / confidenceGate） | `web/src/adaptiveSpawn.js` |
+| 出块危险态保命 | `fill ≥ 0.68` 或 `roundsSinceClear ≥ 3` 进入严格可解性；`roundsSinceClear ≥ 2/4` 提升 `clearGuarantee` | `web/src/bot/blockSpawn.js`、`web/src/adaptiveSpawn.js` |
+| 微信小程序皮肤数量 | **26 款**，由 `scripts/sync-miniprogram-skins.cjs` 从 `web/src/skins.js` 同步核心字段 | `miniprogram/core/skins.js` |
+| 微信小程序关卡数量 | **20 关**，兼容 Web `target/minRounds/starThresholds` 目标字段 | `miniprogram/core/levelPack.js`、`levelManager.js` |
 | RL 课程阈值 | `winThresholdStart=40`，`winThresholdEnd=220`，`rampEpisodes=40000` | `shared/game_rules.json` |
 | Feature Flag 默认值 | 广告/IAP/Push 默认 **关**；任务/排行榜/皮肤/通行证/分享/Stub 默认 **开** | `web/src/monetization/featureFlags.js` |
 | adTrigger 挫败阈值 | `frustrationLevel ≥ 5`（硬编码，未读 model config） | `web/src/monetization/adTrigger.js` |

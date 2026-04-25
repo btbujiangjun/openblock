@@ -78,10 +78,13 @@ w *= 1 + holeReduce * 0.4
 
 - `minMobilityTarget(fill, attempt)`: 盘面越满，要求每个候选块的最少合法落点数越高
 - 随重试次数逐步放宽（每 5 次 -1），避免过度严苛导致超时
+- 高填充档位已强化：`fill ≥ 0.68` 起进入更高最低落点要求，`0.75+`、`0.88+` 进一步加严，减少“只有极少落点”的窄路组合
 
 ### 3.5 可解性验证
 
 当 `fill ≥ 0.52` 时，执行 `tripletSequentiallySolvable`：DFS 搜索三块的所有排列顺序（6 种），验证存在某种放置序列使三块均能落下。搜索预算 14000 节点。
+
+危险态（`fill ≥ 0.68` 或 `roundsSinceClear ≥ 3`）会启用严格校验：前 70% 重试尝试使用更高搜索预算，且预算耗尽不再默认放行。该策略只在高风险窗口启用，用于降低“刚出块就怼死”的概率。
 
 ## 4. Layer 2: 局内体感
 
@@ -115,6 +118,8 @@ multiClearBonus = roundsSinceClear > 3 ? 0.6 : fill > 0.55 ? 0.3 : 0.1
 | `setup` | pacing 紧张期 + 刚消过行 | 偏好 4~6 格构型块（蓄力） |
 | `payoff` | pacing 释放期 或 连续 ≥3 轮未消行 | 偏好消行块 + 多消块 |
 | `neutral` | 其他 | 标准权重 |
+
+补充：连续无消行会进入救援态。`roundsSinceClear ≥ 2` 时 `clearGuarantee` 至少为 2；`roundsSinceClear ≥ 4` 时至少为 3，并额外偏小块（`sizePreference ≤ -0.35`）。
 
 ### 4.4 品类记忆
 

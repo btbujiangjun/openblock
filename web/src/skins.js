@@ -224,7 +224,8 @@ export const SKINS = {
         name: '🌊 深海幽域',
         boardWatermark: { icons: ['🦈', '🐠'], opacity: 0.07 },
         // 深海生物：🦈鲨鱼 / 🐳蓝鲸 / 🐙章鱼 / 🦑鱿鱼 / 🐠热带鱼 / 🦞龙虾 / 🐡河豚 / 🦭海豹
-        blockIcons: ['🦈', '🐳', '🐙', '🦑', '🐠', '🦞', '🐡', '🦭'],
+        /* 鲨鱼/热带鱼与青蓝块交错，避免同色糊成一片 */
+        blockIcons: ['🐙', '🐳', '🦈', '🐠', '🦑', '🦞', '🐡', '🦭'],
         blockColors: [
             '#00C8F0', '#0098C8', '#48D4E4', '#90F0FF',
             '#00E4C0', '#FFB347', '#FF7878', '#20E8FF'
@@ -329,8 +330,9 @@ export const SKINS = {
         id: 'koi',
         name: '🎏 锦鲤跃龙',
         boardWatermark: { icons: ['🎏', '🐟'], opacity: 0.08 },
+        blockIcons: ['🎏', '🐠', '🐟', '🐡', '🦈', '🐙', '🪷', '🎐'],
         blockColors: [
-            '#FF5040', '#F07828', '#F0C820', '#C8D0F0',
+            '#FF5040', '#F07828', '#F0C820', '#3A9EC8',
             '#E880A8', '#38A8B8', '#F05888', '#D0A858'
         ],
         gridOuter: '#040E18',
@@ -358,6 +360,8 @@ export const SKINS = {
         id: 'candy',
         name: '🍭 糖果甜心',
         boardWatermark: { icons: ['🍭', '🍬'], opacity: 0.09 },
+        /* 彩虹避开青绿底；蝴蝶结放高饱和青底更易辨认 */
+        blockIcons: ['🍬', '🍭', '🧁', '🍫', '🌈', '🍰', '🍦', '🎀'],
         blockColors: [
             '#FF4466', '#FF8820', '#FFD020', '#44E848',
             '#22AAFF', '#CC66FF', '#FF44BB', '#22E8CC'
@@ -387,7 +391,8 @@ export const SKINS = {
             '#FF72BB', '#4898F8', '#42C442', '#FFAA18',
             '#22C87A', '#E060FF', '#FF8848', '#12C4E8'
         ],
-        blockIcons: ['🦩', '🐳', '🐢', '🦀', '🌿', '🦑', '🦐', '🐬'],
+        /* 火烈鸟避开玫红底，海草与绿块错开 */
+        blockIcons: ['🐳', '🦩', '🐢', '🦀', '🦑', '🌿', '🦐', '🐬'],
         gridOuter: '#2A1048',
         gridCell:  '#401870',
         gridGap: 1,
@@ -417,7 +422,8 @@ export const SKINS = {
             '#FF5570', '#FF7F11', '#FFD600', '#00C853',
             '#5590FF', '#DD60FF', '#FF6098', '#00BCD4'
         ],
-        blockIcons: ['🐻', '🦊', '🐥', '🦁', '🦜', '🦄', '🐬', '🦋'],
+        /* 小鸡避开亮黄块；独角兽与黄/绿块错开 */
+        blockIcons: ['🐻', '🦊', '🦁', '🦄', '🦜', '🐥', '🐬', '🦋'],
         gridOuter: '#2A1860',
         gridCell:  '#3A2478',
         gridGap: 2,
@@ -434,18 +440,21 @@ export const SKINS = {
         }
     },
 
-    /** 街机（魂斗罗/经典动作）：NES/SNK 鲜艳配色 + glossy 方块 + 经典街机动作游戏 icon */
+    /** 街机（魂斗罗/经典动作）：NES/SNK 鲜艳配色 + glossy 方块 + 街机/格斗/平台跳跃意象 icon */
     pixel8: {
         id: 'pixel8',
         name: '🕹️ 街机格斗',
-        boardWatermark: { icons: ['🔫', '💣', '👾', '🎮'], opacity: 0.10, scale: 0.72 },
-        blockIcons: ['🔫', '💣', '🚀', '🪖', '⭐', '👾', '🎯', '🎮'],
+        boardWatermark: { icons: ['🕹️', '👾', '🍄', '🥊'], opacity: 0.10, scale: 0.72 },
+        /* 爆炸放品红底、闪电放黄绿底，避开青底与黄底撞色 */
+        blockIcons: ['🕹️', '👾', '🍄', '🥊', '💥', '🎮', '👊', '⚡'],
         blockColors: [
             '#FF2050', '#1E78FF', '#00C030', '#F8C000',
             '#CC00CC', '#00B8C8', '#FF5800', '#90E000'
         ],
         gridOuter: '#0D0400',
         gridCell:  '#1E1008',
+        gridGap: 1,
+        blockInset: 2,
         blockStyle: 'glossy',
         blockRadius: 4,
         clearFlash: '#FFFFF0',
@@ -611,7 +620,7 @@ export const SKINS = {
         blockIcons: ['🐶', '🐱', '🐰', '🐹', '🐸', '🦜', '🐢', '🐠'],
         gridOuter: '#C0B090',
         gridCell:  '#F5EDDC',
-        gridGap: 2,
+        gridGap: 1,
         blockInset: 1,
         blockRadius: 10,
         blockStyle: 'cartoon',
@@ -643,7 +652,8 @@ export const SKINS = {
             '#E84020', '#F09030', '#D8C820', '#3898D0',
             '#D040D0', '#20B0C0', '#D88020', '#9070F0'
         ],
-        blockIcons: ['🌍', '🌙', '⭐', '🪐', '☄️', '🌠', '🔭', '🛸'],
+        /* 星形避开金黄块，望远镜居中蓝块 */
+        blockIcons: ['🌍', '🌙', '🔭', '🪐', '☄️', '🌠', '⭐', '🛸'],
         gridOuter: '#04020E',
         gridCell:  '#0A0618',
         gridGap: 1,
@@ -695,7 +705,8 @@ export const SKINS = {
         id: 'beast',
         name: '🗺️ 冒险奇境',
         boardWatermark: { icons: ['🦁', '🐯'], opacity: 0.08 },
-        blockIcons: ['🦁', '🐯', '🦅', '🐺', '🐆', '🐻', '🦏', '🦈'],
+        /* 犀牛灰放海蓝块；苍鹰放植绿块，避免蓝底蓝雕 */
+        blockIcons: ['🦁', '🐯', '🦅', '🦏', '🐆', '🐻', '🐺', '🦈'],
         blockColors: [
             '#F0A820', // 🦁 狮子金
             '#F07030', // 🐯 虎纹橙
@@ -728,16 +739,16 @@ export const SKINS = {
         id: 'greece',
         name: '🏛️ 希腊神话',
         boardWatermark: { icons: ['🏛️', '⚡'], opacity: 0.08 },
-        // 八神专属符号：⚡宙斯 / 🔱波塞冬 / 🦉雅典娜 / ☀️阿波罗 / 🌙阿尔忒弥斯 / 🍇狄俄尼索斯 / 🌺阿芙罗狄忒 / ☠️哈迪斯
-        blockIcons: ['⚡', '🔱', '🦉', '☀️', '🌙', '🍇', '🌺', '☠️'],
+        // 奥林匹斯意象：酒神用酒杯、爱神用心箭，避免葡萄/花朵过于「田园」偏离神殿感
+        blockIcons: ['⚡', '🔱', '🦉', '☀️', '🌙', '🍷', '💘', '☠️'],
         blockColors: [
             '#E8C030', // ⚡ 宙斯（雷霆金）
             '#4898E8', // 🔱 波塞冬（海洋蓝，加亮）
             '#90C040', // 🏛️ 雅典娜（橄榄绿）
             '#F07828', // 🌞 阿波罗（烈日橙）
             '#90B8D8', // 🏹 阿尔忒弥斯（月光银蓝）
-            '#D050E8', // 🍇 狄俄尼索斯（明亮葡萄紫）
-            '#20A8B8', // 🦚 赫拉（孔雀青）
+            '#D050E8', // 🍷 狄俄尼索斯（酒神紫）
+            '#20A8B8', // 💘 阿芙罗狄忒（孔雀青底衬心箭）
             '#7860E0', // 💀 哈迪斯（明亮冥界蓝）
         ],
         gridOuter:   '#08080E',
@@ -761,8 +772,8 @@ export const SKINS = {
         id: 'demon',
         name: '😈 恶魔冥界',
         boardWatermark: { icons: ['😈', '💀'], opacity: 0.08 },
-        // 小鬼主题：😈恶魔 / 👿愤怒小鬼 / 💀骷髅 / ☠️毒骷髅 / 🔥地狱火 / 🦇蝙蝠 / ⚔️恶魔之刃 / 🕷️毒蛛
-        blockIcons: ['😈', '👿', '💀', '☠️', '🔥', '🦇', '⚔️', '🕷️'],
+        // 冥府意象：以邪眼/诅咒替代「火苗」emoji，更贴硫磺地狱与恶魔主题
+        blockIcons: ['😈', '👿', '💀', '☠️', '👁️', '🦇', '⚔️', '🕷️'],
         blockColors: [
             '#F03030', // 地狱红（加亮）
             '#F0A020', // 硫磺黄
@@ -796,7 +807,7 @@ export const SKINS = {
         name: '🦕 恐龙世界',
         boardWatermark: { icons: ['🦕', '🦖'], opacity: 0.08 },
         // 全恐龙/远古爬行类：🦕腕龙 / 🦖霸王龙 / 🐉翼龙 / 🦎迅猛龙 / 🐊棘龙 / 🐍蛇颈龙 / 🐢海龟 / 🦖暴龙
-        blockIcons: ['🦕', '🦖', '🐉', '🦎', '🐊', '🐍', '🐢', '🦖'],
+        blockIcons: ['🦕', '🦖', '🐉', '🦎', '🐊', '🐍', '🐢', '🥚'],
         blockColors: [
             '#50C030', // 🦕 腕龙绿（植食巨兽，加亮）
             '#F05030', // 🦖 霸王龙红（顶级掠食者，加亮）
@@ -824,19 +835,19 @@ export const SKINS = {
     },
 
     // 主题：花仙子（精灵·花卉·魔法，少女清新风，每色对应一种花灵 icon）
-    // 🧚花仙子 / 🌸樱花精 / 🦋蝶仙 / 🌺玫瑰精 / 🌷郁金香 / ✨魔法星 / 🍄蘑菇精 / 🌈彩虹灵
+    // 🧚花仙子 / 🌸樱花精 / 🦋蝶仙 / 🌺玫瑰精 / 🌷郁金香 / 🪄魔法棒（避免✨与金黄块撞色） / 🍄蘑菇精 / 🌈彩虹灵
     fairy: {
         id: 'fairy',
         name: '🧚 花仙梦境',
         boardWatermark: { icons: ['🧚', '🌸'], opacity: 0.08 },
-        blockIcons: ['🧚', '🌸', '🦋', '🌺', '🌷', '✨', '🍄', '🌈'],
+        blockIcons: ['🧚', '🌸', '🦋', '🌺', '🌷', '🪄', '🍄', '🌈'],
         blockColors: [
             '#D060F0', // 🧚 花仙子紫（精灵）
             '#F060A0', // 🌸 樱花粉（浪漫）
             '#60A0F8', // 🦋 蝶翼蓝（自由）
             '#F07060', // 🌺 玫瑰珊瑚（热情）
             '#F040A0', // 🌷 郁金香玫红
-            '#F0D830', // ✨ 魔法金（星光）
+            '#9B72F0', // 🪄 魔棒紫（与金黄 emoji 拉开色相）
             '#F09040', // 🍄 蘑菇橙（童话）
             '#40D0E8', // 🌈 彩虹青（梦幻）
         ],
@@ -900,11 +911,14 @@ export function applySkinToDocument(skin) {
         root.style.removeProperty(k);
     }
 
-    /* 字标像素格与 canvas 方块：同源 blockInset / blockRadius / gridGap / blockStyle */
+    /* 字标像素格与 canvas 方块：同源 blockInset / blockRadius / gridGap / blockStyle（缺省防 NaN） */
     const wmRef = 40;
-    root.style.setProperty('--skin-wm-inset-frac', String(skin.blockInset / wmRef));
-    root.style.setProperty('--skin-wm-radius-frac', String(skin.blockRadius / wmRef));
-    root.style.setProperty('--skin-wm-gridgap-frac', String((2 * skin.blockInset + (skin.gridGap ?? 1)) / wmRef));
+    const inset = skin.blockInset ?? 2;
+    const gap = skin.gridGap ?? 1;
+    const radius = skin.blockRadius ?? 5;
+    root.style.setProperty('--skin-wm-inset-frac', String(inset / wmRef));
+    root.style.setProperty('--skin-wm-radius-frac', String(radius / wmRef));
+    root.style.setProperty('--skin-wm-gridgap-frac', String((2 * inset + gap) / wmRef));
     root.dataset.skinBlockStyle = skin.blockStyle;
 
     root.style.setProperty('--grid-bg', skin.gridOuter);

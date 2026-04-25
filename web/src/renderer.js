@@ -14,6 +14,13 @@ function hexToRgb(hex) {
     } : null;
 }
 
+/** 盘面半透明叠底用 */
+function hexToRgba(hex, alpha) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return `rgba(0,0,0,${alpha})`;
+    return `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+}
+
 function darkenColor(hex, percent) {
     const rgb = hexToRgb(hex);
     if (!rgb) return hex;
@@ -43,8 +50,8 @@ function roundRectPath(ctx, x, y, w, h, r) {
 }
 
 /**
- * 在方块中心绘制 skin.blockIcons 里对应的小动物 emoji（尺寸足够时）。
- * 会自动添加投影以保证在任何颜色底色上清晰可读。
+ * 在方块中心绘制 skin.blockIcons 里对应 emoji（尺寸足够时）。
+ * 单层轻阴影，避免多描边造成「叠影/重影」。
  * @param {CanvasRenderingContext2D} ctx
  */
 function _paintIcon(ctx, bx, by, size, r, color, skin) {
@@ -61,12 +68,13 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
     ctx.font = `${fontSize}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    ctx.globalAlpha  = 0.96;
-    // 不用 shadowBlur（会导致 emoji 发虚）；改用两次偏移绘制模拟轻量投影
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.fillText(icon, bx + size * 0.50 + 0.6, by + size * 0.53 + 0.8);
-    ctx.fillStyle = 'black'; // fillText 对 emoji 无效，此处重置让浏览器正常渲染彩色 emoji
-    ctx.fillText(icon, bx + size * 0.50, by + size * 0.53);
+    const cx = bx + size * 0.5;
+    const cy = by + size * 0.53;
+    ctx.globalAlpha = 0.98;
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fillText(icon, cx + 0.5, cy + 0.65);
+    ctx.fillStyle = 'black';
+    ctx.fillText(icon, cx, cy);
     ctx.restore();
 }
 
@@ -75,11 +83,11 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
  * @param {number} cellPx 格左上角 x（整格坐标）
  */
 function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
-    const inset = skin.blockInset;
+    const inset = skin.blockInset ?? 2;
     const size = Math.max(1, cellS - inset * 2);
     const bx = cellPx + inset;
     const by = cellPy + inset;
-    const r = skin.blockRadius;
+    const r = skin.blockRadius ?? 5;
 
     if (skin.blockStyle === 'flat') {
         ctx.fillStyle = color;
@@ -485,6 +493,14 @@ export class Renderer {
         requestAnimationFrame(() => this._onCanvasResize());
         this.particles = [];
         this.iconParticles = [];
+        /** @type {Array<{ bonusLine: { type:'row'|'col', idx:number }, icon: string }>} */
+        this._iconGushLines = [];
+        this._iconGushStart = 0;
+        this._iconGushEnd = 0;
+        /** @type {Array<{ bonusLine: { type:'row'|'col', idx:number }, cssColor: string }>} */
+        this._colorGushLines = [];
+        this._colorGushStart = 0;
+        this._colorGushEnd = 0;
         this.clearCells = [];
         this.shakeOffset = { x: 0, y: 0 };
         this.shakeIntensity = 0;
@@ -499,8 +515,6 @@ export class Renderer {
         this._doubleWaveRows = [];
         /** 同色/同 icon 整行整列消除：紫金光晕全屏脉冲 0~1 */
         this._bonusMatchFlash = 0;
-        /** 盘面水印离屏缓存 { canvas, id, W, H }，皮肤/尺寸变化时自动重建 */
-        this._wmCache = null;
         // 监听 CSS 尺寸变化，动态保持 canvas 物理像素 = CSS 像素 × DPR
         this._setupPixelPerfectResize();
     }
@@ -544,33 +558,30 @@ export class Renderer {
         // cellSize 随 CSS 尺寸动态调整，保持 gridSize × cellSize = cssW
         this.cellSize = cssW / this.gridSize;
         this._applyCanvasSize(cssW, cssH);
-        this._wmCache = null; // 尺寸变化时水印缓存失效
         syncGridDisplayPx(this.canvas);
     }
 
     /**
-     * 将 skin.boardWatermark.icons 预渲染到离屏 canvas。
-     * 采用 5 点梅花布局（四角象限中心 + 正中），皮肤/尺寸变化时重建。
+     * 盘面大水印：梅花 5 点，每点独立相位的缓慢飘移（无离屏缓存，便于随时间动画）。
      */
-    _buildWmBitmap(skin) {
+    _renderBoardWatermark(skin) {
         const wm = skin.boardWatermark;
-        if (!wm?.icons?.length) { this._wmCache = null; return; }
-
+        if (!wm?.icons?.length) return;
         const W = this.logicalW;
         const H = this.logicalH;
-        const oc = document.createElement('canvas');
-        oc.width  = Math.round(W * this.dpr);
-        oc.height = Math.round(H * this.dpr);
-        const cx = oc.getContext('2d');
-        cx.scale(this.dpr, this.dpr);
+        const icons = wm.icons;
+        const sz = Math.round(Math.min(W, H) * (wm.scale ?? 0.24));
+        /* 秒级 + 多频正弦叠加：更大包络、轨迹近似随机游走（每点独立系数） */
+        const sec = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+        const base = Math.min(W, H);
+        const amp0 = Math.min(36, Math.max(16, base * 0.052));
 
-        const icons  = wm.icons;
-        const sz     = Math.round(Math.min(W, H) * (wm.scale ?? 0.24));
-        cx.font          = `${Math.round(sz * 0.88)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
-        cx.textAlign     = 'center';
-        cx.textBaseline  = 'middle';
+        this.ctx.save();
+        this.ctx.globalAlpha = wm.opacity ?? 0.07;
+        this.ctx.font = `${Math.round(sz * 0.88)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
 
-        // 梅花 5 点：左上 / 右上 / 正中 / 左下 / 右下
         const pts = [
             [W * 0.23, H * 0.23],
             [W * 0.77, H * 0.23],
@@ -578,26 +589,26 @@ export class Renderer {
             [W * 0.23, H * 0.77],
             [W * 0.77, H * 0.77],
         ];
-        pts.forEach(([x, y], i) => cx.fillText(icons[i % icons.length], x, y));
-
-        this._wmCache = { canvas: oc, id: skin.id, W, H };
-    }
-
-    /** 将水印叠加到盘面（绘制前调用 _buildWmBitmap 确保缓存有效） */
-    _renderBoardWatermark(skin) {
-        const wm = skin.boardWatermark;
-        if (!wm?.icons?.length) return;
-        const W = this.logicalW, H = this.logicalH;
-        if (!this._wmCache ||
-            this._wmCache.id !== skin.id ||
-            this._wmCache.W  !== W ||
-            this._wmCache.H  !== H) {
-            this._buildWmBitmap(skin);
-        }
-        if (!this._wmCache?.canvas) return;
-        this.ctx.save();
-        this.ctx.globalAlpha = wm.opacity ?? 0.07;
-        this.ctx.drawImage(this._wmCache.canvas, 0, 0, W, H);
+        pts.forEach(([bx, by], i) => {
+            const phx = i * 1.83 + 0.41;
+            const phy = i * 2.27 + 0.67;
+            const wx1 = 0.37 + (i % 5) * 0.059;
+            const wx2 = 1.09 + i * 0.127;
+            const wx3 = 0.71 + (i % 4) * 0.11;
+            const wy1 = 0.49 + (i % 4) * 0.073;
+            const wy2 = 0.86 + i * 0.101;
+            const wy3 = 1.21 + (i % 3) * 0.14;
+            const t = sec;
+            const dx =
+                Math.sin(t * wx1 + phx) * amp0 * 0.58 +
+                Math.sin(t * wx2 + phx * 0.62) * amp0 * 0.36 +
+                Math.cos(t * wx3 + i * 0.88) * amp0 * 0.28;
+            const dy =
+                Math.cos(t * wy1 + phy) * amp0 * 0.52 +
+                Math.sin(t * wy2 + phy * 0.71) * amp0 * 0.34 +
+                Math.sin(t * wy3 + i * 1.03) * amp0 * 0.30;
+            this.ctx.fillText(icons[i % icons.length], bx + dx, by + dy);
+        });
         this.ctx.restore();
     }
 
@@ -629,15 +640,18 @@ export class Renderer {
 
     renderBackground() {
         const skin = getActiveSkin();
-        const g = skin.gridGap;
+        const g = skin.gridGap ?? 1;
+        const lightBoard = skin.uiDark === false;
+        const outerA = lightBoard ? 0.93 : 0.86;
+        const cellA = lightBoard ? 0.84 : 0.70;
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
-        this.ctx.fillStyle = skin.gridOuter;
+        this.ctx.fillStyle = hexToRgba(skin.gridOuter, outerA);
         this.ctx.fillRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
 
         const cs = this.cellSize - 2 * g; // 单格可见尺寸
-        this.ctx.fillStyle = skin.gridCell;
+        this.ctx.fillStyle = hexToRgba(skin.gridCell, cellA);
         for (let y = 0; y < this.gridSize; y++) {
             for (let x = 0; x < this.gridSize; x++) {
                 const px = x * this.cellSize + g;
@@ -745,8 +759,8 @@ export class Renderer {
     renderPreviewClearHint(cells, layer) {
         if (!cells || cells.length === 0) return;
         const skin = getActiveSkin();
-        const inset = skin.blockInset;
-        const br = skin.blockRadius;
+        const inset = skin.blockInset ?? 2;
+        const br = skin.blockRadius ?? 5;
         const pulse = 0.55 + 0.45 * Math.abs(Math.sin(Date.now() * 0.007));
         const s = this.cellSize;
 
@@ -790,7 +804,7 @@ export class Renderer {
     renderClearCells(cells) {
         if (!cells || cells.length === 0) return;
         const skin = getActiveSkin();
-        const inset = skin.blockInset;
+        const inset = skin.blockInset ?? 2;
         const pulse = 0.65 + 0.35 * Math.abs(Math.sin(Date.now() * 0.008));
         /* 轻微抬起：不用 epoch 高频 sin，避免高亮阶段过长时「跳动」 */
         const lift = (1.05 - pulse * 0.4) * (2.2 + 2.8 * pulse);
@@ -798,7 +812,7 @@ export class Renderer {
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
-        const br = skin.blockRadius;
+        const br = skin.blockRadius ?? 5;
         for (const cell of cells) {
             const full = this.cellSize - inset * 2;
             const size = full * (0.92 + 0.08 * pulse);
@@ -1032,7 +1046,28 @@ export class Renderer {
         this.ctx.restore();
     }
 
+    /**
+     * 带 lifeMax 的 bonus 粒子：沿寿命「由小到大」再略收束淡出；无 lifeMax 时返回 null（走旧式 size×life）。
+     * @returns {{ scale: number, alphaMul: number }|null}
+     */
+    _bonusParticleGrowAlpha(p) {
+        const lm = p.lifeMax;
+        if (lm == null || lm <= 0) return null;
+        const u = 1 - Math.max(0, p.life) / lm;
+        let scale;
+        if (u < 0.42) {
+            scale = 0.14 + 0.86 * ((u / 0.42) ** 0.5);
+        } else if (u < 0.78) {
+            scale = 1 + 0.06 * Math.sin(((u - 0.42) / 0.36) * Math.PI * 2);
+        } else {
+            scale = Math.max(0.08, 1 - 0.9 * ((u - 0.78) / 0.22));
+        }
+        const alphaMul = u > 0.84 ? Math.max(0, 1 - (u - 0.84) / 0.16) : 1;
+        return { scale, alphaMul };
+    }
+
     updateParticles() {
+        this._tickColorGushSpawn();
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i];
             p.x += p.vx;
@@ -1048,10 +1083,20 @@ export class Renderer {
 
     renderParticles() {
         for (const p of this.particles) {
-            this.ctx.globalAlpha = p.life;
+            const ga = this._bonusParticleGrowAlpha(p);
+            let rad;
+            let alpha;
+            if (ga) {
+                rad = p.size * ga.scale;
+                alpha = Math.min(1, p.life * 1.05) * ga.alphaMul;
+            } else {
+                rad = p.size * p.life;
+                alpha = p.life;
+            }
+            this.ctx.globalAlpha = alpha;
             this.ctx.fillStyle = p.color;
             this.ctx.beginPath();
-            this.ctx.arc(p.x + this.shakeOffset.x, p.y + this.shakeOffset.y, p.size * p.life, 0, Math.PI * 2);
+            this.ctx.arc(p.x + this.shakeOffset.x, p.y + this.shakeOffset.y, rad, 0, Math.PI * 2);
             this.ctx.fill();
         }
         this.ctx.globalAlpha = 1;
@@ -1090,45 +1135,179 @@ export class Renderer {
     clearParticles() {
         this.particles = [];
         this.iconParticles = [];
+        this._iconGushLines = [];
+        this._iconGushEnd = 0;
+        this._colorGushLines = [];
+        this._colorGushEnd = 0;
         this._comboFlash = 0;
         this._perfectFlash = 0;
         this._doubleWave = 0;
         this._bonusMatchFlash = 0;
     }
 
+    _nowMs() {
+        return typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
     /**
-     * 同 icon/色 行/列消除：沿整行或整列喷射 emoji 粒子。
-     * 粒子以扇形向上炸开，字号大、寿命长，构成「飘屏」效果。
+     * 单枚 emoji 粒子（出生帧带「爆炸放大」缩放，寿命约 3–5s 与 clear 阶段对齐）
      * @param {{ type:'row'|'col', idx:number }} bonusLine
-     * @param {string} icon  emoji 字符
-     * @param {number} [count=20]
+     * @param {string} icon
+     * @param {{ strongBurst?: boolean }} [opts]
      */
-    addIconParticles(bonusLine, icon, count = 40) {
+    _pushIconParticle(bonusLine, icon, opts = {}) {
+        const strong = !!opts.strongBurst;
         const n = this.gridSize;
         const cs = this.cellSize;
-        for (let i = 0; i < count; i++) {
-            let x, y;
-            if (bonusLine.type === 'row') {
-                x = cs * (Math.random() * n);
-                y = cs * (bonusLine.idx + 0.5);
-            } else {
-                x = cs * (bonusLine.idx + 0.5);
-                y = cs * (Math.random() * n);
+        let x, y;
+        if (bonusLine.type === 'row') {
+            x = cs * (Math.random() * n);
+            y = cs * (bonusLine.idx + 0.5);
+        } else {
+            x = cs * (bonusLine.idx + 0.5);
+            y = cs * (Math.random() * n);
+        }
+        const spread = strong ? 2.62 : 2.35;
+        const angle = -Math.PI / 2 + (Math.random() - 0.5) * spread;
+        const speed = (strong ? 4.0 : 3.0) + Math.random() * (strong ? 11.5 : 9.8);
+        const life0 = 1.15 + Math.random() * 0.38;
+        this.iconParticles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            icon,
+            fontSize: 28 + Math.floor(Math.random() * 40),
+            life: life0,
+            lifeMax: life0,
+            lifeDecay: 0.004 + Math.random() * 0.0028,
+            rotation: (Math.random() - 0.5) * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.15
+        });
+    }
+
+    /**
+     * 同色 bonus 色块粒子：持续涌出用，带 lifeMax 以支持「由小到大」绘制。
+     */
+    _pushBonusColorParticle(bonusLine, cssColor, opts = {}) {
+        const strong = !!opts.strongBurst;
+        const n = this.gridSize;
+        const cs = this.cellSize;
+        let x, y;
+        if (bonusLine.type === 'row') {
+            x = cs * (Math.random() * n);
+            y = cs * (bonusLine.idx + 0.5);
+        } else {
+            x = cs * (bonusLine.idx + 0.5);
+            y = cs * (Math.random() * n);
+        }
+        const gold = '#FFD700';
+        const white = '#FFFFFF';
+        const roll = Math.random();
+        const color = roll < 0.34 ? gold : roll < 0.68 ? cssColor : white;
+        const spread = strong ? 2.72 : 2.38;
+        const angle = -Math.PI / 2 + (Math.random() - 0.5) * spread;
+        const speed = (strong ? 3.6 : 2.5) + Math.random() * (strong ? 10.5 : 7.5);
+        const life0 = 0.92 + Math.random() * 0.48;
+        this.particles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - (1.1 + Math.random() * 2.4),
+            color,
+            life: life0,
+            lifeMax: life0,
+            lifeDecay: 0.0048 + Math.random() * 0.0042,
+            size: 2.4 + Math.random() * (strong ? 8 : 5.5),
+            gravityMul: 0.46 + Math.random() * 0.14
+        });
+    }
+
+    /**
+     * 与 beginBonusIconGush 同期：色块沿行/列持续涌出，绘制时由小变大。
+     */
+    beginBonusColorGush(lineSpecs, durationMs) {
+        if (!lineSpecs?.length) return;
+        this._colorGushLines = lineSpecs.map(s => ({ bonusLine: s.bonusLine, cssColor: s.cssColor }));
+        const now = this._nowMs();
+        this._colorGushStart = now;
+        this._colorGushEnd = now + Math.max(520, durationMs);
+        for (const spec of this._colorGushLines) {
+            for (let i = 0; i < 26; i++) {
+                this._pushBonusColorParticle(spec.bonusLine, spec.cssColor, { strongBurst: true });
             }
-            // 更宽的扇形 + 更强初速，飘屏感更明显
-            const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.35;
-            const speed = 3.2 + Math.random() * 9.5;
-            this.iconParticles.push({
-                x, y,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                icon,
-                fontSize: 30 + Math.floor(Math.random() * 38), // 30–68px
-                life: 1.15 + Math.random() * 0.25,
-                lifeDecay: 0.0032 + Math.random() * 0.0032,    // 更慢衰减 ≈ 3–6s @60fps
-                rotation: (Math.random() - 0.5) * Math.PI * 2,
-                rotSpeed: (Math.random() - 0.5) * 0.14
-            });
+        }
+    }
+
+    _tickColorGushSpawn() {
+        if (!this._colorGushLines.length) return;
+        const now = this._nowMs();
+        if (now >= this._colorGushEnd) {
+            this._colorGushLines = [];
+            return;
+        }
+        if (this.particles.length > 440) return;
+        const span = Math.max(1, this._colorGushEnd - this._colorGushStart);
+        const t = (now - this._colorGushStart) / span;
+        let rolls = 0;
+        if (t < 0.36) rolls = Math.random() < 0.72 ? 2 : 1;
+        else if (t < 0.76) rolls = Math.random() < 0.48 ? 1 : 0;
+        else rolls = Math.random() < 0.3 ? 1 : 0;
+        const burst = t < 0.15;
+        for (const spec of this._colorGushLines) {
+            for (let k = 0; k < rolls; k++) {
+                this._pushBonusColorParticle(spec.bonusLine, spec.cssColor, { strongBurst: burst });
+            }
+        }
+    }
+
+    /**
+     * 同色 bonus：首帧密集爆炸 + 整段时长内持续沿行/列涌出，末段渐稀直至消失。
+     * @param {Array<{ bonusLine: { type:'row'|'col', idx:number }, icon: string }>} lineSpecs
+     * @param {number} durationMs 与 playClearEffect / UI 一致
+     */
+    beginBonusIconGush(lineSpecs, durationMs) {
+        if (!lineSpecs?.length) return;
+        this._iconGushLines = lineSpecs.map(s => ({ bonusLine: s.bonusLine, icon: s.icon }));
+        const now = this._nowMs();
+        this._iconGushStart = now;
+        this._iconGushEnd = now + Math.max(520, durationMs);
+        for (const spec of this._iconGushLines) {
+            for (let i = 0; i < 36; i++) {
+                this._pushIconParticle(spec.bonusLine, spec.icon, { strongBurst: true });
+            }
+        }
+    }
+
+    _tickIconGushSpawn() {
+        if (!this._iconGushLines.length) return;
+        const now = this._nowMs();
+        if (now >= this._iconGushEnd) {
+            this._iconGushLines = [];
+            return;
+        }
+        if (this.iconParticles.length > 400) return;
+        const span = Math.max(1, this._iconGushEnd - this._iconGushStart);
+        const t = (now - this._iconGushStart) / span;
+        let rolls = 0;
+        if (t < 0.36) rolls = Math.random() < 0.78 ? 2 : 1;
+        else if (t < 0.76) rolls = Math.random() < 0.5 ? 1 : 0;
+        else rolls = Math.random() < 0.32 ? 1 : 0;
+        const burst = t < 0.14;
+        for (const spec of this._iconGushLines) {
+            for (let k = 0; k < rolls; k++) {
+                this._pushIconParticle(spec.bonusLine, spec.icon, { strongBurst: burst });
+            }
+        }
+    }
+
+    /**
+     * 同 icon/色 行/列消除：沿整行或整列喷射 emoji 粒子（单次批次；持续涌出请用 beginBonusIconGush）。
+     * @param {{ type:'row'|'col', idx:number }} bonusLine
+     * @param {string} icon  emoji 字符
+     * @param {number} [count=40]
+     */
+    addIconParticles(bonusLine, icon, count = 40) {
+        for (let i = 0; i < count; i++) {
+            this._pushIconParticle(bonusLine, icon, { strongBurst: false });
         }
     }
 
@@ -1150,6 +1329,7 @@ export class Renderer {
                 vy: Math.sin(angle) * speed - (1.5 + Math.random() * 2.5),
                 color,
                 life,
+                lifeMax: life,
                 lifeDecay: decay,
                 size: sz,
                 gravityMul: gMul
@@ -1201,12 +1381,14 @@ export class Renderer {
                 x = cs * (bonusLine.idx + 0.5);
                 y = cs * (Math.random() * n);
             }
+            const lj = 1.45 + Math.random() * 0.35;
             this.particles.push({
                 x, y,
                 vx: (Math.random() - 0.5) * 26,
                 vy: -(9 + Math.random() * 12),
                 color: gold,
-                life: 1.45 + Math.random() * 0.35,
+                life: lj,
+                lifeMax: lj,
                 lifeDecay: 0.0075 + Math.random() * 0.004,
                 size: 2.5 + Math.random() * 4.5,
                 gravityMul: 0.45
@@ -1215,6 +1397,7 @@ export class Renderer {
     }
 
     updateIconParticles() {
+        this._tickIconGushSpawn();
         for (let i = this.iconParticles.length - 1; i >= 0; i--) {
             const p = this.iconParticles[i];
             p.x += p.vx;
@@ -1236,10 +1419,20 @@ export class Renderer {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         for (const p of this.iconParticles) {
-            const alpha = Math.max(0, Math.min(1, p.life));
-            ctx.globalAlpha = alpha;
-            const pulse = 0.88 + 0.22 * Math.sin((1 - Math.min(1, p.life)) * Math.PI);
-            const fs = Math.round(p.fontSize * pulse);
+            const lm = p.lifeMax ?? p.life;
+            const u = 1 - Math.max(0, p.life) / Math.max(0.001, lm);
+            let growScale;
+            if (u < 0.44) {
+                growScale = 0.16 + 0.84 * ((u / 0.44) ** 0.5);
+            } else if (u < 0.78) {
+                growScale = 1 + 0.07 * Math.sin(((u - 0.44) / 0.34) * Math.PI * 2);
+            } else {
+                growScale = Math.max(0.1, 1 - 0.88 * ((u - 0.78) / 0.22));
+            }
+            const alphaFade = u > 0.83 ? Math.max(0.12, 1 - (u - 0.83) / 0.17) : 1;
+            ctx.globalAlpha = Math.min(1, p.life) * alphaFade;
+            const pulse = 0.9 + 0.1 * Math.sin(u * Math.PI);
+            const fs = Math.max(10, Math.round(p.fontSize * growScale * pulse));
             ctx.font = `${fs}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
             ctx.save();
             ctx.translate(p.x + sx, p.y + sy);

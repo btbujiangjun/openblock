@@ -3,11 +3,11 @@
   "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
   "winScoreThreshold": 220,
   "rlCurriculum": {
-    "comment": "胜利门槛从 80 起步，让初学者能拿到 winBonus 正反馈；80k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
+    "comment": "胜利门槛从 40 起步，让初学者能拿到 winBonus 正反馈；40k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
     "enabled": true,
-    "winThresholdStart": 80,
+    "winThresholdStart": 40,
     "winThresholdEnd": 220,
-    "rampEpisodes": 80000
+    "rampEpisodes": 40000
   },
   "defaultStrategyId": "normal",
   "dynamicDifficulty": {
@@ -151,9 +151,9 @@
   },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
-    "comment": "v5 精简奖励：仅 得分增量 + 势函数塑形 + winBonus + stuckPenalty；其余噪声项已移除，改由直接监督三头学习。",
-    "winBonus": 25,
-    "stuckPenalty": -5.0,
+    "comment": "v6 优化奖励：增大势函数系数与终局信号，降低 outcome 混合比例让 V 学会逐步评估。",
+    "winBonus": 35,
+    "stuckPenalty": -8.0,
     "holeAuxLossCoef": 0.12,
     "holeAuxTargetMax": 16,
     "clearPredLossCoef": 0.15,
@@ -161,9 +161,9 @@
     "feasibilityLossCoef": 0.3,
     "survivalLossCoef": 0.2,
     "potentialShaping": {
-      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。",
+      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。v6 增大系数以提供更强逐步信号。",
       "enabled": true,
-      "coef": 0.5,
+      "coef": 0.8,
       "holeWeight": -0.40,
       "transitionWeight": -0.08,
       "wellWeight": -0.15,
@@ -171,9 +171,62 @@
       "mobilityWeight": 0.12
     },
     "outcomeValueMix": {
-      "comment": "v5 纯 outcome 价值目标：mix=1.0 → V 学习预测 final_score/threshold，低方差。",
+      "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。纯 outcome(1.0) 导致 V≈常数，advantage 退化为原始 reward。",
       "enabled": true,
-      "mix": 1.0
+      "mix": 0.5
+    },
+    "qDistillation": {
+      "comment": "Q 分布蒸馏（v7 新增）：策略头额外学习 lookahead Q 值的 softmax 分布，向 AlphaZero 的「策略学搜索目标」靠拢。coef=0 关闭。tau 控制分布峰值：小→更尖锐、大→接近均匀。",
+      "enabled": true,
+      "coef": 0.1,
+      "tau": 1.0
+    },
+    "beam2ply": {
+      "comment": "三块组合 2-ply beam（v7 新增）：Q_2ply(s,a1)=r1+γ·max_a2[r2+γ·V(s'')]，当 dock 剩余块≥2时激活，捕捉跨块放置协同效应。topK 控制二层展开的动作数（降低开销）。",
+      "enabled": true,
+      "topK": 15,
+      "maxActions": 100
+    },
+    "evalGate": {
+      "comment": "评估门控（v7 新增，参考 AlphaZero 第三步）：每 everyEpisodes 局，贪心对比候选模型与基线模型，候选胜率 >= 基线×winRatio 则更新基线。enabled=false 默认关闭（通过 --eval-gate-every 开启）。",
+      "enabled": false,
+      "everyEpisodes": 2000,
+      "nGames": 50,
+      "winRatio": 0.55
+    },
+    "adaptiveCurriculum": {
+      "comment": "自适应课程（v8 新增）：根据滑动胜率动态调整课程推进速度。winRate>targetWinRate 时每局额外前进 stepUp 虚拟局；winRate<targetWinRate 时每局暂停推进（不倒退）。checkEvery 控制更新频率，window 为滑动窗口大小。enabled=false 使用原固定线性爬坡。",
+      "enabled": false,
+      "window": 200,
+      "targetWinRate": 0.5,
+      "stepUp": 2,
+      "stepDown": 0,
+      "checkEvery": 50
+    },
+    "beam3ply": {
+      "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 剩余块=3 时激活。topK/topK2 分别控制第二/三层展开宽度，防止指数爆炸。",
+      "enabled": false,
+      "topK": 15,
+      "topK2": 5,
+      "maxActions": 100,
+      "maxActions2": 50
+    },
+    "lightMCTS": {
+      "comment": "轻量 UCT-MCTS（v8 新增）：以神经网络 V(s) 替代随机 rollout，numSimulations 次 UCT 搜索后输出访问分布作为策略目标（类 AlphaZero）。enabled=false 默认关闭。与 beam2ply/beam3ply 互斥，lightMCTS 优先级更高。",
+      "enabled": false,
+      "numSimulations": 20,
+      "cPuct": 1.5,
+      "maxDepth": 8,
+      "evalBatchSize": 8,
+      "evalBatchSizeComment": "v8.2：批量叶子节点评估的并发模拟数（8~32）。n_simulations≥50 时自动切换批量模式。",
+      "zobristCacheSize": 5000,
+      "zobristCacheSizeComment": "v8.2：Zobrist hash 跨局本地节点缓存上限（节点数）。0=禁用。",
+      "sharedZobristSlots": 8192,
+      "sharedZobristSlotsComment": "v8.3：跨进程共享转置表槽位数（每槽 8 字节）。8192=64KB，65536=512KB。多 worker 时自动启用。",
+      "adaptiveSims": false,
+      "adaptiveSimsComment": "v8.3：渐进式模拟次数开关。true=先跑 minSims，top1/top2 比≥confidence 后提前停止。",
+      "minSims": 10,
+      "confidence": 3.0
     }
   },
   "featureEncoding": {
@@ -205,8 +258,8 @@
     "easy": {
       "id": "easy",
       "name": "Easy",
-      "fillRatio": 0.15,
-      "scoring": { "singleLine": 10, "multiLine": 30, "combo": 50 },
+      "fillRatio": 0,
+      "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
       "shapeWeights": {
         "lines": 2.3,
         "rects": 1.65,
@@ -242,7 +295,7 @@
       "id": "hard",
       "name": "Hard",
       "fillRatio": 0.25,
-      "scoring": { "singleLine": 30, "multiLine": 90, "combo": 150 },
+      "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
       "shapeWeights": {
         "lines": 2.05,
         "rects": 1.55,
