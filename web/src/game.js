@@ -320,6 +320,7 @@ export class Game {
             skinSelect.addEventListener('change', () => {
                 if (setActiveSkinId(skinSelect.value)) {
                     this.refreshDockSkin();
+                    this._normalizeDockState('skin-change');
                     this.markDirty();
                 }
             });
@@ -608,7 +609,47 @@ export class Game {
             div.appendChild(canvas);
             dock.appendChild(div);
         }
+        this._normalizeDockState('populate');
         requestAnimationFrame(() => syncGridDisplayPx(this.canvas));
+    }
+
+    /**
+     * 自愈候选区状态，避免出现“数量缺失 / 误隐藏 / 半透明残留”：
+     * - DOM 数量与 this.dockBlocks 不一致时，按当前描述符重建 dock
+     * - 每个槽位强制按 placed 同步 visibility
+     * - 还原 canvas opacity，避免拖拽中断后残留 0.3
+     * @param {string} [reason]
+     */
+    _normalizeDockState(reason = '') {
+        void reason;
+        const dock = document.getElementById('dock');
+        if (!dock || !Array.isArray(this.dockBlocks)) return;
+
+        const expected = this.dockBlocks.length;
+        if (expected <= 0) return;
+
+        const domBlocks = Array.from(dock.querySelectorAll('.dock-block'));
+        if (domBlocks.length !== expected) {
+            const descriptors = this.dockBlocks.map((b) => ({
+                id: b.id,
+                shape: b.shape,
+                colorIdx: b.colorIdx,
+                placed: Boolean(b.placed)
+            }));
+            // 仅在结构不一致时重建；避免数量缺失在切肤/开局后持续存在
+            this.populateDockUI(descriptors, { logSpawn: false });
+            return;
+        }
+
+        domBlocks.forEach((div, idx) => {
+            const block = this.dockBlocks[idx];
+            if (!block) return;
+            div.style.visibility = block.placed ? 'hidden' : 'visible';
+            const cvs = div.querySelector('canvas');
+            if (cvs) {
+                cvs.style.opacity = '1';
+            }
+        });
     }
 
     /** 用当前皮肤重绘候选区所有方块 canvas，保持与棋盘渲染风格一致 */
@@ -616,6 +657,7 @@ export class Game {
         if (!this.dockBlocks) return;
         const cell = CONFIG.CELL_SIZE;
         const slotPx = CONFIG.DOCK_PREVIEW_MAX_CELLS * cell;
+        this._normalizeDockState('refresh-skin');
         const blocks = document.querySelectorAll('.dock-block');
         blocks.forEach((div) => {
             const idx = Number(div.dataset.index);
