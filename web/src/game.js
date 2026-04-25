@@ -1163,32 +1163,31 @@ export class Game {
         });
         this.renderer.setClearCells(result.cells);
 
-        // 同 icon/同色 行/列：触发飘屏 icon + 彩色炸裂特效
+        // 同 icon/同色 行/列：全屏光晕 + 更密粒子 + 更长展示
         if (bonusCount > 0) {
             const palette = getBlockColors();
+            this.renderer.triggerBonusMatchFlash(bonusCount);
             for (const bl of bonusLines) {
                 const cssColor = palette[bl.colorIdx] || '#FFD700';
-                // 飘 icon 粒子（有 icon 时）
                 if (bl.icon) {
-                    this.renderer.addIconParticles(bl, bl.icon, 20);
+                    this.renderer.addIconParticles(bl, bl.icon, 46);
                 }
-                // 彩色色块炸裂粒子（总是触发，强化视觉）
-                this.renderer.addBonusLineBurst(bl, cssColor, 24);
+                this.renderer.addBonusLineBurst(bl, cssColor, 56);
             }
         }
 
         if (perfectClear) {
             this.renderer.triggerPerfectFlash();
-            this.renderer.setShake(16, 720);
+            this.renderer.setShake(bonusCount > 0 ? 19 : 16, bonusCount > 0 ? 980 : 720);
         } else if (isCombo) {
             this.renderer.triggerComboFlash(result.count);
-            this.renderer.setShake(bonusCount > 0 ? 14 : 11, bonusCount > 0 ? 680 : 520);
+            this.renderer.setShake(bonusCount > 0 ? 19 : 11, bonusCount > 0 ? 1050 : 520);
         } else if (isDouble) {
             const waveRows = [...new Set(result.cells.map(c => c.y))];
             this.renderer.triggerDoubleWave(waveRows);
-            this.renderer.setShake(bonusCount > 0 ? 12 : 8, bonusCount > 0 ? 560 : 400);
+            this.renderer.setShake(bonusCount > 0 ? 16 : 8, bonusCount > 0 ? 900 : 400);
         } else {
-            this.renderer.setShake(bonusCount > 0 ? 10 : 5, bonusCount > 0 ? 480 : 280);
+            this.renderer.setShake(bonusCount > 0 ? 14 : 5, bonusCount > 0 ? 820 : 280);
         }
 
         let effectType = '';
@@ -1202,9 +1201,12 @@ export class Game {
             this._showStreakBadge(this._clearStreak);
         }
 
-        // icon bonus 时延长动画至 2200ms，确保粒子完整播放后才被清除
+        // 同色/同 icon bonus：显著延长消除动画，让粒子与光晕播完
         const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
-        const animDuration = bonusCount > 0 ? Math.max(baseDuration, 2200) : baseDuration;
+        const bonusHoldMs = bonusCount > 0
+            ? Math.min(5600, 3800 + bonusCount * 800)
+            : 0;
+        const animDuration = bonusCount > 0 ? Math.max(baseDuration, bonusHoldMs) : baseDuration;
         const animStart = Date.now();
 
         const animate = () => {
@@ -1762,7 +1764,16 @@ export class Game {
         el.style.top = isPerfect ? '18%' : isCombo ? '22%' : hasIconBonus ? '28%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), isPerfect ? 2200 : isCombo ? 1450 : hasIconBonus ? 900 : 600);
+        const floatHoldMs = isPerfect
+            ? 2200
+            : (isCombo && hasIconBonus)
+                ? 3000
+                : isCombo
+                    ? 1450
+                    : hasIconBonus
+                        ? 2800
+                        : 600;
+        setTimeout(() => el.remove(), floatHoldMs);
     }
 
     hideScreens() {
@@ -1835,6 +1846,7 @@ export class Game {
     /** 整帧重绘（含消除高亮与粒子）；与 markDirty 等价，避免漏画 clearCells 导致闪烁 */
     render() {
         this.renderer.decayComboFlash();
+        this.renderer.decayBonusMatchFlash();
         this.renderer.decayPerfectFlash();
         this.renderer.decayDoubleWave();
         this.renderer.clear();
@@ -1861,6 +1873,7 @@ export class Game {
         this.renderer.renderClearCells(this.renderer.clearCells);
         this.renderer.renderDoubleWave();
         this.renderer.renderComboFlash();
+        this.renderer.renderBonusMatchFlash();
         this.renderer.renderPerfectFlash();
         this.renderer.renderParticles();
         this.renderer.renderIconParticles();

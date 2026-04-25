@@ -2293,11 +2293,13 @@ body.game-rl-preview .block-dock {
 
 .float-icon-bonus {
     color: #9b59b6;
-    font-size: clamp(18px, 4vw, 26px);
-    animation: multiPop 1.0s ease-out forwards;
+    font-size: clamp(22px, 4.8vw, 34px);
+    animation: iconBonusEpic 2.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     text-shadow:
-        0 0 10px rgba(155, 89, 182, 0.7),
-        0 2px 4px rgba(0, 0, 0, 0.22);
+        0 0 14px rgba(255, 215, 100, 0.55),
+        0 0 22px rgba(155, 89, 182, 0.85),
+        0 2px 6px rgba(0, 0, 0, 0.28);
+    filter: drop-shadow(0 0 12px rgba(200, 120, 255, 0.45));
 }
 
 .float-icon-tag {
@@ -2319,6 +2321,38 @@ body.game-rl-preview .block-dock {
     0%   { transform: scale(0.6); opacity: 0; }
     60%  { transform: scale(1.15); }
     100% { transform: scale(1); opacity: 1; }
+}
+
+/* 同色/同 icon 消除：更长、更强的浮动分展示 */
+@keyframes iconBonusEpic {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(14px) scale(0.55);
+        filter: drop-shadow(0 0 4px rgba(200, 120, 255, 0.3));
+    }
+    10% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-4px) scale(1.12);
+    }
+    22% {
+        transform: translateX(-50%) translateY(2px) scale(1.02);
+    }
+    38% {
+        transform: translateX(-50%) translateY(-8px) scale(1.08);
+    }
+    55% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-14px) scale(1);
+    }
+    78% {
+        opacity: 0.92;
+        transform: translateX(-50%) translateY(-28px) scale(1.02);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-52px) scale(0.96);
+        filter: drop-shadow(0 0 20px rgba(255, 200, 80, 0.2));
+    }
 }
 
 /* ── 连消徽章 ── */
