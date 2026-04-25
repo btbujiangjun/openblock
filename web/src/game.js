@@ -48,7 +48,7 @@ import { ClearRuleEngine, RowColRule } from './clearRules.js';
  * @param {import('./skins.js').Skin|null} skin
  * @returns {Array<{type:'row'|'col', idx:number, colorIdx:number, icon:string|null}>}
  */
-function _detectBonusLines(grid, skin) {
+export function detectBonusLines(grid, skin) {
     const n = grid.size;
     const blockIcons = skin?.blockIcons;
     const getIcon = ci => (blockIcons?.length ? blockIcons[ci % blockIcons.length] : null);
@@ -995,7 +995,7 @@ export class Game {
             });
 
             // Bonus 检测必须在 apply/checkLines 之前，此时格子尚未被置 null
-            const _bonusLinesSnap = _detectBonusLines(this.grid, getActiveSkin());
+            const _bonusLinesSnap = detectBonusLines(this.grid, getActiveSkin());
 
             // 消除检测：关卡模式使用注入的 ClearRuleEngine，普通模式走 grid.checkLines()
             const result = this._clearEngine
