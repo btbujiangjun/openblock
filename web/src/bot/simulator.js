@@ -6,6 +6,7 @@ import { getStrategy } from '../config.js';
 import { getAllShapes } from '../shapes.js';
 import { RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
 import { generateDockShapes, generateBlocksForGrid } from './blockSpawn.js';
+import { computeClearScore } from '../clearScoring.js';
 
 const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
 const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;
@@ -250,13 +251,7 @@ export class OpenBlockSimulator {
         if (result.count > 0) {
             clears = result.count;
             this.totalClears += clears;
-            if (clears === 1) {
-                gain = this.scoring.singleLine;
-            } else if (clears === 2) {
-                gain = this.scoring.multiLine;
-            } else {
-                gain = this.scoring.combo + (clears - 2) * this.scoring.multiLine;
-            }
+            gain = computeClearScore(this.strategyId, result, this.scoring).clearScore;
             this.score += gain;
         }
         this._lastClears = clears;

@@ -52,6 +52,23 @@ class Grid:
             if all(self.cells[y][x] is not None for y in range(self.size)):
                 full_cols.append(x)
 
+        bonus_lines: list[dict] = []
+        for y in full_rows:
+            first = self.cells[y][0]
+            if first is not None and all(c == first for c in self.cells[y]):
+                bonus_lines.append({"type": "row", "idx": y, "color_idx": first})
+        for x in full_cols:
+            first = self.cells[0][x]
+            if first is None:
+                continue
+            all_same = True
+            for yy in range(1, self.size):
+                if self.cells[yy][x] != first:
+                    all_same = False
+                    break
+            if all_same:
+                bonus_lines.append({"type": "col", "idx": x, "color_idx": first})
+
         cleared_cells: list[dict] = []
         seen: set[str] = set()
         for y in full_rows:
@@ -75,7 +92,7 @@ class Grid:
                 self.cells[y][x] = None
 
         count = len(full_rows) + len(full_cols)
-        return {"count": count, "cells": cleared_cells}
+        return {"count": count, "cells": cleared_cells, "bonus_lines": bonus_lines}
 
     def has_any_move(self, blocks: list[dict]) -> bool:
         for b in blocks:

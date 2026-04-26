@@ -27,6 +27,22 @@ _POT_W_WELL = float(_POT_CFG.get("wellWeight", -0.15))
 _POT_W_CLOSE = float(_POT_CFG.get("closeToFullWeight", 0.35))
 _POT_W_MOB = float(_POT_CFG.get("mobilityWeight", 0.12))
 
+_ICON_BONUS_LINE_MULT = 5
+
+
+def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) -> float:
+    """与 web/src/clearScoring.js computeClearScore 一致（bonus 为同色整线）。"""
+    if clear_count <= 0:
+        return 0.0
+    base_unit = float(scoring.get("single_line") or 20)
+    base_score = base_unit * clear_count * clear_count
+    b = min(int(bonus_line_count), int(clear_count))
+    if b <= 0:
+        return base_score
+    line_score = base_unit * clear_count
+    icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
+    return base_score + icon_bonus
+
 
 def board_potential(grid: Grid, dock: list[dict]) -> float:
     """势函数 Φ(s)：加权盘面结构质量，用于 Δ 塑形。值域约 [-30, +10]。"""
@@ -226,13 +242,8 @@ class OpenBlockSimulator:
             self._last_clears = int(result["count"])
             c = self._last_clears
             self.total_clears += c
-            s = self.scoring
-            if c == 1:
-                gain = float(s["single_line"])
-            elif c == 2:
-                gain = float(s["multi_line"])
-            else:
-                gain = float(s["combo"] + (c - 2) * s["multi_line"])
+            bonus_n = len(result.get("bonus_lines") or [])
+            gain = _clear_score_gain(self.scoring, c, bonus_n)
             self.score += gain
 
         b["placed"] = True

@@ -16,14 +16,14 @@
 与俄罗斯方块不同：**无重力**、**无时间压力**、**同时消行列**、**一次放三块**。
 核心挑战 = **空间规划** + **顺序决策**（三块的放置顺序和位置影响后续生存）。
 
-### 1.2 计分（对局消行，与 RL 模拟器区分）
+### 1.2 计分（对局消行与 RL 模拟器）
 
-**Web / 微信小程序对局**的消行得分由 `computeClearScore()` 统一计算（`web/src/game.js`，小程序镜像 `miniprogram/core/bonusScoring.js`），规则见 **[消行计费规则](./CLEAR_SCORING.md)**：
+**Web / 微信小程序对局**的消行得分由 `computeClearScore()` 统一计算（实现见 `web/src/clearScoring.js`，`web/src/game.js` 再导出；小程序镜像 `miniprogram/core/bonusScoring.js`），规则见 **[消行计费规则](./CLEAR_SCORING.md)**：
 
 - 基础分：`baseScore = baseUnit × c²`（`baseUnit = scoring.singleLine`，默认 20；`c` 为本次消除行列总数）。
 - 同 icon / 同色 bonus：`clearScore = baseScore + (baseUnit × c) × b × 4`（`b` 为 bonus 线条数，全 bonus 时为 `5 × baseScore`）。
 
-**Python RL 模拟器**（`rl_pytorch/simulator.py` / `rl_mlx/simulator.py`）仍使用 `shared/game_rules.json` 中的 **legacy** 分段公式（`singleLine` / `multiLine` / `combo`），与对局 `computeClearScore` **可能不一致**；训练奖励以模拟器为准，对局 UI 得分以 `CLEAR_SCORING.md` 为准。
+**Python RL 模拟器**（`rl_pytorch/simulator.py` / `rl_mlx/simulator.py`）的**盘面分数增量**与上述公式对齐：`baseUnit` 取 `scoring.singleLine`；bonus 线由 `Grid.check_lines()` 返回的 `bonus_lines` 计数（与 Web `Grid.checkLines()` 的 `bonusLines` 语义一致）。`multiLine` / `combo` 仍保留在 `shared/game_rules.json` 中以便兼容旧配置，但**不再用于**消行得分计算。
 
 ### 1.3 RL 即时奖励
 

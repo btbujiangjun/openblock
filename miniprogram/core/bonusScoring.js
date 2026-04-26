@@ -57,8 +57,10 @@ function detectBonusLines(grid, skin) {
  * @param {{ count: number, bonusLines?: Array<unknown> }} result
  * @returns {{ baseScore: number, iconBonusScore: number, clearScore: number }}
  */
-function computeClearScore(strategyId, result) {
-  const scoring = getStrategy(strategyId).scoring;
+function computeClearScore(strategyId, result, scoringOverride) {
+  const scoring = scoringOverride && typeof scoringOverride === 'object'
+    ? scoringOverride
+    : getStrategy(strategyId).scoring;
   const c = result?.count ?? 0;
   const baseUnit = scoring.singleLine ?? 20;
   const baseScore = c > 0 ? baseUnit * c * c : 0;

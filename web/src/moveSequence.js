@@ -3,6 +3,7 @@
  * 可选字段 `ps`：玩家状态快照（见 PLAYER_STATE_SNAPSHOT_VERSION），旧记录无此字段仍可回放盘面。
  */
 import { Grid } from './grid.js';
+import { computeClearScore } from './clearScoring.js';
 
 export const MOVE_SEQUENCE_SCHEMA = 1;
 /** 玩家状态快照内部版本，便于日后扩展字段 */
@@ -231,19 +232,6 @@ function num(v) {
     return Number.isInteger(n) ? String(n) : n.toFixed(3);
 }
 
-function scoreForClears(count, scoring) {
-    if (count <= 0) {
-        return 0;
-    }
-    if (count === 1) {
-        return scoring.singleLine;
-    }
-    if (count === 2) {
-        return scoring.multiLine;
-    }
-    return scoring.combo + (count - 2) * scoring.multiLine;
-}
-
 /**
  * 应用 frames[0..lastInclusive]，返回用于渲染的快照（不修改传入的 frames）。
  * @param {object[]} frames
@@ -295,7 +283,8 @@ export function replayStateAt(frames, lastInclusive) {
             }
             grid.place(b.shape, b.colorIdx, f.x, f.y);
             const result = grid.checkLines();
-            score += scoreForClears(result.count, scoring);
+            const strategyId = first.strategy || 'normal';
+            score += computeClearScore(strategyId, result, scoring).clearScore;
             b.placed = true;
         }
     }

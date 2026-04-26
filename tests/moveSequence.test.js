@@ -84,8 +84,8 @@ describe('moveSequence replay', () => {
 
         const st = replayStateAt(frames, frames.length - 1);
         expect(st).not.toBeNull();
-        /* 末行填满后共 8 整行 + 8 整列 → 16 线；combo + 14×multiLine = 50 + 420 = 470 */
-        expect(st.score).toBe(470);
+        /* 16 条消除线（8 行+8 列），其中 12 条为同色 bonus 线 → clearScore=10×12² + (10×12)×12×4=9600 */
+        expect(st.score).toBe(9600);
         expect(st.dockDescriptors.length).toBe(1);
         expect(st.dockDescriptors[0].placed).toBe(true);
     });

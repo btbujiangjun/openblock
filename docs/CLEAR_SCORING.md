@@ -98,7 +98,9 @@ export function computeClearScore(strategyId, result) {
 ## 5. 与 RL / 回放字段的关系（易混点）
 
 - **对局消行得分**：以本节 `computeClearScore` 为准。  
-- **`scoring.multiLine` / `scoring.combo`**：仍存在于 `shared/game_rules.json`，供 **RL 模拟器**、部分序列快照等路径使用；**与当前 Web/小程序对局 `computeClearScore` 的公式已解耦**。若需统一，应单独开任务评估对训练数据与奖励塑形的影响。
+- **RL 模拟器**（`rl_pytorch/simulator.py`、`rl_mlx/simulator.py`）与 **Web 无头模拟器**（`web/src/bot/simulator.js`）、**回放重算**（`web/src/moveSequence.js` → `replayStateAt`）使用同一套 `baseUnit × c²` + bonus 规则；bonus 线与对局一致由 `Grid.checkLines()`（Web：`web/src/grid.js`；Python：`rl_*/grid.py`）在清空前扫描得到。  
+  - **回放限制**：序列帧通常不含皮肤 `blockIcons`，因此重算无法复现「同 icon 不同色仍算 bonus」的细规则；这与旧存档回放一致（只能保证与 **无 icon 映射** 的对局路径对齐）。  
+- **`scoring.multiLine` / `scoring.combo`**：仍存在于 `shared/game_rules.json` 与历史 `init` 帧里，便于旧数据兼容；**当前消行得分不再读取这两项**（消行只认 `singleLine` 作为 `baseUnit`）。
 
 ---
 

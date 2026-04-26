@@ -11,6 +11,21 @@ from .shapes_data import get_all_shapes
 
 __all__ = ["OpenBlockSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
 
+_ICON_BONUS_LINE_MULT = 5
+
+
+def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) -> float:
+    if clear_count <= 0:
+        return 0.0
+    base_unit = float(scoring.get("single_line") or 20)
+    base_score = base_unit * clear_count * clear_count
+    b = min(int(bonus_line_count), int(clear_count))
+    if b <= 0:
+        return base_score
+    line_score = base_unit * clear_count
+    icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
+    return base_score + icon_bonus
+
 
 class OpenBlockSimulator:
     def __init__(self, strategy_id: str = "normal"):
@@ -87,13 +102,8 @@ class OpenBlockSimulator:
             clears = int(result["count"])
             self.total_clears += clears
             c = clears
-            s = self.scoring
-            if c == 1:
-                gain = float(s["single_line"])
-            elif c == 2:
-                gain = float(s["multi_line"])
-            else:
-                gain = float(s["combo"] + (c - 2) * s["multi_line"])
+            bonus_n = len(result.get("bonus_lines") or [])
+            gain = _clear_score_gain(self.scoring, c, bonus_n)
             self.score += gain
 
         b["placed"] = True
