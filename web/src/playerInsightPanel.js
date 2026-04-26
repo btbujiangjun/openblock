@@ -705,8 +705,25 @@ function _renderHints(game) {
     });
 }
 
+function _clearHints(game) {
+    const section = document.getElementById('insight-hints-section');
+    const list = document.getElementById('insight-hints-list');
+    if (!section || !list) return;
+
+    section.open = false;
+    section.hidden = true;
+    list.innerHTML = '';
+    game?._cancelPreviewClearAnim?.();
+    if (game) {
+        game.previewBlock = null;
+        game.previewPos = null;
+        game.markDirty?.();
+    }
+}
+
 export function initPlayerInsightPanel(game) {
     game._playerInsightRefresh = () => _render(game);
+    game.clearInsightHints = () => _clearHints(game);
 
     const btnNew = document.getElementById('insight-new-game');
     const btnRestart = document.getElementById('insight-restart');

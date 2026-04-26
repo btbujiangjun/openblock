@@ -60,18 +60,19 @@ function detectBonusLines(grid, skin) {
 function computeClearScore(strategyId, result) {
   const scoring = getStrategy(strategyId).scoring;
   const c = result?.count ?? 0;
-  let baseScore = 0;
-  if (c === 1) baseScore = scoring.singleLine * c;
-  else if (c === 2) baseScore = scoring.multiLine;
-  else if (c >= 3) baseScore = scoring.combo + (c - 2) * scoring.multiLine;
+  const baseUnit = scoring.singleLine ?? 20;
+  const baseScore = c > 0 ? baseUnit * c * c : 0;
 
   const bonusLines = result?.bonusLines || [];
   const bonusCount = bonusLines.length;
   if (c <= 0 || bonusCount <= 0) {
     return { baseScore, iconBonusScore: 0, clearScore: baseScore };
   }
-  const perLine = Math.round(baseScore / c);
-  const iconBonusScore = perLine * bonusCount * (ICON_BONUS_LINE_MULT - 1);
+  // 每条消除线价值随总消除数增长：lineScore = baseUnit * c。
+  // bonus 只放大相同 icon/同色的线，公式本身保证整十，且全 bonus 等价于 baseScore × MULT。
+  const effectiveBonusCount = Math.min(bonusCount, c);
+  const lineScore = baseUnit * c;
+  const iconBonusScore = lineScore * effectiveBonusCount * (ICON_BONUS_LINE_MULT - 1);
   return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
 }
 

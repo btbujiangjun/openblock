@@ -1,3 +1,29 @@
+import { describe, expect, it } from 'vitest';
+import {
+    buildInitFrame,
+    buildPlaceFrame,
+    buildSpawnFrame,
+    countPlaceStepsInFrames,
+    MIN_PERSIST_PLACE_STEPS,
+} from '../web/src/moveSequence.js';
+import { Grid } from '../web/src/grid.js';
+
+describe('move sequence frame semantics', () => {
+    it('只把成功落子 place 计为产品展示帧', () => {
+        const grid = new Grid(8);
+        const frames = [
+            buildInitFrame('normal', grid, { singleLine: 20, multiLine: 60, combo: 120 }),
+            buildSpawnFrame([{ id: 'a', shape: [[1]], colorIdx: 0 }]),
+            buildPlaceFrame(0, 0, 0),
+            buildSpawnFrame([{ id: 'b', shape: [[1]], colorIdx: 1 }]),
+            buildPlaceFrame(0, 1, 0),
+        ];
+
+        expect(frames).toHaveLength(5);
+        expect(countPlaceStepsInFrames(frames)).toBe(2);
+        expect(MIN_PERSIST_PLACE_STEPS).toBe(5);
+    });
+});
 /**
  * @vitest-environment node
  */

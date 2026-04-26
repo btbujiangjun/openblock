@@ -8,10 +8,14 @@ export const MOVE_SEQUENCE_SCHEMA = 1;
 /** 玩家状态快照内部版本，便于日后扩展字段 */
 export const PLAYER_STATE_SNAPSHOT_VERSION = 1;
 /**
- * 至少多少「帧」才写入 SQLite。一帧可为 init / spawn / place 之一；
- * 总帧数远大于用户落子次数，展示用 {@link countPlaceStepsInFrames}。
+ * 至少多少次成功落子才写入 SQLite。
+ * 注意：内部 frames 仍含 init / spawn / place，用于确定性回放；
+ * 产品语义里的「帧」只统计真实落子（t === 'place'）。
  */
-export const MIN_PERSIST_MOVE_FRAMES = 5;
+export const MIN_PERSIST_PLACE_STEPS = 5;
+
+/** @deprecated 使用 MIN_PERSIST_PLACE_STEPS。保留导出避免旧代码/测试立即失效。 */
+export const MIN_PERSIST_MOVE_FRAMES = MIN_PERSIST_PLACE_STEPS;
 
 /**
  * 序列中用户真实落子次数（`t === 'place'`）。

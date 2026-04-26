@@ -15,6 +15,7 @@
  */
 
 import { getFlag } from './featureFlags.js';
+import { notePopupShown } from '../popupCoordinator.js';
 
 const STORAGE_KEY = 'openblock_mon_ads_removed';
 
@@ -85,6 +86,7 @@ function _stubRewardedUI(reason) {
                 <button class="mon-ad-skip" id="mon-ad-skip" disabled>跳过</button>
             </div>`;
         document.body.appendChild(overlay);
+        notePopupShown(5000, 900);
 
         let t = 5;
         const timer = overlay.querySelector('#mon-ad-timer');
@@ -123,6 +125,7 @@ function _stubInterstitialUI() {
                 <button class="mon-ad-close" id="mon-ad-close" style="margin-top:16px">关闭 ×</button>
             </div>`;
         document.body.appendChild(overlay);
+        notePopupShown(5000, 900);
         overlay.querySelector('#mon-ad-close').onclick = () => { overlay.remove(); resolve(); };
         // 5s 后自动关闭
         setTimeout(() => { overlay.remove(); resolve(); }, 5000);

@@ -18,6 +18,7 @@ import { showRewardedAd, showInterstitialAd, isAdsRemoved } from './adAdapter.js
 import { emit } from './MonetizationBus.js';
 import { isPurchased } from './iapAdapter.js';
 import { getBuiltinVariant } from '../abTest.js';
+import { isGameOverScreenActive, runAfterPopupQuiet } from '../popupCoordinator.js';
 
 // ── 频控配置 ──────────────────────────────────────────────────────────────────
 const AD_CONFIG = {
@@ -139,11 +140,21 @@ async function _triggerRewarded(reason, rewardEvent, userId) {
     if (!getFlag('adsRewarded')) return;
     if (!_canShowRewarded(userId)) return;
 
-    _rewardedThisGame++;
-    const result = await showRewardedAd(reason);
-    _recordRewarded(result.rewarded);
-    if (result.rewarded && rewardEvent) {
-        emit(rewardEvent, { reason });
+    const shown = await runAfterPopupQuiet(async () => {
+        _rewardedThisGame++;
+        const result = await showRewardedAd(reason);
+        _recordRewarded(result.rewarded);
+        if (result.rewarded && rewardEvent) {
+            emit(rewardEvent, { reason });
+        }
+    }, {
+        minDelayMs: 700,
+        timeoutMs: 2500,
+        skipIf: isGameOverScreenActive,
+    });
+
+    if (!shown) {
+        console.debug('[AdTrigger] rewarded skipped: popup window busy');
     }
 }
 
@@ -169,8 +180,19 @@ export function initAdTrigger(game) {
         const delay = getBuiltinVariant(userId, 'interstitial_delay') ?? 3000;
         if (delay > 0) await new Promise(r => setTimeout(r, delay));
 
-        _recordInterstitial();
-        await showInterstitialAd();
+        const shown = await runAfterPopupQuiet(async () => {
+            _recordInterstitial();
+            await showInterstitialAd();
+        }, {
+            minDelayMs: 1200,
+            timeoutMs: 2500,
+            // 结算页已经是一次强打断；若仍停留在结算页，不再补一个插屏压上去。
+            skipIf: isGameOverScreenActive,
+        });
+
+        if (!shown) {
+            console.debug('[AdTrigger] interstitial skipped: popup window busy');
+        }
     });
 
     // Near-miss → 激励视频钩子

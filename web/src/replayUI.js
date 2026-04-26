@@ -238,17 +238,14 @@ export function initReplayUI(game) {
                     const score =
                         derived != null ? derived : s.score != null && s.score !== '' ? s.score : '—';
                     const placeSteps = countPlaceStepsInFrames(frames);
-                    const stepsText =
-                        placeSteps > 0
-                            ? `落子 ${placeSteps} 次 · 序列 ${frames.length} 帧`
-                            : `${frames.length} 帧`;
+                    const stepsText = `${placeSteps} 帧`;
                     li.innerHTML = `
                         <label class="replay-item-check">
                             <input type="checkbox" class="replay-select-cb" data-session-id="${sid}" aria-label="选择本条回放" />
                         </label>
                         <div class="replay-item-main" role="button" tabindex="0" aria-label="打开回放">
                             <span class="replay-item-meta">${t.toLocaleString()}</span>
-                            <span class="replay-item-steps" title="落子次数为盘面成功放置次数；序列帧数含开局与每轮出块">${stepsText}</span>
+                            <span class="replay-item-steps" title="帧数按成功落子统计；开局盘面与每轮出块只用于回放重建，不计入帧数">${stepsText}</span>
                             <span class="replay-item-score">${score} 分</span>
                         </div>`;
                     const mainEl = li.querySelector('.replay-item-main');

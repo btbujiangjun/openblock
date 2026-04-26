@@ -30,7 +30,8 @@ import {
     buildPlaceFrame,
     buildPlayerStateSnapshot,
     buildSpawnFrame,
-    MIN_PERSIST_MOVE_FRAMES,
+    countPlaceStepsInFrames,
+    MIN_PERSIST_PLACE_STEPS,
     replayStateAt
 } from './moveSequence.js';
 import { Database } from './database.js';
@@ -38,6 +39,7 @@ import { Renderer, syncGridDisplayPx } from './renderer.js';
 import { BackendSync } from './services/backendSync.js';
 import { LevelManager } from './level/levelManager.js';
 import { ClearRuleEngine, RowColRule } from './clearRules.js';
+import { notePopupShown } from './popupCoordinator.js';
 
 /**
  * 在 clearEngine.apply() / grid.checkLines() **之前**（格子尚未置 null）扫描
@@ -98,18 +100,19 @@ export function bonusEffectHoldMs(bonusCount) {
 export function computeClearScore(strategyId, result) {
     const scoring = getStrategy(strategyId).scoring;
     const c = result?.count ?? 0;
-    let baseScore = 0;
-    if (c === 1) baseScore = scoring.singleLine * c;
-    else if (c === 2) baseScore = scoring.multiLine;
-    else if (c >= 3) baseScore = scoring.combo + (c - 2) * scoring.multiLine;
+    const baseUnit = scoring.singleLine ?? 20;
+    const baseScore = c > 0 ? baseUnit * c * c : 0;
 
     const bonusLines = result?.bonusLines || [];
     const bonusCount = bonusLines.length;
     if (c <= 0 || bonusCount <= 0) {
         return { baseScore, iconBonusScore: 0, clearScore: baseScore };
     }
-    const perLine = Math.round(baseScore / c);
-    const iconBonusScore = perLine * bonusCount * (ICON_BONUS_LINE_MULT - 1);
+    // 每条消除线价值随总消除数增长：lineScore = baseUnit * c。
+    // bonus 只放大相同 icon/同色的线，公式本身保证整十，且全 bonus 等价于 baseScore × MULT。
+    const effectiveBonusCount = Math.min(bonusCount, c);
+    const lineScore = baseUnit * c;
+    const iconBonusScore = lineScore * effectiveBonusCount * (ICON_BONUS_LINE_MULT - 1);
     return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
 }
 
@@ -132,6 +135,8 @@ export class Game {
 
         this.score = 0;
         this.bestScore = 0;
+        this._bestScoreAtRunStart = 0;
+        this._newBestCelebrated = false;
         this.dockBlocks = [];
         this.sessionId = null;
         this.strategy = localStorage.getItem('openblock_strategy') || 'normal';
@@ -191,6 +196,8 @@ export class Game {
         /** 空闲时轻量重绘，驱动盘面大水印缓缓飘动 */
         this._wmAmbientRaf = null;
         this._lastWmAmbientAt = 0;
+        this._popupToastQueue = Promise.resolve();
+        this._lastPopupToastAt = 0;
     }
 
     _cancelPreviewClearAnim() {
@@ -446,12 +453,33 @@ export class Game {
         }
     }
 
+    _enqueuePopupToast(createEl, holdMs = 3000) {
+        const gapMs = 550;
+        this._popupToastQueue = this._popupToastQueue
+            .catch(() => {})
+            .then(async () => {
+                const waitMs = Math.max(0, this._lastPopupToastAt + gapMs - Date.now());
+                if (waitMs > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, waitMs));
+                }
+
+                const el = createEl();
+                document.body.appendChild(el);
+                notePopupShown(holdMs, gapMs);
+                this._lastPopupToastAt = Date.now() + holdMs;
+
+                await new Promise((resolve) => setTimeout(resolve, holdMs));
+                el.remove();
+            });
+    }
+
     showProgressionToast(title, bodyHtml) {
-        const el = document.createElement('div');
-        el.className = 'achievement-popup progression-toast';
-        el.innerHTML = `<div class="title">${title}</div>${bodyHtml}`;
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 3200);
+        this._enqueuePopupToast(() => {
+            const el = document.createElement('div');
+            el.className = 'achievement-popup progression-toast';
+            el.innerHTML = `<div class="title">${title}</div>${bodyHtml}`;
+            return el;
+        }, 3200);
     }
 
     async start(opts = {}) {
@@ -464,6 +492,8 @@ export class Game {
 
             this.grid.clear();
             this.score = 0;
+            this._bestScoreAtRunStart = this.bestScore || 0;
+            this._newBestCelebrated = false;
             this.isGameOver = false;
             this._endGameInFlight = null;
             // 关卡模式：同一关卡连续失败计数（用于失败提示）
@@ -1092,6 +1122,7 @@ export class Game {
                 x: placedPos.x,
                 y: placedPos.y
             });
+            this.clearInsightHints?.();
 
             // Bonus 检测必须在 apply/checkLines 之前，此时格子尚未被置 null
             const _bonusLinesSnap = detectBonusLines(this.grid, getActiveSkin());
@@ -1185,6 +1216,7 @@ export class Game {
 
         const perfectClear = this.grid.getFillRatio() === 0;
 
+        const scoreBeforeClear = this.score;
         this.score += clearScore;
         this.gameStats.score = this.score;
         this.gameStats.clears += result.count;
@@ -1197,6 +1229,8 @@ export class Game {
             linesCleared: result.count,
             scoreGain: clearScore
         });
+
+        const madeNewBest = this._maybeCelebrateNewBest(scoreBeforeClear);
 
         const isCombo = result.count >= 3;
         const isDouble = result.count === 2;
@@ -1253,7 +1287,7 @@ export class Game {
 
         this.showFloatScore(
             clearScore,
-            effectType,
+            madeNewBest ? 'new-best' : effectType,
             result.count,
             bonusCount > 0 ? iconBonusScore : 0,
             bonusCount > 0 ? animDuration : 0
@@ -1473,7 +1507,8 @@ export class Game {
 
                 await this.saveSession();
 
-                if (this.score > this.bestScore) {
+                const persistedBestBase = this._bestScoreAtRunStart ?? this.bestScore;
+                if (this.score > persistedBestBase) {
                     this.bestScore = this.score;
                     await this.db.saveScore(this.score, this.strategy);
                 }
@@ -1579,7 +1614,7 @@ export class Game {
         clearTimeout(this._movePersistTimer);
         this._movePersistTimer = null;
 
-        if (this.moveSequence.length < MIN_PERSIST_MOVE_FRAMES) {
+        if (countPlaceStepsInFrames(this.moveSequence) < MIN_PERSIST_PLACE_STEPS) {
             try {
                 await this.db.deleteReplaySessions([this.sessionId]);
             } catch (e) {
@@ -1677,13 +1712,13 @@ export class Game {
         if (!this.sessionId) {
             return;
         }
-        if (this.moveSequence.length < MIN_PERSIST_MOVE_FRAMES) {
+        if (countPlaceStepsInFrames(this.moveSequence) < MIN_PERSIST_PLACE_STEPS) {
             return;
         }
         clearTimeout(this._movePersistTimer);
         this._movePersistTimer = setTimeout(() => {
             this._movePersistTimer = null;
-            if (this.moveSequence.length < MIN_PERSIST_MOVE_FRAMES) {
+            if (countPlaceStepsInFrames(this.moveSequence) < MIN_PERSIST_PLACE_STEPS) {
                 return;
             }
             void this.db.upsertMoveSequence(this.sessionId, this.moveSequence).catch((err) => {
@@ -1696,7 +1731,7 @@ export class Game {
         if (!this.sessionId || this.moveSequence.length === 0) {
             return;
         }
-        if (this.moveSequence.length < MIN_PERSIST_MOVE_FRAMES) {
+        if (countPlaceStepsInFrames(this.moveSequence) < MIN_PERSIST_PLACE_STEPS) {
             return;
         }
         clearTimeout(this._movePersistTimer);
@@ -1789,11 +1824,34 @@ export class Game {
     }
 
     showAchievement(achievement) {
+        this._enqueuePopupToast(() => {
+            const el = document.createElement('div');
+            el.className = 'achievement-popup';
+            el.innerHTML = `<div class="title">🏆 Achievement Unlocked!</div>${achievement.icon} ${achievement.name}<div style="font-size:12px;color:#666">${achievement.desc}</div>`;
+            return el;
+        }, 3000);
+    }
+
+    _maybeCelebrateNewBest(scoreBeforeClear) {
+        if (this._newBestCelebrated) return false;
+        const previousBest = this.bestScore || 0;
+        if (this.score <= previousBest || this.score <= scoreBeforeClear) return false;
+
+        this._newBestCelebrated = true;
+        this.bestScore = this.score;
+        this.updateUI();
+
+        this.renderer.triggerBonusMatchFlash(3);
+        this.renderer.triggerPerfectFlash();
+        this.renderer.setShake(18, 900);
+
         const el = document.createElement('div');
-        el.className = 'achievement-popup';
-        el.innerHTML = `<div class="title">🏆 Achievement Unlocked!</div>${achievement.icon} ${achievement.name}<div style="font-size:12px;color:#666">${achievement.desc}</div>`;
+        el.className = 'new-best-popup';
+        el.innerHTML = `<div class="new-best-title">NEW BEST</div><div class="new-best-score">${this.score}</div>`;
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), 3000);
+        notePopupShown(2300, 900);
+        setTimeout(() => el.remove(), 2300);
+        return true;
     }
 
     /**
@@ -1801,6 +1859,7 @@ export class Game {
      */
     showFloatScore(score, type, linesCleared = 0, iconBonus = 0, bonusUiHoldMs = 0) {
         const el = document.createElement('div');
+        const isNewBest = type === 'new-best';
         const isCombo = type === 'combo';
         const isPerfect = type === 'perfect';
         const hasIconBonus = iconBonus > 0;
@@ -1824,10 +1883,12 @@ export class Game {
             return;
         }
 
-        const cls = isPerfect ? ' float-perfect' : isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '';
+        const cls = isNewBest ? ' float-new-best' : isPerfect ? ' float-perfect' : isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '';
         el.className = 'float-score' + cls;
 
-        if (isPerfect) {
+        if (isNewBest) {
+            el.innerHTML = `<span class="float-label">NEW RECORD</span><span class="float-pts">+${score}</span>`;
+        } else if (isPerfect) {
             el.innerHTML = `<span class="float-label">PERFECT</span><span class="float-pts">+${score}</span>`;
         } else if (isCombo && linesCleared >= 3) {
             el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}</span><span class="float-pts">+${score}</span>`;
@@ -1838,10 +1899,10 @@ export class Game {
         }
 
         el.style.left = '50%';
-        el.style.top = isPerfect ? '18%' : isCombo ? '22%' : '25%';
+        el.style.top = isNewBest ? '16%' : isPerfect ? '18%' : isCombo ? '22%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        const floatHoldMs = isPerfect ? 2200 : isCombo ? 1450 : 600;
+        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : 600;
         setTimeout(() => el.remove(), floatHoldMs);
     }
 

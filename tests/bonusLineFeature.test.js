@@ -13,6 +13,7 @@ import {
     ICON_BONUS_LINE_MULT,
     bonusEffectHoldMs,
 } from '../web/src/game.js';
+import { getAllShapes } from '../web/src/shapes.js';
 
 function fillRow(grid, row, values) {
     for (let x = 0; x < grid.size; x++) grid.cells[row][x] = values[x];
@@ -22,12 +23,62 @@ function fillCol(grid, col, values) {
     for (let y = 0; y < grid.size; y++) grid.cells[y][col] = values[y];
 }
 
+function shapeLinePotential(shape) {
+    const rows = new Set();
+    const cols = new Set();
+    for (let y = 0; y < shape.length; y++) {
+        for (let x = 0; x < shape[y].length; x++) {
+            if (!shape[y][x]) continue;
+            rows.add(y);
+            cols.add(x);
+        }
+    }
+    return rows.size + cols.size;
+}
+
+function expectedScore(count, bonusCount, baseUnit = 20) {
+    const safeBonus = Math.min(bonusCount, count);
+    const baseScore = count > 0 ? baseUnit * count * count : 0;
+    const lineScore = baseUnit * count;
+    const iconBonusScore = lineScore * safeBonus * (ICON_BONUS_LINE_MULT - 1);
+    return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
+}
+
 describe('bonus line feature', () => {
+    it('当前形状库单次理论最大消除行列数为 6', () => {
+        const maxLines = Math.max(...getAllShapes().map((s) => shapeLinePotential(s.data)));
+        expect(maxLines).toBe(6);
+    });
+
     it(`computeClearScore：每条 bonus 线为 ${ICON_BONUS_LINE_MULT} 倍行摊分（单消 +1 bonus 线）`, () => {
         const r = computeClearScore('normal', { count: 1, bonusLines: [{ type: 'row', idx: 0 }] });
         expect(r.baseScore).toBe(20);
         expect(r.iconBonusScore).toBe(80);
         expect(r.clearScore).toBe(100);
+    });
+
+    it('computeClearScore：覆盖 1~6 消、0~count 条 bonus 线，结果符合平方基础分公式', () => {
+        for (let count = 1; count <= 6; count++) {
+            for (let bonusCount = 0; bonusCount <= count; bonusCount++) {
+                const r = computeClearScore('normal', {
+                    count,
+                    bonusLines: Array.from({ length: bonusCount }, (_, idx) => ({ type: 'row', idx })),
+                });
+                const expected = expectedScore(count, bonusCount);
+                expect(r).toEqual(expected);
+                expect(r.baseScore % 10).toBe(0);
+                expect(r.iconBonusScore % 10).toBe(0);
+                expect(r.clearScore % 10).toBe(0);
+            }
+        }
+    });
+
+    it('computeClearScore：异常 bonusLines 数量超过消除线数时钳制到 count', () => {
+        const r = computeClearScore('normal', {
+            count: 2,
+            bonusLines: [{}, {}, {}],
+        });
+        expect(r).toEqual(expectedScore(2, 2));
     });
 
     it('bonusEffectHoldMs 落在 3000–5000ms', () => {

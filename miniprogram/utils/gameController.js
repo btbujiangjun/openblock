@@ -119,6 +119,7 @@ class GameController {
       this.onLineClear({
         clears,
         gain,
+        score: this.score,
         cells: result.cells || [],
         bonusLines: result.bonusLines || [],
       });

@@ -823,9 +823,15 @@ body.block-drag-active #app {
 }
 
 .stat-value {
-    font-size: 16px;
-    font-weight: 600;
+    font-size: 17px;
+    font-weight: 900;
     color: var(--accent-dark);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.015em;
+    line-height: 1;
+    text-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.72),
+        0 0 10px color-mix(in srgb, var(--accent-color, #3498db) 22%, transparent);
 }
 
 .progression-hud {
@@ -1175,13 +1181,18 @@ body.game-rl-preview .block-dock {
 
 .game-over-score {
     font-size: 52px;
-    font-weight: 800;
+    font-weight: 950;
     line-height: 1.1;
     margin: 2px 0 0;
-    background: linear-gradient(135deg, var(--warning, #e67e22) 0%, #f39c12 100%);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    background: linear-gradient(135deg, #fff7ad 0%, var(--warning, #e67e22) 38%, #f59e0b 66%, #c2410c 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    filter:
+        drop-shadow(0 1px 0 rgba(120, 53, 15, 0.45))
+        drop-shadow(0 0 18px rgba(245, 158, 11, 0.34));
 }
 
 .game-over-card .final-xp {
@@ -2282,13 +2293,17 @@ body.game-rl-preview .block-dock {
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    font-size: 20px;
-    font-weight: 700;
+    font-size: 22px;
+    font-weight: 900;
     color: var(--success);
     pointer-events: none;
     animation: floatUp 0.7s ease-out forwards;
     z-index: 200;
-    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    font-variant-numeric: tabular-nums;
+    text-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.55),
+        0 2px 6px rgba(0, 0, 0, 0.34),
+        0 0 16px color-mix(in srgb, var(--success, #2ecc71) 38%, transparent);
 }
 
 .float-label {
@@ -2300,8 +2315,9 @@ body.game-rl-preview .block-dock {
 }
 
 .float-pts {
-    font-size: 1em;
-    font-weight: 700;
+    font-size: 1.12em;
+    font-weight: 950;
+    letter-spacing: 0.02em;
 }
 
 /* ── Double (2行) ── */
@@ -2364,6 +2380,47 @@ body.game-rl-preview .block-dock {
     -webkit-text-fill-color: transparent;
 }
 
+.float-new-best {
+    font-size: clamp(30px, 6.2vw, 46px);
+    letter-spacing: 0.08em;
+    animation: newBestFloat 2.3s ease-out forwards;
+    background: linear-gradient(90deg, #fff7ad, #ffd166, #ff7ad9, #8bd3ff, #fff7ad);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter:
+        drop-shadow(0 0 14px rgba(255, 218, 95, 0.95))
+        drop-shadow(0 0 28px rgba(255, 122, 217, 0.55));
+}
+
+.float-new-best .float-label {
+    font-size: 0.5em;
+    letter-spacing: 0.2em;
+}
+
+@keyframes newBestFloat {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(14px) scale(0.72);
+        background-position: 0% 50%;
+    }
+    18% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1.14);
+    }
+    55% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(-8px) scale(1);
+        background-position: 100% 50%;
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-46px) scale(0.92);
+        background-position: 0% 50%;
+    }
+}
+
 .float-perfect .float-pts {
     background: inherit;
     -webkit-background-clip: text;
@@ -2395,21 +2452,23 @@ body.game-rl-preview .block-dock {
         "Microsoft YaHei",
         "Noto Sans SC",
         sans-serif;
-    font-weight: 900;
-    font-size: clamp(30px, 6.2vw, 52px);
-    letter-spacing: 0.02em;
+    font-weight: 950;
+    font-size: clamp(34px, 7vw, 60px);
+    letter-spacing: 0.018em;
     line-height: 1.05;
     white-space: nowrap;
+    -webkit-text-stroke: 1px rgba(120, 53, 15, 0.24);
     filter:
-        drop-shadow(0 2px 0 rgba(88, 28, 28, 0.45))
-        drop-shadow(0 0 22px rgba(251, 191, 36, 0.55))
-        drop-shadow(0 0 36px rgba(192, 38, 211, 0.35));
+        drop-shadow(0 3px 0 rgba(88, 28, 28, 0.58))
+        drop-shadow(0 0 24px rgba(251, 191, 36, 0.7))
+        drop-shadow(0 0 42px rgba(192, 38, 211, 0.44));
     animation: bonusScoreArtPop var(--icon-bonus-pop-ms, 4000ms) cubic-bezier(0.16, 1, 0.32, 1) forwards;
 }
 
 .float-bonus-num {
     display: inline-block;
-    font-weight: 900;
+    font-weight: 950;
+    font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
     background: linear-gradient(
         118deg,
@@ -2648,6 +2707,59 @@ body.game-rl-preview .block-dock {
     font-size: 14px;
     color: #666;
     margin-bottom: 5px;
+}
+
+.new-best-popup {
+    position: fixed;
+    top: 42%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 18px 28px;
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.92), transparent 34%),
+        linear-gradient(135deg, rgba(255, 214, 102, 0.96), rgba(255, 122, 217, 0.92), rgba(82, 196, 255, 0.94));
+    color: #1b1028;
+    text-align: center;
+    pointer-events: none;
+    z-index: 340;
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.34) inset,
+        0 18px 48px rgba(0, 0, 0, 0.34),
+        0 0 44px rgba(255, 214, 102, 0.5);
+    animation: newBestPopup 2.3s ease-out forwards;
+}
+
+.new-best-title {
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+}
+
+.new-best-score {
+    margin-top: 4px;
+    font-size: clamp(30px, 6vw, 48px);
+    font-weight: 900;
+    line-height: 1;
+}
+
+@keyframes newBestPopup {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.55) rotate(-4deg);
+    }
+    16% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.12) rotate(2deg);
+    }
+    34%, 72% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -58%) scale(0.9) rotate(0deg);
+    }
 }
 
 @keyframes achievementPop {

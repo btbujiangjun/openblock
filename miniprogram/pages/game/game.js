@@ -51,6 +51,9 @@ Page({
   _dragGy: -1,
   _particleRafId: null,
   _floatScoreTimer: null,
+  _gameOverTimer: null,
+  _gameOverQuietUntil: 0,
+  _newBestCelebrated: false,
 
   onLoad(query) {
     const strategyId = query.strategy || 'normal';
@@ -63,6 +66,7 @@ Page({
     const bestKey = `openblock_best_${strategyId}`;
     const best = Number(storage.getItem(bestKey) || 0) || 0;
     this._bestScore = best;
+    this._newBestCelebrated = false;
     this.setData({
       bestScore: best,
       levelMode: this._mode,
@@ -79,6 +83,10 @@ Page({
     if (this._floatScoreTimer) {
       clearTimeout(this._floatScoreTimer);
       this._floatScoreTimer = null;
+    }
+    if (this._gameOverTimer) {
+      clearTimeout(this._gameOverTimer);
+      this._gameOverTimer = null;
     }
   },
 
@@ -140,12 +148,23 @@ Page({
   _onStateChange(snap) {
     const best = this._bestScore != null ? this._bestScore : this.data.bestScore;
     const gap = Math.max(0, best - snap.score);
+    const gameOverQuietMs = snap.gameOver ? Math.max(0, this._gameOverQuietUntil - Date.now()) : 0;
+    if (this._gameOverTimer) {
+      clearTimeout(this._gameOverTimer);
+      this._gameOverTimer = null;
+    }
+    if (gameOverQuietMs > 0) {
+      this._gameOverTimer = setTimeout(() => {
+        this.setData({ gameOver: true });
+        this._gameOverTimer = null;
+      }, gameOverQuietMs);
+    }
     this.setData({
       score: snap.score,
       steps: snap.steps,
       totalClears: snap.totalClears,
       dock: snap.dock.map((d) => ({ placed: d.placed, colorIdx: d.colorIdx })),
-      gameOver: snap.gameOver,
+      gameOver: snap.gameOver && gameOverQuietMs <= 0,
       bestScore: best,
       bestGap: gap,
       bestGapVisible: best > 0 && gap > 0,
@@ -190,11 +209,13 @@ Page({
         r.addBonusLineBurst(bl, css, 40, n, cs);
       }
     }
-    this._showFloatScore(info.gain, info.clears, bls.length);
+    const madeNewBest = this._maybeCelebrateNewBest(info.score || g.score || 0);
+    this._showFloatScore(info.gain, info.clears, bls.length, madeNewBest);
 
     const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
     const bonusHold = bls.length > 0 ? bonusEffectHoldMs(bls.length) : 0;
-    const maxMs = bls.length > 0 ? Math.max(baseDuration, bonusHold) : baseDuration;
+    const maxMs = Math.max(bls.length > 0 ? Math.max(baseDuration, bonusHold) : baseDuration, madeNewBest ? 1800 : 0);
+    this._gameOverQuietUntil = Math.max(this._gameOverQuietUntil || 0, Date.now() + maxMs + 450);
     this._startParticleLoop(maxMs);
   },
 
@@ -367,6 +388,12 @@ Page({
   },
 
   onRestart() {
+    this._newBestCelebrated = false;
+    this._gameOverQuietUntil = 0;
+    if (this._gameOverTimer) {
+      clearTimeout(this._gameOverTimer);
+      this._gameOverTimer = null;
+    }
     this._controller.reset();
     this._renderer.clearParticles();
     this._renderer.setClearCells([]);
@@ -378,21 +405,42 @@ Page({
     this._drawDockBlocks();
   },
 
-  _showFloatScore(score, linesCleared = 0, bonusCount = 0) {
+  _maybeCelebrateNewBest(score) {
+    if (this._newBestCelebrated) return false;
+    const previousBest = this._bestScore || 0;
+    if (score <= previousBest || score <= 0) return false;
+
+    this._newBestCelebrated = true;
+    this._bestScore = score;
+    this.setData({
+      bestScore: score,
+      bestGap: 0,
+      bestGapVisible: false,
+    });
+    if (this._renderer) {
+      this._renderer.triggerBonusMatchFlash(3);
+      this._renderer.triggerPerfectFlash();
+      this._renderer.setShake(18, 900);
+    }
+    return true;
+  },
+
+  _showFloatScore(score, linesCleared = 0, bonusCount = 0, newBest = false) {
     const tags = [];
+    if (newBest) tags.push('新纪录');
     if (linesCleared >= 3) tags.push(`${linesCleared}x`);
     if (bonusCount > 0) tags.push(`Bonus ${bonusCount}`);
     const suffix = tags.length ? ` (${tags.join(' · ')})` : '';
-    const cls = linesCleared >= 3 ? 'float-score--combo' : bonusCount > 0 ? 'float-score--bonus' : '';
+    const cls = newBest ? 'float-score--new-best' : linesCleared >= 3 ? 'float-score--combo' : bonusCount > 0 ? 'float-score--bonus' : '';
     this.setData({
       floatScoreVisible: true,
-      floatScoreText: `+${score}${suffix}`,
+      floatScoreText: newBest ? `新纪录 +${score}${suffix}` : `+${score}${suffix}`,
       floatScoreClass: cls,
     });
     if (this._floatScoreTimer) clearTimeout(this._floatScoreTimer);
     this._floatScoreTimer = setTimeout(() => {
       this.setData({ floatScoreVisible: false });
       this._floatScoreTimer = null;
-    }, 900);
+    }, newBest ? 1800 : 900);
   },
 });
