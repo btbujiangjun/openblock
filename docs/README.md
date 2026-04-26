@@ -1,6 +1,6 @@
 # OpenBlock 文档导航
 
-> 最后更新：2026-04-25  
+> 最后更新：2026-04-26  
 > 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）  
 > 根目录文档：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 
@@ -39,6 +39,7 @@
 | 文档 | 说明 | 状态 |
 |------|------|------|
 | [难度模式：设计与实现](./DIFFICULTY_MODES.md) | Easy / Normal / Hard 全链路、计分、填充率、自适应 difficultyBias | ✅ 当前 |
+| [消行计费规则](./CLEAR_SCORING.md) | 多消基础分、同 icon/同色 bonus、整十分约束、与形状库最大消除数；商业化策略存储索引 | ✅ 当前 |
 
 ---
 

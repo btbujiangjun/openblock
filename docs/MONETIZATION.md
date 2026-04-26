@@ -849,3 +849,4 @@ resetFlags();                    // 清除所有 localStorage 覆盖，恢复默
 | [`MONETIZATION_OPTIMIZATION.md`](./MONETIZATION_OPTIMIZATION.md) | v1：行业调研与优化清单（原始研究） |
 | [`MONETIZATION_PERSONALIZATION.md`](./MONETIZATION_PERSONALIZATION.md) | v2：个性化引擎技术设计（详细 API 规范） |
 | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | 出块算法（留存核心引擎，商业化底层支撑） |
+| [`CLEAR_SCORING.md`](./CLEAR_SCORING.md) | 对局消行计费（与商业化分账无关）；文末附「商业化策略存储」索引 |

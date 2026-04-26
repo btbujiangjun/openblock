@@ -16,13 +16,14 @@
 与俄罗斯方块不同：**无重力**、**无时间压力**、**同时消行列**、**一次放三块**。
 核心挑战 = **空间规划** + **顺序决策**（三块的放置顺序和位置影响后续生存）。
 
-### 1.2 计分（normal 策略）
+### 1.2 计分（对局消行，与 RL 模拟器区分）
 
-| 消除行/列数 | 得分公式 | 数值 |
-|-------------|---------|------|
-| 1 | singleLine | 20 |
-| 2 | multiLine | 60 |
-| ≥3 | combo + (c-2)×multiLine | 100 + (c-2)×60 |
+**Web / 微信小程序对局**的消行得分由 `computeClearScore()` 统一计算（`web/src/game.js`，小程序镜像 `miniprogram/core/bonusScoring.js`），规则见 **[消行计费规则](./CLEAR_SCORING.md)**：
+
+- 基础分：`baseScore = baseUnit × c²`（`baseUnit = scoring.singleLine`，默认 20；`c` 为本次消除行列总数）。
+- 同 icon / 同色 bonus：`clearScore = baseScore + (baseUnit × c) × b × 4`（`b` 为 bonus 线条数，全 bonus 时为 `5 × baseScore`）。
+
+**Python RL 模拟器**（`rl_pytorch/simulator.py` / `rl_mlx/simulator.py`）仍使用 `shared/game_rules.json` 中的 **legacy** 分段公式（`singleLine` / `multiLine` / `combo`），与对局 `computeClearScore` **可能不一致**；训练奖励以模拟器为准，对局 UI 得分以 `CLEAR_SCORING.md` 为准。
 
 ### 1.3 RL 即时奖励
 

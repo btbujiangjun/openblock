@@ -21,7 +21,7 @@ OpenBlock 提供三档基础难度：**简单（easy）**、**普通（normal）
 
 | 维度 | 是否受难度影响 | 备注 |
 |------|:------------:|------|
-| 计分倍率 | ❌ | 三档统一（singleLine=20, multiLine=60, combo=100） |
+| 消行计分 | ❌ | 三档统一：以 `scoring.singleLine` 为 **baseUnit**（默认 20），按 [消行计费规则](./CLEAR_SCORING.md) 计算；`multiLine` / `combo` 字段仍保留在 JSON 中供 RL 等路径使用，**与 Web/小程序对局 `computeClearScore` 已解耦** |
 | 初始棋盘填充率 | ✅ | easy 0% → normal 20% → hard 25% |
 | 出块形状权重 | ✅（修复后） | 通过 `difficultyBias` 偏移自适应 stress 基线 |
 | 棋盘尺寸 | ❌ | 三档均为 8×8 |
@@ -72,27 +72,23 @@ layered = resolveAdaptiveStrategy(this.strategy, profile, score, ...)
 generateDockShapes(grid, layered, spawnContext)
 ```
 
-### 2.6 计分 `_handleClears()`
+### 2.6 计分（消行）
 
-```javascript
-const strategyConfig = getStrategy(this.strategy);
-const scoring = strategyConfig.scoring;
-// singleLine / multiLine / combo 直接取策略配置
-```
+对局消行得分由 `web/src/game.js` → `computeClearScore()` 计算，详见 **[消行计费规则](./CLEAR_SCORING.md)**。
+
+要点：
+
+- **基础分**：`baseScore = baseUnit × c²`（`c` 为本次消除的行列总数）。
+- **同 icon / 同色 bonus**：在 `bonusLines` 中统计条数 `b`，增量 `iconBonusScore = (baseUnit × c) × b × (5 - 1)`；全 bonus 时总分为 `5 × baseScore`。
+- **理论最大消除数**：由 `shared/shapes.json` 决定，当前 **`c_max = 6`**（单元测试枚举校验）。
 
 ---
 
 ## 3. 三档参数对比
 
-### 3.1 计分规则（统一）
+### 3.1 计分（统一）
 
-| 得分类型 | 全难度统一 |
-|---------|----------:|
-| 单消 singleLine | 20 |
-| 多消 multiLine | 60 |
-| Combo | 100 |
-
-三档使用相同计分规则，分数可直接跨难度比较。难度仅影响出块分布和初始填充率。
+详见 [CLEAR_SCORING.md](./CLEAR_SCORING.md)。三档仅 **`baseUnit`（即 `singleLine`）** 一致；难度不影响消行公式本身。分数可直接跨难度比较。难度主要影响出块分布和初始填充率。
 
 ### 3.2 初始填充率
 
