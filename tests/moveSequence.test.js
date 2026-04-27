@@ -84,7 +84,7 @@ describe('moveSequence replay', () => {
 
         const st = replayStateAt(frames, frames.length - 1);
         expect(st).not.toBeNull();
-        /* 16 条消除线（8 行+8 列），其中 12 条为同色 bonus 线 → clearScore=10×12² + (10×12)×12×4=9600 */
+        /* 16 条消除线，其中 12 条为同色 bonus；按 init 帧 scoring 重算得 9600 */
         expect(st.score).toBe(9600);
         expect(st.dockDescriptors.length).toBe(1);
         expect(st.dockDescriptors[0].placed).toBe(true);

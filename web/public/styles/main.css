@@ -1903,6 +1903,10 @@ body.game-rl-preview .block-dock {
     height: 11px;
 }
 
+.rl-backend-status {
+    margin-left: 2px;
+}
+
 .rl-stats {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr 1fr;

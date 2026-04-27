@@ -99,7 +99,7 @@ export function initRLPanel(game) {
             const st = await fetchRlStatus();
             if (st.available) {
                 const ck = st.checkpoint_loaded ? '已热加载' : '新初始化';
-                outBackendStatus.textContent = `${st.device || '?'} · ${ck} · ${st.episodes ?? 0} 局 · 每${st.save_every ?? '?'}局存盘`;
+                outBackendStatus.textContent = `${st.device || '?'} ${ck} ${st.episodes ?? 0} 局`;
                 if (typeof st.episodes === 'number') {
                     totalEpisodes = Math.max(totalEpisodes, st.episodes);
                     updateStats();
@@ -221,8 +221,8 @@ export function initRLPanel(game) {
                     const lp = e.loss_policy != null && Number.isFinite(Number(e.loss_policy)) ? Number(e.loss_policy).toFixed(2) : '—';
                     const lv = e.loss_value != null && Number.isFinite(Number(e.loss_value)) ? Number(e.loss_value).toFixed(2) : '—';
                     const batchTag = e.batch_size ? `×${e.batch_size}` : '';
-                    const sc = typeof e.score === 'number' ? `·sc${Math.round(e.score)}` : '';
-                    return `[${t}]#${e.episodes}${batchTag}·Lπ${lp}·Lv${lv}${sc}`;
+                    const sc = typeof e.score === 'number' ? ` sc${Math.round(e.score)}` : '';
+                    return `[${t}]#${e.episodes}${batchTag} Lπ${lp} Lv${lv}${sc}`;
                 }
                 if (e.event === 'checkpoint_saved') {
                     return `[${t}] 已保存 ${e.reason || ''} ep${e.episodes}`;
@@ -258,7 +258,7 @@ export function initRLPanel(game) {
         if (!Number.isFinite(lp) || !Number.isFinite(lv)) {
             return '';
         }
-        return `·Lπ${lp.toFixed(3)}·Lv${lv.toFixed(3)}`;
+        return ` Lπ${lp.toFixed(3)} Lv${lv.toFixed(3)}`;
     }
 
     function logLine(msg) {
@@ -321,13 +321,13 @@ export function initRLPanel(game) {
         }
         const lossHint = formatLossSuffix(info);
         logLine(
-            `上局·分${info.score}·步${info.steps}·消${info.clears}${info.won ? '·胜' : ''}${lossHint}`
+            `上局 分${info.score} 步${info.steps} 消${info.clears}${info.won ? ' 胜' : ''}${lossHint}`
         );
         updateStats();
         if (totalEpisodes % 10 === 0) {
             const n = Math.min(AVG_WINDOW, recentScores.length);
             const avg = n ? recentScores.slice(-AVG_WINDOW).reduce((a, b) => a + b, 0) / n : 0;
-            logLine(`已${totalEpisodes}局·近${n}局均${avg.toFixed(0)}`);
+            logLine(`已${totalEpisodes}局 近${n}局均${avg.toFixed(0)}`);
         }
         scheduleDashRefresh();
     }
@@ -350,8 +350,8 @@ export function initRLPanel(game) {
         }
         logLine(
             useBackend
-                ? '开始·PyTorch后端·可随时停止'
-                : '开始·浏览器线性模型·可随时停止'
+                ? '开始 PyTorch后端 可随时停止'
+                : '开始 浏览器线性模型 可随时停止'
         );
 
         if (useBackend) {
@@ -387,7 +387,7 @@ export function initRLPanel(game) {
         if (btnStop) {
             btnStop.disabled = true;
         }
-        logLine(useBackend ? '结束·服务端已存盘' : '结束·已写localStorage');
+        logLine(useBackend ? '结束 服务端' : '结束 已写localStorage');
         syncChartPoll();
         void refreshBackendStatus();
         void refreshDashboardFull();
@@ -451,7 +451,7 @@ export function initRLPanel(game) {
                     { useBackend }
                 );
                 logLine(
-                    `评估·分${ep.score}·步${ep.steps}·消${ep.totalClears}${ep.won ? '·胜' : ''}·${ep.trajectory.length}手·${useBackend ? 'PT' : '线'}·不计入均分`
+                    `评估 分${ep.score} 步${ep.steps} 消${ep.totalClears}${ep.won ? ' 胜' : ''} ${ep.trajectory.length}手 ${useBackend ? 'PT' : '线'} 不计入均分`
                 );
             } finally {
                 if (game) {
@@ -480,6 +480,6 @@ export function initRLPanel(game) {
         }
     })();
     logLine(
-        `已加载${readUseBackend() ? '·PT后端' : '·线性'}·胜≥${WIN_SCORE_THRESHOLD}分`
+        `已加载${readUseBackend() ? ' PT后端' : ' 线性'} 胜≥${WIN_SCORE_THRESHOLD}分`
     );
 }
