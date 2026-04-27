@@ -1,17 +1,18 @@
 /**
  * 候选块出块算法层（三层架构）
  *
- * Layer 1 — 即时盘面感知：拓扑评分（空洞/表面平整/多消潜力）+ 反死局
+ * Layer 1 — 即时盘面感知：拓扑评分（空洞/表面平整/多消潜力）+ 反死局 + 解法数量调控
  * Layer 2 — 局内体验：combo 链催化、跨轮品类记忆、节奏 setup/payoff、清屏奖励
  * Layer 3 — 局间弧线：通过 spawnHints.sessionArc / milestone / returnWarmup 影响权重
  *
  * spawnHints（来自自适应引擎 adaptiveSpawn.js）：
- *   clearGuarantee  (0-3)   三连块中至少 N 个能触发即时消行
- *   sizePreference  (-1~1)  负=偏小块，正=偏大块
- *   diversityBoost  (0~1)   越高→三连块品类越多样
- *   comboChain      (0~1)   combo 链强度：越高越偏好能续链的消行块
- *   multiClearBonus (0~1)   多消鼓励：越高越偏好能同时完成多行的块
- *   rhythmPhase     'setup'|'payoff'|'neutral'  节奏相位
+ *   clearGuarantee      (0-3)   三连块中至少 N 个能触发即时消行
+ *   sizePreference      (-1~1)  负=偏小块，正=偏大块
+ *   diversityBoost      (0~1)   越高→三连块品类越多样
+ *   comboChain          (0~1)   combo 链强度：越高越偏好能续链的消行块
+ *   multiClearBonus     (0~1)   多消鼓励：越高越偏好能同时完成多行的块
+ *   rhythmPhase         'setup'|'payoff'|'neutral'  节奏相位
+ *   targetSolutionRange { min, max, label } | null  解法数量难度区间（v9 新增）
  *
  * spawnContext（来自 game.js，跨轮状态）：
  *   lastClearCount  上一轮三连块产生的消行数
@@ -23,15 +24,23 @@
  * 核心不变量：
  *   1. 中高填充下验证 tripletSequentiallySolvable（避免不公平死局）
  *   2. 保证最低机动性（minMobilityTarget）
- *   3. 返回 _spawnDiagnostics 供策略面板解释
+ *   3. 解法数量在配置区间内（v9 新增，软过滤；budget 截断时不参与过滤）
+ *   4. 返回 _spawnDiagnostics 供策略面板解释（含 solutionMetrics）
  */
 
 import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights } from '../shapes.js';
+import { GAME_RULES } from '../gameRules.js';
 
 const MAX_SPAWN_ATTEMPTS = 22;
 const FILL_SURVIVABILITY_ON = 0.52;
 const SURVIVE_SEARCH_BUDGET = 14000;
 const CRITICAL_FILL = 0.68;
+
+/* ---------- 解法数量评估常量（可被 game_rules.solutionDifficulty 覆盖） ---------- */
+const SOLUTION_EVAL_FILL_MIN_DEFAULT = 0.45;
+const SOLUTION_LEAF_CAP_DEFAULT = 64;
+const SOLUTION_BUDGET_DEFAULT = 8000;
+const SOLUTION_FILTER_ATTEMPT_RATIO = 0.6; // attempt < 60% 时才硬过滤，避免无解死循环
 
 /* ================================================================== */
 /*  基础工具                                                           */
@@ -97,6 +106,117 @@ function tripletSequentiallySolvable(grid, threeData, opts = {}) {
         if (budget.n <= 0 && budget.exhaustAsPass) return true;
     }
     return false;
+}
+
+/* ================================================================== */
+/*  解法数量评估（v9 新增）                                            */
+/*                                                                    */
+/*  与 tripletSequentiallySolvable（仅判可解）不同，这里要数「有多少种   */
+/*  完整放置序列能完成本组三块」。同一形状放在不同位置算不同解。        */
+/*                                                                    */
+/*  · 性能门控：仅在 fill ≥ activationFill 时调用                      */
+/*  · leafCap：到达 cap 个叶子立即返回（避免空盘指数爆炸）              */
+/*  · budget：累计 dfs 入栈次数到达 budget 立即截断（标记 truncated）   */
+/* ================================================================== */
+
+/**
+ * 累加 orderedShapes 在 grid 上的「完整放置序列」叶子数（带剪枝）。
+ * @param {import('../grid.js').Grid} grid
+ * @param {number[][][]} orderedShapes
+ * @param {number} depth
+ * @param {{ count: number, cap: number, truncated: boolean }} accum
+ * @param {{ n: number }} budget
+ */
+function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
+    if (accum.count >= accum.cap) return;
+    if (budget.n <= 0) {
+        accum.truncated = true;
+        return;
+    }
+    if (depth >= orderedShapes.length) {
+        accum.count++;
+        return;
+    }
+    const s = orderedShapes[depth];
+    const n = grid.size;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (accum.count >= accum.cap || budget.n <= 0) return;
+            if (!grid.canPlace(s, x, y)) continue;
+            budget.n--;
+            const next = placeAndClear(grid, s, x, y);
+            dfsCountSolutions(next, orderedShapes, depth + 1, accum, budget);
+        }
+    }
+}
+
+/**
+ * 估算三连块在当前盘面下的「解空间体量」。
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @param {number[][][]} threeData
+ * @param {{ leafCap?: number, budget?: number }} [opts]
+ * @returns {{
+ *   validPerms: number,        // 6 种顺序里至少有 1 解的顺序数（0~6）
+ *   solutionCount: number,     // 6 种顺序累计的叶子数（截断到 leafCap）
+ *   capped: boolean,           // 是否撞到 leafCap（实际解 ≥ leafCap）
+ *   truncated: boolean,        // 是否被 budget 截断（结果不可信，过滤时跳过）
+ *   firstMoveFreedom: number,  // 三块独立放置时的最小合法点数（"瓶颈块自由度"）
+ *   perPermCounts: number[]    // 每种顺序贡献的叶子数（按 permutations3 顺序）
+ * }}
+ */
+export function evaluateTripletSolutions(grid, threeData, opts = {}) {
+    if (!Array.isArray(threeData) || threeData.length !== 3) {
+        return { validPerms: 0, solutionCount: 0, capped: false, truncated: false, firstMoveFreedom: 0, perPermCounts: [] };
+    }
+
+    const cap = Math.max(1, opts.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT);
+    const budget = { n: Math.max(100, opts.budget ?? SOLUTION_BUDGET_DEFAULT) };
+    const accum = { count: 0, cap, truncated: false };
+
+    const perms = permutations3(threeData[0], threeData[1], threeData[2]);
+    const perPermCounts = new Array(perms.length).fill(0);
+    let validPerms = 0;
+
+    for (let i = 0; i < perms.length; i++) {
+        if (accum.count >= cap) break;
+        if (budget.n <= 0) {
+            accum.truncated = true;
+            break;
+        }
+        const before = accum.count;
+        dfsCountSolutions(grid, perms[i], 0, accum, budget);
+        const delta = accum.count - before;
+        perPermCounts[i] = delta;
+        if (delta > 0) validPerms++;
+    }
+
+    let firstMoveFreedom = Infinity;
+    for (const sd of threeData) {
+        const c = countLegalPlacements(grid, sd);
+        if (c < firstMoveFreedom) firstMoveFreedom = c;
+    }
+    if (!Number.isFinite(firstMoveFreedom)) firstMoveFreedom = 0;
+
+    return {
+        validPerms,
+        solutionCount: accum.count,
+        capped: accum.count >= cap,
+        truncated: accum.truncated,
+        firstMoveFreedom,
+        perPermCounts
+    };
+}
+
+/** 读取 game_rules.solutionDifficulty 配置（带默认值）。 */
+function getSolutionDifficultyCfg() {
+    const cfg = GAME_RULES?.solutionDifficulty;
+    return {
+        enabled: cfg?.enabled ?? false,
+        activationFill: cfg?.activationFill ?? SOLUTION_EVAL_FILL_MIN_DEFAULT,
+        leafCap: cfg?.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT,
+        budget: cfg?.budget ?? SOLUTION_BUDGET_DEFAULT
+    };
 }
 
 function minMobilityTarget(fill, attempt) {
@@ -368,6 +488,8 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const comboChain = hints.comboChain ?? 0;
     const multiClearBonus = hints.multiClearBonus ?? 0;
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
+    const targetSolutionRange = hints.targetSolutionRange || null;
+    const solutionCfg = getSolutionDifficultyCfg();
 
     const allShapes = getAllShapes();
     const fill = grid.getFillRatio();
@@ -435,11 +557,26 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const perfectClearCandidates = scored.filter(s => s.pcPotential === 2).length;
 
     const diagnostics = {
-        layer1: { fill, holes: topo.holes, flatness: topo.flatness, nearFullLines: topo.nearFullLines, maxColHeight: topo.maxColHeight, multiClearCandidates, pcSetup, perfectClearCandidates },
+        layer1: {
+            fill,
+            holes: topo.holes,
+            flatness: topo.flatness,
+            nearFullLines: topo.nearFullLines,
+            maxColHeight: topo.maxColHeight,
+            multiClearCandidates,
+            pcSetup,
+            perfectClearCandidates,
+            // v9：解法数量评估结果（仅在 fill ≥ activationFill 且选中三连块通过校验后填充）
+            solutionMetrics: null,
+            // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
+            targetSolutionRange
+        },
         layer2: { comboChain, multiClearBonus, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
-        attempt: 0
+        attempt: 0,
+        // v9：解法过滤的统计（被拒次数）
+        solutionRejects: { tooFew: 0, tooMany: 0 }
     };
 
     for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
@@ -637,6 +774,32 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
         }
 
+        /* --- v9: 解法数量评估 + 软过滤 ---
+         * 仅在 fill ≥ activationFill 时评估（性能门控）；
+         * 仅在 attempt 较早 (< 60%) 时硬过滤，避免无解死循环；
+         * truncated=true 时跳过过滤（结果不可信，按通过处理）。 */
+        let solutionMetrics = null;
+        if (solutionCfg.enabled && fill >= solutionCfg.activationFill) {
+            const datas = triplet.map((s) => s.data);
+            solutionMetrics = evaluateTripletSolutions(grid, datas, {
+                leafCap: solutionCfg.leafCap,
+                budget: solutionCfg.budget
+            });
+
+            const earlyAttempt = attempt < Math.floor(MAX_SPAWN_ATTEMPTS * SOLUTION_FILTER_ATTEMPT_RATIO);
+            if (earlyAttempt && targetSolutionRange && !solutionMetrics.truncated) {
+                const sc = solutionMetrics.solutionCount;
+                if (targetSolutionRange.max != null && !solutionMetrics.capped && sc > targetSolutionRange.max) {
+                    diagnostics.solutionRejects.tooMany++;
+                    continue;
+                }
+                if (targetSolutionRange.min != null && sc < targetSolutionRange.min) {
+                    diagnostics.solutionRejects.tooFew++;
+                    continue;
+                }
+            }
+        }
+
         /* 通过校验 — 打乱顺序 + 记录诊断 */
         for (let i = triplet.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -652,6 +815,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         diagnostics.chosen = chosenMeta.slice(0, 3).map(m => ({
             id: m.shape.id, category: getShapeCategory(m.shape.id), reason: m.reason
         }));
+        diagnostics.layer1.solutionMetrics = solutionMetrics;
         _lastDiagnostics = diagnostics;
 
         return triplet;

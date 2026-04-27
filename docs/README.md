@@ -77,6 +77,7 @@
 | [出块算法：三层架构](./SPAWN_ALGORITHM.md) | Layer 1-3 实现说明；game.js → adaptiveSpawn → blockSpawn 数据流 | ✅ 当前 |
 | [自适应出块引擎：10 信号融合](./ADAPTIVE_SPAWN.md) | 10 维 stress 信号；10 档 profile 插值；spawnHints（Layer 2/3） | ✅ 当前 |
 | [出块建模：规则引擎与 SpawnTransformer](./SPAWN_BLOCK_MODELING.md) | 规则引擎 vs SpawnTransformerV2 双轨；约束采样；ML 路径与网络结构 | ✅ 当前 |
+| [出块算法：解法数量难度调控（v9）](./SPAWN_SOLUTION_DIFFICULTY.md) | 6 排列 DFS 解叶子计数；leafCap/budget 双剪枝；stress→targetSolutionRange 软过滤；4 个诊断 Pill | ✅ 当前 |
 
 ---
 

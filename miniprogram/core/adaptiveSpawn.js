@@ -174,6 +174,42 @@ function resetAdaptiveMilestone() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  v9: 解法数量难度调控（targetSolutionRange）                         */
+/*                                                                    */
+/*  根据综合 stress 在 game_rules.solutionDifficulty.ranges 中选择档位， */
+/*  传给 blockSpawn.js 用于在三连块通过 sequentiallySolvable 校验后再做  */
+/*  解空间收缩/扩张。                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 根据 stress 选择解法数量档位。
+ * @param {number} stress 综合压力（约 -0.2 ~ 1）
+ * @param {object} cfg game_rules.solutionDifficulty
+ * @param {number} fill 当前盘面填充率
+ * @returns {{ min: number|null, max: number|null, label?: string } | null}
+ */
+function deriveTargetSolutionRange(stress, cfg, fill) {
+    if (!cfg?.enabled) return null;
+    const activationFill = cfg.activationFill ?? 0.45;
+    if ((fill ?? 0) < activationFill) return null;
+    const ranges = Array.isArray(cfg.ranges) ? cfg.ranges : [];
+    if (ranges.length === 0) return null;
+
+    // ranges 按 minStress 升序，挑选 stress >= minStress 的最大档位
+    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
+    let chosen = null;
+    for (const r of sorted) {
+        if (stress >= (r.minStress ?? -1)) chosen = r;
+    }
+    if (!chosen) chosen = sorted[0];
+    return {
+        min: chosen.min ?? null,
+        max: chosen.max ?? null,
+        label: chosen.label
+    };
+}
+
+/* ------------------------------------------------------------------ */
 /*  自适应策略解析（三层整合）                                          */
 /* ------------------------------------------------------------------ */
 
@@ -406,6 +442,13 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     }
     // 'balanced'：不做额外调整，沿用上方所有条件规则的结果
 
+    /* ---------- v9: 解法数量难度区间 ---------- */
+    const targetSolutionRange = deriveTargetSolutionRange(
+        stress,
+        cfg.solutionDifficulty,
+        _boardFill ?? 0
+    );
+
     return {
         ...base,
         shapeWeights,
@@ -418,7 +461,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             multiClearBonus: Math.max(0, Math.min(1, multiClearBonus)),
             rhythmPhase,
             sessionArc,
-            scoreMilestone: milestoneCheck.hit
+            scoreMilestone: milestoneCheck.hit,
+            targetSolutionRange
         },
         _adaptiveStress: stress,
         _difficultyBias: difficultyBias,
@@ -437,7 +481,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _comboChain: comboChain,
         _rhythmPhase: rhythmPhase,
         _milestoneHit: milestoneCheck.hit,
-        _playstyle: playstyle
+        _playstyle: playstyle,
+        _targetSolutionRange: targetSolutionRange
     };
 }
 

@@ -147,6 +147,20 @@
       "flowAnxiousAdjust": -0.12,
       "recoveryAdjust": -0.2,
       "comboRewardAdjust": 0.05
+    },
+    "solutionDifficulty": {
+      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。",
+      "enabled": true,
+      "activationFill": 0.45,
+      "leafCap": 64,
+      "budget": 8000,
+      "ranges": [
+        { "minStress": -1.0, "label": "宽松", "min": 8, "max": null },
+        { "minStress": 0.0, "label": "舒适", "min": 4, "max": null },
+        { "minStress": 0.35, "label": "标准", "min": 2, "max": null },
+        { "minStress": 0.6, "label": "紧张", "min": 1, "max": 32 },
+        { "minStress": 0.8, "label": "极限", "min": 1, "max": 12 }
+      ]
     }
   },
   "rlTrainingStrategyId": "normal",

@@ -6,7 +6,7 @@ const { getStrategy } = require('../config');
 const { getAllShapes } = require('../shapes');
 const { RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } = require('../gameRules');
 const { generateDockShapes, generateBlocksForGrid } = require('./blockSpawn');
-const { computeClearScore } = require('../bonusScoring');
+const { computeClearScore } = require('../clearScoring');
 
 const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
 const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;

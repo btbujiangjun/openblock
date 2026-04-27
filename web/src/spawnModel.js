@@ -181,3 +181,122 @@ export async function predictShapes(grid, profile, recentHistory, adaptiveInsigh
         return null;
     }
 }
+
+/* ================================================================== */
+/*  V3 推理 API（autoregressive + feasibility + playstyle + 个性化）   */
+/* ================================================================== */
+
+/**
+ * 调用 SpawnTransformerV3 推理（带可解性硬约束）。
+ *
+ * 与 V2 的差异：
+ *   - 后端会主动用 `board` 计算 feasibility mask 屏蔽不可放形状
+ *   - 支持 `playstyle` / `userId` 参数（后者会触发 LoRA 个性化路径）
+ *   - 输出携带 `modelVersion`、`personalized`、`feasibleCount` 等元信息
+ *
+ * @param {import('./grid.js').Grid} grid
+ * @param {object} profile
+ * @param {number[][]} recentHistory
+ * @param {object} [adaptiveInsight]
+ * @param {object} [opts] 额外参数：playstyle / userId / temperature / topK / enforceFeasibility
+ * @returns {Promise<{shapes:Array,meta:object}|null>}
+ */
+export async function predictShapesV3(grid, profile, recentHistory, adaptiveInsight, opts = {}) {
+    const board = [];
+    for (let y = 0; y < grid.size; y++) {
+        const row = [];
+        for (let x = 0; x < grid.size; x++) {
+            row.push(grid.cells[y][x] !== null ? 1 : 0);
+        }
+        board.push(row);
+    }
+
+    const context = _buildContext24(grid, profile, adaptiveInsight);
+    const targetDifficulty = opts.targetDifficulty ?? _computeTargetDifficulty(profile, adaptiveInsight);
+    const playstyle = opts.playstyle ?? profile.playstyle ?? null;
+
+    try {
+        const data = await _api('/api/spawn-model/v3/predict', {
+            method: 'POST',
+            body: JSON.stringify({
+                board,
+                context,
+                history: recentHistory || [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+                temperature: opts.temperature ?? 0.8,
+                topK: opts.topK ?? 8,
+                targetDifficulty,
+                playstyle,
+                userId: opts.userId || null,
+                enforceFeasibility: opts.enforceFeasibility !== false,
+            }),
+        });
+
+        if (!data?.success || !Array.isArray(data.shapes)) return null;
+
+        const shapes = data.shapes.map((id) => {
+            const s = getShapeById(id);
+            return s || getShapeById('2x2');
+        }).filter(Boolean);
+
+        if (shapes.length < 3) return null;
+
+        return {
+            shapes: shapes.slice(0, 3),
+            meta: {
+                modelVersion: data.modelVersion || 'v3',
+                personalized: !!data.personalized,
+                feasibleCount: data.feasibleCount ?? null,
+            },
+        };
+    } catch (e) {
+        console.warn('SpawnTransformerV3 predict failed:', e);
+        return null;
+    }
+}
+
+export async function getV3Status() {
+    try {
+        return await _api('/api/spawn-model/v3/status');
+    } catch {
+        return { baseAvailable: false, personalizedUsers: [] };
+    }
+}
+
+export async function startV3Training(opts = {}) {
+    return _api('/api/spawn-model/v3/train', {
+        method: 'POST',
+        body: JSON.stringify({
+            epochs: opts.epochs ?? 50,
+            minScore: opts.minScore ?? 0,
+            maxSessions: opts.maxSessions ?? 500,
+            wFeas: opts.wFeas,
+            wSi: opts.wSi,
+            wSt: opts.wSt,
+        }),
+    });
+}
+
+export async function startPersonalize(userId, opts = {}) {
+    return _api('/api/spawn-model/v3/personalize', {
+        method: 'POST',
+        body: JSON.stringify({
+            userId,
+            epochs: opts.epochs ?? 10,
+            maxSessions: opts.maxSessions ?? 200,
+            lr: opts.lr ?? 1e-3,
+            loraR: opts.loraR ?? 4,
+            loraAlpha: opts.loraAlpha ?? 8,
+        }),
+    });
+}
+
+export async function proposeShapes(opts = {}) {
+    return _api('/api/spawn-model/v3/propose-shapes', {
+        method: 'POST',
+        body: JSON.stringify({
+            n: opts.n ?? 8,
+            nCellsDist: opts.nCellsDist || { 3: 0.2, 4: 0.5, 5: 0.3 },
+            seed: opts.seed ?? null,
+        }),
+    });
+}

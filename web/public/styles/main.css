@@ -6,16 +6,21 @@
 
     /* ========== 核心：单格视觉大小（盘面 & 候选共用，保证上下完全一致） ==========
        双重约束：
-       · 高度约束：play-stack 总高 = 8×cell(盘面) + 5×cell(候选 canvas) + 60px(padding+gap)
-                  + 145px(顶部 header & 工具栏) ≤ 100dvh
-                  → cell ≤ (100dvh - 205px) / 13
+       · 高度约束：play-stack 总高 = 8×cell(盘面) + 5×cell(候选 canvas)
+                  + 26px(play-stack 上下 padding) + 20px(2×gap) + 24px(dock 上下 padding)
+                  + 42px(skill-bar：38 高 + 4 padding-top)
+                  + 145px(app padding + 顶部 header + score-theme-row)
+                  = 13×cell + 257px ≤ 100dvh
+                  → cell ≤ (100dvh - 257px) / 13
+                  备注：少算 skill-bar / 第二个 gap 时，play-stack overflow:hidden 会把候选区
+                  最下面 1 格裁掉 → 表现为「5×1 竖条无法完整显示」。
        · 宽度约束：play-inner-span = 15×cell + 32px(dock 内边距) ≤ 100vw - 2×120px(侧栏下限) - 60px
                   → cell ≤ (100vw - 332px) / 15
        · clamp 22-80px 防极端 */
     --cell-px: clamp(
         22px,
         min(
-            calc((100dvh - 205px) / 13),
+            calc((100dvh - 257px) / 13),
             calc((100vw - 332px) / 15)
         ),
         80px

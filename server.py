@@ -1812,6 +1812,299 @@ def spawn_model_predict():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# =====================================================================
+#  Spawn Transformer V3: autoregressive + feasibility + playstyle + LoRA
+#  详见 docs/ALGORITHMS_SPAWN.md §11
+# =====================================================================
+
+_SPAWN_V3_MODEL_PATH = os.path.join(_MODELS_DIR, 'spawn_transformer_v3.pt')
+_spawn_v3_cache = None
+_spawn_v3_lora_cache = {}  # user_id → (model_with_lora, ckpt_mtime)
+
+
+def _load_spawn_v3_model(user_id: str | None = None):
+    """加载 V3 基模型；若 user_id 指定且对应 LoRA 存在，则注入并加载 adapter。"""
+    global _spawn_v3_cache
+    if not os.path.exists(_SPAWN_V3_MODEL_PATH):
+        return None
+
+    try:
+        import torch
+        from rl_pytorch.spawn_model.model_v3 import SpawnTransformerV3
+
+        if _spawn_v3_cache is None:
+            checkpoint = torch.load(
+                _SPAWN_V3_MODEL_PATH, map_location='cpu', weights_only=False
+            )
+            cfg = checkpoint.get('config', {}) or {}
+            model = SpawnTransformerV3(
+                d_model=cfg.get('d_model', 128),
+                nhead=cfg.get('nhead', 4),
+                num_layers=cfg.get('num_layers', 2),
+                dim_ff=cfg.get('dim_ff', 256),
+                dropout=cfg.get('dropout', 0.1),
+            )
+            sd = checkpoint.get('model_state_dict') or checkpoint
+            model.load_state_dict(sd, strict=False)
+            model.eval()
+            _spawn_v3_cache = model
+
+        if not user_id:
+            return _spawn_v3_cache
+
+        lora_path = os.path.join(_MODELS_DIR, f'lora_{user_id}.pt')
+        if not os.path.exists(lora_path):
+            return _spawn_v3_cache
+
+        from rl_pytorch.spawn_model.lora import (
+            inject_lora_into_model, load_lora_state_dict,
+        )
+
+        cached = _spawn_v3_lora_cache.get(user_id)
+        mtime = os.path.getmtime(lora_path)
+        if cached and cached[1] == mtime:
+            return cached[0]
+
+        import copy
+        from rl_pytorch.spawn_model.model_v3 import SpawnTransformerV3
+        personalized = copy.deepcopy(_spawn_v3_cache)
+        cfg_l = torch.load(lora_path, map_location='cpu', weights_only=False)
+        l_cfg = cfg_l.get('config', {}) or {}
+        inject_lora_into_model(
+            personalized,
+            r=l_cfg.get('r', 4),
+            alpha=l_cfg.get('alpha', 8.0),
+            dropout=l_cfg.get('dropout', 0.0),
+        )
+        load_lora_state_dict(personalized, cfg_l.get('lora', {}), strict=False)
+        personalized.eval()
+        _spawn_v3_lora_cache[user_id] = (personalized, mtime)
+        return personalized
+    except Exception as e:
+        print(f'[spawn-v3] 加载失败: {e}')
+        return None
+
+
+@app.route('/api/spawn-model/v3/status', methods=['GET'])
+def spawn_v3_status():
+    """V3 模型状态：基础模型可用性 + 已注册 LoRA adapter 列表。"""
+    base_available = os.path.exists(_SPAWN_V3_MODEL_PATH)
+    loras = []
+    if os.path.isdir(_MODELS_DIR):
+        for fname in os.listdir(_MODELS_DIR):
+            if fname.startswith('lora_') and fname.endswith('.pt'):
+                loras.append(fname[len('lora_'):-len('.pt')])
+    return jsonify({
+        'baseAvailable': base_available,
+        'baseModelPath': _SPAWN_V3_MODEL_PATH if base_available else None,
+        'personalizedUsers': sorted(loras),
+    })
+
+
+@app.route('/api/spawn-model/v3/predict', methods=['POST'])
+def spawn_v3_predict():
+    """V3 推理：autoregressive + feasibility + playstyle + 个性化。
+
+    body:
+      board: 8×8 0/1 矩阵（必填）
+      context: 24 维向量（可选，缺失补零）
+      history: 3×3 shape ID 矩阵（可选）
+      playstyle: 'balanced'/'perfect_hunter'/... 或 null
+      targetDifficulty: 0~1（可选）
+      temperature: 采样温度（默认 0.8）
+      topK: top-k 采样（默认 8）
+      enforceFeasibility: bool，硬约束 mask（默认 true）
+      userId: 玩家 ID（用于加载 LoRA；可空）
+    """
+    try:
+        import torch
+        import numpy as np
+        from rl_pytorch.spawn_model.dataset import SHAPE_VOCAB, CONTEXT_DIM
+        from rl_pytorch.spawn_model.feasibility import build_feasibility_mask
+        from rl_pytorch.shapes_data import get_all_shapes
+
+        data = request.get_json() or {}
+        user_id = (data.get('userId') or '').strip() or None
+
+        model = _load_spawn_v3_model(user_id)
+        if model is None:
+            return jsonify({'success': False, 'error': 'V3 模型未训练'}), 503
+
+        board_raw = data.get('board') or []
+        ctx_raw = data.get('context') or []
+        hist_raw = data.get('history') or []
+        playstyle = data.get('playstyle')
+        target_diff = data.get('targetDifficulty')
+        temperature = float(data.get('temperature', 0.8))
+        top_k = int(data.get('topK', 8))
+        enforce = bool(data.get('enforceFeasibility', True))
+
+        board = np.zeros((8, 8), dtype=np.float32)
+        for y in range(min(8, len(board_raw))):
+            row = board_raw[y] if y < len(board_raw) else []
+            for x in range(min(8, len(row))):
+                if row[x] is not None and row[x] != 0:
+                    board[y][x] = 1.0
+
+        ctx = np.zeros(CONTEXT_DIM, dtype=np.float32)
+        for i in range(min(CONTEXT_DIM, len(ctx_raw))):
+            ctx[i] = float(ctx_raw[i] or 0)
+
+        hist = np.zeros((3, 3), dtype=np.int64)
+        for i in range(min(3, len(hist_raw))):
+            row = hist_raw[i] if i < len(hist_raw) else []
+            for j in range(min(3, len(row))):
+                hist[i][j] = int(row[j] or 0)
+
+        feas_mask = None
+        if enforce:
+            shape_map = {s['id']: s['data'] for s in get_all_shapes()}
+            feas_mask = build_feasibility_mask(board, SHAPE_VOCAB, shape_map)
+            if float(feas_mask.sum()) < 3.0:
+                return jsonify({
+                    'success': False,
+                    'error': '当前盘面可放形状不足 3 种',
+                    'feasibleCount': int(feas_mask.sum()),
+                }), 422
+
+        board_t = torch.from_numpy(board).unsqueeze(0)
+        ctx_t = torch.from_numpy(ctx).unsqueeze(0)
+        hist_t = torch.from_numpy(hist).unsqueeze(0)
+
+        td = float(target_diff) if target_diff is not None else None
+        triplet = model.sample(
+            board_t, ctx_t, hist_t,
+            target_difficulty=td,
+            playstyle=playstyle,
+            feasibility_mask=feas_mask,
+            temperature=temperature,
+            top_k=top_k,
+        )
+
+        shape_ids = [
+            SHAPE_VOCAB[idx] if 0 <= idx < len(SHAPE_VOCAB) else SHAPE_VOCAB[0]
+            for idx in triplet
+        ]
+        return jsonify({
+            'success': True,
+            'shapes': shape_ids,
+            'indices': triplet,
+            'modelVersion': 'v3',
+            'personalized': bool(user_id and user_id in _spawn_v3_lora_cache),
+            'feasibleCount': int(feas_mask.sum()) if feas_mask is not None else None,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/spawn-model/v3/train', methods=['POST'])
+def spawn_v3_train():
+    """启动 V3 训练（与 V2 train 共享多任务损失，外加 feasibility / playstyle）。"""
+    import subprocess
+    global _spawn_train_proc
+
+    if _spawn_train_proc is not None and _spawn_train_proc.poll() is None:
+        return jsonify({'success': False, 'error': '已有训练进程在运行'}), 409
+
+    data = request.get_json() or {}
+    cmd = [
+        sys.executable, '-m', 'rl_pytorch.spawn_model.train_v3',
+        '--db', DATABASE,
+        '--epochs', str(int(data.get('epochs', 50))),
+        '--min-score', str(int(data.get('minScore', 0))),
+        '--max-sessions', str(int(data.get('maxSessions', 500))),
+    ]
+    if 'wFeas' in data:
+        cmd += ['--w-feas', str(float(data['wFeas']))]
+    if 'wSi' in data:
+        cmd += ['--w-si', str(float(data['wSi']))]
+    if 'wSt' in data:
+        cmd += ['--w-st', str(float(data['wSt']))]
+
+    os.makedirs(_MODELS_DIR, exist_ok=True)
+    with open(_SPAWN_STATUS_PATH, 'w') as f:
+        json.dump({'phase': 'starting', 'progress': 0, 'message': '启动 V3 训练…'}, f)
+    _spawn_train_proc = subprocess.Popen(
+        cmd, cwd=os.path.dirname(os.path.abspath(__file__)),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    return jsonify({'success': True, 'pid': _spawn_train_proc.pid, 'modelVersion': 'v3'})
+
+
+@app.route('/api/spawn-model/v3/personalize', methods=['POST'])
+def spawn_v3_personalize():
+    """启动 LoRA 个性化微调进程。需 V3 基础模型已训练完成。
+
+    body: { userId, epochs?, maxSessions?, lr?, loraR?, loraAlpha? }
+    """
+    import subprocess
+    global _spawn_train_proc
+
+    if not os.path.exists(_SPAWN_V3_MODEL_PATH):
+        return jsonify({'success': False, 'error': 'V3 基础模型未训练'}), 412
+
+    if _spawn_train_proc is not None and _spawn_train_proc.poll() is None:
+        return jsonify({'success': False, 'error': '已有训练进程在运行'}), 409
+
+    data = request.get_json() or {}
+    user_id = (data.get('userId') or '').strip()
+    if not user_id:
+        return jsonify({'success': False, 'error': '缺少 userId'}), 400
+
+    cmd = [
+        sys.executable, '-m', 'rl_pytorch.spawn_model.personalize',
+        '--user-id', user_id,
+        '--db', DATABASE,
+        '--base-ckpt', _SPAWN_V3_MODEL_PATH,
+        '--epochs', str(int(data.get('epochs', 10))),
+        '--max-sessions', str(int(data.get('maxSessions', 200))),
+        '--lr', str(float(data.get('lr', 1e-3))),
+        '--lora-r', str(int(data.get('loraR', 4))),
+        '--lora-alpha', str(float(data.get('loraAlpha', 8.0))),
+    ]
+
+    os.makedirs(_MODELS_DIR, exist_ok=True)
+    with open(_SPAWN_STATUS_PATH, 'w') as f:
+        json.dump({'phase': 'starting', 'progress': 0,
+                   'message': f'启动 {user_id} 的 LoRA 微调…'}, f)
+    _spawn_train_proc = subprocess.Popen(
+        cmd, cwd=os.path.dirname(os.path.abspath(__file__)),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    return jsonify({'success': True, 'pid': _spawn_train_proc.pid, 'userId': user_id})
+
+
+@app.route('/api/spawn-model/v3/propose-shapes', methods=['POST'])
+def spawn_v3_propose_shapes():
+    """PCGRL 雏形：程序化生成新形状候选（不替换主形状池，仅作为研究/编辑器入口）。
+
+    body: { n?, nCellsDist?, seed? }
+    """
+    try:
+        from rl_pytorch.spawn_model.shape_proposer import (
+            propose_unique_batch, shape_pool_signatures,
+        )
+        from rl_pytorch.shapes_data import get_all_shapes
+
+        data = request.get_json() or {}
+        n = int(data.get('n', 8))
+        seed = data.get('seed')
+        seed = int(seed) if seed is not None else None
+        dist_in = data.get('nCellsDist') or {3: 0.2, 4: 0.5, 5: 0.3}
+        dist = {int(k): float(v) for k, v in dist_in.items()}
+
+        existing = shape_pool_signatures(get_all_shapes())
+        batch = propose_unique_batch(
+            n=n, n_cells_dist=dist, existing_signatures=existing, seed=seed,
+        )
+        return jsonify({'success': True, 'count': len(batch), 'shapes': batch})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+_spawn_v3_lora_cache.clear()  # 防止热重载时残留
+
+
 init_db()
 
 
@@ -1849,7 +2142,8 @@ _DOC_CATEGORIES = [
               'CLEAR_SCORING.md']},
     # 6. 出块算法
     {'name': '出块算法',
-     'docs': ['SPAWN_ALGORITHM.md', 'ADAPTIVE_SPAWN.md', 'SPAWN_BLOCK_MODELING.md']},
+     'docs': ['SPAWN_ALGORITHM.md', 'ADAPTIVE_SPAWN.md', 'SPAWN_BLOCK_MODELING.md',
+              'SPAWN_SOLUTION_DIFFICULTY.md']},
     # 7. 强化学习
     {'name': '强化学习',
      'docs': ['RL_AND_GAMEPLAY.md', 'RL_ANALYSIS.md',

@@ -135,7 +135,15 @@ const SPAWN_TOOLTIP = {
     holes: '盘面空洞数：填充列下方的空格，空洞越多越难消行。',
     flatness: '表面平整度（0~1）：列高度方差越小越平整，1=完全平整。',
     nearFull:
-        '近满行/列数：距离整行或整列填满仅差 1～2 格的条数，越多表示越容易通过少量放置触发多消，是 Layer1 多消潜力的重要信号。'
+        '近满行/列数：距离整行或整列填满仅差 1～2 格的条数，越多表示越容易通过少量放置触发多消，是 Layer1 多消潜力的重要信号。',
+    solutionCount:
+        '解法数量（v9）：当前盘面下，三连块所有 6 种放置顺序中能完整放下的「不同放置位置组合」总数。带 + 表示已截断到 leafCap，实际更多。数字越大→局面越宽松；越小→玩家需要精算。仅在 fill ≥ activationFill 时评估。',
+    validPerms:
+        '合法排列数（v9）：三连块在 6 种放置顺序中至少存在 1 个完整放置方案的顺序数（0–6）。1 表示只有唯一一条解链；6 表示任意顺序都能下完——解链越多越宽松。',
+    firstMoveFreedom:
+        '首手自由度（v9）：三块各自单独放置时合法位置数的最小值（瓶颈块）。数值越小，玩家选错位置后越容易卡死。',
+    targetSolutionRange:
+        '解法区间（v9）：根据综合 stress 在 game_rules.solutionDifficulty.ranges 中选择的目标解空间区间。三连块通过 sequentiallySolvable 后，若解法数量超出区间则在前 60% attempt 内重抽。'
 };
 
 function _attrTitle(s) {
@@ -240,6 +248,15 @@ function _hintsExplain(h) {
     }
     if (h.scoreMilestone) {
         out.push('🎉 里程碑达成！本轮出块特别友好。');
+    }
+    const tsr = h.targetSolutionRange;
+    if (tsr && (tsr.min != null || tsr.max != null)) {
+        const label = tsr.label ? `「${tsr.label}」` : '';
+        if (tsr.max != null) {
+            out.push(`解法上限${label}：解空间叶子数 ≤${tsr.max}，限制可行序列数量以提升精算挑战`);
+        } else if (tsr.min != null && tsr.min > 1) {
+            out.push(`解法下限${label}：候选三块至少要有 ${tsr.min} 种放置顺序可完整下完，避免唯一解卡顿`);
+        }
     }
     if (out.length === 0) {
         out.push('本轮无额外 spawnHints（默认随机权重内抽样）。');
@@ -578,6 +595,24 @@ function _render(game) {
             if (l1.holes > 0) diagPills.push(_spawnPill(`空洞 ${l1.holes}`, SPAWN_TOOLTIP.holes));
             diagPills.push(_spawnPill(`平整 ${l1.flatness.toFixed(2)}`, SPAWN_TOOLTIP.flatness));
             if (l1.nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${l1.nearFullLines}`, SPAWN_TOOLTIP.nearFull));
+            // v9: 解法数量 Pills（仅在 fill ≥ activationFill 时有数据）
+            const sm = l1.solutionMetrics;
+            if (sm) {
+                const cntLabel = sm.capped ? `${sm.solutionCount}+` : `${sm.solutionCount}`;
+                const truncLabel = sm.truncated ? ' · 截断' : '';
+                diagPills.push(_spawnPill(`解法 ${cntLabel}${truncLabel}`, SPAWN_TOOLTIP.solutionCount));
+                diagPills.push(_spawnPill(`合法序 ${sm.validPerms}/6`, SPAWN_TOOLTIP.validPerms));
+                if (Number.isFinite(sm.firstMoveFreedom)) {
+                    diagPills.push(_spawnPill(`首手 ${sm.firstMoveFreedom}`, SPAWN_TOOLTIP.firstMoveFreedom));
+                }
+            }
+            const tsr = l1.targetSolutionRange;
+            if (tsr && (tsr.min != null || tsr.max != null)) {
+                const minStr = tsr.min != null ? tsr.min : '—';
+                const maxStr = tsr.max != null ? tsr.max : '∞';
+                const label = tsr.label ? `${tsr.label} ` : '';
+                diagPills.push(_spawnPill(`区间 ${label}[${minStr}, ${maxStr}]`, SPAWN_TOOLTIP.targetSolutionRange));
+            }
         }
 
         const fallbackRow = _spawnModeFallbackRowHtml(ins);
