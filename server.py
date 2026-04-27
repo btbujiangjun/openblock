@@ -1837,11 +1837,20 @@ _DOC_CATEGORIES = [
      'docs': ['DIFFICULTY_MODES.md']},
     # 4. 玩家系统
     {'name': '玩家系统',
-     'docs': ['PLAYER_ABILITY_EVALUATION.md', 'PANEL_PARAMETERS.md', 'REALTIME_STRATEGY.md']},
-    # 5. 出块算法
+     'docs': ['PLAYER_ABILITY_EVALUATION.md', 'PANEL_PARAMETERS.md',
+              'REALTIME_STRATEGY.md', 'PLAYSTYLE_DETECTION.md']},
+    # 5. 算法与模型（统一手册：跨子系统的算法工程师视角）
+    {'name': '算法与模型',
+     'docs': ['ALGORITHMS_HANDBOOK.md',
+              'ALGORITHMS_RL.md',
+              'ALGORITHMS_PLAYER_MODEL.md',
+              'ALGORITHMS_MONETIZATION.md',
+              'ALGORITHMS_SPAWN.md',
+              'CLEAR_SCORING.md']},
+    # 6. 出块算法
     {'name': '出块算法',
      'docs': ['SPAWN_ALGORITHM.md', 'ADAPTIVE_SPAWN.md', 'SPAWN_BLOCK_MODELING.md']},
-    # 6. 强化学习
+    # 7. 强化学习
     {'name': '强化学习',
      'docs': ['RL_AND_GAMEPLAY.md', 'RL_ANALYSIS.md',
               'RL_ALPHAZERO_OPTIMIZATION.md', 'RL_BROWSER_OPTIMIZATION.md',

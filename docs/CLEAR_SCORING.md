@@ -1,4 +1,4 @@
-# 消行计费规则 · Clear Scoring
+# 消行计分规则 · Clear Scoring
 
 > 最后更新：2026-04-26  
 > 以代码为准：`web/src/game.js` 的 `computeClearScore` 与 `miniprogram/core/bonusScoring.js` 二者对齐。
@@ -104,7 +104,7 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 6. 商业化策略「存储在哪里」（与消行计费分开）
+## 6. 商业化策略「存储在哪里」（与消行计分分开）
 
 商业化策略分三层，不要与「消行得分」混淆：
 

@@ -1,8 +1,9 @@
 # OpenBlock 文档导航
 
-> 最后更新：2026-04-26  
+> 最后更新：2026-04-27  
 > 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）  
-> 根目录文档：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+> 根目录文档：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)  
+> **算法工程师入口**：[算法与模型手册](./ALGORITHMS_HANDBOOK.md)（统一索引 + 5 份分册）
 
 ---
 
@@ -39,7 +40,7 @@
 | 文档 | 说明 | 状态 |
 |------|------|------|
 | [难度模式：设计与实现](./DIFFICULTY_MODES.md) | Easy / Normal / Hard 全链路、计分、填充率、自适应 difficultyBias | ✅ 当前 |
-| [消行计费规则](./CLEAR_SCORING.md) | 多消基础分、同 icon/同色 bonus、整十分约束、与形状库最大消除数；商业化策略存储索引 | ✅ 当前 |
+| [消行计分规则](./CLEAR_SCORING.md) | 多消基础分、同 icon/同色 bonus、整十分约束、与形状库最大消除数；商业化策略存储索引 | ✅ 当前 |
 
 ---
 
@@ -50,10 +51,26 @@
 | [玩家能力评估系统](./PLAYER_ABILITY_EVALUATION.md) | smoothSkill / historicalSkill / skillLevel 公式；会话历史环；置信度门控 | ✅ 当前 |
 | [玩家面板参数手册](./PANEL_PARAMETERS.md) | 面板五区结构；各指标数学定义、tooltip、异常解读；参数关联图谱 | ✅ 当前 |
 | [实时策略系统：信号流与出块链路](./REALTIME_STRATEGY.md) | PlayerProfile → 10 信号 → AdaptiveSpawn → StrategyAdvisor → UI 全链路 | ✅ 当前 |
+| [玩法风格检测](./PLAYSTYLE_DETECTION.md) | 5 风格分群（aggressive/balanced/defensive/...）；窗口特征；轻推 shapeWeights | ✅ 当前 |
 
 ---
 
-### 5. 出块算法
+### 5. 算法与模型手册（算法工程师视角）
+
+> **统一手册**：跨子系统的算法侧深化文档，**与各子系统现有文档互补**——这里给公式、结构、训练/推理流程；子系统文档给工程实现。
+
+| 文档 | 说明 | 状态 |
+|------|------|------|
+| [算法与模型手册（总索引）](./ALGORITHMS_HANDBOOK.md) | **总入口**：五子系统全景图 + 阅读路径 + 一页纸速查 + 核心数学符号约定 + 算法变更检查清单 | ✅ 当前 |
+| [RL 训练与推理：算法工程师手册](./ALGORITHMS_RL.md) | PPO + GAE + 直接监督；ConvSharedPolicyValueNet 结构；Reward 塑形与 Outcome 价值混合；Dirichlet 探索；课程学习；MCTS / Beam 搜索；推理 API；20 节完整公式 + 超参表 | ✅ 当前 |
+| [玩家画像与能力评估算法](./ALGORITHMS_PLAYER_MODEL.md) | 5 维 raw 加权 + 双速 EMA；历史融合（指数加权 + 后端基线）；F(t) 心流与三态规则树；近失/挫败/动量公式；冷启动与置信度；完整 13 节公式集 | ✅ 当前 |
+| [商业化推断：算法工程师手册](./ALGORITHMS_MONETIZATION.md) | 鲸鱼分线性模型；L1/L2/L3 三层引擎；规则四步法（filter/render/sort/whyLines）；LTV 预测器（5 分群 ARPU × 渠道 × 活跃度 × 技能）；CPI 出价推荐 | ✅ 当前 |
+| [出块算法：算法工程师手册](./ALGORITHMS_SPAWN.md) | 双轨架构（规则 + SpawnTransformerV2）；约束采样形式化；序贯可解性 DFS；10 档 profile 插值；Transformer 网络结构 / 训练损失 / 推理回退；与 RL MCTS 的接口 | ✅ 当前 |
+| [消行计分规则](./CLEAR_SCORING.md) | `baseScore = baseUnit·c²` + bonus 线公式；与 Web/Python 模拟器对齐 | ✅ 当前（属本分类与游戏设计两处） |
+
+---
+
+### 6. 出块算法（工程实现）
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
@@ -63,7 +80,9 @@
 
 ---
 
-### 6. 强化学习
+### 7. 强化学习（实现 / 优化 / 看板）
+
+> 入门请先读 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)（算法工程师视角的统一手册），本分类是**实现层 + 优化分支 + 看板**的细分文档。
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
@@ -78,7 +97,9 @@
 
 ---
 
-### 7. 商业化
+### 8. 商业化（实现 / 运营）
+
+> 算法侧统一手册：[`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md)（鲸鱼分公式 / 规则引擎 / LTV 模型）。本分类是**实现 + 运营 + 归档**的细分文档。
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
@@ -90,7 +111,7 @@
 
 ---
 
-### 8. 平台扩展
+### 9. 平台扩展
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
@@ -118,9 +139,10 @@
 ### 阅读路线推荐
 
 **新来的开发者（想做定制）** → [ARCHITECTURE.md](../ARCHITECTURE.md) → [DEV_GUIDE.md](./DEV_GUIDE.md) → [STRATEGY_GUIDE.md](./STRATEGY_GUIDE.md)  
-**了解整体架构** → PROJECT.md  
-**了解出块逻辑** → SPAWN_ALGORITHM.md → ADAPTIVE_SPAWN.md → SPAWN_BLOCK_MODELING.md  
-**了解玩家感知** → PLAYER_ABILITY_EVALUATION.md → REALTIME_STRATEGY.md → PANEL_PARAMETERS.md  
-**了解 RL 训练** → RL_AND_GAMEPLAY.md → RL_ANALYSIS.md → RL_TRAINING_OPTIMIZATION.md → RL_ALPHAZERO_OPTIMIZATION.md（v7 改进）  
-**了解商业化** → MONETIZATION.md（直接看 v3 即可）  
+**算法工程师（首读）** → [ALGORITHMS_HANDBOOK.md](./ALGORITHMS_HANDBOOK.md) → 按需进入 5 份分册 → 实现层细文档  
+**了解整体架构** → [PROJECT.md](./PROJECT.md)  
+**了解出块算法** → [ALGORITHMS_SPAWN.md](./ALGORITHMS_SPAWN.md) → SPAWN_ALGORITHM.md → ADAPTIVE_SPAWN.md → SPAWN_BLOCK_MODELING.md  
+**了解玩家感知** → [ALGORITHMS_PLAYER_MODEL.md](./ALGORITHMS_PLAYER_MODEL.md) → PLAYER_ABILITY_EVALUATION.md → REALTIME_STRATEGY.md → PANEL_PARAMETERS.md  
+**了解 RL 训练** → [ALGORITHMS_RL.md](./ALGORITHMS_RL.md)（统一手册）→ RL_AND_GAMEPLAY.md → RL_TRAINING_OPTIMIZATION.md → RL_ALPHAZERO_OPTIMIZATION.md（v7 改进）  
+**了解商业化** → [ALGORITHMS_MONETIZATION.md](./ALGORITHMS_MONETIZATION.md)（公式）→ MONETIZATION.md（v3 全景）→ MONETIZATION_TRAINING_PANEL.md（运营面板）  
 **领域背景知识** → [DOMAIN_KNOWLEDGE.md](./DOMAIN_KNOWLEDGE.md)

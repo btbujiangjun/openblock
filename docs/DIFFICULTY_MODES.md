@@ -21,7 +21,7 @@ OpenBlock 提供三档基础难度：**简单（easy）**、**普通（normal）
 
 | 维度 | 是否受难度影响 | 备注 |
 |------|:------------:|------|
-| 消行计分 | ❌ | 三档统一：以 `scoring.singleLine` 为 **baseUnit**，默认 20，按 [消行计费规则](./CLEAR_SCORING.md) 计算；`multiLine` / `combo` 仍保留在 JSON 中兼容旧存档，但 **消行得分与 RL/回放重算均不再使用这两项** |
+| 消行计分 | ❌ | 三档统一：以 `scoring.singleLine` 为 **baseUnit**，默认 20，按 [消行计分规则](./CLEAR_SCORING.md) 计算；`multiLine` / `combo` 仍保留在 JSON 中兼容旧存档，但 **消行得分与 RL/回放重算均不再使用这两项** |
 | 初始棋盘填充率 | ✅ | easy 0% → normal 20% → hard 25% |
 | 出块形状权重 | ✅（修复后） | 通过 `difficultyBias` 偏移自适应 stress 基线 |
 | 棋盘尺寸 | ❌ | 三档均为 8×8 |
@@ -74,7 +74,7 @@ generateDockShapes(grid, layered, spawnContext)
 
 ### 2.6 计分（消行）
 
-对局消行得分由 `web/src/game.js` → `computeClearScore()` 计算，详见 **[消行计费规则](./CLEAR_SCORING.md)**。
+对局消行得分由 `web/src/game.js` → `computeClearScore()` 计算，详见 **[消行计分规则](./CLEAR_SCORING.md)**。
 
 要点：
 

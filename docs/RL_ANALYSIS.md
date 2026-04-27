@@ -18,7 +18,7 @@
 
 ### 1.2 计分：对局消行与 RL 模拟器
 
-**Web / 微信小程序对局**的消行得分由 `computeClearScore()` 统一计算；实现见 `web/src/clearScoring.js`，`web/src/game.js` 再导出，小程序镜像为 `miniprogram/core/bonusScoring.js`。规则见 **[消行计费规则](./CLEAR_SCORING.md)**：
+**Web / 微信小程序对局**的消行得分由 `computeClearScore()` 统一计算；实现见 `web/src/clearScoring.js`，`web/src/game.js` 再导出，小程序镜像为 `miniprogram/core/bonusScoring.js`。规则见 **[消行计分规则](./CLEAR_SCORING.md)**：
 
 - 基础分：`baseScore = baseUnit × c²`，其中 `baseUnit = scoring.singleLine`，默认 20；`c` 为本次消除行列总数。
 - 同 icon / 同色 bonus：`clearScore = baseScore + baseUnit × c × b × 4`；`b` 为 bonus 线条数；若所有消除线均为 bonus，则等价于 `5 × baseScore`。
