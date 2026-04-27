@@ -19,6 +19,7 @@ import { getFlag } from './featureFlags.js';
 import { on } from './MonetizationBus.js';
 import { openMonPanel } from './monPanel.js';
 import { getLTVEstimate, renderLTVCard } from './ltvPredictor.js';
+import { helpAttrs, getHelpText } from './strategy/index.js';
 
 const SECTION_ID = 'insight-commercial';
 
@@ -40,8 +41,12 @@ export function initCommercialInsight(game) {
         section.innerHTML = `
 <summary class="insight-section-title">
   <span>💰 商业化策略</span>
-  <span id="insight-commercial-badge" class="mon-segment-badge"></span>
-  <button type="button" id="mon-panel-open-btn" class="insight-mon-panel-btn" title="模型训练面板">⚙</button>
+  <span id="insight-commercial-badge" class="mon-segment-badge mon-help"
+        title="${_attrText(getHelpText('signal.segment'))}"></span>
+  <button type="button" id="mon-panel-open-btn"
+          class="insight-mon-panel-btn mon-help"
+          title="${_attrText(getHelpText('panel.entry'))}"
+          data-help-key="panel.entry">⚙</button>
 </summary>
 <div id="insight-commercial-body" class="insight-commercial-body">
   <p class="insight-muted">正在分析…</p>
@@ -112,18 +117,22 @@ function _segmentShortLabel(seg) {
 }
 
 function _renderBody(insight) {
-    const { signals, actions, explain, whyLines } = insight;
+    const { signals, actions, whyLines } = insight;
 
-    // ── 信号格 ──
+    // ── 信号格（每格 cursor:help + 详细 tooltip）──
     const signalHtml = signals.map(s => {
-        const tip = s.tooltip ? s.tooltip.replace(/"/g, '&quot;') : s.sub;
-        return `<div class="ci-signal-row" title="${tip}">` +
+        // 优先用规则中心的统一文案；缺失时降级到 _state 自带 tooltip
+        const helpKey = `signal.${s.key}`;
+        const helpText = getHelpText(helpKey) || s.tooltip || s.sub;
+        const tip = _attrText(helpText);
+        return `<div class="ci-signal-row mon-help" title="${tip}" data-help-key="${helpKey}">` +
             `<span class="ci-signal-label">${s.label}</span>` +
             `<span class="ci-signal-value" style="color:${s.color}">${s.value}</span>` +
             `</div>`;
     }).join('');
 
     // ── 策略动作卡片（含 why + effect）──
+    const ruleTip = _attrText(getHelpText('rule.title'));
     const actionHtml = actions.length === 0
         ? '<p class="insight-muted">暂无策略推荐</p>'
         : actions.map(a => {
@@ -131,8 +140,9 @@ function _renderBody(insight) {
             const priorityCls = `ci-action--${a.priority ?? 'medium'}`;
             const whyHtml  = a.why    ? `<span class="ci-action-why">${a.why}</span>`    : '';
             const effHtml  = a.effect ? `<span class="ci-action-effect">${a.effect}</span>` : '';
+            const ruleId = a.ruleId ? ` data-rule-id="${a.ruleId}"` : '';
             return `
-<div class="ci-action-card ${priorityCls}${activeCls}">
+<div class="ci-action-card ${priorityCls}${activeCls} mon-help" title="${ruleTip}"${ruleId}>
   <span class="ci-action-icon">${a.icon}</span>
   <div class="ci-action-body">
     <div class="ci-action-head">
@@ -170,4 +180,9 @@ function _escHtml(s) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
+}
+
+/** 把任意文本转成 HTML 属性可用的字符串（转义双引号 + 删除换行干扰） */
+function _attrText(s) {
+    return String(s ?? '').replace(/"/g, '&quot;');
 }

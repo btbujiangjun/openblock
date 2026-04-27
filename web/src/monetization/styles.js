@@ -6,6 +6,31 @@
 const MON_CSS = `
 /* ===== 商业化组件基础样式 ===== */
 
+/* ── cursor:help 通用类（由 strategy/strategyHelp.js 标记可定制项） ──
+ *   所有带 .mon-help 的元素：
+ *     - 鼠标悬停时光标变 help 形态
+ *     - 浏览器原生 title tooltip 显示详细文案
+ *     - 自带轻量底部虚线下划线，提示「悬停可看说明」
+ *   与 ARIA: 内容已在 title 属性中，无需额外 aria-describedby。
+ */
+.mon-help {
+    cursor: help !important;
+    position: relative;
+    transition: filter .15s ease;
+}
+.mon-help:hover {
+    filter: brightness(1.05);
+}
+/* 仅对内联文本元素显示虚线提示，避免对卡片整体加下划线变难看 */
+.mon-help.ci-signal-label,
+.mon-help.mp-flag-key,
+.mon-help.mp-cfg-field > label,
+.mon-help > label {
+    text-decoration: underline dotted color-mix(in srgb, var(--text-secondary, #6b7c8c) 50%, transparent) 1px;
+    text-underline-offset: 2px;
+}
+/* 行/卡级 help：不加下划线，仅鼠标变 help 即可 */
+
 /* Toast 通知 */
 .mon-toast {
     position: fixed;

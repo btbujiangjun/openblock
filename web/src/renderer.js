@@ -468,10 +468,9 @@ export function ensureGridDisplayResizeSync(canvas) {
 
 function syncGridCanvasCssVar(canvas) {
     if (typeof document === 'undefined') return;
-    // logicalW 存在时用更精确的值（已适配 DPR）；否则回退到原始计算
-    const lw = canvas._logicalW != null ? canvas._logicalW
-        : canvas.width / ((typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
-    document.documentElement.style.setProperty('--grid-canvas-width', `${lw}px`);
+    // 注意：不再向 :root 写 --grid-canvas-width；该变量由 main.css 的 clamp() 自适应决定，
+    // 写 inline style 会用更高优先级覆盖 CSS 的自适应规则，导致盘面被锁死成 8×CELL_SIZE = 304px。
+    // 仅同步实际 CSS 宽度到 --grid-display-px（候选区单格用此值跟随）。
     requestAnimationFrame(() => syncGridDisplayPx(canvas));
 }
 

@@ -83,6 +83,8 @@
 | 文档 | 说明 | 状态 |
 |------|------|------|
 | [商业化策略完整文档（v3）](./MONETIZATION.md) | **唯一事实来源**：混合变现、分群矩阵、个性化引擎、所有模块与 API | ✅ 当前 |
+| [商业化定制化指南](./MONETIZATION_CUSTOMIZATION.md) | **v3 重构后**：分层架构、三种定制粒度、cursor:help 字段速查、规则引擎扩展 | ✅ 当前 |
+| [商业化模型训练面板：设计·原理·策略·内容·工程](./MONETIZATION_TRAINING_PANEL.md) | **5 维全方位**：商业理由 / 鲸鱼分模型 / 规则引擎 / 策略矩阵商业解读 / 调参 PlayBook / 4 Tab 详解 / 扩展指南 | ✅ 当前 |
 | [📦 商业化路径研究（v1 归档）](./MONETIZATION_OPTIMIZATION.md) | 行业调研、竞品表、OPT-01~10 清单（§3 缺口已在 v3 全量实现） | 📦 归档 |
 | [📦 个性化商业化设计（v2 归档）](./MONETIZATION_PERSONALIZATION.md) | 分群公式、策略矩阵、API 设计（内容已并入 v3） | 📦 归档 |
 

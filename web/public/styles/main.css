@@ -1,24 +1,46 @@
 :root {
-    /* 与左右固定侧栏对齐：顶/底各 8px，与 .app-side-left / .rl-dash-panel 一致 */
+    /* 顶/底各 8px，与 .app-side-left / .rl-dash-panel 一致 */
     --game-shell-inset: 8px;
     --game-shell-vfill: calc(100vh - 2 * var(--game-shell-inset));
-    /* 左右侧栏同宽：减窄（最大220px）为盘面让出更多中央空间 */
-    --app-side-rail-width: clamp(120px, calc((100vw - 380px) * 0.28), 220px);
     --app-side-rail-gap: 8px;
-    /* 主列与 fixed 侧栏对齐，避免棋盘被遮挡 */
+
+    /* ========== 核心：单格视觉大小（盘面 & 候选共用，保证上下完全一致） ==========
+       双重约束：
+       · 高度约束：play-stack 总高 = 8×cell(盘面) + 5×cell(候选 canvas) + 60px(padding+gap)
+                  + 145px(顶部 header & 工具栏) ≤ 100dvh
+                  → cell ≤ (100dvh - 205px) / 13
+       · 宽度约束：play-inner-span = 15×cell + 32px(dock 内边距) ≤ 100vw - 2×120px(侧栏下限) - 60px
+                  → cell ≤ (100vw - 332px) / 15
+       · clamp 22-80px 防极端 */
+    --cell-px: clamp(
+        22px,
+        min(
+            calc((100dvh - 205px) / 13),
+            calc((100vw - 332px) / 15)
+        ),
+        80px
+    );
+
+    /* 棋盘画布宽度 = 8 × cell（与盘面格视觉精确对应） */
+    --grid-canvas-width: calc(8 * var(--cell-px));
+    /* 盘面实际 CSS 宽度（renderer 同步实际 layout 宽，候选画布跟随；不同步时与 grid-canvas-width 一致） */
+    --grid-display-px: var(--grid-canvas-width);
+    /* 兼容旧引用：dock-cell-size 即为单格视觉大小（候选 canvas CSS 宽 = 5×dock-cell-size） */
+    --dock-cell-size: var(--cell-px);
+    /* 候选区单行总宽：3槽 × 5cell + 32px(内边距) */
+    --dock-row-width: calc(15 * var(--cell-px) + 32px);
+    /* 游戏卡内容区宽度（候选区比盘面更宽，play-stack 取候选行宽度） */
+    --play-inner-span: var(--dock-row-width);
+
+    /* 侧栏宽度：左右剩余空间均分，clamp 防极端
+       (100vw - play-stack 主区 - 边距) / 2，主区 = play-inner-span + 28px(play-stack内边距+缓冲) */
+    --app-side-rail-width: clamp(
+        120px,
+        calc((100vw - var(--play-inner-span) - 60px) / 2),
+        360px
+    );
+    /* 主列内边距：与 fixed 侧栏对齐 */
     --app-center-hpad: calc(var(--game-shell-inset) + var(--app-side-rail-width) + var(--app-side-rail-gap));
-    /* 候选区单格：45px × 4格/槽 = 180px/槽，与棋盘格(70px)比约 51%，兼顾大小比例与不溢出 */
-    --dock-cell-size: 45px;
-    /* 每槽 CSS 显示格数（画布仍绘制完整 5 格，约 76% 缩放后全部可见） */
-    --dock-max-shape-rows: 4;
-    /* 主棋盘画布宽度：设为 560px 使盘面充实，棋盘格子 = 560/8 = 70px */
-    --grid-canvas-width: 560px;
-    /* 盘面实际 CSS 宽度；由 renderer syncGridDisplayPx 写入 */
-    --grid-display-px: 560px;
-    /* 三槽候选区单行总宽：3 × 4 × 45 + 20 = 560px，与棋盘等宽 */
-    --dock-row-width: calc(3 * var(--dock-max-shape-rows) * var(--dock-cell-size) + 20px);
-    /* 游戏卡内容区宽度：棋盘 560px = 候选区 560px，两者等宽 */
-    --play-inner-span: max(var(--grid-canvas-width), var(--dock-row-width));
     --bg-color: #E8EEF1;
     --grid-bg: #D4DDE4;
     --cell-empty: #C5D3DE;
@@ -823,7 +845,7 @@ body.block-drag-active #app {
 }
 
 .stat-value {
-    font-size: 17px;
+    font-size: 22px;
     font-weight: 900;
     color: var(--accent-dark);
     font-variant-numeric: tabular-nums;
@@ -1028,9 +1050,9 @@ body.game-rl-preview .block-dock {
     flex-shrink: 0;
     width: 100%;
     box-sizing: border-box;
-    /* 水平内边距缩小，确保 3 槽 × 112px = 336px 在 364px 可用宽内不溢出 */
     padding: 12px 8px max(12px, env(safe-area-inset-bottom, 0px));
-    min-height: calc(var(--dock-max-shape-rows) * var(--dock-cell-size) + 24px);
+    /* dock 高度 = 候选 canvas（5 cell 高）+ 上下 padding */
+    min-height: calc(5 * var(--cell-px) + 24px);
     background: color-mix(in srgb, var(--cell-empty, var(--grid-bg)) 14%, var(--bg-color, #e8eef1));
     border-radius: 0;
     box-shadow: none;
@@ -1048,11 +1070,12 @@ body.game-rl-preview .block-dock {
     transition: opacity 0.15s ease;
 }
 
-/* 候选 canvas 内部按 CELL_SIZE=38px 绘制 5×5 格，CSS 显示宽 = 4 × --dock-cell-size = 112px。
-   缩放比 112/190 ≈ 59%，5 格全部可见只是更紧凑，块形完整不裁剪。 */
+/* 候选 canvas 内部按 CELL_SIZE=38px 绘制 5×5 格 = 190px 逻辑尺寸；
+   CSS 宽度设为 5 × --cell-px，使 canvas 内每格视觉精确等于 --cell-px = 盘面格大小。
+   保证候选块与盘面块 1:1 比例，绝不变形。 */
 .block-dock canvas {
     display: block;
-    width: calc(var(--dock-max-shape-rows) * var(--dock-cell-size));
+    width: calc(5 * var(--cell-px));
     max-width: 100%;
     height: auto;
     aspect-ratio: 1 / 1;
@@ -3645,7 +3668,7 @@ body.game-shell-hidden .app-side-left {
         --wm-cell-h: 7.8px;
     }
     .stat-box { padding: 4px 8px; min-width: 44px; }
-    .stat-value { font-size: 14px; }
+    .stat-value { font-size: 17px; }
     .play-stack { padding: 10px 8px 12px; gap: 10px; border-radius: 12px; }
     .score-theme-row { gap: 6px; flex-wrap: wrap; justify-content: center; }
     .header-skin .skin-picker select { min-width: 6rem; max-width: min(40vw, 9rem); }
@@ -3765,6 +3788,11 @@ body.game-shell-hidden .app-side-left {
     50%      { opacity: .5; }
 }
 .stat-box--best { position: relative; }
+
+/* 「最佳」数字恢复原始字号，仅「得分」享受放大后的 22px */
+.stat-box--best .stat-value {
+    font-size: 17px;
+}
 
 /* ── 关卡失败多次提示 ── */
 .level-fail-hint {

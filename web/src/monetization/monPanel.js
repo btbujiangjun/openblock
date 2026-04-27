@@ -22,6 +22,13 @@
 import { getApiBaseUrl } from '../config.js';
 import { getAllFlags, setFlag, FLAG_DEFAULTS } from './featureFlags.js';
 import { fetchPersonaFromServer, getCommercialInsight } from './personalization.js';
+import { getHelpText, helpAttrs } from './strategy/index.js';
+
+/** 把帮助文本转成 HTML 属性可用字符串 */
+function _hAttr(key) {
+    const t = getHelpText(key);
+    return t ? `class="mon-help" title="${t.replace(/"/g, '&quot;')}" data-help-key="${key}"` : '';
+}
 
 const PANEL_ID  = 'mon-training-panel';
 const BTN_ID    = 'mon-panel-toggle-btn';
@@ -328,15 +335,19 @@ function _createPanel() {
     panel.id = PANEL_ID;
     panel.innerHTML = `
 <div class="mp-box">
-  <h2>
+  <h2 ${_hAttr('panel.entry')}>
     <span>📊 商业化模型训练面板</span>
     <button class="mp-close" id="mp-close-btn" title="关闭">×</button>
   </h2>
   <div class="mp-tabs">
-    <button class="mp-tab mp-tab-active" data-tab="overview">总览</button>
-    <button class="mp-tab" data-tab="persona">用户画像</button>
-    <button class="mp-tab" data-tab="config">模型配置</button>
-    <button class="mp-tab" data-tab="flags">功能开关</button>
+    <button class="mp-tab mp-tab-active" data-tab="overview"
+            title="全局聚合指标：DAU、分群分布、行为热图">总览</button>
+    <button class="mp-tab" data-tab="persona"
+            title="当前用户的分群画像、信号格、推荐策略卡">用户画像</button>
+    <button class="mp-tab" data-tab="config"
+            title="分群权重、广告/IAP 阈值的实时调整">模型配置</button>
+    <button class="mp-tab" data-tab="flags"
+            title="所有 Feature Flag 的开关，实时生效">功能开关</button>
   </div>
   <div id="mp-tab-overview" class="mp-tab-content mp-tab-visible">
     <p class="mp-loading">加载中…</p>
@@ -396,28 +407,32 @@ async function _renderOverview(panel) {
 
     el.innerHTML = `
 <div class="mp-kpis">
-  <div class="mp-kpi"><div class="mp-kpi-val">${data.total_users ?? 0}</div><div class="mp-kpi-label">注册用户</div></div>
-  <div class="mp-kpi"><div class="mp-kpi-val">${data.dau_7d ?? 0}</div><div class="mp-kpi-label">7 日活跃</div></div>
-  <div class="mp-kpi"><div class="mp-kpi-val">${data.games_7d ?? 0}</div><div class="mp-kpi-label">7 日局数</div></div>
-  <div class="mp-kpi"><div class="mp-kpi-val">${Math.round(data.avg_score_30d ?? 0)}</div><div class="mp-kpi-label">30 日均分</div></div>
-  <div class="mp-kpi"><div class="mp-kpi-val">${Math.round((data.avg_session_sec_30d ?? 0) / 60)}min</div><div class="mp-kpi-label">30 日均时长</div></div>
-  <div class="mp-kpi"><div class="mp-kpi-val">${data.lb_participants_today ?? 0}</div><div class="mp-kpi-label">今日榜参与</div></div>
+  <div class="mp-kpi" ${_hAttr('kpi.total_users')}><div class="mp-kpi-val">${data.total_users ?? 0}</div><div class="mp-kpi-label">注册用户</div></div>
+  <div class="mp-kpi" ${_hAttr('kpi.dau_7d')}><div class="mp-kpi-val">${data.dau_7d ?? 0}</div><div class="mp-kpi-label">7 日活跃</div></div>
+  <div class="mp-kpi" ${_hAttr('kpi.games_7d')}><div class="mp-kpi-val">${data.games_7d ?? 0}</div><div class="mp-kpi-label">7 日局数</div></div>
+  <div class="mp-kpi" ${_hAttr('kpi.avg_score_30d')}><div class="mp-kpi-val">${Math.round(data.avg_score_30d ?? 0)}</div><div class="mp-kpi-label">30 日均分</div></div>
+  <div class="mp-kpi" ${_hAttr('kpi.avg_session_30d')}><div class="mp-kpi-val">${Math.round((data.avg_session_sec_30d ?? 0) / 60)}min</div><div class="mp-kpi-label">30 日均时长</div></div>
+  <div class="mp-kpi" ${_hAttr('kpi.lb_participants')}><div class="mp-kpi-val">${data.lb_participants_today ?? 0}</div><div class="mp-kpi-label">今日榜参与</div></div>
 </div>
 
 <h3>用户分群分布</h3>
 <div class="mp-seg-bar">
-  <div class="mp-seg-whale"   style="width:${pct(seg.whale)}%"   title="Whale ${pct(seg.whale)}%"></div>
-  <div class="mp-seg-dolphin" style="width:${pct(seg.dolphin)}%" title="Dolphin ${pct(seg.dolphin)}%"></div>
-  <div class="mp-seg-minnow"  style="width:${pct(seg.minnow)}%"  title="Minnow ${pct(seg.minnow)}%"></div>
+  <div class="mp-seg-whale mon-help"   style="width:${pct(seg.whale)}%"   title="Whale ${pct(seg.whale)}% — ${_attrEsc(getHelpText('segment.whale'))}"></div>
+  <div class="mp-seg-dolphin mon-help" style="width:${pct(seg.dolphin)}%" title="Dolphin ${pct(seg.dolphin)}% — ${_attrEsc(getHelpText('segment.dolphin'))}"></div>
+  <div class="mp-seg-minnow mon-help"  style="width:${pct(seg.minnow)}%"  title="Minnow ${pct(seg.minnow)}% — ${_attrEsc(getHelpText('segment.minnow'))}"></div>
 </div>
 <div class="mp-seg-legend">
-  <span class="sl-whale">🐋 Whale ${seg.whale ?? 0} 人 (${pct(seg.whale)}%)</span>
-  <span class="sl-dolphin">🐬 Dolphin ${seg.dolphin ?? 0} 人 (${pct(seg.dolphin)}%)</span>
-  <span class="sl-minnow">🐟 Minnow ${seg.minnow ?? 0} 人 (${pct(seg.minnow)}%)</span>
+  <span class="sl-whale mon-help" title="${_attrEsc(getHelpText('segment.whale'))}">🐋 Whale ${seg.whale ?? 0} 人 (${pct(seg.whale)}%)</span>
+  <span class="sl-dolphin mon-help" title="${_attrEsc(getHelpText('segment.dolphin'))}">🐬 Dolphin ${seg.dolphin ?? 0} 人 (${pct(seg.dolphin)}%)</span>
+  <span class="sl-minnow mon-help" title="${_attrEsc(getHelpText('segment.minnow'))}">🐟 Minnow ${seg.minnow ?? 0} 人 (${pct(seg.minnow)}%)</span>
 </div>
 
 <h3>行为事件分布（近 7 日）</h3>
 ${behRows || '<p class="mp-loading">暂无行为数据</p>'}`;
+}
+
+function _attrEsc(s) {
+    return String(s ?? '').replace(/"/g, '&quot;');
 }
 
 async function _renderPersona(panel, game) {
@@ -484,10 +499,14 @@ async function _renderConfig(panel) {
     const ad = cfg.adTrigger ?? {};
     const iapCfg = cfg.iapTrigger ?? {};
 
-    function rangeField(id, label, val, min, max, step) {
+    /**
+     * 渲染一个滑块字段；helpKey 自动注入 cursor:help + 详细 tooltip。
+     */
+    function rangeField(id, label, val, min, max, step, helpKey) {
         const v = Number(val ?? 0);
+        const helpAttr = helpKey ? _hAttr(helpKey) : '';
         return `
-<div class="mp-cfg-field">
+<div class="mp-cfg-field" ${helpAttr}>
   <label>${label}</label>
   <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${v}"
          oninput="this.nextElementSibling.textContent=this.value">
@@ -498,19 +517,19 @@ async function _renderConfig(panel) {
     el.innerHTML = `
 <h3>分群权重（总和应 ≤ 1）</h3>
 <div class="mp-cfg-form">
-  ${rangeField('cfg-w0','最高分权重', sw.best_score_norm, 0, 1, 0.05)}
-  ${rangeField('cfg-w1','总局数权重', sw.total_games_norm, 0, 1, 0.05)}
-  ${rangeField('cfg-w2','时长权重',   sw.session_time_norm, 0, 1, 0.05)}
+  ${rangeField('cfg-w0','最高分权重 w0', sw.best_score_norm,   0, 1, 0.05, 'weight.best_score_norm')}
+  ${rangeField('cfg-w1','总局数权重 w1', sw.total_games_norm,  0, 1, 0.05, 'weight.total_games_norm')}
+  ${rangeField('cfg-w2','时长权重 w2',   sw.session_time_norm, 0, 1, 0.05, 'weight.session_time_norm')}
 </div>
 <h3>广告触发配置</h3>
 <div class="mp-cfg-form">
-  ${rangeField('cfg-frust','挫败感阈值（次）', ad.frustrationThreshold, 1, 15, 1)}
-  ${rangeField('cfg-maxrw', '每局激励上限',    ad.maxRewardedPerGame,    1, 10, 1)}
+  ${rangeField('cfg-frust','挫败感阈值（次）', ad.frustrationThreshold, 1, 15, 1, 'threshold.frustrationRescue')}
+  ${rangeField('cfg-maxrw', '每局激励上限',    ad.maxRewardedPerGame,    1, 10, 1, 'threshold.maxRewardedPerGame')}
 </div>
 <h3>IAP 触发配置</h3>
 <div class="mp-cfg-form">
-  ${rangeField('cfg-iap-hours','新手包展示时效（小时）', iapCfg.showStarterPackHours, 1, 72, 1)}
-  ${rangeField('cfg-iap-games','周卡触发局数',           iapCfg.showWeeklyPassAfterGames, 1, 30, 1)}
+  ${rangeField('cfg-iap-hours','新手包展示时效（小时）', iapCfg.showStarterPackHours, 1, 72, 1, 'threshold.showStarterPackHours')}
+  ${rangeField('cfg-iap-games','周卡触发局数',           iapCfg.showWeeklyPassAfterGames, 1, 30, 1, 'threshold.showWeeklyPassAfterGames')}
 </div>
 <button class="mp-cfg-save" id="mp-cfg-save-btn">保存配置</button>
 <span id="mp-cfg-save-status" style="margin-left:8px;font-size:8.5px;color:var(--accent-dark,#4472C4)"></span>`;
@@ -567,8 +586,13 @@ function _renderFlags(panel) {
 
     const rows = Object.entries(flags).map(([key, val]) => {
         const label = flagLabels[key] ?? key;
+        const helpAttr = _hAttr(`flag.${key}`);
+        // helpAttr 已包含 class/title/data-help-key，需补充宿主行布局类
+        const rowAttr = helpAttr
+            ? helpAttr.replace('class="mon-help"', 'class="mp-flag-row mon-help"')
+            : 'class="mp-flag-row"';
         return `
-<div class="mp-flag-row">
+<div ${rowAttr}>
   <span class="mp-flag-key">${label}</span>
   <label class="mp-flag-toggle" title="${key}">
     <input type="checkbox" data-flag="${key}" ${val ? 'checked' : ''}>

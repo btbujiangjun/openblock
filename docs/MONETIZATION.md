@@ -846,6 +846,8 @@ resetFlags();                    // 清除所有 localStorage 覆盖，恢复默
 
 | 文档 | 内容 |
 |------|------|
+| [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) | **v3 重构指南**：分层架构 + 三种定制粒度 + cursor:help 字段速查 |
+| [`MONETIZATION_TRAINING_PANEL.md`](./MONETIZATION_TRAINING_PANEL.md) | **训练面板 5 维全方位**：设计哲学 / 鲸鱼分原理 / 策略矩阵商业解读 / 调参 PlayBook / A/B 实验 / 4 Tab 详解 / 扩展 |
 | [`MONETIZATION_OPTIMIZATION.md`](./MONETIZATION_OPTIMIZATION.md) | v1：行业调研与优化清单（原始研究） |
 | [`MONETIZATION_PERSONALIZATION.md`](./MONETIZATION_PERSONALIZATION.md) | v2：个性化引擎技术设计（详细 API 规范） |
 | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | 出块算法（留存核心引擎，商业化底层支撑） |
