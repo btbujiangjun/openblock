@@ -109,7 +109,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 6,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(170,245,210,0.38)"
   },
   "neonCity": {
@@ -161,7 +161,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 6,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(144,224,239,0.35)"
   },
   "sunset": {
@@ -234,7 +234,7 @@ const SKINS = {
       "#FF5040",
       "#F07828",
       "#F0C820",
-      "#3A9EC8",
+      "#4070D8",
       "#E880A8",
       "#38A8B8",
       "#F05888",
@@ -255,7 +255,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 9,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(80,200,255,0.38)"
   },
   "candy": {
@@ -286,7 +286,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 8,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,200,255,0.88)"
   },
   "bubbly": {
@@ -317,7 +317,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 1,
     "blockRadius": 14,
-    "blockStyle": "jelly",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,160,240,0.82)"
   },
   "toon": {
@@ -330,7 +330,7 @@ const SKINS = {
       "#00C853",
       "#5590FF",
       "#DD60FF",
-      "#FF6098",
+      "#B85828",
       "#00BCD4"
     ],
     "blockIcons": [
@@ -379,7 +379,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 4,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "#FFFFF0"
   },
   "dawn": {
@@ -433,7 +433,7 @@ const SKINS = {
       "#F8D020",
       "#60B830",
       "#E09050",
-      "#D87040",
+      "#B05028",
       "#F05878",
       "#C068F0"
     ],
@@ -452,7 +452,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 8,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,200,100,0.88)"
   },
   "music": {
@@ -496,7 +496,7 @@ const SKINS = {
       "#187020",
       "#1050B8",
       "#901078",
-      "#C02820",
+      "#5A2880",
       "#006060"
     ],
     "blockIcons": [
@@ -545,7 +545,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 8,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(100,80,200,0.40)"
   },
   "fantasy": {
@@ -573,14 +573,14 @@ const SKINS = {
     "id": "beast",
     "name": "🗺️ 冒险奇境",
     "blockColors": [
-      "#F0A820",
-      "#F07030",
-      "#5090D8",
-      "#B0B8C8",
-      "#D08830",
-      "#E08050",
-      "#A0A8A8",
-      "#40A0D8"
+      "#6878A0",
+      "#A82820",
+      "#3878C8",
+      "#5C2880",
+      "#2A6028",
+      "#D4A028",
+      "#4A6020",
+      "#7C5028"
     ],
     "blockIcons": [
       "🐺",
@@ -597,7 +597,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 6,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,180,30,0.50)"
   },
   "greece": {
@@ -628,7 +628,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 7,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(230,195,40,0.52)"
   },
   "demon": {
@@ -659,7 +659,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 5,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(220,30,40,0.48)"
   },
   "jurassic": {
@@ -690,7 +690,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 5,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(160,220,60,0.50)"
   },
   "fairy": {
@@ -721,7 +721,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 9,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(240,150,240,0.52)"
   },
   "industrial": {
@@ -732,10 +732,10 @@ const SKINS = {
       "#C04030",
       "#B86838",
       "#4F9080",
-      "#B07840",
+      "#5C2820",
       "#B89060",
       "#6878A0",
-      "#D4A848"
+      "#3A4048"
     ],
     "blockIcons": [
       "⚙️",
@@ -752,7 +752,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 4,
-    "blockStyle": "metal",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(232,176,80,0.50)"
   },
   "forbidden": {
@@ -783,8 +783,70 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 6,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(232,184,60,0.52)"
+  },
+  "mahjong": {
+    "id": "mahjong",
+    "name": "🀅 麻将牌局",
+    "blockColors": [
+      "#20B888",
+      "#D03030",
+      "#6E7C8C",
+      "#4F4F60",
+      "#1F8060",
+      "#D49438",
+      "#2A60B8",
+      "#708030"
+    ],
+    "blockIcons": [
+      "🀀",
+      "🀁",
+      "🀂",
+      "🀃",
+      "🀅",
+      "🀇",
+      "🀙",
+      "🀐"
+    ],
+    "gridOuter": "#0E2018",
+    "gridCell": "#143028",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 6,
+    "blockStyle": "cartoon",
+    "clearFlash": "rgba(80,200,140,0.46)"
+  },
+  "boardgame": {
+    "id": "boardgame",
+    "name": "🃏 棋牌博弈",
+    "blockColors": [
+      "#D49830",
+      "#1F8060",
+      "#2860B0",
+      "#98A8B8",
+      "#5C2030",
+      "#3E3E50",
+      "#4F3088",
+      "#E0D8B0"
+    ],
+    "blockIcons": [
+      "♠️",
+      "♥️",
+      "♦️",
+      "♣️",
+      "🃏",
+      "🎲",
+      "🎰",
+      "♟️"
+    ],
+    "gridOuter": "#1A0810",
+    "gridCell": "#142818",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 7,
+    "blockStyle": "cartoon",
+    "clearFlash": "rgba(212,152,48,0.46)"
   },
   "sports": {
     "id": "sports",
@@ -814,7 +876,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 8,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,235,80,0.55)"
   },
   "vehicles": {
@@ -845,7 +907,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 5,
-    "blockStyle": "metal",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,180,40,0.45)"
   },
   "forest": {
@@ -876,7 +938,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 7,
-    "blockStyle": "glossy",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(180,255,160,0.45)"
   },
   "pirate": {
@@ -907,7 +969,7 @@ const SKINS = {
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 6,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,200,80,0.45)"
   },
   "farm": {
@@ -919,7 +981,7 @@ const SKINS = {
       "#2A6028",
       "#1A6E9F",
       "#8E2070",
-      "#B82038",
+      "#8C5028",
       "#5C2818",
       "#4830B0"
     ],
@@ -933,13 +995,13 @@ const SKINS = {
       "🥕",
       "🍎"
     ],
-    "gridOuter": "#5C8C42",
-    "gridCell": "#E8F2D8",
+    "gridOuter": "#7A8868",
+    "gridCell": "#EFF0EA",
     "gridGap": 1,
     "blockInset": 1,
     "blockRadius": 9,
     "blockStyle": "cartoon",
-    "clearFlash": "rgba(220,255,180,0.88)"
+    "clearFlash": "rgba(216,220,210,0.50)"
   },
   "desert": {
     "id": "desert",
@@ -952,7 +1014,7 @@ const SKINS = {
       "#4830B0",
       "#185878",
       "#5C0F38",
-      "#1A6878"
+      "#6F2890"
     ],
     "blockIcons": [
       "🐫",
@@ -964,13 +1026,13 @@ const SKINS = {
       "🛕",
       "🌅"
     ],
-    "gridOuter": "#A88838",
-    "gridCell": "#F0E0B0",
+    "gridOuter": "#786E50",
+    "gridCell": "#E8E2D6",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 7,
-    "blockStyle": "glossy",
-    "clearFlash": "rgba(255,235,170,0.85)"
+    "blockStyle": "cartoon",
+    "clearFlash": "rgba(216,210,196,0.45)"
   }
 };
 

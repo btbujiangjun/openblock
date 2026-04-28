@@ -67,7 +67,7 @@ export const CLASSIC_PALETTE = [
  */
 
 /**
- * 皮肤总量：34 款
+ * 皮肤总量：36 款（v10.3 mahjong；v10.4 boardgame；v10.5 主题内配色去重 + desert 减亮；v10.6 浅色 farm/desert 哑光降饱和；v10.7 浅色饱和度上限 ≤ 25%；v10.8 带 icon 皮肤强制使用 icon 友好的 blockStyle）
  * 盘面设计基准：参考 neonCity —— gridOuter（极深）+ gridCell（深色可见空格）
  * 方块须与 gridCell 形成明显明度/色相反差。
  *
@@ -96,7 +96,66 @@ export const CLASSIC_PALETTE = [
  *   jurassic 恐龙世界  纯黑绿   → 深森林绿（侏罗丛林）
  * 共 8 款深色皮肤的 cssBg / gridOuter / gridCell 推移，使背景直接讲主题，而非仅依赖方块。
  *
- * icon 全局唯一性约束：24 款带 icon 皮肤 × 8 icon = 192 个 emoji 全部互不重复。
+ * 文化主题扩展（v10.3）：mahjong 麻将牌局（中式国粹，绿呢牌桌叙事）。
+ *   8 牌精选：🀀🀁🀂🀃 风牌全集 + 🀅 發（🀄 让给 forbidden 独占）+
+ *           🀇一万 / 🀙一筒 / 🀐一索 三家数牌「一」代表。
+ *   配色取自传统中国色：翠青 / 朱红 / 银灰 / 玄墨 / 翡翠 / 鎏金 / 青花 / 苍竹。
+ *
+ * 文化主题扩展（v10.4）：boardgame 棋牌博弈（综合桌游 / 赌场氛围，v10.5 由「棋牌俱乐部」更名为四字「棋牌博弈」）。
+ *   8 牌精选：♠️♥️♦️♣️ 扑克四花色 + 🃏小丑 + 🎲骰子 + 🎰老虎机 + ♟️棋子。
+ *   配色：经典赌场金/绿/蓝/银/酒红/玄墨/紫/象牙，红丝绒边 + 绿呢 cell + 酒红底，
+ *   与 mahjong 纯绿呢牌桌叙事错位。
+ *
+ * 主题内配色去重（v10.5）：审计全部皮肤的 8 色 HSL 距离矩阵，对 8 款 minD < 2.0 的带 icon 皮肤做修正——
+ *   pets       🐭 #C02820       → #5A2880 深紫       （与 🐰 红区分，0.69 → 3.10）
+ *   desert     🌅 #1A6878       → #6F2890 暮霞紫     （与 🏺 陶青区分，1.48 → 2.17）
+ *   farm       🌽 #B82038       → #8C5028 烤玉米棕   （与 🐄 朱红区分，1.69 → 2.33）
+ *   koi        🪷 #3A9EC8       → #4070D8 莲花池蓝   （与 🏮 红灯笼蓝区分，1.95 → 3.50）
+ *   food       🍔 #D87040       → #B05028 烤肉锈棕   （与 🌮 暖橙区分，2.03 → 2.81）
+ *   industrial ⚒️ #D4A848       → #3A4048 深铸铁灰   （独立中性灰阶）
+ *              ⛓️ #B07840       → #5C2820 暗锈链红   （与 🔩 紫铜区分，1.06 → 2.69）
+ *   toon       🦘 #FF6098       → #B85828 袋鼠毛棕   （与 🐼 红粉区分，1.78 → 3.37）
+ *   beast      整组 8 色重写（原色板顺序与 icons 索引错位 + 🐯/🐆 蓝色族重叠，1.78 → 5.62）
+ * 所有 26 款带 icon 皮肤 minD ≥ 2.0。
+ * 设计意图同族系列（titanium 钛晶 8 阶 / lava 熔岩单调 / cyber 霓虹 / sunset 暖色 / sakura 粉夜 / neonCity 都市霓虹）
+ * 全部为「无 blockIcons 的纯配色阶梯皮肤」，免除主题内差异度铁律。
+ *
+ * desert 视觉减亮（v10.5）：cssBg 由高亮沙金 #E8C878（明度 ~75%）改为柔和琥珀 #C8A868（明度 ~60%），
+ *   gridOuter / gridCell / clearFlash / cssVars 同步降饱和与减亮。
+ *
+ * 浅色皮肤哑光降饱和（v10.6）：用户反馈 farm / desert 的 cssBg 仍偏浓——
+ *   farm   #D0E5B0 (S=47%) → #DCE5C8 (S=28%) 雾绿替代鲜春绿
+ *   desert #C8A868 (S=49%) → #D8C8A8 (S=35%) 米沙替代浓琥珀
+ *
+ * 浅色再次哑光（v10.7）：用户再次反馈仍浓——把浅色饱和度上限收紧到 ≤ 25%：
+ *   farm   #DCE5C8 (S=28%) → #E6E7DC (S~19%) 骨白带一丝绿
+ *   desert #D8C8A8 (S=35%) → #DAD2C4 (S~21%) 接近中性的浅米
+ *   两款的 gridOuter / gridCell / clearFlash / cssVars 全套同步降饱和，blockColors 不变；
+ *   主题色相由 cssVars 的小面积 accent 传达，cssBg 仅作为「带一点点暖/冷调的近骨白」；
+ *   WCAG 对比度（blockColors vs gridCell 实际渲染场景）仍 ≥ 4.5 AA。
+ *
+ * 带 icon 皮肤 blockStyle 收敛（v10.8 · icon 呈现铁律）：
+ *   立体水晶/反光材质（glossy / glass / jelly / metal）会在方块表面叠加强反光
+ *   高光层（顶部 50-58% 亮带、左上角光斑、金属拉丝亮带 50% 穿心、果冻径向高光），
+ *   这些光学效果会与 emoji icon 在视觉中心 (~53%) 处发生冲突，
+ *   导致 icon 边缘被白光"洗白"、看起来漂浮/糊化。
+ *
+ *   规则：blockIcons 存在时，blockStyle 只能选择 'cartoon'（推荐）/ 'neon' / 'flat' / 'pixel8'
+ *        其中 cartoon 既保留立体磨砂质感（顶高光在 52% 处淡出，左上角小光斑 27%/23%
+ *        与 emoji 中心完全分离），又不干扰 icon 呈现，是带 icon 皮肤的默认选择。
+ *
+ *   v10.8 修正 22 款带 icon 皮肤：
+ *     glass(6) → cartoon ：aurora / ocean / koi / universe / demon / fairy / pirate
+ *     glossy(13)→ cartoon ：candy / pixel8 / food / beast / greece / jurassic /
+ *                          forbidden / mahjong / boardgame / sports / forest / desert
+ *     metal(2) → cartoon ：industrial / vehicles
+ *     jelly(1) → cartoon ：bubbly
+ *
+ *   保留：cartoon(toon/pets/farm) 与 neon(music) — 已是 icon 友好风格
+ *   不带 icon 的 10 款（titanium/cyber/sakura/lava/sunset/dawn/macaroon/fantasy/
+ *   neonCity/classic）继续保留 glossy/glass/metal/neon/flat，不受此次收敛影响。
+ *
+ * icon 全局唯一性约束：26 款带 icon 皮肤 × 8 icon = 208 个 emoji 全部互不重复。
  * 详见 docs/SKINS_CATALOG.md。
  */
 /** @type {Record<string, Skin>} */
@@ -202,7 +261,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 6,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(170,245,210,0.38)',
         cssBg: '#020C18',
         uiDark: true,
@@ -259,7 +318,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 6,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(144,224,239,0.35)',
         cssBg: '#020A14',
         uiDark: true,
@@ -359,8 +418,9 @@ export const SKINS = {
         // 移除与深海重复的 🦈🐡🐙🐠，全部换成日本意象专属 emoji
         // 蓝浪/蓝鲤放暖红底，红鸟居/红灯笼放蓝青底，全互补色
         blockIcons: ['🎋', '🌊', '🪷', '⛩️', '🐟', '🏮', '🎐', '🎏'],
+        // v10.5：🪷 #3A9EC8 (与 🏮 #38A8B8 同色族) → #4070D8 莲花池蓝，区分度提升
         blockColors: [
-            '#FF5040', '#F07828', '#F0C820', '#3A9EC8',
+            '#FF5040', '#F07828', '#F0C820', '#4070D8',
             '#E880A8', '#38A8B8', '#F05888', '#D0A858'
         ],
         gridOuter: '#040E18',
@@ -368,7 +428,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 9,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(80,200,255,0.38)',
         cssBg: '#020A14',
         uiDark: true,
@@ -400,7 +460,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 8,
-        blockStyle: 'glossy',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(255,200,255,0.88)',
         cssBg: '#1A0628',
         uiDark: true,
@@ -429,7 +489,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 1,
         blockRadius: 14,
-        blockStyle: 'jelly',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(255,160,240,0.82)',
         cssBg: '#1C0838',
         uiDark: true,
@@ -449,9 +509,10 @@ export const SKINS = {
         id: 'toon',
         name: '🎨 卡通乐园',
         boardWatermark: { icons: ['🎪', '🎠'], opacity: 0.08 },
+        // v10.5：🦘 #FF6098 (与 🐼 #FF5570 同粉色族) → #B85828 袋鼠毛棕，区分两个粉系动物
         blockColors: [
             '#FF5570', '#FF7F11', '#FFD600', '#00C853',
-            '#5590FF', '#DD60FF', '#FF6098', '#00BCD4'
+            '#5590FF', '#DD60FF', '#B85828', '#00BCD4'
         ],
         // 卡通动物园：🐼熊猫 / 🐨考拉 / 🐘大象 / 🦒长颈鹿 / 🦛河马 / 🦔刺猬 /
         //              🦘袋鼠 / 🦄独角兽
@@ -492,7 +553,7 @@ export const SKINS = {
         gridCell:  '#1E1008',
         gridGap: 1,
         blockInset: 2,
-        blockStyle: 'glossy',
+        blockStyle: 'cartoon',
         blockRadius: 4,
         clearFlash: '#FFFFF0',
         cssBg: '#080200',
@@ -591,9 +652,10 @@ export const SKINS = {
         id: 'food',
         name: '🍕 美食盛宴',
         boardWatermark: { icons: ['🍕', '🍔'], opacity: 0.08 },
+        // v10.5：🍔 #D87040 (与 🌮 #E09050 同暖橙) → #B05028 烤肉锈棕，汉堡牛肉色
         blockColors: [
             '#FF5040', '#F09020', '#F8D020', '#60B830',
-            '#E09050', '#D87040', '#F05878', '#C068F0'
+            '#E09050', '#B05028', '#F05878', '#C068F0'
         ],
         // 各国主食料理（与 candy 甜点完全错开，移除 🍩🎂🍦 三件甜点）
         // 🥑（轻食 / 牛油果吐司）/ 🍣寿司 / 🍞面包 / 🍕披萨 / 🌮塔可 / 🍔汉堡 /
@@ -605,7 +667,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 8,
-        blockStyle: 'glossy',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(255,200,100,0.88)',
         cssBg: '#100A04',
         uiDark: true,
@@ -657,13 +719,14 @@ export const SKINS = {
         name: '🐾 萌宠天地',
         boardWatermark: { icons: ['🐾', '🐶'], opacity: 0.09 },
         // 浅色盘面需用深色方块（深度饱和色，WCAG对比 ≥4.5）
+        // v10.5：🐭 #C02820 (与 🐰 #B82020 同色族) → #5A2880 深紫，区分度提升
         blockColors: [
             '#B82020', '#A05800', '#7A6000', '#187020',
-            '#1050B8', '#901078', '#C02820', '#006060'
+            '#1050B8', '#901078', '#5A2880', '#006060'
         ],
         // 家庭小宠（与 toon 动物园 / beast 猛兽完全错开，移除非小宠的 🐸🦜🐢）
         // 🐰兔子 / 🐠观赏鱼 / 🐦小鸟 / 🐱猫 / 🦎宠物蜥蜴 / 🐹仓鼠 / 🐭小白鼠 / 🐶狗
-        // 浅色盘 + 深色块：白兔放深红、橙猫放深绿（互补）、绿蜥放深蓝、灰鼠放红底
+        // 浅色盘 + 深色块：白兔放深红、橙猫放深绿（互补）、绿蜥放深蓝、灰鼠紫底
         blockIcons: ['🐰', '🐠', '🐦', '🐱', '🦎', '🐹', '🐭', '🐶'],
         gridOuter: '#C0B090',
         gridCell:  '#F5EDDC',
@@ -707,7 +770,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 8,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(100,80,200,0.40)',
         cssBg: '#020108',
         uiDark: true,
@@ -754,25 +817,27 @@ export const SKINS = {
         name: '🗺️ 冒险奇境',
         boardWatermark: { icons: ['🦁', '🐯'], opacity: 0.08 },
         // 陆地猛兽八连：🐺狼 / 🦏犀牛 / 🐯虎 / 🦁狮 / 🐗野猪 / 🦅雕 / 🐆豹 / 🐻熊
-        // 移除与 ocean 重复的 🦈鲨鱼，加入 🐗野猪强化「陆地猎人」纯陆生主题
-        // 黄狮/橙虎避开金/橙底；灰狼/灰犀挪到金/橙底（高明度反差），避免「灰底灰兽」
+        // v10.5 重做：原色板顺序与 icons 不对齐（注释里 #40A0D8 标 🦈 但实际 idx7 是 🐻），
+        //          且 🐯/🐻 共占近蓝色族 (#5090D8 vs #40A0D8) 视觉混淆。
+        //          重写为 8 色全互补（钢蓝灰 / 深红 / 深天蓝 / 深紫 / 林绿 / 鎏金 / 苔绿 / 棕熊），
+        //          逐 icon 对齐其互补色或本色，minD ≥ 5。
         blockIcons: ['🐺', '🦏', '🐯', '🦁', '🐗', '🦅', '🐆', '🐻'],
         blockColors: [
-            '#F0A820', // 🦁 狮子金
-            '#F07030', // 🐯 虎纹橙
-            '#5090D8', // 🦅 苍鹰蓝
-            '#B0B8C8', // 🐺 狼灰
-            '#D08830', // 🐆 豹纹铜
-            '#E08050', // 🐻 棕熊铜（原深棕→亮铜，提升对比）
-            '#A0A8A8', // 🦏 犀牛铁灰
-            '#40A0D8', // 🦈 鲨鱼蓝
+            '#6878A0', // 🐺 钢蓝灰（灰狼↔冷蓝灰，明度反差）
+            '#A82820', // 🦏 深红（灰犀↔互补红，最强冷暖反差）
+            '#3878C8', // 🐯 深天蓝（黑橙虎↔互补蓝）
+            '#5C2880', // 🦁 深紫（金狮↔互补正补深紫）
+            '#2A6028', // 🐗 林深绿（棕黑野猪↔深林绿，狩猎场景一致）
+            '#D4A028', // 🦅 鎏金（褐鹰↔金底，王者威严）
+            '#4A6020', // 🐆 苔绿（豹↔黄绿丛林，与 #2A6028 林绿区分明度）
+            '#7C5028'  // 🐻 棕熊本色（熊本色↔大地棕）
         ],
         gridOuter:   '#150C04',
         gridCell:    '#221608',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 6,
-        blockStyle:  'glossy',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(255,180,30,0.50)',
         cssBg:       '#0E0802',
         uiDark:      true,
@@ -810,7 +875,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 7,
-        blockStyle:  'glossy',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(230,195,40,0.52)',
         cssBg:       '#020812',
         uiDark:      true,
@@ -845,7 +910,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 5,
-        blockStyle:  'glass',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(220,30,40,0.48)',
         cssBg:       '#0E0408',
         uiDark:      true,
@@ -882,7 +947,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 5,
-        blockStyle:  'glossy',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(160,220,60,0.50)',
         cssBg:       '#0A1408',
         uiDark:      true,
@@ -919,7 +984,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 9,
-        blockStyle:  'glass',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(240,150,240,0.52)',
         cssBg:       '#150A24',
         uiDark:      true,
@@ -948,22 +1013,24 @@ export const SKINS = {
         // emoji 多为银/灰/暗调，主色调用「黄铜·紫铜·锈红·暗金」暖金属，单留一格钢蓝
         // 给 🏭 工厂（白烟+冷蓝厂房意象）；银工具放黄铜/锈红/暗金底反差最强。
         blockIcons: ['⚙️', '🔧', '🔩', '🛠️', '⛓️', '🚂', '🏭', '⚒️'],
+        // v10.5：⚒️ #D4A848 (与 ⚙️ #D49640 同金属色) → #3A4048 深铸铁灰锤镐
+        //       ⛓️ #B07840 (与 🔩 #B86838 紫铜橙同色族) → #5C2820 暗锈链红，区分锁链与螺栓
         blockColors: [
             '#D49640', // ⚙️ 黄铜金（齿轮主体象征）
             '#C04030', // 🔧 铁锈红（银扳手强反差）
             '#B86838', // 🔩 紫铜橙（暖金属铆接）
             '#4F9080', // 🛠️ 铜锈青（patina 翠铜）
-            '#B07840', // ⛓️ 棕铜（暗黄铜锁链）
+            '#5C2820', // ⛓️ 暗锈链红（锁链氧化深锈，与 🔩 紫铜橙明度强反差）
             '#B89060', // 🚂 浅卡其铜（暗火车头压亮底）
             '#6878A0', // 🏭 钢蓝（白烟+冷工厂）
-            '#D4A848'  // ⚒️ 暗金黄（鎏金锤镐）
+            '#3A4048'  // ⚒️ 深铸铁灰（黑锤镐↔铁灰，独立中性灰阶）
         ],
         gridOuter:   '#0E0904',
         gridCell:    '#1A140C',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 4,
-        blockStyle:  'metal',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(232,176,80,0.50)',
         cssBg:       '#080503',
         uiDark:      true,
@@ -1003,7 +1070,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 6,
-        blockStyle:  'glossy',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(232,184,60,0.52)',
         cssBg:       '#160406',
         uiDark:      true,
@@ -1011,6 +1078,92 @@ export const SKINS = {
             '--accent-color': '#E8B83C',
             '--accent-dark':  '#C8222C',
             '--h1-color':     '#FFE090'
+        }
+    },
+
+    /**
+     * 麻将牌局（中式国粹）：以麻将牌面为视觉主轴，绿呢牌桌叙事——
+     * 风牌 4 张 + 三元绿（發） + 万/筒/索三种数牌的「一」代表（避开 forbidden 已用的 🀄 中）。
+     * 配色取自传统中国色：翠青 / 朱红 / 银灰 / 玄墨 / 翡翠 / 鎏金 / 青花 / 苍竹，
+     * 牌身象牙色在深色饱和方块上 WCAG ≥ 4.5。盘面用麻将桌深绿呢底烘托国粹氛围。
+     * 设计要点：与 forbidden（皇家器物）完全错位 → 麻将是市井牌桌；🀄 已让给 forbidden 独占。
+     */
+    mahjong: {
+        id: 'mahjong',
+        name: '🀅 麻将牌局',
+        boardWatermark: { icons: ['🀅', '🀀'], opacity: 0.08 },
+        // 八牌精选（全部专属，避开 forbidden 已占的 🀄）：
+        //   🀀东 / 🀁南 / 🀂西 / 🀃北（风牌全集）+ 🀅發（三元绿，🀄红中归 forbidden）+
+        //   🀇一万 / 🀙一筒 / 🀐一索（数牌三家的「一」代表，最具辨识度）
+        blockIcons: ['🀀', '🀁', '🀂', '🀃', '🀅', '🀇', '🀙', '🀐'],
+        blockColors: [
+            '#20B888', // 🀀 东 — 翠青（东方青龙）
+            '#D03030', // 🀁 南 — 朱红（南方朱雀）
+            '#6E7C8C', // 🀂 西 — 银灰（西方白虎）
+            '#4F4F60', // 🀃 北 — 玄墨（北方玄武）
+            '#1F8060', // 🀅 發 — 翡翠（三元发财）
+            '#D49438', // 🀇 一万 — 鎏金（万字红）
+            '#2A60B8', // 🀙 一筒 — 青花（筒五彩）
+            '#708030'  // 🀐 一索 — 苍竹（索绿竹）
+        ],
+        gridOuter:   '#0E2018',
+        gridCell:    '#143028',
+        gridGap:     1,
+        blockInset:  2,
+        blockRadius: 6,
+        blockStyle:  'cartoon',
+        clearFlash:  'rgba(80,200,140,0.46)',
+        cssBg:       '#0A1812',
+        uiDark:      true,
+        cssVars: {
+            '--accent-color': '#1F8060',
+            '--accent-dark':  '#50B090',
+            '--h1-color':     '#80E0B0'
+        }
+    },
+
+    /**
+     * 棋牌博弈（综合桌游 / 赌场氛围，v10.5 由「棋牌俱乐部」更名）：扑克四花色 + 小丑 + 骰子 + 老虎机 + 国际象棋兵，
+     * 「棋」与「牌」兼顾，与 mahjong（中式国粹纯麻将）形成姊妹皮肤。
+     * 配色取扑克经典——红心绿、方片蓝、黑桃金、梅花银、小丑酒红、骰子玄黑、老虎机紫、棋子象牙；
+     * 盘面用 claret velvet 边框 + poker felt 绿呢 cell + 酒红赌场氛围底，
+     * 与 mahjong 纯绿呢牌桌叙事完全错位。
+     * Glossy 渲染呈现卡牌瓷面光泽。
+     */
+    boardgame: {
+        id: 'boardgame',
+        name: '🃏 棋牌博弈',
+        boardWatermark: { icons: ['🃏', '♠️'], opacity: 0.08 },
+        // 棋牌八件套（全部专属，避开 mahjong 的麻将牌、industrial 的工具、forbidden 的宫廷）：
+        //   ♠️黑桃 / ♥️红心 / ♦️方片 / ♣️梅花 — 扑克四花色
+        //   🃏小丑（百搭王） / 🎲骰子（赌局） / 🎰老虎机（赌场霓虹） / ♟️棋子（棋艺对弈）
+        // 配色策略：每色取经典赌场配色 + 与 emoji 形成最大对比
+        //   黑桃黑↔金；红心红↔翠绿；方片红↔深蓝；梅花黑↔冷银；
+        //   小丑彩↔酒红；白红骰子↔玄墨；多色老虎机↔暗紫；黑棋兵↔象牙
+        blockIcons: ['♠️', '♥️', '♦️', '♣️', '🃏', '🎲', '🎰', '♟️'],
+        blockColors: [
+            '#D49830', // ♠️ 鎏金（黑桃黑↔金 经典 poker）
+            '#1F8060', // ♥️ 翡翠绿（红心红↔绿 互补）
+            '#2860B0', // ♦️ 深天蓝（方片红↔蓝 互补）
+            '#98A8B8', // ♣️ 冷银（梅花黑↔银 高对比）
+            '#5C2030', // 🃏 酒红（小丑彩色↔深酒红 庄重）
+            '#3E3E50', // 🎲 玄墨（白红骰子点↔近黑 高对比）
+            '#4F3088', // 🎰 暗紫（老虎机霓虹↔暗紫 同调）
+            '#E0D8B0'  // ♟️ 象牙（黑棋兵↔象牙 棋盘格）
+        ],
+        gridOuter:   '#1A0810', // claret velvet trim（赌场红丝绒边）
+        gridCell:    '#142818', // poker felt green（牌桌绿呢）
+        gridGap:     1,
+        blockInset:  2,
+        blockRadius: 7,
+        blockStyle:  'cartoon',
+        clearFlash:  'rgba(212,152,48,0.46)', // 鎏金筹码闪
+        cssBg:       '#0E0410', // deep wine 赌场氛围
+        uiDark:      true,
+        cssVars: {
+            '--accent-color': '#D49830',
+            '--accent-dark':  '#B07820',
+            '--h1-color':     '#FFD080'
         }
     },
 
@@ -1046,7 +1199,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 8,
-        blockStyle:  'glossy',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(255,235,80,0.55)',
         cssBg:       '#06100A',
         uiDark:      true,
@@ -1085,7 +1238,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 5,
-        blockStyle:  'metal',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(255,180,40,0.45)',
         cssBg:       '#080C12',
         uiDark:      true,
@@ -1124,7 +1277,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 7,
-        blockStyle:  'glossy',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(180,255,160,0.45)',
         cssBg:       '#040E06',
         uiDark:      true,
@@ -1163,7 +1316,7 @@ export const SKINS = {
         gridGap:     1,
         blockInset:  2,
         blockRadius: 6,
-        blockStyle:  'glass',
+        blockStyle:  'cartoon',
         clearFlash:  'rgba(255,200,80,0.45)',
         cssBg:       '#020812',
         uiDark:      true,
@@ -1194,35 +1347,42 @@ export const SKINS = {
             '#2A6028', // 🐑 深苔绿（白羊毛↔深森绿，与浅绿底拉开明度）
             '#1A6E9F', // 🐔 海蓝（红冠母鸡↔蓝）
             '#8E2070', // 🐣 紫红（黄雏鸡↔紫红）
-            '#B82038', // 🌽 朱红（黄玉米↔红）
-            '#5C2818', // 🥕 棕（橙萝卜↔深棕泥土，避免与底绿撞色）
+            '#8C5028', // 🌽 烤玉米棕（黄玉米↔自然褐棕，v10.5 修：原 #B82038 与 🐄 朱红同色族）
+            '#5C2818', // 🥕 深棕（橙萝卜↔深棕泥土，避免与底绿撞色）
             '#4830B0'  // 🍎 深紫（红苹果↔紫）
         ],
-        gridOuter:   '#5C8C42',
-        gridCell:    '#E8F2D8',
+        // v10.6 哑光降饱和：cssBg #D0E5B0 (S=47%) → #DCE5C8 (S=28%) 雾绿替代鲜春绿
+        // v10.7 进一步哑光：cssBg #DCE5C8 (S=28%) → #E6E7DC (S~19%) 骨白带一丝绿
+        gridOuter:   '#7A8868',
+        gridCell:    '#EFF0EA',
         gridGap:     1,
         blockInset:  1,
         blockRadius: 9,
         blockStyle:  'cartoon',
-        clearFlash:  'rgba(220,255,180,0.88)',
-        cssBg:       '#D0E5B0',
+        clearFlash:  'rgba(216,220,210,0.50)',
+        cssBg:       '#E6E7DC',
         cssVars: {
             '--text-primary':     '#1F1A12',
-            '--text-secondary':   '#3F5C28',
-            '--accent-color':     '#588838',
-            '--accent-dark':      '#3F6C28',
-            '--shadow':           'rgba(0,0,0,0.14)',
-            '--h1-color':         '#4A7028',
-            '--stat-surface':     'rgba(248,255,232,0.92)',
-            '--stat-label-color': '#4A6028',
-            '--select-bg':        '#F4FFE0',
-            '--select-border':    'rgba(80,128,40,0.28)'
+            '--text-secondary':   '#54604A',
+            '--accent-color':     '#5C7050',
+            '--accent-dark':      '#3F5436',
+            '--shadow':           'rgba(0,0,0,0.10)',
+            '--h1-color':         '#3F5436',
+            '--stat-surface':     'rgba(250,250,242,0.92)',
+            '--stat-label-color': '#5A6450',
+            '--select-bg':        '#F4F5EC',
+            '--select-border':    'rgba(122,136,104,0.24)'
         }
     },
 
     /**
-     * 沙漠绿洲：骆驼 / 仙人掌 / 古寺 / 赤陶罐，浅沙金底 + 深饱和宝石色块（浅色系，主题一致）。
-     * v10.1：把深蓝夜空底（深海味）替换为浅沙金主调，让「沙漠」叙事直接通过 page bg 传达。
+     * 沙漠绿洲：骆驼 / 仙人掌 / 古寺 / 赤陶罐，哑光米沙底 + 深饱和宝石色块（浅色系，主题一致）。
+     * v10.1：把深蓝夜空底（深海味）替换为沙金主调，让「沙漠」叙事直接通过 page bg 传达。
+     * v10.5：把高亮沙金 #E8C878 (明度 ~75%) 降为柔和琥珀 #C8A868 (明度 ~60%)；
+     *       同步把 🌅 的深青底 (与 🏺 同色族) 改为暮霞紫，解决主题内重色。
+     * v10.6：把柔和琥珀 #C8A868 (饱和度 49%) 进一步降为哑光米沙 #D8C8A8 (饱和度 35%)。
+     * v10.7：再次降饱和，米沙 #D8C8A8 (S=35%) → 浅米 #DAD2C4 (S~21%)，几近中性偏米；
+     *       gridOuter / gridCell / clearFlash / cssVars 全套同步推到 S<25%。
      * Glossy 渲染呈现日光下沙漠的耀斑与绿洲倒影。
      */
     desert: {
@@ -1232,7 +1392,7 @@ export const SKINS = {
         // 沙漠绿洲八件套（中东/北非/印度异域风物）：
         //   🐫骆驼 / 🦂蝎子 / 🌵仙人掌 / 🏜️沙丘 / 🪨岩石 /
         //   🏺赤陶罐 / 🛕古寺 / 🌅日出
-        // 浅沙金底要求方块用深饱和色（WCAG 对比 ≥ 4.5）；色相覆盖蓝/红/紫/绿四象限
+        // 柔琥珀沙底要求方块用深饱和色（WCAG 对比 ≥ 4.5）；色相覆盖蓝/红/紫/绿四象限
         blockIcons: ['🐫', '🦂', '🌵', '🏜️', '🪨', '🏺', '🛕', '🌅'],
         blockColors: [
             '#1A4070', // 🐫 沙漠夜空蓝（沙棕骆驼↔深蓝，最强冷暖反差）
@@ -1242,27 +1402,29 @@ export const SKINS = {
             '#4830B0', // 🪨 紫水晶（灰岩↔深紫宝石矿）
             '#185878', // 🏺 陶青（赤陶罐自带橙红↔互补深青）
             '#5C0F38', // 🛕 古寺暗酒红（米白寺↔深酒红夕阳）
-            '#1A6878'  // 🌅 朝霞青（暖橙日出↔深青绿洲水）
+            '#6F2890'  // 🌅 暮霞紫（朝霞紫粉↔互补金沙；v10.5 修：原 #1A6878 与 🏺 #185878 同色族）
         ],
-        gridOuter:   '#A88838',
-        gridCell:    '#F0E0B0',
+        // v10.6 哑光降饱和：cssBg #C8A868 (S=49%) → #D8C8A8 (S=35%) 米沙替代浓琥珀
+        // v10.7 进一步哑光：cssBg #D8C8A8 (S=35%) → #DAD2C4 (S~21%) 接近中性的浅米
+        gridOuter:   '#786E50',
+        gridCell:    '#E8E2D6',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 7,
-        blockStyle:  'glossy',
-        clearFlash:  'rgba(255,235,170,0.85)',
-        cssBg:       '#E8C878',
+        blockStyle:  'cartoon',
+        clearFlash:  'rgba(216,210,196,0.45)',
+        cssBg:       '#DAD2C4',
         cssVars: {
             '--text-primary':     '#1F1810',
-            '--text-secondary':   '#5C4A20',
-            '--accent-color':     '#B07820',
-            '--accent-dark':      '#886000',
-            '--shadow':           'rgba(0,0,0,0.14)',
-            '--h1-color':         '#5C3A0E',
-            '--stat-surface':     'rgba(255,248,220,0.92)',
-            '--stat-label-color': '#6A5028',
-            '--select-bg':        '#FFF4D8',
-            '--select-border':    'rgba(168,128,40,0.28)'
+            '--text-secondary':   '#5C5340',
+            '--accent-color':     '#8A7848',
+            '--accent-dark':      '#6E5A30',
+            '--shadow':           'rgba(0,0,0,0.12)',
+            '--h1-color':         '#5A4528',
+            '--stat-surface':     'rgba(250,246,236,0.92)',
+            '--stat-label-color': '#6E6048',
+            '--select-bg':        '#F0EBE0',
+            '--select-border':    'rgba(140,124,90,0.22)'
         }
     },
 };

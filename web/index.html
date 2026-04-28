@@ -95,6 +95,10 @@
             <div id="game-wrapper">
                 <div class="game-board-flow-bg" aria-hidden="true"></div>
                 <canvas id="game-grid" width="336" height="336" aria-label="游戏网格"></canvas>
+                <!-- v10.12: 特效叠加层 — 粒子/闪光/涟漪独立绘制，CSS 上以 negative inset
+                     覆盖盘面外扩区，让爆炸特效可飞溅到盘面外（更具立体感）。
+                     pointer-events:none 不影响拖拽；aria-hidden 不进 a11y 树。 -->
+                <canvas id="game-grid-fx" aria-hidden="true"></canvas>
             </div>
             <!-- 技能包：纯符号圆形按钮，作为增值服务入口 -->
             <div class="skill-bar" id="skill-bar" aria-label="技能包">

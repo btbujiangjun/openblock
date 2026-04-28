@@ -1,6 +1,7 @@
-# OpenBlock 皮肤目录（34 款全集）
+# OpenBlock 皮肤目录（36 款全集）
 
-> 版本: v10.2 | 更新: 2026-04-28
+
+> 版本: v10.14 | 更新: 2026-04-28
 > 代码位置：`web/src/skins.js`、`miniprogram/core/skins.js`、`scripts/sync-miniprogram-skins.cjs`
 > 关联：`docs/WECHAT_MINIPROGRAM.md`（小程序皮肤同步）、`web/src/themes/`（渲染管线）
 
@@ -8,12 +9,12 @@
 
 ## 1. 总览
 
-OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
+OpenBlock 提供 **36 款** 主题皮肤，覆盖 4 大维度：
 
-- **明暗底**：29 款深色 + 5 款浅色（`dawn` / `macaroon` / `pets` / `farm` / `desert`）
-- **是否携带 emoji icon**：24 款带 icon（每款 8 枚）+ 10 款纯配色
+- **明暗底**：31 款深色 + 5 款浅色（`dawn` / `macaroon` / `pets` / `farm` / `desert`）
+- **是否携带 emoji icon**：26 款带 icon（每款 8 枚）+ 10 款纯配色
 - **blockStyle 渲染管线**：`glossy / metal / glass / cartoon / neon / jelly / flat / pixel8` 共 8 种
-- **全局 icon 唯一性**：24 × 8 = **192 个 emoji 全部互不重复**（强约束 / 自动校验）
+- **全局 icon 唯一性**：26 × 8 = **208 个 emoji 全部互不重复**（强约束 / 自动校验）
 - **主题↔背景一致性**（v10.1 引入 / v10.2 全量推广至 34 款）：盘面/页面背景的色相必须服务于皮肤主题叙事，而不仅仅是 icon 的反差衬底（详见 §2.4 与 §4 各小节）
 
 总皮肤矩阵：
@@ -30,10 +31,10 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 | 生活意象 | 4 | `food` `music` `pets` `universe` |
 | 奇幻神话 | 4 | `fantasy` `fairy` `greece` `demon` |
 | 冒险史前 | 2 | `beast` `jurassic` |
-| 文化主题 | 2 | `industrial` `forbidden` |
+| 文化主题 | 4 | `industrial` `forbidden` `mahjong` `boardgame` |
 | 生活扩展 | 6 | `sports` `vehicles` `forest` `pirate` `farm` `desert` |
 
-合计 **34** 款。默认皮肤为 `titanium`（钛晶矩阵），由 `DEFAULT_SKIN_ID` 常量控制；玩家选择持久化至 `localStorage.openblock_skin`。
+合计 **36** 款。默认皮肤为 `titanium`（钛晶矩阵），由 `DEFAULT_SKIN_ID` 常量控制；玩家选择持久化至 `localStorage.openblock_skin`。
 
 ---
 
@@ -63,7 +64,7 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 
 ### 2.3 主题专属铁律
 
-24 款带 icon 皮肤的 192 个 emoji **全集互斥**（cross-skin uniqueness）。
+26 款带 icon 皮肤的 208 个 emoji **全集互斥**（cross-skin uniqueness）。
 
 - 同一 emoji **绝不重复出现**在两个皮肤中
 - 由 `node -e "..."` 一行脚本可一键校验（见 §6.2）
@@ -101,9 +102,9 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 
 依照本铁律对全部皮肤逐一审计，分为 3 类：
 
-**A. 已合理保留（26 款）**：背景色相已直接服务于主题叙事，无需调整：
+**A. 已合理保留（26 款）+ v10.3-10.4 新增（2 款）= 28 款**：背景色相已直接服务于主题叙事，无需调整：
 
-`classic`（中性灰盘） · `titanium`（钛冷蓝） · `cyber`（赛博暗紫黑） · `aurora`（北极冰蓝） · `neonCity`（都市夜近黑） · `ocean`（深海蓝） · `lava`（焦炭黑） · `koi`（深水蓝） · `bubbly`（深紫海） · `toon`（漫画聚光紫） · `pixel8`（街机厅黑） · `dawn`（晨光奶油） · `macaroon`（甜点暖白） · `food`（餐厅暖棕） · `music`（演出暗紫） · `pets`（家居米黄） · `universe`（深空近黑） · `beast`（荒野焦土） · `industrial`（焦煤铸铁） · `forbidden`（玄朱朱红） · `sports`（草绿球场） · `vehicles`（机库灰混凝土） · `forest`（苔藓深绿） · `pirate`（深海舷板） · `farm`（浅春绿牧草） · `desert`（浅沙金）
+`classic`（中性灰盘） · `titanium`（钛冷蓝） · `cyber`（赛博暗紫黑） · `aurora`（北极冰蓝） · `neonCity`（都市夜近黑） · `ocean`（深海蓝） · `lava`（焦炭黑） · `koi`（深水蓝） · `bubbly`（深紫海） · `toon`（漫画聚光紫） · `pixel8`（街机厅黑） · `dawn`（晨光奶油） · `macaroon`（甜点暖白） · `food`（餐厅暖棕） · `music`（演出暗紫） · `pets`（家居米黄） · `universe`（深空近黑） · `beast`（荒野焦土） · `industrial`（焦煤铸铁） · `forbidden`（玄朱朱红） · `sports`（草绿球场） · `vehicles`（机库灰混凝土） · `forest`（苔藓深绿） · `pirate`（深海舷板） · `farm`（浅春绿牧草） · `desert`（浅沙金） · `mahjong`（麻将桌深绿呢，v10.3 新增即合规） · `boardgame`（赌场红丝绒+绿呢+酒红，v10.4 新增即合规）
 
 **B. v10.1 已重做（2 款）**：`farm` 卡其沙→浅春绿；`desert` 深蓝夜→浅沙金。
 
@@ -122,6 +123,140 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 
 > 推移原则：**保持总明度（仍为暗底，方块亮度不损失）+ 注入主题色相**。
 > 校验：所有 8 款的 blockColor 在新 cssBg 上仍维持 ≥ 4.5 的 WCAG 对比度，467 项 vitest 全过。
+
+#### 2.4.2 主题内 8 色差异度铁律（v10.5 引入）
+
+每款带 icon 皮肤内部的 8 个 `blockColors` 必须在 HSL 距离矩阵中两两 ≥ 2.0，否则同一主题不同 icon 会因色块近似而难以辨识。
+
+判定方式：
+
+```
+dist(A, B) = √( 0.02·dh² + 0.05·ds² + 0.10·dl² )   // dh ∈ [0,180]，色相差权重最低、明度差权重最高
+```
+
+阈值约定：
+
+- `minD ≥ 4.0`：理想区间，色相 / 饱和度 / 明度均拉开
+- `minD ∈ [2.0, 4.0]`：可接受（视觉可分辨，但同色族）
+- `minD < 2.0`：**视觉混淆**，必须修正
+- 设计意图同族系列（如 `titanium` 钛冷蓝 8 阶渐变 / `industrial` 铜锡渐变 / `lava` 熔岩单调 / `cyber` 霓虹同调）属于刻意设计的"色阶皮肤"，免除该铁律
+
+v10.5 全量审计：在 36 款皮肤中识别出 8 款带 icon 皮肤的 `minD < 2.0` 视觉混淆案例并全部修正，最终所有带 icon 的 26 款皮肤的 minD ≥ 2.0：
+
+| 皮肤 | icon | 旧色 | 新色 | minD 提升 | 设计依据 |
+|---|---|---|---|---|---|
+| `pets`       | 🐭 鼠     | `#C02820`（与 🐰 红 `#B82020` 同色族） | `#5A2880` 深紫 | 0.69 → 3.10 | 与 🦎 蓝 / 🐹 品红错开 |
+| `desert`     | 🌅 朝霞   | `#1A6878`（与 🏺 陶青 `#185878` 同色族） | `#6F2890` 暮霞紫 | 1.48 → 2.17 | 朝霞紫粉色调 |
+| `farm`       | 🌽 玉米   | `#B82038`（与 🐄 朱红 `#B02838` 同色族） | `#8C5028` 烤玉米棕 | 1.69 → 2.33 | 自然玉米褐棕 |
+| `koi`        | 🪷 莲花   | `#3A9EC8`（与 🏮 红灯笼蓝 `#38A8B8` 同色族） | `#4070D8` 深royal蓝 | 1.95 → 3.50 | 莲花池深蓝调 |
+| `food`       | 🍔 汉堡   | `#D87040`（与 🌮 暖橙 `#E09050` 同色族） | `#B05028` 烤肉锈棕 | 2.03 → 2.81 | 汉堡牛肉色 |
+| `industrial` | ⚒️ 锤镐 + ⛓️ 锁链 | `#D4A848` (与 ⚙️ 黄铜) + `#B07840` (与 🔩 紫铜) | `#3A4048` 深铸铁灰 + `#5C2820` 暗锈链红 | 1.06 → 2.69 | 黑铁锤镐 + 锁链氧化锈 |
+| `toon`       | 🦘 袋鼠   | `#FF6098`（与 🐼 #FF5570 同粉色族） | `#B85828` 袋鼠毛棕 | 1.78 → 3.37 | 澳洲袋鼠本色 |
+| `beast`      | **整组重做** | 原色板与 icons 索引错位（`#40A0D8` 注 🦈 但实际为 🐻），且 🐯/🐆 共占近蓝族 | 🐺 钢蓝灰 / 🦏 深红 / 🐯 深天蓝 / 🦁 深紫 / 🐗 林绿 / 🦅 鎏金 / 🐆 苔绿 / 🐻 棕熊本色 | 1.78 → 5.62 | 8 色全互补 + icon 严格对齐 |
+
+#### 2.4.3 带 icon 皮肤的 blockStyle 铁律（v10.8 引入 · v10.9 渲染层修正）
+
+带 emoji icon 的皮肤在方块表面会绘制中心 emoji（位置 ~50% / 53%，字号约方块宽 56%，因此 **emoji 顶部约在方块 25% 处**）。**立体反光材质**（glossy / glass / jelly / metal）的高光层与 icon 在视觉中心发生冲突：
+
+- `glossy`：左上角白色三角光斑 (12%-38%) + 顶部 50% 渐变 → 三角穿过 emoji 头顶
+- `glass`：顶部 58% 强白渐变 → emoji 上半部分被白光"洗白"
+- `jelly`：左上角椭圆光斑 (26%/22%) + 径向高光 (32%/50%) → 高光散射糊化 emoji
+- `metal`：7-stop 拉丝渐变中心亮带 (42%-54%) → **金属亮带横穿 emoji 中心**，最严重
+
+##### v10.9 渲染层修正：cartoon 改为「哑光磨砂瓷砖」
+
+v10.8 把 22 款带 icon 皮肤改为 `cartoon`，但用户实测发现 cartoon 自身仍残留两层水晶感元素：
+
+- **顶部 0.68 不透明白光层**（从 0% 到 52% 处淡出）→ **emoji 顶部 (25%) 正好在最强白光区**，导致 icon 头部被洗白
+- **左上角 0.88 不透明椭圆光斑**（位于 27%/23%）→ 进一步增加水晶反光感
+
+v10.9 在 `web/src/renderer.js` 中重构 `cartoon` 风格——**去除两层水晶白光，呈现哑光磨砂瓷砖质感**：
+
+| 元素 | v10.8 cartoon | v10.9 cartoon | 说明 |
+|---|---|---|---|
+| 主色渐变 | lighten 22% → color → darken 14% | **lighten 12% → color → darken 8%** | 弱化为极轻立体 |
+| 顶部白光层 | 0.68 → 0.00 (52%) | **删除** | 水晶感主因 |
+| 左上角光斑 | 0.88 椭圆 (27%/23%) | **删除** | 水晶感点缀 |
+| 底部暗角 | 0.14 (68%-100%) | 0.10 (78%-100%) | 弱化 |
+| 亮内描边 | 0.62 | **0.28** | 大幅降透明度 |
+| 暗外描边 | 0.30 | 0.30 | 保留（边界清晰） |
+| emoji 阴影 | 单层 0.22 | **双层 0.34 + 0.20** | 增强 icon 在任何底色上的可读性 |
+
+效果：方块仍有渐变 + 暗角带来的极轻立体感，但表面**无强反光**，emoji **100% 清晰可读**。
+
+`neon` 风格也增加 `if (!skin.blockIcons)` 守护——带 icon 时跳过顶部白光层（仅 music 一款受益）。
+
+**铁律**：`blockIcons` 存在时，`blockStyle` 必须从以下 4 种 icon 友好风格中选择：
+
+| Style | 高光位置 | 与 emoji 中心冲突 | 适用场景 |
+|---|---|---|---|
+| `cartoon` ★默认（v10.9 哑光版）| 无白光、无光斑，仅极轻渐变 | **无** | 几乎所有带 icon 皮肤 |
+| `neon` | 带 icon 时跳过顶部白光，仅霓虹边框 | **无** | 赛博/电音/霓虹主题 |
+| `flat` | 单色 + 一道暗边 | **无** | 极简风格皮肤 |
+| `pixel8` | 边缘 14% 像素带 | 边缘略干扰 | 8-bit 复古主题 |
+
+最终 26 款带 icon 皮肤分布：**25 款 `cartoon` + 1 款 `neon`** (music)。
+10 款不带 icon 的皮肤保持原 blockStyle 风格多样性（titanium metal / cyber neon / sakura glass / lava glossy / sunset glossy / dawn glossy / macaroon flat / fantasy glass / neonCity neon / classic glossy）——它们继续保有水晶反光质感（无 icon 不存在冲突）。
+
+##### v10.10 渲染层降饱和：方块色 S × 0.55
+
+v10.9 修好了"水晶反光"的问题，但用户发现 emoji 仍然不够清晰——根因是 **`blockColors` 的原始饱和度过高**（多在 57-72%），与中心 emoji 的彩色发生「色冲突」，emoji 看起来"陷"在饱和色块里。
+
+v10.10 在 `web/src/renderer.js` 中增加 `desaturateColor(hex, factor)` HSL 工具函数，并在 `paintBlockCell` 入口对带 icon 皮肤的方块色统一应用 **`S × 0.55`** 降饱和：
+
+| 性质 | 处理 |
+|---|---|
+| 色相 H | **完全保留**（每款皮肤的色相设计不变）|
+| 饱和度 S | **× 0.55**（57-72% → 31-40%，哑光彩质感）|
+| 明度 L | **完全保留**（明暗反差不变）|
+| WCAG 对比度 | **不降反升**（明度不变 + 饱和度 → 灰，平均 +0.3 ~ +0.5）|
+| skins.js 配置 | **完全不动**（仅渲染层处理，不破坏精心调校的色相）|
+
+实测 desert 皮肤 8 个 blockColor 的降饱和效果：
+
+| icon | 原色 | 原 S | → 哑光色 | 新 S | vs gridCell |
+|---|---|---|---|---|---|
+| 🦂 | `#B02030` | 69% | `#904049` | 38% | 5.40 |
+| 🪨 | `#4830B0` | 57% | `#5A4D93` | 31% | 5.58 |
+| 🏜️ | `#1A6048` | 57% | `#2A5043` | 32% | 7.00 |
+| 🐫 | `#1A4070` | 62% | `#2D425D` | 34% | 7.95 |
+| 🌵 | `#6F1858` | 64% | `#5B2C4F` | 35% | 8.49 |
+| 🌅 | `#6F2890` | 57% | `#663F79` | 31% | 6.38 |
+| 🛕 | `#5C0F38` | 72% | `#4B2037` | 40% | 10.43 |
+| 🏺 | `#185878` | 67% | `#2E5162` | 37% | 6.59 |
+
+实现关键点：
+
+- `originalColor` 在 `paintBlockCell` 入口保留，传给 `_paintIcon` 的 `colorIdx = blockColors.indexOf(...)` 索引查找——确保 emoji 仍能正确对应原始色 → icon 的映射
+- 仅当 `skin.blockIcons && skin.blockIcons.length` 时启用降饱和；不带 icon 的 10 款皮肤保留原始高饱和（继续使用水晶反光质感讲主题）
+- 不影响 `clearFlash` / 其他特效色（这些直接读 `skin.clearFlash`，不经 `paintBlockCell`）
+
+#### 2.4.4 浅色皮肤视觉舒适度（v10.5 引入 · v10.6 增补「饱和度上限」· v10.7 收紧到 ≤ 25%）
+
+浅色皮肤的 `cssBg` 需要同时控制 **明度** 和 **饱和度**：
+
+- 明度（HSL L）：建议 **75-90%**（避免过暗如灰底，亦避免过亮如纯白）
+- **饱和度（HSL S）：建议 ≤ 25%**（v10.7 收紧；超过 30% 即显浓郁，超过 40% 强烈刺激）
+- 主题色相**仅通过 cssVars 的小面积 accent 传达**（按钮/边框/h1），cssBg 和 gridCell 退化为「带一点点色调的近骨白」；这种「大面积近中性 + 小面积主题色」是浅色 UI 视觉舒适度的核心原则
+- gridOuter 可保留中等饱和度（S<25%）以提供盘面边框的"哑光主题色"层次
+
+| 阶段 | farm cssBg | desert cssBg | 改进点 |
+|---|---|---|---|
+| v10.0 | `#D0E5B0` (S 47% / L 79%) | `#E8C878` (S 67% / L 69%) | 初版浅色 |
+| v10.1 | 同上 | 同上 | 主题↔背景一致性引入 |
+| v10.5 | 同上（无改动） | `#C8A868` (S 49% / L 60%) | desert 减亮 |
+| v10.6 | `#DCE5C8` (S 28% / L 84%) | `#D8C8A8` (S 35% / L 75%) | 两款同步哑光降饱和 |
+| **v10.7** | **`#E6E7DC` (S 19% / L 88%)** | **`#DAD2C4` (S 23% / L 81%)** | **两款再次降饱和到 ≤ 25%** |
+
+v10.7 修正：用户两次反馈 cssBg 仍浓，最终把饱和度压到 25% 以下：
+
+- `farm`：雾绿 `#DCE5C8` (S=28%) → 骨白带绿 `#E6E7DC` (S~19%)；gridOuter `#6E8C58` → `#7A8868` (S 22%→13%)；gridCell `#ECF0E0` → `#EFF0EA` (S 27%→17%)；cssVars 全套同步
+- `desert`：米沙 `#D8C8A8` (S=35%) → 浅米中性 `#DAD2C4` (S~23%)；gridOuter `#786838` → `#786E50` (S 36%→20%)；gridCell `#ECDDB8` → `#E8E2D6` (S 50%→26%)；cssVars 全套同步
+- blockColors 全部不变（保留深饱和宝石色用于明暗反差）
+- **WCAG 对比度验证**（blockColors vs gridCell 实际渲染场景）：
+  - farm **4.85** (🐔 `#1A6E9F` vs `#EFF0EA`) ≥ 4.5 ✓
+  - desert **5.26** (🦂 `#B02030` vs `#E8E2D6`) ≥ 4.5 ✓
+- text-primary vs cssBg 对比度：farm 13.85、desert 11.70，远超 7:1 AAA
 
 ---
 
@@ -262,7 +397,8 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 #### `toon` 🎨 卡通乐园
 
 - **icon**：`🐼 🐨 🐘 🦒 🦛 🦔 🦘 🦄`（动物园明星）
-- 配色：`#FF5570` `#FF7F11` `#FFD600` `#00C853` `#5590FF` `#DD60FF` `#FF6098` `#00BCD4`
+- 配色：`#FF5570` `#FF7F11` `#FFD600` `#00C853` `#5590FF` `#DD60FF` `#B85828` `#00BCD4`
+  （v10.5：🦘 `#FF6098` → `#B85828` 袋鼠毛棕，避免与 🐼 同粉色族）
 - 风格：`cartoon` · `radius=10` · `cssBg:#1A1040`
 
 #### `pixel8` 🕹️ 街机格斗
@@ -345,11 +481,20 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 
 ### 4.10 冒险史前（2 款）
 
-#### `beast` 🗺️ 冒险奇境
+#### `beast` 🗺️ 冒险奇境（v10.5 整组重做）
 
 - **icon**：`🐺 🦏 🐯 🦁 🐗 🦅 🐆 🐻`（陆地猛兽八连）
-- 配色：`#F0A820` `#F07030` `#5090D8` `#B0B8C8` `#D08830` `#E08050` `#A0A8A8` `#40A0D8`
+- 配色（按 icon 索引严格对齐）：
+  - 🐺 `#6878A0` 钢蓝灰（狼↔冷蓝灰）
+  - 🦏 `#A82820` 深红（灰犀↔互补红，最强冷暖反差）
+  - 🐯 `#3878C8` 深天蓝（黑橙虎↔互补蓝）
+  - 🦁 `#5C2880` 深紫（金狮↔正补深紫）
+  - 🐗 `#2A6028` 林深绿（棕黑野猪↔深林绿）
+  - 🦅 `#D4A028` 鎏金（褐鹰↔金底，王者威严）
+  - 🐆 `#4A6020` 苔绿（豹↔黄绿丛林）
+  - 🐻 `#7C5028` 棕熊本色
 - 风格：`glossy`
+- **v10.5 修复**：原色板顺序与 `blockIcons` 索引错位（`#40A0D8` 注释为 🦈 但实际位 `idx=7` 即 🐻），且 🐯 / 🐆 共占近蓝色族 minD=1.78；重写后 minD=5.62，icon 与配色严格对齐
 
 #### `jurassic` 🦕 恐龙世界
 
@@ -358,22 +503,68 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 - 盘面：`gridOuter:#0E1A06` / `gridCell:#1A2A0E` / `cssBg:#0A1408`（深森林绿，**v10.2 主题强化**）
 - 风格：`glossy` · K-Pg 灭绝叙事（🌋 火山）
 
-### 4.11 文化主题（2 款，v9 新增）
+### 4.11 文化主题（4 款）
 
-#### `industrial` ⚙️ 古典工业
+#### `industrial` ⚙️ 古典工业（v9 新增 · v10.5 微调）
 
-- 维多利亚 / 蒸汽朋克：黄铜紫铜 + 铁锈钢蓝
+- 维多利亚 / 蒸汽朋克：黄铜紫铜 + 铁锈钢蓝 + 铸铁灰
 - **icon**：`⚙️ 🔧 🔩 🛠️ ⛓️ 🚂 🏭 ⚒️`（蒸汽朋克八件套）
-- 配色：`#D49640` `#C04030` `#B86838` `#4F9080` `#B07840` `#B89060` `#6878A0` `#D4A848`
+- 配色：`#D49640` `#C04030` `#B86838` `#4F9080` `#5C2820` `#B89060` `#6878A0` `#3A4048`
+  （v10.5：⛓️ `#B07840` → `#5C2820` 暗锈链红；⚒️ `#D4A848` → `#3A4048` 深铸铁灰）
 - 风格：`metal` · 焦煤铸铁底
+- **v10.5 修复**：原 ⚒️ 鎏金与 ⚙️ 黄铜同色族（minD=1.06），⛓️ 棕铜与 🔩 紫铜同色族；现 ⚒️ 用独立深铸铁灰、⛓️ 用暗锈链红，与其余 6 件暖金属拉开层次，minD=2.69（保留同色族风格的同时确保所有 icon 可分辨）
 
-#### `forbidden` 👑 北京皇城
+#### `forbidden` 👑 北京皇城（v9 新增）
 
 - 紫禁城 / 故宫：朱红宫墙 + 龙袍金 + 翡翠 + 青花蓝
 - **icon**：`🐲 👑 🪭 🧧 🥮 🀄 📜 🍵`（紫禁城八件套）
 - 配色：`#C8222C` `#1B7E5C` `#1F4FA0` `#D8CCB0` `#E8B83C` `#2E7088` `#B8732C` `#E84068`
 - 风格：`glossy` · 玄朱深底
 - **细节**：`🐲` 龙颜 ≠ jurassic 的 `🐉` 翼龙（不同 codepoint）
+
+#### `mahjong` 🀅 麻将牌局（v10.3 新增）
+
+- 中式国粹 · 绿呢牌桌叙事：风牌全集 + 三元绿（發） + 数牌三家「一」代表
+- **icon**：`🀀 🀁 🀂 🀃 🀅 🀇 🀙 🀐`（东南西北 + 發 + 一万 / 一筒 / 一索）
+- **配色**（取自传统中国色）：
+  - `#20B888` 翠青（🀀 东方青龙）
+  - `#D03030` 朱红（🀁 南方朱雀）
+  - `#6E7C8C` 银灰（🀂 西方白虎）
+  - `#4F4F60` 玄墨（🀃 北方玄武）
+  - `#1F8060` 翡翠（🀅 三元发财）
+  - `#D49438` 鎏金（🀇 一万红字）
+  - `#2A60B8` 青花（🀙 一筒五彩）
+  - `#708030` 苍竹（🀐 一索绿竹）
+- 盘面：`gridOuter:#0E2018` / `gridCell:#143028` / `cssBg:#0A1812`（麻将桌深绿呢）
+- 风格：`glossy` · `radius=6` · 牌身瓷面光泽
+- **设计要点**：
+  - 与 `forbidden`（皇家器物）完全错位 → 麻将是市井牌桌叙事
+  - `🀄` 红中已让给 `forbidden` 独占，本皮肤改用 `🀅` 發牌取代
+  - 8 牌覆盖三家数牌（万/筒/索）「一」代表 + 风牌全集，最具辨识度
+  - 牌身象牙色对所有 8 色 blockColor 维持 WCAG ≥ 4.5
+
+#### `boardgame` 🃏 棋牌博弈（v10.4 新增 · v10.5 更名）
+
+- 综合桌游 · 赌场氛围：扑克四花色 + 小丑 + 骰子 + 老虎机 + 国际象棋兵
+- 「棋」与「牌」兼顾，与 `mahjong`（中式国粹纯麻将）形成姊妹皮肤
+- v10.5 由「棋牌俱乐部」(5 字) 更名为「棋牌博弈」(4 字)，与其他皮肤命名长度统一
+- **icon**：`♠️ ♥️ ♦️ ♣️ 🃏 🎲 🎰 ♟️`
+- **配色**（取扑克经典 + 赌场霓虹）：
+  - `#D49830` 鎏金（♠️ 黑桃黑↔金底，最经典 poker 反差）
+  - `#1F8060` 翡翠绿（♥️ 红心↔绿，红绿互补）
+  - `#2860B0` 深天蓝（♦️ 方片↔蓝，红蓝互补）
+  - `#98A8B8` 冷银（♣️ 梅花黑↔银，高对比）
+  - `#5C2030` 酒红（🃏 小丑彩↔深酒红，庄重底）
+  - `#3E3E50` 玄墨（🎲 白红骰子点↔近黑，高对比）
+  - `#4F3088` 暗紫（🎰 老虎机霓虹↔同调暗紫）
+  - `#E0D8B0` 象牙（♟️ 黑棋兵↔象牙白，棋盘格子）
+- 盘面：`gridOuter:#1A0810` / `gridCell:#142818` / `cssBg:#0E0410`（红丝绒边 + 绿呢 + 酒红底）
+- 风格：`glossy` · `radius=7` · 卡牌瓷面光泽
+- **设计要点**：
+  - 与 `mahjong`（纯绿呢牌桌）背景叙事完全错位：本款用「红丝绒边 + 绿呢台 + 酒红氛围」复合背景，体现赌场而非传统茶馆
+  - 8 icon 涵盖「棋（♟️）+ 牌（4 花色 + 小丑）+ 桌游（骰子 + 老虎机）」三大维度
+  - 4 花色用对应经典扑克配色（黑桃金、红心绿、方片蓝、梅花银），与扑克牌印刷传统一致
+  - `accent-color` 取鎏金 `#D49830`，呼应赌场金筹码
 
 ### 4.12 生活扩展（6 款，v10 新增）
 
@@ -410,32 +601,40 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 
 #### `farm` 🐄 田园农场（浅色）
 
-- 家畜 + 蔬果，**浅春绿牧草底 + 深木栏边框**（v10.1：主题一致性升级，原浅卡其底已弃用）
+- 家畜 + 蔬果，**骨白带绿底 + 哑光草边**（v10.7：浅色饱和度上限收紧到 ≤ 25%）
 - **icon**：`🐄 🐖 🐑 🐔 🐣 🌽 🥕 🍎`
-- 配色：`#B02838` `#1A488F` `#2A6028` `#1A6E9F` `#8E2070` `#B82038` `#5C2818` `#4830B0`
-- 风格：`cartoon` · `radius=9` · `gridOuter:#5C8C42` / `gridCell:#E8F2D8` / `cssBg:#D0E5B0`
+- 配色：`#B02838` `#1A488F` `#2A6028` `#1A6E9F` `#8E2070` `#8C5028` `#5C2818` `#4830B0`
+  （v10.5：🌽 `#B82038` → `#8C5028` 烤玉米棕，与 🐄 朱红区分）
+- 风格：`cartoon` · `radius=9` · `gridOuter:#7A8868` / `gridCell:#EFF0EA` / `cssBg:#E6E7DC`
+  （v10.7：cssBg `#DCE5C8` (S 28%) → `#E6E7DC` (S~19%) 骨白带绿；全套同步降饱和）
 - **设计要点**：
-  - 浅春绿底 + 深饱和方块（WCAG ≥ 4.5）
-  - 🐑 改深苔绿（不与浅绿底同色族）；🥕 改深棕（避免「绿底+深绿萝卜」糊作一团）
+  - 骨白带绿底 + 深饱和方块（WCAG vs gridCell **4.85** ≥ 4.5）
+  - 🐑 深苔绿（不与浅绿底同色族）；🥕 深棕（避免「绿底+深绿萝卜」糊作一团）
   - 与 `pets` 浅卡其家宠 / `food` 暗烹饪 / `toon` 紫底动物园完全错位
+  - **v10.7 极限哑光**：cssBg 饱和度 47% (v10.0) → 28% (v10.6) → 19% (v10.7)；主题色相完全由 cssVars 的 `--accent-color` 小面积传达
 
-#### `desert` 🐫 沙漠绿洲（v10.1：浅色化主题升级）
+#### `desert` 🐫 沙漠绿洲（v10.1：浅色化；v10.5：减亮 + 朝霞色调修正；v10.6：哑光降饱和；v10.7：再次降饱和）
 
-- 骆驼 / 仙人掌 / 古寺 / 赤陶罐，**浅沙金主调 + 深饱和宝石色块**
+- 骆驼 / 仙人掌 / 古寺 / 赤陶罐，**浅米中性底 + 深饱和宝石色块**
 - **icon**：`🐫 🦂 🌵 🏜️ 🪨 🏺 🛕 🌅`
-- 配色：`#1A4070` `#B02030` `#6F1858` `#1A6048` `#4830B0` `#185878` `#5C0F38` `#1A6878`
-- 风格：`glossy` · `radius=7` · `gridOuter:#A88838` / `gridCell:#F0E0B0` / `cssBg:#E8C878`
+- 配色：`#1A4070` `#B02030` `#6F1858` `#1A6048` `#4830B0` `#185878` `#5C0F38` `#6F2890`
+  （v10.5：🌅 `#1A6878` → `#6F2890` 暮霞紫，避免与 🏺 陶青同色族）
+- 风格：`glossy` · `radius=7` · `gridOuter:#786E50` / `gridCell:#E8E2D6` / `cssBg:#DAD2C4`
+  （v10.7：cssBg `#D8C8A8` (S 35%) → `#DAD2C4` (S~23%) 接近中性的浅米；全套同步降饱和）
 - **设计要点**：
-  - **从深色（夜空蓝）转为浅色（沙金）**：让「沙漠」叙事直接通过 page bg 传达
-  - 8 色 blockColor 全部重做，覆盖蓝/红/紫/绿四象限的深饱和色，保证浅沙底上 WCAG ≥ 4.5
-  - `uiDark: false`，配套提供完整 `cssVars`（深字 + 沙金 accent）
+  - **从深色（夜空蓝）转为浅色（沙金）**：让「沙漠」叙事通过 page bg 传达
+  - **v10.5 视觉减亮**：cssBg 明度 75% → 60%
+  - **v10.6 哑光降饱和**：cssBg 饱和度 49% → 35%
+  - **v10.7 极限哑光**：cssBg 饱和度 35% → 23%，浓琥珀感彻底转为温和浅米
+  - 8 色 blockColor 覆盖蓝/红/紫/绿四象限的深饱和色，保证浅米底上 WCAG vs gridCell **5.26** ≥ 4.5
+  - `uiDark: false`，配套提供完整 `cssVars`（深字 + 沙铜 accent，v10.7 已平衡）
 - **专属符号**：🐫🦂🌵🏜️🪨🏺🛕🌅 全部新增
 
 ---
 
 ## 5. icon 全局唯一性矩阵
 
-### 5.1 24 款带 icon 皮肤完整 emoji 列表（共 192 个）
+### 5.1 26 款带 icon 皮肤完整 emoji 列表（共 208 个）
 
 | 皮肤 | 8 个 icon |
 |---|---|
@@ -457,6 +656,8 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 | `fairy` | 🌻 🦋 🌹 🍃 🪄 🌷 🌈 🧚 |
 | `industrial` | ⚙️ 🔧 🔩 🛠️ ⛓️ 🚂 🏭 ⚒️ |
 | `forbidden` | 🐲 👑 🪭 🧧 🥮 🀄 📜 🍵 |
+| `mahjong` | 🀀 🀁 🀂 🀃 🀅 🀇 🀙 🀐 |
+| `boardgame` | ♠️ ♥️ ♦️ ♣️ 🃏 🎲 🎰 ♟️ |
 | `sports` | ⚽ 🏀 ⚾ 🎾 🏐 🏈 🥎 🏆 |
 | `vehicles` | 🏎️ ✈️ 🚀 🚁 🚢 🛵 🚥 🚌 |
 | `forest` | 🌳 🌲 🌴 🍁 🍂 🌾 🪵 🪺 |
@@ -481,7 +682,7 @@ for (const [id, s] of Object.entries(SKINS)) {
 console.log('总皮肤:', Object.keys(SKINS).length, '带 icon:',
   [...new Set([...used.values()])].length, 'icon 总数:', used.size, '重复:', dup);
 "
-# 期望输出：总皮肤: 34 带 icon: 24 icon 总数: 192 重复: 0
+# 期望输出：总皮肤: 36 带 icon: 26 icon 总数: 208 重复: 0
 ```
 
 ### 5.3 emoji 主题域覆盖图谱
@@ -508,6 +709,8 @@ console.log('总皮肤:', Object.keys(SKINS).length, '带 icon:',
 | 工业机械 | industrial | ⚙️🔧🔩🛠️⛓️🚂🏭⚒️ |
 | 大航海 | pirate | ⚓🏴‍☠️🪝🦜⛵🗺️🧭💎 |
 | 紫禁城 | forbidden | 🐲👑🪭🧧🥮🀄📜🍵 |
+| 中式麻将 | mahjong | 🀀🀁🀂🀃🀅🀇🀙🀐 （🀄 让给 forbidden） |
+| 综合棋牌/赌场 | boardgame | ♠️♥️♦️♣️🃏🎲🎰♟️ |
 | 日本意象 | koi | 🎋🌊🪷⛩️🏮🎐🎏 |
 | 希腊神话 | greece | 🔱⚡🏹🦚🦉💘🍷☀️ |
 | 冥府恶魔 | demon | 👁️⚔️💀🕷️🦇👹☠️😈 |
@@ -532,7 +735,7 @@ console.log('总皮肤:', Object.keys(SKINS).length, '带 icon:',
 
 ```bash
 node scripts/sync-miniprogram-skins.cjs
-# 输出：Synced 34 skins to miniprogram/core/skins.js
+# 输出：Synced 36 skins to miniprogram/core/skins.js
 ```
 
 > **注意**：小程序 skins.js 是 CommonJS（`require`/`module.exports`），ESLint 会因 ESM-only 配置报 `no-undef`。这是预期行为，不算错误。
@@ -570,6 +773,18 @@ node scripts/sync-miniprogram-skins.cjs
 | **v10** | **2026-04-28** | **新增 sports / vehicles / forest / pirate / farm / desert（生活扩展 6 款）** |
 | **v10.1** | **2026-04-28** | **主题↔背景一致性升级（§2.4 新增第四铁律）：farm 卡其沙黄→浅春绿牧草；desert 深蓝夜空→浅沙金主调（含 uiDark 转浅色 + 8 色 blockColor 全部重做）；浅色皮肤 4 → 5 款** |
 | **v10.2** | **2026-04-28** | **主题↔背景一致性铁律全量推广至 34 款：8 款暗色皮肤的 cssBg/gridOuter/gridCell 注入主题色相（sunset 玫瑰胭脂、sakura 胭脂粉紫、candy 莓果橱、fantasy 水晶秘境紫、fairy 玫瑰薰衣、greece 爱琴海蓝、demon 血赤褐、jurassic 深森林绿），其余 26 款逐一审计后保留** |
+| **v10.3** | **2026-04-28** | **新增 mahjong 麻将牌局（中式国粹文化主题第 3 款）：东南西北 4 风 + 發 + 万筒索三家「一」代表，传统中国 8 色配色，绿呢牌桌叙事；总皮肤 34 → 35 款，icon 全集 192 → 200，🀄 红中保留给 forbidden 独占** |
+| **v10.4** | **2026-04-28** | **新增 boardgame（综合桌游 / 赌场氛围，文化主题第 4 款）：扑克四花色 + 🃏小丑 + 🎲骰子 + 🎰老虎机 + ♟️棋子，赌场经典 8 色配色（鎏金/翡翠/天蓝/冷银/酒红/玄墨/暗紫/象牙），红丝绒边+绿呢+酒红复合背景；总皮肤 35 → 36 款，icon 全集 200 → 208，与 mahjong 形成姊妹皮肤** |
+| **v10.5** | **2026-04-28** | **§2.4.2 主题内 8 色差异度铁律 + §2.4.3 浅色舒适度**。审计全部 36 款 HSL 距离矩阵，对 8 款带 icon 皮肤的 minD < 2.0 视觉混淆做修正：`pets` 🐭 `#C02820` → `#5A2880` 深紫；`desert` 🌅 `#1A6878` → `#6F2890` 暮霞紫；`farm` 🌽 `#B82038` → `#8C5028` 烤玉米棕；`koi` 🪷 `#3A9EC8` → `#4070D8` 莲花池蓝；`food` 🍔 `#D87040` → `#B05028` 烤肉锈棕；`industrial` ⚒️ `#D4A848`/⛓️ `#B07840` → `#3A4048` 深铸铁灰/`#5C2820` 暗锈链红；`toon` 🦘 `#FF6098` → `#B85828` 袋鼠毛棕；`beast` 整组 8 色重写（原色板与 icons 索引错位 + 🐯/🐆 蓝色族重叠）。所有 26 款带 icon 皮肤 minD ≥ 2.0。`desert` 视觉减亮：cssBg `#E8C878`（明度 75%）→ `#C8A868`（明度 60%），同步下调 gridOuter / gridCell / clearFlash / cssVars。`boardgame` 由「棋牌俱乐部」(5 字) 更名为「棋牌博弈」(4 字)。 |
+| **v10.6** | **2026-04-28** | **§2.4.3 浅色饱和度上限铁律**：用户反馈 farm / desert 的 cssBg 仍偏浓——为浅色皮肤增加「饱和度 ≤ 35%」的硬约束。`farm` 鲜春绿 `#D0E5B0` (S=47%) → 雾绿 `#DCE5C8` (S=28%)；`desert` 浓琥珀 `#C8A868` (S=49%) → 米沙 `#D8C8A8` (S=35%)。两款的 gridOuter / gridCell / clearFlash / cssVars 同步降饱和；blockColors 不变；WCAG 对比度（blockColors vs gridCell）farm **4.80** / desert **5.04**，均 ≥ 4.5 AA 标准。 |
+| **v10.7** | **2026-04-28** | **§2.4.4 浅色饱和度铁律收紧 + 得分字号放大**。① 用户再次反馈 farm / desert 的 cssBg 仍偏浓，把饱和度上限从 35% 进一步收紧到 **≤ 25%**：`farm` 雾绿 `#DCE5C8` (S=28%) → 骨白带绿 `#E6E7DC` (S~19%)；`desert` 米沙 `#D8C8A8` (S=35%) → 浅米中性 `#DAD2C4` (S~23%)。两款 gridOuter / gridCell / cssVars 全套同步降饱和；blockColors 不变；WCAG 对比度（blockColors vs gridCell）farm **4.85** / desert **5.26**，均 ≥ 4.5 AA。② `web/public/styles/main.css`：得分主数字 `.stat-value` 字号 22px → **32px**（桌面）、17px → **22px**（移动）；`.stat-box--best .stat-value` 17px → **22px**（桌面，移动端保持 17px），维持「得分 > 最佳」的视觉层级。 |
+| **v10.8** | **2026-04-28** | **§2.4.3 带 icon 皮肤 blockStyle 铁律**：用户反馈立体水晶材质（glossy / glass / jelly / metal）的高光层与中心 emoji 冲突，导致 icon 边缘被白光洗白、糊化。新增铁律：`blockIcons` 存在时，`blockStyle` 必须为 `cartoon` / `neon` / `flat` / `pixel8` 之一（icon 友好的 4 种风格）。**统一收敛 22 款带 icon 皮肤**：6 款 glass（aurora / ocean / koi / universe / demon / fairy / pirate）、13 款 glossy（candy / pixel8 / food / beast / greece / jurassic / forbidden / mahjong / boardgame / sports / forest / desert）、2 款 metal（industrial / vehicles）、1 款 jelly（bubbly）→ 全部改为 `cartoon`。最终 26 款带 icon 皮肤分布：25 款 cartoon + 1 款 neon (music)。10 款不带 icon 皮肤保持原风格多样性。`blockColors` / `gridCell` / `cssBg` 不变，色彩多样性完全保留。 |
+| **v10.9** | **2026-04-28** | **§2.4.3 cartoon 渲染层重构 + emoji 阴影增强**：用户实测 v10.8 的 cartoon 风格仍有水晶感——顶部 0.68 不透明白光层覆盖了 emoji 顶部 (25% 处)，左上角 0.88 椭圆光斑也产生反光。`web/src/renderer.js` 中**重构 `cartoon` 风格**：删除顶部白光层、删除左上角光斑、弱化主色渐变（22%/14% → 12%/8%）、弱化亮内描边（0.62 → 0.28），保留弱底部暗角 + 暗外描边，呈现「哑光磨砂瓷砖」质感。`neon` 风格增加 `if (!skin.blockIcons)` 守护，带 icon 时跳过顶部白光层。`_paintIcon` emoji 阴影从单层 0.22 升级为**双层 0.34 + 0.20**，增强 icon 在任何底色上的可读性。skins.js 配置不变，仅渲染层修改。25 款 cartoon + 1 款 neon (music) 全部受益。 |
+| **v10.10** | **2026-04-28** | **§2.4.3 渲染层 HSL 降饱和**：用户反馈方块配色饱和度偏高（blockColors S 普遍 57-72%）与 emoji 彩色发生「色冲突」，emoji 看起来"陷"在饱和色块里。`web/src/renderer.js` 中新增 `desaturateColor(hex, factor)` HSL 工具函数（含 `_rgbToHsl` / `_hslToRgb`），在 `paintBlockCell` 入口对带 icon 皮肤的方块色统一应用 `S × 0.55`（饱和度 57-72% → 31-40% 哑光彩）。色相 H 与明度 L 完全保留，WCAG 对比度反而略升（实测 desert 全部方块色 vs gridCell 对比度 ≥ 5.40）。`originalColor` 保留传给 `_paintIcon`，确保 emoji 索引查找仍能匹配原始色（8 处 `_paintIcon` 调用统一改为 `originalColor`）。skins.js 配置完全不动，仅渲染层处理；不带 icon 的 10 款皮肤继续保留原始高饱和水晶反光风格。 |
+| **v10.11** | **2026-04-28** | **三连更：①「同 icon 消除」爆炸特效全面放大；② icon 全局唯一性零冲突复核；③ 得分数字瘦长艺术化**。① `web/src/renderer.js` 中放大同色 / 同 icon 消除时的粒子爆炸：`_pushIconParticle` spread 2.62/2.35 → **3.10/2.80**（接近 π 半球扩散）、speed +50%（4-15.5 → 5.5-22.5；3-12.8 → 4-18）、fontSize 28-67 → **36-91px**、life 1.15-1.53 → **1.45-2.00s**；`_pushBonusColorParticle` 同步 spread/speed/life/size 全面放大；`beginBonusIconGush` 初始 36 → **60**、`beginBonusColorGush` 26 → **42**；`_tickIconGushSpawn` cap 400 → 560 / `_tickColorGushSpawn` cap 440 → 620 + 涌出节奏每帧 2 → **3 粒**；`addBonusLineBurst` 默认 48 → **72**、内圈碎屑 22 → 36、金色火花 22 → 36 + 速度尺寸全面增强；`triggerBonusMatchFlash` 起跳 0.42 → **0.55**（每多 1 条 +0.18）、半径 0.88 → **1.05**（覆盖整屏外圈）、衰减 0.972 → **0.980**（停留更久）。② 全 36 款皮肤 icon ↔ blockColor 跨皮肤复核：**0 处冲突**——每个 emoji 都被某一款皮肤独占（"主题专属铁律"副产品），同一 icon 在不同皮肤中根本不会同时出现，故无"配色冲突"问题，已为天然铁律。③ `web/public/styles/main.css`：`.stat-value` 字号 32 → **46px**（桌面）、22 → **32px**（移动）；新增 `font-family` condensed 栈（`Bebas Neue` / `Oswald` / `Impact` / `Helvetica Neue Condensed Bold` / `Avenir Next Condensed Bold` / `Arial Narrow Bold` / `sans-serif-condensed`）实现"瘦长"；`letter-spacing` 0.015 → **0.045em**；新增三层 `text-shadow`（高光描边 + 1px 描边 + 4px 软投影）实现"立体烫印"艺术质感；`.stat-box--best .stat-value` 同步缩放保持视觉层级（22 → 32 桌面 / 17 → 22 移动）。 |
+| **v10.14** | **2026-04-28** | **§2.4.5 fxCanvas 4 边羽化 mask — icon 粒子自然消散铁律**：v10.12 ~ v10.13 引入 fxCanvas 后，icon 粒子飞到 margin 区物理边界（11×cell 的 fxCanvas 边）就被硬截断，形成一条**直线消失边界**，用户反馈"边界依然是直线，体感不自然"——光晕（v10.13）只是色彩过渡，不能让粒子自然消散。新增**§2.4.5 fxCanvas 4 边羽化铁律**：`web/public/styles/main.css` 给 `#game-grid-fx` 加 `mask-image` — 双 `linear-gradient` + `mask-composite: intersect` / `-webkit-mask-composite: source-in` 在 4 个方向同时羽化（取交集）：水平 / 垂直方向各一条 `transparent 0% → black 14% → black 86% → transparent 100%`，中心 14%~86%（盘面 8/11 ≈ 72%）保持完全不透明，4 边各 1.5cell/11cell ≈ 14% 渐隐到 alpha=0。粒子飞到 margin 区时由 GPU mask **alpha 渐变**自然消散，无任何硬边界；闪光（bonus match / perfect / combo）的全屏铺底也在 fxCanvas 边自然 fade，避免溢出 dock 区的视觉割裂。盘面 canvas（z-index:1）不在 mask 影响范围内（mask 仅作用于 fxCanvas 自身），方块 / preview / grid 渲染完全不受影响。性能：mask-image linear-gradient 由 GPU 合成（与 will-change: transform, opacity 协同），移动端 60fps 无压力。467 测试全过 + 0 lint 错误。 |
+| **v10.13** | **2026-04-28** | **§2.4.4 盘面外边框感弱化铁律 — box-shadow 减负 + fxCanvas 边缘色彩过渡光晕**：v10.12 把 `#game-wrapper` 改为 `overflow:visible` 暴露了盘面 box-shadow 的完整外阴影 + 内 1px 锐边，加上盘面 canvas 不透明背景与 fxCanvas 透明粒子区的硬过渡，让盘面看似"卡片浮在外区上"，边界感强烈（用户反馈："盘面扩充后消失时，有明显的边缘"）。两路并发治理：① **CSS 减负**（`web/public/styles/main.css`）：`#game-grid` box-shadow 三层 → 单层柔光 — 删除 `inset 0 0 0 1px text-primary 10%`（锐利内边）、删除 `0 2px 0 text-primary 6%`（硬下移投影）、主投影 `0 8px 28px shadow 55%` → `0 6px 22px shadow 22%`（更扁更柔）；② **fxCtx 边缘色彩过渡光晕**（`web/src/renderer.js`）：新增 `renderEdgeFalloff()` 方法 — 在 fxCanvas 上以盘面 `gridOuter` 同色绘制宽 m=1.5×cell 的环形渐隐光晕，**4 直边用 LinearGradient + 4 角用 RadialGradient** 拼接（角部从盘面顶点向外扩散，避免直边拼接的灯笼角溢出）；起始 alpha 浅皮肤 `0.50` / 深皮肤 `0.42`，与盘面背景同色让"盘面边 → 外区"的色彩反差自然消弭；③ **调用时机**（`web/src/game.js`）：`render()` 流程在 `clear() → renderBackground()` 后立即调 `renderEdgeFalloff()`，光晕画在 fxCanvas 最底层，所有粒子 / 闪光在其之上不被遮挡；④ 性能：每帧 8 次 `fillRect` + 8 次 `createGradient`，移动端无感开销。467 测试全过 + 0 lint 错误。 |
+| **v10.12** | **2026-04-28** | **特效叠加层（fxCanvas）— 爆炸特效溢出盘面**：用户反馈"爆炸特效区超过盘面范围更易制造立体感"——v10.11 已把粒子参数（speed / spread / life / size）全面放大，但 v10.11 之前粒子和闪光都画在盘面 canvas（#game-grid）上，被 `#game-wrapper { overflow: hidden }` 严格裁剪到 8×cell 盘面边界内，超出部分完全消失。v10.12 引入**独立特效叠加层**：① `web/index.html` 在 `#game-wrapper` 内紧跟盘面 canvas 之后新增 `<canvas id="game-grid-fx" aria-hidden="true">`；② `web/public/styles/main.css`：`#game-wrapper` overflow `hidden → visible`；新增 `#game-grid-fx { position:absolute; z-index:2; pointer-events:none; will-change:transform,opacity; }`；③ `web/src/renderer.js`：构造函数接受 `opts.fxCanvas`，新增 `_applyFxCanvasSize()` 方法 — fxCanvas 物理画布 = `(8+2×1.5)×cell × dpr = 11×cell × dpr`、CSS 上以 `left/top: -1.5×cell` negative inset 覆盖盘面外扩区，`fxCtx.setTransform(dpr, 0, 0, dpr, m×dpr, m×dpr)` 让 fxCtx 坐标原点 (0,0) = 盘面左上角；新增 `_effectCtx()` helper 返回 `fxCtx ?? ctx`；6 个特效绘制方法（`renderParticles` / `renderIconParticles` / `renderPerfectFlash` / `renderComboFlash` / `renderBonusMatchFlash` / `renderDoubleWave`）全部改用 `_effectCtx()` 绘制，闪光 fillRect 改为 `(-m, -m, lw+2m, lh+2m)` 让 1.05× 半径渐变完整呈现到 margin 区；`clear()` 同步清主 ctx 与 fxCtx（含 margin 区）；`_onCanvasResize` 在 early-return 路径仍调 `_applyFxCanvasSize()` 防 fxCanvas 漂移。④ `web/src/game.js`：`new Renderer(canvas, { fxCanvas: ... })` 注入特效层；fxCanvas 不存在时（旧 HTML / 测试环境）Renderer 自动退回为单画布行为。⑤ 设计要点：盘面 canvas 物理像素与 CSS 完全不变（`getBoundingClientRect` 返回值精确对应 8×cell），**拖拽 / 鼠标坐标转换全部不受影响**；特效层独立 z-index:2 + pointer-events:none，覆盖 .skill-bar / .block-dock 上方但不挡事件；GPU 合成 will-change 提升 60fps 流畅度。467 测试全过 + 0 lint 错误。 |
 
 ---
 
@@ -632,7 +847,7 @@ yourSkinId: {
 
 | 文件 | 作用 |
 |---|---|
-| `web/src/skins.js` | 全部 34 款定义（唯一事实源） |
+| `web/src/skins.js` | 全部 36 款定义（唯一事实源） |
 | `miniprogram/core/skins.js` | 自动同步产物（不要手改） |
 | `scripts/sync-miniprogram-skins.cjs` | Web → 小程序同步脚本 |
 | `web/src/themes/` | blockStyle 渲染管线（glossy/metal/...） |

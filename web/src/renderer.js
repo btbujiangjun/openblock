@@ -33,6 +33,60 @@ function lightenColor(hex, percent) {
     return `rgb(${Math.min(255, Math.floor(rgb.r + (255 - rgb.r) * percent))}, ${Math.min(255, Math.floor(rgb.g + (255 - rgb.g) * percent))}, ${Math.min(255, Math.floor(rgb.b + (255 - rgb.b) * percent))})`;
 }
 
+/**
+ * v10.10: 带 icon 皮肤的方块色 HSL 降饱和。
+ * blockColors 原始饱和度多在 70-85%，与中心 emoji 的彩色发生「色冲突」——
+ * emoji 看起来"陷"在饱和色块里。在 HSL 空间将 S 乘以 factor (默认 0.55)
+ * 得到「哑光彩」方块，明度 L 与色相 H 完全保留，WCAG 对比度反而略增。
+ *
+ * 仅用于 paintBlockCell 中带 icon 的皮肤；无 icon 皮肤完全不受影响。
+ */
+function _rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    let h, s; const l = (mx + mn) / 2;
+    if (mx === mn) { h = 0; s = 0; }
+    else {
+        const d = mx - mn;
+        s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+        switch (mx) {
+            case r: h = ((g - b) / d) + (g < b ? 6 : 0); break;
+            case g: h = ((b - r) / d) + 2; break;
+            default: h = ((r - g) / d) + 4;
+        }
+        h /= 6;
+    }
+    return [h, s, l];
+}
+function _hslToRgb(h, s, l) {
+    if (s === 0) {
+        const v = Math.round(l * 255);
+        return [v, v, v];
+    }
+    const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1; if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    return [
+        Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+        Math.round(hue2rgb(p, q, h) * 255),
+        Math.round(hue2rgb(p, q, h - 1 / 3) * 255)
+    ];
+}
+function desaturateColor(hex, factor) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return hex;
+    const [h, s, l] = _rgbToHsl(rgb.r, rgb.g, rgb.b);
+    const newS = Math.max(0, Math.min(1, s * factor));
+    const [r, g, b] = _hslToRgb(h, newS, l);
+    return `rgb(${r}, ${g}, ${b})`;
+}
+
 /** @param {CanvasRenderingContext2D} ctx */
 function roundRectPath(ctx, x, y, w, h, r) {
     const rr = Math.min(r, w / 2, h / 2);
@@ -70,9 +124,12 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
     ctx.textBaseline = 'middle';
     const cx = bx + size * 0.5;
     const cy = by + size * 0.53;
-    ctx.globalAlpha = 0.98;
-    ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    ctx.fillText(icon, cx + 0.5, cy + 0.65);
+    ctx.globalAlpha = 1.0;
+    // 双层阴影增强 icon 在任意底色（深/浅）下的可读性
+    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    ctx.fillText(icon, cx + 0.6, cy + 0.8);
+    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.fillText(icon, cx + 1.0, cy + 1.4);
     ctx.fillStyle = 'black';
     ctx.fillText(icon, cx, cy);
     ctx.restore();
@@ -89,6 +146,16 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     const by = cellPy + inset;
     const r = skin.blockRadius ?? 5;
 
+    // v10.10：带 icon 皮肤的方块色降饱和 (S × 0.55) ——
+    // blockColors 原始饱和度多在 70-85%，与中心 emoji 的彩色发生「色冲突」，
+    // emoji 看起来"陷"在饱和色块里。HSL 空间降饱和后呈现「哑光彩」，
+    // 色相和明度完全保留，emoji 在哑光底色上对比更清晰。
+    // originalColor 保留用于 _paintIcon 的 colorIdx 索引查找。
+    const originalColor = color;
+    if (skin.blockIcons && skin.blockIcons.length) {
+        color = desaturateColor(color, 0.55);
+    }
+
     if (skin.blockStyle === 'flat') {
         ctx.fillStyle = color;
         if (r > 0) {
@@ -104,7 +171,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             ctx.lineWidth = 1;
             ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
         }
-        _paintIcon(ctx, bx, by, size, r, color, skin);
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
     }
 
@@ -142,7 +209,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
             ctx.stroke();
         }
-        _paintIcon(ctx, bx, by, size, r, color, skin);
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
     }
 
@@ -172,61 +239,52 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             roundRectPath(ctx, bx + 1.2, by + 1.2, size - 2.4, size - 2.4, Math.max(0, r - 1));
             ctx.stroke();
         }
-        _paintIcon(ctx, bx, by, size, r, color, skin);
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
     }
 
-    /* ── cartoon（晶莹透亮版）────────────────────────────────────────── */
+    /* ── cartoon（哑光磨砂瓷砖 · v10.9 icon 友好版）─────────────────────
+     *
+     * 问题：原 cartoon 风格的 0.68 不透明顶部白光层 + 左上角椭圆光斑会覆盖 emoji
+     * 上半部分（emoji 顶部约在方块 25% 处，正好在最强白光区），导致 icon 头部
+     * 被洗白，严重影响 icon 呈现。
+     *
+     * 重构：去掉顶部白光层 + 左上角光斑，只保留弱主色渐变 + 弱底部暗角 +
+     *      浅亮内描边 + 暗外描边，呈现「哑光磨砂瓷砖」质感——
+     *      方块仍有极轻立体感，但表面无强反光，emoji 100% 清晰。
+     */
     if (skin.blockStyle === 'cartoon') {
-        // 1. 主色渐变 — 直接 fill 圆角路径，原生路径抗锯齿，彻底消除毛边
+        // 1. 主色弱渐变 — 上下立体（lighten 12% → color → darken 8%，幅度小于原 22%/14%）
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
-        baseG.addColorStop(0,    lightenColor(color, 0.22));
+        baseG.addColorStop(0,    lightenColor(color, 0.12));
         baseG.addColorStop(0.50, color);
-        baseG.addColorStop(1,    darkenColor(color, 0.14));
+        baseG.addColorStop(1,    darkenColor(color, 0.08));
         ctx.fillStyle = baseG;
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.fill();
 
-        // 2. 顶部磨砂白：渐变在 52% 处淡出为透明，直接 fill 同一路径（不再 clip）
-        const hlG = ctx.createLinearGradient(bx, by, bx, by + size);
-        hlG.addColorStop(0,    'rgba(255,255,255,0.68)');
-        hlG.addColorStop(0.40, 'rgba(255,255,255,0.24)');
-        hlG.addColorStop(0.52, 'rgba(255,255,255,0.00)');
-        hlG.addColorStop(1,    'rgba(255,255,255,0.00)');
-        ctx.fillStyle = hlG;
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.fill();
-
-        // 3. 底部暗角：渐变在 70% 前透明，直接 fill 同一路径
+        // 2. 弱底部暗角 — 让方块底部有"重量感"但不糊化 emoji
         const btG = ctx.createLinearGradient(bx, by, bx, by + size);
-        btG.addColorStop(0.68, 'rgba(0,0,0,0.00)');
-        btG.addColorStop(1,    'rgba(0,0,0,0.14)');
+        btG.addColorStop(0.78, 'rgba(0,0,0,0.00)');
+        btG.addColorStop(1,    'rgba(0,0,0,0.10)');
         ctx.fillStyle = btG;
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.fill();
 
-        // 4. 亮色内边框（玻璃折射边缘）
-        ctx.strokeStyle = 'rgba(255,255,255,0.62)';
-        ctx.lineWidth = 1.2;
-        roundRectPath(ctx, bx + 0.6, by + 0.6, size - 1.2, size - 1.2, Math.max(0, r - 0.6));
+        // 3. 浅亮内描边（极轻边缘提亮，不像原 0.62 那么强烈）
+        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+        ctx.lineWidth = 1;
+        roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
         ctx.stroke();
 
-        // 5. 柔和暗色外框
-        ctx.strokeStyle = 'rgba(30,15,60,0.30)';
+        // 4. 暗外描边（清晰边界，与底色形成对比）
+        ctx.strokeStyle = 'rgba(20,15,40,0.30)';
         ctx.lineWidth = 1;
         roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
         ctx.stroke();
 
-        // 6. 左上角高光光斑（位置在内部，无需 clip）
-        const sr = size * 0.09;
-        ctx.fillStyle = 'rgba(255,255,255,0.88)';
-        ctx.beginPath();
-        ctx.ellipse(bx + size * 0.27, by + size * 0.23,
-            sr * 2.0, sr, -Math.PI / 4.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 7. emoji icon
-        _paintIcon(ctx, bx, by, size, r, color, skin);
+        // 5. emoji icon
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
     }
 
@@ -298,7 +356,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         ctx.fill();
 
         // 8. emoji icon
-        _paintIcon(ctx, bx, by, size, r, color, skin);
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
     }
 
@@ -345,7 +403,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
 
         // 8. icon 覆盖
-        _paintIcon(ctx, bx, by, size, r, color, skin);
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
     }
 
@@ -368,15 +426,17 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
             ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
         }
 
-        // 顶部高光：渐变在 48% 处淡出，直接 fill（不再 clip）
-        const hl = ctx.createLinearGradient(bx, by, bx, by + size);
-        hl.addColorStop(0,    'rgba(255,255,255,0.28)');
-        hl.addColorStop(0.48, 'rgba(255,255,255,0.00)');
-        hl.addColorStop(1,    'rgba(255,255,255,0.00)');
-        ctx.fillStyle = hl;
-        roundRectPath(ctx, bx, by, size, size, r);
-        ctx.fill();
-        _paintIcon(ctx, bx, by, size, r, color, skin);
+        // 顶部高光：仅在不带 icon 时绘制（带 icon 皮肤如 music 跳过此层，避免顶部白光洗白 emoji 头部）
+        if (!skin.blockIcons || !skin.blockIcons.length) {
+            const hl = ctx.createLinearGradient(bx, by, bx, by + size);
+            hl.addColorStop(0,    'rgba(255,255,255,0.28)');
+            hl.addColorStop(0.48, 'rgba(255,255,255,0.00)');
+            hl.addColorStop(1,    'rgba(255,255,255,0.00)');
+            ctx.fillStyle = hl;
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.fill();
+        }
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
     }
 
@@ -433,7 +493,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 
     // glossy 兜底样式也支持 blockIcons（未来皮肤扩展用）
-    _paintIcon(ctx, bx, by, size, r, color, skin);
+    _paintIcon(ctx, bx, by, size, r, originalColor, skin);
 }
 
 /** 将棋盘实际 CSS 宽度同步到 --grid-display-px。
@@ -474,13 +534,33 @@ function syncGridCanvasCssVar(canvas) {
     requestAnimationFrame(() => syncGridDisplayPx(canvas));
 }
 
+/**
+ * 粒子溢出余量比例（v10.12）：fxCanvas 比盘面 canvas 大 2 × ratio × cellSize，
+ * 让爆炸特效粒子和闪光可飞溅到盘面外，增强立体感。
+ * fxCanvas 的物理画布 = (gridSize + 2 × ratio) × cellSize，CSS 上以 negative inset
+ * 覆盖在 game-wrapper 上方（整体外扩 ratio × cellSize）。
+ * fxCtx 的坐标系经 setTransform 对齐：原点 (0,0) 与盘面 ctx 完全一致，
+ * 因此所有粒子绘制代码无需改坐标，只需把 ctx 替换为 fxCtx。
+ */
+const PARTICLE_MARGIN_RATIO_DEFAULT = 1.5;
+
 export class Renderer {
-    constructor(canvas) {
+    /**
+     * @param {HTMLCanvasElement} canvas         盘面主画布（仅画盘面+方块+水印）
+     * @param {{ fxCanvas?: HTMLCanvasElement, particleMarginRatio?: number }} [opts]
+     *        fxCanvas: 可选的特效叠加层；未提供时退化为旧行为（粒子画在主 canvas，会被 game-wrapper overflow:hidden 裁剪）
+     */
+    constructor(canvas, opts = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.cellSize = CONFIG.CELL_SIZE;
         this.gridSize = CONFIG.GRID_SIZE;
         this.dpr = this._readDpr();
+        // 特效叠加层（粒子 + 闪光独立绘制，可溢出盘面）
+        this.fxCanvas = opts.fxCanvas || null;
+        this.fxCtx = this.fxCanvas ? this.fxCanvas.getContext('2d') : null;
+        this.particleMarginRatio = (opts.particleMarginRatio ?? PARTICLE_MARGIN_RATIO_DEFAULT);
+        this._paintMargin = 0; // fx 画布的粒子溢出像素余量（CSS px）
         // 初始按逻辑尺寸设置（layout 完成前 CSS 尺寸未知）
         this.logicalW = this.gridSize * this.cellSize;
         this.logicalH = this.gridSize * this.cellSize;
@@ -526,7 +606,7 @@ export class Renderer {
     }
 
     /**
-     * 将 canvas 物理像素设为 logicalW × dpr，并重置坐标系缩放。
+     * 将主盘面 canvas 物理像素设为 logicalW × dpr，并同步设置 fxCanvas 的扩展物理像素。
      * canvas.width 赋值会重置 context 变换，必须重新 scale。
      */
     _applyCanvasSize(lw, lh) {
@@ -536,6 +616,32 @@ export class Renderer {
         this.canvas.width  = Math.round(lw * this.dpr);
         this.canvas.height = Math.round(lh * this.dpr);
         this.ctx.scale(this.dpr, this.dpr);
+        this._applyFxCanvasSize();
+    }
+
+    /**
+     * fxCanvas（特效叠加层）的物理像素同步。
+     * fxCanvas CSS 尺寸 = (logicalW + 2m) × (logicalH + 2m)，绝对定位以 -m inset 覆盖盘面外扩区。
+     * fxCtx 坐标系通过 setTransform 偏移 m，使 (0,0) 与盘面 ctx 完全一致。
+     */
+    _applyFxCanvasSize() {
+        if (!this.fxCanvas || !this.fxCtx) return;
+        const m = Math.round(this.cellSize * this.particleMarginRatio);
+        this._paintMargin = m;
+        const fxW = this.logicalW + 2 * m;
+        const fxH = this.logicalH + 2 * m;
+        this.fxCanvas.width  = Math.round(fxW * this.dpr);
+        this.fxCanvas.height = Math.round(fxH * this.dpr);
+        this.fxCanvas.style.width  = `${fxW}px`;
+        this.fxCanvas.style.height = `${fxH}px`;
+        // 同步 negative inset：让 fxCanvas 中心与盘面中心对齐（外扩 m）
+        this.fxCanvas.style.left = `${-m}px`;
+        this.fxCanvas.style.top  = `${-m}px`;
+        // setTransform：dpr 缩放 + 偏移 m × dpr，使 fxCtx 的 (0,0) = 盘面左上角
+        this.fxCtx.setTransform(
+            this.dpr, 0, 0, this.dpr,
+            Math.round(m * this.dpr), Math.round(m * this.dpr)
+        );
     }
 
     /**
@@ -553,7 +659,11 @@ export class Renderer {
         this.dpr = this._readDpr();
         const targetW = Math.round(cssW * this.dpr);
         const targetH = Math.round(cssH * this.dpr);
-        if (this.canvas.width === targetW && this.canvas.height === targetH) return;
+        if (this.canvas.width === targetW && this.canvas.height === targetH) {
+            // 主 canvas 物理尺寸已对齐，但 fxCanvas 仍可能漂移（DPR 切换或首帧），强制同步
+            this._applyFxCanvasSize();
+            return;
+        }
         // cellSize 随 CSS 尺寸动态调整，保持 gridSize × cellSize = cssW
         this.cellSize = cssW / this.gridSize;
         this._applyCanvasSize(cssW, cssH);
@@ -635,6 +745,97 @@ export class Renderer {
 
     clear() {
         this.ctx.clearRect(0, 0, this.logicalW, this.logicalH);
+        // v10.12: 同步清 fxCanvas（粒子+闪光独立层），范围含粒子溢出余量
+        if (this.fxCtx) {
+            const m = this._paintMargin || 0;
+            this.fxCtx.clearRect(-m, -m, this.logicalW + 2 * m, this.logicalH + 2 * m);
+        }
+    }
+
+    /**
+     * 特效绘制 ctx（粒子 / 闪光 / 涟漪）：有 fxCanvas 时返回 fxCtx，否则退回主 ctx。
+     * 两者坐标系完全对齐（fxCtx 经 setTransform 平移 paintMargin），调用方无需变换。
+     */
+    _effectCtx() {
+        return this.fxCtx || this.ctx;
+    }
+
+    /**
+     * v10.13: 盘面边缘 → fxCanvas 外区 的柔和色彩过渡光晕。
+     *
+     * 解决 v10.12 引入 fxCanvas 后暴露的「盘面边缘明显外边框感」问题：
+     * 盘面 canvas 的 gridOuter 不透明背景与 fxCanvas 透明粒子区之间存在硬过渡，
+     * 配合盘面 box-shadow 让盘面看似浮在外区上，边界感强烈。
+     *
+     * 实现：在 fxCtx 上以盘面 gridOuter 色绘制宽 m（=cellSize×particleMarginRatio）
+     * 的环形渐隐光晕，从盘面边内侧的高 alpha 渐变到 fxCanvas 外缘的 alpha=0。
+     *  - 4 直边：LinearGradient 矩形（上下左右）
+     *  - 4 角：RadialGradient 矩形（从盘面四角向外扩散，避免直边拼接的灯笼角溢出）
+     *
+     * 调用顺序：clear() → renderBackground() → renderEdgeFalloff() → ……粒子/闪光
+     * 这样光晕处于 fxCanvas 最底层，粒子和闪光在其之上，不被遮挡。
+     *
+     * 复杂度：每帧 8 次 fillRect + 8 次 createGradient，移动端无感开销。
+     */
+    renderEdgeFalloff() {
+        if (!this.fxCtx || !this._paintMargin) return;
+        const m = this._paintMargin;
+        const skin = getActiveSkin();
+        const lw = this.logicalW;
+        const lh = this.logicalH;
+        const ec = this.fxCtx;
+
+        // 盘面外框色作为光晕色，深皮肤偏暗、浅皮肤偏亮，与盘面背景天然同色
+        const edgeColor = skin.gridOuter || '#000000';
+        // 浅皮肤盘面偏亮，光晕色 alpha 略高保证可见；深皮肤无需太强
+        const lightBoard = skin.uiDark === false;
+        const a0 = lightBoard ? 0.50 : 0.42;
+        const c0 = hexToRgba(edgeColor, a0);
+        const c1 = hexToRgba(edgeColor, 0);
+
+        ec.save();
+
+        // ---- 4 直边 ----
+        let g;
+        // 上：从盘面顶 (y=0) 向上渐隐至 y=-m
+        g = ec.createLinearGradient(0, 0, 0, -m);
+        g.addColorStop(0, c0);
+        g.addColorStop(1, c1);
+        ec.fillStyle = g;
+        ec.fillRect(0, -m, lw, m);
+        // 下
+        g = ec.createLinearGradient(0, lh, 0, lh + m);
+        g.addColorStop(0, c0);
+        g.addColorStop(1, c1);
+        ec.fillStyle = g;
+        ec.fillRect(0, lh, lw, m);
+        // 左
+        g = ec.createLinearGradient(0, 0, -m, 0);
+        g.addColorStop(0, c0);
+        g.addColorStop(1, c1);
+        ec.fillStyle = g;
+        ec.fillRect(-m, 0, m, lh);
+        // 右
+        g = ec.createLinearGradient(lw, 0, lw + m, 0);
+        g.addColorStop(0, c0);
+        g.addColorStop(1, c1);
+        ec.fillStyle = g;
+        ec.fillRect(lw, 0, m, lh);
+
+        // ---- 4 角（从盘面顶点向外扩散的 radial）----
+        const drawCorner = (cx, cy, rx, ry) => {
+            const rg = ec.createRadialGradient(cx, cy, 0, cx, cy, m);
+            rg.addColorStop(0, c0);
+            rg.addColorStop(1, c1);
+            ec.fillStyle = rg;
+            ec.fillRect(rx, ry, m, m);
+        };
+        drawCorner(0, 0, -m, -m);   // 左上
+        drawCorner(lw, 0, lw, -m);  // 右上
+        drawCorner(0, lh, -m, lh);  // 左下
+        drawCorner(lw, lh, lw, lh); // 右下
+
+        ec.restore();
     }
 
     renderBackground() {
@@ -936,17 +1137,21 @@ export class Renderer {
         const cx = this.logicalW * 0.5;
         const cy = this.logicalH * 0.5;
         const r = Math.max(this.logicalW, this.logicalH) * 0.85;
-        const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        // v10.12: 闪光画在 fxCtx 上，可溢出盘面到粒子余量区
+        const ec = this._effectCtx();
+        const m = this._paintMargin || 0;
+        const g = ec.createRadialGradient(cx, cy, 0, cx, cy, r);
         const h = this._perfectHue;
         g.addColorStop(0, `hsla(${h}, 100%, 75%, ${0.3 * a})`);
         g.addColorStop(0.3, `hsla(${(h + 60) % 360}, 100%, 65%, ${0.15 * a})`);
         g.addColorStop(0.6, `hsla(${(h + 120) % 360}, 100%, 60%, ${0.06 * a})`);
         g.addColorStop(1, 'rgba(255,255,255,0)');
-        this.ctx.save();
-        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
-        this.ctx.fillStyle = g;
-        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.logicalW, this.logicalH);
-        this.ctx.restore();
+        ec.save();
+        ec.translate(this.shakeOffset.x, this.shakeOffset.y);
+        ec.fillStyle = g;
+        ec.fillRect(-m - this.shakeOffset.x, -m - this.shakeOffset.y,
+            this.logicalW + 2 * m, this.logicalH + 2 * m);
+        ec.restore();
     }
 
     /** Double 消除涟漪：沿消除行扩散的水平光波 */
@@ -965,11 +1170,14 @@ export class Renderer {
         if (this._doubleWave <= 0 || !this._doubleWaveRows.length) return;
         const a = this._doubleWave;
         const spread = (1 - a) * this.logicalW * 0.6;
-        this.ctx.save();
-        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+        // v10.12: 涟漪画在 fxCtx 上，水平方向也延伸到粒子余量区
+        const ec = this._effectCtx();
+        const m = this._paintMargin || 0;
+        ec.save();
+        ec.translate(this.shakeOffset.x, this.shakeOffset.y);
         for (const row of this._doubleWaveRows) {
             const cy = (row + 0.5) * this.cellSize;
-            const g = this.ctx.createLinearGradient(
+            const g = ec.createLinearGradient(
                 this.logicalW * 0.5 - spread, cy,
                 this.logicalW * 0.5 + spread, cy
             );
@@ -978,10 +1186,10 @@ export class Renderer {
             g.addColorStop(0.5, `rgba(255, 255, 255, ${0.35 * a})`);
             g.addColorStop(0.7, `rgba(46, 204, 113, ${0.25 * a})`);
             g.addColorStop(1, `rgba(46, 204, 113, 0)`);
-            this.ctx.fillStyle = g;
-            this.ctx.fillRect(0, cy - this.cellSize * 0.6, this.logicalW, this.cellSize * 1.2);
+            ec.fillStyle = g;
+            ec.fillRect(-m, cy - this.cellSize * 0.6, this.logicalW + 2 * m, this.cellSize * 1.2);
         }
-        this.ctx.restore();
+        ec.restore();
     }
 
     /** 多消时全屏边缘暖光（与 _comboFlash 配合） */
@@ -1002,28 +1210,34 @@ export class Renderer {
         const cx = this.logicalW * 0.5;
         const cy = this.logicalH * 0.5;
         const r = Math.max(this.logicalW, this.logicalH) * 0.72;
-        const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        // v10.12: 闪光画在 fxCtx 上，可溢出盘面
+        const ec = this._effectCtx();
+        const m = this._paintMargin || 0;
+        const g = ec.createRadialGradient(cx, cy, 0, cx, cy, r);
         g.addColorStop(0, `rgba(255, 230, 140, ${0.22 * a})`);
         g.addColorStop(0.35, `rgba(255, 170, 60, ${0.12 * a})`);
         g.addColorStop(0.65, `rgba(255, 120, 40, ${0.05 * a})`);
         g.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        this.ctx.save();
-        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
-        this.ctx.fillStyle = g;
-        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.logicalW, this.logicalH);
-        this.ctx.restore();
+        ec.save();
+        ec.translate(this.shakeOffset.x, this.shakeOffset.y);
+        ec.fillStyle = g;
+        ec.fillRect(-m - this.shakeOffset.x, -m - this.shakeOffset.y,
+            this.logicalW + 2 * m, this.logicalH + 2 * m);
+        ec.restore();
     }
 
     /** 同色/同 icon 整行整列：全屏紫+金径向脉冲（与粒子叠加） */
     triggerBonusMatchFlash(bonusLineCount = 1) {
         const n = Math.max(1, bonusLineCount);
-        this._bonusMatchFlash = Math.min(1, 0.42 + n * 0.14);
+        // v10.11: 同 icon 全屏光晕起跳更强（0.42→0.55，每多 1 条 +0.18）
+        this._bonusMatchFlash = Math.min(1, 0.55 + n * 0.18);
     }
 
     decayBonusMatchFlash() {
         if (!this._bonusMatchFlash || this._bonusMatchFlash <= 0) return;
-        this._bonusMatchFlash *= 0.972;
-        if (this._bonusMatchFlash < 0.012) this._bonusMatchFlash = 0;
+        // 衰减更慢（0.972→0.980），让光晕在画面停留更久
+        this._bonusMatchFlash *= 0.980;
+        if (this._bonusMatchFlash < 0.010) this._bonusMatchFlash = 0;
     }
 
     renderBonusMatchFlash() {
@@ -1031,18 +1245,23 @@ export class Renderer {
         const a = this._bonusMatchFlash;
         const cx = this.logicalW * 0.5;
         const cy = this.logicalH * 0.5;
-        const r = Math.max(this.logicalW, this.logicalH) * 0.88;
-        const g = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        g.addColorStop(0, `rgba(255, 220, 120, ${0.26 * a})`);
-        g.addColorStop(0.22, `rgba(200, 120, 255, ${0.18 * a})`);
-        g.addColorStop(0.5, `rgba(140, 80, 220, ${0.10 * a})`);
-        g.addColorStop(0.78, `rgba(80, 40, 160, ${0.04 * a})`);
+        // v10.11: 半径从 0.88 → 1.05（覆盖整屏外圈），alpha 全面提升 ~30%
+        const r = Math.max(this.logicalW, this.logicalH) * 1.05;
+        // v10.12: 闪光画在 fxCtx 上，1.05× 半径渐变完整呈现
+        const ec = this._effectCtx();
+        const m = this._paintMargin || 0;
+        const g = ec.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, `rgba(255, 220, 120, ${0.34 * a})`);
+        g.addColorStop(0.22, `rgba(200, 120, 255, ${0.24 * a})`);
+        g.addColorStop(0.5, `rgba(140, 80, 220, ${0.14 * a})`);
+        g.addColorStop(0.78, `rgba(80, 40, 160, ${0.06 * a})`);
         g.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        this.ctx.save();
-        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
-        this.ctx.fillStyle = g;
-        this.ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, this.logicalW, this.logicalH);
-        this.ctx.restore();
+        ec.save();
+        ec.translate(this.shakeOffset.x, this.shakeOffset.y);
+        ec.fillStyle = g;
+        ec.fillRect(-m - this.shakeOffset.x, -m - this.shakeOffset.y,
+            this.logicalW + 2 * m, this.logicalH + 2 * m);
+        ec.restore();
     }
 
     /**
@@ -1081,6 +1300,8 @@ export class Renderer {
     }
 
     renderParticles() {
+        // v10.12: 粒子画在 fxCtx 上，可飞溅到盘面外
+        const ec = this._effectCtx();
         for (const p of this.particles) {
             const ga = this._bonusParticleGrowAlpha(p);
             let rad;
@@ -1092,13 +1313,13 @@ export class Renderer {
                 rad = p.size * p.life;
                 alpha = p.life;
             }
-            this.ctx.globalAlpha = alpha;
-            this.ctx.fillStyle = p.color;
-            this.ctx.beginPath();
-            this.ctx.arc(p.x + this.shakeOffset.x, p.y + this.shakeOffset.y, rad, 0, Math.PI * 2);
-            this.ctx.fill();
+            ec.globalAlpha = alpha;
+            ec.fillStyle = p.color;
+            ec.beginPath();
+            ec.arc(p.x + this.shakeOffset.x, p.y + this.shakeOffset.y, rad, 0, Math.PI * 2);
+            ec.fill();
         }
-        this.ctx.globalAlpha = 1;
+        ec.globalAlpha = 1;
     }
 
     setShake(intensity, duration) {
@@ -1166,21 +1387,22 @@ export class Renderer {
             x = cs * (bonusLine.idx + 0.5);
             y = cs * (Math.random() * n);
         }
-        const spread = strong ? 2.62 : 2.35;
+        // v10.11: 爆炸范围全面放大 — 扩散角接近 π / 速度 +50% / 寿命 +30% / 字号 +35%
+        const spread = strong ? 3.10 : 2.80;
         const angle = -Math.PI / 2 + (Math.random() - 0.5) * spread;
-        const speed = (strong ? 4.0 : 3.0) + Math.random() * (strong ? 11.5 : 9.8);
-        const life0 = 1.15 + Math.random() * 0.38;
+        const speed = (strong ? 5.5 : 4.0) + Math.random() * (strong ? 17.0 : 14.0);
+        const life0 = 1.45 + Math.random() * 0.55;
         this.iconParticles.push({
             x, y,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
             icon,
-            fontSize: 28 + Math.floor(Math.random() * 40),
+            fontSize: 36 + Math.floor(Math.random() * 56),
             life: life0,
             lifeMax: life0,
-            lifeDecay: 0.004 + Math.random() * 0.0028,
+            lifeDecay: 0.0028 + Math.random() * 0.0022,
             rotation: (Math.random() - 0.5) * Math.PI * 2,
-            rotSpeed: (Math.random() - 0.5) * 0.15
+            rotSpeed: (Math.random() - 0.5) * 0.20
         });
     }
 
@@ -1203,20 +1425,21 @@ export class Renderer {
         const white = '#FFFFFF';
         const roll = Math.random();
         const color = roll < 0.34 ? gold : roll < 0.68 ? cssColor : white;
-        const spread = strong ? 2.72 : 2.38;
+        // v10.11: spread/speed/life/size 全面放大，与 _pushIconParticle 风格一致
+        const spread = strong ? 3.15 : 2.85;
         const angle = -Math.PI / 2 + (Math.random() - 0.5) * spread;
-        const speed = (strong ? 3.6 : 2.5) + Math.random() * (strong ? 10.5 : 7.5);
-        const life0 = 0.92 + Math.random() * 0.48;
+        const speed = (strong ? 4.8 : 3.4) + Math.random() * (strong ? 15.5 : 11.0);
+        const life0 = 1.20 + Math.random() * 0.62;
         this.particles.push({
             x, y,
             vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed - (1.1 + Math.random() * 2.4),
+            vy: Math.sin(angle) * speed - (1.4 + Math.random() * 3.0),
             color,
             life: life0,
             lifeMax: life0,
-            lifeDecay: 0.0048 + Math.random() * 0.0042,
-            size: 2.4 + Math.random() * (strong ? 8 : 5.5),
-            gravityMul: 0.46 + Math.random() * 0.14
+            lifeDecay: 0.0036 + Math.random() * 0.0036,
+            size: 2.8 + Math.random() * (strong ? 11 : 7.5),
+            gravityMul: 0.42 + Math.random() * 0.14
         });
     }
 
@@ -1230,7 +1453,7 @@ export class Renderer {
         this._colorGushStart = now;
         this._colorGushEnd = now + Math.max(520, durationMs);
         for (const spec of this._colorGushLines) {
-            for (let i = 0; i < 26; i++) {
+            for (let i = 0; i < 42; i++) {
                 this._pushBonusColorParticle(spec.bonusLine, spec.cssColor, { strongBurst: true });
             }
         }
@@ -1243,13 +1466,13 @@ export class Renderer {
             this._colorGushLines = [];
             return;
         }
-        if (this.particles.length > 440) return;
+        if (this.particles.length > 620) return;
         const span = Math.max(1, this._colorGushEnd - this._colorGushStart);
         const t = (now - this._colorGushStart) / span;
         let rolls = 0;
-        if (t < 0.36) rolls = Math.random() < 0.72 ? 2 : 1;
-        else if (t < 0.76) rolls = Math.random() < 0.48 ? 1 : 0;
-        else rolls = Math.random() < 0.3 ? 1 : 0;
+        if (t < 0.36) rolls = Math.random() < 0.82 ? 3 : 2;
+        else if (t < 0.76) rolls = Math.random() < 0.62 ? 2 : 1;
+        else rolls = Math.random() < 0.40 ? 1 : 0;
         const burst = t < 0.15;
         for (const spec of this._colorGushLines) {
             for (let k = 0; k < rolls; k++) {
@@ -1270,7 +1493,7 @@ export class Renderer {
         this._iconGushStart = now;
         this._iconGushEnd = now + Math.max(520, durationMs);
         for (const spec of this._iconGushLines) {
-            for (let i = 0; i < 36; i++) {
+            for (let i = 0; i < 60; i++) {
                 this._pushIconParticle(spec.bonusLine, spec.icon, { strongBurst: true });
             }
         }
@@ -1283,14 +1506,14 @@ export class Renderer {
             this._iconGushLines = [];
             return;
         }
-        if (this.iconParticles.length > 400) return;
+        if (this.iconParticles.length > 560) return;
         const span = Math.max(1, this._iconGushEnd - this._iconGushStart);
         const t = (now - this._iconGushStart) / span;
         let rolls = 0;
-        if (t < 0.36) rolls = Math.random() < 0.78 ? 2 : 1;
-        else if (t < 0.76) rolls = Math.random() < 0.5 ? 1 : 0;
-        else rolls = Math.random() < 0.32 ? 1 : 0;
-        const burst = t < 0.14;
+        if (t < 0.36) rolls = Math.random() < 0.86 ? 3 : 2;
+        else if (t < 0.76) rolls = Math.random() < 0.62 ? 2 : 1;
+        else rolls = Math.random() < 0.42 ? 1 : 0;
+        const burst = t < 0.18;
         for (const spec of this._iconGushLines) {
             for (let k = 0; k < rolls; k++) {
                 this._pushIconParticle(spec.bonusLine, spec.icon, { strongBurst: burst });
@@ -1316,7 +1539,7 @@ export class Renderer {
      * @param {string} cssColor  CSS 颜色字符串
      * @param {number} [count=24]
      */
-    addBonusLineBurst(bonusLine, cssColor, count = 48) {
+    addBonusLineBurst(bonusLine, cssColor, count = 72) {
         const n = this.gridSize;
         const cs = this.cellSize;
         const gold = '#FFD700';
@@ -1343,17 +1566,18 @@ export class Renderer {
                 x = cs * (bonusLine.idx + 0.5);
                 y = cs * (Math.random() * n);
             }
-            const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.75;
-            const speed = 3.5 + Math.random() * 12;
+            // v10.11: 主粒子 spread 2.75 → 3.20 (≈π，几乎半球)；速度 3.5-15.5 → 4.5-22；尺寸 6-18 → 7-25
+            const angle = -Math.PI / 2 + (Math.random() - 0.5) * 3.20;
+            const speed = 4.5 + Math.random() * 17.5;
             const color = i % 3 === 0 ? gold : i % 3 === 1 ? cssColor : white;
             pushBurst(x, y, angle, speed, color,
-                1.15 + Math.random() * 0.55,
-                0.0055 + Math.random() * 0.0045,
-                6 + Math.random() * 12,
-                0.52);
+                1.45 + Math.random() * 0.65,
+                0.0042 + Math.random() * 0.0035,
+                7 + Math.random() * 18,
+                0.48);
         }
-        // 内圈高速碎屑
-        for (let k = 0; k < 22; k++) {
+        // 内圈高速碎屑（数量 +60% / 速度 +30%）
+        for (let k = 0; k < 36; k++) {
             let x, y;
             if (bonusLine.type === 'row') {
                 x = cs * (Math.random() * n);
@@ -1363,15 +1587,15 @@ export class Renderer {
                 y = cs * (Math.random() * n);
             }
             const angle = Math.random() * Math.PI * 2;
-            const speed = 6 + Math.random() * 14;
+            const speed = 8 + Math.random() * 20;
             pushBurst(x, y, angle, speed, k % 2 ? white : cssColor,
-                1.0 + Math.random() * 0.35,
-                0.007 + Math.random() * 0.006,
-                3 + Math.random() * 5,
-                0.38);
+                1.25 + Math.random() * 0.45,
+                0.0055 + Math.random() * 0.0048,
+                3.5 + Math.random() * 7,
+                0.34);
         }
-        // 金色火花（更密、更亮）
-        for (let j = 0; j < 22; j++) {
+        // 金色火花（数量 +60% / 速度 +35%）
+        for (let j = 0; j < 36; j++) {
             let x, y;
             if (bonusLine.type === 'row') {
                 x = cs * (Math.random() * n);
@@ -1380,17 +1604,17 @@ export class Renderer {
                 x = cs * (bonusLine.idx + 0.5);
                 y = cs * (Math.random() * n);
             }
-            const lj = 1.45 + Math.random() * 0.35;
+            const lj = 1.75 + Math.random() * 0.45;
             this.particles.push({
                 x, y,
-                vx: (Math.random() - 0.5) * 26,
-                vy: -(9 + Math.random() * 12),
+                vx: (Math.random() - 0.5) * 36,
+                vy: -(12 + Math.random() * 16),
                 color: gold,
                 life: lj,
                 lifeMax: lj,
-                lifeDecay: 0.0075 + Math.random() * 0.004,
-                size: 2.5 + Math.random() * 4.5,
-                gravityMul: 0.45
+                lifeDecay: 0.0058 + Math.random() * 0.004,
+                size: 3 + Math.random() * 6,
+                gravityMul: 0.40
             });
         }
     }
@@ -1411,7 +1635,8 @@ export class Renderer {
 
     renderIconParticles() {
         if (!this.iconParticles.length) return;
-        const ctx = this.ctx;
+        // v10.12: emoji 粒子画在 fxCtx 上，可飞溅到盘面外
+        const ctx = this._effectCtx();
         const sx = this.shakeOffset.x;
         const sy = this.shakeOffset.y;
         ctx.save();

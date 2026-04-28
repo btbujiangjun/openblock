@@ -116,7 +116,7 @@
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
-| [微信小程序适配说明](./WECHAT_MINIPROGRAM.md) | miniprogram/ 结构；adapters/；sync-core.sh；34 款皮肤、20 关关卡、动画链与出块保命同步 | ✅ 当前 |
+| [微信小程序适配说明](./WECHAT_MINIPROGRAM.md) | miniprogram/ 结构；adapters/；sync-core.sh；36 款皮肤、20 关关卡、动画链与出块保命同步 | ✅ 当前 |
 | [微信小程序发布流程](./WECHAT_RELEASE.md) | 账号与类目、本地检查、上传、提审、上线、回滚与运维清单 | ✅ 当前 |
 
 ---
@@ -125,7 +125,7 @@
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
-| [皮肤目录（34 款全集）](./SKINS_CATALOG.md) | 设计三大铁律 / 11 大分类 / 24 款 icon × 8 = 192 emoji 唯一性矩阵 / blockStyle 8 种渲染管线 / 新增皮肤模板与 6 步流程 | ✅ 当前 |
+| [皮肤目录（36 款全集）](./SKINS_CATALOG.md) | 设计四大铁律 / 11 大分类 / 26 款 icon × 8 = 208 emoji 唯一性矩阵 / blockStyle 8 种渲染管线 / 新增皮肤模板与 6 步流程 | ✅ 当前 |
 
 ---
 
@@ -137,8 +137,8 @@
 |------|------|------|
 | 自适应 stress 信号维数 | **10 个**（scoreStress / runStreakStress / skillAdjust / flowAdjust / pacingAdjust / recoveryAdjust / frustrationRelief / comboReward / trendAdjust / confidenceGate） | `web/src/adaptiveSpawn.js` |
 | 出块危险态保命 | `fill ≥ 0.68` 或 `roundsSinceClear ≥ 3` 进入严格可解性；`roundsSinceClear ≥ 2/4` 提升 `clearGuarantee` | `web/src/bot/blockSpawn.js`、`web/src/adaptiveSpawn.js` |
-| 微信小程序皮肤数量 | **34 款**（24 款带 emoji icon），由 `scripts/sync-miniprogram-skins.cjs` 从 `web/src/skins.js` 同步核心字段 | `miniprogram/core/skins.js` |
-| 皮肤 icon 全局唯一性 | 24 款带 icon 皮肤 × 8 = **192 个 emoji 全部互不重复**，详见 [SKINS_CATALOG.md](./SKINS_CATALOG.md) §5 | `web/src/skins.js` |
+| 微信小程序皮肤数量 | **36 款**（26 款带 emoji icon），由 `scripts/sync-miniprogram-skins.cjs` 从 `web/src/skins.js` 同步核心字段 | `miniprogram/core/skins.js` |
+| 皮肤 icon 全局唯一性 | 26 款带 icon 皮肤 × 8 = **208 个 emoji 全部互不重复**，详见 [SKINS_CATALOG.md](./SKINS_CATALOG.md) §5 | `web/src/skins.js` |
 | 微信小程序关卡数量 | **20 关**，兼容 Web `target/minRounds/starThresholds` 目标字段 | `miniprogram/core/levelPack.js`、`levelManager.js` |
 | RL 课程阈值 | `winThresholdStart=40`，`winThresholdEnd=220`，`rampEpisodes=40000` | `shared/game_rules.json` |
 | Feature Flag 默认值 | 广告/IAP/Push 默认 **关**；任务/排行榜/皮肤/通行证/分享/Stub 默认 **开** | `web/src/monetization/featureFlags.js` |

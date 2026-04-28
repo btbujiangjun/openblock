@@ -849,14 +849,30 @@ body.block-drag-active #app {
     font-weight: 600;
 }
 
+/* v10.11: 得分数字 — 更大、更瘦长、更艺术化
+ * · font-size: 32 → 46px（比标题更具视觉权重）
+ * · font-family: 优先 condensed/narrow 字体栈（Bebas Neue / Oswald 优先 web font，
+ *   Impact / Helvetica Neue Condensed Bold / Avenir Next Condensed / Arial Narrow
+ *   覆盖 Mac/iOS/Windows，sans-serif-condensed 覆盖 Android）
+ * · letter-spacing: 0.015em → 0.045em（拉开间距增加优雅感）
+ * · 三层 text-shadow：顶部 0.5 高光描边 + 1px 描边 + 4px 软投影，呈"立体烫印"效果
+ * · 字内填充用 currentColor 维持主题色（accent-dark），与皮肤色彩体系联动
+ */
 .stat-value {
-    font-size: 22px;
+    font-size: 46px;
     font-weight: 900;
     color: var(--accent-dark);
+    font-family: 'Bebas Neue', 'Oswald', 'Impact',
+        'Helvetica Neue Condensed Bold', 'HelveticaNeue-CondensedBold',
+        'Avenir Next Condensed Bold', 'AvenirNextCondensed-Bold',
+        'Arial Narrow Bold', 'sans-serif-condensed', system-ui, sans-serif;
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.015em;
+    letter-spacing: 0.045em;
     line-height: 1;
-    text-shadow: none;
+    text-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.55),
+        0 2px 1px rgba(0, 0, 0, 0.08),
+        0 4px 8px rgba(0, 0, 0, 0.10);
 }
 
 .progression-hud {
@@ -969,7 +985,10 @@ body.block-drag-active #app {
     position: relative;
     border-radius: 0;
     flex-shrink: 0;
-    overflow: hidden;
+    /* v10.12: 改为 visible，让 fxCanvas（特效层）可向盘面外扩展，
+       实现「爆炸特效溢出盘面」的立体感（粒子 1.5×cell 余量飞溅）。
+       盘面 canvas 自身仍严格 = 8×cell，不受影响。 */
+    overflow: visible;
     line-height: 0;
     width: var(--grid-canvas-width);
     max-width: 100%;
@@ -1023,11 +1042,48 @@ body.game-rl-preview .block-dock {
     aspect-ratio: 1;
     background: transparent;
     border-radius: 0;
-    /* 直角盘面 + 略强的外轮廓与轻微浮起，视觉焦点在棋盘 */
-    box-shadow:
-        inset 0 0 0 1px color-mix(in srgb, var(--text-primary, #000) 10%, transparent),
-        0 2px 0 color-mix(in srgb, var(--text-primary, #000) 6%, transparent),
-        0 8px 28px color-mix(in srgb, var(--shadow) 55%, transparent);
+    /* v10.13 弱化盘面外边框感：
+       - 删除 inset 1px 锐利边框（让盘面边缘"溶进"外区，而非"卡片"轮廓）
+       - 删除 0 2px 0 硬下移投影（避免盘面像贴片浮在表面）
+       - 主投影由 8px/28px/55% 改为 6px/22px/22%，更柔和扁平，
+         与 fxCanvas 上 _renderEdgeFalloff() 的色彩光晕协同营造"无边界"过渡。 */
+    box-shadow: 0 6px 22px color-mix(in srgb, var(--shadow) 22%, transparent);
+}
+
+/* v10.12: 特效叠加层 — 绝对定位覆盖盘面，并以 negative inset 向四周外扩 1.5×cell
+ * 让粒子/闪光可飞溅到盘面外。pointer-events:none 透明传透至盘面，不影响拖拽。
+ * width/height/left/top 由 Renderer._applyFxCanvasSize() 在每次 resize 时设置实际像素值，
+ * 此处仅声明 z-index、定位与渲染规则。 */
+#game-grid-fx {
+    position: absolute;
+    z-index: 2;             /* 在盘面 #game-grid 之上，但不影响 dock / skill-bar */
+    pointer-events: none;
+    background: transparent;
+    /* 默认占位（layout 完成前显示安全值，避免初始帧穿帮）；
+       Renderer._applyFxCanvasSize 会覆盖为精确的 px 值。 */
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    /* 让 GPU 合成，提高 60fps 流畅度 */
+    will-change: transform, opacity;
+    /* v10.14 4 边羽化 mask — 让 icon 粒子 / 闪光飞到 fxCanvas margin 区时自然 fade out，
+       消除 v10.12 ~ v10.13 残留的「直线硬边界」体感（粒子像撞上隐形墙）。
+
+       fxCanvas 物理尺寸 = (8 + 2×1.5)×cell = 11×cell（正方形），盘面在中心 8×cell：
+         ─ 中心 8/11 ≈ 72% 必须完全不透明（盘面区 + 闪光主体）
+         ─ 4 边各 1.5/11 ≈ 14% 渐隐到 0（粒子/闪光在此区自然消散）
+
+       双 linear-gradient + composite intersect/source-in 在 4 个方向同时羽化（取交集），
+       盘面四角刚好落在 14%~86% 的不透明区内，渲染管线性能由 GPU mask 合成保证。 */
+    -webkit-mask-image:
+        linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
+        linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+        linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
+        linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
+    mask-composite: intersect;
 }
 
 #drag-ghost {
@@ -3671,7 +3727,7 @@ body.game-shell-hidden .app-side-left {
         --wm-cell-h: 7.8px;
     }
     .stat-box { padding: 4px 8px; min-width: 44px; }
-    .stat-value { font-size: 17px; }
+    .stat-value { font-size: 32px; letter-spacing: 0.04em; }
     .play-stack { padding: 10px 8px 12px; gap: 10px; border-radius: 12px; }
     .score-theme-row { gap: 6px; flex-wrap: wrap; justify-content: center; }
     .header-skin .skin-picker select { min-width: 6rem; max-width: min(40vw, 9rem); }
@@ -3792,9 +3848,15 @@ body.game-shell-hidden .app-side-left {
 }
 .stat-box--best { position: relative; }
 
-/* 「最佳」数字恢复原始字号，仅「得分」享受放大后的 22px */
+/* v10.11: 「最佳」数字始终比「得分」小一档以维持视觉层级
+ * 桌面 46 → 32（≈70% 比例）；移动 32 → 22（同比例）。 */
 .stat-box--best .stat-value {
-    font-size: 17px;
+    font-size: 32px;
+}
+@media (max-width: 400px) {
+    .stat-box--best .stat-value {
+        font-size: 22px;
+    }
 }
 
 /* ── 关卡失败多次提示 ── */

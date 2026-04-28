@@ -63,7 +63,10 @@ export class Game {
         this.canvas = document.getElementById('game-grid');
         this.ghostCanvas = document.getElementById('drag-ghost');
         this.ghostCtx = this.ghostCanvas.getContext('2d');
-        this.renderer = new Renderer(this.canvas);
+        // v10.12: 特效叠加层 — 粒子/闪光独立绘制，可溢出盘面增强立体感。
+        // 当 #game-grid-fx 不存在时（如旧 HTML / 测试环境），Renderer 自动退回为单画布行为。
+        this.fxCanvas = document.getElementById('game-grid-fx');
+        this.renderer = new Renderer(this.canvas, { fxCanvas: this.fxCanvas });
         this.db = new Database();
 
         this.score = 0;
@@ -1195,7 +1198,7 @@ export class Game {
             this.renderer.beginBonusColorGush(colorLineSpecs, animDuration);
             for (const bl of bonusLines) {
                 const cssColor = palette[bl.colorIdx] || '#FFD700';
-                this.renderer.addBonusLineBurst(bl, cssColor, 40);
+                this.renderer.addBonusLineBurst(bl, cssColor, 64);
             }
         }
 
@@ -1914,6 +1917,8 @@ export class Game {
         this.renderer.decayDoubleWave();
         this.renderer.clear();
         this.renderer.renderBackground();
+        // v10.13: 盘面 → fxCanvas 外区柔和色彩过渡光晕，弱化 v10.12 暴露的盘面外边框感
+        this.renderer.renderEdgeFalloff();
         this.renderer.renderGrid(this.grid);
         let previewClearCells = null;
         if (this.previewPos && this.previewBlock) {

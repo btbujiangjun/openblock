@@ -38,7 +38,7 @@ miniprogram/
 │   ├── adaptiveSpawn.js      # 自适应出块
 │   ├── hintEngine.js         # 提示引擎
 │   ├── bonusScoring.js       # 同色/同 icon bonus 计分与检测（手写对齐）
-│   ├── skins.js              # Web 皮肤核心字段（34 款，脚本同步；详见 docs/SKINS_CATALOG.md）
+│   ├── skins.js              # Web 皮肤核心字段（36 款，脚本同步；详见 docs/SKINS_CATALOG.md）
 │   ├── levelManager.js       # 关卡目标/星级/失败判定
 │   ├── levelPack.js          # 20 关关卡包（CJS）
 │   ├── game_rules.json       # 共享规则数据
@@ -167,7 +167,7 @@ bash scripts/sync-core.sh
 | 整行/列同色 bonus 加分 | `web/src/game.js`（`computeClearScore`） | `miniprogram/core/bonusScoring.js` + `utils/gameController.js` |
 | 同色 bonus 粒子 | `web/src/renderer.js`（`addBonusLineBurst` 等） | `miniprogram/utils/renderer.js` + `pages/game/game.js`（`requestAnimationFrame`） |
 | 顶栏三行栅格 / 最佳与分差 | `web/index.html` + `main.css` | `pages/game/game.wxml` + `game.wxss`；最佳分 `wx.setStorageSync` 键名 `openblock_best_<strategyId>` |
-| 皮肤 `blockIcons` / 颜色 / 网格字段 | `web/src/skins.js` | `miniprogram/core/skins.js`；用 `scripts/sync-miniprogram-skins.cjs` 从 Web 同步 34 款（详见 [SKINS_CATALOG.md](./SKINS_CATALOG.md)） |
+| 皮肤 `blockIcons` / 颜色 / 网格字段 | `web/src/skins.js` | `miniprogram/core/skins.js`；用 `scripts/sync-miniprogram-skins.cjs` 从 Web 同步 36 款（详见 [SKINS_CATALOG.md](./SKINS_CATALOG.md)） |
 | 关卡模式 | `web/src/level/levelManager.js` + `levelPack.js` | `miniprogram/core/levelManager.js` + `levelPack.js`；菜单页可选 20 关 |
 | 出块保命策略 | `web/src/bot/blockSpawn.js` + `adaptiveSpawn.js` | `miniprogram/core/bot/blockSpawn.js` + `adaptiveSpawn.js`；危险态严格可解性与无消行救援态同步 |
 
