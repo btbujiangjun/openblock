@@ -81,8 +81,22 @@ export const CLASSIC_PALETTE = [
  * 主题扩展（v10 新增 6 款）：sports 运动竞技 + vehicles 极速引擎 +
  *                          forest 山林秘境 + pirate 海盗航行 +
  *                          farm 田园农场 + desert 沙漠绿洲。
+ * 主题一致性（v10.1）：farm 卡其沙黄底 → 浅春绿牧草底；
+ *                     desert 深蓝夜空底 → 浅沙金主调底（uiDark 转为浅色）。
+ *                     原则：盘面/页面背景的色相必须服务于皮肤主题叙事。
  *
- * icon 全局唯一性约束：22 款带 icon 皮肤 × 8 icon = 176 个 emoji 全部互不重复。
+ * 主题强化（v10.2）：将「主题↔背景一致性铁律」推广到全部深色皮肤。
+ *   sunset   暮色日落  纯黑紫红 → 玫瑰胭脂暮霭（点出黄昏暖意）
+ *   sakura   樱花飞雪  纯黑红   → 胭脂粉紫夜（夜樱粉光）
+ *   candy    糖果甜心  通用紫黑 → 莓果糖果橱（甜系深莓紫）
+ *   fantasy  魔幻秘境  纯黑     → 水晶秘境紫（魔法神秘紫）
+ *   fairy    花仙梦境  通用紫   → 玫瑰薰衣紫（花园梦幻调）
+ *   greece   希腊神话  中性黑   → 深爱琴海蓝（地中海夜空）
+ *   demon    恶魔冥界  通用紫   → 深血赤褐（地狱血火）
+ *   jurassic 恐龙世界  纯黑绿   → 深森林绿（侏罗丛林）
+ * 共 8 款深色皮肤的 cssBg / gridOuter / gridCell 推移，使背景直接讲主题，而非仅依赖方块。
+ *
+ * icon 全局唯一性约束：24 款带 icon 皮肤 × 8 icon = 192 个 emoji 全部互不重复。
  * 详见 docs/SKINS_CATALOG.md。
  */
 /** @type {Record<string, Skin>} */
@@ -256,7 +270,7 @@ export const SKINS = {
         }
     },
 
-    /** 日落：黄金 / 橙红 / 玫瑰紫暖色系，暮光深紫底 */
+    /** 日落：黄金 / 橙红 / 玫瑰紫暖色系，暮光胭脂底（v10.2 主题强化：纯黑→深玫瑰暮霭） */
     sunset: {
         id: 'sunset',
         name: '🌅 暮色日落',
@@ -265,14 +279,14 @@ export const SKINS = {
             '#FF7761', '#FF9A56', '#FFCC5C', '#88D8B0',
             '#8098CF', '#D478CA', '#FF8FA0', '#FFB870'
         ],
-        gridOuter: '#160A14',
-        gridCell:  '#261424',
+        gridOuter: '#241019',
+        gridCell:  '#341628',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 6,
         blockStyle: 'glossy',
-        clearFlash: 'rgba(255,200,150,0.40)',
-        cssBg: '#0E0610',
+        clearFlash: 'rgba(255,200,150,0.42)',
+        cssBg: '#1A0810',
         uiDark: true,
         cssVars: {
             '--accent-color': '#FF9A56',
@@ -310,7 +324,7 @@ export const SKINS = {
      *  日系美学
      * ══════════════════════════════════════════ */
 
-    /** 樱花：夜樱场景——深红黑夜底，粉红/翠绿/金黄方块如花瓣飘落 */
+    /** 樱花：夜樱场景——深胭脂粉紫夜底，粉红/翠绿/金黄方块如花瓣飘落（v10.2 主题强化：纯黑红→粉紫胭脂） */
     sakura: {
         id: 'sakura',
         name: '🌸 樱花飞雪',
@@ -319,14 +333,14 @@ export const SKINS = {
             '#FF4490', '#FF2870', '#FFB0D8', '#78D860',
             '#78B8F0', '#CC60E8', '#FFBA30', '#58D890'
         ],
-        gridOuter: '#180810',
-        gridCell:  '#280C1C',
+        gridOuter: '#241018',
+        gridCell:  '#321628',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 8,
         blockStyle: 'glass',
-        clearFlash: 'rgba(255,180,220,0.50)',
-        cssBg: '#100608',
+        clearFlash: 'rgba(255,180,220,0.52)',
+        cssBg: '#1A0810',
         uiDark: true,
         cssVars: {
             '--accent-color': '#FF4490',
@@ -381,14 +395,14 @@ export const SKINS = {
             '#FF4466', '#FF8820', '#FFD020', '#44E848',
             '#22AAFF', '#CC66FF', '#FF44BB', '#22E8CC'
         ],
-        gridOuter: '#1A0828',
-        gridCell:  '#280E40',
+        gridOuter: '#22082A',
+        gridCell:  '#321048',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 8,
         blockStyle: 'glossy',
         clearFlash: 'rgba(255,200,255,0.88)',
-        cssBg: '#120420',
+        cssBg: '#1A0628',
         uiDark: true,
         cssVars: {
             '--accent-color': '#FF44BB',
@@ -708,7 +722,7 @@ export const SKINS = {
      *  奇幻
      * ══════════════════════════════════════════ */
 
-    /** 魔幻：紫水晶/蓝宝石/祖母绿/红宝石等宝石矿物配色，近黑深紫底 */
+    /** 魔幻：紫水晶/蓝宝石/祖母绿/红宝石等宝石矿物配色，深神秘紫底（v10.2 主题强化：纯黑→水晶秘境紫） */
     fantasy: {
         id: 'fantasy',
         name: '🔮 魔幻秘境',
@@ -717,14 +731,14 @@ export const SKINS = {
             '#CC48FF', '#5080F0', '#18B848', '#E82020',
             '#E8B820', '#20B0D8', '#E020A0', '#9060E0'
         ],
-        gridOuter: '#08041A',
-        gridCell:  '#120830',
+        gridOuter: '#0E0428',
+        gridCell:  '#1A0838',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
         blockStyle: 'glass',
-        clearFlash: 'rgba(160,80,255,0.40)',
-        cssBg: '#040210',
+        clearFlash: 'rgba(160,80,255,0.42)',
+        cssBg: '#0A0420',
         uiDark: true,
         cssVars: {
             '--accent-color': '#9828D8',
@@ -791,14 +805,14 @@ export const SKINS = {
             '#20A8B8', // 💘 阿芙罗狄忒（孔雀青底衬心箭）
             '#7860E0', // 💀 哈迪斯（明亮冥界蓝）
         ],
-        gridOuter:   '#08080E',
-        gridCell:    '#10101C',
+        gridOuter:   '#040A18',
+        gridCell:    '#0A1228',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 7,
         blockStyle:  'glossy',
         clearFlash:  'rgba(230,195,40,0.52)',
-        cssBg:       '#050508',
+        cssBg:       '#020812',
         uiDark:      true,
         cssVars: {
             '--accent-color': '#C8A010',
@@ -826,14 +840,14 @@ export const SKINS = {
             '#E03060', // 深红（加亮）
             '#20D848', // 毒液绿
         ],
-        gridOuter:   '#0A0412',
-        gridCell:    '#180828',
+        gridOuter:   '#160408',
+        gridCell:    '#280A12',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 5,
         blockStyle:  'glass',
-        clearFlash:  'rgba(200,20,30,0.45)',
-        cssBg:       '#060210',
+        clearFlash:  'rgba(220,30,40,0.48)',
+        cssBg:       '#0E0408',
         uiDark:      true,
         cssVars: {
             '--accent-color': '#CC1830',
@@ -863,14 +877,14 @@ export const SKINS = {
             '#D0A030', // 🦴 化石琥珀（远古遗骸）
             '#F0C840', // 🥚 恐龙蛋金黄（生命起源）
         ],
-        gridOuter:   '#080E04',
-        gridCell:    '#101A08',
+        gridOuter:   '#0E1A06',
+        gridCell:    '#1A2A0E',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 5,
         blockStyle:  'glossy',
         clearFlash:  'rgba(160,220,60,0.50)',
-        cssBg:       '#060C02',
+        cssBg:       '#0A1408',
         uiDark:      true,
         cssVars: {
             '--accent-color': '#5AC030',
@@ -900,14 +914,14 @@ export const SKINS = {
             '#F09040', // 🍄 蘑菇橙（童话）
             '#40D0E8', // 🌈 彩虹青（梦幻）
         ],
-        gridOuter:   '#100820',
-        gridCell:    '#1A1030',
+        gridOuter:   '#1F0E2C',
+        gridCell:    '#2C1640',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 9,
         blockStyle:  'glass',
         clearFlash:  'rgba(240,150,240,0.52)',
-        cssBg:       '#0C0618',
+        cssBg:       '#150A24',
         uiDark:      true,
         cssVars: {
             '--accent-color': '#D060F0',
@@ -1161,7 +1175,8 @@ export const SKINS = {
     },
 
     /**
-     * 田园农场：家畜 + 蔬果，浅暖卡其木栏底 + 高饱和深色方块（浅色系）。
+     * 田园农场：家畜 + 蔬果，浅春绿草地 + 深木栏边框（浅色系，主题一致）。
+     * v10.1：把卡其沙黄底（沙漠味）替换为浅草绿牧场底，与「农场草地」主题一致。
      * Cartoon 渲染呈现可爱农场绘本风格。
      */
     farm: {
@@ -1176,70 +1191,78 @@ export const SKINS = {
         blockColors: [
             '#B02838', // 🐄 朱红（黑白牛↔大红）
             '#1A488F', // 🐖 深蓝（粉猪↔互补蓝）
-            '#2A7038', // 🐑 苔绿（白羊毛↔深绿）
+            '#2A6028', // 🐑 深苔绿（白羊毛↔深森绿，与浅绿底拉开明度）
             '#1A6E9F', // 🐔 海蓝（红冠母鸡↔蓝）
             '#8E2070', // 🐣 紫红（黄雏鸡↔紫红）
             '#B82038', // 🌽 朱红（黄玉米↔红）
-            '#1F6038', // 🥕 深绿（橙萝卜↔绿）
+            '#5C2818', // 🥕 棕（橙萝卜↔深棕泥土，避免与底绿撞色）
             '#4830B0'  // 🍎 深紫（红苹果↔紫）
         ],
-        gridOuter:   '#B89668',
-        gridCell:    '#F5EDD8',
+        gridOuter:   '#5C8C42',
+        gridCell:    '#E8F2D8',
         gridGap:     1,
         blockInset:  1,
         blockRadius: 9,
         blockStyle:  'cartoon',
-        clearFlash:  'rgba(255,235,170,0.88)',
-        cssBg:       '#EDE0C0',
+        clearFlash:  'rgba(220,255,180,0.88)',
+        cssBg:       '#D0E5B0',
         cssVars: {
             '--text-primary':     '#1F1A12',
-            '--text-secondary':   '#5C4A30',
-            '--accent-color':     '#B0581C',
-            '--accent-dark':      '#88400C',
+            '--text-secondary':   '#3F5C28',
+            '--accent-color':     '#588838',
+            '--accent-dark':      '#3F6C28',
             '--shadow':           'rgba(0,0,0,0.14)',
-            '--h1-color':         '#7A3A18',
-            '--stat-surface':     'rgba(255,248,228,0.92)',
-            '--stat-label-color': '#7A6038',
-            '--select-bg':        '#FFF4DC',
-            '--select-border':    'rgba(168,128,72,0.28)'
+            '--h1-color':         '#4A7028',
+            '--stat-surface':     'rgba(248,255,232,0.92)',
+            '--stat-label-color': '#4A6028',
+            '--select-bg':        '#F4FFE0',
+            '--select-border':    'rgba(80,128,40,0.28)'
         }
     },
 
     /**
-     * 沙漠绿洲：骆驼 / 仙人掌 / 古寺 / 赤陶罐，沙漠夜空深蓝底 + 沙金/绿洲色块。
-     * Glossy 渲染映衬月光下的沙丘与绿洲水面光泽。
+     * 沙漠绿洲：骆驼 / 仙人掌 / 古寺 / 赤陶罐，浅沙金底 + 深饱和宝石色块（浅色系，主题一致）。
+     * v10.1：把深蓝夜空底（深海味）替换为浅沙金主调，让「沙漠」叙事直接通过 page bg 传达。
+     * Glossy 渲染呈现日光下沙漠的耀斑与绿洲倒影。
      */
     desert: {
         id: 'desert',
         name: '🐫 沙漠绿洲',
-        boardWatermark: { icons: ['🐫', '🌵'], opacity: 0.08 },
+        boardWatermark: { icons: ['🐫', '🌵'], opacity: 0.10 },
         // 沙漠绿洲八件套（中东/北非/印度异域风物）：
         //   🐫骆驼 / 🦂蝎子 / 🌵仙人掌 / 🏜️沙丘 / 🪨岩石 /
         //   🏺赤陶罐 / 🛕古寺 / 🌅日出
+        // 浅沙金底要求方块用深饱和色（WCAG 对比 ≥ 4.5）；色相覆盖蓝/红/紫/绿四象限
         blockIcons: ['🐫', '🦂', '🌵', '🏜️', '🪨', '🏺', '🛕', '🌅'],
         blockColors: [
-            '#1F5870', // 🐫 深蓝绿洲（沙棕骆驼↔深蓝）
-            '#E8B860', // 🦂 浅金沙（黑棕蝎↔金）
-            '#D8A050', // 🌵 沙黄（绿仙人掌↔金）
-            '#2A8068', // 🏜️ 翠绿绿洲（沙丘↔翠绿）
-            '#C46838', // 🪨 赤陶橙（灰岩↔陶橙）
-            '#2A6048', // 🏺 深森绿（赤陶罐↔深绿）
-            '#6038A8', // 🛕 紫宫（米白寺↔深紫）
-            '#1F4870'  // 🌅 海蓝（暖橙日出↔深蓝）
+            '#1A4070', // 🐫 沙漠夜空蓝（沙棕骆驼↔深蓝，最强冷暖反差）
+            '#B02030', // 🦂 毒蝎血红（黑棕蝎↔大红警示）
+            '#6F1858', // 🌵 品红（绿仙人掌↔互补品红）
+            '#1A6048', // 🏜️ 绿洲深翠（沙丘↔翠绿绿洲水面）
+            '#4830B0', // 🪨 紫水晶（灰岩↔深紫宝石矿）
+            '#185878', // 🏺 陶青（赤陶罐自带橙红↔互补深青）
+            '#5C0F38', // 🛕 古寺暗酒红（米白寺↔深酒红夕阳）
+            '#1A6878'  // 🌅 朝霞青（暖橙日出↔深青绿洲水）
         ],
-        gridOuter:   '#0A0E1A',
-        gridCell:    '#161E2E',
+        gridOuter:   '#A88838',
+        gridCell:    '#F0E0B0',
         gridGap:     1,
         blockInset:  2,
-        blockRadius: 6,
+        blockRadius: 7,
         blockStyle:  'glossy',
-        clearFlash:  'rgba(232,184,80,0.50)',
-        cssBg:       '#06080F',
-        uiDark:      true,
+        clearFlash:  'rgba(255,235,170,0.85)',
+        cssBg:       '#E8C878',
         cssVars: {
-            '--accent-color': '#E8B860',
-            '--accent-dark':  '#D8A050',
-            '--h1-color':     '#FFD890'
+            '--text-primary':     '#1F1810',
+            '--text-secondary':   '#5C4A20',
+            '--accent-color':     '#B07820',
+            '--accent-dark':      '#886000',
+            '--shadow':           'rgba(0,0,0,0.14)',
+            '--h1-color':         '#5C3A0E',
+            '--stat-surface':     'rgba(255,248,220,0.92)',
+            '--stat-label-color': '#6A5028',
+            '--select-bg':        '#FFF4D8',
+            '--select-border':    'rgba(168,128,40,0.28)'
         }
     },
 };

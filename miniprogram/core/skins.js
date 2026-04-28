@@ -177,13 +177,13 @@ const SKINS = {
       "#FF8FA0",
       "#FFB870"
     ],
-    "gridOuter": "#160A14",
-    "gridCell": "#261424",
+    "gridOuter": "#241019",
+    "gridCell": "#341628",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 6,
     "blockStyle": "glossy",
-    "clearFlash": "rgba(255,200,150,0.40)"
+    "clearFlash": "rgba(255,200,150,0.42)"
   },
   "lava": {
     "id": "lava",
@@ -219,13 +219,13 @@ const SKINS = {
       "#FFBA30",
       "#58D890"
     ],
-    "gridOuter": "#180810",
-    "gridCell": "#280C1C",
+    "gridOuter": "#241018",
+    "gridCell": "#321628",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 8,
     "blockStyle": "glass",
-    "clearFlash": "rgba(255,180,220,0.50)"
+    "clearFlash": "rgba(255,180,220,0.52)"
   },
   "koi": {
     "id": "koi",
@@ -281,8 +281,8 @@ const SKINS = {
       "🍭",
       "🧁"
     ],
-    "gridOuter": "#1A0828",
-    "gridCell": "#280E40",
+    "gridOuter": "#22082A",
+    "gridCell": "#321048",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 8,
@@ -561,13 +561,13 @@ const SKINS = {
       "#E020A0",
       "#9060E0"
     ],
-    "gridOuter": "#08041A",
-    "gridCell": "#120830",
+    "gridOuter": "#0E0428",
+    "gridCell": "#1A0838",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 7,
     "blockStyle": "glass",
-    "clearFlash": "rgba(160,80,255,0.40)"
+    "clearFlash": "rgba(160,80,255,0.42)"
   },
   "beast": {
     "id": "beast",
@@ -623,8 +623,8 @@ const SKINS = {
       "💘",
       "🦉"
     ],
-    "gridOuter": "#08080E",
-    "gridCell": "#10101C",
+    "gridOuter": "#040A18",
+    "gridCell": "#0A1228",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 7,
@@ -654,13 +654,13 @@ const SKINS = {
       "☠️",
       "😈"
     ],
-    "gridOuter": "#0A0412",
-    "gridCell": "#180828",
+    "gridOuter": "#160408",
+    "gridCell": "#280A12",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 5,
     "blockStyle": "glass",
-    "clearFlash": "rgba(200,20,30,0.45)"
+    "clearFlash": "rgba(220,30,40,0.48)"
   },
   "jurassic": {
     "id": "jurassic",
@@ -685,8 +685,8 @@ const SKINS = {
       "🐊",
       "🐍"
     ],
-    "gridOuter": "#080E04",
-    "gridCell": "#101A08",
+    "gridOuter": "#0E1A06",
+    "gridCell": "#1A2A0E",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 5,
@@ -716,8 +716,8 @@ const SKINS = {
       "🌈",
       "🧚"
     ],
-    "gridOuter": "#100820",
-    "gridCell": "#1A1030",
+    "gridOuter": "#1F0E2C",
+    "gridCell": "#2C1640",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 9,
@@ -916,11 +916,11 @@ const SKINS = {
     "blockColors": [
       "#B02838",
       "#1A488F",
-      "#2A7038",
+      "#2A6028",
       "#1A6E9F",
       "#8E2070",
       "#B82038",
-      "#1F6038",
+      "#5C2818",
       "#4830B0"
     ],
     "blockIcons": [
@@ -933,26 +933,26 @@ const SKINS = {
       "🥕",
       "🍎"
     ],
-    "gridOuter": "#B89668",
-    "gridCell": "#F5EDD8",
+    "gridOuter": "#5C8C42",
+    "gridCell": "#E8F2D8",
     "gridGap": 1,
     "blockInset": 1,
     "blockRadius": 9,
     "blockStyle": "cartoon",
-    "clearFlash": "rgba(255,235,170,0.88)"
+    "clearFlash": "rgba(220,255,180,0.88)"
   },
   "desert": {
     "id": "desert",
     "name": "🐫 沙漠绿洲",
     "blockColors": [
-      "#1F5870",
-      "#E8B860",
-      "#D8A050",
-      "#2A8068",
-      "#C46838",
-      "#2A6048",
-      "#6038A8",
-      "#1F4870"
+      "#1A4070",
+      "#B02030",
+      "#6F1858",
+      "#1A6048",
+      "#4830B0",
+      "#185878",
+      "#5C0F38",
+      "#1A6878"
     ],
     "blockIcons": [
       "🐫",
@@ -964,13 +964,13 @@ const SKINS = {
       "🛕",
       "🌅"
     ],
-    "gridOuter": "#0A0E1A",
-    "gridCell": "#161E2E",
+    "gridOuter": "#A88838",
+    "gridCell": "#F0E0B0",
     "gridGap": 1,
     "blockInset": 2,
-    "blockRadius": 6,
+    "blockRadius": 7,
     "blockStyle": "glossy",
-    "clearFlash": "rgba(232,184,80,0.50)"
+    "clearFlash": "rgba(255,235,170,0.85)"
   }
 };
 

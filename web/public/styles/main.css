@@ -856,9 +856,7 @@ body.block-drag-active #app {
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.015em;
     line-height: 1;
-    text-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.72),
-        0 0 10px color-mix(in srgb, var(--accent-color, #3498db) 22%, transparent);
+    text-shadow: none;
 }
 
 .progression-hud {
