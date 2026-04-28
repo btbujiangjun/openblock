@@ -2159,6 +2159,9 @@ _DOC_CATEGORIES = [
     # 8. 平台扩展
     {'name': '平台扩展',
      'docs': ['WECHAT_MINIPROGRAM.md']},
+    # 9. 视觉与皮肤
+    {'name': '视觉与皮肤',
+     'docs': ['SKINS_CATALOG.md']},
 ]
 
 

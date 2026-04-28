@@ -97,12 +97,12 @@ const SKINS = {
     "blockIcons": [
       "🦌",
       "🐧",
-      "🐟",
       "🐋",
-      "🦭",
+      "❄️",
+      "🌌",
       "🐻‍❄️",
-      "🦊",
-      "🦅"
+      "🦭",
+      "🏔️"
     ],
     "gridOuter": "#04101C",
     "gridCell": "#0C1C2E",
@@ -150,11 +150,11 @@ const SKINS = {
       "🐙",
       "🦞",
       "🐡",
-      "🦑",
-      "🐠",
+      "🪸",
+      "🐚",
       "🐳",
       "🦈",
-      "🦭"
+      "🦑"
     ],
     "gridOuter": "#040E18",
     "gridCell": "#081C28",
@@ -241,14 +241,14 @@ const SKINS = {
       "#D0A858"
     ],
     "blockIcons": [
-      "🐟",
-      "🦈",
+      "🎋",
+      "🌊",
       "🪷",
-      "🎏",
-      "🐡",
-      "🐙",
-      "🐠",
-      "🎐"
+      "⛩️",
+      "🐟",
+      "🏮",
+      "🎐",
+      "🎏"
     ],
     "gridOuter": "#040E18",
     "gridCell": "#081C2C",
@@ -272,14 +272,14 @@ const SKINS = {
       "#22E8CC"
     ],
     "blockIcons": [
+      "🍪",
+      "🎀",
+      "🍫",
+      "🍰",
+      "🍩",
       "🍬",
       "🍭",
-      "🧁",
-      "🍫",
-      "🌈",
-      "🍰",
-      "🍦",
-      "🎀"
+      "🧁"
     ],
     "gridOuter": "#1A0828",
     "gridCell": "#280E40",
@@ -303,13 +303,13 @@ const SKINS = {
       "#12C4E8"
     ],
     "blockIcons": [
-      "🐳",
-      "🦩",
-      "🦑",
       "🐬",
-      "🦀",
+      "🦩",
+      "🪼",
       "🌿",
+      "🦀",
       "🐢",
+      "🫧",
       "🦐"
     ],
     "gridOuter": "#2A1048",
@@ -334,14 +334,14 @@ const SKINS = {
       "#00BCD4"
     ],
     "blockIcons": [
-      "🦊",
-      "🦋",
-      "🐻",
-      "🐬",
-      "🐥",
-      "🦄",
-      "🦁",
-      "🦜"
+      "🐼",
+      "🐨",
+      "🐘",
+      "🦒",
+      "🦛",
+      "🦔",
+      "🦘",
+      "🦄"
     ],
     "gridOuter": "#2A1860",
     "gridCell": "#3A2478",
@@ -365,8 +365,8 @@ const SKINS = {
       "#90E000"
     ],
     "blockIcons": [
-      "⚡",
-      "💥",
+      "💣",
+      "🪙",
       "🥊",
       "🎮",
       "👊",
@@ -440,11 +440,11 @@ const SKINS = {
     "blockIcons": [
       "🥑",
       "🍣",
-      "🍩",
+      "🍞",
       "🍕",
-      "🎂",
-      "🍦",
+      "🌮",
       "🍔",
+      "🥩",
       "🍜"
     ],
     "gridOuter": "#18100A",
@@ -501,12 +501,12 @@ const SKINS = {
     ],
     "blockIcons": [
       "🐰",
-      "🐸",
-      "🦜",
-      "🐱",
-      "🐢",
-      "🐹",
       "🐠",
+      "🐦",
+      "🐱",
+      "🦎",
+      "🐹",
+      "🐭",
       "🐶"
     ],
     "gridOuter": "#C0B090",
@@ -583,13 +583,13 @@ const SKINS = {
       "#40A0D8"
     ],
     "blockIcons": [
-      "🦏",
       "🐺",
-      "🐆",
-      "🦁",
-      "🦈",
-      "🦅",
+      "🦏",
       "🐯",
+      "🦁",
+      "🐗",
+      "🦅",
+      "🐆",
       "🐻"
     ],
     "gridOuter": "#150C04",
@@ -614,14 +614,14 @@ const SKINS = {
       "#7860E0"
     ],
     "blockIcons": [
-      "☠️",
+      "🔱",
       "☀️",
       "🍷",
-      "🔱",
-      "🦉",
+      "🦚",
       "⚡",
+      "🏹",
       "💘",
-      "🌙"
+      "🦉"
     ],
     "gridOuter": "#08080E",
     "gridCell": "#10101C",
@@ -645,14 +645,14 @@ const SKINS = {
       "#20D848"
     ],
     "blockIcons": [
-      "😈",
-      "👿",
-      "💀",
-      "☠️",
       "👁️",
-      "🦇",
       "⚔️",
-      "🕷️"
+      "💀",
+      "🕷️",
+      "🦇",
+      "👹",
+      "☠️",
+      "😈"
     ],
     "gridOuter": "#0A0412",
     "gridCell": "#180828",
@@ -677,7 +677,7 @@ const SKINS = {
     ],
     "blockIcons": [
       "🥚",
-      "🐢",
+      "🌋",
       "🦕",
       "🦴",
       "🐉",
@@ -707,14 +707,14 @@ const SKINS = {
       "#40D0E8"
     ],
     "blockIcons": [
-      "🍄",
+      "🌻",
       "🦋",
-      "🌸",
+      "🌹",
       "🍃",
       "🪄",
-      "🌻",
-      "🧚",
-      "🌈"
+      "🌷",
+      "🌈",
+      "🧚"
     ],
     "gridOuter": "#100820",
     "gridCell": "#1A1030",
@@ -723,6 +723,254 @@ const SKINS = {
     "blockRadius": 9,
     "blockStyle": "glass",
     "clearFlash": "rgba(240,150,240,0.52)"
+  },
+  "industrial": {
+    "id": "industrial",
+    "name": "⚙️ 古典工业",
+    "blockColors": [
+      "#D49640",
+      "#C04030",
+      "#B86838",
+      "#4F9080",
+      "#B07840",
+      "#B89060",
+      "#6878A0",
+      "#D4A848"
+    ],
+    "blockIcons": [
+      "⚙️",
+      "🔧",
+      "🔩",
+      "🛠️",
+      "⛓️",
+      "🚂",
+      "🏭",
+      "⚒️"
+    ],
+    "gridOuter": "#0E0904",
+    "gridCell": "#1A140C",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 4,
+    "blockStyle": "metal",
+    "clearFlash": "rgba(232,176,80,0.50)"
+  },
+  "forbidden": {
+    "id": "forbidden",
+    "name": "👑 北京皇城",
+    "blockColors": [
+      "#C8222C",
+      "#1B7E5C",
+      "#1F4FA0",
+      "#D8CCB0",
+      "#E8B83C",
+      "#2E7088",
+      "#B8732C",
+      "#E84068"
+    ],
+    "blockIcons": [
+      "🐲",
+      "👑",
+      "🪭",
+      "🧧",
+      "🥮",
+      "🀄",
+      "📜",
+      "🍵"
+    ],
+    "gridOuter": "#1C0608",
+    "gridCell": "#2A0E12",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 6,
+    "blockStyle": "glossy",
+    "clearFlash": "rgba(232,184,60,0.52)"
+  },
+  "sports": {
+    "id": "sports",
+    "name": "⚽ 运动竞技",
+    "blockColors": [
+      "#4F9050",
+      "#2858B0",
+      "#C04848",
+      "#905028",
+      "#2090C8",
+      "#587830",
+      "#6038A0",
+      "#C82838"
+    ],
+    "blockIcons": [
+      "⚽",
+      "🏀",
+      "⚾",
+      "🎾",
+      "🏐",
+      "🏈",
+      "🥎",
+      "🏆"
+    ],
+    "gridOuter": "#0A1408",
+    "gridCell": "#0F1C0A",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 8,
+    "blockStyle": "glossy",
+    "clearFlash": "rgba(255,235,80,0.55)"
+  },
+  "vehicles": {
+    "id": "vehicles",
+    "name": "🏎️ 极速引擎",
+    "blockColors": [
+      "#8090A0",
+      "#2860C8",
+      "#E84020",
+      "#3E7E40",
+      "#1E70A8",
+      "#E8C828",
+      "#404858",
+      "#6840B0"
+    ],
+    "blockIcons": [
+      "🏎️",
+      "✈️",
+      "🚀",
+      "🚁",
+      "🚢",
+      "🛵",
+      "🚥",
+      "🚌"
+    ],
+    "gridOuter": "#0E1218",
+    "gridCell": "#161E2C",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 5,
+    "blockStyle": "metal",
+    "clearFlash": "rgba(255,180,40,0.45)"
+  },
+  "forest": {
+    "id": "forest",
+    "name": "🌳 山林秘境",
+    "blockColors": [
+      "#8B5828",
+      "#D87838",
+      "#D4A848",
+      "#4F8048",
+      "#2A6038",
+      "#B0386D",
+      "#38A878",
+      "#5090C8"
+    ],
+    "blockIcons": [
+      "🌳",
+      "🌲",
+      "🌴",
+      "🍁",
+      "🍂",
+      "🌾",
+      "🪵",
+      "🪺"
+    ],
+    "gridOuter": "#06140A",
+    "gridCell": "#0E2010",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 7,
+    "blockStyle": "glossy",
+    "clearFlash": "rgba(180,255,160,0.45)"
+  },
+  "pirate": {
+    "id": "pirate",
+    "name": "⚓ 海盗航行",
+    "blockColors": [
+      "#B02020",
+      "#D8C4A0",
+      "#2A6890",
+      "#6E4828",
+      "#14406F",
+      "#2E6F45",
+      "#8C2858",
+      "#C8923C"
+    ],
+    "blockIcons": [
+      "⚓",
+      "🏴‍☠️",
+      "🪝",
+      "🦜",
+      "⛵",
+      "🗺️",
+      "🧭",
+      "💎"
+    ],
+    "gridOuter": "#04101F",
+    "gridCell": "#0A1F32",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 6,
+    "blockStyle": "glass",
+    "clearFlash": "rgba(255,200,80,0.45)"
+  },
+  "farm": {
+    "id": "farm",
+    "name": "🐄 田园农场",
+    "blockColors": [
+      "#B02838",
+      "#1A488F",
+      "#2A7038",
+      "#1A6E9F",
+      "#8E2070",
+      "#B82038",
+      "#1F6038",
+      "#4830B0"
+    ],
+    "blockIcons": [
+      "🐄",
+      "🐖",
+      "🐑",
+      "🐔",
+      "🐣",
+      "🌽",
+      "🥕",
+      "🍎"
+    ],
+    "gridOuter": "#B89668",
+    "gridCell": "#F5EDD8",
+    "gridGap": 1,
+    "blockInset": 1,
+    "blockRadius": 9,
+    "blockStyle": "cartoon",
+    "clearFlash": "rgba(255,235,170,0.88)"
+  },
+  "desert": {
+    "id": "desert",
+    "name": "🐫 沙漠绿洲",
+    "blockColors": [
+      "#1F5870",
+      "#E8B860",
+      "#D8A050",
+      "#2A8068",
+      "#C46838",
+      "#2A6048",
+      "#6038A8",
+      "#1F4870"
+    ],
+    "blockIcons": [
+      "🐫",
+      "🦂",
+      "🌵",
+      "🏜️",
+      "🪨",
+      "🏺",
+      "🛕",
+      "🌅"
+    ],
+    "gridOuter": "#0A0E1A",
+    "gridCell": "#161E2E",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 6,
+    "blockStyle": "glossy",
+    "clearFlash": "rgba(232,184,80,0.50)"
   }
 };
 

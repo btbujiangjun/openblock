@@ -511,7 +511,7 @@ node --check miniprogram/core/skins.js
 node --check miniprogram/pages/game/game.js
 ```
 
-当前小程序已对齐的 Web 能力包括：26 款皮肤（含 `blockIcons`）、20 关关卡包、同色/同 icon bonus 计分、完整消行动画链，以及出块危险态保命策略。
+当前小程序已对齐的 Web 能力包括：34 款皮肤（其中 24 款带 `blockIcons`，全局 192 个 emoji 唯一）、20 关关卡包、同色/同 icon bonus 计分、完整消行动画链，以及出块危险态保命策略。皮肤详情见 [SKINS_CATALOG.md](./SKINS_CATALOG.md)。
 
 适配器接口参见 [WECHAT_MINIPROGRAM.md](./WECHAT_MINIPROGRAM.md)。
 
