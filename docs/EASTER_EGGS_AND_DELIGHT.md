@@ -767,6 +767,152 @@ function _installAimListener() {
 
 ---
 
+## 9.5.11 v10.17.1（2026-04-29 补充）：成就 toast 艺术化 + 同 icon 爆炸减量
+
+> 用户反馈：
+> 1）"用户成就达成样式太朴实，采用冲击力更强、图案化、艺术化的样式"
+> 2）"同 icon 消除时，爆炸飞出的 icon 数量过多，适度减少数量"
+
+### 背景与定位
+
+| 反馈点 | 影响范围 | 改造方式 |
+|---|---|---|
+| 成就样式朴实 | 12+ 庆贺触发点共用 `#easter-egg-toast[data-tier="celebrate"]` | **CSS-only 重写**（不改 12 个调用方 JS） |
+| 同 icon 爆炸过密 | `renderer.js` 的 `beginBonusIconGush` / `_tickIconGushSpawn` / `addIconParticles` | 三档调参，emoji 粒子降量 ~40%，色块粒子保留 |
+
+**触发该样式的 12 个庆贺点**：Konami 彩蛋 / 首解皮肤 / 极限成就 / 段位升级 / 月度里程碑 / wow moments / 皮肤碎片解锁 / 复盘里程碑 / 每日特餐 / 首胜加分 / 季节宝箱 / 连登勋章。
+
+### 9.5.11.A celebrate toast 艺术化（CSS-only）
+
+**升级前**：单层深色背景 + 1px 主题色 inset 边框 + scale(0.86→1) 入场，"中心大字 + 微弱光晕"，所有皮肤统一表现。
+
+**v10.17.1 升级**：
+
+| 元素 | 升级前 | v10.17.1 |
+|---|---|---|
+| 入场动画 | scale 0.86→1 线性 | scale 0.78→1 + rotate(-1°→0°)，弹性曲线 `cubic-bezier(0.18,0.89,0.32,1.4)` |
+| 背景 | 单色 `rgba(18,18,28,.92)` | 三层叠加：中心暖光斑径向渐变 + 底部主题色微晕 + 玻璃底色，加 `backdrop-filter: blur(14px) saturate(160%)` |
+| 边框 | 1px 主题色 inset | 4 层 box-shadow：黑描边间隔（4px）→ 主题色金边（5px）→ 阴影沉降 → 110px 整体光晕扩散 |
+| 光线放射 | 无 | `::before` 12 道 conic-gradient 金色光线呈圆周分布，10s 缓慢自转，is-visible 时淡入到 0.85 透明 |
+| icon 字 | 30px 静态 | **56px** + 心跳动画 `scale(1→1.10) + rotate(-4°→4°)` 1.4s 循环 + 22px `drop-shadow` 主题色光晕 |
+| 标题字 | 17px 等距 | **24px 衬线（STKaiti / KaiTi）** + `background-clip: text` 三段渐变金字（白→主题色→深金）+ 闪烁动画（光晕 6→16px 呼吸） |
+| 描述字 | 默认 | 13px 浅色 + 字距 0.06em + 阴影 |
+| textContent 兜底 | 无 | celebrate 整体 `font-size: 22px / font-weight: 800 / 衬线`（让 firstUnlockCelebration 等无 inner div 的模块也艺术化） |
+| 无障碍 | 仅 `transition: none` | 同时关闭 `::before` 旋转 / icon 心跳 / 标题闪烁三类无限循环动画 |
+
+#### CSS 关键片段
+
+```css
+/* 旋转金色光线放射 — 12 道沿圆周分布 */
+#easter-egg-toast[data-tier="celebrate"]::before {
+    content: '';
+    position: absolute;
+    inset: -45%;
+    z-index: -2;
+    border-radius: 50%;
+    background: conic-gradient(
+        from 0deg,
+        transparent 0deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 28%, transparent) 5deg,
+        transparent 12deg,
+        /* ... 共 12 道光线，每 30° 一组 ... */
+    );
+    animation: celebrate-rays 10s linear infinite;
+    opacity: 0;
+    filter: blur(3px);
+    transition: opacity 0.6s ease;
+}
+#easter-egg-toast[data-tier="celebrate"].is-visible::before {
+    opacity: 0.85;
+}
+
+/* 标题字渐变金 + 光晕呼吸 */
+#easter-egg-toast[data-tier="celebrate"] > div:nth-child(2) {
+    font-family: 'STKaiti', 'KaiTi', 'Songti SC', 'STSong', serif !important;
+    font-size: 24px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.16em !important;
+    background: linear-gradient(180deg,
+        #fff 0%,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 40%, #fff) 35%,
+        var(--accent-color, #fbbf24) 65%,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 80%, #92400e) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-color, #fbbf24) 65%, transparent))
+            drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+    animation: celebrate-title-shimmer 2.4s ease-in-out infinite alternate;
+}
+
+/* icon 字心跳脉动 + 摇摆 */
+#easter-egg-toast[data-tier="celebrate"] > div:nth-child(1) {
+    font-size: 56px !important;
+    line-height: 1 !important;
+    margin: 0 0 12px !important;
+    animation: celebrate-icon-pulse 1.4s ease-in-out infinite alternate;
+    filter: drop-shadow(0 0 22px color-mix(in srgb, var(--accent-color, #fbbf24) 75%, transparent))
+            drop-shadow(0 4px 8px rgba(0, 0, 0, 0.55));
+}
+@keyframes celebrate-icon-pulse {
+    from { transform: scale(1) rotate(-4deg); }
+    to   { transform: scale(1.10) rotate(4deg); }
+}
+```
+
+#### 选择器策略
+
+12 个调用方都遵循"icon-title-body"3-div 模板（`firstWinBoost` 是 2-div、`monthlyMilestone` 含 unlockedSkin 时也是 3-div），所以用 `> div:nth-child(N)` 精准命中各部分；纯 `textContent` 模式（`firstUnlockCelebration` / `extremeAchievements` / `easterEggs`）则继承 celebrate 整体 22px 衬线兜底字号。**12 个 JS 调用方零改动**。
+
+#### 移动端适配
+
+```css
+@media (max-width: 480px) {
+    #easter-egg-toast[data-tier="celebrate"] { padding: 22px 36px 18px; min-width: 240px; }
+    #easter-egg-toast[data-tier="celebrate"] > div:nth-child(1) { font-size: 44px !important; }
+    #easter-egg-toast[data-tier="celebrate"] > div:nth-child(2) { font-size: 20px !important; letter-spacing: 0.12em !important; }
+    #easter-egg-toast[data-tier="celebrate"]::before { inset: -30%; }
+}
+```
+
+### 9.5.11.B 同 icon 爆炸粒子减量（renderer.js）
+
+**问题**：`beginBonusIconGush` 首帧产生 60 个 emoji 粒子 + `_tickIconGushSpawn` 持续涌出 cap 560，导致 emoji 飞满屏，遮挡盘面 + 与色块粒子叠加视觉过重。
+
+**调整**：emoji 粒子整体降 40%，色块粒子（`addBonusLineBurst` 144 个）保留。
+
+| 函数 | 旧值 | v10.17.1 | 降幅 |
+|---|---|---|---|
+| `beginBonusIconGush` 首帧 emoji 爆炸 | 60 | **36** | -40% |
+| `_tickIconGushSpawn` 在屏 emoji cap | 560 | **320** | -43% |
+| `_tickIconGushSpawn` 早期 rolls | 86%概率 3 个 / 14% 2 个 | 70%概率 2 个 / 30% 1 个 | -40% |
+| `_tickIconGushSpawn` 中期 rolls | 62%概率 2 个 / 38% 1 个 | 55%概率 1 个 / 45% 0 个 | -55% |
+| `_tickIconGushSpawn` 末期 rolls | 42%概率 1 个 | 30%概率 1 个 | -28% |
+| `addIconParticles` 默认 count | 40 | **24** | -40% |
+
+#### 取舍说明
+
+- **保留色块爆炸（`addBonusLineBurst` 144 个）**：72 主粒子 + 36 高速碎屑 + 36 金色火花仍提供"满屏火花"基础冲击力
+- **emoji 粒子定位为"主题彩头"而非"主体特效"**：原 60 + 持续涌出 cap 560 让 emoji 喧宾夺主，36 + cap 320 仍能营造"飞翔感"但不挡盘面
+- **小程序端无该代码**：`miniprogram/utils/renderer.js` 不实现 `beginBonusIconGush`，本次仅 web 端调整
+
+### 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | 重写 `#easter-egg-toast[data-tier="celebrate"]`（约 +130 行）：旋转光线 + 双边框 + 渐变金字 + 心跳 icon + 衬线字体 + 移动端适配 + reduced-motion 三类动画关闭 |
+| `web/src/renderer.js` | `beginBonusIconGush` 60→36 / `_tickIconGushSpawn` cap 560→320 + rolls 三档下调 / `addIconParticles` 默认 24 |
+
+### 验收
+
+- ✅ Vitest 557/557 全过（无新增测试 — 视觉调整）
+- ✅ ESLint 0 errors / 0 warnings（renderer.js 改动文件）
+- ✅ 12 个庆贺触发点统一升级（无需逐个修改 JS）
+- ✅ 同 icon 爆炸视觉密度从"满屏 emoji 雪花"→"清爽冲击 + 持续余韵"
+- ✅ 无障碍：`prefers-reduced-motion` 用户禁用所有循环动画
+
+---
+
 ### 9.6 验收 checklist
 
 - [ ] 进入游戏 → 弹 7 日签到（首次进入）
@@ -790,5 +936,7 @@ function _installAimListener() {
 - [ ] 皮肤选择面板旁新增 📖 按钮 → 打开剧情图鉴
 - [ ] 控制台 `__wallet.getBalance('hintToken')` 返回数值
 - [ ] 控制台 `__bgm.isImplemented()` 返回 false（骨架占位）
-- [ ] `npm test` 全过（v10.16.6 起 536/536）+ `npm run lint` 0 新错
+- [ ] `npm test` 全过（v10.17 起 557/557 / v10.17.1 起仍 557/557）+ `npm run lint` 0 新错
+- [ ] 触发任意 celebrate（如 `__wowMoments.fire('first-perfect')`）→ 中央卡片入场带摇摆 + icon 心跳 + 标题金色渐变 + 12 道光线缓慢自转
+- [ ] 同 icon 整行清除 → emoji 粒子飞翔感保留但不再"满屏雪花"，色块爆炸不变
 

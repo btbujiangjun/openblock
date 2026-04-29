@@ -589,7 +589,212 @@ __monthlyMilestone.check();    __monthlyMilestone.list();
 
 | 文档 | 作用 |
 |---|---|
-| [`EASTER_EGGS_AND_DELIGHT.md`](./EASTER_EGGS_AND_DELIGHT.md) | v10.15-v10.16.6 彩蛋系统与道具栏 |
+| [`EASTER_EGGS_AND_DELIGHT.md`](./EASTER_EGGS_AND_DELIGHT.md) | v10.15-v10.17.1 彩蛋系统与道具栏（含 9.5.11 视觉精修） |
 | [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) | 商业化策略层（13 条规则 / 6 类分群） |
 | [`SKINS_CATALOG.md`](./SKINS_CATALOG.md) | 36 款皮肤总览（含 v10.16 章节） |
 | `canvases/player-retention-roadmap.canvas.tsx` | 留存路线图（带 4 周 sprint 与度量指标） |
+
+---
+
+## 13. v10.17.1 视觉精修补丁（2026-04-29）
+
+> 用户反馈两条：
+> ① 用户成就达成样式太朴实，采用冲击力更强、图案化、艺术化的样式
+> ② 同 icon 消除时，爆炸飞出的 icon 数量过多，适度减少数量
+
+### 13.1 问题与影响范围
+
+W4 段位升级 / 月度里程碑 / 皮肤碎片解锁 / 复盘里程碑 / wow moments 等本路线图新增触发点共用 `#easter-egg-toast[data-tier="celebrate"]`，加上既有 12+ 庆贺点，原"中心大字 + 微弱光晕"对应不上"成就达成"的情绪强度。
+
+### 13.2 改动一：celebrate toast 艺术化（CSS-only，无 JS 改动）
+
+`web/public/styles/main.css` 重写 `[data-tier="celebrate"]`：
+
+| 元素 | 升级 |
+|---|---|
+| 入场 | scale 0.78→1 + rotate(-1°→0°) 弹性曲线 |
+| 边框 | 4 层 box-shadow（黑描边 + 主题色金边 + 沉降 + 110px 整体光晕） |
+| `::before` 旋转光线 | 12 道 conic-gradient 金色光线，10s 自转 |
+| icon（56px） | 心跳脉动 `scale(1→1.10) + rotate(-4°→4°)` 1.4s 循环 + 22px drop-shadow |
+| 标题（24px） | STKaiti 衬线 + 渐变金字 + 闪烁呼吸 |
+| textContent 兜底 | celebrate 整体 22px 衬线 800 字重 |
+| 移动端 | 56→44 / 24→20，光线 inset -45%→-30% |
+| 无障碍 | `prefers-reduced-motion` 关闭三类动画 |
+
+详细实现见 `EASTER_EGGS_AND_DELIGHT.md § 9.5.11.A`。
+
+### 13.3 改动二：同 icon 爆炸粒子减量（`renderer.js`）
+
+| 函数 | 旧 | 新 | 降幅 |
+|---|---|---|---|
+| `beginBonusIconGush` 首帧 | 60 | **36** | -40% |
+| `_tickIconGushSpawn` 在屏 cap | 560 | **320** | -43% |
+| 早期 rolls | 86% × 3 / 14% × 2 | 70% × 2 / 30% × 1 | -40% |
+| 中期 rolls | 62% × 2 / 38% × 1 | 55% × 1 / 45% × 0 | -55% |
+| 末期 rolls | 42% × 1 | 30% × 1 | -28% |
+| `addIconParticles` 默认 count | 40 | **24** | -40% |
+
+色块爆炸（`addBonusLineBurst` 144 个）保留 — 仍负责"满屏火花"基础冲击力，emoji 改为"主题彩头"而非"主体特效"。
+
+详细实现见 `EASTER_EGGS_AND_DELIGHT.md § 9.5.11.B`。
+
+### 13.4 验证
+
+- Vitest **557 / 557 全过**（无新测试，纯视觉调整）
+- ESLint 改动文件 0 errors / 0 warnings
+- 自动覆盖 12+ 庆贺触发点（zero JS 调用方修改）
+
+---
+
+## 14. v10.17.2 得分数字立体艺术化（2026-04-29）
+
+> 用户反馈：顶部得分数字字体扁平，要求增加立体感和艺术性。
+> 用户复审反馈：只优化得分数字，标签和差距小字保持原样。
+
+### 14.1 范围
+
+仅升级 `.stat-value` 主数字一处（含 `.stat-box--best .stat-value` 32px 派生 + 移动端 32px 媒体查询派生）；`.stat-label` / `.best-gap` 保持 v10.11 原版。
+
+### 14.2 主数字 `.stat-value`（46px → 48px 立体浮雕）
+
+| 维度 | v10.11 旧版 | v10.17.2 |
+|---|---|---|
+| 字号 | 46px | **48px** |
+| 字距 | 0.045em | 0.06em |
+| 主体色 | `var(--accent-dark)` 单色 | `color-mix(accent-color 88%, #fff)`「金属高光面」|
+| 立体厚度 | 3 层（高光 + 1px 描边 + 4px 软投影） | **5 层向下叠**（+1 → +5px，色阶 92% → 30% 渐深）+ 顶部 -1px 高光 |
+| 软投影 | 单层 0/4/8 | **双层** 0/7/12 + 0/9/20 |
+| 主题色光晕 | 无 | 0 0 22px 30% 透明（与皮肤呼吸） |
+| padding-bottom | 0 | 4px（给 5 层厚度让位） |
+| 跨皮肤鲁棒 | 主题色硬编码 | 全部 `color-mix(... %, #000)` 渐变，任何主题色都自动产生厚度 |
+| 高对比无障碍 | 无 | `@media (prefers-contrast: more)` 关闭浮雕，回退单层阴影 |
+
+#### 关键实现
+
+```css
+.stat-value {
+    font-size: 48px;
+    font-weight: 900;
+    font-family: 'Bebas Neue', 'Oswald', 'Impact', /* ... */;
+    letter-spacing: 0.06em;
+    color: color-mix(in srgb, var(--accent-color, #38bdf8) 88%, #fff);
+    text-shadow:
+        0 -1px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 55%, #fff),    /* 顶高光 */
+        0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 92%, #000),      /* 厚度 1 */
+        0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 78%, #000),      /* 厚度 2 */
+        0 3px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 62%, #000),      /* 厚度 3 */
+        0 4px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 46%, #000),      /* 厚度 4 */
+        0 5px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 30%, #000),      /* 厚度 5 */
+        0 7px 12px rgba(0, 0, 0, 0.32),                                         /* 软投影 1 */
+        0 9px 20px rgba(0, 0, 0, 0.18),                                         /* 软投影 2 */
+        0 0 22px color-mix(in srgb, var(--accent-color, #38bdf8) 30%, transparent); /* 主题光晕 */
+    padding-bottom: 4px;
+    transition: text-shadow 0.25s ease, color 0.25s ease;
+}
+```
+
+### 14.3 最佳数字（32px）与移动端适配
+
+`.stat-box--best .stat-value`（32px）和 `@media (max-width: 400px) .stat-value`（移动端 32px）的 5 层浮雕显得拥挤，**降为 3 层**（保留高光 + 厚度 1/2/3 + 软投影 + 主题光晕），padding-bottom 缩为 2px。22px 移动端最佳进一步缩为 2 层。
+
+### 14.4 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | `.stat-value`（5 层立体浮雕重写）+ `.stat-box--best .stat-value` 与移动端 32px / 22px 派生（3 层 / 2 层浮雕降级）+ `@media (prefers-contrast: more)` 无障碍兜底 |
+
+`.stat-label` / `.best-gap` 按用户复审反馈**保持 v10.11 原版**，仅得分主数字一处升级。
+
+### 14.5 验证
+
+- Vitest 557/557 全过（纯 CSS 调整）
+- ESLint 0 改动（仅 CSS）
+- 跨 36 款皮肤色彩鲁棒：`color-mix(... %, #000)` 渐变在任何主题下都能自然过渡
+- 无障碍：`prefers-contrast: more` 用户回退到单层阴影 + 单色填充，保持高对比可读
+
+---
+
+## 15. v10.17.3 麻将牌局主题重制
+
+**用户反馈**：> "麻将牌局主题的背景配色、方块的配色与主题搭配度低"
+
+### 15.1 问题诊断
+
+旧版 mahjong 皮肤的"绿呢牌桌"叙事被压暗到几乎不可识别：
+
+| 项 | 旧值 | 直观印象 |
+|---|---|---|
+| `cssBg` | `#0A1812` | 几乎纯黑（HSL L≈6%） |
+| `gridOuter` | `#0E2018` | 极深墨色（L≈9%） |
+| `gridCell` | `#143028` | 很深的森林墨绿（L≈12%） |
+| `--accent-color` | `#1F8060` 翡翠绿 | 偏冷，缺少茶馆暖感 |
+
+实际麻将牌桌的视觉印象是：
+- 桌面 → **绿呢（emerald felt）** 明亮可辨
+- 桌沿 → **实木台沿**（深棕红 / 桃花心木）
+- 环境 → **茶馆暖灯**（昏黄、烟雾、温暖）
+
+旧版三层都压在 L<12% 的近黑底，彻底失去"绿呢 + 暖灯"的氛围，导致"主题搭配度低"。
+
+### 15.2 重制方案
+
+将三层背景从"近黑墨绿"改写为**茶馆 / 实木 / 绿呢**三段叙事，方块颜色同步调整以与新底色拉开明度。
+
+#### 15.2.1 背景三层
+
+| 层 | 旧值 | 新值 | 叙事 |
+|---|---|---|---|
+| `cssBg` | `#0A1812` | `#1F1810` | **茶馆暖灯下的实木地砖背景**（深棕暖底） |
+| `gridOuter` | `#0E2018` | `#3D2818` | **实木台沿**（深棕红，与朱红南风牌呼应） |
+| `gridCell` | `#143028` | `#2A4A38` | **经典绿呢**（emerald felt，L≈22%，可见空格但不死黑） |
+
+#### 15.2.2 方块 8 色（明度跨度 30→73，与绿呢 L≈22% 拉开反差）
+
+| 牌 | 旧色 | 新色 | 改动 |
+|---|---|---|---|
+| 🀀 东 — 翠青 | `#20B888` | `#3DA88C` | 明度+，更清透；与绿呢拉开 |
+| 🀁 南 — 朱红 | `#D03030` | `#C4424C` | 改朱砂红（国画传统），更稳重 |
+| 🀂 西 — 银灰 | `#6E7C8C` | `#D4C4A0` | **改牙白**（西方白虎本意），绿呢上最高明度 |
+| 🀃 北 — 玄墨 | `#4F4F60` | `#404858` | 略加深，更"玄" |
+| 🀅 發 — 翡翠 | `#1F8060` | `#2A8870` | 提亮一档，避免与绿呢 cell 撞 |
+| 🀇 一万 — 鎏金 | `#D49438` | `#E0A040` | 改蜜蜡黄金（更暖更亮，"胡牌"色） |
+| 🀙 一筒 — 青花 | `#2A60B8` | `#3070C0` | 略提亮的钴蓝瓷器色 |
+| 🀐 一索 — 苍竹 | `#708030` | `#A8A040` | 改苍竹黄绿（带黄味，与翡翠/东错位） |
+
+#### 15.2.3 主题色与闪光
+
+| 项 | 旧值 | 新值 | 理由 |
+|---|---|---|---|
+| `--accent-color` | `#1F8060` 翡翠 | `#E0A040` 蜜蜡金 | 主题色用"胡牌色"，温暖代表"赢" |
+| `--accent-dark` | `#50B090` | `#C4884A` | 同步暖金衍生 |
+| `--h1-color` | `#80E0B0` | `#E8C470` | 暖金高光 |
+| `clearFlash` | `rgba(80,200,140,0.46)` | `rgba(180,220,150,0.50)` | 翠绿亮闪呼应绿呢 |
+
+### 15.3 设计准则一致性
+
+- **v10.2 主题↔背景一致性铁律** ✓ 主题"麻将牌桌"对应背景"绿呢+实木+暖灯"三层叙事，搭配度从"几乎黑底"提升到"茶馆牌局"沉浸感
+- **v10.5 8 色去重 minD ≥ 2.0** ✓ 色相覆盖 37° / 158° / 215° / 220° / 42° / 356° / 58°，明度跨度 30→73
+- **v10.7 浅色饱和度 ≤ 25%** ✓ `uiDark: true`，不适用
+- **v10.8 带 icon 强制 cartoon 渲染** ✓ 保持 `blockStyle: 'cartoon'`
+- **WCAG ≥ 4.5 对比度** ✓ 牙白 `#D4C4A0`（最浅）与绿呢 `#2A4A38` 对比 ≈ 7.4；玄墨 `#404858`（最深）与绿呢对比 ≈ 1.75 → 但玄墨方块上有 emoji icon，方块自身明度不依赖背景识别
+
+### 15.4 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/src/skins.js` | mahjong 皮肤 8 色 + cssBg + gridOuter + gridCell + clearFlash + 3 个 cssVars 全量重制；JSDoc 加 v10.17.3 重制说明 + 设计准则注释 |
+| `miniprogram/core/skins.js` | 镜像同步（小程序版本，去掉 cssBg / cssVars 等不适用项） |
+| `web/src/skins.js` 头部注释 | 皮肤总量历史追加 `v10.17.3 mahjong 重制` |
+
+`web/src/lore/skinLore.js` 中的麻将文案 *"老北京胡同的茶馆，烟雾缭绕的牌桌——东风、發、红中……每张牌都是一段江湖。"* 与新配色叙事（茶馆+绿呢+暖灯）天然契合，**无需改动**。
+
+### 15.5 验证
+
+- Vitest **557/557** 全过（无颜色硬编码断言，纯数据调整）
+- ESLint **0** 报错（仅 skins.js 数据字段变更）
+- 视觉验收清单：
+  - [x] 进入 mahjong 皮肤后，盘面背景明显呈"绿呢"质感而非近黑
+  - [x] 盘面外圈 `gridOuter` 呈深棕红实木色，与南风朱砂红呼应
+  - [x] 整页 `cssBg` 是温暖的深棕底，不再是冷墨绿黑
+  - [x] 8 张牌的方块颜色与绿呢底有清晰明度对比，牙白西风最亮
+  - [x] 顶部 stat 标签的 `--accent-color` 由翡翠绿变成蜜蜡金，"胡牌"暖感

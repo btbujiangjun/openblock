@@ -849,30 +849,52 @@ body.block-drag-active #app {
     font-weight: 600;
 }
 
-/* v10.11: 得分数字 — 更大、更瘦长、更艺术化
- * · font-size: 32 → 46px（比标题更具视觉权重）
- * · font-family: 优先 condensed/narrow 字体栈（Bebas Neue / Oswald 优先 web font，
- *   Impact / Helvetica Neue Condensed Bold / Avenir Next Condensed / Arial Narrow
- *   覆盖 Mac/iOS/Windows，sans-serif-condensed 覆盖 Android）
- * · letter-spacing: 0.015em → 0.045em（拉开间距增加优雅感）
- * · 三层 text-shadow：顶部 0.5 高光描边 + 1px 描边 + 4px 软投影，呈"立体烫印"效果
- * · 字内填充用 currentColor 维持主题色（accent-dark），与皮肤色彩体系联动
+/* v10.17.2: 得分数字立体艺术化升级
+ * · 字体栈保留 v10.11 的 condensed/narrow（Bebas Neue / Oswald / Impact / ...）
+ * · 主体色：略偏亮的"金属高光面"（accent-color 88% + #fff 12%）
+ * · 5 层向下叠厚度（+1 → +5px，色阶逐级变深）→ 经典浮雕烫印 3D 效果
+ * · 顶部 -1px 高光层 → 模拟字面顶部反光
+ * · 软落地阴影（0/7/12 + 0/9/18 双层柔和扩散）→ 数字像悬浮在卡片上
+ * · 主题色 22px 外发光晕 → 与皮肤色彩体系联动，得分变化时余韵更强
+ * · padding-bottom: 4px → 给 5 层厚度让位，避免被卡片边框截断
+ * · 跨皮肤鲁棒：用 color-mix(... %, #000) 渐变让任何主题色都能产生厚度
  */
 .stat-value {
-    font-size: 46px;
+    font-size: 48px;
     font-weight: 900;
-    color: var(--accent-dark);
     font-family: 'Bebas Neue', 'Oswald', 'Impact',
         'Helvetica Neue Condensed Bold', 'HelveticaNeue-CondensedBold',
         'Avenir Next Condensed Bold', 'AvenirNextCondensed-Bold',
         'Arial Narrow Bold', 'sans-serif-condensed', system-ui, sans-serif;
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.045em;
+    letter-spacing: 0.06em;
     line-height: 1;
+    /* 主体"金属面"亮色 */
+    color: color-mix(in srgb, var(--accent-color, #38bdf8) 88%, #fff);
     text-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.55),
-        0 2px 1px rgba(0, 0, 0, 0.08),
-        0 4px 8px rgba(0, 0, 0, 0.10);
+        /* 顶部高光 — 字面"反光" */
+        0 -1px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 55%, #fff),
+        /* 5 层向下叠厚度 — 浮雕 3D 主体 */
+        0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 92%, #000),
+        0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 78%, #000),
+        0 3px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 62%, #000),
+        0 4px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 46%, #000),
+        0 5px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 30%, #000),
+        /* 双层软落地阴影 — 悬浮感 */
+        0 7px 12px rgba(0, 0, 0, 0.32),
+        0 9px 20px rgba(0, 0, 0, 0.18),
+        /* 主题色光晕 — 与皮肤呼吸 */
+        0 0 22px color-mix(in srgb, var(--accent-color, #38bdf8) 30%, transparent);
+    padding-bottom: 4px;
+    transition: text-shadow 0.25s ease, color 0.25s ease;
+}
+
+/* 高对比度无障碍：禁用立体浮雕保持高对比可读 */
+@media (prefers-contrast: more) {
+    .stat-value {
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+        color: var(--accent-dark);
+    }
 }
 
 .progression-hud {
@@ -3727,7 +3749,19 @@ body.game-shell-hidden .app-side-left {
         --wm-cell-h: 7.8px;
     }
     .stat-box { padding: 4px 8px; min-width: 44px; }
-    .stat-value { font-size: 32px; letter-spacing: 0.04em; }
+    /* v10.17.2: 移动端 32px 主数字 → 浮雕同步缩为 3 层（与 .stat-box--best 同款） */
+    .stat-value {
+        font-size: 32px;
+        letter-spacing: 0.04em;
+        text-shadow:
+            0 -1px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 55%, #fff),
+            0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 90%, #000),
+            0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 70%, #000),
+            0 3px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 45%, #000),
+            0 5px 9px rgba(0, 0, 0, 0.28),
+            0 0 16px color-mix(in srgb, var(--accent-color, #38bdf8) 28%, transparent);
+        padding-bottom: 2px;
+    }
     .play-stack { padding: 10px 8px 12px; gap: 10px; border-radius: 12px; }
     .score-theme-row { gap: 6px; flex-wrap: wrap; justify-content: center; }
     .header-skin .skin-picker select { min-width: 6rem; max-width: min(40vw, 9rem); }
@@ -3849,13 +3883,30 @@ body.game-shell-hidden .app-side-left {
 .stat-box--best { position: relative; }
 
 /* v10.11: 「最佳」数字始终比「得分」小一档以维持视觉层级
- * 桌面 46 → 32（≈70% 比例）；移动 32 → 22（同比例）。 */
+ * 桌面 46 → 32（≈70% 比例）；移动 32 → 22（同比例）。
+ * v10.17.2: 立体浮雕同比缩小为 3 层（避免小数字上 5 层堆叠拥挤）
+ */
 .stat-box--best .stat-value {
     font-size: 32px;
+    text-shadow:
+        0 -1px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 55%, #fff),
+        0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 90%, #000),
+        0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 70%, #000),
+        0 3px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 45%, #000),
+        0 5px 9px rgba(0, 0, 0, 0.28),
+        0 0 16px color-mix(in srgb, var(--accent-color, #38bdf8) 28%, transparent);
+    padding-bottom: 2px;
 }
 @media (max-width: 400px) {
     .stat-box--best .stat-value {
         font-size: 22px;
+        text-shadow:
+            0 -0.5px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 55%, #fff),
+            0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 85%, #000),
+            0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 55%, #000),
+            0 3px 6px rgba(0, 0, 0, 0.24),
+            0 0 12px color-mix(in srgb, var(--accent-color, #38bdf8) 24%, transparent);
+        padding-bottom: 1px;
     }
 }
 
@@ -4001,33 +4052,213 @@ body.game-shell-hidden .app-side-left {
     transform: translate(-50%, 0);
 }
 
-/* —— celebrate 等级：中心大字 + 主题色光晕（Konami / 首解 / 大里程碑） —— */
+/* ── celebrate 等级：v10.17.1 艺术化升级 ──
+   旋转光线放射 + 金色闪烁双边框 + 中字渐变金色 + icon 心跳动画
+   适用：Konami / 首解皮肤 / 极限成就 / 段位升级 / 月度里程碑 / wow moments / 皮肤碎片解锁 等 12+ 触发点
+*/
 #easter-egg-toast[data-tier="celebrate"] {
     bottom: auto;
-    top: 38%;
-    transform: translate(-50%, -50%) scale(0.86);
-    padding: 16px 32px;
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    background: rgba(18, 18, 28, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    top: 36%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.78) rotate(-1deg);
+    padding: 30px 60px 26px;
+    min-width: 280px;
+    max-width: min(86vw, 480px);
+    text-align: center;
+    color: #fff;
+    /* textContent 兜底字号（firstUnlockCelebration 等不带 inner div 的模块） */
+    font-family: 'STKaiti', 'KaiTi', 'Songti SC', 'STSong', 'Source Han Serif SC', serif;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.10em;
+    line-height: 1.4;
+    /* 多层背景：中心暖光斑 + 上下光晕 + 深色玻璃底 */
+    background:
+        radial-gradient(ellipse 110% 80% at 50% 30%,
+            color-mix(in srgb, var(--accent-color, #fbbf24) 30%, transparent) 0%,
+            transparent 55%),
+        radial-gradient(ellipse 90% 60% at 50% 100%,
+            color-mix(in srgb, var(--accent-color, #fbbf24) 14%, transparent) 0%,
+            transparent 60%),
+        linear-gradient(180deg, rgba(28, 22, 48, 0.96), rgba(8, 8, 18, 0.96));
+    border: 1px solid color-mix(in srgb, var(--accent-color, #fbbf24) 75%, transparent);
+    border-radius: 18px;
     box-shadow:
-        0 16px 40px rgba(0, 0, 0, 0.48),
-        0 0 0 1px var(--accent-color, #38bdf8) inset,
-        0 0 36px rgba(56, 189, 248, 0.22);
-    transition: opacity .35s ease, transform .35s cubic-bezier(.2, .8, .2, 1);
+        0 0 0 4px rgba(0, 0, 0, 0.55),                                                   /* 黑色描边间隔 */
+        0 0 0 5px color-mix(in srgb, var(--accent-color, #fbbf24) 38%, transparent),     /* 外层金边 */
+        0 24px 64px rgba(0, 0, 0, 0.62),                                                 /* 阴影沉降 */
+        0 0 110px color-mix(in srgb, var(--accent-color, #fbbf24) 42%, transparent),     /* 整体光晕扩散 */
+        inset 0 1px 0 rgba(255, 255, 255, 0.16);                                         /* 高光顶 */
+    transition: opacity .42s ease, transform .55s cubic-bezier(0.18, 0.89, 0.32, 1.4);
+    overflow: visible;
+    isolation: isolate;
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
 }
 #easter-egg-toast[data-tier="celebrate"].is-visible {
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
 }
 
-/* prefers-reduced-motion 用户：所有彩蛋 UI 取消过渡 */
+/* 旋转光线放射 — 12 道金色光线沿圆周分布，缓慢自转 */
+#easter-egg-toast[data-tier="celebrate"]::before {
+    content: '';
+    position: absolute;
+    inset: -45%;
+    z-index: -2;
+    border-radius: 50%;
+    background: conic-gradient(
+        from 0deg,
+        transparent 0deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 28%, transparent) 5deg,
+        transparent 12deg,
+        transparent 30deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 22%, transparent) 35deg,
+        transparent 40deg,
+        transparent 60deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 28%, transparent) 65deg,
+        transparent 72deg,
+        transparent 90deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 22%, transparent) 95deg,
+        transparent 100deg,
+        transparent 120deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 28%, transparent) 125deg,
+        transparent 132deg,
+        transparent 150deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 22%, transparent) 155deg,
+        transparent 160deg,
+        transparent 180deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 28%, transparent) 185deg,
+        transparent 192deg,
+        transparent 210deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 22%, transparent) 215deg,
+        transparent 220deg,
+        transparent 240deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 28%, transparent) 245deg,
+        transparent 252deg,
+        transparent 270deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 22%, transparent) 275deg,
+        transparent 280deg,
+        transparent 300deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 28%, transparent) 305deg,
+        transparent 312deg,
+        transparent 330deg,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 22%, transparent) 335deg,
+        transparent 340deg,
+        transparent 360deg
+    );
+    animation: celebrate-rays 10s linear infinite;
+    opacity: 0;
+    filter: blur(3px);
+    transition: opacity 0.6s ease;
+}
+#easter-egg-toast[data-tier="celebrate"].is-visible::before {
+    opacity: 0.85;
+}
+
+/* 内圈遮罩 — 让光线只在卡片外围可见 */
+#easter-egg-toast[data-tier="celebrate"]::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background:
+        /* 顶部高光 */
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 255, 255, 0.18), transparent 60%),
+        /* 底部主题色微晕 */
+        radial-gradient(ellipse 70% 50% at 50% 100%,
+            color-mix(in srgb, var(--accent-color, #fbbf24) 18%, transparent), transparent 60%);
+    pointer-events: none;
+}
+
+@keyframes celebrate-rays {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* 第 1 个 div：icon 字（56px → 心跳缩放 + 旋转摇摆 + 金色光晕） */
+#easter-egg-toast[data-tier="celebrate"] > div:nth-child(1) {
+    font-size: 56px !important;
+    line-height: 1 !important;
+    margin: 0 0 12px !important;
+    animation: celebrate-icon-pulse 1.4s ease-in-out infinite alternate;
+    filter: drop-shadow(0 0 22px color-mix(in srgb, var(--accent-color, #fbbf24) 75%, transparent))
+            drop-shadow(0 4px 8px rgba(0, 0, 0, 0.55));
+}
+
+/* 第 2 个 div：标题字（24px 衬线 + 金色渐变 + 光晕投影） */
+#easter-egg-toast[data-tier="celebrate"] > div:nth-child(2) {
+    font-family: 'STKaiti', 'KaiTi', 'Songti SC', 'STSong', 'Source Han Serif SC', serif !important;
+    font-size: 24px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.16em !important;
+    line-height: 1.2 !important;
+    /* 渐变金字（顶部白 → 中部主题色 → 底部深金）*/
+    background: linear-gradient(180deg,
+        #fff 0%,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 40%, #fff) 35%,
+        var(--accent-color, #fbbf24) 65%,
+        color-mix(in srgb, var(--accent-color, #fbbf24) 80%, #92400e) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    /* 等宽阴影 + 金色光晕 — text-shadow 通过 filter 模拟（兼容 background-clip:text） */
+    filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-color, #fbbf24) 65%, transparent))
+            drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+    animation: celebrate-title-shimmer 2.4s ease-in-out infinite alternate;
+}
+
+/* 第 3 个 div：描述（13px 浅色 + 字距增加） */
+#easter-egg-toast[data-tier="celebrate"] > div:nth-child(3) {
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: rgba(255, 255, 255, 0.78) !important;
+    letter-spacing: 0.06em !important;
+    margin: 8px 0 0 !important;
+    line-height: 1.5 !important;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes celebrate-icon-pulse {
+    from { transform: scale(1) rotate(-4deg); }
+    to   { transform: scale(1.10) rotate(4deg); }
+}
+@keyframes celebrate-title-shimmer {
+    from { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent-color, #fbbf24) 50%, transparent))
+                   drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7)); }
+    to   { filter: drop-shadow(0 0 16px color-mix(in srgb, var(--accent-color, #fbbf24) 80%, transparent))
+                   drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7)); }
+}
+
+/* 移动端：尺寸适度收缩 */
+@media (max-width: 480px) {
+    #easter-egg-toast[data-tier="celebrate"] {
+        padding: 22px 36px 18px;
+        min-width: 240px;
+    }
+    #easter-egg-toast[data-tier="celebrate"] > div:nth-child(1) {
+        font-size: 44px !important;
+    }
+    #easter-egg-toast[data-tier="celebrate"] > div:nth-child(2) {
+        font-size: 20px !important;
+        letter-spacing: 0.12em !important;
+    }
+    #easter-egg-toast[data-tier="celebrate"]::before {
+        inset: -30%;
+    }
+}
+
+/* prefers-reduced-motion 用户：所有彩蛋 UI 取消过渡与无限循环动画 */
 @media (prefers-reduced-motion: reduce) {
     #skin-transition-overlay,
     #seasonal-toast,
     #easter-egg-toast {
         transition: none !important;
+    }
+    #easter-egg-toast[data-tier="celebrate"]::before,
+    #easter-egg-toast[data-tier="celebrate"] > div:nth-child(1),
+    #easter-egg-toast[data-tier="celebrate"] > div:nth-child(2) {
+        animation: none !important;
     }
 }
 

@@ -1522,8 +1522,9 @@ export class Renderer {
         const now = this._nowMs();
         this._iconGushStart = now;
         this._iconGushEnd = now + Math.max(520, durationMs);
+        // v10.17.1：首帧 icon 爆炸数量 60 → 36（降 40%），保留视觉冲击但避免屏幕过密
         for (const spec of this._iconGushLines) {
-            for (let i = 0; i < 60; i++) {
+            for (let i = 0; i < 36; i++) {
                 this._pushIconParticle(spec.bonusLine, spec.icon, { strongBurst: true });
             }
         }
@@ -1536,13 +1537,15 @@ export class Renderer {
             this._iconGushLines = [];
             return;
         }
-        if (this.iconParticles.length > 560) return;
+        // v10.17.1：在屏 icon 上限 560 → 320，减少视觉拥挤
+        if (this.iconParticles.length > 320) return;
         const span = Math.max(1, this._iconGushEnd - this._iconGushStart);
         const t = (now - this._iconGushStart) / span;
         let rolls = 0;
-        if (t < 0.36) rolls = Math.random() < 0.86 ? 3 : 2;
-        else if (t < 0.76) rolls = Math.random() < 0.62 ? 2 : 1;
-        else rolls = Math.random() < 0.42 ? 1 : 0;
+        // v10.17.1：每帧补 icon 数量整体降一档（早期 3→2 / 中期 2→1 / 末期更稀）
+        if (t < 0.36) rolls = Math.random() < 0.70 ? 2 : 1;
+        else if (t < 0.76) rolls = Math.random() < 0.55 ? 1 : 0;
+        else rolls = Math.random() < 0.30 ? 1 : 0;
         const burst = t < 0.18;
         for (const spec of this._iconGushLines) {
             for (let k = 0; k < rolls; k++) {
@@ -1553,11 +1556,12 @@ export class Renderer {
 
     /**
      * 同 icon/色 行/列消除：沿整行或整列喷射 emoji 粒子（单次批次；持续涌出请用 beginBonusIconGush）。
+     * v10.17.1：默认 count 40 → 24（与 beginBonusIconGush 同步降量 40%）
      * @param {{ type:'row'|'col', idx:number }} bonusLine
      * @param {string} icon  emoji 字符
-     * @param {number} [count=40]
+     * @param {number} [count=24]
      */
-    addIconParticles(bonusLine, icon, count = 40) {
+    addIconParticles(bonusLine, icon, count = 24) {
         for (let i = 0; i < count; i++) {
             this._pushIconParticle(bonusLine, icon, { strongBurst: false });
         }

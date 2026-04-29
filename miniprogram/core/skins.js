@@ -790,14 +790,14 @@ const SKINS = {
     "id": "mahjong",
     "name": "🀅 麻将牌局",
     "blockColors": [
-      "#20B888",
-      "#D03030",
-      "#6E7C8C",
-      "#4F4F60",
-      "#1F8060",
-      "#D49438",
-      "#2A60B8",
-      "#708030"
+      "#3DA88C",
+      "#C4424C",
+      "#D4C4A0",
+      "#404858",
+      "#2A8870",
+      "#E0A040",
+      "#3070C0",
+      "#A8A040"
     ],
     "blockIcons": [
       "🀀",
@@ -809,13 +809,13 @@ const SKINS = {
       "🀙",
       "🀐"
     ],
-    "gridOuter": "#0E2018",
-    "gridCell": "#143028",
+    "gridOuter": "#3D2818",
+    "gridCell": "#2A4A38",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 6,
     "blockStyle": "cartoon",
-    "clearFlash": "rgba(80,200,140,0.46)"
+    "clearFlash": "rgba(180,220,150,0.50)"
   },
   "boardgame": {
     "id": "boardgame",
