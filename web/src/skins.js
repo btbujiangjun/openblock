@@ -1451,17 +1451,54 @@ export function getBlockColors() {
 }
 
 /**
+ * v10.15: 皮肤切换钩子 — 由 skinTransition.js 注册，可拦截 setActiveSkinId 的实际生效时机
+ * 让转场动画在淡入到峰值时再 applyImmediate()，呈现"主题色一闪覆盖 cssVars 替换"的效果。
+ */
+let _skinTransitionHook = null;
+export function setSkinTransitionHook(hook) {
+    _skinTransitionHook = (typeof hook === 'function') ? hook : null;
+}
+
+/**
+ * v10.16: 皮肤切换后回调（不影响 transition）— 多个订阅者并存。
+ * 用于 firstUnlockCelebration 等不需要拦截 apply 时机的副作用模块。
+ */
+const _afterApplyListeners = [];
+export function onSkinAfterApply(fn) {
+    if (typeof fn !== 'function') return () => { /* noop */ };
+    _afterApplyListeners.push(fn);
+    return () => {
+        const i = _afterApplyListeners.indexOf(fn);
+        if (i >= 0) _afterApplyListeners.splice(i, 1);
+    };
+}
+function _emitAfterApply(id) {
+    for (const fn of _afterApplyListeners) {
+        try { fn(id); } catch (e) { console.warn('[skin onAfterApply]', e); }
+    }
+}
+
+/**
  * @param {string} id
  * @returns {boolean} 是否成功切换
  */
 export function setActiveSkinId(id) {
     if (!SKINS[id]) return false;
-    try {
-        localStorage.setItem(STORAGE_KEY, id);
-    } catch {
-        /* ignore */
+    const apply = () => {
+        try {
+            localStorage.setItem(STORAGE_KEY, id);
+        } catch {
+            /* ignore */
+        }
+        applySkinToDocument(SKINS[id]);
+        _emitAfterApply(id);
+    };
+    if (_skinTransitionHook) {
+        try { _skinTransitionHook(id, apply); }
+        catch { apply(); }
+    } else {
+        apply();
     }
-    applySkinToDocument(SKINS[id]);
     return true;
 }
 

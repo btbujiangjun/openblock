@@ -761,6 +761,36 @@ export class Renderer {
     }
 
     /**
+     * v10.15: 注入皮肤环境粒子层（sakura 樱花 / forest 落叶 / fairy 萤火虫 等）。
+     * 由 main.js 创建 AmbientParticles 后调用此方法绑定，由 renderAmbient() 每帧驱动。
+     */
+    setAmbientLayer(layer) {
+        this._ambientLayer = layer || null;
+    }
+
+    /**
+     * v10.15: 渲染皮肤环境粒子（每帧由 game.render() 在 renderEdgeFalloff() 之后调用）。
+     * 粒子状态由 AmbientParticles 自管理；renderer 仅提供 fxCtx 和坐标系信息。
+     */
+    renderAmbient() {
+        if (!this._ambientLayer || !this.fxCtx) return;
+        this._ambientLayer.tickAndRender(this.fxCtx, {
+            logicalW: this.logicalW,
+            logicalH: this.logicalH,
+            paintMargin: this._paintMargin || 0,
+            cellSize: this.cellSize,
+        });
+    }
+
+    /**
+     * v10.15: 标记需要重绘背景（皮肤切换 / cssVars 更新等场景）。
+     * 当前 game.render() 每帧都重绘，此方法保留为皮肤切换时的扩展钩子。
+     */
+    markBackgroundDirty() {
+        this._bgDirty = true;
+    }
+
+    /**
      * v10.13: 盘面边缘 → fxCanvas 外区 的柔和色彩过渡光晕。
      *
      * 解决 v10.12 引入 fxCanvas 后暴露的「盘面边缘明显外边框感」问题：

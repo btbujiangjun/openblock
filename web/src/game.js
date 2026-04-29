@@ -316,6 +316,17 @@ export class Game {
             this.refreshSkinSelectOptions();
             skinSelect.addEventListener('change', () => {
                 if (setActiveSkinId(skinSelect.value)) {
+                    // v10.15: 标记用户已主动选过皮肤，关闭 seasonalSkin 时段动态切换
+                    try {
+                        const m = window.__seasonalSkin;
+                        if (m && typeof m.markSkinUserChosen === 'function') {
+                            m.markSkinUserChosen();
+                        }
+                    } catch { /* ignore */ }
+                    // v10.15: 通知环境粒子层切换预设
+                    try { window.__ambientParticles?.applySkin?.(skinSelect.value); } catch { /* ignore */ }
+                    // v10.15: 通知 EffectLayer 渲染器变更（新皮肤可能改变特效色相）
+                    try { window.__effectLayer?.setRenderer?.(this.renderer); } catch { /* ignore */ }
                     this.refreshDockSkin();
                     this._normalizeDockState('skin-change');
                     this.markDirty();
@@ -1919,6 +1930,8 @@ export class Game {
         this.renderer.renderBackground();
         // v10.13: 盘面 → fxCanvas 外区柔和色彩过渡光晕，弱化 v10.12 暴露的盘面外边框感
         this.renderer.renderEdgeFalloff();
+        // v10.15: 皮肤环境粒子层（樱花 / 落叶 / 气泡 / 萤火虫 / 流星等），仅 5 款示范皮肤激活
+        this.renderer.renderAmbient();
         this.renderer.renderGrid(this.grid);
         let previewClearCells = null;
         if (this.previewPos && this.previewBlock) {
