@@ -10,7 +10,9 @@
 ## 分层
 
 1. **规则与数据**：上述 JSON。
-2. **环境（对局动力学）**：`web/src/bot/simulator.js`、`rl_pytorch/simulator.py` 等实现落子、消除、得分；须与主游戏 `Grid` 逻辑一致。
+2. **环境（对局动力学）**：`web/src/bot/simulator.js`、`miniprogram/core/bot/simulator.js`、`rl_pytorch/simulator.py`、`rl_mlx/simulator.py` 等实现落子、消除、得分、**每轮 dock 三色采样**；须与主游戏 `Grid` / `clearScoring` 逻辑一致。  
+   - **得分**：消行前用 `detectBonusLines` 注入 `bonusLines`（模拟器传 `skin=null`，与 RL 色盘、同色判定一致），再 `computeClearScore`。  
+   - **出块**：形状仍由 `block_spawn.generate_*` 与 Web 同源规则生成；dock **颜色**使用 `monoNearFullLineColorWeights` + `pickThreeDockColors` 软偏置（Python：`dock_color_bias.py`，与 `clearScoring` 常量对齐）。
 3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（含棋盘栅格化占用与待选区形状掩码，见 JSON 内 `maxGridWidth` / `dockMaskSide` 等）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
 4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。
 

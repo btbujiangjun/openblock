@@ -6,7 +6,12 @@ const { getStrategy } = require('../config');
 const { getAllShapes } = require('../shapes');
 const { RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } = require('../gameRules');
 const { generateDockShapes, generateBlocksForGrid } = require('./blockSpawn');
-const { computeClearScore } = require('../clearScoring');
+const {
+    computeClearScore,
+    detectBonusLines,
+    monoNearFullLineColorWeights,
+    pickThreeDockColors
+} = require('../bonusScoring');
 
 const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
 const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;
@@ -133,18 +138,15 @@ class OpenBlockSimulator {
 
     _spawnDock() {
         const shapes = generateDockShapes(this.grid, this.strategyConfig);
-        const colors = [0, 1, 2, 3, 4, 5, 6, 7];
-        for (let i = colors.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [colors[i], colors[j]] = [colors[j], colors[i]];
-        }
+        const bias = monoNearFullLineColorWeights(this.grid, null);
+        const dockColors = pickThreeDockColors(bias);
         this.dock = [];
         for (let i = 0; i < 3; i++) {
             const shape = shapes[i] || getAllShapes()[0];
             this.dock.push({
                 id: shape.id,
                 shape: shape.data,
-                colorIdx: colors[i % colors.length],
+                colorIdx: dockColors[i],
                 placed: false
             });
         }
@@ -245,10 +247,12 @@ class OpenBlockSimulator {
         this.placements++;
         this.steps++;
 
+        const bonusSnap = detectBonusLines(this.grid, null);
         const result = this.grid.checkLines();
         let gain = 0;
         let clears = 0;
         if (result.count > 0) {
+            result.bonusLines = bonusSnap;
             clears = result.count;
             this.totalClears += clears;
             gain = computeClearScore(this.strategyId, result, this.scoring).clearScore;

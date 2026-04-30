@@ -47,10 +47,19 @@ import {
     detectBonusLines,
     computeClearScore,
     ICON_BONUS_LINE_MULT,
-    bonusEffectHoldMs
+    bonusEffectHoldMs,
+    monoNearFullLineColorWeights,
+    pickThreeDockColors
 } from './clearScoring.js';
 
-export { detectBonusLines, computeClearScore, ICON_BONUS_LINE_MULT, bonusEffectHoldMs };
+export {
+    detectBonusLines,
+    computeClearScore,
+    ICON_BONUS_LINE_MULT,
+    bonusEffectHoldMs,
+    monoNearFullLineColorWeights,
+    pickThreeDockColors
+};
 
 function _topShapeWeightEntries(shapeWeights, n) {
     if (!shapeWeights || typeof shapeWeights !== 'object') return [];
@@ -797,11 +806,8 @@ export class Game {
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
 
-        const colors = [0, 1, 2, 3, 4, 5, 6, 7];
-        for (let i = colors.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [colors[i], colors[j]] = [colors[j], colors[i]];
-        }
+        const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin());
+        const dockColors = pickThreeDockColors(bonusBias);
 
         const descriptors = [];
         for (let i = 0; i < 3; i++) {
@@ -809,7 +815,7 @@ export class Game {
             descriptors.push({
                 id: shape.id,
                 shape: shape.data,
-                colorIdx: colors[i % colors.length],
+                colorIdx: dockColors[i],
                 placed: false
             });
         }

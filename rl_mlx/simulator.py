@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import copy
-import random
 from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, strategy_python
 from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
+from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
 from .shapes_data import get_all_shapes
 
 __all__ = ["OpenBlockSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
@@ -47,8 +47,9 @@ class OpenBlockSimulator:
 
     def _spawn_dock(self) -> None:
         shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
-        colors = list(range(int(self.strategy_config.get("color_count", 8))))
-        random.shuffle(colors)
+        n_colors = int(self.strategy_config.get("color_count", 8))
+        bias = mono_near_full_line_color_weights(self.grid)
+        dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)
         self.dock: list[dict] = []
         all_shapes = get_all_shapes()
         for i in range(3):
@@ -57,7 +58,7 @@ class OpenBlockSimulator:
                 {
                     "id": shape["id"],
                     "shape": copy.deepcopy(shape["data"]),
-                    "color_idx": colors[i % len(colors)],
+                    "color_idx": dock_colors[i],
                     "placed": False,
                 }
             )

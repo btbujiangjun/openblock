@@ -1,6 +1,6 @@
 # 出块算法：三层架构
 
-> 版本: v3.0 | 更新: 2026-04-15  
+> 版本: v3.1 | 更新: 2026-04-30  
 > 建模思路、优化目标、特征与网络结构的形式化说明见 `docs/SPAWN_BLOCK_MODELING.md`。
 
 ## 1. 概述
@@ -44,7 +44,29 @@ game.js
         ├── 阶段 2: 加权抽样（三层信号整合到权重乘子）
         ├── 校验: minMobilityTarget + tripletSequentiallySolvable
         └── 输出: 三连块 + _spawnDiagnostics（供面板解释）
+
+_commitSpawn()（颜色分配）
+  ├── clearScoring.monoNearFullLineColorWeights(grid, skin)
+  │     └── 扫描“差 1~2 格即满”的行列；若已填格同 icon（有 blockIcons）或同色（无 icon）
+  │        则给对应 dock 色位累加偏置权重
+  ├── clearScoring.pickThreeDockColors(biasWeights)
+  │     └── 8 色池无放回加权抽样，输出 3 个互异 colorIdx
+  └── descriptors[i].colorIdx = dockColors[i]
 ```
+
+### 2.1 v3.1 新增：颜色采样与 bonus 计分目标对齐
+
+此前 dock 颜色使用纯洗牌（随机前三色），与“同 icon/同色 bonus 线”的计分目标是弱耦合。  
+v3.1 起，颜色分配改为**轻偏置随机**：
+
+- **目标不变**：形状可解性与保命逻辑仍由 `blockSpawn.js` 主导；
+- **颜色侧软目标**：当盘面存在“近满且已同 icon/同色”的行列时，提升相关色在当前 3 个候选块中的出现概率；
+- **随机性保留**：采用无放回加权抽样而非硬指定，避免玩家感知“被喂牌过重”。
+
+这使出块体感与 `detectBonusLines` / `computeClearScore` 的奖励方向更一致：  
+玩家在临门一脚阶段更容易拿到“语义上正确”的补线颜色，但不会破坏整体多样性。
+
+**RL 训练环境（PyTorch / MLX）**：形状生成与 Web 同源的 `block_spawn`；dock 颜色由 `rl_pytorch/dock_color_bias.py`（及 `rl_mlx` 副本）实现同一套偏置，色数取策略 `color_count`，使策略梯度里的奖励分布与主局更一致。
 
 ## 3. Layer 1: 即时出块 — 盘面感知
 

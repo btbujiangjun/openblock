@@ -1,7 +1,7 @@
 # 消行计分规则 · Clear Scoring
 
-> 最后更新：2026-04-26  
-> 以代码为准：`web/src/game.js` 的 `computeClearScore` 与 `miniprogram/core/bonusScoring.js` 二者对齐。
+> 最后更新：2026-04-30（RL / 小程序模拟器出块与计分已对齐主局）  
+> 以代码为准：`web/src/clearScoring.js` 的 `computeClearScore`（由 `game.js` 透传导出）与 `miniprogram/core/bonusScoring.js` 对齐。
 
 ---
 
@@ -64,11 +64,13 @@
 - 当 **所有消除线均为 bonus**（`b = c`）时：  
   \(\text{clearScore} = \text{baseUnit} \times c^2 + (\text{baseUnit} \times c) \times c \times 4 = 5 \times \text{baseUnit} \times c^2 = \text{ICON\_BONUS\_LINE\_MULT} \times \text{baseScore}\)。
 
-实现见：
+实现见（Web）：
 
-```100:116:web/src/game.js
+```129:149:web/src/clearScoring.js
 export function computeClearScore(strategyId, result) {
-    const scoring = getStrategy(strategyId).scoring;
+    const scoring = scoringOverride && typeof scoringOverride === 'object'
+        ? scoringOverride
+        : getStrategy(strategyId).scoring;
     const c = result?.count ?? 0;
     const baseUnit = scoring.singleLine ?? 20;
     const baseScore = c > 0 ? baseUnit * c * c : 0;
@@ -87,7 +89,32 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 4. 理论最大消除数 `c_max`（与形状库一致）
+## 4. 出块颜色与 bonus 对齐（v10.17+）
+
+为减少“分数规则和出块体感不一致”的感受，在**不改形状可解性约束**的前提下对 dock 三色做软引导：
+
+| 端 | 入口 |
+|----|------|
+| Web 主局 | `game.js` → `_commitSpawn()`：`monoNearFullLineColorWeights` + `pickThreeDockColors`（`web/src/clearScoring.js`） |
+| Web / 小程序无头模拟器 | `OpenBlockSimulator._spawnDock()`：同上 API；模拟器传 `skin=null`，即用色值版偏置 |
+| PyTorch / MLX RL | `rl_pytorch/dock_color_bias.py`、`rl_mlx/dock_color_bias.py`，由各自 `simulator.OpenBlockSimulator._spawn_dock()` 调用；色池大小取策略 `color_count`（默认 8） |
+
+步骤归纳：
+
+1. `monoNearFullLineColorWeights(grid, skin)` 扫描“差 1~2 格即满”的行列；
+2. 若该行/列已填格满足同 icon（有 `blockIcons`）或同色（无 icon），则给关联 dock 色位增加偏置；
+3. `pickThreeDockColors(bias)` 在色池上做**无放回加权抽样**，抽出 3 个互异颜色。
+
+设计要点：
+
+- **icon 语义优先**：有 icon 皮肤按 icon 同一性判断（与 bonus 判定一致）；
+- **无 icon 回退色值**：与 `detectBonusLines` 的回退策略一致；
+- **仅软偏置**：不是“强制给色”，仍保留随机性与多样性。
+- **RL 侧**：当前 Python 盘面无 `blockIcons`，偏置实现等价于「仅色值」分支，与训练网格一致。
+
+---
+
+## 5. 理论最大消除数 `c_max`（与形状库一致）
 
 单次落子能触发的消除行列数上限，由 **`shared/shapes.json`** 中各形状的占用行数 + 占用列数之和的最大值决定。当前形状库下 **`c_max = 6`**（例如 `1×5` / `5×1`、`3×3`、五连 L 等形状可达该上限）。
 
@@ -95,16 +122,18 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 5. 与 RL / 回放字段的关系
+## 6. 与 RL / 回放字段的关系
 
 - **对局消行得分**：以本节 `computeClearScore` 为准。  
-- **RL 模拟器** `rl_pytorch/simulator.py`、`rl_mlx/simulator.py`，**Web 无头模拟器** `web/src/bot/simulator.js`，以及 **回放重算** `web/src/moveSequence.js` 中的 `replayStateAt`：均使用与对局相同的 `baseUnit × c²` 与 bonus 规则。bonus 线由 `Grid.checkLines()` 在清空前写入；Web 见 `web/src/grid.js`，Python 见 `rl_pytorch/grid.py`、`rl_mlx/grid.py`。  
+- **无头模拟器**（`web/src/bot/simulator.js`、`miniprogram/core/bot/simulator.js`）与 **RL 模拟器**（`rl_pytorch/simulator.py`、`rl_mlx/simulator.py`）：与主局相同使用 `baseUnit × c²` 与 bonus 公式；在消除前用 `detectBonusLines(grid, null)` 写入 `result.bonusLines` 再计分，使 bonus 条数与 `computeClearScore` 一致（主局在带 icon 皮肤时用 `getActiveSkin()`，模拟器固定 `null` 与 RL 色盘一致）。  
+- **格子上的 bonus 原始字段**：`Grid.checkLines()` 仍会构造 `bonus_lines`（Python / JS）；计分时以 `detectBonusLines` 合并结果为准的情况见主局 `game.js`。纯同色盘面下与 `checkLines` 同色判定一致。  
+- **回放重算** `web/src/moveSequence.js` 的 `replayStateAt`：仍受帧内是否含皮肤 icon 信息约束。  
   - **回放限制**：序列帧通常不含 `blockIcons`，重算未必能识别「同 icon、不同 `colorIdx`」的 bonus；与仅依赖颜色的对局分支一致。  
 - **`scoring.multiLine` / `scoring.combo`**：仍存在于 `shared/game_rules.json` 与历史 `init` 帧里，便于旧数据兼容；**消行得分仅读取 `singleLine` 作为 `baseUnit`**。
 
 ---
 
-## 6. 商业化策略「存储在哪里」（与消行计分分开）
+## 7. 商业化策略「存储在哪里」（与消行计分分开）
 
 商业化策略分三层，不要与「消行得分」混淆：
 

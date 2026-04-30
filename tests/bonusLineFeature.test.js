@@ -12,6 +12,8 @@ import {
     computeClearScore,
     ICON_BONUS_LINE_MULT,
     bonusEffectHoldMs,
+    monoNearFullLineColorWeights,
+    pickThreeDockColors,
 } from '../web/src/game.js';
 import { getAllShapes } from '../web/src/shapes.js';
 
@@ -142,6 +144,35 @@ describe('bonus line feature', () => {
         // apply 后网格已清空对应行列（证明必须先检测）
         expect(g.cells[0].every(c => c === null)).toBe(true);
         expect(g.cells.every(row => row[7] === null)).toBe(true);
+    });
+
+    it('monoNearFullLineColorWeights：近满且同色行提高该 dock 色权重', () => {
+        const g = new Grid(8);
+        for (let x = 0; x < 6; x++) g.cells[2][x] = 3;
+        // 两格空
+        const w = monoNearFullLineColorWeights(g, { blockIcons: [] });
+        expect(w[3]).toBeGreaterThan(0);
+        expect(w[0]).toBe(0);
+    });
+
+    it('monoNearFullLineColorWeights：近满行同 icon 时给相关 dock 色加分', () => {
+        const g = new Grid(8);
+        const skin = { blockIcons: ['A', 'B', 'C', 'D'] };
+        fillRow(g, 5, [0, 4, 8, 12, 0, 4, null, null]);
+        const w = monoNearFullLineColorWeights(g, skin);
+        expect(w[0]).toBeGreaterThan(0);
+        expect(w[4]).toBeGreaterThan(0);
+    });
+
+    it('pickThreeDockColors：强偏置时高概率取到该色；且三色互异', () => {
+        const bias = [100, 0, 0, 0, 0, 0, 0, 0];
+        let hits = 0;
+        for (let t = 0; t < 200; t++) {
+            const c = pickThreeDockColors(bias);
+            expect(new Set(c).size).toBe(3);
+            if (c.includes(0)) hits++;
+        }
+        expect(hits).toBeGreaterThan(180);
     });
 });
 
