@@ -819,16 +819,16 @@ const SKINS = {
   },
   "boardgame": {
     "id": "boardgame",
-    "name": "🃏 棋牌博弈",
+    "name": "♠️ 扑克博弈",
     "blockColors": [
       "#D49830",
       "#1F8060",
       "#2860B0",
       "#98A8B8",
       "#5C2030",
-      "#3E3E50",
+      "#3D6048",
       "#4F3088",
-      "#E0D8B0"
+      "#3E3E50"
     ],
     "blockIcons": [
       "♠️",
@@ -836,9 +836,9 @@ const SKINS = {
       "♦️",
       "♣️",
       "🃏",
-      "🎲",
+      "🎴",
       "🎰",
-      "♟️"
+      "🎲"
     ],
     "gridOuter": "#1A0810",
     "gridCell": "#142818",
@@ -878,6 +878,37 @@ const SKINS = {
     "blockRadius": 8,
     "blockStyle": "cartoon",
     "clearFlash": "rgba(255,235,80,0.55)"
+  },
+  "outdoor": {
+    "id": "outdoor",
+    "name": "🥾 户外运动",
+    "blockColors": [
+      "#3878B8",
+      "#3E7848",
+      "#7E6048",
+      "#E0B040",
+      "#E08858",
+      "#4FA8C8",
+      "#2A8888",
+      "#7068A8"
+    ],
+    "blockIcons": [
+      "🥾",
+      "⛺",
+      "🧗",
+      "🚴",
+      "🏄",
+      "🏂",
+      "🛶",
+      "🎣"
+    ],
+    "gridOuter": "#0A1420",
+    "gridCell": "#101C2C",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 7,
+    "blockStyle": "cartoon",
+    "clearFlash": "rgba(140,200,255,0.50)"
   },
   "vehicles": {
     "id": "vehicles",

@@ -798,3 +798,551 @@ W4 段位升级 / 月度里程碑 / 皮肤碎片解锁 / 复盘里程碑 / wow m
   - [x] 整页 `cssBg` 是温暖的深棕底，不再是冷墨绿黑
   - [x] 8 张牌的方块颜色与绿呢底有清晰明度对比，牙白西风最亮
   - [x] 顶部 stat 标签的 `--accent-color` 由翡翠绿变成蜜蜡金，"胡牌"暖感
+
+---
+
+## 16. v10.17.11 整体布局紧凑化（2026-04-29）
+
+### 16.1 用户反馈
+
+> "1）方框的内容，采用紧凑布局；2）箭头处无法完整显示 5 个方块的竖条；优化整体布局保持主次分明"
+
+伴随截图：游戏页存在三处问题——
+1. **顶部 stat 胶囊**（主题/能力/得分/最佳）垂直占用偏大，与盘面争抢空间
+2. **dock 候选区**：`#easter-egg-toast`（首胜加成 reminder）以 `position:fixed; bottom:110px` 浮在 dock 中部，**遮挡中间几个候选块**，让用户误以为是"5 cell 竖条显示不全"
+3. 整体没有"主次分明" — 顶部辅助信息条与中央主操作区在视觉权重上接近
+
+### 16.2 设计原则
+
+**主次分明分层**：
+- **主区**：盘面（`#game-grid`）+ 候选区（`.block-dock`）— 两者必须保持完整、显眼、易触
+- **次区**：`.score-theme-row`（主题/能力/得分/最佳）— 辅助信息，紧凑展示
+- **临时反馈区**：toast / banner — **绝不阻挡主区操作元素**
+
+### 16.3 实施
+
+#### A. `.score-theme-row` 紧凑化（垂直空间节省 ~20px）
+
+| 属性 | 旧 | 新 | 说明 |
+|---|---|---|---|
+| `margin-bottom` | 8px | **4px** | 减少与盘面的间距 |
+| `.stat-box` padding | 6px 14px | **3px 10px** | 内部留白收紧 50% |
+| `.stat-box` row-gap | 2px | **1px** | 行间距收紧 |
+| `.stat-label` line-height | 默认（~1.2） | **1.05** | 紧凑 |
+| `.stat-subline--spacer` min-height | calc(9 × 1.25 + 1) ≈ 12.25px | **9 × 1.05 ≈ 9.5px** | 仅做占位，无视觉宽松 |
+| `.stat-value` font-size 桌面 | **48px** | **34px** | -14px，立体浮雕同比缩为 4 层（仍保留 v10.17.2 艺术效果） |
+| `.stat-value` font-size 移动 | 32px | **24px** | 同比缩 |
+| `.stat-box--best .stat-value` 桌面 | 32px | **24px** | 维持"最佳 < 得分"层级（70%） |
+| `.stat-box--best .stat-value` 移动 | 22px | **18px** | 同比缩 |
+
+#### B. `.play-stack` 紧凑化（空间释放给主区）
+
+| 属性 | 旧 | 新 |
+|---|---|---|
+| `padding` | 12px 4px 14px | **8px 4px 10px** |
+| `gap` | 10px | **6px** |
+| `margin-top` | 4px | **2px** |
+| 移动版 `padding` | 10px 8px 12px | **6px 6px 8px** |
+| 移动版 `gap` | 10px | **6px** |
+
+#### C. `.block-dock` 紧凑化（保证 5 cells 完整 + 减少留白）
+
+| 属性 | 旧 | 新 |
+|---|---|---|
+| `padding` | 12px 8px max(12px, env-safe) | **6px 6px max(8px, env-safe)** |
+| `gap` | 8px | **6px** |
+| `min-height` | calc(5 × cell + 24) | **calc(5 × cell + 14)** |
+| 移动版 `gap` | 6px | **4px** |
+| 移动版 `padding` | 10px 8px max(10px, ...) | **6px 6px max(8px, ...)** |
+
+> **关键**：`min-height: calc(5 × var(--cell-px) + 14px)` + `flex-shrink:0` 保证 dock 永远能完整显示 5×5 候选 canvas（1×5 竖条不会被截断）。
+
+#### D. 修复 toast 遮挡 dock — `firstWinBoost` reminder 改为 inline banner
+
+**根因**：`#easter-egg-toast` 默认 `bottom: 110px` 落在 dock 垂直中部（dock 高度 ~280px，下边距视口 ~24px → dock 中部高度位置约视口底 160px，与 toast 顶部 ~160px 重叠）。
+
+**改动 `web/src/daily/firstWinBoost.js`**：
+- `_showHint(msg)` → `_showInlineBanner(msg)`，**不再复用 `#easter-egg-toast`**
+- 在 DOM 树里把 banner 注入到 `.score-theme-row` 的下一个兄弟节点位置（`.first-win-banner`）
+- banner 视觉与 stat 胶囊呼应（同主题色 `accent-color`、相同圆角风格）
+- 3.5s 后通过 `max-height: 32 → 0` + `opacity` 淡出收起
+
+**新增 CSS `.first-win-banner`**：
+- `width: min(100%, calc(var(--play-inner-span) + 28px))`，与 stat 胶囊同宽
+- `font-size: 12px`，紧凑一行
+- `max-height: 0 ↔ 32px`，淡入展开 / 淡出收起，**0 视觉占位**
+- 不用 `position:fixed`，不会阻挡盘面 / dock
+
+> **优势**：reminder 此后与 stat 胶囊视觉统一，不会切割 dock 候选块；其他 22 处 `#easter-egg-toast` 调用方（道具反馈类即时反馈）保持原底部条幅样式不变（用户主动操作后的反馈，遮挡可接受）。
+
+### 16.4 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | `.score-theme-row` margin-bottom + stat-box padding + label line-height + subline-spacer min-height 全紧凑；`.stat-value` 桌面 48 → 34px、移动 32 → 24px；`.stat-box--best .stat-value` 桌面 32 → 24px、移动 22 → 18px；`.play-stack` padding/gap/margin 紧凑；`.block-dock` padding/gap/min-height 紧凑；新增 `.first-win-banner` 紧凑横幅样式 |
+| `web/src/daily/firstWinBoost.js` | `_showHint` → `_showInlineBanner`：不再复用 fixed toast，改为注入到 `.score-theme-row` 下方的 inline banner，3.5s 自动淡出 |
+
+### 16.5 验证
+
+- Vitest **557/557** 全过
+- ESLint **0** 新增错误（仅历史遗留 `tests/moveSequence.test.js` 解析警告与本次改动无关）
+- 视觉验收：
+  - [x] 顶部 `.score-theme-row` 高度从 ~75px 收紧到 ~52px（节省 ~23px 给主区）
+  - [x] 盘面 / dock 视觉权重显著高于 stat 区（主次分明）
+  - [x] dock 任意候选位的 1×5 竖条完整显示，不再被 toast 遮挡
+  - [x] 首胜加成 reminder 优雅地从 stat 胶囊下方滑入，3.5s 后收起
+  - [x] 移动端 stat-value 24px 仍保留浮雕立体感（v10.17.2 艺术化原则未丢失）
+  - [x] 道具反馈 toast（撤销 / 炸弹 / 提示等 22 处）保留原底部条幅，不影响其它使用场景
+
+---
+
+## 17. v10.17.12 视觉权重重排（2026-04-29）
+
+### 17.1 用户反馈
+
+> "作为产品名，Open Block 整体样式偏弱；皮肤切换、能力、得分、最佳等区块样式太强"
+
+伴随截图：v10.17.11 紧凑化后，**"OPEN ✦ BLOCK" 像素字标看起来"小、扁、无质感"**，而紧贴下方的 stat 胶囊（金色立体得分 + 高对比白胶囊 + 强阴影）视觉权重反而最高，**喧宾夺主**。
+
+### 17.2 设计原则 — 页面视觉权重金字塔
+
+| 层级 | 元素 | 权重定位 |
+|---|---|---|
+| 1 级（最强） | **OPEN BLOCK 品牌字标** | 产品灵魂，进入即视，必须最显眼 |
+| 2 级 | 盘面（`#game-grid`） + dock | 主操作区，承载玩法 |
+| 3 级 | `.score-theme-row`（主题/能力/得分/最佳） | 辅助信息，**不应抢风头** |
+| 4 级 | banner / toast / 边框光效 | 临时反馈，可消失 |
+
+v10.17.11 的状态：3 级 ≈ 1 级（视觉冲突）。v10.17.12 重排为：1 级 > 2 级 > 3 级。
+
+### 17.3 实施
+
+#### A. **强化** `OPEN BLOCK` 品牌字标（1 级，提升视觉权重）
+
+| 属性 | 旧 | 新 | 收益 |
+|---|---|---|---|
+| 像素格 `--wm-cell-w` | 3.6px | **4.8px** | +33% 体量 |
+| 像素格 `--wm-cell-h` | 5.4px | **7.2px** | +33% 体量 |
+| 容器 `padding` | 7px 16px 9px | **10px 24px 12px** | 更舒展底座 |
+| `border-radius` | 14px | **16px** | 与 stat 胶囊错位 |
+| 容器背景 | 22% 白半透 | **深色玻璃**（rgba(28,24,48,0.34) → rgba(8,6,16,0.42)）+ 顶部高光 | 与游戏夜场氛围呼应，让像素字标"发光" |
+| 边框 | 10% 黑透半色 | **38% 金色光晕**（呼应 ✦ 黄色四角星） | 品牌色统一 |
+| `box-shadow` | 单层 8/28 沉降 | **3 层**：内顶高光 + 金色 18px 外光晕 + 10/32 沉降 | 立体感大幅增强 |
+| `backdrop-filter` | saturate(1.15) blur(10) | **saturate(1.25) blur(12)** | 玻璃感更强 |
+| 动画 | 无 | **`wm-header-glow` 4.2s 呼吸光晕** | 品牌"活"起来，但缓慢不抢操作焦点 |
+| 响应 `prefers-reduced-motion` | — | **animation: none** | 无障碍兼容 |
+| 移动端 wm-cell | 2.4×3.8 | **3.4×5.2** | +42% 体量 |
+
+#### B. **弱化** `.score-theme-row` stat 胶囊（3 级，降低视觉权重）
+
+| 属性 | 旧（v10.17.11） | 新（v10.17.12） | 说明 |
+|---|---|---|---|
+| 背景白底不透明度 | 88-100% | **38-55%（半透明玻璃）** | 不再是"凸出于背景的高对比卡片" |
+| 边框 | 8% 黑 | **5% 黑** | 极淡 |
+| `box-shadow` | 1 顶高光 + 3px/12px 38% 阴影 | **1 顶高光（45%）+ 1px/6px 22% 微阴影** | 几乎悬浮无影 |
+| `backdrop-filter` | saturate(1.06) blur(6) | **saturate(1.04) blur(8)** | 玻璃感更轻 |
+
+#### C. **收敛** stat-value 立体艺术（保留质感，降低视觉冲击）
+
+| 属性 | 旧（v10.17.11） | 新（v10.17.12） | 减弱比例 |
+|---|---|---|---|
+| `.stat-value` 桌面 font-size | 34px | **28px** | -18% |
+| `.stat-value` 移动 font-size | 24px | **20px** | -17% |
+| `.stat-box--best .stat-value` 桌面 | 24px | **20px** | -17% |
+| `.stat-box--best .stat-value` 移动 | 18px | **16px** | -11% |
+| 浮雕层数 | 4 层（顶部高光 + 4 层渐深厚度） | **2 层（顶部高光 + 1 层渐深 + 1 层中深）** | 简化 50% |
+| 主题色光晕（外发光） | 18px 28% | **8px 22%** | 减弱 55% |
+| 落地阴影 | 双层（5/9 + 7/14） | **单层（3/6）** | 减弱 66% |
+
+> 关键：**保留** v10.17.2 的核心立体效果（顶部高光 + 主体浮雕 + 主题色光晕），但所有"放大"参数都收敛 50% 左右。视觉上仍然是"金属立体得分"，但不再是页面的视觉冠军。
+
+#### D. `.header` 微调
+
+- `margin-bottom` 6 → **10px**（让出空气，让 wordmark 更"独立"）
+- `padding` 0 6px → **4px 6px 0**（顶部留白）
+
+### 17.4 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | `.header .app-wordmark` 像素格 +33%、深色玻璃底、金色边框光晕、`wm-header-glow` 呼吸动画；`.header` margin/padding 加大；`.score-theme-row` 背景半透明化 + 边框 / 阴影减弱；`.stat-value` 字号 34 → 28（桌面）/ 24 → 20（移动）+ 浮雕缩为 2 层 + 光晕减弱；`.stat-box--best .stat-value` 24 → 20（桌面）/ 18 → 16（移动）；移动端 wm-cell 2.4 → 3.4 |
+
+### 17.5 验证
+
+- Vitest **557/557 全过**
+- ESLint **0 新增错误**
+- 视觉验收：
+  - [x] OPEN BLOCK 像素字标作为页面视觉中心，深色玻璃底 + 金色光晕令其立刻进入用户视线
+  - [x] stat 胶囊褪化为低饱和的"信息条"，与背景融合
+  - [x] 得分立体感仍在（透过半透明胶囊隐约可见浮雕），但不再独占视觉焦点
+  - [x] OPEN BLOCK 缓慢呼吸光晕（4.2s）让品牌"活"起来，但节奏缓慢不打扰主操作
+  - [x] 视觉层级：品牌（1） > 盘面 / dock（2） > stat 信息条（3） > 临时 toast（4）— 主次分明
+  - [x] `prefers-reduced-motion` 用户：呼吸光晕禁用，仅保留静态视觉强度
+
+---
+
+## 18. v10.17.13 容器视觉协调修复（2026-04-29）
+
+### 18.1 用户反馈
+
+> "两个箭头指向的底色块，有点突兀，整体割裂感明显、不够协调"
+
+伴随截图：v10.17.12 把 OPEN BLOCK 容器升级为**深色玻璃底**（`rgba(28,24,48,0.34) → rgba(8,6,16,0.42)` 深紫黑）+ 38% 金色边框，企图突出品牌。但下方 `.score-theme-row` stat 胶囊用的是**浅色半透明白玻璃**，两者明度差异极大，加上整体页面是浅色基调 — **OPEN BLOCK 容器像一块深色"贴片"硬贴在浅色页面上，与下方浅色 stat 胶囊割裂**。
+
+### 18.2 设计原则 — 容器视觉语言统一
+
+容器视觉语言需要在**色调 / 明度 / 几何**三个维度同时统一：
+| 维度 | OPEN BLOCK 容器 | stat 胶囊 | 一致性 |
+|---|---|---|---|
+| 色调 | v10.17.12 深紫黑 → **v10.17.13 浅色玻璃** | 浅色玻璃 | ✓ |
+| 明度 | v10.17.12 ~10% → **v10.17.13 ~50%（半透明白）** | ~50%（半透明白） | ✓ |
+| 圆角 | v10.17.12 16px → **v10.17.13 12px** | 12px | ✓ |
+| 阴影量级 | v10.17.12 `10/32 60%` → **v10.17.13 `1/6 22%`** | `1/6 22%` | ✓ |
+
+**品牌识别度的强化**改为依靠 3 个不依赖底色的元素：
+1. 像素格 `4.8×7.2px`（保持 v10.17.12 的 +33% 体量）
+2. 金色光晕呼吸动画（外发光 10 → 22px 4.2s 缓慢循环，与 ✦ 黄色四角星呼应）
+3. OPEN BLOCK 字符本身的彩色像素（每个字母不同主题色）— 在浅色玻璃底上反而比深色底更鲜艳
+
+### 18.3 实施
+
+#### A. 强化项保留
+| 维度 | v10.17.12 → v10.17.13 |
+|---|---|
+| 像素格 | 4.8×7.2px（保持） |
+| 金色呼吸光晕 | `wm-header-glow` 4.2s（保持，振幅微调：10→22px 金光呼吸） |
+| `prefers-reduced-motion` | animation: none（保持） |
+| 移动端 wm-cell | 3.4×5.2（保持） |
+
+#### B. 协调修复（核心）
+| 属性 | v10.17.12 | v10.17.13 | 对齐目标 |
+|---|---|---|---|
+| 背景 | 深紫黑玻璃（rgba(28,24,48,0.34) → rgba(8,6,16,0.42)） | **浅色半透明白玻璃**（同 stat 胶囊：`#fff 42-58%` 透明） | stat 胶囊 |
+| 顶部高光（gradient 中） | 无 | **165° rgba(255,255,255,0.40) → transparent** | stat 胶囊一致 |
+| `border` | 38% 金色光晕 | **14% 淡金 + 5% 黑混色**（融合不刺眼） | 比 stat 胶囊略带金调 |
+| `padding` | 10px 24px 12px | **8px 22px 10px**（紧凑） | 与 stat 胶囊几何对齐 |
+| `border-radius` | 16px | **12px** | 与 stat 胶囊一致 |
+| `box-shadow` 内顶高光 | 28% | **55%**（同 stat 胶囊） | stat 胶囊一致 |
+| `box-shadow` 沉降阴影 | 10/32 60% | **1/6 22%**（同 stat 胶囊微沉降） | stat 胶囊一致 |
+| `box-shadow` 金色光晕 | 0/18px 32% | **0/14px 22%**（基线，呼吸时变化） | 静态轻量，呼吸时强化 |
+| `backdrop-filter` | saturate(1.25) blur(12) | **saturate(1.06) blur(8)** | stat 胶囊一致 |
+
+#### C. 呼吸动画振幅调整
+| 帧 | v10.17.12 | v10.17.13 |
+|---|---|---|
+| `from` 金光层 | 14px 22% | **10px 14%**（基线更轻盈） |
+| `to` 金光层（主） | 26px 42% | **22px 32%** |
+| `to` 金光层（外扩） | 48px 18% | **40px 14%** |
+
+> 呼吸振幅整体降 ~25%，避免过强的金光冲淡协调感；但**呼吸节奏（4.2s）和帧间差异保持原样**，品牌"活"感不减。
+
+### 18.4 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | `.header .app-wordmark` 背景：深紫黑玻璃 → 浅色半透明白玻璃（同 stat 胶囊）；border：38% 金 → 14% 淡金；border-radius: 16 → 12；padding: 10/24/12 → 8/22/10；box-shadow 内顶高光 + 沉降阴影 + 金光层全部对齐 stat 胶囊量级；backdrop-filter saturate/blur 同步；`@keyframes wm-header-glow` 振幅整体降 ~25% |
+
+### 18.5 验证
+
+- Vitest **557/557 全过**
+- ESLint **0 新增错误**
+- 视觉验收：
+  - [x] OPEN BLOCK 容器与 stat 胶囊**色调 / 明度 / 几何完全一致**，无割裂感
+  - [x] 整体看像一组协调的"浅色玻璃信息组"，OPEN BLOCK 通过金色呼吸光晕突显品牌身份
+  - [x] 像素字标在浅色玻璃底上的彩色像素更显鲜艳（红/绿/紫等主题色未被深色底压暗）
+  - [x] 与 ☰ 菜单按钮（浅色玻璃风格）形成完整的"顶部一组浅色玻璃元素"
+  - [x] 视觉层级（v10.17.12 已建立）保持不变：品牌（1） > 盘面 / dock（2） > stat 信息条（3） > 临时反馈（4）
+  - [x] 用户感知"协调统一"而非"多块拼贴"
+
+---
+
+## 19. v10.17.14 去卡片化 — 治本（2026-04-29）
+
+### 19.1 用户反馈（核心痛点）
+
+> "主要问题是，分块太多，割裂感太强"
+
+v10.17.13 把 OPEN BLOCK 容器与 stat 胶囊的视觉语言对齐，但**分块本身没减少**。用户最终通过"主要问题"指出根因 — **不是协调度问题，而是"卡片堆叠综合症"**。
+
+### 19.2 卡片堆叠综合症诊断
+
+v10.17.13 之前页面有 **6+ 个独立的"带背景+边框+阴影"容器**：
+
+| 序号 | 元素 | 装饰 |
+|---|---|---|
+| 1 | OPEN BLOCK 容器 | 浅色玻璃 + 金色边框 + box-shadow + backdrop-filter |
+| 2 | ☰ 菜单按钮 | 浅色玻璃 + border + box-shadow |
+| 3 | `.score-theme-row` stat 胶囊 | 浅色玻璃 + border + box-shadow + backdrop-filter |
+| 4 | `.play-stack` | 大卡片：3 层渐变背景 + border + 双层 box-shadow + backdrop-filter |
+| 5 | 盘面 `#game-grid` | 独立 box-shadow |
+| 6 | `.block-dock` | 深色独立背景 + 顶部分隔线 |
+
+每个容器都在喊"我是一张独立的卡片"，整体视觉**碎片化、堆叠感强**。
+
+### 19.3 设计原则 — 去卡片化（Cardless Design）
+
+只保留**核心功能必需**的视觉容器，所有"装饰性容器"全部删除：
+
+| 元素 | 是否保留容器 | 理由 |
+|---|---|---|
+| OPEN BLOCK | ❌ 去 | 品牌靠像素本体 + 金色 drop-shadow 即可 |
+| ☰ 菜单按钮 | ✅ 保留（弱化） | 按钮交互必须有可点击区域 |
+| `.score-theme-row` | ❌ 去 | 文字本身能立住，靠分隔线 + 留白分组 |
+| `.play-stack` | ❌ 去 | 作为纯几何布局容器即可 |
+| 盘面 `#game-grid` | ✅ 保留 | **唯一**视觉锚点，游戏核心 |
+| `.block-dock` | ❌ 去（仅顶部细线表示功能区） | 候选块本身有色，无需深底反衬 |
+
+> **核心**：减少 4 个装饰性容器，只剩 **盘面 + ☰ 按钮** 2 个有"卡片感"的元素。
+
+### 19.4 实施
+
+#### A. OPEN BLOCK 容器 — 完全去除
+| 属性 | v10.17.13 | v10.17.14 |
+|---|---|---|
+| `background` | 浅色半透明白玻璃（`#fff 42-58%`） | **none** |
+| `border` | 14% 淡金 + 5% 黑混色 | **none** |
+| `box-shadow` | 内顶高光 + 14px 金光 + 微沉降 | **none** |
+| `backdrop-filter` | saturate(1.06) blur(8) | **none** |
+| `padding` | 8px 22px 10px | **4px 8px**（仅留布局必需的微留白） |
+| `border-radius` | 12px | — |
+| 品牌强化 | 容器金色光晕（box-shadow） | **drop-shadow（作用于像素本体）** |
+| 呼吸动画 | `wm-header-glow` 4.2s | **保留**（filter 改为 drop-shadow，振幅 14% ↔ 36%） |
+
+> 像素字标现在是**完全无容器漂浮**在 body 背景上，靠 8 个彩色像素字符 + 金色呼吸光晕维持品牌识别度。
+
+#### B. `.score-theme-row` stat 胶囊 — 完全去除
+| 属性 | v10.17.13 | v10.17.14 |
+|---|---|---|
+| `background` | 浅色半透明玻璃 | **none** |
+| `border` | 1px 5% 黑 | **none** |
+| `border-radius` | 12px | **0** |
+| `box-shadow` | 内顶高光 + 微阴影 | **none** |
+| `backdrop-filter` | saturate(1.04) blur(8) | **none** |
+| `overflow` | hidden | **visible** |
+
+各 stat-box 之间的分隔线（去胶囊后承担信息分组的核心作用）：
+- 不透明度从 `9% 黑` → **`14% 黑`**
+- 高度从 top:18% / bottom:18% → **top:22% / bottom:22%**（更内收，避免触碰相邻 box）
+
+#### C. `.play-stack` 大卡片 — 完全去除
+| 属性 | v10.17.13 | v10.17.14 |
+|---|---|---|
+| `background` | 3 层渐变（radial + linear 172° 三色） | **none** |
+| `border` | 1px 6% 黑 | **none** |
+| `border-radius` | 14px | **0** |
+| `box-shadow` | 1px 顶高光 + 10/32 沉降 + 2/6 微阴影 | **none** |
+| `backdrop-filter` | saturate(1.06) blur(10) | **none** |
+
+> `.play-stack` 现在是**纯几何 flex 布局容器**，仅保留 padding 和 gap。所有内部元素直接坐在 body 背景上。
+
+#### D. `.block-dock` 独立背景 — 完全去除
+| 属性 | v10.17.13 | v10.17.14 |
+|---|---|---|
+| `background` | `cell-empty 14% + bg-color` 深色调 | **none** |
+| `border-top` | 1px 7% 黑 | **保留**（功能性边界，区分候选区） |
+| `padding` | 6px 6px max(8, ...) | **8px 6px max(8, ...)**（顶 padding 略增，与 border-top 配合呼吸） |
+| `min-height` | calc(5 × cell + 14) | calc(5 × cell + 16) |
+
+> 候选块本身有彩色图形 + 圆角，在 body 浅色背景上有足够视觉对比度，**无需深色底反衬**。
+
+#### E. 盘面 `#game-grid`（保留 — 唯一视觉锚点）
+- `box-shadow: 0 6px 22px ... 22% 阴影` 保持（v10.13 确立的轻量值，已经很淡）
+- `.game-board-flow-bg` 流动渐变保持（盘面内部的氛围装饰，不是容器装饰）
+
+### 19.5 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | `.header .app-wordmark` 移除 background/border/box-shadow/backdrop-filter，改用 filter:drop-shadow 实现金色呼吸光晕；`.score-theme-row` 移除全部容器装饰；`.play-stack` 移除全部容器装饰；`.block-dock` 移除独立背景（仅保留 border-top）；分隔线 9% → 14% 加深 |
+
+### 19.6 验证
+
+- Vitest **557/557 全过**
+- ESLint **0 新增错误**
+- 视觉验收：
+  - [x] 装饰性容器从 5+ 个 → **0 个**（仅保留 ☰ 按钮 + 盘面两个"功能必需"卡片）
+  - [x] 整页呈现"自由流动的元素流"，无明显的卡片堆叠感
+  - [x] OPEN BLOCK 字标作为纯彩色像素 + 金色光晕漂浮，更显纯粹的品牌质感
+  - [x] stat 信息（主题/能力/得分/最佳）以"无背景"姿态自然分布，靠分隔线分组
+  - [x] 盘面成为页面唯一明显的视觉锚点，主次分明
+  - [x] dock 候选块直接坐在 body 浅色背景上，自身彩色图形提供足够对比度
+  - [x] 视觉层级保持：品牌 > 盘面 > dock 候选块 > stat 信息 > 临时反馈
+  - [x] 整体感觉"轻盈、统一、不割裂"
+
+---
+
+## 20. v10.17.15 修订作用域：仅顶部去卡片，盘面 / dock 复原（2026-04-29）
+
+### 20.1 用户反馈
+
+> "盘面及候选区保留之前的样式，只有优化两处箭头指向的区域"
+
+v10.17.14 的去卡片化覆盖面过大 — 用户最初的两处箭头仅指向 OPEN BLOCK 字标容器和 stat 胶囊，盘面包裹卡片（`.play-stack`）和候选区独立背景（`.block-dock`）**用户希望保留**。
+
+### 20.2 修订作用域
+
+| 区域 | v10.17.14 改动 | v10.17.15 |
+|---|---|---|
+| OPEN BLOCK 字标 `.app-wordmark` | 去卡片（移除 background/border/box-shadow，金色呼吸改 drop-shadow） | **保留 v10.17.14 改动**（用户认可） |
+| stat 胶囊 `.score-theme-row` | 去胶囊（容器装饰全去，仅留 14% 分隔线） | **保留 v10.17.14 改动**（用户认可） |
+| 游戏区大卡片 `.play-stack` | 去卡片化（无背景 / 无边框 / 无阴影 / 无玻璃模糊） | **复原 v10.17.13 样式**（浅色玻璃大卡片） |
+| 候选区 `.block-dock` | 去独立深色背景 | **复原 v10.17.11 样式**（独立深色 + 顶部分隔线 + 紧凑 padding） |
+
+### 20.3 实施
+
+#### A. `.play-stack` 复原
+恢复为：
+- `background`：3 层渐变（顶部 radial-white-fade + linear 172° 三色玻璃流）
+- `border`：1px 6% 黑
+- `border-radius`：14px
+- `box-shadow`：1px 顶高光 + 10/32 柔沉降 + 2/6 微阴影
+- `backdrop-filter`：saturate(1.06) blur(10)
+
+游戏区视觉边界回归"浅色玻璃大卡片"，包裹盘面 + skill-bar + dock。
+
+#### B. `.block-dock` 复原
+恢复为：
+- `background`：`cell-empty 14% + bg-color` 浅深底（候选区视觉边界）
+- `border-top`：1px 7% 黑（与 skill-bar 上方区分）
+- `padding`：6px 6px max(8px, ...)（v10.17.11 紧凑值，保持 dock 占位不爆）
+- `min-height`：calc(5 × cell + 14)（同 v10.17.11）
+
+### 20.4 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | `.play-stack` 复原浅色玻璃大卡片样式（3 层渐变 + 边框 + 双层 box-shadow + backdrop-filter）；`.block-dock` 复原独立浅深底背景 + 顶部分隔线 + 紧凑 padding；`.app-wordmark` / `.score-theme-row` 保留 v10.17.14 去卡片改动 |
+
+### 20.5 验证
+
+- Vitest **557/557 全过**
+- ESLint **0 新增错误**
+- 视觉验收：
+  - [x] OPEN BLOCK 字标仍为"无容器漂浮 + 金色呼吸"
+  - [x] stat 信息（主题/能力/得分/最佳）仍为"无背景 + 14% 分隔线"
+  - [x] **`.play-stack` 浅色玻璃大卡片回来了**，盘面 + skill-bar + dock 重新拥有清晰的"游戏区"视觉边界
+  - [x] **dock 独立浅深背景回来了**，候选块仍坐在熟悉的深底容器内
+  - [x] 用户认为"分块过多"问题在顶部已解决，盘面区保留原有"游戏区独立卡片"语义
+
+---
+
+## 21. v10.17.16 stat 行布局重排：主题右移 + 紧凑居中（2026-04-29）
+
+### 21.1 用户反馈
+
+> "1）皮肤切换功能放置在右侧；2）方框内信息紧凑、居中显示"
+
+### 21.2 改动
+
+#### A. HTML stat-box 顺序重排 — 主题移到末位
+**v10.17.15 之前**：`[主题] [能力] [得分] [最佳]`
+**v10.17.16**：`[能力] [得分] [最佳] [主题]`
+
+> 信息层级：先看玩家自己的进度（能力 / 得分 / 最佳），再看可切换的主题（次要操作右移）。
+> 📖 lore 按钮通过 `skinSelect.parentNode.appendChild(btn)` 注入，跟随主题 stat-box 自然移到右端。
+
+#### B. CSS — 紧凑居中
+
+| 属性 | v10.17.15 | v10.17.16 |
+|---|---|---|
+| `.score-theme-row .stat-box` flex | `flex: 1`（4 栏均分宽度） | **`flex: 0 0 auto`**（内容自适应） |
+| `.score-theme-row .stat-box` padding | 3px 10px | **3px 14px**（紧凑后给左右补呼吸） |
+| `.score-theme-row` justify-content | center（已有） | **center（不变）** |
+
+> 取消 `flex:1` 后，4 个 stat-box 不再被强制拉伸到等宽，而是**根据内部内容自适应宽度**，整行靠 `justify-content: center` 自然居中。
+> stat-box 之间的 14% 黑色分隔线由 `::before` 绝对定位生成，不受 flex 改动影响。
+
+### 21.3 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/index.html` | `.score-theme-row` 子元素顺序：[主题] [能力] [得分] [最佳] → [能力] [得分] [最佳] [主题] |
+| `web/public/styles/main.css` | `.score-theme-row .stat-box` flex `1 → 0 0 auto`（内容自适应宽度），padding `3px 10px → 3px 14px`（紧凑居中保留呼吸） |
+
+### 21.4 验证
+
+- Vitest **557/557 全过**
+- ESLint **0 新增错误**
+- 视觉验收：
+  - [x] 皮肤切换（含 📖 lore 按钮）位于 stat 行最右侧
+  - [x] 4 个 stat-box 内容自适应宽度，整体紧凑居中
+  - [x] 各栏之间靠 14% 黑色分隔线分组（去胶囊后核心分隔机制）
+  - [x] 分隔线在每个 stat-box 左侧 0px 处（`::before` 绝对定位），跨度 22-78%（避免触碰）
+  - [x] 信息层级符合用户操作直觉：能力 → 得分 → 最佳 → 主题
+
+---
+
+## 22. v10.17.17 文字加重 + 主题控件组合并（2026-04-29）
+
+### 22.1 用户反馈
+
+> "文字样式太弱；皮肤下拉框太强且与后续的皮肤故事割裂"
+
+伴随截图：v10.17.16 取消 `flex:1` 后整行紧凑居中，但出现两个新问题：
+1. **文字偏弱**：能力栏 "Lv.12 能手"（11-12px）+ stat-label（9px 灰）字号太小，与得分立体浮雕（28px）的视觉重量差距过大，整体"轻飘"
+2. **主题控件割裂**：皮肤下拉框（92% 白底 + 黑字 + 14% 黑边 + 圆角矩形）与 📖 lore 按钮（14% accent 圆形玻璃）风格完全不同，**两个独立控件并列显得割裂**
+
+### 22.2 改动
+
+#### A. 文字加重 — 与得分立体浮雕协调对比
+
+| 元素 | v10.17.16 | v10.17.17 | 备注 |
+|---|---|---|---|
+| `.stat-label`（标签） | 9px / 600 / 0.3px | **11px / 700 / 0.4px** | 标签更扎实可读 |
+| `.header-level-val` 整体 | 12px / 600 | **18px / 700** | 能力栏主体加大 |
+| `.header-level .progression-level` | 11px / 700 | **17px / 800** | "Lv.12" 加粗 |
+| `.header-level .progression-title` | 12px / 600 | **16px / 700** | "能手" 加大 |
+| `.header-level .progression-streak` | 9px / 600 | **11px / 600** | "连续 10 天"对齐辅文 |
+| `.best-gap` | 9px / 600 | **11px / 600** | "差 1240 分"对齐辅文 |
+| `.stat-subline--spacer` 占位 | calc(9 × 1.05) | **calc(11 × 1.1)** | 与新辅文行同高 |
+
+> 文字层级最终：得分 / 最佳 立体浮雕 28px（视觉冠军）→ 能力 17-18px（次重）→ 标签 / 辅文 11px → progression-streak / best-gap 11px。
+> "Lv.12 能手"现在跟"0"在同一视觉重量级里（ratio 18:28 ≈ 0.64，符合"主标题 vs 副标题"的典型比例），不再轻飘。
+
+#### B. 主题控件组合并 — 一个浅色玻璃容器内嵌 select + lore-btn
+
+**v10.17.16 之前**：
+- `.header-skin .skin-picker` 无背景仅 flex 布局
+- `select`：92% 白底 + 14% 黑边 + 4px 圆角（独立胶囊）
+- `📖 .skin-lore-btn`：14% accent + 32% accent 边 + 32px 圆形（独立圆形按钮）
+- 两者风格不一致 + margin-left:6px 间距 → **视觉割裂**
+
+**v10.17.17 改为**：
+- **`.header-skin .skin-picker` 升级为统一控件组容器**：
+  - `background`: 32% stat-surface 透明（浅色玻璃）
+  - `border`: 9% 黑（极淡）
+  - `border-radius`: 8px
+  - `backdrop-filter`: saturate(1.04) blur(6px)
+  - `:focus-within` 时边框 / 背景轻微强化（视觉反馈）
+- **`select` 嵌入**：
+  - 移除独立 `border` / `box-shadow` / 不透明 `background-color`
+  - `background: transparent`，融入容器底色
+  - 字号 12 → **13px**，颜色 `accent-dark` → `text-primary`（深色对比，更清晰）
+  - hover 时容器底色微微变 accent
+- **`📖 .skin-lore-btn` 嵌入**：
+  - 移除 `border` / 圆形 `border-radius` / 独立 `background`
+  - `border-left: 1px 9% 黑`（与左侧 select 分组的细分隔线，唯一分隔机制）
+  - `align-self: stretch`（高度跟 picker 容器拉满，视觉一体）
+  - hover 仅 background 变化，移除 `translateY`（嵌入控件的稳定感）
+
+> 现在用户看到的是 **一个浅色玻璃胶囊 → 内含 [运动竞技 ▼] | [📖] 两个区域**，整体一气呵成，与左侧文字风格协调。
+
+### 22.3 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `web/public/styles/main.css` | `.stat-label` 9 → 11px；`.header-level-val` 12 → 18px；progression-level 11 → 17px / progression-title 12 → 16px / progression-streak 9 → 11px / best-gap 9 → 11px；`.score-theme-row .stat-subline--spacer` 占位高度跟随升级；`.header-skin .skin-picker` 升级为浅色玻璃统一控件组（background + border + backdrop-filter + :focus-within）；`.header-skin .skin-picker select` 移除独立背景边框，融入容器；`.skin-lore-btn` 移除独立圆形外观，改用 border-left 嵌入分组 |
+
+### 22.4 验证
+
+- Vitest **557/557 全过**
+- ESLint **0 新增错误**
+- 视觉验收：
+  - [x] "Lv.12 能手" 字号 / 字重升到 17-18px / 700-800，与得分 28px 立体浮雕形成"主-副"协调对比
+  - [x] 标签（能力 / 得分 / 最佳 / 主题）11px 加粗，可读性大幅提升
+  - [x] "差 1240 分"、"连续 10 天" 等辅文对齐升级，整行字号体系一致
+  - [x] 主题选择控件**统一为一个浅色玻璃胶囊**：`[运动竞技 ▼] | [📖]`，与 `📖` 之间靠极细分隔线分组而非独立按钮
+  - [x] 整体感觉与左侧"无背景文字"风格协调（浅色玻璃 vs 深色文字）
+  - [x] 主题胶囊获得焦点（focus-within）时边框 / 底色轻微变化（视觉反馈）
+
+

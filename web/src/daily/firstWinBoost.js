@@ -74,7 +74,7 @@ export function initFirstWinBoost({ game } = {}) {
 function _maybeShowReminder() {
     if (!isBoostAvailableToday()) return;
     const hoursLeft = 24 - new Date().getHours();
-    _showHint(`今日首胜加成 ×${BOOST_RATIO} 还剩 ${hoursLeft}h — 完成本局即可触发`);
+    _showInlineBanner(`今日首胜加成 ×${BOOST_RATIO} 还剩 ${hoursLeft}h — 完成本局即可触发`);
 }
 
 function _maybeApplyBoost(score) {
@@ -96,22 +96,36 @@ function _maybeApplyBoost(score) {
     _showCelebrate(`今日首胜 ×${BOOST_RATIO} 已生效 +${bonus}`);
 }
 
-function _showHint(msg) {
+/**
+ * v10.17.11：reminder 改用顶部 inline banner（注入到 .score-theme-row 下方），
+ * 不再用 #easter-egg-toast 底部 fixed 浮窗，避免遮挡 dock 候选块区。
+ *
+ * banner 居中、跨整行 stat 胶囊宽度、淡入 3s 自动淡出，
+ * 不阻挡盘面 / dock 任何主操作区。
+ */
+function _showInlineBanner(msg) {
     if (typeof document === 'undefined') return;
-    const id = 'easter-egg-toast';
+    const id = 'first-win-banner';
     let el = document.getElementById(id);
     if (!el) {
         el = document.createElement('div');
         el.id = id;
-        document.body.appendChild(el);
+        el.className = 'first-win-banner';
+        const anchor = document.querySelector('.score-theme-row');
+        if (anchor && anchor.parentNode) {
+            anchor.parentNode.insertBefore(el, anchor.nextSibling);
+        } else {
+            document.body.appendChild(el);
+        }
     }
-    delete el.dataset.tier;   // normal 底部条
     el.textContent = '☀️ ' + msg;
     el.classList.remove('is-visible');
     void el.offsetHeight;
     el.classList.add('is-visible');
     clearTimeout(el._timer);
-    el._timer = setTimeout(() => el.classList.remove('is-visible'), 3000);
+    el._timer = setTimeout(() => {
+        el.classList.remove('is-visible');
+    }, 3500);
 }
 
 function _showCelebrate(msg) {

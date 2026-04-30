@@ -56,15 +56,8 @@
                 <button type="button" id="in-game-menu-btn" class="in-game-menu-btn" title="返回菜单">☰</button>
             </div>
         </div>
-        <!-- 四项合一行：主题 / 能力 / 得分 / 最佳，统一 stat-box 风格 -->
+        <!-- 四项合一行：能力 / 得分 / 最佳 / 主题（v10.17.16：主题移到右端） -->
         <div class="score-theme-row">
-            <div class="stat-box header-skin" title="选择棋盘主题">
-                <div class="stat-label">主题</div>
-                <div class="skin-picker">
-                    <select id="skin-select" aria-label="棋盘主题"></select>
-                </div>
-                <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
-            </div>
             <div class="stat-box header-level" aria-label="玩家等级">
                 <div class="stat-label">能力</div>
                 <div class="header-level-val">
@@ -82,6 +75,13 @@
                 <div class="stat-label">最佳</div>
                 <div class="stat-value" id="best">0</div>
                 <div class="best-gap" id="best-gap" hidden></div>
+            </div>
+            <div class="stat-box header-skin" title="选择棋盘主题">
+                <div class="stat-label">主题</div>
+                <div class="skin-picker">
+                    <select id="skin-select" aria-label="棋盘主题"></select>
+                </div>
+                <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
             </div>
         </div>
         <!-- progression-hud 隐藏（JS 仍依赖 prog-track/prog-fill/prog-xp-text 更新内部状态） -->

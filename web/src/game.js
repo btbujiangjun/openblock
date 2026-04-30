@@ -20,7 +20,8 @@ import {
     applySkinToDocument,
     getActiveSkin,
     SKINS,
-    DEFAULT_SKIN_ID
+    DEFAULT_SKIN_ID,
+    onSkinAfterApply
 } from './skins.js';
 import { Grid } from './grid.js';
 import { generateDockShapes, resetSpawnMemory, getLastSpawnDiagnostics } from './bot/blockSpawn.js';
@@ -323,16 +324,26 @@ export class Game {
                             m.markSkinUserChosen();
                         }
                     } catch { /* ignore */ }
-                    // v10.15: 通知环境粒子层切换预设
-                    try { window.__ambientParticles?.applySkin?.(skinSelect.value); } catch { /* ignore */ }
-                    // v10.15: 通知 EffectLayer 渲染器变更（新皮肤可能改变特效色相）
-                    try { window.__effectLayer?.setRenderer?.(this.renderer); } catch { /* ignore */ }
-                    this.refreshDockSkin();
-                    this._normalizeDockState('skin-change');
-                    this.markDirty();
                 }
             });
         }
+
+        /* v10.17.5: dock / 环境层 / EffectLayer 等"被动随皮肤变化"的副作用统一挂到全局 hook，
+         * 让任何入口（#skin-select / 皮肤图鉴 lore / 节日 seasonalSkin / Konami / cheat）
+         * 切换皮肤后都能自动同步 dock 候选区方块外观。
+         * 修复：从图鉴卡片"试用"或时段推荐切换时，dock 仍保留旧皮肤方块的 bug。
+         */
+        onSkinAfterApply((id) => {
+            try { window.__ambientParticles?.applySkin?.(id); } catch { /* ignore */ }
+            try { window.__effectLayer?.setRenderer?.(this.renderer); } catch { /* ignore */ }
+            try {
+                const sel = document.getElementById('skin-select');
+                if (sel && sel.value !== id) sel.value = id;
+            } catch { /* ignore */ }
+            this.refreshDockSkin();
+            this._normalizeDockState('skin-change');
+            this.markDirty();
+        });
 
         document.addEventListener('mousemove', e => this.onMove(e));
         document.addEventListener('touchmove', e => this.onMove(e), { passive: false });
