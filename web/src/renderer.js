@@ -478,6 +478,112 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         return;
     }
 
+    /* ── bevel3d（休闲消除立体方块 · v10.32 截图复刻款）─────────────────
+     *
+     * 「圆润按钮」光照模型 — 模拟一束自左上方斜射的柔和顶光：
+     *
+     *   ┌─────────────────────────────────┐
+     *   │ ▒ 顶斜切：lighten 0.18           │
+     *   ├──┬──────────────────────┬──────┤
+     *   │左│ 中心面（对角渐变）：    │右斜切│
+     *   │斜│ TL lighten 0.18 →       │darken │
+     *   │+6│  mid lighten 0.06 →     │ 0.16  │
+     *   │％│   BR ≈ 主色             │       │
+     *   │  │ + 左上小范围径向高光    │       │
+     *   ├──┴──────────────────────┴──────┤
+     *   │ ▓ 底斜切：darken 0.32（投影）   │
+     *   └─────────────────────────────────┘
+     *
+     * 关键差异（vs v3 横向亮带模型）：
+     * 1. 中心面用**对角渐变**而非垂直渐变 — 自左上向右下衰减，圆润按钮观感
+     * 2. **径向白光斑只点亮左上角** — 不再横贯顶部"刷白"中心面，主色饱和度保留
+     * 3. 中心面亮度峰值（lighten 0.18）= 顶斜切边亮度 → **色阶平滑过渡，无台阶感**
+     * 4. 中心面右下回归主色（不刷白），右/底斜切边减弱（−0.16/−0.32）→ **不楞、不突兀**
+     * 5. 斜切宽度 0.14 → 0.13，中心面占视觉主体更多
+     *
+     * 所有色面以同色相 lighten/darken 填充，**零描边**避免线框感。
+     */
+    if (skin.blockStyle === 'bevel3d') {
+        const bevel = Math.max(2, Math.round(size * 0.13));
+        const innerX = bx + bevel;
+        const innerY = by + bevel;
+        const innerS = size - bevel * 2;
+        const hasRound = r > 0;
+
+        ctx.save();
+        if (hasRound) {
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.clip();
+        }
+
+        // 1. 顶部斜切边（lighten 18% — 与中心面顶端等亮度，平滑过渡）
+        ctx.fillStyle = lightenColor(color, 0.18);
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + size, by);
+        ctx.lineTo(innerX + innerS, innerY);
+        ctx.lineTo(innerX, innerY);
+        ctx.closePath();
+        ctx.fill();
+
+        // 2. 左侧斜切边（lighten 6% — 侧光面）
+        ctx.fillStyle = lightenColor(color, 0.06);
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(innerX, innerY);
+        ctx.lineTo(innerX, innerY + innerS);
+        ctx.lineTo(bx, by + size);
+        ctx.closePath();
+        ctx.fill();
+
+        // 3. 右侧斜切边（darken 16% — 背光面，比之前 −20% 缓和）
+        ctx.fillStyle = darkenColor(color, 0.16);
+        ctx.beginPath();
+        ctx.moveTo(bx + size, by);
+        ctx.lineTo(bx + size, by + size);
+        ctx.lineTo(innerX + innerS, innerY + innerS);
+        ctx.lineTo(innerX + innerS, innerY);
+        ctx.closePath();
+        ctx.fill();
+
+        // 4. 底部斜切边（darken 32% — 投影面，比之前 −36% 缓和）
+        ctx.fillStyle = darkenColor(color, 0.32);
+        ctx.beginPath();
+        ctx.moveTo(bx, by + size);
+        ctx.lineTo(innerX, innerY + innerS);
+        ctx.lineTo(innerX + innerS, innerY + innerS);
+        ctx.lineTo(bx + size, by + size);
+        ctx.closePath();
+        ctx.fill();
+
+        // 5. 中心面（对角渐变：左上 lighten 18% → 中段 lighten 6% → 右下主色）
+        //    饱和度全程保留，不刷白；TL 与顶斜切等亮度，BR 与底斜切交界处亦能自然过渡
+        const fg = ctx.createLinearGradient(innerX, innerY, innerX + innerS, innerY + innerS);
+        fg.addColorStop(0,    lightenColor(color, 0.18));
+        fg.addColorStop(0.55, lightenColor(color, 0.06));
+        fg.addColorStop(1,    color);
+        ctx.fillStyle = fg;
+        ctx.fillRect(innerX, innerY, innerS, innerS);
+
+        // 6. 左上角径向白色光斑（"按钮被点光" — 半径 60% 内核，迅速衰减；
+        //    取代横贯顶部的白色亮带，避免整面被刷白、保留主色鲜艳度）
+        const radR = innerS * 0.60;
+        const rad = ctx.createRadialGradient(
+            innerX + innerS * 0.28, innerY + innerS * 0.22, 0,
+            innerX + innerS * 0.28, innerY + innerS * 0.22, radR
+        );
+        rad.addColorStop(0,    'rgba(255,255,255,0.22)');
+        rad.addColorStop(0.40, 'rgba(255,255,255,0.06)');
+        rad.addColorStop(1,    'rgba(255,255,255,0.00)');
+        ctx.fillStyle = rad;
+        ctx.fillRect(innerX, innerY, innerS, innerS);
+
+        ctx.restore();
+
+        _paintIcon(ctx, bx, by, size, r, originalColor, skin);
+        return;
+    }
+
     // glossy — 所有层均直接 fill 圆角路径，消除 clip 毛边
     const lightGlossy = isLightBoardSkin(skin);
     const gradient = ctx.createLinearGradient(bx, by, bx + size, by);
@@ -1187,9 +1293,13 @@ export class Renderer {
         const palette = getBlockColors();
 
         const perCell = isPerfect ? 24 : isCombo ? 17 : isDouble ? 13 : 10;
-        const speed = isPerfect ? 2.15 : isCombo ? 1.65 : isDouble ? 1.35 : 1.08;
-        const lifeDecay = isPerfect ? 0.010 : isCombo ? 0.014 : isDouble ? 0.018 : 0.022;
-        const baseLife = isPerfect ? 1.55 : isCombo ? 1.30 : isDouble ? 1.18 : 1.10;
+        // 起速更猛，由 damping 逐帧减速 → 更强的「炸开后渐慢」体感
+        const speed = isPerfect ? 2.55 : isCombo ? 2.0 : isDouble ? 1.6 : 1.28;
+        const lifeDecay = isPerfect ? 0.0085 : isCombo ? 0.012 : isDouble ? 0.016 : 0.020;
+        const baseLife = isPerfect ? 1.65 : isCombo ? 1.42 : isDouble ? 1.26 : 1.18;
+        // 越大消除衰减得越慢，余韵更长；与 lifeMax 风格的 bonus 粒子互不冲突（无 damping 字段则不减速）
+        const damping = isPerfect ? 0.972 : isCombo ? 0.968 : isDouble ? 0.962 : 0.958;
+        const gravityMul = isPerfect ? 0.55 : isCombo ? 0.65 : isDouble ? 0.78 : 0.9;
 
         const rainbowColors = ['#FF4444', '#FF8800', '#FFDD00', '#44DD44', '#4488FF', '#AA44FF'];
 
@@ -1207,11 +1317,13 @@ export class Renderer {
                 this.particles.push({
                     x: cx,
                     y: cy,
-                    vx: Math.cos(ang) * sp * 1.35 + (Math.random() - 0.5) * 5,
-                    vy: Math.sin(ang) * sp * 0.85 - jump,
+                    vx: Math.cos(ang) * sp * 1.55 + (Math.random() - 0.5) * 5,
+                    vy: Math.sin(ang) * sp * 0.95 - jump,
                     color,
                     life: baseLife,
                     lifeDecay,
+                    damping,
+                    gravityMul,
                     size: (isCombo ? 3 : 4) + Math.random() * (isCombo ? 5 : 4)
                 });
             }
@@ -1221,13 +1333,15 @@ export class Renderer {
                     this.particles.push({
                         x: cx,
                         y: cy,
-                        vx: (Math.random() - 0.5) * (isPerfect ? 26 : 20),
-                        vy: (Math.random() - 0.5) * (isPerfect ? 26 : 20) - (8 + Math.random() * 6),
+                        vx: (Math.random() - 0.5) * (isPerfect ? 30 : 24),
+                        vy: (Math.random() - 0.5) * (isPerfect ? 30 : 24) - (9 + Math.random() * 7),
                         color: isPerfect
                             ? rainbowColors[j % rainbowColors.length]
                             : (j % 2 === 0 ? '#FFD700' : '#FFF8DC'),
-                        life: isPerfect ? 1.60 : 1.35,
-                        lifeDecay: isPerfect ? 0.009 : 0.012,
+                        life: isPerfect ? 1.75 : 1.48,
+                        lifeDecay: isPerfect ? 0.0075 : 0.010,
+                        damping: isPerfect ? 0.974 : 0.968,
+                        gravityMul: 0.45,
                         size: 2 + Math.random() * (isPerfect ? 4 : 3)
                     });
                 }
@@ -1407,6 +1521,11 @@ export class Renderer {
             const p = this.particles[i];
             p.x += p.vx;
             p.y += p.vy;
+            // 速度阻尼：让爆炸粒子「先冲再缓」，没有 damping 字段的旧粒子不受影响
+            if (p.damping != null) {
+                p.vx *= p.damping;
+                p.vy *= p.damping;
+            }
             p.vy += 0.35 * (p.gravityMul ?? 1);
             const decay = p.lifeDecay ?? 0.03;
             p.life -= decay;

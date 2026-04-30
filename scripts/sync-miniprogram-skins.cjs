@@ -86,6 +86,7 @@ for (const [key, skin] of Object.entries(webSkins)) {
     blockInset: skin.blockInset,
     blockRadius: skin.blockRadius,
     blockStyle: skin.blockStyle,
+    cellStyle: skin.cellStyle,
     clearFlash: skin.clearFlash,
   };
 }

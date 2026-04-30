@@ -24,7 +24,7 @@ const WEATHER_TO_SKIN = {
     /* WMO Weather Code → 皮肤 */
     rain:    'koi',          // 51-67
     snow:    'fairy',        // 71-77 (用 fairy 替代不存在的 winter)
-    storm:   'lava',         // 95-99
+    storm:   'sunset',       // 95-99（v10.32 lava 合并入 sunset / 琥珀流光）
     fog:     'sakura',       // 45-48
     clear:   'ocean',        // 0-3
     cloudy:  'aurora',       // 4-9

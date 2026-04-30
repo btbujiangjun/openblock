@@ -166,7 +166,7 @@ describe('v10.17 skinFragments', () => {
 /* ---------- asyncPk encode/decode ---------- */
 describe('v10.17 asyncPk encode/decode', () => {
     it('编解码可逆', () => {
-        const payload = { seed: 12345, score: 999, skinId: 'lava', ymd: '2026-04-29' };
+        const payload = { seed: 12345, score: 999, skinId: 'sunset', ymd: '2026-04-29' };
         const id = pkInternals._encodePayload(payload);
         expect(typeof id).toBe('string');
         expect(id.length).toBeGreaterThan(0);

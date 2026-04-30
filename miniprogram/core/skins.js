@@ -7,14 +7,14 @@ const STORAGE_KEY = 'openblock_skin';
 const DEFAULT_SKIN_ID = "titanium";
 
 const CLASSIC_PALETTE = [
-  "#80D455",
-  "#5BB8F8",
-  "#FF9840",
-  "#FFD820",
-  "#80A8FF",
-  "#FF7868",
-  "#FF98C0",
-  "#C8A8FF"
+  "#3F6DD8",
+  "#4FB8E8",
+  "#52BC4B",
+  "#FFC428",
+  "#F5851E",
+  "#A848E0",
+  "#65C4F0",
+  "#E84D5C"
 ];
 
 const SKINS = {
@@ -22,21 +22,21 @@ const SKINS = {
     "id": "classic",
     "name": "✨ 极简经典",
     "blockColors": [
-      "#80D455",
-      "#5BB8F8",
-      "#FF9840",
-      "#FFD820",
-      "#80A8FF",
-      "#FF7868",
-      "#FF98C0",
-      "#C8A8FF"
+      "#3F6DD8",
+      "#4FB8E8",
+      "#52BC4B",
+      "#FFC428",
+      "#F5851E",
+      "#A848E0",
+      "#65C4F0",
+      "#E84D5C"
     ],
     "gridOuter": "#1C2630",
     "gridCell": "#2E3E50",
     "gridGap": 1,
     "blockInset": 2,
-    "blockRadius": 5,
-    "blockStyle": "glossy",
+    "blockRadius": 4,
+    "blockStyle": "bevel3d",
     "clearFlash": "rgba(220,240,255,0.90)"
   },
   "titanium": {
@@ -145,45 +145,24 @@ const SKINS = {
   },
   "sunset": {
     "id": "sunset",
-    "name": "🌅 暮色日落",
+    "name": "🌅 琥珀流光",
     "blockColors": [
-      "#FF7761",
-      "#FF9A56",
-      "#FFCC5C",
-      "#88D8B0",
-      "#8098CF",
-      "#D478CA",
-      "#FF8FA0",
-      "#FFB870"
+      "#FF6A50",
+      "#FF8E3A",
+      "#FFB230",
+      "#FFD638",
+      "#FF7090",
+      "#E04098",
+      "#A858DC",
+      "#FFAE6A"
     ],
     "gridOuter": "#241019",
     "gridCell": "#341628",
     "gridGap": 1,
     "blockInset": 2,
-    "blockRadius": 6,
-    "blockStyle": "glossy",
-    "clearFlash": "rgba(255,200,150,0.42)"
-  },
-  "lava": {
-    "id": "lava",
-    "name": "🔥 熔岩炽焰",
-    "blockColors": [
-      "#FF4040",
-      "#FF6830",
-      "#FF9020",
-      "#FFB818",
-      "#E84040",
-      "#FF3868",
-      "#FF7848",
-      "#FFA830"
-    ],
-    "gridOuter": "#0E0604",
-    "gridCell": "#1E0C08",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 4,
-    "blockStyle": "glossy",
-    "clearFlash": "rgba(255,180,80,0.40)"
+    "blockRadius": 7,
+    "blockStyle": "glass",
+    "clearFlash": "rgba(255,200,140,0.50)"
   },
   "sakura": {
     "id": "sakura",

@@ -132,11 +132,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.openBlockGame = game;
     initMonetization(game);
 
-    // 复活系统（低侵入性插件：装饰 game.showNoMovesWarning）
-    const reviveManager = new ReviveManager({ limit: 1, clearCells: 12 });
+    // v10.18.5：复活系统默认关闭——它会在 game-over 之前先弹一个浮层，与新版结算卡形成「两次浮层」。
+    // 仍保留 ReviveManager 实例（API 不变、单测不变），仅 enabled:false 不装饰 showNoMovesWarning。
+    // 后续如要恢复："new ReviveManager({ limit: 1, clearCells: 12 })"。
+    const reviveManager = new ReviveManager({ limit: 1, clearCells: 12, enabled: false });
     reviveManager.init(game);
     window.__reviveManager = reviveManager;
-    // 新局开始时重置复活次数
+    // 新局开始时重置复活次数（即便禁用也保持 wallet 路径一致）
     const _origStart = game.start.bind(game);
     game.start = async (...args) => {
         reviveManager.resetForNewGame();
@@ -169,6 +171,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSeasonalBorder({ game });
     initExtremeAchievements({ game, audio: audioFx });
     initShareCard({ game, audio: audioFx });
+    // v10.18.3：结算卡内单一分享入口（合并旧「生成海报」与「分享成绩」按钮）
+    _wireShareBtn(game, audioFx);
     initDailyMaster({ game, audio: audioFx });
     initSkinLore({ audio: audioFx });
     /* v10.17：原 stub 替换为完整实装 */
@@ -279,3 +283,54 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 });
+
+/**
+ * v10.18.4：结算卡的「海报 / 分享」次操作均接 shareCard 工具函数。
+ *  - #poster-btn：永远生成海报并触发下载（离线产物）
+ *  - #share-btn：优先调起系统分享面板携带海报；不支持时降级为下载
+ * 缺失任一按钮时静默跳过，便于旧版 HTML 兼容。
+ */
+function _wireShareBtn(game, audio) {
+    void game;
+    const sc = () => (typeof window !== 'undefined' ? window.__shareCard : null);
+
+    const posterBtn = document.getElementById('poster-btn');
+    if (posterBtn) {
+        posterBtn.addEventListener('click', async () => {
+            posterBtn.disabled = true;
+            try {
+                const api = sc();
+                if (!api) return;
+                const dataUrl = await api.generatePoster();
+                api.downloadPoster(dataUrl);
+                audio?.play?.('unlock');
+            } catch (e) {
+                console.warn('[poster]', e);
+            } finally {
+                posterBtn.disabled = false;
+            }
+        });
+    }
+
+    const shareBtn = document.getElementById('share-btn');
+    if (shareBtn) {
+        shareBtn.addEventListener('click', async () => {
+            shareBtn.disabled = true;
+            try {
+                const api = sc();
+                if (!api) return;
+                const dataUrl = await api.generatePoster();
+                if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+                    await api.sharePoster(dataUrl);
+                } else {
+                    api.downloadPoster(dataUrl);
+                }
+                audio?.play?.('unlock');
+            } catch (e) {
+                console.warn('[share]', e);
+            } finally {
+                shareBtn.disabled = false;
+            }
+        });
+    }
+}

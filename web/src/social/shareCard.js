@@ -20,47 +20,17 @@ const POSTER_H = 1280;
 
 let _audio = null;
 
+/**
+ * v10.18.3：不再自动注入按钮。
+ * 结算卡内的分享入口由 index.html 的 #share-btn 静态承载，
+ * 由 main.js 统一在 initShareCard 之后绑定 click → generatePoster + share/download。
+ * 这里只暴露工具函数 + 保留 _audio 用于点击反馈音。
+ */
 export function initShareCard({ game, audio = null } = {}) {
     _audio = audio;
     void game;
-    _installButton();
     if (typeof window !== 'undefined') {
-        window.__shareCard = { generatePoster, downloadPoster, sharePoster };
-    }
-}
-
-function _installButton() {
-    const tryInstall = () => {
-        const over = document.getElementById('game-over');
-        if (!over) return false;
-        if (over.querySelector('.share-card-btn')) return true;
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'share-card-btn';
-        btn.textContent = '生成分享海报';
-        btn.addEventListener('click', async () => {
-            try {
-                const dataUrl = await generatePoster();
-                if (navigator.share) {
-                    await sharePoster(dataUrl);
-                } else {
-                    downloadPoster(dataUrl);
-                }
-                _audio?.play?.('unlock');
-            } catch (e) {
-                console.warn('[shareCard]', e);
-            }
-        });
-
-        const actions = over.querySelector('.over-actions') || over;
-        actions.appendChild(btn);
-        return true;
-    };
-    if (!tryInstall()) {
-        // game-over 模态可能在 game.init 后才挂载，延迟尝试
-        setTimeout(tryInstall, 1200);
-        setTimeout(tryInstall, 2400);
+        window.__shareCard = { generatePoster, downloadPoster, sharePoster, getAudio: () => _audio };
     }
 }
 

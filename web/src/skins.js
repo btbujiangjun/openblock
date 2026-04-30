@@ -5,11 +5,14 @@
 
 const STORAGE_KEY = 'openblock_skin';
 
-/** v10.31 已下线皮肤 id → 迁移目标（读档时自动改写 localStorage） */
+/** 已下线皮肤 id → 迁移目标（读档时自动改写 localStorage）
+ *  v10.31：cyber/macaroon 下线
+ *  v10.32：neural → neonCity；lava → sunset（与 sunset 合并为「琥珀流光」） */
 const REMOVED_SKIN_ALIASES = {
     cyber: 'neonCity',
     macaroon: 'dawn',
-    neural: 'neonCity'
+    neural: 'neonCity',
+    lava: 'sunset'
 };
 
 /** 首次访问或未存储时的默认主题 */
@@ -49,7 +52,7 @@ export const CLASSIC_PALETTE = [
 ];
 
 /**
- * @typedef {'glossy' | 'flat' | 'neon' | 'glass' | 'metal' | 'cartoon' | 'jelly' | 'pixel8'} BlockDrawStyle
+ * @typedef {'glossy' | 'flat' | 'neon' | 'glass' | 'metal' | 'cartoon' | 'jelly' | 'pixel8' | 'bevel3d'} BlockDrawStyle
  * @typedef {'sunken'} CellStyle
  * @typedef {{ icons: string[], opacity?: number, scale?: number }} BoardWatermark
  * @typedef {{
@@ -74,7 +77,8 @@ export const CLASSIC_PALETTE = [
  */
 
 /**
- * 皮肤总量：35 款（v10.31 剔除 `cyber`→`neonCity`、`macaroon`→`dawn`；v10.32 剔除 `neural`→`neonCity`）
+ * 皮肤总量：34 款（v10.31 剔除 `cyber`→`neonCity`、`macaroon`→`dawn`；
+ *               v10.32 剔除 `neural`→`neonCity` 与 `lava`→`sunset`，sunset 升级为「琥珀流光」glass 风格）
  * 盘面设计基准：参考 neonCity —— gridOuter（极深）+ gridCell（深色可见空格）
  * 方块须与 gridCell 形成明显明度/色相反差。
  *
@@ -93,7 +97,7 @@ export const CLASSIC_PALETTE = [
  *                     原则：盘面/页面背景的色相必须服务于皮肤主题叙事。
  *
  * 主题强化（v10.2）：将「主题↔背景一致性铁律」推广到全部深色皮肤。
- *   sunset   暮色日落  纯黑紫红 → 玫瑰胭脂暮霭（点出黄昏暖意）
+ *   sunset   琥珀流光  纯黑紫红 → 玫瑰胭脂暮霭（点出琥珀宝石质感；v10.32 与 lava 合并）
  *   sakura   樱花飞雪  纯黑红   → 胭脂粉紫夜（夜樱粉光）
  *   candy    糖果甜心  通用紫黑 → 莓果糖果橱（甜系深莓紫）
  *   fantasy  魔幻秘境  纯黑     → 水晶秘境紫（魔法神秘紫）
@@ -124,7 +128,7 @@ export const CLASSIC_PALETTE = [
  *   toon       🦘 #FF6098       → #B85828 袋鼠毛棕   （与 🐼 红粉区分，1.78 → 3.37）
  *   beast      整组 8 色重写（原色板顺序与 icons 索引错位 + 🐯/🐆 蓝色族重叠，1.78 → 5.62）
  * 所有 26 款带 icon 皮肤 minD ≥ 2.0。
- * 设计意图同族系列（titanium 钛晶 8 阶 / lava 熔岩单调 / neonCity 霓虹 / sunset 暖色 / sakura 粉夜）
+ * 设计意图同族系列（titanium 钛晶 8 阶 / neonCity 霓虹 / sunset 琥珀流光暖色 / sakura 粉夜）
  * 全部为「无 blockIcons 的纯配色阶梯皮肤」，免除主题内差异度铁律。
  *
  * desert 视觉减亮（v10.5）：cssBg 由高亮沙金 #E8C878（明度 ~75%）改为柔和琥珀 #C8A868（明度 ~60%），
@@ -159,7 +163,7 @@ export const CLASSIC_PALETTE = [
  *     jelly(1) → cartoon ：bubbly
  *
  *   保留：cartoon(toon/pets/farm) 与 neon(music) — 已是 icon 友好风格
- *   不带 icon 的 8 款（titanium/sakura/lava/sunset/dawn/fantasy/neonCity/classic）
+ *   不带 icon 的 7 款（titanium/sakura/sunset/dawn/fantasy/neonCity/classic；v10.32 lava 已并入 sunset）
  *   继续保留 glossy/glass/metal/neon/flat，不受此次收敛影响。
  *
  * icon 全局唯一性约束：27 款带 icon 皮肤 × 8 icon = 216 个 emoji 全部互不重复。
@@ -172,28 +176,29 @@ export const SKINS = {
      *  基础 / 经典
      * ══════════════════════════════════════════ */
 
-    /** 经典：高饱和积木配色，深色中性盘面突显鲜亮方块 */
+    /** 经典：高饱和六色积木 + 立体梯形浮雕（v10.32 升级 blockStyle 为 bevel3d，盘面恢复中性深灰） */
     classic: {
         id: 'classic',
         name: '✨ 极简经典',
         boardWatermark: { icons: ['🎮', '⭐'], opacity: 0.07 },
+        // 休闲消除经典 8 色：皇家蓝 / 天蓝 / 翠绿 / 金黄 / 橙 / 紫 / 浅蓝 / 朱红
         blockColors: [
-            '#80D455', '#5BB8F8', '#FF9840', '#FFD820',
-            '#80A8FF', '#FF7868', '#FF98C0', '#C8A8FF'
+            '#3F6DD8', '#4FB8E8', '#52BC4B', '#FFC428',
+            '#F5851E', '#A848E0', '#65C4F0', '#E84D5C'
         ],
         gridOuter: '#1C2630',
         gridCell:  '#2E3E50',
         gridGap: 1,
         blockInset: 2,
-        blockRadius: 5,
-        blockStyle: 'glossy',
+        blockRadius: 4,
+        blockStyle: 'bevel3d',
         clearFlash: 'rgba(220,240,255,0.90)',
         cssBg: '#141C24',
         uiDark: true,
         cssVars: {
-            '--accent-color': '#5BB8F8',
-            '--accent-dark':  '#80D455',
-            '--h1-color':     '#C0E0FF'
+            '--accent-color': '#4FB8E8',
+            '--accent-dark':  '#FFC428',
+            '--h1-color':     '#BFE0FF'
         }
     },
 
@@ -311,53 +316,35 @@ export const SKINS = {
         }
     },
 
-    /** 日落：黄金 / 橙红 / 玫瑰紫暖色系，暮光胭脂底（v10.2 主题强化：纯黑→深玫瑰暮霭） */
+    /** 琥珀流光（v10.32 合并 sunset+lava）：暖色宝石谱 + glass 渲染 = 立体水晶玻璃方块
+     *
+     * 设计意图：
+     * - sunset 与 lava 的暖色定位高度重合（橙红 / 金黄 / 焰光），合并为单款
+     * - 新名「琥珀流光」点出立体水晶玻璃质感（琥珀宝石 + 流动光泽）
+     * - 8 色覆盖珊瑚 / 焰橙 / 琥珀 / 鎏金 / 玫瑰 / 朱砂 / 紫晶 / 蜜桃 — 暖色谱中保留多色变化
+     * - blockStyle: 'glass' — 顶部高光 + 通透渐变，最贴近水晶玻璃折射效果
+     */
     sunset: {
         id: 'sunset',
-        name: '🌅 暮色日落',
-        boardWatermark: { icons: ['🌅', '☀️'], opacity: 0.08 },
+        name: '🌅 琥珀流光',
+        boardWatermark: { icons: ['🌅', '🔆'], opacity: 0.08 },
         blockColors: [
-            '#FF7761', '#FF9A56', '#FFCC5C', '#88D8B0',
-            '#8098CF', '#D478CA', '#FF8FA0', '#FFB870'
+            '#FF6A50', '#FF8E3A', '#FFB230', '#FFD638',
+            '#FF7090', '#E04098', '#A858DC', '#FFAE6A'
         ],
         gridOuter: '#241019',
         gridCell:  '#341628',
         gridGap: 1,
         blockInset: 2,
-        blockRadius: 6,
-        blockStyle: 'glossy',
-        clearFlash: 'rgba(255,200,150,0.42)',
+        blockRadius: 7,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(255,200,140,0.50)',
         cssBg: '#1A0810',
         uiDark: true,
         cssVars: {
-            '--accent-color': '#FF9A56',
-            '--accent-dark':  '#FFCC5C',
+            '--accent-color': '#FF8E3A',
+            '--accent-dark':  '#FFD638',
             '--h1-color':     '#FFDAB9'
-        }
-    },
-
-    /** 熔岩：火红 / 橙黄熔浆，焦炭暗底（改 glossy 更贴近流体感） */
-    lava: {
-        id: 'lava',
-        name: '🔥 熔岩炽焰',
-        boardWatermark: { icons: ['🌋', '🔥'], opacity: 0.07 },
-        blockColors: [
-            '#FF4040', '#FF6830', '#FF9020', '#FFB818',
-            '#E84040', '#FF3868', '#FF7848', '#FFA830'
-        ],
-        gridOuter: '#0E0604',
-        gridCell:  '#1E0C08',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 4,
-        blockStyle: 'glossy',
-        clearFlash: 'rgba(255,180,80,0.40)',
-        cssBg: '#080402',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#FF6830',
-            '--accent-dark':  '#FFB818',
-            '--h1-color':     '#FFD0A0'
         }
     },
 

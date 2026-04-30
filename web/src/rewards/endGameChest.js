@@ -133,7 +133,32 @@ function _formatReward(reward) {
     return parts.join(' · ');
 }
 
+/**
+ * v10.18.6：结算卡（#game-over.active）显示期间不能叠加 chest 浮层，否则与玻璃卡片同时
+ * 出现两次浮层。改为延迟到玩家离开结算卡（点击 再来一局 / 菜单）之后再弹。
+ */
 function _showChestModal(tier, reward) {
+    if (typeof document === 'undefined') return;
+    const overEl = document.getElementById('game-over');
+    if (overEl?.classList.contains('active')) {
+        _afterGameOverDismiss(overEl, () => _renderChestModal(tier, reward));
+        return;
+    }
+    _renderChestModal(tier, reward);
+}
+
+function _afterGameOverDismiss(overEl, action) {
+    const obs = new MutationObserver(() => {
+        if (!overEl.classList.contains('active')) {
+            obs.disconnect();
+            // 让下一屏稳定一帧再弹
+            setTimeout(action, 80);
+        }
+    });
+    obs.observe(overEl, { attributes: true, attributeFilter: ['class'] });
+}
+
+function _renderChestModal(tier, reward) {
     let panel = document.getElementById('chest-panel');
     if (!panel) {
         panel = document.createElement('div');

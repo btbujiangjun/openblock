@@ -9,9 +9,6 @@
  */
 
 import { getFlag } from './featureFlags.js';
-import { on } from './MonetizationBus.js';
-
-const SHARE_CONTAINER_ID = 'mon-share-btn-container';
 
 /** 截取游戏画布为 Blob */
 async function _captureCanvas() {
@@ -70,43 +67,16 @@ function _showCopyToast() {
     setTimeout(() => { el.classList.remove('mon-toast-visible'); setTimeout(() => el.remove(), 400); }, 3000);
 }
 
-/** 在游戏结束界面注入「分享」按钮 */
-function _injectShareButton(score, game) {
-    if (typeof document === 'undefined') return;
-
-    // 避免重复注入
-    document.getElementById(SHARE_CONTAINER_ID)?.remove();
-
-    const gameOverEl = document.getElementById('game-over');
-    if (!gameOverEl) return;
-
-    const container = document.createElement('div');
-    container.id = SHARE_CONTAINER_ID;
-    container.className = 'mon-share-container';
-
-    const btn = document.createElement('button');
-    btn.className = 'mon-share-btn';
-    btn.innerHTML = '📤 分享成绩';
-    btn.onclick = () => _doShare(score, game);
-
-    container.appendChild(btn);
-
-    // 插入到 game-over 界面的合适位置
-    const overScore = gameOverEl.querySelector('#over-score');
-    if (overScore?.parentElement) {
-        overScore.parentElement.insertAdjacentElement('afterend', container);
-    } else {
-        gameOverEl.appendChild(container);
-    }
-}
-
-/** 初始化：监听 game_over 注入分享按钮 */
+/**
+ * v10.18.3：不再自己注入按钮，改为暴露 doShare 给 #share-btn 调用。
+ * 结算卡的分享按钮在 index.html 静态写好，main.js 统一绑定。
+ */
 export function initReplayShare() {
     if (!getFlag('replayShare')) return;
-
-    on('game_over', ({ data, game }) => {
-        const score = data?.finalScore ?? game?.score ?? 0;
-        // 延迟注入，等待 game-over 界面渲染完成
-        setTimeout(() => _injectShareButton(score, game), 500);
-    });
+    if (typeof window !== 'undefined') {
+        window.__replayShare = {
+            doShare: (score, game) => _doShare(score, game),
+            captureCanvas: _captureCanvas,
+        };
+    }
 }

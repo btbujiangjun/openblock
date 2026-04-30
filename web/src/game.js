@@ -360,6 +360,22 @@ export class Game {
         document.addEventListener('touchmove', e => this.onMove(e), { passive: false });
         document.addEventListener('mouseup', () => this.onEnd());
         document.addEventListener('touchend', () => this.onEnd());
+
+        // 盘面 CSS 显示尺寸变化（窗口缩放、侧栏挤压等）→ --cell-px 变化 → dock 候选区
+        // 必须重新按新 --cell-px 渲染，否则 canvas buffer (CONFIG.CELL_SIZE) 与 CSS 显示尺寸
+        // 不一致，浏览器插值把 bevel3d 斜切边缘"洗软"，导致候选区与盘面方块视觉不一致。
+        if (typeof ResizeObserver !== 'undefined' && this.canvas) {
+            let lastDockCellPx = this._getDockCellPx();
+            const dockReflow = () => {
+                const next = this._getDockCellPx();
+                if (next !== lastDockCellPx) {
+                    lastDockCellPx = next;
+                    this.refreshDockSkin();
+                }
+            };
+            this._dockResizeObs = new ResizeObserver(dockReflow);
+            this._dockResizeObs.observe(this.canvas);
+        }
     }
 
     _updateRunStreakHint() {
@@ -427,6 +443,16 @@ export class Game {
     }
 
     _enqueuePopupToast(createEl, holdMs = 3000) {
+        // v10.18.6：结算卡（#game-over.active）显示期间不再叠任何 toast 浮层。
+        // 这些信息（升级 / 解锁 / 成就）会通过卡片本身（+经验/Lv.x）或下一局首屏继续触达，
+        // 避免「卡片 + toast」并存造成的"两次浮层"割裂感。
+        if (typeof document !== 'undefined') {
+            const gameOverEl = document.getElementById('game-over');
+            if (gameOverEl?.classList.contains('active')) return;
+            // endGame 进行中（即将切到 game-over），同样跳过
+            if (this._endGameInFlight) return;
+        }
+
         const gapMs = 550;
         this._popupToastQueue = this._popupToastQueue
             .catch(() => {})
@@ -469,6 +495,10 @@ export class Game {
             this._newBestCelebrated = false;
             this.isGameOver = false;
             this._endGameInFlight = null;
+            document.body.classList.remove('game-over-active');
+            // v10.18：仅复位每局重新渲染的内嵌进度；分享/海报按钮一次注入后跨局复用，不在这里清空
+            const _digest = document.getElementById('over-digest');
+            if (_digest) { _digest.innerHTML = ''; _digest.hidden = true; }
             // 关卡模式：同一关卡连续失败计数（用于失败提示）
             const prevLevelKey = this._currentLevelKey;
             const newLevelKey = opts.levelConfig ? JSON.stringify(opts.levelConfig?.id ?? opts.levelConfig?.objective) : null;
@@ -622,7 +652,7 @@ export class Game {
             div.className = 'dock-block';
             div.dataset.index = String(i);
 
-            const cell = CONFIG.CELL_SIZE;
+            const cell = this._getDockCellPx();
             const slotCells = CONFIG.DOCK_PREVIEW_MAX_CELLS;
             const slotPx = slotCells * cell;
             const canvas = document.createElement('canvas');
@@ -709,11 +739,30 @@ export class Game {
         });
     }
 
+    /** 读取盘面单格的 CSS 实际显示尺寸（`--cell-px`）。
+     *  候选区 canvas 用此值作为逻辑绘制单位，使 buffer 像素 = 显示像素，
+     *  消除浏览器 CSS 缩放插值（v3 之前 dock 用 CONFIG.CELL_SIZE=38 绘制，
+     *  CSS 拉伸到 5×--cell-px ≈ 5×50px 显示导致斜切边发软）。
+     */
+    _getDockCellPx() {
+        if (typeof document === 'undefined') return CONFIG.CELL_SIZE;
+        try {
+            const raw = getComputedStyle(document.documentElement).getPropertyValue('--cell-px');
+            const v = parseFloat(raw);
+            if (Number.isFinite(v) && v > 0) return Math.round(v);
+        } catch { /* ignore */ }
+        return CONFIG.CELL_SIZE;
+    }
+
     /** 用当前皮肤重绘候选区所有方块 canvas，保持与棋盘渲染风格一致 */
     refreshDockSkin() {
         if (!this.dockBlocks) return;
-        const cell = CONFIG.CELL_SIZE;
+        const cell = this._getDockCellPx();
         const slotPx = CONFIG.DOCK_PREVIEW_MAX_CELLS * cell;
+        const dockDpr = (typeof window !== 'undefined')
+            ? (Math.round(window.devicePixelRatio || 1) || 1)
+            : 1;
+        const expectedBufPx = slotPx * dockDpr;
         this._normalizeDockState('refresh-skin');
         const blocks = document.querySelectorAll('.dock-block');
         blocks.forEach((div) => {
@@ -722,8 +771,12 @@ export class Game {
             if (!block) return;
             const cvs = div.querySelector('canvas');
             if (!cvs) return;
+            // 当 --cell-px 变化（窗口尺寸调整）时，画布 buffer 也需重置以保持像素精确
+            if (cvs.width !== expectedBufPx || cvs.height !== expectedBufPx) {
+                cvs.width = expectedBufPx;
+                cvs.height = expectedBufPx;
+            }
             const ctx = cvs.getContext('2d');
-            const dockDpr = Math.max(1, Math.round((cvs.width || slotPx) / slotPx));
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.scale(dockDpr, dockDpr);
             ctx.clearRect(0, 0, slotPx, slotPx);
@@ -905,13 +958,15 @@ export class Game {
         this.dragBlock = block;
         this._resetGhostDomStyles();
         const ghostDpr = Math.round(window.devicePixelRatio || 1) || 1;
-        const ghostLogW = block.width  * CONFIG.CELL_SIZE;
-        const ghostLogH = block.height * CONFIG.CELL_SIZE;
+        // 用盘面实际显示像素绘制 ghost，避免 CSS 缩放插值导致 bevel3d 斜切边变软
+        const cellDisp = this._boardDisplayCellSize();
+        const ghostCell = Math.round(cellDisp) || CONFIG.CELL_SIZE;
+        const ghostLogW = block.width  * ghostCell;
+        const ghostLogH = block.height * ghostCell;
         this.ghostCanvas.width  = ghostLogW * ghostDpr;
         this.ghostCanvas.height = ghostLogH * ghostDpr;
         this.ghostCtx = this.ghostCanvas.getContext('2d');
         this.ghostCtx.scale(ghostDpr, ghostDpr);
-        const cellDisp = this._boardDisplayCellSize();
         this.ghostCanvas.style.width  = `${block.width  * cellDisp}px`;
         this.ghostCanvas.style.height = `${block.height * cellDisp}px`;
         this.ghostCanvas.style.display = 'block';
@@ -942,10 +997,12 @@ export class Game {
         this.ghostCtx.clearRect(0, 0,
             this.ghostCanvas.width / _gDpr, this.ghostCanvas.height / _gDpr);
 
+        // 用盘面实际显示像素绘制，与 startDrag 中 ghostCell 一致；保证 ghost 与 board 1:1 同质感
+        const ghostCell = Math.round(this._boardDisplayCellSize()) || CONFIG.CELL_SIZE;
         for (let y = 0; y < block.height; y++) {
             for (let x = 0; x < block.width; x++) {
                 if (block.shape[y][x]) {
-                    this.renderer.drawDockBlock(this.ghostCtx, x, y, getBlockColors()[block.colorIdx], CONFIG.CELL_SIZE);
+                    this.renderer.drawDockBlock(this.ghostCtx, x, y, getBlockColors()[block.colorIdx], ghostCell);
                 }
             }
         }
@@ -1367,57 +1424,21 @@ export class Game {
         }
     }
 
+    /**
+     * v10.18：取消独立的「没可用空间」浮层，直接进入内嵌结算卡片，避免「先弹中间提示再弹结算」的双弹窗割裂感。
+     * `revive.js` 仍然以装饰模式拦截本方法（在玩家未用完复活时优先弹复活面板），无影响。
+     */
     showNoMovesWarning() {
         clearTimeout(this._noMovesTimer);
         this._noMovesTimer = null;
+        // 兼容旧实现可能残留的浮层
         document.querySelectorAll('.no-moves-overlay').forEach((el) => el.remove());
-
-        const wrap = document.createElement('div');
-        wrap.className = 'no-moves-overlay';
-        wrap.setAttribute('role', 'alertdialog');
-        wrap.setAttribute('aria-live', 'assertive');
-
-        const msg = document.createElement('div');
-        msg.className = 'no-moves-overlay-msg';
-        msg.textContent = '没可用空间';
-        wrap.appendChild(msg);
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn btn-primary no-moves-restart-btn';
-        btn.textContent = '再来一局';
-        btn.onclick = () => {
-            btn.disabled = true;
-            clearTimeout(this._noMovesTimer);
-            this._noMovesTimer = null;
-            void (async () => {
-                try {
-                    await this.endGame();
-                    wrap.remove();
-                    await this.start({ fromChain: true });
-                } catch (e) {
-                    console.error(e);
-                    wrap.remove();
-                    const overScore = document.getElementById('over-score');
-                    if (overScore) overScore.textContent = this.score;
-                    this.showScreen('game-over');
-                }
-            })();
-        };
-        wrap.appendChild(btn);
-
-        document.body.appendChild(wrap);
-
+        if (this.isGameOver || this._endGameInFlight) return;
+        // 给最后一次粒子收尾留 250ms，再进入内嵌结算
         this._noMovesTimer = setTimeout(() => {
             this._noMovesTimer = null;
-            void (async () => {
-                try {
-                    await this.endGame();
-                } finally {
-                    wrap.remove();
-                }
-            })();
-        }, 2500);
+            void this.endGame();
+        }, 250);
     }
 
     /**
@@ -1430,6 +1451,8 @@ export class Game {
             return this._endGameInFlight;
         }
         this.isGameOver = true;
+        // 内嵌结算（v10.18）：保留棋盘可见，给 body 加 .game-over-active 让 CSS 做柔化处理
+        document.body.classList.add('game-over-active');
         // 写入结算模式，供结算界面读取
         const gameOverEl = document.getElementById('game-over');
         const mode = opts.mode ?? 'endless';
@@ -1542,11 +1565,11 @@ export class Game {
                 if (overXp) {
                     if (progressionResult) {
                         overXp.hidden = false;
-                        let t = `+${progressionResult.xpGained} 经验`;
+                        let xpText = t('game.xpGained', { n: progressionResult.xpGained });
                         if (progressionResult.leveledUp) {
-                            t += ` · 升至 Lv.${progressionResult.newLevel}`;
+                            xpText += ' · ' + t('game.xpLevelUp', { level: progressionResult.newLevel });
                         }
-                        overXp.textContent = t;
+                        overXp.textContent = xpText;
                     } else {
                         overXp.hidden = true;
                         overXp.textContent = '';
@@ -1891,6 +1914,10 @@ export class Game {
         const el = document.getElementById(id);
         if (el) {
             el.classList.add('active');
+        }
+        // 离开 game-over 内嵌结算时清理棋盘柔化滤镜
+        if (id !== 'game-over') {
+            document.body.classList.remove('game-over-active');
         }
         this.updateShellVisibility();
     }

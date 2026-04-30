@@ -157,6 +157,63 @@ class GameRenderer {
     const by = y + ins;
     const r = skin.blockRadius;
 
+    // bevel3d：四向梯形浮雕（与 web/src/renderer.js 一致 — 圆润按钮光照模型）
+    if (skin.blockStyle === 'bevel3d') {
+      const bevel = Math.max(2, Math.round(s * 0.13));
+      const ix = bx + bevel;
+      const iy = by + bevel;
+      const is = s - bevel * 2;
+
+      ctx.save();
+      if (r > 0) {
+        roundRect(ctx, bx, by, s, s, r);
+        ctx.clip();
+      }
+
+      ctx.fillStyle = lighten(color, 0.18);
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + s, by);
+      ctx.lineTo(ix + is, iy);
+      ctx.lineTo(ix, iy);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = lighten(color, 0.06);
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(ix, iy);
+      ctx.lineTo(ix, iy + is);
+      ctx.lineTo(bx, by + s);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = darken(color, 0.16);
+      ctx.beginPath();
+      ctx.moveTo(bx + s, by);
+      ctx.lineTo(bx + s, by + s);
+      ctx.lineTo(ix + is, iy + is);
+      ctx.lineTo(ix + is, iy);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = darken(color, 0.32);
+      ctx.beginPath();
+      ctx.moveTo(bx, by + s);
+      ctx.lineTo(ix, iy + is);
+      ctx.lineTo(ix + is, iy + is);
+      ctx.lineTo(bx + s, by + s);
+      ctx.closePath();
+      ctx.fill();
+
+      // 中心面：左上提亮（lighten 12%）→ 右下主色，对角渐变保留饱和度
+      ctx.fillStyle = lighten(color, 0.10);
+      ctx.fillRect(ix, iy, is, is);
+
+      ctx.restore();
+      return;
+    }
+
     ctx.fillStyle = color;
     roundRect(ctx, bx, by, s, s, r);
     ctx.fill();
