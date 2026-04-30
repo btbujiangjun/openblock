@@ -1,6 +1,6 @@
 # OpenBlock 文档导航
 
-> 最后更新：2026-04-27  
+> 最后更新：2026-04-30  
 > 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）  
 > 根目录文档：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)  
 > **算法工程师入口**：[算法与模型手册](./ALGORITHMS_HANDBOOK.md)（统一索引 + 5 份分册）
@@ -14,6 +14,7 @@
 | 文档 | 说明 | 状态 |
 |------|------|------|
 | [二次开发指南](./DEV_GUIDE.md) | 新增模块/接入 SDK/扩展后端/测试规范；完整代码示例 | ✅ 当前 |
+| [Web 前端国际化（i18n）](./I18N.md) | 语言包结构、`t`/`applyDom`/RTL、键约定、扩展流程；与 `web/src/i18n/` 对齐 | ✅ 当前 |
 | [策略定制指南](./STRATEGY_GUIDE.md) | 出块权重/Stress信号/难度/广告/IAP/分群/个性化/RL 策略全集 | ✅ 当前 |
 | [领域知识文档](./DOMAIN_KNOWLEDGE.md) | 游戏机制/心流理论/玩家心理/商业化原理/RL 基础 | ✅ 当前 |
 
@@ -125,7 +126,8 @@
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
-| [皮肤目录（36 款全集）](./SKINS_CATALOG.md) | 设计四大铁律 / 11 大分类 / 26 款 icon × 8 = 208 emoji 唯一性矩阵 / blockStyle 8 种渲染管线 / 新增皮肤模板与 6 步流程 | ✅ 当前 |
+| [皮肤目录（35 款全集）](./SKINS_CATALOG.md) | 设计四大铁律 / 11 大分类 / 27 款 icon × 8 = 216 emoji 唯一性矩阵 / blockStyle 8 种渲染管线 / 新增皮肤模板与 6 步流程 | ✅ 当前 |
+| [emoji 表意与全量池说明](./SKIN_ICON_SEMANTIC_POOL.md) | 216 枚全局互斥约束；主题↔icon 评价维；逐版本语义加固记录 | ✅ 当前 |
 | [彩蛋与惊喜系统（v10.15 - v10.16）](./EASTER_EGGS_AND_DELIGHT.md) | **v10.16 全量交付 35 项**：v10.15 S1+S2 共 11 项 P0（音效 / 触觉 / 皮肤切换转场 / 5 款环境粒子 / 节日时段 4.1 / Konami / 数字彩蛋）+ v10.16 S3-S6 共 24 项（统一钱包 / 道具栏 / hint+undo+bomb+rainbow / 7 日签到 / 连登勋章 / 局末宝箱 + 周末转盘 + 赛季宝箱 / 海报艺术化 + 每日大师题 / 首次解锁庆祝 + 极限成就 + 皮肤专属音色 + 季节边框 + 流体背景 + 皮肤剧情图鉴 + 周末/生日皮肤 + 7 项 P2 骨架） | ✅ 当前 |
 
 ---
@@ -149,7 +151,7 @@
 
 ### 阅读路线推荐
 
-**新来的开发者（想做定制）** → [ARCHITECTURE.md](../ARCHITECTURE.md) → [DEV_GUIDE.md](./DEV_GUIDE.md) → [STRATEGY_GUIDE.md](./STRATEGY_GUIDE.md)  
+**新来的开发者（想做定制）** → [ARCHITECTURE.md](../ARCHITECTURE.md) → [DEV_GUIDE.md](./DEV_GUIDE.md) → [I18N.md](./I18N.md)（改文案/语言时）→ [STRATEGY_GUIDE.md](./STRATEGY_GUIDE.md)  
 **算法工程师（首读）** → [ALGORITHMS_HANDBOOK.md](./ALGORITHMS_HANDBOOK.md) → 按需进入 5 份分册 → 实现层细文档  
 **了解整体架构** → [PROJECT.md](./PROJECT.md)  
 **了解出块算法** → [ALGORITHMS_SPAWN.md](./ALGORITHMS_SPAWN.md) → SPAWN_ALGORITHM.md → ADAPTIVE_SPAWN.md → SPAWN_BLOCK_MODELING.md  

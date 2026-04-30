@@ -1,18 +1,49 @@
 /**
  * skinLore.js — v10.16 皮肤剧情图鉴（P1）
  *
- * 37 款皮肤每款 1 段 ~120 字小故事 / 设计灵感，构建"收藏感"。
+ * 全量皮肤每款 1 段 ~120 字小故事 / 设计灵感，构建"收藏感"。
  * 在皮肤选择面板加「图鉴」按钮，弹出叙事卡片，可逐款翻阅。
  *
  * v10.17.4：新增 outdoor 户外运动主题文案。
  */
 
 import { SKINS, SKIN_LIST, getActiveSkinId, setActiveSkinId } from '../skins.js';
+import { tSkinName } from '../i18n/i18n.js';
+import { paintMahjongLorePreviewTile } from '../renderer.js';
+
+/** 图鉴 canvas 的 a11y 简名（与 blockIcons 次序一致） */
+const _MAHJONG_LORE_ARIA = ['东', '南', '西', '北', '发', '万', '筒', '索'];
+/** 与其它皮肤图鉴 emoji 格 ~38px 视觉对齐，麻将 canvas 略放大 */
+const _MAHJONG_LORE_TILE_PX = 54;
+
+function _mountMahjongLoreCanvases(panel) {
+    const wrap = panel.querySelector('.lore-card__icons--mahjong');
+    if (!wrap) return;
+    const skin = SKINS.mahjong;
+    const colors = skin.blockColors;
+    if (!colors?.length || !(skin.blockIcons?.length)) return;
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+    const px = _MAHJONG_LORE_TILE_PX;
+    wrap.querySelectorAll('canvas.lore-mj-tile').forEach((canvas, i) => {
+        if (i >= 8) return;
+        const label = _MAHJONG_LORE_ARIA[i] || `tile ${i + 1}`;
+        canvas.setAttribute('role', 'img');
+        canvas.setAttribute('aria-label', label);
+        canvas.width = Math.round(px * dpr);
+        canvas.height = Math.round(px * dpr);
+        canvas.style.width = `${px}px`;
+        canvas.style.height = `${px}px`;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+        paintMahjongLorePreviewTile(ctx, px, colors[i]);
+    });
+}
 
 const LORE = {
     classic:    '原版方块的回响——黑色画布上跳动的彩色棱角，是 1984 那个莫斯科冬夜里的电子幽灵。',
     titanium:   '钛晶基板冷峻反光，每个方块是一片航天合金切片，落定时是金属缓冲器的低沉哑声。',
-    cyber:      '霓虹割开了夜雾，方块在赛博街区的全息广告里跃动——下一个落点，可能是未来。',
     aurora:     '北纬 65° 的极夜，七色光带从天顶垂下。落子时，光带也跟着你的手势波动。',
     neonCity:   '霓虹城市的天台，午夜尽头的 DJ 在天台播放迷幻浪潮——这一局，是给夜行者的礼物。',
     ocean:      '深海三千米的静谧，每一次消行都激起一圈蓝绿色涟漪——你是潜水员，也是潮汐。',
@@ -21,11 +52,10 @@ const LORE = {
     sakura:     '京都四月的午后，樱花瓣在风里旋转。每次盘面清空，是一片落花终于触地的瞬间。',
     koi:        '锦鲤池塘的涟漪，水底锦鲤逆流而上。中秋月圆时，盘面与月光共振。',
     candy:      '糖果工厂深夜的传送带，方块是即将出厂的彩色软糖。生日蛋糕的味道，藏在每次 bonus 里。',
-    bubbly:     '气泡水的世界，每一次消行都是一颗气泡上浮、爆裂——清凉感是真实存在的。',
+    bubbly:     '浅海与沙滩都在同一层果冻里：水獭翻身、沙岸泛白、气泡上浮爆裂——清凉感是真实存在的。',
     toon:       '童年录像带里的卡通——方块边缘是粗黑描边，落子的"啪"声像漫画里的拟声词。',
     pixel8:     '8-bit 像素的纯粹——这里没有抗锯齿，没有阴影，只有方块的"咚"和清行的"叮"。',
     dawn:       '黎明前最暗的一刻，盘面像乳白色的雾。第一缕光在你按下时升起。',
-    macaroon:   '马卡龙塔的午茶时光，每个方块都是一颗杏仁奶油糕——脆甜，软糯，刚刚好。',
     food:       '深夜食堂的菜单——披萨、汉堡、寿司、面条……盘面是肠胃的快乐，分数是饱腹感。',
     music:      '音符在线谱上跳舞——每次落子是一个 staccato，连击是一段小调，盘面清空是和声完美收束。',
     pets:       '宠物医院的候诊厅——猫狗鼠兔鸟乌龟在方块里探头。它们是和你一起玩的伙伴。',
@@ -205,9 +235,14 @@ function _renderPage(panel, cursor, ids) {
 
     // icon 阵列：取 blockIcons 前 8 个（覆盖 8 种 colorIdx），让玩家看到该皮肤完整元素集
     const blockIcons = (skin.blockIcons || []).slice(0, 8);
+    const iconsClass = id === 'mahjong'
+        ? 'lore-card__icons lore-card__icons--mahjong'
+        : 'lore-card__icons';
     const iconRow = blockIcons.length > 0
-        ? `<div class="lore-card__icons" aria-label="该主题的方块图标">
-              ${blockIcons.map(e => `<span>${_escape(e)}</span>`).join('')}
+        ? `<div class="${iconsClass}" aria-label="该主题的方块图标">
+              ${id === 'mahjong'
+            ? blockIcons.map(() => '<canvas class="lore-mj-tile"></canvas>').join('')
+            : blockIcons.map(e => `<span>${_escape(e)}</span>`).join('')}
            </div>`
         : '';
 
@@ -215,7 +250,7 @@ function _renderPage(panel, cursor, ids) {
         <div class="lore-card" style="--accent-color:${_escape(accent)}">
             <div class="lore-bg-watermark" aria-hidden="true">${_renderWatermark(skin)}</div>
             <div class="lore-card__head">
-                <h3 class="lore-skin-name">${_escape(skin.name || id)}</h3>
+                <h3 class="lore-skin-name">${_escape(tSkinName(skin))}</h3>
                 <button type="button" class="lore-close" aria-label="关闭">×</button>
             </div>
             <div class="lore-card__divider">
@@ -236,6 +271,8 @@ function _renderPage(panel, cursor, ids) {
             </div>
         </div>
     `;
+
+    if (id === 'mahjong') _mountMahjongLoreCanvases(panel);
 
     panel.querySelector('.lore-close').addEventListener('click', () => panel.classList.remove('is-visible'));
     panel.addEventListener('click', (e) => {

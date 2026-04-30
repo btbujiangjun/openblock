@@ -61,6 +61,18 @@ const MON_CSS = `
 .mon-toast-xp { margin-left: auto; color: #38bdf8; font-weight: bold; }
 .mon-toast-desc { font-size: 12px; color: #94a3b8; }
 
+/* 每日任务完成提示：中上主视区（与通用 mon-toast 底部分离，避免挡 dock） */
+.mon-toast.mon-task-toast {
+    bottom: auto;
+    top: clamp(120px, 24vh, 240px);
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%) translateY(6px);
+}
+.mon-toast.mon-task-toast.mon-toast-visible {
+    transform: translateX(-50%) translateY(0);
+}
+
 /* 广告覆盖层 */
 .mon-ad-overlay {
     position: fixed;

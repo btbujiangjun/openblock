@@ -2118,7 +2118,7 @@ _WEB_PUBLIC_DIR = Path(__file__).resolve().parent / 'web' / 'public'
 _DOC_CATEGORIES = [
     # 0. 开发者指南（二次开发首读）
     {'name': '开发者指南',
-     'docs': ['DEV_GUIDE.md', 'STRATEGY_GUIDE.md', 'DOMAIN_KNOWLEDGE.md']},
+     'docs': ['DEV_GUIDE.md', 'I18N.md', 'STRATEGY_GUIDE.md', 'DOMAIN_KNOWLEDGE.md']},
     # 1. 项目总览
     {'name': '项目总览',
      'docs': ['PROJECT.md']},

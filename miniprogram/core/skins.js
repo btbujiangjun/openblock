@@ -60,27 +60,6 @@ const SKINS = {
     "blockStyle": "metal",
     "clearFlash": "rgba(200,220,245,0.42)"
   },
-  "cyber": {
-    "id": "cyber",
-    "name": "⚡ 赛博朋克",
-    "blockColors": [
-      "#00E8C8",
-      "#F52885",
-      "#B060F0",
-      "#50CCF0",
-      "#3B82F6",
-      "#EC4899",
-      "#10F5A8",
-      "#FF2070"
-    ],
-    "gridOuter": "#060214",
-    "gridCell": "#0C0826",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 5,
-    "blockStyle": "neon",
-    "clearFlash": "rgba(80,204,240,0.38)"
-  },
   "aurora": {
     "id": "aurora",
     "name": "🌌 冰川极光",
@@ -304,9 +283,9 @@ const SKINS = {
     ],
     "blockIcons": [
       "🐬",
-      "🦩",
+      "🦦",
       "🪼",
-      "🌿",
+      "🏖️",
       "🦀",
       "🐢",
       "🫧",
@@ -353,7 +332,7 @@ const SKINS = {
   },
   "pixel8": {
     "id": "pixel8",
-    "name": "🕹️ 街机格斗",
+    "name": "👾 街机格斗",
     "blockColors": [
       "#FF2050",
       "#1E78FF",
@@ -386,14 +365,14 @@ const SKINS = {
     "id": "dawn",
     "name": "☀️ 晨光微曦",
     "blockColors": [
-      "#B02000",
-      "#0050C0",
-      "#A85800",
-      "#187030",
-      "#8010B0",
-      "#006868",
-      "#C01040",
-      "#4020C8"
+      "#B86858",
+      "#5890D0",
+      "#C8A060",
+      "#489868",
+      "#8868B0",
+      "#489898",
+      "#C06078",
+      "#7068C8"
     ],
     "gridOuter": "#8A7040",
     "gridCell": "#F8F0E0",
@@ -402,27 +381,6 @@ const SKINS = {
     "blockRadius": 6,
     "blockStyle": "glossy",
     "clearFlash": "rgba(255,235,180,0.90)"
-  },
-  "macaroon": {
-    "id": "macaroon",
-    "name": "🍬 法式马卡",
-    "blockColors": [
-      "#C01860",
-      "#0058C0",
-      "#B06000",
-      "#1A7830",
-      "#8020C0",
-      "#007860",
-      "#C02020",
-      "#5828B0"
-    ],
-    "gridOuter": "#A09088",
-    "gridCell": "#FAF6F0",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 7,
-    "blockStyle": "flat",
-    "clearFlash": "rgba(255,240,255,0.90)"
   },
   "food": {
     "id": "food",
@@ -457,7 +415,7 @@ const SKINS = {
   },
   "music": {
     "id": "music",
-    "name": "🎵 音乐律动",
+    "name": "🎹 音乐律动",
     "blockColors": [
       "#FF3060",
       "#FF9020",
@@ -488,16 +446,16 @@ const SKINS = {
   },
   "pets": {
     "id": "pets",
-    "name": "🐾 萌宠天地",
+    "name": "🐶 萌宠天地",
     "blockColors": [
-      "#B82020",
-      "#A05800",
-      "#7A6000",
-      "#187020",
-      "#1050B8",
-      "#901078",
-      "#5A2880",
-      "#006060"
+      "#C89088",
+      "#B8A090",
+      "#A8A878",
+      "#78A890",
+      "#98B0A8",
+      "#C8B8A0",
+      "#A898B8",
+      "#B8B090"
     ],
     "blockIcons": [
       "🐰",
@@ -726,7 +684,7 @@ const SKINS = {
   },
   "industrial": {
     "id": "industrial",
-    "name": "⚙️ 古典工业",
+    "name": "🏭 古典工业",
     "blockColors": [
       "#D49640",
       "#C04030",
@@ -788,7 +746,7 @@ const SKINS = {
   },
   "mahjong": {
     "id": "mahjong",
-    "name": "🀅 麻将牌局",
+    "name": "🀄 麻将牌局",
     "blockColors": [
       "#3DA88C",
       "#C4424C",
@@ -819,7 +777,7 @@ const SKINS = {
   },
   "boardgame": {
     "id": "boardgame",
-    "name": "♠️ 扑克博弈",
+    "name": "🃏 扑克博弈",
     "blockColors": [
       "#D49830",
       "#1F8060",
@@ -920,7 +878,7 @@ const SKINS = {
       "#3E7E40",
       "#1E70A8",
       "#E8C828",
-      "#404858",
+      "#5080A8",
       "#6840B0"
     ],
     "blockIcons": [
@@ -930,7 +888,7 @@ const SKINS = {
       "🚁",
       "🚢",
       "🛵",
-      "🚥",
+      "🚗",
       "🚌"
     ],
     "gridOuter": "#0E1218",
@@ -974,7 +932,7 @@ const SKINS = {
   },
   "pirate": {
     "id": "pirate",
-    "name": "⚓ 海盗航行",
+    "name": "🦜 海盗航行",
     "blockColors": [
       "#B02020",
       "#D8C4A0",
@@ -1007,14 +965,14 @@ const SKINS = {
     "id": "farm",
     "name": "🐄 田园农场",
     "blockColors": [
-      "#B02838",
-      "#1A488F",
-      "#2A6028",
-      "#1A6E9F",
-      "#8E2070",
-      "#8C5028",
-      "#5C2818",
-      "#4830B0"
+      "#C89898",
+      "#88A8D0",
+      "#88B088",
+      "#78B8D0",
+      "#C898C0",
+      "#C0A878",
+      "#B89878",
+      "#A898D0"
     ],
     "blockIcons": [
       "🐄",
@@ -1038,14 +996,14 @@ const SKINS = {
     "id": "desert",
     "name": "🐫 沙漠绿洲",
     "blockColors": [
-      "#1A4070",
-      "#B02030",
-      "#6F1858",
-      "#1A6048",
-      "#4830B0",
-      "#185878",
-      "#5C0F38",
-      "#6F2890"
+      "#AAB8C2",
+      "#C9A090",
+      "#A8BA9E",
+      "#C9BE9E",
+      "#ADA8AE",
+      "#95AEAC",
+      "#C49A94",
+      "#B5A8B4"
     ],
     "blockIcons": [
       "🐫",

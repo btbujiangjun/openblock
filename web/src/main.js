@@ -3,6 +3,15 @@
  * Initialize and start the game
  * 全局样式见 index.html 中的 ./styles/main.css（public 目录，不依赖本文件加载）
  */
+import {
+    initI18n,
+    applyDom,
+    applyMeta,
+    setLocale,
+    getLocale,
+    subscribeLocale,
+    AVAILABLE_LOCALES,
+} from './i18n/i18n.js';
 import { Game } from './game.js';
 import { initRLPanel } from './bot/rlPanel.js';
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
@@ -77,6 +86,30 @@ import { initSkinFragments } from './progression/skinFragments.js';
 import { initMonthlyMilestone } from './checkin/monthlyMilestone.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
+    initI18n();
+    applyDom(document.documentElement);
+    applyMeta();
+    const localeSel = document.getElementById('locale-select');
+    if (localeSel) {
+        localeSel.innerHTML = AVAILABLE_LOCALES.map(
+            ({ code, nativeName }) => `<option value="${code}">${nativeName}</option>`,
+        ).join('');
+        localeSel.value = getLocale();
+        localeSel.addEventListener('change', () => {
+            setLocale(localeSel.value);
+            applyDom(document.documentElement);
+            applyMeta();
+            window.openBlockGame?.updateUI?.();
+        });
+    }
+    subscribeLocale(() => {
+        applyDom(document.documentElement);
+        applyMeta();
+        if (localeSel) localeSel.value = getLocale();
+        window.openBlockGame?.refreshSkinSelectOptions?.();
+        window.openBlockGame?.updateUI?.();
+    });
+
     const bootErr = document.getElementById('boot-error');
     /* v10.15: 4.1 节日 emoji 覆盖必须在 applySkinToDocument 之前执行
        （applyAprilFoolsIfActive 修改 SKINS[*].blockIcons，让 renderer 后续读到的是 emoji） */

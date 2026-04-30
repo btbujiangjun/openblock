@@ -668,7 +668,7 @@ const WATERMARK_PRESETS = [
 
 效果：
 - 4 行短故事（如 desert / forbidden）→ 正文垂直居中
-- 7 行长故事（如 boardgame / cyber）→ 正文充满 body 区域
+- 7 行长故事（如 boardgame / neonCity）→ 正文充满 body 区域
 - 卡片高度恒定，翻页按钮在 footer 中位置不再跳动
 
 ### 三、hint 道具改为「按钮 → 选块」瞄准模式（去掉长按自动扣费）

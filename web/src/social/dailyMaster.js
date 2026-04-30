@@ -12,6 +12,8 @@
  * - **限制**：每日仅可挑战一次（防刷分）
  */
 
+import { applyDom, t } from '../i18n/i18n.js';
+
 const KEY = 'openblock_daily_master_v1';
 
 function _ymd() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
@@ -63,10 +65,11 @@ function _injectMenuButton() {
     btn.className = 'menu-card menu-card--daily-master';
     btn.innerHTML = `
         <span class="menu-card-icon">🏅</span>
-        <span class="menu-card-label">每日大师题</span>
+        <span class="menu-card-label" data-i18n="menu.dailyMaster">每日大师题</span>
     `;
     btn.addEventListener('click', startChallenge);
     grid.appendChild(btn);
+    applyDom(menu);
 }
 
 export function startChallenge() {
@@ -74,7 +77,7 @@ export function startChallenge() {
     const ymd = _ymd();
     const state = _load();
     if (state[ymd]?.played) {
-        _showToast('今日已挑战过 — 明天再战');
+        _showToast(t('dailyMaster.alreadyPlayed'));
         return;
     }
 
@@ -101,7 +104,7 @@ export function startChallenge() {
     };
 
     _audio?.play?.('unlock');
-    _showToast(`🏅 每日大师题：种子 ${seed.toString(36).toUpperCase()}`);
+    _showToast(t('dailyMaster.toastSeed', { seed: seed.toString(36).toUpperCase() }));
     try {
         _game.start({ fromChain: false, dailyMaster: true });
     } catch (e) { console.warn('[dailyMaster]', e); }
@@ -133,7 +136,7 @@ function _onChallengeEnd(game) {
     } catch { /* ignore */ }
 
     _audio?.play?.('combo');
-    _showToast(`今日大师题完成 · 得分 ${game.score | 0}`);
+    _showToast(t('dailyMaster.toastComplete', { score: game.score | 0 }));
 }
 
 function _showToast(msg) {

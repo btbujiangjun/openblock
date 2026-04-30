@@ -5,6 +5,13 @@
 
 const STORAGE_KEY = 'openblock_skin';
 
+/** v10.31 已下线皮肤 id → 迁移目标（读档时自动改写 localStorage） */
+const REMOVED_SKIN_ALIASES = {
+    cyber: 'neonCity',
+    macaroon: 'dawn',
+    neural: 'neonCity'
+};
+
 /** 首次访问或未存储时的默认主题 */
 export const DEFAULT_SKIN_ID = 'titanium';
 
@@ -67,7 +74,7 @@ export const CLASSIC_PALETTE = [
  */
 
 /**
- * 皮肤总量：37 款（v10.3 mahjong；v10.4 boardgame；v10.5 主题内配色去重 + desert 减亮；v10.6 浅色 farm/desert 哑光降饱和；v10.7 浅色饱和度上限 ≤ 25%；v10.8 带 icon 皮肤强制使用 icon 友好的 blockStyle；v10.17.3 mahjong 重制 — 绿呢牌桌+实木台沿+茶馆暖灯，方块明度跨度 30→73 提升搭配度；v10.17.4 outdoor 户外运动 — 山野/水域/雪道 8 件套，与 sports 球类竞技完全错位；v10.17.6/7 boardgame 更名「扑克博弈」+ icon 改为扑克牌字符；v10.17.8 改为 8 个饱满 emoji — ♠♥♦♣🃏🎴💰💵；v10.17.9 因用户要求严格扑克语义，改为 ♠♥♦♣🃏🃟🂠🂾 — 5 emoji + 3 字符卡牌）
+ * 皮肤总量：35 款（v10.31 剔除 `cyber`→`neonCity`、`macaroon`→`dawn`；v10.32 剔除 `neural`→`neonCity`）
  * 盘面设计基准：参考 neonCity —— gridOuter（极深）+ gridCell（深色可见空格）
  * 方块须与 gridCell 形成明显明度/色相反差。
  *
@@ -117,7 +124,7 @@ export const CLASSIC_PALETTE = [
  *   toon       🦘 #FF6098       → #B85828 袋鼠毛棕   （与 🐼 红粉区分，1.78 → 3.37）
  *   beast      整组 8 色重写（原色板顺序与 icons 索引错位 + 🐯/🐆 蓝色族重叠，1.78 → 5.62）
  * 所有 26 款带 icon 皮肤 minD ≥ 2.0。
- * 设计意图同族系列（titanium 钛晶 8 阶 / lava 熔岩单调 / cyber 霓虹 / sunset 暖色 / sakura 粉夜 / neonCity 都市霓虹）
+ * 设计意图同族系列（titanium 钛晶 8 阶 / lava 熔岩单调 / neonCity 霓虹 / sunset 暖色 / sakura 粉夜）
  * 全部为「无 blockIcons 的纯配色阶梯皮肤」，免除主题内差异度铁律。
  *
  * desert 视觉减亮（v10.5）：cssBg 由高亮沙金 #E8C878（明度 ~75%）改为柔和琥珀 #C8A868（明度 ~60%），
@@ -152,10 +159,10 @@ export const CLASSIC_PALETTE = [
  *     jelly(1) → cartoon ：bubbly
  *
  *   保留：cartoon(toon/pets/farm) 与 neon(music) — 已是 icon 友好风格
- *   不带 icon 的 10 款（titanium/cyber/sakura/lava/sunset/dawn/macaroon/fantasy/
- *   neonCity/classic）继续保留 glossy/glass/metal/neon/flat，不受此次收敛影响。
+ *   不带 icon 的 8 款（titanium/sakura/lava/sunset/dawn/fantasy/neonCity/classic）
+ *   继续保留 glossy/glass/metal/neon/flat，不受此次收敛影响。
  *
- * icon 全局唯一性约束：26 款带 icon 皮肤 × 8 icon = 208 个 emoji 全部互不重复。
+ * icon 全局唯一性约束：27 款带 icon 皮肤 × 8 icon = 216 个 emoji 全部互不重复。
  * 详见 docs/SKINS_CATALOG.md。
  */
 /** @type {Record<string, Skin>} */
@@ -218,31 +225,6 @@ export const SKINS = {
     /* ══════════════════════════════════════════
      *  暗色科技
      * ══════════════════════════════════════════ */
-
-    /** 赛博（整合星域）：高压电光 + 宇宙粒子，极暗底色 */
-    cyber: {
-        id: 'cyber',
-        name: '⚡ 赛博朋克',
-        boardWatermark: { icons: ['⚡', '💻'], opacity: 0.08 },
-        blockColors: [
-            '#00E8C8', '#F52885', '#B060F0', '#50CCF0',
-            '#3B82F6', '#EC4899', '#10F5A8', '#FF2070'
-        ],
-        gridOuter: '#060214',
-        gridCell:  '#0C0826',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 5,
-        blockStyle: 'neon',
-        clearFlash: 'rgba(80,204,240,0.38)',
-        cssBg: '#04010E',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#50CCF0',
-            '--accent-dark':  '#00E8C8',
-            '--h1-color':     '#F52885'
-        }
-    },
 
     /** 极光（整合极地）：冰川极光玻璃感，深海蓝底 */
     aurora: {
@@ -480,10 +462,9 @@ export const SKINS = {
             '#FF72BB', '#4898F8', '#42C442', '#FFAA18',
             '#22C87A', '#E060FF', '#FF8848', '#12C4E8'
         ],
-        // 萌系水族 + 果冻气泡：🪼水母 / 🫧气泡（果冻泡泡的视觉签名，专属）
-        // 移除与 ocean 重复的 🐳🦑，让 bubbly 与 ocean 视觉错位（萌 vs 深邃）
-        // 海豚↔粉、火烈鸟↔蓝、水母↔绿、海草↔橙，全互补色对配
-        blockIcons: ['🐬', '🦩', '🪼', '🌿', '🦀', '🐢', '🫧', '🦐'],
+        // 萌系浅海 + 沙滩意象 + 果冻气泡（与 ocean「深渊」错位）：🫧 专属签名
+        // 🦦水獭 / 🏖️沙滩 强化水域休闲叙事，避免陆生 🦩🌿 与主题割裂
+        blockIcons: ['🐬', '🦦', '🪼', '🏖️', '🦀', '🐢', '🫧', '🦐'],
         gridOuter: '#2A1048',
         gridCell:  '#401870',
         gridGap: 1,
@@ -538,8 +519,8 @@ export const SKINS = {
     /** 街机（魂斗罗/经典动作）：NES/SNK 鲜艳配色 + glossy 方块 + 街机/格斗/平台跳跃意象 icon */
     pixel8: {
         id: 'pixel8',
-        name: '🕹️ 街机格斗',
-        boardWatermark: { icons: ['🕹️', '👾', '🍄', '🥊'], opacity: 0.10, scale: 0.72 },
+        name: '👾 街机格斗',
+        boardWatermark: { icons: ['👾', '🎮', '🍄', '🥊'], opacity: 0.10, scale: 0.72 },
         // 街机·8-bit·格斗：💣炸弹 / 🪙金币 / 🥊拳套 / 🎮手柄 / 👊重拳 / 🍄蘑菇 /
         //                  🕹️摇杆 / 👾外星人
         // 移除与 greece 撞色的 ⚡（雷电意象更属希腊神话），加入 💣🪙 强化「街机经典符号」
@@ -573,15 +554,15 @@ export const SKINS = {
      * 晨光：暖奶油盘面 + 高饱和冷暖交替积木，晨间自然光感。
      * 浅底设计：gridOuter 作暖金色边框，gridCell 象牙白空格，
      * 鲜艳方块在浅底上形成足够明度反差。
+     * v10.20：方块改为柔化中高饱和（略提亮、降艳），与浅色盘+glossy 统一，避免「黑疙瘩」观感。
      */
     dawn: {
         id: 'dawn',
         name: '☀️ 晨光微曦',
         boardWatermark: { icons: ['☀️', '🌤️'], opacity: 0.09 },
-        // 浅色盘面需用深色方块（深度饱和色，WCAG对比 ≥4.5）
         blockColors: [
-            '#B02000', '#0050C0', '#A85800', '#187030',
-            '#8010B0', '#006868', '#C01040', '#4020C8'
+            '#B86858', '#5890D0', '#C8A060', '#489868',
+            '#8868B0', '#489898', '#C06078', '#7068C8'
         ],
         gridOuter: '#8A7040',
         gridCell:  '#F8F0E0',
@@ -602,41 +583,6 @@ export const SKINS = {
             '--stat-label-color': '#7A6040',
             '--select-bg':        '#FFF4E4',
             '--select-border':    'rgba(160,120,60,0.25)'
-        }
-    },
-
-    /**
-     * 马卡龙：哑光平涂 + 暖白盘面，饱和甜点色提升可读性。
-     * 保留经典 pastel 风格，修正低对比问题。
-     */
-    macaroon: {
-        id: 'macaroon',
-        name: '🍬 法式马卡',
-        boardWatermark: { icons: ['🍬', '🧁'], opacity: 0.09 },
-        // 浅色盘面需用深色方块（深度饱和色，WCAG对比 ≥4.5）
-        blockColors: [
-            '#C01860', '#0058C0', '#B06000', '#1A7830',
-            '#8020C0', '#007860', '#C02020', '#5828B0'
-        ],
-        gridOuter: '#A09088',
-        gridCell:  '#FAF6F0',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 7,
-        blockStyle: 'flat',
-        clearFlash: 'rgba(255,240,255,0.90)',
-        cssBg: '#F2EDE4',
-        cssVars: {
-            '--text-primary':     '#1E1818',
-            '--text-secondary':   '#5C4848',
-            '--accent-color':     '#C04878',
-            '--accent-dark':      '#A03060',
-            '--shadow':           'rgba(0,0,0,0.12)',
-            '--h1-color':         '#8A3060',
-            '--stat-surface':     'rgba(255,250,248,0.92)',
-            '--stat-label-color': '#7A5060',
-            '--select-bg':        '#FFF4F6',
-            '--select-border':    'rgba(180,120,140,0.25)'
         }
     },
 
@@ -684,8 +630,8 @@ export const SKINS = {
      */
     music: {
         id: 'music',
-        name: '🎵 音乐律动',
-        boardWatermark: { icons: ['🎵', '🎸'], opacity: 0.08 },
+        name: '🎹 音乐律动',
+        boardWatermark: { icons: ['🎹', '🎸'], opacity: 0.08 },
         blockColors: [
             '#FF3060', '#FF9020', '#FFE820', '#40E840',
             '#3088FF', '#E040FF', '#FF60A0', '#40E8E8'
@@ -713,16 +659,16 @@ export const SKINS = {
     /**
      * 萌宠：卡通风格 + 宠物 emoji，浅暖奶油盘面（浅色系 icon 主题）。
      * 与丛林/卡通乐园区别：家养萌宠 + 浅色背景，更治愈柔和。
+     * v10.20：浅色盘面方块柔化为灰调豆沙/橄榄等（色相仍分散），配合 renderer 浅色盘策略。
      */
     pets: {
         id: 'pets',
-        name: '🐾 萌宠天地',
-        boardWatermark: { icons: ['🐾', '🐶'], opacity: 0.09 },
-        // 浅色盘面需用深色方块（深度饱和色，WCAG对比 ≥4.5）
-        // v10.5：🐭 #C02820 (与 🐰 #B82020 同色族) → #5A2880 深紫，区分度提升
+        name: '🐶 萌宠天地',
+        boardWatermark: { icons: ['🐶', '🐾'], opacity: 0.09 },
+        // v10.5：🐭 深紫区分度；v10.20：整体提亮降艳
         blockColors: [
-            '#B82020', '#A05800', '#7A6000', '#187020',
-            '#1050B8', '#901078', '#5A2880', '#006060'
+            '#C89088', '#B8A090', '#A8A878', '#78A890',
+            '#98B0A8', '#C8B8A0', '#A898B8', '#B8B090'
         ],
         // 家庭小宠（与 toon 动物园 / beast 猛兽完全错开，移除非小宠的 🐸🦜🐢）
         // 🐰兔子 / 🐠观赏鱼 / 🐦小鸟 / 🐱猫 / 🦎宠物蜥蜴 / 🐹仓鼠 / 🐭小白鼠 / 🐶狗
@@ -1005,8 +951,8 @@ export const SKINS = {
      */
     industrial: {
         id: 'industrial',
-        name: '⚙️ 古典工业',
-        boardWatermark: { icons: ['⚙️', '🚂'], opacity: 0.08 },
+        name: '🏭 古典工业',
+        boardWatermark: { icons: ['🏭', '⚙️'], opacity: 0.08 },
         // 蒸汽朋克八件套（全部专属，未与现有 16 款 icon 皮肤重复）：
         //   ⚙️齿轮 / 🔧扳手 / 🔩螺栓 / 🛠️锤扳工具 / ⛓️锁链 /
         //   🚂蒸汽火车 / 🏭工厂烟囱 / ⚒️锤镐
@@ -1094,14 +1040,21 @@ export const SKINS = {
      * 风牌 4 张 + 三元绿（發） + 万/筒/索三种数牌的「一」代表（避开 forbidden 已用的 🀄 中）。
      * 8 色 minD 满足 v10.5 去重：色相覆盖 37→356°，明度跨度 ≥ 40%。
      * blockStyle: 'cartoon'（v10.8 带 icon 主题强制使用，避免水晶质地遮挡 emoji）。
+     * v10.22：产品要求「icon 与麻将严格一致」—— blockIcons 固定为 **麻将牌专用区段**（U+1F000 系列），
+     *   与皮肤名/水印的「發」牌面字形同源；🀄 红中仍归 forbidden 独占。
+     * v10.23：渲染层 `paintMahjongTileIcon` 在牌心绘制 **象牙立体牌面 + 细金边 + 传统设色阴刻字**（参考红中），
+     *   字色见 `mahjongTileIcon.js` 之 MAHJONG_TILE_INK；图鉴 CSS `.lore-card__icons--mahjong` 与之对齐。
+     * v10.24：麻将 icon **扁平简化**——方形象牙底 + 赭金外缘 + **同色圆角内框线** + 框内字；框与字整体相对象牙块居中。
+     * v10.25：**极简**——格心仅 **一层竖长圆角矩形**（类麻将比例）+ 奶油底 + **同色单描边** + 框内字；矩形与字均相对格子/框区居中，无金边与嵌套框。
+     * v10.26：牌块宽高按 **实体牌 21:29**；去掉主题色矩形框线，**字直接印在奶油牌面**上尽量放大并保持居中。
+     * v10.27：**去掉奶油麻将块底**；仅在格内按 **21:29** 虚拟竖条区域放大绘字（占格高达 ~94%），更醒目。
+     * v10.29：皮肤图鉴麻将行用 **canvas** 调 `renderer.paintMahjongLorePreviewTile`，与盘面 cartoon 块 + `paintMahjongTileIcon` 同管线；blockIcons 仍为 🀀–🀐。
      */
     mahjong: {
         id: 'mahjong',
-        name: '🀅 麻将牌局',
+        name: '🀄 麻将牌局',
         boardWatermark: { icons: ['🀅', '🀀'], opacity: 0.10 },
-        // 八牌精选（全部专属，避开 forbidden 已占的 🀄）：
-        //   🀀东 / 🀁南 / 🀂西 / 🀃北（风牌全集）+ 🀅發（三元绿，🀄红中归 forbidden）+
-        //   🀇一万 / 🀙一筒 / 🀐一索（数牌三家的「一」代表，最具辨识度）
+        // 列表前缀用 🀄（红中）提高彩色字形面积；盘面 blockIcons 仍为 U+1F000 八牌（🀅 發 等）
         blockIcons: ['🀀', '🀁', '🀂', '🀃', '🀅', '🀇', '🀙', '🀐'],
         blockColors: [
             '#3DA88C', // 🀀 东 — 浅碧绿（东方青龙，明亮清透，与绿呢拉开明度）
@@ -1158,8 +1111,8 @@ export const SKINS = {
      */
     boardgame: {
         id: 'boardgame',
-        name: '♠️ 扑克博弈',
-        boardWatermark: { icons: ['♠️', '🃏'], opacity: 0.10 },
+        name: '🃏 扑克博弈',
+        boardWatermark: { icons: ['🃏', '♠️'], opacity: 0.10 },
         // 扑克博弈 8 件套（v10.17.10：8 件全彩 emoji 字形，风格一致）：
         //   扑克核心 5 件：♠️ 黑桃 · ♥️ 红心 · ♦️ 方片 · ♣️ 梅花 · 🃏 大王（彩色百搭）
         //   博弈场景 3 件：🎴 花札（红和风牌） · 🎰 老虎机（多色赌场） · 🎲 骰子（立体白点骰）
@@ -1290,11 +1243,10 @@ export const SKINS = {
         id: 'vehicles',
         name: '🏎️ 极速引擎',
         boardWatermark: { icons: ['🏎️', '✈️'], opacity: 0.08 },
-        // 八大现代交通（避开 industrial 已用的 🚂 蒸汽火车，全部当代型号）：
-        //   🏎️赛车 / ✈️客机 / 🚀火箭 / 🚁直升机 /
-        //   🚢邮轮 / 🛵摩托 / 🚥红绿灯 / 🚌大巴
+        // 八大现代载具（表意直出；避开 industrial 的 🚂 蒸汽火车）：
+        //   🏎️赛车 / ✈️客机 / 🚀火箭 / 🚁直升机 / 🚢邮轮 / 🛵摩托 / 🚗轿车 / 🚌公交
         // 多数 emoji 体积大、颜色丰富；用「金属灰/钴蓝/火橙/草绿」分布拉开色相
-        blockIcons: ['🏎️', '✈️', '🚀', '🚁', '🚢', '🛵', '🚥', '🚌'],
+        blockIcons: ['🏎️', '✈️', '🚀', '🚁', '🚢', '🛵', '🚗', '🚌'],
         blockColors: [
             '#8090A0', // 🏎️ 金属银灰（红车↔冷灰）
             '#2860C8', // ✈️ 钴蓝长空（白机↔深蓝）
@@ -1302,7 +1254,7 @@ export const SKINS = {
             '#3E7E40', // 🚁 直升机迷彩绿
             '#1E70A8', // 🚢 海蓝
             '#E8C828', // 🛵 柠黄机身
-            '#404858', // 🚥 冷暗灰（红黄绿信号灯↔暗底）
+            '#5080A8', // 🚗 通勤蓝（车身↔公路蓝）
             '#6840B0'  // 🚌 紫底（黄/红巴士↔紫）
         ],
         gridOuter:   '#0E1218',
@@ -1366,8 +1318,8 @@ export const SKINS = {
      */
     pirate: {
         id: 'pirate',
-        name: '⚓ 海盗航行',
-        boardWatermark: { icons: ['⚓', '🏴‍☠️'], opacity: 0.08 },
+        name: '🦜 海盗航行',
+        boardWatermark: { icons: ['🦜', '🏴‍☠️'], opacity: 0.08 },
         // 大航海八件套（全部专属）：
         //   ⚓船锚 / 🏴‍☠️海盗旗 / 🪝船钩 / 🦜肩头鹦鹉 /
         //   ⛵风帆船 / 🗺️藏宝图 / 🧭罗盘 / 💎宝石
@@ -1403,25 +1355,25 @@ export const SKINS = {
      * 田园农场：家畜 + 蔬果，浅春绿草地 + 深木栏边框（浅色系，主题一致）。
      * v10.1：把卡其沙黄底（沙漠味）替换为浅草绿牧场底，与「农场草地」主题一致。
      * Cartoon 渲染呈现可爱农场绘本风格。
+     * v10.20：方块柔化为灰粉/灰蓝绿等（仍与 emoji 语义对应），避免深色块在浅绿底上成团发黑。
      */
     farm: {
         id: 'farm',
         name: '🐄 田园农场',
         boardWatermark: { icons: ['🐄', '🌽'], opacity: 0.09 },
-        // 浅色盘面需用深色方块（深度饱和色，WCAG 对比 ≥ 4.5）
         // 农场八件套（与 pets 家宠/food 主食/toon 动物园全错开）：
         //   🐄奶牛 / 🐖猪 / 🐑绵羊 / 🐔母鸡 / 🐣雏鸡 /
         //   🌽玉米 / 🥕胡萝卜 / 🍎苹果
         blockIcons: ['🐄', '🐖', '🐑', '🐔', '🐣', '🌽', '🥕', '🍎'],
         blockColors: [
-            '#B02838', // 🐄 朱红（黑白牛↔大红）
-            '#1A488F', // 🐖 深蓝（粉猪↔互补蓝）
-            '#2A6028', // 🐑 深苔绿（白羊毛↔深森绿，与浅绿底拉开明度）
-            '#1A6E9F', // 🐔 海蓝（红冠母鸡↔蓝）
-            '#8E2070', // 🐣 紫红（黄雏鸡↔紫红）
-            '#8C5028', // 🌽 烤玉米棕（黄玉米↔自然褐棕，v10.5 修：原 #B82038 与 🐄 朱红同色族）
-            '#5C2818', // 🥕 深棕（橙萝卜↔深棕泥土，避免与底绿撞色）
-            '#4830B0'  // 🍎 深紫（红苹果↔紫）
+            '#C89898', // 🐄 豆沙红
+            '#88A8D0', // 🐖 灰蓝
+            '#88B088', // 🐑 灰绿
+            '#78B8D0', // 🐔 浅海蓝
+            '#C898C0', // 🐣 灰紫粉
+            '#C0A878', // 🌽 浅驼
+            '#B89878', // 🥕 浅赭
+            '#A898D0'  // 🍎 浅紫
         ],
         // v10.6 哑光降饱和：cssBg #D0E5B0 (S=47%) → #DCE5C8 (S=28%) 雾绿替代鲜春绿
         // v10.7 进一步哑光：cssBg #DCE5C8 (S=28%) → #E6E7DC (S~19%) 骨白带一丝绿
@@ -1448,13 +1400,12 @@ export const SKINS = {
     },
 
     /**
-     * 沙漠绿洲：骆驼 / 仙人掌 / 古寺 / 赤陶罐，哑光米沙底 + 深饱和宝石色块（浅色系，主题一致）。
+     * 沙漠绿洲：骆驼 / 仙人掌 / 古寺 / 赤陶罐，哑光米沙底 + 低饱和「晒褪陶土 / 灰绿洲」色块。
      * v10.1：把深蓝夜空底（深海味）替换为沙金主调，让「沙漠」叙事直接通过 page bg 传达。
-     * v10.5：把高亮沙金 #E8C878 (明度 ~75%) 降为柔和琥珀 #C8A868 (明度 ~60%)；
-     *       同步把 🌅 的深青底 (与 🏺 同色族) 改为暮霞紫，解决主题内重色。
-     * v10.6：把柔和琥珀 #C8A868 (饱和度 49%) 进一步降为哑光米沙 #D8C8A8 (饱和度 35%)。
-     * v10.7：再次降饱和，米沙 #D8C8A8 (S=35%) → 浅米 #DAD2C4 (S~21%)，几近中性偏米；
-     *       gridOuter / gridCell / clearFlash / cssVars 全套同步推到 S<25%。
+     * v10.5–v10.7：cssBg / grid 持续降饱和至浅米中性底。
+     * v10.18：**方块色重做**——旧版为高饱和宝石蓝/品红/电紫；改为低饱和陶土系。
+     * v10.19：**再次提亮**——仍显「黑疙瘩」因渲染降饱和+卡通暗角叠暗；方块改为 **浅陶土/沙尘色**（明度明显高于 v10.18，与 `#E8E2D6` 格面靠近但靠色相仍可辨色），并配合 renderer 浅色盘面减轻压暗。
+     * v10.20：浅色盘面判定改为 **gridCell 亮度**（`isLightBoardSkin`），不再单独特判 desert。
      * Glossy 渲染呈现日光下沙漠的耀斑与绿洲倒影。
      */
     desert: {
@@ -1464,17 +1415,17 @@ export const SKINS = {
         // 沙漠绿洲八件套（中东/北非/印度异域风物）：
         //   🐫骆驼 / 🦂蝎子 / 🌵仙人掌 / 🏜️沙丘 / 🪨岩石 /
         //   🏺赤陶罐 / 🛕古寺 / 🌅日出
-        // 柔琥珀沙底要求方块用深饱和色（WCAG 对比 ≥ 4.5）；色相覆盖蓝/红/紫/绿四象限
+        // 浅色盘面：方块用「浅晒褪陶土」，避免深褐一堆；色相仍分散。
         blockIcons: ['🐫', '🦂', '🌵', '🏜️', '🪨', '🏺', '🛕', '🌅'],
         blockColors: [
-            '#1A4070', // 🐫 沙漠夜空蓝（沙棕骆驼↔深蓝，最强冷暖反差）
-            '#B02030', // 🦂 毒蝎血红（黑棕蝎↔大红警示）
-            '#6F1858', // 🌵 品红（绿仙人掌↔互补品红）
-            '#1A6048', // 🏜️ 绿洲深翠（沙丘↔翠绿绿洲水面）
-            '#4830B0', // 🪨 紫水晶（灰岩↔深紫宝石矿）
-            '#185878', // 🏺 陶青（赤陶罐自带橙红↔互补深青）
-            '#5C0F38', // 🛕 古寺暗酒红（米白寺↔深酒红夕阳）
-            '#6F2890'  // 🌅 暮霞紫（朝霞紫粉↔互补金沙；v10.5 修：原 #1A6878 与 🏺 #185878 同色族）
+            '#AAB8C2', // 🐫 荫凉沙灰蓝（浅，非深夜色）
+            '#C9A090', // 🦂 浅锈陶
+            '#A8BA9E', // 🌵 浅灰绿（绿洲植物底）
+            '#C9BE9E', // 🏜️ 浅暖沙纹
+            '#ADA8AE', // 🪨 浅石灰褐
+            '#95AEAC', // 🏺 浅水陶青
+            '#C49A94', // 🛕 浅赭褐（寺庙泥墙）
+            '#B5A8B4'  // 🌅 浅灰霞紫
         ],
         // v10.6 哑光降饱和：cssBg #C8A868 (S=49%) → #D8C8A8 (S=35%) 米沙替代浓琥珀
         // v10.7 进一步哑光：cssBg #D8C8A8 (S=35%) → #DAD2C4 (S~21%) 接近中性的浅米
@@ -1506,7 +1457,14 @@ export const SKIN_LIST = Object.values(SKINS);
 export function getActiveSkinId() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw && SKINS[raw]) return raw;
+        if (!raw) return DEFAULT_SKIN_ID;
+        const id = Object.prototype.hasOwnProperty.call(REMOVED_SKIN_ALIASES, raw)
+            ? REMOVED_SKIN_ALIASES[raw]
+            : raw;
+        if (id !== raw) {
+            try { localStorage.setItem(STORAGE_KEY, id); } catch { /* ignore */ }
+        }
+        if (SKINS[id]) return id;
     } catch {
         /* ignore */
     }
@@ -1574,6 +1532,38 @@ export function setActiveSkinId(id) {
     return true;
 }
 
+/** 是否应在首字符后插入 U+FE0F，以尽量使用彩色 emoji 字形（深色 HUD 下避免纯黑剪影） */
+function _skinPickerLeadingNeedsVs16(cp) {
+    if (cp >= 0x2660 && cp <= 0x2668) return true;
+    if (cp === 0x2693 || cp === 0x2699 || cp === 0x267B) return true;
+    if (cp === 0x266A || cp === 0x266B) return true;
+    if (cp === 0x1F3B5 || cp === 0x1F43E || cp === 0x1F579) return true;
+    if (cp === 0x1F3B6 || cp === 0x1F436 || cp === 0x1F0CF) return true;
+    if (cp === 0x1F4BB || cp === 0x1F310 || cp === 0x1F4CA || cp === 0x1F4BE || cp === 0x1F6F0) return true;
+    if (cp === 0x1F916 || cp === 0x1F5A5 || cp === 0x1F4E1 || cp === 0x1F9BF || cp === 0x1F5C4) return true;
+    if (cp === 0x1F697 || cp === 0x1F3D6 || cp === 0x1F9A6) return true;
+    if (cp === 0x1F4AC || cp === 0x2601 || cp === 0x26C5 || cp === 0x1F9E9 || cp === 0x1F50B || cp === 0x1F4F2) return true;
+    if (cp >= 0x1F000 && cp <= 0x1F021) return true;
+    if (cp === 0x1F3B9 || cp === 0x1F47E || cp === 0x1F99C || cp === 0x1F3ED) return true;
+    return false;
+}
+
+/**
+ * 皮肤下拉 `<option>` 标签：为首枚图形字符补 emoji 呈现（VS16），减轻 ♠⚓🎵🐾🕹 等在深色界面发黑。
+ * @param {string} text
+ */
+export function normalizeSkinPickerLabel(text) {
+    if (!text || typeof text !== 'string') return text;
+    const cp = text.codePointAt(0);
+    if (cp === undefined) return text;
+    const firstLen = cp > 0xffff ? 2 : 1;
+    /* 🏴‍☠️ 等 ZWJ 旗帜序列：禁止在首 grapheme 后插入 VS16 */
+    if (text.length > firstLen && text.charAt(firstLen) === '\u200D') return text;
+    if (!_skinPickerLeadingNeedsVs16(cp)) return text;
+    if (text.length > firstLen && text.charAt(firstLen) === '\uFE0F') return text;
+    return text.slice(0, firstLen) + '\uFE0F' + text.slice(firstLen);
+}
+
 /** 将主题同步到 CSS 变量（页面背景、棋盘、HUD） */
 export function applySkinToDocument(skin) {
     const root = document.documentElement;
@@ -1590,6 +1580,7 @@ export function applySkinToDocument(skin) {
     root.style.setProperty('--skin-wm-radius-frac', String(radius / wmRef));
     root.style.setProperty('--skin-wm-gridgap-frac', String((2 * inset + gap) / wmRef));
     root.dataset.skinBlockStyle = skin.blockStyle;
+    root.dataset.uiTheme = skin.uiDark ? 'dark' : 'light';
 
     root.style.setProperty('--grid-bg', skin.gridOuter);
     root.style.setProperty('--cell-empty', skin.gridCell);

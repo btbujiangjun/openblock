@@ -1,6 +1,8 @@
 /**
  * 玩家成长：经验、等级、每日连续活跃（localStorage）；主题与等级解耦，见 skins.js
  */
+import { t } from './i18n/i18n.js';
+
 const STORAGE_KEY = 'openblock_progression_v1';
 
 /** 等级成就：达到 minLevel 时解锁对应成就 id */
@@ -102,12 +104,12 @@ export function getLevelProgress(totalXp) {
 
 export function titleForLevel(level) {
     const lv = Math.min(99, Math.max(1, level | 0));
-    if (lv >= 50) return '传奇';
-    if (lv >= 35) return '大师';
-    if (lv >= 20) return '达人';
-    if (lv >= 10) return '能手';
-    if (lv >= 5) return '学徒';
-    return '新手';
+    if (lv >= 50) return t('progress.rank.legend');
+    if (lv >= 35) return t('progress.rank.master');
+    if (lv >= 20) return t('progress.rank.expert');
+    if (lv >= 10) return t('progress.rank.adept');
+    if (lv >= 5) return t('progress.rank.apprentice');
+    return t('progress.rank.novice');
 }
 
 /** 主题不再与等级挂钩，任意主题可随时选用 */

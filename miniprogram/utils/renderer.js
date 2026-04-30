@@ -12,6 +12,8 @@
  *   renderer.drawGhost(shape, gx, gy, cellSize);
  */
 
+const { paintMahjongTileIcon } = require('./mahjongTileIcon.js');
+
 const CLASSIC_PALETTE = [
   '#70AD47', '#5B9BD5', '#ED7D31', '#FFC000',
   '#4472C4', '#9E480E', '#E74856', '#8764B8',
@@ -177,12 +179,24 @@ class GameRenderer {
     const icon = icons[colorIdx % icons.length];
     if (!icon) return;
     const ctx = this._ctx;
+    const skin = this._skin;
+    const ins = skin.blockInset ?? 2;
+    const bx = x + ins;
+    const by = y + ins;
+    const s = Math.max(1, size - ins * 2);
+    const r = skin.blockRadius ?? 5;
     ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `${Math.max(10, Math.floor(size * 0.58))}px sans-serif`;
-    ctx.fillStyle = 'rgba(255,255,255,0.94)';
-    ctx.fillText(icon, x + size / 2, y + size / 2 + 0.5);
+    if (skin.id === 'mahjong') {
+      roundRect(ctx, bx, by, s, s, r);
+      ctx.clip();
+      paintMahjongTileIcon(ctx, bx, by, s, icon, colorIdx);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `${Math.max(10, Math.floor(size * 0.58))}px sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,0.94)';
+      ctx.fillText(icon, x + size / 2, y + size / 2 + 0.5);
+    }
     ctx.restore();
   }
 

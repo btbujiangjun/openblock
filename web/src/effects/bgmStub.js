@@ -11,7 +11,7 @@
  *
  * 待实施 TODO
  * -----------
- * 1. 在 web/public/bgm/ 下放置 36 款 30s loop 的 OGG（需音频制作）
+ * 1. 在 web/public/bgm/ 下按皮肤 id 放置 30s loop 的 OGG（需音频制作）
  * 2. 实现 _loadAndCrossFade(skinId, prevSkinId)
  * 3. 接入 onSkinAfterApply
  * 4. 用户偏好：BGM 总开关 + 音量

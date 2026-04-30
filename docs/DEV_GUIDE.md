@@ -1,7 +1,7 @@
 # 二次开发指南
 
 > 本文档面向希望在 OpenBlock 基础上进行定制开发的工程师。  
-> 前置阅读：[ARCHITECTURE.md](../ARCHITECTURE.md) · [STRATEGY_GUIDE.md](./STRATEGY_GUIDE.md)
+> 前置阅读：[ARCHITECTURE.md](../ARCHITECTURE.md) · [STRATEGY_GUIDE.md](./STRATEGY_GUIDE.md) · 改界面文案/语言请读 [I18N.md](./I18N.md)
 
 ---
 
@@ -62,6 +62,7 @@ open http://localhost:5000/docs        # 直接访问 Flask
 | 新后端路由 | 新建 `my_backend.py` + Blueprint | 在 `server.py` 注册 |
 | 新配置参数 | `shared/game_rules.json` | 前后端共享 |
 | 新功能开关 | `web/src/monetization/featureFlags.js` | `FLAG_DEFAULTS` |
+| 界面多语言 | `web/src/i18n/`（详见 [I18N.md](./I18N.md)） | 扁平键、`zh-CN` 回退、`AVAILABLE_LOCALES` |
 | 新 RL 特征 | `web/src/bot/features.js` + `rl_pytorch/features.py` | 需保持同步 |
 
 ---

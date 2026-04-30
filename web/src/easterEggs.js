@@ -205,7 +205,7 @@ function _installCheatConsole(opts = {}) {
             log('Cheat Console — Try the following:');
             log('  game.cheat.god()       — perfect flash + 999 bonus 振奋特效');
             log('  game.cheat.unlock()    — 强制解锁 OG 几何隐藏皮肤');
-            log('  game.cheat.skins()     — 列出全部 36+ 皮肤 id');
+            log('  game.cheat.skins()     — 列出全部皮肤 id（含隐藏）');
             log('  game.cheat.skin(id)    — 切换到指定皮肤（含隐藏皮肤）');
             log('  game.cheat.sound(b)    — 开关音效  (true / false)');
             log('  game.cheat.haptic(b)   — 开关震动');

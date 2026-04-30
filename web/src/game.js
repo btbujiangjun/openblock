@@ -12,6 +12,7 @@ import {
     getLevelProgress,
     titleForLevel
 } from './progression.js';
+import { t, tSkinName } from './i18n/i18n.js';
 import {
     getActiveSkinId,
     getBlockColors,
@@ -21,7 +22,8 @@ import {
     getActiveSkin,
     SKINS,
     DEFAULT_SKIN_ID,
-    onSkinAfterApply
+    onSkinAfterApply,
+    normalizeSkinPickerLabel
 } from './skins.js';
 import { Grid } from './grid.js';
 import { generateDockShapes, resetSpawnMemory, getLastSpawnDiagnostics } from './bot/blockSpawn.js';
@@ -369,7 +371,11 @@ export class Game {
         if (!skinSelect) {
             return;
         }
-        skinSelect.innerHTML = SKIN_LIST.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+        skinSelect.innerHTML = SKIN_LIST.map((s) => {
+            const raw = tSkinName(s);
+            const label = normalizeSkinPickerLabel(raw).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            return `<option value="${s.id}">${label}</option>`;
+        }).join('');
         let current = getActiveSkinId();
         if (!SKINS[current]) {
             setActiveSkinId(DEFAULT_SKIN_ID);
@@ -400,7 +406,7 @@ export class Game {
         if (elStreak) {
             if (st.dailyStreak > 0) {
                 elStreak.hidden = false;
-                elStreak.textContent = `连续 ${st.dailyStreak} 天`;
+                elStreak.textContent = t('progress.streakDays', { n: st.dailyStreak });
             } else {
                 elStreak.hidden = true;
                 elStreak.textContent = '';
@@ -1425,8 +1431,8 @@ export class Game {
         // 更新模式标签文字
         const labelEl = document.getElementById('over-label');
         if (labelEl) {
-            labelEl.textContent = mode === 'level' ? '关卡完成' :
-                                  mode === 'level-fail' ? '关卡失败' : '游戏结束';
+            labelEl.textContent = mode === 'level' ? t('game.over.levelClear') :
+                mode === 'level-fail' ? t('game.over.levelFail') : t('game.over.endless');
         }
         // 关卡额外信息
         const levelInfoEl = document.getElementById('over-level-info');
@@ -1891,7 +1897,7 @@ export class Game {
         if (gapEl) {
             const gap = this.bestScore - this.score;
             if (this._levelMode === 'endless' && gap > 0 && this.bestScore > 0) {
-                gapEl.textContent = `差 ${gap} 分`;
+                gapEl.textContent = t('best.gap', { gap });
                 gapEl.hidden = false;
                 // 接近最高分时高亮
                 gapEl.className = 'best-gap' + (gap <= this.bestScore * 0.1 ? ' best-gap--close' : '');

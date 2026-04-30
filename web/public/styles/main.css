@@ -802,8 +802,8 @@ body.block-drag-active #app {
 .header-skin .skin-picker select {
     min-width: 7rem;
     max-width: min(36vw, 11rem);
-    padding: 5px 22px 5px 10px;
-    font-size: 13px;
+    padding: 6px 22px 6px 10px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.3;
     border: none;
@@ -817,10 +817,36 @@ body.block-drag-active #app {
     touch-action: manipulation;
     -webkit-appearance: none;
     appearance: none;
+    /* 彩色 emoji 优先，减轻 ♠⚓ 等落在正文黑体里呈纯剪影 */
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji",
+        ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%236e6e73' d='M0 0h8L4 5z'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 8px center;
     transition: background-color .15s;
+}
+
+/* 深色 HUD：下拉字与 emoji 加强轮廓光；展开项用更浅槽底色托起深色剪影符号 */
+html[data-ui-theme="dark"] .header-skin .skin-picker {
+    background: color-mix(in srgb, var(--stat-surface, #fff) 42%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary, #fff) 14%, transparent);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.38) inset,
+        0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+html[data-ui-theme="dark"] .header-skin .skin-picker select {
+    text-shadow:
+        0 0 1px rgba(255, 255, 255, 0.65),
+        0 0 6px rgba(255, 255, 255, 0.28),
+        0 1px 3px rgba(0, 0, 0, 0.55);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%23e2e8f0' d='M0 0h8L4 5z'/%3E%3C/svg%3E");
+}
+
+html[data-ui-theme="dark"] .header-skin .skin-picker select option {
+    background-color: #475569;
+    color: #f8fafc;
+    font-weight: 600;
 }
 
 .header-skin .skin-picker select:hover {
@@ -2977,6 +3003,47 @@ body.game-shell-hidden .app-side-left {
     width: min(300px, calc(100vw - 48px));
 }
 
+.menu-locale-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 16px;
+    font-size: 13px;
+    color: color-mix(in srgb, var(--text-primary, #e2e8f0) 85%, transparent);
+}
+
+.menu-locale-row label {
+    font-weight: 600;
+}
+
+.menu-locale-row select {
+    min-width: 9rem;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #cbd5e1) 28%, transparent);
+    background: color-mix(in srgb, var(--surface-elevated, #1e293b) 92%, transparent);
+    color: var(--text-primary, #f1f5f9);
+    font: inherit;
+}
+
+/* 主菜单为浅色全屏底：下拉勿沿用盘面皮肤的深色变量，否则字色与背景同时偏暗 */
+#menu .menu-locale-row {
+    color: rgba(30, 41, 59, 0.88);
+}
+
+#menu .menu-locale-row select {
+    background: #fff;
+    color: #0f172a;
+    border: 1px solid rgba(15, 23, 42, 0.2);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+#menu .menu-locale-row select:focus-visible {
+    outline: 2px solid rgba(56, 189, 248, 0.55);
+    outline-offset: 2px;
+}
+
 .menu-card {
     display: flex;
     flex-direction: column;
@@ -4878,6 +4945,25 @@ body.game-shell-hidden .app-side-left {
 .lore-card__icons span:hover {
     transform: translateY(-2px);
     border-color: color-mix(in srgb, var(--accent-color, #38bdf8) 50%, transparent);
+}
+
+/* 麻将牌局：图鉴为 canvas，与 renderer `paintMahjongLorePreviewTile` 同管线（cartoon 块 + 格心大字） */
+.lore-card__icons--mahjong {
+    gap: 4px;
+    padding-left: 12px;
+    padding-right: 12px;
+    align-items: center;
+}
+.lore-card__icons--mahjong .lore-mj-tile {
+    display: block;
+    flex: 0 0 auto;
+    width: 54px;
+    height: 54px;
+    border-radius: 8px;
+    transition: transform .18s;
+}
+.lore-card__icons--mahjong .lore-mj-tile:hover {
+    transform: translateY(-2px);
 }
 
 /* 正文：古诗集卷轴 — 衬线字体，居中，短句独立成行

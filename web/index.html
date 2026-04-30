@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-default-lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -53,13 +53,13 @@
             <div class="header-side header-side--left"></div>
             <h1 class="app-wordmark" aria-label="Open Block"></h1>
             <div class="header-side header-side--right">
-                <button type="button" id="in-game-menu-btn" class="in-game-menu-btn" title="返回菜单">☰</button>
+                <button type="button" id="in-game-menu-btn" class="in-game-menu-btn" data-i18n-title="ui.header.backMenu" title="返回菜单">☰</button>
             </div>
         </div>
         <!-- 四项合一行：能力 / 得分 / 最佳 / 主题（v10.17.16：主题移到右端） -->
         <div class="score-theme-row">
-            <div class="stat-box header-level" aria-label="玩家等级">
-                <div class="stat-label">能力</div>
+            <div class="stat-box header-level" data-i18n-aria-label="ui.aria.playerLevel" aria-label="玩家等级">
+                <div class="stat-label" data-i18n="ui.stat.ability">能力</div>
                 <div class="header-level-val">
                     <span class="progression-level" id="prog-level">Lv.1</span>
                     <span class="progression-title" id="prog-title">新手</span>
@@ -67,46 +67,49 @@
                 <span class="progression-streak stat-subline" id="prog-streak" hidden></span>
             </div>
             <div class="stat-box">
-                <div class="stat-label">得分</div>
+                <div class="stat-label" data-i18n="ui.stat.score">得分</div>
                 <div class="stat-value" id="score">0</div>
                 <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
             </div>
             <div class="stat-box stat-box--best">
-                <div class="stat-label">最佳</div>
+                <div class="stat-label" data-i18n="ui.stat.best">最佳</div>
                 <div class="stat-value" id="best">0</div>
                 <div class="best-gap" id="best-gap" hidden></div>
             </div>
-            <div class="stat-box header-skin" title="选择棋盘主题">
-                <div class="stat-label">主题</div>
+            <div class="stat-box header-skin" data-i18n-title="ui.skin.pickTheme" title="选择棋盘主题">
+                <div class="stat-label" data-i18n="ui.stat.theme">主题</div>
                 <div class="skin-picker">
-                    <select id="skin-select" aria-label="棋盘主题"></select>
+                    <select id="skin-select" data-i18n-aria-label="ui.aria.boardTheme" aria-label="棋盘主题"></select>
                 </div>
                 <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
             </div>
         </div>
         <!-- progression-hud 隐藏（JS 仍依赖 prog-track/prog-fill/prog-xp-text 更新内部状态） -->
-        <div class="progression-hud" id="progression-hud" aria-label="玩家等级" hidden>
+        <div class="progression-hud" id="progression-hud" data-i18n-aria-label="ui.aria.playerLevel" aria-label="玩家等级" hidden>
             <div class="progression-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="prog-track">
                 <div class="progression-fill" id="prog-fill"></div>
             </div>
             <div class="progression-xp-text" id="prog-xp-text">0 / 100 XP</div>
         </div>
-        <div class="play-stack" aria-label="游戏区">
+        <div class="play-stack" data-i18n-aria-label="ui.aria.playArea" aria-label="游戏区">
             <div id="game-wrapper">
                 <div class="game-board-flow-bg" aria-hidden="true"></div>
-                <canvas id="game-grid" width="336" height="336" aria-label="游戏网格"></canvas>
+                <canvas id="game-grid" width="336" height="336" data-i18n-aria-label="ui.aria.gameGrid" aria-label="游戏网格"></canvas>
                 <!-- v10.12: 特效叠加层 — 粒子/闪光/涟漪独立绘制，CSS 上以 negative inset
                      覆盖盘面外扩区，让爆炸特效可飞溅到盘面外（更具立体感）。
                      pointer-events:none 不影响拖拽；aria-hidden 不进 a11y 树。 -->
                 <canvas id="game-grid-fx" aria-hidden="true"></canvas>
             </div>
             <!-- 技能包：纯符号圆形按钮，作为增值服务入口 -->
-            <div class="skill-bar" id="skill-bar" aria-label="技能包">
+            <div class="skill-bar" id="skill-bar" data-i18n-aria-label="ui.aria.skillBar" aria-label="技能包">
                 <button type="button" class="skill-btn skill-btn--hint" id="insight-hint"
+                        data-i18n-title="ui.skill.hint"
                         title="💡 AI提示 — 分析盘面推荐最优落子">💡</button>
                 <button type="button" class="skill-btn skill-btn--restart" id="insight-restart"
+                        data-i18n-title="ui.skill.restart"
                         title="🔁 重开 — 重新开始本局">🔁</button>
                 <button type="button" class="skill-btn skill-btn--new" id="insight-new-game"
+                        data-i18n-title="ui.skill.newGame"
                         title="🎮 换局 — 返回主菜单">🎮</button>
             </div>
             <div class="block-dock" id="dock"></div>
@@ -119,24 +122,28 @@
         <div class="menu-grid">
             <button type="button" class="menu-card menu-card--start" id="start-btn">
                 <span class="menu-card-icon">▶</span>
-                <span class="menu-card-label">开始游戏</span>
+                <span class="menu-card-label" data-i18n="menu.start">开始游戏</span>
             </button>
             <button type="button" class="menu-card menu-card--replay" id="menu-replay-btn">
                 <span class="menu-card-icon">📺</span>
-                <span class="menu-card-label">对局回放</span>
+                <span class="menu-card-label" data-i18n="menu.replay">对局回放</span>
             </button>
             <button type="button" class="menu-card menu-card--editor" id="level-editor-btn">
                 <span class="menu-card-icon">🗺️</span>
-                <span class="menu-card-label">关卡编辑器</span>
+                <span class="menu-card-label" data-i18n="menu.editor">关卡编辑器</span>
             </button>
             <a href="/docs.html" target="_blank" class="menu-card menu-card--docs menu-docs-link">
                 <span class="menu-card-icon">📚</span>
-                <span class="menu-card-label">文档中心</span>
+                <span class="menu-card-label" data-i18n="menu.docs">文档中心</span>
             </a>
             <button type="button" class="menu-card menu-card--ops" id="ops-menu-btn" style="grid-column:1/-1">
                 <span class="menu-card-icon">📊</span>
-                <span class="menu-card-label">运营看板</span>
+                <span class="menu-card-label" data-i18n="menu.ops">运营看板</span>
             </button>
+        </div>
+        <div class="menu-locale-row">
+            <label for="locale-select" data-i18n="menu.localeLabel">语言</label>
+            <select id="locale-select" data-i18n-aria-label="menu.localeAria" aria-label="界面语言"></select>
         </div>
     </div>
     <!-- 关卡编辑器屏幕（与回放并列的子功能） -->
@@ -247,7 +254,7 @@
     <div id="game-over" class="screen game-over-overlay" data-game-mode="endless">
         <div class="game-over-card">
             <!-- 模式标签：endless=游戏结束 / level=关卡完成 / level-fail=关卡失败 -->
-            <p class="game-over-label" id="over-label">游戏结束</p>
+            <p class="game-over-label" id="over-label" data-i18n="game.over.endless">游戏结束</p>
             <div class="game-over-score" id="over-score">0</div>
             <div class="final-xp" id="over-xp" hidden></div>
             <!-- 关卡模式额外信息（endless 模式下隐藏） -->
@@ -261,8 +268,8 @@
                 <div class="level-fail-hint-text" id="level-fail-hint-text"></div>
             </div>
             <div class="game-over-actions">
-                <button type="button" class="btn btn-primary" id="retry-btn">再来一局</button>
-                <button type="button" class="btn btn-secondary" id="menu-btn">菜单</button>
+                <button type="button" class="btn btn-primary" id="retry-btn" data-i18n="game.retry">再来一局</button>
+                <button type="button" class="btn btn-secondary" id="menu-btn" data-i18n="game.menu">菜单</button>
             </div>
         </div>
     </div>

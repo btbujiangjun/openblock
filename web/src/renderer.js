@@ -3,7 +3,8 @@
  * Canvas rendering；盘面与方块样式随 `skins.js` 当前主题变化
  */
 import { CONFIG } from './config.js';
-import { getActiveSkin, getBlockColors } from './skins.js';
+import { getActiveSkin, getBlockColors, SKINS } from './skins.js';
+import { paintMahjongTileIcon } from './mahjongTileIcon.js';
 
 function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -12,6 +13,23 @@ function hexToRgb(hex) {
         g: parseInt(result[2], 16),
         b: parseInt(result[3], 16)
     } : null;
+}
+
+/** 盘面格 sRGB 相对亮度；用于浅色盘统一柔化渲染（v10.20） */
+function gridCellRelativeLuminance(skin) {
+    const gc = skin?.gridCell;
+    if (!gc || typeof gc !== 'string') return 0;
+    const rgb = hexToRgb(gc.trim());
+    if (!rgb) return 0;
+    const rs = rgb.r / 255;
+    const gs = rgb.g / 255;
+    const bs = rgb.b / 255;
+    return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+/** 浅色奶油/米白格面：与 desert/farm/pets 等同策略，减轻方块发黑与 emoji 脏边 */
+function isLightBoardSkin(skin) {
+    return gridCellRelativeLuminance(skin) >= 0.78;
 }
 
 /** 盘面半透明叠底用 */
@@ -115,6 +133,15 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
         ? skin.blockIcons[colorIdx % skin.blockIcons.length]
         : skin.blockIcons[0];
     if (!icon) return;
+    // 麻将：象牙立体牌 + 传统设色阴刻（仍用 U+1F000 字符，不经彩色 emoji 叠画）
+    if (skin.id === 'mahjong') {
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+        paintMahjongTileIcon(ctx, bx, by, size, icon, colorIdx >= 0 ? colorIdx : 0);
+        ctx.restore();
+        return;
+    }
     const fontSize = Math.max(10, Math.round(size * 0.56));
     ctx.save();
     roundRectPath(ctx, bx, by, size, size, r);
@@ -125,12 +152,15 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
     const cx = bx + size * 0.5;
     const cy = by + size * 0.53;
     ctx.globalAlpha = 1.0;
-    // 双层阴影增强 icon 在任意底色（深/浅）下的可读性
-    ctx.fillStyle = 'rgba(0,0,0,0.34)';
+    // 双层阴影增强 icon 在任意底色（深/浅）下的可读性；浅色盘面减轻描影避免「脏边」
+    const sh = isLightBoardSkin(skin)
+        ? ['rgba(0,0,0,0.14)', 'rgba(0,0,0,0.08)', '#2C2418']
+        : ['rgba(0,0,0,0.34)', 'rgba(0,0,0,0.20)', 'black'];
+    ctx.fillStyle = sh[0];
     ctx.fillText(icon, cx + 0.6, cy + 0.8);
-    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.fillStyle = sh[1];
     ctx.fillText(icon, cx + 1.0, cy + 1.4);
-    ctx.fillStyle = 'black';
+    ctx.fillStyle = sh[2];
     ctx.fillText(icon, cx, cy);
     ctx.restore();
 }
@@ -146,14 +176,16 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     const by = cellPy + inset;
     const r = skin.blockRadius ?? 5;
 
-    // v10.10：带 icon 皮肤的方块色降饱和 (S × 0.55) ——
+    // v10.10：带 icon 皮肤的方块色降饱和 —— 默认 S×0.55；浅色盘面 → S×0.92（v10.19–v10.20）
     // blockColors 原始饱和度多在 70-85%，与中心 emoji 的彩色发生「色冲突」，
     // emoji 看起来"陷"在饱和色块里。HSL 空间降饱和后呈现「哑光彩」，
     // 色相和明度完全保留，emoji 在哑光底色上对比更清晰。
     // originalColor 保留用于 _paintIcon 的 colorIdx 索引查找。
     const originalColor = color;
     if (skin.blockIcons && skin.blockIcons.length) {
-        color = desaturateColor(color, 0.55);
+        // 浅色盘面配置多为低饱和底，再 ×0.55 易压成「灰黑团」；略降即可
+        const satFactor = isLightBoardSkin(skin) ? 0.92 : 0.55;
+        color = desaturateColor(color, satFactor);
     }
 
     if (skin.blockStyle === 'flat') {
@@ -254,31 +286,37 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
      *      方块仍有极轻立体感，但表面无强反光，emoji 100% 清晰。
      */
     if (skin.blockStyle === 'cartoon') {
-        // 1. 主色弱渐变 — 上下立体（lighten 12% → color → darken 8%，幅度小于原 22%/14%）
+        const lightBoard = isLightBoardSkin(skin);
+        const topLift = lightBoard ? 0.10 : 0.12;
+        const botDark = lightBoard ? 0.03 : 0.08;
+        const botShadeAlpha = lightBoard ? 0.04 : 0.10;
+        const innerStroke = lightBoard ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.28)';
+        const outerStroke = lightBoard ? 'rgba(90,72,48,0.22)' : 'rgba(20,15,40,0.30)';
+        // 1. 主色弱渐变 — 浅色盘面再减轻底部压暗，避免整体发黑
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
-        baseG.addColorStop(0,    lightenColor(color, 0.12));
+        baseG.addColorStop(0,    lightenColor(color, topLift));
         baseG.addColorStop(0.50, color);
-        baseG.addColorStop(1,    darkenColor(color, 0.08));
+        baseG.addColorStop(1,    darkenColor(color, botDark));
         ctx.fillStyle = baseG;
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.fill();
 
-        // 2. 弱底部暗角 — 让方块底部有"重量感"但不糊化 emoji
+        // 2. 弱底部暗角
         const btG = ctx.createLinearGradient(bx, by, bx, by + size);
         btG.addColorStop(0.78, 'rgba(0,0,0,0.00)');
-        btG.addColorStop(1,    'rgba(0,0,0,0.10)');
+        btG.addColorStop(1,    `rgba(0,0,0,${botShadeAlpha})`);
         ctx.fillStyle = btG;
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.fill();
 
-        // 3. 浅亮内描边（极轻边缘提亮，不像原 0.62 那么强烈）
-        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+        // 3. 浅亮内描边
+        ctx.strokeStyle = innerStroke;
         ctx.lineWidth = 1;
         roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
         ctx.stroke();
 
-        // 4. 暗外描边（清晰边界，与底色形成对比）
-        ctx.strokeStyle = 'rgba(20,15,40,0.30)';
+        // 4. 外描边（浅色盘用暖褐细边，减轻「黑框」感）
+        ctx.strokeStyle = outerStroke;
         ctx.lineWidth = 1;
         roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
         ctx.stroke();
@@ -441,17 +479,18 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 
     // glossy — 所有层均直接 fill 圆角路径，消除 clip 毛边
+    const lightGlossy = isLightBoardSkin(skin);
     const gradient = ctx.createLinearGradient(bx, by, bx + size, by);
-    gradient.addColorStop(0,   darkenColor(color, 0.15));
+    gradient.addColorStop(0,   darkenColor(color, lightGlossy ? 0.10 : 0.15));
     gradient.addColorStop(0.2, color);
-    gradient.addColorStop(0.5, lightenColor(color, 0.15));
-    gradient.addColorStop(1,   darkenColor(color, 0.20));
+    gradient.addColorStop(0.5, lightenColor(color, lightGlossy ? 0.12 : 0.15));
+    gradient.addColorStop(1,   darkenColor(color, lightGlossy ? 0.12 : 0.20));
     ctx.fillStyle = gradient;
     roundRectPath(ctx, bx, by, size, size, r);
     ctx.fill();
 
     const hl = ctx.createLinearGradient(bx, by, bx, by + size);
-    hl.addColorStop(0,   'rgba(255,255,255,0.50)');
+    hl.addColorStop(0,   lightGlossy ? 'rgba(255,255,255,0.34)' : 'rgba(255,255,255,0.50)');
     hl.addColorStop(0.50,'rgba(255,255,255,0.00)');
     hl.addColorStop(1,   'rgba(255,255,255,0.00)');
     ctx.fillStyle = hl;
@@ -459,7 +498,7 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     ctx.fill();
 
     const tri = Math.max(2, size * 0.12);
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillStyle = lightGlossy ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.55)';
     ctx.beginPath();
     ctx.moveTo(bx + tri, by + tri);
     ctx.lineTo(bx + size * 0.38, by + tri);
@@ -468,23 +507,23 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     ctx.fill();
 
     if (r > 0) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+        ctx.strokeStyle = lightGlossy ? 'rgba(255,255,255,0.36)' : 'rgba(255,255,255,0.42)';
         ctx.lineWidth = 1.25;
         roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
         ctx.stroke();
-        ctx.strokeStyle = 'rgba(0,0,0,0.26)';
+        ctx.strokeStyle = lightGlossy ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.26)';
         ctx.lineWidth = 1;
         roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
         ctx.stroke();
     } else {
-        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.strokeStyle = lightGlossy ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.4)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(bx, by + size);
         ctx.lineTo(bx, by);
         ctx.lineTo(bx + size, by);
         ctx.stroke();
-        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.strokeStyle = lightGlossy ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.3)';
         ctx.beginPath();
         ctx.moveTo(bx + size, by);
         ctx.lineTo(bx + size, by + size);
@@ -493,6 +532,54 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     }
 
     // glossy 兜底样式也支持 blockIcons（未来皮肤扩展用）
+    _paintIcon(ctx, bx, by, size, r, originalColor, skin);
+}
+
+/**
+ * 皮肤图鉴麻将行：与盘面 `paintBlockCell`（cartoon + icon 降饱和 + `_paintIcon`→`paintMahjongTileIcon`）同管线。
+ * ctx 宜先 scale(DPR)；本函数仅在逻辑边长 `size` 的方格内绘制。
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} originalColor  `blockColors[i]` 原色（用于降饱和绘底；`_paintIcon` 内按 `indexOf` 取对应 `blockIcons` 字形）
+ */
+export function paintMahjongLorePreviewTile(ctx, size, originalColor) {
+    const skin = SKINS.mahjong;
+    const bx = 0;
+    const by = 0;
+    const cellRef = 38;
+    const r = Math.max(3, Math.round((skin.blockRadius ?? 6) * size / cellRef));
+    const color = desaturateColor(originalColor, 0.55);
+    const lightBoard = isLightBoardSkin(skin);
+    const topLift = lightBoard ? 0.10 : 0.12;
+    const botDark = lightBoard ? 0.03 : 0.08;
+    const botShadeAlpha = lightBoard ? 0.04 : 0.10;
+    const innerStroke = lightBoard ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.28)';
+    const outerStroke = lightBoard ? 'rgba(90,72,48,0.22)' : 'rgba(20,15,40,0.30)';
+
+    const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
+    baseG.addColorStop(0, lightenColor(color, topLift));
+    baseG.addColorStop(0.50, color);
+    baseG.addColorStop(1, darkenColor(color, botDark));
+    ctx.fillStyle = baseG;
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.fill();
+
+    const btG = ctx.createLinearGradient(bx, by, bx, by + size);
+    btG.addColorStop(0.78, 'rgba(0,0,0,0.00)');
+    btG.addColorStop(1, `rgba(0,0,0,${botShadeAlpha})`);
+    ctx.fillStyle = btG;
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.fill();
+
+    ctx.strokeStyle = innerStroke;
+    ctx.lineWidth = 1;
+    roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+    ctx.stroke();
+
+    ctx.strokeStyle = outerStroke;
+    ctx.lineWidth = 1;
+    roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
+    ctx.stroke();
+
     _paintIcon(ctx, bx, by, size, r, originalColor, skin);
 }
 

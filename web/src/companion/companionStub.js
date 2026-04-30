@@ -6,12 +6,12 @@
  *
  * 当前实施
  * --------
- * - 仅提供 API 占位 + 36 款伙伴的元数据（icon / 名字）
+ * - 仅提供 API 占位 + 部分伙伴的元数据（icon / 名字）
  * - 实际养成需要：等级模型 / 喂食消耗品 / 动画立绘 / 互动文案
  *
  * 待实施 TODO
  * -----------
- * 1. SVG / sprite-sheet 立绘资产（36 款 × 5 个等级 = 180 张）
+ * 1. SVG / sprite-sheet 立绘资产（全量皮肤 × 5 个等级）
  * 2. 养成模型：每天进食 1 次 → +XP，level 0/3/7/15 解锁新立绘
  * 3. 互动 dialog：常见情绪反馈（开心 / 累 / 饿）
  * 4. 与游戏数据联动：连胜 +好感、长时间不玩 -饥饿值
@@ -25,7 +25,7 @@
 const COMPANIONS = {
     classic:    { icon: '⬛', name: '小方' },
     titanium:   { icon: '🔩', name: '钛粒' },
-    cyber:      { icon: '🤖', name: 'Cyb-3' },
+    neonCity:   { icon: '🌃', name: 'Cyb-3' },
     aurora:     { icon: '🌈', name: '极光' },
     ocean:      { icon: '🐋', name: '大蓝' },
     sunset:     { icon: '🌅', name: '余晖' },

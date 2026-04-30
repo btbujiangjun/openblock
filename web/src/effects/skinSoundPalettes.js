@@ -5,7 +5,7 @@
  *
  * 实施
  * ----
- * - 36 款皮肤逐一定义可选 palette（频率 / 波形 / 时长），未定义者回退到 audioFx 默认
+ * - 各皮肤逐一定义可选 palette（频率 / 波形 / 时长），未定义者回退到 audioFx 默认
  * - 通过覆盖 audioFx 内部音色函数（_toneClear / _toneCombo / _toneBonus 等）实现
  * - 在 onSkinAfterApply 触发时切换 palette
  *
