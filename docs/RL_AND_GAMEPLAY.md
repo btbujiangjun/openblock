@@ -18,7 +18,7 @@
 
 ## 自适应出块（网页端）
 
-网页端出块由 `adaptiveSpawn.js` 替代原有 `resolveLayeredStrategy`，综合 8 个玩家行为信号在 10 档策略权重 profile 间实时插值，并向 `blockSpawn.js` 传递 `spawnHints`（消行保证 / 尺寸偏好 / 多样性提升）。RL 训练（Python 侧 `simulator.py`）不受此影响，仍使用固定策略。
+网页端出块由 `adaptiveSpawn.js` 替代原有 `resolveLayeredStrategy`，综合玩家行为信号在 10 档策略权重 profile 间实时插值，并向 `blockSpawn.js` 传递 `spawnHints`（含 `clearGuarantee`、`sizePreference`、`diversityBoost`、`comboChain`、`multiClearBonus`、`multiLineTarget`、`rhythmPhase`、`sessionArc` 等）。无步可走局终还可经 `localStorage` 触发下一局短窗「局间热身」（`warmupRemaining` / `warmupClearBoost`）。RL 训练（Python 侧 `simulator.py`）不受此影响，仍使用固定策略。
 
 完整设计文档见 **`docs/ADAPTIVE_SPAWN.md`**。
 

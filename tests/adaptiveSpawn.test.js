@@ -94,6 +94,60 @@ describe('resolveAdaptiveStrategy', () => {
         }
     });
 
+    it('rhythmPhase stays neutral without geometry despite release and dry spell', () => {
+        const p = makeProfile({ spawnCounter: 3 });
+        const s = resolveAdaptiveStrategy('normal', p, 100, 0, 0.35, {
+            roundsSinceClear: 5,
+            nearFullLines: 0,
+            pcSetup: 0,
+            lastClearCount: 0,
+            totalRounds: 10
+        });
+        if (s.spawnHints) {
+            expect(p.pacingPhase).toBe('release');
+            expect(s.spawnHints.rhythmPhase).toBe('neutral');
+        }
+    });
+
+    it('multiLineTarget is 2 when pcSetup>=1', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile({ spawnCounter: 0 }), 100, 0, 0.4, {
+            pcSetup: 1,
+            nearFullLines: 0,
+            totalRounds: 5
+        });
+        if (s.spawnHints) {
+            expect(s.spawnHints.multiLineTarget).toBe(2);
+        }
+    });
+
+    it('cross-game warmup boosts clearGuarantee and multiLineTarget', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.3, {
+            warmupRemaining: 2,
+            warmupClearBoost: 2,
+            totalRounds: 5
+        });
+        if (s.spawnHints) {
+            expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(3);
+            expect(s.spawnHints.multiLineTarget).toBe(2);
+        }
+    });
+
+    it('cross-game warmup clamps setup rhythm to neutral', () => {
+        const p = makeProfile({ spawnCounter: 0 });
+        const s = resolveAdaptiveStrategy('normal', p, 80, 0, 0.25, {
+            roundsSinceClear: 0,
+            nearFullLines: 0,
+            pcSetup: 0,
+            warmupRemaining: 1,
+            warmupClearBoost: 1,
+            totalRounds: 8
+        });
+        if (s.spawnHints) {
+            expect(p.pacingPhase).toBe('tension');
+            expect(s.spawnHints.rhythmPhase).toBe('neutral');
+        }
+    });
+
     it('stress is clamped to [-0.2, 1]', () => {
         for (let skill = 0; skill <= 1; skill += 0.25) {
             for (let score = 0; score <= 1000; score += 200) {

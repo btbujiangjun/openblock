@@ -1,6 +1,6 @@
 # 出块算法：三层架构
 
-> 版本: v3.1 | 更新: 2026-04-30  
+> 版本: v3.2 | 更新: 2026-05-01  
 > 建模思路、优化目标、特征与网络结构的形式化说明见 `docs/SPAWN_BLOCK_MODELING.md`。
 
 ## 1. 概述
@@ -13,7 +13,7 @@
 │  session 弧线 · 里程碑庆祝 · 回流玩家热身    │
 ├─────────────────────────────────────────────┤
 │  Layer 2: 局内体感 (Within-Game)             │
-│  combo 链催化 · 多消鼓励 · 节奏 setup/payoff │
+│  combo 链催化 · 多消鼓励 · multiLineTarget · 节奏 setup/payoff │
 │  品类记忆 · 多样性                            │
 ├─────────────────────────────────────────────┤
 │  Layer 1: 即时出块 (Immediate)               │
@@ -27,21 +27,22 @@
 
 ```
 game.js
-  ├── 构建 spawnContext {lastClearCount, roundsSinceClear, recentCategories, totalRounds, scoreMilestone}
+  ├── 构建 spawnContext {lastClearCount, roundsSinceClear, recentCategories, totalRounds, scoreMilestone,
+  │       nearFullLines, pcSetup（上轮诊断回写）, warmupRemaining / warmupClearBoost（局间热身，可选）}
   │
   ├── adaptiveSpawn.js ← resolveAdaptiveStrategy(strategy, profile, score, runStreak, fill, spawnContext)
   │     ├── Layer 3: deriveSessionArc(), checkMilestone()
-  │     ├── Layer 2: deriveComboChain(), deriveMultiClearBonus(), deriveRhythmPhase()
+  │     ├── Layer 2: deriveComboChain(), deriveMultiClearBonus(), deriveMultiLineTarget(), deriveRhythmPhase()
   │     ├── 多维信号 → stress → interpolateProfileWeights → shapeWeights
   │     └── 输出: { shapeWeights, spawnHints: {clearGuarantee, sizePreference, diversityBoost,
-  │                  comboChain, multiClearBonus, rhythmPhase, sessionArc, scoreMilestone} }
+  │                  comboChain, multiClearBonus, multiLineTarget, rhythmPhase, sessionArc, scoreMilestone} }
   │
   └── blockSpawn.js ← generateDockShapes(grid, strategyConfig, spawnContext)
         ├── Layer 1: analyzeBoardTopology() → {holes, flatness, nearFullLines, colHeights}
         ├── Layer 1: bestMultiClearPotential() — 每个形状的最大同消行数
         ├── Layer 1: bestHoleReduction() — 放置后空洞减少量
         ├── 阶段 1: 消行候选选取（clearGuarantee + combo 催化 + 多消优先排序）
-        ├── 阶段 2: 加权抽样（三层信号整合到权重乘子）
+        ├── 阶段 2: 加权抽样（三层信号整合到权重乘子；`multiLineTarget`≥2 时强化 multiClear≥2）
         ├── 校验: minMobilityTarget + tripletSequentiallySolvable
         └── 输出: 三连块 + _spawnDiagnostics（供面板解释）
 
@@ -67,6 +68,12 @@ v3.1 起，颜色分配改为**轻偏置随机**：
 玩家在临门一脚阶段更容易拿到“语义上正确”的补线颜色，但不会破坏整体多样性。
 
 **RL 训练环境（PyTorch / MLX）**：形状生成与 Web 同源的 `block_spawn`；dock 颜色由 `rl_pytorch/dock_color_bias.py`（及 `rl_mlx` 副本）实现同一套偏置，色数取策略 `color_count`，使策略梯度里的奖励分布与主局更一致。
+
+### 2.2 v3.2 补充：`multiLineTarget`、收紧的 `rhythmPhase`、局间 `warmup`
+
+- **`deriveMultiLineTarget`**：见 §4.3；输出写入 `spawnHints.multiLineTarget`，由 `blockSpawn` 阶段 1/2 消费。
+- **`deriveRhythmPhase`**：`payoff` 需几何门控（§4.4），避免「盘面疏松仍处于收获期」的错位。
+- **局间热身**：`game.js` 在无步可走结算时写入 `openblock_spawn_warmup_v1`，下局 `start()` 注入 `warmupRemaining` / `warmupClearBoost`（§5.3）；与局内前 3 轮的 `sessionArc === 'warmup'` 不同源。
 
 ## 3. Layer 1: 即时出块 — 盘面感知
 
@@ -125,25 +132,57 @@ comboChain = min(1, streak * 0.25 + (lastClear > 0 ? 0.3 : 0))
 
 **设计意图**: 消行后的下一轮"延续感"——玩家刚完成消除，新出的块更容易触发新一轮消除，形成正反馈循环。
 
-### 4.2 多消鼓励
+### 4.2 多消鼓励 `deriveMultiClearBonus(ctx, fill)`
 
-```javascript
-multiClearBonus = roundsSinceClear > 3 ? 0.6 : fill > 0.55 ? 0.3 : 0.1
-```
+按优先级返回 **0.15～1.0 的分段常数**（非连续插值），与 `blockSpawn` 里 `multiClearBonus * 0.6` 等乘子配合：
 
-长时间未消行 → 更强的多消偏好，帮助玩家"破冰"。
+| 条件（自上而下命中即返回） | 返回值 |
+|---------------------------|--------|
+| `pcSetup ≥ 2` | 1.0 |
+| `pcSetup ≥ 1` | 0.9 |
+| `nearFullLines ≥ 5` | 1.0 |
+| `nearFullLines ≥ 3` | 0.8 |
+| `roundsSinceClear > 3` | 0.7 |
+| `fill > 0.60` | 0.6 |
+| `fill > 0.45` | 0.4 |
+| 否则 | 0.15（基础引导） |
 
-### 4.3 节奏相位 (Rhythm Phase)
+**设计意图**：与 `multiLineTarget` 分工——`multiClearBonus` 抬高「多消相关」整体权重曲线；`multiLineTarget` 再在阶段 1 排序与阶段 2 加权里**显式偏好 multiClear≥2** 的兑现块。
 
-| 相位 | 触发条件 | 出块行为 |
-|------|---------|---------|
-| `setup` | pacing 紧张期 + 刚消过行 | 偏好 4~6 格构型块（蓄力） |
-| `payoff` | pacing 释放期 或 连续 ≥3 轮未消行 | 偏好消行块 + 多消块 |
+### 4.3 多线目标 `multiLineTarget`（0 / 1 / 2，v3.2）
+
+| 值 | 含义 | 典型来源 |
+|----|------|----------|
+| 0 | 不额外强调「同时多线」| _default_ |
+| 1 | 中等：加权池略偏 `multiClear≥2` | `nearFullLines≥3`、或刚完成 `lastClearCount≥2` 且 `fill>0.35`、或 `fill>0.58` 且 `nearFullLines≥2` |
+| 2 | 强：阶段 1 排序 + 选块与加权池强烈偏 `multiClear≥2` | `pcSetup≥1`、`nearFullLines≥5`、清屏猎人玩法、局间热身（见 §5.4） |
+
+**blockSpawn 中的耦合**：
+
+- 阶段 1：`multiLineTarget≥2` 时消行候选排序为 `multiClear` 项增加 `0.35×multiLineTarget` 的等效 bonus；与 `multiClear≥2` 的优先截断条件与 `multiClearBonus>0.3` 并列。
+- 阶段 2：对 `multiLineTarget≥2` 且 `multiClear≥2` 的块额外 `×(1.45 + 0.28×multiClearBonus)` 量级乘子；`Target==1` 时 `×1.22`。
+- **多消后续航**：`lastClearCount≥2` 且 `rhythmPhase==='payoff'` 时，对 `gapFills>0` 且 `multiClear≤1`、格数 2～6 的块加权，降低「只有巨型多线块、续不上手」的断裂感。
+
+### 4.4 节奏相位 `deriveRhythmPhase`（v3.2 收紧）
+
+**原问题**：仅因 `pacingPhase==='release'` 或 `roundsSinceClear≥2` 就进入 `payoff`，在**无近满行、无清屏准备**的疏松盘面上仍强行「收获期」，体感和几何机会错位。
+
+**现规则（摘要）**：
+
+- 先算几何门控 `nearGeom`：`pcSetup≥1` 或 `nearFullLines≥2` 或（`fill>0.52` 且 `nearFullLines≥1`）。
+- `payoff`：`pcSetup≥1`；或 `nearFullLines≥3`；或（`release` 且 `nearGeom`）；或（`roundsSinceClear≥2` 且 `nearGeom`）。
+- `setup`：`pacing` 紧张期且刚消过行（`roundsSinceClear===0`）。
+- 其余为 `neutral`。
+
+| 相位 | 触发（更新后） | 出块行为（blockSpawn 侧不变） |
+|------|----------------|------------------------------|
+| `setup` | 紧张期 + 刚消过行 | 偏好 4~6 格、非消行构型（蓄力） |
+| `payoff` | 清屏准备 / 多临消行 / 有几何门控下的 release 或久未消行 | 消行与多消乘子升高 |
 | `neutral` | 其他 | 标准权重 |
 
-补充：连续无消行会进入救援态。`roundsSinceClear ≥ 2` 时 `clearGuarantee` 至少为 2；`roundsSinceClear ≥ 4` 时至少为 3，并额外偏小块（`sizePreference ≤ -0.35`）。
+**救援态**（与相位独立）：`roundsSinceClear ≥ 2` 时 `clearGuarantee` 至少为 2；`≥ 4` 时至少为 3 且 `sizePreference ≤ -0.35`。
 
-### 4.4 品类记忆
+### 4.5 品类记忆
 
 - **同轮**: `usedCategories` 防止同一轮出重复品类
 - **跨轮**: `_categoryMemory` 记录最近 3 轮已出品类，频次 > 2 的品类权重衰减 `max(0.4, 1 - (freq-2) * 0.12)`
@@ -172,7 +211,18 @@ multiClearBonus = roundsSinceClear > 3 ? 0.6 : fill > 0.55 ? 0.3 : 0.1
 
 **设计意图**: 在玩家达到成就点时，给出一轮"奖励性"出块，配合策略面板的"🎉 里程碑达成"提示，制造"绝处逢生"的爽感。
 
-### 5.3 长周期信号（继承自 playerProfile）
+### 5.3 无步可走后的局间热身（v3.2）
+
+当本局因**无可行步**结束（`endGame({ noMovesLoss: true })`）时，按终局 `roundsSinceClear` 与 `fill` 写入 `localStorage` 键 `openblock_spawn_warmup_v1`（48h 内有效）。**下一局 `start()`** 消费该键（读入后即删除），向 `spawnContext` 注入：
+
+- `warmupRemaining`：余下多少**出块轮**（补块次数）应用热身；写入值为 2～4（`start()` 侧再夹到 1～5 以防脏数据）；
+- `warmupClearBoost`：0～2，抬高 `clearGuarantee` 与 `multiLineTarget` 的档量。
+
+`resolveAdaptiveStrategy` 在 `warmupRemaining>0` 时：抬高 `clearGuarantee`、压 `sizePreference`、抬 `multiClearBonus` 下限、抬 `multiLineTarget`，并将 `setup` 夹为 `neutral` 以免与「刚给糖」冲突。`game._commitSpawn` 每轮 `warmupRemaining--`。
+
+**设计意图**：把「死局挫败」接上一段可感知的**下一局前几个三连**友好窗口，与 Layer3 的 `warmup` 弧线互补（前者是跨局死亡补偿，后者是局内前 3 轮）。
+
+### 5.4 长周期信号（继承自 playerProfile）
 
 - **trend**: 长周期进步/退步趋势 → stress 微调
 - **confidence**: 数据置信度 → 收窄/放宽技能调节幅度
@@ -186,6 +236,7 @@ multiClearBonus = roundsSinceClear > 3 ? 0.6 : fill > 0.55 ? 0.3 : 0.1
 |------|------|------|
 | 连击 | `spawnHints.comboChain` | Combo 链强度 |
 | 多消 | `spawnHints.multiClearBonus` | 多消鼓励强度 |
+| 多线×n | `spawnHints.multiLineTarget` | 0/1/2，显式偏好多线兑现块型 |
 | 节奏 | `spawnHints.rhythmPhase` | 搭建/收获/中性 |
 | 弧线 | `spawnHints.sessionArc` | 热身/巅峰/收官 |
 | 空洞 | `spawnDiagnostics.layer1.holes` | 盘面空洞数 |
@@ -211,7 +262,7 @@ multiClearBonus = roundsSinceClear > 3 ? 0.6 : fill > 0.55 ? 0.3 : 0.1
 ```json
 {
   "layer1": { "fill": 0.45, "holes": 2, "flatness": 0.72, "nearFullLines": 3, "maxColHeight": 6 },
-  "layer2": { "comboChain": 0.55, "multiClearBonus": 0.3, "rhythmPhase": "payoff", "divBoost": 0.15, "recentCatFreq": {"lines": 2, "rects": 1} },
+  "layer2": { "comboChain": 0.55, "multiClearBonus": 0.3, "multiLineTarget": 1, "rhythmPhase": "payoff", "divBoost": 0.15, "recentCatFreq": {"lines": 2, "rects": 1} },
   "layer3": { "scoreMilestone": false, "roundsSinceClear": 1, "totalRounds": 12 },
   "chosen": [
     { "id": "line_h5", "category": "lines", "reason": "clear" },

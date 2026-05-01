@@ -11,6 +11,7 @@
  *   diversityBoost      (0~1)   越高→三连块品类越多样
  *   comboChain          (0~1)   combo 链强度：越高越偏好能续链的消行块
  *   multiClearBonus     (0~1)   多消鼓励：越高越偏好能同时完成多行的块
+ *   multiLineTarget     (0|1|2) v10.33：多线兑现目标；2 时阶段 1/加权池强烈偏好 multiClear≥2
  *   rhythmPhase         'setup'|'payoff'|'neutral'  节奏相位
  *   targetSolutionRange { min, max, label } | null  解法数量难度区间（v9 新增）
  *
@@ -487,6 +488,7 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const divBoost = hints.diversityBoost ?? 0;
     const comboChain = hints.comboChain ?? 0;
     const multiClearBonus = hints.multiClearBonus ?? 0;
+    const multiLineTarget = Math.max(0, Math.min(2, hints.multiLineTarget ?? 0));
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
     const targetSolutionRange = hints.targetSolutionRange || null;
     const solutionCfg = getSolutionDifficultyCfg();
@@ -571,7 +573,7 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
             targetSolutionRange
         },
-        layer2: { comboChain, multiClearBonus, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
+        layer2: { comboChain, multiClearBonus, multiLineTarget, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,
@@ -591,13 +593,14 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         const clearCandidates = scored.filter((s) => s.gapFills > 0);
 
         // 排序：清屏潜力 > 多消 > combo 加权 > gap 数
-        if (pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3) {
+        if (pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3 || multiLineTarget >= 2) {
+            const mlBoost = 0.35 * multiLineTarget;
             clearCandidates.sort((a, b) => {
                 const aScore = a.pcPotential * 8
-                    + a.multiClear * (1 + multiClearBonus)
+                    + a.multiClear * (1 + multiClearBonus + mlBoost)
                     + a.gapFills * 0.5;
                 const bScore = b.pcPotential * 8
-                    + b.multiClear * (1 + multiClearBonus)
+                    + b.multiClear * (1 + multiClearBonus + mlBoost)
                     + b.gapFills * 0.5;
                 return bScore - aScore;
             });
@@ -623,7 +626,7 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             if (pcSetup >= 1 && avail.some(s => s.pcPotential === 2)) {
                 const perfectPicks = avail.filter(s => s.pcPotential === 2);
                 pick = perfectPicks[Math.floor(Math.random() * Math.min(3, perfectPicks.length))];
-            } else if (multiClearBonus > 0.3 && avail.some(s => s.multiClear >= 2)) {
+            } else if ((multiClearBonus > 0.3 || multiLineTarget >= 2) && avail.some(s => s.multiClear >= 2)) {
                 const multi = avail.filter(s => s.multiClear >= 2);
                 pick = multi[Math.floor(Math.random() * Math.min(3, multi.length))];
             } else {
@@ -644,6 +647,7 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             return list.map((s) => {
                 let w = s.weight;
                 const pc = s.placements;
+                const cells = shapeCellCount(s.shape.data);
 
                 /* Layer 1: 机动性保障 — 合法落点越多权重越高 */
                 w *= 1 + Math.log1p(pc) * (0.35 + fill * 0.55);
@@ -671,6 +675,15 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                     const mcBase = 0.6 + multiClearBonus * 0.6;
                     w *= 1 + s.multiClear * mcBase;
                 }
+                if (multiLineTarget >= 2 && s.multiClear >= 2) {
+                    w *= 1.45 + multiClearBonus * 0.28;
+                } else if (multiLineTarget >= 1 && s.multiClear >= 2) {
+                    w *= 1.22;
+                }
+                const postCombo = (ctx.lastClearCount ?? 0) >= 2;
+                if (postCombo && rhythmPhase === 'payoff' && s.gapFills > 0 && s.multiClear <= 1) {
+                    if (cells >= 2 && cells <= 6) w *= 1.28;
+                }
 
                 /* Layer 1: 临消行机会放大 — 有可消行时消行块价值与临消行数正相关 */
                 if (nearFullFactor > 0 && s.gapFills > 0) {
@@ -687,7 +700,6 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                 }
 
                 /* Layer 2: 节奏相位 */
-                const cells = shapeCellCount(s.shape.data);
                 if (rhythmPhase === 'payoff') {
                     if (s.gapFills > 0) w *= 1.7;      // 原 1.3 → 更强的 payoff 推送
                     if (s.multiClear >= 2) w *= 1.4;    // 原 1.2 → 多消双重加持

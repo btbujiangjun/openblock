@@ -79,16 +79,18 @@ function _renderWheel() {
         document.body.appendChild(panel);
     }
     const wedges = PRIZES.map((p, i) => `
-        <div class="wheel-wedge wheel-wedge--${i}">
-            <span>${p.label}</span>
+        <div class="wheel-wedge" style="--wedge-index: ${i}" aria-hidden="true">
+            <span class="wheel-wedge-label">${p.label}</span>
         </div>
     `).join('');
     panel.innerHTML = `
         <div class="wheel-card">
             <h3>周末幸运转盘</h3>
             <div class="wheel-disc">
-                ${wedges}
-                <div class="wheel-pointer">▼</div>
+                <div class="wheel-disc-inner">
+                    ${wedges}
+                </div>
+                <div class="wheel-pointer" aria-hidden="true">▼</div>
             </div>
             <button type="button" class="wheel-spin-btn">免费抽</button>
             <div class="wheel-result" hidden></div>
@@ -105,15 +107,22 @@ function _renderWheel() {
 }
 
 function _doSpin(panel) {
+    const btn = panel.querySelector('.wheel-spin-btn');
+    if (btn?.disabled) return;
+
     const prize = _pickPrize();
     const idx = PRIZES.indexOf(prize);
 
-    const disc = panel.querySelector('.wheel-disc');
+    const inner = panel.querySelector('.wheel-disc-inner');
     const wedgeAngle = 360 / PRIZES.length;
     const targetAngle = 360 * 4 + (idx * wedgeAngle) + wedgeAngle / 2;
-    if (disc) {
-        disc.style.transition = 'transform 2.4s cubic-bezier(.16, 1, .3, 1)';
-        disc.style.transform = `rotate(-${targetAngle}deg)`;
+    if (inner) {
+        inner.style.transition = 'transform 2.4s cubic-bezier(.16, 1, .3, 1)';
+        inner.style.transform = `rotate(-${targetAngle}deg)`;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '抽奖中…';
     }
     _audio?.play?.('combo');
 
@@ -128,6 +137,7 @@ function _doSpin(panel) {
             result.hidden = false;
             result.textContent = `🎉 ${prize.label}`;
         }
+        if (btn) btn.textContent = '今日已抽';
         _audio?.play?.('unlock');
         _audio?.vibrate?.([20, 60, 20, 60, 80]);
     }, 2500);

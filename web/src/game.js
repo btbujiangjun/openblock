@@ -528,6 +528,22 @@ export class Game {
             };
             this._clearStreak = 0;
             this._spawnContext = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false, bestScore: this.bestScore ?? 0 };
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    const raw = localStorage.getItem('openblock_spawn_warmup_v1');
+                    if (raw) {
+                        const o = JSON.parse(raw);
+                        const maxAge = 48 * 3600 * 1000;
+                        if (o && typeof o.ts === 'number' && Date.now() - o.ts < maxAge) {
+                            const rounds = Math.min(5, Math.max(1, Number(o.rounds) || 3));
+                            const clearBoost = Math.min(2, Math.max(0, Number(o.clearBoost) || 0));
+                            this._spawnContext.warmupRemaining = rounds;
+                            this._spawnContext.warmupClearBoost = clearBoost;
+                        }
+                        localStorage.removeItem('openblock_spawn_warmup_v1');
+                    }
+                }
+            } catch { /* ignore */ }
             resetSpawnMemory();
             resetAdaptiveMilestone();
 
@@ -855,6 +871,9 @@ export class Game {
      */
     _commitSpawn(shapes, layered, opts, source) {
         this._spawnContext.totalRounds++;
+        if ((this._spawnContext.warmupRemaining ?? 0) > 0) {
+            this._spawnContext.warmupRemaining--;
+        }
         this._spawnContext.scoreMilestone = false;
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
@@ -1437,7 +1456,7 @@ export class Game {
         // 给最后一次粒子收尾留 250ms，再进入内嵌结算
         this._noMovesTimer = setTimeout(() => {
             this._noMovesTimer = null;
-            void this.endGame();
+            void this.endGame({ noMovesLoss: true });
         }, 250);
     }
 
@@ -1449,6 +1468,30 @@ export class Game {
     async endGame(opts = {}) {
         if (this._endGameInFlight) {
             return this._endGameInFlight;
+        }
+        /* v10.33：无步可走结算 → 下一局前几轮出块热身（局间闭环），写入 localStorage 由 start() 消费 */
+        if (opts.noMovesLoss && typeof localStorage !== 'undefined') {
+            try {
+                const rsc = this._spawnContext?.roundsSinceClear ?? 0;
+                const fill = typeof this.grid?.getFillRatio === 'function' ? this.grid.getFillRatio() : 0;
+                let rounds = 3;
+                let clearBoost = 1;
+                if (rsc >= 4 || fill >= 0.72) {
+                    rounds = 4;
+                    clearBoost = 2;
+                } else if (rsc >= 2 || fill >= 0.52) {
+                    rounds = 3;
+                    clearBoost = 1;
+                } else {
+                    rounds = 2;
+                    clearBoost = 0;
+                }
+                localStorage.setItem('openblock_spawn_warmup_v1', JSON.stringify({
+                    rounds,
+                    clearBoost,
+                    ts: Date.now()
+                }));
+            } catch { /* ignore */ }
         }
         this.isGameOver = true;
         // 内嵌结算（v10.18）：保留棋盘可见，给 body 加 .game-over-active 让 CSS 做柔化处理

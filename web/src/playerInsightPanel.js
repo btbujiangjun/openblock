@@ -130,6 +130,8 @@ const SPAWN_TOOLTIP = {
     shapeW: '当前综合压力下，该形状类别的相对抽样权重（数值越大越容易被抽到）。',
     comboChain: 'Combo 链强度（0～1）：越高越偏好续链消行块。受连续消行状态驱动。',
     multiClear: '多消鼓励（0～1）：越高越偏好能同时消多行的块。受盘面和轮空状态驱动。',
+    multiLineTarget:
+        '多线目标（0～2）：显式要求 shapes 阶段偏好 multiClear≥2 的强度；2 时与 multiClearBonus 叠加，强化「双行以上同时兑现」。来自 pcSetup / 近满行 / 刚多消后的短窗口及局间热身。',
     rhythm: '节奏相位：setup=搭建蓄力期 / payoff=收获消行期 / neutral=中性。',
     sessionArc: 'Session 弧线：warmup=热身 / peak=巅峰 / cooldown=收官。',
     holes: '盘面空洞数：填充列下方的空格，空洞越多越难消行。',
@@ -235,6 +237,10 @@ function _hintsExplain(h) {
     const mc = h.multiClearBonus ?? 0;
     if (mc > 0.2) {
         out.push(`多消鼓励 ${mc.toFixed(2)}：偏好能同时消多行的块型。`);
+    }
+    const ml = h.multiLineTarget ?? 0;
+    if (ml >= 1) {
+        out.push(`多线目标 ${ml}：${ml >= 2 ? '强' : '中'}制导向 multiClear≥2 的块型抽样（清屏准备 / 密集临消 / 多消后续航）。`);
     }
     if (h.rhythmPhase === 'payoff') {
         out.push('节奏相位：收获期——出块偏向消行友好。');
@@ -579,6 +585,8 @@ function _render(game) {
             if (cc > 0.1) layer2Pills.push(_spawnPill(`连击 ${cc.toFixed(2)}`, SPAWN_TOOLTIP.comboChain));
             const mc = h.multiClearBonus ?? 0;
             if (mc > 0.1) layer2Pills.push(_spawnPill(`多消 ${mc.toFixed(2)}`, SPAWN_TOOLTIP.multiClear));
+            const ml = h.multiLineTarget ?? 0;
+            if (ml >= 1) layer2Pills.push(_spawnPill(`多线×${ml}`, SPAWN_TOOLTIP.multiLineTarget));
         }
         // 玩法偏好 pill（始终展示，让开发者快速感知当前玩家风格对出块的影响）
         {

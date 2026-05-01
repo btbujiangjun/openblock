@@ -19,6 +19,7 @@
  * === Layer 2 新增 spawnHints ===
  *   comboChain      (0~1)  combo 链强度 → blockSpawn 偏好续链块
  *   multiClearBonus (0~1)  多消鼓励 → blockSpawn 偏好多行同消块
+ *   multiLineTarget (0|1|2) v10.33：显式「多线兑现」目标强度 → blockSpawn 加权 multiClear≥2
  *   rhythmPhase     'setup'|'payoff'|'neutral'  出块节奏相位
  *
  * === Layer 3 新增 spawnHints ===
@@ -119,18 +120,48 @@ function deriveMultiClearBonus(ctx, fill) {
  * @param {object} ctx
  * @returns {'setup'|'payoff'|'neutral'}
  */
-function deriveRhythmPhase(profile, ctx) {
+/**
+ * @param {import('./playerProfile.js').PlayerProfile} profile
+ * @param {object} ctx
+ * @param {number} fill 当前盘面填充率（与 game 传入的 boardFill 一致）
+ */
+function deriveRhythmPhase(profile, ctx, fill = 0) {
     const pacingPhase = profile.pacingPhase;
     const roundsSinceClear = ctx.roundsSinceClear ?? 0;
     const nearFullLines = ctx.nearFullLines ?? 0;
     const pcSetup = ctx.pcSetup ?? 0;
-    // 清屏机会 / 多临消行 → 立即进入 payoff
+    // 几何兑现条件：无「临消 / 清屏准备」时不要把 payoff 拉满，避免盘面配不上仍强行「收获期」
+    const nearGeom = pcSetup >= 1
+        || nearFullLines >= 2
+        || (fill > 0.52 && nearFullLines >= 1);
+
     if (pcSetup >= 1) return 'payoff';
     if (nearFullLines >= 3) return 'payoff';
-    // 更早进入 payoff：连续 2 轮无消行即触发
-    if (pacingPhase === 'release' || roundsSinceClear >= 2) return 'payoff';
+    if (pacingPhase === 'release' && nearGeom) return 'payoff';
+    if (roundsSinceClear >= 2 && nearGeom) return 'payoff';
     if (pacingPhase === 'tension' && roundsSinceClear === 0) return 'setup';
     return 'neutral';
+}
+
+/**
+ * 多线兑现目标：与 multiClearBonus 互补；偏高时 blockSpawn 阶段 1/2 显式偏好 multiClear≥2
+ * @param {object} ctx
+ * @param {number} fill
+ * @returns {0|1|2}
+ */
+function deriveMultiLineTarget(ctx, fill) {
+    const pcSetup = ctx.pcSetup ?? 0;
+    const nearFullLines = ctx.nearFullLines ?? 0;
+    const lastClear = ctx.lastClearCount ?? 0;
+
+    if (pcSetup >= 2) return 2;
+    if (pcSetup >= 1) return 2;
+    if (nearFullLines >= 5) return 2;
+    if (nearFullLines >= 3) return 1;
+    // 刚完成多线消除后的短窗口：鼓励下一手「可落位的单行兑现」，避免只有巨型块堵死续combo
+    if (lastClear >= 2 && fill > 0.35) return 1;
+    if (fill > 0.58 && nearFullLines >= 2) return 1;
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -360,8 +391,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /* --- Layer 2: 多消鼓励 --- */
     let multiClearBonus = deriveMultiClearBonus(ctx, _boardFill ?? 0);
 
-    /* --- Layer 2: 节奏相位 --- */
-    let rhythmPhase = deriveRhythmPhase(profile, ctx);
+    /* --- Layer 2: 节奏相位 + 多线目标 --- */
+    let rhythmPhase = deriveRhythmPhase(profile, ctx, _boardFill ?? 0);
+    let multiLineTarget = deriveMultiLineTarget(ctx, _boardFill ?? 0);
 
     /* --- 原有条件逻辑 --- */
     if (profile.hadRecentNearMiss) {
@@ -427,9 +459,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         // 该玩家主动追求清空棋盘，需要提供更多能触发多行消除的方块组合
         multiClearBonus = Math.max(multiClearBonus, 0.85);
         clearGuarantee  = Math.max(clearGuarantee, 2);
+        multiLineTarget = Math.max(multiLineTarget, 2);
     } else if (playstyle === 'multi_clear') {
         // 多消玩家：提升多消鼓励，顺势切入 payoff 节奏
         multiClearBonus = Math.max(multiClearBonus, 0.65);
+        multiLineTarget = Math.max(multiLineTarget, 1);
         if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
     } else if (playstyle === 'combo') {
         // 连消玩家：comboChain 信号已由 recentComboStreak 自动拉高，
@@ -441,6 +475,18 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         clearGuarantee = Math.max(clearGuarantee, 1);
     }
     // 'balanced'：不做额外调整，沿用上方所有条件规则的结果
+
+    /* --- v10.33 局间热身：上一局无步可走后，下局前几轮由 game.js 写入 warmupRemaining / warmupClearBoost --- */
+    const wr = ctx.warmupRemaining ?? 0;
+    const wb = Math.max(0, Math.min(2, ctx.warmupClearBoost ?? 0));
+    if (wr > 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2 + Math.min(1, wb));
+        clearGuarantee = Math.min(3, clearGuarantee);
+        sizePreference = Math.min(sizePreference, -0.28);
+        multiClearBonus = Math.max(multiClearBonus, 0.42);
+        multiLineTarget = Math.max(multiLineTarget, wb >= 2 ? 2 : 1);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
 
     /* ---------- v9: 解法数量难度区间 ---------- */
     const targetSolutionRange = deriveTargetSolutionRange(
@@ -459,6 +505,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             diversityBoost: Math.max(0, Math.min(1, diversityBoost)),
             comboChain: Math.max(0, Math.min(1, comboChain)),
             multiClearBonus: Math.max(0, Math.min(1, multiClearBonus)),
+            multiLineTarget: Math.max(0, Math.min(2, multiLineTarget)),
             rhythmPhase,
             sessionArc,
             scoreMilestone: milestoneCheck.hit,

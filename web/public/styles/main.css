@@ -4888,12 +4888,17 @@ body.game-shell-hidden .app-side-left {
     box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
 }
 .wheel-card h3 { margin: 0 0 16px; font-size: 20px; }
+/* 外层不放 transform：指针固定在 12 点，仅内盘旋转 */
 .wheel-disc {
     position: relative;
-    width: 280px;
-    height: 280px;
-    border-radius: 50%;
+    width: min(280px, 78vw);
+    aspect-ratio: 1;
     margin: 0 auto 18px;
+}
+.wheel-disc-inner {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
     background: conic-gradient(
         from 0deg,
         #ffd160 0% 12.5%, #ff8c40 12.5% 25%,
@@ -4902,16 +4907,46 @@ body.game-shell-hidden .app-side-left {
         #f97316 75% 87.5%, #94a3b8 87.5% 100%
     );
     border: 4px solid var(--text-primary, #1e293b);
+    overflow: hidden;
     transform: rotate(0deg);
+}
+/* 每扇区标签：绕圆心旋转到扇区中心角，文字再反向旋转保持水平可读 */
+.wheel-wedge {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    transform-origin: 50% 50%;
+    transform: rotate(calc(var(--wedge-index) * 45deg + 22.5deg));
+}
+.wheel-wedge-label {
+    position: absolute;
+    left: 50%;
+    top: 11%;
+    transform: translateX(-50%) rotate(calc(-1 * (var(--wedge-index) * 45deg + 22.5deg)));
+    width: min(104px, 36%);
+    text-align: center;
+    font-size: clamp(10px, 3.1vw, 12px);
+    font-weight: 700;
+    line-height: 1.25;
+    color: #fff;
+    text-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.9),
+        0 0 10px rgba(0, 0, 0, 0.35);
 }
 .wheel-pointer {
     position: absolute;
-    top: -16px;
+    top: -14px;
     left: 50%;
+    z-index: 3;
     transform: translateX(-50%);
     color: var(--text-primary, #1e293b);
-    font-size: 30px;
+    font-size: 28px;
     line-height: 1;
+    pointer-events: none;
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.25));
 }
 .wheel-spin-btn {
     padding: 10px 36px;
@@ -4922,6 +4957,10 @@ body.game-shell-hidden .app-side-left {
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
+}
+.wheel-spin-btn:disabled {
+    opacity: 0.72;
+    cursor: default;
 }
 .wheel-result {
     margin-top: 14px;
@@ -5299,7 +5338,7 @@ body.game-shell-hidden .app-side-left {
     .checkin-panel, .chest-panel, .lucky-wheel-panel, .skin-lore-panel {
         transition: none !important;
     }
-    .wheel-disc { transition: none !important; }
+    .wheel-disc-inner { transition: none !important; }
 }
 
 /* ════════════════════════════════════════════════════════════
