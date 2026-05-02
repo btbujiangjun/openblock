@@ -49,27 +49,31 @@ export function initDailyMaster({ game, audio = null } = {}) {
         };
     }
 
-    /* 菜单按钮注入 */
-    setTimeout(_injectMenuButton, 1500);
+    _bindMenuButton();
 }
 
-function _injectMenuButton() {
+/** 主菜单 #menu 内已静态挂载按钮；否则回退注入到 .menu-grid（兼容旧 HTML / 测试） */
+function _bindMenuButton() {
+    let btn = document.getElementById('menu-daily-master-btn');
+    if (btn?.dataset.dmBound === '1') return;
     const menu = document.getElementById('menu');
-    if (!menu) return;
-    if (document.getElementById('menu-daily-master-btn')) return;
-    const grid = menu.querySelector('.menu-grid');
-    if (!grid) return;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.id = 'menu-daily-master-btn';
-    btn.className = 'menu-card menu-card--daily-master';
-    btn.innerHTML = `
+    if (!btn && menu) {
+        const grid = menu.querySelector('.menu-grid');
+        if (!grid) return;
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'menu-daily-master-btn';
+        btn.className = 'menu-card menu-card--daily-master menu-card--menu-secondary';
+        btn.innerHTML = `
         <span class="menu-card-icon">🏅</span>
         <span class="menu-card-label" data-i18n="menu.dailyMaster">每日大师题</span>
     `;
+        grid.appendChild(btn);
+        applyDom(menu);
+    }
+    if (!btn) return;
+    btn.dataset.dmBound = '1';
     btn.addEventListener('click', startChallenge);
-    grid.appendChild(btn);
-    applyDom(menu);
 }
 
 export function startChallenge() {

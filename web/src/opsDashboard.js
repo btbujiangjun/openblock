@@ -235,17 +235,7 @@ function _injectStyles() {
 .ops-loading { color: #64748b; text-align: center; padding: 32px; font-size: 12px; }
 .ops-error   { color: #ef4444; text-align: center; padding: 20px; font-size: 11px; line-height: 1.5; }
 
-/* ── menu card（运营看板） ── */
-.menu-card--ops {
-    background: linear-gradient(145deg, #1a1d27, #22263a);
-    border: 1px solid rgba(91,155,213,.35);
-    color: #5B9BD5;
-}
-.menu-card--ops:hover {
-    background: linear-gradient(145deg, #22263a, #2a3050);
-    border-color: rgba(91,155,213,.6);
-}
-.menu-card--ops .menu-card-icon { opacity: .85; }
+/* 主菜单「运营看板」卡片样式见 main.css（.menu-card--menu-secondary） */
 `;
     document.head.appendChild(s);
 }

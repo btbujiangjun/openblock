@@ -419,18 +419,39 @@ body.block-drag-active #app {
     width: clamp(0.5rem, calc(var(--wm-cell-w, 4px) * 1.8), 0.8rem);
 }
 
-/* icon 方块：emoji 嵌入像素格 */
+/* 含 OPEN/BLOCK 品牌 emoji 的字母：图标可略溢出格网 */
+.wm-letter.wm-letter--icons {
+    overflow: visible;
+}
+
+/* icon 格：无底色素块，仅 emoji（位图对应格已挖空） */
 .wm-cell--icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 0.68);
     line-height: 1;
-    background: none;
-    border: none;
-    box-shadow: none;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.16));
-    opacity: 0.92;
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    opacity: 1;
+}
+
+/* 品牌点缀：显著大于单格，略上移突出 */
+.wm-cell--icon.wm-cell--icon-brand {
+    font-size: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 1.14);
+    transform: translateY(-12%) scale(1.1);
+    z-index: 5;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
+}
+
+.header .app-wordmark .wm-cell--icon.wm-cell--icon-brand {
+    font-size: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 1.22);
+    transform: translateY(-11%) scale(1.12);
+}
+
+.app-wordmark--hero .wm-cell--icon.wm-cell--icon-brand {
+    font-size: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 1.48);
+    transform: translateY(-14%) scale(1.18);
 }
 
 .wm-cell--rainbow-icon {
@@ -603,7 +624,7 @@ body.block-drag-active #app {
         drop-shadow(0 1px 4px hsla(260, 50%, 42%, 0.12));
 }
 
-[data-skin-block-style='flat'] .wm-cell:not(.wm-cell--void) {
+[data-skin-block-style='flat'] .wm-cell:not(.wm-cell--void):not(.wm-cell--icon) {
     background: var(--wm-flat-fill, #6366f1);
     border: 1px solid rgba(0, 0, 0, 0.16);
     box-shadow: none;
@@ -627,7 +648,7 @@ body.block-drag-active #app {
     box-shadow: none;
 }
 
-[data-skin-block-style='glass'] .wm-cell:not(.wm-cell--void) {
+[data-skin-block-style='glass'] .wm-cell:not(.wm-cell--void):not(.wm-cell--icon) {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.45),
         inset 0 -1px 0 rgba(0, 0, 0, 0.12),
@@ -1255,6 +1276,43 @@ body.game-rl-preview .block-dock {
 
 .screen.active {
     display: flex;
+}
+
+/* 主菜单语言：相对 #menu（.screen = fixed）定位，无整卡片衬底 */
+.menu-locale-corner {
+    position: absolute;
+    top: max(10px, env(safe-area-inset-top, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(46vw, 200px);
+}
+.menu-locale-corner label {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(51, 65, 85, 0.72);
+    letter-spacing: 0.02em;
+}
+.menu-locale-corner select {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 4px 6px;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.28);
+    background: transparent;
+    color: #0f172a;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.menu-locale-corner select:focus-visible {
+    outline: 2px solid rgba(56, 189, 248, 0.5);
+    outline-offset: 2px;
 }
 
 #menu .app-wordmark {
@@ -3227,6 +3285,7 @@ body.game-shell-hidden .app-side-left {
     width: min(300px, calc(100vw - 48px));
 }
 
+/* 非主菜单场景若仍使用旧类名（文档页等） */
 .menu-locale-row {
     display: flex;
     align-items: center;
@@ -3236,11 +3295,7 @@ body.game-shell-hidden .app-side-left {
     font-size: 13px;
     color: color-mix(in srgb, var(--text-primary, #e2e8f0) 85%, transparent);
 }
-
-.menu-locale-row label {
-    font-weight: 600;
-}
-
+.menu-locale-row label { font-weight: 600; }
 .menu-locale-row select {
     min-width: 9rem;
     padding: 6px 10px;
@@ -3249,23 +3304,6 @@ body.game-shell-hidden .app-side-left {
     background: color-mix(in srgb, var(--surface-elevated, #1e293b) 92%, transparent);
     color: var(--text-primary, #f1f5f9);
     font: inherit;
-}
-
-/* 主菜单为浅色全屏底：下拉勿沿用盘面皮肤的深色变量，否则字色与背景同时偏暗 */
-#menu .menu-locale-row {
-    color: rgba(30, 41, 59, 0.88);
-}
-
-#menu .menu-locale-row select {
-    background: #fff;
-    color: #0f172a;
-    border: 1px solid rgba(15, 23, 42, 0.2);
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-}
-
-#menu .menu-locale-row select:focus-visible {
-    outline: 2px solid rgba(56, 189, 248, 0.55);
-    outline-offset: 2px;
 }
 
 .menu-card {
@@ -3342,6 +3380,37 @@ body.game-shell-hidden .app-side-left {
 .menu-card--docs {
     background: linear-gradient(145deg, #22d3ee, #0e7490);
     box-shadow: 0 4px 18px rgba(14,116,144,.4), 0 1px 0 rgba(255,255,255,.2) inset;
+}
+
+/*
+ * 运营看板 / 每日大师题 — 与上排四键同构的亮渐变（避免整块「死灰蓝」与主菜单脱节）
+ * - 看板：天蓝 → 皇家蓝（与文档青、回放紫形成冷色阶）
+ * - 大师题：亮金 → 深橙（奖牌语义，与关卡橙同暖色系）
+ */
+.menu-card--menu-secondary.menu-card--ops {
+    background: linear-gradient(145deg, #7dd3fc, #1d4ed8);
+    border: 1px solid color-mix(in srgb, #ffffff 22%, rgba(30, 64, 175, 0.45));
+    box-shadow: 0 4px 18px rgba(37, 99, 235, 0.4), 0 1px 0 rgba(255, 255, 255, 0.26) inset;
+}
+.menu-card--menu-secondary.menu-card--ops:hover {
+    background: linear-gradient(145deg, #bae6fd, #2563eb);
+    border-color: color-mix(in srgb, #ffffff 30%, rgba(37, 99, 235, 0.55));
+}
+
+.menu-card--menu-secondary.menu-card--daily-master {
+    background: linear-gradient(145deg, #fde047, #c2410c);
+    border: 1px solid color-mix(in srgb, #ffffff 20%, rgba(194, 65, 12, 0.5));
+    box-shadow: 0 4px 18px rgba(194, 65, 12, 0.38), 0 1px 0 rgba(255, 255, 255, 0.28) inset;
+}
+.menu-card--menu-secondary.menu-card--daily-master:hover {
+    background: linear-gradient(145deg, #fef08a, #ea580c);
+    border-color: color-mix(in srgb, #ffffff 28%, rgba(234, 88, 12, 0.55));
+}
+
+.menu-card--menu-secondary.menu-card--ops .menu-card-icon,
+.menu-card--menu-secondary.menu-card--daily-master .menu-card-icon {
+    opacity: 1;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
 }
 
 @media (max-width: 360px) {

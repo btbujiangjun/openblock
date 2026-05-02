@@ -12,9 +12,9 @@
  * 音色清单（手工调过的"听感舒适"参数）
  * ------------------------------------
  *   place    短促 sine 700Hz / 60ms        放置方块
- *   clear    triangle 1200Hz / 160ms       单次消行
- *   multi    双音 (1100→1500Hz) / 220ms    一次清 ≥2 行
- *   combo    三音上扬 (700/900/1200) / 320ms  连击 streak ≥ 2
+ *   clear    上扬 sine + 尾音层 ~380ms     单次消行（偏长，对齐消除爽感）
+ *   multi    多层上扬 + 泛音尾 ~520ms      一次清 ≥2 行
+ *   combo    多段 sine 递升、步长加长      连击 streak ≥ 2
  *   perfect  C5+E5+G5 三和弦 / 720ms        盘面清空
  *   bonus    短促闪音 (1800Hz) / 100ms     bonus 同色 / 同 icon 整行
  *   unlock   上扬清音 (600→1200) / 600ms   皮肤 / 成就解锁
@@ -23,7 +23,7 @@
  * 触觉清单
  * --------
  *   place   8ms
- *   clear   20ms
+ *   clear   [22, 38, 22]ms
  *   multi   [10, 30, 10]
  *   combo   [15, 40, 15, 40]
  *   perfect [40, 80, 40, 80, 40]
@@ -129,7 +129,7 @@ export class AudioFx {
             renderer.setClearCells = (cells) => {
                 if (Array.isArray(cells) && cells.length > 0) {
                     this.play('clear');
-                    this.vibrate(20);
+                    this.vibrate([22, 38, 22]);
                 }
                 return origSetClearCells.call(renderer, cells);
             };
@@ -204,7 +204,7 @@ export class AudioFx {
     }
 
     /* ============================================================ */
-    /*  各音色：每个都是「短促有趣」+「不会过响」+「不会刺耳」     */
+    /*  各音色：有度反馈、不刺耳；消行 / 多消 / 连击刻意偏长以贴合消除爽感     */
     /* ============================================================ */
 
     _envelope(g, now, attack, decay, peak = 1, sustain = 0) {
@@ -233,18 +233,40 @@ export class AudioFx {
         this._tone(now, { type: 'sine', freq: 700, slideTo: 480, dur: 0.06, gain: 0.10 });
     }
     _toneClear(now) {
-        this._tone(now, { type: 'triangle', freq: 1200, slideTo: 800, dur: 0.16, gain: 0.16 });
+        /* 主体：较长向上滑音，占满「消除」前半拍 */
+        this._tone(now, { type: 'sine', freq: 360, slideTo: 1020, dur: 0.26, gain: 0.15 });
+        /* 亮色：略晚进入、略快收尾，与主层错开 */
+        this._tone(now + 0.04, { type: 'sine', freq: 540, slideTo: 1580, dur: 0.2, gain: 0.078 });
+        /* 低频「落地」略拉长 */
+        this._tone(now, { type: 'sine', freq: 92, slideTo: 52, dur: 0.11, gain: 0.075 });
+        /* 尾音：固定高音缓慢包络衰减，延长爽感尾巴（无音高滑移） */
+        this._tone(now + 0.1, { type: 'sine', freq: 1180, dur: 0.2, gain: 0.055 });
+        this._tone(now + 0.14, { type: 'sine', freq: 1760, dur: 0.16, gain: 0.038 });
     }
     _toneMulti(now) {
-        this._tone(now, { type: 'triangle', freq: 1100, slideTo: 1500, dur: 0.10, gain: 0.14 });
-        this._tone(now + 0.12, { type: 'sine', freq: 1500, slideTo: 1100, dur: 0.10, gain: 0.12 });
+        /* 多行：更长的双层上扬 + 泛音 + 双尾音 */
+        this._tone(now, { type: 'sine', freq: 400, slideTo: 1080, dur: 0.22, gain: 0.15 });
+        this._tone(now + 0.1, { type: 'sine', freq: 580, slideTo: 1320, dur: 0.2, gain: 0.13 });
+        this._tone(now + 0.06, { type: 'sine', freq: 1280, slideTo: 2100, dur: 0.12, gain: 0.06 });
+        this._tone(now + 0.13, { type: 'sine', freq: 1040, dur: 0.22, gain: 0.05 });
+        this._tone(now + 0.2, { type: 'sine', freq: 1560, dur: 0.18, gain: 0.036 });
     }
     _toneCombo(now, streak = 0) {
         const steps = Math.min(2 + Math.max(0, streak | 0), 5);
+        const stepDt = 0.072;
         for (let i = 0; i < steps; i++) {
-            const f = 600 + i * 220;
-            this._tone(now + i * 0.07, { type: 'triangle', freq: f, dur: 0.08, gain: 0.13 });
+            const f0 = 480 + i * 165;
+            this._tone(now + i * stepDt, {
+                type: 'sine',
+                freq: f0,
+                slideTo: f0 * 1.52,
+                dur: 0.14,
+                gain: 0.1 + i * 0.012,
+            });
         }
+        /* 连击整体再叠一条衰减尾（接在最后一音之后） */
+        const tailAt = now + (steps - 1) * stepDt + 0.1;
+        this._tone(tailAt, { type: 'sine', freq: 1320, dur: 0.22, gain: 0.048 });
     }
     _tonePerfect(now) {
         const C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5;

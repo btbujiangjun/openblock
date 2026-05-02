@@ -118,6 +118,10 @@
         <canvas id="drag-ghost" width="1" height="1" aria-hidden="true"></canvas>
     </div>
     <div id="menu" class="screen">
+        <div class="menu-locale-corner">
+            <label for="locale-select" data-i18n="menu.localeLabel">语言</label>
+            <select id="locale-select" data-i18n-aria-label="menu.localeAria" aria-label="界面语言"></select>
+        </div>
         <h1 class="app-wordmark app-wordmark--hero" aria-label="Open Block"></h1>
         <div class="menu-grid">
             <button type="button" class="menu-card menu-card--start" id="start-btn">
@@ -136,14 +140,14 @@
                 <span class="menu-card-icon">📚</span>
                 <span class="menu-card-label" data-i18n="menu.docs">文档中心</span>
             </a>
-            <button type="button" class="menu-card menu-card--ops" id="ops-menu-btn" style="grid-column:1/-1">
+            <button type="button" class="menu-card menu-card--ops menu-card--menu-secondary" id="ops-menu-btn">
                 <span class="menu-card-icon">📊</span>
                 <span class="menu-card-label" data-i18n="menu.ops">运营看板</span>
             </button>
-        </div>
-        <div class="menu-locale-row">
-            <label for="locale-select" data-i18n="menu.localeLabel">语言</label>
-            <select id="locale-select" data-i18n-aria-label="menu.localeAria" aria-label="界面语言"></select>
+            <button type="button" class="menu-card menu-card--daily-master menu-card--menu-secondary" id="menu-daily-master-btn">
+                <span class="menu-card-icon">🏅</span>
+                <span class="menu-card-label" data-i18n="menu.dailyMaster">每日大师题</span>
+            </button>
         </div>
     </div>
     <!-- 关卡编辑器屏幕（与回放并列的子功能） -->

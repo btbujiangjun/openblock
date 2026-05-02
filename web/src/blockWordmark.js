@@ -1,11 +1,12 @@
 /**
  * 「Open ★ Block」品牌字标：7 行像素格；CSS 用窄格宽 + 高格深营造修长比例。
- * 极简版本：仅保留极少量游戏 icon 点缀，优先保证字形可读性与整体节奏感。
+ * 极简版本：O / B 各 1 枚 emoji；对应格在 bitmap 中挖空，无底色像素，emoji 略放大突出。
  */
 const LETTERS = {
     /* 6 列：环略收，更修长 */
+    /* 顶行 c=1 挖空：仅保留 emoji，无底色像素块 */
     O: [
-        '011110',
+        '001110',
         '110011',
         '110011',
         '110011',
@@ -46,8 +47,9 @@ const LETTERS = {
         '100001',
     ],
     /* 6 列双腔 B */
+    /* 顶行 c=0 挖空：奖杯下无实心块 */
     B: [
-        '111110',
+        '011110',
         '110011',
         '110011',
         '111110',
@@ -97,11 +99,9 @@ const LETTERS = {
 /**
  * 游戏 icon 映射：某些字母的特定格子用 emoji 替换实心方块。
  * key = 字母, value = [{ r, c, emoji }]
- * 坐标基于 7 行 LETTERS 网格。
+ * 坐标基于 7 行 LETTERS 网格；对应格在 bitmap 中须为 0，由独立 span 只绘 emoji。
  */
 const ICON_MAP = {
-    // 极简点缀：每个单词保留 1 个 icon
-    /* 与 B 一致：顶行左上实心格（O 首行 011110，左上为 c=1） */
     O: [{ r: 0, c: 1, emoji: '🎮' }],
     B: [{ r: 0, c: 0, emoji: '🏆' }],
 };
@@ -175,14 +175,14 @@ function letterEl(lines, side, opts = {}) {
             const filled = row[c] === '1' || row[c] === '#' || row[c] === '2';
             const iconEmoji = iconLookup[`${r},${c}`];
             const cell = document.createElement('span');
-            const accentTop = Boolean(opts.accent && filled && r === 0);
-            const accentLeft = Boolean(opts.accent && filled && c === leftCol && leftCol >= 0);
+            const accentTop = Boolean(opts.accent && filled && r === 0 && !iconEmoji);
+            const accentLeft = Boolean(opts.accent && filled && c === leftCol && leftCol >= 0 && !iconEmoji);
             const edgeClasses =
                 accentTop || accentLeft
                     ? ` wm-cell--accent-edge${accentTop ? ' wm-cell--accent-top' : ''}${accentLeft ? ' wm-cell--accent-left' : ''}`
                     : '';
-            if (filled && iconEmoji) {
-                cell.className = 'wm-cell wm-cell--icon' + edgeClasses;
+            if (iconEmoji) {
+                cell.className = 'wm-cell wm-cell--icon wm-cell--icon-brand';
                 cell.textContent = iconEmoji;
                 if (rainbow) {
                     const t = (colBase + c) / totalSpan;
