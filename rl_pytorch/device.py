@@ -6,9 +6,9 @@
   - **MPS**（macOS Apple Silicon）
   - **CPU**
 
-``auto`` 策略：
-  - **darwin**：MPS → CPU（通常无 CUDA）
-  - **其它**：CUDA → MPS → CPU
+``auto`` 策略（按优先级尝试，不可得则顺移）：
+  - **darwin（macOS）**：MPS（Apple Silicon 且 PyTorch 支持）→ 否则 **CPU**（无 CUDA）
+  - **其它平台**：CUDA → MPS（若存在）→ CPU
 
 多卡训练（CUDA）：
   - 环境变量 ``RL_CUDA_DEVICE_IDS``：``all`` / ``0,1`` / ``0``；与 ``resolve_cuda_device_ids_for_data_parallel()`` 配合，

@@ -939,10 +939,24 @@ def create_rl_blueprint() -> Blueprint:
             _ensure_initialized()
         except Exception as e:
             return jsonify({"available": False, "reason": str(e)})
+        mps_available = False
+        try:
+            _mb = getattr(torch.backends, "mps", None)
+            mps_available = _mb is not None and bool(_mb.is_available())
+        except Exception:
+            mps_available = False
+        try:
+            cuda_available = bool(torch.cuda.is_available())
+        except Exception:
+            cuda_available = False
         return jsonify(
             {
                 "available": True,
                 "device": str(_state["device"]),
+                "device_env": os.environ.get("RL_DEVICE", "auto"),
+                "mps_available": mps_available,
+                "cuda_available": cuda_available,
+                "platform": sys.platform,
                 "episodes": _state["episodes"],
                 "checkpoint_loaded": _state["checkpoint_loaded"],
                 "save_path": str(_state["save_path"]),
