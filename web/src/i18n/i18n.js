@@ -1,9 +1,10 @@
 /**
  * i18n — 多语言（扁平键值；阿拉伯语自动 RTL）
  *
- * - 文案：`locales/*.js`
+ * - 文案：`locales/*.js`（19 种语言需同步同一套键；缺失键会回退至 zh-CN）
  * - DOM：`data-i18n`、`data-i18n-title`、`data-i18n-aria-label` 等，见 applyDom()
  * - JS：`import { t, tSkinName } from './i18n/i18n.js'`
+ * - 新增常用界面键后：运行 `npm test`，`tests/i18n.localePackKeys.test.js` 会校验各包是否含核心键
  */
 import zhCN from './locales/zh-CN.js';
 import en from './locales/en.js';

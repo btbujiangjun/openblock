@@ -24,6 +24,7 @@ import { BlockPool } from './bot/blockPool.js';
 import { generateDockShapes } from './bot/blockSpawn.js';
 import { initPushNotification } from './pushNotification.js';
 import { initChannelAttribution } from './channelAttribution.js';
+import { fetchRemoteConfig } from './remoteConfig.js';
 import { initMiniGoals } from './miniGoals.js';
 import { initOpsDashboard, openOpsDashboard } from './opsDashboard.js';
 // v10.15 P0 彩蛋 / 惊喜系统
@@ -50,6 +51,7 @@ import { initLuckyWheel } from './rewards/luckyWheel.js';
 import { initSeasonChest } from './rewards/seasonChest.js';
 import { initShareCard } from './social/shareCard.js';
 import { initDailyMaster } from './social/dailyMaster.js';
+import { initDbDebugPage } from './debug/dbDebugPage.js';
 /* v10.17：asyncPkStub / replayAlbumStub 已被 ./social/asyncPk.js / ./social/replayAlbum.js 替换 */
 import { initFirstUnlockCelebration } from './effects/firstUnlockCelebration.js';
 import { initExtremeAchievements } from './achievements/extremeAchievements.js';
@@ -167,6 +169,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // v10.18.3：结算卡内单一分享入口（合并旧「生成海报」与「分享成绩」按钮）
     _wireShareBtn(game, audioFx);
     initDailyMaster({ game, audio: audioFx });
+    initDbDebugPage(game);
     initSkinLore({ audio: audioFx });
     /* v10.17：原 stub 替换为完整实装 */
     initAsyncPk({ game });
@@ -216,9 +219,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error(e);
         }
     });
-
     // 渠道归因（页面加载时解析 UTM 参数）
     initChannelAttribution();
+    void fetchRemoteConfig();
 
     try {
         await game.init();

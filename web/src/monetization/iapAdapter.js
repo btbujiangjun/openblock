@@ -11,6 +11,7 @@
 import { getFlag } from './featureFlags.js';
 import { emit } from './MonetizationBus.js';
 import { setAdsRemoved } from './adAdapter.js';
+import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 
 const STORAGE_KEY = 'openblock_mon_purchases_v1';
 
@@ -213,6 +214,41 @@ function _stubPurchase(product) {
 }
 
 /** 应用购买结果到本地状态 */
+async function _syncPurchaseToServer(product, receiptHint) {
+    if (!isSqliteClientDatabase()) return;
+    try {
+        const base = getApiBaseUrl().replace(/\/+$/, '');
+        let uid = '';
+        try {
+            uid = localStorage.getItem('bb_user_id') || '';
+        } catch {
+            /* ignore */
+        }
+        const providerRef = receiptHint || `stub_${product.id}_${Date.now()}`;
+        const expSec =
+            product.type === 'subscription' || product.type === 'limited_time'
+                ? Math.floor(Date.now() / 1000) + (product.durationDays ?? 30) * 86400
+                : undefined;
+        await fetch(`${base}/api/payment/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: uid,
+                sku: product.id,
+                provider: 'stub',
+                provider_ref: providerRef,
+                idempotency_key: `iap_${uid}_${product.id}_${providerRef}`.slice(0, 120),
+                amount_minor: Math.round(Number(product.priceNum || 0) * 100),
+                currency: 'CNY',
+                status: 'completed',
+                expires_at: expSec,
+            }),
+        });
+    } catch {
+        /* 网络失败不阻断本地权益 */
+    }
+}
+
 function _applyPurchase(product) {
     const purchases = _loadPurchases();
     if (product.type === 'one_time') {
@@ -266,6 +302,8 @@ export async function purchase(productId) {
 
     if (result.success) {
         _applyPurchase(product);
+        const receipt = result.receipt || result.transactionId || '';
+        void _syncPurchaseToServer(product, receipt);
         emit('iap_purchase', { productId, product });
     }
 

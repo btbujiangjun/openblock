@@ -5,6 +5,7 @@ Complete user behavior tracking and analytics
 """
 
 import os
+import re
 import sys
 import sqlite3
 import json
@@ -60,6 +61,8 @@ DATABASE = os.environ.get('OPENBLOCK_DB_PATH') or os.environ.get('BLOCKBLAST_DB_
 
 app = Flask(__name__)
 CORS(app)
+
+import enterprise_extensions  # noqa: E402  — 企业扩展路由与迁移（支付占位、远程配置、合规）
 
 
 def _configure_sqlite_connection(db):
@@ -310,6 +313,8 @@ def init_db():
         _migrate_behaviors_columns(cursor)
         _migrate_schema(cursor)
 
+        enterprise_extensions.migrate_enterprise_schema(cursor)
+
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_behaviors_session ON behaviors(session_id)
         ''')
@@ -339,6 +344,8 @@ def create_session():
     user_id = data.get('user_id', '') or data.get('userId', '')
     strategy = data.get('strategy', 'normal')
     strategy_config = json.dumps(data.get('strategyConfig', data.get('strategy_config', {})))
+    attr = data.get('attribution') or data.get('attributionJson')
+    attribution = json.dumps(attr if isinstance(attr, dict) else {}, ensure_ascii=False)
     start_ms = data.get('startTime') or data.get('start_time')
     if start_ms is None:
         start_ms = int(time.time() * 1000)
@@ -349,9 +356,9 @@ def create_session():
     cursor = db.cursor()
 
     cursor.execute('''
-        INSERT INTO sessions (user_id, strategy, strategy_config, start_time, score, status)
-        VALUES (?, ?, ?, ?, ?, 'active')
-    ''', (user_id, strategy, strategy_config, start_ms, int(data.get('score', 0))))
+        INSERT INTO sessions (user_id, strategy, strategy_config, start_time, score, status, attribution)
+        VALUES (?, ?, ?, ?, ?, 'active', ?)
+    ''', (user_id, strategy, strategy_config, start_ms, int(data.get('score', 0)), attribution))
 
     db.commit()
     session_id = cursor.lastrowid
@@ -372,6 +379,7 @@ def _row_session_api(row) -> dict:
         return {}
     sc = row["strategy_config"] if "strategy_config" in row.keys() else None
     gs = row["game_stats"] if "game_stats" in row.keys() else None
+    at = row["attribution"] if "attribution" in row.keys() else None
     st = row["start_time"]
     if st is not None and st < 10**11:
         st = int(st * 1000)
@@ -389,6 +397,7 @@ def _row_session_api(row) -> dict:
         "duration": row["duration"],
         "status": row["status"],
         "gameStats": json.loads(gs or "null") if gs else None,
+        "attribution": json.loads(at or "{}") if at else {},
     }
 
 
@@ -427,9 +436,11 @@ def patch_session(session_id):
         u["game_stats"] = json.dumps(data["gameStats"], ensure_ascii=False)
     if data.get("strategyConfig") is not None:
         u["strategy_config"] = json.dumps(data["strategyConfig"], ensure_ascii=False)
+    if data.get("attribution") is not None:
+        u["attribution"] = json.dumps(data["attribution"], ensure_ascii=False)
     cur.execute(
         """
-        UPDATE sessions SET score = ?, status = ?, end_time = ?, game_stats = ?, strategy_config = ?
+        UPDATE sessions SET score = ?, status = ?, end_time = ?, game_stats = ?, strategy_config = ?, attribution = ?
         WHERE id = ?
         """,
         (
@@ -438,6 +449,10 @@ def patch_session(session_id):
             u.get("end_time", row["end_time"]),
             u.get("game_stats", row["game_stats"] if "game_stats" in row.keys() else None),
             u.get("strategy_config", row["strategy_config"]),
+            u.get(
+                "attribution",
+                row["attribution"] if "attribution" in row.keys() else "{}",
+            ),
             session_id,
         ),
     )
@@ -1393,6 +1408,114 @@ def health():
     })
 
 
+def _db_debug_enabled() -> bool:
+    """SQLite 调试 API 默认开启；公网/生产请显式设置 OPENBLOCK_DB_DEBUG=0（或 false/no/off）关闭。"""
+    v = os.environ.get('OPENBLOCK_DB_DEBUG', '').strip().lower()
+    if v in ('0', 'false', 'no', 'off'):
+        return False
+    return True
+
+
+def _json_sql_cell(v):
+    if v is None:
+        return None
+    if isinstance(v, (bytes, bytearray)):
+        try:
+            return v.decode('utf-8')
+        except Exception:
+            return repr(v)
+    if isinstance(v, float):
+        if v != v or abs(v) > 1e308:
+            return str(v)
+    return v
+
+
+@app.route('/api/db-debug/enabled', methods=['GET'])
+def db_debug_enabled():
+    return jsonify({'enabled': _db_debug_enabled()})
+
+
+@app.route('/api/db-debug/tables', methods=['GET'])
+def db_debug_tables():
+    """从 sqlite_master 读取表/视图元数据，供下拉框展示。"""
+    if not _db_debug_enabled():
+        return jsonify({'error': 'SQLite 调试已关闭（OPENBLOCK_DB_DEBUG=0）'}), 403
+    try:
+        db = get_db()
+        rows = db.execute(
+            """
+            SELECT type, name, tbl_name, rootpage
+            FROM sqlite_master
+            WHERE type IN ('table', 'view')
+              AND name NOT LIKE 'sqlite_%'
+            ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 1 ELSE 2 END, name
+            """
+        ).fetchall()
+        items = [
+            {
+                'name': r['name'],
+                'type': r['type'],
+                'tbl_name': r['tbl_name'],
+                'rootpage': r['rootpage'],
+            }
+            for r in rows
+        ]
+        return jsonify({'items': items})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/db-debug/exec', methods=['POST'])
+def db_debug_exec():
+    """执行单条 SQL。sql 为空且提供合法 table 时默认 SELECT * LIMIT。"""
+    if not _db_debug_enabled():
+        return jsonify({'error': 'SQLite 调试已关闭（OPENBLOCK_DB_DEBUG=0）'}), 403
+    data = request.get_json(silent=True) or {}
+    sql = (data.get('sql') or '').strip()
+    table = (data.get('table') or '').strip()
+    try:
+        limit = int(data.get('limit') or 500)
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, min(limit, 5000))
+
+    db = get_db()
+
+    if not sql:
+        if not table or not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', table):
+            return jsonify({'error': '请选择数据表，或输入 SQL'}), 400
+        chk = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=? LIMIT 1",
+            (table,),
+        ).fetchone()
+        if not chk:
+            return jsonify({'error': f'表或视图不存在: {table}'}), 400
+        sql = f'SELECT * FROM "{table.replace(chr(34), "")}" LIMIT {limit}'
+    else:
+        sql = sql.rstrip(';')
+        if ';' in sql:
+            return jsonify({'error': '仅允许单条 SQL（不能包含多个分号语句）'}), 400
+
+    try:
+        cur = db.execute(sql)
+        if cur.description:
+            cols = [d[0] for d in cur.description]
+            out_rows = []
+            for row in cur.fetchall():
+                out_rows.append([_json_sql_cell(x) for x in row])
+            return jsonify({'ok': True, 'kind': 'rows', 'columns': cols, 'rows': out_rows})
+        db.commit()
+        return jsonify({
+            'ok': True,
+            'kind': 'mutate',
+            'rowcount': cur.rowcount,
+            'lastrowid': int(cur.lastrowid) if cur.lastrowid is not None else None,
+        })
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': str(e)}), 400
+
+
 # ── A/B 测试上报 ──────────────────────────────────────────────────────────────
 
 def _ensure_ab_table():
@@ -1522,7 +1645,9 @@ def ops_dashboard():
             return round(retained / len(cohort), 3)
 
         d1 = _retention(1, 1)
+        # 口径：与历史字段一致，D7 使用 6–8 日宽松窗口（非严格的「第 7 自然日」）
         d7 = _retention(6, 8)
+        d30 = _retention(29, 31)
 
         # ── 用户分群分布（基于 user_stats） ──
         segment_rows = db.execute(
@@ -1572,7 +1697,7 @@ def ops_dashboard():
                 'avgSessionsPerUser': avg_sessions,
                 'avgDurationSec': round(avg_duration / 1000, 1) if avg_duration > 1000 else round(avg_duration, 1),
             },
-            'retention': {'d1': d1, 'd7': d7},
+            'retention': {'d1': d1, 'd7': d7, 'd30': d30},
             'segments': seg_counts,
             'trend': trend,
             'topScores': [{'userId': r['user_id'][:8] + '...', 'score': r['best_score']} for r in top_scores],
@@ -2192,6 +2317,8 @@ def spawn_v3_propose_shapes():
 _spawn_v3_lora_cache.clear()  # 防止热重载时残留
 
 
+enterprise_extensions.register_enterprise_routes(app, get_db)
+
 init_db()
 
 
@@ -2207,8 +2334,10 @@ _DOC_CATEGORIES = [
     {'name': '文档中心',
      'docs': ['README.md']},
     {'name': '工程与扩展',
-     'docs': ['engineering/PROJECT.md', 'engineering/DEV_GUIDE.md', 'engineering/TESTING.md',
-              'engineering/I18N.md', 'engineering/STRATEGY_GUIDE.md']},
+     'docs': ['engineering/PROJECT.md', 'engineering/SQLITE_SCHEMA.md', 'engineering/DEV_GUIDE.md',
+              'engineering/TESTING.md', 'engineering/I18N.md', 'engineering/STRATEGY_GUIDE.md',
+              'engineering/GOLDEN_EVENTS.md', 'engineering/CASUAL_GAME_BUILD_SKILL.md',
+              'engineering/CURSOR_SKILLS.md']},
     {'name': '领域与竞品',
      'docs': ['domain/DOMAIN_KNOWLEDGE.md', 'domain/CASUAL_GAME_ANALYSIS.md',
               'domain/COMPETITOR_USER_ANALYSIS.md', 'domain/ARCHITECTURE_COMPARISON.md']},
@@ -2233,9 +2362,12 @@ _DOC_CATEGORIES = [
               'algorithms/RL_TRAINING_DASHBOARD_FLOW.md', 'algorithms/RL_TRAINING_DASHBOARD_TRENDS.md']},
     {'name': '商业化与运营',
      'docs': ['operations/MONETIZATION.md', 'operations/MONETIZATION_CUSTOMIZATION.md',
-              'operations/MONETIZATION_TRAINING_PANEL.md', 'operations/COMMERCIAL_OPERATIONS.md']},
+              'operations/MONETIZATION_TRAINING_PANEL.md', 'operations/COMMERCIAL_OPERATIONS.md',
+              'operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md', 'operations/COMPLIANCE_AND_SOPS.md']},
+    {'name': '外部集成',
+     'docs': ['integrations/ADS_IAP_SETUP.md', 'integrations/ENTERPRISE_EXTENSIONS.md']},
     {'name': '平台扩展',
-     'docs': ['platform/WECHAT_MINIPROGRAM.md', 'platform/WECHAT_RELEASE.md']},
+     'docs': ['platform/WECHAT_MINIPROGRAM.md', 'platform/WECHAT_RELEASE.md', 'platform/SYNC_CONTRACT.md']},
     {'name': '归档',
      'docs': ['archive/MONETIZATION_OPTIMIZATION.md', 'archive/MONETIZATION_PERSONALIZATION.md']},
 ]

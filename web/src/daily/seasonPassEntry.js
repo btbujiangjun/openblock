@@ -7,8 +7,7 @@
  * `_injectPanel()` 注入 #season-pass-panel + 主菜单 button hook
  * (document.getElementById('season-pass-btn').addEventListener)。
  *
- * 但 index.html 中的 `season-pass-btn` 不一定存在；如果没有，本模块
- * 自动注入一个入口 + 红点提示（有未完成任务 / 新任务时）。
+ * `index.html` 技能栏内置 `#season-pass-btn`；若缺失则回退注入到 header/body。
  *
  * 接入路径
  * --------
@@ -32,15 +31,19 @@ export function initSeasonPassEntry({ seasonPass, toggleSeasonPass }) {
         return;
     }
 
-    /* 注入到右上角浮动按钮组（如果存在 .top-actions） */
-    const host = document.querySelector('.top-actions') || document.querySelector('header') || document.body;
+    const bar = document.querySelector('#skill-bar');
+    const restart = document.getElementById('insight-restart');
     const btn = document.createElement('button');
     btn.id = 'season-pass-btn';
     btn.type = 'button';
-    btn.className = 'season-pass-btn';
+    btn.className = 'skill-btn skill-btn--season-pass season-pass-btn';
     btn.title = '赛季通行证 — 任务进度与奖励';
-    btn.innerHTML = `<span class="sp-btn__icon">🏆</span><span class="sp-btn__label">战令</span><span class="sp-btn__dot" hidden></span>`;
-    host.appendChild(btn);
+    btn.innerHTML = '🏆';
+    if (bar && restart) {
+        bar.insertBefore(btn, restart);
+    } else {
+        (bar || document.querySelector('header') || document.body).appendChild(btn);
+    }
 
     btn.addEventListener('click', () => _toggleFn?.());
     _bindRedDot(btn);

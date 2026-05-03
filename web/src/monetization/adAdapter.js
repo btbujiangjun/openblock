@@ -16,6 +16,7 @@
 
 import { getFlag } from './featureFlags.js';
 import { notePopupShown } from '../popupCoordinator.js';
+import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 
 const STORAGE_KEY = 'openblock_mon_ads_removed';
 
@@ -132,6 +133,34 @@ function _stubInterstitialUI() {
     });
 }
 
+/** 上报广告曝光占位（items 1–4）；真实 SDK 应在 onAdLoaded/onPaid 回调内调用 */
+async function _reportAdImpression(kind, filled, meta = {}) {
+    if (!isSqliteClientDatabase()) return;
+    try {
+        const base = getApiBaseUrl().replace(/\/+$/, '');
+        let uid = '';
+        try {
+            uid = localStorage.getItem('bb_user_id') || '';
+        } catch {
+            /* ignore */
+        }
+        await fetch(`${base}/api/enterprise/ad-impression`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: uid,
+                kind,
+                filled: Boolean(filled),
+                revenue_minor: meta.revenue_minor ?? 0,
+                meta,
+                ts: Date.now(),
+            }),
+        });
+    } catch {
+        /* ignore */
+    }
+}
+
 // ---------- 公开 API ----------
 
 /**
@@ -141,8 +170,11 @@ function _stubInterstitialUI() {
  */
 export async function showRewardedAd(reason = '') {
     if (!getFlag('adsRewarded')) return { rewarded: false };
-    if (_provider) return _provider.showRewarded(reason);
-    return _stubRewardedUI(reason);
+    const r = _provider
+        ? await _provider.showRewarded(reason)
+        : await _stubRewardedUI(reason);
+    void _reportAdImpression('rewarded', r?.rewarded, { reason });
+    return r;
 }
 
 /**
@@ -152,6 +184,7 @@ export async function showRewardedAd(reason = '') {
 export async function showInterstitialAd() {
     if (!getFlag('adsInterstitial')) return;
     if (_adsRemoved) return;
-    if (_provider) return _provider.showInterstitial();
-    return _stubInterstitialUI();
+    if (_provider) await _provider.showInterstitial();
+    else await _stubInterstitialUI();
+    void _reportAdImpression('interstitial', true, {});
 }

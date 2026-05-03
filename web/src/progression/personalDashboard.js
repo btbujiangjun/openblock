@@ -44,10 +44,7 @@ export function initPersonalDashboard() {
     _initialized = true;
     _getOrCreateRegistration();
 
-    if (typeof document !== 'undefined') {
-        document.addEventListener('DOMContentLoaded', _injectEntry);
-        if (document.readyState !== 'loading') _injectEntry();
-    }
+    /* 主菜单入口：#menu-personal-data-btn（main.js）；亦可 window.__personalDashboard?.open() */
 
     if (typeof window !== 'undefined') {
         window.__personalDashboard = { open: openDashboard, getStats: collectStats };
@@ -55,19 +52,6 @@ export function initPersonalDashboard() {
 
     /* 检查是否需要弹年报 */
     setTimeout(_maybeShowYearReview, 4000);
-}
-
-function _injectEntry() {
-    if (document.getElementById('personal-dashboard-btn')) return;
-    const host = document.querySelector('.top-actions') || document.body;
-    const btn = document.createElement('button');
-    btn.id = 'personal-dashboard-btn';
-    btn.type = 'button';
-    btn.className = 'personal-dashboard-btn';
-    btn.title = '钱包与个人数据 — 道具余额与累计游玩记录';
-    btn.innerHTML = `<span>👛</span><span class="pdb-label">钱包</span>`;
-    host.appendChild(btn);
-    btn.addEventListener('click', openDashboard);
 }
 
 export function collectStats() {

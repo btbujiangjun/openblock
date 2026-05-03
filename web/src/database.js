@@ -3,6 +3,7 @@
  * 需先启动 `npm run server` 或 `python3 server.py`，并配置 VITE_API_BASE_URL。
  */
 import { getApiBaseUrl, isSqliteClientDatabase, ACHIEVEMENTS_BY_ID } from './config.js';
+import { getSessionAttributionSnapshot } from './channelAttribution.js';
 
 async function apiJson(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -59,6 +60,10 @@ export class Database {
     }
 
     async saveSession(session) {
+        const attribution =
+            session.attribution && typeof session.attribution === 'object'
+                ? session.attribution
+                : getSessionAttributionSnapshot();
         const data = await apiJson('/api/session', {
             method: 'POST',
             body: JSON.stringify({
@@ -66,8 +71,9 @@ export class Database {
                 startTime: session.startTime || Date.now(),
                 score: session.score ?? 0,
                 strategy: session.strategy,
-                strategyConfig: session.strategyConfig || {}
-            })
+                strategyConfig: session.strategyConfig || {},
+                attribution,
+            }),
         });
         const id = data.session_id ?? data.id;
         if (id == null) {

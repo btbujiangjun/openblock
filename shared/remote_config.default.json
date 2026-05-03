@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "featureOverrides": {},
+  "dailyTasksMultiplier": 1,
+  "seasonPassXpMultiplier": 1,
+  "ads": {
+    "rewardedCooldownSec": 0,
+    "interstitialMinGamesBetween": 1
+  },
+  "iap": {
+    "starterPackDiscountVisible": true
+  },
+  "_comment": "合并结果见 GET /api/enterprise/remote-config；生产可用 OPENBLOCK_REMOTE_CONFIG_JSON 覆盖"
+}

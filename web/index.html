@@ -49,16 +49,11 @@
 </head>
 <body>
     <div id="app">
-        <div class="header">
-            <div class="header-side header-side--left">
-                <div class="top-actions" aria-label="快捷入口"></div>
-            </div>
+        <!-- 仅字标 -->
+        <div class="header header--title-only">
             <h1 class="app-wordmark" aria-label="Open Block"></h1>
-            <div class="header-side header-side--right">
-                <button type="button" id="in-game-menu-btn" class="in-game-menu-btn" data-i18n-title="ui.header.backMenu" title="返回菜单">☰</button>
-            </div>
         </div>
-        <!-- 四项合一行：能力 / 得分 / 最佳 / 主题（v10.17.16：主题移到右端） -->
+        <!-- 能力 / 得分 / 最佳 / 主题 + ☰ 菜单（与此前单行统计布局一致） -->
         <div class="score-theme-row">
             <div class="stat-box header-level" data-i18n-aria-label="ui.aria.playerLevel" aria-label="玩家等级">
                 <div class="stat-label" data-i18n="ui.stat.ability">能力</div>
@@ -85,6 +80,9 @@
                 </div>
                 <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
             </div>
+            <div class="score-theme-quick-cluster" data-i18n-aria-label="ui.header.backMenu" aria-label="返回菜单">
+                <button type="button" id="in-game-menu-btn" class="in-game-menu-btn in-game-menu-btn--toolbar" data-i18n-title="ui.header.backMenu" title="返回菜单">☰</button>
+            </div>
         </div>
         <!-- progression-hud 隐藏（JS 仍依赖 prog-track/prog-fill/prog-xp-text 更新内部状态） -->
         <div class="progression-hud" id="progression-hud" data-i18n-aria-label="ui.aria.playerLevel" aria-label="玩家等级" hidden>
@@ -107,12 +105,12 @@
                 <button type="button" class="skill-btn skill-btn--hint" id="insight-hint"
                         data-i18n-title="ui.skill.hint"
                         title="💡 AI提示 — 分析盘面推荐最优落子">💡</button>
+                <button type="button" class="skill-btn skill-btn--season-pass" id="season-pass-btn"
+                        data-i18n-title="ui.skill.seasonPass"
+                        title="赛季通行证 — 任务与奖励">🏆</button>
                 <button type="button" class="skill-btn skill-btn--restart" id="insight-restart"
                         data-i18n-title="ui.skill.restart"
                         title="🔁 重开 — 重新开始本局">🔁</button>
-                <button type="button" class="skill-btn skill-btn--new" id="insight-new-game"
-                        data-i18n-title="ui.skill.newGame"
-                        title="🎮 换局 — 返回主菜单">🎮</button>
             </div>
             <div class="block-dock" id="dock"></div>
         </div>
@@ -125,7 +123,8 @@
             <select id="locale-select" data-i18n-aria-label="menu.localeAria" aria-label="界面语言"></select>
         </div>
         <h1 class="app-wordmark app-wordmark--hero" aria-label="Open Block"></h1>
-        <div class="menu-grid">
+        <!-- 3×3：①游玩 ②创作/复盘/钱包 ③文档与运维 -->
+        <div class="menu-grid menu-grid--3x3">
             <button type="button" class="menu-card menu-card--start" id="start-btn">
                 <span class="menu-card-icon">▶</span>
                 <span class="menu-card-label" data-i18n="menu.start">开始游戏</span>
@@ -134,25 +133,33 @@
                 <span class="menu-card-icon">📺</span>
                 <span class="menu-card-label" data-i18n="menu.replay">对局回放</span>
             </button>
+            <button type="button" class="menu-card menu-card--daily-master menu-card--menu-secondary" id="menu-daily-master-btn">
+                <span class="menu-card-icon">🏅</span>
+                <span class="menu-card-label" data-i18n="menu.dailyMaster">每日大师题</span>
+            </button>
             <button type="button" class="menu-card menu-card--editor" id="level-editor-btn">
                 <span class="menu-card-icon">🗺️</span>
                 <span class="menu-card-label" data-i18n="menu.editor">关卡编辑器</span>
+            </button>
+            <button type="button" class="menu-card menu-card--replay-album" id="menu-replay-album-btn">
+                <span class="menu-card-icon">📔</span>
+                <span class="menu-card-label" data-i18n="menu.replayAlbum">复盘相册</span>
+            </button>
+            <button type="button" class="menu-card menu-card--personal menu-card--menu-secondary" id="menu-personal-data-btn">
+                <span class="menu-card-icon">👛</span>
+                <span class="menu-card-label" data-i18n="menu.personalData">钱包 · 个人数据</span>
             </button>
             <a href="/docs.html" target="_blank" class="menu-card menu-card--docs menu-docs-link">
                 <span class="menu-card-icon">📚</span>
                 <span class="menu-card-label" data-i18n="menu.docs">文档中心</span>
             </a>
-            <button type="button" class="menu-card menu-card--personal menu-card--menu-secondary" id="menu-personal-data-btn">
-                <span class="menu-card-icon">👛</span>
-                <span class="menu-card-label" data-i18n="menu.personalData">钱包 · 个人数据</span>
-            </button>
             <button type="button" class="menu-card menu-card--ops menu-card--menu-secondary" id="ops-menu-btn">
                 <span class="menu-card-icon">📊</span>
                 <span class="menu-card-label" data-i18n="menu.ops">运营看板</span>
             </button>
-            <button type="button" class="menu-card menu-card--daily-master menu-card--menu-secondary" id="menu-daily-master-btn">
-                <span class="menu-card-icon">🏅</span>
-                <span class="menu-card-label" data-i18n="menu.dailyMaster">每日大师题</span>
+            <button type="button" class="menu-card menu-card--db-debug menu-card--menu-secondary" id="menu-db-debug-btn" hidden>
+                <span class="menu-card-icon">🗄</span>
+                <span class="menu-card-label" data-i18n="menu.dbDebug">数据库调试</span>
             </button>
         </div>
     </div>

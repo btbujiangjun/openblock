@@ -122,7 +122,7 @@ body.block-drag-active #app {
     display: flex;
     flex-direction: row;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     gap: 0;
     margin-bottom: 10px;
     width: 100%;
@@ -130,42 +130,70 @@ body.block-drag-active #app {
     box-sizing: border-box;
 }
 
-.header-side {
-    flex: 1;
+/* 仅 OPEN BLOCK 字标：上下略增留白，强化品牌区 */
+.header--title-only {
+    margin-bottom: 6px;
+    padding: 8px 10px 2px;
+}
+
+.header--title-only .app-wordmark {
+    flex: none;
+}
+
+/* 统计行右侧：与主题列分隔，仅 ☰ 返回菜单 */
+.score-theme-quick-cluster {
+    flex: 0 1 auto;
     display: flex;
     align-items: center;
-}
-
-.header-side--left {
-    justify-content: flex-start;
-}
-
-/* 相册 / 钱包 / 战令：纵向对齐、等宽，避免换行后第三颗单独顶左且间距不均 */
-.header-side .top-actions {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    width: max-content;
-    max-width: min(168px, 46vw);
-    min-width: 0;
-}
-
-.header-side--right {
     justify-content: flex-end;
+    min-width: 0;
+    margin-left: 10px;
+    padding-left: 14px;
+    border-left: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 14%, transparent);
+}
+
+.score-theme-quick-cluster > .in-game-menu-btn--toolbar {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    border-radius: 10px;
+    font-size: 17px;
+    line-height: 1;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(22, 26, 38, 0.78);
+    color: #f1f5f9;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.score-theme-quick-cluster > .in-game-menu-btn--toolbar:hover {
+    background: rgba(32, 38, 54, 0.92);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
+}
+
+@media (max-width: 520px) {
+    .score-theme-quick-cluster {
+        flex-basis: 100%;
+        justify-content: center;
+        margin-left: 0;
+        margin-top: 6px;
+        padding-left: 0;
+        padding-top: 8px;
+        border-left: none;
+        border-top: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 12%, transparent);
+    }
 }
 
 /* 主题 / 能力 / 得分 / 最佳
  * v10.17.14 去卡片化：彻底移除胶囊容器，让 stat-box 直接坐在 body 背景上
- *   · 不再是"独立卡片"，与 OPEN BLOCK 字标 / 盘面 / dock 等元素同处一个连续视觉流
- *   · 各 stat-box 通过中间细分隔线和留白区分（足够可读）
- *   · 减少视觉"块"的数量，整体协调度大幅提升
  */
 .score-theme-row {
     display: flex;
     flex-direction: row;
-    flex-wrap: nowrap;
-    align-items: stretch;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: center;
     gap: 0;
     width: min(100%, calc(var(--play-inner-span) + 28px));
@@ -1875,9 +1903,19 @@ body.game-over-active .first-win-banner {
 .skill-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.45); outline-offset: 2px; }
 
 /* 各按钮仅用极淡色调区分，不抢视觉 */
-.skill-btn--hint    { border-color: rgba(74,222,128,0.12); }
-.skill-btn--restart { border-color: rgba(251,146,60,0.12); }
-.skill-btn--new     { border-color: rgba(96,165,250,0.12); }
+.skill-btn--hint        { border-color: rgba(74,222,128,0.12); }
+.skill-btn--season-pass { border-color: rgba(234,179,8,0.14); }
+.skill-btn--restart     { border-color: rgba(251,146,60,0.12); }
+
+/* 战令红点（赛季通行证入口在技能栏） */
+.skill-bar #season-pass-btn {
+    position: relative;
+}
+.skill-bar #season-pass-btn .sp-btn__dot {
+    top: 4px;
+    right: 4px;
+    border-width: 1px;
+}
 
 @media (max-width: 480px) {
     .skill-bar { gap: 8px; }
@@ -3405,12 +3443,15 @@ body.game-shell-hidden .app-side-left {
     pointer-events: none;
 }
 
-/* ── 菜单 2×2 卡片网格 ── */
+/* ── 主菜单 3×3 卡片网格（游玩 / 创作·复盘·钱包 / 文档与运维） ── */
 .menu-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 12px;
-    width: min(300px, calc(100vw - 48px));
+}
+
+.menu-grid--3x3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: min(432px, calc(100vw - 40px));
 }
 
 /* 非主菜单场景若仍使用旧类名（文档页等） */
@@ -3498,6 +3539,21 @@ body.game-shell-hidden .app-side-left {
     box-shadow: 0 4px 18px rgba(109,40,217,.4), 0 1px 0 rgba(255,255,255,.2) inset;
 }
 
+/* 复盘相册 — 玫红渐变（与主菜单其它大卡同构，区别于回放紫 / 编辑器橙） */
+.menu-card--replay-album {
+    background: linear-gradient(145deg, #fda4af, #9f1239);
+    border: 1px solid color-mix(in srgb, #ffffff 24%, rgba(159, 18, 57, 0.48));
+    box-shadow: 0 4px 18px rgba(159, 18, 57, 0.4), 0 1px 0 rgba(255, 255, 255, 0.24) inset;
+}
+.menu-card--replay-album:hover {
+    background: linear-gradient(145deg, #fecdd3, #be123c);
+    border-color: color-mix(in srgb, #ffffff 30%, rgba(190, 24, 93, 0.52));
+}
+.menu-card--replay-album .menu-card-icon {
+    opacity: 1;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
+}
+
 /* 关卡编辑器 — 橙色 */
 .menu-card--editor {
     background: linear-gradient(145deg, #fb923c, #c2410c);
@@ -3510,15 +3566,20 @@ body.game-shell-hidden .app-side-left {
     box-shadow: 0 4px 18px rgba(14,116,144,.4), 0 1px 0 rgba(255,255,255,.2) inset;
 }
 
-/* 钱包 · 个人数据 — 玫红渐变（与 👛 语义一致，白字对比足够；补全此前仅有 secondary 类名导致的浅底） */
+/* 钱包 · 个人数据 — 香槟金→古铜（财富语义，与复盘玫红 / 大师金橙区分） */
 .menu-card--menu-secondary.menu-card--personal {
-    background: linear-gradient(145deg, #f472b6, #9d174d);
-    border: 1px solid color-mix(in srgb, #ffffff 24%, rgba(157, 23, 77, 0.5));
-    box-shadow: 0 4px 18px rgba(157, 23, 77, 0.42), 0 1px 0 rgba(255, 255, 255, 0.26) inset;
+    background: linear-gradient(145deg, #fde68a 0%, #d97706 46%, #78350f 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 28%, rgba(120, 53, 15, 0.42));
+    box-shadow:
+        0 4px 18px rgba(146, 64, 14, 0.34),
+        0 1px 0 rgba(255, 255, 255, 0.3) inset;
 }
 .menu-card--menu-secondary.menu-card--personal:hover {
-    background: linear-gradient(145deg, #fbcfe8, #be185d);
-    border-color: color-mix(in srgb, #ffffff 32%, rgba(190, 24, 93, 0.55));
+    background: linear-gradient(145deg, #fef3c7 0%, #f59e0b 44%, #92400e 100%);
+    border-color: color-mix(in srgb, #ffffff 36%, rgba(146, 64, 14, 0.48));
+    box-shadow:
+        0 6px 22px rgba(180, 83, 9, 0.38),
+        0 1px 0 rgba(255, 255, 255, 0.34) inset;
 }
 
 /*
@@ -3546,18 +3607,51 @@ body.game-shell-hidden .app-side-left {
     border-color: color-mix(in srgb, #ffffff 28%, rgba(234, 88, 12, 0.55));
 }
 
+/* 数据库调试 — 冷灰绿（与运营看板蓝、大师金区分） */
+.menu-card--menu-secondary.menu-card--db-debug {
+    background: linear-gradient(145deg, #64748b, #14532d);
+    border: 1px solid color-mix(in srgb, #ffffff 18%, rgba(20, 83, 45, 0.5));
+    box-shadow: 0 4px 18px rgba(20, 83, 45, 0.35), 0 1px 0 rgba(255, 255, 255, 0.22) inset;
+}
+.menu-card--menu-secondary.menu-card--db-debug:hover {
+    background: linear-gradient(145deg, #94a3b8, #166534);
+    border-color: color-mix(in srgb, #ffffff 26%, rgba(22, 101, 52, 0.55));
+}
+
 .menu-card--menu-secondary.menu-card--personal .menu-card-icon,
 .menu-card--menu-secondary.menu-card--ops .menu-card-icon,
-.menu-card--menu-secondary.menu-card--daily-master .menu-card-icon {
+.menu-card--menu-secondary.menu-card--daily-master .menu-card-icon,
+.menu-card--menu-secondary.menu-card--db-debug .menu-card-icon {
     opacity: 1;
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
 }
 
-@media (max-width: 360px) {
-    .menu-grid { grid-template-columns: 1fr; width: min(220px, calc(100vw - 48px)); }
+@media (max-width: 400px) {
+    .menu-grid--3x3 {
+        gap: 8px;
+        width: min(calc(100vw - 28px), 432px);
+    }
+    .menu-grid--3x3 .menu-card {
+        padding: 16px 8px 14px;
+        gap: 8px;
+        border-radius: 16px;
+    }
+    .menu-grid--3x3 .menu-card-icon {
+        font-size: 24px;
+    }
+    .menu-grid--3x3 .menu-card-label {
+        font-size: 11px;
+        white-space: normal;
+        line-height: 1.2;
+        max-width: 100%;
+        text-align: center;
+    }
+    .menu-grid--3x3 .menu-card--start .menu-card-icon {
+        font-size: 22px;
+    }
 }
 
-/* 游戏时字标 header：恢复显示，压缩间距以节省纵向空间 */
+/* 游戏时字标 header：独占一行时略增呼吸空间 */
 #app > .header {
     margin-bottom: 4px;
 }
@@ -3565,6 +3659,9 @@ body.game-shell-hidden .app-side-left {
     /* scale(1.06)+skewX(-6deg) 会让两端各溢出约 18px，需足够水平 padding */
     padding: 4px 28px 5px;
     overflow: visible;
+}
+#app > .header.header--title-only .app-wordmark {
+    padding: 6px 32px 8px;
 }
 
 /* mini-goal-badge 注入在 progression-hud 之后，功能与 progression-hud 重叠，隐藏 */
@@ -5823,10 +5920,9 @@ body.game-shell-hidden .app-side-left {
 }
 .pd-num { text-align: right; font-variant-numeric: tabular-nums; opacity: .82; font-size: 12px; }
 
-/* ── 顶栏快捷入口：相册 / 钱包 / 战令（统一样式，避免逐个 margin 导致不齐） ── */
+/* ── 复盘相册 / 钱包（顶栏已移除；模块动态注入时仍可沿用） ── */
 .replay-album-btn,
-.personal-dashboard-btn,
-.season-pass-btn {
+.personal-dashboard-btn {
     box-sizing: border-box;
     margin: 0;
     background: rgba(20, 24, 36, 0.62);

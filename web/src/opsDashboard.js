@@ -346,8 +346,9 @@ function _retCard(ret) {
     const table = document.createElement('table');
     table.className = 'ops-table';
     table.innerHTML = `<tr><th>指标</th><th>当前</th><th>目标</th><th>进度</th></tr>
-      ${_retRow('D1 次日', ret.d1, 0.40)}
-      ${_retRow('D7 七日', ret.d7, 0.20)}`;
+      ${_retRow('D1 次日', ret.d1 ?? 0, 0.40)}
+      ${_retRow('D7 七日', ret.d7 ?? 0, 0.20)}
+      ${_retRow('D30 三十日', ret.d30 ?? 0, 0.08)}`;
     c.appendChild(table);
     return c;
 }

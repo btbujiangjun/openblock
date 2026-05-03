@@ -126,8 +126,12 @@ function _showMilestoneToast(gameNo) {
 /* ---------------------- 相册 UI ---------------------- */
 
 function _injectEntry() {
+    const menuBtn = document.getElementById('menu-replay-album-btn');
+    if (menuBtn) {
+        menuBtn.addEventListener('click', openAlbum);
+        return;
+    }
     if (document.getElementById('replay-album-btn')) return;
-    /* 优先放主菜单的 .top-actions 或赛季入口附近 */
     const host = document.querySelector('.top-actions') || document.body;
     const btn = document.createElement('button');
     btn.id = 'replay-album-btn';

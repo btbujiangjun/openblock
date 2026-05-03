@@ -4,6 +4,8 @@
 > 视角：商业运营（Growth / Monetization Operations）  
 > 前置文档：[MONETIZATION.md](./MONETIZATION.md)（v3）、[COMPETITOR_USER_ANALYSIS.md](../domain/COMPETITOR_USER_ANALYSIS.md)
 
+**逐项落地状态（61 条）**见 [COMMERCIAL_IMPROVEMENTS_CHECKLIST.md](./COMMERCIAL_IMPROVEMENTS_CHECKLIST.md)（含 API、代码路径与「脚手架/已实现」标注）。
+
 ---
 
 ## 导言：当前商业化能力评估

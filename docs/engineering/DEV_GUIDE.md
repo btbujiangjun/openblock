@@ -618,7 +618,7 @@ on('*', ({ eventType, data }) => console.log('[Bus Debug]', eventType, data));
 A: 检查 `server.py` 末尾的 try/except 块输出，常见原因：
 - 导入路径错误（确保新文件在项目根目录）
 - Python 依赖缺失（查看 `requirements.txt`）
-- SQLite 初始化失败（检查文件权限）
+- SQLite 初始化失败（检查文件权限）；库表设计与用途见 [SQLITE_SCHEMA.md](./SQLITE_SCHEMA.md)
 
 ---
 

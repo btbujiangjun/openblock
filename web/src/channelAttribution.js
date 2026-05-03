@@ -33,16 +33,24 @@ const STORAGE_KEY = 'openblock_channel_attr';
 function parseUTM() {
     try {
         const params = new URLSearchParams(window.location.search);
-        const source = params.get('utm_source') || '';
+        let source = params.get('utm_source') || '';
+        const gclid = params.get('gclid') || '';
+        const fbclid = params.get('fbclid') || '';
+        if (!source && gclid) source = 'google_gclid';
+        if (!source && fbclid) source = 'facebook_fbclid';
         if (!source) return null;
         return {
             source,
-            medium:   params.get('utm_medium')   || 'unknown',
+            medium: params.get('utm_medium') || 'unknown',
             campaign: params.get('utm_campaign') || 'unknown',
-            content:  params.get('utm_content')  || '',
+            content: params.get('utm_content') || '',
+            gclid: gclid || undefined,
+            fbclid: fbclid || undefined,
             ts: Date.now(),
         };
-    } catch { return null; }
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -72,7 +80,9 @@ export function initChannelAttribution() {
         // 清理 URL 中的 UTM 参数，避免用户分享含归因链接
         try {
             const url = new URL(window.location.href);
-            ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'].forEach(k => url.searchParams.delete(k));
+            ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'gclid', 'fbclid'].forEach(k =>
+                url.searchParams.delete(k)
+            );
             window.history.replaceState({}, '', url.toString());
         } catch { /* ignore */ }
     } catch { /* localStorage 不可用 */ }
@@ -104,4 +114,23 @@ export function isPaidChannel() {
     const attr = getAttribution();
     const src = (attr.first?.source ?? attr.last?.source ?? '').toLowerCase();
     return ['applovin', 'unity', 'ironsource', 'mintegral', 'vungle', 'facebook', 'google_uac'].some(s => src.includes(s));
+}
+
+/**
+ * 写入会话 API 的扁平归因载荷（sessions.attribution）
+ * @returns {Record<string, unknown>}
+ */
+export function getSessionAttributionSnapshot() {
+    const a = getAttribution();
+    const ref = a.first || a.last;
+    if (!ref) return {};
+    return {
+        utm_source: ref.source,
+        utm_medium: ref.medium,
+        utm_campaign: ref.campaign,
+        utm_content: ref.content,
+        gclid: ref.gclid,
+        fbclid: ref.fbclid,
+        ts: ref.ts,
+    };
 }

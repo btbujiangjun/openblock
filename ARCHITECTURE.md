@@ -290,6 +290,15 @@ server.py (核心)
   /api/health     健康检查
   /docs           文档门户（HTML + API）
 
+enterprise_extensions.py（挂载于同一 Flask app）
+  /api/enterprise/remote-config   远程配置
+  /api/payment/verify             IAP 占位入库（幂等）
+  /api/enterprise/ad-impression   广告曝光占位
+  /api/enterprise/experiments     实验配置表读写
+  /api/enterprise/live-ops        Live Ops 时间窗
+  /api/compliance/*               同意 / 导出 / 删除用户
+  详见 docs/integrations/ENTERPRISE_EXTENSIONS.md
+
 monetization_backend.py (Blueprint: /api/mon/*)
   /user-profile/<userId>  用户商业画像
   /aggregate              全局聚合指标
@@ -305,7 +314,7 @@ rl_backend.py (可选: /api/rl/*)
 
 ```
 核心表（server.py init_db）:
-  sessions          会话记录（user_id, strategy, score, duration）
+  sessions          会话记录（user_id, strategy, score, duration, attribution JSON）
   behaviors         行为事件（session_id, event_type, event_data）
   scores            分数记录（历史）
   user_stats        用户聚合统计（PK: user_id）

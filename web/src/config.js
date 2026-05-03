@@ -20,12 +20,8 @@ export const CONFIG = {
     DOCK_PREVIEW_MAX_CELLS: 5
 };
 
-/** @returns {string} 规范化后的 API 根 URL（无末尾斜杠） */
+/** @returns {string} 规范化后的 API 根 URL（无末尾斜杠；开发模式下可为空串表示走当前源的 /api 代理） */
 export function getApiBaseUrl() {
-    const fromEnv = import.meta.env.VITE_API_BASE_URL;
-    if (fromEnv && String(fromEnv).trim()) {
-        return String(fromEnv).replace(/\/+$/, '');
-    }
     try {
         const legacy = localStorage.getItem('api_url');
         if (legacy && legacy.trim()) {
@@ -33,6 +29,18 @@ export function getApiBaseUrl() {
         }
     } catch {
         /* private mode */
+    }
+    /**
+     * Vite dev：`vite.config` 会把 API 指到 127.0.0.1:5000，若仍用绝对地址请求会绕过 dev-server 的 `/api` 代理；
+     * 用手机 / 局域网 IP 打开前端时，浏览器会误连「设备本机」的 127.0.0.1，导致 SQLite API 全部失败。
+     * 开发构建下改为同源相对路径，由代理转发到真实 Flask。
+     */
+    if (import.meta.env.DEV) {
+        return '';
+    }
+    const fromEnv = import.meta.env.VITE_API_BASE_URL;
+    if (fromEnv && String(fromEnv).trim()) {
+        return String(fromEnv).replace(/\/+$/, '');
     }
     /* 浏览器不能稳定访问 0.0.0.0；与服务监听 0.0.0.0 时客户端应连 127.0.0.1 */
     return 'http://127.0.0.1:5000';

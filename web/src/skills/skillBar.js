@@ -1,7 +1,7 @@
 /**
  * skillBar.js — v10.16 道具栏 UI 注入器
  *
- * 在 #skill-bar 旁注册新技能按钮（不抢占现有 hint / restart / new-game），
+ * 在 #skill-bar 旁注册新技能按钮（不抢占现有 hint / restart），
  * 自动渲染按钮 + 计数徽章 + 点击响应 + 钱包余额绑定。
  *
  * 接入路径

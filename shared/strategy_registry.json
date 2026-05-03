@@ -1,0 +1,18 @@
+{
+  "active": "",
+  "versions": [
+    {
+      "id": "game_rules_default",
+      "description": "shared/game_rules.json 当前生效逻辑",
+      "artifact": "shared/game_rules.json",
+      "checksum": ""
+    },
+    {
+      "id": "rl_policy_optional",
+      "description": "rl_pytorch checkpoint，由 RL 服务环境变量加载",
+      "artifact": "env:RL_CHECKPOINT_SAVE",
+      "checksum": ""
+    }
+  ],
+  "_usage": "设置 OPENBLOCK_ACTIVE_STRATEGY_VERSION=id 用于运维标注；真实切换仍依赖 RL/Spawn 加载路径"
+}
