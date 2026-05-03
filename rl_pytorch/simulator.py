@@ -215,11 +215,51 @@ class OpenBlockSimulator:
                 return 0.0
         return 1.0
 
+    def count_sequential_solution_leaves(self, leaf_cap: int = 64, node_budget: int = 2000) -> int:
+        """统计当前 dock 剩余块是否存在可全部放完的顺序。
+
+        `check_feasibility()` 只看每块单独有无位置；这里枚举真实放置顺序，
+        更贴近训练时需要规避的“三块序贯死局”。
+        """
+        remaining_depth = sum(1 for b in self.dock if not b.get("placed"))
+        if remaining_depth <= 0:
+            return 1
+
+        saved_root = self.save_state()
+        nodes = 0
+
+        def dfs(depth: int) -> int:
+            nonlocal nodes
+            if depth >= remaining_depth:
+                return 1
+            if nodes >= node_budget:
+                return 0
+            legal = self.get_legal_actions()
+            if not legal:
+                return 0
+            subtotal = 0
+            state = self.save_state()
+            for a in legal:
+                if nodes >= node_budget or subtotal >= leaf_cap:
+                    break
+                nodes += 1
+                self.step(a["block_idx"], a["gx"], a["gy"])
+                subtotal += dfs(depth + 1)
+                self.restore_state(state)
+            return min(subtotal, leaf_cap)
+
+        leaves = dfs(0)
+        self.restore_state(saved_root)
+        return int(min(leaves, leaf_cap))
+
+    def check_sequential_feasibility(self) -> float:
+        return 1.0 if self.count_sequential_solution_leaves(leaf_cap=1, node_budget=1200) > 0 else 0.0
+
     def get_supervision_signals(self) -> dict[str, float]:
         """一次调用返回所有直接监督目标值（board_quality / feasibility）。"""
         return {
             "board_quality": board_potential_np(self._ensure_grid_np(), self.dock) / _BOARD_POT_NORM,
-            "feasibility": self.check_feasibility(),
+            "feasibility": self.check_sequential_feasibility(),
         }
 
     def step(self, block_idx: int, gx: int, gy: int) -> float:

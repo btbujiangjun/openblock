@@ -1,4 +1,5 @@
 import {
+    buildReplayAnalysis,
     countPlaceStepsInFrames,
     displayScoreFromReplayFrames,
     formatPlayerStateForReplay,
@@ -8,10 +9,78 @@ import {
     getMetricFromPS,
     formatMetricValue
 } from './moveSequence.js';
+
+/**
+ * 列表/详情统一用：优先 SQLite 中的 analysis；缺失时用帧本地补算（与局末 buildReplayAnalysis 一致）。
+ * 缺失常见于：关页前未完成结算写入、或旧数据仅有 frames。
+ */
+function resolvedReplayAnalysis(row, frames) {
+    const persisted = row?.analysis;
+    if (persisted && typeof persisted === 'object' && Number.isFinite(Number(persisted.rating))) {
+        return { analysis: persisted, derived: false };
+    }
+    if (!Array.isArray(frames) || frames.length === 0) {
+        return { analysis: null, derived: false };
+    }
+    try {
+        const fromFrames = displayScoreFromReplayFrames(frames);
+        const scoreNum = Number.isFinite(Number(fromFrames))
+            ? Number(fromFrames)
+            : Number(row?.score);
+        const analysis = buildReplayAnalysis(frames, {
+            score: Number.isFinite(scoreNum) ? scoreNum : undefined,
+            durationMs: row?.duration != null ? Number(row.duration) : undefined
+        });
+        return { analysis, derived: true };
+    } catch {
+        return { analysis: null, derived: false };
+    }
+}
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 
 function _attrTitle(s) {
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function _html(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _pct(v) {
+    return v == null || Number.isNaN(Number(v)) ? '—' : `${(Number(v) * 100).toFixed(1)}%`;
+}
+
+function _num(v, d = 1) {
+    if (v == null || Number.isNaN(Number(v))) return '—';
+    const n = Number(v);
+    return Number.isInteger(n) ? String(n) : n.toFixed(d);
+}
+
+function formatReplayAnalysisHtml(analysis) {
+    if (!analysis || typeof analysis !== 'object') {
+        return '';
+    }
+    const m = analysis.metrics || {};
+    const tags = Array.isArray(analysis.tags) && analysis.tags.length
+        ? `<div class="replay-analysis-tags">${analysis.tags.map((t) => `<span>${_html(t)}</span>`).join('')}</div>`
+        : '';
+    const abstract = Array.isArray(analysis.interpretation?.abstract) && analysis.interpretation.abstract.length
+        ? `<div class="replay-analysis-abstract">${analysis.interpretation.abstract.slice(0, 5).map((t) => `<p>${_html(t)}</p>`).join('')}</div>`
+        : '';
+    const designRead = Array.isArray(analysis.interpretation?.designRead) && analysis.interpretation.designRead.length
+        ? `<div class="replay-analysis-design">${analysis.interpretation.designRead.slice(0, 4).map((t) => `<p>${_html(t)}</p>`).join('')}</div>`
+        : '';
+    const recs = Array.isArray(analysis.recommendations) && analysis.recommendations.length
+        ? `<ul>${analysis.recommendations.slice(0, 3).map((r) => `<li>${_html(r)}</li>`).join('')}</ul>`
+        : '';
+    return `<section class="replay-analysis-summary" title="整局评价与过程分析，随 move_sequences 写入 SQLite，供设计复盘。">` +
+        `<div class="replay-analysis-head">整局评价 <strong>${_html(analysis.rating ?? '—')}/5</strong></div>` +
+        `<p>${_html(analysis.summary || '暂无整局评价。')}</p>` +
+        `<div class="replay-analysis-metrics">` +
+        `<span>清线 <strong>${_pct(m.clearRate)}</strong></span><span>峰值填充 <strong>${_pct(m.peakFill)}</strong></span>` +
+        `<span>最长未清 <strong>${_html(m.longestNoClear ?? '—')}</strong> 步</span><span>思考 <strong>${_html(_num(m.avgThinkMs, 0))}</strong>ms</span>` +
+        `<span>恢复需求 <strong>${_pct(m.recoveryRatio)}</strong></span>` +
+        `</div>${tags}${abstract}${designRead}${recs}</section>`;
 }
 
 /**
@@ -44,6 +113,7 @@ export function initReplayUI(game) {
     let playTimer = null;
     /** @type {object[] | null} 当前打开的回放帧（供玩家状态同步展示） */
     let replayFramesRef = null;
+    let replayAnalysisRef = null;
 
     /* ── Series view state ── */
     let _seriesData = null;
@@ -72,7 +142,8 @@ export function initReplayUI(game) {
         _seriesData = data;
         _seriesCells = [];
 
-        let html = '<div class="replay-series-header" id="replay-series-header"></div>';
+        let html = formatReplayAnalysisHtml(replayAnalysisRef);
+        html += '<div class="replay-series-header" id="replay-series-header"></div>';
         html += '<div class="replay-series-grid">';
         for (const m of data.metrics) {
             const s = data.series[m.key];
@@ -145,7 +216,7 @@ export function initReplayUI(game) {
     }
 
     function sessionFromRow(row) {
-        const { frames: _f, ...rest } = row;
+        const { frames: _f, analysis: _a, ...rest } = row;
         return rest;
     }
 
@@ -200,6 +271,7 @@ export function initReplayUI(game) {
     async function openList() {
         stopPlay();
         replayFramesRef = null;
+        replayAnalysisRef = null;
         _clearSeries();
         game.endReplay?.();
         sessionListEl.innerHTML = '';
@@ -251,7 +323,19 @@ export function initReplayUI(game) {
                     const mainEl = li.querySelector('.replay-item-main');
                     const cb = li.querySelector('.replay-select-cb');
                     cb?.addEventListener('change', () => updateSelectionUi());
-                    const open = () => openView(s, frames);
+                    const resolved = resolvedReplayAnalysis(row, frames);
+                    const listAnalysis = resolved.analysis;
+                    if (listAnalysis && Number.isFinite(Number(listAnalysis.rating))) {
+                        const tag = document.createElement('span');
+                        tag.className = 'replay-item-analysis';
+                        if (resolved.derived) tag.classList.add('replay-item-analysis--derived');
+                        tag.textContent = `评价 ${listAnalysis.rating}/5`;
+                        tag.title = resolved.derived
+                            ? `${listAnalysis.summary || ''}\n（根据回放帧本地补算；局末成功写入库后应与之一致）`.trim()
+                            : (listAnalysis.summary || '');
+                        mainEl?.appendChild(tag);
+                    }
+                    const open = () => openView({ ...s, analysis: listAnalysis }, frames);
                     mainEl?.addEventListener('click', open);
                     mainEl?.addEventListener('keydown', (ev) => {
                         if (ev.key === 'Enter' || ev.key === ' ') {
@@ -320,6 +404,7 @@ export function initReplayUI(game) {
             return;
         }
         replayFramesRef = frames;
+        replayAnalysisRef = session.analysis || null;
         const maxIdx = game.getReplayMaxIndex();
         slider.min = '0';
         slider.max = String(maxIdx);
@@ -336,7 +421,12 @@ export function initReplayUI(game) {
         }
         if (playerStateEl && !_initSeries(frames)) {
             const ps = getPlayerStateAtFrameIndex(frames, 0);
-            playerStateEl.textContent = formatPlayerStateForReplay(ps);
+            const analysisHtml = formatReplayAnalysisHtml(replayAnalysisRef);
+            if (analysisHtml) {
+                playerStateEl.innerHTML = `${analysisHtml}<pre>${_html(formatPlayerStateForReplay(ps))}</pre>`;
+            } else {
+                playerStateEl.textContent = formatPlayerStateForReplay(ps);
+            }
         }
         updateLabel(0, maxIdx);
         show(viewScreen);
@@ -359,7 +449,12 @@ export function initReplayUI(game) {
             _updateSeries(idx);
         } else if (playerStateEl) {
             const ps = getPlayerStateAtFrameIndex(replayFramesRef, idx);
-            playerStateEl.textContent = formatPlayerStateForReplay(ps);
+            const analysisHtml = formatReplayAnalysisHtml(replayAnalysisRef);
+            if (analysisHtml) {
+                playerStateEl.innerHTML = `${analysisHtml}<pre>${_html(formatPlayerStateForReplay(ps))}</pre>`;
+            } else {
+                playerStateEl.textContent = formatPlayerStateForReplay(ps);
+            }
         }
     }
 
@@ -409,6 +504,7 @@ export function initReplayUI(game) {
     viewBack?.addEventListener('click', () => {
         stopPlay();
         replayFramesRef = null;
+        replayAnalysisRef = null;
         _clearSeries();
         game.endReplay();
         show(listScreen);

@@ -373,16 +373,16 @@ realtimeSignals ──────────── fetchPersonaFromServer()
 
 | 扩展类型 | 文件 | 方法/接口 | 文档 |
 |---------|------|----------|------|
-| 广告 SDK | `monetization/adAdapter.js` | `setAdProvider(provider)` | [STRATEGY_GUIDE §广告策略](docs/STRATEGY_GUIDE.md#4-广告策略定制-ad-sdk) |
-| IAP SDK | `monetization/iapAdapter.js` | `setIapProvider(provider)` | [STRATEGY_GUIDE §IAP策略](docs/STRATEGY_GUIDE.md#5-iap-策略定制-iap-sdk) |
-| 新商业化模块 | `monetization/index.js` | `MonetizationBus.on()` | [DEV_GUIDE §新增模块](docs/DEV_GUIDE.md#2-新增商业化模块) |
-| 出块权重 | `shared/game_rules.json` | `adaptiveSpawn.profiles` | [STRATEGY_GUIDE §出块策略](docs/STRATEGY_GUIDE.md#1-出块策略定制) |
-| Stress 信号 | `web/src/adaptiveSpawn.js` | 信号计算函数 | [STRATEGY_GUIDE §Stress信号](docs/STRATEGY_GUIDE.md#2-stress-信号定制) |
-| RL 奖励 | `shared/game_rules.json` | `RL_REWARD_SHAPING` | [DEV_GUIDE §RL奖励](docs/DEV_GUIDE.md#7-自定义-rl-奖励函数) |
-| 课程学习 | `shared/game_rules.json` | `rlCurriculum` | [DEV_GUIDE §课程学习](docs/DEV_GUIDE.md#8-自定义课程学习) |
-| 难度模式 | `shared/game_rules.json` | `difficultyBias` | [STRATEGY_GUIDE §难度模式](docs/STRATEGY_GUIDE.md#3-难度模式定制) |
-| 功能开关 | `monetization/featureFlags.js` | `FLAG_DEFAULTS` | [DEV_GUIDE §Feature Flag](docs/DEV_GUIDE.md#5-新增-feature-flag) |
-| 后端蓝图 | `server.py` | `app.register_blueprint()` | [DEV_GUIDE §后端蓝图](docs/DEV_GUIDE.md#6-后端蓝图扩展) |
+| 广告 SDK | `monetization/adAdapter.js` | `setAdProvider(provider)` | [STRATEGY_GUIDE §广告策略](./docs/engineering/STRATEGY_GUIDE.md#4-广告策略定制-ad-sdk) |
+| IAP SDK | `monetization/iapAdapter.js` | `setIapProvider(provider)` | [STRATEGY_GUIDE §IAP策略](./docs/engineering/STRATEGY_GUIDE.md#5-iap-策略定制-iap-sdk) |
+| 新商业化模块 | `monetization/index.js` | `MonetizationBus.on()` | [DEV_GUIDE §新增模块](./docs/engineering/DEV_GUIDE.md#2-新增商业化模块) |
+| 出块权重 | `shared/game_rules.json` | `adaptiveSpawn.profiles` | [STRATEGY_GUIDE §出块策略](./docs/engineering/STRATEGY_GUIDE.md#1-出块策略定制) |
+| Stress 信号 | `web/src/adaptiveSpawn.js` | 信号计算函数 | [STRATEGY_GUIDE §Stress信号](./docs/engineering/STRATEGY_GUIDE.md#2-stress-信号定制) |
+| RL 奖励 | `shared/game_rules.json` | `RL_REWARD_SHAPING` | [DEV_GUIDE §RL奖励](./docs/engineering/DEV_GUIDE.md#7-自定义-rl-奖励函数) |
+| 课程学习 | `shared/game_rules.json` | `rlCurriculum` | [DEV_GUIDE §课程学习](./docs/engineering/DEV_GUIDE.md#8-自定义课程学习) |
+| 难度模式 | `shared/game_rules.json` | `difficultyBias` | [STRATEGY_GUIDE §难度模式](./docs/engineering/STRATEGY_GUIDE.md#3-难度模式定制) |
+| 功能开关 | `monetization/featureFlags.js` | `FLAG_DEFAULTS` | [DEV_GUIDE §Feature Flag](./docs/engineering/DEV_GUIDE.md#5-新增-feature-flag) |
+| 后端蓝图 | `server.py` | `app.register_blueprint()` | [DEV_GUIDE §后端蓝图](./docs/engineering/DEV_GUIDE.md#6-后端蓝图扩展) |
 
 ---
 

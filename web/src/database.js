@@ -310,16 +310,20 @@ export class Database {
         return apiJson(`/api/client/strategies?user_id=${encodeURIComponent(this.userId)}`);
     }
 
-    async upsertMoveSequence(sessionId, frames) {
+    async upsertMoveSequence(sessionId, frames, analysis = null) {
         if (sessionId == null) {
             return;
         }
+        const body = {
+            user_id: this.userId,
+            frames
+        };
+        if (analysis && typeof analysis === 'object') {
+            body.analysis = analysis;
+        }
         await apiJson(`/api/move-sequence/${sessionId}`, {
             method: 'PUT',
-            body: JSON.stringify({
-                user_id: this.userId,
-                frames
-            })
+            body: JSON.stringify(body)
         });
     }
 

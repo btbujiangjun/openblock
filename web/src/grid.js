@@ -346,7 +346,8 @@ export class Grid {
                     positions.push({ x, y });
                 }
             }
-            if (empty >= 1 && empty <= 3) {
+            /* v10.34：含「差 4 格满行」— 旧版仅 1~3 空，大块面临满行时 gapFills 常为 0，消行/清屏候选被低估 */
+            if (empty >= 1 && empty <= 4) {
                 gaps.push({ type: 'row', y, empty, positions });
             }
         }
@@ -360,7 +361,7 @@ export class Grid {
                     positions.push({ x, y });
                 }
             }
-            if (empty >= 1 && empty <= 3) {
+            if (empty >= 1 && empty <= 4) {
                 gaps.push({ type: 'col', x, empty, positions });
             }
         }
@@ -375,7 +376,7 @@ export class Grid {
         for (const gap of gaps) {
             for (const pos of gap.positions) {
                 if (this.canPlace(shapeData, pos.x, pos.y)) {
-                    fills += (4 - gap.empty);
+                    fills += Math.max(1, 4 - gap.empty);
                     break;
                 }
             }

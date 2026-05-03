@@ -1,12 +1,20 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from 'vitest';
+import { Grid } from '../web/src/grid.js';
 import {
     buildInitFrame,
     buildPlaceFrame,
     buildSpawnFrame,
     countPlaceStepsInFrames,
     MIN_PERSIST_PLACE_STEPS,
+    displayScoreFromReplayFrames,
+    getPlayerStateAtFrameIndex,
+    nextDistinctReplayFrameIndex,
+    replayStateAt,
+    replayVisualSignature,
 } from '../web/src/moveSequence.js';
-import { Grid } from '../web/src/grid.js';
 
 describe('move sequence frame semantics', () => {
     it('只把成功落子 place 计为产品展示帧', () => {
@@ -24,22 +32,6 @@ describe('move sequence frame semantics', () => {
         expect(MIN_PERSIST_PLACE_STEPS).toBe(5);
     });
 });
-/**
- * @vitest-environment node
- */
-import { describe, it, expect } from 'vitest';
-import { Grid } from '../web/src/grid.js';
-import {
-    buildInitFrame,
-    buildSpawnFrame,
-    buildPlaceFrame,
-    countPlaceStepsInFrames,
-    displayScoreFromReplayFrames,
-    getPlayerStateAtFrameIndex,
-    nextDistinctReplayFrameIndex,
-    replayStateAt,
-    replayVisualSignature
-} from '../web/src/moveSequence.js';
 
 describe('moveSequence replay', () => {
     it('countPlaceStepsInFrames counts only place frames', () => {
@@ -50,11 +42,11 @@ describe('moveSequence replay', () => {
             buildSpawnFrame([
                 { id: 'a', shape: [[1]], colorIdx: 0, placed: false },
                 { id: 'b', shape: [[1]], colorIdx: 0, placed: false },
-                { id: 'c', shape: [[1]], colorIdx: 0, placed: false }
+                { id: 'c', shape: [[1]], colorIdx: 0, placed: false },
             ]),
             buildPlaceFrame(0, 0, 0),
             buildPlaceFrame(1, 1, 0),
-            buildPlaceFrame(2, 2, 0)
+            buildPlaceFrame(2, 2, 0),
         ];
         expect(frames.length).toBe(5);
         expect(countPlaceStepsInFrames(frames)).toBe(3);
@@ -76,9 +68,7 @@ describe('moveSequence replay', () => {
         const scoring = { singleLine: 10, multiLine: 30, combo: 50 };
         const frames = [
             buildInitFrame('normal', grid, scoring),
-            buildSpawnFrame([
-                { id: '1x4', shape: [[1, 1, 1, 1]], colorIdx: 0, placed: false }
-            ])
+            buildSpawnFrame([{ id: '1x4', shape: [[1, 1, 1, 1]], colorIdx: 0, placed: false }]),
         ];
         frames.push(buildPlaceFrame(0, 4, 7));
 
@@ -108,14 +98,14 @@ describe('moveSequence replay', () => {
         const frames = [
             buildInitFrame('normal', grid, scoring),
             buildSpawnFrame([{ id: '1x1', shape: [[1]], colorIdx: 0, placed: false }]),
-            buildPlaceFrame(0, 0, 0, { score: 200, phase: 'place' })
+            buildPlaceFrame(0, 0, 0, { score: 200, phase: 'place' }),
         ];
         expect(displayScoreFromReplayFrames(frames)).toBe(200);
 
         const noPs = [
             buildInitFrame('normal', grid, scoring),
             buildSpawnFrame([{ id: '1x1', shape: [[1]], colorIdx: 0, placed: false }]),
-            buildPlaceFrame(0, 0, 0)
+            buildPlaceFrame(0, 0, 0),
         ];
         expect(displayScoreFromReplayFrames(noPs)).toBe(replayStateAt(noPs, noPs.length - 1)?.score ?? null);
     });
@@ -125,7 +115,7 @@ describe('moveSequence replay', () => {
         const grid = new Grid(8);
         const frames = [
             buildInitFrame('normal', grid, scoring),
-            buildSpawnFrame([{ id: '1x1', shape: [[1]], colorIdx: 0, placed: false }])
+            buildSpawnFrame([{ id: '1x1', shape: [[1]], colorIdx: 0, placed: false }]),
         ];
         expect(replayVisualSignature(frames, 0)).toBe(replayVisualSignature(frames, 1));
         /* 无新盘面变化时自动播放跳到区间末尾 */

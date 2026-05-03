@@ -16,7 +16,7 @@
  *   multi    多层上扬 + 泛音尾 ~520ms      一次清 ≥2 行
  *   combo    多段 sine 递升、步长加长      连击 streak ≥ 2
  *   perfect  C5+E5+G5 三和弦 / 720ms        盘面清空
- *   bonus    短促闪音 (1800Hz) / 100ms     bonus 同色 / 同 icon 整行
+ *   bonus    爆炸冲击 + 明亮欢呼掌声 1.6s bonus 同色 / 同 icon 整行
  *   unlock   上扬清音 (600→1200) / 600ms   皮肤 / 成就解锁
  *   tick     极轻 800Hz / 30ms             菜单点击
  *
@@ -49,6 +49,16 @@ const DEFAULT_PREFS = {
     haptic: true,
     volume: 0.55,
 };
+
+const FEEDBACK_PRIORITY = {
+    clear: 1,
+    multi: 2,
+    combo: 3,
+    perfect: 4,
+    bonus: 5,
+};
+
+const FEEDBACK_GATE_MS = 90;
 
 /** 浏览器是否支持 Web Audio（SSR / 旧浏览器降级） */
 function _supportsWebAudio() {
@@ -87,6 +97,9 @@ export class AudioFx {
         this.master = null;
         this._unlocked = false;
         this._lastPlayTs = 0;
+        this._pendingClearFeedbackTimer = null;
+        this._feedbackGateUntilMs = 0;
+        this._feedbackGatePriority = 0;
         this._reducedMotion = this._detectReducedMotion();
         this._installAutoUnlock();
     }
@@ -109,27 +122,28 @@ export class AudioFx {
         if (!renderer || renderer.__audioFxAttached) return;
         renderer.__audioFxAttached = true;
 
-        const wrap = (name, soundType, hapticPattern) => {
+        const wrap = (name, soundType, hapticPattern, optsFromArgs = null) => {
             const orig = renderer[name];
             if (typeof orig !== 'function') return;
             renderer[name] = (...args) => {
-                this.play(soundType);
-                this.vibrate(hapticPattern);
+                this._cancelPendingClearFeedback();
+                if (this._playFeedback(soundType, optsFromArgs ? optsFromArgs(args) : {})) {
+                    this.vibrate(hapticPattern);
+                }
                 return orig.apply(renderer, args);
             };
         };
 
         wrap('triggerPerfectFlash',     'perfect', [40, 80, 40, 80, 40]);
-        wrap('triggerComboFlash',       'combo',   [15, 40, 15, 40]);
-        wrap('triggerBonusMatchFlash',  'bonus',   [10, 20, 10]);
+        wrap('triggerComboFlash',       'combo',   [15, 40, 15, 40], (args) => ({ streak: Number(args[0]) || 0 }));
+        wrap('triggerBonusMatchFlash',  'bonus',   [10, 20, 10], (args) => ({ count: Number(args[0]) || 1 }));
         wrap('triggerDoubleWave',       'multi',   [10, 30, 10]);
 
         const origSetClearCells = renderer.setClearCells;
         if (typeof origSetClearCells === 'function') {
             renderer.setClearCells = (cells) => {
                 if (Array.isArray(cells) && cells.length > 0) {
-                    this.play('clear');
-                    this.vibrate([22, 38, 22]);
+                    this._scheduleClearFeedback();
                 }
                 return origSetClearCells.call(renderer, cells);
             };
@@ -141,7 +155,7 @@ export class AudioFx {
         if (!this.prefs.sound) return;
         if (!this._ensureCtx()) return;
         const now = this.ctx.currentTime;
-        if (now - this._lastPlayTs < 0.012) return;
+        if (!opts.force && now - this._lastPlayTs < 0.012) return;
         this._lastPlayTs = now;
 
         switch (type) {
@@ -150,7 +164,7 @@ export class AudioFx {
             case 'multi':   return this._toneMulti(now);
             case 'combo':   return this._toneCombo(now, opts.streak);
             case 'perfect': return this._tonePerfect(now);
-            case 'bonus':   return this._toneBonus(now);
+            case 'bonus':   return this._toneBonus(now, opts.count);
             case 'unlock':  return this._toneUnlock(now);
             case 'tick':    return this._toneTick(now);
             default: return;
@@ -162,6 +176,34 @@ export class AudioFx {
         if (!this.prefs.haptic || this._reducedMotion) return;
         if (!_supportsVibrate()) return;
         try { navigator.vibrate(pattern); } catch { /* ignore */ }
+    }
+
+    _scheduleClearFeedback() {
+        this._cancelPendingClearFeedback();
+        this._pendingClearFeedbackTimer = setTimeout(() => {
+            this._pendingClearFeedbackTimer = null;
+            if (this._playFeedback('clear')) {
+                this.vibrate([22, 38, 22]);
+            }
+        }, 16);
+    }
+
+    _cancelPendingClearFeedback() {
+        if (this._pendingClearFeedbackTimer == null) return;
+        clearTimeout(this._pendingClearFeedbackTimer);
+        this._pendingClearFeedbackTimer = null;
+    }
+
+    _playFeedback(type, opts = {}) {
+        const priority = FEEDBACK_PRIORITY[type] || 0;
+        const nowMs = Date.now();
+        if (nowMs < this._feedbackGateUntilMs && priority <= this._feedbackGatePriority) {
+            return false;
+        }
+        this._feedbackGateUntilMs = nowMs + FEEDBACK_GATE_MS;
+        this._feedbackGatePriority = priority;
+        this.play(type, { ...opts, force: true });
+        return true;
     }
 
     _detectReducedMotion() {
@@ -229,6 +271,40 @@ export class AudioFx {
         osc.stop(now + dur + 0.02);
     }
 
+    _noiseBurst(now, { dur = 0.18, gain = 0.05, filter = 'bandpass', freq = 1200, q = 0.8 } = {}) {
+        if (typeof this.ctx.createBuffer !== 'function' || typeof this.ctx.createBufferSource !== 'function') {
+            return;
+        }
+        const sampleRate = this.ctx.sampleRate || 44100;
+        const length = Math.max(1, Math.floor(sampleRate * dur));
+        const buffer = this.ctx.createBuffer(1, length, sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < length; i++) {
+            const t = i / Math.max(1, length - 1);
+            const env = Math.sin(Math.PI * t) ** 0.55;
+            data[i] = (Math.random() * 2 - 1) * env;
+        }
+        const src = this.ctx.createBufferSource();
+        src.buffer = buffer;
+        const f = this.ctx.createBiquadFilter?.();
+        if (f) {
+            f.type = filter;
+            f.frequency.setValueAtTime(freq, now);
+            f.Q.setValueAtTime(q, now);
+        }
+        const g = this.ctx.createGain();
+        this._envelope(g, now, 0.01, dur, gain, 0);
+        if (f) {
+            src.connect(f);
+            f.connect(g);
+        } else {
+            src.connect(g);
+        }
+        g.connect(this.master);
+        src.start(now);
+        src.stop(now + dur + 0.02);
+    }
+
     _tonePlace(now) {
         this._tone(now, { type: 'sine', freq: 700, slideTo: 480, dur: 0.06, gain: 0.10 });
     }
@@ -252,31 +328,95 @@ export class AudioFx {
         this._tone(now + 0.2, { type: 'sine', freq: 1560, dur: 0.18, gain: 0.036 });
     }
     _toneCombo(now, streak = 0) {
-        const steps = Math.min(2 + Math.max(0, streak | 0), 5);
-        const stepDt = 0.072;
+        this._toneComboCelebration(now, streak);
+    }
+    _toneComboCelebration(now, streak = 0) {
+        const lines = Math.max(3, streak | 0);
+        const steps = Math.min(lines, 5);
+        const stepDt = 0.115;
+        this._tone(now, { type: 'sine', freq: 196, slideTo: 174.61, dur: 0.12, gain: 0.035 });
         for (let i = 0; i < steps; i++) {
-            const f0 = 480 + i * 165;
+            const f0 = 523.25 * (1 + i * 0.18);
             this._tone(now + i * stepDt, {
-                type: 'sine',
+                type: 'triangle',
                 freq: f0,
-                slideTo: f0 * 1.52,
-                dur: 0.14,
-                gain: 0.1 + i * 0.012,
+                slideTo: f0 * 1.22,
+                dur: 0.085,
+                gain: 0.065 + i * 0.011,
             });
         }
-        /* 连击整体再叠一条衰减尾（接在最后一音之后） */
-        const tailAt = now + (steps - 1) * stepDt + 0.1;
-        this._tone(tailAt, { type: 'sine', freq: 1320, dur: 0.22, gain: 0.048 });
+        const tailAt = now + steps * stepDt + 0.02;
+        this._tone(tailAt, { type: 'sine', freq: 1396.91, slideTo: 2093, dur: 0.2, gain: 0.066 });
     }
     _tonePerfect(now) {
-        const C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5;
-        for (const f of [C5, E5, G5]) {
-            this._tone(now, { type: 'sine', freq: f, dur: 0.55, gain: 0.10 });
+        this._noiseBurst(now, { dur: 0.22, gain: 0.09, filter: 'lowpass', freq: 760, q: 0.7 });
+        this._noiseBurst(now + 0.08, { dur: 0.28, gain: 0.065, filter: 'bandpass', freq: 1800, q: 0.75 });
+        this._tone(now, { type: 'sine', freq: 98, slideTo: 49, dur: 0.22, gain: 0.09 });
+        const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568];
+        for (let i = 0; i < notes.length; i++) {
+            this._tone(now + 0.16 + i * 0.08, {
+                type: i % 2 ? 'sine' : 'triangle',
+                freq: notes[i],
+                slideTo: notes[i] * 1.18,
+                dur: 0.16,
+                gain: 0.085 + i * 0.005,
+            });
         }
-        this._tone(now + 0.18, { type: 'triangle', freq: C6, slideTo: C6 * 1.5, dur: 0.30, gain: 0.10 });
+        this._tone(now + 0.72, { type: 'triangle', freq: 2093, slideTo: 3136, dur: 0.38, gain: 0.07 });
+        this._tone(now + 0.9, { type: 'sine', freq: 2637, dur: 0.5, gain: 0.035 });
     }
-    _toneBonus(now) {
-        this._tone(now, { type: 'square', freq: 1800, slideTo: 2400, dur: 0.08, gain: 0.08 });
+    _toneBonus(now, count = 1) {
+        this._toneBonusCheers(now, count);
+    }
+    _toneBonusCheers(now, count = 1) {
+        const bonusCount = Math.max(1, count | 0);
+        // 爆炸生效：短促低频冲击 + 中高频爆裂，不再使用长高通尾音，避免“丝丝声”。
+        this._noiseBurst(now, { dur: 0.16, gain: 0.12, filter: 'lowpass', freq: 680, q: 0.8 });
+        this._noiseBurst(now + 0.04, { dur: 0.22, gain: 0.095, filter: 'bandpass', freq: 1850, q: 0.72 });
+        this._tone(now, { type: 'sine', freq: 90, slideTo: 45, dur: 0.2, gain: 0.085 });
+        this._tone(now + 0.05, { type: 'triangle', freq: 220, slideTo: 440, dur: 0.18, gain: 0.05 });
+        this._noiseBurst(now + 0.24, { dur: 0.34, gain: 0.072, filter: 'bandpass', freq: 2300, q: 0.9 });
+        this._noiseBurst(now + 0.52, { dur: 0.3, gain: 0.05, filter: 'bandpass', freq: 2650, q: 0.95 });
+
+        // 号角式短句：爆炸后立刻抬亮庆祝感。
+        const hornAt = [0.18, 0.36, 0.58];
+        for (let i = 0; i < hornAt.length; i++) {
+            const t = hornAt[i];
+            const root = [392, 523.25, 659.25][i];
+            this._tone(now + t, { type: 'triangle', freq: root, slideTo: root * 1.48, dur: 0.13, gain: 0.064 });
+            this._tone(now + t + 0.022, { type: 'sine', freq: root * 1.5, slideTo: root * 1.86, dur: 0.11, gain: 0.042 });
+        }
+
+        // 几组明亮“嘿/哇”式喊声，只保留短促爆发段。
+        const chants = Math.min(8, 4 + bonusCount);
+        for (let i = 0; i < chants; i++) {
+            const t = 0.26 + i * 0.16;
+            const base = [392, 440, 493.88, 523.25, 587.33][i % 5];
+            this._tone(now + t, { type: 'triangle', freq: base, slideTo: base * 1.22, dur: 0.12, gain: Math.max(0.024, 0.05 - i * 0.0028) });
+            this._tone(now + t + 0.025, { type: 'sine', freq: base * 1.5, slideTo: base * 1.36, dur: 0.09, gain: Math.max(0.014, 0.03 - i * 0.002) });
+        }
+
+        // 拍手/碎裂掌声：短而亮，快速收尾，不留下高频嘶声。
+        const clapCount = Math.min(22, 12 + bonusCount * 2);
+        for (let i = 0; i < clapCount; i++) {
+            const t = 0.18 + 1.15 * (i / Math.max(1, clapCount - 1));
+            this._noiseBurst(now + t, {
+                dur: 0.045,
+                gain: Math.max(0.018, 0.052 - i * 0.0014),
+                filter: 'bandpass',
+                freq: 2100 + (i % 5) * 220,
+                q: 1.35,
+            });
+            if (i % 3 === 0) {
+                this._noiseBurst(now + t + 0.035, {
+                    dur: 0.035,
+                    gain: Math.max(0.012, 0.026 - i * 0.0008),
+                    filter: 'bandpass',
+                    freq: 3100,
+                    q: 1.1,
+                });
+            }
+        }
     }
     _toneUnlock(now) {
         this._tone(now, { type: 'sine', freq: 600, slideTo: 1200, dur: 0.32, gain: 0.14 });

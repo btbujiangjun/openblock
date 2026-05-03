@@ -25,13 +25,14 @@ const PALETTES = {
     music: {
         clear:   (now, fx) => fx._tone(now, { type: 'sine', freq: 523.25, dur: 0.18, gain: 0.14 }),
         combo:   (now, fx, streak = 0) => {
+            if ((streak | 0) >= 3) return fx._toneComboCelebration(now, streak);
             const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
             const steps = Math.min(2 + Math.max(0, streak | 0), 5);
             for (let i = 0; i < steps; i++) {
                 fx._tone(now + i * 0.08, { type: 'sine', freq: notes[i], dur: 0.10, gain: 0.13 });
             }
         },
-        bonus:   (now, fx) => fx._tone(now, { type: 'sine', freq: 1046.5, slideTo: 1568, dur: 0.10, gain: 0.10 }),
+        bonus:   (now, fx, count) => fx._toneBonusCheers(now, count),
     },
     forest: {
         clear:   (now, fx) => {
@@ -39,7 +40,8 @@ const PALETTES = {
                 fx._tone(now + i * 0.05, { type: 'sine', freq: 1800 + i * 200, slideTo: 2200, dur: 0.05, gain: 0.10 });
             }
         },
-        combo:   (now, fx) => {
+        combo:   (now, fx, streak = 0) => {
+            if ((streak | 0) >= 3) return fx._toneComboCelebration(now, streak);
             for (let i = 0; i < 5; i++) {
                 fx._tone(now + i * 0.05, { type: 'sine', freq: 1500 + Math.random() * 800, dur: 0.04, gain: 0.08 });
             }
@@ -48,16 +50,18 @@ const PALETTES = {
     industrial: {
         clear:   (now, fx) => fx._tone(now, { type: 'square', freq: 220, slideTo: 110, dur: 0.10, gain: 0.10 }),
         combo:   (now, fx, streak = 0) => {
+            if ((streak | 0) >= 3) return fx._toneComboCelebration(now, streak);
             const steps = Math.min(2 + (streak | 0), 5);
             for (let i = 0; i < steps; i++) {
                 fx._tone(now + i * 0.06, { type: 'square', freq: 180 + i * 40, dur: 0.06, gain: 0.10 });
             }
         },
-        bonus:   (now, fx) => fx._tone(now, { type: 'square', freq: 320, slideTo: 80, dur: 0.12, gain: 0.10 }),
+        bonus:   (now, fx, count) => fx._toneBonusCheers(now, count),
     },
     ocean: {
         clear:   (now, fx) => fx._tone(now, { type: 'sine', freq: 1600, slideTo: 240, dur: 0.32, gain: 0.10 }),
         combo:   (now, fx, streak = 0) => {
+            if ((streak | 0) >= 3) return fx._toneComboCelebration(now, streak);
             const steps = Math.min(2 + (streak | 0), 5);
             for (let i = 0; i < steps; i++) {
                 fx._tone(now + i * 0.10, { type: 'sine', freq: 1400 - i * 120, slideTo: 200, dur: 0.20, gain: 0.10 });
@@ -71,7 +75,8 @@ const PALETTES = {
                 fx._tone(now + i * 0.04, { type: 'triangle', freq: notes[i], dur: 0.18, gain: 0.10 });
             }
         },
-        combo:   (now, fx) => {
+        combo:   (now, fx, streak = 0) => {
+            if ((streak | 0) >= 3) return fx._toneComboCelebration(now, streak);
             const pent = [523.25, 587.33, 659.25, 783.99, 880];   // 五声音阶
             for (let i = 0; i < 5; i++) {
                 fx._tone(now + i * 0.07, { type: 'triangle', freq: pent[i], dur: 0.10, gain: 0.10 });
@@ -84,12 +89,13 @@ const PALETTES = {
             fx._tone(now + 0.08, { type: 'square', freq: 110, dur: 0.08, gain: 0.10 });
         },
         combo:   (now, fx, streak = 0) => {
+            if ((streak | 0) >= 3) return fx._toneComboCelebration(now, streak);
             const steps = Math.min(2 + (streak | 0), 5);
             for (let i = 0; i < steps; i++) {
                 fx._tone(now + i * 0.07, { type: 'square', freq: 90 + i * 20, dur: 0.06, gain: 0.10 });
             }
         },
-        bonus:   (now, fx) => fx._tone(now, { type: 'sawtooth', freq: 320, slideTo: 80, dur: 0.18, gain: 0.10 }),
+        bonus:   (now, fx, count) => fx._toneBonusCheers(now, count),
     },
 };
 
@@ -112,7 +118,7 @@ export function initSkinSoundPalettes({ audioFx }) {
         else                audioFx._toneClear = _origMethods.clear;
         if (palette?.combo) audioFx._toneCombo = (now, streak) => palette.combo(now, audioFx, streak);
         else                audioFx._toneCombo = _origMethods.combo;
-        if (palette?.bonus) audioFx._toneBonus = (now) => palette.bonus(now, audioFx);
+        if (palette?.bonus) audioFx._toneBonus = (now, count) => palette.bonus(now, audioFx, count);
         else                audioFx._toneBonus = _origMethods.bonus;
     };
 

@@ -2,6 +2,7 @@
  * HTTP 客户端：与 Flask 后端通信。
  */
 import { getApiBaseUrl } from './config.js';
+import { skipWhenDocumentHidden } from './lib/pageVisibility.js';
 
 export class APIClient {
     constructor() {
@@ -9,6 +10,8 @@ export class APIClient {
         this.pendingBehaviors = [];
         this.syncInterval = null;
         this.batchSize = 10;
+        /** @type {(() => void) | null} */
+        this._visibilityFlush = null;
     }
 
     async request(endpoint, options = {}) {
@@ -131,15 +134,34 @@ export class APIClient {
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
         }
-        this.syncInterval = setInterval(() => {
-            void this.flushBehaviors();
-        }, intervalMs);
+        if (this._visibilityFlush && typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', this._visibilityFlush);
+            this._visibilityFlush = null;
+        }
+        this.syncInterval = setInterval(
+            skipWhenDocumentHidden(() => {
+                void this.flushBehaviors();
+            }),
+            intervalMs
+        );
+        if (typeof document !== 'undefined') {
+            this._visibilityFlush = () => {
+                if (document.visibilityState === 'visible') {
+                    void this.flushBehaviors();
+                }
+            };
+            document.addEventListener('visibilitychange', this._visibilityFlush);
+        }
     }
 
     stopSync() {
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
+        }
+        if (this._visibilityFlush && typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', this._visibilityFlush);
+            this._visibilityFlush = null;
         }
         void this.flushBehaviors();
     }

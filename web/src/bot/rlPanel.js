@@ -3,10 +3,12 @@
  */
 import { LinearAgent } from './linearAgent.js';
 import { trainSelfPlay, runSelfPlayEpisode, WIN_SCORE_THRESHOLD } from './trainer.js';
+import { rlWinThresholdForEpisode } from './rlCurriculum.js';
 import { isRlPytorchBackendPreferred } from '../config.js';
 import { fetchRlStatus, fetchTrainingLog } from './pytorchBackend.js';
 import { appendBrowserTrainEpisode, getBrowserTrainingLog } from './browserTrainingLog.js';
 import { updateRlTrainingCharts } from './rlTrainingCharts.js';
+import { skipWhenDocumentHidden } from '../lib/pageVisibility.js';
 
 const WIN_WINDOW = 80;
 const AVG_WINDOW = 40;
@@ -37,10 +39,12 @@ export function initRLPanel(game) {
     const outWin = el('rl-winrate');
     const outBest = el('rl-best');
     const chkPytorch = el('rl-use-pytorch');
+    const chkLookahead = el('rl-lookahead');
     const outBackendStatus = el('rl-backend-status');
     const outServerLog = el('rl-server-log');
     const btnRefreshLog = el('rl-refresh-server-log');
     const chartRoot = el('rl-chart-root');
+    const dashSummary = el('rl-dash-summary');
     const chkChartAuto = el('rl-chart-auto');
     const selChartTail = el('rl-chart-tail');
     const btnRefreshCharts = el('rl-refresh-charts');
@@ -156,12 +160,15 @@ export function initRLPanel(game) {
         }
         if (chkChartAuto?.checked && running) {
             const ms = readUseBackend() ? 1800 : 1200;
-            chartPollTimer = setInterval(() => {
-                if (!chkChartAuto?.checked || !running) {
-                    return;
-                }
-                void refreshDashboardFull();
-            }, ms);
+            chartPollTimer = setInterval(
+                skipWhenDocumentHidden(() => {
+                    if (!chkChartAuto?.checked || !running) {
+                        return;
+                    }
+                    void refreshDashboardFull();
+                }),
+                ms
+            );
         }
     }
 
@@ -173,18 +180,21 @@ export function initRLPanel(game) {
         const fetchLines = 5000;
         if (!readUseBackend()) {
             const data = getBrowserTrainingLog(fetchLines);
-            updateRlTrainingCharts(chartRoot, data.entries || [], null, maxEpisodes);
+            updateRlTrainingCharts(chartRoot, data.entries || [], null, maxEpisodes, { path: data.path });
             return;
         }
         try {
             const data = await fetchTrainingLog(fetchLines);
-            updateRlTrainingCharts(chartRoot, data.entries || [], null, maxEpisodes);
+            updateRlTrainingCharts(chartRoot, data.entries || [], null, maxEpisodes, { path: data.path });
         } catch {
             chartRoot.replaceChildren();
             const p = document.createElement('p');
             p.className = 'rl-dash-empty';
             p.textContent = '无法加载服务端曲线（请启动 Flask 并勾选 PyTorch 后端）';
             chartRoot.appendChild(p);
+            if (dashSummary) {
+                dashSummary.textContent = '运行状态：本次刷新未拉到服务端训练日志；请确认 Flask 后端可用，恢复后本卡片会随下一次刷新更新。';
+            }
         }
     }
 
@@ -339,6 +349,7 @@ export function initRLPanel(game) {
         running = true;
         controller = new AbortController();
         const useBackend = readUseBackend();
+        const useLookahead = Boolean(chkLookahead?.checked);
         if (btnStart) {
             btnStart.disabled = true;
         }
@@ -353,44 +364,59 @@ export function initRLPanel(game) {
                 ? '开始 PyTorch后端 可随时停止'
                 : '开始 浏览器线性模型 可随时停止'
         );
+        if (useBackend && useLookahead) {
+            logLine('已开启 1-step lookahead（首局较慢）；不需要 Q 蒸馏时请取消勾选');
+        }
 
-        if (useBackend) {
-            try {
-                const st = await fetchRlStatus();
-                if (st.available && typeof st.episodes === 'number') {
-                    totalEpisodes = st.episodes;
-                    updateStats();
+        try {
+            if (useBackend) {
+                try {
+                    const st = await fetchRlStatus();
+                    if (st.available && typeof st.episodes === 'number') {
+                        totalEpisodes = st.episodes;
+                        updateStats();
+                    }
+                } catch {
+                    /* ignore */
                 }
-            } catch {
-                /* ignore */
             }
-        }
 
-        syncChartPoll();
-        void refreshDashboardFull();
+            syncChartPoll();
+            try {
+                await refreshDashboardFull();
+            } catch (err) {
+                console.warn('[RL panel] refreshDashboardFull:', err);
+            }
 
-        await trainSelfPlay({
-            agent,
-            episodes: 500000,
-            signal: controller.signal,
-            onEpisode,
-            useBackend
-        });
+            await trainSelfPlay({
+                agent,
+                episodes: 500000,
+                signal: controller.signal,
+                onEpisode,
+                useBackend,
+                useLookahead,
+            });
 
-        running = false;
-        if (btnStart) {
-            btnStart.disabled = false;
+            logLine(useBackend ? '结束 服务端' : '结束 已写localStorage');
+        } catch (err) {
+            console.error('[RL panel] startBatch', err);
+            const msg = err instanceof Error ? err.message : String(err);
+            logLine(`训练异常退出：${msg}`);
+        } finally {
+            running = false;
+            if (btnStart) {
+                btnStart.disabled = false;
+            }
+            if (btnEpisode && !vizBusy) {
+                btnEpisode.disabled = false;
+            }
+            if (btnStop) {
+                btnStop.disabled = true;
+            }
+            syncChartPoll();
+            void refreshBackendStatus();
+            void refreshDashboardFull();
         }
-        if (btnEpisode && !vizBusy) {
-            btnEpisode.disabled = false;
-        }
-        if (btnStop) {
-            btnStop.disabled = true;
-        }
-        logLine(useBackend ? '结束 服务端' : '结束 已写localStorage');
-        syncChartPoll();
-        void refreshBackendStatus();
-        void refreshDashboardFull();
     }
 
     if (btnStart) {
@@ -431,6 +457,17 @@ export function initRLPanel(game) {
                     game.setRLPreviewLocked(true);
                     game.hideScreens();
                 }
+                let winThr = rlWinThresholdForEpisode(totalEpisodes + 1);
+                if (useBackend) {
+                    try {
+                        const st = await fetchRlStatus();
+                        if (st.available && typeof st.episodes === 'number') {
+                            winThr = rlWinThresholdForEpisode(st.episodes + 1);
+                        }
+                    } catch {
+                        /* 保持 totalEpisodes+1 的门槛 */
+                    }
+                }
                 const ep = await runSelfPlayEpisode(
                     useBackend ? null : agent,
                     0.85,
@@ -448,7 +485,11 @@ export function initRLPanel(game) {
                             await sleep(VIZ_STEP_MS);
                         }
                     },
-                    { useBackend }
+                    {
+                        useBackend,
+                        useLookahead: Boolean(chkLookahead?.checked),
+                        winScoreThreshold: winThr,
+                    }
                 );
                 logLine(
                     `评估 分${ep.score} 步${ep.steps} 消${ep.totalClears}${ep.won ? ' 胜' : ''} ${ep.trajectory.length}手 ${useBackend ? 'PT' : '线'} 不计入均分`

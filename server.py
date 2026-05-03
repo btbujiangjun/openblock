@@ -171,11 +171,19 @@ def _migrate_schema(cursor):
             session_id INTEGER PRIMARY KEY,
             user_id TEXT NOT NULL,
             frames TEXT NOT NULL,
+            analysis TEXT,
             updated_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         )
         """
     )
+    cursor.execute("PRAGMA table_info(move_sequences)")
+    move_cols = {row[1] for row in cursor.fetchall()}
+    if "analysis" not in move_cols:
+        try:
+            cursor.execute("ALTER TABLE move_sequences ADD COLUMN analysis TEXT")
+        except sqlite3.OperationalError:
+            pass
 
     cursor.execute(
         """
@@ -288,6 +296,14 @@ def init_db():
                 events TEXT,
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS skill_wallets (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
         ''')
 
@@ -910,6 +926,7 @@ def put_move_sequence(session_id):
     data = request.get_json() or {}
     user_id = data.get("user_id", "") or data.get("userId", "")
     frames = data.get("frames")
+    analysis = data.get("analysis")
     if frames is None:
         return jsonify({"success": False, "error": "frames required"}), 400
     if not isinstance(frames, list) or len(frames) < _MIN_MOVE_FRAMES:
@@ -919,18 +936,27 @@ def put_move_sequence(session_id):
                 "error": f"frames must have at least {_MIN_MOVE_FRAMES} entries",
             }
         ), 400
+    if analysis is not None and not isinstance(analysis, dict):
+        return jsonify({"success": False, "error": "analysis must be an object"}), 400
     db = get_db()
     cur = db.cursor()
     cur.execute(
         """
-        INSERT INTO move_sequences (session_id, user_id, frames, updated_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO move_sequences (session_id, user_id, frames, analysis, updated_at)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET
             frames = excluded.frames,
+            analysis = COALESCE(excluded.analysis, move_sequences.analysis),
             updated_at = excluded.updated_at,
             user_id = excluded.user_id
         """,
-        (session_id, user_id, json.dumps(frames, ensure_ascii=False), int(time.time())),
+        (
+            session_id,
+            user_id,
+            json.dumps(frames, ensure_ascii=False),
+            json.dumps(analysis, ensure_ascii=False) if analysis is not None else None,
+            int(time.time()),
+        ),
     )
     db.commit()
     return jsonify({"success": True})
@@ -940,14 +966,20 @@ def put_move_sequence(session_id):
 def get_move_sequence(session_id):
     db = get_db()
     cur = db.cursor()
-    cur.execute("SELECT frames FROM move_sequences WHERE session_id = ?", (session_id,))
+    cur.execute("SELECT frames, analysis FROM move_sequences WHERE session_id = ?", (session_id,))
     row = cur.fetchone()
     if not row:
-        return jsonify({"frames": None})
+        return jsonify({"frames": None, "analysis": None})
     try:
-        return jsonify({"frames": json.loads(row["frames"] or "[]")})
+        analysis = None
+        if "analysis" in row.keys() and row["analysis"]:
+            try:
+                analysis = json.loads(row["analysis"])
+            except json.JSONDecodeError:
+                analysis = None
+        return jsonify({"frames": json.loads(row["frames"] or "[]"), "analysis": analysis})
     except json.JSONDecodeError:
-        return jsonify({"frames": None})
+        return jsonify({"frames": None, "analysis": None})
 
 
 @app.route("/api/replay-sessions", methods=["GET"])
@@ -965,7 +997,8 @@ def list_replay_sessions():
     cur.execute(
         """
         SELECT s.id, s.user_id, s.strategy, s.strategy_config, s.score, s.start_time,
-               s.end_time, s.duration, s.status, s.game_stats, m.frames AS move_frames
+               s.end_time, s.duration, s.status, s.game_stats,
+               m.frames AS move_frames, m.analysis AS move_analysis
         FROM sessions s
         INNER JOIN move_sequences m ON m.session_id = s.id AND m.user_id = s.user_id
         WHERE s.user_id = ?
@@ -976,7 +1009,7 @@ def list_replay_sessions():
     )
     out = []
     for row in cur.fetchall():
-        rd = {k: row[k] for k in row.keys() if k != "move_frames"}
+        rd = {k: row[k] for k in row.keys() if k not in ("move_frames", "move_analysis")}
         try:
             frames = json.loads(row["move_frames"] or "[]")
         except (json.JSONDecodeError, TypeError):
@@ -988,6 +1021,13 @@ def list_replay_sessions():
             continue
         item = _row_session_api(rd)
         item["frames"] = frames
+        if row["move_analysis"]:
+            try:
+                item["analysis"] = json.loads(row["move_analysis"])
+            except (json.JSONDecodeError, TypeError):
+                item["analysis"] = None
+        else:
+            item["analysis"] = None
         out.append(item)
         if len(out) >= lim:
             break
@@ -1128,6 +1168,52 @@ def get_client_stats():
     )
 
 
+@app.route("/api/wallet", methods=["GET"])
+def get_skill_wallet():
+    user_id = request.args.get("user_id", "") or request.args.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT payload FROM skill_wallets WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    if not row or not row["payload"]:
+        return jsonify({"wallet": None})
+    try:
+        return jsonify({"wallet": json.loads(row["payload"])})
+    except json.JSONDecodeError:
+        return jsonify({"wallet": None})
+
+
+@app.route("/api/wallet", methods=["PUT"])
+def put_skill_wallet():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    wallet = data.get("wallet")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    if wallet is None or not isinstance(wallet, dict):
+        return jsonify({"error": "wallet object required"}), 400
+    payload = json.dumps(wallet, ensure_ascii=False)
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO skill_wallets (user_id, payload, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        """,
+        (user_id, payload, int(time.time())),
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
 @app.route("/api/client/stats", methods=["PUT"])
 def put_client_stats():
     data = request.get_json() or {}
@@ -1266,6 +1352,7 @@ def clear_user_data():
         ("replays", "user_id"),
         ("client_strategies", "user_id"),
         ("user_stats", "user_id"),
+        ("skill_wallets", "user_id"),
     ):
         cur.execute(f"DELETE FROM {table} WHERE {col} = ?", (user_id,))
     cur.execute("DELETE FROM move_sequences WHERE user_id = ?", (user_id,))
@@ -2116,53 +2203,70 @@ _DOCS_DIR = Path(__file__).resolve().parent / 'docs'
 _WEB_PUBLIC_DIR = Path(__file__).resolve().parent / 'web' / 'public'
 
 _DOC_CATEGORIES = [
-    # 0. 开发者指南（二次开发首读）
-    {'name': '开发者指南',
-     'docs': ['DEV_GUIDE.md', 'I18N.md', 'STRATEGY_GUIDE.md', 'DOMAIN_KNOWLEDGE.md']},
-    # 1. 项目总览
-    {'name': '项目总览',
-     'docs': ['PROJECT.md']},
-    # 2. 品类研究
-    {'name': '品类研究',
-     'docs': ['CASUAL_GAME_ANALYSIS.md', 'ARCHITECTURE_COMPARISON.md', 'COMPETITOR_USER_ANALYSIS.md']},
-    # 3. 游戏设计
-    {'name': '游戏设计',
-     'docs': ['DIFFICULTY_MODES.md']},
-    # 4. 玩家系统
+    # 与 docs/ 目录结构一致（子目录 + 相对路径），供 /docs/list 与 docs.html 侧栏使用
+    {'name': '文档中心',
+     'docs': ['README.md']},
+    {'name': '工程与扩展',
+     'docs': ['engineering/PROJECT.md', 'engineering/DEV_GUIDE.md', 'engineering/TESTING.md',
+              'engineering/I18N.md', 'engineering/STRATEGY_GUIDE.md']},
+    {'name': '领域与竞品',
+     'docs': ['domain/DOMAIN_KNOWLEDGE.md', 'domain/CASUAL_GAME_ANALYSIS.md',
+              'domain/COMPETITOR_USER_ANALYSIS.md', 'domain/ARCHITECTURE_COMPARISON.md']},
+    {'name': '玩法与产品',
+     'docs': ['product/DIFFICULTY_MODES.md', 'product/CLEAR_SCORING.md',
+              'product/RETENTION_ROADMAP_V10_17.md', 'product/EASTER_EGGS_AND_DELIGHT.md',
+              'product/SKINS_CATALOG.md', 'product/SKIN_ICON_SEMANTIC_POOL.md']},
     {'name': '玩家系统',
-     'docs': ['PLAYER_ABILITY_EVALUATION.md', 'PANEL_PARAMETERS.md',
-              'REALTIME_STRATEGY.md', 'PLAYSTYLE_DETECTION.md']},
-    # 5. 算法与模型（统一手册：跨子系统的算法工程师视角）
+     'docs': ['player/PLAYER_ABILITY_EVALUATION.md', 'player/PANEL_PARAMETERS.md',
+              'player/REALTIME_STRATEGY.md', 'player/PLAYSTYLE_DETECTION.md']},
     {'name': '算法与模型',
-     'docs': ['ALGORITHMS_HANDBOOK.md',
-              'ALGORITHMS_RL.md',
-              'ALGORITHMS_PLAYER_MODEL.md',
-              'ALGORITHMS_MONETIZATION.md',
-              'ALGORITHMS_SPAWN.md',
-              'CLEAR_SCORING.md']},
-    # 6. 出块算法
+     'docs': ['algorithms/ALGORITHMS_HANDBOOK.md', 'algorithms/ALGORITHMS_SPAWN.md',
+              'algorithms/ALGORITHMS_PLAYER_MODEL.md', 'algorithms/ALGORITHMS_RL.md',
+              'algorithms/ALGORITHMS_MONETIZATION.md']},
     {'name': '出块算法',
-     'docs': ['SPAWN_ALGORITHM.md', 'ADAPTIVE_SPAWN.md', 'SPAWN_BLOCK_MODELING.md',
-              'SPAWN_SOLUTION_DIFFICULTY.md']},
-    # 7. 强化学习
+     'docs': ['algorithms/SPAWN_ALGORITHM.md', 'algorithms/ADAPTIVE_SPAWN.md',
+              'algorithms/SPAWN_BLOCK_MODELING.md', 'algorithms/SPAWN_SOLUTION_DIFFICULTY.md']},
     {'name': '强化学习',
-     'docs': ['RL_AND_GAMEPLAY.md', 'RL_ANALYSIS.md',
-              'RL_ALPHAZERO_OPTIMIZATION.md', 'RL_BROWSER_OPTIMIZATION.md',
-              'RL_TRAINING_OPTIMIZATION.md', 'RL_TRAINING_NUMERICAL_STABILITY.md',
-              'RL_TRAINING_DASHBOARD_FLOW.md', 'RL_TRAINING_DASHBOARD_TRENDS.md']},
-    # 7. 商业化
-    {'name': '商业化',
-     'docs': ['MONETIZATION.md', 'MONETIZATION_CUSTOMIZATION.md',
-              'MONETIZATION_TRAINING_PANEL.md',
-              'MONETIZATION_OPTIMIZATION.md', 'MONETIZATION_PERSONALIZATION.md',
-              'COMMERCIAL_OPERATIONS.md']},
-    # 8. 平台扩展
+     'docs': ['algorithms/RL_AND_GAMEPLAY.md', 'algorithms/RL_ANALYSIS.md',
+              'algorithms/RL_ALPHAZERO_OPTIMIZATION.md', 'algorithms/RL_BROWSER_OPTIMIZATION.md',
+              'algorithms/RL_TRAINING_OPTIMIZATION.md', 'algorithms/RL_TRAINING_NUMERICAL_STABILITY.md',
+              'algorithms/RL_TRAINING_DASHBOARD_FLOW.md', 'algorithms/RL_TRAINING_DASHBOARD_TRENDS.md']},
+    {'name': '商业化与运营',
+     'docs': ['operations/MONETIZATION.md', 'operations/MONETIZATION_CUSTOMIZATION.md',
+              'operations/MONETIZATION_TRAINING_PANEL.md', 'operations/COMMERCIAL_OPERATIONS.md']},
     {'name': '平台扩展',
-     'docs': ['WECHAT_MINIPROGRAM.md']},
-    # 9. 视觉与皮肤
-    {'name': '视觉与皮肤',
-     'docs': ['SKINS_CATALOG.md']},
+     'docs': ['platform/WECHAT_MINIPROGRAM.md', 'platform/WECHAT_RELEASE.md']},
+    {'name': '归档',
+     'docs': ['archive/MONETIZATION_OPTIMIZATION.md', 'archive/MONETIZATION_PERSONALIZATION.md']},
 ]
+
+
+def _resolve_under_docs(rel: str):
+    """解析 docs/ 下 Markdown 路径，禁止跳出目录；返回 Path 或 None。"""
+    if not rel or '..' in rel or rel.startswith('/'):
+        return None
+    base = _DOCS_DIR.resolve()
+    cand = (base / rel).resolve()
+    try:
+        cand.relative_to(base)
+    except ValueError:
+        return None
+    return cand if cand.is_file() else None
+
+
+def _resolve_docs_markdown(rel: str):
+    """在 docs/ 下解析文档：先精确路径，再按文件名在子树中唯一匹配。"""
+    p = _resolve_under_docs(rel)
+    if p is not None:
+        return p
+    name = Path(rel).name
+    if '/' in rel or not name.endswith('.md'):
+        return None
+    base = _DOCS_DIR.resolve()
+    matches = [x for x in base.rglob(name) if x.is_file()]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 @app.route('/ops')
@@ -2212,26 +2316,32 @@ def docs_list():
 _ROOT_DIR = Path(__file__).resolve().parent
 
 
-@app.route('/docs/raw/<filename>')
+@app.route('/docs/raw/<path:filename>')
 def docs_raw(filename):
     """返回指定文档的原始 Markdown 内容。
 
     查找顺序：
-      1. docs/<filename>       — 专项文档目录
-      2. <root>/<filename>     — 根目录（ARCHITECTURE.md / README.md / CONTRIBUTING.md 等）
+      1. docs/ 下精确路径或唯一 basename（见 _resolve_docs_markdown）
+      2. 仓库根目录下扁平文件名（ARCHITECTURE.md / CONTRIBUTING.md 等）
     """
     import re
-    if not re.match(r'^[\w\-]+\.md$', filename, re.ASCII):
+    if '..' in filename or filename.startswith('/'):
+        return jsonify({'error': 'invalid filename'}), 400
+    if not re.match(r'^[\w\-/]+\.md$', filename, re.ASCII):
         return jsonify({'error': 'invalid filename'}), 400
 
-    # 优先 docs/ 目录，再回退到根目录
-    path = _DOCS_DIR / filename
-    if not path.exists():
-        root_path = _ROOT_DIR / filename
-        if root_path.exists():
+    path = _resolve_docs_markdown(filename)
+    if path is None and '/' not in filename:
+        root_path = (_ROOT_DIR / filename).resolve()
+        try:
+            root_path.relative_to(_ROOT_DIR.resolve())
+        except ValueError:
+            root_path = None
+        if root_path and root_path.is_file():
             path = root_path
-        else:
-            return jsonify({'error': 'not found'}), 404
+
+    if path is None:
+        return jsonify({'error': 'not found'}), 404
 
     content = path.read_text('utf-8', errors='replace')
     return content, 200, {'Content-Type': 'text/plain; charset=utf-8',

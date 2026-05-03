@@ -25,6 +25,7 @@ export default {
     'menu.replay': '对局回放',
     'menu.editor': '关卡编辑器',
     'menu.docs': '文档中心',
+    'menu.personalData': '钱包 · 个人数据',
     'menu.ops': '运营看板',
     'menu.localeLabel': '语言',
     'menu.localeAria': '界面语言',

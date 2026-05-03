@@ -17,6 +17,7 @@ _MAX_GRID = int(_ENC.get("maxGridWidth", 8))
 _DOCK_MASK_SIDE = int(_ENC.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(_ENC.get("dockSlots", 3))
 _SCALAR_DIM = int(_ENC.get("stateScalarDim", 15))
+_N_COLORS = int(_ENC.get("colorCount", 8))
 
 STATE_FEATURE_DIM = int(_ENC["stateDim"])
 ACTION_FEATURE_DIM = int(_ENC["actionDim"])
@@ -80,6 +81,35 @@ def _encode_dock_spatial(dock: list[dict]) -> np.ndarray:
     return np.concatenate(parts, axis=0)
 
 
+def _encode_color_summary(grid, dock: list[dict]) -> np.ndarray:
+    n = grid.size
+    area = max(n * n, 1)
+    color_counts = np.zeros(_N_COLORS, dtype=np.float32)
+    mono_line_potential = np.zeros(_N_COLORS, dtype=np.float32)
+    for y in range(n):
+        for x in range(n):
+            c = grid.cells[y][x]
+            if c is not None and 0 <= int(c) < _N_COLORS:
+                color_counts[int(c)] += 1.0
+    for c in range(_N_COLORS):
+        best = 0
+        for y in range(n):
+            row = grid.cells[y]
+            if all(v is None or v == c for v in row):
+                best = max(best, sum(1 for v in row if v == c))
+        for x in range(n):
+            col = [grid.cells[y][x] for y in range(n)]
+            if all(v is None or v == c for v in col):
+                best = max(best, sum(1 for v in col if v == c))
+        mono_line_potential[c] = best / max(n, 1)
+    dock_colors = np.zeros(_DOCK_SLOTS, dtype=np.float32)
+    denom = max(_N_COLORS - 1, 1)
+    for i in range(_DOCK_SLOTS):
+        if i < len(dock) and not dock[i].get("placed"):
+            dock_colors[i] = float(dock[i].get("color_idx", dock[i].get("colorIdx", 0))) / denom
+    return np.concatenate([color_counts / area, mono_line_potential, dock_colors], axis=0)
+
+
 def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     n = grid.size
     area = n * n
@@ -104,8 +134,7 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     almost_full_cols = sum(1 for cf in col_fill if _AF <= cf < 1)
     unplaced = sum(1 for b in dock if not b["placed"]) / _DOCK
 
-    scalars = np.array(
-        [
+    base_scalars = [
             filled / area,
             max_row,
             min_row,
@@ -121,9 +150,16 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
             max_row - min_row,
             max_col - min_col,
             (almost_full_rows + almost_full_cols) / (2 * n),
-        ],
-        dtype=np.float32,
-    )
+            0.0,  # holes placeholder in MLX lightweight path
+            0.0,  # row transitions placeholder
+            0.0,  # col transitions placeholder
+            0.0,  # wells placeholder
+            0.0,  # close1 placeholder
+            0.0,  # close2 placeholder
+            0.0,  # mobility placeholder
+            filled / area,
+        ]
+    scalars = np.array(base_scalars + _encode_color_summary(grid, dock).tolist(), dtype=np.float32)
     if scalars.shape[0] != _SCALAR_DIM:
         raise ValueError(f"标量段长度 {scalars.shape[0]} != stateScalarDim {_SCALAR_DIM}")
 
@@ -148,6 +184,7 @@ def extract_action_features(
     div_sh = float(_AN.get("shapeSpan", 5))
     div_cells = float(_AN.get("maxCells", 10))
     div_clr = float(_AN.get("maxClearsHint", 5))
+    unplaced_after = sum(1 for b in dock if not b.get("placed")) - 1 if False else 0
     action_part = np.array(
         [
             block_idx / div_b,
@@ -157,6 +194,11 @@ def extract_action_features(
             h / div_sh,
             cells / div_cells,
             would_clear / div_clr,
+            0.0,
+            max(0, unplaced_after) / 3.0,
+            0.0,
+            max(gy + h, 0) / grid_size,
+            0.0,
         ],
         dtype=np.float32,
     )

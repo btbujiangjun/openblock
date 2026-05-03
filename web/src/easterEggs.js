@@ -28,6 +28,7 @@
  */
 
 import { setActiveSkinId, SKINS } from './skins.js';
+import { skipWhenDocumentHidden } from './lib/pageVisibility.js';
 
 const KONAMI_KEY = 'openblock_konami_unlocked';
 const HIDDEN_SKIN_ID = 'og_geometry';
@@ -157,7 +158,7 @@ function _installScoreLandmarks(opts = {}) {
         }
     };
 
-    setInterval(tick, 350);
+    setInterval(skipWhenDocumentHidden(tick), 350);
 
     const newGameWatcher = () => {
         const game = opts.game || window.openBlockGame;

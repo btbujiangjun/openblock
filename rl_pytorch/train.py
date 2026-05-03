@@ -18,7 +18,9 @@ v5 核心改动（修复不收敛根因）：
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import math
 import os
 import random
 import sys
@@ -131,6 +133,35 @@ def _normalize_advantages(adv: torch.Tensor, min_std: float = 1e-4) -> torch.Ten
 def _clamp_log_probs_pg(log_probs: torch.Tensor) -> torch.Tensor:
     x = torch.nan_to_num(log_probs, nan=0.0, posinf=0.0, neginf=-50.0)
     return x.clamp(min=-50.0, max=0.0)
+
+
+def _module_tensors_finite(net: torch.nn.Module, *, check_grads: bool = False) -> bool:
+    for p in net.parameters():
+        t = p.grad if check_grads else p
+        if t is None:
+            continue
+        if not bool(torch.isfinite(t).all().item()):
+            return False
+    return True
+
+
+def _safe_metric(v, *, max_abs: float = 1e6, min_value: float | None = None, max_value: float | None = None) -> float | None:
+    if hasattr(v, "detach"):
+        try:
+            v = v.detach().item()
+        except (TypeError, ValueError, RuntimeError):
+            return None
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(fv) or abs(fv) > max_abs:
+        return None
+    if min_value is not None and fv < min_value:
+        return None
+    if max_value is not None and fv > max_value:
+        return None
+    return fv
 
 
 AnyNet = Union[PolicyValueNet, SharedPolicyValueNet, LightPolicyValueNet, LightSharedPolicyValueNet, ConvSharedPolicyValueNet]
@@ -250,6 +281,19 @@ def _outcome_value_mix() -> float:
     return float(ocfg.get("mix", 1.0))
 
 
+def _outcome_value_target(score: float, threshold: float) -> float:
+    """终局分数价值目标，默认 log 变换以保留 400+ 高分段差异。"""
+    ocfg = RL_REWARD_SHAPING.get("outcomeValueMix") or {}
+    mode = os.environ.get("RL_OUTCOME_VALUE_MODE", str(ocfg.get("targetMode", "log"))).strip().lower()
+    max_value = float(os.environ.get("RL_OUTCOME_VALUE_MAX", str(ocfg.get("maxValue", 3.0))))
+    denom = max(float(threshold), 1.0)
+    if mode == "linear":
+        val = float(score) / denom
+    else:
+        val = float(np.log1p(max(float(score), 0.0)) / np.log1p(denom))
+    return float(np.clip(val, 0.0, max(max_value, 1.0)))
+
+
 def _board_quality_coef() -> float:
     if (raw := os.environ.get("RL_BQ_COEF", "").strip()) != "":
         return float(raw)
@@ -268,14 +312,24 @@ def _survival_coef() -> float:
     return float(RL_REWARD_SHAPING.get("survivalLossCoef") or 0.2)
 
 
-def _q_distill_coef() -> float:
+def _scheduled_coef(cfg: dict, base: float, global_ep: int) -> float:
+    """线性退火辅助系数；默认不退火。"""
+    end = float(cfg.get("annealEndCoef", base))
+    episodes = int(cfg.get("annealEpisodes", 0) or 0)
+    if episodes <= 0:
+        return base
+    t = min(1.0, max(0, global_ep) / max(episodes, 1))
+    return float(base + (end - base) * t)
+
+
+def _q_distill_coef(global_ep: int = 0) -> float:
     """Q 分布蒸馏损失系数；来自 rlRewardShaping.qDistillation.coef 或 RL_Q_DISTILL_COEF。"""
     if (raw := os.environ.get("RL_Q_DISTILL_COEF", "").strip()) != "":
         return float(raw)
     cfg = RL_REWARD_SHAPING.get("qDistillation") or {}
     if not cfg.get("enabled", False):
         return 0.0
-    return float(cfg.get("coef", 0.1))
+    return _scheduled_coef(cfg, float(cfg.get("coef", 0.1)), global_ep)
 
 
 def _q_distill_tau() -> float:
@@ -284,6 +338,193 @@ def _q_distill_tau() -> float:
         return float(raw)
     cfg = RL_REWARD_SHAPING.get("qDistillation") or {}
     return float(cfg.get("tau", 1.0))
+
+
+def _q_distill_norm_mode() -> str:
+    if (raw := os.environ.get("RL_Q_DISTILL_NORM", "").strip()) != "":
+        return raw.lower()
+    cfg = RL_REWARD_SHAPING.get("qDistillation") or {}
+    return str(cfg.get("normalize", "zscore")).lower()
+
+
+def _q_distill_min_std() -> float:
+    if (raw := os.environ.get("RL_Q_DISTILL_MIN_STD", "").strip()) != "":
+        return max(1e-6, float(raw))
+    cfg = RL_REWARD_SHAPING.get("qDistillation") or {}
+    return max(1e-6, float(cfg.get("minStd", 0.25)))
+
+
+def _normalize_teacher_q(qv: np.ndarray, mode: str, min_std: float = 1e-6) -> np.ndarray:
+    """单状态 teacher Q 归一化，降低单人分数任务的尺度漂移。"""
+    arr = np.asarray(qv, dtype=np.float32)
+    if arr.size <= 1 or mode in ("", "none", "raw"):
+        return arr
+    if mode in ("rank", "ranks"):
+        order = np.argsort(arr)
+        ranks = np.empty_like(order, dtype=np.float32)
+        ranks[order] = np.arange(arr.size, dtype=np.float32)
+        return (ranks / max(arr.size - 1, 1)) * 2.0 - 1.0
+    mean = float(np.mean(arr))
+    std = float(np.std(arr))
+    denom = max(std, float(min_std), 1e-6)
+    return np.clip((arr - mean) / denom, -4.0, 4.0).astype(np.float32)
+
+
+def _visit_pi_coef(global_ep: int = 0) -> float:
+    """MCTS visit distribution 直接 CE 蒸馏系数；区别于 beam Q distillation。"""
+    if (raw := os.environ.get("RL_VISIT_PI_COEF", "").strip()) != "":
+        return float(raw)
+    cfg = RL_REWARD_SHAPING.get("visitPiDistillation") or {}
+    if not cfg.get("enabled", False):
+        return 0.0
+    return _scheduled_coef(cfg, float(cfg.get("coef", 0.15)), global_ep)
+
+
+def _visit_pi_tau() -> float:
+    if (raw := os.environ.get("RL_VISIT_PI_TAU", "").strip()) != "":
+        return float(raw)
+    cfg = RL_REWARD_SHAPING.get("visitPiDistillation") or {}
+    return float(cfg.get("tau", 1.0))
+
+
+def _ranked_reward_config() -> dict:
+    """单人自博弈 ranked reward：把绝对分数转为相对分位奖励，缓解 400-500 平台期。"""
+    cfg = {
+        "enabled": False,
+        "window": 2048,
+        "warmup": 128,
+        "targetPercentile": 0.50,
+        "targetPercentileEnd": 0.70,
+        "rampEpisodes": 30000,
+        "deadband": 0.04,
+        "bonusScale": 14.0,
+        "penaltyScale": 6.0,
+        "maxAbs": 16.0,
+    }
+    cfg.update(RL_REWARD_SHAPING.get("rankedReward") or {})
+    raw = os.environ.get("RL_RANKED_REWARD", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        cfg["enabled"] = True
+    elif raw in ("0", "false", "no", "off"):
+        cfg["enabled"] = False
+    for key, env_key, cast in (
+        ("window", "RL_RANKED_WINDOW", int),
+        ("warmup", "RL_RANKED_WARMUP", int),
+        ("targetPercentile", "RL_RANKED_TARGET", float),
+        ("targetPercentileEnd", "RL_RANKED_TARGET_END", float),
+        ("rampEpisodes", "RL_RANKED_RAMP_EPISODES", int),
+        ("deadband", "RL_RANKED_DEADBAND", float),
+        ("bonusScale", "RL_RANKED_BONUS_SCALE", float),
+        ("penaltyScale", "RL_RANKED_PENALTY_SCALE", float),
+        ("maxAbs", "RL_RANKED_MAX_ABS", float),
+    ):
+        if (raw_v := os.environ.get(env_key, "").strip()) != "":
+            cfg[key] = cast(raw_v)
+    cfg["window"] = max(16, int(cfg["window"]))
+    cfg["warmup"] = max(0, int(cfg["warmup"]))
+    cfg["targetPercentile"] = float(np.clip(float(cfg["targetPercentile"]), 0.05, 0.95))
+    cfg["targetPercentileEnd"] = float(np.clip(float(cfg["targetPercentileEnd"]), 0.05, 0.95))
+    cfg["rampEpisodes"] = max(1, int(cfg["rampEpisodes"]))
+    cfg["deadband"] = max(0.0, float(cfg["deadband"]))
+    cfg["maxAbs"] = max(0.0, float(cfg["maxAbs"]))
+    return cfg
+
+
+def _ranked_reward_target_for_episode(global_ep: int, cfg: dict) -> float:
+    start = float(cfg.get("targetPercentile", 0.5))
+    end = float(cfg.get("targetPercentileEnd", start))
+    span = max(1, int(cfg.get("rampEpisodes", 30000)))
+    t = min(1.0, max(0, global_ep) / span)
+    return float(np.clip(start + (end - start) * t, 0.05, 0.95))
+
+
+def _ranked_reward_for_score(score: float, score_history, cfg: dict) -> tuple[float, float]:
+    """返回 (reward_adjustment, percentile)。history 只使用过去局，避免同批自比较。"""
+    n = len(score_history)
+    if n < int(cfg.get("warmup", 0)):
+        return 0.0, 0.5
+    hist = np.asarray(score_history, dtype=np.float32)
+    lt = float(np.sum(hist < score))
+    eq = float(np.sum(hist == score))
+    pct = (lt + 0.5 * eq) / max(1.0, float(n))
+    target = float(cfg.get("targetPercentile", 0.5))
+    deadband = float(cfg.get("deadband", 0.04))
+    delta = pct - target
+    if abs(delta) <= deadband:
+        return 0.0, pct
+    if delta > 0:
+        denom = max(1e-6, 1.0 - target - deadband)
+        reward = float(cfg.get("bonusScale", 14.0)) * ((delta - deadband) / denom)
+    else:
+        denom = max(1e-6, target - deadband)
+        reward = -float(cfg.get("penaltyScale", 6.0)) * ((-delta - deadband) / denom)
+    max_abs = float(cfg.get("maxAbs", 16.0))
+    if max_abs > 0:
+        reward = float(np.clip(reward, -max_abs, max_abs))
+    return reward, pct
+
+
+def _remaining_unplaced_dock_blocks(sim: OpenBlockSimulator) -> int:
+    """当前 dock 中尚未放置的块数；dock 元素本身不会因 placed 变成 None。"""
+    return sum(1 for b in sim.dock if b is not None and not bool(b.get("placed", False)))
+
+
+def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_sims: int, cfg: dict) -> int:
+    """高风险局面提升 MCTS sims，普通局面节省预算。"""
+    raw_enabled = os.environ.get("RL_MCTS_RISK_ADAPTIVE", "").strip().lower()
+    enabled = (
+        raw_enabled not in ("0", "false", "no", "off")
+        if raw_enabled
+        else bool(cfg.get("riskAdaptive", False))
+    )
+    if not enabled:
+        return base_sims
+    gnp = sim._ensure_grid_np()
+    fill = float(np.mean(gnp >= 0))
+    mobility = len(legal)
+    risk = 0.0
+    if fill >= float(cfg.get("riskFill", 0.58)):
+        risk += 0.35
+    if mobility <= int(cfg.get("riskMobility", 16)):
+        risk += 0.35
+    try:
+        if sim.count_sequential_solution_leaves(leaf_cap=2, node_budget=500) <= 1:
+            risk += 0.30
+    except Exception:
+        pass
+    mult = 1.0 + min(1.0, risk) * (float(cfg.get("riskMaxMultiplier", 2.0)) - 1.0)
+    max_sims = int(os.environ.get("RL_MCTS_MAX_SIMS", int(cfg.get("maxSimulations", max(base_sims, 80)))))
+    return max(base_sims, min(max_sims, int(round(base_sims * mult))))
+
+
+def _replay_config() -> dict:
+    cfg = {
+        "enabled": False,
+        "maxEpisodes": 256,
+        "sampleRatio": 0.5,
+        "maxSamples": 8,
+        "minPriority": 0.0,
+    }
+    cfg.update(RL_REWARD_SHAPING.get("searchReplay") or {})
+    raw = os.environ.get("RL_SEARCH_REPLAY", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        cfg["enabled"] = True
+    elif raw in ("0", "false", "no", "off"):
+        cfg["enabled"] = False
+    return cfg
+
+
+def _episode_replay_priority(ep: dict) -> float:
+    traj = ep.get("trajectory") or []
+    score = float(ep.get("score", 0.0))
+    priority = score / 100.0
+    if traj:
+        tail = traj[-min(5, len(traj)):]
+        priority += 0.5 * sum(1 for s in tail if float(s.get("feasibility", 1.0)) < 0.5)
+        priority += 0.25 * sum(1 for s in tail if int(s.get("clears", 0)) <= 0)
+    if not ep.get("won", False):
+        priority += 1.0
+    return float(priority)
 
 
 def _lr_warmup(step: int, warmup_steps: int, base_lr: float) -> float:
@@ -453,7 +694,7 @@ def _beam_2ply_q_values(
         return None
 
     # dock 仅剩 ≤1 块时，2-ply 无额外信息，退化为 1-step
-    blocks_remain = sum(1 for s in sim.dock if s is not None)
+    blocks_remain = _remaining_unplaced_dock_blocks(sim)
     if blocks_remain < 2:
         return _lookahead_q_values(net, device, sim, legal, gamma)
 
@@ -544,7 +785,7 @@ def _beam_3ply_q_values(
     if n_actions == 0 or n_actions > max_actions:
         return None
 
-    blocks_remain = sum(1 for s in sim.dock if s is not None)
+    blocks_remain = _remaining_unplaced_dock_blocks(sim)
     if blocks_remain < 3:
         # 退化为 2-ply（或 1-step）
         return _beam_2ply_q_values(net, device, sim, legal, gamma, top_k, max_actions)
@@ -604,8 +845,8 @@ def _beam_3ply_q_values(
         ns2_t = tensor_to_device(torch.from_numpy(all_ns2_concat), device)
         all_v2 = net.forward_value(ns2_t).cpu().numpy().flatten()
 
-    # ply3_batches: (a1_idx, r1, r2, ns3_block)
-    ply3_batches: list[tuple[int, float, float, np.ndarray]] = []
+    # ply3_batches: (a1_idx, r1, r2, r3_arr, ns3_states)
+    ply3_batches: list[tuple[int, float, float, np.ndarray, np.ndarray]] = []
     v2_offset = 0
     q2_map: dict[int, tuple[float, np.ndarray]] = {}  # a1→(r1, q2_arr)
     for i, (r1, r2_arr, ns2) in ply2_best.items():
@@ -640,7 +881,13 @@ def _beam_3ply_q_values(
             legal3 = sim.get_legal_actions()
 
             if not legal3:
-                ply3_batches.append((i, r1, r2_val, np.empty((0, STATE_FEATURE_DIM), dtype=np.float32)))
+                ply3_batches.append((
+                    i,
+                    r1,
+                    r2_val,
+                    np.empty(0, dtype=np.float32),
+                    np.empty((0, STATE_FEATURE_DIM), dtype=np.float32),
+                ))
                 sim.restore_state(saved2)
                 continue
 
@@ -652,45 +899,41 @@ def _beam_3ply_q_values(
                 r3_arr[k] = float(sim.step(a3["block_idx"], a3["gx"], a3["gy"]))
                 ns3[k] = extract_state_features(sim.grid, sim.dock)
                 sim.restore_state(saved3)
-            # 将 (r3, ns3) 打包为 concatenated block：首行存 r3，后续行存 ns3
-            block = np.empty((n3 + 1, STATE_FEATURE_DIM), dtype=np.float32)
-            block[0, :n3] = r3_arr
-            block[1:, :] = ns3
-            ply3_batches.append((i, r1, r2_val, block))
+            ply3_batches.append((i, r1, r2_val, r3_arr, ns3))
             sim.restore_state(saved2)
         sim.restore_state(saved)
 
     if ply3_batches:
         # 合并所有 ns3 做一次批量推理
         ns3_list = []
-        for _, _, _, blk in ply3_batches:
-            if blk.shape[0] > 1:
-                ns3_list.append(blk[1:])
+        for _, _, _, _r3_arr, ns3 in ply3_batches:
+            if ns3.shape[0] > 0:
+                ns3_list.append(ns3)
+        all_v3 = np.empty(0, dtype=np.float32)
         if ns3_list:
             all_ns3 = np.concatenate(ns3_list, axis=0)
             with torch.no_grad():
                 ns3_t = tensor_to_device(torch.from_numpy(all_ns3), device)
                 all_v3 = net.forward_value(ns3_t).cpu().numpy().flatten()
 
-            v3_off = 0
-            # 用 a1-level 的 best_q3 dict 做 max 聚合
-            best_q3: dict[int, float] = {}
-            for (i, r1, r2_val, blk) in ply3_batches:
-                if blk.shape[0] <= 1:
-                    q3_val = r2_val  # 第三层无动作，V=0
-                else:
-                    n3 = blk.shape[0] - 1
-                    r3_arr = blk[0, :n3]
-                    v3 = all_v3[v3_off: v3_off + n3]
-                    q3_val = float(r2_val + gamma * np.max(r3_arr + gamma * v3))
-                    v3_off += n3
-                # 对同一 a1，取不同 a2 的最大 q3_val
-                if i not in best_q3 or q3_val > best_q3[i]:
-                    best_q3[i] = q3_val
+        v3_off = 0
+        # 用 a1-level 的 best_q3 dict 做 max 聚合
+        best_q3: dict[int, float] = {}
+        for (i, r1, r2_val, r3_arr, ns3) in ply3_batches:
+            if ns3.shape[0] <= 0:
+                q3_val = r2_val  # 第三层无动作，V=0
+            else:
+                n3 = len(r3_arr)
+                v3 = all_v3[v3_off: v3_off + n3]
+                q3_val = float(r2_val + gamma * np.max(r3_arr + gamma * v3))
+                v3_off += n3
+            # 对同一 a1，取不同 a2 的最大 q3_val
+            if i not in best_q3 or q3_val > best_q3[i]:
+                best_q3[i] = q3_val
 
-            for i, q3_best in best_q3.items():
-                r1 = q2_map[i][0]
-                q3ply[i] = r1 + gamma * q3_best
+        for i, q3_best in best_q3.items():
+            r1 = q2_map[i][0]
+            q3ply[i] = r1 + gamma * q3_best
 
     return q3ply
 
@@ -762,6 +1005,10 @@ def collect_episode(
         _mcts_cfg.get("enabled", False)
         or os.environ.get("RL_MCTS", "0").lower() not in ("0", "false", "no")
     )
+    # 显式 RL_MCTS=0 时强制关闭（否则 game_rules 里 lightMCTS.enabled 无法局部关掉）
+    _mcts_env_neg = os.environ.get("RL_MCTS", "").strip().lower()
+    if _mcts_env_neg in ("0", "false", "no", "off"):
+        use_mcts = False
     _mcts_sims = int(_mcts_cfg.get("numSimulations", 20))
     _mcts_cpuct = float(_mcts_cfg.get("cPuct", 1.5))
     _mcts_depth = int(_mcts_cfg.get("maxDepth", 8))
@@ -775,11 +1022,14 @@ def collect_episode(
     if use_mcts and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false", "no"):
         from .spawn_predictor import SpawnPredictor as _SP
         _spawn_pred = _SP.load(device=device)
-    # v8.3：渐进式模拟次数
-    _mcts_adaptive = (
-        use_mcts
-        and os.environ.get("RL_MCTS_ADAPTIVE", "0").lower() not in ("0", "false", "no")
-    )
+    # v8.3：渐进式模拟次数（默认跟 game_rules lightMCTS.adaptiveSims；显式 RL_MCTS_ADAPTIVE 覆盖）
+    _adapt_env = os.environ.get("RL_MCTS_ADAPTIVE", "").strip().lower()
+    if _adapt_env in ("0", "false", "no", "off"):
+        _mcts_adaptive = False
+    elif _adapt_env in ("1", "true", "yes", "on"):
+        _mcts_adaptive = bool(use_mcts)
+    else:
+        _mcts_adaptive = bool(use_mcts and _mcts_cfg.get("adaptiveSims", False))
     _mcts_min_sims = int(os.environ.get("RL_MCTS_MIN_SIMS", max(10, _mcts_sims // 4)))
     _mcts_confidence = float(os.environ.get("RL_MCTS_CONFIDENCE", "3.0"))
 
@@ -811,7 +1061,7 @@ def collect_episode(
         _mcts_tree.try_warm_start(sim)                 # 尝试从缓存热启动
     else:
         _mcts_tree = None
-    _prev_dock_remain: int = sum(1 for s in sim.dock if s is not None)
+    _prev_dock_remain: int = _remaining_unplaced_dock_blocks(sim)
 
     step_idx = 0
     while True:
@@ -828,10 +1078,9 @@ def collect_episode(
         with torch.no_grad():
             phi = tensor_to_device(torch.from_numpy(phi_np), device)
             logits = net.forward_policy_logits(phi)
-            clean_lp = F.log_softmax(logits, dim=-1)
 
         # dock 刷新检测（三块放完后 dock 重新生成）→ 失效树复用
-        cur_dock_remain = sum(1 for s in sim.dock if s is not None)
+        cur_dock_remain = _remaining_unplaced_dock_blocks(sim)
         if _mcts_tree is not None and cur_dock_remain > _prev_dock_remain:
             _mcts_tree.invalidate()
         _prev_dock_remain = cur_dock_remain
@@ -840,13 +1089,14 @@ def collect_episode(
         _visit_pi = None
         if use_lookahead and step_idx >= explore_first_moves:
             if use_mcts:
+                mcts_sims_eff = _mcts_risk_adaptive_sims(sim, legal, _mcts_sims, _mcts_cfg)
                 if _mcts_adaptive:
                     # v8.3：渐进式模拟次数（adaptive sims）
                     from .mcts import run_mcts_adaptive as _adaptive_fn
                     _visit_pi, _sims_used = _adaptive_fn(
                         net, device, sim,
                         min_sims=_mcts_min_sims,
-                        max_sims=_mcts_sims,
+                        max_sims=mcts_sims_eff,
                         confidence_ratio=_mcts_confidence,
                         c_puct=_mcts_cpuct,
                         max_depth=_mcts_depth,
@@ -863,7 +1113,7 @@ def collect_episode(
                     from .mcts import mcts_q_proxy as _mcts_fn
                     q_vals = _mcts_fn(
                         net, device, sim,
-                        n_simulations=_mcts_sims,
+                        n_simulations=mcts_sims_eff,
                         c_puct=_mcts_cpuct,
                         max_depth=_mcts_depth,
                         gamma=gamma,
@@ -875,7 +1125,7 @@ def collect_episode(
                     from .mcts import _extract_visit_pi as _evp
                     _visit_pi = _evp(_mcts_tree.root, len(legal))
             elif use_beam3ply:
-                # 3-ply beam：dock=3 时三块全排列，否则自动退化为 2-ply/1-step
+                # 3-ply beam：还有 3 个未放置 dock 块时展开，否则自动退化为 2-ply/1-step
                 q_vals = _beam_3ply_q_values(
                     net, device, sim, legal, gamma,
                     top_k=_b3_topk, max_actions=_b3_max,
@@ -907,12 +1157,26 @@ def collect_episode(
         # MCTS 模式：优先用访问分布按温度采样（AlphaZero 风格）
         # 非 MCTS 模式：沿用原有 Dirichlet + softmax 采样
         if use_mcts and _visit_pi is not None:
-            chosen = _select_mcts(_visit_pi, temperature=_mcts_train_temp)
+            visit = np.asarray(_visit_pi, dtype=np.float64)
+            if _mcts_train_temp <= 1e-6:
+                chosen = int(np.argmax(visit))
+                old_log_prob = 0.0
+            else:
+                visit_adj = np.power(visit + 1e-10, 1.0 / max(_mcts_train_temp, 1e-6))
+                s = float(visit_adj.sum())
+                if s <= 1e-12:
+                    chosen = int(np.argmax(visit))
+                    old_log_prob = 0.0
+                else:
+                    visit_adj = visit_adj / s
+                    chosen = int(np.random.choice(len(visit_adj), p=visit_adj))
+                    old_log_prob = float(np.log(max(visit_adj[chosen], 1e-10)))
         else:
-            idx, _, _ = _mix_dirichlet_and_sample(
+            idx, old_lp_t, _ = _mix_dirichlet_and_sample(
                 combined, temp, d_eps, dirichlet_alpha
             )
             chosen = int(idx.item())
+            old_log_prob = float(old_lp_t.item())
 
         a = legal[chosen]
         r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
@@ -929,7 +1193,7 @@ def collect_episode(
             "n_actions": phi_np.shape[0],
             "chosen_idx": chosen,
             "reward": r,
-            "old_log_prob": float(clean_lp[chosen].item()),
+            "old_log_prob": old_log_prob,
             "holes_after": int(sim.count_holes()),
             "clears": clears_step,
             "board_quality": sup["board_quality"],
@@ -1040,6 +1304,7 @@ def _reevaluate_and_update(
     grad_clip: float,
     ppo_epochs: int = 1,
     ppo_clip: float = 0.2,
+    global_ep: int = 0,
 ) -> dict | None:
     """v5: outcome 价值目标 + 直接监督三头 + GAE advantage + PPO。"""
     valid = [ep for ep in batch if ep["trajectory"]]
@@ -1058,15 +1323,21 @@ def _reevaluate_and_update(
     all_feasibility: list[float] = []
     all_steps_to_end: list[float] = []
     all_q_vals: list[np.ndarray | None] = []
+    all_visit_pi: list[np.ndarray | None] = []
+    all_pg_weights: list[float] = []
     ep_lengths: list[int] = []
     ep_scores: list[float] = []
     ep_thresholds: list[float] = []
+    ep_replay_flags: list[bool] = []
 
     for ep in valid:
         traj = ep["trajectory"]
+        is_replay = bool(ep.get("_replay_sample", False))
+        pg_weight = 0.0 if is_replay else 1.0
         ep_lengths.append(len(traj))
         ep_scores.append(float(ep.get("score", 0)))
         ep_thresholds.append(float(ep.get("win_threshold", WIN_SCORE_THRESHOLD)))
+        ep_replay_flags.append(is_replay)
         for step in traj:
             all_states.append(step["state"])
             all_action_feats.append(step["action_feats"])
@@ -1082,6 +1353,9 @@ def _reevaluate_and_update(
             all_steps_to_end.append(float(step.get("steps_to_end", 0)))
             qv = step.get("q_vals")
             all_q_vals.append(np.array(qv, dtype=np.float32) if qv is not None else None)
+            vp = step.get("visit_pi")
+            all_visit_pi.append(np.array(vp, dtype=np.float32) if vp is not None else None)
+            all_pg_weights.append(pg_weight)
 
     total_steps = len(all_states)
     if total_steps == 0:
@@ -1094,6 +1368,8 @@ def _reevaluate_and_update(
     n_actions_t = torch.tensor(all_n_actions, device=device, dtype=torch.long)
     chosen_t = torch.tensor(all_chosen, device=device, dtype=torch.long).unsqueeze(1)
     old_lp_t = tensor_to_device(torch.tensor(all_old_lp, dtype=torch.float32), device)
+    pg_weight_t = tensor_to_device(torch.tensor(all_pg_weights, dtype=torch.float32), device)
+    pg_weight_sum = pg_weight_t.sum().clamp_min(1.0)
 
     hole_coef, hole_denom = _hole_aux_coef_and_denom()
     clear_pred_coef = _clear_pred_coef()
@@ -1101,8 +1377,12 @@ def _reevaluate_and_update(
     bq_coef = _board_quality_coef()
     feas_coef = _feasibility_coef()
     surv_coef = _survival_coef()
-    q_distill_coef = _q_distill_coef()
+    q_distill_coef = _q_distill_coef(global_ep)
     q_distill_tau = _q_distill_tau()
+    q_distill_norm = _q_distill_norm_mode()
+    q_distill_min_std = _q_distill_min_std()
+    visit_pi_coef = _visit_pi_coef(global_ep)
+    visit_pi_tau = _visit_pi_tau()
 
     step_starts = torch.zeros(total_steps + 1, dtype=torch.long, device=device)
     step_starts[1:] = torch.cumsum(n_actions_t, dim=0)
@@ -1146,17 +1426,62 @@ def _reevaluate_and_update(
     # Q 分布蒸馏目标张量（变长 Q 数组 → 对齐到 max_n 的 padded 矩阵）
     q_vals_padded: torch.Tensor | None = None
     q_has_vals: torch.Tensor | None = None
+    q_std_vals: list[float] = []
+    q_margin_vals: list[float] = []
+    q_entropy_vals: list[float] = []
+    q_entropy_norm_vals: list[float] = []
     if q_distill_coef > 1e-12 and len(all_q_vals) == total_steps:
         max_n_q = int(n_actions_t.max().item())
         q_padded_np = np.full((total_steps, max_n_q), -1e9, dtype=np.float32)
         has_q_np = np.zeros(total_steps, dtype=bool)
         for t_i, qv in enumerate(all_q_vals):
             if qv is not None and len(qv) == all_n_actions[t_i]:
-                q_padded_np[t_i, : len(qv)] = qv
+                q_norm = _normalize_teacher_q(
+                    qv, q_distill_norm, q_distill_min_std
+                )
+                q_padded_np[t_i, : len(qv)] = q_norm
+                q_std_vals.append(float(np.std(qv)))
+                if len(q_norm) >= 2:
+                    top2 = np.sort(np.partition(q_norm, -2)[-2:])
+                    q_margin_vals.append(float(top2[-1] - top2[-2]))
+                else:
+                    q_margin_vals.append(0.0)
+                logits_np = q_norm / max(q_distill_tau, 0.1)
+                logits_np = logits_np - float(np.max(logits_np))
+                probs_np = np.exp(logits_np)
+                probs_np = probs_np / max(float(np.sum(probs_np)), 1e-12)
+                ent = -float(np.sum(probs_np * np.log(np.clip(probs_np, 1e-12, 1.0))))
+                q_entropy_vals.append(ent)
+                q_entropy_norm_vals.append(ent / max(float(np.log(max(len(q_norm), 2))), 1e-12))
                 has_q_np[t_i] = True
         if has_q_np.any():
             q_vals_padded = tensor_to_device(torch.from_numpy(q_padded_np), device)
             q_has_vals = torch.from_numpy(has_q_np).to(device)
+
+    # MCTS visit distribution 直接蒸馏目标（AlphaZero 风格），与 beam Q 蒸馏分开记录。
+    visit_pi_padded: torch.Tensor | None = None
+    visit_pi_has_vals: torch.Tensor | None = None
+    visit_entropy_vals: list[float] = []
+    visit_entropy_norm_vals: list[float] = []
+    if visit_pi_coef > 1e-12 and len(all_visit_pi) == total_steps:
+        max_n_vp = int(n_actions_t.max().item())
+        vp_padded_np = np.zeros((total_steps, max_n_vp), dtype=np.float32)
+        has_vp_np = np.zeros(total_steps, dtype=bool)
+        for t_i, vp in enumerate(all_visit_pi):
+            if vp is None or len(vp) != all_n_actions[t_i]:
+                continue
+            s = float(np.sum(vp))
+            if s <= 1e-8:
+                continue
+            vp_norm = vp / s
+            vp_padded_np[t_i, : len(vp)] = vp_norm
+            ent_vp = -float(np.sum(vp_norm * np.log(np.clip(vp_norm, 1e-12, 1.0))))
+            visit_entropy_vals.append(ent_vp)
+            visit_entropy_norm_vals.append(ent_vp / max(float(np.log(max(len(vp_norm), 2))), 1e-12))
+            has_vp_np[t_i] = True
+        if has_vp_np.any():
+            visit_pi_padded = tensor_to_device(torch.from_numpy(vp_padded_np), device)
+            visit_pi_has_vals = torch.from_numpy(has_vp_np).to(device)
 
     dp_ids = resolve_cuda_device_ids_for_data_parallel()
     use_dp_trunk = (
@@ -1207,6 +1532,15 @@ def _reevaluate_and_update(
         v = vals_np[v_off : v_off + ep_len]
         r = np.array([all_rewards[r_off + j] * return_scale for j in range(ep_len)], dtype=np.float32)
         t_len = ep_len
+        outcome_val = _outcome_value_target(ep_scores[ep_i], ep_thresholds[ep_i])
+
+        if ep_replay_flags[ep_i]:
+            # Replay 轨迹可能来自旧策略/旧 ranked window；只保留终局 outcome 作为稳定 value 监督。
+            adv_np[v_off : v_off + ep_len] = 0.0
+            rets_np[v_off : v_off + ep_len] = outcome_val
+            v_off += ep_len
+            r_off += ep_len
+            continue
 
         # GAE advantages（用于策略梯度）
         if gae_lambda > 1e-8:
@@ -1229,7 +1563,6 @@ def _reevaluate_and_update(
             adv_np[v_off : v_off + ep_len] = rets_np[v_off : v_off + ep_len] - v
 
         # outcome 价值目标（替换 GAE returns 用于 value loss）
-        outcome_val = float(np.clip(ep_scores[ep_i] / max(ep_thresholds[ep_i], 1), 0.0, 2.0))
         if outcome_mix > 1e-8:
             for i in range(ep_len):
                 rets_np[v_off + i] = (1.0 - outcome_mix) * rets_np[v_off + i] + outcome_mix * outcome_val
@@ -1245,7 +1578,18 @@ def _reevaluate_and_update(
     adv_cat = tensor_to_device(torch.from_numpy(adv_np), device)
     rets_cat = tensor_to_device(torch.from_numpy(rets_clean), device)
     if normalize_adv:
-        adv_cat = _normalize_advantages(adv_cat, min_std=adv_min_std)
+        pg_mask = pg_weight_t > 0.5
+        if bool(pg_mask.any().item()):
+            active_adv = adv_cat[pg_mask]
+            mean = active_adv.mean()
+            std = active_adv.std(unbiased=False)
+            if torch.isfinite(std).item() and float(std.item()) >= adv_min_std:
+                adv_cat = (adv_cat - mean) / (std + 1e-8)
+            else:
+                adv_cat = adv_cat - mean
+            adv_cat = torch.nan_to_num(adv_cat, nan=0.0, posinf=10.0, neginf=-10.0).clamp(-10, 10)
+        else:
+            adv_cat = _normalize_advantages(adv_cat, min_std=adv_min_std)
     else:
         adv_cat = torch.nan_to_num(adv_cat, nan=0.0, posinf=1e3, neginf=-1e3).clamp(-100, 100)
 
@@ -1253,10 +1597,6 @@ def _reevaluate_and_update(
 
     last_result: dict | None = None
     n_epochs = max(1, ppo_epochs)
-
-    _pre_sd: dict | None = None
-    if n_epochs > 1:
-        _pre_sd = {k: v.clone() for k, v in net.state_dict().items()}
 
     for epoch_i in range(n_epochs):
         if epoch_i == 0:
@@ -1288,9 +1628,9 @@ def _reevaluate_and_update(
             ratio = torch.exp(log_ratio)
             surr1 = ratio * adv_cat
             surr2 = torch.clamp(ratio, 1.0 - ppo_clip, 1.0 + ppo_clip) * adv_cat
-            policy_loss = -torch.min(surr1, surr2).mean()
+            policy_loss = -(torch.min(surr1, surr2) * pg_weight_t).sum() / pg_weight_sum
         else:
-            policy_loss = -(new_lp * adv_cat).mean()
+            policy_loss = -((new_lp * adv_cat) * pg_weight_t).sum() / pg_weight_sum
 
         v_clipped = values_old_for_clip + torch.clamp(
             values_flat - values_old_for_clip, -ppo_clip, ppo_clip
@@ -1299,7 +1639,12 @@ def _reevaluate_and_update(
         vl_clipped = F.smooth_l1_loss(v_clipped, rets_cat, reduction="none", beta=max(value_huber_beta, 1e-6))
         value_loss = torch.max(vl_unclipped, vl_clipped).mean()
 
-        entropy_mean = torch.nan_to_num(ent_t.mean(), nan=0.0, posinf=0.0, neginf=0.0)
+        entropy_mean = torch.nan_to_num(
+            (ent_t * pg_weight_t).sum() / pg_weight_sum,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0,
+        )
 
         hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         if use_hole_aux and holes_target is not None:
@@ -1347,6 +1692,25 @@ def _reevaluate_and_update(
             q_distill_loss = -(target_pi_safe * lp_q_safe).sum(dim=1).mean()
             q_distill_loss = torch.nan_to_num(q_distill_loss, nan=0.0, posinf=0.0, neginf=0.0)
 
+        visit_pi_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if (
+            visit_pi_coef > 1e-12
+            and visit_pi_padded is not None
+            and visit_pi_has_vals is not None
+            and bool(visit_pi_has_vals.any().item())
+        ):
+            vp_rows = visit_pi_padded[visit_pi_has_vals]
+            vp_mask = mask[visit_pi_has_vals]
+            lp_vp = lp_2d[visit_pi_has_vals]
+            tau_vp = max(visit_pi_tau, 0.1)
+            if abs(tau_vp - 1.0) > 1e-6:
+                vp_rows = torch.pow(vp_rows.clamp_min(1e-10), 1.0 / tau_vp)
+                vp_rows = vp_rows / vp_rows.sum(dim=1, keepdim=True).clamp_min(1e-10)
+            vp_safe = vp_rows.masked_fill(~vp_mask, 0.0)
+            lp_vp_safe = lp_vp.masked_fill(~vp_mask, 0.0)
+            visit_pi_loss = -(vp_safe * lp_vp_safe).sum(dim=1).mean()
+            visit_pi_loss = torch.nan_to_num(visit_pi_loss, nan=0.0, posinf=0.0, neginf=0.0)
+
         def _safe_aux(t):
             return t if torch.isfinite(t).item() else torch.zeros_like(t)
 
@@ -1363,36 +1727,70 @@ def _reevaluate_and_update(
             + feas_coef * _safe_aux(feas_loss)
             + surv_coef * _safe_aux(surv_loss)
             + q_distill_coef * _safe_aux(q_distill_loss)
+            + visit_pi_coef * _safe_aux(visit_pi_loss)
         )
 
         opt.zero_grad()
         stepped = False
+        skip_reason = ""
         if torch.isfinite(loss).item():
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(net.parameters(), max(grad_clip, 1e-8))
-            opt.step()
-            stepped = True
-            if any(torch.isnan(p).any() for p in net.parameters()):
-                if _pre_sd is not None:
-                    net.load_state_dict(_pre_sd)
-                stepped = False
+            grad_norm = torch.nn.utils.clip_grad_norm_(net.parameters(), max(grad_clip, 1e-8))
+            if not torch.isfinite(grad_norm).item() or not _module_tensors_finite(net, check_grads=True):
+                skip_reason = "non_finite_grad"
+                opt.zero_grad(set_to_none=True)
+            else:
+                pre_sd = {k: v.detach().clone() for k, v in net.state_dict().items()}
+                pre_opt_sd = copy.deepcopy(opt.state_dict())
+                opt.step()
+                stepped = True
+                if not _module_tensors_finite(net):
+                    net.load_state_dict(pre_sd)
+                    opt.load_state_dict(pre_opt_sd)
+                    opt.zero_grad(set_to_none=True)
+                    skip_reason = "non_finite_param_after_step"
+                    stepped = False
         else:
+            skip_reason = "non_finite_loss"
             opt.zero_grad(set_to_none=True)
 
+        if stepped:
+            opt.zero_grad(set_to_none=True)
+        else:
+            if not skip_reason:
+                skip_reason = "optimizer_step_skipped"
+
+        pg_steps_num = int(round(float(pg_weight_t.detach().sum().cpu().item())))
+        pg_steps_num = max(0, min(int(total_steps), pg_steps_num))
+        replay_steps_num = max(0, int(total_steps) - pg_steps_num)
+
         last_result = {
-            "policy_loss": float(policy_loss.item()),
-            "value_loss": float(value_loss.item()),
-            "entropy": float(entropy_mean.item()),
-            "loss_hole_aux": float(hole_aux_loss.item()),
-            "loss_clear_pred": float(clear_pred_loss.item()),
-            "loss_bq": float(bq_loss.item()),
-            "loss_feas": float(feas_loss.item()),
-            "loss_surv": float(surv_loss.item()),
-            "loss_q_distill": float(q_distill_loss.item()),
+            "policy_loss": _safe_metric(policy_loss),
+            "value_loss": _safe_metric(value_loss),
+            "entropy": _safe_metric(entropy_mean, min_value=0.0, max_value=10.0),
+            "loss_hole_aux": _safe_metric(hole_aux_loss),
+            "loss_clear_pred": _safe_metric(clear_pred_loss),
+            "loss_bq": _safe_metric(bq_loss),
+            "loss_feas": _safe_metric(feas_loss),
+            "loss_surv": _safe_metric(surv_loss),
+            "loss_q_distill": _safe_metric(q_distill_loss),
+            "loss_visit_pi": _safe_metric(visit_pi_loss),
             "hole_aux_coef": float(hole_coef),
             "clear_pred_coef": float(clear_pred_coef),
             "q_distill_coef": float(q_distill_coef),
+            "visit_pi_coef": float(visit_pi_coef),
+            "pg_steps": pg_steps_num,
+            "replay_steps": replay_steps_num,
+            "teacher_q_coverage": float(len(q_std_vals) / max(total_steps, 1)),
+            "teacher_q_std": float(np.mean(q_std_vals)) if q_std_vals else 0.0,
+            "teacher_q_margin": float(np.mean(q_margin_vals)) if q_margin_vals else 0.0,
+            "teacher_q_entropy": float(np.mean(q_entropy_vals)) if q_entropy_vals else 0.0,
+            "teacher_q_entropy_norm": float(np.mean(q_entropy_norm_vals)) if q_entropy_norm_vals else 0.0,
+            "teacher_visit_coverage": float(len(visit_entropy_vals) / max(total_steps, 1)),
+            "teacher_visit_entropy": float(np.mean(visit_entropy_vals)) if visit_entropy_vals else 0.0,
+            "teacher_visit_entropy_norm": float(np.mean(visit_entropy_norm_vals)) if visit_entropy_norm_vals else 0.0,
             "optimizer_stepped": stepped,
+            "optimizer_skip_reason": skip_reason,
         }
 
         if not stepped and epoch_i > 0:
@@ -1427,7 +1825,7 @@ def train_loop(
     value_huber_beta: float = 10.0,
     gae_lambda: float = 0.95,
     temp_floor: float = 0.3,
-    explore_first_moves: int = 10,
+    explore_first_moves: int = 2,
     explore_temp_mult: float = 1.2,
     dirichlet_epsilon: float = 0.08,
     dirichlet_alpha: float = 0.28,
@@ -1469,6 +1867,18 @@ def train_loop(
     _virtual_ep: float = 0.0
     _win_history: collections.deque = collections.deque(maxlen=_adap_window)
     _last_adap_check_ep: int = 0
+
+    # --- Ranked Reward（single-player self-play）：把绝对分数转成滚动分位奖励 ---
+    _rank_cfg = _ranked_reward_config()
+    _use_ranked = bool(_rank_cfg.get("enabled", False))
+    _rank_history: collections.deque = collections.deque(maxlen=int(_rank_cfg.get("window", 2048)))
+    _ranked_last_avg = 0.0
+    _ranked_last_pct = 0.5
+
+    # --- 困难样本 replay：重放高分但未通关/低可行性尾局，减少搜索 teacher 样本浪费 ---
+    _replay_cfg = _replay_config()
+    _use_replay = bool(_replay_cfg.get("enabled", False))
+    _replay_buffer: collections.deque = collections.deque(maxlen=int(_replay_cfg.get("maxEpisodes", 256)))
 
     start_ep = 0
     if resume and resume.is_file():
@@ -1629,6 +2039,26 @@ def train_loop(
                 tc1 = time.perf_counter()
                 t_collect_ms = (tc1 - tc0) * 1000
 
+            # --- Ranked Reward：只使用历史分数计算分位，把奖励加到终局步，避免改变局内局势模拟 ---
+            if _use_ranked:
+                ranked_vals: list[float] = []
+                ranked_pcts: list[float] = []
+                batch_rank_cfg = dict(_rank_cfg)
+                batch_rank_cfg["targetPercentile"] = _ranked_reward_target_for_episode(ep_cursor, _rank_cfg)
+                for ep in batch:
+                    rr, pct = _ranked_reward_for_score(float(ep.get("score", 0.0)), _rank_history, batch_rank_cfg)
+                    traj = ep.get("trajectory") or []
+                    if traj and abs(rr) > 1e-12:
+                        traj[-1]["reward"] = float(traj[-1].get("reward", 0.0)) + rr
+                    ep["ranked_reward"] = rr
+                    ep["ranked_percentile"] = pct
+                    ranked_vals.append(rr)
+                    ranked_pcts.append(pct)
+                for ep in batch:
+                    _rank_history.append(float(ep.get("score", 0.0)))
+                _ranked_last_avg = float(np.mean(ranked_vals)) if ranked_vals else 0.0
+                _ranked_last_pct = float(np.mean(ranked_pcts)) if ranked_pcts else 0.5
+
             for ep in batch:
                 scores.append(ep["score"])
                 won = ep["won"]
@@ -1658,17 +2088,36 @@ def train_loop(
             # --- GPU 批量更新（PPO 或 REINFORCE）---
             tt0 = time.perf_counter()
             ent_eff = _effective_entropy_coef(ep_cursor, entropy_coef)
+            replay_sample: list[dict] = []
+            if _use_replay and len(_replay_buffer) > 0:
+                replay_n = min(
+                    int(_replay_cfg.get("maxSamples", 8)),
+                    max(1, int(round(len(batch) * float(_replay_cfg.get("sampleRatio", 0.5))))),
+                    len(_replay_buffer),
+                )
+                replay_sample = copy.deepcopy(random.sample(list(_replay_buffer), replay_n))
+                for ep in replay_sample:
+                    ep["_replay_sample"] = True
+            update_batch = batch + replay_sample
             result = _reevaluate_and_update(
-                net, opt, batch, device, gamma, gae_lambda,
+                net, opt, update_batch, device, gamma, gae_lambda,
                 return_scale, value_coef, ent_eff, normalize_adv,
                 adv_min_std, value_huber_beta, grad_clip,
-                ppo_epochs=ppo_epochs, ppo_clip=ppo_clip,
+                ppo_epochs=ppo_epochs, ppo_clip=ppo_clip, global_ep=ep_cursor,
             )
             tt1 = time.perf_counter()
             t_train_ms = (tt1 - tt0) * 1000
 
             if result:
+                result["replay_samples"] = len(replay_sample)
                 last_update = result
+            if _use_replay:
+                min_pri = float(_replay_cfg.get("minPriority", 0.0))
+                ranked_batch = sorted(batch, key=_episode_replay_priority, reverse=True)
+                keep_n = min(len(ranked_batch), max(1, int(_replay_cfg.get("keepPerBatch", max(1, len(batch) // 2)))))
+                for ep in ranked_batch[:keep_n]:
+                    if _episode_replay_priority(ep) >= min_pri:
+                        _replay_buffer.append(copy.deepcopy(ep))
             batch_count += 1
             if mps_sync:
                 maybe_mps_synchronize(device)
@@ -1688,30 +2137,61 @@ def train_loop(
                     wt = cur_win_thr
                 else:
                     wt = last_ep.get("win_threshold", WIN_SCORE_THRESHOLD)
-                lp_str = f"{last_update['policy_loss']:.4f}" if last_update else "N/A"
-                lv_str = f"{last_update['value_loss']:.4f}" if last_update else "N/A"
-                he_str = f"{last_update['entropy']:.3f}" if last_update else "N/A"
+                def _fmt_update(name: str, digits: int = 4) -> str:
+                    v = last_update.get(name) if last_update else None
+                    return f"{v:.{digits}f}" if isinstance(v, (int, float)) and math.isfinite(float(v)) else "N/A"
+
+                def _num_update(name: str) -> float:
+                    v = last_update.get(name) if last_update else None
+                    return float(v) if isinstance(v, (int, float)) and math.isfinite(float(v)) else 0.0
+
+                lp_str = _fmt_update("policy_loss")
+                lv_str = _fmt_update("value_loss")
+                he_str = _fmt_update("entropy", 3)
                 hole_str = ""
-                if last_update and last_update.get("hole_aux_coef", 0) > 1e-12:
-                    hole_str = f"  hole={last_update.get('loss_hole_aux', 0):.4f}"
-                if last_update and last_update.get("clear_pred_coef", 0) > 1e-12:
-                    hole_str += f"  clr={last_update.get('loss_clear_pred', 0):.4f}"
-                if last_update and last_update.get("loss_bq", 0) > 1e-6:
-                    hole_str += f"  bq={last_update['loss_bq']:.4f}"
-                if last_update and last_update.get("loss_feas", 0) > 1e-6:
-                    hole_str += f"  feas={last_update['loss_feas']:.4f}"
-                if last_update and last_update.get("loss_surv", 0) > 1e-6:
-                    hole_str += f"  surv={last_update['loss_surv']:.4f}"
-                if last_update and last_update.get("q_distill_coef", 0) > 1e-12:
-                    hole_str += f"  qdst={last_update.get('loss_q_distill', 0):.4f}"
+                if last_update and _num_update("hole_aux_coef") > 1e-12:
+                    hole_str = f"  hole={_fmt_update('loss_hole_aux')}"
+                if last_update and _num_update("clear_pred_coef") > 1e-12:
+                    hole_str += f"  clr={_fmt_update('loss_clear_pred')}"
+                if last_update and _num_update("loss_bq") > 1e-6:
+                    hole_str += f"  bq={_fmt_update('loss_bq')}"
+                if last_update and _num_update("loss_feas") > 1e-6:
+                    hole_str += f"  feas={_fmt_update('loss_feas')}"
+                if last_update and _num_update("loss_surv") > 1e-6:
+                    hole_str += f"  surv={_fmt_update('loss_surv')}"
+                if last_update and _num_update("q_distill_coef") > 1e-12:
+                    hole_str += f"  qdst={_fmt_update('loss_q_distill')}"
+                if last_update and _num_update("visit_pi_coef") > 1e-12:
+                    hole_str += f"  vpi={_fmt_update('loss_visit_pi')}"
+                if last_update and last_update.get("replay_samples", 0):
+                    hole_str += f"  replay={last_update.get('replay_samples', 0)}"
+                if last_update and _num_update("teacher_q_coverage") > 0:
+                    hole_str += (
+                        f"  tq={_num_update('teacher_q_coverage') * 100:.0f}%"
+                        f"/std{_num_update('teacher_q_std'):.2f}"
+                        f"/m{_num_update('teacher_q_margin'):.2f}"
+                        f"/H{_num_update('teacher_q_entropy_norm'):.2f}"
+                    )
+                if last_update and _num_update("teacher_visit_coverage") > 0:
+                    hole_str += (
+                        f"  tv={_num_update('teacher_visit_coverage') * 100:.0f}%"
+                        f"/H{_num_update('teacher_visit_entropy_norm'):.2f}"
+                    )
+                if last_update and not last_update.get("optimizer_stepped", True):
+                    hole_str += f"  skip={last_update.get('optimizer_skip_reason') or 'unknown'}"
                 ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
                 gpu_pct = 100.0 * t_train_ms / max(t_collect_ms + t_train_ms, 1)
                 # 自适应课程：显示虚拟进度
                 adap_tag = f"  vep={_virtual_ep:.0f}" if _use_adaptive else ""
+                rank_tag = (
+                    f"  rr={_ranked_last_avg:+.2f}@p{_ranked_last_pct * 100:.0f}/t{_ranked_reward_target_for_episode(ep_cursor, _rank_cfg) * 100:.0f}"
+                    if _use_ranked and len(_rank_history) >= int(_rank_cfg.get("warmup", 0))
+                    else ""
+                )
                 print(
                     f"ep {ep_cursor}  |  {ppo_tag}  |  dev={device.type}  |  thr={wt}{adap_tag}  |  "
                     f"sc={last_ep['score']:.0f}  avg100={avg:.1f}  win%={wr:.1f}%  steps={last_ep['steps']}  |  "
-                    f"π={lp_str}  V={lv_str}  H={he_str}{hole_str}  |  "
+                    f"π={lp_str}  V={lv_str}  H={he_str}{hole_str}{rank_tag}  |  "
                     f"C={t_collect_ms:.0f}ms T={t_train_ms:.0f}ms GPU≈{gpu_pct:.0f}%  |  {dt:.1f}s",
                     file=sys.stderr,
                 )
@@ -1740,9 +2220,15 @@ def train_loop(
                     net, _baseline_net, device,
                     n_games=eval_gate_games,
                     win_ratio=eval_gate_win_ratio,
+                    win_threshold=float(cur_win_thr if cur_win_thr is not None else rl_win_threshold_for_episode(ep_cursor)),
+                    gate_rule=str((RL_REWARD_SHAPING.get("evalGate") or {}).get("rule", "win")),
+                    rounds=int((RL_REWARD_SHAPING.get("evalGate") or {}).get("rounds", 1)),
                 )
                 _cwr = _gate_m["candidate"]["win_rate"]
                 _bwr = _gate_m["baseline"]["win_rate"]
+                _pair_wr = float(_gate_m.get("paired_score_win_rate", 0.0))
+                _pair_nl = float(_gate_m.get("paired_score_non_loss_rate", 0.0))
+                _avg_d = float(_gate_m.get("avg_score_delta", 0.0))
                 _hard = os.environ.get("RL_EVAL_GATE_HARD", "0").lower() not in ("0", "false", "no")
 
                 if _gate_passed:
@@ -1756,7 +2242,8 @@ def train_loop(
                     else:
                         best_tag = f"  (历史最优胜率={_best_ever_wr:.1%})"
                     print(
-                        f"[EvalGate] ep={ep_cursor}  ✓ PASSED  cand={_cwr:.1%}  base={_bwr:.1%}"
+                        f"[EvalGate] ep={ep_cursor}  ✓ PASSED  cand_wr={_cwr:.1%}  base_wr={_bwr:.1%}"
+                        f"  pair_wr={_pair_wr:.1%} pair_nl={_pair_nl:.1%} Δavg={_avg_d:+.2f}"
                         f"  → 基线已更新{best_tag}",
                         file=sys.stderr,
                     )
@@ -1768,7 +2255,8 @@ def train_loop(
                     else:
                         restore_tag = "  [软门控：继续训练]"
                     print(
-                        f"[EvalGate] ep={ep_cursor}  ✗ FAILED  cand={_cwr:.1%}  base={_bwr:.1%}"
+                        f"[EvalGate] ep={ep_cursor}  ✗ FAILED  cand_wr={_cwr:.1%}  base_wr={_bwr:.1%}"
+                        f"  pair_wr={_pair_wr:.1%} pair_nl={_pair_nl:.1%} Δavg={_avg_d:+.2f}"
                         + restore_tag,
                         file=sys.stderr,
                     )
@@ -1915,8 +2403,9 @@ def main() -> None:
     p.add_argument(
         "--explore-first-moves",
         type=int,
-        default=15,
-        help="开局前若干步温度乘 explore-temp-mult；0 关闭",
+        default=2,
+        help="开局前若干步只做高温探索、不算 beam/MCTS teacher（省算力）；默认 2，"
+        "避免短局（十余步）整局无搜索监督。设为 0 则全程启用 teacher。",
     )
     p.add_argument(
         "--explore-temp-mult",
@@ -1945,19 +2434,21 @@ def main() -> None:
     p.add_argument(
         "--eval-gate-every",
         type=int,
-        default=0,
+        default=int((RL_REWARD_SHAPING.get("evalGate") or {}).get("everyEpisodes", 0))
+        if (RL_REWARD_SHAPING.get("evalGate") or {}).get("enabled", False)
+        else 0,
         help="评估门控触发间隔（局数），0=关闭；每隔 N 局对比候选/基线胜率，候选≥基线×win-ratio 才更新基线",
     )
     p.add_argument(
         "--eval-gate-games",
         type=int,
-        default=50,
+        default=int((RL_REWARD_SHAPING.get("evalGate") or {}).get("nGames", 50)),
         help="评估门控每侧运行的贪心评估局数",
     )
     p.add_argument(
         "--eval-gate-win-ratio",
         type=float,
-        default=0.55,
+        default=float((RL_REWARD_SHAPING.get("evalGate") or {}).get("winRatio", 0.55)),
         help="门控胜率倍数阈值；0.55 = 候选须超过基线胜率的 55%%（AlphaZero 默认标准）",
     )
     # ── v8 新增参数 ──────────────────────────────────────────────────────
@@ -1970,7 +2461,7 @@ def main() -> None:
     p.add_argument(
         "--beam3ply",
         action="store_true",
-        help="启用 3-ply beam（RL_BEAM3PLY=1 亦可）：dock=3 块时三层全排列展开，"
+        help="启用 3-ply beam（RL_BEAM3PLY=1 亦可）：还有 3 个未放置 dock 块时三层全排列展开，"
              "其余情况自动退化为 2-ply；注意显著增加每步采集耗时",
     )
     p.add_argument(

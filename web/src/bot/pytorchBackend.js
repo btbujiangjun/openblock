@@ -67,6 +67,9 @@ export async function trainEpisodeRemote(trajectory, meta = {}) {
         if (typeof tr.board_quality === 'number') row.board_quality = tr.board_quality;
         if (typeof tr.feasibility === 'number') row.feasibility = tr.feasibility;
         if (typeof tr.steps_to_end === 'number') row.steps_to_end = tr.steps_to_end;
+        if (Array.isArray(tr.qTeacher) && tr.qTeacher.length === tr.phiList.length) {
+            row.q_teacher = tr.qTeacher.map((x) => Number(x));
+        }
         return row;
     });
     const body = { steps };
@@ -88,9 +91,30 @@ export async function trainEpisodeRemote(trajectory, meta = {}) {
  * @returns {Promise<number[]>} 对应的 V(s) 值
  */
 export async function evalValuesRemote(states) {
-    const payload = states.map(s => Array.from(s));
+    const n = states?.length ?? 0;
+    if (n === 0) {
+        return [];
+    }
+    const payload = states.map((s) => {
+        if (s == null || typeof s[Symbol.iterator] !== 'function') {
+            throw new Error('eval_values: invalid state vector');
+        }
+        return Array.from(s);
+    });
     const data = await postJson('/api/rl/eval_values', { states: payload });
-    return data.values;
+    const values = data?.values;
+    if (!Array.isArray(values) || values.length !== n) {
+        throw new Error(
+            `eval_values: expected values length ${n}, got ${values == null ? 'missing' : values.length}`
+        );
+    }
+    return values.map((v) => {
+        let x = v;
+        while (Array.isArray(x) && x.length === 1) {
+            x = x[0];
+        }
+        return Number(x);
+    });
 }
 
 /**
@@ -98,6 +122,30 @@ export async function evalValuesRemote(states) {
  */
 export async function flushBufferRemote() {
     return postJson('/api/rl/flush_buffer', {});
+}
+
+/**
+ * 贪心评估当前服务端 checkpoint（不写权重），结果写入 training.jsonl（event: eval_greedy）。
+ * @param {{ nGames?: number, rounds?: number, temperature?: number, winThreshold?: number, seedBase?: number }} [opts]
+ */
+export async function evalGreedyRemote(opts = {}) {
+    const body = {};
+    if (typeof opts.nGames === 'number' && Number.isFinite(opts.nGames)) {
+        body.n_games = opts.nGames;
+    }
+    if (typeof opts.rounds === 'number' && Number.isFinite(opts.rounds)) {
+        body.rounds = opts.rounds;
+    }
+    if (typeof opts.temperature === 'number' && Number.isFinite(opts.temperature)) {
+        body.temperature = opts.temperature;
+    }
+    if (typeof opts.winThreshold === 'number' && Number.isFinite(opts.winThreshold)) {
+        body.win_threshold = opts.winThreshold;
+    }
+    if (typeof opts.seedBase === 'number' && Number.isFinite(opts.seedBase)) {
+        body.seed_base = opts.seedBase;
+    }
+    return postJson('/api/rl/eval_greedy', body);
 }
 
 export async function saveRemoteCheckpoint(path) {

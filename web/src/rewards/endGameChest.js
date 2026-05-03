@@ -15,6 +15,12 @@
  * - 普通（70%）：1× 提示券 / 1× 撤销
  * - 稀有（25%）：2× 提示券 / 1× 炸弹 / 1× 彩虹
  * - 史诗（5%）：5× 提示券 + 1× 炸弹 + 1× 彩虹 + 12h 试穿券
+ *
+ * 入账时机（v10.18.7）
+ * --------------------
+ * 命中后只写入 `pendingChest` 并弹层；用户点击「领取到钱包」或点遮罩关闭时再入账。
+ * 下一局结算或 init 时会先兑现未领的 pending，避免关页/未点导致丢奖。
+ * 详见 docs/product/CHEST_AND_WALLET.md。
  */
 
 import { getWallet } from '../skills/wallet.js';
@@ -51,12 +57,27 @@ function _load() {
 }
 function _save(s) { try { localStorage.setItem(STATE_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
 
+/**
+ * 兑现上一局未确认的局末宝箱（幂等；入账后清除 pendingChest）。
+ */
+function _fulfillPendingChestGrant() {
+    const s = _load();
+    const p = s.pendingChest;
+    if (!p || !p.tier || !p.reward) return;
+    const reward = { ...p.reward };
+    _grantReward(reward, p.tier);
+    delete s.pendingChest;
+    _save(s);
+}
+
 let _origEndGame = null;
 let _audio = null;
 
 export function initEndGameChest({ game, audio = null } = {}) {
     if (!game || _origEndGame) return;
     _audio = audio;
+
+    try { _fulfillPendingChestGrant(); } catch (e) { console.warn('[chest] pending flush', e); }
 
     _origEndGame = game.endGame.bind(game);
     game.endGame = async (...args) => {
@@ -67,6 +88,8 @@ export function initEndGameChest({ game, audio = null } = {}) {
 }
 
 function _maybeOpenChest(game) {
+    _fulfillPendingChestGrant();
+
     const state = _load();
     const sinceLast = (state.gamesSinceChest | 0) + 1;
     const score = game.score | 0;
@@ -83,12 +106,11 @@ function _maybeOpenChest(game) {
 
     state.gamesSinceChest = 0;
     state.totalChests = (state.totalChests | 0) + 1;
-    _save(state);
-
     const tier = _pickTier();
     const reward = _pickReward(tier);
-    _grantReward(reward, tier);
-    _showChestModal(tier, reward);
+    state.pendingChest = { tier, reward: { ...reward } };
+    _save(state);
+    _showChestModal(tier, state.pendingChest.reward);
 }
 
 function _pickTier() {
@@ -133,6 +155,15 @@ function _formatReward(reward) {
     return parts.join(' · ');
 }
 
+/** 弹层展示用（入账前 epic 尚无 _trialSkin） */
+function _formatRewardDisplay(reward) {
+    let line = _formatReward(reward);
+    if (reward._trial && !reward._trialSkin) {
+        line = line ? `${line} · 12h 随机试穿` : '12h 随机试穿';
+    }
+    return line;
+}
+
 /**
  * v10.18.6：结算卡（#game-over.active）显示期间不能叠加 chest 浮层，否则与玻璃卡片同时
  * 出现两次浮层。改为延迟到玩家离开结算卡（点击 再来一局 / 菜单）之后再弹。
@@ -158,6 +189,11 @@ function _afterGameOverDismiss(overEl, action) {
     obs.observe(overEl, { attributes: true, attributeFilter: ['class'] });
 }
 
+function _dismissChestPanel(panel) {
+    try { _fulfillPendingChestGrant(); } catch (e) { console.warn('[chest]', e); }
+    panel.classList.remove('is-visible');
+}
+
 function _renderChestModal(tier, reward) {
     let panel = document.getElementById('chest-panel');
     if (!panel) {
@@ -172,19 +208,18 @@ function _renderChestModal(tier, reward) {
         <div class="chest-card chest-card--${tier}">
             <div class="chest-icon">${tierIcon}</div>
             <h3 class="chest-title">${tierLabel}宝箱</h3>
-            <div class="chest-reward">${_formatReward(reward)}</div>
-            <button type="button" class="chest-claim-btn">领取</button>
+            <div class="chest-reward">${_formatRewardDisplay(reward)}</div>
+            <p class="chest-hint">点击下方按钮或空白处关闭，奖励将发放至钱包</p>
+            <button type="button" class="chest-claim-btn">领取到钱包</button>
         </div>
     `;
     panel.classList.add('is-visible');
-    panel.querySelector('.chest-claim-btn').addEventListener('click', () => {
-        panel.classList.remove('is-visible');
-    });
+    panel.querySelector('.chest-claim-btn').addEventListener('click', () => _dismissChestPanel(panel));
     panel.addEventListener('click', (e) => {
-        if (e.target === panel) panel.classList.remove('is-visible');
+        if (e.target === panel) _dismissChestPanel(panel);
     });
     _audio?.play?.('unlock');
     _audio?.vibrate?.([40, 60, 40]);
 }
 
-export const __test_only__ = { TIER_WEIGHTS, TIER_REWARDS };
+export const __test_only__ = { TIER_WEIGHTS, TIER_REWARDS, _fulfillPendingChestGrant, _formatRewardDisplay };

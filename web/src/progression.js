@@ -5,6 +5,23 @@ import { t } from './i18n/i18n.js';
 
 const STORAGE_KEY = 'openblock_progression_v1';
 
+/**
+ * @typedef {{
+ *   totalXp: number,
+ *   bonusDayYmd: string,
+ *   streakYmd: string,
+ *   dailyStreak: number
+ * }} ProgressState
+ */
+
+/** @type {ProgressState | null} */
+let _progressLoadCache = null;
+
+/** 测试或跨模块写入 progression 后调用，使 loadProgress 重新读盘 */
+export function invalidateProgressCache() {
+    _progressLoadCache = null;
+}
+
 /** 等级成就：达到 minLevel 时解锁对应成就 id */
 export const LEVEL_ACHIEVEMENT_THRESHOLDS = [
     { minLevel: 5, id: 'level_5' },
@@ -17,15 +34,6 @@ const STRATEGY_XP_MUL = {
     normal: 1,
     hard: 1.12
 };
-
-/**
- * @typedef {{
- *   totalXp: number,
- *   bonusDayYmd: string,
- *   streakYmd: string,
- *   dailyStreak: number
- * }} ProgressState
- */
 
 function _todayYmd() {
     const d = new Date();
@@ -47,34 +55,46 @@ function _yesterdayYmd(ymd) {
 
 /** @returns {ProgressState} */
 export function loadProgress() {
+    if (_progressLoadCache) {
+        return { ..._progressLoadCache };
+    }
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
             const o = JSON.parse(raw);
-            return {
+            _progressLoadCache = {
                 totalXp: Math.max(0, Number(o.totalXp) || 0),
                 bonusDayYmd: typeof o.bonusDayYmd === 'string' ? o.bonusDayYmd : '',
                 streakYmd: typeof o.streakYmd === 'string' ? o.streakYmd : '',
                 dailyStreak: Math.max(0, Number(o.dailyStreak) || 0)
             };
+            return { ..._progressLoadCache };
         }
     } catch {
         /* ignore */
     }
-    return {
+    _progressLoadCache = {
         totalXp: 0,
         bonusDayYmd: '',
         streakYmd: '',
         dailyStreak: 0
     };
+    return { ..._progressLoadCache };
 }
 
 /** @param {ProgressState} state */
 export function saveProgress(state) {
+    const normalized = {
+        totalXp: Math.max(0, Number(state.totalXp) || 0),
+        bonusDayYmd: typeof state.bonusDayYmd === 'string' ? state.bonusDayYmd : '',
+        streakYmd: typeof state.streakYmd === 'string' ? state.streakYmd : '',
+        dailyStreak: Math.max(0, Number(state.dailyStreak) || 0)
+    };
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+        _progressLoadCache = normalized;
     } catch {
-        /* ignore */
+        invalidateProgressCache();
     }
 }
 

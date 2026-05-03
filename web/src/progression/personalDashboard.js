@@ -64,8 +64,8 @@ function _injectEntry() {
     btn.id = 'personal-dashboard-btn';
     btn.type = 'button';
     btn.className = 'personal-dashboard-btn';
-    btn.title = '个人数据 — 累计游玩记录与偏好';
-    btn.innerHTML = `<span>📊</span><span class="pdb-label">数据</span>`;
+    btn.title = '钱包与个人数据 — 道具余额与累计游玩记录';
+    btn.innerHTML = `<span>👛</span><span class="pdb-label">钱包</span>`;
     host.appendChild(btn);
     btn.addEventListener('click', openDashboard);
 }

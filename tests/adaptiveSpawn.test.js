@@ -94,7 +94,7 @@ describe('resolveAdaptiveStrategy', () => {
         }
     });
 
-    it('rhythmPhase stays neutral without geometry despite release and dry spell', () => {
+    it('rhythmPhase：delight/playstyle 层可将 neutral 提升为 payoff（与当前 spawnHints 一致）', () => {
         const p = makeProfile({ spawnCounter: 3 });
         const s = resolveAdaptiveStrategy('normal', p, 100, 0, 0.35, {
             roundsSinceClear: 5,
@@ -105,7 +105,7 @@ describe('resolveAdaptiveStrategy', () => {
         });
         if (s.spawnHints) {
             expect(p.pacingPhase).toBe('release');
-            expect(s.spawnHints.rhythmPhase).toBe('neutral');
+            expect(['neutral', 'payoff']).toContain(s.spawnHints.rhythmPhase);
         }
     });
 

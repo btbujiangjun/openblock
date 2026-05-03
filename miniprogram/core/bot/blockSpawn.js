@@ -12,6 +12,8 @@
  *   comboChain          (0~1)   combo 链强度：越高越偏好能续链的消行块
  *   multiClearBonus     (0~1)   多消鼓励：越高越偏好能同时完成多行的块
  *   multiLineTarget     (0|1|2) v10.33：多线兑现目标；2 时阶段 1/加权池强烈偏好 multiClear≥2
+ *   delightBoost        (0~1)   爽感兑现：来自玩家能力/心流状态，额外提高多消/清屏概率
+ *   perfectClearBoost   (0~1)   清屏兑现：有清屏准备时提高可清屏块抽样权重
  *   rhythmPhase         'setup'|'payoff'|'neutral'  节奏相位
  *   targetSolutionRange { min, max, label } | null  解法数量难度区间（v9 新增）
  *
@@ -245,6 +247,17 @@ function minPlacementsOf(chosen) {
  * @param {import('../grid.js').Grid} grid
  * @returns {{ holes: number, flatness: number, maxColHeight: number, colHeights: number[], nearFullLines: number }}
  */
+function countOccupiedCells(grid) {
+    const n = grid.size;
+    let c = 0;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== null) c++;
+        }
+    }
+    return c;
+}
+
 function analyzeBoardTopology(grid) {
     const n = grid.size;
     const colHeights = new Array(n).fill(0);
@@ -373,8 +386,8 @@ function analyzePerfectClearSetup(grid) {
     const totalEmptyNeeded = nearFullRows.reduce((s, r) => s + r.empty, 0)
                            + nearFullCols.reduce((s, c) => s + c.empty, 0);
 
-    if (remainingAfterClear === 0 && totalEmptyNeeded <= 9) return 2; // 精确清屏机会
-    if (remainingAfterClear <= 3 && totalEmptyNeeded <= 14) return 1; // 强接近清屏
+    if (remainingAfterClear === 0 && totalEmptyNeeded <= 11) return 2;
+    if (remainingAfterClear <= 4 && totalEmptyNeeded <= 17) return 1;
     return 0;
 }
 
@@ -489,6 +502,9 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const comboChain = hints.comboChain ?? 0;
     const multiClearBonus = hints.multiClearBonus ?? 0;
     const multiLineTarget = Math.max(0, Math.min(2, hints.multiLineTarget ?? 0));
+    const delightBoost = Math.max(0, Math.min(1, hints.delightBoost ?? 0));
+    const perfectClearBoost = Math.max(0, Math.min(1, hints.perfectClearBoost ?? 0));
+    const delightMode = hints.delightMode ?? 'neutral';
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
     const targetSolutionRange = hints.targetSolutionRange || null;
     const solutionCfg = getSolutionDifficultyCfg();
@@ -507,6 +523,8 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
 
     // 清屏准备信号（0=无 / 1=弱 / 2=强）：若消完临消行则盘面清空
     const pcSetup = analyzePerfectClearSetup(grid);
+    const occupied = countOccupiedCells(grid);
+    const evalPerfectClear = pcSetup > 0 || occupied <= 22 || fill <= 0.46;
 
     const scored = allShapes
         .map((shape) => {
@@ -517,16 +535,12 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             const weight = weights[category] ?? 1;
             const placements = countLegalPlacements(grid, shape.data);
 
-            let multiClear = 0;
+            const multiClear = bestMultiClearPotential(grid, shape.data);
             let holeReduce = 0;
             let pcPotential = 0;
 
-            if (gapFills > 0) {
-                multiClear = bestMultiClearPotential(grid, shape.data);
-                // 清屏机会期：评估该块能否直接触发清屏
-                if (pcSetup > 0) {
-                    pcPotential = bestPerfectClearPotential(grid, shape.data);
-                }
+            if (evalPerfectClear) {
+                pcPotential = bestPerfectClearPotential(grid, shape.data);
             }
             if (doDeepAnalysis && topo.holes > 2 && fill > 0.5) {
                 holeReduce = bestHoleReduction(grid, shape.data, topo.holes);
@@ -573,7 +587,7 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
             targetSolutionRange
         },
-        layer2: { comboChain, multiClearBonus, multiLineTarget, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
+        layer2: { comboChain, multiClearBonus, multiLineTarget, delightBoost, perfectClearBoost, delightMode, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,
@@ -590,17 +604,19 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         let clearCount = 0;
 
         /* -- 阶段 1: 消行候选（clearGuarantee + combo 催化 + 清屏/多消优先）-- */
-        const clearCandidates = scored.filter((s) => s.gapFills > 0);
+        const clearCandidates = scored.filter(
+            (s) => s.gapFills > 0 || s.multiClear >= 1 || s.pcPotential === 2
+        );
 
         // 排序：清屏潜力 > 多消 > combo 加权 > gap 数
-        if (pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3 || multiLineTarget >= 2) {
+        if (pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2) {
             const mlBoost = 0.35 * multiLineTarget;
             clearCandidates.sort((a, b) => {
-                const aScore = a.pcPotential * 8
-                    + a.multiClear * (1 + multiClearBonus + mlBoost)
+                const aScore = a.pcPotential * (8 + perfectClearBoost * 8)
+                    + a.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
                     + a.gapFills * 0.5;
-                const bScore = b.pcPotential * 8
-                    + b.multiClear * (1 + multiClearBonus + mlBoost)
+                const bScore = b.pcPotential * (8 + perfectClearBoost * 8)
+                    + b.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
                     + b.gapFills * 0.5;
                 return bScore - aScore;
             });
@@ -611,9 +627,9 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             : clearTarget;
 
         // 清屏机会（pcSetup=2）或临消行≥4 时：允许 3 个槽全放消行块
-        const maxClearSeats = (pcSetup >= 2 || topo.nearFullLines >= 4) ? 3 : 2;
+        const maxClearSeats = (pcSetup >= 2 || topo.nearFullLines >= 4 || delightBoost > 0.65) ? 3 : 2;
         // 精确清屏机会：强制 3 槽全部用于消行（不再受 clearTarget 约束）
-        const clearSeats = pcSetup >= 2
+        const clearSeats = pcSetup >= 2 || perfectClearBoost >= 0.9
             ? Math.min(3, clearCandidates.length)
             : Math.min(effectiveClearTarget, clearCandidates.length, maxClearSeats);
 
@@ -623,10 +639,10 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
 
             let pick;
             // 清屏机会期：优先选能直接触发清屏的块
-            if (pcSetup >= 1 && avail.some(s => s.pcPotential === 2)) {
+            if ((pcSetup >= 1 || perfectClearBoost > 0.45) && avail.some(s => s.pcPotential === 2)) {
                 const perfectPicks = avail.filter(s => s.pcPotential === 2);
                 pick = perfectPicks[Math.floor(Math.random() * Math.min(3, perfectPicks.length))];
-            } else if ((multiClearBonus > 0.3 || multiLineTarget >= 2) && avail.some(s => s.multiClear >= 2)) {
+            } else if ((multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2) && avail.some(s => s.multiClear >= 2)) {
                 const multi = avail.filter(s => s.multiClear >= 2);
                 pick = multi[Math.floor(Math.random() * Math.min(3, multi.length))];
             } else {
@@ -663,16 +679,16 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                 /* Layer 1: 清屏潜力 — 最高优先级倍率 */
                 if (s.pcPotential === 2) {
                     // 该块放置后可直接触发清屏：极强权重，覆盖一切其他因素
-                    w *= 12.0;
+                    w *= 12.0 + perfectClearBoost * 10.0;
                 } else if (pcSetup >= 1 && s.gapFills > 0) {
                     // 清屏准备期：gap 填充块大幅加权，pcSetup=2 更强
-                    w *= 1 + pcSetup * 3.0;
+                    w *= 1 + pcSetup * 3.0 + perfectClearBoost * 2.0;
                 }
 
                 /* Layer 1: 多消潜力 — 指数级强化（mc=2 → ×2.0，mc=3 → ×2.7）*/
                 if (s.multiClear >= 1) {
                     // 基础倍率 0.6 + multiClearBonus 最高追加 0.6
-                    const mcBase = 0.6 + multiClearBonus * 0.6;
+                    const mcBase = 0.6 + multiClearBonus * 0.6 + delightBoost * 0.45;
                     w *= 1 + s.multiClear * mcBase;
                 }
                 if (multiLineTarget >= 2 && s.multiClear >= 2) {
@@ -703,8 +719,12 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                 if (rhythmPhase === 'payoff') {
                     if (s.gapFills > 0) w *= 1.7;      // 原 1.3 → 更强的 payoff 推送
                     if (s.multiClear >= 2) w *= 1.4;    // 原 1.2 → 多消双重加持
+                    if (delightBoost > 0.35 && s.multiClear >= 1) w *= 1 + delightBoost * 0.55;
                 } else if (rhythmPhase === 'setup') {
                     if (cells >= 4 && cells <= 6 && s.gapFills === 0) w *= 1.2;
+                }
+                if (delightMode === 'relief' && s.gapFills > 0 && cells <= 5) {
+                    w *= 1.18 + delightBoost * 0.35;
                 }
 
                 /* sizePreference */
@@ -836,7 +856,9 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     /* 兜底 */
     const blocks = [];
     const usedIds = {};
-    const clearCandidates = scored.filter((s) => s.gapFills > 0);
+    const clearCandidates = scored.filter(
+        (s) => s.gapFills > 0 || s.multiClear >= 1 || s.pcPotential === 2
+    );
     if (clearCandidates.length > 0) {
         blocks.push(clearCandidates[0].shape);
         usedIds[clearCandidates[0].shape.id] = true;
@@ -906,7 +928,6 @@ function generateDockShapesLayered(grid, config, spawnHints = {}, spawnContext =
     }
 
     // 复用原始评分逻辑（仅分层，不重复打分代码）
-    const { weights } = config;
     const rawResult = generateDockShapes(grid, config, spawnHints, spawnContext);
     return rawResult; // 当前退化为原函数；三层逻辑在 spawnLayers.js 可独立验证
 }

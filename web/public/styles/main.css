@@ -136,6 +136,21 @@ body.block-drag-active #app {
     align-items: center;
 }
 
+.header-side--left {
+    justify-content: flex-start;
+}
+
+/* 相册 / 钱包 / 战令：纵向对齐、等宽，避免换行后第三颗单独顶左且间距不均 */
+.header-side .top-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: max-content;
+    max-width: min(168px, 46vw);
+    min-width: 0;
+}
+
 .header-side--right {
     justify-content: flex-end;
 }
@@ -2323,6 +2338,7 @@ body.game-over-active .first-win-banner {
     align-items: center;
     gap: 6px;
     margin-bottom: 3px;
+    flex-wrap: wrap;
 }
 
 .rl-panel-title {
@@ -2352,6 +2368,23 @@ body.game-over-active .first-win-banner {
 }
 
 .rl-backend-toggle input {
+    margin: 0;
+    width: 11px;
+    height: 11px;
+}
+
+.rl-lookahead-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin: 0;
+    font-size: 7.5px;
+    color: var(--text-secondary, #3d5266);
+    cursor: pointer;
+    line-height: 1.2;
+}
+
+.rl-lookahead-toggle input {
     margin: 0;
     width: 11px;
     height: 11px;
@@ -2560,11 +2593,21 @@ body.game-over-active .first-win-banner {
     flex-shrink: 0;
 }
 
+.rl-dash-compact {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    align-items: center;
+    margin-bottom: 3px;
+}
+
 .rl-dash-summary {
-    margin: 0 0 6px;
-    padding: 5px 8px;
-    font-size: 8.5px;
-    line-height: 1.4;
+    margin: 0;
+    padding: 3px 6px;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 8px;
+    line-height: 1.25;
     color: var(--text-primary, #2c3e50);
     background: color-mix(in srgb, var(--accent-color, #4472c4) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 15%, transparent);
@@ -2575,6 +2618,27 @@ body.game-over-active .first-win-banner {
 .rl-dash-summary strong {
     color: var(--accent-color, #4472c4);
     font-weight: 700;
+}
+
+.rl-dash-summary-line {
+    display: block;
+    color: var(--text-secondary, #5d6f82);
+    line-height: 1.35;
+}
+
+.rl-dash-insight-line {
+    display: block;
+    margin-top: 3px;
+    padding-top: 3px;
+    border-top: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 12%, transparent);
+    color: var(--text-secondary, #5d6f82);
+    line-height: 1.35;
+}
+
+.rl-dash-summary time {
+    color: color-mix(in srgb, var(--text-secondary, #5d7a96) 76%, transparent);
+    font-size: 7.5px;
+    white-space: nowrap;
 }
 
 /* 仅关键数值指标使用帮助光标；控件与图表区保留 title 提示但用默认指针 */
@@ -2592,25 +2656,35 @@ body.game-over-active .first-win-banner {
 
 .rl-dash-toolbar {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 5px 8px;
-    margin-bottom: 6px;
+    justify-content: flex-end;
+    justify-self: end;
+    gap: 4px;
+    margin: 0 4px 0 0;
     flex-shrink: 0;
 }
 
 .rl-dash-auto {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 8.5px;
+    gap: 2px;
+    font-size: 8px;
     color: var(--text-secondary, #3d5266);
     cursor: pointer;
+    white-space: nowrap;
+}
+
+.rl-dash-auto input {
+    width: 12px;
+    height: 12px;
+    margin: 0;
 }
 
 .rl-dash-select {
-    font-size: 8.5px;
-    padding: 2px 4px;
+    max-width: 84px;
+    font-size: 8px;
+    padding: 1px 3px;
     border-radius: 4px;
     border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 14%, transparent);
     color: var(--text-primary, #2c3e50);
@@ -2618,8 +2692,8 @@ body.game-over-active .first-win-banner {
 }
 
 .rl-dash-refresh {
-    padding: 3px 8px;
-    font-size: 8.5px;
+    padding: 2px 7px;
+    font-size: 8px;
     font-weight: 600;
     border: none;
     border-radius: 4px;
@@ -2664,21 +2738,62 @@ body.game-over-active .first-win-banner {
 .rl-chart-root {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
     flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     /* 最后一幅图（滑动胜率、得分）滚到底时整图 + 轴标签不被裁切 */
-    padding-bottom: 72px;
-    scroll-padding-bottom: 56px;
+    padding-bottom: 44px;
+    scroll-padding-bottom: 36px;
     box-sizing: border-box;
     -webkit-overflow-scrolling: touch;
 }
 
-.rl-chart-wrap {
+.rl-chart-panel {
     width: 100%;
     flex-shrink: 0;
+    border-radius: 4px;
+}
+
+.rl-chart-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+    padding: 1px 4px 2px 1px;
+    color: var(--text-secondary, #5d7a96);
+    cursor: pointer;
+    list-style: none;
+}
+
+.rl-chart-panel-head::-webkit-details-marker {
+    display: none;
+}
+
+.rl-chart-panel-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 8px;
+    font-weight: 700;
+}
+
+.rl-chart-toggle {
+    flex: 0 0 auto;
+    padding: 0 5px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 18%, transparent);
+    background: color-mix(in srgb, var(--accent-color, #4472c4) 8%, transparent);
+    color: var(--accent-color, #4472c4);
+    font-size: 7.5px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.rl-chart-wrap {
+    width: 100%;
 }
 
 .rl-chart-canvas {
@@ -2687,6 +2802,19 @@ body.game-over-active .first-win-banner {
     border-radius: 4px;
     background: color-mix(in srgb, var(--stat-surface, #fafbfd) 60%, transparent);
     border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 6%, transparent);
+}
+
+.rl-chart-empty-inline {
+    margin: 0;
+    padding: 8px 9px;
+    min-height: 40px;
+    box-sizing: border-box;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 6%, transparent);
+    background: color-mix(in srgb, var(--stat-surface, #fafbfd) 60%, transparent);
+    color: var(--text-secondary, #5d7a96);
+    font-size: 8px;
+    line-height: 1.45;
 }
 
 .rl-dash-empty {
@@ -3382,6 +3510,17 @@ body.game-shell-hidden .app-side-left {
     box-shadow: 0 4px 18px rgba(14,116,144,.4), 0 1px 0 rgba(255,255,255,.2) inset;
 }
 
+/* 钱包 · 个人数据 — 玫红渐变（与 👛 语义一致，白字对比足够；补全此前仅有 secondary 类名导致的浅底） */
+.menu-card--menu-secondary.menu-card--personal {
+    background: linear-gradient(145deg, #f472b6, #9d174d);
+    border: 1px solid color-mix(in srgb, #ffffff 24%, rgba(157, 23, 77, 0.5));
+    box-shadow: 0 4px 18px rgba(157, 23, 77, 0.42), 0 1px 0 rgba(255, 255, 255, 0.26) inset;
+}
+.menu-card--menu-secondary.menu-card--personal:hover {
+    background: linear-gradient(145deg, #fbcfe8, #be185d);
+    border-color: color-mix(in srgb, #ffffff 32%, rgba(190, 24, 93, 0.55));
+}
+
 /*
  * 运营看板 / 每日大师题 — 与上排四键同构的亮渐变（避免整块「死灰蓝」与主菜单脱节）
  * - 看板：天蓝 → 皇家蓝（与文档青、回放紫形成冷色阶）
@@ -3407,6 +3546,7 @@ body.game-shell-hidden .app-side-left {
     border-color: color-mix(in srgb, #ffffff 28%, rgba(234, 88, 12, 0.55));
 }
 
+.menu-card--menu-secondary.menu-card--personal .menu-card-icon,
 .menu-card--menu-secondary.menu-card--ops .menu-card-icon,
 .menu-card--menu-secondary.menu-card--daily-master .menu-card-icon {
     opacity: 1;
@@ -3746,6 +3886,19 @@ body.game-shell-hidden .app-side-left {
     min-width: 0;
 }
 
+.replay-item-analysis {
+    grid-column: 1 / -1;
+    color: var(--accent-color, #4472c4);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+/* 库中无 analysis 时由帧本地补算，样式略区分（hover 见 title 说明） */
+.replay-item-analysis--derived {
+    opacity: 0.92;
+    font-style: italic;
+}
+
 .replay-empty {
     padding: 28px 16px;
     text-align: center;
@@ -3908,6 +4061,78 @@ body.game-shell-hidden .app-side-left {
 #replay-view-screen .replay-player-state.replay-series-mode {
     max-height: min(40vh, 320px);
     padding: 6px 8px 8px;
+}
+
+.replay-analysis-summary {
+    margin: 0 0 6px;
+    padding: 6px 7px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent-color, #4472c4) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 16%, transparent);
+    color: var(--text-secondary, #64748b);
+    font-size: 9px;
+    line-height: 1.35;
+}
+
+.replay-analysis-summary p {
+    margin: 3px 0;
+}
+
+.replay-analysis-head {
+    color: var(--text-primary, #1e293b);
+    font-weight: 700;
+}
+
+.replay-analysis-head strong {
+    color: var(--accent-color, #4472c4);
+}
+
+.replay-analysis-metrics,
+.replay-analysis-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 5px;
+    margin-top: 4px;
+}
+
+.replay-analysis-metrics span,
+.replay-analysis-tags span {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--stat-surface, #ffffff) 65%, transparent);
+}
+
+.replay-analysis-metrics strong {
+    color: var(--accent-color, #4472c4);
+    font-weight: 800;
+}
+
+.replay-analysis-abstract,
+.replay-analysis-design {
+    margin-top: 5px;
+    padding-top: 4px;
+    border-top: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 12%, transparent);
+}
+
+.replay-analysis-abstract p,
+.replay-analysis-design p {
+    margin: 2px 0;
+}
+
+.replay-analysis-abstract p:first-child {
+    color: var(--text-primary, #1e293b);
+    font-weight: 700;
+}
+
+.replay-analysis-summary ul {
+    margin: 4px 0 0 14px;
+    padding: 0;
+}
+
+.replay-player-state pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: ui-monospace, monospace;
 }
 
 .replay-series-header {
@@ -4917,7 +5142,13 @@ body.game-shell-hidden .app-side-left {
 }
 .chest-icon { font-size: 64px; margin-bottom: 12px; }
 .chest-title { margin: 0 0 8px; font-size: 22px; font-weight: 700; }
-.chest-reward { font-size: 14px; color: var(--text-secondary, #64748b); margin-bottom: 18px; line-height: 1.6; }
+.chest-reward { font-size: 14px; color: var(--text-secondary, #64748b); margin-bottom: 10px; line-height: 1.6; }
+.chest-hint {
+    font-size: 12px;
+    color: var(--text-muted, #94a3b8);
+    margin: 0 0 16px;
+    line-height: 1.45;
+}
 .chest-claim-btn {
     padding: 10px 36px;
     border: none;
@@ -5592,42 +5823,48 @@ body.game-shell-hidden .app-side-left {
 }
 .pd-num { text-align: right; font-variant-numeric: tabular-nums; opacity: .82; font-size: 12px; }
 
-/* ── 战令入口按钮（自动注入版） ── */
+/* ── 顶栏快捷入口：相册 / 钱包 / 战令（统一样式，避免逐个 margin 导致不齐） ── */
+.replay-album-btn,
+.personal-dashboard-btn,
 .season-pass-btn {
+    box-sizing: border-box;
+    margin: 0;
     background: rgba(20, 24, 36, 0.62);
     color: #f1f5f9;
     border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 10px;
-    padding: 6px 12px;
+    padding: 6px 18px 6px 12px;
     cursor: pointer;
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
     font-size: 13px;
+    line-height: 1.2;
+    width: 100%;
+    min-height: 34px;
+}
+.season-pass-btn {
     position: relative;
 }
-.season-pass-btn:hover { background: rgba(20, 24, 36, 0.80); }
+.replay-album-btn:hover,
+.personal-dashboard-btn:hover,
+.season-pass-btn:hover {
+    background: rgba(20, 24, 36, 0.80);
+}
 .sp-btn__dot {
-    position: absolute; top: 4px; right: 6px;
-    width: 8px; height: 8px;
+    position: absolute;
+    top: 5px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
     background: #ef4444;
     border-radius: 50%;
     border: 2px solid rgba(20, 24, 36, 0.80);
+    pointer-events: none;
 }
 
-/* ── 复盘相册按钮 + 面板 ── */
-.replay-album-btn,
-.personal-dashboard-btn {
-    background: rgba(20, 24, 36, 0.62);
-    color: #f1f5f9;
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 10px;
-    padding: 6px 12px;
-    cursor: pointer;
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 13px;
-    margin-left: 6px;
-}
-.replay-album-btn:hover,
-.personal-dashboard-btn:hover { background: rgba(20, 24, 36, 0.80); }
+/* ── 复盘相册 / 个人面板浮层 ── */
 
 .replay-album-panel,
 .personal-dashboard {

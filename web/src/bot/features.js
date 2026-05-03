@@ -1,6 +1,6 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
- * state=162 (23 scalars + 64 grid + 75 dock), action=7, phi=169。
+ * state=181 (42 scalars + 64 grid + 75 dock), action=12, phi=193。
  */
 import { FEATURE_ENCODING } from '../gameRules.js';
 
@@ -11,6 +11,7 @@ const AN = enc.actionNorm || {};
 const MAX_GRID = enc.maxGridWidth ?? 8;
 const DOCK_MASK_SIDE = enc.dockMaskSide ?? 5;
 const STATE_SCALAR_DIM = enc.stateScalarDim ?? 23;
+const COLOR_COUNT = enc.colorCount ?? 8;
 
 export const STATE_FEATURE_DIM = enc.stateDim;
 export const ACTION_FEATURE_DIM = enc.actionDim;
@@ -91,6 +92,67 @@ function encodeDockSpatial(dock) {
         out.set(p, o);
         o += p.length;
     }
+    return out;
+}
+
+/**
+ * 颜色摘要：棋盘颜色占比、同色线潜力、dock 颜色。
+ * @param {import('../grid.js').Grid} grid
+ * @param {{ shape: number[][], colorIdx: number, placed: boolean }[]} dock
+ */
+function encodeColorSummary(grid, dock) {
+    const n = grid.size;
+    const area = Math.max(n * n, 1);
+    const counts = new Float32Array(COLOR_COUNT);
+    const monoPotential = new Float32Array(COLOR_COUNT);
+
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            const c = grid.cells[y][x];
+            if (c !== null && c >= 0 && c < COLOR_COUNT) {
+                counts[c] += 1;
+            }
+        }
+    }
+
+    for (let c = 0; c < COLOR_COUNT; c++) {
+        let best = 0;
+        for (let y = 0; y < n; y++) {
+            let ok = true;
+            let same = 0;
+            for (let x = 0; x < n; x++) {
+                const v = grid.cells[y][x];
+                if (v !== null && v !== c) { ok = false; break; }
+                if (v === c) same++;
+            }
+            if (ok) best = Math.max(best, same);
+        }
+        for (let x = 0; x < n; x++) {
+            let ok = true;
+            let same = 0;
+            for (let y = 0; y < n; y++) {
+                const v = grid.cells[y][x];
+                if (v !== null && v !== c) { ok = false; break; }
+                if (v === c) same++;
+            }
+            if (ok) best = Math.max(best, same);
+        }
+        monoPotential[c] = best / Math.max(n, 1);
+    }
+
+    const dockColors = new Float32Array(DOCK_SLOTS);
+    const denom = Math.max(COLOR_COUNT - 1, 1);
+    for (let i = 0; i < DOCK_SLOTS; i++) {
+        const b = dock[i];
+        if (b && !b.placed) {
+            dockColors[i] = (b.colorIdx ?? 0) / denom;
+        }
+    }
+
+    const out = new Float32Array(COLOR_COUNT * 2 + DOCK_SLOTS);
+    for (let i = 0; i < COLOR_COUNT; i++) out[i] = counts[i] / area;
+    out.set(monoPotential, COLOR_COUNT);
+    out.set(dockColors, COLOR_COUNT * 2);
     return out;
 }
 
@@ -196,7 +258,7 @@ function dockMobility(grid, dock) {
 }
 
 // ---------------------------------------------------------------------------
-// State features (162-dim)
+// State features (181-dim)
 // ---------------------------------------------------------------------------
 
 /**
@@ -267,7 +329,7 @@ export function extractStateFeatures(grid, dock) {
     }
     const heightStd = stdDev(colHeights.map(h => h / n));
 
-    const scalars = new Float32Array([
+    const baseScalars = [
         filled / area,
         maxRow,
         minRow,
@@ -291,7 +353,11 @@ export function extractStateFeatures(grid, dock) {
         Math.min(close2 / n, 1.0),
         Math.min(mobility / _MAX_MOB, 1.0),
         heightStd,
-    ]);
+    ];
+    const colorSummary = encodeColorSummary(grid, dock);
+    const scalars = new Float32Array(baseScalars.length + colorSummary.length);
+    scalars.set(baseScalars, 0);
+    scalars.set(colorSummary, baseScalars.length);
     if (scalars.length !== STATE_SCALAR_DIM) {
         throw new Error(`标量段长度 ${scalars.length} != stateScalarDim ${STATE_SCALAR_DIM}`);
     }

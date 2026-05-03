@@ -265,7 +265,7 @@ describe('MyModule', () => {
 |------|------|------|
 | 用户文档 | `docs/*.md` | 在 `/docs` 页面展示 |
 | 架构文档 | `ARCHITECTURE.md` | 系统设计 |
-| 开发指南 | `docs/DEV_GUIDE.md` | 二次开发 |
+| 开发指南 | `docs/engineering/DEV_GUIDE.md` | 二次开发 |
 | API 文档 | JSDoc 注释 | 通过注释生成 |
 
 ### 文档规范
@@ -282,7 +282,7 @@ describe('MyModule', () => {
 
 ### 新增商业化模块
 
-详见 [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md#2-新增商业化模块)。最小模板：
+详见 [docs/DEV_GUIDE.md](./docs/engineering/DEV_GUIDE.md#2-新增商业化模块)。最小模板：
 
 ```js
 // web/src/monetization/myModule.js
@@ -322,7 +322,7 @@ export function initMyModule() {
 }
 ```
 
-详见 [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md)。
+详见 [docs/STRATEGY_GUIDE.md](./docs/engineering/STRATEGY_GUIDE.md)。
 
 ---
 

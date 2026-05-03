@@ -781,6 +781,7 @@ export class Renderer {
         /** COMBO（多消）全屏暖色闪光强度 0~1，每帧衰减 */
         this._comboFlash = 0;
         this._perfectFlash = 0;
+        this._perfectShockwave = 0;
         this._perfectHue = 0;
         /** Double 消除：涟漪扩散效果 0~1 */
         this._doubleWave = 0;
@@ -1351,37 +1352,60 @@ export class Renderer {
 
     /** Perfect Clear 彩虹脉冲特效 */
     triggerPerfectFlash() {
-        this._perfectFlash = 1.0;
+        this._perfectFlash = 1.25;
+        this._perfectShockwave = 1.0;
         this._perfectHue = 0;
     }
 
     decayPerfectFlash() {
-        if (!this._perfectFlash || this._perfectFlash <= 0) return;
-        this._perfectFlash *= 0.968;
-        this._perfectHue = (this._perfectHue + 5) % 360;
-        if (this._perfectFlash < 0.02) this._perfectFlash = 0;
+        if (this._perfectFlash && this._perfectFlash > 0) {
+            this._perfectFlash *= 0.976;
+            if (this._perfectFlash < 0.02) this._perfectFlash = 0;
+        }
+        if (this._perfectShockwave && this._perfectShockwave > 0) {
+            this._perfectShockwave *= 0.965;
+            if (this._perfectShockwave < 0.018) this._perfectShockwave = 0;
+        }
+        this._perfectHue = (this._perfectHue + 7) % 360;
     }
 
     renderPerfectFlash() {
-        if (!this._perfectFlash || this._perfectFlash <= 0) return;
-        const a = this._perfectFlash;
+        if ((!this._perfectFlash || this._perfectFlash <= 0) && (!this._perfectShockwave || this._perfectShockwave <= 0)) return;
+        const a = this._perfectFlash || 0;
+        const sw = this._perfectShockwave || 0;
         const cx = this.logicalW * 0.5;
         const cy = this.logicalH * 0.5;
-        const r = Math.max(this.logicalW, this.logicalH) * 0.85;
+        const r = Math.max(this.logicalW, this.logicalH) * 1.15;
         // v10.12: 闪光画在 fxCtx 上，可溢出盘面到粒子余量区
         const ec = this._effectCtx();
         const m = this._paintMargin || 0;
         const g = ec.createRadialGradient(cx, cy, 0, cx, cy, r);
         const h = this._perfectHue;
-        g.addColorStop(0, `hsla(${h}, 100%, 75%, ${0.3 * a})`);
-        g.addColorStop(0.3, `hsla(${(h + 60) % 360}, 100%, 65%, ${0.15 * a})`);
-        g.addColorStop(0.6, `hsla(${(h + 120) % 360}, 100%, 60%, ${0.06 * a})`);
+        g.addColorStop(0, `hsla(${h}, 100%, 82%, ${0.46 * a})`);
+        g.addColorStop(0.25, `hsla(${(h + 60) % 360}, 100%, 68%, ${0.24 * a})`);
+        g.addColorStop(0.58, `hsla(${(h + 120) % 360}, 100%, 60%, ${0.11 * a})`);
+        g.addColorStop(0.82, `hsla(${(h + 220) % 360}, 100%, 62%, ${0.05 * a})`);
         g.addColorStop(1, 'rgba(255,255,255,0)');
         ec.save();
         ec.translate(this.shakeOffset.x, this.shakeOffset.y);
         ec.fillStyle = g;
         ec.fillRect(-m - this.shakeOffset.x, -m - this.shakeOffset.y,
             this.logicalW + 2 * m, this.logicalH + 2 * m);
+        if (sw > 0) {
+            const p = 1 - sw;
+            const ringR = Math.max(this.logicalW, this.logicalH) * (0.16 + p * 0.92);
+            const ringW = this.cellSize * (0.45 + p * 1.2);
+            ec.lineWidth = ringW;
+            ec.strokeStyle = `hsla(${(h + 35) % 360}, 100%, 78%, ${0.55 * sw})`;
+            ec.beginPath();
+            ec.arc(cx, cy, ringR, 0, Math.PI * 2);
+            ec.stroke();
+            ec.lineWidth = Math.max(1, ringW * 0.35);
+            ec.strokeStyle = `rgba(255, 255, 255, ${0.46 * sw})`;
+            ec.beginPath();
+            ec.arc(cx, cy, ringR * 0.72, 0, Math.PI * 2);
+            ec.stroke();
+        }
         ec.restore();
     }
 
@@ -1597,6 +1621,7 @@ export class Renderer {
         this._colorGushEnd = 0;
         this._comboFlash = 0;
         this._perfectFlash = 0;
+        this._perfectShockwave = 0;
         this._doubleWave = 0;
         this._bonusMatchFlash = 0;
     }

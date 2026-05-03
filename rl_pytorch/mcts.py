@@ -146,7 +146,17 @@ class MCTSTreeState:
         if self.zobrist_cache is None:
             return False
         try:
-            grid_np = sim.grid if hasattr(sim, "grid") else None
+            if hasattr(sim, "_ensure_grid_np"):
+                grid_np = sim._ensure_grid_np()
+            elif hasattr(sim, "grid") and hasattr(sim.grid, "cells"):
+                n = int(getattr(sim.grid, "size", 8))
+                grid_np = np.full((n, n), -1, dtype=np.int8)
+                for y in range(n):
+                    for x in range(n):
+                        v = sim.grid.cells[y][x]
+                        grid_np[y, x] = -1 if v is None else int(v)
+            else:
+                grid_np = None
             dock = sim.dock if hasattr(sim, "dock") else []
             if grid_np is None:
                 return False
@@ -701,11 +711,11 @@ def _select_leaf_for_batch(
         if not node.is_expanded:
             # 展开：用策略网络计算先验
             with torch.no_grad():
-                s_np = extract_state_features(sim.grid, sim.dock)
-                s_t = tensor_to_device(
-                    torch.from_numpy(s_np).unsqueeze(0), device
-                )
-                logits = net.forward_policy(s_t).squeeze(0).cpu().numpy()
+                _, phi_leaf = build_phi_batch(sim, legal)
+                if phi_leaf.shape[0] == 0:
+                    break
+                phi_t = tensor_to_device(torch.from_numpy(phi_leaf), device)
+                logits = net.forward_policy_logits(phi_t).cpu().numpy()
             n_legal = len(legal)
             block_logits = logits[:n_legal]
             priors = np.exp(block_logits - block_logits.max())
@@ -789,10 +799,37 @@ def run_mcts_batched(
     legal_root = sim.get_legal_actions()
     if not legal_root:
         return None
+    if (
+        spawn_predictor is not None
+        and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false")
+        and spawn_predictor.available
+    ):
+        # 随机出块叶子需要精确叶子局面；批量路径只保存 leaf features，无法恢复对应 sim。
+        # 回退到逐次 MCTS，避免用根局面近似导致 teacher 标签失真。
+        sim.restore_state(root_saved)
+        if tree_state is not None:
+            return run_mcts_reuse(
+                tree_state, net, device, sim,
+                n_simulations=n_simulations,
+                c_puct=c_puct,
+                max_depth=max_depth,
+                spawn_predictor=spawn_predictor,
+            )
+        return run_mcts(
+            net, device, sim,
+            n_simulations=n_simulations,
+            c_puct=c_puct,
+            max_depth=max_depth,
+            spawn_predictor=spawn_predictor,
+        )
 
     # ---- 确定根节点 ----
     if tree_state is not None and tree_state.root is not None:
         root = tree_state.root
+        if root.is_expanded and root.n_legal != len(legal_root):
+            tree_state.invalidate()
+            root = _MCTSNode()
+            tree_state.root = root
         already_done = root.N
         n_simulations = max(0, n_simulations - already_done)
     else:
@@ -833,27 +870,14 @@ def run_mcts_batched(
         # Phase 2: 批量 GPU 推理（仅非终局叶子）
         values_arr: np.ndarray | None = None
         if feats_list:
-            stacked = np.stack(feats_list, axis=0)           # (K, C, H, W)
+            stacked = np.stack(feats_list, axis=0)
             batch_t = tensor_to_device(
                 torch.from_numpy(stacked), device
             )
             with torch.no_grad():
-                if (
-                    spawn_predictor is not None
-                    and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false")
-                    and spawn_predictor.available
-                ):
-                    # 随机出块评估：对每个叶子单独调用（仍比逐次更便捷）
-                    vals = []
-                    for feat in feats_list:
-                        sim.restore_state(root_saved)   # 近似恢复（不精确但快）
-                        v = spawn_predictor.expected_value(sim, net, device, n_samples=2)
-                        vals.append(v)
-                    values_arr = np.array(vals, dtype=np.float32)
-                else:
-                    values_arr = (
-                        net.forward_value(batch_t).cpu().numpy().flatten()
-                    )
+                values_arr = (
+                    net.forward_value(batch_t).cpu().numpy().flatten()
+                )
 
         # Phase 3: 移除虚拟 loss + 反向传播
         for idx, (path, is_term) in enumerate(zip(paths_list, term_flags)):

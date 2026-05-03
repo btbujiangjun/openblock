@@ -111,7 +111,7 @@ function deriveMultiClearBonus(ctx, fill) {
     if (fill > 0.60) return 0.6;
     if (fill > 0.45) return 0.4;
     // 基础鼓励（始终保持一定引导）
-    return 0.15;
+    return 0.22;
 }
 
 /**
@@ -149,6 +149,59 @@ function deriveMultiLineTarget(ctx, fill) {
     if (lastClear >= 2 && fill > 0.35) return 1;
     if (fill > 0.58 && nearFullLines >= 2) return 1;
     return 0;
+}
+
+function deriveDelightTuning(profile, ctx, fill, cfg = {}) {
+    const skill = Math.max(0, Math.min(1, profile.skillLevel ?? 0.5));
+    const momentum = Math.max(-1, Math.min(1, profile.momentum ?? 0));
+    const flow = profile.flowState;
+    const pacing = profile.pacingPhase;
+    const nearFullLines = ctx.nearFullLines ?? 0;
+    const pcSetup = ctx.pcSetup ?? 0;
+    const frustration = profile.frustrationLevel ?? 0;
+    const recovery = profile.needsRecovery === true;
+
+    const highSkill = Math.max(0, (skill - (cfg.highSkillThreshold ?? 0.62)) / 0.38);
+    const positiveMomentum = Math.max(0, momentum);
+    const pressureOpportunity = Math.min(1, nearFullLines / 4 + pcSetup * 0.35 + Math.max(0, fill - 0.42));
+    const recoveryNeed = recovery ? 1 : Math.min(1, frustration / Math.max(1, cfg.frustrationReliefThreshold ?? 5));
+
+    let stressAdjust = 0;
+    if (flow === 'bored' && skill > 0.52) {
+        stressAdjust += (cfg.boredSkillStressBoost ?? 0.07) * Math.min(1, highSkill + 0.35);
+    }
+    if (flow === 'anxious' || recovery) {
+        stressAdjust -= (cfg.anxiousReliefStress ?? 0.08) * Math.max(0.4, recoveryNeed);
+    }
+
+    let multiClearBoost = cfg.baseMultiClearBoost ?? 0.22;
+    multiClearBoost += highSkill * (cfg.highSkillMultiBoost ?? 0.22);
+    multiClearBoost += positiveMomentum * (cfg.momentumMultiBoost ?? 0.16);
+    multiClearBoost += pressureOpportunity * (cfg.opportunityMultiBoost ?? 0.30);
+    if (flow === 'flow' || pacing === 'release') multiClearBoost += cfg.flowPayoffBoost ?? 0.14;
+    if (flow === 'anxious' || recovery) multiClearBoost += recoveryNeed * (cfg.reliefMultiBoost ?? 0.20);
+
+    let perfectClearBoost = 0;
+    if (pcSetup >= 2) perfectClearBoost = 1;
+    else if (pcSetup >= 1) perfectClearBoost = 0.75;
+    else if (nearFullLines >= 4 && fill > 0.45) perfectClearBoost = 0.45;
+    if (nearFullLines >= 2 && fill > 0.30) perfectClearBoost = Math.max(perfectClearBoost, 0.38);
+    if (nearFullLines >= 1 && fill <= 0.42) perfectClearBoost = Math.max(perfectClearBoost, 0.28);
+
+    const mode = recovery || flow === 'anxious'
+        ? 'relief'
+        : flow === 'bored' && skill > 0.55
+            ? 'challenge_payoff'
+            : (flow === 'flow' || positiveMomentum > 0.35)
+                ? 'flow_payoff'
+                : 'neutral';
+
+    return {
+        stressAdjust,
+        multiClearBoost: Math.max(0, Math.min(1, multiClearBoost)),
+        perfectClearBoost: Math.max(0, Math.min(1, perfectClearBoost)),
+        mode
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -310,6 +363,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* ---------- Layer 3: 里程碑 ---------- */
     const milestoneCheck = checkMilestone(score, _prevMilestone);
     if (milestoneCheck.hit) _prevMilestone = milestoneCheck.milestone;
+    const delight = deriveDelightTuning(profile, ctx, _boardFill ?? 0, cfg.delight ?? {});
 
     /* ---------- 难度偏移：让 easy/normal/hard 影响自适应 stress 基线 ---------- */
     const difficultyBias = baseStrategyId === 'easy' ? -0.12
@@ -328,7 +382,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         + nearMissAdjust
         + feedbackBias
         + trendAdjust
-        + sessionArcAdjust;
+        + sessionArcAdjust
+        + delight.stressAdjust;
 
     /* ---------- 特殊覆写：新手保护 ---------- */
     if (profile.isInOnboarding) {
@@ -376,7 +431,10 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const comboChain = deriveComboChain(ctx, profile);
 
     /* --- Layer 2: 多消鼓励 --- */
-    let multiClearBonus = deriveMultiClearBonus(ctx, _boardFill ?? 0);
+    let multiClearBonus = Math.max(
+        deriveMultiClearBonus(ctx, _boardFill ?? 0),
+        delight.multiClearBoost
+    );
 
     /* --- Layer 2: 节奏相位 + 多线目标 --- */
     let rhythmPhase = deriveRhythmPhase(profile, ctx, _boardFill ?? 0);
@@ -422,6 +480,21 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* --- Layer 2: payoff 节奏期提高多样性 --- */
     if (rhythmPhase === 'payoff') {
         diversityBoost = Math.max(diversityBoost, 0.1);
+    }
+    if (delight.mode === 'challenge_payoff') {
+        diversityBoost = Math.max(diversityBoost, 0.12);
+        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+        multiLineTarget = Math.max(multiLineTarget, 1);
+    } else if (delight.mode === 'flow_payoff') {
+        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+        multiLineTarget = Math.max(multiLineTarget, 1);
+    } else if (delight.mode === 'relief') {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.25);
+    }
+    if (delight.perfectClearBoost >= 0.75) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        multiLineTarget = Math.max(multiLineTarget, 2);
     }
 
     /* --- Layer 3: 里程碑庆祝 — 出块友好化 --- */
@@ -492,6 +565,9 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             comboChain: Math.max(0, Math.min(1, comboChain)),
             multiClearBonus: Math.max(0, Math.min(1, multiClearBonus)),
             multiLineTarget: Math.max(0, Math.min(2, multiLineTarget)),
+            delightBoost: Math.max(0, Math.min(1, delight.multiClearBoost)),
+            perfectClearBoost: Math.max(0, Math.min(1, delight.perfectClearBoost)),
+            delightMode: delight.mode,
             rhythmPhase,
             sessionArc,
             scoreMilestone: milestoneCheck.hit,
@@ -515,6 +591,9 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _rhythmPhase: rhythmPhase,
         _milestoneHit: milestoneCheck.hit,
         _playstyle: playstyle,
+        _delightMode: delight.mode,
+        _delightBoost: delight.multiClearBoost,
+        _perfectClearBoost: delight.perfectClearBoost,
         _targetSolutionRange: targetSolutionRange
     };
 }

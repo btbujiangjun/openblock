@@ -34,7 +34,8 @@ export function getApiBaseUrl() {
     } catch {
         /* private mode */
     }
-    return 'http://0.0.0.0:5000';
+    /* 浏览器不能稳定访问 0.0.0.0；与服务监听 0.0.0.0 时客户端应连 127.0.0.1 */
+    return 'http://127.0.0.1:5000';
 }
 
 /** 为 `true` 时向 Flask 后端同步会话与行为（需可访问的 API） */

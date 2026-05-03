@@ -2,12 +2,16 @@
  * seasonChest.js — v10.16 赛季进阶宝箱（P2）
  *
  * 复用 progression.js 的 totalXp，每累计 1000 / 5000 / 12000 / 25000 XP
- * 解锁阶梯宝箱（普通 / 稀有 / 史诗 / 传说），首次到达时弹窗领取。
+ * 解锁阶梯宝箱（普通 / 稀有 / 史诗 / 传说），首次到达时 toast 通知（奖励先入钱包）。
+ *
+ * 入账顺序：先 `_grantAndNotify` 再写入 claimed，避免「已标记领取但入账失败」。
+ * 详见 docs/product/CHEST_AND_WALLET.md。
  *
  * 简化版：本模块自带 XP 监听轮询，每 30s 检查一次 totalXp（避免侵入 progression.js）
  */
 
 import { loadProgress } from '../progression.js';
+import { skipWhenDocumentHidden } from '../lib/pageVisibility.js';
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
 
@@ -32,7 +36,7 @@ function _save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch 
 export function initSeasonChest({ audio = null } = {}) {
     _audio = audio;
     _checkOnce();
-    _pollerHandle = setInterval(_checkOnce, 30_000);
+    _pollerHandle = setInterval(skipWhenDocumentHidden(_checkOnce), 30_000);
     if (typeof window !== 'undefined') {
         window.__seasonChest = { check: _checkOnce, getProgress };
     }
@@ -53,9 +57,9 @@ function _checkOnce() {
     const claimed = _load();
     for (const t of TIERS) {
         if (xp >= t.xp && !claimed[t.id]) {
+            _grantAndNotify(t);
             claimed[t.id] = { unlockedAt: Date.now(), atXp: xp };
             _save(claimed);
-            _grantAndNotify(t);
         }
     }
 }

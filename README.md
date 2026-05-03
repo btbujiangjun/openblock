@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[English](#english) · [中文说明](#中文说明) · [文档中心](docs/README.md) · [架构文档](ARCHITECTURE.md) · [二次开发](docs/DEV_GUIDE.md)
+[English](#english) · [中文说明](#中文说明) · [文档中心](docs/README.md) · [架构文档](ARCHITECTURE.md) · [二次开发](./docs/engineering/DEV_GUIDE.md)
 
 ---
 
@@ -60,12 +60,12 @@ OpenBlock is an open-source block-puzzle game (inspired by 1010!/Block Blast) bu
 
 | Point | Interface | Guide |
 |-------|-----------|-------|
-| **Ad SDK** | `setAdProvider({showRewarded, showInterstitial})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#4-广告策略定制-ad-sdk) |
-| **IAP SDK** | `setIapProvider({purchase, restore, isPurchased})` | [Strategy Guide](docs/STRATEGY_GUIDE.md#5-iap-策略定制-iap-sdk) |
-| **Spawn Strategy** | `game_rules.json` + `spawnHints` hooks | [Strategy Guide](docs/STRATEGY_GUIDE.md#1-出块策略定制) |
-| **Monetization Module** | `MonetizationBus.on()` + feature flag | [Dev Guide](docs/DEV_GUIDE.md#2-新增商业化模块) |
-| **RL Reward** | `RL_REWARD_SHAPING` in `game_rules.json` | [Dev Guide](docs/DEV_GUIDE.md#7-自定义-rl-奖励函数) |
-| **Difficulty Mode** | `difficultyBias` + `adaptiveSpawn.profiles` | [Strategy Guide](docs/STRATEGY_GUIDE.md#3-难度模式定制) |
+| **Ad SDK** | `setAdProvider({showRewarded, showInterstitial})` | [Strategy Guide](./docs/engineering/STRATEGY_GUIDE.md#4-广告策略定制-ad-sdk) |
+| **IAP SDK** | `setIapProvider({purchase, restore, isPurchased})` | [Strategy Guide](./docs/engineering/STRATEGY_GUIDE.md#5-iap-策略定制-iap-sdk) |
+| **Spawn Strategy** | `game_rules.json` + `spawnHints` hooks | [Strategy Guide](./docs/engineering/STRATEGY_GUIDE.md#1-出块策略定制) |
+| **Monetization Module** | `MonetizationBus.on()` + feature flag | [Dev Guide](./docs/engineering/DEV_GUIDE.md#2-新增商业化模块) |
+| **RL Reward** | `RL_REWARD_SHAPING` in `game_rules.json` | [Dev Guide](./docs/engineering/DEV_GUIDE.md#7-自定义-rl-奖励函数) |
+| **Difficulty Mode** | `difficultyBias` + `adaptiveSpawn.profiles` | [Strategy Guide](./docs/engineering/STRATEGY_GUIDE.md#3-难度模式定制) |
 
 ### Quick Start
 
@@ -102,11 +102,12 @@ npm run server:rl   # Flask + RL routes + auto-checkpoint
 
 | Document | Description |
 |----------|-------------|
+| [docs/README.md](docs/README.md) | Documentation center with role-based paths for product, algorithm, architecture, operations, testing |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System layers, module boundaries, data flows |
-| [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md) | Adding modules, extending strategies |
-| [docs/STRATEGY_GUIDE.md](docs/STRATEGY_GUIDE.md) | Spawn, difficulty, monetization customization |
-| [docs/DOMAIN_KNOWLEDGE.md](docs/DOMAIN_KNOWLEDGE.md) | Game mechanics, flow theory, RL concepts |
-| [docs/README.md](docs/README.md) | Full documentation index |
+| [docs/DOMAIN_KNOWLEDGE.md](./docs/domain/DOMAIN_KNOWLEDGE.md) | Game mechanics, flow theory, player psychology, RL and monetization concepts |
+| [docs/ALGORITHMS_HANDBOOK.md](./docs/algorithms/ALGORITHMS_HANDBOOK.md) | Unified algorithm and model handbook |
+| [docs/DEV_GUIDE.md](./docs/engineering/DEV_GUIDE.md) | Adding modules, extending strategies, integrating SDKs |
+| [docs/TESTING.md](./docs/engineering/TESTING.md) | Test strategy, regression matrix, validation commands |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 
 ---
@@ -166,10 +167,15 @@ openblock/
 ├── shared/                 # 共享配置（game_rules.json, shapes.json）
 ├── miniprogram/            # 微信小程序适配
 ├── docs/                   # 技术文档（在线：/docs）
-│   ├── README.md           # 文档导航
-│   ├── DEV_GUIDE.md        # 二次开发指南
-│   ├── STRATEGY_GUIDE.md   # 策略定制指南
-│   └── DOMAIN_KNOWLEDGE.md # 领域知识
+│   ├── README.md           # 文档中心：角色导航、权威地图、维护规范
+│   ├── engineering/        # 工程指南、测试、i18n、策略定制
+│   ├── domain/             # 领域知识、品类与竞品研究
+│   ├── product/            # 玩法、计分、难度、皮肤与留存
+│   ├── player/             # 玩家画像、面板参数、实时策略
+│   ├── algorithms/         # 出块、RL、玩家模型、商业化算法
+│   ├── operations/         # 商业化与运营
+│   ├── platform/           # 小程序适配与发布
+│   └── archive/            # 历史方案归档
 ├── ARCHITECTURE.md         # 系统架构
 ├── CONTRIBUTING.md         # 贡献指南
 ├── server.py               # Flask 后端
@@ -211,7 +217,7 @@ npm run server:rl
 
 ### 二次开发
 
-详细指南见 [docs/DEV_GUIDE.md](docs/DEV_GUIDE.md)，快速参考：
+详细指南见 [docs/DEV_GUIDE.md](./docs/engineering/DEV_GUIDE.md)，快速参考：
 
 ```js
 // 接入真实广告 SDK

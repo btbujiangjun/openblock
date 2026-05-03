@@ -10,7 +10,7 @@ v5 核心改动（不收敛根因修复）：
     survival_head:      回归 "还能活多少步 / 30"
   - clear_pred_head（v4 保留）：4 类消行预测
 
-state=162 (23 scalars + 64 grid + 75 dock), action=12, phi=174。
+state=181 (42 scalars + 64 grid + 75 dock), action=12, phi=193。
 """
 
 from __future__ import annotations
@@ -19,12 +19,13 @@ import torch
 import torch.nn as nn
 
 from .features import ACTION_FEATURE_DIM, PHI_DIM, STATE_FEATURE_DIM
+from .game_rules import FEATURE_ENCODING
 
-_SCALAR_DIM = 23
-_GRID_SIDE = 8
+_SCALAR_DIM = int(FEATURE_ENCODING.get("stateScalarDim", 23))
+_GRID_SIDE = int(FEATURE_ENCODING.get("maxGridWidth", 8))
 _GRID_FLAT = _GRID_SIDE * _GRID_SIDE
-_DOCK_MASK_SIDE = 5
-_DOCK_SLOTS = 3
+_DOCK_MASK_SIDE = int(FEATURE_ENCODING.get("dockMaskSide", 5))
+_DOCK_SLOTS = int(FEATURE_ENCODING.get("dockSlots", 3))
 _DOCK_FLAT = _DOCK_SLOTS * _DOCK_MASK_SIDE * _DOCK_MASK_SIDE
 
 
@@ -169,12 +170,12 @@ class _ResConvBlock(nn.Module):
 class ConvSharedPolicyValueNet(nn.Module):
     """v5: CNN 棋盘编码 + DockBoardAttention 交叉注意力 + 直接监督三头。
 
-    从 STATE_FEATURE_DIM (162) 拆三段：
-      scalars[:23]     → 直连
-      grid[23:87]      → reshape(1,8,8) → Conv→ResConv×2 → 两路输出：
+    从 STATE_FEATURE_DIM (181) 拆三段：
+      scalars[:42]     → 直连
+      grid[42:106]     → reshape(1,8,8) → Conv→ResConv×2 → 两路输出：
                           (a) 全局池化 → conv_channels 维
                           (b) 空间特征 [C,8,8] 供 dock cross-attention
-      dock[87:162]     → reshape(3,5,5) → DockBoardAttention(grid_spatial) → 3×head_dim 维
+      dock[106:181]    → reshape(3,5,5) → DockBoardAttention(grid_spatial) → 3×head_dim 维
 
     三段拼合走 trunk → h(s)；策略 = h(s)⊕ψ(a)→logit；价值 = h(s)→MLP→V。
     直接监督三头（board_quality / feasibility / survival）从 h(s) 出发，

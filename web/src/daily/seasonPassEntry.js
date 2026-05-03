@@ -16,6 +16,8 @@
  *   initSeasonPassEntry({ seasonPass, toggleSeasonPass });
  */
 
+import { skipWhenDocumentHidden } from '../lib/pageVisibility.js';
+
 let _seasonPass = null;
 let _toggleFn = null;
 
@@ -69,7 +71,7 @@ function _bindRedDot(btn) {
     };
 
     refresh();
-    setInterval(refresh, 4000);
+    setInterval(skipWhenDocumentHidden(refresh), 4000);
 }
 
 /**

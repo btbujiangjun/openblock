@@ -131,12 +131,12 @@ class Grid:
         for y in range(self.size):
             positions = [{"x": x, "y": y} for x in range(self.size) if self.cells[y][x] is None]
             empty = len(positions)
-            if 1 <= empty <= 3:
+            if 1 <= empty <= 4:
                 gaps.append({"type": "row", "y": y, "empty": empty, "positions": positions})
         for x in range(self.size):
             positions = [{"x": x, "y": y} for y in range(self.size) if self.cells[y][x] is None]
             empty = len(positions)
-            if 1 <= empty <= 3:
+            if 1 <= empty <= 4:
                 gaps.append({"type": "col", "x": x, "empty": empty, "positions": positions})
         gaps.sort(key=lambda g: g["empty"])
         return gaps
@@ -146,7 +146,7 @@ class Grid:
         for gap in self.find_gap_positions():
             for pos in gap["positions"]:
                 if self.can_place(shape_data, pos["x"], pos["y"]):
-                    fills += 4 - gap["empty"]
+                    fills += max(1, 4 - gap["empty"])
                     break
         return fills
 

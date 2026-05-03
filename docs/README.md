@@ -1,161 +1,171 @@
-# OpenBlock 文档导航
+# OpenBlock 文档中心
 
-> 最后更新：2026-04-30  
+> 面向开源协作的统一入口：先理解领域与方法论，再进入架构、算法、工程实现和测试验证。  
 > 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）  
-> 根目录文档：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)  
-> **算法工程师入口**：[算法与模型手册](./ALGORITHMS_HANDBOOK.md)（统一索引 + 5 份分册）
+> 根目录入口：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 
----
+## 如何阅读
 
-## 文档分类
+OpenBlock 不是单一小游戏代码库，而是一个“休闲益智玩法 + 自适应出块 + 玩家画像 + 强化学习 + 商业化实验”的开源研究与工程平台。文档中心按三层组织：
 
-### 0. 开发者指南（二次开发首读）
+1. **领域知识**：为什么要这样设计，包括休闲游戏心理、心流、挫败、留存、变现、测试风险。
+2. **方法论与算法**：如何建模，包括出块、玩家画像、RL、商业化推断、计分与难度。
+3. **工程框架**：如何落地，包括前后端架构、扩展点、配置、平台适配、验证流程。
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [二次开发指南](./DEV_GUIDE.md) | 新增模块/接入 SDK/扩展后端/测试规范；完整代码示例 | ✅ 当前 |
-| [Web 前端国际化（i18n）](./I18N.md) | 语言包结构、`t`/`applyDom`/RTL、键约定、扩展流程；与 `web/src/i18n/` 对齐 | ✅ 当前 |
-| [策略定制指南](./STRATEGY_GUIDE.md) | 出块权重/Stress信号/难度/广告/IAP/分群/个性化/RL 策略全集 | ✅ 当前 |
-| [领域知识文档](./DOMAIN_KNOWLEDGE.md) | 游戏机制/心流理论/玩家心理/商业化原理/RL 基础 | ✅ 当前 |
+## 目录结构
 
----
+```text
+docs/
+├── README.md          # 文档中心总入口
+├── engineering/       # 工程指南、测试、i18n、策略定制、项目总览
+├── domain/            # 领域知识、品类研究、竞品与架构对比
+├── product/           # 玩法、难度、计分、留存、皮肤、惊喜系统
+├── player/            # 玩家画像、面板参数、实时策略、玩法风格
+├── algorithms/        # 出块、RL、玩家模型、商业化模型等算法手册
+├── operations/        # 商业化、运营、训练面板、策略定制
+├── platform/          # 微信小程序适配与发布
+└── archive/           # 已归档的历史方案和早期研究
+```
 
-### 1. 项目总览
+目录组织原则：**按读者任务和知识层次分组，而不是按文件创建时间或功能迭代版本分组**。跨领域文档只保留一个权威位置，在其他章节通过链接引用。
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [OpenBlock 技术总览](./PROJECT.md) | 前端分层、PyTorch RL、行为契约、商业化栈、后端要点 | ✅ 当前 |
+## 角色导航
 
----
+| 角色 | 先读 | 再读 | 目标 |
+|------|------|------|------|
+| 产品 / 玩法策划 | [领域知识](./domain/DOMAIN_KNOWLEDGE.md) → [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | [难度模式](./product/DIFFICULTY_MODES.md) → [彩蛋与惊喜系统](./product/EASTER_EGGS_AND_DELIGHT.md) → [策略定制指南](./engineering/STRATEGY_GUIDE.md) | 理解体验曲线、心流、奖励节奏与玩法可调面 |
+| 算法工程师 | [算法与模型手册](./algorithms/ALGORITHMS_HANDBOOK.md) | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) → [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md) → [RL 手册](./algorithms/ALGORITHMS_RL.md) | 统一符号、公式、模型结构、训练/推理链路 |
+| 架构 / 平台工程师 | [架构文档](../ARCHITECTURE.md) → [技术总览](./engineering/PROJECT.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) → [i18n](./engineering/I18N.md) | 理解模块边界、数据流、扩展接口与跨端同步 |
+| 运营 / 商业化 | [商业化策略](./operations/MONETIZATION.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [商业运营](./operations/COMMERCIAL_OPERATIONS.md) | 理解分群、触发策略、运营面板、实验指标 |
+| 测试 / QA | [测试指南](./engineering/TESTING.md) | [PROJECT.md 测试章节](./engineering/PROJECT.md#测试) → [RL 数值稳定](./algorithms/RL_TRAINING_NUMERICAL_STABILITY.md) → [训练看板趋势](./algorithms/RL_TRAINING_DASHBOARD_TRENDS.md) | 建立功能、算法、回归、数据一致性验证清单 |
+| 开源贡献者 | [README](../README.md) → [贡献指南](../CONTRIBUTING.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → 本页“文档维护规范” | 快速跑起来、找到任务边界、提交可审查改动 |
 
-### 2. 品类研究
+## 权威文档地图
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [休闲游戏品类分析与系统研究](./CASUAL_GAME_ANALYSIS.md) | 竞品对标、能力模型、心流/挫败/节奏、Gap 分析（2026-04-08 快照） | ⚠️ 商业化分群部分已更新 |
+### 项目与架构
 
----
+| 文档 | 何时阅读 | 维护定位 |
+|------|----------|----------|
+| [README](../README.md) | 第一次了解项目、安装与快速启动 | 项目门面，保持短而稳定 |
+| [ARCHITECTURE](../ARCHITECTURE.md) | 理解系统边界、模块关系、核心数据流 | 架构事实来源 |
+| [技术总览](./engineering/PROJECT.md) | 需要快速定位前端、后端、RL、商业化模块 | 工程地图 |
+| [二次开发指南](./engineering/DEV_GUIDE.md) | 新增模块、接入 SDK、扩展 API | 开发流程与扩展约定 |
+| [i18n](./engineering/I18N.md) | 修改文案、语言包、RTL 支持 | 国际化规范 |
+| [测试指南](./engineering/TESTING.md) | 提交前验证、写测试、排查回归 | 质量门禁 |
+| [性能优化说明](./engineering/PERFORMANCE.md) | rAF 合并绘制、懒加载 chunk、可见性定时器、progress 缓存 | 前端、架构 |
 
-### 3. 游戏设计
+### 领域知识与产品方法论
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [难度模式：设计与实现](./DIFFICULTY_MODES.md) | Easy / Normal / Hard 全链路、计分、填充率、自适应 difficultyBias | ✅ 当前 |
-| [消行计分规则](./CLEAR_SCORING.md) | 多消基础分、同 icon/同色 bonus、整十分约束、与形状库最大消除数；商业化策略存储索引 | ✅ 当前 |
+| 文档 | 核心问题 | 适合角色 |
+|------|----------|----------|
+| [领域知识](./domain/DOMAIN_KNOWLEDGE.md) | 方块益智、心流、挫败、RL、商业化的基础概念 | 全角色 |
+| [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | 竞品、能力模型、体验缺口、系统机会 | 产品、运营、算法 |
+| [竞品与用户分析](./domain/COMPETITOR_USER_ANALYSIS.md) | 目标用户、竞品机制、差异化方向 | 产品、运营 |
+| [架构对比](./domain/ARCHITECTURE_COMPARISON.md) | 不同实现路线的取舍 | 架构、技术负责人 |
+| [留存路线图](./product/RETENTION_ROADMAP_V10_17.md) | 留存机制、阶段目标、功能优先级 | 产品、运营 |
 
----
+### 玩法、难度与玩家系统
 
-### 4. 玩家系统
+| 文档 | 核心问题 | 适合角色 |
+|------|----------|----------|
+| [难度模式](./product/DIFFICULTY_MODES.md) | Easy/Normal/Hard 与自适应难度如何协作 | 产品、算法、测试 |
+| [消行计分](./product/CLEAR_SCORING.md) | `baseUnit * c^2`、多消、同色/同 icon bonus | 产品、算法、测试 |
+| [玩家能力评估](./player/PLAYER_ABILITY_EVALUATION.md) | `skillLevel`、历史融合、置信度如何计算 | 产品、算法 |
+| [玩家面板参数](./player/PANEL_PARAMETERS.md) | UI 指标含义、异常解读、调参提示 | 产品、运营、测试 |
+| [实时策略系统](./player/REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn → StrategyAdvisor | 产品、算法、架构 |
+| [玩法风格检测](./player/PLAYSTYLE_DETECTION.md) | 玩家风格识别与策略微调 | 产品、算法 |
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [玩家能力评估系统](./PLAYER_ABILITY_EVALUATION.md) | smoothSkill / historicalSkill / skillLevel 公式；会话历史环；置信度门控 | ✅ 当前 |
-| [玩家面板参数手册](./PANEL_PARAMETERS.md) | 面板五区结构；各指标数学定义、tooltip、异常解读；参数关联图谱 | ✅ 当前 |
-| [实时策略系统：信号流与出块链路](./REALTIME_STRATEGY.md) | PlayerProfile → 10 信号 → AdaptiveSpawn → StrategyAdvisor → UI 全链路 | ✅ 当前 |
-| [玩法风格检测](./PLAYSTYLE_DETECTION.md) | 5 风格分群（aggressive/balanced/defensive/...）；窗口特征；轻推 shapeWeights | ✅ 当前 |
+### 出块算法与建模
 
----
+| 文档 | 核心问题 | 适合角色 |
+|------|----------|----------|
+| [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) | 规则 + SpawnTransformer 的形式化与训练/推理 | 算法 |
+| [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) | Layer 1/2/3 如何从盘面到体验生成三连块 | 算法、架构、测试 |
+| [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) | 10 信号 stress、心流、爽感兑现、spawnHints | 产品、算法 |
+| [出块建模](./algorithms/SPAWN_BLOCK_MODELING.md) | 规则引擎与 ML 出块模型的设计 rationale | 算法、架构 |
+| [解法数量难度](./algorithms/SPAWN_SOLUTION_DIFFICULTY.md) | DFS 解空间计数、leafCap/budget、软过滤 | 算法、测试 |
 
-### 5. 算法与模型手册（算法工程师视角）
+### 强化学习
 
-> **统一手册**：跨子系统的算法侧深化文档，**与各子系统现有文档互补**——这里给公式、结构、训练/推理流程；子系统文档给工程实现。
+| 文档 | 核心问题 | 适合角色 |
+|------|----------|----------|
+| [RL 算法手册](./algorithms/ALGORITHMS_RL.md) | PPO/GAE、网络结构、奖励、探索、推理 API | 算法 |
+| [PyTorch RL 服务与评估](./algorithms/RL_PYTORCH_SERVICE.md) | 在线 `/api/rl` vs 离线 train、`q_teacher`/lookahead 默认、eval_values 校验、search replay、`rl:eval`、eval_greedy | 算法、后端 |
+| [玩法与 RL 解耦](./algorithms/RL_AND_GAMEPLAY.md) | 真人玩法与训练环境的边界 | 算法、架构 |
+| [RL 分析](./algorithms/RL_ANALYSIS.md) | 状态/动作空间、训练瓶颈、课程策略 | 算法 |
+| [AlphaZero 优化](./algorithms/RL_ALPHAZERO_OPTIMIZATION.md) | MCTS、Beam、蒸馏、评估门控 | 算法 |
+| [浏览器端 RL](./algorithms/RL_BROWSER_OPTIMIZATION.md) | 浏览器训练路径与线性模型 | 算法、前端 |
+| [训练架构优化](./algorithms/RL_TRAINING_OPTIMIZATION.md) | DockBoardAttention、监督头、训练架构 | 算法 |
+| [数值稳定](./algorithms/RL_TRAINING_NUMERICAL_STABILITY.md) | NaN/Inf、梯度裁剪、日志指标 | 算法、测试 |
+| [训练看板数据流](./algorithms/RL_TRAINING_DASHBOARD_FLOW.md) | 指标来源、刷新链路、面板状态 | 算法、测试 |
+| [训练看板趋势](./algorithms/RL_TRAINING_DASHBOARD_TRENDS.md) | 六图指标解读、健康/异常形态 | 算法、运营 |
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [算法与模型手册（总索引）](./ALGORITHMS_HANDBOOK.md) | **总入口**：五子系统全景图 + 阅读路径 + 一页纸速查 + 核心数学符号约定 + 算法变更检查清单 | ✅ 当前 |
-| [RL 训练与推理：算法工程师手册](./ALGORITHMS_RL.md) | PPO + GAE + 直接监督；ConvSharedPolicyValueNet 结构；Reward 塑形与 Outcome 价值混合；Dirichlet 探索；课程学习；MCTS / Beam 搜索；推理 API；20 节完整公式 + 超参表 | ✅ 当前 |
-| [玩家画像与能力评估算法](./ALGORITHMS_PLAYER_MODEL.md) | 5 维 raw 加权 + 双速 EMA；历史融合（指数加权 + 后端基线）；F(t) 心流与三态规则树；近失/挫败/动量公式；冷启动与置信度；完整 13 节公式集 | ✅ 当前 |
-| [商业化推断：算法工程师手册](./ALGORITHMS_MONETIZATION.md) | 鲸鱼分线性模型；L1/L2/L3 三层引擎；规则四步法（filter/render/sort/whyLines）；LTV 预测器（5 分群 ARPU × 渠道 × 活跃度 × 技能）；CPI 出价推荐 | ✅ 当前 |
-| [出块算法：算法工程师手册](./ALGORITHMS_SPAWN.md) | 双轨架构（规则 + SpawnTransformerV2）；约束采样形式化；序贯可解性 DFS；10 档 profile 插值；Transformer 网络结构 / 训练损失 / 推理回退；与 RL MCTS 的接口 | ✅ 当前 |
-| [消行计分规则](./CLEAR_SCORING.md) | `baseScore = baseUnit·c²` + bonus 线公式；与 Web/Python 模拟器对齐 | ✅ 当前（属本分类与游戏设计两处） |
+### 商业化与运营
 
----
+| 文档 | 核心问题 | 适合角色 |
+|------|----------|----------|
+| [商业化策略](./operations/MONETIZATION.md) | IAA/IAP、分群、触发、API、模块全景 | 运营、产品、架构 |
+| [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) | 鲸鱼分、规则引擎、LTV、CPI 出价 | 算法、运营 |
+| [商业化定制](./operations/MONETIZATION_CUSTOMIZATION.md) | 接入真实广告/IAP SDK、规则扩展 | 架构、运营 |
+| [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) | 面板设计、指标、调参 PlayBook | 运营、产品 |
+| [商业运营](./operations/COMMERCIAL_OPERATIONS.md) | 运营策略、节奏、活动与分析 | 运营 |
+| [个性化变现](./archive/MONETIZATION_PERSONALIZATION.md) | 归档：个性化商业化 v2 设计 | 参考 |
+| [变现优化](./archive/MONETIZATION_OPTIMIZATION.md) | 归档：行业调研与早期优化清单 | 参考 |
 
-### 6. 出块算法（工程实现）
+### 平台、视觉与内容系统
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [出块算法：三层架构](./SPAWN_ALGORITHM.md) | Layer 1-3 实现说明；game.js → adaptiveSpawn → blockSpawn 数据流 | ✅ 当前 |
-| [自适应出块引擎：10 信号融合](./ADAPTIVE_SPAWN.md) | 10 维 stress 信号；10 档 profile 插值；spawnHints（Layer 2/3） | ✅ 当前 |
-| [出块建模：规则引擎与 SpawnTransformer](./SPAWN_BLOCK_MODELING.md) | 规则引擎 vs SpawnTransformerV2 双轨；约束采样；ML 路径与网络结构 | ✅ 当前 |
-| [出块算法：解法数量难度调控（v9）](./SPAWN_SOLUTION_DIFFICULTY.md) | 6 排列 DFS 解叶子计数；leafCap/budget 双剪枝；stress→targetSolutionRange 软过滤；4 个诊断 Pill | ✅ 当前 |
+| 文档 | 核心问题 | 适合角色 |
+|------|----------|----------|
+| [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) | Web → 小程序同步、适配层、能力边界 | 架构、测试 |
+| [微信发布流程](./platform/WECHAT_RELEASE.md) | 提审、上线、回滚、运维清单 | 运营、测试 |
+| [皮肤目录](./product/SKINS_CATALOG.md) | 皮肤分类、渲染管线、icon 唯一性 | 产品、美术、测试 |
+| [皮肤语义池](./product/SKIN_ICON_SEMANTIC_POOL.md) | emoji 语义、主题映射、唯一性约束 | 产品、美术 |
+| [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) | 音效、触觉、皮肤、奖励、彩蛋系统 | 产品、运营 |
+| [宝箱与钱包](./product/CHEST_AND_WALLET.md) | 局末/赛季宝箱入账顺序、`wallet` 与每日 cap 绕过 | 产品、测试 |
 
----
+## 方法论索引
 
-### 7. 强化学习（实现 / 优化 / 看板）
+### 体验设计
 
-> 入门请先读 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)（算法工程师视角的统一手册），本分类是**实现层 + 优化分支 + 看板**的细分文档。
+- **心流调节**：先读 [领域知识](./domain/DOMAIN_KNOWLEDGE.md)，再读 [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) 与 [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md)。
+- **爽感与奖励**：先读 [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) 与 [宝箱与钱包](./product/CHEST_AND_WALLET.md)，再读 [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) 与 [消行计分](./product/CLEAR_SCORING.md)。
+- **难度曲线**：先读 [难度模式](./product/DIFFICULTY_MODES.md)，再读 [解法数量难度](./algorithms/SPAWN_SOLUTION_DIFFICULTY.md)。
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [玩法与强化学习：解耦架构](./RL_AND_GAMEPLAY.md) | game_rules.json 单一数据源；网页自适应与 Python 训练解耦；改玩法顺序 | ✅ 当前 |
-| [RL 分析：复杂度、模型与优化路径](./RL_ANALYSIS.md) | 状态/动作空间；训练瓶颈；课程阈值 40→220 / 40k ep | ✅ 当前 |
-| [AlphaZero 对比与 RL v7 优化方案](./RL_ALPHAZERO_OPTIMIZATION.md) | AlphaZero 三支柱；差距诊断；v6/v7 优化（Q蒸馏/2-ply beam/评估门控）；消融实验命令 | ✅ 当前 |
-| [浏览器端 RL 优化 v3](./RL_BROWSER_OPTIMIZATION.md) | 饱和根因；MLP 失败；线性模型 + 回报标准化方案；training.jsonl 联通 | ✅ 当前 |
-| [RL 训练架构 v5：直接监督头](./RL_TRAINING_OPTIMIZATION.md) | v4 不收敛根因；DockBoardAttention；三直接监督头；精简奖励 | ✅ 当前 |
-| [RL 训练：数值稳定与指标解读](./RL_TRAINING_NUMERICAL_STABILITY.md) | Lv 爆炸根因；裁剪与日志上限；环境变量表 | ✅ 当前 |
-| [训练看板：数据流与刷新机制](./RL_TRAINING_DASHBOARD_FLOW.md) | 浏览器 vs PyTorch 数据源；轮询；refreshDashboardFull 步骤 | ✅ 当前 |
-| [训练看板：趋势解读与调优建议](./RL_TRAINING_DASHBOARD_TRENDS.md) | 六图含义；健康/警惕形态；长训判读；优化优先级 | ✅ 当前 |
+### 算法设计
 
----
+- **规则引擎**：`shapeWeights + spawnHints + hard constraints`，入口为 [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md)。
+- **玩家状态估计**：`rawSkill + EMA + historicalSkill + flowDeviation`，入口为 [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md)。
+- **RL 训练**：`simulator + policy/value + search teacher + eval gate`，入口为 [RL 算法手册](./algorithms/ALGORITHMS_RL.md)。
+- **商业化推断**：`segmentation + rule engine + LTV proxy`，入口为 [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md)。
 
-### 8. 商业化（实现 / 运营）
+### 工程框架
 
-> 算法侧统一手册：[`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md)（鲸鱼分公式 / 规则引擎 / LTV 模型）。本分类是**实现 + 运营 + 归档**的细分文档。
+- **配置单一来源**：玩法、特征、奖励参数优先查 `shared/game_rules.json`。
+- **跨端同步**：Web 核心逻辑改动后检查 `miniprogram/core/` 副本和同步脚本。
+- **后端持久化**：会话、行为、分数、回放与训练日志走 Flask + SQLite。
+- **验证闭环**：单元测试、构建、手动体验、指标看板四类证据都要能追溯。
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [商业化策略完整文档（v3）](./MONETIZATION.md) | **唯一事实来源**：混合变现、分群矩阵、个性化引擎、所有模块与 API | ✅ 当前 |
-| [商业化定制化指南](./MONETIZATION_CUSTOMIZATION.md) | **v3 重构后**：分层架构、三种定制粒度、cursor:help 字段速查、规则引擎扩展 | ✅ 当前 |
-| [商业化模型训练面板：设计·原理·策略·内容·工程](./MONETIZATION_TRAINING_PANEL.md) | **5 维全方位**：商业理由 / 鲸鱼分模型 / 规则引擎 / 策略矩阵商业解读 / 调参 PlayBook / 4 Tab 详解 / 扩展指南 | ✅ 当前 |
-| [📦 商业化路径研究（v1 归档）](./MONETIZATION_OPTIMIZATION.md) | 行业调研、竞品表、OPT-01~10 清单（§3 缺口已在 v3 全量实现） | 📦 归档 |
-| [📦 个性化商业化设计（v2 归档）](./MONETIZATION_PERSONALIZATION.md) | 分群公式、策略矩阵、API 设计（内容已并入 v3） | 📦 归档 |
+## 核心事实速查
 
----
+| 问题 | 当前事实 | 来源 |
+|------|----------|------|
+| 自适应出块输入 | 分数、连战、技能、心流、节奏、恢复、挫败、combo、趋势、置信度，加上爽感兑现提示 | `web/src/adaptiveSpawn.js` |
+| 出块公平性约束 | 最低机动性、序贯可解性、解法数量软过滤 | `web/src/bot/blockSpawn.js` |
+| 真人玩法与 RL | 真人对局走 `game.js + adaptiveSpawn`；Python RL 训练不直接使用网页自适应 | [RL_AND_GAMEPLAY](./algorithms/RL_AND_GAMEPLAY.md) |
+| 共享规则来源 | `shared/game_rules.json` | [ALGORITHMS_HANDBOOK](./algorithms/ALGORITHMS_HANDBOOK.md) |
+| 默认测试命令 | `npm test`、`npm run lint`、`npm run build` | [测试指南](./engineering/TESTING.md) |
+| 商业化默认状态 | 广告/IAP/Push 默认关；任务/排行榜/皮肤/通行证/分享/Stub 默认开 | `web/src/monetization/featureFlags.js` |
 
-### 9. 平台扩展
+## 文档维护规范
 
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [微信小程序适配说明](./WECHAT_MINIPROGRAM.md) | miniprogram/ 结构；adapters/；sync-core.sh；36 款皮肤、20 关关卡、动画链与出块保命同步 | ✅ 当前 |
-| [微信小程序发布流程](./WECHAT_RELEASE.md) | 账号与类目、本地检查、上传、提审、上线、回滚与运维清单 | ✅ 当前 |
+1. **代码事实优先**：文档描述必须能追到文件、配置或测试；不确定内容标记为“假设/待验证”。
+2. **一页一个职责**：领域知识讲“为什么”，算法手册讲“怎么建模”，工程文档讲“怎么改”，测试文档讲“怎么证明”。
+3. **变更同步**：改 `shared/game_rules.json`、出块、玩家画像、RL 特征、商业化规则时，同步更新对应手册和本索引。
+4. **保留归档语义**：历史方案不要混入当前事实；归档文档保留背景与取舍，当前实现以权威文档为准。
+5. **面向开源审阅**：新增文档应包含适用角色、代码入口、配置入口、验证方式和已知边界。
 
----
+## 文档状态
 
-### 10. 视觉与皮肤
-
-| 文档 | 说明 | 状态 |
-|------|------|------|
-| [皮肤目录（35 款全集）](./SKINS_CATALOG.md) | 设计四大铁律 / 11 大分类 / 27 款 icon × 8 = 216 emoji 唯一性矩阵 / blockStyle 8 种渲染管线 / 新增皮肤模板与 6 步流程 | ✅ 当前 |
-| [emoji 表意与全量池说明](./SKIN_ICON_SEMANTIC_POOL.md) | 216 枚全局互斥约束；主题↔icon 评价维；逐版本语义加固记录 | ✅ 当前 |
-| [彩蛋与惊喜系统（v10.15 - v10.16）](./EASTER_EGGS_AND_DELIGHT.md) | **v10.16 全量交付 35 项**：v10.15 S1+S2 共 11 项 P0（音效 / 触觉 / 皮肤切换转场 / 5 款环境粒子 / 节日时段 4.1 / Konami / 数字彩蛋）+ v10.16 S3-S6 共 24 项（统一钱包 / 道具栏 / hint+undo+bomb+rainbow / 7 日签到 / 连登勋章 / 局末宝箱 + 周末转盘 + 赛季宝箱 / 海报艺术化 + 每日大师题 / 首次解锁庆祝 + 极限成就 + 皮肤专属音色 + 季节边框 + 流体背景 + 皮肤剧情图鉴 + 周末/生日皮肤 + 7 项 P2 骨架） | ✅ 当前 |
-
----
-
-## 快速参考
-
-### 核心事实（以代码为准）
-
-| 问题 | 答案 | 来源 |
-|------|------|------|
-| 自适应 stress 信号维数 | **10 个**（scoreStress / runStreakStress / skillAdjust / flowAdjust / pacingAdjust / recoveryAdjust / frustrationRelief / comboReward / trendAdjust / confidenceGate） | `web/src/adaptiveSpawn.js` |
-| 出块危险态保命 | `fill ≥ 0.68` 或 `roundsSinceClear ≥ 3` 进入严格可解性；`roundsSinceClear ≥ 2/4` 提升 `clearGuarantee` | `web/src/bot/blockSpawn.js`、`web/src/adaptiveSpawn.js` |
-| 微信小程序皮肤数量 | **36 款**（26 款带 emoji icon），由 `scripts/sync-miniprogram-skins.cjs` 从 `web/src/skins.js` 同步核心字段 | `miniprogram/core/skins.js` |
-| 皮肤 icon 全局唯一性 | 26 款带 icon 皮肤 × 8 = **208 个 emoji 全部互不重复**，详见 [SKINS_CATALOG.md](./SKINS_CATALOG.md) §5 | `web/src/skins.js` |
-| 微信小程序关卡数量 | **20 关**，兼容 Web `target/minRounds/starThresholds` 目标字段 | `miniprogram/core/levelPack.js`、`levelManager.js` |
-| RL 课程阈值 | `winThresholdStart=40`，`winThresholdEnd=220`，`rampEpisodes=40000` | `shared/game_rules.json` |
-| Feature Flag 默认值 | 广告/IAP/Push 默认 **关**；任务/排行榜/皮肤/通行证/分享/Stub 默认 **开** | `web/src/monetization/featureFlags.js` |
-| adTrigger 挫败阈值 | `frustrationLevel ≥ 5`（硬编码，未读 model config） | `web/src/monetization/adTrigger.js` |
-| 商业化主文档 | [MONETIZATION.md](./MONETIZATION.md)（v3），其余商业化文档已归档 | — |
-| 赛季 XP 估算 | `max(10, score×0.12 + clears×1.5)` | `web/src/monetization/seasonPass.js` |
-
-### 阅读路线推荐
-
-**新来的开发者（想做定制）** → [ARCHITECTURE.md](../ARCHITECTURE.md) → [DEV_GUIDE.md](./DEV_GUIDE.md) → [I18N.md](./I18N.md)（改文案/语言时）→ [STRATEGY_GUIDE.md](./STRATEGY_GUIDE.md)  
-**算法工程师（首读）** → [ALGORITHMS_HANDBOOK.md](./ALGORITHMS_HANDBOOK.md) → 按需进入 5 份分册 → 实现层细文档  
-**了解整体架构** → [PROJECT.md](./PROJECT.md)  
-**了解出块算法** → [ALGORITHMS_SPAWN.md](./ALGORITHMS_SPAWN.md) → SPAWN_ALGORITHM.md → ADAPTIVE_SPAWN.md → SPAWN_BLOCK_MODELING.md  
-**了解玩家感知** → [ALGORITHMS_PLAYER_MODEL.md](./ALGORITHMS_PLAYER_MODEL.md) → PLAYER_ABILITY_EVALUATION.md → REALTIME_STRATEGY.md → PANEL_PARAMETERS.md  
-**了解 RL 训练** → [ALGORITHMS_RL.md](./ALGORITHMS_RL.md)（统一手册）→ RL_AND_GAMEPLAY.md → RL_TRAINING_OPTIMIZATION.md → RL_ALPHAZERO_OPTIMIZATION.md（v7 改进）  
-**了解商业化** → [ALGORITHMS_MONETIZATION.md](./ALGORITHMS_MONETIZATION.md)（公式）→ MONETIZATION.md（v3 全景）→ MONETIZATION_TRAINING_PANEL.md（运营面板）  
-**领域背景知识** → [DOMAIN_KNOWLEDGE.md](./DOMAIN_KNOWLEDGE.md)
+- **当前权威**：本页列出的项目、架构、算法、玩法、商业化、测试文档。
+- **参考/归档**：早期商业化优化、个性化方案、阶段性路线图等，保留用于理解演进历史。
+- **待完善方向**：端到端测试用例、线上指标口径、贡献者任务标签、英文文档对齐。

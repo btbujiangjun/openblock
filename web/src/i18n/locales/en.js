@@ -25,6 +25,7 @@ export default {
     'menu.replay': 'Replays',
     'menu.editor': 'Level editor',
     'menu.docs': 'Docs',
+    'menu.personalData': 'Wallet · stats',
     'menu.ops': 'Ops dashboard',
     'menu.localeLabel': 'Language',
     'menu.localeAria': 'Interface language',

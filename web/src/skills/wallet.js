@@ -5,7 +5,8 @@
  *
  * 设计要点
  * --------
- * - **localStorage 单一事实**：`openblock_skill_wallet_v1`
+ * - **SQLite 优先**（`VITE_USE_SQLITE_DB` 且 API 可用）：服务端 `skill_wallets` 表 + `GET/PUT /api/wallet`
+ * - **localStorage 回退**：未启用后端或请求失败时沿用 `openblock_skill_wallet_v1`
  * - **每日免费配额**：hint / undo 默认每日各 3 次免费（ymd 日切自动复活）
  * - **来源追踪**：addBalance / spendBalance 都接收 source / reason 字符串便于埋点
  * - **事件总线**：`onChange(kind, listener)` 让 skillBar UI 实时刷新计数
@@ -19,6 +20,8 @@
  *   coin         通用金币（未来扩展）
  *   trialPass    限定皮肤试穿券（24h 期限）
  */
+
+import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 
 const STORAGE_KEY = 'openblock_skill_wallet_v1';
 
@@ -56,7 +59,16 @@ const DAILY_GRANT_CAP = {
 };
 const GRANT_BYPASS_SOURCES = new Set([
     'iap',
-    'season-chest-grand',
+    /** 局末宝箱（endGameChest.js：`chest-${tier}`）— 里程碑式发放，不应被每日 cap 截断 */
+    'chest-common',
+    'chest-rare',
+    'chest-epic',
+    /** 赛季进阶宝箱（seasonChest.js：`season-chest-${tier.id}`）；原误写 season-chest-grand 与 id 不一致 */
+    'season-chest-common',
+    'season-chest-rare',
+    'season-chest-epic',
+    'season-chest-legend',
+    'season-chest-grand', // 兼容历史/文档中的别名
     'lucky-wheel-grand',
     'first-day-pack',     // 首日礼包绕过（一次性）
     'admin',
@@ -79,32 +91,105 @@ function _emptyState() {
     };
 }
 
+function _normalizeParsedState(s) {
+    const empty = _emptyState();
+    if (!s || typeof s !== 'object') return empty;
+    s.balance = { ...empty.balance, ...(s.balance || {}) };
+    s.dailyConsumed = s.dailyConsumed || {};
+    s.dailyGranted = s.dailyGranted || {};
+    s.trials = Array.isArray(s.trials) ? s.trials : [];
+    s.lastSeenYmd = s.lastSeenYmd || _ymd();
+    return s;
+}
+
 function _load() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return _emptyState();
-        const s = JSON.parse(raw);
-        // 修复字段缺失
-        const empty = _emptyState();
-        s.balance = { ...empty.balance, ...(s.balance || {}) };
-        s.dailyConsumed = s.dailyConsumed || {};
-        s.dailyGranted = s.dailyGranted || {};
-        s.trials = Array.isArray(s.trials) ? s.trials : [];
-        s.lastSeenYmd = s.lastSeenYmd || _ymd();
-        return s;
+        return _normalizeParsedState(JSON.parse(raw));
     } catch { return _emptyState(); }
 }
 
+async function _walletApiJson(path, options = {}) {
+    const base = getApiBaseUrl().replace(/\/+$/, '');
+    const res = await fetch(`${base}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+        ...options,
+    });
+    const text = await res.text();
+    let data = null;
+    if (text) {
+        try {
+            data = JSON.parse(text);
+        } catch {
+            data = { _raw: text };
+        }
+    }
+    if (!res.ok) {
+        const err = new Error(data?.error || `HTTP ${res.status} ${path}`);
+        err.status = res.status;
+        throw err;
+    }
+    return data;
+}
+
 function _save(state) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch { /* ignore */ }
+    const inst = _instance;
+    try {
+        if (!inst || !isSqliteClientDatabase() || !inst._remotePersistEnabled) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            return;
+        }
+        inst._queueRemoteSave();
+    } catch { /* ignore */ }
 }
 
 class Wallet {
     constructor() {
         this.state = _load();
         this._listeners = {};
+        /** @type {boolean} */
+        this._remotePersistEnabled = false;
+        /** @type {string} */
+        this._remoteUserId = '';
+        /** @type {ReturnType<typeof setTimeout> | null} */
+        this._remoteTimer = null;
         this._purgeExpiredTrials();
+    }
+
+    _queueRemoteSave() {
+        if (!this._remotePersistEnabled || !this._remoteUserId) return;
+        if (this._remoteTimer) clearTimeout(this._remoteTimer);
+        this._remoteTimer = setTimeout(() => void this._flushRemoteSave(), 400);
+    }
+
+    async _flushRemoteSave() {
+        this._remoteTimer = null;
+        if (!this._remotePersistEnabled || !this._remoteUserId) return;
+        try {
+            await _walletApiJson('/api/wallet', {
+                method: 'PUT',
+                body: JSON.stringify({ user_id: this._remoteUserId, wallet: this.state }),
+            });
+        } catch (e) {
+            console.warn('[wallet] 同步 SQLite 失败，回退写入 localStorage:', e);
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+            } catch { /* ignore */ }
+        }
+    }
+
+    /**
+     * 用服务端快照替换内存状态（hydrate 后调用）
+     */
+    _replaceWithHydratedState(next) {
+        this.state = _normalizeParsedState(next);
+        this._purgeExpiredTrials();
+        for (const k of KINDS) {
+            this._emit(k, { kind: k, action: 'hydrate' });
+        }
+        this._emit('trialPass', { kind: 'trialPass', action: 'hydrate' });
+        this._emit('*', { action: 'hydrate' });
     }
 
     /* ============ 余额读写 ============ */
@@ -262,7 +347,14 @@ class Wallet {
     }
 
     /** 调试 / 测试用 */
-    _reset() { this.state = _emptyState(); _save(this.state); }
+    _reset() {
+        if (this._remoteTimer) clearTimeout(this._remoteTimer);
+        this._remoteTimer = null;
+        this._remotePersistEnabled = false;
+        this._remoteUserId = '';
+        this.state = _emptyState();
+        _save(this.state);
+    }
 }
 
 let _instance = null;
@@ -272,6 +364,33 @@ export function getWallet() {
         if (typeof window !== 'undefined') window.__wallet = _instance;
     }
     return _instance;
+}
+
+/**
+ * 在 `Database.init()` 成功后调用：从服务端拉取钱包或把本地迁移上传。
+ * @param {string} userId `bb_user_id`
+ */
+export async function hydrateWalletFromApi(userId) {
+    if (!userId || !isSqliteClientDatabase()) return;
+    const w = getWallet();
+    w._remoteUserId = userId;
+    try {
+        const data = await _walletApiJson(`/api/wallet?user_id=${encodeURIComponent(userId)}`);
+        const remote = data?.wallet;
+        if (remote && typeof remote === 'object' && remote.balance && typeof remote.balance === 'object') {
+            w._replaceWithHydratedState(remote);
+            w._remotePersistEnabled = true;
+            return;
+        }
+        await _walletApiJson('/api/wallet', {
+            method: 'PUT',
+            body: JSON.stringify({ user_id: userId, wallet: w.state }),
+        });
+        w._remotePersistEnabled = true;
+    } catch (e) {
+        console.warn('[wallet] SQLite 钱包不可用，使用 localStorage:', e);
+        w._remotePersistEnabled = false;
+    }
 }
 
 export const __test_only__ = { KINDS, DAILY_FREE_QUOTA, DAILY_GRANT_CAP, GRANT_BYPASS_SOURCES };

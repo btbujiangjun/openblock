@@ -4,7 +4,8 @@
  */
 import { RlGameplayEnvironment } from './gameEnvironment.js';
 import { countHoles } from './features.js';
-import { GAME_RULES } from '../gameRules.js';
+import { GAME_RULES, RL_TRAINING_STRATEGY_ID } from '../gameRules.js';
+import { rlWinThresholdForEpisode } from './rlCurriculum.js';
 import {
     fetchRlStatus,
     saveRemoteCheckpoint,
@@ -25,6 +26,10 @@ export { WIN_SCORE_THRESHOLD } from '../gameRules.js';
 /**
  * 对每个合法动作模拟一步，提取后继状态，批量评估 V(s')，
  * 返回 Q(s,a) = r(s,a) + γ * V(s') 最高的动作（带温度采样）。
+ */
+/**
+ * @returns {Promise<{ index: number, qTeacher: number[] | null }>}
+ *   qTeacher 与合法动作一一对应，供服务端 Q 蒸馏（非 MCTS teacher）。
  */
 async function _selectWithLookahead(env, legal, stateFeat, phiList, temperature) {
     const GAMMA = 0.99;
@@ -47,17 +52,23 @@ async function _selectWithLookahead(env, legal, stateFeat, phiList, temperature)
     try {
         values = await evalValuesRemote(nextStates);
     } catch {
-        return selectActionRemote(phiList, stateFeat, temperature);
+        const index = await selectActionRemote(phiList, stateFeat, temperature);
+        return { index, qTeacher: null };
+    }
+    if (!Array.isArray(values) || values.length !== legal.length) {
+        const index = await selectActionRemote(phiList, stateFeat, temperature);
+        return { index, qTeacher: null };
     }
 
-    const qValues = legal.map((_, i) => rewards[i] + GAMMA * (values[i] || 0));
+    const qValues = legal.map((_, i) => rewards[i] + GAMMA * (Number(values[i]) || 0));
+    const qTeacher = qValues.map((q) => Number(q));
 
     if (temperature < 0.01) {
         let bestIdx = 0, bestQ = -Infinity;
         for (let i = 0; i < qValues.length; i++) {
             if (qValues[i] > bestQ) { bestQ = qValues[i]; bestIdx = i; }
         }
-        return bestIdx;
+        return { index: bestIdx, qTeacher };
     }
 
     const maxQ = Math.max(...qValues);
@@ -70,9 +81,9 @@ async function _selectWithLookahead(env, legal, stateFeat, phiList, temperature)
     let cum = 0;
     for (let i = 0; i < probs.length; i++) {
         cum += probs[i];
-        if (r <= cum) return i;
+        if (r <= cum) return { index: i, qTeacher };
     }
-    return probs.length - 1;
+    return { index: probs.length - 1, qTeacher };
 }
 
 /* ================================================================== */
@@ -97,22 +108,6 @@ function _normalizeReturn(G) {
 }
 
 /* ================================================================== */
-/*  课程学习                                                           */
-/* ================================================================== */
-
-const _CURRICULUM = GAME_RULES.rlCurriculum;
-let _curriculumIdx = 0;
-
-function _getCurriculumWinThreshold(totalEpisodes) {
-    if (!_CURRICULUM?.stages?.length) return null;
-    const stages = _CURRICULUM.stages;
-    while (_curriculumIdx < stages.length - 1 && totalEpisodes >= stages[_curriculumIdx + 1].fromEpisode) {
-        _curriculumIdx++;
-    }
-    return stages[_curriculumIdx].winScoreThreshold;
-}
-
-/* ================================================================== */
 /*  单局自博弈                                                         */
 /* ================================================================== */
 
@@ -124,7 +119,11 @@ function _getCurriculumWinThreshold(totalEpisodes) {
  */
 export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opts = {}) {
     const useBackend = Boolean(opts.useBackend);
-    const env = new RlGameplayEnvironment();
+    const wOpt = opts.winScoreThreshold;
+    const winScoreThreshold = typeof wOpt === 'number' && Number.isFinite(wOpt)
+        ? Math.max(1, Math.round(wOpt))
+        : undefined;
+    const env = new RlGameplayEnvironment(RL_TRAINING_STRATEGY_ID, { winScoreThreshold });
     const trajectory = [];
 
     if (hooks.onEpisodeStart) await hooks.onEpisodeStart(env.simulator);
@@ -137,16 +136,22 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
 
         let choice;
         if (useBackend) {
-            const useLookahead = Boolean(opts.useLookahead) && legal.length <= 120;
+            const useLookahead = (opts.useLookahead !== undefined
+                ? Boolean(opts.useLookahead)
+                : false) && legal.length <= 120;
             let idx;
+            /** @type {number[] | null} */
+            let qTeacher = null;
             if (useLookahead) {
-                idx = await _selectWithLookahead(env, legal, stateFeat, phiList, temperature);
+                const lk = await _selectWithLookahead(env, legal, stateFeat, phiList, temperature);
+                idx = lk.index;
+                qTeacher = lk.qTeacher;
             } else {
                 idx = await selectActionRemote(phiList, stateFeat, temperature);
             }
             choice = {
                 stateFeat: new Float32Array(stateFeat),
-                phiList, probs: null, chosenIdx: idx, idx
+                phiList, probs: null, chosenIdx: idx, idx, qTeacher
             };
         } else {
             const c = agent.selectAction(phiList, stateFeat, temperature);
@@ -161,7 +166,7 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
         const reward = env.step(action.blockIdx, action.gx, action.gy);
 
         const sup = env.simulator.getSupervisionSignals();
-        trajectory.push({
+        const stepRow = {
             stateFeat: choice.stateFeat,
             phiList: choice.phiList,
             probs: choice.probs,
@@ -171,7 +176,11 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
             clears: Math.min(env.simulator._lastClears || 0, 3),
             board_quality: sup.board_quality,
             feasibility: sup.feasibility,
-        });
+        };
+        if (choice.qTeacher != null && choice.qTeacher.length === choice.phiList.length) {
+            stepRow.qTeacher = choice.qTeacher;
+        }
+        trajectory.push(stepRow);
 
         if (hooks.onAfterStep) {
             await hooks.onAfterStep(env.simulator, {
@@ -301,6 +310,7 @@ export function reinforceUpdate(agent, trajectory, opts = {}) {
  * @param {import('./linearAgent.js').LinearAgent} opts.agent
  * @param {number} opts.episodes
  * @param {boolean} [opts.useBackend]
+ * @param {boolean} [opts.useLookahead] 与 useBackend 连用时：未传默认 **false**（仅远端策略采样，首局快）；传 true 启用 1-step Q + 上报 q_teacher（利于 Q 蒸馏，但极慢）
  * @param {(info: object) => void} [opts.onEpisode]
  * @param {AbortSignal} [opts.signal]
  */
@@ -313,7 +323,9 @@ export async function trainSelfPlay(opts) {
 
     if (useBackend) {
         let baseEp = 0;
-        const useLookahead = Boolean(opts.useLookahead);
+        const useLookahead = opts.useLookahead !== undefined
+            ? Boolean(opts.useLookahead)
+            : false;
         try {
             const st = await fetchRlStatus();
             if (st.available && typeof st.episodes === 'number') baseEp = st.episodes;
@@ -323,9 +335,11 @@ export async function trainSelfPlay(opts) {
             if (signal?.aborted) break;
             const globalEp = baseEp + e;
             const temp = Math.max(0.35, 1.0 - globalEp * 0.002);
+            const winThr = rlWinThresholdForEpisode(globalEp + 1);
             const ep = await runSelfPlayEpisode(null, temp, {}, {
                 useBackend: true,
                 useLookahead,
+                winScoreThreshold: winThr,
             });
 
             let serverEpisodes = null, lossPi = null, lossV = null;
@@ -376,9 +390,8 @@ export async function trainSelfPlay(opts) {
 
         const temp = Math.max(0.4, 1.0 - e * 0.0015);
 
-        const currThreshold = _getCurriculumWinThreshold(totalEpisodes);
-
-        const ep = await runSelfPlayEpisode(agent, temp);
+        const winThr = rlWinThresholdForEpisode(totalEpisodes + 1);
+        const ep = await runSelfPlayEpisode(agent, temp, {}, { winScoreThreshold: winThr });
         const trainMetrics = reinforceUpdate(agent, ep.trajectory);
         totalEpisodes++;
 
@@ -389,7 +402,7 @@ export async function trainSelfPlay(opts) {
             clears: ep.totalClears, won: ep.won,
             trajLen: ep.trajectory.length, policySteps: ep.trajectory.length,
             fromBackend: false,
-            curriculumThreshold: currThreshold,
+            curriculumThreshold: winThr,
             trainMetrics,
             lossPolicy: trainMetrics?.lossPolicy,
             lossValue: trainMetrics?.lossValue,

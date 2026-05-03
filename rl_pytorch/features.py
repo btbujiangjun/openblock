@@ -19,6 +19,7 @@ _MAX_GRID = int(_ENC.get("maxGridWidth", 8))
 _DOCK_MASK_SIDE = int(_ENC.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(_ENC.get("dockSlots", 3))
 _SCALAR_DIM = int(_ENC.get("stateScalarDim", 23))
+_N_COLORS = int(_ENC.get("colorCount", 8))
 
 STATE_FEATURE_DIM = int(_ENC["stateDim"])
 ACTION_FEATURE_DIM = int(_ENC["actionDim"])
@@ -74,6 +75,43 @@ def _encode_dock_spatial(dock: list[dict]) -> np.ndarray:
     return np.concatenate(parts, axis=0)
 
 
+def _encode_color_summary(grid, dock: list[dict]) -> np.ndarray:
+    """颜色摘要：棋盘颜色占比、同色线潜力、dock 颜色。
+
+    网格主体仍保留 0/1 占用输入，颜色只作为标量注入，避免改 CNN 通道。
+    """
+    n = grid.size
+    area = max(n * n, 1)
+    color_counts = np.zeros(_N_COLORS, dtype=np.float32)
+    mono_line_potential = np.zeros(_N_COLORS, dtype=np.float32)
+
+    for y in range(n):
+        for x in range(n):
+            c = grid.cells[y][x]
+            if c is not None and 0 <= int(c) < _N_COLORS:
+                color_counts[int(c)] += 1.0
+
+    for c in range(_N_COLORS):
+        best = 0
+        for y in range(n):
+            row = grid.cells[y]
+            if all(v is None or v == c for v in row):
+                best = max(best, sum(1 for v in row if v == c))
+        for x in range(n):
+            col = [grid.cells[y][x] for y in range(n)]
+            if all(v is None or v == c for v in col):
+                best = max(best, sum(1 for v in col if v == c))
+        mono_line_potential[c] = best / max(n, 1)
+
+    dock_colors = np.zeros(_DOCK_SLOTS, dtype=np.float32)
+    denom = max(_N_COLORS - 1, 1)
+    for i in range(_DOCK_SLOTS):
+        if i < len(dock) and not dock[i].get("placed"):
+            dock_colors[i] = float(dock[i].get("color_idx", 0)) / denom
+
+    return np.concatenate([color_counts / area, mono_line_potential, dock_colors], axis=0)
+
+
 # ---------------------------------------------------------------------------
 # 棋盘结构分析 — 代理到 fast_grid numpy 实现
 # ---------------------------------------------------------------------------
@@ -105,8 +143,7 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     max_wells = float(_AN.get("maxWellDepth", 24))
     max_mob = float(_AN.get("maxMobility", 192))
 
-    scalars = np.array(
-        [
+    base_scalars = [
             bf["filled"] / area,
             bf["max_row"],
             bf["min_row"],
@@ -130,9 +167,8 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
             min(bf["close2"] / n, 1.0),
             min(bf["mobility"] / max_mob, 1.0),
             bf["filled"] / area,
-        ],
-        dtype=np.float32,
-    )
+        ]
+    scalars = np.array(base_scalars + _encode_color_summary(grid, dock).tolist(), dtype=np.float32)
     if scalars.shape[0] != _SCALAR_DIM:
         raise ValueError(f"标量段长度 {scalars.shape[0]} != stateScalarDim {_SCALAR_DIM}")
 

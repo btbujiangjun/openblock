@@ -1,5 +1,6 @@
 /**
- * 与 server.py 约定一致：优先 OPENBLOCK_API_ORIGIN，其次 VITE_API_BASE_URL，默认 http://0.0.0.0:5000。
+ * 与 server.py 约定一致：优先 OPENBLOCK_API_ORIGIN，其次 VITE_API_BASE_URL；
+ * 未显式配置时用 API_HOST:PORT，主机默认 127.0.0.1（浏览器可访问；勿用 0.0.0.0 作前端请求目标）。
  * 供 vite / vitest 在构建时注入 import.meta.env.VITE_API_BASE_URL。
  */
 import fs from 'node:fs';

@@ -117,9 +117,14 @@ export function boardPotential(grid, dock) {
 export class OpenBlockSimulator {
     /**
      * @param {string} [strategyId]
+     * @param {{ winScoreThreshold?: number }} [options]
      */
-    constructor(strategyId = 'normal') {
+    constructor(strategyId = 'normal', options = {}) {
         this.strategyId = strategyId;
+        const w = options?.winScoreThreshold;
+        this.winScoreThreshold = typeof w === 'number' && Number.isFinite(w)
+            ? Math.max(1, Math.round(w))
+            : WIN_SCORE_THRESHOLD;
         this.reset();
     }
 
@@ -271,7 +276,7 @@ export class OpenBlockSimulator {
             r += _POT_COEF * (boardPotential(this.grid, this.dock) - potBefore);
         }
         const wb = Number(RL_REWARD_SHAPING?.winBonus);
-        if (Number.isFinite(wb) && wb !== 0 && this.score >= WIN_SCORE_THRESHOLD && prevScore < WIN_SCORE_THRESHOLD) {
+        if (Number.isFinite(wb) && wb !== 0 && this.score >= this.winScoreThreshold && prevScore < this.winScoreThreshold) {
             r += wb;
         }
         return r;

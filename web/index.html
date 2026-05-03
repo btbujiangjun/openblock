@@ -50,7 +50,9 @@
 <body>
     <div id="app">
         <div class="header">
-            <div class="header-side header-side--left"></div>
+            <div class="header-side header-side--left">
+                <div class="top-actions" aria-label="快捷入口"></div>
+            </div>
             <h1 class="app-wordmark" aria-label="Open Block"></h1>
             <div class="header-side header-side--right">
                 <button type="button" id="in-game-menu-btn" class="in-game-menu-btn" data-i18n-title="ui.header.backMenu" title="返回菜单">☰</button>
@@ -140,6 +142,10 @@
                 <span class="menu-card-icon">📚</span>
                 <span class="menu-card-label" data-i18n="menu.docs">文档中心</span>
             </a>
+            <button type="button" class="menu-card menu-card--personal menu-card--menu-secondary" id="menu-personal-data-btn">
+                <span class="menu-card-icon">👛</span>
+                <span class="menu-card-label" data-i18n="menu.personalData">钱包 · 个人数据</span>
+            </button>
             <button type="button" class="menu-card menu-card--ops menu-card--menu-secondary" id="ops-menu-btn">
                 <span class="menu-card-icon">📊</span>
                 <span class="menu-card-label" data-i18n="menu.ops">运营看板</span>
@@ -422,6 +428,7 @@
         <div class="rl-header-row">
             <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>RL机器人</h3>
             <label class="rl-backend-toggle" title="勾选后策略推理与训练走 Flask /api/rl PyTorch 服务端；不勾选则使用浏览器内线性智能体与本地日志。"><input type="checkbox" id="rl-use-pytorch" /> PyTorch <span id="rl-backend-status" class="rl-backend-status">未检测</span></label>
+            <label class="rl-lookahead-toggle" title="开启后每步用 r+γV(s') 选动作并上报 q_teacher（利于 Q 蒸馏），但每步要在浏览器枚举全部合法落点并多次请求服务端，首局可能很慢甚至像卡住；初次训练建议先不勾选。"><input type="checkbox" id="rl-lookahead" /> 1-step lookahead</label>
         </div>
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📋</span>统计 &amp; 操作</summary>
@@ -471,18 +478,19 @@
         <h3 class="rl-dash-title"><span class="panel-head-icon" aria-hidden="true">📊</span>训练看板</h3>
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🧰</span>摘要 &amp; 工具</summary>
-            <p class="rl-dash-hint">曲线来自 <code>train_episode</code>：PyTorch 后端读服务端 JSONL；未勾选 PyTorch 时由浏览器训练写入本机（localStorage）并在此出图。得分/胜率需含 <code>score</code>/<code>won</code>。</p>
-            <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
-            <div class="rl-dash-toolbar">
-                <label class="rl-dash-auto" title="训练进行中时按间隔自动从服务端拉取 training 日志并重绘右侧曲线与摘要；关闭后仅手动点击「刷新图表」更新。"><input type="checkbox" id="rl-chart-auto" checked /> 训练中自动刷新</label>
-                <select id="rl-chart-tail" class="rl-dash-select" title="按回合序号仅保留最近 N 条 train_episode 再绘制曲线与摘要；选「全部」则使用日志中的全部记录（数据量大时可能较慢）。">
-                    <option value="500">最近 500 局</option>
-                    <option value="2000" selected>最近 2000 局</option>
-                    <option value="5000">最近 5000 局</option>
-                    <option value="20000">最近 2 万局</option>
-                    <option value="0">全部</option>
-                </select>
-                <button type="button" class="rl-dash-refresh" id="rl-refresh-charts" title="拉取最新 training 日志：更新摘要与六条曲线；勾选 PyTorch 时同时刷新「训练损失」预读并对齐左侧局数与服务端。">刷新图表</button>
+            <div class="rl-dash-compact">
+                <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
+                <div class="rl-dash-toolbar">
+                    <label class="rl-dash-auto" title="训练进行中时按间隔自动从服务端拉取 training 日志并重绘右侧曲线与摘要；关闭后仅手动点击「刷新图表」更新。"><input type="checkbox" id="rl-chart-auto" checked /> 自动</label>
+                    <select id="rl-chart-tail" class="rl-dash-select" title="按回合序号仅保留最近 N 条 train_episode 再绘制曲线与摘要；选「全部」则使用日志中的全部记录（数据量大时可能较慢）。">
+                        <option value="500">近 500 局</option>
+                        <option value="2000" selected>近 2000 局</option>
+                        <option value="5000">近 5000 局</option>
+                        <option value="20000">近 2 万局</option>
+                        <option value="0">全部</option>
+                    </select>
+                    <button type="button" class="rl-dash-refresh" id="rl-refresh-charts" title="拉取最新 training 日志：更新摘要与六条曲线；勾选 PyTorch 时同时刷新「训练损失」预读并对齐左侧局数与服务端。">刷新</button>
+                </div>
             </div>
         </details>
         <details class="panel-section" open>

@@ -35,6 +35,64 @@ export function countPlaceStepsInFrames(frames) {
     return n;
 }
 
+function finiteNumber(v) {
+    return typeof v === 'number' && Number.isFinite(v);
+}
+
+function avg(values) {
+    const xs = values.filter(finiteNumber);
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
+
+function maxFinite(values) {
+    const xs = values.filter(finiteNumber);
+    return xs.length ? Math.max(...xs) : null;
+}
+
+function pct(v) {
+    return v == null ? null : Math.max(0, Math.min(1, v));
+}
+
+function trendOf(first, last, eps = 0.03) {
+    if (!finiteNumber(first) || !finiteNumber(last)) return 'unknown';
+    const d = last - first;
+    if (Math.abs(d) <= eps) return 'flat';
+    return d > 0 ? 'up' : 'down';
+}
+
+function dominant(values) {
+    const counts = new Map();
+    for (const v of values) {
+        if (v == null || v === '') continue;
+        counts.set(String(v), (counts.get(String(v)) || 0) + 1);
+    }
+    let best = null;
+    let bestN = 0;
+    for (const [k, n] of counts.entries()) {
+        if (n > bestN) {
+            best = k;
+            bestN = n;
+        }
+    }
+    return best;
+}
+
+function flowPhrase(flowState, pacingPhase) {
+    const f = String(flowState || 'unknown');
+    const p = String(pacingPhase || 'unknown');
+    if (f.includes('anxiety') || p.includes('over')) return '压力偏高，玩家更像是在被局面追赶';
+    if (f.includes('bored') || p.includes('under')) return '挑战偏低，局面刺激不足';
+    if (f.includes('flow') || p.includes('steady')) return '节奏相对贴近心流区';
+    return '状态信号分散，节奏匹配度不稳定';
+}
+
+function trendPhrase(t, upText, downText, flatText) {
+    if (t === 'up') return upText;
+    if (t === 'down') return downText;
+    if (t === 'flat') return flatText;
+    return '趋势信号不足';
+}
+
 /**
  * @param {string} strategy
  * @param {import('./grid.js').Grid} grid
@@ -177,6 +235,185 @@ export function buildPlayerStateSnapshot(profile, ctx) {
         };
     }
     return slim;
+}
+
+/**
+ * 根据完整回放帧生成给设计者复盘用的整局评价和过程分析。
+ * 该分析只依赖本局 frames/gameStats，可随 `move_sequences` 一起持久化。
+ * @param {object[]} frames
+ * @param {{ score?: number, gameStats?: object, durationMs?: number }} [ctx]
+ */
+export function buildReplayAnalysis(frames, ctx = {}) {
+    const placeFrames = Array.isArray(frames) ? frames.filter((f) => f?.t === 'place') : [];
+    const psFrames = (Array.isArray(frames) ? frames : [])
+        .map((f, idx) => ({ idx, ps: f?.ps, frame: f }))
+        .filter((x) => x.ps && typeof x.ps === 'object');
+    const score = finiteNumber(ctx.score) ? ctx.score : displayScoreFromReplayFrames(frames) ?? 0;
+    const fills = psFrames.map((x) => Number(x.ps.boardFill)).filter(Number.isFinite);
+    const scores = psFrames.map((x) => Number(x.ps.score)).filter(Number.isFinite);
+    const clearSteps = placeFrames.filter((f) => Number(f?.ps?.linesCleared || 0) > 0);
+    const totalCleared = placeFrames.reduce((n, f) => n + Math.max(0, Number(f?.ps?.linesCleared || 0)), 0);
+    const clearRate = placeFrames.length ? clearSteps.length / placeFrames.length : 0;
+    let longestNoClear = 0;
+    let noClear = 0;
+    for (const f of placeFrames) {
+        if (Number(f?.ps?.linesCleared || 0) > 0) {
+            noClear = 0;
+        } else {
+            noClear += 1;
+            longestNoClear = Math.max(longestNoClear, noClear);
+        }
+    }
+    const thirds = [];
+    for (let i = 0; i < 3; i++) {
+        const lo = Math.floor((placeFrames.length * i) / 3);
+        const hi = Math.floor((placeFrames.length * (i + 1)) / 3);
+        const seg = placeFrames.slice(lo, hi);
+        const segPs = seg.map((f) => f.ps).filter(Boolean);
+        const segScore0 = Number(segPs[0]?.score);
+        const segScore1 = Number(segPs[segPs.length - 1]?.score);
+        thirds.push({
+            phase: ['early', 'middle', 'late'][i],
+            placements: seg.length,
+            scoreGain: Number.isFinite(segScore0) && Number.isFinite(segScore1) ? Math.max(0, segScore1 - segScore0) : null,
+            clearRate: seg.length ? seg.filter((f) => Number(f?.ps?.linesCleared || 0) > 0).length / seg.length : null,
+            avgFill: avg(segPs.map((ps) => Number(ps.boardFill))),
+            avgStress: avg(segPs.map((ps) => Number(ps.adaptive?.stress))),
+            avgThinkMs: avg(segPs.map((ps) => Number(ps.metrics?.thinkMs)))
+        });
+    }
+    const finalPs = psFrames[psFrames.length - 1]?.ps ?? null;
+    const startFill = fills[0] ?? null;
+    const endFill = fills[fills.length - 1] ?? null;
+    const avgFill = avg(fills);
+    const peakFill = maxFinite(fills);
+    const avgStress = avg(psFrames.map((x) => Number(x.ps.adaptive?.stress)));
+    const avgThinkMs = avg(psFrames.map((x) => Number(x.ps.metrics?.thinkMs)));
+    const avgSkill = avg(psFrames.map((x) => Number(x.ps.skill)));
+    const missRate = avg(psFrames.map((x) => Number(x.ps.metrics?.missRate)));
+    const flowTrend = trendOf(Number(psFrames[0]?.ps?.flowDeviation), Number(finalPs?.flowDeviation), 0.05);
+    const fillTrend = trendOf(startFill, endFill);
+    const scoreTrend = scores.length >= 2 ? trendOf(scores[0], scores[scores.length - 1], 10) : 'unknown';
+    const dominantFlow = dominant(psFrames.map((x) => x.ps.flowState));
+    const dominantPacing = dominant(psFrames.map((x) => x.ps.pacingPhase));
+    const recoveryFrames = psFrames.filter((x) => x.ps.needsRecovery === true).length;
+    const recoveryRatio = psFrames.length ? recoveryFrames / psFrames.length : null;
+    const finalFill = pct(endFill);
+
+    let rating = 3;
+    if (score >= 2000) rating = 5;
+    else if (score >= 800) rating = 4;
+    else if (score < 200 || (finalFill != null && finalFill > 0.72)) rating = 2;
+    else if (score < 80 || placeFrames.length < 10) rating = 1;
+
+    const tags = [];
+    if (clearRate >= 0.45) tags.push('清线效率高');
+    if (clearRate < 0.18) tags.push('清线不足');
+    if (peakFill != null && peakFill > 0.72) tags.push('高压盘面');
+    if (longestNoClear >= 8) tags.push('长时间未清线');
+    if (avgThinkMs != null && avgThinkMs > 4500) tags.push('思考偏久');
+    if (missRate != null && missRate > 0.08) tags.push('失误偏多');
+    if (flowTrend === 'up') tags.push('心流压力上升');
+    if (flowTrend === 'down') tags.push('压力回落');
+
+    const recommendations = [];
+    if (clearRate < 0.2) {
+        recommendations.push('检查早中期是否需要更多可形成单线/双线的引导块。');
+    }
+    if (peakFill != null && peakFill > 0.72) {
+        recommendations.push('高填充阶段可评估恢复型出块、低负荷块或清线友好块的触发时机。');
+    }
+    if (longestNoClear >= 8) {
+        recommendations.push('连续未清线较长，建议复盘对应阶段的候选块组合是否过于封闭。');
+    }
+    if (avgThinkMs != null && avgThinkMs > 4500) {
+        recommendations.push('平均思考偏久，可能需要降低视觉/形状组合复杂度。');
+    }
+    if (recommendations.length === 0) {
+        recommendations.push('本局指标未触发明显异常，可作为常规样本进入分数/心流趋势对比。');
+    }
+
+    const summary = [
+        `本局得分 ${Math.round(score)}，成功落子 ${placeFrames.length} 次，消线 ${totalCleared} 条。`,
+        `清线步占比 ${(clearRate * 100).toFixed(1)}%，最长未清线 ${longestNoClear} 步。`,
+        peakFill != null ? `盘面峰值填充 ${(peakFill * 100).toFixed(1)}%。` : ''
+    ].filter(Boolean).join(' ');
+    const abstractRead = [
+        flowPhrase(dominantFlow, dominantPacing),
+        trendPhrase(fillTrend, '盘面压力逐步堆高', '盘面压力被持续释放', '盘面压力大体稳定'),
+        trendPhrase(flowTrend, '心流偏移扩大，系统可能给到了过强挑战', '心流偏移收敛，体验逐步被拉回舒适区', '心流偏移基本稳定'),
+        clearRate < 0.2
+            ? '玩家主要处在“摆放求生”而非“主动组织清线”的循环里'
+            : clearRate > 0.42
+                ? '玩家形成了较连续的清线闭环'
+                : '玩家偶有清线反馈，但闭环还不够连续',
+        recoveryRatio != null && recoveryRatio > 0.35
+            ? '恢复需求长期存在，说明救济窗口可能来得偏晚或强度不足'
+            : '恢复需求没有长期占据主导'
+    ];
+    const designRead = [
+        peakFill != null && peakFill > 0.72
+            ? '高填充峰值应作为出块算法复盘锚点：检查此前 1-2 轮候选块是否减少了可行动作。'
+            : '盘面没有长期进入极限拥堵，可重点观察节奏与奖励反馈。',
+        longestNoClear >= 8
+            ? '最长未清线段较长，建议抽取该片段回放，分析是否缺少转折块或预期清线机会。'
+            : '未清线段长度可控，说明阻塞主要不是单一长连败造成。',
+        avgThinkMs != null && avgThinkMs > 4500
+            ? '思考时间偏长，可能是候选组合复杂或盘面可读性下降。'
+            : '思考时间未显示明显认知过载。',
+        avgStress != null && avgStress > 0.65
+            ? '压力信号偏高，算法应谨慎继续加压。'
+            : '压力信号未达到强加压阈值。'
+    ];
+
+    return {
+        schema: 1,
+        generatedAt: Date.now(),
+        rating,
+        summary,
+        tags,
+        metrics: {
+            score,
+            placements: placeFrames.length,
+            totalCleared,
+            clearSteps: clearSteps.length,
+            clearRate,
+            longestNoClear,
+            avgFill,
+            peakFill,
+            finalFill,
+            avgStress,
+            avgThinkMs,
+            avgSkill,
+            missRate,
+            recoveryRatio,
+            durationMs: finiteNumber(ctx.durationMs) ? ctx.durationMs : null
+        },
+        interpretation: {
+            headline: abstractRead[0],
+            abstract: abstractRead,
+            designRead,
+            dominantFlow,
+            dominantPacing
+        },
+        process: {
+            phases: thirds,
+            finalState: finalPs ? {
+                score: finalPs.score,
+                boardFill: finalPs.boardFill,
+                flowState: finalPs.flowState,
+                pacingPhase: finalPs.pacingPhase,
+                frustration: finalPs.frustration,
+                needsRecovery: finalPs.needsRecovery
+            } : null,
+            trends: {
+                fill: fillTrend,
+                score: scoreTrend,
+                flowDeviation: flowTrend
+            }
+        },
+        recommendations
+    };
 }
 
 /**

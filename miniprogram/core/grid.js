@@ -346,7 +346,7 @@ class Grid {
                     positions.push({ x, y });
                 }
             }
-            if (empty >= 1 && empty <= 3) {
+            if (empty >= 1 && empty <= 4) {
                 gaps.push({ type: 'row', y, empty, positions });
             }
         }
@@ -360,7 +360,7 @@ class Grid {
                     positions.push({ x, y });
                 }
             }
-            if (empty >= 1 && empty <= 3) {
+            if (empty >= 1 && empty <= 4) {
                 gaps.push({ type: 'col', x, empty, positions });
             }
         }
@@ -375,7 +375,7 @@ class Grid {
         for (const gap of gaps) {
             for (const pos of gap.positions) {
                 if (this.canPlace(shapeData, pos.x, pos.y)) {
-                    fills += (4 - gap.empty);
+                    fills += Math.max(1, 4 - gap.empty);
                     break;
                 }
             }

@@ -13,10 +13,8 @@ import {
     AVAILABLE_LOCALES,
 } from './i18n/i18n.js';
 import { Game } from './game.js';
-import { initRLPanel } from './bot/rlPanel.js';
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';
-import { initSpawnModelPanel } from './spawnModelPanel.js';
 import { applySkinToDocument, getActiveSkin } from './skins.js';
 import { mountBlockWordmarks } from './blockWordmark.js';
 import { initMonetization } from './monetization/index.js';
@@ -24,8 +22,6 @@ import { ReviveManager } from './revive.js';
 import { createEffectLayer } from './effects/effectLayer.js';
 import { BlockPool } from './bot/blockPool.js';
 import { generateDockShapes } from './bot/blockSpawn.js';
-import { initLevelEditorPanel, openLevelEditorPanel } from './levelEditorPanel.js';
-import { initSeasonPass, toggleSeasonPass } from './seasonPass.js';
 import { initPushNotification } from './pushNotification.js';
 import { initChannelAttribution } from './channelAttribution.js';
 import { initMiniGoals } from './miniGoals.js';
@@ -72,16 +68,13 @@ import { initWelcomeBack } from './onboarding/welcomeBack.js';
 import { initFirstWinBoost } from './daily/firstWinBoost.js';
 import { initDailyDish } from './daily/dailyDish.js';
 import { initProgressDigest } from './daily/progressDigest.js';
-import { initSeasonPassEntry } from './daily/seasonPassEntry.js';
 import { initLightningMode } from './playmodes/lightning.js';
 import { initZenMode } from './playmodes/zen.js';
 import { initFreeze } from './skills/freeze.js';
 import { initPreview } from './skills/preview.js';
 import { initReroll } from './skills/reroll.js';
 import { initRankSystem } from './progression/rankSystem.js';
-import { initReplayAlbum } from './social/replayAlbum.js';
 import { initAsyncPk } from './social/asyncPk.js';
-import { initPersonalDashboard } from './progression/personalDashboard.js';
 import { initSkinFragments } from './progression/skinFragments.js';
 import { initMonthlyMilestone } from './checkin/monthlyMilestone.js';
 
@@ -176,7 +169,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initDailyMaster({ game, audio: audioFx });
     initSkinLore({ audio: audioFx });
     /* v10.17：原 stub 替换为完整实装 */
-    initReplayAlbum({ game });
     initAsyncPk({ game });
     /* v10.17：道具池扩展 +3 件（与 hint/undo/bomb/rainbow 同钱包同 UI） */
     initFreeze({ game, audio: audioFx });
@@ -194,7 +186,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initZenMode({ game });
     initRankSystem({ game });
     initSkinFragments({ game });
-    initPersonalDashboard();
     initMonthlyMilestone();
     /* P2 大工程占位：BGM 与角色伙伴依赖外部资产 (~5MB OGG / 180 张立绘) 暂保持 stub */
     initBgm();
@@ -208,20 +199,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 暴露包装后函数供 game.js 通过 window.__spawnFn 读取（可选）
     window.__blockPool = blockPool;
     window.__spawnFn = blockPool.wrap(generateDockShapes);
-    /* 先于 game.init() 绑定回放/RL：init 因 API 失败抛错时，回放列表仍可点开（只读会话与 move_sequences） */
+    /* 先于 game.init() 绑定回放与洞察：init 因 API 失败抛错时，回放列表仍可点开（只读会话与 move_sequences）。
+       RL / Spawn 实验室 / 关卡编辑器 / 回放专辑 / 仪表盘 / 赛季通行证 在 init 成功后懒加载（initDeferredPanels.js）。 */
     initReplayUI(game);
     initPlayerInsightPanel(game);
-    initRLPanel(game);
-    initSpawnModelPanel(game);
-    initLevelEditorPanel(game);
-
-    // 关卡编辑器触发按钮（index.html 中已预留 #level-editor-btn）
-    const leBtn = document.getElementById('level-editor-btn');
-    if (leBtn) leBtn.addEventListener('click', openLevelEditorPanel);
 
     // 运营看板（初始化 Screen + 菜单按钮绑定）
     initOpsDashboard(game);
     document.getElementById('ops-menu-btn')?.addEventListener('click', openOpsDashboard);
+    document.getElementById('menu-personal-data-btn')?.addEventListener('click', async () => {
+        try {
+            const mod = await import('./progression/personalDashboard.js');
+            mod.initPersonalDashboard();
+            window.__personalDashboard?.open?.();
+        } catch (e) {
+            console.error(e);
+        }
+    });
 
     // 渠道归因（页面加载时解析 UTM 参数）
     initChannelAttribution();
@@ -232,17 +226,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             bootErr.hidden = true;
         }
 
+        const { initDeferredPanels } = await import('./initDeferredPanels.js');
+        await initDeferredPanels({ game });
+
         // 局间小目标（主要服务 A 类用户）
         const miniGoals = initMiniGoals(game);
         window.__miniGoals = miniGoals;
-
-        // 赛季通行证
-        const seasonPass = initSeasonPass(game);
-        window.__seasonPass = seasonPass;
-        // 菜单中加入赛季入口（若有 #season-pass-btn）
-        document.getElementById('season-pass-btn')?.addEventListener('click', () => toggleSeasonPass());
-        /* v10.17：自动注入战令入口 + 红点提示（如 index.html 没有 button 也能展示） */
-        initSeasonPassEntry({ seasonPass, toggleSeasonPass });
 
         // Push 通知（初始化后检查召回，游戏结束时记录活跃）
         const pushMgr = initPushNotification(game);

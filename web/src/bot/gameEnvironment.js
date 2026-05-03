@@ -9,9 +9,14 @@ import { RL_TRAINING_STRATEGY_ID, WIN_SCORE_THRESHOLD } from '../gameRules.js';
 export class RlGameplayEnvironment {
     /**
      * @param {string} [strategyId] 对应 game_rules.strategies 的键
+     * @param {{ winScoreThreshold?: number }} [envOpts] 本局胜局分数门槛；不传则用 winScoreThreshold 配置默认
      */
-    constructor(strategyId = RL_TRAINING_STRATEGY_ID) {
-        this._sim = new OpenBlockSimulator(strategyId);
+    constructor(strategyId = RL_TRAINING_STRATEGY_ID, envOpts = {}) {
+        const w = envOpts?.winScoreThreshold;
+        const winScoreThreshold = typeof w === 'number' && Number.isFinite(w)
+            ? Math.max(1, Math.round(w))
+            : WIN_SCORE_THRESHOLD;
+        this._sim = new OpenBlockSimulator(strategyId, { winScoreThreshold });
     }
 
     /** 供「评估一局」可视化等需要同步盘面时使用 */
@@ -48,7 +53,7 @@ export class RlGameplayEnvironment {
     }
 
     get won() {
-        return this._sim.score >= WIN_SCORE_THRESHOLD;
+        return this._sim.score >= this._sim.winScoreThreshold;
     }
 
     buildDecisionBatch() {

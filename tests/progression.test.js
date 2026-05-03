@@ -1,23 +1,47 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+/**
+ * 部分环境会带无效 `--localstorage-file`，jsdom 持久化 localStorage 会抛错。
+ * 用内存实现覆盖，与 wallet / monetization 等测试一致。
+ */
+const { mockLS } = vi.hoisted(() => {
+    const store = Object.create(null);
+    const mockLS = {
+        getItem: (k) => (k in store ? store[k] : null),
+        setItem: (k, v) => {
+            store[k] = String(v);
+        },
+        removeItem: (k) => {
+            delete store[k];
+        },
+        clear: () => {
+            Object.keys(store).forEach((k) => delete store[k]);
+        },
+        get length() {
+            return Object.keys(store).length;
+        },
+        key: (i) => Object.keys(store)[i] ?? null,
+    };
+    return { mockLS };
+});
+vi.stubGlobal('localStorage', mockLS);
+
 import {
     getLevelFromTotalXp,
     getLevelProgress,
     applyGameEndProgression,
     loadProgress,
-    computeXpGain
+    computeXpGain,
+    saveProgress,
+    invalidateProgressCache,
 } from '../web/src/progression.js';
 
-const PROGRESSION_LS = 'openblock_progression_v1';
-
 beforeEach(() => {
-    try {
-        localStorage.removeItem(PROGRESSION_LS);
-    } catch {
-        /* ignore */
-    }
+    mockLS.clear();
+    invalidateProgressCache();
 });
 
 describe('progression', () => {
@@ -45,6 +69,14 @@ describe('progression', () => {
         });
         expect(r.xpGained).toBeGreaterThanOrEqual(10);
         expect(r.state.totalXp).toBe(r.xpGained);
+    });
+
+    it('saveProgress 成功后 loadProgress 命中内存缓存并与存储一致', () => {
+        saveProgress({ totalXp: 10, bonusDayYmd: '', streakYmd: '', dailyStreak: 1 });
+        expect(loadProgress().totalXp).toBe(10);
+        expect(loadProgress().totalXp).toBe(10);
+        saveProgress({ totalXp: 22, bonusDayYmd: '', streakYmd: '', dailyStreak: 1 });
+        expect(loadProgress().totalXp).toBe(22);
     });
 
     it('computeXpGain applies strategy multiplier', () => {

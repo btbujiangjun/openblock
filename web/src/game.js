@@ -32,6 +32,7 @@ import {
     buildInitFrame,
     buildPlaceFrame,
     buildPlayerStateSnapshot,
+    buildReplayAnalysis,
     buildSpawnFrame,
     countPlaceStepsInFrames,
     MIN_PERSIST_PLACE_STEPS,
@@ -67,6 +68,18 @@ function _topShapeWeightEntries(shapeWeights, n) {
         .sort((a, b) => b[1] - a[1])
         .slice(0, n)
         .map(([category, weight]) => ({ category, weight: Number(weight) }));
+}
+
+/** 回放帧深拷贝：优先 structuredClone，失败时回退 JSON（见 PERFORMANCE.md） */
+function _cloneReplayFrames(frames) {
+    try {
+        if (typeof structuredClone === 'function') {
+            return frames.map((f) => structuredClone(f));
+        }
+    } catch {
+        /* ignore */
+    }
+    return frames.map((f) => JSON.parse(JSON.stringify(f)));
 }
 
 export class Game {
@@ -146,6 +159,12 @@ export class Game {
         this._lastWmAmbientAt = 0;
         this._popupToastQueue = Promise.resolve();
         this._lastPopupToastAt = 0;
+        /** markDirty 合并到单帧一次 render（见 PERFORMANCE.md） */
+        this._renderRaf = null;
+        this._renderDirty = false;
+        /** 预览消行 outcome 缓存键 */
+        this._lastPreviewClearKey = null;
+        this._lastPreviewClearCells = null;
     }
 
     _cancelPreviewClearAnim() {
@@ -165,12 +184,7 @@ export class Game {
             if (!this.drag || !this.previewPos || !this.previewBlock) {
                 return;
             }
-            const oc = this.grid.previewClearOutcome(
-                this.previewBlock.shape,
-                this.previewPos.x,
-                this.previewPos.y,
-                this.previewBlock.colorIdx
-            );
+            const oc = this._getPreviewClearCells();
             if (!oc?.cells?.length) {
                 return;
             }
@@ -239,6 +253,8 @@ export class Game {
     async init() {
         try {
             await this.db.init();
+            const { hydrateWalletFromApi } = await import('./skills/wallet.js');
+            await hydrateWalletFromApi(this.db.userId);
             this.bestScore = await this.db.getBestScore();
             const stats = await this.db.getStats();
             this.playerProfile.ingestHistoricalStats(stats);
@@ -1314,7 +1330,7 @@ export class Game {
 
         if (perfectClear) {
             this.renderer.triggerPerfectFlash();
-            this.renderer.setShake(16, bonusCount > 0 ? bonusShakeMs : 720);
+            this.renderer.setShake(24, bonusCount > 0 ? Math.max(bonusShakeMs, 1150) : 1150);
         } else if (isCombo) {
             this.renderer.triggerComboFlash(result.count);
             this.renderer.setShake(bonusCount > 0 ? 15 : 11, bonusCount > 0 ? bonusShakeMs : 520);
@@ -1410,16 +1426,23 @@ export class Game {
     }
 
     /**
-     * 判断本次非消行放置是否属于"解决难题"：
-     * - 盘面占用率 ≥ 50%
-     * - 放置前合法位 ≤ 3
-     * - 方块 ≥ 3 格
+     * 判断本次非消行放置是否值得点赞（复杂盘面 + 妙手，且非走进死局）：
+     * - 复杂：放置前占用率较高，且该形状全棋盘合法落点很少（≤3）
+     * - 妙局：合法落点 ≤2；或在极高占用下仍 ≤3 格可选（窄位抉择）
+     * - 死局排除：若 dock 里还有别的未落块，本手后它们必须仍能在当前盘面上至少走一步；
+     *   若本手是本轮最后一块则视为即将刷新三枚，不按「无步可走」判死（由 spawn 承接）
      */
     _checkToughPlacement(block, fillBefore, validsBefore) {
         const blockCells = block.shape.flat().filter(Boolean).length;
-        if (blockCells >= 3 && fillBefore >= 0.50 && validsBefore <= 3) {
-            this._showThumbsUp();
-        }
+        if (blockCells < 3) return;
+        if (fillBefore < 0.55 || validsBefore > 3) return;
+        const brilliant = validsBefore <= 2 || (fillBefore >= 0.68 && validsBefore <= 3);
+        if (!brilliant) return;
+
+        const others = this.dockBlocks.filter((b) => !b.placed && b !== block);
+        if (others.length > 0 && !this.grid.hasAnyMove(others)) return;
+
+        this._showThumbsUp();
     }
 
     _showThumbsUp() {
@@ -1660,13 +1683,26 @@ export class Game {
             return;
         }
 
-        await this._flushMoveSequence();
+        const durationMs = Math.max(0, Date.now() - this.gameStats.startTime);
+        const replayAnalysis = buildReplayAnalysis(this.moveSequence, {
+            score: this.score,
+            gameStats: this.gameStats,
+            durationMs
+        });
+        await this._flushMoveSequence(replayAnalysis);
 
         await this.db.updateSession(this.sessionId, {
             endTime: Date.now(),
             score: this.score,
             status: 'completed',
-            gameStats: this.gameStats
+            gameStats: {
+                ...this.gameStats,
+                replayAnalysis: {
+                    rating: replayAnalysis.rating,
+                    tags: replayAnalysis.tags,
+                    summary: replayAnalysis.summary
+                }
+            }
         });
 
         if (this.behaviors.length > 0) {
@@ -1677,7 +1713,7 @@ export class Game {
             await this.db.saveReplay(this.sessionId, tail);
         }
 
-        const durationSec = Math.max(1, Math.floor((Date.now() - this.gameStats.startTime) / 1000));
+        const durationSec = Math.max(1, Math.floor(durationMs / 1000));
         await this.backendSync.endSession(this.score, durationSec);
 
         this.playerProfile.save();
@@ -1763,7 +1799,7 @@ export class Game {
         }, 500);
     }
 
-    async _flushMoveSequence() {
+    async _flushMoveSequence(analysis = null) {
         if (!this.sessionId || this.moveSequence.length === 0) {
             return;
         }
@@ -1772,7 +1808,7 @@ export class Game {
         }
         clearTimeout(this._movePersistTimer);
         this._movePersistTimer = null;
-        await this.db.upsertMoveSequence(this.sessionId, this.moveSequence);
+        await this.db.upsertMoveSequence(this.sessionId, this.moveSequence, analysis);
     }
 
     /**
@@ -1789,7 +1825,7 @@ export class Game {
             console.warn('beginReplayFromFrames: 首帧须为含 grid 的 init');
             return false;
         }
-        this._replayFrames = frames.map((f) => JSON.parse(JSON.stringify(f)));
+        this._replayFrames = _cloneReplayFrames(frames);
         this.replayPlaybackLocked = true;
         this.isGameOver = false;
         this.isAnimating = false;
@@ -2010,7 +2046,65 @@ export class Game {
     }
 
     markDirty() {
+        this._renderDirty = true;
+        if (this._renderRaf != null) {
+            return;
+        }
+        if (typeof requestAnimationFrame !== 'function') {
+            this._renderDirty = false;
+            this.render();
+            return;
+        }
+        this._renderRaf = requestAnimationFrame(() => {
+            this._renderRaf = null;
+            if (!this._renderDirty) {
+                return;
+            }
+            this._renderDirty = false;
+            this.render();
+        });
+    }
+
+    /**
+     * 取消待合并的 rAF 并立即绘制（init、需与 DOM 同步的少数路径）。
+     */
+    flushRender() {
+        if (this._renderRaf != null && typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(this._renderRaf);
+        }
+        this._renderRaf = null;
+        this._renderDirty = false;
         this.render();
+    }
+
+    _shapeKey(shape) {
+        if (!shape || !Array.isArray(shape)) {
+            return '';
+        }
+        return shape.map((row) => (Array.isArray(row) ? row.join(',') : String(row))).join('/');
+    }
+
+    /** 拖拽预览消行演算：位姿未变则复用上次数值 */
+    _getPreviewClearCells() {
+        if (!this.previewPos || !this.previewBlock) {
+            this._lastPreviewClearKey = null;
+            this._lastPreviewClearCells = null;
+            return null;
+        }
+        const { x, y } = this.previewPos;
+        const b = this.previewBlock;
+        const key = `${b.colorIdx}:${x},${y}:${this._shapeKey(b.shape)}`;
+        if (key === this._lastPreviewClearKey && this._lastPreviewClearCells != null) {
+            return this._lastPreviewClearCells;
+        }
+        this._lastPreviewClearKey = key;
+        this._lastPreviewClearCells = this.grid.previewClearOutcome(
+            b.shape,
+            x,
+            y,
+            b.colorIdx
+        );
+        return this._lastPreviewClearCells;
     }
 
     /** 整帧重绘（含消除高亮与粒子）；与 markDirty 等价，避免漏画 clearCells 导致闪烁 */
@@ -2026,15 +2120,7 @@ export class Game {
         // v10.15: 皮肤环境粒子层（樱花 / 落叶 / 气泡 / 萤火虫 / 流星等），仅 5 款示范皮肤激活
         this.renderer.renderAmbient();
         this.renderer.renderGrid(this.grid);
-        let previewClearCells = null;
-        if (this.previewPos && this.previewBlock) {
-            previewClearCells = this.grid.previewClearOutcome(
-                this.previewBlock.shape,
-                this.previewPos.x,
-                this.previewPos.y,
-                this.previewBlock.colorIdx
-            );
-        }
+        const previewClearCells = this._getPreviewClearCells();
         if (previewClearCells?.cells?.length) {
             this.renderer.renderPreviewClearHint(previewClearCells.cells, 'under');
         }

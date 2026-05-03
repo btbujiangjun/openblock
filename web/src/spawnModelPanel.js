@@ -15,6 +15,7 @@ import {
 } from './spawnModel.js';
 import { resolveAdaptiveStrategy } from './adaptiveSpawn.js';
 import { getLastSpawnDiagnostics } from './bot/blockSpawn.js';
+import { skipWhenDocumentHidden } from './lib/pageVisibility.js';
 
 let _pollTimer = null;
 let _layerRefreshTimer = null;
@@ -160,7 +161,10 @@ export function initSpawnModelPanel(game) {
     _refreshBadge();
 
     // 三层参数：每 2 秒刷新一次（面板展开时有意义）
-    _layerRefreshTimer = setInterval(() => _refreshLayerParams(game), 2000);
+    _layerRefreshTimer = setInterval(
+        skipWhenDocumentHidden(() => _refreshLayerParams(game)),
+        2000
+    );
     _refreshLayerParams(game);
 
     async function _refreshBadge() {
@@ -214,22 +218,25 @@ export function initSpawnModelPanel(game) {
 
     function _startPolling() {
         if (_pollTimer) clearInterval(_pollTimer);
-        _pollTimer = setInterval(async () => {
-            try {
-                const st = await getModelStatus();
-                _updateUI(st);
-                if (!st.trainingRunning) {
+        _pollTimer = setInterval(
+            skipWhenDocumentHidden(async () => {
+                try {
+                    const st = await getModelStatus();
+                    _updateUI(st);
+                    if (!st.trainingRunning) {
+                        clearInterval(_pollTimer);
+                        _pollTimer = null;
+                        if (st.phase === 'done') {
+                            try { await reloadModel(); } catch { /* ignore */ }
+                            _refreshBadge();
+                        }
+                    }
+                } catch {
                     clearInterval(_pollTimer);
                     _pollTimer = null;
-                    if (st.phase === 'done') {
-                        try { await reloadModel(); } catch { /* ignore */ }
-                        _refreshBadge();
-                    }
                 }
-            } catch {
-                clearInterval(_pollTimer);
-                _pollTimer = null;
-            }
-        }, 3000);
+            }),
+            3000
+        );
     }
 }
