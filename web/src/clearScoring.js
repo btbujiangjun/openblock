@@ -1,6 +1,10 @@
 /**
  * 消行计分与 bonus 检测（与对局、回放、RL 无头模拟器共用）。
  *
+ * RL / 训练路径与主局对齐：`shared/game_rules.json` → `rlBonusScoring` +
+ * `skins.js` 的 `getRlTrainingBonusLineSkin()`（固定 canonical 主题下的 blockIcons，
+ * 不是玩家当前皮肤）；策略观测仍不得包含出块算法内部状态。
+ *
  * 注意：不要从本文件 import game.js，避免循环依赖。
  */
 import { getStrategy } from './config.js';

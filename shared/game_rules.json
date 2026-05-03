@@ -9,6 +9,32 @@
     "winThresholdEnd": 220,
     "rampEpisodes": 40000
   },
+  "browserRlTraining": {
+    "comment": "浏览器 LinearAgent REINFORCE 超参与温度日程（含 PyTorch 在线路径每局采样温度）。仅 web/src/bot/trainer.js 读取；改 JSON 无需改代码常量。entropyCoef=0 退化为纯策略梯度。",
+    "gamma": 0.99,
+    "maxGradNorm": 5.0,
+    "policyLr": 0.02,
+    "valueLr": 0.05,
+    "entropyCoef": 0.012,
+    "temperatureLocal": {
+      "comment": "trainSelfPlay 本地循环：temp = max(min, start - episodeIndex * decayPerEpisode)",
+      "start": 1.0,
+      "min": 0.4,
+      "decayPerEpisode": 0.0015
+    },
+    "temperatureBackend": {
+      "comment": "useBackend 时按服务端已累计局数 globalEp 衰减",
+      "start": 1.0,
+      "min": 0.35,
+      "decayPerGlobalEpisode": 0.002
+    }
+  },
+  "rlBonusScoring": {
+    "comment": "RL / PyTorch / 小程序无头局与主局计分对齐：整线加分判定与 dock 染色软偏置共用同一套「可见规则」（detectBonusLines / monoNearFullLine），固定 canonical 主题而非玩家当前皮肤。观测 φ 仍不得含 blockSpawn 内部状态。Python 仅在下方 blockIcons 非空时启用 icon bonus（可与网页 canonicalSkinId 不一致时手动填入同序图标）。",
+    "useGameplayBonusRules": true,
+    "canonicalSkinId": "titanium",
+    "blockIcons": null
+  },
   "defaultStrategyId": "normal",
   "dynamicDifficulty": {
     "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。",
@@ -30,6 +56,12 @@
     "smoothingFactor": 0.15,
     "fastConvergenceWindow": 5,
     "fastConvergenceAlpha": 0.35,
+    "difficultyTuning": {
+      "comment": "玩家选择难度的显式偏置。stressBias 拉开 profile 档位；clearGuaranteeDelta/sizePreferenceDelta/multiClearBonusDelta 直接进入 spawnHints；solutionStressDelta 仅用于解法数量区间选择，让困难模式更早进入低解空间过滤。",
+      "easy":   { "stressBias": -0.22, "clearGuaranteeDelta":  1, "sizePreferenceDelta": -0.22, "multiClearBonusDelta":  0.05, "solutionStressDelta": -0.14 },
+      "normal": { "stressBias":  0.00, "clearGuaranteeDelta":  0, "sizePreferenceDelta":  0.00, "multiClearBonusDelta":  0.00, "solutionStressDelta":  0.00 },
+      "hard":   { "stressBias":  0.22, "clearGuaranteeDelta": -1, "sizePreferenceDelta":  0.24, "multiClearBonusDelta": -0.08, "solutionStressDelta":  0.18, "minStress": 0.18 }
+    },
     "profiles": [
       {
         "id": "onboarding",
@@ -347,7 +379,7 @@
     "normal": {
       "id": "normal",
       "name": "Normal",
-      "fillRatio": 0.2,
+      "fillRatio": 0.18,
       "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
       "shapeWeights": {
         "lines": 2.15,
@@ -365,7 +397,7 @@
     "hard": {
       "id": "hard",
       "name": "Hard",
-      "fillRatio": 0.25,
+      "fillRatio": 0.32,
       "scoring": { "singleLine": 20, "multiLine": 60, "combo": 100 },
       "shapeWeights": {
         "lines": 2.05,

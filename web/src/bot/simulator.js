@@ -12,6 +12,7 @@ import {
     monoNearFullLineColorWeights,
     pickThreeDockColors
 } from '../clearScoring.js';
+import { getRlTrainingBonusLineSkin } from '../skins.js';
 
 const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
 const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;
@@ -22,6 +23,11 @@ const _POT_W_MOB = Number(_POT_CFG.mobilityWeight) || 0.12;
 const _POT_COEF = Number(_POT_CFG.coef) || 0.5;
 const _POT_ENABLED = Boolean(_POT_CFG.enabled);
 const _BOARD_POT_NORM = 30.0;
+
+/** 与主局计分对齐的 bonus / 近满染色偏置（固定 canonical 主题，见 getRlTrainingBonusLineSkin） */
+function _rlBonusSkin() {
+    return getRlTrainingBonusLineSkin();
+}
 
 export { generateDockShapes, generateBlocksForGrid };
 
@@ -143,7 +149,7 @@ export class OpenBlockSimulator {
 
     _spawnDock() {
         const shapes = generateDockShapes(this.grid, this.strategyConfig);
-        const bias = monoNearFullLineColorWeights(this.grid, null);
+        const bias = monoNearFullLineColorWeights(this.grid, _rlBonusSkin());
         const dockColors = pickThreeDockColors(bias);
         this.dock = [];
         for (let i = 0; i < 3; i++) {
@@ -252,8 +258,8 @@ export class OpenBlockSimulator {
         this.placements++;
         this.steps++;
 
-        // 与主局一致：在 checkLines 清空前用 detectBonusLines 覆盖 bonusLines（同 icon / 无 icon 退化）
-        const bonusSnap = detectBonusLines(this.grid, null);
+        // 与主局一致：在 checkLines 清空前 detectBonusLines（canonical 主题，非玩家皮肤）
+        const bonusSnap = detectBonusLines(this.grid, _rlBonusSkin());
         const result = this.grid.checkLines();
         let gain = 0;
         let clears = 0;

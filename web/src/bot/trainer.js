@@ -19,6 +19,47 @@ import { extractStateFeatures } from './features.js';
 
 export { WIN_SCORE_THRESHOLD } from '../gameRules.js';
 
+function _finiteNum(v, fallback) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+/** 读取 `shared/game_rules.json` → `browserRlTraining`（缺省字段用内置默认）。 */
+export function resolveBrowserRlTrainingConfig() {
+    const br = GAME_RULES.browserRlTraining || {};
+    const tl = br.temperatureLocal || {};
+    const tb = br.temperatureBackend || {};
+    return {
+        gamma: Math.min(1, Math.max(0, _finiteNum(br.gamma, 0.99))),
+        maxGradNorm: Math.max(1e-6, _finiteNum(br.maxGradNorm, 5.0)),
+        policyLr: Math.max(0, _finiteNum(br.policyLr, 0.02)),
+        valueLr: Math.max(0, _finiteNum(br.valueLr, 0.05)),
+        entropyCoef: Math.max(0, _finiteNum(br.entropyCoef, 0.012)),
+        tempLocal: {
+            start: _finiteNum(tl.start, 1.0),
+            min: _finiteNum(tl.min, 0.4),
+            decay: Math.max(0, _finiteNum(tl.decayPerEpisode, 0.0015)),
+        },
+        tempBackend: {
+            start: _finiteNum(tb.start, 1.0),
+            min: _finiteNum(tb.min, 0.35),
+            decay: Math.max(0, _finiteNum(tb.decayPerGlobalEpisode, 0.002)),
+        },
+    };
+}
+
+export function temperatureForLocalEpisode(episodeIndex, cfg = resolveBrowserRlTrainingConfig()) {
+    const { start, min, decay } = cfg.tempLocal;
+    const e = Math.max(0, episodeIndex);
+    return Math.max(min, start - e * decay);
+}
+
+export function temperatureForBackendEpisode(globalEpisode, cfg = resolveBrowserRlTrainingConfig()) {
+    const { start, min, decay } = cfg.tempBackend;
+    const e = Math.max(0, globalEpisode);
+    return Math.max(min, start - e * decay);
+}
+
 /* ================================================================== */
 /*  1-step lookahead：用 V(s') 评估动作质量                            */
 /* ================================================================== */
@@ -32,7 +73,7 @@ export { WIN_SCORE_THRESHOLD } from '../gameRules.js';
  *   qTeacher 与合法动作一一对应，供服务端 Q 蒸馏（非 MCTS teacher）。
  */
 async function _selectWithLookahead(env, legal, stateFeat, phiList, temperature) {
-    const GAMMA = 0.99;
+    const GAMMA = resolveBrowserRlTrainingConfig().gamma;
     const sim = env.simulator;
     const savedState = sim.saveState();
 
@@ -211,23 +252,24 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
 /*  REINFORCE 更新（v2：标准化 + 熵 + 裁剪）                           */
 /* ================================================================== */
 
-const MAX_GRAD_NORM = 5.0;
-
 /**
  * @param {import('./linearAgent.js').LinearAgent} agent
  * @param {object[]} trajectory
- * @param {{ policyLr?: number, valueLr?: number }} opts
+ * @param {{ policyLr?: number, valueLr?: number, gamma?: number, entropyCoef?: number, maxGradNorm?: number }} opts
  * @returns {{ lossPolicy: number, lossValue: number, entropy: number, stepCount: number } | null}
  */
 export function reinforceUpdate(agent, trajectory, opts = {}) {
-    const policyLr = opts.policyLr ?? 0.02;
-    const valueLr = opts.valueLr ?? 0.05;
+    const cfg = resolveBrowserRlTrainingConfig();
+    const policyLr = opts.policyLr ?? cfg.policyLr;
+    const valueLr = opts.valueLr ?? cfg.valueLr;
+    const gamma = opts.gamma ?? cfg.gamma;
+    const entropyCoef = opts.entropyCoef ?? cfg.entropyCoef;
+    const maxGN = opts.maxGradNorm ?? cfg.maxGradNorm;
     const T = trajectory.length;
     if (T === 0) return null;
 
     const returns = new Float32Array(T);
     let G = 0;
-    const gamma = 0.99;
     for (let t = T - 1; t >= 0; t--) {
         G = trajectory[t].reward + gamma * G;
         returns[t] = G;
@@ -262,7 +304,7 @@ export function reinforceUpdate(agent, trajectory, opts = {}) {
     for (let t = 0; t < T; t++) {
         const tr = trajectory[t];
         if (!tr.probs) continue;
-        const advantage = Math.max(-MAX_GRAD_NORM, Math.min(MAX_GRAD_NORM,
+        const advantage = Math.max(-maxGN, Math.min(maxGN,
             (rawAdv[t] - advMean) / advStd
         ));
         const logp = Math.log(tr.probs[tr.chosenIdx] + 1e-12);
@@ -282,14 +324,15 @@ export function reinforceUpdate(agent, trajectory, opts = {}) {
         const tr = trajectory[t];
         if (!tr.probs) continue;
 
-        const advantage = Math.max(-MAX_GRAD_NORM, Math.min(MAX_GRAD_NORM,
+        const advantage = Math.max(-maxGN, Math.min(maxGN,
             (rawAdv[t] - advMean) / advStd
         ));
 
         const pg = agent.policyGradient(tr.phiList, tr.probs, tr.chosenIdx);
-        agent.applyPolicyUpdate(pg, advantage, policyLr);
+        const eg = entropyCoef > 0 ? agent.entropyPolicyGradient(tr.phiList, tr.probs) : null;
+        agent.applyPolicyUpdateCombined(pg, advantage, eg, entropyCoef, policyLr);
 
-        const valueDelta = Math.max(-MAX_GRAD_NORM, Math.min(MAX_GRAD_NORM, rawAdv[t]));
+        const valueDelta = Math.max(-maxGN, Math.min(maxGN, rawAdv[t]));
         agent.applyValueUpdate(tr.stateFeat, valueDelta, valueLr);
     }
 
@@ -331,10 +374,11 @@ export async function trainSelfPlay(opts) {
             if (st.available && typeof st.episodes === 'number') baseEp = st.episodes;
         } catch { /* ignore */ }
 
+        const tempCfg = resolveBrowserRlTrainingConfig();
         for (let e = 0; e < episodes; e++) {
             if (signal?.aborted) break;
             const globalEp = baseEp + e;
-            const temp = Math.max(0.35, 1.0 - globalEp * 0.002);
+            const temp = temperatureForBackendEpisode(globalEp, tempCfg);
             const winThr = rlWinThresholdForEpisode(globalEp + 1);
             const ep = await runSelfPlayEpisode(null, temp, {}, {
                 useBackend: true,
@@ -384,11 +428,12 @@ export async function trainSelfPlay(opts) {
     /* ── 浏览器本地训练 ── */
 
     let totalEpisodes = 0;
+    const tempCfg = resolveBrowserRlTrainingConfig();
 
     for (let e = 0; e < episodes; e++) {
         if (signal?.aborted) break;
 
-        const temp = Math.max(0.4, 1.0 - e * 0.0015);
+        const temp = temperatureForLocalEpisode(e, tempCfg);
 
         const winThr = rlWinThresholdForEpisode(totalEpisodes + 1);
         const ep = await runSelfPlayEpisode(agent, temp, {}, { winScoreThreshold: winThr });

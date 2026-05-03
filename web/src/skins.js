@@ -3,6 +3,8 @@
  * 持久化键：localStorage.openblock_skin
  */
 
+import { GAME_RULES } from './gameRules.js';
+
 const STORAGE_KEY = 'openblock_skin';
 
 /** 已下线皮肤 id → 迁移目标（读档时自动改写 localStorage）
@@ -538,38 +540,38 @@ export const SKINS = {
      * ══════════════════════════════════════════ */
 
     /**
-     * 晨光：暖奶油盘面 + 高饱和冷暖交替积木，晨间自然光感。
-     * 浅底设计：gridOuter 作暖金色边框，gridCell 象牙白空格，
-     * 鲜艳方块在浅底上形成足够明度反差。
-     * v10.20：方块改为柔化中高饱和（略提亮、降艳），与浅色盘+glossy 统一，避免「黑疙瘩」观感。
+     * 晨光：低饱和暖米盘面 + 清晰但不压迫的琥珀格线。
+     * 浅底不再使用过重棕线和粉灰背景，避免整盘显脏、格子边界过硬。
      */
     dawn: {
         id: 'dawn',
         name: '☀️ 晨光微曦',
-        boardWatermark: { icons: ['☀️', '🌤️'], opacity: 0.09 },
+        boardWatermark: { icons: ['🌄', '🌻', '🕊️', '🍃'], opacity: 0.12, scale: 0.28 },
         blockColors: [
-            '#B86858', '#5890D0', '#C8A060', '#489868',
-            '#8868B0', '#489898', '#C06078', '#7068C8'
+            '#E06E62', '#5A92D6', '#D8A84E', '#55A873',
+            '#8D75CE', '#42A7A8', '#D46282', '#6B7DDD'
         ],
-        gridOuter: '#8A7040',
-        gridCell:  '#F8F0E0',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 6,
-        blockStyle: 'glossy',
-        clearFlash: 'rgba(255,235,180,0.90)',
-        cssBg: '#F0E8D4',
+        gridOuter: '#F1E3C5',
+        gridCell:  '#FFF3D8',
+        gridLine:  'rgba(130,96,48,0.13)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,210,130,0.72)',
+        cssBg: '#F7F0DC',
+        uiDark: false,
         cssVars: {
-            '--text-primary':     '#1E1810',
-            '--text-secondary':   '#5C4830',
-            '--accent-color':     '#C05820',
-            '--accent-dark':      '#904010',
-            '--shadow':           'rgba(0,0,0,0.14)',
-            '--h1-color':         '#6A3818',
-            '--stat-surface':     'rgba(255,248,232,0.92)',
-            '--stat-label-color': '#7A6040',
-            '--select-bg':        '#FFF4E4',
-            '--select-border':    'rgba(160,120,60,0.25)'
+            '--text-primary':     '#2A2116',
+            '--text-secondary':   '#6A5638',
+            '--accent-color':     '#D98232',
+            '--accent-dark':      '#A85F20',
+            '--shadow':           'rgba(95,70,36,0.13)',
+            '--h1-color':         '#8A4A1E',
+            '--stat-surface':     'rgba(255,250,238,0.94)',
+            '--stat-label-color': '#866A42',
+            '--select-bg':        '#FFF8EA',
+            '--select-border':    'rgba(148,104,48,0.28)'
         }
     },
 
@@ -1099,27 +1101,28 @@ export const SKINS = {
     boardgame: {
         id: 'boardgame',
         name: '🃏 扑克博弈',
-        boardWatermark: { icons: ['🃏', '♠️'], opacity: 0.10 },
+        boardWatermark: { icons: ['🃏', '♠️'], opacity: 0.055 },
         // 扑克博弈 8 件套（v10.17.10：8 件全彩 emoji 字形，风格一致）：
         //   扑克核心 5 件：♠️ 黑桃 · ♥️ 红心 · ♦️ 方片 · ♣️ 梅花 · 🃏 大王（彩色百搭）
         //   博弈场景 3 件：🎴 花札（红和风牌） · 🎰 老虎机（多色赌场） · 🎲 骰子（立体白点骰）
         // 8 个 icon 全部彩色饱满，远观辨识度高；语义紧扣"扑克博弈"赌场全场景。
         blockIcons: ['♠️', '♥️', '♦️', '♣️', '🃏', '🎴', '🎰', '🎲'],
         blockColors: [
-            '#D49830', // ♠️ 黑桃 — 鎏金（黑实心↔金底，最经典 poker 反差）
-            '#1F8060', // ♥️ 红心 — 翡翠绿（红实心↔绿，红绿互补）
-            '#2860B0', // ♦️ 方片 — 深天蓝（红钻石↔蓝，红蓝互补）
-            '#98A8B8', // ♣️ 梅花 — 冷银（黑三叶↔银，高对比金属感）
-            '#5C2030', // 🃏 大王 — 酒红（彩色小丑↔深酒红宫廷）
-            '#3D6048', // 🎴 花札 — 松针绿（和风红牌↔松枝绿底，日式茶会牌局）
-            '#4F3088', // 🎰 老虎机 — 暗紫（多色赌场↔紫色霓虹夜场）
-            '#3E3E50'  // 🎲 骰子 — 玄墨（白点骰↔近黑底，最大明度反差）
+            '#C89642', // ♠️ 鎏金
+            '#23866A', // ♥️ 翡翠绿
+            '#3E65B8', // ♦️ 牌桌蓝
+            '#A8B3C2', // ♣️ 冷银
+            '#A84A52', // 🃏 酒红
+            '#4F765C', // 🎴 松针绿
+            '#6542A0', // 🎰 霓虹紫
+            '#6E7486'  // 🎲 钢灰
         ],
-        gridOuter:   '#1A0810', // claret velvet trim（赌场红丝绒边）
-        gridCell:    '#142818', // poker felt green（牌桌绿呢）
+        gridOuter:   '#050711',
+        gridCell:    '#111628',
+        gridLine:    'rgba(180,205,255,0.18)',
         gridGap:     1,
         blockInset:  2,
-        blockRadius: 7,
+        blockRadius: 5,
         blockStyle:  'cartoon',
         clearFlash:  'rgba(212,152,48,0.46)', // 鎏金筹码闪
         cssBg:       '#0E0410', // deep wine 赌场氛围
@@ -1347,42 +1350,37 @@ export const SKINS = {
     farm: {
         id: 'farm',
         name: '🐄 田园农场',
-        boardWatermark: { icons: ['🐄', '🌽'], opacity: 0.09 },
+        boardWatermark: { icons: ['🐄', '🌽'], opacity: 0.055 },
         // 农场八件套（与 pets 家宠/food 主食/toon 动物园全错开）：
         //   🐄奶牛 / 🐖猪 / 🐑绵羊 / 🐔母鸡 / 🐣雏鸡 /
         //   🌽玉米 / 🥕胡萝卜 / 🍎苹果
         blockIcons: ['🐄', '🐖', '🐑', '🐔', '🐣', '🌽', '🥕', '🍎'],
         blockColors: [
-            '#C89898', // 🐄 豆沙红
-            '#88A8D0', // 🐖 灰蓝
-            '#88B088', // 🐑 灰绿
-            '#78B8D0', // 🐔 浅海蓝
-            '#C898C0', // 🐣 灰紫粉
-            '#C0A878', // 🌽 浅驼
-            '#B89878', // 🥕 浅赭
-            '#A898D0'  // 🍎 浅紫
+            '#B85A50', // 🐄 谷仓红
+            '#4E84B8', // 🐖 清水蓝
+            '#4E8A58', // 🐑 牧草绿
+            '#3C98B8', // 🐔 晴空青
+            '#9A66B8', // 🐣 紫藤
+            '#C89438', // 🌽 玉米金
+            '#B06A38', // 🥕 胡萝卜棕
+            '#C04E64'  // 🍎 苹果红
         ],
         // v10.6 哑光降饱和：cssBg #D0E5B0 (S=47%) → #DCE5C8 (S=28%) 雾绿替代鲜春绿
         // v10.7 进一步哑光：cssBg #DCE5C8 (S=28%) → #E6E7DC (S~19%) 骨白带一丝绿
-        gridOuter:   '#7A8868',
-        gridCell:    '#EFF0EA',
+        gridOuter:   '#07140A',
+        gridCell:    '#102414',
+        gridLine:    'rgba(190,230,185,0.18)',
         gridGap:     1,
-        blockInset:  1,
-        blockRadius: 9,
+        blockInset:  2,
+        blockRadius: 5,
         blockStyle:  'cartoon',
-        clearFlash:  'rgba(216,220,210,0.50)',
-        cssBg:       '#E6E7DC',
+        clearFlash:  'rgba(170,230,150,0.45)',
+        cssBg:       '#061006',
+        uiDark:      true,
         cssVars: {
-            '--text-primary':     '#1F1A12',
-            '--text-secondary':   '#54604A',
-            '--accent-color':     '#5C7050',
-            '--accent-dark':      '#3F5436',
-            '--shadow':           'rgba(0,0,0,0.10)',
-            '--h1-color':         '#3F5436',
-            '--stat-surface':     'rgba(250,250,242,0.92)',
-            '--stat-label-color': '#5A6450',
-            '--select-bg':        '#F4F5EC',
-            '--select-border':    'rgba(122,136,104,0.24)'
+            '--accent-color': '#78B860',
+            '--accent-dark':  '#4E8A58',
+            '--h1-color':     '#B8E8A8'
         }
     },
 
@@ -1398,43 +1396,38 @@ export const SKINS = {
     desert: {
         id: 'desert',
         name: '🐫 沙漠绿洲',
-        boardWatermark: { icons: ['🐫', '🌵'], opacity: 0.10 },
+        boardWatermark: { icons: ['🐫', '🌵'], opacity: 0.055 },
         // 沙漠绿洲八件套（中东/北非/印度异域风物）：
         //   🐫骆驼 / 🦂蝎子 / 🌵仙人掌 / 🏜️沙丘 / 🪨岩石 /
         //   🏺赤陶罐 / 🛕古寺 / 🌅日出
         // 浅色盘面：方块用「浅晒褪陶土」，避免深褐一堆；色相仍分散。
         blockIcons: ['🐫', '🦂', '🌵', '🏜️', '🪨', '🏺', '🛕', '🌅'],
         blockColors: [
-            '#AAB8C2', // 🐫 荫凉沙灰蓝（浅，非深夜色）
-            '#C9A090', // 🦂 浅锈陶
-            '#A8BA9E', // 🌵 浅灰绿（绿洲植物底）
-            '#C9BE9E', // 🏜️ 浅暖沙纹
-            '#ADA8AE', // 🪨 浅石灰褐
-            '#95AEAC', // 🏺 浅水陶青
-            '#C49A94', // 🛕 浅赭褐（寺庙泥墙）
-            '#B5A8B4'  // 🌅 浅灰霞紫
+            '#4E8EB8', // 🐫 绿洲蓝
+            '#B86A48', // 🦂 陶土橙
+            '#5C9A58', // 🌵 仙人掌绿
+            '#B89648', // 🏜️ 沙丘金
+            '#8A7A68', // 🪨 岩灰褐
+            '#4E9A98', // 🏺 陶青
+            '#B85E58', // 🛕 赭红
+            '#8A6BB8'  // 🌅 暮霞紫
         ],
         // v10.6 哑光降饱和：cssBg #C8A868 (S=49%) → #D8C8A8 (S=35%) 米沙替代浓琥珀
         // v10.7 进一步哑光：cssBg #D8C8A8 (S=35%) → #DAD2C4 (S~21%) 接近中性的浅米
-        gridOuter:   '#786E50',
-        gridCell:    '#E8E2D6',
+        gridOuter:   '#130D08',
+        gridCell:    '#24190E',
+        gridLine:    'rgba(230,190,120,0.20)',
         gridGap:     1,
         blockInset:  2,
-        blockRadius: 7,
+        blockRadius: 5,
         blockStyle:  'cartoon',
-        clearFlash:  'rgba(216,210,196,0.45)',
-        cssBg:       '#DAD2C4',
+        clearFlash:  'rgba(230,180,80,0.45)',
+        cssBg:       '#0E0804',
+        uiDark:      true,
         cssVars: {
-            '--text-primary':     '#1F1810',
-            '--text-secondary':   '#5C5340',
-            '--accent-color':     '#8A7848',
-            '--accent-dark':      '#6E5A30',
-            '--shadow':           'rgba(0,0,0,0.12)',
-            '--h1-color':         '#5A4528',
-            '--stat-surface':     'rgba(250,246,236,0.92)',
-            '--stat-label-color': '#6E6048',
-            '--select-bg':        '#F0EBE0',
-            '--select-border':    'rgba(140,124,90,0.22)'
+            '--accent-color': '#C89438',
+            '--accent-dark':  '#8A5A28',
+            '--h1-color':     '#E8C078'
         }
     },
 };
@@ -1461,6 +1454,31 @@ export function getActiveSkinId() {
 /** @returns {Skin} */
 export function getActiveSkin() {
     return SKINS[getActiveSkinId()] || SKINS[DEFAULT_SKIN_ID];
+}
+
+/**
+ * RL / 无头模拟器用的 bonus 与 dock 染色偏置皮肤（非玩家当前主题）。
+ * 与主局规则对齐但不读取 blockSpawn：仅提供 blockIcons 语义给 detectBonusLines / monoNearFullLine。
+ *
+ * @returns {{ blockIcons: string[] } | null}
+ */
+export function getRlTrainingBonusLineSkin() {
+    const cfg = GAME_RULES.rlBonusScoring || {};
+    if (cfg.useGameplayBonusRules === false) {
+        return null;
+    }
+    const raw = cfg.blockIcons;
+    if (Array.isArray(raw) && raw.length > 0) {
+        return { blockIcons: raw.map((x) => String(x)) };
+    }
+    const sid = typeof cfg.canonicalSkinId === 'string' && SKINS[cfg.canonicalSkinId]
+        ? cfg.canonicalSkinId
+        : DEFAULT_SKIN_ID;
+    const icons = SKINS[sid]?.blockIcons;
+    if (!icons?.length) {
+        return null;
+    }
+    return { blockIcons: icons };
 }
 
 export function getBlockColors() {
@@ -1571,6 +1589,7 @@ export function applySkinToDocument(skin) {
 
     root.style.setProperty('--grid-bg', skin.gridOuter);
     root.style.setProperty('--cell-empty', skin.gridCell);
+    root.style.setProperty('--grid-line', skin.gridLine || (skin.uiDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.18)'));
     if (skin.cssBg) {
         root.style.setProperty('--bg-color', skin.cssBg);
     }

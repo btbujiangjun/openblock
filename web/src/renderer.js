@@ -287,11 +287,11 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
      */
     if (skin.blockStyle === 'cartoon') {
         const lightBoard = isLightBoardSkin(skin);
-        const topLift = lightBoard ? 0.10 : 0.12;
-        const botDark = lightBoard ? 0.03 : 0.08;
-        const botShadeAlpha = lightBoard ? 0.04 : 0.10;
-        const innerStroke = lightBoard ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.28)';
-        const outerStroke = lightBoard ? 'rgba(90,72,48,0.22)' : 'rgba(20,15,40,0.30)';
+        const topLift = lightBoard ? 0.08 : 0.16;
+        const botDark = lightBoard ? 0.04 : 0.12;
+        const botShadeAlpha = lightBoard ? 0.05 : 0.14;
+        const innerStroke = lightBoard ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.34)';
+        const outerStroke = lightBoard ? 'rgba(68,56,40,0.42)' : 'rgba(0,0,0,0.48)';
         // 1. 主色弱渐变 — 浅色盘面再减轻底部压暗，避免整体发黑
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
         baseG.addColorStop(0,    lightenColor(color, topLift));
@@ -309,14 +309,14 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.fill();
 
-        // 3. 浅亮内描边
-        ctx.strokeStyle = innerStroke;
-        ctx.lineWidth = 1;
+        // 3. 暗外描边：先给图标方块一个清晰轮廓，避免在主题盘面上糊成一片
+        ctx.strokeStyle = outerStroke;
+        ctx.lineWidth = 1.35;
         roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
         ctx.stroke();
 
-        // 4. 外描边（浅色盘用暖褐细边，减轻「黑框」感）
-        ctx.strokeStyle = outerStroke;
+        // 4. 浅亮内描边：形成类似参考图的按钮边界与轻微立体感
+        ctx.strokeStyle = innerStroke;
         ctx.lineWidth = 1;
         roundRectPath(ctx, bx + 1, by + 1, size - 2, size - 2, Math.max(0, r - 1));
         ctx.stroke();
@@ -735,7 +735,8 @@ function syncGridCanvasCssVar(canvas) {
  * fxCtx 的坐标系经 setTransform 对齐：原点 (0,0) 与盘面 ctx 完全一致，
  * 因此所有粒子绘制代码无需改坐标，只需把 ctx 替换为 fxCtx。
  */
-const PARTICLE_MARGIN_RATIO_DEFAULT = 1.5;
+const PARTICLE_MARGIN_RATIO_DEFAULT = 1.0;
+const FX_DPR_MAX = 1;
 
 export class Renderer {
     /**
@@ -749,6 +750,7 @@ export class Renderer {
         this.cellSize = CONFIG.CELL_SIZE;
         this.gridSize = CONFIG.GRID_SIZE;
         this.dpr = this._readDpr();
+        this.fxDpr = this._readFxDpr();
         // 特效叠加层（粒子 + 闪光独立绘制，可溢出盘面）
         this.fxCanvas = opts.fxCanvas || null;
         this.fxCtx = this.fxCanvas ? this.fxCanvas.getContext('2d') : null;
@@ -774,6 +776,7 @@ export class Renderer {
         this._colorGushStart = 0;
         this._colorGushEnd = 0;
         this.clearCells = [];
+        this._clearCellMode = 'normal';
         this.shakeOffset = { x: 0, y: 0 };
         this.shakeIntensity = 0;
         this.shakeDuration = 0;
@@ -799,6 +802,10 @@ export class Renderer {
             : 1) || 1;
     }
 
+    _readFxDpr() {
+        return Math.min(this.dpr || 1, FX_DPR_MAX);
+    }
+
     /**
      * 将主盘面 canvas 物理像素设为 logicalW × dpr，并同步设置 fxCanvas 的扩展物理像素。
      * canvas.width 赋值会重置 context 变换，必须重新 scale。
@@ -821,20 +828,21 @@ export class Renderer {
     _applyFxCanvasSize() {
         if (!this.fxCanvas || !this.fxCtx) return;
         const m = Math.round(this.cellSize * this.particleMarginRatio);
+        this.fxDpr = this._readFxDpr();
         this._paintMargin = m;
         const fxW = this.logicalW + 2 * m;
         const fxH = this.logicalH + 2 * m;
-        this.fxCanvas.width  = Math.round(fxW * this.dpr);
-        this.fxCanvas.height = Math.round(fxH * this.dpr);
+        this.fxCanvas.width  = Math.round(fxW * this.fxDpr);
+        this.fxCanvas.height = Math.round(fxH * this.fxDpr);
         this.fxCanvas.style.width  = `${fxW}px`;
         this.fxCanvas.style.height = `${fxH}px`;
         // 同步 negative inset：让 fxCanvas 中心与盘面中心对齐（外扩 m）
         this.fxCanvas.style.left = `${-m}px`;
         this.fxCanvas.style.top  = `${-m}px`;
-        // setTransform：dpr 缩放 + 偏移 m × dpr，使 fxCtx 的 (0,0) = 盘面左上角
+        // 特效层不需要主棋盘级别锐度；低 DPR 可显著减少静置粒子像素填充与 GPU 上传。
         this.fxCtx.setTransform(
-            this.dpr, 0, 0, this.dpr,
-            Math.round(m * this.dpr), Math.round(m * this.dpr)
+            this.fxDpr, 0, 0, this.fxDpr,
+            Math.round(m * this.fxDpr), Math.round(m * this.fxDpr)
         );
     }
 
@@ -865,7 +873,10 @@ export class Renderer {
     }
 
     /**
-     * 盘面大水印：梅花 5 点，每点独立相位的缓慢飘移（无离屏缓存，便于随时间动画）。
+     * 盘面大水印：固定在 5 个低透明度锚点。
+     *
+     * 之前按 performance.now() 做缓慢漂移，但当前渲染已改为事件驱动；
+     * 水印只会在落子/动画触发重绘时跳动，容易干扰落点判断。
      */
     _renderBoardWatermark(skin) {
         const wm = skin.boardWatermark;
@@ -874,11 +885,6 @@ export class Renderer {
         const H = this.logicalH;
         const icons = wm.icons;
         const sz = Math.round(Math.min(W, H) * (wm.scale ?? 0.24));
-        /* 秒级 + 多频正弦叠加：更大包络、轨迹近似随机游走（每点独立系数） */
-        const sec = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
-        const base = Math.min(W, H);
-        const amp0 = Math.min(36, Math.max(16, base * 0.052));
-
         this.ctx.save();
         this.ctx.globalAlpha = wm.opacity ?? 0.07;
         this.ctx.font = `${Math.round(sz * 0.88)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
@@ -893,24 +899,7 @@ export class Renderer {
             [W * 0.77, H * 0.77],
         ];
         pts.forEach(([bx, by], i) => {
-            const phx = i * 1.83 + 0.41;
-            const phy = i * 2.27 + 0.67;
-            const wx1 = 0.37 + (i % 5) * 0.059;
-            const wx2 = 1.09 + i * 0.127;
-            const wx3 = 0.71 + (i % 4) * 0.11;
-            const wy1 = 0.49 + (i % 4) * 0.073;
-            const wy2 = 0.86 + i * 0.101;
-            const wy3 = 1.21 + (i % 3) * 0.14;
-            const t = sec;
-            const dx =
-                Math.sin(t * wx1 + phx) * amp0 * 0.58 +
-                Math.sin(t * wx2 + phx * 0.62) * amp0 * 0.36 +
-                Math.cos(t * wx3 + i * 0.88) * amp0 * 0.28;
-            const dy =
-                Math.cos(t * wy1 + phy) * amp0 * 0.52 +
-                Math.sin(t * wy2 + phy * 0.71) * amp0 * 0.34 +
-                Math.sin(t * wy3 + i * 1.03) * amp0 * 0.30;
-            this.ctx.fillText(icons[i % icons.length], bx + dx, by + dy);
+            this.ctx.fillText(icons[i % icons.length], bx, by);
         });
         this.ctx.restore();
     }
@@ -940,6 +929,10 @@ export class Renderer {
     clear() {
         this.ctx.clearRect(0, 0, this.logicalW, this.logicalH);
         // v10.12: 同步清 fxCanvas（粒子+闪光独立层），范围含粒子溢出余量
+        this.clearFx();
+    }
+
+    clearFx() {
         if (this.fxCtx) {
             const m = this._paintMargin || 0;
             this.fxCtx.clearRect(-m, -m, this.logicalW + 2 * m, this.logicalH + 2 * m);
@@ -962,6 +955,14 @@ export class Renderer {
         this._ambientLayer = layer || null;
     }
 
+    hasAmbientMotion() {
+        return Boolean(this.fxCtx && this._ambientLayer?.hasActiveMotion?.());
+    }
+
+    getAmbientFrameIntervalMs() {
+        return this._ambientLayer?.getFrameIntervalMs?.() ?? 1000;
+    }
+
     /**
      * v10.15: 渲染皮肤环境粒子（每帧由 game.render() 在 renderEdgeFalloff() 之后调用）。
      * 粒子状态由 AmbientParticles 自管理；renderer 仅提供 fxCtx 和坐标系信息。
@@ -974,6 +975,13 @@ export class Renderer {
             paintMargin: this._paintMargin || 0,
             cellSize: this.cellSize,
         });
+    }
+
+    renderAmbientFxFrame() {
+        if (!this.hasAmbientMotion()) return false;
+        this.clearFx();
+        this.renderAmbient();
+        return true;
     }
 
     /**
@@ -1235,36 +1243,71 @@ export class Renderer {
 
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+        this._renderClearDissolveBands(cells, pulse, skin);
 
-        const br = skin.blockRadius ?? 5;
         for (const cell of cells) {
             const full = this.cellSize - inset * 2;
-            const size = full * (0.92 + 0.08 * pulse);
-            const px = cell.x * this.cellSize + inset + (full - size) * 0.5;
-            const py = cell.y * this.cellSize + inset + (full - size) * 0.5 - lift;
-
-            this.ctx.fillStyle = skin.clearFlash;
-            this.ctx.globalAlpha = 0.92 * pulse;
-            if (br > 0) {
-                roundRectPath(this.ctx, px, py, size, size, br);
-                this.ctx.fill();
-            } else {
-                this.ctx.fillRect(px, py, size, size);
-            }
-
-            this.ctx.globalAlpha = 0.4 * pulse;
-            this.ctx.shadowColor = skin.clearFlash;
-            this.ctx.shadowBlur = 8;
-            if (br > 0) {
-                roundRectPath(this.ctx, px, py, size, size, br);
-                this.ctx.fill();
-            } else {
-                this.ctx.fillRect(px, py, size, size);
-            }
-            this.ctx.shadowBlur = 0;
+            const cx = cell.x * this.cellSize + this.cellSize * 0.5;
+            const cy = cell.y * this.cellSize + this.cellSize * 0.5 - lift * 0.35;
+            const bonus = this._clearCellMode === 'bonus';
+            const r = full * (bonus ? (0.42 + 0.16 * pulse) : (0.46 + 0.18 * pulse));
+            const grad = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+            grad.addColorStop(0, skin.clearFlash);
+            grad.addColorStop(0.42, `rgba(255, 240, 180, ${bonus ? 0.22 * pulse : 0.28 * pulse})`);
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            this.ctx.globalAlpha = (bonus ? 0.82 : 0.9) * pulse;
+            this.ctx.fillStyle = grad;
+            this.ctx.beginPath();
+            this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            this.ctx.fill();
         }
 
         this.ctx.restore();
+    }
+
+    _renderClearDissolveBands(cells, pulse, skin) {
+        const n = this.gridSize;
+        const rows = new Map();
+        const cols = new Map();
+        for (const cell of cells) {
+            rows.set(cell.y, (rows.get(cell.y) || 0) + 1);
+            cols.set(cell.x, (cols.get(cell.x) || 0) + 1);
+        }
+
+        const drawSoftDot = (cx, cy, rx, ry, alpha) => {
+            const r = Math.max(rx, ry);
+            this.ctx.save();
+            this.ctx.translate(cx, cy);
+            this.ctx.scale(rx / r, ry / r);
+            const grad = this.ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+            grad.addColorStop(0, skin.clearFlash);
+            grad.addColorStop(0.48, `rgba(255, 236, 170, ${alpha * 0.42})`);
+            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            this.ctx.globalAlpha = alpha;
+            this.ctx.fillStyle = grad;
+            this.ctx.beginPath();
+            this.ctx.arc(0, 0, r, 0, Math.PI * 2);
+            this.ctx.fill();
+            this.ctx.restore();
+        };
+
+        const alpha = 0.34 * pulse;
+        const step = this.cellSize * 0.52;
+        const span = this.logicalW;
+        for (const [y, count] of rows) {
+            if (count < n) continue;
+            const cy = y * this.cellSize + this.cellSize * 0.5;
+            for (let x = this.cellSize * 0.5; x <= span; x += step) {
+                drawSoftDot(x, cy, this.cellSize * 0.72, this.cellSize * 0.46, alpha);
+            }
+        }
+        for (const [x, count] of cols) {
+            if (count < n) continue;
+            const cx = x * this.cellSize + this.cellSize * 0.5;
+            for (let y = this.cellSize * 0.5; y <= this.logicalH; y += step) {
+                drawSoftDot(cx, y, this.cellSize * 0.46, this.cellSize * 0.72, alpha);
+            }
+        }
     }
 
     /** @param {object} [skin] 来自 getActiveSkin()；省略则内部读取 */
@@ -1352,8 +1395,12 @@ export class Renderer {
 
     /** Perfect Clear 彩虹脉冲特效 */
     triggerPerfectFlash() {
-        this._perfectFlash = 1.25;
-        this._perfectShockwave = 1.0;
+        /*
+         * 旧版会绘制全屏径向闪光 + 同心冲击波，在多套皮肤下像一个突兀的大圆圈。
+         * Perfect Clear 仍保留粒子爆发；这里不再启用圆形覆盖层。
+         */
+        this._perfectFlash = 0;
+        this._perfectShockwave = 0;
         this._perfectHue = 0;
     }
 
@@ -1370,43 +1417,7 @@ export class Renderer {
     }
 
     renderPerfectFlash() {
-        if ((!this._perfectFlash || this._perfectFlash <= 0) && (!this._perfectShockwave || this._perfectShockwave <= 0)) return;
-        const a = this._perfectFlash || 0;
-        const sw = this._perfectShockwave || 0;
-        const cx = this.logicalW * 0.5;
-        const cy = this.logicalH * 0.5;
-        const r = Math.max(this.logicalW, this.logicalH) * 1.15;
-        // v10.12: 闪光画在 fxCtx 上，可溢出盘面到粒子余量区
-        const ec = this._effectCtx();
-        const m = this._paintMargin || 0;
-        const g = ec.createRadialGradient(cx, cy, 0, cx, cy, r);
-        const h = this._perfectHue;
-        g.addColorStop(0, `hsla(${h}, 100%, 82%, ${0.46 * a})`);
-        g.addColorStop(0.25, `hsla(${(h + 60) % 360}, 100%, 68%, ${0.24 * a})`);
-        g.addColorStop(0.58, `hsla(${(h + 120) % 360}, 100%, 60%, ${0.11 * a})`);
-        g.addColorStop(0.82, `hsla(${(h + 220) % 360}, 100%, 62%, ${0.05 * a})`);
-        g.addColorStop(1, 'rgba(255,255,255,0)');
-        ec.save();
-        ec.translate(this.shakeOffset.x, this.shakeOffset.y);
-        ec.fillStyle = g;
-        ec.fillRect(-m - this.shakeOffset.x, -m - this.shakeOffset.y,
-            this.logicalW + 2 * m, this.logicalH + 2 * m);
-        if (sw > 0) {
-            const p = 1 - sw;
-            const ringR = Math.max(this.logicalW, this.logicalH) * (0.16 + p * 0.92);
-            const ringW = this.cellSize * (0.45 + p * 1.2);
-            ec.lineWidth = ringW;
-            ec.strokeStyle = `hsla(${(h + 35) % 360}, 100%, 78%, ${0.55 * sw})`;
-            ec.beginPath();
-            ec.arc(cx, cy, ringR, 0, Math.PI * 2);
-            ec.stroke();
-            ec.lineWidth = Math.max(1, ringW * 0.35);
-            ec.strokeStyle = `rgba(255, 255, 255, ${0.46 * sw})`;
-            ec.beginPath();
-            ec.arc(cx, cy, ringR * 0.72, 0, Math.PI * 2);
-            ec.stroke();
-        }
-        ec.restore();
+        // 大圆形 Perfect Clear 覆盖层已移除，避免遮挡主题水印和棋盘内容。
     }
 
     /** Double 消除涟漪：沿消除行扩散的水平光波 */
@@ -1500,22 +1511,19 @@ export class Renderer {
         const a = this._bonusMatchFlash;
         const cx = this.logicalW * 0.5;
         const cy = this.logicalH * 0.5;
-        // v10.11: 半径从 0.88 → 1.05（覆盖整屏外圈），alpha 全面提升 ~30%
-        const r = Math.max(this.logicalW, this.logicalH) * 1.05;
-        // v10.12: 闪光画在 fxCtx 上，1.05× 半径渐变完整呈现
+        const r = Math.max(this.logicalW, this.logicalH) * 0.72;
         const ec = this._effectCtx();
-        const m = this._paintMargin || 0;
         const g = ec.createRadialGradient(cx, cy, 0, cx, cy, r);
-        g.addColorStop(0, `rgba(255, 220, 120, ${0.34 * a})`);
-        g.addColorStop(0.22, `rgba(200, 120, 255, ${0.24 * a})`);
-        g.addColorStop(0.5, `rgba(140, 80, 220, ${0.14 * a})`);
-        g.addColorStop(0.78, `rgba(80, 40, 160, ${0.06 * a})`);
+        g.addColorStop(0, `rgba(255, 220, 120, ${0.22 * a})`);
+        g.addColorStop(0.30, `rgba(200, 120, 255, ${0.16 * a})`);
+        g.addColorStop(0.62, `rgba(140, 80, 220, ${0.07 * a})`);
         g.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ec.save();
         ec.translate(this.shakeOffset.x, this.shakeOffset.y);
         ec.fillStyle = g;
-        ec.fillRect(-m - this.shakeOffset.x, -m - this.shakeOffset.y,
-            this.logicalW + 2 * m, this.logicalH + 2 * m);
+        ec.beginPath();
+        ec.ellipse(cx, cy, r * 1.04, r * 0.86, 0, 0, Math.PI * 2);
+        ec.fill();
         ec.restore();
     }
 
@@ -1939,8 +1947,9 @@ export class Renderer {
         ctx.restore();
     }
 
-    setClearCells(cells) {
+    setClearCells(cells, opts = {}) {
         this.clearCells = cells || [];
+        this._clearCellMode = this.clearCells.length ? (opts.mode || 'normal') : 'normal';
     }
 
     render() {

@@ -1015,36 +1015,11 @@ useBackend=false → trainer.js 用 LinearAgent
 - 移动端 / 小程序低延迟
 - 用作"对照基线"看 NN 究竟有多大提升
 
-### 15.2 实现
+### 15.2 实现（与仓库一致）
 
-`web/src/bot/linearAgent.js`（如有）：
-
-```js
-class LinearAgent {
-    constructor(stateDim, actionDim) {
-        this.W_pi = randn(actionDim, stateDim)  // 策略权重
-        this.b_pi = zeros(actionDim)
-        this.W_v = randn(stateDim)              // 价值权重
-        this.b_v = 0
-    }
-    
-    forward(state) {
-        const logits = this.W_pi.dot(state) + this.b_pi
-        const v = this.W_v.dot(state) + this.b_v
-        return { logits, v }
-    }
-    
-    update(transitions) {
-        // REINFORCE-baseline + return normalization
-        const G = computeReturns(transitions)
-        const G_norm = (G - G.mean()) / (G.std() + 1e-8)
-        for each (s, a, G_t) {
-            ∇_pi += (G_t - V(s)) · ∇log π(a|s)
-        }
-        W_pi -= lr · ∇_pi
-    }
-}
-```
+- **代码**：`web/src/bot/linearAgent.js`（`W·φ` 策略、`Vw·ψ` 价值）、`web/src/bot/trainer.js`（`runSelfPlayEpisode`、`trainSelfPlay`、`reinforceUpdate`）。
+- **超参与温度**：`shared/game_rules.json` → **`browserRlTraining`**（`gamma`、`policyLr`、`valueLr`、`entropyCoef`、`maxGradNorm`、`temperatureLocal`、`temperatureBackend`）。前端通过 `resolveBrowserRlTrainingConfig()` 读取；**PyTorch 在线训练**路径每局采样温度使用 `temperatureBackend`。
+- **算法要点**：回报 Welford 标准化 + 批内优势标准化 + 裁剪；策略更新为 **REINFORCE + 基线**，并叠加 **熵 bonus**：`ΔW ∝ lr · (A · ∇logπ(a) + β · ∇_W H)`，β=`entropyCoef`（详见 [`RL_BROWSER_OPTIMIZATION.md`](./RL_BROWSER_OPTIMIZATION.md) §3.2 / §5）。
 
 ### 15.3 关键差异
 

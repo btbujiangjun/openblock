@@ -61,7 +61,8 @@ function _renderSkill(container, skill) {
     let btn = container.querySelector(`[data-skill-id="${skill.id}"]`);
     const wallet = getWallet();
     const count = skill.kind ? wallet.getBalance(skill.kind) : null;
-    const enabled = skill.enabled ? !!skill.enabled() : true;
+    const hasBalance = !skill.kind || count > 0;
+    const enabled = (skill.enabled ? !!skill.enabled() : true) && hasBalance;
 
     if (!btn) {
         btn = document.createElement('button');
@@ -96,6 +97,8 @@ function _renderSkill(container, skill) {
         }
     }
     btn.classList.toggle('is-disabled', !enabled);
+    btn.disabled = !enabled;
+    btn.setAttribute('aria-disabled', String(!enabled));
 }
 
 /**

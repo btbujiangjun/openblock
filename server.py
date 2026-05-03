@@ -310,6 +310,14 @@ def init_db():
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS browser_rl_linear_agents (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        ''')
+
         _migrate_behaviors_columns(cursor)
         _migrate_schema(cursor)
 
@@ -1229,6 +1237,53 @@ def put_skill_wallet():
     return jsonify({"success": True})
 
 
+@app.route("/api/rl/browser-linear-agent", methods=["GET"])
+def get_browser_rl_linear_agent():
+    """浏览器线性 RL 权重（每用户一行 JSON：W / Vw）。"""
+    user_id = request.args.get("user_id", "") or request.args.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT payload FROM browser_rl_linear_agents WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    if not row or not row["payload"]:
+        return jsonify({"model": None})
+    try:
+        return jsonify({"model": json.loads(row["payload"])})
+    except json.JSONDecodeError:
+        return jsonify({"model": None})
+
+
+@app.route("/api/rl/browser-linear-agent", methods=["PUT"])
+def put_browser_rl_linear_agent():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    model = data.get("model")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    if model is None or not isinstance(model, dict):
+        return jsonify({"error": "model object required"}), 400
+    payload = json.dumps(model, ensure_ascii=False)
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO browser_rl_linear_agents (user_id, payload, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        """,
+        (user_id, payload, int(time.time())),
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
 @app.route("/api/client/stats", methods=["PUT"])
 def put_client_stats():
     data = request.get_json() or {}
@@ -1368,6 +1423,7 @@ def clear_user_data():
         ("client_strategies", "user_id"),
         ("user_stats", "user_id"),
         ("skill_wallets", "user_id"),
+        ("browser_rl_linear_agents", "user_id"),
     ):
         cur.execute(f"DELETE FROM {table} WHERE {col} = ?", (user_id,))
     cur.execute("DELETE FROM move_sequences WHERE user_id = ?", (user_id,))

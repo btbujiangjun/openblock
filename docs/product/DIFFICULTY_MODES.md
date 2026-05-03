@@ -22,8 +22,10 @@ OpenBlock 提供三档基础难度：**简单（easy）**、**普通（normal）
 | 维度 | 是否受难度影响 | 备注 |
 |------|:------------:|------|
 | 消行计分 | ❌ | 三档统一：以 `scoring.singleLine` 为 **baseUnit**，默认 20，按 [消行计分规则](./CLEAR_SCORING.md) 计算；`multiLine` / `combo` 仍保留在 JSON 中兼容旧存档，但 **消行得分与 RL/回放重算均不再使用这两项** |
-| 初始棋盘填充率 | ✅ | easy 0% → normal 20% → hard 25% |
-| 出块形状权重 | ✅（修复后） | 通过 `difficultyBias` 偏移自适应 stress 基线 |
+| 初始棋盘填充率 | ✅ | easy 0% → normal 18% → hard 32% |
+| 出块形状权重 | ✅ | 通过 `difficultyTuning.stressBias` 偏移自适应 stress 基线 |
+| 出块保底 / 块大小 / 多消倾向 | ✅ | `difficultyTuning` 直接调节 `spawnHints.clearGuarantee / sizePreference / multiClearBonus` |
+| 解空间难度 | ✅ | `solutionStressDelta` 让困难更早进入低解法数量过滤，简单更偏向宽松区间 |
 | 棋盘尺寸 | ❌ | 三档均为 8×8 |
 | 颜色数量 | ❌ | JSON 定义了 `colorCount` 但前端未读取 |
 
@@ -95,8 +97,8 @@ generateDockShapes(grid, layered, spawnContext)
 | 难度 | fillRatio | 效果 |
 |------|:---------:|------|
 | 简单 | 0 | 开局空棋盘，零压力起步 |
-| 普通 | 0.20 | 开局 ~13 个格子预填充，标准体验 |
-| 困难 | 0.25 | 开局 ~16 个格子预填充，开局即需规划 |
+| 普通 | 0.18 | 开局 ~12 个格子预填充，标准体验 |
+| 困难 | 0.32 | 开局 ~20 个格子预填充，开局即需规划 |
 
 ### 3.3 形状权重（JSON 定义值）
 
@@ -123,23 +125,25 @@ resolveAdaptiveStrategy(baseStrategyId, ...)
 ├─ adaptiveSpawn.enabled = true（默认）
 │   └─ shapeWeights = interpolateProfileWeights(10档profiles, stress)
 │   └─ fillRatio = base.fillRatio + 连战修正
-│   └─ stress = scoreStress + difficultyBias + skillAdjust + flowAdjust + ...
+│   └─ stress = scoreStress + difficultyTuning.stressBias + skillAdjust + flowAdjust + ...
+│   └─ spawnHints += difficultyTuning.clearGuaranteeDelta / sizePreferenceDelta / multiClearBonusDelta
+│   └─ targetSolutionRange = deriveTargetSolutionRange(stress + solutionStressDelta)
 └─ adaptiveSpawn.enabled = false
     └─ resolveLayeredStrategy(baseStrategyId, score, runStreak)
     └─ shapeWeights = blend(base → hard, totalStress)
 ```
 
-### 4.2 难度偏移（difficultyBias）
+### 4.2 难度偏置（difficultyTuning）
 
-当自适应系统开启时，三档难度通过 `difficultyBias` 偏移综合 stress 基线：
+当自适应系统开启时，三档难度通过 `difficultyTuning` 同时影响压力档位、出块提示和解空间过滤：
 
-| 难度 | difficultyBias | 效果 |
-|------|:--------------:|------|
-| 简单 | -0.12 | stress 基线降低，出块偏向舒适/友好档位 |
-| 普通 | 0.00 | 不偏移，纯粹由玩家能力驱动 |
-| 困难 | +0.12 | stress 基线提高，出块偏向挑战/极限档位 |
+| 难度 | stressBias | clearGuaranteeDelta | sizePreferenceDelta | multiClearBonusDelta | solutionStressDelta | 效果 |
+|------|-----------:|--------------------:|--------------------:|---------------------:|--------------------:|------|
+| 简单 | -0.22 | +1 | -0.22 | +0.05 | -0.14 | 更多消行保底，更偏小块，解法空间更宽 |
+| 普通 | 0.00 | 0 | 0.00 | 0.00 | 0.00 | 标准自适应体验 |
+| 困难 | +0.22 | -1 | +0.24 | -0.08 | +0.18 | 更少常态消行保底，更偏大块/复杂局面，更早进入窄解空间 |
 
-±0.12 约等于从 10 档 profile 中偏移 1~2 档，既能让用户感知到明显的难度差异，又不会完全覆盖自适应系统的个性化调节能力。
+`hard.minStress=0.18` 用于避免困难模式在普通状态下被其他轻量减压项完全拉回舒适档；但新手保护、救场、挫败恢复和跨局热身不会被困难模式削弱。
 
 ### 4.3 10 档 Profile 与 stress 的对应关系
 
@@ -156,8 +160,8 @@ stress  0.65 → 进阶挑战（challenge）
 stress  0.85 → 极限考验（intense）
 ```
 
-简单模式的 `-0.12` 偏移使中等水平玩家从「均衡标准」(0.4) 降至「节奏呼吸」(0.28) 附近；
-困难模式的 `+0.12` 偏移使之升至「新鲜变化」(0.52) 附近，不规则块明显增多。
+简单模式的 `-0.22` 偏移使中等水平玩家从「均衡标准」(0.4) 降至「引导成长/节奏呼吸」之间；
+困难模式的 `+0.22` 偏移使之升至「进阶挑战」附近，不规则块和空间规划压力明显增多。
 
 ---
 
@@ -180,23 +184,42 @@ stress  0.85 → 极限考验（intense）
 
 **原因**：`resolveAdaptiveStrategy` 的 `stress` 计算公式中没有包含用户所选难度的贡献项。
 
-**修复**：在综合 stress 计算中增加 `difficultyBias` 项：
+**修复**：在综合 stress 计算中增加 `difficultyTuning.stressBias` 项：
 ```javascript
-const difficultyBias = baseStrategyId === 'easy' ? -0.12
-    : baseStrategyId === 'hard' ? 0.12 : 0;
+const difficultyTuning = cfg.difficultyTuning?.[baseStrategyId] || {};
+const difficultyBias = difficultyTuning.stressBias ?? 0;
 
 let stress = scoreStress + runMods.stressBonus + difficultyBias + skillAdjust + ...;
 ```
 
 **文件**：`web/src/adaptiveSpawn.js`
 
-### 5.3 策略解释面板未显示难度信息（已修复）
+### 5.3 难度体感差异被自适应保底稀释（已修复）
+
+**问题**：虽然 stress 已有难度偏移，但 `generateDockShapes()` 后续会优先考虑消行、保活、多消、合法落点和节奏 payoff。类别权重只是基础值，实际体感容易被这些更强的兜底倍率盖过。
+
+**修复**：
+- `shared/game_rules.json` 新增 `adaptiveSpawn.difficultyTuning`，让三档难度直接调节 `clearGuarantee / sizePreference / multiClearBonus`。
+- 困难模式只在普通状态下降低 `clearGuarantee`；新手保护、救场、挫败恢复、跨局热身仍保持公平性。
+- 普通/困难初始填充率从 `0.20/0.25` 拉开到 `0.18/0.32`，减少开局体感重叠。
+
+**文件**：`shared/game_rules.json`、`web/src/adaptiveSpawn.js`
+
+### 5.4 解法数量难度过滤读取路径错误（已修复）
+
+**问题**：配置位于 `adaptiveSpawn.solutionDifficulty`，但 `blockSpawn.js` 读取的是旧顶层 `GAME_RULES.solutionDifficulty`，导致解空间过滤没有参与真实出块。
+
+**修复**：`blockSpawn.js` 改为优先读取 `GAME_RULES.adaptiveSpawn.solutionDifficulty`，并保留旧顶层路径兜底。
+
+**文件**：`web/src/bot/blockSpawn.js`
+
+### 5.5 策略解释面板未显示难度信息（已修复）
 
 **问题**：策略解释面板中的 stress 说明未标明当前选择的难度模式。
 
 **修复**：在 insight 中传递 `difficultyBias` 字段，策略解释面板展示如：
 ```
-综合压力 stress=0.35（简单模式 难度偏移-0.12；含分数、连战、心流、节奏等信号）
+综合压力 stress=0.25（简单模式 难度偏移-0.22；含分数、连战、心流、节奏等信号）
 ```
 
 **文件**：`web/src/playerInsightPanel.js`、`web/src/game.js`
@@ -208,15 +231,15 @@ let stress = scoreStress + runMods.stressBonus + difficultyBias + skillAdjust + 
 ### 6.1 计分分离原则
 
 三档的 `scoring` 始终直接使用 JSON 配置，**不**受自适应系统影响。这保证了：
-- 困难模式得分更高，给予成就感回报
+- 三档分数公式一致，成绩可直接比较
 - 排行榜可按难度分组，成绩可比
 
-### 6.2 自适应优先 + 难度偏移
+### 6.2 自适应优先 + 显式难度旋钮
 
-出块权重不直接套用三档的 `shapeWeights`，而是通过 `difficultyBias` 微调 stress，原因：
+出块权重不直接套用三档的 `shapeWeights`，而是通过 `difficultyTuning` 微调 stress 和 spawnHints，原因：
 - **个性化体验优先**：同一难度下，新手和高手的出块需求不同
 - **避免断裂感**：直接使用静态权重会与自适应的动态调节冲突
-- **可控偏移**：±0.12 在 10 档 profile 中约偏移 1~2 档，既可感知又不失平衡
+- **可控偏移**：stress、块大小、消行保底、解空间各自有独立旋钮，既能拉开体感又不牺牲可解性
 
 ### 6.3 模拟器与真机差异
 
@@ -234,9 +257,9 @@ RL 训练模拟器（`web/src/bot/simulator.js`）使用静态策略配置（`ge
 | `web/index.html` | UI 按钮（data-level） |
 | `web/src/game.js` | 状态存储、事件绑定、开局/出块/计分调用链 |
 | `web/src/config.js` | `getStrategy(id)` 配置读取 |
-| `web/src/adaptiveSpawn.js` | 自适应引擎 + `difficultyBias` 偏移 |
+| `web/src/adaptiveSpawn.js` | 自适应引擎 + `difficultyTuning` 偏移 |
 | `web/src/difficulty.js` | 非自适应路径的层叠策略 |
-| `web/src/bot/blockSpawn.js` | 出块生成（消费 strategyConfig） |
+| `web/src/bot/blockSpawn.js` | 出块生成（消费 strategyConfig 与 `targetSolutionRange`） |
 | `web/src/bot/simulator.js` | RL 训练模拟器（静态策略） |
 | `web/src/playerInsightPanel.js` | 策略解释面板展示难度信息 |
 
@@ -245,7 +268,7 @@ RL 训练模拟器（`web/src/bot/simulator.js`）使用静态策略配置（`ge
 ## 8. 后续方向
 
 1. **`colorCount` 前端化**：当前 JSON 定义了 `colorCount` 但前端硬编码为 8，可读取配置以支持不同颜色数
-2. **难度专属 spawnHints**：三档可附加不同的 `clearGuarantee`、`sizePreference` 默认值
+2. **出块分布统计回归**：固定随机种子批量比较三档的不规则块占比、平均块面积、即时消行块数量、解法叶子数
 3. **模拟器自适应支持**：可选地让模拟器走自适应路径，使 RL 训练更贴近真机分布
 4. **难度自适应推荐**：根据玩家历史表现自动推荐合适的难度档位
 5. **分数归一化**：引入难度系数归一化分数，支持跨难度排行榜公平比较

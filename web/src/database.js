@@ -385,4 +385,34 @@ export class Database {
             body: JSON.stringify({ user_id: this.userId })
         });
     }
+
+    /**
+     * 浏览器线性 RL 权重（`browser_rl_linear_agents`，按 bb_user_id 一人一份）。
+     * @returns {Promise<object|null>} `{ W, Vw }` 或 null
+     */
+    async getBrowserRlLinearAgent() {
+        try {
+            const data = await apiJson(
+                `/api/rl/browser-linear-agent?user_id=${encodeURIComponent(this.userId)}`
+            );
+            const m = data?.model;
+            return m && typeof m === 'object' ? m : null;
+        } catch (e) {
+            console.warn('getBrowserRlLinearAgent failed:', e);
+            return null;
+        }
+    }
+
+    /**
+     * @param {object} model `LinearAgent.toJSON()`：`{ W: number[], Vw: number[] }`
+     */
+    async putBrowserRlLinearAgent(model) {
+        if (!model || typeof model !== 'object') {
+            return;
+        }
+        await apiJson('/api/rl/browser-linear-agent', {
+            method: 'PUT',
+            body: JSON.stringify({ user_id: this.userId, model })
+        });
+    }
 }

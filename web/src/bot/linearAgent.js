@@ -46,6 +46,35 @@ function dot(a, b) {
 
 const STORAGE_KEY = 'bb_rl_linear_agent_v2';
 
+/** @type {null | ((payload: object) => void)} */
+let _persistHook = null;
+
+/** 训练保存时额外回调（如同步 SQLite）；由 rlPanel 在启用 DB 时注册。 */
+export function setBrowserRlLinearPersistHook(fn) {
+    _persistHook = typeof fn === 'function' ? fn : null;
+}
+
+export function isValidLinearAgentPayload(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return false;
+    }
+    return (
+        Array.isArray(obj.W)
+        && obj.W.length === PHI_DIM
+        && Array.isArray(obj.Vw)
+        && obj.Vw.length === STATE_FEATURE_DIM
+    );
+}
+
+/** 是否已有本地存档（用于首次仅有 localStorage 时单向回填 SQLite，避免上传随机初始化权重） */
+export function hasSavedLinearAgentInLocalStorage() {
+    try {
+        return Boolean(localStorage.getItem(STORAGE_KEY));
+    } catch {
+        return false;
+    }
+}
+
 export class LinearAgent {
     constructor() {
         this.W = new Float32Array(PHI_DIM);
@@ -90,6 +119,37 @@ export class LinearAgent {
         return grad;
     }
 
+    /**
+     * ∇_W H(π) = Σ_k (∂H/∂z_k) φ_k，其中 z 为 logits、π=softmax(z)，∂H/∂z_k = −π_k(log π_k + H)。
+     * 用于策略梯度与熵 bonus 叠加：W += lr · (A·∇logπ + β·∇H)。
+     */
+    entropyPolicyGradient(phiList, probs) {
+        const n = phiList.length;
+        let H = 0;
+        for (let k = 0; k < n; k++) {
+            const p = probs[k];
+            if (p > 1e-12) H -= p * Math.log(p);
+        }
+        const grad = new Float32Array(PHI_DIM);
+        for (let k = 0; k < n; k++) {
+            const p = probs[k];
+            const logp = Math.log(Math.max(p, 1e-12));
+            const dhDz = -p * (logp + H);
+            const phi = phiList[k];
+            for (let j = 0; j < PHI_DIM; j++) grad[j] += dhDz * phi[j];
+        }
+        return grad;
+    }
+
+    applyPolicyUpdateCombined(policyGrad, advantage, entropyGrad, entropyCoef, lr) {
+        const beta = entropyCoef > 0 && entropyGrad ? entropyCoef : 0;
+        for (let i = 0; i < PHI_DIM; i++) {
+            let d = advantage * policyGrad[i];
+            if (beta > 0) d += beta * entropyGrad[i];
+            this.W[i] += lr * d;
+        }
+    }
+
     _backpropPolicy(phi, scale) {
         for (let i = 0; i < PHI_DIM; i++) this.W[i] += scale * phi[i];
     }
@@ -121,9 +181,15 @@ export class LinearAgent {
     }
 
     save() {
+        const payload = this.toJSON();
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.toJSON()));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         } catch { /* ignore */ }
+        if (_persistHook) {
+            try {
+                _persistHook(payload);
+            } catch { /* ignore */ }
+        }
     }
 
     static load() {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import numpy as np
 
-from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, strategy_python
+from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
 from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
@@ -16,6 +16,7 @@ __all__ = ["OpenBlockSimulator", "board_potential", "generate_blocks_for_grid", 
 
 _BOARD_POT_NORM = 30.0   # board_potential 归一化分母
 _SURVIVAL_NORM  = 30.0   # 生存步数归一化分母
+_RL_BONUS_ICONS: list[str] | None = rl_bonus_block_icons()
 
 _POT_CFG = dict((RL_REWARD_SHAPING.get("potentialShaping") or {}))
 _POT_ENABLED = bool(_POT_CFG.get("enabled", False))
@@ -30,7 +31,7 @@ _ICON_BONUS_LINE_MULT = 5
 
 
 def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) -> float:
-    """与 web/src/clearScoring.js computeClearScore 一致（bonus 为同色整线）。"""
+    """与 web/src/clearScoring.js computeClearScore 一致；bonus 线数来自 grid.check_lines(icon 规则由 rlBonusScoring.blockIcons 控制)。"""
     if clear_count <= 0:
         return 0.0
     base_unit = float(scoring.get("single_line") or 20)
@@ -137,7 +138,7 @@ class OpenBlockSimulator:
     def _spawn_dock(self) -> None:
         shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
         n_colors = int(self.strategy_config.get("color_count", 8))
-        bias = mono_near_full_line_color_weights(self.grid)
+        bias = mono_near_full_line_color_weights(self.grid, _RL_BONUS_ICONS)
         dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)
         self.dock: list[dict] = []
         all_shapes = get_all_shapes()
@@ -275,7 +276,7 @@ class OpenBlockSimulator:
         self.placements += 1
         self.steps += 1
 
-        result = self.grid.check_lines()
+        result = self.grid.check_lines(bonus_block_icons=_RL_BONUS_ICONS)
         gain = 0.0
         self._last_clears = 0
         if result["count"] > 0:

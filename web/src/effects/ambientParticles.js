@@ -30,7 +30,7 @@ const DEFAULT_PREFS = { enabled: true, density: 1.0 };
 
 const PRESETS = {
     sakura: {
-        target: 12,
+        target: 5,
         color: '#FFB7CE',
         kind: 'petal',
         gravity: 0.04,
@@ -41,7 +41,7 @@ const PRESETS = {
         speedRange: [0.18, 0.42],
     },
     forest: {
-        target: 10,
+        target: 5,
         color: '#D4882C',
         color2: '#8C5028',
         kind: 'leaf',
@@ -53,7 +53,7 @@ const PRESETS = {
         speedRange: [0.15, 0.40],
     },
     ocean: {
-        target: 14,
+        target: 6,
         color: '#E8F4FF',
         kind: 'bubble',
         gravity: -0.03,           // 上浮
@@ -64,7 +64,7 @@ const PRESETS = {
         speedRange: [0.10, 0.28],
     },
     fairy: {
-        target: 10,
+        target: 4,
         color: '#C0FF80',
         glow: '#FFFFB0',
         kind: 'firefly',
@@ -76,7 +76,7 @@ const PRESETS = {
         speedRange: [0.06, 0.18],
     },
     universe: {
-        target: 8,
+        target: 3,
         color: '#FFFFFF',
         kind: 'meteor',
         gravity: 0.0,
@@ -97,7 +97,7 @@ const PRESETS = {
         wind: 0,
         rotateSpeed: 0,
         sizeRange: [0, 0],
-        alphaRange: [0.18, 0.32],
+        alphaRange: [0.06, 0.12],
         speedRange: [0, 0],
     },
     koi: {
@@ -109,7 +109,7 @@ const PRESETS = {
         wind: 0,
         rotateSpeed: 0,
         sizeRange: [0, 0],
-        alphaRange: [0.20, 0.35],
+        alphaRange: [0.07, 0.15],
         speedRange: [0, 0],
     },
 };
@@ -146,6 +146,15 @@ export class AmbientParticles {
         _savePrefs(this.prefs);
     }
     getPrefs() { return { ...this.prefs }; }
+    hasActiveMotion() {
+        return Boolean(this.preset && this.prefs.enabled && !this._reducedMotion && this.prefs.density > 0);
+    }
+    getFrameIntervalMs() {
+        if (!this.hasActiveMotion()) return 1000;
+        if (this.preset.kind === 'aurora-band' || this.preset.kind === 'ripple') return 1000;
+        if (this.preset.kind === 'meteor') return 500;
+        return 700;
+    }
 
     /** 切换预设（皮肤切换时调用） */
     applySkin(skinId) {
@@ -181,7 +190,7 @@ export class AmbientParticles {
         }
         this.particles = survivors;
 
-        this._draw(fxCtx);
+        this._draw(fxCtx, lw, lh, m);
 
         /* v10.16 流体背景：跟特定皮肤的非粒子流场效果（极光带 / 涟漪） */
         if (this.preset.kind === 'aurora-band') {
@@ -257,10 +266,21 @@ export class AmbientParticles {
         return p.x > -pad && p.x < lw + pad && p.y > -pad && p.y < lh + pad;
     }
 
-    _draw(ctx) {
+    _edgeFade(p, lw, lh, m) {
+        const fade = Math.max(12, Math.min(36, m * 0.55));
+        const left = -m;
+        const top = -m;
+        const right = lw + m;
+        const bottom = lh + m;
+        const dx = Math.min(p.x - left, right - p.x);
+        const dy = Math.min(p.y - top, bottom - p.y);
+        return Math.max(0, Math.min(1, dx / fade, dy / fade));
+    }
+
+    _draw(ctx, lw, lh, m) {
         ctx.save();
         for (const p of this.particles) {
-            ctx.globalAlpha = p.alpha;
+            ctx.globalAlpha = p.alpha * this._edgeFade(p, lw, lh, m);
             switch (p.kind) {
                 case 'petal':
                     this._drawPetal(ctx, p);
@@ -338,48 +358,69 @@ export class AmbientParticles {
     }
 
     _drawAuroraBand(ctx, lw, lh, m) {
-        const t = performance.now() / 2400;
+        const t = performance.now() / 4200;
         const preset = this.preset;
         const colors = [preset.color, preset.color2, preset.color3 || preset.color];
         ctx.save();
-        for (let band = 0; band < 3; band++) {
+        ctx.beginPath();
+        ctx.rect(0, 0, lw, lh);
+        ctx.clip();
+
+        for (let band = 0; band < 2; band++) {
+            const top = [];
+            const bottom = [];
+            const baseY = lh * (0.18 + band * 0.13);
+            const amp = lh * 0.035 + band * 3;
+            const thickness = lh * (0.075 + band * 0.018);
+            const phase = t * (0.45 + band * 0.14);
+
+            for (let x = 0; x <= lw; x += 16) {
+                const y = baseY + Math.sin(x * 0.011 + phase) * amp + Math.cos(x * 0.021 - phase * 1.3) * (amp * 0.36);
+                top.push([x, y]);
+                bottom.push([x, y + thickness + Math.sin(x * 0.016 - phase) * (amp * 0.22)]);
+            }
+
             ctx.beginPath();
-            const baseY = lh * (0.18 + band * 0.16);
-            const amp = lh * 0.08 + band * 4;
-            const phase = t * (0.6 + band * 0.18);
-            ctx.moveTo(-m, baseY);
-            for (let x = -m; x <= lw + m; x += 14) {
-                const y = baseY + Math.sin(x * 0.012 + phase) * amp + Math.cos(x * 0.024 - phase * 1.4) * (amp * 0.4);
+            ctx.moveTo(top[0][0], top[0][1]);
+            for (const [x, y] of top) {
                 ctx.lineTo(x, y);
             }
-            ctx.lineTo(lw + m, lh);
-            ctx.lineTo(-m, lh);
+            for (let i = bottom.length - 1; i >= 0; i--) {
+                ctx.lineTo(bottom[i][0], bottom[i][1]);
+            }
             ctx.closePath();
-            const grad = ctx.createLinearGradient(0, baseY - amp, 0, lh);
-            grad.addColorStop(0, colors[band] + 'AA');
+
+            const grad = ctx.createLinearGradient(0, baseY - amp, 0, baseY + thickness + amp);
+            grad.addColorStop(0, colors[band] + '00');
+            grad.addColorStop(0.35, colors[band] + '66');
             grad.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = grad;
             ctx.globalAlpha = preset.alphaRange[0] + (preset.alphaRange[1] - preset.alphaRange[0]) * (0.5 + 0.5 * Math.sin(t + band));
             ctx.fill();
         }
+        void m;
         ctx.restore();
     }
 
     _drawRipple(ctx, lw, lh, m) {
-        const t = performance.now() / 1800;
+        const t = performance.now() / 2600;
         const preset = this.preset;
         ctx.save();
-        for (let i = 0; i < 4; i++) {
-            const phase = (t * 0.32 + i * 0.25) % 1;
-            const radius = phase * (lw * 0.65);
-            const cx = lw * (0.30 + 0.18 * i);
-            const cy = lh * (0.25 + 0.12 * (i % 2));
-            const alpha = (1 - phase) * (preset.alphaRange[0] + 0.05 * i);
+        ctx.beginPath();
+        ctx.rect(0, 0, lw, lh);
+        ctx.clip();
+
+        for (let i = 0; i < 3; i++) {
+            const phase = (t * 0.22 + i * 0.33) % 1;
+            const radius = phase * (lw * 0.34);
+            const cx = lw * (0.28 + 0.22 * i);
+            const cy = lh * (0.22 + 0.10 * (i % 2));
+            const alpha = (1 - phase) * (preset.alphaRange[0] + 0.025 * i);
             ctx.strokeStyle = (i % 2 === 0 ? preset.color : preset.color2) || preset.color;
             ctx.globalAlpha = Math.max(0, alpha);
-            ctx.lineWidth = 2.5;
+            ctx.lineWidth = 1.15;
             ctx.beginPath();
-            ctx.arc(cx, cy, Math.max(0, radius), 0, Math.PI * 2);
+            ctx.arc(cx, cy, Math.max(0, radius), Math.PI * 0.08, Math.PI * 1.72);
             ctx.stroke();
         }
         void m;

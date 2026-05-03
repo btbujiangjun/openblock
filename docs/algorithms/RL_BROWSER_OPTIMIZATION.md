@@ -1,6 +1,6 @@
 # 浏览器端 RL 优化 v3
 
-> 版本: v3.0 | 更新: 2026-04-15
+> 版本: v3.1 | 更新: 2026-05-02
 
 ## 1. 问题诊断
 
@@ -13,7 +13,7 @@
 | # | 问题 | 量化 | 影响 |
 |---|------|------|------|
 | 1 | **REINFORCE 高方差** | MC 回报 γ=0.99，无标准化 | 梯度噪声极大，学习不稳定 |
-| 2 | **无熵正则** | entropy coef = 0 | 策略过早坍缩到次优模式 |
+| 2 | **无熵正则** | v3.0 仅记录 H，未写入策略梯度 | v3.1 起 `entropyCoef·∇_W H` 与 REINFORCE 同尺度叠加 |
 | 3 | **温度衰减过快** | `max(0.4, 1-0.002e)` → 300 局到底 | 探索不足 |
 | 4 | **无梯度裁剪** | 权重更新无上界 | 异常大回报导致权重爆炸 |
 | 5 | **特征冗余** | 第 0 维与第 22 维都是 `filled/area` | 浪费一个特征维度 |
@@ -72,14 +72,15 @@ MLP 实现中还遇到了两个严重的手写反向传播 bug：
 
 ### 3.2 训练算法改进
 
-| 改进项 | v1（原始） | v3（当前） |
+| 改进项 | v1（原始） | v3.1（当前） |
 |--------|-----------|-----------|
 | 回报标准化 | 无 | Welford 在线估计均值/方差，标准化 G_t |
 | 优势标准化 | 无 | 批内 `(A - mean) / std` |
-| 梯度裁剪 | 无 | 优势/价值 delta 钳制在 [-5, +5] |
-| 温度衰减 | `max(0.4, 1-0.002e)` → 300 局 | `max(0.4, 1-0.0015e)` → 400 局 |
-| 学习率 | policy 0.02, value 0.05 | **保持** policy 0.02, value 0.05 |
-| 课程学习 | 无 | 读取 `rlCurriculum.stages`，逐步提升 win threshold |
+| 梯度裁剪 | 无 | 优势/价值 delta 钳制在 `±maxGradNorm`（默认 5） |
+| 熵正则 | 无 | **策略更新**：`ΔW ∝ A·∇logπ + β·∇_W H`，β=`entropyCoef`（默认 0.012，**0=关闭**） |
+| 温度衰减 | `max(0.4, 1-0.002e)` → 300 局 | 由 `shared/game_rules.json` → **`browserRlTraining.temperature*`**（本地默认约 400 局触底） |
+| 学习率 / γ | policy 0.02, value 0.05, γ=0.99 | **同上为默认**，均可 JSON 覆盖 |
+| 课程学习 | 无 | `rlCurriculum`：`winThresholdStart` → `winThresholdEnd`，`rampEpisodes`（非 stages） |
 
 ### 3.3 特征修复
 
@@ -112,7 +113,8 @@ trainer.js
 | 文件 | 改动 |
 |------|------|
 | `web/src/bot/linearAgent.js` | 恢复线性架构（W·φ + Vw·ψ，336 参数）；兼容旧 MLP 存档（遇到则重新初始化） |
-| `web/src/bot/trainer.js` | 回报/优势标准化、梯度裁剪、温度微调、`reinforceUpdate` 返回训练指标 |
+| `web/src/bot/trainer.js` | 回报/优势标准化、熵梯度、`resolveBrowserRlTrainingConfig()`、温度日程、`reinforceUpdate` 返回训练指标 |
+| `shared/game_rules.json` → `browserRlTraining` | γ、学习率、熵系数、裁剪阈值、本地/后端温度衰减 |
 | `web/src/bot/features.js` | 第 22 维 `filled/area` → `heightStd` |
 | `web/src/bot/browserTrainingLog.js` | **新增** — localStorage 环形缓冲，存储浏览器训练的 `train_episode` 记录 |
 | `web/src/bot/rlPanel.js` | `onEpisode` 写入浏览器日志；`refreshTrainingCharts` 区分 PyTorch/浏览器数据源；训练中自动轮询 |
@@ -121,16 +123,22 @@ trainer.js
 
 ## 5. 超参数速查
 
-| 参数 | 值 | 出处 |
-|------|-----|------|
+**首选改 JSON**：`shared/game_rules.json` → **`browserRlTraining`**（`miniprogram/core/game_rules.json` 与之对齐）。实现读取：`web/src/bot/trainer.js` 中 `resolveBrowserRlTrainingConfig()`。
+
+| 参数 | 默认值（JSON 可覆盖） | 字段 |
+|------|---------------------|------|
 | 策略 | logit = W·φ, W ∈ ℝ¹⁷⁴ | `linearAgent.js` |
 | 价值 | V = Vw·ψ, Vw ∈ ℝ¹⁶² | `linearAgent.js` |
-| γ (折扣) | 0.99 | `trainer.js` |
-| policyLr | 0.02 | `trainer.js` |
-| valueLr | 0.05 | `trainer.js` |
-| 温度 | max(0.4, 1 - 0.0015e) | `trainer.js` |
-| 梯度裁剪 | ±5.0 | `trainer.js` |
-| 回报标准化 | Welford 在线算法（n≥20 后生效） | `trainer.js` |
+| γ (折扣) | 0.99 | `browserRlTraining.gamma` |
+| policyLr | 0.02 | `browserRlTraining.policyLr` |
+| valueLr | 0.05 | `browserRlTraining.valueLr` |
+| entropyCoef β | 0.012 | `browserRlTraining.entropyCoef`（**0** = 纯 REINFORCE） |
+| 本地温度 | max(min, start − e·decay) | `temperatureLocal.{start,min,decayPerEpisode}` |
+| 后端采样温度 | 同上，按服务端全局局数 | `temperatureBackend.{start,min,decayPerGlobalEpisode}` |
+| 梯度裁剪 | ±5.0 | `browserRlTraining.maxGradNorm` |
+| 回报标准化 | Welford 在线算法（n≥20 后生效） | `trainer.js`（逻辑未 JSON 化） |
+
+熵梯度公式：`∂H/∂logit_k = −π_k(log π_k + H)`，`∇_W H = Σ_k (∂H/∂logit_k) φ_k`。
 
 ## 6. 预期效果
 

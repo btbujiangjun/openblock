@@ -2,6 +2,7 @@
  * 小程序皮肤配置（自动同步自 web/src/skins.js 的核心渲染字段）。
  */
 const storage = require('../adapters/storage');
+const GAME_RULES = require('./game_rules.json');
 
 const STORAGE_KEY = 'openblock_skin';
 const DEFAULT_SKIN_ID = "titanium";
@@ -1030,6 +1031,26 @@ function getSkinListMeta() {
   return SKIN_LIST.map((s) => ({ id: s.id, name: s.name }));
 }
 
+/** RL 无头局：与网页 simulator 一致，固定 canonical 主题的 detectBonusLines / monoNearFullLine */
+function getRlTrainingBonusLineSkin() {
+  const cfg = GAME_RULES.rlBonusScoring || {};
+  if (cfg.useGameplayBonusRules === false) {
+    return null;
+  }
+  const raw = cfg.blockIcons;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return { blockIcons: raw.map((x) => String(x)) };
+  }
+  const sid = typeof cfg.canonicalSkinId === 'string' && SKINS[cfg.canonicalSkinId]
+    ? cfg.canonicalSkinId
+    : DEFAULT_SKIN_ID;
+  const icons = SKINS[sid]?.blockIcons;
+  if (!icons?.length) {
+    return null;
+  }
+  return { blockIcons: icons };
+}
+
 module.exports = {
   STORAGE_KEY,
   DEFAULT_SKIN_ID,
@@ -1041,4 +1062,5 @@ module.exports = {
   getBlockColors,
   setActiveSkinId,
   getSkinListMeta,
+  getRlTrainingBonusLineSkin,
 };

@@ -1,6 +1,8 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
  * state=181 (42 scalars + 64 grid + 75 dock), action=12, phi=193。
+ *
+ * 不含 spawnHints / adaptiveSpawn / blockSpawn 内部权重或未来块信息——仅盘面与当前 dock 可见状态。
  */
 import { FEATURE_ENCODING } from '../gameRules.js';
 

@@ -43,6 +43,17 @@ WIN_SCORE_THRESHOLD = int(_DATA["winScoreThreshold"])
 FEATURE_ENCODING = dict(_DATA["featureEncoding"])
 RL_REWARD_SHAPING = dict(_DATA.get("rlRewardShaping") or {})
 _RL_CURRICULUM = dict(_DATA.get("rlCurriculum") or {})
+_RL_BONUS_SCORING = dict(_DATA.get("rlBonusScoring") or {})
+
+
+def rl_bonus_block_icons() -> list[str] | None:
+    """与网页 canonical bonus 对齐：仅当 JSON 提供非空 blockIcons 时启用 icon 整线判定。"""
+    if _RL_BONUS_SCORING.get("useGameplayBonusRules") is False:
+        return None
+    raw = _RL_BONUS_SCORING.get("blockIcons")
+    if isinstance(raw, list) and len(raw) > 0:
+        return [str(x) for x in raw]
+    return None
 
 
 def rl_curriculum_enabled() -> bool:

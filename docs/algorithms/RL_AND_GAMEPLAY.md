@@ -4,15 +4,16 @@
 
 | 内容 | 文件 | 说明 |
 |------|------|------|
-| 难度、得分、棋盘宽高、胜局分、RL 训练用策略 id、特征维度与归一化常数、**RL 奖励塑形** `rlRewardShaping` | `shared/game_rules.json` | 改玩法优先只改此处 |
+| 难度、得分、棋盘宽高、胜局分、RL 训练用策略 id、特征维度与归一化常数、**RL 奖励塑形** `rlRewardShaping`、**RL 与主局对齐的加分/染色** `rlBonusScoring` | `shared/game_rules.json` | 改玩法优先只改此处 |
 | 多连块几何 | `shared/shapes.json` | 与 `web` / `rl_pytorch` / `rl_mlx` 共用 |
 
 ## 分层
 
 1. **规则与数据**：上述 JSON。
 2. **环境（对局动力学）**：`web/src/bot/simulator.js`、`miniprogram/core/bot/simulator.js`、`rl_pytorch/simulator.py`、`rl_mlx/simulator.py` 等实现落子、消除、得分、**每轮 dock 三色采样**；须与主游戏 `Grid` / `clearScoring` 逻辑一致。  
-   - **得分**：消行前用 `detectBonusLines` 注入 `bonusLines`（模拟器传 `skin=null`，与 RL 色盘、同色判定一致），再 `computeClearScore`。  
-   - **出块**：形状仍由 `block_spawn.generate_*` 与 Web 同源规则生成；dock **颜色**使用 `monoNearFullLineColorWeights` + `pickThreeDockColors` 软偏置（Python：`dock_color_bias.py`，与 `clearScoring` 常量对齐）。
+   - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同。训练路径不用玩家当前皮肤，而用 `shared/game_rules.json` → **`rlBonusScoring`**：`canonicalSkinId`（默认 `titanium`，无 icon 时退化为**同色整线** bonus）或显式 **`blockIcons`**；网页/小程序由 `getRlTrainingBonusLineSkin()` 解析，PyTorch/MLX 仅在 JSON 提供非空 `blockIcons` 时启用 icon 判定（与网页不一致时可手动填入同序图标）。  
+   - **dock 染色偏置**：仅依据盘面可见的近满线几何 + 上述同一套 icon/同色规则调用 `monoNearFullLineColorWeights`，**不是** adaptiveSpawn / spawnHints；观测 φ 亦不得含出块算法内部状态。  
+   - **出块形状**：仍由 `block_spawn.generate_*` 与策略配置生成（训练侧不传网页自适应 hints）。
 3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（v9.2 为 181 维 state：42 维标量含颜色摘要 + 棋盘占用 + dock 形状掩码）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
 4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。
 

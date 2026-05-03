@@ -33,6 +33,7 @@
 | **achievements** | 成就解锁：`PRIMARY KEY (user_id, achievement_id)` |
 | **replays** | 兼容路径：保存与 `behaviors` 同源的「事件 tail」JSON；**非**Deterministic 回放主存储 |
 | **skill_wallets** | 技能包 / 钱包等业务 JSON，`payload` + `updated_at` |
+| **browser_rl_linear_agents** | 浏览器线性 RL 权重：`user_id` 主键，`payload` 为 `{ W, Vw }` JSON；API `GET/PUT /api/rl/browser-linear-agent` |
 | **move_sequences** | **回放主数据**：`frames`（落子序列）+ 可选 `analysis`（复盘摘要），`session_id` 主键 |
 
 ### 2.2 客户端与拓展

@@ -429,6 +429,10 @@ def register_enterprise_routes(app, get_db):
         db.execute('DELETE FROM sessions WHERE user_id=?', (uid,))
         db.execute('DELETE FROM user_consents WHERE user_id=?', (uid,))
         db.execute('DELETE FROM user_stats WHERE user_id=?', (uid,))
+        try:
+            db.execute('DELETE FROM browser_rl_linear_agents WHERE user_id=?', (uid,))
+        except sqlite3.OperationalError:
+            pass
         db.commit()
         return jsonify({'ok': True})
 

@@ -1,10 +1,15 @@
 /**
  * 自博弈训练面板：启动/停止、胜率与得分统计；可选 PyTorch 后端（Flask /api/rl）
  */
-import { LinearAgent } from './linearAgent.js';
+import {
+    LinearAgent,
+    setBrowserRlLinearPersistHook,
+    isValidLinearAgentPayload,
+    hasSavedLinearAgentInLocalStorage
+} from './linearAgent.js';
 import { trainSelfPlay, runSelfPlayEpisode, WIN_SCORE_THRESHOLD } from './trainer.js';
 import { rlWinThresholdForEpisode } from './rlCurriculum.js';
-import { isRlPytorchBackendPreferred } from '../config.js';
+import { isRlPytorchBackendPreferred, isSqliteClientDatabase } from '../config.js';
 import { fetchRlStatus, fetchTrainingLog } from './pytorchBackend.js';
 import { appendBrowserTrainEpisode, getBrowserTrainingLog } from './browserTrainingLog.js';
 import { updateRlTrainingCharts } from './rlTrainingCharts.js';
@@ -52,7 +57,26 @@ export function initRLPanel(game) {
     /** 局结束后合并刷新看板曲线 + 服务端损失日志，避免每局多次请求 */
     let dashRefreshTimer = null;
 
+    const needRlHydrate = Boolean(game?.db && isSqliteClientDatabase());
+    if (needRlHydrate) {
+        if (btnStart) {
+            btnStart.disabled = true;
+        }
+        if (btnEpisode) {
+            btnEpisode.disabled = true;
+        }
+    }
+
     let agent = LinearAgent.load();
+
+    if (game?.db && isSqliteClientDatabase()) {
+        setBrowserRlLinearPersistHook((payload) => {
+            void game.db.putBrowserRlLinearAgent(payload).catch((err) => {
+                console.warn('[RL] SQLite 同步失败', err);
+            });
+        });
+    }
+
     let totalEpisodes = 0;
     const recentScores = [];
     const recentWins = [];
@@ -397,7 +421,13 @@ export function initRLPanel(game) {
                 useLookahead,
             });
 
-            logLine(useBackend ? '结束 服务端' : '结束 已写localStorage');
+            logLine(
+                useBackend
+                    ? '结束 服务端'
+                    : (game?.db && isSqliteClientDatabase()
+                        ? '结束 已写 localStorage + SQLite（按用户）'
+                        : '结束 已写 localStorage')
+            );
         } catch (err) {
             console.error('[RL panel] startBatch', err);
             const msg = err instanceof Error ? err.message : String(err);
@@ -523,4 +553,35 @@ export function initRLPanel(game) {
     logLine(
         `已加载${readUseBackend() ? ' PT后端' : ' 线性'} 胜≥${WIN_SCORE_THRESHOLD}分`
     );
+
+    void (async () => {
+        if (!needRlHydrate) {
+            return;
+        }
+        try {
+            const remote = await game.db.getBrowserRlLinearAgent();
+            if (isValidLinearAgentPayload(remote)) {
+                agent = LinearAgent.fromJSON(remote);
+                agent.save();
+                logLine('已从 SQLite 恢复本用户线性模型');
+                return;
+            }
+            if (hasSavedLinearAgentInLocalStorage()) {
+                const local = agent.toJSON();
+                if (isValidLinearAgentPayload(local)) {
+                    await game.db.putBrowserRlLinearAgent(local);
+                    logLine('已将本地线性模型备份到 SQLite（本用户）');
+                }
+            }
+        } catch (e) {
+            console.warn('[RL] 从 SQLite 拉取/回填模型失败', e);
+        } finally {
+            if (btnStart && !running) {
+                btnStart.disabled = false;
+            }
+            if (btnEpisode && !vizBusy) {
+                btnEpisode.disabled = false;
+            }
+        }
+    })();
 }

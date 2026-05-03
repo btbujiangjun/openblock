@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, strategy_python
+from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
 from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
@@ -12,6 +12,7 @@ from .shapes_data import get_all_shapes
 __all__ = ["OpenBlockSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
 
 _ICON_BONUS_LINE_MULT = 5
+_RL_BONUS_ICONS: list[str] | None = rl_bonus_block_icons()
 
 
 def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) -> float:
@@ -48,7 +49,7 @@ class OpenBlockSimulator:
     def _spawn_dock(self) -> None:
         shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
         n_colors = int(self.strategy_config.get("color_count", 8))
-        bias = mono_near_full_line_color_weights(self.grid)
+        bias = mono_near_full_line_color_weights(self.grid, _RL_BONUS_ICONS)
         dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)
         self.dock: list[dict] = []
         all_shapes = get_all_shapes()
@@ -78,7 +79,7 @@ class OpenBlockSimulator:
         b = self.dock[block_idx]
         sim = self.grid.clone()
         sim.place(b["shape"], b["color_idx"], gx, gy)
-        return sim.check_lines()["count"]
+        return sim.check_lines(bonus_block_icons=_RL_BONUS_ICONS)["count"]
 
     def is_terminal(self) -> bool:
         remaining = [b for b in self.dock if not b["placed"]]
@@ -96,7 +97,7 @@ class OpenBlockSimulator:
         self.placements += 1
         self.steps += 1
 
-        result = self.grid.check_lines()
+        result = self.grid.check_lines(bonus_block_icons=_RL_BONUS_ICONS)
         gain = 0.0
         clears = 0
         if result["count"] > 0:

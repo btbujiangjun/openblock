@@ -4,9 +4,9 @@
  */
 const LETTERS = {
     /* 6 列：环略收，更修长 */
-    /* 顶行 c=1 挖空：仅保留 emoji，无底色像素块 */
+    /* 顶行 c=1 挖空：去掉左上多余像素，icon 保持在 O 左上内侧 */
     O: [
-        '001110',
+        '000110',
         '110011',
         '110011',
         '110011',
@@ -47,9 +47,9 @@ const LETTERS = {
         '100001',
     ],
     /* 6 列双腔 B */
-    /* 顶行 c=0 挖空：奖杯下无实心块 */
+    /* 顶行 c=0 挖空：奖杯下无实心块；c=1 去掉，避免奖杯右侧粘一颗方块 */
     B: [
-        '011110',
+        '001110',
         '110011',
         '110011',
         '111110',
@@ -184,6 +184,7 @@ function letterEl(lines, side, opts = {}) {
             if (iconEmoji) {
                 cell.className = 'wm-cell wm-cell--icon wm-cell--icon-brand';
                 cell.textContent = iconEmoji;
+                cell.dataset.wmIcon = iconEmoji === '🎮' ? 'gamepad' : 'badge';
                 if (rainbow) {
                     const t = (colBase + c) / totalSpan;
                     const hue = ((t * 360) % 360 + 360) % 360;

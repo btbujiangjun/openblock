@@ -273,7 +273,7 @@ export function resetAdaptiveMilestone() {
 /* ------------------------------------------------------------------ */
 /*  v9: 解法数量难度调控（targetSolutionRange）                         */
 /*                                                                    */
-/*  根据综合 stress 在 game_rules.solutionDifficulty.ranges 中选择档位， */
+/*  根据综合 stress 在 adaptiveSpawn.solutionDifficulty.ranges 中选择档位， */
 /*  传给 blockSpawn.js 用于在三连块通过 sequentiallySolvable 校验后再做  */
 /*  解空间收缩/扩张。                                                  */
 /* ------------------------------------------------------------------ */
@@ -281,7 +281,7 @@ export function resetAdaptiveMilestone() {
 /**
  * 根据 stress 选择解法数量档位。
  * @param {number} stress 综合压力（约 -0.2 ~ 1）
- * @param {object} cfg game_rules.solutionDifficulty
+ * @param {object} cfg adaptiveSpawn.solutionDifficulty
  * @param {number} fill 当前盘面填充率
  * @returns {{ min: number|null, max: number|null, label?: string } | null}
  */
@@ -325,6 +325,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         return resolveLayeredStrategy(baseStrategyId, score, runStreak);
     }
 
+    const difficultyTuning = cfg.difficultyTuning?.[baseStrategyId] || {};
     const fz = cfg.flowZone ?? {};
     const eng = cfg.engagement ?? {};
     const pacing = cfg.pacing ?? {};
@@ -391,9 +392,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (milestoneCheck.hit) _prevMilestone = milestoneCheck.milestone;
     const delight = deriveDelightTuning(profile, ctx, _boardFill ?? 0, cfg.delight ?? {});
 
-    /* ---------- 难度偏移：让 easy/normal/hard 影响自适应 stress 基线 ---------- */
-    const difficultyBias = baseStrategyId === 'easy' ? -0.12
-        : baseStrategyId === 'hard' ? 0.12 : 0;
+    /* ---------- 难度偏移：让 easy/normal/hard 显著影响自适应 stress 基线 ---------- */
+    const fallbackDifficultyBias = baseStrategyId === 'easy' ? -0.22
+        : baseStrategyId === 'hard' ? 0.22 : 0;
+    const difficultyBias = Number.isFinite(difficultyTuning.stressBias)
+        ? difficultyTuning.stressBias
+        : fallbackDifficultyBias;
 
     /* ---------- 综合 stress ---------- */
     let stress = scoreStress
@@ -412,7 +416,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         + delight.stressAdjust;
 
     /* ---------- 特殊覆写：新手保护 ---------- */
-    if (profile.isInOnboarding) {
+    const inOnboarding = profile.isInOnboarding;
+    if (inOnboarding) {
         stress = Math.min(stress, eng.firstSessionStressOverride ?? -0.15);
     }
 
@@ -435,6 +440,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     }
 
     stress = Math.max(-0.2, Math.min(1, stress));
+    if (!inOnboarding && !profile.needsRecovery && Number.isFinite(difficultyTuning.minStress)) {
+        stress = Math.max(stress, difficultyTuning.minStress);
+    }
 
     /* ---------- 插值 shapeWeights ---------- */
     const shapeWeights = interpolateProfileWeights(cfg.profiles, stress);
@@ -574,9 +582,32 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
     }
 
+    /* ---------- 玩家所选难度直接影响 spawnHints ----------
+     * 降低 clearGuarantee 只作用于普通状态，不削弱救场、挫败恢复、新手保护和跨局热身。
+     */
+    const clearGuaranteeDelta = difficultyTuning.clearGuaranteeDelta ?? 0;
+    if (clearGuaranteeDelta > 0) {
+        clearGuarantee += clearGuaranteeDelta;
+    } else if (
+        clearGuaranteeDelta < 0
+        && !inOnboarding
+        && !profile.needsRecovery
+        && profile.frustrationLevel < frustThreshold
+        && (ctx.roundsSinceClear ?? 0) < 2
+        && wr <= 0
+    ) {
+        clearGuarantee += clearGuaranteeDelta;
+    }
+    sizePreference += difficultyTuning.sizePreferenceDelta ?? 0;
+    multiClearBonus += difficultyTuning.multiClearBonusDelta ?? 0;
+
     /* ---------- v9: 解法数量难度区间 ---------- */
+    const solutionStress = Math.max(-0.2, Math.min(
+        1,
+        stress + (difficultyTuning.solutionStressDelta ?? 0)
+    ));
     const targetSolutionRange = deriveTargetSolutionRange(
-        stress,
+        solutionStress,
         cfg.solutionDifficulty,
         _boardFill ?? 0
     );
@@ -586,7 +617,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         shapeWeights,
         fillRatio,
         spawnHints: {
-            clearGuarantee: Math.min(3, clearGuarantee),
+            clearGuarantee: Math.max(0, Math.min(3, clearGuarantee)),
             sizePreference: Math.max(-1, Math.min(1, sizePreference)),
             diversityBoost: Math.max(0, Math.min(1, diversityBoost)),
             comboChain: Math.max(0, Math.min(1, comboChain)),
@@ -602,6 +633,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         },
         _adaptiveStress: stress,
         _difficultyBias: difficultyBias,
+        _difficultyTuning: difficultyTuning,
+        _solutionStress: solutionStress,
         _flowState: flow,
         _flowDeviation: flowDev,
         _feedbackBias: feedbackBias,

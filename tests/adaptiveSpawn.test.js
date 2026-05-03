@@ -78,6 +78,32 @@ describe('resolveAdaptiveStrategy', () => {
         }
     });
 
+    it('difficulty tuning changes spawnHints directly', () => {
+        const p = makeProfile({ smoothSkill: 0.5, spawnCounter: 8, lifetimeGames: 3, lifetimePlacements: 80 });
+        const easy = resolveAdaptiveStrategy('easy', p, 80, 0, 0.35, { totalRounds: 8, roundsSinceClear: 0 });
+        const normal = resolveAdaptiveStrategy('normal', p, 80, 0, 0.35, { totalRounds: 8, roundsSinceClear: 0 });
+        const hard = resolveAdaptiveStrategy('hard', p, 80, 0, 0.35, { totalRounds: 8, roundsSinceClear: 0 });
+        if (easy.spawnHints && normal.spawnHints && hard.spawnHints) {
+            expect(easy.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(normal.spawnHints.clearGuarantee);
+            expect(hard.spawnHints.clearGuarantee).toBeLessThanOrEqual(normal.spawnHints.clearGuarantee);
+            expect(easy.spawnHints.sizePreference).toBeLessThan(normal.spawnHints.sizePreference);
+            expect(hard.spawnHints.sizePreference).toBeGreaterThan(normal.spawnHints.sizePreference);
+            expect(easy.spawnHints.multiClearBonus).toBeGreaterThan(normal.spawnHints.multiClearBonus);
+            expect(hard.spawnHints.multiClearBonus).toBeLessThan(normal.spawnHints.multiClearBonus);
+        }
+    });
+
+    it('difficulty tuning separates solution difficulty ranges', () => {
+        const p = makeProfile({ smoothSkill: 0.5, spawnCounter: 8, lifetimeGames: 3, lifetimePlacements: 80 });
+        const easy = resolveAdaptiveStrategy('easy', p, 100, 0, 0.5, { totalRounds: 8, roundsSinceClear: 0 });
+        const hard = resolveAdaptiveStrategy('hard', p, 100, 0, 0.5, { totalRounds: 8, roundsSinceClear: 0 });
+        if (easy.spawnHints?.targetSolutionRange && hard.spawnHints?.targetSolutionRange) {
+            expect(easy._solutionStress).toBeLessThan(hard._solutionStress);
+            expect(easy.spawnHints.targetSolutionRange.min).toBeGreaterThanOrEqual(hard.spawnHints.targetSolutionRange.min);
+            expect(hard.spawnHints.targetSolutionRange.max).not.toBeNull();
+        }
+    });
+
     it('milestone hit produces scoreMilestone spawnHint', () => {
         resetAdaptiveMilestone();
         const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.3);

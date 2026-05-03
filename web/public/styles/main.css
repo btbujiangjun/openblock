@@ -344,26 +344,10 @@ body.block-drag-active #app {
     box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    /* 金色呼吸光晕 — 不依赖容器，直接给像素本体加 drop-shadow（缓慢呼吸） */
+    /* 静态光晕；不做无限呼吸，避免静置时持续合成。 */
     filter:
-        drop-shadow(0 0 8px color-mix(in srgb, #fbbf24 18%, transparent))
+        drop-shadow(0 0 10px color-mix(in srgb, #fbbf24 22%, transparent))
         drop-shadow(0 1px 3px rgba(0, 0, 0, 0.15));
-    animation: wm-header-glow 4.2s ease-in-out infinite alternate;
-}
-
-/* 金色光晕呼吸 — drop-shadow 在 18% ↔ 36% 之间缓慢循环 */
-@keyframes wm-header-glow {
-    from {
-        filter:
-            drop-shadow(0 0 6px color-mix(in srgb, #fbbf24 14%, transparent))
-            drop-shadow(0 1px 3px rgba(0, 0, 0, 0.15));
-    }
-    to {
-        filter:
-            drop-shadow(0 0 14px color-mix(in srgb, #fbbf24 36%, transparent))
-            drop-shadow(0 0 26px color-mix(in srgb, #fbbf24 16%, transparent))
-            drop-shadow(0 1px 3px rgba(0, 0, 0, 0.15));
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -396,12 +380,7 @@ body.block-drag-active #app {
 }
 
 .app-wordmark--hero .app-wordmark-pixel {
-    animation: wm-hero-float 4s ease-in-out infinite;
-}
-
-@keyframes wm-hero-float {
-    0%, 100% { transform: skewX(-6deg) translateY(0); }
-    50% { transform: skewX(-6deg) translateY(-4px); }
+    transform: skewX(-6deg);
 }
 
 /* 词间分隔：黄色尖锐四角星（SVG），在整行字标内水平/垂直居中；顶栏与 hero 同一套结构 */
@@ -435,27 +414,7 @@ body.block-drag-active #app {
         drop-shadow(0 0 3px rgba(253, 224, 71, 0.9))
         drop-shadow(0 0 8px rgba(251, 191, 36, 0.5))
         drop-shadow(0 1px 2px rgba(180, 83, 9, 0.35));
-    animation: wm-star-breathe 3s ease-in-out infinite;
     transform: skewX(6deg);
-}
-
-@keyframes wm-star-breathe {
-    0%, 100% {
-        transform: skewX(6deg) scale(1);
-        filter:
-            drop-shadow(0 0 3px rgba(253, 224, 71, 0.9))
-            drop-shadow(0 0 8px rgba(251, 191, 36, 0.5))
-            drop-shadow(0 1px 2px rgba(180, 83, 9, 0.35));
-        opacity: 0.88;
-    }
-    50% {
-        transform: skewX(6deg) scale(1.32);
-        filter:
-            drop-shadow(0 0 6px rgba(253, 224, 71, 1))
-            drop-shadow(0 0 14px rgba(251, 191, 36, 0.7))
-            drop-shadow(0 0 22px rgba(250, 204, 21, 0.35));
-        opacity: 1;
-    }
 }
 
 .header .app-wordmark-pixel__crossstar-svg {
@@ -487,14 +446,38 @@ body.block-drag-active #app {
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
 }
 
+.wm-cell--icon.wm-cell--icon-brand[data-wm-icon='gamepad'] {
+    transform: translate(46%, -12%) scale(1.1);
+}
+
+.wm-cell--icon.wm-cell--icon-brand[data-wm-icon='badge'] {
+    transform: translate(92%, -12%) scale(1.1);
+}
+
 .header .app-wordmark .wm-cell--icon.wm-cell--icon-brand {
     font-size: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 1.22);
     transform: translateY(-11%) scale(1.12);
 }
 
+.header .app-wordmark .wm-cell--icon.wm-cell--icon-brand[data-wm-icon='gamepad'] {
+    transform: translate(46%, -11%) scale(1.12);
+}
+
+.header .app-wordmark .wm-cell--icon.wm-cell--icon-brand[data-wm-icon='badge'] {
+    transform: translate(92%, -11%) scale(1.12);
+}
+
 .app-wordmark--hero .wm-cell--icon.wm-cell--icon-brand {
     font-size: calc(var(--wm-cell-h, 5px) * var(--wm-letter-bump) * 1.48);
     transform: translateY(-14%) scale(1.18);
+}
+
+.app-wordmark--hero .wm-cell--icon.wm-cell--icon-brand[data-wm-icon='gamepad'] {
+    transform: translate(46%, -14%) scale(1.18);
+}
+
+.app-wordmark--hero .wm-cell--icon.wm-cell--icon-brand[data-wm-icon='badge'] {
+    transform: translate(92%, -14%) scale(1.18);
 }
 
 .wm-cell--rainbow-icon {
@@ -838,8 +821,8 @@ body.block-drag-active #app {
     z-index: 90;
 }
 
-/* v10.17.17：把 select + 📖 lore-btn 合并为一个统一的浅色玻璃控件组
- *   · 外层 .skin-picker 承载浅色玻璃外观 + 圆角 + 边框 + backdrop-filter
+/* v10.17.17：把 select + 📖 lore-btn 合并为一个统一控件组
+ *   · 外层 .skin-picker 承载浅色外观 + 圆角 + 边框
  *   · 内部 select 和 lore-btn 各自 transparent + 无 border，紧贴在一起
  *   · 中间用 1px 8% 黑细分隔线（lore-btn 的 border-left）做视觉分组
  *   · 整体看起来是一个可点击的"主题选择 + 故事查看"控件组
@@ -852,8 +835,8 @@ body.block-drag-active #app {
     border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 9%, transparent);
     border-radius: 8px;
     overflow: hidden;
-    backdrop-filter: saturate(1.04) blur(6px);
-    -webkit-backdrop-filter: saturate(1.04) blur(6px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset;
     transition: border-color .18s, background .18s;
 }
@@ -1112,22 +1095,23 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
     min-height: 0;
     margin: 2px auto 0;
     padding: 8px 4px 10px;
-    border-radius: 14px;
+    border-radius: 0;
+    /* 统一盘面舞台：不再让各皮肤的浅/深背景在棋盘两侧形成不协调阴影 */
     background:
-        radial-gradient(ellipse 95% 58% at 50% 0%, rgba(255, 255, 255, 0.42), transparent 55%),
+        radial-gradient(ellipse 70% 42% at 50% 16%,
+            color-mix(in srgb, var(--accent-color, #38bdf8) 12%, transparent), transparent 64%),
         linear-gradient(
-            172deg,
-            color-mix(in srgb, var(--stat-surface, #ffffff) 62%, #eef2f7) 0%,
-            color-mix(in srgb, var(--stat-surface, #ffffff) 48%, var(--bg-color, #e8eef1)) 48%,
-            color-mix(in srgb, var(--bg-color, #dce4ec) 65%, var(--stat-surface, #ffffff)) 100%
+            180deg,
+            color-mix(in srgb, var(--css-bg, var(--bg-color, #0b1020)) 72%, #ffffff 18%) 0%,
+            color-mix(in srgb, var(--css-bg, var(--bg-color, #0b1020)) 88%, #020617 10%) 52%,
+            color-mix(in srgb, var(--css-bg, var(--bg-color, #0b1020)) 94%, #020617 8%) 100%
         );
-    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-color, #38bdf8) 10%, rgba(255,255,255,0.10));
     box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.65) inset,
-        0 10px 32px color-mix(in srgb, var(--shadow) 45%, transparent),
-        0 2px 6px rgba(0, 0, 0, 0.05);
-    backdrop-filter: saturate(1.06) blur(10px);
-    -webkit-backdrop-filter: saturate(1.06) blur(10px);
+        0 1px 0 rgba(255, 255, 255, 0.12) inset,
+        0 8px 18px rgba(0, 0, 0, 0.12);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     /* 勿 auto：窄屏下会出横向滚动条；拖动幽灵不应依赖此处滚动 */
     overflow-x: hidden;
     overflow-y: hidden;
@@ -1145,6 +1129,10 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
     width: var(--grid-canvas-width);
     max-width: 100%;
     align-self: center;
+    background: color-mix(in srgb, var(--grid-bg, #0f172a) 92%, #000 8%);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--grid-line, rgba(255,255,255,0.16)) 42%, transparent),
+        0 5px 12px rgba(0, 0, 0, 0.08);
 }
 
 /* 棋盘底板：缓慢流动的渐变（canvas 上空格半透明叠加以透出此层） */
@@ -1153,7 +1141,7 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    border-radius: inherit;
+    border-radius: 0;
     background: linear-gradient(
         122deg,
         color-mix(in srgb, var(--grid-bg) 78%, var(--cell-empty) 22%),
@@ -1163,19 +1151,7 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
         color-mix(in srgb, var(--grid-bg) 85%, var(--cell-empty) 15%)
     );
     background-size: 320% 320%;
-    animation: boardBgFlow 52s ease-in-out infinite alternate;
-}
-
-@keyframes boardBgFlow {
-    0% {
-        background-position: 4% 22%;
-    }
-    50% {
-        background-position: 48% 48%;
-    }
-    100% {
-        background-position: 88% 72%;
-    }
+    background-position: 48% 48%;
 }
 
 /* RL 机器人盘面演示：避免演示过程中误触棋盘与待选区 */
@@ -1199,7 +1175,7 @@ body.game-rl-preview .block-dock {
        - 删除 0 2px 0 硬下移投影（避免盘面像贴片浮在表面）
        - 主投影由 8px/28px/55% 改为 6px/22px/22%，更柔和扁平，
          与 fxCanvas 上 _renderEdgeFalloff() 的色彩光晕协同营造"无边界"过渡。 */
-    box-shadow: 0 6px 22px color-mix(in srgb, var(--shadow) 22%, transparent);
+    box-shadow: none;
 }
 
 /* v10.12: 特效叠加层 — 绝对定位覆盖盘面，并以 negative inset 向四周外扩 1.5×cell
@@ -1217,25 +1193,10 @@ body.game-rl-preview .block-dock {
     height: 100%;
     top: 0;
     left: 0;
-    /* 让 GPU 合成，提高 60fps 流畅度 */
-    will-change: transform, opacity;
-    /* v10.14 4 边羽化 mask — 让 icon 粒子 / 闪光飞到 fxCanvas margin 区时自然 fade out，
-       消除 v10.12 ~ v10.13 残留的「直线硬边界」体感（粒子像撞上隐形墙）。
-
-       fxCanvas 物理尺寸 = (8 + 2×1.5)×cell = 11×cell（正方形），盘面在中心 8×cell：
-         ─ 中心 8/11 ≈ 72% 必须完全不透明（盘面区 + 闪光主体）
-         ─ 4 边各 1.5/11 ≈ 14% 渐隐到 0（粒子/闪光在此区自然消散）
-
-       双 linear-gradient + composite intersect/source-in 在 4 个方向同时羽化（取交集），
-       盘面四角刚好落在 14%~86% 的不透明区内，渲染管线性能由 GPU mask 合成保证。 */
-    -webkit-mask-image:
-        linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
-        linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
-    -webkit-mask-composite: source-in;
-    mask-image:
-        linear-gradient(to right, transparent 0%, black 14%, black 86%, transparent 100%),
-        linear-gradient(to bottom, transparent 0%, black 14%, black 86%, transparent 100%);
-    mask-composite: intersect;
+    /* 静置时不预占合成层；爆炸/拖拽帧由 canvas 重绘驱动即可。 */
+    will-change: auto;
+    /* 不使用 CSS mask：静置环境动效会频繁更新 canvas，mask 会让 Chrome 持续 GPU 合成。
+       粒子在 JS 绘制阶段按边距淡出，避免硬裁剪。 */
 }
 
 #drag-ghost {
@@ -1457,8 +1418,8 @@ body.game-rl-preview .block-dock {
     padding: 18px 22px 16px;
     border-radius: 14px;
     background: color-mix(in srgb, var(--bg-card, #f0f4f8) 50%, transparent);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     border: 1px solid color-mix(in srgb, var(--text-primary, #0f172a) 6%, transparent);
     box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
     animation: gameOverCardIn 0.42s cubic-bezier(0.22, 1.0, 0.32, 1.0) both;
@@ -1740,9 +1701,9 @@ body.game-over-active .first-win-banner {
     background: color-mix(in srgb, var(--stat-surface, #ffffff) 52%, var(--bg-color, #e8eef1));
     border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 5%, transparent);
     border-radius: var(--border-radius);
-    box-shadow: 0 2px 16px color-mix(in srgb, var(--shadow) 40%, transparent);
-    backdrop-filter: saturate(1.06) blur(10px);
-    -webkit-backdrop-filter: saturate(1.06) blur(10px);
+    box-shadow: 0 1px 8px color-mix(in srgb, var(--shadow) 18%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     color: var(--text-primary, #2c3e50);
     line-height: 1.35;
 }
@@ -1889,23 +1850,44 @@ body.game-over-active .first-win-banner {
     align-items: center;
     justify-content: center;
     padding: 0;
-    background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.07);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
-    transition: background 0.15s, transform 0.1s, filter 0.1s;
+    color: rgba(255,255,255,0.92);
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08));
+    border: 1px solid rgba(255,255,255,0.18);
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.16) inset,
+        0 2px 6px rgba(0,0,0,0.18);
+    opacity: 1;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s, transform 0.1s, filter 0.1s;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
     outline: none;
 }
 
-.skill-btn:hover       { background: rgba(255,255,255,0.14); transform: translateY(-1px); }
+.skill-btn:hover:not(:disabled):not(.is-disabled) {
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.12));
+    transform: translateY(-1px);
+}
 .skill-btn:active      { transform: translateY(1px); filter: brightness(0.9); }
 .skill-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.45); outline-offset: 2px; }
+.skill-btn:disabled,
+.skill-btn.is-disabled {
+    color: rgba(255,255,255,0.36);
+    background: rgba(8, 12, 24, 0.52);
+    border-color: rgba(255,255,255,0.08);
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.04) inset,
+        0 2px 5px rgba(0,0,0,0.22);
+    cursor: not-allowed;
+    filter: grayscale(0.45) brightness(0.72);
+    opacity: 0.82;
+}
 
 /* 各按钮仅用极淡色调区分，不抢视觉 */
-.skill-btn--hint        { border-color: rgba(74,222,128,0.12); }
-.skill-btn--season-pass { border-color: rgba(234,179,8,0.14); }
-.skill-btn--restart     { border-color: rgba(251,146,60,0.12); }
+.skill-btn--hint:not(:disabled):not(.is-disabled)        { border-color: rgba(74,222,128,0.38); }
+.skill-btn--season-pass:not(:disabled):not(.is-disabled) { border-color: rgba(234,179,8,0.42); }
+.skill-btn--restart:not(:disabled):not(.is-disabled)     { border-color: rgba(251,146,60,0.36); }
 
 /* 战令红点（赛季通行证入口在技能栏） */
 .skill-bar #season-pass-btn {
@@ -2607,9 +2589,9 @@ body.game-over-active .first-win-banner {
     background: color-mix(in srgb, var(--stat-surface, #ffffff) 52%, var(--bg-color, #e8eef1));
     border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 5%, transparent);
     border-radius: var(--border-radius);
-    box-shadow: 0 2px 16px color-mix(in srgb, var(--shadow) 40%, transparent);
-    backdrop-filter: saturate(1.06) blur(10px);
-    -webkit-backdrop-filter: saturate(1.06) blur(10px);
+    box-shadow: 0 1px 8px color-mix(in srgb, var(--shadow) 18%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     padding: 8px 10px 10px;
     font-size: 10px;
     color: var(--text-primary, #2c3e50);
@@ -3443,6 +3425,25 @@ body.game-shell-hidden .app-side-left {
     pointer-events: none;
 }
 
+/*
+ * Chrome：visibility:hidden 的子树仍会推进 CSS animation（尤其 boardBgFlow、字标 filter），
+ * 主菜单空闲时徒耗 CPU/GPU。遮盖游戏壳时暂停 #app 内全部动画并摘掉 fx 层 will-change。
+ */
+body.game-shell-hidden #app,
+body.game-shell-hidden #app * {
+    animation-play-state: paused !important;
+}
+
+body.game-shell-hidden #game-grid-fx {
+    will-change: auto !important;
+}
+
+/* 标签页后台：暂停主菜单可见动画（字标/星标等），回到前台自动恢复 */
+body.doc-visibility-hidden #menu,
+body.doc-visibility-hidden #menu * {
+    animation-play-state: paused !important;
+}
+
 /* ── 主菜单 3×3 卡片网格（游玩 / 创作·复盘·钱包 / 文档与运维） ── */
 .menu-grid {
     display: grid;
@@ -3842,9 +3843,9 @@ body.game-shell-hidden .app-side-left {
     background: color-mix(in srgb, var(--stat-surface, #ffffff) 52%, var(--bg-color, #e8eef1));
     border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
     border-radius: var(--border-radius);
-    box-shadow: 0 1px 6px color-mix(in srgb, var(--shadow) 30%, transparent);
-    backdrop-filter: saturate(1.06) blur(8px);
-    -webkit-backdrop-filter: saturate(1.06) blur(8px);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--shadow) 14%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     font-size: 13px;
     color: var(--text-primary, #2c3e50);
     overflow-x: auto;
@@ -4050,10 +4051,10 @@ body.game-shell-hidden .app-side-left {
     -webkit-overflow-scrolling: touch;
     background: color-mix(in srgb, var(--stat-surface, #ffffff) 72%, var(--bg-color, #e8eef1));
     border-radius: var(--border-radius, 10px);
-    box-shadow: 0 2px 14px color-mix(in srgb, var(--shadow) 45%, transparent);
+    box-shadow: 0 1px 8px color-mix(in srgb, var(--shadow) 18%, transparent);
     border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
-    backdrop-filter: saturate(1.08) blur(12px);
-    -webkit-backdrop-filter: saturate(1.08) blur(12px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 /* 回放进行时隐藏长说明，腾出纵向空间；列表页仍保留 .replay-hint */
@@ -4802,8 +4803,8 @@ body.game-shell-hidden .app-side-left {
     box-shadow:
         0 10px 28px rgba(0, 0, 0, 0.36),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(10px) saturate(140%);
-    -webkit-backdrop-filter: blur(10px) saturate(140%);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     pointer-events: none;
     opacity: 0;
     transition: opacity .28s ease, transform .28s cubic-bezier(.2, .8, .2, 1);
@@ -4854,8 +4855,8 @@ body.game-shell-hidden .app-side-left {
     transition: opacity .42s ease, transform .55s cubic-bezier(0.18, 0.89, 0.32, 1.4);
     overflow: visible;
     isolation: isolate;
-    -webkit-backdrop-filter: blur(14px) saturate(160%);
-    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
 }
 #easter-egg-toast[data-tier="celebrate"].is-visible {
     transform: translate(-50%, -50%) scale(1) rotate(0deg);
@@ -5040,16 +5041,28 @@ body.game-shell-hidden .app-side-left {
     width: 38px;
     height: 38px;
     border-radius: 50%;
-    border: 1.5px solid color-mix(in srgb, var(--accent-color, #38bdf8) 22%, transparent);
-    background: color-mix(in srgb, var(--accent-color, #38bdf8) 8%, transparent);
-    color: var(--text-primary, #1e293b);
+    border: 1.5px solid color-mix(in srgb, var(--accent-color, #38bdf8) 42%, rgba(255,255,255,0.12));
+    background:
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--accent-color, #38bdf8) 34%, rgba(255,255,255,0.18)),
+            color-mix(in srgb, var(--accent-color, #38bdf8) 16%, rgba(8,12,24,0.24)));
+    color: rgba(255,255,255,0.95);
     font-size: 18px;
     cursor: pointer;
     padding: 0;
-    transition: transform .15s ease, background .15s ease;
+    transition: transform .15s ease, background .15s ease, filter .15s ease, opacity .15s ease;
 }
-.skill-btn--ext:hover { transform: scale(1.08); background: color-mix(in srgb, var(--accent-color, #38bdf8) 18%, transparent); }
-.skill-btn--ext.is-disabled { opacity: 0.4; cursor: not-allowed; }
+.skill-btn--ext:hover:not(.is-disabled) {
+    transform: scale(1.08);
+    background:
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--accent-color, #38bdf8) 42%, rgba(255,255,255,0.22)),
+            color-mix(in srgb, var(--accent-color, #38bdf8) 22%, rgba(8,12,24,0.22)));
+}
+.skill-btn--ext.is-disabled {
+    opacity: 0.82;
+    cursor: not-allowed;
+}
 .skill-btn__icon {
     display: inline-block;
     line-height: 1;
@@ -5440,8 +5453,8 @@ body.game-shell-hidden .app-side-left {
     justify-content: center;
     padding: 16px;
     background: rgba(8, 10, 16, 0.62);
-    backdrop-filter: blur(6px) saturate(120%);
-    -webkit-backdrop-filter: blur(6px) saturate(120%);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     opacity: 0;
     pointer-events: none;
     transition: opacity .25s ease;
@@ -5880,7 +5893,7 @@ body.game-shell-hidden .app-side-left {
     transform: translateX(-50%);
     z-index: 8000;
     background: rgba(20, 28, 40, 0.86);
-    backdrop-filter: blur(8px);
+    backdrop-filter: none;
     color: #c7d2fe;
     padding: 8px 14px;
     border-radius: 999px;
@@ -6119,7 +6132,7 @@ body.game-shell-hidden .app-side-left {
     position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
     z-index: 8800;
     background: rgba(22, 26, 38, 0.92);
-    backdrop-filter: blur(8px);
+    backdrop-filter: none;
     color: #f1f5f9;
     padding: 10px 14px;
     border-radius: 999px;
@@ -6146,7 +6159,7 @@ body.game-shell-hidden .app-side-left {
     position: fixed; top: 90px; left: 50%; transform: translateX(-50%);
     z-index: 8500;
     background: rgba(22, 28, 42, 0.94);
-    backdrop-filter: blur(10px);
+    backdrop-filter: none;
     color: #f1f5f9;
     padding: 12px 18px;
     border-radius: 14px;

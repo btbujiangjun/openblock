@@ -154,9 +154,9 @@ export class Game {
         this._insightLiveHistory = [];
         /** 悬浮预览将消行时，驱动描边脉冲的 rAF */
         this._previewClearRaf = null;
-        /** 空闲时轻量重绘，驱动盘面大水印缓缓飘动 */
-        this._wmAmbientRaf = null;
-        this._lastWmAmbientAt = 0;
+        /** 皮肤环境动效低频 fxCanvas 循环：只重绘特效层，不触发整盘 render */
+        this._ambientFxTimer = null;
+        this._ambientFxRaf = null;
         this._popupToastQueue = Promise.resolve();
         this._lastPopupToastAt = 0;
         /** markDirty 合并到单帧一次 render（见 PERFORMANCE.md） */
@@ -266,25 +266,43 @@ export class Game {
         this.updateShellVisibility();
         this.updateUI();
         this.render();
-        this._startWatermarkAmbientLoop();
+        this._startAmbientFxLoop();
     }
 
-    /** 主菜单关闭且非消除动画时，节流重绘以更新 boardWatermark 飘移 */
-    _startWatermarkAmbientLoop() {
-        if (typeof window === 'undefined') return;
-        if (this._wmAmbientRaf != null) return;
-        const tick = () => {
-            this._wmAmbientRaf = requestAnimationFrame(tick);
-            const menu = document.getElementById('menu');
-            if (menu?.classList.contains('active')) return;
-            if (this.isAnimating) return;
-            const now = performance.now();
-            /* ~30fps 即可看清飘动；过慢则相位变化仍太小 */
-            if (now - this._lastWmAmbientAt < 32) return;
-            this._lastWmAmbientAt = now;
-            this.markDirty();
+    _startAmbientFxLoop() {
+        if (typeof window === 'undefined' || this._ambientFxTimer != null) return;
+
+        const draw = () => {
+            this._ambientFxRaf = null;
+            if (!this._shouldDrawAmbientFxFrame()) {
+                return;
+            }
+            this.renderer.renderAmbientFxFrame();
         };
-        this._wmAmbientRaf = requestAnimationFrame(tick);
+
+        const tick = () => {
+            this._ambientFxTimer = null;
+            const active = this._shouldDrawAmbientFxFrame();
+            if (active && this._ambientFxRaf == null && typeof requestAnimationFrame === 'function') {
+                this._ambientFxRaf = requestAnimationFrame(draw);
+            }
+            const delay = active
+                ? this.renderer.getAmbientFrameIntervalMs()
+                : 1000;
+            this._ambientFxTimer = window.setTimeout(tick, delay);
+        };
+
+        this._ambientFxTimer = window.setTimeout(tick, 250);
+    }
+
+    _shouldDrawAmbientFxFrame() {
+        if (!this.renderer?.hasAmbientMotion?.()) return false;
+        if (typeof document !== 'undefined') {
+            if (document.visibilityState === 'hidden') return false;
+            const menu = document.getElementById('menu');
+            if (menu?.classList.contains('active')) return false;
+        }
+        return !this.isAnimating && !this.drag && !this.previewPos && this._renderRaf == null;
     }
 
     /** 主菜单打开时隐藏主界面与难度条；game-over 浮层保留棋盘可见 */
@@ -391,6 +409,15 @@ export class Game {
             };
             this._dockResizeObs = new ResizeObserver(dockReflow);
             this._dockResizeObs.observe(this.canvas);
+        }
+
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', () => {
+                document.body.classList.toggle(
+                    'doc-visibility-hidden',
+                    document.visibilityState === 'hidden',
+                );
+            });
         }
     }
 
@@ -1305,7 +1332,7 @@ export class Game {
             lines: result.count,
             perfectClear
         });
-        this.renderer.setClearCells(result.cells);
+        this.renderer.setClearCells(result.cells, { mode: bonusCount > 0 ? 'bonus' : 'normal' });
 
         // 同 icon/同色 行/列：全屏光晕 + 更密粒子 + 更长展示
         if (bonusCount > 0) {
@@ -2115,8 +2142,7 @@ export class Game {
         this.renderer.decayDoubleWave();
         this.renderer.clear();
         this.renderer.renderBackground();
-        // v10.13: 盘面 → fxCanvas 外区柔和色彩过渡光晕，弱化 v10.12 暴露的盘面外边框感
-        this.renderer.renderEdgeFalloff();
+        // 外围过渡光晕会在拖拽/落子重绘时改变 dash 外区配色；统一盘面布局后不再绘制。
         // v10.15: 皮肤环境粒子层（樱花 / 落叶 / 气泡 / 萤火虫 / 流星等），仅 5 款示范皮肤激活
         this.renderer.renderAmbient();
         this.renderer.renderGrid(this.grid);

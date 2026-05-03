@@ -42,7 +42,7 @@ class Grid:
                 if v:
                     self.cells[gy + y][gx + x] = color_idx
 
-    def check_lines(self) -> dict:
+    def check_lines(self, bonus_block_icons: list[str] | None = None) -> dict:
         full_rows: list[int] = []
         full_cols: list[int] = []
         for y in range(self.size):
@@ -52,22 +52,31 @@ class Grid:
             if all(self.cells[y][x] is not None for y in range(self.size)):
                 full_cols.append(x)
 
+        def line_is_bonus_mono(vals: list[int | None]) -> bool:
+            if not vals or vals[0] is None:
+                return False
+            first = vals[0]
+            if bonus_block_icons:
+                bi = bonus_block_icons
+
+                def gi(ci: int) -> str:
+                    return str(bi[int(ci) % len(bi)])
+
+                icon0 = gi(int(first))
+                return all(v is not None and gi(int(v)) == icon0 for v in vals)
+            return all(c == first for c in vals)
+
         bonus_lines: list[dict] = []
         for y in full_rows:
-            first = self.cells[y][0]
-            if first is not None and all(c == first for c in self.cells[y]):
-                bonus_lines.append({"type": "row", "idx": y, "color_idx": first})
+            row = self.cells[y]
+            if line_is_bonus_mono(row):
+                bonus_lines.append({"type": "row", "idx": y, "color_idx": row[0]})
         for x in full_cols:
-            first = self.cells[0][x]
-            if first is None:
+            col = [self.cells[yy][x] for yy in range(self.size)]
+            if col[0] is None:
                 continue
-            all_same = True
-            for yy in range(1, self.size):
-                if self.cells[yy][x] != first:
-                    all_same = False
-                    break
-            if all_same:
-                bonus_lines.append({"type": "col", "idx": x, "color_idx": first})
+            if line_is_bonus_mono(col):
+                bonus_lines.append({"type": "col", "idx": x, "color_idx": col[0]})
 
         cleared_cells: list[dict] = []
         seen: set[str] = set()

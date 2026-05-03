@@ -211,9 +211,9 @@ export function evaluateTripletSolutions(grid, threeData, opts = {}) {
     };
 }
 
-/** 读取 game_rules.solutionDifficulty 配置（带默认值）。 */
+/** 读取 adaptiveSpawn.solutionDifficulty 配置（带旧顶层路径兜底）。 */
 function getSolutionDifficultyCfg() {
-    const cfg = GAME_RULES?.solutionDifficulty;
+    const cfg = GAME_RULES?.adaptiveSpawn?.solutionDifficulty || GAME_RULES?.solutionDifficulty;
     return {
         enabled: cfg?.enabled ?? false,
         activationFill: cfg?.activationFill ?? SOLUTION_EVAL_FILL_MIN_DEFAULT,

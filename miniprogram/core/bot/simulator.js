@@ -12,6 +12,7 @@ const {
     monoNearFullLineColorWeights,
     pickThreeDockColors
 } = require('../bonusScoring');
+const { getRlTrainingBonusLineSkin } = require('../skins');
 
 const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
 const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;
@@ -23,7 +24,9 @@ const _POT_COEF = Number(_POT_CFG.coef) || 0.5;
 const _POT_ENABLED = Boolean(_POT_CFG.enabled);
 const _BOARD_POT_NORM = 30.0;
 
-
+function _rlBonusSkin() {
+    return getRlTrainingBonusLineSkin();
+}
 
 function _countHoles(grid) {
     const n = grid.size;
@@ -144,7 +147,7 @@ class OpenBlockSimulator {
 
     _spawnDock() {
         const shapes = generateDockShapes(this.grid, this.strategyConfig);
-        const bias = monoNearFullLineColorWeights(this.grid, null);
+        const bias = monoNearFullLineColorWeights(this.grid, _rlBonusSkin());
         const dockColors = pickThreeDockColors(bias);
         this.dock = [];
         for (let i = 0; i < 3; i++) {
@@ -253,7 +256,7 @@ class OpenBlockSimulator {
         this.placements++;
         this.steps++;
 
-        const bonusSnap = detectBonusLines(this.grid, null);
+        const bonusSnap = detectBonusLines(this.grid, _rlBonusSkin());
         const result = this.grid.checkLines();
         let gain = 0;
         let clears = 0;
