@@ -129,6 +129,9 @@ export function updateRealtimeSignals(profile) {
         hadNearMiss:   profile.hadRecentNearMiss,
         sessionPhase:  profile.sessionPhase,
         momentum:      profile.momentum,
+        playstyle:     profile.playstyle,
+        segment5:      profile.segment5,
+        confidence:    profile.confidence,
         skillLabel:    _skillLabel(profile.skillLevel),
     };
 }
@@ -154,6 +157,16 @@ function _buildEvalContext() {
         },
         realtime: { ..._state.realtimeSignals },
         config:   getStrategyConfig(),
+    };
+}
+
+/** 返回商业化模型化层的纯数据输入，不触发网络请求。 */
+export function getCommercialModelContext() {
+    const ctx = _buildEvalContext();
+    return {
+        persona: { ...ctx.persona },
+        realtime: { ...ctx.realtime },
+        config: ctx.config,
     };
 }
 

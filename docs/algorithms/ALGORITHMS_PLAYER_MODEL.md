@@ -3,6 +3,7 @@
 > 本文是 OpenBlock **玩家建模子系统**的统一算法手册。  
 > 范围：实时玩家状态推断（`PlayerProfile`）的全部公式、超参与决策树。  
 > 与现有文档的关系：本文是 `PLAYER_ABILITY_EVALUATION.md` 与 `PANEL_PARAMETERS.md` 的**算法侧深化**——补充被简化的公式、阈值默认值、以及"代码事实 vs 文档叙述"的对照。
+> 若需要横向理解 PlayerProfile / AbilityVector 与 RL、Spawn、商业化、LTV 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
 
@@ -20,9 +21,10 @@
 10. [冷启动与置信度](#10-冷启动与置信度)
 11. [画像 → 出块的耦合](#11-画像--出块的耦合)
 12. [快照导出（用于 Bot/回放/商业化）](#12-快照导出用于-bot回放商业化)
-13. [完整公式速查](#13-完整公式速查)
-14. [完整参数表](#14-完整参数表)
-15. [演进与开放问题](#15-演进与开放问题)
+13. [AbilityVector：模型化统一输出](#13-abilityvector模型化统一输出)
+14. [完整公式速查](#14-完整公式速查)
+15. [完整参数表](#15-完整参数表)
+16. [演进与开放问题](#16-演进与开放问题)
 
 ---
 
@@ -766,7 +768,8 @@ function buildPlayerStateSnapshot(profile, opts = {}) {
         segment5: profile.segment5,
         ...
         // 可选字段
-        adaptive: opts.includeAdaptive ? lastSpawnContext : undefined
+        adaptive: opts.includeAdaptive ? lastSpawnContext : undefined,
+        ability: buildPlayerAbilityVector(profile, opts)
     };
 }
 ```
@@ -778,7 +781,8 @@ function buildPlayerStateSnapshot(profile, opts = {}) {
 | **回放系统** | 全部（用于事后 Bot 训练数据） |
 | **RL Bot** | 不直接消费（RL 用 `extractStateFeatures`，是棋盘特征；不是玩家画像） |
 | **商业化 realtimeSignals** | `frustrationLevel, hadNearMiss, momentum, flowState` |
-| **训练面板** | 全部（Insight 卡片可视化） |
+| **训练面板** | `ability` 与实时曲线（Insight 卡片可视化） |
+| **离线能力模型** | `frames[].ps.ability` + session/game_stats 构造训练样本 |
 
 ### 12.3 持久化
 
@@ -793,27 +797,106 @@ localStorage['openblock_player_profile']
 
 ---
 
-## 13. 完整公式速查
+## 13. AbilityVector：模型化统一输出
 
-### 13.1 即时技能
+`web/src/playerAbilityModel.js` 在 `PlayerProfile` 之上新增统一能力向量，不替代实时规则画像，而是把规则信号、盘面拓扑和局级统计聚合为可展示、可训练、可被出块策略消费的稳定输出。
+
+### 13.1 输出字段
+
+| 字段 | 范围 | 含义 | 当前消费方 |
+|------|------|------|------------|
+| `skillScore` | 0~1 | 综合能力；默认来自 `profile.skillLevel`，可被离线模型基线小幅校准 | 面板 / adaptiveSpawn |
+| `controlScore` | 0~1 | 操作稳定性；综合失误率、认知负荷、AFK 与 APM | 面板解释 |
+| `clearEfficiency` | 0~1 | 消行效率；综合消行率、多消率、平均消行条数 | 面板解释 |
+| `boardPlanning` | 0~1 | 盘面规划；综合空洞、填充压力、可落位空间、临消机会 | 面板解释 |
+| `riskTolerance` | 0~1 | 风险偏好；高填充下继续搭建、多消等待、近失等会抬高 | 后续个性化 |
+| `riskLevel` | 0~1 | 短期风险；高填充、空洞、连续未消行和操作不稳会抬高 | adaptiveSpawn 减压 |
+| `confidence` | 0~1 | 当前向量可信度；历史局数、终身落子数、本局样本越多越高 | 模型门控 |
+| `explain[]` | 文本 | 最多 3 条解释，用于把模型输出翻译成策划可读原因 | 面板 |
+
+### 13.2 与实时画像的关系
+
+`AbilityVector` 是输出层，不直接修改 `PlayerProfile` 内部状态。当前链路为：
+
+```mermaid
+flowchart TD
+    profile["PlayerProfile 规则画像"] --> ability["AbilityVector 统一输出"]
+    topology["boardTopology 盘面拓扑"] --> ability
+    stats["gameStats / spawnContext"] --> ability
+    ability --> panel["playerInsightPanel 能力指标"]
+    ability --> spawn["adaptiveSpawn 风险校正"]
+    ability --> replay["move_sequences.frames.ps.ability"]
+```
+
+`adaptiveSpawn` 仍以 `PlayerProfile` 为主，但使用 `ability.skillScore` 作为技能输入，并在 `shared/game_rules.json → playerAbilityModel.adaptiveSpawnRiskAdjust` 满足置信度与风险阈值时增加额外减压项 `abilityRiskAdjust`，避免高风险局面继续加压。
+
+### 13.3 配置来源
+
+`AbilityVector` 的权重、阈值与分档不写在代码里，统一读取 `shared/game_rules.json → playerAbilityModel`：
+
+- `bands`：`skillBand` / `riskBand` 的分档阈值。
+- `baseline`：离线 `modelBaseline` 与实时规则分的融合比例。
+- `control` / `clearEfficiency` / `boardPlanning` / `risk` / `riskTolerance`：各子分数的归一化分母与权重。
+- `confidence`：profile、终身落子数、本局采样对置信度的贡献。
+- `explain`：能力解释文案触发阈值。
+- `adaptiveSpawnRiskAdjust`：高风险局面的额外出块减压门控。
+
+### 13.4 离线训练样本
+
+`buildAbilityTrainingDataset(sessions)` 从 `Database.listReplaySessions()` 返回的 `sessions + move_sequences.frames + analysis` 构建样本：
+
+```js
+{
+  features: {
+    skillAvg, skillLast, flowDeviationAvg, cognitiveLoadAvg,
+    boardFillAvg, clearRateAvg, missRateAvg, comboRateAvg,
+    placements, clears, misses, clearRateSession, missRateSession
+  },
+  labels: {
+    finalScore, survivedSteps, totalClears,
+    earlyDeath, highScore, replayRating, tags
+  }
+}
+```
+
+设计约束：
+
+- `profile.skillLevel / flowState / playstyle` 只作为 bootstrap 弱标签，不当作人工真值。
+- 商业分群 `mon_user_segments.segment` 不作为技能真值，只可作为分层分析维度。
+- 短局样本存在落库偏差，应至少保留 session 级摘要，再纳入长期模型训练。
+
+### 13.5 评估指标
+
+| 目标 | 指标 | 合格信号 |
+|------|------|----------|
+| 长期能力 | `skillScore` 与未来 5 局均分 Spearman 相关 | 正相关且高于旧 `skillLevel` |
+| 短期风险 | `riskLevel` 预测未来 3~5 步 game over 的 AUC | 高于仅用 `boardFill` |
+| 风格稳定 | 最近 10 局 `playstyle` 漂移率 | 同类玩家漂移更低 |
+| DDA 效果 | 同能力分层下胜率、局长、挫败率方差 | 方差下降 |
+
+---
+
+## 14. 完整公式速查
+
+### 14.1 即时技能
 
 $$
 r_t^{\text{skill}} = 0.15 \cdot th + 0.30 \cdot cl + 0.20 \cdot co + 0.20 \cdot ms + 0.15 \cdot ld
 $$
 
-### 13.2 EMA
+### 14.2 EMA
 
 $$
 s_t = s_{t-1} + \alpha (r_t - s_{t-1}), \quad \alpha = \begin{cases} 0.35 & t \leq 5 \\ 0.15 & t > 5 \end{cases}
 $$
 
-### 13.3 历史指数加权
+### 14.3 历史指数加权
 
 $$
 \text{histSkill} = \frac{\sum_{i} 0.85^{n-1-i} \cdot \text{skill}_i}{\sum_{i} 0.85^{n-1-i}}
 $$
 
-### 13.4 综合 skillLevel
+### 14.4 综合 skillLevel
 
 $$
 \text{skillLevel} = (1 - h_w) \cdot s_t + h_w \cdot \text{histSkill}
@@ -822,38 +905,38 @@ $$
 h_w = (1 - \min(1, t/7.5)) \cdot \text{conf}
 $$
 
-### 13.5 心流偏差
+### 14.5 心流偏差
 
 $$
 F(t) = \left|\frac{0.45 \overline{\text{fill}} + 0.35 (1 - \min(1, \text{CR}/0.4)) + 0.2 \cdot L}{\max(0.05, \text{skill})} - 1\right|
 $$
 
-### 13.6 趋势
+### 14.6 趋势
 
 $$
 \text{trend} = \text{clamp}\left(2 \cdot \frac{\sum w_i (i - \bar{x})(s_i - \bar{y})}{\sum w_i (i - \bar{x})^2}, -1, 1\right)
 $$
 其中 $w_i = 0.9^{n-1-i}$。
 
-### 13.7 动量
+### 14.7 动量
 
 $$
 \text{momentum} = \text{clamp}\left(\frac{\text{CR}_\text{后} - \text{CR}_\text{前}}{0.3}, -1, 1\right)
 $$
 
-### 13.8 认知负荷
+### 14.8 认知负荷
 
 $$
 L = \min\left(1, \frac{\text{Var}(\text{thinkMs})}{8 \times 10^6}\right)
 $$
 
-### 13.9 置信度
+### 14.9 置信度
 
 $$
 \text{confidence} = \min\left(1, \frac{\text{totalGames}}{20}\right) \cdot e^{-\text{daysSinceLast}/7}
 $$
 
-### 13.10 综合 stress
+### 14.10 综合 stress
 
 $$
 \text{stress} = \text{clamp}\left(\sum_i \text{adjust}_i, -0.2, 1\right)
@@ -861,9 +944,9 @@ $$
 
 ---
 
-## 14. 完整参数表
+## 15. 完整参数表
 
-### 14.1 EMA 与窗口
+### 15.1 EMA 与窗口
 
 | 参数 | 默认 | 来源 |
 |------|-----|-----|
@@ -872,7 +955,7 @@ $$
 | `fastConvergenceAlpha` | 0.35 | `adaptiveSpawn.fastConvergenceAlpha` |
 | `smoothingFactor` | 0.15 | `adaptiveSpawn.smoothingFactor` |
 
-### 14.2 raw 技能权重
+### 15.2 raw 技能权重
 
 | 维度 | 权重 |
 |------|------|
@@ -882,7 +965,7 @@ $$
 | missScore | 0.20 |
 | loadScore | 0.15 |
 
-### 14.3 阈值
+### 15.3 阈值
 
 | 参数 | 默认 | 用途 |
 |------|-----|-----|
@@ -898,7 +981,7 @@ $$
 | `thinkTimeLowMs` | 1200 | bored 触发 |
 | `thinkTimeHighMs` | 10000 | anxious 触发 |
 
-### 14.4 历史融合
+### 15.4 历史融合
 
 | 参数 | 默认 |
 |-----|-----|
@@ -909,7 +992,7 @@ $$
 | volumeConfThreshold | 20 局 → 满置信 |
 | freshnessHalfLife | 7 天 |
 
-### 14.5 离线衰减
+### 15.5 离线衰减
 
 | 参数 | 默认 |
 |-----|-----|
@@ -919,9 +1002,9 @@ $$
 
 ---
 
-## 15. 演进与开放问题
+## 16. 演进与开放问题
 
-### 15.1 已识别的设计权衡
+### 16.1 已识别的设计权衡
 
 | 决策 | 优势 | 代价 |
 |-----|------|-----|
@@ -930,14 +1013,14 @@ $$
 | 阈值规则树（flowState） | 可解释 | 阈值需要回标 |
 | 整型挫败计数 | 直观 | 无时间衰减 |
 
-### 15.2 v2 候选改进
+### 16.2 v2 候选改进
 
 1. **个性化 α**：根据玩家"行为方差"自适应调 EMA α
 2. **多分量 frustration**：从计数升级为带权重的连续值
 3. **跨设备同步**：把 `_sessionHistory` 同步到云端（隐私权衡）
 4. **ML 增强**：训练 LightGBM 预测玩家**疲劳度**（与挫败/认知负荷正交）
 
-### 15.3 开放研究点
+### 16.3 开放研究点
 
 - 怎样把"心流偏差"与 RL Bot 的"V(s)"联系？理论上越接近 V 的玩家越"懂这盘棋"
 - 玩家是否存在多人格切换（白天 vs 晚上玩法不同）？

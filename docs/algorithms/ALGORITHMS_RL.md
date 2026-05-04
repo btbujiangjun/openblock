@@ -3,6 +3,7 @@
 > 本文是 OpenBlock **强化学习子系统**的统一算法手册。  
 > 范围：RL 智能体的**算法选型 / 网络结构 / 状态-动作设计 / 奖励函数 / 训练流程 / 推理流程 / 数值稳定 / 演进路线**。  
 > 与现有文档的关系：本文做**统一推导与公式**，分散于 `RL_AND_GAMEPLAY.md` / `RL_ANALYSIS.md` / `RL_TRAINING_NUMERICAL_STABILITY.md` 等的细节**保留并被引用**。
+> 若需要横向理解 RL 与 Spawn、玩家画像、商业化、LTV、PCGRL 的契约关系，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
 

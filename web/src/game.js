@@ -225,6 +225,8 @@ export class Game {
             trend: layered._trend,
             confidence: layered._confidence,
             historicalSkill: layered._historicalSkill,
+            abilityVector: layered._abilityVector ?? null,
+            abilityRiskAdjust: layered._abilityRiskAdjust ?? 0,
             sessionArc: layered._sessionArc,
             comboChain: layered._comboChain,
             rhythmPhase: layered._rhythmPhase,

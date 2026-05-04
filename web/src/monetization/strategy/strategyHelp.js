@@ -18,6 +18,7 @@ import { getStrategyConfig } from './strategyConfig.js';
  *   - signal.*       面板信号格
  *   - weight.*       分群权重滑块
  *   - threshold.*    阈值滑块
+ *   - model.*        CommercialModelVector 字段
  *   - flag.*         Feature Flag 开关
  *   - product.*      IAP 产品卡
  *   - rule.*         策略规则卡
@@ -88,6 +89,29 @@ export const HELP_TEXTS = {
     'threshold.showWeeklyPassAfterGames':
         '周卡触发局数（局）— 累计完成 N 局后开始展示周卡\n'
         + '默认 5 局，避免新手期就推付费',
+
+    // ── 商业化模型字段 ───────────────────────────────────────────────────────
+    'model.payerScore':
+        '付费潜力分 — 融合 whale_score、LTV、活跃、技能和分群奖励\n'
+        + '用于 IAP 优先级与付费用户插屏保护；权重在 commercialModel.payerScoreWeights 配置',
+    'model.iapPropensity':
+        'IAP 倾向 — 当前上下文展示内购 offer 的适合度\n'
+        + '受付费潜力、挫败、心流、LTV 置信和广告疲劳共同影响',
+    'model.rewardedAdPropensity':
+        '激励广告倾向 — 当前展示 rewarded ad 的适合度\n'
+        + '近失、挫败和低疲劳会抬高；高疲劳进入护栏抑制',
+    'model.interstitialPropensity':
+        '插屏广告倾向 — 仅用于自然断点，且必须通过心流/付费/流失/疲劳护栏\n'
+        + '心流中默认抑制，避免打断体验',
+    'model.churnRisk':
+        '流失风险 — 低活跃、焦虑、连续挫败和广告疲劳会抬高\n'
+        + '高风险时策略转向救援、任务或轻提示',
+    'model.adFatigueRisk':
+        '广告疲劳风险 — 由体验分、日激励次数和日插屏次数归一化得到\n'
+        + '高于护栏阈值会降频或全部抑制广告',
+    'model.guardrail':
+        '模型护栏 — protectPayer / suppressInterstitial / suppressRewarded / suppressAll\n'
+        + '这是广告触发前的最后一层体验保护，不替代硬频控',
 
     // ── Feature Flags（功能开关） ─────────────────────────────────────────────
     'flag.adsRewarded':       '激励视频广告 — 关闭后所有 rewarded 触发器静默',
@@ -192,6 +216,17 @@ export function dumpConfigSchema() {
     }
     for (const [k, v] of Object.entries(cfg.thresholds ?? {})) {
         rows.push({ key: `threshold.${k}`, value: v, help: HELP_TEXTS[`threshold.${k}`] ?? '' });
+    }
+    for (const key of [
+        'payerScore',
+        'iapPropensity',
+        'rewardedAdPropensity',
+        'interstitialPropensity',
+        'churnRisk',
+        'adFatigueRisk',
+        'guardrail',
+    ]) {
+        rows.push({ key: `model.${key}`, value: cfg.commercialModel?.version ?? '', help: HELP_TEXTS[`model.${key}`] ?? '' });
     }
     for (const seg of cfg.segments ?? []) {
         rows.push({

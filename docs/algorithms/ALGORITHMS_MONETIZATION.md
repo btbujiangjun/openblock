@@ -3,6 +3,7 @@
 > 本文是 OpenBlock **商业化算法子系统**的统一手册。  
 > 范围：分群（whale_score）/ 实时策略引擎 / LTV 预测 / 与买量出价的接口。  
 > 与现有文档的关系：本文是 `MONETIZATION.md` / `MONETIZATION_TRAINING_PANEL.md` / `MONETIZATION_CUSTOMIZATION.md` 的**算法侧深化**——补充被简化的公式、阈值默认值与代码事实。
+> 若需要横向理解 CommercialModelVector 与 PlayerProfile、AbilityVector、LTV、广告频控和 RL/Spawn 边界，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
 
@@ -15,12 +16,13 @@
 5. [active 判定与排序](#5-active-判定与排序)
 6. [whyLines 推理摘要](#6-whylines-推理摘要)
 7. [LTV 预测器](#7-ltv-预测器)
-8. [广告触发与 Cap 算法](#8-广告触发与-cap-算法)
-9. [配置覆盖与热更新](#9-配置覆盖与热更新)
-10. [缓存与一致性](#10-缓存与一致性)
-11. [完整公式速查](#11-完整公式速查)
-12. [完整参数表](#12-完整参数表)
-13. [演进与开放问题](#13-演进与开放问题)
+8. [CommercialModelVector：模型化商业决策](#8-commercialmodelvector模型化商业决策)
+9. [广告触发与 Cap 算法](#9-广告触发与-cap-算法)
+10. [配置覆盖与热更新](#10-配置覆盖与热更新)
+11. [缓存与一致性](#11-缓存与一致性)
+12. [完整公式速查](#12-完整公式速查)
+13. [完整参数表](#13-完整参数表)
+14. [演进与开放问题](#14-演进与开放问题)
 
 ---
 
@@ -524,11 +526,79 @@ function getLTVEstimate(profile, attribution) {
 
 ---
 
-## 8. 广告触发与 Cap 算法
+## 8. CommercialModelVector：模型化商业决策
+
+业界成熟商业化建模一般不只做一个“鲸鱼分”，而是拆成多个可解释子目标：
+
+- **LTV 预测**：用 D1/D7 行为、渠道、分群预测 LTV30/60/90，用于买量出价和 IAP 优先级。
+- **IAP propensity**：预测某个上下文下展示 IAP offer 的期望收益。
+- **Ad propensity**：区分激励广告和插屏广告接受度，激励广告更适合近失/救援，插屏只适合自然断点。
+- **Churn risk**：焦虑、挫败、低活跃和广告疲劳会抬高流失风险。
+- **Frequency guard**：日上限、冷却、体验分、付费用户保护必须在模型之外作为硬护栏。
+- **Contextual bandit 路线**：记录 state/action/reward，周期性训练模型，在 exploitation 与 exploration 间平衡。
+
+OpenBlock 对应实现为 `web/src/monetization/commercialModel.js`，当前使用端侧规则模型输出 `CommercialModelVector`，后续可接 LightGBM / TFLite / 服务端预测值。
+
+模型权重与护栏阈值不写在 `commercialModel.js` 中，统一来自 `strategyConfig.js → commercialModel`，并可由后端 `mon_model_config` 深合并覆盖；字段解释登记在 `strategyHelp.js → model.*` cursor:help。
+
+### 8.1 输出字段
+
+| 字段 | 范围 | 含义 |
+|------|------|------|
+| `payerScore` | 0~1 | 付费潜力，融合 whaleScore、LTV、活跃、技能、分群 |
+| `iapPropensity` | 0~1 | 当前是否适合 IAP offer |
+| `rewardedAdPropensity` | 0~1 | 当前是否适合激励广告 |
+| `interstitialPropensity` | 0~1 | 当前是否适合插屏广告 |
+| `churnRisk` | 0~1 | 流失风险 |
+| `adFatigueRisk` | 0~1 | 广告疲劳风险 |
+| `guardrail` | object | 付费保护、插屏抑制、激励抑制、全部抑制 |
+| `recommendedAction` | string | `iap_offer` / `rewarded_ad` / `interstitial` / `task_or_push` / `observe` / `suppress` |
+
+### 8.2 模型输入
+
+```js
+{
+  persona: { segment, whaleScore, activityScore, skillScore, frustrationAvg, nearMissRate },
+  realtime: { frustration, hadNearMiss, flowState, momentum, sessionPhase, segment5 },
+  ltv: { ltv30, ltv60, ltv90, confidence },
+  adFreq: { rewardedCount, interstitialCount, experienceScore, inRecoveryPeriod }
+}
+```
+
+### 8.3 决策护栏
+
+模型输出不是直接展示广告，而是提供一层决策评分；最终触发必须同时通过：
+
+1. Feature Flag 开启；
+2. 广告频控通过；
+3. 弹窗 quiet window 通过；
+4. `shouldAllowMonetizationAction(model, action)` 通过。
+
+当前硬护栏：
+
+- `commercialModel.guardrail.protectPayerScore` 或 `segment=whale`：保护付费用户，屏蔽插屏。
+- `flowState=flow`：抑制插屏，避免打断心流。
+- `commercialModel.guardrail.suppressInterstitialChurnRisk`：抑制插屏，转向救援/任务。
+- `commercialModel.guardrail.suppressInterstitialFatigue`：抑制插屏；`suppressRewardedFatigue` 抑制激励广告。
+- `inRecoveryPeriod=true`：全部广告抑制。
+
+### 8.4 数据闭环
+
+模型化后应记录 state/action/reward：
+
+- `state`：`CommercialModelVector` + `PlayerProfile` + 频控状态。
+- `action`：展示的 IAP / rewarded / interstitial / push / task。
+- `reward`：点击、完播、购买、次日回访、局长变化。
+
+短期继续使用规则模型；中期可用 SQLite `mon_strategy_log`、`behaviors`、`sessions` 训练 IAP/广告倾向模型；长期按 contextual bandit 方式让模型直接选择 offer。
+
+---
+
+## 9. 广告触发与 Cap 算法
 
 详见 `web/src/monetization/adTrigger.js`，本节做算法摘要。
 
-### 8.1 频次控制（Cap）
+### 9.1 频次控制（Cap）
 
 ```
 const FREQUENCY = {
@@ -543,34 +613,34 @@ const FREQUENCY = {
 };
 ```
 
-### 8.2 触发逻辑
+### 9.2 触发逻辑
 
 ```
 trigger(format, context) {
     if (atomic_cooldown) return false;
     if (count >= cap.per_session) return false;
-    if (segment === 'whale' && format === 'interstitial') return false;
+    if (!shouldAllowMonetizationAction(model, format)) return false;
     
     if (context === 'near_miss' && format === 'rewarded') {
-        return shouldTriggerRule('dolphin_rewarded_near_miss', { persona, realtime });
+        return model.rewardedAdPropensity >= 0.45;
     }
     if (context === 'game_over' && format === 'interstitial') {
-        return true;
+        return model.interstitialPropensity >= 0.45;
     }
     return false;
 }
 ```
 
-### 8.3 与策略引擎的解耦
+### 9.3 与策略引擎的解耦
 
-`adTrigger` **不**直接读规则；通过 `shouldTriggerRule(ruleId, ctx)` 询问。  
-好处：改 rule 时无需改 trigger 代码。
+`adTrigger` 不直接决定“用户该不该商业化”，而是先执行硬频控，再调用 `CommercialModelVector` 的护栏。策略规则仍负责解释与推荐卡片，模型向量负责实时触发门控。
+好处：改规则不影响广告 SDK 触发链路，未来替换为服务端/端侧 ML 预测也只改模型输出层。
 
 ---
 
-## 9. 配置覆盖与热更新
+## 10. 配置覆盖与热更新
 
-### 9.1 配置层级
+### 10.1 配置层级
 
 ```
 默认 (DEFAULT_STRATEGY_CONFIG)
@@ -582,7 +652,7 @@ A/B 实验覆盖 (实验组特有)
 最终运行时配置
 ```
 
-### 9.2 热替换 API
+### 10.2 热替换 API
 
 ```js
 // 整体替换
@@ -601,7 +671,7 @@ registerStrategyRule({
 });
 ```
 
-### 9.3 数组语义
+### 10.3 数组语义
 
 ```js
 const _deepMerge = (target, patch) => {
@@ -615,7 +685,7 @@ const _deepMerge = (target, patch) => {
 
 **关键**：`rules` 数组**整体替换**而非合并——避免规则 ID 冲突。
 
-### 9.4 持久化
+### 10.4 持久化
 
 `mon_model_config` 表：
 
@@ -632,9 +702,9 @@ CREATE TABLE mon_model_config (
 
 ---
 
-## 10. 缓存与一致性
+## 11. 缓存与一致性
 
-### 10.1 缓存层级
+### 11.1 缓存层级
 
 ```
 L0: PlayerProfile 内存（实时）
@@ -643,7 +713,7 @@ L2: SQLite mon_user_segments（后端，共享）
 L3: 后端聚合统计 user_stats（每日 cron 重建）
 ```
 
-### 10.2 失效策略
+### 11.2 失效策略
 
 | 缓存 | TTL | 失效触发 |
 |------|-----|---------|
@@ -651,7 +721,7 @@ L3: 后端聚合统计 user_stats（每日 cron 重建）
 | `mon_user_segments` | 1h | _compute_user_profile 重算 |
 | `user_stats` | 24h | 定时任务 |
 
-### 10.3 一致性保证
+### 11.3 一致性保证
 
 - **最终一致**：实时信号优先级 > 持久画像
 - **谁是真相源**：DB 聚合 > 客户端 localStorage
@@ -659,43 +729,56 @@ L3: 后端聚合统计 user_stats（每日 cron 重建）
 
 ---
 
-## 11. 完整公式速查
+## 12. 完整公式速查
 
-### 11.1 鲸鱼分
+### 12.1 鲸鱼分
 
 $$
 \text{whale\_score} = 0.4 \cdot \min(1, \tfrac{S}{2000}) + 0.3 \cdot \min(1, \tfrac{G}{50}) + 0.3 \cdot \min(1, \tfrac{T}{600})
 $$
 
-### 11.2 LTV
+### 12.2 LTV
 
 $$
 \text{LTV}_{30d} = 2.5 \cdot c_{\text{seg}} \cdot c_{\text{chan}} \cdot c_{\text{act}} \cdot c_{\text{skill}}
 $$
 
-### 11.3 出价
+### 12.3 出价
 
 $$
 \text{bid} = \text{LTV}_{30d} \cdot \text{ROI}_{\text{target}}
 $$
 
-### 11.4 排序键
+### 12.4 排序键
 
 $$
 \text{排序} = (\text{active}, \text{priorityWeight}) \quad \text{降序}
 $$
 
-### 11.5 活跃度
+### 12.5 活跃度
 
 ```
 activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 ```
 
+### 12.6 模型化动作门控
+
+```
+allowInterstitial = !protectPayer
+                  && !suppressAll
+                  && !suppressInterstitial
+                  && interstitialPropensity >= 0.45
+
+allowRewarded     = !suppressAll
+                  && !suppressRewarded
+                  && rewardedAdPropensity >= 0.45
+```
+
 ---
 
-## 12. 完整参数表
+## 13. 完整参数表
 
-### 12.1 鲸鱼分
+### 13.1 鲸鱼分
 
 | 参数 | 默认 | 来源 |
 |------|------|------|
@@ -706,7 +789,7 @@ activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 | `totalGames 归一` | / 50 | `signalNorms.totalGames` |
 | `avgSessionSec 归一` | / 600 | `signalNorms.avgSessionSec` |
 
-### 12.2 阈值
+### 13.2 阈值
 
 | 参数 | 默认 |
 |------|-----|
@@ -719,7 +802,7 @@ activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 | `activityHigh` | 0.70 |
 | `nearMissRateHigh` | 0.30 |
 
-### 12.3 LTV
+### 13.3 LTV
 
 | 参数 | 默认 |
 |------|------|
@@ -731,7 +814,7 @@ activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 | `roiTarget` (D 类) | 0.60 |
 | `roiTarget` (其他) | 0.40 |
 
-### 12.4 5 分群 ARPU
+### 13.4 5 分群 ARPU
 
 | Segment | 系数 |
 |---------|-----|
@@ -741,7 +824,7 @@ activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 | D | 5.56 |
 | E | 0.27 |
 
-### 12.5 渠道
+### 13.5 渠道
 
 | Channel | 系数 |
 |---------|-----|
@@ -754,7 +837,7 @@ activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 | organic | 1.05 |
 | unknown | 1.00 |
 
-### 12.6 频次
+### 13.6 频次
 
 | 格式 | per_session | min_interval |
 |------|-------------|--------------|
@@ -764,9 +847,9 @@ activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 
 ---
 
-## 13. 演进与开放问题
+## 14. 演进与开放问题
 
-### 13.1 已识别的设计权衡
+### 14.1 已识别的设计权衡
 
 | 决策 | 优势 | 代价 |
 |------|------|------|
@@ -775,14 +858,14 @@ activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (streak > 0 ? 1 : 0)
 | 5 分群离线聚类 | 稳定 | 类间漂移需手工调整 |
 | LTV 系数硬编码 | 直观 | 需定期回归调系数 |
 
-### 13.2 v4 候选改进
+### 14.2 v4 候选改进
 
 1. **whale_score → ML 预测**：保持下游不变，替换为 LightGBM
 2. **规则学习**：用历史数据自动发现 high-LTV 行为模式 → 自动生成规则候选
 3. **分时优化**：不同时段（早晨 / 夜晚）的规则权重不同
 4. **多目标优化**：同时优化 ARPU + Retention + Satisfaction（多目标 RL）
 
-### 13.3 开放研究点
+### 14.3 开放研究点
 
 - **冷启动用户**：前 3 局如何更准确预测 LTV？
 - **跨设备 ID**：同一用户多设备如何聚合？

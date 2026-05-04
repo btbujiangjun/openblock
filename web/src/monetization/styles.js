@@ -386,6 +386,40 @@ const MON_CSS = `
     opacity: 0.7;
 }
 
+.ci-model-card {
+    margin: 5px 0;
+    padding: 5px 6px;
+    background: color-mix(in srgb, var(--accent-color, #5B9BD5) 7%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-color, #5B9BD5) 16%, transparent);
+    border-radius: 5px;
+}
+.ci-model-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: 8.5px;
+    color: var(--text-secondary, #5d7a96);
+}
+.ci-model-head strong {
+    color: var(--accent-dark, #4472C4);
+    font-size: 8.5px;
+}
+.ci-model-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+.ci-model-pill {
+    padding: 2px 4px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
+    color: var(--text-secondary, #5d7a96);
+    font-size: 8px;
+    white-space: nowrap;
+}
+
 /* 推理摘要：复用 #insight-why 的 ul/li 风格 */
 .ci-why-list {
     margin: 6px 0 0;

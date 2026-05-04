@@ -14,12 +14,13 @@
  *   - MonetizationBus（事件订阅）
  */
 
-import { getCommercialInsight, updateRealtimeSignals } from './personalization.js';
-import { getFlag } from './featureFlags.js';
+import { getCommercialInsight, getCommercialModelContext, updateRealtimeSignals } from './personalization.js';
 import { on } from './MonetizationBus.js';
 import { openMonPanel } from './monPanel.js';
 import { getLTVEstimate, renderLTVCard } from './ltvPredictor.js';
-import { helpAttrs, getHelpText } from './strategy/index.js';
+import { getAdFreqSnapshot } from './adTrigger.js';
+import { buildCommercialModelVector } from './commercialModel.js';
+import { getHelpText } from './strategy/index.js';
 
 const SECTION_ID = 'insight-commercial';
 
@@ -92,6 +93,22 @@ function _refreshCommercialSection(game) {
     if (game?.playerProfile) updateRealtimeSignals(game.playerProfile);
 
     const insight = getCommercialInsight();
+    let commercialModel = null;
+    let ltv = null;
+    try {
+        ltv = getLTVEstimate(game?.playerProfile);
+        commercialModel = buildCommercialModelVector({
+            ...getCommercialModelContext(),
+            profile: game?.playerProfile,
+            ltv,
+            adFreq: getAdFreqSnapshot(),
+        });
+        insight.model = commercialModel;
+        insight.whyLines = [
+            ...(insight.whyLines || []),
+            ...(commercialModel.explain || []).map((line) => `模型化：${line}`)
+        ];
+    } catch { /* ignore */ }
 
     if (badge) {
         badge.textContent = `${insight.segmentIcon} ${_segmentShortLabel(insight.segment)}`;
@@ -103,13 +120,12 @@ function _refreshCommercialSection(game) {
     // LTV 预测卡片（仅对 D 类/买量用户始终显示，其他用户数据足够时显示）
     let ltvHtml = '';
     try {
-        const ltv = getLTVEstimate(game?.playerProfile);
         if (ltv.segment === 'D' || ltv.confidence !== 'low') {
             ltvHtml = renderLTVCard(ltv);
         }
     } catch { /* ignore */ }
 
-    body.innerHTML = _renderBody(insight) + ltvHtml;
+    body.innerHTML = _renderBody(insight) + _renderModelCard(commercialModel) + ltvHtml;
 }
 
 function _segmentShortLabel(seg) {
@@ -169,6 +185,29 @@ function _renderBody(insight) {
 <div class="ci-actions-title">推荐策略</div>
 <div class="ci-actions">${actionHtml}</div>
 ${whyHtml}`;
+}
+
+function _renderModelCard(model) {
+    if (!model) return '';
+    const pct = (v) => `${Math.round(Math.max(0, Math.min(1, Number(v) || 0)) * 100)}%`;
+    const rows = [
+        ['付费', 'payerScore', model.payerScore],
+        ['IAP', 'iapPropensity', model.iapPropensity],
+        ['激励', 'rewardedAdPropensity', model.rewardedAdPropensity],
+        ['插屏', 'interstitialPropensity', model.interstitialPropensity],
+        ['流失', 'churnRisk', model.churnRisk],
+        ['疲劳', 'adFatigueRisk', model.adFatigueRisk],
+    ].map(([label, key, value]) =>
+        `<span class="ci-model-pill mon-help" data-help-key="model.${key}" title="${_attrText(getHelpText(`model.${key}`))}">${label} ${pct(value)}</span>`
+    ).join('');
+    return `
+<div class="ci-model-card">
+  <div class="ci-model-head">
+    <span>模型化决策</span>
+    <strong>${_escHtml(model.recommendedAction)}</strong>
+  </div>
+  <div class="ci-model-pills">${rows}</div>
+</div>`;
 }
 
 function _priorityBadge(p) {

@@ -1144,7 +1144,7 @@ sqlite3 openblock.db "SELECT strategy, COUNT(*), SUM(converted) FROM mon_strateg
 
 ## 17. 附录：字段速查表
 
-### 17.1 cursor:help 字段全表（44 项）
+### 17.1 cursor:help 字段全表（51 项）
 
 | 区域 | help key | 默认值 / 含义 |
 |------|---------|--------------|
@@ -1152,12 +1152,13 @@ sqlite3 openblock.db "SELECT strategy, COUNT(*), SUM(converted) FROM mon_strateg
 | **Tab 1 分群** (3) | `segment.{whale / dolphin / minnow}` | minWhaleScore = 0.60 / 0.30 / 0.00 |
 | **Tab 2 信号** (6) | `signal.{segment / activity / skill / frustration / nearMiss / flow}` | 见 §5 |
 | **Tab 2 策略卡** (1) | `rule.title` | 通用文案 |
+| **Tab 2 商业模型** (7) | `model.{payerScore / iapPropensity / rewardedAdPropensity / interstitialPropensity / churnRisk / adFatigueRisk / guardrail}` | `CommercialModelVector` 字段定义与调参影响 |
 | **Tab 3 权重** (3) | `weight.{best_score_norm / total_games_norm / session_time_norm}` | 0.40 / 0.30 / 0.30 |
 | **Tab 3 阈值** (4) | `threshold.{frustrationRescue / maxRewardedPerGame / showStarterPackHours / showWeeklyPassAfterGames}` | 5 / 3 / 24 / 5 |
 | **Tab 4 Flag** (10) | `flag.{adsRewarded / adsInterstitial / iap / dailyTasks / leaderboard / skinUnlock / seasonPass / pushNotifications / replayShare / stubMode}` | 见 §14.1 |
 | **入口** (1) | `panel.entry` | 训练面板说明 |
 
-总计 34 + 10 = **44 个登记字段**。新增任一字段必须先登记 `HELP_TEXTS`，否则面板上无 tooltip。
+总计 41 + 10 = **51 个登记字段**。新增任一字段必须先登记 `HELP_TEXTS`，否则面板上无 tooltip。
 
 ### 17.2 内置策略规则全表（8 条）
 

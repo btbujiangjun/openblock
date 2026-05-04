@@ -36,6 +36,7 @@
 | **IAA 广告变现** | 激励视频、插屏广告 | `adAdapter.js` + `adTrigger.js` | ✅ 已实现（Stub 模式） |
 | **IAP 内购变现** | 月卡/周卡/礼包/提示包 | `iapAdapter.js` | ✅ 已实现（Stub 模式） |
 | **个性化分层** | Whale/Dolphin/Minnow 分群策略 | `personalization.js` | ✅ 已实现 |
+| **模型化决策** | LTV / IAP / Ads / Churn / Fatigue 多目标评分 | `commercialModel.js` | ✅ 已实现 |
 | **留存运营** | 每日任务、赛季通行证 | `dailyTasks.js` + `seasonPass.js` | ✅ 已实现 |
 | **社交传播** | 排行榜、回放分享 | `leaderboard.js` + `replayShare.js` | ✅ 已实现 |
 | **召回通知** | Web Push 连签提醒 | `pushNotifications.js` | ✅ 已实现 |
@@ -78,6 +79,7 @@
 │               personalization.js（getCommercialInsight）              │
 │               ├─ 分群判定：Whale / Dolphin / Minnow                  │
 │               ├─ 策略矩阵：actions[] + why + effect                  │
+│               ├─ 商业模型：CommercialModelVector                     │
 │               └─ 推理摘要：whyLines[]                                │
 │                            │                                         │
 │             ┌──────────────┼──────────────────────────┐              │
@@ -124,6 +126,22 @@ game.init()（后续正常初始化，不受影响）
 import { shutdownMonetization } from './monetization/index.js';
 shutdownMonetization(); // 恢复 game.logBehavior，清除所有订阅
 ```
+
+---
+
+### 2.4 模型化商业决策层
+
+`commercialModel.js` 将业界常见商业化模型拆成可解释的多目标评分：
+
+- `payerScore`：付费潜力，融合 `whale_score`、LTV、活跃、技能、分群。
+- `iapPropensity`：当前是否适合展示 IAP offer。
+- `rewardedAdPropensity`：当前是否适合激励广告，近失/挫败节点会抬高。
+- `interstitialPropensity`：当前是否适合插屏，只允许自然断点且受护栏限制。
+- `churnRisk`：流失风险，焦虑、挫败、低活跃和广告疲劳会抬高。
+- `adFatigueRisk`：广告疲劳风险，由日频次、插屏次数、体验分计算。
+
+广告触发顺序为：Feature Flag → 硬频控 → 弹窗 quiet window → `CommercialModelVector` 护栏。
+模型权重与护栏阈值集中在 `strategyConfig.js → commercialModel`，线上可由 `mon_model_config` 深合并覆盖；字段说明登记在 `strategyHelp.js → model.*`。这让 OpenBlock 可以先用规则模型上线，后续把 `payerScore / propensity / churnRisk` 替换为 LightGBM、TFLite 或服务端模型输出，下游广告/IAP逻辑不变。
 
 ---
 

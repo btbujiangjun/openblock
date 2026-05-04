@@ -19,6 +19,9 @@ import { emit } from './MonetizationBus.js';
 import { isPurchased } from './iapAdapter.js';
 import { getBuiltinVariant } from '../abTest.js';
 import { isGameOverScreenActive, runAfterPopupQuiet } from '../popupCoordinator.js';
+import { getLTVEstimate } from './ltvPredictor.js';
+import { getCommercialModelContext, updateRealtimeSignals } from './personalization.js';
+import { buildCommercialModelVector, shouldAllowMonetizationAction } from './commercialModel.js';
 
 // ── 频控配置 ──────────────────────────────────────────────────────────────────
 const AD_CONFIG = {
@@ -89,17 +92,34 @@ function _isInRecoveryPeriod(freq) {
 
 let _rewardedThisGame = 0;
 
-function _canShowRewarded(userId) {
+function _commercialVector(game) {
+    try {
+        const profile = game?.playerProfile;
+        if (profile) updateRealtimeSignals(profile);
+        return buildCommercialModelVector({
+            ...getCommercialModelContext(),
+            profile,
+            ltv: getLTVEstimate(profile),
+            adFreq: getAdFreqSnapshot(),
+        });
+    } catch {
+        return null;
+    }
+}
+
+function _canShowRewarded(userId, game) {
     const freq = _loadFreq();
     if (_rewardedThisGame >= AD_CONFIG.rewarded.maxPerGame) return false;
     if (freq.rewardedCount >= AD_CONFIG.rewarded.maxPerDay) return false;
     const now = Date.now();
     if (now - (freq.lastRewardedTs ?? 0) < AD_CONFIG.rewarded.cooldownMs) return false;
     if (_isInRecoveryPeriod(freq)) return false;
+    const model = _commercialVector(game);
+    if (model && !shouldAllowMonetizationAction(model, 'rewarded')) return false;
     return true;
 }
 
-function _canShowInterstitial() {
+function _canShowInterstitial(game) {
     if (isAdsRemoved()) return false;
     if (isPurchased('monthly_pass') || isPurchased('annual_pass')) return false;
     const freq = _loadFreq();
@@ -108,6 +128,8 @@ function _canShowInterstitial() {
     const now = Date.now();
     if (now - (freq.lastInterstitialTs ?? 0) < AD_CONFIG.interstitial.cooldownMs) return false;
     if (_isInRecoveryPeriod(freq)) return false;
+    const model = _commercialVector(game);
+    if (model && !shouldAllowMonetizationAction(model, 'interstitial')) return false;
     return true;
 }
 
@@ -136,9 +158,9 @@ function _recordSession() {
 
 // ── 内部触发函数 ──────────────────────────────────────────────────────────────
 
-async function _triggerRewarded(reason, rewardEvent, userId) {
+async function _triggerRewarded(reason, rewardEvent, userId, game) {
     if (!getFlag('adsRewarded')) return;
-    if (!_canShowRewarded(userId)) return;
+    if (!_canShowRewarded(userId, game)) return;
 
     const shown = await runAfterPopupQuiet(async () => {
         _rewardedThisGame++;
@@ -172,9 +194,9 @@ export function initAdTrigger(game) {
     });
 
     // 游戏结束：插屏广告（含延迟 A/B 测试）
-    on('game_over', async () => {
+    on('game_over', async ({ game: g }) => {
         if (!getFlag('adsInterstitial')) return;
-        if (!_canShowInterstitial()) return;
+        if (!_canShowInterstitial(g ?? game)) return;
 
         // A/B 测试：插屏延迟时间
         const delay = getBuiltinVariant(userId, 'interstitial_delay') ?? 3000;
@@ -199,7 +221,7 @@ export function initAdTrigger(game) {
     on('no_clear', ({ game: g }) => {
         const profile = g?.playerProfile;
         if (!profile?.hadRecentNearMiss) return;
-        void _triggerRewarded('差一点！看广告获得一次消行救助', 'ad_reward_near_miss', userId);
+        void _triggerRewarded('差一点！看广告获得一次消行救助', 'ad_reward_near_miss', userId, g ?? game);
     });
 
     // 挫败感累积 → 激励视频（A/B 测试：触发阈值）
@@ -208,7 +230,7 @@ export function initAdTrigger(game) {
         if (!profile) return;
         const threshold = getBuiltinVariant(userId, 'rewarded_threshold') ?? 5;
         if (profile.frustrationLevel >= threshold) {
-            void _triggerRewarded('连续未消行！看广告获得一次救济块', 'ad_reward_frustration', userId);
+            void _triggerRewarded('连续未消行！看广告获得一次救济块', 'ad_reward_frustration', userId, g ?? game);
         }
     });
 }

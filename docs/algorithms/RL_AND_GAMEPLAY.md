@@ -33,7 +33,7 @@
 
 | 因素 | 线性 `LinearAgent` | PyTorch `PolicyValueNet` / `SharedPolicyValueNet` |
 |------|---------------------|---------------------------------------------------|
-| 参数量 | ≈161（策略）+154（价值） | 默认约 **256 宽 × 残差块**（可调 `--width` / `--*-depth`） |
+| 参数量 | 193（策略）+181（价值），随 `featureEncoding` 变化 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准（可调 `--width` / `--*-depth`） |
 | 每局梯度步数 | `reinforceUpdate` 对轨迹**逐步**更新 | `train.py` 默认对**整局**一次 `backward`（等价 batch 更大、步长相对小） |
 | 回报与价值 | 蒙特卡洛回报，无缩放 | `RL_RETURN_SCALE`（默认 **0.032**）+ GAE + `smooth_l1` 价值头 |
 | 探索 | 温度 softmax | 温度衰减 + Dirichlet + 熵 bonus，利于探索但有效策略更新更「钝」 |

@@ -27,8 +27,8 @@
 首次优化将线性模型（336 参数）替换为 2 层 MLP（~15K 参数）：
 
 ```
-φ(s,a) [174] → Dense(64) → ReLU → Dense(32) → ReLU → logit
-ψ(s)   [162] → Dense(48) → ReLU → Dense(16) → ReLU → V
+φ(s,a) [193] → Dense(64) → ReLU → Dense(32) → ReLU → logit
+ψ(s)   [181] → Dense(48) → ReLU → Dense(16) → ReLU → V
 ```
 
 ### 2.2 失败原因
@@ -65,10 +65,12 @@ MLP 实现中还遇到了两个严重的手写反向传播 bug：
 ### 3.1 架构（保持线性）
 
 ```
-策略：logit = W · φ(s,a)     W ∈ ℝ¹⁷⁴     (174 参数)
-价值：V(s)  = Vw · ψ(s)      Vw ∈ ℝ¹⁶²    (162 参数)
-                                            合计 336 参数
+策略：logit = W · φ(s,a)     W ∈ ℝ¹⁹³     (193 参数)
+价值：V(s)  = Vw · ψ(s)      Vw ∈ ℝ¹⁸¹    (181 参数)
+                                            合计 374 参数
 ```
+
+维度由 `web/src/bot/features.js` 的 `PHI_DIM` 与 `STATE_FEATURE_DIM` 读取；若 `shared/game_rules.json` 的 `featureEncoding` 变化，旧浏览器线性权重会被判定为不兼容并重新初始化。
 
 ### 3.2 训练算法改进
 
@@ -127,8 +129,8 @@ trainer.js
 
 | 参数 | 默认值（JSON 可覆盖） | 字段 |
 |------|---------------------|------|
-| 策略 | logit = W·φ, W ∈ ℝ¹⁷⁴ | `linearAgent.js` |
-| 价值 | V = Vw·ψ, Vw ∈ ℝ¹⁶² | `linearAgent.js` |
+| 策略 | logit = W·φ, W ∈ ℝ¹⁹³ | `linearAgent.js` |
+| 价值 | V = Vw·ψ, Vw ∈ ℝ¹⁸¹ | `linearAgent.js` |
 | γ (折扣) | 0.99 | `browserRlTraining.gamma` |
 | policyLr | 0.02 | `browserRlTraining.policyLr` |
 | valueLr | 0.05 | `browserRlTraining.valueLr` |

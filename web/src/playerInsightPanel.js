@@ -15,20 +15,16 @@ import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 import { getSpawnMode } from './spawnModel.js';
 import { UI_ICONS } from './uiIcons.js';
 import { countUnfillableCells } from './boardTopology.js';
+import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 
-/** 能力指标区（与 REPLAY_METRICS 对齐的键 + APM） */
+/** 模型化能力指标区：统一 AbilityVector 的 6 个核心维度 */
 const ABILITY_METRIC_ROWS = [
-    { key: 'skill', label: '技能', tooltipKey: 'skill' },
-    { key: 'clearRate', label: '消行', tooltipKey: 'clearRate' },
-    { key: 'missRate', label: '失误', tooltipKey: 'missRate' },
-    { key: 'thinkMs', label: '思考', tooltipKey: 'thinkMs' },
-    { key: 'cognitiveLoad', label: '负荷', tooltipKey: 'cognitiveLoad' },
-    {
-        key: 'engagementAPM',
-        label: 'APM',
-        tooltip:
-            '参与操作频率（次/分量级）：反映手速与投入程度；过低可能偏冷清，过高可能伴随负荷上升，均参与心流与难度微调。'
-    }
+    { key: 'skillScore', label: '能力', tooltip: '综合能力：融合局内技能 EMA、历史基线与模型化长期能力校准。' },
+    { key: 'controlScore', label: '操作', tooltip: '操作稳定性：由失误率、认知负荷、AFK 和操作频率综合得到。' },
+    { key: 'clearEfficiency', label: '消行', tooltip: '消行效率：由消行率、多消率、每次消行条数综合得到。' },
+    { key: 'boardPlanning', label: '规划', tooltip: '盘面规划：由空洞、填充压力、可落位空间和临消机会综合得到。' },
+    { key: 'riskLevel', label: '风险', tooltip: '短期风险：高填充、空洞、连续未消行和操作不稳会抬高该值。' },
+    { key: 'confidence', label: '置信', tooltip: '数据置信度：历史局数、终身落子数和本局采样越多越高。' }
 ];
 
 const _METRIC_TOOLTIP_BY_KEY = Object.fromEntries(
@@ -300,6 +296,13 @@ function _buildLiveSnapshotForSeries(game) {
     const p = game.playerProfile;
     const ins = game._lastAdaptiveInsight;
     const m = p.metrics;
+    const ability = ins?.abilityVector || buildPlayerAbilityVector(p, {
+        grid: game.grid,
+        boardFill: game.grid?.getFillRatio?.() ?? 0,
+        gameStats: game.gameStats,
+        spawnContext: game._spawnContext,
+        adaptiveInsight: ins,
+    });
     /** @type {Record<string, unknown>} */
     const slim = {
         pv: 1,
@@ -317,6 +320,7 @@ function _buildLiveSnapshotForSeries(game) {
         sessionPhase: p.sessionPhase,
         spawnRound: p.spawnRoundIndex,
         feedbackBias: p.feedbackBias,
+        ability,
         metrics: {
             thinkMs: m.thinkMs,
             clearRate: m.clearRate,
@@ -441,6 +445,11 @@ function _buildWhyLines(insight) {
             `技能估计 ${_pct(insight.skillLevel)}：偏高时略加压、偏低时略减压。`
         );
     }
+    if (insight.abilityVector) {
+        for (const line of insight.abilityVector.explain || []) {
+            lines.push(`能力模型：${line}。`);
+        }
+    }
     if (insight.flowDeviation != null) {
         const fd = insight.flowDeviation;
         const fdDesc = fd < 0.25 ? '沉浸区' : fd < 0.5 ? '轻度偏移' : '显著偏移';
@@ -481,7 +490,13 @@ function _render(game) {
 
     const p = game.playerProfile;
     const ins = game._lastAdaptiveInsight;
-    const liveSkill = p.skillLevel;
+    const ability = ins?.abilityVector || buildPlayerAbilityVector(p, {
+        grid: game.grid,
+        boardFill: game.grid?.getFillRatio?.() ?? 0,
+        gameStats: game.gameStats,
+        spawnContext: game._spawnContext,
+        adaptiveInsight: ins,
+    });
 
     const elAbility = document.getElementById('insight-ability');
     const elState = document.getElementById('insight-state');
@@ -489,16 +504,9 @@ function _render(game) {
     const elWhy = document.getElementById('insight-why');
 
     if (elAbility) {
-        const m = p.metrics;
         const abilityHtml = ABILITY_METRIC_ROWS.map((row) => {
-            const tt = row.tooltip || _METRIC_TOOLTIP_BY_KEY[row.tooltipKey] || '';
-            let val = '—';
-            if (row.key === 'skill') val = _pct(liveSkill);
-            else if (row.key === 'clearRate') val = `${(m.clearRate * 100).toFixed(0)}%`;
-            else if (row.key === 'missRate') val = `${(m.missRate * 100).toFixed(0)}%`;
-            else if (row.key === 'thinkMs') val = `${Math.round(m.thinkMs)}ms`;
-            else if (row.key === 'cognitiveLoad') val = _pct(p.cognitiveLoad);
-            else if (row.key === 'engagementAPM') val = p.engagementAPM.toFixed(1);
+            const tt = row.tooltip || '';
+            const val = _pct(ability[row.key]);
             return `<div class="insight-metric" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
         }).join('');
 

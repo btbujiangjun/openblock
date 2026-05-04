@@ -36,6 +36,7 @@ import {
     getRunDifficultyModifiers,
     resolveLayeredStrategy
 } from './difficulty.js';
+import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 
 /* ------------------------------------------------------------------ */
 /*  profile 插值                                                       */
@@ -339,10 +340,21 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const holes = Math.max(0, Number(ctx.holes ?? 0) || 0);
     const holePressure = Math.max(0, Math.min(1, holes / Math.max(1, topoCfg.holePressureMax ?? 8)));
     const holeReliefAdjust = holePressure * (topoCfg.holeReliefStress ?? -0.16);
+    const ability = buildPlayerAbilityVector(profile, {
+        boardFill: _boardFill ?? 0,
+        spawnContext: ctx,
+        topology: {
+            holes,
+            fillRatio: _boardFill ?? 0,
+            close1: ctx.close1 ?? 0,
+            close2: ctx.close2 ?? 0,
+            mobility: ctx.mobility ?? 0,
+        },
+    });
 
     /* ---------- 技能调节（置信度门控） ---------- */
-    const skill = profile.skillLevel;
-    const conf = profile.confidence ?? 0;
+    const skill = ability.skillScore;
+    const conf = ability.confidence;
     const confGate = 0.4 + 0.6 * conf;
     const skillAdjust = (skill - 0.5) * (fz.skillAdjustScale ?? 0.3) * confGate;
 
@@ -395,6 +407,13 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const milestoneCheck = checkMilestone(score, _prevMilestone);
     if (milestoneCheck.hit) _prevMilestone = milestoneCheck.milestone;
     const delight = deriveDelightTuning(profile, ctx, _boardFill ?? 0, cfg.delight ?? {});
+    const abilityRiskCfg = GAME_RULES.playerAbilityModel?.adaptiveSpawnRiskAdjust ?? {};
+    const abilityRiskMinConf = abilityRiskCfg.minConfidence ?? 0.25;
+    const abilityRiskThreshold = abilityRiskCfg.riskThreshold ?? 0.62;
+    const abilityRiskRelief = abilityRiskCfg.stressRelief ?? -0.08;
+    const abilityRiskAdjust = ability.confidence >= abilityRiskMinConf && ability.riskLevel >= abilityRiskThreshold
+        ? abilityRiskRelief * Math.min(1, (ability.riskLevel - abilityRiskThreshold) / Math.max(0.001, 1 - abilityRiskThreshold))
+        : 0;
 
     /* ---------- 难度偏移：让 easy/normal/hard 显著影响自适应 stress 基线 ---------- */
     const fallbackDifficultyBias = baseStrategyId === 'easy' ? -0.22
@@ -418,6 +437,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         + trendAdjust
         + sessionArcAdjust
         + holeReliefAdjust
+        + abilityRiskAdjust
         + delight.stressAdjust;
 
     /* ---------- 特殊覆写：新手保护 ---------- */
@@ -665,6 +685,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _delightMode: delight.mode,
         _delightBoost: delight.multiClearBoost,
         _perfectClearBoost: delight.perfectClearBoost,
-        _targetSolutionRange: targetSolutionRange
+        _targetSolutionRange: targetSolutionRange,
+        _abilityVector: ability,
+        _abilityRiskAdjust: abilityRiskAdjust
     };
 }

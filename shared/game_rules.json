@@ -215,6 +215,75 @@
       ]
     }
   },
+  "playerAbilityModel": {
+    "comment": "AbilityVector 规则模型配置。所有权重与阈值集中在此，避免 playerAbilityModel.js / adaptiveSpawn.js 直接写模型魔术数字；仅影响真人路径的能力展示、回放快照和自适应减压。",
+    "version": 1,
+    "bands": {
+      "riskHigh": 0.72,
+      "riskMid": 0.42,
+      "skillExpert": 0.78,
+      "skillAdvanced": 0.58,
+      "skillDeveloping": 0.36
+    },
+    "baseline": {
+      "skillMinConfidence": 0.35,
+      "skillBlendScale": 0.35,
+      "riskMinConfidence": 0.45,
+      "riskBlend": 0.25
+    },
+    "control": {
+      "missRateMax": 0.3,
+      "afkMax": 3,
+      "apmMax": 14,
+      "weights": { "miss": 0.38, "cognitiveLoad": 0.27, "afk": 0.17, "apm": 0.18 }
+    },
+    "clearEfficiency": {
+      "clearRateMax": 0.55,
+      "comboRateMax": 0.45,
+      "avgLinesMax": 2.5,
+      "weights": { "clearRate": 0.55, "comboRate": 0.25, "avgLines": 0.20 }
+    },
+    "boardPlanning": {
+      "holeMax": 10,
+      "fillPenaltyStart": 0.58,
+      "fillPenaltySpan": 0.36,
+      "mobilityMax": 120,
+      "closeLinesMax": 6,
+      "fallbackMobilityScore": 0.55,
+      "weights": { "holes": 0.36, "fill": 0.22, "mobility": 0.22, "nearClear": 0.20 }
+    },
+    "risk": {
+      "frustrationMax": 5,
+      "roundsSinceClearMax": 4,
+      "weights": { "boardFill": 0.32, "holes": 0.28, "frustration": 0.18, "roundsSinceClear": 0.12, "control": 0.10 }
+    },
+    "riskTolerance": {
+      "nearMissBonus": 0.18,
+      "recoveryPenalty": -0.15,
+      "comboRateMax": 0.5,
+      "weights": { "boardFill": 0.35, "comboRate": 0.22, "clearEfficiency": 0.20 }
+    },
+    "confidence": {
+      "profileWeight": 0.65,
+      "lifetimePlacementsMax": 80,
+      "lifetimePlacementsWeight": 0.25,
+      "gamePlacementsMax": 20,
+      "gamePlacementsWeight": 0.10
+    },
+    "explain": {
+      "clearEfficiencyHigh": 0.72,
+      "clearEfficiencyLow": 0.35,
+      "boardPlanningHigh": 0.70,
+      "boardPlanningLow": 0.38,
+      "controlLow": 0.42,
+      "riskHigh": 0.70
+    },
+    "adaptiveSpawnRiskAdjust": {
+      "minConfidence": 0.25,
+      "riskThreshold": 0.62,
+      "stressRelief": -0.08
+    }
+  },
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
     "comment": "v6 优化奖励：增大势函数系数与终局信号，降低 outcome 混合比例让 V 学会逐步评估。",

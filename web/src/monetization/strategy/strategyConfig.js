@@ -113,6 +113,58 @@ export const DEFAULT_STRATEGY_CONFIG = {
         experienceRecoveryBelow: 60,
     },
 
+    /** CommercialModelVector 多目标评分配置（可由后端 mon_model_config 深合并覆盖） */
+    commercialModel: {
+        version: 1,
+        ltvNormMax: 20,
+        ltvConfidence: { high: 0.9, medium: 0.6, low: 0.25 },
+        bands: { high: 0.72, mid: 0.42 },
+        baseline: { payerBlendScale: 0.35 },
+        adFatigue: {
+            rewardedMax: 12,
+            interstitialMax: 6,
+            weights: { experience: 0.5, rewardedCount: 0.2, interstitialCount: 0.3 },
+        },
+        payerScoreWeights: {
+            whaleScore: 0.34,
+            ltvScore: 0.28,
+            activityScore: 0.18,
+            skillScore: 0.10,
+            segmentWhaleBonus: 0.10,
+            segmentDolphinBonus: 0.04,
+        },
+        churnRiskWeights: {
+            inactivity: 0.26,
+            frustration: 0.24,
+            anxiousFlow: 0.18,
+            flowRelief: -0.08,
+            frustrationAvg: 0.12,
+            adFatigue: 0.20,
+        },
+        propensityWeights: {
+            iap: { payerScore: 0.55, frustration: 0.15, boredFlow: 0.10, anxiousFlow: 0.05, ltvConfidence: 0.10, adFatigue: -0.08 },
+            rewarded: { nonPayer: 0.18, nearMissRate: 0.18, hadNearMiss: 0.28, frustration: 0.18, lowFatigue: 0.18 },
+            interstitial: { nonPayer: 0.36, lowChurn: 0.22, lowFatigue: 0.22, flowPenalty: -0.18, minnowBonus: 0.16 },
+        },
+        norms: { frustrationIap: 5, frustrationRewarded: 5, frustrationChurn: 6 },
+        guardrail: {
+            protectPayerScore: 0.68,
+            suppressInterstitialPayerScore: 0.55,
+            suppressInterstitialChurnRisk: 0.62,
+            suppressInterstitialFatigue: 0.55,
+            suppressRewardedFatigue: 0.72,
+            suppressAllFatigue: 0.82,
+        },
+        actionThresholds: {
+            iapRecommend: 0.68,
+            rewardedRecommend: 0.55,
+            interstitialRecommend: 0.5,
+            churnTask: 0.62,
+            lowPayerTask: 0.35,
+            allowAction: 0.45,
+        },
+    },
+
     // ── IAP 产品目录（与 iapAdapter.js PRODUCTS 镜像，仅展示用） ──────────────
     products: {
         remove_ads:   { label: '移除广告',         price: '¥18',  type: 'one_time' },

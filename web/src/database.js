@@ -4,6 +4,7 @@
  */
 import { getApiBaseUrl, isSqliteClientDatabase, ACHIEVEMENTS_BY_ID } from './config.js';
 import { getSessionAttributionSnapshot } from './channelAttribution.js';
+import { buildAbilityTrainingDataset } from './playerAbilityModel.js';
 
 async function apiJson(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -109,6 +110,15 @@ export class Database {
             `/api/replay-sessions?user_id=${encodeURIComponent(this.userId)}&limit=${limit}`
         );
         return Array.isArray(rows) ? rows : [];
+    }
+
+    /**
+     * 玩家能力模型离线样本：由可回放对局 frames[].ps + session/game_stats 生成。
+     * 仅做本地构建，不把商业分群当作技能真值。
+     */
+    async getAbilityTrainingDataset(limit = 200) {
+        const rows = await this.listReplaySessions(limit);
+        return buildAbilityTrainingDataset(rows);
     }
 
     /**

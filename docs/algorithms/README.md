@@ -3,6 +3,7 @@
 出块、玩家画像、强化学习和商业化推断的算法与模型文档。
 
 - [算法与模型手册](./ALGORITHMS_HANDBOOK.md)
+- [模型工程总览](./MODEL_ENGINEERING_GUIDE.md)
 - [出块算法手册](./ALGORITHMS_SPAWN.md)
 - [玩家画像算法](./ALGORITHMS_PLAYER_MODEL.md)
 - [RL 算法手册](./ALGORITHMS_RL.md)

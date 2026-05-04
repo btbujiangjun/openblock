@@ -4,6 +4,7 @@
  */
 import { Grid } from './grid.js';
 import { computeClearScore } from './clearScoring.js';
+import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 
 export const MOVE_SEQUENCE_SCHEMA = 1;
 /** 玩家状态快照内部版本，便于日后扩展字段 */
@@ -204,9 +205,15 @@ export function buildPlayerStateSnapshot(profile, ctx) {
         hadNearMiss: profile.hadRecentNearMiss,
         isNewPlayer: profile.isNewPlayer,
         recentComboStreak: profile.recentComboStreak,
+        playstyle: profile.playstyle,
+        segment5: profile.segment5,
         historicalSkill: profile.historicalSkill,
         trend: profile.trend,
         confidence: profile.confidence,
+        ability: buildPlayerAbilityVector(profile, {
+            boardFill: ctx.boardFill,
+            adaptiveInsight: a,
+        }),
         metrics: {
             thinkMs: m.thinkMs,
             clearRate: m.clearRate,

@@ -49,7 +49,7 @@
 - 候选区：约 40 种形状中选 3 个 × 放置状态 → 组合极大
 - **有效状态空间**远小于理论值，但仍是天文数字
 
-当前状态编码：**154 维** = 15 标量 + 64 棋盘占用 + 75 dock 掩码
+当前实现状态编码以 `shared/game_rules.json` 的 `featureEncoding` 为准：**181 维** = 42 标量 + 64 棋盘占用 + 75 dock 掩码；动作特征 **12 维**，`φ(s,a)` 为 **193 维**。旧文档中的 154/162 维是早期编码版本，仅作为历史演进参考。
 
 ### 2.2 动作空间
 
@@ -92,56 +92,54 @@
 ### 3.1 架构（conv-shared，默认）
 
 ```
-状态 154 维 ─┬─ scalars[15] ───────────────────┐
-             ├─ grid[64] → reshape(1,8,8)       │
-             │   → Conv2d(1→32,k3)×3 + GELU     │
-             │   → 全局平均池化 → [32]           │
-             └─ dock[75] ────────────────────────┤
-                                                 ▼
-                              concat [15+32+75=122]
+状态 181 维 ─┬─ scalars[42] ───────────────────────────┐
+             ├─ grid[64] → reshape(1,8,8)               │
+             │   → Conv2d + ResConv×2 + GELU            │
+             │   ├─ 全局平均池化 → [32]                 │
+             │   └─ 空间特征供 dock cross-attention     │
+             └─ dock[75] → DockBoardAttention → [48] ───┤
+                                                        ▼
+                              concat [42+32+48=122]
                               → LayerNorm → Linear(122→128) + GELU
                               → Linear(128→128) + residual ×2
                               → h(s) [128]
                                    │
-              ┌────────────────────┼────────────────────┐
-              ▼                    ▼                     ▼
-         value_head            策略头                动作嵌入
-         Linear(128→64)     h(s) ⊕ ψ(a)           Linear(7→48)
-         → GELU             → Linear(176→128)      → GELU
-         → Linear(64→1)     → GELU                 → ψ(a) [48]
-         → V(s)             → Linear(128→1)
-                            → logit
+              ┌────────────────────┼────────────────────────────┐
+              ▼                    ▼                            ▼
+         value_head            策略头                       辅助监督头
+         Linear(128→64)     h(s) ⊕ ψ(a)                  board_quality /
+         → GELU             Linear(12→48) → GELU          feasibility /
+         → Linear(64→1)     → Linear(176→128)             survival /
+         → V(s)             → GELU → Linear(128→1)        hole / clear_pred /
+                            → logit                       topology_aux
 ```
 
-参数量：~99K（优化前实测），优化后 ~132K（CNN 残差 + dock MLP + 深价值头）
+参数量随辅助头和 dock 编码配置变化；当前默认结构以 `rl_pytorch/model.py` 为事实源。
 
 ### 3.2 特征工程评估
 
-**状态特征（154 维）** — 优缺点：
+**状态特征（181 维）** — 优缺点：
 
 | 维度 | 内容 | 评价 |
 |------|------|------|
-| 15 标量 | 填充率、行列极值、almost-full、std | ✅ 有用，但缺少空洞/连通性信息 |
+| 42 标量 | 填充率、行列极值、fillable-aware 临消、空洞、跳变、井、颜色摘要等 | ✅ 覆盖基础几何、拓扑和颜色统计 |
 | 64 棋盘 | 二值占用 0/1 | ⚠️ 丢失了格子颜色、相对位置模式 |
 | 75 dock | 3×5×5 形状掩码 | ✅ 足够表达形状 |
 
-**缺失的关键特征**：
-1. **空洞 (holes)**：被占用格子包围的空格，是死局的主要原因
-2. **连通性**：空白区域的连通分量数和大小
-3. **行/列完成距离**：每行/列距满行还差几格
-4. **可放置性**：每个 dock 块当前有多少合法位置
+**仍需持续评估的关键特征**：
+1. **连通性**：空白区域的连通分量数和大小仍可作为后续增强。
+2. **长期可放置性**：当前 mobility 是即时特征，对未来 dock 分布的估计仍依赖搜索或 spawn predictor。
+3. **颜色语义**：颜色不影响基础消行，但影响 bonus 与视觉识别，当前只做摘要统计。
 
-**动作特征（7 维）**：
+**动作特征（12 维）**：
 
 | 维度 | 内容 | 评价 |
 |------|------|------|
-| block_idx/3 | 块索引 | 低信息量 |
-| gx/8, gy/8 | 归一化坐标 | ✅ 基础位置 |
-| w/5, h/5 | 形状宽高 | 信息冗余（dock 已编码） |
-| cells/10 | 格子数 | 同上 |
-| would_clear/5 | 放置后消除行数 | ✅ **最关键的动作特征** |
+| 基础动作 | block_idx、归一化坐标、形状宽高、面积 | 提供动作身份与空间位置 |
+| 直接后果 | would_clear、holes_after、delta_transitions | 让策略看到落子后的即时质量 |
+| 机会变化 | new_almost_full、post_mobility 等 | 估计临消机会和剩余机动性 |
 
-**问题**：`would_clear` 是唯一携带"后果信息"的特征，但缺少放置后的**board 质量评估**（如放置后空洞变化、新的 almost-full 行数等）。
+**当前重点**：动作特征已经包含放置后的棋盘质量代理，训练效果主要取决于这些代理与辅助监督头是否同口径。
 
 ### 3.3 训练管线评估
 
@@ -167,10 +165,10 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 
 #### 问题 2：特征信息瓶颈
 
-状态编码 154 维中，最有用的是 64 维棋盘占用（被 CNN 处理）+ 15 标量。但这些特征无法表达：
-- 放置块后**新增空洞数**
-- 当前局面的**生存压力**（所有块还能放多久）
-- **清行距离**（哪些行/列差 1~2 格就满）
+当前 181 维编码已经补入空洞、临消、跳变、井、mobility 等拓扑信号；后续瓶颈从“是否有特征”转向“特征口径是否正确”和“网络能否把特征与空间结构结合”：
+- `holes` 必须按“所有形状都无法覆盖”定义，避免传统包围空格误判。
+- `lines_clearable_1/2` 必须是 fillable-aware，不能只看空格数。
+- 放置后质量要与 `topology_aux_head` 的监督标签保持一致。
 
 #### 问题 3：采集效率低
 
@@ -186,7 +184,7 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 
 ### 4.1 特征增强（预计提升效果：⭐⭐⭐⭐⭐）
 
-在 `extract_state_features` 的 15 维标量中**增加高价值特征**：
+当前已在 `extract_state_features` 中纳入高价值拓扑特征：
 
 | 新特征 | 维度 | 说明 |
 |--------|------|------|
@@ -199,13 +197,13 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 | lines_clearable_2/n | 1 | 差 2 格且全部缺口可被合法形状覆盖的行列数 / n |
 | dock_mobility/max | 1 | 当前三块总合法位置数 / 理论最大 |
 
-**stateScalarDim**: 15 → 23，**stateDim**: 154 → 162，**phiDim**: 161 → 169
+当前契约：**stateScalarDim = 42**，**stateDim = 181**，**actionDim = 12**，**phiDim = 193**。
 
 这些特征在俄罗斯方块 AI 研究中被证明是最关键的状态描述子。
 
 ### 4.2 动作特征增强（预计提升：⭐⭐⭐⭐）
 
-在 7 维动作特征中增加：
+当前动作特征已经从早期 7 维扩展到 12 维，重点包括：
 
 | 新特征 | 维度 | 说明 |
 |--------|------|------|
@@ -214,7 +212,7 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 | new_almost_full | 1 | 放置后新增 almost-full 行列数 / n |
 | post_mobility | 1 | 放置后剩余块总合法位置数 / max |
 
-**actionDim**: 7 → 11，**phiDim**: 169 → 173
+当前契约：**actionDim = 12**，与状态拼接后的 **phiDim = 193**。
 
 `holes_after` 是最关键的动作质量信号之一：它不看传统列高，而是模拟落子和消行后，统计所有形状库仍无法覆盖的空格，更接近真实死角风险。
 
@@ -269,18 +267,18 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 
 ---
 
-## 六、附录：维度契约变更
+## 六、附录：当前维度契约
 
-实施 P0（特征增强）后的新维度：
+当前维度以 `shared/game_rules.json` 的 `featureEncoding` 为准：
 
 ```
 featureEncoding:
-  stateScalarDim: 23      (was 15)
-  gridSpatialDim: 64      (unchanged)
-  dockSpatialDim: 75      (unchanged)
-  stateDim:       162     (was 154)
-  actionDim:      11      (was 7)
-  phiDim:         173     (was 161)
+  stateScalarDim: 42
+  gridSpatialDim: 64
+  dockSpatialDim: 75
+  stateDim:       181
+  actionDim:      12
+  phiDim:         193
 ```
 
-需同步更新：`shared/game_rules.json`、`rl_pytorch/features.py`、`rl_pytorch/model.py`、`web/src/bot/features.js`（如有）。
+需同步更新：`shared/game_rules.json`、`rl_pytorch/features.py`、`rl_pytorch/model.py`、`web/src/bot/features.js`、`web/src/bot/linearAgent.js`、`rl_mlx/features.py`。任何维度变化都意味着旧 checkpoint 不再兼容，必须重训或显式迁移。
