@@ -2140,6 +2140,11 @@ body.game-over-active .first-win-banner {
     min-width: 0;
 }
 
+.insight-weights--compact {
+    align-items: flex-start;
+    gap: 4px 5px;
+}
+
 .insight-weight {
     font-size: 8.5px;
     padding: 2px 5px;

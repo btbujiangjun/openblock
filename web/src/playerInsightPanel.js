@@ -534,13 +534,12 @@ function _render(game) {
 
     if (elSpawn && ins) {
         const s = ins.stress;
-        const weights = (ins.shapeWeightsTop || [])
+        const weightPills = (ins.shapeWeightsTop || [])
             .map(
                 (w) =>
                     `<span class="insight-weight" title="${_attrTitle(SPAWN_TOOLTIP.shapeW)}">` +
                     `${CAT_LABEL[w.category] || w.category} ${w.weight.toFixed(1)}</span>`
-            )
-            .join('');
+            );
         const h = ins.spawnHints;
         const stressStr = typeof s === 'number' ? s.toFixed(2) : '—';
         const fillStr = `${(ins.boardFill * 100).toFixed(0)}%`;
@@ -614,12 +613,15 @@ function _render(game) {
 
         const fallbackRow = _spawnModeFallbackRowHtml(ins);
 
+        const allPills = [
+            ...metricPills,
+            ...layer2Pills,
+            ...diagPills,
+            ...weightPills
+        ];
         const allRows = [
             fallbackRow,
-            `<div class="insight-weights">${metricPills.join('')}</div>`,
-            layer2Pills.length ? `<div class="insight-weights">${layer2Pills.join('')}</div>` : '',
-            diagPills.length ? `<div class="insight-weights">${diagPills.join('')}</div>` : '',
-            `<div class="insight-weights">${weights}</div>`
+            allPills.length ? `<div class="insight-weights insight-weights--compact">${allPills.join('')}</div>` : ''
         ].filter(Boolean).join('');
 
         elSpawn.innerHTML = `<div class="insight-spawn-stack">${allRows}</div>`;
