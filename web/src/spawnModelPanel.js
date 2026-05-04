@@ -13,12 +13,36 @@ import {
     stopTraining,
     reloadModel,
 } from './spawnModel.js';
-import { resolveAdaptiveStrategy } from './adaptiveSpawn.js';
 import { getLastSpawnDiagnostics } from './bot/blockSpawn.js';
 import { skipWhenDocumentHidden } from './lib/pageVisibility.js';
+import { getAllShapes } from './shapes.js';
+import { analyzeBoardTopology } from './boardTopology.js';
 
 let _pollTimer = null;
 let _layerRefreshTimer = null;
+
+function _bestMultiClearPotential(grid, shapeData) {
+    if (!grid || !shapeData) return 0;
+    let best = 0;
+    for (let y = 0; y < grid.size; y++) {
+        for (let x = 0; x < grid.size; x++) {
+            const outcome = grid.previewClearOutcome?.(shapeData, x, y, 0);
+            if (!outcome) continue;
+            best = Math.max(best, (outcome.rows?.length ?? 0) + (outcome.cols?.length ?? 0));
+            if (best >= 2) return best;
+        }
+    }
+    return best;
+}
+
+function _countLiveMultiClearCandidates(grid) {
+    if (!grid) return null;
+    let count = 0;
+    for (const shape of getAllShapes()) {
+        if (_bestMultiClearPotential(grid, shape.data) >= 2) count++;
+    }
+    return count;
+}
 
 /** 实时刷新三层参数展示（对应 blockSpawn.js 三层架构） */
 function _refreshLayerParams(game) {
@@ -28,33 +52,20 @@ function _refreshLayerParams(game) {
 
     // 从 blockSpawn.js 获取上一轮出块诊断（Layer 1 数据来源）
     const diag = getLastSpawnDiagnostics();
-
-    // 从 resolveAdaptiveStrategy 获取 spawnHints（Layer 2/3 数据来源）
-    // 注意：第 5 个参数必须传棋盘填充率，而非消行数
-    let hints = {};
-    try {
-        const strategy = resolveAdaptiveStrategy(
-            game.strategy,
-            profile,
-            game.score ?? 0,
-            game.runStreak ?? 0,
-            game.grid?.getFillRatio() ?? 0,   // 正确：棋盘填充率
-            ctx
-        );
-        hints = strategy.spawnHints ?? {};
-    } catch { /* ignore */ }
+    const hints = game._lastAdaptiveInsight?.spawnHints ?? {};
+    const liveTopo = game.grid ? analyzeBoardTopology(game.grid) : null;
 
     // ── Layer 1: 盘面拓扑感知 ──────────────────────────────────────────────
-    const fill = diag?.layer1?.fill ?? game.grid?.getFillRatio() ?? null;
+    const fill = game.grid?.getFillRatio?.() ?? diag?.layer1?.fill ?? null;
     _set('sl-fill',    fill != null ? (fill * 100).toFixed(1) + '%' : '–');
-    _set('sl-holes',   diag?.layer1?.holes ?? '–');
-    _set('sl-flatness', diag?.layer1?.flatness != null
-        ? diag.layer1.flatness.toFixed(2) : '–');
-    const nfl = diag?.layer1?.nearFullLines ?? 0;
+    _set('sl-holes',   liveTopo?.holes ?? diag?.layer1?.holes ?? '–');
+    const flatness = liveTopo?.flatness ?? diag?.layer1?.flatness;
+    _set('sl-flatness', flatness != null ? flatness.toFixed(2) : '–');
+    const nfl = liveTopo?.nearFullLines ?? diag?.layer1?.nearFullLines ?? 0;
     // 临消行数高亮：≥4 显示清屏预警
     const nflText = nfl >= 5 ? `${nfl} 🔥清屏机会` : nfl >= 4 ? `${nfl} ⚡多消窗口` : String(nfl);
     _set('sl-nfl', nfl > 0 ? nflText : '–');
-    _set('sl-mcc', diag?.layer1?.multiClearCandidates ?? '–');
+    _set('sl-mcc', _countLiveMultiClearCandidates(game.grid) ?? diag?.layer1?.multiClearCandidates ?? '–');
 
     // ── Layer 2: 局内体验 ─────────────────────────────────────────────────
     _set('sl-cc', hints.comboChain != null ? hints.comboChain.toFixed(2) : '0.00');
@@ -108,9 +119,8 @@ export function initSpawnModelPanel(game) {
             if (r.checked) {
                 setSpawnMode(r.value);
                 _refreshBadge();
-                if (typeof game._playerInsightRefresh === 'function') {
-                    game._playerInsightRefresh();
-                }
+            game._playerInsightRefresh?.();
+            game._spawnModelLayerRefresh?.();
             }
         });
     });
@@ -160,11 +170,13 @@ export function initSpawnModelPanel(game) {
 
     _refreshBadge();
 
-    // 三层参数：每 2 秒刷新一次（面板展开时有意义）
-    _layerRefreshTimer = setInterval(
-        skipWhenDocumentHidden(() => _refreshLayerParams(game)),
-        2000
-    );
+    // 三层参数展示的是“上一轮出块快照”，不能后台轮询重算；
+    // 否则无操作时 resolveAdaptiveStrategy 的节奏/反馈信号会让数字持续漂移。
+    if (_layerRefreshTimer) {
+        clearInterval(_layerRefreshTimer);
+        _layerRefreshTimer = null;
+    }
+    game._spawnModelLayerRefresh = () => _refreshLayerParams(game);
     _refreshLayerParams(game);
 
     async function _refreshBadge() {

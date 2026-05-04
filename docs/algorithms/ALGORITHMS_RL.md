@@ -169,7 +169,7 @@ _reevaluate_and_update
   ├─ PPO / GAE
   ├─ Q distillation：policy 学归一化后的 beam/MCTS Q softmax 搜索分布
   ├─ visit_pi distillation：MCTS 模式下直接学习访问分布（系数可退火）
-  ├─ auxiliary heads：board_quality / feasibility / survival
+  ├─ auxiliary heads：board_quality / feasibility / survival / hole / clear_pred
   ├─ searchReplay：抽样重放困难 self-play 局
   └─ EvalGate：固定节奏、多 seed 组评估候选 vs 基线
 ```
@@ -227,7 +227,7 @@ s = [scalars(42) ; grid_flat(64) ; dock_flat(75)]
 | 5  | 列方差 | $\sigma$(各列填充率) | scaled |
 | 6  | 列最大 | 最大列填充率 | $[0,1]$ |
 | 7  | 近满线比例 | `count(line ≥ 6/8) / 16` | $[0,1]$ |
-| 8  | 空洞数 | 被四面包围的空格 | scaled |
+| 8  | 空洞数 | 所有形状都无法合法覆盖的空格 | scaled |
 | 9  | 过渡数 | 0↔1 边界总数 | scaled |
 | 10 | 井深和 | 列高与邻居差 ≥2 的累加 | scaled |
 | 11 | mobility | 当前可放法数 | $[0,1]$ |
@@ -237,6 +237,25 @@ s = [scalars(42) ; grid_flat(64) ; dock_flat(75)]
 | 39-41 | dock 颜色 | 3 个候选块的 `colorIdx/(colorCount-1)` | $[0,1]$ |
 
 > 完整定义：`rl_pytorch/features.py` 与 `web/src/bot/features.js` 必须**字节级一致**，单测 `tests/features.test.js` 校验。
+
+### 3.2.1 盘面扩展感知指标含义
+
+这些指标的目标不是直接代替棋盘 64 维 occupancy，而是把“为什么这个盘面危险/有潜力”显式暴露给策略和辅助损失：
+
+| 指标 | 含义 | 对策略的作用 | RL 接入 |
+|------|------|--------------|---------|
+| `fill_ratio` | 已占格 / 64 | 判断总体拥挤度，防止高填充继续堆叠 | state + `topology_aux` |
+| `row/col mean/std/max/min` | 行列填充分布 | 识别局部堆积、横向/纵向不均衡 | state |
+| `almost_full_rows/cols` | 接近满行/列且空格可被形状库覆盖的数量 | 发现可兑现消行机会，排除死角假机会 | state |
+| `close1/close2` | 差 1 / 2 格且所有缺口可被合法形状覆盖的行列数 | 区分“马上能消”和“需要搭桥”，但不把不可填空洞算作机会 | state + `topology_aux` |
+| `holes` | 所有形状都无法合法覆盖的空格 | 表示真实死角，不是列高空洞 | state + `hole_aux` + `topology_aux` |
+| `row_trans/col_trans` | 行/列 0↔1 边界次数 | 衡量碎片化程度，越高越难规划 | state + `topology_aux` |
+| `wells` | 左右被挡住的空格数量 | 衡量狭窄井/夹缝风险 | state + `topology_aux` |
+| `mobility` | 当前 dock 的总合法落点数 | 衡量剩余选择空间 | state + `topology_aux` |
+| `color_counts` | 各颜色占格比例 | 支持同色 / 同 icon bonus 机会识别 | state |
+| `mono_line_potential` | 每种颜色在可同色线中的最佳进度 | 识别 bonus 线潜力 | state |
+
+动作特征中的 `holesRisk` 也使用同一口径：模拟当前动作落子并消行后，统计不可覆盖空洞数，而不是估算落子下方空格。
 
 ### 3.3 64 维 grid 占用
 
@@ -527,6 +546,7 @@ loss = (
     - entropy_coef  · entropy_mean        # ← 减号：最大化熵
     + hole_coef     · hole_aux_loss
     + clear_pred_coef · clear_pred_loss
+    + topology_coef · topology_aux_loss
     + bq_coef       · bq_loss              # board_quality
     + feas_coef     · feas_loss            # feasibility
     + surv_coef     · surv_loss            # survival
@@ -579,8 +599,9 @@ entropy_loss = entropy_coef · mean(H)
 
 | 名称 | 形式 | 系数 | Target 来源 |
 |------|------|-----|------------|
-| hole_aux | SmoothL1 | hole_coef | $\Delta$空洞数（放置后比放置前） |
+| hole_aux | SmoothL1 | hole_coef | 放置并消行后的不可覆盖空洞数 |
 | clear_pred | CrossEntropy(4 类) | clear_pred_coef | 实际消行类别（0/1/2/≥3） |
+| topology_aux | SmoothL1(8 维) | topology_coef | 落子后的 holes / transitions / wells / 可填 close1 / 可填 close2 / mobility / fill |
 | board_quality | SmoothL1 | bq_coef | $\Phi(s)$ |
 | feasibility | BCE | feas_coef | 是否仍有合法动作 |
 | survival | SmoothL1 | surv_coef | 距离游戏结束的步数（归一） |
@@ -797,7 +818,8 @@ Outcome： "终局这一局打了多少分（log 后除以胜利门槛）"
 | `board_quality` | $\Phi(s)$ | trunk 学会"棋盘好坏" |
 | `feasibility` | 是否存在顺序能放完剩余 dock | trunk 学会"是否还能继续" |
 | `survival` | 距离 game over 步数（归一） | trunk 学会"活多久" |
-| `hole_aux` | $\Delta$ holes（放后比放前） | $\phi$ 学会"会不会制造空洞" |
+| `hole_aux` | 放置并消行后的不可覆盖 holes | $\phi$ 学会"这步会留下多少真实死角" |
+| `topology_aux` | 落子后 8 维拓扑向量 | $\phi$ 学会"这步会如何改变盘面结构" |
 | `clear_pred` | 实际消行类别 (0/1/2/≥3) | $\phi$ 学会"会不会消行" |
 
 ### 11.2 信号来源
@@ -809,7 +831,8 @@ Outcome： "终局这一局打了多少分（log 后除以胜利门槛）"
     'board_quality': potential(grid, dock),
     'feasibility': 1 if sequential_solution_leaves > 0 else 0,
     'survival_steps_remaining': T_max - t,  # 估算
-    'delta_holes_after_action': Δholes,
+    'holes_after': count_unfillable_cells(grid_after_clear),
+    'topology_after': [holes, row_trans, col_trans, wells, fillable_close1, fillable_close2, mobility, fill],
     'clears_class': 0/1/2/3,
 }
 ```

@@ -8,6 +8,7 @@ from typing import Sequence
 import numpy as np
 
 from .game_rules import FEATURE_ENCODING
+from .shapes_data import get_all_shapes
 
 _ENC = FEATURE_ENCODING
 _AF = float(_ENC.get("almostFullLineRatio", 0.78))
@@ -39,6 +40,44 @@ def _std_dev(arr: Sequence[float]) -> float:
     m = sum(arr) / len(arr)
     v = sum((x - m) ** 2 for x in arr) / len(arr)
     return math.sqrt(v)
+
+
+def _can_place_shape_at(grid, shape: list[list[int]], gx: int, gy: int) -> bool:
+    for y, row in enumerate(shape):
+        for x, v in enumerate(row):
+            if not v:
+                continue
+            px, py = gx + x, gy + y
+            if px < 0 or px >= grid.size or py < 0 or py >= grid.size:
+                return False
+            if grid.cells[py][px] is not None:
+                return False
+    return True
+
+
+def count_unfillable_cells(grid, shapes: list[dict] | None = None) -> int:
+    n = grid.size
+    coverable = [[False] * n for _ in range(n)]
+    for shape_info in shapes or get_all_shapes():
+        shape = shape_info.get("data") if isinstance(shape_info, dict) else shape_info
+        if not shape:
+            continue
+        h = len(shape)
+        w = len(shape[0]) if h else 0
+        for gy in range(0, n - h + 1):
+            for gx in range(0, n - w + 1):
+                if not _can_place_shape_at(grid, shape, gx, gy):
+                    continue
+                for sy, row in enumerate(shape):
+                    for sx, v in enumerate(row):
+                        if v:
+                            coverable[gy + sy][gx + sx] = True
+    return sum(
+        1
+        for y in range(n)
+        for x in range(n)
+        if grid.cells[y][x] is None and not coverable[y][x]
+    )
 
 
 def _encode_grid_occupancy(grid) -> np.ndarray:
@@ -150,7 +189,7 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
             max_row - min_row,
             max_col - min_col,
             (almost_full_rows + almost_full_cols) / (2 * n),
-            0.0,  # holes placeholder in MLX lightweight path
+            min(count_unfillable_cells(grid) / float(_AN.get("maxHoles", 16)), 1.0),
             0.0,  # row transitions placeholder
             0.0,  # col transitions placeholder
             0.0,  # wells placeholder

@@ -4,7 +4,7 @@
 import { Grid } from '../grid.js';
 import { getStrategy } from '../config.js';
 import { getAllShapes } from '../shapes.js';
-import { RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
+import { FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
 import { generateDockShapes, generateBlocksForGrid } from './blockSpawn.js';
 import {
     computeClearScore,
@@ -13,6 +13,7 @@ import {
     pickThreeDockColors
 } from '../clearScoring.js';
 import { getRlTrainingBonusLineSkin } from '../skins.js';
+import { analyzeBoardTopology, countUnfillableCells } from '../boardTopology.js';
 
 const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
 const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;
@@ -23,6 +24,7 @@ const _POT_W_MOB = Number(_POT_CFG.mobilityWeight) || 0.12;
 const _POT_COEF = Number(_POT_CFG.coef) || 0.5;
 const _POT_ENABLED = Boolean(_POT_CFG.enabled);
 const _BOARD_POT_NORM = 30.0;
+const _AN = FEATURE_ENCODING?.actionNorm || {};
 
 /** 与主局计分对齐的 bonus / 近满染色偏置（固定 canonical 主题，见 getRlTrainingBonusLineSkin） */
 function _rlBonusSkin() {
@@ -32,16 +34,7 @@ function _rlBonusSkin() {
 export { generateDockShapes, generateBlocksForGrid };
 
 function _countHoles(grid) {
-    const n = grid.size;
-    let holes = 0;
-    for (let x = 0; x < n; x++) {
-        let found = false;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) found = true;
-            else if (found) holes++;
-        }
-    }
-    return holes;
+    return countUnfillableCells(grid);
 }
 
 function _countTransitions(grid) {
@@ -98,6 +91,36 @@ function _closeToFullCount(grid) {
     return count;
 }
 
+function _lineCloseCounts(grid) {
+    const topo = analyzeBoardTopology(grid);
+    return { close1: topo.close1, close2: topo.close2 };
+}
+
+function _rowColTransitions(grid) {
+    const n = grid.size;
+    let rowTrans = 0;
+    let colTrans = 0;
+    for (let y = 0; y < n; y++) {
+        let prev = true;
+        for (let x = 0; x < n; x++) {
+            const cur = grid.cells[y][x] !== null;
+            if (cur !== prev) rowTrans++;
+            prev = cur;
+        }
+        if (!prev) rowTrans++;
+    }
+    for (let x = 0; x < n; x++) {
+        let prev = true;
+        for (let y = 0; y < n; y++) {
+            const cur = grid.cells[y][x] !== null;
+            if (cur !== prev) colTrans++;
+            prev = cur;
+        }
+        if (!prev) colTrans++;
+    }
+    return { rowTrans, colTrans };
+}
+
 function _dockMobility(grid, dock) {
     const n = grid.size;
     let total = 0;
@@ -108,6 +131,29 @@ function _dockMobility(grid, dock) {
                 if (grid.canPlace(b.shape, gx, gy)) total++;
     }
     return total;
+}
+
+function _topologyAuxTargets(grid, dock) {
+    const n = grid.size;
+    const area = Math.max(n * n, 1);
+    let filled = 0;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== null) filled++;
+        }
+    }
+    const { rowTrans, colTrans } = _rowColTransitions(grid);
+    const { close1, close2 } = _lineCloseCounts(grid);
+    return [
+        Math.min(_countHoles(grid) / Math.max(_AN.maxHoles ?? 16, 1), 1),
+        Math.min(rowTrans / Math.max(_AN.maxTransitions ?? 64, 1), 1),
+        Math.min(colTrans / Math.max(_AN.maxTransitions ?? 64, 1), 1),
+        Math.min(_wellDepthSum(grid) / Math.max(_AN.maxWellDepth ?? 24, 1), 1),
+        Math.min(close1 / Math.max(n, 1), 1),
+        Math.min(close2 / Math.max(n, 1), 1),
+        Math.min(_dockMobility(grid, dock) / Math.max(_AN.maxMobility ?? 192, 1), 1),
+        Math.min(filled / area, 1),
+    ];
 }
 
 export function boardPotential(grid, dock) {
@@ -240,6 +286,7 @@ export class OpenBlockSimulator {
         return {
             board_quality: boardPotential(this.grid, this.dock) / _BOARD_POT_NORM,
             feasibility: this.checkFeasibility(),
+            topology_after: _topologyAuxTargets(this.grid, this.dock),
         };
     }
 

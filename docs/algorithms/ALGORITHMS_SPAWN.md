@@ -222,7 +222,7 @@ fill ∈ [0.88, ∞]   : budget × 3，danger zone，最严格
 
 ```js
 stress = scoreStress         // 分数段里程碑触发
-       + difficultyBias      // easy(-0.12) / normal(0) / hard(+0.12)
+       + difficultyBias      // easy(-0.22) / normal(0) / hard(+0.22)
        + skillAdjust         // 高技能加压
        + flowAdjust          // bored 加 / anxious 减
        + recoveryAdjust      // needsRecovery 减
@@ -232,6 +232,7 @@ stress = scoreStress         // 分数段里程碑触发
        + feedbackBias        // 闭环反馈 ±0.10
        + trendAdjust         // trend 进步加压（×conf）
        + sessionArcAdjust    // warmup -0.08
+       + holeReliefAdjust    // 不可覆盖空洞压力触发减压
        + delightStressAdjust;// 高技能无聊轻加压；焦虑/恢复降压
 
 stress = clamp(stress, -0.2, 1);
@@ -263,6 +264,8 @@ if stress ∈ [a, b]:
     multiClearBonus: bool,        // 是否鼓励大消
     delightBoost: 0..1,           // 能力/心流驱动的多消爽感兑现
     perfectClearBoost: 0..1,      // 清屏兑现强度
+    targetSolutionRange: object,  // 解法数量目标区间
+    holePressure: implicit,       // 来自 spawnContext.holes 的拓扑压力
     delightMode: string,          // challenge_payoff / flow_payoff / relief / neutral
     rhythmPhase: 'tension'|'release',
     milestoneEcho: 'pre'|'post'|null
@@ -278,6 +281,8 @@ if stress ∈ [a, b]:
 - `relief`：焦虑或恢复态时降低 stress、偏小块、提高消行保证，同时保留救援式多消机会。
 
 `blockSpawn.js` 消费这些信号时只改变软权重：`pcPotential`、`multiClear`、`gapFills` 的排序和抽样倍率会上升，但仍必须通过 `minMobilityTarget`、序贯可解性和解法数量过滤，避免“为了爽感破坏公平”。
+
+临消与多消机会采用 **可填充感知** 口径：`nearFullLines` / `close1` / `close2` 不只看行列还差几个空格，还要求这些缺口能被当前形状库的某个合法放置覆盖。不可覆盖空洞造成的“假近满行”不会再触发 payoff、多消或清屏兑现加权。
 
 ---
 

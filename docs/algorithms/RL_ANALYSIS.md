@@ -190,13 +190,13 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 
 | 新特征 | 维度 | 说明 |
 |--------|------|------|
-| holes_count/area | 1 | 空洞格数（上方有占用但自身为空的格子）/ 总面积 |
+| holes_count/area | 1 | 所有形状都无法合法覆盖的空格数 / 总面积 |
 | max_height/n | 1 | 最高已占用行的高度归一化 |
 | row_transitions/area | 1 | 行内 0→1 和 1→0 的跳变次数 / 总面积 |
 | col_transitions/area | 1 | 列内跳变次数 / 总面积 |
 | well_depth_sum/(n²) | 1 | 各列"井"深度之和 / 面积 |
-| lines_clearable_1/n | 1 | 差 1 格就满的行列数 / n |
-| lines_clearable_2/n | 1 | 差 2 格就满的行列数 / n |
+| lines_clearable_1/n | 1 | 差 1 格且缺口可被合法形状覆盖的行列数 / n |
+| lines_clearable_2/n | 1 | 差 2 格且全部缺口可被合法形状覆盖的行列数 / n |
 | dock_mobility/max | 1 | 当前三块总合法位置数 / 理论最大 |
 
 **stateScalarDim**: 15 → 23，**stateDim**: 154 → 162，**phiDim**: 161 → 169
@@ -209,14 +209,14 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 
 | 新特征 | 维度 | 说明 |
 |--------|------|------|
-| delta_holes | 1 | 放置后空洞变化量 / area |
+| holes_after | 1 | 放置并消行后的不可覆盖空洞数 / maxHoles |
 | delta_transitions | 1 | 放置后行列跳变变化量归一化 |
 | new_almost_full | 1 | 放置后新增 almost-full 行列数 / n |
 | post_mobility | 1 | 放置后剩余块总合法位置数 / max |
 
 **actionDim**: 7 → 11，**phiDim**: 169 → 173
 
-`delta_holes` 是最关键的动作质量信号 — 比 `would_clear` 更全面地评估一步棋的好坏。
+`holes_after` 是最关键的动作质量信号之一：它不看传统列高，而是模拟落子和消行后，统计所有形状库仍无法覆盖的空格，更接近真实死角风险。
 
 ### 4.3 超参数调优（预计提升：⭐⭐⭐）
 
@@ -249,7 +249,8 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 | placeBonus | 0.12 | **0.05** | 降低"只要放就好"的噪声 |
 | densePerClear | 2.5 | 2.5（保持） | 消行是核心正信号 |
 | survivalPerStep | 0.04 | **0.02** | 降低生存奖励噪声 |
-| 新增 holePenalty | — | **-0.3×Δholes** | 每步空洞增加时惩罚 |
+| hole_aux_loss | 已启用 | **SmoothL1(holes_after/maxHoles)** | 作为监督损失学习真实死角风险，不直接污染 advantage |
+| topology_aux_loss | 新增 | **SmoothL1(8 维拓扑向量)** | 学习落子后的碎片化、井、可填临消线、机动性和填充变化，给策略头更细的动作质量梯度 |
 | stuckPenalty | -2.0 | **-3.0** | 加大死局惩罚 |
 
 ---

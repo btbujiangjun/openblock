@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
+from .shapes_data import get_all_shapes
+
 
 def grid_to_np(grid) -> np.ndarray:
     """Grid.cells → int8 numpy array。occupied ≥ 0，empty = -1。"""
@@ -31,6 +33,38 @@ def occupied_mask(grid_np: np.ndarray) -> np.ndarray:
 
 def shape_to_np(shape_data: list[list[int]]) -> np.ndarray:
     return np.asarray(shape_data, dtype=np.uint8)
+
+
+def count_unfillable_cells(grid_np: np.ndarray, shapes: list[dict] | None = None) -> int:
+    """统计没有任何可用形状能合法覆盖的空格数。
+
+    OpenBlock 的块可从任意位置落下，因此空洞定义不采用“上方有块、下方为空”的列高口径。
+    只有结合完整形状库仍无法触达的空格，才计为真实空洞。
+    """
+    coverable = coverable_cells(grid_np, shapes)
+    return int(((grid_np < 0) & ~coverable).sum())
+
+
+def coverable_cells(grid_np: np.ndarray, shapes: list[dict] | None = None) -> np.ndarray:
+    """返回空格能否被任一合法形状覆盖的 bool 矩阵。"""
+    n = grid_np.shape[0]
+    coverable = np.zeros((n, n), dtype=bool)
+    for shape in shapes or get_all_shapes():
+        data = shape.get("data") if isinstance(shape, dict) else shape
+        if data is None:
+            continue
+        shp = shape_to_np(data)
+        positions = get_legal_positions(grid_np, shp)
+        if len(positions) == 0:
+            continue
+        cells = np.argwhere(shp > 0)
+        for gy, gx in positions:
+            for sy, sx in cells:
+                y = int(gy + sy)
+                x = int(gx + sx)
+                if 0 <= y < n and 0 <= x < n:
+                    coverable[y, x] = True
+    return coverable
 
 
 # ---------------------------------------------------------------------------
@@ -175,15 +209,11 @@ def fast_board_features(grid_np: np.ndarray) -> dict:
     std_row = float(row_fill.std())
     std_col = float(col_fill.std())
 
-    af = 0.78
-    almost_full_rows = int(((row_fill >= af) & (row_fill < 1.0)).sum())
-    almost_full_cols = int(((col_fill >= af) & (col_fill < 1.0)).sum())
-
     occ_bool = occ.astype(bool)
 
-    # 空洞（向量化）：cummax 标记每列"首个 occupied 以下"
-    cum_occ = np.maximum.accumulate(occ, axis=0)
-    holes = int((cum_occ & ~occ_bool).sum())
+    # 空洞：结合完整形状库，统计没有任何合法放置能覆盖的空格。
+    coverable = coverable_cells(grid_np)
+    holes = int(((grid_np < 0) & ~coverable).sum())
 
     # 行列跳变（向量化）：pad 边界为 occupied，统计相邻差异
     padded_h = np.pad(occ, ((0, 0), (1, 1)), constant_values=1)
@@ -197,10 +227,33 @@ def fast_board_features(grid_np: np.ndarray) -> dict:
     wells = int((~occ_bool & left_nb & right_nb).sum())
 
     # 差 1/2 格满
-    row_counts_int = occ.sum(axis=1)
-    col_counts_int = occ.sum(axis=0)
-    close1 = int((row_counts_int == n - 1).sum() + (col_counts_int == n - 1).sum())
-    close2 = int((row_counts_int == n - 2).sum() + (col_counts_int == n - 2).sum())
+    af = 0.78
+    almost_full_rows = 0
+    almost_full_cols = 0
+    close1 = 0
+    close2 = 0
+
+    for y in range(n):
+        empty = np.where(grid_np[y, :] < 0)[0]
+        empty_count = len(empty)
+        fillable = empty_count > 0 and bool(coverable[y, empty].all())
+        if fillable and row_fill[y] >= af and row_fill[y] < 1.0:
+            almost_full_rows += 1
+        if fillable and empty_count == 1:
+            close1 += 1
+        elif fillable and empty_count == 2:
+            close2 += 1
+
+    for x in range(n):
+        empty = np.where(grid_np[:, x] < 0)[0]
+        empty_count = len(empty)
+        fillable = empty_count > 0 and bool(coverable[empty, x].all())
+        if fillable and col_fill[x] >= af and col_fill[x] < 1.0:
+            almost_full_cols += 1
+        if fillable and empty_count == 1:
+            close1 += 1
+        elif fillable and empty_count == 2:
+            close2 += 1
 
     return {
         "filled": filled,
@@ -235,3 +288,31 @@ def fast_dock_mobility(grid_np: np.ndarray, dock: list[dict]) -> int:
         positions = get_legal_positions(grid_np, shape_to_np(b["shape"]))
         total += len(positions)
     return total
+
+
+def topology_aux_targets(grid_np: np.ndarray, dock: list[dict], action_norm: dict | None = None) -> np.ndarray:
+    """归一化拓扑分量，作为动作后辅助监督目标。
+
+    顺序固定为：
+    holes, row_trans, col_trans, wells, close1, close2, mobility, fill_ratio。
+    """
+    n = grid_np.shape[0]
+    feats = fast_board_features(grid_np)
+    norm = action_norm or {}
+    max_holes = float(norm.get("maxHoles", 16))
+    max_trans = float(norm.get("maxTransitions", 64))
+    max_wells = float(norm.get("maxWellDepth", 24))
+    max_mob = float(norm.get("maxMobility", 192))
+    return np.asarray(
+        [
+            min(float(feats["holes"]) / max(max_holes, 1.0), 1.0),
+            min(float(feats["row_trans"]) / max(max_trans, 1.0), 1.0),
+            min(float(feats["col_trans"]) / max(max_trans, 1.0), 1.0),
+            min(float(feats["wells"]) / max(max_wells, 1.0), 1.0),
+            min(float(feats["close1"]) / max(float(n), 1.0), 1.0),
+            min(float(feats["close2"]) / max(float(n), 1.0), 1.0),
+            min(float(fast_dock_mobility(grid_np, dock)) / max(max_mob, 1.0), 1.0),
+            min(float(feats["filled"]) / max(float(feats["area"]), 1.0), 1.0),
+        ],
+        dtype=np.float32,
+    )

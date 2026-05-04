@@ -954,8 +954,10 @@ export class Game {
         const _diag = getLastSpawnDiagnostics();
         this._spawnContext.nearFullLines = _diag?.layer1?.nearFullLines ?? 0;
         this._spawnContext.pcSetup       = _diag?.layer1?.pcSetup       ?? 0;
+        this._spawnContext.holes         = _diag?.layer1?.holes         ?? 0;
 
         this._refreshPlayerInsightPanel();
+        this._spawnModelLayerRefresh?.();
     }
 
     /**
@@ -1230,6 +1232,7 @@ export class Game {
             result.bonusLines = result.count > 0 ? _bonusLinesSnap : [];
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
             this._refreshPlayerInsightPanel();
+            this._spawnModelLayerRefresh?.();
 
             this._pushPlaceToSequence(this.drag.index, placedPos.x, placedPos.y, result);
 

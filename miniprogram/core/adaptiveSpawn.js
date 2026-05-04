@@ -302,12 +302,16 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const fz = cfg.flowZone ?? {};
     const eng = cfg.engagement ?? {};
     const pacing = cfg.pacing ?? {};
+    const topoCfg = cfg.topologyDifficulty ?? {};
     const base = getStrategy(baseStrategyId);
     const ctx = spawnContext || {};
 
     /* ---------- 基础信号 ---------- */
     const scoreStress = getSpawnStressFromScore(score);
     const runMods = getRunDifficultyModifiers(runStreak);
+    const holes = Math.max(0, Number(ctx.holes ?? 0) || 0);
+    const holePressure = Math.max(0, Math.min(1, holes / Math.max(1, topoCfg.holePressureMax ?? 8)));
+    const holeReliefAdjust = holePressure * (topoCfg.holeReliefStress ?? -0.16);
 
     /* ---------- 技能调节（置信度门控） ---------- */
     const skill = profile.skillLevel;
@@ -383,6 +387,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         + feedbackBias
         + trendAdjust
         + sessionArcAdjust
+        + holeReliefAdjust
         + delight.stressAdjust;
 
     /* ---------- 特殊覆写：新手保护 ---------- */
@@ -470,6 +475,10 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     if ((ctx.roundsSinceClear ?? 0) >= 4) {
         clearGuarantee = Math.max(clearGuarantee, 3);
         sizePreference = Math.min(sizePreference, -0.35);
+    }
+    if (holes >= (topoCfg.holeClearGuaranteeAt ?? 2)) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, topoCfg.holeSizePreference ?? -0.22);
     }
 
     /* --- Layer 2: combo 活跃时提高消行保证 --- */
@@ -575,6 +584,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         },
         _adaptiveStress: stress,
         _difficultyBias: difficultyBias,
+        _holePressure: holePressure,
+        _holes: holes,
         _flowState: flow,
         _flowDeviation: flowDev,
         _feedbackBias: feedbackBias,

@@ -14,6 +14,7 @@ import {
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 import { getSpawnMode } from './spawnModel.js';
 import { UI_ICONS } from './uiIcons.js';
+import { countUnfillableCells } from './boardTopology.js';
 
 /** 能力指标区（与 REPLAY_METRICS 对齐的键 + APM） */
 const ABILITY_METRIC_ROWS = [
@@ -134,7 +135,7 @@ const SPAWN_TOOLTIP = {
         '多线目标（0～2）：显式要求 shapes 阶段偏好 multiClear≥2 的强度；2 时与 multiClearBonus 叠加，强化「双行以上同时兑现」。来自 pcSetup / 近满行 / 刚多消后的短窗口及局间热身。',
     rhythm: '节奏相位：setup=搭建蓄力期 / payoff=收获消行期 / neutral=中性。',
     sessionArc: 'Session 弧线：warmup=热身 / peak=巅峰 / cooldown=收官。',
-    holes: '盘面空洞数：填充列下方的空格，空洞越多越难消行。',
+    holes: '盘面空洞数：当前所有可出形状在任何合法位置都无法覆盖的空格数；越多表示越难被后续块修复。',
     flatness: '表面平整度（0~1）：列高度方差越小越平整，1=完全平整。',
     nearFull:
         '近满行/列数：距离整行或整列填满仅差 1～2 格的条数，越多表示越容易通过少量放置触发多消，是 Layer1 多消潜力的重要信号。',
@@ -179,26 +180,14 @@ function _gridMaxHeight(grid) {
     const n = grid.size;
     for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
-            if (grid.cells[y][x] !== 0) return n - y;
+            if (grid.cells[y][x] !== null) return n - y;
         }
     }
     return 0;
 }
 
 function _gridHoles(grid) {
-    const n = grid.size;
-    let holes = 0;
-    for (let x = 0; x < n; x++) {
-        let blocked = false;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== 0) {
-                blocked = true;
-            } else if (blocked) {
-                holes++;
-            }
-        }
-    }
-    return holes;
+    return countUnfillableCells(grid);
 }
 
 function _flowExplain(flow) {

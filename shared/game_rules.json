@@ -177,6 +177,13 @@
       "comment": "AFK 检测：thinkMs 超过 thresholdMs 的操作排除出 metrics，避免离开/后台干扰能力估计。",
       "thresholdMs": 15000
     },
+    "topologyDifficulty": {
+      "comment": "盘面拓扑难度：holes 使用“所有形状都无法覆盖的空格”口径。它代表真实可修复性下降，因此进入 board pressure，并以救援方式降低出块压力、提高消行保障。",
+      "holePressureMax": 8,
+      "holeReliefStress": -0.16,
+      "holeClearGuaranteeAt": 2,
+      "holeSizePreference": -0.22
+    },
     "flowZone": {
       "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",
       "thinkTimeLowMs": 1200,
@@ -216,6 +223,7 @@
     "holeAuxLossCoef": 0.12,
     "holeAuxTargetMax": 16,
     "clearPredLossCoef": 0.15,
+    "topologyAuxLossCoef": 0.08,
     "boardQualityLossCoef": 0.55,
     "feasibilityLossCoef": 0.3,
     "survivalLossCoef": 0.28,

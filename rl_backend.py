@@ -239,6 +239,7 @@ try:
         _q_distill_tau,
         _reevaluate_and_update as _batch_ppo_update_fn,
         _replay_config,
+        _topology_aux_coef,
     )
 except ImportError as e:
     torch = None
@@ -249,6 +250,7 @@ except ImportError as e:
     rl_win_threshold_for_episode = None  # type: ignore
     _batch_ppo_update_fn = None  # type: ignore
     _replay_config = None  # type: ignore
+    _topology_aux_coef = None  # type: ignore
     _episode_replay_priority = None  # type: ignore
     _normalize_teacher_q = None  # type: ignore
     _q_distill_coef = None  # type: ignore
@@ -489,6 +491,7 @@ def _convert_episode_for_ppo(data: dict, steps: list, model, device) -> dict:
                 "clears": int(st.get("clears", 0)),
                 "board_quality": float(st.get("board_quality", 0.0)),
                 "feasibility": float(st.get("feasibility", 1.0)),
+                "topology_after": st.get("topology_after"),
                 "steps_to_end": 0,
             }
             qt = st.get("q_teacher")
@@ -631,6 +634,7 @@ def _flush_replay_buffer() -> dict | None:
         "entropy": _lf(r.get("entropy")),
         "loss_hole_aux": _lf(r.get("loss_hole_aux")),
         "loss_clear_pred": _lf(r.get("loss_clear_pred")),
+        "loss_topology_aux": _lf(r.get("loss_topology_aux")),
         "loss_bq": _lf(r.get("loss_bq")),
         "loss_feas": _lf(r.get("loss_feas")),
         "loss_surv": _lf(r.get("loss_surv")),
@@ -757,11 +761,16 @@ def _rl_train_episode_inner(
         q_distill_loss = torch.nan_to_num(q_distill_loss, nan=0.0, posinf=0.0, neginf=0.0)
         hole_coef, hole_denom = _hole_aux_coef_and_denom()
         cp_coef = _clear_pred_coef()
+        topo_coef = float(_topology_aux_coef() if _topology_aux_coef is not None else (RL_REWARD_SHAPING.get("topologyAuxLossCoef") or 0.0))
         hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         clear_pred_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        topology_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         state_mat = None
         chosen_a = None
-        if (hole_coef > 1e-12 or cp_coef > 1e-12) and all("holes_after" in st for st in steps):
+        if (
+            (hole_coef > 1e-12 or cp_coef > 1e-12 or topo_coef > 1e-12)
+            and all("holes_after" in st for st in steps)
+        ):
             state_rows = [st["state"] for st in steps]
             act_rows = [st["phi"][int(st["idx"])][STATE_FEATURE_DIM:] for st in steps]
             state_mat = tensor_to_device(torch.tensor(state_rows, dtype=torch.float32), device)
@@ -788,6 +797,21 @@ def _rl_train_episode_inner(
             )
             clear_logits = model.forward_clear_pred(state_mat, chosen_a)
             clear_pred_loss = F.cross_entropy(clear_logits, clears_tgt, reduction="mean")
+        if (
+            topo_coef > 1e-12
+            and callable(getattr(model, "forward_topology_aux", None))
+            and state_mat is not None
+            and all(isinstance(st.get("topology_after"), list) for st in steps)
+        ):
+            topo_tgt = tensor_to_device(
+                torch.tensor([st["topology_after"] for st in steps], dtype=torch.float32), device
+            ).clamp(0.0, 1.0)
+            topology_aux_loss = F.smooth_l1_loss(
+                model.forward_topology_aux(state_mat, chosen_a),
+                topo_tgt,
+                reduction="mean",
+                beta=1.0,
+            )
 
         bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
@@ -823,6 +847,7 @@ def _rl_train_episode_inner(
             - entropy_coef_eff * entropy_mean
             + hole_coef * _safe(hole_aux_loss)
             + cp_coef * _safe(clear_pred_loss)
+            + topo_coef * _safe(topology_aux_loss)
             + _safe(bq_loss)
             + _safe(feas_loss)
             + _safe(surv_loss)
@@ -878,6 +903,7 @@ def _rl_train_episode_inner(
             "loss_q_distill": _loss_scalar_for_log(q_distill_loss),
             "loss_hole_aux": _log_float(hole_aux_loss),
             "loss_clear_pred": _log_float(clear_pred_loss),
+            "loss_topology_aux": _log_float(topology_aux_loss),
             "loss_bq": _log_float(bq_loss),
             "loss_feas": _log_float(feas_loss),
             "loss_surv": _log_float(surv_loss),
@@ -911,6 +937,7 @@ def _rl_train_episode_inner(
                 "loss_q_distill": _loss_scalar_for_log(q_distill_loss),
                 "loss_hole_aux": _log_float(hole_aux_loss),
                 "loss_clear_pred": _log_float(clear_pred_loss),
+                "loss_topology_aux": _log_float(topology_aux_loss),
                 "loss_bq": _log_float(bq_loss),
                 "loss_feas": _log_float(feas_loss),
                 "loss_surv": _log_float(surv_loss),

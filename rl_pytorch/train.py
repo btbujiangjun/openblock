@@ -7,6 +7,7 @@ v5 核心改动（修复不收敛根因）：
     board_quality_loss: MSE，回归 board_potential（棋盘结构质量）
     feasibility_loss:   BCE，预测"剩余 dock 块是否全部可放"
     survival_loss:      MSE，回归 steps_to_end / 30（生存预期）
+    topology_aux_loss:  SmoothL1，预测落子后的 8 维拓扑分量
   - 精简奖励：仅保留得分增量 + 势函数塑形 + 胜利奖励；
     placeBonus / holePenalty / heightPenalty 等噪声项已移除
   - DockBoardAttention（conv-shared 架构）：dock 块对棋盘 CNN 特征做交叉注意力
@@ -310,6 +311,12 @@ def _survival_coef() -> float:
     if (raw := os.environ.get("RL_SURV_COEF", "").strip()) != "":
         return float(raw)
     return float(RL_REWARD_SHAPING.get("survivalLossCoef") or 0.2)
+
+
+def _topology_aux_coef() -> float:
+    if (raw := os.environ.get("RL_TOPO_AUX_COEF", "").strip()) != "":
+        return float(raw)
+    return float(RL_REWARD_SHAPING.get("topologyAuxLossCoef") or 0.0)
 
 
 def _scheduled_coef(cfg: dict, base: float, global_ep: int) -> float:
@@ -1198,6 +1205,7 @@ def collect_episode(
             "clears": clears_step,
             "board_quality": sup["board_quality"],
             "feasibility": sup["feasibility"],
+            "topology_after": sup.get("topology_after"),
             # Q 分布蒸馏目标：MCTS 访问分布 or beam Q 值
             "q_vals": q_vals.tolist() if q_vals is not None else None,
             # MCTS 访问分布（visit_pi）：用于直接 CE 损失（可选，比 q_proxy 更准确）
@@ -1322,6 +1330,7 @@ def _reevaluate_and_update(
     all_board_quality: list[float] = []
     all_feasibility: list[float] = []
     all_steps_to_end: list[float] = []
+    all_topology_after: list[np.ndarray] = []
     all_q_vals: list[np.ndarray | None] = []
     all_visit_pi: list[np.ndarray | None] = []
     all_pg_weights: list[float] = []
@@ -1351,6 +1360,9 @@ def _reevaluate_and_update(
             all_board_quality.append(float(step.get("board_quality", 0.0)))
             all_feasibility.append(float(step.get("feasibility", 1.0)))
             all_steps_to_end.append(float(step.get("steps_to_end", 0)))
+            topo = step.get("topology_after")
+            if topo is not None:
+                all_topology_after.append(np.asarray(topo, dtype=np.float32))
             qv = step.get("q_vals")
             all_q_vals.append(np.array(qv, dtype=np.float32) if qv is not None else None)
             vp = step.get("visit_pi")
@@ -1377,6 +1389,7 @@ def _reevaluate_and_update(
     bq_coef = _board_quality_coef()
     feas_coef = _feasibility_coef()
     surv_coef = _survival_coef()
+    topo_coef = _topology_aux_coef()
     q_distill_coef = _q_distill_coef(global_ep)
     q_distill_tau = _q_distill_tau()
     q_distill_norm = _q_distill_norm_mode()
@@ -1410,6 +1423,18 @@ def _reevaluate_and_update(
         clears_target = torch.tensor(
             [min(c, 3) for c in all_clears], dtype=torch.long, device=device
         )
+
+    use_topology_aux = (
+        topo_coef > 1e-12
+        and callable(getattr(net, "forward_topology_aux", None))
+        and len(all_topology_after) == total_steps
+    )
+    topology_target_t: torch.Tensor | None = None
+    if use_topology_aux:
+        topology_target_t = tensor_to_device(
+            torch.from_numpy(np.stack(all_topology_after).astype(np.float32)),
+            device,
+        ).clamp(0.0, 1.0)
 
     # --- 直接监督目标 ---
     has_aux_heads = callable(getattr(net, "forward_aux_all", None))
@@ -1656,6 +1681,11 @@ def _reevaluate_and_update(
             clear_logits = net.forward_clear_pred(states_t, chosen_action_feats)
             clear_pred_loss = F.cross_entropy(clear_logits, clears_target, reduction="mean")
 
+        topology_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if use_topology_aux and topology_target_t is not None:
+            pred_topo = net.forward_topology_aux(states_t, chosen_action_feats)
+            topology_aux_loss = F.smooth_l1_loss(pred_topo, topology_target_t, reduction="mean", beta=1.0)
+
         bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
@@ -1723,6 +1753,7 @@ def _reevaluate_and_update(
             - entropy_coef * entropy_mean
             + hole_coef * _safe_aux(hole_aux_loss)
             + clear_pred_coef * _safe_aux(clear_pred_loss)
+            + topo_coef * _safe_aux(topology_aux_loss)
             + bq_coef * _safe_aux(bq_loss)
             + feas_coef * _safe_aux(feas_loss)
             + surv_coef * _safe_aux(surv_loss)
@@ -1770,6 +1801,7 @@ def _reevaluate_and_update(
             "entropy": _safe_metric(entropy_mean, min_value=0.0, max_value=10.0),
             "loss_hole_aux": _safe_metric(hole_aux_loss),
             "loss_clear_pred": _safe_metric(clear_pred_loss),
+            "loss_topology_aux": _safe_metric(topology_aux_loss),
             "loss_bq": _safe_metric(bq_loss),
             "loss_feas": _safe_metric(feas_loss),
             "loss_surv": _safe_metric(surv_loss),
@@ -1777,6 +1809,7 @@ def _reevaluate_and_update(
             "loss_visit_pi": _safe_metric(visit_pi_loss),
             "hole_aux_coef": float(hole_coef),
             "clear_pred_coef": float(clear_pred_coef),
+            "topology_aux_coef": float(topo_coef),
             "q_distill_coef": float(q_distill_coef),
             "visit_pi_coef": float(visit_pi_coef),
             "pg_steps": pg_steps_num,
@@ -2153,6 +2186,8 @@ def train_loop(
                     hole_str = f"  hole={_fmt_update('loss_hole_aux')}"
                 if last_update and _num_update("clear_pred_coef") > 1e-12:
                     hole_str += f"  clr={_fmt_update('loss_clear_pred')}"
+                if last_update and _num_update("topology_aux_coef") > 1e-12:
+                    hole_str += f"  topo={_fmt_update('loss_topology_aux')}"
                 if last_update and _num_update("loss_bq") > 1e-6:
                     hole_str += f"  bq={_fmt_update('loss_bq')}"
                 if last_update and _num_update("loss_feas") > 1e-6:

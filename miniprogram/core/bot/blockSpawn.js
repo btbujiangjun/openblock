@@ -33,6 +33,7 @@
 
 const { getAllShapes, getShapeCategory, pickShapeByCategoryWeights } = require('../shapes');
 const { GAME_RULES } = require('../gameRules');
+const { analyzeBoardTopology } = require('../boardTopology');
 
 const MAX_SPAWN_ATTEMPTS = 22;
 const FILL_SURVIVABILITY_ON = 0.52;
@@ -256,57 +257,6 @@ function countOccupiedCells(grid) {
         }
     }
     return c;
-}
-
-function analyzeBoardTopology(grid) {
-    const n = grid.size;
-    const colHeights = new Array(n).fill(0);
-
-    for (let x = 0; x < n; x++) {
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) {
-                colHeights[x] = n - y;
-                break;
-            }
-        }
-    }
-
-    let holes = 0;
-    for (let x = 0; x < n; x++) {
-        let foundBlock = false;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) foundBlock = true;
-            else if (foundBlock) holes++;
-        }
-    }
-
-    let heightVariance = 0;
-    const avgHeight = colHeights.reduce((s, h) => s + h, 0) / n;
-    for (let x = 0; x < n; x++) {
-        heightVariance += (colHeights[x] - avgHeight) ** 2;
-    }
-    heightVariance /= n;
-    const flatness = 1 / (1 + heightVariance);
-
-    const maxColHeight = Math.max(...colHeights);
-
-    let nearFullLines = 0;
-    for (let y = 0; y < n; y++) {
-        let filled = 0;
-        for (let x = 0; x < n; x++) {
-            if (grid.cells[y][x] !== null) filled++;
-        }
-        if (filled >= n - 2 && filled < n) nearFullLines++;
-    }
-    for (let x = 0; x < n; x++) {
-        let filled = 0;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) filled++;
-        }
-        if (filled >= n - 2 && filled < n) nearFullLines++;
-    }
-
-    return { holes, flatness, maxColHeight, colHeights, nearFullLines };
 }
 
 /**

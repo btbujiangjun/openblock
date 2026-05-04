@@ -8,6 +8,7 @@ v5 核心改动（不收敛根因修复）：
     board_quality_head: 回归 board_potential 棋盘质量分
     feasibility_head:   二分类 "剩余块是否全部可放"
     survival_head:      回归 "还能活多少步 / 30"
+    topology_aux_head:  回归落子后的拓扑分量
   - clear_pred_head（v4 保留）：4 类消行预测
 
 state=181 (42 scalars + 64 grid + 75 dock), action=12, phi=193。
@@ -27,6 +28,7 @@ _GRID_FLAT = _GRID_SIDE * _GRID_SIDE
 _DOCK_MASK_SIDE = int(FEATURE_ENCODING.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(FEATURE_ENCODING.get("dockSlots", 3))
 _DOCK_FLAT = _DOCK_SLOTS * _DOCK_MASK_SIDE * _DOCK_MASK_SIDE
+TOPOLOGY_AUX_DIM = 8
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +254,9 @@ class ConvSharedPolicyValueNet(nn.Module):
         self.clear_pred_head = nn.Sequential(
             nn.Linear(fuse_in, hid), nn.GELU(), nn.Linear(hid, 4),
         )
+        self.topology_aux_head = nn.Sequential(
+            nn.Linear(fuse_in, hid), nn.GELU(), nn.Linear(hid, TOPOLOGY_AUX_DIM),
+        )
         self.board_quality_head = nn.Sequential(
             nn.Linear(width, hid), nn.GELU(), nn.Linear(hid, 1),
         )
@@ -343,6 +348,13 @@ class ConvSharedPolicyValueNet(nn.Module):
         x = torch.cat([h, ae], dim=-1)
         return self.clear_pred_head(x)
 
+    def forward_topology_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        """预测落子后拓扑分量：holes/transitions/wells/close/mobility/fill。"""
+        h = self._encode_state(state_feat)
+        ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
+        x = torch.cat([h, ae], dim=-1)
+        return self.topology_aux_head(x)
+
     def forward_board_quality(self, state_feat: torch.Tensor) -> torch.Tensor:
         """回归棋盘质量分（归一化后的 board_potential）。"""
         h = self._encode_state(state_feat)
@@ -411,6 +423,11 @@ class LightPolicyValueNet(_AuxStubsMixin, nn.Module):
             nn.GELU(),
             nn.Linear(width, 4),
         )
+        self.topology_aux_head = nn.Sequential(
+            nn.Linear(PHI_DIM, width),
+            nn.GELU(),
+            nn.Linear(width, TOPOLOGY_AUX_DIM),
+        )
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
         x = nn.functional.gelu(self.policy_fc1(phi))
@@ -453,6 +470,10 @@ class LightPolicyValueNet(_AuxStubsMixin, nn.Module):
         phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
         return self.clear_pred_head(phi)
 
+    def forward_topology_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
+        return self.topology_aux_head(phi)
+
 
 class LightSharedPolicyValueNet(_AuxStubsMixin, nn.Module):
     """共享主干 2 层 MLP + 动作投射 + 融合头，~20K 参数；状态只编码一次。"""
@@ -481,6 +502,11 @@ class LightSharedPolicyValueNet(_AuxStubsMixin, nn.Module):
             nn.Linear(fuse_in, hid),
             nn.GELU(),
             nn.Linear(hid, 4),
+        )
+        self.topology_aux_head = nn.Sequential(
+            nn.Linear(fuse_in, hid),
+            nn.GELU(),
+            nn.Linear(hid, TOPOLOGY_AUX_DIM),
         )
 
     def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
@@ -545,6 +571,12 @@ class LightSharedPolicyValueNet(_AuxStubsMixin, nn.Module):
         x = torch.cat([h, ae], dim=-1)
         return self.clear_pred_head(x)
 
+    def forward_topology_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
+        x = torch.cat([h, ae], dim=-1)
+        return self.topology_aux_head(x)
+
 
 # ---------------------------------------------------------------------------
 # Heavy models — 残差 MLP；用于超大规模训练或从旧 checkpoint 续训
@@ -598,6 +630,11 @@ class PolicyValueNet(_AuxStubsMixin, nn.Module):
             nn.GELU(),
             nn.Linear(width, 4),
         )
+        self.topology_aux_head = nn.Sequential(
+            nn.Linear(PHI_DIM, width),
+            nn.GELU(),
+            nn.Linear(width, TOPOLOGY_AUX_DIM),
+        )
 
     def forward_policy_logits(self, phi: torch.Tensor) -> torch.Tensor:
         x = self.policy_stem(phi)
@@ -620,6 +657,10 @@ class PolicyValueNet(_AuxStubsMixin, nn.Module):
     def forward_clear_pred(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
         phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
         return self.clear_pred_head(phi)
+
+    def forward_topology_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        phi = torch.cat([state_feat, chosen_action_feat], dim=-1)
+        return self.topology_aux_head(phi)
 
 
 class SharedPolicyValueNet(_AuxStubsMixin, nn.Module):
@@ -658,6 +699,11 @@ class SharedPolicyValueNet(_AuxStubsMixin, nn.Module):
             nn.GELU(),
             nn.Linear(hid, 4),
         )
+        self.topology_aux_head = nn.Sequential(
+            nn.Linear(fusion_in, hid),
+            nn.GELU(),
+            nn.Linear(hid, TOPOLOGY_AUX_DIM),
+        )
 
     def _encode_state(self, state_feat: torch.Tensor) -> torch.Tensor:
         x = self.shared_stem(state_feat)
@@ -693,3 +739,9 @@ class SharedPolicyValueNet(_AuxStubsMixin, nn.Module):
         ae = self.action_proj(chosen_action_feat)
         x = torch.cat([h, ae], dim=-1)
         return self.clear_pred_head(x)
+
+    def forward_topology_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        h = self._encode_state(state_feat)
+        ae = self.action_proj(chosen_action_feat)
+        x = torch.cat([h, ae], dim=-1)
+        return self.topology_aux_head(x)

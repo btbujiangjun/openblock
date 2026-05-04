@@ -217,6 +217,7 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
             clears: Math.min(env.simulator._lastClears || 0, 3),
             board_quality: sup.board_quality,
             feasibility: sup.feasibility,
+            topology_after: sup.topology_after,
         };
         if (choice.qTeacher != null && choice.qTeacher.length === choice.phiList.length) {
             stepRow.qTeacher = choice.qTeacher;

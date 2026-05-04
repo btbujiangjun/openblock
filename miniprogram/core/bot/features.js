@@ -3,6 +3,7 @@
  * state=181 (42 scalars + 64 grid + 75 dock), action=12, phi=193。
  */
 const { FEATURE_ENCODING } = require('../gameRules');
+const { analyzeBoardTopology, countUnfillableCells } = require('../boardTopology');
 
 const enc = FEATURE_ENCODING;
 const AF = enc.almostFullLineRatio ?? 0.78;
@@ -162,19 +163,7 @@ function encodeColorSummary(grid, dock) {
 
 /** @param {import('../grid.js').Grid} grid */
 function countHoles(grid) {
-    const n = grid.size;
-    let holes = 0;
-    for (let x = 0; x < n; x++) {
-        let blockFound = false;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) {
-                blockFound = true;
-            } else if (blockFound) {
-                holes++;
-            }
-        }
-    }
-    return holes;
+    return countUnfillableCells(grid);
 }
 
 /** @param {import('../grid.js').Grid} grid */
@@ -220,26 +209,8 @@ function wellDepthSum(grid) {
 
 /** @param {import('../grid.js').Grid} grid */
 function linesCloseToClear(grid) {
-    const n = grid.size;
-    let close1 = 0;
-    let close2 = 0;
-    for (let y = 0; y < n; y++) {
-        let f = 0;
-        for (let x = 0; x < n; x++) {
-            if (grid.cells[y][x] !== null) f++;
-        }
-        if (f === n - 1) close1++;
-        else if (f === n - 2) close2++;
-    }
-    for (let x = 0; x < n; x++) {
-        let f = 0;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) f++;
-        }
-        if (f === n - 1) close1++;
-        else if (f === n - 2) close2++;
-    }
-    return { close1, close2 };
+    const topo = analyzeBoardTopology(grid);
+    return { close1: topo.close1, close2: topo.close2 };
 }
 
 /** @param {import('../grid.js').Grid} grid @param {{ shape: number[][], placed: boolean }[]} dock */
@@ -456,17 +427,12 @@ function extractActionFeatures(
         adjRatio = Math.min(adj / _MAX_ADJ, 1.0);
         heightAfter = Math.max(gy + h, 0) / gridSize;
 
-        let holesCount = 0;
-        for (let sy = 0; sy < h; sy++) {
-            for (let sx = 0; sx < w; sx++) {
-                if (!shape[sy][sx]) continue;
-                const px = gx + sx, py = gy + sy;
-                for (let below = py + 1; below < n; below++) {
-                    if (grid.cells[below][px] === null) { holesCount++; break; }
-                }
-            }
+        if (typeof grid.clone === 'function') {
+            const after = grid.clone();
+            after.place(shape, 0, gx, gy);
+            after.checkLines?.();
+            holesRisk = Math.min(countUnfillableCells(after) / _MAX_HOLES, 1.0);
         }
-        holesRisk = Math.min(holesCount / Math.max(cellCount, 1), 1.0);
     }
 
     const actionPart = new Float32Array([

@@ -26,6 +26,7 @@ OpenBlock 提供三档基础难度：**简单（easy）**、**普通（normal）
 | 出块形状权重 | ✅ | 通过 `difficultyTuning.stressBias` 偏移自适应 stress 基线 |
 | 出块保底 / 块大小 / 多消倾向 | ✅ | `difficultyTuning` 直接调节 `spawnHints.clearGuarantee / sizePreference / multiClearBonus` |
 | 解空间难度 | ✅ | `solutionStressDelta` 让困难更早进入低解法数量过滤，简单更偏向宽松区间 |
+| 拓扑空洞压力 | ✅ | `topologyDifficulty` 读取“所有形状都无法覆盖的空格”数量，进入盘面压力和救援出块 |
 | 棋盘尺寸 | ❌ | 三档均为 8×8 |
 | 颜色数量 | ❌ | JSON 定义了 `colorCount` 但前端未读取 |
 
@@ -126,6 +127,7 @@ resolveAdaptiveStrategy(baseStrategyId, ...)
 │   └─ shapeWeights = interpolateProfileWeights(10档profiles, stress)
 │   └─ fillRatio = base.fillRatio + 连战修正
 │   └─ stress = scoreStress + difficultyTuning.stressBias + skillAdjust + flowAdjust + ...
+│   └─ topologyDifficulty.holePressure → 高空洞时减压、偏小块、提高消行保障
 │   └─ spawnHints += difficultyTuning.clearGuaranteeDelta / sizePreferenceDelta / multiClearBonusDelta
 │   └─ targetSolutionRange = deriveTargetSolutionRange(stress + solutionStressDelta)
 └─ adaptiveSpawn.enabled = false
@@ -145,7 +147,20 @@ resolveAdaptiveStrategy(baseStrategyId, ...)
 
 `hard.minStress=0.18` 用于避免困难模式在普通状态下被其他轻量减压项完全拉回舒适档；但新手保护、救场、挫败恢复和跨局热身不会被困难模式削弱。
 
-### 4.3 10 档 Profile 与 stress 的对应关系
+### 4.3 拓扑难度（topologyDifficulty）
+
+空洞数采用统一口径：**只有所有形状库中的块都无法合法覆盖的空格，才算空洞**。这与传统“某列上方有块、下方为空”的列高口径不同，更符合 OpenBlock 的任意位置放置规则。
+
+同一套 coverability 也用于临消/多消机会判定：行列不能只看“还差几个空格”，还必须确认这些缺口能被合法形状覆盖。否则一个被不可填空洞卡住的“近满行”不会再提高 `nearFullLines`、`close1/close2` 或多消兑现权重。
+
+该指标不直接让游戏变难，而是作为“盘面已经变难”的反馈信号：
+
+- `holePressureMax=8`：空洞数归一化上限。
+- `holeReliefStress=-0.16`：空洞压力越高，下一轮自适应 stress 越低。
+- `holeClearGuaranteeAt=2`：空洞达到阈值后，下一轮至少保障 2 个消行/解压候选。
+- `holeSizePreference=-0.22`：偏向更小块，提升填补局部不可达区域的概率。
+
+### 4.4 10 档 Profile 与 stress 的对应关系
 
 ```
 stress -0.2  → 新手引导（onboarding）：线条权重 3.18
@@ -213,7 +228,19 @@ let stress = scoreStress + runMods.stressBonus + difficultyBias + skillAdjust + 
 
 **文件**：`web/src/bot/blockSpawn.js`
 
-### 5.5 策略解释面板未显示难度信息（已修复）
+### 5.5 空洞口径与难度/RL 目标不一致（已修复）
+
+**问题**：前端出块、策略面板、RL 特征、模拟器和小程序镜像曾混用不同空洞口径，部分位置仍使用列高口径，导致面板、难度反馈和 RL 监督目标不一致。
+
+**修复**：
+- Web 新增 `boardTopology.js` 统一 `countUnfillableCells()`。
+- PyTorch `fast_board_features()`、`board_potential()`、`holes_after` 和 `hole_aux_loss` 统一使用不可覆盖空格。
+- 动作特征 `holesRisk` 改为“模拟放置并消行后的不可覆盖空洞数”，不再用放置块下方空格估算。
+- 小程序 bot/模拟器同步同口径。
+
+**文件**：`web/src/boardTopology.js`、`rl_pytorch/fast_grid.py`、`rl_pytorch/features.py`、`miniprogram/core/boardTopology.js`
+
+### 5.6 策略解释面板未显示难度信息（已修复）
 
 **问题**：策略解释面板中的 stress 说明未标明当前选择的难度模式。
 

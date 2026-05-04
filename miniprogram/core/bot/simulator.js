@@ -13,6 +13,7 @@ const {
     pickThreeDockColors
 } = require('../bonusScoring');
 const { getRlTrainingBonusLineSkin } = require('../skins');
+const { analyzeBoardTopology, countUnfillableCells } = require('../boardTopology');
 
 const _POT_CFG = RL_REWARD_SHAPING?.potentialShaping || {};
 const _POT_W_HOLE = Number(_POT_CFG.holeWeight) || -0.4;
@@ -29,16 +30,7 @@ function _rlBonusSkin() {
 }
 
 function _countHoles(grid) {
-    const n = grid.size;
-    let holes = 0;
-    for (let x = 0; x < n; x++) {
-        let found = false;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) found = true;
-            else if (found) holes++;
-        }
-    }
-    return holes;
+    return countUnfillableCells(grid);
 }
 
 function _countTransitions(grid) {
@@ -80,19 +72,7 @@ function _wellDepthSum(grid) {
 }
 
 function _closeToFullCount(grid) {
-    const n = grid.size;
-    let count = 0;
-    for (let y = 0; y < n; y++) {
-        let f = 0;
-        for (let x = 0; x < n; x++) if (grid.cells[y][x] !== null) f++;
-        if (f >= n - 2) count++;
-    }
-    for (let x = 0; x < n; x++) {
-        let f = 0;
-        for (let y = 0; y < n; y++) if (grid.cells[y][x] !== null) f++;
-        if (f >= n - 2) count++;
-    }
-    return count;
+    return analyzeBoardTopology(grid).nearFullLines;
 }
 
 function _dockMobility(grid, dock) {

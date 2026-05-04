@@ -66,6 +66,9 @@ export async function trainEpisodeRemote(trajectory, meta = {}) {
         if (typeof tr.clears === 'number') row.clears = tr.clears;
         if (typeof tr.board_quality === 'number') row.board_quality = tr.board_quality;
         if (typeof tr.feasibility === 'number') row.feasibility = tr.feasibility;
+        if (Array.isArray(tr.topology_after)) {
+            row.topology_after = tr.topology_after.map((x) => Number(x));
+        }
         if (typeof tr.steps_to_end === 'number') row.steps_to_end = tr.steps_to_end;
         if (Array.isArray(tr.qTeacher) && tr.qTeacher.length === tr.phiList.length) {
             row.q_teacher = tr.qTeacher.map((x) => Number(x));

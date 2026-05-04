@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import numpy as np
 
-from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
+from .game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
 from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
@@ -26,6 +26,7 @@ _POT_W_TRANS = float(_POT_CFG.get("transitionWeight", -0.08))
 _POT_W_WELL = float(_POT_CFG.get("wellWeight", -0.15))
 _POT_W_CLOSE = float(_POT_CFG.get("closeToFullWeight", 0.35))
 _POT_W_MOB = float(_POT_CFG.get("mobilityWeight", 0.12))
+_ACTION_NORM = dict(FEATURE_ENCODING.get("actionNorm") or {})
 
 _ICON_BONUS_LINE_MULT = 5
 
@@ -258,9 +259,11 @@ class OpenBlockSimulator:
 
     def get_supervision_signals(self) -> dict[str, float]:
         """一次调用返回所有直接监督目标值（board_quality / feasibility）。"""
+        gnp = self._ensure_grid_np()
         return {
-            "board_quality": board_potential_np(self._ensure_grid_np(), self.dock) / _BOARD_POT_NORM,
+            "board_quality": board_potential_np(gnp, self.dock) / _BOARD_POT_NORM,
             "feasibility": self.check_sequential_feasibility(),
+            "topology_after": _fg.topology_aux_targets(gnp, self.dock, _ACTION_NORM),
         }
 
     def step(self, block_idx: int, gx: int, gy: int) -> float:

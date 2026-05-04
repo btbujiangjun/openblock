@@ -219,17 +219,18 @@ def _adjacent_occupied_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: in
     return adj
 
 
-def _covers_holes_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> int:
-    n = occ.shape[0]
+def _holes_after_np(grid_np: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> int:
+    after = grid_np.copy()
     cells_yx = np.argwhere(shape_np > 0)
-    count = 0
     for sy, sx in cells_yx:
-        px_ = gx + sx
-        py = gy + sy
-        col_below = occ[py + 1:, px_]
-        if len(col_below) > 0 and not col_below.all():
-            count += 1
-    return count
+        after[gy + sy, gx + sx] = 0
+    n = after.shape[0]
+    occ = _fg.occupied_mask(after)
+    row_full = occ.sum(axis=1) >= n
+    col_full = occ.sum(axis=0) >= n
+    after[row_full, :] = -1
+    after[:, col_full] = -1
+    return _fg.count_unfillable_cells(after)
 
 
 _DIV_B = float(_AN.get("maxBlockIndex", 3))
@@ -270,7 +271,7 @@ def extract_action_features(
         blocks_remain = max(0, unplaced_after) / 3.0
         adj = min(_adjacent_occupied_np(occ, shape_np, gx, gy) / _DIV_ADJ, 1.0)
         max_h_after = max(gy + h, 0) / grid_size
-        holes_risk = min(_covers_holes_np(occ, shape_np, gx, gy) / max(cells, 1), 1.0)
+        holes_risk = min(_holes_after_np(_fg.grid_to_np(grid), shape_np, gx, gy) / float(_AN.get("maxHoles", 16)), 1.0)
         base.extend([nf, blocks_remain, adj, max_h_after, holes_risk])
     else:
         base.extend([0.0, 0.0, 0.0, 0.0, 0.0])
@@ -306,7 +307,6 @@ def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         cells_yx = np.argwhere(shape_np > 0)
         nf_count = 0
         adj_count = 0
-        hole_count = 0
         for sy, sx in cells_yx:
             py, px_ = gy + sy, gx + sx
             if row_counts[py] >= nf_thr or col_counts[px_] >= nf_thr:
@@ -321,16 +321,13 @@ def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
                             break
                     if not is_block:
                         adj_count += 1
-            col_below = occ[py + 1:, px_]
-            if len(col_below) > 0 and not col_below.all():
-                hole_count += 1
 
         nf = nf_count / max(cells_count, 1)
         unplaced_after = sum(1 for b in sim.dock if not b.get("placed")) - 1
         blocks_remain = max(0, unplaced_after) / 3.0
         adj = min(adj_count / _DIV_ADJ, 1.0)
         max_h_after = max(gy + h, 0) / n
-        holes_risk = min(hole_count / max(cells_count, 1), 1.0)
+        holes_risk = min(_holes_after_np(gnp, shape_np, gx, gy) / float(_AN.get("maxHoles", 16)), 1.0)
 
         action_part = np.array([
             bi / _DIV_B, gx / n, gy / n, w / _DIV_SH, h / _DIV_SH,

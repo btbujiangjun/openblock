@@ -15,6 +15,7 @@ import {
     buildDecisionBatch
 } from '../web/src/bot/features.js';
 import { OpenBlockSimulator } from '../web/src/bot/simulator.js';
+import { analyzeBoardTopology } from '../web/src/boardTopology.js';
 
 function makeDock() {
     return [
@@ -45,14 +46,38 @@ describe('countHoles', () => {
         expect(countHoles(new Grid(8))).toBe(0);
     });
 
-    it('block with gap below counts as holes', () => {
+    it('covered gaps are not holes when some shape can still fill them', () => {
         const g = new Grid(8);
         g.cells[0][0] = 1;
-        // column 0: occupied at y=0, then empty y=1..7 → 7 holes
-        expect(countHoles(g)).toBe(7);
+        // 传统列高口径会把下方空格都算作洞；OpenBlock 口径下，只要存在合法形状能覆盖就不算。
+        expect(countHoles(g)).toBe(0);
         g.cells[2][0] = 1;
-        // column 0: occupied at y=0, empty y=1 (1 hole), occupied y=2, empty y=3..7 (5 holes) → 6
-        expect(countHoles(g)).toBe(6);
+        expect(countHoles(g)).toBe(0);
+    });
+
+    it('isolated empty cell is a hole when no available shape can cover it', () => {
+        const g = new Grid(8);
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+                g.cells[y][x] = 1;
+            }
+        }
+        g.cells[3][3] = null;
+        expect(countHoles(g)).toBe(1);
+    });
+
+    it('2x2 empty pocket is not a hole because a square can cover it', () => {
+        const g = new Grid(8);
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+                g.cells[y][x] = 1;
+            }
+        }
+        g.cells[3][3] = null;
+        g.cells[3][4] = null;
+        g.cells[4][3] = null;
+        g.cells[4][4] = null;
+        expect(countHoles(g)).toBe(0);
     });
 });
 
@@ -131,5 +156,42 @@ describe('buildDecisionBatch', () => {
         for (const a of legal) {
             expect(sim.grid.canPlace(sim.dock[a.blockIdx].shape, a.gx, a.gy)).toBe(true);
         }
+    });
+});
+
+describe('topology supervision', () => {
+    it('simulator exposes normalized topology targets', () => {
+        const sim = new OpenBlockSimulator('normal');
+        const sup = sim.getSupervisionSignals();
+        expect(Array.isArray(sup.topology_after)).toBe(true);
+        expect(sup.topology_after).toHaveLength(8);
+        for (const v of sup.topology_after) {
+            expect(Number.isFinite(v)).toBe(true);
+            expect(v).toBeGreaterThanOrEqual(0);
+            expect(v).toBeLessThanOrEqual(1);
+        }
+    });
+
+    it('near-full lines ignore unfillable empty cells', () => {
+        const blocked = new Grid(8);
+        for (let y = 0; y < 8; y++) {
+            for (let x = 0; x < 8; x++) {
+                blocked.cells[y][x] = 1;
+            }
+        }
+        blocked.cells[3][3] = null;
+        const blockedTopo = analyzeBoardTopology(blocked);
+        expect(blockedTopo.holes).toBe(1);
+        expect(blockedTopo.close1).toBe(0);
+        expect(blockedTopo.nearFullLines).toBe(0);
+
+        const fillable = new Grid(8);
+        for (let x = 0; x < 7; x++) {
+            fillable.cells[0][x] = 1;
+        }
+        const fillableTopo = analyzeBoardTopology(fillable);
+        expect(fillableTopo.holes).toBe(0);
+        expect(fillableTopo.close1).toBeGreaterThanOrEqual(1);
+        expect(fillableTopo.nearFullLines).toBeGreaterThanOrEqual(1);
     });
 });
