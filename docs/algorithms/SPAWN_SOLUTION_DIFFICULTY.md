@@ -330,18 +330,23 @@ it('counts solutions correctly on simple boards', () => {
 
 ---
 
-## 11. 后续路线图
+## 11. 当前边界与可选扩展
 
-| 阶段 | 内容 | 状态 |
+当前代码事实：
+
+| 能力 | 状态 | 入口 |
 |---|---|---|
-| **Phase 1** | 计算 + 诊断曝光（仅观察） | ✅ 已实现 |
-| **Phase 2** | 软过滤（区间） | ✅ 已实现 |
-| **Phase 3** | **加权（不过滤，按区间偏好打分）** | ⏳ 待实现 |
-| **Phase 4** | RL 课程学习信号（把解法数作为难度课程的进度指标） | ⏳ 待实现 |
+| 解法数量计算 | 已实现 | `evaluateTripletSolutions()` |
+| 诊断曝光 | 已实现 | `playerInsightPanel` 解法 / 合法序 Pill |
+| 按 stress 选择目标区间 | 已实现 | `adaptiveSpawn.solutionDifficulty.ranges` |
+| 软过滤 | 已实现 | `blockSpawn` 在前 60% attempt 中按区间重抽 |
 
-Phase 3 设想：在 augmentPool 阶段加入"解法贴近度"权重 \( w \mathrel{*}= 1 + \alpha \cdot \mathrm{closeness}(N_{\mathrm{sol}}, [\min, \max]) \)，比硬过滤更平滑。
+可选扩展不作为当前实现事实：
 
-Phase 4 设想：把 `solutionMetrics` 写入 RL 训练数据流，让模型学到 "高 stress + 低解法数 → 是有意构造的精算关卡"，从而在推理时把策略向最优解集中。
+| 扩展 | 说明 | 上线前要求 |
+|------|------|------------|
+| 解法贴近度加权 | 在 augmentPool 阶段加入 \( w \mathrel{*}= 1 + \alpha \cdot \mathrm{closeness}(N_{\mathrm{sol}}, [\min, \max]) \)，用加权替代部分硬重抽 | 增加配置、单测和面板诊断 |
+| RL 课程信号 | 将 `solutionMetrics` 写入 RL 训练数据流，作为难度课程或辅助监督 | 同步 `featureEncoding` / 训练脚本并说明 checkpoint 兼容性 |
 
 ---
 

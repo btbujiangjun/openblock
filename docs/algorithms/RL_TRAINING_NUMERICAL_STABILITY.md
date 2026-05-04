@@ -1,6 +1,6 @@
-# RL 训练：数值稳定与指标解读
+# RL 排障：数值稳定与指标解读
 
-> 版本：1.1 | 更新：2026-05-03  
+> 当前定位：维护 RL 训练数值稳定、loss 幅值和环境变量说明。
 > 对应现象：训练看板中 **Lv（价值损失）纵轴出现 10³⁰ 量级**、Lπ 剧烈抖动，而胜率/得分仍上升。
 
 ---
@@ -57,5 +57,5 @@
 - **Lπ**：高噪声常见；与 **熵**、**胜率** 同向则多为可接受。
 - **胜率 / 得分 / 步数**：外在指标；与 Lv 解耦判断时，以「趋势 + 平台」为主。
 
-更完整的算法背景见 `docs/RL_TRAINING_OPTIMIZATION.md`。  
-**按看板曲线做全过程是否正常判断与优化清单**：见 `docs/RL_TRAINING_DASHBOARD_TRENDS.md`。
+更完整的算法背景见 [`RL_TRAINING_OPTIMIZATION.md`](./RL_TRAINING_OPTIMIZATION.md)。
+按看板曲线做全过程是否正常判断与优化清单，见 [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md)。

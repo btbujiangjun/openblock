@@ -1,8 +1,8 @@
 # 玩家画像与能力评估：算法工程师手册
 
-> 本文是 OpenBlock **玩家建模子系统**的统一算法手册。  
-> 范围：实时玩家状态推断（`PlayerProfile`）的全部公式、超参与决策树。  
-> 与现有文档的关系：本文是 `PLAYER_ABILITY_EVALUATION.md` 与 `PANEL_PARAMETERS.md` 的**算法侧深化**——补充被简化的公式、阈值默认值、以及"代码事实 vs 文档叙述"的对照。
+> 本文是 OpenBlock **玩家建模子系统**的统一算法手册。
+> 范围：实时玩家状态推断（`PlayerProfile`）与 `AbilityVector` 的公式、超参、配置和决策树。
+> 与现有文档的关系：本文是玩家能力算法的权威事实来源；`PLAYER_ABILITY_EVALUATION.md` 只保留产品语义和接入说明，`PANEL_PARAMETERS.md` 只维护 UI 字段解释。
 > 若需要横向理解 PlayerProfile / AbilityVector 与 RL、Spawn、商业化、LTV 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
@@ -44,32 +44,37 @@
 - **MonetizationPersonalization**：决定广告/IAP/任务时机
 - **UI**：玩家洞察面板可视化
 
-### 1.2 为什么不是 ML
+### 1.2 建模方法对比
 
-经典 ML 路径（如 LSTM 序列建模）的痛点：
-- **数据稀疏**：单玩家单局 ~30 步，难训练 individual model
-- **解释性差**：调参时不知道"为什么这把判 anxious"
-- **冷启动差**：新玩家无历史时 ML 输出不可靠
+玩家画像是一个**低延迟、弱标签、强解释**的在线估计问题。当前不是“不能用 ML”，而是先用可解释规则模型建立稳定特征契约，再把离线模型作为 baseline 校准。
 
-**当前选型：基于规则的特征工程 + EMA 平滑 + 心流公式**：
+| 方法 | 形式 | 优势 | 代价 | 适用阶段 |
+|------|------|------|------|----------|
+| 规则特征 + EMA（当前） | 手工特征、阈值树、指数平滑 | 冷启动友好；端侧低延迟；每个判断可解释；改 JSON 即生效 | 个体长期差异表达有限；阈值需要回标 | 默认线上路径 |
+| AbilityVector（当前） | 多维可解释向量 + baseline 融合接口 | 把能力、风险、规划和置信度统一成稳定契约；可写入回放训练集 | 仍依赖手工特征；不是独立学习模型 | UI、DDA、离线样本导出 |
+| LightGBM / XGBoost | 会话级表格特征 → 分数/风险 baseline | 少量样本下效果通常优于深度序列；可解释性尚可 | 需要稳定未来标签；需校准与版本管理 | 有足够回放和未来表现标签后 |
+| RNN / Transformer | 步级行为序列 → skill/risk/playstyle | 能学习时序模式和玩家节奏变化 | 数据需求高；端侧部署复杂；解释弱 | 大规模数据与离线训练成熟后 |
+| 贝叶斯技能评级 | 先验 + 局间结果更新 | 不确定性建模清晰，适合跨局长期能力 | 难表达心流、操作负荷和盘面拓扑 | 长期 skill baseline 辅助 |
 
-| 优势 | |
-|-----|---|
-| ✅ 解释性强 | 每个判定可拆到具体公式 + 阈值 |
-| ✅ 冷启动友好 | 步数 < 5 时直接输出 default |
-| ✅ 单端纯 JS | 无需后端推理；可在小程序运行 |
-| ✅ 调参直观 | 改 JSON 即生效，无需重训模型 |
+当前选型的核心假设：
 
-代价：
-- ⚠ 准确度上限有限（个体差异不能完全建模）
-- ⚠ 阈值需要数据团队定期回标
+- 单局样本短，很多玩家只有 1~3 局，深度模型冷启动收益低。
+- 画像直接影响出块压力和商业化时机，错误解释成本高。
+- Web/小程序需要弱网可用，不能依赖远端推理。
+- 所有数值要能被策划和算法工程师按实验结果回调。
 
 ### 1.3 与 ML 的可能融合点
 
-未来路线（`MONETIZATION_OPTIMIZATION.md` 提及）：
-- 用 **历史会话序列** 训练 LightGBM 预测 long-term skill curve
-- 把预测值作为 **`PlayerProfile.statsBaselineSkill`** 注入，规则引擎仍主导实时
-- 这种"规则+模型"混合架构在工业实现里 ROI 最高
+未来路线：
+
+- 用历史会话与回放帧训练 LightGBM，预测未来 N 局均分、未来 K 步死局风险和长期 playstyle。
+- 将预测值作为 `modelBaseline` 注入 `buildPlayerAbilityVector(profile, ctx)`，而不是直接覆盖 `PlayerProfile`。
+- baseline 融合必须受 `confidence` 门控；低置信时实时规则仍主导。
+- 离线模型的候选损失函数：
+  - `skillScore` 校准：MSE / Huber，目标为未来 N 局归一化均分或胜率。
+  - `riskLevel` 预测：Binary Cross Entropy，目标为未来 K 步 game over / 救援触发。
+  - `playstyle` 分类：Cross Entropy，目标为跨局稳定风格标签。
+  - 排序型能力：pairwise ranking loss，目标为同分层玩家未来表现排序。
 
 ---
 
@@ -874,6 +879,37 @@ flowchart TD
 | 风格稳定 | 最近 10 局 `playstyle` 漂移率 | 同类玩家漂移更低 |
 | DDA 效果 | 同能力分层下胜率、局长、挫败率方差 | 方差下降 |
 
+### 13.6 代码实现与应用示例
+
+核心实现：
+
+| 入口 | 职责 |
+|------|------|
+| `web/src/playerAbilityModel.js → buildPlayerAbilityVector()` | 构建实时能力向量 |
+| `web/src/adaptiveSpawn.js → resolveAdaptiveStrategy()` | 读取 `ability.skillScore / riskLevel / confidence` 修正 stress |
+| `web/src/moveSequence.js → buildPlayerStateSnapshot()` | 将 `ps.ability` 写入回放帧 |
+| `web/src/database.js → getAbilityTrainingDataset()` | 从回放会话导出离线训练样本 |
+| `tests/playerAbilityModel.test.js` | 验证边界、风险抬升和样本导出 |
+
+输入示例：
+
+```js
+const ability = buildPlayerAbilityVector(profile, {
+  grid,
+  boardFill: grid.getFillRatio(),
+  gameStats: { placements: 18 },
+  spawnContext: { roundsSinceClear: 4, mobility: 32 },
+  modelBaseline: { skillScore: 0.62, riskLevel: 0.48, confidence: 0.4 }
+});
+```
+
+输出作用：
+
+- `skillScore` 进入技能调节项，高能力且高置信时允许轻微加压。
+- `riskLevel` 高于 `playerAbilityModel.adaptiveSpawnRiskAdjust.riskThreshold` 时触发额外减压。
+- `explain[]` 进入玩家洞察面板，帮助策划判断是消行效率、盘面规划还是操作稳定性导致变化。
+- `features` 与 `labels` 进入离线样本，用于后续 baseline 模型训练。
+
 ---
 
 ## 14. 完整公式速查
@@ -1000,6 +1036,30 @@ $$
 | MAX_DECAY | 0.5 |
 | DECAY_FULL_DAYS | 7 |
 
+### 15.6 AbilityVector 配置
+
+来源：`shared/game_rules.json → playerAbilityModel`。这些参数控制 `web/src/playerAbilityModel.js` 的统一能力向量，以及 `adaptiveSpawn` 对高风险局面的额外减压。
+
+| 分组 | 参数 | 默认 | 用途 |
+|------|------|------|------|
+| `bands` | `riskHigh` / `riskMid` | 0.72 / 0.42 | `riskBand` 分档 |
+| `bands` | `skillExpert` / `skillAdvanced` / `skillDeveloping` | 0.78 / 0.58 / 0.36 | `skillBand` 分档 |
+| `baseline` | `skillMinConfidence` / `skillBlendScale` | 0.35 / 0.35 | 离线能力 baseline 与实时 `skillLevel` 融合 |
+| `baseline` | `riskMinConfidence` / `riskBlend` | 0.45 / 0.25 | 离线风险 baseline 与实时风险融合 |
+| `control` | `missRateMax` / `afkMax` / `apmMax` | 0.3 / 3 / 14 | 操作稳定性归一化 |
+| `control.weights` | miss / cognitiveLoad / afk / apm | 0.38 / 0.27 / 0.17 / 0.18 | `controlScore` 加权 |
+| `clearEfficiency` | `clearRateMax` / `comboRateMax` / `avgLinesMax` | 0.55 / 0.45 / 2.5 | 消行效率归一化 |
+| `clearEfficiency.weights` | clearRate / comboRate / avgLines | 0.55 / 0.25 / 0.20 | `clearEfficiency` 加权 |
+| `boardPlanning` | `holeMax` / `mobilityMax` / `closeLinesMax` | 10 / 120 / 6 | 盘面规划归一化 |
+| `boardPlanning` | `fillPenaltyStart` / `fillPenaltySpan` | 0.58 / 0.36 | 高填充惩罚曲线 |
+| `boardPlanning.weights` | holes / fill / mobility / nearClear | 0.36 / 0.22 / 0.22 / 0.20 | `boardPlanning` 加权 |
+| `risk` | `frustrationMax` / `roundsSinceClearMax` | 5 / 4 | 短期风险归一化 |
+| `risk.weights` | boardFill / holes / frustration / roundsSinceClear / control | 0.32 / 0.28 / 0.18 / 0.12 / 0.10 | `riskLevel` 加权 |
+| `riskTolerance` | `nearMissBonus` / `recoveryPenalty` / `comboRateMax` | 0.18 / -0.15 / 0.5 | 风险偏好调节 |
+| `confidence` | profile / lifetime / game 权重 | 0.65 / 0.25 / 0.10 | AbilityVector 置信度 |
+| `explain` | high/low 解释阈值 | 见 JSON | 面板解释文案触发 |
+| `adaptiveSpawnRiskAdjust` | `minConfidence` / `riskThreshold` / `stressRelief` | 0.25 / 0.62 / -0.08 | 高风险局面额外减压 |
+
 ---
 
 ## 16. 演进与开放问题
@@ -1033,8 +1093,8 @@ $$
 | 文档 | 关系 |
 |------|------|
 | [`ALGORITHMS_HANDBOOK.md`](./ALGORITHMS_HANDBOOK.md) | 总索引 |
-| [`PLAYER_ABILITY_EVALUATION.md`](../player/PLAYER_ABILITY_EVALUATION.md) | 工程师向：实现细节 |
-| [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) | 训练面板字段定义 |
+| [`PLAYER_ABILITY_EVALUATION.md`](../player/PLAYER_ABILITY_EVALUATION.md) | 产品语义与接入说明 |
+| [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) | UI 指标解释 |
 | [`REALTIME_STRATEGY.md`](../player/REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn 全链路 |
 | [`PLAYSTYLE_DETECTION.md`](../player/PLAYSTYLE_DETECTION.md) | 玩法风格分类 |
 | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) | 出块系统的画像消费 |
@@ -1042,5 +1102,5 @@ $$
 
 ---
 
-> 最后更新：2026-04-27 · 与 PlayerProfile v3 实现对齐  
+> 最后更新：2026-05-04 · 增加建模方法对比、AbilityVector 应用示例与 ML loss 口径
 > 维护：算法工程团队

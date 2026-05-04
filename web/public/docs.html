@@ -147,6 +147,13 @@
       font-weight: 500;
     }
     .doc-link.hidden { display: none; }
+    .doc-subtitle {
+      margin: 8px 14px 3px 24px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      color: var(--text-muted);
+    }
 
     /* ─── 主内容区 ─── */
     .main {
@@ -491,7 +498,7 @@
       const res = await fetch(`${API_BASE}/docs/list`);
       _categories = await res.json();
       // 统计文档总数
-      const total = _categories.reduce((s, c) => s + c.docs.length, 0);
+      const total = _categories.reduce((s, c) => s + allDocs(c).length, 0);
       $count.textContent = `${total} 篇文档`;
       renderSidebar('');
       // Hash 路由
@@ -507,19 +514,41 @@
   }
 
   // ─── 渲染侧边栏 ───
+  function allDocs(cat) {
+    if (Array.isArray(cat.groups) && cat.groups.length) {
+      return cat.groups.flatMap(g => g.docs || []);
+    }
+    return cat.docs || [];
+  }
+
+  function docMatches(d, q) {
+    return !q || d.title.toLowerCase().includes(q) || d.file.toLowerCase().includes(q);
+  }
+
   function renderSidebar(filter) {
     const q = filter.toLowerCase().trim();
     let html = '';
     _categories.forEach(cat => {
-      const items = cat.docs.filter(d =>
-        !q || d.title.toLowerCase().includes(q) || d.file.toLowerCase().includes(q)
-      );
-      if (items.length === 0) return;
+      const groups = Array.isArray(cat.groups) ? cat.groups : [];
+      const items = allDocs(cat).filter(d => docMatches(d, q));
+      if (!items.length) return;
       html += `<div class="cat-title">${cat.category}</div>`;
-      items.forEach(d => {
-        const active = d.file === _current ? ' active' : '';
-        html += `<a class="doc-link${active}" data-file="${d.file}" title="${d.file}">${d.title}</a>`;
-      });
+      if (groups.length) {
+        groups.forEach(group => {
+          const groupItems = (group.docs || []).filter(d => docMatches(d, q));
+          if (!groupItems.length) return;
+          html += `<div class="doc-subtitle">${group.name}</div>`;
+          groupItems.forEach(d => {
+            const active = d.file === _current ? ' active' : '';
+            html += `<a class="doc-link${active}" data-file="${d.file}" title="${d.file}">${d.title}</a>`;
+          });
+        });
+      } else {
+        items.forEach(d => {
+          const active = d.file === _current ? ' active' : '';
+          html += `<a class="doc-link${active}" data-file="${d.file}" title="${d.file}">${d.title}</a>`;
+        });
+      }
     });
     $sidebar.innerHTML = html;
     // 事件代理
@@ -534,7 +563,7 @@
     renderSidebar($search.value);
     let cardsHtml = '';
     _categories.forEach(cat => {
-      cat.docs.forEach(d => {
+      allDocs(cat).forEach(d => {
         cardsHtml += `
           <div class="welcome-card" data-file="${d.file}">
             <div class="cat">${cat.category}</div>
@@ -574,7 +603,14 @@
 
       let catName = '';
       for (const cat of _categories) {
-        if (cat.docs.some(d => d.file === filename)) { catName = cat.category; break; }
+        const groups = Array.isArray(cat.groups) ? cat.groups : [];
+        if (groups.length) {
+          const group = groups.find(g => (g.docs || []).some(d => d.file === filename));
+          if (group) { catName = `${cat.category} / ${group.name}`; break; }
+        } else if ((cat.docs || []).some(d => d.file === filename)) {
+          catName = cat.category;
+          break;
+        }
       }
 
       const html = parseMdWithMath(md);

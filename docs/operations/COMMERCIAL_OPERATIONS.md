@@ -1,8 +1,8 @@
-# 商业运营改进分析（Commercial Operations Review）
+# 商业运营参考分析（Commercial Operations Review）
 
-> 版本：1.0 · 日期：2026-04-21  
-> 视角：商业运营（Growth / Monetization Operations）  
-> 前置文档：[MONETIZATION.md](./MONETIZATION.md)（v3）、[COMPETITOR_USER_ANALYSIS.md](../domain/COMPETITOR_USER_ANALYSIS.md)
+> 文档状态：运营机会池与策略参考，不作为当前实现事实来源。
+> 当前商业化实现以 [MONETIZATION.md](./MONETIZATION.md)、[ALGORITHMS_MONETIZATION.md](../algorithms/ALGORITHMS_MONETIZATION.md) 和代码为准。
+> 视角：商业运营（Growth / Monetization Operations）
 
 **逐项落地状态（61 条）**见 [COMMERCIAL_IMPROVEMENTS_CHECKLIST.md](./COMMERCIAL_IMPROVEMENTS_CHECKLIST.md)（含 API、代码路径与「脚手架/已实现」标注）。
 
@@ -478,7 +478,7 @@ recall_gift: {
                           实施周期
 ```
 
-### 分阶段实施路线图
+### 分阶段实施建议（参考）
 
 #### 第一阶段（2 周）—— 真实变现
 
@@ -547,9 +547,9 @@ recall_gift: {
 |---------|-----------|------|
 | 真实广告收入 | `adAdapter.js` Stub 完备 | ❌ 无真实 SDK 接入（需申请 AdMob 账号） |
 | 真实 IAP 收入 | `iapAdapter.js` Stub 完备 | ❌ 无真实支付接入（需 Stripe/微信支付） |
-| 动态活动下发 | `seasonPass.js` 硬编码 | ❌ 无配置化系统（P5 待实现） |
-| 病毒传播 | `replayShare.js` 有代码，无 UI | ⚠️ 有基础，无入口（P6 待实现） |
-| 分层召回 | `pushNotification.js` 单层 | ⚠️ 有框架，缺分层（P7 待实现） |
+| 动态活动下发 | `seasonPass.js` 硬编码 | ❌ 当前无配置化活动系统 |
+| 病毒传播 | `replayShare.js` 有代码，无 UI | ⚠️ 有基础能力，当前无完整入口 |
+| 分层召回 | `pushNotification.js` 单层 | ⚠️ 有框架，当前无分层运营闭环 |
 | 运营数据看板 | `/api/ops/dashboard` + `ops-dashboard.html` | ✅ 已实现 |
 | A/B 测试框架 | `abTest.js`（5个内置实验，哈希分桶） | ✅ 已实现（测试 13/13 通过） |
 | IAP 首购引导 | `starter_pack`(¥3) + `weekly_pass_discount` + `annual_pass` | ✅ 已实现 |

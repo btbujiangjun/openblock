@@ -1,4 +1,7 @@
-# AlphaZero 对比与 RL 优化方案（v8）
+# RL 历史实验：AlphaZero/MCTS 对比
+
+> 当前定位：AlphaZero/MCTS 对比与搜索增强方案的研究记录，不作为当前实现事实入口。
+> 当前 search teacher、PPO/GAE、推理服务和训练路径以 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) 为准。
 
 ## 一、AlphaZero 系列论文核心分析
 

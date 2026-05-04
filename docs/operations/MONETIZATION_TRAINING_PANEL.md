@@ -1,11 +1,11 @@
 # 商业化模型训练面板：设计 · 原理 · 策略 · 内容 · 工程
 
-> 配套文档：[`MONETIZATION.md`](./MONETIZATION.md) 系统全景 · [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) 三层定制  
-> 实现：`web/src/monetization/monPanel.js` (~660 行) + `monetization_backend.py` (~545 行)  
-> 策略层：`web/src/monetization/strategy/` (config / engine / help)  
-> 状态：✅ v3 当前
+> 配套文档：[`MONETIZATION.md`](./MONETIZATION.md)（商业化权威入口） · [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md)（策略定制）
+> 实现：`web/src/monetization/monPanel.js` + `monetization_backend.py`
+> 策略层：`web/src/monetization/strategy/` (config / engine / help)
+> 当前定位：本文只维护 MonPanel 的界面、字段、调试和扩展说明；系统全景、模型公式、API 与上线边界以 `MONETIZATION.md` 为准。
 
-本文档是**商业化模型训练面板（MonPanel）**的权威说明，从 5 个维度回答"它是什么 / 为什么这样设计 / 算法原理 / 策略意图 / 如何扩展"：
+本文档是**商业化模型训练面板（MonPanel）**的专题说明，从 5 个维度回答"它是什么 / 为什么这样设计 / 算法原理 / 策略意图 / 如何扩展"：
 
 - **第一部分 · 设计** — 面板存在的商业理由、信息架构、对运营/开发/数据团队的价值
 - **第二部分 · 原理** — 鲸鱼分公式、信号归一化、规则引擎、缓存一致性的算法机理

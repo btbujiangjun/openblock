@@ -1,7 +1,7 @@
 # PyTorch RL：在线服务与离线评估
 
-> 说明 **Flask `/api/rl/*` 在线训练** 与 **`python -m rl_pytorch.train` 离线训练** 的差异，以及如何做强对照的 **贪心评估**。  
-> 与 [RL 算法手册](./ALGORITHMS_RL.md) §14 互补。
+> 当前定位：维护 Flask `/api/rl/*` 在线训练、`python -m rl_pytorch.train` 离线训练和贪心评估的服务化说明。
+> 算法公式、网络结构和奖励口径见 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)，栏目导航见 [`RL_README.md`](./RL_README.md)。
 
 ## 1. 两条训练路径
 

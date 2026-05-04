@@ -1,6 +1,7 @@
-# 训练看板：数据流与刷新机制
+# RL 看板：数据流与刷新机制
 
-> 版本：1.1 | 更新：2026-05-03
+> 当前定位：维护 RL 训练看板的数据来源、刷新机制和自检方法。
+> 曲线趋势解读见 [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md)，算法总览见 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)。
 
 ## 1. 数据从哪来
 

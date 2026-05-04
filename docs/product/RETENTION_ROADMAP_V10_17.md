@@ -1,6 +1,7 @@
-# 玩家留存 / 活跃提升 sprint（v10.17）
+# 玩家留存 / 活跃提升 sprint 归档（v10.17）
 
-> 路线图入口：本文档为开源可读版本；内部 Canvas 不随仓库发布。
+> 文档状态：历史 sprint 记录。用于理解留存系统的来源、取舍和测试清单；不作为当前代码事实入口。
+> 当前事实请优先阅读 `docs/product/README.md` 指向的具体系统文档，以及对应 `web/src/` 模块。
 > 关联：[`EASTER_EGGS_AND_DELIGHT.md`](./EASTER_EGGS_AND_DELIGHT.md)（v10.15-v10.16.6 彩蛋系统）
 
 OpenBlock v10.17 版本一次性落地 **18 项新建议改进点 + 6 项 P2 stub 填实 + 3 项防御性基础设施**，对标 D1 / D7 / D30 / 长期留存四个维度。

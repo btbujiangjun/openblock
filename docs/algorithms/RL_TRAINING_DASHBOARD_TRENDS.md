@@ -1,6 +1,6 @@
-# 训练看板：趋势解读与调优建议
+# RL 看板：趋势解读与调优建议
 
-> 版本：1.1 | 更新：2026-05-03  
+> 当前定位：维护 RL 训练看板的趋势解读、异常研判和调参优先级。
 > 配套：`web/src/bot/rlTrainingCharts.js` **8** 个同级面板 + 摘要条；曲线为 **细线=逐局**、**粗线=滑动平均（MA）**（得分图为 MA 粗线 + 逐局细线）。
 
 ---
@@ -105,9 +105,9 @@
 
 | 文档 | 内容 |
 |------|------|
-| `docs/RL_TRAINING_OPTIMIZATION.md` | v5 算法与损失设计 |
-| `docs/RL_TRAINING_NUMERICAL_STABILITY.md` | Lv 爆炸根因与裁剪环境变量 |
-| `docs/RL_TRAINING_DASHBOARD_FLOW.md` | 看板数据从哪来、如何刷新 |
+| [`RL_TRAINING_OPTIMIZATION.md`](./RL_TRAINING_OPTIMIZATION.md) | 训练架构演进与损失设计 |
+| [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) | Lv 爆炸根因与裁剪环境变量 |
+| [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) | 看板数据从哪来、如何刷新 |
 | **本文** | **趋势判读 + 是否正常 + 优化清单** |
 
 ---

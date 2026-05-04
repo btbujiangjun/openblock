@@ -1,8 +1,7 @@
-# 商业化策略完整文档（v3）
+# 商业化策略完整文档
 
-> 版本 v3 · 2026-04-20  
-> 本文档合并 v1（路径研究与优化建议）和 v2（个性化引擎设计），并补充全部已实现模块的完整说明。  
-> 状态：**已全量落地**，45 项测试通过，216 项全量测试通过。
+> 当前状态：以 `web/src/monetization/`、`monetization_backend.py`、`strategyConfig.js`、`commercialModel.js` 和 SQLite schema 为事实来源。
+> 早期商业化研究与个性化方案已归档到 `docs/archive/`；本文只描述当前实现、配置入口、API 和扩展边界。
 
 ---
 
@@ -19,9 +18,9 @@
 9. [玩家画像面板集成](#9-玩家画像面板集成)
 10. [商业化模型训练面板](#10-商业化模型训练面板)
 11. [Feature Flag 开关](#11-feature-flag-开关)
-12. [实施路线图](#12-实施路线图)
+12. [当前实现状态](#12-当前实现状态)
 13. [指标基线](#13-指标基线)
-14. [扩展与优化路线](#14-扩展与优化路线)
+14. [扩展边界](#14-扩展边界)
 
 ---
 
@@ -770,80 +769,54 @@ resetFlags();                    // 清除所有 localStorage 覆盖，恢复默
 
 ---
 
-## 12. 实施路线图
+## 12. 当前实现状态
 
-### Phase 1（0~4 周）：打通基础变现
+本文只维护当前代码事实，不再保留阶段式实施路线图。早期 OPT 编号、商业化路径研究和个性化方案演进见 `docs/archive/`。
 
-| 任务 | 状态 | 说明 |
-|------|------|------|
-| OPT-01 激励视频 SDK 接入 | ✅ Stub 已实现 | 替换 `setAdProvider()` 接入真实 SDK |
-| OPT-02 移除广告 + 提示包 IAP | ✅ Stub 已实现 | 接入 Stripe/App Store |
-| OPT-03 每日 3 任务 | ✅ 已实现 | 可扩展任务数量和奖励 |
-
-### Phase 2（4~10 周）：留存引擎
-
-| 任务 | 状态 | 说明 |
-|------|------|------|
-| OPT-04 在线日榜 | ✅ 已实现 | 每日挑战榜待联动 |
-| OPT-05 皮肤解锁路径 | ⚠️ 逻辑已定义 | `skinUnlock.js` 待接入 `skins.js` |
-| OPT-07 Web Push 召回 | ✅ 已实现 | 需用户手动授权 |
-
-### Phase 3（10~20 周）：LTV 提升
-
-| 任务 | 状态 | 说明 |
-|------|------|------|
-| OPT-06 30 天赛季通行证 | ✅ 骨架已实现 | 需配套付费轨道内容设计 |
-| OPT-02 扩充 月卡/新手礼包 | ✅ 产品目录已定义 | 接入支付系统后可上线 |
-| OPT-08 回放分享 | ✅ 已实现 | 可扩展 GIF 生成 |
-
-### Phase 4（20 周+）：差异化竞争
-
-| 任务 | 状态 | 说明 |
-|------|------|------|
-| OPT-09 AI 挑战模式 | 🔲 待实现 | 基于现有 RL 系统扩展 |
-| OPT-10 Web Shop | 🔲 待实现 | 绕过平台抽成（30%→3~5%） |
-| A/B 测试框架 | 🔲 待实现 | 见扩展路线 |
+| 能力 | 当前实现 | 配置/替换入口 |
+|------|----------|---------------|
+| 激励视频 | `adTrigger.js` + `adAdapter.js`，默认 Stub Provider | `setAdProvider()` 接入真实 SDK；`featureFlags.adsRewarded` 控制开关 |
+| 插屏广告 | 游戏结束自然断点触发，受频控、恢复期、CommercialModelVector 护栏约束 | `adTrigger.js`、`strategyConfig.frequency`、`commercialModel.guardrail` |
+| IAP | `iapAdapter.js` Stub 产品目录与购买流程 | `setIapProvider()` 接入平台支付；`featureFlags.iap` 控制开关 |
+| 个性化分群 | 后端 `_compute_user_profile()` 计算 whale/dolphin/minnow | `mon_model_config.segmentWeights`、`strategyConfig.segments` |
+| 商业化模型门控 | `commercialModel.js` 输出 IAP/广告/流失/疲劳多目标评分 | `strategyConfig.commercialModel` + 后端配置覆盖 |
+| 策略规则 | `strategyEngine.evaluate()` 输出 ranked actions 与 whyLines | `strategyConfig.rules`、`registerStrategyRule()` |
+| 运营面板 | `monPanel.js` 与 `commercialInsight.js` 展示分群、策略、模型分 | `strategyHelp.js` 维护 cursor:help 文案 |
+| 排行榜/任务/通行证/分享 | 已有功能模块与 feature flag | 对应模块和 `featureFlags.js` |
+| A/B 测试 | `abTest.js` 客户端稳定分桶，`/api/ab/*` 汇总 | 内置实验配置与后端报表 API |
 
 ---
 
 ## 13. 指标基线
 
-| 指标 | 行业爆款水位 | Phase 1 目标 | Phase 3 目标 |
-|------|------------|------------|------------|
-| D1 留存率 | ≥ 20% | ≥ 15% | ≥ 22% |
-| D7 留存率 | ≥ 8% | ≥ 6% | ≥ 10% |
-| D0 时长 | ≥ 40 min | ≥ 15 min | ≥ 30 min |
-| 激励视频完播率 | 80~90% | 建立基线 | ≥ 75% |
-| IAP 转化率 | 2~5%（Tier-1） | 建立基线 | ≥ 1.5% |
-| ARPU（日活） | $0.05~$0.15 | 建立基线 | ≥ $0.05 |
-| 连签 3 天率 | ≥ 30% | 建立基线 | ≥ 25% |
-| 分群覆盖率 | N/A | ≥ 50% 用户有分群 | ≥ 80% |
-| 策略触发准确率 | N/A | 建立基线 | ≥ 70% 匹配信号 |
+| 指标 | 行业参考水位 | 当前文档口径 | 数据来源 |
+|------|--------------|--------------|----------|
+| D1 留存率 | ≥ 20% | 作为留存健康主指标 | `sessions` 按 user/day 聚合 |
+| D7 留存率 | ≥ 8% | 作为长期健康指标 | `sessions` 按 user/day 聚合 |
+| D0 时长 | ≥ 40 min | 观察首日投入深度 | `sessions.duration` |
+| 激励视频完播率 | 80~90% | 真实 SDK 接入后建立基线 | 广告 provider 回调 + `mon_strategy_log` |
+| IAP 转化率 | 2~5%（Tier-1） | 真实支付接入后建立基线 | IAP provider 回调 + `mon_strategy_log` |
+| ARPDAU | $0.05~$0.15 | 按广告/IAP 收入合并统计 | 广告收益 + 支付订单 |
+| 连签 3 天率 | ≥ 30% | 观察留存任务有效性 | `progression.js` / sessions |
+| 分群覆盖率 | N/A | 画像服务可用性指标 | `mon_user_segments` |
+| 策略触发准确率 | N/A | 策略与实时信号匹配度 | `mon_strategy_log` + behaviors |
 
-**数据采集现状**：`server.py` 已记录会话时长、得分、行为事件；`progression.js` 记录连签天数；`mon_strategy_log` 记录策略曝光；以上数据足以支撑 Phase 1~2 的全部指标采集。
+**数据采集现状**：`server.py` 已记录会话时长、得分、行为事件；`progression.js` 记录连签天数；`mon_strategy_log` 记录策略曝光。真实广告/IAP 收入指标需要替换 Stub provider 后接入平台回调。
 
 ---
 
-## 14. 扩展与优化路线
+## 14. 扩展边界
 
-### 14.1 近期（可直接动工）
+以下内容不是当前实现事实，属于可选扩展方向；落地前必须同步代码、测试、API 文档和本节。
 
-1. **皮肤解锁接线**：将 `skinUnlock.js` 的 `isSkinUnlocked(skinId, progression)` 接入 `skins.js` 的皮肤选项渲染过滤（约 10 行改动）
-2. **每日挑战关**：在 `server.py` 增加固定棋盘初始状态 API，前端加载后与普通游戏隔离
-3. **策略曝光打点完善**：在 `adTrigger.js` 和 `iapAdapter.js` 的展示/购买回调中调用 `POST /api/mon/strategy/log`
-
-### 14.2 中期（需一定工程量）
-
-4. **A/B 测试框架**：在 `mon_model_config` 中增加 `abTest: { enabled, buckets: [...] }` 字段；`personalization.js` 按 `userId hash % n` 分配策略桶；`strategy_log` 记录桶标识
-5. **转化漏斗分析**：基于 `mon_strategy_log` 的 `show→click→purchase` 链路，在 `monPanel.js` 总览标签页增加漏斗可视化
-6. **真实 SDK 接入**：替换 `adAdapter.js` 的 Stub Provider 为 AdMob/ironSource；替换 `iapAdapter.js` 的 Stub 为 App Store/Google Play
-
-### 14.3 长期（差异化竞争力）
-
-7. **自动权重优化**：定期从 `mon_strategy_log` 取转化数据，用梯度下降更新 `mon_model_config` 中的分群权重
-8. **AI 挑战模式**（OPT-09）：基于 `rl_backend.py` 已有的 RL 训练系统，增加「与 AI 同台竞速」模式，大师 AI 付费解锁
-9. **Web Shop**（OPT-10）：独立 `/shop` 页面 + 用户身份认证，绕过平台 30% 抽成降至 3~5%
-10. **多设备同步**：将分群画像与 `user_id` 绑定，接入 OAuth 后支持跨设备一致体验
+| 扩展方向 | 当前可复用基础 | 上线前必须补齐 |
+|----------|----------------|----------------|
+| 真实广告 SDK | `adAdapter.js` provider 接口、频控、feature flag | SDK 初始化、失败回退、隐私同意、平台审核配置 |
+| 真实支付/IAP | `iapAdapter.js` provider 接口、产品目录、stub purchase flow | 收据校验、订单幂等、退款/恢复购买、平台商品映射 |
+| 商业化 ML baseline | `CommercialModelVector` 字段契约、`mon_strategy_log` | 曝光对照组、标签定义、校准曲线、模型版本治理 |
+| Uplift / Bandit | A/B 分桶、策略日志、guardrail | 流量治理、探索预算、反事实评估、异常自动熔断 |
+| Web Shop | 当前 IAP 产品目录和用户 ID | 账号体系、支付合规、税务/发票、跨端权益同步 |
+| AI 挑战商业化 | RL 后端、Bot 推理接口 | 真人路径隔离、付费权益设计、难度公平性测试 |
 
 ---
 
@@ -864,7 +837,7 @@ resetFlags();                    // 清除所有 localStorage 覆盖，恢复默
 
 | 文档 | 内容 |
 |------|------|
-| [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) | **v3 重构指南**：分层架构 + 三种定制粒度 + cursor:help 字段速查 |
+| [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) | 商业化分层架构 + 三种定制粒度 + cursor:help 字段速查 |
 | [`MONETIZATION_TRAINING_PANEL.md`](./MONETIZATION_TRAINING_PANEL.md) | **训练面板 5 维全方位**：设计哲学 / 鲸鱼分原理 / 策略矩阵商业解读 / 调参 PlayBook / A/B 实验 / 4 Tab 详解 / 扩展 |
 | [`MONETIZATION_OPTIMIZATION.md`](../archive/MONETIZATION_OPTIMIZATION.md) | v1：行业调研与优化清单（原始研究） |
 | [`MONETIZATION_PERSONALIZATION.md`](../archive/MONETIZATION_PERSONALIZATION.md) | v2：个性化引擎技术设计（详细 API 规范） |

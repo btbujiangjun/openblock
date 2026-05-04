@@ -33,10 +33,10 @@ docs/
 
 | 角色 | 先读 | 再读 | 目标 |
 |------|------|------|------|
-| 产品 / 玩法策划 | [领域知识](./domain/DOMAIN_KNOWLEDGE.md) → [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | [难度模式](./product/DIFFICULTY_MODES.md) → [彩蛋与惊喜系统](./product/EASTER_EGGS_AND_DELIGHT.md) → [策略定制指南](./engineering/STRATEGY_GUIDE.md) | 理解体验曲线、心流、奖励节奏与玩法可调面 |
+| 产品 / 玩法策划 | [领域知识](./domain/DOMAIN_KNOWLEDGE.md) → [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | [难度模式](./product/DIFFICULTY_MODES.md) → [彩蛋与惊喜系统](./product/EASTER_EGGS_AND_DELIGHT.md) → [策略定制指南](./engineering/STRATEGY_GUIDE.md) | 理解当前体验曲线、心流、奖励节奏与玩法可调面 |
 | 算法工程师 | [算法与模型手册](./algorithms/ALGORITHMS_HANDBOOK.md) | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) → [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md) → [RL 手册](./algorithms/ALGORITHMS_RL.md) | 统一符号、公式、模型结构、训练/推理链路 |
 | 架构 / 平台工程师 | [架构文档](../ARCHITECTURE.md) → [技术总览](./engineering/PROJECT.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) → [i18n](./engineering/I18N.md) | 理解模块边界、数据流、扩展接口与跨端同步 |
-| 运营 / 商业化 | [商业化策略](./operations/MONETIZATION.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [商业运营](./operations/COMMERCIAL_OPERATIONS.md) → [61 项改进清单](./operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) | 理解分群、触发策略、运营面板、实验指标与企业落地项 |
+| 运营 / 商业化 | [商业化策略](./operations/MONETIZATION.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [商业运营](./operations/COMMERCIAL_OPERATIONS.md) | 理解当前分群、触发策略、运营面板、实验指标与企业落地项 |
 | 测试 / QA | [测试指南](./engineering/TESTING.md) | [PROJECT.md 测试章节](./engineering/PROJECT.md#测试) → [RL 数值稳定](./algorithms/RL_TRAINING_NUMERICAL_STABILITY.md) → [训练看板趋势](./algorithms/RL_TRAINING_DASHBOARD_TRENDS.md) | 建立功能、算法、回归、数据一致性验证清单 |
 | 开源贡献者 | [README](../README.md) → [贡献指南](../CONTRIBUTING.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → 本页“文档维护规范” | 快速跑起来、找到任务边界、提交可审查改动 |
 | AI 辅助开发（Cursor / OpenCode 等） | [Cursor Skills 索引](./engineering/CURSOR_SKILLS.md) | [休闲游戏构建 Skill](./engineering/CASUAL_GAME_BUILD_SKILL.md) → [ARCHITECTURE](../ARCHITECTURE.md) → [TESTING](./engineering/TESTING.md) | 选用 Project/Personal Skills；可选 Skill 场景见索引 §3 |
@@ -67,7 +67,7 @@ docs/
 | [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | 竞品、能力模型、体验缺口、系统机会 | 产品、运营、算法 |
 | [竞品与用户分析](./domain/COMPETITOR_USER_ANALYSIS.md) | 目标用户、竞品机制、差异化方向 | 产品、运营 |
 | [架构对比](./domain/ARCHITECTURE_COMPARISON.md) | 不同实现路线的取舍 | 架构、技术负责人 |
-| [留存路线图](./product/RETENTION_ROADMAP_V10_17.md) | 留存机制、阶段目标、功能优先级 | 产品、运营 |
+| [留存路线图归档](./product/RETENTION_ROADMAP_V10_17.md) | 历史 sprint 记录；当前实现以具体产品/工程文档为准 | 产品、运营 |
 
 ### 玩法、难度与玩家系统
 
@@ -75,7 +75,7 @@ docs/
 |------|----------|----------|
 | [难度模式](./product/DIFFICULTY_MODES.md) | Easy/Normal/Hard 与自适应难度如何协作 | 产品、算法、测试 |
 | [消行计分](./product/CLEAR_SCORING.md) | `baseUnit * c^2`、多消、同色/同 icon bonus | 产品、算法、测试 |
-| [玩家能力评估](./player/PLAYER_ABILITY_EVALUATION.md) | `skillLevel`、历史融合、置信度如何计算 | 产品、算法 |
+| [玩家能力评估接入说明](./player/PLAYER_ABILITY_EVALUATION.md) | 玩家能力输出如何被产品和策略消费 | 产品、运营、测试 |
 | [玩家面板参数](./player/PANEL_PARAMETERS.md) | UI 指标含义、异常解读、调参提示 | 产品、运营、测试 |
 | [实时策略系统](./player/REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn → StrategyAdvisor | 产品、算法、架构 |
 | [玩法风格检测](./player/PLAYSTYLE_DETECTION.md) | 玩家风格识别与策略微调 | 产品、算法 |
@@ -94,16 +94,11 @@ docs/
 
 | 文档 | 核心问题 | 适合角色 |
 |------|----------|----------|
-| [RL 算法手册](./algorithms/ALGORITHMS_RL.md) | PPO/GAE、网络结构、奖励、探索、推理 API | 算法 |
-| [PyTorch RL 服务与评估](./algorithms/RL_PYTORCH_SERVICE.md) | 在线 `/api/rl` vs 离线 train、`q_teacher`/lookahead 默认、eval_values 校验、search replay、`rl:eval`、eval_greedy | 算法、后端 |
-| [玩法与 RL 解耦](./algorithms/RL_AND_GAMEPLAY.md) | 真人玩法与训练环境的边界 | 算法、架构 |
-| [RL 分析](./algorithms/RL_ANALYSIS.md) | 状态/动作空间、训练瓶颈、课程策略 | 算法 |
-| [AlphaZero 优化](./algorithms/RL_ALPHAZERO_OPTIMIZATION.md) | MCTS、Beam、蒸馏、评估门控 | 算法 |
-| [浏览器端 RL](./algorithms/RL_BROWSER_OPTIMIZATION.md) | 浏览器训练路径与线性模型 | 算法、前端 |
-| [训练架构优化](./algorithms/RL_TRAINING_OPTIMIZATION.md) | DockBoardAttention、监督头、训练架构 | 算法 |
-| [数值稳定](./algorithms/RL_TRAINING_NUMERICAL_STABILITY.md) | NaN/Inf、梯度裁剪、日志指标 | 算法、测试 |
-| [训练看板数据流](./algorithms/RL_TRAINING_DASHBOARD_FLOW.md) | 指标来源、刷新链路、面板状态 | 算法、测试 |
-| [训练看板趋势](./algorithms/RL_TRAINING_DASHBOARD_TRENDS.md) | 六图指标解读、健康/异常形态 | 算法、运营 |
+| [强化学习文档导航](./algorithms/RL_README.md) | RL 栏目的权威手册、专题补充和历史实验如何阅读 | 算法、后端、测试 |
+| [RL 算法手册](./algorithms/ALGORITHMS_RL.md) | PPO/GAE、网络结构、奖励、探索、推理 API 的权威事实 | 算法 |
+| [玩法与 RL 解耦](./algorithms/RL_AND_GAMEPLAY.md) | 真人玩法、训练环境、共享配置和特征维度边界 | 算法、架构 |
+| [PyTorch RL 服务与评估](./algorithms/RL_PYTORCH_SERVICE.md) | 在线 `/api/rl`、离线训练、search replay 和贪心评估 | 算法、后端 |
+| [训练观测与排障](./algorithms/RL_README.md#23-训练观测与排障) | 看板数据流、趋势解读、数值稳定和调参优先级 | 算法、测试 |
 
 ### 商业化与运营
 
@@ -113,7 +108,7 @@ docs/
 | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) | 鲸鱼分、规则引擎、LTV、CPI 出价 | 算法、运营 |
 | [商业化定制](./operations/MONETIZATION_CUSTOMIZATION.md) | 接入真实广告/IAP SDK、规则扩展 | 架构、运营 |
 | [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) | 面板设计、指标、调参 PlayBook | 运营、产品 |
-| [商业运营](./operations/COMMERCIAL_OPERATIONS.md) | 运营策略、节奏、活动与分析 | 运营 |
+| [商业运营参考分析](./operations/COMMERCIAL_OPERATIONS.md) | 运营机会池与策略参考，不作为当前实现事实来源 | 运营 |
 | [个性化变现](./archive/MONETIZATION_PERSONALIZATION.md) | 归档：个性化商业化 v2 设计 | 参考 |
 | [变现优化](./archive/MONETIZATION_OPTIMIZATION.md) | 归档：行业调研与早期优化清单 | 参考 |
 
@@ -127,6 +122,14 @@ docs/
 | [皮肤语义池](./product/SKIN_ICON_SEMANTIC_POOL.md) | emoji 语义、主题映射、唯一性约束 | 产品、美术 |
 | [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) | 音效、触觉、皮肤、奖励、彩蛋系统 | 产品、运营 |
 | [宝箱与钱包](./product/CHEST_AND_WALLET.md) | 局末/赛季宝箱入账顺序、`wallet` 与每日 cap 绕过 | 产品、测试 |
+
+### 归档与历史记录
+
+| 文档 | 定位 |
+|------|------|
+| [留存路线图归档](./product/RETENTION_ROADMAP_V10_17.md) | 阶段性 sprint 记录，不作为当前产品事实入口 |
+| [商业化路径研究 v1](./archive/MONETIZATION_OPTIMIZATION.md) | 早期行业调研与优化思路 |
+| [个性化商业化设计 v2](./archive/MONETIZATION_PERSONALIZATION.md) | 早期个性化引擎设计 |
 
 ## 方法论索引
 

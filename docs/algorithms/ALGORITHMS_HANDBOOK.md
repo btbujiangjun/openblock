@@ -2,7 +2,7 @@
 
 > 本手册是 OpenBlock 全部算法系统的**统一索引与导读**。  
 > 设计原则：**索引尽量短** + **分册尽量深**。本文不重复分册内容；只给读者**一页纸读懂"项目里有哪些算法、它们在哪、怎么读"**。  
-> 状态：✅ v1.1，与 v6 拓扑/Ability/Commercial 模型化同步
+> 状态：✅ v1.2，与 v6 拓扑/Ability/Commercial 模型化和算法工程师写作规范同步
 
 ---
 
@@ -11,7 +11,7 @@
 | 你的角色 | 必读 | 选读 | 跳过 |
 |---------|-----|------|------|
 | **算法工程师 · 新人** | 本手册 § 2~4 → [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) → [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) / [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | 商业化（除非负责） |
-| **算法工程师 · 优化训练** | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) + [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) | [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) | — |
+| **算法工程师 · 优化训练** | [`RL_README.md`](./RL_README.md) → [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) / [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | 历史实验记录 |
 | **算法工程师 · 商业化/CRM** | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) § 8~9 + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) + [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | [`MONETIZATION_CUSTOMIZATION.md`](../operations/MONETIZATION_CUSTOMIZATION.md) | RL |
 | **数据/分析** | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | KPI 章节于 [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | RL 训练细节 |
 | **游戏/玩法工程师** | [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) + [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) + [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | RL/商业化 |
@@ -72,8 +72,9 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 | 状态特征维度 (181) / 动作维度 (12) / φ 维度 (193) | `shared/game_rules.json` `featureEncoding` | `features.js` + `features.py` 同步；checkpoint **失效**需重训 |
 | 计分公式（`baseUnit · c²`） | `shared/game_rules.json` `scoring` | `clearScoring.js` + `simulator.py` `_clear_score_gain` |
 | 自适应出块 10 档 profile | `shared/game_rules.json` `adaptiveSpawn` | 仅 `adaptiveSpawn.js` 读取 |
+| AbilityVector 权重/分档/护栏 | `shared/game_rules.json` `playerAbilityModel` | `playerAbilityModel.js` + `adaptiveSpawn.js` 消费；回放 snapshot 字段同步 |
 | RL 奖励权重 | `shared/game_rules.json` `rlRewardShaping` | `simulator.py` `step()`、`train.py` 读取 |
-| 商业化模型权重 | `mon_model_config` 表 + `strategyConfig.js` 默认 | `personalization.js` 拉取后注入 |
+| 商业化模型权重/护栏 | `mon_model_config` 表 + `strategyConfig.js` `commercialModel` 默认 | `personalization.js` 拉取后注入；`strategyHelp.js` 登记 cursor:help |
 | 心流/挫败阈值 | `shared/game_rules.json` `adaptiveSpawn.engagement` | `playerProfile.js` 读取 |
 
 **强制约定**：项目已有"算法代码不直接写魔术数字"原则——所有数值都必须从 JSON / DB 读，否则会被 review 拒绝。
@@ -237,13 +238,13 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 - `web/src/playerProfile.js`（核心）
 - `web/src/playerAbilityModel.js` → `buildPlayerAbilityVector()`
 - `web/src/moveSequence.js` → `buildPlayerStateSnapshot()`
-- 配置：`shared/game_rules.json` → `adaptiveSpawn`
+- 配置：`shared/game_rules.json` → `adaptiveSpawn` / `playerAbilityModel`
 
 ### D. 商业化推断
 - 分群：`monetization_backend.py` → `_compute_user_profile()`
 - 模型化决策：`web/src/monetization/commercialModel.js` → `buildCommercialModelVector()`
 - 规则引擎：`web/src/monetization/strategy/strategyEngine.js`
-- 配置：`web/src/monetization/strategy/strategyConfig.js`
+- 配置：`web/src/monetization/strategy/strategyConfig.js` → `commercialModel`
 - LTV：`web/src/monetization/ltvPredictor.js`
 
 ### E. RL 智能体
@@ -259,6 +260,21 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 ## 7. 算法变更检查清单
 
 每次提 PR 涉及算法变更，请按下表自检：
+
+### 7.0 算法分册写作要求
+
+面向算法工程师的分册必须回答“这个模型解决什么问题、为什么这样建模、如何训练/调参、线上如何生效”。新增或重写算法文档时，至少包含以下内容：
+
+| 模块 | 必写内容 | 说明 |
+|------|----------|------|
+| 问题定义与假设 | 输入、输出、约束、不可用信息、冷启动假设 | 明确是否是 MDP、监督学习、规则评分、排序或生成问题 |
+| 建模方法与优化目标 | 当前方法、候选方法、目标函数或代理指标 | 规则模型也要写清楚优化的是体验、收益、风险还是可解释性 |
+| 特征与数据来源 | 特征字典、维度、归一化、唯一数据源 | 数值必须指向 JSON / DB / API，不允许只写代码常量 |
+| 结构与实现 | 网络结构、规则树、打分公式、关键代码入口 | 深度模型写网络层级；规则模型写公式、阈值和执行顺序 |
+| 损失函数与优化 | PPO/CE/MSE/Huber/蒸馏/阈值搜索/A-B 校准 | 当前未训练的规则模型要写“未来 ML baseline 的 loss 口径” |
+| 方法优劣对比 | 当前方案 vs ML / RL / 搜索 / bandit 等 | 给出解释性、冷启动、延迟、数据需求、上线风险的权衡 |
+| 作用机制与示例 | 线上调用链、输入样例、输出样例、失败回退 | 必须说明谁消费模型输出，以及护栏如何兜底 |
+| 评估与上线 | 离线指标、在线指标、灰度、checkpoint/配置兼容 | 破坏字段或维度时必须说明重训和迁移计划 |
 
 ### 7.1 通用
 - [ ] 改了魔术数字 → 是否已挪到 JSON？
@@ -322,7 +338,7 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 | 算法分册 | 关联实现文档 | 关联运营文档 |
 |---------|------------|------------|
 | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) | 全部模型的问题定义、假设、特征、结构、目标与应用机制总览 | — |
-| [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`RL_AND_GAMEPLAY.md`](./RL_AND_GAMEPLAY.md) / [`RL_ANALYSIS.md`](./RL_ANALYSIS.md) / [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) / [`RL_TRAINING_OPTIMIZATION.md`](./RL_TRAINING_OPTIMIZATION.md) / [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) / [`RL_BROWSER_OPTIMIZATION.md`](./RL_BROWSER_OPTIMIZATION.md) / [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) / [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | — |
+| [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`RL_README.md`](./RL_README.md) / [`RL_AND_GAMEPLAY.md`](./RL_AND_GAMEPLAY.md) / [`RL_PYTORCH_SERVICE.md`](./RL_PYTORCH_SERVICE.md) / [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) / [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) / [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | [`RL_ANALYSIS.md`](./RL_ANALYSIS.md) / [`RL_TRAINING_OPTIMIZATION.md`](./RL_TRAINING_OPTIMIZATION.md) / [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) / [`RL_BROWSER_OPTIMIZATION.md`](./RL_BROWSER_OPTIMIZATION.md) |
 | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | [`PLAYER_ABILITY_EVALUATION.md`](../player/PLAYER_ABILITY_EVALUATION.md) / [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) / [`REALTIME_STRATEGY.md`](../player/REALTIME_STRATEGY.md) / [`PLAYSTYLE_DETECTION.md`](../player/PLAYSTYLE_DETECTION.md) | — |
 | [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | [`MONETIZATION.md`](../operations/MONETIZATION.md) / [`MONETIZATION_CUSTOMIZATION.md`](../operations/MONETIZATION_CUSTOMIZATION.md) | [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) / [`COMMERCIAL_OPERATIONS.md`](../operations/COMMERCIAL_OPERATIONS.md) |
 | [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) | [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) / [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) / [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) |
@@ -342,5 +358,5 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 
 ---
 
-> 最后更新：2026-05-04 · v1.1 · 增加模型工程总览与 Ability/Commercial 向量契约
+> 最后更新：2026-05-04 · v1.2 · 增加算法工程师分册写作要求与模型契约清单
 > 维护：算法工程团队

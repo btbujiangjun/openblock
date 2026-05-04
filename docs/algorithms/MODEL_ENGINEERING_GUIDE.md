@@ -55,6 +55,30 @@ OpenBlock 里“模型”分为三类，不应混用。
 | 规则需跨端一致 | Web、小程序、Python RL 要共享形状、计分、特征口径 | `shared/game_rules.json`、`shared/shapes.json` 是核心事实源 |
 | 体验优先于单点收益 | 广告/IAP 不能破坏心流，出块不能制造无解 | 所有推荐动作必须通过 guardrail 和可行性检查 |
 
+### 2.1 建模方法选型对比
+
+OpenBlock 不把所有算法统一成一种模型，而是按问题类型选择“最低复杂度且可上线”的方法。
+
+| 问题 | 当前方法 | 可替代方法 | 当前方法优势 | 当前方法局限 | 升级触发条件 |
+|------|----------|------------|--------------|--------------|--------------|
+| Bot 落子 | PPO + GAE + 辅助监督 + 搜索蒸馏 | 纯 MCTS、AlphaZero 式自博弈、模仿学习 | 能从自博弈中持续改进，兼顾策略和值函数 | 训练成本高，checkpoint 与特征维度强绑定 | 固定 seed 胜率平台期、搜索 teacher 明显优于 policy |
+| 出块生成 | 规则加权 + 可解性过滤 + 可选 SpawnTransformer | PCGRL、扩散/Transformer 生成、手工关卡表 | 延迟低、可解释、失败可回退 | 多样性和长期节奏需人工调参 | 规则轨重复率高或目标难度误差不可接受 |
+| 自适应难度 | PlayerProfile/AbilityVector → stress/hints | 上下文 bandit、序列模型、POMDP | 冷启动稳定、策划可调、端侧运行 | 个体长期差异建模有限 | 同能力分层下局长/挫败率方差仍过大 |
+| 玩家能力 | EMA + 拓扑特征 + AbilityVector | LightGBM、RNN/Transformer 序列模型、贝叶斯技能评级 | 可解释、少样本可用、可写入回放 | 未来表现预测能力有限 | 回放样本足够且未来分数/风险标签稳定 |
+| 商业化动作 | CommercialModelVector + 规则护栏 | Uplift model、Contextual Bandit、RL 排序 | 不破坏频控和合规，运营可解释 | 收益最优性受规则限制 | 曝光/转化样本量足够且需要探索-利用平衡 |
+| LTV | 启发式 LTV + 渠道/分群系数 | 生存模型、GBDT、深度序列模型 | 冷启动和运营解释友好 | 校准依赖人工回归 | D7/D30 标签积累、渠道 CPI 决策需要更高精度 |
+
+### 2.2 优化目标与护栏原则
+
+各模型的优化目标不同，不能用单一指标替代：
+
+| 模型 | 主目标 | 约束/护栏 | 典型离线指标 | 典型在线指标 |
+|------|--------|-----------|--------------|--------------|
+| RL Bot | 最大化折扣回报、胜率、平均分 | 不读真人自适应内部权重；特征维度变更需重训 | seed 胜率、均分、熵、aux loss | Bot 体验、训练稳定性 |
+| Spawn | 生成合法、可解、目标难度匹配的三连块 | 非法或不可解必须回退规则轨 | 合法率、可解率、重复率、目标 stress 误差 | 局长、挫败率、重开率 |
+| AbilityVector | 估计能力、风险与解释 | 不替代原始 PlayerProfile；低置信时弱化影响 | 未来分数相关、风险 AUC、冷启动偏差 | DDA 稳定性、洞察可信度 |
+| CommercialModelVector | 在收益、留存、心流之间做门控 | 不绕过频控、付费保护、恢复期和合规 | AUC、校准、护栏命中率、uplift | ARPDAU、留存、广告疲劳、投诉率 |
+
 ---
 
 ## 3. 端到端数据流
@@ -635,7 +659,8 @@ rankedActions + whyLines
 | RL 特征维度 | `featureEncoding` | `features.js`、`features.py`、checkpoint |
 | 消行计分 | `scoring` | `clearScoring.js`、Python simulator、小程序 |
 | 拓扑口径 | `boardTopology.js` / `fast_grid.py` | UI、Spawn、AbilityVector、RL aux loss |
-| 商业化配置 | `strategyConfig.js` + `mon_model_config` | strategyEngine、personalization、adTrigger |
+| AbilityVector 配置 | `shared/game_rules.json → playerAbilityModel` | playerAbilityModel、adaptiveSpawn、回放训练样本 |
+| 商业化配置 | `strategyConfig.js → commercialModel` + `mon_model_config` | strategyEngine、personalization、adTrigger、commercialInsight |
 
 ### 11.2 向量契约
 
@@ -688,7 +713,19 @@ rankedActions + whyLines
 - 小程序、Web、Python 的规则口径一致。
 - 关键指标有 before/after 对照。
 
-### 12.3 推荐阅读顺序
+### 12.3 代码实现入口
+
+| 模型/模块 | 训练或配置入口 | 推理/消费入口 | 测试入口 |
+|-----------|----------------|---------------|----------|
+| RL Bot | `rl_pytorch/train.py`、`shared/game_rules.json → rlRewardShaping` | `rl_backend.py → /api/rl/*`、`web/src/bot/pytorchBackend.js` | `tests/features.test.js`、`tests/simulator.test.js` |
+| Spawn 规则轨 | `shared/game_rules.json → adaptiveSpawn / strategies` | `web/src/bot/blockSpawn.js`、`web/src/adaptiveSpawn.js` | `tests/blockSpawn.test.js`、`tests/adaptiveSpawn.test.js` |
+| SpawnTransformer | `rl_pytorch/spawn_model/`、`models/spawn_transformer.pt` | `web/src/spawnModel.js`、`server.py → /api/spawn/*` | `tests/pcgrl.test.js`、spawn model 自检脚本 |
+| PlayerProfile | `shared/game_rules.json → adaptiveSpawn` | `web/src/playerProfile.js`、`web/src/playerInsightPanel.js` | `tests/playerProfile.test.js` |
+| AbilityVector | `shared/game_rules.json → playerAbilityModel` | `web/src/playerAbilityModel.js`、`web/src/moveSequence.js` | `tests/playerAbilityModel.test.js` |
+| CommercialModelVector | `strategyConfig.js → commercialModel`、`mon_model_config` | `web/src/monetization/commercialModel.js`、`adTrigger.js` | `tests/commercialModel.test.js` |
+| LTV / 策略引擎 | `strategyConfig.js`、运营配置 API | `ltvPredictor.js`、`strategyEngine.js`、`personalization.js` | `tests/strategyEngine.test.js`、`tests/monetization.test.js` |
+
+### 12.4 推荐阅读顺序
 
 算法工程师新接手时建议按以下顺序读：
 
@@ -702,4 +739,4 @@ rankedActions + whyLines
 
 ---
 
-> 最后更新：2026-05-04 · v1 · 汇总 RL / Spawn / Player / Commercial / LTV / PCGRL 模型契约
+> 最后更新：2026-05-04 · v1.1 · 增加建模方法对比、优化目标护栏和代码实现入口

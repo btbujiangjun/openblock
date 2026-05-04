@@ -1,10 +1,10 @@
-# 商业化策略定制化指南
+# 商业化策略定制指南
 
-> 配套：[`MONETIZATION.md`](./MONETIZATION.md)（系统全景）  
-> 适用范围：v3 重构后（2026-04-27）  
-> 状态：✅ 已落地，全量测试 437 项通过
+> 配套：[`MONETIZATION.md`](./MONETIZATION.md)（商业化权威入口）
+> 适用范围：当前 `web/src/monetization/strategy/` 分层架构、`commercialModel` 配置和训练面板。
+> 历史重构过程不作为当前事实来源；以代码、测试和 `MONETIZATION.md` 为准。
 
-本文档说明如何在不改业务代码的情况下定制 Open Block 的商业化策略。重构核心思路 **分层 + 解耦**：把「策略数据」「决策逻辑」「执行模块」「UI 注入」彻底分开，使 80% 的运营调整只需改一份配置。
+本文档只说明如何定制策略：调阈值、改规则、新增动作和配置发布。系统全景、模型公式、API 和运维边界统一维护在 [`MONETIZATION.md`](./MONETIZATION.md)，避免两份文档重复描述同一套架构。
 
 ---
 

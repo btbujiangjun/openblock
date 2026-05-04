@@ -1,8 +1,8 @@
 # RL 训练与推理：算法工程师手册
 
-> 本文是 OpenBlock **强化学习子系统**的统一算法手册。  
-> 范围：RL 智能体的**算法选型 / 网络结构 / 状态-动作设计 / 奖励函数 / 训练流程 / 推理流程 / 数值稳定 / 演进路线**。  
-> 与现有文档的关系：本文做**统一推导与公式**，分散于 `RL_AND_GAMEPLAY.md` / `RL_ANALYSIS.md` / `RL_TRAINING_NUMERICAL_STABILITY.md` 等的细节**保留并被引用**。
+> 本文是 OpenBlock **强化学习子系统**的统一算法手册。
+> 范围：RL 智能体的**算法选型 / 网络结构 / 状态-动作设计 / 奖励函数 / 训练流程 / 推理流程 / 数值稳定 / 演进路线**。
+> 与现有文档的关系：本文维护当前算法事实和公式；[`RL_README.md`](./RL_README.md) 维护栏目导航，其他 RL 文档只维护契约、服务、看板或历史实验专题。
 > 若需要横向理解 RL 与 Spawn、玩家画像、商业化、LTV、PCGRL 的契约关系，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
@@ -1132,7 +1132,7 @@ def _safe_aux(t):
 
 ## 17. 训练观测与调参顺序
 
-### 17.1 看板六图（详见 `RL_TRAINING_DASHBOARD_TRENDS.md`）
+### 17.1 核心看板指标（详见 `RL_TRAINING_DASHBOARD_TRENDS.md`）
 
 | 图 | 健康形态 | 异常形态 |
 |----|---------|---------|

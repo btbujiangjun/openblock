@@ -2412,10 +2412,19 @@ _DOC_CATEGORIES = [
      'docs': ['algorithms/SPAWN_ALGORITHM.md', 'algorithms/ADAPTIVE_SPAWN.md',
               'algorithms/SPAWN_BLOCK_MODELING.md', 'algorithms/SPAWN_SOLUTION_DIFFICULTY.md']},
     {'name': '强化学习',
-     'docs': ['algorithms/RL_AND_GAMEPLAY.md', 'algorithms/RL_ANALYSIS.md',
-              'algorithms/RL_ALPHAZERO_OPTIMIZATION.md', 'algorithms/RL_BROWSER_OPTIMIZATION.md',
-              'algorithms/RL_TRAINING_OPTIMIZATION.md', 'algorithms/RL_TRAINING_NUMERICAL_STABILITY.md',
-              'algorithms/RL_TRAINING_DASHBOARD_FLOW.md', 'algorithms/RL_TRAINING_DASHBOARD_TRENDS.md']},
+     'groups': [
+         {'name': '总览与契约',
+          'docs': ['algorithms/RL_README.md', 'algorithms/ALGORITHMS_RL.md',
+                   'algorithms/RL_AND_GAMEPLAY.md', 'algorithms/RL_PYTORCH_SERVICE.md']},
+         {'name': '训练观测与排障',
+          'docs': ['algorithms/RL_TRAINING_DASHBOARD_FLOW.md',
+                   'algorithms/RL_TRAINING_DASHBOARD_TRENDS.md',
+                   'algorithms/RL_TRAINING_NUMERICAL_STABILITY.md']},
+         {'name': '研究与历史实验',
+          'docs': ['algorithms/RL_ANALYSIS.md', 'algorithms/RL_TRAINING_OPTIMIZATION.md',
+                   'algorithms/RL_ALPHAZERO_OPTIMIZATION.md',
+                   'algorithms/RL_BROWSER_OPTIMIZATION.md']},
+     ]},
     {'name': '商业化与运营',
      'docs': ['operations/MONETIZATION.md', 'operations/MONETIZATION_CUSTOMIZATION.md',
               'operations/MONETIZATION_TRAINING_PANEL.md', 'operations/COMMERCIAL_OPERATIONS.md',
@@ -2482,22 +2491,43 @@ def docs_portal():
 @app.route('/docs/list')
 def docs_list():
     """返回所有文档的分类列表及元信息。"""
+    def build_item(fname):
+        path = _DOCS_DIR / fname
+        if not path.exists():
+            return None
+        text = path.read_text('utf-8', errors='replace')
+        # 从第一个 # 标题提取文档标题
+        title = fname
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('# '):
+                title = stripped[2:].strip()
+                break
+        return {'file': fname, 'title': title}
+
     result = []
     for cat in _DOC_CATEGORIES:
         items = []
-        for fname in cat['docs']:
-            path = _DOCS_DIR / fname
-            if path.exists():
-                text = path.read_text('utf-8', errors='replace')
-                # 从第一个 # 标题提取文档标题
-                title = fname
-                for line in text.splitlines():
-                    stripped = line.strip()
-                    if stripped.startswith('# '):
-                        title = stripped[2:].strip()
-                        break
-                items.append({'file': fname, 'title': title})
-        result.append({'category': cat['name'], 'docs': items})
+        groups = []
+        if 'groups' in cat:
+            for group in cat['groups']:
+                group_items = []
+                for fname in group.get('docs', []):
+                    item = build_item(fname)
+                    if item is not None:
+                        group_items.append(item)
+                        items.append(item)
+                if group_items:
+                    groups.append({'name': group['name'], 'docs': group_items})
+        else:
+            for fname in cat['docs']:
+                item = build_item(fname)
+                if item is not None:
+                    items.append(item)
+        payload = {'category': cat['name'], 'docs': items}
+        if groups:
+            payload['groups'] = groups
+        result.append(payload)
     return jsonify(result)
 
 

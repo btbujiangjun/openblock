@@ -1,7 +1,7 @@
-# RL 训练架构 v5：直接监督头
+# RL 历史实验：直接监督头
 
-> **数值稳定与看板 Lv 爆炸**：见 `docs/RL_TRAINING_NUMERICAL_STABILITY.md`（回报裁剪、GAE delta 裁剪、日志幅值上限）。  
-> **看板趋势、训练是否正常、优化清单**：见 `docs/RL_TRAINING_DASHBOARD_TRENDS.md`。
+> 当前定位：训练架构演进记录，解释直接监督头为什么被引入；不作为当前 RL 总事实入口。
+> 当前算法总览见 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)，数值稳定见 [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md)，看板趋势见 [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md)。
 
 ## 1. 根因诊断：为什么 v4 仍然不收敛？
 

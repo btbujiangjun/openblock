@@ -800,6 +800,17 @@ export class Game {
         });
     }
 
+    _markDockBlockPlaced(index) {
+        const block = this.dockBlocks?.[index];
+        if (block) {
+            block.placed = true;
+        }
+        const dockBlock = document.querySelector(`.dock-block[data-index="${index}"]`);
+        if (dockBlock) {
+            dockBlock.style.visibility = 'hidden';
+        }
+    }
+
     /** 读取盘面单格的 CSS 实际显示尺寸（`--cell-px`）。
      *  候选区 canvas 用此值作为逻辑绘制单位，使 buffer 像素 = 显示像素，
      *  消除浏览器 CSS 缩放插值（v3 之前 dock 用 CONFIG.CELL_SIZE=38 绘制，
@@ -1213,6 +1224,7 @@ export class Game {
             const validsBefore = this.grid.countValidPlacements(this.dragBlock.shape);
             this.grid.place(this.dragBlock.shape, this.dragBlock.colorIdx, placedPos.x, placedPos.y);
             this.gameStats.placements++;
+            this._markDockBlockPlaced(this.drag.index);
 
             this.logBehavior(GAME_EVENTS.PLACE, {
                 blockIndex: this.drag.index,
@@ -1260,10 +1272,6 @@ export class Game {
 
                 this._checkToughPlacement(this.dragBlock, fillBefore, validsBefore);
 
-                this.dragBlock.placed = true;
-                const dockBlock = document.querySelector(`.dock-block[data-index="${this.drag.index}"]`);
-                if (dockBlock) dockBlock.style.visibility = 'hidden';
-
                 if (this.dockBlocks.every(b => b.placed)) {
                     if (this._spawnContext.lastClearCount === 0) {
                         this._spawnContext.roundsSinceClear++;
@@ -1304,7 +1312,6 @@ export class Game {
     playClearEffect(result) {
         const self = this;
         const dockIndex = this.drag.index;
-        const dockSlot = this.dockBlocks[dockIndex];
 
         this.isAnimating = true;
         this._clearStreak++;
@@ -1418,13 +1425,7 @@ export class Game {
                 self.renderer.setClearCells([]);
                 self.markDirty();
 
-                if (dockSlot) {
-                    dockSlot.placed = true;
-                }
-                const dockEl = document.querySelector(`.dock-block[data-index="${dockIndex}"]`);
-                if (dockEl) {
-                    dockEl.style.visibility = 'hidden';
-                }
+                self._markDockBlockPlaced(dockIndex);
 
                 if (self.dockBlocks.every(b => b.placed)) {
                     self._levelManager?.recordRound();
