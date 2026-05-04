@@ -17,6 +17,7 @@
  *   combo    多段 sine 递升、步长加长      连击 streak ≥ 2
  *   perfect  C5+E5+G5 三和弦 / 720ms        盘面清空
  *   bonus    爆炸冲击 + 明亮欢呼掌声 1.6s bonus 同色 / 同 icon 整行
+ *   gameOver 低频落点 + 下行短句 ~900ms       游戏结束 / 结算出现
  *   unlock   上扬清音 (600→1200) / 600ms   皮肤 / 成就解锁
  *   tick     极轻 800Hz / 30ms             菜单点击
  *
@@ -165,6 +166,7 @@ export class AudioFx {
             case 'combo':   return this._toneCombo(now, opts.streak);
             case 'perfect': return this._tonePerfect(now);
             case 'bonus':   return this._toneBonus(now, opts.count);
+            case 'gameOver': return this._toneGameOver(now);
             case 'unlock':  return this._toneUnlock(now);
             case 'tick':    return this._toneTick(now);
             default: return;
@@ -417,6 +419,14 @@ export class AudioFx {
                 });
             }
         }
+    }
+    _toneGameOver(now) {
+        // 结算提示：柔和下行，不做失败刺耳音，避免与结算卡停留时间冲突。
+        this._tone(now, { type: 'sine', freq: 164.81, slideTo: 82.41, dur: 0.32, gain: 0.09 });
+        this._tone(now + 0.04, { type: 'triangle', freq: 659.25, slideTo: 493.88, dur: 0.18, gain: 0.07 });
+        this._tone(now + 0.24, { type: 'triangle', freq: 523.25, slideTo: 392.0, dur: 0.2, gain: 0.065 });
+        this._tone(now + 0.48, { type: 'sine', freq: 392.0, slideTo: 329.63, dur: 0.28, gain: 0.052 });
+        this._tone(now + 0.62, { type: 'sine', freq: 246.94, dur: 0.34, gain: 0.04 });
     }
     _toneUnlock(now) {
         this._tone(now, { type: 'sine', freq: 600, slideTo: 1200, dur: 0.32, gain: 0.14 });

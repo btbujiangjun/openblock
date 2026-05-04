@@ -623,7 +623,7 @@ export class Game {
                 this._levelManager.applyInitialBoard(this.grid);
                 this._captureInitFrame(baseStrategy);
                 const spawnHints = this._levelManager.getSpawnHints();
-                this.spawnBlocks({ logSpawn: false, spawnShapeIds: spawnHints?.forceIds });
+                this.spawnBlocks({ logSpawn: false, spawnShapeIds: spawnHints?.forceIds, checkGameOver: false });
             } else {
                 const maxOpeningTries = 48;
                 let openingPlayable = false;
@@ -632,7 +632,7 @@ export class Game {
                     this._movePersistTimer = null;
                     this.grid.initBoard(layeredOpen.fillRatio, layeredOpen.shapeWeights);
                     this._captureInitFrame(baseStrategy);
-                    this.spawnBlocks({ logSpawn: false });
+                    this.spawnBlocks({ logSpawn: false, checkGameOver: false });
                     const rem = this.dockBlocks.filter((b) => !b.placed);
                     if (this.grid.hasAnyMove(rem)) {
                         openingPlayable = true;
@@ -649,7 +649,7 @@ export class Game {
                     this._movePersistTimer = null;
                     this.grid.initBoard(softFill, layeredOpen.shapeWeights);
                     this._captureInitFrame(baseStrategy);
-                    this.spawnBlocks({ logSpawn: false });
+                    this.spawnBlocks({ logSpawn: false, checkGameOver: false });
                 }
             }
             if (this.sessionId && this.dockBlocks.length) {
@@ -855,7 +855,7 @@ export class Game {
     }
 
     /**
-     * @param {{ logSpawn?: boolean }} [opts] logSpawn 默认 true；开局重试时 false，由 start 末尾统一记一条 spawn
+     * @param {{ logSpawn?: boolean, checkGameOver?: boolean }} [opts] logSpawn 默认 true；开局重试时 false，由 start 末尾统一记一条 spawn
      */
     spawnBlocks(opts = {}) {
         const layered = resolveAdaptiveStrategy(
@@ -871,6 +871,9 @@ export class Game {
         }
 
         this._commitSpawn(generateDockShapes(this.grid, layered, this._spawnContext), layered, opts, 'rule');
+        if (opts.checkGameOver !== false) {
+            this.checkGameOver();
+        }
     }
 
     /**
@@ -886,7 +889,9 @@ export class Game {
         const finish = (shapes, source) => {
             this._commitSpawn(shapes, layered, opts, source);
             this._spawnPending = false;
-            this.checkGameOver();
+            if (opts.checkGameOver !== false) {
+                this.checkGameOver();
+            }
         };
 
         predictShapes(this.grid, this.playerProfile, history, this._lastAdaptiveInsight).then((modelShapes) => {
@@ -1544,6 +1549,10 @@ export class Game {
             } catch { /* ignore */ }
         }
         this.isGameOver = true;
+        try {
+            window.__audioFx?.play?.('gameOver');
+            window.__audioFx?.vibrate?.([35, 55, 25]);
+        } catch { /* ignore */ }
         // 内嵌结算（v10.18）：保留棋盘可见，给 body 加 .game-over-active 让 CSS 做柔化处理
         document.body.classList.add('game-over-active');
         // 写入结算模式，供结算界面读取
