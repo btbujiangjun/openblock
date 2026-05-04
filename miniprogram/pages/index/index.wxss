@@ -81,9 +81,6 @@
   background: var(--accent);
   border-color: transparent;
 }
-.menu-btn--level {
-  border-color: rgba(244, 211, 94, 0.35);
-}
 .menu-btn-text {
   font-size: 34rpx;
   font-weight: 600;

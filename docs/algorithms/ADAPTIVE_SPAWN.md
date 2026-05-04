@@ -95,8 +95,9 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │              adaptiveSpawn.js（策略引擎层）                               │
 │                                                                         │
-│  10 信号融合：                                                           │
-│    scoreStress + skillAdjust + flowAdjust + pacingAdjust               │
+│  10+ 信号融合：                                                         │
+│    difficultyBias + scoreStress + skillAdjust + abilityRiskAdjust      │
+│    + flowAdjust + pacingAdjust + topologyPressure + sessionArcAdjust   │
 │    + recoveryAdjust + frustrationRelief + comboReward + nearMissAdjust │
 │                                                                         │
 │  爽感兑现：                                                             │
@@ -105,7 +106,7 @@
 │                                                                         │
 │  特殊覆写：新手保护 / 差一点放大                                         │
 │                                                                         │
-│  输出：shapeWeights（10 档插值）+ spawnHints                            │
+│  输出：shapeWeights（10 档插值）+ spawnHints + V3 共享上下文信号          │
 └────────────────────────────┬────────────────────────────────────────────┘
                              ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -130,6 +131,7 @@
 | `web/src/bot/blockSpawn.js` | 执行 | 接受 spawnHints，生成三连块（保持 solvability 不变量） |
 | `web/src/difficulty.js` | 基础 | 原有 score→stress 映射（被自适应引擎内部调用） |
 | `web/src/game.js` | 集成 | 事件采集 + 调用入口 |
+| `web/src/spawnModel.js` | 生成式推荐 | 构造规则/V3 共享上下文，调用 SpawnTransformerV3，并管理 `rule` / `model-v3` 模式 |
 
 ---
 
@@ -218,6 +220,19 @@ smoothSkill += α × (rawSkill - smoothSkill)
 
 ### 5.1 Stress 计算公式
 
+当前实现把六类输入显式映射到 `stress` 与 `spawnHints`：
+
+| 输入类别 | 代表字段 | 对 `stress` 的影响 | 对 `spawnHints` 的影响 |
+|----------|----------|--------------------|------------------------|
+| 难度模式 | `easy/normal/hard`、`difficultyTuning` | `stressBias` 调整基线，hard 提高挑战、easy 降低挑战 | `clearGuaranteeDelta`、`sizePreferenceDelta`、`multiClearBonusDelta` |
+| 玩家能力 | `AbilityVector.skillScore/confidence/riskLevel` | 高技能高置信可加压；高风险触发 `abilityRiskAdjust` 减压 | 高风险提高 `clearGuarantee`、偏小块；低风险高手提高多样性与多消兑现 |
+| 实时状态 | `flowState`、`pacingPhase`、`frustrationLevel`、`needsRecovery` | bored 加压、anxious/恢复/挫败减压，release 阶段减压 | 挫败/恢复/新手保障消行，必要时偏小块 |
+| 盘面拓扑 | `holes`、`nearFullLines`、`pcSetup`、`fillRatio` | 空洞压力通过 `holeReliefStress` 减压 | 清屏准备或近满线提升 `multiClearBonus`、`multiLineTarget` 和 `clearGuarantee` |
+| 局内体验 | `comboChain`、`rhythmPhase`、`delightMode` | combo 表现可轻微加压，爽感模式可减压或引导 payoff | payoff 优先多消，清屏机会提高 `perfectClearBoost` |
+| 局间弧线 | `totalRounds`、`runStreak`、`warmupRemaining`、`scoreMilestone` | 热身/冷却轻微减压，连战和分数档按规则加压 | 热身与里程碑提高消行保障，连续无消行进入救援 |
+
+`spawnModel.js` 会读取同一份 `adaptiveInsight.spawnHints`、`AbilityVector` 和实时拓扑，作为 SpawnTransformerV3 的上下文输入；因此生成式推荐与规则算法看到的是同一组难度、能力和拓扑信号。
+
 ```
 adaptiveStress = scoreStress           // 分数驱动（原 dynamicDifficulty）
                + runStreakStress        // 连战加成
@@ -274,7 +289,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 | `multiClearBonus` | 0~1 | 多消鼓励强度（分段推导） | `bestMultiClearPotential` / augmentPool 乘子 |
 | `multiLineTarget` | 0~2 | 显式偏好「同时多线」兑现（v3.2 / v10.33） | 阶段 1 排序与 multi 选取；`multiClear≥2` 额外乘子 |
 | `delightBoost` | 0~1 | 能力/心流驱动的爽感兑现强度 | 提高多消候选排序、抽样权重与消行槽位上限 |
-| `perfectClearBoost` | 0~1 | 清屏兑现强度 | 提高可清屏块排序与 `pcPotential` 权重 |
+| `perfectClearBoost` | 0~1 | 清屏兑现强度 | 提高可清屏块排序与 `pcPotential` 权重；若存在一手清屏块，会优先占用一个出块槽位 |
 | `delightMode` | challenge_payoff / flow_payoff / relief / neutral | 爽感调节模式 | 驱动 payoff、救援偏小块、消行保证 |
 | `rhythmPhase` | setup / payoff / neutral | 搭建 / 收获 / 中性（payoff 需几何门控） | augmentPool 相位乘子 |
 | `sessionArc` | warmup / peak / cooldown | 局内前段 / 中段 / 收官 | stress 与友好化 hint |
@@ -292,7 +307,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 - 高技能且 `flowState==='bored'`：`delightMode='challenge_payoff'`，略提高 stress、提高 `delightBoost`，并把中性节奏推向 payoff，让玩家获得更有挑战的多消机会。
 - `flowState==='flow'` 或 `pacingPhase==='release'`：`delightMode='flow_payoff'`，不强行加压，主要提高多消/清屏兑现概率。
 - `flowState==='anxious'` 或 `needsRecovery`：`delightMode='relief'`，降低 stress、偏小块、提高消行保证，同时保留多消救援机会。
-- `nearFullLines` / `pcSetup` 越高，`delightBoost` / `perfectClearBoost` 越高；真正能否出对应块仍由 `blockSpawn` 的候选检测、机动性和可解性校验决定。
+- `nearFullLines` / `pcSetup` 越高，`delightBoost` / `perfectClearBoost` 越高；若当前盘面已经存在可直接清屏的形状，`blockSpawn` 会优先把它纳入三连块候选。真正能否出对应块仍由候选检测、机动性和可解性校验决定。
 
 默认配置在 `shared/game_rules.json` 的 `adaptiveSpawn.delight` 下。调大 `highSkillMultiBoost` 会让高手更频繁遇到多消兑现；调大 `reliefMultiBoost` 会让焦虑/恢复态更容易翻盘；调大 `opportunityMultiBoost` 会更积极吃掉盘面已有临消/清屏机会。
 

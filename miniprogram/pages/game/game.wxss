@@ -100,32 +100,6 @@
   text-align: center;
 }
 
-.level-banner {
-  width: 100%;
-  margin: 6rpx 0 8rpx;
-  padding: 10rpx 14rpx;
-  border-radius: 14rpx;
-  border: 1rpx solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-  box-sizing: border-box;
-  gap: 14rpx;
-}
-
-.level-banner-title {
-  font-size: 22rpx;
-  color: #7dd3fc;
-  font-weight: 700;
-}
-
-.level-banner-objective {
-  font-size: 20rpx;
-  color: var(--text-secondary);
-}
-
 /* --- 棋盘 --- */
 .grid-wrapper {
   flex: 0 0 auto;
@@ -266,19 +240,4 @@
   border-radius: 48rpx;
   font-size: 32rpx;
   font-weight: 600;
-}
-
-.game-over-level-mode {
-  font-size: 28rpx;
-  color: #7dd3fc;
-}
-
-.game-over-level-stars {
-  font-size: 34rpx;
-  color: #ffd166;
-}
-
-.game-over-level-objective {
-  font-size: 24rpx;
-  color: var(--text-secondary);
 }

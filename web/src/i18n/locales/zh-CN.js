@@ -90,6 +90,11 @@ export default {
     'progress.rank.legend': '传奇',
     'progress.streakDays': '连续 {{n}} 天',
     'best.gap': '差 {{gap}} 分',
+    'effect.perfectClear': '清屏',
+    'effect.multiClear': '{{n}} 消',
+    'effect.doubleClear': '双消',
+    'effect.iconBonus': '爆炸大消除',
+    'effect.newRecord': '新纪录',
 
     'skin.name.classic': '✨ 极简经典',
     'skin.name.titanium': '💎 钛晶矩阵',

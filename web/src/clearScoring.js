@@ -1,13 +1,13 @@
 /**
  * 消行计分与 bonus 检测（与对局、回放、RL 无头模拟器共用）。
  *
- * RL / 训练路径与主局对齐：`shared/game_rules.json` → `rlBonusScoring` +
- * `skins.js` 的 `getRlTrainingBonusLineSkin()`（固定 canonical 主题下的 blockIcons，
- * 不是玩家当前皮肤）；策略观测仍不得包含出块算法内部状态。
+ * RL / 训练路径与主局对齐：计分倍率来自 `shared/game_rules.json` → `clearScoring`；
+ * 无头局 icon 语义只来自 `rlBonusScoring.blockIcons`，避免 JS/Python 读取皮肤实现漂移。
  *
  * 注意：不要从本文件 import game.js，避免循环依赖。
  */
 import { getStrategy } from './config.js';
+import { GAME_RULES } from './gameRules.js';
 
 /**
  * 在 clearEngine.apply() / grid.checkLines() **之前**（格子尚未被置 null）扫描
@@ -145,7 +145,8 @@ export function pickThreeDockColors(biasWeights, rnd = Math.random) {
 }
 
 /** 整行/列同色或同 icon：bonus 线在 UI 上按该倍数展示 */
-export const ICON_BONUS_LINE_MULT = 5;
+export const ICON_BONUS_LINE_MULT = Number(GAME_RULES.clearScoring?.iconBonusLineMult) || 5;
+export const PERFECT_CLEAR_MULT = Number(GAME_RULES.clearScoring?.perfectClearMult) || 10;
 
 /** 同色/同 icon bonus：粒子 + UI 整段时长（目标约 3–5 秒） */
 export function bonusEffectHoldMs(bonusCount) {
@@ -155,7 +156,7 @@ export function bonusEffectHoldMs(bonusCount) {
 
 /**
  * @param {string} strategyId
- * @param {{ count: number, bonusLines?: Array<unknown> }} result
+ * @param {{ count: number, bonusLines?: Array<unknown>, perfectClear?: boolean }} result
  * @param {{ singleLine?: number, multiLine?: number, combo?: number }|null} [scoringOverride] 回放等场景使用 init 帧内嵌的 scoring，避免与当前策略默认值漂移
  * @returns {{ baseScore: number, iconBonusScore: number, clearScore: number }}
  */
@@ -169,11 +170,11 @@ export function computeClearScore(strategyId, result, scoringOverride) {
 
     const bonusLines = result?.bonusLines || [];
     const bonusCount = bonusLines.length;
-    if (c <= 0 || bonusCount <= 0) {
-        return { baseScore, iconBonusScore: 0, clearScore: baseScore };
-    }
+    if (c <= 0) return { baseScore, iconBonusScore: 0, clearScore: baseScore };
     const effectiveBonusCount = Math.min(bonusCount, c);
     const lineScore = baseUnit * c;
     const iconBonusScore = lineScore * effectiveBonusCount * (ICON_BONUS_LINE_MULT - 1);
-    return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
+    const subtotal = baseScore + iconBonusScore;
+    const perfectMult = result?.perfectClear ? PERFECT_CLEAR_MULT : 1;
+    return { baseScore, iconBonusScore, clearScore: subtotal * perfectMult };
 }

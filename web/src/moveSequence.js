@@ -527,6 +527,7 @@ export function replayStateAt(frames, lastInclusive) {
             }
             grid.place(b.shape, b.colorIdx, f.x, f.y);
             const result = grid.checkLines();
+            result.perfectClear = result.count > 0 && grid.getFillRatio() === 0;
             const strategyId = first.strategy || 'normal';
             score += computeClearScore(strategyId, result, scoring).clearScore;
             b.placed = true;

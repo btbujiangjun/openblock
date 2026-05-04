@@ -340,9 +340,9 @@
                     <span class="spawn-option-icon" aria-hidden="true">📖</span>
                     <input type="radio" name="spawn-mode" value="rule" checked /> 规则算法
                 </label>
-                <label class="spawn-mode-label" title="使用已训练的 SpawnTransformer 根据盘面与玩家上下文推荐三连块；服务端不可用或推理失败时自动回退规则算法。">
+                <label class="spawn-mode-label" title="使用已训练的 SpawnTransformerV3 根据盘面、能力、拓扑与局内弧线推荐三连块；前端护栏失败或服务不可用时自动回退规则算法。">
                     <span class="spawn-option-icon" aria-hidden="true">✨</span>
-                    <input type="radio" name="spawn-mode" value="model" /> 生成式推荐
+                    <input type="radio" name="spawn-mode" value="model-v3" /> 生成式推荐
                 </label>
                 <span class="spawn-model-status" id="spawn-model-badge">模型未训练</span>
             </div>
@@ -380,6 +380,8 @@
                             <span class="sl-kv-label">尺寸偏好</span><span class="sl-kv-val" id="sl-sp">–</span></div>
                         <div class="sl-kv" title="从落子行为推断的玩法风格偏好：perfect_hunter(清屏)、multi_clear(多消)、combo(连消)、survival(生存)、balanced(均衡)；影响 multiClearBonus/rhythmPhase/clearGuarantee 等出块参数">
                             <span class="sl-kv-label">玩法偏好</span><span class="sl-kv-val" id="sl-playstyle">–</span></div>
+                        <div class="sl-kv" title="生成式推荐的上一轮 V3 元信息：模型版本、个性化状态、可行候选数或回退原因；规则模式下显示规则轨。">
+                            <span class="sl-kv-label">V3 元信息</span><span class="sl-kv-val" id="sl-v3meta">–</span></div>
                     </div>
                 </div>
                 <!-- Layer 3: 局间弧线 -->

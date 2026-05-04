@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Lenda',
     'progress.streakDays': '{{n}} dias seguidos',
     'best.gap': '{{gap}} pts até o recorde',
+    'effect.perfectClear': 'Limpeza total',
+    'effect.multiClear': '{{n}} linhas',
+    'effect.doubleClear': 'Limpeza dupla',
+    'effect.iconBonus': 'Grande explosão',
+    'effect.newRecord': 'Novo recorde',
 
     'skin.name.classic': '✨ Clássico minimalista',
     'skin.name.titanium': '💎 Matriz de titânio',

@@ -41,13 +41,14 @@ def strategy_python(strategy_id: str | None = None) -> dict:
 NORMAL_STRATEGY = strategy_python()
 WIN_SCORE_THRESHOLD = int(_DATA["winScoreThreshold"])
 FEATURE_ENCODING = dict(_DATA["featureEncoding"])
+CLEAR_SCORING = dict(_DATA.get("clearScoring") or {})
 RL_REWARD_SHAPING = dict(_DATA.get("rlRewardShaping") or {})
 _RL_CURRICULUM = dict(_DATA.get("rlCurriculum") or {})
 _RL_BONUS_SCORING = dict(_DATA.get("rlBonusScoring") or {})
 
 
 def rl_bonus_block_icons() -> list[str] | None:
-    """与网页 canonical bonus 对齐：仅当 JSON 提供非空 blockIcons 时启用 icon 整线判定。"""
+    """RL bonus icon 的唯一来源：shared/game_rules.json -> rlBonusScoring.blockIcons。"""
     if _RL_BONUS_SCORING.get("useGameplayBonusRules") is False:
         return None
     raw = _RL_BONUS_SCORING.get("blockIcons")

@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': '전설',
     'progress.streakDays': '{{n}}일 연속',
     'best.gap': '최고 기록까지 {{gap}}점',
+    'effect.perfectClear': '전체 클리어',
+    'effect.multiClear': '{{n}}줄 클리어',
+    'effect.doubleClear': '더블 클리어',
+    'effect.iconBonus': '폭발 대소거',
+    'effect.newRecord': '신기록',
 
     'skin.name.classic': '✨ 미니멀 클래식',
     'skin.name.titanium': '💎 티타늄 매트릭스',

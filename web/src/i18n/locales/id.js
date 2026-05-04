@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Legenda',
     'progress.streakDays': '{{n}} hari berturut-turut',
     'best.gap': '{{gap}} poin menuju rekor',
+    'effect.perfectClear': 'Bersih total',
+    'effect.multiClear': '{{n}} baris',
+    'effect.doubleClear': 'Bersih ganda',
+    'effect.iconBonus': 'Bersih ledakan besar',
+    'effect.newRecord': 'Rekor baru',
 
     'skin.name.classic': '✨ Klasik minimal',
     'skin.name.titanium': '💎 Matriks titanium',

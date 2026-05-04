@@ -35,6 +35,24 @@ def _fill_ratio(grid: Grid) -> float:
     return filled / (n * n) if n else 0.0
 
 
+def _is_empty(grid: Grid) -> bool:
+    return all(cell is None for row in grid.cells for cell in row)
+
+
+def _best_perfect_clear_potential(grid: Grid, shape_data: list[list[int]]) -> int:
+    n = grid.size
+    for gy in range(n):
+        for gx in range(n):
+            if not grid.can_place(shape_data, gx, gy):
+                continue
+            g = grid.clone()
+            g.place(shape_data, 0, gx, gy)
+            g.check_lines()
+            if _is_empty(g):
+                return 2
+    return 0
+
+
 def _permutations3(a: list[list[int]], b: list[list[int]], c: list[list[int]]):
     return (
         (a, b, c),
@@ -115,6 +133,8 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
     fill = _fill_ratio(grid)
 
     scored: list[dict[str, Any]] = []
+    occupied = sum(1 for y in range(grid.size) for x in range(grid.size) if grid.cells[y][x] is not None)
+    eval_perfect_clear = occupied <= 22 or fill <= 0.46
     for shape in get_all_shapes():
         data = shape["data"]
         can = grid.can_place_anywhere(data)
@@ -122,6 +142,7 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
         cat = shape_category(shape["id"])
         w = float(weights.get(cat, 1.0))
         placements = _count_legal_placements(grid, data) if can else 0
+        pc_potential = _best_perfect_clear_potential(grid, data) if can and eval_perfect_clear else 0
         scored.append(
             {
                 "shape": shape,
@@ -130,6 +151,7 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
                 "weight": w,
                 "category": cat,
                 "placements": placements,
+                "pc_potential": pc_potential,
             }
         )
 
@@ -137,7 +159,7 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
     if not scored:
         return []
 
-    scored.sort(key=lambda s: s["gap_fills"], reverse=True)
+    scored.sort(key=lambda s: (s["pc_potential"], s["gap_fills"]), reverse=True)
 
     def pick_weighted(pool: list[tuple[dict[str, Any], float]]) -> dict[str, Any]:
         total_w = sum(w for _, w in pool)
@@ -156,10 +178,11 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
         chosen_meta: list[dict[str, Any]] = []
         mob_target = _min_mobility_target(fill, attempt)
 
-        clear_candidates = [s for s in scored if s["gap_fills"] > 0]
+        clear_candidates = [s for s in scored if s["gap_fills"] > 0 or s["pc_potential"] == 2]
         if clear_candidates:
             k = min(3, len(clear_candidates))
-            first = clear_candidates[random.randint(0, k - 1)]
+            perfect_candidates = [s for s in clear_candidates if s["pc_potential"] == 2]
+            first = random.choice(perfect_candidates[:3]) if perfect_candidates else clear_candidates[random.randint(0, k - 1)]
             blocks.append(first["shape"])
             used_ids.add(first["shape"]["id"])
             chosen_meta.append({"shape": first["shape"], "placements": first["placements"]})
@@ -174,6 +197,8 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
                 w *= 1 + math.log1p(pc) * (0.35 + fill * 0.55)
                 if fill > 0.45 and _min_placements_of(chosen_meta) < mob_target + 2:
                     w *= 1 + pc / (8 + fill * 24)
+                if int(s.get("pc_potential") or 0) == 2:
+                    w *= 18.0
                 if want_small:
                     cells = _shape_cell_count(s["shape"]["data"])
                     if cells <= 4:
@@ -223,7 +248,7 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
 
     blocks = []
     used_ids: set[str] = set()
-    clear_candidates = [s for s in scored if s["gap_fills"] > 0]
+    clear_candidates = [s for s in scored if s["gap_fills"] > 0 or s["pc_potential"] == 2]
     if clear_candidates:
         blocks.append(clear_candidates[0]["shape"])
         used_ids.add(clear_candidates[0]["shape"]["id"])

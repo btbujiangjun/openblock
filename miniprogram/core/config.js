@@ -1,11 +1,9 @@
 /**
  * config.js — 小程序适配版。
  *
- * 原始 web/src/config.js 强依赖 import.meta.env 和 localStorage，
- * 此文件用 wx.getStorageSync 和 envConfig.js 替代。
+ * 小程序玩家端只保留本地玩法配置，不连接训练或状态后端。
  */
 const { GAME_RULES, buildDefaultStrategiesMap } = require('./gameRules');
-const storage = require('../adapters/storage');
 
 const CLASSIC_PALETTE = [
   '#70AD47', '#5B9BD5', '#ED7D31', '#FFC000',
@@ -21,32 +19,6 @@ const CONFIG = {
   PLACE_SNAP_RADIUS: 2,
   DOCK_PREVIEW_MAX_CELLS: 5,
 };
-
-function getApiBaseUrl() {
-  try {
-    const env = require('../envConfig');
-    if (env.apiBaseUrl) return env.apiBaseUrl.replace(/\/+$/, '');
-  } catch { /* */ }
-  const legacy = storage.getItem('api_url');
-  if (legacy) return legacy.replace(/\/+$/, '');
-  return '';
-}
-
-function isBackendSyncEnabled() {
-  try {
-    return require('../envConfig').syncBackend === true;
-  } catch {
-    return false;
-  }
-}
-
-function isRlPytorchBackendPreferred() {
-  try {
-    return require('../envConfig').usePytorchRl === true;
-  } catch {
-    return false;
-  }
-}
 
 const COLORS = CLASSIC_PALETTE;
 
@@ -67,8 +39,5 @@ module.exports = {
   COLORS,
   CLASSIC_PALETTE,
   DEFAULT_STRATEGIES,
-  getApiBaseUrl,
-  isBackendSyncEnabled,
-  isRlPytorchBackendPreferred,
   getStrategy,
 };

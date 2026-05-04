@@ -425,7 +425,7 @@ RL_EVAL_GATE_HARD=1 python -m rl_pytorch.train
 
 这轮改造针对“指标变好但 400-500 分不突破”的更深层风险：
 
-- **颜色可观测性**：`stateScalarDim` 从 23 扩到 42，新增 19 维颜色摘要（8 维棋盘颜色占比、8 维同色线潜力、3 维 dock 颜色）。同色整线 bonus 是真实高分来源，旧 occupancy-only 状态无法稳定规划这类收益。该变更使 `stateDim=181`、`phiDim=193`，旧 checkpoint 必须重训。
+- **颜色与 payoff 可观测性**：`stateScalarDim` 从 23 扩到 42，新增 19 维颜色摘要（8 维棋盘颜色占比、8 维同色线潜力、3 维 dock 颜色）；动作特征加入多消、同 icon / 同色 bonus 与清屏潜力。该变更使 `stateDim=181`、`actionDim=15`、`phiDim=196`，旧 checkpoint 必须重训。
 - **EvalGate 语义收紧**：candidate/baseline 继续使用同一批 seed，但门控改为逐局配对分数比较，要求 `paired_score_win_rate >= winRatio`（严格赢率）且平均分差非负，避免旧公式 `candidate_win_rate >= baseline_win_rate * 0.55` 过松以及平局误晋级。
 - **PPO 行为分布对齐**：轨迹中的 `old_log_prob` 改为记录真实采样分布（含 `lookahead_mix` / teacher 与 Dirichlet 扰动）下的动作 log-prob，避免用原始 policy logits 导致 importance ratio 偏差。
 - **EvalGate 与课程门槛对齐**：门控评估不再固定使用全局 `WIN_SCORE_THRESHOLD`，改为与当前训练轮次一致的课程阈值，减少“训练目标与晋级目标错位”。

@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Efsane',
     'progress.streakDays': '{{n}} gün üst üste',
     'best.gap': 'Rekora {{gap}} puan',
+    'effect.perfectClear': 'Tam temizlik',
+    'effect.multiClear': '{{n}} satır',
+    'effect.doubleClear': 'Çifte temizlik',
+    'effect.iconBonus': 'Büyük patlamalı temizleme',
+    'effect.newRecord': 'Yeni rekor',
 
     'skin.name.classic': '✨ Minimal klasik',
     'skin.name.titanium': '💎 Titanyum matris',

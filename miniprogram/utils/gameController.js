@@ -9,16 +9,13 @@
 
 const { Grid } = require('../core/grid');
 const { getAllShapes, pickShapeByCategoryWeights } = require('../core/shapes');
-const { GAME_RULES } = require('../core/gameRules');
 const { getStrategy } = require('../core/config');
 const { computeClearScore, detectBonusLines } = require('../core/bonusScoring');
-const { LevelManager } = require('../core/levelManager');
 const { vibrateShort } = require('../adapters/platform');
 
 class GameController {
   constructor(strategyId = 'normal', opts = {}) {
     this.strategyId = strategyId;
-    this.levelConfig = opts.levelConfig || null;
     this.skin = opts.skin || null;
     this.onStateChange = opts.onStateChange || (() => {});
     this.onLineClear = opts.onLineClear || (() => {});
@@ -38,14 +35,6 @@ class GameController {
     this.steps = 0;
     this.dock = [];
     this.gameOver = false;
-    this._levelManager = this.levelConfig ? new LevelManager(this.levelConfig) : null;
-    this._levelMode = this._levelManager ? 'level' : 'endless';
-    this.levelObjective = '';
-    this.levelStars = 0;
-    if (this._levelManager) {
-      this._levelManager.applyInitialBoard(this.grid);
-      this.levelObjective = this._levelManager.checkObjective(this).objective || '';
-    }
     this._spawnDock();
     this.onStateChange(this._snapshot());
   }
@@ -101,11 +90,11 @@ class GameController {
     this.grid.place(b.shape, b.colorIdx, gx, gy);
     this.steps++;
     b.placed = true;
-    this._levelManager?.recordPlacement();
 
     const bonusLinesSnap = detectBonusLines(this.grid, this.skin);
     const result = this.grid.checkLines();
     result.bonusLines = result.count > 0 ? bonusLinesSnap : [];
+    result.perfectClear = result.count > 0 && this.grid.getFillRatio() === 0;
     let gain = 0;
     let clears = 0;
     if (result.count > 0) {
@@ -115,7 +104,6 @@ class GameController {
       gain = clearScore;
       this.score += gain;
       vibrateShort();
-      this._levelManager?.recordClear(clears);
       this.onLineClear({
         clears,
         gain,
@@ -126,24 +114,7 @@ class GameController {
     }
 
     if (this.dock.every((d) => d.placed)) {
-      this._levelManager?.recordRound();
       this._spawnDock();
-    }
-
-    if (this._levelManager) {
-      const objResult = this._levelManager.checkObjective(this);
-      this.levelObjective = objResult.objective || '';
-      if (objResult.done) {
-        this.levelStars = objResult.stars || 0;
-        this.gameOver = true;
-        this.onGameOver({
-          score: this.score,
-          steps: this.steps,
-          clears: this.totalClears,
-          mode: objResult.mode || 'level',
-          levelResult: this._levelManager.getResult(this),
-        });
-      }
     }
 
     const remaining = this.dock.filter((d) => !d.placed);
@@ -153,8 +124,6 @@ class GameController {
         score: this.score,
         steps: this.steps,
         clears: this.totalClears,
-        mode: this._levelMode === 'level' ? 'level-fail' : 'endless',
-        levelResult: this._levelManager ? this._levelManager.getResult(this) : null,
       });
     }
 
@@ -169,10 +138,6 @@ class GameController {
       totalClears: this.totalClears,
       dock: this.dock,
       gameOver: this.gameOver,
-      levelMode: this._levelMode,
-      levelObjective: this.levelObjective,
-      levelStars: this.levelStars,
-      levelId: this.levelConfig?.id || '',
     };
   }
 }

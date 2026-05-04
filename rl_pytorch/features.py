@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .game_rules import FEATURE_ENCODING
+from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
 from . import fast_grid as _fg
 
 _ENC = FEATURE_ENCODING
@@ -20,6 +20,7 @@ _DOCK_MASK_SIDE = int(_ENC.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(_ENC.get("dockSlots", 3))
 _SCALAR_DIM = int(_ENC.get("stateScalarDim", 23))
 _N_COLORS = int(_ENC.get("colorCount", 8))
+_RL_BONUS_ICONS = rl_bonus_block_icons()
 
 STATE_FEATURE_DIM = int(_ENC["stateDim"])
 ACTION_FEATURE_DIM = int(_ENC["actionDim"])
@@ -240,6 +241,52 @@ _DIV_CLR = float(_AN.get("maxClearsHint", 5))
 _DIV_ADJ = float(_AN.get("maxAdjacent", 20))
 
 
+def _line_is_bonus(vals: np.ndarray) -> bool:
+    if vals.size == 0 or np.any(vals < 0):
+        return False
+    first = int(vals[0])
+    if _RL_BONUS_ICONS:
+        icon0 = _RL_BONUS_ICONS[first % len(_RL_BONUS_ICONS)]
+        return all(_RL_BONUS_ICONS[int(v) % len(_RL_BONUS_ICONS)] == icon0 for v in vals)
+    return bool(np.all(vals == first))
+
+
+def _clear_payoff_features_np(
+    grid_np: np.ndarray,
+    shape_np: np.ndarray,
+    gx: int,
+    gy: int,
+    color_idx: int,
+) -> tuple[float, float, float]:
+    after = grid_np.copy()
+    cells_yx = np.argwhere(shape_np > 0)
+    for sy, sx in cells_yx:
+        after[gy + sy, gx + sx] = int(color_idx)
+
+    n = after.shape[0]
+    occ = _fg.occupied_mask(after)
+    row_full = occ.sum(axis=1) >= n
+    col_full = occ.sum(axis=0) >= n
+    clears = int(row_full.sum() + col_full.sum())
+    if clears <= 0:
+        return 0.0, 0.0, 0.0
+
+    bonus = 0
+    for y in np.where(row_full)[0]:
+        if _line_is_bonus(after[int(y), :]):
+            bonus += 1
+    for x in np.where(col_full)[0]:
+        if _line_is_bonus(after[:, int(x)]):
+            bonus += 1
+
+    after[row_full, :] = -1
+    after[:, col_full] = -1
+    multi = min(max(clears - 1, 0) / max(_DIV_CLR - 1.0, 1.0), 1.0)
+    bonus_norm = min(bonus / max(_DIV_CLR, 1.0), 1.0)
+    perfect = 1.0 if not bool(_fg.occupied_mask(after).any()) else 0.0
+    return float(multi), float(bonus_norm), float(perfect)
+
+
 def extract_action_features(
     state_feat: np.ndarray,
     block_idx: int,
@@ -250,8 +297,9 @@ def extract_action_features(
     grid_size: int,
     grid=None,
     dock: list[dict] | None = None,
+    color_idx: int = 0,
 ) -> np.ndarray:
-    """12 维动作特征（v4）：原 7 + 5 棋盘交互特征。grid/dock 可选，传入时才计算后 5 维。"""
+    """15 维动作特征：原 12 + 多消、同 icon/同色 bonus、清屏潜力。"""
     shape_np = _fg.shape_to_np(shape)
     cells = int(shape_np.sum())
     h, w = shape_np.shape
@@ -265,17 +313,21 @@ def extract_action_features(
         would_clear / _DIV_CLR,
     ]
     if grid is not None:
-        occ = _fg.occupied_mask(_fg.grid_to_np(grid))
+        grid_np = _fg.grid_to_np(grid)
+        occ = _fg.occupied_mask(grid_np)
         nf = _near_full_ratio_np(occ, shape_np, gx, gy)
         unplaced_after = sum(1 for b in (dock or []) if not b.get("placed")) - 1
         blocks_remain = max(0, unplaced_after) / 3.0
         adj = min(_adjacent_occupied_np(occ, shape_np, gx, gy) / _DIV_ADJ, 1.0)
         max_h_after = max(gy + h, 0) / grid_size
-        holes_risk = min(_holes_after_np(_fg.grid_to_np(grid), shape_np, gx, gy) / float(_AN.get("maxHoles", 16)), 1.0)
-        base.extend([nf, blocks_remain, adj, max_h_after, holes_risk])
+        holes_risk = min(_holes_after_np(grid_np, shape_np, gx, gy) / float(_AN.get("maxHoles", 16)), 1.0)
+        multi, bonus, perfect = _clear_payoff_features_np(grid_np, shape_np, gx, gy, color_idx)
+        base.extend([nf, blocks_remain, adj, max_h_after, holes_risk, multi, bonus, perfect])
     else:
-        base.extend([0.0, 0.0, 0.0, 0.0, 0.0])
+        base.extend([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     action_part = np.array(base, dtype=np.float32)
+    if action_part.shape[0] != ACTION_FEATURE_DIM:
+        raise ValueError(f"动作特征长度 {action_part.shape[0]} != actionDim {ACTION_FEATURE_DIM}")
     return np.concatenate([state_feat, action_part], axis=0)
 
 
@@ -328,11 +380,13 @@ def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         adj = min(adj_count / _DIV_ADJ, 1.0)
         max_h_after = max(gy + h, 0) / n
         holes_risk = min(_holes_after_np(gnp, shape_np, gx, gy) / float(_AN.get("maxHoles", 16)), 1.0)
+        color_idx = int(sim.dock[bi].get("color_idx", sim.dock[bi].get("colorIdx", 0)))
+        multi, bonus, perfect = _clear_payoff_features_np(gnp, shape_np, gx, gy, color_idx)
 
         action_part = np.array([
             bi / _DIV_B, gx / n, gy / n, w / _DIV_SH, h / _DIV_SH,
             cells_count / _DIV_CELLS, wc / _DIV_CLR,
-            nf, blocks_remain, adj, max_h_after, holes_risk,
+            nf, blocks_remain, adj, max_h_after, holes_risk, multi, bonus, perfect,
         ], dtype=np.float32)
         rows.append(np.concatenate([state, action_part], axis=0))
 

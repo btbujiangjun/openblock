@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'レジェンド',
     'progress.streakDays': '{{n}}日連続',
     'best.gap': 'ベストまであと {{gap}} 点',
+    'effect.perfectClear': '全消し',
+    'effect.multiClear': '{{n}} ライン消し',
+    'effect.doubleClear': 'ダブル消し',
+    'effect.iconBonus': '爆発大消去',
+    'effect.newRecord': '新記録',
 
     'skin.name.classic': '✨ ミニマルクラシック',
     'skin.name.titanium': '💎 チタンマトリックス',

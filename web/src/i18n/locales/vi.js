@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Huyền thoại',
     'progress.streakDays': 'Chuỗi {{n}} ngày',
     'best.gap': 'Còn {{gap}} điểm tới kỷ lục',
+    'effect.perfectClear': 'Dọn sạch bàn',
+    'effect.multiClear': 'Xóa {{n}} hàng',
+    'effect.doubleClear': 'Xóa đôi',
+    'effect.iconBonus': 'Nổ xóa lớn',
+    'effect.newRecord': 'Kỷ lục mới',
 
     'skin.name.classic': '✨ Tối giản cổ điển',
     'skin.name.titanium': '💎 Ma trận titan',

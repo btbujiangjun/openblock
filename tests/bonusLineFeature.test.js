@@ -5,12 +5,14 @@
  * - 与 ClearRuleEngine.apply 联动时，必须在清除前检测
  */
 import { describe, it, expect } from 'vitest';
+import { GAME_RULES } from '../web/src/gameRules.js';
 import { Grid } from '../web/src/grid.js';
 import { ClearRuleEngine, RowColRule } from '../web/src/clearRules.js';
 import {
     detectBonusLines,
     computeClearScore,
     ICON_BONUS_LINE_MULT,
+    PERFECT_CLEAR_MULT,
     bonusEffectHoldMs,
     monoNearFullLineColorWeights,
     pickThreeDockColors,
@@ -38,15 +40,24 @@ function shapeLinePotential(shape) {
     return rows.size + cols.size;
 }
 
-function expectedScore(count, bonusCount, baseUnit = 20) {
+function expectedScore(count, bonusCount, baseUnit = 20, perfectClear = false) {
     const safeBonus = Math.min(bonusCount, count);
     const baseScore = count > 0 ? baseUnit * count * count : 0;
     const lineScore = baseUnit * count;
     const iconBonusScore = lineScore * safeBonus * (ICON_BONUS_LINE_MULT - 1);
-    return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
+    const clearScore = (baseScore + iconBonusScore) * (perfectClear ? PERFECT_CLEAR_MULT : 1);
+    return { baseScore, iconBonusScore, clearScore };
 }
 
 describe('bonus line feature', () => {
+    it('bonus 计分倍率来自 shared/game_rules.json', () => {
+        expect(ICON_BONUS_LINE_MULT).toBe(GAME_RULES.clearScoring.iconBonusLineMult);
+    });
+
+    it('清屏计分倍率来自 shared/game_rules.json', () => {
+        expect(PERFECT_CLEAR_MULT).toBe(GAME_RULES.clearScoring.perfectClearMult);
+    });
+
     it('当前形状库单次理论最大消除行列数为 6', () => {
         const maxLines = Math.max(...getAllShapes().map((s) => shapeLinePotential(s.data)));
         expect(maxLines).toBe(6);
@@ -81,6 +92,15 @@ describe('bonus line feature', () => {
             bonusLines: [{}, {}, {}],
         });
         expect(r).toEqual(expectedScore(2, 2));
+    });
+
+    it('computeClearScore：清屏会在基础分与 bonus 分之后整体乘以清屏倍率', () => {
+        const r = computeClearScore('normal', {
+            count: 2,
+            bonusLines: [{ type: 'row', idx: 0 }],
+            perfectClear: true,
+        });
+        expect(r).toEqual(expectedScore(2, 1, 20, true));
     });
 
     it('bonusEffectHoldMs 落在 3000–5000ms', () => {

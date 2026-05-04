@@ -1,11 +1,13 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
- * state=181 (42 scalars + 64 grid + 75 dock), action=12, phi=193。
+ * state=181 (42 scalars + 64 grid + 75 dock), action=15, phi=196。
  *
  * 不含 spawnHints / adaptiveSpawn / blockSpawn 内部权重或未来块信息——仅盘面与当前 dock 可见状态。
  */
 import { FEATURE_ENCODING } from '../gameRules.js';
 import { analyzeBoardTopology, countUnfillableCells } from '../boardTopology.js';
+import { detectBonusLines } from '../clearScoring.js';
+import { getRlTrainingBonusLineSkin } from '../skins.js';
 
 const enc = FEATURE_ENCODING;
 const AF = enc.almostFullLineRatio ?? 0.78;
@@ -356,8 +358,38 @@ function stdDev(arr) {
 const _NEAR_FULL_THRESH = AN.nearFullThreshold ?? 0.75;
 const _MAX_ADJ = AN.maxAdjacent ?? 20;
 
+function _gridIsEmpty(grid) {
+    for (let y = 0; y < grid.size; y++) {
+        for (let x = 0; x < grid.size; x++) {
+            if (grid.cells[y][x] !== null) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+function _clearPayoffFeatures(grid, shape, gx, gy, colorIdx = 0) {
+    if (!grid || typeof grid.clone !== 'function') {
+        return { multiClear: 0, bonusLine: 0, perfectClear: 0 };
+    }
+    const after = grid.clone();
+    after.place(shape, colorIdx, gx, gy);
+    const bonusLines = detectBonusLines(after, getRlTrainingBonusLineSkin());
+    const result = after.checkLines?.() ?? { count: 0 };
+    const clears = Math.max(0, Number(result.count) || 0);
+    const bonusCount = clears > 0 ? Math.min(bonusLines.length, clears) : 0;
+    const divClr = AN.maxClearsHint ?? 5;
+    const clearNorm = Math.max(divClr - 1, 1);
+    return {
+        multiClear: Math.min(Math.max(clears - 1, 0) / clearNorm, 1),
+        bonusLine: Math.min(bonusCount / Math.max(divClr, 1), 1),
+        perfectClear: clears > 0 && _gridIsEmpty(after) ? 1 : 0,
+    };
+}
+
 /**
- * 12 维动作特征（v4）：原 7 + 5 棋盘交互特征。
+ * 15 维动作特征：原 12 + 多消、同 icon/同色 bonus、清屏潜力。
  * @param {Float32Array} stateFeat
  * @param {number} blockIdx
  * @param {number} gx
@@ -365,12 +397,13 @@ const _MAX_ADJ = AN.maxAdjacent ?? 20;
  * @param {number[][]} shape
  * @param {number} wouldClear
  * @param {number} gridSize
- * @param {import('../grid.js').Grid} [grid] 传入时才计算后 5 维
+ * @param {import('../grid.js').Grid} [grid] 传入时才计算后 8 维
  * @param {{ shape: number[][], placed: boolean }[]} [dock]
+ * @param {number} [colorIdx]
  */
 export function extractActionFeatures(
     stateFeat, blockIdx, gx, gy, shape, wouldClear, gridSize,
-    grid, dock,
+    grid, dock, colorIdx = 0,
 ) {
     let cellCount = 0;
     for (let y = 0; y < shape.length; y++) {
@@ -386,6 +419,7 @@ export function extractActionFeatures(
     const divClr = AN.maxClearsHint ?? 5;
 
     let nearFull = 0, blocksRemain = 0, adjRatio = 0, heightAfter = 0, holesRisk = 0;
+    let multiClear = 0, bonusLine = 0, perfectClear = 0;
     if (grid) {
         const n = grid.size;
         const thresh = _NEAR_FULL_THRESH * n;
@@ -435,6 +469,11 @@ export function extractActionFeatures(
             after.checkLines?.();
             holesRisk = Math.min(countUnfillableCells(after) / _MAX_HOLES, 1.0);
         }
+
+        const payoff = _clearPayoffFeatures(grid, shape, gx, gy, colorIdx);
+        multiClear = payoff.multiClear;
+        bonusLine = payoff.bonusLine;
+        perfectClear = payoff.perfectClear;
     }
 
     const actionPart = new Float32Array([
@@ -450,7 +489,13 @@ export function extractActionFeatures(
         adjRatio,
         heightAfter,
         holesRisk,
+        multiClear,
+        bonusLine,
+        perfectClear,
     ]);
+    if (actionPart.length !== ACTION_FEATURE_DIM) {
+        throw new Error(`动作特征长度 ${actionPart.length} != actionDim ${ACTION_FEATURE_DIM}`);
+    }
     const out = new Float32Array(stateFeat.length + actionPart.length);
     out.set(stateFeat, 0);
     out.set(actionPart, stateFeat.length);
@@ -478,6 +523,7 @@ export function buildDecisionBatch(sim) {
                 sim.grid.size,
                 sim.grid,
                 sim.dock,
+                sim.dock[a.blockIdx].colorIdx ?? 0,
             )
         );
     }

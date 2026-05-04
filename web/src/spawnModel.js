@@ -5,15 +5,30 @@
  *   - 训练状态轮询
  *   - 启动/停止训练
  *   - 推理请求（给定盘面返回推荐形状）
- *   - 出块模式管理（rule / model）
+ *   - 出块模式管理（rule / model-v3）
  *
- * 增量设计：不影响现有 generateDockShapes 流程，仅在 mode='model' 时替代出块来源。
+ * 增量设计：不影响现有 generateDockShapes 流程，仅在 mode='model-v3' 时替代出块来源。
  */
 
 import { getApiBaseUrl } from './config.js';
 import { getShapeById } from './shapes.js';
+import { analyzeBoardTopology } from './boardTopology.js';
+import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 
 const SPAWN_MODE_KEY = 'ob_spawn_mode';
+export const SPAWN_MODE_RULE = 'rule';
+export const SPAWN_MODE_MODEL_V3 = 'model-v3';
+export const SPAWN_MODES = [SPAWN_MODE_RULE, SPAWN_MODE_MODEL_V3];
+
+export const SHAPE_VOCAB = [
+    '1x4', '4x1', '1x5', '5x1',
+    '2x3', '3x2', '2x2', '3x3',
+    't-up', 't-down', 't-left', 't-right',
+    'z-h', 'z-h2', 'z-v', 'z-v2',
+    'l-1', 'l-2', 'l-3', 'l-4',
+    'l5-a', 'l5-b', 'l5-c', 'l5-d',
+    'j-1', 'j-2', 'j-3', 'j-4'
+];
 
 async function _api(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -39,14 +54,21 @@ async function _api(path, options = {}) {
 /*  出块模式管理                                                       */
 /* ================================================================== */
 
-/** @returns {'rule'|'model'} */
-export function getSpawnMode() {
-    return localStorage.getItem(SPAWN_MODE_KEY) === 'model' ? 'model' : 'rule';
+export function normalizeSpawnMode(mode) {
+    if (mode === 'model' || mode === SPAWN_MODE_MODEL_V3) return SPAWN_MODE_MODEL_V3;
+    return SPAWN_MODE_RULE;
 }
 
-/** @param {'rule'|'model'} mode */
+/** @returns {'rule'|'model-v3'} */
+export function getSpawnMode() {
+    if (typeof localStorage === 'undefined') return SPAWN_MODE_RULE;
+    return normalizeSpawnMode(localStorage.getItem(SPAWN_MODE_KEY));
+}
+
+/** @param {'rule'|'model'|'model-v3'} mode */
 export function setSpawnMode(mode) {
-    localStorage.setItem(SPAWN_MODE_KEY, mode === 'model' ? 'model' : 'rule');
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(SPAWN_MODE_KEY, normalizeSpawnMode(mode));
 }
 
 /* ================================================================== */
@@ -88,10 +110,32 @@ const _FLOW_MAP = { bored: -1, flow: 0, anxious: 1 };
 const _PACING_MAP = { early: 0, tension: 0.5, release: 1 };
 const _SESSION_MAP = { warmup: 0, peak: 0.5, cooldown: 1 };
 
+function _gridToBoard(grid) {
+    const board = [];
+    for (let y = 0; y < grid.size; y++) {
+        const row = [];
+        for (let x = 0; x < grid.size; x++) {
+            row.push(grid.cells[y][x] !== null ? 1 : 0);
+        }
+        board.push(row);
+    }
+    return board;
+}
+
+export function shapeIdToIndex(id) {
+    const idx = SHAPE_VOCAB.indexOf(id);
+    return idx >= 0 ? idx : 0;
+}
+
+export function shapeIdsToHistoryRow(shapes) {
+    const ids = Array.isArray(shapes) ? shapes.slice(0, 3).map((s) => s?.id || s) : [];
+    while (ids.length < 3) ids.push(SHAPE_VOCAB[0]);
+    return ids.map(shapeIdToIndex);
+}
+
 function _buildContext24(grid, profile, adaptiveInsight) {
     const m = profile.metrics || {};
     const a = adaptiveInsight || {};
-    const hints = a.spawnHints || {};
     return [
         // [0-3] 基础状态
         Math.min(1, (profile._score ?? 0) / 500),
@@ -126,12 +170,39 @@ function _buildContext24(grid, profile, adaptiveInsight) {
     ];
 }
 
-function _computeTargetDifficulty(profile, adaptiveInsight) {
+export function computeSpawnTargetDifficulty(profile, adaptiveInsight, topology = null) {
     const skill = profile.skillLevel ?? 0.5;
     const frustration = profile.frustrationLevel ?? 0;
     const stress = (adaptiveInsight || {}).stress ?? 0;
-    const fill = (adaptiveInsight || {}).fillRatio ?? 0.3;
-    return Math.max(0, Math.min(1, 0.3 + 0.5 * skill - 0.2 * frustration - 0.15 * stress + 0.1 * fill));
+    const fill = topology?.fillRatio ?? (adaptiveInsight || {}).fillRatio ?? 0.3;
+    const holes = Math.min(1, Math.max(0, Number(topology?.holes ?? 0) || 0) / 10);
+    const nearClear = Math.min(1, ((topology?.close1 ?? 0) + (topology?.close2 ?? 0)) / 6);
+    return Math.max(0, Math.min(
+        1,
+        0.3 + 0.5 * skill - 0.2 * frustration - 0.15 * stress + 0.1 * fill - 0.08 * holes + 0.06 * nearClear
+    ));
+}
+
+export function buildSpawnModelContext(grid, profile, adaptiveInsight, opts = {}) {
+    const topology = opts.topology || (grid ? analyzeBoardTopology(grid) : null);
+    const ability = opts.ability || buildPlayerAbilityVector(profile, {
+        grid,
+        topology,
+        boardFill: topology?.fillRatio ?? grid?.getFillRatio?.() ?? 0,
+        gameStats: opts.gameStats,
+        spawnContext: opts.spawnContext,
+        adaptiveInsight,
+    });
+    return {
+        board: _gridToBoard(grid),
+        context: _buildContext24(grid, profile, adaptiveInsight),
+        topology,
+        ability,
+        playstyle: opts.playstyle ?? profile?.playstyle ?? 'balanced',
+        targetDifficulty: opts.targetDifficulty ?? computeSpawnTargetDifficulty(profile, adaptiveInsight, topology),
+        hints: adaptiveInsight?.spawnHints || {},
+        mode: getSpawnMode(),
+    };
 }
 
 /**
@@ -154,7 +225,7 @@ export async function predictShapes(grid, profile, recentHistory, adaptiveInsigh
     }
 
     const context = _buildContext24(grid, profile, adaptiveInsight);
-    const targetDifficulty = _computeTargetDifficulty(profile, adaptiveInsight);
+    const targetDifficulty = computeSpawnTargetDifficulty(profile, adaptiveInsight);
 
     try {
         const data = await _api('/api/spawn-model/predict', {
@@ -202,18 +273,11 @@ export async function predictShapes(grid, profile, recentHistory, adaptiveInsigh
  * @returns {Promise<{shapes:Array,meta:object}|null>}
  */
 export async function predictShapesV3(grid, profile, recentHistory, adaptiveInsight, opts = {}) {
-    const board = [];
-    for (let y = 0; y < grid.size; y++) {
-        const row = [];
-        for (let x = 0; x < grid.size; x++) {
-            row.push(grid.cells[y][x] !== null ? 1 : 0);
-        }
-        board.push(row);
-    }
-
-    const context = _buildContext24(grid, profile, adaptiveInsight);
-    const targetDifficulty = opts.targetDifficulty ?? _computeTargetDifficulty(profile, adaptiveInsight);
-    const playstyle = opts.playstyle ?? profile.playstyle ?? null;
+    const modelContext = opts.modelContext || buildSpawnModelContext(grid, profile, adaptiveInsight, opts);
+    const board = modelContext.board;
+    const context = modelContext.context;
+    const targetDifficulty = opts.targetDifficulty ?? modelContext.targetDifficulty;
+    const playstyle = opts.playstyle ?? modelContext.playstyle ?? null;
 
     try {
         const data = await _api('/api/spawn-model/v3/predict', {
@@ -246,6 +310,8 @@ export async function predictShapesV3(grid, profile, recentHistory, adaptiveInsi
                 modelVersion: data.modelVersion || 'v3',
                 personalized: !!data.personalized,
                 feasibleCount: data.feasibleCount ?? null,
+                targetDifficulty,
+                playstyle,
             },
         };
     } catch (e) {
@@ -260,6 +326,10 @@ export async function getV3Status() {
     } catch {
         return { baseAvailable: false, personalizedUsers: [] };
     }
+}
+
+export async function reloadV3Model() {
+    return _api('/api/spawn-model/v3/reload', { method: 'POST' });
 }
 
 export async function startV3Training(opts = {}) {

@@ -12,10 +12,11 @@ import {
     REPLAY_METRICS
 } from './moveSequence.js';
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
-import { getSpawnMode } from './spawnModel.js';
+import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { UI_ICONS } from './uiIcons.js';
-import { countUnfillableCells } from './boardTopology.js';
+import { analyzeBoardTopology, countUnfillableCells } from './boardTopology.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
+import { getAllShapes } from './shapes.js';
 
 /** 模型化能力指标区：统一 AbilityVector 的 6 个核心维度 */
 const ABILITY_METRIC_ROWS = [
@@ -129,6 +130,7 @@ const SPAWN_TOOLTIP = {
     multiClear: '多消鼓励（0～1）：越高越偏好能同时消多行的块。受盘面和轮空状态驱动。',
     multiLineTarget:
         '多线目标（0～2）：显式要求 shapes 阶段偏好 multiClear≥2 的强度；2 时与 multiClearBonus 叠加，强化「双行以上同时兑现」。来自 pcSetup / 近满行 / 刚多消后的短窗口及局间热身。',
+    perfectClearCandidates: '清屏候选：当前棋盘上存在“一手放下并消除后盘面清空”的形状数量。该值按实时棋盘重算。',
     rhythm: '节奏相位：setup=搭建蓄力期 / payoff=收获消行期 / neutral=中性。',
     sessionArc: 'Session 弧线：warmup=热身 / peak=巅峰 / cooldown=收官。',
     holes: '盘面空洞数：当前所有可出形状在任何合法位置都无法覆盖的空格数；越多表示越难被后续块修复。',
@@ -142,7 +144,9 @@ const SPAWN_TOOLTIP = {
     firstMoveFreedom:
         '首手自由度（v9）：三块各自单独放置时合法位置数的最小值（瓶颈块）。数值越小，玩家选错位置后越容易卡死。',
     targetSolutionRange:
-        '解法区间（v9）：根据综合 stress 在 game_rules.solutionDifficulty.ranges 中选择的目标解空间区间。三连块通过 sequentiallySolvable 后，若解法数量超出区间则在前 60% attempt 内重抽。'
+        '解法区间（v9）：根据综合 stress 在 game_rules.solutionDifficulty.ranges 中选择的目标解空间区间。三连块通过 sequentiallySolvable 后，若解法数量超出区间则在前 60% attempt 内重抽。',
+    v3Meta:
+        '生成式推荐元信息：上一轮 V3 的模型版本、是否命中个性化 LoRA、feasibility mask 可行候选数量，以及护栏失败时的回退原因。'
 };
 
 function _attrTitle(s) {
@@ -184,6 +188,60 @@ function _gridMaxHeight(grid) {
 
 function _gridHoles(grid) {
     return countUnfillableCells(grid);
+}
+
+function _bestMultiClearPotential(grid, shapeData) {
+    if (!grid || !shapeData) return 0;
+    let best = 0;
+    for (let y = 0; y < grid.size; y++) {
+        for (let x = 0; x < grid.size; x++) {
+            const outcome = grid.previewClearOutcome?.(shapeData, x, y, 0);
+            if (!outcome) continue;
+            best = Math.max(best, (outcome.rows?.length ?? 0) + (outcome.cols?.length ?? 0));
+            if (best >= 2) return best;
+        }
+    }
+    return best;
+}
+
+function _countLiveMultiClearCandidates(grid) {
+    if (!grid) return null;
+    let count = 0;
+    for (const shape of getAllShapes()) {
+        if (_bestMultiClearPotential(grid, shape.data) >= 2) count++;
+    }
+    return count;
+}
+
+function _isGridEmpty(grid) {
+    return grid?.cells?.every((row) => row.every((cell) => cell === null)) ?? false;
+}
+
+function _bestPerfectClearPotential(grid, shapeData) {
+    if (!grid || !shapeData) return 0;
+    for (let y = 0; y < grid.size; y++) {
+        for (let x = 0; x < grid.size; x++) {
+            if (!grid.canPlace(shapeData, x, y)) continue;
+            const g = grid.clone();
+            g.place(shapeData, 0, x, y);
+            g.checkLines();
+            if (_isGridEmpty(g)) return 2;
+        }
+    }
+    return 0;
+}
+
+function _countLivePerfectClearCandidates(grid, topology) {
+    if (!grid) return null;
+    const fill = topology?.fillRatio ?? grid.getFillRatio?.() ?? 0;
+    const occupied = topology?.occupiedCount
+        ?? grid.cells.reduce((sum, row) => sum + row.filter((cell) => cell !== null).length, 0);
+    if (occupied > 22 && fill > 0.46) return 0;
+    let count = 0;
+    for (const shape of getAllShapes()) {
+        if (_bestPerfectClearPotential(grid, shape.data) === 2) count++;
+    }
+    return count;
 }
 
 function _flowExplain(flow) {
@@ -259,10 +317,10 @@ function _hintsExplain(h) {
 function _spawnModePrimaryChipHtml() {
     const mode = getSpawnMode();
     const primary =
-        mode === 'model'
+        mode === SPAWN_MODE_MODEL_V3
             ? {
                   text: `${UI_ICONS.generativeRecommend} 生成式推荐`,
-                  title: '侧栏已选「生成式推荐」：下轮起块将请求模型（不可用则自动回退规则）。',
+                  title: '侧栏已选「生成式推荐」：下轮起块将请求 SpawnTransformerV3，并通过前端护栏校验；不可用或未通过则自动回退规则。',
               }
             : {
                   text: `${UI_ICONS.ruleAlgorithm} 规则算法`,
@@ -276,12 +334,26 @@ function _spawnModePrimaryChipHtml() {
 
 /** 仅「上轮回退」提示行（主模式 chip 已上移到实时状态顶栏） */
 function _spawnModeFallbackRowHtml(ins) {
-    if (ins?.spawnSource !== 'rule-fallback') {
+    const meta = ins?.spawnModelMeta;
+    if (ins?.spawnSource !== 'rule-fallback' && !meta) {
         return '';
     }
+    if (meta && ins?.spawnSource !== 'rule-fallback') {
+        const parts = [
+            meta.modelVersion || 'v3',
+            meta.personalized ? '个性化' : '通用',
+        ];
+        if (meta.feasibleCount != null) parts.push(`可行 ${meta.feasibleCount}`);
+        return (
+            `<div class="insight-weights">` +
+            `<span class="insight-weight insight-weight--spawn-note" title="${_attrTitle(SPAWN_TOOLTIP.v3Meta)}">V3 ${parts.join(' / ')}</span>` +
+            `</div>`
+        );
+    }
+    const reason = meta?.fallbackReason ? `，原因：${meta.fallbackReason}` : '';
     return (
         `<div class="insight-weights">` +
-        `<span class="insight-weight insight-weight--spawn-note" title="上一轮模型不可用或请求失败，实际使用了规则出块">${UI_ICONS.spawnFallback} 上轮已回退规则</span>` +
+        `<span class="insight-weight insight-weight--spawn-note" title="上一轮 V3 推荐未通过或请求失败，实际使用了规则出块${_attrTitle(reason)}">${UI_ICONS.spawnFallback} 上轮已回退规则${reason}</span>` +
         `</div>`
     );
 }
@@ -490,9 +562,12 @@ function _render(game) {
 
     const p = game.playerProfile;
     const ins = game._lastAdaptiveInsight;
-    const ability = ins?.abilityVector || buildPlayerAbilityVector(p, {
+    const liveTopology = game.grid ? analyzeBoardTopology(game.grid) : null;
+    const liveBoardFill = liveTopology?.fillRatio ?? game.grid?.getFillRatio?.() ?? 0;
+    const ability = buildPlayerAbilityVector(p, {
         grid: game.grid,
-        boardFill: game.grid?.getFillRatio?.() ?? 0,
+        topology: liveTopology,
+        boardFill: liveBoardFill,
         gameStats: game.gameStats,
         spawnContext: game._spawnContext,
         adaptiveInsight: ins,
@@ -550,7 +625,7 @@ function _render(game) {
             );
         const h = ins.spawnHints;
         const stressStr = typeof s === 'number' ? s.toFixed(2) : '—';
-        const fillStr = `${(ins.boardFill * 100).toFixed(0)}%`;
+        const fillStr = `${(liveBoardFill * 100).toFixed(0)}%`;
         const fdStr = ins.flowDeviation != null ? ins.flowDeviation.toFixed(2) : '—';
         const fbStr = ins.feedbackBias != null ? (ins.feedbackBias >= 0 ? '+' : '') + ins.feedbackBias.toFixed(3) : '—';
         const metricPills = [
@@ -594,11 +669,22 @@ function _render(game) {
 
         const diagPills = [];
         const diag = ins.spawnDiagnostics;
-        if (diag?.layer1) {
-            const l1 = diag.layer1;
-            if (l1.holes > 0) diagPills.push(_spawnPill(`空洞 ${l1.holes}`, SPAWN_TOOLTIP.holes));
-            diagPills.push(_spawnPill(`平整 ${l1.flatness.toFixed(2)}`, SPAWN_TOOLTIP.flatness));
-            if (l1.nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${l1.nearFullLines}`, SPAWN_TOOLTIP.nearFull));
+        if (liveTopology || diag?.layer1) {
+            const l1 = diag?.layer1 || {};
+            const holes = liveTopology?.holes ?? l1.holes;
+            const flatness = liveTopology?.flatness ?? l1.flatness;
+            const nearFullLines = liveTopology?.nearFullLines ?? l1.nearFullLines ?? 0;
+            diagPills.push(_spawnPill(`空洞 ${holes ?? '—'}`, SPAWN_TOOLTIP.holes));
+            if (flatness != null) diagPills.push(_spawnPill(`平整 ${flatness.toFixed(2)}`, SPAWN_TOOLTIP.flatness));
+            if (nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${nearFullLines}`, SPAWN_TOOLTIP.nearFull));
+            const liveMultiCandidates = _countLiveMultiClearCandidates(game.grid);
+            if (liveMultiCandidates != null) {
+                diagPills.push(_spawnPill(`多消候选 ${liveMultiCandidates}`, SPAWN_TOOLTIP.multiClear));
+            }
+            const livePerfectCandidates = _countLivePerfectClearCandidates(game.grid, liveTopology);
+            if (livePerfectCandidates > 0) {
+                diagPills.push(_spawnPill(`清屏候选 ${livePerfectCandidates}`, SPAWN_TOOLTIP.perfectClearCandidates));
+            }
             // v9: 解法数量 Pills（仅在 fill ≥ activationFill 时有数据）
             const sm = l1.solutionMetrics;
             if (sm) {

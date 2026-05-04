@@ -121,7 +121,7 @@ describe('extractActionFeatures', () => {
         const grid = new Grid(8);
         const dock = makeDock();
         const state = extractStateFeatures(grid, dock);
-        const phi = extractActionFeatures(state, 0, 0, 0, [[1]], 0, 8, grid, dock);
+        const phi = extractActionFeatures(state, 0, 0, 0, [[1]], 0, 8, grid, dock, 0);
         expect(phi).toBeInstanceOf(Float32Array);
         expect(phi.length).toBe(PHI_DIM);
     });
@@ -131,10 +131,24 @@ describe('extractActionFeatures', () => {
         grid.initBoard(0.2, {});
         const dock = makeDock();
         const state = extractStateFeatures(grid, dock);
-        const phi = extractActionFeatures(state, 0, 3, 3, [[1]], 0, 8, grid, dock);
+        const phi = extractActionFeatures(state, 0, 3, 3, [[1]], 0, 8, grid, dock, 0);
         for (let i = 0; i < phi.length; i++) {
             expect(Number.isFinite(phi[i])).toBe(true);
         }
+    });
+
+    it('encodes multi-clear, bonus-line, and perfect-clear payoff', () => {
+        const grid = new Grid(8);
+        for (let x = 1; x < 8; x++) grid.cells[0][x] = 2;
+        for (let y = 1; y < 8; y++) grid.cells[y][0] = 2;
+        const dock = [{ shape: [[1]], colorIdx: 2, placed: false }];
+        const state = extractStateFeatures(grid, dock);
+        const phi = extractActionFeatures(state, 0, 0, 0, [[1]], 2, 8, grid, dock, 2);
+        const action = Array.from(phi.slice(STATE_FEATURE_DIM));
+        expect(action).toHaveLength(ACTION_FEATURE_DIM);
+        expect(action[12]).toBeGreaterThan(0); // multi-clear hint
+        expect(action[13]).toBeGreaterThan(0); // same icon/color bonus hint
+        expect(action[14]).toBe(1);            // perfect clear hint
     });
 });
 

@@ -7,7 +7,7 @@ from typing import Sequence
 
 import numpy as np
 
-from .game_rules import FEATURE_ENCODING
+from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
 from .shapes_data import get_all_shapes
 
 _ENC = FEATURE_ENCODING
@@ -19,6 +19,7 @@ _DOCK_MASK_SIDE = int(_ENC.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(_ENC.get("dockSlots", 3))
 _SCALAR_DIM = int(_ENC.get("stateScalarDim", 15))
 _N_COLORS = int(_ENC.get("colorCount", 8))
+_RL_BONUS_ICONS = rl_bonus_block_icons()
 
 STATE_FEATURE_DIM = int(_ENC["stateDim"])
 ACTION_FEATURE_DIM = int(_ENC["actionDim"])
@@ -215,6 +216,9 @@ def extract_action_features(
     shape: list[list[int]],
     would_clear: int,
     grid_size: int,
+    grid=None,
+    dock: list[dict] | None = None,
+    color_idx: int = 0,
 ) -> np.ndarray:
     cells = sum(1 for row in shape for c in row if c)
     h = len(shape)
@@ -223,7 +227,8 @@ def extract_action_features(
     div_sh = float(_AN.get("shapeSpan", 5))
     div_cells = float(_AN.get("maxCells", 10))
     div_clr = float(_AN.get("maxClearsHint", 5))
-    unplaced_after = sum(1 for b in dock if not b.get("placed")) - 1 if False else 0
+    unplaced_after = sum(1 for b in (dock or []) if not b.get("placed")) - 1
+    multi_clear, bonus_line, perfect_clear = _clear_payoff_features(grid, shape, gx, gy, color_idx, div_clr)
     action_part = np.array(
         [
             block_idx / div_b,
@@ -238,10 +243,64 @@ def extract_action_features(
             0.0,
             max(gy + h, 0) / grid_size,
             0.0,
+            multi_clear,
+            bonus_line,
+            perfect_clear,
         ],
         dtype=np.float32,
     )
+    if action_part.shape[0] != ACTION_FEATURE_DIM:
+        raise ValueError(f"动作特征长度 {action_part.shape[0]} != actionDim {ACTION_FEATURE_DIM}")
     return np.concatenate([state_feat, action_part], axis=0)
+
+
+def _line_is_bonus(vals: list[int | None]) -> bool:
+    if not vals or vals[0] is None:
+        return False
+    first = int(vals[0])
+    if _RL_BONUS_ICONS:
+        icon0 = _RL_BONUS_ICONS[first % len(_RL_BONUS_ICONS)]
+        return all(v is not None and _RL_BONUS_ICONS[int(v) % len(_RL_BONUS_ICONS)] == icon0 for v in vals)
+    return all(v == first for v in vals)
+
+
+def _clear_payoff_features(
+    grid,
+    shape: list[list[int]],
+    gx: int,
+    gy: int,
+    color_idx: int,
+    div_clr: float,
+) -> tuple[float, float, float]:
+    if grid is None:
+        return 0.0, 0.0, 0.0
+    cells = [row[:] for row in grid.cells]
+    for sy, row in enumerate(shape):
+        for sx, v in enumerate(row):
+            if v:
+                cells[gy + sy][gx + sx] = int(color_idx)
+    n = grid.size
+    full_rows = [y for y in range(n) if all(c is not None for c in cells[y])]
+    full_cols = [x for x in range(n) if all(cells[y][x] is not None for y in range(n))]
+    clears = len(full_rows) + len(full_cols)
+    if clears <= 0:
+        return 0.0, 0.0, 0.0
+    bonus = 0
+    for y in full_rows:
+        if _line_is_bonus(cells[y]):
+            bonus += 1
+    for x in full_cols:
+        if _line_is_bonus([cells[y][x] for y in range(n)]):
+            bonus += 1
+    for y in full_rows:
+        for x in range(n):
+            cells[y][x] = None
+    for x in full_cols:
+        for y in range(n):
+            cells[y][x] = None
+    perfect = 1.0 if all(c is None for row in cells for c in row) else 0.0
+    multi = min(max(clears - 1, 0) / max(div_clr - 1.0, 1.0), 1.0)
+    return float(multi), float(min(bonus / max(div_clr, 1.0), 1.0)), perfect
 
 
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
@@ -252,7 +311,16 @@ def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         bi = a["block_idx"]
         wc = sim.count_clears_if_placed(bi, a["gx"], a["gy"])
         phi = extract_action_features(
-            state, bi, a["gx"], a["gy"], sim.dock[bi]["shape"], wc, sim.grid.size
+            state,
+            bi,
+            a["gx"],
+            a["gy"],
+            sim.dock[bi]["shape"],
+            wc,
+            sim.grid.size,
+            sim.grid,
+            sim.dock,
+            int(sim.dock[bi].get("color_idx", sim.dock[bi].get("colorIdx", 0))),
         )
         rows.append(phi)
     return state, np.stack(rows, axis=0) if rows else (state, np.zeros((0, PHI_DIM), dtype=np.float32))

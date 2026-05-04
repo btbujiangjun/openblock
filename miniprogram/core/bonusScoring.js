@@ -3,8 +3,10 @@
  * 不依赖 DOM；供 GameController 与后续特效时长使用。
  */
 const { getStrategy } = require('./config');
+const { GAME_RULES } = require('./gameRules');
 
-const ICON_BONUS_LINE_MULT = 5;
+const ICON_BONUS_LINE_MULT = Number(GAME_RULES.clearScoring?.iconBonusLineMult) || 5;
+const PERFECT_CLEAR_MULT = Number(GAME_RULES.clearScoring?.perfectClearMult) || 10;
 
 /** 与 web/src/clearScoring.js `MONO_NEAR_FULL_COLOR_WEIGHT` 对齐 */
 const MONO_NEAR_FULL_COLOR_WEIGHT = 0.55;
@@ -61,7 +63,7 @@ function detectBonusLines(grid, skin) {
 
 /**
  * @param {string} strategyId
- * @param {{ count: number, bonusLines?: Array<unknown> }} result
+ * @param {{ count: number, bonusLines?: Array<unknown>, perfectClear?: boolean }} result
  * @returns {{ baseScore: number, iconBonusScore: number, clearScore: number }}
  */
 function computeClearScore(strategyId, result, scoringOverride) {
@@ -74,15 +76,15 @@ function computeClearScore(strategyId, result, scoringOverride) {
 
   const bonusLines = result?.bonusLines || [];
   const bonusCount = bonusLines.length;
-  if (c <= 0 || bonusCount <= 0) {
-    return { baseScore, iconBonusScore: 0, clearScore: baseScore };
-  }
+  if (c <= 0) return { baseScore, iconBonusScore: 0, clearScore: baseScore };
   // 每条消除线价值随总消除数增长：lineScore = baseUnit * c。
   // bonus 只放大相同 icon/同色的线，公式本身保证整十，且全 bonus 等价于 baseScore × MULT。
   const effectiveBonusCount = Math.min(bonusCount, c);
   const lineScore = baseUnit * c;
   const iconBonusScore = lineScore * effectiveBonusCount * (ICON_BONUS_LINE_MULT - 1);
-  return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
+  const subtotal = baseScore + iconBonusScore;
+  const perfectMult = result?.perfectClear ? PERFECT_CLEAR_MULT : 1;
+  return { baseScore, iconBonusScore, clearScore: subtotal * perfectMult };
 }
 
 /**
@@ -164,6 +166,7 @@ function pickThreeDockColors(biasWeights, rnd = Math.random) {
 
 module.exports = {
   ICON_BONUS_LINE_MULT,
+  PERFECT_CLEAR_MULT,
   MONO_NEAR_FULL_COLOR_WEIGHT,
   bonusEffectHoldMs,
   detectBonusLines,

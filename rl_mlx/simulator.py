@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
+from .game_rules import CLEAR_SCORING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
 from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
@@ -11,11 +11,12 @@ from .shapes_data import get_all_shapes
 
 __all__ = ["OpenBlockSimulator", "generate_blocks_for_grid", "generate_dock_shapes"]
 
-_ICON_BONUS_LINE_MULT = 5
+_ICON_BONUS_LINE_MULT = float(CLEAR_SCORING.get("iconBonusLineMult") or 5)
+_PERFECT_CLEAR_MULT = float(CLEAR_SCORING.get("perfectClearMult") or 10)
 _RL_BONUS_ICONS: list[str] | None = rl_bonus_block_icons()
 
 
-def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) -> float:
+def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int, perfect_clear: bool = False) -> float:
     if clear_count <= 0:
         return 0.0
     base_unit = float(scoring.get("single_line") or 20)
@@ -25,7 +26,12 @@ def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) ->
         return base_score
     line_score = base_unit * clear_count
     icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
-    return base_score + icon_bonus
+    subtotal = base_score + icon_bonus
+    return subtotal * (_PERFECT_CLEAR_MULT if perfect_clear else 1.0)
+
+
+def _is_perfect_clear(grid: Grid) -> bool:
+    return all(cell is None for row in grid.cells for cell in row)
 
 
 class OpenBlockSimulator:
@@ -105,7 +111,7 @@ class OpenBlockSimulator:
             self.total_clears += clears
             c = clears
             bonus_n = len(result.get("bonus_lines") or [])
-            gain = _clear_score_gain(self.scoring, c, bonus_n)
+            gain = _clear_score_gain(self.scoring, c, bonus_n, _is_perfect_clear(self.grid))
             self.score += gain
 
         b["placed"] = True

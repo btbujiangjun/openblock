@@ -200,13 +200,13 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 | lines_clearable_2/n | 1 | 差 2 格且全部缺口可被合法形状覆盖的行列数 / n |
 | dock_mobility/max | 1 | 当前三块总合法位置数 / 理论最大 |
 
-当前契约：**stateScalarDim = 42**，**stateDim = 181**，**actionDim = 12**，**phiDim = 193**。
+当前契约：**stateScalarDim = 42**，**stateDim = 181**，**actionDim = 15**，**phiDim = 196**。
 
 这些特征在俄罗斯方块 AI 研究中被证明是最关键的状态描述子。
 
 ### 4.2 动作特征增强（预计提升：⭐⭐⭐⭐）
 
-当前动作特征已经从早期 7 维扩展到 12 维，重点包括：
+当前动作特征已经从早期 7 维扩展到 15 维，重点包括：
 
 | 新特征 | 维度 | 说明 |
 |--------|------|------|
@@ -214,8 +214,11 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 | delta_transitions | 1 | 放置后行列跳变变化量归一化 |
 | new_almost_full | 1 | 放置后新增 almost-full 行列数 / n |
 | post_mobility | 1 | 放置后剩余块总合法位置数 / max |
+| multi_clear | 1 | 本动作是否带来 2 行及以上多消 |
+| bonus_line | 1 | 本动作形成同 icon / 同色整线 bonus 的强度 |
+| perfect_clear | 1 | 本动作消行后是否清空整个棋盘 |
 
-当前契约：**actionDim = 12**，与状态拼接后的 **phiDim = 193**。
+当前契约：**actionDim = 15**，与状态拼接后的 **phiDim = 196**。
 
 `holes_after` 是最关键的动作质量信号之一：它不看传统列高，而是模拟落子和消行后，统计所有形状库仍无法覆盖的空格，更接近真实死角风险。
 
@@ -280,8 +283,8 @@ featureEncoding:
   gridSpatialDim: 64
   dockSpatialDim: 75
   stateDim:       181
-  actionDim:      12
-  phiDim:         193
+  actionDim:      15
+  phiDim:         196
 ```
 
 需同步更新：`shared/game_rules.json`、`rl_pytorch/features.py`、`rl_pytorch/model.py`、`web/src/bot/features.js`、`web/src/bot/linearAgent.js`、`rl_mlx/features.py`。任何维度变化都意味着旧 checkpoint 不再兼容，必须重训或显式迁移。

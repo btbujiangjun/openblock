@@ -15,6 +15,7 @@
 | **同 icon / 同色 bonus 线** | 满行或满列上，所有格为同一 icon（有 `blockIcons` 时）或同一 `colorIdx`（无 icon 皮肤时）；检测在清除前完成 |
 | `b` | `bonusLines.length`，且实现中会钳制为 `min(b, c)` |
 | `ICON_BONUS_LINE_MULT` | **5**，表示 bonus 线在「该线基础价值」上按 **5×** 计（相对普通线多 **4×** 的增量） |
+| `PERFECT_CLEAR_MULT` | **10**，表示本次消除后盘面清空时，对基础分 + bonus 分整体乘以 **10×** |
 
 ---
 
@@ -55,7 +56,19 @@
 最终得分：
 
 \[
-\text{clearScore} = \text{baseScore} + \text{iconBonusScore}
+\text{subtotal} = \text{baseScore} + \text{iconBonusScore}
+\]
+
+若本次消除后盘面清空：
+
+\[
+\text{clearScore} = \text{subtotal} \times \text{PERFECT\_CLEAR\_MULT}
+\]
+
+否则：
+
+\[
+\text{clearScore} = \text{subtotal}
 \]
 
 性质：
@@ -77,13 +90,13 @@ export function computeClearScore(strategyId, result) {
 
     const bonusLines = result?.bonusLines || [];
     const bonusCount = bonusLines.length;
-    if (c <= 0 || bonusCount <= 0) {
-        return { baseScore, iconBonusScore: 0, clearScore: baseScore };
-    }
+    if (c <= 0) return { baseScore, iconBonusScore: 0, clearScore: baseScore };
     const effectiveBonusCount = Math.min(bonusCount, c);
     const lineScore = baseUnit * c;
     const iconBonusScore = lineScore * effectiveBonusCount * (ICON_BONUS_LINE_MULT - 1);
-    return { baseScore, iconBonusScore, clearScore: baseScore + iconBonusScore };
+    const subtotal = baseScore + iconBonusScore;
+    const perfectMult = result?.perfectClear ? PERFECT_CLEAR_MULT : 1;
+    return { baseScore, iconBonusScore, clearScore: subtotal * perfectMult };
 }
 ```
 
@@ -125,7 +138,7 @@ export function computeClearScore(strategyId, result) {
 ## 6. 与 RL / 回放字段的关系
 
 - **对局消行得分**：以本节 `computeClearScore` 为准。  
-- **无头模拟器**（`web/src/bot/simulator.js`、`miniprogram/core/bot/simulator.js`）与 **RL 模拟器**（`rl_pytorch/simulator.py`、`rl_mlx/simulator.py`）：与主局相同使用 `baseUnit × c²` 与 bonus 公式；在消除前用 `detectBonusLines(grid, null)` 写入 `result.bonusLines` 再计分，使 bonus 条数与 `computeClearScore` 一致（主局在带 icon 皮肤时用 `getActiveSkin()`，模拟器固定 `null` 与 RL 色盘一致）。  
+- **无头模拟器**（`web/src/bot/simulator.js`）与 **RL 模拟器**（`rl_pytorch/simulator.py`、`rl_mlx/simulator.py`）：与主局相同使用 `baseUnit × c²`、bonus 公式和清屏 10× 公式；在消除前写入 `result.bonusLines`，消除后写入 `perfectClear` 再计分。
 - **格子上的 bonus 原始字段**：`Grid.checkLines()` 仍会构造 `bonus_lines`（Python / JS）；计分时以 `detectBonusLines` 合并结果为准的情况见主局 `game.js`。纯同色盘面下与 `checkLines` 同色判定一致。  
 - **回放重算** `web/src/moveSequence.js` 的 `replayStateAt`：仍受帧内是否含皮肤 icon 信息约束。  
   - **回放限制**：序列帧通常不含 `blockIcons`，重算未必能识别「同 icon、不同 `colorIdx`」的 bonus；与仅依赖颜色的对局分支一致。  

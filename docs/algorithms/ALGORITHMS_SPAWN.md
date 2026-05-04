@@ -1,7 +1,7 @@
 # 出块算法：算法工程师手册
 
-> 本文是 OpenBlock **出块子系统**的算法侧统一手册。  
-> 范围：规则引擎双轨 + SpawnTransformerV2 ML 模型的训练/推理 + 数学化形式。  
+> 本文是 OpenBlock **出块子系统**的算法侧统一手册。
+> 范围：规则算法与 SpawnTransformerV3 生成式推荐双轨、共享上下文、护栏校验、训练/推理与数学化形式。
 > 与现有文档的关系：本文是 `SPAWN_ALGORITHM.md`（工程分层）/ `ADAPTIVE_SPAWN.md`（信号矩阵）/ `SPAWN_BLOCK_MODELING.md`（设计 rationale）的**算法 + 模型工程深化**——补充 ML 路径的网络结构、训练流程、与 RL 的接口。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
@@ -80,38 +80,42 @@ $$
 
 | 路线 | 核心思想 | 优势 | 代价 |
 |------|---------|------|------|
-| **轨道一：规则引擎** | 手工特征 + 多层启发式 + 硬约束过滤 | 解释性强 / 可保证公平 / 零延迟 | 规则复杂 / 风格难极致拟合 |
-| **轨道二：SpawnTransformerV2** | 学习 $P(s_1, s_2, s_3 \mid \text{ctx})$ | 拟合真实玩家分布 | 需数据 / 需防"分数膨胀"等捷径 |
+| **轨道一：规则算法** | 手工特征 + 多层启发式 + 硬约束过滤 | 解释性强 / 可保证公平 / 零延迟 / 可兜底 | 规则复杂 / 风格难极致拟合 |
+| **轨道二：生成式推荐（SpawnTransformerV3）** | 学习 $P(s_1, s_2, s_3 \mid \text{ctx})$，带 feasibility、playstyle 与 LoRA 个性化 | 拟合真实玩家序列体验 / 支持个性化 | 需服务端模型 / 需前端护栏和回退 |
+
+两条轨道共享 `buildSpawnModelContext()` 生成的上下文：难度模式、`AbilityVector`、`PlayerProfile` 实时状态、盘面拓扑、局内节奏、局间弧线、近期出块历史和规则轨 `spawnHints`。规则轨直接消费 `spawnHints`；生成式轨把同一份上下文编码为 V3 的 `board/context/history/playstyle/targetDifficulty` 请求，避免 V2 旧 24 维向量与 V3 请求各自拼字段造成口径漂移。
 
 ### 2.2 切换逻辑
 
-`web/src/game.js` 根据 `getSpawnMode()`：
+`web/src/game.js` 根据 `getSpawnMode()` 在 `rule` 与 `model-v3` 间切换；历史值 `model` 会被 `spawnModel.js` 自动兼容为 `model-v3`：
 
 ```js
 function spawnNextBlocks() {
-    if (spawnMode === 'transformer' && spawnTransformer.ready) {
-        try {
-            const triplet = spawnTransformer.sample(boardCtx);
-            if (validate(triplet)) return triplet;
-        } catch (err) {
-            console.warn('SpawnTransformer 失败，回退规则引擎', err);
+    const ctx = buildSpawnModelContext(grid, profile, adaptiveInsight);
+    const ruleFallback = generateDockShapes(grid, layered, spawnContext);
+
+    if (spawnMode === 'model-v3') {
+        const result = await predictShapesV3(grid, profile, history, adaptiveInsight, ctx);
+        if (result?.shapes && validateSpawnTriplet(grid, result.shapes).ok) {
+            return result.shapes;
         }
+        return ruleFallback; // 带 fallbackReason 记录到面板
     }
-    // Fallback: 规则引擎
-    return generateDockShapes(grid, profile, ctx);
+    return ruleFallback;
 }
 ```
 
-**回退原则**：ML 推理失败 / 输出不合法 / 模型未加载 → 自动用规则引擎。
+**回退原则**：V3 服务不可用、输出不足 3 块、重复块、不可放、低机动性、危险填充下序贯不可解 → 自动用规则算法，并记录 `fallbackReason` 供面板诊断。
 
 ### 2.3 部署位置
 
 ```
-轨道一（规则）：浏览器内 JS（web/src/bot/blockSpawn.js）
-轨道二（ML）：
+轨道一（规则算法）：浏览器内 JS（web/src/adaptiveSpawn.js + web/src/bot/blockSpawn.js）
+轨道二（生成式推荐）：
   - 训练：rl_pytorch/spawn_model/（Python + PyTorch）
-  - 推理：可选导出到前端（ONNX / TorchScript）或后端服务化
-  - 当前主用途：MCTS 出块预测（rl_pytorch/spawn_predictor.py）
+  - 推理：Flask `/api/spawn-model/v3/predict`
+  - 真人网页主流程：`web/src/spawnModel.js` → `predictShapesV3()`
+  - 仍保留：MCTS 出块预测（rl_pytorch/spawn_predictor.py）
 ```
 
 ---
@@ -281,7 +285,7 @@ if stress ∈ [a, b]:
 - `flow_payoff`：玩家处于心流或释放期时，不强行升压，主要提高多消/清屏候选概率。
 - `relief`：焦虑或恢复态时降低 stress、偏小块、提高消行保证，同时保留救援式多消机会。
 
-`blockSpawn.js` 消费这些信号时只改变软权重：`pcPotential`、`multiClear`、`gapFills` 的排序和抽样倍率会上升，但仍必须通过 `minMobilityTarget`、序贯可解性和解法数量过滤，避免“为了爽感破坏公平”。
+`blockSpawn.js` 消费这些信号时只改变软权重：`pcPotential`、`multiClear`、`gapFills` 的排序和抽样倍率会上升；若存在一手清屏块，会优先占用一个出块槽位。但三连块仍必须通过 `minMobilityTarget`、序贯可解性和解法数量过滤，避免“为了爽感破坏公平”。
 
 临消与多消机会采用 **可填充感知** 口径：`nearFullLines` / `close1` / `close2` 不只看行列还差几个空格，还要求这些缺口能被当前形状库的某个合法放置覆盖。不可覆盖空洞造成的“假近满行”不会再触发 payoff、多消或清屏兑现加权。
 

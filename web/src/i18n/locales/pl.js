@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Legenda',
     'progress.streakDays': '{{n}} dni z rzędu',
     'best.gap': '{{gap}} pkt do rekordu',
+    'effect.perfectClear': 'Pełne czyszczenie',
+    'effect.multiClear': '{{n}} linii',
+    'effect.doubleClear': 'Podwójne czyszczenie',
+    'effect.iconBonus': 'Wielkie wybuchowe czyszczenie',
+    'effect.newRecord': 'Nowy rekord',
 
     'skin.name.classic': '✨ Minimalistyczna klasyka',
     'skin.name.titanium': '💎 Matryca tytanu',

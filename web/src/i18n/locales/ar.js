@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'أسطورة',
     'progress.streakDays': '{{n}} أيام متتالية',
     'best.gap': '{{gap}} نقطة عن الرقم القياسي',
+    'effect.perfectClear': 'مسح كامل',
+    'effect.multiClear': 'مسح ×{{n}}',
+    'effect.doubleClear': 'مسح مزدوج',
+    'effect.iconBonus': 'إزالة انفجارية كبيرة',
+    'effect.newRecord': 'رقم قياسي جديد',
 
     'skin.name.classic': '✨ كلاسيكي بسيط',
     'skin.name.titanium': '💎 مصفوفة التيتانيوم',

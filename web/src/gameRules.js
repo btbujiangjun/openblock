@@ -2,7 +2,7 @@
  * 玩法与 RL 特征元数据的单一入口（数据来自仓库根 shared/game_rules.json）。
  * 修改难度、得分、棋盘尺寸、胜局阈值等：只改 JSON；无需改 rl_backend。
  * 浏览器 LinearAgent 训练超参见 `browserRlTraining`（由 `web/src/bot/trainer.js` 读取）。
- * RL 与主局消行加分/icon 判定对齐参见 `rlBonusScoring`（`getRlTrainingBonusLineSkin`，非玩家当前皮肤）。
+ * 主局与 RL 消行计分倍率见 `clearScoring`；RL icon 判定见 `rlBonusScoring.blockIcons`。
  * 若改变 stateDim/actionDim 或特征语义：须同步改 observationEncoder（features）并重训权重。
  */
 import rawRules from '../../shared/game_rules.json';

@@ -112,6 +112,46 @@ function tripletSequentiallySolvable(grid, threeData, opts = {}) {
     return false;
 }
 
+/**
+ * 校验外部生成的三连块是否满足真人主局的基础公平护栏。
+ * 生成式推荐只负责提出候选，最终仍由这里保证可玩性。
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @param {Array<{ id:string, data:number[][] }>} shapes
+ * @param {{ searchBudget?: number }} [opts]
+ * @returns {{ ok: true } | { ok: false, reason: string }}
+ */
+export function validateSpawnTriplet(grid, shapes, opts = {}) {
+    if (!grid?.cells?.length) return { ok: false, reason: 'invalid-grid' };
+    if (!Array.isArray(shapes) || shapes.length < 3) return { ok: false, reason: 'not-enough-shapes' };
+
+    const triplet = shapes.slice(0, 3);
+    const ids = new Set();
+    for (const shape of triplet) {
+        if (!shape?.id || !Array.isArray(shape.data)) return { ok: false, reason: 'invalid-shape' };
+        if (ids.has(shape.id)) return { ok: false, reason: 'duplicate-shape' };
+        ids.add(shape.id);
+        if (!grid.canPlaceAnywhere(shape.data)) return { ok: false, reason: 'shape-not-placeable' };
+    }
+
+    const fill = grid.getFillRatio();
+    const mobTarget = minMobilityTarget(fill, 0);
+    const minPlacements = Math.min(...triplet.map((s) => countLegalPlacements(grid, s.data)));
+    if (minPlacements < mobTarget) return { ok: false, reason: 'low-mobility' };
+
+    if (fill >= FILL_SURVIVABILITY_ON) {
+        const datas = triplet.map((s) => s.data);
+        if (!tripletSequentiallySolvable(grid, datas, {
+            searchBudget: opts.searchBudget ?? SURVIVE_SEARCH_BUDGET,
+            exhaustAsPass: true
+        })) {
+            return { ok: false, reason: 'not-sequentially-solvable' };
+        }
+    }
+
+    return { ok: true };
+}
+
 /* ================================================================== */
 /*  解法数量评估（v9 新增）                                            */
 /*                                                                    */
@@ -519,6 +559,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     // 候选统计（供面板展示）
     const multiClearCandidates = scored.filter(s => s.multiClear >= 2).length;
     const perfectClearCandidates = scored.filter(s => s.pcPotential === 2).length;
+    const hasDirectPerfectClear = perfectClearCandidates > 0;
 
     const diagnostics = {
         layer1: {
@@ -557,13 +598,13 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         );
 
         // 排序：清屏潜力 > 多消 > combo 加权 > gap 数
-        if (pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2) {
+        if (hasDirectPerfectClear || pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2) {
             const mlBoost = 0.35 * multiLineTarget;
             clearCandidates.sort((a, b) => {
-                const aScore = a.pcPotential * (8 + perfectClearBoost * 8)
+                const aScore = a.pcPotential * (10 + perfectClearBoost * 10)
                     + a.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
                     + a.gapFills * 0.5;
-                const bScore = b.pcPotential * (8 + perfectClearBoost * 8)
+                const bScore = b.pcPotential * (10 + perfectClearBoost * 10)
                     + b.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
                     + b.gapFills * 0.5;
                 return bScore - aScore;
@@ -579,15 +620,19 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         // 精确清屏机会：强制 3 槽全部用于消行（不再受 clearTarget 约束）
         const clearSeats = pcSetup >= 2 || perfectClearBoost >= 0.9
             ? Math.min(3, clearCandidates.length)
-            : Math.min(effectiveClearTarget, clearCandidates.length, maxClearSeats);
+            : Math.min(
+                Math.max(hasDirectPerfectClear ? 1 : 0, effectiveClearTarget),
+                clearCandidates.length,
+                maxClearSeats
+            );
 
         for (let ci = 0; ci < clearSeats; ci++) {
             const avail = clearCandidates.filter(s => !usedIds[s.shape.id]);
             if (avail.length === 0) break;
 
             let pick;
-            // 清屏机会期：优先选能直接触发清屏的块
-            if ((pcSetup >= 1 || perfectClearBoost > 0.45) && avail.some(s => s.pcPotential === 2)) {
+            // 只要存在一手清屏块就优先放入一个槽位；仍保留后续可解性校验，避免不公平死局。
+            if (avail.some(s => s.pcPotential === 2)) {
                 const perfectPicks = avail.filter(s => s.pcPotential === 2);
                 pick = perfectPicks[Math.floor(Math.random() * Math.min(3, perfectPicks.length))];
             } else if ((multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2) && avail.some(s => s.multiClear >= 2)) {
@@ -627,7 +672,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 /* Layer 1: 清屏潜力 — 最高优先级倍率 */
                 if (s.pcPotential === 2) {
                     // 该块放置后可直接触发清屏：极强权重，覆盖一切其他因素
-                    w *= 12.0 + perfectClearBoost * 10.0;
+                    w *= 18.0 + perfectClearBoost * 14.0;
                 } else if (pcSetup >= 1 && s.gapFills > 0) {
                     // 清屏准备期：gap 填充块大幅加权，pcSetup=2 更强
                     w *= 1 + pcSetup * 3.0 + perfectClearBoost * 2.0;

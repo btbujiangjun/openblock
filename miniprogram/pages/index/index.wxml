@@ -7,43 +7,37 @@
     <text class="logo-star">✦</text>
     <text class="logo-title">Block</text>
   </view>
-  <text class="logo-subtitle">方块消除</text>
+  <text class="logo-subtitle">{{text.subtitle}}</text>
 
   <view class="menu-actions">
     <view class="menu-config">
       <view class="config-row">
-        <text class="config-label">皮肤</text>
+        <text class="config-label">{{text.language}}</text>
+        <picker mode="selector" range="{{languages}}" range-key="name" value="{{languageIndex}}" bindchange="onLanguageChange">
+          <view class="config-picker">{{selectedLanguageName}}</view>
+        </picker>
+      </view>
+      <view class="config-row">
+        <text class="config-label">{{text.skin}}</text>
         <picker mode="selector" range="{{skins}}" range-key="name" value="{{skinIndex}}" bindchange="onSkinChange">
           <view class="config-picker">{{selectedSkinName}}</view>
         </picker>
       </view>
       <view class="config-row">
-        <text class="config-label">关卡</text>
-        <picker mode="selector" range="{{levels}}" range-key="name" value="{{levelIndex}}" bindchange="onLevelChange">
-          <view class="config-picker">{{selectedLevelName}}</view>
+        <text class="config-label">{{text.difficulty}}</text>
+        <picker mode="selector" range="{{difficulties}}" range-key="name" value="{{difficultyIndex}}" bindchange="onDifficultyChange">
+          <view class="config-picker">{{selectedDifficultyName}}</view>
         </picker>
       </view>
     </view>
 
-    <view class="menu-btn menu-btn--primary" bindtap="onStartNormal">
-      <text class="menu-btn-text">开始游戏</text>
-      <text class="menu-btn-sub">Normal</text>
-    </view>
-    <view class="menu-btn" bindtap="onStartEasy">
-      <text class="menu-btn-text">简单模式</text>
-      <text class="menu-btn-sub">Easy</text>
-    </view>
-    <view class="menu-btn" bindtap="onStartHard">
-      <text class="menu-btn-text">挑战模式</text>
-      <text class="menu-btn-sub">Hard</text>
-    </view>
-    <view class="menu-btn menu-btn--level" bindtap="onStartLevel">
-      <text class="menu-btn-text">关卡模式</text>
-      <text class="menu-btn-sub">{{selectedLevelId}}</text>
+    <view class="menu-btn menu-btn--primary" bindtap="onStartGame">
+      <text class="menu-btn-text">{{text.startGame}}</text>
+      <text class="menu-btn-sub">{{selectedDifficultyName}}</text>
     </view>
   </view>
 
   <view class="menu-footer">
-    <text class="footer-text">Open Source Block Blast</text>
+    <text class="footer-text">{{text.footer}}</text>
   </view>
 </view>

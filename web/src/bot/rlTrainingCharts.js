@@ -624,6 +624,67 @@ function trendLabel(current, prev, minDelta) {
 }
 
 /**
+ * @param {number} v
+ * @param {number} digits
+ */
+function fmtHelpNumber(v, digits = 2) {
+    return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(digits) : '—';
+}
+
+/** @param {number} v */
+function fmtHelpPct(v) {
+    return typeof v === 'number' && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : '—';
+}
+
+/**
+ * @param {number[]} values
+ * @param {number} win
+ * @returns {{ latest: number | null, avg: number | null, prevAvg: number | null, count: number }}
+ */
+function windowMetric(values, win) {
+    const finite = values.filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const count = finite.length;
+    const latest = count ? finite[count - 1] : null;
+    const cur = finite.slice(-win);
+    const prev = finite.slice(-win * 2, -win);
+    const avg = cur.length ? cur.reduce((a, b) => a + b, 0) / cur.length : null;
+    const prevAvg = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : null;
+    return { latest, avg, prevAvg, count };
+}
+
+function trendSentence(metric, minDelta, unit = '', direction = 'higher-better') {
+    const trend = trendLabel(metric.avg, metric.prevAvg, minDelta);
+    const latest = fmtHelpNumber(metric.latest);
+    const avg = fmtHelpNumber(metric.avg);
+    const suffix = unit ? unit : '';
+    let reading = '样本不足，先积累更多局数。';
+    if (trend === '上行') {
+        reading = direction === 'lower-better'
+            ? '短窗均值在升高，若外部指标没有改善，需要警惕训练不稳定。'
+            : '短窗均值在升高，若与胜率/得分同向，通常是正向信号。';
+    } else if (trend === '回落') {
+        reading = direction === 'lower-better'
+            ? '短窗均值在回落，若胜率/得分不恶化，通常表示拟合压力缓解。'
+            : '短窗均值在回落，需要结合其它面板确认是否只是窗口波动。';
+    } else if (trend === '基本持平') {
+        reading = '短窗基本持平，当前更适合观察其它指标是否继续改善。';
+    }
+    return `最新 ${latest}${suffix}，窗口均值 ${avg}${suffix}，趋势：${trend}。${reading}`;
+}
+
+/**
+ * 每次图表刷新时生成动态 help：面板含义 + 当前窗口读数 + 更新时间。
+ * @param {string} staticHint
+ * @param {string} dynamicText
+ * @param {string} updatedAt
+ */
+function combinePanelHelp(staticHint, dynamicText, updatedAt) {
+    const base = staticHint || 'RL 训练面板。';
+    const dyn = dynamicText || '当前日志不足，继续训练或刷新后会更新本解读。';
+    return `${base}\n\n【当前面板解读｜${updatedAt}】${dyn}`;
+}
+
+/**
  * @param {object[]} rows sorted train_episode rows
  * @returns {string}
  */
@@ -765,6 +826,40 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
 
     const lpMa = rollingMean(lp, MA_LOSS);
     const lvMa = rollingMean(lv, MA_LOSS);
+    const updatedAt = new Date().toLocaleTimeString();
+    const lpHelp = combinePanelHelp(
+        `本图展示策略网络（actor）损失 Lπ。细线=逐局 loss_policy；粗线=最近 ${MA_LOSS} 局滑动平均。与 PPO 系 surrogate、重要性采样裁剪等相关；纵轴对离群点温和裁剪仅便于看图，不改变训练数学。`,
+        trendSentence(windowMetric(lpMa, MA_LOSS), 0.02, '', 'lower-better'),
+        updatedAt
+    );
+    const lvHelp = combinePanelHelp(
+        `本图展示价值网络（critic）损失 Lv（loss_value）。价值分支拟合难度常高于策略分支；单局尖峰常见。优先看粗线 MA 与摘要「均Lv」；若粗线阶跃上升请对照数值稳定性文档中的裁剪与环境变量。纵轴 robust 裁剪便于观察主体趋势。`,
+        trendSentence(windowMetric(lvMa, MA_LOSS), 0.05, '', 'lower-better'),
+        updatedAt
+    );
+    const entropyHelp = combinePanelHelp(
+        '本图为单曲线：策略熵 H(π)。与 actor 输出层的 softmax 分布 spread 相关；常用于观察探索—利用权衡。纵轴下限钳为 0 仅便于显示，实际熵下界取决于动作空间大小。',
+        (() => {
+            const m = windowMetric(ent, MA_PERF);
+            const trend = trendLabel(m.avg, m.prevAvg, 0.03);
+            const avg = fmtHelpNumber(m.avg, 2);
+            const latest = fmtHelpNumber(m.latest, 2);
+            const advice = m.avg == null
+                ? '暂无有效熵字段。'
+                : m.avg < 0.08
+                    ? '策略已很尖锐，若胜率/得分停滞，可能探索不足。'
+                    : m.avg > 2.5
+                        ? '策略仍偏随机，若训练已进入中后期，需观察是否利用不足。'
+                        : '探索强度处于可观察区间，继续结合胜率和得分判断。';
+            return `最新 ${latest}，窗口均值 ${avg}，趋势：${trend}。${advice}`;
+        })(),
+        updatedAt
+    );
+    const stepsHelp = combinePanelHelp(
+        '本图：轨迹长度 step_count。与任务难度、策略存活能力、最大步数上限等相关；批量训练下可能显示批均值而非 strict 单局，请以日志管线为准。',
+        trendSentence(windowMetric(st, MA_PERF), 1, ' 步', 'higher-better'),
+        updatedAt
+    );
 
     /* 双序列：粗线=滑动平均；细线=逐局。色相错开，避免与 MA 混淆 */
     const C_LP_MA = '#142d52';
@@ -785,7 +880,8 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     const mkInto = (target, title, series, chartOpts, hint) => {
         panelIdx += 1;
         const panel = document.createElement('details');
-        panel.className = 'rl-chart-panel';
+        panel.className = 'rl-chart-panel rl-help';
+        panel.dataset.helpKey = `rl.chart.${panelIdx}`;
         panel.open = true;
         if (hint) {
             panel.title = hint;
@@ -795,6 +891,11 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         const label = document.createElement('span');
         label.className = 'rl-chart-panel-title';
         label.textContent = `${panelIdx}. ${title}`;
+        if (hint) {
+            label.classList.add('rl-help');
+            label.dataset.helpKey = `rl.chart.${panelIdx}.title`;
+            label.title = hint;
+        }
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = 'rl-chart-toggle';
@@ -821,6 +922,10 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             wrap.appendChild(empty);
         } else {
             c.className = 'rl-chart-canvas';
+            if (hint) {
+                c.classList.add('rl-help');
+                c.dataset.helpKey = `rl.chart.${panelIdx}.canvas`;
+            }
             wrap.appendChild(c);
         }
         panel.append(summary, wrap);
@@ -850,7 +955,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             },
         ],
         { robustClip: true },
-        `本图展示策略网络（actor）损失 Lπ。细线=逐局 loss_policy；粗线=最近 ${MA_LOSS} 局滑动平均。与 PPO 系 surrogate、重要性采样裁剪等相关；纵轴对离群点温和裁剪仅便于看图，不改变训练数学。`
+        lpHelp
     );
 
     mk(
@@ -872,7 +977,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             },
         ],
         { robustClip: true },
-        `本图展示价值网络（critic）损失 Lv（loss_value）。价值分支拟合难度常高于策略分支；单局尖峰常见。优先看粗线 MA 与摘要「均Lv」；若粗线阶跃上升请对照数值稳定性文档中的裁剪与环境变量。纵轴 robust 裁剪便于观察主体趋势。`
+        lvHelp
     );
 
     mk(
@@ -889,7 +994,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         {
             yMinFloor: 0
         },
-        `本图为单曲线：策略熵 H(π)。与 actor 输出层的 softmax 分布 spread 相关；常用于观察探索—利用权衡。纵轴下限钳为 0 仅便于显示，实际熵下界取决于动作空间大小。`
+        entropyHelp
     );
 
     mk(
@@ -906,10 +1011,26 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         {
             yMinFloor: 0
         },
-        `本图：轨迹长度 step_count。与任务难度、策略存活能力、最大步数上限等相关；批量训练下可能显示批均值而非 strict 单局，请以日志管线为准。`
+        stepsHelp
     );
 
     const wrMa = rollingMean(won01, MA_PERF);
+    const winHelp = combinePanelHelp(
+        `本图：近 ${MA_PERF} 局滑动窗口内的平均胜率（非单点瞬时胜率）。需日志含 win_rate 或 won；否则该图为空或断续。自博弈下胜率回落不一定为 bug，需结合得分、步数与超参变更记录。`,
+        (() => {
+            const m = windowMetric(wrMa, MA_PERF);
+            const trend = trendLabel(m.avg, m.prevAvg, 0.03);
+            const advice = m.avg == null
+                ? '暂无有效胜率字段。'
+                : m.avg >= 0.65
+                    ? '近期胜率较高，可重点确认得分是否同步提升，避免只达标不提分。'
+                    : m.avg <= 0.2
+                        ? '近期胜率偏低，建议检查课程阈值、奖励尺度和策略熵是否过早坍缩。'
+                        : '胜率处于中间区间，继续看趋势是否随得分上行。';
+            return `最新 ${fmtHelpPct(m.latest)}，窗口均值 ${fmtHelpPct(m.avg)}，趋势：${trend}。${advice}`;
+        })(),
+        updatedAt
+    );
     mk(
         `近${MA_PERF}局滑动胜率（0–1；批量为窗口内平均）`,
         [
@@ -926,10 +1047,15 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             yMaxCeil: 1,
             yTick: (v) => `${(v * 100).toFixed(0)}%`
         },
-        `本图：近 ${MA_PERF} 局滑动窗口内的平均胜率（非单点瞬时胜率）。需日志含 win_rate 或 won；否则该图为空或断续。自博弈下胜率回落不一定为 bug，需结合得分、步数与超参变更记录。`
+        winHelp
     );
 
     const scMa = rollingMean(scores, MA_PERF);
+    const scoreHelp = combinePanelHelp(
+        `本图：对局得分。细线=逐局 score；粗线=最近 ${MA_PERF} 局滑动平均。字段来自 train_episode.score；与任务奖励缩放、存活步数强相关。`,
+        trendSentence(windowMetric(scMa, MA_PERF), 10, ' 分', 'higher-better'),
+        updatedAt
+    );
     mk(
         `对局得分（细=逐局，粗=MA${MA_PERF} 趋势）`,
         [
@@ -949,7 +1075,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             },
         ],
         { yMinFloor: 0 },
-        `本图：对局得分。细线=逐局 score；粗线=最近 ${MA_PERF} 局滑动平均。字段来自 train_episode.score；与任务奖励缩放、存活步数强相关。`
+        scoreHelp
     );
 
     const qCov = rows.map((r) => (typeof r.teacher_q_coverage === 'number' ? r.teacher_q_coverage : NaN));
@@ -972,6 +1098,24 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         : !hasActiveTeacher
             ? '当前日志已有 v9.3 字段，但 teacher 覆盖率与目标形态均为 0：在线训练路径暂未产生 Q/visit_pi teacher 数据。'
             : '';
+    const teacherHelp = combinePanelHelp(
+        '本图汇总 Teacher 侧诊断：Q / visit 覆盖率（teacher 有没有进场）与 Q 目标形态（teacher 好不好教）。纵轴 0～100% 对应字段一般记录为 0～1。若为空板提示无字段或全 0，说明当前训练路径未写入或未启用对应 teacher。',
+        (() => {
+            const q = windowMetric(qCov, SUMMARY_N);
+            const v = windowMetric(vCov, SUMMARY_N);
+            const h = windowMetric(qEntropy, SUMMARY_N);
+            const m = windowMetric(qMargin, SUMMARY_N);
+            if (!hasAnyTeacherField) return '当前日志没有 teacher 字段，说明此训练路径尚未写入 Q/visit teacher 诊断。';
+            if (!hasActiveTeacher) return '当前 teacher 覆盖和目标形态基本为 0，策略主要依赖 on-policy 更新，Q/visit 蒸馏尚未实际介入。';
+            const advice = (q.avg ?? 0) < 0.05 && (v.avg ?? 0) < 0.05
+                ? '覆盖率偏低，若期望 search teacher 发力，需要检查 lookahead/MCTS/beam 数据是否写入。'
+                : (h.avg ?? 0) > 0.85 && (m.avg ?? 0) < 0.05
+                    ? 'teacher 分布偏平且 top margin 小，监督信号可能较弱。'
+                    : 'teacher 已有有效信号，可继续观察蒸馏损失是否随之下降。';
+            return `Q覆盖 ${fmtHelpPct(q.avg)}，visit覆盖 ${fmtHelpPct(v.avg)}，qH ${fmtHelpNumber(h.avg, 2)}，margin ${fmtHelpNumber(m.avg, 2)}。${advice}`;
+        })(),
+        updatedAt
+    );
 
     mk(
         'Teacher 覆盖与目标形态',
@@ -1012,7 +1156,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             },
         ],
         { yMinFloor: 0, yMaxCeil: 1, yTick: (v) => `${(v * 100).toFixed(0)}%`, emptyMessage: teacherEmpty || undefined },
-        `本图汇总 Teacher 侧诊断：Q / visit 覆盖率（teacher 有没有进场）与 Q 目标形态（teacher 好不好教）。纵轴 0～100% 对应字段一般记录为 0～1。若为空板提示无字段或全 0，说明当前训练路径未写入或未启用对应 teacher。`
+        teacherHelp
     );
 
     const hasAnyReplayField = [qDistill, visitDistill, replayRatio].some(hasFinite);
@@ -1022,6 +1166,23 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         : !hasActiveReplay
             ? '当前批量训练还没有 Q/visit_pi 蒸馏损失或 replay 样本；该面板会在 search teacher 或 replay 生效后出现曲线。'
             : '';
+    const replayHelp = combinePanelHelp(
+        '本图：蒸馏吸收（loss_q_distill、loss_visit_pi）与 replay 占比。用于判断搜索 teacher 是否真的在优化里起作用，以及 replay 是否挤占新鲜样本。三条曲线共用纵轴且 robust 裁剪，数值尺度不可横向混读；replay 始终在 0～1，而蒸馏损失可大于 1。',
+        (() => {
+            const qd = windowMetric(qDistill, SUMMARY_N);
+            const vd = windowMetric(visitDistill, SUMMARY_N);
+            const rr = windowMetric(replayRatio, SUMMARY_N);
+            if (!hasAnyReplayField) return '当前日志没有 distillation/replay 字段，说明此路径尚未记录蒸馏或 replay 诊断。';
+            if (!hasActiveReplay) return '当前蒸馏损失和 replay 占比均未激活，search teacher/replay 暂未进入优化。';
+            const advice = (rr.avg ?? 0) > 0.55
+                ? 'replay 占比较高，需确认旧样本没有压过新鲜 on-policy 数据。'
+                : (qd.avg ?? 0) > 0 && trendLabel(qd.avg, qd.prevAvg, 0.02) === '回落'
+                    ? 'Q 蒸馏损失在回落，学生正在吸收 teacher 信号。'
+                    : '继续结合 Teacher 覆盖面板判断蒸馏是否有足够监督来源。';
+            return `Q蒸馏 ${fmtHelpNumber(qd.avg, 2)}，visit蒸馏 ${fmtHelpNumber(vd.avg, 2)}，replay ${fmtHelpPct(rr.avg)}。${advice}`;
+        })(),
+        updatedAt
+    );
 
     mk(
         '蒸馏吸收与 Replay 占比',
@@ -1053,6 +1214,6 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
             },
         ],
         { yMinFloor: 0, robustClip: true, emptyMessage: replayEmpty || undefined },
-        `本图：蒸馏吸收（loss_q_distill、loss_visit_pi）与 replay 占比。用于判断搜索 teacher 是否真的在优化里起作用，以及 replay 是否挤占新鲜样本。三条曲线共用纵轴且 robust 裁剪，数值尺度不可横向混读；replay 始终在 0～1，而蒸馏损失可大于 1。`
+        replayHelp
     );
 }

@@ -540,6 +540,34 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         clearGuarantee = Math.max(clearGuarantee, 2);
     }
 
+    /* --- Ability 风险护栏：高风险时优先保活，低风险高手允许更强挑战/多消兑现 --- */
+    const riskLevel = ability.riskLevel ?? 0;
+    if (ability.confidence >= 0.25 && riskLevel >= 0.62) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.22);
+        multiClearBonus = Math.max(multiClearBonus, 0.45);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    } else if (ability.confidence >= 0.45 && ability.skillScore >= 0.72 && riskLevel <= 0.38) {
+        diversityBoost = Math.max(diversityBoost, 0.12);
+        multiClearBonus = Math.max(multiClearBonus, 0.5);
+        if (rhythmPhase === 'neutral' && (ctx.nearFullLines ?? 0) >= 1) rhythmPhase = 'payoff';
+    }
+
+    /* --- 拓扑机会：临消线/清屏准备对规则轨和生成式上下文保持同一口径 --- */
+    const nearFullLines = ctx.nearFullLines ?? 0;
+    const pcSetup = ctx.pcSetup ?? 0;
+    if (pcSetup >= 1) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        multiLineTarget = Math.max(multiLineTarget, 2);
+        multiClearBonus = Math.max(multiClearBonus, 0.75);
+        rhythmPhase = 'payoff';
+    } else if (nearFullLines >= 3) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        multiLineTarget = Math.max(multiLineTarget, 1);
+        multiClearBonus = Math.max(multiClearBonus, 0.6);
+        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+    }
+
     /* --- Layer 2: payoff 节奏期提高多样性 --- */
     if (rhythmPhase === 'payoff') {
         diversityBoost = Math.max(diversityBoost, 0.1);

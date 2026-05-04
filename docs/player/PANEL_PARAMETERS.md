@@ -27,13 +27,13 @@
 面板从上到下分为 5 个功能区：
 
 ```
-┌─ 能力指标区 ──────────────────┐  ← 玩家能力的量化快照
+┌─ 能力指标区 ──────────────────┐  ← 玩家能力与当前棋盘的实时量化
 │  技能 | 消行 | 失误 | 思考 | 负荷 | APM │
 │  ████████████░░░░ 52%         │  ← 技能进度条
 ├─ 实时状态信号区 ──────────────┤  ← 当前瞬时状态标签
 │  flowState | F(t) | pacing | session ...  │
 ├─ 投放参数区 ──────────────────┤  ← 出块引擎决策参数
-│  压力 | F(t) | 闭环 | 占用 | 保消 | 尺寸 | 多样 │
+│  压力 | F(t) | 闭环 | 占用 | 保消 | 尺寸 | 多样 | V3 │
 │  长条 2.2 | 矩形 1.7 | ...   │  ← 形状类别权重（Top 5）
 ├─ 实时策略区 ──────────────────┤  ← 个性化策略建议
 │  🔥 保持连击 ...              │
@@ -45,6 +45,8 @@
 ---
 
 ## 2. 能力指标区
+
+能力指标区每次面板刷新都会用当前棋盘重新构建 `AbilityVector`：`skillScore`、`controlScore`、`clearEfficiency` 主要来自 `PlayerProfile` 滑动窗口；`boardPlanning`、`riskLevel` 会叠加当前 `analyzeBoardTopology(grid)` 的 `fillRatio / holes / closeLines`。因此它与下方实时拓扑指标使用同一盘面口径。
 
 ### 2.1 技能 (skillLevel)
 
@@ -476,7 +478,9 @@ afkCount = 窗口内 thinkMs ≥ 15000ms 的放置操作数
 
 ## 4. 投放参数区
 
-本节指标在「上一轮出块」决策瞬间由 `game.js` → `_captureAdaptiveInsight` 快照；与状态区实时 F(t) 可能有微小时间差。
+本节分两类口径：`压力 / F(t) / 闭环 / 保消 / 尺寸 / 多样 / shapeWeights / V3 元信息 / 回退原因` 是「上一轮出块」决策瞬间由 `game.js` → `_captureAdaptiveInsight` 和 `_commitSpawn` 捕获的快照；`占用 / 空洞 / 平整 / 近满 / 多消候选 / 清屏候选` 按当前棋盘实时重算，用来与上方能力指标对齐。
+
+出块模式顶栏与侧栏单选保持一致：`规则算法` 表示使用 `adaptiveSpawn + blockSpawn`；`生成式推荐` 表示请求 SpawnTransformerV3，但仍会先生成规则轨兜底与诊断。V3 成功时显示 `modelVersion / personalized / feasibleCount`；V3 输出非法、服务不可用或护栏失败时显示 `fallbackReason`，实际 dock 使用规则轨。
 
 ### 4.0 界面文案对照（优化后）
 
@@ -485,10 +489,11 @@ afkCount = 窗口内 thinkMs ≥ 15000ms 的放置操作数
 | **压力** x.xx | stress | `_adaptiveStress` | `SPAWN_TOOLTIP.stress` |
 | **F(t)** x.xx | 同左 | `flowDeviation` | `flowDev` |
 | **闭环** ±x.xxx | 同左 | `feedbackBias` | `feedback` |
-| **占用** xx% | fill xx% | `boardFill`（`grid.getFillRatio()`） | `boardFill` |
+| **占用** xx% | fill xx% | 当前 `grid.getFillRatio()` | `boardFill` |
 | **保消** n | 清 n | `spawnHints.clearGuarantee` | `clearG` |
 | **尺寸** x.x | 尺 x.x | `spawnHints.sizePreference` | `sizePref` |
 | **多样** x.x | 多 x.x | `spawnHints.diversityBoost` | `diversity` |
+| **V3 元信息** | - | `spawnModelMeta` | `v3Meta` |
 | **长条 2.2** 等 | 同左 | `shapeWeights` Top 类别 | `shapeW` |
 
 「保消」= **保证可消行**档位；「尺寸」= 块格数偏好（非物理「尺子」）；「多样」= 三连品类新鲜度。
@@ -511,7 +516,7 @@ stress = scoreStress + runStreakStress + skillAdjust + flowAdjust
        + comboReward + nearMissAdjust + feedbackBias
 ```
 
-9 个信号维度的线性叠加，最终 clamp 到 [-0.2, 1.0]。
+信号维度包含分数、连战、难度模式、能力风险、心流、节奏、恢复/挫败、combo、近失、闭环反馈、拓扑压力和局间弧线，最终 clamp 到 [-0.2, 1.0]。
 
 **物理含义**：这是出块引擎的**核心控制变量**。stress 决定了系统给玩家出什么形状的块：
 - **低 stress（<0.2）**：以线条、矩形为主，消行容易（"简单模式"）
@@ -540,7 +545,7 @@ stress 通过线性插值映射到 10 档 shapeWeights profile。
 |------|-----|
 | **面板标签** | `占用 42%`（界面）；含义为当前盘面占用率 |
 | **取值范围** | 0%~100% |
-| **数据源** | `grid.getFillRatio()` 在出块时的快照 |
+| **数据源** | 当前 `grid.getFillRatio()` |
 
 **数学定义**：
 

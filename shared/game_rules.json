@@ -29,10 +29,14 @@
       "decayPerGlobalEpisode": 0.002
     }
   },
+  "clearScoring": {
+    "comment": "人工主局、浏览器无头模拟器、Python RL 训练/评估共用的消行计分参数。修改这里必须同步验证 clearScoring / simulator 测试。",
+    "iconBonusLineMult": 5,
+    "perfectClearMult": 10
+  },
   "rlBonusScoring": {
-    "comment": "RL / PyTorch / 小程序无头局与主局计分对齐：整线加分判定与 dock 染色软偏置共用同一套「可见规则」（detectBonusLines / monoNearFullLine），固定 canonical 主题而非玩家当前皮肤。观测 φ 仍不得含 blockSpawn 内部状态。Python 仅在下方 blockIcons 非空时启用 icon bonus（可与网页 canonicalSkinId 不一致时手动填入同序图标）。",
+    "comment": "RL / PyTorch 无头局与主局计分对齐：整线加分判定与 dock 染色软偏置共用同一套「可见规则」（detectBonusLines / monoNearFullLine）。为避免 JS/Python 读取皮肤实现不一致，RL 只读取本节点 blockIcons；为空时按同色判定，不从玩家当前皮肤或 canonical 皮肤回退。",
     "useGameplayBonusRules": true,
-    "canonicalSkinId": "titanium",
     "blockIcons": null
   },
   "defaultStrategyId": "normal",
@@ -409,7 +413,7 @@
     }
   },
   "featureEncoding": {
-    "comment": "state = 42 维标量（含 19 维颜色摘要）+ 64 棋盘占用 + 75 dock 形状 = 181；action = 12 维（v4：原 7 + 5 棋盘交互特征）；phi = 193。改维度须同步 features.js / features.py 并重训。",
+    "comment": "state = 42 维标量（含 19 维颜色摘要）+ 64 棋盘占用 + 75 dock 形状 = 181；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 196。改维度须同步 features.js / features.py 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
     "stateScalarDim": 42,
@@ -417,8 +421,8 @@
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
     "stateDim": 181,
-    "actionDim": 12,
-    "phiDim": 193,
+    "actionDim": 15,
+    "phiDim": 196,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {

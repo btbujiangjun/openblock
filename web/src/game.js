@@ -26,8 +26,14 @@ import {
     normalizeSkinPickerLabel
 } from './skins.js';
 import { Grid } from './grid.js';
-import { generateDockShapes, resetSpawnMemory, getLastSpawnDiagnostics } from './bot/blockSpawn.js';
-import { getSpawnMode, predictShapes } from './spawnModel.js';
+import { generateDockShapes, resetSpawnMemory, getLastSpawnDiagnostics, validateSpawnTriplet } from './bot/blockSpawn.js';
+import {
+    buildSpawnModelContext,
+    getSpawnMode,
+    predictShapesV3,
+    shapeIdsToHistoryRow,
+    SPAWN_MODE_MODEL_V3
+} from './spawnModel.js';
 import {
     buildInitFrame,
     buildPlaceFrame,
@@ -48,6 +54,7 @@ import {
     detectBonusLines,
     computeClearScore,
     ICON_BONUS_LINE_MULT,
+    PERFECT_CLEAR_MULT,
     bonusEffectHoldMs,
     monoNearFullLineColorWeights,
     pickThreeDockColors
@@ -57,6 +64,7 @@ export {
     detectBonusLines,
     computeClearScore,
     ICON_BONUS_LINE_MULT,
+    PERFECT_CLEAR_MULT,
     bonusEffectHoldMs,
     monoNearFullLineColorWeights,
     pickThreeDockColors
@@ -142,6 +150,7 @@ export class Game {
         this._noMovesTimer = null;
         /** 模型异步出块进行中，跳过 game over 检查 */
         this._spawnPending = false;
+        this._spawnRequestId = 0;
 
         /** 玩家实时能力画像（跨局持久化） */
         this.playerProfile = PlayerProfile.load();
@@ -878,7 +887,7 @@ export class Game {
         this._captureAdaptiveInsight(layered);
 
         const mode = getSpawnMode();
-        if (mode === 'model') {
+        if (mode === SPAWN_MODE_MODEL_V3) {
             this._spawnBlocksWithModel(layered, opts);
             return;
         }
@@ -895,11 +904,16 @@ export class Game {
      */
     _spawnBlocksWithModel(layered, opts) {
         this._spawnPending = true;
+        const requestId = ++this._spawnRequestId;
 
         const history = (this._spawnContext.recentModelHistory || []).slice(-3);
         while (history.length < 3) history.unshift([0, 0, 0]);
+        const fallbackShapes = generateDockShapes(this.grid, layered, this._spawnContext);
 
-        const finish = (shapes, source) => {
+        const finish = (shapes, source, meta = null) => {
+            if (requestId !== this._spawnRequestId || this.isGameOver) return;
+            this._lastAdaptiveInsight = this._lastAdaptiveInsight || {};
+            this._lastAdaptiveInsight.spawnModelMeta = meta;
             this._commitSpawn(shapes, layered, opts, source);
             this._spawnPending = false;
             if (opts.checkGameOver !== false) {
@@ -907,22 +921,42 @@ export class Game {
             }
         };
 
-        predictShapes(this.grid, this.playerProfile, history, this._lastAdaptiveInsight).then((modelShapes) => {
-            if (modelShapes && modelShapes.length >= 3) {
-                const ids = modelShapes.map(s => {
-                    const vocab = ['1x4','4x1','1x5','5x1','2x3','3x2','2x2','3x3','t-up','t-down','t-left','t-right','z-h','z-h2','z-v','z-v2','l-1','l-2','l-3','l-4','l5-a','l5-b','l5-c','l5-d','j-1','j-2','j-3','j-4'];
-                    return vocab.indexOf(s.id);
-                });
+        const modelContext = buildSpawnModelContext(this.grid, this.playerProfile, this._lastAdaptiveInsight, {
+            gameStats: this.gameStats,
+            spawnContext: this._spawnContext,
+            playstyle: this.playerProfile?.playstyle,
+        });
+
+        predictShapesV3(this.grid, this.playerProfile, history, this._lastAdaptiveInsight, {
+            modelContext,
+            playstyle: modelContext.playstyle,
+            userId: this.db?.userId || null,
+            topK: 8,
+            enforceFeasibility: true,
+        }).then((result) => {
+            const modelShapes = result?.shapes || null;
+            const validation = modelShapes ? validateSpawnTriplet(this.grid, modelShapes) : { ok: false, reason: 'no-model-result' };
+            if (modelShapes && validation.ok) {
+                const ids = shapeIdsToHistoryRow(modelShapes);
                 if (!this._spawnContext.recentModelHistory) this._spawnContext.recentModelHistory = [];
                 this._spawnContext.recentModelHistory.push(ids);
                 if (this._spawnContext.recentModelHistory.length > 5) this._spawnContext.recentModelHistory.shift();
 
-                finish(modelShapes, 'model');
+                finish(modelShapes, 'model-v3', { ...(result.meta || {}), fallbackReason: null });
             } else {
-                finish(generateDockShapes(this.grid, layered, this._spawnContext), 'rule-fallback');
+                const fallbackReason = validation.reason || 'model-unavailable';
+                finish(
+                    fallbackShapes,
+                    'rule-fallback',
+                    { ...(result?.meta || {}), modelVersion: result?.meta?.modelVersion || 'v3', fallbackReason }
+                );
             }
-        }).catch(() => {
-            finish(generateDockShapes(this.grid, layered, this._spawnContext), 'rule-fallback');
+        }).catch((err) => {
+            finish(
+                fallbackShapes,
+                'rule-fallback',
+                { modelVersion: 'v3', fallbackReason: err?.message || 'predict-error' }
+            );
         });
     }
 
@@ -955,6 +989,7 @@ export class Game {
 
         this._lastAdaptiveInsight = this._lastAdaptiveInsight || {};
         this._lastAdaptiveInsight.spawnSource = source || 'rule';
+        this._lastAdaptiveInsight.spawnDiagnostics = getLastSpawnDiagnostics();
 
         this._pushSpawnToSequence(descriptors);
 
@@ -1244,6 +1279,7 @@ export class Game {
 
             // 将 snap 到的 bonus 信息合并进 result（只在真正有消除时生效）
             result.bonusLines = result.count > 0 ? _bonusLinesSnap : [];
+            result.perfectClear = result.count > 0 && this.grid.getFillRatio() === 0;
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
             this._refreshPlayerInsightPanel();
             this._spawnModelLayerRefresh?.();
@@ -1318,9 +1354,9 @@ export class Game {
 
         const bonusLines = result.bonusLines || [];
         const bonusCount = bonusLines.length;
-        const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
-
         const perfectClear = this.grid.getFillRatio() === 0;
+        result.perfectClear = perfectClear;
+        const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
 
         const scoreBeforeClear = this.score;
         this.score += clearScore;
@@ -1983,10 +2019,19 @@ export class Game {
             if (bonusUiHoldMs > 0) {
                 el.style.setProperty('--icon-bonus-pop-ms', `${Math.round(bonusUiHoldMs)}ms`);
             }
+            const label = isPerfect
+                ? t('effect.perfectClear')
+                : isCombo
+                    ? t('effect.multiClear', { n: linesCleared })
+                    : t('effect.iconBonus');
+            const mult = isPerfect ? ` ×${PERFECT_CLEAR_MULT}` : '';
             el.innerHTML =
                 `<span class="float-bonus-art" role="status">` +
+                `<span class="float-label">${label}${mult}</span>` +
+                `<span class="float-bonus-score-row">` +
                 `<span class="float-bonus-num">${score}</span>` +
                 `<span class="float-bonus-mult-wrap">(${ICON_BONUS_LINE_MULT}x)</span>` +
+                `</span>` +
                 `</span>`;
             el.style.left = '50%';
             el.style.top = isPerfect ? '18%' : isCombo ? '22%' : '28%';
@@ -2001,13 +2046,13 @@ export class Game {
         el.className = 'float-score' + cls;
 
         if (isNewBest) {
-            el.innerHTML = `<span class="float-label">NEW RECORD</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.newRecord')}</span><span class="float-pts">+${score}</span>`;
         } else if (isPerfect) {
-            el.innerHTML = `<span class="float-label">PERFECT</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.perfectClear')} ×${PERFECT_CLEAR_MULT}</span><span class="float-pts">+${score}</span>`;
         } else if (isCombo && linesCleared >= 3) {
-            el.innerHTML = `<span class="float-label">COMBO ×${linesCleared}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.multiClear', { n: linesCleared })}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
-            el.innerHTML = `<span class="float-label">DOUBLE</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}</span><span class="float-pts">+${score}</span>`;
         } else {
             el.textContent = '+' + score;
         }

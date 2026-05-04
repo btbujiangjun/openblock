@@ -2169,6 +2169,23 @@ def spawn_v3_status():
     })
 
 
+@app.route('/api/spawn-model/v3/reload', methods=['POST'])
+def spawn_v3_reload():
+    """清理 V3 模型缓存，使下一次推理从磁盘重新加载最新权重。"""
+    try:
+        global _spawn_v3_model, _spawn_v3_lora_cache
+        _spawn_v3_model = None
+        _spawn_v3_lora_cache = {}
+        base_available = os.path.exists(_SPAWN_V3_MODEL_PATH)
+        return jsonify({
+            'success': True,
+            'baseAvailable': base_available,
+            'modelVersion': 'v3',
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/spawn-model/v3/predict', methods=['POST'])
 def spawn_v3_predict():
     """V3 推理：autoregressive + feasibility + playstyle + 个性化。

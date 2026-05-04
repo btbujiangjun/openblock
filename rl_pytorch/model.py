@@ -11,7 +11,7 @@ v5 核心改动（不收敛根因修复）：
     topology_aux_head:  回归落子后的拓扑分量
   - clear_pred_head（v4 保留）：4 类消行预测
 
-state=181 (42 scalars + 64 grid + 75 dock), action=12, phi=193。
+state=181 (42 scalars + 64 grid + 75 dock), action=15, phi=196。
 """
 
 from __future__ import annotations
@@ -227,7 +227,7 @@ class ConvSharedPolicyValueNet(nn.Module):
             )
         dock_ctx_dim = _DOCK_SLOTS * dock_attn_head_dim  # 3 × 16 = 48
 
-        trunk_in = _SCALAR_DIM + conv_channels + dock_ctx_dim  # 23 + 32 + 48 = 103
+        trunk_in = _SCALAR_DIM + conv_channels + dock_ctx_dim
         self.trunk_norm = nn.LayerNorm(trunk_in)
         self.trunk_fc1 = nn.Linear(trunk_in, width)
         self.trunk_fc2 = nn.Linear(width, width)

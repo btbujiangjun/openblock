@@ -9,9 +9,11 @@ import {
     getSpawnMode,
     setSpawnMode,
     getModelStatus,
-    startTraining,
+    getV3Status,
+    startV3Training,
     stopTraining,
-    reloadModel,
+    reloadV3Model,
+    SPAWN_MODE_MODEL_V3,
 } from './spawnModel.js';
 import { getLastSpawnDiagnostics } from './bot/blockSpawn.js';
 import { skipWhenDocumentHidden } from './lib/pageVisibility.js';
@@ -79,6 +81,19 @@ function _refreshLayerParams(game) {
     };
     const psRaw = profile?.playstyle ?? 'balanced';
     _set('sl-playstyle', playstyleMap[psRaw] ?? psRaw);
+    const meta = game._lastAdaptiveInsight?.spawnModelMeta;
+    const source = game._lastAdaptiveInsight?.spawnSource ?? getSpawnMode();
+    if (meta) {
+        const parts = [
+            meta.modelVersion || 'v3',
+            meta.personalized ? '个性化' : '通用',
+        ];
+        if (meta.feasibleCount != null) parts.push(`可行${meta.feasibleCount}`);
+        if (meta.fallbackReason) parts.push(`回退:${meta.fallbackReason}`);
+        _set('sl-v3meta', parts.join(' / '));
+    } else {
+        _set('sl-v3meta', source === SPAWN_MODE_MODEL_V3 ? '等待 V3 推理' : '规则轨');
+    }
 
     // ── Layer 3: 局间弧线 ─────────────────────────────────────────────────
     // sessionArc 存在于 spawnHints 中，不在 _spawnContext 中
@@ -129,7 +144,7 @@ export function initSpawnModelPanel(game) {
         btnStart.addEventListener('click', async () => {
             btnStart.disabled = true;
             try {
-                await startTraining({
+                await startV3Training({
                     epochs: parseInt(epochsInput?.value) || 50,
                     minScore: parseInt(minScoreInput?.value) || 0,
                     maxSessions: parseInt(maxSessionsInput?.value) || 500,
@@ -154,12 +169,12 @@ export function initSpawnModelPanel(game) {
     if (btnReload) {
         btnReload.addEventListener('click', async () => {
             try {
-                const res = await reloadModel();
+                const res = await reloadV3Model();
                 if (res?.success && badge) {
-                    badge.textContent = `模型已加载 (${(res.params / 1000).toFixed(0)}K)`;
-                    badge.className = 'spawn-model-status available';
+                    badge.textContent = res.baseAvailable ? 'V3 已重载' : 'V3 未训练';
+                    badge.className = res.baseAvailable ? 'spawn-model-status available' : 'spawn-model-status';
                 }
-            } catch (e) {
+            } catch {
                 if (badge) {
                     badge.textContent = '加载失败';
                     badge.className = 'spawn-model-status';
@@ -181,8 +196,8 @@ export function initSpawnModelPanel(game) {
 
     async function _refreshBadge() {
         try {
-            const st = await getModelStatus();
-            _updateUI(st);
+            const [trainSt, v3St] = await Promise.all([getModelStatus(), getV3Status()]);
+            _updateUI({ ...trainSt, ...v3St, modelAvailable: !!v3St.baseAvailable });
         } catch {
             if (badge) {
                 badge.textContent = '服务不可用';
@@ -203,7 +218,8 @@ export function initSpawnModelPanel(game) {
             if (progressFill) progressFill.style.width = `${st.progress ?? 0}%`;
             if (progressMsg) progressMsg.textContent = st.message || '';
         } else if (st.modelAvailable) {
-            badge.textContent = '模型可用';
+            const personalizedCount = Array.isArray(st.personalizedUsers) ? st.personalizedUsers.length : 0;
+            badge.textContent = personalizedCount > 0 ? `V3 可用 / 个性化 ${personalizedCount}` : 'V3 可用';
             badge.className = 'spawn-model-status available';
             if (btnStart) btnStart.disabled = false;
             if (btnStop) btnStop.disabled = true;
@@ -213,13 +229,13 @@ export function initSpawnModelPanel(game) {
                 if (progressMsg) progressMsg.textContent = st.message || '训练完成';
             }
         } else {
-            badge.textContent = '模型未训练';
+            badge.textContent = 'V3 未训练';
             badge.className = 'spawn-model-status';
             if (btnStart) btnStart.disabled = false;
             if (btnStop) btnStop.disabled = true;
         }
 
-        const modelRadio = document.querySelector('input[name="spawn-mode"][value="model"]');
+        const modelRadio = document.querySelector(`input[name="spawn-mode"][value="${SPAWN_MODE_MODEL_V3}"]`);
         if (modelRadio) {
             const label = modelRadio.closest('.spawn-mode-label');
             if (label) {
@@ -233,13 +249,14 @@ export function initSpawnModelPanel(game) {
         _pollTimer = setInterval(
             skipWhenDocumentHidden(async () => {
                 try {
-                    const st = await getModelStatus();
+                    const [trainSt, v3St] = await Promise.all([getModelStatus(), getV3Status()]);
+                    const st = { ...trainSt, ...v3St, modelAvailable: !!v3St.baseAvailable };
                     _updateUI(st);
                     if (!st.trainingRunning) {
                         clearInterval(_pollTimer);
                         _pollTimer = null;
                         if (st.phase === 'done') {
-                            try { await reloadModel(); } catch { /* ignore */ }
+                            try { await reloadV3Model(); } catch { /* ignore */ }
                             _refreshBadge();
                         }
                     }

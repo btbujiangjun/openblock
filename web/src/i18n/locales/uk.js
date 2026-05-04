@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Легенда',
     'progress.streakDays': '{{n}} днів поспіль',
     'best.gap': '{{gap}} оч. до рекорду',
+    'effect.perfectClear': 'Повне очищення',
+    'effect.multiClear': '{{n}} ліній',
+    'effect.doubleClear': 'Подвійне очищення',
+    'effect.iconBonus': 'Велике вибухове очищення',
+    'effect.newRecord': 'Новий рекорд',
 
     'skin.name.classic': '✨ Мінімалістична класика',
     'skin.name.titanium': '💎 Титанова матриця',

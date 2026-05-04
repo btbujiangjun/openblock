@@ -181,32 +181,30 @@ interface IapProvider {
 
 ## 5. 出块引擎架构
 
-### 三层架构
+### 双轨出块架构
 
 ```
   game.js: spawnBlocks()
     │
-    ├── Layer 0: 模型预测（可选）
-    │   spawnModel.js → /api/spawn-model/predict
-    │   └── SpawnTransformerV2 (行为数据驱动)
+    ├── 统一出块上下文
+    │   spawnModel.js: buildSpawnModelContext()
+    │   └── 难度 / AbilityVector / 实时状态 / 拓扑 / 体验节奏 / 局间弧线 / history / spawnHints
     │
-    ├── Layer 1: 可解性约束（blockSpawn.js）
-    │   ├── tripletSequentiallySolvable() 可解性验证
-    │   ├── 填充率约束（boardFill > 0.6 时更保守）
-    │   └── 空洞检测与最小移动性保证
+    ├── 轨道一：规则算法
+    │   ├── adaptiveSpawn.js → stress + spawnHints
+    │   └── blockSpawn.js → generateDockShapes()
     │
-    ├── Layer 2: 体验优化（adaptiveSpawn.js + spawnHints）
-    │   ├── 10 信号 stress 融合 → shapeWeights
-    │   ├── comboChain hint（续链偏好）
-    │   ├── multiClearBonus hint（多消偏好）
-    │   └── rhythmPhase hint（节奏相位）
+    ├── 轨道二：生成式推荐
+    │   ├── spawnModel.js → /api/spawn-model/v3/predict
+    │   └── SpawnTransformerV3 (feasibility + playstyle + LoRA)
     │
-    └── Layer 3: 局内弧线（spawnContext）
-        ├── sessionArc (warmup → peak → cooldown)
-        └── scoreMilestone（分数里程碑触发）
+    └── 统一护栏与提交
+        ├── validateSpawnTriplet()：唯一性 / 可放性 / 机动性 / 序贯可解性
+        ├── V3 失败或护栏未通过 → 规则轨兜底
+        └── _commitSpawn() 记录 source / V3 meta / fallbackReason
 ```
 
-### 10 维 Stress 信号
+### Stress 与 SpawnHints 信号
 
 ```
 stress = Σ(signal_i * weight_i), clamp(-0.2, 1.0)
@@ -221,9 +219,12 @@ stress = Σ(signal_i * weight_i), clamp(-0.2, 1.0)
   signal_8: comboReward       连续 combo → 轻微加压（正反馈）
   signal_9: trendAdjust       长周期趋势（历史会话）
   signal_10: confidenceGate   置信度低时收窄调节幅度
+  signal_11: abilityRisk      高风险 AbilityVector 触发保活减压
+  signal_12: topologyChance   近满线 / 清屏准备转为多消与清屏兑现
 
   → 查表插值 10 档 shapeWeights profile
   → 传递 spawnHints 到 blockSpawn.js
+  → 同步写入 SpawnTransformerV3 共享上下文
 ```
 
 ---
@@ -288,6 +289,7 @@ server.py (核心)
   /api/client/    客户端同步（策略/统计）
   /api/export     数据导出
   /api/health     健康检查
+  /api/spawn-model/v3/*  出块生成式推荐：status / predict / train / reload / personalize
   /docs           文档门户（HTML + API）
 
 enterprise_extensions.py（挂载于同一 Flask app）

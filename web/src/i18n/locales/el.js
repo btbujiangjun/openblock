@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Θρύλος',
     'progress.streakDays': '{{n}} μέρες σερί',
     'best.gap': '{{gap}} πόντοι από το ρεκόρ',
+    'effect.perfectClear': 'Πλήρης καθαρισμός',
+    'effect.multiClear': '{{n}} γραμμές',
+    'effect.doubleClear': 'Διπλός καθαρισμός',
+    'effect.iconBonus': 'Μεγάλη εκρηκτική εκκαθάριση',
+    'effect.newRecord': 'Νέο ρεκόρ',
 
     'skin.name.classic': '✨ Μινιμαλιστικό κλασικό',
     'skin.name.titanium': '💎 Μήτρα τιτανίου',

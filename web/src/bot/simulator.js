@@ -26,7 +26,7 @@ const _POT_ENABLED = Boolean(_POT_CFG.enabled);
 const _BOARD_POT_NORM = 30.0;
 const _AN = FEATURE_ENCODING?.actionNorm || {};
 
-/** 与主局计分对齐的 bonus / 近满染色偏置（固定 canonical 主题，见 getRlTrainingBonusLineSkin） */
+/** 与主局计分对齐的 bonus / 近满染色偏置；icon 语义仅来自 shared.game_rules.rlBonusScoring.blockIcons。 */
 function _rlBonusSkin() {
     return getRlTrainingBonusLineSkin();
 }
@@ -312,6 +312,7 @@ export class OpenBlockSimulator {
         let clears = 0;
         if (result.count > 0) {
             result.bonusLines = bonusSnap;
+            result.perfectClear = this.grid.getFillRatio() === 0;
             clears = result.count;
             this.totalClears += clears;
             gain = computeClearScore(this.strategyId, result, this.scoring).clearScore;

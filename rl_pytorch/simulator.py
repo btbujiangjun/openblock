@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import numpy as np
 
-from .game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
+from .game_rules import CLEAR_SCORING, FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
 from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
@@ -28,10 +28,11 @@ _POT_W_CLOSE = float(_POT_CFG.get("closeToFullWeight", 0.35))
 _POT_W_MOB = float(_POT_CFG.get("mobilityWeight", 0.12))
 _ACTION_NORM = dict(FEATURE_ENCODING.get("actionNorm") or {})
 
-_ICON_BONUS_LINE_MULT = 5
+_ICON_BONUS_LINE_MULT = float(CLEAR_SCORING.get("iconBonusLineMult") or 5)
+_PERFECT_CLEAR_MULT = float(CLEAR_SCORING.get("perfectClearMult") or 10)
 
 
-def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) -> float:
+def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int, perfect_clear: bool = False) -> float:
     """与 web/src/clearScoring.js computeClearScore 一致；bonus 线数来自 grid.check_lines(icon 规则由 rlBonusScoring.blockIcons 控制)。"""
     if clear_count <= 0:
         return 0.0
@@ -42,7 +43,12 @@ def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int) ->
         return base_score
     line_score = base_unit * clear_count
     icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
-    return base_score + icon_bonus
+    subtotal = base_score + icon_bonus
+    return subtotal * (_PERFECT_CLEAR_MULT if perfect_clear else 1.0)
+
+
+def _is_perfect_clear(grid: Grid) -> bool:
+    return all(cell is None for row in grid.cells for cell in row)
 
 
 def board_potential(grid: Grid, dock: list[dict]) -> float:
@@ -287,7 +293,7 @@ class OpenBlockSimulator:
             c = self._last_clears
             self.total_clears += c
             bonus_n = len(result.get("bonus_lines") or [])
-            gain = _clear_score_gain(self.scoring, c, bonus_n)
+            gain = _clear_score_gain(self.scoring, c, bonus_n, _is_perfect_clear(self.grid))
             self.score += gain
 
         b["placed"] = True

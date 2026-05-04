@@ -55,8 +55,8 @@ const FEEDBACK_PRIORITY = {
     clear: 1,
     multi: 2,
     combo: 3,
-    perfect: 4,
-    bonus: 5,
+    bonus: 4,
+    perfect: 6,
 };
 
 const FEEDBACK_GATE_MS = 90;
@@ -351,6 +351,10 @@ export class AudioFx {
         this._tone(tailAt, { type: 'sine', freq: 1396.91, slideTo: 2093, dur: 0.2, gain: 0.066 });
     }
     _tonePerfect(now) {
+        // 清屏是最高优先级反馈：额外加入低频冲击、上扫和高频闪光，压过其它消行音效。
+        this._noiseBurst(now, { dur: 0.28, gain: 0.13, filter: 'lowpass', freq: 520, q: 0.7 });
+        this._noiseBurst(now + 0.03, { dur: 0.42, gain: 0.1, filter: 'bandpass', freq: 2400, q: 0.9 });
+        this._tone(now, { type: 'sawtooth', freq: 55, slideTo: 110, dur: 0.32, gain: 0.055 });
         this._noiseBurst(now, { dur: 0.22, gain: 0.09, filter: 'lowpass', freq: 760, q: 0.7 });
         this._noiseBurst(now + 0.08, { dur: 0.28, gain: 0.065, filter: 'bandpass', freq: 1800, q: 0.75 });
         this._tone(now, { type: 'sine', freq: 98, slideTo: 49, dur: 0.22, gain: 0.09 });

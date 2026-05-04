@@ -74,6 +74,22 @@ describe('generateDockShapes', () => {
         expect(shapes.length).toBe(3);
     });
 
+    it('prioritizes direct perfect-clear candidates when available', () => {
+        for (let x = 0; x < 4; x++) grid.cells[0][x] = 0;
+        const cfg = {
+            ...config,
+            spawnHints: {
+                clearGuarantee: 1,
+                sizePreference: 0,
+                diversityBoost: 0,
+                perfectClearBoost: 0
+            }
+        };
+
+        const shapes = generateDockShapes(grid, cfg);
+        expect(shapes.map((s) => s.id)).toContain('1x4');
+    });
+
     it('generates diverse categories over multiple rounds', () => {
         const seenCategories = new Set();
         const ctx = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0 };

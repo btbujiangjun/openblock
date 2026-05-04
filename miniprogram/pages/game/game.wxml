@@ -7,31 +7,26 @@
 
   <view class="score-theme-row">
     <view class="stat-box">
-      <text class="stat-label">得分</text>
+      <text class="stat-label">{{text.score}}</text>
       <text class="stat-value stat-value--accent">{{score}}</text>
       <view class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
     </view>
     <view class="stat-box">
-      <text class="stat-label">步数</text>
+      <text class="stat-label">{{text.steps}}</text>
       <text class="stat-value">{{steps}}</text>
       <view class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
     </view>
     <view class="stat-box">
-      <text class="stat-label">消行</text>
+      <text class="stat-label">{{text.clears}}</text>
       <text class="stat-value">{{totalClears}}</text>
       <view class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
     </view>
     <view class="stat-box stat-box--best">
-      <text class="stat-label">最佳</text>
+      <text class="stat-label">{{text.best}}</text>
       <text class="stat-value stat-value--accent">{{bestScore}}</text>
-      <text wx:if="{{bestGapVisible}}" class="stat-subline best-gap">差 {{bestGap}} 分</text>
+      <text wx:if="{{bestGapVisible}}" class="stat-subline best-gap">{{bestGapText}}</text>
       <view wx:else class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
     </view>
-  </view>
-
-  <view wx:if="{{levelMode === 'level'}}" class="level-banner">
-    <text class="level-banner-title">{{levelName}}</text>
-    <text class="level-banner-objective">{{levelObjective}}</text>
   </view>
 
   <!-- 棋盘 Canvas -->
@@ -76,13 +71,10 @@
   <!-- 游戏结束遮罩 -->
   <view wx:if="{{gameOver}}" class="game-over-overlay" bindtap="onRestart">
     <view class="game-over-card">
-      <text class="game-over-title">游戏结束</text>
-      <text class="game-over-score">得分：{{score}}</text>
-      <text class="game-over-clears">消行：{{totalClears}}</text>
-      <text wx:if="{{levelMode === 'level'}}" class="game-over-level-mode">{{overMode === 'level' ? '关卡完成' : '关卡失败'}}</text>
-      <text wx:if="{{levelMode === 'level'}}" class="game-over-level-stars">星级：{{levelStarsText || '—'}}</text>
-      <text wx:if="{{levelMode === 'level'}}" class="game-over-level-objective">{{levelObjective}}</text>
-      <view class="game-over-btn">再来一局</view>
+      <text class="game-over-title">{{text.gameOver}}</text>
+      <text class="game-over-score">{{scoreText}}</text>
+      <text class="game-over-clears">{{clearsText}}</text>
+      <view class="game-over-btn">{{text.restart}}</view>
     </view>
   </view>
 

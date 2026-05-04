@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'Legende',
     'progress.streakDays': '{{n}} dagen op rij',
     'best.gap': '{{gap}} ptn tot record',
+    'effect.perfectClear': 'Alles leeg',
+    'effect.multiClear': '{{n}} rijen',
+    'effect.doubleClear': 'Dubbele clear',
+    'effect.iconBonus': 'Grote explosie-clear',
+    'effect.newRecord': 'Nieuw record',
 
     'skin.name.classic': '✨ Minimalistisch klassiek',
     'skin.name.titanium': '💎 Titanium-matrix',

@@ -90,6 +90,11 @@ export default {
     'progress.rank.legend': 'Legend',
     'progress.streakDays': '{{n}} days streak',
     'best.gap': '{{gap}} pts to best',
+    'effect.perfectClear': 'Perfect Clear',
+    'effect.multiClear': '{{n}}x Clear',
+    'effect.doubleClear': 'Double Clear',
+    'effect.iconBonus': 'Big Blast Clear',
+    'effect.newRecord': 'New Record',
 
     'skin.name.classic': '✨ Minimal Classic',
     'skin.name.titanium': '💎 Titanium Matrix',

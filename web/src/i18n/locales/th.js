@@ -53,6 +53,11 @@ export default {
     'progress.rank.legend': 'ตำนาน',
     'progress.streakDays': 'ต่อเนื่อง {{n}} วัน',
     'best.gap': 'ขาดอีก {{gap}} คะแนนถึงสถิติ',
+    'effect.perfectClear': 'เคลียร์หมด',
+    'effect.multiClear': 'เคลียร์ {{n}} แถว',
+    'effect.doubleClear': 'เคลียร์คู่',
+    'effect.iconBonus': 'ระเบิดเคลียร์ครั้งใหญ่',
+    'effect.newRecord': 'สถิติใหม่',
 
     'skin.name.classic': '✨ คลาสสิกมินิมอล',
     'skin.name.titanium': '💎 ไทเทเนียมเมทริกซ์',

@@ -1458,7 +1458,8 @@ export function getActiveSkin() {
 
 /**
  * RL / 无头模拟器用的 bonus 与 dock 染色偏置皮肤（非玩家当前主题）。
- * 与主局规则对齐但不读取 blockSpawn：仅提供 blockIcons 语义给 detectBonusLines / monoNearFullLine。
+ * 为保证浏览器无头局与 Python RL 完全一致，只读取 shared/game_rules.json
+ * 中的 rlBonusScoring.blockIcons；为空时退化为同色判定。
  *
  * @returns {{ blockIcons: string[] } | null}
  */
@@ -1471,14 +1472,7 @@ export function getRlTrainingBonusLineSkin() {
     if (Array.isArray(raw) && raw.length > 0) {
         return { blockIcons: raw.map((x) => String(x)) };
     }
-    const sid = typeof cfg.canonicalSkinId === 'string' && SKINS[cfg.canonicalSkinId]
-        ? cfg.canonicalSkinId
-        : DEFAULT_SKIN_ID;
-    const icons = SKINS[sid]?.blockIcons;
-    if (!icons?.length) {
-        return null;
-    }
-    return { blockIcons: icons };
+    return null;
 }
 
 export function getBlockColors() {

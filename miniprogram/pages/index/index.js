@@ -6,34 +6,74 @@ const {
   getActiveSkinId,
   setActiveSkinId,
 } = require('../../core/skins');
-const { LEVEL_PACK } = require('../../core/levelPack');
+const {
+  getLanguage,
+  setLanguage,
+  getLanguageList,
+  t,
+} = require('../../core/i18n');
+
+const DIFFICULTIES = [
+  { id: 'easy', labelKey: 'difficultyEasy' },
+  { id: 'normal', labelKey: 'difficultyNormal' },
+  { id: 'hard', labelKey: 'difficultyHard' },
+];
 
 Page({
   data: {
     skins: [{ id: 'titanium', name: '钛晶矩阵' }],
     skinIndex: 0,
     selectedSkinName: '钛晶矩阵',
-    levels: [{ id: 'L01', name: '第1关·起步' }],
-    levelIndex: 0,
-    selectedLevelName: '第1关·起步',
-    selectedLevelId: 'L01',
+    languages: [{ id: 'zh-CN', name: '简体中文' }],
+    languageIndex: 0,
+    selectedLanguageName: '简体中文',
+    difficulties: [],
+    difficultyIndex: 1,
+    selectedDifficultyName: '普通模式',
+    text: {},
   },
 
   onLoad() {
+    this._refreshText();
     const skins = getSkinListMeta();
     const active = getActiveSkinId();
     let skinIndex = skins.findIndex((s) => s.id === active);
     if (skinIndex < 0) skinIndex = 0;
-    const fixedLevels = LEVEL_PACK.map((l) => ({ id: l.id, name: l.name || l.title || l.id }));
+    const languages = getLanguageList();
+    const lang = getLanguage();
+    let languageIndex = languages.findIndex((x) => x.id === lang);
+    if (languageIndex < 0) languageIndex = 0;
+    const difficulties = this._difficultyOptions();
     this.setData({
       skins,
       skinIndex,
       selectedSkinName: skins[skinIndex]?.name || '默认皮肤',
-      levels: fixedLevels,
-      levelIndex: 0,
-      selectedLevelName: fixedLevels[0]?.name || '第1关',
-      selectedLevelId: fixedLevels[0]?.id || 'L01',
+      languages,
+      languageIndex,
+      selectedLanguageName: languages[languageIndex]?.name || '简体中文',
+      difficulties,
+      difficultyIndex: 1,
+      selectedDifficultyName: difficulties[1]?.name || t('difficultyNormal'),
     });
+  },
+
+  _refreshText() {
+    this.setData({
+      text: {
+        title: t('title'),
+        subtitle: t('subtitle'),
+        skin: t('skin'),
+        language: t('language'),
+        difficulty: t('difficulty'),
+        startGame: t('startGame'),
+        footer: t('footer'),
+      },
+      difficulties: this._difficultyOptions(),
+    });
+  },
+
+  _difficultyOptions() {
+    return DIFFICULTIES.map((x) => ({ id: x.id, name: t(x.labelKey) }));
   },
 
   onSkinChange(e) {
@@ -46,35 +86,38 @@ Page({
     });
   },
 
-  onLevelChange(e) {
+  onLanguageChange(e) {
     const idx = Number(e.detail.value) || 0;
-    const level = this.data.levels[idx];
+    const lang = this.data.languages[idx];
+    if (lang) setLanguage(lang.id);
+    const difficulties = this._difficultyOptions();
     this.setData({
-      levelIndex: idx,
-      selectedLevelName: level?.name || '第1关',
-      selectedLevelId: level?.id || 'L01',
+      languageIndex: idx,
+      selectedLanguageName: lang?.name || '简体中文',
+      difficulties,
+      selectedDifficultyName: difficulties[this.data.difficultyIndex]?.name || t('difficultyNormal'),
+    });
+    this._refreshText();
+  },
+
+  onDifficultyChange(e) {
+    const idx = Number(e.detail.value) || 0;
+    const difficulty = this.data.difficulties[idx];
+    this.setData({
+      difficultyIndex: idx,
+      selectedDifficultyName: difficulty?.name || t('difficultyNormal'),
     });
   },
 
-  _withSkin(urlBase) {
+  _gameUrl() {
     const skin = this.data.skins[this.data.skinIndex];
     const sid = skin?.id || getActiveSkinId();
-    return `${urlBase}&skin=${encodeURIComponent(sid)}`;
+    const difficulty = this.data.difficulties[this.data.difficultyIndex];
+    const strategy = difficulty?.id || 'normal';
+    return `/pages/game/game?strategy=${encodeURIComponent(strategy)}&skin=${encodeURIComponent(sid)}&lang=${encodeURIComponent(getLanguage())}`;
   },
 
-  onStartNormal() {
-    wx.navigateTo({ url: this._withSkin('/pages/game/game?strategy=normal&mode=endless') });
-  },
-  onStartEasy() {
-    wx.navigateTo({ url: this._withSkin('/pages/game/game?strategy=easy&mode=endless') });
-  },
-  onStartHard() {
-    wx.navigateTo({ url: this._withSkin('/pages/game/game?strategy=hard&mode=endless') });
-  },
-
-  onStartLevel() {
-    const level = this.data.levels[this.data.levelIndex];
-    const lid = level?.id || 'L01';
-    wx.navigateTo({ url: this._withSkin(`/pages/game/game?strategy=normal&mode=level&levelId=${encodeURIComponent(lid)}`) });
+  onStartGame() {
+    wx.navigateTo({ url: this._gameUrl() });
   },
 });

@@ -10,9 +10,9 @@ const { GameRenderer } = require('../../utils/renderer');
 const { GameController } = require('../../utils/gameController');
 const { getScreenSize } = require('../../adapters/platform');
 const storage = require('../../adapters/storage');
-const { bonusEffectHoldMs } = require('../../core/bonusScoring');
+const { PERFECT_CLEAR_MULT, bonusEffectHoldMs } = require('../../core/bonusScoring');
 const { getActiveSkin, setActiveSkinId } = require('../../core/skins');
-const { getLevelById } = require('../../core/levelPack');
+const { setLanguage, t } = require('../../core/i18n');
 
 Page({
   data: {
@@ -28,15 +28,13 @@ Page({
     bestScore: 0,
     bestGap: 0,
     bestGapVisible: false,
-    levelMode: 'endless',
-    levelName: '',
-    levelObjective: '',
-    levelStars: 0,
-    levelStarsText: '',
-    overMode: 'endless',
     floatScoreVisible: false,
     floatScoreText: '',
     floatScoreClass: '',
+    bestGapText: '',
+    scoreText: '',
+    clearsText: '',
+    text: {},
   },
 
   // --- 私有状态 ---
@@ -58,23 +56,29 @@ Page({
   onLoad(query) {
     const strategyId = query.strategy || 'normal';
     this._strategyId = strategyId;
-    this._mode = query.mode === 'level' ? 'level' : 'endless';
-    this._levelId = query.levelId || 'L01';
+    if (query.lang) setLanguage(query.lang);
     if (query.skin) setActiveSkinId(query.skin);
     this._skin = getActiveSkin();
-    this._levelConfig = this._mode === 'level' ? getLevelById(this._levelId) : null;
     const bestKey = `openblock_best_${strategyId}`;
     const best = Number(storage.getItem(bestKey) || 0) || 0;
     this._bestScore = best;
     this._newBestCelebrated = false;
+    this._refreshText();
     this.setData({
       bestScore: best,
-      levelMode: this._mode,
-      levelName: this._levelConfig?.name || this._levelConfig?.title || '',
-      levelObjective: '',
-      levelStars: 0,
-      levelStarsText: '',
-      overMode: 'endless',
+    });
+  },
+
+  _refreshText() {
+    this.setData({
+      text: {
+        score: t('score'),
+        steps: t('steps'),
+        clears: t('clears'),
+        best: t('best'),
+        gameOver: t('gameOver'),
+        restart: t('restart'),
+      },
     });
   },
 
@@ -133,7 +137,6 @@ Page({
         this._renderer.setSkin(this._skin || getActiveSkin());
 
         this._controller = new GameController(this._strategyId, {
-          levelConfig: this._levelConfig,
           skin: this._skin || getActiveSkin(),
           onStateChange: (snap) => this._onStateChange(snap),
           onLineClear: (info) => this._onLineClear(info),
@@ -168,10 +171,9 @@ Page({
       bestScore: best,
       bestGap: gap,
       bestGapVisible: best > 0 && gap > 0,
-      levelMode: snap.levelMode || this.data.levelMode,
-      levelObjective: snap.levelObjective || '',
-      levelStars: snap.levelStars || 0,
-      levelStarsText: (snap.levelStars || 0) > 0 ? '⭐'.repeat(Math.max(0, Math.min(3, snap.levelStars || 0))) : '',
+      bestGapText: t('bestGap', { n: gap }),
+      scoreText: t('finalScore', { n: snap.score }),
+      clearsText: t('finalClears', { n: snap.totalClears }),
     });
   },
 
@@ -210,7 +212,12 @@ Page({
       }
     }
     const madeNewBest = this._maybeCelebrateNewBest(info.score || g.score || 0);
-    this._showFloatScore(info.gain, info.clears, bls.length, madeNewBest);
+    this._showFloatScore(info.gain, {
+      linesCleared: info.clears,
+      bonusCount: bls.length,
+      newBest: madeNewBest,
+      perfectClear,
+    });
 
     const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
     const bonusHold = bls.length > 0 ? bonusEffectHoldMs(bls.length) : 0;
@@ -229,12 +236,8 @@ Page({
     this._bestScore = next;
     this.setData({
       bestScore: next,
-      overMode: info.mode || 'endless',
-      levelStars: info.levelResult?.stars || this.data.levelStars || 0,
-      levelStarsText: (info.levelResult?.stars || this.data.levelStars || 0) > 0
-        ? '⭐'.repeat(Math.max(0, Math.min(3, info.levelResult?.stars || this.data.levelStars || 0)))
-        : '',
-      levelObjective: info.levelResult?.objective || this.data.levelObjective,
+      scoreText: t('finalScore', { n: info.score || 0 }),
+      clearsText: t('finalClears', { n: info.clears || 0 }),
     });
   },
 
@@ -398,7 +401,6 @@ Page({
     this._renderer.clearParticles();
     this._renderer.setClearCells([]);
     this.setData({
-      overMode: this.data.levelMode === 'level' ? 'level' : 'endless',
       floatScoreVisible: false,
     });
     this._redraw();
@@ -425,16 +427,18 @@ Page({
     return true;
   },
 
-  _showFloatScore(score, linesCleared = 0, bonusCount = 0, newBest = false) {
+  _showFloatScore(score, { linesCleared = 0, bonusCount = 0, newBest = false, perfectClear = false } = {}) {
     const tags = [];
-    if (newBest) tags.push('新纪录');
-    if (linesCleared >= 3) tags.push(`${linesCleared}x`);
-    if (bonusCount > 0) tags.push(`Bonus ${bonusCount}`);
+    if (newBest) tags.push(t('effectNewRecord'));
+    if (perfectClear) tags.push(`${t('effectPerfectClear')} ×${PERFECT_CLEAR_MULT}`);
+    else if (linesCleared >= 3) tags.push(t('effectMultiClear', { n: linesCleared }));
+    else if (linesCleared === 2) tags.push(t('effectDoubleClear'));
+    if (bonusCount > 0) tags.push(`${t('effectIconBonus')} ×${bonusCount}`);
     const suffix = tags.length ? ` (${tags.join(' · ')})` : '';
-    const cls = newBest ? 'float-score--new-best' : linesCleared >= 3 ? 'float-score--combo' : bonusCount > 0 ? 'float-score--bonus' : '';
+    const cls = newBest ? 'float-score--new-best' : perfectClear || linesCleared >= 3 ? 'float-score--combo' : bonusCount > 0 ? 'float-score--bonus' : '';
     this.setData({
       floatScoreVisible: true,
-      floatScoreText: newBest ? `新纪录 +${score}${suffix}` : `+${score}${suffix}`,
+      floatScoreText: newBest ? `${t('effectNewRecord')} +${score}${suffix}` : `+${score}${suffix}`,
       floatScoreClass: cls,
     });
     if (this._floatScoreTimer) clearTimeout(this._floatScoreTimer);
