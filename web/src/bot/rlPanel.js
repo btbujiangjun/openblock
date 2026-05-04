@@ -250,22 +250,26 @@ export function initRLPanel(game) {
             }
             const tail = data.entries.slice(-24);
             const rows = [...tail].reverse().map((e) => {
-                const t = e.ts ? new Date(e.ts * 1000).toLocaleTimeString() : '?';
+                const t = e.ts ? formatLogTime(e.ts) : '?';
                 if (e.event === 'train_episode') {
-                    const lp = e.loss_policy != null && Number.isFinite(Number(e.loss_policy)) ? Number(e.loss_policy).toFixed(2) : '—';
-                    const lv = e.loss_value != null && Number.isFinite(Number(e.loss_value)) ? Number(e.loss_value).toFixed(2) : '—';
-                    const batchTag = e.batch_size ? `×${e.batch_size}` : '';
-                    const sc = typeof e.score === 'number' ? ` sc${Math.round(e.score)}` : '';
-                    return `[${t}]#${e.episodes}${batchTag} Lπ${lp} Lv${lv}${sc}`;
+                    const ep = e.episodes ?? '?';
+                    const batch = e.batch_size ? `×${e.batch_size}` : '';
+                    const win = typeof e.win_rate === 'number' ? `胜${(e.win_rate * 100).toFixed(0)}%` : '';
+                    const extras = [
+                        e.loss_topology_aux != null ? `拓${formatLogNumber(e.loss_topology_aux, 2, true)}` : '',
+                        e.loss_hole_aux != null ? `洞${formatLogNumber(e.loss_hole_aux, 2, true)}` : '',
+                        e.loss_clear_pred != null ? `清${formatLogNumber(e.loss_clear_pred, 2, true)}` : '',
+                    ].filter(Boolean).join('');
+                    return `${t}#${ep}${batch} π${formatLogNumber(e.loss_policy, 2, true)}/V${formatLogNumber(e.loss_value, 1)} ${extras}${win}`;
                 }
                 if (e.event === 'checkpoint_saved') {
-                    return `[${t}] 已保存 ${e.reason || ''} ep${e.episodes}`;
+                    return `[${t}] 已保存检查点：${e.reason || '周期保存'}，当前第 ${e.episodes ?? '?'} 局`;
                 }
                 if (e.event === 'server_init') {
-                    return `[${t}] 启动 ${e.device} 局数${e.episodes} ${e.checkpoint_loaded ? '热加载' : '新模型'}`;
+                    return `[${t}] 后端启动：设备 ${e.device || '?'}，累计 ${e.episodes ?? 0} 局，${e.checkpoint_loaded ? '已热加载模型' : '使用新模型'}`;
                 }
                 if (e.event === 'load_api') {
-                    return `[${t}] API 加载 ep${e.episodes}`;
+                    return `[${t}] API 加载模型：当前第 ${e.episodes ?? '?'} 局`;
                 }
                 return `[${t}] ${JSON.stringify(e).slice(0, 100)}`;
             });
@@ -275,6 +279,22 @@ export function initRLPanel(game) {
             const msg = err instanceof Error ? err.message : String(err);
             outServerLog.textContent = `无法拉取训练日志：${msg}`;
         }
+    }
+
+    function formatLogNumber(value, digits = 2, trimLeadingZero = false) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+            return '—';
+        }
+        const text = n.toFixed(digits);
+        return trimLeadingZero ? text.replace(/^(-?)0\./, '$1.') : text;
+    }
+
+    function formatLogTime(tsSeconds) {
+        return new Date(tsSeconds * 1000).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     }
 
     /** 避免 loss 为字符串等类型时 .toFixed 抛错导致整段 onEpisode 中断、日志空白 */
@@ -292,7 +312,7 @@ export function initRLPanel(game) {
         if (!Number.isFinite(lp) || !Number.isFinite(lv)) {
             return '';
         }
-        return ` Lπ${lp.toFixed(3)} Lv${lv.toFixed(3)}`;
+        return `｜策略损失 ${lp.toFixed(3)}｜价值损失 ${lv.toFixed(3)}`;
     }
 
     function logLine(msg) {
@@ -355,13 +375,13 @@ export function initRLPanel(game) {
         }
         const lossHint = formatLossSuffix(info);
         logLine(
-            `上局 分${info.score} 步${info.steps} 消${info.clears}${info.won ? ' 胜' : ''}${lossHint}`
+            `上局：得分 ${info.score}｜步数 ${info.steps}｜消行 ${info.clears}｜结果 ${info.won ? '胜利' : '未胜'}${lossHint}`
         );
         updateStats();
         if (totalEpisodes % 10 === 0) {
             const n = Math.min(AVG_WINDOW, recentScores.length);
             const avg = n ? recentScores.slice(-AVG_WINDOW).reduce((a, b) => a + b, 0) / n : 0;
-            logLine(`已${totalEpisodes}局 近${n}局均${avg.toFixed(0)}`);
+            logLine(`累计训练 ${totalEpisodes} 局：最近 ${n} 局平均得分 ${avg.toFixed(0)}`);
         }
         scheduleDashRefresh();
     }

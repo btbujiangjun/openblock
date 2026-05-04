@@ -2485,7 +2485,7 @@ body.game-over-active .first-win-banner {
     flex-shrink: 0;
 }
 
-/* 紧凑单行：行内不换行，过长时横向滚动 */
+/* 训练日志使用可读中文字段，允许自然换行，避免缩写挤在一行里难以理解 */
 .panel-section > .rl-log,
 .rl-logs-wrap .rl-log {
     flex: 1 1 0;
@@ -2499,15 +2499,15 @@ body.game-over-active .first-win-banner {
     background: transparent;
     border-radius: 0;
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    font-size: 7.5px;
-    line-height: 1.28;
-    letter-spacing: -0.01em;
+    font-size: 8px;
+    line-height: 1.36;
+    letter-spacing: 0;
     max-height: none;
     color: var(--text-primary, #1e293b);
-    white-space: pre;
+    white-space: pre-wrap;
     word-break: normal;
-    overflow-wrap: normal;
-    overflow-x: auto;
+    overflow-wrap: anywhere;
+    overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
 }
