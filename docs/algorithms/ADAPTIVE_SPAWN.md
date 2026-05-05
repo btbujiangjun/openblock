@@ -131,7 +131,7 @@
 | `web/src/bot/blockSpawn.js` | 执行 | 接受 spawnHints，生成三连块（保持 solvability 不变量） |
 | `web/src/difficulty.js` | 基础 | 原有 score→stress 映射（被自适应引擎内部调用） |
 | `web/src/game.js` | 集成 | 事件采集 + 调用入口 |
-| `web/src/spawnModel.js` | 生成式推荐 | 构造规则/V3 共享上下文，调用 SpawnTransformerV3，并管理 `rule` / `model-v3` 模式 |
+| `web/src/spawnModel.js` | 生成式 | 构造启发式/V3 共享上下文，调用 SpawnTransformerV3，并管理 `rule` / `model-v3` 模式 |
 
 ---
 
@@ -231,7 +231,7 @@ smoothSkill += α × (rawSkill - smoothSkill)
 | 局内体验 | `comboChain`、`rhythmPhase`、`delightMode` | combo 表现可轻微加压，爽感模式可减压或引导 payoff | payoff 优先多消，清屏机会提高 `perfectClearBoost` |
 | 局间弧线 | `totalRounds`、`runStreak`、`warmupRemaining`、`scoreMilestone` | 热身/冷却轻微减压，连战和分数档按规则加压 | 热身与里程碑提高消行保障，连续无消行进入救援 |
 
-`spawnModel.js` 会读取同一份 `adaptiveInsight.spawnHints`、`AbilityVector` 和实时拓扑，作为 SpawnTransformerV3 的上下文输入；因此生成式推荐与规则算法看到的是同一组难度、能力和拓扑信号。
+`spawnModel.js` 会读取同一份 `adaptiveInsight.spawnHints`、`AbilityVector` 和实时拓扑，作为 SpawnTransformerV3 的上下文输入；因此生成式与启发式看到的是同一组难度、能力和拓扑信号。
 
 ```
 adaptiveStress = scoreStress           // 分数驱动（原 dynamicDifficulty）

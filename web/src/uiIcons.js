@@ -2,7 +2,7 @@
  * 侧栏与关键 UI 的 emoji 图标本（单一语义来源，避免同图标多义）。
  * 修改时请同步 index.html 中对应的 aria-hidden 节点。
  *
- * 与 strategyAdvisor 提示卡：`✨` 仅用于「生成式推荐」；新手欢迎用 👋；
+ * 与 strategyAdvisor 提示卡：`✨` 仅用于「生成式」；新手欢迎用 👋；
  * 训练「损失」用 📉；对局内「策略转向」用 🧭，避免与侧栏混淆。
  */
 export const UI_ICONS = {
@@ -18,9 +18,9 @@ export const UI_ICONS = {
     strategyExplain: '💬',
     /** 出块算法（总开关区块） */
     spawnAlgorithmSection: '⚙️',
-    /** 规则算法：显式启发式/条文式引擎（非生成式） */
+    /** 启发式：显式启发式/条文式引擎（非生成式） */
     ruleAlgorithm: '📖',
-    /** 生成式推荐：序列模型 */
+    /** 生成式：序列模型 */
     generativeRecommend: '✨',
     /** 模型训练 */
     modelTraining: '🏋️',

@@ -899,7 +899,7 @@ export class Game {
     }
 
     /**
-     * 模型模式：异步请求推理，失败则回退规则算法
+     * 模型模式：异步请求推理，失败则回退启发式
      * @private
      */
     _spawnBlocksWithModel(layered, opts) {

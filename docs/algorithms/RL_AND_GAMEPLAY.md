@@ -22,7 +22,7 @@
 
 ## 自适应出块（网页端）
 
-网页端真人主流程现在有两种可选出块模式：`规则算法`（`adaptiveSpawn.js` + `blockSpawn.js`）与 `生成式推荐`（`spawnModel.js` 调用 SpawnTransformerV3）。两者共享同一份出块上下文：难度模式、`AbilityVector`、玩家实时状态、盘面拓扑、局内节奏、局间弧线、近期出块历史和规则轨 `spawnHints`。生成式推荐必须通过前端 `validateSpawnTriplet()` 护栏；模型不可用、输出非法或不可解时回退规则算法并记录原因。
+网页端真人主流程现在有两种可选出块模式：`启发式`（`adaptiveSpawn.js` + `blockSpawn.js`）与 `生成式`（`spawnModel.js` 调用 SpawnTransformerV3）。两者共享同一份出块上下文：难度模式、`AbilityVector`、玩家实时状态、盘面拓扑、局内节奏、局间弧线、近期出块历史和启发式轨 `spawnHints`。生成式必须通过前端 `validateSpawnTriplet()` 护栏；模型不可用、输出非法或不可解时回退启发式并记录原因。
 
 这不改变 RL 训练环境契约：Python/MLX 训练仍使用固定策略与共享 `game_rules.json` / `shapes.json`，不读取真人网页的 `spawnHints`、V3 推理结果或玩家画像。Python/MLX 出块继续保留主局已同步的清屏候选优先级，使训练环境对清屏机会的偏置与规则轨保持一致。
 

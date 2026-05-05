@@ -33,7 +33,7 @@
 ├─ 实时状态信号区 ──────────────┤  ← 当前瞬时状态标签
 │  flowState | F(t) | pacing | session ...  │
 ├─ 投放参数区 ──────────────────┤  ← 出块引擎决策参数
-│  压力 | F(t) | 闭环 | 占用 | 保消 | 尺寸 | 多样 | V3 │
+│  压力 | F(t) | 闭环 | 占用 | 目标保消 | 尺寸 | 多样 | V3 │
 │  长条 2.2 | 矩形 1.7 | ...   │  ← 形状类别权重（Top 5）
 ├─ 实时策略区 ──────────────────┤  ← 个性化策略建议
 │  🔥 保持连击 ...              │
@@ -478,9 +478,9 @@ afkCount = 窗口内 thinkMs ≥ 15000ms 的放置操作数
 
 ## 4. 投放参数区
 
-本节分两类口径：`压力 / F(t) / 闭环 / 保消 / 尺寸 / 多样 / shapeWeights / V3 元信息 / 回退原因` 是「上一轮出块」决策瞬间由 `game.js` → `_captureAdaptiveInsight` 和 `_commitSpawn` 捕获的快照；`占用 / 空洞 / 平整 / 近满 / 多消候选 / 清屏候选` 按当前棋盘实时重算，用来与上方能力指标对齐。
+本节分两类口径：`压力 / F(t) / 闭环 / 目标保消 / 尺寸 / 多样 / shapeWeights / V3 元信息 / 回退原因` 是「上一轮出块」决策瞬间由 `game.js` → `_captureAdaptiveInsight` 和 `_commitSpawn` 捕获的快照；`占用 / 空洞 / 平整 / 近满 / 多消候选 / 清屏候选` 按当前棋盘实时重算，用来与上方能力指标对齐。
 
-出块模式顶栏与侧栏单选保持一致：`规则算法` 表示使用 `adaptiveSpawn + blockSpawn`；`生成式推荐` 表示请求 SpawnTransformerV3，但仍会先生成规则轨兜底与诊断。V3 成功时显示 `modelVersion / personalized / feasibleCount`；V3 输出非法、服务不可用或护栏失败时显示 `fallbackReason`，实际 dock 使用规则轨。
+出块模式顶栏与侧栏单选保持一致：`启发式` 表示使用 `adaptiveSpawn + blockSpawn`；`生成式` 表示请求 SpawnTransformerV3，但仍会先生成启发式轨兜底与诊断。V3 成功时显示 `modelVersion / personalized / feasibleCount`；V3 输出非法、服务不可用或护栏失败时显示 `fallbackReason`，实际 dock 使用启发式轨。
 
 ### 4.0 界面文案对照（优化后）
 
@@ -490,13 +490,13 @@ afkCount = 窗口内 thinkMs ≥ 15000ms 的放置操作数
 | **F(t)** x.xx | 同左 | `flowDeviation` | `flowDev` |
 | **闭环** ±x.xxx | 同左 | `feedbackBias` | `feedback` |
 | **占用** xx% | fill xx% | 当前 `grid.getFillRatio()` | `boardFill` |
-| **保消** n | 清 n | `spawnHints.clearGuarantee` | `clearG` |
+| **目标保消** n | 清 n | `spawnHints.clearGuarantee` | `clearG` |
 | **尺寸** x.x | 尺 x.x | `spawnHints.sizePreference` | `sizePref` |
 | **多样** x.x | 多 x.x | `spawnHints.diversityBoost` | `diversity` |
 | **V3 元信息** | - | `spawnModelMeta` | `v3Meta` |
 | **长条 2.2** 等 | 同左 | `shapeWeights` Top 类别 | `shapeW` |
 
-「保消」= **保证可消行**档位；「尺寸」= 块格数偏好（非物理「尺子」）；「多样」= 三连品类新鲜度。
+「目标保消」= **目标保证可消行**档位；「尺寸」= 块格数偏好（非物理「尺子」）；「多样」= 三连品类新鲜度。
 
 ---
 
@@ -557,11 +557,11 @@ fill = 棋盘上已被占据的格子数 / 总格子数(64)
 
 ---
 
-### 4.5 保消 (clearGuarantee)
+### 4.5 目标保消 (clearGuarantee)
 
 | 属性 | 值 |
 |------|-----|
-| **面板标签** | `保消 2`（界面全称为消行保证档位） |
+| **面板标签** | `目标保消 2`（界面全称为目标消行保证档位） |
 | **取值范围** | 1~3 (整数) |
 | **数据源** | `spawnHints.clearGuarantee` |
 

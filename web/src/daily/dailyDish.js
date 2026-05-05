@@ -74,14 +74,20 @@ export function initDailyDish({ game } = {}) {
         const origStart = game.start.bind(game);
         game.start = async (...args) => {
             const r = await origStart(...args);
-            game.score = (game.score | 0) + dish.modifier.startScore;
+            const bonus = Number(dish.modifier.startScore) || 0;
+            game.score = (game.score | 0) + bonus;
+            if (game.gameStats) {
+                game.gameStats.score = game.score;
+            }
             game.updateUI?.();
+            game._playerInsightRefresh?.();
+            _showStartScoreBubble(dish, bonus);
             return r;
         };
     }
 
     /* 提示 toast：每天首次启动一次 */
-    if (state.lastShownYmd !== _ymd()) {
+    if (state.lastShownYmd !== _ymd() && !dish.modifier?.startScore) {
         setTimeout(() => _showDishToast(dish), 2400);
         state.lastShownYmd = _ymd();
         _save(state);
@@ -122,6 +128,34 @@ function _showDishToast(dish) {
         el.classList.remove('is-visible');
         delete el.dataset.tier;
     }, 3800);
+}
+
+function _showStartScoreBubble(dish, amount) {
+    if (typeof document === 'undefined' || !(amount > 0)) return;
+    const tip = `${dish.name}开局奖励`;
+    const scoreEl = document.getElementById('score');
+    const scoreBox = scoreEl?.closest?.('.stat-box') || null;
+    const el = document.createElement('div');
+    el.className = scoreBox ? 'score-reward-badge' : 'float-score float-daily-reward float-daily-reward--fallback';
+    el.setAttribute('role', 'status');
+    el.setAttribute('title', tip);
+    el.dataset.tip = tip;
+    const label = document.createElement('span');
+    label.className = 'float-label';
+    label.textContent = dish.icon;
+    const pts = document.createElement('span');
+    pts.className = 'float-pts';
+    pts.textContent = `+${amount}`;
+    el.append(label, pts);
+    if (scoreBox) {
+        scoreBox.appendChild(el);
+    } else {
+        el.classList.add('float-daily-reward');
+        el.style.left = '50%';
+        el.style.top = '24%';
+        document.body.appendChild(el);
+    }
+    setTimeout(() => el.remove(), 8000);
 }
 
 /** 测试用 */

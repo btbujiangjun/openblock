@@ -2038,7 +2038,7 @@ body.game-over-active .first-win-banner {
 .insight-tag {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     font-size: 9.5px;
     padding: 3px 7px;
     border-radius: 4px;
@@ -2957,6 +2957,117 @@ body.game-over-active .first-win-banner {
     text-shadow: 0 0 10px rgba(46, 204, 113, 0.6);
 }
 
+.float-daily-reward {
+    flex-direction: row;
+    gap: 3px;
+    align-items: center;
+    min-width: 0;
+    padding: 1px 4px 2px;
+    border: 1px solid color-mix(in srgb, #ffd166 55%, transparent);
+    border-radius: 999px;
+    color: #ffd166;
+    background:
+        linear-gradient(180deg, rgba(255, 209, 102, 0.16), rgba(255, 209, 102, 0.06)),
+        rgba(18, 26, 28, 0.78);
+    box-shadow:
+        0 10px 28px rgba(0, 0, 0, 0.28),
+        0 0 24px rgba(255, 209, 102, 0.24);
+    pointer-events: auto;
+    cursor: help;
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    animation: rewardBadgePop 8s cubic-bezier(0.16, 1, 0.32, 1) forwards;
+}
+
+.score-reward-badge {
+    position: absolute;
+    left: 50%;
+    top: 11%;
+    display: inline-flex;
+    gap: 2px;
+    align-items: center;
+    padding: 1px 4px 2px;
+    border: 1px solid color-mix(in srgb, #ffd166 55%, transparent);
+    border-radius: 999px;
+    color: #ffd166;
+    background:
+        linear-gradient(180deg, rgba(255, 209, 102, 0.16), rgba(255, 209, 102, 0.06)),
+        rgba(18, 26, 28, 0.78);
+    box-shadow:
+        0 8px 18px rgba(0, 0, 0, 0.22),
+        0 0 16px rgba(255, 209, 102, 0.22);
+    pointer-events: auto;
+    cursor: help;
+    z-index: 1000;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    animation: scoreRewardBadgePop 8s cubic-bezier(0.16, 1, 0.32, 1) forwards;
+}
+
+.score-reward-badge .float-label {
+    font-size: 0.36em;
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.score-reward-badge .float-pts {
+    font-size: 0.42em;
+    color: #fff4c2;
+    text-shadow: 0 0 18px rgba(255, 209, 102, 0.58);
+}
+
+.float-daily-reward .float-label {
+    font-size: 0.36em;
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.float-daily-reward .float-pts {
+    font-size: 0.42em;
+    color: #fff4c2;
+    text-shadow: 0 0 18px rgba(255, 209, 102, 0.58);
+}
+
+.float-daily-reward::after,
+.score-reward-badge::after {
+    content: attr(data-tip);
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 4px);
+    width: max-content;
+    max-width: 90px;
+    padding: 3px 5px;
+    border: 1px solid rgba(255, 209, 102, 0.28);
+    border-radius: 10px;
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(18, 26, 28, 0.94);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.35;
+    white-space: normal;
+    text-align: left;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    pointer-events: none;
+    z-index: 1001;
+}
+
+.float-daily-reward:hover {
+    opacity: 1 !important;
+}
+
+.float-daily-reward:hover::after,
+.score-reward-badge:hover::after {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.float-daily-reward--fallback {
+    transform: translateX(-50%);
+}
+
 /* ── Combo (3+行) ── */
 
 .float-combo {
@@ -3195,6 +3306,20 @@ body.game-over-active .first-win-banner {
     0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
     70% { opacity: 0.8; }
     100% { opacity: 0; transform: translateX(-50%) translateY(-36px) scale(1.15); }
+}
+
+@keyframes rewardBadgePop {
+    0% { opacity: 0; transform: translate(6px, -8px) scale(0.82); }
+    8% { opacity: 1; transform: translate(0, -10px) scale(1.05); }
+    78% { opacity: 1; transform: translate(0, -10px) scale(1); }
+    100% { opacity: 0; transform: translate(0, -16px) scale(0.98); }
+}
+
+@keyframes scoreRewardBadgePop {
+    0% { opacity: 0; transform: translate(18px, -10%) scale(0.82); }
+    8% { opacity: 1; transform: translate(18px, -18%) scale(1.05); }
+    78% { opacity: 1; transform: translate(18px, -18%) scale(1); }
+    100% { opacity: 0; transform: translate(18px, -30%) scale(0.98); }
 }
 
 @keyframes multiPop {

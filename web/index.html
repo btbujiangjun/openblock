@@ -338,11 +338,11 @@
             <div class="spawn-mode-switch">
                 <label class="spawn-mode-label" title="使用启发式三层出块（拓扑感知、自适应体验、局间弧线）；不依赖神经网络。">
                     <span class="spawn-option-icon" aria-hidden="true">📖</span>
-                    <input type="radio" name="spawn-mode" value="rule" checked /> 规则算法
+                    <input type="radio" name="spawn-mode" value="rule" checked /> 启发式
                 </label>
-                <label class="spawn-mode-label" title="使用已训练的 SpawnTransformerV3 根据盘面、能力、拓扑与局内弧线推荐三连块；前端护栏失败或服务不可用时自动回退规则算法。">
+                <label class="spawn-mode-label" title="使用已训练的 SpawnTransformerV3 根据盘面、能力、拓扑与局内弧线推荐三连块；前端护栏失败或服务不可用时自动回退启发式。">
                     <span class="spawn-option-icon" aria-hidden="true">✨</span>
-                    <input type="radio" name="spawn-mode" value="model-v3" /> 生成式推荐
+                    <input type="radio" name="spawn-mode" value="model-v3" /> 生成式
                 </label>
                 <span class="spawn-model-status" id="spawn-model-badge">模型未训练</span>
             </div>
@@ -374,13 +374,13 @@
                             <span class="sl-kv-label">连消链强度</span><span class="sl-kv-val" id="sl-cc">–</span></div>
                         <div class="sl-kv" title="setup=推送大块堆满；payoff=消行块×1.7+多消×1.4；neutral=不干预">
                             <span class="sl-kv-label">节奏相位</span><span class="sl-kv-val" id="sl-rp">–</span></div>
-                        <div class="sl-kv" title="三连块中至少 N 个能即时触发消行；连战/挫败/新手时自动提升至 2">
-                            <span class="sl-kv-label">消行保障数</span><span class="sl-kv-val" id="sl-cg">–</span></div>
+                        <div class="sl-kv" title="三连块目标至少 N 个能即时触发消行；连战/挫败/新手时自动提升至 2">
+                            <span class="sl-kv-label">目标保消</span><span class="sl-kv-val" id="sl-cg">–</span></div>
                         <div class="sl-kv" title="-1 偏小块，+1 偏大块；线性缩放块权重">
                             <span class="sl-kv-label">尺寸偏好</span><span class="sl-kv-val" id="sl-sp">–</span></div>
                         <div class="sl-kv" title="从落子行为推断的玩法风格偏好：perfect_hunter(清屏)、multi_clear(多消)、combo(连消)、survival(生存)、balanced(均衡)；影响 multiClearBonus/rhythmPhase/clearGuarantee 等出块参数">
                             <span class="sl-kv-label">玩法偏好</span><span class="sl-kv-val" id="sl-playstyle">–</span></div>
-                        <div class="sl-kv" title="生成式推荐的上一轮 V3 元信息：模型版本、个性化状态、可行候选数或回退原因；规则模式下显示规则轨。">
+                        <div class="sl-kv" title="生成式的上一轮 V3 元信息：模型版本、个性化状态、可行候选数或回退原因；启发式模式下显示启发式轨。">
                             <span class="sl-kv-label">V3 元信息</span><span class="sl-kv-val" id="sl-v3meta">–</span></div>
                     </div>
                 </div>
@@ -424,7 +424,7 @@
                 <div class="spawn-train-actions">
                     <button type="button" class="rl-btn" id="spawn-train-start" title="向服务端提交 SpawnTransformer 训练任务；使用上方 Epochs、最低分、最大局数 筛选数据库对局，进度显示在下方。">开始训练</button>
                     <button type="button" class="rl-btn rl-btn-secondary" id="spawn-train-stop" disabled title="请求中断当前出块模型训练任务（若后端支持取消）。">停止</button>
-                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-model-reload" title="从磁盘重新加载已保存的 spawn_transformer.pt，使「生成式推荐」立即使用新权重而无需整页刷新。">重载模型</button>
+                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-model-reload" title="从磁盘重新加载已保存的 spawn_transformer.pt，使「生成式」立即使用新权重而无需整页刷新。">重载模型</button>
                 </div>
                 <div class="spawn-train-progress" id="spawn-train-progress" hidden>
                     <div class="spawn-train-bar"><div class="spawn-train-fill" id="spawn-train-fill"></div></div>

@@ -114,7 +114,7 @@ function tripletSequentiallySolvable(grid, threeData, opts = {}) {
 
 /**
  * 校验外部生成的三连块是否满足真人主局的基础公平护栏。
- * 生成式推荐只负责提出候选，最终仍由这里保证可玩性。
+ * 生成式只负责提出候选，最终仍由这里保证可玩性。
  *
  * @param {import('../grid.js').Grid} grid
  * @param {Array<{ id:string, data:number[][] }>} shapes

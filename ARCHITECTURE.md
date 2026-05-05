@@ -190,11 +190,11 @@ interface IapProvider {
     │   spawnModel.js: buildSpawnModelContext()
     │   └── 难度 / AbilityVector / 实时状态 / 拓扑 / 体验节奏 / 局间弧线 / history / spawnHints
     │
-    ├── 轨道一：规则算法
+    ├── 轨道一：启发式
     │   ├── adaptiveSpawn.js → stress + spawnHints
     │   └── blockSpawn.js → generateDockShapes()
     │
-    ├── 轨道二：生成式推荐
+    ├── 轨道二：生成式
     │   ├── spawnModel.js → /api/spawn-model/v3/predict
     │   └── SpawnTransformerV3 (feasibility + playstyle + LoRA)
     │
@@ -289,7 +289,7 @@ server.py (核心)
   /api/client/    客户端同步（策略/统计）
   /api/export     数据导出
   /api/health     健康检查
-  /api/spawn-model/v3/*  出块生成式推荐：status / predict / train / reload / personalize
+  /api/spawn-model/v3/*  出块生成式：status / predict / train / reload / personalize
   /docs           文档门户（HTML + API）
 
 enterprise_extensions.py（挂载于同一 Flask app）

@@ -1,7 +1,7 @@
 # 出块算法：算法工程师手册
 
 > 本文是 OpenBlock **出块子系统**的算法侧统一手册。
-> 范围：规则算法与 SpawnTransformerV3 生成式推荐双轨、共享上下文、护栏校验、训练/推理与数学化形式。
+> 范围：启发式与 SpawnTransformerV3 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
 > 与现有文档的关系：本文是 `SPAWN_ALGORITHM.md`（工程分层）/ `ADAPTIVE_SPAWN.md`（信号矩阵）/ `SPAWN_BLOCK_MODELING.md`（设计 rationale）的**算法 + 模型工程深化**——补充 ML 路径的网络结构、训练流程、与 RL 的接口。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
@@ -80,8 +80,8 @@ $$
 
 | 路线 | 核心思想 | 优势 | 代价 |
 |------|---------|------|------|
-| **轨道一：规则算法** | 手工特征 + 多层启发式 + 硬约束过滤 | 解释性强 / 可保证公平 / 零延迟 / 可兜底 | 规则复杂 / 风格难极致拟合 |
-| **轨道二：生成式推荐（SpawnTransformerV3）** | 学习 $P(s_1, s_2, s_3 \mid \text{ctx})$，带 feasibility、playstyle 与 LoRA 个性化 | 拟合真实玩家序列体验 / 支持个性化 | 需服务端模型 / 需前端护栏和回退 |
+| **轨道一：启发式** | 手工特征 + 多层启发式 + 硬约束过滤 | 解释性强 / 可保证公平 / 零延迟 / 可兜底 | 规则复杂 / 风格难极致拟合 |
+| **轨道二：生成式（SpawnTransformerV3）** | 学习 $P(s_1, s_2, s_3 \mid \text{ctx})$，带 feasibility、playstyle 与 LoRA 个性化 | 拟合真实玩家序列体验 / 支持个性化 | 需服务端模型 / 需前端护栏和回退 |
 
 两条轨道共享 `buildSpawnModelContext()` 生成的上下文：难度模式、`AbilityVector`、`PlayerProfile` 实时状态、盘面拓扑、局内节奏、局间弧线、近期出块历史和规则轨 `spawnHints`。规则轨直接消费 `spawnHints`；生成式轨把同一份上下文编码为 V3 的 `board/context/history/playstyle/targetDifficulty` 请求，避免 V2 旧 24 维向量与 V3 请求各自拼字段造成口径漂移。
 
@@ -105,13 +105,13 @@ function spawnNextBlocks() {
 }
 ```
 
-**回退原则**：V3 服务不可用、输出不足 3 块、重复块、不可放、低机动性、危险填充下序贯不可解 → 自动用规则算法，并记录 `fallbackReason` 供面板诊断。
+**回退原则**：V3 服务不可用、输出不足 3 块、重复块、不可放、低机动性、危险填充下序贯不可解 → 自动用启发式，并记录 `fallbackReason` 供面板诊断。
 
 ### 2.3 部署位置
 
 ```
-轨道一（规则算法）：浏览器内 JS（web/src/adaptiveSpawn.js + web/src/bot/blockSpawn.js）
-轨道二（生成式推荐）：
+轨道一（启发式）：浏览器内 JS（web/src/adaptiveSpawn.js + web/src/bot/blockSpawn.js）
+轨道二（生成式）：
   - 训练：rl_pytorch/spawn_model/（Python + PyTorch）
   - 推理：Flask `/api/spawn-model/v3/predict`
   - 真人网页主流程：`web/src/spawnModel.js` → `predictShapesV3()`

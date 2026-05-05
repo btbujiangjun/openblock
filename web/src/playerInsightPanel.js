@@ -121,7 +121,7 @@ const SPAWN_TOOLTIP = {
         '闭环反馈：每轮新出块后，在若干步放置窗口内统计消行表现，对 stress 做小幅偏移（正≈好于预期可略加压，负≈不及预期减压）。',
     boardFill: '当前棋盘占用率（已占格÷总格），不是开局预填比例 fillRatio。',
     clearG:
-        '消行保证（1～3）：三连候选中至少要有几块具备「落下即可促成消行」的潜力；挫败/恢复/近失/新手等会抬高。',
+        '目标保消（1～3）：三连候选中目标至少要有几块具备「落下即可促成消行」的潜力；挫败/恢复/近失/新手等会抬高。',
     sizePref:
         '尺寸偏好（约 −1～1）：负值偏向小块便于腾挪，正值偏向大块；挫败/恢复/新手等常为负。',
     diversity: '品类多样（0～1）：越高三连块越倾向不同品类；无聊心流时常略提高新鲜感。',
@@ -146,7 +146,7 @@ const SPAWN_TOOLTIP = {
     targetSolutionRange:
         '解法区间（v9）：根据综合 stress 在 game_rules.solutionDifficulty.ranges 中选择的目标解空间区间。三连块通过 sequentiallySolvable 后，若解法数量超出区间则在前 60% attempt 内重抽。',
     v3Meta:
-        '生成式推荐元信息：上一轮 V3 的模型版本、是否命中个性化 LoRA、feasibility mask 可行候选数量，以及护栏失败时的回退原因。'
+        '生成式元信息：上一轮 V3 的模型版本、是否命中个性化 LoRA、feasibility mask 可行候选数量，以及护栏失败时的回退原因。'
 };
 
 function _attrTitle(s) {
@@ -261,7 +261,7 @@ function _hintsExplain(h) {
     const out = [];
     const cg = h.clearGuarantee ?? 1;
     if (cg >= 2) {
-        out.push(`消行保证 ≥${cg}：优先从「能填缺口」的形状里抽样，降低死局感。`);
+        out.push(`目标保消 ≥${cg}：优先从「能填缺口」的形状里抽样，降低死局感。`);
     }
     const sp = h.sizePreference ?? 0;
     if (sp < -0.15) {
@@ -319,12 +319,12 @@ function _spawnModePrimaryChipHtml() {
     const primary =
         mode === SPAWN_MODE_MODEL_V3
             ? {
-                  text: `${UI_ICONS.generativeRecommend} 生成式推荐`,
-                  title: '侧栏已选「生成式推荐」：下轮起块将请求 SpawnTransformerV3，并通过前端护栏校验；不可用或未通过则自动回退规则。',
+                  text: `${UI_ICONS.generativeRecommend} 生成式`,
+                  title: '侧栏已选「生成式」：下轮起块将请求 SpawnTransformerV3，并通过前端护栏校验；不可用或未通过则自动回退启发式。',
               }
             : {
-                  text: `${UI_ICONS.ruleAlgorithm} 规则算法`,
-                  title: '侧栏已选「规则算法」：下轮起块由规则引擎生成。',
+                  text: `${UI_ICONS.ruleAlgorithm} 启发式`,
+                  title: '侧栏已选「启发式」：下轮起块由启发式规则引擎生成。',
               };
     return (
         `<span class="insight-weight insight-weight--mode-primary insight-spawn-mode-chip" title="${_attrTitle(primary.title)}">` +
@@ -636,7 +636,7 @@ function _render(game) {
         ];
         if (h) {
             metricPills.push(
-                _spawnPill(`保消 ${h.clearGuarantee}`, SPAWN_TOOLTIP.clearG),
+                _spawnPill(`目标保消 ${h.clearGuarantee}`, SPAWN_TOOLTIP.clearG),
                 _spawnPill(`尺寸 ${(h.sizePreference ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.sizePref),
                 _spawnPill(`多样 ${(h.diversityBoost ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.diversity)
             );

@@ -359,11 +359,11 @@ comboChain = min(1, streak * 0.25 + (lastClear > 0 ? 0.3 : 0))
 | Session Arc | 开局热身→收尾 | `sessionArc` warmup/peak/cooldown ✅ |
 | 里程碑 | 分数节点友好出块 | `MILESTONE_SCORES` + 庆祝出块 ✅ |
 
-## 9. SpawnTransformerV2：生成式推荐模型
+## 9. SpawnTransformerV2：生成式模型
 
 ### 9.1 概述
 
-除了规则算法（Layer 1-3），系统还提供基于 Transformer 的**生成式推荐模型**，从玩家行为序列中学习出块策略。用户可在运行时切换规则算法和模型推荐。
+除了启发式（Layer 1-3），系统还提供基于 Transformer 的**生成式模型**，从玩家行为序列中学习出块策略。用户可在运行时切换启发式和生成式。
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -486,7 +486,7 @@ weight = 0.6 · (1 + max(0, score - 50) / 200) + 0.4 · (1 + clearRate · 0.5)
 2. POST → `/api/spawn-model/predict`
 3. 后端 `SpawnTransformerV2.predict()` 执行 top-k 采样（去重）
 4. 返回 3 个 shape ID → 前端渲染
-5. 失败则自动回退到规则算法
+5. 失败则自动回退到启发式
 
 ### 9.8 训练面板参数说明
 
