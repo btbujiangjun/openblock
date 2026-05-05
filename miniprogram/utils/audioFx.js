@@ -152,11 +152,11 @@ class MiniAudioFx {
     }
   }
 
-  play(type) {
+  play(type, opts = {}) {
     if (!this.prefs.sound) return;
     this._setupAudioSession();
     const now = Date.now();
-    if (now - this._lastPlay < 24 && type !== 'perfect' && type !== 'bonus') return;
+    if (!opts.force && now - this._lastPlay < 24 && type !== 'perfect' && type !== 'bonus') return;
     this._lastPlay = now;
     const src = this._paths[type] || this._ensureSoundFile(type);
     if (!src) {
@@ -200,13 +200,13 @@ class MiniAudioFx {
     }
   }
 
-  feedback(type) {
+  feedback(type, opts = {}) {
     const now = Date.now();
     const priority = FEEDBACK_PRIORITY[type] ?? 1;
     if (now - this._lastFeedbackAt < 72 && priority < this._lastFeedbackPriority) return;
     this._lastFeedbackAt = now;
     this._lastFeedbackPriority = priority;
-    this.play(type);
+    this.play(type, { force: opts.force || type === 'gameOver' });
     this.vibrate(type);
   }
 

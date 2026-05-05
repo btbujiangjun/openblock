@@ -62,6 +62,7 @@ Page({
   _clearCellsTimer: null,
   _floatScoreTimer: null,
   _gameOverTimer: null,
+  _gameOverAudioTimer: null,
   _gameOverQuietUntil: 0,
   _newBestCelebrated: false,
   _canvasInitAttempts: 0,
@@ -166,6 +167,10 @@ Page({
     if (this._gameOverTimer) {
       clearTimeout(this._gameOverTimer);
       this._gameOverTimer = null;
+    }
+    if (this._gameOverAudioTimer) {
+      clearTimeout(this._gameOverAudioTimer);
+      this._gameOverAudioTimer = null;
     }
     if (this._resizeTimer) {
       clearTimeout(this._resizeTimer);
@@ -459,13 +464,25 @@ Page({
     if (next > prev) {
       storage.setItem(bestKey, String(next));
     }
-    this._audio?.feedback('gameOver');
+    this._scheduleGameOverFeedback();
     this._bestScore = next;
     this.setData({
       bestScore: next,
       scoreText: t('finalScore', { n: info.score || 0 }),
       clearsText: t('finalClears', { n: info.clears || 0 }),
     });
+  },
+
+  _scheduleGameOverFeedback() {
+    if (this._gameOverAudioTimer) {
+      clearTimeout(this._gameOverAudioTimer);
+      this._gameOverAudioTimer = null;
+    }
+    const delay = Math.max(0, (this._gameOverQuietUntil || 0) - Date.now());
+    this._gameOverAudioTimer = setTimeout(() => {
+      this._gameOverAudioTimer = null;
+      this._audio?.feedback('gameOver', { force: true });
+    }, delay);
   },
 
   _stopParticleLoop() {
@@ -781,6 +798,10 @@ Page({
     if (this._gameOverTimer) {
       clearTimeout(this._gameOverTimer);
       this._gameOverTimer = null;
+    }
+    if (this._gameOverAudioTimer) {
+      clearTimeout(this._gameOverAudioTimer);
+      this._gameOverAudioTimer = null;
     }
     if (this._clearCellsTimer) {
       clearTimeout(this._clearCellsTimer);

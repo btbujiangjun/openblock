@@ -7,8 +7,9 @@
 `miniprogram/` 是 Open Block 的微信小程序玩家端轻量版本，只包含：
 
 - 游戏主体功能：主菜单、难度选择、棋盘、候选块拖拽、消行计分、最佳分、本地重开。
-- 皮肤：复用 Web 端核心皮肤字段，支持颜色、图标和棋盘渲染风格。
-- 语言设置：主菜单和游戏页内置简体中文 / English，本地存储选择。
+- 皮肤：复用 Web 端核心皮肤字段，支持颜色、图标、白色系手机盘面和主题水印。
+- 语言设置：主菜单和游戏页内置简体中文 / English，本地存储选择；皮肤名也随语言切换。
+- 音效反馈：程序化生成短音效，主菜单与游戏页共享同一音效开关。
 
 小程序包不包含模型训练、RL 自博弈、模型状态监控、训练看板、后端同步或运营监控入口。
 
@@ -27,17 +28,19 @@ miniprogram/
 ├── core/
 │   ├── bonusScoring.js
 │   ├── config.js
-│   ├── game_rules.json
+│   ├── gameRulesData.js
 │   ├── gameRules.js
 │   ├── grid.js
 │   ├── i18n.js
 │   ├── shapes.js
-│   ├── shapes.json
+│   ├── shapesData.js
 │   └── skins.js
 ├── utils/
+│   ├── audioFx.js
 │   ├── gameController.js
 │   ├── mahjongTileIcon.js
-│   └── renderer.js
+│   ├── renderer.js
+│   └── spawnHeuristic.js
 └── pages/
     ├── index/
     └── game/
@@ -56,11 +59,13 @@ miniprogram/
 
 | 保留 | 说明 |
 |------|------|
-| 核心玩法 | 8x8 棋盘、三块 dock、拖拽放置、消行、同色/同 icon bonus、清屏/连消特效 |
-| 难度 | 简单、普通、挑战三档，来自 `core/game_rules.json` |
-| 皮肤 | `core/skins.js`，可通过 `scripts/sync-miniprogram-skins.cjs` 从 Web 端同步 |
-| 语言 | `core/i18n.js`，本地存储键 `openblock_lang` |
-| 本地数据 | 最佳分、皮肤、语言使用 `wx.*StorageSync` |
+| 核心玩法 | 8x8 棋盘、三块 dock、拖拽放置、智能释放、消行、同色/同 icon bonus、清屏/连消/大爆炸特效 |
+| 出块 | `utils/spawnHeuristic.js`，移植 Web 启发式出块与可玩性 guard |
+| 难度 | 简单、普通、挑战三档，来自 `core/gameRulesData.js` |
+| 皮肤 | `core/skins.js`，34 套皮肤经过手机端白色盘面、方块对比度和主题水印优化 |
+| 语言 | `core/i18n.js`，本地存储键 `openblock_lang`；包含皮肤名 `zh-CN` / `en` 翻译 |
+| 音效 | `utils/audioFx.js`，运行时合成 WAV；主菜单与游戏页共享 `openblock_audiofx_v1` |
+| 本地数据 | 最佳分、皮肤、语言、音效偏好使用 `wx.*StorageSync` |
 
 | 不包含 | 说明 |
 |--------|------|
@@ -78,4 +83,29 @@ miniprogram/
 node scripts/sync-miniprogram-skins.cjs
 ```
 
-玩法策略变化时手动同步 `core/game_rules.json` 中的玩家端字段。不要直接复制完整 `shared/game_rules.json`，因为其中包含 RL 训练、特征编码和看板相关元数据。
+玩法策略或形状变化时，小程序不再直接携带 JSON 文件，而是使用 CommonJS 数据模块：
+
+- `core/gameRulesData.js`：来自 `shared/game_rules.json` 的玩家端裁剪数据。
+- `core/shapesData.js`：来自 `shared/shapes.json` 的形状数据。
+
+不要直接复制完整 `shared/game_rules.json` 到小程序包内，因为其中包含 RL 训练、特征编码和看板相关元数据；直接 `require` JSON 也可能在微信开发工具中被解析为 `.json.js` 并造成模块加载问题。
+
+核心玩法同步脚本：
+
+```bash
+bash scripts/sync-core.sh
+```
+
+该脚本会生成 `gameRulesData.js` / `shapesData.js`，并把 Web 端纯逻辑模块转换为小程序可用的 CommonJS 形式。
+
+## 6. 验证
+
+小程序核心改动至少运行：
+
+```bash
+node --check miniprogram/pages/game/game.js
+node --check miniprogram/utils/renderer.js
+npm test -- tests/miniprogramCore.test.js
+```
+
+`tests/miniprogramCore.test.js` 覆盖计分口径、启发式出块 guard、34 套皮肤手机端可读性、主题水印和皮肤名 i18n。

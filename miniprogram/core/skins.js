@@ -1086,6 +1086,43 @@ function _mobileGridOuterColor(hex, gridCellHex, fallback = '#182235') {
   return _rgbToHex(out);
 }
 
+const BOARD_WATERMARKS = {
+  classic: { icons: ['🎮', '⭐'], opacity: 0.045 },
+  titanium: { icons: ['💠', '🔷'], opacity: 0.045 },
+  aurora: { icons: ['🐧', '❄️', '🌌'], opacity: 0.05 },
+  neonCity: { icons: ['🌃', '🏙️'], opacity: 0.045 },
+  ocean: { icons: ['🦈', '🐠'], opacity: 0.045 },
+  sunset: { icons: ['🌅', '🔆'], opacity: 0.05 },
+  sakura: { icons: ['🌸', '🌺'], opacity: 0.052 },
+  koi: { icons: ['🎏', '🐟'], opacity: 0.05 },
+  candy: { icons: ['🍭', '🍬'], opacity: 0.052 },
+  bubbly: { icons: ['🫧', '🐡'], opacity: 0.052 },
+  toon: { icons: ['🎪', '🎠'], opacity: 0.048 },
+  pixel8: { icons: ['👾', '🎮', '🍄'], opacity: 0.055, scale: 0.34 },
+  dawn: { icons: ['🌄', '🌻', '🍃'], opacity: 0.052 },
+  food: { icons: ['🍕', '🍔'], opacity: 0.048 },
+  music: { icons: ['🎹', '🎸'], opacity: 0.048 },
+  pets: { icons: ['🐶', '🐾'], opacity: 0.05 },
+  universe: { icons: ['🪐', '⭐'], opacity: 0.045 },
+  fantasy: { icons: ['🔮', '✨'], opacity: 0.048 },
+  beast: { icons: ['🦁', '🐯'], opacity: 0.048 },
+  greece: { icons: ['🏛️', '⚡'], opacity: 0.048 },
+  demon: { icons: ['😈', '💀'], opacity: 0.045 },
+  jurassic: { icons: ['🦕', '🦖'], opacity: 0.048 },
+  fairy: { icons: ['🧚', '🌸'], opacity: 0.05 },
+  industrial: { icons: ['🏭', '⚙️'], opacity: 0.045 },
+  forbidden: { icons: ['👑', '🐲'], opacity: 0.048 },
+  mahjong: { icons: ['🀅', '🀀'], opacity: 0.06 },
+  boardgame: { icons: ['🃏', '♠️'], opacity: 0.04 },
+  sports: { icons: ['⚽', '🏆'], opacity: 0.048 },
+  outdoor: { icons: ['🥾', '⛺'], opacity: 0.052 },
+  vehicles: { icons: ['🏎️', '✈️'], opacity: 0.048 },
+  forest: { icons: ['🌳', '🍁'], opacity: 0.048 },
+  pirate: { icons: ['🦜', '🏴‍☠️'], opacity: 0.048 },
+  farm: { icons: ['🐄', '🌽'], opacity: 0.04 },
+  desert: { icons: ['🐫', '🌵'], opacity: 0.04 },
+};
+
 function _optimizeSkinForMobile(skin) {
   const gridCell = _mobileGridCellColor(skin.gridCell, '#26344a');
   const gridOuter = _mobileGridOuterColor(skin.gridOuter, gridCell, '#182235');
@@ -1098,6 +1135,7 @@ function _optimizeSkinForMobile(skin) {
     gridGap: Math.max(1, skin.gridGap || 1),
     blockInset: Math.max(1, Math.min(2, skin.blockInset || 2)),
     blockRadius: baseRadius,
+    boardWatermark: BOARD_WATERMARKS[skin.id] || { icons: skin.blockIcons || ['✦'], opacity: 0.045 },
     clearFlash: skin.clearFlash || 'rgba(255,255,255,0.72)',
     mobileOptimized: true,
   };

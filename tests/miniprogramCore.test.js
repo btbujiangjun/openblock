@@ -145,6 +145,7 @@ describe('miniprogram core parity', () => {
       expect(skin.blockColors).toHaveLength(8);
       const gridLuma = luma(skin.gridCell);
       expect(luma(skin.gridOuter)).toBeLessThan(gridLuma);
+      expect(skin.boardWatermark?.icons?.length).toBeGreaterThan(0);
       expect(gridLuma).toBeGreaterThanOrEqual(0.90);
       expect(gridLuma).toBeLessThanOrEqual(0.98);
       for (const color of skin.blockColors) {

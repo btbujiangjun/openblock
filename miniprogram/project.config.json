@@ -1,7 +1,12 @@
 {
   "description": "Open Block - 微信小程序版",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "/minitest"
+      }
+    ],
     "include": []
   },
   "setting": {
@@ -36,7 +41,7 @@
     "localPlugins": false,
     "disableUseStrict": false,
     "useCompilerPlugins": false,
-    "condition": false,
+    "condition": true,
     "swc": false,
     "disableSWC": true
   },
@@ -45,6 +50,10 @@
   "appid": "wxfe1f627effb98940",
   "projectname": "openblock-miniprogram",
   "condition": {},
-  "simulatorPluginLibVersion": {},
-  "editorSetting": {}
+  "simulatorPluginLibVersion": {
+    "wxext14566970e7e9f62": "2.27.3"
+  },
+  "editorSetting": {},
+  "projectArchitecture": "multiPlatform",
+  "testRoot": "minitest/"
 }

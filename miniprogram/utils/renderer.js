@@ -149,12 +149,7 @@ class GameRenderer {
         const cy = offsetY + y * cellSize + skin.gridGap;
         const cs = cellSize - skin.gridGap * 2;
 
-        if (grid.cells[y][x] !== null) {
-          const colorIdx = grid.cells[y][x];
-          const color = skin.blockColors[colorIdx % skin.blockColors.length];
-          this._paintCell(cx, cy, cs, color);
-          this._drawCellIcon(cx, cy, cs, colorIdx);
-        } else {
+        if (grid.cells[y][x] === null) {
           ctx.fillStyle = skin.gridCell || '#fbfbf7';
           roundRect(ctx, cx, cy, cs, cs, this._cellRadius(cs));
           ctx.fill();
@@ -165,6 +160,46 @@ class GameRenderer {
         }
       }
     }
+
+    this._renderBoardWatermark(offsetX, offsetY, total, skin);
+
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (grid.cells[y][x] === null) continue;
+        const cx = offsetX + x * cellSize + skin.gridGap;
+        const cy = offsetY + y * cellSize + skin.gridGap;
+        const cs = cellSize - skin.gridGap * 2;
+        const colorIdx = grid.cells[y][x];
+        const color = skin.blockColors[colorIdx % skin.blockColors.length];
+        this._paintCell(cx, cy, cs, color);
+        this._drawCellIcon(cx, cy, cs, colorIdx);
+      }
+    }
+  }
+
+  _renderBoardWatermark(offsetX, offsetY, total, skin) {
+    const wm = skin.boardWatermark;
+    if (!wm || !Array.isArray(wm.icons) || wm.icons.length === 0 || total <= 0) return;
+    const ctx = this._ctx;
+    const size = Math.round(total * (wm.scale || 0.24));
+    const points = [
+      [0.23, 0.23],
+      [0.77, 0.23],
+      [0.50, 0.50],
+      [0.23, 0.77],
+      [0.77, 0.77],
+    ];
+    ctx.save();
+    ctx.globalAlpha = wm.opacity ?? 0.045;
+    ctx.font = `${Math.round(size * 0.88)}px ${ICON_FONT_STACK}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(55, 65, 81, 0.88)';
+    for (let i = 0; i < points.length; i++) {
+      const icon = normalizeCanvasIcon(wm.icons[i % wm.icons.length]);
+      ctx.fillText(icon, offsetX + total * points[i][0], offsetY + total * points[i][1]);
+    }
+    ctx.restore();
   }
 
   _cellInset(size) {

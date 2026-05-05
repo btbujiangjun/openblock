@@ -16,6 +16,7 @@ OpenBlock 提供 **34 款** 主题皮肤，覆盖 4 大维度：
 - **blockStyle 渲染管线**：`glossy / metal / glass / cartoon / neon / jelly / flat / pixel8 / bevel3d` 共 9 种
 - **全局 icon 唯一性**：27 × 8 = **216 个 emoji 全部互不重复**（强约束 / 自动校验）
 - **主题↔背景一致性**（v10.1 引入 / v10.2 全量推广至 34 款 / v10.17.3 mahjong 重制 / v10.17.4 outdoor 落地）：盘面/页面背景的色相必须服务于皮肤主题叙事，而不仅仅是 icon 的反差衬底（详见 §2.4 与 §4 各小节）
+- **小程序手机端渲染**：`miniprogram/core/skins.js` 会在同步字段基础上叠加白色系盘面、方块对比度约束、主题水印和 `zh-CN` / `en` 皮肤名 i18n，以适配触屏手机的可读性。
 
 总皮肤矩阵：
 
