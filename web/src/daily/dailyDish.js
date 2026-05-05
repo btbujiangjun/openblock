@@ -138,11 +138,10 @@ function _showStartScoreBubble(dish, amount) {
     const el = document.createElement('div');
     el.className = scoreBox ? 'score-reward-badge' : 'float-score float-daily-reward float-daily-reward--fallback';
     el.setAttribute('role', 'status');
-    el.setAttribute('title', tip);
-    el.dataset.tip = tip;
+    el.setAttribute('aria-label', tip);
     const label = document.createElement('span');
     label.className = 'float-label';
-    label.textContent = dish.icon;
+    label.textContent = `${dish.icon}${dish.name}`;
     const pts = document.createElement('span');
     pts.className = 'float-pts';
     pts.textContent = `+${amount}`;
