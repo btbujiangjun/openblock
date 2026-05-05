@@ -2,6 +2,7 @@
  * 小程序皮肤配置（自动同步自 web/src/skins.js 的核心渲染字段）。
  */
 const storage = require('../adapters/storage');
+const { skinName } = require('./i18n');
 
 const STORAGE_KEY = 'openblock_skin';
 const DEFAULT_SKIN_ID = "titanium";
@@ -1004,6 +1005,108 @@ const SKINS = {
   }
 };
 
+function _hexToRgb(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+}
+
+function _rgbToHex(c) {
+  const h = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${h(c.r)}${h(c.g)}${h(c.b)}`;
+}
+
+function _mix(a, b, t) {
+  return {
+    r: a.r + (b.r - a.r) * t,
+    g: a.g + (b.g - a.g) * t,
+    b: a.b + (b.b - a.b) * t,
+  };
+}
+
+function _luma(c) {
+  return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;
+}
+
+function _contrast(a, b) {
+  const la = _luma(a);
+  const lb = _luma(b);
+  return Math.abs(la - lb);
+}
+
+function _fitLuma(c, min, max) {
+  let out = c;
+  for (let i = 0; i < 8; i++) {
+    const l = _luma(out);
+    if (l < min) {
+      out = _mix(out, { r: 255, g: 255, b: 255 }, Math.min(0.34, (min - l) * 1.6));
+    } else if (l > max) {
+      out = _mix(out, { r: 0, g: 0, b: 0 }, Math.min(0.30, (l - max) * 1.5));
+    } else {
+      break;
+    }
+  }
+  return out;
+}
+
+function _mobileBlockColor(hex, gridCellHex = '#1f2937') {
+  const c = _hexToRgb(hex);
+  if (!c) return hex;
+  const grid = _hexToRgb(gridCellHex) || { r: 31, g: 41, b: 55 };
+  const gridLuma = _luma(grid);
+  let out = gridLuma > 0.56
+    ? _fitLuma(c, 0.26, 0.54)
+    : _fitLuma(c, Math.max(0.60, gridLuma + 0.28), 0.88);
+
+  // 手机屏幕上，方块必须和浅/深盘面拉开亮度层级。
+  for (let i = 0; i < 8 && _contrast(out, grid) < 0.26; i++) {
+    out = gridLuma > 0.56
+      ? _mix(out, { r: 0, g: 0, b: 0 }, 0.14)
+      : _mix(out, { r: 255, g: 255, b: 255 }, 0.18);
+  }
+  return _rgbToHex(out);
+}
+
+function _mobileGridCellColor(hex, fallback = '#26344a') {
+  const c = _hexToRgb(hex);
+  if (!c) return fallback;
+  const whiteBase = { r: 252, g: 252, b: 250 };
+  const tintedWhite = _mix(c, whiteBase, 0.97);
+  return _rgbToHex(_fitLuma(tintedWhite, 0.90, 0.97));
+}
+
+function _mobileGridOuterColor(hex, gridCellHex, fallback = '#182235') {
+  const c = _hexToRgb(hex);
+  const grid = _hexToRgb(gridCellHex) || { r: 220, g: 224, b: 216 };
+  let out = c || _hexToRgb(fallback);
+  out = _mix(out, grid, 0.90);
+  out = _fitLuma(out, 0.84, Math.max(0.88, _luma(grid) - 0.05));
+  if (_contrast(out, grid) < 0.08) {
+    out = _mix(out, { r: 0, g: 0, b: 0 }, 0.18);
+  }
+  return _rgbToHex(out);
+}
+
+function _optimizeSkinForMobile(skin) {
+  const gridCell = _mobileGridCellColor(skin.gridCell, '#26344a');
+  const gridOuter = _mobileGridOuterColor(skin.gridOuter, gridCell, '#182235');
+  const baseRadius = Math.max(4, Math.min(8, skin.blockRadius || 6));
+  return {
+    ...skin,
+    blockColors: (skin.blockColors || CLASSIC_PALETTE).map((color) => _mobileBlockColor(color, gridCell)),
+    gridOuter,
+    gridCell,
+    gridGap: Math.max(1, skin.gridGap || 1),
+    blockInset: Math.max(1, Math.min(2, skin.blockInset || 2)),
+    blockRadius: baseRadius,
+    clearFlash: skin.clearFlash || 'rgba(255,255,255,0.72)',
+    mobileOptimized: true,
+  };
+}
+
+for (const id of Object.keys(SKINS)) {
+  SKINS[id] = _optimizeSkinForMobile(SKINS[id]);
+}
+
 const SKIN_LIST = Object.values(SKINS);
 
 function getActiveSkinId() {
@@ -1027,7 +1130,7 @@ function setActiveSkinId(id) {
 }
 
 function getSkinListMeta() {
-  return SKIN_LIST.map((s) => ({ id: s.id, name: s.name }));
+  return SKIN_LIST.map((s) => ({ id: s.id, name: skinName(s.id, s.name) }));
 }
 
 module.exports = {

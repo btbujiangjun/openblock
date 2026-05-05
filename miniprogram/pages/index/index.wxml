@@ -2,6 +2,13 @@
   Open Block 微信小程序 — 主菜单
 -->
 <view class="menu-page">
+  <view
+    class="menu-audio-toggle {{audioOn ? 'menu-audio-toggle--on' : 'menu-audio-toggle--off'}}"
+    catchtap="onToggleAudio"
+  >
+    <text class="menu-audio-toggle-icon">{{audioOn ? '🔊' : '🔇'}}</text>
+  </view>
+
   <view class="logo-area">
     <text class="logo-title">Open</text>
     <text class="logo-star">✦</text>

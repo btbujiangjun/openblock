@@ -12,6 +12,7 @@ const {
   getLanguageList,
   t,
 } = require('../../core/i18n');
+const { createAudioFx } = require('../../utils/audioFx');
 
 const DIFFICULTIES = [
   { id: 'easy', labelKey: 'difficultyEasy' },
@@ -30,10 +31,15 @@ Page({
     difficulties: [],
     difficultyIndex: 1,
     selectedDifficultyName: '普通模式',
+    audioOn: true,
     text: {},
   },
+  _audio: null,
 
   onLoad() {
+    this._audio = createAudioFx();
+    this._syncAudioState();
+    if (this.data.audioOn) this._audio.warmup(['tick', 'select', 'place']);
     this._refreshText();
     const skins = getSkinListMeta();
     const active = getActiveSkinId();
@@ -55,6 +61,30 @@ Page({
       difficultyIndex: 1,
       selectedDifficultyName: difficulties[1]?.name || t('difficultyNormal'),
     });
+  },
+
+  onShow() {
+    if (!this._audio) this._audio = createAudioFx();
+    this._syncAudioState();
+  },
+
+  _syncAudioState() {
+    const prefs = this._audio?.getPrefs?.() || { sound: true };
+    this.setData({ audioOn: prefs.sound !== false });
+  },
+
+  onToggleAudio() {
+    if (!this._audio) this._audio = createAudioFx();
+    const current = this._audio.getPrefs?.() || { sound: true };
+    const next = !current.sound;
+    this._audio.setEnabled(next);
+    this.setData({ audioOn: next });
+    if (next) {
+      this._audio.warmup(['tick', 'select', 'place']);
+      this._audio.play('tick');
+    } else {
+      this._audio.vibrate('tick');
+    }
   },
 
   _refreshText() {
@@ -80,6 +110,7 @@ Page({
     const idx = Number(e.detail.value) || 0;
     const skin = this.data.skins[idx];
     if (skin) setActiveSkinId(skin.id);
+    this._audio?.feedback('select');
     this.setData({
       skinIndex: idx,
       selectedSkinName: skin?.name || '默认皮肤',
@@ -90,8 +121,15 @@ Page({
     const idx = Number(e.detail.value) || 0;
     const lang = this.data.languages[idx];
     if (lang) setLanguage(lang.id);
+    this._audio?.feedback('select');
+    const skins = getSkinListMeta();
+    const skin = this.data.skins[this.data.skinIndex];
+    const skinIndex = Math.max(0, skins.findIndex((s) => s.id === skin?.id));
     const difficulties = this._difficultyOptions();
     this.setData({
+      skins,
+      skinIndex,
+      selectedSkinName: skins[skinIndex]?.name || t('skin'),
       languageIndex: idx,
       selectedLanguageName: lang?.name || '简体中文',
       difficulties,
@@ -103,6 +141,7 @@ Page({
   onDifficultyChange(e) {
     const idx = Number(e.detail.value) || 0;
     const difficulty = this.data.difficulties[idx];
+    this._audio?.feedback('select');
     this.setData({
       difficultyIndex: idx,
       selectedDifficultyName: difficulty?.name || t('difficultyNormal'),
@@ -118,6 +157,7 @@ Page({
   },
 
   onStartGame() {
+    this._audio?.feedback('place');
     wx.navigateTo({ url: this._gameUrl() });
   },
 });

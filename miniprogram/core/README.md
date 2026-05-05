@@ -7,8 +7,8 @@
 | 说明 | 路径 |
 |------|------|
 | 棋盘数据结构与基础消行 | `grid.js` |
-| 方块形状与权重抽样 | `shapes.js` / `shapes.json` |
-| 玩家端玩法策略 | `game_rules.json` / `gameRules.js` / `config.js` |
+| 方块形状与权重抽样 | `shapes.js` / `shapesData.js` |
+| 玩家端玩法策略 | `gameRulesData.js` / `gameRules.js` / `config.js` |
 | 皮肤核心渲染字段 | `skins.js` |
 | 同色 / 同 icon 消行加分 | `bonusScoring.js` |
 | 本地语言设置 | `i18n.js` |

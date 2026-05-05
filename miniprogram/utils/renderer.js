@@ -30,6 +30,15 @@ const DEFAULT_SKIN = {
   clearFlash: 'rgba(255,255,255,0.90)',
 };
 
+const ICON_FONT_STACK = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","PingFang SC","Microsoft YaHei",sans-serif';
+
+function normalizeCanvasIcon(icon) {
+  const text = String(icon || '')
+    .replace(/[\uFE0E\uFE0F]/g, '')
+    .replace(/\u200D.+/u, '');
+  return text || String(icon || '');
+}
+
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
@@ -84,6 +93,7 @@ class GameRenderer {
     /** @type {Array<{x:number,y:number,vx:number,vy:number,color:string,life:number,lifeMax?:number,lifeDecay?:number,size:number,gravityMul?:number}>} */
     this.particles = [];
     this.clearCells = [];
+    this.previewClearCells = [];
     this.shakeOffset = { x: 0, y: 0 };
     this.shakeIntensity = 0;
     this.shakeDuration = 0;
@@ -92,8 +102,10 @@ class GameRenderer {
     this._perfectFlash = 0;
     this._perfectHue = 0;
     this._doubleWave = 0;
-    this._doubleWaveRows = [];
+    this._doubleWaveLines = { rows: [], cols: [] };
     this._bonusMatchFlash = 0;
+    this._blastWave = 0;
+    this._blastWaveCount = 0;
     this._cellSizeForFx = 0;
     this._gridLogicalSize = 0;
   }
@@ -123,9 +135,13 @@ class GameRenderer {
     this._cellSizeForFx = cellSize;
     this._gridLogicalSize = total;
 
-    ctx.fillStyle = skin.gridOuter;
+    ctx.fillStyle = skin.gridOuter || '#f2f4f1';
     roundRect(ctx, offsetX, offsetY, total, total, 6);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.96)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, offsetX + 0.5, offsetY + 0.5, total - 1, total - 1, 6);
+    ctx.stroke();
 
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
@@ -139,23 +155,37 @@ class GameRenderer {
           this._paintCell(cx, cy, cs, color);
           this._drawCellIcon(cx, cy, cs, colorIdx);
         } else {
-          ctx.fillStyle = skin.gridCell;
-          roundRect(ctx, cx, cy, cs, cs, skin.blockRadius);
+          ctx.fillStyle = skin.gridCell || '#fbfbf7';
+          roundRect(ctx, cx, cy, cs, cs, this._cellRadius(cs));
           ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+          ctx.lineWidth = 1;
+          roundRect(ctx, cx + 0.5, cy + 0.5, cs - 1, cs - 1, Math.max(0, this._cellRadius(cs) - 0.5));
+          ctx.stroke();
         }
       }
     }
+  }
+
+  _cellInset(size) {
+    const skinInset = this._skin.blockInset ?? 2;
+    return Math.max(1, Math.min(skinInset, size * 0.055));
+  }
+
+  _cellRadius(paintedSize) {
+    const skinRadius = this._skin.blockRadius ?? 5;
+    return Math.max(3, Math.min(skinRadius, paintedSize * 0.16));
   }
 
   /** 绘制单个方块格子 */
   _paintCell(x, y, size, color) {
     const ctx = this._ctx;
     const skin = this._skin;
-    const ins = skin.blockInset;
+    const ins = this._cellInset(size);
     const s = Math.max(1, size - ins * 2);
     const bx = x + ins;
     const by = y + ins;
-    const r = skin.blockRadius;
+    const r = this._cellRadius(s);
 
     // bevel3d：四向梯形浮雕（与 web/src/renderer.js 一致 — 圆润按钮光照模型）
     if (skin.blockStyle === 'bevel3d') {
@@ -214,17 +244,22 @@ class GameRenderer {
       return;
     }
 
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.20)';
+    ctx.shadowBlur = Math.max(0, size * 0.065);
+    ctx.shadowOffsetY = Math.max(1, size * 0.032);
     ctx.fillStyle = color;
     roundRect(ctx, bx, by, s, s, r);
     ctx.fill();
+    ctx.restore();
 
-    // 简化的高光效果（flat 风格）
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    // 只保留轻量边界，避免方块本身过度立体化。
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
     ctx.lineWidth = 1;
     roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
     ctx.stroke();
 
-    ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
     ctx.lineWidth = 1;
     roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
     ctx.stroke();
@@ -232,33 +267,36 @@ class GameRenderer {
 
   _drawCellIcon(x, y, size, colorIdx) {
     const icons = this._skin.blockIcons;
-    if (!icons || !icons.length || size < 14) return;
+    const safeSize = Number.isFinite(size) && size > 0 ? size : 0;
+    if (!icons || !icons.length || safeSize < 14) return;
     const icon = icons[colorIdx % icons.length];
     if (!icon) return;
+    const canvasIcon = normalizeCanvasIcon(icon);
     const ctx = this._ctx;
     const skin = this._skin;
-    const ins = skin.blockInset ?? 2;
+    const ins = this._cellInset(size);
     const bx = x + ins;
     const by = y + ins;
     const s = Math.max(1, size - ins * 2);
-    const r = skin.blockRadius ?? 5;
+    const r = this._cellRadius(s);
     ctx.save();
     if (skin.id === 'mahjong') {
       roundRect(ctx, bx, by, s, s, r);
       ctx.clip();
-      paintMahjongTileIcon(ctx, bx, by, s, icon, colorIdx);
+      paintMahjongTileIcon(ctx, bx, by, s, canvasIcon, colorIdx);
     } else {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `${Math.max(10, Math.floor(size * 0.58))}px sans-serif`;
+      ctx.font = `${Math.max(10, Math.floor(safeSize * 0.58))}px ${ICON_FONT_STACK}`;
       ctx.fillStyle = 'rgba(255,255,255,0.94)';
-      ctx.fillText(icon, x + size / 2, y + size / 2 + 0.5);
+      ctx.fillText(canvasIcon, x + safeSize / 2, y + safeSize / 2 + 0.5);
     }
     ctx.restore();
   }
 
   /** 绘制候选块（dock 区域中的小预览） */
   drawDockBlock(shape, colorIdx, x, y, cellSize) {
+    if (!Array.isArray(shape) || !Number.isFinite(cellSize) || cellSize <= 0) return;
     const ctx = this._ctx;
     const color = this._skin.blockColors[colorIdx % this._skin.blockColors.length];
     for (let sy = 0; sy < shape.length; sy++) {
@@ -274,31 +312,68 @@ class GameRenderer {
   }
 
   /** 绘制拖拽时的半透明幽灵 */
-  drawGhost(shape, gx, gy, cellSize, offsetX = 0, offsetY = 0) {
+  drawGhost(shape, gx, gy, cellSize, offsetX = 0, offsetY = 0, colorIdx = null) {
     const ctx = this._ctx;
-    ctx.globalAlpha = 0.4;
+    const color = colorIdx == null ? null : this._skin.blockColors[colorIdx % this._skin.blockColors.length];
+    ctx.globalAlpha = 0.62;
     for (let sy = 0; sy < shape.length; sy++) {
       for (let sx = 0; sx < shape[sy].length; sx++) {
         if (shape[sy][sx]) {
           const cx = offsetX + (gx + sx) * cellSize;
           const cy = offsetY + (gy + sy) * cellSize;
-          ctx.fillStyle = '#ffffff';
-          roundRect(ctx, cx + 2, cy + 2, cellSize - 4, cellSize - 4, 4);
-          ctx.fill();
+          if (color) {
+            this._paintCell(cx, cy, cellSize, color);
+            this._drawCellIcon(cx, cy, cellSize, colorIdx);
+          } else {
+            ctx.fillStyle = '#ffffff';
+            roundRect(ctx, cx + 2, cy + 2, cellSize - 4, cellSize - 4, 4);
+            ctx.fill();
+          }
         }
       }
     }
     ctx.globalAlpha = 1.0;
   }
 
+  /** 绘制最近几个合法吸附落点，帮助判断拖拽轨迹 */
+  drawGhostTrail(shape, trail, cellSize, offsetX = 0, offsetY = 0, colorIdx = null) {
+    if (!Array.isArray(shape) || !Array.isArray(trail) || trail.length === 0) return;
+    const ctx = this._ctx;
+    const color = colorIdx == null ? '#FFFFFF' : this._skin.blockColors[colorIdx % this._skin.blockColors.length];
+    const start = Math.max(0, trail.length - 6);
+    ctx.save();
+    for (let ti = start; ti < trail.length; ti++) {
+      const point = trail[ti];
+      const rank = ti - start + 1;
+      const alpha = 0.08 + (rank / (trail.length - start + 1)) * 0.24;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = Math.max(1, cellSize * 0.035);
+      for (let sy = 0; sy < shape.length; sy++) {
+        for (let sx = 0; sx < shape[sy].length; sx++) {
+          if (!shape[sy][sx]) continue;
+          const cx = offsetX + (point.x + sx) * cellSize;
+          const cy = offsetY + (point.y + sy) * cellSize;
+          roundRect(ctx, cx + cellSize * 0.18, cy + cellSize * 0.18, cellSize * 0.64, cellSize * 0.64, Math.max(3, cellSize * 0.1));
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+  }
+
   drawGridWithEffects(grid, cellSize, offsetX = 0, offsetY = 0) {
     this.clear();
     this.drawGrid(grid, cellSize, offsetX, offsetY);
     this.renderClearCells(offsetX, offsetY);
+    this.renderPreviewClearCells(offsetX, offsetY);
     this.renderComboFlash();
     this.renderPerfectFlash();
     this.renderDoubleWave();
     this.renderBonusMatchFlash();
+    this.renderBigBlastWave();
     this.renderParticles();
   }
 
@@ -318,6 +393,30 @@ class GameRenderer {
     this.clearCells = cells || [];
   }
 
+  setPreviewClearCells(cells) {
+    this.previewClearCells = cells || [];
+  }
+
+  renderPreviewClearCells(offsetX = 0, offsetY = 0) {
+    if (!this.previewClearCells || this.previewClearCells.length === 0 || this._cellSizeForFx <= 0) return;
+    const ctx = this._ctx;
+    const cs = this._cellSizeForFx;
+    ctx.save();
+    ctx.globalAlpha = 0.68;
+    ctx.fillStyle = 'rgba(255, 238, 120, 0.26)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
+    ctx.lineWidth = Math.max(1, cs * 0.045);
+    for (const c of this.previewClearCells) {
+      const x = c.x ?? c[0];
+      const y = c.y ?? c[1];
+      const px = offsetX + x * cs;
+      const py = offsetY + y * cs;
+      ctx.fillRect(px, py, cs, cs);
+      ctx.strokeRect(px + 2, py + 2, cs - 4, cs - 4);
+    }
+    ctx.restore();
+  }
+
   renderClearCells(offsetX = 0, offsetY = 0) {
     if (!this.clearCells || this.clearCells.length === 0 || this._cellSizeForFx <= 0) return;
     this._ctx.save();
@@ -329,6 +428,156 @@ class GameRenderer {
       this._ctx.fillRect(offsetX + x * this._cellSizeForFx, offsetY + y * this._cellSizeForFx, this._cellSizeForFx, this._cellSizeForFx);
     }
     this._ctx.restore();
+  }
+
+  addClearBurst(cells, countPerCell = 4, cellSize = this._cellSizeForFx) {
+    if (!Array.isArray(cells) || !cells.length || !cellSize) return;
+    const maxParticles = 96;
+    const palette = this._skin.blockColors || CLASSIC_PALETTE;
+    let emitted = 0;
+    for (const cell of cells) {
+      if (emitted >= maxParticles) break;
+      const x = cell.x ?? cell[0];
+      const y = cell.y ?? cell[1];
+      const colorIdx = cell.color ?? 0;
+      const baseColor = palette[colorIdx % palette.length] || '#FFFFFF';
+      for (let i = 0; i < countPerCell && emitted < maxParticles; i++) {
+        const life = 0.72 + Math.random() * 0.32;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2.4 + Math.random() * 4.8;
+        this.particles.push({
+          x: (x + 0.35 + Math.random() * 0.3) * cellSize,
+          y: (y + 0.35 + Math.random() * 0.3) * cellSize,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 1.2,
+          color: i % 3 === 0 ? '#FFFFFF' : baseColor,
+          life,
+          size: 2.5 + Math.random() * 4.5,
+          lifeDecay: 0.025 + Math.random() * 0.012,
+          gravityMul: 0.35,
+        });
+        emitted++;
+      }
+    }
+  }
+
+  addMultiClearBurst(lines = {}, cells = [], lineCount = 2, cellSize = this._cellSizeForFx) {
+    if (!cellSize) return;
+    const rows = lines.rows || [];
+    const cols = lines.cols || [];
+    const n = Math.max(1, this._gridLogicalSize / cellSize || 8);
+    const strength = Math.max(2, lineCount || rows.length + cols.length);
+    const maxParticles = Math.min(140, 44 + strength * 22);
+    let emitted = 0;
+    const colors = ['#FFFFFF', '#5AD487', '#7DD3FC', '#FFD166'];
+    const push = (x, y, angle, speed, color) => {
+      if (emitted >= maxParticles) return;
+      const life = 0.86 + Math.random() * 0.34;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 0.8,
+        color,
+        life,
+        lifeMax: life,
+        lifeDecay: 0.015 + Math.random() * 0.008,
+        size: 3 + Math.random() * 6,
+        gravityMul: 0.20,
+        kind: emitted % 4 === 0 ? 'spark' : 'dot',
+      });
+      emitted++;
+    };
+
+    for (const row of rows) {
+      const y = (row + 0.5) * cellSize;
+      for (let i = 0; i < 18 + strength * 3; i++) {
+        const x = Math.random() * n * cellSize;
+        const dir = i % 2 === 0 ? 0 : Math.PI;
+        push(x, y, dir + (Math.random() - 0.5) * 0.45, 4 + Math.random() * 9, colors[i % colors.length]);
+      }
+    }
+    for (const col of cols) {
+      const x = (col + 0.5) * cellSize;
+      for (let i = 0; i < 18 + strength * 3; i++) {
+        const y = Math.random() * n * cellSize;
+        const dir = i % 2 === 0 ? Math.PI / 2 : -Math.PI / 2;
+        push(x, y, dir + (Math.random() - 0.5) * 0.45, 4 + Math.random() * 9, colors[(i + 1) % colors.length]);
+      }
+    }
+
+    const sourceCells = Array.isArray(cells) && cells.length ? cells : [];
+    for (let i = 0; i < Math.min(36, sourceCells.length * 2); i++) {
+      const c = sourceCells[i % sourceCells.length];
+      const x = ((c?.x ?? c?.[0] ?? 0) + 0.5) * cellSize;
+      const y = ((c?.y ?? c?.[1] ?? 0) + 0.5) * cellSize;
+      push(x, y, Math.random() * Math.PI * 2, 3 + Math.random() * 7, colors[(i + 2) % colors.length]);
+    }
+  }
+
+  addBigBlast(cells = [], bonusLines = [], cellSize = this._cellSizeForFx) {
+    if (!cellSize) return;
+    const logical = this._gridLogicalSize || (this._canvas.width / this._dpr);
+    const source = Array.isArray(cells) && cells.length ? cells : [{ x: 3.5, y: 3.5 }];
+    const center = source.reduce((acc, c) => {
+      acc.x += (c.x ?? c[0] ?? 3.5) + 0.5;
+      acc.y += (c.y ?? c[1] ?? 3.5) + 0.5;
+      return acc;
+    }, { x: 0, y: 0 });
+    const cx = (center.x / source.length) * cellSize;
+    const cy = (center.y / source.length) * cellSize;
+    const palette = this._skin.blockColors || CLASSIC_PALETTE;
+    const gold = '#FFD700';
+    const white = '#FFFFFF';
+    const purple = '#B794F4';
+    const count = Math.min(180, 72 + (bonusLines.length || 1) * 34);
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 5 + Math.random() * 16;
+      const life = 1.10 + Math.random() * 0.70;
+      const line = bonusLines[i % Math.max(1, bonusLines.length)];
+      const lineColor = line ? palette[line.colorIdx % palette.length] : palette[i % palette.length];
+      this.particles.push({
+        x: cx + (Math.random() - 0.5) * cellSize * 0.7,
+        y: cy + (Math.random() - 0.5) * cellSize * 0.7,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - (2 + Math.random() * 4),
+        color: i % 4 === 0 ? gold : i % 4 === 1 ? white : i % 4 === 2 ? purple : lineColor,
+        life,
+        lifeMax: life,
+        lifeDecay: 0.008 + Math.random() * 0.006,
+        size: 4 + Math.random() * 12,
+        gravityMul: 0.28,
+        kind: i % 3 === 0 ? 'spark' : 'dot',
+      });
+    }
+
+    for (let k = 0; k < Math.min(28, source.length); k++) {
+      const c = source[k];
+      const x = ((c.x ?? c[0] ?? 0) + 0.5) * cellSize;
+      const y = ((c.y ?? c[1] ?? 0) + 0.5) * cellSize;
+      const angle = Math.atan2(y - cy, x - cx) + (Math.random() - 0.5) * 0.5;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * (9 + Math.random() * 12),
+        vy: Math.sin(angle) * (9 + Math.random() * 12) - 4,
+        color: k % 2 ? gold : white,
+        life: 1.35,
+        lifeMax: 1.35,
+        lifeDecay: 0.010,
+        size: 5 + Math.random() * 8,
+        gravityMul: 0.18,
+        kind: 'spark',
+      });
+    }
+
+    this._blastWaveCount = Math.max(1, bonusLines.length || 1);
+    this._blastOrigin = {
+      x: Math.max(0, Math.min(logical, cx)),
+      y: Math.max(0, Math.min(logical, cy)),
+    };
   }
 
   /**
@@ -450,19 +699,34 @@ class GameRenderer {
       }
       ctx.globalAlpha = alpha;
       ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x + this.shakeOffset.x, p.y + this.shakeOffset.y, rad, 0, Math.PI * 2);
-      ctx.fill();
+      const px = p.x + this.shakeOffset.x;
+      const py = p.y + this.shakeOffset.y;
+      if (p.kind === 'spark') {
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate((p.vx + p.vy) * 0.08);
+        ctx.fillRect(-rad * 0.18, -rad, rad * 0.36, rad * 2);
+        ctx.fillRect(-rad, -rad * 0.18, rad * 2, rad * 0.36);
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(px, py, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
   }
 
   clearParticles() {
     this.particles = [];
+    this.previewClearCells = [];
     this._comboFlash = 0;
     this._perfectFlash = 0;
     this._doubleWave = 0;
+    this._doubleWaveLines = { rows: [], cols: [] };
     this._bonusMatchFlash = 0;
+    this._blastWave = 0;
+    this._blastWaveCount = 0;
     this.shakeDuration = 0;
     this.shakeOffset = { x: 0, y: 0 };
   }
@@ -505,7 +769,14 @@ class GameRenderer {
 
   triggerDoubleWave(clearedRows) {
     this._doubleWave = 1.0;
-    this._doubleWaveRows = clearedRows || [];
+    if (Array.isArray(clearedRows)) {
+      this._doubleWaveLines = { rows: clearedRows, cols: [] };
+    } else {
+      this._doubleWaveLines = {
+        rows: clearedRows?.rows || [],
+        cols: clearedRows?.cols || [],
+      };
+    }
   }
 
   triggerComboFlash(lineCount) {
@@ -515,7 +786,13 @@ class GameRenderer {
 
   triggerBonusMatchFlash(bonusLineCount = 1) {
     const n = Math.max(1, bonusLineCount);
-    this._bonusMatchFlash = Math.min(1, 0.42 + n * 0.14);
+    this._bonusMatchFlash = Math.min(1, 0.55 + n * 0.18);
+  }
+
+  triggerBigBlast(bonusLineCount = 1) {
+    const n = Math.max(1, bonusLineCount);
+    this._blastWave = 1.0;
+    this._blastWaveCount = n;
   }
 
   decayAllFx() {
@@ -533,8 +810,12 @@ class GameRenderer {
       if (this._doubleWave < 0.015) this._doubleWave = 0;
     }
     if (this._bonusMatchFlash > 0) {
-      this._bonusMatchFlash *= 0.972;
-      if (this._bonusMatchFlash < 0.012) this._bonusMatchFlash = 0;
+      this._bonusMatchFlash *= 0.980;
+      if (this._bonusMatchFlash < 0.010) this._bonusMatchFlash = 0;
+    }
+    if (this._blastWave > 0) {
+      this._blastWave *= 0.955;
+      if (this._blastWave < 0.012) this._blastWave = 0;
     }
   }
 
@@ -559,13 +840,15 @@ class GameRenderer {
   }
 
   renderDoubleWave() {
-    if (!this._doubleWave || !this._doubleWaveRows.length || this._cellSizeForFx <= 0) return;
+    const rows = this._doubleWaveLines?.rows || [];
+    const cols = this._doubleWaveLines?.cols || [];
+    if (!this._doubleWave || (!rows.length && !cols.length) || this._cellSizeForFx <= 0) return;
     const a = this._doubleWave;
     const logical = this._gridLogicalSize || (this._canvas.width / this._dpr);
     const spread = (1 - a) * logical * 0.6;
     this._ctx.save();
     this._ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
-    for (const row of this._doubleWaveRows) {
+    for (const row of rows) {
       const cy = (row + 0.5) * this._cellSizeForFx;
       const g = this._ctx.createLinearGradient(
         logical * 0.5 - spread,
@@ -580,6 +863,22 @@ class GameRenderer {
       g.addColorStop(1, 'rgba(46,204,113,0)');
       this._ctx.fillStyle = g;
       this._ctx.fillRect(0, cy - this._cellSizeForFx * 0.6, logical, this._cellSizeForFx * 1.2);
+    }
+    for (const col of cols) {
+      const cx = (col + 0.5) * this._cellSizeForFx;
+      const g = this._ctx.createLinearGradient(
+        cx,
+        logical * 0.5 - spread,
+        cx,
+        logical * 0.5 + spread
+      );
+      g.addColorStop(0, 'rgba(46,204,113,0)');
+      g.addColorStop(0.3, `rgba(46,204,113,${0.25 * a})`);
+      g.addColorStop(0.5, `rgba(255,255,255,${0.35 * a})`);
+      g.addColorStop(0.7, `rgba(46,204,113,${0.25 * a})`);
+      g.addColorStop(1, 'rgba(46,204,113,0)');
+      this._ctx.fillStyle = g;
+      this._ctx.fillRect(cx - this._cellSizeForFx * 0.6, 0, this._cellSizeForFx * 1.2, logical);
     }
     this._ctx.restore();
   }
@@ -623,12 +922,40 @@ class GameRenderer {
     this._ctx.restore();
   }
 
+  renderBigBlastWave() {
+    if (!this._blastWave) return;
+    const a = this._blastWave;
+    const logical = this._gridLogicalSize || (this._canvas.width / this._dpr);
+    const origin = this._blastOrigin || { x: logical * 0.5, y: logical * 0.5 };
+    const progress = 1 - a;
+    const maxR = logical * (0.55 + Math.min(0.25, this._blastWaveCount * 0.04));
+    const r = logical * 0.08 + progress * maxR;
+    const ctx = this._ctx;
+    ctx.save();
+    ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+    ctx.strokeStyle = `rgba(255, 214, 102, ${0.62 * a})`;
+    ctx.lineWidth = Math.max(2, logical * 0.018 * a);
+    ctx.beginPath();
+    ctx.arc(origin.x, origin.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const g = ctx.createRadialGradient(origin.x, origin.y, 0, origin.x, origin.y, r * 1.25);
+    g.addColorStop(0, `rgba(255,255,255,${0.20 * a})`);
+    g.addColorStop(0.25, `rgba(255,215,0,${0.16 * a})`);
+    g.addColorStop(0.58, `rgba(183,148,244,${0.10 * a})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-this.shakeOffset.x, -this.shakeOffset.y, logical, logical);
+    ctx.restore();
+  }
+
   hasActiveFx() {
     return this.hasParticles()
       || this._comboFlash > 0
       || this._perfectFlash > 0
       || this._doubleWave > 0
       || this._bonusMatchFlash > 0
+      || this._blastWave > 0
       || this.shakeDuration > 0;
   }
 }

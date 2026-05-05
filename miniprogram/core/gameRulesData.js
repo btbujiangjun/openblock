@@ -1,0 +1,70 @@
+/**
+ * 小程序运行时数据模块；避免直接 require JSON 导致部分开发工具配置下解析为 .json.js。
+ * 数据来自 shared/game_rules.json 的小程序裁剪版。
+ */
+module.exports = {
+  version: 1,
+  description: 'Open Block 小程序玩家端玩法配置：仅包含核心游戏、皮肤相关计分和难度策略。',
+  winScoreThreshold: 220,
+  defaultStrategyId: 'normal',
+  clearScoring: {
+    iconBonusLineMult: 5,
+    perfectClearMult: 10,
+  },
+  strategies: {
+    easy: {
+      id: 'easy',
+      name: 'Easy',
+      fillRatio: 0,
+      scoring: { singleLine: 20, multiLine: 60, combo: 100 },
+      shapeWeights: {
+        lines: 2.3,
+        rects: 1.65,
+        squares: 1.45,
+        tshapes: 1.05,
+        zshapes: 1.05,
+        lshapes: 1.13,
+        jshapes: 1.05,
+      },
+      gridWidth: 8,
+      gridHeight: 8,
+      colorCount: 8,
+    },
+    normal: {
+      id: 'normal',
+      name: 'Normal',
+      fillRatio: 0.18,
+      scoring: { singleLine: 20, multiLine: 60, combo: 100 },
+      shapeWeights: {
+        lines: 2.15,
+        rects: 1.55,
+        squares: 1.35,
+        tshapes: 1.12,
+        zshapes: 1.12,
+        lshapes: 1.2,
+        jshapes: 1.12,
+      },
+      gridWidth: 8,
+      gridHeight: 8,
+      colorCount: 8,
+    },
+    hard: {
+      id: 'hard',
+      name: 'Hard',
+      fillRatio: 0.32,
+      scoring: { singleLine: 20, multiLine: 60, combo: 100 },
+      shapeWeights: {
+        lines: 2.05,
+        rects: 1.55,
+        squares: 1.42,
+        tshapes: 1.18,
+        zshapes: 1.18,
+        lshapes: 1.26,
+        jshapes: 1.18,
+      },
+      gridWidth: 8,
+      gridHeight: 8,
+      colorCount: 8,
+    },
+  },
+};

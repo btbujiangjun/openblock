@@ -8,10 +8,20 @@
  */
 
 const { Grid } = require('../core/grid');
-const { getAllShapes, pickShapeByCategoryWeights } = require('../core/shapes');
+const { getAllShapes, getShapeCategory } = require('../core/shapes');
 const { getStrategy } = require('../core/config');
-const { computeClearScore, detectBonusLines } = require('../core/bonusScoring');
+const {
+  computeClearScore,
+  detectBonusLines,
+  monoNearFullLineColorWeights,
+  pickThreeDockColors,
+} = require('../core/bonusScoring');
 const { vibrateShort } = require('../adapters/platform');
+const {
+  generateDockShapes,
+  resetSpawnMemory,
+  validateSpawnTriplet,
+} = require('./spawnHeuristic');
 
 class GameController {
   constructor(strategyId = 'normal', opts = {}) {
@@ -28,36 +38,121 @@ class GameController {
     this.config = cfg;
     this.scoring = cfg.scoring;
     this.gridSize = cfg.gridWidth || 8;
-    this.grid = new Grid(this.gridSize);
-    this.grid.initBoard(cfg.fillRatio, cfg.shapeWeights);
     this.score = 0;
     this.totalClears = 0;
     this.steps = 0;
     this.dock = [];
     this.gameOver = false;
-    this._spawnDock();
+    this._roundClearCount = 0;
+    this._spawnContext = {
+      lastClearCount: 0,
+      roundsSinceClear: 0,
+      recentCategories: [],
+      totalRounds: 0,
+      scoreMilestone: false,
+    };
+    resetSpawnMemory();
+    this._initPlayableBoard();
     this.onStateChange(this._snapshot());
   }
 
-  _spawnDock() {
+  _initPlayableBoard() {
     const cfg = this.config;
-    const shapes = [];
+    const baseFill = Number(cfg.fillRatio) || 0;
+    const maxAttempts = 18;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const fillRelax = Math.floor(attempt / 6) * 0.06;
+      const fillRatio = Math.max(0, baseFill - fillRelax);
+      this.grid = new Grid(this.gridSize);
+      this.grid.initBoard(fillRatio, cfg.shapeWeights);
+      this._spawnDock({ ensureMove: true });
+      if (this.grid.hasAnyMove(this.dock)) return;
+    }
+
+    this.grid = new Grid(this.gridSize);
+    this.grid.initBoard(0, cfg.shapeWeights);
+    this._spawnDock({ ensureMove: true });
+  }
+
+  _spawnDock({ ensureMove = false } = {}) {
+    const cfg = this.config;
     const allShapes = getAllShapes();
-    for (let i = 0; i < 3; i++) {
-      const s = pickShapeByCategoryWeights(cfg.shapeWeights) || allShapes[0];
-      shapes.push(s);
+    const spawnConfig = {
+      ...cfg,
+      spawnHints: this._deriveSpawnHints(),
+    };
+    let shapes = generateDockShapes(this.grid, spawnConfig, this._spawnContext);
+    const valid = validateSpawnTriplet(this.grid, shapes, { searchBudget: 9000 });
+    if (!valid.ok || (ensureMove && !shapes.some((s) => this.grid.canPlaceAnywhere(s.data)))) {
+      const fallback = allShapes.filter((s) => this.grid.canPlaceAnywhere(s.data)).slice(0, 3);
+      shapes = fallback.length >= 3 ? fallback : allShapes.slice(0, 3);
     }
-    const colors = [0, 1, 2, 3, 4, 5, 6, 7];
-    for (let i = colors.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [colors[i], colors[j]] = [colors[j], colors[i]];
-    }
+
+    const colorBias = monoNearFullLineColorWeights(this.grid, this.skin);
+    const colors = pickThreeDockColors(colorBias);
     this.dock = shapes.map((s, i) => ({
       id: s.id,
       shape: s.data,
       colorIdx: colors[i % colors.length],
       placed: false,
     }));
+  }
+
+  _deriveSpawnHints() {
+    const fill = this.grid?.getFillRatio?.() || 0;
+    const ctx = this._spawnContext || {};
+    let clearGuarantee = 1;
+    let sizePreference = 0;
+    let diversityBoost = 0.16;
+    let multiClearBonus = 0.22;
+    let multiLineTarget = 0;
+    let rhythmPhase = 'neutral';
+
+    if ((ctx.totalRounds || 0) <= 2) {
+      clearGuarantee = 2;
+      sizePreference = Math.min(sizePreference, -0.2);
+      diversityBoost = Math.max(diversityBoost, 0.24);
+    }
+    if ((ctx.roundsSinceClear || 0) >= 2 || fill > 0.52) {
+      clearGuarantee = Math.max(clearGuarantee, 2);
+      sizePreference = Math.min(sizePreference, -0.25);
+      multiClearBonus = Math.max(multiClearBonus, 0.45);
+    }
+    if ((ctx.roundsSinceClear || 0) >= 4 || fill > 0.64) {
+      clearGuarantee = 3;
+      sizePreference = Math.min(sizePreference, -0.35);
+      multiLineTarget = Math.max(multiLineTarget, 1);
+      rhythmPhase = 'payoff';
+    }
+    if ((ctx.lastClearCount || 0) >= 2) {
+      multiClearBonus = Math.max(multiClearBonus, 0.5);
+      multiLineTarget = Math.max(multiLineTarget, 1);
+      rhythmPhase = 'payoff';
+    }
+
+    return {
+      clearGuarantee,
+      sizePreference,
+      diversityBoost,
+      multiClearBonus,
+      multiLineTarget,
+      rhythmPhase,
+    };
+  }
+
+  _advanceSpawnContext() {
+    const clearCount = this._roundClearCount || 0;
+    const cats = this.dock.map((d) => getShapeCategory(d.id));
+    const recent = [...(this._spawnContext.recentCategories || []), ...cats].slice(-9);
+    this._spawnContext = {
+      ...this._spawnContext,
+      lastClearCount: clearCount,
+      roundsSinceClear: clearCount > 0 ? 0 : (this._spawnContext.roundsSinceClear || 0) + 1,
+      recentCategories: recent,
+      totalRounds: (this._spawnContext.totalRounds || 0) + 1,
+      scoreMilestone: this.score > 0 && this.score % 100 === 0,
+    };
+    this._roundClearCount = 0;
   }
 
   getLegalActions() {
@@ -99,6 +194,7 @@ class GameController {
     let clears = 0;
     if (result.count > 0) {
       clears = result.count;
+      this._roundClearCount += clears;
       this.totalClears += clears;
       const { clearScore } = computeClearScore(this.strategyId, result);
       gain = clearScore;
@@ -109,11 +205,14 @@ class GameController {
         gain,
         score: this.score,
         cells: result.cells || [],
+        rows: result.rows || [],
+        cols: result.cols || [],
         bonusLines: result.bonusLines || [],
       });
     }
 
     if (this.dock.every((d) => d.placed)) {
+      this._advanceSpawnContext();
       this._spawnDock();
     }
 

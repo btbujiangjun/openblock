@@ -1,7 +1,7 @@
 /**
  * 多连块定义：数据来自 shared/shapes.json，与 rl_pytorch / rl_mlx 共用。
  */
-const shapesBundle = require('./shapes.json');
+const shapesBundle = require('./shapesData');
 
 const ORDER = shapesBundle.categoryOrder;
 const BY = shapesBundle.byCategory;

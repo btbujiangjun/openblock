@@ -4,16 +4,20 @@
  * 包括：振动反馈、屏幕尺寸、分享、系统信息等。
  */
 
-function getSystemInfo() {
+let cachedSystemInfo = null;
+
+function getSystemInfo(options = {}) {
+  if (cachedSystemInfo && !options.force) return cachedSystemInfo;
   try {
-    return wx.getWindowInfo();
+    cachedSystemInfo = wx.getWindowInfo();
   } catch {
-    return { windowWidth: 375, windowHeight: 667, pixelRatio: 2 };
+    cachedSystemInfo = { windowWidth: 375, windowHeight: 667, pixelRatio: 2 };
   }
+  return cachedSystemInfo;
 }
 
 function getScreenSize() {
-  const info = getSystemInfo();
+  const info = getSystemInfo({ force: true });
   return {
     width: info.windowWidth,
     height: info.windowHeight,

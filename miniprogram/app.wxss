@@ -4,18 +4,21 @@
  */
 
 page {
-  --bg-primary: #0f0f23;
-  --bg-surface: #1a1a2e;
-  --bg-card: #16213e;
-  --text-primary: #e0e0e0;
-  --text-secondary: #a0a0b8;
-  --accent: #e94560;
-  --accent-glow: rgba(233, 69, 96, 0.4);
-  --gold: #f4d35e;
-  --grid-line: rgba(255, 255, 255, 0.06);
-  --grid-bg: #0a0a1a;
+  --bg-primary: #090d1e;
+  --bg-surface: #171b32;
+  --bg-card: #202846;
+  --text-primary: #f3f6ff;
+  --text-secondary: #aeb7d0;
+  --accent: #5ad487;
+  --accent-glow: rgba(90, 212, 135, 0.36);
+  --gold: #ffd166;
+  --grid-line: rgba(255, 255, 255, 0.07);
+  --grid-bg: #0c1022;
 
-  background-color: var(--bg-primary);
+  background:
+    radial-gradient(circle at 50% -10%, rgba(90, 212, 135, 0.10), transparent 32%),
+    radial-gradient(circle at 12% 22%, rgba(125, 92, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, #101329 0%, var(--bg-primary) 42%, #070a18 100%);
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   height: 100%;

@@ -74,8 +74,8 @@ describe('moveSequence replay', () => {
 
         const st = replayStateAt(frames, frames.length - 1);
         expect(st).not.toBeNull();
-        /* 16 条消除线，其中 12 条为同色 bonus；按 init 帧 scoring 重算得 9600 */
-        expect(st.score).toBe(9600);
+        /* 16 条消除线，其中 12 条为同色 bonus，且清屏后整体应用 perfect clear 倍率 */
+        expect(st.score).toBe(96000);
         expect(st.dockDescriptors.length).toBe(1);
         expect(st.dockDescriptors[0].placed).toBe(true);
     });

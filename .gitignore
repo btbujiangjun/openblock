@@ -8,6 +8,7 @@ __pycache__/
 .env.local
 web/.env
 web/.env.local
+miniprogram/project.private.config.json
 coverage/
 *.log
 *.swp

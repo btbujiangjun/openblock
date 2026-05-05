@@ -18,9 +18,10 @@ const FONT_STACK = '"Segoe UI Symbol","Noto Sans Symbols","PingFang SC","Songti 
 const TILE_WH_RATIO = 21 / 29;
 
 function mahjongLayoutRect(size) {
-  let fh = size * 0.94;
+  const safeSize = Number.isFinite(size) && size > 0 ? size : 24;
+  let fh = safeSize * 0.94;
   let fw = fh * TILE_WH_RATIO;
-  const maxW = size * 0.96;
+  const maxW = safeSize * 0.96;
   if (fw > maxW) {
     fw = maxW;
     fh = fw / TILE_WH_RATIO;
@@ -35,10 +36,11 @@ function fitMahjongGlyphPx(ctx, icon, tw, th, fontStack) {
   const maxH = Math.max(4, th - padY * 2);
   let fs = Math.min(maxW, maxH) * 1.12;
   const floorFs = 10;
+  if (!Number.isFinite(fs) || fs <= 0) fs = floorFs;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   for (let i = 0; i < 18 && fs >= floorFs; i++) {
-    ctx.font = `${fs}px ${fontStack}`;
+    ctx.font = `${Math.round(fs)}px ${fontStack}`;
     const m = ctx.measureText(icon);
     const abl = m.actualBoundingBoxLeft;
     const abr = m.actualBoundingBoxRight;
@@ -53,7 +55,7 @@ function fitMahjongGlyphPx(ctx, icon, tw, th, fontStack) {
     if (gw <= maxW && gh <= maxH) break;
     fs *= 0.93;
   }
-  return Math.max(floorFs, fs);
+  return Math.max(floorFs, Math.round(fs));
 }
 
 function placeGlyphAlphabetic(ctx, icon, boxX, boxY, boxW, boxH) {
@@ -80,12 +82,14 @@ function placeGlyphAlphabetic(ctx, icon, boxX, boxY, boxW, boxH) {
 }
 
 function paintMahjongTileIcon(ctx, bx, by, size, icon, colorIdx) {
+  if (!ctx || !icon) return;
+  const safeSize = Number.isFinite(size) && size > 0 ? size : 24;
   const idx = ((colorIdx % 8) + 8) % 8;
   const ink = MAHJONG_TILE_INK[idx];
 
-  const { fw, fh } = mahjongLayoutRect(size);
-  const fx = bx + (size - fw) * 0.5;
-  const fy = by + (size - fh) * 0.5;
+  const { fw, fh } = mahjongLayoutRect(safeSize);
+  const fx = bx + (safeSize - fw) * 0.5;
+  const fy = by + (safeSize - fh) * 0.5;
 
   const ti = Math.min(fw, fh) * 0.018;
   const textW = Math.max(4, fw - ti * 2);

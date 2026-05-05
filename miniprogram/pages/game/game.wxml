@@ -3,34 +3,40 @@
   Canvas 2D 绘制棋盘 + touch 事件驱动拖拽放置
   顶栏与 web score-theme-row 对齐：四栏三行栅格（得分 / 步数 / 消行 / 最佳）
 -->
-<view class="game-page">
+<view class="game-page" style="{{pageStyle}}" catchtouchmove="onDockTouchMove" catchtouchend="onDockTouchEnd">
 
   <view class="score-theme-row">
     <view class="stat-box">
       <text class="stat-label">{{text.score}}</text>
       <text class="stat-value stat-value--accent">{{score}}</text>
-      <view class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
+      <view class="stat-subline stat-subline--spacer"></view>
     </view>
     <view class="stat-box">
       <text class="stat-label">{{text.steps}}</text>
       <text class="stat-value">{{steps}}</text>
-      <view class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
+      <view class="stat-subline stat-subline--spacer"></view>
     </view>
     <view class="stat-box">
       <text class="stat-label">{{text.clears}}</text>
       <text class="stat-value">{{totalClears}}</text>
-      <view class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
+      <view class="stat-subline stat-subline--spacer"></view>
     </view>
     <view class="stat-box stat-box--best">
       <text class="stat-label">{{text.best}}</text>
       <text class="stat-value stat-value--accent">{{bestScore}}</text>
       <text wx:if="{{bestGapVisible}}" class="stat-subline best-gap">{{bestGapText}}</text>
-      <view wx:else class="stat-subline stat-subline--spacer" aria-hidden="true"></view>
+      <view wx:if="{{!bestGapVisible}}" class="stat-subline stat-subline--spacer"></view>
+    </view>
+    <view
+      class="audio-toggle {{audioOn ? 'audio-toggle--on' : 'audio-toggle--off'}}"
+      catchtap="onToggleAudio"
+    >
+      <text class="audio-toggle-icon">{{audioOn ? '🔊' : '🔇'}}</text>
     </view>
   </view>
 
   <!-- 棋盘 Canvas -->
-  <view class="grid-wrapper">
+  <view class="grid-wrapper" style="{{gridWrapperStyle}}">
     <canvas
       type="2d"
       id="game-canvas"
@@ -47,26 +53,34 @@
   </view>
 
   <!-- 候选块（dock） -->
-  <view class="dock">
+  <view class="dock" style="{{dockStyle}}">
     <view
       wx:for="{{dock}}"
       wx:key="index"
-      class="dock-slot {{item.placed ? 'dock-slot--placed' : ''}} {{dragIdx === index ? 'dock-slot--dragging' : ''}}"
+      class="{{item.className}}"
+      style="{{item.slotStyle}}"
       data-idx="{{index}}"
-      bindtouchstart="onDockTouchStart"
-      bindtouchmove="onDockTouchMove"
-      bindtouchend="onDockTouchEnd"
+      catchtouchstart="onDockTouchStart"
+      catchtouchmove="onDockTouchMove"
+      catchtouchend="onDockTouchEnd"
     >
       <canvas
         wx:if="{{!item.placed}}"
         type="2d"
         id="dock-canvas-{{index}}"
         class="dock-canvas"
-        style="width: {{dockSlotSize}}px; height: {{dockSlotSize}}px;"
+        style="{{item.slotStyle}}"
       />
-      <view wx:else class="dock-placed-mark">✓</view>
     </view>
   </view>
+
+  <canvas
+    wx:if="{{dragPreviewVisible}}"
+    type="2d"
+    id="drag-preview-canvas"
+    class="drag-preview-canvas"
+    style="{{dragPreviewStyle}}"
+  />
 
   <!-- 游戏结束遮罩 -->
   <view wx:if="{{gameOver}}" class="game-over-overlay" bindtap="onRestart">

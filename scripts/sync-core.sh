@@ -19,9 +19,26 @@ echo "=== sync-core: $SRC → $DST ==="
 
 mkdir -p "$DST/bot"
 
-# 复制共享数据文件
-cp "$SHARED/game_rules.json" "$DST/game_rules.json"
-cp "$SHARED/shapes.json" "$DST/shapes.json"
+# 小程序包不直接携带 JSON，避免开发工具把 JSON 解析成 .json.js 或提示未上传。
+# 共享数据以 CommonJS 数据模块形式进入运行时。
+node <<NODE
+const fs = require('fs');
+const path = require('path');
+
+const pairs = [
+  ['game_rules.json', 'gameRulesData.js', '小程序运行时数据模块；避免直接 require JSON 导致部分开发工具配置下解析为 .json.js。\\n * 数据来自 shared/game_rules.json。'],
+  ['shapes.json', 'shapesData.js', '小程序运行时不稳定支持 require JSON；这里以 JS 模块形式提供形状数据。\\n * 数据来自 shared/shapes.json。']
+];
+
+for (const [source, target, comment] of pairs) {
+  const data = JSON.parse(fs.readFileSync(path.join('$SHARED', source), 'utf8'));
+  const body = JSON.stringify(data, null, 2);
+  fs.writeFileSync(
+    path.join('$DST', target),
+    `/**\\n * \${comment}\\n */\\nmodule.exports = \${body};\\n`
+  );
+}
+NODE
 
 # 要同步的纯逻辑文件列表
 FILES=(
@@ -96,6 +113,11 @@ module.exports = { $exports_obj };"
     content=$(echo "$content" | sed "s|require('../shared/|require('./|g")
     content=$(echo "$content" | sed "s|require('../../shared/|require('./|g")
   fi
+
+  content=$(echo "$content" | sed "s|require('./game_rules.json')|require('./gameRulesData')|g")
+  content=$(echo "$content" | sed "s|require('./shapes.json')|require('./shapesData')|g")
+  content=$(echo "$content" | sed "s|require('../game_rules.json')|require('../gameRulesData')|g")
+  content=$(echo "$content" | sed "s|require('../shapes.json')|require('../shapesData')|g")
 
   echo "$content" > "$dst_file"
   echo "  [OK] $f"
