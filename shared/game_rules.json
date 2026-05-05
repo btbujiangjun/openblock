@@ -164,6 +164,38 @@
       "decay": 0.93,
       "biasClamp": 0.22
     },
+    "signals": {
+      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。",
+      "scoreStress": { "enabled": true, "scale": 1 },
+      "runStreakStress": { "enabled": true, "scale": 1 },
+      "difficultyBias": { "enabled": true, "scale": 1 },
+      "skillAdjust": { "enabled": true, "scale": 1 },
+      "flowAdjust": { "enabled": true, "scale": 1 },
+      "pacingAdjust": { "enabled": true, "scale": 1 },
+      "recoveryAdjust": { "enabled": true, "scale": 1 },
+      "frustrationRelief": { "enabled": true, "scale": 1 },
+      "comboAdjust": { "enabled": true, "scale": 1 },
+      "nearMissAdjust": { "enabled": true, "scale": 1 },
+      "feedbackBias": { "enabled": true, "scale": 1 },
+      "trendAdjust": { "enabled": true, "scale": 1 },
+      "sessionArcAdjust": { "enabled": true, "scale": 1 },
+      "holeReliefAdjust": { "enabled": true, "scale": 1 },
+      "boardRiskReliefAdjust": { "enabled": true, "scale": 1 },
+      "abilityRiskAdjust": { "enabled": true, "scale": 1 },
+      "delightStressAdjust": { "enabled": true, "scale": 1 }
+    },
+    "stressSmoothing": {
+      "comment": "对最终 stress 做轻量滞后，避免普通状态跳变；救场/近失/挫败等减压信号立即生效。",
+      "enabled": true,
+      "alpha": 0.4,
+      "maxStepUp": 0.18,
+      "maxStepDown": 0.28,
+      "immediateReliefBoardRisk": 0.72
+    },
+    "spawnTargets": {
+      "comment": "将一维 stress 投影为多轴出块目标，避免仅通过方块复杂度消费压力。",
+      "frustrationReliefThreshold": 5
+    },
     "delight": {
       "comment": "爽感兑现层：根据玩家能力、心流、动量、恢复需求和盘面机会，实时提高多消/清屏候选概率；高手无聊时略加压并给 payoff，焦虑/恢复时降压但保留清线爽点。",
       "highSkillThreshold": 0.62,
@@ -185,6 +217,7 @@
       "comment": "盘面拓扑难度：holes 使用“所有形状都无法覆盖的空格”口径。它代表真实可修复性下降，因此进入 board pressure，并以救援方式降低出块压力、提高消行保障。",
       "holePressureMax": 8,
       "holeReliefStress": -0.16,
+      "boardRiskReliefStress": -0.1,
       "holeClearGuaranteeAt": 2,
       "holeSizePreference": -0.22
     },

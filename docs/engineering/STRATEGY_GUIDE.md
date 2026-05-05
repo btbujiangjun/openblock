@@ -15,6 +15,7 @@
 7. [个性化推荐策略](#7-个性化推荐策略)
 8. [RL 训练策略](#8-rl-训练策略)
 9. [玩家成长策略](#9-玩家成长策略)
+10. [策略变更验证](#10-策略变更验证)
 
 ---
 
@@ -22,13 +23,24 @@
 
 ### 原理
 
-出块引擎采用**三层架构**，策略在 Layer 2（体验优化层）通过 `stress → shapeWeights` 映射实现：
+出块引擎采用**三层架构**。`stress` 不再只映射为“方块更简单/更复杂”，而是先影响 `shapeWeights`，再投影为 `spawnTargets`，由 `blockSpawn.js` 在解空间、消行机会、空间压力、节奏兑现和新鲜度等多个维度消费：
 
 ```
-stress ∈ [-0.2, 1.0]  →  shapeWeights (形状类别权重)
+stress ∈ [-0.2, 1.0]
+  ├─ shapeWeights       # 形状品类权重插值
+  ├─ spawnTargets       # 多轴目标：复杂度/解空间/消行/payoff/新鲜度
+  └─ spawnHints         # clearGuarantee/sizePreference/multiLineTarget 等
   ↓
-blockSpawn.js: 按权重随机采样方块组合
+blockSpawn.js: 盘面拓扑 + 可解性护栏 + 多轴目标加权 → 三连块
 ```
+
+三层职责：
+
+| 层 | 关注点 | 主要文件 |
+|----|--------|----------|
+| Layer 1 | 盘面拓扑、合法落点、解法数量、空洞修复、清屏/多消机会 | `web/src/bot/blockSpawn.js` |
+| Layer 2 | stress、心流、挫败、combo、节奏、爽感兑现 | `web/src/adaptiveSpawn.js` |
+| Layer 3 | 单局弧线、里程碑、跨局热身、连战 | `web/src/adaptiveSpawn.js` / `web/src/game.js` |
 
 ### 定制 Profile（最常用）
 
@@ -42,41 +54,17 @@ blockSpawn.js: 按权重随机采样方块组合
       {
         "stress": -0.2,
         "comment": "极低压力：给大量简单小块，帮助新手建立信心",
-        "shapeWeights": {
-          "single":    0.20,
-          "domino":    0.30,
-          "triomino":  0.30,
-          "small_L":   0.15,
-          "medium":    0.05,
-          "large":     0.00,
-          "five":      0.00
-        }
+        "shapeWeights": { "lines": 3.18, "rects": 2.2, "squares": 1.8, "tshapes": 0.45, "zshapes": 0.35, "lshapes": 0.53, "jshapes": 0.45 }
       },
       {
         "stress": 0.0,
         "comment": "中性：标准混合出块",
-        "shapeWeights": {
-          "single":    0.05,
-          "domino":    0.10,
-          "triomino":  0.15,
-          "small_L":   0.25,
-          "medium":    0.30,
-          "large":     0.10,
-          "five":      0.05
-        }
+        "shapeWeights": { "lines": 2.15, "rects": 1.55, "squares": 1.35, "tshapes": 1.12, "zshapes": 1.12, "lshapes": 1.2, "jshapes": 1.12 }
       },
       {
         "stress": 0.8,
         "comment": "高压力：挑战玩家极限",
-        "shapeWeights": {
-          "single":    0.00,
-          "domino":    0.05,
-          "triomino":  0.05,
-          "small_L":   0.10,
-          "medium":    0.25,
-          "large":     0.35,
-          "five":      0.20
-        }
+        "shapeWeights": { "lines": 1.58, "rects": 1.3, "squares": 1.55, "tshapes": 1.42, "zshapes": 1.48, "lshapes": 1.46, "jshapes": 1.38 }
       }
     ]
   }
@@ -87,15 +75,15 @@ blockSpawn.js: 按权重随机采样方块组合
 
 ### 理解形状类别
 
-| 类别 | 典型形状 | 占格数 | 难度 |
-|------|---------|--------|------|
-| `single` | 1×1 单格 | 1 | 极简 |
-| `domino` | 1×2 直条 | 2 | 简单 |
-| `triomino` | L形3格 | 3 | 简单 |
-| `small_L` | 小 L/T 形 | 3-4 | 中等 |
-| `medium` | 2×2/L4/Z形 | 4-5 | 中等 |
-| `large` | 1×4/1×5 长条 | 4-5 | 困难 |
-| `five` | 五连方块 | 5 | 极难 |
+| 类别 | 典型形状 | 难度含义 |
+|------|---------|----------|
+| `lines` | 1×4、4×1、1×5、5×1 | 规整但可能占用长空间，低压时常用于救场和消行 |
+| `rects` | 1×2、2×1、2×3 等 | 规整、易理解，适合舒适区和恢复区 |
+| `squares` | 1×1、2×2、3×3 | 小块可救场，大方块增加空间压力 |
+| `tshapes` | T 形 | 中高复杂度，考验局部规划 |
+| `zshapes` | Z/S 形 | 高复杂度，容易制造空洞 |
+| `lshapes` | L 形 | 中高复杂度，适合 setup / payoff 之间的转折 |
+| `jshapes` | J 形 | 中高复杂度，与 L 形互补 |
 
 完整形状定义见 `shared/shapes.json`。
 
@@ -117,7 +105,7 @@ blockSpawn.js: 按权重随机采样方块组合
 
 ### 信号列表与权重
 
-当前 10 维信号均在 `web/src/adaptiveSpawn.js` 中计算：
+Stress 在 `web/src/adaptiveSpawn.js` 中合成，配置来源是 `shared/game_rules.json`。当前实现会输出 `_stressBreakdown`，用于面板、回放和测试解释每轮加压/减压来源：
 
 | # | 信号 | 变量名 | 典型范围 | 作用 |
 |---|------|--------|---------|------|
@@ -130,35 +118,40 @@ blockSpawn.js: 按权重随机采样方块组合
 | 7 | 挫败救济 | `frustrationRelief` | [−0.2, 0] | 未消行降压 |
 | 8 | Combo 正反馈 | `comboReward` | [0, 0.08] | 连击轻微加压 |
 | 9 | 趋势调节 | `trendAdjust` | [−0.1, 0.1] | 历史趋势修正 |
-| 10 | 置信门控 | `confidenceGate` | [0, 1] | 低置信度收窄调节 |
+| 10 | 盘面风险救济 | `boardRiskReliefAdjust` | [−0.1, 0] | 填充/空洞/能力风险统一减压 |
+| 11 | 置信门控 | `confidenceGate` | [0, 1] | 低置信度收窄调节 |
 
-### 禁用特定信号
+### 配置信号开关与缩放
 
-在 `game_rules.json` 中添加信号配置（需在 `adaptiveSpawn.js` 中读取）：
+在 `game_rules.json` 中使用 `adaptiveSpawn.signals` 配置信号：
 
 ```json
 {
   "adaptiveSpawn": {
     "signals": {
-      "runStreakStress": { "enabled": false },
-      "trendAdjust":    { "enabled": false, "comment": "跨会话数据不可信时禁用" }
+      "runStreakStress": { "enabled": false, "scale": 1 },
+      "trendAdjust":    { "enabled": false, "scale": 1 },
+      "flowAdjust":     { "enabled": true,  "scale": 0.8 }
     }
   }
 }
 ```
 
-然后在 `adaptiveSpawn.js` 的信号计算中读取此配置（示例）：
+当前实现会自动读取 `enabled` 与 `scale`：`enabled=false` 时信号不参与合成，`scale` 用于 A/B 或回放校准。最终结果会写入 `_stressBreakdown`，面板可展示各信号贡献。
 
-```js
-const signalCfg = cfg.signals ?? {};
-const runStreakStress = (signalCfg.runStreakStress?.enabled ?? true)
-    ? runMods.stressBonus
-    : 0;
-```
+常见用法：
+
+| 目标 | 建议 |
+|------|------|
+| 连战太快变难 | 降低 `runStreakStress.scale` 或关闭 `runStreakStress` |
+| 新手焦虑仍偏高 | 提高 `frustrationRelief.scale`、`recoveryAdjust.scale` 或 `boardRiskReliefAdjust.scale` |
+| 高手觉得单调 | 提高 `skillAdjust.scale`、`flowAdjust.scale`，但不要直接把所有 profile 调难 |
+| 跨会话趋势不可靠 | 关闭 `trendAdjust` |
+| 面板解释异常 | 查看 `_stressBreakdown.rawStress / afterSmoothing / finalStress` |
 
 ### 添加自定义信号
 
-在 `adaptiveSpawn.js` 的 stress 合成区块添加：
+如确实需要新增信号，在 `adaptiveSpawn.js` 的 stress 合成区块添加分量，并同步写入 `stressBreakdown`：
 
 ```js
 // 自定义：连续失误惩罚信号
@@ -166,8 +159,14 @@ const missStreakPenalty = profile.missRate > 0.6
     ? -0.1 * (profile.missRate - 0.6) / 0.4  // 失误率超 60% 时降压救济
     : 0;
 
-stress += missStreakPenalty;
+stressBreakdown.missStreakRelief = applySignal(signalCfg, 'missStreakRelief', missStreakPenalty);
 ```
+
+新增信号后同时更新：
+
+1. `shared/game_rules.json` 的 `adaptiveSpawn.signals`。
+2. `tests/adaptiveSpawn.test.js` 的典型场景断言。
+3. 本文档信号表。
 
 ---
 
@@ -175,34 +174,142 @@ stress += missStreakPenalty;
 
 ### 三档难度参数
 
-在 `shared/game_rules.json` 中定义各难度的基线偏移：
+在 `shared/game_rules.json` 中定义各难度的 `adaptiveSpawn.difficultyTuning`：
 
 ```json
 {
-  "difficultyBias": {
-    "easy":   -0.3,
-    "normal":  0.0,
-    "hard":    0.4
+  "adaptiveSpawn": {
+    "difficultyTuning": {
+      "easy": {
+        "stressBias": -0.22,
+        "clearGuaranteeDelta": 1,
+        "sizePreferenceDelta": -0.22,
+        "multiClearBonusDelta": 0.05,
+        "solutionStressDelta": -0.14
+      },
+      "normal": {
+        "stressBias": 0,
+        "clearGuaranteeDelta": 0,
+        "sizePreferenceDelta": 0,
+        "multiClearBonusDelta": 0,
+        "solutionStressDelta": 0
+      },
+      "hard": {
+        "stressBias": 0.22,
+        "clearGuaranteeDelta": -1,
+        "sizePreferenceDelta": 0.24,
+        "multiClearBonusDelta": -0.08,
+        "solutionStressDelta": 0.18,
+        "minStress": 0.18
+      }
+    }
   }
 }
 ```
 
-`difficultyBias` 直接叠加到最终 stress 值，负值降低整体难度，正值提高。
+其中：
+
+| 字段 | 作用 |
+|------|------|
+| `stressBias` | 直接叠加到最终 stress 基线，负值降低整体难度，正值提高 |
+| `clearGuaranteeDelta` | 调整三连块中消行友好块数量 |
+| `sizePreferenceDelta` | 负值偏小块，正值偏大块 |
+| `multiClearBonusDelta` | 调整多消候选权重 |
+| `solutionStressDelta` | 只影响解法数量过滤压力 |
+| `minStress` | 非救场状态下的最低压力下限 |
+
+### Stress 平滑
+
+`adaptiveSpawn.stressSmoothing` 控制普通状态下的 stress 滞后，避免连续几轮突然跳难：
+
+```json
+{
+  "enabled": true,
+  "alpha": 0.4,
+  "maxStepUp": 0.18,
+  "maxStepDown": 0.28
+}
+```
+
+挫败、近失、恢复和高盘面风险属于救场信号，减压会立即生效，不被平滑延迟。
+
+### 多轴消费
+
+不要把 stress 只理解成“复杂方块比例”。`adaptiveSpawn` 会输出 `spawnHints.spawnTargets`：
+
+```json
+{
+  "shapeComplexity": 0.62,
+  "solutionSpacePressure": 0.54,
+  "clearOpportunity": 0.35,
+  "spatialPressure": 0.48,
+  "payoffIntensity": 0.71,
+  "novelty": 0.42
+}
+```
+
+各轴的消费方式：
+
+| 目标轴 | 影响对象 | 典型效果 |
+|--------|----------|----------|
+| `shapeComplexity` | `blockSpawn` 品类复杂度加权 | 高值偏 T/Z/L/J，低值偏 lines/rects/squares |
+| `solutionSpacePressure` | 解法数量过滤、首手自由度 | 高值允许更窄解空间，低值要求更宽松 |
+| `clearOpportunity` | `clearGuarantee`、gap/multiClear 权重 | 救场时增加即时消行块进入三连块的概率 |
+| `spatialPressure` | 大块/小块占比、setup 阶段 | 高值偏更强空间规划，低值偏小块保活 |
+| `payoffIntensity` | multiClear / perfectClear / payoff 加权 | 提高多消、清屏、连击兑现 |
+| `novelty` | 同轮/跨轮品类重复惩罚 | 降低重复块型造成的疲劳 |
+
+调参建议：
+
+- 想让高压更像“规划挑战”，优先提高 `solutionSpacePressure` / `spatialPressure`，不要单纯提高异形块。
+- 想做救场，优先提高 `clearOpportunity` 并降低 `solutionSpacePressure`。
+- 想制造爽感兑现，调高 `payoffIntensity`，让多消/清屏候选更容易进入三连块。
+- 想降低重复感，调高 `novelty`，让同轮和跨轮品类重复惩罚更强。
+
+### 典型调参配方
+
+| 体验目标 | 配置方向 |
+|----------|----------|
+| 新手更稳 | easy 的 `stressBias` 更低，`clearGuaranteeDelta` 提高，`sizePreferenceDelta` 更负；保留 `stressSmoothing` |
+| 高手更有挑战 | hard 的 `solutionStressDelta` 提高，`shapeComplexity` 和 `solutionSpacePressure` 随 stress 增长；不要关闭可解性护栏 |
+| 连续无消行救场 | 提高 `frustrationRelief.scale`，确保 `clearOpportunity` 上升、`solutionSpacePressure` 下降 |
+| 更多爽感多消 | 提高 `payoffIntensity`、`multiClearBonusDelta`，并观察 `multiClearCandidates` |
+| 减少重复出块 | 提高 `novelty` 或 `diversityBoost`，检查 `recentCatFreq` |
 
 ### 新增难度档位
 
-1. 在 `game_rules.json` 的 `difficultyBias` 中添加新键
-2. 在 `web/src/difficulty.js` 的 `resolveLayeredStrategy` 中添加读取逻辑
-3. 在 `web/src/config.js` 的 `STRATEGIES` 数组中添加新策略项
+1. 在 `shared/game_rules.json` 的 `adaptiveSpawn.difficultyTuning` 中添加新键。
+2. 在 `web/src/config.js` 的 `STRATEGIES` 数组中添加新策略项。
+3. 若 UI 语言包中展示难度名，同步更新 `web/src/i18n/locales/*`。
+4. 补充 `tests/adaptiveSpawn.test.js` 的难度顺序和 spawnHints 断言。
 
 ```js
 // web/src/config.js
 export const STRATEGIES = [
-    { id: 'easy',   label: '简单',   icon: '🌱', difficultyBias: -0.3 },
-    { id: 'normal', label: '普通',   icon: '⚡', difficultyBias:  0.0 },
-    { id: 'hard',   label: '困难',   icon: '🔥', difficultyBias:  0.4 },
-    { id: 'ultra',  label: '地狱',   icon: '💀', difficultyBias:  0.8 },  // 新增
+    { id: 'easy',   label: '简单', icon: '🌱' },
+    { id: 'normal', label: '普通', icon: '⚡' },
+    { id: 'hard',   label: '困难', icon: '🔥' },
+    { id: 'ultra',  label: '地狱', icon: '💀' }
 ];
+```
+
+`difficultyTuning` 示例：
+
+```json
+{
+  "adaptiveSpawn": {
+    "difficultyTuning": {
+      "ultra": {
+        "stressBias": 0.34,
+        "clearGuaranteeDelta": -1,
+        "sizePreferenceDelta": 0.32,
+        "multiClearBonusDelta": -0.1,
+        "solutionStressDelta": 0.26,
+        "minStress": 0.28
+      }
+    }
+  }
+}
 ```
 
 ---
@@ -535,6 +642,28 @@ export const PAID_TIERS = [
     // ...
 ];
 ```
+
+---
+
+## 10. 策略变更验证
+
+策略调参要同时证明“参数生效”和“没有破坏公平性”。建议按变更范围选择验证命令：
+
+| 变更范围 | 必跑验证 |
+|----------|----------|
+| stress / spawnTargets / 难度 | `npm test -- tests/adaptiveSpawn.test.js tests/blockSpawn.test.js tests/spawnModel.test.js` |
+| 规则数据或形状数据 | `npm test -- tests/clearRules.test.js tests/shapes.test.js tests/miniprogramCore.test.js` |
+| 商业化策略 | `npm test -- tests/monetization.test.js tests/commercialModel.test.js tests/adFreq.test.js` |
+| 玩家画像或实时策略 | `npm test -- tests/playerProfile.test.js tests/playerAbilityModel.test.js tests/playstyle.test.js` |
+| 提交前完整验证 | `npm test && npm run lint && npm run build` |
+
+人工回归重点：
+
+- 面板中 `stressBreakdown.finalStress` 与 `spawnTargets` 是否符合预期。
+- 高填充、空洞多、连续未消行时是否触发救场，而不是继续加压。
+- 高 skill / bored 场景是否更有挑战，但仍能通过 sequential solvability 和 mobility 护栏。
+- Payoff 阶段是否更容易出现多消/清屏机会，setup 阶段是否避免直接把盘面堵死。
+- Android/iOS 复用 Web 构建产物；小程序若要同步规则数据，先确认同步脚本不会覆盖小程序轻量定制模块。
 
 ---
 

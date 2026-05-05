@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Grid } from '../web/src/grid.js';
 import { getAllShapes } from '../web/src/shapes.js';
-import { generateDockShapes, resetSpawnMemory } from '../web/src/bot/blockSpawn.js';
+import { generateDockShapes, getLastSpawnDiagnostics, resetSpawnMemory } from '../web/src/bot/blockSpawn.js';
 import { getStrategy } from '../web/src/config.js';
 
 const allIds = new Set(getAllShapes().map(s => s.id));
@@ -72,6 +72,30 @@ describe('generateDockShapes', () => {
         };
         const shapes = generateDockShapes(grid, cfg);
         expect(shapes.length).toBe(3);
+    });
+
+    it('records and consumes multi-axis spawnTargets in diagnostics', () => {
+        for (let x = 0; x < 7; x++) grid.cells[0][x] = 0;
+        const cfg = {
+            ...config,
+            spawnHints: {
+                clearGuarantee: 1,
+                spawnTargets: {
+                    shapeComplexity: 0.15,
+                    solutionSpacePressure: 0.1,
+                    clearOpportunity: 0.95,
+                    spatialPressure: 0.1,
+                    payoffIntensity: 0.7,
+                    novelty: 0.8
+                }
+            }
+        };
+
+        const shapes = generateDockShapes(grid, cfg);
+        const diag = getLastSpawnDiagnostics();
+        expect(shapes.length).toBe(3);
+        expect(diag.layer2.spawnTargets.clearOpportunity).toBe(0.95);
+        expect(diag.layer2.spawnTargets.novelty).toBe(0.8);
     });
 
     it('prioritizes direct perfect-clear candidates when available', () => {

@@ -35,7 +35,7 @@ for (const [source, target, comment] of pairs) {
   const body = JSON.stringify(data, null, 2);
   fs.writeFileSync(
     path.join('$DST', target),
-    `/**\\n * \${comment}\\n */\\nmodule.exports = \${body};\\n`
+    '/**\\n * ' + comment + '\\n */\\nmodule.exports = ' + body + ';\\n'
   );
 }
 NODE

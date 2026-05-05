@@ -16,6 +16,7 @@
  *   perfectClearBoost   (0~1)   清屏兑现：有清屏准备时提高可清屏块抽样权重
  *   rhythmPhase         'setup'|'payoff'|'neutral'  节奏相位
  *   targetSolutionRange { min, max, label } | null  解法数量难度区间（v9 新增）
+ *   spawnTargets        object  stress 投影后的多轴目标：复杂度/解空间/消行/空间压力/payoff/新鲜度
  *
  * spawnContext（来自 game.js，跨轮状态）：
  *   lastClearCount  上一轮三连块产生的消行数
@@ -279,6 +280,15 @@ function minPlacementsOf(chosen) {
     return Math.min(...chosen.map((c) => c.placements));
 }
 
+function categoryComplexity(category) {
+    if (category === 'lines') return 0.15;
+    if (category === 'rects' || category === 'squares') return 0.32;
+    if (category === 'tshapes') return 0.68;
+    if (category === 'lshapes' || category === 'jshapes') return 0.78;
+    if (category === 'zshapes') return 0.88;
+    return 0.5;
+}
+
 /* ================================================================== */
 /*  Layer 1: 盘面拓扑分析                                              */
 /* ================================================================== */
@@ -493,6 +503,13 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const delightMode = hints.delightMode ?? 'neutral';
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
     const targetSolutionRange = hints.targetSolutionRange || null;
+    const spawnTargets = hints.spawnTargets || {};
+    const shapeComplexityTarget = Math.max(0, Math.min(1, spawnTargets.shapeComplexity ?? 0.45));
+    const solutionSpacePressure = Math.max(0, Math.min(1, spawnTargets.solutionSpacePressure ?? 0.45));
+    const clearOpportunityTarget = Math.max(0, Math.min(1, spawnTargets.clearOpportunity ?? Math.min(1, clearTarget / 3)));
+    const spatialPressureTarget = Math.max(0, Math.min(1, spawnTargets.spatialPressure ?? Math.max(0, sizePref)));
+    const payoffTarget = Math.max(0, Math.min(1, spawnTargets.payoffIntensity ?? Math.max(multiClearBonus, delightBoost)));
+    const noveltyTarget = Math.max(0, Math.min(1, spawnTargets.novelty ?? divBoost));
     const solutionCfg = getSolutionDifficultyCfg();
 
     const allShapes = getAllShapes();
@@ -576,7 +593,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
             targetSolutionRange
         },
-        layer2: { comboChain, multiClearBonus, multiLineTarget, delightBoost, perfectClearBoost, delightMode, rhythmPhase, divBoost, recentCatFreq: { ...catFreq } },
+        layer2: { comboChain, multiClearBonus, multiLineTarget, delightBoost, perfectClearBoost, delightMode, rhythmPhase, divBoost, spawnTargets: { ...spawnTargets }, recentCatFreq: { ...catFreq } },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,
@@ -599,21 +616,22 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
         // 排序：清屏潜力 > 多消 > combo 加权 > gap 数
         if (hasDirectPerfectClear || pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2) {
-            const mlBoost = 0.35 * multiLineTarget;
+            const mlBoost = 0.35 * multiLineTarget + payoffTarget * 0.25;
             clearCandidates.sort((a, b) => {
                 const aScore = a.pcPotential * (10 + perfectClearBoost * 10)
                     + a.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
-                    + a.gapFills * 0.5;
+                    + a.gapFills * (0.5 + clearOpportunityTarget);
                 const bScore = b.pcPotential * (10 + perfectClearBoost * 10)
                     + b.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
-                    + b.gapFills * 0.5;
+                    + b.gapFills * (0.5 + clearOpportunityTarget);
                 return bScore - aScore;
             });
         }
 
-        const effectiveClearTarget = comboChain > 0.5
-            ? Math.min(3, clearTarget + 1)
-            : clearTarget;
+        const effectiveClearTarget = Math.min(
+            3,
+            clearTarget + (comboChain > 0.5 ? 1 : 0) + (clearOpportunityTarget >= 0.72 ? 1 : 0)
+        );
 
         // 清屏机会（pcSetup=2）或临消行≥4 时：允许 3 个槽全放消行块
         const maxClearSeats = (pcSetup >= 2 || topo.nearFullLines >= 4 || delightBoost > 0.65) ? 3 : 2;
@@ -657,6 +675,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 let w = s.weight;
                 const pc = s.placements;
                 const cells = shapeCellCount(s.shape.data);
+                const complexity = categoryComplexity(s.category);
 
                 /* Layer 1: 机动性保障 — 合法落点越多权重越高 */
                 w *= 1 + Math.log1p(pc) * (0.35 + fill * 0.55);
@@ -681,7 +700,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 /* Layer 1: 多消潜力 — 指数级强化（mc=2 → ×2.0，mc=3 → ×2.7）*/
                 if (s.multiClear >= 1) {
                     // 基础倍率 0.6 + multiClearBonus 最高追加 0.6
-                    const mcBase = 0.6 + multiClearBonus * 0.6 + delightBoost * 0.45;
+                    const mcBase = 0.6 + multiClearBonus * 0.6 + delightBoost * 0.45 + payoffTarget * 0.35;
                     w *= 1 + s.multiClear * mcBase;
                 }
                 /* v10.33：multiLineTarget 显式偏好「同时多线」兑现（与 multiClearBonus 互补） */
@@ -698,7 +717,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
                 /* Layer 1: 临消行机会放大 — 有可消行时消行块价值与临消行数正相关 */
                 if (nearFullFactor > 0 && s.gapFills > 0) {
-                    w *= 1 + nearFullFactor * 2.0;
+                    w *= 1 + nearFullFactor * (2.0 + clearOpportunityTarget);
                 }
                 // 清屏窗口期（nearFullLines≥5）：多消块额外加持
                 if (topo.nearFullLines >= 5 && s.multiClear >= 2) {
@@ -710,13 +729,20 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     w *= 1 + comboChain * 0.8;
                 }
 
+                /* 多轴目标：形状复杂度不再只靠 profile，低目标偏规整，高目标偏异形 */
+                if (shapeComplexityTarget >= 0.55) {
+                    w *= 1 + complexity * (shapeComplexityTarget - 0.5) * 1.1;
+                } else {
+                    w *= 1 + (0.5 - complexity) * (0.55 - shapeComplexityTarget) * 1.1;
+                }
+
                 /* Layer 2: 节奏相位 */
                 if (rhythmPhase === 'payoff') {
                     if (s.gapFills > 0) w *= 1.7;      // 原 1.3 → 更强的 payoff 推送
                     if (s.multiClear >= 2) w *= 1.4;    // 原 1.2 → 多消双重加持
                     if (delightBoost > 0.35 && s.multiClear >= 1) w *= 1 + delightBoost * 0.55;
                 } else if (rhythmPhase === 'setup') {
-                    if (cells >= 4 && cells <= 6 && s.gapFills === 0) w *= 1.2;
+                    if (cells >= 4 && cells <= 6 && s.gapFills === 0) w *= 1.2 + spatialPressureTarget * 0.25;
                 }
                 if (delightMode === 'relief' && s.gapFills > 0 && cells <= 5) {
                     w *= 1.18 + delightBoost * 0.35;
@@ -733,20 +759,28 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     if (cells <= 4) w *= 1.65;
                     else if (cells >= 8) w *= 0.72;
                 }
+                if (spatialPressureTarget > 0.55 && fill < 0.62) {
+                    if (cells >= 6) w *= 1 + (spatialPressureTarget - 0.5) * 0.8;
+                    if (cells <= 3) w *= Math.max(0.55, 1 - (spatialPressureTarget - 0.5) * 0.35);
+                } else if (spatialPressureTarget < 0.35 || fill > 0.62) {
+                    if (cells <= 4) w *= 1 + (0.4 - Math.min(0.4, spatialPressureTarget)) * 0.9;
+                    if (cells >= 8) w *= 0.82;
+                }
 
                 /* Layer 2: 品类多样性（同轮 + 跨轮记忆） */
                 const catPenalty = usedCategories[s.category] || 0;
                 const memPenalty = catFreq[s.category] || 0;
-                if (divBoost > 0 && catPenalty > 0) {
-                    w *= Math.max(0.2, 1 - divBoost * catPenalty);
+                const effectiveDiversity = Math.max(divBoost, noveltyTarget * 0.55);
+                if (effectiveDiversity > 0 && catPenalty > 0) {
+                    w *= Math.max(0.2, 1 - effectiveDiversity * catPenalty);
                 }
                 if (memPenalty > 2) {
-                    w *= Math.max(0.4, 1 - (memPenalty - 2) * 0.12);
+                    w *= Math.max(0.4, 1 - (memPenalty - 2) * (0.12 + noveltyTarget * 0.08));
                 }
 
                 /* clearGuarantee 补足 — 多消块额外加持 */
                 if (clearCount < clearTarget && s.gapFills > 0) {
-                    w *= 1.6;
+                    w *= 1.6 + clearOpportunityTarget * 0.55;
                     if (s.multiClear >= 2) w *= 1.3;    // 多消块优先补入
                 }
 
@@ -821,6 +855,17 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     continue;
                 }
                 if (targetSolutionRange.min != null && sc < targetSolutionRange.min) {
+                    diagnostics.solutionRejects.tooFew++;
+                    continue;
+                }
+            }
+            if (earlyAttempt && !solutionMetrics.truncated) {
+                const sc = solutionMetrics.solutionCount;
+                if (solutionSpacePressure >= 0.78 && !solutionMetrics.capped && sc > 48) {
+                    diagnostics.solutionRejects.tooMany++;
+                    continue;
+                }
+                if (solutionSpacePressure <= 0.22 && solutionMetrics.firstMoveFreedom < 5) {
                     diagnostics.solutionRejects.tooFew++;
                     continue;
                 }

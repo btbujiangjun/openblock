@@ -70,6 +70,70 @@ function interpolateProfileWeights(profiles, stress) {
     return result;
 }
 
+function _signalScale(signalCfg, name) {
+    const spec = signalCfg?.[name];
+    if (spec?.enabled === false) return 0;
+    return Number.isFinite(spec?.scale) ? spec.scale : 1;
+}
+
+function applySignal(signalCfg, name, value) {
+    return value * _signalScale(signalCfg, name);
+}
+
+function deriveBoardRisk(fill, holePressure, abilityRisk) {
+    const fillRisk = Math.max(0, Math.min(1, ((fill ?? 0) - 0.45) / 0.4));
+    return Math.max(0, Math.min(1, fillRisk * 0.45 + holePressure * 0.35 + (abilityRisk ?? 0) * 0.2));
+}
+
+function smoothStress(current, ctx, cfg, immediateRelief) {
+    if (!cfg?.enabled) return current;
+    const prev = Number(ctx?.prevAdaptiveStress);
+    if (!Number.isFinite(prev)) return current;
+    if (immediateRelief && current < prev) return current;
+
+    const alpha = Math.max(0.01, Math.min(1, cfg.alpha ?? 0.35));
+    const maxStepUp = Math.max(0.01, cfg.maxStepUp ?? 0.18);
+    const maxStepDown = Math.max(0.01, cfg.maxStepDown ?? 0.28);
+    const smoothed = prev + (current - prev) * alpha;
+    if (current > prev) return Math.min(current, Math.min(smoothed, prev + maxStepUp));
+    return Math.max(current, Math.max(smoothed, prev - maxStepDown));
+}
+
+function clamp01(v) {
+    return Math.max(0, Math.min(1, v));
+}
+
+function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg = {}) {
+    const stress01 = clamp01((stress + 0.2) / 1.2);
+    const recoveryNeed = profile.needsRecovery || profile.hadRecentNearMiss
+        ? 1
+        : clamp01((profile.frustrationLevel ?? 0) / Math.max(1, cfg.frustrationReliefThreshold ?? 5));
+    const payoffOpportunity = clamp01(
+        ((ctx.nearFullLines ?? 0) / 4)
+        + (ctx.pcSetup ?? 0) * 0.35
+        + Math.max(0, (fill ?? 0) - 0.42)
+    );
+    const skill = clamp01(profile.skillLevel ?? 0.5);
+    const boredHighSkill = profile.flowState === 'bored' ? Math.max(0, skill - 0.5) * 1.4 : 0;
+    const riskRelief = Math.max(boardRisk, recoveryNeed);
+
+    const shapeComplexity = clamp01(stress01 * 0.75 + boredHighSkill * 0.25 - riskRelief * 0.45);
+    const solutionSpacePressure = clamp01(stress01 * 0.7 + shapeComplexity * 0.25 - boardRisk * 0.55 - recoveryNeed * 0.35);
+    const clearOpportunity = clamp01(recoveryNeed * 0.55 + payoffOpportunity * 0.45 + (profile.pacingPhase === 'release' ? 0.12 : 0) - stress01 * 0.18);
+    const spatialPressure = clamp01(stress01 * 0.65 + (fill ?? 0) * 0.25 - boardRisk * 0.5 - recoveryNeed * 0.3);
+    const payoffIntensity = clamp01((delight.multiClearBoost ?? 0) * 0.45 + payoffOpportunity * 0.4 + Math.max(0, profile.momentum ?? 0) * 0.15);
+    const novelty = clamp01((profile.flowState === 'bored' ? 0.45 : 0) + stress01 * 0.25 + (ctx.totalRounds ?? 0) / 80 - recoveryNeed * 0.2);
+
+    return {
+        shapeComplexity,
+        solutionSpacePressure,
+        clearOpportunity,
+        spatialPressure,
+        payoffIntensity,
+        novelty
+    };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Layer 2: combo 链 + 节奏推演                                       */
 /* ------------------------------------------------------------------ */
@@ -331,6 +395,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const eng = cfg.engagement ?? {};
     const pacing = cfg.pacing ?? {};
     const topoCfg = cfg.topologyDifficulty ?? {};
+    const signalCfg = cfg.signals ?? {};
     const base = getStrategy(baseStrategyId);
     const ctx = spawnContext || {};
 
@@ -339,7 +404,6 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const runMods = getRunDifficultyModifiers(runStreak);
     const holes = Math.max(0, Number(ctx.holes ?? 0) || 0);
     const holePressure = Math.max(0, Math.min(1, holes / Math.max(1, topoCfg.holePressureMax ?? 8)));
-    const holeReliefAdjust = holePressure * (topoCfg.holeReliefStress ?? -0.16);
     const ability = buildPlayerAbilityVector(profile, {
         boardFill: _boardFill ?? 0,
         spawnContext: ctx,
@@ -414,6 +478,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const abilityRiskAdjust = ability.confidence >= abilityRiskMinConf && ability.riskLevel >= abilityRiskThreshold
         ? abilityRiskRelief * Math.min(1, (ability.riskLevel - abilityRiskThreshold) / Math.max(0.001, 1 - abilityRiskThreshold))
         : 0;
+    const boardRisk = deriveBoardRisk(_boardFill ?? 0, holePressure, ability.riskLevel ?? 0);
+    const boardRiskReliefAdjust = boardRisk * (topoCfg.boardRiskReliefStress ?? -0.1);
+    const holeReliefAdjust = holePressure * (topoCfg.holeReliefStress ?? -0.16);
 
     /* ---------- 难度偏移：让 easy/normal/hard 显著影响自适应 stress 基线 ---------- */
     const fallbackDifficultyBias = baseStrategyId === 'easy' ? -0.22
@@ -423,22 +490,31 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         : fallbackDifficultyBias;
 
     /* ---------- 综合 stress ---------- */
-    let stress = scoreStress
-        + runMods.stressBonus
-        + difficultyBias
-        + skillAdjust
-        + flowAdjust
-        + pacingAdjust
-        + recoveryAdjust
-        + frustRelief
-        + comboAdjust
-        + nearMissAdjust
-        + feedbackBias
-        + trendAdjust
-        + sessionArcAdjust
-        + holeReliefAdjust
-        + abilityRiskAdjust
-        + delight.stressAdjust;
+    const stressBreakdown = {
+        scoreStress: applySignal(signalCfg, 'scoreStress', scoreStress),
+        runStreakStress: applySignal(signalCfg, 'runStreakStress', runMods.stressBonus),
+        difficultyBias: applySignal(signalCfg, 'difficultyBias', difficultyBias),
+        skillAdjust: applySignal(signalCfg, 'skillAdjust', skillAdjust),
+        flowAdjust: applySignal(signalCfg, 'flowAdjust', flowAdjust),
+        pacingAdjust: applySignal(signalCfg, 'pacingAdjust', pacingAdjust),
+        recoveryAdjust: applySignal(signalCfg, 'recoveryAdjust', recoveryAdjust),
+        frustrationRelief: applySignal(signalCfg, 'frustrationRelief', frustRelief),
+        comboAdjust: applySignal(signalCfg, 'comboAdjust', comboAdjust),
+        nearMissAdjust: applySignal(signalCfg, 'nearMissAdjust', nearMissAdjust),
+        feedbackBias: applySignal(signalCfg, 'feedbackBias', feedbackBias),
+        trendAdjust: applySignal(signalCfg, 'trendAdjust', trendAdjust),
+        sessionArcAdjust: applySignal(signalCfg, 'sessionArcAdjust', sessionArcAdjust),
+        holeReliefAdjust: applySignal(signalCfg, 'holeReliefAdjust', holeReliefAdjust),
+        boardRiskReliefAdjust: applySignal(signalCfg, 'boardRiskReliefAdjust', boardRiskReliefAdjust),
+        abilityRiskAdjust: applySignal(signalCfg, 'abilityRiskAdjust', abilityRiskAdjust),
+        delightStressAdjust: applySignal(signalCfg, 'delightStressAdjust', delight.stressAdjust),
+        boardRisk
+    };
+
+    let stress = Object.entries(stressBreakdown)
+        .filter(([key]) => key !== 'boardRisk')
+        .reduce((sum, [, value]) => sum + value, 0);
+    stressBreakdown.rawStress = stress;
 
     /* ---------- 特殊覆写：新手保护 ---------- */
     const inOnboarding = profile.isInOnboarding;
@@ -462,12 +538,25 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (isBClassChallenge) {
         const challengeBoost = Math.min(0.15, (score / ctx.bestScore - 0.8) * 0.75);
         stress = Math.min(0.85, stress + challengeBoost);
+        stressBreakdown.challengeBoost = challengeBoost;
+    } else {
+        stressBreakdown.challengeBoost = 0;
     }
 
+    stressBreakdown.beforeClamp = stress;
     stress = Math.max(-0.2, Math.min(1, stress));
+    stressBreakdown.afterClamp = stress;
+    const immediateRelief = profile.needsRecovery
+        || profile.hadRecentNearMiss
+        || profile.frustrationLevel >= frustThreshold
+        || boardRisk >= (cfg.stressSmoothing?.immediateReliefBoardRisk ?? 0.72);
+    stress = smoothStress(stress, ctx, cfg.stressSmoothing, immediateRelief);
+    stressBreakdown.afterSmoothing = stress;
     if (!inOnboarding && !profile.needsRecovery && Number.isFinite(difficultyTuning.minStress)) {
         stress = Math.max(stress, difficultyTuning.minStress);
     }
+    stressBreakdown.finalStress = stress;
+    const spawnTargets = deriveSpawnTargets(stress, profile, ctx, _boardFill ?? 0, boardRisk, delight, cfg.spawnTargets ?? {});
 
     /* ---------- 插值 shapeWeights ---------- */
     const shapeWeights = interpolateProfileWeights(cfg.profiles, stress);
@@ -677,6 +766,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             clearGuarantee: Math.max(0, Math.min(3, clearGuarantee)),
             sizePreference: Math.max(-1, Math.min(1, sizePreference)),
             diversityBoost: Math.max(0, Math.min(1, diversityBoost)),
+            spawnTargets,
             comboChain: Math.max(0, Math.min(1, comboChain)),
             multiClearBonus: Math.max(0, Math.min(1, multiClearBonus)),
             multiLineTarget: Math.max(0, Math.min(2, multiLineTarget)),
@@ -715,6 +805,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _perfectClearBoost: delight.perfectClearBoost,
         _targetSolutionRange: targetSolutionRange,
         _abilityVector: ability,
-        _abilityRiskAdjust: abilityRiskAdjust
+        _abilityRiskAdjust: abilityRiskAdjust,
+        _boardRisk: boardRisk,
+        _stressBreakdown: stressBreakdown,
+        _spawnTargets: spawnTargets
     };
 }

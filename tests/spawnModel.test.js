@@ -7,6 +7,7 @@ import { getShapeById } from '../web/src/shapes.js';
 import { validateSpawnTriplet } from '../web/src/bot/blockSpawn.js';
 import {
     buildSpawnModelContext,
+    computeSpawnTargetDifficulty,
     getSpawnMode,
     normalizeSpawnMode,
     predictShapesV3,
@@ -81,6 +82,19 @@ describe('spawnModel mode and V3 context', () => {
         expect(ctx.ability.skillScore).toBeGreaterThanOrEqual(0);
         expect(ctx.targetDifficulty).toBeGreaterThanOrEqual(0);
         expect(ctx.targetDifficulty).toBeLessThanOrEqual(1);
+    });
+
+    it('treats higher adaptive stress as higher model target difficulty unless board risk asks for relief', () => {
+        const profile = makeProfile({ skillLevel: 0.6, frustrationLevel: 0 });
+        const low = computeSpawnTargetDifficulty(profile, { stress: 0.1, fillRatio: 0.35 });
+        const high = computeSpawnTargetDifficulty(profile, { stress: 0.8, fillRatio: 0.35 });
+        const risky = computeSpawnTargetDifficulty(profile, {
+            stress: 0.8,
+            fillRatio: 0.65,
+            stressBreakdown: { boardRisk: 0.9 }
+        });
+        expect(high).toBeGreaterThan(low);
+        expect(risky).toBeLessThan(high);
     });
 
     it('maps unknown history ids to a valid default instead of -1', () => {

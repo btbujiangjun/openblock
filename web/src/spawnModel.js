@@ -177,9 +177,10 @@ export function computeSpawnTargetDifficulty(profile, adaptiveInsight, topology 
     const fill = topology?.fillRatio ?? (adaptiveInsight || {}).fillRatio ?? 0.3;
     const holes = Math.min(1, Math.max(0, Number(topology?.holes ?? 0) || 0) / 10);
     const nearClear = Math.min(1, ((topology?.close1 ?? 0) + (topology?.close2 ?? 0)) / 6);
+    const boardRisk = Math.max(0, Math.min(1, Number(adaptiveInsight?.stressBreakdown?.boardRisk ?? 0) || 0));
     return Math.max(0, Math.min(
         1,
-        0.3 + 0.5 * skill - 0.2 * frustration - 0.15 * stress + 0.1 * fill - 0.08 * holes + 0.06 * nearClear
+        0.3 + 0.5 * skill - 0.2 * frustration + 0.15 * stress + 0.08 * fill - 0.08 * holes - 0.1 * boardRisk + 0.06 * nearClear
     ));
 }
 

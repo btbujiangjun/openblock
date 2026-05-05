@@ -414,6 +414,8 @@ function _buildLiveSnapshotForSeries(game) {
             frustration: ins.frustration,
             sessionPhase: ins.sessionPhase,
             spawnHints: ins.spawnHints ?? null,
+            stressBreakdown: ins.stressBreakdown ?? null,
+            spawnTargets: ins.spawnTargets ?? null,
             shapeWeightsTop: ins.shapeWeightsTop ?? null
         };
     }
@@ -534,6 +536,15 @@ function _buildWhyLines(insight) {
         const fb = insight.feedbackBias;
         const dir = fb > 0 ? '消行好于预期→微加压' : '消行不足→微减压';
         lines.push(`闭环反馈 ${fb > 0 ? '+' : ''}${fb.toFixed(3)}：出块后 4 步${dir}。`);
+    }
+    if (insight.stressBreakdown?.boardRisk != null && insight.stressBreakdown.boardRisk > 0.35) {
+        const br = insight.stressBreakdown.boardRisk;
+        const relief = insight.stressBreakdown.boardRiskReliefAdjust ?? 0;
+        lines.push(`盘面风险 ${br.toFixed(2)}：综合填充、空洞和能力风险，stress 风险救济 ${relief.toFixed(3)}。`);
+    }
+    if (insight.spawnTargets) {
+        const t = insight.spawnTargets;
+        lines.push(`多轴目标：复杂${_pct(t.shapeComplexity)}、解空间压力${_pct(t.solutionSpacePressure)}、消行机会${_pct(t.clearOpportunity)}、payoff${_pct(t.payoffIntensity)}。`);
     }
     if (insight.frustration >= (GAME_RULES.adaptiveSpawn?.engagement?.frustrationThreshold ?? 4)) {
         lines.push('连续多步未消行 → 触发挫败救济（降压 + 消行友好 + 偏小快）。');

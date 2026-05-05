@@ -41,6 +41,57 @@ describe('resolveAdaptiveStrategy', () => {
         }
     });
 
+    it('returns a stress breakdown with named signal contributions', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 4, lifetimePlacements: 80 }), 90, 1, 0.35, {
+            totalRounds: 6,
+            roundsSinceClear: 0,
+            holes: 2
+        });
+        expect(s._stressBreakdown).toBeDefined();
+        expect(typeof s._stressBreakdown.scoreStress).toBe('number');
+        expect(typeof s._stressBreakdown.difficultyBias).toBe('number');
+        expect(typeof s._stressBreakdown.boardRisk).toBe('number');
+        expect(s._stressBreakdown.finalStress).toBeCloseTo(s._adaptiveStress, 6);
+    });
+
+    it('projects stress into multi-axis spawn targets', () => {
+        const relief = resolveAdaptiveStrategy('normal', makeProfile({ consecutiveNonClears: 8 }), 90, 0, 0.65, {
+            totalRounds: 8,
+            holes: 5,
+            nearFullLines: 2
+        });
+        const challenge = resolveAdaptiveStrategy('hard', makeProfile({ smoothSkill: 0.85, lifetimeGames: 6, lifetimePlacements: 100 }), 180, 2, 0.3, {
+            totalRounds: 12,
+            roundsSinceClear: 0,
+            nearFullLines: 0
+        });
+
+        expect(relief.spawnHints.spawnTargets).toBeDefined();
+        expect(challenge.spawnHints.spawnTargets).toBeDefined();
+        expect(relief.spawnHints.spawnTargets.clearOpportunity).toBeGreaterThan(challenge.spawnHints.spawnTargets.clearOpportunity);
+        expect(challenge.spawnHints.spawnTargets.shapeComplexity).toBeGreaterThan(relief.spawnHints.spawnTargets.shapeComplexity);
+        expect(challenge._spawnTargets.solutionSpacePressure).toBeGreaterThanOrEqual(0);
+        expect(challenge._spawnTargets.solutionSpacePressure).toBeLessThanOrEqual(1);
+    });
+
+    it('smooths ordinary stress increases but lets relief drops apply immediately', () => {
+        const p = makeProfile({ lifetimeGames: 4, lifetimePlacements: 80 });
+        const noPrev = resolveAdaptiveStrategy('normal', p, 180, 0, 0.35, { totalRounds: 8 });
+        const smoothed = resolveAdaptiveStrategy('normal', p, 180, 0, 0.35, {
+            totalRounds: 8,
+            prevAdaptiveStress: 0.1
+        });
+        expect(smoothed._adaptiveStress).toBeLessThan(noPrev._adaptiveStress);
+        expect(smoothed._adaptiveStress).toBeLessThanOrEqual(0.28);
+
+        const relief = resolveAdaptiveStrategy('normal', makeProfile({ consecutiveNonClears: 8 }), 180, 0, 0.35, {
+            totalRounds: 8,
+            prevAdaptiveStress: 0.9
+        });
+        expect(relief._adaptiveStress).toBeLessThan(0.9);
+        expect(relief._stressBreakdown.frustrationRelief).toBeLessThan(0);
+    });
+
     it('frustrated player gets lower stress / higher clearGuarantee', () => {
         const calm = resolveAdaptiveStrategy('normal', makeProfile(), 100, 0, 0.4);
         const frustrated = resolveAdaptiveStrategy('normal', makeProfile({ consecutiveNonClears: 8 }), 100, 0, 0.4);

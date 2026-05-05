@@ -1,10 +1,12 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const nodeRequire = createRequire(import.meta.url);
 const cjsCache = new Map();
 
 function resolveCjs(request, basedir = __dirname) {
@@ -18,7 +20,7 @@ function resolveCjs(request, basedir = __dirname) {
 
 function requireCjs(request, basedir = __dirname) {
   const filename = resolveCjs(request, basedir);
-  if (!path.isAbsolute(filename)) return require(filename);
+  if (!path.isAbsolute(filename)) return nodeRequire(filename);
   if (cjsCache.has(filename)) return cjsCache.get(filename).exports;
   if (filename.endsWith('.json')) return JSON.parse(fs.readFileSync(filename, 'utf8'));
 

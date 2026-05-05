@@ -236,6 +236,9 @@ export class Game {
             historicalSkill: layered._historicalSkill,
             abilityVector: layered._abilityVector ?? null,
             abilityRiskAdjust: layered._abilityRiskAdjust ?? 0,
+            boardRisk: layered._boardRisk ?? 0,
+            stressBreakdown: layered._stressBreakdown ? { ...layered._stressBreakdown } : null,
+            spawnTargets: layered._spawnTargets ? { ...layered._spawnTargets } : null,
             sessionArc: layered._sessionArc,
             comboChain: layered._comboChain,
             rhythmPhase: layered._rhythmPhase,
@@ -972,6 +975,7 @@ export class Game {
         this._spawnContext.scoreMilestone = false;
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
+        this._spawnContext.prevAdaptiveStress = layered._adaptiveStress;
 
         const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin());
         const dockColors = pickThreeDockColors(bonusBias);
