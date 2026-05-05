@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">OpenBlock</string>
+    <string name="title_activity_main">OpenBlock</string>
+    <string name="package_name">com.openblock.game</string>
+    <string name="custom_url_scheme">com.openblock.game</string>
+</resources>

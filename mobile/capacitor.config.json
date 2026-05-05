@@ -1,0 +1,15 @@
+{
+  "appId": "com.openblock.game",
+  "appName": "OpenBlock",
+  "webDir": "../dist",
+  "android": {
+    "path": "android"
+  },
+  "ios": {
+    "path": "ios"
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  }
+}

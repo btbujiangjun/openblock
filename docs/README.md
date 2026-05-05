@@ -23,7 +23,7 @@ docs/
 ├── player/            # 玩家画像、面板参数、实时策略、玩法风格
 ├── algorithms/        # 出块、RL、玩家模型、商业化模型等算法手册
 ├── operations/        # 商业化、运营、训练面板、策略定制
-├── platform/          # 微信小程序适配与发布
+├── platform/          # Android / iOS 客户端、小程序适配、发布与四端同步
 └── archive/           # 已归档的历史方案和早期研究
 ```
 
@@ -35,7 +35,7 @@ docs/
 |------|------|------|------|
 | 产品 / 玩法策划 | [领域知识](./domain/DOMAIN_KNOWLEDGE.md) → [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | [难度模式](./product/DIFFICULTY_MODES.md) → [彩蛋与惊喜系统](./product/EASTER_EGGS_AND_DELIGHT.md) → [策略定制指南](./engineering/STRATEGY_GUIDE.md) | 理解当前体验曲线、心流、奖励节奏与玩法可调面 |
 | 算法工程师 | [算法与模型手册](./algorithms/ALGORITHMS_HANDBOOK.md) | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) → [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md) → [RL 手册](./algorithms/ALGORITHMS_RL.md) | 统一符号、公式、模型结构、训练/推理链路 |
-| 架构 / 平台工程师 | [架构文档](../ARCHITECTURE.md) → [技术总览](./engineering/PROJECT.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) → [i18n](./engineering/I18N.md) | 理解模块边界、数据流、扩展接口与跨端同步 |
+| 架构 / 平台工程师 | [架构文档](../ARCHITECTURE.md) → [技术总览](./engineering/PROJECT.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → [Android / iOS 客户端外壳](./platform/MOBILE_CLIENTS.md) → [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) → [i18n](./engineering/I18N.md) | 理解模块边界、数据流、扩展接口与跨端同步 |
 | 运营 / 商业化 | [商业化策略](./operations/MONETIZATION.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [商业运营](./operations/COMMERCIAL_OPERATIONS.md) | 理解当前分群、触发策略、运营面板、实验指标与企业落地项 |
 | 测试 / QA | [测试指南](./engineering/TESTING.md) | [PROJECT.md 测试章节](./engineering/PROJECT.md#测试) → [RL 数值稳定](./algorithms/RL_TRAINING_NUMERICAL_STABILITY.md) → [训练看板趋势](./algorithms/RL_TRAINING_DASHBOARD_TRENDS.md) | 建立功能、算法、回归、数据一致性验证清单 |
 | 开源贡献者 | [README](../README.md) → [贡献指南](../CONTRIBUTING.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → 本页“文档维护规范” | 快速跑起来、找到任务边界、提交可审查改动 |
@@ -116,8 +116,10 @@ docs/
 
 | 文档 | 核心问题 | 适合角色 |
 |------|----------|----------|
+| [Android / iOS 客户端外壳](./platform/MOBILE_CLIENTS.md) | Capacitor WebView 壳、构建同步、真机 API、离线边界 | 架构、平台、测试 |
 | [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) | Web → 小程序同步、适配层、能力边界 | 架构、测试 |
 | [微信发布流程](./platform/WECHAT_RELEASE.md) | 提审、上线、回滚、运维清单 | 运营、测试 |
+| [四端同步契约](./platform/SYNC_CONTRACT.md) | Web / 小程序 / Android / iOS 的规则、构建和 API 对齐 | 架构、平台、测试 |
 | [皮肤目录](./product/SKINS_CATALOG.md) | 皮肤分类、渲染管线、icon 唯一性 | 产品、美术、测试 |
 | [皮肤语义池](./product/SKIN_ICON_SEMANTIC_POOL.md) | emoji 语义、主题映射、唯一性约束 | 产品、美术 |
 | [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) | 音效、触觉、皮肤、奖励、彩蛋系统 | 产品、运营 |
@@ -149,7 +151,7 @@ docs/
 ### 工程框架
 
 - **配置单一来源**：玩法、特征、奖励参数优先查 `shared/game_rules.json`。
-- **跨端同步**：Web 核心逻辑改动后检查 `miniprogram/core/` 副本和同步脚本。
+- **跨端同步**：Web 核心逻辑改动后检查 Android/iOS `dist` 同步、小程序 `miniprogram/core/` 副本和同步脚本。
 - **后端持久化**：会话、行为、分数、回放与训练日志走 Flask + SQLite。
 - **验证闭环**：单元测试、构建、手动体验、指标看板四类证据都要能追溯。
 

@@ -2449,7 +2449,8 @@ _DOC_CATEGORIES = [
     {'name': '外部集成',
      'docs': ['integrations/ADS_IAP_SETUP.md', 'integrations/ENTERPRISE_EXTENSIONS.md']},
     {'name': '平台扩展',
-     'docs': ['platform/WECHAT_MINIPROGRAM.md', 'platform/WECHAT_RELEASE.md', 'platform/SYNC_CONTRACT.md']},
+     'docs': ['platform/MOBILE_CLIENTS.md', 'platform/WECHAT_MINIPROGRAM.md',
+              'platform/WECHAT_RELEASE.md', 'platform/SYNC_CONTRACT.md']},
     {'name': '归档',
      'docs': ['archive/MONETIZATION_OPTIMIZATION.md', 'archive/MONETIZATION_PERSONALIZATION.md']},
 ]
