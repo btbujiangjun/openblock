@@ -47,7 +47,7 @@ export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
         setButtonState(visualBtn, {
             enabled: on,
             onIcon: '✨',
-            offIcon: '◻',
+            offIcon: '✦',
             onLabel: '视觉特效',
             offLabel: '视觉特效',
         });

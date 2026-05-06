@@ -57,7 +57,7 @@ describe('feedbackToggles', () => {
 
         expect(deps.game.renderer.setEffectsEnabled).toHaveBeenCalledWith(false);
         expect(deps.ambient.setEnabled).toHaveBeenCalledWith(false);
-        expect(document.getElementById('visual-effects-toggle').textContent).toBe('◻');
+        expect(document.getElementById('visual-effects-toggle').textContent).toBe('✦');
     });
 
     it('点击视觉按钮会切换特效并持久化', () => {
