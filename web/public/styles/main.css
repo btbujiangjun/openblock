@@ -146,12 +146,14 @@ body.block-drag-active #app {
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    gap: 6px;
     min-width: 0;
     margin-left: 10px;
     padding-left: 14px;
     border-left: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 14%, transparent);
 }
 
+.feedback-toggle-btn,
 .score-theme-quick-cluster > .in-game-menu-btn--toolbar {
     flex-shrink: 0;
     width: 36px;
@@ -168,6 +170,17 @@ body.block-drag-active #app {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
+.feedback-toggle-btn {
+    cursor: pointer;
+    transition: transform 120ms ease, background 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
+}
+
+.feedback-toggle-btn[aria-pressed="false"] {
+    opacity: 0.52;
+    background: rgba(84, 92, 112, 0.70);
+}
+
+.feedback-toggle-btn:hover,
 .score-theme-quick-cluster > .in-game-menu-btn--toolbar:hover {
     background: rgba(32, 38, 54, 0.92);
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);

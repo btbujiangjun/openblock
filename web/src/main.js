@@ -57,6 +57,7 @@ import { initFirstUnlockCelebration } from './effects/firstUnlockCelebration.js'
 import { initExtremeAchievements } from './achievements/extremeAchievements.js';
 import { initSkinSoundPalettes } from './effects/skinSoundPalettes.js';
 import { initSeasonalBorder } from './effects/seasonalBorder.js';
+import { initFeedbackToggles } from './feedbackToggles.js';
 import { initSkinLore } from './lore/skinLore.js';
 import { initBgm } from './effects/bgmStub.js';
 import { initRotationStub } from './playmodes/rotationStub.js';
@@ -155,6 +156,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ambient = createAmbientParticles({ renderer: game.renderer });
     ambient.applySkin(getActiveSkin().id);
     game.renderer.setAmbientLayer(ambient);
+    window.__feedbackToggles = initFeedbackToggles({ game, audioFx, ambient });
 
     /* v10.16: 各类道具与系统接入 game */
     initHintEconomy({ game, audio: audioFx });

@@ -791,8 +791,23 @@ export class Renderer {
         this._doubleWaveRows = [];
         /** 同色/同 icon 整行整列消除：紫金光晕全屏脉冲 0~1 */
         this._bonusMatchFlash = 0;
+        this._effectsEnabled = true;
         // 监听 CSS 尺寸变化，动态保持 canvas 物理像素 = CSS 像素 × DPR
         this._setupPixelPerfectResize();
+    }
+
+    setEffectsEnabled(enabled) {
+        this._effectsEnabled = !!enabled;
+        if (!this._effectsEnabled) {
+            this.clearParticles();
+            this.setShake(0, 0);
+            this.setClearCells([]);
+            this.clearFx();
+        }
+    }
+
+    getEffectsEnabled() {
+        return this._effectsEnabled;
     }
 
     /** 读取当前屏幕 DPR（取整防止非整数倍模糊） */
@@ -956,7 +971,7 @@ export class Renderer {
     }
 
     hasAmbientMotion() {
-        return Boolean(this.fxCtx && this._ambientLayer?.hasActiveMotion?.());
+        return Boolean(this._effectsEnabled && this.fxCtx && this._ambientLayer?.hasActiveMotion?.());
     }
 
     getAmbientFrameIntervalMs() {
@@ -968,6 +983,7 @@ export class Renderer {
      * 粒子状态由 AmbientParticles 自管理；renderer 仅提供 fxCtx 和坐标系信息。
      */
     renderAmbient() {
+        if (!this._effectsEnabled) return;
         if (!this._ambientLayer || !this.fxCtx) return;
         this._ambientLayer.tickAndRender(this.fxCtx, {
             logicalW: this.logicalW,
@@ -978,6 +994,7 @@ export class Renderer {
     }
 
     renderAmbientFxFrame() {
+        if (!this._effectsEnabled) return false;
         if (!this.hasAmbientMotion()) return false;
         this.clearFx();
         this.renderAmbient();
@@ -1395,6 +1412,7 @@ export class Renderer {
 
     /** Perfect Clear 彩虹脉冲特效 */
     triggerPerfectFlash() {
+        if (!this._effectsEnabled) return;
         /*
          * 旧版会绘制全屏径向闪光 + 同心冲击波，在多套皮肤下像一个突兀的大圆圈。
          * Perfect Clear 仍保留粒子爆发；这里不再启用圆形覆盖层。
@@ -1405,6 +1423,7 @@ export class Renderer {
     }
 
     decayPerfectFlash() {
+        if (!this._effectsEnabled) return;
         if (this._perfectFlash && this._perfectFlash > 0) {
             this._perfectFlash *= 0.976;
             if (this._perfectFlash < 0.02) this._perfectFlash = 0;
@@ -1417,22 +1436,26 @@ export class Renderer {
     }
 
     renderPerfectFlash() {
+        if (!this._effectsEnabled) return;
         // 大圆形 Perfect Clear 覆盖层已移除，避免遮挡主题水印和棋盘内容。
     }
 
     /** Double 消除涟漪：沿消除行扩散的水平光波 */
     triggerDoubleWave(clearedRows) {
+        if (!this._effectsEnabled) return;
         this._doubleWave = 1.0;
         this._doubleWaveRows = clearedRows;
     }
 
     decayDoubleWave() {
+        if (!this._effectsEnabled) return;
         if (this._doubleWave <= 0) return;
         this._doubleWave *= 0.96;
         if (this._doubleWave < 0.015) this._doubleWave = 0;
     }
 
     renderDoubleWave() {
+        if (!this._effectsEnabled) return;
         if (this._doubleWave <= 0 || !this._doubleWaveRows.length) return;
         const a = this._doubleWave;
         const spread = (1 - a) * this.logicalW * 0.6;
@@ -1460,17 +1483,20 @@ export class Renderer {
 
     /** 多消时全屏边缘暖光（与 _comboFlash 配合） */
     triggerComboFlash(lineCount) {
+        if (!this._effectsEnabled) return;
         const n = Math.max(3, lineCount);
         this._comboFlash = Math.min(0.95, 0.28 + n * 0.09);
     }
 
     decayComboFlash() {
+        if (!this._effectsEnabled) return;
         if (this._comboFlash <= 0) return;
         this._comboFlash *= 0.94;
         if (this._comboFlash < 0.015) this._comboFlash = 0;
     }
 
     renderComboFlash() {
+        if (!this._effectsEnabled) return;
         if (this._comboFlash <= 0) return;
         const a = this._comboFlash;
         const cx = this.logicalW * 0.5;
@@ -1494,12 +1520,14 @@ export class Renderer {
 
     /** 同色/同 icon 整行整列：全屏紫+金径向脉冲（与粒子叠加） */
     triggerBonusMatchFlash(bonusLineCount = 1) {
+        if (!this._effectsEnabled) return;
         const n = Math.max(1, bonusLineCount);
         // v10.11: 同 icon 全屏光晕起跳更强（0.42→0.55，每多 1 条 +0.18）
         this._bonusMatchFlash = Math.min(1, 0.55 + n * 0.18);
     }
 
     decayBonusMatchFlash() {
+        if (!this._effectsEnabled) return;
         if (!this._bonusMatchFlash || this._bonusMatchFlash <= 0) return;
         // 衰减更慢（0.972→0.980），让光晕在画面停留更久
         this._bonusMatchFlash *= 0.980;
@@ -1507,6 +1535,7 @@ export class Renderer {
     }
 
     renderBonusMatchFlash() {
+        if (!this._effectsEnabled) return;
         if (!this._bonusMatchFlash || this._bonusMatchFlash <= 0) return;
         const a = this._bonusMatchFlash;
         const cx = this.logicalW * 0.5;
@@ -1548,6 +1577,7 @@ export class Renderer {
     }
 
     updateParticles() {
+        if (!this._effectsEnabled) return;
         this._tickColorGushSpawn();
         for (let i = this.particles.length - 1; i >= 0; i--) {
             const p = this.particles[i];
@@ -1568,6 +1598,7 @@ export class Renderer {
     }
 
     renderParticles() {
+        if (!this._effectsEnabled) return;
         // v10.12: 粒子画在 fxCtx 上，可飞溅到盘面外
         const ec = this._effectCtx();
         for (const p of this.particles) {
@@ -1591,12 +1622,18 @@ export class Renderer {
     }
 
     setShake(intensity, duration) {
+        if (!this._effectsEnabled && (intensity || duration)) return;
         this.shakeIntensity = intensity;
         this.shakeDuration = duration;
         this.shakeStart = Date.now();
     }
 
     updateShake() {
+        if (!this._effectsEnabled) {
+            this.shakeOffset = { x: 0, y: 0 };
+            this.shakeDuration = 0;
+            return;
+        }
         if (!this.shakeDuration) {
             this.shakeOffset = { x: 0, y: 0 };
             return;
@@ -1716,6 +1753,7 @@ export class Renderer {
      * 与 beginBonusIconGush 同期：色块沿行/列持续涌出，绘制时由小变大。
      */
     beginBonusColorGush(lineSpecs, durationMs) {
+        if (!this._effectsEnabled) return;
         if (!lineSpecs?.length) return;
         this._colorGushLines = lineSpecs.map(s => ({ bonusLine: s.bonusLine, cssColor: s.cssColor }));
         const now = this._nowMs();
@@ -1756,6 +1794,7 @@ export class Renderer {
      * @param {number} durationMs 与 playClearEffect / UI 一致
      */
     beginBonusIconGush(lineSpecs, durationMs) {
+        if (!this._effectsEnabled) return;
         if (!lineSpecs?.length) return;
         this._iconGushLines = lineSpecs.map(s => ({ bonusLine: s.bonusLine, icon: s.icon }));
         const now = this._nowMs();
@@ -1801,6 +1840,7 @@ export class Renderer {
      * @param {number} [count=24]
      */
     addIconParticles(bonusLine, icon, count = 24) {
+        if (!this._effectsEnabled) return;
         for (let i = 0; i < count; i++) {
             this._pushIconParticle(bonusLine, icon, { strongBurst: false });
         }
@@ -1813,6 +1853,7 @@ export class Renderer {
      * @param {number} [count=24]
      */
     addBonusLineBurst(bonusLine, cssColor, count = 72) {
+        if (!this._effectsEnabled) return;
         const n = this.gridSize;
         const cs = this.cellSize;
         const gold = '#FFD700';
@@ -1893,6 +1934,7 @@ export class Renderer {
     }
 
     updateIconParticles() {
+        if (!this._effectsEnabled) return;
         this._tickIconGushSpawn();
         for (let i = this.iconParticles.length - 1; i >= 0; i--) {
             const p = this.iconParticles[i];
@@ -1907,6 +1949,7 @@ export class Renderer {
     }
 
     renderIconParticles() {
+        if (!this._effectsEnabled) return;
         if (!this.iconParticles.length) return;
         // v10.12: emoji 粒子画在 fxCtx 上，可飞溅到盘面外
         const ctx = this._effectCtx();
@@ -1948,6 +1991,11 @@ export class Renderer {
     }
 
     setClearCells(cells, opts = {}) {
+        if (!this._effectsEnabled && cells?.length) {
+            this.clearCells = [];
+            this._clearCellMode = 'normal';
+            return;
+        }
         this.clearCells = cells || [];
         this._clearCellMode = this.clearCells.length ? (opts.mode || 'normal') : 'normal';
     }
