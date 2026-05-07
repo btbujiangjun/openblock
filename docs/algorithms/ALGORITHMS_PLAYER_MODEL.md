@@ -523,10 +523,17 @@ $$
 ### 7.2 momentum
 
 $$
-\text{momentum} = \text{clamp}\left(\frac{\text{CR}_{\text{后半}} - \text{CR}_{\text{前半}}}{0.3}, -1, 1\right) \cdot \text{sampleConfidence}
+\text{momentum} = \text{clamp}\left(\frac{\text{CR}_{\text{后半}} - \text{CR}_{\text{前半}}}{0.3}, -1, 1\right) \cdot \text{sampleConfidence} \cdot \text{noiseDamping}
 $$
 
-其中 CR = clearRate；`sampleConfidence = clamp((|olderPlaced| + |newerPlaced|) / 12, 0, 1)`。
+其中
+- CR = clearRate（仅统计 `!miss`，自然排除 AFK）；
+- `sampleConfidence = clamp((|olderPlaced| + |newerPlaced|) / 12, 0, 1)`；
+- v1.16：`noiseDamping = clamp(1 - (\text{Var}_\text{older} + \text{Var}_\text{newer}), 0.5, 1)`，
+  其中 $\text{Var}_h = CR_h(1 - CR_h)$ 是伯努利方差。
+
+> **关键：完全基于「消行率」而非「分数增量」**——分数随玩家累计线性增长，
+> 用分数差去算 momentum 会出现"得分稳定上升 ⇒ 动量+1"的伪信号。
 
 #### 0.3 的标度
 
@@ -540,6 +547,20 @@ clearRate 典型 0~0.5。差异 0.3 已是"明显的"——即从 30% 涨到 60%
 2. **样本置信度**：将钳制后的 momentum 再 ×`sampleConfidence`，6 样本时仅 0.5、12 样本时 1.0；窗口写满（默认 15）时行为与旧版本一致。
 
 预期效果：早期局内 momentum 趋于平稳，长会话末期才允许出现 ±1 的强信号；既保留疲劳分支语义，又消除对小样本噪声的过度反应。
+
+#### v1.16：噪声衰减（伯努利方差）
+
+样本置信度只考虑「样本数量」，但当某半区的消行/未消行接近五五开时，一次随机翻转
+就能把 momentum 推到极端。新增噪声衰减 `noiseDamping`：
+
+| 半区 1 (CR) | 半区 2 (CR) | noise = (Var₁ + Var₂)/2 | noiseDamping | 效果 |
+|---|---|---|---|---|
+| 0.0 / 1.0 | 0.0 / 1.0 | 0     | 1.0  | 极端反差，完全保留 momentum |
+| 0.5       | 0.0 / 1.0 | 0.125 | 0.75 | 一半 50/50，衰减 25% |
+| 0.5       | 0.5       | 0.25  | 0.5  | 全部 50/50，衰减到 50%（下限） |
+
+预期效果：玩家"忽消忽不消"的不稳定窗口里，UI 不再误报"动量 +1 上升势头"；只有
+两半都呈现明显趋势（清晰高/低 CR）时才触发强动量信号。
 
 ### 7.3 用途
 
@@ -980,8 +1001,10 @@ $$
 ### 14.7 动量
 
 $$
-\text{momentum} = \text{clamp}\left(\frac{\text{CR}_\text{后} - \text{CR}_\text{前}}{0.3}, -1, 1\right) \cdot \min\!\left(1, \frac{n_\text{older} + n_\text{newer}}{12}\right)
+\text{momentum} = \text{clamp}\left(\frac{\text{CR}_\text{后} - \text{CR}_\text{前}}{0.3}, -1, 1\right) \cdot \min\!\left(1, \frac{n_\text{older} + n_\text{newer}}{12}\right) \cdot \underbrace{\max\!\left(0.5, 1 - \big(\text{Var}_\text{older} + \text{Var}_\text{newer}\big)\right)}_{\text{v1.16 noiseDamping}}
 $$
+
+其中 $\text{Var}_h = CR_h (1 - CR_h)$ 是伯努利方差；`noiseDamping ∈ [0.5, 1]`。
 
 其中 $n_\text{older}$ / $n_\text{newer}$ 为前/后半区的有效 placement 数（v1.13 起每半区要求 ≥3 才参与计算）。
 

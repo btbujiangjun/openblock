@@ -6,9 +6,18 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web:
+    name: Web (lint, test, build)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,15 +26,131 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npm test
+      - name: vitest with coverage
+        run: npx vitest run --coverage
+        env:
+          CI: 'true'
       - run: npm run build
+      - name: Bundle size budget
+        # Fails CI if the main entry chunk exceeds 360 KB (uncompressed).
+        # Enforces the v1.15 code-split target. Bump deliberately when
+        # adding a justified core-path dependency.
+        run: node scripts/check-bundle-size.mjs
+      - name: Upload web coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+  npm-audit:
+    name: npm audit (high+)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      # Surface high-severity issues but don't fail the build until we
+      # have a green baseline; remove `|| true` to enforce.
+      - run: npm audit --omit=dev --audit-level=high || true
 
   python-smoke:
+    name: Python (smoke import)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install root deps
+        run: pip install -r requirements.txt
       - name: Import server + enterprise_extensions
         run: python3 -c "import enterprise_extensions; import server; print('ok')"
+
+  python-services:
+    name: Python services (pytest, pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install services deps
+        run: |
+          pip install -r services/requirements.txt
+          pip install pytest pytest-cov pip-audit
+      - name: pytest (services)
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest services/tests --cov=services --cov-report=xml --cov-report=term
+      - name: pip-audit (high+)
+        # Tracked vulnerabilities can be silenced with --ignore-vuln; we
+        # tolerate failures until a green baseline ships.
+        run: pip-audit -r services/requirements.txt --strict || true
+      - name: Upload python coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  alembic-check:
+    name: Alembic (migration vs models)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: pip }
+      - name: Install services deps
+        run: pip install -r services/requirements.txt
+      - name: Apply migrations to a clean sqlite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DATABASE_URL: "sqlite:///services/_alembic_ci.sqlite"
+        run: alembic -c services/alembic.ini upgrade head
+      - name: Verify autogenerate diff is empty
+        # If autogenerate detects schema drift, the new revision file
+        # contains real `op.*` calls. Empty pass-through revisions (no
+        # actual diff) are deleted before we check.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          DATABASE_URL: "sqlite:///services/_alembic_ci.sqlite"
+        run: |
+          alembic -c services/alembic.ini revision --autogenerate -m "ci-drift-check" || true
+          for f in services/migrations/versions/*ci_drift_check*.py; do
+            if [ -f "$f" ]; then
+              if grep -E "^\s*op\." "$f" > /dev/null; then
+                echo "Alembic detected schema drift; commit the new revision file:"
+                cat "$f"
+                exit 1
+              fi
+              rm "$f"
+            fi
+          done
+          echo "No schema drift."
+
+  docker-compose-config:
+    name: docker compose config (lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose file syntax
+        # Provide stub env values so `${VAR:?}` validation does not block.
+        run: |
+          export POSTGRES_PASSWORD=ci_postgres_password_placeholder_32chars
+          export REDIS_PASSWORD=ci_redis_password_placeholder_32chars
+          export ENCRYPTION_KEY=ci_fake_encryption_key_placeholder_44chars
+          export JWT_SECRET=ci_fake_jwt_secret_placeholder_64chars_long_enough
+          export PAYMENT_SECRET_KEY=ci_payment_secret_placeholder_min32chars
+          docker compose -f services/docker-compose.yml config > /dev/null

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openblock-config
+  namespace: openblock
+data:
+  # Cross-cutting service settings (non-secret)
+  JWT_ISSUER:              "openblock"
+  JWT_AUDIENCE:            "openblock-clients"
+  JWT_ACCESS_TTL:          "3600"
+  JWT_REFRESH_TTL:         "2592000"
+  RATE_LIMIT_BACKEND:      "redis"
+  USE_POSTGRES:            "true"
+  USE_REDIS:               "true"
+  POSTGRES_HOST:           "postgres"
+  POSTGRES_PORT:           "5432"
+  REDIS_HOST:              "redis"
+  REDIS_PORT:              "6379"
+  LOG_LEVEL:               "INFO"
+  DEPLOYMENT_ENV:          "prod"
+  # OpenTelemetry: leave endpoint blank to disable export.
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""

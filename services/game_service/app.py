@@ -7,6 +7,8 @@ import json
 from datetime import datetime
 from flask import Flask, request, jsonify
 from ..common import ServiceConfig, init_redis_manager, get_logger
+from ..common.metrics import init_metrics
+from ..common.tracing import init_tracing
 from .models import GameSession
 
 logger = get_logger(__name__)
@@ -19,6 +21,10 @@ def create_app(config=None):
         config = ServiceConfig.for_service("game")
 
     app.config["SERVICE_CONFIG"] = config
+
+    # v1.15: standard observability hooks. Both no-op without env config.
+    init_metrics(app, service_name="game")
+    init_tracing(app, service_name="game")
 
     redis_manager = None
     if os.getenv("USE_REDIS", "false").lower() == "true":

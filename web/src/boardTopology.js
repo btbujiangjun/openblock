@@ -55,6 +55,87 @@ export function computeCoverableCells(grid, shapes = getAllShapes()) {
     return coverable;
 }
 
+/**
+ * 「近完整行/列」检测的单一来源。
+ *
+ * 行/列只要剩余空格 ≤ `maxEmpty` 即视作「近满」，进一步要求所有空格都能被某个
+ * 合法形状覆盖（避免把一辈子也填不上的死格当作"差几格就消"）。
+ *
+ * 该函数同时被 `analyzeBoardTopology`（topology pill / 自适应 stress）与
+ * `bot/blockSpawn.analyzePerfectClearSetup`（清屏机会评估）复用，避免"近满"在不同
+ * 视图下口径不一致——这是 v1.16 之前 stress 与 multiClearCandidates 走调的根因。
+ *
+ * @param {import('./grid.js').Grid} grid
+ * @param {object} [opts]
+ * @param {number} [opts.maxEmpty=2]            视为「近满」所需的最大空格数
+ * @param {boolean} [opts.requireFillable=true] 是否要求所有空格都可被形状覆盖
+ * @param {boolean[][]} [opts.coverable]        预先计算的可覆盖矩阵（默认现算）
+ * @returns {{
+ *   rows: Array<{ y:number, emptyCount:number, emptyCells: Array<[number,number]> }>,
+ *   cols: Array<{ x:number, emptyCount:number, emptyCells: Array<[number,number]> }>,
+ *   nearFullLines: number,
+ *   close1: number,
+ *   close2: number
+ * }}
+ */
+export function detectNearClears(grid, opts = {}) {
+    if (!grid?.cells?.length) {
+        return { rows: [], cols: [], nearFullLines: 0, close1: 0, close2: 0 };
+    }
+    const n = grid.size;
+    const maxEmpty = Math.max(0, Math.min(n, opts.maxEmpty ?? 2));
+    const requireFillable = opts.requireFillable !== false;
+    const coverable = opts.coverable ?? (requireFillable ? computeCoverableCells(grid) : null);
+
+    /** @type {Array<{ y:number, emptyCount:number, emptyCells: Array<[number,number]> }>} */
+    const rows = [];
+    /** @type {Array<{ x:number, emptyCount:number, emptyCells: Array<[number,number]> }>} */
+    const cols = [];
+    let close1 = 0;
+    let close2 = 0;
+
+    for (let y = 0; y < n; y++) {
+        let filled = 0;
+        const emptyCells = [];
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== null) filled++;
+            else emptyCells.push([y, x]);
+        }
+        const emptyCount = n - filled;
+        if (emptyCount === 0 || emptyCount > maxEmpty) continue;
+        const fillable = !requireFillable
+            || emptyCells.every(([ey, ex]) => coverable?.[ey]?.[ex] === true);
+        if (!fillable) continue;
+        rows.push({ y, emptyCount, emptyCells });
+        if (emptyCount === 1) close1++;
+        else if (emptyCount === 2) close2++;
+    }
+    for (let x = 0; x < n; x++) {
+        let filled = 0;
+        const emptyCells = [];
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) filled++;
+            else emptyCells.push([y, x]);
+        }
+        const emptyCount = n - filled;
+        if (emptyCount === 0 || emptyCount > maxEmpty) continue;
+        const fillable = !requireFillable
+            || emptyCells.every(([ey, ex]) => coverable?.[ey]?.[ex] === true);
+        if (!fillable) continue;
+        cols.push({ x, emptyCount, emptyCells });
+        if (emptyCount === 1) close1++;
+        else if (emptyCount === 2) close2++;
+    }
+
+    return {
+        rows,
+        cols,
+        nearFullLines: rows.length + cols.length,
+        close1,
+        close2
+    };
+}
+
 /** @param {import('./grid.js').Grid} grid */
 export function analyzeBoardTopology(grid) {
     const n = grid.size;
@@ -93,41 +174,10 @@ export function analyzeBoardTopology(grid) {
 
     const maxColHeight = Math.max(...colHeights);
 
-    let nearFullLines = 0;
-    let close1 = 0;
-    let close2 = 0;
-    for (let y = 0; y < n; y++) {
-        let filled = 0;
-        const emptyCells = [];
-        for (let x = 0; x < n; x++) {
-            if (grid.cells[y][x] !== null) filled++;
-            else emptyCells.push([y, x]);
-        }
-        const emptyCount = n - filled;
-        const fillable = emptyCells.length > 0
-            && emptyCells.every(([ey, ex]) => coverable[ey]?.[ex] === true);
-        if (fillable && emptyCount <= 2) {
-            nearFullLines++;
-            if (emptyCount === 1) close1++;
-            else if (emptyCount === 2) close2++;
-        }
-    }
-    for (let x = 0; x < n; x++) {
-        let filled = 0;
-        const emptyCells = [];
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) filled++;
-            else emptyCells.push([y, x]);
-        }
-        const emptyCount = n - filled;
-        const fillable = emptyCells.length > 0
-            && emptyCells.every(([ey, ex]) => coverable[ey]?.[ex] === true);
-        if (fillable && emptyCount <= 2) {
-            nearFullLines++;
-            if (emptyCount === 1) close1++;
-            else if (emptyCount === 2) close2++;
-        }
-    }
+    const nearClears = detectNearClears(grid, { coverable, maxEmpty: 2 });
+    const nearFullLines = nearClears.nearFullLines;
+    const close1 = nearClears.close1;
+    const close2 = nearClears.close2;
 
     let rowTransitions = 0;
     let colTransitions = 0;

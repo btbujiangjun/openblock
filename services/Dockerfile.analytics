@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1.7
+# analytics_service container — see Dockerfile.user for the shared structure.
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY services/requirements.txt /app/services/requirements.txt
+RUN pip install -r /app/services/requirements.txt
+
+COPY services /app/services
+
+RUN groupadd --system app && useradd --system --gid app --home /app --shell /usr/sbin/nologin app \
+ && chown -R app:app /app
+USER app
+
+ENV SERVICE_HOST=0.0.0.0 \
+    SERVICE_PORT=8003 \
+    PYTHONPATH=/app
+
+EXPOSE 8003
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:${SERVICE_PORT}/health || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8003", "--workers", "2", "--timeout", "30", \
+     "services.analytics_service.app:create_app()"]

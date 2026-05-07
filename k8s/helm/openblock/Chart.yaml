@@ -1,0 +1,14 @@
+apiVersion: v2
+name: openblock
+description: OpenBlock casual-game backend (user / game / analytics / monitoring services)
+type: application
+version: 0.1.0
+appVersion: "1.15.0"
+home: https://github.com/openblock/openblock
+icon: https://raw.githubusercontent.com/openblock/openblock/main/web/assets/images/icon-192.svg
+keywords: [game, flask, microservices, casual-game]
+maintainers:
+  - name: OpenBlock Maintainers
+    email: maintainers@openblock.dev
+sources:
+  - https://github.com/openblock/openblock

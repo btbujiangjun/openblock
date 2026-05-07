@@ -1,2 +1,16 @@
+# Root requirements: minimal runtime for `server.py` (Flask + SQLite) +
+# optional security/observability libs that enterprise_extensions and
+# services/* may import. Keep this file slim; service-specific deps live in
+# services/requirements.txt.
+
 flask>=2.0.0
 flask-cors>=3.0.0
+
+# Optional but recommended for production hardening of server.py:
+# enable by `pip install -r requirements.txt`
+argon2-cffi>=23.1.0          # used when enterprise_extensions hashes secrets
+cryptography>=43.0.0         # Fernet / AES-GCM (avoid raw XOR)
+PyJWT>=2.9.0                 # JWT access/refresh tokens
+structlog>=24.4.0            # structured logging
+sentry-sdk[flask]>=2.13.0    # error reporting
+prometheus-client>=0.20.0    # /metrics endpoint

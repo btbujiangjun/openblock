@@ -1,0 +1,72 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+        **Do not file security vulnerabilities here** — see `SECURITY.md` for the private disclosure channel.
+  - type: input
+    id: version
+    attributes:
+      label: Affected version / commit
+      placeholder: "v1.14.0 or commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Web client
+        - Mini-program client
+        - Mobile client
+        - server.py (Flask backend)
+        - services/* microservices
+        - RL training pipeline
+        - Docs
+        - CI / build
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug. Include stack traces / console logs if any.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        - OS:
+        - Browser / Node / Python version:
+        - docker compose version (if applicable):
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: I confirm
+      options:
+        - label: I searched existing issues and didn't find a duplicate
+          required: true
+        - label: This is NOT a security vulnerability (those go to security@openblock.dev)
+          required: true

@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openblock-gateway
+  namespace: openblock
+  annotations:
+    # Replace with your ingress controller's annotations.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  # tls:
+  #   - hosts: [api.openblock.dev]
+  #     secretName: openblock-tls
+  rules:
+    - host: api.openblock.dev
+      http:
+        paths:
+          - { path: /api/auth,         pathType: Prefix, backend: { service: { name: user-service,      port: { number: 8001 } } } }
+          - { path: /api/users,        pathType: Prefix, backend: { service: { name: user-service,      port: { number: 8001 } } } }
+          - { path: /api/games,        pathType: Prefix, backend: { service: { name: game-service,      port: { number: 8002 } } } }
+          - { path: /api/leaderboards, pathType: Prefix, backend: { service: { name: game-service,      port: { number: 8002 } } } }
+          - { path: /api/achievements, pathType: Prefix, backend: { service: { name: game-service,      port: { number: 8002 } } } }
+          - { path: /api/levels,       pathType: Prefix, backend: { service: { name: game-service,      port: { number: 8002 } } } }
+          - { path: /api/analytics,    pathType: Prefix, backend: { service: { name: analytics-service, port: { number: 8003 } } } }
+          - { path: /openapi.json,     pathType: Exact,  backend: { service: { name: user-service,      port: { number: 8001 } } } }
+          - { path: /docs,             pathType: Exact,  backend: { service: { name: user-service,      port: { number: 8001 } } } }

@@ -601,6 +601,27 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     stressBreakdown.beforeClamp = stress;
     stress = Math.max(-0.2, Math.min(1, stress));
     stressBreakdown.afterClamp = stress;
+
+    /* v1.16：占用率衰减（occupancyDamping）
+     * 当盘面填充很低时，scoreStress / runStreakStress 等"分数驱动"信号会把综合 stress
+     * 推到 0.8+，但拟人化压力表此时显示「🥵 高压」与玩家在空盘上的实际体感严重不符。
+     * 这里在 clamp 之后、smoothing 之前对正向 stress 乘一个 [0.4, 1.0] 的缩放因子：
+     *   - fill=0    → ×0.4（最大衰减；空盘只剩底色压力）
+     *   - fill=0.25 → ×0.5
+     *   - fill=0.39 → ×0.78（产线观察到的 stress=0.89 → 0.69，进入 tense 而非 intense）
+     *   - fill≥0.5  → ×1.0（完全不衰减；中高占用以上保留原有信号）
+     * 负向 stress（救济/挫败）不衰减，避免空盘减压被无意撤销。 */
+    let occupancyDamping = 0;
+    if (stress > 0) {
+        const occupancyScale = Math.max(0.4, Math.min(1, (_boardFill ?? 0) / 0.5));
+        if (occupancyScale < 1) {
+            const damped = stress * occupancyScale;
+            occupancyDamping = damped - stress;
+            stress = damped;
+        }
+    }
+    stressBreakdown.occupancyDamping = occupancyDamping;
+    stressBreakdown.afterOccupancy = stress;
     const immediateRelief = profile.needsRecovery
         || profile.hadRecentNearMiss
         || profile.frustrationLevel >= frustThreshold
@@ -794,6 +815,30 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
     }
 
+    /* --- v1.16：AFK 召回（engage 路径） ---
+     * 玩家在窗口内出现 ≥1 次 AFK（>15s 思考），传统做法是「降难度+小块」让 TA 喘息，
+     * 但实际效果常常是连续给出 4 个单格 + 1×3 横条——盘面瞬间清爽，玩家依然提不起兴趣。
+     * 这里改走「显著正反馈 + 可见目标」：
+     *   - 多消鼓励 ≥0.6（提供 1 个能多消的长条）
+     *   - 多线目标 ≥1（让 dock 至少 1 块为 multiClear≥2 的候选）
+     *   - clearGuarantee ≥2（确保至少 2 块能立即兑现）
+     *   - 多样性 ≥0.15（避免重复块进一步劝退）
+     *   - rhythmPhase: neutral → payoff，让 stressMeter / 商业化文案统一切到「收获期」
+     * 仅在 stress 不极高时启用，避免把已经救场状态再"加戏"压垮。 */
+    const afkCount = Math.max(0, Number(profile?.metrics?.afkCount ?? 0) || 0);
+    const afkEngageActive = afkCount >= 1
+        && stress < 0.55
+        && !inOnboarding
+        && !profile.needsRecovery
+        && profile.frustrationLevel < frustThreshold;
+    if (afkEngageActive) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        multiClearBonus = Math.max(multiClearBonus, 0.6);
+        multiLineTarget = Math.max(multiLineTarget, 1);
+        diversityBoost = Math.max(diversityBoost, 0.15);
+        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+    }
+
     /* ---------- 玩家所选难度直接影响 spawnHints ----------
      * 降低 clearGuarantee 只作用于普通状态，不削弱救场、挫败恢复、新手保护和跨局热身。
      */
@@ -824,6 +869,42 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _boardFill ?? 0
     );
 
+    /* ---------- v1.16：spawnIntent — 出块意图的单一对外口径 ----------
+     * 让「压力表叙事 / 商业化策略文案 / 回放标签」读同一个意图字段，避免出现：
+     *   spawn 实际给了 4 个单格（极致泄压），但 stressMeter 仍说「悄悄加点料维持新鲜感」。
+     *
+     * 派生顺序（优先级从高到低）：
+     *   relief    → 玩家有难：frustration/recovery/holeRelief/boardRiskRelief 主导
+     *   engage    → 召回：AFK engage 触发（玩家停顿但状态尚可）
+     *   harvest   → 几何兑现：pcSetup ≥1 或 nearFullLines ≥3（含 friendlyBoardRelief 场景）
+     *   pressure  → 压力期：B 类挑战 / 接近最佳 / 高 stress
+     *   flow      → 心流期：flow_payoff 或节奏 payoff
+     *   maintain  → 默认中性维持
+     *
+     * ⚠ 注意：`friendlyBoardRelief` 是「盘面通透 + 兑现机会」的副产品，不是玩家有难的信号；
+     *   归入 `harvest` 更贴合玩家体感。`relief` 仅由 frustration/recovery/holes/boardRisk 触发。
+     */
+    const playerDistress = (stressBreakdown.recoveryAdjust ?? 0)
+        + (stressBreakdown.frustrationRelief ?? 0)
+        + (stressBreakdown.nearMissAdjust ?? 0)
+        + (stressBreakdown.holeReliefAdjust ?? 0)
+        + (stressBreakdown.boardRiskReliefAdjust ?? 0);
+    let spawnIntent;
+    if (playerDistress < -0.10 || delight.mode === 'relief') {
+        spawnIntent = 'relief';
+    } else if (afkEngageActive) {
+        spawnIntent = 'engage';
+    } else if ((ctx.pcSetup ?? 0) >= 1 || (ctx.nearFullLines ?? 0) >= 3) {
+        spawnIntent = 'harvest';
+    } else if (stressBreakdown.challengeBoost > 0
+        || (delight.mode === 'challenge_payoff' && stress >= 0.55)) {
+        spawnIntent = 'pressure';
+    } else if (delight.mode === 'flow_payoff' || rhythmPhase === 'payoff') {
+        spawnIntent = 'flow';
+    } else {
+        spawnIntent = 'maintain';
+    }
+
     return {
         ...base,
         shapeWeights,
@@ -842,7 +923,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             rhythmPhase,
             sessionArc,
             scoreMilestone: milestoneCheck.hit,
-            targetSolutionRange
+            targetSolutionRange,
+            spawnIntent
         },
         _adaptiveStress: stress,
         _difficultyBias: difficultyBias,
@@ -874,6 +956,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _abilityRiskAdjust: abilityRiskAdjust,
         _boardRisk: boardRisk,
         _stressBreakdown: stressBreakdown,
-        _spawnTargets: spawnTargets
+        _spawnTargets: spawnTargets,
+        _spawnIntent: spawnIntent,
+        _afkEngageActive: afkEngageActive
     };
 }

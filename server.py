@@ -64,7 +64,30 @@ DATABASE = os.environ.get("OPENBLOCK_DB_PATH") or os.environ.get(
 )
 
 app = Flask(__name__)
-CORS(app)
+
+# v1.14: CORS is no longer wide-open. By default we only allow the local
+# Vite dev origin; production deployments MUST set OPENBLOCK_ALLOWED_ORIGINS
+# (comma-separated origin list, e.g. "https://play.example.com,https://m.example.com").
+# Setting it to "*" is allowed but logs a warning so operators are aware.
+_RAW_ORIGINS = os.environ.get(
+    "OPENBLOCK_ALLOWED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+).strip()
+if _RAW_ORIGINS == "*":
+    print(
+        "[CORS] OPENBLOCK_ALLOWED_ORIGINS=*; allowing any origin. "
+        "Set an explicit comma-separated list before going to production.",
+        file=sys.stderr,
+    )
+    CORS(app)
+else:
+    _ALLOWED_ORIGINS = [o.strip() for o in _RAW_ORIGINS.split(",") if o.strip()]
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": _ALLOWED_ORIGINS}},
+        supports_credentials=False,
+        max_age=600,
+    )
 
 import enterprise_extensions  # noqa: E402  — 企业扩展路由与迁移（支付占位、远程配置、合规）
 
@@ -1690,11 +1713,12 @@ def health():
 
 
 def _db_debug_enabled() -> bool:
-    """SQLite 调试 API 默认开启；公网/生产请显式设置 OPENBLOCK_DB_DEBUG=0（或 false/no/off）关闭。"""
+    """SQLite 调试 API 默认 **关闭**（v1.14 改动，原来默认开启不安全）；
+    本地需要时通过 `.env` 显式设 `OPENBLOCK_DB_DEBUG=1`/true/yes/on 开启。"""
     v = os.environ.get("OPENBLOCK_DB_DEBUG", "").strip().lower()
-    if v in ("0", "false", "no", "off"):
-        return False
-    return True
+    if v in ("1", "true", "yes", "on"):
+        return True
+    return False
 
 
 def _json_sql_cell(v):

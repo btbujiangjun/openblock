@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from flask import Flask, request, jsonify
 from ..common import ServiceConfig, init_redis_manager, get_logger
+from ..common.metrics import init_metrics
+from ..common.tracing import init_tracing
 
 logger = get_logger(__name__)
 
@@ -18,6 +20,9 @@ def create_app(config=None):
         config = ServiceConfig.for_service("analytics")
 
     app.config["SERVICE_CONFIG"] = config
+
+    init_metrics(app, service_name="analytics")
+    init_tracing(app, service_name="analytics")
 
     redis_manager = None
     if os.getenv("USE_REDIS", "false").lower() == "true":

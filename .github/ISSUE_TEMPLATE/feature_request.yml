@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a new capability or improvement.
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the user pain point or business goal.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should the feature behave? Include API / UI / CLI examples if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Web client
+        - Mini-program client
+        - Mobile client
+        - server.py (Flask backend)
+        - services/* microservices
+        - RL training pipeline
+        - Monetization
+        - Observability
+        - Docs
+    validations:
+      required: true
+  - type: textarea
+    id: success
+    attributes:
+      label: Success metric
+      description: How will we know this feature is working? (KPIs, A/B test, etc.)

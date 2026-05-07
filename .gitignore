@@ -30,3 +30,6 @@ mobile/ios/Pods/
 mobile/ios/App/Pods/
 mobile/ios/App/App/public/
 mobile/ios/**/*.xcuserdata/
+
+# v1.15: alembic local dev sqlite (CI uses :memory:)
+services/_alembic_dev.sqlite

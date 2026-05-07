@@ -1,59 +1,40 @@
 # Pull Request
 
-## 变更描述
-<!-- 清晰描述这个 PR 做了什么 -->
+## Summary
+<!-- 1-3 sentences. What does this PR do, and why? -->
 
-## 关联 Issue
-<!-- 使用 "Closes #N" 自动关闭 Issue -->
-Closes #
+## Type of change
+- [ ] Bug fix (non-breaking change which fixes an issue)
+- [ ] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] Refactor / chore (no functional change)
+- [ ] Docs only
+- [ ] Security fix
 
-## 变更类型
+## Linked issues
+<!-- Closes #123, Fixes #456 -->
 
-- [ ] Bug 修复（`fix:`）
-- [ ] 新功能（`feat:`）
-- [ ] 重构（`refactor:`）
-- [ ] 文档更新（`docs:`）
-- [ ] 性能优化（`perf:`）
-- [ ] 测试（`test:`）
-- [ ] 构建/工具（`chore:`）
+## Test plan
+- [ ] Unit tests added / updated (web `vitest run`, services `pytest services/tests`)
+- [ ] Manual smoke run (describe steps below)
+- [ ] Linter passes (`npm run lint`)
+- [ ] Build passes (`npm run build`)
 
-## 测试说明
+```text
+<paste exact commands you ran and their results>
+```
 
-- [ ] 已运行 `npm test` 通过
-- [ ] 已运行 `npm run lint` 通过
-- [ ] 手动测试了相关功能
-- [ ] 新增/更新了测试用例
+## Security checklist
+- [ ] No secrets / tokens / private URLs added to git
+- [ ] No credentials hard-coded; new env vars documented in `.env.example` or `.env.services.example`
+- [ ] No new dependency with known high-severity advisories (`npm audit --omit=dev` / `pip-audit`)
+- [ ] If touching `services/security/*`: tests updated; security reviewer requested
 
-**测试步骤**：
-1. 
-2. 
+## Operational impact
+- [ ] No infra change
+- [ ] Schema / migration change (note in `enterprise_extensions.py` or DB notes)
+- [ ] Public API change (note in CHANGELOG)
+- [ ] Container / compose change (note in `docs/operations/DEPLOYMENT.md`)
 
-## 对其他模块的影响
-
-<!-- 这个 PR 是否影响以下模块？（若有影响请说明） -->
-- [ ] 游戏核心逻辑（grid.js/game.js）
-- [ ] 出块引擎（adaptiveSpawn.js）
-- [ ] 商业化层（monetization/*）
-- [ ] 后端 API（server.py）
-- [ ] RL 训练（rl_pytorch/*）
-- [ ] 数据库 Schema（需要迁移说明）
-
-## 文档更新
-
-- [ ] 已更新相关文档（docs/）
-- [ ] 已更新 JSDoc 注释
-- [ ] 无需文档更新
-
-## Breaking Changes
-
-- [ ] 无 Breaking Change
-- [ ] 有 Breaking Change（请描述迁移路径）：
-
-## 截图（如有 UI 变更）
-
-## Checklist
-
-- [ ] 代码遵循项目规范（见 CONTRIBUTING.md）
-- [ ] commit message 遵循 Conventional Commits
-- [ ] 所有新的公开 API 有 JSDoc 注释
-- [ ] 配置参数写入 `game_rules.json` / `.env`，不硬编码
+## Screenshots / recordings
+<!-- For UI changes only. Drag & drop or paste image URLs. -->

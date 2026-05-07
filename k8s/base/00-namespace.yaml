@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openblock
+  labels:
+    app.kubernetes.io/part-of: openblock
+    app.kubernetes.io/managed-by: kubectl

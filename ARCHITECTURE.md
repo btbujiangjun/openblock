@@ -1,6 +1,21 @@
 # OpenBlock 系统架构
 
-> 版本：2026-04-20 | 详细模块文档见 [docs/README.md](docs/README.md)
+> 版本：v1.15（2026-05） | 详细模块文档见 [docs/README.md](docs/README.md)
+>
+> v1.15 可观察性 / 标准化部署 / 性能改造摘要：
+> - **可观察性**：`services/common/{metrics,tracing}.py` 统一接入 Prometheus + OpenTelemetry，所有 4 个服务自动 `/metrics`，OTel Flask/requests/SQLAlchemy 自动埋点
+> - **API 文档化**：user_service 自动生成 OpenAPI 3.0 spec（`/openapi.json`）+ Swagger UI（`/docs`），基于 apispec + marshmallow
+> - **数据层**：SQLAlchemy 2.0 ORM 模型 + Alembic baseline migration + `SqlUserRepository`（`USE_POSTGRES=true` 热切）
+> - **k8s**：`k8s/base/` 8 个 manifest（non-root / read-only-rootfs / cap_drop=ALL / HPA）+ `k8s/helm/openblock/` Helm chart 骨架
+> - **网关**：`services/nginx.conf` 加分级 `limit_req`、安全响应头、`auth_request` 子请求 → `/api/auth/verify`、TLS termination 占位
+> - **Web 性能**：`vite.config.js` `manualChunks` 把首屏主包 500KB → 230KB（-54%），`scripts/check-bundle-size.mjs` 在 CI 强制预算
+>
+> v1.14 安全/部署改造摘要：
+> - 微服务统一 Argon2id 密码哈希、Fernet 加密、JWT 鉴权（access + refresh + 旋转）
+> - `services/security/rate_limit` 抽 Backend 接口，新增 RedisBackend
+> - 4 个服务补齐 Dockerfile（non-root + HEALTHCHECK），compose 全部凭据走 env
+> - `server.py` CORS 收敛白名单；`/api/db-debug/*` 默认关闭
+> - 新增 `docs/operations/SECURITY_HARDENING.md` 与 `docs/operations/DEPLOYMENT.md`
 
 ---
 
@@ -364,6 +379,47 @@ rl_backend.py (可选: /api/rl/*)
   /training_log  /eval_values
 ```
 
+### 微服务（v1.15）
+
+```
+services/
+├── user_service/
+│   ├── app.py             Flask 路由（auto: metrics / tracing / openapi）
+│   ├── openapi.py         apispec + marshmallow + Swagger UI
+│   ├── orm_models.py      SQLAlchemy 2.0 (UserOrm / SessionOrm)
+│   ├── sql_repository.py  SqlUserRepository（PG / SQLite 通用）
+│   └── models.py          Legacy BaseModel（保留兼容）
+├── game_service/        Flask: 游戏会话/排行（含 metrics + tracing）
+├── analytics_service/   Flask: 行为聚合（含 metrics + tracing）
+├── monitoring/          Flask: 自带 /metrics(JSON) + /metrics/prometheus
+├── security/
+│   ├── encryption.py    Fernet（AES-128-CBC + HMAC）；Legacy XOR 仅 decrypt 过渡
+│   ├── password.py      Argon2id（OWASP 默认参数 + needs_rehash）
+│   ├── jwt_tokens.py    JWTManager（HS256，access+refresh，旋转 + 撤销）
+│   ├── payment.py       PaymentVerifier（HMAC，强制 ≥32 chars secret）
+│   └── rate_limit.py    RateLimiter + InMemoryBackend / RedisBackend
+├── common/
+│   ├── config.py        ServiceConfig
+│   ├── logging.py       结构化日志 (structlog)
+│   ├── metrics.py       Prometheus 自动接入（per-app registry）
+│   ├── tracing.py       OpenTelemetry 自动接入（noop default）
+│   ├── orm.py           SQLAlchemy Base + engine 工厂 + session_scope
+│   └── models.py        Legacy BaseModel（兼容）
+├── migrations/          Alembic baseline + env.py
+├── alembic.ini          Alembic 配置（DATABASE_URL 优先）
+├── tests/               pytest 69 测试（encryption / password / jwt / payment / rate_limit / user_service / metrics / tracing / openapi / sql_repository）
+├── Dockerfile.user|game|analytics|monitoring   non-root + HEALTHCHECK
+├── docker-compose.yml   全部凭据走 env，Postgres/Redis 健康探针 + 必填密码
+├── nginx.conf           gateway: limit_req zones / security headers / auth_request 钩子 / TLS 占位
+└── .env.services.example  生产前必须替换的全部 REPLACE_ME_* 模板
+
+k8s/
+├── base/                8 个 manifest（Namespace/ConfigMap/Secret/Deployments/Services/Ingress/HPA）
+└── helm/openblock/      Chart.yaml + values.yaml + templates/（service / ingress / configmap）
+```
+
+> 详见 `docs/operations/SECURITY_HARDENING.md`、`docs/operations/DEPLOYMENT.md`、`docs/operations/OBSERVABILITY.md`、`docs/operations/K8S_DEPLOYMENT.md`、`SECURITY.md`、`CHANGELOG.md`。
+
 ### SQLite 表结构
 
 ```
@@ -496,3 +552,63 @@ realtimeSignals ──────────── fetchPersonaFromServer()
 **优势**：开发者无需真实账号即可测试完整商业化流程；测试套件可直接调用 stub 函数。
 
 **权衡**：stub 与真实 SDK 行为可能有差异，需要在真机上补充测试。
+
+---
+
+### ADR-005: 安全模块 fail-closed（v1.14）
+
+**背景**：v1.13 微服务安全模块普遍提供"默认密钥兜底"（payment 默认 `payment_secret`、加密缺 key 走 XOR、CORS 全开等），上线即裸奔。
+
+**决策**：所有 secret/Key 必须显式提供，缺失/弱值在构造时抛 `*ConfigError`，让 readiness 探针直接失败而不是带病服务。
+
+**优势**：误配置不会进生产；测试套件覆盖全部 fail 分支。
+
+**权衡**：本地开发首次启动需要拷 `.env.services.example` 并填值，门槛轻微上升；通过开发文档 + 模板兜底体验。
+
+---
+
+### ADR-006: JWT + Refresh 旋转替换不可撤销 token（v1.14）
+
+**背景**：v1.13 `user_service` 颁发的是 32 字节随机字符串，无 exp / 无声明 / 无法撤销，且不存储无法吊销。
+
+**决策**：使用 PyJWT（HS256）颁发 access + refresh 双令牌，refresh 每次刷新生成新 jti 并把旧 jti 写入 `RevocationStore`（默认内存，生产可换 Redis）。
+
+**优势**：所有服务可本地校验签名而不必查库；refresh 重放被自动拒绝；具备显式 logout/revoke 能力。
+
+**权衡**：HS256 共享 secret 在多区域分发场景下需轮换；后续可切 RS256（已留 hook）。
+
+---
+
+### ADR-007: 可观察性零代码侵入（v1.15）
+
+**背景**：以往希望服务团队"自己加 metrics、自己加 trace"，结果 90% 的路由没埋点；运维要么没数据要么数据格式不一致。
+
+**决策**：把 Prometheus + OpenTelemetry 抽到 `services/common/{metrics,tracing}.py`，由各服务的 `create_app()` 统一调用 `init_metrics(app, ...)` + `init_tracing(app, ...)`。Prometheus exporter 自动暴露 `/metrics`；OTel 自动埋 Flask + requests + SQLAlchemy；默认 noop（无 OTLP endpoint 不发送，无 multiproc 用 per-app registry），开发零开销。
+
+**优势**：路由零侵入；指标/链路标准化；测试不会因 Prometheus 全局 registry 冲突。
+
+**权衡**：自动埋点产生的标签默认按 endpoint 分组，业务自定义指标仍需通过 `metrics.counter()` 显式声明；无 SLO/Alert 模板（v1.16 补）。
+
+---
+
+### ADR-008: SQLAlchemy 2.0 + Alembic 替换裸 SQL（v1.15）
+
+**背景**：v1.13 `services/common/models.py` 的 `BaseModel.save()` 用字符串拼接 SQL（`INSERT ... ON CONFLICT ... %s`），SQL 注入风险高，schema 演进无版本管理。
+
+**决策**：引入 SQLAlchemy 2.0 ORM（`Base = DeclarativeBase`）+ Alembic 自动生成 + `SqlUserRepository` 与 `_MemoryRepo` 同接口可热切；CI `alembic-check` 强制 model 与 migration 一致。
+
+**优势**：类型安全；schema 演进可审计；测试用 SQLite in-memory 就可覆盖整条路由链。
+
+**权衡**：Legacy `BaseModel` 暂留；分阶段迁移其它服务（game_service / analytics_service 仍是占位实现，v1.16 补 ORM）。
+
+---
+
+### ADR-009: Web bundle 主动分包 + CI 预算（v1.15）
+
+**背景**：单 `index.js` 500 KB（gzip 175 KB），首屏拉取慢，且整个 monetization / RL / 面板代码被同步加载。
+
+**决策**：`vite.config.js` `manualChunks` 将 RL 训练 (`bot/trainer`...)、玩家 meta 系统（monetization + 面板）拆为独立 chunk，主包仅含核心循环；`scripts/check-bundle-size.mjs` 在 CI 强制预算（index ≤ 360KB / meta ≤ 360KB / rl ≤ 100KB）。
+
+**优势**：首屏主包从 500 → 230 KB（-54%）；新依赖不能悄悄进核心路径。
+
+**权衡**：rollup 仍报 `meta -> rl -> meta` 循环（共享 spawn 工具引发），输出正确但无法完全 tree-shake；v1.16 进一步抽 `bot/spawn-shared` 子模块解决。

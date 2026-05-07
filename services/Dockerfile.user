@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1.7
+#
+# user_service container.
+# - Builds from python:3.11-slim
+# - Creates a non-root `app` user
+# - Bakes in a HEALTHCHECK against the /health endpoint
+# - Uses gunicorn with sync workers (Flask app)
+#
+# Build context is repo root so we can `COPY services/`.
+#   docker build -f services/Dockerfile.user -t openblock/user:dev .
+
+FROM python:3.11-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install python deps first to maximize layer cache
+COPY services/requirements.txt /app/services/requirements.txt
+RUN pip install -r /app/services/requirements.txt
+
+# Copy only what the user service actually needs at runtime.
+COPY services /app/services
+
+# Drop privileges before runtime
+RUN groupadd --system app && useradd --system --gid app --home /app --shell /usr/sbin/nologin app \
+ && chown -R app:app /app
+USER app
+
+ENV SERVICE_HOST=0.0.0.0 \
+    SERVICE_PORT=8001 \
+    PYTHONPATH=/app
+
+EXPOSE 8001
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:${SERVICE_PORT}/health || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8001", "--workers", "2", "--timeout", "30", \
+     "services.user_service.app:create_app()"]

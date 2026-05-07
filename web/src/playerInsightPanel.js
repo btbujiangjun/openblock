@@ -113,14 +113,25 @@ const PLAYSTYLE_TOOLTIP = {
     balanced: '均衡型：无明显单一偏好，系统按常规自适应策略投放，不做额外风格调整。',
 };
 
+/** spawnIntent 标签：与 stressMeter.SPAWN_INTENT_NARRATIVE / 商业化文案同源 */
+const SPAWN_INTENT_LABEL = {
+    relief:   '救济',
+    engage:   '召回',
+    pressure: '加压',
+    flow:     '心流',
+    harvest:  '兑现',
+    maintain: '维持',
+};
+
 const SPAWN_TOOLTIP = {
     stress:
         '综合压力（约 −0.2～1）。由分数档、连战、技能、心流、节奏、恢复、挫败、combo、近失、闭环反馈等叠加后钳制，用于在配置的多档形状权重间插值。',
     flowDev:
         '心流偏移 F(t)：挑战与能力匹配的偏离程度；参与无聊/焦虑方向的 stress 微调。',
     feedback:
-        '闭环反馈：每轮新出块后，在若干步放置窗口内统计消行表现，对 stress 做小幅偏移（正≈好于预期可略加压，负≈不及预期减压）。',
+        '闭环反馈（reward bias）：每轮新出块后，在若干步放置窗口内统计消行表现，对 stress 做小幅偏移（正≈好于预期可略加压，负≈不及预期减压）。⚠ 与「近满 N」「多消候选」不同——它衡量的是"近期奖励是否高于预期"，不是"盘面几何上还有几条临消行"。',
     boardFill: '当前棋盘占用率（已占格÷总格），不是开局预填比例 fillRatio。',
+    spawnIntent: '出块意图（spawnIntent）：本轮自适应出块对外的单一口径——relief/engage/pressure/flow/harvest/maintain。压力表叙事、商业化策略文案与回放标签都读这一字段，避免文案与实际出块不一致。',
     clearG:
         '目标保消（1～3）：三连候选中目标至少要有几块具备「落下即可促成消行」的潜力；挫败/恢复/近失/新手等会抬高。',
     sizePref:
@@ -690,10 +701,15 @@ function _render(game) {
         const metricPills = [
             _spawnPill(`压力 ${stressStr}`, SPAWN_TOOLTIP.stress),
             _spawnPill(`F(t) ${fdStr}`, SPAWN_TOOLTIP.flowDev),
-            _spawnPill(`闭环 ${fbStr}`, SPAWN_TOOLTIP.feedback),
+            _spawnPill(`闭环反馈 ${fbStr}`, SPAWN_TOOLTIP.feedback),
             _spawnPill(`占用 ${fillStr}`, SPAWN_TOOLTIP.boardFill)
         ];
         if (h) {
+            const intent = ins?.spawnIntent ?? h.spawnIntent ?? null;
+            if (intent) {
+                const intentLabel = SPAWN_INTENT_LABEL[intent] ?? intent;
+                metricPills.push(_spawnPill(`意图 ${intentLabel}`, SPAWN_TOOLTIP.spawnIntent));
+            }
             metricPills.push(
                 _spawnPill(`目标保消 ${h.clearGuarantee}`, SPAWN_TOOLTIP.clearG),
                 _spawnPill(`尺寸 ${(h.sizePreference ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.sizePref),

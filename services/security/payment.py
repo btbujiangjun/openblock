@@ -11,13 +11,27 @@ from typing import Dict, Optional, Tuple
 from urllib.parse import parse_qs
 
 
+class PaymentConfigError(RuntimeError):
+    """Raised when payment configuration is missing or insecure."""
+
+
 class PaymentVerifier:
-    """Verify payment callback signatures from various providers"""
+    """Verify payment callback signatures from various providers."""
 
     def __init__(self, secret_key: str = None):
-        self.secret_key = secret_key or os.getenv(
-            "PAYMENT_SECRET_KEY", "payment_secret"
-        )
+        # v1.14: never silently fall back to a well-known default; missing
+        # PAYMENT_SECRET_KEY MUST fail closed so a misconfigured deployment
+        # cannot accept attacker-forged callbacks.
+        secret = secret_key or os.getenv("PAYMENT_SECRET_KEY")
+        if not secret:
+            raise PaymentConfigError(
+                "PAYMENT_SECRET_KEY env is required; do not use defaults"
+            )
+        if len(secret) < 32:
+            raise PaymentConfigError(
+                "PAYMENT_SECRET_KEY must be at least 32 chars (256 bits)"
+            )
+        self.secret_key = secret
 
     def verify_hmac(
         self, data: dict, signature: str, provider: str = "custom"

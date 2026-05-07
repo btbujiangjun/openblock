@@ -354,8 +354,21 @@ export class PlayerProfile {
      * 动量：最近表现相对历史的变化趋势 -1(急跌)~0(稳定)~1(上升)
      * 对比滑动窗口前半和后半的 clearRate 差异。
      *
+     * 设计原则：
+     *   - 完全基于「消行率」而非「分数增量」——分数随玩家累计线性增长，
+     *     如果用分数差去算 momentum 会出现"得分稳定上升=动量+1"的伪信号。
+     *   - 排除 miss / AFK 仍由 _recentMoves + filter !miss 处理。
+     *
      * v1.13：增加最小样本阈值 + 样本置信度缩放，避免 2~3 个样本时 momentum 抖到 ±1
      * 与玩家直觉脱节（screenshot 案例：clearRate=0.4 但 momentum=-1）。
+     *
+     * v1.16：增加噪声衰减——当某半区的消行/未消行接近五五开（伯努利方差≈0.25）时，
+     * 一次随机翻转就能把 momentum 推到极端，UI 上玩家会感到"我状态稳定它却显示+1"。
+     * 噪声因子 noise = (var_old + var_new) / 2，最终衰减系数 noiseDamping =
+     * clamp(1 - noise * 2, 0.5, 1)：
+     *   - 两半都很确定（CR≈0 或 CR≈1）→ noise≈0 → noiseDamping≈1 不衰减
+     *   - 一半 50/50 一半确定 → noise≈0.125 → noiseDamping≈0.75
+     *   - 两半都 50/50 → noise≈0.25 → noiseDamping=0.5（最大衰减）
      */
     get momentum() {
         const recent = this._recentMoves();
@@ -374,7 +387,10 @@ export class PlayerProfile {
         const raw = delta / 0.3;
         // 先在 [-1,1] 上钳制，再按置信度缩放：低置信度时 |momentum| 也被收窄
         const clamped = Math.max(-1, Math.min(1, raw));
-        return clamped * sampleConfidence;
+        // v1.16：伯努利方差噪声衰减（见上方说明）
+        const noise = (olderCR * (1 - olderCR) + newerCR * (1 - newerCR)) / 2;
+        const noiseDamping = Math.max(0.5, Math.min(1, 1 - noise * 2));
+        return clamped * sampleConfidence * noiseDamping;
     }
 
     /**

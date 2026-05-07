@@ -70,11 +70,17 @@ export function initCommercialInsight(game) {
 
     // 事件订阅：实时信号更新（出块/未消行）
     on('spawn_blocks', ({ game: g }) => {
-        updateRealtimeSignals(g?.playerProfile ?? game.playerProfile);
+        const target = g ?? game;
+        updateRealtimeSignals(target?.playerProfile ?? game.playerProfile, {
+            spawnIntent: target?._lastAdaptiveInsight?.spawnIntent ?? null,
+        });
         _refreshCommercialSection(game);
     });
     on('no_clear', ({ game: g }) => {
-        updateRealtimeSignals(g?.playerProfile ?? game.playerProfile);
+        const target = g ?? game;
+        updateRealtimeSignals(target?.playerProfile ?? game.playerProfile, {
+            spawnIntent: target?._lastAdaptiveInsight?.spawnIntent ?? null,
+        });
         _refreshCommercialSection(game);
     });
     on('game_over', () => {
@@ -82,7 +88,9 @@ export function initCommercialInsight(game) {
     });
 
     // 初次渲染
-    updateRealtimeSignals(game.playerProfile);
+    updateRealtimeSignals(game.playerProfile, {
+        spawnIntent: game?._lastAdaptiveInsight?.spawnIntent ?? null,
+    });
     _refreshCommercialSection(game);
 }
 
@@ -92,7 +100,11 @@ function _refreshCommercialSection(game) {
     if (!body) return;
 
     // 每次刷新时同步实时信号
-    if (game?.playerProfile) updateRealtimeSignals(game.playerProfile);
+    if (game?.playerProfile) {
+        updateRealtimeSignals(game.playerProfile, {
+            spawnIntent: game?._lastAdaptiveInsight?.spawnIntent ?? null,
+        });
+    }
 
     const insight = getCommercialInsight();
     let commercialModel = null;

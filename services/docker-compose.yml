@@ -1,129 +1,130 @@
-version: '3.8'
+# OpenBlock services compose — v1.14
+#
+# v1.14 hardening:
+#   - All credentials and secrets come from `.env` (copy `.env.services.example`).
+#     No more plaintext `postgres/postgres` baked into git.
+#   - Build context is the repo root so the new `services/Dockerfile.*` can
+#     reach `services/requirements.txt`. (Run from repo root or pass `-f
+#     services/docker-compose.yml`.)
+#   - Each service inherits `services-base` for env defaults. Postgres /
+#     Redis credentials are referenced from the same `.env`.
+#   - Redis now requires a password, set via `REDIS_PASSWORD` in `.env`.
+#
+# Local quick-start:
+#   cp services/.env.services.example .env
+#   # edit .env to set strong values for the SECRET / PASSWORD entries
+#   docker compose -f services/docker-compose.yml up --build
+
+x-services-env: &service-env
+  POSTGRES_HOST: postgres
+  POSTGRES_DB: ${POSTGRES_DB:-openblock}
+  POSTGRES_USER: ${POSTGRES_USER:-openblock}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+  RATE_LIMIT_BACKEND: ${RATE_LIMIT_BACKEND:-redis}
+  USE_POSTGRES: "true"
+  USE_REDIS: "true"
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY required}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+  JWT_ISSUER: ${JWT_ISSUER:-openblock}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-openblock-clients}
+  PAYMENT_SECRET_KEY: ${PAYMENT_SECRET_KEY:?PAYMENT_SECRET_KEY required}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  SERVICE_HOST: 0.0.0.0
 
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: openblock-postgres
     environment:
-      POSTGRES_DB: openblock
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-openblock}
+      POSTGRES_USER: ${POSTGRES_USER:-openblock}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT_PUBLISH:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openblock}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: openblock-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD required}"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT_PUBLISH:-6379}:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # User Service
   user-service:
     build:
-      context: .
-      dockerfile: Dockerfile.user
+      context: ..
+      dockerfile: services/Dockerfile.user
     container_name: openblock-user
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: openblock
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      REDIS_HOST: redis
-      SERVICE_HOST: 0.0.0.0
-      SERVICE_PORT: 8001
-      USE_POSTGRES: "true"
-      USE_REDIS: "true"
+      <<: *service-env
+      SERVICE_PORT: "8001"
     ports:
-      - "8001:8001"
+      - "${USER_PORT:-8001}:8001"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
-  # Game Service
   game-service:
     build:
-      context: .
-      dockerfile: Dockerfile.game
+      context: ..
+      dockerfile: services/Dockerfile.game
     container_name: openblock-game
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: openblock
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      REDIS_HOST: redis
-      SERVICE_HOST: 0.0.0.0
-      SERVICE_PORT: 8002
-      USE_POSTGRES: "true"
-      USE_REDIS: "true"
+      <<: *service-env
+      SERVICE_PORT: "8002"
     ports:
-      - "8002:8002"
+      - "${GAME_PORT:-8002}:8002"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
-  # Analytics Service
   analytics-service:
     build:
-      context: .
-      dockerfile: Dockerfile.analytics
+      context: ..
+      dockerfile: services/Dockerfile.analytics
     container_name: openblock-analytics
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: openblock
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      REDIS_HOST: redis
-      SERVICE_HOST: 0.0.0.0
-      SERVICE_PORT: 8003
-      USE_POSTGRES: "true"
-      USE_REDIS: "true"
+      <<: *service-env
+      SERVICE_PORT: "8003"
     ports:
-      - "8003:8003"
+      - "${ANALYTICS_PORT:-8003}:8003"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
-  # Monitoring Service
   monitoring-service:
     build:
-      context: .
-      dockerfile: Dockerfile.monitoring
+      context: ..
+      dockerfile: services/Dockerfile.monitoring
     container_name: openblock-monitoring
     environment:
-      SERVICE_HOST: 0.0.0.0
-      SERVICE_PORT: 8004
+      <<: *service-env
+      SERVICE_PORT: "8004"
     ports:
-      - "8004:8004"
+      - "${MONITORING_PORT:-8004}:8004"
 
-  # API Gateway (Nginx)
   gateway:
     image: nginx:alpine
     container_name: openblock-gateway
     ports:
-      - "8000:80"
+      - "${GATEWAY_PORT:-8000}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:

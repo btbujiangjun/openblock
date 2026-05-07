@@ -566,29 +566,61 @@
     <script>
       (function() {
         'use strict';
-        if ('serviceWorker' in navigator) {
-          window.addEventListener('load', function() {
-            navigator.serviceWorker.register('./sw.js')
-              .then(function(registration) {
-                console.log('[App] SW registered:', registration.scope);
-                // 检查更新
-                registration.addEventListener('updatefound', function() {
-                  var newWorker = registration.installing;
-                  newWorker.addEventListener('statechange', function() {
-                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                      console.log('[App] New SW available, refreshing...');
-                      if (confirm('有新版本可用，是否刷新?')) {
-                        window.location.reload();
-                      }
-                    }
-                  });
-                });
-              })
-              .catch(function(error) {
-                console.warn('[App] SW registration failed:', error);
+        if (!('serviceWorker' in navigator)) return;
+
+        /* v1.16：dev / 本地预览不要注册 SW。
+         * Vite dev 通过 /src/*.js 把每个源模块独立返回；SW 的 staleWhileRevalidate
+         * 会把这些模块按"静态资源"缓存，导致改完代码后浏览器仍跑旧版本，
+         * 模块间版本错配时还会让 initDeferredPanels 静默失败（如 RL 训练面板"消失"）。
+         * 同时主动反注册已经安装的旧 SW + 清掉旧缓存，避免历史中毒残留。 */
+        var host = location.hostname;
+        var isDev = host === 'localhost'
+          || host === '127.0.0.1'
+          || host === '::1'
+          || /^192\.168\./.test(host)
+          || /^10\./.test(host)
+          || /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+          || location.port === '3000'
+          || location.port === '5173';
+
+        if (isDev) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (reg) {
+              reg.unregister().then(function (ok) {
+                if (ok) console.log('[App] dev: unregistered stale SW', reg.scope);
               });
-          });
+            });
+          }).catch(function () { /* ignore */ });
+          if (window.caches && caches.keys) {
+            caches.keys().then(function (names) {
+              names.forEach(function (n) {
+                if (/^blockblast-/i.test(n)) caches.delete(n);
+              });
+            }).catch(function () { /* ignore */ });
+          }
+          return;
         }
+
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('./sw.js')
+            .then(function(registration) {
+              console.log('[App] SW registered:', registration.scope);
+              registration.addEventListener('updatefound', function() {
+                var newWorker = registration.installing;
+                newWorker.addEventListener('statechange', function() {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    console.log('[App] New SW available, refreshing...');
+                    if (confirm('有新版本可用，是否刷新?')) {
+                      window.location.reload();
+                    }
+                  }
+                });
+              });
+            })
+            .catch(function(error) {
+              console.warn('[App] SW registration failed:', error);
+            });
+        });
       })();
     </script>
 </body>

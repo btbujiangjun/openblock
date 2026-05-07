@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  labels: {{- include "openblock.labels" . | nindent 4 }}
+data:
+  JWT_ISSUER:              {{ .Values.config.jwtIssuer    | quote }}
+  JWT_AUDIENCE:            {{ .Values.config.jwtAudience  | quote }}
+  JWT_ACCESS_TTL:          {{ .Values.config.jwtAccessTtl | quote }}
+  JWT_REFRESH_TTL:         {{ .Values.config.jwtRefreshTtl| quote }}
+  RATE_LIMIT_BACKEND:      {{ .Values.config.rateLimitBackend | quote }}
+  USE_POSTGRES:            {{ .Values.config.usePostgres  | quote }}
+  USE_REDIS:               {{ .Values.config.useRedis     | quote }}
+  POSTGRES_HOST:           {{ .Values.config.postgresHost | quote }}
+  REDIS_HOST:              {{ .Values.config.redisHost    | quote }}
+  LOG_LEVEL:               {{ .Values.config.logLevel     | quote }}
+  DEPLOYMENT_ENV:          {{ .Values.config.deploymentEnv| quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelExporterOtlpEndpoint | quote }}

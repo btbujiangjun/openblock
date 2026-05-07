@@ -320,4 +320,120 @@ describe('resolveAdaptiveStrategy', () => {
         // sampleConfidence = 6/12 = 0.5 → |momentum| ≤ 0.5
         expect(Math.abs(m)).toBeLessThanOrEqual(0.5 + 1e-6);
     });
+
+    /* ============================================================== */
+    /*  v1.16：occupancy 衰减 + spawnIntent + AFK→engage + momentum 噪声   */
+    /* ============================================================== */
+
+    it('v1.16 occupancyDamping：低占用盘面对正向 stress 衰减且记录在 breakdown', () => {
+        const p = makeProfile({ smoothSkill: 0.6, lifetimeGames: 6, lifetimePlacements: 120 });
+        const lowFill = resolveAdaptiveStrategy('normal', p, 1200, 0, 0.20, {
+            totalRounds: 10,
+            bestScore: 1500
+        });
+        const midFill = resolveAdaptiveStrategy('normal', p, 1200, 0, 0.50, {
+            totalRounds: 10,
+            bestScore: 1500
+        });
+        // 低占用必有衰减；中等占用（≥0.5）衰减为 0
+        expect(lowFill._stressBreakdown.occupancyDamping).toBeLessThan(0);
+        expect(midFill._stressBreakdown.occupancyDamping).toBe(0);
+        // 衰减后 stress 严格小于不衰减场景
+        expect(lowFill._adaptiveStress).toBeLessThan(midFill._adaptiveStress);
+        // 衰减系数下限 0.4，stress 不会被吃掉超过 60%
+        expect(lowFill._adaptiveStress).toBeGreaterThanOrEqual(midFill._adaptiveStress * 0.4 - 1e-6);
+    });
+
+    it('v1.16 occupancyDamping：负向 stress（救济）不被衰减', () => {
+        const p = makeProfile({ smoothSkill: 0.5, consecutiveNonClears: 8 });
+        const s = resolveAdaptiveStrategy('normal', p, 50, 0, 0.10);
+        // 救济场景下 stress 应为负，衰减应为 0
+        expect(s._adaptiveStress).toBeLessThan(0);
+        expect(s._stressBreakdown.occupancyDamping).toBe(0);
+    });
+
+    it('v1.16 spawnIntent：分数高 + 兑现机会 → harvest', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const s = resolveAdaptiveStrategy('normal', p, 800, 0, 0.45, {
+            totalRounds: 10,
+            roundsSinceClear: 0,
+            holes: 0,
+            nearFullLines: 4,
+            pcSetup: 1,
+            bestScore: 1500
+        });
+        expect(s._spawnIntent).toBe('harvest');
+        expect(s.spawnHints.spawnIntent).toBe('harvest');
+    });
+
+    it('v1.16 spawnIntent：挫败救济场景 → relief', () => {
+        const p = makeProfile({ consecutiveNonClears: 8 });
+        const s = resolveAdaptiveStrategy('normal', p, 200, 0, 0.40, {
+            totalRounds: 8,
+            roundsSinceClear: 5
+        });
+        expect(s._spawnIntent).toBe('relief');
+    });
+
+    it('v1.16 AFK engage：AFK ≥ 1 时切到 engage 路径并提升保消/多消', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        // 注入 1 次 AFK（thinkMs >= 15s 阈值），其余正常 placement
+        const now = Date.now();
+        p._pushMove({ ts: now - 5000, thinkMs: 17000, cleared: false, lines: 0, fill: 0.3, miss: false });
+        for (let i = 0; i < 5; i++) {
+            p._pushMove({ ts: now - 4000 + i * 100, thinkMs: 1500, cleared: true, lines: 1, fill: 0.3, miss: false });
+        }
+        expect(p.metrics.afkCount).toBeGreaterThanOrEqual(1);
+
+        const calm = resolveAdaptiveStrategy('normal', p, 200, 0, 0.30, { totalRounds: 8 });
+        expect(calm._afkEngageActive).toBe(true);
+        expect(calm._spawnIntent).toBe('engage');
+        expect(calm.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(2);
+        expect(calm.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.6);
+        expect(calm.spawnHints.multiLineTarget).toBeGreaterThanOrEqual(1);
+    });
+
+    it('v1.16 AFK engage：高挫败 / 救济中 不再触发 engage（避免叠戏压垮）', () => {
+        const p = makeProfile({ consecutiveNonClears: 8 });
+        const now = Date.now();
+        p._pushMove({ ts: now - 5000, thinkMs: 17000, cleared: false, lines: 0, fill: 0.3, miss: false });
+        for (let i = 0; i < 5; i++) {
+            p._pushMove({ ts: now - 4000 + i * 100, thinkMs: 1500, cleared: false, lines: 0, fill: 0.3, miss: false });
+        }
+        const s = resolveAdaptiveStrategy('normal', p, 200, 0, 0.30, {
+            totalRounds: 8,
+            roundsSinceClear: 5
+        });
+        // 此处 frustrationLevel 触发救济；engage 优先级让位给 relief
+        expect(s._afkEngageActive).toBe(false);
+        expect(s._spawnIntent).toBe('relief');
+    });
+
+    it('v1.16 momentum 噪声衰减：50/50 半区比纯净半区获得更小动量', () => {
+        const noisy = makeProfile({ smoothSkill: 0.55 });
+        // older 3/3 全消（清晰），newer 3/6 半消半未消（噪声大）
+        for (let i = 0; i < 3; i++) noisy.recordPlace(true, 1, 0.30);
+        for (let i = 0; i < 6; i++) noisy.recordPlace(i % 2 === 0, i % 2 === 0 ? 1 : 0, 0.30);
+
+        const clean = makeProfile({ smoothSkill: 0.55 });
+        // older 3/3 全消，newer 6/6 全未消（无噪声极端反差）
+        for (let i = 0; i < 3; i++) clean.recordPlace(true, 1, 0.30);
+        for (let i = 0; i < 6; i++) clean.recordPlace(false, 0, 0.30);
+
+        // clean 场景 |momentum| 应严格大于 noisy 场景（噪声越大衰减越多）
+        expect(Math.abs(clean.momentum)).toBeGreaterThan(Math.abs(noisy.momentum));
+    });
+
+    it('v1.16 spawnHints.spawnIntent 始终落入合法枚举', () => {
+        const intents = new Set(['relief', 'engage', 'pressure', 'flow', 'harvest', 'maintain']);
+        for (let score = 0; score <= 600; score += 100) {
+            for (let fill = 0.1; fill <= 0.9; fill += 0.2) {
+                const s = resolveAdaptiveStrategy('normal', makeProfile(), score, 0, fill, {
+                    totalRounds: 5,
+                    bestScore: 1000
+                });
+                expect(intents.has(s.spawnHints.spawnIntent)).toBe(true);
+            }
+        }
+    });
 });

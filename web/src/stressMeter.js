@@ -67,7 +67,8 @@ export const SIGNAL_LABELS = {
     delightStressAdjust:   { label: '里程碑',     hint: '接近里程碑时的甜点/挑战微调' },
     challengeBoost:        { label: 'B 类挑战',   hint: '逼近历史最佳分时的额外加压' },
     friendlyBoardRelief:   { label: '友好盘面',   hint: '盘面整洁且有兑现机会时主动减压，让你享受多消爽点' },
-    flowPayoffCap:         { label: '心流上限',   hint: '心流 + 兑现期会把综合压力软封顶，避免「享受多消」与「高压」冲突' }
+    flowPayoffCap:         { label: '心流上限',   hint: '心流 + 兑现期会把综合压力软封顶，避免「享受多消」与「高压」冲突' },
+    occupancyDamping:      { label: '占用衰减',   hint: '盘面占用率 <50% 时按比例衰减正向 stress，避免空盘上 0.89 的伪高压' }
 };
 
 /**
@@ -79,7 +80,7 @@ export function summarizeContributors(breakdown, topN = 5) {
     if (!breakdown || typeof breakdown !== 'object') return [];
     const skip = new Set([
         'boardRisk', 'rawStress', 'beforeClamp', 'afterClamp',
-        'afterSmoothing', 'finalStress',
+        'afterOccupancy', 'afterSmoothing', 'finalStress',
         'flowPayoffCap' // 派生标记，不是独立的加减分量
     ]);
     const entries = Object.entries(breakdown)
@@ -114,8 +115,24 @@ export function computeTrend(history, current, baselineN = 6) {
 }
 
 /**
+ * spawnIntent → 玩家可读叙事的单一映射。
+ *
+ * v1.16：用作 `buildStoryLine` 的最高优先级——只要 `adaptiveSpawn` 给出明确的
+ * `spawnIntent`，叙事文案就直接读它，避免出现「实际给了 4 个单格泄压块、文案却说
+ * 悄悄加点料维持新鲜感」之类的认知冲突。
+ */
+export const SPAWN_INTENT_NARRATIVE = {
+    relief:   '盘面通透又是兑现窗口，悄悄给你减压享受多消。',
+    engage:   '注意到你停顿了一下，给你一个明显得分目标 + 友好开局。',
+    pressure: '正在挑战自我！系统略加压让收尾更有仪式感。',
+    flow:     '心流稳定，节奏进入收获期，准备享受多消快感。',
+    harvest:  '识别到密集消行机会，正在投放促清的形状。',
+    maintain: '看起来比较轻松，悄悄加点料维持新鲜感。'
+};
+
+/**
  * 从 spawnTargets / spawnHints / breakdown 拼一个「一句话叙事」：
- * 优先级：风险救济 > 挫败救济 > 心流方向 > 节奏 > 默认贴当前等级 vibe
+ * 优先级：spawnIntent > 风险救济 > 挫败救济 > 心流方向 > 节奏 > 默认贴当前等级 vibe
  */
 export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
     if (!breakdown) return level.vibe;
@@ -126,6 +143,13 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
     const challenge = breakdown.challengeBoost ?? 0;
     const combo = breakdown.comboAdjust ?? 0;
     const friendly = breakdown.friendlyBoardRelief ?? 0;
+
+    /* v1.16：spawnIntent 是出块意图的唯一对外口径。优先级最高，只在板面风险极高
+     * 或挫败救济强烈时被覆盖，让"系统真在保活"这类硬信号仍能优先抢占叙事位。 */
+    if (br < 0.6 && frust > -0.08 && recovery > -0.08) {
+        const narrative = spawnHints?.spawnIntent && SPAWN_INTENT_NARRATIVE[spawnHints.spawnIntent];
+        if (narrative) return narrative;
+    }
 
     if (br >= 0.6) return '盘面很紧张，系统正在为你保活，候选块更易消行。';
     if (frust < -0.05) return '检测到挫败感偏高，正在主动减压并送出可消块。';

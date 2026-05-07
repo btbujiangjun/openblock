@@ -1,0 +1,46 @@
+# Python dependencies for the microservice skeleton under services/.
+# Pin versions to ensure reproducible builds. Bump via Dependabot/Renovate
+# in CI rather than hand-editing here.
+
+# Web framework + WSGI server
+flask==3.0.3
+flask-cors==4.0.1
+gunicorn==22.0.0
+
+# Database & cache
+SQLAlchemy==2.0.31
+alembic==1.13.2
+psycopg2-binary==2.9.9
+redis==5.0.7
+
+# Security
+argon2-cffi==23.1.0          # password hashing (replaces sha256)
+cryptography==43.0.0         # Fernet / AES-GCM (replaces XOR encryption)
+PyJWT==2.9.0                 # JWT access/refresh tokens
+itsdangerous==2.2.0          # secure signing helpers (cookies, internal tokens)
+
+# Configuration
+pydantic==2.8.2
+pydantic-settings==2.4.0
+python-dotenv==1.0.1
+
+# Observability
+structlog==24.4.0
+python-json-logger==2.0.7
+prometheus-client==0.20.0
+prometheus-flask-exporter==0.23.1
+sentry-sdk[flask]==2.13.0
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+opentelemetry-instrumentation-flask==0.48b0
+opentelemetry-instrumentation-requests==0.48b0
+opentelemetry-instrumentation-sqlalchemy==0.48b0
+opentelemetry-exporter-otlp-proto-http==1.27.0
+
+# API documentation
+apispec==6.6.1
+apispec-webframeworks==1.2.0
+marshmallow==3.22.0
+
+# HTTP client (service-to-service)
+httpx==0.27.0

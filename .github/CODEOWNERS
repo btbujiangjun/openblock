@@ -1,0 +1,40 @@
+# CODEOWNERS — auto-request reviews from listed owners.
+# Order matters; the LAST matching pattern wins for a given path.
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ---------- Default owners (everything not matched below) ----------
+*                                @openblock/maintainers
+
+# ---------- Web client ----------
+/web/                            @openblock/web-team
+/web/src/monetization/           @openblock/monetization @openblock/web-team
+/web/src/bot/                    @openblock/rl-team @openblock/web-team
+
+# ---------- Backend / services ----------
+/server.py                       @openblock/backend
+/enterprise_extensions.py        @openblock/backend @openblock/monetization
+/services/                       @openblock/backend
+/services/security/              @openblock/security @openblock/backend
+/services/Dockerfile.*           @openblock/security @openblock/devops
+/services/docker-compose.yml     @openblock/devops @openblock/security
+
+# ---------- ML / RL ----------
+/scripts/train_*                 @openblock/rl-team
+/scripts/rl_*                    @openblock/rl-team
+/server_rl.py                    @openblock/rl-team
+/models/                         @openblock/rl-team
+
+# ---------- Mini-program / mobile clients ----------
+/miniprogram/                    @openblock/miniprogram
+/mobile/                         @openblock/mobile
+
+# ---------- Docs ----------
+/docs/algorithms/                @openblock/rl-team @openblock/monetization
+/docs/operations/                @openblock/devops @openblock/security
+/docs/                           @openblock/maintainers
+
+# ---------- CI / governance ----------
+/.github/                        @openblock/devops @openblock/maintainers
+/SECURITY.md                     @openblock/security @openblock/maintainers
+/CHANGELOG.md                    @openblock/maintainers
+/CODE_OF_CONDUCT.md              @openblock/maintainers

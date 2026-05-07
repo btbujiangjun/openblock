@@ -1,0 +1,86 @@
+#
+# Default values. Override per-environment via -f values-prod.yaml etc.
+#
+
+global:
+  imageRegistry: ghcr.io/openblock
+  imageTag: "1.15.0"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+config:
+  jwtIssuer: openblock
+  jwtAudience: openblock-clients
+  jwtAccessTtl: "3600"
+  jwtRefreshTtl: "2592000"
+  rateLimitBackend: redis
+  usePostgres: "true"
+  useRedis: "true"
+  postgresHost: postgres
+  redisHost: redis
+  logLevel: INFO
+  deploymentEnv: prod
+  otelExporterOtlpEndpoint: ""
+
+# Secrets must be provided externally (External Secrets / SealedSecrets / sops).
+# This block only declares the secret name to mount.
+secret:
+  externalName: openblock-secrets
+
+services:
+  user:
+    enabled: true
+    replicas: 2
+    image: user
+    port: 8001
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+
+  game:
+    enabled: true
+    replicas: 2
+    image: game
+    port: 8002
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits:   { cpu: 500m, memory: 512Mi }
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 20
+      targetCPUUtilizationPercentage: 70
+
+  analytics:
+    enabled: true
+    replicas: 1
+    image: analytics
+    port: 8003
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits:   { cpu: "1",  memory: 1Gi }
+    autoscaling: { enabled: false }
+
+  monitoring:
+    enabled: true
+    replicas: 1
+    image: monitoring
+    port: 8004
+    metricsPath: /metrics/prometheus
+    resources:
+      requests: { cpu: 50m,  memory: 64Mi }
+      limits:   { cpu: 200m, memory: 256Mi }
+    autoscaling: { enabled: false }
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.openblock.dev
+  tls:
+    enabled: false
+    secretName: openblock-tls

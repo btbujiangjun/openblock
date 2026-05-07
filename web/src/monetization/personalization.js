@@ -118,9 +118,14 @@ export async function fetchPersonaFromServer(userId, force = false) {
 
 /**
  * 用 PlayerProfile 实时信号更新 realtimeSignals（每次出块后调用）。
+ *
+ * v1.16 起接收 `extras.spawnIntent`：让商业化策略文案与出块意图同源（避免出现
+ * 出块给的是 4 个单格 relief 块、而文案仍说"悄悄加点料维持新鲜感"的认知冲突）。
+ *
  * @param {import('../playerProfile.js').PlayerProfile} profile
+ * @param {{ spawnIntent?: string|null }} [extras]
  */
-export function updateRealtimeSignals(profile) {
+export function updateRealtimeSignals(profile, extras = {}) {
     if (!profile) return;
     _state.realtimeSignals = {
         frustration:   profile.frustrationLevel,
@@ -133,6 +138,7 @@ export function updateRealtimeSignals(profile) {
         segment5:      profile.segment5,
         confidence:    profile.confidence,
         skillLabel:    _skillLabel(profile.skillLevel),
+        spawnIntent:   extras.spawnIntent ?? _state.realtimeSignals?.spawnIntent ?? null,
     };
 }
 

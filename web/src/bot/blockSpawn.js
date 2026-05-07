@@ -34,7 +34,7 @@
 
 import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights } from '../shapes.js';
 import { GAME_RULES } from '../gameRules.js';
-import { analyzeBoardTopology } from '../boardTopology.js';
+import { analyzeBoardTopology, detectNearClears } from '../boardTopology.js';
 
 const MAX_SPAWN_ATTEMPTS = 22;
 const FILL_SURVIVABILITY_ON = 0.52;
@@ -342,19 +342,15 @@ function bestMultiClearPotential(grid, shapeData) {
  */
 function analyzePerfectClearSetup(grid) {
     const n = grid.size;
-    const nearFullRows = [];
-    const nearFullCols = [];
-
-    for (let y = 0; y < n; y++) {
-        let filled = 0;
-        for (let x = 0; x < n; x++) if (grid.cells[y][x] !== null) filled++;
-        if (filled >= n - 2 && filled > 0) nearFullRows.push({ y, empty: n - filled });
-    }
-    for (let x = 0; x < n; x++) {
-        let filled = 0;
-        for (let y = 0; y < n; y++) if (grid.cells[y][x] !== null) filled++;
-        if (filled >= n - 2 && filled > 0) nearFullCols.push({ x, empty: n - filled });
-    }
+    /* v1.16：与 boardTopology.detectNearClears 共用近满检测，避免 panel 上的
+     * 「近满 N」与 spawnContext 里的 pcSetup / multiClearCandidates 因为口径不同
+     * 而互相打架（这是 v1.15 之前出现 stress=0.89 + 多消候选=0 + 闭环=+0.190
+     * 三者互相矛盾的根因）。requireFillable=false：清屏机会评估关心几何形状是否
+     * 接近补满，无需限定空格必须被合法形状覆盖（后续 bestPerfectClearPotential
+     * 会再做精确校验）。 */
+    const nearClears = detectNearClears(grid, { maxEmpty: 2, requireFillable: false });
+    const nearFullRows = nearClears.rows.map((r) => ({ y: r.y, empty: r.emptyCount }));
+    const nearFullCols = nearClears.cols.map((c) => ({ x: c.x, empty: c.emptyCount }));
 
     if (nearFullRows.length === 0 && nearFullCols.length === 0) return 0;
 

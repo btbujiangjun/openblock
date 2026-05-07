@@ -16,10 +16,17 @@ from .anomaly import (
     create_default_detectors,
 )
 from .alerting import create_alert
+from ..common.tracing import init_tracing
 
 
 def create_app():
     app = Flask(__name__)
+
+    # v1.15: monitoring already exposes its own /metrics (JSON) and
+    # /metrics/prometheus, so we deliberately skip init_metrics here to
+    # avoid the route collision; tracing is still useful for cross-service
+    # span propagation when the monitoring service calls others.
+    init_tracing(app, service_name="monitoring")
 
     detectors = create_default_detectors()
     alert_manager = get_alert_manager()

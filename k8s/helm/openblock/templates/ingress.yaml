@@ -1,0 +1,31 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-gateway
+  labels: {{- include "openblock.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts: [ {{ .Values.ingress.host }} ]
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - { path: /api/auth,         pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-user,      port: { number: {{ .Values.services.user.port }} } } } }
+          - { path: /api/users,        pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-user,      port: { number: {{ .Values.services.user.port }} } } } }
+          - { path: /api/games,        pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-game,      port: { number: {{ .Values.services.game.port }} } } } }
+          - { path: /api/leaderboards, pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-game,      port: { number: {{ .Values.services.game.port }} } } } }
+          - { path: /api/achievements, pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-game,      port: { number: {{ .Values.services.game.port }} } } } }
+          - { path: /api/levels,       pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-game,      port: { number: {{ .Values.services.game.port }} } } } }
+          - { path: /api/analytics,    pathType: Prefix, backend: { service: { name: {{ .Release.Name }}-analytics, port: { number: {{ .Values.services.analytics.port }} } } } }
+          - { path: /openapi.json,     pathType: Exact,  backend: { service: { name: {{ .Release.Name }}-user,      port: { number: {{ .Values.services.user.port }} } } } }
+          - { path: /docs,             pathType: Exact,  backend: { service: { name: {{ .Release.Name }}-user,      port: { number: {{ .Values.services.user.port }} } } } }
+{{- end }}

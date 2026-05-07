@@ -246,7 +246,9 @@ export class Game {
             spawnHints: layered.spawnHints ? { ...layered.spawnHints } : null,
             spawnDiagnostics: getLastSpawnDiagnostics(),
             fillRatio: layered.fillRatio,
-            shapeWeightsTop: _topShapeWeightEntries(layered.shapeWeights, 5)
+            shapeWeightsTop: _topShapeWeightEntries(layered.shapeWeights, 5),
+            spawnIntent: layered._spawnIntent ?? layered.spawnHints?.spawnIntent ?? null,
+            afkEngageActive: layered._afkEngageActive === true
         };
         const m = p.metrics;
         this._lastAdaptiveInsight.profileAtSpawn = {

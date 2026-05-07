@@ -257,6 +257,30 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 > - 新增 `friendlyBoardRelief`：盘面 holes=0、临消行/多消候选/清屏机会充沛、节奏处于 payoff 时直接注入减压，让拟人化压力表与玩家直觉同向。
 > - 新增 `flowPayoffStressCap`：心流 + 兑现期 + 安全盘面时把综合 stress 软封顶到 tense 区上沿，避免「享受多消」与「🥵 高压」并列的认知冲突。
 > - `playerProfile.momentum` 增加最小样本阈值（每半区 ≥3）+ 样本置信度缩放（总样本接近 12 时为 1，否则线性收窄），缓解 6 个样本时 ±1 抖动。
+>
+> **v1.16 修订要点（压力策略一致性）**
+> - **`occupancyDamping`**：在 clamp 之后、smoothing 之前对正向 stress 乘
+>   `clamp(boardFill / 0.5, 0.4, 1.0)`。低占用盘面（fill=0.39）的伪高压由 0.89 →
+>   ~0.69（进入 `tense` 而非 `intense`），盘面整洁时拟人化压力表不再爆表。
+>   负向 stress（救济）不被衰减，避免空盘减压被无意撤销。
+> - **`spawnHints.spawnIntent` 枚举**：`relief / engage / pressure / flow / harvest /
+>   maintain` —— 出块意图的单一对外口径。`stressMeter.buildStoryLine`、
+>   `monetization/personalization` 与回放标签都读这一字段，避免「实际给了 4 个单
+>   格泄压块」却让叙事说「悄悄加点料维持新鲜感」的认知冲突。优先级如下：
+>     1. `relief` — `recoveryAdjust + frustrationRelief + nearMissAdjust + holeReliefAdjust + boardRiskReliefAdjust < -0.10`，或 `delight.mode === 'relief'`
+>     2. `engage` — AFK ≥1 且 stress<0.55 且无救济触发
+>     3. `harvest` — `pcSetup ≥1` 或 `nearFullLines ≥3`
+>     4. `pressure` — `challengeBoost > 0` 或（`challenge_payoff` 且 stress≥0.55）
+>     5. `flow` — `flow_payoff` 或节奏 `payoff`
+>     6. `maintain` — 默认中性
+> - **AFK 召回（engage 路径）**：当 `profile.metrics.afkCount ≥ 1` 且未触发救济时，
+>   `clearGuarantee≥2 / multiClearBonus≥0.6 / multiLineTarget≥1 /
+>   diversityBoost≥0.15`，rhythmPhase 由 `neutral` 切到 `payoff`。
+>   设计意图：玩家停顿后给「显著正反馈 + 可见目标」（一根长条 + 多消机会），
+>   而非旧版的「连续 4 个单格」纯泄压（玩家会觉得"什么都没发生"）。
+> - **`boardTopology.detectNearClears`**：抽出「近完整行/列」的单一来源，
+>   `analyzeBoardTopology`（panel 上的「近满 N」）与 `bot/blockSpawn.analyzePerfectClearSetup`
+>   （清屏机会评估 `pcSetup`）同源，杜绝同盘面下两侧给出不同近满计数。
 
 ### 4.2 10 档 profile 插值
 
@@ -288,9 +312,17 @@ if stress ∈ [a, b]:
     holePressure: implicit,       // 来自 spawnContext.holes 的拓扑压力
     delightMode: string,          // challenge_payoff / flow_payoff / relief / neutral
     rhythmPhase: 'tension'|'release',
-    milestoneEcho: 'pre'|'post'|null
+    milestoneEcho: 'pre'|'post'|null,
+    spawnIntent: 'relief'|'engage'|'pressure'|'flow'|'harvest'|'maintain'  // v1.16：意图单一口径
 }
 ```
+
+> **v1.16 — `spawnIntent`**：所有"意图描述"统一读这一字段。
+> - `playerInsightPanel` 直接以「意图 X」pill 展示当前 spawnIntent。
+> - `stressMeter.buildStoryLine` 优先用 `SPAWN_INTENT_NARRATIVE[spawnIntent]`
+>   作为叙事文案，仅在 `boardRisk≥0.6` 或挫败/恢复主导时被覆盖。
+> - `monetization/personalization.updateRealtimeSignals(profile, { spawnIntent })`
+>   把意图带入商业化策略，回放标签同源。
 
 ### 4.4 爽感兑现层（v3.3）
 

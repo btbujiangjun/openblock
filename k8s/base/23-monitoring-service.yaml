@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-service
+  namespace: openblock
+  labels:
+    app.kubernetes.io/name: monitoring-service
+    app.kubernetes.io/part-of: openblock
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: monitoring-service }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: monitoring-service
+        app.kubernetes.io/part-of: openblock
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+        prometheus.io/path: "/metrics/prometheus"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: ghcr.io/openblock/monitoring:1.15.0
+          ports:
+            - { name: http, containerPort: 8004 }
+          envFrom:
+            - configMapRef: { name: openblock-config }
+            - secretRef:    { name: openblock-secrets }
+          env:
+            - { name: SERVICE_PORT,     value: "8004" }
+            - { name: OTEL_SERVICE_NAME, value: "openblock-monitoring" }
+          resources:
+            requests: { cpu: "50m",  memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "256Mi" }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts: [ { name: tmp, mountPath: /tmp } ]
+      volumes: [ { name: tmp, emptyDir: {} } ]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-service
+  namespace: openblock
+spec:
+  selector: { app.kubernetes.io/name: monitoring-service }
+  ports:
+    - { name: http, port: 8004, targetPort: http }
