@@ -20,7 +20,7 @@ PyJWT==2.9.0                 # JWT access/refresh tokens
 itsdangerous==2.2.0          # secure signing helpers (cookies, internal tokens)
 
 # Configuration
-pydantic==2.8.2
+pydantic==2.13.4
 pydantic-settings==2.4.0
 python-dotenv==1.0.1
 
