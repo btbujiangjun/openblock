@@ -9,7 +9,7 @@
 # Build context is repo root so we can `COPY services/`.
 #   docker build -f services/Dockerfile.user -t openblock/user:dev .
 
-FROM python:3.11-slim AS base
+FROM python:3.14-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
