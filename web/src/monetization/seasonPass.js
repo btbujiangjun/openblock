@@ -11,24 +11,31 @@
 import { getFlag } from './featureFlags.js';
 import { on, emit } from './MonetizationBus.js';
 import { isPurchased } from './iapAdapter.js';
+import { getWallet } from '../skills/wallet.js';
 
 const STORAGE_KEY = 'openblock_mon_season_v1';
 const SEASON_DURATION_MS = 30 * 86400_000;
 
-/** 免费轨道奖励 tiers（seasonXp 达到 tier.xp 时触发） */
+/* v1.13：免费轨道奖励 tiers ——
+ * 之前 reward 只是 desc/icon 文案，tier 标记 claimed 但**从未真正发任何东西到钱包**。
+ * 现在给每个 tier 加 `wallet` 字段（结构化），表示发到钱包里的具体物品；desc 仍保留
+ * 用于 toast 文案（如「碎片 ×1 + 50 金币」）；面板里玩家也能在「最近入账」看到记录。
+ *
+ * 注意：「每日奖励 ×1.2」「连签加速 +10%」等文案性 buff 暂时没有钱包通货承载，
+ * 配套 wallet 给一个等价的 hint/coin 兜底，不让玩家完全空手而归。 */
 export const FREE_TIERS = [
-    { xp: 50,  tier: 1, reward: { desc: '每日奖励 ×1.2',      icon: '⭐' } },
-    { xp: 150, tier: 2, reward: { desc: '专属赛季 Banner',     icon: '🎖️' } },
-    { xp: 300, tier: 3, reward: { desc: '限定皮肤碎片 ×1',     icon: '💎' } },
-    { xp: 500, tier: 4, reward: { desc: '连签加速 +10%',       icon: '⚡' } },
-    { xp: 800, tier: 5, reward: { desc: '限定皮肤碎片 ×3',     icon: '🌟' } },
+    { xp: 50,  tier: 1, reward: { desc: '每日奖励 ×1.2',      icon: '⭐', wallet: { hintToken: 1, coin: 30 } } },
+    { xp: 150, tier: 2, reward: { desc: '专属赛季 Banner',     icon: '🎖️', wallet: { coin: 80 } } },
+    { xp: 300, tier: 3, reward: { desc: '限定皮肤碎片 ×1',     icon: '💎', wallet: { fragment: 1 } } },
+    { xp: 500, tier: 4, reward: { desc: '连签加速 +10%',       icon: '⚡', wallet: { hintToken: 2, coin: 60 } } },
+    { xp: 800, tier: 5, reward: { desc: '限定皮肤碎片 ×3',     icon: '🌟', wallet: { fragment: 3 } } },
 ];
 
 /** 付费轨道额外奖励 */
 export const PAID_TIERS = [
-    { xp: 50,  tier: 1, reward: { desc: '所有免费奖励 ×1.5', icon: '🔱' } },
-    { xp: 150, tier: 2, reward: { desc: '赛季专属皮肤（完整）', icon: '🏆' } },
-    { xp: 300, tier: 3, reward: { desc: '每日 +20% XP',       icon: '🚀' } },
+    { xp: 50,  tier: 1, reward: { desc: '所有免费奖励 ×1.5', icon: '🔱', wallet: { hintToken: 2, coin: 80 } } },
+    { xp: 150, tier: 2, reward: { desc: '赛季专属皮肤（完整）', icon: '🏆', wallet: { fragment: 5, coin: 200 } } },
+    { xp: 300, tier: 3, reward: { desc: '每日 +20% XP',       icon: '🚀', wallet: { hintToken: 3, coin: 150 } } },
 ];
 
 function _loadState() {
@@ -112,6 +119,8 @@ export function addSeasonXp(xpAmount) {
     if (newFreeTiers.length) {
         state.claimedFreeTiers = [...state.claimedFreeTiers, ...newFreeTiers.map((t) => t.tier)];
         for (const tier of newFreeTiers) {
+            // v1.13：把 tier.reward.wallet 真正发放到钱包，避免「弹了 toast 但空手」
+            _grantTierWallet(tier, false);
             emit('season_tier_unlocked', { tier, track: 'free' });
             _showTierToast(tier, false);
         }
@@ -124,6 +133,7 @@ export function addSeasonXp(xpAmount) {
         if (newPaidTiers.length) {
             state.claimedPaidTiers = [...state.claimedPaidTiers, ...newPaidTiers.map((t) => t.tier)];
             for (const tier of newPaidTiers) {
+                _grantTierWallet(tier, true);
                 emit('season_tier_unlocked', { tier, track: 'paid' });
                 _showTierToast(tier, true);
             }
@@ -131,6 +141,25 @@ export function addSeasonXp(xpAmount) {
     }
 
     _saveState(state);
+}
+
+/**
+ * v1.13：把赛季通行证 tier 的 wallet 奖励写入钱包。
+ * source 形如 `season-pass-free-tier-1` / `season-pass-paid-tier-2`，便于流水回查。
+ */
+function _grantTierWallet(tier, isPaid) {
+    const wallet = tier?.reward?.wallet;
+    if (!wallet || typeof wallet !== 'object') return;
+    try {
+        const w = getWallet();
+        const source = `season-pass-${isPaid ? 'paid' : 'free'}-tier-${tier.tier}`;
+        for (const [kind, amount] of Object.entries(wallet)) {
+            if (!amount) continue;
+            w.addBalance(kind, amount | 0, source);
+        }
+    } catch (e) {
+        console.warn('[seasonPass] tier wallet grant failed', e);
+    }
 }
 
 function _showTierToast(tier, isPaid) {

@@ -263,7 +263,7 @@ export class ReviveManager {
 
         // 记录行为日志
         try {
-            const { GAME_EVENTS } = /** @type {any} */ (game);
+            // 行为日志直接走 game.logBehavior，事件常量后续接入时再用 GAME_EVENTS 解构。
             game.logBehavior?.('revive_used', {
                 clearedCells: toClear.length,
                 reviveCount: this._usedCount,

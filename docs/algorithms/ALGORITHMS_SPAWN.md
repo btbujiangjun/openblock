@@ -226,22 +226,37 @@ fill ∈ [0.88, ∞]   : budget × 3，danger zone，最严格
 `adaptiveSpawn.js` 的 `resolveAdaptiveStrategy`：
 
 ```js
-stress = scoreStress         // 分数段里程碑触发
-       + difficultyBias      // easy(-0.22) / normal(0) / hard(+0.22)
-       + skillAdjust         // 高技能加压
-       + flowAdjust          // bored 加 / anxious 减
-       + recoveryAdjust      // needsRecovery 减
-       + frustRelief         // frustration ≥ 4 → -0.18
-       + comboAdjust         // combo ≥ 3 → +0.06
-       + nearMissAdjust      // hadRecentNearMiss → -0.10
-       + feedbackBias        // 闭环反馈 ±0.10
-       + trendAdjust         // trend 进步加压（×conf）
-       + sessionArcAdjust    // warmup -0.08
-       + holeReliefAdjust    // 不可覆盖空洞压力触发减压
-       + delightStressAdjust;// 高技能无聊轻加压；焦虑/恢复降压
+stress = scoreStress           // v1.13：按个人百分位映射；远未达到 bestScore 时大幅衰减
+       + difficultyBias        // easy(-0.22) / normal(0) / hard(+0.22)
+       + skillAdjust           // 高技能加压
+       + flowAdjust            // bored 加 / anxious 减
+       + recoveryAdjust        // needsRecovery 减
+       + frustRelief           // frustration ≥ 4 → -0.18
+       + comboAdjust           // combo ≥ 3 → +0.06
+       + nearMissAdjust        // hadRecentNearMiss → -0.10
+       + feedbackBias          // 闭环反馈 ±0.10
+       + trendAdjust           // trend 进步加压（×conf）
+       + sessionArcAdjust      // warmup -0.08
+       + holeReliefAdjust      // 不可覆盖空洞压力触发减压
+       + boardRiskReliefAdjust // 高填充 + 空洞 + 能力风险综合减压
+       + abilityRiskAdjust     // 玩家能力风险护栏
+       + delightStressAdjust   // 高技能无聊轻加压；焦虑/恢复降压
+       + friendlyBoardRelief;  // v1.13：清爽盘面 + 兑现期主动减压（≤ 0）
 
 stress = clamp(stress, -0.2, 1);
+
+// v1.13：拟人化对齐 — flow + payoff + 安全盘面时把 stress 软封顶到 tense 区上沿（默认 0.79）
+if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
+    && boardRisk < flowPayoffMaxBoardRisk) {
+    stress = min(stress, flowPayoffStressCap);
+}
 ```
+
+> **v1.13 修订要点**
+> - `scoreStress` 不再使用「绝对分数 → milestones」的硬映射，而是 `pct = score / max(bestScore, scoreFloor)` 的百分位映射；当 `pct < percentileDecayThreshold`（默认 0.5）时再 ×`percentileDecayFactor`（默认 0.4），避免一次冲过 milestones 末档后压力锁死。
+> - 新增 `friendlyBoardRelief`：盘面 holes=0、临消行/多消候选/清屏机会充沛、节奏处于 payoff 时直接注入减压，让拟人化压力表与玩家直觉同向。
+> - 新增 `flowPayoffStressCap`：心流 + 兑现期 + 安全盘面时把综合 stress 软封顶到 tense 区上沿，避免「享受多消」与「🥵 高压」并列的认知冲突。
+> - `playerProfile.momentum` 增加最小样本阈值（每半区 ≥3）+ 样本置信度缩放（总样本接近 12 时为 1，否则线性收窄），缓解 6 个样本时 ±1 抖动。
 
 ### 4.2 10 档 profile 插值
 

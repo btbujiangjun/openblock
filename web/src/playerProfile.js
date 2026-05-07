@@ -259,11 +259,27 @@ export class PlayerProfile {
     /*  基础指标                                                           */
     /* ================================================================== */
 
-    /** @returns {{ thinkMs:number, clearRate:number, comboRate:number, missRate:number, afkCount:number }} */
+    /**
+     * 即时窗口指标。
+     *
+     * v1.13：返回值新增 `samples` / `activeSamples` 用于区分「真实测量」与「冷启动占位」。
+     * 占位值（thinkMs:3000 / clearRate:0.3 / missRate:0.1 / comboRate:0.1）继续保留，
+     * 这是为了让 `_computeRawSkill / flowDeviation / playstyle` 等内部消费方在首屏不至于
+     * 除零或抖到极端值，但 UI 层应根据 `samples === 0` 把对应数字隐藏为「—」，避免
+     * 玩家看到「我还没下任何块就已经被打了消行率 30% / 失误 10%」的误导。
+     *
+     * @returns {{
+     *   thinkMs:number, clearRate:number, comboRate:number, missRate:number,
+     *   afkCount:number, samples:number, activeSamples:number
+     * }}
+     */
     get metrics() {
         const recent = this._recentMoves();
         if (recent.length === 0) {
-            return { thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1, afkCount: 0 };
+            return {
+                thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1,
+                afkCount: 0, samples: 0, activeSamples: 0
+            };
         }
         const placed = recent.filter(m => !m.miss);
         const afkMs = _afkThreshold();
@@ -280,7 +296,9 @@ export class PlayerProfile {
             missRate: recent.length > 0
                 ? recent.filter(m => m.miss).length / recent.length
                 : 0,
-            afkCount
+            afkCount,
+            samples: recent.length,
+            activeSamples: active.length
         };
     }
 
@@ -334,7 +352,10 @@ export class PlayerProfile {
 
     /**
      * 动量：最近表现相对历史的变化趋势 -1(急跌)~0(稳定)~1(上升)
-     * 对比滑动窗口前半和后半的 clearRate 差异
+     * 对比滑动窗口前半和后半的 clearRate 差异。
+     *
+     * v1.13：增加最小样本阈值 + 样本置信度缩放，避免 2~3 个样本时 momentum 抖到 ±1
+     * 与玩家直觉脱节（screenshot 案例：clearRate=0.4 但 momentum=-1）。
      */
     get momentum() {
         const recent = this._recentMoves();
@@ -342,16 +363,24 @@ export class PlayerProfile {
         const mid = Math.floor(recent.length / 2);
         const olderPlaced = recent.slice(0, mid).filter(m => !m.miss);
         const newerPlaced = recent.slice(mid).filter(m => !m.miss);
-        if (olderPlaced.length < 2 || newerPlaced.length < 2) return 0;
+        const minSamplesPerHalf = 3;
+        if (olderPlaced.length < minSamplesPerHalf || newerPlaced.length < minSamplesPerHalf) return 0;
 
         const olderCR = olderPlaced.filter(m => m.cleared).length / olderPlaced.length;
         const newerCR = newerPlaced.filter(m => m.cleared).length / newerPlaced.length;
         const delta = newerCR - olderCR;
-        return Math.max(-1, Math.min(1, delta / 0.3));
+        // 样本置信度：总样本越接近 12 越接近 1；6 个样本时仅 0.5，把 momentum 扁平化
+        const sampleConfidence = Math.min(1, (olderPlaced.length + newerPlaced.length) / 12);
+        const raw = delta / 0.3;
+        // 先在 [-1,1] 上钳制，再按置信度缩放：低置信度时 |momentum| 也被收窄
+        const clamped = Math.max(-1, Math.min(1, raw));
+        return clamped * sampleConfidence;
     }
 
     /**
-     * 认知负荷 0~1：thinkMs 方差越大 → 玩家对部分局面犹豫不决，认知压力高
+     * 认知负荷 0~1：thinkMs 方差越大 → 玩家对部分局面犹豫不决，认知压力高。
+     * placed.length<3 时返回 0.3 占位，仅用于内部 stress 兜底；UI 应配合 metrics.samples
+     * 判断是否冷启动（见 cognitiveLoadHasData）。
      */
     get cognitiveLoad() {
         const placed = this._recentMoves().filter(m => !m.miss);
@@ -360,6 +389,14 @@ export class PlayerProfile {
         const variance = placed.reduce((s, m) => s + (m.thinkMs - avg) ** 2, 0) / placed.length;
         const highVar = (_cfg().flowZone ?? {}).thinkTimeVarianceHigh ?? 8_000_000;
         return Math.min(1, variance / highVar);
+    }
+
+    /**
+     * v1.13：cognitiveLoad 是否基于真实样本（非冷启动占位 0.3）。
+     * 用于 UI 层在首屏把「负荷」字段显示为「—」。
+     */
+    get cognitiveLoadHasData() {
+        return this._recentMoves().filter(m => !m.miss).length >= 3;
     }
 
     /**

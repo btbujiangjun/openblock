@@ -41,10 +41,14 @@
   },
   "defaultStrategyId": "normal",
   "dynamicDifficulty": {
-    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。",
+    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。v1.13 起 scoreStress 在 ctx.bestScore>0 时按个人百分位映射，避免一次冲过末档后压力锁死。",
     "enabled": true,
     "milestones": [0, 45, 90, 135, 180],
-    "spawnStress": [0, 0.18, 0.38, 0.58, 0.78]
+    "spawnStress": [0, 0.18, 0.38, 0.58, 0.78],
+    "scoreFloor": 180,
+    "percentileDecayThreshold": 0.5,
+    "percentileDecayFactor": 0.4,
+    "percentileMaxOver": 0.2
   },
   "runDifficulty": {
     "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
@@ -182,7 +186,8 @@
       "holeReliefAdjust": { "enabled": true, "scale": 1 },
       "boardRiskReliefAdjust": { "enabled": true, "scale": 1 },
       "abilityRiskAdjust": { "enabled": true, "scale": 1 },
-      "delightStressAdjust": { "enabled": true, "scale": 1 }
+      "delightStressAdjust": { "enabled": true, "scale": 1 },
+      "friendlyBoardRelief": { "enabled": true, "scale": 1 }
     },
     "stressSmoothing": {
       "comment": "对最终 stress 做轻量滞后，避免普通状态跳变；救场/近失/挫败等减压信号立即生效。",
@@ -192,6 +197,16 @@
       "maxStepDown": 0.28,
       "immediateReliefBoardRisk": 0.72
     },
+    "friendlyBoard": {
+      "comment": "v1.13 友好盘面救济：盘面 holes=0 + 临消行/多消候选/清屏机会充沛 + 节奏处于 payoff 时，注入一笔减压让拟人化压力表与玩家直觉同向。",
+      "minNearFullLines": 2,
+      "minMultiClearCandidates": 2,
+      "requirePayoff": true,
+      "baseRelief": -0.12,
+      "maxRelief": -0.18
+    },
+    "flowPayoffStressCap": 0.79,
+    "flowPayoffMaxBoardRisk": 0.5,
     "spawnTargets": {
       "comment": "将一维 stress 投影为多轴出块目标，避免仅通过方块复杂度消费压力。",
       "frustrationReliefThreshold": 5

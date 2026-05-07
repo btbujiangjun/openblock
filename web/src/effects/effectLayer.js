@@ -179,7 +179,7 @@ export class EffectLayer {
      * 落子效果（轻微反馈）
      * @param {{ x, y }} data
      */
-    _onPlace({ x, y } = {}) {
+    _onPlace({ x: _x, y: _y } = {}) {
         if (!this._renderer || this._reducedMotion) return;
         // 极小震动，给予触觉感
         this._renderer.setShake?.(2, 80);

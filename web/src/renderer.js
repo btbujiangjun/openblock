@@ -166,15 +166,35 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
 }
 
 /**
+ * 视觉常量按 cell 大小自适应缩放。
+ *
+ * 旧实现：`inset` / `radius` 直接取皮肤里的固定像素（默认 2/5），
+ * 在 38px 基线上看起来正常，但当候选区/盘面被布局压缩到 ~30px 或拉伸到 ~80px 时，
+ * 圆角与 inset 的视觉占比会失衡（小格上「圆得过头」、大格上「显得太细」），
+ * 且会放大候选区与盘面之间任何 1~2px 的尺寸差，造成「未激活时质量低」的观感。
+ *
+ * 新实现按基线 38px 等比缩放，对外仍然兼容 `skin.blockInset` / `skin.blockRadius` 自定义。
+ */
+const _BLOCK_REF_CELL = 38;
+function _adaptiveBlockMetrics(skin, cellS) {
+    const baseInset = skin.blockInset ?? 2;
+    const baseR = skin.blockRadius ?? 5;
+    // 缩放系数下限 0.7、上限 1.6：避免极端尺寸下 inset/radius 完全消失或撑爆
+    const scale = Math.max(0.7, Math.min(1.6, cellS / _BLOCK_REF_CELL));
+    const inset = Math.max(1, Math.round(baseInset * scale));
+    const radius = Math.max(2, Math.round(baseR * scale));
+    return { inset, radius };
+}
+
+/**
  * @param {CanvasRenderingContext2D} ctx
  * @param {number} cellPx 格左上角 x（整格坐标）
  */
 function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
-    const inset = skin.blockInset ?? 2;
+    const { inset, radius: r } = _adaptiveBlockMetrics(skin, cellS);
     const size = Math.max(1, cellS - inset * 2);
     const bx = cellPx + inset;
     const by = cellPy + inset;
-    const r = skin.blockRadius ?? 5;
 
     // v10.10：带 icon 皮肤的方块色降饱和 —— 默认 S×0.55；浅色盘面 → S×0.92（v10.19–v10.20）
     // blockColors 原始饱和度多在 70-85%，与中心 emoji 的彩色发生「色冲突」，

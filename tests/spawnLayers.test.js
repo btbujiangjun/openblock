@@ -4,7 +4,7 @@
  * spawnLayers 三层出块架构单元测试
  * 覆盖：FallbackLayer、LaneLayer、GlobalLayer 的核心行为约束
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { FallbackLayer, LaneLayer, GlobalLayer } from '../web/src/bot/spawnLayers.js';
 import { Grid } from '../web/src/grid.js';
 
@@ -21,10 +21,6 @@ function makeShape(id, cells = 2, gapFills = 0, placements = 10, category = 'sma
         category,
         multiClear: 0,
     };
-}
-
-function sumWeights(candidates) {
-    return candidates.reduce((s, c) => s + c.weight, 0);
 }
 
 // ------------------------------------------------------------------ FallbackLayer
@@ -185,7 +181,7 @@ describe('三层管道联动', () => {
         const candidates = Array.from({ length: 8 }, (_, i) =>
             makeShape(`s${i}`, i % 3 + 1, i % 3 === 0 ? 1 : 0, 10, ['small', 'medium', 'large'][i % 3])
         );
-        const grid = new Grid(8);
+        // 链路集成测试不需要实际 grid，只验证候选数量与不抛错
         const context = { sessionArc: 'peak', roundsSinceClear: 3 };
         const hints = { rhythmPhase: 'payoff', comboChain: 0.5 };
 

@@ -45,3 +45,86 @@
 - **「均分 / 胜率 / 最佳」**：主要由 **本会话内** `onEpisode` 写入的最近窗口统计；未完成第一局或窗口为空时可为 **「—」**，与局数栏是否已对齐服务端无关。
 
 面板 **`startBatch`** 异常时会 **`finally`** 解锁按钮；错误摘要写在 **「训练进展」**。详见 [PyTorch RL 在线服务](./RL_PYTORCH_SERVICE.md) §1。
+
+## 6. 面板布局与交互（v1.14）
+
+RL 机器人面板（`#rl-panel`，右栏）与玩家画像面板（`#player-insight-panel`，左栏）在 v1.14 做了一轮布局/交互细化，核心目标是：**让面板内容填满 vfill、避免外层兜底滚动、让任何超长块自带局部滚动条且与主题色协调**。
+
+### 6.1 训练日志在训练时默认展开
+
+> 文件：`web/src/bot/rlPanel.js#startBatch`
+
+`startBatch()` 入口处自动把 **「训练进展」** (`#rl-progress-log`) 与 **「训练损失」** (`#rl-server-log`) 所在的 `<details>` 置 `open=true`，方便观察实时输出。HTML 中两段日志保持默认折叠（无 `open`），仅在按下「开始训练」时被展开；用户中途手动收起后下次开训仍会再次展开（行为保持一致简单）。
+
+### 6.2 看板摘要去层级
+
+> 文件：`web/index.html`、`web/public/styles/main.css`（`.rl-dash-summary`）
+
+| 调整 | 之前 | 之后 |
+| --- | --- | --- |
+| HTML 包装层 | `details > div.rl-dash-compact > #rl-dash-summary` | `details > #rl-dash-summary` 直接挂载 |
+| `.rl-dash-summary` 自身边框 | 浅 accent 色 background + border + border-radius | `background:none / border:none / border-radius:0` |
+
+`<details>` 自身已经是面板视觉框，去掉中间层 + 内层框后视觉上不再"框中框"，DOM 也少一级。`.rl-dash-compact` CSS 选择器作为占位保留（无 DOM 命中），便于后续若再追加内容时复用命名空间。
+
+### 6.3 「训练曲线」→「训练指标」
+
+> 文件：`web/index.html`、`web/src/uiIcons.js`、`web/src/bot/rlTrainingCharts.js`、`web/public/styles/main.css`
+
+将该 `<details>` 的 summary 文案与所有相关 tooltip / 注释统一改为「训练指标」，更准确地涵盖损失、熵、Lv、teacher 覆盖等多类曲线（不仅是"曲线"）。
+
+### 6.4 训练指标自适应高度 + 内部滚动条
+
+> 文件：`web/src/bot/rlPanel.js#scheduleTrainingMetricsAutoCollapse / _evaluateMetricsCollapse`、`web/public/styles/main.css`（`.rl-panel`、`.rl-panel > details:has(> #rl-chart-root)[open]`、`.rl-chart-root`）
+
+挑战：`<details>` + flex 在不同浏览器里的实际表现并不可靠 —— `flex:1 1 0` 不一定能压缩 details 的 content 区，导致 `#rl-chart-root` 按内部 8 条 `.rl-chart-panel` 累加自然撑开，进而 `overflow-y:auto` 因为容器没真正限高而看不到滚动条。
+
+解决方案分两层：
+
+1. **`.rl-panel` 自身 `overflow-y: hidden`**（v1.13 是 `auto`）：避免溢出冒泡到外层、让 panel 整体出条而不是「训练指标」局部出条。
+2. **JS 动态测量并写 `chartRoot.style.maxHeight`**：
+
+   ```text
+   remaining = panelHeight − Σ(其它 children 高度) − summary高 − 8(buffer)
+   if remaining < 90px:
+       折叠训练指标 details（用 dataset.autoToggling 标记，区分脚本/用户操作）
+   else:
+       chartRoot.style.maxHeight = max(remaining, 80) + 'px'
+       由 #rl-chart-root 的 overflow-y:auto 出局部滚动条
+   ```
+
+   触发时机：
+   - `ResizeObserver(panel)` 初次 observe + 后续尺寸变化
+   - 任意 `<details>` toggle（用户/脚本均可，事件捕获 `true`）
+   - `startBatch()` 展开训练日志后
+
+   `dataset.autoToggling = '1'` 用于让 toggle 监听器区分「脚本主动 toggle」与「用户主动 toggle」：脚本 toggle 时清除标记不计入用户操作；用户主动操作时清除 `metricsAutoCollapsedByScript`，避免后续误自动展开/折叠抖动。
+
+### 6.5 左侧画像默认展开更多 panel
+
+> 文件：`web/index.html`、`web/src/monetization/commercialInsight.js`
+
+为了让 `.app-side-left` 在大多数视口下能填满高度（不再露出底部背景大片留白），以下 `<details>` 在 HTML 中默认 `open`：
+
+- **能力指标**、**实时状态**（v1.13 已 open）
+- **实时策略**、**策略解释**、**算法解释**（v1.14 新增）
+- **出块算法**（v1.13 已 open）
+
+商业化策略 section 由 `commercialInsight.js` 动态注入，v1.14 起 `section.open = true` 默认展开，由 `.app-side-left` 的 `overflow-y:auto` 兜底滚动。
+
+### 6.6 主题化细滚动条
+
+> 文件：`web/public/styles/main.css`（紧随 `.app-side-left` 定义之后）
+
+左右两侧栏 (`.app-side-left` / `.rl-panel`) 与内部仍会滚动的子容器 (`#rl-chart-root` 训练指标曲线、`.rl-log` 训练进展/损失) 共享同一套半透明、accent 色调的细滑块样式：
+
+| 维度 | 设置 |
+| --- | --- |
+| Firefox | `scrollbar-width: thin` + `scrollbar-color: color-mix(--accent-color 38%, transparent) transparent` |
+| WebKit/Blink 宽度 | `width: 7px / height: 7px` |
+| 轨道 | `background: transparent`（让 panel 底色透出来） |
+| 滑块 | `background: color-mix(--accent-color 30%, transparent)` + `padding-box border-radius: 6px` |
+| Hover | 升至 60% accent |
+| Active | 升至 78% accent |
+
+主题色未来切换皮肤（覆盖 `--accent-color`）时滚动条自动跟随，无需额外配置。

@@ -38,7 +38,9 @@ export function initCommercialInsight(game) {
         section = document.createElement('details');
         section.id = SECTION_ID;
         section.className = 'insight-section insight-commercial-section';
-        section.open = false;
+        // v1.14：默认展开，使左侧画像栏在大多数视口下能填满高度，避免底部留白；
+        // 用户手动收起后由浏览器 details 原生行为接管，不强制再展开。
+        section.open = true;
         section.innerHTML = `
 <summary class="insight-section-title">
   <span>💰 商业化策略</span>

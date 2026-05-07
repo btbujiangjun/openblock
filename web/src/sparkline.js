@@ -5,12 +5,14 @@ export const SPARK_W = 200;
 export const SPARK_H = 24;
 const SPARK_PAD = 3;
 
-/** 与回放序列分组一致 */
+/** 与回放序列分组一致；v1.13 新增 stress 组（pink）承载 stressBreakdown 各分量曲线，
+ *  与 game(蓝)/ability(绿)/state(橙)/spawn(紫) 区分。*/
 export const METRIC_GROUP_COLORS = {
     game: '#5b9bd5',
     ability: '#27ae60',
     state: '#e67e22',
-    spawn: '#8e44ad'
+    spawn: '#8e44ad',
+    stress: '#ec407a'
 };
 
 /**

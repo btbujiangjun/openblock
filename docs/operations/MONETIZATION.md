@@ -416,7 +416,7 @@ Hay Day 上线 Season Pass 后月收入提升 **56%**（行业参考数据）。
 
 非侵入式挂载到 `#player-insight-panel`：
 
-1. 在面板末尾追加 `<details id="insight-commercial">` 可折叠区块
+1. 在面板末尾追加 `<details id="insight-commercial">` 可折叠区块（**v1.14 起默认 `open`**，配合左栏 `overflow-y:auto` 让画像更易填满 vfill）
 2. 链式 patch `game._playerInsightRefresh`，随画像刷新同步更新
 3. 订阅 `spawn_blocks` / `no_clear` / `game_over` 实时刷新
 

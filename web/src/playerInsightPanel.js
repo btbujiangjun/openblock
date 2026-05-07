@@ -13,6 +13,7 @@ import {
 } from './moveSequence.js';
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
+import { renderStressMeter } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
 import { analyzeBoardTopology, countUnfillableCells } from './boardTopology.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
@@ -375,15 +376,40 @@ function _buildLiveSnapshotForSeries(game) {
         spawnContext: game._spawnContext,
         adaptiveInsight: ins,
     });
+    /* v1.13：冷启动隔离 —— PlayerProfile.metrics 在 recent.length=0 时返回硬编码占位值
+     * （3000ms / 30% / 10% / 10%）以便内部 stress / skill 计算不至于除零或抖到极端，
+     * 但 UI 层应展示「—」而非这些占位数字，否则玩家会误以为「我还没下任何块系统就
+     * 测出我消行率 30% / 失误 10%」。这里在塞入 ps.metrics 时按 samples / activeSamples
+     * 把无效字段置 null；formatMetricValue(null) 已经返回「—」，UI 层零改动。
+     */
+    const samples = Number(m.samples ?? 0) || 0;
+    const activeSamples = Number(m.activeSamples ?? 0) || 0;
+    const hasAnySample = samples > 0;
+    const hasActiveSample = activeSamples > 0;
+    const cognitiveLoadHasData = !!p.cognitiveLoadHasData;
+    const coldStart = samples === 0;
+    const metricsSlim = {
+        thinkMs: hasActiveSample ? m.thinkMs : null,
+        clearRate: hasActiveSample ? m.clearRate : null,
+        comboRate: hasActiveSample ? m.comboRate : null,
+        missRate: hasAnySample ? m.missRate : null,
+        afkCount: m.afkCount,
+        samples,
+        activeSamples
+    };
     /** @type {Record<string, unknown>} */
     const slim = {
-        pv: 1,
+        // pv=2 与 buildPlayerStateSnapshot 保持一致，便于 collectSeriesFromSnapshots
+        // 与 collectReplayMetricsSeries 共用同一访问器、共享冷启动语义。
+        pv: 2,
         phase: 'live',
         score: game.score,
         boardFill: game.grid?.getFillRatio?.() ?? 0,
         skill: p.skillLevel,
         momentum: p.momentum,
-        cognitiveLoad: p.cognitiveLoad,
+        cognitiveLoad: cognitiveLoadHasData ? p.cognitiveLoad : null,
+        cognitiveLoadHasData,
+        coldStart,
         engagementAPM: p.engagementAPM,
         flowDeviation: p.flowDeviation,
         flowState: p.flowState,
@@ -393,13 +419,7 @@ function _buildLiveSnapshotForSeries(game) {
         spawnRound: p.spawnRoundIndex,
         feedbackBias: p.feedbackBias,
         ability,
-        metrics: {
-            thinkMs: m.thinkMs,
-            clearRate: m.clearRate,
-            comboRate: m.comboRate,
-            missRate: m.missRate,
-            afkCount: m.afkCount
-        }
+        metrics: metricsSlim
     };
     if (ins && typeof ins === 'object') {
         slim.adaptive = {
@@ -436,11 +456,14 @@ function _appendLiveInsightSample(game) {
 }
 
 /**
- * 实时状态：与回放面板同款指标 sparkline，游标始终在本局最新样本
+ * 实时状态：与回放面板同款指标 sparkline。
+ *
+ * 仅 LIVE 调用；回放期间由 enterInsightReplay 一次性画完整曲线、
+ * updateInsightReplayFrame 仅按 step 滑游标 + 改右侧数值（不重绘曲线本身）。
  */
 function _renderInsightStateSeries(game, elState) {
     _appendLiveInsightSample(game);
-    const hist = game._insightLiveHistory || [];
+    const hist = game?._insightLiveHistory || [];
     const data = collectSeriesFromSnapshots(hist);
     if (!data || hist.length === 0) {
         elState.className = 'insight-state-row insight-state-series';
@@ -588,12 +611,37 @@ function _render(game) {
     const elState = document.getElementById('insight-state');
     const elSpawn = document.getElementById('insight-spawn');
     const elWhy = document.getElementById('insight-why');
+    const elStressMeter = document.getElementById('stress-meter-host');
+
+    if (elStressMeter) {
+        // 历史 stress 序列：从 _insightLiveHistory 抽取，已包含本帧（_renderInsightStateSeries 会 append）
+        const hist = Array.isArray(game._insightLiveHistory)
+            ? game._insightLiveHistory.map((s) => s?.adaptive?.stress).filter((v) => Number.isFinite(v))
+            : [];
+        renderStressMeter(elStressMeter, ins, hist);
+    }
 
     if (elAbility) {
+        /* v1.13：冷启动隔离 ——
+         * controlScore 依赖 missRate（recent.length），clearEfficiency 依赖
+         * clearRate/comboRate（active.length），冷启动时这些来自 PlayerProfile.metrics
+         * 的占位值（missRate=0.1 / clearRate=0.3 / comboRate=0.1），ability 计算结果约
+         * 0.69 / 0.36 — 与玩家「我还没下任何块」的真实状态严重不符。
+         * 这两项在冷启动时改显「—」（保留 hover 解释），其它依赖盘面/历史的指标维持原值。
+         */
+        const mm = p.metrics || {};
+        const samples = Number(mm.samples ?? 0) || 0;
+        const activeSamples = Number(mm.activeSamples ?? 0) || 0;
+        const COLD_HINT = '\n（开局尚未采集到落子样本，该指标暂为「—」，下手后立即填实。）';
+        const controlCold = samples < 1;
+        const clearCold = activeSamples < 1;
         const abilityHtml = ABILITY_METRIC_ROWS.map((row) => {
-            const tt = row.tooltip || '';
-            const val = _pct(ability[row.key]);
-            return `<div class="insight-metric" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
+            let cold = false;
+            if (row.key === 'controlScore') cold = controlCold;
+            else if (row.key === 'clearEfficiency') cold = clearCold;
+            const tt = (row.tooltip || '') + (cold ? COLD_HINT : '');
+            const val = cold ? '—' : _pct(ability[row.key]);
+            return `<div class="insight-metric${cold ? ' insight-metric--cold' : ''}" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
         }).join('');
 
         elAbility.innerHTML = abilityHtml;
@@ -857,6 +905,208 @@ function _clearHints(game) {
         game.previewBlock = null;
         game.previewPos = null;
         game.markDirty?.();
+    }
+}
+
+/**
+ * 回放专用：把 frames[idx] 的 ps 快照投射回画像面板顶部的「实时状态」拟人化压力表。
+ *
+ * 触发场景：用户拉动 #replay-slider / 点击播放后，replayUI 每推进一帧会调用本函数，
+ * 让蓝色框出的「实时状态」卡（stress meter）随回放帧实时变化。
+ *
+ * 设计取舍：
+ *   - v1.13 起帧 ps 同时持久化 `adaptive.{stress, stressBreakdown, spawnTargets, spawnHints}`，
+ *     stressMeter 在回放期间能完整复现「主要构成 · 当前帧」分量与节奏叙事；老回放（无
+ *     breakdown / targets 字段）会自动降级到 vibe + 「本帧无明显信号偏移」。
+ *   - history 来源于 `frames[0..idx].ps.adaptive.stress`，与 LIVE 时 `_insightLiveHistory`
+ *     语义一致，可直接喂给 `renderStressMeter` 计算趋势箭头。
+ *
+ * @param {object[]} frames 回放帧序列（与 replayUI 内 replayFramesRef 同源）
+ * @param {number}   idx    当前帧下标
+ */
+export function renderStressMeterReplay(frames, idx) {
+    const host = document.getElementById('stress-meter-host');
+    if (!host || !Array.isArray(frames) || frames.length === 0) return;
+
+    const cap = Math.min(Math.max(0, idx | 0), frames.length - 1);
+
+    // 1) 累积 stress 历史：仅取真实写入了 adaptive.stress 的帧（避免 NaN 把趋势带歪）
+    const history = [];
+    for (let i = 0; i <= cap; i++) {
+        const s = frames[i]?.ps?.adaptive?.stress;
+        if (Number.isFinite(s)) history.push(s);
+    }
+
+    // 2) 取当前帧 ps；若为 spawn/place 帧但 ps 缺失，向前回找最近的 ps（与 sparkline 一致）
+    let curPs = null;
+    for (let i = cap; i >= 0; i--) {
+        if (frames[i]?.ps) { curPs = frames[i].ps; break; }
+    }
+    const adaptive = curPs?.adaptive || {};
+
+    // 3) 合成 stressMeter 期望的 insight 形态；breakdown/targets 在 v1.13 起已持久化，
+    //    老回放（pv=2 早期没有这两个字段）取到 undefined 时 stressMeter 会自动降级。
+    const insight = {
+        adaptiveEnabled: true,
+        stress: Number.isFinite(adaptive.stress) ? adaptive.stress : 0,
+        stressBreakdown: adaptive.stressBreakdown ?? null,
+        spawnTargets: adaptive.spawnTargets ?? null,
+        spawnHints: adaptive.spawnHints ?? null
+    };
+    renderStressMeter(host, insight, history);
+}
+
+/* v1.13：上方"实时状态"面板的回放模式状态 ——
+ *   replayUI 在 openView 时调用 enterInsightReplay(frames)：一次性画完整 sparkline 曲线，
+ *   缓存每个 cell 的游标线 + 数值文本节点引用；推进帧时 updateInsightReplayFrame(idx) 只
+ *   平移游标 + 更新数值文本 + 更新 head tag 行（不重绘曲线本身），与回放面板旧版
+ *   _initSeries / _updateSeries 同款行为；返回列表时 exitInsightReplay() 清空状态。
+ *
+ * 这种「曲线静止 / 游标滑动」语义比"按 idx 切片重绘"更符合心智模型：曲线代表整局走势，
+ * 滑块决定当前帧位置，能直观判断"现在在曲线哪个位置"。
+ */
+let _insightReplayFrames = null;
+/** @type {{ key:string, fmt:string, cursorLine:Element|null, valueEl:Element|null }[]} */
+let _insightReplayCells = [];
+let _insightReplayTotalFrames = 0;
+
+/** 是否处于"实时状态"回放模式（外部调试用） */
+export function isInsightReplayMode() {
+    return _insightReplayFrames !== null;
+}
+
+/**
+ * 进入实时状态回放模式：一次性把上方 sparkline 网格按 frames 全量画完，
+ * 缓存每个 cell 的游标 + 数值节点；后续 updateInsightReplayFrame 只挪游标。
+ *
+ * @param {object[]} frames 回放帧序列（与 replayUI 内 replayFramesRef 同源）
+ */
+export function enterInsightReplay(frames) {
+    _insightReplayCells = [];
+    _insightReplayTotalFrames = 0;
+    if (!Array.isArray(frames) || frames.length === 0) {
+        _insightReplayFrames = null;
+        return;
+    }
+    _insightReplayFrames = frames;
+
+    const elState = document.getElementById('insight-state');
+    if (!elState) return;
+
+    // 用 frames 全部 ps 作为完整 history（注意：ps 帧可能稀疏，collectSeriesFromSnapshots
+    // 内部会按 PS_VERSION / pv 自动跳过空帧），曲线一次性画完，永不重绘。
+    const hist = [];
+    for (const f of frames) {
+        if (f?.ps && typeof f.ps === 'object') hist.push(f.ps);
+    }
+    const data = collectSeriesFromSnapshots(hist);
+
+    const headChipHtml =
+        '<span class="insight-weight insight-weight--mode-primary insight-spawn-mode-chip" ' +
+        'title="回放模式：曲线为整局完整走势；游标随下方滑块/播放按钮按 step 滑动。">📼 回放</span>';
+
+    if (!data || hist.length === 0) {
+        elState.className = 'insight-state-row insight-state-series';
+        elState.innerHTML =
+            '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>' +
+            '<span class="insight-muted">回放数据不含指标快照，无法绘制曲线。</span>';
+        const headEmpty = document.getElementById('insight-live-series-head');
+        if (headEmpty) {
+            headEmpty.innerHTML = '<div class="insight-live-head-tags"></div>' + headChipHtml;
+        }
+        return;
+    }
+
+    let html =
+        '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>';
+    html += '<div class="replay-series-grid insight-live-series-grid">';
+    for (const m of data.metrics) {
+        const s = data.series[m.key];
+        const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+        const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
+        html +=
+            `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
+            `<span class="series-label" style="color:${color}">${m.label}</span>` +
+            `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
+            `<span class="series-value">—</span></div>`;
+    }
+    html += '</div>';
+    elState.innerHTML = html;
+    elState.className = 'insight-state-row insight-state-series';
+
+    const head = document.getElementById('insight-live-series-head');
+    if (head) {
+        head.innerHTML = '<div class="insight-live-head-tags"></div>' + headChipHtml;
+    }
+
+    // 缓存每个 cell 的游标 + 数值节点，update 阶段只对它们操作（与 replayUI 旧 _initSeries 同款）。
+    _insightReplayTotalFrames = data.totalFrames;
+    for (const m of data.metrics) {
+        const cell = elState.querySelector(`.replay-series-cell[data-key="${m.key}"]`);
+        if (!cell) continue;
+        const svg = cell.querySelector('.replay-sparkline');
+        const cursorLine = svg?.querySelector('.spark-cursor') ?? null;
+        const valueEl = cell.querySelector('.series-value');
+        _insightReplayCells.push({ key: m.key, fmt: m.fmt, cursorLine, valueEl });
+    }
+}
+
+/**
+ * 退出回放模式，清空缓存。下次 game._playerInsightRefresh() 即由 LIVE 接管。
+ */
+export function exitInsightReplay() {
+    _insightReplayFrames = null;
+    _insightReplayCells = [];
+    _insightReplayTotalFrames = 0;
+}
+
+/**
+ * 推进回放当前帧（只滑游标 + 改数值 + 改 tag 行 + 刷新 stressMeter，不重绘曲线本身）。
+ * 仅在 enterInsightReplay 已调用且画出曲线后才会工作；否则空转。
+ *
+ * @param {number} idx 当前帧下标（基于 frames 全长，0 ≤ idx ≤ frames.length-1）
+ */
+export function updateInsightReplayFrame(idx) {
+    if (!_insightReplayFrames) return;
+    const frames = _insightReplayFrames;
+    renderStressMeterReplay(frames, idx);
+
+    if (_insightReplayCells.length === 0) return;
+
+    const cap = Math.min(Math.max(0, idx | 0), frames.length - 1);
+    // 取当前帧 ps（spawn / place 帧无 ps 时回退到最近的 ps，与 stressMeter 行为一致）
+    let curPs = null;
+    for (let i = cap; i >= 0; i--) {
+        if (frames[i]?.ps) { curPs = frames[i].ps; break; }
+    }
+
+    const maxIdx = Math.max(_insightReplayTotalFrames - 1, 1);
+    const cx = (cap / maxIdx) * SPARK_W;
+
+    for (const c of _insightReplayCells) {
+        if (c.cursorLine) {
+            c.cursorLine.setAttribute('x1', cx.toFixed(1));
+            c.cursorLine.setAttribute('x2', cx.toFixed(1));
+        }
+        const val = curPs ? getMetricFromPS(curPs, c.key) : null;
+        if (c.valueEl) c.valueEl.textContent = formatMetricValue(val, c.fmt);
+    }
+
+    // tag 行（flow/release/peak/R{n}）随当前帧切换
+    const headTags = document.querySelector('#insight-live-series-head .insight-live-head-tags');
+    if (headTags && curPs) {
+        const tags = [
+            curPs.flowState || '—',
+            curPs.pacingPhase || '—',
+            curPs.sessionPhase || '—',
+            'R' + (curPs.spawnRound ?? '—')
+        ];
+        headTags.innerHTML = tags
+            .map(
+                (t) =>
+                    `<span class="series-tag" title="${_attrTitle(_tooltipForLiveTag(t))}">${t}</span>`
+            )
+            .join('');
     }
 }
 

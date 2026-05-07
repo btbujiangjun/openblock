@@ -823,13 +823,26 @@ export class Game {
         }
     }
 
-    /** 读取盘面单格的 CSS 实际显示尺寸（`--cell-px`）。
-     *  候选区 canvas 用此值作为逻辑绘制单位，使 buffer 像素 = 显示像素，
-     *  消除浏览器 CSS 缩放插值（v3 之前 dock 用 CONFIG.CELL_SIZE=38 绘制，
-     *  CSS 拉伸到 5×--cell-px ≈ 5×50px 显示导致斜切边发软）。
+    /** 读取候选区 / ghost 共用的逻辑像素单位。
+     *
+     *  关键：**优先用盘面 canvas 的实际显示尺寸**（`_boardDisplayCellSize`），
+     *  退回到 `--cell-px`，最后才退到 CONFIG.CELL_SIZE。
+     *
+     *  历史教训：旧实现只读 `--cell-px`，而盘面 canvas 在 `width: min(100%, ...)` 约束下
+     *  实际显示尺寸可能略小于 `--cell-px`，导致 dock 用更大的单位渲染、再被 CSS 缩放回去，
+     *  形成「未激活时方块发糊 / 比盘面格略小」的观感。
+     *  现在 dock 与 ghost 共用 `_boardDisplayCellSize`，候选块视觉与盘面 1:1 严格对齐。
      */
     _getDockCellPx() {
         if (typeof document === 'undefined') return CONFIG.CELL_SIZE;
+        // 优先用盘面 canvas 的实际渲染尺寸；只有当 canvas 已经完成 layout（width > 0）才采用，
+        // 否则退回 CSS 变量，避免首屏初始化阶段 getBoundingClientRect 返回 0 导致 fallback 到 38
+        if (this.canvas) {
+            const rect = this.canvas.getBoundingClientRect();
+            if (rect && rect.width > 0) {
+                return Math.round(rect.width / Math.max(1, this.grid.size));
+            }
+        }
         try {
             const raw = getComputedStyle(document.documentElement).getPropertyValue('--cell-px');
             const v = parseFloat(raw);
@@ -1003,10 +1016,13 @@ export class Game {
         });
 
         // 将本轮临消行数和清屏准备信号回写到 _spawnContext，供下一轮 adaptiveSpawn 使用
+        // v1.13：增加 multiClearCandidates / perfectClearCandidates，用于 friendlyBoardRelief 判定
         const _diag = getLastSpawnDiagnostics();
-        this._spawnContext.nearFullLines = _diag?.layer1?.nearFullLines ?? 0;
-        this._spawnContext.pcSetup       = _diag?.layer1?.pcSetup       ?? 0;
-        this._spawnContext.holes         = _diag?.layer1?.holes         ?? 0;
+        this._spawnContext.nearFullLines           = _diag?.layer1?.nearFullLines           ?? 0;
+        this._spawnContext.pcSetup                 = _diag?.layer1?.pcSetup                 ?? 0;
+        this._spawnContext.holes                   = _diag?.layer1?.holes                   ?? 0;
+        this._spawnContext.multiClearCandidates    = _diag?.layer1?.multiClearCandidates    ?? 0;
+        this._spawnContext.perfectClearCandidates  = _diag?.layer1?.perfectClearCandidates  ?? 0;
 
         this._refreshPlayerInsightPanel();
         this._spawnModelLayerRefresh?.();

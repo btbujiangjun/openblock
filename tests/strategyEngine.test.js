@@ -16,7 +16,6 @@ import {
     classifySegment,
     getSegmentDef,
     evaluate,
-    buildWhyLines,
     shouldTriggerRule,
     HELP_TEXTS,
     getHelpText,

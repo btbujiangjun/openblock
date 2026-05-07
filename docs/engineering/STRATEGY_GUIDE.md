@@ -109,7 +109,7 @@ Stress 在 `web/src/adaptiveSpawn.js` 中合成，配置来源是 `shared/game_r
 
 | # | 信号 | 变量名 | 典型范围 | 作用 |
 |---|------|--------|---------|------|
-| 1 | 分数压力 | `scoreStress` | [−0.15, 0.8] | 分数越高压力越大 |
+| 1 | 分数压力 | `scoreStress` | [0, 0.78] | v1.13 起按「个人百分位」映射：`pct = score / max(bestScore, scoreFloor)`，pct < 50% 段额外 ×0.4 衰减；`bestScore=0`/缺省时回退到旧的绝对分段 |
 | 2 | 连胜加成 | `runStreakStress` | [0, 0.3] | 连续多局加压 |
 | 3 | 技能调节 | `skillAdjust` | [−0.15, 0.15] | 高手加压/新手减压 |
 | 4 | 心流调节 | `flowAdjust` | [−0.24, 0.16] | 无聊+/焦虑−/心流0 |
@@ -119,7 +119,46 @@ Stress 在 `web/src/adaptiveSpawn.js` 中合成，配置来源是 `shared/game_r
 | 8 | Combo 正反馈 | `comboReward` | [0, 0.08] | 连击轻微加压 |
 | 9 | 趋势调节 | `trendAdjust` | [−0.1, 0.1] | 历史趋势修正 |
 | 10 | 盘面风险救济 | `boardRiskReliefAdjust` | [−0.1, 0] | 填充/空洞/能力风险统一减压 |
-| 11 | 置信门控 | `confidenceGate` | [0, 1] | 低置信度收窄调节 |
+| 11 | **友好盘面救济**（v1.13） | `friendlyBoardRelief` | [−0.18, 0] | 盘面 holes=0 + 临消行/多消候选/清屏机会充沛 + 节奏处于 payoff 时主动减压，让拟人化压力表与玩家直觉同向 |
+| 12 | 置信门控 | `confidenceGate` | [0, 1] | 低置信度收窄调节 |
+
+`friendlyBoardRelief` 的判定与强度（默认值，可在 `adaptiveSpawn.friendlyBoard` 中改）：
+
+```text
+不触发条件：holes > 0 或 nearFullLines < minNearFullLines
+            或 (multiClearCandidates < minMultiClearCandidates 且 pcSetup < 1)
+            或 requirePayoff=true 且 rhythmPhase ≠ 'payoff'
+
+触发后强度：
+  opportunity = clamp(nearFullLines/4 + multiClearCandidates/4 + pcSetup*0.3, 0, 1)
+  cleanBoard  = 1 − fill
+  intensity   = clamp(0.4 + 0.6 * (opportunity*0.7 + cleanBoard*0.3), 0, 1)
+  relief      = baseRelief + (maxRelief − baseRelief) * intensity   // 默认在 [−0.12, −0.18] 之间
+```
+
+> ⚠️ **依赖 spawnContext 字段**：`friendlyBoardRelief` 需要 `ctx.multiClearCandidates`/`ctx.perfectClearCandidates`，由 `game.js` 在每轮出块后从 `getLastSpawnDiagnostics()` 回写。如果接入新的运行时（如服务端模拟），请同样填充这些字段。
+
+### v1.13：心流 + 兑现期的 stress 软封顶
+
+为了避免拟人化压力表出现「🥵 高压」与叙事「享受多消快感」并列的认知冲突，最终 stress 在以下条件下会被软封顶到 `flowPayoffStressCap`（默认 0.79，恰好压在 `tense` 区上沿）：
+
+```text
+flowState === 'flow'
+  && rhythmPhase === 'payoff'
+  && holes === 0
+  && boardRisk < flowPayoffMaxBoardRisk (默认 0.5)
+```
+
+封顶生效时会在 `stressBreakdown.flowPayoffCap` 写入封顶值（仅作派生标记，不计入贡献条）。可在 `shared/game_rules.json` 中按需改：
+
+```json
+{
+  "adaptiveSpawn": {
+    "flowPayoffStressCap": 0.79,
+    "flowPayoffMaxBoardRisk": 0.5
+  }
+}
+```
 
 ### 配置信号开关与缩放
 
@@ -147,7 +186,88 @@ Stress 在 `web/src/adaptiveSpawn.js` 中合成，配置来源是 `shared/game_r
 | 新手焦虑仍偏高 | 提高 `frustrationRelief.scale`、`recoveryAdjust.scale` 或 `boardRiskReliefAdjust.scale` |
 | 高手觉得单调 | 提高 `skillAdjust.scale`、`flowAdjust.scale`，但不要直接把所有 profile 调难 |
 | 跨会话趋势不可靠 | 关闭 `trendAdjust` |
-| 面板解释异常 | 查看 `_stressBreakdown.rawStress / afterSmoothing / finalStress` |
+| 拟人化压力表与盘面脱节 | 适度增大 `friendlyBoardRelief.scale`，或下调 `friendlyBoard.minNearFullLines/minMultiClearCandidates` 让救济更易触发 |
+| 想保留「破纪录的紧张感」 | 关闭 `friendlyBoardRelief` 或把 `flowPayoffStressCap` 调到 0.85+ |
+| 玩家分远未到 bestScore 仍显 🥵 | 调大 `dynamicDifficulty.percentileDecayThreshold`（默认 0.5）或减小 `percentileDecayFactor`（默认 0.4）让低分位段进一步衰减 |
+| 面板解释异常 | 查看 `_stressBreakdown.rawStress / afterSmoothing / flowPayoffCap / finalStress` |
+
+### 拟人化压力表（玩家可见）
+
+`web/src/stressMeter.js` 把上述合成结果转译为玩家可感知的「情绪状态」：
+
+| 等级 | 区间（stress） | 表情 | 主题色 |
+|------|---------------|------|--------|
+| `calm` 放松 | < −0.05 | 😌 | 冰蓝 |
+| `easy` 舒缓 | [−0.05, 0.20) | 🙂 | 浅绿 |
+| `flow` 心流 | [0.20, 0.45) | 😀 | 草绿 |
+| `engaged` 投入 | [0.45, 0.65) | 🤔 | 琥珀 |
+| `tense` 紧张 | [0.65, 0.80) | 😰 | 暖橙 |
+| `intense` 高压 | ≥ 0.80 | 🥵 | 警示红 |
+
+挂载点：`#stress-meter-host`（位于"实时状态"section 顶部）。每帧 `_render(game)` 调用 `renderStressMeter(host, insight, history)`。组件内部消费的字段：
+
+- `insight.stress`：当前综合压力（必填）
+- `insight.stressBreakdown`：用于按贡献绝对值排序，列出 Top 5 信号（正负分色）
+- `insight.spawnTargets` / `insight.spawnHints`：参与「一句话叙事」生成
+- `history`：最近 6 帧 stress 数组，计算趋势 ↗ / → / ↘
+
+视觉细节：
+- **呼吸光晕** `--stress-breath-ms` 与等级反向挂钩：`calm` 约 2.4s，`intense` 约 1.0s
+- **色带** 通过 `[data-level]` 切换 CSS 变量 `--sm-tint` / `--sm-deep`，不改变盘面渲染
+- **一句话叙事** 优先级：盘面风险 > 挫败救济 > 恢复 > 挑战 > 连击 > 心流 > 节奏 > 默认 vibe
+- 配合 `prefers-reduced-motion` 自动停掉呼吸动画
+
+调参 / 排错：
+- 想要不同的等级阈值，编辑 `STRESS_LEVELS` 中的 `min/max`。
+- 想要新增信号的中文名 / hint，扩展 `SIGNAL_LABELS` 里的对应 key。
+- 单测 `tests/stressMeter.test.js` 覆盖映射、贡献排序、趋势、叙事与 DOM 渲染。
+
+### v1.13：冷启动占位值与 UI 展示约定
+
+`PlayerProfile.metrics` getter 在 `recent.length === 0` 时会返回**硬编码占位值**：
+
+```js
+{ thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1, afkCount: 0,
+  samples: 0, activeSamples: 0 }
+```
+
+设计目的：让 `_computeRawSkill` / `flowDeviation` / `playstyle` 等内部消费方在首屏不至于
+除零或抖到极端值。但这些**不是真实测量**，UI 层必须按 `samples` / `activeSamples` 区分
+处理，否则玩家会困惑「我还没下任何块系统就给我打了消行率 30% / 失误 10%」。
+
+| 字段 | 冷启动判定 | UI 表现 |
+|---|---|---|
+| `metrics.thinkMs` / `clearRate` / `comboRate` | `activeSamples === 0` | sparkline 数值显「—」 |
+| `metrics.missRate` | `samples === 0` | sparkline 数值显「—」（含失误也算样本） |
+| `cognitiveLoad` | `cognitiveLoadHasData === false`（即 `placed.length < 3`） | 「负荷」字段显「—」 |
+| 能力指标卡 `controlScore` | `metrics.samples < 1` | 数值显「—」并加 dashed 边框（`.insight-metric--cold`） |
+| 能力指标卡 `clearEfficiency` | `metrics.activeSamples < 1` | 同上 |
+| `skillScore` / `boardPlanning` / `riskLevel` / `confidence` | 不依赖占位 | 正常显示（来自跨会话 baseline + 实时盘面拓扑） |
+
+实现位置：
+- `web/src/playerProfile.js` 的 `metrics` getter 与新增 `cognitiveLoadHasData` getter；
+- `web/src/playerInsightPanel.js` 的 `_buildLiveSnapshotForSeries`（live 快照写 null）与
+  能力指标卡渲染（冷启动判定 + `.insight-metric--cold` 样式）；
+- `web/public/styles/main.css` 的 `.insight-metric--cold`（dashed 边框 + 半透 strong）。
+
+`_computeRawSkill / flowDeviation / playstyle` 等内部计算路径**不变**，因此 stress 主路径
+的稳定性与之前完全一致；本节修复仅作用于 UI 展示。
+
+#### 与回放/复盘的对齐（pv=2）
+
+冷启动隔离不仅作用于实时面板，也写入了 **回放数据**，让离线复盘与策略训练能识别同样的状态：
+
+| 写入位置 | 字段 | 行为 |
+|---|---|---|
+| `frames[i].ps`（`buildPlayerStateSnapshot`，**bump pv 1→2**） | `coldStart`、`cognitiveLoadHasData`、`metrics.{samples,activeSamples}` | 冷启动帧直接把 `metrics.{thinkMs,clearRate,comboRate,missRate}` 与 `cognitiveLoad` 写为 `null` |
+| 实时序列快照（`_buildLiveSnapshotForSeries`，pv=2） | 同上 | 与回放共用同一访问器，sparkline 自动跳过 null 点 |
+| `formatPlayerStateForReplay` | `🌱 冷启动` 前缀 | pv=2 直读 `coldStart`；pv=1 旧记录按 `(thinkMs===3000 && clearRate===0.3)` 启发式标记 |
+| `buildReplayAnalysis().metrics` | `coldFrames`、`coldFramesRatio`、`firstWarmFrameIdx` | 整局冷启动统计；ratio>0.25 时打 tag「冷启动样本偏多」并在 recommendations 给出过滤建议 |
+
+**离线管线接入约定**：
+- 计算分群均值/分布时，**过滤 `ps.coldStart === true`** 或 `idx < analysis.metrics.firstWarmFrameIdx` 的帧；
+- 旧 pv=1 对局也能读，但 sparkline 中早期会保留占位点（已记录的对局无法回填，建议在下游用同样的启发式过滤）；
+- pv 字段保证 schema 兼容回滚：旧客户端读 pv=2 ps 时会忽略未识别字段，正常显示其他指标。
 
 ### 添加自定义信号
 
@@ -167,6 +287,7 @@ stressBreakdown.missStreakRelief = applySignal(signalCfg, 'missStreakRelief', mi
 1. `shared/game_rules.json` 的 `adaptiveSpawn.signals`。
 2. `tests/adaptiveSpawn.test.js` 的典型场景断言。
 3. 本文档信号表。
+4. `web/src/stressMeter.js` 的 `SIGNAL_LABELS`（拟人化压力表里的中文名 + hint）。
 
 ---
 

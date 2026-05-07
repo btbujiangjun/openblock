@@ -71,6 +71,9 @@ export function collectStats() {
 
     /* 钱包 */
     let walletBalance = {};
+    /* v1.13：钱包流水明细 —— 让玩家在面板看到「我刚刚领过的 +1 提示券」之类的入账记录，
+     * 而不只是聚合余额。getLedger 返回最新 N 条（环形缓冲，已截断旧记录）。 */
+    let walletLedger = [];
     try {
         const w = window.__wallet;
         if (w) {
@@ -82,6 +85,9 @@ export function collectStats() {
                 coin: w.getBalance('coin'),
                 fragment: w.getBalance('fragment'),
             };
+            if (typeof w.getLedger === 'function') {
+                walletLedger = w.getLedger({ limit: 12 }).slice().reverse();
+            }
         }
     } catch { /* ignore */ }
 
@@ -110,9 +116,80 @@ export function collectStats() {
         milestones,
         rank,
         walletBalance,
+        walletLedger,
         topSkins,
         currentSkin: (typeof localStorage !== 'undefined' && localStorage.getItem('openblock_skin')) || 'classic',
     };
+}
+
+/* v1.13：流水来源 → 中文 / emoji 友好标签。未匹配时按 source 原值显示，避免硬编码遗漏。
+ * 规则：前缀匹配优先，覆盖一族 source（如 chest-* / season-chest-* / lucky-wheel-* / checkin-day-*）。 */
+const _LEDGER_SOURCE_PREFIX = [
+    ['chest-',           '🎁 局末宝箱'],
+    ['season-chest-',    '🏆 赛季宝箱'],
+    ['lucky-wheel-',     '🎡 周末转盘'],
+    ['checkin-day-',     '📅 每日签到'],
+    ['login-streak-',    '🔥 连签里程碑'],
+    ['monthly-',         '📆 月度签到'],
+    ['ftue_',            '🌱 新手引导'],
+    ['ach-',             '🏅 成就奖励'],
+    ['invite_',          '🤝 邀请奖励'],
+    ['invitee_',         '🤝 受邀奖励'],
+    ['tier_',            '🤝 邀请阶梯'],
+    ['daily-task-',      '📋 每日任务'],
+    ['mini-goal-',       '🎯 小目标'],
+    ['season-pass-',     '🎫 赛季通行证'],
+    ['first-purchase-',  '💎 首充奖励'],
+    ['rainbow-refund',   '🌈 彩虹退款'],
+    ['undo-refund',      '↩️ 撤销退款'],
+    ['skin-fragment-earn','🔧 皮肤碎片'],
+    ['birthday',         '🎂 生日礼物'],
+    ['first-day-pack',   '🎁 首日大礼包'],
+    ['welcome-back',     '👋 回归礼包'],
+    ['trial-',           '👕 皮肤试穿'],
+    ['hint_pack',        '💎 IAP 提示包'],
+];
+
+function _formatLedgerSource(source) {
+    const s = String(source || '');
+    for (const [prefix, label] of _LEDGER_SOURCE_PREFIX) {
+        if (s.startsWith(prefix)) return label;
+    }
+    return s || '未知';
+}
+
+const _LEDGER_KIND_LABEL = {
+    hintToken: '提示券',
+    undoToken: '撤销券',
+    bombToken: '炸弹券',
+    rainbowToken: '彩虹券',
+    freezeToken: '冻结券',
+    previewToken: '预览券',
+    rerollToken: '重抽券',
+    coin: '金币',
+    trialPass: '试穿券',
+    fragment: '碎片',
+};
+
+function _formatLedgerEntry(row) {
+    const t = new Date(row.ts || Date.now());
+    const ts = `${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+    const kindLabel = _LEDGER_KIND_LABEL[row.kind] || row.kind || '?';
+    const amount = Number(row.amount) || 0;
+    const sign = amount > 0 ? '+' : (amount < 0 ? '−' : '·');
+    const cls = amount > 0 ? 'pd-ledger--add' : (amount < 0 ? 'pd-ledger--spend' : 'pd-ledger--cap');
+    const sourceLabel = _formatLedgerSource(row.source);
+    let amountText = `${sign}${Math.abs(amount)} ${kindLabel}`;
+    if (row.action === 'cap') {
+        amountText = `已达上限（请求 ${row.cappedFrom ?? '?'}）`;
+    } else if (row.cappedFrom && row.cappedFrom > Math.abs(amount)) {
+        amountText += `（截断自 ${row.cappedFrom}）`;
+    }
+    return `<div class="pd-ledger-row ${cls}">
+        <span class="pd-ledger-ts">${ts}</span>
+        <span class="pd-ledger-amount">${amountText}</span>
+        <span class="pd-ledger-source">${sourceLabel}</span>
+    </div>`;
 }
 
 export function openDashboard() {
@@ -156,6 +233,12 @@ export function openDashboard() {
                     <span>🌈 ${s.walletBalance.rainbow | 0}</span>
                     <span>💰 ${s.walletBalance.coin | 0}</span>
                     <span>🔧 ${s.walletBalance.fragment | 0}</span>
+                </div>
+                <h3>最近入账 <span class="pd-ledger-hint">（来源 · 金额 · 时间）</span></h3>
+                <div class="pd-ledger">
+                    ${(s.walletLedger || []).length === 0
+                        ? '<div class="pd-empty">暂无流水（领取过宝箱/签到/任务后这里会出现）</div>'
+                        : s.walletLedger.map(_formatLedgerEntry).join('')}
                 </div>
             </div>
         </div>

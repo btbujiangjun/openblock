@@ -30,6 +30,16 @@
 
 const STORAGE_KEY = 'openblock_mini_goals';
 
+/* v1.13：每档难度对应的钱包奖励包（之前 GOAL_TEMPLATES 没有 reward，
+ * 完成只是弹一个 toast，玩家拿不到任何实际激励）。
+ * 难度阶梯：easy → 1 hint；normal → 1 hint + 50 coin；hard → 2 hint + 100 coin。
+ * 数额刻意压低，避免与签到/宝箱叠加触发 wallet 的每日发放上限。 */
+const GOAL_REWARDS_BY_TIER = {
+    easy:   { hintToken: 1 },
+    normal: { hintToken: 1, coin: 50 },
+    hard:   { hintToken: 2, coin: 100 },
+};
+
 // ── 目标模板（按难度分组） ──────────────────────────────────────────────────
 const GOAL_TEMPLATES = {
     easy: [
@@ -85,6 +95,9 @@ export class MiniGoalManager {
             goal.completedAt = Date.now();
             this._data.completed = (this._data.completed ?? 0) + 1;
             this._data.gamesThisCycle = 0;   // 立即可能刷新下一个
+            // v1.13：之前小目标完成只 toast，不发任何东西。
+            // 现在按 goal.tier 把 hint/coin 真正写入钱包，source 用 mini-goal-${type} 便于流水回溯。
+            this._grantReward(goal);
             this._showCompletionToast(goal);
             this._save();
             // 下一局给新目标
@@ -137,10 +150,32 @@ export class MiniGoalManager {
             ...tpl,
             label: tpl.label.replace('{n}', tpl.n),
             target: tpl.n,
+            tier,                                                // v1.13：保存到 goal，发奖按 tier 取对应 reward
+            reward: { ...(GOAL_REWARDS_BY_TIER[tier] ?? {}) },
             _sessionProgress: 0,
             done: false,
             createdAt: Date.now(),
         };
+    }
+
+    /**
+     * v1.13：把 goal.reward 中的钱包奖励真正写入 wallet。
+     * 兼容老存档（无 tier/reward 字段时按 normal 兜底，避免老用户突然收不到）。
+     */
+    _grantReward(goal) {
+        const tier = goal?.tier || 'normal';
+        const reward = goal?.reward ?? GOAL_REWARDS_BY_TIER[tier] ?? {};
+        if (!reward || typeof window === 'undefined' || !window.__wallet) return;
+        const w = window.__wallet;
+        const source = `mini-goal-${goal?.type || 'unknown'}`;
+        try {
+            for (const [kind, amount] of Object.entries(reward)) {
+                if (!amount) continue;
+                w.addBalance(kind, amount | 0, source);
+            }
+        } catch (e) {
+            console.warn('[miniGoals] reward grant failed', e);
+        }
     }
 
     _measureProgress(goal, gameStats) {

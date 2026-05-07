@@ -23,8 +23,8 @@ function _shareText(score) {
     return `我在 Open Block 方块拼图中得了 ${score.toLocaleString()} 分！来挑战我吧 🧩`;
 }
 
-/** 执行分享 */
-async function _doShare(score, game) {
+/** 执行分享（game 参数保留以便未来追加战绩快照） */
+async function _doShare(score, _game) {
     const text = _shareText(score);
     const url = typeof window !== 'undefined' ? window.location.href : '';
 

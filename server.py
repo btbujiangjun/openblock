@@ -25,16 +25,18 @@ def _load_repo_dotenv():
         if not path.is_file():
             return
         try:
-            raw = path.read_text(encoding='utf-8')
+            raw = path.read_text(encoding="utf-8")
         except OSError:
             return
         for line in raw.splitlines():
             s = line.strip()
-            if not s or s.startswith('#') or '=' not in s:
+            if not s or s.startswith("#") or "=" not in s:
                 continue
-            k, _, v = s.partition('=')
+            k, _, v = s.partition("=")
             k, v = k.strip(), v.strip()
-            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+            if (v.startswith('"') and v.endswith('"')) or (
+                v.startswith("'") and v.endswith("'")
+            ):
                 v = v[1:-1]
             if not k:
                 continue
@@ -43,8 +45,8 @@ def _load_repo_dotenv():
             else:
                 os.environ.setdefault(k, v)
 
-    _apply(root / '.env', False)
-    _apply(root / '.env.local', True)
+    _apply(root / ".env", False)
+    _apply(root / ".env.local", True)
 
 
 _load_repo_dotenv()
@@ -55,9 +57,11 @@ try:
 except ImportError:
     pass
 
-_DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'openblock.db')
+_DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "openblock.db")
 # BLOCKBLAST_DB_PATH 作为旧版向后兼容；优先使用 OPENBLOCK_DB_PATH
-DATABASE = os.environ.get('OPENBLOCK_DB_PATH') or os.environ.get('BLOCKBLAST_DB_PATH', _DEFAULT_DB)
+DATABASE = os.environ.get("OPENBLOCK_DB_PATH") or os.environ.get(
+    "BLOCKBLAST_DB_PATH", _DEFAULT_DB
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -68,18 +72,18 @@ import enterprise_extensions  # noqa: E402  — 企业扩展路由与迁移（�
 def _configure_sqlite_connection(db):
     """每连接一次：WAL 提升读写并发；busy_timeout 降低「database is locked」概率。"""
     try:
-        db.execute('PRAGMA journal_mode=WAL')
+        db.execute("PRAGMA journal_mode=WAL")
     except sqlite3.OperationalError:
         pass
     try:
-        db.execute('PRAGMA busy_timeout=5000')
+        db.execute("PRAGMA busy_timeout=5000")
     except sqlite3.OperationalError:
         pass
 
 
 def get_db():
     """Get database connection for current request"""
-    db = getattr(g, '_database', None)
+    db = getattr(g, "_database", None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
         db.row_factory = sqlite3.Row
@@ -90,38 +94,44 @@ def get_db():
 @app.teardown_appcontext
 def close_connection(exception):
     """Close database connection at end of request"""
-    db = getattr(g, '_database', None)
+    db = getattr(g, "_database", None)
     if db is not None:
         db.close()
 
 
 def _migrate_behaviors_columns(cursor):
     """旧版库可能缺少 behaviors 字段，补列后再建索引。"""
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='behaviors'")
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='behaviors'"
+    )
     if not cursor.fetchone():
         return
-    cursor.execute('PRAGMA table_info(behaviors)')
+    cursor.execute("PRAGMA table_info(behaviors)")
     existing = {row[1] for row in cursor.fetchall()}
     additions = [
-        ('session_id', 'INTEGER'),
-        ('user_id', "TEXT NOT NULL DEFAULT ''"),
-        ('event_type', "TEXT NOT NULL DEFAULT ''"),
-        ('event_data', 'TEXT'),
-        ('game_state', 'TEXT'),
-        ('timestamp', "INTEGER DEFAULT (strftime('%s', 'now'))"),
-        ('created_at', "INTEGER DEFAULT (strftime('%s', 'now'))"),
+        ("session_id", "INTEGER"),
+        ("user_id", "TEXT NOT NULL DEFAULT ''"),
+        ("event_type", "TEXT NOT NULL DEFAULT ''"),
+        ("event_data", "TEXT"),
+        ("game_state", "TEXT"),
+        ("timestamp", "INTEGER DEFAULT (strftime('%s', 'now'))"),
+        ("created_at", "INTEGER DEFAULT (strftime('%s', 'now'))"),
     ]
     for col_name, col_decl in additions:
         if col_name not in existing:
             try:
-                cursor.execute(f'ALTER TABLE behaviors ADD COLUMN {col_name} {col_decl}')
+                cursor.execute(
+                    f"ALTER TABLE behaviors ADD COLUMN {col_name} {col_decl}"
+                )
             except sqlite3.OperationalError:
                 pass
 
 
 def _migrate_schema(cursor):
     """补列、迁移成就表结构、建 move_sequences / client_strategies。"""
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'"
+    )
     if cursor.fetchone():
         cursor.execute("PRAGMA table_info(sessions)")
         sess_cols = {row[1] for row in cursor.fetchall()}
@@ -141,7 +151,9 @@ def _migrate_schema(cursor):
                 except sqlite3.OperationalError:
                     pass
 
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'")
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'"
+    )
     if cursor.fetchone():
         cursor.execute("PRAGMA table_info(achievements)")
         ach_cols = {row[1] for row in cursor.fetchall()}
@@ -200,7 +212,9 @@ def _migrate_schema(cursor):
         """
     )
 
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_stats'")
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_stats'"
+    )
     if cursor.fetchone():
         cursor.execute("PRAGMA table_info(user_stats)")
         st_cols = {row[1] for row in cursor.fetchall()}
@@ -216,7 +230,9 @@ def _migrate_schema(cursor):
         ):
             if col_name not in st_cols:
                 try:
-                    cursor.execute(f"ALTER TABLE user_stats ADD COLUMN {col_name} {decl}")
+                    cursor.execute(
+                        f"ALTER TABLE user_stats ADD COLUMN {col_name} {decl}"
+                    )
                 except sqlite3.OperationalError:
                     pass
 
@@ -227,7 +243,7 @@ def init_db():
         db = get_db()
         cursor = db.cursor()
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
@@ -241,9 +257,9 @@ def init_db():
                 game_stats TEXT,
                 created_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS behaviors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id INTEGER,
@@ -255,9 +271,9 @@ def init_db():
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
@@ -265,9 +281,9 @@ def init_db():
                 strategy TEXT DEFAULT 'normal',
                 timestamp INTEGER DEFAULT (strftime('%s', 'now'))
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_stats (
                 user_id TEXT PRIMARY KEY,
                 total_games INTEGER DEFAULT 0,
@@ -280,18 +296,18 @@ def init_db():
                 total_misses INTEGER DEFAULT 0,
                 last_seen INTEGER DEFAULT (strftime('%s', 'now'))
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS achievements (
                 user_id TEXT NOT NULL,
                 achievement_id TEXT NOT NULL,
                 unlocked_at INTEGER DEFAULT (strftime('%s', 'now')),
                 PRIMARY KEY (user_id, achievement_id)
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS replays (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id INTEGER,
@@ -300,61 +316,78 @@ def init_db():
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS skill_wallets (
                 user_id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
                 updated_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
-        ''')
+        """)
 
-        cursor.execute('''
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                provider_ref TEXT,
+                amount_minor INTEGER DEFAULT 0,
+                currency TEXT DEFAULT 'CNY',
+                status TEXT DEFAULT 'pending',
+                expires_at INTEGER,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS browser_rl_linear_agents (
                 user_id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
                 updated_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
-        ''')
+        """)
 
         _migrate_behaviors_columns(cursor)
         _migrate_schema(cursor)
 
         enterprise_extensions.migrate_enterprise_schema(cursor)
 
-        cursor.execute('''
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_behaviors_session ON behaviors(session_id)
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_behaviors_user ON behaviors(user_id)
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_behaviors_type ON behaviors(event_type)
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_behaviors_timestamp ON behaviors(timestamp)
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)
-        ''')
-        cursor.execute('''
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_replays_session ON replays(session_id)
-        ''')
+        """)
 
         db.commit()
 
 
-@app.route('/api/session', methods=['POST'])
+@app.route("/api/session", methods=["POST"])
 def create_session():
     """Create a new game session（start_time 毫秒，与浏览器 Date.now() 一致）"""
     data = request.get_json() or {}
-    user_id = data.get('user_id', '') or data.get('userId', '')
-    strategy = data.get('strategy', 'normal')
-    strategy_config = json.dumps(data.get('strategyConfig', data.get('strategy_config', {})))
-    attr = data.get('attribution') or data.get('attributionJson')
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    strategy = data.get("strategy", "normal")
+    strategy_config = json.dumps(
+        data.get("strategyConfig", data.get("strategy_config", {}))
+    )
+    attr = data.get("attribution") or data.get("attributionJson")
     attribution = json.dumps(attr if isinstance(attr, dict) else {}, ensure_ascii=False)
-    start_ms = data.get('startTime') or data.get('start_time')
+    start_ms = data.get("startTime") or data.get("start_time")
     if start_ms is None:
         start_ms = int(time.time() * 1000)
     else:
@@ -363,23 +396,39 @@ def create_session():
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('''
+    cursor.execute(
+        """
         INSERT INTO sessions (user_id, strategy, strategy_config, start_time, score, status, attribution)
         VALUES (?, ?, ?, ?, ?, 'active', ?)
-    ''', (user_id, strategy, strategy_config, start_ms, int(data.get('score', 0)), attribution))
+    """,
+        (
+            user_id,
+            strategy,
+            strategy_config,
+            start_ms,
+            int(data.get("score", 0)),
+            attribution,
+        ),
+    )
 
     db.commit()
     session_id = cursor.lastrowid
 
-    cursor.execute('''
+    cursor.execute(
+        """
         INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)
-    ''', (user_id,))
-    cursor.execute('''
+    """,
+        (user_id,),
+    )
+    cursor.execute(
+        """
         UPDATE user_stats SET last_seen = ? WHERE user_id = ?
-    ''', (int(time.time()), user_id))
+    """,
+        (int(time.time()), user_id),
+    )
     db.commit()
 
-    return jsonify({'success': True, 'session_id': session_id, 'id': session_id})
+    return jsonify({"success": True, "session_id": session_id, "id": session_id})
 
 
 def _row_session_api(row) -> dict:
@@ -455,7 +504,9 @@ def patch_session(session_id):
             u.get("score", row["score"]),
             u.get("status", row["status"]),
             u.get("end_time", row["end_time"]),
-            u.get("game_stats", row["game_stats"] if "game_stats" in row.keys() else None),
+            u.get(
+                "game_stats", row["game_stats"] if "game_stats" in row.keys() else None
+            ),
             u.get("strategy_config", row["strategy_config"]),
             u.get(
                 "attribution",
@@ -469,334 +520,397 @@ def patch_session(session_id):
     return jsonify(_row_session_api(cur.fetchone()))
 
 
-@app.route('/api/session/<int:session_id>', methods=['PUT'])
+@app.route("/api/session/<int:session_id>", methods=["PUT"])
 def end_session(session_id):
     """结束会话（可选同步）；毫秒时间戳"""
     data = request.get_json() or {}
-    score = data.get('score', 0)
-    duration = data.get('duration', 0)
+    score = data.get("score", 0)
+    duration = data.get("duration", 0)
 
     db = get_db()
     cursor = db.cursor()
 
     end_time = int(time.time() * 1000)
-    cursor.execute('''
+    cursor.execute(
+        """
         SELECT start_time, user_id, strategy FROM sessions WHERE id = ?
-    ''', (session_id,))
+    """,
+        (session_id,),
+    )
     row = cursor.fetchone()
 
     if row:
-        st = row['start_time']
+        st = row["start_time"]
         if st is not None and st < 10**11:
             st = int(st * 1000)
         actual_duration_ms = max(0, end_time - st)
-        actual_duration_sec = max(1, actual_duration_ms // 1000) if duration == 0 else int(duration)
-        cursor.execute('''
+        actual_duration_sec = (
+            max(1, actual_duration_ms // 1000) if duration == 0 else int(duration)
+        )
+        cursor.execute(
+            """
             UPDATE sessions SET score = ?, end_time = ?, duration = ?, status = 'completed'
             WHERE id = ?
-        ''', (score, end_time, actual_duration_sec, session_id))
+        """,
+            (score, end_time, actual_duration_sec, session_id),
+        )
 
-        cursor.execute('''
+        cursor.execute(
+            """
             UPDATE user_stats SET
                 total_score = total_score + ?,
                 best_score = MAX(best_score, ?),
                 total_play_time = total_play_time + ?,
                 last_seen = ?
             WHERE user_id = ?
-        ''', (score, score, actual_duration_sec, end_time // 1000, row['user_id']))
+        """,
+            (score, score, actual_duration_sec, end_time // 1000, row["user_id"]),
+        )
 
-        cursor.execute('''
+        cursor.execute(
+            """
             INSERT INTO scores (user_id, score, strategy) VALUES (?, ?, ?)
-        ''', (row['user_id'], score, row['strategy']))
+        """,
+            (row["user_id"], score, row["strategy"]),
+        )
 
         db.commit()
 
-    return jsonify({'success': True})
+    return jsonify({"success": True})
 
 
-@app.route('/api/behavior', methods=['POST'])
+@app.route("/api/behavior", methods=["POST"])
 def record_behavior():
     """Record a single behavior event"""
     data = request.get_json() or {}
-    session_id = data.get('session_id')
-    user_id = data.get('user_id', '')
-    event_type = data.get('event_type', '')
-    event_data = json.dumps(data.get('data', {}))
-    game_state = json.dumps(data.get('gameState', {}))
+    session_id = data.get("session_id")
+    user_id = data.get("user_id", "")
+    event_type = data.get("event_type", "")
+    event_data = json.dumps(data.get("data", {}))
+    game_state = json.dumps(data.get("gameState", {}))
 
     if not event_type:
-        return jsonify({'success': False, 'error': 'event_type required'}), 400
+        return jsonify({"success": False, "error": "event_type required"}), 400
 
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('''
+    cursor.execute(
+        """
         INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, timestamp)
         VALUES (?, ?, ?, ?, ?, ?)
-    ''', (session_id, user_id, event_type, event_data, game_state, int(time.time())))
+    """,
+        (session_id, user_id, event_type, event_data, game_state, int(time.time())),
+    )
 
     db.commit()
 
-    return jsonify({'success': True, 'id': cursor.lastrowid})
+    return jsonify({"success": True, "id": cursor.lastrowid})
 
 
-@app.route('/api/behavior/batch', methods=['POST'])
+@app.route("/api/behavior/batch", methods=["POST"])
 def record_behaviors_batch():
     """Record multiple behavior events at once"""
     data = request.get_json() or {}
-    behaviors = data.get('behaviors', [])
+    behaviors = data.get("behaviors", [])
 
     if not behaviors:
-        return jsonify({'success': False, 'error': 'behaviors required'}), 400
+        return jsonify({"success": False, "error": "behaviors required"}), 400
 
     db = get_db()
     cursor = db.cursor()
 
     for b in behaviors:
-        sid = b.get('session_id') if b.get('session_id') is not None else b.get('sessionId')
-        ts = b.get('timestamp')
+        sid = (
+            b.get("session_id")
+            if b.get("session_id") is not None
+            else b.get("sessionId")
+        )
+        ts = b.get("timestamp")
         if ts is None:
             ts = int(time.time() * 1000)
         else:
             ts = int(ts)
             if ts < 10**12:
                 ts *= 1000
-        cursor.execute('''
+        cursor.execute(
+            """
             INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, timestamp)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            sid,
-            b.get('userId', ''),
-            b.get('eventType', ''),
-            json.dumps(b.get('data', {})),
-            json.dumps(b.get('gameState', {})),
-            ts,
-        ))
+        """,
+            (
+                sid,
+                b.get("userId", ""),
+                b.get("eventType", ""),
+                json.dumps(b.get("data", {})),
+                json.dumps(b.get("gameState", {})),
+                ts,
+            ),
+        )
 
     db.commit()
 
-    return jsonify({'success': True, 'count': len(behaviors)})
+    return jsonify({"success": True, "count": len(behaviors)})
 
 
-@app.route('/api/behaviors/<int:session_id>', methods=['GET'])
+@app.route("/api/behaviors/<int:session_id>", methods=["GET"])
 def get_behaviors_by_session(session_id):
     """Get all behaviors for a session"""
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('''
+    cursor.execute(
+        """
         SELECT * FROM behaviors WHERE session_id = ? ORDER BY timestamp ASC
-    ''', (session_id,))
+    """,
+        (session_id,),
+    )
 
     behaviors = []
     for row in cursor.fetchall():
-        behaviors.append({
-            'id': row['id'],
-            'event_type': row['event_type'],
-            'data': json.loads(row['event_data'] or '{}'),
-            'game_state': json.loads(row['game_state'] or '{}'),
-            'timestamp': row['timestamp']
-        })
+        behaviors.append(
+            {
+                "id": row["id"],
+                "event_type": row["event_type"],
+                "data": json.loads(row["event_data"] or "{}"),
+                "game_state": json.loads(row["game_state"] or "{}"),
+                "timestamp": row["timestamp"],
+            }
+        )
 
     return jsonify(behaviors)
 
 
-@app.route('/api/behaviors', methods=['GET'])
+@app.route("/api/behaviors", methods=["GET"])
 def get_behaviors():
     """Get behaviors with filters"""
-    user_id = request.args.get('user_id')
-    event_type = request.args.get('event_type')
-    limit = request.args.get('limit', 100, type=int)
-    offset = request.args.get('offset', 0, type=int)
+    user_id = request.args.get("user_id")
+    event_type = request.args.get("event_type")
+    limit = request.args.get("limit", 100, type=int)
+    offset = request.args.get("offset", 0, type=int)
 
     db = get_db()
     cursor = db.cursor()
 
-    query = 'SELECT * FROM behaviors WHERE 1=1'
+    query = "SELECT * FROM behaviors WHERE 1=1"
     params = []
 
     if user_id:
-        query += ' AND user_id = ?'
+        query += " AND user_id = ?"
         params.append(user_id)
 
     if event_type:
-        query += ' AND event_type = ?'
+        query += " AND event_type = ?"
         params.append(event_type)
 
-    query += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+    query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
     cursor.execute(query, params)
 
     behaviors = []
     for row in cursor.fetchall():
-        behaviors.append({
-            'id': row['id'],
-            'session_id': row['session_id'],
-            'user_id': row['user_id'],
-            'event_type': row['event_type'],
-            'data': json.loads(row['event_data'] or '{}'),
-            'game_state': json.loads(row['game_state'] or '{}'),
-            'timestamp': row['timestamp']
-        })
+        behaviors.append(
+            {
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "user_id": row["user_id"],
+                "event_type": row["event_type"],
+                "data": json.loads(row["event_data"] or "{}"),
+                "game_state": json.loads(row["game_state"] or "{}"),
+                "timestamp": row["timestamp"],
+            }
+        )
 
     return jsonify(behaviors)
 
 
-@app.route('/api/score', methods=['POST'])
+@app.route("/api/score", methods=["POST"])
 def record_score():
     """Record a score"""
     data = request.get_json() or {}
-    user_id = data.get('user_id', '')
-    score = data.get('score', 0)
-    strategy = data.get('strategy', 'normal')
+    user_id = data.get("user_id", "")
+    score = data.get("score", 0)
+    strategy = data.get("strategy", "normal")
 
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('''
+    cursor.execute(
+        """
         INSERT INTO scores (user_id, score, strategy) VALUES (?, ?, ?)
-    ''', (user_id, score, strategy))
+    """,
+        (user_id, score, strategy),
+    )
 
     db.commit()
 
-    return jsonify({'success': True})
+    return jsonify({"success": True})
 
 
-@app.route('/api/stats', methods=['GET'])
+@app.route("/api/stats", methods=["GET"])
 def get_stats():
     """Get user or global stats"""
-    user_id = request.args.get('user_id')
+    user_id = request.args.get("user_id")
 
     db = get_db()
     cursor = db.cursor()
 
     if user_id:
-        cursor.execute('SELECT * FROM user_stats WHERE user_id = ?', (user_id,))
+        cursor.execute("SELECT * FROM user_stats WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
 
         if row:
-            return jsonify({
-                'user_id': row['user_id'],
-                'total_games': row['total_games'],
-                'total_score': row['total_score'],
-                'best_score': row['best_score'],
-                'total_play_time': row['total_play_time'],
-                'total_clears': row['total_clears'],
-                'max_combo': row['max_combo'],
-                'total_placements': row['total_placements'],
-                'total_misses': row['total_misses'],
-                'accuracy': row['total_placements'] / (row['total_placements'] + row['total_misses']) * 100 if (row['total_placements'] + row['total_misses']) > 0 else 0
-            })
+            return jsonify(
+                {
+                    "user_id": row["user_id"],
+                    "total_games": row["total_games"],
+                    "total_score": row["total_score"],
+                    "best_score": row["best_score"],
+                    "total_play_time": row["total_play_time"],
+                    "total_clears": row["total_clears"],
+                    "max_combo": row["max_combo"],
+                    "total_placements": row["total_placements"],
+                    "total_misses": row["total_misses"],
+                    "accuracy": row["total_placements"]
+                    / (row["total_placements"] + row["total_misses"])
+                    * 100
+                    if (row["total_placements"] + row["total_misses"]) > 0
+                    else 0,
+                }
+            )
 
-        return jsonify({
-            'user_id': user_id,
-            'total_games': 0,
-            'total_score': 0,
-            'best_score': 0,
-            'total_play_time': 0
-        })
+        return jsonify(
+            {
+                "user_id": user_id,
+                "total_games": 0,
+                "total_score": 0,
+                "best_score": 0,
+                "total_play_time": 0,
+            }
+        )
 
-    cursor.execute('SELECT COUNT(*) as cnt FROM sessions')
-    total_games = cursor.fetchone()['cnt']
+    cursor.execute("SELECT COUNT(*) as cnt FROM sessions")
+    total_games = cursor.fetchone()["cnt"]
 
-    cursor.execute('SELECT MAX(score) as best FROM scores')
-    best = cursor.fetchone()['best'] or 0
+    cursor.execute("SELECT MAX(score) as best FROM scores")
+    best = cursor.fetchone()["best"] or 0
 
-    cursor.execute('SELECT SUM(score) as total FROM scores')
-    total = cursor.fetchone()['total'] or 0
+    cursor.execute("SELECT SUM(score) as total FROM scores")
+    total = cursor.fetchone()["total"] or 0
 
-    cursor.execute('SELECT SUM(total_clears) as clears FROM user_stats')
-    clears = cursor.fetchone()['clears'] or 0
+    cursor.execute("SELECT SUM(total_clears) as clears FROM user_stats")
+    clears = cursor.fetchone()["clears"] or 0
 
-    cursor.execute('SELECT AVG(best_score) as avg_score FROM (SELECT best_score FROM user_stats WHERE best_score > 0)')
-    avg_score = cursor.fetchone()['avg_score'] or 0
+    cursor.execute(
+        "SELECT AVG(best_score) as avg_score FROM (SELECT best_score FROM user_stats WHERE best_score > 0)"
+    )
+    avg_score = cursor.fetchone()["avg_score"] or 0
 
-    return jsonify({
-        'total_games': total_games,
-        'total_score': total,
-        'best_score': best,
-        'total_clears': clears,
-        'avg_score': round(avg_score, 2)
-    })
+    return jsonify(
+        {
+            "total_games": total_games,
+            "total_score": total,
+            "best_score": best,
+            "total_clears": clears,
+            "avg_score": round(avg_score, 2),
+        }
+    )
 
 
-@app.route('/api/leaderboard', methods=['GET'])
+@app.route("/api/leaderboard", methods=["GET"])
 def get_leaderboard():
     """Get top scores"""
-    limit = request.args.get('limit', 10, type=int)
-    strategy = request.args.get('strategy')
+    limit = request.args.get("limit", 10, type=int)
+    strategy = request.args.get("strategy")
 
     db = get_db()
     cursor = db.cursor()
 
     if strategy:
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT user_id, MAX(score) as best_score, COUNT(*) as games
             FROM scores WHERE strategy = ?
             GROUP BY user_id ORDER BY best_score DESC LIMIT ?
-        ''', (strategy, limit))
+        """,
+            (strategy, limit),
+        )
     else:
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT user_id, MAX(score) as best_score, COUNT(*) as games
             FROM scores GROUP BY user_id ORDER BY best_score DESC LIMIT ?
-        ''', (limit,))
+        """,
+            (limit,),
+        )
 
     results = []
     for row in cursor.fetchall():
-        results.append({
-            'user_id': row['user_id'],
-            'best_score': row['best_score'],
-            'games': row['games']
-        })
+        results.append(
+            {
+                "user_id": row["user_id"],
+                "best_score": row["best_score"],
+                "games": row["games"],
+            }
+        )
 
     return jsonify(results)
 
 
-@app.route('/api/achievement', methods=['POST'])
+@app.route("/api/achievement", methods=["POST"])
 def save_achievement():
     """Save an achievement"""
     data = request.get_json() or {}
-    user_id = data.get('user_id', '')
-    achievement_id = data.get('achievement_id', '')
+    user_id = data.get("user_id", "")
+    achievement_id = data.get("achievement_id", "")
 
     if not user_id or not achievement_id:
-        return jsonify({'success': False, 'error': 'Missing fields'}), 400
+        return jsonify({"success": False, "error": "Missing fields"}), 400
 
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('''
+    cursor.execute(
+        """
         INSERT OR IGNORE INTO achievements (user_id, achievement_id, unlocked_at)
         VALUES (?, ?, ?)
-    ''', (user_id, achievement_id, int(time.time())))
+    """,
+        (user_id, achievement_id, int(time.time())),
+    )
 
     db.commit()
 
-    return jsonify({'success': True})
+    return jsonify({"success": True})
 
 
-@app.route('/api/achievements/<user_id>', methods=['GET'])
+@app.route("/api/achievements/<user_id>", methods=["GET"])
 def get_achievements(user_id):
     """Get all achievements for a user"""
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('''
+    cursor.execute(
+        """
         SELECT achievement_id, unlocked_at FROM achievements WHERE user_id = ?
-    ''', (user_id,))
+    """,
+        (user_id,),
+    )
 
     return jsonify(
-        [{'id': row['achievement_id'], 'unlocked_at': row['unlocked_at']} for row in cursor.fetchall()]
+        [
+            {"id": row["achievement_id"], "unlocked_at": row["unlocked_at"]}
+            for row in cursor.fetchall()
+        ]
     )
 
 
-@app.route('/api/analytics/behaviors', methods=['GET'])
+@app.route("/api/analytics/behaviors", methods=["GET"])
 def get_behavior_analytics():
     """Get behavior analytics"""
-    user_id = request.args.get('user_id')
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
+    user_id = request.args.get("user_id")
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
 
     db = get_db()
     cursor = db.cursor()
@@ -805,79 +919,96 @@ def get_behavior_analytics():
     params = []
 
     if user_id:
-        conditions.append('user_id = ?')
+        conditions.append("user_id = ?")
         params.append(user_id)
 
     if start_date:
-        conditions.append('timestamp >= ?')
+        conditions.append("timestamp >= ?")
         params.append(int(datetime.fromisoformat(start_date).timestamp()))
 
     if end_date:
-        conditions.append('timestamp <= ?')
+        conditions.append("timestamp <= ?")
         params.append(int(datetime.fromisoformat(end_date).timestamp()))
 
-    where_clause = ' AND '.join(conditions) if conditions else '1=1'
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    cursor.execute(f'''
+    cursor.execute(
+        f"""
         SELECT event_type, COUNT(*) as count
         FROM behaviors
         WHERE {where_clause}
         GROUP BY event_type
-    ''', params)
+    """,
+        params,
+    )
 
-    event_counts = {row['event_type']: row['count'] for row in cursor.fetchall()}
+    event_counts = {row["event_type"]: row["count"] for row in cursor.fetchall()}
 
-    cursor.execute(f'''
+    cursor.execute(
+        f"""
         SELECT COUNT(DISTINCT session_id) as sessions
         FROM behaviors
         WHERE {where_clause}
-    ''', params)
-    sessions = cursor.fetchone()['sessions']
+    """,
+        params,
+    )
+    sessions = cursor.fetchone()["sessions"]
 
-    cursor.execute(f'''
+    cursor.execute(
+        f"""
         SELECT AVG(score) as avg_score
         FROM sessions
-        WHERE status = 'completed' AND {where_clause.replace('user_id', 'sessions.user_id').replace('timestamp', 'start_time')}
-    ''', params)
-    avg_score = cursor.fetchone()['avg_score'] or 0
+        WHERE status = 'completed' AND {where_clause.replace("user_id", "sessions.user_id").replace("timestamp", "start_time")}
+    """,
+        params,
+    )
+    avg_score = cursor.fetchone()["avg_score"] or 0
 
-    return jsonify({
-        'event_counts': event_counts,
-        'total_sessions': sessions,
-        'avg_score': round(avg_score, 2),
-        'place_count': event_counts.get('place', 0),
-        'clear_count': event_counts.get('clear', 0),
-        'fail_count': event_counts.get('place_failed', 0),
-        'accuracy': event_counts.get('place', 0) / (event_counts.get('place', 0) + event_counts.get('place_failed', 0)) * 100 if (event_counts.get('place', 0) + event_counts.get('place_failed', 0)) > 0 else 0
-    })
+    return jsonify(
+        {
+            "event_counts": event_counts,
+            "total_sessions": sessions,
+            "avg_score": round(avg_score, 2),
+            "place_count": event_counts.get("place", 0),
+            "clear_count": event_counts.get("clear", 0),
+            "fail_count": event_counts.get("place_failed", 0),
+            "accuracy": event_counts.get("place", 0)
+            / (event_counts.get("place", 0) + event_counts.get("place_failed", 0))
+            * 100
+            if (event_counts.get("place", 0) + event_counts.get("place_failed", 0)) > 0
+            else 0,
+        }
+    )
 
 
-@app.route('/api/replay/<int:session_id>', methods=['GET'])
+@app.route("/api/replay/<int:session_id>", methods=["GET"])
 def get_replay(session_id):
     """Get replay data for a session"""
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('SELECT * FROM replays WHERE session_id = ?', (session_id,))
+    cursor.execute("SELECT * FROM replays WHERE session_id = ?", (session_id,))
     row = cursor.fetchone()
 
     if row:
-        return jsonify({
-            'id': row['id'],
-            'session_id': row['session_id'],
-            'events': json.loads(row['events'] or '[]'),
-            'created_at': row['created_at']
-        })
+        return jsonify(
+            {
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "events": json.loads(row["events"] or "[]"),
+                "created_at": row["created_at"],
+            }
+        )
 
-    return jsonify({'error': 'Replay not found'}), 404
+    return jsonify({"error": "Replay not found"}), 404
 
 
-@app.route('/api/sessions', methods=['GET'])
+@app.route("/api/sessions", methods=["GET"])
 def get_sessions():
     """Get recent sessions"""
-    user_id = request.args.get('user_id')
-    limit = request.args.get('limit', 50, type=int)
-    status = request.args.get('status')
+    user_id = request.args.get("user_id")
+    limit = request.args.get("limit", 50, type=int)
+    status = request.args.get("status")
 
     db = get_db()
     cursor = db.cursor()
@@ -886,21 +1017,24 @@ def get_sessions():
     params = []
 
     if user_id:
-        conditions.append('user_id = ?')
+        conditions.append("user_id = ?")
         params.append(user_id)
 
     if status:
-        conditions.append('status = ?')
+        conditions.append("status = ?")
         params.append(status)
 
-    where_clause = ' AND '.join(conditions) if conditions else '1=1'
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-    cursor.execute(f'''
+    cursor.execute(
+        f"""
         SELECT * FROM sessions
         WHERE {where_clause}
         ORDER BY start_time DESC
         LIMIT ?
-    ''', params + [limit])
+    """,
+        params + [limit],
+    )
 
     sessions = []
     for row in cursor.fetchall():
@@ -989,7 +1123,10 @@ def put_move_sequence(session_id):
 def get_move_sequence(session_id):
     db = get_db()
     cur = db.cursor()
-    cur.execute("SELECT frames, analysis FROM move_sequences WHERE session_id = ?", (session_id,))
+    cur.execute(
+        "SELECT frames, analysis FROM move_sequences WHERE session_id = ?",
+        (session_id,),
+    )
     row = cur.fetchone()
     if not row:
         return jsonify({"frames": None, "analysis": None})
@@ -1000,7 +1137,9 @@ def get_move_sequence(session_id):
                 analysis = json.loads(row["analysis"])
             except json.JSONDecodeError:
                 analysis = None
-        return jsonify({"frames": json.loads(row["frames"] or "[]"), "analysis": analysis})
+        return jsonify(
+            {"frames": json.loads(row["frames"] or "[]"), "analysis": analysis}
+        )
     except json.JSONDecodeError:
         return jsonify({"frames": None, "analysis": None})
 
@@ -1032,7 +1171,9 @@ def list_replay_sessions():
     )
     out = []
     for row in cur.fetchall():
-        rd = {k: row[k] for k in row.keys() if k not in ("move_frames", "move_analysis")}
+        rd = {
+            k: row[k] for k in row.keys() if k not in ("move_frames", "move_analysis")
+        }
         try:
             frames = json.loads(row["move_frames"] or "[]")
         except (json.JSONDecodeError, TypeError):
@@ -1082,7 +1223,9 @@ def delete_replay_sessions_batch():
     cur = db.cursor()
     deleted = []
     for sid in clean_ids:
-        cur.execute("SELECT id FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id))
+        cur.execute(
+            "SELECT id FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id)
+        )
         if not cur.fetchone():
             continue
         cur.execute("DELETE FROM behaviors WHERE session_id = ?", (sid,))
@@ -1135,7 +1278,9 @@ def delete_replay_sessions_zero_score():
 
     deleted = []
     for sid in delete_ids:
-        cur.execute("SELECT id FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id))
+        cur.execute(
+            "SELECT id FROM sessions WHERE id = ? AND user_id = ?", (sid, user_id)
+        )
         if not cur.fetchone():
             continue
         cur.execute("DELETE FROM behaviors WHERE session_id = ?", (sid,))
@@ -1145,6 +1290,89 @@ def delete_replay_sessions_zero_score():
         deleted.append(sid)
     db.commit()
     return jsonify({"success": True, "deleted": deleted, "count": len(deleted)})
+
+
+@app.route("/api/payment/verify", methods=["POST"])
+def verify_payment():
+    """
+    支付验证 API
+    接收客户端支付的购买信息，记录到数据库
+    """
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    sku = data.get("sku", "")
+    provider = data.get("provider", "stub")
+    provider_ref = data.get("provider_ref", "")
+    amount_minor = data.get("amount_minor", 0)
+    currency = data.get("currency", "CNY")
+    status = data.get("status", "pending")
+    expires_at = data.get("expires_at")
+
+    if not user_id or not sku:
+        return jsonify({"error": "user_id and sku required"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+
+    try:
+        cur.execute(
+            """
+            INSERT INTO payments (user_id, sku, provider, provider_ref, amount_minor, currency, status, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                sku,
+                provider,
+                provider_ref,
+                amount_minor,
+                currency,
+                status,
+                expires_at,
+            ),
+        )
+        db.commit()
+
+        return jsonify(
+            {"success": True, "payment_id": cur.lastrowid, "sku": sku, "status": status}
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/payments", methods=["GET"])
+def get_payments():
+    """获取用户购买历史"""
+    user_id = request.args.get("user_id", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT id, sku, provider, amount_minor, currency, status, expires_at, created_at
+        FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
+        """,
+        (user_id,),
+    )
+
+    payments = []
+    for row in cur.fetchall():
+        payments.append(
+            {
+                "id": row["id"],
+                "sku": row["sku"],
+                "provider": row["provider"],
+                "amount_minor": row["amount_minor"],
+                "currency": row["currency"],
+                "status": row["status"],
+                "expires_at": row["expires_at"],
+                "created_at": row["created_at"],
+            }
+        )
+
+    return jsonify(payments)
 
 
 @app.route("/api/client/stats", methods=["GET"])
@@ -1455,19 +1683,16 @@ def put_client_strategy():
     return jsonify({"success": True})
 
 
-@app.route('/api/health', methods=['GET'])
+@app.route("/api/health", methods=["GET"])
 def health():
     """Health check endpoint"""
-    return jsonify({
-        'status': 'ok',
-        'timestamp': int(time.time())
-    })
+    return jsonify({"status": "ok", "timestamp": int(time.time())})
 
 
 def _db_debug_enabled() -> bool:
     """SQLite 调试 API 默认开启；公网/生产请显式设置 OPENBLOCK_DB_DEBUG=0（或 false/no/off）关闭。"""
-    v = os.environ.get('OPENBLOCK_DB_DEBUG', '').strip().lower()
-    if v in ('0', 'false', 'no', 'off'):
+    v = os.environ.get("OPENBLOCK_DB_DEBUG", "").strip().lower()
+    if v in ("0", "false", "no", "off"):
         return False
     return True
 
@@ -1477,7 +1702,7 @@ def _json_sql_cell(v):
         return None
     if isinstance(v, (bytes, bytearray)):
         try:
-            return v.decode('utf-8')
+            return v.decode("utf-8")
         except Exception:
             return repr(v)
     if isinstance(v, float):
@@ -1486,16 +1711,16 @@ def _json_sql_cell(v):
     return v
 
 
-@app.route('/api/db-debug/enabled', methods=['GET'])
+@app.route("/api/db-debug/enabled", methods=["GET"])
 def db_debug_enabled():
-    return jsonify({'enabled': _db_debug_enabled()})
+    return jsonify({"enabled": _db_debug_enabled()})
 
 
-@app.route('/api/db-debug/tables', methods=['GET'])
+@app.route("/api/db-debug/tables", methods=["GET"])
 def db_debug_tables():
     """从 sqlite_master 读取表/视图元数据，供下拉框展示。"""
     if not _db_debug_enabled():
-        return jsonify({'error': 'SQLite 调试已关闭（OPENBLOCK_DB_DEBUG=0）'}), 403
+        return jsonify({"error": "SQLite 调试已关闭（OPENBLOCK_DB_DEBUG=0）"}), 403
     try:
         db = get_db()
         rows = db.execute(
@@ -1509,28 +1734,28 @@ def db_debug_tables():
         ).fetchall()
         items = [
             {
-                'name': r['name'],
-                'type': r['type'],
-                'tbl_name': r['tbl_name'],
-                'rootpage': r['rootpage'],
+                "name": r["name"],
+                "type": r["type"],
+                "tbl_name": r["tbl_name"],
+                "rootpage": r["rootpage"],
             }
             for r in rows
         ]
-        return jsonify({'items': items})
+        return jsonify({"items": items})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/db-debug/exec', methods=['POST'])
+@app.route("/api/db-debug/exec", methods=["POST"])
 def db_debug_exec():
     """执行单条 SQL。sql 为空且提供合法 table 时默认 SELECT * LIMIT。"""
     if not _db_debug_enabled():
-        return jsonify({'error': 'SQLite 调试已关闭（OPENBLOCK_DB_DEBUG=0）'}), 403
+        return jsonify({"error": "SQLite 调试已关闭（OPENBLOCK_DB_DEBUG=0）"}), 403
     data = request.get_json(silent=True) or {}
-    sql = (data.get('sql') or '').strip()
-    table = (data.get('table') or '').strip()
+    sql = (data.get("sql") or "").strip()
+    table = (data.get("table") or "").strip()
     try:
-        limit = int(data.get('limit') or 500)
+        limit = int(data.get("limit") or 500)
     except (TypeError, ValueError):
         limit = 500
     limit = max(1, min(limit, 5000))
@@ -1538,19 +1763,19 @@ def db_debug_exec():
     db = get_db()
 
     if not sql:
-        if not table or not re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', table):
-            return jsonify({'error': '请选择数据表，或输入 SQL'}), 400
+        if not table or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table):
+            return jsonify({"error": "请选择数据表，或输入 SQL"}), 400
         chk = db.execute(
             "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=? LIMIT 1",
             (table,),
         ).fetchone()
         if not chk:
-            return jsonify({'error': f'表或视图不存在: {table}'}), 400
+            return jsonify({"error": f"表或视图不存在: {table}"}), 400
         sql = f'SELECT * FROM "{table.replace(chr(34), "")}" LIMIT {limit}'
     else:
-        sql = sql.rstrip(';')
-        if ';' in sql:
-            return jsonify({'error': '仅允许单条 SQL（不能包含多个分号语句）'}), 400
+        sql = sql.rstrip(";")
+        if ";" in sql:
+            return jsonify({"error": "仅允许单条 SQL（不能包含多个分号语句）"}), 400
 
     try:
         cur = db.execute(sql)
@@ -1559,20 +1784,25 @@ def db_debug_exec():
             out_rows = []
             for row in cur.fetchall():
                 out_rows.append([_json_sql_cell(x) for x in row])
-            return jsonify({'ok': True, 'kind': 'rows', 'columns': cols, 'rows': out_rows})
+            return jsonify(
+                {"ok": True, "kind": "rows", "columns": cols, "rows": out_rows}
+            )
         db.commit()
-        return jsonify({
-            'ok': True,
-            'kind': 'mutate',
-            'rowcount': cur.rowcount,
-            'lastrowid': int(cur.lastrowid) if cur.lastrowid is not None else None,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "kind": "mutate",
+                "rowcount": cur.rowcount,
+                "lastrowid": int(cur.lastrowid) if cur.lastrowid is not None else None,
+            }
+        )
     except Exception as e:
         db.rollback()
-        return jsonify({'error': str(e)}), 400
+        return jsonify({"error": str(e)}), 400
 
 
 # ── A/B 测试上报 ──────────────────────────────────────────────────────────────
+
 
 def _ensure_ab_table():
     db = get_db()
@@ -1590,7 +1820,7 @@ def _ensure_ab_table():
     db.commit()
 
 
-@app.route('/api/ab/report', methods=['POST'])
+@app.route("/api/ab/report", methods=["POST"])
 def ab_report():
     """接收 A/B 实验转化事件"""
     data = request.get_json(silent=True) or {}
@@ -1598,43 +1828,53 @@ def ab_report():
         _ensure_ab_table()
         db = get_db()
         db.execute(
-            'INSERT INTO ab_events (user_id, experiment, bucket, event, ts, meta) VALUES (?,?,?,?,?,?)',
-            (data.get('userId', ''), data.get('experiment', ''),
-             int(data.get('bucket', 0)), data.get('event', ''),
-             int(data.get('ts', time.time() * 1000)),
-             json.dumps({k: v for k, v in data.items()
-                         if k not in ('userId', 'experiment', 'bucket', 'event', 'ts')}))
+            "INSERT INTO ab_events (user_id, experiment, bucket, event, ts, meta) VALUES (?,?,?,?,?,?)",
+            (
+                data.get("userId", ""),
+                data.get("experiment", ""),
+                int(data.get("bucket", 0)),
+                data.get("event", ""),
+                int(data.get("ts", time.time() * 1000)),
+                json.dumps(
+                    {
+                        k: v
+                        for k, v in data.items()
+                        if k not in ("userId", "experiment", "bucket", "event", "ts")
+                    }
+                ),
+            ),
         )
         db.commit()
-        return jsonify({'success': True})
+        return jsonify({"success": True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/ab/results', methods=['GET'])
+@app.route("/api/ab/results", methods=["GET"])
 def ab_results():
     """汇总 A/B 实验结果（按实验+桶聚合事件数）"""
-    experiment = request.args.get('experiment', '')
+    experiment = request.args.get("experiment", "")
     try:
         _ensure_ab_table()
         db = get_db()
         if experiment:
             rows = db.execute(
-                'SELECT experiment, bucket, event, COUNT(*) as cnt FROM ab_events WHERE experiment=? GROUP BY experiment, bucket, event',
-                (experiment,)
+                "SELECT experiment, bucket, event, COUNT(*) as cnt FROM ab_events WHERE experiment=? GROUP BY experiment, bucket, event",
+                (experiment,),
             ).fetchall()
         else:
             rows = db.execute(
-                'SELECT experiment, bucket, event, COUNT(*) as cnt FROM ab_events GROUP BY experiment, bucket, event'
+                "SELECT experiment, bucket, event, COUNT(*) as cnt FROM ab_events GROUP BY experiment, bucket, event"
             ).fetchall()
         return jsonify([dict(r) for r in rows])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 # ── 运营看板 API ──────────────────────────────────────────────────────────────
 
-@app.route('/api/ops/dashboard', methods=['GET'])
+
+@app.route("/api/ops/dashboard", methods=["GET"])
 def ops_dashboard():
     """
     运营看板聚合接口
@@ -1653,7 +1893,7 @@ def ops_dashboard():
         trend:     [...],  # 按天的 DAU 趋势
       }
     """
-    days = int(request.args.get('days', 7))
+    days = int(request.args.get("days", 7))
     since_ms = int((time.time() - days * 86400) * 1000)
     since_ts = int(time.time() - days * 86400)
     db = get_db()
@@ -1661,17 +1901,21 @@ def ops_dashboard():
     try:
         # ── 活跃度 ──
         active_users = db.execute(
-            'SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time >= ?', (since_ms,)
-        ).fetchone()['cnt']
+            "SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time >= ?",
+            (since_ms,),
+        ).fetchone()["cnt"]
 
         total_sessions = db.execute(
-            'SELECT COUNT(*) as cnt FROM sessions WHERE start_time >= ?', (since_ms,)
-        ).fetchone()['cnt']
+            "SELECT COUNT(*) as cnt FROM sessions WHERE start_time >= ?", (since_ms,)
+        ).fetchone()["cnt"]
 
-        avg_duration = db.execute(
-            'SELECT AVG(duration) as avg FROM sessions WHERE start_time >= ? AND duration IS NOT NULL AND duration > 0',
-            (since_ms,)
-        ).fetchone()['avg'] or 0
+        avg_duration = (
+            db.execute(
+                "SELECT AVG(duration) as avg FROM sessions WHERE start_time >= ? AND duration IS NOT NULL AND duration > 0",
+                (since_ms,),
+            ).fetchone()["avg"]
+            or 0
+        )
 
         avg_sessions = round(total_sessions / max(active_users, 1), 2)
 
@@ -1681,20 +1925,20 @@ def ops_dashboard():
             base_since = int(time.time() - (delta_max + days) * 86400)
             base_until = int(time.time() - delta_min * 86400)
             cohort = db.execute(
-                'SELECT user_id, MIN(start_time)/1000 as first_ts FROM sessions GROUP BY user_id HAVING first_ts BETWEEN ? AND ?',
-                (base_since, base_until)
+                "SELECT user_id, MIN(start_time)/1000 as first_ts FROM sessions GROUP BY user_id HAVING first_ts BETWEEN ? AND ?",
+                (base_since, base_until),
             ).fetchall()
             if not cohort:
                 return 0.0
             retained = 0
             for row in cohort:
-                uid = row['user_id']
+                uid = row["user_id"]
                 # 在 first_ts + delta_min*86400 ~ first_ts + delta_max*86400 之间是否有 session
-                check_since = row['first_ts'] + delta_min * 86400
-                check_until = row['first_ts'] + (delta_max + 1) * 86400
+                check_since = row["first_ts"] + delta_min * 86400
+                check_until = row["first_ts"] + (delta_max + 1) * 86400
                 found = db.execute(
-                    'SELECT 1 FROM sessions WHERE user_id=? AND start_time/1000 BETWEEN ? AND ? LIMIT 1',
-                    (uid, check_since, check_until)
+                    "SELECT 1 FROM sessions WHERE user_id=? AND start_time/1000 BETWEEN ? AND ? LIMIT 1",
+                    (uid, check_since, check_until),
                 ).fetchone()
                 if found:
                     retained += 1
@@ -1707,23 +1951,24 @@ def ops_dashboard():
 
         # ── 用户分群分布（基于 user_stats） ──
         segment_rows = db.execute(
-            'SELECT user_id, best_score, total_games FROM user_stats WHERE last_seen >= ?', (since_ts,)
+            "SELECT user_id, best_score, total_games FROM user_stats WHERE last_seen >= ?",
+            (since_ts,),
         ).fetchall()
-        seg_counts = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'E': 0, 'unknown': 0}
+        seg_counts = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0, "unknown": 0}
         for row in segment_rows:
-            score = row['best_score'] or 0
-            games = row['total_games'] or 0
+            score = row["best_score"] or 0
+            games = row["total_games"] or 0
             # 简化分群（与 playerProfile.segment5 逻辑对齐）
             if games >= 200 and score >= 3000:
-                seg = 'C'
+                seg = "C"
             elif games >= 100 and score >= 2000:
-                seg = 'D'
+                seg = "D"
             elif score >= 1500 or games >= 80:
-                seg = 'B'
+                seg = "B"
             elif score < 200 and games < 5:
-                seg = 'E' if score > 1000 else 'A'
+                seg = "E" if score > 1000 else "A"
             else:
-                seg = 'A'
+                seg = "A"
             seg_counts[seg] = seg_counts.get(seg, 0) + 1
 
         # ── 每日趋势 ──
@@ -1732,37 +1977,48 @@ def ops_dashboard():
             day_since = int((time.time() - (i + 1) * 86400) * 1000)
             day_until = int((time.time() - i * 86400) * 1000)
             cnt = db.execute(
-                'SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time BETWEEN ? AND ?',
-                (day_since, day_until)
-            ).fetchone()['cnt']
+                "SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time BETWEEN ? AND ?",
+                (day_since, day_until),
+            ).fetchone()["cnt"]
             import datetime
-            day_label = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%m-%d')
-            trend.insert(0, {'date': day_label, 'dau': cnt})
+
+            day_label = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime(
+                "%m-%d"
+            )
+            trend.insert(0, {"date": day_label, "dau": cnt})
 
         # ── Top 分数 ──
         top_scores = db.execute(
-            'SELECT user_id, best_score FROM user_stats WHERE last_seen >= ? ORDER BY best_score DESC LIMIT 10',
-            (since_ts,)
+            "SELECT user_id, best_score FROM user_stats WHERE last_seen >= ? ORDER BY best_score DESC LIMIT 10",
+            (since_ts,),
         ).fetchall()
 
-        return jsonify({
-            'days': days,
-            'activity': {
-                'dau': active_users,
-                'totalSessions': total_sessions,
-                'avgSessionsPerUser': avg_sessions,
-                'avgDurationSec': round(avg_duration / 1000, 1) if avg_duration > 1000 else round(avg_duration, 1),
-            },
-            'retention': {'d1': d1, 'd7': d7, 'd30': d30},
-            'segments': seg_counts,
-            'trend': trend,
-            'topScores': [{'userId': r['user_id'][:8] + '...', 'score': r['best_score']} for r in top_scores],
-        })
+        return jsonify(
+            {
+                "days": days,
+                "activity": {
+                    "dau": active_users,
+                    "totalSessions": total_sessions,
+                    "avgSessionsPerUser": avg_sessions,
+                    "avgDurationSec": round(avg_duration / 1000, 1)
+                    if avg_duration > 1000
+                    else round(avg_duration, 1),
+                },
+                "retention": {"d1": d1, "d7": d7, "d30": d30},
+                "segments": seg_counts,
+                "trend": trend,
+                "topScores": [
+                    {"userId": r["user_id"][:8] + "...", "score": r["best_score"]}
+                    for r in top_scores
+                ],
+            }
+        )
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 # ── 赛季通行证 API ────────────────────────────────────────────────────────────
+
 
 def _ensure_season_pass_table():
     """确保 season_pass 表存在"""
@@ -1784,51 +2040,56 @@ def _ensure_season_pass_table():
     db.commit()
 
 
-@app.route('/api/season-pass', methods=['GET'])
+@app.route("/api/season-pass", methods=["GET"])
 def get_season_pass():
     """获取当前用户赛季通行证进度"""
-    user_id = request.args.get('user_id', '')
-    season_id = request.args.get('season_id', 'S1')
+    user_id = request.args.get("user_id", "")
+    season_id = request.args.get("season_id", "S1")
     if not user_id:
-        return jsonify({'error': 'user_id required'}), 400
+        return jsonify({"error": "user_id required"}), 400
     try:
         _ensure_season_pass_table()
         db = get_db()
         row = db.execute(
-            'SELECT * FROM season_pass WHERE user_id=? AND season_id=?',
-            (user_id, season_id)
+            "SELECT * FROM season_pass WHERE user_id=? AND season_id=?",
+            (user_id, season_id),
         ).fetchone()
         if not row:
-            return jsonify({'exists': False})
+            return jsonify({"exists": False})
         import json as _json
-        return jsonify({
-            'exists': True,
-            'seasonId': row['season_id'],
-            'premium': bool(row['premium']),
-            'progress': _json.loads(row['progress']),
-            'completed': _json.loads(row['completed']),
-            'points': row['points'],
-            'purchasedAt': row['purchased_at'],
-            'updatedAt': row['updated_at'],
-        })
+
+        return jsonify(
+            {
+                "exists": True,
+                "seasonId": row["season_id"],
+                "premium": bool(row["premium"]),
+                "progress": _json.loads(row["progress"]),
+                "completed": _json.loads(row["completed"]),
+                "points": row["points"],
+                "purchasedAt": row["purchased_at"],
+                "updatedAt": row["updated_at"],
+            }
+        )
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/season-pass', methods=['POST', 'PUT'])
+@app.route("/api/season-pass", methods=["POST", "PUT"])
 def upsert_season_pass():
     """上传/同步赛季通行证进度"""
     data = request.get_json(silent=True) or {}
-    user_id = data.get('user_id', '')
-    season_id = data.get('seasonId', 'S1')
+    user_id = data.get("user_id", "")
+    season_id = data.get("seasonId", "S1")
     if not user_id:
-        return jsonify({'error': 'user_id required'}), 400
+        return jsonify({"error": "user_id required"}), 400
     try:
         _ensure_season_pass_table()
         import json as _json
+
         db = get_db()
         now = int(time.time() * 1000)
-        db.execute("""
+        db.execute(
+            """
             INSERT INTO season_pass (user_id, season_id, premium, progress, completed, points, purchased_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, season_id) DO UPDATE SET
@@ -1838,49 +2099,57 @@ def upsert_season_pass():
                 points       = excluded.points,
                 purchased_at = excluded.purchased_at,
                 updated_at   = excluded.updated_at
-        """, (
-            user_id, season_id,
-            int(bool(data.get('premium', False))),
-            _json.dumps(data.get('progress', {})),
-            _json.dumps(data.get('completed', [])),
-            int(data.get('points', 0)),
-            data.get('purchasedAt'),
-            now,
-        ))
+        """,
+            (
+                user_id,
+                season_id,
+                int(bool(data.get("premium", False))),
+                _json.dumps(data.get("progress", {})),
+                _json.dumps(data.get("completed", [])),
+                int(data.get("points", 0)),
+                data.get("purchasedAt"),
+                now,
+            ),
+        )
         db.commit()
-        return jsonify({'success': True, 'updatedAt': now})
+        return jsonify({"success": True, "updatedAt": now})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/export', methods=['GET'])
+@app.route("/api/export", methods=["GET"])
 def export_data():
     """Export all data for a user"""
-    user_id = request.args.get('user_id')
+    user_id = request.args.get("user_id")
 
     if not user_id:
-        return jsonify({'error': 'user_id required'}), 400
+        return jsonify({"error": "user_id required"}), 400
 
     db = get_db()
     cursor = db.cursor()
 
-    cursor.execute('SELECT * FROM user_stats WHERE user_id = ?', (user_id,))
+    cursor.execute("SELECT * FROM user_stats WHERE user_id = ?", (user_id,))
     stats_row = cursor.fetchone()
     stats = dict(stats_row) if stats_row else {}
 
-    cursor.execute('SELECT * FROM achievements WHERE user_id = ?', (user_id,))
+    cursor.execute("SELECT * FROM achievements WHERE user_id = ?", (user_id,))
     achievements = [dict(row) for row in cursor.fetchall()]
 
-    cursor.execute('SELECT * FROM sessions WHERE user_id = ? ORDER BY start_time DESC LIMIT 100', (user_id,))
+    cursor.execute(
+        "SELECT * FROM sessions WHERE user_id = ? ORDER BY start_time DESC LIMIT 100",
+        (user_id,),
+    )
     sessions = [dict(row) for row in cursor.fetchall()]
 
-    return jsonify({
-        'user_id': user_id,
-        'stats': stats,
-        'achievements': achievements,
-        'sessions': sessions,
-        'exported_at': int(time.time())
-    })
+    return jsonify(
+        {
+            "user_id": user_id,
+            "stats": stats,
+            "achievements": achievements,
+            "sessions": sessions,
+            "exported_at": int(time.time()),
+        }
+    )
 
 
 try:
@@ -1888,7 +2157,7 @@ try:
 
     register_rl_routes(app)
 except Exception as _rl_ex:
-    print('RL API (/api/rl/*) 未启用:', _rl_ex)
+    print("RL API (/api/rl/*) 未启用:", _rl_ex)
 
 try:
     from monetization_backend import create_mon_blueprint, init_mon_db
@@ -1897,21 +2166,21 @@ try:
     with app.app_context():
         init_mon_db()
 except Exception as _mon_ex:
-    print('商业化 API (/api/mon/*) 未启用:', _mon_ex)
+    print("商业化 API (/api/mon/*) 未启用:", _mon_ex)
 
 
 # =====================================================================
 #  Spawn Transformer: 训练 / 推理 / 状态 API
 # =====================================================================
 
-_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
-_SPAWN_MODEL_PATH = os.path.join(_MODELS_DIR, 'spawn_transformer.pt')
-_SPAWN_STATUS_PATH = os.path.join(_MODELS_DIR, 'spawn_train_status.json')
+_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+_SPAWN_MODEL_PATH = os.path.join(_MODELS_DIR, "spawn_transformer.pt")
+_SPAWN_STATUS_PATH = os.path.join(_MODELS_DIR, "spawn_train_status.json")
 _spawn_train_proc = None  # background training subprocess
 _spawn_model_cache = None  # loaded model for inference
 
 
-@app.route('/api/spawn-model/status', methods=['GET'])
+@app.route("/api/spawn-model/status", methods=["GET"])
 def spawn_model_status():
     """查询训练状态和模型是否可用。"""
     status = {}
@@ -1926,37 +2195,46 @@ def spawn_model_status():
     global _spawn_train_proc
     running = _spawn_train_proc is not None and _spawn_train_proc.poll() is None
 
-    return jsonify({
-        'modelAvailable': model_available,
-        'trainingRunning': running,
-        **status,
-    })
+    return jsonify(
+        {
+            "modelAvailable": model_available,
+            "trainingRunning": running,
+            **status,
+        }
+    )
 
 
-@app.route('/api/spawn-model/train', methods=['POST'])
+@app.route("/api/spawn-model/train", methods=["POST"])
 def spawn_model_train():
     """启动后台训练进程。"""
     import subprocess
+
     global _spawn_train_proc
 
     if _spawn_train_proc is not None and _spawn_train_proc.poll() is None:
-        return jsonify({'success': False, 'error': '训练已在运行中'}), 409
+        return jsonify({"success": False, "error": "训练已在运行中"}), 409
 
     data = request.get_json() or {}
-    epochs = int(data.get('epochs', 50))
-    min_score = int(data.get('minScore', 0))
-    max_sessions = int(data.get('maxSessions', 500))
+    epochs = int(data.get("epochs", 50))
+    min_score = int(data.get("minScore", 0))
+    max_sessions = int(data.get("maxSessions", 500))
 
     os.makedirs(_MODELS_DIR, exist_ok=True)
-    with open(_SPAWN_STATUS_PATH, 'w') as f:
-        json.dump({'phase': 'starting', 'progress': 0, 'message': '启动训练进程…'}, f)
+    with open(_SPAWN_STATUS_PATH, "w") as f:
+        json.dump({"phase": "starting", "progress": 0, "message": "启动训练进程…"}, f)
 
     cmd = [
-        sys.executable, '-m', 'rl_pytorch.spawn_model.train',
-        '--db', DATABASE,
-        '--epochs', str(epochs),
-        '--min-score', str(min_score),
-        '--max-sessions', str(max_sessions),
+        sys.executable,
+        "-m",
+        "rl_pytorch.spawn_model.train",
+        "--db",
+        DATABASE,
+        "--epochs",
+        str(epochs),
+        "--min-score",
+        str(min_score),
+        "--max-sessions",
+        str(max_sessions),
     ]
     _spawn_train_proc = subprocess.Popen(
         cmd,
@@ -1965,19 +2243,19 @@ def spawn_model_train():
         stderr=subprocess.STDOUT,
     )
 
-    return jsonify({'success': True, 'pid': _spawn_train_proc.pid})
+    return jsonify({"success": True, "pid": _spawn_train_proc.pid})
 
 
-@app.route('/api/spawn-model/stop', methods=['POST'])
+@app.route("/api/spawn-model/stop", methods=["POST"])
 def spawn_model_stop():
     """停止训练进程。"""
     global _spawn_train_proc
     if _spawn_train_proc is None or _spawn_train_proc.poll() is not None:
-        return jsonify({'success': False, 'error': '无运行中的训练'}), 404
+        return jsonify({"success": False, "error": "无运行中的训练"}), 404
 
     _spawn_train_proc.terminate()
     _spawn_train_proc = None
-    return jsonify({'success': True})
+    return jsonify({"success": True})
 
 
 def _load_spawn_model():
@@ -1993,36 +2271,38 @@ def _load_spawn_model():
         import torch
         from rl_pytorch.spawn_model.model import SpawnTransformerV2
 
-        checkpoint = torch.load(_SPAWN_MODEL_PATH, map_location='cpu', weights_only=False)
-        cfg = checkpoint.get('config', {})
+        checkpoint = torch.load(
+            _SPAWN_MODEL_PATH, map_location="cpu", weights_only=False
+        )
+        cfg = checkpoint.get("config", {})
         model = SpawnTransformerV2(
-            d_model=cfg.get('d_model', 128),
-            nhead=cfg.get('nhead', 4),
-            num_layers=cfg.get('num_layers', 2),
-            dim_ff=cfg.get('dim_ff', 256),
+            d_model=cfg.get("d_model", 128),
+            nhead=cfg.get("nhead", 4),
+            num_layers=cfg.get("num_layers", 2),
+            dim_ff=cfg.get("dim_ff", 256),
             dropout=0,
         )
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint["model_state_dict"])
         model.eval()
         _spawn_model_cache = model
         return model
     except Exception as e:
-        print(f'SpawnTransformer 加载失败: {e}')
+        print(f"SpawnTransformer 加载失败: {e}")
         return None
 
 
-@app.route('/api/spawn-model/reload', methods=['POST'])
+@app.route("/api/spawn-model/reload", methods=["POST"])
 def spawn_model_reload():
     """重新加载模型（训练完成后调用）。"""
     global _spawn_model_cache
     _spawn_model_cache = None
     model = _load_spawn_model()
     if model is None:
-        return jsonify({'success': False, 'error': '模型文件不存在或加载失败'}), 404
-    return jsonify({'success': True, 'params': model.count_params()})
+        return jsonify({"success": False, "error": "模型文件不存在或加载失败"}), 404
+    return jsonify({"success": True, "params": model.count_params()})
 
 
-@app.route('/api/spawn-model/predict', methods=['POST'])
+@app.route("/api/spawn-model/predict", methods=["POST"])
 def spawn_model_predict():
     """
     推理：给定盘面状态，返回推荐的 3 个形状 ID（v2：支持 24 维 context + 目标难度）。
@@ -2030,7 +2310,7 @@ def spawn_model_predict():
     """
     model = _load_spawn_model()
     if model is None:
-        return jsonify({'success': False, 'error': '模型未加载'}), 503
+        return jsonify({"success": False, "error": "模型未加载"}), 503
 
     try:
         import torch
@@ -2038,11 +2318,11 @@ def spawn_model_predict():
         from rl_pytorch.spawn_model.dataset import SHAPE_VOCAB, CONTEXT_DIM
 
         data = request.get_json() or {}
-        board_raw = data.get('board', [])
-        context_raw = data.get('context', [])
-        history_raw = data.get('history', [])
-        temperature = float(data.get('temperature', 0.8))
-        target_diff = data.get('targetDifficulty')
+        board_raw = data.get("board", [])
+        context_raw = data.get("context", [])
+        history_raw = data.get("history", [])
+        temperature = float(data.get("temperature", 0.8))
+        target_diff = data.get("targetDifficulty")
 
         board = np.zeros((1, 8, 8), dtype=np.float32)
         for y in range(min(8, len(board_raw))):
@@ -2066,18 +2346,24 @@ def spawn_model_predict():
         history_t = torch.from_numpy(history)
 
         td = float(target_diff) if target_diff is not None else None
-        indices = model.predict(board_t, context_t, history_t,
-                                target_difficulty=td, temperature=temperature)
-        shape_ids = [SHAPE_VOCAB[idx] if idx < len(SHAPE_VOCAB) else SHAPE_VOCAB[0] for idx in indices]
+        indices = model.predict(
+            board_t, context_t, history_t, target_difficulty=td, temperature=temperature
+        )
+        shape_ids = [
+            SHAPE_VOCAB[idx] if idx < len(SHAPE_VOCAB) else SHAPE_VOCAB[0]
+            for idx in indices
+        ]
 
-        return jsonify({
-            'success': True,
-            'shapes': shape_ids,
-            'indices': indices,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "shapes": shape_ids,
+                "indices": indices,
+            }
+        )
 
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # =====================================================================
@@ -2085,7 +2371,7 @@ def spawn_model_predict():
 #  详见 docs/ALGORITHMS_SPAWN.md §11
 # =====================================================================
 
-_SPAWN_V3_MODEL_PATH = os.path.join(_MODELS_DIR, 'spawn_transformer_v3.pt')
+_SPAWN_V3_MODEL_PATH = os.path.join(_MODELS_DIR, "spawn_transformer_v3.pt")
 _spawn_v3_cache = None
 _spawn_v3_lora_cache = {}  # user_id → (model_with_lora, ckpt_mtime)
 
@@ -2102,17 +2388,17 @@ def _load_spawn_v3_model(user_id: str | None = None):
 
         if _spawn_v3_cache is None:
             checkpoint = torch.load(
-                _SPAWN_V3_MODEL_PATH, map_location='cpu', weights_only=False
+                _SPAWN_V3_MODEL_PATH, map_location="cpu", weights_only=False
             )
-            cfg = checkpoint.get('config', {}) or {}
+            cfg = checkpoint.get("config", {}) or {}
             model = SpawnTransformerV3(
-                d_model=cfg.get('d_model', 128),
-                nhead=cfg.get('nhead', 4),
-                num_layers=cfg.get('num_layers', 2),
-                dim_ff=cfg.get('dim_ff', 256),
-                dropout=cfg.get('dropout', 0.1),
+                d_model=cfg.get("d_model", 128),
+                nhead=cfg.get("nhead", 4),
+                num_layers=cfg.get("num_layers", 2),
+                dim_ff=cfg.get("dim_ff", 256),
+                dropout=cfg.get("dropout", 0.1),
             )
-            sd = checkpoint.get('model_state_dict') or checkpoint
+            sd = checkpoint.get("model_state_dict") or checkpoint
             model.load_state_dict(sd, strict=False)
             model.eval()
             _spawn_v3_cache = model
@@ -2120,12 +2406,13 @@ def _load_spawn_v3_model(user_id: str | None = None):
         if not user_id:
             return _spawn_v3_cache
 
-        lora_path = os.path.join(_MODELS_DIR, f'lora_{user_id}.pt')
+        lora_path = os.path.join(_MODELS_DIR, f"lora_{user_id}.pt")
         if not os.path.exists(lora_path):
             return _spawn_v3_cache
 
         from rl_pytorch.spawn_model.lora import (
-            inject_lora_into_model, load_lora_state_dict,
+            inject_lora_into_model,
+            load_lora_state_dict,
         )
 
         cached = _spawn_v3_lora_cache.get(user_id)
@@ -2135,41 +2422,44 @@ def _load_spawn_v3_model(user_id: str | None = None):
 
         import copy
         from rl_pytorch.spawn_model.model_v3 import SpawnTransformerV3
+
         personalized = copy.deepcopy(_spawn_v3_cache)
-        cfg_l = torch.load(lora_path, map_location='cpu', weights_only=False)
-        l_cfg = cfg_l.get('config', {}) or {}
+        cfg_l = torch.load(lora_path, map_location="cpu", weights_only=False)
+        l_cfg = cfg_l.get("config", {}) or {}
         inject_lora_into_model(
             personalized,
-            r=l_cfg.get('r', 4),
-            alpha=l_cfg.get('alpha', 8.0),
-            dropout=l_cfg.get('dropout', 0.0),
+            r=l_cfg.get("r", 4),
+            alpha=l_cfg.get("alpha", 8.0),
+            dropout=l_cfg.get("dropout", 0.0),
         )
-        load_lora_state_dict(personalized, cfg_l.get('lora', {}), strict=False)
+        load_lora_state_dict(personalized, cfg_l.get("lora", {}), strict=False)
         personalized.eval()
         _spawn_v3_lora_cache[user_id] = (personalized, mtime)
         return personalized
     except Exception as e:
-        print(f'[spawn-v3] 加载失败: {e}')
+        print(f"[spawn-v3] 加载失败: {e}")
         return None
 
 
-@app.route('/api/spawn-model/v3/status', methods=['GET'])
+@app.route("/api/spawn-model/v3/status", methods=["GET"])
 def spawn_v3_status():
     """V3 模型状态：基础模型可用性 + 已注册 LoRA adapter 列表。"""
     base_available = os.path.exists(_SPAWN_V3_MODEL_PATH)
     loras = []
     if os.path.isdir(_MODELS_DIR):
         for fname in os.listdir(_MODELS_DIR):
-            if fname.startswith('lora_') and fname.endswith('.pt'):
-                loras.append(fname[len('lora_'):-len('.pt')])
-    return jsonify({
-        'baseAvailable': base_available,
-        'baseModelPath': _SPAWN_V3_MODEL_PATH if base_available else None,
-        'personalizedUsers': sorted(loras),
-    })
+            if fname.startswith("lora_") and fname.endswith(".pt"):
+                loras.append(fname[len("lora_") : -len(".pt")])
+    return jsonify(
+        {
+            "baseAvailable": base_available,
+            "baseModelPath": _SPAWN_V3_MODEL_PATH if base_available else None,
+            "personalizedUsers": sorted(loras),
+        }
+    )
 
 
-@app.route('/api/spawn-model/v3/reload', methods=['POST'])
+@app.route("/api/spawn-model/v3/reload", methods=["POST"])
 def spawn_v3_reload():
     """清理 V3 模型缓存，使下一次推理从磁盘重新加载最新权重。"""
     try:
@@ -2177,16 +2467,18 @@ def spawn_v3_reload():
         _spawn_v3_model = None
         _spawn_v3_lora_cache = {}
         base_available = os.path.exists(_SPAWN_V3_MODEL_PATH)
-        return jsonify({
-            'success': True,
-            'baseAvailable': base_available,
-            'modelVersion': 'v3',
-        })
+        return jsonify(
+            {
+                "success": True,
+                "baseAvailable": base_available,
+                "modelVersion": "v3",
+            }
+        )
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route('/api/spawn-model/v3/predict', methods=['POST'])
+@app.route("/api/spawn-model/v3/predict", methods=["POST"])
 def spawn_v3_predict():
     """V3 推理：autoregressive + feasibility + playstyle + 个性化。
 
@@ -2209,20 +2501,20 @@ def spawn_v3_predict():
         from rl_pytorch.shapes_data import get_all_shapes
 
         data = request.get_json() or {}
-        user_id = (data.get('userId') or '').strip() or None
+        user_id = (data.get("userId") or "").strip() or None
 
         model = _load_spawn_v3_model(user_id)
         if model is None:
-            return jsonify({'success': False, 'error': 'V3 模型未训练'}), 503
+            return jsonify({"success": False, "error": "V3 模型未训练"}), 503
 
-        board_raw = data.get('board') or []
-        ctx_raw = data.get('context') or []
-        hist_raw = data.get('history') or []
-        playstyle = data.get('playstyle')
-        target_diff = data.get('targetDifficulty')
-        temperature = float(data.get('temperature', 0.8))
-        top_k = int(data.get('topK', 8))
-        enforce = bool(data.get('enforceFeasibility', True))
+        board_raw = data.get("board") or []
+        ctx_raw = data.get("context") or []
+        hist_raw = data.get("history") or []
+        playstyle = data.get("playstyle")
+        target_diff = data.get("targetDifficulty")
+        temperature = float(data.get("temperature", 0.8))
+        top_k = int(data.get("topK", 8))
+        enforce = bool(data.get("enforceFeasibility", True))
 
         board = np.zeros((8, 8), dtype=np.float32)
         for y in range(min(8, len(board_raw))):
@@ -2243,14 +2535,16 @@ def spawn_v3_predict():
 
         feas_mask = None
         if enforce:
-            shape_map = {s['id']: s['data'] for s in get_all_shapes()}
+            shape_map = {s["id"]: s["data"] for s in get_all_shapes()}
             feas_mask = build_feasibility_mask(board, SHAPE_VOCAB, shape_map)
             if float(feas_mask.sum()) < 3.0:
-                return jsonify({
-                    'success': False,
-                    'error': '当前盘面可放形状不足 3 种',
-                    'feasibleCount': int(feas_mask.sum()),
-                }), 422
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "当前盘面可放形状不足 3 种",
+                        "feasibleCount": int(feas_mask.sum()),
+                    }
+                ), 422
 
         board_t = torch.from_numpy(board).unsqueeze(0)
         ctx_t = torch.from_numpy(ctx).unsqueeze(0)
@@ -2258,7 +2552,9 @@ def spawn_v3_predict():
 
         td = float(target_diff) if target_diff is not None else None
         triplet = model.sample(
-            board_t, ctx_t, hist_t,
+            board_t,
+            ctx_t,
+            hist_t,
             target_difficulty=td,
             playstyle=playstyle,
             feasibility_mask=feas_mask,
@@ -2270,96 +2566,130 @@ def spawn_v3_predict():
             SHAPE_VOCAB[idx] if 0 <= idx < len(SHAPE_VOCAB) else SHAPE_VOCAB[0]
             for idx in triplet
         ]
-        return jsonify({
-            'success': True,
-            'shapes': shape_ids,
-            'indices': triplet,
-            'modelVersion': 'v3',
-            'personalized': bool(user_id and user_id in _spawn_v3_lora_cache),
-            'feasibleCount': int(feas_mask.sum()) if feas_mask is not None else None,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "shapes": shape_ids,
+                "indices": triplet,
+                "modelVersion": "v3",
+                "personalized": bool(user_id and user_id in _spawn_v3_lora_cache),
+                "feasibleCount": int(feas_mask.sum())
+                if feas_mask is not None
+                else None,
+            }
+        )
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route('/api/spawn-model/v3/train', methods=['POST'])
+@app.route("/api/spawn-model/v3/train", methods=["POST"])
 def spawn_v3_train():
     """启动 V3 训练（与 V2 train 共享多任务损失，外加 feasibility / playstyle）。"""
     import subprocess
+
     global _spawn_train_proc
 
     if _spawn_train_proc is not None and _spawn_train_proc.poll() is None:
-        return jsonify({'success': False, 'error': '已有训练进程在运行'}), 409
+        return jsonify({"success": False, "error": "已有训练进程在运行"}), 409
 
     data = request.get_json() or {}
     cmd = [
-        sys.executable, '-m', 'rl_pytorch.spawn_model.train_v3',
-        '--db', DATABASE,
-        '--epochs', str(int(data.get('epochs', 50))),
-        '--min-score', str(int(data.get('minScore', 0))),
-        '--max-sessions', str(int(data.get('maxSessions', 500))),
+        sys.executable,
+        "-m",
+        "rl_pytorch.spawn_model.train_v3",
+        "--db",
+        DATABASE,
+        "--epochs",
+        str(int(data.get("epochs", 50))),
+        "--min-score",
+        str(int(data.get("minScore", 0))),
+        "--max-sessions",
+        str(int(data.get("maxSessions", 500))),
     ]
-    if 'wFeas' in data:
-        cmd += ['--w-feas', str(float(data['wFeas']))]
-    if 'wSi' in data:
-        cmd += ['--w-si', str(float(data['wSi']))]
-    if 'wSt' in data:
-        cmd += ['--w-st', str(float(data['wSt']))]
+    if "wFeas" in data:
+        cmd += ["--w-feas", str(float(data["wFeas"]))]
+    if "wSi" in data:
+        cmd += ["--w-si", str(float(data["wSi"]))]
+    if "wSt" in data:
+        cmd += ["--w-st", str(float(data["wSt"]))]
 
     os.makedirs(_MODELS_DIR, exist_ok=True)
-    with open(_SPAWN_STATUS_PATH, 'w') as f:
-        json.dump({'phase': 'starting', 'progress': 0, 'message': '启动 V3 训练…'}, f)
+    with open(_SPAWN_STATUS_PATH, "w") as f:
+        json.dump({"phase": "starting", "progress": 0, "message": "启动 V3 训练…"}, f)
     _spawn_train_proc = subprocess.Popen(
-        cmd, cwd=os.path.dirname(os.path.abspath(__file__)),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cmd,
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
-    return jsonify({'success': True, 'pid': _spawn_train_proc.pid, 'modelVersion': 'v3'})
+    return jsonify(
+        {"success": True, "pid": _spawn_train_proc.pid, "modelVersion": "v3"}
+    )
 
 
-@app.route('/api/spawn-model/v3/personalize', methods=['POST'])
+@app.route("/api/spawn-model/v3/personalize", methods=["POST"])
 def spawn_v3_personalize():
     """启动 LoRA 个性化微调进程。需 V3 基础模型已训练完成。
 
     body: { userId, epochs?, maxSessions?, lr?, loraR?, loraAlpha? }
     """
     import subprocess
+
     global _spawn_train_proc
 
     if not os.path.exists(_SPAWN_V3_MODEL_PATH):
-        return jsonify({'success': False, 'error': 'V3 基础模型未训练'}), 412
+        return jsonify({"success": False, "error": "V3 基础模型未训练"}), 412
 
     if _spawn_train_proc is not None and _spawn_train_proc.poll() is None:
-        return jsonify({'success': False, 'error': '已有训练进程在运行'}), 409
+        return jsonify({"success": False, "error": "已有训练进程在运行"}), 409
 
     data = request.get_json() or {}
-    user_id = (data.get('userId') or '').strip()
+    user_id = (data.get("userId") or "").strip()
     if not user_id:
-        return jsonify({'success': False, 'error': '缺少 userId'}), 400
+        return jsonify({"success": False, "error": "缺少 userId"}), 400
 
     cmd = [
-        sys.executable, '-m', 'rl_pytorch.spawn_model.personalize',
-        '--user-id', user_id,
-        '--db', DATABASE,
-        '--base-ckpt', _SPAWN_V3_MODEL_PATH,
-        '--epochs', str(int(data.get('epochs', 10))),
-        '--max-sessions', str(int(data.get('maxSessions', 200))),
-        '--lr', str(float(data.get('lr', 1e-3))),
-        '--lora-r', str(int(data.get('loraR', 4))),
-        '--lora-alpha', str(float(data.get('loraAlpha', 8.0))),
+        sys.executable,
+        "-m",
+        "rl_pytorch.spawn_model.personalize",
+        "--user-id",
+        user_id,
+        "--db",
+        DATABASE,
+        "--base-ckpt",
+        _SPAWN_V3_MODEL_PATH,
+        "--epochs",
+        str(int(data.get("epochs", 10))),
+        "--max-sessions",
+        str(int(data.get("maxSessions", 200))),
+        "--lr",
+        str(float(data.get("lr", 1e-3))),
+        "--lora-r",
+        str(int(data.get("loraR", 4))),
+        "--lora-alpha",
+        str(float(data.get("loraAlpha", 8.0))),
     ]
 
     os.makedirs(_MODELS_DIR, exist_ok=True)
-    with open(_SPAWN_STATUS_PATH, 'w') as f:
-        json.dump({'phase': 'starting', 'progress': 0,
-                   'message': f'启动 {user_id} 的 LoRA 微调…'}, f)
+    with open(_SPAWN_STATUS_PATH, "w") as f:
+        json.dump(
+            {
+                "phase": "starting",
+                "progress": 0,
+                "message": f"启动 {user_id} 的 LoRA 微调…",
+            },
+            f,
+        )
     _spawn_train_proc = subprocess.Popen(
-        cmd, cwd=os.path.dirname(os.path.abspath(__file__)),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cmd,
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
-    return jsonify({'success': True, 'pid': _spawn_train_proc.pid, 'userId': user_id})
+    return jsonify({"success": True, "pid": _spawn_train_proc.pid, "userId": user_id})
 
 
-@app.route('/api/spawn-model/v3/propose-shapes', methods=['POST'])
+@app.route("/api/spawn-model/v3/propose-shapes", methods=["POST"])
 def spawn_v3_propose_shapes():
     """PCGRL 雏形：程序化生成新形状候选（不替换主形状池，仅作为研究/编辑器入口）。
 
@@ -2367,24 +2697,28 @@ def spawn_v3_propose_shapes():
     """
     try:
         from rl_pytorch.spawn_model.shape_proposer import (
-            propose_unique_batch, shape_pool_signatures,
+            propose_unique_batch,
+            shape_pool_signatures,
         )
         from rl_pytorch.shapes_data import get_all_shapes
 
         data = request.get_json() or {}
-        n = int(data.get('n', 8))
-        seed = data.get('seed')
+        n = int(data.get("n", 8))
+        seed = data.get("seed")
         seed = int(seed) if seed is not None else None
-        dist_in = data.get('nCellsDist') or {3: 0.2, 4: 0.5, 5: 0.3}
+        dist_in = data.get("nCellsDist") or {3: 0.2, 4: 0.5, 5: 0.3}
         dist = {int(k): float(v) for k, v in dist_in.items()}
 
         existing = shape_pool_signatures(get_all_shapes())
         batch = propose_unique_batch(
-            n=n, n_cells_dist=dist, existing_signatures=existing, seed=seed,
+            n=n,
+            n_cells_dist=dist,
+            existing_signatures=existing,
+            seed=seed,
         )
-        return jsonify({'success': True, 'count': len(batch), 'shapes': batch})
+        return jsonify({"success": True, "count": len(batch), "shapes": batch})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 _spawn_v3_lora_cache.clear()  # 防止热重载时残留
@@ -2399,66 +2733,145 @@ init_db()
 #  文档门户：/docs  /docs/list  /docs/raw/<filename>
 # =====================================================================
 
-_DOCS_DIR = Path(__file__).resolve().parent / 'docs'
-_WEB_PUBLIC_DIR = Path(__file__).resolve().parent / 'web' / 'public'
+_DOCS_DIR = Path(__file__).resolve().parent / "docs"
+_WEB_PUBLIC_DIR = Path(__file__).resolve().parent / "web" / "public"
 
 _DOC_CATEGORIES = [
     # 与 docs/ 目录结构一致（子目录 + 相对路径），供 /docs/list 与 docs.html 侧栏使用
-    {'name': '文档中心',
-     'docs': ['README.md']},
-    {'name': '工程与扩展',
-     'docs': ['engineering/PROJECT.md', 'engineering/SQLITE_SCHEMA.md', 'engineering/DEV_GUIDE.md',
-              'engineering/TESTING.md', 'engineering/I18N.md', 'engineering/STRATEGY_GUIDE.md',
-              'engineering/GOLDEN_EVENTS.md', 'engineering/CASUAL_GAME_BUILD_SKILL.md',
-              'engineering/CURSOR_SKILLS.md']},
-    {'name': '领域与竞品',
-     'docs': ['domain/DOMAIN_KNOWLEDGE.md', 'domain/CASUAL_GAME_ANALYSIS.md',
-              'domain/COMPETITOR_USER_ANALYSIS.md', 'domain/ARCHITECTURE_COMPARISON.md']},
-    {'name': '玩法与产品',
-     'docs': ['product/DIFFICULTY_MODES.md', 'product/CLEAR_SCORING.md',
-              'product/RETENTION_ROADMAP_V10_17.md', 'product/EASTER_EGGS_AND_DELIGHT.md',
-              'product/SKINS_CATALOG.md', 'product/SKIN_ICON_SEMANTIC_POOL.md']},
-    {'name': '玩家系统',
-     'docs': ['player/PLAYER_ABILITY_EVALUATION.md', 'player/PANEL_PARAMETERS.md',
-              'player/REALTIME_STRATEGY.md', 'player/PLAYSTYLE_DETECTION.md']},
-    {'name': '算法与模型',
-     'docs': ['algorithms/ALGORITHMS_HANDBOOK.md', 'algorithms/ALGORITHMS_SPAWN.md',
-              'algorithms/ALGORITHMS_PLAYER_MODEL.md', 'algorithms/ALGORITHMS_RL.md',
-              'algorithms/ALGORITHMS_MONETIZATION.md']},
-    {'name': '出块算法',
-     'docs': ['algorithms/SPAWN_ALGORITHM.md', 'algorithms/ADAPTIVE_SPAWN.md',
-              'algorithms/SPAWN_BLOCK_MODELING.md', 'algorithms/SPAWN_SOLUTION_DIFFICULTY.md']},
-    {'name': '强化学习',
-     'groups': [
-         {'name': '总览与契约',
-          'docs': ['algorithms/RL_README.md', 'algorithms/ALGORITHMS_RL.md',
-                   'algorithms/RL_AND_GAMEPLAY.md', 'algorithms/RL_PYTORCH_SERVICE.md']},
-         {'name': '训练观测与排障',
-          'docs': ['algorithms/RL_TRAINING_DASHBOARD_FLOW.md',
-                   'algorithms/RL_TRAINING_DASHBOARD_TRENDS.md',
-                   'algorithms/RL_TRAINING_NUMERICAL_STABILITY.md']},
-         {'name': '研究与历史实验',
-          'docs': ['algorithms/RL_ANALYSIS.md', 'algorithms/RL_TRAINING_OPTIMIZATION.md',
-                   'algorithms/RL_ALPHAZERO_OPTIMIZATION.md',
-                   'algorithms/RL_BROWSER_OPTIMIZATION.md']},
-     ]},
-    {'name': '商业化与运营',
-     'docs': ['operations/MONETIZATION.md', 'operations/MONETIZATION_CUSTOMIZATION.md',
-              'operations/MONETIZATION_TRAINING_PANEL.md', 'operations/COMMERCIAL_OPERATIONS.md',
-              'operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md', 'operations/COMPLIANCE_AND_SOPS.md']},
-    {'name': '外部集成',
-     'docs': ['integrations/ADS_IAP_SETUP.md', 'integrations/ENTERPRISE_EXTENSIONS.md']},
-    {'name': '平台扩展',
-     'docs': ['platform/MOBILE_CLIENTS.md', 'platform/WECHAT_MINIPROGRAM.md',
-              'platform/WECHAT_RELEASE.md', 'platform/SYNC_CONTRACT.md']},
-    {'name': '归档',
-     'docs': ['archive/MONETIZATION_OPTIMIZATION.md', 'archive/MONETIZATION_PERSONALIZATION.md']},
+    {"name": "文档中心", "docs": ["README.md"]},
+    {
+        "name": "工程与扩展",
+        "docs": [
+            "engineering/PROJECT.md",
+            "engineering/SQLITE_SCHEMA.md",
+            "engineering/DEV_GUIDE.md",
+            "engineering/TESTING.md",
+            "engineering/I18N.md",
+            "engineering/STRATEGY_GUIDE.md",
+            "engineering/GOLDEN_EVENTS.md",
+            "engineering/CASUAL_GAME_BUILD_SKILL.md",
+            "engineering/CURSOR_SKILLS.md",
+        ],
+    },
+    {
+        "name": "领域与竞品",
+        "docs": [
+            "domain/DOMAIN_KNOWLEDGE.md",
+            "domain/CASUAL_GAME_ANALYSIS.md",
+            "domain/COMPETITOR_USER_ANALYSIS.md",
+            "domain/ARCHITECTURE_COMPARISON.md",
+        ],
+    },
+    {
+        "name": "玩法与产品",
+        "docs": [
+            "product/DIFFICULTY_MODES.md",
+            "product/CLEAR_SCORING.md",
+            "product/RETENTION_ROADMAP_V10_17.md",
+            "product/EASTER_EGGS_AND_DELIGHT.md",
+            "product/SKINS_CATALOG.md",
+            "product/SKIN_ICON_SEMANTIC_POOL.md",
+        ],
+    },
+    {
+        "name": "玩家系统",
+        "docs": [
+            "player/PLAYER_ABILITY_EVALUATION.md",
+            "player/PANEL_PARAMETERS.md",
+            "player/REALTIME_STRATEGY.md",
+            "player/PLAYSTYLE_DETECTION.md",
+        ],
+    },
+    {
+        "name": "算法与模型",
+        "docs": [
+            "algorithms/ALGORITHMS_HANDBOOK.md",
+            "algorithms/ALGORITHMS_SPAWN.md",
+            "algorithms/ALGORITHMS_PLAYER_MODEL.md",
+            "algorithms/ALGORITHMS_RL.md",
+            "algorithms/ALGORITHMS_MONETIZATION.md",
+        ],
+    },
+    {
+        "name": "出块算法",
+        "docs": [
+            "algorithms/SPAWN_ALGORITHM.md",
+            "algorithms/ADAPTIVE_SPAWN.md",
+            "algorithms/SPAWN_BLOCK_MODELING.md",
+            "algorithms/SPAWN_SOLUTION_DIFFICULTY.md",
+        ],
+    },
+    {
+        "name": "强化学习",
+        "groups": [
+            {
+                "name": "总览与契约",
+                "docs": [
+                    "algorithms/RL_README.md",
+                    "algorithms/ALGORITHMS_RL.md",
+                    "algorithms/RL_AND_GAMEPLAY.md",
+                    "algorithms/RL_PYTORCH_SERVICE.md",
+                ],
+            },
+            {
+                "name": "训练观测与排障",
+                "docs": [
+                    "algorithms/RL_TRAINING_DASHBOARD_FLOW.md",
+                    "algorithms/RL_TRAINING_DASHBOARD_TRENDS.md",
+                    "algorithms/RL_TRAINING_NUMERICAL_STABILITY.md",
+                ],
+            },
+            {
+                "name": "研究与历史实验",
+                "docs": [
+                    "algorithms/RL_ANALYSIS.md",
+                    "algorithms/RL_TRAINING_OPTIMIZATION.md",
+                    "algorithms/RL_ALPHAZERO_OPTIMIZATION.md",
+                    "algorithms/RL_BROWSER_OPTIMIZATION.md",
+                ],
+            },
+        ],
+    },
+    {
+        "name": "商业化与运营",
+        "docs": [
+            "operations/MONETIZATION.md",
+            "operations/MONETIZATION_CUSTOMIZATION.md",
+            "operations/MONETIZATION_TRAINING_PANEL.md",
+            "operations/COMMERCIAL_OPERATIONS.md",
+            "operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md",
+            "operations/COMPLIANCE_AND_SOPS.md",
+        ],
+    },
+    {
+        "name": "外部集成",
+        "docs": [
+            "integrations/ADS_IAP_SETUP.md",
+            "integrations/ENTERPRISE_EXTENSIONS.md",
+        ],
+    },
+    {
+        "name": "平台扩展",
+        "docs": [
+            "platform/MOBILE_CLIENTS.md",
+            "platform/WECHAT_MINIPROGRAM.md",
+            "platform/WECHAT_RELEASE.md",
+            "platform/SYNC_CONTRACT.md",
+        ],
+    },
+    {
+        "name": "归档",
+        "docs": [
+            "archive/MONETIZATION_OPTIMIZATION.md",
+            "archive/MONETIZATION_PERSONALIZATION.md",
+        ],
+    },
 ]
 
 
 def _resolve_under_docs(rel: str):
     """解析 docs/ 下 Markdown 路径，禁止跳出目录；返回 Path 或 None。"""
-    if not rel or '..' in rel or rel.startswith('/'):
+    if not rel or ".." in rel or rel.startswith("/"):
         return None
     base = _DOCS_DIR.resolve()
     cand = (base / rel).resolve()
@@ -2475,7 +2888,7 @@ def _resolve_docs_markdown(rel: str):
     if p is not None:
         return p
     name = Path(rel).name
-    if '/' in rel or not name.endswith('.md'):
+    if "/" in rel or not name.endswith(".md"):
         return None
     base = _DOCS_DIR.resolve()
     matches = [x for x in base.rglob(name) if x.is_file()]
@@ -2484,67 +2897,70 @@ def _resolve_docs_markdown(rel: str):
     return None
 
 
-@app.route('/ops')
-@app.route('/ops/')
+@app.route("/ops")
+@app.route("/ops/")
 def ops_portal():
     """运营看板入口"""
     from flask import send_from_directory
-    page = _WEB_PUBLIC_DIR / 'ops-dashboard.html'
+
+    page = _WEB_PUBLIC_DIR / "ops-dashboard.html"
     if page.exists():
-        return send_from_directory(str(_WEB_PUBLIC_DIR), 'ops-dashboard.html')
-    return '<h1>ops-dashboard.html not found</h1>', 404
+        return send_from_directory(str(_WEB_PUBLIC_DIR), "ops-dashboard.html")
+    return "<h1>ops-dashboard.html not found</h1>", 404
 
 
-@app.route('/docs')
-@app.route('/docs/')
+@app.route("/docs")
+@app.route("/docs/")
 def docs_portal():
     """文档门户首页。"""
     from flask import send_from_directory
-    portal = _WEB_PUBLIC_DIR / 'docs.html'
+
+    portal = _WEB_PUBLIC_DIR / "docs.html"
     if portal.exists():
-        return send_from_directory(str(_WEB_PUBLIC_DIR), 'docs.html')
-    return '<h1>docs.html not found</h1>', 404
+        return send_from_directory(str(_WEB_PUBLIC_DIR), "docs.html")
+    return "<h1>docs.html not found</h1>", 404
 
 
-@app.route('/docs/list')
+@app.route("/docs/list")
 def docs_list():
     """返回所有文档的分类列表及元信息。"""
+
     def build_item(fname):
         path = _DOCS_DIR / fname
         if not path.exists():
             return None
-        text = path.read_text('utf-8', errors='replace')
+        text = path.read_text("utf-8", errors="replace")
         # 从第一个 # 标题提取文档标题
         title = fname
         for line in text.splitlines():
             stripped = line.strip()
-            if stripped.startswith('# '):
+            if stripped.startswith("# "):
                 title = stripped[2:].strip()
                 break
-        return {'file': fname, 'title': title}
+        return {"file": fname, "title": title}
 
     result = []
     for cat in _DOC_CATEGORIES:
         items = []
         groups = []
-        if 'groups' in cat:
-            for group in cat['groups']:
+        if "groups" in cat:
+            for group in cat["groups"]:
                 group_items = []
-                for fname in group.get('docs', []):
+                for fname in group.get("docs", []):
                     item = build_item(fname)
                     if item is not None:
                         group_items.append(item)
                         items.append(item)
                 if group_items:
-                    groups.append({'name': group['name'], 'docs': group_items})
+                    groups.append({"name": group["name"], "docs": group_items})
         else:
-            for fname in cat['docs']:
+            for fname in cat["docs"]:
                 item = build_item(fname)
                 if item is not None:
                     items.append(item)
-        payload = {'category': cat['name'], 'docs': items}
+        payload = {"category": cat["name"], "docs": items}
         if groups:
-            payload['groups'] = groups
+            payload["groups"] = groups
         result.append(payload)
     return jsonify(result)
 
@@ -2552,7 +2968,7 @@ def docs_list():
 _ROOT_DIR = Path(__file__).resolve().parent
 
 
-@app.route('/docs/raw/<path:filename>')
+@app.route("/docs/raw/<path:filename>")
 def docs_raw(filename):
     """返回指定文档的原始 Markdown 内容。
 
@@ -2561,13 +2977,14 @@ def docs_raw(filename):
       2. 仓库根目录下扁平文件名（ARCHITECTURE.md / CONTRIBUTING.md 等）
     """
     import re
-    if '..' in filename or filename.startswith('/'):
-        return jsonify({'error': 'invalid filename'}), 400
-    if not re.match(r'^[\w\-/]+\.md$', filename, re.ASCII):
-        return jsonify({'error': 'invalid filename'}), 400
+
+    if ".." in filename or filename.startswith("/"):
+        return jsonify({"error": "invalid filename"}), 400
+    if not re.match(r"^[\w\-/]+\.md$", filename, re.ASCII):
+        return jsonify({"error": "invalid filename"}), 400
 
     path = _resolve_docs_markdown(filename)
-    if path is None and '/' not in filename:
+    if path is None and "/" not in filename:
         root_path = (_ROOT_DIR / filename).resolve()
         try:
             root_path.relative_to(_ROOT_DIR.resolve())
@@ -2577,11 +2994,14 @@ def docs_raw(filename):
             path = root_path
 
     if path is None:
-        return jsonify({'error': 'not found'}), 404
+        return jsonify({"error": "not found"}), 404
 
-    content = path.read_text('utf-8', errors='replace')
-    return content, 200, {'Content-Type': 'text/plain; charset=utf-8',
-                          'Cache-Control': 'no-cache'}
+    content = path.read_text("utf-8", errors="replace")
+    return (
+        content,
+        200,
+        {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache"},
+    )
 
 
 def create_app():
@@ -2591,9 +3011,9 @@ def create_app():
 
 def _flask_port():
     """与前端 OPENBLOCK_API_ORIGIN / VITE_API_BASE_URL 中的端口一致；显式 PORT 优先。"""
-    if os.environ.get('PORT'):
-        return int(os.environ['PORT'])
-    base = os.environ.get('OPENBLOCK_API_ORIGIN') or os.environ.get('VITE_API_BASE_URL')
+    if os.environ.get("PORT"):
+        return int(os.environ["PORT"])
+    base = os.environ.get("OPENBLOCK_API_ORIGIN") or os.environ.get("VITE_API_BASE_URL")
     if base:
         u = urlparse(base.strip())
         if u.port is not None:
@@ -2601,8 +3021,8 @@ def _flask_port():
     return 5000
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     _port = _flask_port()
-    _debug = os.environ.get('FLASK_DEBUG', '1') == '1'
-    print(f'Open Block API — http://0.0.0.0:{_port}  (db: {DATABASE})')
-    app.run(host='0.0.0.0', port=_port, debug=_debug)
+    _debug = os.environ.get("FLASK_DEBUG", "1") == "1"
+    print(f"Open Block API — http://0.0.0.0:{_port}  (db: {DATABASE})")
+    app.run(host="0.0.0.0", port=_port, debug=_debug)

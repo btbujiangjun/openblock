@@ -36,7 +36,7 @@ export const UI_ICONS = {
     trainingDashboard: '📊',
     /** 看板摘要与工具 */
     dashboardSummaryTools: '🧰',
-    /** 训练曲线 */
+    /** 训练指标 */
     trainingCurve: '📈',
     /** 模型回退到规则 */
     spawnFallback: '🔄',

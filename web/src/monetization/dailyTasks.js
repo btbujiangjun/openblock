@@ -10,6 +10,7 @@
 
 import { getFlag } from './featureFlags.js';
 import { on, emit } from './MonetizationBus.js';
+import { getWallet } from '../skills/wallet.js';
 
 const STORAGE_KEY = 'openblock_mon_daily_tasks_v1';
 
@@ -141,10 +142,34 @@ export function initDailyTasks() {
         on(evt, ({ data }) => {
             const completed = _processEvent(evt, data);
             for (const def of completed) {
+                /* v1.13：之前任务完成只 toast 不发钱包 —— TASK_DEFS 里写了
+                 * `reward: { hintTokens: 1 }` 但从未真正入账。这里补齐发奖路径，
+                 * source 用 `daily-task-${id}` 让钱包流水面板能聚类显示。
+                 * xp 仍交由 progression 在 game_over 时通过其它路径累加，不重复发放。 */
+                _grantDailyTaskReward(def);
                 emit('daily_task_complete', { task: def });
                 _showTaskCompleteToast(def);
             }
         });
+    }
+}
+
+/**
+ * 把 TASK_DEFS[i].reward 中的钱包类奖励发放到 wallet。
+ * 仅认可 wallet KINDS 已知的 token / coin 字段，xp 不在钱包里。
+ */
+function _grantDailyTaskReward(def) {
+    const reward = def?.reward || {};
+    const source = `daily-task-${def.id}`;
+    try {
+        const w = getWallet();
+        if (reward.hintTokens) w.addBalance('hintToken', reward.hintTokens | 0, source);
+        if (reward.undoTokens) w.addBalance('undoToken', reward.undoTokens | 0, source);
+        if (reward.bombTokens) w.addBalance('bombToken', reward.bombTokens | 0, source);
+        if (reward.coin) w.addBalance('coin', reward.coin | 0, source);
+        if (reward.fragment) w.addBalance('fragment', reward.fragment | 0, source);
+    } catch (e) {
+        console.warn('[dailyTasks] reward grant failed', e);
     }
 }
 

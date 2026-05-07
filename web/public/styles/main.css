@@ -1,5 +1,5 @@
 :root {
-    /* 顶/底各 8px，与 .app-side-left / .rl-dash-panel 一致 */
+    /* 顶/底各 8px，与 .app-side-left / .rl-panel 一致 */
     --game-shell-inset: 8px;
     --game-shell-vfill: calc(100vh - 2 * var(--game-shell-inset));
     --app-side-rail-gap: 8px;
@@ -1706,7 +1706,72 @@ body.game-over-active .first-win-banner {
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+}
+
+/* ── 主题化细滚动条（v1.14）──
+ * 左右两侧栏（.app-side-left / .rl-panel）以及它们内部少数仍会滚动的子容器
+ * （#rl-chart-root：训练指标曲线滚动；.rl-log：训练进展/损失日志滚动）
+ * 共享同一套半透明、accent 色调的细滑块样式，避免浏览器默认灰色滚动条破坏整体配色。
+ *
+ *   - Firefox：scrollbar-width / scrollbar-color
+ *   - WebKit/Blink：::-webkit-scrollbar* 伪元素
+ *   - 颜色用 color-mix + var(--accent-color) 跟随主题切换；轨道完全透明，让 panel
+ *     自身底色透出来，达到「融合」效果。
+ */
+.app-side-left,
+.rl-panel,
+#rl-chart-root,
+.rl-log {
     scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent-color, #5b9bd5) 38%, transparent) transparent;
+}
+
+.app-side-left::-webkit-scrollbar,
+.rl-panel::-webkit-scrollbar,
+#rl-chart-root::-webkit-scrollbar,
+.rl-log::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+}
+
+.app-side-left::-webkit-scrollbar-track,
+.rl-panel::-webkit-scrollbar-track,
+#rl-chart-root::-webkit-scrollbar-track,
+.rl-log::-webkit-scrollbar-track {
+    background: transparent;
+    border: none;
+}
+
+.app-side-left::-webkit-scrollbar-thumb,
+.rl-panel::-webkit-scrollbar-thumb,
+#rl-chart-root::-webkit-scrollbar-thumb,
+.rl-log::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--accent-color, #5b9bd5) 30%, transparent);
+    border: 1.5px solid transparent;
+    background-clip: padding-box;
+    border-radius: 6px;
+    transition: background-color 0.15s ease;
+}
+
+.app-side-left::-webkit-scrollbar-thumb:hover,
+.rl-panel::-webkit-scrollbar-thumb:hover,
+#rl-chart-root::-webkit-scrollbar-thumb:hover,
+.rl-log::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent-color, #5b9bd5) 60%, transparent);
+}
+
+.app-side-left::-webkit-scrollbar-thumb:active,
+.rl-panel::-webkit-scrollbar-thumb:active,
+#rl-chart-root::-webkit-scrollbar-thumb:active,
+.rl-log::-webkit-scrollbar-thumb:active {
+    background: color-mix(in srgb, var(--accent-color, #5b9bd5) 78%, transparent);
+}
+
+.app-side-left::-webkit-scrollbar-corner,
+.rl-panel::-webkit-scrollbar-corner,
+#rl-chart-root::-webkit-scrollbar-corner,
+.rl-log::-webkit-scrollbar-corner {
+    background: transparent;
 }
 
 /* ── 通用面板壳 ── */
@@ -1770,9 +1835,13 @@ body.game-over-active .first-win-banner {
     to   { opacity: 1; transform: translateY(0); }
 }
 
-/* —— 玩家画像面板 —— 不设独立 max-height，由 .app-side-left 统一纵向滚动，避免双滚动条 */
+/* —— 玩家画像面板 —— 不设独立 max-height，由 .app-side-left 统一纵向滚动，避免双滚动条
+ * v1.13：从 `flex: 0 1 auto` 改为 `flex: 1 1 auto`，让画像在内容不足以撑满 .app-side-left
+ * 时也能 grow 到剩余高度。这样视觉上左栏与右侧 .rl-panel 一样默认占满整个视口可用区，
+ * 而不再露出大段透明背景；当内容真的超过 vfill 时，仍由 .app-side-left 的 overflow-y: auto
+ * 统一滚动（spawn-model-panel 是 flex-shrink: 0 始终按内容显示，不会被压扁）。 */
 .player-insight-panel {
-    flex: 0 1 auto;
+    flex: 1 1 auto;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: visible;
@@ -1973,6 +2042,20 @@ body.game-over-active .first-win-banner {
     text-overflow: ellipsis;
 }
 
+/* v1.13：冷启动占位（尚未采集到样本）—— 数值显示为「—」并降低对比度，
+ * 引导玩家把注意力放在「可信」指标上，避免「我还没下任何块系统就给我打 36%」的误导。 */
+.insight-metric--cold {
+    background: color-mix(in srgb, var(--text-primary, #4a5f73) 4%, transparent);
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--text-primary, #4a5f73) 18%, transparent);
+}
+
+.insight-metric--cold strong {
+    color: var(--text-secondary, #5d7a96);
+    opacity: 0.7;
+    font-weight: 600;
+}
+
 /* 悬停可看物理含义说明 */
 .player-insight-panel .insight-metric[title],
 .player-insight-panel .replay-series-cell[title],
@@ -1982,6 +2065,229 @@ body.game-over-active .first-win-banner {
     cursor: help;
 }
 
+
+/* ==================================================================
+   拟人化压力表（stress meter）
+   把出块算法核心信号 stress 转译为情绪、色带、呼吸节奏与一句话叙事。
+   - 通过 [data-level] 切换主题色；
+   - --stress-bar-pct 控制底部进度条宽度；
+   - --stress-breath-ms 控制头像光晕脉冲速率（高压时更快）。
+   ================================================================== */
+.stress-meter-host {
+    padding: 4px 6px 6px;
+}
+
+.stress-meter {
+    --sm-tint:  #6FB8FF;
+    --sm-deep:  #4F8AC4;
+    --sm-bg:    color-mix(in srgb, var(--sm-tint) 16%, var(--bg-color, #f4f7fb));
+    --sm-border:color-mix(in srgb, var(--sm-deep) 32%, transparent);
+    --sm-glow:  color-mix(in srgb, var(--sm-tint) 60%, transparent);
+
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--sm-bg) 0%, transparent 110%);
+    border: 1px solid var(--sm-border);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--sm-deep) 12%, transparent);
+    transition: background 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+/* 等级配色 — 蓝→绿→琥珀→红渐变 */
+.stress-meter[data-level="calm"]    { --sm-tint:#7FD0FF; --sm-deep:#3F87B8; }
+.stress-meter[data-level="easy"]    { --sm-tint:#86E2A1; --sm-deep:#3CA56F; }
+.stress-meter[data-level="flow"]    { --sm-tint:#A6E07A; --sm-deep:#5DA12F; }
+.stress-meter[data-level="engaged"] { --sm-tint:#F2C85A; --sm-deep:#B47A12; }
+.stress-meter[data-level="tense"]   { --sm-tint:#F0954B; --sm-deep:#B0531A; }
+.stress-meter[data-level="intense"] { --sm-tint:#EF6A60; --sm-deep:#B43227; }
+
+.stress-meter--disabled { opacity: 0.62; }
+
+.stress-meter__main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stress-meter__avatar {
+    position: relative;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%,
+        color-mix(in srgb, #fff 60%, var(--sm-tint)),
+        var(--sm-tint) 65%,
+        var(--sm-deep) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--sm-deep) 30%, transparent),
+                inset 0 1px 0 rgba(255,255,255,0.45);
+}
+
+.stress-meter__face {
+    font-size: 22px;
+    line-height: 1;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.15));
+    user-select: none;
+}
+
+.stress-meter__pulse {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: var(--sm-glow);
+    opacity: 0;
+    pointer-events: none;
+    animation: stress-meter-breath var(--stress-breath-ms, 1800ms) ease-in-out infinite;
+}
+
+@keyframes stress-meter-breath {
+    0%   { transform: scale(0.86); opacity: 0.0; }
+    50%  { transform: scale(1.18); opacity: 0.55; }
+    100% { transform: scale(0.86); opacity: 0.0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .stress-meter__pulse { animation: none; opacity: 0.25; }
+}
+
+.stress-meter__body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stress-meter__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.stress-meter__label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--sm-deep);
+    letter-spacing: 0.04em;
+}
+
+.stress-meter__num {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary, #475569);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.stress-meter__delta {
+    font-weight: 700;
+}
+.stress-meter__delta[data-dir="up"]   { color: #B43227; }
+.stress-meter__delta[data-dir="down"] { color: #2E7D32; }
+.stress-meter__delta[data-dir="flat"] { color: #64748B; }
+
+.stress-meter__bar {
+    position: relative;
+    height: 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--sm-deep) 14%, transparent);
+    overflow: hidden;
+}
+
+.stress-meter__bar-fill {
+    height: 100%;
+    width: var(--stress-bar-pct, 50%);
+    background: linear-gradient(90deg,
+        color-mix(in srgb, var(--sm-tint) 80%, white),
+        var(--sm-deep));
+    border-radius: 3px;
+    transition: width 320ms cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.stress-meter__story {
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-secondary, #475569);
+}
+
+.stress-meter__details {
+    margin-top: 2px;
+    border-radius: 8px;
+}
+
+.stress-meter__details-head {
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--sm-deep);
+    list-style: none;
+    user-select: none;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background 120ms ease;
+}
+.stress-meter__details-head::-webkit-details-marker { display: none; }
+.stress-meter__details-head::before {
+    content: '▸';
+    display: inline-block;
+    margin-right: 4px;
+    transform: translateY(-1px);
+    transition: transform 160ms ease;
+}
+.stress-meter__details[open] .stress-meter__details-head::before {
+    transform: rotate(90deg) translateX(-1px);
+}
+.stress-meter__details-head:hover {
+    background: color-mix(in srgb, var(--sm-tint) 14%, transparent);
+}
+
+.stress-meter__signals {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+    gap: 2px 8px;
+}
+
+.stress-meter__signal {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.6;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--sm-tint) 8%, transparent);
+}
+
+.stress-meter__signal--pos { color: #B43227; }
+.stress-meter__signal--neg { color: #1F6F36; }
+.stress-meter__signal--empty {
+    grid-column: 1 / -1;
+    color: var(--text-secondary, #475569);
+    font-style: italic;
+    background: transparent;
+}
+
+.stress-meter__signal-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stress-meter__signal-value {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
 
 /* 实时状态 — 卡片式区块 */
 .insight-divider {
@@ -2318,23 +2624,37 @@ body.game-over-active .first-win-banner {
     line-height: 1.4;
 }
 
-/* —— RL机器人 面板 —— */
+/* —— RL 机器人面板（v1.13 合并：原左侧 #rl-panel 与原右侧 #rl-dash-panel 二合一） ——
+ * 几何沿用原 .rl-dash-panel：右侧固定栏，纵向填满视口可用区。
+ * 内部布局：header-row + 多段 details，第一块 sticky 顶部，曲线块吃剩余高度。
+ */
 .rl-panel {
-    position: relative;
-    left: auto;
-    top: auto;
-    flex: 1 1 0;
-    min-height: 0;
+    position: fixed;
+    top: var(--game-shell-inset, 8px);
+    right: var(--game-shell-inset, 8px);
+    z-index: 70;
+    width: var(--app-side-rail-width, clamp(120px, calc((100vw - 380px) * 0.5), 300px));
+    height: var(--game-shell-vfill, calc(100vh - 16px));
+    max-height: var(--game-shell-vfill, calc(100vh - 16px));
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
     max-width: 100%;
     overflow-x: hidden;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    padding: 4px 6px;
+    /* v1.14：把 panel 兜底滚动从 auto 改为 hidden ——
+     * .rl-panel 已经是 flex column 严格分配高度，训练指标 details flex:1 1 0 + min-height:0
+     * 应当吃下剩余空间并由内部 #rl-chart-root 的 overflow-y:auto 出滚动条。如果 panel 自身
+     * 仍是 auto，浏览器倾向把溢出冒泡给 panel 整体出条，反而压不下去训练指标，导致曲线区
+     * 既显示不全又看不到滚动条。改 hidden 后，panel 严格按视口分高，训练指标内部自然滚。 */
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    /* scrollbar-width 由统一的「主题化细滚动条」规则提供，本处不再重复 */
+    padding: 6px 8px 8px;
     font-size: 8px;
+    color: var(--text-primary, #2c3e50);
+    line-height: 1.35;
 }
 
 /* 标题行不压缩，避免与下方区块抢高时被裁切 */
@@ -2359,16 +2679,49 @@ body.game-over-active .first-win-banner {
     box-shadow: 0 4px 10px -2px color-mix(in srgb, var(--shadow, #000) 22%, transparent);
 }
 
-/* 日志区块吃掉剩余高度，避免把首块挤出可视区 */
+/* 看板摘要 & 工具：紧凑排列、内容固定高度，不抢占曲线区 */
 .rl-panel > details.panel-section:not(:first-of-type) {
-    flex: 1 1 0;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
+    flex-shrink: 0;
+    min-height: min-content;
 }
 
 .rl-panel > details.panel-section:not(:first-of-type) > summary.panel-section-head {
     flex-shrink: 0;
+}
+
+/* 训练指标 details：当 open 时吃掉剩余高度
+ * v1.14：把 min-height 由 220px 收紧到 0，搭配 .rl-chart-root 的 overflow-y:auto，
+ *   实现「容器空间不足时，由内部曲线列表出现纵向滚动条」，而不是把整面板撑出来。
+ *   再配合 JS（rlPanel.scheduleTrainingMetricsAutoCollapse）：当容器最终连最小阈值
+ *   都给不到训练指标时，主动折叠该 details，让用户能看到 summary/手动展开。 */
+.rl-panel > details.panel-section:has(> #rl-chart-root)[open] {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.rl-panel > details.panel-section:has(> #rl-chart-root)[open] > #rl-chart-root {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* 训练进展 / 训练损失 details：默认折叠（HTML 不带 open），展开时给一个上限高度避免压死曲线 */
+.rl-panel > details.panel-section:has(> #rl-progress-log)[open],
+.rl-panel > details.panel-section:has(> #rl-server-log)[open] {
+    flex-shrink: 0;
+    max-height: 28vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.rl-panel > details.panel-section:has(> #rl-progress-log)[open] > .rl-log,
+.rl-panel > details.panel-section:has(> #rl-server-log)[open] > .rl-log {
+    flex: 1 1 0;
+    min-height: 0;
 }
 
 .rl-header-row {
@@ -2544,12 +2897,14 @@ body.game-over-active .first-win-banner {
     color: var(--text-secondary, #5d7a96);
 }
 
+/* v1.13：操作行同时承载训练按钮与看板控件（自动/窗口/刷新），
+ * gap 由 2px → 4px，给两组语义之间留一点视觉呼吸；wrap 时按从右向左换行。 */
 .rl-actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
-    gap: 2px;
+    gap: 4px;
     margin-bottom: 3px;
     flex-shrink: 0;
     position: relative;
@@ -2590,55 +2945,16 @@ body.game-over-active .first-win-banner {
     overflow: visible;
 }
 
-/* RL 训练看板（右侧曲线） */
-.rl-dash-panel {
-    position: fixed;
-    top: var(--game-shell-inset, 8px);
-    right: var(--game-shell-inset, 8px);
-    z-index: 69;
-    width: var(--app-side-rail-width, clamp(120px, calc((100vw - 380px) * 0.5), 300px));
-    height: var(--game-shell-vfill, calc(100vh - 16px));
-    max-height: var(--game-shell-vfill, calc(100vh - 16px));
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    touch-action: pan-y;
-    user-select: auto;
-    background: color-mix(in srgb, var(--stat-surface, #ffffff) 52%, var(--bg-color, #e8eef1));
-    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 5%, transparent);
-    border-radius: var(--border-radius);
-    box-shadow: 0 1px 8px color-mix(in srgb, var(--shadow) 18%, transparent);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    padding: 8px 10px 10px;
-    font-size: 10px;
-    color: var(--text-primary, #2c3e50);
-    line-height: 1.35;
-}
-
-.rl-dash-title {
-    margin: 0 0 4px;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--accent-color, #4472c4);
-    flex-shrink: 0;
-}
-
-.rl-dash-hint {
-    margin: 0 0 5px;
-    font-size: 8px;
-    color: var(--text-secondary, #5d7a96);
-    flex-shrink: 0;
-}
-
+/* RL 训练看板子元素（v1.13 起容器已合并到 .rl-panel；此处仅保留摘要/工具/曲线相关样式）
+ * v1.14 进一步精简：原 .rl-dash-compact 单列 grid 包装层已从 HTML 移除，
+ *   #rl-dash-summary 直接作为「看板摘要」details 的直接子元素，减少 DOM 层级；
+ *   遗留选择器空规则保留为占位（避免历史样式被误覆盖）。 */
 .rl-dash-compact {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 3px;
-    align-items: center;
-    margin-bottom: 3px;
+    /* deprecated: 已无 DOM 命中；保留命名空间避免历史 CSS 链路覆盖 */
 }
 
+/* v1.14：摘要外层 details (.panel-section) 已自带框，这里去掉自身的 background / border /
+ *   border-radius，避免「框中框」的视觉重复层级；仅保留排版与字号。 */
 .rl-dash-summary {
     margin: 0;
     padding: 3px 6px;
@@ -2647,9 +2963,9 @@ body.game-over-active .first-win-banner {
     font-size: 8px;
     line-height: 1.25;
     color: var(--text-primary, #2c3e50);
-    background: color-mix(in srgb, var(--accent-color, #4472c4) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent-color, #4472c4) 15%, transparent);
-    border-radius: 4px;
+    background: none;
+    border: none;
+    border-radius: 0;
     flex-shrink: 0;
 }
 
@@ -2692,16 +3008,8 @@ body.game-over-active .first-win-banner {
     font-size: 8px;
 }
 
-.rl-dash-toolbar {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    justify-content: flex-end;
-    justify-self: end;
-    gap: 4px;
-    margin: 0 4px 0 0;
-    flex-shrink: 0;
-}
+/* .rl-dash-toolbar：v1.13 起其控件并入 .rl-actions 同行，容器规则已无 DOM 使用；
+ * 保留命名空间但不再输出布局规则——若后续要恢复独立 toolbar，可在此重新激活。 */
 
 .rl-dash-auto {
     display: flex;
@@ -2755,23 +3063,7 @@ body.game-over-active .first-win-banner {
     filter: brightness(1.08);
 }
 
-/* 训练曲线的 details 容器占满剩余空间 */
-.rl-dash-panel > .panel-section:last-of-type {
-    flex: 1 1 0;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.rl-dash-panel > .panel-section:last-of-type[open] > summary.panel-section-head {
-    flex-shrink: 0;
-}
-
-.rl-dash-panel > .panel-section:last-of-type[open] > .rl-chart-root {
-    flex: 1 1 0;
-    min-height: 0;
-}
+/* 训练指标区块由 .rl-panel > details:has(> #rl-chart-root) 接管高度分配，这里仅留下作为提醒。 */
 
 .rl-chart-root {
     display: flex;
@@ -4256,16 +4548,63 @@ body.doc-visibility-hidden #menu * {
     justify-content: center;
 }
 
+/* v1.13：截图反馈三轮迭代 —— 回放按钮目标视觉是上方"简单/普通/困难"难度按钮的**扁平**风格：
+ * 无 gradient 背景、无 inset 高光、无 box-shadow、hover 不抬起。原 .btn-primary / .btn-secondary
+ * 的立体感来源（多层 gradient + 多层 box-shadow + 1px border + translateY hover）需要在本作用
+ * 域里**完全抹平**，再仿 .strategy-btn / .strategy-btn.active 的纯色扁平方案。
+ *
+ *   - 容器：右对齐 + 4px 右内边距 + 2px 间距（与上方 .strategy-btns gap 一致）
+ *   - 尺寸：与 .insight-toolbar-actions .strategy-btn 完全对齐（2px 5px / 8px / 3px radius）
+ *   - 视觉：抹平所有立体属性；btn-secondary → #c5d3de（同 .strategy-btn 默认底）；
+ *           btn-primary → var(--accent-color)（同 .strategy-btn.active）；hover 仅换底色，无位移
+ *   - 仅作用于 #replay-view-screen .replay-btns 范围，菜单/分享/重玩等其它 .btn 实例不受影响
+ */
 #replay-view-screen .replay-btns {
-    gap: 4px;
-    justify-content: flex-start;
+    gap: 2px;
+    justify-content: flex-end;
+    padding-right: 4px;
 }
 
 #replay-view-screen .replay-btns .btn {
-    padding: 6px 12px;
-    font-size: 11px;
-    border-radius: 8px;
+    padding: 2px 5px;
+    font-size: 8px;
+    border-radius: 3px;
     margin: 0;
+    font-weight: 600;
+    line-height: 1.2;
+    border: none;
+    box-shadow: none;
+    background: #c5d3de;
+    color: #2c3e50;
+    transform: none;
+    transition: background 0.15s ease;
+}
+
+#replay-view-screen .replay-btns .btn:hover {
+    transform: none;
+    box-shadow: none;
+    filter: none;
+    background: #b8c8d4;
+}
+
+#replay-view-screen .replay-btns .btn:active {
+    transform: none;
+    box-shadow: none;
+}
+
+#replay-view-screen .replay-btns .btn.btn-primary {
+    background: var(--accent-color);
+    color: #fff;
+}
+
+#replay-view-screen .replay-btns .btn.btn-primary:hover {
+    background: var(--accent-color);
+    filter: brightness(1.06);
+}
+
+#replay-view-screen .replay-btns .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
 .replay-player-state {
@@ -4305,6 +4644,20 @@ body.doc-visibility-hidden #menu * {
 #replay-view-screen .replay-player-state.replay-series-mode {
     max-height: min(40vh, 320px);
     padding: 6px 8px 8px;
+}
+
+/* v1.13：上方"实时状态"面板已通过 enterInsightReplay/updateInsightReplayFrame
+ * 接管 sparkline 重放（同 12 指标、同游标、同 flow/release/peak/R{n} tags），
+ * 下方 #replay-player-state 内 _initSeries 仍渲染的 .replay-series-grid +
+ * .replay-series-header 与之完全重复。隐藏后下方只剩 .replay-analysis-summary
+ * （整局评价 / 推荐）+ 帧序信息，作为上方的叙事补充而非镜像。
+ *
+ * 仅在回放视图作用域生效（#replay-view-screen），玩家画像内 .insight-state-row
+ * 复用了同一组 .replay-series-grid class，必须靠 ID 隔离以免误伤 LIVE 网格。
+ */
+#replay-view-screen #replay-player-state .replay-series-grid,
+#replay-view-screen #replay-player-state .replay-series-header {
+    display: none;
 }
 
 .replay-analysis-summary {
@@ -6210,6 +6563,58 @@ body.doc-visibility-hidden #menu * {
     background: rgba(0, 0, 0, 0.22);
     border-radius: 10px;
     font-size: 14px;
+}
+
+/* v1.13：钱包流水明细 —— 让玩家看到「我刚刚领过的奖励」，而不只是聚合余额。
+ * 设计要点：
+ *  - 三列网格（时间/金额/来源），单条信息密度高但不挤
+ *  - 入账绿、消费红、上限灰，颜色一眼可分
+ *  - 容器 max-height + 内部 overflow-y，避免长会话流水把面板撑出屏 */
+.pd-ledger-hint {
+    font-size: 11px;
+    opacity: 0.55;
+    margin-left: 6px;
+    font-weight: 400;
+}
+.pd-ledger {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 8px;
+    font-size: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.pd-ledger-row {
+    display: grid;
+    grid-template-columns: 84px 1fr auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    line-height: 1.3;
+}
+.pd-ledger-row.pd-ledger--add { color: #4ade80; }
+.pd-ledger-row.pd-ledger--spend { color: #f87171; }
+.pd-ledger-row.pd-ledger--cap { color: #94a3b8; font-style: italic; }
+.pd-ledger-ts {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.65;
+    font-size: 11px;
+}
+.pd-ledger-amount {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pd-ledger-source {
+    opacity: 0.78;
+    font-size: 11.5px;
+    white-space: nowrap;
 }
 
 /* ── 年终回顾 ── */

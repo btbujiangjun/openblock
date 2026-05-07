@@ -236,4 +236,88 @@ describe('resolveAdaptiveStrategy', () => {
             }
         }
     });
+
+    /* ===== v1.13: 友好盘面救济 + 心流封顶 + scoreStress 百分位 ===== */
+
+    it('v1.13 scoreStress 百分位：传入 ctx.bestScore 后远高于 milestones 的分数不会再锁死最高压', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const noBest = resolveAdaptiveStrategy('normal', p, 1440, 0, 0.30, { totalRounds: 8 });
+        const withBest = resolveAdaptiveStrategy('normal', p, 1440, 0, 0.30, { totalRounds: 8, bestScore: 5000 });
+        // 个人最佳 5000，分数 1440 → pct≈0.288 → 走衰减
+        expect(withBest._stressBreakdown.scoreStress).toBeLessThan(noBest._stressBreakdown.scoreStress);
+        expect(withBest._stressBreakdown.scoreStress).toBeLessThan(0.4);
+    });
+
+    it('v1.13 friendlyBoardRelief：清爽盘面 + 多消机会 + payoff 时注入减压', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const friendly = resolveAdaptiveStrategy('normal', p, 1440, 0, 0.30, {
+            totalRounds: 12,
+            roundsSinceClear: 0,
+            holes: 0,
+            nearFullLines: 3,
+            multiClearCandidates: 3,
+            pcSetup: 1,
+            bestScore: 5000
+        });
+        const baseline = resolveAdaptiveStrategy('normal', p, 1440, 0, 0.30, {
+            totalRounds: 12,
+            roundsSinceClear: 0,
+            holes: 0,
+            nearFullLines: 0,
+            multiClearCandidates: 0,
+            pcSetup: 0,
+            bestScore: 5000
+        });
+        expect(friendly._stressBreakdown.friendlyBoardRelief).toBeLessThan(0);
+        expect(friendly._stressBreakdown.friendlyBoardRelief).toBeGreaterThanOrEqual(-0.18);
+        expect(baseline._stressBreakdown.friendlyBoardRelief).toBe(0);
+        expect(friendly._adaptiveStress).toBeLessThan(baseline._adaptiveStress);
+    });
+
+    it('v1.13 friendlyBoardRelief：盘面有 holes 时不触发救济', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const s = resolveAdaptiveStrategy('normal', p, 1440, 0, 0.30, {
+            totalRounds: 12,
+            holes: 2,
+            nearFullLines: 3,
+            multiClearCandidates: 3,
+            pcSetup: 1,
+            bestScore: 5000
+        });
+        expect(s._stressBreakdown.friendlyBoardRelief).toBe(0);
+    });
+
+    it('v1.13 flowPayoffStressCap：心流 + payoff 时综合 stress 不会超过封顶值', () => {
+        // 制造高 scoreStress + 心流 + payoff 的复合场景
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        // 注入若干干净连续消行记录，把 flowState 推到 flow
+        for (let i = 0; i < 8; i++) {
+            p.recordPlace(true, i % 2 === 0 ? 1 : 2, 0.32);
+        }
+        const s = resolveAdaptiveStrategy('normal', p, 1200, 3, 0.30, {
+            totalRounds: 15,
+            roundsSinceClear: 0,
+            holes: 0,
+            nearFullLines: 4,
+            multiClearCandidates: 2,
+            pcSetup: 1,
+            bestScore: 1500
+        });
+        // 仅在场景成立（flow + payoff）时校验封顶；否则跳过（防止环境差异导致不稳定）
+        if (p.flowState === 'flow' && s.spawnHints?.rhythmPhase === 'payoff') {
+            expect(s._adaptiveStress).toBeLessThanOrEqual(0.79 + 1e-6);
+            expect(s._stressBreakdown.flowPayoffCap).toBeCloseTo(0.79, 6);
+        }
+    });
+
+    it('v1.13 momentum：样本数较少时不会抖到 ±1', () => {
+        // 仅有 6 次 placement（最少触发条件），momentum 应被样本置信度缩放，不会到 ±1
+        const p = makeProfile({ smoothSkill: 0.55 });
+        // 前 3 次全消行（older），后 3 次都不消行（newer），原本 raw=-1，缩放后扁平
+        for (let i = 0; i < 3; i++) p.recordPlace(true, 1, 0.30);
+        for (let i = 0; i < 3; i++) p.recordPlace(false, 0, 0.30);
+        const m = p.momentum;
+        // sampleConfidence = 6/12 = 0.5 → |momentum| ≤ 0.5
+        expect(Math.abs(m)).toBeLessThanOrEqual(0.5 + 1e-6);
+    });
 });

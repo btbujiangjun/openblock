@@ -1,8 +1,186 @@
 # 前端性能优化说明（v10.18）
 
-本文记录已落地的性能策略与扩展点，**不改变模块边界**：核心玩法仍在 `game.js` / `renderer.js`，懒加载仅推迟非首屏面板的脚本下载。
+本文档记录已落地的性能策略与扩展点，**不改变模块边界**：核心玩法仍在 `game.js` / `renderer.js`，懒加载仅推迟非首屏面板的脚本下载。
 
-## 1. 渲染合并（`game.js`）
+---
+
+## 8. 脏区域追踪 (Dirty Rect Tracking)
+
+新增 `performanceOptimizer.js`，实现增量渲染。
+
+### 功能
+
+- 标记特定格子/区域为脏，避免全量 Canvas 重绘
+- 当脏区域 > 16 格时自动降级为全量重绘
+- 与 `markDirty()` 集成
+
+### 使用
+
+```javascript
+import { getPerformanceOptimizer } from './performanceOptimizer.js';
+
+const optimizer = getPerformanceOptimizer();
+
+// 标记单元格
+optimizer.markCellDirty(x, y);
+
+// 标记区域
+optimizer.markRegionDirty(x1, y1, x2, y2);
+
+// 获取需要重绘的区域
+const region = optimizer.getDirtyRegion();
+```
+
+### 文件
+
+- `performanceOptimizer.js` - 脏区域追踪核心实现
+
+---
+
+## 9. 粒子对象池 (Object Pool)
+
+新增 `optimizedParticles.js`，减少 GC 压力。
+
+### 功能
+
+- 粒子从对象池获取，不再每次创建新对象
+- 死亡粒子自动回收到对象池
+- 最大池大小：200 个粒子
+
+### 使用
+
+```javascript
+import { OptimizedParticleSystem } from './optimizedParticles.js';
+
+const particleSystem = new OptimizedParticleSystem(renderer);
+particleSystem.addParticles(cells, { lines: 3 });
+particleSystem.updateParticles();
+```
+
+### 文件
+
+- `optimizedParticles.js` - 粒子系统优化版
+
+---
+
+## 10. CSS 变量局部更新
+
+新增 `cssVariableManager.js`，优化主题切换。
+
+### 功能
+
+- 批量更新 CSS 变量，带 16ms 节流
+- 只更新变化的变量，避免全量 DOM 更新
+- 变量映射表简化调用
+
+### 使用
+
+```javascript
+import { getCSSVariableManager } from './cssVariableManager.js';
+
+const cssManager = getCSSVariableManager();
+
+// 批量更新
+cssManager.batchUpdate({
+    'grid-cell': '#FFFFFF',
+    'primary-color': '#5B9BD5'
+});
+cssManager.flush();
+```
+
+### 文件
+
+- `cssVariableManager.js` - CSS 变量管理器
+
+---
+
+## 11. 模块按需加载 (Code Splitting)
+
+新增 `moduleLazyLoader.js` + 更新 `monetization/index.js`。
+
+### 功能
+
+- 商业化模块按需加载，减少首屏时间
+- 场景化加载策略（game_over, shop, main_menu）
+- 模块缓存与预加载
+
+### 使用
+
+```javascript
+import { loadModulesForScene, getModuleStats } from './moduleLazyLoader.js';
+
+// 根据场景加载模块
+const modules = await loadModulesForScene('game_over');
+
+// 获取模块统计
+const stats = getModuleStats();
+// { cached: 5, loading: 2, total: 11 }
+```
+
+### 场景加载策略
+
+| 场景 | 加载模块 |
+|------|----------|
+| game_over | leaderboard, replayShare, seasonPass |
+| shop | iapAdapter |
+| main_menu | checkInPanel, dailyTasks |
+| settings | pushNotifications |
+
+### 文件
+
+- `moduleLazyLoader.js` - 模块按需加载器
+- `monetization/index.js` - 更新为动态导入
+
+---
+
+## 12. 性能监控
+
+```javascript
+import { getPerformanceOptimizer } from './performanceOptimizer.js';
+import { getModuleStats } from './moduleLazyLoader.js';
+
+// 对象池统计
+const poolStats = getPerformanceOptimizer().getPoolStats();
+// { poolSize: 150, maxSize: 200, dirtyCells: 5 }
+
+// 模块统计
+const moduleStats = getModuleStats();
+// { cached: 5, loading: 2, total: 11 }
+```
+
+---
+
+## 原有优化策略
+
+### 1. 渲染合并（`game.js`）
+
+- **`markDirty()`**：只置 `_renderDirty`，通过 **`requestAnimationFrame`** 在同一帧内最多执行一次 **`render()`**
+- **事件驱动重绘**：静置时不再用棋盘水印/环境粒子循环驱动 `markDirty()`
+- **特效层降载**：`fxCanvas` 使用独立低 DPR
+
+### 2. 回放帧拷贝（`game.js`）
+
+- **`beginReplayFromFrames`**：`structuredClone` 优先，失败回退 JSON
+
+### 3. `loadProgress` 缓存（`progression.js`）
+
+- 内存缓存 + localStorage 回退
+
+### 4. 页面可见性（`lib/pageVisibility.js`）
+
+- 后台标签页暂停定时器
+
+### 5. 首屏后懒加载（`main.js` + `initDeferredPanels.js`）
+
+- `game.init()` 成功后延迟加载非首屏功能
+
+---
+
+## 验证
+
+- 单元测试：`tests/progression.test.js`
+- 提交前：`npm test`、`npm run build`
+- 手动确认各模块功能正常
 
 - **`markDirty()`**：只置 `_renderDirty`，通过 **`requestAnimationFrame`** 在同一帧内最多执行一次 **`render()`**；无 `rAF` 的环境（极少数测试）退化为立即 `render()`。
 - **事件驱动重绘**：静置时不再用棋盘水印/环境粒子循环驱动 `markDirty()`；只有拖拽预览、消除动画、回放、皮肤切换、尺寸变化等真实状态变更才触发 `render()`。避免“游戏已开始但无输入”仍以约 30fps 重绘整张 canvas。
@@ -55,7 +233,7 @@
 ## 4. 页面可见性（`lib/pageVisibility.js`）
 
 - **`skipWhenDocumentHidden(fn)`**：包装定时器回调，`document.visibilityState === 'hidden'` 时不执行，减少后台标签页 CPU。
-- **已接入**：`api.js`（`startSync` 周期 flush + **回到前台时补一次** `flushBehaviors`）、`easterEggs.js`、`seasonChest.js`、`seasonPassEntry.js`、`rlPanel.js`（训练曲线轮询）、`spawnModelPanel.js`（层参数刷新与训练轮询）。
+- **已接入**：`api.js`（`startSync` 周期 flush + **回到前台时补一次** `flushBehaviors`）、`easterEggs.js`、`seasonChest.js`、`seasonPassEntry.js`、`rlPanel.js`（训练指标轮询）、`spawnModelPanel.js`（层参数刷新与训练轮询）。
 
 ## 5. 首屏后懒加载（`main.js` + `initDeferredPanels.js`）
 
@@ -68,7 +246,23 @@
 - 单元测试：`tests/progression.test.js`（`saveProgress` 后 `loadProgress` 与内存缓存一致；该文件对 `localStorage` 使用内存 mock，避免部分 Node 环境带无效 `--localstorage-file` 时 jsdom 持久化抛错）、`tests/adaptiveSpawn.test.js`（与当前节奏相位行为一致）。
 - 提交前：`npm test`、`npm run build`；手动确认 RL 面板、关卡编辑器、赛季入口、回放专辑在首局后可正常打开。
 
-## 7. 相关文档
+## 7. 商业化模块的 LAZY_MODULES 机制（v1.12）
+
+`web/src/monetization/index.js` 提供统一入口 `initMonetization(game)`，内部维护 `LAZY_MODULES` 清单：
+
+- 每条记录形如 `{ name, path, flag }`，由 `featureFlags.js` 的 flag 决定是否实际 `import()`。
+- `_invokeInit` 自动尝试 `init<Name>` 与 `init` 两个常见命名；并把需要 `game` 实例的模块（`adTrigger` / `commercialInsight`）显式注入。
+- 模块若导出 `shutdown`，会被收集进 `_cleanups`，`shutdownMonetization()` 时统一清理，支持热插拔。
+
+**与首屏延迟加载的关系：**
+
+- 商业化清单通过 `for ... await` 串行加载，是为了保证统计/实验/广告的初始化顺序与依赖关系；它**只跑在 `initMonetization` 内部**，不阻塞主游戏首屏。
+- 首屏路径仍由 `initDeferredPanels.js` 在 `game.init()` 后异步 `import()`，与 monetization 入口解耦。
+
+**新增模块接入：** 在 `LAZY_MODULES` 数组末尾追加 `{ name, path, flag }` 即可，不需要再编辑 `initMonetization` 主体。
+
+## 8. 相关文档
 
 - [宝箱与钱包](../product/CHEST_AND_WALLET.md)（与钱包、定时器无直接冲突，独立阅读）
 - [测试指南](./TESTING.md)
+- [商业化运营指南](../platform/MONETIZATION_GUIDE.md#v112-新增模块入口与设计意图变更说明)

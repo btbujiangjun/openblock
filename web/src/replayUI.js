@@ -37,6 +37,11 @@ function resolvedReplayAnalysis(row, frames) {
     }
 }
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
+import {
+    enterInsightReplay,
+    exitInsightReplay,
+    updateInsightReplayFrame
+} from './playerInsightPanel.js';
 
 function _attrTitle(s) {
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -405,6 +410,9 @@ export function initReplayUI(game) {
         }
         replayFramesRef = frames;
         replayAnalysisRef = session.analysis || null;
+        // v1.13：通知上方"实时状态"面板切换为只读回放数据源（stressMeter + sparkline 网格）。
+        // 必须先于 _initSeries / updateLabel 调用，否则首帧 updateInsightReplayFrame(0) 不会渲染。
+        enterInsightReplay(frames);
         const maxIdx = game.getReplayMaxIndex();
         slider.min = '0';
         slider.max = String(maxIdx);
@@ -456,6 +464,15 @@ export function initReplayUI(game) {
                 playerStateEl.textContent = formatPlayerStateForReplay(ps);
             }
         }
+        // v1.13：把当前帧投射回左侧画像里的「实时状态」卡 ——
+        //   1) stressMeter（情绪头像 + bar + 数值 + 趋势箭头 + "主要构成"分量）；
+        //   2) 12 指标 sparkline 网格 + 顶部 flow/release/peak/R{n} tags + 📼 回放 chip。
+        // 上方实时状态区因此承载完整回放数据，不再需要下方 #replay-player-state 内重复的
+        // sparkline 网格（避免视觉冗余 —— 由 CSS 把下方 grid + header 隐藏）。
+        // playerInsightPanel 在回放期间不会主动 _render，这里是它在回放期间的唯一更新源；
+        // 返回 LIVE 后 viewBack 调用 exitInsightReplay() + 触发一次 _refreshPlayerInsightPanel
+        // 由 LIVE 接管。
+        updateInsightReplayFrame(idx);
     }
 
     slider.addEventListener('input', () => {
@@ -507,6 +524,11 @@ export function initReplayUI(game) {
         replayAnalysisRef = null;
         _clearSeries();
         game.endReplay();
+        // v1.13：退出回放模式 —— 上方面板下次落子/出块时自然回到 LIVE 数据源。
+        // 这里立刻调一次 _refreshPlayerInsightPanel，避免菜单里"重玩"或"新游戏"前
+        // 短暂残留回放最后一帧的 stressMeter / sparkline 状态让玩家困惑。
+        exitInsightReplay();
+        game._refreshPlayerInsightPanel?.();
         show(listScreen);
         void openList();
     });

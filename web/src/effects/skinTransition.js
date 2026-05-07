@@ -76,9 +76,8 @@ export function installSkinTransition(opts = {}) {
         overlay.style.opacity = '0';
         overlay.classList.add('is-running');
 
-        // 强制 reflow 确保起始 0 → peak 渐变可见
-        // eslint-disable-next-line no-unused-expressions
-        overlay.offsetHeight;
+        // 强制 reflow 确保起始 0 → peak 渐变可见（赋值给 void 避免被打包器视作死代码）
+        void overlay.offsetHeight;
 
         requestAnimationFrame(() => {
             overlay.style.transition = `opacity ${TRANSITION_MS / 2}ms ease`;

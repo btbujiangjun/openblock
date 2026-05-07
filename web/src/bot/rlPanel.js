@@ -327,6 +327,110 @@ export function initRLPanel(game) {
         node.scrollTop = 0;
     }
 
+    /**
+     * 训练指标自适应折叠：
+     *
+     * 当 .rl-panel 总可视高度 - 其它块（header/统计/进展/损失/摘要 summary 等）已占高度
+     * 不足 `MIN_METRICS_CONTENT_PX` 时，主动把「训练指标」details 折叠，让用户能看到
+     * 全部 details summary、并可手动重新展开。展开后内部曲线列表由 .rl-chart-root
+     * 的 overflow-y:auto 提供局部滚动条。
+     *
+     * 触发时机：
+     *   - startBatch() 展开训练日志后；
+     *   - .rl-panel 容器尺寸变化（ResizeObserver）；
+     *   - 任意 details toggle（用户手动展开训练日志后也可能触发）。
+     *
+     * v1.14：阈值从 160px 降到 90px，让训练指标在常见 vfill 下保持展开，内部滚动条
+     * 由 .rl-chart-root overflow-y:auto 提供；只有当面板被严重挤压（剩余 < 一行半曲线）
+     * 才主动 collapse。
+     */
+    const MIN_METRICS_CONTENT_PX = 90;
+    let autoCollapseScheduled = false;
+    /** 标记被脚本主动折叠，避免与用户主动展开形成抖动 */
+    let metricsAutoCollapsedByScript = false;
+
+    function _findMetricsDetails() {
+        return chartRoot ? chartRoot.closest('details') : null;
+    }
+
+    function _evaluateMetricsCollapse() {
+        autoCollapseScheduled = false;
+        const metricsDet = _findMetricsDetails();
+        if (!metricsDet || !panel || !chartRoot) {
+            return;
+        }
+        const panelHeight = panel.clientHeight;
+        if (panelHeight <= 0) {
+            return;
+        }
+        // 先临时清空 chartRoot 的 maxHeight，避免上一轮值影响 panel.children 高度测量
+        // （chartRoot 自己的 height 也会反向参与到 panel 总高里去）。
+        chartRoot.style.maxHeight = '';
+        let usedExceptMetrics = 0;
+        for (const child of panel.children) {
+            if (child === metricsDet) {
+                continue;
+            }
+            usedExceptMetrics += child.getBoundingClientRect().height;
+        }
+        const summaryHeight = metricsDet.querySelector('summary')?.getBoundingClientRect().height ?? 24;
+        // panel.children 之间还有 4px gap × n（如果有 gap）；这里粗略再留 8px buffer。
+        const remaining = panelHeight - usedExceptMetrics - summaryHeight - 8;
+        if (remaining < MIN_METRICS_CONTENT_PX) {
+            if (metricsDet.open) {
+                metricsDet.dataset.autoToggling = '1';
+                metricsDet.open = false;
+                metricsAutoCollapsedByScript = true;
+            }
+            // 折叠后不需要给 chartRoot 设高度
+            return;
+        }
+        if (metricsAutoCollapsedByScript && !metricsDet.open) {
+            metricsDet.dataset.autoToggling = '1';
+            metricsDet.open = true;
+            metricsAutoCollapsedByScript = false;
+        }
+        // 关键：浏览器对 <details> + flex 的实际表现并不可靠（不同实现下 flex:1 1 0
+        // 不一定真的能压缩 details 的 content 区），导致 #rl-chart-root 高度按其内部
+        // .rl-chart-panel 累加自然撑开，进而 overflow-y:auto 因为容器没限高而不出滚动条。
+        // 这里直接把测算出的剩余高度作为 #rl-chart-root 的 max-height，强制其内部出条。
+        if (metricsDet.open) {
+            chartRoot.style.maxHeight = `${Math.max(remaining, 80)}px`;
+        }
+    }
+
+    function scheduleTrainingMetricsAutoCollapse() {
+        if (autoCollapseScheduled) {
+            return;
+        }
+        autoCollapseScheduled = true;
+        // 等待浏览器完成 details 展开/收起的回流，再读高度
+        requestAnimationFrame(() => requestAnimationFrame(_evaluateMetricsCollapse));
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(() => scheduleTrainingMetricsAutoCollapse());
+        ro.observe(panel);
+    }
+    panel.addEventListener('toggle', (ev) => {
+        const target = ev.target;
+        if (!(target instanceof HTMLDetailsElement)) {
+            return;
+        }
+        const metricsDet = _findMetricsDetails();
+        // 用 dataset.autoToggling 区分「脚本主动 toggle」与「用户主动 toggle」：
+        //   - 脚本触发：清除标记，不影响 metricsAutoCollapsedByScript 状态机；
+        //   - 用户主动操作：清除自动状态，避免后续误自动展开/折叠抖动。
+        if (target === metricsDet) {
+            if (target.dataset.autoToggling === '1') {
+                delete target.dataset.autoToggling;
+            } else {
+                metricsAutoCollapsedByScript = false;
+            }
+        }
+        scheduleTrainingMetricsAutoCollapse();
+    }, true);
+
     function updateStats() {
         if (outEp) {
             outEp.textContent = String(totalEpisodes);
@@ -403,6 +507,18 @@ export function initRLPanel(game) {
         if (btnStop) {
             btnStop.disabled = false;
         }
+        // 训练时默认展开「训练进展 / 训练损失」两个 details，方便实时观察日志输出；
+        // 用户中途手动收起后下次开训仍会再次展开（行为保持简单一致）。
+        for (const id of ['rl-progress-log', 'rl-server-log']) {
+            const log = document.getElementById(id);
+            const det = log?.closest('details');
+            if (det && !det.open) {
+                det.open = true;
+            }
+        }
+        // 同时调用一次自适应高度调度：日志区被撑开后，若整体高度不足，
+        // 触发「训练指标自动折叠」逻辑（见下方 scheduleTrainingMetricsAutoCollapse）。
+        scheduleTrainingMetricsAutoCollapse();
         logLine(
             useBackend
                 ? '开始 PyTorch后端 可随时停止'

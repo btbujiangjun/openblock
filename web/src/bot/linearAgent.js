@@ -7,9 +7,9 @@
  * 策略：logit = W·φ(s,a)，W ∈ ℝ^{PHI_DIM}
  * 价值：V(s)  = Vw·ψ(s)，Vw ∈ ℝ^{STATE_FEATURE_DIM}
  */
+// 当前 linearAgent 通过 trainer 注入的特征向量直接消费 W/Vw 维度，无需在此再次提取；
+// 保留 PHI_DIM / STATE_FEATURE_DIM 以校准矩阵尺寸。
 import {
-    extractStateFeatures,
-    extractActionFeatures,
     PHI_DIM,
     STATE_FEATURE_DIM
 } from './features.js';

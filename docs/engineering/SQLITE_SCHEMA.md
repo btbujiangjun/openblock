@@ -156,6 +156,15 @@
 
 **`ps`（玩家状态快照）**：`buildPlayerStateSnapshot` 产物，至少含 `pv`（版本）、`phase`、`score`、`boardFill`、`strategyId`、画像字段（`skill`、`flowState`…）及 `metrics`（`thinkMs`、`clearRate` 等）；若存在自适应快照则有 `adaptive` 子对象。
 
+**`pv` 版本演进：**
+
+| `pv` | 版本 | 关键变更 |
+|---|---|---|
+| 1 | v1.12 及之前 | `metrics.{thinkMs,clearRate,comboRate,missRate}` 直接写 `PlayerProfile.metrics` 的占位值（3000 / 0.3 / 0.1 / 0.1）。回放无法区分「真实测量」与「冷启动兜底」。 |
+| 2 | v1.13+ | 新增顶层 `coldStart`、`cognitiveLoadHasData` 与 `metrics.{samples,activeSamples}`；`samples=0` 时 `metrics.{thinkMs,clearRate,comboRate,missRate}` 与 `cognitiveLoad` 全部置 `null`，避免离线管线把占位值当真实测量统计。 |
+
+> 旧 `pv=1` 对局仍可直接回放；`formatPlayerStateForReplay` 与 `buildReplayAnalysis` 会按 `(thinkMs===3000 && clearRate===0.3)` 启发式补回冷启动标识。
+
 **极简示例（三段各一行，真实序列更长）：**
 
 ```json
@@ -180,7 +189,16 @@
     "i": 0,
     "x": 2,
     "y": 5,
-    "ps": { "pv": 1, "phase": "place", "score": 120, "boardFill": 0.35, "linesCleared": 1 }
+    "ps": {
+      "pv": 2,
+      "phase": "place",
+      "score": 120,
+      "boardFill": 0.35,
+      "linesCleared": 1,
+      "coldStart": false,
+      "cognitiveLoadHasData": true,
+      "metrics": { "thinkMs": 1820, "clearRate": 0.42, "missRate": 0.05, "samples": 18, "activeSamples": 16 }
+    }
   }
 ]
 ```
@@ -201,10 +219,16 @@
     "placements": 32,
     "totalCleared": 14,
     "clearRate": 0.41,
-    "longestNoClear": 5
+    "longestNoClear": 5,
+    "coldFrames": 1,
+    "coldFramesRatio": 0.03,
+    "firstWarmFrameIdx": 1
   }
 }
 ```
+
+> **`coldFrames` / `coldFramesRatio` / `firstWarmFrameIdx`（v1.13+）**：标记本局中处于「冷启动占位」状态的帧数与比例。pv≥2 直读 `ps.coldStart`；pv=1 老对局按 `(thinkMs===3000 && clearRate===0.3)` 启发式回填。  
+> 离线管线建议在做分群均值/分布对比时**过滤** `idx < firstWarmFrameIdx` 的帧；当 `coldFramesRatio > 0.25` 时 `tags` 会自动加上「冷启动样本偏多」并在 `recommendations` 给出过滤建议。
 
 ### 3.6 `skill_wallets.payload`
 

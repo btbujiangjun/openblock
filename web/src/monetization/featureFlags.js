@@ -32,6 +32,24 @@ export const FLAG_DEFAULTS = {
     pushNotifications: false,
     /** OPT-08：回放分享 */
     replayShare: true,
+    /**
+     * OPT-09：玩家画像内嵌的「💰 商业化策略」section
+     *
+     * v1.13 修复：之前 `LAZY_MODULES`（monetization/index.js）里 commercialInsight 模块声明
+     * `flag: 'insightPanel'`，但本对象**未声明该 key**，`getFlag('insightPanel')` 始终返回 false，
+     * 导致 commercialInsight 永远不被 import — 玩家画像底部的「💰 商业化策略」section 一直隐身。
+     * 默认开启以恢复其可见性；个别 e2e/截图测试可通过 setFlag('insightPanel', false) 临时关闭。
+     */
+    insightPanel: true,
+    /**
+     * OPT-09：右下角「📊 商业化模型训练面板」浮窗（MonPanel）
+     *
+     * v1.13 修复：与上同源 — LAZY_MODULES 里 monPanel 声明 `flag: 'rlPanel'`（历史命名沿用 RL 面板的
+     * 复用习惯），同样未在 FLAG_DEFAULTS 注册，导致 `initMonPanel` 永不执行、右下角悬浮按钮缺失，
+     * 玩家画像里「💰 商业化策略」标题旁边的 ⚙ 按钮点击 `openMonPanel()` 也只会走到一个未挂载的入口。
+     * 默认开启，与 insightPanel 配套（去掉一个对应功能链路就断半截）。
+     */
+    rlPanel: true,
     /** 调试模式：广告/IAP 使用存根实现 */
     stubMode: true,
 };

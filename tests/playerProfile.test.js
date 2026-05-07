@@ -143,6 +143,31 @@ describe('PlayerProfile', () => {
             for (let i = 0; i < 10; i++) p.recordPlace(true, 1, 0.3);
             expect(p.metrics.clearRate).toBeGreaterThan(0.5);
         });
+
+        // v1.13：冷启动隔离字段
+        it('冷启动时 metrics.samples / activeSamples 均为 0', () => {
+            const m = p.metrics;
+            expect(m.samples).toBe(0);
+            expect(m.activeSamples).toBe(0);
+        });
+
+        it('落子后 samples 与 activeSamples 同步更新', () => {
+            p.recordPlace(true, 1, 0.3);
+            p.recordPlace(false, 0, 0.3);
+            const m = p.metrics;
+            expect(m.samples).toBe(2);
+            expect(m.activeSamples).toBeGreaterThanOrEqual(0);
+            expect(m.activeSamples).toBeLessThanOrEqual(2);
+        });
+
+        it('cognitiveLoadHasData：placed<3 时为 false，≥3 时为 true', () => {
+            expect(p.cognitiveLoadHasData).toBe(false);
+            p.recordPlace(true, 1, 0.3);
+            p.recordPlace(false, 0, 0.3);
+            expect(p.cognitiveLoadHasData).toBe(false);
+            p.recordPlace(true, 1, 0.3);
+            expect(p.cognitiveLoadHasData).toBe(true);
+        });
     });
 
     describe('recordNewGame / recordSessionEnd', () => {

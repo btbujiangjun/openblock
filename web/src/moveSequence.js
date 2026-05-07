@@ -8,7 +8,17 @@ import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 
 export const MOVE_SEQUENCE_SCHEMA = 1;
 /** 玩家状态快照内部版本，便于日后扩展字段 */
-export const PLAYER_STATE_SNAPSHOT_VERSION = 1;
+/**
+ * 玩家状态快照版本：
+ *   1（v1.12 及之前）：metrics 直接写 `PlayerProfile.metrics` 的占位值（thinkMs:3000 / clearRate:0.3 …），
+ *      回放时无法区分「真实测量」与「冷启动兜底」，会把冷启动帧的占位值绘入 sparkline。
+ *   2（v1.13+）：新增 `metrics.samples / metrics.activeSamples / cognitiveLoadHasData / coldStart`
+ *      三个判定字段；samples=0 / activeSamples=0 时把对应数值字段置 null（thinkMs/clearRate/
+ *      comboRate/missRate/cognitiveLoad）。回放与实时面板共用同一份 REPLAY_METRICS.extract
+ *      访问器，null 自动被 sparkline / `num()` 跳过或显「—」。旧版 ps.pv=1 仍可读，但 sparkline
+ *      会保留早期那些占位点（已记录的对局无法回填）。
+ */
+export const PLAYER_STATE_SNAPSHOT_VERSION = 2;
 /**
  * 至少多少次成功落子才写入 SQLite。
  * 注意：内部 frames 仍含 init / spawn / place，用于确定性回放；
@@ -182,6 +192,19 @@ export function buildPlaceFrame(dockIndex, gx, gy, playerState) {
 export function buildPlayerStateSnapshot(profile, ctx) {
     const m = profile.metrics;
     const a = ctx.adaptiveInsight;
+    /* v1.13 / pv=2：冷启动隔离 ——
+     * `PlayerProfile.metrics` 在 recent.length=0 时返回硬编码占位（thinkMs:3000/clearRate:0.3/
+     * comboRate:0.1/missRate:0.1），是给 stress 主路径的兜底。但写入回放后，离线分析、
+     * 回放 sparkline、复盘报告会把它们当成真实测量，导致「这局开局就 30% 消行率」的误判。
+     * 这里按 samples / activeSamples 把无效字段置 null，并显式写入判定字段，离线工具可
+     * 据此过滤冷启动样本。`cognitiveLoad` 在 placed<3 时同样置 null。
+     */
+    const samples = Number(m.samples ?? 0) || 0;
+    const activeSamples = Number(m.activeSamples ?? 0) || 0;
+    const hasAnySample = samples > 0;
+    const hasActiveSample = activeSamples > 0;
+    const cognitiveLoadHasData = !!profile.cognitiveLoadHasData;
+    const coldStart = samples === 0;
     /** @type {Record<string, unknown>} */
     const slim = {
         pv: PLAYER_STATE_SNAPSHOT_VERSION,
@@ -192,7 +215,9 @@ export function buildPlayerStateSnapshot(profile, ctx) {
         strategyId: ctx.strategyId,
         skill: profile.skillLevel,
         momentum: profile.momentum,
-        cognitiveLoad: profile.cognitiveLoad,
+        cognitiveLoad: cognitiveLoadHasData ? profile.cognitiveLoad : null,
+        cognitiveLoadHasData,
+        coldStart,
         engagementAPM: profile.engagementAPM,
         flowDeviation: profile.flowDeviation,
         flowState: profile.flowState,
@@ -215,11 +240,13 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             adaptiveInsight: a,
         }),
         metrics: {
-            thinkMs: m.thinkMs,
-            clearRate: m.clearRate,
-            comboRate: m.comboRate,
-            missRate: m.missRate,
-            afkCount: m.afkCount
+            thinkMs: hasActiveSample ? m.thinkMs : null,
+            clearRate: hasActiveSample ? m.clearRate : null,
+            comboRate: hasActiveSample ? m.comboRate : null,
+            missRate: hasAnySample ? m.missRate : null,
+            afkCount: m.afkCount,
+            samples,
+            activeSamples
         }
     };
     if (a && typeof a === 'object') {
@@ -238,7 +265,25 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             confidence: a.confidence,
             historicalSkill: a.historicalSkill,
             spawnHints: a.spawnHints ?? null,
-            shapeWeightsTop: a.shapeWeightsTop ?? null
+            shapeWeightsTop: a.shapeWeightsTop ?? null,
+            /* v1.13：把 stress 的细分构成与多轴投放目标也写入快照。
+             *
+             * 触发原因：拟人化压力表（stressMeter）回放时只能拿到 stress 数值，无法重建
+             * 「主要构成 · 当前帧」列表（细分贡献），UI 显示「本帧无明显信号偏移」让回放
+             * 失去了核心的可解释性。把 _lastAdaptiveInsight 已经合成好的 stressBreakdown
+             * 与 spawnTargets 直接搬进帧快照即可。
+             *
+             * 体积估算：stressBreakdown ≈ 15 个 number 键、spawnTargets 6 个 axis，每帧
+             * 增量约 200~300 B；典型一局百帧级别，整体增量 20~30 KB（远小于已存的 grid 帧），
+             * 离线分析也直接可用，不需要解析时再补算。
+             *
+             * 对老回放（pv=2 但无该字段）的兼容：stressMeter 在 breakdown 缺失时自动退化到
+             * level.vibe 叙事 + 「本帧无明显信号偏移」列表，与升级前行为一致；故 pv 不再 bump。
+             */
+            stressBreakdown: a.stressBreakdown && typeof a.stressBreakdown === 'object'
+                ? { ...a.stressBreakdown } : null,
+            spawnTargets: a.spawnTargets && typeof a.spawnTargets === 'object'
+                ? { ...a.spawnTargets } : null
         };
     }
     return slim;
@@ -307,6 +352,25 @@ export function buildReplayAnalysis(frames, ctx = {}) {
     const recoveryRatio = psFrames.length ? recoveryFrames / psFrames.length : null;
     const finalFill = pct(endFill);
 
+    /* v1.13：冷启动隔离统计 ——
+     * 标记本局有多少帧仍处于「无任何落子样本」的占位状态，方便离线复盘工具：
+     *   - 滤掉 coldFrames，避免把占位 0.3 消行率混入分群均值；
+     *   - 若 coldFramesRatio 偏高，说明该 session 太短或 PS 写入时机过早，应在数据
+     *     管线侧排除或单独打标。
+     * 兼容 pv=1 旧记录：用 metrics.thinkMs===3000 && clearRate===0.3 的启发式判定。
+     */
+    const isColdPs = (ps) => {
+        if (!ps) return false;
+        if (ps.coldStart === true) return true;
+        const s = Number(ps.metrics?.samples);
+        if (Number.isFinite(s)) return s === 0;
+        // 旧 pv=1 启发式
+        return ps.metrics?.thinkMs === 3000 && ps.metrics?.clearRate === 0.3;
+    };
+    const coldFrames = psFrames.filter((x) => isColdPs(x.ps)).length;
+    const coldFramesRatio = psFrames.length ? coldFrames / psFrames.length : null;
+    const firstWarmFrameIdx = psFrames.find((x) => !isColdPs(x.ps))?.idx ?? null;
+
     let rating = 3;
     if (score >= 2000) rating = 5;
     else if (score >= 800) rating = 4;
@@ -322,6 +386,8 @@ export function buildReplayAnalysis(frames, ctx = {}) {
     if (missRate != null && missRate > 0.08) tags.push('失误偏多');
     if (flowTrend === 'up') tags.push('心流压力上升');
     if (flowTrend === 'down') tags.push('压力回落');
+    // v1.13：冷启动占比 > 25% 的样本对均值/趋势分析有较大噪声，提示离线管线打标
+    if (coldFramesRatio != null && coldFramesRatio > 0.25) tags.push('冷启动样本偏多');
 
     const recommendations = [];
     if (clearRate < 0.2) {
@@ -335,6 +401,12 @@ export function buildReplayAnalysis(frames, ctx = {}) {
     }
     if (avgThinkMs != null && avgThinkMs > 4500) {
         recommendations.push('平均思考偏久，可能需要降低视觉/形状组合复杂度。');
+    }
+    if (coldFramesRatio != null && coldFramesRatio > 0.25) {
+        recommendations.push(
+            `本局有 ${coldFrames} 帧（占 ${(coldFramesRatio * 100).toFixed(0)}%）处于冷启动占位状态，` +
+            `离线均值/分群对比时建议过滤 idx < ${firstWarmFrameIdx ?? '∞'} 的帧。`
+        );
     }
     if (recommendations.length === 0) {
         recommendations.push('本局指标未触发明显异常，可作为常规样本进入分数/心流趋势对比。');
@@ -394,7 +466,11 @@ export function buildReplayAnalysis(frames, ctx = {}) {
             avgSkill,
             missRate,
             recoveryRatio,
-            durationMs: finiteNumber(ctx.durationMs) ? ctx.durationMs : null
+            durationMs: finiteNumber(ctx.durationMs) ? ctx.durationMs : null,
+            // v1.13：冷启动样本计数（pv≥2 直读 ps.coldStart；pv=1 启发式回填）
+            coldFrames,
+            coldFramesRatio,
+            firstWarmFrameIdx
         },
         interpretation: {
             headline: abstractRead[0],
@@ -453,11 +529,20 @@ export function formatPlayerStateForReplay(ps) {
     }
     const phase = ps.phase != null ? String(ps.phase) : '?';
     const lc = ps.linesCleared != null && ps.linesCleared > 0 ? ` · 本步消 ${ps.linesCleared} 线` : '';
+    /* pv≥2 写入了 coldStart / metrics.samples；pv=1（旧对局）按 metrics.thinkMs===3000 等
+     * 启发式回退判断，避免历史回放显示「思考 3000ms / 消行率 30%」迷惑性数字。 */
+    const samples = Number(ps.metrics?.samples);
+    const isCold = ps.coldStart === true
+        || (Number.isFinite(samples) && samples === 0)
+        || (ps.pv == null && ps.metrics?.thinkMs === 3000 && ps.metrics?.clearRate === 0.3);
+    const coldBadge = isCold ? '🌱 冷启动 · ' : '';
     const lines = [
-        `阶段 ${phase} · 得分 ${ps.score ?? '—'} · 填充 ${ps.boardFill != null ? (Number(ps.boardFill) * 100).toFixed(1) + '%' : '—'}${lc}`,
+        `${coldBadge}阶段 ${phase} · 得分 ${ps.score ?? '—'} · 填充 ${ps.boardFill != null ? (Number(ps.boardFill) * 100).toFixed(1) + '%' : '—'}${lc}`,
         `技能 ${num(ps.skill)} · 心流 ${ps.flowState ?? '—'} · F ${num(ps.flowDeviation)} · 动量 ${num(ps.momentum)}`,
         `节奏 ${ps.pacingPhase ?? '—'} · 挫败 ${ps.frustration ?? '—'} · 会话 ${ps.sessionPhase ?? '—'} · 轮次 ${ps.spawnRound ?? '—'}`,
-        `思考 ${num(ps.metrics?.thinkMs)}ms · 消行率 ${num(ps.metrics?.clearRate)} · 闭环 ${num(ps.feedbackBias)}`
+        // 冷启动时 thinkMs/clearRate 是 null（pv≥2）或被替换显示「—」（pv=1 启发式），
+        // 避免离线设计师把占位 30%/3000ms 当作能力评估输入。
+        `思考 ${num(isCold ? null : ps.metrics?.thinkMs)}ms · 消行率 ${num(isCold ? null : ps.metrics?.clearRate)} · 闭环 ${num(ps.feedbackBias)}`
     ];
     if (ps.adaptive && typeof ps.adaptive === 'object') {
         const ad = ps.adaptive;
@@ -708,6 +793,77 @@ export const REPLAY_METRICS = [
         extract: ps => ps.feedbackBias,
         fmt: 'f3',
         tooltip: '闭环反馈偏差：上一轮出新块后，在短窗口内实际消行相对「预期」的差值。为正表示好于预期可略加压；为负表示不及预期应减压，用于微调下一轮投放。'
+    },
+    /* ── v1.13：stress 细分构成曲线 ─────────────────────────────────────────────
+     * 把原本只在 stressMeter「主要构成 · 当前帧」列表里出现的 5~6 项核心分量也曲线化，
+     * 与上方 12 项指标统一为同一组 sparkline。这样：
+     *   1) 玩家可以在时间轴上观察"难度模式 / 心流 / 节奏 / 友好盘面 / 会话弧线 / 挑战"等
+     *      具体分量随局势的演化（而不是只看综合 stress 一根曲线）；
+     *   2) 回放时游标滑动同步显示每帧分量值，免去频繁展开 details 列表；
+     *   3) stressMeter 内的 details 区块同步移除（信息已并入此处），减少视觉冗余。
+     *
+     * 选取标准（覆盖最高频出现 + 调参时优先关注）：
+     *   - difficultyBias：玩家选难度直接产生的固定偏移，几乎每帧都有
+     *   - flowAdjust：心流偏移（boredom/anxiety）方向修正，反映挑战与能力匹配度
+     *   - pacingAdjust：节奏阶段（setup/payoff）切换带来的微调
+     *   - friendlyBoardRelief：盘面整洁 + 兑现窗口时的主动减压（v1.13 新机制）
+     *   - sessionArcAdjust：会话弧线（warmup/peak/cooldown）整体节奏
+     *   - challengeBoost：逼近历史最佳分时的挑战加压（B 类挑战）
+     * 其余分量（recoveryAdjust / frustrationRelief / nearMissAdjust 等）出现稀疏，曲线
+     * 大多为 0，曲线区会被稀疏点稀释；保留 stressMeter 内 summarizeContributors 函数与
+     * SIGNAL_LABELS，未来如需补全只需在此追加。
+     *
+     * 数据源：v1.13 起 buildPlayerStateSnapshot 已把 a.stressBreakdown 写入 ps.adaptive。
+     * 老回放（pv=2 早期无该字段）→ extract 返回 undefined，collectSeriesFromSnapshots 自动
+     * 跳过空点，曲线显示空（无填充），不会报错。
+     */
+    {
+        key: 'difficultyBias',
+        label: '难度',
+        group: 'stress',
+        extract: ps => ps.adaptive?.stressBreakdown?.difficultyBias,
+        fmt: 'f2',
+        tooltip: '难度模式偏移：玩家选简单/普通/困难带来的整体 stress 偏移（简单约 -0.22、普通 0、困难约 +0.22），是 stress 的最稳定分量。'
+    },
+    {
+        key: 'flowAdjust',
+        label: '心流',
+        group: 'stress',
+        extract: ps => ps.adaptive?.stressBreakdown?.flowAdjust,
+        fmt: 'f2',
+        tooltip: '心流偏移修正：F(t) 偏向无聊（玩家觉得太简单）→ 加压；偏向焦虑 → 减压。绝对值越大说明系统越主动调整难度。'
+    },
+    {
+        key: 'pacingAdjust',
+        label: '节奏',
+        group: 'stress',
+        extract: ps => ps.adaptive?.stressBreakdown?.pacingAdjust,
+        fmt: 'f2',
+        tooltip: '节奏阶段微调：搭建期(setup) 略加压、收获期(payoff) 略减压（让多消爽点更易触发），中性时为 0。'
+    },
+    {
+        key: 'friendlyBoardRelief',
+        label: '救济',
+        group: 'stress',
+        extract: ps => ps.adaptive?.stressBreakdown?.friendlyBoardRelief,
+        fmt: 'f2',
+        tooltip: '友好盘面救济（v1.13）：当盘面整洁 + 多消候选丰富时主动降压，让玩家享受多消爽点。常为负值。'
+    },
+    {
+        key: 'sessionArcAdjust',
+        label: '会话',
+        group: 'stress',
+        extract: ps => ps.adaptive?.stressBreakdown?.sessionArcAdjust,
+        fmt: 'f2',
+        tooltip: '会话弧线整体节奏：热身期减压、巅峰期加压、收官期略减压，按本局阶段比例插值。'
+    },
+    {
+        key: 'challengeBoost',
+        label: '挑战',
+        group: 'stress',
+        extract: ps => ps.adaptive?.stressBreakdown?.challengeBoost,
+        fmt: 'f2',
+        tooltip: 'B 类挑战加压：当前分数逼近历史最佳分时主动略加压，让收尾更有仪式感；远离最佳分为 0。'
     }
 ];
 

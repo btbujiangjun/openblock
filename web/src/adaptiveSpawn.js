@@ -85,6 +85,48 @@ function deriveBoardRisk(fill, holePressure, abilityRisk) {
     return Math.max(0, Math.min(1, fillRisk * 0.45 + holePressure * 0.35 + (abilityRisk ?? 0) * 0.2));
 }
 
+/**
+ * v1.13：友好盘面救济
+ *
+ * 当盘面 holes=0、临消行/多消候选/清屏机会都很充沛、且节奏处于「兑现期」时，
+ * 直接对 stress 注入一笔减压，让玩家面板上看到的「心情」与盘面实际状态一致
+ * （避免出现「🥵 高压」与「享受多消快感」并列的认知冲突）。
+ *
+ * 减压幅度按机会强度在 [baseRelief, maxRelief] 之间插值：
+ *   intensity = clamp(0.4 + 0.6 * (opportunity * 0.7 + cleanBoard * 0.3), 0, 1)
+ *   relief    = baseRelief + (maxRelief − baseRelief) * intensity
+ *
+ * @param {object} ctx              spawnContext
+ * @param {number} fill             当前盘面填充率
+ * @param {number} holes            盘面空洞数
+ * @param {string} rhythmPhase      'setup' | 'payoff' | 'neutral'
+ * @param {object} [cfg]            adaptiveSpawn.friendlyBoard 配置
+ * @returns {number}                ≤ 0；不满足条件时返回 0
+ */
+function deriveFriendlyBoardRelief(ctx, fill, holes, rhythmPhase, cfg = {}) {
+    if (holes > 0) return 0;
+    const nearFullLines = Math.max(0, Math.floor(ctx.nearFullLines ?? 0));
+    const multiClearCands = Math.max(0, Math.floor(ctx.multiClearCandidates ?? 0));
+    const pcSetup = Math.max(0, Math.floor(ctx.pcSetup ?? 0));
+
+    const minNearFullLines = cfg.minNearFullLines ?? 2;
+    const minMultiClearCandidates = cfg.minMultiClearCandidates ?? 2;
+    const requirePayoff = cfg.requirePayoff !== false;
+
+    const hasGeometry = nearFullLines >= minNearFullLines
+        && (multiClearCands >= minMultiClearCandidates || pcSetup >= 1);
+    const hasPayoffWindow = !requirePayoff || rhythmPhase === 'payoff';
+    if (!hasGeometry || !hasPayoffWindow) return 0;
+
+    const opportunity = Math.min(1, nearFullLines / 4 + multiClearCands / 4 + pcSetup * 0.3);
+    const cleanBoard = 1 - Math.min(1, Math.max(0, fill ?? 0));
+    const intensity = Math.max(0, Math.min(1, 0.4 + 0.6 * (opportunity * 0.7 + cleanBoard * 0.3)));
+
+    const baseRelief = cfg.baseRelief ?? -0.12;
+    const maxRelief = cfg.maxRelief ?? -0.18;
+    return baseRelief + (maxRelief - baseRelief) * intensity;
+}
+
 function smoothStress(current, ctx, cfg, immediateRelief) {
     if (!cfg?.enabled) return current;
     const prev = Number(ctx?.prevAdaptiveStress);
@@ -399,8 +441,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const base = getStrategy(baseStrategyId);
     const ctx = spawnContext || {};
 
-    /* ---------- 基础信号 ---------- */
-    const scoreStress = getSpawnStressFromScore(score);
+    /* ---------- 基础信号 ----------
+     * v1.13：scoreStress 改为按「个人百分位」映射（基于 ctx.bestScore），
+     * 避免一次冲过 milestones 末档后 scoreStress 永远锁死最高值。
+     */
+    const scoreStress = getSpawnStressFromScore(score, { bestScore: ctx.bestScore });
     const runMods = getRunDifficultyModifiers(runStreak);
     const holes = Math.max(0, Number(ctx.holes ?? 0) || 0);
     const holePressure = Math.max(0, Math.min(1, holes / Math.max(1, topoCfg.holePressureMax ?? 8)));
@@ -489,6 +534,15 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         ? difficultyTuning.stressBias
         : fallbackDifficultyBias;
 
+    /* ---------- v1.13：友好盘面救济（提前推算节奏相位）----------
+     * deriveRhythmPhase 是纯函数，提前调用一次用于 friendlyBoardRelief 判定，
+     * 真正写入 spawnHints 的 rhythmPhase 仍由后续主路径决定。
+     */
+    const earlyRhythmPhase = deriveRhythmPhase(profile, ctx, _boardFill ?? 0);
+    const friendlyBoardRelief = deriveFriendlyBoardRelief(
+        ctx, _boardFill ?? 0, holes, earlyRhythmPhase, cfg.friendlyBoard ?? {}
+    );
+
     /* ---------- 综合 stress ---------- */
     const stressBreakdown = {
         scoreStress: applySignal(signalCfg, 'scoreStress', scoreStress),
@@ -508,6 +562,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         boardRiskReliefAdjust: applySignal(signalCfg, 'boardRiskReliefAdjust', boardRiskReliefAdjust),
         abilityRiskAdjust: applySignal(signalCfg, 'abilityRiskAdjust', abilityRiskAdjust),
         delightStressAdjust: applySignal(signalCfg, 'delightStressAdjust', delight.stressAdjust),
+        friendlyBoardRelief: applySignal(signalCfg, 'friendlyBoardRelief', friendlyBoardRelief),
         boardRisk
     };
 
@@ -554,6 +609,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     stressBreakdown.afterSmoothing = stress;
     if (!inOnboarding && !profile.needsRecovery && Number.isFinite(difficultyTuning.minStress)) {
         stress = Math.max(stress, difficultyTuning.minStress);
+    }
+    /* v1.13：flow + payoff 时把 stress 封顶到 tense（默认 0.79），避免拟人化压力表
+     * 出现「🥵 高压」与叙事「享受多消快感」并列的认知冲突。仅在盘面无空洞、风险不高时生效。 */
+    const flowPayoffCap = cfg.flowPayoffStressCap;
+    if (Number.isFinite(flowPayoffCap)
+        && profile.flowState === 'flow'
+        && earlyRhythmPhase === 'payoff'
+        && holes === 0
+        && boardRisk < (cfg.flowPayoffMaxBoardRisk ?? 0.5)) {
+        stress = Math.min(stress, flowPayoffCap);
+        stressBreakdown.flowPayoffCap = flowPayoffCap;
     }
     stressBreakdown.finalStress = stress;
     const spawnTargets = deriveSpawnTargets(stress, profile, ctx, _boardFill ?? 0, boardRisk, delight, cfg.spawnTargets ?? {});

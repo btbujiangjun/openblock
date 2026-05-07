@@ -792,7 +792,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     if (rows.length < 2) {
         if (sumEl) {
             sumEl.innerHTML =
-                '<span class="rl-dash-note" title="训练曲线需要至少 2 个回合点才能画折线。请完成自博弈或 PyTorch 训练并写入 train_episode 日志后刷新。">运行状态：数据不足，至少需要 2 条 train_episode 记录。继续训练或刷新日志后，本卡片会同步更新摘要与解读。</span>';
+                '<span class="rl-dash-note" title="训练指标曲线需要至少 2 个回合点才能画折线。请完成自博弈或 PyTorch 训练并写入 train_episode 日志后刷新。">运行状态：数据不足，至少需要 2 条 train_episode 记录。继续训练或刷新日志后，本卡片会同步更新摘要与解读。</span>';
         }
         const p = document.createElement('p');
         p.className = 'rl-dash-empty';

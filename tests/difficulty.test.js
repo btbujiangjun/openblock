@@ -40,6 +40,37 @@ describe('difficulty', () => {
             expect(typeof s).toBe('number');
             expect(Number.isFinite(s)).toBe(true);
         });
+
+        // v1.13：个人百分位映射
+        it('百分位映射：低于个人最佳 50% 时按衰减因子降到很低', () => {
+            // bestScore=5000, score=1440 → pct≈0.288 → 衰减
+            const s = getSpawnStressFromScore(1440, { bestScore: 5000 });
+            // 不带 bestScore 时该分数会直接锁到末档（≈0.78），带上 bestScore 后应远低于此
+            const sNoBest = getSpawnStressFromScore(1440);
+            expect(s).toBeLessThan(sNoBest);
+            expect(s).toBeLessThan(0.5);
+        });
+
+        it('百分位映射：处于个人最佳的 100% 时压力等于 milestones 末档', () => {
+            const sBest = getSpawnStressFromScore(5000, { bestScore: 5000 });
+            const sMaxAbs = getSpawnStressFromScore(99999); // 旧路径锁到末档
+            expect(sBest).toBeCloseTo(sMaxAbs, 4);
+        });
+
+        it('百分位映射：50%~100% 之间不衰减、与百分位单调', () => {
+            const s50 = getSpawnStressFromScore(2500, { bestScore: 5000 });
+            const s75 = getSpawnStressFromScore(3750, { bestScore: 5000 });
+            const s100 = getSpawnStressFromScore(5000, { bestScore: 5000 });
+            expect(s50).toBeLessThan(s75);
+            expect(s75).toBeLessThan(s100);
+            expect(s50).toBeGreaterThan(0);
+        });
+
+        it('bestScore=0 / 缺省时回退到旧的绝对分段（保留向后兼容）', () => {
+            const sNew = getSpawnStressFromScore(1440, { bestScore: 0 });
+            const sOld = getSpawnStressFromScore(1440);
+            expect(sNew).toBeCloseTo(sOld, 6);
+        });
     });
 
     describe('blendShapeWeightsTowardHard', () => {

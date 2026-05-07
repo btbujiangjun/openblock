@@ -20,9 +20,11 @@
  */
 
 import { getApiBaseUrl } from '../config.js';
-import { getAllFlags, setFlag, FLAG_DEFAULTS } from './featureFlags.js';
+// FLAG_DEFAULTS 仅用于文档说明默认值范围，运行时通过 getAllFlags 拉取最新；保留注释便于工具提示后续接入。
+import { getAllFlags, setFlag } from './featureFlags.js';
 import { fetchPersonaFromServer, getCommercialInsight } from './personalization.js';
-import { getHelpText, helpAttrs } from './strategy/index.js';
+// helpAttrs 已被本地 _hAttr 替代以便携带 data-help-key；保留注释作为 strategy 模块演进的对照。
+import { getHelpText } from './strategy/index.js';
 
 /** 把帮助文本转成 HTML 属性可用字符串 */
 function _hAttr(key) {
@@ -31,7 +33,8 @@ function _hAttr(key) {
 }
 
 const PANEL_ID  = 'mon-training-panel';
-const BTN_ID    = 'mon-panel-toggle-btn';
+// BTN_ID 仅供 :host 选择器或 e2e 测试定位，运行时直接通过 querySelector 实例化按钮。
+const _BTN_ID   = 'mon-panel-toggle-btn';
 const STYLE_ID  = 'mon-panel-styles';
 
 // ─── 样式注入 ──────────────────────────────────────────────────────────────────
@@ -447,7 +450,8 @@ async function _renderPersona(panel, game) {
     }
 
     const insight = getCommercialInsight();
-    const { segment, segmentLabel, segmentColor, segmentIcon, signals, actions, explain } = insight;
+    // segment / segmentColor / explain 由 actions 区域的 ci-tag 直接消费，这里只需 label/icon/signals/actions。
+    const { segmentLabel, segmentIcon, signals, actions } = insight;
 
     const sigHtml = signals.map(s => {
         const tip = (s.tooltip ?? s.sub ?? '').replace(/"/g, '&quot;');

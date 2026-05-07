@@ -101,13 +101,17 @@ main.js
                                                   │
 monetization/index.js ──── MonetizationBus.attach(game)
   ├── adAdapter.js ← featureFlags                 ↑
+  ├── adDecisionEngine.js ← 商业模型向量决策      ↑
   ├── adTrigger.js ← MonetizationBus('no_clear')  │
   ├── iapAdapter.js                               │
   ├── dailyTasks.js ← MonetizationBus('game_over')│
+  ├── checkInPanel.js ← 签到系统                  │
+  ├── wallet.js ← 道具/货币管理                  │
   ├── leaderboard.js                             │
   ├── seasonPass.js ← MonetizationBus('game_over')│
   ├── personalization.js ← PlayerProfile (实时)──┘
   ├── commercialInsight.js (注入 insight panel)
+  ├── commercialModel.js (商业化向量计算)        │
   └── monPanel.js (训练面板浮层)
 ```
 
@@ -165,8 +169,16 @@ FLAG_DEFAULTS (featureFlags.js)
 ```typescript
 // 广告 Provider（需实现此接口接入真实 SDK）
 interface AdProvider {
-    showRewarded(reason: string): Promise<{ rewarded: boolean }>;
+    showRewarded(reward: object): Promise<{ success: boolean }>;
     showInterstitial(): Promise<void>;
+    loadAd(type: string): Promise<{ success: boolean, ad?: object }>;
+}
+
+// 广告决策引擎
+interface AdDecisionEngine {
+    init(): void;
+    requestAd(scene: string, context: object): Promise<{ allowed: boolean, adType: string }>;
+    getAdStatus(): { canShowRewarded: boolean, rewardedRemaining: number };
 }
 
 // IAP Provider
@@ -175,6 +187,46 @@ interface IapProvider {
     restore(): Promise<string[]>;  // 返回已购 productId 列表
     isPurchased(productId: string): boolean;
 }
+```
+
+### 广告决策流程
+
+```
+玩家行为 → AdDecisionEngine.requestAd(scene)
+    │
+    ├── 商业模型向量 (buildCommercialVector)
+    │   ├── 付费倾向 (payerScore)
+    │   ├── 流失风险 (churnRisk)
+    │   ├── 广告疲劳 (adFatigueRisk)
+    │   └── LTV 预估
+    │
+    ├── Guardrail 检查
+    │   ├── 保护付费用户 (suppressInterstitial)
+    │   ├── 疲劳保护 (suppressAll)
+    │   └── 流失保护
+    │
+    ├── 场景特定决策
+    │   ├── GAME_OVER: 根据付费倾向选择
+    │   ├── NO_MOVES: 优先激励广告
+    │   └── STAMINA_EMPTY: 激励广告
+    │
+    └── 频率控制
+        ├── 每日上限 (rewarded: 12, interstitial: 6)
+        └── 最小间隔 (60s)
+```
+
+### 道具钱包系统
+
+```
+wallet.js (技能/货币统一管理)
+    │
+    ├── 消耗品类: hintToken, undoToken, bombToken, rainbowToken
+    ├── 货币类: coin, fragment
+    └── 权限类: trialPass (24h 皮肤试用)
+    
+    存储策略：
+    ├── SQLite 优先 (API 可用时)
+    └── localStorage 回退
 ```
 
 ---

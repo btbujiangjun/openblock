@@ -46,6 +46,13 @@
       }
     </style>
     <link rel="stylesheet" href="./styles/main.css">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#5B9BD5">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Block Blast">
+    <link rel="apple-touch-icon" href="./assets/images/icon-192.png">
 </head>
 <body>
     <div id="app">
@@ -320,14 +327,16 @@
         </details>
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📡</span>实时状态</summary>
+            <!-- 拟人化压力表：把出块算法核心信号 stress 转译成情绪 + 趋势 + 一句话叙事 -->
+            <div id="stress-meter-host" class="stress-meter-host" aria-label="拟人化压力表"></div>
             <div id="insight-state" class="insight-state-row"></div>
             <div id="insight-spawn" class="insight-spawn-row"></div>
         </details>
-        <details class="panel-section">
+        <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🎯</span>实时策略</summary>
             <div id="insight-strategy" class="insight-strategy-section"></div>
         </details>
-        <details class="panel-section">
+        <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">💬</span>策略解释</summary>
             <div id="insight-why" class="insight-why-section"></div>
         </details>
@@ -335,8 +344,15 @@
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">💡</span>落子建议</summary>
             <div id="insight-hints-list" class="insight-hints-body"></div>
         </details>
-    </aside>
-    <aside id="spawn-model-panel" class="side-panel-base spawn-model-panel" aria-label="出块策略">
+        <!--
+            v1.13：把原 #spawn-model-panel 的「出块算法 / 算法解释 / 模型训练」三个 details 并入
+            玩家画像面板。原因：
+              1) 截图反馈左栏中段大段空白（玩家画像 flex:1 撑开后底部 spawn-model-panel 与画像之间露出页面背景）；
+              2) 出块算法本就是「玩家画像 → 出块决策」链路的下游展示，逻辑上同属"画像与策略"集群；
+              3) 合并后左栏只剩一个 .player-insight-panel 容器，与右侧 .rl-panel 视觉一致（单卡铺满）；
+              4) 旧 JS（spawnModePanel 等）按内部 ID 抓元素（spawn-train-start / sl-fill / spawn-mode-badge ...），
+                 与 #spawn-model-panel 容器无依赖，迁移零成本；CSS 中 .spawn-model-panel 规则保留无害。
+        -->
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块算法</summary>
             <div class="spawn-mode-switch">
@@ -351,7 +367,7 @@
                 <span class="spawn-model-status" id="spawn-model-badge">模型未训练</span>
             </div>
         </details>
-        <details class="panel-section spawn-layers-detail">
+        <details class="panel-section spawn-layers-detail" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🔬</span>算法解释</summary>
             <div class="spawn-layers-doc">
                 <!-- Layer 1: 盘面拓扑感知 -->
@@ -437,36 +453,8 @@
             </div>
         </details>
     </aside>
-    <aside id="rl-panel" class="side-panel-base rl-panel" aria-label="RL 机器人训练">
-        <div class="rl-header-row">
-            <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>RL机器人</h3>
-            <label class="rl-backend-toggle" title="勾选后策略推理与训练走 Flask /api/rl PyTorch 服务端；不勾选则使用浏览器内线性智能体与本地日志。"><input type="checkbox" id="rl-use-pytorch" /> PyTorch <span id="rl-backend-status" class="rl-backend-status">未检测</span></label>
-            <label class="rl-lookahead-toggle" title="开启后每步用 r+γV(s') 选动作并上报 q_teacher（利于 Q 蒸馏），但每步要在浏览器枚举全部合法落点并多次请求服务端，首局可能很慢甚至像卡住；初次训练建议先不勾选。"><input type="checkbox" id="rl-lookahead" /> 1-step lookahead</label>
-        </div>
-        <details class="panel-section" open>
-            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📋</span>统计 &amp; 操作</summary>
-            <div class="rl-stats">
-                <div title="本页会话内已完成的自博弈/训练回合总数（从加载页面起累计，非账号终身）。"><span>局数</span><strong id="rl-episodes">0</strong></div>
-                <div title="最近 40 局对局得分的算术平均（窗口不足时按已有局数平均）。用于观察短期水平波动。"><span>均分</span><strong id="rl-avg-score">—</strong></div>
-                <div title="最近 80 局中带胜负结果的局中，达到胜利条件（如分数阈值）的局数占比。"><span>胜率</span><strong id="rl-winrate">—</strong></div>
-                <div title="本页会话内录得的单局最高得分。"><span>最佳</span><strong id="rl-best">0</strong></div>
-            </div>
-            <div class="rl-actions">
-                <button type="button" class="rl-btn" id="rl-start" title="启动自博弈循环训练线性策略网络（可选 PyTorch 后端时在服务端训练）。局数与统计在上方更新。">开始训练</button>
-                <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled title="停止当前训练循环；已完成的回合与日志保留。">停止</button>
-                <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode" title="仅运行一局自博弈用于快速评估当前策略，不进入连续训练。">评估</button>
-                <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="从服务端拉取 PyTorch 训练损失等日志并显示在下方「训练损失」区域。">日志</button>
-            </div>
-        </details>
-        <details class="panel-section" open>
-            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📜</span>训练进展</summary>
-            <pre class="rl-log rl-log--episode" id="rl-progress-log" aria-live="polite"></pre>
-        </details>
-        <details class="panel-section" open>
-            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📉</span>训练损失</summary>
-            <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
-        </details>
-    </aside>
+    <!-- v1.13：原 #spawn-model-panel 三个 details 已并入上方 #player-insight-panel；左侧栏只剩单一玩家画像容器 -->
+    <!-- v1.13：原左侧 #rl-panel 与右侧 #rl-dash-panel 合并为单一 RL 机器人面板（统一在右侧栏），相关 DOM 见下方 #rl-panel -->
     <!-- 回放详情：放在左栏底部，不遮挡中央棋盘 -->
     <div id="replay-view-screen" class="screen screen-replay-view" aria-label="对局回放">
         <div class="replay-view-panel">
@@ -487,27 +475,72 @@
         </div>
     </div>
     </div>
-    <aside id="rl-dash-panel" class="rl-dash-panel" aria-label="RL 训练看板">
-        <h3 class="rl-dash-title"><span class="panel-head-icon" aria-hidden="true">📊</span>训练看板</h3>
+    <!--
+        合并后的 RL 机器人面板（v1.13）：
+        历史上左侧栏有 #rl-panel（统计/操作/日志），右侧栏有 #rl-dash-panel（看板曲线）；二者
+        本质属于同一个「RL 机器人训练」功能。统一到右侧后：
+          1) 释放左栏空间，左栏只承载玩家画像 + 出块策略；
+          2) 训练数据（统计、按钮、摘要、曲线、进展、损失日志）一处汇总，免去左右切换；
+          3) JS（rlPanel.js）通过 #rl-panel 判断挂载点并按 ID 绑定其余子元素，所有子 ID 保持不变。
+    -->
+    <aside id="rl-panel" class="side-panel-base rl-panel rl-panel--right" aria-label="RL 机器人训练">
+        <div class="rl-header-row">
+            <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>RL机器人</h3>
+            <label class="rl-backend-toggle" title="勾选后策略推理与训练走 Flask /api/rl PyTorch 服务端；不勾选则使用浏览器内线性智能体与本地日志。"><input type="checkbox" id="rl-use-pytorch" /> PyTorch <span id="rl-backend-status" class="rl-backend-status">未检测</span></label>
+            <label class="rl-lookahead-toggle" title="开启后每步用 r+γV(s') 选动作并上报 q_teacher（利于 Q 蒸馏），但每步要在浏览器枚举全部合法落点并多次请求服务端，首局可能很慢甚至像卡住；初次训练建议先不勾选。"><input type="checkbox" id="rl-lookahead" /> 1-step lookahead</label>
+        </div>
         <details class="panel-section" open>
-            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🧰</span>摘要 &amp; 工具</summary>
-            <div class="rl-dash-compact">
-                <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
-                <div class="rl-dash-toolbar">
-                    <label class="rl-dash-auto" title="训练进行中时按间隔自动从服务端拉取 training 日志并重绘右侧曲线与摘要；关闭后仅手动点击「刷新图表」更新。"><input type="checkbox" id="rl-chart-auto" checked /> 自动</label>
-                    <select id="rl-chart-tail" class="rl-dash-select" title="按回合序号仅保留最近 N 条 train_episode 再绘制曲线与摘要；选「全部」则使用日志中的全部记录（数据量大时可能较慢）。">
-                        <option value="500">近 500 局</option>
-                        <option value="2000" selected>近 2000 局</option>
-                        <option value="5000">近 5000 局</option>
-                        <option value="20000">近 2 万局</option>
-                        <option value="0">全部</option>
-                    </select>
-                    <button type="button" class="rl-dash-refresh" id="rl-refresh-charts" title="拉取最新 training 日志：更新摘要与六条曲线；勾选 PyTorch 时同时刷新「训练损失」预读并对齐左侧局数与服务端。">刷新</button>
-                </div>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📋</span>统计 &amp; 操作</summary>
+            <div class="rl-stats">
+                <div title="本页会话内已完成的自博弈/训练回合总数（从加载页面起累计，非账号终身）。"><span>局数</span><strong id="rl-episodes">0</strong></div>
+                <div title="最近 40 局对局得分的算术平均（窗口不足时按已有局数平均）。用于观察短期水平波动。"><span>均分</span><strong id="rl-avg-score">—</strong></div>
+                <div title="最近 80 局中带胜负结果的局中，达到胜利条件（如分数阈值）的局数占比。"><span>胜率</span><strong id="rl-winrate">—</strong></div>
+                <div title="本页会话内录得的单局最高得分。"><span>最佳</span><strong id="rl-best">0</strong></div>
+            </div>
+            <!--
+                v1.13：操作行整合 ——
+                左侧四枚按钮（开始训练/停止/评估/日志）用于「训练运行」；
+                右侧三件控件（自动/近 N 局/刷新）原属"看板摘要 & 工具"卡片底部 toolbar，
+                合并到这里以省掉一整行的 toolbar 与"& 工具"summary 占位，单面板可视密度更高。
+                JS（rlPanel.js）按 ID 抓元素，DOM 位置变化不影响绑定。
+            -->
+            <div class="rl-actions">
+                <button type="button" class="rl-btn" id="rl-start" title="启动自博弈循环训练线性策略网络（可选 PyTorch 后端时在服务端训练）。局数与统计在上方更新。">开始训练</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-stop" disabled title="停止当前训练循环；已完成的回合与日志保留。">停止</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-one-episode" title="仅运行一局自博弈用于快速评估当前策略，不进入连续训练。">评估</button>
+                <button type="button" class="rl-btn rl-btn-secondary" id="rl-refresh-server-log" title="从服务端拉取 PyTorch 训练损失等日志并显示在下方「训练损失」区域。">日志</button>
+                <label class="rl-dash-auto" title="训练进行中时按间隔自动从服务端拉取 training 日志并重绘下方曲线与摘要；关闭后仅手动点击「刷新」更新。"><input type="checkbox" id="rl-chart-auto" checked /> 自动</label>
+                <select id="rl-chart-tail" class="rl-dash-select" title="按回合序号仅保留最近 N 条 train_episode 再绘制曲线与摘要；选「全部」则使用日志中的全部记录（数据量大时可能较慢）。">
+                    <option value="500">近 500 局</option>
+                    <option value="2000" selected>近 2000 局</option>
+                    <option value="5000">近 5000 局</option>
+                    <option value="20000">近 2 万局</option>
+                    <option value="0">全部</option>
+                </select>
+                <button type="button" class="rl-dash-refresh" id="rl-refresh-charts" title="拉取最新 training 日志：更新摘要与六条曲线；勾选 PyTorch 时同时刷新「训练损失」预读并对齐上方局数与服务端。">刷新</button>
             </div>
         </details>
+        <!--
+            v1.13：训练日志移到看板摘要之上 ——
+            进展 / 损失日志相对静态、按需展开（默认折叠），但调试时是优先关注点；
+            把它们紧跟"统计 & 操作"，可以在不展开图表的情况下快速看运行时输出。
+            看板摘要与训练指标偏「整体趋势可视化」，下沉到面板底部更适合滚动浏览。
+        -->
+        <details class="panel-section">
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📜</span>训练进展</summary>
+            <pre class="rl-log rl-log--episode" id="rl-progress-log" aria-live="polite"></pre>
+        </details>
+        <details class="panel-section">
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📉</span>训练损失</summary>
+            <pre class="rl-log rl-log--server" id="rl-server-log" aria-live="polite"></pre>
+        </details>
         <details class="panel-section" open>
-            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📈</span>训练曲线</summary>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📊</span>看板摘要</summary>
+            <!-- v1.14：去掉外层 .rl-dash-compact div 中间层，#rl-dash-summary 直接挂在 details 下，减少层级。 -->
+            <div id="rl-dash-summary" class="rl-dash-summary" aria-live="polite"></div>
+        </details>
+        <details class="panel-section" open>
+            <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📈</span>训练指标</summary>
             <div id="rl-chart-root" class="rl-chart-root"></div>
         </details>
     </aside>
@@ -527,6 +560,35 @@
         window.addEventListener('load', function () {
           setTimeout(hint, 3500);
         });
+      })();
+    </script>
+    <!-- Service Worker Registration -->
+    <script>
+      (function() {
+        'use strict';
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', function() {
+            navigator.serviceWorker.register('./sw.js')
+              .then(function(registration) {
+                console.log('[App] SW registered:', registration.scope);
+                // 检查更新
+                registration.addEventListener('updatefound', function() {
+                  var newWorker = registration.installing;
+                  newWorker.addEventListener('statechange', function() {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      console.log('[App] New SW available, refreshing...');
+                      if (confirm('有新版本可用，是否刷新?')) {
+                        window.location.reload();
+                      }
+                    }
+                  });
+                });
+              })
+              .catch(function(error) {
+                console.warn('[App] SW registration failed:', error);
+              });
+          });
+        }
       })();
     </script>
 </body>

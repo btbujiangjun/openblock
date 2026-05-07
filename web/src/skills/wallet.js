@@ -79,6 +79,12 @@ function _ymd(d = new Date()) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/* v1.13：钱包流水明细环形缓冲上限。
+ * 玩家在「个人数据」面板要看到「最近从哪些来源拿到了哪些奖励」，但流水不能无限增长
+ * （单条 ~80 字节，Σ 写入 PUT /api/wallet 的 payload）。这里取 200 条覆盖几天的活动，
+ * 超过上限按 FIFO 丢弃最旧记录，不会破坏 UI 显示也不会让 payload 飞涨。 */
+const LEDGER_MAX = 200;
+
 function _emptyState() {
     const balance = {};
     for (const k of KINDS) balance[k] = 0;
@@ -88,6 +94,9 @@ function _emptyState() {
         dailyGranted: {},    // v10.17：{ ymd: { hintToken: n, ... } } 防通胀计数
         trials: [],          // [{ skinId, expiresAt }]
         lastSeenYmd: _ymd(),
+        /* v1.13：钱包入账/消费流水明细，最新在末尾。
+         * 每项形如：{ ts, kind, amount, source, action: 'add'|'spend'|'trial'|'cap', cappedFrom? } */
+        ledger: [],
     };
 }
 
@@ -99,6 +108,8 @@ function _normalizeParsedState(s) {
     s.dailyGranted = s.dailyGranted || {};
     s.trials = Array.isArray(s.trials) ? s.trials : [];
     s.lastSeenYmd = s.lastSeenYmd || _ymd();
+    // v1.13：旧 schema（无 ledger）水合时补空数组，确保 UI 与持久化兼容。
+    s.ledger = Array.isArray(s.ledger) ? s.ledger.slice(-LEDGER_MAX) : [];
     return s;
 }
 
@@ -234,13 +245,23 @@ class Wallet {
             }
         }
         if (toAdd <= 0 && (amount | 0) > 0) {
-            // 完全被截断 — 仍然 emit，让 UI 提示"已达每日上限"
+            // 完全被截断 — 仍然 emit + 入流水（标记 action: 'cap'），让 UI 提示"已达每日上限"
+            this._appendLedger({ kind, amount: 0, source, action: 'cap', cappedFrom: amount });
+            _save(this.state);
             this._emit(kind, { kind, amount: 0, source, action: 'add', cappedFrom: amount });
             return false;
         }
         this.state.balance[kind] = Math.max(0, (this.state.balance[kind] | 0) + toAdd);
         // 清理 7 天前的 dailyGranted
         this._gcDailyGranted();
+        // v1.13：写入流水明细，便于个人面板展示「最近入账」（含 cappedFrom 体现部分截断）
+        this._appendLedger({
+            kind,
+            amount: toAdd,
+            source,
+            action: 'add',
+            ...(amount > toAdd ? { cappedFrom: amount } : {})
+        });
         _save(this.state);
         this._emit(kind, { kind, amount: toAdd, source, action: 'add', cappedFrom: amount > toAdd ? amount : undefined });
         return true;
@@ -268,6 +289,8 @@ class Wallet {
         }
         // 清理 7 天前的 dailyConsumed 记录
         this._gcDailyConsumed();
+        // v1.13：消费也入流水（amount 取负值，便于面板按符号上色 / 时间序展示）
+        this._appendLedger({ kind, amount: -amount, source: reason, action: 'spend' });
         _save(this.state);
         this._emit(kind, { kind, amount, reason, action: 'spend' });
         return true;
@@ -278,6 +301,10 @@ class Wallet {
     addTrial(skinId, hours = 24) {
         const expiresAt = Date.now() + hours * 3600_000;
         this.state.trials.push({ skinId, expiresAt });
+        // v1.13：试穿券也入流水（kind=trialPass，amount=1，source 含 skinId 便于回溯）
+        this._appendLedger({
+            kind: 'trialPass', amount: 1, source: `trial-${skinId}`, action: 'trial', expiresAt
+        });
         _save(this.state);
         this._emit('trialPass', { skinId, expiresAt, action: 'add' });
         return expiresAt;
@@ -344,6 +371,35 @@ class Wallet {
     }
     getDailyGrantCap(kind) {
         return DAILY_GRANT_CAP[kind] ?? Infinity;
+    }
+
+    /* ============ v1.13：流水明细 ============ */
+
+    /**
+     * 写入一条流水到环形缓冲；自动加 ts，超过 LEDGER_MAX 按 FIFO 丢弃最旧。
+     * 调用方：addBalance / spend / addTrial 内部，外部不应直接调用。
+     */
+    _appendLedger(entry) {
+        if (!Array.isArray(this.state.ledger)) this.state.ledger = [];
+        const row = { ts: Date.now(), ...entry };
+        this.state.ledger.push(row);
+        if (this.state.ledger.length > LEDGER_MAX) {
+            this.state.ledger.splice(0, this.state.ledger.length - LEDGER_MAX);
+        }
+    }
+
+    /**
+     * 读取最近 N 条流水（最新在末尾）。可按 kind / action 过滤。
+     * @param {{ limit?: number, kind?: string, action?: string }} [opts]
+     * @returns {Array<{ts:number, kind:string, amount:number, source:string, action:string, cappedFrom?:number, expiresAt?:number}>}
+     */
+    getLedger(opts = {}) {
+        const arr = Array.isArray(this.state.ledger) ? this.state.ledger : [];
+        const limit = Math.max(1, Math.min(LEDGER_MAX, Number(opts.limit) || 20));
+        let out = arr;
+        if (opts.kind) out = out.filter((r) => r.kind === opts.kind);
+        if (opts.action) out = out.filter((r) => r.action === opts.action);
+        return out.slice(-limit);
     }
 
     /** 调试 / 测试用 */
