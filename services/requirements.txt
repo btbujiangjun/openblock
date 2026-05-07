@@ -9,7 +9,7 @@ gunicorn==22.0.0
 
 # Database & cache
 SQLAlchemy==2.0.31
-alembic==1.13.2
+alembic==1.18.4
 psycopg2-binary==2.9.9
 redis==5.0.7
 
