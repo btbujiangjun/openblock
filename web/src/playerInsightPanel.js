@@ -224,10 +224,27 @@ function _bestMultiClearPotential(grid, shapeData) {
     return best;
 }
 
-function _countLiveMultiClearCandidates(grid) {
+/**
+ * 统计“当前可见候选块”里可做多消（>=2）的块数。
+ *
+ * v1.25：优先按 dock 三块做匹配，避免“策略说多消机会很多，但当前候选块根本打不中”的错觉。
+ * - 新口径（优先）：仅统计 `game.dockBlocks` 未放置块（玩家当下真能用的 3 块）
+ * - 兜底口径：dock 不可用时退回全形状库（兼容开局/测试桩）
+ *
+ * @param {any} grid
+ * @param {Array<{ shape?: number[][], placed?: boolean }>} [dockBlocks]
+ * @returns {number|null}
+ */
+function _countLiveMultiClearCandidates(grid, dockBlocks) {
     if (!grid) return null;
+    const liveDockShapes = Array.isArray(dockBlocks)
+        ? dockBlocks
+            .filter((b) => b && b.placed !== true && Array.isArray(b.shape))
+            .map((b) => ({ data: b.shape }))
+        : [];
+    const shapePool = liveDockShapes.length > 0 ? liveDockShapes : getAllShapes();
     let count = 0;
-    for (const shape of getAllShapes()) {
+    for (const shape of shapePool) {
         if (_bestMultiClearPotential(grid, shape.data) >= 2) count++;
     }
     return count;
@@ -822,7 +839,7 @@ function _render(game) {
             diagPills.push(_spawnPill(`空洞 ${holes ?? '—'}`, SPAWN_TOOLTIP.holes));
             if (flatness != null) diagPills.push(_spawnPill(`平整 ${flatness.toFixed(2)}`, SPAWN_TOOLTIP.flatness));
             if (nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${nearFullLines}`, SPAWN_TOOLTIP.nearFull));
-            const liveMultiCandidates = _countLiveMultiClearCandidates(game.grid);
+            const liveMultiCandidates = _countLiveMultiClearCandidates(game.grid, game.dockBlocks);
             if (liveMultiCandidates != null) {
                 diagPills.push(_spawnPill(`多消候选 ${liveMultiCandidates}`, SPAWN_TOOLTIP.multiClear));
             }
@@ -882,7 +899,7 @@ function _render(game) {
             maxHeight: _gridMaxHeight(game.grid),
             holesCount: _gridHoles(game.grid),
             liveTopology,
-            liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid)
+            liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid, game.dockBlocks)
         } : undefined;
         const tips = generateStrategyTips(p, ins, gridInfo);
         if (tips.length > 0) {

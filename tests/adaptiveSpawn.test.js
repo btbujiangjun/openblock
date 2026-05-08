@@ -490,6 +490,37 @@ describe('resolveAdaptiveStrategy', () => {
         expect(s._spawnIntent).toBe('harvest');
     });
 
+    it('v1.25：存在 _gridRef 时优先使用 live nearFull/multiClear（覆盖陈旧 ctx 快照）', () => {
+        const n = 8;
+        const cells = Array.from({ length: n }, () => Array.from({ length: n }, () => 1));
+        // 制造两条“近满行”（各留一个空格）
+        cells[0][0] = null;
+        cells[1][1] = null;
+        const gridStub = {
+            size: n,
+            cells,
+            canPlace: (shape, x, y) => {
+                if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0])) return false;
+                const h = shape.length;
+                const w = shape[0].length;
+                return x >= 0 && y >= 0 && (x + w) <= n && (y + h) <= n;
+            },
+            previewClearOutcome: () => ({ rows: [0, 1], cols: [] })
+        };
+        const p = makeProfile({ smoothSkill: 0.56, lifetimeGames: 6, lifetimePlacements: 120 });
+        const s = resolveAdaptiveStrategy('normal', p, 400, 0, 0.30, {
+            totalRounds: 8,
+            roundsSinceClear: 1,
+            holes: 0,
+            // 旧快照故意置零：若未覆盖会倾向不 harvest
+            nearFullLines: 0,
+            multiClearCandidates: 0,
+            pcSetup: 0,
+            _gridRef: gridStub
+        });
+        expect(s._spawnIntent).toBe('harvest');
+    });
+
     it('v1.17 rhythmPhase：低占用 + pcSetup=1 不再被拉到 payoff', () => {
         const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
         const s = resolveAdaptiveStrategy('normal', p, 300, 0, 0.17, {

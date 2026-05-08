@@ -37,6 +37,8 @@ import {
     resolveLayeredStrategy
 } from './difficulty.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
+import { analyzeBoardTopology } from './boardTopology.js';
+import { getAllShapes } from './shapes.js';
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -88,6 +90,58 @@ function _signalScale(signalCfg, name) {
 
 function applySignal(signalCfg, name, value) {
     return value * _signalScale(signalCfg, name);
+}
+
+function _bestMultiClearPotential(grid, shapeData) {
+    if (!grid || !shapeData) return 0;
+    let best = 0;
+    for (let y = 0; y < grid.size; y++) {
+        for (let x = 0; x < grid.size; x++) {
+            const outcome = grid.previewClearOutcome?.(shapeData, x, y, 0);
+            if (!outcome) continue;
+            best = Math.max(best, (outcome.rows?.length ?? 0) + (outcome.cols?.length ?? 0));
+            if (best >= 2) return best;
+        }
+    }
+    return best;
+}
+
+function _countMultiClearCandidatesFromShapePool(grid, shapePool) {
+    if (!grid || !Array.isArray(shapePool) || shapePool.length === 0) return null;
+    let count = 0;
+    for (const shape of shapePool) {
+        if (_bestMultiClearPotential(grid, shape.data) >= 2) count++;
+    }
+    return count;
+}
+
+/**
+ * v1.25：spawn 决策前优先用“当前盘面”重算几何信号，减少 ctx 快照时序滞后。
+ * - nearFullLines：来自 analyzeBoardTopology(grid)
+ * - multiClearCandidates：优先按当前 dock 三块；dock 不可用时回退全形状库
+ *
+ * @param {object} ctx
+ * @returns {object}
+ */
+function _mergeLiveGeometrySignals(ctx) {
+    const grid = ctx?._gridRef;
+    if (!grid?.cells?.length || !Number.isFinite(grid.size)) return ctx;
+    let next = ctx;
+    const topo = analyzeBoardTopology(grid);
+    if (Number.isFinite(topo?.nearFullLines)) {
+        next = { ...next, nearFullLines: topo.nearFullLines };
+    }
+    const dockPool = Array.isArray(ctx?._dockShapePool)
+        ? ctx._dockShapePool
+            .filter((s) => Array.isArray(s?.data))
+            .map((s) => ({ data: s.data }))
+        : [];
+    const shapePool = dockPool.length > 0 ? dockPool : getAllShapes();
+    const liveMcc = _countMultiClearCandidatesFromShapePool(grid, shapePool);
+    if (Number.isFinite(liveMcc)) {
+        next = { ...next, multiClearCandidates: liveMcc };
+    }
+    return next;
 }
 
 function deriveBoardRisk(fill, holePressure, abilityRisk) {
@@ -462,7 +516,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const topoCfg = cfg.topologyDifficulty ?? {};
     const signalCfg = cfg.signals ?? {};
     const base = getStrategy(baseStrategyId);
-    const ctx = spawnContext || {};
+    let ctx = spawnContext || {};
+    ctx = _mergeLiveGeometrySignals(ctx);
 
     /* ---------- 基础信号 ----------
      * v1.13：scoreStress 改为按「个人百分位」映射（基于 ctx.bestScore），

@@ -302,6 +302,20 @@ const canPromoteToPayoff = nearFullLines ≥ 1
    恢复 −0.08 / 近失 −0.04`）暴露给玩家，不必再从故事线倒推现在 stress 是
    被哪条救济压下去的。仅在 |v| ≥ 0.02 时显示。
 
+**v1.26：AdaptiveSpawn live 几何覆盖**——v1.25 已把 panel/策略卡的多消候选改成 dock 优先，但 adaptiveSpawn 内部仍主要读 `ctx.nearFullLines/multiClearCandidates`（上轮快照），存在时序偏差窗口。本节把 spawn 决策入口同步到 live 几何。
+
+1. **`_mergeLiveGeometrySignals(ctx)`：决策前覆盖 nearFull/multiClear**
+   当 `spawnContext._gridRef` 存在时：
+   - 用 `analyzeBoardTopology(grid)` 重算 `nearFullLines`
+   - `multiClearCandidates` 优先按 `_dockShapePool`（当前可见候选块）统计可达
+     `multiClear>=2` 的块数；若 dock 不可用回退全形状库
+   - 将结果覆盖到本轮 `ctx`，统一驱动 `spawnIntent` / `rhythmPhase` /
+     `multiClearBonus` / `multiLineTarget` 等判定链路
+
+2. **`game.js` 注入临时 live 上下文**
+   `resolveAdaptiveStrategy(...)` 调用处注入 `_gridRef` 和 `_dockShapePool`（一次性上下文），
+   不写回持久 `_spawnContext`，避免跨轮污染。
+
 **v1.24：flow 叙事相位变体表**——v1.23 修了 stress story 优先级倒置，本节再修 `SPAWN_INTENT_NARRATIVE.flow` 文案与实际 rhythmPhase 硬冲突。
 
 1. **`stressMeter.SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体**
@@ -323,6 +337,28 @@ const canPromoteToPayoff = nearFullLines ≥ 1
    rhythmPhase 缺失（pv=2 早期回放）时回退到 `SPAWN_INTENT_NARRATIVE.flow`（兜底文案
    也已去"收获期"硬编码，改为通用"心流稳定，系统继续维持流畅的出块节奏。"）。
    其他 intent 仍走单一映射，不引入额外复杂度。
+
+2. **多消策略判断依据（v1.25 口径）**
+   strategyAdvisor 当前与“多消”相关的卡，统一按 live 几何优先、snapshot 兜底：
+   - live 数据源：`liveTopology.nearFullLines` + `liveMultiClearCandidates`
+   - `liveMultiClearCandidates` 优先按当前 dock 三块（未放置）统计可达 `multiClear>=2` 的块数，
+     不再按全形状库估算；仅在 dock 不可用时回退全形状库
+   - snapshot 兜底：`diag.layer1.nearFullLines` + `diag.layer1.multiClearCandidates`
+
+   判定规则如下（按优先顺序）：
+   - **`🎯 多消机会`**：`nearFullLines >= 3 && multiClearCandidates >= 2`
+   - **`✂️ 逐条清理`**：`nearFullLines >= 3 && multiClearCandidates < 2`
+   - **`💎 收获期 / 收获期·待兑现`**：
+     - 前置：`hints.rhythmPhase === 'payoff'`
+     - 文案分流：`multiClearCandidates >= 1 || nearFullLines >= 2` → 「收获期」；
+       否则 → 「收获期·待兑现」
+   - **`🎯 提升挑战`**（前瞻构型建议，不是即时兑现建议）：
+     `flowState='bored' && !harvestNow && fill>=0.18`，并与收获期互斥
+
+   设计意图：
+   - 兑现类建议必须满足即时几何条件（避免“卡说多消、盘面做不到”）
+   - 构型类建议只在非收获态出现（避免“现在兑现”与“先搭建”同帧拉扯）
+   - 玩家看到的“多消候选 N”pill 与策略卡共用同一套 live 几何口径
 
 **v1.23：叙事优先级 + 收获期 live 几何 mutex**——v1.22 修了卡间互斥与 sparkline tooltip 解读，本节再修 stress story 文案优先级倒置 与「收获期」卡漏掉 live 几何 mutex 两处残余冲突。
 

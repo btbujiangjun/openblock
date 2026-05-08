@@ -609,7 +609,13 @@ export class Game {
             this.playerProfile.recordNewGame();
 
             const baseStrategy = getStrategy(this.strategy);
-            const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, this._spawnContext);
+            const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, {
+                ...this._spawnContext,
+                _gridRef: this.grid,
+                _dockShapePool: (this.dockBlocks || [])
+                    .filter((b) => b && !b.placed && Array.isArray(b.shape))
+                    .map((b) => ({ data: b.shape }))
+            });
             this.grid.size = layeredOpen.gridWidth || CONFIG.GRID_SIZE;
             this.renderer.setGridSize(this.grid.size);
 
@@ -900,7 +906,13 @@ export class Game {
     spawnBlocks(opts = {}) {
         const layered = resolveAdaptiveStrategy(
             this.strategy, this.playerProfile, this.score, this.runStreak,
-            this.grid.getFillRatio(), this._spawnContext
+            this.grid.getFillRatio(), {
+                ...this._spawnContext,
+                _gridRef: this.grid,
+                _dockShapePool: (this.dockBlocks || [])
+                    .filter((b) => b && !b.placed && Array.isArray(b.shape))
+                    .map((b) => ({ data: b.shape }))
+            }
         );
         this._captureAdaptiveInsight(layered);
 

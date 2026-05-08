@@ -1923,6 +1923,14 @@ def ops_dashboard():
     db = get_db()
 
     try:
+        def _safe_div(a, b, nd=4):
+            if not b:
+                return 0.0
+            return round(a / b, nd)
+
+        def _pct(a, b):
+            return round(_safe_div(a, b, 4) * 100, 2)
+
         # ── 活跃度 ──
         active_users = db.execute(
             "SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time >= ?",
@@ -1942,6 +1950,14 @@ def ops_dashboard():
         )
 
         avg_sessions = round(total_sessions / max(active_users, 1), 2)
+
+        # ── MAU / DAU-MAU ──
+        since_30d_ms = int((time.time() - 30 * 86400) * 1000)
+        mau_users = db.execute(
+            "SELECT COUNT(DISTINCT user_id) as cnt FROM sessions WHERE start_time >= ?",
+            (since_30d_ms,),
+        ).fetchone()["cnt"]
+        dau_mau_ratio = _safe_div(active_users, mau_users, 4)
 
         # ── 留存（近7日注册用户在第N天是否再次活跃） ──
         def _retention(delta_min, delta_max):
@@ -1972,6 +1988,44 @@ def ops_dashboard():
         # 口径：与历史字段一致，D7 使用 6–8 日宽松窗口（非严格的「第 7 自然日」）
         d7 = _retention(6, 8)
         d30 = _retention(29, 31)
+
+        # ── 流失预警（近 30 天活跃用户里，近 7 天未活跃） ──
+        since_7d_ts = int(time.time() - 7 * 86400)
+        last_seen_rows = db.execute(
+            "SELECT user_id, last_seen FROM user_stats WHERE last_seen >= ?",
+            (int(time.time() - 30 * 86400),),
+        ).fetchall()
+        churn_total = len(last_seen_rows)
+        churn_risk_users = sum(1 for r in last_seen_rows if (r["last_seen"] or 0) < since_7d_ts)
+        churn_risk_rate = _safe_div(churn_risk_users, churn_total, 4)
+
+        # ── 获客（可用数据口径） ──
+        new_users = db.execute(
+            """
+            SELECT COUNT(*) AS cnt FROM (
+                SELECT user_id, MIN(start_time) AS first_start
+                FROM sessions
+                GROUP BY user_id
+                HAVING first_start >= ?
+            ) t
+            """,
+            (since_ms,),
+        ).fetchone()["cnt"]
+        # 当前无稳定渠道成本写入，先返回 0 并在前端标记“待接入”
+        acquisition_cost = 0.0
+        # 口径：invite_register / invite_complete 作为渠道转化事件，分母取 invite_click/view
+        behavior_counts_rows = db.execute(
+            "SELECT event_type, COUNT(*) AS cnt FROM behaviors WHERE timestamp >= ? GROUP BY event_type",
+            (since_ts,),
+        ).fetchall()
+        behavior_counts = {r["event_type"]: r["cnt"] for r in behavior_counts_rows}
+        channel_conv_num = behavior_counts.get("invite_register", 0) + behavior_counts.get("invite_complete", 0)
+        channel_conv_den = (
+            behavior_counts.get("invite_click", 0)
+            + behavior_counts.get("invite_view", 0)
+            + behavior_counts.get("register", 0)
+        )
+        channel_conversion_rate = _safe_div(channel_conv_num, channel_conv_den, 4)
 
         # ── 用户分群分布（基于 user_stats） ──
         segment_rows = db.execute(
@@ -2017,6 +2071,144 @@ def ops_dashboard():
             (since_ts,),
         ).fetchall()
 
+        # ── 收入指标（payments） ──
+        payment_rows = db.execute(
+            """
+            SELECT user_id, amount_minor, status, created_at
+            FROM payments
+            WHERE created_at >= ?
+            """,
+            (since_ts,),
+        ).fetchall()
+        paid_status = {"paid", "success", "completed"}
+        filtered_payments = [r for r in payment_rows if (r["status"] or "").lower() in paid_status]
+        if not filtered_payments:
+            # 兼容历史数据 status 为空的场景：回退统计 amount_minor>0
+            filtered_payments = [r for r in payment_rows if (r["amount_minor"] or 0) > 0]
+        revenue_cny = sum((r["amount_minor"] or 0) for r in filtered_payments) / 100.0
+        order_count = len(filtered_payments)
+        paying_users = len({r["user_id"] for r in filtered_payments if r["user_id"]})
+        arpdau = _safe_div(revenue_cny, active_users, 4)
+        arpu = _safe_div(revenue_cny, paying_users, 4)
+        paid_rate = _safe_div(paying_users, active_users, 4)
+
+        total_revenue_row = db.execute(
+            """
+            SELECT SUM(amount_minor) AS s
+            FROM payments
+            WHERE lower(status) IN ('paid','success','completed')
+            """
+        ).fetchone()
+        total_revenue_cny = ((total_revenue_row["s"] or 0) / 100.0) if total_revenue_row else 0.0
+        total_users_row = db.execute("SELECT COUNT(DISTINCT user_id) AS cnt FROM sessions").fetchone()
+        total_users = total_users_row["cnt"] if total_users_row else 0
+        ltv = _safe_div(total_revenue_cny, total_users, 4)
+
+        # ── 质量指标（behaviors 事件口径） ──
+        crash_events = (
+            behavior_counts.get("crash", 0)
+            + behavior_counts.get("app_crash", 0)
+            + behavior_counts.get("fatal_error", 0)
+        )
+        lag_events = behavior_counts.get("frame_drop", 0) + behavior_counts.get("jank", 0) + behavior_counts.get("lag", 0)
+        crash_rate = _safe_div(crash_events, total_sessions, 4)
+        jank_rate = _safe_div(lag_events, total_sessions, 4)
+
+        # 加载时长：从 event_data.load_ms / duration_ms 聚合
+        load_rows = db.execute(
+            """
+            SELECT event_data FROM behaviors
+            WHERE timestamp >= ?
+              AND event_type IN ('app_open','load_complete','resource_loaded','scene_loaded')
+            """,
+            (since_ts,),
+        ).fetchall()
+        load_samples = []
+        for r in load_rows:
+            try:
+                d = json.loads(r["event_data"] or "{}")
+                v = d.get("load_ms", d.get("duration_ms"))
+                if isinstance(v, (int, float)) and v > 0:
+                    load_samples.append(float(v))
+            except Exception:
+                continue
+        avg_load_ms = round(sum(load_samples) / len(load_samples), 1) if load_samples else 0.0
+
+        # ── 业务指标：广告 ──
+        ad_show = behavior_counts.get("ad_show", 0)
+        ad_click = behavior_counts.get("ad_click", 0)
+        ad_complete = behavior_counts.get("ad_complete", 0)
+        ad_trigger = behavior_counts.get("ad_trigger", 0)
+        ad_impression_rate = _safe_div(ad_show, ad_trigger if ad_trigger > 0 else total_sessions, 4)
+        ad_ctr = _safe_div(ad_click, ad_show, 4)
+        ad_completion_rate = _safe_div(ad_complete, ad_show, 4)
+        # eCPM 需广告收入数据，当前用 payments 中 provider=ad 作为近似（无则 0）
+        ad_rev_rows = db.execute(
+            """
+            SELECT SUM(amount_minor) AS s
+            FROM payments
+            WHERE created_at >= ? AND lower(provider) IN ('ad','ads','admob','unityads')
+            """,
+            (since_ts,),
+        ).fetchone()
+        ad_revenue_cny = ((ad_rev_rows["s"] or 0) / 100.0) if ad_rev_rows else 0.0
+        ecpm = _safe_div(ad_revenue_cny * 1000.0, ad_show, 4)
+
+        # ── 业务指标：IAP ──
+        iap_conv = paid_rate
+        avg_order_value = _safe_div(revenue_cny, order_count, 4)
+        repurchase_users = 0
+        if filtered_payments:
+            buy_times = {}
+            for r in filtered_payments:
+                uid = r["user_id"]
+                if not uid:
+                    continue
+                buy_times[uid] = buy_times.get(uid, 0) + 1
+            repurchase_users = sum(1 for v in buy_times.values() if v >= 2)
+        repurchase_rate = _safe_div(repurchase_users, paying_users, 4)
+
+        # ── 业务指标：社交 ──
+        share_events = behavior_counts.get("share", 0) + behavior_counts.get("invite_share", 0)
+        invite_click = behavior_counts.get("invite_click", 0)
+        invite_register = behavior_counts.get("invite_register", 0)
+        share_rate = _safe_div(share_events, active_users, 4)
+        invite_conversion = _safe_div(invite_register, invite_click, 4)
+        friend_rows = db.execute(
+            """
+            SELECT event_data FROM behaviors
+            WHERE timestamp >= ? AND event_type IN ('friend_count','social_state')
+            """,
+            (since_ts,),
+        ).fetchall()
+        friend_samples = []
+        for r in friend_rows:
+            try:
+                d = json.loads(r["event_data"] or "{}")
+                v = d.get("friend_count", d.get("friends"))
+                if isinstance(v, (int, float)) and v >= 0:
+                    friend_samples.append(float(v))
+            except Exception:
+                continue
+        avg_friends = round(sum(friend_samples) / len(friend_samples), 2) if friend_samples else 0.0
+
+        # ── 业务指标：内容 ──
+        skin_use = behavior_counts.get("skin_use", 0)
+        item_use = (
+            behavior_counts.get("item_use", 0)
+            + behavior_counts.get("skill_use", 0)
+            + behavior_counts.get("hint_use", 0)
+            + behavior_counts.get("bomb_use", 0)
+            + behavior_counts.get("undo_use", 0)
+        )
+        ach_count = db.execute(
+            "SELECT COUNT(*) AS cnt FROM achievements WHERE unlocked_at >= ?",
+            (since_ts,),
+        ).fetchone()["cnt"]
+        skin_usage_rate = _safe_div(skin_use, active_users, 4)
+        item_consumption_per_user = _safe_div(item_use, active_users, 4)
+        achievement_completion_rate = _safe_div(ach_count, active_users, 4)
+
         return jsonify(
             {
                 "days": days,
@@ -2035,6 +2227,61 @@ def ops_dashboard():
                     {"userId": r["user_id"][:8] + "...", "score": r["best_score"]}
                     for r in top_scores
                 ],
+                # v1.x：统一核心指标/业务指标口径，供运营看板渲染
+                "coreMetrics": {
+                    "acquisition": {
+                        "newUsers": new_users,
+                        "cost": round(acquisition_cost, 2),
+                        "channelConversionRate": channel_conversion_rate,
+                    },
+                    "retention": {
+                        "d1": d1,
+                        "d7": d7,
+                        "d30": d30,
+                        "churnRiskRate": churn_risk_rate,
+                    },
+                    "activity": {
+                        "dau": active_users,
+                        "mau": mau_users,
+                        "dauMau": dau_mau_ratio,
+                        "avgDurationSec": round(avg_duration / 1000, 1) if avg_duration > 1000 else round(avg_duration, 1),
+                        "avgSessionsPerUser": avg_sessions,
+                    },
+                    "revenue": {
+                        "arpdau": arpdau,
+                        "ltv": ltv,
+                        "paidRate": paid_rate,
+                        "arpu": arpu,
+                    },
+                    "quality": {
+                        "crashRate": crash_rate,
+                        "jankRate": jank_rate,
+                        "avgLoadMs": avg_load_ms,
+                    },
+                },
+                "businessMetrics": {
+                    "ads": {
+                        "impressionRate": ad_impression_rate,
+                        "clickRate": ad_ctr,
+                        "ecpm": ecpm,
+                        "completionRate": ad_completion_rate,
+                    },
+                    "iap": {
+                        "conversionRate": iap_conv,
+                        "avgOrderValue": avg_order_value,
+                        "repurchaseRate": repurchase_rate,
+                    },
+                    "social": {
+                        "shareRate": share_rate,
+                        "inviteConversion": invite_conversion,
+                        "avgFriends": avg_friends,
+                    },
+                    "content": {
+                        "skinUsageRate": skin_usage_rate,
+                        "itemConsumptionPerUser": item_consumption_per_user,
+                        "achievementCompletionRate": achievement_completion_rate,
+                    },
+                },
             }
         )
     except Exception as e:

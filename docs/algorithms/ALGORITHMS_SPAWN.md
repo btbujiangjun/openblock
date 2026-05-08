@@ -324,6 +324,15 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 > - **`playerInsightPanel` 救济三分量 pill**：`挫败救济 / 恢复 / 近失` 三条
 >   `stressBreakdown` 分量直接显示在 pill 行，玩家不必从故事线倒推。
 >
+> **v1.26 修订要点（AdaptiveSpawn live 几何覆盖）**
+> - **决策入口改 live 覆盖**：`adaptiveSpawn` 新增 `_mergeLiveGeometrySignals(ctx)`，
+>   当 `spawnContext._gridRef` 可用时，先重算 `nearFullLines` 并按 `_dockShapePool`
+>   （dock 不可用回退全形状库）重算 `multiClearCandidates`，再覆盖进本轮 `ctx` 参与
+>   `spawnIntent/rhythmPhase/multiClearBonus/multiLineTarget` 判定。目的：减少
+>   “策略卡读 live+dock，而 adaptiveSpawn 读旧快照”导致的时序偏差。
+> - **`game.js` 调用 `resolveAdaptiveStrategy` 时注入 `_gridRef/_dockShapePool`**：
+>   仅单次调用上下文生效，不污染持久 `_spawnContext`。
+>
 > **v1.24 修订要点（flow 叙事相位变体表）**
 > - **`SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体**：旧版硬编码
 >   "心流稳定，节奏进入收获期…"，但 `spawnIntent='flow'` 触发条件包含
@@ -333,6 +342,18 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 >   修复：新增 `FLOW_NARRATIVE_BY_PHASE`（payoff/setup/neutral 各一句），
 >   `buildStoryLine` 在 `spawnIntent='flow'` 时按当前 `rhythmPhase` 选变体；
 >   rhythmPhase 缺失时回退到通用兜底文案"心流稳定，系统继续维持流畅的出块节奏。"
+> - **多消策略判断依据（v1.25 统一口径）**：
+>   - 数据源优先级：`liveTopology.nearFullLines` + `liveMultiClearCandidates`
+>     优先，缺失时回退 `diag.layer1.nearFullLines/multiClearCandidates`。
+>   - `liveMultiClearCandidates` 统计口径：优先按当前 dock 三块（未放置）里可达
+>     `multiClear>=2` 的块数，不再按全形状库估算；仅在 dock 不可用时回退全形状库。
+>   - `🎯 多消机会`：`nearFullLines >= 3 && multiClearCandidates >= 2`
+>   - `✂️ 逐条清理`：`nearFullLines >= 3 && multiClearCandidates < 2`
+>   - `💎 收获期 / 收获期·待兑现`：前置 `hints.rhythmPhase==='payoff'`，再按
+>     `multiClearCandidates >= 1 || nearFullLines >= 2` 分流；不满足则切
+>     「收获期·待兑现」文案（先稳住手等下次 spawn 兑现）。
+>   - `🎯 提升挑战`：`flowState='bored' && !harvestNow && fill>=0.18`，
+>     属于前瞻构型建议，不是即时多消兑现；与收获态互斥。
 >
 > **v1.23 修订要点（叙事优先级 + 收获期 live 几何 mutex）**
 > - **`stressMeter.buildStoryLine` spawnIntent 永远优先**：v1.16 加的 gating

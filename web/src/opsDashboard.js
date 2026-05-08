@@ -88,6 +88,15 @@ function _injectStyles() {
     align-content: start;
 }
 
+.ops-section-title {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: .04em;
+    margin: 2px 0 -2px;
+}
+
 /* ── 卡片 ── */
 .ops-card {
     background: #1a1d27;
@@ -231,6 +240,32 @@ function _injectStyles() {
 /* ── A/B 表 ── */
 .ops-ab-winner { color: #22c55e; font-weight: 700; }
 
+/* ── 指标组 ── */
+.ops-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+}
+.ops-metric-cell {
+    background: #22263a;
+    border: 1px solid rgba(91,155,213,.12);
+    border-radius: 6px;
+    padding: 7px 8px;
+}
+.ops-metric-label {
+    font-size: 9px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+}
+.ops-metric-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+.ops-metric-value--good { color: #22c55e; }
+.ops-metric-value--warn { color: #f59e0b; }
+.ops-metric-value--bad  { color: #ef4444; }
+
 /* ── 状态 ── */
 .ops-loading { color: #64748b; text-align: center; padding: 32px; font-size: 12px; }
 .ops-error   { color: #ef4444; text-align: center; padding: 20px; font-size: 11px; line-height: 1.5; }
@@ -286,6 +321,12 @@ async function _loadData(days = 7) {
 
         bodyEl.innerHTML = '';
 
+        // 新版：核心指标 + 业务指标（运营体系）
+        bodyEl.appendChild(_sectionTitle('核心指标'));
+        bodyEl.appendChild(_coreMetricsCard(dash.coreMetrics || {}));
+        bodyEl.appendChild(_sectionTitle('业务指标'));
+        bodyEl.appendChild(_businessMetricsCard(dash.businessMetrics || {}));
+
         // KPI 卡片
         bodyEl.appendChild(_kpiCard('日活 (DAU)', dash.activity.dau, '', _rc(dash.activity.dau, 10, 50)));
         bodyEl.appendChild(_kpiCard('人均局数', dash.activity.avgSessionsPerUser, '局/人', _rc(dash.activity.avgSessionsPerUser, 3, 6)));
@@ -327,6 +368,90 @@ function _card(title, extraClass = '') {
         d.appendChild(t);
     }
     return d;
+}
+
+function _sectionTitle(text) {
+    const d = document.createElement('div');
+    d.className = 'ops-section-title';
+    d.textContent = text;
+    return d;
+}
+
+function _fmtPct(v) {
+    const n = Number(v) || 0;
+    return (n * 100).toFixed(1) + '%';
+}
+
+function _fmtMoney(v) {
+    const n = Number(v) || 0;
+    return `¥${n.toFixed(2)}`;
+}
+
+function _fmtNum(v, digits = 2) {
+    const n = Number(v) || 0;
+    if (Math.abs(n) >= 1000) return n.toLocaleString('zh-CN');
+    return n.toFixed(digits);
+}
+
+function _metricCell(label, value, cls = '') {
+    return `<div class="ops-metric-cell">
+      <div class="ops-metric-label">${label}</div>
+      <div class="ops-metric-value ${cls}">${value}</div>
+    </div>`;
+}
+
+function _coreMetricsCard(core) {
+    const c = _card('核心指标总览', 'ops-card--full');
+    const acq = core.acquisition || {};
+    const ret = core.retention || {};
+    const act = core.activity || {};
+    const rev = core.revenue || {};
+    const q = core.quality || {};
+    c.innerHTML += `<div class="ops-metric-grid">
+      ${_metricCell('获客·新增用户', _fmtNum(acq.newUsers, 0))}
+      ${_metricCell('获客·成本', _fmtMoney(acq.cost))}
+      ${_metricCell('获客·渠道转化', _fmtPct(acq.channelConversionRate))}
+      ${_metricCell('留存·D1', _fmtPct(ret.d1))}
+      ${_metricCell('留存·D7', _fmtPct(ret.d7))}
+      ${_metricCell('留存·D30', _fmtPct(ret.d30))}
+      ${_metricCell('留存·流失预警', _fmtPct(ret.churnRiskRate), (ret.churnRiskRate || 0) > 0.4 ? 'ops-metric-value--warn' : '')}
+      ${_metricCell('活跃·DAU', _fmtNum(act.dau, 0))}
+      ${_metricCell('活跃·DAU/MAU', _fmtPct(act.dauMau))}
+      ${_metricCell('活跃·游玩时长', _fmtNum(act.avgDurationSec, 1) + 's')}
+      ${_metricCell('活跃·人均局数', _fmtNum(act.avgSessionsPerUser, 2))}
+      ${_metricCell('收入·ARPDAU', _fmtMoney(rev.arpdau))}
+      ${_metricCell('收入·LTV', _fmtMoney(rev.ltv))}
+      ${_metricCell('收入·付费率', _fmtPct(rev.paidRate))}
+      ${_metricCell('收入·ARPU', _fmtMoney(rev.arpu))}
+      ${_metricCell('质量·崩溃率', _fmtPct(q.crashRate), (q.crashRate || 0) > 0.01 ? 'ops-metric-value--bad' : '')}
+      ${_metricCell('质量·卡顿率', _fmtPct(q.jankRate), (q.jankRate || 0) > 0.1 ? 'ops-metric-value--warn' : '')}
+      ${_metricCell('质量·加载时长', _fmtNum(q.avgLoadMs, 1) + 'ms')}
+    </div>`;
+    return c;
+}
+
+function _businessMetricsCard(biz) {
+    const c = _card('业务指标总览', 'ops-card--full');
+    const ads = biz.ads || {};
+    const iap = biz.iap || {};
+    const social = biz.social || {};
+    const content = biz.content || {};
+    c.innerHTML += `<div class="ops-metric-grid">
+      ${_metricCell('广告·展示率', _fmtPct(ads.impressionRate))}
+      ${_metricCell('广告·点击率', _fmtPct(ads.clickRate))}
+      ${_metricCell('广告·eCPM', _fmtMoney(ads.ecpm))}
+      ${_metricCell('广告·完播率', _fmtPct(ads.completionRate))}
+      ${_metricCell('IAP·转化率', _fmtPct(iap.conversionRate))}
+      ${_metricCell('IAP·客单价', _fmtMoney(iap.avgOrderValue))}
+      ${_metricCell('IAP·复购率', _fmtPct(iap.repurchaseRate))}
+      ${_metricCell('社交·分享率', _fmtPct(social.shareRate))}
+      ${_metricCell('社交·邀请转化', _fmtPct(social.inviteConversion))}
+      ${_metricCell('社交·好友数', _fmtNum(social.avgFriends, 2))}
+      ${_metricCell('内容·皮肤使用率', _fmtPct(content.skinUsageRate))}
+      ${_metricCell('内容·道具消耗', _fmtNum(content.itemConsumptionPerUser, 2))}
+      ${_metricCell('内容·成就完成率', _fmtPct(content.achievementCompletionRate))}
+    </div>`;
+    return c;
 }
 
 function _kpiCard(title, val, unit, cls) {

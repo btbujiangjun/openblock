@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (v1.26 — AdaptiveSpawn Live Geometry Override)
+- **`adaptiveSpawn` 在决策前接入 live 几何覆盖（nearFull/multiClear）**：
+  为减少“策略卡按 live+dock、而 adaptiveSpawn 仍读旧 ctx 快照”的时序偏差，新增
+  `_mergeLiveGeometrySignals(ctx)`：
+  - 当 `spawnContext._gridRef` 存在时，先用 `analyzeBoardTopology(grid)` 重算
+    `nearFullLines`
+  - `multiClearCandidates` 优先按 `_dockShapePool` 统计（若不可用回退全形状库）
+  - 再覆盖进本轮 `ctx` 参与 `spawnIntent` / `rhythmPhase` / `multiClearBonus` /
+    `multiLineTarget` 等判定
+- **`game.js` 调用 `resolveAdaptiveStrategy` 时注入 `_gridRef` 与 `_dockShapePool`**
+  （不污染持久 `_spawnContext`，仅单次调用上下文生效）。
+- 新增测试：`tests/adaptiveSpawn.test.js` 覆盖“陈旧快照=0，但 live 网格具备 nearFull/multiClear”
+  时仍可正确走 `spawnIntent='harvest'`。
+
+### Changed (v1.25 — Multi-Clear Candidate Must Match Current Dock)
+- **`playerInsightPanel` 的 `liveMultiClearCandidates` 改为 dock 优先统计**：
+  旧版按 `getAllShapes()` 全形状库统计“可多消块种数”，会出现“策略提示有多消机会，
+  但当前候选三块（dock）根本打不中”的体感偏差。新版优先只统计 `game.dockBlocks`
+  中未放置块（玩家当下真能用的 3 块）里可达 `multiClear>=2` 的数量；仅在 dock 不可用
+  时回退全形状库（兼容开局/测试桩）。这样「多消候选 N」pill 与策略建议均与当前候选块一致。
+
 ### Changed (v1.24 — Flow Narrative Phase Variants)
 - **`stressMeter.SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体表**：
   旧版 `flow` 文案硬编码"心流稳定，节奏进入收获期，准备享受多消快感。"，但 spawnIntent='flow'
