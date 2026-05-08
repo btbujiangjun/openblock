@@ -232,6 +232,22 @@ describe('buildStoryLine', () => {
         expect(story).not.toMatch(/收获期/); // v1.24 兜底文案也不再硬编码"收获期"
     });
 
+    it('v1.27 level=tense + spawnIntent=flow 时不再输出"心流稳定"（与档位一致）', () => {
+        const tenseLevel = STRESS_LEVELS.find((l) => l.id === 'tense');
+        const story = buildStoryLine(tenseLevel, {}, null,
+            { spawnIntent: 'flow', rhythmPhase: 'setup' });
+        expect(story).toMatch(/压力|优先保留|通道/);
+        expect(story).not.toMatch(/心流稳定/);
+    });
+
+    it('v1.27 level=intense + spawnIntent=flow 时改为高压保活语义', () => {
+        const intenseLevel = STRESS_LEVELS.find((l) => l.id === 'intense');
+        const story = buildStoryLine(intenseLevel, {}, null,
+            { spawnIntent: 'flow', rhythmPhase: 'payoff' });
+        expect(story).toMatch(/高压区|优先保活|基础消行/);
+        expect(story).not.toMatch(/心流稳定|收获期/);
+    });
+
     it('v1.24 其他 intent (relief/harvest 等) 不受 flow 变体表影响', () => {
         const reliefStory = buildStoryLine(flowLevel, {}, null,
             { spawnIntent: 'relief', rhythmPhase: 'setup' });

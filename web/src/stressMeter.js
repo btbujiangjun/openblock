@@ -177,6 +177,17 @@ export const FLOW_NARRATIVE_BY_PHASE = {
 };
 
 /**
+ * v1.27：高压档下的 flow 意图叙事守卫。
+ * 当 stress level 已到 tense/intense 时，继续说“心流稳定”会与头像/等级冲突。
+ * 这里按 level 兜底到“紧张/高压”语义，保持主标题与正文同口径。
+ */
+const FLOW_HIGH_STRESS_NARRATIVE_BY_LEVEL = {
+    engaged: '需要更多专注，先稳住关键落点，再逐步扩大消行窗口。',
+    tense: '压力正在抬升，优先保留可消行通道，避免高列继续堆积。',
+    intense: '进入高压区，系统会优先保活，先确保可落位与基础消行。'
+};
+
+/**
  * 从 spawnTargets / spawnHints / breakdown 拼一个「一句话叙事」：
  * 优先级：boardRisk 极高 > spawnIntent（唯一对外口径） > 老回放兜底
  */
@@ -205,6 +216,8 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
     if (br >= 0.6) return '盘面很紧张，系统正在为你保活，候选块更易消行。';
     const intent = spawnHints?.spawnIntent;
     if (intent === 'flow') {
+        const highStressFlow = FLOW_HIGH_STRESS_NARRATIVE_BY_LEVEL[level?.id];
+        if (highStressFlow) return highStressFlow;
         const phase = spawnHints?.rhythmPhase;
         return FLOW_NARRATIVE_BY_PHASE[phase] ?? SPAWN_INTENT_NARRATIVE.flow;
     }
