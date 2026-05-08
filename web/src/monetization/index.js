@@ -24,15 +24,15 @@ let _lazyModules = {};
  * 在 {@link initMonetization} 中按声明顺序串行/并行加载，未列出的模块走兜底的硬编码加载逻辑。
  */
 const LAZY_MODULES = [
-    { name: 'adAdapter', path: './adAdapter.js', flag: 'adsRewarded' },
-    { name: 'adTrigger', path: './adTrigger.js', flag: 'adsInterstitial' },
-    { name: 'dailyTasks', path: './dailyTasks.js', flag: 'dailyTasks' },
-    { name: 'leaderboard', path: './leaderboard.js', flag: 'leaderboard' },
-    { name: 'seasonPass', path: './seasonPass.js', flag: 'seasonPass' },
-    { name: 'pushNotifications', path: './pushNotifications.js', flag: 'pushNotifications' },
-    { name: 'replayShare', path: './replayShare.js', flag: 'replayShare' },
-    { name: 'commercialInsight', path: './commercialInsight.js', flag: 'insightPanel' },
-    { name: 'monPanel', path: './monPanel.js', flag: 'rlPanel' }
+    { name: 'adAdapter', loader: () => import('./adAdapter.js'), flag: 'adsRewarded' },
+    { name: 'adTrigger', loader: () => import('./adTrigger.js'), flag: 'adsInterstitial' },
+    { name: 'dailyTasks', loader: () => import('./dailyTasks.js'), flag: 'dailyTasks' },
+    { name: 'leaderboard', loader: () => import('./leaderboard.js'), flag: 'leaderboard' },
+    { name: 'seasonPass', loader: () => import('./seasonPass.js'), flag: 'seasonPass' },
+    { name: 'pushNotifications', loader: () => import('./pushNotifications.js'), flag: 'pushNotifications' },
+    { name: 'replayShare', loader: () => import('./replayShare.js'), flag: 'replayShare' },
+    { name: 'commercialInsight', loader: () => import('./commercialInsight.js'), flag: 'insightPanel' },
+    { name: 'monPanel', loader: () => import('./monPanel.js'), flag: 'rlPanel' }
 ];
 
 /**
@@ -40,7 +40,7 @@ const LAZY_MODULES = [
  * @returns {Promise<object|null>} 模块对象；当 flag 未开启或 import 失败时返回 null
  */
 async function _loadModule(moduleDef) {
-    const { name, path, flag } = moduleDef;
+    const { name, loader, flag } = moduleDef;
 
     if (flag && !getFlag(flag)) {
         console.log(`[Monetization] Skipping ${name} (flag: ${flag} = false)`);
@@ -48,7 +48,8 @@ async function _loadModule(moduleDef) {
     }
 
     try {
-        const module = await import(path);
+        // 直接调用 loader()，Vite 能够静态分析这里的 import()
+        const module = await loader();
         _lazyModules[name] = module;
         return module;
     } catch (e) {
