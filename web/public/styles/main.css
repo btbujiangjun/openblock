@@ -2451,6 +2451,16 @@ body.game-over-active .first-win-banner {
     opacity: 0.92;
 }
 
+/* v1.21：spawn 决策快照 marker —— 视觉上把 spawn 时锁定的 pill 与 live pill 分开，
+ * 避免"决策说兑现 + live 几何 0 多消候选"看起来像撞墙（其实只是时序错位）。 */
+.insight-weight--snapshot {
+    font-weight: 600 !important;
+    background: color-mix(in srgb, var(--accent-color, #1a6b5c) 10%, transparent) !important;
+    border: 1px dashed color-mix(in srgb, var(--accent-color, #1a6b5c) 35%, transparent);
+    color: var(--text-primary, #1e293b) !important;
+    margin-left: 2px;
+}
+
 .insight-weights {
     display: flex;
     flex-wrap: wrap;

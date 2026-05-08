@@ -7,6 +7,216 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (v1.22 — Card Mutex (Build vs Harvest) + Sparkline Help Decoder)
+- **`strategyAdvisor`「规划堆叠」卡加 `harvestNow` 互斥**：
+  v1.17 已为「提升挑战」卡加了 `harvestNow = (rhythmPhase==='payoff' || spawnIntent==='harvest')`
+  的互斥（避免与「收获期」卡叙事拉扯），但同文件第 11 张「构型建议 → 规划堆叠」卡
+  仍只看 `fill<0.3 && skill>0.5`，导致线上截图复现：rhythmPhase=payoff + 板面 30% +
+  skill 78% 时一帧出现两张方向相反的卡——
+  - 💎 收获期：「积极消除享分」（要求当下兑现）
+  - 🏗️ 规划堆叠：「留出 1~2 列通道为后续做准备」（要求蓄力搭建）
+  
+  修复同样加 `&& !harvestNow` 闸，`payoff` / `harvest` 时跳过此卡，搭建/中性期仍
+  保留长期建议。新增 3 条互斥单测（payoff 抑制 / harvest 单独抑制 / neutral 仍可触发）。
+- **REPLAY_METRICS 19 条 sparkline tooltip 全量补「📈 看图」解读段**：
+  原 tooltip 只解释"是什么"（指标定义），不解释"曲线怎么读"。新增统一的 `📈 看图：…` 段，
+  说明：典型范围、上行/下行/平台/拐点的含义、与哪条相邻曲线互相印证、什么读数对应
+  哪种 strategyAdvisor 卡 / spawnIntent 切换。覆盖：得分 / 技能 / 板面 / 消行率 / 压力 /
+  F(t) / 动量 / 未消行 / 负荷 / 失误 / 思考 / 闭环 + 6 条 stress 分量（难度 / 心流 /
+  松紧 / 救济 / 会话 / **挑战**）。
+- **「挑战」(challengeBoost) sparkline tooltip 显式说明触发条件**：
+  玩家常因看到曲线长期为 0 而怀疑指标失效。新 tooltip 写明：
+  > 触发条件 `score ≥ bestScore × 0.8` 且 `stress < 0.7`，公式
+  > `min(0.15, (score/best - 0.8) × 0.75)`。在到达 80% 阈值前曲线恒为 0 是预期；
+  > 从 0 抬到正值说明你正在冲击新高、系统要把节奏推到"决赛圈"。同时会把
+  > spawnIntent 切到 pressure。本局最佳为 0 时（首局）也恒为 0。
+  
+  机制本身（adaptiveSpawn.js:615-622 + v1.20 5 条单测）已健壮，本次只补叙事层。
+
+### Changed (v1.21 — Phase Coherence + Snapshot Marker + Borderline Damping)
+- **`adaptiveSpawn.deriveRhythmPhase`：`'setup'` 与 `'harvest'` 互斥兜底**：
+  v1.17 加 `canPromoteToPayoff` 时只堵了 `'neutral'→'payoff'` 的提升路径，没堵
+  `'setup'` 在有几何时被错误返回。线上截图复现：`pacingPhase='tension' &&
+  roundsSinceClear=0 && nearFullLines>=2` 同时满足时 → 一帧出现 pill「节奏 搭建」+
+  「意图 兑现」+ stress story「投放促清形状」+ strategyAdvisor「搭建期 稳定堆叠
+  留通道」对立叙事。修复给 `'setup'` 分支加 `&& !nearGeom`：紧张期开头若几何
+  已经支持兑现就 fall through 到 `'neutral'`、由后续 `canPromoteToPayoff` 升 `'payoff'`，
+  与 `spawnIntent='harvest'` 同口径。
+- **`playerInsightPanel._buildWhyLines(insight, profile)`：纯 live 量改 live 优先**：
+  v1.20 已经把 pill 的 F(t) / 闭环反馈改 live，但策略解释段（`_buildWhyLines`）还在
+  用 `insight.flowDeviation` / `insight.feedbackBias` / `insight.flowState`（spawn 快照），
+  造成"sparkline F(t)=0.82 / pill 0.82 / 解释 0.78"三态打架。改为双参签名，
+  纯 live 量优先 `profile.*`，spawn 决策类（spawnIntent / spawnHints / stressBreakdown / 
+  strategyId / difficultyBias）继续读 `insight.*`。
+- **`playerInsightPanel`：spawn 决策 pill 之前插入「📷 R{n} spawn 决策」marker**：
+  spawn 决策类 pill（意图/目标保消/尺寸/多样/节奏/弧线/连击/多消/多线×/形状权重）
+  与上方 live pill（压力/F(t)/闭环反馈/占用/救济通路）和下方 live 几何 pill
+  （多消候选/近满/空洞/平整/解法/合法序）混排，玩家分不清"spawn 决策快照"与
+  "live 实时状态"，于是看到「意图 兑现 + 多消候选 0」会误判为撞墙。
+  插入虚线边框的 marker pill，hover tooltip 解释"spawn 后保持不变直到下次 spawn"，
+  视觉上把两组分开。CSS 新增 `.insight-weight--snapshot`。
+- **`playerProfile.flowState`：borderline 去抖**：旧版 `fd > 0.5 && clearRate > 0.4` 在
+  玩家停留在阈值附近时会因 micro-sample 抖动反复在 'bored' / 'flow' 翻面，造成同帧
+  snapshot=bored / live=flow 对不上。两条阈值各加 5% 缓冲（`fd > 0.55 && clearRate > 0.42`），
+  borderline 默认 fall through 到 'flow'，单向偏好心流。
+
+### Tests (v1.21)
+- **`tests/adaptiveSpawn.test.js`** ：新增 2 条 v1.21 互斥测试
+  （tension+roundsSinceClear=0+nearFullLines≥2 → 不再 setup；同条件无几何 → 仍 setup）。
+- **`tests/playerProfile.test.js`** ：新增 1 条 borderline 去抖测试
+  （fd≈0.52 + clearRate=0.41 紧贴旧阈值上方 → 不再 bored，fall through 到 flow）。
+- v1.20 基线 766 → v1.21 **769** 测试，全绿；lint / build / bundle 预算通过
+
+### Changed (v1.20 — Live/Snapshot Alignment + Label Decoupling)
+- **`strategyAdvisor`：多消机会卡 / 瓶颈块卡改读 live 几何（替代 spawn 快照）**：
+  v1.18 引入 `nearFullLines` / `multiClearCandidates` 双卡分流后，仍走 `diag.layer1.*`
+  即 spawn 时快照。玩家在 spawn 后放过 1~3 块、几何已变（清掉了一行 / 已经放完
+  多消候选块）时，策略卡仍按"4 个多消放置 + 3 接近满行"叙述，而面板 pill
+  「多消候选 N」走 live 算 0，两者撞墙。
+  v1.20 让 `playerInsightPanel` 把 `liveTopology` + `liveMultiClearCandidates` 注入
+  `gridInfo`，`strategyAdvisor` 优先读 live、回退 snapshot；`_liveNearFull` /
+  `_liveMultiClearCands` 两个变量统一卡内引用，避免再次混用。
+- **`playerInsightPanel`：F(t) / 闭环反馈 pill 改读 PlayerProfile live**：
+  原本 `F(t) <pill>` 读 `ins.flowDeviation`（spawn 时快照）、左侧 sparkline 末点读
+  `profile.flowDeviation`（live），同一帧出现 0.59 vs 0.47 的 0.12 量级偏差。
+  v1.20 起两侧统一读 PlayerProfile.live；spawn 决策类字段（`spawnIntent` / 
+  `multiClearBonus` 等）仍读 `ins.*` 维持 spawn 时一致。
+- **`moveSequence`：sparkline `pacingAdjust` 标签 「节奏」→「松紧」**：
+  v1.17 把 `pacingPhase` UI 标签解耦成「Session 张弛」，但 sparkline 还在用
+  「节奏」展示 `pacingAdjust`，结果与右侧 `spawnHints.rhythmPhase` pill「节奏 收获」
+  再次撞名（两者一个是相位枚举、一个是数值偏移）。本次改为「松紧」，并在
+  `stressMeter.SIGNAL_LABELS.pacingAdjust` 同步更名 + tooltip 说明二者区别。
+
+### Tests (v1.20)
+- **`tests/adaptiveSpawn.test.js`** ：填补 `challengeBoost` 触发 4 条件单测覆盖
+  （v1.19 之前 0 测试）—— 不触发（`score < 0.8 * bestScore`、`bestScore = 0`）+
+  触发幅度（`min(0.15, (ratio-0.8) * 0.75)` 公式校验）+ `spawnIntent='pressure'`
+  联动；共 **5** 条新增。
+- v1.19 基线 761 → v1.20 **766** 测试，全绿；lint / build / bundle 预算通过
+
+### Changed (v1.19 — Geometry-Honest Spawn Bias)
+- **`adaptiveSpawn`：`multiClearBonus` / `multiLineTarget` 几何兜底（v1.17 cg 兜底姊妹补丁）**：
+  在所有偏好规则之后加一道软封顶 —— 当
+  ① 当前盘面 `multiClearCandidates < 1`
+  ② `nearFullLines < 2`（连"清一条剩两条"都做不到）
+  ③ 不是真 perfect-clear 窗口（`pcSetup ≥ 1` 但 `fill < PC_SETUP_MIN_FILL` 是噪声）
+  ④ 不在 warmup 阶段，且未触发 AFK engage
+  四条同时成立时，把 `multiClearBonus` 软封顶到 0.4、`multiLineTarget` 归 0。
+  避免出现 `playstyle='multi_clear'`、`pcSetup` 噪声、或 v10.x 偏好继承等
+  路径把 bonus 顶到 0.65～0.75，但盘面物理上根本不可能多消，导致 dock 里
+  全是长条 + 玩家落地后只能触发单行消除，「明显多消导向」与现实脱钩。
+  **保留对 cg 兜底的语义对称**：cg 是「承诺」必须可兑现，warmup/AFK 也要兜底；
+  multiClearBonus/multiLineTarget 是「偏好」可以前瞻，warmup/AFK 显式豁免。
+- **`playerInsightPanel`：救济 pill 自动化为 top-N 负贡献（替代 v1.18 硬编码三件套）**：
+  v1.18 把 `frustrationRelief` / `recoveryAdjust` / `nearMissAdjust` 三个分量直接 pill 化，
+  解决了"为什么 stress 这么低"的可解释性问题，但只覆盖 3 条救济。当 `spawnIntent='relief'`
+  来自 `delight.mode` / `flowAdjust` / `pacingAdjust` / `friendlyBoardRelief` 等其他
+  减压源时，三件套全为 0，玩家依然看不出谁在救济。
+  改为复用 `stressMeter.summarizeContributors`，从 `stressBreakdown` 自动挑出当前帧
+  贡献最大的 **top 2 负向分量**（绝对值 ≥ 0.04），标签 + tooltip 直接复用 `SIGNAL_LABELS`，
+  覆盖所有 17 条救济/加压通路。
+
+### Tests (v1.19)
+- **`tests/adaptiveSpawn.test.js`** ：新增 5 个 v1.19 兜底用例（`playstyle=multi_clear` 无几何 → 兜底；
+  `nearFullLines ≥ 2` 不触发；`multiClearCandidates ≥ 1` 不触发；warmup 豁免；低 fill + pcSetup=1 噪声触发）。
+  并把 `multiLineTarget is 2 when pcSetup>=1` 的 fill 从 0.4 提到 0.5（≥ PC_SETUP_MIN_FILL 的真窗口）。
+- **`tests/playstyle.test.js`** ：把 `perfect_hunter` / `multi_clear` 两个 multiClearBonus 期望
+  补上 `nearFullLines: 2` 上下文 —— 玩家偏好不应单独把 bonus 顶到 0.85/0.65，需要盘面真有兑现机会。
+- v1.18 基线 756 → v1.19 **761** 测试，全绿；lint / build / bundle 预算通过
+
+### Added (v1.18 — Narrative Granularity)
+- **`stressMeter.getStressDisplay(stress, spawnIntent)` —— 救济变体头像/文案**：
+  当 `spawnIntent==='relief'` 且 stress 已被压到 ≤ −0.05（落入 calm 档）时，
+  原本的「😌 放松 / 盘面整洁，心情舒缓」改为 **「🤗 放松（救济中）/
+  系统正在为你减压…」**。解决"😌 放松"+"挫败感偏高"叙事撞车的问题，
+  让玩家理解"我现在轻松，是因为系统正在帮我"。easy/flow 等中性档不切，
+  避免过度提示。
+- **`strategyAdvisor`：瓶颈块预警卡（v1.18）**：当 `solutionMetrics.validPerms ≤ 2`
+  且 `fill ≥ 0.4`（解法度量已激活）时，弹「⏳ 瓶颈块」卡（priority 0.86），
+  提醒玩家"先放可放置位最少的那块、别再贪连击"。文案带出 `firstMoveFreedom`
+  辅助定位瓶颈。
+- **`playerInsightPanel`：救济三分量 pill**：把 `stressBreakdown.frustrationRelief
+  / recoveryAdjust / nearMissAdjust` 直接以紧凑 pill 形式（`挫败救济 −0.12 /
+  恢复 −0.08 / 近失 −0.04`）暴露给玩家，不必再从故事线里倒推"现在 stress 是
+  被哪条救济压下去的"。仅在分量 |v| ≥ 0.02 时显示，避免噪声铺屏。
+
+### Changed (v1.18 — Narrative Granularity)
+- **`strategyAdvisor` 多消机会卡分两文案** —— 旧版只要 `nearFullLines ≥ 3` 就
+  鼓动"选择能同时完成多行的位置 / 争取大分"，但盘面 `multiClearCandidates < 2`
+  时物理上无法多消。现在按几何兜底分两条：
+  - `multiClearCands ≥ 2` → 沿用「🎯 多消机会」原文案 + 拼接候选数
+  - `multiClearCands < 2` → 改为「✂️ 逐条清理：暂无多消组合，先把最容易消的
+    那条清掉，缓解压力」
+- **`PlayerProfile.flowState` 复合挣扎检测** —— 旧版要求 `F(t) ≥ 0.25` 才进入
+  方向判定，会漏掉「思考 4 秒 + 失误 13% + 板面 58% + 消行率 25%」这种**单一阈值
+  都没踩穿、但多个弱信号同时成立**的挣扎场景。新增前置判定：
+  ```js
+  const struggleSignals =
+    (m.missRate > 0.10 ? 1 : 0)
+    + (m.thinkMs > thinkTimeStruggleMs (3500) ? 1 : 0)
+    + (m.clearRate < 0.30 ? 1 : 0)
+    + (avgFill > 0.55 && m.clearRate < 0.40 ? 1 : 0);
+  if (struggleSignals >= 3) return 'anxious';
+  ```
+  阈值刻意宽松，每条都是"轻度负面"，必须 ≥3 条同时成立才生效，避免误报。
+  新增可调键 `flowZone.thinkTimeStruggleMs`（默认 3500ms）。
+
+### Tests (v1.18)
+- `tests/stressMeter.test.js` (+5)：`getStressDisplay` 在 calm + relief 时切变体；
+  easy / flow 区不切；其它意图沿用基础档；未提供 intent 沿用基础档。
+- `tests/strategyAdvisor.test.js` (+5)：多消机会 ↔ 逐条清理 分支；
+  validPerms ≤ 2 + fill ≥ 0.4 弹「瓶颈块」高优先级卡；validPerms 充裕不弹；
+  fill < 0.4 不报（避免冷启动误报）。
+- `tests/playerProfile.test.js` (+2)：复合挣扎四信号 ≥3 → anxious；
+  单一信号成立 → 不升 anxious。
+- v1.17 基线 744 → v1.18 **756** 测试，全绿；lint / build / bundle 预算通过
+  （index 231 KB / meta 325 KB / rl 72 KB）。
+
+### Changed (v1.17 — Pressure-Strategy Coherence Patch)
+- **`playerInsightPanel`：拆开"节奏相位"双重含义** —— v1.16 之前 UI 上同时
+  存在两条都叫「节奏相位」的文案：紧凑 pill `节奏 收获` 来自
+  `spawnHints.rhythmPhase`（setup/payoff/neutral，per-spawn），策略解释段
+  `节奏相位：紧张期` 来自 `PlayerProfile.pacingPhase`（tension/release，
+  session 周期内的张弛位置）。同名异义会被玩家视为系统自相矛盾。
+  - `_pacingExplain()` 与 `TOOLTIP.pacing` 改写为 **「Session 张弛」** 专指
+    `pacingPhase`；`spawnHints.rhythmPhase` 保留 `节奏相位` 的称谓。
+- **`adaptiveSpawn`：harvest / payoff 几何兜底** —— `pcSetup ≥ 1` 在低占用
+  盘面（如 17% 散布）经常是噪声，但旧逻辑会无条件把 `spawnIntent='harvest'` /
+  `rhythmPhase='payoff'` 拉满，于是 stressMeter 报「密集消行机会」、出块
+  推 1×4 长条、strategyAdvisor 弹「收获期」，**而盘面其实根本没有任何近满
+  行**。
+  - 新增模块常量 `PC_SETUP_MIN_FILL = 0.45`。
+  - `spawnIntent='harvest'` 现在要求 `nearFullLines ≥ 2` **或**
+    `(pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)`。
+  - `deriveRhythmPhase` 与主路径 `pcSetup ≥ 1` 分支同口径门控。
+  - `delight.mode='challenge_payoff'/'flow_payoff'`、`playstyle='multi_clear'`、
+    `afkEngage` 等"基于玩家状态"的 `payoff` 升级现在统一通过
+    `canPromoteToPayoff = nearFullLines ≥ 1 || multiClearCands ≥ 1 ||
+    (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)` 兜底，避免出块偏向
+    与 UI 叙事在空盘面上撒谎。
+- **`adaptiveSpawn`：clearGuarantee 物理可行性兜底** —— `cg=3` 由 `warmup wb=1` /
+  `roundsSinceClear ≥ 4` 顶上来时承诺"本轮强制 ≥3 块能立刻消行"。但若
+  `multiClearCandidates < 2 && nearFullLines < 2`，盘面物理上无法兑现这条
+  承诺，UI pill 「目标保消 3」即变成空头支票。新增最终兜底：当 `cg ≥ 3`
+  且盘面无几何支撑时回钳到 `2`，仍保持友好出块语义但不撒谎。
+- **`strategyAdvisor`：收获期 ↔ 提升挑战 互斥** —— 同面板上同时出现
+  「💎 收获期：积极消除拿分」与「🚀 提升挑战：构建 3 行+ 同消」两条
+  互相拉扯的目标（一个让玩家"现在兑现"，一个让玩家"蓄力搭建"）。
+  当 `rhythmPhase==='payoff'` 或 `spawnIntent==='harvest'` 时不再追加
+  「提升挑战」卡。同时盘面太稀（`fill < 0.18`）也不再推「3 行+」目标，
+  因为多线候选物理上接近 0。
+
+### Tests (v1.17)
+- `tests/adaptiveSpawn.test.js` (+6)：低占用 + pcSetup=1 不再触发 harvest /
+  rhythmPhase=payoff；高占用 + pcSetup=1 仍 harvest；nearFullLines=2 单独触发
+  harvest；warmup 起手在空盘面 cg 兜底回钳 ≤2；multiClearCandidates ≥2 时
+  cg=3 维持；cross-game warmup 测试样本补 `nearFullLines: 2`。
+- `tests/strategyAdvisor.test.js` (+4，新文件)：rhythmPhase=payoff 时不出
+  「提升挑战」；rhythmPhase=neutral + 中等占用仍出该卡；fill<0.18 抑制；
+  spawnIntent=harvest 单独也能抑制。
+- v1.16 基线 734 → v1.17 **744** 测试，全绿；lint / build / bundle 预算通过
+  （index 231 KB / meta 323 KB / rl 72 KB）。
+
 ### Added (v1.16 — Pressure-Strategy Coherence)
 - **`web/src/boardTopology.detectNearClears(grid, opts)`**: 「近完整行/列」检测的
   单一来源（返回 `{ rows, cols, nearFullLines, close1, close2 }`）。

@@ -6,6 +6,7 @@ import {
     STRESS_LEVELS,
     SIGNAL_LABELS,
     getStressLevel,
+    getStressDisplay,
     summarizeContributors,
     computeTrend,
     buildStoryLine,
@@ -160,6 +161,43 @@ describe('buildStoryLine', () => {
     it('SIGNAL_LABELS 已包含 v1.13 新增信号 friendlyBoardRelief', () => {
         expect(SIGNAL_LABELS.friendlyBoardRelief).toBeDefined();
         expect(SIGNAL_LABELS.friendlyBoardRelief.label).toBe('友好盘面');
+    });
+});
+
+describe('getStressDisplay v1.18 救济变体', () => {
+    it('relief intent + 低 stress（calm）→ 切到「被照顾」face/label', () => {
+        const d = getStressDisplay(-0.15, 'relief');
+        expect(d.face).toBe('🤗');
+        expect(d.label).toMatch(/救济中/);
+        expect(d.id).toBe('calm');
+        expect(d.vibe).toMatch(/系统正在为你减压/);
+    });
+
+    it('relief intent 但 stress 在 easy 区 → 不切（"舒缓 + 主动减压"语义不冲突）', () => {
+        const d = getStressDisplay(0.10, 'relief');
+        expect(d.face).not.toBe('🤗');
+        expect(d.label).not.toMatch(/救济中/);
+        expect(d.id).toBe('easy');
+    });
+
+    it('relief intent 但 stress 在 flow 区 → 不切（已离开低压档）', () => {
+        const d = getStressDisplay(0.30, 'relief');
+        expect(d.face).not.toBe('🤗');
+        expect(d.label).not.toMatch(/救济中/);
+    });
+
+    it('其它 intent 完全沿用 getStressLevel', () => {
+        const d = getStressDisplay(-0.10, 'flow');
+        const base = getStressLevel(-0.10);
+        expect(d.face).toBe(base.face);
+        expect(d.label).toBe(base.label);
+    });
+
+    it('未提供 intent → 沿用基础档', () => {
+        const d = getStressDisplay(-0.10);
+        const base = getStressLevel(-0.10);
+        expect(d.face).toBe(base.face);
+        expect(d.label).toBe(base.label);
     });
 });
 

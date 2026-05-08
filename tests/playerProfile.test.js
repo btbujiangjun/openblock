@@ -91,6 +91,68 @@ describe('PlayerProfile', () => {
         it('starts in flow with few moves', () => {
             expect(p.flowState).toBe('flow');
         });
+
+        it('v1.18 复合挣扎：高 missRate + 长 thinkMs + 低 clearRate + 板面 ≥0.55 → anxious', () => {
+            // 模拟用户截图场景：每个单一阈值都没踩穿，但 ≥3 个弱挣扎信号同时成立
+            // - missRate ≈ 12% (>0.10) ✓
+            // - thinkMs avg ≈ 4000ms (>3500) ✓
+            // - clearRate ≈ 22% (<0.30) ✓
+            // - avgFill 0.58 (>0.55) && clearRate <0.40 ✓
+            const now = Date.now();
+            const moves = [
+                { ts: now + 0,    thinkMs: 4200, cleared: true,  lines: 1, fill: 0.55, miss: false },
+                { ts: now + 1000, thinkMs: 3800, cleared: false, lines: 0, fill: 0.58, miss: false },
+                { ts: now + 2000, thinkMs: 4500, cleared: false, lines: 0, fill: 0.60, miss: false },
+                { ts: now + 3000, thinkMs: 3700, cleared: false, lines: 0, fill: 0.62, miss: false },
+                { ts: now + 4000, thinkMs: 4100, cleared: false, lines: 0, fill: 0.55, miss: false },
+                { ts: now + 5000, thinkMs: 3900, cleared: false, lines: 0, fill: 0.58, miss: false },
+                { ts: now + 6000, thinkMs: 3600, cleared: true,  lines: 1, fill: 0.60, miss: false },
+                { ts: now + 7000, thinkMs: 4000, cleared: false, lines: 0, fill: 0.58, miss: true  },
+                { ts: now + 8000, thinkMs: 3950, cleared: false, lines: 0, fill: 0.60, miss: false }
+            ];
+            for (const m of moves) p._pushMove(m);
+            expect(p.flowState).toBe('anxious');
+        });
+
+        it('v1.18 复合挣扎：单一信号成立（仅高 missRate）→ 不升 anxious（避免误报）', () => {
+            const now = Date.now();
+            // 只有 missRate ≈ 12.5%：思考短、消行率高、板面低
+            const moves = [];
+            for (let i = 0; i < 7; i++) {
+                moves.push({
+                    ts: now + i * 1000, thinkMs: 800, cleared: true, lines: 1, fill: 0.30, miss: false
+                });
+            }
+            moves.push({ ts: now + 7000, thinkMs: 600, cleared: false, lines: 0, fill: 0.30, miss: true });
+            for (const m of moves) p._pushMove(m);
+            expect(p.flowState).not.toBe('anxious');
+        });
+
+        it('v1.21 borderline 去抖：fd≈0.52 + clearRate=0.41（紧贴旧阈值上方）→ 不再 bored', () => {
+            // 截图 R36 帧的 borderline：fd>0.5 + clearRate>0.4 旧版会判 bored，
+            // snapshot 与 live 在同一帧落在阈值两侧 → 解释说 bored、tag 显示 flow。
+            // v1.21 阈值收紧到 fd>0.55 && clearRate>0.42 后此处 fall through 到 'flow'。
+            const now = Date.now();
+            // 让 m.clearRate=0.41，且 thinkMs/missRate 不踩任何 anxious/bored 早判
+            // clearRate = lines / placed_moves (clearable)
+            const moves = [];
+            for (let i = 0; i < 12; i++) {
+                moves.push({
+                    ts: now + i * 1000,
+                    thinkMs: 2500, // 中速思考，绕开 bored 早判（<1200）和 anxious 早判
+                    cleared: i % 5 < 2, // ≈ 0.40 clearRate
+                    lines: i % 5 < 2 ? 1 : 0,
+                    fill: 0.40,
+                    miss: false
+                });
+            }
+            for (const m of moves) p._pushMove(m);
+            // 强行把 flowDeviation 推到 ~0.52（介于旧阈 0.5 与新阈 0.55 之间）
+            p._flowDeviationOverride = 0.52;
+            Object.defineProperty(p, 'flowDeviation', { value: 0.52, configurable: true });
+            // 在 v1.21 之前会判 bored；现在应 fall through 到 'flow'
+            expect(p.flowState).toBe('flow');
+        });
     });
 
     describe('needsRecovery', () => {

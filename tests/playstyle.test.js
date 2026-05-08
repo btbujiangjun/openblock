@@ -256,7 +256,10 @@ describe('adaptiveSpawn playstyle integration', () => {
     it('perfect_hunter → multiClearBonus ≥ 0.85（当 adaptive 启用时）', () => {
         const p = profileWithPlaystyle('perfect_hunter');
         expect(p.playstyle).toBe('perfect_hunter');
-        const s = resolveAdaptiveStrategy('normal', p, 50, 0, 0.4, {});
+        // v1.19：multiClearBonus 几何兜底要求至少有近满兜底（nearFullLines ≥ 2）或
+        // 多消候选（multiClearCandidates ≥ 1）；perfect_hunter 偏好属"长期玩家偏好"，
+        // 不应单凭偏好把 bonus 顶到 0.85，需要盘面真有兑现机会。
+        const s = resolveAdaptiveStrategy('normal', p, 50, 0, 0.4, { nearFullLines: 2 });
         if (s.spawnHints) {
             expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.85);
         }
@@ -273,7 +276,8 @@ describe('adaptiveSpawn playstyle integration', () => {
     it('multi_clear → multiClearBonus ≥ 0.65（当 adaptive 启用时）', () => {
         const p = profileWithPlaystyle('multi_clear');
         expect(p.playstyle).toBe('multi_clear');
-        const s = resolveAdaptiveStrategy('normal', p, 50, 0, 0.3, {});
+        // v1.19：同上，multi_clear 偏好需要盘面有兑现窗口才允许 bonus 顶到 0.65
+        const s = resolveAdaptiveStrategy('normal', p, 50, 0, 0.3, { nearFullLines: 2 });
         if (s.spawnHints) {
             expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.65);
         }

@@ -187,7 +187,11 @@ describe('resolveAdaptiveStrategy', () => {
     });
 
     it('multiLineTarget is 2 when pcSetup>=1', () => {
-        const s = resolveAdaptiveStrategy('normal', makeProfile({ spawnCounter: 0 }), 100, 0, 0.4, {
+        // v1.19：multiClearBonus / multiLineTarget 几何兜底要求 pcSetup 在
+        // fill ≥ PC_SETUP_MIN_FILL (0.45) 时才算"真窗口"，因此把 fill 提到 0.5。
+        // 否则低占用 + pcSetup=1 + nearFullLines=0 + multiClearCands=0 会触发兜底，
+        // multiLineTarget 被钳到 0。
+        const s = resolveAdaptiveStrategy('normal', makeProfile({ spawnCounter: 0 }), 100, 0, 0.5, {
             pcSetup: 1,
             nearFullLines: 0,
             totalRounds: 5
@@ -198,10 +202,14 @@ describe('resolveAdaptiveStrategy', () => {
     });
 
     it('cross-game warmup boosts clearGuarantee and multiLineTarget', () => {
+        // v1.17：cg=3 触发新引入的"物理可行性兜底"——必须有 ≥2 临消行
+        // 或 ≥2 多消候选才能维持 cg=3（避免 UI 上「目标保消 3」成空头支票）。
+        // 此处提供 nearFullLines=2 以代表"warmup 阶段盘面已有兑现窗口"的常见情况。
         const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.3, {
             warmupRemaining: 2,
             warmupClearBoost: 2,
-            totalRounds: 5
+            totalRounds: 5,
+            nearFullLines: 2
         });
         if (s.spawnHints) {
             expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(3);
@@ -435,5 +443,279 @@ describe('resolveAdaptiveStrategy', () => {
                 expect(intents.has(s.spawnHints.spawnIntent)).toBe(true);
             }
         }
+    });
+
+    /* ================================================================ */
+    /*  v1.17：harvest / rhythmPhase 收紧 + clearGuarantee 物理可行兜底  */
+    /* ================================================================ */
+
+    it('v1.17 spawnIntent：低占用 + pcSetup=1 不再 harvest（noise 过滤）', () => {
+        // 17% 散布盘面：12 格 / 64，无近满行；pcSetup=1 是噪声候选
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const s = resolveAdaptiveStrategy('normal', p, 300, 0, 0.17, {
+            totalRounds: 8,
+            roundsSinceClear: 1,
+            holes: 0,
+            nearFullLines: 0,
+            pcSetup: 1,
+            multiClearCandidates: 0
+        });
+        expect(s._spawnIntent).not.toBe('harvest');
+        expect(['flow', 'maintain', 'pressure']).toContain(s._spawnIntent);
+    });
+
+    it('v1.17 spawnIntent：高占用 + pcSetup=1 仍可 harvest（真窗口）', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const s = resolveAdaptiveStrategy('normal', p, 600, 0, 0.50, {
+            totalRounds: 12,
+            roundsSinceClear: 0,
+            holes: 0,
+            nearFullLines: 1,
+            pcSetup: 1,
+            multiClearCandidates: 2
+        });
+        expect(s._spawnIntent).toBe('harvest');
+    });
+
+    it('v1.17 spawnIntent：nearFullLines=2 单独可触发 harvest（与 deriveRhythmPhase 同口径）', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const s = resolveAdaptiveStrategy('normal', p, 400, 0, 0.30, {
+            totalRounds: 8,
+            roundsSinceClear: 1,
+            holes: 0,
+            nearFullLines: 2,
+            pcSetup: 0,
+            multiClearCandidates: 1
+        });
+        expect(s._spawnIntent).toBe('harvest');
+    });
+
+    it('v1.17 rhythmPhase：低占用 + pcSetup=1 不再被拉到 payoff', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        const s = resolveAdaptiveStrategy('normal', p, 300, 0, 0.17, {
+            totalRounds: 8,
+            roundsSinceClear: 1,
+            holes: 0,
+            nearFullLines: 0,
+            pcSetup: 1
+        });
+        expect(s.spawnHints.rhythmPhase).not.toBe('payoff');
+    });
+
+    it('v1.17 clearGuarantee 物理可行性兜底：warmup 起手在空盘面回钳到 ≤2', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.0, {
+            warmupRemaining: 2,
+            warmupClearBoost: 2,
+            totalRounds: 5,
+            nearFullLines: 0,
+            multiClearCandidates: 0
+        });
+        if (s.spawnHints) {
+            // warmup 默认会顶到 cg=3，但盘面无任何兑现几何 → 兜底回钳到 2
+            expect(s.spawnHints.clearGuarantee).toBeLessThanOrEqual(2);
+            // multiLineTarget 不受兜底影响：仍能给出"偏好多消块"的轨道引导
+            expect(s.spawnHints.multiLineTarget).toBe(2);
+        }
+    });
+
+    it('v1.17 clearGuarantee 物理可行性兜底：multiClearCandidates ≥2 时 cg=3 维持', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.45, {
+            warmupRemaining: 2,
+            warmupClearBoost: 2,
+            totalRounds: 5,
+            nearFullLines: 0,
+            multiClearCandidates: 3
+        });
+        if (s.spawnHints) {
+            expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(3);
+        }
+    });
+
+    /* =====================================================================
+     * v1.19：multiClearBonus / multiLineTarget 几何兜底
+     * 当无 multiClearCandidates、无 ≥2 nearFullLines、无真 pcSetup 窗口、且
+     * 不在 warmup 阶段时，软封顶 multiClearBonus≤0.4、multiLineTarget=0。
+     * ===================================================================*/
+    it('v1.19 几何兜底：playstyle=multi_clear 但盘面 0 多消候选/0 近满 → bonus 软封顶', () => {
+        const p = makeProfile();
+        // multi_clear playstyle 通常顶 multiClearBonus 到 0.65、multiLineTarget=1
+        Object.defineProperty(p, 'playstyle', { value: 'multi_clear', configurable: true });
+        const s = resolveAdaptiveStrategy('normal', p, 200, 0, 0.5, {
+            totalRounds: 6,
+            roundsSinceClear: 1,
+            holes: 0,
+            nearFullLines: 0,
+            multiClearCandidates: 0,
+            pcSetup: 0
+        });
+        if (s.spawnHints) {
+            expect(s.spawnHints.multiClearBonus).toBeLessThanOrEqual(0.4);
+            expect(s.spawnHints.multiLineTarget).toBe(0);
+        }
+    });
+
+    it('v1.19 几何兜底：nearFullLines ≥ 2 时不触发兜底（保留前瞻多消偏好）', () => {
+        const p = makeProfile();
+        Object.defineProperty(p, 'playstyle', { value: 'multi_clear', configurable: true });
+        const s = resolveAdaptiveStrategy('normal', p, 200, 0, 0.5, {
+            totalRounds: 6,
+            roundsSinceClear: 1,
+            holes: 0,
+            nearFullLines: 2,
+            multiClearCandidates: 0,
+            pcSetup: 0
+        });
+        if (s.spawnHints) {
+            expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.6);
+            expect(s.spawnHints.multiLineTarget).toBeGreaterThanOrEqual(1);
+        }
+    });
+
+    it('v1.19 几何兜底：multiClearCandidates ≥ 1 时不触发兜底', () => {
+        const p = makeProfile();
+        Object.defineProperty(p, 'playstyle', { value: 'multi_clear', configurable: true });
+        const s = resolveAdaptiveStrategy('normal', p, 200, 0, 0.5, {
+            totalRounds: 6,
+            roundsSinceClear: 1,
+            holes: 0,
+            nearFullLines: 0,
+            multiClearCandidates: 1,
+            pcSetup: 0
+        });
+        if (s.spawnHints) {
+            expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.6);
+        }
+    });
+
+    it('v1.19 几何兜底：warmup 阶段豁免（结构性偏好不被几何裁剪）', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.0, {
+            warmupRemaining: 2,
+            warmupClearBoost: 2,
+            totalRounds: 5,
+            nearFullLines: 0,
+            multiClearCandidates: 0,
+            pcSetup: 0
+        });
+        if (s.spawnHints) {
+            // warmup 显式偏好多消形状用于跨局友好印象 → 不应被 v1.19 兜底清零
+            expect(s.spawnHints.multiLineTarget).toBe(2);
+        }
+    });
+
+    it('v1.19 几何兜底：低 fill + pcSetup=1（噪声窗口）→ 兜底触发', () => {
+        // fill=0.3 < PC_SETUP_MIN_FILL(0.45)：pcSetup=1 是几何噪声
+        const s = resolveAdaptiveStrategy('normal', makeProfile({ spawnCounter: 0 }), 100, 0, 0.3, {
+            pcSetup: 1,
+            nearFullLines: 0,
+            multiClearCandidates: 0,
+            totalRounds: 5
+        });
+        if (s.spawnHints) {
+            expect(s.spawnHints.multiLineTarget).toBe(0);
+        }
+    });
+
+    /* =====================================================================
+     * v1.20：challengeBoost 触发条件覆盖（之前 0 单测）
+     *   isBClassChallenge =
+     *     (segment5 === 'B' || sessionTrend !== 'declining')
+     *     && ctx.bestScore > 0
+     *     && score >= ctx.bestScore * 0.8
+     *     && stress < 0.7
+     *   触发后：challengeBoost = min(0.15, (score/best - 0.8) * 0.75)
+     * ===================================================================*/
+    it('v1.20 challengeBoost：score < 0.8 * bestScore → 不触发', () => {
+        // 920 / 5020 = 0.183 << 0.8（截图实际数据）
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 920, 0, 0.34, {
+            bestScore: 5020,
+            totalRounds: 8
+        });
+        expect(s._stressBreakdown.challengeBoost).toBe(0);
+    });
+
+    it('v1.20 challengeBoost：bestScore = 0 → 不触发（即便 score 很高）', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 5000, 0, 0.4, {
+            bestScore: 0,
+            totalRounds: 8
+        });
+        expect(s._stressBreakdown.challengeBoost).toBe(0);
+    });
+
+    it('v1.20 challengeBoost：score = 0.85 * bestScore + sessionTrend stable → 触发，加压 ≤ 0.15', () => {
+        // 850/1000 = 0.85 ≥ 0.8；默认 profile sessionTrend = 'stable'（非 declining）
+        // 默认 stress 应远低于 0.7 阈值，触发条件齐
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 850, 0, 0.3, {
+            bestScore: 1000,
+            totalRounds: 8
+        });
+        expect(s._stressBreakdown.challengeBoost).toBeGreaterThan(0);
+        expect(s._stressBreakdown.challengeBoost).toBeLessThanOrEqual(0.15);
+    });
+
+    it('v1.20 challengeBoost：触发幅度 = min(0.15, (ratio-0.8) * 0.75)', () => {
+        // 990/1000 = 0.99 → (0.99-0.8)*0.75 = 0.1425 < 0.15
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 990, 0, 0.3, {
+            bestScore: 1000,
+            totalRounds: 8
+        });
+        const cb = s._stressBreakdown.challengeBoost;
+        expect(cb).toBeGreaterThan(0.13);
+        expect(cb).toBeLessThanOrEqual(0.15);
+    });
+
+    /* =====================================================================
+     * v1.21：rhythmPhase='setup' 与 spawnIntent='harvest' 互斥兜底
+     *   旧版 deriveRhythmPhase 在 (pacingPhase=tension && roundsSinceClear=0)
+     *   时无条件返回 'setup'，与 harvestable（nearFullLines>=2）口径不同 →
+     *   同帧出现 pill「节奏 搭建」+「意图 兑现」对立叙事。
+     *   修复：'setup' 加 `&& !nearGeom` 互斥。
+     * ===================================================================*/
+    it('v1.21 rhythmPhase：tension + roundsSinceClear=0 + nearFullLines>=2 → 不再 setup（fall through）', () => {
+        // 复现截图场景：紧张期开头 + 刚清完 + 已有 ≥2 临消行
+        // 旧版: rhythmPhase='setup' + spawnIntent='harvest'（撞墙）
+        // 新版: rhythmPhase 落到 neutral 或被 canPromoteToPayoff 升 'payoff'
+        const p = makeProfile({ smoothSkill: 0.55 });
+        // 让 pacingPhase=tension：spawnCounter 落在 cycle 前半段（默认 cycleLength=10，0~4 是 tension）
+        p._spawnCounter = 1;
+        const s = resolveAdaptiveStrategy('normal', p, 200, 0, 0.4, {
+            roundsSinceClear: 0,
+            nearFullLines: 2,
+            pcSetup: 0,
+            multiClearCandidates: 1,
+            totalRounds: 8
+        });
+        expect(p.pacingPhase).toBe('tension');
+        expect(s.spawnHints.rhythmPhase).not.toBe('setup');
+        expect(s._spawnIntent).toBe('harvest');
+    });
+
+    it('v1.21 rhythmPhase：tension + roundsSinceClear=0 + 无几何 → 仍 setup（蓄力期不变）', () => {
+        const p = makeProfile({ smoothSkill: 0.55 });
+        p._spawnCounter = 1;
+        const s = resolveAdaptiveStrategy('normal', p, 200, 0, 0.2, {
+            roundsSinceClear: 0,
+            nearFullLines: 0,
+            pcSetup: 0,
+            multiClearCandidates: 0,
+            totalRounds: 8
+        });
+        expect(p.pacingPhase).toBe('tension');
+        expect(s.spawnHints.rhythmPhase).toBe('setup');
+        expect(s._spawnIntent).not.toBe('harvest');
+    });
+
+    it('v1.20 challengeBoost：触发时 spawnIntent 切到 pressure（与 stress 加压同源）', () => {
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 900, 0, 0.3, {
+            bestScore: 1000,
+            totalRounds: 8,
+            // 关闭其他可能更高优先级的 intent 触发：
+            nearFullLines: 0,
+            multiClearCandidates: 0,
+            pcSetup: 0
+        });
+        expect(s._stressBreakdown.challengeBoost).toBeGreaterThan(0);
+        // pressure 优先级在 harvest / engage 之后但在 maintain 之前；
+        // 这里把 harvest/engage 条件都置零，spawnIntent 应落到 pressure
+        expect(s._spawnIntent).toBe('pressure');
     });
 });

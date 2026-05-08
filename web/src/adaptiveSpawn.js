@@ -39,6 +39,16 @@ import {
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 
 /* ------------------------------------------------------------------ */
+/*  v1.17：harvest / payoff 触发的最低占用率门槛
+ *
+ * pcSetup（perfect-clear setup 候选数）在低占用盘面上经常 ≥1（12 格散布
+ * 也能凑出"某 3 块组合可清屏"的解），但这并不是"密集消行机会"，把
+ * spawnIntent 拉到 'harvest' 或 rhythmPhase 拉到 'payoff' 都会让 UI 撒谎。
+ * 要求 fill ≥ PC_SETUP_MIN_FILL 才允许把 pcSetup 单独当成兑现窗口。
+ */
+const PC_SETUP_MIN_FILL = 0.45;
+
+/* ------------------------------------------------------------------ */
 /*  profile 插值                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -237,16 +247,29 @@ function deriveRhythmPhase(profile, ctx, fill = 0) {
     const roundsSinceClear = ctx.roundsSinceClear ?? 0;
     const nearFullLines = ctx.nearFullLines ?? 0;
     const pcSetup = ctx.pcSetup ?? 0;
+    /* v1.17：pcSetup 单独不足以判定 payoff —— 低占用盘面经常误触发。
+     * pcSetup 必须配合 fill ≥ PC_SETUP_MIN_FILL 才视为「已经有可兑现的几何」，
+     * 否则只是"理论清屏"，与 UI「收获期」叙事不符。
+     */
+    const pcSetupMeaningful = pcSetup >= 1 && fill >= PC_SETUP_MIN_FILL;
     // 几何兑现条件：无「临消 / 清屏准备」时不要把 payoff 拉满，避免盘面配不上仍强行「收获期」
-    const nearGeom = pcSetup >= 1
+    const nearGeom = pcSetupMeaningful
         || nearFullLines >= 2
         || (fill > 0.52 && nearFullLines >= 1);
 
-    if (pcSetup >= 1) return 'payoff';
+    if (pcSetupMeaningful) return 'payoff';
     if (nearFullLines >= 3) return 'payoff';
     if (pacingPhase === 'release' && nearGeom) return 'payoff';
     if (roundsSinceClear >= 2 && nearGeom) return 'payoff';
-    if (pacingPhase === 'tension' && roundsSinceClear === 0) return 'setup';
+    /* v1.21：'setup' 与 'harvest' 互斥兜底 ——
+     * 旧版只判 (pacingPhase==='tension' && roundsSinceClear===0) 就返回 'setup'，
+     * 但 spawnIntent='harvest' 的判定（line 975）只看 nearFullLines>=2 / pcSetupMeaningful，
+     * 两者口径不同 → 同帧出现 pill「节奏 搭建」+「意图 兑现」、stress story
+     * 「投放促清形状」+ strategyAdvisor「搭建期 稳定堆叠 留通道」对立叙事。
+     * 加 `&& !nearGeom`：紧张期开头若几何已经支持兑现就不再"蓄力"，
+     * fall through 到 'neutral'，再由后续 `canPromoteToPayoff` 升 'payoff'，
+     * 与 spawnIntent='harvest' 同口径。 */
+    if (pacingPhase === 'tension' && roundsSinceClear === 0 && !nearGeom) return 'setup';
     return 'neutral';
 }
 
@@ -732,11 +755,23 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /* --- 拓扑机会：临消线/清屏准备对规则轨和生成式上下文保持同一口径 --- */
     const nearFullLines = ctx.nearFullLines ?? 0;
     const pcSetup = ctx.pcSetup ?? 0;
+    const multiClearCands = Math.max(0, Math.floor(ctx.multiClearCandidates ?? 0));
+
+    /* v1.17：rhythmPhase 升 'payoff' 需要"盘面真的能 harvest"才允许。
+     * pcSetup 在低占用盘面上是噪声，flow_payoff / challenge_payoff / multi_clear
+     * 等基于玩家状态的路径过去会无条件拉 payoff，造成 17% 散布盘面也推长条 +
+     * stressMeter 报"收获期"。统一通过此 helper 兜底，UI 与出块偏向对齐。 */
+    const canPromoteToPayoff = nearFullLines >= 1
+        || multiClearCands >= 1
+        || (pcSetup >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL);
+
     if (pcSetup >= 1) {
         clearGuarantee = Math.max(clearGuarantee, 2);
         multiLineTarget = Math.max(multiLineTarget, 2);
         multiClearBonus = Math.max(multiClearBonus, 0.75);
-        rhythmPhase = 'payoff';
+        if ((_boardFill ?? 0) >= PC_SETUP_MIN_FILL) {
+            rhythmPhase = 'payoff';
+        }
     } else if (nearFullLines >= 3) {
         clearGuarantee = Math.max(clearGuarantee, 2);
         multiLineTarget = Math.max(multiLineTarget, 1);
@@ -750,10 +785,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     }
     if (delight.mode === 'challenge_payoff') {
         diversityBoost = Math.max(diversityBoost, 0.12);
-        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+        /* v1.17：仅当盘面真的有 harvest 几何时才升 payoff —— 否则
+         * "心流挑战"叙事会在空盘面上仍说"收获期"，与 UI 现实不符。 */
+        if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
         multiLineTarget = Math.max(multiLineTarget, 1);
     } else if (delight.mode === 'flow_payoff') {
-        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+        if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
         multiLineTarget = Math.max(multiLineTarget, 1);
     } else if (delight.mode === 'relief') {
         clearGuarantee = Math.max(clearGuarantee, 2);
@@ -791,7 +828,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         // 多消玩家：提升多消鼓励，顺势切入 payoff 节奏
         multiClearBonus = Math.max(multiClearBonus, 0.65);
         multiLineTarget = Math.max(multiLineTarget, 1);
-        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+        /* v1.17：与上同——多消玩家偏好不能凭空把节奏拉到 payoff，需要几何兜底 */
+        if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
     } else if (playstyle === 'combo') {
         // 连消玩家：comboChain 信号已由 recentComboStreak 自动拉高，
         // 这里额外保障至少有 2 个消行槽位供续链
@@ -836,7 +874,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         multiClearBonus = Math.max(multiClearBonus, 0.6);
         multiLineTarget = Math.max(multiLineTarget, 1);
         diversityBoost = Math.max(diversityBoost, 0.15);
-        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+        /* v1.17：AFK 召回也走几何兜底——空盘面上即便要召回，也通过 spawnIntent='engage'
+         * 表达，rhythmPhase 不再骗用户"现在是收获期"。 */
+        if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
     }
 
     /* ---------- 玩家所选难度直接影响 spawnHints ----------
@@ -857,6 +897,50 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     }
     sizePreference += difficultyTuning.sizePreferenceDelta ?? 0;
     multiClearBonus += difficultyTuning.multiClearBonusDelta ?? 0;
+
+    /* ---------- v1.17：clearGuarantee 物理可行性兜底 ----------
+     * 上方多条规则（warmup wb=1 / roundsSinceClear≥4）会把 clearGuarantee 顶到 3，
+     * 含义是"本轮强制至少推出 3 块能立刻消行的形状"。但如果当前盘面既没有
+     * ≥2 条临消行也没有 ≥2 个真实多消候选，"立刻能消"在物理上无法兑现——
+     * panel 上 pill 显示「目标保消 3」会变成空头支票。
+     * 这里在所有 cg 调整完毕后回钳一次：当 cg≥3 但盘面不支持时降回 2，
+     * 仍保持友好出块的语义，但不再做无法兑现的承诺。
+     */
+    if (clearGuarantee >= 3) {
+        const mcCands = Math.max(0, Math.floor(ctx.multiClearCandidates ?? 0));
+        const nfLines = Math.max(0, Math.floor(ctx.nearFullLines ?? 0));
+        if (mcCands < 2 && nfLines < 2) {
+            clearGuarantee = 2;
+        }
+    }
+
+    /* ---------- v1.19：multiClearBonus / multiLineTarget 几何兜底 ----------
+     * 与 v1.17 cg 兜底同源 —— 多消鼓励/多线目标也应与盘面几何匹配。
+     * 当：
+     *   - 当前没有任何多消候选（multiClearCandidates < 1）
+     *   - 没有近满兜底（nearFullLines < 2，连"清了一条剩两条"都做不到）
+     *   - 没有真 perfect-clear 窗口（pcSetup ≥1 但 fill < PC_SETUP_MIN_FILL 是噪声）
+     *   - 不在 warmup 阶段（warmup 是显式的"结构性偏好"，跨局给玩家友好印象，
+     *     即便当前盘面没几何也允许保留 multi-line 倾向；与 v1.17 cg 兜底相反，
+     *     cg 是承诺、必须可兑现，multiLineTarget 是偏好、可以前瞻）
+     * 三条同时成立时，把 multiClearBonus 软封顶到 0.4、multiLineTarget 归 0。
+     * 否则会出现"长条 3.0 + 多消 0.65"重押多消形状，但落地后只能触发单行消除，
+     * 与玩家在 dock 里看到的"明显多消导向"形成预期落差。
+     * 软封顶：仍保留温和偏好（≤0.4 表示"略偏好但不重押"），不归 0 是因为
+     * 单行消除的形状与多消候选形状大量重合，bonus 仍能起到正向作用。
+     */
+    {
+        const _mcCands = Math.max(0, Math.floor(ctx.multiClearCandidates ?? 0));
+        const _nfLines = Math.max(0, Math.floor(ctx.nearFullLines ?? 0));
+        const _realPcSetup = pcSetup >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL;
+        const _isWarmup = (Number(ctx.warmupRemaining) || 0) > 0;
+        // AFK engage 与 warmup 同源：是显式的"召回"信号，需要保留鼓励兑现的偏好，
+        // 即便此刻盘面几何不支持兑现；给玩家留出"放下手机回来→落几块就有消行"的体感。
+        if (_mcCands < 1 && _nfLines < 2 && !_realPcSetup && !_isWarmup && !afkEngageActive) {
+            multiClearBonus = Math.min(multiClearBonus, 0.4);
+            multiLineTarget = 0;
+        }
+    }
 
     /* ---------- v9: 解法数量难度区间 ---------- */
     const solutionStress = Math.max(-0.2, Math.min(
@@ -889,12 +973,21 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         + (stressBreakdown.nearMissAdjust ?? 0)
         + (stressBreakdown.holeReliefAdjust ?? 0)
         + (stressBreakdown.boardRiskReliefAdjust ?? 0);
+    /* v1.17：harvest 收紧 —— 必须存在真实的"近一手就能兑现"的几何
+     *   - nearFullLines ≥ 2：已有≥2 条临消行/列（与 deriveRhythmPhase 中 nearGeom 同口径）
+     *   - 或 pcSetup ≥1 且占用 ≥ PC_SETUP_MIN_FILL：清屏候选+足够"满"才算窗口
+     * 修正前：pcSetup ≥1 单独触发，会在 17% 散布盘面上仍宣布"密集消行机会"。
+     */
+    const nearFullForIntent = ctx.nearFullLines ?? 0;
+    const pcSetupForIntent = ctx.pcSetup ?? 0;
+    const harvestable = nearFullForIntent >= 2
+        || (pcSetupForIntent >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL);
     let spawnIntent;
     if (playerDistress < -0.10 || delight.mode === 'relief') {
         spawnIntent = 'relief';
     } else if (afkEngageActive) {
         spawnIntent = 'engage';
-    } else if ((ctx.pcSetup ?? 0) >= 1 || (ctx.nearFullLines ?? 0) >= 3) {
+    } else if (harvestable) {
         spawnIntent = 'harvest';
     } else if (stressBreakdown.challengeBoost > 0
         || (delight.mode === 'challenge_payoff' && stress >= 0.55)) {

@@ -13,7 +13,7 @@ import {
 } from './moveSequence.js';
 import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
 import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
-import { renderStressMeter } from './stressMeter.js';
+import { renderStressMeter, summarizeContributors } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
 import { analyzeBoardTopology, countUnfillableCells } from './boardTopology.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
@@ -41,8 +41,11 @@ const LIVE_TAG_TITLE = {
         anxious: '心流三态·焦虑：挑战偏高或失误偏多，系统倾向减压与消行友好投放。'
     },
     pacing: {
-        tension: '节奏相位·紧张期：与释放期交替，略提高张力，形成起伏感。',
-        release: '节奏相位·释放期：略降低压力，给玩家喘息与正反馈空间。'
+        /* v1.17：原标签「节奏相位」与 spawnHints.rhythmPhase（setup/payoff/neutral）
+         * 在 UI 上同名异义。改为「Session 张弛」专指 PlayerProfile.pacingPhase
+         * （tension/release 在 session 周期内的张弛位置）。 */
+        tension: 'Session 张弛·紧张期：与释放期交替，略提高张力，形成起伏感。',
+        release: 'Session 张弛·释放期：略降低压力，给玩家喘息与正反馈空间。'
     },
     session: {
         early: '会话阶段·热身：开局不久，整体可更友好，帮助建立节奏。',
@@ -132,6 +135,11 @@ const SPAWN_TOOLTIP = {
         '闭环反馈（reward bias）：每轮新出块后，在若干步放置窗口内统计消行表现，对 stress 做小幅偏移（正≈好于预期可略加压，负≈不及预期减压）。⚠ 与「近满 N」「多消候选」不同——它衡量的是"近期奖励是否高于预期"，不是"盘面几何上还有几条临消行"。',
     boardFill: '当前棋盘占用率（已占格÷总格），不是开局预填比例 fillRatio。',
     spawnIntent: '出块意图（spawnIntent）：本轮自适应出块对外的单一口径——relief/engage/pressure/flow/harvest/maintain。压力表叙事、商业化策略文案与回放标签都读这一字段，避免文案与实际出块不一致。',
+    /* v1.18：让玩家直接看到"这一帧 stress 是被哪个救济信号压下去的"，
+     * 不必从故事线里倒推 ——」救济 / 恢复 / 近失 三条最常出力的负向信号。 */
+    frustrationRelief: '挫败救济（stressBreakdown.frustrationRelief）：连续若干步无消行触发的强制减压。负值越大表示挫败越重，系统出块也会更友好。',
+    recoveryAdjust: '恢复调整（stressBreakdown.recoveryAdjust）：近一段挫败/卡顿后系统压低难度，给你"喘一口气"的窗口。负值代表正在恢复中。',
+    nearMissAdjust: '近失救济（stressBreakdown.nearMissAdjust）：上一步差一点就消行（near miss）的局面，给予的小额减压，避免你连续吃挫败。',
     clearG:
         '目标保消（1～3）：三连候选中目标至少要有几块具备「落下即可促成消行」的潜力；挫败/恢复/近失/新手等会抬高。',
     sizePref:
@@ -263,9 +271,12 @@ function _flowExplain(flow) {
 }
 
 function _pacingExplain(phase) {
+    /* v1.17：与 spawnHints.rhythmPhase（出块节奏：setup/payoff/neutral）拆开
+     * 命名口径，避免在策略解释段同时出现「节奏相位：紧张期」+ 紧凑 pill「节奏 收获」时
+     * 看似自相矛盾。这里改读「Session 张弛」专指 PlayerProfile.pacingPhase。 */
     return phase === 'release'
-        ? '节奏相位：松弛期（略降低压力，给喘息）。'
-        : '节奏相位：紧张期（略提高张力）。';
+        ? 'Session 张弛：松弛期（略降低压力，给喘息）。'
+        : 'Session 张弛：紧张期（略提高张力）。';
 }
 
 function _hintsExplain(h) {
@@ -534,7 +545,17 @@ function _renderInsightStateSeries(game, elState) {
     });
 }
 
-function _buildWhyLines(insight) {
+/**
+ * v1.21：双参签名 —— 让纯 live 量（flowDeviation / feedbackBias / flowState）
+ * 与右侧 pill / 左侧 sparkline 末点同源（都来自 PlayerProfile），消除上次截图
+ * 出现的"sparkline F(t)=0.82 / pill 0.82 / 解释 F(t)=0.78（snapshot）"三态打架。
+ * spawn 决策类字段（spawnIntent / spawnHints.* / stressBreakdown / strategyId / 
+ * difficultyBias 等）继续读 insight，与 spawn 时的决策一致（这是它们的"为什么"）。
+ * 第二参缺省 / null 时退化到旧行为（保持向后兼容）。
+ * @param {object} insight  game._lastAdaptiveInsight
+ * @param {import('./playerProfile.js').PlayerProfile} [profile]
+ */
+function _buildWhyLines(insight, profile) {
     const lines = [];
     if (!insight?.adaptiveEnabled) {
         lines.push('自适应出块未开启：仅按基础难度 + 分数档出块（见 dynamicDifficulty）。');
@@ -558,18 +579,22 @@ function _buildWhyLines(insight) {
             lines.push(`能力模型：${line}。`);
         }
     }
-    if (insight.flowDeviation != null) {
-        const fd = insight.flowDeviation;
-        const fdDesc = fd < 0.25 ? '沉浸区' : fd < 0.5 ? '轻度偏移' : '显著偏移';
-        lines.push(`心流偏移 F(t)=${fd.toFixed(2)}（${fdDesc}）→ ${insight.flowState} 方向修正幅度随偏移放大。`);
+    /* v1.21：F(t) / flowState / feedbackBias 与 pill / sparkline 同源（live 优先） */
+    const liveFd = Number.isFinite(profile?.flowDeviation)
+        ? profile.flowDeviation : insight.flowDeviation;
+    const liveFlowState = profile?.flowState ?? insight.flowState;
+    if (liveFd != null) {
+        const fdDesc = liveFd < 0.25 ? '沉浸区' : liveFd < 0.5 ? '轻度偏移' : '显著偏移';
+        lines.push(`心流偏移 F(t)=${liveFd.toFixed(2)}（${fdDesc}）→ ${liveFlowState} 方向修正幅度随偏移放大。`);
     } else {
-        lines.push(_flowExplain(insight.flowState));
+        lines.push(_flowExplain(liveFlowState));
     }
     lines.push(_pacingExplain(insight.pacingPhase));
-    if (insight.feedbackBias != null && Math.abs(insight.feedbackBias) > 0.005) {
-        const fb = insight.feedbackBias;
-        const dir = fb > 0 ? '消行好于预期→微加压' : '消行不足→微减压';
-        lines.push(`闭环反馈 ${fb > 0 ? '+' : ''}${fb.toFixed(3)}：出块后 4 步${dir}。`);
+    const liveFb = Number.isFinite(profile?.feedbackBias)
+        ? profile.feedbackBias : insight.feedbackBias;
+    if (liveFb != null && Math.abs(liveFb) > 0.005) {
+        const dir = liveFb > 0 ? '消行好于预期→微加压' : '消行不足→微减压';
+        lines.push(`闭环反馈 ${liveFb > 0 ? '+' : ''}${liveFb.toFixed(3)}：出块后 4 步${dir}。`);
     }
     if (insight.stressBreakdown?.boardRisk != null && insight.stressBreakdown.boardRisk > 0.35) {
         const br = insight.stressBreakdown.boardRisk;
@@ -696,15 +721,60 @@ function _render(game) {
         const h = ins.spawnHints;
         const stressStr = typeof s === 'number' ? s.toFixed(2) : '—';
         const fillStr = `${(liveBoardFill * 100).toFixed(0)}%`;
-        const fdStr = ins.flowDeviation != null ? ins.flowDeviation.toFixed(2) : '—';
-        const fbStr = ins.feedbackBias != null ? (ins.feedbackBias >= 0 ? '+' : '') + ins.feedbackBias.toFixed(3) : '—';
+        /* v1.20：F(t) / 闭环反馈优先取 PlayerProfile 的 live 值，避免与左侧 sparkline
+         * 末点（同样取 profile.flowDeviation / feedbackBias）出现 0.12 量级的
+         * snapshot/live 错位。spawn 决策类字段（spawnIntent / multiClearBonus 等）
+         * 仍读 ins.* 保持与 spawn 时一致，不在此变更。 */
+        const liveFd = Number.isFinite(p?.flowDeviation) ? p.flowDeviation : ins.flowDeviation;
+        const liveFb = Number.isFinite(p?.feedbackBias) ? p.feedbackBias : ins.feedbackBias;
+        const fdStr = liveFd != null ? liveFd.toFixed(2) : '—';
+        const fbStr = liveFb != null ? (liveFb >= 0 ? '+' : '') + liveFb.toFixed(3) : '—';
         const metricPills = [
             _spawnPill(`压力 ${stressStr}`, SPAWN_TOOLTIP.stress),
             _spawnPill(`F(t) ${fdStr}`, SPAWN_TOOLTIP.flowDev),
             _spawnPill(`闭环反馈 ${fbStr}`, SPAWN_TOOLTIP.feedback),
             _spawnPill(`占用 ${fillStr}`, SPAWN_TOOLTIP.boardFill)
         ];
+
+        /* v1.19：救济 pill 自动化 —— 替代 v1.18 硬编码 frustrationRelief /
+         * recoveryAdjust / nearMissAdjust 三件套。改为自动挑出当前帧
+         * stressBreakdown 里贡献最大的 top-2 负向分量（≥ 0.04），覆盖：
+         *   - 挫败/恢复/近失（v1.18 已支持）
+         *   - flowAdjust / pacingAdjust / boardRiskRelief / friendlyBoardRelief 等
+         *     "广义救济"（v1.18 无法显示）
+         * 解决场景：spawnIntent='relief'（来自 delight.mode）但 frustration/recovery
+         * /nearMiss 三件套都为 0，玩家看不出"是谁在救济我"。
+         * 复用 stressMeter.summarizeContributors，标签和 hint 已在 SIGNAL_LABELS 同源。
+         */
+        const sb = ins?.stressBreakdown;
+        if (sb) {
+            const _fmtSigned = (v) => {
+                const sign = v >= 0 ? '+' : '−';
+                return `${sign}${Math.abs(v).toFixed(2)}`;
+            };
+            const negativeContribs = summarizeContributors(sb, 12)
+                .filter((c) => c.value < 0 && Math.abs(c.value) >= 0.04)
+                .slice(0, 2);
+            for (const c of negativeContribs) {
+                const label = c.label || c.key;
+                const hint = c.hint || `${label}：当前对综合 stress 的负向贡献 ${_fmtSigned(c.value)}。`;
+                metricPills.push(_spawnPill(`${label} ${_fmtSigned(c.value)}`, hint));
+            }
+        }
         if (h) {
+            /* v1.21：spawn 决策类 pill 之前插入"📷 R{n} spawn 快照"分隔 marker —— 
+             * 让玩家明白下面这串 pill（意图/目标保消/节奏/弧线/连击/多消/多线×/形状权重）
+             * 是【上一次 spawn 时的决策】，spawn 后保持不变；与上方 live pill 
+             * （压力/F(t)/闭环反馈/占用/救济通路）和下方 live 几何 pill（多消候选/
+             * 近满/空洞/平整/解法/合法序）分开理解，避免"决策说兑现 + live 几何 0 多消候选"
+             * 看起来像撞墙（其实只是时序错位）。 */
+            const round = Number.isFinite(p?.spawnRoundIndex) ? p.spawnRoundIndex : null;
+            const roundLabel = round != null ? `R${round}` : '—';
+            const snapshotTip = `以下 pill 是 R${round ?? '?'} spawn 时锁定的决策快照，spawn 后保持不变；与上方 live 状态 pill 和下方 live 几何 pill 不同步是预期行为（spawn 决策一旦做出就固化，直到下次 spawn）。`;
+            metricPills.push(
+                `<span class="insight-weight insight-weight--snapshot" title="${_attrTitle(snapshotTip)}">📷 ${roundLabel} spawn 决策</span>`
+            );
+
             const intent = ins?.spawnIntent ?? h.spawnIntent ?? null;
             if (intent) {
                 const intentLabel = SPAWN_INTENT_LABEL[intent] ?? intent;
@@ -803,10 +873,16 @@ function _render(game) {
 
     const elStrategy = document.getElementById('insight-strategy');
     if (elStrategy) {
+        /* v1.20：把 live 几何（liveTopology + liveMultiClearCandidates）注入
+         * gridInfo，让 strategyAdvisor 多消机会卡 / 瓶颈块卡读 live、不再走
+         * spawn-time snapshot，消除"卡说有 4 多消、面板 pill 显示 0"的撞墙。
+         * liveTopology 上方已经算过（用于 ability 与 diagPills），这里直接复用。 */
         const gridInfo = game.grid ? {
             fillRatio: game.grid.getFillRatio(),
             maxHeight: _gridMaxHeight(game.grid),
-            holesCount: _gridHoles(game.grid)
+            holesCount: _gridHoles(game.grid),
+            liveTopology,
+            liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid)
         } : undefined;
         const tips = generateStrategyTips(p, ins, gridInfo);
         if (tips.length > 0) {
@@ -826,7 +902,7 @@ function _render(game) {
     }
 
     if (elWhy) {
-        const bullets = ins ? _buildWhyLines(ins) : [];
+        const bullets = ins ? _buildWhyLines(ins, p) : [];
         const hintBullets = ins?.spawnHints ? _hintsExplain(ins.spawnHints) : [];
         const all = [...bullets, ...hintBullets];
         if (all.length) {

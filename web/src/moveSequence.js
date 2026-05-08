@@ -704,7 +704,7 @@ export const REPLAY_METRICS = [
         group: 'game',
         extract: ps => ps.score,
         fmt: 'int',
-        tooltip: '本局累计得分。分数越高通常局面张力越大，也是自适应出块在「多档形状权重」之间切换的重要输入之一。'
+        tooltip: '本局累计得分。分数越高通常局面张力越大，也是自适应出块在「多档形状权重」之间切换的重要输入之一。\n📈 看图：阶梯上升=连续消行；长平台=连续未消行（与右侧「未消行」曲线印证）；陡峭跳变=多消爆发（与「消行率」同步抬升）。逼近历史最佳分（约 80%）时会触发「挑战」加压。'
     },
     {
         key: 'skill',
@@ -712,7 +712,7 @@ export const REPLAY_METRICS = [
         group: 'ability',
         extract: ps => ps.skill,
         fmt: 'pct',
-        tooltip: '综合技能估计（0～100%）：融合本局滑动窗口内的即时表现与历史长周期能力；越高表示系统认为玩家当前操作与决策水平越好，可略提高挑战。'
+        tooltip: '综合技能估计（0～100%）：融合本局滑动窗口内的即时表现与历史长周期能力；越高表示系统认为玩家当前操作与决策水平越好，可略提高挑战。\n📈 看图：长期均值约 50~80%；缓慢上行=本局表现稳定优于历史；急剧下挫=连续失误/未消行（看「失误」「未消行」曲线找因）。技能高 + F(t) 偏小=进入心流，技能高 + F(t) 大=可能投放偏难。'
     },
     {
         key: 'boardFill',
@@ -720,7 +720,7 @@ export const REPLAY_METRICS = [
         group: 'game',
         extract: ps => ps.boardFill,
         fmt: 'pct',
-        tooltip: '棋盘占用率：已被方块占据的格子比例。越高表示剩余可落子空间越少、死局风险越大，恢复与救济型出块会更敏感。'
+        tooltip: '棋盘占用率：已被方块占据的格子比例。越高表示剩余可落子空间越少、死局风险越大，恢复与救济型出块会更敏感。\n📈 看图：典型节律呈"锯齿状"——逐步抬升到 50~70% → 多消瞬间回落。长时间高位（>60%）平台=接近瓶颈（看「未消行」与「负荷」是否同步飙）；持续低位（<25%）=盘面充裕，可主动留通道。'
     },
     {
         key: 'clearRate',
@@ -728,7 +728,7 @@ export const REPLAY_METRICS = [
         group: 'ability',
         extract: ps => ps.metrics?.clearRate,
         fmt: 'pct',
-        tooltip: '近期窗口内「落子后成功消行」的步数占比。越高说明玩家持续在有效清除行列，是衡量「打得顺」的核心能力指标之一。'
+        tooltip: '近期窗口内「落子后成功消行」的步数占比。越高说明玩家持续在有效清除行列，是衡量「打得顺」的核心能力指标之一。\n📈 看图：> 50% 通常对应"舒适流畅区"；< 30% 是关键阈值（结合 F(t)>0.55 会切到 bored/anxious）；与「板面」反向走（消行率高时板面下降）。'
     },
     {
         key: 'stress',
@@ -736,7 +736,7 @@ export const REPLAY_METRICS = [
         group: 'spawn',
         extract: ps => ps.adaptive?.stress,
         fmt: 'f2',
-        tooltip: '自适应综合压力：由分数档、连战、技能、心流偏移、节奏、恢复需求、挫败、连击、近失、闭环反馈等信号叠加并钳制得到，用于在配置的多档形状权重之间插值。'
+        tooltip: '自适应综合压力：由分数档、连战、技能、心流偏移、节奏、恢复需求、挫败、连击、近失、闭环反馈等信号叠加并钳制得到，用于在配置的多档形状权重之间插值。\n📈 看图：典型范围 -0.3 ~ +0.6，简单模式整体下移、困难上移。要"拆解"它的成分，可同时看下方「难度/心流/松紧/救济/会话/挑战」六条 stress 分量曲线（六者求和 ≈ stress）。'
     },
     {
         key: 'flowDeviation',
@@ -744,7 +744,7 @@ export const REPLAY_METRICS = [
         group: 'state',
         extract: ps => ps.flowDeviation,
         fmt: 'f2',
-        tooltip: '心流偏移 F(t)：衡量当前挑战强度与玩家能力匹配程度（0 为理想心流区）。数值升高多表示「偏难或焦虑」；降低多表示「偏易或无聊」，会驱动心流三态与压力微调。'
+        tooltip: '心流偏移 F(t)：衡量当前挑战强度与玩家能力匹配程度（0 为理想心流区）。数值升高多表示「偏难或焦虑」；降低多表示「偏易或无聊」，会驱动心流三态与压力微调。\n📈 看图：< 0.25 = 沉浸区（默认 flow）；0.25~0.55 = 轻度偏移；> 0.55 = 显著偏移（结合「消行率」高低判定 bored / anxious）。曲线与「心流」分量(stress)同向走——F(t) 拉高，stress 内的"心流偏移"分量也会被推动。'
     },
     {
         key: 'momentum',
@@ -752,7 +752,7 @@ export const REPLAY_METRICS = [
         group: 'state',
         extract: ps => ps.momentum,
         fmt: 'f2',
-        tooltip: '动量：反映近期得分/消行是否处于上升趋势（正反馈累积）。为正时常略加压以延续爽感；为负时可能减压避免连跪挫败。'
+        tooltip: '动量：反映近期得分/消行是否处于上升趋势（正反馈累积）。为正时常略加压以延续爽感；为负时可能减压避免连跪挫败。\n📈 看图：典型范围 -0.5 ~ +0.5；正→负的拐点常预告"打不顺"，可作为切换策略的早期信号。与「未消行」反向：未消行步数累积时动量下行。'
     },
     {
         key: 'frustration',
@@ -760,7 +760,7 @@ export const REPLAY_METRICS = [
         group: 'state',
         extract: ps => ps.frustration,
         fmt: 'int',
-        tooltip: '连续未消行的步数（挫败计数）。越大表示玩家越久没有有效清除，系统越倾向救济：降压、提高消行友好与偏小尺寸偏好。'
+        tooltip: '连续未消行的步数（挫败计数）。越大表示玩家越久没有有效清除，系统越倾向救济：降压、提高消行友好与偏小尺寸偏好。\n📈 看图：每次消行回落到 0 → 锯齿状是健康节奏；> 5 持续不降=瓶颈预警（结合「板面」高位、「负荷」抬升判定）。出现高峰常伴随「救济」分量(stress)走负、spawnIntent 切到 relief。'
     },
     {
         key: 'cognitiveLoad',
@@ -768,7 +768,7 @@ export const REPLAY_METRICS = [
         group: 'state',
         extract: ps => ps.cognitiveLoad,
         fmt: 'pct',
-        tooltip: '认知负荷：由思考时间、操作密度、局面复杂度等综合估计的决策压力。偏高时常略降难度或缩短「决策窗口」带来的压迫感。'
+        tooltip: '认知负荷：由思考时间、操作密度、局面复杂度等综合估计的决策压力。偏高时常略降难度或缩短「决策窗口」带来的压迫感。\n📈 看图：> 60% 持续高位常伴随焦虑；与「思考」(thinkMs) 强正相关；高负荷 + 高板面 → 系统会减小尺寸偏好、提多样性。'
     },
     {
         key: 'missRate',
@@ -776,7 +776,7 @@ export const REPLAY_METRICS = [
         group: 'ability',
         extract: ps => ps.metrics?.missRate,
         fmt: 'pct',
-        tooltip: '近期窗口内坏手/无效放置占比。越高表示失误增多，常与减压、消行友好块型、恢复策略联动。'
+        tooltip: '近期窗口内坏手/无效放置占比。越高表示失误增多，常与减压、消行友好块型、恢复策略联动。\n📈 看图：< 5% = 操作稳定；> 10% 持续=进入挣扎区（看「能力」是否被同步压低、F(t) 是否抬到 0.55+）。成段抬升通常预告"动量"将由正转负。'
     },
     {
         key: 'thinkMs',
@@ -784,7 +784,7 @@ export const REPLAY_METRICS = [
         group: 'ability',
         extract: ps => ps.metrics?.thinkMs,
         fmt: 'int',
-        tooltip: '平均思考时间（毫秒）：从候选块出现到落子的间隔。过长可能推高焦虑与负荷；过短可能进入无聊区，均会参与心流判断。'
+        tooltip: '平均思考时间（毫秒）：从候选块出现到落子的间隔。过长可能推高焦虑与负荷；过短可能进入无聊区，均会参与心流判断。\n📈 看图：1000~3000ms = 健康决策；> 8000ms 持续 + 高负荷 → 触发"简化决策"卡；< 500ms 持续 + 高消行率 → 倾向 bored，触发"提升挑战"卡。'
     },
     {
         key: 'feedbackBias',
@@ -792,7 +792,7 @@ export const REPLAY_METRICS = [
         group: 'spawn',
         extract: ps => ps.feedbackBias,
         fmt: 'f3',
-        tooltip: '闭环反馈偏差：上一轮出新块后，在短窗口内实际消行相对「预期」的差值。为正表示好于预期可略加压；为负表示不及预期应减压，用于微调下一轮投放。'
+        tooltip: '闭环反馈偏差：上一轮出新块后，在短窗口内实际消行相对「预期」的差值。为正表示好于预期可略加压；为负表示不及预期应减压，用于微调下一轮投放。\n📈 看图：典型范围 -0.2 ~ +0.2；正向连片=玩家"超预期顺"，stress 会微涨；负向连片=投放预期失准，会微减压。该曲线是"系统自我反思"的信号——不该长期偏离 0。'
     },
     /* ── v1.13：stress 细分构成曲线 ─────────────────────────────────────────────
      * 把原本只在 stressMeter「主要构成 · 当前帧」列表里出现的 5~6 项核心分量也曲线化，
@@ -823,7 +823,7 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.difficultyBias,
         fmt: 'f2',
-        tooltip: '难度模式偏移：玩家选简单/普通/困难带来的整体 stress 偏移（简单约 -0.22、普通 0、困难约 +0.22），是 stress 的最稳定分量。'
+        tooltip: '难度模式偏移：玩家选简单/普通/困难带来的整体 stress 偏移（简单约 -0.22、普通 0、困难约 +0.22），是 stress 的最稳定分量。\n📈 看图：本局内若未切换难度，应是一条水平直线；出现台阶=玩家中途切换了难度。是 stress 的"基线偏移"，其余 5 条分量在它之上加减。'
     },
     {
         key: 'flowAdjust',
@@ -831,15 +831,18 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.flowAdjust,
         fmt: 'f2',
-        tooltip: '心流偏移修正：F(t) 偏向无聊（玩家觉得太简单）→ 加压；偏向焦虑 → 减压。绝对值越大说明系统越主动调整难度。'
+        tooltip: '心流偏移修正：F(t) 偏向无聊（玩家觉得太简单）→ 加压；偏向焦虑 → 减压。绝对值越大说明系统越主动调整难度。\n📈 看图：与「F(t)」+「消行率」共看——F(t)>0.55 + clearRate>42% → 正向（加压抗 bored）；F(t)>0.55 + clearRate<30% → 负向（减压救 anxious）。值贴近 0 = 玩家在沉浸区，无需主动干预。'
     },
     {
         key: 'pacingAdjust',
-        label: '节奏',
+        // v1.20：原标签"节奏"与右侧 spawnHints.rhythmPhase pill 的「节奏 收获/中性/搭建」
+        // 撞名（同名不同概念：rhythmPhase 是"相位"枚举、pacingAdjust 是"松紧"数值微调），
+        // 改用「松紧」与 rhythmPhase 解耦，对应 stressBreakdown 中节奏阶段对 stress 的实际偏移量。
+        label: '松紧',
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.pacingAdjust,
         fmt: 'f2',
-        tooltip: '节奏阶段微调：搭建期(setup) 略加压、收获期(payoff) 略减压（让多消爽点更易触发），中性时为 0。'
+        tooltip: '节奏松紧（pacingAdjust）：搭建期(setup) 略加压、收获期(payoff) 略减压（让多消爽点更易触发），中性时为 0。⚠ 与右侧「节奏 收获/中性/搭建」pill（rhythmPhase 相位枚举）不同——那是"现在处于什么阶段"，本指标是"该阶段对 stress 的具体偏移量"。\n📈 看图：典型范围 -0.05 ~ +0.05，呈"短脉冲"式跳变；与右侧 rhythmPhase pill 切换同步——pill 切到「收获」此值通常变负、切到「搭建」通常变正。'
     },
     {
         key: 'friendlyBoardRelief',
@@ -847,7 +850,7 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.friendlyBoardRelief,
         fmt: 'f2',
-        tooltip: '友好盘面救济（v1.13）：当盘面整洁 + 多消候选丰富时主动降压，让玩家享受多消爽点。常为负值。'
+        tooltip: '友好盘面救济（v1.13）：当盘面整洁 + 多消候选丰富时主动降压，让玩家享受多消爽点。常为负值。\n📈 看图：典型范围 -0.15 ~ 0；负向"凹陷"=系统判定盘面友好、主动降压"喂"多消（与「板面」走低、「多消候选」走高同步）。长期为 0 = 盘面没出现可兑现窗口。'
     },
     {
         key: 'sessionArcAdjust',
@@ -855,7 +858,7 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.sessionArcAdjust,
         fmt: 'f2',
-        tooltip: '会话弧线整体节奏：热身期减压、巅峰期加压、收官期略减压，按本局阶段比例插值。'
+        tooltip: '会话弧线整体节奏：热身期减压、巅峰期加压、收官期略减压，按本局阶段比例插值。\n📈 看图：单局内呈"半圆弧"——开头负（热身减压）→ 中段正（巅峰加压）→ 结尾微负（收官缓和）。与左上「session 阶段」tag (early/peak/late) 严格对应。'
     },
     {
         key: 'challengeBoost',
@@ -863,7 +866,7 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.challengeBoost,
         fmt: 'f2',
-        tooltip: 'B 类挑战加压：当前分数逼近历史最佳分时主动略加压，让收尾更有仪式感；远离最佳分为 0。'
+        tooltip: 'B 类挑战加压：当前分数逼近历史最佳分时主动略加压，让收尾更有仪式感；远离最佳分为 0。\n📈 看图：触发条件是 score ≥ bestScore × 0.8 且 stress < 0.7（公式 min(0.15, (score/best - 0.8) × 0.75)）。在到达 80% 阈值前曲线恒为 0 是预期；从 0 抬到正值说明你正在冲击新高、系统要把节奏推到"决赛圈"。同时会把 spawnIntent 切到 pressure。本局最佳为 0 时（首局）也恒为 0。'
     }
 ];
 

@@ -378,10 +378,18 @@ $$
 if step_count < 5:
     return 'flow'  # 步数太少，默认 flow
 
+# v1.18：复合挣扎前置 —— 在 F(t) 早返回之前先看 4 个弱挣扎信号
+struggleSignals =
+    (missRate > 0.10 ? 1 : 0) +
+    (thinkMs > thinkTimeStruggleMs (3500) ? 1 : 0) +
+    (clearRate < 0.30 ? 1 : 0) +
+    (avgFill > 0.55 && clearRate < 0.40 ? 1 : 0)
+if struggleSignals >= 3:
+    return 'anxious'  # 单一阈值都没踩穿，但多条同时弱负面 → 玩家其实在挣扎
+
 if F(t) < 0.25:
     return 'flow'  # 偏差很小，明确心流
 
-# 否则按多条件判定（playerProfile.js 411-444 行）
 if (thinkMs 短 && clearRate 高 && missRate 低):
     return 'bored'  # 玩得太顺手了
 
@@ -399,6 +407,13 @@ if F(t) > 0.5 && clearRate > 0.5:
 return 'flow'  # 默认
 ```
 
+> **v1.18 设计动机**：旧版要求 `F(t) ≥ 0.25` 才进入方向判定，会漏掉
+> "板面 58% + 思考 4 秒 + 失误 13% + 消行率 25%"这种**单一阈值都没踩穿、
+> 但多个弱信号同时成立**的挣扎场景。F(t) 的分母是 skillLevel，玩家自己技能也
+> 不算高时（boardPressure ≈ 0.4 / skill ≈ 0.5 → F(t) ≈ 0.2）会被早返回吞掉，
+> UI 上仍报"心流"。复合挣扎检测把它前置，避免这条盲区。
+> 阈值刻意宽松（每条都是"轻度负面"），必须 ≥3 条同时成立才生效，避免误报。
+
 ### 5.5 与配置的关系
 
 `shared/game_rules.json.adaptiveSpawn.flowZone` 提供阈值：
@@ -408,6 +423,7 @@ return 'flow'  # 默认
 | `missRateWorry` | 0.28 | anxious 触发 |
 | `thinkTimeLowMs` | 1200 | bored 触发 |
 | `thinkTimeHighMs` | 10000 | anxious 触发 |
+| `thinkTimeStruggleMs` | 3500 | v1.18 复合挣扎单信号阈值 |
 | `thinkTimeVarianceHigh` | 8e6 | cognitiveLoad 归一 |
 
 > ⚠️ JSON 中的 `clearRateIdeal` / `clearRateTolerance` 在当前 `flowState` 实现中**未使用**——心流判定全在 `playerProfile.js` 写死。如果你认为应该读 JSON，可以考虑重构。
@@ -609,6 +625,12 @@ pacingPhase = (sessionPhase === 'early' || sessionPhase === 'peak')
               ? 'tension' 
               : 'release'
 ```
+
+> **v1.17 — UI 标签解耦**：v1.16 之前 `playerInsightPanel` 把 `pacingPhase` 文案
+> 写为「节奏相位」，与 `spawnHints.rhythmPhase`（setup/payoff/neutral）的紧凑 pill
+> 「节奏 收获」同名异义。v1.17 起 `pacingPhase` 在 UI 上统一称 **「Session 张弛」**
+> （`Session 张弛：紧张期/松弛期`），`spawnHints.rhythmPhase` 保留 **「节奏相位」**
+> 称谓。代码字段名不变，仅展示文案区分。
 
 ### 8.4 应用：sessionArcAdjust
 

@@ -465,11 +465,26 @@ export class PlayerProfile {
         const recent = this._recentMoves();
         if (recent.length < 5) return 'flow';
 
-        const fd = this.flowDeviation;
-        if (fd < 0.25) return 'flow';
-
         const m = this.metrics;
         const fz = _cfg().flowZone ?? {};
+        const placedMoves = recent.filter(r => !r.miss);
+        const avgFill = placedMoves.length > 0
+            ? placedMoves.reduce((s, r) => s + r.fill, 0) / placedMoves.length
+            : 0;
+
+        /* v1.18：复合挣扎检测（先于 F(t) 早返回）——
+         * 单个阈值都没踩穿、但多个"弱挣扎信号"同时出现时也判定为 anxious，
+         * 避免出现「思考 4 秒 + 失误 13% + 板面 58% + 消行率 25%」却仍然被
+         * 认定为 'flow' 的盲区（玩家已在挣扎，但 F(t) 低于 0.25 早返回会跳过判定）。
+         * 阈值刻意宽松，每条都是"轻度负面"，需要 ≥3 条同时成立才生效。 */
+        const struggleSignals = (m.missRate > 0.10 ? 1 : 0)
+            + (m.thinkMs > (fz.thinkTimeStruggleMs ?? 3500) ? 1 : 0)
+            + (m.clearRate < 0.30 ? 1 : 0)
+            + (avgFill > 0.55 && m.clearRate < 0.40 ? 1 : 0);
+        if (struggleSignals >= 3) return 'anxious';
+
+        const fd = this.flowDeviation;
+        if (fd < 0.25) return 'flow';
 
         if (m.thinkMs < (fz.thinkTimeLowMs ?? 1200)
             && m.clearRate > 0.45
@@ -483,15 +498,17 @@ export class PlayerProfile {
             return 'anxious';
         }
 
-        const placedMoves = recent.filter(r => !r.miss);
-        if (placedMoves.length > 0) {
-            const avgFill = placedMoves.reduce((s, r) => s + r.fill, 0) / placedMoves.length;
-            if (avgFill > 0.78 && m.clearRate < 0.2) return 'anxious';
-        }
+        if (placedMoves.length > 0 && avgFill > 0.78 && m.clearRate < 0.2) return 'anxious';
 
         if (this.cognitiveLoad > 0.7 && m.clearRate < 0.25) return 'anxious';
 
-        if (fd > 0.5 && m.clearRate > 0.4) return 'bored';
+        /* v1.21：borderline 去抖 ——
+         * 旧版 `fd > 0.5 && clearRate > 0.4` 在玩家停在 (fd≈0.5, clearRate≈0.4) 时
+         * 会因 micro-sample 抖动在 'bored' / 'flow' 之间反复翻面（截图里见过 snapshot
+         * = bored / live = flow 同帧打架的情况）。两条阈值各加 5% 缓冲（fd>0.55,
+         * clearRate>0.42），让 borderline 默认 fall through 到 'flow'，单向偏好
+         * 心流（flicker → 'flow' 而非 'bored'），等真正越过缓冲带再宣布 bored。 */
+        if (fd > 0.55 && m.clearRate > 0.42) return 'bored';
 
         return 'flow';
     }

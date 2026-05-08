@@ -281,6 +281,102 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 > - **`boardTopology.detectNearClears`**：抽出「近完整行/列」的单一来源，
 >   `analyzeBoardTopology`（panel 上的「近满 N」）与 `bot/blockSpawn.analyzePerfectClearSetup`
 >   （清屏机会评估 `pcSetup`）同源，杜绝同盘面下两侧给出不同近满计数。
+>
+> **v1.17 修订要点（一致性补丁）**
+> - **`harvest` / `payoff` 几何兜底**：`pcSetup` 在低占用盘面（如 17% 散布）经常
+>   是"理论上能凑出清屏"的噪声候选，但不是"现在就能兑现"的窗口。新引入模块常量
+>   `PC_SETUP_MIN_FILL = 0.45`，并统一通过 helper：
+>   ```js
+>   canPromoteToPayoff = nearFullLines ≥ 1
+>       || multiClearCands ≥ 1
+>       || (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)
+>   ```
+>   `spawnIntent='harvest'` 收紧为 `nearFullLines ≥ 2 || (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)`；
+>   `deriveRhythmPhase`、主路径 `pcSetup ≥ 1` / `delight.mode='challenge_payoff'/'flow_payoff'` /
+>   `playstyle='multi_clear'` / `afkEngage` 等所有"基于玩家状态升 payoff"的分支都
+>   走 `canPromoteToPayoff` 兜底。空盘面上系统不再宣布"收获期"，出块也不再无谓地
+>   推 1×4 长条。
+> - **`clearGuarantee` 物理可行性兜底**：`cg=3`（来自 warmup `wb=1` 或
+>   `roundsSinceClear ≥ 4`）承诺"本轮强制 ≥3 块能立刻消行"，但若
+>   `multiClearCandidates < 2 && nearFullLines < 2` 则物理上无法兑现，UI pill
+>   「目标保消 3」即变成空头支票。最终兜底将 `cg` 回钳到 `2`，仍保持友好出块语义。
+> - **"节奏相位"词义解耦（UI 层）**：`PlayerProfile.pacingPhase`（tension/release，
+>   session 周期内的张弛）改为 UI 标签 **「Session 张弛」**；`spawnHints.rhythmPhase`
+>   （setup/payoff/neutral）继续称 **「节奏相位」**。同名异义不再误导玩家。
+> - **`strategyAdvisor` 卡互斥**：`rhythmPhase==='payoff'` 或 `spawnIntent==='harvest'`
+>   时不再追加「提升挑战 → 3 行+」卡（与「收获期」叙事互相拉扯）；`fill < 0.18`
+>   时同样抑制（多线候选物理上接近 0）。
+>
+> **v1.18 修订要点（叙事颗粒度补丁）**
+> - **`stressMeter.getStressDisplay(stress, spawnIntent)` 救济变体**：
+>   `spawnIntent='relief'` + stress ≤ −0.05 进入 calm 档时，头像 `😌 → 🤗`，
+>   label `放松 → 放松（救济中）`，避免"放松 emoji + 挫败感偏高叙事"打架。
+> - **`strategyAdvisor` 多消机会卡分两文案**：按 `multiClearCandidates`
+>   阈值（≥2）选「🎯 多消机会 / ✂️ 逐条清理」，不再在物理上做不到多消的
+>   盘面上仍鼓动玩家"争取大分"。
+> - **`strategyAdvisor` 瓶颈块预警**：`solutionMetrics.validPerms ≤ 2 && fill ≥ 0.4`
+>   触发「⏳ 瓶颈块」(priority 0.86)，比现有难度/stress 信号更早地警告
+>   "三连只剩 1~2 种放置顺序"。
+> - **`PlayerProfile.flowState` 复合挣扎检测**：4 个弱信号（missRate>0.10 /
+>   thinkMs>3500 / clearRate<0.30 / 高 fill+低 clearRate）≥3 条 → `anxious`，
+>   即便 `F(t) < 0.25` 也不再被早返回吞掉。新增 `flowZone.thinkTimeStruggleMs`
+>   配置项（默认 3500ms）。
+> - **`playerInsightPanel` 救济三分量 pill**：`挫败救济 / 恢复 / 近失` 三条
+>   `stressBreakdown` 分量直接显示在 pill 行，玩家不必从故事线倒推。
+>
+> **v1.22 修订要点（卡互斥 Build vs Harvest + Sparkline Help 解读）**
+> - **`strategyAdvisor`「规划堆叠」加 `harvestNow` 互斥**：v1.17 已为「提升挑战」
+>   卡加了 `harvestNow = (rhythmPhase==='payoff' || spawnIntent==='harvest')` 互斥，
+>   但同文件第 11 张「规划堆叠」卡仍只看 `fill<0.3 && skill>0.5`。线上截图复现：
+>   payoff + 板面 30% + skill 78% 时同帧出现「💎 收获期：积极消除」+「🏗️ 规划堆叠：
+>   留出 1~2 列通道为后续做准备」两张方向相反的卡。修复同样加 `&& !harvestNow` 闸。
+> - **REPLAY_METRICS 19 条 sparkline tooltip 全量补「📈 看图」解读段**：原 tooltip
+>   只解释指标定义，新增统一的「📈 看图：…」段说明典型范围、上行/下行/平台/拐点的
+>   含义、与哪条相邻曲线印证、什么读数对应哪种 strategyAdvisor 卡 / spawnIntent 切换。
+> - **「挑战」(challengeBoost) tooltip 显式说明触发条件**：玩家常因看到曲线长期为 0
+>   而怀疑指标失效。新 tooltip 写明触发条件 `score ≥ bestScore × 0.8` 且 `stress < 0.7`、
+>   公式 `min(0.15, (score/best - 0.8) × 0.75)`、首局（best=0）也恒为 0。
+>
+> **v1.21 修订要点（Phase Coherence + Snapshot Marker + Borderline 去抖）**
+> - **`deriveRhythmPhase` `'setup'` 互斥**：line 264 加 `&& !nearGeom`，避免
+>   `pacingPhase='tension' + roundsSinceClear=0 + nearFullLines≥2` 同帧出现
+>   pill「节奏 搭建」+「意图 兑现」+ stress story「投放促清形状」+ strategyAdvisor
+>   「搭建期」四方对立。fall through 到 `'neutral'`、由 `canPromoteToPayoff` 升 `'payoff'`，
+>   与 `spawnIntent='harvest'` 同口径。
+> - **`playerInsightPanel._buildWhyLines(insight, profile)` 双参 + live 优先**：
+>   纯 live 量（flowDeviation/feedbackBias/flowState）改 live；spawn 决策类继续读 ins。
+> - **Spawn 决策 pill 视觉分割**：插入「📷 R{n} spawn 决策」marker，与 live pill 分开。
+> - **`playerProfile.flowState` borderline 去抖**：阈值加 5% 缓冲（0.5→0.55, 0.4→0.42）。
+>
+> **v1.20 修订要点（Live ↔ Snapshot 一致性补丁 + 标签解耦）**
+> - **`strategyAdvisor` 多消机会卡 / 瓶颈块卡读 live 几何**：消除"卡说有 4 多消、
+>   面板 pill 显示 0"撞墙。`playerInsightPanel` 把 `liveTopology` +
+>   `liveMultiClearCandidates` 注入 `gridInfo`；strategyAdvisor 优先读 live、
+>   回退 `diag.layer1.*`（spawn 快照）。
+> - **`playerInsightPanel` F(t) / 闭环反馈 pill 改读 PlayerProfile live**：和左侧
+>   sparkline 末点同源，消除 0.12 量级 snapshot/live 偏差。spawn 决策类字段
+>   （spawnIntent / multiClearBonus 等）仍读 `ins.*` 维持 spawn 时一致。
+> - **sparkline `pacingAdjust` 标签「节奏」→「松紧」**：与右侧 `rhythmPhase` pill
+>   「节奏 收获」彻底分开（一个是相位枚举、一个是数值偏移），同步改
+>   `stressMeter.SIGNAL_LABELS`。
+> - **`adaptiveSpawn` 补 `challengeBoost` 触发 4 条件 + 幅度公式 + spawnIntent
+>   联动单测（之前 0 单测覆盖）**：5 条新增。
+>
+> **v1.19 修订要点（几何兜底 + 救济通路全覆盖）**
+> - **`adaptiveSpawn`：`multiClearBonus` / `multiLineTarget` 几何兜底**——与 v1.17
+>   `clearGuarantee` 兜底同源。当 `multiClearCandidates < 1 && nearFullLines < 2`
+>   且不在真 `pcSetup` 窗口、不在 warmup、未触发 AFK engage 时，
+>   `multiClearBonus = min(., 0.4)`、`multiLineTarget = 0`。避免
+>   `playstyle='multi_clear'` / `pcSetup` 噪声 / v10.x 偏好继承等路径把 bonus 顶到
+>   0.65~0.75 但盘面物理上根本不可能多消、玩家落地后只能触发单行消除的预期落差。
+>   **保留语义对称**：cg 是「承诺」（warmup/AFK 也要兜底），
+>   `multiClearBonus`/`multiLineTarget` 是「偏好」（warmup/AFK 显式豁免）。
+> - **`playerInsightPanel`：救济 pill 自动化**——v1.18 硬编码三件套
+>   （frustrationRelief/recoveryAdjust/nearMissAdjust）只覆盖 3 条救济。改为复用
+>   `stressMeter.summarizeContributors`，从 `stressBreakdown` 自动挑出 top 2 负向
+>   分量（|v| ≥ 0.04），覆盖 `flowAdjust` / `pacingAdjust` / `friendlyBoardRelief` /
+>   `holeReliefAdjust` / `boardRiskReliefAdjust` 等全部 17 条减压通路；标签 + tooltip
+>   直接复用 `SIGNAL_LABELS`，避免重复定义。
 
 ### 4.2 10 档 profile 插值
 
@@ -323,6 +419,15 @@ if stress ∈ [a, b]:
 >   作为叙事文案，仅在 `boardRisk≥0.6` 或挫败/恢复主导时被覆盖。
 > - `monetization/personalization.updateRealtimeSignals(profile, { spawnIntent })`
 >   把意图带入商业化策略，回放标签同源。
+>
+> **v1.17 — `harvest` 触发收紧**：旧的 `pcSetup ≥ 1 || nearFullLines ≥ 3` 在
+> 低占用盘面会噪声触发，玩家会看到 `意图 兑现` + "密集消行机会" 文案 + 长条
+> 偏好，但盘面其实没有任何近满行。新条件：
+>   ```
+>   spawnIntent = 'harvest'  iff
+>       nearFullLines ≥ 2  OR  (pcSetup ≥ 1 AND fill ≥ PC_SETUP_MIN_FILL=0.45)
+>   ```
+> 同口径覆盖 `deriveRhythmPhase` 与所有"基于玩家状态升 payoff"的分支。
 
 ### 4.4 爽感兑现层（v3.3）
 

@@ -31,7 +31,11 @@
 /**
  * @param {import('./playerProfile.js').PlayerProfile} profile
  * @param {object} [insight] _lastAdaptiveInsight
- * @param {object} [gridInfo] { fillRatio, maxHeight, holesCount }
+ * @param {object} [gridInfo] { fillRatio, maxHeight, holesCount,
+ *   liveTopology?, liveMultiClearCandidates? }
+ *   v1.20：`liveTopology` 与 `liveMultiClearCandidates` 由 panel 注入，
+ *   表示"当前盘面"几何，**优先**于 `insight.spawnDiagnostics.layer1`（spawn 时
+ *   快照）。否则在玩家放过 1~3 块后会出现「策略卡说有 4 多消、面板说 0」的撞墙。
  * @returns {StrategyTip[]} 按 priority 降序排列的策略建议（最多 3 条）
  */
 export function generateStrategyTips(profile, insight, gridInfo) {
@@ -49,6 +53,16 @@ export function generateStrategyTips(profile, insight, gridInfo) {
 
     const hints = insight?.spawnHints || {};
     const diag = insight?.spawnDiagnostics;
+    /* v1.20：live 优先（spawn 快照只作回退）—— 解决 "卡说 4 多消、面板 0" 撞墙。
+     * 这里只声明覆盖项；下方多消机会卡 / 瓶颈块卡按需读取 _liveNearFull /
+     * _liveMultiClearCands 而不再直接走 diag.layer1。 */
+    const _liveTopo = gridInfo?.liveTopology;
+    const _liveNearFull = Number.isFinite(_liveTopo?.nearFullLines)
+        ? _liveTopo.nearFullLines
+        : (diag?.layer1?.nearFullLines ?? 0);
+    const _liveMultiClearCands = Number.isFinite(gridInfo?.liveMultiClearCandidates)
+        ? gridInfo.liveMultiClearCandidates
+        : (diag?.layer1?.multiClearCandidates ?? 0);
 
     /* ── 1. 生存优先 (Layer 1) ── */
     if (fill > 0.75) {
@@ -82,12 +96,49 @@ export function generateStrategyTips(profile, insight, gridInfo) {
         });
     }
 
-    /* ── 2b. 多消潜力提示 (Layer 1) ── */
-    if (diag?.layer1?.nearFullLines >= 3 && tips.length < 3) {
+    /* ── 2b. 多消潜力提示 (Layer 1) ──
+     * v1.18：按"是否真的存在多消候选"分两种文案，避免在 nearFullLines=3
+     * 但 multiClearCands<2 的盘面上仍鼓动玩家"同时完成多行 / 争取大分"
+     * （物理上做不到）。
+     * v1.20：`nearFullLines` / `multiClearCandidates` 改读 live，避免
+     * spawn 后玩家已经清掉 1~2 行 / 已经放掉多消候选块、但本卡仍按 spawn 时
+     * 快照报"4 个多消放置"的撞墙（与 panel 「多消候选 0」pill 对不上）。
+     * 回退仍然是 diag.layer1（live 不可用时由 _liveNearFull/_liveMultiClearCands 兜底）。
+     */
+    if (_liveNearFull >= 3 && tips.length < 3) {
+        if (_liveMultiClearCands >= 2) {
+            tips.push({
+                icon: '🎯', title: '多消机会',
+                detail: `有 ${_liveNearFull} 条接近满行 + ${_liveMultiClearCands} 个多消放置，选择能同时完成多行的位置，争取大分。`,
+                priority: 0.78, category: 'clear'
+            });
+        } else {
+            tips.push({
+                icon: '✂️', title: '逐条清理',
+                detail: `有 ${_liveNearFull} 条接近满行，但暂无多消组合——先把最容易消的那条清掉，缓解压力再说。`,
+                priority: 0.7, category: 'clear'
+            });
+        }
+    }
+
+    /* ── 2c. v1.18：瓶颈块预警 (Layer 1: solutionMetrics) ──
+     * 当三连块的 6 种放置顺序里只有 1~2 种能完整下完，玩家其实非常接近卡死，
+     * 但 stress / 难度等聚合数字看不出来。这条提示与"多消机会"独立显示，
+     * 提醒玩家"先把瓶颈块放掉、别贪连击"。
+     * 仅在 fill ≥ 0.4（解法度量已激活）且 validPerms ≤2 时触发，避免冷启动误报。
+     */
+    const sm = diag?.layer1?.solutionMetrics;
+    if (sm
+        && Number.isFinite(sm.validPerms)
+        && sm.validPerms <= 2
+        && fill >= 0.4
+        && tips.length < 3) {
+        const fmf = Number.isFinite(sm.firstMoveFreedom) ? sm.firstMoveFreedom : null;
+        const fmfHint = fmf != null && fmf <= 5 ? `（瓶颈块仅 ${fmf} 个合法位）` : '';
         tips.push({
-            icon: '🎯', title: '多消机会',
-            detail: `有 ${diag.layer1.nearFullLines} 条接近满行，选择能同时完成多行的位置，争取大分。`,
-            priority: 0.78, category: 'clear'
+            icon: '⏳', title: '瓶颈块',
+            detail: `当前三连只有 ${sm.validPerms}/6 种顺序能下完${fmfHint}——先放可放置位最少的那块，别再贪连击。`,
+            priority: 0.86, category: 'survival'
         });
     }
 
@@ -130,8 +181,15 @@ export function generateStrategyTips(profile, insight, gridInfo) {
         });
     }
 
-    /* ── 6. 心流方向 ── */
-    if (flow === 'bored' && tips.length < 3) {
+    /* ── 6. 心流方向 ──
+     * v1.17：与「收获期」卡互斥。当 rhythmPhase==='payoff' 时已建议玩家"积极消除"，
+     * 此时再叠"提升挑战 → 多行同消（3行+）"会让玩家在同一面板看到两条互相拉扯的目标
+     *（一个让 TA 现在兑现、一个让 TA 蓄力搭建）。同理盘面太稀（fill < 0.18，
+     * 多线候选物理上接近 0）时也不再推 3 行+ 的目标，避免空头建议。
+     */
+    const harvestNow = hints.rhythmPhase === 'payoff'
+        || hints.spawnIntent === 'harvest';
+    if (flow === 'bored' && tips.length < 3 && !harvestNow && fill >= 0.18) {
         tips.push({
             icon: '🎯', title: '提升挑战',
             detail: '当前操作轻松，尝试构建多行同消（3行+）或预留 combo 结构，获取更高分。',
@@ -187,8 +245,14 @@ export function generateStrategyTips(profile, insight, gridInfo) {
         });
     }
 
-    /* ── 11. 构型建议 ── */
-    if (fill < 0.3 && skill > 0.5 && tips.length < 3) {
+    /* ── 11. 构型建议 ──
+     * v1.22：与「收获期」/ harvest 意图互斥（沿用 6 节 harvestNow 概念）。
+     * 旧版只看 fill<0.3 && skill>0.5 → 在 rhythmPhase='payoff' 同帧出现时
+     *   • 💎 收获期：「积极消除享分」（要求当下兑现）
+     *   • 🏗️ 规划堆叠：「留出 1~2 列通道为后续做准备」（要求蓄力搭建）
+     * 两条卡叙事方向相反、玩家被拉扯。harvestNow 时跳过此卡，只在「搭建/中性」
+     * 阶段给"留通道"的长期建议；fill<0.3 时盘面充裕本就允许下一轮再出。 */
+    if (fill < 0.3 && skill > 0.5 && !harvestNow && tips.length < 3) {
         tips.push({
             icon: '🏗️', title: '规划堆叠',
             detail: '棋盘空间充裕，可以有意留出 1~2 列通道，为后续长条消行和 combo 做准备。',

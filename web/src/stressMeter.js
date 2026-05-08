@@ -42,6 +42,33 @@ export function getStressLevel(stress) {
 }
 
 /**
+ * v1.18：被动救济变体 —— 当系统因玩家挫败/恢复信号而把 stress 压到很低时，
+ * 单纯显示「😌 放松」与底下"挫败感偏高，正在主动减压"叙事并列容易让玩家
+ * 误以为系统自相矛盾。这里给 calm/easy 两个低压档加一个"救济中"的变体：
+ * 头像换成 🤗（被照顾），label 在原档位后追加"（救济中）"，让玩家理解
+ * "我现在轻松，是因为系统正在帮我，而不是我状态本来就很好"。
+ *
+ * 仅在 spawnIntent === 'relief' 且实际 stress ≤ -0.05（落入 calm 档，
+ * 是真正的"被压低"区间）时启用；easy 档（−0.05 ~ 0.20）已是温和挑战区，
+ * "舒缓 + 主动减压"读起来不冲突，无需切变体。
+ */
+export function getStressDisplay(stress, spawnIntent) {
+    const base = getStressLevel(stress);
+    if (spawnIntent === 'relief'
+        && Number.isFinite(stress)
+        && stress <= -0.05
+        && base.id === 'calm') {
+        return {
+            ...base,
+            face: '🤗',
+            label: `${base.label}（救济中）`,
+            vibe: '系统正在为你减压：候选块更小、更友好，找一条最容易消的行先恢复节奏。'
+        };
+    }
+    return base;
+}
+
+/**
  * 信号 key → 中文人类可读标签 / 解读语
  *
  * 与 `adaptiveSpawn.js` 中 `stressBreakdown` 的 key 一一对应。
@@ -53,7 +80,7 @@ export const SIGNAL_LABELS = {
     difficultyBias:        { label: '难度模式',   hint: '玩家选的简单/普通/困难带来的整体偏移' },
     skillAdjust:           { label: '技能',       hint: '技能估计偏高时略加压、偏低时略减压' },
     flowAdjust:            { label: '心流',       hint: '心流偏移：无聊→加压、焦虑→减压' },
-    pacingAdjust:          { label: '节奏',       hint: '紧张/释放期交替造成的微调' },
+    pacingAdjust:          { label: '松紧',       hint: '紧张/释放期交替造成的微调（与 rhythmPhase「节奏 收获/中性/搭建」pill 不同——那是相位枚举，本项是数值偏移）' },
     recoveryAdjust:        { label: '恢复',       hint: '近一段挫败/卡顿后压低难度' },
     frustrationRelief:     { label: '挫败救济',   hint: '挫败感超阈值时的强制减压' },
     comboAdjust:           { label: '连击',       hint: 'combo 活跃时的小幅加压' },
@@ -247,7 +274,11 @@ export function renderStressMeter(root, insight, stressHistory = []) {
     }
 
     const stress = Number.isFinite(insight.stress) ? insight.stress : 0;
-    const level = getStressLevel(stress);
+    /* v1.18：用 getStressDisplay 替代裸的 getStressLevel —— 当 spawnIntent='relief'
+     * 且 stress 已被压到 ≤ −0.05 时，face/label/vibe 切到"被照顾"变体，
+     * 与故事线"系统正在主动减压"对齐，避免"😌 放松"+"挫败感偏高"看起来打架。 */
+    const intent = insight.spawnHints?.spawnIntent ?? insight.spawnIntent ?? null;
+    const level = getStressDisplay(stress, intent);
     const trend = computeTrend(stressHistory, stress, 6);
     const story = buildStoryLine(level, insight.stressBreakdown, insight.spawnTargets, insight.spawnHints);
     const barPct = _stressToBar(stress);
