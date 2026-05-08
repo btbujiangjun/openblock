@@ -333,6 +333,13 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 > - **`game.js` 调用 `resolveAdaptiveStrategy` 时注入 `_gridRef/_dockShapePool`**：
 >   仅单次调用上下文生效，不污染持久 `_spawnContext`。
 >
+> **v1.28 修订要点（合法序统计准确性）**
+> - **`validPerms` 与 `leafCap` 解耦**：旧版在 `solutionCount` 达到 `leafCap` 后停止遍历，
+>   会低估 `validPerms`。新版保留 `solutionCount` cap 防护，但继续逐排列判定可解性，
+>   保证 `validPerms` 反映 6 个顺序的真实可解覆盖度。
+> - **文案口径统一为“本轮生成时快照”**：`playerInsightPanel` 的 `解法数量/合法序`
+>   tooltip 明确快照语义；`strategyAdvisor`「瓶颈块」提示改短，减少阅读负担。
+>
 > **v1.24 修订要点（flow 叙事相位变体表）**
 > - **`SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体**：旧版硬编码
 >   "心流稳定，节奏进入收获期…"，但 `spawnIntent='flow'` 触发条件包含

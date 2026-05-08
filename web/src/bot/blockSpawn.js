@@ -224,16 +224,39 @@ export function evaluateTripletSolutions(grid, threeData, opts = {}) {
     let validPerms = 0;
 
     for (let i = 0; i < perms.length; i++) {
-        if (accum.count >= cap) break;
         if (budget.n <= 0) {
             accum.truncated = true;
             break;
         }
-        const before = accum.count;
-        dfsCountSolutions(grid, perms[i], 0, accum, budget);
-        const delta = accum.count - before;
+
+        let delta = 0;
+        if (accum.count < cap) {
+            const before = accum.count;
+            dfsCountSolutions(grid, perms[i], 0, accum, budget);
+            delta = accum.count - before;
+        }
         perPermCounts[i] = delta;
-        if (delta > 0) validPerms++;
+
+        if (delta > 0) {
+            validPerms++;
+            continue;
+        }
+
+        if (budget.n <= 0) {
+            accum.truncated = true;
+            break;
+        }
+
+        // solutionCount 可能已触 cap，需独立判定该排列是否可解，避免 validPerms 被低估。
+        const existBudget = { n: budget.n, exhaustAsPass: false };
+        const hasSolution = dfsPlaceOrder(grid, perms[i], 0, existBudget);
+        budget.n = existBudget.n;
+        if (hasSolution) {
+            validPerms++;
+        } else if (budget.n <= 0) {
+            accum.truncated = true;
+            break;
+        }
     }
 
     let firstMoveFreedom = Infinity;

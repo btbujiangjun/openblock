@@ -137,7 +137,7 @@ export function generateStrategyTips(profile, insight, gridInfo) {
         const fmfHint = fmf != null && fmf <= 5 ? `（瓶颈块仅 ${fmf} 个合法位）` : '';
         tips.push({
             icon: '⏳', title: '瓶颈块',
-            detail: `当前三连只有 ${sm.validPerms}/6 种顺序能下完${fmfHint}——先放可放置位最少的那块，别再贪连击。`,
+            detail: `当前三连合法序 ${sm.validPerms}/6${fmfHint}，先下可放位最少的那块。`,
             priority: 0.86, category: 'survival'
         });
     }

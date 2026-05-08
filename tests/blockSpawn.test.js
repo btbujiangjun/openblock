@@ -6,7 +6,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Grid } from '../web/src/grid.js';
 import { getAllShapes } from '../web/src/shapes.js';
-import { generateDockShapes, getLastSpawnDiagnostics, resetSpawnMemory } from '../web/src/bot/blockSpawn.js';
+import {
+    evaluateTripletSolutions,
+    generateDockShapes,
+    getLastSpawnDiagnostics,
+    resetSpawnMemory
+} from '../web/src/bot/blockSpawn.js';
 import { getStrategy } from '../web/src/config.js';
 
 const allIds = new Set(getAllShapes().map(s => s.id));
@@ -125,5 +130,21 @@ describe('generateDockShapes', () => {
             ctx.totalRounds++;
         }
         expect(seenCategories.size).toBeGreaterThanOrEqual(2);
+    });
+});
+
+describe('evaluateTripletSolutions', () => {
+    it('leafCap 截断时仍完整统计 validPerms', () => {
+        const grid = new Grid(8);
+        const three = getAllShapes()
+            .map((s) => ({ data: s.data, area: s.data.reduce((acc, row) => acc + row.reduce((x, v) => x + (v ? 1 : 0), 0), 0) }))
+            .sort((a, b) => a.area - b.area)
+            .slice(0, 3)
+            .map((s) => s.data);
+
+        const metrics = evaluateTripletSolutions(grid, three, { leafCap: 1, budget: 200000 });
+        expect(metrics.capped).toBe(true);
+        expect(metrics.validPerms).toBe(6);
+        expect(metrics.perPermCounts.reduce((a, b) => a + b, 0)).toBe(1);
     });
 });

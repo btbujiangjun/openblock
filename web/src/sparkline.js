@@ -15,6 +15,101 @@ export const METRIC_GROUP_COLORS = {
     stress: '#ec407a'
 };
 
+/** 指标名专用高饱和配色（用于「实时状态/回放」左侧标签）。 */
+export const METRIC_LABEL_COLORS = {
+    score: '#ffd166',
+    boardFill: '#4cc9f0',
+    stress: '#ff6b6b',
+    momentum: '#ff9f1c',
+    cognitiveLoad: '#b388ff',
+    difficultyBias: '#ff4d8d',
+
+    skill: '#2dd4bf',
+    clearRate: '#6ee7b7',
+    flowDeviation: '#fbbf24',
+    frustration: '#f97316',
+    missRate: '#f43f5e',
+    thinkMs: '#93c5fd',
+
+    feedbackBias: '#a78bfa',
+    flowAdjust: '#22d3ee',
+    pacingAdjust: '#34d399',
+    friendlyBoardRelief: '#60a5fa',
+    sessionArcAdjust: '#e879f9',
+    challengeBoost: '#fb7185'
+};
+
+export const METRIC_LABEL_GRADIENTS = {
+    score: ['#ffd166', '#ff8c42'],
+    boardFill: ['#4cc9f0', '#4895ef'],
+    stress: ['#ff6b6b', '#f94144'],
+    momentum: ['#ffbe0b', '#fb8500'],
+    cognitiveLoad: ['#b388ff', '#7b2cbf'],
+    difficultyBias: ['#ff4d8d', '#d90479'],
+
+    skill: ['#2dd4bf', '#14b8a6'],
+    clearRate: ['#80ed99', '#57cc99'],
+    flowDeviation: ['#ffd166', '#f8961e'],
+    frustration: ['#f9844a', '#f3722c'],
+    missRate: ['#fb7185', '#f43f5e'],
+    thinkMs: ['#93c5fd', '#60a5fa'],
+
+    feedbackBias: ['#c4b5fd', '#a78bfa'],
+    flowAdjust: ['#67e8f9', '#22d3ee'],
+    pacingAdjust: ['#6ee7b7', '#34d399'],
+    friendlyBoardRelief: ['#93c5fd', '#3b82f6'],
+    sessionArcAdjust: ['#f0abfc', '#d946ef'],
+    challengeBoost: ['#fb7185', '#ef4444']
+};
+
+const METRIC_LABEL_FALLBACK_PALETTE = [
+    '#ffd166', '#4cc9f0', '#ff6b6b', '#6ee7b7', '#b388ff', '#fbbf24'
+];
+
+/**
+ * 返回指标名标签颜色：优先 key 专属色，再回退分组色/循环调色盘。
+ * @param {string} key
+ * @param {string} fallback
+ * @param {number} index
+ * @returns {string}
+ */
+export function getMetricLabelColor(key, fallback, index = 0) {
+    if (METRIC_LABEL_COLORS[key]) return METRIC_LABEL_COLORS[key];
+    if (fallback) return fallback;
+    return METRIC_LABEL_FALLBACK_PALETTE[index % METRIC_LABEL_FALLBACK_PALETTE.length];
+}
+
+/**
+ * 返回指标名渐变色（主色/副色）。
+ * @param {string} key
+ * @param {string} fallback
+ * @param {number} index
+ * @returns {[string, string]}
+ */
+export function getMetricLabelGradient(key, fallback, index = 0) {
+    const grad = METRIC_LABEL_GRADIENTS[key];
+    if (Array.isArray(grad) && grad.length >= 2) return [grad[0], grad[1]];
+    const c = getMetricLabelColor(key, fallback, index);
+    return [c, c];
+}
+
+/**
+ * 按当前值在该指标序列中的相对位置，生成 0.35~1 的发光强度。
+ * @param {number} value
+ * @param {number} lo
+ * @param {number} hi
+ * @returns {number}
+ */
+export function getMetricLabelGlow(value, lo, hi) {
+    const v = Number(value);
+    const min = Number(lo);
+    const max = Number(hi);
+    if (!Number.isFinite(v) || !Number.isFinite(min) || !Number.isFinite(max)) return 0.55;
+    const range = Math.max(1e-9, max - min);
+    const t = Math.min(1, Math.max(0, (v - min) / range));
+    return 0.35 + t * 0.65;
+}
+
 /**
  * @param {{ idx: number, value: number }[]} points
  * @param {number} totalFrames 序列长度（横轴归一化用）

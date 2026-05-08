@@ -11,7 +11,14 @@ import {
     formatMetricValue,
     REPLAY_METRICS
 } from './moveSequence.js';
-import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
+import {
+    sparklineSvg,
+    SPARK_W,
+    METRIC_GROUP_COLORS,
+    getMetricLabelColor,
+    getMetricLabelGradient,
+    getMetricLabelGlow
+} from './sparkline.js';
 import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { renderStressMeter, summarizeContributors } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
@@ -158,9 +165,9 @@ const SPAWN_TOOLTIP = {
     nearFull:
         '近满行/列数：距离整行或整列填满仅差 1～2 格的条数，越多表示越容易通过少量放置触发多消，是 Layer1 多消潜力的重要信号。',
     solutionCount:
-        '解法数量（v9）：当前盘面下，三连块所有 6 种放置顺序中能完整放下的「不同放置位置组合」总数。带 + 表示已截断到 leafCap，实际更多。数字越大→局面越宽松；越小→玩家需要精算。仅在 fill ≥ activationFill 时评估。',
+        '解法数量（v9）：本轮生成时，三连块 6 种顺序下可完整放下的总解数。带 + 表示触发 leafCap 截断，实际更多。仅在 fill ≥ activationFill 时评估。',
     validPerms:
-        '合法排列数（v9）：三连块在 6 种放置顺序中至少存在 1 个完整放置方案的顺序数（0–6）。1 表示只有唯一一条解链；6 表示任意顺序都能下完——解链越多越宽松。',
+        '合法序（v9）：本轮生成时，6 种放置顺序里“至少有 1 条完整解”的顺序数（0–6）。数值越低越容易卡手。',
     firstMoveFreedom:
         '首手自由度（v9）：三块各自单独放置时合法位置数的最小值（瓶颈块）。数值越小，玩家选错位置后越容易卡死。',
     targetSolutionRange:
@@ -524,13 +531,24 @@ function _renderInsightStateSeries(game, elState) {
     let html =
         '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>';
     html += '<div class="replay-series-grid insight-live-series-grid">';
-    for (const m of data.metrics) {
+    for (let i = 0; i < data.metrics.length; i++) {
+        const m = data.metrics[i];
         const s = data.series[m.key];
         const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+        const labelColor = getMetricLabelColor(m.key, color, i);
+        const [labelColorA, labelColorB] = getMetricLabelGradient(m.key, color, i);
+        const lastVal = getMetricFromPS(lastPs, m.key);
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (const p of s.points) {
+            if (p.value < lo) lo = p.value;
+            if (p.value > hi) hi = p.value;
+        }
+        const glow = getMetricLabelGlow(lastVal, lo, hi);
         const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
         html +=
             `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label" style="color:${color}">${m.label}</span>` +
+            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-color-2:${labelColorB};--series-label-glow:${glow.toFixed(2)};color:${labelColorA}">${m.label}</span>` +
             `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
             `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
     }
@@ -1075,7 +1093,7 @@ export function renderStressMeterReplay(frames, idx) {
  * 滑块决定当前帧位置，能直观判断"现在在曲线哪个位置"。
  */
 let _insightReplayFrames = null;
-/** @type {{ key:string, fmt:string, cursorLine:Element|null, valueEl:Element|null }[]} */
+/** @type {{ key:string, fmt:string, cursorLine:Element|null, valueEl:Element|null, labelEl:Element|null, lo:number, range:number }[]} */
 let _insightReplayCells = [];
 let _insightReplayTotalFrames = 0;
 
@@ -1129,13 +1147,24 @@ export function enterInsightReplay(frames) {
     let html =
         '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>';
     html += '<div class="replay-series-grid insight-live-series-grid">';
-    for (const m of data.metrics) {
+    for (let i = 0; i < data.metrics.length; i++) {
+        const m = data.metrics[i];
         const s = data.series[m.key];
         const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+        const labelColor = getMetricLabelColor(m.key, color, i);
+        const [labelColorA, labelColorB] = getMetricLabelGradient(m.key, color, i);
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (const p of s.points) {
+            if (p.value < lo) lo = p.value;
+            if (p.value > hi) hi = p.value;
+        }
+        const lastValue = s.points.length > 0 ? s.points[s.points.length - 1].value : null;
+        const glow = getMetricLabelGlow(lastValue, lo, hi);
         const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
         html +=
             `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label" style="color:${color}">${m.label}</span>` +
+            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-color-2:${labelColorB};--series-label-glow:${glow.toFixed(2)};color:${labelColorA}">${m.label}</span>` +
             `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
             `<span class="series-value">—</span></div>`;
     }
@@ -1156,7 +1185,23 @@ export function enterInsightReplay(frames) {
         const svg = cell.querySelector('.replay-sparkline');
         const cursorLine = svg?.querySelector('.spark-cursor') ?? null;
         const valueEl = cell.querySelector('.series-value');
-        _insightReplayCells.push({ key: m.key, fmt: m.fmt, cursorLine, valueEl });
+        const labelEl = cell.querySelector('.series-label');
+        const pts = data.series[m.key]?.points || [];
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (const p of pts) {
+            if (p.value < lo) lo = p.value;
+            if (p.value > hi) hi = p.value;
+        }
+        _insightReplayCells.push({
+            key: m.key,
+            fmt: m.fmt,
+            cursorLine,
+            valueEl,
+            labelEl,
+            lo,
+            range: hi === lo ? 1 : hi - lo
+        });
     }
 }
 
@@ -1199,6 +1244,10 @@ export function updateInsightReplayFrame(idx) {
         }
         const val = curPs ? getMetricFromPS(curPs, c.key) : null;
         if (c.valueEl) c.valueEl.textContent = formatMetricValue(val, c.fmt);
+        if (c.labelEl) {
+            const glow = getMetricLabelGlow(val, c.lo, c.lo + c.range);
+            c.labelEl.style.setProperty('--series-label-glow', glow.toFixed(2));
+        }
     }
 
     // tag 行（flow/release/peak/R{n}）随当前帧切换

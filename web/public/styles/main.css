@@ -4788,6 +4788,25 @@ body.doc-visibility-hidden #menu * {
     line-height: 1;
 }
 
+.series-label--metric {
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    --series-label-color-2: var(--series-label-color, #5b9bd5);
+    --series-label-glow: 0.55;
+    background: linear-gradient(
+        120deg,
+        var(--series-label-color, #5b9bd5) 0%,
+        var(--series-label-color-2) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    text-shadow:
+        0 0 calc(3px + 4px * var(--series-label-glow)) color-mix(in srgb, var(--series-label-color, #5b9bd5) calc(20% + 40% * var(--series-label-glow)), transparent),
+        0 0 calc(1px + 2px * var(--series-label-glow)) color-mix(in srgb, var(--series-label-color-2) calc(30% + 35% * var(--series-label-glow)), transparent);
+}
+
 .series-spark-wrap {
     width: 100%;
     height: 18px;
@@ -4813,6 +4832,31 @@ body.doc-visibility-hidden #menu * {
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1;
+}
+
+/* 全局 cursor:help 自定义 tooltip（JS 控制 1s 延迟显示） */
+.cursor-help-tooltip {
+    position: fixed;
+    z-index: 30000;
+    max-width: min(420px, calc(100vw - 16px));
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, #5b9bd5 30%, transparent);
+    background: color-mix(in srgb, #0f172a 92%, #1e293b);
+    color: #e2e8f0;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    pointer-events: none;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.38);
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity .12s ease, transform .12s ease;
+}
+
+.cursor-help-tooltip.is-visible {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 @media (max-width: 340px) {

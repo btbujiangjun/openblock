@@ -36,7 +36,14 @@ function resolvedReplayAnalysis(row, frames) {
         return { analysis: null, derived: false };
     }
 }
-import { sparklineSvg, SPARK_W, METRIC_GROUP_COLORS } from './sparkline.js';
+import {
+    sparklineSvg,
+    SPARK_W,
+    METRIC_GROUP_COLORS,
+    getMetricLabelColor,
+    getMetricLabelGradient,
+    getMetricLabelGlow
+} from './sparkline.js';
 import {
     enterInsightReplay,
     exitInsightReplay,
@@ -150,12 +157,20 @@ export function initReplayUI(game) {
         let html = formatReplayAnalysisHtml(replayAnalysisRef);
         html += '<div class="replay-series-header" id="replay-series-header"></div>';
         html += '<div class="replay-series-grid">';
-        for (const m of data.metrics) {
+        for (let i = 0; i < data.metrics.length; i++) {
+            const m = data.metrics[i];
             const s = data.series[m.key];
             const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+            const labelColor = getMetricLabelColor(m.key, color, i);
+            const [labelColorA, labelColorB] = getMetricLabelGradient(m.key, color, i);
+            let lo = Infinity;
+            let hi = -Infinity;
+            for (const p of s.points) { if (p.value < lo) lo = p.value; if (p.value > hi) hi = p.value; }
+            const lastValue = s.points.length > 0 ? s.points[s.points.length - 1].value : null;
+            const glow = getMetricLabelGlow(lastValue, lo, hi);
             const tip = m.tooltip || '';
             html += `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(tip)}">` +
-                `<span class="series-label" style="color:${color}">${m.label}</span>` +
+                `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-color-2:${labelColorB};--series-label-glow:${glow.toFixed(2)};color:${labelColorA}">${m.label}</span>` +
                 `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
                 `<span class="series-value">—</span></div>`;
         }
@@ -169,11 +184,12 @@ export function initReplayUI(game) {
             const svg = cell.querySelector('.replay-sparkline');
             const cursorLine = svg?.querySelector('.spark-cursor') ?? null;
             const valueEl = cell.querySelector('.series-value');
+            const labelEl = cell.querySelector('.series-label');
             const pts = data.series[m.key].points;
             let lo = Infinity, hi = -Infinity;
             for (const p of pts) { if (p.value < lo) lo = p.value; if (p.value > hi) hi = p.value; }
             _seriesCells.push({
-                key: m.key, fmt: m.fmt, cursorLine, valueEl,
+                key: m.key, fmt: m.fmt, cursorLine, valueEl, labelEl,
                 points: pts, lo, range: hi === lo ? 1 : hi - lo
             });
         }
@@ -204,6 +220,10 @@ export function initReplayUI(game) {
             }
             const val = ps ? getMetricFromPS(ps, c.key) : null;
             if (c.valueEl) c.valueEl.textContent = formatMetricValue(val, c.fmt);
+            if (c.labelEl) {
+                const glow = getMetricLabelGlow(val, c.lo, c.lo + c.range);
+                c.labelEl.style.setProperty('--series-label-glow', glow.toFixed(2));
+            }
         }
     }
 

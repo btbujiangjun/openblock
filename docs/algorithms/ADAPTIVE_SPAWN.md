@@ -316,6 +316,15 @@ const canPromoteToPayoff = nearFullLines ≥ 1
    `resolveAdaptiveStrategy(...)` 调用处注入 `_gridRef` 和 `_dockShapePool`（一次性上下文），
    不写回持久 `_spawnContext`，避免跨轮污染。
 
+**v1.28：合法序统计修复 + 文案口径精简**
+
+1. **`solutionMetrics.validPerms` 与 `leafCap` 解耦**
+   旧版在 `solutionCount` 达到 `leafCap` 后提前停止排列遍历，`validPerms` 会被低估（例如面板出现 `1/6`、`2/6` 偏小值）。  
+   新版保留 `solutionCount` 的 cap 防护，同时继续按 6 个排列独立判定“是否至少有 1 条完整解”，保证 `validPerms` 不再受 cap 误伤。
+2. **提示文案改短并标注快照语义**
+   - `strategyAdvisor`「瓶颈块」改为短句：强调“先下可放位最少的块”；
+   - `playerInsightPanel` 的 `解法数量/合法序` tooltip 明确为“本轮生成时”数据，避免与实时盘面混读。
+
 **v1.24：flow 叙事相位变体表**——v1.23 修了 stress story 优先级倒置，本节再修 `SPAWN_INTENT_NARRATIVE.flow` 文案与实际 rhythmPhase 硬冲突。
 
 1. **`stressMeter.SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体**

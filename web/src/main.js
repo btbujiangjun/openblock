@@ -80,8 +80,12 @@ import { initRankSystem } from './progression/rankSystem.js';
 import { initAsyncPk } from './social/asyncPk.js';
 import { initSkinFragments } from './progression/skinFragments.js';
 import { initMonthlyMilestone } from './checkin/monthlyMilestone.js';
+import { initCursorHelpTooltip } from './helpTooltip.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // 统一 cursor:help 提示等待时长：1 秒。
+    initCursorHelpTooltip({ delayMs: 1000 });
+
     initI18n();
     applyDom(document.documentElement);
     applyMeta();

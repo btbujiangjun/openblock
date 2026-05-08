@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (v1.28 — ValidPerms Accuracy + Copy Simplification)
+- **`evaluateTripletSolutions` 修复 `validPerms` 低估**：
+  旧逻辑在 `solutionCount` 触发 `leafCap` 后直接停止遍历排列，导致 `validPerms` 可能被低估。
+  新逻辑将“解法计数（受 cap 限制）”与“合法序判定（6 个排列独立可解性）”解耦：
+  - `solutionCount/perPermCounts` 仍受 `leafCap` 控制，避免指数爆炸；
+  - `validPerms` 即使在 `capped=true` 时也继续逐排列判定，避免误报“瓶颈块”。
+- **文案精简与口径明确**：
+  - `strategyAdvisor`「瓶颈块」提示改为短句；
+  - `playerInsightPanel` 中 `解法数量/合法序` tooltip 明确为“本轮生成时”快照，减少与实时盘面的语义混淆。
+- **测试补充**：`tests/blockSpawn.test.js` 新增用例，覆盖“`leafCap=1` 时 `validPerms` 仍可完整统计”。
+
 ### Changed (v1.26 — AdaptiveSpawn Live Geometry Override)
 - **`adaptiveSpawn` 在决策前接入 live 几何覆盖（nearFull/multiClear）**：
   为减少“策略卡按 live+dock、而 adaptiveSpawn 仍读旧 ctx 快照”的时序偏差，新增
