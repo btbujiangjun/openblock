@@ -41,7 +41,6 @@ import {
     SPARK_W,
     METRIC_GROUP_COLORS,
     getMetricLabelColor,
-    getMetricLabelGradient,
     getMetricLabelGlow
 } from './sparkline.js';
 import {
@@ -162,7 +161,6 @@ export function initReplayUI(game) {
             const s = data.series[m.key];
             const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
             const labelColor = getMetricLabelColor(m.key, color, i);
-            const [labelColorA, labelColorB] = getMetricLabelGradient(m.key, color, i);
             let lo = Infinity;
             let hi = -Infinity;
             for (const p of s.points) { if (p.value < lo) lo = p.value; if (p.value > hi) hi = p.value; }
@@ -170,7 +168,7 @@ export function initReplayUI(game) {
             const glow = getMetricLabelGlow(lastValue, lo, hi);
             const tip = m.tooltip || '';
             html += `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(tip)}">` +
-                `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-color-2:${labelColorB};--series-label-glow:${glow.toFixed(2)};color:${labelColorA}">${m.label}</span>` +
+                `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-glow:${glow.toFixed(2)};color:${labelColor}">${m.label}</span>` +
                 `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
                 `<span class="series-value">—</span></div>`;
         }

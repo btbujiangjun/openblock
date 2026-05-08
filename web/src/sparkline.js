@@ -39,29 +39,6 @@ export const METRIC_LABEL_COLORS = {
     challengeBoost: '#fb7185'
 };
 
-export const METRIC_LABEL_GRADIENTS = {
-    score: ['#ffd166', '#ff8c42'],
-    boardFill: ['#4cc9f0', '#4895ef'],
-    stress: ['#ff6b6b', '#f94144'],
-    momentum: ['#ffbe0b', '#fb8500'],
-    cognitiveLoad: ['#b388ff', '#7b2cbf'],
-    difficultyBias: ['#ff4d8d', '#d90479'],
-
-    skill: ['#2dd4bf', '#14b8a6'],
-    clearRate: ['#80ed99', '#57cc99'],
-    flowDeviation: ['#ffd166', '#f8961e'],
-    frustration: ['#f9844a', '#f3722c'],
-    missRate: ['#fb7185', '#f43f5e'],
-    thinkMs: ['#93c5fd', '#60a5fa'],
-
-    feedbackBias: ['#c4b5fd', '#a78bfa'],
-    flowAdjust: ['#67e8f9', '#22d3ee'],
-    pacingAdjust: ['#6ee7b7', '#34d399'],
-    friendlyBoardRelief: ['#93c5fd', '#3b82f6'],
-    sessionArcAdjust: ['#f0abfc', '#d946ef'],
-    challengeBoost: ['#fb7185', '#ef4444']
-};
-
 const METRIC_LABEL_FALLBACK_PALETTE = [
     '#ffd166', '#4cc9f0', '#ff6b6b', '#6ee7b7', '#b388ff', '#fbbf24'
 ];
@@ -77,20 +54,6 @@ export function getMetricLabelColor(key, fallback, index = 0) {
     if (METRIC_LABEL_COLORS[key]) return METRIC_LABEL_COLORS[key];
     if (fallback) return fallback;
     return METRIC_LABEL_FALLBACK_PALETTE[index % METRIC_LABEL_FALLBACK_PALETTE.length];
-}
-
-/**
- * 返回指标名渐变色（主色/副色）。
- * @param {string} key
- * @param {string} fallback
- * @param {number} index
- * @returns {[string, string]}
- */
-export function getMetricLabelGradient(key, fallback, index = 0) {
-    const grad = METRIC_LABEL_GRADIENTS[key];
-    if (Array.isArray(grad) && grad.length >= 2) return [grad[0], grad[1]];
-    const c = getMetricLabelColor(key, fallback, index);
-    return [c, c];
 }
 
 /**

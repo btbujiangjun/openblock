@@ -16,7 +16,6 @@ import {
     SPARK_W,
     METRIC_GROUP_COLORS,
     getMetricLabelColor,
-    getMetricLabelGradient,
     getMetricLabelGlow
 } from './sparkline.js';
 import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
@@ -536,7 +535,6 @@ function _renderInsightStateSeries(game, elState) {
         const s = data.series[m.key];
         const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
         const labelColor = getMetricLabelColor(m.key, color, i);
-        const [labelColorA, labelColorB] = getMetricLabelGradient(m.key, color, i);
         const lastVal = getMetricFromPS(lastPs, m.key);
         let lo = Infinity;
         let hi = -Infinity;
@@ -548,7 +546,7 @@ function _renderInsightStateSeries(game, elState) {
         const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
         html +=
             `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-color-2:${labelColorB};--series-label-glow:${glow.toFixed(2)};color:${labelColorA}">${m.label}</span>` +
+            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-glow:${glow.toFixed(2)};color:${labelColor}">${m.label}</span>` +
             `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
             `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
     }
@@ -1152,7 +1150,6 @@ export function enterInsightReplay(frames) {
         const s = data.series[m.key];
         const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
         const labelColor = getMetricLabelColor(m.key, color, i);
-        const [labelColorA, labelColorB] = getMetricLabelGradient(m.key, color, i);
         let lo = Infinity;
         let hi = -Infinity;
         for (const p of s.points) {
@@ -1164,7 +1161,7 @@ export function enterInsightReplay(frames) {
         const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
         html +=
             `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-color-2:${labelColorB};--series-label-glow:${glow.toFixed(2)};color:${labelColorA}">${m.label}</span>` +
+            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-glow:${glow.toFixed(2)};color:${labelColor}">${m.label}</span>` +
             `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
             `<span class="series-value">—</span></div>`;
     }

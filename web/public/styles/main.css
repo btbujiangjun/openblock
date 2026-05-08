@@ -4791,20 +4791,11 @@ body.doc-visibility-hidden #menu * {
 .series-label--metric {
     font-weight: 800;
     letter-spacing: 0.02em;
-    --series-label-color-2: var(--series-label-color, #5b9bd5);
     --series-label-glow: 0.55;
-    background: linear-gradient(
-        120deg,
-        var(--series-label-color, #5b9bd5) 0%,
-        var(--series-label-color-2) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
+    color: var(--series-label-color, #5b9bd5);
     text-shadow:
         0 0 calc(3px + 4px * var(--series-label-glow)) color-mix(in srgb, var(--series-label-color, #5b9bd5) calc(20% + 40% * var(--series-label-glow)), transparent),
-        0 0 calc(1px + 2px * var(--series-label-glow)) color-mix(in srgb, var(--series-label-color-2) calc(30% + 35% * var(--series-label-glow)), transparent);
+        0 0 calc(1px + 2px * var(--series-label-glow)) color-mix(in srgb, var(--series-label-color, #5b9bd5) calc(30% + 35% * var(--series-label-glow)), transparent);
 }
 
 .series-spark-wrap {
