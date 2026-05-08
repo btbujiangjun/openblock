@@ -157,11 +157,23 @@ export function generateStrategyTips(profile, insight, gridInfo) {
         });
     }
 
-    /* ── 4. 节奏呼吸 (Layer 2: rhythmPhase) ── */
+    /* ── 4. 节奏呼吸 (Layer 2: rhythmPhase) ──
+     * v1.23：「收获期」卡加 live 几何 mutex —— rhythmPhase 是 spawn 时锁定的快照，
+     * spawn 后玩家落了块（消了 / 没消），live 几何已经变化（multiClearCands→0、
+     * nearFullLines→0），此时仍说「积极消除拿分」是空头建议。截图复现：spawn 决策
+     * 多消 0.95 + 多线×2 + 目标保消 3，但 live 多消候选 0、近满 0，dock 是 4 块
+     * volleyball L 形，根本无从兑现。v1.20 已经给「多消机会/逐条清理/瓶颈块」3 张卡
+     * 加了 live 几何 mutex，这里补上「收获期」卡。
+     * 当 live 几何不再支持兑现时，文案降级为「收获期·待兑现」，告诉玩家：
+     * spawn 时锁定了收获节奏，但当前 dock 与盘面没对上，先稳住手等下次 spawn。 */
     if (hints.rhythmPhase === 'payoff' && tips.length < 3 && !tips.find(t => t.category === 'combo')) {
+        const _liveCanHarvest = _liveMultiClearCands >= 1 || _liveNearFull >= 2;
         tips.push({
-            icon: '💎', title: '收获期',
-            detail: '当前处于节奏"收获"阶段，出块偏向消行友好，积极消除拿分。',
+            icon: '💎',
+            title: _liveCanHarvest ? '收获期' : '收获期·待兑现',
+            detail: _liveCanHarvest
+                ? '当前处于节奏"收获"阶段，出块偏向消行友好，积极消除拿分。'
+                : '上一次 spawn 锁定了"收获"节奏，但当前 dock 与盘面暂时没对上消行机会，先稳住手等下次 spawn 兑现。',
             priority: 0.6, category: 'pace'
         });
     } else if (hints.rhythmPhase === 'setup' && tips.length < 3 && fill < 0.5) {

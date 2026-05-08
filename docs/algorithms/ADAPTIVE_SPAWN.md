@@ -302,6 +302,56 @@ const canPromoteToPayoff = nearFullLines ≥ 1
    恢复 −0.08 / 近失 −0.04`）暴露给玩家，不必再从故事线倒推现在 stress 是
    被哪条救济压下去的。仅在 |v| ≥ 0.02 时显示。
 
+**v1.24：flow 叙事相位变体表**——v1.23 修了 stress story 优先级倒置，本节再修 `SPAWN_INTENT_NARRATIVE.flow` 文案与实际 rhythmPhase 硬冲突。
+
+1. **`stressMeter.SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体**
+   旧版 `flow` 文案硬编码"心流稳定，节奏进入收获期，准备享受多消快感。"，但 spawnIntent
+   `'flow'` 的触发条件是 `delight.mode === 'flow_payoff' || rhythmPhase === 'payoff'`
+   （`adaptiveSpawn.js:995`）——`delight.mode='flow_payoff'` 在 R1 空盘 + flow=flow +
+   skill≥0.55 时也会成立（`deriveDelightTuning` line 351-352），此时实际 `rhythmPhase`
+   因 v1.21 的 `nearGeom` mutex 会 fall through 到 `'setup'`。结果三方叙事对立：
+   - story："心流稳定，**节奏进入收获期**…"
+   - spawn 决策 pill：「节奏 **搭建**」+「意图 心流」
+   - strategyAdvisor 卡：🏗️ **搭建期** + "稳定堆叠、预留消行通道"
+   
+   修复：新增 `FLOW_NARRATIVE_BY_PHASE` 变体表：
+   - `payoff`  → "心流稳定，节奏进入收获期，准备享受多消快感。"（保留爽点叙事）
+   - `setup`   → "心流稳定，节奏稳步搭建，先留好通道等下一波兑现。"
+   - `neutral` → "心流稳定，节奏自然流畅，系统继续维持当前出块。"
+   
+   `buildStoryLine` 在 `spawnIntent='flow'` 时按 `spawnHints.rhythmPhase` 选变体；
+   rhythmPhase 缺失（pv=2 早期回放）时回退到 `SPAWN_INTENT_NARRATIVE.flow`（兜底文案
+   也已去"收获期"硬编码，改为通用"心流稳定，系统继续维持流畅的出块节奏。"）。
+   其他 intent 仍走单一映射，不引入额外复杂度。
+
+**v1.23：叙事优先级 + 收获期 live 几何 mutex**——v1.22 修了卡间互斥与 sparkline tooltip 解读，本节再修 stress story 文案优先级倒置 与「收获期」卡漏掉 live 几何 mutex 两处残余冲突。
+
+1. **`stressMeter.buildStoryLine`：spawnIntent 永远优先**
+   v1.16 引入 spawnIntent 优先级时为防止"系统真在保活时硬信号被吞"加了 gating
+   `frust > -0.08 && recovery > -0.08`，但 v1.18 后 stressMeter label/vibe 已经诚实化
+   为「放松（救济中）」+「系统正在为你减压」，这条 gating 反而让 frustRelief 触发时
+   绕过 `SPAWN_INTENT_NARRATIVE.relief`（"盘面通透又是兑现窗口…"），退回老严厉文案
+   "检测到挫败感偏高，正在主动减压并送出可消块"，与 stressMeter 友好叙事三方拉扯。
+   截图复现：label = "放松（救济中）" + vibe = "系统正在为你减压" + story = "检测到
+   挫败感偏高"，玩家完全混乱。
+   
+   修复：只在 `boardRisk ≥ 0.6` 时让"保活"叙事抢占（极端硬信号），其余情况下
+   spawnIntent 存在就直接返回 `SPAWN_INTENT_NARRATIVE`。老严厉文案 line 182~191
+   降级为"spawnIntent 缺失（pv=2 早期回放）的兼容兜底"，确保旧回放向后兼容。
+2. **`strategyAdvisor`「💎 收获期」卡加 live 几何 mutex + 待兑现变体**
+   `hints.rhythmPhase` 是 spawn 时锁定的快照，spawn 后玩家落了块改变 live 几何
+   （multiClearCands→0、nearFullLines→0），仍按 snapshot 触发「积极消除拿分」是空头
+   建议。截图复现：spawn 决策 pill 目标保消 3 + 多消 0.95 + 多线×2，但 live 几何 pill
+   多消候选 0 + 近满 0，dock 是 4 块 volleyball L 形根本消不了任何行。v1.20 已为
+   「多消机会 / 逐条清理 / 瓶颈块」3 张卡都加了 live 几何 mutex（v1.20 通过 panel 把
+   `liveTopology` + `liveMultiClearCandidates` 注入 `gridInfo`），本次补上「收获期」卡：
+   - `_liveMultiClearCands ≥ 1 || _liveNearFull ≥ 2` → 出原「💎 收获期」卡 + 原文案；
+   - 否则 → 切「💎 收获期·待兑现」诚实文案"上一次 spawn 锁定了'收获'节奏，但当前 dock
+     与盘面暂时没对上消行机会，先稳住手等下次 spawn 兑现。"
+   
+   旧 panel 未注入 `liveTopology` / `liveMultiClearCandidates` 时回退到 `diag.layer1.*`
+   （spawn 快照），保证向后兼容。
+
 **v1.22：卡互斥 Build vs Harvest + Sparkline Help 解读**——v1.21 修了 phase 撞墙与 borderline 翻面，本节再修策略卡间叙事拉扯，并把 sparkline tooltip 从"指标定义"升级为"如何读图"。
 
 1. **`strategyAdvisor`「规划堆叠」加 `harvestNow` 互斥**

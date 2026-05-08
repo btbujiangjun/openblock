@@ -324,6 +324,30 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 > - **`playerInsightPanel` 救济三分量 pill**：`挫败救济 / 恢复 / 近失` 三条
 >   `stressBreakdown` 分量直接显示在 pill 行，玩家不必从故事线倒推。
 >
+> **v1.24 修订要点（flow 叙事相位变体表）**
+> - **`SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体**：旧版硬编码
+>   "心流稳定，节奏进入收获期…"，但 `spawnIntent='flow'` 触发条件包含
+>   `delight.mode==='flow_payoff'`，在 R1 空盘 + flow=flow + skill≥0.55 时也成立，
+>   此时实际 `rhythmPhase` 因 v1.21 nearGeom mutex 会 fall through 到 `'setup'`，
+>   叙事说"收获期"与 pill「节奏 搭建」+ strategyAdvisor「搭建期」三方对立。
+>   修复：新增 `FLOW_NARRATIVE_BY_PHASE`（payoff/setup/neutral 各一句），
+>   `buildStoryLine` 在 `spawnIntent='flow'` 时按当前 `rhythmPhase` 选变体；
+>   rhythmPhase 缺失时回退到通用兜底文案"心流稳定，系统继续维持流畅的出块节奏。"
+>
+> **v1.23 修订要点（叙事优先级 + 收获期 live 几何 mutex）**
+> - **`stressMeter.buildStoryLine` spawnIntent 永远优先**：v1.16 加的 gating
+>   `frust > -0.08 && recovery > -0.08` 让 frustRelief 触发时绕过 `SPAWN_INTENT_NARRATIVE.relief`，
+>   退回老严厉文案"检测到挫败感偏高"，与 v1.18 stressMeter "救济中" + 友好 vibe 三方拉扯
+>   （截图复现）。改为 boardRisk ≥ 0.6 仍允许"保活"抢占，其余情况下 spawnIntent 存在
+>   就直接用 SPAWN_INTENT_NARRATIVE；老严厉文案降级为 spawnIntent 缺失（pv=2 早期回放）
+>   的兼容兜底。
+> - **`strategyAdvisor`「💎 收获期」卡加 live 几何 mutex + 待兑现变体**：rhythmPhase 是
+>   spawn 时锁定的快照，spawn 后玩家落子改变 live 几何后仍说「积极消除拿分」是空头建议
+>   （截图复现：spawn 决策 目标保消 3 + 多消 0.95，但 live multiClearCands=0、nearFull=0，
+>   dock 是 4 块 L 形 volleyball 根本消不了）。v1.20 已为「多消机会/逐条清理/瓶颈块」3 张
+>   卡加了 live 几何 mutex，本次补上「收获期」卡：`_liveMultiClearCands < 1 && _liveNearFull < 2`
+>   时切「💎 收获期·待兑现」诚实文案，告诉玩家"先稳住手等下次 spawn 兑现"。
+>
 > **v1.22 修订要点（卡互斥 Build vs Harvest + Sparkline Help 解读）**
 > - **`strategyAdvisor`「规划堆叠」加 `harvestNow` 互斥**：v1.17 已为「提升挑战」
 >   卡加了 `harvestNow = (rhythmPhase==='payoff' || spawnIntent==='harvest')` 互斥，

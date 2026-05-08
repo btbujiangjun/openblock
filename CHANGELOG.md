@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (v1.24 — Flow Narrative Phase Variants)
+- **`stressMeter.SPAWN_INTENT_NARRATIVE.flow` 拆按 rhythmPhase 选变体表**：
+  旧版 `flow` 文案硬编码"心流稳定，节奏进入收获期，准备享受多消快感。"，但 spawnIntent='flow'
+  的触发条件是 `delight.mode === 'flow_payoff' || rhythmPhase === 'payoff'`——
+  `delight.mode='flow_payoff'` 在 R1 空盘 + flow=flow + skill≥0.55 时也会成立，此时实际
+  `rhythmPhase` 因 v1.21 的 `nearGeom` mutex 会 fall through 到 `'setup'`。结果三方对立
+  （截图复现）：
+  - story："心流稳定，**节奏进入收获期**…"
+  - spawn 决策 pill：「节奏 **搭建**」+「意图 心流」
+  - strategyAdvisor 卡：🏗️ **搭建期** + "稳定堆叠、预留消行通道"
+  
+  修复：新增 `FLOW_NARRATIVE_BY_PHASE` 变体表（payoff / setup / neutral 各一句），
+  `buildStoryLine` 遇 `spawnIntent='flow'` 时按当前 `rhythmPhase` 选变体；rhythmPhase
+  缺失时兜底 `SPAWN_INTENT_NARRATIVE.flow`（已去掉"收获期"硬编码改为通用文案
+  "心流稳定，系统继续维持流畅的出块节奏。"）。其他 intent 仍走单一映射。
+  新增 5 条 buildStoryLine 单测（setup/payoff/neutral 变体 + 兼容 + 不影响其他 intent）。
+
+### Changed (v1.23 — Story Priority + Live-Geometry Harvest Card)
+- **`stressMeter.buildStoryLine`：spawnIntent 永远优先（不再被 frust/recovery 绕过）**：
+  v1.16 把 spawnIntent 设为最高优先级，但 gating 条件 `frust > -0.08 && recovery > -0.08`
+  让 frustRelief 触发时绕过 `SPAWN_INTENT_NARRATIVE.relief`（"盘面通透又是兑现窗口…"），
+  退回老严厉文案"检测到挫败感偏高"。v1.18 stressMeter label/vibe 已诚实化为
+  「放松（救济中）」+「系统正在为你减压」，story 仍是"挫败感偏高"——同一面板三方拉扯
+  （截图复现：label 友好 + vibe 友好 + story 严厉）。
+  
+  改为：`boardRisk ≥ 0.6` 仍让"保活"叙事抢占（极端硬信号），其余情况下 spawnIntent
+  存在就直接用 `SPAWN_INTENT_NARRATIVE`。老严厉文案降级为"spawnIntent 缺失（pv=2 早期
+  回放）的兼容兜底"。新增 4 条 buildStoryLine 单测覆盖优先级 + 兼容路径。
+- **`strategyAdvisor`「💎 收获期」卡加 live 几何 mutex + 待兑现变体**：
+  rhythmPhase 是 spawn 时锁定的快照，spawn 后玩家落了块（消了 / 没消），live 几何
+  已经变化（multiClearCands→0、nearFullLines→0），此时仍说「积极消除拿分」是空头建议
+  （截图复现：spawn 决策 多消 0.95 + 多线×2 + 目标保消 3，但 live 多消候选 0、近满 0，
+  dock 是 4 块 volleyball L 形，根本无从兑现）。v1.20 已经给「多消机会/逐条清理/瓶颈块」
+  3 张卡都加了 live 几何 mutex，本次补上「收获期」卡。
+  
+  当 `_liveMultiClearCands < 1 && _liveNearFull < 2` 时切诚实变体「💎 收获期·待兑现」+
+  文案"上一次 spawn 锁定了'收获'节奏，但当前 dock 与盘面暂时没对上消行机会，先稳住手等
+  下次 spawn 兑现。"；live 几何支持时仍出原「💎 收获期」卡。新增 4 条单测覆盖（live=0 切
+  待兑现 / live=2 仍出原文案 / nearFull≥2 任一条满足即可 / 旧 panel 无 live 注入回退）。
+
 ### Changed (v1.22 — Card Mutex (Build vs Harvest) + Sparkline Help Decoder)
 - **`strategyAdvisor`「规划堆叠」卡加 `harvestNow` 互斥**：
   v1.17 已为「提升挑战」卡加了 `harvestNow = (rhythmPhase==='payoff' || spawnIntent==='harvest')`

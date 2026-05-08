@@ -147,19 +147,38 @@ export function computeTrend(history, current, baselineN = 6) {
  * v1.16：用作 `buildStoryLine` 的最高优先级——只要 `adaptiveSpawn` 给出明确的
  * `spawnIntent`，叙事文案就直接读它，避免出现「实际给了 4 个单格泄压块、文案却说
  * 悄悄加点料维持新鲜感」之类的认知冲突。
+ *
+ * v1.24：`flow` 文案不再硬编码"节奏进入收获期" —— spawnIntent='flow' 既可由
+ *   `delight.mode==='flow_payoff'` 触发，也可由 `rhythmPhase==='payoff'` 触发；
+ *   delight.mode='flow_payoff' 在 R1 空盘 + 无 nearGeom 时也会成立，此时实际
+ *   `rhythmPhase` 会 fall through 到 'setup'（v1.21 的 nearGeom mutex）。旧版硬编码
+ *   "收获期"会与 pill「节奏 搭建」+ strategyAdvisor「搭建期」三方对立（截图复现）。
+ *   `flow` 改为按实际 rhythmPhase 选变体；`SPAWN_INTENT_NARRATIVE.flow` 保留作兜底。
  */
 export const SPAWN_INTENT_NARRATIVE = {
     relief:   '盘面通透又是兑现窗口，悄悄给你减压享受多消。',
     engage:   '注意到你停顿了一下，给你一个明显得分目标 + 友好开局。',
     pressure: '正在挑战自我！系统略加压让收尾更有仪式感。',
-    flow:     '心流稳定，节奏进入收获期，准备享受多消快感。',
+    flow:     '心流稳定，系统继续维持流畅的出块节奏。', // v1.24：去"收获期"硬编码，作 rhythmPhase 缺失时的兜底
     harvest:  '识别到密集消行机会，正在投放促清的形状。',
     maintain: '看起来比较轻松，悄悄加点料维持新鲜感。'
 };
 
 /**
+ * v1.24：`flow` 意图按实际 rhythmPhase 选变体文案，与 pill / strategyAdvisor 同口径。
+ *   payoff  → 既心流又有兑现几何，可写"收获期"爽点叙事
+ *   setup   → 心流稳定但还在搭建期，叙事改为"留通道、等下一波"
+ *   neutral → 心流稳定但 rhythmPhase 中性，叙事用"维持出块"
+ */
+export const FLOW_NARRATIVE_BY_PHASE = {
+    payoff:  '心流稳定，节奏进入收获期，准备享受多消快感。',
+    setup:   '心流稳定，节奏稳步搭建，先留好通道等下一波兑现。',
+    neutral: '心流稳定，节奏自然流畅，系统继续维持当前出块。'
+};
+
+/**
  * 从 spawnTargets / spawnHints / breakdown 拼一个「一句话叙事」：
- * 优先级：spawnIntent > 风险救济 > 挫败救济 > 心流方向 > 节奏 > 默认贴当前等级 vibe
+ * 优先级：boardRisk 极高 > spawnIntent（唯一对外口径） > 老回放兜底
  */
 export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
     if (!breakdown) return level.vibe;
@@ -171,17 +190,30 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
     const combo = breakdown.comboAdjust ?? 0;
     const friendly = breakdown.friendlyBoardRelief ?? 0;
 
-    /* v1.16：spawnIntent 是出块意图的唯一对外口径。优先级最高，只在板面风险极高
-     * 或挫败救济强烈时被覆盖，让"系统真在保活"这类硬信号仍能优先抢占叙事位。 */
-    if (br < 0.6 && frust > -0.08 && recovery > -0.08) {
-        const narrative = spawnHints?.spawnIntent && SPAWN_INTENT_NARRATIVE[spawnHints.spawnIntent];
-        if (narrative) return narrative;
-    }
-
+    /* v1.23：spawnIntent 是出块意图的唯一对外口径，永远优先 ——
+     * 旧版 v1.16 加了 gating `frust > -0.08 && recovery > -0.08`，意图是"挫败救济强烈时
+     * 让硬信号文案抢占叙事位"。但 v1.18 已经把 stressMeter label/vibe 诚实化为
+     * 「放松（救济中）」+「系统正在为你减压」，这条 gating 反而会让 frustRelief 触发时
+     * 绕过 SPAWN_INTENT_NARRATIVE.relief（"盘面通透又是兑现窗口…"），退回老严厉文案
+     * "检测到挫败感偏高"，与 stressMeter 友好叙事三方拉扯（截图复现）。
+     * 改为：spawnIntent 永远优先（前提：br < 0.6，board 极紧张时让"保活"文案抢占）；
+     * 老严厉文案降级为"老回放无 spawnIntent 时的 fallback"。
+     *
+     * v1.24：spawnIntent='flow' 时按实际 rhythmPhase 选变体，避免叙事说"收获期"
+     * 与 pill「节奏 搭建」+ strategyAdvisor「搭建期」三方对立（R1 空盘 + delight.mode=
+     * flow_payoff 时常见）。其他 intent 仍走单一映射。 */
     if (br >= 0.6) return '盘面很紧张，系统正在为你保活，候选块更易消行。';
+    const intent = spawnHints?.spawnIntent;
+    if (intent === 'flow') {
+        const phase = spawnHints?.rhythmPhase;
+        return FLOW_NARRATIVE_BY_PHASE[phase] ?? SPAWN_INTENT_NARRATIVE.flow;
+    }
+    const narrative = intent && SPAWN_INTENT_NARRATIVE[intent];
+    if (narrative) return narrative;
+
+    /* spawnIntent 缺失（pv=2 早期回放等）兜底链 —— 保持与 v1.16 一致以确保向后兼容 */
     if (frust < -0.05) return '检测到挫败感偏高，正在主动减压并送出可消块。';
     if (recovery < -0.05) return '处在恢复窗口，候选块会更小、更友好。';
-    // friendlyBoardRelief：清爽盘面 + 兑现机会，比单纯节奏 payoff 更可信，提到 challenge 之前
     if (friendly < -0.05) return '盘面通透又有兑现窗口，悄悄给你减压享受多消。';
     if (challenge >= 0.05) return '正在挑战历史最佳！系统略加压让收尾更有仪式感。';
     if (combo >= 0.04) return 'combo 还在燃烧，给你预留了续链空位。';

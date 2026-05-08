@@ -5818,14 +5818,48 @@ body.doc-visibility-hidden #menu * {
     position: absolute;
     inset: 0;
     border-radius: 50%;
-    background: conic-gradient(
-        from 0deg,
-        #ffd160 0% 12.5%, #ff8c40 12.5% 25%,
-        #38bdf8 25% 37.5%, #ec4899 37.5% 50%,
-        #84cc16 50% 62.5%, #a855f7 62.5% 75%,
-        #f97316 75% 87.5%, #94a3b8 87.5% 100%
-    );
+    /* 主色：8 段彩色扇形 + 8 条放射状细描边线（用 conic-gradient 叠 conic 描边层）*/
+    background:
+        /* 上层：扇区分隔线 —— 每 45° 一条 1° 宽的暗描边，从中心向外辐射 */
+        conic-gradient(
+            from -0.5deg,
+            rgba(0, 0, 0, 0.32) 0deg 1deg,
+            transparent 1deg 45deg,
+            rgba(0, 0, 0, 0.32) 45deg 46deg,
+            transparent 46deg 90deg,
+            rgba(0, 0, 0, 0.32) 90deg 91deg,
+            transparent 91deg 135deg,
+            rgba(0, 0, 0, 0.32) 135deg 136deg,
+            transparent 136deg 180deg,
+            rgba(0, 0, 0, 0.32) 180deg 181deg,
+            transparent 181deg 225deg,
+            rgba(0, 0, 0, 0.32) 225deg 226deg,
+            transparent 226deg 270deg,
+            rgba(0, 0, 0, 0.32) 270deg 271deg,
+            transparent 271deg 315deg,
+            rgba(0, 0, 0, 0.32) 315deg 316deg,
+            transparent 316deg 360deg
+        ),
+        /* 中层：径向高光 —— 中心略亮，边缘略暗，营造立体感 */
+        radial-gradient(circle at 50% 50%,
+            rgba(255, 255, 255, 0.18) 0%,
+            rgba(255, 255, 255, 0) 55%,
+            rgba(0, 0, 0, 0.18) 100%
+        ),
+        /* 底层：8 段彩色扇形 */
+        conic-gradient(
+            from 0deg,
+            #ffd160 0% 12.5%, #ff8c40 12.5% 25%,
+            #38bdf8 25% 37.5%, #ec4899 37.5% 50%,
+            #84cc16 50% 62.5%, #a855f7 62.5% 75%,
+            #f97316 75% 87.5%, #94a3b8 87.5% 100%
+        );
     border: 4px solid var(--text-primary, #1e293b);
+    /* 转盘外圈金色描边（用 box-shadow 模拟双层环形） */
+    box-shadow:
+        0 0 0 2px rgba(245, 158, 11, 0.6),
+        0 0 0 5px rgba(255, 255, 255, 0.18),
+        inset 0 0 22px rgba(0, 0, 0, 0.22);
     overflow: hidden;
     transform: rotate(0deg);
 }
@@ -5843,17 +5877,63 @@ body.doc-visibility-hidden #menu * {
 .wheel-wedge-label {
     position: absolute;
     left: 50%;
-    top: 11%;
+    /* 文字定位锚点 ——
+     * 8 等分扇区每段 45°，在径向 r 处的扇形横向可用宽度 ≈ 2·r·tan(22.5°) ≈ 0.83·r。
+     * top: 19% → r ≈ 0.31·D（D=容器边长）→ 扇形横向 ≈ 0.257·D
+     * 配 width: 22%（=0.22·D）+ max-width: 78px，每行严格在扇区内、留 ~4px 安全余地。 */
+    top: 19%;
     transform: translateX(-50%) rotate(calc(-1 * (var(--wedge-index) * 45deg + 22.5deg)));
-    width: min(104px, 36%);
+    width: 22%;
+    max-width: 78px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
     text-align: center;
-    font-size: clamp(10px, 3.1vw, 12px);
-    font-weight: 700;
-    line-height: 1.25;
     color: #fff;
+    /* 中文圆体优先，回退到系统字体 */
+    font-family: 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', system-ui, -apple-system, sans-serif;
+    line-height: 1.1;
+}
+/* 主名称行：偏大字 + 双层描边 + 微凸阴影 */
+.wheel-wedge-label__name {
+    font-size: clamp(11px, 2.9vw, 13px);
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #fff;
+    /* 多层描边：先黑色硬描边、再外发光、再凸字阴影 */
     text-shadow:
-        0 1px 2px rgba(0, 0, 0, 0.9),
-        0 0 10px rgba(0, 0, 0, 0.35);
+        -1px -1px 0 rgba(0, 0, 0, 0.92),
+         1px -1px 0 rgba(0, 0, 0, 0.92),
+        -1px  1px 0 rgba(0, 0, 0, 0.92),
+         1px  1px 0 rgba(0, 0, 0, 0.92),
+         0  2px 3px rgba(0, 0, 0, 0.6),
+         0 0 12px rgba(0, 0, 0, 0.35);
+    /* 防止极少数浏览器渲染连字 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    max-width: 100%;
+}
+/* 数量行：偏小字 + 金色渐变 + 描边 */
+.wheel-wedge-label__count {
+    font-size: clamp(10px, 2.5vw, 12px);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    /* 金色渐变（兼容旧浏览器：fallback 到纯色 #ffd160）*/
+    color: #ffd160;
+    background: linear-gradient(180deg, #fff5cc 0%, #ffd160 50%, #f59e0b 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    /* 金色字底加描边（透明 fill 时 text-shadow 仍会作用于"实际像素"，需用 paint-order） */
+    -webkit-text-stroke: 0.6px rgba(0, 0, 0, 0.85);
+    paint-order: stroke fill;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    max-width: 100%;
 }
 .wheel-pointer {
     position: absolute;

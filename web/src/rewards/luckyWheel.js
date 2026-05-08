@@ -15,15 +15,19 @@ import { SKINS } from '../skins.js';
 
 const KEY = 'openblock_lucky_wheel_v1';
 
+/* v1.x：每个奖品拆成 name + count 双行（转盘视觉惯例 + 艺术感分层）。
+ *   name  → 主名称（中文/类别），首行偏大字号 + 描边
+ *   count → 数量/时长（×N、Nh），次行金色高亮
+ *   label → 用于 toast / 结果展示的完整一句话，保持向后兼容。 */
 const PRIZES = [
-    { id: 'hint4',    label: '提示券 ×4', items: { hintToken: 4 }, weight: 22 },
-    { id: 'undo3',    label: '撤销 ×3',   items: { undoToken: 3 }, weight: 18 },
-    { id: 'bomb2',    label: '炸弹 ×2',   items: { bombToken: 2 }, weight: 12 },
-    { id: 'rainbow1', label: '彩虹 ×1',   items: { rainbowToken: 1 }, weight: 8 },
-    { id: 'coin50',   label: '金币 ×50',  items: { coin: 50 }, weight: 16 },
-    { id: 'coin200',  label: '金币 ×200', items: { coin: 200 }, weight: 6 },
-    { id: 'trial12h', label: '12h 限定皮肤试穿', items: { _trial: 12 }, weight: 4 },
-    { id: 'thanks',   label: '谢谢参与（赠 1 撤销）', items: { undoToken: 1 }, weight: 14 },
+    { id: 'hint4',    name: '提示券', count: '×4',    label: '提示券 ×4',          items: { hintToken: 4 }, weight: 22 },
+    { id: 'undo3',    name: '撤销',   count: '×3',    label: '撤销 ×3',            items: { undoToken: 3 }, weight: 18 },
+    { id: 'bomb2',    name: '炸弹',   count: '×2',    label: '炸弹 ×2',            items: { bombToken: 2 }, weight: 12 },
+    { id: 'rainbow1', name: '彩虹',   count: '×1',    label: '彩虹 ×1',            items: { rainbowToken: 1 }, weight: 8 },
+    { id: 'coin50',   name: '金币',   count: '×50',   label: '金币 ×50',           items: { coin: 50 }, weight: 16 },
+    { id: 'coin200',  name: '金币',   count: '×200',  label: '金币 ×200',          items: { coin: 200 }, weight: 6 },
+    { id: 'trial12h', name: '皮肤试穿', count: '12h', label: '12h 限定皮肤试穿',   items: { _trial: 12 }, weight: 4 },
+    { id: 'thanks',   name: '谢谢参与', count: '+撤销×1', label: '谢谢参与（赠 1 撤销）', items: { undoToken: 1 }, weight: 14 },
 ];
 
 const TRIAL_POOL = ['forbidden', 'demon', 'fairy', 'mahjong', 'aurora'];
@@ -80,7 +84,10 @@ function _renderWheel() {
     }
     const wedges = PRIZES.map((p, i) => `
         <div class="wheel-wedge" style="--wedge-index: ${i}" aria-hidden="true">
-            <span class="wheel-wedge-label">${p.label}</span>
+            <span class="wheel-wedge-label">
+                <span class="wheel-wedge-label__name">${p.name ?? p.label}</span>
+                ${p.count ? `<span class="wheel-wedge-label__count">${p.count}</span>` : ''}
+            </span>
         </div>
     `).join('');
     panel.innerHTML = `

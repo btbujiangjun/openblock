@@ -162,6 +162,85 @@ describe('buildStoryLine', () => {
         expect(SIGNAL_LABELS.friendlyBoardRelief).toBeDefined();
         expect(SIGNAL_LABELS.friendlyBoardRelief.label).toBe('友好盘面');
     });
+
+    /* v1.23：spawnIntent 是出块意图的唯一对外口径，永远优先 ——
+     * 旧版 v1.16 加了 gating `frust > -0.08 && recovery > -0.08`，让 frustRelief 触发时
+     * 绕过 SPAWN_INTENT_NARRATIVE，与 v1.18 stressMeter "救济中" label + 友好 vibe 拉扯。
+     * 新版让 spawnIntent 永远优先（除非 boardRisk 极高让"保活"抢占）。 */
+    it('v1.23 spawnIntent=relief + frustRelief=-0.18 时优先 SPAWN_INTENT_NARRATIVE.relief（不再退到老严厉文案）', () => {
+        const story = buildStoryLine(flowLevel,
+            { frustrationRelief: -0.18 },
+            null,
+            { spawnIntent: 'relief' });
+        expect(story).toBe('盘面通透又是兑现窗口，悄悄给你减压享受多消。');
+        expect(story).not.toMatch(/挫败感偏高/);
+    });
+
+    it('v1.23 spawnIntent=harvest + recoveryAdjust=-0.20 时优先 SPAWN_INTENT_NARRATIVE.harvest', () => {
+        const story = buildStoryLine(flowLevel,
+            { recoveryAdjust: -0.20 },
+            null,
+            { spawnIntent: 'harvest' });
+        expect(story).toBe('识别到密集消行机会，正在投放促清的形状。');
+        expect(story).not.toMatch(/恢复窗口/);
+    });
+
+    it('v1.23 boardRisk≥0.6 仍能抢占 spawnIntent（极端保活信号最高优先）', () => {
+        const story = buildStoryLine(flowLevel,
+            { boardRisk: 0.7 },
+            null,
+            { spawnIntent: 'flow' });
+        expect(story).toMatch(/保活/);
+    });
+
+    it('v1.23 spawnIntent 缺失（老回放兼容）→ 仍走 frustrationRelief 兜底', () => {
+        const story = buildStoryLine(flowLevel,
+            { frustrationRelief: -0.18 },
+            null,
+            null); // spawnHints 缺失
+        expect(story).toMatch(/挫败感偏高/);
+    });
+
+    /* v1.24：SPAWN_INTENT_NARRATIVE.flow 拆按 rhythmPhase 选变体 ——
+     * 旧版硬编码"节奏进入收获期"在 R1 空盘 + delight.mode='flow_payoff' + rhythmPhase='setup'
+     * 时与 pill「节奏 搭建」+ strategyAdvisor「搭建期」三方对立（截图复现）。 */
+    it('v1.24 spawnIntent=flow + rhythmPhase=setup → 用"搭建/留通道"变体（不再说"收获期"）', () => {
+        const story = buildStoryLine(flowLevel, {}, null,
+            { spawnIntent: 'flow', rhythmPhase: 'setup' });
+        expect(story).toMatch(/搭建|留好通道|等下一波/);
+        expect(story).not.toMatch(/收获期|享受多消快感/);
+    });
+
+    it('v1.24 spawnIntent=flow + rhythmPhase=payoff → 用"收获期"爽点变体', () => {
+        const story = buildStoryLine(flowLevel, {}, null,
+            { spawnIntent: 'flow', rhythmPhase: 'payoff' });
+        expect(story).toMatch(/收获期/);
+        expect(story).toMatch(/多消快感/);
+    });
+
+    it('v1.24 spawnIntent=flow + rhythmPhase=neutral → 用"维持"中性变体', () => {
+        const story = buildStoryLine(flowLevel, {}, null,
+            { spawnIntent: 'flow', rhythmPhase: 'neutral' });
+        expect(story).toMatch(/自然流畅|维持当前出块/);
+        expect(story).not.toMatch(/收获期/);
+    });
+
+    it('v1.24 spawnIntent=flow + rhythmPhase 缺失（老回放兼容）→ 兜底 SPAWN_INTENT_NARRATIVE.flow', () => {
+        const story = buildStoryLine(flowLevel, {}, null,
+            { spawnIntent: 'flow' }); // rhythmPhase 缺失
+        expect(story).toBe('心流稳定，系统继续维持流畅的出块节奏。');
+        expect(story).not.toMatch(/收获期/); // v1.24 兜底文案也不再硬编码"收获期"
+    });
+
+    it('v1.24 其他 intent (relief/harvest 等) 不受 flow 变体表影响', () => {
+        const reliefStory = buildStoryLine(flowLevel, {}, null,
+            { spawnIntent: 'relief', rhythmPhase: 'setup' });
+        expect(reliefStory).toBe('盘面通透又是兑现窗口，悄悄给你减压享受多消。');
+
+        const harvestStory = buildStoryLine(flowLevel, {}, null,
+            { spawnIntent: 'harvest', rhythmPhase: 'setup' });
+        expect(harvestStory).toBe('识别到密集消行机会，正在投放促清的形状。');
+    });
 });
 
 describe('getStressDisplay v1.18 救济变体', () => {
