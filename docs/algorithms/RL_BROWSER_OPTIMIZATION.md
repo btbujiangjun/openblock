@@ -25,10 +25,10 @@
 
 ### 2.1 尝试
 
-首次优化将线性模型（336 参数）替换为 2 层 MLP（~15K 参数）：
+首次优化将线性模型替换为 2 层 MLP（~15K 参数；当前线性维度为 196+181=377，早期版本参数更少）：
 
 ```
-φ(s,a) [193] → Dense(64) → ReLU → Dense(32) → ReLU → logit
+φ(s,a) [196] → Dense(64) → ReLU → Dense(32) → ReLU → logit
 ψ(s)   [181] → Dense(48) → ReLU → Dense(16) → ReLU → V
 ```
 
@@ -66,9 +66,9 @@ MLP 实现中还遇到了两个严重的手写反向传播 bug：
 ### 3.1 架构（保持线性）
 
 ```
-策略：logit = W · φ(s,a)     W ∈ ℝ¹⁹³     (193 参数)
+策略：logit = W · φ(s,a)     W ∈ ℝ¹⁹⁶     (196 参数)
 价值：V(s)  = Vw · ψ(s)      Vw ∈ ℝ¹⁸¹    (181 参数)
-                                            合计 374 参数
+                                            合计 377 参数
 ```
 
 维度由 `web/src/bot/features.js` 的 `PHI_DIM` 与 `STATE_FEATURE_DIM` 读取；若 `shared/game_rules.json` 的 `featureEncoding` 变化，旧浏览器线性权重会被判定为不兼容并重新初始化。
@@ -115,7 +115,7 @@ trainer.js
 
 | 文件 | 改动 |
 |------|------|
-| `web/src/bot/linearAgent.js` | 恢复线性架构（W·φ + Vw·ψ，336 参数）；兼容旧 MLP 存档（遇到则重新初始化） |
+| `web/src/bot/linearAgent.js` | 恢复线性架构（W·φ + Vw·ψ，377 参数）；兼容旧 MLP 存档（遇到则重新初始化） |
 | `web/src/bot/trainer.js` | 回报/优势标准化、熵梯度、`resolveBrowserRlTrainingConfig()`、温度日程、`reinforceUpdate` 返回训练指标 |
 | `shared/game_rules.json` → `browserRlTraining` | γ、学习率、熵系数、裁剪阈值、本地/后端温度衰减 |
 | `web/src/bot/features.js` | 第 22 维 `filled/area` → `heightStd` |
@@ -130,7 +130,7 @@ trainer.js
 
 | 参数 | 默认值（JSON 可覆盖） | 字段 |
 |------|---------------------|------|
-| 策略 | logit = W·φ, W ∈ ℝ¹⁹³ | `linearAgent.js` |
+| 策略 | logit = W·φ, W ∈ ℝ¹⁹⁶ | `linearAgent.js` |
 | 价值 | V = Vw·ψ, Vw ∈ ℝ¹⁸¹ | `linearAgent.js` |
 | γ (折扣) | 0.99 | `browserRlTraining.gamma` |
 | policyLr | 0.02 | `browserRlTraining.policyLr` |

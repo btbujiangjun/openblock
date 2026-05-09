@@ -6,6 +6,7 @@
 
 - [算法与模型手册](./ALGORITHMS_HANDBOOK.md)
 - [模型工程总览](./MODEL_ENGINEERING_GUIDE.md)
+- [四模型系统设计](./MODEL_SYSTEMS_FOUR_MODELS.md)
 - [出块算法手册](./ALGORITHMS_SPAWN.md)
 - [玩家画像算法](./ALGORITHMS_PLAYER_MODEL.md)
 - [强化学习文档导航](./RL_README.md)

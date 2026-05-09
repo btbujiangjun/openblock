@@ -52,7 +52,7 @@
 - 候选区：约 40 种形状中选 3 个 × 放置状态 → 组合极大
 - **有效状态空间**远小于理论值，但仍是天文数字
 
-当前实现状态编码以 `shared/game_rules.json` 的 `featureEncoding` 为准：**181 维** = 42 标量 + 64 棋盘占用 + 75 dock 掩码；动作特征 **12 维**，`φ(s,a)` 为 **193 维**。旧文档中的 154/162 维是早期编码版本，仅作为历史演进参考。
+当前实现状态编码以 `shared/game_rules.json` 的 `featureEncoding` 为准：**181 维** = 42 标量 + 64 棋盘占用 + 75 dock 掩码；动作特征 **15 维**，`φ(s,a)` 为 **196 维**。旧文档中的 154/162/193 维是早期编码版本，仅作为历史演进参考。
 
 ### 2.2 动作空间
 
@@ -111,7 +111,7 @@
               ▼                    ▼                            ▼
          value_head            策略头                       辅助监督头
          Linear(128→64)     h(s) ⊕ ψ(a)                  board_quality /
-         → GELU             Linear(12→48) → GELU          feasibility /
+         → GELU             Linear(15→48) → GELU          feasibility /
          → Linear(64→1)     → Linear(176→128)             survival /
          → V(s)             → GELU → Linear(128→1)        hole / clear_pred /
                             → logit                       topology_aux
@@ -134,13 +134,14 @@
 2. **长期可放置性**：当前 mobility 是即时特征，对未来 dock 分布的估计仍依赖搜索或 spawn predictor。
 3. **颜色语义**：颜色不影响基础消行，但影响 bonus 与视觉识别，当前只做摘要统计。
 
-**动作特征（12 维）**：
+**动作特征（15 维）**：
 
 | 维度 | 内容 | 评价 |
 |------|------|------|
 | 基础动作 | block_idx、归一化坐标、形状宽高、面积 | 提供动作身份与空间位置 |
 | 直接后果 | would_clear、holes_after、delta_transitions | 让策略看到落子后的即时质量 |
 | 机会变化 | new_almost_full、post_mobility 等 | 估计临消机会和剩余机动性 |
+| 奖励机会 | multi-clear、同 icon/同色 bonus、清屏潜力 | 对齐当前计分与爽感目标 |
 
 **当前重点**：动作特征已经包含放置后的棋盘质量代理，训练效果主要取决于这些代理与辅助监督头是否同口径。
 

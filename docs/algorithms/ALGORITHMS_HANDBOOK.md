@@ -10,7 +10,7 @@
 
 | 你的角色 | 必读 | 选读 | 跳过 |
 |---------|-----|------|------|
-| **算法工程师 · 新人** | 本手册 § 2~4 → [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) → [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) / [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | 商业化（除非负责） |
+| **算法工程师 · 新人** | 本手册 § 2~4 → [`MODEL_SYSTEMS_FOUR_MODELS.md`](./MODEL_SYSTEMS_FOUR_MODELS.md) → [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) / [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | 商业化（除非负责） |
 | **算法工程师 · 优化训练** | [`RL_README.md`](./RL_README.md) → [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) / [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | 历史实验记录 |
 | **算法工程师 · 商业化/CRM** | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) § 8~9 + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) + [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | [`MONETIZATION_CUSTOMIZATION.md`](../operations/MONETIZATION_CUSTOMIZATION.md) | RL |
 | **数据/分析** | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | KPI 章节于 [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | RL 训练细节 |
@@ -58,7 +58,7 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 
 > ⚠️ **关键边界**：E（RL Bot）与 A/B/C/D（真人路径）**不直接耦合**。RL 用静态 strategy + 自博弈训练，落子选择在 `web/src/bot/`；真人对局走 `web/src/game.js` + `adaptiveSpawn.js`。
 >
-> 面向算法工程师的统一建模视角见 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)：该文按“问题定义 → 假设 → 特征 → 网络/规则结构 → 优化目标 → 应用机制”串联全部模型。
+> 面向算法工程师的四条核心链路（启发式出块、生成式出块、PyTorch RL、浏览器 RL）见 [`MODEL_SYSTEMS_FOUR_MODELS.md`](./MODEL_SYSTEMS_FOUR_MODELS.md)；更宽的全项目模型地图见 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
 
@@ -69,7 +69,7 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 | 变量 | 唯一数据源 | 变更需要同步 |
 |------|----------|-------------|
 | 形状定义（28 个多连块） | `shared/shapes.json` | 浏览器 `shapes.js`、Python `simulator.py` |
-| 状态特征维度 (181) / 动作维度 (12) / φ 维度 (193) | `shared/game_rules.json` `featureEncoding` | `features.js` + `features.py` 同步；checkpoint **失效**需重训 |
+| 状态特征维度 (181) / 动作维度 (15) / φ 维度 (196) | `shared/game_rules.json` `featureEncoding` | `features.js` + `features.py` 同步；checkpoint **失效**需重训 |
 | 计分公式（`baseUnit · c²`） | `shared/game_rules.json` `scoring` | `clearScoring.js` + `simulator.py` `_clear_score_gain` |
 | 自适应出块 10 档 profile | `shared/game_rules.json` `adaptiveSpawn` | 仅 `adaptiveSpawn.js` 读取 |
 | AbilityVector 权重/分档/护栏 | `shared/game_rules.json` `playerAbilityModel` | `playerAbilityModel.js` + `adaptiveSpawn.js` 消费；回放 snapshot 字段同步 |
@@ -88,8 +88,8 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 | 符号 | 含义 | 取值 | 来源 |
 |------|------|------|------|
 | $s$ | 棋盘状态（特征向量，含颜色摘要） | $\mathbb{R}^{181}$ | `extract_state_features` |
-| $\psi(a)$ | 动作特征 | $\mathbb{R}^{12}$ | `extract_action_features` |
-| $\phi(s,a)$ | 状态-动作联合特征 | $\mathbb{R}^{193}$ = $[s; \psi(a)]$ | `build_phi_batch` |
+| $\psi(a)$ | 动作特征 | $\mathbb{R}^{15}$ | `extract_action_features` |
+| $\phi(s,a)$ | 状态-动作联合特征 | $\mathbb{R}^{196}$ = $[s; \psi(a)]$ | `build_phi_batch` |
 | $h(s)$ | 网络 trunk 输出 | $\mathbb{R}^{128}$（width） | `_encode_state` |
 | $\pi(a\mid s)$ | 策略分布 | softmax over legal actions | `policy_fuse` |
 | $V(s)$ | 状态价值 | 标量 | `value_head` |
