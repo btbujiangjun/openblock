@@ -17,6 +17,8 @@ export const METRIC_GROUP_COLORS = {
 
 /** 指标名专用高饱和配色（用于「实时状态/回放」左侧标签）。 */
 export const METRIC_LABEL_COLORS = {
+    topologyHoles: '#94a3b8',
+    tripletSolutionCount: '#fbbf24',
     score: '#ffd166',
     boardFill: '#4cc9f0',
     stress: '#ff6b6b',

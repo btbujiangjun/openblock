@@ -186,7 +186,8 @@ export function buildPlaceFrame(dockIndex, gx, gy, playerState) {
  *   runStreak: number,
  *   strategyId: string,
  *   phase: 'init'|'spawn'|'place',
- *   adaptiveInsight?: object | null
+ *   adaptiveInsight?: object | null,
+ *   spawnGeo?: { holes?: number | null, solutionCount?: number | null } | null
  * }} ctx
  */
 export function buildPlayerStateSnapshot(profile, ctx) {
@@ -249,6 +250,16 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             activeSamples
         }
     };
+    const geo = ctx.spawnGeo;
+    if (geo && typeof geo === 'object') {
+        slim.spawnGeo = {
+            holes: geo.holes != null && Number.isFinite(Number(geo.holes)) ? Number(geo.holes) : null,
+            solutionCount:
+                geo.solutionCount != null && Number.isFinite(Number(geo.solutionCount))
+                    ? Number(geo.solutionCount)
+                    : null
+        };
+    }
     if (a && typeof a === 'object') {
         slim.adaptive = {
             stress: a.stress,
@@ -867,6 +878,24 @@ export const REPLAY_METRICS = [
         extract: ps => ps.adaptive?.stressBreakdown?.challengeBoost,
         fmt: 'f2',
         tooltip: 'B 类挑战加压：当前分数逼近历史最佳分时主动略加压，让收尾更有仪式感；远离最佳分为 0。\n📈 看图：触发条件是 score ≥ bestScore × 0.8 且 stress < 0.7（公式 min(0.15, (score/best - 0.8) × 0.75)）。在到达 80% 阈值前曲线恒为 0 是预期；从 0 抬到正值说明你正在冲击新高、系统要把节奏推到"决赛圈"。同时会把 spawnIntent 切到 pressure。本局最佳为 0 时（首局）也恒为 0。'
+    },
+    {
+        key: 'topologyHoles',
+        label: '空洞',
+        group: 'spawn',
+        extract: ps => ps.spawnGeo?.holes,
+        fmt: 'int',
+        tooltip:
+            '盘面空洞数：analyzeBoardTopology 统计的、当前所有可出形状在任何合法位置都无法覆盖的空格数；越多越难修复。\n📈 看图：随落子与消行波动；与下方投放区「平整」等几何信号同向印证。'
+    },
+    {
+        key: 'tripletSolutionCount',
+        label: '解法',
+        group: 'spawn',
+        extract: ps => ps.spawnGeo?.solutionCount,
+        fmt: 'int',
+        tooltip:
+            '解法（展示）：当前各未放置候选块在盘面上可独立落下的合法位置数之和。新一波三块出现时、每落下一子后（候选组合变化）重算并写入曲线；与投放区「解法」pill 同源。\n📈 看图：同一轮内随落子减少；三块全部落下后至下轮出块前可能无候选（显示 —）。'
     }
 ];
 

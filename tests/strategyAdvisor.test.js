@@ -107,11 +107,11 @@ describe('strategyAdvisor v1.18：多消机会 / 瓶颈块', () => {
         expect(card.detail).toMatch(/最容易消的那条|缓解压力/);
     });
 
-    it('validPerms ≤ 2 + fill ≥ 0.4 → 弹"瓶颈块"高优先级卡', () => {
+    it('最少合法落位≤2 + fill≥0.4 → 弹「瓶颈块」高优先级卡', () => {
         const insight = {
             spawnHints: { rhythmPhase: 'neutral' },
             spawnDiagnostics: { layer1: {
-                solutionMetrics: { validPerms: 1, firstMoveFreedom: 4, solutionCount: 12, capped: false },
+                solutionMetrics: { firstMoveFreedom: 2, solutionCount: 42, capped: false },
                 nearFullLines: 2,
                 multiClearCandidates: 0
             } },
@@ -121,16 +121,15 @@ describe('strategyAdvisor v1.18：多消机会 / 瓶颈块', () => {
             insight, { fillRatio: 0.55, holesCount: 0 });
         const card = tips.find((t) => t.title === '瓶颈块');
         expect(card).toBeDefined();
-        expect(card.detail).toMatch(/1\/6|瓶颈块仅 4/);
-        // 瓶颈预警优先级应高于普通建议（>= 0.8）
+        expect(card.detail).toMatch(/最少合法落位仅 2|合计可落位 42/);
         expect(card.priority).toBeGreaterThanOrEqual(0.8);
     });
 
-    it('validPerms 充裕（>2）不出"瓶颈块"卡', () => {
+    it('最少合法落位>2 不出「瓶颈块」卡', () => {
         const insight = {
             spawnHints: { rhythmPhase: 'neutral' },
             spawnDiagnostics: { layer1: {
-                solutionMetrics: { validPerms: 5, firstMoveFreedom: 12, solutionCount: 64, capped: true },
+                solutionMetrics: { firstMoveFreedom: 5, solutionCount: 64, capped: false },
                 nearFullLines: 0
             } },
             boardFill: 0.45
@@ -140,11 +139,11 @@ describe('strategyAdvisor v1.18：多消机会 / 瓶颈块', () => {
         expect(tips.find((t) => t.title === '瓶颈块')).toBeUndefined();
     });
 
-    it('fill<0.4 不报"瓶颈块"（解法度量未激活，避免冷启动误报）', () => {
+    it('fill<0.4 不报「瓶颈块」（避免冷启动误报）', () => {
         const insight = {
             spawnHints: { rhythmPhase: 'neutral' },
             spawnDiagnostics: { layer1: {
-                solutionMetrics: { validPerms: 1, firstMoveFreedom: 3, solutionCount: 4, capped: false },
+                solutionMetrics: { firstMoveFreedom: 1, solutionCount: 4, capped: false },
                 nearFullLines: 0
             } },
             boardFill: 0.30

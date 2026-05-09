@@ -26,7 +26,14 @@ import {
     normalizeSkinPickerLabel
 } from './skins.js';
 import { Grid } from './grid.js';
-import { generateDockShapes, resetSpawnMemory, getLastSpawnDiagnostics, validateSpawnTriplet } from './bot/blockSpawn.js';
+import { analyzeBoardTopology } from './boardTopology.js';
+import {
+    generateDockShapes,
+    resetSpawnMemory,
+    getLastSpawnDiagnostics,
+    validateSpawnTriplet,
+    computeCandidatePlacementMetric
+} from './bot/blockSpawn.js';
 import {
     buildSpawnModelContext,
     getSpawnMode,
@@ -174,6 +181,36 @@ export class Game {
         /** 预览消行 outcome 缓存键 */
         this._lastPreviewClearKey = null;
         this._lastPreviewClearCells = null;
+        /** 候选块「可落子数」缓存：仅在 dock 签名（id+placed）变化时重算 */
+        this._dockPlacementSolutionCache = { key: null, solutionCount: null, firstMoveFreedom: null };
+    }
+
+    /** dock 槽位候选签名：新一波三块或任一块落子后都会变 */
+    _dockCandidateSignature() {
+        if (!Array.isArray(this.dockBlocks) || this.dockBlocks.length === 0) {
+            return '__empty__';
+        }
+        return this.dockBlocks.map((b) => `${b?.id ?? '?'}:${b?.placed ? 1 : 0}`).join('|');
+    }
+
+    /**
+     * 展示用解法：未放置候选块在当前盘面的合法落子数之和（及瓶颈块最少落子数）。
+     * 与 {@link computeCandidatePlacementMetric} 一致，带签名缓存。
+     */
+    getCandidatePlacementSolutionSnapshot() {
+        const key = this._dockCandidateSignature();
+        const c = this._dockPlacementSolutionCache;
+        if (c.key === key && Number.isFinite(c.solutionCount)) {
+            return { solutionCount: c.solutionCount, firstMoveFreedom: c.firstMoveFreedom };
+        }
+        const m = computeCandidatePlacementMetric(this.grid, this.dockBlocks || []);
+        if (!m) {
+            this._dockPlacementSolutionCache = { key, solutionCount: null, firstMoveFreedom: null };
+            return null;
+        }
+        const row = { solutionCount: m.solutionCount, firstMoveFreedom: m.firstMoveFreedom };
+        this._dockPlacementSolutionCache = { key, ...row };
+        return row;
     }
 
     _cancelPreviewClearAnim() {
@@ -207,6 +244,26 @@ export class Game {
         if (typeof this._playerInsightRefresh === 'function') {
             this._playerInsightRefresh();
         }
+    }
+
+    /**
+     * 写入 move_sequence 帧快照：盘面空洞（实时拓扑）+ 候选块可落子数之和（见 getCandidatePlacementSolutionSnapshot）。
+     * @returns {{ holes: number, solutionCount: number | null } | null}
+     */
+    _spawnGeoForSnapshot() {
+        if (!this.grid) return null;
+        let holes;
+        try {
+            holes = analyzeBoardTopology(this.grid).holes;
+        } catch {
+            return null;
+        }
+        const snap = this.getCandidatePlacementSolutionSnapshot();
+        const solutionCount =
+            snap != null && Number.isFinite(Number(snap.solutionCount))
+                ? Number(snap.solutionCount)
+                : null;
+        return { holes, solutionCount };
     }
 
     /**
@@ -777,6 +834,7 @@ export class Game {
             div.appendChild(canvas);
             dock.appendChild(div);
         }
+        this._dockPlacementSolutionCache = { key: null, solutionCount: null, firstMoveFreedom: null };
         this._normalizeDockState('populate');
         requestAnimationFrame(() => syncGridDisplayPx(this.canvas));
     }
@@ -1842,7 +1900,8 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             phase: 'init',
-            adaptiveInsight: null
+            adaptiveInsight: null,
+            spawnGeo: this._spawnGeoForSnapshot()
         });
         this.moveSequence = [buildInitFrame(this.strategy, this.grid, strategyConfig.scoring, ps)];
         this._schedulePersistMoves();
@@ -1858,7 +1917,8 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             phase: 'spawn',
-            adaptiveInsight: this._lastAdaptiveInsight
+            adaptiveInsight: this._lastAdaptiveInsight,
+            spawnGeo: this._spawnGeoForSnapshot()
         });
         this.moveSequence.push(buildSpawnFrame(descriptors, ps));
         this._schedulePersistMoves();
@@ -1884,7 +1944,8 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             phase: 'place',
-            adaptiveInsight: this._lastAdaptiveInsight
+            adaptiveInsight: this._lastAdaptiveInsight,
+            spawnGeo: this._spawnGeoForSnapshot()
         });
         ps.linesCleared = c;
 

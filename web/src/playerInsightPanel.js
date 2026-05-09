@@ -23,6 +23,15 @@ import { UI_ICONS } from './uiIcons.js';
 import { analyzeBoardTopology, countUnfillableCells } from './boardTopology.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { getAllShapes } from './shapes.js';
+import { computeCandidatePlacementMetric } from './bot/blockSpawn.js';
+
+/** 与 Game.getCandidatePlacementSolutionSnapshot 一致；无 game 实例时直算 */
+function _placementSolutionForGame(game) {
+    if (game && typeof game.getCandidatePlacementSolutionSnapshot === 'function') {
+        return game.getCandidatePlacementSolutionSnapshot();
+    }
+    return computeCandidatePlacementMetric(game?.grid, game?.dockBlocks || []);
+}
 
 /** 模型化能力指标区：统一 AbilityVector 的 6 个核心维度 */
 const ABILITY_METRIC_ROWS = [
@@ -163,7 +172,7 @@ const SPAWN_TOOLTIP = {
     nearFull:
         '近满行/列数：距离整行或整列填满仅差 1～2 格的条数，越多表示越容易通过少量放置触发多消，是 Layer1 多消潜力的重要信号。',
     solutionCount:
-        '解法数量（v9）：本轮生成时，三连块 6 种顺序下可完整放下的总解数。带 + 表示触发 leafCap 截断，实际更多。仅在 fill ≥ activationFill 时评估。',
+        '解法（展示）：当前各未放置候选块在盘面上可独立落下的合法位置数之和；数值越大通常操作空间越宽裕。新一波三块出现时、每落下一子后都会随候选与盘面重算。',
     validPerms:
         '合法序（v9）：本轮生成时，6 种放置顺序里“至少有 1 条完整解”的顺序数（0–6）。数值越低越容易卡手。',
     firstMoveFreedom:
@@ -482,6 +491,19 @@ function _buildLiveSnapshotForSeries(game) {
             spawnTargets: ins.spawnTargets ?? null,
             shapeWeightsTop: ins.shapeWeightsTop ?? null
         };
+    }
+    if (game.grid) {
+        try {
+            const holes = analyzeBoardTopology(game.grid).holes;
+            const liveSm = _placementSolutionForGame(game);
+            const solutionCount =
+                liveSm != null && Number.isFinite(Number(liveSm.solutionCount))
+                    ? Number(liveSm.solutionCount)
+                    : null;
+            slim.spawnGeo = { holes, solutionCount };
+        } catch {
+            /* ignore */
+        }
     }
     return slim;
 }
@@ -840,10 +862,9 @@ function _render(game) {
         const diag = ins.spawnDiagnostics;
         if (liveTopology || diag?.layer1) {
             const l1 = diag?.layer1 || {};
-            const holes = liveTopology?.holes ?? l1.holes;
             const flatness = liveTopology?.flatness ?? l1.flatness;
             const nearFullLines = liveTopology?.nearFullLines ?? l1.nearFullLines ?? 0;
-            diagPills.push(_spawnPill(`空洞 ${holes ?? '—'}`, SPAWN_TOOLTIP.holes));
+            /* 「空洞」已并入上方实时状态 sparkline（topologyHoles），此处不再重复 pill */
             if (flatness != null) diagPills.push(_spawnPill(`平整 ${flatness.toFixed(2)}`, SPAWN_TOOLTIP.flatness));
             if (nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${nearFullLines}`, SPAWN_TOOLTIP.nearFull));
             const liveMultiCandidates = _countLiveMultiClearCandidates(game.grid, game.dockBlocks);
@@ -854,13 +875,15 @@ function _render(game) {
             if (livePerfectCandidates > 0) {
                 diagPills.push(_spawnPill(`清屏候选 ${livePerfectCandidates}`, SPAWN_TOOLTIP.perfectClearCandidates));
             }
-            // v9: 解法数量 Pills（仅在 fill ≥ activationFill 时有数据）
-            const sm = l1.solutionMetrics;
+            // 解法 = 未放置候选可落子数之和（Game 侧按 dock 签名缓存）；无则回退 spawn 时 DFS 口径
+            const liveSm = _placementSolutionForGame(game);
+            const sm = liveSm ?? l1.solutionMetrics;
             if (sm) {
-                const cntLabel = sm.capped ? `${sm.solutionCount}+` : `${sm.solutionCount}`;
-                const truncLabel = sm.truncated ? ' · 截断' : '';
+                const fromSpawnDfs = !liveSm && l1.solutionMetrics;
+                const cntLabel = fromSpawnDfs && sm.capped ? `${sm.solutionCount}+` : `${sm.solutionCount}`;
+                const truncLabel = fromSpawnDfs && sm.truncated ? ' · 截断' : '';
                 diagPills.push(_spawnPill(`解法 ${cntLabel}${truncLabel}`, SPAWN_TOOLTIP.solutionCount));
-                diagPills.push(_spawnPill(`合法序 ${sm.validPerms}/6`, SPAWN_TOOLTIP.validPerms));
+                /* 「合法序」已改为上方曲线「解法」（tripletSolutionCount），不再单独 pill */
                 if (Number.isFinite(sm.firstMoveFreedom)) {
                     diagPills.push(_spawnPill(`首手 ${sm.firstMoveFreedom}`, SPAWN_TOOLTIP.firstMoveFreedom));
                 }
@@ -906,7 +929,8 @@ function _render(game) {
             maxHeight: _gridMaxHeight(game.grid),
             holesCount: _gridHoles(game.grid),
             liveTopology,
-            liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid, game.dockBlocks)
+            liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid, game.dockBlocks),
+            liveSolutionMetrics: _placementSolutionForGame(game)
         } : undefined;
         const tips = generateStrategyTips(p, ins, gridInfo);
         if (tips.length > 0) {

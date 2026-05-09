@@ -32,10 +32,11 @@
  * @param {import('./playerProfile.js').PlayerProfile} profile
  * @param {object} [insight] _lastAdaptiveInsight
  * @param {object} [gridInfo] { fillRatio, maxHeight, holesCount,
- *   liveTopology?, liveMultiClearCandidates? }
+ *   liveTopology?, liveMultiClearCandidates?, liveSolutionMetrics? }
  *   v1.20：`liveTopology` 与 `liveMultiClearCandidates` 由 panel 注入，
  *   表示"当前盘面"几何，**优先**于 `insight.spawnDiagnostics.layer1`（spawn 时
  *   快照）。否则在玩家放过 1~3 块后会出现「策略卡说有 4 多消、面板说 0」的撞墙。
+ *   `liveSolutionMetrics`：{ solutionCount, firstMoveFreedom } 可落子数之和与瓶颈最少落子位（与 insight 同源）。
  * @returns {StrategyTip[]} 按 priority 降序排列的策略建议（最多 3 条）
  */
 export function generateStrategyTips(profile, insight, gridInfo) {
@@ -121,23 +122,18 @@ export function generateStrategyTips(profile, insight, gridInfo) {
         }
     }
 
-    /* ── 2c. v1.18：瓶颈块预警 (Layer 1: solutionMetrics) ──
-     * 当三连块的 6 种放置顺序里只有 1~2 种能完整下完，玩家其实非常接近卡死，
-     * 但 stress / 难度等聚合数字看不出来。这条提示与"多消机会"独立显示，
-     * 提醒玩家"先把瓶颈块放掉、别贪连击"。
-     * 仅在 fill ≥ 0.4（解法度量已激活）且 validPerms ≤2 时触发，避免冷启动误报。
-     */
-    const sm = diag?.layer1?.solutionMetrics;
-    if (sm
-        && Number.isFinite(sm.validPerms)
-        && sm.validPerms <= 2
+    /* ── 2c. 瓶颈块预警：最少合法落子位过少（展示口径：各未放置候选可落位之和 + 瓶颈最少值）── */
+    const sm = gridInfo?.liveSolutionMetrics ?? diag?.layer1?.solutionMetrics;
+    const minPl = Number.isFinite(sm?.firstMoveFreedom) ? sm.firstMoveFreedom : null;
+    const sumPl = Number.isFinite(sm?.solutionCount) ? sm.solutionCount : null;
+    if (minPl != null
+        && minPl <= 2
         && fill >= 0.4
         && tips.length < 3) {
-        const fmf = Number.isFinite(sm.firstMoveFreedom) ? sm.firstMoveFreedom : null;
-        const fmfHint = fmf != null && fmf <= 5 ? `（瓶颈块仅 ${fmf} 个合法位）` : '';
+        const sumHint = sumPl != null ? `合计可落位 ${sumPl}，` : '';
         tips.push({
             icon: '⏳', title: '瓶颈块',
-            detail: `当前三连合法序 ${sm.validPerms}/6${fmfHint}，先下可放位最少的那块。`,
+            detail: `候选块中最少合法落位仅 ${minPl}；${sumHint}先下可放位最少的那块。`,
             priority: 0.86, category: 'survival'
         });
     }

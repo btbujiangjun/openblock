@@ -72,6 +72,36 @@ function countLegalPlacements(grid, shapeData) {
     return c;
 }
 
+/**
+ * 展示用「解法」口径：各 **未放置** 候选块在当前盘面上的合法落子位置数之和；
+ * `firstMoveFreedom` = 其中最少者的合法落子数（瓶颈块可放位）。
+ * 计算量 O(块数×格²)，应在候选组合变化时调用（见 Game 侧缓存）。
+ *
+ * @param {import('../grid.js').Grid | null} grid
+ * @param {Array<{ placed?: boolean, shape?: number[][] }>} dockBlocks
+ * @returns {{ solutionCount: number, firstMoveFreedom: number } | null}
+ */
+export function computeCandidatePlacementMetric(grid, dockBlocks) {
+    if (!grid?.cells || !Array.isArray(dockBlocks)) {
+        return null;
+    }
+    const unplaced = dockBlocks.filter((b) => b && !b.placed && Array.isArray(b.shape));
+    if (unplaced.length === 0) {
+        return null;
+    }
+    let total = 0;
+    let minPl = Infinity;
+    for (const b of unplaced) {
+        const n = countLegalPlacements(grid, b.shape);
+        total += n;
+        if (n < minPl) minPl = n;
+    }
+    return {
+        solutionCount: total,
+        firstMoveFreedom: Number.isFinite(minPl) ? minPl : 0
+    };
+}
+
 function permutations3(a, b, c) {
     return [[a, b, c], [a, c, b], [b, a, c], [b, c, a], [c, a, b], [c, b, a]];
 }
