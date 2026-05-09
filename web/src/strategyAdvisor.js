@@ -39,6 +39,34 @@
  *   `liveSolutionMetrics`：{ solutionCount, firstMoveFreedom } 可落子数之和与瓶颈最少落子位（与 insight 同源）。
  * @returns {StrategyTip[]} 按 priority 降序排列的策略建议（最多 3 条）
  */
+
+/**
+ * v1.29：若 top3 全是 survival，尝试用后续条目中「足够优先」的非 survival 替换三者最弱一条，
+ * 避免长期只看到保命卡（不替换 ≥0.94 的救急档）。
+ * @param {StrategyTip[]} sortedDesc priority 已降序
+ * @param {number} max
+ */
+function applyTipCategoryDiversity(sortedDesc, max = 3) {
+    if (sortedDesc.length <= max) return sortedDesc.slice(0, max);
+    const top = sortedDesc.slice(0, max);
+    if (!top.every((t) => t.category === 'survival')) return top;
+    const minPri = Math.min(...top.map((t) => t.priority));
+    if (minPri >= 0.94) return top;
+    const alt = sortedDesc.slice(max).reduce((best, t) => {
+        if (t.category === 'survival') return best;
+        if (!best || t.priority > best.priority) return t;
+        return best;
+    }, null);
+    if (!alt) return top;
+    const threshold = Math.max(0.58, minPri - 0.15);
+    if (alt.priority < threshold) return top;
+    const minIdx = top.reduce((mi, t, i) => (t.priority < top[mi].priority ? i : mi), 0);
+    const out = [...top];
+    out[minIdx] = alt;
+    out.sort((a, b) => b.priority - a.priority);
+    return out.slice(0, max);
+}
+
 export function generateStrategyTips(profile, insight, gridInfo) {
     /** @type {StrategyTip[]} */
     const tips = [];
@@ -308,5 +336,5 @@ export function generateStrategyTips(profile, insight, gridInfo) {
     }
 
     tips.sort((a, b) => b.priority - a.priority);
-    return tips.slice(0, 3);
+    return applyTipCategoryDiversity(tips, 3);
 }

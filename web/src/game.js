@@ -321,6 +321,9 @@ export class Game {
             recentComboStreak: p.recentComboStreak,
             spawnRound: p.spawnRoundIndex
         };
+        if (Number.isFinite(layered._occupancyFillAnchor)) {
+            this._spawnContext._occupancyFillAnchor = layered._occupancyFillAnchor;
+        }
     }
 
     async init() {

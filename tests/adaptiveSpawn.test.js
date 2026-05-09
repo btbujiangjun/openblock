@@ -694,6 +694,45 @@ describe('resolveAdaptiveStrategy', () => {
         expect(cb).toBeLessThanOrEqual(0.15);
     });
 
+    it('v1.29 challengeBoost：friendlyBoardRelief 显著时 B 类加压被削弱（互抑锯齿）', () => {
+        const ctxBase = { bestScore: 1000, totalRounds: 8, holes: 0 };
+        const sPlain = resolveAdaptiveStrategy('normal', makeProfile(), 990, 0, 0.45, {
+            ...ctxBase,
+            nearFullLines: 0,
+            multiClearCandidates: 0,
+            pcSetup: 0
+        });
+        const sFriendly = resolveAdaptiveStrategy('normal', makeProfile(), 990, 0, 0.45, {
+            ...ctxBase,
+            nearFullLines: 3,
+            multiClearCandidates: 2,
+            pcSetup: 0
+        });
+        expect(sPlain._stressBreakdown.challengeBoost).toBeGreaterThan(0.12);
+        expect(sFriendly._stressBreakdown.friendlyBoardRelief).toBeLessThan(-0.09);
+        expect(sFriendly._stressBreakdown.challengeBoost).toBeCloseTo(
+            sPlain._stressBreakdown.challengeBoost * 0.42,
+            5
+        );
+    });
+
+    it('v1.29 occupancyFillAnchor：瞬时低占用 + 高锚点时 damping 弱于裸 fill（缓降、避免锯齿）', () => {
+        const p = makeProfile({ smoothSkill: 0.6, lifetimeGames: 6, lifetimePlacements: 120 });
+        const withAnchor = resolveAdaptiveStrategy('normal', p, 1200, 0, 0.22, {
+            totalRounds: 10,
+            bestScore: 1500,
+            _occupancyFillAnchor: 0.48
+        });
+        const noAnchor = resolveAdaptiveStrategy('normal', p, 1200, 0, 0.22, {
+            totalRounds: 10,
+            bestScore: 1500
+        });
+        expect(withAnchor._occupancyFillAnchor).toBeGreaterThan(0.22);
+        // 锚点抬高 occupancyScale → 衰减更轻（occupancyDamping 负得更少）
+        expect(withAnchor._stressBreakdown.occupancyDamping).toBeGreaterThan(noAnchor._stressBreakdown.occupancyDamping);
+        expect(withAnchor._adaptiveStress).toBeGreaterThanOrEqual(noAnchor._adaptiveStress - 1e-6);
+    });
+
     /* =====================================================================
      * v1.21：rhythmPhase='setup' 与 spawnIntent='harvest' 互斥兜底
      *   旧版 deriveRhythmPhase 在 (pacingPhase=tension && roundsSinceClear=0)

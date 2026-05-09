@@ -4,6 +4,7 @@
 
 ## 当前事实入口
 
+- [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) — 通用四层模型、`spawnIntent`、几何门控与 OpenBlock 映射（文档中心方法论入口）
 - [玩家能力评估接入说明](./PLAYER_ABILITY_EVALUATION.md)
 - [玩家面板参数](./PANEL_PARAMETERS.md)
 - [实时策略系统](./REALTIME_STRATEGY.md)

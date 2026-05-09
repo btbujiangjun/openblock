@@ -1,10 +1,12 @@
 # 实时策略系统：信号流与出块链路
 
-> 版本：1.0 | 更新日期：2026-04-08
+> 版本：1.1 | 更新日期：2026-05-09
+
+**方法论总览**：通用分层、单一意图 `spawnIntent`、压力表与叙事职责分离、几何门控等，见 **[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)**。本文侧重**信号定义、数据流时序与配置速查**。
 
 ## 1. 系统总览
 
-OpenBlock 实时策略系统由三层组成，形成**感知 → 决策 → 呈现**的闭环：
+OpenBlock 实时策略系统由三层组成，形成**感知 → 决策 → 呈现**的闭环（与 [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) 中 L1～L4 对应；出块采样属 L3，压力表属 L4）：
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -100,25 +102,16 @@ bias 叠加到下次 stress 计算
 
 ## 3. 第二层：自适应出块引擎（AdaptiveSpawn）
 
-### 3.1 十维信号合成（10 Signal Dimensions）
+### 3.1 综合压力与 stressBreakdown
+
+合成项以 `web/src/adaptiveSpawn.js` 中 `stressBreakdown` 为准（含 `scoreStress`、`sessionArcAdjust`、`holeReliefAdjust`、`friendlyBoardRelief`、`challengeBoost`、`occupancyDamping`、`flowPayoffCap` 等；**非**固定「十维」）。下列伪代码仅示意主路径，完整键集与叙事标签对照见 [策略体验栈 §6](./STRATEGY_EXPERIENCE_MODEL.md) 与 `web/src/stressMeter.js` → `SIGNAL_LABELS`。
 
 ```
-stress = scoreStress          // 分数驱动基础压力
-       + runStreakStress       // 连战加成
-       + skillAdjust           // (skill - 0.5) × 0.3
-       + flowAdjust            // bored +δ / anxious -δ（幅度随 F(t) 放大）
-       + pacingAdjust          // tension +0.04 / release -0.12
-       + recoveryAdjust        // 恢复 -0.2
-       + frustrationRelief     // 挫败 -0.18
-       + comboReward           // combo≥2 +0.05
-       + nearMissAdjust        // 差一点 -0.1
-       + feedbackBias          // 闭环反馈 ±0.15
-       + boardRiskReliefAdjust // 盘面风险统一救济
-
-stress = clamp(-0.2, 1.0)
+stress = Σ（除 boardRisk 外的各 breakdown 分量，含信号 scale）
+stress → clamp → occupancyDamping（低填充衰减正向压力）→ smoothStress → 可选 flowPayoffCap / minStress
 ```
 
-普通状态下 final stress 会使用上一轮 `prevAdaptiveStress` 做轻量平滑；挫败、近失、恢复或高风险盘面触发时，减压即时生效。`stressBreakdown` 会随 `adaptiveInsight` 写入面板和回放，用于解释每轮出块的加压/减压来源。
+普通状态下 final stress 会使用上一轮 `prevAdaptiveStress` 做轻量平滑；挫败、近失、恢复或高风险盘面触发时，减压可即时生效。`stressBreakdown` 随 `adaptiveInsight` 写入面板和回放。
 
 `spawnTargets` 进一步把总压力拆成多个消费轴，避免压力只体现为“方块更复杂”。面板会展示复杂度、解空间压力、消行机会和 payoff 强度，便于判断这轮是在考验空间规划、压缩解空间，还是在提供消行兑现。
 
@@ -167,35 +160,31 @@ stress 通过线性插值映射到 10 档 shapeWeights：
 - **5 大策略类别**：survival / clear / build / pace / explore
 - **实时刷新**：每次落子、出块、失误后自动更新
 
-### 4.2 十大策略场景
+### 4.2 策略场景与源码
 
-| # | 场景 | 触发条件 | 优先级 | 类别 | 建议 |
-|---|------|---------|--------|------|------|
-| 1 | **紧急清行** | fill > 75% | 0.95 | survival | 优先放置能完成整行的块，避免堆高 |
-| 2 | **控制高度** | fill > 60% | 0.70 | survival | 优先降低最高列或填补空洞 |
-| 3 | **恢复模式** | needsRecovery | 0.88 | survival | 利用小块/长条尽快消行腾空间 |
-| 4 | **填补空洞** | holes > 3 | 0.72 | build | 优先将块放入凹陷处 |
-| 5 | **保持连击** | comboStreak ≥ 2 | 0.80 | clear | 关注接近满行区域延续连击 |
-| 6 | **差一步消行** | hadRecentNearMiss | 0.75 | clear | 这轮出块更友好，抓住机会 |
-| 7 | **挫败缓解** | frustration ≥ 4 | 0.82 | pace | 系统已降低难度，先找最容易消的行 |
-| 8 | **提升挑战** | flowState = bored | 0.50 | build | 尝试构建多行同消或 combo 结构 |
-| 9 | **放慢节奏** | flowState = anxious | 0.65 | pace | 多观察候选块与缺口匹配关系 |
-| 10 | **简化决策** | thinkMs > 8s & load > 60% | 0.55 | pace | 先放最明确的块 |
-| 11 | **调整策略** | momentum < -0.4 | 0.60 | build | 留出一列做长条消行通道 |
-| 12 | **规划堆叠** | fill < 30% & skill > 50% | 0.40 | build | 留 1~2 列通道备用 |
-| 13 | **新手引导** | isInOnboarding | 1.00 | explore | 操作教学 + 堆叠技巧 |
-| 14 | **注意休息** | late + momentum 下降 | 0.35 | pace | 适当休息恢复专注力 |
-| 15 | **状态良好** | 无其他触发 | 0.30 | pace | 保持专注，继续当前打法 |
+完整规则表（含多消 live 几何、`瓶颈块`、`收获期·待兑现`、`harvestNow` 互斥等）以 **[策略体验栈 §8](./STRATEGY_EXPERIENCE_MODEL.md)** 与 `web/src/strategyAdvisor.js` 为准。下表为常见子集，便于快速沟通。
+
+| 场景 | 触发条件 | 优先级 | 类别 |
+|------|---------|--------|------|
+| 紧急清行 | fill > 75% | 0.95 | survival |
+| 恢复模式 | needsRecovery | 0.88 | survival |
+| 多消机会 / 逐条清理 | 近满线 ≥3，按 live 多消候选分支 | 0.78 / 0.70 | clear |
+| 瓶颈块 | firstMoveFreedom ≤ 2 且 fill ≥ 0.4 | 0.86 | survival |
+| 延续连击 / 差一步 | combo 链或 nearMiss | 0.82 / 0.75 | combo / clear |
+| 别急稳住 | frustration ≥ 4 | 0.82 | pace |
+| 新手引导 | isInOnboarding（清空后固定两条） | 1.0 / 0.9 | explore |
 
 ### 4.3 策略选择逻辑
 
 ```
-1. 扫描所有场景，收集匹配的 tips[]
-2. 新手引导最高优先级，覆盖其他所有建议
-3. 防止同类别重复（如两条 survival）
-4. 按 priority 降序排列
-5. 截取前 3 条返回
+1. 按代码顺序向 tips[] 追加匹配项（部分规则受 tips.length < 3 约束）
+2. isInOnboarding 时清空并只保留两条新手卡
+3. 按 priority 降序排序，取前 3 条
 ```
+
+（实现上**不**做「同类别去重」；依赖优先级与条数上限自然筛选。）
+
+**v1.29**：排序后增加 `applyTipCategoryDiversity` —— 若 top3 全是 `survival`，在满足阈值时用后续条目中的非 survival 替换最弱一条（详见 [策略体验栈 §8–9](./STRATEGY_EXPERIENCE_MODEL.md)）。
 
 ### 4.4 策略类别视觉设计
 
@@ -238,7 +227,7 @@ playerInsightPanel._render(game)
   ├── 读取 playerProfile 实时指标
   ├── 读取 _lastAdaptiveInsight（上次出块的 stress / hints）
   ├── 调用 generateStrategyTips(profile, insight, gridInfo)
-  │     ├── 扫描 10+ 场景
+  │     ├── 扫描多条规则（见 strategyAdvisor.js / 策略体验栈 §8）
   │     ├── 按 priority 排序
   │     └── 返回 top 3 tips
   ├── 渲染「实时策略」卡片
@@ -251,9 +240,9 @@ game.js: spawnBlocks()
      │
      ▼
 adaptiveSpawn.resolveAdaptiveStrategy(strategy, profile, score, runStreak, fill)
-  ├── 合成 10 维信号 → stress
+  ├── 合成 stressBreakdown → stress（含平滑、占用衰减等）
   ├── 插值 shapeWeights
-  ├── 计算 spawnHints
+  ├── 计算 spawnHints（含 spawnIntent、spawnTargets）
   └── 返回策略对象
      │
      ▼

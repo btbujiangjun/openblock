@@ -78,6 +78,7 @@ docs/
 | [玩家能力评估接入说明](./player/PLAYER_ABILITY_EVALUATION.md) | 玩家能力输出如何被产品和策略消费 | 产品、运营、测试 |
 | [玩家面板参数](./player/PANEL_PARAMETERS.md) | UI 指标含义、异常解读、调参提示 | 产品、运营、测试 |
 | [实时策略系统](./player/REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn → StrategyAdvisor | 产品、算法、架构 |
+| [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md) | 通用四层模型、单一意图、几何门控、叙事职责分离；OpenBlock 映射 | 产品、算法、架构、测试 |
 | [玩法风格检测](./player/PLAYSTYLE_DETECTION.md) | 玩家风格识别与策略微调 | 产品、算法 |
 
 ### 出块算法与建模
@@ -138,6 +139,7 @@ docs/
 ### 体验设计
 
 - **心流调节**：先读 [领域知识](./domain/DOMAIN_KNOWLEDGE.md)，再读 [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) 与 [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md)。
+- **策略与叙事一致性**：先读 [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md)（通用分层、`spawnIntent`、压力表职责），再读 [实时策略系统](./player/REALTIME_STRATEGY.md)（时序与配置）。
 - **爽感与奖励**：先读 [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) 与 [宝箱与钱包](./product/CHEST_AND_WALLET.md)，再读 [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) 与 [消行计分](./product/CLEAR_SCORING.md)。
 - **难度曲线**：先读 [难度模式](./product/DIFFICULTY_MODES.md)，再读 [解法数量难度](./algorithms/SPAWN_SOLUTION_DIFFICULTY.md)。
 
@@ -159,7 +161,7 @@ docs/
 
 | 问题 | 当前事实 | 来源 |
 |------|----------|------|
-| 自适应出块输入 | 分数、连战、技能、心流、节奏、恢复、挫败、combo、趋势、置信度，加上爽感兑现提示 | `web/src/adaptiveSpawn.js` |
+| 自适应出块输入 | 分数、连战、技能、心流、节奏、恢复、挫败、combo、趋势、置信度，加上爽感兑现提示；`stressBreakdown` 键与叙事标签见 [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md)；v1.29 起含 `_occupancyFillAnchor` 跨 spawn 缓降、`challengeBoost`×`friendlyBoardRelief` 互抑 | `web/src/adaptiveSpawn.js` |
 | 出块公平性约束 | 最低机动性、序贯可解性、解法数量软过滤 | `web/src/bot/blockSpawn.js` |
 | 真人玩法与 RL | 真人对局走 `game.js + adaptiveSpawn`；Python RL 训练不直接使用网页自适应 | [RL_AND_GAMEPLAY](./algorithms/RL_AND_GAMEPLAY.md) |
 | 共享规则来源 | `shared/game_rules.json` | [ALGORITHMS_HANDBOOK](./algorithms/ALGORITHMS_HANDBOOK.md) |

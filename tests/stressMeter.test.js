@@ -176,13 +176,26 @@ describe('buildStoryLine', () => {
         expect(story).not.toMatch(/挫败感偏高/);
     });
 
-    it('v1.23 spawnIntent=harvest + recoveryAdjust=-0.20 时优先 SPAWN_INTENT_NARRATIVE.harvest', () => {
+    it('v1.23 spawnIntent=harvest + recoveryAdjust=-0.20 时优先 SPAWN_INTENT_NARRATIVE.harvest（低压档）', () => {
         const story = buildStoryLine(flowLevel,
             { recoveryAdjust: -0.20 },
             null,
             { spawnIntent: 'harvest' });
         expect(story).toBe('识别到密集消行机会，正在投放促清的形状。');
         expect(story).not.toMatch(/恢复窗口/);
+    });
+
+    it('v1.29 spawnIntent=harvest + level=tense → 高压守卫叙事（与头像「紧张」同口径）', () => {
+        const tenseLevel = STRESS_LEVELS.find((l) => l.id === 'tense');
+        const story = buildStoryLine(tenseLevel, { boardRisk: 0.2 }, null, { spawnIntent: 'harvest' });
+        expect(story).toMatch(/吃紧|可消行|促清|降压/);
+        expect(story).not.toBe('识别到密集消行机会，正在投放促清的形状。');
+    });
+
+    it('v1.29 spawnIntent=harvest + level=intense → 高压守卫叙事', () => {
+        const intenseLevel = STRESS_LEVELS.find((l) => l.id === 'intense');
+        const story = buildStoryLine(intenseLevel, { boardRisk: 0.2 }, null, { spawnIntent: 'harvest' });
+        expect(story).toMatch(/高压|促清|解压/);
     });
 
     it('v1.23 boardRisk≥0.6 仍能抢占 spawnIntent（极端保活信号最高优先）', () => {

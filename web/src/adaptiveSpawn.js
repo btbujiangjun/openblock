@@ -669,7 +669,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         && score >= ctx.bestScore * 0.8
         && stress < 0.7;
     if (isBClassChallenge) {
-        const challengeBoost = Math.min(0.15, (score / ctx.bestScore - 0.8) * 0.75);
+        let challengeBoost = Math.min(0.15, (score / ctx.bestScore - 0.8) * 0.75);
+        /* v1.29：友好盘面救济与 B 类挑战加压同帧显著时互抑，减轻 stress 锯齿抖动 */
+        const fbr = stressBreakdown.friendlyBoardRelief ?? 0;
+        if (Number.isFinite(fbr) && fbr < -0.09 && challengeBoost > 0) {
+            challengeBoost *= 0.42;
+        }
         stress = Math.min(0.85, stress + challengeBoost);
         stressBreakdown.challengeBoost = challengeBoost;
     } else {
@@ -688,10 +693,18 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
      *   - fill=0.25 → ×0.5
      *   - fill=0.39 → ×0.78（产线观察到的 stress=0.89 → 0.69，进入 tense 而非 intense）
      *   - fill≥0.5  → ×1.0（完全不衰减；中高占用以上保留原有信号）
-     * 负向 stress（救济/挫败）不衰减，避免空盘减压被无意撤销。 */
+     * 负向 stress（救济/挫败）不衰减，避免空盘减压被无意撤销。
+     *
+     * v1.29：对衰减用 `_occupancyFillAnchor`（跨 spawn 缓降）—— 消行后瞬时变空盘时，
+     * 仍短暂沿用较高占用锚点，避免正向 stress 因 damping 撤除而单帧跳升。 */
+    const rawFillOcc = _boardFill ?? 0;
+    let occAnchor = Number(ctx._occupancyFillAnchor);
+    if (!Number.isFinite(occAnchor)) occAnchor = rawFillOcc;
+    if (rawFillOcc >= occAnchor) occAnchor = rawFillOcc;
+    else occAnchor = Math.max(rawFillOcc, occAnchor * 0.86 + rawFillOcc * 0.14);
     let occupancyDamping = 0;
     if (stress > 0) {
-        const occupancyScale = Math.max(0.4, Math.min(1, (_boardFill ?? 0) / 0.5));
+        const occupancyScale = Math.max(0.4, Math.min(1, occAnchor / 0.5));
         if (occupancyScale < 1) {
             const damped = stress * occupancyScale;
             occupancyDamping = damped - stress;
@@ -1106,6 +1119,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _stressBreakdown: stressBreakdown,
         _spawnTargets: spawnTargets,
         _spawnIntent: spawnIntent,
-        _afkEngageActive: afkEngageActive
+        _afkEngageActive: afkEngageActive,
+        /** @type {number} 供 game 写回 `_spawnContext`，见 occupancy 锚点注释 */
+        _occupancyFillAnchor: occAnchor
     };
 }

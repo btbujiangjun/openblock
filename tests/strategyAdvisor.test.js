@@ -258,3 +258,28 @@ describe('strategyAdvisor v1.22：规划堆叠 vs 收获期 互斥', () => {
         expect(tips.find((t) => t.title === '规划堆叠')).toBeDefined();
     });
 });
+
+describe('strategyAdvisor v1.29：类别多样性', () => {
+    it('top3 全为 survival 时用 combo 替换最弱一条（保留紧急清行）', () => {
+        const insight = {
+            spawnHints: { rhythmPhase: 'neutral', spawnIntent: 'maintain', comboChain: 0.75 },
+            spawnDiagnostics: { layer1: {
+                solutionMetrics: { firstMoveFreedom: 1, solutionCount: 8, capped: false },
+                nearFullLines: 2,
+                multiClearCandidates: 0
+            } },
+            boardFill: 0.76
+        };
+        const tips = generateStrategyTips(makeStubProfile({
+            flowState: 'flow',
+            needsRecovery: true
+        }), insight, {
+            fillRatio: 0.76,
+            holesCount: 0,
+            liveSolutionMetrics: { firstMoveFreedom: 1, solutionCount: 8 }
+        });
+        expect(tips.find((t) => t.title === '紧急清行')).toBeDefined();
+        expect(tips.find((t) => t.title === '延续连击')).toBeDefined();
+        expect(tips.some((t) => t.category !== 'survival')).toBe(true);
+    });
+});

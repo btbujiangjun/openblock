@@ -188,6 +188,17 @@ const FLOW_HIGH_STRESS_NARRATIVE_BY_LEVEL = {
 };
 
 /**
+ * v1.29：harvest + 紧张/高压档叙事守卫（与 flow 守卫同构）。
+ * 否则头像「紧张」与正文「识别到密集消行机会…」并列时，玩家易读成
+ * 「明明很紧张却说在爽」；合并为「吃紧但仍有机会 + 系统促清」。
+ */
+const HARVEST_HIGH_STRESS_NARRATIVE_BY_LEVEL = {
+    engaged: '局面需要专注，已识别可消行窗口，正投放更易兑现的组合。',
+    tense: '盘面吃紧，但已识别可消行窗口，正投放促清组合帮你逐步降压。',
+    intense: '高压下仍有消行机会，系统优先促清形状，先稳住落点再逐步解压。'
+};
+
+/**
  * 从 spawnTargets / spawnHints / breakdown 拼一个「一句话叙事」：
  * 优先级：boardRisk 极高 > spawnIntent（唯一对外口径） > 老回放兜底
  */
@@ -220,6 +231,10 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
         if (highStressFlow) return highStressFlow;
         const phase = spawnHints?.rhythmPhase;
         return FLOW_NARRATIVE_BY_PHASE[phase] ?? SPAWN_INTENT_NARRATIVE.flow;
+    }
+    if (intent === 'harvest') {
+        const highHarvest = HARVEST_HIGH_STRESS_NARRATIVE_BY_LEVEL[level?.id];
+        if (highHarvest) return highHarvest;
     }
     const narrative = intent && SPAWN_INTENT_NARRATIVE[intent];
     if (narrative) return narrative;

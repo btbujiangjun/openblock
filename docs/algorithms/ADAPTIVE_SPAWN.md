@@ -726,6 +726,16 @@ saveSession()        → profile.save()               // 持久化到 localStora
 
 ---
 
+## 关联文档
+
+| 文档 | 说明 |
+|------|------|
+| [策略体验栈](../player/STRATEGY_EXPERIENCE_MODEL.md) | 通用四层模型、`spawnIntent` 单一口径、几何门控、压力表与叙事职责分离、顾问规则索引 |
+| [实时策略系统](../player/REALTIME_STRATEGY.md) | 画像采集、出块时序、配置速查 |
+| [出块三层架构](./SPAWN_ALGORITHM.md) | Layer1/2/3 与 `blockSpawn` 管线 |
+
+---
+
 ## 10. 后续迭代方向
 
 ### 10.1 短期（可直接在 JSON 配置层面调优）
