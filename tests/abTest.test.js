@@ -89,14 +89,14 @@ describe('forceVariant / clearOverrides', () => {
 
 describe('EXPERIMENTS 注册表', () => {
     it('所有内置实验都有 variants 数组', () => {
-        for (const [name, exp] of Object.entries(EXPERIMENTS)) {
+        for (const [, exp] of Object.entries(EXPERIMENTS)) {
             expect(Array.isArray(exp.variants)).toBe(true);
             expect(exp.variants.length).toBeGreaterThanOrEqual(2);
         }
     });
 
     it('所有内置实验都有 description', () => {
-        for (const [name, exp] of Object.entries(EXPERIMENTS)) {
+        for (const [, exp] of Object.entries(EXPERIMENTS)) {
             expect(typeof exp.description).toBe('string');
             expect(exp.description.length).toBeGreaterThan(0);
         }

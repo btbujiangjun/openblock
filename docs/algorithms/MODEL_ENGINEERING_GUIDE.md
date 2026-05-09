@@ -30,7 +30,7 @@ OpenBlock 里“模型”分为三类，不应混用。
 | 类别 | 子系统 | 当前实现 | 是否学习参数 | 线上职责 |
 |------|--------|----------|--------------|----------|
 | 决策智能体 | RL Bot | PyTorch PPO / 浏览器线性 REINFORCE / MLX 训练分支 | 是 | Bot 自动落子、自博弈训练 |
-| 生成模型 | SpawnTransformer V2/V3 | PyTorch Transformer + 规则回退 | 是 | 生成下一轮 3 个候选块 |
+| 生成模型 | SpawnTransformer V2/V3.1 | PyTorch Transformer + 规则回退 | 是 | 生成下一轮 3 个候选块 |
 | 规则评分模型 | PlayerProfile、AbilityVector、CommercialModelVector、LTV、AdaptiveSpawn、策略引擎 | 加权公式、EMA、阈值树、可解释护栏 | 当前不是，保留 `modelBaseline` 接口 | 真人路径的难度、画像、商业化与 UI 解释 |
 
 关键边界：
@@ -317,23 +317,23 @@ $$
 
 其中权重来自 `adaptiveSpawn` 和 `shared/game_rules.json`。
 
-### 5.3 SpawnTransformer V2/V3
+### 5.3 SpawnTransformer V2/V3.1
 
 SpawnTransformer 是可选 ML 轨。
 
 | 版本 | 输入 | 输出 | 训练目标 | 线上机制 |
 |------|------|------|----------|----------|
 | V2 | 8×8 board、24 维 context、history、目标难度 | 三个槽位 shape logits、diversity、difficulty | CE + diversity + difficulty regression + anti-inflate | `/api/spawn-model/predict`，失败回退规则轨 |
-| V3 | V2 输入 + playstyle、prev_shapes、自回归 teacher forcing | AR logits、feasibility、style 等多头 | CE_AR + diversity + difficulty + BCE feasibility + style loss | `/api/spawn-model/v3/*`，支持个性化和 LoRA |
+| V3.1 | 8×8 board、56 维 behaviorContext、history、目标难度、playstyle | AR logits、feasibility、style、spawnIntent 等多头 | CE_AR + diversity + difficulty + BCE feasibility + style + intent loss | `/api/spawn-model/v3/*`，支持个性化和 LoRA；旧 V3 权重不兼容 |
 
 网络结构：
 
 ```text
-board encoder + context encoder + history embedding
+board encoder + behavior context encoder + history embedding
   ↓
 Transformer encoder
   ↓
-shape heads / diversity head / difficulty head / feasibility head / style head
+shape heads / diversity head / difficulty head / feasibility head / style head / intent head
 ```
 
 建模假设：
@@ -380,7 +380,7 @@ $$
 | `flowState` / `flowDeviation` | PlayerProfile | bored 加压，anxious 减压 |
 | `frustrationLevel` | 连续未消行 | 触发救援或减压 |
 | `boardFill` | 棋盘填充率 | 高填充提升风险 |
-| `holes` | boardTopology | 空洞越多越需降低压力或提供修复块 |
+| `holes` | boardTopology | 空洞越多盘面越难；难度目标上调，但保活护栏会降低过度压力或提供修复块 |
 | `runStreak` / combo | 对局节奏 | 控制爽感释放 |
 | `sessionPhase` | 会话阶段 | 热身、峰值、末期采用不同曲线 |
 
@@ -680,7 +680,7 @@ rankedActions + whyLines
 - dock mask side、dock slots。
 - 拓扑 auxiliary target 维度。
 - AbilityVector / CommercialModelVector 字段删除或语义改变。
-- SpawnTransformer context 维度。
+- SpawnTransformer `context` / `behaviorContext` 维度。
 
 后果：
 
@@ -719,7 +719,7 @@ rankedActions + whyLines
 |-----------|----------------|---------------|----------|
 | RL Bot | `rl_pytorch/train.py`、`shared/game_rules.json → rlRewardShaping` | `rl_backend.py → /api/rl/*`、`web/src/bot/pytorchBackend.js` | `tests/features.test.js`、`tests/simulator.test.js` |
 | Spawn 规则轨 | `shared/game_rules.json → adaptiveSpawn / strategies` | `web/src/bot/blockSpawn.js`、`web/src/adaptiveSpawn.js` | `tests/blockSpawn.test.js`、`tests/adaptiveSpawn.test.js` |
-| SpawnTransformer | `rl_pytorch/spawn_model/`、`models/spawn_transformer.pt` | `web/src/spawnModel.js`、`server.py → /api/spawn/*` | `tests/pcgrl.test.js`、spawn model 自检脚本 |
+| SpawnTransformer | `rl_pytorch/spawn_model/`、`models/spawn_transformer_v3.pt` | `web/src/spawnModel.js`、`server.py → /api/spawn-model/v3/*` | `tests/spawnModel.test.js`、`python -m rl_pytorch.spawn_model.test_v3` |
 | PlayerProfile | `shared/game_rules.json → adaptiveSpawn` | `web/src/playerProfile.js`、`web/src/playerInsightPanel.js` | `tests/playerProfile.test.js` |
 | AbilityVector | `shared/game_rules.json → playerAbilityModel` | `web/src/playerAbilityModel.js`、`web/src/moveSequence.js` | `tests/playerAbilityModel.test.js` |
 | CommercialModelVector | `strategyConfig.js → commercialModel`、`mon_model_config` | `web/src/monetization/commercialModel.js`、`adTrigger.js` | `tests/commercialModel.test.js` |

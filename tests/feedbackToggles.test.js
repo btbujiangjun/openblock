@@ -17,6 +17,7 @@ vi.stubGlobal('localStorage', _mockLS);
 function mountButtons() {
     document.body.innerHTML = `
         <button id="visual-effects-toggle"></button>
+        <button id="quality-toggle"></button>
         <button id="sound-effects-toggle"></button>
     `;
 }
@@ -27,6 +28,9 @@ function makeDeps(sound = true) {
         setEffectsEnabled: vi.fn(function setEffectsEnabled(enabled) { renderer.enabled = !!enabled; }),
         getEffectsEnabled: vi.fn(() => renderer.enabled),
         clearFx: vi.fn(),
+        quality: 'high',
+        setQualityMode: vi.fn(function setQualityMode(mode) { renderer.quality = mode; }),
+        getQualityMode: vi.fn(() => renderer.quality),
     };
     return {
         game: { renderer, markDirty: vi.fn() },
@@ -46,6 +50,7 @@ describe('feedbackToggles', () => {
         _mockLS.getItem.mockClear();
         _mockLS.setItem.mockClear();
         document.body.innerHTML = '';
+        document.documentElement.classList.remove('quality-high', 'quality-balanced', 'quality-low');
     });
 
     it('初始化时应用持久化的视觉特效偏好', () => {
@@ -81,5 +86,22 @@ describe('feedbackToggles', () => {
 
         expect(deps.audioFx.setEnabled).toHaveBeenLastCalledWith(false);
         expect(document.getElementById('sound-effects-toggle').textContent).toBe('🔇');
+    });
+
+    it('初始化并点击画质按钮会循环档位并持久化', () => {
+        _store.set('openblock_quality_v1', JSON.stringify({ mode: 'balanced' }));
+        mountButtons();
+        const deps = makeDeps();
+        initFeedbackToggles(deps);
+
+        expect(deps.game.renderer.setQualityMode).toHaveBeenCalledWith('balanced');
+        expect(document.documentElement.classList.contains('quality-balanced')).toBe(true);
+        expect(document.getElementById('quality-toggle').title).toBe('画质：均衡画质');
+
+        document.getElementById('quality-toggle').click();
+
+        expect(deps.game.renderer.setQualityMode).toHaveBeenLastCalledWith('low');
+        expect(document.documentElement.classList.contains('quality-low')).toBe(true);
+        expect(JSON.parse(_store.get('openblock_quality_v1'))).toEqual({ mode: 'low' });
     });
 });

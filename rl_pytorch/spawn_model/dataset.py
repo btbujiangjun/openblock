@@ -7,6 +7,10 @@ v2 改进：
   - CONTEXT_DIM 12 → 24：涵盖完整玩家能力画像 + 自适应策略信号
   - 新增品类标签用于多样性辅助损失
   - 采样权重同时考虑分数和消行率（避免纯分数膨胀）
+
+v3.1 改进：
+  - BEHAVIOR_CONTEXT_DIM=56：在旧 24 维基础上显式加入冷启动、拓扑、
+    AbilityVector、spawnTargets、spawnHints 与 spawnIntent one-hot。
 """
 
 import json
@@ -25,6 +29,7 @@ SHAPE_TO_IDX = {s: i for i, s in enumerate(SHAPE_VOCAB)}
 NUM_SHAPES = len(SHAPE_VOCAB)
 GRID_SIZE = 8
 CONTEXT_DIM = 24
+BEHAVIOR_CONTEXT_DIM = 56
 HISTORY_LEN = 3
 
 SHAPE_CATEGORY = {
@@ -63,6 +68,8 @@ def _safe(val, default=0.0):
 _FLOW_MAP = {'bored': -1.0, 'flow': 0.0, 'anxious': 1.0}
 _PACING_MAP = {'early': 0.0, 'tension': 0.5, 'release': 1.0}
 _SESSION_MAP = {'warmup': 0.0, 'peak': 0.5, 'cooldown': 1.0}
+_SPAWN_INTENTS = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain']
+_HOLE_PRESSURE_MAX = 8.0
 
 
 def _parse_context(ps):
@@ -108,6 +115,85 @@ def _parse_context(ps):
     ], dtype=np.float32)
 
 
+def _clamp01(v):
+    return float(np.clip(_safe(v), 0.0, 1.0))
+
+
+def _scale_unit(v, max_v, default=0.0):
+    return float(np.clip(_safe(v, default) / max(1.0, float(max_v)), 0.0, 1.0))
+
+
+def _intent_one_hot(intent):
+    out = [0.0] * len(_SPAWN_INTENTS)
+    try:
+        idx = _SPAWN_INTENTS.index(intent or 'maintain')
+    except ValueError:
+        idx = _SPAWN_INTENTS.index('maintain')
+    out[idx] = 1.0
+    return out
+
+
+def _parse_behavior_context(ps):
+    """Extract V3.1 56-dim behavior context from player state snapshot."""
+    if not ps or not isinstance(ps, dict):
+        return np.zeros(BEHAVIOR_CONTEXT_DIM, dtype=np.float32)
+
+    base = _parse_context(ps).tolist()
+    metrics = ps.get('metrics', {}) or {}
+    ability = ps.get('ability', {}) or {}
+    adaptive = ps.get('adaptive', {}) or {}
+    hints = adaptive.get('spawnHints', {}) or {}
+    targets = adaptive.get('spawnTargets') or hints.get('spawnTargets') or {}
+    breakdown = adaptive.get('stressBreakdown') or {}
+    geo = ps.get('spawnGeo') or {}
+
+    samples = _safe(metrics.get('samples'), 0)
+    active_samples = _safe(metrics.get('activeSamples'), samples)
+    holes = _safe(geo.get('holes'), ability.get('features', {}).get('holes', 0))
+    fill = _safe(ps.get('boardFill'), adaptive.get('fillRatio', 0))
+    hole_pressure = float(np.clip(holes / _HOLE_PRESSURE_MAX, 0.0, 1.0))
+    board_difficulty = float(np.clip(fill + hole_pressure * 0.8, 0.0, 1.0))
+    board_risk = _clamp01(breakdown.get('boardRisk', ability.get('riskLevel', 0)))
+    session_arc = hints.get('sessionArc') or adaptive.get('sessionPhase')
+
+    values = [
+        *base,
+        # [24-31] 数据可信度与盘面拓扑
+        1.0 if samples <= 0 else 0.0,
+        _scale_unit(active_samples or samples, 20),
+        board_difficulty,
+        _scale_unit(holes, 10),
+        _scale_unit(geo.get('nearFullLines'), 8),
+        _scale_unit(geo.get('close1'), 8),
+        _scale_unit(geo.get('close2'), 8),
+        _scale_unit(geo.get('solutionCount'), 64),
+        # [32-37] AbilityVector
+        _clamp01(ability.get('skillScore', ps.get('skill', 0.5))),
+        _clamp01(ability.get('controlScore', 0.5)),
+        _clamp01(ability.get('clearEfficiency', 0.5)),
+        _clamp01(ability.get('boardPlanning', 0.5)),
+        _clamp01(ability.get('riskTolerance', 0.5)),
+        _clamp01(ability.get('riskLevel', board_risk)),
+        # [38-47] 策略目标与出块提示
+        _clamp01(targets.get('shapeComplexity', 0)),
+        _clamp01(targets.get('solutionSpacePressure', 0)),
+        _clamp01(targets.get('clearOpportunity', 0)),
+        _clamp01(targets.get('spatialPressure', 0)),
+        _clamp01(targets.get('payoffIntensity', 0)),
+        _clamp01(targets.get('novelty', 0)),
+        _scale_unit(hints.get('clearGuarantee'), 3),
+        float(np.clip((_safe(hints.get('sizePreference'), 0) + 1.0) / 2.0, 0.0, 1.0)),
+        _clamp01(hints.get('multiClearBonus', 0)),
+        _clamp01(hints.get('orderRigor', 0)),
+        # [48-53] spawnIntent one-hot
+        *_intent_one_hot(hints.get('spawnIntent') or adaptive.get('spawnIntent')),
+        # [54-55] 额外策略上下文
+        _scale_unit(hints.get('multiLineTarget'), 2),
+        _SESSION_MAP.get(session_arc, 0.5),
+    ]
+    return np.asarray(values[:BEHAVIOR_CONTEXT_DIM], dtype=np.float32)
+
+
 def _shape_id_to_idx(shape_id):
     return SHAPE_TO_IDX.get(shape_id, 0)
 
@@ -139,6 +225,7 @@ def extract_samples_from_session(frames, session_score, session_clear_rate=0.0):
             board = _parse_board(last_grid)
             ps = frame.get('ps')
             context = _parse_context(ps)
+            behavior_context = _parse_behavior_context(ps)
 
             hist = np.zeros((HISTORY_LEN, 3), dtype=np.int64)
             for i, prev in enumerate(spawn_history[-HISTORY_LEN:]):
@@ -153,6 +240,7 @@ def extract_samples_from_session(frames, session_score, session_clear_rate=0.0):
             samples.append({
                 'board': board,
                 'context': context,
+                'behavior_context': behavior_context,
                 'history': hist,
                 'targets': np.array(target_ids, dtype=np.int64),
                 'categories': target_cats,
@@ -220,6 +308,7 @@ try:
             return {
                 'board': torch.from_numpy(s['board']),
                 'context': torch.from_numpy(s['context']),
+                'behavior_context': torch.from_numpy(s['behavior_context']),
                 'history': torch.from_numpy(s['history']),
                 'targets': torch.from_numpy(s['targets']),
                 'categories': torch.from_numpy(s['categories']),

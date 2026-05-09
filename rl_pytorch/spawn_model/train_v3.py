@@ -45,12 +45,13 @@ from .dataset import (
     NUM_SHAPES,
     NUM_CATEGORIES,
     CONTEXT_DIM,
+    BEHAVIOR_CONTEXT_DIM,
     SHAPE_VOCAB,
     SpawnDataset,
     load_training_data,
 )
 from .feasibility import build_feasibility_mask
-from .model_v3 import SpawnTransformerV3, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX
+from .model_v3 import SpawnTransformerV3, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX, NUM_SPAWN_INTENTS
 from .train import (
     _default_dataloader_workers,
     compute_anti_inflate_loss,
@@ -119,6 +120,17 @@ def _infer_playstyle_from_context(context: torch.Tensor) -> torch.Tensor:
     return out
 
 
+def _infer_intent_from_behavior_context(behavior_context: torch.Tensor) -> torch.Tensor:
+    """从 V3.1 behavior context 的 spawnIntent one-hot 段提取意图弱标签。"""
+    if behavior_context.size(1) < 54:
+        return torch.full((behavior_context.size(0),), 5, dtype=torch.long, device=behavior_context.device)
+    intent_slice = behavior_context[:, 48:54]
+    has_signal = intent_slice.sum(dim=-1) > 0.01
+    pred = intent_slice.argmax(dim=-1).long()
+    fallback = torch.full_like(pred, 5)
+    return torch.where(has_signal, pred, fallback)
+
+
 def soft_infeasible_loss(logits_tuple, feas_mask: torch.Tensor) -> torch.Tensor:
     """对 (l0, l1, l2) 与 feas_mask 计算 -log(P(可行)) 的均值。
 
@@ -144,6 +156,10 @@ def feasibility_bce_loss(feas_logits: torch.Tensor, feas_mask: torch.Tensor) -> 
 
 def style_ce_loss(style_logits: torch.Tensor, style_targets: torch.Tensor) -> torch.Tensor:
     return nn.functional.cross_entropy(style_logits, style_targets)
+
+
+def intent_ce_loss(intent_logits: torch.Tensor, intent_targets: torch.Tensor) -> torch.Tensor:
+    return nn.functional.cross_entropy(intent_logits, intent_targets)
 
 
 def train(args):
@@ -222,24 +238,26 @@ def train(args):
     for epoch in range(1, args.epochs + 1):
         model.train()
         sums = {k: 0.0 for k in
-                ('loss', 'ce', 'div', 'anti', 'diff', 'feas', 'si', 'style')}
+        ('loss', 'ce', 'div', 'anti', 'diff', 'feas', 'si', 'style', 'intent')}
         total_n = 0
 
         for batch in train_loader:
             board = batch['board'].to(device)
             context = batch['context'].to(device)
+            behavior_context = batch['behavior_context'].to(device)
             hist = batch['history'].to(device)
             targets = batch['targets'].to(device)
             categories = batch['categories'].to(device)
             weights = batch['weight'].to(device)
 
-            target_diff = compute_target_difficulty(context).to(device)
+            target_diff = compute_target_difficulty(behavior_context).to(device)
             playstyle_id = (
-                _infer_playstyle_from_context(context) if use_style else None
+                _infer_playstyle_from_context(behavior_context) if use_style else None
             )
+            intent_id = _infer_intent_from_behavior_context(behavior_context)
 
             out = model(
-                board, context, hist, target_diff,
+                board, behavior_context, hist, target_diff,
                 playstyle_id=playstyle_id,
                 prev_shapes=targets[:, :2],
             )
@@ -268,6 +286,8 @@ def train(args):
             else:
                 loss_style = torch.tensor(0.0, device=device)
 
+            loss_intent = intent_ce_loss(out['intent_logits'], intent_id)
+
             loss = (
                 args.w_ce * loss_ce
                 + args.w_div * loss_div
@@ -276,6 +296,7 @@ def train(args):
                 + args.w_feas * loss_feas
                 + args.w_si * loss_si
                 + args.w_st * loss_style
+                + args.w_intent * loss_intent
             )
 
             optimizer.zero_grad()
@@ -292,6 +313,7 @@ def train(args):
             sums['feas'] += loss_feas.item() * bs
             sums['si'] += loss_si.item() * bs
             sums['style'] += loss_style.item() * bs
+            sums['intent'] += loss_intent.item() * bs
             total_n += bs
 
         scheduler.step()
@@ -305,9 +327,10 @@ def train(args):
             for batch in val_loader:
                 board = batch['board'].to(device)
                 context = batch['context'].to(device)
+                behavior_context = batch['behavior_context'].to(device)
                 hist = batch['history'].to(device)
                 targets = batch['targets'].to(device)
-                out = model(board, context, hist, prev_shapes=targets[:, :2])
+                out = model(board, behavior_context, hist, prev_shapes=targets[:, :2])
                 l0, l1, l2 = out['logits']
                 vl = (criterion_ce(l0, targets[:, 0]).mean()
                       + criterion_ce(l1, targets[:, 1]).mean()
@@ -330,6 +353,7 @@ def train(args):
             'train_feas': round(means['feas'], 4),
             'train_si': round(means['si'], 4),
             'train_style': round(means['style'], 4),
+            'train_intent': round(means['intent'], 4),
             'val_loss': round(val_loss, 4),
             'val_acc': round(avg_acc, 4),
             'lr': round(scheduler.get_last_lr()[0], 6),
@@ -344,13 +368,15 @@ def train(args):
             'message': (f'V3 Epoch {epoch}/{args.epochs}  '
                         f'loss={means["loss"]:.4f} (ce={means["ce"]:.3f} '
                         f'div={means["div"]:.3f} feas={means["feas"]:.3f} '
-                        f'si={means["si"]:.3f} style={means["style"]:.3f})  '
+                        f'si={means["si"]:.3f} style={means["style"]:.3f} '
+                        f'intent={means["intent"]:.3f})  '
                         f'val={val_loss:.4f} acc={avg_acc:.3f}'),
         })
 
         print(f"[V3 {epoch}/{args.epochs}] loss={means['loss']:.4f} "
               f"ce={means['ce']:.3f} feas={means['feas']:.3f} "
               f"si={means['si']:.3f} style={means['style']:.3f} "
+              f"intent={means['intent']:.3f} "
               f"val={val_loss:.4f} acc={avg_acc:.3f}")
 
         if val_loss < best_val_loss:
@@ -364,9 +390,11 @@ def train(args):
                     'dim_ff': args.dim_ff,
                     'dropout': args.dropout,
                     'num_playstyles': NUM_PLAYSTYLES,
+                    'num_spawn_intents': NUM_SPAWN_INTENTS,
                 },
-                'model_version': 'v3',
+                'model_version': 'v3.1-behavior',
                 'context_dim': CONTEXT_DIM,
+                'behavior_context_dim': BEHAVIOR_CONTEXT_DIM,
                 'epoch': epoch,
                 'val_loss': val_loss,
                 'val_acc': avg_acc,
@@ -409,6 +437,8 @@ def main():
                    help='softInfeasible 主分布软不可行惩罚权重')
     p.add_argument('--w-st', type=float, default=0.15,
                    help='style 自监督交叉熵权重')
+    p.add_argument('--w-intent', type=float, default=0.10,
+                   help='spawnIntent 自监督交叉熵权重')
     args = p.parse_args()
     train(args)
 

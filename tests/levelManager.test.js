@@ -35,7 +35,7 @@ describe('LevelManager.applyInitialBoard', () => {
 
     it('预设盘面：格子被写入', () => {
         const board = Array.from({ length: 8 }, (_, y) =>
-            Array.from({ length: 8 }, (_, x) => (y === 0 ? 1 : null))
+            Array.from({ length: 8 }, (_, _x) => (y === 0 ? 1 : null))
         );
         const lm = new LevelManager({
             ...SAMPLE_LEVEL_SCORE,

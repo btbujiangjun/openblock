@@ -53,13 +53,14 @@ def test_feasibility():
 
 def test_v3_forward_and_sample():
     from .model_v3 import SpawnTransformerV3, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX
+    from .dataset import BEHAVIOR_CONTEXT_DIM
 
     model = SpawnTransformerV3()
     model.eval()
 
     B = 2
     board = torch.zeros(B, 8, 8)
-    ctx = torch.zeros(B, 24)
+    ctx = torch.zeros(B, BEHAVIOR_CONTEXT_DIM)
     history = torch.zeros(B, 3, 3, dtype=torch.long)
     target_diff = torch.tensor([[0.3], [0.7]])
     playstyle = torch.tensor([
@@ -76,10 +77,11 @@ def test_v3_forward_and_sample():
     assert l0.shape == (B, 28) and l1.shape == (B, 28) and l2.shape == (B, 28)
     assert out['feas_logits'].shape == (B, 28)
     assert out['style_logits'].shape == (B, NUM_PLAYSTYLES)
+    assert out['intent_logits'].shape == (B, 6)
     assert out['div_logits'].shape == (B, 3, 7)
 
     sample_board = torch.zeros(1, 8, 8)
-    sample_ctx = torch.zeros(1, 24)
+    sample_ctx = torch.zeros(1, BEHAVIOR_CONTEXT_DIM)
     sample_hist = torch.zeros(1, 3, 3, dtype=torch.long)
 
     triplet = model.sample(sample_board, sample_ctx, sample_hist,
@@ -175,8 +177,11 @@ def test_train_v3_helpers():
         soft_infeasible_loss,
         feasibility_bce_loss,
         style_ce_loss,
+        intent_ce_loss,
         _infer_playstyle_from_context,
+        _infer_intent_from_behavior_context,
     )
+    from .dataset import BEHAVIOR_CONTEXT_DIM
 
     B, S = 2, 28
     logits = (torch.randn(B, S), torch.randn(B, S), torch.randn(B, S))
@@ -195,12 +200,22 @@ def test_train_v3_helpers():
     sce = style_ce_loss(style_logits, style_targets)
     assert sce.item() > 0
 
-    ctx = torch.zeros(B, 24)
+    intent_logits = torch.randn(B, 6)
+    intent_targets = torch.tensor([0, 5])
+    ice = intent_ce_loss(intent_logits, intent_targets)
+    assert ice.item() > 0
+
+    ctx = torch.zeros(B, BEHAVIOR_CONTEXT_DIM)
     ctx[0, 12] = 0.1  # clear_rate 低 → survival
     ctx[1, 14] = 0.5  # combo_rate 高 → multi_clear
+    ctx[0, 48] = 1.0  # relief
+    ctx[1, 52] = 1.0  # flow
     ps = _infer_playstyle_from_context(ctx)
     assert ps[0].item() == 4  # survival
     assert ps[1].item() == 2  # multi_clear
+    intents = _infer_intent_from_behavior_context(ctx)
+    assert intents[0].item() == 0
+    assert intents[1].item() == 4
 
     print("[OK] train_v3 helpers")
 

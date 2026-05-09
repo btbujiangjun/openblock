@@ -18,8 +18,7 @@ import {
     formatMetricValue,
     formatPlayerStateForReplay,
     getMetricFromPS,
-    PLAYER_STATE_SNAPSHOT_VERSION,
-    REPLAY_METRICS
+    PLAYER_STATE_SNAPSHOT_VERSION
 } from '../web/src/moveSequence.js';
 import { PlayerProfile } from '../web/src/playerProfile.js';
 

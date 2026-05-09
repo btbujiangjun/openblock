@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { LevelManager, SAMPLE_LEVEL_SCORE, SAMPLE_LEVEL_CLEAR, SAMPLE_LEVEL_SURVIVAL } from '../web/src/level/levelManager.js';
 import { ClearRuleEngine, RowColRule } from '../web/src/clearRules.js';
-import { makeZoneClearRule } from '../web/src/clearRules.js';
 import { MOSAIC_LEVEL_4ZONE, ZONES_QUADRANT } from '../web/src/level/mosaicLevel.js';
 
 // -----------------------------------------------------------------------

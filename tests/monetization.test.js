@@ -110,7 +110,7 @@ describe('MonetizationBus', () => {
 
     it('detach restores original logBehavior', () => {
         const fakeGame = {
-            logBehavior(type, data) { }
+            logBehavior(_type, _data) { }
         };
         const orig = fakeGame.logBehavior;
         Bus.attach(fakeGame);

@@ -198,10 +198,60 @@ body.block-drag-active #app {
     background: rgba(84, 92, 112, 0.70);
 }
 
+#quality-toggle[data-quality="balanced"] {
+    opacity: 0.82;
+}
+
+#quality-toggle[data-quality="high"] {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.88), rgba(168, 85, 247, 0.78));
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.18) inset,
+        0 0 12px rgba(56, 189, 248, 0.24);
+}
+
+#quality-toggle[data-quality="low"] {
+    opacity: 0.62;
+    background: rgba(72, 84, 104, 0.72);
+}
+
 .feedback-toggle-btn:hover,
 .score-theme-quick-cluster > .in-game-menu-btn--toolbar:hover {
     background: rgba(32, 38, 54, 0.92);
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
+}
+
+/* 画质档位（由 feedbackToggles.js 写到 <html>）：
+ * - high：默认完整光影 + 当前设备 DPR
+ * - balanced：Canvas DPR 上限 2，这里只轻量收敛 UI 光晕
+ * - low：Canvas DPR 固定 1，同时压低 CSS 光影/过滤器/转场，适合高分屏或低端设备 */
+:root.quality-balanced .header .app-wordmark {
+    filter:
+        drop-shadow(0 0 6px color-mix(in srgb, #fbbf24 16%, transparent))
+        drop-shadow(0 1px 2px rgba(0, 0, 0, 0.10));
+}
+
+:root.quality-low #game-grid-fx {
+    opacity: 0.72;
+}
+
+:root.quality-low .game-board-flow-bg {
+    background-size: 140% 140%;
+}
+
+:root.quality-low .header .app-wordmark,
+:root.quality-low .app-wordmark-pixel::before,
+:root.quality-low .side-panel-base,
+:root.quality-low .play-stack,
+:root.quality-low .skill-btn,
+:root.quality-low .feedback-toggle-btn,
+:root.quality-low .score-theme-quick-cluster > .in-game-menu-btn--toolbar,
+:root.quality-low .game-over-card,
+:root.quality-low #easter-egg-toast,
+:root.quality-low .mon-toast {
+    filter: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 @media (max-width: 520px) {
@@ -1439,12 +1489,7 @@ body.game-rl-preview .block-dock {
     to { opacity: 1; }
 }
 
-/* v10.18.1：进一步弱化立体感
- * - backdrop blur 6px → 3px：让棋盘几乎清晰可见
- * - 阴影只保留极轻一层接触阴影，去掉外发光
- * - inset 高光去掉，避免「浮起」错觉
- * - 背景从 70% 不透明降到 50%，与盘面更融合
- */
+/* 结算卡优先保证文字可读性：保留盘面语境，但不让棋盘格线穿透正文。 */
 .game-over-card {
     position: relative;
     display: flex;
@@ -1453,11 +1498,14 @@ body.game-rl-preview .block-dock {
     gap: 4px;
     padding: 18px 22px 16px;
     border-radius: 14px;
-    background: color-mix(in srgb, var(--bg-card, #f0f4f8) 50%, transparent);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    border: 1px solid color-mix(in srgb, var(--text-primary, #0f172a) 6%, transparent);
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    background:
+        linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(226, 232, 240, 0.92));
+    backdrop-filter: blur(2px) saturate(0.85);
+    -webkit-backdrop-filter: blur(2px) saturate(0.85);
+    border: 1px solid rgba(15, 23, 42, 0.14);
+    box-shadow:
+        0 14px 36px rgba(15, 23, 42, 0.24),
+        0 1px 0 rgba(255, 255, 255, 0.62) inset;
     animation: gameOverCardIn 0.42s cubic-bezier(0.22, 1.0, 0.32, 1.0) both;
     min-width: 240px;
     max-width: 340px;
@@ -1477,7 +1525,7 @@ body.game-rl-preview .block-dock {
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #475569;
+    color: #334155;
     opacity: 1;
     white-space: nowrap;
 }
@@ -1600,8 +1648,8 @@ body.game-rl-preview .block-dock {
 .game-over-card #over-digest {
     margin: 10px 0 0;
     padding: 8px 10px 8px;
-    background: color-mix(in srgb, #ffffff 40%, transparent);
-    border: 1px solid color-mix(in srgb, var(--text-primary, #0f172a) 5%, transparent);
+    background: rgba(248, 250, 252, 0.88);
+    border: 1px solid rgba(15, 23, 42, 0.10);
     border-radius: 10px;
     width: 100%;
     box-sizing: border-box;
@@ -1610,7 +1658,7 @@ body.game-rl-preview .block-dock {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
-    color: #475569;
+    color: #1e293b;
     margin: 0 0 6px;
     text-align: left;
 }
@@ -1630,14 +1678,14 @@ body.game-rl-preview .block-dock {
 .game-over-card .pd-cell-label {
     font-size: 12px;
     font-weight: 500;
-    color: #64748b;
+    color: #334155;
     line-height: 1.3;
     flex: 0 0 auto;
 }
 .game-over-card .pd-cell-value {
     font-size: 13px;
     font-weight: 700;
-    color: #1e293b;
+    color: #0f172a;
     font-variant-numeric: tabular-nums;
     line-height: 1.3;
     text-align: right;
@@ -1695,7 +1743,7 @@ body.game-rl-preview .block-dock {
 body.game-over-active #game-grid,
 body.game-over-active #game-grid-fx {
     transition: filter 0.45s ease-out;
-    filter: none;
+    filter: brightness(0.82) saturate(0.82);
 }
 
 /* v10.18.6：结算卡（玻璃面板）显示期间，强制隐藏一切可能"叠"上来的临时浮层。
@@ -2512,6 +2560,125 @@ body.game-over-active .first-win-banner {
 /* 投放区药丸带 title 时可悬停查看 docs/PANEL_PARAMETERS.md 说明 */
 .insight-weight[title] {
     cursor: help;
+}
+
+.spawn-decision-card,
+.shape-weight-chart {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    margin-top: 0;
+    padding: 3px 5px;
+    border-radius: 6px;
+    background:
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--accent-color, #38bdf8) 8%, transparent),
+            color-mix(in srgb, var(--text-primary, #1e293b) 5%, transparent));
+    border: 1px solid color-mix(in srgb, var(--accent-color, #38bdf8) 16%, transparent);
+}
+
+.spawn-decision-card {
+    border-color: color-mix(in srgb, var(--accent-color, #38bdf8) 22%, transparent);
+}
+
+.spawn-decision-card__head,
+.shape-weight-chart__head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 7.5px;
+    font-weight: 700;
+    color: var(--text-secondary, #5d7a96);
+    opacity: 0.9;
+}
+
+.spawn-decision-card__head > span:first-child {
+    color: var(--text-primary, #1e293b);
+}
+
+.spawn-decision-card__head > span:last-child,
+.shape-weight-chart__head > span:last-child {
+    text-align: right;
+}
+
+.spawn-decision-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    min-width: 0;
+}
+
+.spawn-decision-cell {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    padding: 2px 3px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
+    color: var(--text-primary, #1e293b);
+    font-size: 7.5px;
+    line-height: 1.05;
+}
+
+.spawn-decision-label {
+    color: var(--text-secondary, #5d7a96);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.spawn-decision-cell strong {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    text-align: right;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+}
+
+.shape-weight-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    min-width: 0;
+}
+
+.shape-weight-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    padding: 2px 3px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 6%, transparent);
+    font-size: 7.5px;
+    line-height: 1.05;
+    color: var(--text-primary, #1e293b);
+}
+
+.shape-weight-label,
+.shape-weight-pct {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.shape-weight-label {
+    color: var(--text-secondary, #5d7a96);
+    font-weight: 500;
+    text-align: left;
+}
+
+.shape-weight-pct {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 750;
 }
 
 .insight-muted {
@@ -5874,12 +6041,15 @@ body.doc-visibility-hidden #menu * {
     pointer-events: auto;
 }
 .checkin-card {
+    position: fixed;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
+    transform: translate(-50%, -50%);
     background: var(--cell-empty, #fff);
     color: var(--text-primary, #1e293b);
     width: min(560px, 92vw);
     border-radius: 16px;
     padding: 22px 22px 18px;
-    position: relative;
     box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
 }
 .checkin-card__head {
@@ -5977,6 +6147,10 @@ body.doc-visibility-hidden #menu * {
     pointer-events: auto;
 }
 .chest-card {
+    position: fixed;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
+    transform: translate(-50%, -50%);
     width: min(420px, 92vw);
     padding: 32px;
     border-radius: 18px;
@@ -6029,6 +6203,10 @@ body.doc-visibility-hidden #menu * {
     pointer-events: auto;
 }
 .wheel-card {
+    position: fixed;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
+    transform: translate(-50%, -50%);
     width: min(420px, 92vw);
     padding: 24px;
     border-radius: 18px;
@@ -6619,6 +6797,10 @@ body.doc-visibility-hidden #menu * {
 }
 .first-day-pack.is-visible { opacity: 1; pointer-events: auto; }
 .fdp-card {
+    position: fixed;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
+    transform: translate(-50%, -50%);
     width: min(420px, 92vw);
     background: linear-gradient(180deg, rgba(30, 36, 50, 0.98), rgba(18, 22, 32, 0.98));
     color: #f1f5f9;

@@ -149,6 +149,11 @@ function deriveBoardRisk(fill, holePressure, abilityRisk) {
     return Math.max(0, Math.min(1, fillRisk * 0.45 + holePressure * 0.35 + (abilityRisk ?? 0) * 0.2));
 }
 
+function deriveBoardDifficulty(fill, holePressure, cfg = {}) {
+    const holeFillEquivalent = Math.max(0, Number(cfg.holeFillEquivalent ?? 0.8) || 0);
+    return clamp01((fill ?? 0) + holePressure * holeFillEquivalent);
+}
+
 /**
  * v1.13：友好盘面救济
  *
@@ -209,7 +214,7 @@ function clamp01(v) {
     return Math.max(0, Math.min(1, v));
 }
 
-function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg = {}) {
+function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg = {}, boardDifficulty = fill) {
     const stress01 = clamp01((stress + 0.2) / 1.2);
     const recoveryNeed = profile.needsRecovery || profile.hadRecentNearMiss
         ? 1
@@ -226,7 +231,7 @@ function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg 
     const shapeComplexity = clamp01(stress01 * 0.75 + boredHighSkill * 0.25 - riskRelief * 0.45);
     const solutionSpacePressure = clamp01(stress01 * 0.7 + shapeComplexity * 0.25 - boardRisk * 0.55 - recoveryNeed * 0.35);
     const clearOpportunity = clamp01(recoveryNeed * 0.55 + payoffOpportunity * 0.45 + (profile.pacingPhase === 'release' ? 0.12 : 0) - stress01 * 0.18);
-    const spatialPressure = clamp01(stress01 * 0.65 + (fill ?? 0) * 0.25 - boardRisk * 0.5 - recoveryNeed * 0.3);
+    const spatialPressure = clamp01(stress01 * 0.65 + (boardDifficulty ?? fill ?? 0) * 0.25 - boardRisk * 0.5 - recoveryNeed * 0.3);
     const payoffIntensity = clamp01((delight.multiClearBoost ?? 0) * 0.45 + payoffOpportunity * 0.4 + Math.max(0, profile.momentum ?? 0) * 0.15);
     const novelty = clamp01((profile.flowState === 'bored' ? 0.45 : 0) + stress01 * 0.25 + (ctx.totalRounds ?? 0) / 80 - recoveryNeed * 0.2);
 
@@ -602,6 +607,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         ? abilityRiskRelief * Math.min(1, (ability.riskLevel - abilityRiskThreshold) / Math.max(0.001, 1 - abilityRiskThreshold))
         : 0;
     const boardRisk = deriveBoardRisk(_boardFill ?? 0, holePressure, ability.riskLevel ?? 0);
+    const boardDifficulty = deriveBoardDifficulty(_boardFill ?? 0, holePressure, topoCfg);
     const boardRiskReliefAdjust = boardRisk * (topoCfg.boardRiskReliefStress ?? -0.1);
     const holeReliefAdjust = holePressure * (topoCfg.holeReliefStress ?? -0.16);
 
@@ -859,7 +865,16 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     stressBreakdown.orderRigor = orderRigor;
     stressBreakdown.orderMaxValidPerms = orderMaxValidPerms;
 
-    const spawnTargets = deriveSpawnTargets(stress, profile, ctx, _boardFill ?? 0, boardRisk, delight, cfg.spawnTargets ?? {});
+    const spawnTargets = deriveSpawnTargets(
+        stress,
+        profile,
+        ctx,
+        _boardFill ?? 0,
+        boardRisk,
+        delight,
+        cfg.spawnTargets ?? {},
+        boardDifficulty
+    );
 
     /* ---------- 插值 shapeWeights ---------- */
     const shapeWeights = interpolateProfileWeights(cfg.profiles, stress);
@@ -960,6 +975,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const nearFullLines = ctx.nearFullLines ?? 0;
     const pcSetup = ctx.pcSetup ?? 0;
     const multiClearCands = Math.max(0, Math.floor(ctx.multiClearCandidates ?? 0));
+    let perfectClearBoost = delight.perfectClearBoost;
+    let iconBonusTarget = 0;
 
     /* v1.17：rhythmPhase 升 'payoff' 需要"盘面真的能 harvest"才允许。
      * pcSetup 在低占用盘面上是噪声，flow_payoff / challenge_payoff / multi_clear
@@ -1028,22 +1045,59 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         multiClearBonus = Math.max(multiClearBonus, 0.85);
         clearGuarantee  = Math.max(clearGuarantee, 2);
         multiLineTarget = Math.max(multiLineTarget, 2);
+        if (pcSetup >= 1 || nearFullLines >= 2) perfectClearBoost = Math.max(perfectClearBoost, 0.82);
+        iconBonusTarget = Math.max(iconBonusTarget, 0.55);
     } else if (playstyle === 'multi_clear') {
         // 多消玩家：提升多消鼓励，顺势切入 payoff 节奏
         multiClearBonus = Math.max(multiClearBonus, 0.65);
         multiLineTarget = Math.max(multiLineTarget, 1);
+        iconBonusTarget = Math.max(iconBonusTarget, 0.38);
         /* v1.17：与上同——多消玩家偏好不能凭空把节奏拉到 payoff，需要几何兜底 */
         if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
     } else if (playstyle === 'combo') {
         // 连消玩家：comboChain 信号已由 recentComboStreak 自动拉高，
         // 这里额外保障至少有 2 个消行槽位供续链
         clearGuarantee = Math.max(clearGuarantee, 2);
+        multiClearBonus = Math.max(multiClearBonus, 0.52);
+        iconBonusTarget = Math.max(iconBonusTarget, 0.28);
     } else if (playstyle === 'survival') {
         // 生存型：减压 + 偏小块，降低卡死风险，保障最低可放置性
         sizePreference = Math.min(sizePreference, -0.25);
         clearGuarantee = Math.max(clearGuarantee, 1);
     }
     // 'balanced'：不做额外调整，沿用上方所有条件规则的结果
+
+    /* --- 最新用户行为特征 → 奖励概率目标 -----------------------------
+     * AbilityVector / 窗口统计用于判断玩家是否正在追求高价值反馈：
+     *   - 清屏猎人/高规划能力：提高清屏候选概率
+     *   - 多消/连消倾向：提高多消概率
+     *   - 盘面已有同 icon/同色临门线：提高 dock 染色命中概率
+     * 这些是"概率倾向"，仍受几何兜底和可解性校验约束。
+     */
+    {
+        const clearEff = Math.max(0, Math.min(1, ability.clearEfficiency ?? 0.5));
+        const planning = Math.max(0, Math.min(1, ability.boardPlanning ?? 0.5));
+        const risk = Math.max(0, Math.min(1, ability.riskLevel ?? 0.5));
+        const activeSamples = Math.max(0, Number(profile.metrics?.activeSamples ?? profile.metrics?.samples ?? 0) || 0);
+        const behaviorConf = Math.max(ability.confidence ?? 0, Math.min(1, activeSamples / 12));
+        const rewardReady = canPromoteToPayoff || nearFullLines >= 1;
+        const highAgency = behaviorConf >= 0.35 && clearEff >= 0.62 && planning >= 0.55 && risk <= 0.58;
+        if (rewardReady) {
+            iconBonusTarget = Math.max(iconBonusTarget, 0.18 + Math.min(0.28, clearEff * 0.28));
+            if (highAgency) {
+                multiClearBonus = Math.max(multiClearBonus, 0.58 + Math.min(0.20, (clearEff - 0.62) * 0.8));
+                iconBonusTarget = Math.max(iconBonusTarget, 0.46);
+            }
+        }
+        if (highAgency && (pcSetup >= 1 || nearFullLines >= 2)) {
+            perfectClearBoost = Math.max(perfectClearBoost, 0.58 + Math.min(0.24, (planning - 0.55) * 0.8));
+            clearGuarantee = Math.max(clearGuarantee, 2);
+        }
+        if (comboChain >= 0.5 || (profile.metrics?.comboRate ?? 0) >= 0.35) {
+            multiClearBonus = Math.max(multiClearBonus, rewardReady ? 0.62 : 0.48);
+            multiLineTarget = Math.max(multiLineTarget, rewardReady ? 1 : 0);
+        }
+    }
 
     /* --- v10.33 局间热身：上一局无步可走后，下局前几轮由 game.js 写入 warmupRemaining / warmupClearBoost --- */
     const wr = ctx.warmupRemaining ?? 0;
@@ -1217,7 +1271,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             multiClearBonus: Math.max(0, Math.min(1, multiClearBonus)),
             multiLineTarget: Math.max(0, Math.min(2, multiLineTarget)),
             delightBoost: Math.max(0, Math.min(1, delight.multiClearBoost)),
-            perfectClearBoost: Math.max(0, Math.min(1, delight.perfectClearBoost)),
+            perfectClearBoost: Math.max(0, Math.min(1, perfectClearBoost)),
+            iconBonusTarget: Math.max(0, Math.min(1, iconBonusTarget)),
             delightMode: delight.mode,
             rhythmPhase,
             sessionArc,
@@ -1258,6 +1313,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _abilityVector: ability,
         _abilityRiskAdjust: abilityRiskAdjust,
         _boardRisk: boardRisk,
+        _boardDifficulty: boardDifficulty,
         _stressBreakdown: stressBreakdown,
         _spawnTargets: spawnTargets,
         _spawnIntent: spawnIntent,

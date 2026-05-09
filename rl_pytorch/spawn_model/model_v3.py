@@ -25,10 +25,10 @@ SpawnTransformerV3 — 联合分布 + 风格化 + 可解性 + 个性化骨架。
 
 输入输出
 --------
-forward(board, context, history, target_difficulty=None,
+forward(board, behavior_context, history, target_difficulty=None,
         playstyle_id=None, prev_shapes=None) -> dict
   - board:            (B, 8, 8) float
-  - context:          (B, 24)   float
+  - behavior_context: (B, 56)   float（V3.1 用户行为特征）
   - history:          (B, 3, 3) long（PAD=NUM_SHAPES）
   - target_difficulty:(B, 1)    float ∈ [0,1]
   - playstyle_id:     (B,)      long  ∈ [0, NUM_PLAYSTYLES) or None
@@ -41,13 +41,14 @@ forward(board, context, history, target_difficulty=None,
     'diff_pred':    (B, 1)
     'feas_logits':  (B, NUM_SHAPES)      — sigmoid 后即 P(可放)
     'style_logits': (B, NUM_PLAYSTYLES)  — 推断玩家风格（自监督辅助）
+    'intent_logits':(B, NUM_SPAWN_INTENTS) — 推断出块意图（自监督辅助）
   }
 
 NUM_PLAYSTYLES = 5: balanced(0), perfect_hunter(1), multi_clear(2), combo(3), survival(4)
 
 训练损失（详见 train_v3.py）
 ---------------------------
-  L = L_shape + α·L_div + β·L_diff + γ·L_feas + δ·L_soft_infeas + ε·L_style
+  L = L_shape + α·L_div + β·L_diff + γ·L_feas + δ·L_soft_infeas + ε·L_style + ζ·L_intent
 """
 
 from __future__ import annotations
@@ -61,13 +62,15 @@ from .dataset import (
     NUM_SHAPES,
     NUM_CATEGORIES,
     GRID_SIZE,
-    CONTEXT_DIM,
+    BEHAVIOR_CONTEXT_DIM,
     HISTORY_LEN,
 )
 
 PLAYSTYLE_VOCAB = ['balanced', 'perfect_hunter', 'multi_clear', 'combo', 'survival']
 NUM_PLAYSTYLES = len(PLAYSTYLE_VOCAB)
 PLAYSTYLE_TO_IDX = {s: i for i, s in enumerate(PLAYSTYLE_VOCAB)}
+SPAWN_INTENT_VOCAB = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain']
+NUM_SPAWN_INTENTS = len(SPAWN_INTENT_VOCAB)
 
 
 class SpawnTransformerV3(nn.Module):
@@ -92,7 +95,7 @@ class SpawnTransformerV3(nn.Module):
         self.playstyle_embed = nn.Embedding(num_playstyles, d_model)
 
         self.board_proj = nn.Sequential(
-            nn.Linear(GRID_SIZE * GRID_SIZE + CONTEXT_DIM, d_model),
+            nn.Linear(GRID_SIZE * GRID_SIZE + BEHAVIOR_CONTEXT_DIM, d_model),
             nn.GELU(),
             nn.LayerNorm(d_model),
         )
@@ -128,6 +131,7 @@ class SpawnTransformerV3(nn.Module):
         self.difficulty_head = nn.Linear(d_model, 1)
         self.feasibility_head = nn.Linear(d_model, NUM_SHAPES)
         self.style_head = nn.Linear(d_model, num_playstyles)
+        self.intent_head = nn.Linear(d_model, NUM_SPAWN_INTENTS)
 
     # ------------------------------------------------------------------
     # 编码：board / ctx / diff / history / style → token sequence
@@ -135,7 +139,7 @@ class SpawnTransformerV3(nn.Module):
     def _encode(
         self,
         board: torch.Tensor,
-        context: torch.Tensor,
+        behavior_context: torch.Tensor,
         history: torch.Tensor,
         target_difficulty: torch.Tensor | None,
         playstyle_id: torch.Tensor | None,
@@ -144,7 +148,7 @@ class SpawnTransformerV3(nn.Module):
         device = board.device
 
         board_flat = board.view(B, -1)
-        state = torch.cat([board_flat, context], dim=-1)
+        state = torch.cat([board_flat, behavior_context], dim=-1)
         state_token = self.board_proj(state).unsqueeze(1)
 
         if target_difficulty is None:
@@ -175,13 +179,13 @@ class SpawnTransformerV3(nn.Module):
     def forward(
         self,
         board: torch.Tensor,
-        context: torch.Tensor,
+        behavior_context: torch.Tensor,
         history: torch.Tensor,
         target_difficulty: torch.Tensor | None = None,
         playstyle_id: torch.Tensor | None = None,
         prev_shapes: torch.Tensor | None = None,
     ) -> dict:
-        encoded = self._encode(board, context, history, target_difficulty, playstyle_id)
+        encoded = self._encode(board, behavior_context, history, target_difficulty, playstyle_id)
         B = board.size(0)
         cls_out = encoded[:, 0]
 
@@ -195,6 +199,7 @@ class SpawnTransformerV3(nn.Module):
         diff_pred = self.difficulty_head(cls_out)
         feas_logits = self.feasibility_head(cls_out)
         style_logits = self.style_head(cls_out)
+        intent_logits = self.intent_head(cls_out)
 
         return {
             'logits': (l0, l1, l2),
@@ -202,6 +207,7 @@ class SpawnTransformerV3(nn.Module):
             'diff_pred': diff_pred,
             'feas_logits': feas_logits,
             'style_logits': style_logits,
+            'intent_logits': intent_logits,
         }
 
     def _slot_embeddings(self, B: int, prev_shapes, device) -> list[torch.Tensor]:
@@ -244,7 +250,7 @@ class SpawnTransformerV3(nn.Module):
     def sample(
         self,
         board: torch.Tensor,
-        context: torch.Tensor,
+        behavior_context: torch.Tensor,
         history: torch.Tensor,
         *,
         target_difficulty: float | None = None,
@@ -275,7 +281,7 @@ class SpawnTransformerV3(nn.Module):
             else None
         )
 
-        encoded = self._encode(board, context, history, td, ps_id)
+        encoded = self._encode(board, behavior_context, history, td, ps_id)
         cls_out = encoded[:, 0]
 
         if feasibility_mask is not None:

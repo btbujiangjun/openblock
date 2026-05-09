@@ -11,15 +11,6 @@ import {
     ClearRuleEngine, defaultClearEngine,
 } from '../web/src/clearRules.js';
 
-// ------------------------------------------------------------------ helpers
-function filledGrid(size = 8) {
-    const g = new Grid(size);
-    for (let y = 0; y < size; y++)
-        for (let x = 0; x < size; x++)
-            g.cells[y][x] = 1;
-    return g;
-}
-
 function fillRow(grid, row) {
     for (let x = 0; x < grid.size; x++) grid.cells[row][x] = 1;
 }

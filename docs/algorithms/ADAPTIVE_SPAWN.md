@@ -102,7 +102,7 @@
 │                                                                         │
 │  爽感兑现：                                                             │
 │    skillLevel + flowState + momentum + nearFullLines + pcSetup         │
-│    → delightBoost / perfectClearBoost / delightMode                    │
+│    → delightBoost / perfectClearBoost / iconBonusTarget / delightMode  │
 │                                                                         │
 │  特殊覆写：新手保护 / 差一点放大                                         │
 │                                                                         │
@@ -225,7 +225,7 @@ smoothSkill += α × (rawSkill - smoothSkill)
 | 输入类别 | 代表字段 | 对 `stress` 的影响 | 对 `spawnHints` 的影响 |
 |----------|----------|--------------------|------------------------|
 | 难度模式 | `easy/normal/hard`、`difficultyTuning` | `stressBias` 调整基线，hard 提高挑战、easy 降低挑战 | `clearGuaranteeDelta`、`sizePreferenceDelta`、`multiClearBonusDelta` |
-| 玩家能力 | `AbilityVector.skillScore/confidence/riskLevel` | 高技能高置信可加压；高风险触发 `abilityRiskAdjust` 减压 | 高风险提高 `clearGuarantee`、偏小块；低风险高手提高多样性与多消兑现 |
+| 玩家能力 | `AbilityVector.skillScore/confidence/riskLevel/clearEfficiency/boardPlanning` | 高技能高置信可加压；高风险触发 `abilityRiskAdjust` 减压 | 高风险提高 `clearGuarantee`、偏小块；低风险高手提高多样性、多消、清屏与同 icon 兑现 |
 | 实时状态 | `flowState`、`pacingPhase`、`frustrationLevel`、`needsRecovery` | bored 加压、anxious/恢复/挫败减压，release 阶段减压 | 挫败/恢复/新手保障消行，必要时偏小块 |
 | 盘面拓扑 | `holes`、`nearFullLines`、`pcSetup`、`fillRatio` | 空洞压力通过 `holeReliefStress` 减压 | 清屏准备或近满线提升 `multiClearBonus`、`multiLineTarget` 和 `clearGuarantee` |
 | 局内体验 | `comboChain`、`rhythmPhase`、`delightMode` | combo 表现可轻微加压，爽感模式可减压或引导 payoff | payoff 优先多消，清屏机会提高 `perfectClearBoost` |
@@ -559,6 +559,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 | `multiLineTarget` | 0~2 | 显式偏好「同时多线」兑现（v3.2 / v10.33） | 阶段 1 排序与 multi 选取；`multiClear≥2` 额外乘子 |
 | `delightBoost` | 0~1 | 能力/心流驱动的爽感兑现强度 | 提高多消候选排序、抽样权重与消行槽位上限 |
 | `perfectClearBoost` | 0~1 | 清屏兑现强度 | 提高可清屏块排序与 `pcPotential` 权重；若存在一手清屏块，会优先占用一个出块槽位 |
+| `iconBonusTarget` | 0~1 | 同 icon / 同色 bonus 兑现强度 | `game.js` 放大同 icon/同色近满行列对应的 dock 颜色权重 |
 | `delightMode` | challenge_payoff / flow_payoff / relief / neutral | 爽感调节模式 | 驱动 payoff、救援偏小块、消行保证 |
 | `rhythmPhase` | setup / payoff / neutral | 搭建 / 收获 / 中性（payoff 需几何门控） | augmentPool 相位乘子 |
 | `sessionArc` | warmup / peak / cooldown | 局内前段 / 中段 / 收官 | stress 与友好化 hint |
@@ -579,6 +580,16 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 - `flowState==='flow'` 或 `pacingPhase==='release'`：`delightMode='flow_payoff'`，不强行加压，主要提高多消/清屏兑现概率。
 - `flowState==='anxious'` 或 `needsRecovery`：`delightMode='relief'`，降低 stress、偏小块、提高消行保证，同时保留多消救援机会。
 - `nearFullLines` / `pcSetup` 越高，`delightBoost` / `perfectClearBoost` 越高；若当前盘面已经存在可直接清屏的形状，`blockSpawn` 会优先把它纳入三连块候选。真正能否出对应块仍由候选检测、机动性和可解性校验决定。
+
+### 用户行为奖励概率（v1.33）
+
+启发式轨现在把最新用户行为特征拆成三类奖励概率目标：
+
+- **清屏概率**：`playstyle='perfect_hunter'`，或 `clearEfficiency / boardPlanning` 较高且 `riskLevel` 较低时，在 `pcSetup` 或临消线成立的前提下提高 `perfectClearBoost`。
+- **多消概率**：`playstyle='multi_clear' / 'combo'`、`comboChain` 活跃或高消行效率玩家，提高 `multiClearBonus` 与 `multiLineTarget`；无几何支撑时仍受 v1.19 软封顶。
+- **同 icon / 同色概率**：`iconBonusTarget` 不改变形状选择，而是放大 `monoNearFullLineColorWeights()` 输出，让 dock 颜色更容易补齐差 1～2 格的同 icon/同色近满行列。
+
+该层是概率倾向而非硬承诺：它不能绕过 `clearGuarantee` 回钳、`multiClearBonus` 几何兜底、`tripletSequentiallySolvable` 与解法数量过滤。
 
 默认配置在 `shared/game_rules.json` 的 `adaptiveSpawn.delight` 下。调大 `highSkillMultiBoost` 会让高手更频繁遇到多消兑现；调大 `reliefMultiBoost` 会让焦虑/恢复态更容易翻盘；调大 `opportunityMultiBoost` 会更积极吃掉盘面已有临消/清屏机会。
 

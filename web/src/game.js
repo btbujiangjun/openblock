@@ -79,10 +79,19 @@ export {
 
 function _topShapeWeightEntries(shapeWeights, n) {
     if (!shapeWeights || typeof shapeWeights !== 'object') return [];
+    const totalWeight = Object.values(shapeWeights)
+        .reduce((sum, weight) => sum + Math.max(0, Number(weight) || 0), 0);
     return Object.entries(shapeWeights)
         .sort((a, b) => b[1] - a[1])
         .slice(0, n)
-        .map(([category, weight]) => ({ category, weight: Number(weight) }));
+        .map(([category, weight]) => {
+            const w = Math.max(0, Number(weight) || 0);
+            return {
+                category,
+                weight: w,
+                probability: totalWeight > 0 ? w / totalWeight : 0,
+            };
+        });
 }
 
 /** 回放帧深拷贝：优先 structuredClone，失败时回退 JSON（见 PERFORMANCE.md） */
@@ -386,11 +395,13 @@ export class Game {
             const { hydrateWalletFromApi } = await import('./skills/wallet.js');
             await hydrateWalletFromApi(this.db.userId);
             this.bestScore = await this.db.getBestScore();
+            this._bestScoreAtRunStart = this.bestScore || 0;
             const stats = await this.db.getStats();
             this.playerProfile.ingestHistoricalStats(stats);
         } catch (err) {
             console.error('SQLite API 初始化失败:', err);
             this.bestScore = 0;
+            this._bestScoreAtRunStart = 0;
         }
         this.bindEvents();
         this.updateShellVisibility();
@@ -404,35 +415,55 @@ export class Game {
 
         const draw = () => {
             this._ambientFxRaf = null;
-            if (!this._shouldDrawAmbientFxFrame()) {
-                return;
+            if (this._shouldDrawAmbientFxFrame()) {
+                this.renderer.renderAmbientFxFrame();
             }
-            this.renderer.renderAmbientFxFrame();
+            if (this._shouldDrawBoardWatermarkMotionFrame()) {
+                this.markDirty();
+            }
         };
 
         const tick = () => {
             this._ambientFxTimer = null;
-            const active = this._shouldDrawAmbientFxFrame();
+            const active = this._shouldDrawAmbientFxFrame() || this._shouldDrawBoardWatermarkMotionFrame();
             if (active && this._ambientFxRaf == null && typeof requestAnimationFrame === 'function') {
                 this._ambientFxRaf = requestAnimationFrame(draw);
             }
-            const delay = active
-                ? this.renderer.getAmbientFrameIntervalMs()
-                : 1000;
+            const delay = active ? this._idleDynamicFrameIntervalMs() : 1000;
             this._ambientFxTimer = window.setTimeout(tick, delay);
         };
 
         this._ambientFxTimer = window.setTimeout(tick, 250);
     }
 
-    _shouldDrawAmbientFxFrame() {
-        if (!this.renderer?.hasAmbientMotion?.()) return false;
+    _shouldDrawIdleDynamicFrame() {
         if (typeof document !== 'undefined') {
             if (document.visibilityState === 'hidden') return false;
             const menu = document.getElementById('menu');
             if (menu?.classList.contains('active')) return false;
         }
         return !this.isAnimating && !this.drag && !this.previewPos && this._renderRaf == null;
+    }
+
+    _shouldDrawAmbientFxFrame() {
+        if (!this.renderer?.hasAmbientMotion?.()) return false;
+        return this._shouldDrawIdleDynamicFrame();
+    }
+
+    _shouldDrawBoardWatermarkMotionFrame() {
+        if (!this.renderer?.hasBoardWatermarkMotion?.()) return false;
+        return this._shouldDrawIdleDynamicFrame();
+    }
+
+    _idleDynamicFrameIntervalMs() {
+        const intervals = [];
+        if (this.renderer?.hasAmbientMotion?.()) {
+            intervals.push(this.renderer.getAmbientFrameIntervalMs());
+        }
+        if (this.renderer?.hasBoardWatermarkMotion?.()) {
+            intervals.push(this.renderer.getBoardWatermarkFrameIntervalMs?.() ?? 100);
+        }
+        return Math.max(16, Math.min(...intervals, 1000));
     }
 
     /**
@@ -1159,7 +1190,9 @@ export class Game {
         /* v1.30：新一波 dock 起始，重置上一周期的瓶颈低谷统计 */
         this._resetBottleneckTrough();
 
-        const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin());
+        const iconBonusTarget = Math.max(0, Math.min(1, layered.spawnHints?.iconBonusTarget ?? 0));
+        const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin())
+            .map(w => w * (1 + iconBonusTarget * 2.5));
         const dockColors = pickThreeDockColors(bonusBias);
 
         const descriptors = [];
@@ -1265,6 +1298,7 @@ export class Game {
             inputType,
             startX: x,
             startY: y,
+            hasEnteredBoard: false,
         };
         this.dragBlock = block;
         this._resetGhostDomStyles();
@@ -1327,12 +1361,47 @@ export class Game {
         };
     }
 
+    _pointInsideBoard(x, y) {
+        if (!this.canvas) return false;
+        const rect = this.canvas.getBoundingClientRect();
+        return rect && rect.width > 0 && rect.height > 0
+            && x >= rect.left
+            && x <= rect.right
+            && y >= rect.top
+            && y <= rect.bottom;
+    }
+
+    _dragMoveAreaRect() {
+        const area = document.querySelector('.play-stack') || this.canvas;
+        return area?.getBoundingClientRect?.() || null;
+    }
+
+    _clampDragPointToMoveArea(x, y, ghostW, ghostH) {
+        const rect = this._dragMoveAreaRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+            return { x, y };
+        }
+        const minX = rect.left + ghostW / 2;
+        const maxX = rect.right - ghostW / 2;
+        const minY = rect.top + ghostH / 2;
+        const maxY = rect.bottom - ghostH / 2;
+        return {
+            x: minX <= maxX ? Math.max(minX, Math.min(maxX, x)) : rect.left + rect.width / 2,
+            y: minY <= maxY ? Math.max(minY, Math.min(maxY, y)) : rect.top + rect.height / 2,
+        };
+    }
+
     updateGhostPosition(x, y) {
         const p = this._applyDragPointerGain(x, y);
-        const gw = this.ghostCanvas.offsetWidth || this.ghostCanvas.width;
-        const gh = this.ghostCanvas.offsetHeight || this.ghostCanvas.height;
-        this.ghostCanvas.style.left = `${p.x - gw / 2}px`;
-        this.ghostCanvas.style.top = `${p.y - gh / 2}px`;
+        if (this.drag && this._pointInsideBoard(p.x, p.y)) {
+            this.drag.hasEnteredBoard = true;
+        }
+        const ghostRect = this.ghostCanvas.getBoundingClientRect();
+        const gw = ghostRect.width || this.ghostCanvas.offsetWidth || parseFloat(this.ghostCanvas.style.width) || this.ghostCanvas.width;
+        const gh = ghostRect.height || this.ghostCanvas.offsetHeight || parseFloat(this.ghostCanvas.style.height) || this.ghostCanvas.height;
+        const clamped = this._clampDragPointToMoveArea(p.x, p.y, gw, gh);
+        this.ghostCanvas.style.left = `${clamped.x - gw / 2}px`;
+        this.ghostCanvas.style.top = `${clamped.y - gh / 2}px`;
     }
 
     renderGhost() {
@@ -1396,7 +1465,7 @@ export class Game {
 
         const { aimCx, aimCy, overBoard } = this.ghostAimOnGrid();
 
-        if (!overBoard) {
+        if (!overBoard || !this.drag.hasEnteredBoard) {
             this._cancelPreviewClearAnim();
             if (this.previewPos) {
                 this.previewPos = null;
@@ -1465,7 +1534,7 @@ export class Game {
 
         const { aimCx, aimCy, overBoard } = this.ghostAimOnGrid();
         let placedPos = null;
-        if (overBoard) {
+        if (overBoard && this.drag.hasEnteredBoard) {
             const { anchorX, anchorY } = this.naiveAnchorFromAim(
                 this.dragBlock.shape,
                 aimCx,
@@ -2234,7 +2303,11 @@ export class Game {
 
     _maybeCelebrateNewBest(scoreBeforeClear) {
         if (this._newBestCelebrated) return false;
-        const previousBest = this.bestScore || 0;
+        const runStartBest = Number(this._bestScoreAtRunStart);
+        const currentBest = Number(this.bestScore);
+        const previousBest = Number.isFinite(runStartBest) && runStartBest > 0
+            ? runStartBest
+            : (Number.isFinite(currentBest) ? currentBest : 0);
         if (this.score <= previousBest || this.score <= scoreBeforeClear) return false;
 
         this._newBestCelebrated = true;

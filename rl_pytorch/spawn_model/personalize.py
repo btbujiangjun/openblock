@@ -53,9 +53,6 @@ from torch.utils.data import DataLoader, random_split
 
 from ..device import resolve_training_device
 from .dataset import (
-    NUM_SHAPES,
-    CONTEXT_DIM,
-    SHAPE_VOCAB,
     SpawnDataset,
     extract_samples_from_session,
 )
@@ -159,14 +156,15 @@ def fine_tune(args):
         for batch in train_loader:
             board = batch['board'].to(device)
             context = batch['context'].to(device)
+            behavior_context = batch['behavior_context'].to(device)
             hist = batch['history'].to(device)
             targets = batch['targets'].to(device)
             weights = batch['weight'].to(device)
 
-            target_diff = compute_target_difficulty(context).to(device)
-            ps = _infer_playstyle_from_context(context)
+            target_diff = compute_target_difficulty(behavior_context).to(device)
+            ps = _infer_playstyle_from_context(behavior_context)
 
-            out = model(board, context, hist, target_diff,
+            out = model(board, behavior_context, hist, target_diff,
                         playstyle_id=ps, prev_shapes=targets[:, :2])
             l0, l1, l2 = out['logits']
             loss = ((criterion_ce(l0, targets[:, 0])
@@ -189,10 +187,10 @@ def fine_tune(args):
         with torch.no_grad():
             for batch in val_loader:
                 board = batch['board'].to(device)
-                context = batch['context'].to(device)
+                behavior_context = batch['behavior_context'].to(device)
                 hist = batch['history'].to(device)
                 targets = batch['targets'].to(device)
-                out = model(board, context, hist, prev_shapes=targets[:, :2])
+                out = model(board, behavior_context, hist, prev_shapes=targets[:, :2])
                 l0, l1, l2 = out['logits']
                 vl = (criterion_ce(l0, targets[:, 0]).mean()
                       + criterion_ce(l1, targets[:, 1]).mean()

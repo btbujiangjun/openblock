@@ -2724,6 +2724,7 @@ def _load_spawn_v3_model(user_id: str | None = None):
                 num_layers=cfg.get("num_layers", 2),
                 dim_ff=cfg.get("dim_ff", 256),
                 dropout=cfg.get("dropout", 0.1),
+                num_playstyles=cfg.get("num_playstyles", 5),
             )
             sd = checkpoint.get("model_state_dict") or checkpoint
             model.load_state_dict(sd, strict=False)
@@ -2790,15 +2791,15 @@ def spawn_v3_status():
 def spawn_v3_reload():
     """清理 V3 模型缓存，使下一次推理从磁盘重新加载最新权重。"""
     try:
-        global _spawn_v3_model, _spawn_v3_lora_cache
-        _spawn_v3_model = None
+        global _spawn_v3_cache, _spawn_v3_lora_cache
+        _spawn_v3_cache = None
         _spawn_v3_lora_cache = {}
         base_available = os.path.exists(_SPAWN_V3_MODEL_PATH)
         return jsonify(
             {
                 "success": True,
                 "baseAvailable": base_available,
-                "modelVersion": "v3",
+                "modelVersion": "v3.1-behavior",
             }
         )
     except Exception as e:
@@ -2807,11 +2808,12 @@ def spawn_v3_reload():
 
 @app.route("/api/spawn-model/v3/predict", methods=["POST"])
 def spawn_v3_predict():
-    """V3 推理：autoregressive + feasibility + playstyle + 个性化。
+    """V3.1 推理：autoregressive + behavior context + feasibility + playstyle + 个性化。
 
     body:
       board: 8×8 0/1 矩阵（必填）
-      context: 24 维向量（可选，缺失补零）
+      context: 24 维旧基础向量（可选，便于日志/兼容）
+      behaviorContext: 56 维行为特征向量（可选，缺失补零）
       history: 3×3 shape ID 矩阵（可选）
       playstyle: 'balanced'/'perfect_hunter'/... 或 null
       targetDifficulty: 0~1（可选）
@@ -2823,7 +2825,7 @@ def spawn_v3_predict():
     try:
         import torch
         import numpy as np
-        from rl_pytorch.spawn_model.dataset import SHAPE_VOCAB, CONTEXT_DIM
+        from rl_pytorch.spawn_model.dataset import SHAPE_VOCAB, BEHAVIOR_CONTEXT_DIM
         from rl_pytorch.spawn_model.feasibility import build_feasibility_mask
         from rl_pytorch.shapes_data import get_all_shapes
 
@@ -2835,7 +2837,7 @@ def spawn_v3_predict():
             return jsonify({"success": False, "error": "V3 模型未训练"}), 503
 
         board_raw = data.get("board") or []
-        ctx_raw = data.get("context") or []
+        ctx_raw = data.get("behaviorContext") or data.get("context") or []
         hist_raw = data.get("history") or []
         playstyle = data.get("playstyle")
         target_diff = data.get("targetDifficulty")
@@ -2850,8 +2852,8 @@ def spawn_v3_predict():
                 if row[x] is not None and row[x] != 0:
                     board[y][x] = 1.0
 
-        ctx = np.zeros(CONTEXT_DIM, dtype=np.float32)
-        for i in range(min(CONTEXT_DIM, len(ctx_raw))):
+        ctx = np.zeros(BEHAVIOR_CONTEXT_DIM, dtype=np.float32)
+        for i in range(min(BEHAVIOR_CONTEXT_DIM, len(ctx_raw))):
             ctx[i] = float(ctx_raw[i] or 0)
 
         hist = np.zeros((3, 3), dtype=np.int64)
@@ -2898,7 +2900,8 @@ def spawn_v3_predict():
                 "success": True,
                 "shapes": shape_ids,
                 "indices": triplet,
-                "modelVersion": "v3",
+                "modelVersion": "v3.1-behavior",
+                "behaviorContextDim": BEHAVIOR_CONTEXT_DIM,
                 "personalized": bool(user_id and user_id in _spawn_v3_lora_cache),
                 "feasibleCount": int(feas_mask.sum())
                 if feas_mask is not None
@@ -2939,6 +2942,8 @@ def spawn_v3_train():
         cmd += ["--w-si", str(float(data["wSi"]))]
     if "wSt" in data:
         cmd += ["--w-st", str(float(data["wSt"]))]
+    if "wIntent" in data:
+        cmd += ["--w-intent", str(float(data["wIntent"]))]
 
     os.makedirs(_MODELS_DIR, exist_ok=True)
     with open(_SPAWN_STATUS_PATH, "w") as f:
@@ -2950,7 +2955,7 @@ def spawn_v3_train():
         stderr=subprocess.STDOUT,
     )
     return jsonify(
-        {"success": True, "pid": _spawn_train_proc.pid, "modelVersion": "v3"}
+        {"success": True, "pid": _spawn_train_proc.pid, "modelVersion": "v3.1-behavior"}
     )
 
 

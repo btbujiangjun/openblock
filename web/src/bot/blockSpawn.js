@@ -14,6 +14,7 @@
  *   multiLineTarget     (0|1|2) v10.33：多线兑现目标；2 时阶段 1/加权池强烈偏好 multiClear≥2
  *   delightBoost        (0~1)   爽感兑现：来自玩家能力/心流状态，额外提高多消/清屏概率
  *   perfectClearBoost   (0~1)   清屏兑现：有清屏准备时提高可清屏块抽样权重
+ *   iconBonusTarget     (0~1)   同 icon 兑现：由 game.js 放大 dock 染色权重，本层记录诊断
  *   rhythmPhase         'setup'|'payoff'|'neutral'  节奏相位
  *   targetSolutionRange { min, max, label } | null  解法数量难度区间（v9 新增）
  *   spawnTargets        object  stress 投影后的多轴目标：复杂度/解空间/消行/空间压力/payoff/新鲜度
@@ -549,6 +550,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const multiLineTarget = Math.max(0, Math.min(2, hints.multiLineTarget ?? 0));
     const delightBoost = Math.max(0, Math.min(1, hints.delightBoost ?? 0));
     const perfectClearBoost = Math.max(0, Math.min(1, hints.perfectClearBoost ?? 0));
+    const iconBonusTarget = Math.max(0, Math.min(1, hints.iconBonusTarget ?? 0));
     const delightMode = hints.delightMode ?? 'neutral';
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
     const targetSolutionRange = hints.targetSolutionRange || null;
@@ -648,7 +650,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
             targetSolutionRange
         },
-        layer2: { comboChain, multiClearBonus, multiLineTarget, delightBoost, perfectClearBoost, delightMode, rhythmPhase, divBoost, spawnTargets: { ...spawnTargets }, recentCatFreq: { ...catFreq } },
+        layer2: { comboChain, multiClearBonus, multiLineTarget, delightBoost, perfectClearBoost, iconBonusTarget, delightMode, rhythmPhase, divBoost, spawnTargets: { ...spawnTargets }, recentCatFreq: { ...catFreq } },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,

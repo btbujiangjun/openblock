@@ -6,6 +6,10 @@ import { CONFIG } from './config.js';
 import { getActiveSkin, getBlockColors, SKINS } from './skins.js';
 import { paintMahjongTileIcon } from './mahjongTileIcon.js';
 
+const WATERMARK_DRIFT_MIN_INTERVAL_MS = 7600;
+const WATERMARK_DRIFT_MAX_INTERVAL_MS = 13200;
+const WATERMARK_DRIFT_FRAME_MS = 120;
+
 function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result ? {
@@ -769,6 +773,7 @@ export class Renderer {
         this.ctx = canvas.getContext('2d');
         this.cellSize = CONFIG.CELL_SIZE;
         this.gridSize = CONFIG.GRID_SIZE;
+        this._qualityMode = 'high';
         this.dpr = this._readDpr();
         this.fxDpr = this._readFxDpr();
         // 特效叠加层（粒子 + 闪光独立绘制，可溢出盘面）
@@ -806,6 +811,16 @@ export class Renderer {
         this._perfectFlash = 0;
         this._perfectShockwave = 0;
         this._perfectHue = 0;
+        this._watermarkDrift = {
+            key: '',
+            points: [],
+            targets: [],
+            nextRetargetTs: [],
+            easeMs: [],
+            phase: [],
+            phaseSpeed: [],
+            lastTs: 0,
+        };
         /** Double 消除：涟漪扩散效果 0~1 */
         this._doubleWave = 0;
         this._doubleWaveRows = [];
@@ -830,11 +845,53 @@ export class Renderer {
         return this._effectsEnabled;
     }
 
+    setQualityMode(mode) {
+        const next = ['high', 'balanced', 'low'].includes(mode) ? mode : 'high';
+        if (this._qualityMode === next) return;
+        this._qualityMode = next;
+        this._onCanvasResize();
+        this.clearFx();
+    }
+
+    getQualityMode() {
+        return this._qualityMode || 'high';
+    }
+
+    _prefersReducedMotion() {
+        try {
+            return typeof window !== 'undefined'
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        } catch {
+            return false;
+        }
+    }
+
+    hasBoardWatermarkMotion() {
+        const skin = getActiveSkin();
+        return Boolean(
+            this._qualityMode === 'high'
+            && this._effectsEnabled
+            && skin?.boardWatermark?.icons?.length
+            && !this._prefersReducedMotion()
+        );
+    }
+
+    getBoardWatermarkFrameIntervalMs() {
+        return WATERMARK_DRIFT_FRAME_MS;
+    }
+
     /** 读取当前屏幕 DPR（取整防止非整数倍模糊） */
     _readDpr() {
-        return (typeof window !== 'undefined'
+        const raw = (typeof window !== 'undefined'
             ? Math.round(window.devicePixelRatio || 1)
             : 1) || 1;
+        if (this._qualityMode === 'low') {
+            return 1;
+        }
+        if (this._qualityMode === 'balanced') {
+            return Math.min(raw, 2);
+        }
+        return raw;
     }
 
     _readFxDpr() {
@@ -907,11 +964,68 @@ export class Renderer {
         syncGridDisplayPx(this.canvas);
     }
 
+    _randomWatermarkTarget(base, span) {
+        const amp = Math.max(8, span * (0.055 + Math.random() * 0.075));
+        return [
+            base[0] + (Math.random() * 2 - 1) * amp,
+            base[1] + (Math.random() * 2 - 1) * amp,
+        ];
+    }
+
+    _nextWatermarkRetargetTs(now) {
+        return now + WATERMARK_DRIFT_MIN_INTERVAL_MS
+            + Math.random() * (WATERMARK_DRIFT_MAX_INTERVAL_MS - WATERMARK_DRIFT_MIN_INTERVAL_MS);
+    }
+
+    _watermarkPointsForFrame(skin, basePts, W, H) {
+        if (!this.hasBoardWatermarkMotion()) {
+            return basePts;
+        }
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const key = `${skin.id || skin.name}:${Math.round(W)}x${Math.round(H)}:${basePts.length}`;
+        const drift = this._watermarkDrift;
+        const span = Math.min(W, H);
+
+        if (drift.key !== key || drift.points.length !== basePts.length) {
+            drift.key = key;
+            drift.points = basePts.map((p) => this._randomWatermarkTarget(p, span));
+            drift.targets = basePts.map((p) => this._randomWatermarkTarget(p, span));
+            drift.nextRetargetTs = basePts.map(() => this._nextWatermarkRetargetTs(now));
+            drift.easeMs = basePts.map(() => 5200 + Math.random() * 4200);
+            drift.phase = basePts.map(() => Math.random() * Math.PI * 2);
+            drift.phaseSpeed = basePts.map(() => 0.00012 + Math.random() * 0.00022);
+            drift.lastTs = now;
+            return drift.points;
+        }
+
+        const dt = Math.min(240, Math.max(16, now - (drift.lastTs || now)));
+        drift.lastTs = now;
+        drift.points = drift.points.map((p, i) => {
+            if (now >= (drift.nextRetargetTs[i] || 0)) {
+                drift.targets[i] = this._randomWatermarkTarget(basePts[i], span);
+                drift.nextRetargetTs[i] = this._nextWatermarkRetargetTs(now);
+                drift.easeMs[i] = 5200 + Math.random() * 4200;
+                drift.phaseSpeed[i] = 0.00012 + Math.random() * 0.00022;
+            }
+            const t = drift.targets[i] || basePts[i];
+            const ease = 1 - Math.exp(-dt / (drift.easeMs[i] || 7200));
+            return [
+                p[0] + (t[0] - p[0]) * ease,
+                p[1] + (t[1] - p[1]) * ease,
+            ];
+        });
+        const wobble = Math.max(1.5, span * 0.012);
+        return drift.points.map((p, i) => {
+            const phase = (drift.phase[i] || 0) + now * (drift.phaseSpeed[i] || 0.00018);
+            return [
+                p[0] + Math.sin(phase) * wobble,
+                p[1] + Math.cos(phase * 0.83) * wobble,
+            ];
+        });
+    }
+
     /**
-     * 盘面大水印：固定在 5 个低透明度锚点。
-     *
-     * 之前按 performance.now() 做缓慢漂移，但当前渲染已改为事件驱动；
-     * 水印只会在落子/动画触发重绘时跳动，容易干扰落点判断。
+     * 盘面大水印：高画质下随机缓慢漂移；均衡/省电保持固定锚点，避免干扰落点判断。
      */
     _renderBoardWatermark(skin) {
         const wm = skin.boardWatermark;
@@ -926,13 +1040,14 @@ export class Renderer {
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
 
-        const pts = [
+        const basePts = [
             [W * 0.23, H * 0.23],
             [W * 0.77, H * 0.23],
             [W * 0.50, H * 0.50],
             [W * 0.23, H * 0.77],
             [W * 0.77, H * 0.77],
         ];
+        const pts = this._watermarkPointsForFrame(skin, basePts, W, H);
         pts.forEach(([bx, by], i) => {
             this.ctx.fillText(icons[i % icons.length], bx, by);
         });
@@ -995,7 +1110,14 @@ export class Renderer {
     }
 
     getAmbientFrameIntervalMs() {
-        return this._ambientLayer?.getFrameIntervalMs?.() ?? 1000;
+        const base = this._ambientLayer?.getFrameIntervalMs?.() ?? 1000;
+        if (this._qualityMode === 'high') {
+            return Math.min(base, 33);
+        }
+        if (this._qualityMode === 'low') {
+            return Math.max(base, 1000);
+        }
+        return base;
     }
 
     /**
@@ -1111,8 +1233,9 @@ export class Renderer {
         const skin = getActiveSkin();
         const g = skin.gridGap ?? 1;
         const lightBoard = skin.uiDark === false;
-        const outerA = lightBoard ? 0.93 : 0.86;
-        const cellA = lightBoard ? 0.84 : 0.70;
+        const highQualityBackdrop = this._qualityMode === 'high';
+        const outerA = lightBoard ? 0.93 : highQualityBackdrop ? 0.78 : 0.86;
+        const cellA = lightBoard ? 0.84 : highQualityBackdrop ? 0.54 : 0.70;
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 

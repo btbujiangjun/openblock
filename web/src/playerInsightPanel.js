@@ -47,6 +47,15 @@ const _METRIC_TOOLTIP_BY_KEY = Object.fromEntries(
     REPLAY_METRICS.map((m) => [m.key, m.tooltip || ''])
 );
 
+const CHARTED_STRESS_BREAKDOWN_KEYS = new Set([
+    'difficultyBias',
+    'flowAdjust',
+    'pacingAdjust',
+    'friendlyBoardRelief',
+    'sessionArcAdjust',
+    'challengeBoost',
+]);
+
 /** 实时状态顶栏标签（心流 / 节奏 / 会话阶段 / 出块轮） */
 const LIVE_TAG_TITLE = {
     flow: {
@@ -110,6 +119,59 @@ const CAT_LABEL = {
     lshapes: 'L 形',
     jshapes: 'J 形'
 };
+
+const CAT_SHORT_LABEL = {
+    lines: '长',
+    rects: '矩',
+    squares: '方',
+    tshapes: 'T',
+    zshapes: 'Z',
+    lshapes: 'L',
+    jshapes: 'J'
+};
+
+function _shapeWeightChartHtml(shapeWeightsTop = []) {
+    const rows = (Array.isArray(shapeWeightsTop) ? shapeWeightsTop : [])
+        .filter((w) => w && Number.isFinite(Number(w.weight)))
+        .slice(0, 5);
+    if (!rows.length) return '';
+    const total = rows.reduce((sum, w) => sum + Math.max(0, Number(w.weight) || 0), 0) || 1;
+    const tip = `${SPAWN_TOOLTIP.shapeW} 出块概率 = 当前块型权重 ÷ 全量块型权重总和；它是本轮 spawn 决策快照中的相对抽样倾向，不是最终三块的确定结果。`;
+    const items = rows.map((w) => {
+        const weight = Math.max(0, Number(w.weight) || 0);
+        const probability = Number.isFinite(Number(w.probability))
+            ? Number(w.probability)
+            : (weight / total);
+        const pct = Math.max(0, Math.min(100, probability * 100));
+        const label = CAT_LABEL[w.category] || w.category || '未知';
+        const shortLabel = CAT_SHORT_LABEL[w.category] || label;
+        const title = `${label}：出块概率 ${pct.toFixed(0)}%，原始权重 ${weight.toFixed(2)}。${tip}`;
+        return (
+            `<div class="shape-weight-item" title="${_attrTitle(title)}">` +
+                `<span class="shape-weight-label">${shortLabel}</span>` +
+                `<span class="shape-weight-pct">${pct.toFixed(0)}%</span>` +
+            `</div>`
+        );
+    }).join('');
+    return (
+        `<div class="shape-weight-chart" title="${_attrTitle(tip)}">` +
+            `<div class="shape-weight-chart__head">` +
+                `<span>出块概率</span>` +
+                `<span>概率</span>` +
+            `</div>` +
+            `<div class="shape-weight-grid">${items}</div>` +
+        `</div>`
+    );
+}
+
+function _decisionCell(label, value, tooltip) {
+    return (
+        `<span class="spawn-decision-cell" title="${_attrTitle(tooltip || '')}">` +
+            `<span class="spawn-decision-label">${label}</span>` +
+            `<strong>${value}</strong>` +
+        `</span>`
+    );
+}
 
 /** 投放区指标悬停说明 */
 /** 玩法风格标签（中文化） */
@@ -757,30 +819,9 @@ function _render(game) {
     }
 
     if (elSpawn && ins) {
-        const s = ins.stress;
-        const weightPills = (ins.shapeWeightsTop || [])
-            .map(
-                (w) =>
-                    `<span class="insight-weight" title="${_attrTitle(SPAWN_TOOLTIP.shapeW)}">` +
-                    `${CAT_LABEL[w.category] || w.category} ${w.weight.toFixed(1)}</span>`
-            );
+        const shapeWeightChart = _shapeWeightChartHtml(ins.shapeWeightsTop);
         const h = ins.spawnHints;
-        const stressStr = typeof s === 'number' ? s.toFixed(2) : '—';
-        const fillStr = `${(liveBoardFill * 100).toFixed(0)}%`;
-        /* v1.20：F(t) / 闭环反馈优先取 PlayerProfile 的 live 值，避免与左侧 sparkline
-         * 末点（同样取 profile.flowDeviation / feedbackBias）出现 0.12 量级的
-         * snapshot/live 错位。spawn 决策类字段（spawnIntent / multiClearBonus 等）
-         * 仍读 ins.* 保持与 spawn 时一致，不在此变更。 */
-        const liveFd = Number.isFinite(p?.flowDeviation) ? p.flowDeviation : ins.flowDeviation;
-        const liveFb = Number.isFinite(p?.feedbackBias) ? p.feedbackBias : ins.feedbackBias;
-        const fdStr = liveFd != null ? liveFd.toFixed(2) : '—';
-        const fbStr = liveFb != null ? (liveFb >= 0 ? '+' : '') + liveFb.toFixed(3) : '—';
-        const metricPills = [
-            _spawnPill(`压力 ${stressStr}`, SPAWN_TOOLTIP.stress),
-            _spawnPill(`F(t) ${fdStr}`, SPAWN_TOOLTIP.flowDev),
-            _spawnPill(`闭环反馈 ${fbStr}`, SPAWN_TOOLTIP.feedback),
-            _spawnPill(`占用 ${fillStr}`, SPAWN_TOOLTIP.boardFill)
-        ];
+        const metricPills = [];
 
         /* v1.19：救济 pill 自动化 —— 替代 v1.18 硬编码 frustrationRelief /
          * recoveryAdjust / nearMissAdjust 三件套。改为自动挑出当前帧
@@ -800,6 +841,7 @@ function _render(game) {
             };
             const negativeContribs = summarizeContributors(sb, 12)
                 .filter((c) => c.value < 0 && Math.abs(c.value) >= 0.04)
+                .filter((c) => !CHARTED_STRESS_BREAKDOWN_KEYS.has(c.key))
                 .slice(0, 2);
             for (const c of negativeContribs) {
                 const label = c.label || c.key;
@@ -807,6 +849,7 @@ function _render(game) {
                 metricPills.push(_spawnPill(`${label} ${_fmtSigned(c.value)}`, hint));
             }
         }
+        let spawnDecisionCard = '';
         if (h) {
             /* v1.21：spawn 决策类 pill 之前插入"📷 R{n} spawn 快照"分隔 marker —— 
              * 让玩家明白下面这串 pill（意图/目标保消/节奏/弧线/连击/多消/多线×/形状权重）
@@ -816,46 +859,46 @@ function _render(game) {
              * 看起来像撞墙（其实只是时序错位）。 */
             const round = Number.isFinite(p?.spawnRoundIndex) ? p.spawnRoundIndex : null;
             const roundLabel = round != null ? `R${round}` : '—';
-            const snapshotTip = `以下 pill 是 R${round ?? '?'} spawn 时锁定的决策快照，spawn 后保持不变；与上方 live 状态 pill 和下方 live 几何 pill 不同步是预期行为（spawn 决策一旦做出就固化，直到下次 spawn）。`;
-            metricPills.push(
-                `<span class="insight-weight insight-weight--snapshot" title="${_attrTitle(snapshotTip)}">📷 ${roundLabel} spawn 决策</span>`
-            );
+            const snapshotTip = `这是 ${roundLabel} 候选块生成时锁定的出块决策快照；spawn 后保持不变，直到下一轮候选块刷新。它解释“系统当时为什么这样出块”，与实时盘面指标不同步是预期行为。`;
+            const decisionCells = [];
 
             const intent = ins?.spawnIntent ?? h.spawnIntent ?? null;
             if (intent) {
                 const intentLabel = SPAWN_INTENT_LABEL[intent] ?? intent;
-                metricPills.push(_spawnPill(`意图 ${intentLabel}`, SPAWN_TOOLTIP.spawnIntent));
+                decisionCells.push(_decisionCell('意图', intentLabel, SPAWN_TOOLTIP.spawnIntent));
             }
-            metricPills.push(
-                _spawnPill(`目标保消 ${h.clearGuarantee}`, SPAWN_TOOLTIP.clearG),
-                _spawnPill(`尺寸 ${(h.sizePreference ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.sizePref),
-                _spawnPill(`多样 ${(h.diversityBoost ?? 0).toFixed(1)}`, SPAWN_TOOLTIP.diversity)
+            decisionCells.push(
+                _decisionCell('保消', h.clearGuarantee, SPAWN_TOOLTIP.clearG),
+                _decisionCell('尺寸', (h.sizePreference ?? 0).toFixed(1), SPAWN_TOOLTIP.sizePref),
+                _decisionCell('多样', (h.diversityBoost ?? 0).toFixed(1), SPAWN_TOOLTIP.diversity)
             );
             if (h.rhythmPhase && h.rhythmPhase !== 'neutral') {
                 const phaseLabel = h.rhythmPhase === 'payoff' ? '收获' : '搭建';
-                metricPills.push(_spawnPill(`节奏 ${phaseLabel}`, SPAWN_TOOLTIP.rhythm));
+                decisionCells.push(_decisionCell('节奏', phaseLabel, SPAWN_TOOLTIP.rhythm));
             }
             if (h.sessionArc) {
                 const arcLabel = { warmup: '热身', peak: '巅峰', cooldown: '收官' }[h.sessionArc] ?? h.sessionArc;
-                metricPills.push(_spawnPill(`弧线 ${arcLabel}`, SPAWN_TOOLTIP.sessionArc));
+                decisionCells.push(_decisionCell('弧线', arcLabel, SPAWN_TOOLTIP.sessionArc));
             }
-        }
-
-        const layer2Pills = [];
-        if (h) {
             const cc = h.comboChain ?? 0;
-            if (cc > 0.1) layer2Pills.push(_spawnPill(`连击 ${cc.toFixed(2)}`, SPAWN_TOOLTIP.comboChain));
+            if (cc > 0.1) decisionCells.push(_decisionCell('连击', cc.toFixed(2), SPAWN_TOOLTIP.comboChain));
             const mc = h.multiClearBonus ?? 0;
-            if (mc > 0.1) layer2Pills.push(_spawnPill(`多消 ${mc.toFixed(2)}`, SPAWN_TOOLTIP.multiClear));
+            if (mc > 0.1) decisionCells.push(_decisionCell('多消', mc.toFixed(2), SPAWN_TOOLTIP.multiClear));
             const ml = h.multiLineTarget ?? 0;
-            if (ml >= 1) layer2Pills.push(_spawnPill(`多线×${ml}`, SPAWN_TOOLTIP.multiLineTarget));
-        }
-        // 玩法偏好 pill（始终展示，让开发者快速感知当前玩家风格对出块的影响）
-        {
+            if (ml >= 1) decisionCells.push(_decisionCell('多线', `×${ml}`, SPAWN_TOOLTIP.multiLineTarget));
             const ps = game.playerProfile?.playstyle ?? 'balanced';
             const psLabel = PLAYSTYLE_LABEL[ps] ?? ps;
             const psTip = PLAYSTYLE_TOOLTIP[ps] ?? '';
-            layer2Pills.push(_spawnPill(`偏好 ${psLabel}`, psTip));
+            decisionCells.push(_decisionCell('偏好', psLabel, psTip));
+
+            spawnDecisionCard =
+                `<div class="spawn-decision-card" title="${_attrTitle(snapshotTip)}">` +
+                    `<div class="spawn-decision-card__head">` +
+                        `<span>📷 ${roundLabel} spawn 决策</span>` +
+                        `<span>快照</span>` +
+                    `</div>` +
+                    `<div class="spawn-decision-grid">${decisionCells.join('')}</div>` +
+                `</div>`;
         }
 
         const diagPills = [];
@@ -879,11 +922,7 @@ function _render(game) {
             const liveSm = _placementSolutionForGame(game);
             const sm = liveSm ?? l1.solutionMetrics;
             if (sm) {
-                const fromSpawnDfs = !liveSm && l1.solutionMetrics;
-                const cntLabel = fromSpawnDfs && sm.capped ? `${sm.solutionCount}+` : `${sm.solutionCount}`;
-                const truncLabel = fromSpawnDfs && sm.truncated ? ' · 截断' : '';
-                diagPills.push(_spawnPill(`解法 ${cntLabel}${truncLabel}`, SPAWN_TOOLTIP.solutionCount));
-                /* 「合法序」已改为上方曲线「解法」（tripletSolutionCount），不再单独 pill */
+                /* 「解法」已在上方曲线 tripletSolutionCount 展示；这里仅保留曲线未覆盖的瓶颈首手自由度。 */
                 if (Number.isFinite(sm.firstMoveFreedom)) {
                     diagPills.push(_spawnPill(`首手 ${sm.firstMoveFreedom}`, SPAWN_TOOLTIP.firstMoveFreedom));
                 }
@@ -901,13 +940,13 @@ function _render(game) {
 
         const allPills = [
             ...metricPills,
-            ...layer2Pills,
-            ...diagPills,
-            ...weightPills
+            ...diagPills
         ];
         const allRows = [
             fallbackRow,
-            allPills.length ? `<div class="insight-weights insight-weights--compact">${allPills.join('')}</div>` : ''
+            allPills.length ? `<div class="insight-weights insight-weights--compact">${allPills.join('')}</div>` : '',
+            spawnDecisionCard,
+            shapeWeightChart
         ].filter(Boolean).join('');
 
         elSpawn.innerHTML = `<div class="insight-spawn-stack">${allRows}</div>`;

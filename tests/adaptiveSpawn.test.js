@@ -74,6 +74,27 @@ describe('resolveAdaptiveStrategy', () => {
         expect(challenge._spawnTargets.solutionSpacePressure).toBeLessThanOrEqual(1);
     });
 
+    it('folds holes into board difficulty beyond raw fill', () => {
+        const clean = resolveAdaptiveStrategy(
+            'normal',
+            makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 }),
+            80,
+            0,
+            0.35,
+            { totalRounds: 8, holes: 0, roundsSinceClear: 0 }
+        );
+        const holey = resolveAdaptiveStrategy(
+            'normal',
+            makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 }),
+            80,
+            0,
+            0.35,
+            { totalRounds: 8, holes: 4, roundsSinceClear: 0 }
+        );
+        expect(holey._boardDifficulty).toBeGreaterThan(clean._boardDifficulty);
+        expect(holey._boardDifficulty).toBeGreaterThan(0.35);
+    });
+
     it('smooths ordinary stress increases but lets relief drops apply immediately', () => {
         const p = makeProfile({ lifetimeGames: 4, lifetimePlacements: 80 });
         const noPrev = resolveAdaptiveStrategy('normal', p, 180, 0, 0.35, { totalRounds: 8 });
@@ -1008,5 +1029,38 @@ describe('resolveAdaptiveStrategy', () => {
         // boardFill=0.30 < orderRigorActivationFill=0.50 → bypass
         expect(s.spawnHints.orderRigor).toBe(0);
         expect(s.spawnHints.orderMaxValidPerms).toBe(6);
+    });
+
+    it('v1.33 rewardBias：清屏猎人提高清屏、同 icon 与多消概率目标', () => {
+        const p = makeProfile({ smoothSkill: 0.72, lifetimeGames: 8, lifetimePlacements: 160 });
+        Object.defineProperty(p, 'playstyle', { value: 'perfect_hunter', configurable: true });
+        const s = resolveAdaptiveStrategy('normal', p, 500, 0, 0.52, {
+            totalRounds: 12,
+            roundsSinceClear: 0,
+            holes: 0,
+            nearFullLines: 2,
+            multiClearCandidates: 2,
+            pcSetup: 1
+        });
+        expect(s.spawnHints.perfectClearBoost).toBeGreaterThanOrEqual(0.82);
+        expect(s.spawnHints.iconBonusTarget).toBeGreaterThanOrEqual(0.55);
+        expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.85);
+        expect(s.spawnHints.multiLineTarget).toBe(2);
+    });
+
+    it('v1.33 rewardBias：多消/连消倾向提高多消与同 icon 兑现目标', () => {
+        const p = makeProfile({ smoothSkill: 0.64, comboStreak: 4, lifetimeGames: 8, lifetimePlacements: 160 });
+        Object.defineProperty(p, 'playstyle', { value: 'combo', configurable: true });
+        const s = resolveAdaptiveStrategy('normal', p, 300, 0, 0.46, {
+            totalRounds: 9,
+            roundsSinceClear: 0,
+            holes: 0,
+            nearFullLines: 2,
+            multiClearCandidates: 1,
+            pcSetup: 0
+        });
+        expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.52);
+        expect(s.spawnHints.iconBonusTarget).toBeGreaterThanOrEqual(0.28);
+        expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(2);
     });
 });

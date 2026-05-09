@@ -4,7 +4,7 @@
  * ReviveManager 单元测试
  * 覆盖：初始化、canRevive 边界、doRevive 格子清除、次数限制、resetForNewGame
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ReviveManager } from '../web/src/revive.js';
 
 // ------------------------------------------------------------------ helpers

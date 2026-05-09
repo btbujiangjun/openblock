@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { Grid } from '../web/src/grid.js';
 import { computeHints } from '../web/src/hintEngine.js';
 
-function makeDock(grid) {
+function makeDock(_grid) {
     return [
         { id: '1x1', shape: [[1]], colorIdx: 0, placed: false },
         { id: '1x2', shape: [[1, 1]], colorIdx: 1, placed: false },

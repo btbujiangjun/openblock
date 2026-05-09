@@ -1,7 +1,7 @@
 # 出块算法：算法工程师手册
 
 > 本文是 OpenBlock **出块子系统**的算法侧统一手册。
-> 范围：启发式与 SpawnTransformerV3 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
+> 范围：启发式与 SpawnTransformerV3.1 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
 > 与现有文档的关系：本文是 `SPAWN_ALGORITHM.md`（工程分层）/ `ADAPTIVE_SPAWN.md`（信号矩阵）/ `SPAWN_BLOCK_MODELING.md`（设计 rationale）的**算法 + 模型工程深化**——补充 ML 路径的网络结构、训练流程、与 RL 的接口。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
@@ -19,12 +19,12 @@
 8. [SpawnPredictor：服务于 RL MCTS](#8-spawnpredictor服务于-rl-mcts)
 9. [完整公式速查](#9-完整公式速查)
 10. [完整参数表](#10-完整参数表)
-11. [演进、开放问题与 V3 落地（v3 已实装）](#11-演进开放问题与-v3-落地v3-已实装)
+11. [演进、开放问题与 V3.1 落地](#11-演进开放问题与-v3-落地v3-已实装)
    - 11.1 已识别的设计权衡
    - 11.2 V3 候选改进 — 详细方案 × 实现（联合分布 / 风格化 / 真人接入 / PCGRL）
    - 11.3 开放研究点 — 实装方案（feasibility 嵌入 / LoRA / 多玩家迁移）
-   - 11.4 V3 训练 / 推理 / 部署 全链路
-   - 11.5 V3 完整损失公式
+   - 11.4 V3.1 训练 / 推理 / 部署 全链路
+   - 11.5 V3.1 完整损失公式
    - 11.6 实测参数与性能
    - 11.7 仍开放的研究问题
    - 11.8 文件入口速查
@@ -177,6 +177,7 @@ adjustments 包括：
   - multi_clear_bonus                 (能多消？)
   - delight_bonus                     (能力/心流驱动的爽感兑现)
   - perfect_clear_bonus               (清屏机会兑现)
+  - icon_bonus_target                 (同 icon/同色 bonus 染色目标，game.js 消费)
   - combo_bonus                        (链 combo？)
   - sizePreference_factor             (适配大小偏好)
   - diversity_penalty                 (该类已用过？)
@@ -324,6 +325,11 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 > - **`playerInsightPanel` 救济三分量 pill**：`挫败救济 / 恢复 / 近失` 三条
 >   `stressBreakdown` 分量直接显示在 pill 行，玩家不必从故事线倒推。
 >
+> **v1.33 修订要点（用户行为特征 → 奖励概率）**
+> - **新增 `spawnHints.iconBonusTarget`**：`adaptiveSpawn.js` 根据 `playstyle`、`AbilityVector.clearEfficiency / boardPlanning / riskLevel`、`comboChain` 与可兑现几何推导同 icon/同色 bonus 目标。`game.js` 用它放大 `monoNearFullLineColorWeights()` 的 dock 颜色权重，提高同 icon 临门线被补齐的概率。
+> - **清屏概率上抬**：`perfect_hunter` 或高规划低风险玩家在 `pcSetup/nearFullLines` 成立时提高 `perfectClearBoost`，`blockSpawn.js` 对 `pcPotential===2` 和清屏准备期 gap 块进一步加权。
+> - **多消概率上抬**：多消/连消风格、combo 活跃或高消行效率玩家提高 `multiClearBonus / multiLineTarget`，仍保留 v1.19 几何兜底，避免无多消候选时做空头承诺。
+>
 > **v1.26 修订要点（AdaptiveSpawn live 几何覆盖）**
 > - **决策入口改 live 覆盖**：`adaptiveSpawn` 新增 `_mergeLiveGeometrySignals(ctx)`，
 >   当 `spawnContext._gridRef` 可用时，先重算 `nearFullLines` 并按 `_dockShapePool`
@@ -456,6 +462,7 @@ if stress ∈ [a, b]:
     multiClearBonus: bool,        // 是否鼓励大消
     delightBoost: 0..1,           // 能力/心流驱动的多消爽感兑现
     perfectClearBoost: 0..1,      // 清屏兑现强度
+    iconBonusTarget: 0..1,        // 同 icon/同色 bonus 兑现强度
     targetSolutionRange: object,  // 解法数量目标区间
     holePressure: implicit,       // 来自 spawnContext.holes 的拓扑压力
     delightMode: string,          // challenge_payoff / flow_payoff / relief / neutral
@@ -490,6 +497,8 @@ if stress ∈ [a, b]:
 - `relief`：焦虑或恢复态时降低 stress、偏小块、提高消行保证，同时保留救援式多消机会。
 
 `blockSpawn.js` 消费这些信号时只改变软权重：`pcPotential`、`multiClear`、`gapFills` 的排序和抽样倍率会上升；若存在一手清屏块，会优先占用一个出块槽位。但三连块仍必须通过 `minMobilityTarget`、序贯可解性和解法数量过滤，避免“为了爽感破坏公平”。
+
+同 icon / 同色 bonus 不在 `blockSpawn.js` 里硬挑形状，而在 `game.js` 的 dock 颜色采样层实现：先用 `monoNearFullLineColorWeights(grid, skin)` 扫描差 1～2 格且已填部分同 icon/同色的行列，再按 `iconBonusTarget` 放大这些颜色的抽样权重。这样形状选择仍服务可放置性，颜色选择服务 bonus 兑现，两者各自可解释。
 
 临消与多消机会采用 **可填充感知** 口径：`nearFullLines` / `close1` / `close2` 不只看行列还差几个空格，还要求这些缺口能被当前形状库的某个合法放置覆盖。不可覆盖空洞造成的“假近满行”不会再触发 payoff、多消或清屏兑现加权。
 
@@ -1110,7 +1119,7 @@ W' = W (frozen) + (α/r) · B · A,    A ∈ ℝ^(r×in),  B ∈ ℝ^(out×r),  
 参数量对比（实测）：
 
 ```
-SpawnTransformerV3 trunk: 312,331 params
+SpawnTransformerV3.1 trunk: ~317K params
 LoRA (r=4, 5 个头部 Linear): 5,568 params (~1.8%)
 → 100 名玩家全部存档 ≈ 550K params，比一份完整模型还小
 ```
@@ -1161,7 +1170,9 @@ return trunk
 - 跨玩家 meta-learning：用 MAML / Reptile 优化 trunk 使新玩家少样本即可个性化
 - 隐私：LoRA 权重的本地化部署 + 联邦学习
 
-### 11.4 V3 训练 / 推理 / 部署 全链路
+### 11.4 V3.1 训练 / 推理 / 部署 全链路
+
+V3.1 直接替换旧 V3 schema：前端仍保留 24 维 `context` 便于日志和旧 V2 路径使用，但 V3.1 模型实际消费 `behaviorContext(56)`。该向量显式包含基础画像、冷启动/样本量、拓扑难度、`AbilityVector`、`spawnTargets`、`spawnHints` 和 `spawnIntent` one-hot。
 
 ```
                      ┌────────────────────────┐
@@ -1174,7 +1185,8 @@ return trunk
             │  python -m rl_pytorch.spawn_model   │
             │             .train_v3                │
             │  L = ce + div + anti + diff         │
-            │      + feas + soft_infeas + style   │
+            │      + feas + soft_infeas           │
+            │      + style + intent               │
             └─────────┬───────────────────────────┘
                       │  models/spawn_transformer_v3.pt
                       │
@@ -1203,19 +1215,19 @@ return trunk
        → 程序化候选 + 评分
 ```
 
-### 11.5 V3 完整损失公式
+### 11.5 V3.1 完整损失公式
 
 $$
-\mathcal{L}_{\text{V3}} = \underbrace{w_{\text{ce}} \cdot \mathcal{L}_{\text{ce-AR}}}_{\text{自回归主损失}} + w_{\text{div}}\mathcal{L}_{\text{div}} + w_{\text{anti}}\mathcal{L}_{\text{anti}} + w_{\text{diff}}\mathcal{L}_{\text{diff}} + \underbrace{w_{\text{feas}}\mathcal{L}_{\text{feas}}}_{\text{BCE 监督}} + \underbrace{w_{\text{si}}\mathcal{L}_{\text{soft-infeas}}}_{\text{软不可行惩罚}} + \underbrace{w_{\text{st}}\mathcal{L}_{\text{style}}}_{\text{风格自监督}}
+\mathcal{L}_{\text{V3.1}} = \underbrace{w_{\text{ce}} \cdot \mathcal{L}_{\text{ce-AR}}}_{\text{自回归主损失}} + w_{\text{div}}\mathcal{L}_{\text{div}} + w_{\text{anti}}\mathcal{L}_{\text{anti}} + w_{\text{diff}}\mathcal{L}_{\text{diff}} + \underbrace{w_{\text{feas}}\mathcal{L}_{\text{feas}}}_{\text{BCE 监督}} + \underbrace{w_{\text{si}}\mathcal{L}_{\text{soft-infeas}}}_{\text{软不可行惩罚}} + \underbrace{w_{\text{st}}\mathcal{L}_{\text{style}}}_{\text{风格自监督}} + \underbrace{w_{\text{intent}}\mathcal{L}_{\text{intent}}}_{\text{意图自监督}}
 $$
 
-默认权重：`w_ce=1.0, w_div=0.3, w_anti=0.5, w_diff=0.1, w_feas=0.4, w_si=0.2, w_st=0.15`
+默认权重：`w_ce=1.0, w_div=0.3, w_anti=0.5, w_diff=0.1, w_feas=0.4, w_si=0.2, w_st=0.15, w_intent=0.10`
 
 ### 11.6 实测参数与性能（CPU x86 / Apple M2）
 
 | 项 | 数值 |
 |----|------|
-| 模型参数（V3 trunk） | 312K |
+| 模型参数（V3.1 trunk） | 约 317K |
 | LoRA 参数（r=4） | 5.6K（~1.8%） |
 | 单次 V3 推理（含 mask） | 4-8 ms |
 | feasibility_mask 计算（28 个 shape） | < 0.05 ms |
@@ -1233,11 +1245,11 @@ $$
 
 | 文件 | 角色 |
 |------|------|
-| `rl_pytorch/spawn_model/model_v3.py` | V3 网络（autoregressive + style + LoRA-ready） |
+| `rl_pytorch/spawn_model/model_v3.py` | V3.1 网络（behaviorContext + autoregressive + style/intent + LoRA-ready） |
 | `rl_pytorch/spawn_model/feasibility.py` | feasibility mask / weight / torch helpers |
 | `rl_pytorch/spawn_model/lora.py` | LoRALinear + inject / freeze / save / load |
 | `rl_pytorch/spawn_model/shape_proposer.py` | PCGRL 雏形（连通 random walk + 签名去重 + 评分） |
-| `rl_pytorch/spawn_model/train_v3.py` | V3 多任务训练（含 feasibility / playstyle 损失） |
+| `rl_pytorch/spawn_model/train_v3.py` | V3.1 多任务训练（含 feasibility / playstyle / spawnIntent 损失） |
 | `rl_pytorch/spawn_model/personalize.py` | LoRA 个性化微调脚本 |
 | `rl_pytorch/spawn_model/test_v3.py` | 5 项端到端自检（feasibility / forward / sample / LoRA / shape_proposer / helpers） |
 | `server.py` `/api/spawn-model/v3/*` | 状态 / 预测 / 训练 / 个性化 / 形状候选 4 个 RESTful 端点 |
@@ -1259,5 +1271,5 @@ $$
 
 ---
 
-> 最后更新：2026-04-27 · §11 全部 7 个候选/开放问题已在 SpawnTransformerV3 中落地  
+> 最后更新：2026-05-10 · 启发式轨新增用户行为奖励概率目标（清屏 / 同 icon / 多消），§11 已升级为 SpawnTransformerV3.1 行为上下文 schema
 > 维护：算法工程团队

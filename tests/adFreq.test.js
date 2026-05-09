@@ -1,7 +1,7 @@
 /**
  * 广告频控逻辑单元测试
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 // ── Mock 依赖 ──────────────────────────────────────────────────────────────────
 const _store = {};

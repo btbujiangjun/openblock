@@ -230,8 +230,9 @@
       "thresholdMs": 15000
     },
     "topologyDifficulty": {
-      "comment": "盘面拓扑难度：holes 使用“所有形状都无法覆盖的空格”口径，代表真实可修复性下降；进入 board pressure 并以救援方式降低出块压力、提高消行保障。v1.30 起新增 bottleneck* 系列：跨 dock 周期记录候选块 firstMoveFreedom 的最低点（trough），≤阈值时注入 bottleneckRelief 负向 stress 并抬高 clearGuarantee/偏小块。v1.32 起新增 orderRigor* 系列：当玩家高压且具备承受力时，要求三连块 6 种排列里仅 ≤N 种可解（默认 N=2），强制玩家做「先 X 再 Y 最后 Z」的顺序规划，是 Yerkes-Dodson 上限的精细加压器。",
+      "comment": "盘面拓扑难度：holes 使用“所有形状都无法覆盖的空格”口径，代表真实可修复性下降；一方面按 holeFillEquivalent 折算为额外占用压力参与难度评估（同填充率下 holes 越多越难），另一方面进入 board pressure 并以救援方式降低过度出块压力、提高消行保障。v1.30 起新增 bottleneck* 系列：跨 dock 周期记录候选块 firstMoveFreedom 的最低点（trough），≤阈值时注入 bottleneckRelief 负向 stress 并抬高 clearGuarantee/偏小块。v1.32 起新增 orderRigor* 系列：当玩家高压且具备承受力时，要求三连块 6 种排列里仅 ≤N 种可解（默认 N=2），强制玩家做「先 X 再 Y 最后 Z」的顺序规划，是 Yerkes-Dodson 上限的精细加压器。",
       "holePressureMax": 8,
+      "holeFillEquivalent": 0.8,
       "holeReliefStress": -0.16,
       "boardRiskReliefStress": -0.1,
       "holeClearGuaranteeAt": 2,

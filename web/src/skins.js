@@ -841,7 +841,8 @@ export const SKINS = {
             '#20D848', // 毒液绿
         ],
         gridOuter:   '#160408',
-        gridCell:    '#280A12',
+        gridCell:    '#341018',
+        gridLine:    'rgba(255,112,136,0.24)',
         gridGap:     1,
         blockInset:  2,
         blockRadius: 5,

@@ -26,7 +26,7 @@ OpenBlock 提供三档基础难度：**简单（easy）**、**普通（normal）
 | 出块形状权重 | ✅ | 通过 `difficultyTuning.stressBias` 偏移自适应 stress 基线 |
 | 出块保底 / 块大小 / 多消倾向 | ✅ | `difficultyTuning` 直接调节 `spawnHints.clearGuarantee / sizePreference / multiClearBonus` |
 | 解空间难度 | ✅ | `solutionStressDelta` 让困难更早进入低解法数量过滤，简单更偏向宽松区间 |
-| 拓扑空洞压力 | ✅ | `topologyDifficulty` 读取“所有形状都无法覆盖的空格”数量，进入盘面压力和救援出块 |
+| 拓扑空洞压力 | ✅ | `topologyDifficulty` 读取“所有形状都无法覆盖的空格”数量；空洞越多，盘面难度越高，同时触发保活/救援护栏 |
 | 棋盘尺寸 | ❌ | 三档均为 8×8 |
 | 颜色数量 | ❌ | JSON 定义了 `colorCount` 但前端未读取 |
 
@@ -101,6 +101,28 @@ generateDockShapes(grid, layered, spawnContext)
 | 普通 | 0.18 | 开局 ~12 个格子预填充，标准体验 |
 | 困难 | 0.32 | 开局 ~20 个格子预填充，开局即需规划 |
 
+初始填充率只决定**开局基线**，不是运行中盘面难度的唯一来源。运行中还会叠加拓扑质量，尤其是空洞数。
+
+### 3.2.1 运行中盘面难度：填充率 + 空洞数
+
+运行中评估盘面难度时不只看裸 `fillRatio`，还会把 holes 折算为等效填充压力：
+
+```text
+holePressure    = clamp(holes / holePressureMax)
+boardDifficulty = clamp(fill + holePressure × holeFillEquivalent)
+```
+
+默认参数：
+
+| 参数 | 默认值 | 含义 |
+|------|-------:|------|
+| `holePressureMax` | 8 | 空洞归一化上限，8 个及以上视为满空洞压力 |
+| `holeFillEquivalent` | 0.8 | 空洞压力折算为等效填充率的强度 |
+
+因此两个同样填充率的盘面，空洞越多会被认为越难。例如 `fill=0.35` 且 `holes=4` 时，`holePressure=0.5`，`boardDifficulty≈0.75`；这比单看 35% 填充率更符合玩家体感，因为不可覆盖空格会显著压缩后续可操作空间。
+
+注意：`boardDifficulty` 是**难度评估口径**，不是“继续加压”的唯一依据。系统同时保留 `boardRisk` 作为**保活口径**：当高填充、高空洞或能力风险让盘面接近危险区时，仍会提高消行保障、偏向小块，避免把“难盘”推成“不公平盘”。
+
 ### 3.3 形状权重（JSON 定义值）
 
 | 形状类别 | 简单 | 普通 | 困难 | 趋势说明 |
@@ -127,7 +149,9 @@ resolveAdaptiveStrategy(baseStrategyId, ...)
 │   └─ shapeWeights = interpolateProfileWeights(10档profiles, stress)
 │   └─ fillRatio = base.fillRatio + 连战修正
 │   └─ stress = scoreStress + difficultyTuning.stressBias + skillAdjust + flowAdjust + ...
-│   └─ topologyDifficulty.holePressure → 高空洞时减压、偏小块、提高消行保障
+│   └─ topologyDifficulty.holePressure → boardDifficulty + boardRisk 双通路
+│      ├─ boardDifficulty → spatialPressure / 模型 targetDifficulty（空洞越多越难）
+│      └─ boardRisk       → 减压、偏小块、提高消行保障（危险盘面保活）
 │   └─ spawnHints += difficultyTuning.clearGuaranteeDelta / sizePreferenceDelta / multiClearBonusDelta
 │   └─ targetSolutionRange = deriveTargetSolutionRange(stress + solutionStressDelta)
 └─ adaptiveSpawn.enabled = false
@@ -153,14 +177,43 @@ resolveAdaptiveStrategy(baseStrategyId, ...)
 
 同一套 coverability 也用于临消/多消机会判定：行列不能只看“还差几个空格”，还必须确认这些缺口能被合法形状覆盖。否则一个被不可填空洞卡住的“近满行”不会再提高 `nearFullLines`、`close1/close2` 或多消兑现权重。
 
-该指标不直接让游戏变难，而是作为“盘面已经变难”的反馈信号：
+该指标有两条消费通路：
+
+| 通路 | 消费字段 | 策略含义 |
+|------|----------|----------|
+| 难度评估 | `boardDifficulty = fill + holePressure × holeFillEquivalent` | 同填充率下，空洞越多代表可修复性越差，运行中难度越高 |
+| 保活护栏 | `boardRisk = 0.45·fillRisk + 0.35·holePressure + 0.20·abilityRisk` | 盘面进入危险区时降低过度压力，提高消行保障 |
+
+这解决了过去“holes 只减压”的单向解释问题：空洞本身确实让盘面更难，但玩家已经处在难盘时，系统不应继续投放不公平的高压块。因此实现上区分**难度事实**与**出块响应**。
+
+关键参数：
 
 - `holePressureMax=8`：空洞数归一化上限。
+- `holeFillEquivalent=0.8`：空洞压力折算为等效填充率，用于 `boardDifficulty`。
 - `holeReliefStress=-0.16`：空洞压力越高，下一轮自适应 stress 越低。
 - `holeClearGuaranteeAt=2`：空洞达到阈值后，下一轮至少保障 2 个消行/解压候选。
 - `holeSizePreference=-0.22`：偏向更小块，提升填补局部不可达区域的概率。
 
-### 4.4 10 档 Profile 与 stress 的对应关系
+### 4.4 模型出块目标难度（targetDifficulty）
+
+当使用 `model-v3` 出块路径时，前端会构造 `targetDifficulty` 传给 V3.1 行为上下文模型。该目标也采用“填充率 + 空洞数”的运行中难度口径，并与 `behaviorContext[26] = boardDifficulty` 保持一致：
+
+```text
+targetDifficulty =
+  clamp(
+    0.3
+    + 0.5 × skill
+    - 0.2 × frustration
+    + 0.15 × stress
+    + 0.08 × boardDifficulty
+    - 0.1 × boardRisk
+    + 0.06 × nearClear
+  )
+```
+
+其中 `boardDifficulty` 让 holes 正向增加目标难度，`boardRisk` 仍负责抵消危险盘面的过度挑战。这样规则出块与模型出块对“空洞越多越难”的理解一致，不会出现规则轨保活、模型轨却按低难度或相反方向学习的错位。V3.1 旧权重不兼容，模型不可用或输出非法时仍回退规则出块。
+
+### 4.5 10 档 Profile 与 stress 的对应关系
 
 ```
 stress -0.2  → 新手引导（onboarding）：线条权重 3.18
@@ -251,6 +304,18 @@ let stress = scoreStress + runMods.stressBonus + difficultyBias + skillAdjust + 
 
 **文件**：`web/src/playerInsightPanel.js`、`web/src/game.js`
 
+### 5.7 空洞只被当作减压信号（已修复）
+
+**问题**：空洞原本主要通过 `holeReliefAdjust`、`boardRiskReliefAdjust` 进入救济链路，能正确触发保消、偏小块和降压，但没有在运行中难度评估里表达“同样填充率下，空洞越多越难”。这会让 `spatialPressure` 和模型 `targetDifficulty` 仍偏向裸 `fillRatio`，低估结构性坏盘。
+
+**修复**：
+- 新增 `boardDifficulty = clamp(fill + holePressure × holeFillEquivalent)`，默认 `holeFillEquivalent=0.8`。
+- `adaptiveSpawn.deriveSpawnTargets()` 的 `spatialPressure` 改为消费 `boardDifficulty`。
+- `spawnModel.computeSpawnTargetDifficulty()` 改为使用 `boardDifficulty`，holes 正向增加目标难度；`boardRisk` 继续作为保活抵消项。
+- 增加测试，验证同填充率下 holes 更多时 `boardDifficulty` / `targetDifficulty` 更高。
+
+**文件**：`shared/game_rules.json`、`web/src/adaptiveSpawn.js`、`web/src/spawnModel.js`、`tests/adaptiveSpawn.test.js`、`tests/spawnModel.test.js`
+
 ---
 
 ## 6. 设计原理
@@ -268,7 +333,16 @@ let stress = scoreStress + runMods.stressBonus + difficultyBias + skillAdjust + 
 - **避免断裂感**：直接使用静态权重会与自适应的动态调节冲突
 - **可控偏移**：stress、块大小、消行保底、解空间各自有独立旋钮，既能拉开体感又不牺牲可解性
 
-### 6.3 模拟器与真机差异
+### 6.3 难度事实与保活响应分离
+
+空洞数体现的是盘面的结构性难度：不可覆盖空格越多，未来可操作空间越少，玩家需要更多规划。但策略响应不能简单理解为“难就继续加难”。OpenBlock 将其拆成两类信号：
+
+- **难度事实**：`boardDifficulty` 用于判断盘面本身有多难，影响 `spatialPressure` 和模型 `targetDifficulty`。
+- **保活响应**：`boardRisk`、`holeReliefAdjust`、`clearGuarantee`、`sizePreference` 用于在危险盘面降低不公平压力。
+
+这种拆分让 UI、规则出块和模型出块可以同时满足两个条件：承认“空洞越多越难”，并在玩家已经陷入坏盘时给出修复机会。
+
+### 6.4 模拟器与真机差异
 
 RL 训练模拟器（`web/src/bot/simulator.js`）使用静态策略配置（`getStrategy(strategyId)`），**不走** `resolveAdaptiveStrategy`。这是设计使然：
 - 模拟器需要稳定的出块分布来保证训练收敛
@@ -285,6 +359,7 @@ RL 训练模拟器（`web/src/bot/simulator.js`）使用静态策略配置（`ge
 | `web/src/game.js` | 状态存储、事件绑定、开局/出块/计分调用链 |
 | `web/src/config.js` | `getStrategy(id)` 配置读取 |
 | `web/src/adaptiveSpawn.js` | 自适应引擎 + `difficultyTuning` 偏移 |
+| `web/src/spawnModel.js` | 模型出块上下文与 `targetDifficulty`，消费 `boardDifficulty` |
 | `web/src/difficulty.js` | 非自适应路径的层叠策略 |
 | `web/src/bot/blockSpawn.js` | 出块生成（消费 strategyConfig 与 `targetSolutionRange`） |
 | `web/src/bot/simulator.js` | RL 训练模拟器（静态策略） |

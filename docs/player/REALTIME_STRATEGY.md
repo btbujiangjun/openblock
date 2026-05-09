@@ -1,6 +1,6 @@
 # 实时策略系统：信号流与出块链路
 
-> **版本**：2.0 · **更新**：2026-05-09  
+> **版本**：2.1 · **更新**：2026-05-10  
 > **读者**：产品、算法、策划复盘、策略合理性评审；与 **[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)**（通用模型与风险缓解）互为补充——本文是**可操作的指标与管线手册**，策略体验栈是**架构与一致性原则**。
 
 ---
@@ -226,7 +226,7 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 | shapeComplexity | 形状「难摆」程度诉求 |
 | solutionSpacePressure | 解空间松紧 |
 | clearOpportunity | 消行/兑现机会诉求 |
-| spatialPressure | 堆叠与占位压力 |
+| spatialPressure | 堆叠与占位压力；使用 `boardDifficulty = fill + holes 等效压力`，同填充率下 holes 越多越难 |
 | payoffIntensity | 爽点/多消强度 |
 | novelty | 新鲜感与变化 |
 
@@ -238,6 +238,7 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 | sizePreference | 偏小或偏大块的抽样倾向 |
 | diversityBoost | 形状品类分散度 |
 | comboChain / multiClearBonus / multiLineTarget | 连击与多消导向强度 |
+| perfectClearBoost / iconBonusTarget | 清屏兑现与同 icon/同色 bonus 兑现概率目标 |
 | rhythmPhase | setup / payoff / neutral，与顾问「收获期」等绑定 |
 | sessionArc / scoreMilestone | 局弧线与里程碑友好化 |
 | targetSolutionRange | 解法数量软过滤档位（高 fill 激活） |
@@ -282,12 +283,15 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 | `comboChain > 0.5` | `clearGuarantee ≥ 2` | 连击保护续链空位 |
 | `pcSetup ≥ 1` / `nearFullLines ≥ 3` | `clearGuarantee ≥ 2`，`multiLineTarget ≥ 1~2`，`multiClearBonus ≥ 0.6~0.75`，`rhythmPhase='payoff'` | **几何兑现窗**直接驱动多线/payoff |
 | `delight.mode='relief' / 'flow_payoff' / 'challenge_payoff'` | 各自加 `clearGuarantee` / `multiLineTarget` / `diversityBoost` | 爽感层独立路径 |
-| `playstyle='perfect_hunter' / 'multi_clear' / …` | 末端 `multiClearBonus / multiLineTarget / clearGuarantee / sizePreference` 微调 | 玩法风格对齐 |
+| `playstyle='perfect_hunter' / 'multi_clear' / …` | 末端 `perfectClearBoost / iconBonusTarget / multiClearBonus / multiLineTarget / clearGuarantee / sizePreference` 微调 | 玩法风格对齐 |
+| `AbilityVector` 高消行效率 + 高规划 + 低风险，且存在兑现几何 | `perfectClearBoost`、`multiClearBonus`、`iconBonusTarget` 上抬 | 将最新用户行为特征转为清屏、同 icon、多消概率倾向 |
 | `warmupRemaining > 0` | `clearGuarantee 上抬到 2~3`、`sizePreference ≤ -0.28`、`multiClearBonus ≥ 0.42` | 跨局热身（v10.33） |
 | `afkCount ≥ 1 ∧ stress<0.55` | `clearGuarantee ≥ 2`、`multiClearBonus ≥ 0.6`、`multiLineTarget ≥ 1`、可拉到 `payoff` | **AFK 召回**显式正反馈 |
 | **`stress > 0.55 ∧ skill > 0.5 ∧ ¬bypass`**（v1.32） | `orderRigor` ∈ (0,1]，`orderMaxValidPerms` 在 [4,2] 间映射；hard 模式额外 +0.30 boost | **顺序刚性高难度**：要求三连块 6 种排列里仅 ≤N 种可解，强制玩家做"先 X 再 Y 最后 Z"的前瞻规划 |
 
 > **物理可行性回钳**（v1.17 / v1.19）：上述抬高完成后，若盘面**实际**没有 ≥2 临消/多消候选，会把 `clearGuarantee=3` 回钳为 2，`multiClearBonus` 软封顶为 0.4，`multiLineTarget` 归 0；避免承诺无法兑现。
+
+> **奖励概率目标**（v1.33）：`perfectClearBoost` 与 `multiClearBonus` 进入 `blockSpawn.js` 的形状权重；`iconBonusTarget` 进入 `game.js` 的 dock 染色采样，只在近满且同 icon/同色的行列存在时放大对应颜色权重。它们都是概率倾向，不绕过可解性、机动性和几何回钳。
 
 #### C. 信号 → `spawnIntent`（单一对外口径）
 
@@ -313,12 +317,13 @@ maintain  ← 默认
 shapeComplexity     = clamp01(stress01·0.75 + boredHighSkill·0.25 − riskRelief·0.45)
 solutionSpacePressure = clamp01(stress01·0.70 + complexity·0.25 − boardRisk·0.55 − recoveryNeed·0.35)
 clearOpportunity    = clamp01(recoveryNeed·0.55 + payoffOpportunity·0.45 + (release?0.12:0) − stress01·0.18)
-spatialPressure     = clamp01(stress01·0.65 + fill·0.25 − boardRisk·0.50 − recoveryNeed·0.30)
+boardDifficulty     = clamp01(fill + holePressure·0.80)
+spatialPressure     = clamp01(stress01·0.65 + boardDifficulty·0.25 − boardRisk·0.50 − recoveryNeed·0.30)
 payoffIntensity     = clamp01(delight·0.45 + payoffOpportunity·0.40 + max(0, momentum)·0.15)
 novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − recoveryNeed·0.20)
 ```
 
-`blockSpawn` 在阶段 2 用这些轴做**乘法权重**，让「难度」可以在「形状难、解空间窄、空间紧、新鲜度高」等多轴间分散，而不是单纯偏 T/Z/L。
+`blockSpawn` 在阶段 2 用这些轴做**乘法权重**，让「难度」可以在「形状难、解空间窄、空间紧、新鲜度高」等多轴间分散，而不是单纯偏 T/Z/L。这里的 `boardDifficulty` 是**难度评估口径**，与 `boardRisk` 的**保活口径**并行：holes 越多会提高空间难度判断，但高 `boardRisk` 仍会通过减压/保消护栏避免继续刁难玩家。
 
 #### E. 信号 → `strategyAdvisor` 与 `stressMeter`
 
@@ -389,6 +394,21 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 
 详细算法见 [出块三层架构](../algorithms/SPAWN_ALGORITHM.md)、[解法数量难度](../algorithms/SPAWN_SOLUTION_DIFFICULTY.md)。
 
+### 4.5 生成式模型行为上下文（V3.1）
+
+当出块模式切到 `model-v3` 时，`web/src/spawnModel.js` 会把实时策略链路整理为 V3.1 的 `behaviorContext(56)`，用于 `POST /api/spawn-model/v3/predict`。该向量不是替代规则轨，而是让生成式模型显式看到规则轨已经计算好的用户行为与策略语义：
+
+| 区段 | 来源 | 作用 |
+|------|------|------|
+| `0–23` | `PlayerProfile` + 基础 `adaptiveInsight` | 分数、填充、技能、心流、窗口统计、长期能力、stress |
+| `24–31` | 样本量 + `analyzeBoardTopology` | 冷启动、`boardDifficulty`、holes、临消/解空间 |
+| `32–37` | `AbilityVector` | 控制力、清行效率、盘面规划、风险容忍、风险水平 |
+| `38–47` | `spawnTargets` + `spawnHints` | 复杂度、解空间、保消、尺寸、多消、顺序刚性 |
+| `48–53` | `spawnIntent` one-hot | relief / engage / harvest / pressure / flow / maintain |
+| `54–55` | 额外策略上下文 | `multiLineTarget`、`sessionArc` |
+
+设计要求：规则轨仍负责硬约束和失败回退；生成式模型只学习偏好分布。任何新增行为特征必须同步 `spawnModel.js`、`dataset.py`、`model_v3.py`、`train_v3.py`、`server.py` 与建模文档。
+
 ---
 
 ## 5. 策略生成（L4a：StrategyAdvisor）
@@ -431,6 +451,27 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 ### 5.5 L4b：压力表状态体系（State Enumeration）
 
 > 压力表把 `stress`、`spawnIntent`、`stressBreakdown`、`spawnHints` 翻译为玩家可感知的「头像 + 标签 + 进度 + 趋势 + 一句话」。**所有可观测状态都是确定性函数**——按下表枚举可完整复现。
+
+#### 5.5.0 渲染契约（截图区域）
+
+`stressMeter.renderStressMeter(root, insight, history)` 的输出区域必须按以下契约解释，避免把「状态档位」「系统意图」「趋势」混成同一个指标：
+
+| UI 元素 | 数据源 | 计算/判别 | 向玩家传递的信息 |
+|---------|--------|-----------|------------------|
+| 头像 emoji | `getStressDisplay(stress, spawnIntent).face` | 先按 §5.5.1 映射 6 档；若命中 §5.5.2 救济变体则覆盖 | 当前体验的情绪表情：放松、舒缓、心流、投入、紧张、高压，或被系统照顾 |
+| 标题标签 | `getStressDisplay(...).label` | 同头像 | 当前综合压力档位，不等同于具体出块意图 |
+| 数值 | `insight.stress` | `Number.isFinite` 时保留两位小数；缺失按 0 | L2 自适应综合压力的最终值 |
+| 趋势箭头 | `computeTrend(history, stress, 6)` | 当前值与最近 6 帧均值比较，阈值 `0.04` | 压力相对近期是在上升、下降还是持平 |
+| 进度条 | `_stressToBar(stress)` | `clamp(stress, -0.2, 1)` 后线性映射到 `0%~100%` | 压力强弱的连续量，不是独立指标 |
+| 一句话叙事 | `buildStoryLine(level, breakdown, targets, hints, geometry)` | 按 §5.5.4 决策树第一个命中分支返回 | 系统当前动作意图：救济、召回、加压、心流维持、促清兑现等 |
+| 呼吸速度 | `breathMs = 2400 - barPct × 14` | 与进度条同源 | 视觉节奏随压力增强而加快 |
+
+**规范要求**：
+
+1. **标题/头像只表达综合压力档位**，不得直接当作出块意图解释。  
+2. **一句话叙事优先表达 `spawnIntent`**，并用高压守卫/几何守卫保证与头像、盘面不冲突。  
+3. **趋势箭头只表达相对近期变化**，不代表绝对高低；`-0.08 →` 表示压力低且相对近期持平。  
+4. 若新增状态、文案或守卫，必须同步更新本节、`tests/stressMeter.test.js` 与截图复现说明。
 
 #### 5.5.1 6 档压力等级（`STRESS_LEVELS`）
 
@@ -618,6 +659,23 @@ delta = current - avg
 | **救济通路**（v1.19 自动） | `summarizeContributors` 派生 | 当 `frust/recovery/holes/boardRisk*` 任一显著为负时自动出 pill |
 
 #### 5.5.8 截图复现案例（图示）
+
+##### A. `engage` 召回/停顿提示
+
+观察到的状态：标签「**放松**」😌 + `stress = -0.08` + 趋势 `→` + 叙事「**注意到你停顿了一下，给你一个明显得分目标 + 友好开局。**」
+
+逐字段反推：
+
+| 信号 | 取值 | 命中规则 |
+|------|------|----------|
+| `stress` | `≈ -0.08` | 落入 §5.5.1 `calm` 档 `(-∞, -0.05)` → label「放松」😌 |
+| `spawnIntent` | `engage` | §5.5.4 第 5 条命中 `SPAWN_INTENT_NARRATIVE.engage` |
+| `trend.delta` | `|delta| < 0.04` | §5.5.3 → `flat → →` |
+| 救济变体 | 不命中 | `spawnIntent !== 'relief'`，所以不显示「放松（救济中）」🤗 |
+
+**为什么是「放松」但文案说停顿？** —— 标题/头像只表达综合压力档位；一句话叙事表达系统动作意图。`engage` 是「玩家停顿/冷启动后重新聚焦」路径，允许与低 stress 同时存在：系统不是在救急，而是在给一个更明确的得分目标与友好开局。
+
+##### B. `flow + setup` 心流搭建
 
 观察到的状态：标签「**舒缓**」🙂 + `stress = -0.01` + 趋势 `→` + 叙事「**心流稳定，节奏稳步搭建，先留好通道等下一波兑现。**」
 

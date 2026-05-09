@@ -97,15 +97,30 @@ def compute_diversity_loss(div_logits, categories, criterion_div):
 def compute_target_difficulty(context):
     """
     Derive target difficulty from player state for training.
-    Higher skill + lower fill → higher target difficulty (more challenge).
-    Stressed/frustrated → lower target difficulty (more mercy).
+    V3.1 behavior context uses boardDifficulty (fill + holes) and risk relief.
+    Legacy 24-dim context falls back to raw fill and zero board risk.
     """
     skill = context[:, 2]
-    fill = context[:, 1]
     frustration = context[:, 4]
     stress = context[:, 20] if context.size(1) > 20 else torch.zeros_like(skill)
+    if context.size(1) > 37:
+        board_difficulty = context[:, 26]
+        board_risk = context[:, 37]
+        near_clear = torch.clamp(context[:, 29] + context[:, 30], 0.0, 1.0)
+    else:
+        board_difficulty = context[:, 1]
+        board_risk = torch.zeros_like(skill)
+        near_clear = torch.zeros_like(skill)
 
-    diff = 0.3 + 0.5 * skill - 0.2 * frustration - 0.15 * stress + 0.1 * fill
+    diff = (
+        0.3
+        + 0.5 * skill
+        - 0.2 * frustration
+        + 0.15 * stress
+        + 0.08 * board_difficulty
+        - 0.1 * board_risk
+        + 0.06 * near_clear
+    )
     return torch.clamp(diff, 0.0, 1.0).unsqueeze(-1)
 
 

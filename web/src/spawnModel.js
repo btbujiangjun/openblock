@@ -19,6 +19,9 @@ const SPAWN_MODE_KEY = 'ob_spawn_mode';
 export const SPAWN_MODE_RULE = 'rule';
 export const SPAWN_MODE_MODEL_V3 = 'model-v3';
 export const SPAWN_MODES = [SPAWN_MODE_RULE, SPAWN_MODE_MODEL_V3];
+export const SPAWN_MODEL_V3_VERSION = 'v3.1-behavior';
+export const SPAWN_MODEL_CONTEXT_DIM = 24;
+export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 56;
 
 export const SHAPE_VOCAB = [
     '1x4', '4x1', '1x5', '5x1',
@@ -29,6 +32,19 @@ export const SHAPE_VOCAB = [
     'l5-a', 'l5-b', 'l5-c', 'l5-d',
     'j-1', 'j-2', 'j-3', 'j-4'
 ];
+
+function _clamp01(v) {
+    return Math.max(0, Math.min(1, v));
+}
+
+function _finiteNumber(v, fallback = 0) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function _scaleUnit(v, max, fallback = 0) {
+    return _clamp01(_finiteNumber(v, fallback) / Math.max(1, max));
+}
 
 async function _api(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -109,6 +125,8 @@ export async function reloadModel() {
 const _FLOW_MAP = { bored: -1, flow: 0, anxious: 1 };
 const _PACING_MAP = { early: 0, tension: 0.5, release: 1 };
 const _SESSION_MAP = { warmup: 0, peak: 0.5, cooldown: 1 };
+const _SPAWN_INTENTS = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain'];
+const _HOLE_PRESSURE_MAX = 8;
 
 function _gridToBoard(grid) {
     const board = [];
@@ -170,18 +188,87 @@ function _buildContext24(grid, profile, adaptiveInsight) {
     ];
 }
 
+function _spawnIntentOneHot(intent) {
+    const out = new Array(_SPAWN_INTENTS.length).fill(0);
+    const idx = _SPAWN_INTENTS.indexOf(intent || 'maintain');
+    out[idx >= 0 ? idx : _SPAWN_INTENTS.indexOf('maintain')] = 1;
+    return out;
+}
+
+function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability) {
+    const base = _buildContext24(grid, profile, adaptiveInsight);
+    const metrics = profile.metrics || {};
+    const a = adaptiveInsight || {};
+    const hints = a.spawnHints || {};
+    const targets = hints.spawnTargets || a.spawnTargets || {};
+    const stressBreakdown = a.stressBreakdown || {};
+    const topo = topology || {};
+    const activeSamples = _finiteNumber(metrics.activeSamples, 0);
+    const samples = _finiteNumber(metrics.samples, activeSamples);
+    const holes = _finiteNumber(topo.holes ?? a.spawnDiagnostics?.layer1?.holes, 0);
+    const fill = _finiteNumber(topo.fillRatio ?? a.boardFill ?? a.fillRatio ?? grid?.getFillRatio?.(), 0);
+    const holePressure = _clamp01(holes / _HOLE_PRESSURE_MAX);
+    const boardDifficulty = _clamp01(_finiteNumber(a.boardDifficulty, fill + holePressure * 0.8));
+    const boardRisk = _clamp01(_finiteNumber(stressBreakdown.boardRisk ?? a.boardRisk, 0));
+    const sessionArc = hints.sessionArc ?? a.sessionPhase;
+
+    return [
+        ...base,
+        // [24-31] 数据可信度与盘面拓扑
+        samples <= 0 ? 1 : 0,
+        _scaleUnit(activeSamples || samples, 20),
+        boardDifficulty,
+        _scaleUnit(holes, 10),
+        _scaleUnit(topo.nearFullLines ?? a.spawnDiagnostics?.layer1?.nearFullLines, 8),
+        _scaleUnit(topo.close1, 8),
+        _scaleUnit(topo.close2, 8),
+        _scaleUnit(a.spawnDiagnostics?.solutionCount ?? a.spawnGeo?.solutionCount, 64),
+        // [32-37] AbilityVector
+        _clamp01(_finiteNumber(ability?.skillScore, profile.skillLevel ?? 0.5)),
+        _clamp01(_finiteNumber(ability?.controlScore, 0.5)),
+        _clamp01(_finiteNumber(ability?.clearEfficiency, 0.5)),
+        _clamp01(_finiteNumber(ability?.boardPlanning, 0.5)),
+        _clamp01(_finiteNumber(ability?.riskTolerance, 0.5)),
+        _clamp01(_finiteNumber(ability?.riskLevel, boardRisk)),
+        // [38-47] 策略目标与出块提示
+        _clamp01(_finiteNumber(targets.shapeComplexity, 0)),
+        _clamp01(_finiteNumber(targets.solutionSpacePressure, 0)),
+        _clamp01(_finiteNumber(targets.clearOpportunity, 0)),
+        _clamp01(_finiteNumber(targets.spatialPressure, 0)),
+        _clamp01(_finiteNumber(targets.payoffIntensity, 0)),
+        _clamp01(_finiteNumber(targets.novelty, 0)),
+        _scaleUnit(hints.clearGuarantee, 3),
+        _clamp01((_finiteNumber(hints.sizePreference, 0) + 1) / 2),
+        _clamp01(_finiteNumber(hints.multiClearBonus, 0)),
+        _clamp01(_finiteNumber(hints.orderRigor, 0)),
+        // [48-53] spawnIntent one-hot
+        ..._spawnIntentOneHot(hints.spawnIntent ?? a.spawnIntent),
+        // [54-55] 额外策略上下文
+        _scaleUnit(hints.multiLineTarget, 2),
+        _SESSION_MAP[sessionArc] ?? 0.5,
+    ].slice(0, SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM);
+}
+
 export function computeSpawnTargetDifficulty(profile, adaptiveInsight, topology = null) {
     const skill = profile.skillLevel ?? 0.5;
     const frustration = profile.frustrationLevel ?? 0;
     const stress = (adaptiveInsight || {}).stress ?? 0;
-    const fill = topology?.fillRatio ?? (adaptiveInsight || {}).fillRatio ?? 0.3;
-    const holes = Math.min(1, Math.max(0, Number(topology?.holes ?? 0) || 0) / 10);
-    const nearClear = Math.min(1, ((topology?.close1 ?? 0) + (topology?.close2 ?? 0)) / 6);
-    const boardRisk = Math.max(0, Math.min(1, Number(adaptiveInsight?.stressBreakdown?.boardRisk ?? 0) || 0));
-    return Math.max(0, Math.min(
-        1,
-        0.3 + 0.5 * skill - 0.2 * frustration + 0.15 * stress + 0.08 * fill - 0.08 * holes - 0.1 * boardRisk + 0.06 * nearClear
-    ));
+    const fill = topology?.fillRatio
+        ?? adaptiveInsight?.fillRatio
+        ?? adaptiveInsight?.boardFill
+        ?? adaptiveInsight?.spawnDiagnostics?.layer1?.fill
+        ?? 0.3;
+    const holes = topology?.holes
+        ?? adaptiveInsight?.holes
+        ?? adaptiveInsight?.spawnDiagnostics?.layer1?.holes
+        ?? 0;
+    const holePressure = _clamp01((Number(holes) || 0) / _HOLE_PRESSURE_MAX);
+    const boardDifficulty = _clamp01(fill + holePressure * 0.8);
+    const nearClear = _clamp01(((topology?.close1 ?? 0) + (topology?.close2 ?? 0)) / 6);
+    const boardRisk = _clamp01(Number(adaptiveInsight?.stressBreakdown?.boardRisk ?? 0) || 0);
+    return _clamp01(
+        0.3 + 0.5 * skill - 0.2 * frustration + 0.15 * stress + 0.08 * boardDifficulty - 0.1 * boardRisk + 0.06 * nearClear
+    );
 }
 
 export function buildSpawnModelContext(grid, profile, adaptiveInsight, opts = {}) {
@@ -197,6 +284,7 @@ export function buildSpawnModelContext(grid, profile, adaptiveInsight, opts = {}
     return {
         board: _gridToBoard(grid),
         context: _buildContext24(grid, profile, adaptiveInsight),
+        behaviorContext: _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability),
         topology,
         ability,
         playstyle: opts.playstyle ?? profile?.playstyle ?? 'balanced',
@@ -226,7 +314,7 @@ export async function predictShapes(grid, profile, recentHistory, adaptiveInsigh
     }
 
     const context = _buildContext24(grid, profile, adaptiveInsight);
-    const targetDifficulty = computeSpawnTargetDifficulty(profile, adaptiveInsight);
+    const targetDifficulty = computeSpawnTargetDifficulty(profile, adaptiveInsight, analyzeBoardTopology(grid));
 
     try {
         const data = await _api('/api/spawn-model/predict', {
@@ -277,6 +365,7 @@ export async function predictShapesV3(grid, profile, recentHistory, adaptiveInsi
     const modelContext = opts.modelContext || buildSpawnModelContext(grid, profile, adaptiveInsight, opts);
     const board = modelContext.board;
     const context = modelContext.context;
+    const behaviorContext = modelContext.behaviorContext;
     const targetDifficulty = opts.targetDifficulty ?? modelContext.targetDifficulty;
     const playstyle = opts.playstyle ?? modelContext.playstyle ?? null;
 
@@ -286,6 +375,7 @@ export async function predictShapesV3(grid, profile, recentHistory, adaptiveInsi
             body: JSON.stringify({
                 board,
                 context,
+                behaviorContext,
                 history: recentHistory || [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
                 temperature: opts.temperature ?? 0.8,
                 topK: opts.topK ?? 8,
@@ -308,9 +398,10 @@ export async function predictShapesV3(grid, profile, recentHistory, adaptiveInsi
         return {
             shapes: shapes.slice(0, 3),
             meta: {
-                modelVersion: data.modelVersion || 'v3',
+                modelVersion: data.modelVersion || SPAWN_MODEL_V3_VERSION,
                 personalized: !!data.personalized,
                 feasibleCount: data.feasibleCount ?? null,
+                behaviorContextDim: behaviorContext?.length ?? null,
                 targetDifficulty,
                 playstyle,
             },
