@@ -111,6 +111,7 @@ npm run mobile:ios
 |----------|-------------|
 | [docs/README.md](docs/README.md) | Documentation center with role-based paths for product, algorithm, architecture, operations, testing |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System layers, module boundaries, data flows |
+| [docs/player/EXPERIENCE_DESIGN_FOUNDATIONS.md](./docs/player/EXPERIENCE_DESIGN_FOUNDATIONS.md) | **Top-level methodology**: psychology foundations (flow / SDT / variable rewards / prediction error / peak-end / near-miss / Yerkes-Dodson / Hooked / MDA) → casual game design philosophies → OpenBlock 5-axis experience structure + design review checklist |
 | [docs/domain/DOMAIN_KNOWLEDGE.md](./docs/domain/DOMAIN_KNOWLEDGE.md) | Game mechanics, flow theory, player psychology, RL and monetization concepts |
 | [docs/algorithms/ALGORITHMS_HANDBOOK.md](./docs/algorithms/ALGORITHMS_HANDBOOK.md) | Unified algorithm and model handbook |
 | [docs/engineering/DEV_GUIDE.md](./docs/engineering/DEV_GUIDE.md) | Adding modules, extending strategies, integrating SDKs |
@@ -180,7 +181,7 @@ openblock/
 │   ├── engineering/        # 工程指南、测试、i18n、策略定制
 │   ├── domain/             # 领域知识、品类与竞品研究
 │   ├── product/            # 玩法、计分、难度、皮肤与留存
-│   ├── player/             # 玩家画像、面板参数、实时策略
+│   ├── player/             # 玩家画像、面板参数、实时策略；**顶层方法论：体验设计基石（5 轴体验结构）**
 │   ├── algorithms/         # 出块、RL、玩家模型、商业化算法
 │   ├── operations/         # 商业化与运营
 │   ├── platform/           # Android / iOS、小程序适配、发布与四端同步

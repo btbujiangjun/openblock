@@ -10,7 +10,9 @@ import {
     summarizeContributors,
     computeTrend,
     buildStoryLine,
-    renderStressMeter
+    renderStressMeter,
+    classifyHarvestDensity,
+    shouldUseScorePushHighStress
 } from '../web/src/stressMeter.js';
 
 describe('getStressLevel', () => {
@@ -266,9 +268,206 @@ describe('buildStoryLine', () => {
             { spawnIntent: 'relief', rhythmPhase: 'setup' });
         expect(reliefStory).toBe('盘面通透又是兑现窗口，悄悄给你减压享受多消。');
 
+        // v1.31：geometry 缺失时 harvest 仍回退到旧默认（兼容老回放/缺 spawnDiagnostics）
         const harvestStory = buildStoryLine(flowLevel, {}, null,
             { spawnIntent: 'harvest', rhythmPhase: 'setup' });
         expect(harvestStory).toBe('识别到密集消行机会，正在投放促清的形状。');
+    });
+});
+
+/* v1.31：score-push 高压守卫
+ *
+ * 复现场景：玩家正逼近/打破个人最佳，scoreStress + feedbackBias + challengeBoost
+ *   把 stress 推到 tense/intense，但盘面还很空（fill<0.30、holes=0）；
+ *   旧版 FLOW_HIGH_STRESS_NARRATIVE_BY_LEVEL.intense 文案是「保活/确保可落位」，
+ *   与玩家所见空旷盘面错位。新守卫切到"冲分仪式感"语义。 */
+describe('v1.31 score-push 高压守卫', () => {
+    const tenseLevel = STRESS_LEVELS.find((l) => l.id === 'tense');
+    const intenseLevel = STRESS_LEVELS.find((l) => l.id === 'intense');
+    const flowLevel = STRESS_LEVELS.find((l) => l.id === 'flow');
+
+    describe('shouldUseScorePushHighStress 判定函数', () => {
+        it('flow + intense + fill=0.20 + holes=0 → true', () => {
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow',
+                { boardFill: 0.20, holes: 0 })).toBe(true);
+        });
+
+        it('harvest + tense + fill=0.25 + holes=0 → true', () => {
+            expect(shouldUseScorePushHighStress(tenseLevel, 'harvest',
+                { boardFill: 0.25, holes: 0 })).toBe(true);
+        });
+
+        it('intent=relief / pressure / engage → false（仅 flow/harvest 适用）', () => {
+            const geom = { boardFill: 0.10, holes: 0 };
+            expect(shouldUseScorePushHighStress(intenseLevel, 'relief', geom)).toBe(false);
+            expect(shouldUseScorePushHighStress(intenseLevel, 'pressure', geom)).toBe(false);
+            expect(shouldUseScorePushHighStress(intenseLevel, 'engage', geom)).toBe(false);
+        });
+
+        it('level=flow / engaged / easy → false（不到 tense/intense）', () => {
+            const easyLevel = STRESS_LEVELS.find((l) => l.id === 'easy');
+            const engagedLevel = STRESS_LEVELS.find((l) => l.id === 'engaged');
+            const geom = { boardFill: 0.20, holes: 0 };
+            expect(shouldUseScorePushHighStress(easyLevel, 'flow', geom)).toBe(false);
+            expect(shouldUseScorePushHighStress(engagedLevel, 'flow', geom)).toBe(false);
+            expect(shouldUseScorePushHighStress(flowLevel, 'flow', geom)).toBe(false);
+        });
+
+        it('boardFill ≥ 0.30 → false（盘面已不算"友好"）', () => {
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow',
+                { boardFill: 0.30, holes: 0 })).toBe(false);
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow',
+                { boardFill: 0.55, holes: 0 })).toBe(false);
+        });
+
+        it('holes > 0 → false（盘面已有结构性问题，"冲分"叙事不再合适）', () => {
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow',
+                { boardFill: 0.20, holes: 1 })).toBe(false);
+        });
+
+        it('boardFill 缺失 / 非数 → false（保守不抢占既有守卫）', () => {
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow', {})).toBe(false);
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow',
+                { boardFill: NaN, holes: 0 })).toBe(false);
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow', undefined)).toBe(false);
+        });
+
+        it('自定义 fillThreshold 生效', () => {
+            // 0.45 阈值下 fill=0.40 仍算友好
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow',
+                { boardFill: 0.40, holes: 0 }, 0.45)).toBe(true);
+            expect(shouldUseScorePushHighStress(intenseLevel, 'flow',
+                { boardFill: 0.40, holes: 0 }, 0.30)).toBe(false);
+        });
+    });
+
+    describe('buildStoryLine 集成 score-push 守卫', () => {
+        it('flow + intense + 友好盘面 → 切到"冲分仪式感"叙事（不再说"保活"）', () => {
+            const story = buildStoryLine(intenseLevel, { boardRisk: 0.1 }, null,
+                { spawnIntent: 'flow', rhythmPhase: 'payoff' },
+                { boardFill: 0.20, holes: 0, nearFullLines: 0, multiClearCandidates: 0 });
+            expect(story).toMatch(/冲击新高|冲分/);
+            expect(story).not.toMatch(/保活|确保可落位/);
+        });
+
+        it('harvest + tense + 友好盘面 → 切到"冲分仪式感"叙事（抢占 HARVEST 高压守卫）', () => {
+            const story = buildStoryLine(tenseLevel, { boardRisk: 0.1 }, null,
+                { spawnIntent: 'harvest' },
+                { boardFill: 0.25, holes: 0, nearFullLines: 2, multiClearCandidates: 2 });
+            expect(story).toMatch(/冲分|节奏拉紧/);
+            expect(story).not.toMatch(/吃紧|降压/);
+        });
+
+        it('boardRisk ≥ 0.6 仍最高优先（即使满足 score-push 条件，保活仍抢占）', () => {
+            const story = buildStoryLine(intenseLevel, { boardRisk: 0.7 }, null,
+                { spawnIntent: 'flow' },
+                { boardFill: 0.20, holes: 0 });
+            expect(story).toMatch(/保活/);
+            expect(story).not.toMatch(/冲分/);
+        });
+
+        it('盘面 fill 升高（≥ 0.30）→ 退回 FLOW 高压守卫文案', () => {
+            const story = buildStoryLine(intenseLevel, { boardRisk: 0.2 }, null,
+                { spawnIntent: 'flow', rhythmPhase: 'payoff' },
+                { boardFill: 0.55, holes: 0 });
+            expect(story).toMatch(/高压区|优先保活/);
+            expect(story).not.toMatch(/冲分/);
+        });
+
+        it('geometry 缺失（旧回放）→ 退回 FLOW 高压守卫，向后兼容', () => {
+            const story = buildStoryLine(intenseLevel, { boardRisk: 0.2 }, null,
+                { spawnIntent: 'flow', rhythmPhase: 'payoff' });
+            expect(story).toMatch(/高压区|优先保活/);
+            expect(story).not.toMatch(/冲分/);
+        });
+    });
+});
+
+/* v1.31：harvest 按几何密度分级 ——
+ * 旧版 SPAWN_INTENT_NARRATIVE.harvest 一律说"密集消行机会"，但 harvest 触发门槛
+ * 只是 nfl≥2，nfl=2/mcc=2 时并不算"密集"。本组分 dense / visible / edge 三档。 */
+describe('v1.31 harvest 密度分级', () => {
+    const flowLevel = STRESS_LEVELS.find((l) => l.id === 'flow');
+
+    describe('classifyHarvestDensity 判定函数', () => {
+        it('nfl ≥ 3 → dense', () => {
+            expect(classifyHarvestDensity({ nearFullLines: 3, multiClearCandidates: 1 })).toBe('dense');
+            expect(classifyHarvestDensity({ nearFullLines: 5, multiClearCandidates: 0 })).toBe('dense');
+        });
+
+        it('mcc ≥ 3 → dense（即使 nfl 较小也算密集）', () => {
+            expect(classifyHarvestDensity({ nearFullLines: 1, multiClearCandidates: 3 })).toBe('dense');
+            expect(classifyHarvestDensity({ nearFullLines: 2, multiClearCandidates: 5 })).toBe('dense');
+        });
+
+        it('nfl = 2（最低触发档）→ visible（最常见，对应截图 2）', () => {
+            expect(classifyHarvestDensity({ nearFullLines: 2, multiClearCandidates: 2 })).toBe('visible');
+            expect(classifyHarvestDensity({ nearFullLines: 2, multiClearCandidates: 1 })).toBe('visible');
+            expect(classifyHarvestDensity({ nearFullLines: 2, multiClearCandidates: 0 })).toBe('visible');
+        });
+
+        it('nfl < 2 → edge（pcSetup-only path）', () => {
+            expect(classifyHarvestDensity({ nearFullLines: 1, multiClearCandidates: 1 })).toBe('edge');
+            expect(classifyHarvestDensity({ nearFullLines: 0, multiClearCandidates: 0 })).toBe('edge');
+        });
+
+        it('字段缺失 / 非法值容忍处理', () => {
+            expect(classifyHarvestDensity({})).toBe('edge');
+            expect(classifyHarvestDensity(null)).toBe('edge');
+            expect(classifyHarvestDensity(undefined)).toBe('edge');
+            expect(classifyHarvestDensity({ nearFullLines: NaN, multiClearCandidates: NaN })).toBe('edge');
+        });
+    });
+
+    describe('buildStoryLine 集成 harvest 密度分级', () => {
+        it('dense（nfl=3） → "密集"措辞贴切', () => {
+            const story = buildStoryLine(flowLevel, { boardRisk: 0.1 }, null,
+                { spawnIntent: 'harvest' },
+                { boardFill: 0.55, holes: 0, nearFullLines: 3, multiClearCandidates: 2 });
+            expect(story).toMatch(/密集/);
+            expect(story).toMatch(/促清/);
+        });
+
+        it('visible（nfl=2、mcc=2，截图 2 复现） → "清晰可见"中等强度', () => {
+            const story = buildStoryLine(flowLevel, { boardRisk: 0.1 }, null,
+                { spawnIntent: 'harvest' },
+                { boardFill: 0.31, holes: 0, nearFullLines: 2, multiClearCandidates: 2 });
+            expect(story).toMatch(/清晰|可见|通道|易兑现/);
+            expect(story).not.toMatch(/密集/);  // 关键：不再夸大成"密集"
+            expect(story).not.toMatch(/首个/);
+        });
+
+        it('edge（pcSetup-only path，nfl=0） → "首个窗口"试一手', () => {
+            const story = buildStoryLine(flowLevel, { boardRisk: 0.1 }, null,
+                { spawnIntent: 'harvest' },
+                { boardFill: 0.50, holes: 0, nearFullLines: 0, multiClearCandidates: 0 });
+            expect(story).toMatch(/首个|试一手|窗口/);
+            expect(story).not.toMatch(/密集/);
+        });
+
+        it('geometry 缺失（旧回放） → 沿用 SPAWN_INTENT_NARRATIVE.harvest（不改写历史）', () => {
+            const story = buildStoryLine(flowLevel, { boardRisk: 0.1 }, null,
+                { spawnIntent: 'harvest' });
+            expect(story).toBe('识别到密集消行机会，正在投放促清的形状。');
+        });
+
+        it('harvest + tense（高压档）+ 友好盘面 → score-push 守卫优先（v1.31 新优先级）', () => {
+            const tenseLevel = STRESS_LEVELS.find((l) => l.id === 'tense');
+            const story = buildStoryLine(tenseLevel, { boardRisk: 0.2 }, null,
+                { spawnIntent: 'harvest' },
+                { boardFill: 0.20, holes: 0, nearFullLines: 3, multiClearCandidates: 3 });
+            // 即使 dense，score-push 守卫先抢
+            expect(story).toMatch(/冲分/);
+            expect(story).not.toMatch(/促清|密集/);
+        });
+
+        it('harvest + tense（高压档）+ 高 fill → HARVEST 高压守卫（密度分级被绕过）', () => {
+            const tenseLevel = STRESS_LEVELS.find((l) => l.id === 'tense');
+            const story = buildStoryLine(tenseLevel, { boardRisk: 0.2 }, null,
+                { spawnIntent: 'harvest' },
+                { boardFill: 0.65, holes: 0, nearFullLines: 3, multiClearCandidates: 3 });
+            expect(story).toMatch(/吃紧|可消行|促清|降压/);
+        });
     });
 });
 

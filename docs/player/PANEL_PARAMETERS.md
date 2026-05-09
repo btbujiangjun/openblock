@@ -624,7 +624,7 @@ fill = 棋盘上已被占据的格子数 / 总格子数(64)
 - **标题**：≤6 字的行动指令
 - **说明**：一句话策略解释
 
-详见 [REALTIME_STRATEGY.md → 第三层：策略顾问](./REALTIME_STRATEGY.md)。
+详见 [REALTIME_STRATEGY.md → §5 策略生成（StrategyAdvisor）](./REALTIME_STRATEGY.md)。
 
 ---
 

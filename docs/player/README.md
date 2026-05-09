@@ -4,11 +4,21 @@
 
 ## 当前事实入口
 
-- [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) — 通用四层模型、`spawnIntent`、几何门控与 OpenBlock 映射（文档中心方法论入口）
+- [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) — **顶层方法论**：心理学根基（9 条经验研究）→ 休闲游戏设计理念（7 条工业实践）→ OpenBlock 5 轴体验结构 + 设计审查清单
+- [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) — 通用四层模型、`spawnIntent`、几何门控与 OpenBlock 映射（系统结构入口）
 - [玩家能力评估接入说明](./PLAYER_ABILITY_EVALUATION.md)
 - [玩家面板参数](./PANEL_PARAMETERS.md)
-- [实时策略系统](./REALTIME_STRATEGY.md)
+- [实时策略系统](./REALTIME_STRATEGY.md) — 指标定义、物理含义、策略生成与合理性评估（v2.0）
 - [玩法风格检测](./PLAYSTYLE_DETECTION.md)
+
+## 阅读路径建议
+
+| 角色 | 起点 | 后续 |
+|------|------|------|
+| **新加入的设计师/产品** | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part A→C→D | [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) → [实时策略系统](./REALTIME_STRATEGY.md) |
+| **算法工程师调参** | [实时策略系统](./REALTIME_STRATEGY.md) §3 + §5 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part C 互抑表 |
+| **测试 / 质量** | [实时策略系统](./REALTIME_STRATEGY.md) §6 评审清单 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part D 审查清单 |
+| **运营 / 商业化** | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part B（B.7）| `docs/domain/CASUAL_GAME_ANALYSIS.md` §10 |
 
 ## 算法权威文档
 

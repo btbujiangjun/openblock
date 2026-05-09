@@ -1,7 +1,8 @@
 # 策略体验栈：通用模型与 OpenBlock 映射
 
-> **定位**：描述「玩家状态 → 系统决策 → 内容生成 → 界面叙事」的**通用分层模型**，并给出本仓库的实现入口。  
-> **读者**：产品、算法、架构、测试；需与 [实时策略系统](./REALTIME_STRATEGY.md)（信号与时序）、[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（参数矩阵）配合阅读。  
+> **定位**：描述「玩家状态 → 系统决策 → 内容生成 → 界面叙事」的**通用分层模型**（系统结构入口），并给出本仓库的实现入口。  
+> **上游方法论**：心理学根基与 5 轴体验结构见 [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md)（顶层方法论入口）；本文是其在"系统分层"维度的展开。  
+> **读者**：产品、算法、架构、测试；需与 [实时策略系统](./REALTIME_STRATEGY.md)（**指标字典、物理含义、L1–L4 管线、策略生成与合理性评估清单**）、[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（参数矩阵）配合阅读。  
 > **维护**：改 `adaptiveSpawn.js` / `blockSpawn.js` / `stressMeter.js` / `strategyAdvisor.js` 时，同步核对本文「实现映射」与「顾问规则」表。
 
 ---
@@ -91,7 +92,7 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 | L2 自适应 | `web/src/adaptiveSpawn.js` | `shared/game_rules.json → adaptiveSpawn` |
 | L2 关闭时回退 | `web/src/difficulty.js` | `strategies.*` |
 | L3 出块 | `web/src/bot/blockSpawn.js` | 同上 + `solutionDifficulty` |
-| L4 压力表 | `web/src/stressMeter.js` | 多为代码内阈值，见 `STRESS_LEVELS` |
+| L4 压力表 | `web/src/stressMeter.js` | `STRESS_LEVELS`（6 档放松～高压）；状态枚举 / 救济变体 / 趋势 / 故事线决策树详见 [REALTIME_STRATEGY §5.5](./REALTIME_STRATEGY.md#55-l4b压力表状态体系state-enumeration) |
 | L4 策略卡 | `web/src/strategyAdvisor.js` | 无独立配置，改代码或后续抽表 |
 | L4 面板聚合 | `web/src/playerInsightPanel.js` | — |
 | 对局快照 | `web/src/game.js` | `_captureAdaptiveInsight`、`spawnGeo`；`layered._occupancyFillAnchor` → `_spawnContext._occupancyFillAnchor`（占用阻尼锚点） |
@@ -155,6 +156,25 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 | 消行后瞬时低占用导致 `occupancyDamping` 与 stress 锯齿 | `_occupancyFillAnchor` 跨 spawn **缓降**写入 `stressBreakdown` 与返回值，由 `game` 写回 `_spawnContext` | `adaptiveSpawn.js` + `game.js` `_captureAdaptiveInsight` |
 | 顾问 top3 全为 survival | `applyTipCategoryDiversity` 按阈值**替换最弱一条** | `web/src/strategyAdvisor.js` |
 
+**v1.30 新增：动态被困识别（`bottleneckRelief`）**
+
+| 问题 | v1.30 升级 | 代码入口 |
+|------|------------|----------|
+| `firstMoveFreedom`/`solutionCount` 由 strategyAdvisor 实时计算用于「瓶颈块」卡片，但**未反馈到自适应出块**——上一波三块在玩家手中跌到只剩 1~2 个落子（"被困高压"），下一波 spawn 完全不知情、不会减压 | 引入 `_updateBottleneckTrough()`：每次 `recordPlace` 后用 `getCandidatePlacementSolutionSnapshot()` 更新 `_spawnContext.bottleneckTrough`（dock 周期最低点）；下一次 `resolveAdaptiveStrategy` 把 trough ≤ `topologyDifficulty.bottleneckTroughThreshold` 转换为 `stressBreakdown.bottleneckRelief`（最高 -0.12）+ 自动抬高 `clearGuarantee/sizePreference` + 进入 `playerDistress` 派生 `spawnIntent='relief'` | `web/src/game.js` (`_updateBottleneckTrough`/`_resetBottleneckTrough`) + `web/src/adaptiveSpawn.js` + `shared/game_rules.json → adaptiveSpawn.topologyDifficulty.bottleneck*` + `signals.bottleneckRelief` |
+| 与 `friendlyBoardRelief` / `frustrationRelief` / `recoveryAdjust` 栈叠形成「双重救济」 | 任一同向触发时 bottleneckRelief × 0.5；onboarding 内置零 | `adaptiveSpawn.js` |
+| 派生痕迹回溯 | `bottleneckTrough/bottleneckSamples` 写入 `stressBreakdown` 与 `_lastAdaptiveInsight`；`stressMeter.summarizeContributors` skip 列表与新 `SIGNAL_LABELS.bottleneckRelief` 同步 | `adaptiveSpawn.js` + `stressMeter.js` |
+
+**v1.31 新增：叙事-体感对齐两条窄守卫**
+
+> 本次升级**不动数值**，只在 `stressMeter.buildStoryLine` 决策树插入两条窄条件分支，把"算法判断正确但叙事文案与玩家所见盘面错位"的两类截图复现 case 修掉。压力数值、`spawnIntent`、`spawnHints` 计算口径完全保持，UX 影响仅在叙事一行。
+
+| 问题 | v1.31 升级 | 代码入口 |
+|------|------------|----------|
+| **冲分高压与空盘叙事冲突**：`scoreStress + feedbackBias + challengeBoost` 在玩家逼近个人最佳时把 stress 推到 `intense`，但盘面其实仍很空（fill=20%、holes=0、解法 44）；旧 `FLOW_HIGH_STRESS_NARRATIVE_BY_LEVEL.intense`「**保活/确保可落位**」与玩家所见严重错位（截图 1 复现） | 新增 `SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL` + 触发判定函数 `shouldUseScorePushHighStress(level, intent, geometry, fillThreshold=0.30)`：`intent ∈ {flow, harvest}` ∧ `level.id ∈ {tense, intense}` ∧ `geometry.boardFill < 0.30` ∧ `geometry.holes === 0` 时**抢占** §C / §D 高压守卫，叙事切到「**冲分仪式感**」（"冲击新高，节奏紧绷；盘面仍开阔，稳住关键落点把分数稳稳推上去"）；`boardRisk ≥ 0.6` 仍最高优先 | `web/src/stressMeter.js` (`shouldUseScorePushHighStress` / `SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL` / `buildStoryLine` 优先级 #2) |
+| **harvest 一律说"密集"措辞过誉**：`harvest` 触发门槛只是 `nearFullLines >= 2`（最低档），`nfl=2/mcc=2-3` 时盘面只是底部两行较紧贴，旧 `SPAWN_INTENT_NARRATIVE.harvest`「识别到**密集**消行机会」语义偏强（截图 2 复现） | 新增 `HARVEST_NARRATIVE_BY_DENSITY` + `classifyHarvestDensity({nearFullLines, multiClearCandidates})` 三档：`dense (nfl≥3 ∨ mcc≥3) / visible (nfl≥2，最常见，"清晰可见") / edge (nfl<2，pcSetup-only，"首个窗口")`；只在低-中压档（`level.id ∉ {engaged, tense, intense}`）启用，高压档仍由 §D `HARVEST_HIGH_STRESS_NARRATIVE_BY_LEVEL` 接管 | `web/src/stressMeter.js` (`classifyHarvestDensity` / `HARVEST_NARRATIVE_BY_DENSITY` / `buildStoryLine` 优先级 #4b) |
+| **几何上下文从哪来**：`buildStoryLine` 历史签名只接 `level/breakdown/spawnTargets/spawnHints` | `renderStressMeter` 从 `insight.spawnDiagnostics.layer1` 读取 `fill / holes / nearFullLines / multiClearCandidates`，组装 `geometry` 透传到 `buildStoryLine`（第 5 个可选参数）；`geometry === undefined` 时**完全回退到 v1.30 决策树**，老回放叙事不变 | `web/src/stressMeter.js` (`renderStressMeter` 内 `_layer1` → `geometry` + `buildStoryLine(..., geometry)`) |
+| **优先级稳定性**：score-push 与 harvest 高压守卫在同一帧可同时成立（`harvest + intense + 友好盘面`） | 决策树固定：`boardRisk≥0.6` > **score-push 守卫** > FLOW/HARVEST 高压守卫 > harvest 密度分级 > SPAWN_INTENT_NARRATIVE > 旧回放 fallback > `level.vibe`；以 `tests/stressMeter.test.js` 9 条 v1.31 用例锁住 | `tests/stressMeter.test.js` (v1.31 score-push + harvest density 两个 describe) |
+
 **剩余取舍**
 
 - 类别多样性可能用略低优先级的 `combo`/`pace` 换出「瓶颈块」等 survival，依赖阈值（`max(0.58, minPri−0.15)`）与实测再调。  
@@ -172,7 +192,7 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 
 | 文档 | 内容 |
 |------|------|
-| [REALTIME_STRATEGY.md](./REALTIME_STRATEGY.md) | 画像采集、数据流时序、配置速查 |
+| [REALTIME_STRATEGY.md](./REALTIME_STRATEGY.md) | 指标字典、压力指标全表（§3.2 加压/减压/慢变量/派生痕迹）与作用机制（§3.6）、互抑（§3.7）、反向工程（§3.8）、L1–L4 管线、合理性评估清单 |
 | [ADAPTIVE_SPAWN.md](../algorithms/ADAPTIVE_SPAWN.md) | 自适应信号与 spawnHints 矩阵 |
 | [SPAWN_ALGORITHM.md](../algorithms/SPAWN_ALGORITHM.md) | 出块三层与 Layer1/2/3 语义 |
 | [SPAWN_SOLUTION_DIFFICULTY.md](../algorithms/SPAWN_SOLUTION_DIFFICULTY.md) | 解法空间与软过滤 |
@@ -181,4 +201,4 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 
 ---
 
-*文档版本：1.1（v1.29 风险缓解）· 与实现对齐以仓库主分支为准。*
+*文档版本：1.2（v1.30 动态被困识别 + v1.31 叙事-体感对齐两条窄守卫）· 与实现对齐以仓库主分支为准。*

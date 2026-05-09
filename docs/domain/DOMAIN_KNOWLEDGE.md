@@ -2,6 +2,7 @@
 
 > 本文档系统梳理 OpenBlock 涉及的核心领域知识：方块益智游戏机制、自适应难度理论、玩家心理模型与商业化原理。  
 > 工程实现参见 [ARCHITECTURE.md](../../ARCHITECTURE.md)，定制方法参见 [STRATEGY_GUIDE.md](../engineering/STRATEGY_GUIDE.md)。  
+> **方法论上溯**：本文侧重「**领域事实**」；如需把这些事实串成顶层体验设计逻辑（心理学根基 + 5 轴体验结构 + 设计审查清单），请阅读 [体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md)。  
 > **最后更新：2026-04-20**（补充 2025-2026 行业最新研究与市场数据）
 
 ---

@@ -621,6 +621,50 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         ctx, _boardFill ?? 0, holes, earlyRhythmPhase, cfg.friendlyBoard ?? {}
     );
 
+    /* ---------- v1.30：瓶颈低谷救济（bottleneckRelief） ----------
+     *
+     * 物理含义：上个 dock 周期内，玩家所看到的"未放置候选块"中可放位最少的那一块
+     * 在该时刻能放进多少个格子（trough = min over the cycle）。
+     *
+     *   - trough=0  → 上一刻已经放不进任何位置（极端死局边缘）
+     *   - trough=1~2→ 只剩 1~2 个落点（玩家被迫接受唯一解，体验高压）
+     *   - trough≥5 → 仍有充分自由度
+     *
+     * 该信号是对 holes/friendlyBoard 等"盘面静态拓扑"信号的**动态补充**：
+     * 即便 holes=0、近满线充足，若某一拍候选块只剩 1~2 个合法落子，依然是高压。
+     * 用作 stressBreakdown.bottleneckRelief（负值），并：
+     *   1. 进入 playerDistress → 影响 spawnIntent='relief' 派生
+     *   2. 抬高 spawnHints.clearGuarantee + 偏小块（在主路径里实现，下方 hint 段）
+     *
+     * 互抑：与 friendlyBoardRelief / recoveryAdjust 同向时按 0.5 折扣，避免过度叠加；
+     *       新手保护期内置零，避免被动减压被进一步推高造成插值越档。
+     */
+    let bottleneckRelief = 0;
+    const bottleneckTroughRaw = Number(ctx.bottleneckTrough);
+    const bottleneckSamples = Math.max(0, Number(ctx.bottleneckSamples) || 0);
+    const bottleneckThreshold = Number.isFinite(topoCfg.bottleneckTroughThreshold)
+        ? topoCfg.bottleneckTroughThreshold : 2;
+    const bottleneckReliefMax = Number.isFinite(topoCfg.bottleneckReliefMax)
+        ? topoCfg.bottleneckReliefMax : -0.12;
+    const hasBottleneckSignal = Number.isFinite(bottleneckTroughRaw)
+        && bottleneckSamples > 0
+        && bottleneckTroughRaw <= bottleneckThreshold
+        /* 新手保护期：onboarding 自身已用 firstSessionStressOverride 显著钳制 stress，
+         * 再叠加 bottleneckRelief 既无意义（被覆写吃掉）又会让 breakdown 误显示「双重救济」。 */
+        && profile.isInOnboarding !== true;
+    if (hasBottleneckSignal) {
+        const sev = Math.max(0, (bottleneckThreshold - bottleneckTroughRaw))
+            / Math.max(1, bottleneckThreshold);
+        bottleneckRelief = bottleneckReliefMax * Math.min(1, 0.4 + 0.6 * sev);
+        /* 与 friendlyBoardRelief / recoveryAdjust 显著同向时减半，避免减压栈叠 */
+        if (friendlyBoardRelief <= -0.10) bottleneckRelief *= 0.5;
+        if ((profile.needsRecovery === true)
+            || (Number.isFinite(profile.frustrationLevel)
+                && profile.frustrationLevel >= (eng.frustrationThreshold ?? 4))) {
+            bottleneckRelief *= 0.5;
+        }
+    }
+
     /* ---------- 综合 stress ---------- */
     const stressBreakdown = {
         scoreStress: applySignal(signalCfg, 'scoreStress', scoreStress),
@@ -641,11 +685,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         abilityRiskAdjust: applySignal(signalCfg, 'abilityRiskAdjust', abilityRiskAdjust),
         delightStressAdjust: applySignal(signalCfg, 'delightStressAdjust', delight.stressAdjust),
         friendlyBoardRelief: applySignal(signalCfg, 'friendlyBoardRelief', friendlyBoardRelief),
-        boardRisk
+        bottleneckRelief: applySignal(signalCfg, 'bottleneckRelief', bottleneckRelief),
+        boardRisk,
+        /* v1.30 派生痕迹：原始 trough 与样本数，用于面板/回放反查 */
+        bottleneckTrough: hasBottleneckSignal ? bottleneckTroughRaw : null,
+        bottleneckSamples
     };
 
+    /* v1.30：求和时排除 boardRisk（独立分支）与 bottleneckTrough/Samples（派生痕迹） */
+    const _SUM_SKIP = new Set(['boardRisk', 'bottleneckTrough', 'bottleneckSamples']);
     let stress = Object.entries(stressBreakdown)
-        .filter(([key]) => key !== 'boardRisk')
+        .filter(([key, v]) => !_SUM_SKIP.has(key) && Number.isFinite(v))
         .reduce((sum, [, value]) => sum + value, 0);
     stressBreakdown.rawStress = stress;
 
@@ -800,6 +850,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (holes >= (topoCfg.holeClearGuaranteeAt ?? 2)) {
         clearGuarantee = Math.max(clearGuarantee, 2);
         sizePreference = Math.min(sizePreference, topoCfg.holeSizePreference ?? -0.22);
+    }
+    /* --- v1.30：上一周期出现严重瓶颈时，下一波抬保消 + 偏小块。
+     * `hasBottleneckSignal` 已在主路径里排除 onboarding，因此这里不必再判一次；
+     * 仅当 bottleneckTrough <= 配置阈值时触发；调整量由配置决定，避免代码内硬编码。 */
+    if (hasBottleneckSignal) {
+        const cgAt = Number.isFinite(topoCfg.bottleneckClearGuaranteeAt)
+            ? topoCfg.bottleneckClearGuaranteeAt : 2;
+        const sizeDelta = Number.isFinite(topoCfg.bottleneckSizePreferenceDelta)
+            ? topoCfg.bottleneckSizePreferenceDelta : -0.18;
+        clearGuarantee = Math.max(clearGuarantee, cgAt);
+        sizePreference = Math.min(sizePreference, sizeDelta);
     }
 
     /* --- Layer 2: combo 活跃时提高消行保证 --- */
@@ -1040,7 +1101,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         + (stressBreakdown.frustrationRelief ?? 0)
         + (stressBreakdown.nearMissAdjust ?? 0)
         + (stressBreakdown.holeReliefAdjust ?? 0)
-        + (stressBreakdown.boardRiskReliefAdjust ?? 0);
+        + (stressBreakdown.boardRiskReliefAdjust ?? 0)
+        /* v1.30：瓶颈低谷救济也作为困境信号，让 spawnIntent 优先派生 'relief'。 */
+        + (stressBreakdown.bottleneckRelief ?? 0);
     /* v1.17：harvest 收紧 —— 必须存在真实的"近一手就能兑现"的几何
      *   - nearFullLines ≥ 2：已有≥2 条临消行/列（与 deriveRhythmPhase 中 nearGeom 同口径）
      *   - 或 pcSetup ≥1 且占用 ≥ PC_SETUP_MIN_FILL：清屏候选+足够"满"才算窗口

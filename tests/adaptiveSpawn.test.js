@@ -788,4 +788,117 @@ describe('resolveAdaptiveStrategy', () => {
         // 这里把 harvest/engage 条件都置零，spawnIntent 应落到 pressure
         expect(s._spawnIntent).toBe('pressure');
     });
+
+    /* =====================================================================
+     * v1.30：bottleneckRelief —— 跨 dock 周期的 firstMoveFreedom 低谷救济
+     *
+     * 物理含义：上一波 dock 三块在玩家陆续放置过程中，候选块"最少落子数"
+     * 曾跌到阈值（默认 ≤2）。无论 holes 是否为 0、近满线是否充足，这都是
+     * 真实的"被困高压"，需要在下一拍出块上注入减压并抬保消。
+     *
+     * 测试覆盖：
+     *   - trough≤阈值 → bottleneckRelief 显著为负，stress 下行
+     *   - trough≤1   → 触发 spawnHints.clearGuarantee≥2、sizePreference 偏小
+     *   - trough>阈值 → 不触发（保持 0）
+     *   - friendlyBoardRelief 同时显著时减半（互抑栈叠）
+     *   - 新手保护期内不触发（避免被动减压双重叠加越档）
+     *   - playerDistress 累加 → spawnIntent 优先 'relief'
+     * ===================================================================*/
+    it('v1.30 bottleneckRelief：trough≤阈值时注入显著负向 stress 并抬高保消', () => {
+        const ctxBase = {
+            totalRounds: 6,
+            bestScore: 0,
+            bottleneckSamples: 3,
+            // 排除其他可能盖过 hint 调整的强信号
+            nearFullLines: 0, multiClearCandidates: 0, pcSetup: 0
+        };
+        const sNoTrough = resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 6, lifetimePlacements: 120 }), 80, 0, 0.4, {
+            ...ctxBase,
+            bottleneckTrough: 5
+        });
+        const sDeep = resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 6, lifetimePlacements: 120 }), 80, 0, 0.4, {
+            ...ctxBase,
+            bottleneckTrough: 0
+        });
+        expect(sNoTrough._stressBreakdown.bottleneckRelief).toBe(0);
+        expect(sDeep._stressBreakdown.bottleneckRelief).toBeLessThan(-0.05);
+        expect(sDeep._adaptiveStress).toBeLessThan(sNoTrough._adaptiveStress);
+        // hint 升级：clearGuarantee 至少 2、sizePreference 偏小
+        expect(sDeep.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(2);
+        expect(sDeep.spawnHints.sizePreference).toBeLessThanOrEqual(-0.18);
+    });
+
+    it('v1.30 bottleneckRelief：trough 严重程度连续 → 减压幅度递增', () => {
+        const make = (trough) => resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 6, lifetimePlacements: 120 }), 80, 0, 0.4, {
+            totalRounds: 6,
+            bestScore: 0,
+            bottleneckSamples: 3,
+            bottleneckTrough: trough,
+            nearFullLines: 0, multiClearCandidates: 0, pcSetup: 0
+        });
+        const a = make(2);   // 阈值边界
+        const b = make(1);
+        const c = make(0);
+        // |bottleneckRelief| 单调递增（trough 越小越救济）
+        expect(Math.abs(c._stressBreakdown.bottleneckRelief))
+            .toBeGreaterThan(Math.abs(b._stressBreakdown.bottleneckRelief));
+        expect(Math.abs(b._stressBreakdown.bottleneckRelief))
+            .toBeGreaterThan(Math.abs(a._stressBreakdown.bottleneckRelief));
+    });
+
+    it('v1.30 bottleneckRelief：trough 高于阈值 / 无样本 时不触发', () => {
+        const sHigh = resolveAdaptiveStrategy('normal', makeProfile(), 80, 0, 0.4, {
+            totalRounds: 6, bottleneckSamples: 3, bottleneckTrough: 8
+        });
+        const sNoSample = resolveAdaptiveStrategy('normal', makeProfile(), 80, 0, 0.4, {
+            totalRounds: 6, bottleneckSamples: 0, bottleneckTrough: 0
+        });
+        expect(sHigh._stressBreakdown.bottleneckRelief).toBe(0);
+        expect(sNoSample._stressBreakdown.bottleneckRelief).toBe(0);
+    });
+
+    it('v1.30 bottleneckRelief：与 friendlyBoardRelief 同时显著时减半（互抑栈叠）', () => {
+        const ctxBase = {
+            totalRounds: 8, bestScore: 0,
+            bottleneckSamples: 3, bottleneckTrough: 0
+        };
+        const sLone = resolveAdaptiveStrategy('normal', makeProfile(), 80, 0, 0.4, {
+            ...ctxBase,
+            nearFullLines: 0, multiClearCandidates: 0, pcSetup: 0
+        });
+        const sBoth = resolveAdaptiveStrategy('normal', makeProfile(), 80, 0, 0.45, {
+            ...ctxBase,
+            nearFullLines: 3, multiClearCandidates: 2, pcSetup: 0
+        });
+        expect(sBoth._stressBreakdown.friendlyBoardRelief).toBeLessThan(-0.10);
+        expect(sBoth._stressBreakdown.bottleneckRelief)
+            .toBeCloseTo(sLone._stressBreakdown.bottleneckRelief * 0.5, 5);
+    });
+
+    it('v1.30 bottleneckRelief：新手保护期内不触发（避免越档减压）', () => {
+        // 不传任何 lifetime → onboarding=true
+        const onboarding = makeProfile();
+        const s = resolveAdaptiveStrategy('normal', onboarding, 0, 0, 0.3, {
+            totalRounds: 2,
+            bottleneckSamples: 3,
+            bottleneckTrough: 0
+        });
+        expect(onboarding.isInOnboarding).toBe(true);
+        expect(s._stressBreakdown.bottleneckRelief).toBe(0);
+        // hint 升级也不应触发
+        // 注意：onboarding 自身也会强制 clearGuarantee>=2，所以这里只断言 sizePreference 不被瓶颈逻辑改写
+        // （如果 onboarding 自己的 sizePreference 已经更负，那是可接受的）
+    });
+
+    it('v1.30 bottleneckRelief：trough≤阈值时 spawnIntent 倾向 relief', () => {
+        // 排除其他更高优先级的 intent（harvest/engage/pressure），让 relief 命中
+        const s = resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 6, lifetimePlacements: 120 }), 80, 0, 0.40, {
+            totalRounds: 6,
+            bestScore: 0,
+            bottleneckSamples: 3, bottleneckTrough: 0,
+            nearFullLines: 0, multiClearCandidates: 0, pcSetup: 0
+        });
+        expect(s._stressBreakdown.bottleneckRelief).toBeLessThan(-0.10);
+        expect(s._spawnIntent).toBe('relief');
+    });
 });

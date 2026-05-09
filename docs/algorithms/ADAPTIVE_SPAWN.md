@@ -731,7 +731,7 @@ saveSession()        → profile.save()               // 持久化到 localStora
 | 文档 | 说明 |
 |------|------|
 | [策略体验栈](../player/STRATEGY_EXPERIENCE_MODEL.md) | 通用四层模型、`spawnIntent` 单一口径、几何门控、压力表与叙事职责分离、顾问规则索引 |
-| [实时策略系统](../player/REALTIME_STRATEGY.md) | 画像采集、出块时序、配置速查 |
+| [实时策略系统](../player/REALTIME_STRATEGY.md) | 画像指标、stress 管线、策略卡生成、评审清单、时序与配置 |
 | [出块三层架构](./SPAWN_ALGORITHM.md) | Layer1/2/3 与 `blockSpawn` 管线 |
 
 ---

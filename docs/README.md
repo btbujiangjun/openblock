@@ -33,7 +33,7 @@ docs/
 
 | 角色 | 先读 | 再读 | 目标 |
 |------|------|------|------|
-| 产品 / 玩法策划 | [领域知识](./domain/DOMAIN_KNOWLEDGE.md) → [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | [难度模式](./product/DIFFICULTY_MODES.md) → [彩蛋与惊喜系统](./product/EASTER_EGGS_AND_DELIGHT.md) → [策略定制指南](./engineering/STRATEGY_GUIDE.md) | 理解当前体验曲线、心流、奖励节奏与玩法可调面 |
+| 产品 / 玩法策划 | [体验设计基石](./player/EXPERIENCE_DESIGN_FOUNDATIONS.md)（**顶层方法论**：心理学根基 + 5 轴体验结构）→ [领域知识](./domain/DOMAIN_KNOWLEDGE.md) → [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | [难度模式](./product/DIFFICULTY_MODES.md) → [彩蛋与惊喜系统](./product/EASTER_EGGS_AND_DELIGHT.md) → [策略定制指南](./engineering/STRATEGY_GUIDE.md) | 理解当前体验曲线、心流、奖励节奏与玩法可调面 |
 | 算法工程师 | [算法与模型手册](./algorithms/ALGORITHMS_HANDBOOK.md) | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) → [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md) → [RL 手册](./algorithms/ALGORITHMS_RL.md) | 统一符号、公式、模型结构、训练/推理链路 |
 | 架构 / 平台工程师 | [架构文档](../ARCHITECTURE.md) → [技术总览](./engineering/PROJECT.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → [Android / iOS 客户端外壳](./platform/MOBILE_CLIENTS.md) → [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) → [i18n](./engineering/I18N.md) | 理解模块边界、数据流、扩展接口与跨端同步 |
 | 运营 / 商业化 | [商业化策略](./operations/MONETIZATION.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [商业运营](./operations/COMMERCIAL_OPERATIONS.md) | 理解当前分群、触发策略、运营面板、实验指标与企业落地项 |
@@ -77,7 +77,8 @@ docs/
 | [消行计分](./product/CLEAR_SCORING.md) | `baseUnit * c^2`、多消、同色/同 icon bonus | 产品、算法、测试 |
 | [玩家能力评估接入说明](./player/PLAYER_ABILITY_EVALUATION.md) | 玩家能力输出如何被产品和策略消费 | 产品、运营、测试 |
 | [玩家面板参数](./player/PANEL_PARAMETERS.md) | UI 指标含义、异常解读、调参提示 | 产品、运营、测试 |
-| [实时策略系统](./player/REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn → StrategyAdvisor | 产品、算法、架构 |
+| [体验设计基石](./player/EXPERIENCE_DESIGN_FOUNDATIONS.md) | **顶层方法论**：心理学根基（9 条经验研究：心流/SDT/变比奖励/PE/峰终/近失/Yerkes-Dodson/Hooked/MDA）→ 休闲游戏设计理念（7 条）→ **OpenBlock 5 轴体验结构（挑战-能力 / 节奏-兑现 / 掌控-自主 / 情感-回响 / 成长-沉没）+ v1.27→v1.31 反例验证表 + 设计审查清单 8 问** | 产品、设计、算法、架构、测试 |
+| [实时策略系统](./player/REALTIME_STRATEGY.md) | 指标字典、**压力指标体系（19 项加压/减压/慢变量/派生痕迹 + 5 条作用机制）**、L1–L4 管线、策略卡生成、**压力表 6 档状态枚举 + 故事线决策树（v1.31 新增 score-push 守卫与 harvest 密度三档分级）**、合理性评估清单、配置速查 | 产品、算法、架构、测试 |
 | [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md) | 通用四层模型、单一意图、几何门控、叙事职责分离；OpenBlock 映射 | 产品、算法、架构、测试 |
 | [玩法风格检测](./player/PLAYSTYLE_DETECTION.md) | 玩家风格识别与策略微调 | 产品、算法 |
 
@@ -139,7 +140,7 @@ docs/
 ### 体验设计
 
 - **心流调节**：先读 [领域知识](./domain/DOMAIN_KNOWLEDGE.md)，再读 [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) 与 [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md)。
-- **策略与叙事一致性**：先读 [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md)（通用分层、`spawnIntent`、压力表职责），再读 [实时策略系统](./player/REALTIME_STRATEGY.md)（时序与配置）。
+- **策略与叙事一致性**：先读 [体验设计基石](./player/EXPERIENCE_DESIGN_FOUNDATIONS.md)（心理学根基与 5 轴体验结构）→ [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md)（通用分层、`spawnIntent`、压力表职责）→ [实时策略系统](./player/REALTIME_STRATEGY.md)（指标/管线/评审清单与时序配置）。
 - **爽感与奖励**：先读 [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) 与 [宝箱与钱包](./product/CHEST_AND_WALLET.md)，再读 [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) 与 [消行计分](./product/CLEAR_SCORING.md)。
 - **难度曲线**：先读 [难度模式](./product/DIFFICULTY_MODES.md)，再读 [解法数量难度](./algorithms/SPAWN_SOLUTION_DIFFICULTY.md)。
 
@@ -161,7 +162,7 @@ docs/
 
 | 问题 | 当前事实 | 来源 |
 |------|----------|------|
-| 自适应出块输入 | 分数、连战、技能、心流、节奏、恢复、挫败、combo、趋势、置信度，加上爽感兑现提示；`stressBreakdown` 键与叙事标签见 [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md)；v1.29 起含 `_occupancyFillAnchor` 跨 spawn 缓降、`challengeBoost`×`friendlyBoardRelief` 互抑 | `web/src/adaptiveSpawn.js` |
+| 自适应出块输入 | 分数、连战、技能、心流、节奏、恢复、挫败、combo、趋势、置信度，加上爽感兑现提示；**19 项 `stressBreakdown` 信号枚举、量级、物理含义与 5 条下游作用路径**见 [实时策略系统 §3.2/§3.6](./player/REALTIME_STRATEGY.md)；叙事标签见 [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md)；v1.29 起含 `_occupancyFillAnchor` 跨 spawn 缓降、`challengeBoost`×`friendlyBoardRelief` 互抑；v1.30 起新增 **`bottleneckRelief`**（跨 dock 周期 firstMoveFreedom 低谷救济）+ 与 friendly/frustration/recovery 互抑；**v1.31 起 `stressMeter.buildStoryLine` 新增 score-push 守卫（高 stress + 友好盘面切「冲分仪式感」）与 harvest 密度三档分级（dense/visible/edge），叙事-体感对齐** | `web/src/adaptiveSpawn.js` + `web/src/game.js`（`_updateBottleneckTrough`）+ `web/src/stressMeter.js`（`shouldUseScorePushHighStress` / `classifyHarvestDensity`） |
 | 出块公平性约束 | 最低机动性、序贯可解性、解法数量软过滤 | `web/src/bot/blockSpawn.js` |
 | 真人玩法与 RL | 真人对局走 `game.js + adaptiveSpawn`；Python RL 训练不直接使用网页自适应 | [RL_AND_GAMEPLAY](./algorithms/RL_AND_GAMEPLAY.md) |
 | 共享规则来源 | `shared/game_rules.json` | [ALGORITHMS_HANDBOOK](./algorithms/ALGORITHMS_HANDBOOK.md) |

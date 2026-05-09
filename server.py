@@ -3064,7 +3064,12 @@ _DOCS_DIR = Path(__file__).resolve().parent / "docs"
 _WEB_PUBLIC_DIR = Path(__file__).resolve().parent / "web" / "public"
 
 _DOC_CATEGORIES = [
-    # 与 docs/ 目录结构一致（子目录 + 相对路径），供 /docs/list 与 docs.html 侧栏使用
+    # 与 docs/ 目录结构一致（子目录 + 相对路径），供 /docs/list 与 docs.html 侧栏使用。
+    # 维护规约：
+    #   1. 新增 docs/<sub>/<NAME>.md 时必须同步在此追加一行；CI 可用 scripts/check-docs-registered.* 检测漏注册。
+    #   2. 子目录 README.md（如 docs/player/README.md）作为索引页，不进侧栏 —— 用户已能从分类标题进入。
+    #   3. 同一文档允许出现在多个分类（如 ALGORITHMS_RL 同时在「算法与模型」与「强化学习」），便于跨入口发现。
+    #   4. 顺序原则：方法论 → 系统/算法 → 工程/运维 → 集成/平台 → 归档。
     {"name": "文档中心", "docs": ["README.md"]},
     {
         "name": "工程与扩展",
@@ -3073,6 +3078,7 @@ _DOC_CATEGORIES = [
             "engineering/SQLITE_SCHEMA.md",
             "engineering/DEV_GUIDE.md",
             "engineering/TESTING.md",
+            "engineering/PERFORMANCE.md",
             "engineering/I18N.md",
             "engineering/STRATEGY_GUIDE.md",
             "engineering/GOLDEN_EVENTS.md",
@@ -3094,18 +3100,23 @@ _DOC_CATEGORIES = [
         "docs": [
             "product/DIFFICULTY_MODES.md",
             "product/CLEAR_SCORING.md",
-            "product/RETENTION_ROADMAP_V10_17.md",
+            "product/CHEST_AND_WALLET.md",
             "product/EASTER_EGGS_AND_DELIGHT.md",
             "product/SKINS_CATALOG.md",
             "product/SKIN_ICON_SEMANTIC_POOL.md",
+            "product/RETENTION_ROADMAP_V10_17.md",
         ],
     },
     {
+        # 顺序：顶层方法论 → 系统结构 → 操作手册 → 玩家面板 → 评估 → 风格识别。
+        # 新读者可从顶部 EXPERIENCE_DESIGN_FOUNDATIONS 入门，再向下展开到具体指标与面板。
         "name": "玩家系统",
         "docs": [
-            "player/PLAYER_ABILITY_EVALUATION.md",
-            "player/PANEL_PARAMETERS.md",
+            "player/EXPERIENCE_DESIGN_FOUNDATIONS.md",
+            "player/STRATEGY_EXPERIENCE_MODEL.md",
             "player/REALTIME_STRATEGY.md",
+            "player/PANEL_PARAMETERS.md",
+            "player/PLAYER_ABILITY_EVALUATION.md",
             "player/PLAYSTYLE_DETECTION.md",
         ],
     },
@@ -3117,6 +3128,7 @@ _DOC_CATEGORIES = [
             "algorithms/ALGORITHMS_PLAYER_MODEL.md",
             "algorithms/ALGORITHMS_RL.md",
             "algorithms/ALGORITHMS_MONETIZATION.md",
+            "algorithms/MODEL_ENGINEERING_GUIDE.md",
         ],
     },
     {
@@ -3165,9 +3177,21 @@ _DOC_CATEGORIES = [
             "operations/MONETIZATION.md",
             "operations/MONETIZATION_CUSTOMIZATION.md",
             "operations/MONETIZATION_TRAINING_PANEL.md",
+            "platform/MONETIZATION_GUIDE.md",
             "operations/COMMERCIAL_OPERATIONS.md",
             "operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md",
             "operations/COMPLIANCE_AND_SOPS.md",
+        ],
+    },
+    {
+        # 新增分类：把基础设施 / 部署 / 安全 / 可观测性从「商业化与运营」拆出，
+        # 让 ops/SRE/平台工程师有专属入口，避免与商业化文档混在一栏。
+        "name": "运维与部署",
+        "docs": [
+            "operations/DEPLOYMENT.md",
+            "operations/K8S_DEPLOYMENT.md",
+            "operations/OBSERVABILITY.md",
+            "operations/SECURITY_HARDENING.md",
         ],
     },
     {

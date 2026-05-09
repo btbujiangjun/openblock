@@ -94,6 +94,7 @@ export const SIGNAL_LABELS = {
     delightStressAdjust:   { label: '里程碑',     hint: '接近里程碑时的甜点/挑战微调' },
     challengeBoost:        { label: 'B 类挑战',   hint: '逼近历史最佳分时的额外加压' },
     friendlyBoardRelief:   { label: '友好盘面',   hint: '盘面整洁且有兑现机会时主动减压，让你享受多消爽点' },
+    bottleneckRelief:      { label: '瓶颈低谷',   hint: '上个 dock 周期中，候选块的最少落子数曾跌到阈值（默认 ≤2）；此时减压并保消，避免连续被困' },
     flowPayoffCap:         { label: '心流上限',   hint: '心流 + 兑现期会把综合压力软封顶，避免「享受多消」与「高压」冲突' },
     occupancyDamping:      { label: '占用衰减',   hint: '盘面占用率 <50% 时按比例衰减正向 stress，避免空盘上 0.89 的伪高压' }
 };
@@ -108,7 +109,9 @@ export function summarizeContributors(breakdown, topN = 5) {
     const skip = new Set([
         'boardRisk', 'rawStress', 'beforeClamp', 'afterClamp',
         'afterOccupancy', 'afterSmoothing', 'finalStress',
-        'flowPayoffCap' // 派生标记，不是独立的加减分量
+        'flowPayoffCap', // 派生标记，不是独立的加减分量
+        /* v1.30：bottleneckTrough/Samples 是原始观测痕迹，不是 stress 贡献分量 */
+        'bottleneckTrough', 'bottleneckSamples'
     ]);
     const entries = Object.entries(breakdown)
         .filter(([k, v]) => !skip.has(k) && Number.isFinite(v) && Math.abs(v) >= 0.005)
@@ -199,10 +202,111 @@ const HARVEST_HIGH_STRESS_NARRATIVE_BY_LEVEL = {
 };
 
 /**
- * 从 spawnTargets / spawnHints / breakdown 拼一个「一句话叙事」：
- * 优先级：boardRisk 极高 > spawnIntent（唯一对外口径） > 老回放兜底
+ * v1.31：「冲分高压」叙事 ——
+ *
+ * 解决场景：spawnIntent ∈ {flow, harvest} 且 stress 已到 tense/intense 档，
+ *   但盘面其实非常友好（boardFill < 30%、holes = 0）。这种"高压"几乎全部来自
+ *   `scoreStress`（达到/逼近个人最佳）+ `feedbackBias`（玩家近期消行优于预期）+
+ *   `challengeBoost` 等**冲分类信号**，并不是因为盘面陷入危机。
+ *
+ * 旧版（v1.27/v1.29）的 FLOW/HARVEST 高压守卫文案默认假设"高压 = 盘面危机"，
+ *   会输出「保活/确保可落位/基础消行」之类的求生语义，与玩家所看到的空旷盘面
+ *   严重错位（截图复现：盘面 fill=20%、holes=0、解法 44 时仍说「保活」）。
+ *
+ * 本变体在更窄的几何条件下抢占 FLOW/HARVEST 高压守卫，把叙事切到"冲分仪式感"
+ * 语义；intent 不变（仍是 flow/harvest），只是文案表达更贴合体感。
+ *
+ * 触发条件（在 buildStoryLine 中显式判定）：
+ *   intent ∈ {flow, harvest}
+ *   ∧ level.id ∈ {tense, intense}
+ *   ∧ Number.isFinite(boardFill) ∧ boardFill < 0.30
+ *   ∧ holes === 0
  */
-export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
+const SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL = {
+    tense:   '冲分节奏拉紧，但盘面尚有余地——专注每一块的落位继续累积。',
+    intense: '正在冲击新高，节奏紧绷；盘面仍开阔，稳住关键落点把分数稳稳推上去。'
+};
+
+/**
+ * v1.31：harvest 按"消行机会密度"分级 ——
+ *
+ * 解决场景：旧版 SPAWN_INTENT_NARRATIVE.harvest 一律说「识别到**密集**消行机会」，
+ *   但 harvest 的触发门槛只是 `nearFullLines >= 2`（最低档）；nfl=2、mcc=2-3 时
+ *   并不算"密集"，措辞略夸张（截图复现）。
+ *
+ * 这里按几何强度分三档（仅在 level **未到** tense/intense 时启用，否则走
+ * HARVEST_HIGH_STRESS_NARRATIVE_BY_LEVEL 守卫）：
+ *
+ *   dense   : nfl >= 3 OR mcc >= 3       「密集」语义贴切
+ *   visible : nfl >= 2                    「清晰可见」中等强度（最常见）
+ *   edge    : pcSetup-only path（nfl < 2）「首个窗口」试一手
+ *
+ * 注意：未在 spawnDiagnostics 中提供时（旧回放 / 缺失 layer1）回退到 'visible'，
+ *      与旧默认文案在语义上最接近，避免改版让历史回放叙事突然变样。
+ */
+const HARVEST_NARRATIVE_BY_DENSITY = {
+    dense:   '识别到密集消行机会，正在投放促清的形状。',
+    visible: '已识别清晰的消行通道，正在投放更易兑现的组合。',
+    edge:    '出现首个消行窗口，先把握这一手试试看。'
+};
+
+/**
+ * v1.31：harvest 几何密度分类（纯函数，便于测试）
+ * @param {{ nearFullLines?: number, multiClearCandidates?: number }} [geom]
+ * @returns {'dense' | 'visible' | 'edge'}
+ */
+export function classifyHarvestDensity(geom) {
+    const nfl = Math.max(0, Math.floor(Number(geom?.nearFullLines) || 0));
+    const mcc = Math.max(0, Math.floor(Number(geom?.multiClearCandidates) || 0));
+    if (nfl >= 3 || mcc >= 3) return 'dense';
+    if (nfl >= 2) return 'visible';
+    return 'edge';
+}
+
+/**
+ * v1.31：score-push 高压守卫触发判定（纯函数，便于测试）
+ *
+ * 仅当满足全部条件才返回 true：
+ *   intent ∈ {flow, harvest} ∧ level.id ∈ {tense, intense}
+ *   ∧ boardFill < 阈值（默认 0.30）∧ holes === 0
+ *
+ * 当 boardFill 缺失（旧回放 / 未透传）时返回 false，回退到既有守卫文案，
+ * 避免误命中导致历史叙事被改写。
+ *
+ * @param {{ id?: string }} level
+ * @param {string} intent
+ * @param {{ boardFill?: number, holes?: number }} [geom]
+ * @param {number} [fillThreshold=0.30]
+ * @returns {boolean}
+ */
+export function shouldUseScorePushHighStress(level, intent, geom, fillThreshold = 0.30) {
+    if (intent !== 'flow' && intent !== 'harvest') return false;
+    const id = level?.id;
+    if (id !== 'tense' && id !== 'intense') return false;
+    const fill = Number(geom?.boardFill);
+    if (!Number.isFinite(fill)) return false;
+    if (fill >= fillThreshold) return false;
+    const holes = Number(geom?.holes);
+    if (Number.isFinite(holes) && holes > 0) return false;
+    return true;
+}
+
+/**
+ * 从 spawnTargets / spawnHints / breakdown 拼一个「一句话叙事」：
+ * 优先级：boardRisk 极高 > **score-push 高压守卫（v1.31）** > spawnIntent（唯一对外口径） > 老回放兜底
+ *
+ * @param {{id?:string,vibe?:string}} level                stress 档位（getStressDisplay 输出）
+ * @param {object} breakdown                                stressBreakdown
+ * @param {object} spawnTargets                             spawnTargets
+ * @param {object} spawnHints                               spawnHints（rhythmPhase / spawnIntent 等）
+ * @param {{
+ *   boardFill?: number,        // 现盘填充率（来自 spawnDiagnostics.layer1.fill）
+ *   holes?: number,            // 空洞数（同上）
+ *   nearFullLines?: number,    // 临消行数（同上，用于 harvest 密度分级）
+ *   multiClearCandidates?: number  // 多消候选块数（同上）
+ * }} [geometry]                v1.31 新增：score-push 守卫与 harvest 密度分级所需几何上下文
+ */
+export function buildStoryLine(level, breakdown, spawnTargets, spawnHints, geometry) {
     if (!breakdown) return level.vibe;
     const br = breakdown.boardRisk ?? 0;
     const recovery = breakdown.recoveryAdjust ?? 0;
@@ -223,9 +327,18 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
      *
      * v1.24：spawnIntent='flow' 时按实际 rhythmPhase 选变体，避免叙事说"收获期"
      * 与 pill「节奏 搭建」+ strategyAdvisor「搭建期」三方对立（R1 空盘 + delight.mode=
-     * flow_payoff 时常见）。其他 intent 仍走单一映射。 */
+     * flow_payoff 时常见）。其他 intent 仍走单一映射。
+     *
+     * v1.31：在 FLOW/HARVEST 高压守卫之前插入"冲分高压"守卫 —— 当 stress 高但盘面
+     * 实际很友好（fill<30% + 无洞）时，叙事切到"冲分仪式感"语义，避免「保活/确保
+     * 可落位」与空旷盘面的反差。 */
     if (br >= 0.6) return '盘面很紧张，系统正在为你保活，候选块更易消行。';
     const intent = spawnHints?.spawnIntent;
+    /* v1.31 score-push 守卫：抢占 FLOW/HARVEST 的高压守卫文案 */
+    if (shouldUseScorePushHighStress(level, intent, geometry)) {
+        const sp = SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL[level?.id];
+        if (sp) return sp;
+    }
     if (intent === 'flow') {
         const highStressFlow = FLOW_HIGH_STRESS_NARRATIVE_BY_LEVEL[level?.id];
         if (highStressFlow) return highStressFlow;
@@ -235,6 +348,13 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints) {
     if (intent === 'harvest') {
         const highHarvest = HARVEST_HIGH_STRESS_NARRATIVE_BY_LEVEL[level?.id];
         if (highHarvest) return highHarvest;
+        /* v1.31：低-中压 harvest 按几何密度分级（dense / visible / edge）。
+         * geometry 完全缺失（旧回放 / 没传 spawnDiagnostics）时回到 v1.30 的
+         * SPAWN_INTENT_NARRATIVE.harvest 默认文案，保持向后兼容；
+         * 仅在显式传入 geometry 后才启用三档分级。 */
+        if (!geometry) return SPAWN_INTENT_NARRATIVE.harvest;
+        const density = classifyHarvestDensity(geometry);
+        return HARVEST_NARRATIVE_BY_DENSITY[density] ?? SPAWN_INTENT_NARRATIVE.harvest;
     }
     const narrative = intent && SPAWN_INTENT_NARRATIVE[intent];
     if (narrative) return narrative;
@@ -340,7 +460,23 @@ export function renderStressMeter(root, insight, stressHistory = []) {
     const intent = insight.spawnHints?.spawnIntent ?? insight.spawnIntent ?? null;
     const level = getStressDisplay(stress, intent);
     const trend = computeTrend(stressHistory, stress, 6);
-    const story = buildStoryLine(level, insight.stressBreakdown, insight.spawnTargets, insight.spawnHints);
+    /* v1.31：把 spawn 时刻的盘面几何（fill / holes / nearFullLines / mcc）透传给
+     * buildStoryLine，用于：
+     *   (1) score-push 守卫判定（高 stress + 友好盘面 → 切"冲分仪式感"叙事）
+     *   (2) harvest 密度分级（dense / visible / edge）
+     * 这些字段都来自 blockSpawn.diagnostics.layer1（在 _commitSpawn 里写入），
+     * 同一帧 spawn 的"现盘"快照，与 stress 计算时的 boardFill 等价。
+     * 旧回放可能没有 spawnDiagnostics，此时 geometry.* 缺失，buildStoryLine 内部
+     * 会回退到既有守卫文案，保证向后兼容。 */
+    const _layer1 = insight.spawnDiagnostics?.layer1;
+    const _toFinite = (v) => (Number.isFinite(v) ? v : undefined);
+    const geometry = _layer1 ? {
+        boardFill: _toFinite(_layer1.fill),
+        holes: _toFinite(_layer1.holes),
+        nearFullLines: _toFinite(_layer1.nearFullLines),
+        multiClearCandidates: _toFinite(_layer1.multiClearCandidates)
+    } : undefined;
+    const story = buildStoryLine(level, insight.stressBreakdown, insight.spawnTargets, insight.spawnHints, geometry);
     const barPct = _stressToBar(stress);
 
     const trendTitle = trend.direction === 'up'

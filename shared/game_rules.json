@@ -187,7 +187,8 @@
       "boardRiskReliefAdjust": { "enabled": true, "scale": 1 },
       "abilityRiskAdjust": { "enabled": true, "scale": 1 },
       "delightStressAdjust": { "enabled": true, "scale": 1 },
-      "friendlyBoardRelief": { "enabled": true, "scale": 1 }
+      "friendlyBoardRelief": { "enabled": true, "scale": 1 },
+      "bottleneckRelief": { "enabled": true, "scale": 1 }
     },
     "stressSmoothing": {
       "comment": "对最终 stress 做轻量滞后，避免普通状态跳变；救场/近失/挫败等减压信号立即生效。",
@@ -229,12 +230,16 @@
       "thresholdMs": 15000
     },
     "topologyDifficulty": {
-      "comment": "盘面拓扑难度：holes 使用“所有形状都无法覆盖的空格”口径。它代表真实可修复性下降，因此进入 board pressure，并以救援方式降低出块压力、提高消行保障。",
+      "comment": "盘面拓扑难度：holes 使用“所有形状都无法覆盖的空格”口径，代表真实可修复性下降；进入 board pressure 并以救援方式降低出块压力、提高消行保障。v1.30 起新增 bottleneck* 系列：跨 dock 周期记录候选块 firstMoveFreedom 的最低点（trough），≤阈值时注入 bottleneckRelief 负向 stress 并抬高 clearGuarantee/偏小块。",
       "holePressureMax": 8,
       "holeReliefStress": -0.16,
       "boardRiskReliefStress": -0.1,
       "holeClearGuaranteeAt": 2,
-      "holeSizePreference": -0.22
+      "holeSizePreference": -0.22,
+      "bottleneckTroughThreshold": 2,
+      "bottleneckReliefMax": -0.12,
+      "bottleneckClearGuaranteeAt": 2,
+      "bottleneckSizePreferenceDelta": -0.18
     },
     "flowZone": {
       "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",

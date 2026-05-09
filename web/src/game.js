@@ -149,7 +149,10 @@ export class Game {
         this._clearStreak = 0;
 
         /** 跨轮出块上下文：传给 adaptiveSpawn + blockSpawn 的三层信号 */
-        this._spawnContext = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false };
+        this._spawnContext = {
+            lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
+            bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0
+        };
 
         this.behaviors = [];
         this.backendSync = new BackendSync(this.db.userId);
@@ -267,6 +270,49 @@ export class Game {
     }
 
     /**
+     * v1.30：追踪 dock 周期内 firstMoveFreedom 的最低点（"瓶颈低谷"）。
+     *
+     * 物理含义：当前 dock 三块在玩家陆续放置过程中，剩余未放置候选的最少合法落子数。
+     * trough = `min(firstMoveFreedom)`（dock 周期内所有快照的最小值）。trough 越小说
+     * 明这一轮玩家越接近"被困"。下次 spawnBlocks 时由 adaptiveSpawn.js 读取，
+     * 转换为 `bottleneckRelief`（负向 stress）+ 提升 `clearGuarantee/sizePreference`。
+     *
+     * 实施细节：
+     *   - 在每次 placement 后调用，仅在仍有未放置块时更新（snap≠null）
+     *   - `_captureAdaptiveInsight` 透传当前 trough 至 `_lastAdaptiveInsight`，便于面板查看
+     *   - `_commitSpawn` 末尾调用 `_resetBottleneckTrough` 让新一轮从 +Infinity 重新计数
+     *
+     * 与现有 `getCandidatePlacementSolutionSnapshot()` 共享缓存（依赖 dock 签名变化）。
+     */
+    _updateBottleneckTrough() {
+        if (!this._spawnContext) return;
+        const snap = this.getCandidatePlacementSolutionSnapshot();
+        if (!snap) return;
+        const fmf = Number(snap.firstMoveFreedom);
+        const sc = Number(snap.solutionCount);
+        const prev = Number(this._spawnContext.bottleneckTrough);
+        if (Number.isFinite(fmf)) {
+            this._spawnContext.bottleneckTrough =
+                Number.isFinite(prev) ? Math.min(prev, fmf) : fmf;
+        }
+        const prevSc = Number(this._spawnContext.bottleneckSolutionTrough);
+        if (Number.isFinite(sc)) {
+            this._spawnContext.bottleneckSolutionTrough =
+                Number.isFinite(prevSc) ? Math.min(prevSc, sc) : sc;
+        }
+        this._spawnContext.bottleneckSamples =
+            (Number(this._spawnContext.bottleneckSamples) || 0) + 1;
+    }
+
+    /** 在 _commitSpawn 末尾重置：新 dock 周期开始计数 */
+    _resetBottleneckTrough() {
+        if (!this._spawnContext) return;
+        this._spawnContext.bottleneckTrough = Infinity;
+        this._spawnContext.bottleneckSolutionTrough = Infinity;
+        this._spawnContext.bottleneckSamples = 0;
+    }
+
+    /**
      * 在 recordSpawn 之前调用，记录决策瞬间的 stress / hints（与投放一致）
      * @param {object} layered resolveAdaptiveStrategy 返回值
      */
@@ -324,6 +370,14 @@ export class Game {
         if (Number.isFinite(layered._occupancyFillAnchor)) {
             this._spawnContext._occupancyFillAnchor = layered._occupancyFillAnchor;
         }
+        /* v1.30：把上一周期的瓶颈低谷透传到 insight 面板，便于排障与回放对照。
+         * trough 已被 adaptiveSpawn 消费成 stressBreakdown.bottleneckRelief，但原始数值
+         * 单独留在 insight 上比从 breakdown 反推更直观。 */
+        const _bt = Number(this._spawnContext.bottleneckTrough);
+        const _bs = Number(this._spawnContext.bottleneckSolutionTrough);
+        this._lastAdaptiveInsight.bottleneckTrough = Number.isFinite(_bt) ? _bt : null;
+        this._lastAdaptiveInsight.bottleneckSolutionTrough = Number.isFinite(_bs) ? _bs : null;
+        this._lastAdaptiveInsight.bottleneckSamples = Number(this._spawnContext.bottleneckSamples) || 0;
     }
 
     async init() {
@@ -646,7 +700,11 @@ export class Game {
                 startTime: Date.now()
             };
             this._clearStreak = 0;
-            this._spawnContext = { lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false, bestScore: this.bestScore ?? 0 };
+            this._spawnContext = {
+                lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
+                bestScore: this.bestScore ?? 0,
+                bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0
+            };
             try {
                 if (typeof localStorage !== 'undefined') {
                     const raw = localStorage.getItem('openblock_spawn_warmup_v1');
@@ -1064,6 +1122,8 @@ export class Game {
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
         this._spawnContext.prevAdaptiveStress = layered._adaptiveStress;
+        /* v1.30：新一波 dock 起始，重置上一周期的瓶颈低谷统计 */
+        this._resetBottleneckTrough();
 
         const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin());
         const dockColors = pickThreeDockColors(bonusBias);
@@ -1376,6 +1436,7 @@ export class Game {
             result.bonusLines = result.count > 0 ? _bonusLinesSnap : [];
             result.perfectClear = result.count > 0 && this.grid.getFillRatio() === 0;
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
+            this._updateBottleneckTrough();
             this._refreshPlayerInsightPanel();
             this._spawnModelLayerRefresh?.();
 
