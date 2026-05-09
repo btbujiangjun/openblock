@@ -128,3 +128,63 @@ RL 机器人面板（`#rl-panel`，右栏）与玩家画像面板（`#player-ins
 | Active | 升至 78% accent |
 
 主题色未来切换皮肤（覆盖 `--accent-color`）时滚动条自动跟随，无需额外配置。
+
+## 7. 面板收起 / 展开（v1.33）
+
+> 文件：`web/index.html`（按钮 + inline 防闪烁脚本）、`web/public/styles/main.css`（`.rl-collapsed` 规则与 `--cell-px-width-reserve` / `--cell-px-height-reserve` / `--cell-px-max`）、`web/src/bot/rlPanel.js`（`setRlPanelCollapsed` 与按钮绑定）
+
+### 7.1 动机
+
+RL 训练面板在不需要看训练曲线时（绝大多数纯玩家会话）依然占用约 120~360px 右侧栏宽度。这部分空间在玩游戏时是**纯负担** —— 中央 `--cell-px` 受 `(100vw - widthReserve) / 15` 与 `(100dvh - heightReserve) / 13` 双重上限约束，导致盘面与候选区无法用满视口。v1.33 引入「**整面板收起 → 把空间还给游戏**」交互；v1.34 进一步把收起态升级为「**游戏聚焦布局**」，同时扩大棋盘格与候选方块。
+
+### 7.2 收起态规则
+
+| 维度 | 展开态（默认） | 收起态（`.rl-collapsed`） |
+| --- | --- | --- |
+| `.rl-panel` 宽度 | `clamp(120px, …, 360px)` | **36px** 细栏 |
+| `#app` 右内边距 | 8(inset) + rail + 8(gap) | **52px** = 8 + 36 + 8 |
+| `--cell-px-width-reserve` | **332px** = 2×120 + 60 | **188px**（更激进释放右栏空间） |
+| `--cell-px-height-reserve` | **257px** | **214px**（压缩标题、统计、skill bar、dock 间距） |
+| `--cell-px-max` | **80px** | **88px** |
+| 可见内容 | header-row + 全部 details | 仅 `.rl-collapsed-strip`（🦾 按钮 + 旋转标签） |
+| `--cell-px` 上限实际抬升 | — | **横向 + 纵向同时抬升**，棋盘与候选块同步变大 |
+
+`--cell-px-width-reserve` / `--cell-px-height-reserve` / `--cell-px-max` 从 `--cell-px` 公式中提取出来，便于在收起态用变量 override 同时影响盘面与候选区尺寸：
+
+```css
+--cell-px: clamp(
+  22px,
+  min(
+    (100dvh - var(--cell-px-height-reserve)) / 13,
+    (100vw - var(--cell-px-width-reserve)) / 15
+  ),
+  var(--cell-px-max)
+);
+```
+
+收起态还会轻量压缩周边 chrome：顶部字标缩小、统计行内边距/字号收敛、`.play-stack` gap 与 padding 收紧、skill 按钮从 38px 降到 34px、dock 上下边距减少。这样右侧空间释放后不会只形成留白，而会被 `--cell-px` 吃掉，表现为**棋盘格子、盘面 canvas、候选方块 canvas 同步放大**。
+
+### 7.3 状态持久化与防闪烁
+
+- 持久化键：`localStorage["openblock_rl_panel_collapsed_v1"]`（`"1"`=收起，`"0"`/缺失=展开）
+- `index.html <head>` 中 inline 脚本在 `main.css` 加载之后、`<body>` 渲染之前读取 storage，命中时给 `<html>` 加 `.rl-collapsed`，避免「先展开再瞬间收起」的闪烁
+- class 挂在 `<html>` 而非 `<body>`，是因为 inline 脚本执行时 body 还未创建；CSS 选择器统一使用 `.rl-collapsed` / `:root:not(.rl-collapsed)` 与挂载点解耦
+
+### 7.4 按钮交互与 ARIA
+
+| ID | 位置 | 文案 | 触发 |
+| --- | --- | --- | --- |
+| `#rl-collapse-btn` | `.rl-header-row` 末尾 | `›` | 点击 → `setRlPanelCollapsed(true)`，焦点移交到 `#rl-expand-btn` |
+| `#rl-expand-btn` | `.rl-collapsed-strip` 首项 | `🦾` | 点击 → `setRlPanelCollapsed(false)`，焦点移交到 `#rl-collapse-btn` |
+
+两按钮的 `aria-expanded` 反映"面板是否展开"，初始值由 `initRLPanel` 末尾根据 `<html>` 当前 class 投影一次（与 inline 脚本预设状态对齐）。
+
+### 7.5 与盘面尺寸联动
+
+收起 / 展开后，`setRlPanelCollapsed` 主动 `dispatchEvent(new Event('resize'))` 触发：
+
+1. CSS clamp 重算 `--cell-px` → 盘面 canvas CSS 尺寸更新
+2. `game.js` 的 `ResizeObserver(canvas)` 检测到 dock 单元尺寸变化 → `refreshDockSkin()` 重绘候选区
+3. dock 候选块 / skin 视觉与盘面方块保持像素一致
+
+整个过程纯 DOM/CSS，不读取/修改游戏内部状态；其它模块可独立 `import { setRlPanelCollapsed } from './bot/rlPanel.js'` 调用（如未来"全屏游戏"入口）。

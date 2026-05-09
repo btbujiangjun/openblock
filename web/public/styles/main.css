@@ -10,20 +10,28 @@
                   + 26px(play-stack 上下 padding) + 20px(2×gap) + 24px(dock 上下 padding)
                   + 42px(skill-bar：38 高 + 4 padding-top)
                   + 145px(app padding + 顶部 header + score-theme-row)
-                  = 13×cell + 257px ≤ 100dvh
-                  → cell ≤ (100dvh - 257px) / 13
+                  = 13×cell + heightReserve ≤ 100dvh
+                  → cell ≤ (100dvh - heightReserve) / 13
                   备注：少算 skill-bar / 第二个 gap 时，play-stack overflow:hidden 会把候选区
                   最下面 1 格裁掉 → 表现为「5×1 竖条无法完整显示」。
-       · 宽度约束：play-inner-span = 15×cell + 32px(dock 内边距) ≤ 100vw - 2×120px(侧栏下限) - 60px
-                  → cell ≤ (100vw - 332px) / 15
-       · clamp 22-80px 防极端 */
+       · 宽度约束：play-inner-span = 15×cell + 32px(dock 内边距) ≤ 100vw - reserve
+                  reserve 默认 332px = 2×120px(侧栏下限) + 60px 缓冲
+                  → cell ≤ (100vw - reserve) / 15
+                  v1.33：reserve 提取为 --cell-px-width-reserve，.rl-collapsed 时
+                  收起 RL 面板，主区可加宽；v1.34 进一步降到 188px 激进填充右侧区域。
+       · v1.34：heightReserve / max 也提取为变量，RL 收起态进入游戏聚焦布局：
+                  右侧空间变宽 + 纵向 chrome 压缩，棋盘和候选方块同步放大。
+       · clamp 22-max 防极端 */
+    --cell-px-width-reserve: 332px;
+    --cell-px-height-reserve: 257px;
+    --cell-px-max: 80px;
     --cell-px: clamp(
         22px,
         min(
-            calc((100dvh - 257px) / 13),
-            calc((100vw - 332px) / 15)
+            calc((100dvh - var(--cell-px-height-reserve)) / 13),
+            calc((100vw - var(--cell-px-width-reserve)) / 15)
         ),
-        80px
+        var(--cell-px-max)
     );
 
     /* 棋盘画布宽度 = 8 × cell（与盘面格视觉精确对应） */
@@ -61,6 +69,16 @@
     --skin-wm-inset-frac: 0.05;
     --skin-wm-radius-frac: 0.125;
     --skin-wm-gridgap-frac: 0.125;
+    /* 盘面语境浮层锚点：由 game.js 根据 #game-wrapper 实时写入。
+       默认回退到视口中心，避免首屏 JS 尚未初始化时浮层跑偏。 */
+    --board-overlay-left: 50vw;
+    --board-overlay-top: 50vh;
+    --board-overlay-width: min(88vw, 420px);
+    --board-overlay-height: min(88vh, 420px);
+    --board-overlay-right: calc(var(--board-overlay-left) + var(--board-overlay-width));
+    --board-overlay-bottom: calc(var(--board-overlay-top) + var(--board-overlay-height));
+    --board-overlay-center-x: 50vw;
+    --board-overlay-center-y: 50vh;
 }
 
 * {
@@ -1390,7 +1408,12 @@ body.game-rl-preview .block-dock {
 
 /* ── 游戏结束「内嵌盘面」面板（v10.18：去除全屏 dim/blur，直接落在棋盘中央） ── */
 .game-over-overlay {
-    /* 让 #game-over.screen 的全屏渐变背景隐去，仅保留居中布局 */
+    /* v1.36：结算卡不再按视口居中，而是把 #game-over 这层缩到盘面矩形，
+       让 flex 居中自然落在棋盘中央。RL 面板收起、盘面放大后也跟随。 */
+    top: var(--board-overlay-top, 50vh);
+    left: var(--board-overlay-left, 50vw);
+    width: var(--board-overlay-width, min(88vw, 420px));
+    height: var(--board-overlay-height, min(88vh, 420px));
     background: transparent !important;
     /* 整个面板不拦截事件，仅卡片本身可点击；侧栏/置顶仍可交互 */
     pointer-events: none;
@@ -2742,6 +2765,180 @@ body.game-over-active .first-win-banner {
     flex-wrap: wrap;
 }
 
+/* ==================================================================== */
+/*  v1.33：RL 面板收起 / 展开 — 把右侧栏空间让给中央游戏区               */
+/*  ----------------------------------------------------------------    */
+/*  收起态规则（.rl-collapsed 类挂在 <html> / `:root`）：                */
+/*    1. .rl-panel 由 clamp(120px,…,360px) 收到 36px 细栏（仅展开按钮）  */
+/*    2. #app 右内边距同步收到 52px = 36 + 8 inset + 8 gap               */
+/*    3. --cell-px-width-reserve 由 332 降到 188                         */
+/*       --cell-px-height-reserve 由 257 降到 214，--cell-px-max 到 88    */
+/*       → 横向 + 纵向上限同步抬高，盘面/候选自动放大                    */
+/*    4. 隐藏所有 details 与 header-row，露出 .rl-collapsed-strip 列条   */
+/*    5. 压缩顶部品牌、统计行、skill bar 与 dock 间距，把纵向空间让给格子 */
+/*  展开态规则：                                                         */
+/*    - .rl-collapsed-strip 隐藏；rl-collapse-btn 显示在 header-row 里   */
+/*  状态持久化由 rlPanel.js 写入 localStorage；首屏在 head 里 inline     */
+/*  脚本提前打类到 <html>（body 此时尚未创建），避免闪烁。               */
+/*  CSS 选择器统一用 .rl-collapsed / :root:not(.rl-collapsed)，与挂载点  */
+/*  解耦（既支持 html 也支持 body 后续迁移）。                           */
+/* ==================================================================== */
+.rl-collapsed {
+    --cell-px-width-reserve: 188px;
+    --cell-px-height-reserve: 214px;
+    --cell-px-max: 88px;
+}
+
+.rl-collapsed .rl-panel {
+    width: 36px !important;
+    max-width: 36px !important;
+    padding: 6px 4px;
+    overflow: hidden;
+}
+
+.rl-collapsed #app {
+    padding-top: max(6px, env(safe-area-inset-top, 0px));
+    padding-right: max(10px, calc(var(--game-shell-inset) + 36px + var(--app-side-rail-gap)));
+    padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+}
+
+/* 收起 RL 时进入游戏聚焦布局：不隐藏信息，只压缩周边 chrome，让扩大后的格子有纵向空间。 */
+.rl-collapsed #app > .header {
+    margin-bottom: 2px;
+    padding: 2px 8px 0;
+}
+
+.rl-collapsed .header .app-wordmark {
+    --wm-cell-w: 4.2px;
+    --wm-cell-h: 6.3px;
+    padding: 2px 6px;
+    filter:
+        drop-shadow(0 0 7px color-mix(in srgb, #fbbf24 18%, transparent))
+        drop-shadow(0 1px 2px rgba(0, 0, 0, 0.12));
+}
+
+.rl-collapsed .score-theme-row {
+    margin-bottom: 2px;
+}
+
+.rl-collapsed .score-theme-row .stat-box {
+    padding: 1px 12px;
+    row-gap: 0;
+}
+
+.rl-collapsed .stat-label {
+    font-size: 10px;
+}
+
+.rl-collapsed .stat-value {
+    font-size: 25px;
+}
+
+.rl-collapsed .score-theme-row .stat-subline--spacer,
+.rl-collapsed .score-theme-row .best-gap,
+.rl-collapsed .score-theme-row .progression-streak {
+    min-height: 9px;
+}
+
+.rl-collapsed .play-stack {
+    gap: 4px;
+    margin-top: 0;
+    padding: 6px 4px 8px;
+}
+
+.rl-collapsed .skill-bar {
+    gap: 8px;
+    padding-top: 2px;
+}
+
+.rl-collapsed .skill-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    font-size: 18px;
+}
+
+.rl-collapsed .block-dock {
+    gap: 4px;
+    padding: 4px 5px max(6px, env(safe-area-inset-bottom, 0px));
+    min-height: calc(5 * var(--cell-px) + 10px);
+}
+
+.rl-collapsed .rl-panel > .rl-header-row,
+.rl-collapsed .rl-panel > details.panel-section {
+    display: none !important;
+}
+
+:root:not(.rl-collapsed) .rl-collapsed-strip {
+    display: none !important;
+}
+
+.rl-collapsed-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    height: 100%;
+    padding-top: 6px;
+    box-sizing: border-box;
+}
+
+.rl-collapsed-strip-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    color: var(--text-secondary, #5d7a96);
+    user-select: none;
+    margin-top: 2px;
+    white-space: nowrap;
+}
+
+.rl-collapse-btn,
+.rl-expand-btn {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 18%, transparent);
+    color: var(--text-secondary, #5d7a96);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0;
+    flex-shrink: 0;
+    transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.rl-collapse-btn:hover,
+.rl-expand-btn:hover {
+    background: color-mix(in srgb, var(--accent-color, #5b9bd5) 14%, transparent);
+    color: var(--accent-color, #4472c4);
+}
+
+.rl-collapse-btn:active,
+.rl-expand-btn:active {
+    transform: scale(0.94);
+}
+
+/* 展开态下的「收起」按钮：占位最小，挂在 header-row 末尾 */
+.rl-collapse-btn {
+    width: 22px;
+    height: 22px;
+    font-size: 13px;
+    margin-left: auto;
+}
+
+/* 收起态下的「展开」按钮：稍大，作为细栏的主交互入口 */
+.rl-expand-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .rl-panel-title {
     font-size: 9px;
     margin: 0;
@@ -3742,8 +3939,8 @@ body.game-over-active .first-win-banner {
 
 .achievement-popup {
     position: fixed;
-    top: 50%;
-    left: 50%;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
     transform: translate(-50%, -50%);
     background: linear-gradient(135deg, #FFD700, #FFA500);
     color: #333;
@@ -3765,8 +3962,8 @@ body.game-over-active .first-win-banner {
 
 .new-best-popup {
     position: fixed;
-    top: 42%;
-    left: 50%;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
     transform: translate(-50%, -50%);
     padding: 18px 28px;
     border-radius: 18px;
@@ -3824,8 +4021,8 @@ body.game-over-active .first-win-banner {
 
 .no-moves-overlay {
     position: fixed;
-    top: 50%;
-    left: 50%;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
     transform: translate(-50%, -50%);
     display: flex;
     flex-direction: column;
@@ -5040,7 +5237,8 @@ body.doc-visibility-hidden #menu * {
    =================================================================== */
 .revive-overlay {
     position: fixed;
-    top: 50%; left: 50%;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
     transform: translate(-50%, -50%);
     z-index: 600;
     display: flex;
@@ -5231,8 +5429,8 @@ body.doc-visibility-hidden #menu * {
 /* 2. 节日 / 时段推荐 toast（顶部居中条幅，含「切换」按钮） */
 #seasonal-toast {
     position: fixed;
-    top: 14px;
-    left: 50%;
+    top: max(14px, calc(var(--board-overlay-top, 0px) + 8px));
+    left: var(--board-overlay-center-x, 50vw);
     transform: translate(-50%, -16px);
     z-index: 9100;
     display: flex;
@@ -5322,8 +5520,11 @@ body.doc-visibility-hidden #menu * {
 #easter-egg-toast {
     /* —— 默认：底部玻璃条幅（道具反馈用） —— */
     position: fixed;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 110px);
-    left: 50%;
+    bottom: max(
+        calc(env(safe-area-inset-bottom, 0px) + 18px),
+        calc(100dvh - var(--board-overlay-bottom, 0px) + 18px)
+    );
+    left: var(--board-overlay-center-x, 50vw);
     top: auto;
     transform: translate(-50%, 8px);
     z-index: 9200;
@@ -5361,8 +5562,8 @@ body.doc-visibility-hidden #menu * {
 */
 #easter-egg-toast[data-tier="celebrate"] {
     bottom: auto;
-    top: 36%;
-    left: 50%;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
     transform: translate(-50%, -50%) scale(0.78) rotate(-1deg);
     padding: 30px 60px 26px;
     min-width: 280px;
@@ -6486,7 +6687,7 @@ body.doc-visibility-hidden #menu * {
 
 /* ── 闪电模式 HUD ── */
 .lm-hud {
-    position: fixed; top: 14px; left: 50%;
+    position: fixed; top: max(14px, calc(var(--board-overlay-top, 0px) + 8px)); left: var(--board-overlay-center-x, 50vw);
     transform: translateX(-50%);
     z-index: 8000;
     background: linear-gradient(135deg, rgba(245, 158, 11, 0.92), rgba(217, 119, 6, 0.92));
@@ -6509,7 +6710,7 @@ body.doc-visibility-hidden #menu * {
 
 /* ── Zen 模式 HUD ── */
 .zen-hud {
-    position: fixed; top: 14px; left: 50%;
+    position: fixed; top: max(14px, calc(var(--board-overlay-top, 0px) + 8px)); left: var(--board-overlay-center-x, 50vw);
     transform: translateX(-50%);
     z-index: 8000;
     background: rgba(20, 28, 40, 0.86);
@@ -6801,7 +7002,13 @@ body.doc-visibility-hidden #menu * {
 .apd-decline { background: rgba(255, 255, 255, 0.12); color: #cbd5e1; }
 .apd-accept { background: linear-gradient(90deg, #f472b6, #ec4899); color: #fff; }
 .apk-share-toast {
-    position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%);
+    position: fixed;
+    bottom: max(
+        calc(env(safe-area-inset-bottom, 0px) + 18px),
+        calc(100dvh - var(--board-overlay-bottom, 0px) + 18px)
+    );
+    left: var(--board-overlay-center-x, 50vw);
+    transform: translateX(-50%);
     z-index: 8800;
     background: rgba(22, 26, 38, 0.92);
     backdrop-filter: none;
@@ -6828,7 +7035,10 @@ body.doc-visibility-hidden #menu * {
 
 /* ── 预览 toast（道具） ── */
 .preview-toast {
-    position: fixed; top: 90px; left: 50%; transform: translateX(-50%);
+    position: fixed;
+    top: calc(var(--board-overlay-top, 90px) + 72px);
+    left: var(--board-overlay-center-x, 50vw);
+    transform: translateX(-50%);
     z-index: 8500;
     background: rgba(22, 28, 42, 0.94);
     backdrop-filter: none;

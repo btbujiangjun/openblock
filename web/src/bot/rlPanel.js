@@ -21,9 +21,48 @@ const AVG_WINDOW = 40;
 const EPISODE_LOG_MAX_LINES = 80;
 const VIZ_STEP_MS = 220;
 const LS_RL_PYTORCH = 'rl_use_pytorch';
+/** v1.33: RL 面板收起态持久化键（与 index.html 中 inline 防闪烁脚本严格一致）。 */
+const LS_RL_COLLAPSED = 'openblock_rl_panel_collapsed_v1';
 
 function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * v1.33: RL 面板收起 / 展开控制 ——
+ *   - 收起：把 .rl-collapsed 类挂到 <html>（与 index.html `<head>` 中的防闪烁脚本同根），
+ *     CSS 端把 .rl-panel 收到 36px 细栏，#app 右内边距随之收到 52px；
+ *     --cell-px-width-reserve / --cell-px-height-reserve / --cell-px-max 同步切换，
+ *     盘面与候选区会按新的横纵上限自动放大。
+ *   - 展开：移除 class，恢复 clamp(120px,…,360px) 宽度。
+ *   - 状态写入 localStorage[LS_RL_COLLAPSED]，下次刷新由 inline 脚本提前打类避免闪烁。
+ *   - 触发一次 'resize' 让 ResizeObserver / cell-px clamp 重算 + dock 重渲染。
+ *
+ * 设计原则：纯 DOM/CSS 切换，不影响 RL 训练逻辑、不读取游戏内部状态；任何模块都
+ * 可独立调用 setRlPanelCollapsed(true) 强制收起（如未来「全屏游戏」模式入口）。
+ *
+ * @param {boolean} collapsed true=收起，false=展开
+ * @param {{ persist?: boolean }} [opts] persist 为 false 时只切 UI 不写 localStorage
+ */
+function setRlPanelCollapsed(collapsed, { persist = true } = {}) {
+    const root = document.documentElement;
+    if (!root) return;
+    root.classList.toggle('rl-collapsed', collapsed);
+    if (persist) {
+        try {
+            localStorage.setItem(LS_RL_COLLAPSED, collapsed ? '1' : '0');
+        } catch { /* storage 满 / 隐私模式：忽略 */ }
+    }
+    /* 同步 ARIA：两端按钮的 aria-expanded 反映「面板是否展开」 */
+    const collapseBtn = document.getElementById('rl-collapse-btn');
+    const expandBtn = document.getElementById('rl-expand-btn');
+    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    /* 触发布局重算：游戏盘面 ResizeObserver 监听 canvas CSS 宽度，--cell-px 变化时
+     * dock 会自动 refreshDockSkin。dispatch 'resize' 是兜底，确保任何 window 级监听都能感知。 */
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('resize'));
+    }
 }
 
 /**
@@ -720,4 +759,41 @@ export function initRLPanel(game) {
             }
         }
     })();
+
+    /* ====================================================================
+     * v1.33: 收起 / 展开按钮绑定
+     *
+     * 入口（两个按钮，互为镜像）：
+     *   #rl-collapse-btn  在 .rl-header-row 内，展开态时可见 → 点击收起
+     *   #rl-expand-btn    在 .rl-collapsed-strip 内，收起态时可见 → 点击展开
+     *
+     * 同步初始 ARIA 状态：inline 脚本可能已在首屏前打 .rl-collapsed 类，
+     * 此处补上按钮 aria-expanded（避免屏幕阅读器在按钮就绪后读到 stale 状态）。
+     * 注意：不在 setRlPanelCollapsed 中读取 storage 再覆写，避免与 inline
+     * 脚本的「优先 storage」语义冲突；这里只把当前 DOM 状态投影到按钮 ARIA。
+     * ==================================================================== */
+    const collapseBtn = document.getElementById('rl-collapse-btn');
+    const expandBtn = document.getElementById('rl-expand-btn');
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', () => {
+            setRlPanelCollapsed(true);
+            /* 移交焦点到展开按钮，键盘用户继续 Tab 时不会落到隐藏元素 */
+            const next = document.getElementById('rl-expand-btn');
+            if (next) next.focus({ preventScroll: true });
+        });
+    }
+    if (expandBtn) {
+        expandBtn.addEventListener('click', () => {
+            setRlPanelCollapsed(false);
+            const next = document.getElementById('rl-collapse-btn');
+            if (next) next.focus({ preventScroll: true });
+        });
+    }
+    /* 把 inline 脚本提前打的 .rl-collapsed 投影到按钮初始 aria-expanded */
+    const initiallyCollapsed = document.documentElement.classList.contains('rl-collapsed');
+    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', initiallyCollapsed ? 'false' : 'true');
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', initiallyCollapsed ? 'false' : 'true');
 }
+
+/** v1.33: 暴露给其它模块（例如未来的「全屏游戏」入口）以编程方式控制 RL 面板收起态。 */
+export { setRlPanelCollapsed };

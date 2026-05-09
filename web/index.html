@@ -46,6 +46,19 @@
       }
     </style>
     <link rel="stylesheet" href="./styles/main.css">
+    <!-- v1.33: 提前应用 RL 面板收起态 — 在 main.css 加载后、body 渲染前打 class，
+         避免「先展开再瞬间收起」的闪烁。class 挂到 <html> 而非 <body>（此时 body 尚未创建），
+         CSS 用 .rl-collapsed 通用选择器匹配；展开/收起按钮交互在 rlPanel.js 中绑定。
+         键名 `openblock_rl_panel_collapsed_v1` 与 rlPanel.js 中的 LS_RL_COLLAPSED 严格一致。 -->
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('openblock_rl_panel_collapsed_v1') === '1') {
+            document.documentElement.classList.add('rl-collapsed');
+          }
+        } catch (_) { /* localStorage 不可用时忽略，保持默认展开 */ }
+      })();
+    </script>
     <!-- PWA Manifest -->
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#5B9BD5">
@@ -484,10 +497,22 @@
           3) JS（rlPanel.js）通过 #rl-panel 判断挂载点并按 ID 绑定其余子元素，所有子 ID 保持不变。
     -->
     <aside id="rl-panel" class="side-panel-base rl-panel rl-panel--right" aria-label="RL 机器人训练">
+        <!-- v1.33：收起态细栏 — body.rl-collapsed 时仅此可见，点击 #rl-expand-btn 展开 -->
+        <div class="rl-collapsed-strip" aria-hidden="true">
+            <button type="button" class="rl-expand-btn" id="rl-expand-btn"
+                    title="展开 RL 训练面板（恢复右侧栏宽度）"
+                    aria-label="展开 RL 训练面板">🦾</button>
+            <span class="rl-collapsed-strip-label">RL 训练 · 展开 ›</span>
+        </div>
         <div class="rl-header-row">
             <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>RL机器人</h3>
             <label class="rl-backend-toggle" title="勾选后策略推理与训练走 Flask /api/rl PyTorch 服务端；不勾选则使用浏览器内线性智能体与本地日志。"><input type="checkbox" id="rl-use-pytorch" /> PyTorch <span id="rl-backend-status" class="rl-backend-status">未检测</span></label>
             <label class="rl-lookahead-toggle" title="开启后每步用 r+γV(s') 选动作并上报 q_teacher（利于 Q 蒸馏），但每步要在浏览器枚举全部合法落点并多次请求服务端，首局可能很慢甚至像卡住；初次训练建议先不勾选。"><input type="checkbox" id="rl-lookahead" /> 1-step lookahead</label>
+            <!-- v1.33：收起按钮 — 把整个 RL 面板压缩成 36px 细栏，让中央游戏区放大 -->
+            <button type="button" class="rl-collapse-btn" id="rl-collapse-btn"
+                    title="收起 RL 训练面板，把空间让给游戏区（盘面与候选区随之放大）"
+                    aria-label="收起 RL 训练面板"
+                    aria-expanded="true">›</button>
         </div>
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📋</span>统计 &amp; 操作</summary>

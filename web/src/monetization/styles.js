@@ -34,8 +34,11 @@ const MON_CSS = `
 /* Toast 通知 */
 .mon-toast {
     position: fixed;
-    bottom: 80px;
-    left: 50%;
+    bottom: max(
+        calc(env(safe-area-inset-bottom, 0px) + 18px),
+        calc(100dvh - var(--board-overlay-bottom, 0px) + 18px)
+    );
+    left: var(--board-overlay-center-x, 50vw);
     transform: translateX(-50%) translateY(20px);
     background: rgba(15, 20, 35, 0.95);
     color: #e8eef4;
@@ -64,8 +67,8 @@ const MON_CSS = `
 /* 每日任务完成提示：中上主视区（与通用 mon-toast 底部分离，避免挡 dock） */
 .mon-toast.mon-task-toast {
     bottom: auto;
-    top: clamp(120px, 24vh, 240px);
-    left: 50%;
+    top: calc(var(--board-overlay-top, 120px) + 72px);
+    left: var(--board-overlay-center-x, 50vw);
     right: auto;
     transform: translateX(-50%) translateY(6px);
 }
@@ -84,6 +87,10 @@ const MON_CSS = `
     z-index: 20000;
 }
 .mon-ad-box {
+    position: fixed;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
+    transform: translate(-50%, -50%);
     background: #1e293b;
     border: 1px solid rgba(56,189,248,0.3);
     border-radius: 16px;
@@ -116,8 +123,8 @@ const MON_CSS = `
 /* 排行榜面板 */
 .mon-panel {
     position: fixed;
-    top: 50%;
-    left: 50%;
+    top: var(--board-overlay-center-y, 50vh);
+    left: var(--board-overlay-center-x, 50vw);
     transform: translate(-50%, -50%);
     background: rgba(15, 20, 35, 0.97);
     border: 1px solid rgba(56, 189, 248, 0.25);

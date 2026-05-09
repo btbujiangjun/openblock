@@ -435,6 +435,28 @@ export class Game {
         return !this.isAnimating && !this.drag && !this.previewPos && this._renderRaf == null;
     }
 
+    /**
+     * 盘面语境浮层锚点：所有游戏内浮层（结算卡、复活、无步数、奖励 toast 等）
+     * 都应围绕棋盘居中，而不是围绕视口居中。RL 面板收起后棋盘会变大并右移，
+     * 这里把 #game-wrapper 的实际屏幕矩形写入 CSS 变量，CSS 端统一消费。
+     */
+    _syncBoardOverlayMetrics() {
+        if (typeof document === 'undefined') return;
+        const root = document.documentElement;
+        const board = document.getElementById('game-wrapper') || this.canvas;
+        if (!root || !board) return;
+        const rect = board.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        root.style.setProperty('--board-overlay-left', `${rect.left}px`);
+        root.style.setProperty('--board-overlay-top', `${rect.top}px`);
+        root.style.setProperty('--board-overlay-width', `${rect.width}px`);
+        root.style.setProperty('--board-overlay-height', `${rect.height}px`);
+        root.style.setProperty('--board-overlay-right', `${rect.right}px`);
+        root.style.setProperty('--board-overlay-bottom', `${rect.bottom}px`);
+        root.style.setProperty('--board-overlay-center-x', `${rect.left + rect.width / 2}px`);
+        root.style.setProperty('--board-overlay-center-y', `${rect.top + rect.height / 2}px`);
+    }
+
     /** 主菜单打开时隐藏主界面与难度条；game-over 浮层保留棋盘可见 */
     updateShellVisibility() {
         const menu = document.getElementById('menu');
@@ -531,6 +553,7 @@ export class Game {
         if (typeof ResizeObserver !== 'undefined' && this.canvas) {
             let lastDockCellPx = this._getDockCellPx();
             const dockReflow = () => {
+                this._syncBoardOverlayMetrics();
                 const next = this._getDockCellPx();
                 if (next !== lastDockCellPx) {
                     lastDockCellPx = next;
@@ -539,6 +562,17 @@ export class Game {
             };
             this._dockResizeObs = new ResizeObserver(dockReflow);
             this._dockResizeObs.observe(this.canvas);
+        }
+        if (typeof ResizeObserver !== 'undefined') {
+            const board = document.getElementById('game-wrapper');
+            if (board) {
+                this._boardOverlayResizeObs = new ResizeObserver(() => this._syncBoardOverlayMetrics());
+                this._boardOverlayResizeObs.observe(board);
+            }
+        }
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', () => requestAnimationFrame(() => this._syncBoardOverlayMetrics()));
+            requestAnimationFrame(() => this._syncBoardOverlayMetrics());
         }
 
         if (typeof document !== 'undefined') {
@@ -887,7 +921,7 @@ export class Game {
                     return;
                 }
                 const touch = e.touches ? e.touches[0] : e;
-                this.startDrag(idx, touch.clientX, touch.clientY);
+                this.startDrag(idx, touch.clientX, touch.clientY, e.touches ? 'touch' : 'mouse');
             };
 
             canvas.addEventListener('mousedown', startDrag);
@@ -1219,14 +1253,19 @@ export class Game {
         this.ghostCanvas.style.height = '';
     }
 
-    startDrag(index, x, y) {
+    startDrag(index, x, y, inputType = 'mouse') {
         if (this.rlPreviewLocked || this.replayPlaybackLocked) {
             return;
         }
         const block = this.dockBlocks[index];
         if (!block || block.placed) return;
 
-        this.drag = { index };
+        this.drag = {
+            index,
+            inputType,
+            startX: x,
+            startY: y,
+        };
         this.dragBlock = block;
         this._resetGhostDomStyles();
         const ghostDpr = Math.round(window.devicePixelRatio || 1) || 1;
@@ -1255,11 +1294,45 @@ export class Game {
         });
     }
 
+    /**
+     * 鼠标拖拽增益：保持起点不变，把后续位移按比例放大，让从候选区拖到盘面的距离更短。
+     * 仅对 mouse 生效；touch 保持 1:1，避免手指下目标与真实触点分离造成误触。
+     */
+    _applyDragPointerGain(x, y) {
+        if (!this.drag || this.drag.inputType !== 'mouse') {
+            return { x, y };
+        }
+        const gain = Number(CONFIG.DRAG_MOUSE_GAIN) || 1;
+        if (gain <= 1) {
+            return { x, y };
+        }
+        const dx = x - this.drag.startX;
+        const dy = y - this.drag.startY;
+        const extraScale = gain - 1;
+        const maxExtra = Math.max(
+            0,
+            (Number(CONFIG.DRAG_GAIN_MAX_OFFSET_CELLS) || 0) * this._boardDisplayCellSize()
+        );
+        let extraX = dx * extraScale;
+        let extraY = dy * extraScale;
+        const extraLen = Math.hypot(extraX, extraY);
+        if (maxExtra > 0 && extraLen > maxExtra) {
+            const clamp = maxExtra / extraLen;
+            extraX *= clamp;
+            extraY *= clamp;
+        }
+        return {
+            x: x + extraX,
+            y: y + extraY,
+        };
+    }
+
     updateGhostPosition(x, y) {
+        const p = this._applyDragPointerGain(x, y);
         const gw = this.ghostCanvas.offsetWidth || this.ghostCanvas.width;
         const gh = this.ghostCanvas.offsetHeight || this.ghostCanvas.height;
-        this.ghostCanvas.style.left = `${x - gw / 2}px`;
-        this.ghostCanvas.style.top = `${y - gh / 2}px`;
+        this.ghostCanvas.style.left = `${p.x - gw / 2}px`;
+        this.ghostCanvas.style.top = `${p.y - gh / 2}px`;
     }
 
     renderGhost() {
@@ -1338,13 +1411,22 @@ export class Game {
             aimCx,
             aimCy
         );
-        const best = this.grid.pickNearestLocalPlacement(
+        const best = this.grid.pickSmartHoverPlacement(
             this.dragBlock.shape,
             aimCx,
             aimCy,
             anchorX,
             anchorY,
-            CONFIG.PLACE_SNAP_RADIUS
+            CONFIG.PLACE_SNAP_RADIUS,
+            {
+                colorIdx: this.dragBlock.colorIdx,
+                previous: this.previewPos,
+                clearLineBonus: CONFIG.HOVER_CLEAR_LINE_BONUS,
+                clearCellBonus: CONFIG.HOVER_CLEAR_CELL_BONUS,
+                clearAssistWindow: CONFIG.HOVER_CLEAR_ASSIST_WINDOW,
+                stickyBonus: CONFIG.HOVER_STICKY_BONUS,
+                stickyWindow: CONFIG.HOVER_STICKY_WINDOW,
+            }
         );
 
         if (best) {
@@ -1389,13 +1471,22 @@ export class Game {
                 aimCx,
                 aimCy
             );
-            placedPos = this.grid.pickNearestLocalPlacement(
+            placedPos = this.grid.pickSmartHoverPlacement(
                 this.dragBlock.shape,
                 aimCx,
                 aimCy,
                 anchorX,
                 anchorY,
-                CONFIG.PLACE_SNAP_RADIUS
+                CONFIG.PLACE_SNAP_RADIUS,
+                {
+                    colorIdx: this.dragBlock.colorIdx,
+                    previous: this.previewPos,
+                    clearLineBonus: CONFIG.HOVER_CLEAR_LINE_BONUS,
+                    clearCellBonus: CONFIG.HOVER_CLEAR_CELL_BONUS,
+                    clearAssistWindow: CONFIG.HOVER_CLEAR_ASSIST_WINDOW,
+                    stickyBonus: CONFIG.HOVER_STICKY_BONUS,
+                    stickyWindow: CONFIG.HOVER_STICKY_WINDOW,
+                }
             );
         }
 
@@ -2238,6 +2329,7 @@ export class Game {
         document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
         const el = document.getElementById(id);
         if (el) {
+            this._syncBoardOverlayMetrics();
             el.classList.add('active');
         }
         // 离开 game-over 内嵌结算时清理棋盘柔化滤镜
