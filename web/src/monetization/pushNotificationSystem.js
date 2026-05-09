@@ -254,12 +254,14 @@ class PushNotificationSystem {
         // 游戏完成 - 鼓励继续
         this._triggerHandlers[PUSH_TRIGGER_EVENTS.GAME_COMPLETE] = async (context) => {
             const { score, bestScore } = context;
-            
-            // 如果破了纪录，推送高分解锁
-            if (score >= bestScore && bestScore > 0) {
+
+            /* 严格大于：等于历史最高（持平）不算"打破纪录"，避免持平局也推送"🎉 打破纪录！"
+             * 与 game.js:_maybeCelebrateNewBest（this.score > previousBest）+
+             * shareCardGenerator.isNewBest（score > bestScore）口径保持一致 */
+            if (score > bestScore && bestScore > 0) {
                 return this.trigger(PUSH_TRIGGER_EVENTS.HIGH_SCORE, { score });
             }
-            
+
             return null;
         };
 

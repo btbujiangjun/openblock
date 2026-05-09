@@ -241,6 +241,8 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 | rhythmPhase | setup / payoff / neutral，与顾问「收获期」等绑定 |
 | sessionArc / scoreMilestone | 局弧线与里程碑友好化 |
 | targetSolutionRange | 解法数量软过滤档位（高 fill 激活） |
+| **orderRigor**（v1.32） | **顺序刚性强度** ∈ [0,1]，0=不约束，1=必须按特定顺序；五重 bypass（onboarding/needsRecovery/hasBottleneckSignal/`holes>3`/`fill<0.5`） |
+| **orderMaxValidPerms**（v1.32） | **6 种排列里允许的最大可解数**（1~6），由 `orderRigor` 映射；blockSpawn 在前 ~55% attempt 拒绝 `validPerms > N` 的 triplet |
 | spawnIntent | **对外单一意图**：relief / engage / harvest / pressure / flow / maintain |
 | spawnTargets | 上表六轴 |
 
@@ -283,6 +285,7 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 | `playstyle='perfect_hunter' / 'multi_clear' / …` | 末端 `multiClearBonus / multiLineTarget / clearGuarantee / sizePreference` 微调 | 玩法风格对齐 |
 | `warmupRemaining > 0` | `clearGuarantee 上抬到 2~3`、`sizePreference ≤ -0.28`、`multiClearBonus ≥ 0.42` | 跨局热身（v10.33） |
 | `afkCount ≥ 1 ∧ stress<0.55` | `clearGuarantee ≥ 2`、`multiClearBonus ≥ 0.6`、`multiLineTarget ≥ 1`、可拉到 `payoff` | **AFK 召回**显式正反馈 |
+| **`stress > 0.55 ∧ skill > 0.5 ∧ ¬bypass`**（v1.32） | `orderRigor` ∈ (0,1]，`orderMaxValidPerms` 在 [4,2] 间映射；hard 模式额外 +0.30 boost | **顺序刚性高难度**：要求三连块 6 种排列里仅 ≤N 种可解，强制玩家做"先 X 再 Y 最后 Z"的前瞻规划 |
 
 > **物理可行性回钳**（v1.17 / v1.19）：上述抬高完成后，若盘面**实际**没有 ≥2 临消/多消候选，会把 `clearGuarantee=3` 回钳为 2，`multiClearBonus` 软封顶为 0.4，`multiLineTarget` 归 0；避免承诺无法兑现。
 
@@ -351,6 +354,9 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 | `bottleneckRelief` onboarding 关闭 | v1.30 | 新手保护期内 bottleneckRelief = 0；onboarding 自身已强减压，叠加会让 breakdown「双重救济」误读 |
 | `score-push 守卫` 抢占 FLOW/HARVEST 高压守卫 | v1.31 | 高 stress + 友好盘面（fill<0.30 ∧ holes=0）时切到「冲分仪式感」叙事，避免对空旷盘面说「保活/确保可落位」 |
 | `harvest 密度分级` 替代单一「密集」文案 | v1.31 | `nfl=2`（最低触发档）只是"清晰可见"非"密集"；按 `nfl/mcc` 分 dense/visible/edge 三档使叙事强度匹配几何强度 |
+| **`orderRigor × bottleneckRelief` 互斥**（v1.32） | bottleneckRelief 已减压时 `orderRigor=0`、`maxValidPerms=6` | 玩家正在被减压救场，再加"必须按特定顺序"= 双重打击；bypass 优先级最高 |
+| **`orderRigor` × `holes>3 / fill<0.5 / onboarding / needsRecovery`**（v1.32） | 任一成立即 `orderRigor=0` | 盘面糟糕、空盘、新手、救场期均不刁难；只在玩家"高压且具承受力"时启用 |
+| **`orderRigor` 软过滤窗口期**（v1.32） | 仅 `attempt < ~55%` 时硬过滤；之后接受任意 `validPerms` | 防止 dock 候选稀缺时死循环；fallback 退化为 v9 行为 |
 
 ---
 

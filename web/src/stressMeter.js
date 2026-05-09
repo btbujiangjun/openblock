@@ -96,7 +96,10 @@ export const SIGNAL_LABELS = {
     friendlyBoardRelief:   { label: '友好盘面',   hint: '盘面整洁且有兑现机会时主动减压，让你享受多消爽点' },
     bottleneckRelief:      { label: '瓶颈低谷',   hint: '上个 dock 周期中，候选块的最少落子数曾跌到阈值（默认 ≤2）；此时减压并保消，避免连续被困' },
     flowPayoffCap:         { label: '心流上限',   hint: '心流 + 兑现期会把综合压力软封顶，避免「享受多消」与「高压」冲突' },
-    occupancyDamping:      { label: '占用衰减',   hint: '盘面占用率 <50% 时按比例衰减正向 stress，避免空盘上 0.89 的伪高压' }
+    occupancyDamping:      { label: '占用衰减',   hint: '盘面占用率 <50% 时按比例衰减正向 stress，避免空盘上 0.89 的伪高压' },
+    /* v1.32：orderRigor 是顺序刚性强度（0~1），不是 stress 分量；放这里仅用于面板 tooltip
+     * 命中。summarizeContributors 通过 skip 集合把它从「贡献者列表」里排除。 */
+    orderRigor:            { label: '顺序刚性',   hint: '高压且具承受力时，要求三连块 6 种排列里仅 ≤N 种可解，强制玩家做摆放顺序规划（v1.32 新增）' }
 };
 
 /**
@@ -111,7 +114,10 @@ export function summarizeContributors(breakdown, topN = 5) {
         'afterOccupancy', 'afterSmoothing', 'finalStress',
         'flowPayoffCap', // 派生标记，不是独立的加减分量
         /* v1.30：bottleneckTrough/Samples 是原始观测痕迹，不是 stress 贡献分量 */
-        'bottleneckTrough', 'bottleneckSamples'
+        'bottleneckTrough', 'bottleneckSamples',
+        /* v1.32：orderRigor / orderMaxValidPerms 是 spawnHints 派生指标
+         * （不是 stress 加减分量），从贡献者列表里排除以免混入 0~1 / 1~6 数值。 */
+        'orderRigor', 'orderMaxValidPerms'
     ]);
     const entries = Object.entries(breakdown)
         .filter(([k, v]) => !skip.has(k) && Number.isFinite(v) && Math.abs(v) >= 0.005)

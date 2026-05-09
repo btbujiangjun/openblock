@@ -901,4 +901,112 @@ describe('resolveAdaptiveStrategy', () => {
         expect(s._stressBreakdown.bottleneckRelief).toBeLessThan(-0.10);
         expect(s._spawnIntent).toBe('relief');
     });
+
+    /* ===================================================================
+     * v1.32：orderRigor —— 顺序刚性（"三块按特定顺序才能放下"硬难度）
+     *
+     * 物理含义：要求 evaluateTripletSolutions().validPerms ≤ N，
+     * 即 6 种排列里仅 ≤N 种全可解 → 玩家必须先 X 再 Y 最后 Z 才能塞下。
+     *
+     * 派生公式（adaptiveSpawn.js）：
+     *   stressTerm = max(0, stress - 0.55) * 1.6
+     *   skillTerm  = max(0, skill - 0.5)  * 0.20
+     *   modeBoost  = difficultyTuning.orderRigorBoost   (hard=0.30)
+     *   orderRigor = clamp01(stressTerm + skillTerm + modeBoost)
+     *   orderMaxValidPerms = round(4 - 2 * rigor)  （映射 [4,2]）
+     *
+     * 五重 bypass：
+     *   - 新手保护期 / needsRecovery / hasBottleneckSignal /
+     *     holes>3 / boardFill<0.5
+     * ===================================================================*/
+    it('v1.32 orderRigor：默认（低 stress / 中等 skill）→ 不约束', () => {
+        // fill=0.4 < 0.5 → 直接 bypass
+        const sLowFill = resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 6, lifetimePlacements: 120 }), 30, 0, 0.40, {
+            totalRounds: 6, bestScore: 0
+        });
+        expect(sLowFill.spawnHints.orderRigor).toBe(0);
+        expect(sLowFill.spawnHints.orderMaxValidPerms).toBe(6);
+        expect(sLowFill._orderRigor).toBe(0);
+        // fill 达标但 stress 低（normal + 中等技能 + 小分）
+        const sLowStress = resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 6, lifetimePlacements: 120 }), 20, 0, 0.55, {
+            totalRounds: 6, bestScore: 0
+        });
+        expect(sLowStress.spawnHints.orderRigor).toBeLessThan(0.20);
+    });
+
+    it('v1.32 orderRigor：hard 模式 + 高 skill + 高 stress → rigor>0.6 且 maxPerms≤3', () => {
+        const s = resolveAdaptiveStrategy('hard',
+            makeProfile({ smoothSkill: 0.85, lifetimeGames: 6, lifetimePlacements: 120 }),
+            260, 2, 0.65,
+            { totalRounds: 12, bestScore: 0, holes: 0, nearFullLines: 0 }
+        );
+        // stress 应该高（hard stressBias + 高分 + minStress 兜底）
+        expect(s._adaptiveStress).toBeGreaterThan(0.55);
+        // 由 hard.orderRigorBoost=0.30 + stressTerm > 0 + skillTerm > 0
+        expect(s.spawnHints.orderRigor).toBeGreaterThan(0.45);
+        expect(s.spawnHints.orderMaxValidPerms).toBeLessThanOrEqual(3);
+        expect(s.spawnHints.orderMaxValidPerms).toBeGreaterThanOrEqual(2);
+        // 顶层暴露同源
+        expect(s._orderRigor).toBeCloseTo(s.spawnHints.orderRigor, 5);
+        expect(s._orderMaxValidPerms).toBe(s.spawnHints.orderMaxValidPerms);
+    });
+
+    it('v1.32 orderRigor：hard 模式相比 normal 模式更激进（modeBoost 生效）', () => {
+        const ctx = { totalRounds: 12, bestScore: 0, holes: 0, nearFullLines: 0 };
+        const profile = makeProfile({ smoothSkill: 0.85, lifetimeGames: 6, lifetimePlacements: 120 });
+        const sHard = resolveAdaptiveStrategy('hard', profile, 260, 2, 0.65, ctx);
+        const sNormal = resolveAdaptiveStrategy('normal', profile, 260, 2, 0.65, ctx);
+        expect(sHard.spawnHints.orderRigor).toBeGreaterThan(sNormal.spawnHints.orderRigor);
+        // hard 的 maxPerms 应不严于 normal（≤）
+        expect(sHard.spawnHints.orderMaxValidPerms).toBeLessThanOrEqual(sNormal.spawnHints.orderMaxValidPerms);
+    });
+
+    it('v1.32 orderRigor：新手保护期内强制 rigor=0、maxPerms=6（避免新手被刁难）', () => {
+        // 不传 lifetimeGames → onboarding=true
+        const onboarding = makeProfile();
+        const s = resolveAdaptiveStrategy('hard', onboarding, 260, 2, 0.65, {
+            totalRounds: 2, bestScore: 0, holes: 0
+        });
+        expect(onboarding.isInOnboarding).toBe(true);
+        expect(s.spawnHints.orderRigor).toBe(0);
+        expect(s.spawnHints.orderMaxValidPerms).toBe(6);
+    });
+
+    it('v1.32 orderRigor：bottleneckRelief 已触发 → bypass（避免双重打击）', () => {
+        const s = resolveAdaptiveStrategy('hard',
+            makeProfile({ smoothSkill: 0.85, lifetimeGames: 6, lifetimePlacements: 120 }),
+            260, 2, 0.65,
+            {
+                totalRounds: 12, bestScore: 0, holes: 0, nearFullLines: 0,
+                bottleneckSamples: 3, bottleneckTrough: 0
+            }
+        );
+        // bottleneckRelief 自身应触发
+        expect(s._stressBreakdown.bottleneckRelief).toBeLessThan(-0.05);
+        // orderRigor 必须 0（被 hasBottleneckSignal bypass 屏蔽）
+        expect(s.spawnHints.orderRigor).toBe(0);
+        expect(s.spawnHints.orderMaxValidPerms).toBe(6);
+    });
+
+    it('v1.32 orderRigor：holes>阈值 时 bypass（盘面已糟糕，不再加顺序约束）', () => {
+        const s = resolveAdaptiveStrategy('hard',
+            makeProfile({ smoothSkill: 0.85, lifetimeGames: 6, lifetimePlacements: 120 }),
+            260, 2, 0.65,
+            { totalRounds: 12, bestScore: 0, holes: 5, nearFullLines: 0 }
+        );
+        // holes=5 > orderRigorMaxHolesAllow=3 → bypass
+        expect(s.spawnHints.orderRigor).toBe(0);
+        expect(s.spawnHints.orderMaxValidPerms).toBe(6);
+    });
+
+    it('v1.32 orderRigor：boardFill<阈值 时 bypass（空盘强制顺序无意义）', () => {
+        const s = resolveAdaptiveStrategy('hard',
+            makeProfile({ smoothSkill: 0.85, lifetimeGames: 6, lifetimePlacements: 120 }),
+            260, 2, 0.30,
+            { totalRounds: 12, bestScore: 0, holes: 0 }
+        );
+        // boardFill=0.30 < orderRigorActivationFill=0.50 → bypass
+        expect(s.spawnHints.orderRigor).toBe(0);
+        expect(s.spawnHints.orderMaxValidPerms).toBe(6);
+    });
 });

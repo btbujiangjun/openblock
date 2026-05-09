@@ -552,6 +552,12 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const delightMode = hints.delightMode ?? 'neutral';
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
     const targetSolutionRange = hints.targetSolutionRange || null;
+    /* v1.32：顺序刚性 — 上游 adaptiveSpawn 派生
+     *   orderRigor ∈ [0,1]：强度（仅做诊断展示用）
+     *   orderMaxValidPerms ∈ [1,6]：6 种排列里允许的最大可解数（≤2 = 必须按特定顺序）
+     * 默认 orderMaxValidPerms=6 即不约束，bypass 路径全部走默认值。 */
+    const orderRigor = Math.max(0, Math.min(1, hints.orderRigor ?? 0));
+    const orderMaxValidPerms = Math.max(1, Math.min(6, hints.orderMaxValidPerms ?? 6));
     const spawnTargets = hints.spawnTargets || {};
     const shapeComplexityTarget = Math.max(0, Math.min(1, spawnTargets.shapeComplexity ?? 0.45));
     const solutionSpacePressure = Math.max(0, Math.min(1, spawnTargets.solutionSpacePressure ?? 0.45));
@@ -646,8 +652,10 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,
-        // v9：解法过滤的统计（被拒次数）
-        solutionRejects: { tooFew: 0, tooMany: 0 }
+        // v9：解法过滤的统计（被拒次数）；v1.32 增 orderTooLoose
+        solutionRejects: { tooFew: 0, tooMany: 0, orderTooLoose: 0 },
+        /* v1.32：顺序刚性应用记录（上游 hints 透传 + 最终是否触发了硬过滤） */
+        orderRigor: { rigor: orderRigor, maxValidPerms: orderMaxValidPerms, applied: false }
     };
 
     for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
@@ -918,6 +926,35 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     diagnostics.solutionRejects.tooFew++;
                     continue;
                 }
+            }
+
+            /* v1.32：顺序刚性硬过滤
+             *
+             *   evaluateTripletSolutions().validPerms ∈ [0,6] = 6 种排列里有几种全可解。
+             *   orderMaxValidPerms < 6 时（来自 adaptiveSpawn.spawnHints），要求
+             *   validPerms ≤ orderMaxValidPerms。
+             *
+             * 守卫：
+             *   - 仅在 attempt < ratio*MAX 时硬过滤（默认 55%），
+             *     之后允许任意 validPerms 通过，避免高 rigor + 稀缺 dock 候选时死循环
+             *   - truncated=true → 评估不完整，按通过处理（与 v9 同口径）
+             *   - validPerms=0 不会进入此分支：上方 tripletSequentiallySolvable
+             *     已先剔除"6 种顺序均不可解"的组合
+             *
+             * 物理含义：rigor 越高 → maxValidPerms 越小 → 玩家越需要"先 X 再 Y 最后 Z"
+             * 的明确顺序规划；若一组三块 6 种排列全部可解（validPerms=6），
+             * 说明它在认知上"放哪里都行"，与高压玩家想要的"被迫规划"诉求不符。
+             */
+            /* 用 SOLUTION_FILTER_ATTEMPT_RATIO（默认 0.6）×0.92 ≈ 0.55，比 solutionCount
+             * 的硬过滤窗口稍紧，避免在 dock 候选稀缺时把 orderRigor 也死撑到 60% 触雷。 */
+            const orderEarly = attempt < Math.floor(MAX_SPAWN_ATTEMPTS * SOLUTION_FILTER_ATTEMPT_RATIO * 0.92);
+            if (orderEarly
+                && !solutionMetrics.truncated
+                && orderMaxValidPerms < 6
+                && solutionMetrics.validPerms > orderMaxValidPerms) {
+                diagnostics.solutionRejects.orderTooLoose++;
+                diagnostics.orderRigor.applied = true;
+                continue;
             }
         }
 

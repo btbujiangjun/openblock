@@ -16,7 +16,7 @@
 
 - [自适应出块](./ADAPTIVE_SPAWN.md)
 - [出块三层架构](./SPAWN_ALGORITHM.md)
-- [解法数量难度](./SPAWN_SOLUTION_DIFFICULTY.md)
+- [解法数量难度](./SPAWN_SOLUTION_DIFFICULTY.md)（v9 + **v1.32 §13–§14：顺序刚性 orderRigor 高难度算法**）
 - [RL 与玩法契约](./RL_AND_GAMEPLAY.md)
 - [RL 在线服务与离线评估](./RL_PYTORCH_SERVICE.md)
 - [RL 训练观测与排障](./RL_README.md#23-训练观测与排障)

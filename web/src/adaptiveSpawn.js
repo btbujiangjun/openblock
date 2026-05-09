@@ -784,6 +784,81 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         stressBreakdown.flowPayoffCap = flowPayoffCap;
     }
     stressBreakdown.finalStress = stress;
+
+    /* ---------- v1.32：顺序刚性（orderRigor / orderMaxValidPerms） ----------
+     *
+     * 背景：v9 evaluateTripletSolutions 已经能数出"6 种排列里有几种可解"
+     * （validPerms ∈ [0,6]），但此前只用了 solutionCount / firstMoveFreedom，
+     * 这个**顺序自由度**指标完全没有被消费。
+     *
+     * 物理含义：当 validPerms ≤ 2 时，三连块**必须按特定顺序**才能放下；
+     * 选错先后顺序会卡死至少一块。这是对"空间规划深度"的精细加压：
+     *   - 空间难度（已有）：给"难塞"的形状（spatialPressure / sizePreference）
+     *   - 时序难度（v1.32 新增）：给"必须按特定顺序"的三连块组合
+     *
+     * 与 Yerkes-Dodson 的关系：高 stress + 高 skill 时，传统加压（更大块、
+     * 更碎形状）已经触顶，再加只会让玩家挫败；orderRigor 把压力从"哪一块难
+     * 摆"切换到"先后顺序怎么规划"，把认知负荷转向**前瞻规划**而非**操作精度**，
+     * 满足"高承受力玩家依然有挑战"的自驱需求。
+     *
+     * orderRigor ∈ [0, 1] 由三项加和：
+     *   1. stressTerm = max(0, stress - threshold) * scale    （压力驱动）
+     *   2. skillTerm  = max(0, skill - 0.5) * skillScale     （承受力门槛）
+     *   3. modeBoost  = difficultyTuning.orderRigorBoost     （Hard 模式自动加 0.30）
+     *
+     * orderMaxValidPerms = round(loose - (loose - tight) * orderRigor)：
+     *   - rigor=0.0 → maxPerms=4（宽松：6 种排列里 ≤4 种通即可）
+     *   - rigor=0.5 → maxPerms=3
+     *   - rigor=1.0 → maxPerms=2（紧绷：必须按特定顺序）
+     *
+     * 五重 bypass（任一成立 → orderRigor=0、maxPerms=6）：
+     *   1. 新手保护期内（与 bottleneckRelief 同源 onboarding bypass）
+     *   2. profile.needsRecovery（玩家正在被救场）
+     *   3. hasBottleneckSignal（已经通过 bottleneckRelief 减压，再加 rigor 是双重打击）
+     *   4. holes > orderRigorMaxHolesAllow（盘面已糟糕，加顺序约束等于不公平）
+     *   5. boardFill < orderRigorActivationFill（空盘强制顺序无意义）
+     *
+     * blockSpawn 端只在 attempt < ratio * MAX 时硬过滤，避免无解死循环。
+     * truncated=true 时跳过过滤（结果不可信，按通过处理），与 v9 同口径。
+     */
+    let orderRigor = 0;
+    let orderMaxValidPerms = 6;
+    {
+        const enabled = topoCfg.orderRigorEnabled !== false;
+        const threshold = Number.isFinite(topoCfg.orderRigorStressThreshold)
+            ? topoCfg.orderRigorStressThreshold : 0.55;
+        const orderScale = Number.isFinite(topoCfg.orderRigorScale)
+            ? topoCfg.orderRigorScale : 1.6;
+        const skillScale = Number.isFinite(topoCfg.orderRigorSkillScale)
+            ? topoCfg.orderRigorSkillScale : 0.20;
+        const tight = Math.max(1, Math.min(6, topoCfg.orderRigorMaxPermsTight ?? 2));
+        const loose = Math.max(tight, Math.min(6, topoCfg.orderRigorMaxPermsLoose ?? 4));
+        const activFill = Number.isFinite(topoCfg.orderRigorActivationFill)
+            ? topoCfg.orderRigorActivationFill : 0.50;
+        const maxHolesAllow = Number.isFinite(topoCfg.orderRigorMaxHolesAllow)
+            ? topoCfg.orderRigorMaxHolesAllow : 3;
+        const modeBoost = Math.max(0, Number(difficultyTuning.orderRigorBoost) || 0);
+
+        const bypass = !enabled
+            || inOnboarding
+            || profile.needsRecovery === true
+            || hasBottleneckSignal
+            || holes > maxHolesAllow
+            || (_boardFill ?? 0) < activFill;
+
+        if (!bypass) {
+            const stressTerm = Math.max(0, stress - threshold) * orderScale;
+            const skillTerm = Math.max(0, skill - 0.5) * skillScale;
+            orderRigor = Math.max(0, Math.min(1, stressTerm + skillTerm + modeBoost));
+            orderMaxValidPerms = Math.max(
+                tight,
+                Math.min(loose, Math.round(loose - (loose - tight) * orderRigor))
+            );
+        }
+    }
+    stressBreakdown.orderRigor = orderRigor;
+    stressBreakdown.orderMaxValidPerms = orderMaxValidPerms;
+
     const spawnTargets = deriveSpawnTargets(stress, profile, ctx, _boardFill ?? 0, boardRisk, delight, cfg.spawnTargets ?? {});
 
     /* ---------- 插值 shapeWeights ---------- */
@@ -1148,7 +1223,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             sessionArc,
             scoreMilestone: milestoneCheck.hit,
             targetSolutionRange,
-            spawnIntent
+            spawnIntent,
+            /* v1.32：顺序刚性 — 见上方 orderRigor 注释。0=不约束，1=必须按特定顺序。
+             * blockSpawn.js 消费 orderMaxValidPerms 作为硬性上限。 */
+            orderRigor: Math.max(0, Math.min(1, orderRigor)),
+            orderMaxValidPerms: Math.max(1, Math.min(6, orderMaxValidPerms))
         },
         _adaptiveStress: stress,
         _difficultyBias: difficultyBias,
@@ -1184,6 +1263,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _spawnIntent: spawnIntent,
         _afkEngageActive: afkEngageActive,
         /** @type {number} 供 game 写回 `_spawnContext`，见 occupancy 锚点注释 */
-        _occupancyFillAnchor: occAnchor
+        _occupancyFillAnchor: occAnchor,
+        /* v1.32：顺序刚性诊断字段（与 spawnHints 同源，便于 panel/replay 直接读取）。 */
+        _orderRigor: orderRigor,
+        _orderMaxValidPerms: orderMaxValidPerms
     };
 }

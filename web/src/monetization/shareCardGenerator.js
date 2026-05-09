@@ -82,7 +82,8 @@ class ShareCardGenerator {
         const { ctx } = this;
         
         const { score, bestScore, clears, maxCombo, strategy, date } = gameData;
-        const isNewBest = score >= bestScore && bestScore > 0;
+        /* 严格大于：等于历史最高（持平）不算"新纪录"，避免反复持平也每局发"新纪录!"卡片 */
+        const isNewBest = score > bestScore && bestScore > 0;
         
         // 背景
         this._drawBackground();

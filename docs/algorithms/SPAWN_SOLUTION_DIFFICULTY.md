@@ -1,8 +1,10 @@
-# 出块算法：解法数量难度调控（v9）
+# 出块算法：解法数量难度调控（v9 → v1.32）
 
-> 版本: v9.0 | 更新: 2026-04-27
-> 关联：`SPAWN_ALGORITHM.md` §4「Layer 1 / 反死局」、`ADAPTIVE_SPAWN.md` §3「stress → spawnHints」
+> 版本: v1.32（v9 基础上增「顺序刚性 orderRigor」） | 更新: 2026-05-09
+> 关联：`SPAWN_ALGORITHM.md` §4「Layer 1 / 反死局」、`ADAPTIVE_SPAWN.md` §3「stress → spawnHints」、`EXPERIENCE_DESIGN_FOUNDATIONS.md` §A.7（Yerkes-Dodson 上限）
 > 代码位置：`web/src/bot/blockSpawn.js`、`web/src/adaptiveSpawn.js`、`shared/game_rules.json`、`web/src/playerInsightPanel.js`
+
+> **v9 → v1.32 增量提示**：v9 已经计算出 `validPerms ∈ [0,6]`（6 种排列里有几种全可解），但此前只把 `solutionCount` 作为软过滤维度。v1.32 把 `validPerms` 作为**第二个**软过滤维度启用，构成"**顺序刚性 (orderRigor)**"高难度算法 —— 当玩家高压且具备承受力时，要求三连块**必须按特定顺序**才能放下（默认 `validPerms ≤ 2`）。详见本文 §13。
 
 ---
 
@@ -373,3 +375,198 @@ it('counts solutions correctly on simple boards', () => {
 - **firstMoveFreedom** — 三块各自独立合法点数的最小值，反映"瓶颈块"的灵活性。
 - **targetSolutionRange** — 来自 stress→ranges 的目标区间 `{min, max, label}`。
 - **capped / truncated** — 两种"不可信"标记，过滤时分别按拒绝/通过对待。
+- **orderRigor**（v1.32）— 0~1 标量，表征"三块必须按特定顺序放下"的严苛程度。
+- **orderMaxValidPerms**（v1.32）— 1~6 整数硬上限，blockSpawn 直接消费；`validPerms > maxAllowed` 的 triplet 在早期 attempt 被拒绝。
+
+---
+
+## 13. v1.32 升级：顺序刚性 (orderRigor) — 高难度算法
+
+### 13.1 动机：从"空间难度"到"时序难度"
+
+v9 的 `solutionCount` 区间过滤解决了「解空间体量」难度连续可调，但仍然只调控**总解数**这一**位置层**指标。在玩家**高压 + 高承受力**时，传统加压手段（更大块、更碎形状、`spatialPressure` 推高）会触顶 —— 再加只会让玩家挫败。
+
+**关键观察**：`evaluateTripletSolutions` 已经返回 `validPerms ∈ [0, 6]`（6 种全排列里有几种"全可解"），但 v9 没消费它。这个指标天然反映"**顺序自由度**"：
+
+| `validPerms` | 含义 | 玩家体感 |
+|---|---|---|
+| 6 | 任何顺序都行 | 完全无顺序压力 |
+| 4–5 | 大多数顺序行 | 偶尔需注意 |
+| 3 | 大致一半 | 需要简单规划 |
+| **2** | **必须挑特定顺序** | **强制前瞻规划**（v1.32 默认目标） |
+| 1 | 唯一序列 | 烧脑模式 |
+| 0 | 无解（已被 sequentiallySolvable 拦截） | — |
+
+**v1.32 设计**：把 `validPerms` 作为**第二个软过滤维度**启用，与 `solutionCount` 正交：
+
+| 维度 | 调控对象 | 体感 |
+|---|---|---|
+| `solutionCount` 区间（v9） | 总解空间体量 | "解多/少" |
+| **`validPerms` 上限（v1.32）** | **顺序自由度** | **"是否需要按特定顺序"** |
+
+### 13.2 派生公式 — `adaptiveSpawn.js`
+
+```js
+let orderRigor = 0;
+let orderMaxValidPerms = 6;
+{
+    const enabled       = topoCfg.orderRigorEnabled !== false;
+    const threshold     = topoCfg.orderRigorStressThreshold ?? 0.55;
+    const orderScale    = topoCfg.orderRigorScale            ?? 1.6;
+    const skillScale    = topoCfg.orderRigorSkillScale       ?? 0.20;
+    const tight         = topoCfg.orderRigorMaxPermsTight    ?? 2;   // rigor=1 时的上限
+    const loose         = topoCfg.orderRigorMaxPermsLoose    ?? 4;   // rigor=0 时的上限
+    const activFill     = topoCfg.orderRigorActivationFill   ?? 0.50;
+    const maxHolesAllow = topoCfg.orderRigorMaxHolesAllow    ?? 3;
+    const modeBoost     = difficultyTuning.orderRigorBoost   ?? 0;   // hard=0.30
+
+    const bypass = !enabled
+        || inOnboarding                       // 1) 新手保护
+        || profile.needsRecovery === true     // 2) 救场期
+        || hasBottleneckSignal                // 3) bottleneckRelief 已触发
+        || holes > maxHolesAllow              // 4) 盘面空洞过多
+        || boardFill < activFill;             // 5) 空盘强制顺序无意义
+
+    if (!bypass) {
+        const stressTerm = Math.max(0, stress - threshold) * orderScale;
+        const skillTerm  = Math.max(0, skill  - 0.5)       * skillScale;
+        orderRigor       = clamp01(stressTerm + skillTerm + modeBoost);
+        orderMaxValidPerms = round(loose - (loose - tight) * orderRigor);
+        // clamp to [tight, loose]
+    }
+}
+```
+
+**示例**：
+
+| 场景 | mode | stress | skill | rigor | maxValidPerms | 体感 |
+|---|---|---|---|---|---|---|
+| 新手第 1 局，高压 | normal | 0.80 | 0.50 | **0.00** (bypass) | **6** | 完全不约束 |
+| 中级玩家心流 | normal | 0.50 | 0.65 | 0.03 | 4 | 微感 |
+| 高级玩家高压 | normal | 0.75 | 0.80 | **0.38** | 3 | 偶发顺序压力 |
+| 同上 + Hard | hard | 0.80 | 0.80 | **0.86** | **2** | 强制前瞻规划 |
+| 玩家被困（trough=0） | hard | 0.78 | 0.80 | **0.00** (bypass) | **6** | 减压期不刁难 |
+
+### 13.3 五重 bypass 的物理依据
+
+| Bypass | 原因 | 心理学依据 |
+|---|---|---|
+| `inOnboarding` | 新手最多 25 局，强制顺序属于"过早爆发难度" | Self-Determination Theory · Competence 阈值 |
+| `needsRecovery` | 玩家正被救场，再加约束 = 救场失败 | Yerkes-Dodson 下行段 |
+| `hasBottleneckSignal` | bottleneckRelief 已减压，再加 rigor 等于双重打击 | 信号互抑（避免叠加越档） |
+| `holes > 3` | 盘面修复都难，再加顺序 = 不公平 | Fairness perception |
+| `boardFill < 0.5` | 空盘上"validPerms=2 vs 6"差异不可感知 | 与 `activationFill` 同源 |
+
+### 13.4 主循环集成 — `blockSpawn.js`
+
+接在 v9 的 `solutionCount` 区间过滤之后：
+
+```js
+/* v9：solutionCount 区间过滤 */
+if (range && !truncated && (sc > range.max || sc < range.min)) continue;
+
+/* v1.32：validPerms 上限过滤 */
+const orderEarly = attempt < MAX_SPAWN_ATTEMPTS * SOLUTION_FILTER_ATTEMPT_RATIO * 0.92;
+if (orderEarly
+    && !solutionMetrics.truncated
+    && orderMaxValidPerms < 6
+    && solutionMetrics.validPerms > orderMaxValidPerms) {
+    diagnostics.solutionRejects.orderTooLoose++;
+    diagnostics.orderRigor.applied = true;
+    continue;
+}
+```
+
+设计要点：
+
+- **早期窗口稍紧（55% vs solutionCount 的 60%）**：dock 候选稀缺时不死撑，避免连锁卡死。
+- **truncated 视为通过**：与 v9 同口径（结果不可信）。
+- **validPerms=0 不会进入**：上方 `tripletSequentiallySolvable` 已先剔除"6 种顺序均不可解"的情况。
+- **fallback 兜底**：若早期窗口未能找到 `validPerms ≤ N` 的 triplet，后期 attempt 接受任意 triplet（保证 dock 永远填满）。
+
+### 13.5 配置 — `shared/game_rules.json`
+
+```json
+"topologyDifficulty": {
+  "orderRigorEnabled": true,
+  "orderRigorStressThreshold": 0.55,
+  "orderRigorScale": 1.6,
+  "orderRigorSkillScale": 0.20,
+  "orderRigorMaxPermsTight": 2,
+  "orderRigorMaxPermsLoose": 4,
+  "orderRigorActivationFill": 0.50,
+  "orderRigorMaxHolesAllow": 3
+},
+"difficultyTuning": {
+  "easy":   { "orderRigorBoost": 0.00 },
+  "normal": { "orderRigorBoost": 0.00 },
+  "hard":   { "orderRigorBoost": 0.30 }
+}
+```
+
+| 调参方向 | 操作 |
+|---|---|
+| 让 Hard 模式更狠 | `orderRigorBoost: 0.45` 或 `orderRigorMaxPermsTight: 1` |
+| 让 Normal 偶发出现顺序压力 | `orderRigorStressThreshold: 0.50`（更早激活） |
+| 完全关闭 v1.32 | `orderRigorEnabled: false` |
+| 防止过严卡死 | `orderRigorMaxPermsLoose` 提到 5、`orderRigorMaxHolesAllow` 提到 5 |
+
+### 13.6 与既有信号的互抑矩阵
+
+| 同时触发 | 处理 |
+|---|---|
+| `orderRigor` + `bottleneckRelief` | **bypass**：bottleneckRelief 优先，orderRigor 直接归 0（避免双重打击） |
+| `orderRigor` + `B 类挑战 challengeBoost` | **正交叠加**：challengeBoost 已经把 stress 推高 → orderRigor 自然加强（无需额外处理） |
+| `orderRigor` + `solutionCount` 紧张档 | **同向加强**：两者都会拒绝过宽的 triplet，但用不同维度正交，可同时生效 |
+| `orderRigor` + `friendlyBoardRelief` | 不互抑：friendlyBoardRelief 减压会让 stress 降到阈值以下，自然让 orderRigor=0 |
+| `orderRigor` + `flowPayoffCap` | 极少同时：flowPayoffCap 把 stress 软封顶到 0.79，仍可能触发 orderRigor，但效果柔和 |
+
+### 13.7 性能影响
+
+`evaluateTripletSolutions` 已经在计算 `validPerms`（v9 就有），v1.32 只是**消费**它，**不增加任何 DFS 开销**。唯一新增是：
+
+- `adaptiveSpawn.js` 中 ~20 行派生逻辑（O(1)）
+- `blockSpawn.js` 中 1 个比较 + 计数器（O(1) per attempt）
+
+整体性能影响：**< 0.1%**。
+
+### 13.8 测试覆盖
+
+| 文件 | 用例 | 覆盖 |
+|---|---|---|
+| `tests/adaptiveSpawn.test.js` | 7 个 v1.32 用例 | 默认/高压/Hard 加成/Onboarding bypass/Bottleneck bypass/Holes bypass/低 fill bypass |
+| `tests/blockSpawn.test.js` | 3 个 v1.32 用例 | 过滤器触发（rejTotal>0）/不触发（rejTotal=0）/旧调用方默认值 |
+
+### 13.9 玩家面板曝光（建议后续工作）
+
+当前 `playerInsightPanel.js` 的 4 个 Pill（解法 / 合法序 / 首手 / 区间）已经包含 `合法序 V/6`，可直接看到 `validPerms`。建议后续追加：
+
+| Pill | 数据来源 | 例 |
+|---|---|---|
+| `顺序刚性 R` | `_orderRigor`（0~1） | `顺序刚性 0.78` |
+| `序贯上限 ≤N` | `_orderMaxValidPerms` | `序贯上限 ≤2` |
+| 触发标签 | `diagnostics.orderRigor.applied` | `🧩 强制顺序` |
+
+并在 stressMeter 的"为什么"列表追加："因为 stress 高 + 技能足够，本拍要求三块按特定顺序放置"。
+
+### 13.10 与 EXPERIENCE_DESIGN_FOUNDATIONS 的对应
+
+`EXPERIENCE_DESIGN_FOUNDATIONS.md` 5 轴体验结构里：
+
+- **挑战-能力轴 (C)**：v1.32 在 `boardPressure / skillLevel ≈ 1` 但已经触顶时，把压力从"操作精度"切到"前瞻规划"，把单局难度天花板**纵向延伸**了一档
+- **节奏-报偿轴 (R)**：rigor 高时玩家会有"先想清楚再下"的停顿（thinkMs 上升），打断纯反应式快节奏，**主动制造规划停顿** → 兑现时的多消爽点更强
+- **情感-共鸣轴 (E)**：成功按对顺序 = "解谜爽点"（Variable Ratio Reward 的认知版本），与"消行爽点"形成情感对位
+
+---
+
+## 14. v9 → v1.32 变更清单
+
+| 文件 | v9 改动 | v1.32 改动 |
+|---|---|---|
+| `shared/game_rules.json` | 新增 `solutionDifficulty` 配置块 | `topologyDifficulty.orderRigor*` 8 项 + `difficultyTuning.{easy,normal,hard}.orderRigorBoost` |
+| `web/src/bot/blockSpawn.js` | `evaluateTripletSolutions` + `solutionCount` 软过滤 | `hints.orderRigor`/`orderMaxValidPerms` 消费 + `validPerms` 软过滤 + `solutionRejects.orderTooLoose` + `diagnostics.orderRigor` |
+| `web/src/adaptiveSpawn.js` | `deriveTargetSolutionRange` | `orderRigor` / `orderMaxValidPerms` 派生 + 写入 `spawnHints` 与顶层 `_orderRigor` / `_orderMaxValidPerms` |
+| `web/src/stressMeter.js` | — | `SIGNAL_LABELS.orderRigor` + `summarizeContributors` skip 列表 |
+| `tests/adaptiveSpawn.test.js` | — | 7 个 v1.32 用例 |
+| `tests/blockSpawn.test.js` | — | 3 个 v1.32 用例 |
+| `docs/algorithms/SPAWN_SOLUTION_DIFFICULTY.md` | — | §13 + §14（本文） |
