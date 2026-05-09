@@ -57,23 +57,6 @@ export function getMetricLabelColor(key, fallback, index = 0) {
 }
 
 /**
- * 按当前值在该指标序列中的相对位置，生成 0.35~1 的发光强度。
- * @param {number} value
- * @param {number} lo
- * @param {number} hi
- * @returns {number}
- */
-export function getMetricLabelGlow(value, lo, hi) {
-    const v = Number(value);
-    const min = Number(lo);
-    const max = Number(hi);
-    if (!Number.isFinite(v) || !Number.isFinite(min) || !Number.isFinite(max)) return 0.55;
-    const range = Math.max(1e-9, max - min);
-    const t = Math.min(1, Math.max(0, (v - min) / range));
-    return 0.35 + t * 0.65;
-}
-
-/**
  * @param {{ idx: number, value: number }[]} points
  * @param {number} totalFrames 序列长度（横轴归一化用）
  * @param {string} color 折线/填充色

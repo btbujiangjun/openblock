@@ -80,11 +80,12 @@ import { initRankSystem } from './progression/rankSystem.js';
 import { initAsyncPk } from './social/asyncPk.js';
 import { initSkinFragments } from './progression/skinFragments.js';
 import { initMonthlyMilestone } from './checkin/monthlyMilestone.js';
+import { hydrateCheckinFromServer } from './checkin/checkinSync.js';
 import { initCursorHelpTooltip } from './helpTooltip.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 统一 cursor:help 提示等待时长：1 秒。
-    initCursorHelpTooltip({ delayMs: 1000 });
+    // 统一 cursor:help 提示等待时长：1.5 秒。
+    initCursorHelpTooltip({ delayMs: 1500 });
 
     initI18n();
     applyDom(document.documentElement);
@@ -195,7 +196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initZenMode({ game });
     initRankSystem({ game });
     initSkinFragments({ game });
-    initMonthlyMilestone();
+    /* monthlyMilestone 在 game.init + hydrateCheckinFromServer 之后启动，避免先于服务端 totalDays 计时 */
     /* P2 大工程占位：BGM 与角色伙伴依赖外部资产 (~5MB OGG / 180 张立绘) 暂保持 stub */
     initBgm();
     initRotationStub();
@@ -262,9 +263,11 @@ document.addEventListener('DOMContentLoaded', async () => {
            initEasterEggs 内部对 window.openBlockGame 做了延迟绑定，安全。 */
         initEasterEggs({ game, audio: audioFx });
 
-        /* v10.16: 7 日签到日历 + 连登勋章 + 周末转盘 — 等 game.init 完成后弹出 */
+        /* 签到 / 连登 / 月度进度：从 SQLite 恢复后再挂载弹窗与计时器 */
+        await hydrateCheckinFromServer();
         initLoginStreak({ audio: audioFx });
         initCheckIn({ audio: audioFx });
+        initMonthlyMilestone();
         initLuckyWheel({ audio: audioFx });
 
         // 初始化完成后直接进入游戏，跳过菜单界面

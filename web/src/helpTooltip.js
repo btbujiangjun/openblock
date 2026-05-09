@@ -89,7 +89,7 @@ export function initCursorHelpTooltip(opts = {}) {
     if (window.__cursorHelpTooltipInited) return;
     window.__cursorHelpTooltipInited = true;
 
-    const delayMs = Math.max(0, Number(opts.delayMs ?? 1000));
+    const delayMs = Math.max(0, Number(opts.delayMs ?? 1500));
     let timer = null;
     let activeTarget = null;
     let shown = false;

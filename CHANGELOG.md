@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **签到与里程碑服务端持久化（SQLite）**：在 `VITE_USE_SQLITE_DB=true` 时，每日签到、连登勋章、月度里程碑与 `openblock_skin_fragments_v1`（永久解锁列表、`lastEarnYmd` 等）通过 `GET/PUT /api/checkin-bundle` 与表 `user_checkin_bundle` 整包同步；换设备或清缓存后可在登录同一 `user_id` 时从服务端恢复（仍保留 localStorage 作为运行时缓存）。钱包（含 fragment 余额）继续走既有 `/api/wallet`。
+
 ### Changed (v1.28 — ValidPerms Accuracy + Copy Simplification)
 - **`evaluateTripletSolutions` 修复 `validPerms` 低估**：
   旧逻辑在 `solutionCount` 触发 `leafCap` 后直接停止遍历排列，导致 `validPerms` 可能被低估。

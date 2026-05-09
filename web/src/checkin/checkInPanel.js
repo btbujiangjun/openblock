@@ -24,6 +24,7 @@
 
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
+import { persistCheckinBundleToServer } from './checkinSync.js';
 
 const STORAGE_KEY = 'openblock_checkin_v1';
 
@@ -193,6 +194,7 @@ function _claim() {
     _audio?.play?.('unlock');
     _audio?.vibrate?.([20, 40, 20]);
     _save(state);
+    persistCheckinBundleToServer();
     _showToast(`签到成功 · ${reward.label}${trialMsg}`);
 
     // 通知 loginStreak

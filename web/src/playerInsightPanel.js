@@ -15,8 +15,7 @@ import {
     sparklineSvg,
     SPARK_W,
     METRIC_GROUP_COLORS,
-    getMetricLabelColor,
-    getMetricLabelGlow
+    getMetricLabelColor
 } from './sparkline.js';
 import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { renderStressMeter, summarizeContributors } from './stressMeter.js';
@@ -535,18 +534,10 @@ function _renderInsightStateSeries(game, elState) {
         const s = data.series[m.key];
         const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
         const labelColor = getMetricLabelColor(m.key, color, i);
-        const lastVal = getMetricFromPS(lastPs, m.key);
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (const p of s.points) {
-            if (p.value < lo) lo = p.value;
-            if (p.value > hi) hi = p.value;
-        }
-        const glow = getMetricLabelGlow(lastVal, lo, hi);
         const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
         html +=
             `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-glow:${glow.toFixed(2)};color:${labelColor}">${m.label}</span>` +
+            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor}">${m.label}</span>` +
             `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
             `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
     }
@@ -1091,7 +1082,7 @@ export function renderStressMeterReplay(frames, idx) {
  * 滑块决定当前帧位置，能直观判断"现在在曲线哪个位置"。
  */
 let _insightReplayFrames = null;
-/** @type {{ key:string, fmt:string, cursorLine:Element|null, valueEl:Element|null, labelEl:Element|null, lo:number, range:number }[]} */
+/** @type {{ key:string, fmt:string, cursorLine:Element|null, valueEl:Element|null }[]} */
 let _insightReplayCells = [];
 let _insightReplayTotalFrames = 0;
 
@@ -1150,18 +1141,10 @@ export function enterInsightReplay(frames) {
         const s = data.series[m.key];
         const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
         const labelColor = getMetricLabelColor(m.key, color, i);
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (const p of s.points) {
-            if (p.value < lo) lo = p.value;
-            if (p.value > hi) hi = p.value;
-        }
-        const lastValue = s.points.length > 0 ? s.points[s.points.length - 1].value : null;
-        const glow = getMetricLabelGlow(lastValue, lo, hi);
         const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
         html +=
             `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor};--series-label-glow:${glow.toFixed(2)};color:${labelColor}">${m.label}</span>` +
+            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor}">${m.label}</span>` +
             `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
             `<span class="series-value">—</span></div>`;
     }
@@ -1182,22 +1165,11 @@ export function enterInsightReplay(frames) {
         const svg = cell.querySelector('.replay-sparkline');
         const cursorLine = svg?.querySelector('.spark-cursor') ?? null;
         const valueEl = cell.querySelector('.series-value');
-        const labelEl = cell.querySelector('.series-label');
-        const pts = data.series[m.key]?.points || [];
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (const p of pts) {
-            if (p.value < lo) lo = p.value;
-            if (p.value > hi) hi = p.value;
-        }
         _insightReplayCells.push({
             key: m.key,
             fmt: m.fmt,
             cursorLine,
-            valueEl,
-            labelEl,
-            lo,
-            range: hi === lo ? 1 : hi - lo
+            valueEl
         });
     }
 }
@@ -1241,10 +1213,6 @@ export function updateInsightReplayFrame(idx) {
         }
         const val = curPs ? getMetricFromPS(curPs, c.key) : null;
         if (c.valueEl) c.valueEl.textContent = formatMetricValue(val, c.fmt);
-        if (c.labelEl) {
-            const glow = getMetricLabelGlow(val, c.lo, c.lo + c.range);
-            c.labelEl.style.setProperty('--series-label-glow', glow.toFixed(2));
-        }
     }
 
     // tag 行（flow/release/peak/R{n}）随当前帧切换

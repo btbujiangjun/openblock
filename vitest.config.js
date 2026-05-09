@@ -8,6 +8,8 @@ export default defineConfig({
   },
   define: {
     'import.meta.env.VITE_API_BASE_URL': JSON.stringify(resolveApiOrigin()),
-    'import.meta.env.VITE_SYNC_BACKEND': JSON.stringify('false')
+    'import.meta.env.VITE_SYNC_BACKEND': JSON.stringify('false'),
+    // 避免单测默认视为 SQLite 客户端而向真实后端发起 checkin-bundle 请求
+    'import.meta.env.VITE_USE_SQLITE_DB': JSON.stringify('false')
   }
 });

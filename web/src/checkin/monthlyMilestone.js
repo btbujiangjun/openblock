@@ -18,6 +18,7 @@
  */
 
 import { getWallet } from '../skills/wallet.js';
+import { persistCheckinBundleToServer } from './checkinSync.js';
 
 const SELF_KEY = 'openblock_monthly_milestone_v1';
 const CHECKIN_KEY = 'openblock_checkin_v1';
@@ -71,6 +72,7 @@ function _check() {
     self.lastMilestoneDay = m.totalDays;
     _saveSelf(self);
     _grantReward(m);
+    persistCheckinBundleToServer();
 }
 
 function _grantReward(m) {
@@ -116,6 +118,11 @@ function _showToast(milestone, unlockedSkin) {
         el.classList.remove('is-visible');
         delete el.dataset.tier;
     }, 4000);
+}
+
+/** hydrate 服务端签到数据后重算月度里程碑（避免先于 totalDays 计时） */
+export function recheckMonthlyAfterHydrate() {
+    _check();
 }
 
 /** 测试用 */

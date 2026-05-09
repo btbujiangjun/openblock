@@ -372,6 +372,14 @@ def init_db():
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_checkin_bundle (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
         _migrate_behaviors_columns(cursor)
         _migrate_schema(cursor)
 
@@ -1488,6 +1496,53 @@ def put_skill_wallet():
     return jsonify({"success": True})
 
 
+@app.route("/api/checkin-bundle", methods=["GET"])
+def get_checkin_bundle():
+    """7 日签到 + 连登勋章 + 月度里程碑进度（JSON bundle），与前端 localStorage 键对齐。"""
+    user_id = request.args.get("user_id", "") or request.args.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT payload FROM user_checkin_bundle WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cur.fetchone()
+    if not row or not row["payload"]:
+        return jsonify({"bundle": None})
+    try:
+        return jsonify({"bundle": json.loads(row["payload"])})
+    except json.JSONDecodeError:
+        return jsonify({"bundle": None})
+
+
+@app.route("/api/checkin-bundle", methods=["PUT"])
+def put_checkin_bundle():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    bundle = data.get("bundle")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    if bundle is None or not isinstance(bundle, dict):
+        return jsonify({"error": "bundle object required"}), 400
+    payload = json.dumps(bundle, ensure_ascii=False)
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO user_checkin_bundle (user_id, payload, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        """,
+        (user_id, payload, int(time.time())),
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
 @app.route("/api/rl/browser-linear-agent", methods=["GET"])
 def get_browser_rl_linear_agent():
     """浏览器线性 RL 权重（每用户一行 JSON：W / Vw）。"""
@@ -1675,6 +1730,7 @@ def clear_user_data():
         ("user_stats", "user_id"),
         ("skill_wallets", "user_id"),
         ("browser_rl_linear_agents", "user_id"),
+        ("user_checkin_bundle", "user_id"),
     ):
         cur.execute(f"DELETE FROM {table} WHERE {col} = ?", (user_id,))
     cur.execute("DELETE FROM move_sequences WHERE user_id = ?", (user_id,))

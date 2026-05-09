@@ -221,12 +221,15 @@ npm run mobile:ios
 
 复制 `.env.example` 为 `.env`，主要配置项：
 
+用 **`http://API_HOST:VITE_PORT`**（或其它实际访问前端的完整 Origin）打开页面时，若 `API_HOST` 已是局域网 IP，请在运行 Flask 的环境中配置 **`OPENBLOCK_ALLOWED_ORIGINS`**，包含该 Origin（见 `.env.example` 内注释；默认白名单不含「IP + 非 3000/5173」组合，易导致接口请求被 CORS 拒绝）。
+
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `VITE_PORT` | `3000` | Vite 开发服务器端口 |
 | `API_HOST` | `127.0.0.1` | 后端 API 主机；未配置 `OPENBLOCK_API_ORIGIN` 时用于拼接前端 API 地址 |
 | `PORT` | `5000` | Flask 后端端口 |
 | `OPENBLOCK_API_ORIGIN` | 未设置 | 可选覆盖项；设置后优先作为前端 API 地址 |
+| `OPENBLOCK_ALLOWED_ORIGINS` | 见 `server.py` | 逗号分隔的浏览器 Origin 白名单；局域网/自定义端口开发时通常需显式配置 |
 | `VITE_USE_SQLITE_DB` | `true` | 前端是否通过 Flask + SQLite 持久化会话 |
 | `VITE_SYNC_BACKEND` | `false` | 是否额外启用远端会话同步 |
 | `OPENBLOCK_DB_PATH` | `./openblock.db` | SQLite 数据库路径 |

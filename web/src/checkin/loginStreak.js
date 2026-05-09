@@ -1,3 +1,5 @@
+import { persistCheckinBundleToServer } from './checkinSync.js';
+
 /**
  * loginStreak.js — v10.16 连登勋章（P1）
  *
@@ -39,6 +41,7 @@ export function checkMilestone(checkInState) {
         if (totalDays >= m.days && !unlocked[m.id]) {
             unlocked[m.id] = { unlockedAt: Date.now(), totalDays };
             _save(unlocked);
+            persistCheckinBundleToServer();
             _grantReward(m);
             _showMilestoneToast(m);
         }

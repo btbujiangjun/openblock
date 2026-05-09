@@ -4791,11 +4791,7 @@ body.doc-visibility-hidden #menu * {
 .series-label--metric {
     font-weight: 800;
     letter-spacing: 0.02em;
-    --series-label-glow: 0.55;
     color: var(--series-label-color, #5b9bd5);
-    text-shadow:
-        0 0 calc(3px + 4px * var(--series-label-glow)) color-mix(in srgb, var(--series-label-color, #5b9bd5) calc(20% + 40% * var(--series-label-glow)), transparent),
-        0 0 calc(1px + 2px * var(--series-label-glow)) color-mix(in srgb, var(--series-label-color, #5b9bd5) calc(30% + 35% * var(--series-label-glow)), transparent);
 }
 
 .series-spark-wrap {
@@ -4825,7 +4821,7 @@ body.doc-visibility-hidden #menu * {
     line-height: 1;
 }
 
-/* 全局 cursor:help 自定义 tooltip（JS 控制 1s 延迟显示） */
+/* 全局 cursor:help 自定义 tooltip（JS 控制 1.5s 延迟显示） */
 .cursor-help-tooltip {
     position: fixed;
     z-index: 30000;

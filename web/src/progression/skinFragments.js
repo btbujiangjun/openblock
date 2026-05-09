@@ -8,7 +8,8 @@
  * - perfect 局额外 +2 fragment（'perfect'）
  * - 每日发放上限 5（在 wallet 中已设定）
  * - 30 个 fragment 解锁一款随机限定皮肤（永久解锁）
- * - localStorage：openblock_skin_fragments_v1 = { lockedSkins: [...] }
+ * - localStorage：openblock_skin_fragments_v1 = { unlocked, lastEarnYmd, ... }
+ *   在 VITE_USE_SQLITE_DB 下由 checkinSync 与 /api/checkin-bundle 同步（碎片余额仍走钱包）
  *
  * 限定皮肤池：与 checkInPanel 第 7 天试穿券共享池
  *
@@ -19,6 +20,7 @@
  */
 
 import { getWallet } from '../skills/wallet.js';
+import { persistCheckinBundleToServer } from '../checkin/checkinSync.js';
 
 const STORAGE_KEY = 'openblock_skin_fragments_v1';
 const COST_PER_UNLOCK = 30;
@@ -82,6 +84,7 @@ function _onGameEnd(score, stats) {
         wallet.addBalance('fragment', totalAdd, 'skin-fragment-earn');
     }
     _save(s);
+    persistCheckinBundleToServer();
 
     /* 自动尝试解锁 */
     if (wallet.getBalance('fragment') >= COST_PER_UNLOCK) {
@@ -99,6 +102,7 @@ export function tryUnlockRandom() {
     if (!wallet.spend('fragment', COST_PER_UNLOCK, 'skin-fragment-spend')) return null;
     s.unlocked.push(skinId);
     _save(s);
+    persistCheckinBundleToServer();
     _showUnlockToast(skinId);
     return skinId;
 }
