@@ -20,6 +20,7 @@ const BOOST_RATIO = 1.5;
 const MIN_SCORE_TO_QUALIFY = 100;
 
 let _game = null;
+let _boostAppliedForRun = false;
 
 function _ymd(d = new Date()) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -49,6 +50,7 @@ export function initFirstWinBoost({ game } = {}) {
 
     const origStart = game.start.bind(game);
     game.start = async (...args) => {
+        _boostAppliedForRun = false;
         const r = await origStart(...args);
         _maybeShowReminder();
         return r;
@@ -57,8 +59,8 @@ export function initFirstWinBoost({ game } = {}) {
     const origEnd = game.endGame.bind(game);
     game.endGame = async (...args) => {
         const beforeScore = game.score | 0;
-        const r = await origEnd(...args);
         _maybeApplyBoost(beforeScore);
+        const r = await origEnd(...args);
         return r;
     };
 
@@ -78,12 +80,15 @@ function _maybeShowReminder() {
 }
 
 function _maybeApplyBoost(score) {
+    if (_boostAppliedForRun) return 0;
     if (!isBoostAvailableToday()) return;
     if (score < MIN_SCORE_TO_QUALIFY) return;
 
     const bonus = Math.round(score * (BOOST_RATIO - 1));
+    _boostAppliedForRun = true;
     if (_game) _game.score = (_game.score | 0) + bonus;
     if (_game?.gameStats) {
+        _game.gameStats.score = _game.score;
         _game.gameStats.boostBonus = ((_game.gameStats.boostBonus | 0) + bonus);
     }
     _game?.updateUI?.();
@@ -94,6 +99,7 @@ function _maybeApplyBoost(score) {
     _save(s);
 
     _showCelebrate(`今日首胜 ×${BOOST_RATIO} 已生效 +${bonus}`);
+    return bonus;
 }
 
 /**
@@ -153,6 +159,7 @@ function _showCelebrate(msg) {
 /** 测试用 */
 export function __resetForTest() {
     _game = null;
+    _boostAppliedForRun = false;
     if (typeof localStorage !== 'undefined') {
         try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     }

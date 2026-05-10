@@ -232,6 +232,41 @@ describe('PlayerProfile', () => {
         });
     });
 
+    describe('global personalization boundary', () => {
+        it('stores only explicit personalization switches and reports no sensitive attributes', () => {
+            p.setPersonalizationOptions({ difficulty: false, visuals: false, unknown: true });
+            p.recordPreferenceSignal('qualityLow');
+            const ctx = p.personalizationContext;
+            expect(ctx.options.difficulty).toBe(false);
+            expect(ctx.options.visuals).toBe(false);
+            expect(ctx.usesSensitiveAttributes).toBe(false);
+            expect(ctx.allowedSignals).toContain('behavior');
+        });
+
+        it('derives collection motivation from non-sensitive preference signals', () => {
+            p._totalLifetimePlacements = 80;
+            p._totalLifetimeGames = 5;
+            p.recordPreferenceSignal('collection');
+            p.recordPreferenceSignal('collection');
+            p.recordPreferenceSignal('collection');
+            expect(p.behaviorSegment).toBe('collector');
+            expect(p.motivationIntent).toBe('collection');
+        });
+
+        it('computes returning warmup after persisted session gap', () => {
+            const old = Date.now() - 4 * 86_400_000;
+            const restored = PlayerProfile.fromJSON({
+                smoothSkill: 0.6,
+                totalLifetimePlacements: 120,
+                totalLifetimeGames: 6,
+                sessionHistory: [{ ts: old, placements: 10, skill: 0.6, score: 100, mode: 'endless' }],
+                lastSessionEndTs: old,
+            });
+            expect(restored.returningWarmupStrength).toBeGreaterThanOrEqual(0.7);
+            expect(restored.personalizationContext.usesSensitiveAttributes).toBe(false);
+        });
+    });
+
     describe('recordNewGame / recordSessionEnd', () => {
         it('recordNewGame increments lifetime games', () => {
             p.recordNewGame();

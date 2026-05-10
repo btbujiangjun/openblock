@@ -360,6 +360,12 @@ export class Game {
             fillRatio: layered.fillRatio,
             shapeWeightsTop: _topShapeWeightEntries(layered.shapeWeights, 5),
             spawnIntent: layered._spawnIntent ?? layered.spawnHints?.spawnIntent ?? null,
+            motivationIntent: layered._motivationIntent ?? layered.spawnHints?.motivationIntent ?? null,
+            behaviorSegment: layered._behaviorSegment ?? layered.spawnHints?.behaviorSegment ?? null,
+            personalizationApplied: layered._personalizationApplied === true,
+            accessibilityLoad: layered._accessibilityLoad ?? layered.spawnHints?.accessibilityLoad ?? 0,
+            returningWarmupStrength: layered._returningWarmupStrength ?? layered.spawnHints?.returningWarmupStrength ?? 0,
+            socialFairChallenge: layered._socialFairChallenge === true,
             afkEngageActive: layered._afkEngageActive === true
         };
         const m = p.metrics;
@@ -373,6 +379,10 @@ export class Game {
             hadRecentNearMiss: p.hadRecentNearMiss,
             needsRecovery: p.needsRecovery,
             isInOnboarding: p.isInOnboarding,
+            behaviorSegment: p.behaviorSegment,
+            motivationIntent: p.motivationIntent,
+            accessibilityLoad: p.accessibilityLoad,
+            returningWarmupStrength: p.returningWarmupStrength,
             recentComboStreak: p.recentComboStreak,
             spawnRound: p.spawnRoundIndex
         };

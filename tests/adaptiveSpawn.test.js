@@ -41,6 +41,51 @@ describe('resolveAdaptiveStrategy', () => {
         }
     });
 
+    it('exposes motivationIntent and personalization safety fields', () => {
+        const p = makeProfile({ smoothSkill: 0.65, lifetimeGames: 5, lifetimePlacements: 100, spawnCounter: 8 });
+        p.recordPreferenceSignal('collection');
+        p.recordPreferenceSignal('collection');
+        p.recordPreferenceSignal('collection');
+        const s = resolveAdaptiveStrategy('normal', p, 80, 0, 0.45, { totalRounds: 8, nearFullLines: 2 });
+        expect(s.spawnHints.motivationIntent).toBe('collection');
+        expect(s.spawnHints.behaviorSegment).toBe('collector');
+        expect(s.spawnHints.personalizationApplied).toBe(true);
+        expect(s._personalizationApplied).toBe(true);
+    });
+
+    it('returning warmup and accessibility load lower stress and disable order rigor', () => {
+        const p = makeProfile({ smoothSkill: 0.8, lifetimeGames: 8, lifetimePlacements: 160, spawnCounter: 10 });
+        p._lastSessionEndTs = Date.now() - 4 * 86_400_000;
+        p.recordPreferenceSignal('qualityLow');
+        p.recordPreferenceSignal('qualityLow');
+        p.recordPreferenceSignal('reducedMotion');
+        const s = resolveAdaptiveStrategy('hard', p, 220, 2, 0.65, {
+            totalRounds: 12,
+            holes: 0,
+            nearFullLines: 2,
+            roundsSinceClear: 0
+        });
+        expect(s.spawnHints.returningWarmupStrength).toBeGreaterThanOrEqual(0.7);
+        expect(s.spawnHints.accessibilityLoad).toBeGreaterThan(0.3);
+        expect(s._stressBreakdown.returningWarmupAdjust).toBeLessThan(0);
+        expect(s.spawnHints.orderRigor).toBe(0);
+    });
+
+    it('social fair challenge disables personalization', () => {
+        const p = makeProfile({ smoothSkill: 0.8, lifetimeGames: 8, lifetimePlacements: 160, spawnCounter: 10 });
+        p.recordPreferenceSignal('challenge');
+        p.recordPreferenceSignal('challenge');
+        p.recordPreferenceSignal('challenge');
+        const s = resolveAdaptiveStrategy('hard', p, 220, 2, 0.65, {
+            totalRounds: 12,
+            socialFairChallenge: true,
+            nearFullLines: 2
+        });
+        expect(s.spawnHints.personalizationApplied).toBe(false);
+        expect(s.spawnHints.motivationIntent).toBe('balanced');
+        expect(s.spawnHints.socialFairChallenge).toBe(true);
+    });
+
     it('returns a stress breakdown with named signal contributions', () => {
         const s = resolveAdaptiveStrategy('normal', makeProfile({ lifetimeGames: 4, lifetimePlacements: 80 }), 90, 1, 0.35, {
             totalRounds: 6,

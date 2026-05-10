@@ -37,6 +37,12 @@ const STORAGE_KEY = 'openblock_player_profile';
 const SKILL_DECAY_HOURS = 24;
 const SESSION_HISTORY_CAP = 30;
 
+function _clamp01(v, fallback = 0) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(0, Math.min(1, n));
+}
+
 function _afkThreshold() {
     return (_cfg().afk?.thresholdMs) ?? 15_000;
 }
@@ -106,6 +112,27 @@ export class PlayerProfile {
 
         /** 模式偏好追踪：{endless:0, level:0} */
         this._modeCount = { endless: 0, level: 0 };
+
+        /** 非敏感个性化偏好：用户明示设置 + 本地行为反馈，不包含年龄/性别/种族等敏感属性 */
+        this._personalizationOptions = {
+            enabled: true,
+            difficulty: true,
+            hints: true,
+            visuals: true,
+            ads: false,
+        };
+        this._preferenceSignals = {
+            hintAccepted: 0,
+            hintDismissed: 0,
+            difficultyUp: 0,
+            difficultyDown: 0,
+            qualityLow: 0,
+            reducedMotion: 0,
+            share: 0,
+            challenge: 0,
+            collection: 0,
+        };
+        this._lastSessionEndTs = 0;
     }
 
     /* ================================================================== */
@@ -196,6 +223,31 @@ export class PlayerProfile {
     }
 
     /**
+     * 记录非敏感偏好信号。调用方可在提示、设置、分享、挑战等事件发生时写入。
+     * @param {string} key
+     * @param {number} [delta]
+     */
+    recordPreferenceSignal(key, delta = 1) {
+        if (!Object.prototype.hasOwnProperty.call(this._preferenceSignals, key)) return;
+        this._preferenceSignals[key] = Math.max(0, (this._preferenceSignals[key] || 0) + Number(delta || 0));
+        this._cachedHistorical = null;
+    }
+
+    /**
+     * 更新个性化开关。敏感属性不进入这里；地区/语言只应由上层作为聚合实验上下文传入。
+     * @param {Partial<{enabled:boolean,difficulty:boolean,hints:boolean,visuals:boolean,ads:boolean}>} opts
+     */
+    setPersonalizationOptions(opts = {}) {
+        const clean = {};
+        for (const [k, v] of Object.entries(opts || {})) {
+            if (Object.prototype.hasOwnProperty.call(this._personalizationOptions, k) && typeof v === 'boolean') {
+                clean[k] = v;
+            }
+        }
+        this._personalizationOptions = { ...this._personalizationOptions, ...clean };
+    }
+
+    /**
      * 局末调用：将本局摘要压入会话历史环，供长周期评估。
      * @param {{ score:number, placements:number, clears:number, misses:number, maxCombo:number, mode?:string }} gameStats
      */
@@ -231,6 +283,7 @@ export class PlayerProfile {
         } else {
             this._modeCount.endless = (this._modeCount.endless ?? 0) + 1;
         }
+        this._lastSessionEndTs = summary.ts;
     }
 
     /**
@@ -606,6 +659,76 @@ export class PlayerProfile {
     }
 
     /**
+     * 全球化个性化的行为分群：只由行为和明示偏好推断，不使用敏感属性。
+     * @returns {'newcomer_protection'|'challenge_seeker'|'relaxation'|'collector'|'social_competitor'|'balanced'}
+     */
+    get behaviorSegment() {
+        const m = this.metrics;
+        if (this.isNewPlayer || this.isInOnboarding) return 'newcomer_protection';
+        if (this.accessibilityLoad >= 0.55 || (this.sessionPhase === 'late' && this.momentum < -0.25)) return 'relaxation';
+        if ((this._preferenceSignals.share + this._preferenceSignals.challenge) >= 3) return 'social_competitor';
+        if (this._preferenceSignals.collection >= 3 || this.perfectClearRate >= 0.05) return 'collector';
+        if (this.skillLevel >= 0.72 && m.missRate <= 0.08 && (this.multiClearRate >= 0.25 || this.recentComboStreak >= 2)) {
+            return 'challenge_seeker';
+        }
+        if (m.thinkMs > 6000 || m.missRate > 0.18) return 'relaxation';
+        return 'balanced';
+    }
+
+    /**
+     * 中长期动机意图，与单轮 spawnIntent 分离。
+     * @returns {'competence'|'challenge'|'relaxation'|'collection'|'social'|'balanced'}
+     */
+    get motivationIntent() {
+        const seg = this.behaviorSegment;
+        if (seg === 'newcomer_protection') return 'competence';
+        if (seg === 'challenge_seeker') return 'challenge';
+        if (seg === 'relaxation') return 'relaxation';
+        if (seg === 'collector') return 'collection';
+        if (seg === 'social_competitor') return 'social';
+        return 'balanced';
+    }
+
+    /** 个性化开关快照，供策略层透明消费 */
+    get personalizationOptions() {
+        return { ...this._personalizationOptions };
+    }
+
+    /** 可访问性/设备负担代理：低画质、低动态、误触/思考负担共同推高 */
+    get accessibilityLoad() {
+        const m = this.metrics;
+        const visual = Math.min(1, (this._preferenceSignals.qualityLow + this._preferenceSignals.reducedMotion) / 3);
+        const operation = Math.max(
+            m.missRate > 0.12 ? Math.min(1, m.missRate / 0.35) : 0,
+            m.thinkMs > 5000 ? Math.min(1, (m.thinkMs - 5000) / 10000) : 0
+        );
+        return _clamp01(visual * 0.45 + operation * 0.55);
+    }
+
+    /** 沉默后回归暖启动强度：0=无，1=强暖启动 */
+    get returningWarmupStrength() {
+        const last = this._lastSessionEndTs || this._getHistoricalCache().lastSessionTs || 0;
+        if (!last) return 0;
+        const days = (Date.now() - last) / 86_400_000;
+        if (days < 1) return 0;
+        if (days >= 7) return 1;
+        if (days >= 3) return 0.75;
+        return 0.45;
+    }
+
+    get personalizationContext() {
+        return {
+            options: this.personalizationOptions,
+            behaviorSegment: this.behaviorSegment,
+            motivationIntent: this.motivationIntent,
+            accessibilityLoad: this.accessibilityLoad,
+            returningWarmupStrength: this.returningWarmupStrength,
+            usesSensitiveAttributes: false,
+            allowedSignals: ['behavior', 'preferences', 'device', 'languageRegionContext'],
+        };
+    }
+
+    /**
      * 新玩家标识：终身放置 < 20 次且历史不足 3 局
      */
     get isNewPlayer() {
@@ -659,6 +782,10 @@ export class PlayerProfile {
             totalLifetimePlacements: this._totalLifetimePlacements,
             totalLifetimeGames: this._totalLifetimeGames,
             sessionHistory: this._sessionHistory.slice(-SESSION_HISTORY_CAP),
+            personalizationOptions: this._personalizationOptions,
+            preferenceSignals: this._preferenceSignals,
+            modeCount: this._modeCount,
+            lastSessionEndTs: this._lastSessionEndTs,
             savedAt: Date.now()
         };
     }
@@ -690,6 +817,27 @@ export class PlayerProfile {
         }
         if (Array.isArray(data?.sessionHistory)) {
             p._sessionHistory = data.sessionHistory.slice(-SESSION_HISTORY_CAP);
+        }
+        if (data?.personalizationOptions && typeof data.personalizationOptions === 'object') {
+            p.setPersonalizationOptions(data.personalizationOptions);
+        }
+        if (data?.preferenceSignals && typeof data.preferenceSignals === 'object') {
+            for (const [k, v] of Object.entries(data.preferenceSignals)) {
+                if (Object.prototype.hasOwnProperty.call(p._preferenceSignals, k)) {
+                    p._preferenceSignals[k] = Math.max(0, Number(v) || 0);
+                }
+            }
+        }
+        if (data?.modeCount && typeof data.modeCount === 'object') {
+            p._modeCount = {
+                endless: Math.max(0, Number(data.modeCount.endless) || 0),
+                level: Math.max(0, Number(data.modeCount.level) || 0),
+            };
+        }
+        if (Number.isFinite(Number(data?.lastSessionEndTs))) {
+            p._lastSessionEndTs = Number(data.lastSessionEndTs);
+        } else if (p._sessionHistory.length > 0) {
+            p._lastSessionEndTs = p._sessionHistory[p._sessionHistory.length - 1].ts || 0;
         }
         return p;
     }
@@ -746,7 +894,7 @@ export class PlayerProfile {
         const hasHistory = hist.length >= 2;
 
         if (!hasBaseline && !hasHistory) {
-            return (this._cachedHistorical = { skill: -1, trend: 0, confidence: 0 });
+            return (this._cachedHistorical = { skill: -1, trend: 0, confidence: 0, lastSessionTs: 0 });
         }
 
         /* ---- 会话历史加权均值（近期权重大） ---- */
@@ -812,7 +960,8 @@ export class PlayerProfile {
         }
         const confidence = Math.max(0, Math.min(1, gameConf * freshnessConf));
 
-        return (this._cachedHistorical = { skill, trend, confidence });
+        const lastSessionTs = hist.length > 0 ? (hist[hist.length - 1].ts || 0) : 0;
+        return (this._cachedHistorical = { skill, trend, confidence, lastSessionTs });
     }
 
     /* ================================================================== */

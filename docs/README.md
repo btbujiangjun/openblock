@@ -55,6 +55,7 @@ docs/
 | [测试指南](./engineering/TESTING.md) | 提交前验证、写测试、排查回归 | 质量门禁 |
 | [SQLite 数据库模式](./engineering/SQLITE_SCHEMA.md) | 表字段、用途、`/api` 映射、空表说明 | 后端、数据、运维 |
 | [黄金事件字典](./engineering/GOLDEN_EVENTS.md) | `GAME_EVENTS` / behaviors 命名与版本约定 | 数据、商业化、测试 |
+| [Canvas 转换文档索引](./engineering/CANVAS_ARTIFACTS.md) | 已从 Cursor Canvas 转换为 Markdown 的调研、路线图、候选块和 RL 诊断文档入口 | 产品、算法、运营、AI 协作 |
 | [Cursor Skills 索引](./engineering/CURSOR_SKILLS.md) | 本仓库 Project Skills、个人可选 Skill、使用与维护约定 | AI 协作、贡献者 |
 | [休闲游戏全栈构建 Skill](./engineering/CASUAL_GAME_BUILD_SKILL.md) | 从核心循环到商业化与 CI 的阶段化清单；适配 AI 编码工具 | 架构、全栈、AI 协作 |
 | [性能优化说明](./engineering/PERFORMANCE.md) | rAF 合并绘制、懒加载 chunk、可见性定时器、progress 缓存 | 前端、架构 |
@@ -65,6 +66,7 @@ docs/
 |------|----------|----------|
 | [领域知识](./domain/DOMAIN_KNOWLEDGE.md) | 方块益智、心流、挫败、RL、商业化的基础概念 | 全角色 |
 | [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | 竞品、能力模型、体验缺口、系统机会 | 产品、运营、算法 |
+| [全球休闲游戏个性化策略与调研方案](./domain/GLOBAL_CASUAL_GAME_RESEARCH.md) | 全球市场、地区文化、人口学分层、个性化边界和调研执行方案 | 产品、运营、合规、算法 |
 | [竞品与用户分析](./domain/COMPETITOR_USER_ANALYSIS.md) | 目标用户、竞品机制、差异化方向 | 产品、运营 |
 | [架构对比](./domain/ARCHITECTURE_COMPARISON.md) | 不同实现路线的取舍 | 架构、技术负责人 |
 | [留存路线图归档](./product/RETENTION_ROADMAP_V10_17.md) | 历史 sprint 记录；当前实现以具体产品/工程文档为准 | 产品、运营 |
@@ -75,6 +77,8 @@ docs/
 |------|----------|----------|
 | [难度模式](./product/DIFFICULTY_MODES.md) | Easy/Normal/Hard 与自适应难度如何协作 | 产品、算法、测试 |
 | [消行计分](./product/CLEAR_SCORING.md) | `baseUnit * c^2`、多消、同色/同 icon bonus | 产品、算法、测试 |
+| [彩蛋 / 惊喜路线图](./product/EASTER_EGGS_ROADMAP.md) | 感官反馈、皮肤微动效、节日换皮、主动道具、隐藏彩蛋和社交分享机会池 | 产品、运营 |
+| [玩家留存 / 活跃提升路线图](./product/PLAYER_RETENTION_ROADMAP.md) | D1/D7/D30 留存、召回、社交、长期进度和 4 周 Sprint 路径 | 产品、运营 |
 | [玩家能力评估接入说明](./player/PLAYER_ABILITY_EVALUATION.md) | 玩家能力输出如何被产品和策略消费 | 产品、运营、测试 |
 | [玩家面板参数](./player/PANEL_PARAMETERS.md) | UI 指标含义、异常解读、调参提示 | 产品、运营、测试 |
 | [体验设计基石](./player/EXPERIENCE_DESIGN_FOUNDATIONS.md) | **顶层方法论**：心理学根基（9 条经验研究：心流/SDT/变比奖励/PE/峰终/近失/Yerkes-Dodson/Hooked/MDA）→ 休闲游戏设计理念（7 条）→ **OpenBlock 5 轴体验结构（挑战-能力 / 节奏-兑现 / 掌控-自主 / 情感-回响 / 成长-沉没）+ v1.27→v1.32 反例与正例验证表 + 设计审查清单 8 问**（v1.32 新增：`orderRigor` 顺序刚性高难度算法 — Yerkes-Dodson 上限延展正例） | 产品、设计、算法、架构、测试 |
@@ -90,6 +94,7 @@ docs/
 | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) | 规则 + SpawnTransformer 的形式化与训练/推理 | 算法 |
 | [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) | Layer 1/2/3 如何从盘面到体验生成三连块 | 算法、架构、测试 |
 | [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) | 10 信号 stress、心流、爽感兑现、spawnHints | 产品、算法 |
+| [候选块概率图鉴](./algorithms/CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md) | 28 个候选块、类别权重、基础概率、难度档位和动态因子 | 产品、算法、测试 |
 | [出块建模](./algorithms/SPAWN_BLOCK_MODELING.md) | 规则引擎与 ML 出块模型的设计 rationale | 算法、架构 |
 | [解法数量难度](./algorithms/SPAWN_SOLUTION_DIFFICULTY.md) | v9 DFS 解空间计数、leafCap/budget、`solutionCount` 区间软过滤；**v1.32 新增 §13–§14：顺序刚性 (orderRigor) 高难度算法 — 启用此前未消费的 `validPerms ∈ [0,6]` 维度，强制玩家做"按特定顺序"的前瞻规划，含派生公式、五重 bypass、互抑矩阵与配置** | 算法、测试 |
 
@@ -101,6 +106,10 @@ docs/
 | [RL 算法手册](./algorithms/ALGORITHMS_RL.md) | PPO/GAE、网络结构、奖励、探索、推理 API 的权威事实 | 算法 |
 | [玩法与 RL 解耦](./algorithms/RL_AND_GAMEPLAY.md) | 真人玩法、训练环境、共享配置和特征维度边界 | 算法、架构 |
 | [PyTorch RL 服务与评估](./algorithms/RL_PYTORCH_SERVICE.md) | 在线 `/api/rl`、离线训练、search replay 和贪心评估 | 算法、后端 |
+| [RL v9.1 深度分析](./algorithms/RL_V9_1_DEEP_ANALYSIS.md) | 400-500 分平台期、颜色特征、EvalGate、价值目标和序贯可行性风险 | 算法 |
+| [RL v9.3 提分深度分析](./algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md) | Replay 新鲜度、teacher 覆盖、目标尺度、评估口径和 bonus auxiliary | 算法 |
+| [OpenBlock RL 自博弈提升路线图](./algorithms/RL_SELF_PLAY_ROADMAP.md) | 搜索 teacher、Ranked Reward、困难样本和评估门控路线 | 算法 |
+| [自博弈 RL 文献对照与 OpenBlock 适配](./algorithms/RL_SELF_PLAY_LITERATURE_COMPARISON.md) | AlphaZero、MuZero、Expert Iteration、Gumbel AlphaZero 等路线对比 | 算法 |
 | [训练观测与排障](./algorithms/RL_README.md#23-训练观测与排障) | 看板数据流、趋势解读、数值稳定和调参优先级 | 算法、测试 |
 
 ### 商业化与运营
@@ -108,6 +117,7 @@ docs/
 | 文档 | 核心问题 | 适合角色 |
 |------|----------|----------|
 | [商业化策略](./operations/MONETIZATION.md) | IAA/IAP、分群、触发、API、模块全景 | 运营、产品、架构 |
+| [运营看板指标审计](./operations/OPS_DASHBOARD_METRICS_AUDIT.md) | `/ops` 指标是否接数据库、SQL 口径、截图数值复核、已知风险和修正建议 | 运营、产品、数据、后端、测试 |
 | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) | 鲸鱼分、规则引擎、LTV、CPI 出价 | 算法、运营 |
 | [商业化定制](./operations/MONETIZATION_CUSTOMIZATION.md) | 接入真实广告/IAP SDK、规则扩展 | 架构、运营 |
 | [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) | 面板设计、指标、调参 PlayBook | 运营、产品 |
@@ -144,6 +154,7 @@ docs/
 - **策略与叙事一致性**：先读 [体验设计基石](./player/EXPERIENCE_DESIGN_FOUNDATIONS.md)（心理学根基与 5 轴体验结构）→ [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md)（通用分层、`spawnIntent`、压力表职责）→ [实时策略系统](./player/REALTIME_STRATEGY.md)（指标/管线/评审清单与时序配置）。
 - **爽感与奖励**：先读 [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) 与 [宝箱与钱包](./product/CHEST_AND_WALLET.md)，再读 [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) 与 [消行计分](./product/CLEAR_SCORING.md)。
 - **难度曲线**：先读 [难度模式](./product/DIFFICULTY_MODES.md)，再读 [解法数量难度](./algorithms/SPAWN_SOLUTION_DIFFICULTY.md)。
+- **Canvas 转换文档**：需要查看全球化调研、留存/彩蛋路线图、候选块概率或 RL 诊断时，先读 [Canvas 转换文档索引](./engineering/CANVAS_ARTIFACTS.md)；文档中心注册 Markdown，不直接注册原始 Canvas。
 
 ### 算法设计
 

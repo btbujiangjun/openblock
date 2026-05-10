@@ -319,6 +319,17 @@ def _topology_aux_coef() -> float:
     return float(RL_REWARD_SHAPING.get("topologyAuxLossCoef") or 0.0)
 
 
+def _bonus_clear_aux_coef() -> float:
+    if (raw := os.environ.get("RL_BONUS_AUX_COEF", "").strip()) != "":
+        return float(raw)
+    cfg = RL_REWARD_SHAPING.get("bonusClearAux") or {}
+    if isinstance(cfg, dict):
+        if not cfg.get("enabled", False):
+            return 0.0
+        return float(cfg.get("coef", 0.08))
+    return 0.0
+
+
 def _scheduled_coef(cfg: dict, base: float, global_ep: int) -> float:
     """线性退火辅助系数；默认不退火。"""
     end = float(cfg.get("annealEndCoef", base))
@@ -502,6 +513,51 @@ def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_si
     mult = 1.0 + min(1.0, risk) * (float(cfg.get("riskMaxMultiplier", 2.0)) - 1.0)
     max_sims = int(os.environ.get("RL_MCTS_MAX_SIMS", int(cfg.get("maxSimulations", max(base_sims, 80)))))
     return max(base_sims, min(max_sims, int(round(base_sims * mult))))
+
+
+def _beam3_risk_adaptive_params(sim: OpenBlockSimulator, legal: list[dict], cfg: dict) -> tuple[int, int, int, int, float]:
+    """高风险局面动态提高 3-ply beam 宽度；普通局保持默认吞吐。"""
+    top_k = int(cfg.get("topK", 15))
+    top_k2 = int(cfg.get("topK2", 5))
+    max_actions = int(cfg.get("maxActions", 100))
+    max_actions2 = int(cfg.get("maxActions2", 50))
+    raw_enabled = os.environ.get("RL_BEAM_RISK_ADAPTIVE", "").strip().lower()
+    enabled = (
+        raw_enabled not in ("0", "false", "no", "off")
+        if raw_enabled
+        else bool(cfg.get("riskAdaptive", False))
+    )
+    if not enabled:
+        return top_k, max_actions, top_k2, max_actions2, 0.0
+
+    gnp = sim._ensure_grid_np()
+    fill = float(np.mean(gnp >= 0))
+    mobility = len(legal)
+    risk = 0.0
+    if fill >= float(cfg.get("riskFill", 0.56)):
+        risk += 0.35
+    if mobility <= int(cfg.get("riskMobility", 18)):
+        risk += 0.35
+    try:
+        leaves = sim.count_sequential_solution_leaves(leaf_cap=2, node_budget=600)
+        if leaves <= int(cfg.get("riskLeafCount", 1)):
+            risk += 0.30
+    except Exception:
+        pass
+
+    risk = float(np.clip(risk, 0.0, 1.0))
+    mult = 1.0 + risk * (float(cfg.get("riskMaxMultiplier", 1.8)) - 1.0)
+    max_top_k = int(cfg.get("riskTopKMax", max(top_k, 24)))
+    max_top_k2 = int(cfg.get("riskTopK2Max", max(top_k2, 8)))
+    max_a = int(cfg.get("riskMaxActionsMax", max(max_actions, 140)))
+    max_a2 = int(cfg.get("riskMaxActions2Max", max(max_actions2, 80)))
+    return (
+        min(max_top_k, max(top_k, int(round(top_k * mult)))),
+        min(max_a, max(max_actions, int(round(max_actions * mult)))),
+        min(max_top_k2, max(top_k2, int(round(top_k2 * mult)))),
+        min(max_a2, max(max_actions2, int(round(max_actions2 * mult)))),
+        risk,
+    )
 
 
 def _replay_config() -> dict:
@@ -1094,6 +1150,7 @@ def collect_episode(
 
         q_vals = None
         _visit_pi = None
+        _beam_risk = 0.0
         if use_lookahead and step_idx >= explore_first_moves:
             if use_mcts:
                 mcts_sims_eff = _mcts_risk_adaptive_sims(sim, legal, _mcts_sims, _mcts_cfg)
@@ -1133,10 +1190,13 @@ def collect_episode(
                     _visit_pi = _evp(_mcts_tree.root, len(legal))
             elif use_beam3ply:
                 # 3-ply beam：还有 3 个未放置 dock 块时展开，否则自动退化为 2-ply/1-step
+                _b3_topk_eff, _b3_max_eff, _b3_topk2_eff, _b3_max2_eff, _beam_risk = _beam3_risk_adaptive_params(
+                    sim, legal, _beam3ply_cfg
+                )
                 q_vals = _beam_3ply_q_values(
                     net, device, sim, legal, gamma,
-                    top_k=_b3_topk, max_actions=_b3_max,
-                    top_k2=_b3_topk2, max_actions2=_b3_max2,
+                    top_k=_b3_topk_eff, max_actions=_b3_max_eff,
+                    top_k2=_b3_topk2_eff, max_actions2=_b3_max2_eff,
                 )
             elif use_beam2ply:
                 # 2-ply beam：当 dock≥2 块时展开第二层，否则自动退化为 1-step
@@ -1188,6 +1248,7 @@ def collect_episode(
         a = legal[chosen]
         r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
         clears_step = min(getattr(sim, "_last_clears", 0), 3)
+        bonus_lines_step = min(getattr(sim, "_last_bonus_lines", 0), 3)
 
         # MCTS 树复用：推进树根到已选动作的子节点
         if _mcts_tree is not None:
@@ -1203,6 +1264,7 @@ def collect_episode(
             "old_log_prob": old_log_prob,
             "holes_after": int(sim.count_holes()),
             "clears": clears_step,
+            "bonus_lines": bonus_lines_step,
             "board_quality": sup["board_quality"],
             "feasibility": sup["feasibility"],
             "topology_after": sup.get("topology_after"),
@@ -1210,6 +1272,7 @@ def collect_episode(
             "q_vals": q_vals.tolist() if q_vals is not None else None,
             # MCTS 访问分布（visit_pi）：用于直接 CE 损失（可选，比 q_proxy 更准确）
             "visit_pi": _visit_pi.tolist() if _visit_pi is not None else None,
+            "teacher_beam_risk": float(_beam_risk),
         })
         step_idx += 1
 
@@ -1327,6 +1390,7 @@ def _reevaluate_and_update(
     all_old_lp: list[float] = []
     all_holes_after: list[float] = []
     all_clears: list[int] = []
+    all_bonus_lines: list[int] = []
     all_board_quality: list[float] = []
     all_feasibility: list[float] = []
     all_steps_to_end: list[float] = []
@@ -1338,6 +1402,7 @@ def _reevaluate_and_update(
     ep_scores: list[float] = []
     ep_thresholds: list[float] = []
     ep_replay_flags: list[bool] = []
+    ep_replay_ages: list[float] = []
 
     for ep in valid:
         traj = ep["trajectory"]
@@ -1347,6 +1412,7 @@ def _reevaluate_and_update(
         ep_scores.append(float(ep.get("score", 0)))
         ep_thresholds.append(float(ep.get("win_threshold", WIN_SCORE_THRESHOLD)))
         ep_replay_flags.append(is_replay)
+        ep_replay_ages.append(float(ep.get("_replay_age", 0.0)) if is_replay else 0.0)
         for step in traj:
             all_states.append(step["state"])
             all_action_feats.append(step["action_feats"])
@@ -1357,6 +1423,7 @@ def _reevaluate_and_update(
             if "holes_after" in step:
                 all_holes_after.append(float(step["holes_after"]))
             all_clears.append(int(step.get("clears", 0)))
+            all_bonus_lines.append(int(step.get("bonus_lines", 0)))
             all_board_quality.append(float(step.get("board_quality", 0.0)))
             all_feasibility.append(float(step.get("feasibility", 1.0)))
             all_steps_to_end.append(float(step.get("steps_to_end", 0)))
@@ -1390,6 +1457,7 @@ def _reevaluate_and_update(
     feas_coef = _feasibility_coef()
     surv_coef = _survival_coef()
     topo_coef = _topology_aux_coef()
+    bonus_clear_coef = _bonus_clear_aux_coef()
     q_distill_coef = _q_distill_coef(global_ep)
     q_distill_tau = _q_distill_tau()
     q_distill_norm = _q_distill_norm_mode()
@@ -1435,6 +1503,18 @@ def _reevaluate_and_update(
             torch.from_numpy(np.stack(all_topology_after).astype(np.float32)),
             device,
         ).clamp(0.0, 1.0)
+
+    use_bonus_clear_aux = (
+        bonus_clear_coef > 1e-12
+        and callable(getattr(net, "forward_bonus_clear_aux", None))
+        and len(all_bonus_lines) == total_steps
+    )
+    bonus_clear_target_t: torch.Tensor | None = None
+    if use_bonus_clear_aux:
+        bonus_clear_target_t = tensor_to_device(
+            torch.tensor([1.0 if b > 0 else 0.0 for b in all_bonus_lines], dtype=torch.float32),
+            device,
+        )
 
     # --- 直接监督目标 ---
     has_aux_heads = callable(getattr(net, "forward_aux_all", None))
@@ -1686,6 +1766,13 @@ def _reevaluate_and_update(
             pred_topo = net.forward_topology_aux(states_t, chosen_action_feats)
             topology_aux_loss = F.smooth_l1_loss(pred_topo, topology_target_t, reduction="mean", beta=1.0)
 
+        bonus_clear_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if use_bonus_clear_aux and bonus_clear_target_t is not None:
+            bonus_logits = net.forward_bonus_clear_aux(states_t, chosen_action_feats)
+            bonus_clear_loss = F.binary_cross_entropy_with_logits(
+                bonus_logits, bonus_clear_target_t, reduction="mean"
+            )
+
         bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
@@ -1754,6 +1841,7 @@ def _reevaluate_and_update(
             + hole_coef * _safe_aux(hole_aux_loss)
             + clear_pred_coef * _safe_aux(clear_pred_loss)
             + topo_coef * _safe_aux(topology_aux_loss)
+            + bonus_clear_coef * _safe_aux(bonus_clear_loss)
             + bq_coef * _safe_aux(bq_loss)
             + feas_coef * _safe_aux(feas_loss)
             + surv_coef * _safe_aux(surv_loss)
@@ -1802,6 +1890,7 @@ def _reevaluate_and_update(
             "loss_hole_aux": _safe_metric(hole_aux_loss),
             "loss_clear_pred": _safe_metric(clear_pred_loss),
             "loss_topology_aux": _safe_metric(topology_aux_loss),
+            "loss_bonus_clear_aux": _safe_metric(bonus_clear_loss),
             "loss_bq": _safe_metric(bq_loss),
             "loss_feas": _safe_metric(feas_loss),
             "loss_surv": _safe_metric(surv_loss),
@@ -1810,10 +1899,12 @@ def _reevaluate_and_update(
             "hole_aux_coef": float(hole_coef),
             "clear_pred_coef": float(clear_pred_coef),
             "topology_aux_coef": float(topo_coef),
+            "bonus_clear_aux_coef": float(bonus_clear_coef),
             "q_distill_coef": float(q_distill_coef),
             "visit_pi_coef": float(visit_pi_coef),
             "pg_steps": pg_steps_num,
             "replay_steps": replay_steps_num,
+            "replay_age": float(np.mean([a for a in ep_replay_ages if a > 0])) if any(a > 0 for a in ep_replay_ages) else 0.0,
             "teacher_q_coverage": float(len(q_std_vals) / max(total_steps, 1)),
             "teacher_q_std": float(np.mean(q_std_vals)) if q_std_vals else 0.0,
             "teacher_q_margin": float(np.mean(q_margin_vals)) if q_margin_vals else 0.0,
@@ -2131,6 +2222,7 @@ def train_loop(
                 replay_sample = copy.deepcopy(random.sample(list(_replay_buffer), replay_n))
                 for ep in replay_sample:
                     ep["_replay_sample"] = True
+                    ep["_replay_age"] = max(0, ep_cursor - int(ep.get("_replay_added_ep", ep_cursor)))
             update_batch = batch + replay_sample
             result = _reevaluate_and_update(
                 net, opt, update_batch, device, gamma, gae_lambda,
@@ -2150,7 +2242,9 @@ def train_loop(
                 keep_n = min(len(ranked_batch), max(1, int(_replay_cfg.get("keepPerBatch", max(1, len(batch) // 2)))))
                 for ep in ranked_batch[:keep_n]:
                     if _episode_replay_priority(ep) >= min_pri:
-                        _replay_buffer.append(copy.deepcopy(ep))
+                        ep_copy = copy.deepcopy(ep)
+                        ep_copy["_replay_added_ep"] = ep_cursor
+                        _replay_buffer.append(ep_copy)
             batch_count += 1
             if mps_sync:
                 maybe_mps_synchronize(device)
@@ -2188,6 +2282,8 @@ def train_loop(
                     hole_str += f"  clr={_fmt_update('loss_clear_pred')}"
                 if last_update and _num_update("topology_aux_coef") > 1e-12:
                     hole_str += f"  topo={_fmt_update('loss_topology_aux')}"
+                if last_update and _num_update("bonus_clear_aux_coef") > 1e-12:
+                    hole_str += f"  bonus={_fmt_update('loss_bonus_clear_aux')}"
                 if last_update and _num_update("loss_bq") > 1e-6:
                     hole_str += f"  bq={_fmt_update('loss_bq')}"
                 if last_update and _num_update("loss_feas") > 1e-6:
@@ -2199,7 +2295,7 @@ def train_loop(
                 if last_update and _num_update("visit_pi_coef") > 1e-12:
                     hole_str += f"  vpi={_fmt_update('loss_visit_pi')}"
                 if last_update and last_update.get("replay_samples", 0):
-                    hole_str += f"  replay={last_update.get('replay_samples', 0)}"
+                    hole_str += f"  replay={last_update.get('replay_samples', 0)}/age{_num_update('replay_age'):.0f}"
                 if last_update and _num_update("teacher_q_coverage") > 0:
                     hole_str += (
                         f"  tq={_num_update('teacher_q_coverage') * 100:.0f}%"

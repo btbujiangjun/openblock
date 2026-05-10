@@ -122,6 +122,48 @@ def close_connection(exception):
         db.close()
 
 
+def _client_ip() -> str:
+    """返回当前请求的访问 IP，兼容常见反向代理头。
+
+    生产环境若不信任上游代理，可设置 OPENBLOCK_TRUST_PROXY_HEADERS=0，
+    此时只使用 Flask/Werkzeug 的 request.remote_addr。
+    """
+    trust_proxy = os.environ.get("OPENBLOCK_TRUST_PROXY_HEADERS", "1").lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    candidates = []
+    if trust_proxy:
+        xff = request.headers.get("X-Forwarded-For", "")
+        if xff:
+            candidates.extend([p.strip() for p in xff.split(",") if p.strip()])
+        for header in ("X-Real-IP", "CF-Connecting-IP", "True-Client-IP"):
+            val = request.headers.get(header, "").strip()
+            if val:
+                candidates.append(val)
+    if request.remote_addr:
+        candidates.append(request.remote_addr)
+    for ip in candidates:
+        # 避免异常长 header 污染数据库；IPv6 + scope 也足够容纳。
+        if ip and len(ip) <= 64:
+            return ip
+    return ""
+
+
+def _ensure_column(cursor, table: str, column: str, decl: str) -> None:
+    """幂等补列，用于 SQLite 旧库迁移。"""
+    try:
+        existing = {
+            row[1] for row in cursor.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in existing:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    except sqlite3.OperationalError:
+        pass
+
+
 def _migrate_behaviors_columns(cursor):
     """旧版库可能缺少 behaviors 字段，补列后再建索引。"""
     cursor.execute(
@@ -139,6 +181,7 @@ def _migrate_behaviors_columns(cursor):
         ("game_state", "TEXT"),
         ("timestamp", "INTEGER DEFAULT (strftime('%s', 'now'))"),
         ("created_at", "INTEGER DEFAULT (strftime('%s', 'now'))"),
+        ("client_ip", "TEXT"),
     ]
     for col_name, col_decl in additions:
         if col_name not in existing:
@@ -167,12 +210,17 @@ def _migrate_schema(cursor):
             ("created_at", "INTEGER DEFAULT (strftime('%s', 'now'))"),
             ("strategy", "TEXT DEFAULT 'normal'"),
             ("score", "INTEGER DEFAULT 0"),
+            ("attribution", "TEXT DEFAULT '{}'"),
+            ("client_ip", "TEXT"),
         ):
             if col_name not in sess_cols:
                 try:
                     cursor.execute(f"ALTER TABLE sessions ADD COLUMN {col_name} {decl}")
                 except sqlite3.OperationalError:
                     pass
+    _ensure_column(cursor, "scores", "client_ip", "TEXT")
+    _ensure_column(cursor, "payments", "client_ip", "TEXT")
+    _ensure_column(cursor, "achievements", "client_ip", "TEXT")
 
     cursor.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'"
@@ -187,6 +235,7 @@ def _migrate_schema(cursor):
                 CREATE TABLE achievements (
                     user_id TEXT NOT NULL,
                     achievement_id TEXT NOT NULL,
+                    client_ip TEXT,
                     unlocked_at INTEGER DEFAULT (strftime('%s', 'now')),
                     PRIMARY KEY (user_id, achievement_id)
                 )
@@ -250,6 +299,7 @@ def _migrate_schema(cursor):
             ("max_combo", "INTEGER DEFAULT 0"),
             ("total_placements", "INTEGER DEFAULT 0"),
             ("total_misses", "INTEGER DEFAULT 0"),
+            ("last_ip", "TEXT"),
         ):
             if col_name not in st_cols:
                 try:
@@ -278,6 +328,8 @@ def init_db():
                 duration INTEGER,
                 status TEXT DEFAULT 'active',
                 game_stats TEXT,
+                attribution TEXT DEFAULT '{}',
+                client_ip TEXT,
                 created_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
         """)
@@ -292,6 +344,7 @@ def init_db():
                 game_state TEXT,
                 timestamp INTEGER DEFAULT (strftime('%s', 'now')),
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                client_ip TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             )
         """)
@@ -302,7 +355,8 @@ def init_db():
                 user_id TEXT NOT NULL,
                 score INTEGER NOT NULL,
                 strategy TEXT DEFAULT 'normal',
-                timestamp INTEGER DEFAULT (strftime('%s', 'now'))
+                timestamp INTEGER DEFAULT (strftime('%s', 'now')),
+                client_ip TEXT
             )
         """)
 
@@ -317,6 +371,7 @@ def init_db():
                 max_combo INTEGER DEFAULT 0,
                 total_placements INTEGER DEFAULT 0,
                 total_misses INTEGER DEFAULT 0,
+                last_ip TEXT,
                 last_seen INTEGER DEFAULT (strftime('%s', 'now'))
             )
         """)
@@ -325,6 +380,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS achievements (
                 user_id TEXT NOT NULL,
                 achievement_id TEXT NOT NULL,
+                client_ip TEXT,
                 unlocked_at INTEGER DEFAULT (strftime('%s', 'now')),
                 PRIMARY KEY (user_id, achievement_id)
             )
@@ -360,6 +416,7 @@ def init_db():
                 currency TEXT DEFAULT 'CNY',
                 status TEXT DEFAULT 'pending',
                 expires_at INTEGER,
+                client_ip TEXT,
                 created_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
         """)
@@ -398,7 +455,13 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_behaviors_timestamp ON behaviors(timestamp)
         """)
         cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_behaviors_client_ip ON behaviors(client_ip)
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_client_ip ON sessions(client_ip)
         """)
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_replays_session ON replays(session_id)
@@ -423,14 +486,15 @@ def create_session():
         start_ms = int(time.time() * 1000)
     else:
         start_ms = int(start_ms)
+    client_ip = _client_ip()
 
     db = get_db()
     cursor = db.cursor()
 
     cursor.execute(
         """
-        INSERT INTO sessions (user_id, strategy, strategy_config, start_time, score, status, attribution)
-        VALUES (?, ?, ?, ?, ?, 'active', ?)
+        INSERT INTO sessions (user_id, strategy, strategy_config, start_time, score, status, attribution, client_ip)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
     """,
         (
             user_id,
@@ -439,6 +503,7 @@ def create_session():
             start_ms,
             int(data.get("score", 0)),
             attribution,
+            client_ip,
         ),
     )
 
@@ -453,9 +518,9 @@ def create_session():
     )
     cursor.execute(
         """
-        UPDATE user_stats SET last_seen = ? WHERE user_id = ?
+        UPDATE user_stats SET last_seen = ?, last_ip = ? WHERE user_id = ?
     """,
-        (int(time.time()), user_id),
+        (int(time.time()), client_ip, user_id),
     )
     db.commit()
 
@@ -486,6 +551,7 @@ def _row_session_api(row) -> dict:
         "status": row["status"],
         "gameStats": json.loads(gs or "null") if gs else None,
         "attribution": json.loads(at or "{}") if at else {},
+        "clientIp": row["client_ip"] if "client_ip" in row.keys() else "",
     }
 
 
@@ -504,6 +570,7 @@ def get_session(session_id):
 def patch_session(session_id):
     """部分更新会话（前端 IndexedDB updateSession 的替代）"""
     data = request.get_json() or {}
+    client_ip = _client_ip()
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
@@ -520,21 +587,31 @@ def patch_session(session_id):
         if et < 10**11:
             et = int(et * 1000)
         u["end_time"] = et
+        st = row["start_time"]
+        if st is not None:
+            if st < 10**11:
+                st = int(st * 1000)
+            u["duration"] = max(1, int((et - st) // 1000))
+    if data.get("duration") is not None:
+        u["duration"] = max(0, int(data["duration"]))
     if data.get("gameStats") is not None:
         u["game_stats"] = json.dumps(data["gameStats"], ensure_ascii=False)
     if data.get("strategyConfig") is not None:
         u["strategy_config"] = json.dumps(data["strategyConfig"], ensure_ascii=False)
     if data.get("attribution") is not None:
         u["attribution"] = json.dumps(data["attribution"], ensure_ascii=False)
+    if client_ip and not (row["client_ip"] if "client_ip" in row.keys() else ""):
+        u["client_ip"] = client_ip
     cur.execute(
         """
-        UPDATE sessions SET score = ?, status = ?, end_time = ?, game_stats = ?, strategy_config = ?, attribution = ?
+        UPDATE sessions SET score = ?, status = ?, end_time = ?, duration = ?, game_stats = ?, strategy_config = ?, attribution = ?, client_ip = ?
         WHERE id = ?
         """,
         (
             u.get("score", row["score"]),
             u.get("status", row["status"]),
             u.get("end_time", row["end_time"]),
+            u.get("duration", row["duration"]),
             u.get(
                 "game_stats", row["game_stats"] if "game_stats" in row.keys() else None
             ),
@@ -543,9 +620,31 @@ def patch_session(session_id):
                 "attribution",
                 row["attribution"] if "attribution" in row.keys() else "{}",
             ),
+            u.get(
+                "client_ip",
+                row["client_ip"] if "client_ip" in row.keys() else client_ip,
+            ),
             session_id,
         ),
     )
+    if u.get("status") == "completed" and row["status"] != "completed":
+        cur.execute(
+            """
+            UPDATE user_stats SET
+                best_score = MAX(best_score, ?),
+                total_play_time = total_play_time + ?,
+                last_seen = ?,
+                last_ip = COALESCE(NULLIF(?, ''), last_ip)
+            WHERE user_id = ?
+            """,
+            (
+                int(u.get("score", row["score"]) or 0),
+                int(u.get("duration", 0) or 0),
+                int((u.get("end_time") or int(time.time() * 1000)) // 1000),
+                client_ip,
+                row["user_id"],
+            ),
+        )
     db.commit()
     cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
     return jsonify(_row_session_api(cur.fetchone()))
@@ -557,6 +656,7 @@ def end_session(session_id):
     data = request.get_json() or {}
     score = data.get("score", 0)
     duration = data.get("duration", 0)
+    client_ip = _client_ip()
 
     db = get_db()
     cursor = db.cursor()
@@ -580,10 +680,11 @@ def end_session(session_id):
         )
         cursor.execute(
             """
-            UPDATE sessions SET score = ?, end_time = ?, duration = ?, status = 'completed'
+            UPDATE sessions SET score = ?, end_time = ?, duration = ?, status = 'completed',
+                client_ip = COALESCE(NULLIF(client_ip, ''), ?)
             WHERE id = ?
         """,
-            (score, end_time, actual_duration_sec, session_id),
+            (score, end_time, actual_duration_sec, client_ip, session_id),
         )
 
         cursor.execute(
@@ -592,17 +693,18 @@ def end_session(session_id):
                 total_score = total_score + ?,
                 best_score = MAX(best_score, ?),
                 total_play_time = total_play_time + ?,
-                last_seen = ?
+                last_seen = ?,
+                last_ip = COALESCE(NULLIF(?, ''), last_ip)
             WHERE user_id = ?
         """,
-            (score, score, actual_duration_sec, end_time // 1000, row["user_id"]),
+            (score, score, actual_duration_sec, end_time // 1000, client_ip, row["user_id"]),
         )
 
         cursor.execute(
             """
-            INSERT INTO scores (user_id, score, strategy) VALUES (?, ?, ?)
+            INSERT INTO scores (user_id, score, strategy, client_ip) VALUES (?, ?, ?, ?)
         """,
-            (row["user_id"], score, row["strategy"]),
+            (row["user_id"], score, row["strategy"], client_ip),
         )
 
         db.commit()
@@ -614,11 +716,19 @@ def end_session(session_id):
 def record_behavior():
     """Record a single behavior event"""
     data = request.get_json() or {}
-    session_id = data.get("session_id")
-    user_id = data.get("user_id", "")
-    event_type = data.get("event_type", "")
+    session_id = data.get("session_id") if data.get("session_id") is not None else data.get("sessionId")
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    event_type = data.get("event_type", "") or data.get("eventType", "")
     event_data = json.dumps(data.get("data", {}))
     game_state = json.dumps(data.get("gameState", {}))
+    client_ip = _client_ip()
+    ts = data.get("timestamp")
+    if ts is None:
+        ts = int(time.time() * 1000)
+    else:
+        ts = int(ts)
+        if ts < 10**12:
+            ts *= 1000
 
     if not event_type:
         return jsonify({"success": False, "error": "event_type required"}), 400
@@ -628,10 +738,10 @@ def record_behavior():
 
     cursor.execute(
         """
-        INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, timestamp, client_ip)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """,
-        (session_id, user_id, event_type, event_data, game_state, int(time.time())),
+        (session_id, user_id, event_type, event_data, game_state, ts, client_ip),
     )
 
     db.commit()
@@ -650,6 +760,7 @@ def record_behaviors_batch():
 
     db = get_db()
     cursor = db.cursor()
+    client_ip = _client_ip()
 
     for b in behaviors:
         sid = (
@@ -666,8 +777,8 @@ def record_behaviors_batch():
                 ts *= 1000
         cursor.execute(
             """
-            INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, timestamp, client_ip)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 sid,
@@ -676,6 +787,7 @@ def record_behaviors_batch():
                 json.dumps(b.get("data", {})),
                 json.dumps(b.get("gameState", {})),
                 ts,
+                client_ip,
             ),
         )
 
@@ -706,6 +818,7 @@ def get_behaviors_by_session(session_id):
                 "data": json.loads(row["event_data"] or "{}"),
                 "game_state": json.loads(row["game_state"] or "{}"),
                 "timestamp": row["timestamp"],
+                "client_ip": row["client_ip"] if "client_ip" in row.keys() else "",
             }
         )
 
@@ -750,6 +863,7 @@ def get_behaviors():
                 "data": json.loads(row["event_data"] or "{}"),
                 "game_state": json.loads(row["game_state"] or "{}"),
                 "timestamp": row["timestamp"],
+                "client_ip": row["client_ip"] if "client_ip" in row.keys() else "",
             }
         )
 
@@ -763,15 +877,25 @@ def record_score():
     user_id = data.get("user_id", "")
     score = data.get("score", 0)
     strategy = data.get("strategy", "normal")
+    client_ip = _client_ip()
 
     db = get_db()
     cursor = db.cursor()
 
     cursor.execute(
         """
-        INSERT INTO scores (user_id, score, strategy) VALUES (?, ?, ?)
+        INSERT INTO scores (user_id, score, strategy, client_ip) VALUES (?, ?, ?, ?)
     """,
-        (user_id, score, strategy),
+        (user_id, score, strategy, client_ip),
+    )
+    cursor.execute("INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)", (user_id,))
+    cursor.execute(
+        """
+        UPDATE user_stats
+        SET best_score = MAX(best_score, ?), last_seen = ?, last_ip = ?
+        WHERE user_id = ?
+        """,
+        (int(score or 0), int(time.time()), client_ip, user_id),
     )
 
     db.commit()
@@ -803,6 +927,7 @@ def get_stats():
                     "max_combo": row["max_combo"],
                     "total_placements": row["total_placements"],
                     "total_misses": row["total_misses"],
+                    "last_ip": row["last_ip"] if "last_ip" in row.keys() else "",
                     "accuracy": row["total_placements"]
                     / (row["total_placements"] + row["total_misses"])
                     * 100
@@ -895,6 +1020,7 @@ def save_achievement():
     data = request.get_json() or {}
     user_id = data.get("user_id", "")
     achievement_id = data.get("achievement_id", "")
+    client_ip = _client_ip()
 
     if not user_id or not achievement_id:
         return jsonify({"success": False, "error": "Missing fields"}), 400
@@ -904,10 +1030,10 @@ def save_achievement():
 
     cursor.execute(
         """
-        INSERT OR IGNORE INTO achievements (user_id, achievement_id, unlocked_at)
-        VALUES (?, ?, ?)
+        INSERT OR IGNORE INTO achievements (user_id, achievement_id, client_ip, unlocked_at)
+        VALUES (?, ?, ?, ?)
     """,
-        (user_id, achievement_id, int(time.time())),
+        (user_id, achievement_id, client_ip, int(time.time())),
     )
 
     db.commit()
@@ -1338,6 +1464,7 @@ def verify_payment():
     currency = data.get("currency", "CNY")
     status = data.get("status", "pending")
     expires_at = data.get("expires_at")
+    client_ip = _client_ip()
 
     if not user_id or not sku:
         return jsonify({"error": "user_id and sku required"}), 400
@@ -1346,10 +1473,29 @@ def verify_payment():
     cur = db.cursor()
 
     try:
+        if provider_ref:
+            existing = cur.execute(
+                """
+                SELECT id, status FROM payments
+                WHERE user_id = ? AND sku = ? AND provider = ? AND provider_ref = ?
+                LIMIT 1
+                """,
+                (user_id, sku, provider, provider_ref),
+            ).fetchone()
+            if existing:
+                return jsonify(
+                    {
+                        "success": True,
+                        "payment_id": existing["id"],
+                        "sku": sku,
+                        "status": existing["status"],
+                        "deduped": True,
+                    }
+                )
         cur.execute(
             """
-            INSERT INTO payments (user_id, sku, provider, provider_ref, amount_minor, currency, status, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO payments (user_id, sku, provider, provider_ref, amount_minor, currency, status, expires_at, client_ip)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -1360,6 +1506,7 @@ def verify_payment():
                 currency,
                 status,
                 expires_at,
+                client_ip,
             ),
         )
         db.commit()
@@ -1382,7 +1529,7 @@ def get_payments():
     cur = db.cursor()
     cur.execute(
         """
-        SELECT id, sku, provider, amount_minor, currency, status, expires_at, created_at
+        SELECT id, sku, provider, amount_minor, currency, status, expires_at, created_at, client_ip
         FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
         """,
         (user_id,),
@@ -1400,6 +1547,7 @@ def get_payments():
                 "status": row["status"],
                 "expires_at": row["expires_at"],
                 "created_at": row["created_at"],
+                "client_ip": row["client_ip"] if "client_ip" in row.keys() else "",
             }
         )
 
@@ -1598,6 +1746,7 @@ def put_client_stats():
         return jsonify({"error": "user_id required"}), 400
     db = get_db()
     cur = db.cursor()
+    client_ip = _client_ip()
     cur.execute("INSERT OR IGNORE INTO user_stats (user_id) VALUES (?)", (user_id,))
     mapping = [
         ("totalGames", "total_games"),
@@ -1617,9 +1766,10 @@ def put_client_stats():
     if not sets:
         return jsonify({"success": True})
     vals.append(int(time.time()))
+    vals.append(client_ip)
     vals.append(user_id)
     cur.execute(
-        f"UPDATE user_stats SET {', '.join(sets)}, last_seen = ? WHERE user_id = ?",
+        f"UPDATE user_stats SET {', '.join(sets)}, last_seen = ?, last_ip = ? WHERE user_id = ?",
         vals,
     )
     db.commit()
@@ -1894,9 +2044,11 @@ def _ensure_ab_table():
             bucket     INTEGER NOT NULL,
             event      TEXT NOT NULL,
             ts         INTEGER NOT NULL,
-            meta       TEXT DEFAULT '{}'
+            meta       TEXT DEFAULT '{}',
+            client_ip  TEXT
         )
     """)
+    _ensure_column(db, "ab_events", "client_ip", "TEXT")
     db.commit()
 
 
@@ -1907,8 +2059,9 @@ def ab_report():
     try:
         _ensure_ab_table()
         db = get_db()
+        client_ip = _client_ip()
         db.execute(
-            "INSERT INTO ab_events (user_id, experiment, bucket, event, ts, meta) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO ab_events (user_id, experiment, bucket, event, ts, meta, client_ip) VALUES (?,?,?,?,?,?,?)",
             (
                 data.get("userId", ""),
                 data.get("experiment", ""),
@@ -1922,6 +2075,7 @@ def ab_report():
                         if k not in ("userId", "experiment", "bucket", "event", "ts")
                     }
                 ),
+                client_ip,
             ),
         )
         db.commit()
@@ -1999,7 +2153,17 @@ def ops_dashboard():
 
         avg_duration = (
             db.execute(
-                "SELECT AVG(duration) as avg FROM sessions WHERE start_time >= ? AND duration IS NOT NULL AND duration > 0",
+                """
+                SELECT AVG(
+                    CASE
+                        WHEN duration IS NOT NULL AND duration > 0 THEN duration
+                        WHEN end_time IS NOT NULL AND end_time > start_time THEN (end_time - start_time) / 1000
+                        ELSE NULL
+                    END
+                ) as avg
+                FROM sessions
+                WHERE start_time >= ?
+                """,
                 (since_ms,),
             ).fetchone()["avg"]
             or 0
@@ -2085,7 +2249,18 @@ def ops_dashboard():
 
         # ── 用户分群分布（基于 user_stats） ──
         segment_rows = db.execute(
-            "SELECT user_id, best_score, total_games FROM user_stats WHERE last_seen >= ?",
+            """
+            SELECT us.user_id,
+                   MAX(COALESCE(us.best_score, 0), COALESCE(sm.best_score, 0)) AS best_score,
+                   us.total_games
+            FROM user_stats us
+            LEFT JOIN (
+                SELECT user_id, MAX(score) AS best_score
+                FROM scores
+                GROUP BY user_id
+            ) sm ON sm.user_id = us.user_id
+            WHERE us.last_seen >= ?
+            """,
             (since_ts,),
         ).fetchall()
         seg_counts = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0, "unknown": 0}
@@ -2123,7 +2298,19 @@ def ops_dashboard():
 
         # ── Top 分数 ──
         top_scores = db.execute(
-            "SELECT user_id, best_score FROM user_stats WHERE last_seen >= ? ORDER BY best_score DESC LIMIT 10",
+            """
+            SELECT us.user_id,
+                   MAX(COALESCE(us.best_score, 0), COALESCE(sm.best_score, 0)) AS best_score
+            FROM user_stats us
+            LEFT JOIN (
+                SELECT user_id, MAX(score) AS best_score
+                FROM scores
+                GROUP BY user_id
+            ) sm ON sm.user_id = us.user_id
+            WHERE us.last_seen >= ?
+            ORDER BY best_score DESC
+            LIMIT 10
+            """,
             (since_ts,),
         ).fetchall()
 
@@ -3087,6 +3274,7 @@ _DOC_CATEGORIES = [
             "engineering/I18N.md",
             "engineering/STRATEGY_GUIDE.md",
             "engineering/GOLDEN_EVENTS.md",
+            "engineering/CANVAS_ARTIFACTS.md",
             "engineering/CASUAL_GAME_BUILD_SKILL.md",
             "engineering/CURSOR_SKILLS.md",
         ],
@@ -3096,6 +3284,7 @@ _DOC_CATEGORIES = [
         "docs": [
             "domain/DOMAIN_KNOWLEDGE.md",
             "domain/CASUAL_GAME_ANALYSIS.md",
+            "domain/GLOBAL_CASUAL_GAME_RESEARCH.md",
             "domain/COMPETITOR_USER_ANALYSIS.md",
             "domain/ARCHITECTURE_COMPARISON.md",
         ],
@@ -3107,6 +3296,8 @@ _DOC_CATEGORIES = [
             "product/CLEAR_SCORING.md",
             "product/CHEST_AND_WALLET.md",
             "product/EASTER_EGGS_AND_DELIGHT.md",
+            "product/EASTER_EGGS_ROADMAP.md",
+            "product/PLAYER_RETENTION_ROADMAP.md",
             "product/SKINS_CATALOG.md",
             "product/SKIN_ICON_SEMANTIC_POOL.md",
             "product/RETENTION_ROADMAP_V10_17.md",
@@ -3133,6 +3324,7 @@ _DOC_CATEGORIES = [
             "algorithms/ALGORITHMS_PLAYER_MODEL.md",
             "algorithms/ALGORITHMS_RL.md",
             "algorithms/ALGORITHMS_MONETIZATION.md",
+            "algorithms/MODEL_SYSTEMS_FOUR_MODELS.md",
             "algorithms/MODEL_ENGINEERING_GUIDE.md",
         ],
     },
@@ -3142,6 +3334,7 @@ _DOC_CATEGORIES = [
             "algorithms/SPAWN_ALGORITHM.md",
             "algorithms/ADAPTIVE_SPAWN.md",
             "algorithms/SPAWN_BLOCK_MODELING.md",
+            "algorithms/CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md",
             "algorithms/SPAWN_SOLUTION_DIFFICULTY.md",
         ],
     },
@@ -3169,6 +3362,10 @@ _DOC_CATEGORIES = [
                 "name": "研究与历史实验",
                 "docs": [
                     "algorithms/RL_ANALYSIS.md",
+                    "algorithms/RL_V9_1_DEEP_ANALYSIS.md",
+                    "algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md",
+                    "algorithms/RL_SELF_PLAY_ROADMAP.md",
+                    "algorithms/RL_SELF_PLAY_LITERATURE_COMPARISON.md",
                     "algorithms/RL_TRAINING_OPTIMIZATION.md",
                     "algorithms/RL_ALPHAZERO_OPTIMIZATION.md",
                     "algorithms/RL_BROWSER_OPTIMIZATION.md",
@@ -3180,6 +3377,7 @@ _DOC_CATEGORIES = [
         "name": "商业化与运营",
         "docs": [
             "operations/MONETIZATION.md",
+            "operations/OPS_DASHBOARD_METRICS_AUDIT.md",
             "operations/MONETIZATION_CUSTOMIZATION.md",
             "operations/MONETIZATION_TRAINING_PANEL.md",
             "platform/MONETIZATION_GUIDE.md",

@@ -35,6 +35,7 @@ import { __test_only__ as fragInternals, tryUnlockRandom, __resetForTest as rese
 import { __test_only__ as pkInternals } from '../web/src/social/asyncPk.js';
 import { __test_only__ as msInternals, __resetForTest as resetMs } from '../web/src/checkin/monthlyMilestone.js';
 import { getTodayDish } from '../web/src/daily/dailyDish.js';
+import { initFirstWinBoost, __resetForTest as resetFirstWinBoost } from '../web/src/daily/firstWinBoost.js';
 
 /* ---------- Wallet 防通胀 ---------- */
 describe('v10.17 wallet 防通胀 cap', () => {
@@ -231,5 +232,42 @@ describe('v10.17 dailyDish', () => {
         expect(d).toBeTruthy();
         expect(d.weekday).toBe(new Date().getDay());
         expect(d.modifier).toBeTruthy();
+    });
+});
+
+/* ---------- firstWinBoost 分数结算一致性 ---------- */
+describe('v10.17 firstWinBoost', () => {
+    it('首胜加成应先进入最终分数，再执行结算展示', async () => {
+        _mockLS.clear();
+        resetFirstWinBoost();
+        document.body.innerHTML = '<div id="score"></div><div id="over-score"></div>';
+
+        const observedEndScores = [];
+        const game = {
+            score: 5520,
+            gameStats: { score: 5520 },
+            start: vi.fn(async () => {}),
+            endGame: vi.fn(async () => {
+                observedEndScores.push(game.score);
+                document.getElementById('over-score').textContent = String(game.score);
+            }),
+            updateUI: vi.fn(() => {
+                document.getElementById('score').textContent = String(game.score);
+            }),
+        };
+
+        initFirstWinBoost({ game });
+        await game.endGame();
+
+        expect(observedEndScores).toEqual([8280]);
+        expect(game.score).toBe(8280);
+        expect(game.gameStats.score).toBe(8280);
+        expect(game.gameStats.boostBonus).toBe(2760);
+        expect(document.getElementById('score').textContent).toBe('8280');
+        expect(document.getElementById('over-score').textContent).toBe('8280');
+
+        await game.endGame();
+        expect(game.score).toBe(8280);
+        expect(observedEndScores).toEqual([8280, 8280]);
     });
 });

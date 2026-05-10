@@ -560,6 +560,12 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
      * 默认 orderMaxValidPerms=6 即不约束，bypass 路径全部走默认值。 */
     const orderRigor = Math.max(0, Math.min(1, hints.orderRigor ?? 0));
     const orderMaxValidPerms = Math.max(1, Math.min(6, hints.orderMaxValidPerms ?? 6));
+    const motivationIntent = hints.motivationIntent ?? 'balanced';
+    const behaviorSegment = hints.behaviorSegment ?? 'balanced';
+    const personalizationApplied = hints.personalizationApplied === true;
+    const accessibilityLoad = Math.max(0, Math.min(1, hints.accessibilityLoad ?? 0));
+    const returningWarmupStrength = Math.max(0, Math.min(1, hints.returningWarmupStrength ?? 0));
+    const socialFairChallenge = hints.socialFairChallenge === true;
     const spawnTargets = hints.spawnTargets || {};
     const shapeComplexityTarget = Math.max(0, Math.min(1, spawnTargets.shapeComplexity ?? 0.45));
     const solutionSpacePressure = Math.max(0, Math.min(1, spawnTargets.solutionSpacePressure ?? 0.45));
@@ -650,7 +656,25 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
             targetSolutionRange
         },
-        layer2: { comboChain, multiClearBonus, multiLineTarget, delightBoost, perfectClearBoost, iconBonusTarget, delightMode, rhythmPhase, divBoost, spawnTargets: { ...spawnTargets }, recentCatFreq: { ...catFreq } },
+        layer2: {
+            comboChain,
+            multiClearBonus,
+            multiLineTarget,
+            delightBoost,
+            perfectClearBoost,
+            iconBonusTarget,
+            delightMode,
+            rhythmPhase,
+            divBoost,
+            spawnTargets: { ...spawnTargets },
+            recentCatFreq: { ...catFreq },
+            motivationIntent,
+            behaviorSegment,
+            personalizationApplied,
+            accessibilityLoad,
+            returningWarmupStrength,
+            socialFairChallenge
+        },
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,

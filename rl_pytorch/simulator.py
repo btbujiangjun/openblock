@@ -84,6 +84,7 @@ class OpenBlockSimulator:
         self._holes_cache: int | None = None
         self._grid_np: np.ndarray | None = None
         self._last_clears: int = 0
+        self._last_bonus_lines: int = 0
         self.reset()
 
     def reset(self) -> None:
@@ -100,6 +101,7 @@ class OpenBlockSimulator:
         self._holes_cache = None
         self._grid_np = None
         self._last_clears = 0
+        self._last_bonus_lines = 0
         self._spawn_dock()
 
     def save_state(self) -> dict:
@@ -288,11 +290,13 @@ class OpenBlockSimulator:
         result = self.grid.check_lines(bonus_block_icons=_RL_BONUS_ICONS)
         gain = 0.0
         self._last_clears = 0
+        self._last_bonus_lines = 0
         if result["count"] > 0:
             self._last_clears = int(result["count"])
             c = self._last_clears
             self.total_clears += c
             bonus_n = len(result.get("bonus_lines") or [])
+            self._last_bonus_lines = int(bonus_n)
             gain = _clear_score_gain(self.scoring, c, bonus_n, _is_perfect_clear(self.grid))
             self.score += gain
 

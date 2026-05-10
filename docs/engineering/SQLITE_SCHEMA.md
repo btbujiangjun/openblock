@@ -75,6 +75,7 @@
 | `sessions.created_at`、`skill_wallets.updated_at`、`scores.timestamp` 等 | **Unix 秒** | 整数 |
 | `sessions.duration` | **秒**（整数） | 会话结束 PATCH 时写入 |
 | `user_id` | TEXT | 前端 `localStorage` `bb_user_id`，形如 `u<时间戳>_<随机>` |
+| `client_ip` / `last_ip` | TEXT | 后端从 `X-Forwarded-For`、`X-Real-IP`、`CF-Connecting-IP`、`request.remote_addr` 解析；可用 `OPENBLOCK_TRUST_PROXY_HEADERS=0` 禁用代理头 |
 
 ### 3.2 `sessions.strategy_config` 与 `game_stats`
 
@@ -281,11 +282,11 @@
 
 ### 3.10 `scores`
 
-一行一次上报：`user_id` + 当时分数 + `strategy` + `timestamp`（秒）。用于历史最高分流水与排行榜聚合。
+一行一次上报：`user_id` + 当时分数 + `strategy` + `timestamp`（秒）+ `client_ip`。用于历史最高分流水、排行榜聚合和访问来源排查。
 
 ### 3.11 `user_stats`
 
-聚合维度整数；`last_seen` 为 Unix 秒。由会话生命周期与 `PUT /api/client/stats` 共同维护。
+聚合维度整数；`last_seen` 为 Unix 秒，`last_ip` 为该用户最近一次后端写入链路解析到的访问 IP。由会话生命周期与 `PUT /api/client/stats` 共同维护。
 
 ### 3.12 `season_pass`
 
@@ -305,6 +306,7 @@
 ### 3.13 `ab_events`
 
 - **`meta`**：JSON，附加维度；核心维度在 `experiment`、`bucket`、`event`、`ts`。
+- **`client_ip`**：后端接收上报时解析到的访问 IP，便于按实验事件追踪来源。
 
 ```json
 {
@@ -342,6 +344,7 @@
 | status | TEXT | 如 `active` / `completed` |
 | game_stats | TEXT | JSON，可含复盘摘要等 |
 | attribution | TEXT | JSON：UTM / `gclid` / `fbclid` 等会话级归因（见 `channelAttribution.js`） |
+| client_ip | TEXT | 开局/结束链路记录的访问 IP |
 | created_at | INTEGER | Unix 秒 |
 
 **典型 API**：`POST /api/session`、`PATCH|PUT /api/session/<id>`、`GET /api/sessions`、`GET /api/replay-sessions`。
@@ -356,6 +359,7 @@
 | event_type | TEXT | 如 `place`、`no_clear` |
 | event_data / game_state | TEXT | JSON |
 | timestamp / created_at | INTEGER | |
+| client_ip | TEXT | 该行为写入请求解析到的访问 IP |
 
 **典型 API**：`POST /api/behavior`、`POST /api/behavior/batch`、`GET /api/behaviors/...`。
 
@@ -368,6 +372,7 @@
 | score | INTEGER | |
 | strategy | TEXT | |
 | timestamp | INTEGER | |
+| client_ip | TEXT | 该分数写入请求解析到的访问 IP |
 
 **典型 API**：`POST /api/score`、`GET /api/leaderboard`、`GET /api/scores/best`。
 
@@ -380,6 +385,7 @@
 | total_play_time | INTEGER | |
 | total_clears / max_combo / total_placements / total_misses | INTEGER | |
 | perfect_placements | INTEGER | 迁移补列 |
+| last_ip | TEXT | 最近一次核心写入链路解析到的访问 IP |
 | last_seen | INTEGER | |
 
 **典型 API**：`GET|PUT /api/client/stats`，以及会话结束链路中的更新逻辑。
@@ -390,6 +396,7 @@
 |----|------|------|
 | user_id | TEXT | |
 | achievement_id | TEXT | |
+| client_ip | TEXT | 解锁请求解析到的访问 IP |
 | unlocked_at | INTEGER | |
 | **PK** | | `(user_id, achievement_id)` |
 
@@ -455,6 +462,7 @@
 | bucket | INTEGER | |
 | ts | INTEGER | |
 | meta | TEXT | JSON |
+| client_ip | TEXT | 实验上报请求解析到的访问 IP |
 
 **典型 API**：`POST /api/ab/report`、`GET /api/ab/results`。
 
@@ -509,8 +517,8 @@ scores：按 user_id 流水，与 sessions 弱关联（通过上报时机）
 
 | 索引 | 表 | 说明 |
 |------|-----|------|
-| idx_behaviors_session / user / type / timestamp | behaviors | 按会话、用户、类型、时间查询 |
-| idx_sessions_user | sessions | 用户会话列表 |
+| idx_behaviors_session / user / type / timestamp / client_ip | behaviors | 按会话、用户、类型、时间、访问 IP 查询 |
+| idx_sessions_user / client_ip | sessions | 用户会话列表、按访问 IP 追踪会话 |
 | idx_replays_session | replays | 按会话查回放 |
 | idx_mon_daily_scores_date | mon_daily_scores | 按日排行榜 |
 

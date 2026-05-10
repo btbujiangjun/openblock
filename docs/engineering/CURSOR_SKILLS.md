@@ -30,6 +30,7 @@
 | 文档 | 用途 |
 |------|------|
 | [CASUAL_GAME_BUILD_SKILL.md](./CASUAL_GAME_BUILD_SKILL.md) | 休闲游戏全栈阶段清单、OpenBlock 复盘原则与策略/模型/RL 映射 |
+| [CANVAS_ARTIFACTS.md](./CANVAS_ARTIFACTS.md) | Canvas 转换文档索引，按类别登记已转为 Markdown 的调研、路线图、候选块和 RL 诊断文档 |
 | [DEV_GUIDE.md](./DEV_GUIDE.md) | 二次开发与扩展约定 |
 | [TESTING.md](./TESTING.md) | 提交前验证命令与回归范围 |
 | [GOLDEN_EVENTS.md](./GOLDEN_EVENTS.md) | 埋点与事件命名约定 |
@@ -68,6 +69,7 @@
 ## 5. 维护约定（贡献者）
 
 - 新增 **仓库内** Skill：必须包含合法 YAML（`name` + `description`），且在本文件 **§2** 表格中登记。  
+- 新增 Cursor Canvas：先转换为 `docs/` 下的 Markdown 文档，再在 [CANVAS_ARTIFACTS.md](./CANVAS_ARTIFACTS.md) 按类别登记转换文档；文档中心只注册 Markdown，不直接注册原始 Canvas。
 - 同时在 `server.py` 的 `_DOC_CATEGORIES` 中若新增独立说明文档，应把 **本文档** 或新子页加入「工程与扩展」分类（见文档中心侧栏）。  
 - Skill 正文过长时：`SKILL.md` 保持摘要，权威长文放在 `docs/engineering/` 并由 Skill 链接。
 

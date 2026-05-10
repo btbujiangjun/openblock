@@ -202,6 +202,24 @@ const SPAWN_INTENT_LABEL = {
     maintain: '维持',
 };
 
+const MOTIVATION_INTENT_LABEL = {
+    competence: '胜任',
+    challenge: '挑战',
+    relaxation: '减压',
+    collection: '收集',
+    social: '社交',
+    balanced: '均衡',
+};
+
+const BEHAVIOR_SEGMENT_LABEL = {
+    newcomer_protection: '新手保护',
+    challenge_seeker: '高手挑战',
+    relaxation: '减压玩家',
+    collector: '收集完成',
+    social_competitor: '社交比较',
+    balanced: '均衡',
+};
+
 const SPAWN_TOOLTIP = {
     stress:
         '综合压力（约 −0.2～1）。由分数档、连战、技能、心流、节奏、恢复、挫败、combo、近失、闭环反馈等叠加后钳制，用于在配置的多档形状权重间插值。',
@@ -211,6 +229,11 @@ const SPAWN_TOOLTIP = {
         '闭环反馈（reward bias）：每轮新出块后，在若干步放置窗口内统计消行表现，对 stress 做小幅偏移（正≈好于预期可略加压，负≈不及预期减压）。⚠ 与「近满 N」「多消候选」不同——它衡量的是"近期奖励是否高于预期"，不是"盘面几何上还有几条临消行"。',
     boardFill: '当前棋盘占用率（已占格÷总格），不是开局预填比例 fillRatio。',
     spawnIntent: '出块意图（spawnIntent）：本轮自适应出块对外的单一口径——relief/engage/pressure/flow/harvest/maintain。压力表叙事、商业化策略文案与回放标签都读这一字段，避免文案与实际出块不一致。',
+    motivationIntent: '动机意图（motivationIntent）：由实时行为和明示偏好推断的中长期个性化目标，如胜任、挑战、减压、收集、社交；不使用年龄/性别/种族/宗教等敏感属性。',
+    behaviorSegment: '行为分群：只由清行、思考、失误、分享、挑战、收集等行为信号推断，用于解释个性化策略，不做敏感属性定向。',
+    accessibilityLoad: '操作负担：低画质/低动态偏好、误触率、长思考等信号合成；越高越倾向偏小块、保消和低压力。',
+    returningWarmup: '回归暖启动：沉默 1/3/7 天后回归时短期减压，避免直接沿用历史高技能造成首局挫败。',
+    socialFairChallenge: '公平挑战模式：异步挑战/固定 seed 场景关闭个体化难度，保证不同玩家面对同一规则。',
     /* v1.18：让玩家直接看到"这一帧 stress 是被哪个救济信号压下去的"，
      * 不必从故事线里倒推 ——」救济 / 恢复 / 近失 三条最常出力的负向信号。 */
     frustrationRelief: '挫败救济（stressBreakdown.frustrationRelief）：连续若干步无消行触发的强制减压。负值越大表示挫败越重，系统出块也会更友好。',
@@ -866,6 +889,23 @@ function _render(game) {
             if (intent) {
                 const intentLabel = SPAWN_INTENT_LABEL[intent] ?? intent;
                 decisionCells.push(_decisionCell('意图', intentLabel, SPAWN_TOOLTIP.spawnIntent));
+            }
+            const motivation = h.motivationIntent ?? ins?._motivationIntent;
+            if (motivation && motivation !== 'balanced') {
+                decisionCells.push(_decisionCell('动机', MOTIVATION_INTENT_LABEL[motivation] ?? motivation, SPAWN_TOOLTIP.motivationIntent));
+            }
+            const segment = h.behaviorSegment ?? ins?._behaviorSegment;
+            if (segment && segment !== 'balanced') {
+                decisionCells.push(_decisionCell('画像', BEHAVIOR_SEGMENT_LABEL[segment] ?? segment, SPAWN_TOOLTIP.behaviorSegment));
+            }
+            if ((h.returningWarmupStrength ?? 0) >= 0.35) {
+                decisionCells.push(_decisionCell('回归', `${Math.round(h.returningWarmupStrength * 100)}%`, SPAWN_TOOLTIP.returningWarmup));
+            }
+            if ((h.accessibilityLoad ?? 0) >= 0.35) {
+                decisionCells.push(_decisionCell('负担', `${Math.round(h.accessibilityLoad * 100)}%`, SPAWN_TOOLTIP.accessibilityLoad));
+            }
+            if (h.socialFairChallenge) {
+                decisionCells.push(_decisionCell('公平', '固定', SPAWN_TOOLTIP.socialFairChallenge));
             }
             decisionCells.push(
                 _decisionCell('保消', h.clearGuarantee, SPAWN_TOOLTIP.clearG),

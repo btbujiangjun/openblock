@@ -9,6 +9,7 @@
 ### 当前事实入口
 
 - [商业化策略](./MONETIZATION.md)：商业化架构、数据流、策略配置、CommercialModelVector、API 与运维边界的权威入口。
+- [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md)：`/ops` 是否接数据库、指标 SQL 口径、截图数值复核、风险和修正建议。
 
 ### 专题补充
 

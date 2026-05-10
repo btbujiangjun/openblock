@@ -618,6 +618,37 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         ? difficultyTuning.stressBias
         : fallbackDifficultyBias;
 
+    /* ---------- 全球化个性化边界：只消费行为/偏好/设备负担，不消费敏感属性 ----------
+     * motivationIntent 是中长期动机口径；spawnIntent 仍负责本轮出块意图。
+     * ctx.fairChallenge / ctx.socialFairChallenge 可用于异步挑战等公平模式，强制关闭个体化调节。
+     */
+    const personalizationContext = profile.personalizationContext ?? {};
+    const personalizationOptions = personalizationContext.options ?? profile.personalizationOptions ?? {};
+    const socialFairChallenge = ctx.fairChallenge === true || ctx.socialFairChallenge === true;
+    const personalizationEnabled = personalizationOptions.enabled !== false
+        && personalizationOptions.difficulty !== false
+        && !socialFairChallenge;
+    const motivationIntent = personalizationEnabled
+        ? (personalizationContext.motivationIntent ?? profile.motivationIntent ?? 'balanced')
+        : 'balanced';
+    const behaviorSegment = personalizationEnabled
+        ? (personalizationContext.behaviorSegment ?? profile.behaviorSegment ?? 'balanced')
+        : 'balanced';
+    const accessibilityLoad = personalizationEnabled
+        ? Math.max(0, Math.min(1, Number(personalizationContext.accessibilityLoad ?? profile.accessibilityLoad ?? 0) || 0))
+        : 0;
+    const returningWarmupStrength = personalizationEnabled
+        ? Math.max(0, Math.min(1, Number(personalizationContext.returningWarmupStrength ?? profile.returningWarmupStrength ?? 0) || 0))
+        : 0;
+    let motivationStressAdjust = 0;
+    if (motivationIntent === 'challenge' && skill >= 0.68 && (ability.riskLevel ?? 0) <= 0.48) {
+        motivationStressAdjust = 0.045;
+    } else if (motivationIntent === 'relaxation' || motivationIntent === 'competence') {
+        motivationStressAdjust = -0.045;
+    }
+    const accessibilityStressAdjust = accessibilityLoad > 0.2 ? -0.08 * accessibilityLoad : 0;
+    const returningWarmupAdjust = returningWarmupStrength > 0 ? -0.10 * returningWarmupStrength : 0;
+
     /* ---------- v1.13：友好盘面救济（提前推算节奏相位）----------
      * deriveRhythmPhase 是纯函数，提前调用一次用于 friendlyBoardRelief 判定，
      * 真正写入 spawnHints 的 rhythmPhase 仍由后续主路径决定。
@@ -692,6 +723,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         delightStressAdjust: applySignal(signalCfg, 'delightStressAdjust', delight.stressAdjust),
         friendlyBoardRelief: applySignal(signalCfg, 'friendlyBoardRelief', friendlyBoardRelief),
         bottleneckRelief: applySignal(signalCfg, 'bottleneckRelief', bottleneckRelief),
+        motivationStressAdjust: applySignal(signalCfg, 'motivationStressAdjust', motivationStressAdjust),
+        accessibilityStressAdjust: applySignal(signalCfg, 'accessibilityStressAdjust', accessibilityStressAdjust),
+        returningWarmupAdjust: applySignal(signalCfg, 'returningWarmupAdjust', returningWarmupAdjust),
         boardRisk,
         /* v1.30 派生痕迹：原始 trough 与样本数，用于面板/回放反查 */
         bottleneckTrough: hasBottleneckSignal ? bottleneckTroughRaw : null,
@@ -844,18 +878,24 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         const maxHolesAllow = Number.isFinite(topoCfg.orderRigorMaxHolesAllow)
             ? topoCfg.orderRigorMaxHolesAllow : 3;
         const modeBoost = Math.max(0, Number(difficultyTuning.orderRigorBoost) || 0);
+        const motivationBoost = motivationIntent === 'challenge' ? 0.10 : 0;
 
         const bypass = !enabled
             || inOnboarding
             || profile.needsRecovery === true
             || hasBottleneckSignal
+            || motivationIntent === 'relaxation'
+            || motivationIntent === 'competence'
+            || accessibilityLoad >= 0.45
+            || returningWarmupStrength >= 0.35
+            || socialFairChallenge
             || holes > maxHolesAllow
             || (_boardFill ?? 0) < activFill;
 
         if (!bypass) {
             const stressTerm = Math.max(0, stress - threshold) * orderScale;
             const skillTerm = Math.max(0, skill - 0.5) * skillScale;
-            orderRigor = Math.max(0, Math.min(1, stressTerm + skillTerm + modeBoost));
+            orderRigor = Math.max(0, Math.min(1, stressTerm + skillTerm + modeBoost + motivationBoost));
             orderMaxValidPerms = Math.max(
                 tight,
                 Math.min(loose, Math.round(loose - (loose - tight) * orderRigor))
@@ -1111,6 +1151,39 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
     }
 
+    /* --- 全球化个性化动机层：行为画像只调节策略倾向，不绕过几何与可解性护栏 --- */
+    if (personalizationEnabled) {
+        if (returningWarmupStrength >= 0.35) {
+            clearGuarantee = Math.max(clearGuarantee, 2);
+            sizePreference = Math.min(sizePreference, -0.24 - returningWarmupStrength * 0.12);
+            multiClearBonus = Math.max(multiClearBonus, 0.38);
+            if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+        }
+        if (accessibilityLoad >= 0.35) {
+            clearGuarantee = Math.max(clearGuarantee, 2);
+            sizePreference = Math.min(sizePreference, -0.20 - accessibilityLoad * 0.25);
+            diversityBoost = Math.max(diversityBoost, 0.08);
+        }
+        if (motivationIntent === 'collection') {
+            iconBonusTarget = Math.max(iconBonusTarget, canPromoteToPayoff ? 0.50 : 0.32);
+            if (canPromoteToPayoff) {
+                multiClearBonus = Math.max(multiClearBonus, 0.52);
+                multiLineTarget = Math.max(multiLineTarget, 1);
+            }
+        } else if (motivationIntent === 'challenge') {
+            diversityBoost = Math.max(diversityBoost, 0.18);
+            if (canPromoteToPayoff) {
+                multiClearBonus = Math.max(multiClearBonus, 0.58);
+                multiLineTarget = Math.max(multiLineTarget, 1);
+            }
+        } else if (motivationIntent === 'relaxation' || motivationIntent === 'competence') {
+            clearGuarantee = Math.max(clearGuarantee, 2);
+            sizePreference = Math.min(sizePreference, -0.22);
+        } else if (motivationIntent === 'social') {
+            diversityBoost = Math.max(diversityBoost, 0.12);
+        }
+    }
+
     /* --- v1.16：AFK 召回（engage 路径） ---
      * 玩家在窗口内出现 ≥1 次 AFK（>15s 思考），传统做法是「降难度+小块」让 TA 喘息，
      * 但实际效果常常是连续给出 4 个单格 + 1×3 横条——盘面瞬间清爽，玩家依然提不起兴趣。
@@ -1279,6 +1352,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             scoreMilestone: milestoneCheck.hit,
             targetSolutionRange,
             spawnIntent,
+            motivationIntent,
+            behaviorSegment,
+            personalizationApplied: personalizationEnabled,
+            accessibilityLoad,
+            returningWarmupStrength,
+            socialFairChallenge,
             /* v1.32：顺序刚性 — 见上方 orderRigor 注释。0=不约束，1=必须按特定顺序。
              * blockSpawn.js 消费 orderMaxValidPerms 作为硬性上限。 */
             orderRigor: Math.max(0, Math.min(1, orderRigor)),
@@ -1317,6 +1396,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _stressBreakdown: stressBreakdown,
         _spawnTargets: spawnTargets,
         _spawnIntent: spawnIntent,
+        _motivationIntent: motivationIntent,
+        _behaviorSegment: behaviorSegment,
+        _personalizationApplied: personalizationEnabled,
+        _accessibilityLoad: accessibilityLoad,
+        _returningWarmupStrength: returningWarmupStrength,
+        _socialFairChallenge: socialFairChallenge,
         _afkEngageActive: afkEngageActive,
         /** @type {number} 供 game 写回 `_spawnContext`，见 occupancy 锚点注释 */
         _occupancyFillAnchor: occAnchor,

@@ -257,6 +257,9 @@ class ConvSharedPolicyValueNet(nn.Module):
         self.topology_aux_head = nn.Sequential(
             nn.Linear(fuse_in, hid), nn.GELU(), nn.Linear(hid, TOPOLOGY_AUX_DIM),
         )
+        self.bonus_clear_head = nn.Sequential(
+            nn.Linear(fuse_in, hid), nn.GELU(), nn.Linear(hid, 1),
+        )
         self.board_quality_head = nn.Sequential(
             nn.Linear(width, hid), nn.GELU(), nn.Linear(hid, 1),
         )
@@ -354,6 +357,13 @@ class ConvSharedPolicyValueNet(nn.Module):
         ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
         x = torch.cat([h, ae], dim=-1)
         return self.topology_aux_head(x)
+
+    def forward_bonus_clear_aux(self, state_feat: torch.Tensor, chosen_action_feat: torch.Tensor) -> torch.Tensor:
+        """logits: 预测本步是否触发同色/同 icon bonus line。"""
+        h = self._encode_state(state_feat)
+        ae = nn.functional.gelu(self.action_proj(chosen_action_feat))
+        x = torch.cat([h, ae], dim=-1)
+        return self.bonus_clear_head(x).squeeze(-1)
 
     def forward_board_quality(self, state_feat: torch.Tensor) -> torch.Tensor:
         """回归棋盘质量分（归一化后的 board_potential）。"""

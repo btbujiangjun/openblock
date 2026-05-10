@@ -188,7 +188,10 @@
       "abilityRiskAdjust": { "enabled": true, "scale": 1 },
       "delightStressAdjust": { "enabled": true, "scale": 1 },
       "friendlyBoardRelief": { "enabled": true, "scale": 1 },
-      "bottleneckRelief": { "enabled": true, "scale": 1 }
+      "bottleneckRelief": { "enabled": true, "scale": 1 },
+      "motivationStressAdjust": { "enabled": true, "scale": 1 },
+      "accessibilityStressAdjust": { "enabled": true, "scale": 1 },
+      "returningWarmupAdjust": { "enabled": true, "scale": 1 }
     },
     "stressSmoothing": {
       "comment": "对最终 stress 做轻量滞后，避免普通状态跳变；救场/近失/挫败等减压信号立即生效。",
@@ -279,6 +282,14 @@
         { "minStress": 0.6, "label": "紧张", "min": 1, "max": 32 },
         { "minStress": 0.8, "label": "极限", "min": 1, "max": 12 }
       ]
+    },
+    "globalPersonalization": {
+      "comment": "全球化个性化边界：只消费实时行为、明示偏好、设备负担和语言/地区上下文；敏感属性只允许聚合研究，不进入个体级策略。motivationIntent 描述中长期动机，spawnIntent 仍描述本轮出块意图。",
+      "enabled": true,
+      "sensitiveAttributesForIndividualTargeting": false,
+      "allowedSignals": ["behavior", "preferences", "device", "languageRegionContext"],
+      "motivationIntents": ["competence", "challenge", "relaxation", "collection", "social", "balanced"],
+      "socialFairChallengeDisablesPersonalization": true
     }
   },
   "playerAbilityModel": {
@@ -359,6 +370,11 @@
     "holeAuxTargetMax": 16,
     "clearPredLossCoef": 0.15,
     "topologyAuxLossCoef": 0.08,
+    "bonusClearAux": {
+      "comment": "bonus/color-clear 辅助头：预测本步是否触发同 icon/同色 bonus line，帮助价值网络学习高分清线结构；旧 checkpoint 通过 strict=false 兼容新增头。",
+      "enabled": true,
+      "coef": 0.08
+    },
     "boardQualityLossCoef": 0.55,
     "feasibilityLossCoef": 0.3,
     "survivalLossCoef": 0.28,
@@ -404,13 +420,14 @@
       "maxActions": 100
     },
     "evalGate": {
-      "comment": "评估门控（v7 新增，参考 AlphaZero 第三步）：每 everyEpisodes 局，在同 seed 下配对评估候选与基线。rule=win 时按严格赢率判定，rule=nonloss 时按不输率判定；都要求平均分差非负。v9.3 支持多组 seed rounds 后汇总判定，降低单批 seed 偶然性。",
+      "comment": "评估门控（v7 新增，参考 AlphaZero 第三步）：每 everyEpisodes 局，在同 seed 下配对评估候选与基线。rule=win 时按严格赢率判定，rule=nonloss 时按不输率判定；都要求平均分差非负。v10 输出 policy-only 与 policy+search 双评估，并按固定 seed bucket 记录分数差。",
       "enabled": true,
       "everyEpisodes": 2500,
       "nGames": 64,
       "winRatio": 0.55,
       "rule": "win",
-      "rounds": 2
+      "rounds": 2,
+      "dualEval": true
     },
     "rankedReward": {
       "comment": "v9 单人自博弈 Ranked Reward：维护滚动分数窗口，将当前局得分转成历史分位终局奖励，缓解 400-500 分平台期。只加到终局步，不改变局内环境；环境变量 RL_RANKED_* 可覆盖。",
@@ -435,12 +452,21 @@
       "checkEvery": 50
     },
     "beam3ply": {
-      "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 未放置块数≥3 时激活。topK/topK2 分别控制第二/三层展开宽度，防止指数爆炸。",
+      "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 未放置块数≥3 时激活。v10 起支持 riskAdaptive：高填充、低 mobility、低 leaf count 时动态提高 topK/topK2/maxActions。",
       "enabled": true,
       "topK": 12,
       "topK2": 4,
       "maxActions": 100,
-      "maxActions2": 50
+      "maxActions2": 50,
+      "riskAdaptive": true,
+      "riskFill": 0.56,
+      "riskMobility": 18,
+      "riskLeafCount": 1,
+      "riskMaxMultiplier": 1.8,
+      "riskTopKMax": 24,
+      "riskTopK2Max": 8,
+      "riskMaxActionsMax": 140,
+      "riskMaxActions2Max": 80
     },
     "searchReplay": {
       "comment": "v9.3 困难样本 replay：缓存高分未通关、尾局可行性差或低 mobility 的 self-play 局，训练时抽样重放，提升 search teacher 样本利用率。minPriority 略降以便弱策略期仍能填满缓冲区。",

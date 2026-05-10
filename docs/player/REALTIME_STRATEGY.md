@@ -778,6 +778,18 @@ spawnBlocks()
 
 在 `PlayerProfile` 增加 getter → 若需出块则进 `adaptiveSpawn` 的 `stressBreakdown` 或 hints → 若需展示则 `playerInsightPanel` / `profileAtSpawn`。
 
+新增全球化个性化字段：
+
+| 字段 | 物理含义 | 下游作用 |
+|------|----------|----------|
+| `behaviorSegment` | 非敏感行为分群：新手保护、高手挑战、减压、收集完成、社交比较、均衡 | 面板解释和动机意图派生 |
+| `motivationIntent` | 中长期动机：胜任、挑战、减压、收集、社交、均衡 | 调节 `stress`、`clearGuarantee`、`multiClearBonus`、`iconBonusTarget` |
+| `accessibilityLoad` | 设备/操作负担代理：低画质、低动态、误触、长思考 | 负向 stress、偏小块、保消、关闭顺序刚性 |
+| `returningWarmupStrength` | 沉默后回归暖启动强度 | 短期减压、保消、弱化挑战 |
+| `socialFairChallenge` | 固定规则公平挑战模式 | 关闭个体化难度，只保留通用可解性护栏 |
+
+`spawnHints` 现在透传上述字段；`stressBreakdown` 增加 `motivationStressAdjust`、`accessibilityStressAdjust`、`returningWarmupAdjust`。压力表和洞察面板统一读取这些字段，避免“出块有个性化、UI 不说明”的口径冲突。
+
 ### 9.3 调参不改代码
 
 优先改 `game_rules.json` 的 `signals.scale`、`flowZone`、`engagement`、`profiles`；大规模改权重建议配合 §6 清单与回放样本。

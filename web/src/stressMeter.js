@@ -95,6 +95,9 @@ export const SIGNAL_LABELS = {
     challengeBoost:        { label: 'B 类挑战',   hint: '逼近历史最佳分时的额外加压' },
     friendlyBoardRelief:   { label: '友好盘面',   hint: '盘面整洁且有兑现机会时主动减压，让你享受多消爽点' },
     bottleneckRelief:      { label: '瓶颈低谷',   hint: '上个 dock 周期中，候选块的最少落子数曾跌到阈值（默认 ≤2）；此时减压并保消，避免连续被困' },
+    motivationStressAdjust:{ label: '动机画像',   hint: '只根据行为和明示偏好推断的中长期动机：新手胜任、高手挑战、减压、收集或社交；不使用敏感属性' },
+    accessibilityStressAdjust: { label: '操作负担', hint: '低画质/低动态/误触/长思考等设备或可访问性负担触发的减压' },
+    returningWarmupAdjust: { label: '回归暖启动', hint: '沉默 1/3/7 天后回归，短期降低压力并提高友好出块，避免沿用过高历史技能' },
     flowPayoffCap:         { label: '心流上限',   hint: '心流 + 兑现期会把综合压力软封顶，避免「享受多消」与「高压」冲突' },
     occupancyDamping:      { label: '占用衰减',   hint: '盘面占用率 <50% 时按比例衰减正向 stress，避免空盘上 0.89 的伪高压' },
     /* v1.32：orderRigor 是顺序刚性强度（0~1），不是 stress 分量；放这里仅用于面板 tooltip

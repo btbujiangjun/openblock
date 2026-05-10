@@ -46,6 +46,19 @@
 
 OpenBlock 中该枚举为 **`spawnIntent`**：`relief | engage | harvest | pressure | flow | maintain`，定义见 `web/src/adaptiveSpawn.js` 末尾派生逻辑；叙事映射见 `web/src/stressMeter.js` 中 `SPAWN_INTENT_NARRATIVE` 与 `buildStoryLine`。
 
+补充：全球化个性化引入第二个意图 **`motivationIntent`**，用于描述中长期玩家动机：
+
+| `motivationIntent` | 来源 | 作用 |
+|--------------------|------|------|
+| `competence` | 新手/胜任感不足 | 保消、偏小块、降低首局压力 |
+| `challenge` | 高技能、低失误、多消/连击倾向 | 允许更高多样性、多消目标和顺序规划 |
+| `relaxation` | 操作负担、长思考、低竞争行为 | 降压、降低操作负担、避免顺序刚性 |
+| `collection` | 收集/清屏/完成信号 | 提高同 icon / bonus 与可兑现多消倾向 |
+| `social` | 分享、挑战、排行参与 | 提供可分享目标；公平挑战模式关闭个体化难度 |
+| `balanced` | 无明显动机 | 沿用常规自适应 |
+
+`motivationIntent` 不替代 `spawnIntent`：前者回答“这类玩家长期需要什么体验”，后者回答“这一轮出块为什么这样做”。
+
 ---
 
 ## 4. 压力档位与叙事的职责分离

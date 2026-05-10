@@ -32,6 +32,8 @@ def run_eval_games(
     win_threshold: float | None = None,
     temperature: float = 0.0,
     seeds: list[int] | None = None,
+    use_search: bool = False,
+    search_gamma: float = 0.99,
 ) -> dict:
     """贪心（temperature=0）或低温度采样方式运行 N 局评估。
 
@@ -76,6 +78,25 @@ def run_eval_games(
 
                 phi = tensor_to_device(torch.from_numpy(phi_np), device)
                 logits = net.forward_policy_logits(phi)
+
+                if use_search:
+                    q_scores: list[float] = []
+                    snap = sim.save_state()
+                    for a in legal:
+                        sim.restore_state(snap)
+                        r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+                        v = 0.0
+                        if not sim.is_terminal():
+                            next_legal = sim.get_legal_actions()
+                            if next_legal:
+                                next_state_np, _ = build_phi_batch(sim, next_legal)
+                                if next_state_np.shape[0] > 0 and callable(getattr(net, "forward_value", None)):
+                                    st = tensor_to_device(torch.from_numpy(next_state_np[0:1]), device)
+                                    v = float(net.forward_value(st).reshape(-1)[0].item())
+                        q_scores.append(r + search_gamma * v)
+                    sim.restore_state(snap)
+                    q_t = tensor_to_device(torch.tensor(q_scores, dtype=torch.float32), device)
+                    logits = logits * 0.15 + q_t
 
                 if temperature <= 1e-6:
                     chosen = int(logits.argmax().item())
@@ -136,23 +157,46 @@ def eval_gate_check(
     all_cand_scores: list[float] = []
     all_base_scores: list[float] = []
     round_metrics: list[dict] = []
+    dual_eval = os.environ.get("RL_EVAL_DUAL", "1").strip().lower() not in ("0", "false", "no", "off")
+    all_cand_search_scores: list[float] = []
+    all_base_search_scores: list[float] = []
     rng = random.Random(20260502)
     for r in range(rounds):
         seeds = [rng.randrange(1, 2**31 - 1) for _ in range(max(n_games, 1))]
         cand_r = run_eval_games(candidate_net, device, n_games, win_threshold, seeds=seeds)
         base_r = run_eval_games(baseline_net, device, n_games, win_threshold, seeds=seeds)
+        cand_search_r = base_search_r = None
+        if dual_eval:
+            cand_search_r = run_eval_games(candidate_net, device, n_games, win_threshold, seeds=seeds, use_search=True)
+            base_search_r = run_eval_games(baseline_net, device, n_games, win_threshold, seeds=seeds, use_search=True)
         cand_scores_r = np.array(cand_r.get("scores") or [], dtype=np.float32)
         base_scores_r = np.array(base_r.get("scores") or [], dtype=np.float32)
         n_pair_r = min(len(cand_scores_r), len(base_scores_r))
         if n_pair_r > 0:
             delta_r = cand_scores_r[:n_pair_r] - base_scores_r[:n_pair_r]
-            round_metrics.append({
+            metric_r = {
                 "paired_score_win_rate": float(np.mean(delta_r > 0)),
                 "paired_score_non_loss_rate": float(np.mean(delta_r >= 0)),
                 "avg_score_delta": float(np.mean(delta_r)),
-            })
+                "seed_bucket": r,
+            }
+            if cand_search_r is not None and base_search_r is not None:
+                cs = np.array(cand_search_r.get("scores") or [], dtype=np.float32)
+                bs = np.array(base_search_r.get("scores") or [], dtype=np.float32)
+                ns = min(len(cs), len(bs))
+                if ns > 0:
+                    ds = cs[:ns] - bs[:ns]
+                    metric_r.update({
+                        "search_paired_score_win_rate": float(np.mean(ds > 0)),
+                        "search_paired_score_non_loss_rate": float(np.mean(ds >= 0)),
+                        "search_avg_score_delta": float(np.mean(ds)),
+                    })
+            round_metrics.append(metric_r)
         all_cand_scores.extend(float(x) for x in cand_r.get("scores") or [])
         all_base_scores.extend(float(x) for x in base_r.get("scores") or [])
+        if cand_search_r is not None and base_search_r is not None:
+            all_cand_search_scores.extend(float(x) for x in cand_search_r.get("scores") or [])
+            all_base_search_scores.extend(float(x) for x in base_search_r.get("scores") or [])
 
     from .config import WIN_SCORE_THRESHOLD
     eval_threshold = float(win_threshold if win_threshold is not None else WIN_SCORE_THRESHOLD)
@@ -193,9 +237,37 @@ def eval_gate_check(
         passed = avg_delta >= 0.0
         active_rule = "avg_score_delta>=0 (fallback:no_pairs)"
 
+    search_metrics = None
+    if dual_eval and all_cand_search_scores and all_base_search_scores:
+        cand_search_arr = np.array(all_cand_search_scores, dtype=np.float32)
+        base_search_arr = np.array(all_base_search_scores, dtype=np.float32)
+        ns = min(len(cand_search_arr), len(base_search_arr))
+        search_delta = cand_search_arr[:ns] - base_search_arr[:ns]
+        search_metrics = {
+            "candidate": {
+                "win_rate": float(np.mean(cand_search_arr >= eval_threshold)),
+                "avg_score": float(np.mean(cand_search_arr)),
+                "scores": all_cand_search_scores,
+                "n_games": len(all_cand_search_scores),
+                "win_threshold": eval_threshold,
+            },
+            "baseline": {
+                "win_rate": float(np.mean(base_search_arr >= eval_threshold)),
+                "avg_score": float(np.mean(base_search_arr)),
+                "scores": all_base_search_scores,
+                "n_games": len(all_base_search_scores),
+                "win_threshold": eval_threshold,
+            },
+            "paired_score_win_rate": float(np.mean(search_delta > 0)),
+            "paired_score_non_loss_rate": float(np.mean(search_delta >= 0)),
+            "avg_score_delta": float(np.mean(search_delta)),
+        }
+
     return passed, {
         "candidate": cand,
         "baseline": base,
+        "policy_only": {"candidate": cand, "baseline": base},
+        "policy_search": search_metrics,
         "passed": passed,
         "paired_score_win_rate": paired_win_rate,
         "paired_score_non_loss_rate": paired_non_loss_rate,

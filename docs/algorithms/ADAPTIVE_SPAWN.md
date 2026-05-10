@@ -750,22 +750,39 @@ saveSession()        → profile.save()               // 持久化到 localStora
 
 ---
 
-## 10. 后续迭代方向
+## 10. 全球化个性化策略层（已实现）
 
-### 10.1 短期（可直接在 JSON 配置层面调优）
+`adaptiveSpawn.js` 现在在传统 stress 管线之外读取 `PlayerProfile.personalizationContext`，新增三类安全调节：
+
+| 信号 | stress 分量 | `spawnHints` 影响 | 护栏 |
+|------|-------------|-------------------|------|
+| `motivationIntent=competence/relaxation` | `motivationStressAdjust < 0` | 提高保消、偏小块 | 不叠加 `orderRigor` |
+| `motivationIntent=challenge` | 低风险高手小幅加压 | 提高多样性、多消目标，允许顺序规划 | 高填充/低机动/恢复态仍优先救济 |
+| `motivationIntent=collection` | 默认不加压 | 提高 `iconBonusTarget`，有几何窗口时提高多消 | 必须通过 `canPromoteToPayoff` |
+| `accessibilityLoad` | `accessibilityStressAdjust < 0` | 偏小块、保消、增加多样性 | 不推断年龄/健康，只由设备/操作行为代理 |
+| `returningWarmupStrength` | `returningWarmupAdjust < 0` | 回归前几轮友好化 | 沉默时间来自本地会话历史 |
+| `socialFairChallenge` | 关闭个体化分量 | 固定规则/固定 seed | 用于异步挑战公平性 |
+
+这些字段会被写入 `spawnHints`、`_lastAdaptiveInsight` 和面板快照，供策略评审追踪。
+
+---
+
+## 11. 后续迭代方向
+
+### 11.1 短期（可直接在 JSON 配置层面调优）
 
 - [ ] A/B 测试各参数对留存/局时长的影响
 - [ ] 根据真实用户数据校准 `flowZone` 阈值
 - [ ] 新增更多 profiles（如 `warmup` 用于每局前 2 轮渐进过渡）
 
-### 10.2 中期（需少量代码改动）
+### 11.2 中期（需少量代码改动）
 
 - [ ] **服务端画像同步**：将 PlayerProfile 持久化到 `user_stats` 表，跨设备保留
 - [ ] **形状级出块控制**：spawnHints 支持 `preferShapeIds`，可指定特定形状（如教学关）
 - [ ] **板面结构感知**：在 adaptiveSpawn 中分析「接近满行」的行数，精准投放补全块
 - [ ] **session 维度分析**：在 `server.py` 记录每局的 `_adaptiveStress` 时序，用于后台分析
 
-### 10.3 长期（系统性升级）
+### 11.3 长期（系统性升级）
 
 - [ ] **ML 驱动 DDA**：用用户行为数据训练预测模型（研究表明可比人工规则提升 20% 留存）
 - [ ] **玩家分群**：基于 `user_stats` 聚类不同玩家类型（休闲/竞技/社交），差异化策略

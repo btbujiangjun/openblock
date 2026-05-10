@@ -254,14 +254,14 @@ const MILESTONES = [
 **装饰链**：
 ```
 game.start → _maybeShowReminder()           // 提示"今日首胜还剩 Xh"
-game.endGame → _maybeApplyBoost(score)       // 完成后判定加成
+game.endGame → _maybeApplyBoost(score)       // 进入结算前判定加成，保证 HUD/结算卡/持久化分数一致
 ```
 
 **门槛**：分数 ≥ 100 才视为有效首胜（防止几秒就 game over 也算"首胜"）。
 
-**计算**：`bonus = round(score * 0.5)`，写入 `game.score` + `gameStats.boostBonus`，同时调 `updateUI`。
+**计算**：`bonus = round(score * 0.5)`，写入 `game.score`、`gameStats.score`、`gameStats.boostBonus`，同时调 `updateUI`。加成必须发生在原始 `endGame()` 前，否则会出现顶部 HUD 显示加成后分数、结算卡仍显示基础分的错位。
 
-**防重复**：`lastBoostYmd === today` 时跳过。
+**防重复**：`lastBoostYmd === today` 或本局 `_boostAppliedForRun` 已触发时跳过，避免并发/重复 `endGame()` 导致二次加成。
 
 ### 4.2 每日轮换主题盘面（W2-⑥）
 
