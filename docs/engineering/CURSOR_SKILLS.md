@@ -23,13 +23,13 @@
 
 | Skill `name` | 目录 | 何时使用 |
 |--------------|------|----------|
-| `casual-game-build` | [`.cursor/skills/casual-game-build/`](../../.cursor/skills/casual-game-build/SKILL.md) | 从零或增量搭建休闲游戏：核心循环、规则数据化、商业化插座、数据与 CI；完整正文见 [CASUAL_GAME_BUILD_SKILL.md](./CASUAL_GAME_BUILD_SKILL.md) |
+| `casual-game-build` | [`.cursor/skills/casual-game-build/`](../../.cursor/skills/casual-game-build/SKILL.md) | 从零或增量搭建休闲游戏：核心循环、规则数据化、体验策略、自适应出块、模型/RL、自博弈、截图 UI QA、商业化插座、数据与 CI；完整正文见 [CASUAL_GAME_BUILD_SKILL.md](./CASUAL_GAME_BUILD_SKILL.md) |
 
 **深化阅读（非 Skill 文件，但与 AI 协作强相关）**
 
 | 文档 | 用途 |
 |------|------|
-| [CASUAL_GAME_BUILD_SKILL.md](./CASUAL_GAME_BUILD_SKILL.md) | 休闲游戏全栈阶段清单与 OpenBlock 映射 |
+| [CASUAL_GAME_BUILD_SKILL.md](./CASUAL_GAME_BUILD_SKILL.md) | 休闲游戏全栈阶段清单、OpenBlock 复盘原则与策略/模型/RL 映射 |
 | [DEV_GUIDE.md](./DEV_GUIDE.md) | 二次开发与扩展约定 |
 | [TESTING.md](./TESTING.md) | 提交前验证命令与回归范围 |
 | [GOLDEN_EVENTS.md](./GOLDEN_EVENTS.md) | 埋点与事件命名约定 |
