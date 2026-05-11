@@ -362,3 +362,13 @@ function mountInto(h1) {
 export function mountBlockWordmarks() {
     document.querySelectorAll('h1.app-wordmark').forEach(mountInto);
 }
+
+/* 暴露字模 / 工具供分享海报等下游 Canvas 渲染复用，保证视觉与游戏内一致。 */
+export {
+    LETTERS,
+    ICON_MAP,
+    WORDMARK_STAR_COL_UNITS,
+    lookupBitmap,
+    letterBitmapWidth,
+    wordWidth,
+};

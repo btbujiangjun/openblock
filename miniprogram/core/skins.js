@@ -2,7 +2,6 @@
  * 小程序皮肤配置（自动同步自 web/src/skins.js 的核心渲染字段）。
  */
 const storage = require('../adapters/storage');
-const { skinName } = require('./i18n');
 
 const STORAGE_KEY = 'openblock_skin';
 const DEFAULT_SKIN_ID = "titanium";
@@ -345,22 +344,22 @@ const SKINS = {
     "id": "dawn",
     "name": "☀️ 晨光微曦",
     "blockColors": [
-      "#B86858",
-      "#5890D0",
-      "#C8A060",
-      "#489868",
-      "#8868B0",
-      "#489898",
-      "#C06078",
-      "#7068C8"
+      "#E06E62",
+      "#5A92D6",
+      "#D8A84E",
+      "#55A873",
+      "#8D75CE",
+      "#42A7A8",
+      "#D46282",
+      "#6B7DDD"
     ],
-    "gridOuter": "#8A7040",
-    "gridCell": "#F8F0E0",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 6,
-    "blockStyle": "glossy",
-    "clearFlash": "rgba(255,235,180,0.90)"
+    "gridOuter": "#F1E3C5",
+    "gridCell": "#FFF3D8",
+    "gridGap": 0,
+    "blockInset": 3,
+    "blockRadius": 7,
+    "blockStyle": "cartoon",
+    "clearFlash": "rgba(255,210,130,0.72)"
   },
   "food": {
     "id": "food",
@@ -593,7 +592,7 @@ const SKINS = {
       "😈"
     ],
     "gridOuter": "#160408",
-    "gridCell": "#280A12",
+    "gridCell": "#341018",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 5,
@@ -759,14 +758,14 @@ const SKINS = {
     "id": "boardgame",
     "name": "🃏 扑克博弈",
     "blockColors": [
-      "#D49830",
-      "#1F8060",
-      "#2860B0",
-      "#98A8B8",
-      "#5C2030",
-      "#3D6048",
-      "#4F3088",
-      "#3E3E50"
+      "#C89642",
+      "#23866A",
+      "#3E65B8",
+      "#A8B3C2",
+      "#A84A52",
+      "#4F765C",
+      "#6542A0",
+      "#6E7486"
     ],
     "blockIcons": [
       "♠️",
@@ -778,11 +777,11 @@ const SKINS = {
       "🎰",
       "🎲"
     ],
-    "gridOuter": "#1A0810",
-    "gridCell": "#142818",
+    "gridOuter": "#050711",
+    "gridCell": "#111628",
     "gridGap": 1,
     "blockInset": 2,
-    "blockRadius": 7,
+    "blockRadius": 5,
     "blockStyle": "cartoon",
     "clearFlash": "rgba(212,152,48,0.46)"
   },
@@ -945,14 +944,14 @@ const SKINS = {
     "id": "farm",
     "name": "🐄 田园农场",
     "blockColors": [
-      "#C89898",
-      "#88A8D0",
-      "#88B088",
-      "#78B8D0",
-      "#C898C0",
-      "#C0A878",
-      "#B89878",
-      "#A898D0"
+      "#B85A50",
+      "#4E84B8",
+      "#4E8A58",
+      "#3C98B8",
+      "#9A66B8",
+      "#C89438",
+      "#B06A38",
+      "#C04E64"
     ],
     "blockIcons": [
       "🐄",
@@ -964,26 +963,26 @@ const SKINS = {
       "🥕",
       "🍎"
     ],
-    "gridOuter": "#7A8868",
-    "gridCell": "#EFF0EA",
+    "gridOuter": "#07140A",
+    "gridCell": "#102414",
     "gridGap": 1,
-    "blockInset": 1,
-    "blockRadius": 9,
+    "blockInset": 2,
+    "blockRadius": 5,
     "blockStyle": "cartoon",
-    "clearFlash": "rgba(216,220,210,0.50)"
+    "clearFlash": "rgba(170,230,150,0.45)"
   },
   "desert": {
     "id": "desert",
     "name": "🐫 沙漠绿洲",
     "blockColors": [
-      "#AAB8C2",
-      "#C9A090",
-      "#A8BA9E",
-      "#C9BE9E",
-      "#ADA8AE",
-      "#95AEAC",
-      "#C49A94",
-      "#B5A8B4"
+      "#4E8EB8",
+      "#B86A48",
+      "#5C9A58",
+      "#B89648",
+      "#8A7A68",
+      "#4E9A98",
+      "#B85E58",
+      "#8A6BB8"
     ],
     "blockIcons": [
       "🐫",
@@ -995,15 +994,16 @@ const SKINS = {
       "🛕",
       "🌅"
     ],
-    "gridOuter": "#786E50",
-    "gridCell": "#E8E2D6",
+    "gridOuter": "#130D08",
+    "gridCell": "#24190E",
     "gridGap": 1,
     "blockInset": 2,
-    "blockRadius": 7,
+    "blockRadius": 5,
     "blockStyle": "cartoon",
-    "clearFlash": "rgba(216,210,196,0.45)"
+    "clearFlash": "rgba(230,180,80,0.45)"
   }
 };
+
 
 function _hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
@@ -1028,9 +1028,7 @@ function _luma(c) {
 }
 
 function _contrast(a, b) {
-  const la = _luma(a);
-  const lb = _luma(b);
-  return Math.abs(la - lb);
+  return Math.abs(_luma(a) - _luma(b));
 }
 
 function _fitLuma(c, min, max) {
@@ -1145,6 +1143,7 @@ for (const id of Object.keys(SKINS)) {
   SKINS[id] = _optimizeSkinForMobile(SKINS[id]);
 }
 
+
 const SKIN_LIST = Object.values(SKINS);
 
 function getActiveSkinId() {
@@ -1168,7 +1167,7 @@ function setActiveSkinId(id) {
 }
 
 function getSkinListMeta() {
-  return SKIN_LIST.map((s) => ({ id: s.id, name: skinName(s.id, s.name) }));
+  return SKIN_LIST.map((s) => ({ id: s.id, name: s.name }));
 }
 
 module.exports = {

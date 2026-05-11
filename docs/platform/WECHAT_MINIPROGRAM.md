@@ -24,23 +24,30 @@ miniprogram/
 ├── sitemap.json
 ├── adapters/
 │   ├── platform.js
-│   └── storage.js
+│   ├── storage.js
+│   └── storageShim.js
 ├── core/
 │   ├── bonusScoring.js
+│   ├── adaptiveSpawn.js
+│   ├── boardTopology.js
 │   ├── config.js
+│   ├── difficulty.js
 │   ├── gameRulesData.js
 │   ├── gameRules.js
 │   ├── grid.js
 │   ├── i18n.js
+│   ├── playerAbilityModel.js
+│   ├── playerProfile.js
 │   ├── shapes.js
 │   ├── shapesData.js
-│   └── skins.js
+│   ├── skins.js
+│   └── bot/
+│       └── blockSpawn.js
 ├── utils/
 │   ├── audioFx.js
 │   ├── gameController.js
 │   ├── mahjongTileIcon.js
-│   ├── renderer.js
-│   └── spawnHeuristic.js
+│   └── renderer.js
 └── pages/
     ├── index/
     └── game/
@@ -60,7 +67,8 @@ miniprogram/
 | 保留 | 说明 |
 |------|------|
 | 核心玩法 | 8x8 棋盘、三块 dock、拖拽放置、智能释放、消行、同色/同 icon bonus、清屏/连消/大爆炸特效 |
-| 出块 | `utils/spawnHeuristic.js`，移植 Web 启发式出块与可玩性 guard |
+| 出块 | `core/adaptiveSpawn.js` + `core/bot/blockSpawn.js`，同步 Web 规则轨自适应策略与可玩性 guard；不包含 `model-v3` 和诊断面板 |
+| 玩家画像 | `core/playerProfile.js` 与 Web 同源，`utils/gameController.js` 串接 `recordNewGame / recordSpawn / recordPlace / recordSessionEnd / save`；持久化经 `adapters/storageShim.js` 桥到 `wx.*StorageSync` |
 | 难度 | 简单、普通、挑战三档，来自 `core/gameRulesData.js` |
 | 皮肤 | `core/skins.js`，34 套皮肤经过手机端白色盘面、方块对比度和主题水印优化 |
 | 语言 | `core/i18n.js`，本地存储键 `openblock_lang`；包含皮肤名 `zh-CN` / `en` 翻译 |
@@ -87,6 +95,8 @@ node scripts/sync-miniprogram-skins.cjs
 
 - `core/gameRulesData.js`：来自 `shared/game_rules.json` 的玩家端裁剪数据。
 - `core/shapesData.js`：来自 `shared/shapes.json` 的形状数据。
+- `core/adaptiveSpawn.js` / `core/bot/blockSpawn.js`：由 `scripts/sync-core.sh` 从 Web 规则轨纯逻辑生成；同步时排除生成式模型、训练环境和面板。
+- `core/playerProfile.js`：同样由 `scripts/sync-core.sh` 同步，原 `localStorage` 调用通过 `adapters/storageShim.js` 在 `app.js onLaunch` 阶段安装的 `globalThis.localStorage` 垫片落到 `wx.*StorageSync`，无需逐字段改写。
 
 不要直接复制完整 `shared/game_rules.json` 到小程序包内，因为其中包含 RL 训练、特征编码和看板相关元数据；直接 `require` JSON 也可能在微信开发工具中被解析为 `.json.js` 并造成模块加载问题。
 

@@ -82,6 +82,16 @@ export default {
     'game.actions.posterAria': 'Generate score poster',
     'game.actions.shareAria': 'Share this run',
 
+    'share.poster.callToPlay': 'PLAY NOW',
+    'share.poster.hookHeadline': 'Can you beat {{score}} pts?',
+    'share.poster.hookSubline': 'Scan to challenge — instant play, no install',
+    'share.poster.scanToPk': 'Scan · Start Now',
+    'share.poster.scoreLabel': 'Final Score',
+    'share.poster.scorePts': 'pts',
+    'share.poster.shareTitle': 'OpenBlock Run',
+    'share.poster.shareText': 'Come play OpenBlock!',
+    'share.poster.stamp': 'OPEN BLOCK · ENDLESS ARENA · MMXXVI',
+
     'progress.rank.novice': 'Novice',
     'progress.rank.apprentice': 'Apprentice',
     'progress.rank.adept': 'Adept',

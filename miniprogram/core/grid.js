@@ -113,6 +113,85 @@ class Grid {
         return best;
     }
 
+    /**
+     * 鼠标悬停落点策略：仍只在锚点附近局部半径内纠偏，但在“足够近”的候选里：
+     * - 优先吸向能消行的位置，降低玩家为补最后一格反复微调的负担；
+     * - 对上一帧预览位置加轻微粘滞，避免停在两个格子边界时来回跳。
+     *
+     * @param {number[][]} shape
+     * @param {number} aimCx
+     * @param {number} aimCy
+     * @param {number} anchorX
+     * @param {number} anchorY
+     * @param {number} radius
+     * @param {{
+     *   colorIdx?: number,
+     *   previous?: {x:number,y:number} | null,
+     *   clearLineBonus?: number,
+     *   clearCellBonus?: number,
+     *   clearAssistWindow?: number,
+     *   stickyBonus?: number,
+     *   stickyWindow?: number
+     * }} [opts]
+     */
+    pickSmartHoverPlacement(shape, aimCx, aimCy, anchorX, anchorY, radius, opts = {}) {
+        const candidates = [];
+        let nearestDist = Infinity;
+
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                const gx = anchorX + dx;
+                const gy = anchorY + dy;
+                if (!this.canPlace(shape, gx, gy)) {
+                    continue;
+                }
+
+                const com = Grid.shapeCenterOnBoard(shape, gx, gy);
+                const distSq = (com.x - aimCx) ** 2 + (com.y - aimCy) ** 2;
+                const outcome = this.previewClearOutcome(shape, gx, gy, opts.colorIdx ?? 0);
+                const clearLines = (outcome?.rows?.length || 0) + (outcome?.cols?.length || 0);
+                const clearCells = outcome?.cells?.length || 0;
+                candidates.push({ x: gx, y: gy, distSq, clearLines, clearCells });
+                if (distSq < nearestDist) {
+                    nearestDist = distSq;
+                }
+            }
+        }
+
+        if (!candidates.length) {
+            return null;
+        }
+
+        const clearLineBonus = Number.isFinite(opts.clearLineBonus) ? opts.clearLineBonus : 0.9;
+        const clearCellBonus = Number.isFinite(opts.clearCellBonus) ? opts.clearCellBonus : 0.015;
+        const clearAssistWindow = Number.isFinite(opts.clearAssistWindow) ? opts.clearAssistWindow : 1.35;
+        const stickyBonus = Number.isFinite(opts.stickyBonus) ? opts.stickyBonus : 0.32;
+        const stickyWindow = Number.isFinite(opts.stickyWindow) ? opts.stickyWindow : 0.75;
+        const previous = opts.previous || null;
+
+        let best = null;
+        let bestScore = Infinity;
+        for (const c of candidates) {
+            let score = c.distSq;
+            if (c.clearLines > 0 && c.distSq <= nearestDist + clearAssistWindow) {
+                score -= c.clearLines * clearLineBonus + c.clearCells * clearCellBonus;
+            }
+            if (previous && previous.x === c.x && previous.y === c.y && c.distSq <= nearestDist + stickyWindow) {
+                score -= stickyBonus;
+            }
+
+            if (best === null || score < bestScore - 1e-8) {
+                best = { x: c.x, y: c.y };
+                bestScore = score;
+            } else if (Math.abs(score - bestScore) <= 1e-8) {
+                if (c.y < best.y || (c.y === best.y && c.x < best.x)) {
+                    best = { x: c.x, y: c.y };
+                }
+            }
+        }
+        return best;
+    }
+
     place(shape, colorIdx, gx, gy) {
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[y].length; x++) {
@@ -200,7 +279,7 @@ class Grid {
         }
 
         const lines = fullRows.length + fullCols.length;
-        return { count: lines, cells: clearedCells, bonusLines, rows: fullRows, cols: fullCols };
+        return { count: lines, cells: clearedCells, bonusLines };
     }
 
     hasAnyMove(blocks) {
@@ -346,6 +425,7 @@ class Grid {
                     positions.push({ x, y });
                 }
             }
+            /* v10.34：含「差 4 格满行」— 旧版仅 1~3 空，大块面临满行时 gapFills 常为 0，消行/清屏候选被低估 */
             if (empty >= 1 && empty <= 4) {
                 gaps.push({ type: 'row', y, empty, positions });
             }

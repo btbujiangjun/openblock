@@ -3,6 +3,12 @@
  *
  * 全局共享：游戏配置、主题色板、语言。
  */
+const { installLocalStorageShim } = require('./adapters/storageShim');
+
+/* 让从 web/src 同步过来的纯逻辑模块（如 playerProfile.js）能直接使用 localStorage
+ * 持久化，避免在每个模块里手写 wx.*StorageSync 适配。 */
+installLocalStorageShim();
+
 App({
   globalData: {
     strategyId: 'normal',

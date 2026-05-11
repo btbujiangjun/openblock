@@ -51,7 +51,7 @@ const {
   generateDockShapes,
   resetSpawnMemory,
   validateSpawnTriplet,
-} = requireCjs('../miniprogram/utils/spawnHeuristic.js');
+} = requireCjs('../miniprogram/core/bot/blockSpawn.js');
 
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
@@ -124,20 +124,52 @@ describe('miniprogram core parity', () => {
     }
   });
 
-  it('uses the miniprogram heuristic spawn guard instead of pure random dock picks', () => {
+  it('uses the synced web rule-track spawn guard instead of pure random dock picks', () => {
     resetSpawnMemory();
     const game = new GameController('normal');
-    const shapes = generateDockShapes(game.grid, {
-      ...game.config,
-      spawnHints: {
-        clearGuarantee: 1,
-        diversityBoost: 0.24,
-        multiClearBonus: 0.22,
-      },
-    });
+    const strategy = game._resolveSpawnStrategy();
+    expect(strategy.spawnHints).toBeDefined();
+    expect(strategy.spawnHints.spawnTargets).toBeDefined();
+    expect(typeof strategy.spawnHints.orderMaxValidPerms).toBe('number');
+
+    const shapes = generateDockShapes(game.grid, strategy, game._spawnContext);
     expect(shapes).toHaveLength(3);
     expect(new Set(shapes.map((s) => s.id)).size).toBe(3);
     expect(validateSpawnTriplet(game.grid, shapes).ok).toBe(true);
+  });
+
+  it('uses the real synced PlayerProfile and persists it via localStorage between runs', () => {
+    const { PlayerProfile } = requireCjs('../miniprogram/core/playerProfile.js');
+    const store = new Map();
+    const previous = globalThis.localStorage;
+    globalThis.localStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: (k) => { store.delete(k); },
+      clear: () => store.clear(),
+    };
+    try {
+      const game = new GameController('normal');
+      expect(game._profile).toBeInstanceOf(PlayerProfile);
+      expect(typeof game._profile.recordPlace).toBe('function');
+      expect(typeof game._profile.skillLevel).toBe('number');
+
+      const before = game._profile._totalLifetimePlacements;
+      const action = game.getLegalActions()[0];
+      expect(action).toBeDefined();
+      game.place(action.blockIdx, action.gx, action.gy);
+      expect(game._profile._totalLifetimePlacements).toBe(before + 1);
+
+      game.abandonRun();
+      expect(store.has('openblock_player_profile')).toBe(true);
+
+      const next = new GameController('normal');
+      expect(next._profile._totalLifetimeGames).toBeGreaterThan(0);
+      expect(next._profile._sessionHistory.length).toBeGreaterThan(0);
+    } finally {
+      if (previous === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = previous;
+    }
   });
 
   it('keeps all 34 miniprogram skins mobile optimized and readable', () => {

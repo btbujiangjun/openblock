@@ -16,7 +16,8 @@
 | 项 | 权威位置 | 说明 |
 |----|----------|------|
 | 方块与规则 | `shared/game_rules.json`、`shared/shapes.json` | Web/Android/iOS 通过 Vite 打包读取；小程序运行时使用 `core/gameRulesData.js`、`core/shapesData.js`，由同步脚本生成 CommonJS 数据模块，不直接携带 JSON |
-| 小程序出块体验 | `web/src/bot/blockSpawn.js`、`miniprogram/utils/spawnHeuristic.js` | 小程序保留本地离线启发式出块与可玩性 guard；模型推理和训练不进入小程序包 |
+| 小程序出块体验 | `web/src/adaptiveSpawn.js`、`web/src/bot/blockSpawn.js`、`miniprogram/core/adaptiveSpawn.js`、`miniprogram/core/bot/blockSpawn.js` | 小程序同步 Web 规则轨的自适应出块和可玩性 guard；`model-v3` 推理、训练和诊断面板不进入小程序包 |
+| 小程序玩家实时画像 | `web/src/playerProfile.js` → `miniprogram/core/playerProfile.js`（`scripts/sync-core.sh` 自动转 CJS）；`miniprogram/utils/gameController.js` 串接 `recordNewGame / recordSpawn / recordPlace / recordSessionEnd / save`；持久化经 `miniprogram/adapters/storageShim.js` 把 `wx.*StorageSync` 桥成 `globalThis.localStorage` | 与 Web 同源的 `skillLevel / flowState / pacingPhase / momentum / segment5 / sessionPhase` 等字段直接驱动 `adaptiveSpawn`，跨局保留技能、会话历史与模式偏好 |
 | 皮肤与水印 | `web/src/skins.js`、`miniprogram/core/skins.js` | 小程序保留 34 套皮肤、主题 icon、水印配置，并叠加手机端白色盘面与对比度优化 |
 | 皮肤名 i18n | `web/src/i18n/locales/*`、`miniprogram/core/i18n.js` | 小程序目前支持 `zh-CN` / `en`，皮肤名随语言切换刷新 |
 | Android/iOS 客户端壳 | `mobile/capacitor.config.json`、`mobile/android`、`mobile/ios` | 壳工程只承载 WebView 和平台配置，不复制或改写 `web/src` 核心玩法 |

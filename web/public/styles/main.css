@@ -79,6 +79,8 @@
     --board-overlay-bottom: calc(var(--board-overlay-top) + var(--board-overlay-height));
     --board-overlay-center-x: 50vw;
     --board-overlay-center-y: 50vh;
+    --game-panel-overlay-center-x: var(--board-overlay-center-x);
+    --game-panel-overlay-center-y: var(--board-overlay-center-y);
 }
 
 * {
@@ -6042,8 +6044,8 @@ body.doc-visibility-hidden #menu * {
 }
 .checkin-card {
     position: fixed;
-    top: var(--board-overlay-center-y, 50vh);
-    left: var(--board-overlay-center-x, 50vw);
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
     transform: translate(-50%, -50%);
     background: var(--cell-empty, #fff);
     color: var(--text-primary, #1e293b);
@@ -6148,8 +6150,8 @@ body.doc-visibility-hidden #menu * {
 }
 .chest-card {
     position: fixed;
-    top: var(--board-overlay-center-y, 50vh);
-    left: var(--board-overlay-center-x, 50vw);
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
     transform: translate(-50%, -50%);
     width: min(420px, 92vw);
     padding: 32px;
@@ -6204,8 +6206,8 @@ body.doc-visibility-hidden #menu * {
 }
 .wheel-card {
     position: fixed;
-    top: var(--board-overlay-center-y, 50vh);
-    left: var(--board-overlay-center-x, 50vw);
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
     transform: translate(-50%, -50%);
     width: min(420px, 92vw);
     padding: 24px;
@@ -6213,7 +6215,6 @@ body.doc-visibility-hidden #menu * {
     background: var(--cell-empty, #fff);
     color: var(--text-primary, #1e293b);
     text-align: center;
-    position: relative;
     box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
 }
 .wheel-card h3 { margin: 0 0 16px; font-size: 20px; }
@@ -6305,20 +6306,22 @@ body.doc-visibility-hidden #menu * {
     font-family: 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', system-ui, -apple-system, sans-serif;
     line-height: 1.1;
 }
-/* 主名称行：偏大字 + 双层描边 + 微凸阴影 */
+/* 主名称行：偏大字 + 中国红描边 + 暖金外发光，烘托喜庆氛围 */
 .wheel-wedge-label__name {
     font-size: clamp(11px, 2.9vw, 13px);
     font-weight: 800;
     letter-spacing: 0.04em;
     color: #fff;
-    /* 多层描边：先黑色硬描边、再外发光、再凸字阴影 */
+    /* paint-order 保证描边在文字下方；
+     * 描边：深红 #7a0f1c（中国红），与转盘暖色饱和扇区呼应；
+     * 阴影：暖金外发光 + 深红凸字阴影，避免黑色阴影削弱节庆感。 */
+    -webkit-text-stroke: 0.8px #7a0f1c;
+    paint-order: stroke fill;
     text-shadow:
-        -1px -1px 0 rgba(0, 0, 0, 0.92),
-         1px -1px 0 rgba(0, 0, 0, 0.92),
-        -1px  1px 0 rgba(0, 0, 0, 0.92),
-         1px  1px 0 rgba(0, 0, 0, 0.92),
-         0  2px 3px rgba(0, 0, 0, 0.6),
-         0 0 12px rgba(0, 0, 0, 0.35);
+        0 1px 0 rgba(122, 15, 28, 0.95),
+        0 2px 3px rgba(122, 15, 28, 0.55),
+        0 0 8px rgba(255, 196, 84, 0.55),
+        0 0 14px rgba(255, 138, 56, 0.35);
     /* 防止极少数浏览器渲染连字 */
     white-space: nowrap;
     overflow: hidden;
@@ -6336,10 +6339,10 @@ body.doc-visibility-hidden #menu * {
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    /* 金色字底加描边（透明 fill 时 text-shadow 仍会作用于"实际像素"，需用 paint-order） */
-    -webkit-text-stroke: 0.6px rgba(0, 0, 0, 0.85);
+    /* 金色字底加红色描边（透明 fill 时 text-shadow 仍会作用于"实际像素"，需用 paint-order） */
+    -webkit-text-stroke: 0.6px #7a0f1c;
     paint-order: stroke fill;
-    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
+    filter: drop-shadow(0 1px 1px rgba(122, 15, 28, 0.55));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: clip;
@@ -6464,10 +6467,12 @@ body.doc-visibility-hidden #menu * {
 }
 
 .lore-card {
-    width: min(520px, 100%);
+    position: fixed;
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
+    width: min(520px, calc(100vw - 32px));
     border-radius: 22px;
     color: #fff;
-    position: relative;
     overflow: hidden;
     background:
         linear-gradient(180deg, rgba(28, 30, 42, 0.96) 0%, rgba(18, 20, 30, 0.98) 100%);
@@ -6476,10 +6481,10 @@ body.doc-visibility-hidden #menu * {
         0 24px 60px rgba(0, 0, 0, 0.55),
         0 0 0 1px color-mix(in srgb, var(--accent-color, #38bdf8) 30%, transparent) inset,
         0 0 60px color-mix(in srgb, var(--accent-color, #38bdf8) 22%, transparent);
-    transform: translateY(8px);
+    transform: translate(-50%, calc(-50% + 8px));
     transition: transform .28s cubic-bezier(.2, .8, .2, 1);
 }
-.skin-lore-panel.is-visible .lore-card { transform: translateY(0); }
+.skin-lore-panel.is-visible .lore-card { transform: translate(-50%, -50%); }
 
 /* hero 顶条：主题色径向 + 线性渐变光斑（z-index:1，盖在 watermark 之上）*/
 .lore-card::before {
@@ -6798,8 +6803,8 @@ body.doc-visibility-hidden #menu * {
 .first-day-pack.is-visible { opacity: 1; pointer-events: auto; }
 .fdp-card {
     position: fixed;
-    top: var(--board-overlay-center-y, 50vh);
-    left: var(--board-overlay-center-x, 50vw);
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
     transform: translate(-50%, -50%);
     width: min(420px, 92vw);
     background: linear-gradient(180deg, rgba(30, 36, 50, 0.98), rgba(18, 22, 32, 0.98));
@@ -6842,6 +6847,10 @@ body.doc-visibility-hidden #menu * {
 }
 .welcome-back-pack.is-visible { opacity: 1; pointer-events: auto; }
 .wbp-card {
+    position: fixed;
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
+    transform: translate(-50%, -50%);
     width: min(380px, 92vw);
     background: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(18, 24, 38, 0.96));
     color: #f1f5f9;
@@ -6990,6 +6999,10 @@ body.doc-visibility-hidden #menu * {
 .personal-dashboard.is-visible { opacity: 1; pointer-events: auto; }
 .rap-card,
 .pd-card {
+    position: fixed;
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
+    transform: translate(-50%, -50%);
     width: min(640px, 94vw);
     max-height: 80vh; overflow: hidden;
     background: linear-gradient(180deg, rgba(22, 28, 42, 0.98), rgba(14, 18, 28, 0.98));
@@ -7131,6 +7144,10 @@ body.doc-visibility-hidden #menu * {
 }
 .year-review.is-visible { opacity: 1; pointer-events: auto; }
 .yr-card {
+    position: fixed;
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
+    transform: translate(-50%, -50%);
     width: min(420px, 92vw);
     padding: 28px 26px 22px;
     background: linear-gradient(180deg, rgba(252, 211, 77, 0.18), rgba(15, 23, 42, 0.98));
@@ -7163,6 +7180,10 @@ body.doc-visibility-hidden #menu * {
 }
 .async-pk-dialog.is-visible { opacity: 1; pointer-events: auto; }
 .apd-card {
+    position: fixed;
+    top: var(--game-panel-overlay-center-y, var(--board-overlay-center-y, 50vh));
+    left: var(--game-panel-overlay-center-x, var(--board-overlay-center-x, 50vw));
+    transform: translate(-50%, -50%);
     width: min(380px, 92vw);
     padding: 24px 24px 18px;
     background: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(18, 24, 38, 0.98));

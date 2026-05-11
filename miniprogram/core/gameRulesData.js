@@ -1,70 +1,842 @@
 /**
  * 小程序运行时数据模块；避免直接 require JSON 导致部分开发工具配置下解析为 .json.js。
- * 数据来自 shared/game_rules.json 的小程序裁剪版。
+ * 数据来自 shared/game_rules.json。
  */
 module.exports = {
-  version: 1,
-  description: 'Open Block 小程序玩家端玩法配置：仅包含核心游戏、皮肤相关计分和难度策略。',
-  winScoreThreshold: 220,
-  defaultStrategyId: 'normal',
-  clearScoring: {
-    iconBonusLineMult: 5,
-    perfectClearMult: 10,
+  "schemaVersion": 1,
+  "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
+  "winScoreThreshold": 220,
+  "rlCurriculum": {
+    "comment": "胜利门槛从 40 起步，让初学者能拿到 winBonus 正反馈；40k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
+    "enabled": true,
+    "winThresholdStart": 40,
+    "winThresholdEnd": 220,
+    "rampEpisodes": 40000
   },
-  strategies: {
-    easy: {
-      id: 'easy',
-      name: 'Easy',
-      fillRatio: 0,
-      scoring: { singleLine: 20, multiLine: 60, combo: 100 },
-      shapeWeights: {
-        lines: 2.3,
-        rects: 1.65,
-        squares: 1.45,
-        tshapes: 1.05,
-        zshapes: 1.05,
-        lshapes: 1.13,
-        jshapes: 1.05,
-      },
-      gridWidth: 8,
-      gridHeight: 8,
-      colorCount: 8,
+  "browserRlTraining": {
+    "comment": "浏览器 LinearAgent REINFORCE 超参与温度日程（含 PyTorch 在线路径每局采样温度）。仅 web/src/bot/trainer.js 读取；改 JSON 无需改代码常量。entropyCoef=0 退化为纯策略梯度。",
+    "gamma": 0.99,
+    "maxGradNorm": 5,
+    "policyLr": 0.02,
+    "valueLr": 0.05,
+    "entropyCoef": 0.012,
+    "temperatureLocal": {
+      "comment": "trainSelfPlay 本地循环：temp = max(min, start - episodeIndex * decayPerEpisode)",
+      "start": 1,
+      "min": 0.4,
+      "decayPerEpisode": 0.0015
     },
-    normal: {
-      id: 'normal',
-      name: 'Normal',
-      fillRatio: 0.18,
-      scoring: { singleLine: 20, multiLine: 60, combo: 100 },
-      shapeWeights: {
-        lines: 2.15,
-        rects: 1.55,
-        squares: 1.35,
-        tshapes: 1.12,
-        zshapes: 1.12,
-        lshapes: 1.2,
-        jshapes: 1.12,
-      },
-      gridWidth: 8,
-      gridHeight: 8,
-      colorCount: 8,
-    },
-    hard: {
-      id: 'hard',
-      name: 'Hard',
-      fillRatio: 0.32,
-      scoring: { singleLine: 20, multiLine: 60, combo: 100 },
-      shapeWeights: {
-        lines: 2.05,
-        rects: 1.55,
-        squares: 1.42,
-        tshapes: 1.18,
-        zshapes: 1.18,
-        lshapes: 1.26,
-        jshapes: 1.18,
-      },
-      gridWidth: 8,
-      gridHeight: 8,
-      colorCount: 8,
-    },
+    "temperatureBackend": {
+      "comment": "useBackend 时按服务端已累计局数 globalEp 衰减",
+      "start": 1,
+      "min": 0.35,
+      "decayPerGlobalEpisode": 0.002
+    }
   },
+  "clearScoring": {
+    "comment": "人工主局、浏览器无头模拟器、Python RL 训练/评估共用的消行计分参数。修改这里必须同步验证 clearScoring / simulator 测试。",
+    "iconBonusLineMult": 5,
+    "perfectClearMult": 10
+  },
+  "rlBonusScoring": {
+    "comment": "RL / PyTorch 无头局与主局计分对齐：整线加分判定与 dock 染色软偏置共用同一套「可见规则」（detectBonusLines / monoNearFullLine）。为避免 JS/Python 读取皮肤实现不一致，RL 只读取本节点 blockIcons；为空时按同色判定，不从玩家当前皮肤或 canonical 皮肤回退。",
+    "useGameplayBonusRules": true,
+    "blockIcons": null
+  },
+  "defaultStrategyId": "normal",
+  "dynamicDifficulty": {
+    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。v1.13 起 scoreStress 在 ctx.bestScore>0 时按个人百分位映射，避免一次冲过末档后压力锁死。",
+    "enabled": true,
+    "milestones": [
+      0,
+      45,
+      90,
+      135,
+      180
+    ],
+    "spawnStress": [
+      0,
+      0.18,
+      0.38,
+      0.58,
+      0.78
+    ],
+    "scoreFloor": 180,
+    "percentileDecayThreshold": 0.5,
+    "percentileDecayFactor": 0.4,
+    "percentileMaxOver": 0.2
+  },
+  "runDifficulty": {
+    "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
+    "enabled": true,
+    "maxStreak": 6,
+    "fillBonusPerGame": 0.01,
+    "spawnStressBonusPerGame": 0.045
+  },
+  "adaptiveSpawn": {
+    "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
+    "enabled": true,
+    "profileWindow": 15,
+    "smoothingFactor": 0.15,
+    "fastConvergenceWindow": 5,
+    "fastConvergenceAlpha": 0.35,
+    "difficultyTuning": {
+      "comment": "玩家选择难度的显式偏置。stressBias 拉开 profile 档位；clearGuaranteeDelta/sizePreferenceDelta/multiClearBonusDelta 直接进入 spawnHints；solutionStressDelta 仅用于解法数量区间选择，让困难模式更早进入低解空间过滤。",
+      "easy": {
+        "stressBias": -0.22,
+        "clearGuaranteeDelta": 1,
+        "sizePreferenceDelta": -0.22,
+        "multiClearBonusDelta": 0.05,
+        "solutionStressDelta": -0.14,
+        "orderRigorBoost": 0
+      },
+      "normal": {
+        "stressBias": 0,
+        "clearGuaranteeDelta": 0,
+        "sizePreferenceDelta": 0,
+        "multiClearBonusDelta": 0,
+        "solutionStressDelta": 0,
+        "orderRigorBoost": 0
+      },
+      "hard": {
+        "stressBias": 0.22,
+        "clearGuaranteeDelta": -1,
+        "sizePreferenceDelta": 0.24,
+        "multiClearBonusDelta": -0.08,
+        "solutionStressDelta": 0.18,
+        "minStress": 0.18,
+        "orderRigorBoost": 0.3
+      }
+    },
+    "profiles": [
+      {
+        "id": "onboarding",
+        "label": "新手引导",
+        "stress": -0.2,
+        "comment": "首局前 5 轮出块：极高线条/矩形权重，最小化不规则块，让新手建立信心和基本操作习惯",
+        "shapeWeights": {
+          "lines": 3.18,
+          "rects": 2.2,
+          "squares": 1.8,
+          "tshapes": 0.45,
+          "zshapes": 0.35,
+          "lshapes": 0.53,
+          "jshapes": 0.45
+        }
+      },
+      {
+        "id": "recovery",
+        "label": "紧急救场",
+        "stress": -0.1,
+        "comment": "板面接近满时触发：大量线条便于消行自救，不规则块降到最低",
+        "shapeWeights": {
+          "lines": 2.95,
+          "rects": 2,
+          "squares": 1.3,
+          "tshapes": 0.6,
+          "zshapes": 0.5,
+          "lshapes": 0.68,
+          "jshapes": 0.6
+        }
+      },
+      {
+        "id": "comfort",
+        "label": "舒适体验",
+        "stress": 0,
+        "comment": "低技能/挫败后恢复信心：消行友好块为主，偶尔引入简单不规则块",
+        "shapeWeights": {
+          "lines": 2.65,
+          "rects": 1.85,
+          "squares": 1.6,
+          "tshapes": 0.75,
+          "zshapes": 0.65,
+          "lshapes": 0.83,
+          "jshapes": 0.75
+        }
+      },
+      {
+        "id": "momentum",
+        "label": "连击催化",
+        "stress": 0.1,
+        "comment": "combo 后或节奏释放期：偏向能串联消行的块型（线条+小矩形），催化连击正反馈",
+        "shapeWeights": {
+          "lines": 2.55,
+          "rects": 1.75,
+          "squares": 1.55,
+          "tshapes": 0.85,
+          "zshapes": 0.78,
+          "lshapes": 0.9,
+          "jshapes": 0.82
+        }
+      },
+      {
+        "id": "guided",
+        "label": "引导成长",
+        "stress": 0.2,
+        "comment": "中低技能稳步成长：逐步引入更多不规则块，保持可控挑战",
+        "shapeWeights": {
+          "lines": 2.45,
+          "rects": 1.7,
+          "squares": 1.5,
+          "tshapes": 0.95,
+          "zshapes": 0.88,
+          "lshapes": 1,
+          "jshapes": 0.92
+        }
+      },
+      {
+        "id": "breathing",
+        "label": "节奏呼吸",
+        "stress": 0.3,
+        "comment": "紧张周期后的释放窗口：略低于标准难度，给玩家喘息空间",
+        "shapeWeights": {
+          "lines": 2.3,
+          "rects": 1.65,
+          "squares": 1.45,
+          "tshapes": 1,
+          "zshapes": 0.95,
+          "lshapes": 1.08,
+          "jshapes": 1
+        }
+      },
+      {
+        "id": "balanced",
+        "label": "均衡标准",
+        "stress": 0.4,
+        "comment": "心流核心区：与 normal 策略一致，各类块型均衡出现",
+        "shapeWeights": {
+          "lines": 2.15,
+          "rects": 1.55,
+          "squares": 1.35,
+          "tshapes": 1.12,
+          "zshapes": 1.12,
+          "lshapes": 1.2,
+          "jshapes": 1.12
+        }
+      },
+      {
+        "id": "variety",
+        "label": "新鲜变化",
+        "stress": 0.5,
+        "comment": "防止审美疲劳：刻意拉平权重增加形状多样性，给中等玩家带来新鲜感",
+        "shapeWeights": {
+          "lines": 2,
+          "rects": 1.5,
+          "squares": 1.4,
+          "tshapes": 1.2,
+          "zshapes": 1.18,
+          "lshapes": 1.23,
+          "jshapes": 1.15
+        }
+      },
+      {
+        "id": "challenge",
+        "label": "进阶挑战",
+        "stress": 0.65,
+        "comment": "中高手区间：不规则块明显增多，需要更多空间规划能力",
+        "shapeWeights": {
+          "lines": 1.85,
+          "rects": 1.4,
+          "squares": 1.5,
+          "tshapes": 1.3,
+          "zshapes": 1.3,
+          "lshapes": 1.33,
+          "jshapes": 1.25
+        }
+      },
+      {
+        "id": "intense",
+        "label": "极限考验",
+        "stress": 0.85,
+        "comment": "高手专属：T/Z/L/J 权重超过线条，最大化空间规划压力",
+        "shapeWeights": {
+          "lines": 1.58,
+          "rects": 1.3,
+          "squares": 1.55,
+          "tshapes": 1.42,
+          "zshapes": 1.48,
+          "lshapes": 1.46,
+          "jshapes": 1.38
+        }
+      }
+    ],
+    "pacing": {
+      "comment": "节奏张弛：每 cycleLength 轮出块为一个周期，前 tensionPhases 轮略加压，后面轮次释放。参考音乐副歌-间奏结构，避免单调递增的难度导致倦怠。",
+      "enabled": true,
+      "cycleLength": 5,
+      "tensionPhases": 3,
+      "tensionBonus": 0.04,
+      "releaseBonus": -0.12
+    },
+    "engagement": {
+      "comment": "参与度信号：首局保护、挫败回弹、差一点放大、新鲜感注入。",
+      "firstSessionSpawns": 5,
+      "firstSessionStressOverride": -0.15,
+      "frustrationThreshold": 4,
+      "frustrationRelief": -0.18,
+      "nearMissStressBonus": -0.1,
+      "nearMissClearGuarantee": 2,
+      "noveltyDiversityBoost": 0.15
+    },
+    "feedback": {
+      "comment": "闭环反馈（敏感版）：更短窗口、更高 alpha、更慢衰减，bias 变化更易在面板/stress 上体现；仍钳制在 biasClamp。",
+      "horizon": 3,
+      "expected": 1,
+      "alpha": 0.055,
+      "decay": 0.93,
+      "biasClamp": 0.22
+    },
+    "signals": {
+      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。",
+      "scoreStress": {
+        "enabled": true,
+        "scale": 1
+      },
+      "runStreakStress": {
+        "enabled": true,
+        "scale": 1
+      },
+      "difficultyBias": {
+        "enabled": true,
+        "scale": 1
+      },
+      "skillAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "flowAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "pacingAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "recoveryAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "frustrationRelief": {
+        "enabled": true,
+        "scale": 1
+      },
+      "comboAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "nearMissAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "feedbackBias": {
+        "enabled": true,
+        "scale": 1
+      },
+      "trendAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "sessionArcAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "holeReliefAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "boardRiskReliefAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "abilityRiskAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "delightStressAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "friendlyBoardRelief": {
+        "enabled": true,
+        "scale": 1
+      },
+      "bottleneckRelief": {
+        "enabled": true,
+        "scale": 1
+      },
+      "motivationStressAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "accessibilityStressAdjust": {
+        "enabled": true,
+        "scale": 1
+      },
+      "returningWarmupAdjust": {
+        "enabled": true,
+        "scale": 1
+      }
+    },
+    "stressSmoothing": {
+      "comment": "对最终 stress 做轻量滞后，避免普通状态跳变；救场/近失/挫败等减压信号立即生效。",
+      "enabled": true,
+      "alpha": 0.4,
+      "maxStepUp": 0.18,
+      "maxStepDown": 0.28,
+      "immediateReliefBoardRisk": 0.72
+    },
+    "friendlyBoard": {
+      "comment": "v1.13 友好盘面救济：盘面 holes=0 + 临消行/多消候选/清屏机会充沛 + 节奏处于 payoff 时，注入一笔减压让拟人化压力表与玩家直觉同向。",
+      "minNearFullLines": 2,
+      "minMultiClearCandidates": 2,
+      "requirePayoff": true,
+      "baseRelief": -0.12,
+      "maxRelief": -0.18
+    },
+    "flowPayoffStressCap": 0.79,
+    "flowPayoffMaxBoardRisk": 0.5,
+    "spawnTargets": {
+      "comment": "将一维 stress 投影为多轴出块目标，避免仅通过方块复杂度消费压力。",
+      "frustrationReliefThreshold": 5
+    },
+    "delight": {
+      "comment": "爽感兑现层：根据玩家能力、心流、动量、恢复需求和盘面机会，实时提高多消/清屏候选概率；高手无聊时略加压并给 payoff，焦虑/恢复时降压但保留清线爽点。",
+      "highSkillThreshold": 0.62,
+      "boredSkillStressBoost": 0.07,
+      "anxiousReliefStress": 0.08,
+      "baseMultiClearBoost": 0.22,
+      "highSkillMultiBoost": 0.22,
+      "momentumMultiBoost": 0.16,
+      "opportunityMultiBoost": 0.3,
+      "flowPayoffBoost": 0.14,
+      "reliefMultiBoost": 0.2,
+      "frustrationReliefThreshold": 5
+    },
+    "afk": {
+      "comment": "AFK 检测：thinkMs 超过 thresholdMs 的操作排除出 metrics，避免离开/后台干扰能力估计。",
+      "thresholdMs": 15000
+    },
+    "topologyDifficulty": {
+      "comment": "盘面拓扑难度：holes 使用“所有形状都无法覆盖的空格”口径，代表真实可修复性下降；一方面按 holeFillEquivalent 折算为额外占用压力参与难度评估（同填充率下 holes 越多越难），另一方面进入 board pressure 并以救援方式降低过度出块压力、提高消行保障。v1.30 起新增 bottleneck* 系列：跨 dock 周期记录候选块 firstMoveFreedom 的最低点（trough），≤阈值时注入 bottleneckRelief 负向 stress 并抬高 clearGuarantee/偏小块。v1.32 起新增 orderRigor* 系列：当玩家高压且具备承受力时，要求三连块 6 种排列里仅 ≤N 种可解（默认 N=2），强制玩家做「先 X 再 Y 最后 Z」的顺序规划，是 Yerkes-Dodson 上限的精细加压器。",
+      "holePressureMax": 8,
+      "holeFillEquivalent": 0.8,
+      "holeReliefStress": -0.16,
+      "boardRiskReliefStress": -0.1,
+      "holeClearGuaranteeAt": 2,
+      "holeSizePreference": -0.22,
+      "bottleneckTroughThreshold": 2,
+      "bottleneckReliefMax": -0.12,
+      "bottleneckClearGuaranteeAt": 2,
+      "bottleneckSizePreferenceDelta": -0.18,
+      "orderRigorEnabled": true,
+      "orderRigorStressThreshold": 0.55,
+      "orderRigorScale": 1.6,
+      "orderRigorSkillScale": 0.2,
+      "orderRigorMaxPermsTight": 2,
+      "orderRigorMaxPermsLoose": 4,
+      "orderRigorActivationFill": 0.5,
+      "orderRigorMaxHolesAllow": 3
+    },
+    "flowZone": {
+      "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",
+      "thinkTimeLowMs": 1200,
+      "thinkTimeHighMs": 10000,
+      "thinkTimeVarianceHigh": 8000000,
+      "clearRateIdeal": 0.32,
+      "clearRateTolerance": 0.12,
+      "missRateWorry": 0.28,
+      "recoveryFillThreshold": 0.82,
+      "recoveryDuration": 4,
+      "skillAdjustScale": 0.3,
+      "flowBoredAdjust": 0.08,
+      "flowAnxiousAdjust": -0.12,
+      "recoveryAdjust": -0.2,
+      "comboRewardAdjust": 0.05
+    },
+    "solutionDifficulty": {
+      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。",
+      "enabled": true,
+      "activationFill": 0.45,
+      "leafCap": 64,
+      "budget": 8000,
+      "ranges": [
+        {
+          "minStress": -1,
+          "label": "宽松",
+          "min": 8,
+          "max": null
+        },
+        {
+          "minStress": 0,
+          "label": "舒适",
+          "min": 4,
+          "max": null
+        },
+        {
+          "minStress": 0.35,
+          "label": "标准",
+          "min": 2,
+          "max": null
+        },
+        {
+          "minStress": 0.6,
+          "label": "紧张",
+          "min": 1,
+          "max": 32
+        },
+        {
+          "minStress": 0.8,
+          "label": "极限",
+          "min": 1,
+          "max": 12
+        }
+      ]
+    },
+    "globalPersonalization": {
+      "comment": "全球化个性化边界：只消费实时行为、明示偏好、设备负担和语言/地区上下文；敏感属性只允许聚合研究，不进入个体级策略。motivationIntent 描述中长期动机，spawnIntent 仍描述本轮出块意图。",
+      "enabled": true,
+      "sensitiveAttributesForIndividualTargeting": false,
+      "allowedSignals": [
+        "behavior",
+        "preferences",
+        "device",
+        "languageRegionContext"
+      ],
+      "motivationIntents": [
+        "competence",
+        "challenge",
+        "relaxation",
+        "collection",
+        "social",
+        "balanced"
+      ],
+      "socialFairChallengeDisablesPersonalization": true
+    }
+  },
+  "playerAbilityModel": {
+    "comment": "AbilityVector 规则模型配置。所有权重与阈值集中在此，避免 playerAbilityModel.js / adaptiveSpawn.js 直接写模型魔术数字；仅影响真人路径的能力展示、回放快照和自适应减压。",
+    "version": 1,
+    "bands": {
+      "riskHigh": 0.72,
+      "riskMid": 0.42,
+      "skillExpert": 0.78,
+      "skillAdvanced": 0.58,
+      "skillDeveloping": 0.36
+    },
+    "baseline": {
+      "skillMinConfidence": 0.35,
+      "skillBlendScale": 0.35,
+      "riskMinConfidence": 0.45,
+      "riskBlend": 0.25
+    },
+    "control": {
+      "missRateMax": 0.3,
+      "afkMax": 3,
+      "apmMax": 14,
+      "weights": {
+        "miss": 0.38,
+        "cognitiveLoad": 0.27,
+        "afk": 0.17,
+        "apm": 0.18
+      }
+    },
+    "clearEfficiency": {
+      "clearRateMax": 0.55,
+      "comboRateMax": 0.45,
+      "avgLinesMax": 2.5,
+      "weights": {
+        "clearRate": 0.55,
+        "comboRate": 0.25,
+        "avgLines": 0.2
+      }
+    },
+    "boardPlanning": {
+      "holeMax": 10,
+      "fillPenaltyStart": 0.58,
+      "fillPenaltySpan": 0.36,
+      "mobilityMax": 120,
+      "closeLinesMax": 6,
+      "fallbackMobilityScore": 0.55,
+      "weights": {
+        "holes": 0.36,
+        "fill": 0.22,
+        "mobility": 0.22,
+        "nearClear": 0.2
+      }
+    },
+    "risk": {
+      "frustrationMax": 5,
+      "roundsSinceClearMax": 4,
+      "weights": {
+        "boardFill": 0.32,
+        "holes": 0.28,
+        "frustration": 0.18,
+        "roundsSinceClear": 0.12,
+        "control": 0.1
+      }
+    },
+    "riskTolerance": {
+      "nearMissBonus": 0.18,
+      "recoveryPenalty": -0.15,
+      "comboRateMax": 0.5,
+      "weights": {
+        "boardFill": 0.35,
+        "comboRate": 0.22,
+        "clearEfficiency": 0.2
+      }
+    },
+    "confidence": {
+      "profileWeight": 0.65,
+      "lifetimePlacementsMax": 80,
+      "lifetimePlacementsWeight": 0.25,
+      "gamePlacementsMax": 20,
+      "gamePlacementsWeight": 0.1
+    },
+    "explain": {
+      "clearEfficiencyHigh": 0.72,
+      "clearEfficiencyLow": 0.35,
+      "boardPlanningHigh": 0.7,
+      "boardPlanningLow": 0.38,
+      "controlLow": 0.42,
+      "riskHigh": 0.7
+    },
+    "adaptiveSpawnRiskAdjust": {
+      "minConfidence": 0.25,
+      "riskThreshold": 0.62,
+      "stressRelief": -0.08
+    }
+  },
+  "rlTrainingStrategyId": "normal",
+  "rlRewardShaping": {
+    "comment": "v6 优化奖励：增大势函数系数与终局信号，降低 outcome 混合比例让 V 学会逐步评估。",
+    "winBonus": 35,
+    "stuckPenalty": -8,
+    "holeAuxLossCoef": 0.12,
+    "holeAuxTargetMax": 16,
+    "clearPredLossCoef": 0.15,
+    "topologyAuxLossCoef": 0.08,
+    "bonusClearAux": {
+      "comment": "bonus/color-clear 辅助头：预测本步是否触发同 icon/同色 bonus line，帮助价值网络学习高分清线结构；旧 checkpoint 通过 strict=false 兼容新增头。",
+      "enabled": true,
+      "coef": 0.08
+    },
+    "boardQualityLossCoef": 0.55,
+    "feasibilityLossCoef": 0.3,
+    "survivalLossCoef": 0.28,
+    "potentialShaping": {
+      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。v6 增大系数以提供更强逐步信号。",
+      "enabled": true,
+      "coef": 0.8,
+      "holeWeight": -0.4,
+      "transitionWeight": -0.08,
+      "wellWeight": -0.15,
+      "closeToFullWeight": 0.35,
+      "mobilityWeight": 0.12
+    },
+    "outcomeValueMix": {
+      "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。v9.2 默认用 log1p(score)/log1p(threshold) 并放宽 clip，避免 400-500 分段 score/threshold 过早饱和。",
+      "enabled": true,
+      "mix": 0.5,
+      "targetMode": "log",
+      "maxValue": 3
+    },
+    "qDistillation": {
+      "comment": "Q 分布蒸馏（v7 新增）：策略头额外学习 lookahead / beam / MCTS 搜索目标的 softmax 分布，向 AlphaZero 的「策略学搜索目标」靠拢。v9.3 加入单状态 Q 归一化与系数退火，前期跟强 teacher，后期避免过度锁死搜索偏差。",
+      "enabled": true,
+      "coef": 0.2,
+      "tau": 0.85,
+      "normalize": "zscore",
+      "minStd": 0.25,
+      "annealEndCoef": 0.08,
+      "annealEpisodes": 60000
+    },
+    "visitPiDistillation": {
+      "comment": "v9.1：MCTS 访问分布 visit_pi 直接 CE 蒸馏，区别于 beam/qDistillation 的 Q softmax；更贴近 AlphaZero 的策略目标。v9.3 同步退火，避免中后期策略只复制早期搜索分布。",
+      "enabled": true,
+      "coef": 0.15,
+      "tau": 1,
+      "annealEndCoef": 0.06,
+      "annealEpisodes": 60000
+    },
+    "beam2ply": {
+      "comment": "三块组合 2-ply beam（v7 新增）：Q_2ply(s,a1)=r1+γ·max_a2[r2+γ·V(s'')]，当 dock 剩余块≥2时激活，捕捉跨块放置协同效应。topK 控制二层展开的动作数（降低开销）。",
+      "enabled": true,
+      "topK": 15,
+      "maxActions": 100
+    },
+    "evalGate": {
+      "comment": "评估门控（v7 新增，参考 AlphaZero 第三步）：每 everyEpisodes 局，在同 seed 下配对评估候选与基线。rule=win 时按严格赢率判定，rule=nonloss 时按不输率判定；都要求平均分差非负。v10 输出 policy-only 与 policy+search 双评估，并按固定 seed bucket 记录分数差。",
+      "enabled": true,
+      "everyEpisodes": 2500,
+      "nGames": 64,
+      "winRatio": 0.55,
+      "rule": "win",
+      "rounds": 2,
+      "dualEval": true
+    },
+    "rankedReward": {
+      "comment": "v9 单人自博弈 Ranked Reward：维护滚动分数窗口，将当前局得分转成历史分位终局奖励，缓解 400-500 分平台期。只加到终局步，不改变局内环境；环境变量 RL_RANKED_* 可覆盖。",
+      "enabled": true,
+      "window": 2048,
+      "warmup": 128,
+      "targetPercentile": 0.5,
+      "targetPercentileEnd": 0.7,
+      "rampEpisodes": 30000,
+      "deadband": 0.04,
+      "bonusScale": 14,
+      "penaltyScale": 6,
+      "maxAbs": 16
+    },
+    "adaptiveCurriculum": {
+      "comment": "自适应课程（v8 新增）：根据滑动胜率动态调整课程推进速度。winRate>targetWinRate 时每局额外前进 stepUp 虚拟局；winRate<targetWinRate 时每局暂停推进（不倒退）。checkEvery 控制更新频率，window 为滑动窗口大小。enabled=false 使用原固定线性爬坡。默认开启：低胜率时减缓胜利门槛爬坡，利于弱策略先把均分拉起来。",
+      "enabled": true,
+      "window": 200,
+      "targetWinRate": 0.5,
+      "stepUp": 2,
+      "stepDown": 0,
+      "checkEvery": 50
+    },
+    "beam3ply": {
+      "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 未放置块数≥3 时激活。v10 起支持 riskAdaptive：高填充、低 mobility、低 leaf count 时动态提高 topK/topK2/maxActions。",
+      "enabled": true,
+      "topK": 12,
+      "topK2": 4,
+      "maxActions": 100,
+      "maxActions2": 50,
+      "riskAdaptive": true,
+      "riskFill": 0.56,
+      "riskMobility": 18,
+      "riskLeafCount": 1,
+      "riskMaxMultiplier": 1.8,
+      "riskTopKMax": 24,
+      "riskTopK2Max": 8,
+      "riskMaxActionsMax": 140,
+      "riskMaxActions2Max": 80
+    },
+    "searchReplay": {
+      "comment": "v9.3 困难样本 replay：缓存高分未通关、尾局可行性差或低 mobility 的 self-play 局，训练时抽样重放，提升 search teacher 样本利用率。minPriority 略降以便弱策略期仍能填满缓冲区。",
+      "enabled": true,
+      "maxEpisodes": 256,
+      "sampleRatio": 0.5,
+      "maxSamples": 8,
+      "keepPerBatch": 4,
+      "minPriority": 1
+    },
+    "lightMCTS": {
+      "comment": "轻量 UCT-MCTS：visit_pi + Q 代理作为 teacher，配合 visitPiDistillation。默认开启 moderate sims；采集更慢但显著缓解「短局无 teacher」。训练前可设环境变量 RL_MCTS=0 强制关闭改回纯 beam。",
+      "enabled": true,
+      "numSimulations": 24,
+      "cPuct": 1.5,
+      "maxDepth": 8,
+      "evalBatchSize": 8,
+      "evalBatchSizeComment": "v8.2：批量叶子节点评估的并发模拟数（8~32）。n_simulations≥50 时自动切换批量模式。",
+      "zobristCacheSize": 5000,
+      "zobristCacheSizeComment": "v8.2：Zobrist hash 跨局本地节点缓存上限（节点数）。0=禁用。",
+      "sharedZobristSlots": 8192,
+      "sharedZobristSlotsComment": "v8.3：跨进程共享转置表槽位数（每槽 8 字节）。8192=64KB，65536=512KB。多 worker 时自动启用。",
+      "adaptiveSims": true,
+      "adaptiveSimsComment": "v8.3：渐进式模拟次数开关。true=先跑 minSims，top1/top2 比≥confidence 后提前停止。",
+      "minSims": 10,
+      "confidence": 3,
+      "riskAdaptive": true,
+      "riskFill": 0.58,
+      "riskMobility": 16,
+      "riskMaxMultiplier": 2,
+      "maxSimulations": 80
+    }
+  },
+  "featureEncoding": {
+    "comment": "state = 42 维标量（含 19 维颜色摘要）+ 64 棋盘占用 + 75 dock 形状 = 181；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 196。改维度须同步 features.js / features.py 并重训。",
+    "maxGridWidth": 8,
+    "dockMaskSide": 5,
+    "stateScalarDim": 42,
+    "colorCount": 8,
+    "gridSpatialDim": 64,
+    "dockSpatialDim": 75,
+    "stateDim": 181,
+    "actionDim": 15,
+    "phiDim": 196,
+    "dockSlots": 3,
+    "almostFullLineRatio": 0.78,
+    "actionNorm": {
+      "maxBlockIndex": 3,
+      "shapeSpan": 5,
+      "maxCells": 10,
+      "maxClearsHint": 5,
+      "maxHoles": 16,
+      "maxTransitions": 64,
+      "maxWellDepth": 24,
+      "maxMobility": 192,
+      "maxAdjacent": 20,
+      "nearFullThreshold": 0.75
+    }
+  },
+  "strategies": {
+    "easy": {
+      "id": "easy",
+      "name": "Easy",
+      "fillRatio": 0,
+      "scoring": {
+        "singleLine": 20,
+        "multiLine": 60,
+        "combo": 100
+      },
+      "shapeWeights": {
+        "lines": 2.3,
+        "rects": 1.65,
+        "squares": 1.45,
+        "tshapes": 1.05,
+        "zshapes": 1.05,
+        "lshapes": 1.13,
+        "jshapes": 1.05
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    },
+    "normal": {
+      "id": "normal",
+      "name": "Normal",
+      "fillRatio": 0.18,
+      "scoring": {
+        "singleLine": 20,
+        "multiLine": 60,
+        "combo": 100
+      },
+      "shapeWeights": {
+        "lines": 2.15,
+        "rects": 1.55,
+        "squares": 1.35,
+        "tshapes": 1.12,
+        "zshapes": 1.12,
+        "lshapes": 1.2,
+        "jshapes": 1.12
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    },
+    "hard": {
+      "id": "hard",
+      "name": "Hard",
+      "fillRatio": 0.32,
+      "scoring": {
+        "singleLine": 20,
+        "multiLine": 60,
+        "combo": 100
+      },
+      "shapeWeights": {
+        "lines": 2.05,
+        "rects": 1.55,
+        "squares": 1.42,
+        "tshapes": 1.18,
+        "zshapes": 1.18,
+        "lshapes": 1.26,
+        "jshapes": 1.18
+      },
+      "gridWidth": 8,
+      "gridHeight": 8,
+      "colorCount": 8
+    }
+  }
 };

@@ -15,6 +15,11 @@ const { getActiveSkin, setActiveSkinId } = require('../../core/skins');
 const { setLanguage, t } = require('../../core/i18n');
 const { createAudioFx } = require('../../utils/audioFx');
 
+const TOUCH_DRAG_GAIN = 1.12;
+const TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS = 2.25;
+const TOUCH_DRAG_LIFT_GAP_CELLS = 0.35;
+const TOUCH_DRAG_LIFT_MAX_CELLS = 2.4;
+
 Page({
   data: {
     score: 0,
@@ -57,6 +62,7 @@ Page({
   _dragGx: -1,
   _dragGy: -1,
   _dragTrail: [],
+  _dragStartTouch: null,
   _gridRect: null,
   _particleRafId: null,
   _clearCellsTimer: null,
@@ -182,6 +188,38 @@ Page({
     return (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]) || null;
   },
 
+  _touchDragLiftPx(block) {
+    if (!block || !this._cellSize) return 0;
+    const bounds = this._shapeBounds(block.shape);
+    const lift = (bounds.rows / 2 + TOUCH_DRAG_LIFT_GAP_CELLS) * this._cellSize;
+    return Math.min(lift, TOUCH_DRAG_LIFT_MAX_CELLS * this._cellSize);
+  },
+
+  _touchControlPoint(e, block) {
+    const touch = this._touchPoint(e);
+    if (!touch) return null;
+    if (!this._dragStartTouch) {
+      this._dragStartTouch = { x: touch.clientX, y: touch.clientY };
+    }
+
+    const dx = touch.clientX - this._dragStartTouch.x;
+    const dy = touch.clientY - this._dragStartTouch.y;
+    let extraX = dx * (TOUCH_DRAG_GAIN - 1);
+    let extraY = dy * (TOUCH_DRAG_GAIN - 1);
+    const maxExtra = TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS * (this._cellSize || 0);
+    const extraLen = Math.hypot(extraX, extraY);
+    if (maxExtra > 0 && extraLen > maxExtra) {
+      const clamp = maxExtra / extraLen;
+      extraX *= clamp;
+      extraY *= clamp;
+    }
+
+    return {
+      clientX: touch.clientX + extraX,
+      clientY: touch.clientY + extraY - this._touchDragLiftPx(block),
+    };
+  },
+
   onReady() {
     this._initCanvas();
   },
@@ -278,6 +316,7 @@ Page({
       this._dragGx = -1;
       this._dragGy = -1;
       this._dragTrail = [];
+      this._dragStartTouch = null;
       this._hideDragPreview();
       this.setData({ dragIdx: -1 });
     }
@@ -608,6 +647,8 @@ Page({
     this._dragGx = -1;
     this._dragGy = -1;
     this._dragTrail = [];
+    const touch = this._touchPoint(e);
+    this._dragStartTouch = touch ? { x: touch.clientX, y: touch.clientY } : null;
     this._updateDragPreviewFromEvent(e, b);
     this.setData({
       dragIdx: idx,
@@ -636,6 +677,7 @@ Page({
     this._dragGx = -1;
     this._dragGy = -1;
     this._dragTrail = [];
+    this._dragStartTouch = null;
     this._hideDragPreview();
 
     if (placedPos) {
@@ -698,7 +740,7 @@ Page({
   },
 
   _updateDragPreviewFromEvent(e, block) {
-    const touch = this._touchPoint(e);
+    const touch = this._touchControlPoint(e, block);
     if (!touch || !block || !this._cellSize) return;
     const bounds = this._shapeBounds(block.shape);
     const w = bounds.cols * this._cellSize;
@@ -740,7 +782,7 @@ Page({
   _smartPlacementFromEvent(e) {
     if (!this._controller || this._dragBlockIdx < 0) return null;
     const block = this._controller.dock[this._dragBlockIdx];
-    const touch = this._touchPoint(e);
+    const touch = this._touchControlPoint(e, block);
     const rect = this._gridRect;
     if (!block || !touch || !rect || !this._cellSize) return null;
 

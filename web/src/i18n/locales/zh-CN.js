@@ -82,6 +82,16 @@ export default {
     'game.actions.posterAria': '生成战绩海报',
     'game.actions.shareAria': '分享本局战绩',
 
+    'share.poster.callToPlay': '立即挑战',
+    'share.poster.hookHeadline': '你能击败 {{score}} 分吗？',
+    'share.poster.hookSubline': '扫码挑战 · 0 下载即玩',
+    'share.poster.scanToPk': '扫码 · 立即开始',
+    'share.poster.scoreLabel': '本局得分',
+    'share.poster.scorePts': '分',
+    'share.poster.shareTitle': 'OpenBlock 战绩',
+    'share.poster.shareText': '一起来玩方块消除！',
+    'share.poster.stamp': 'OPEN BLOCK · ENDLESS ARENA · MMXXVI',
+
     'progress.rank.novice': '新手',
     'progress.rank.apprentice': '学徒',
     'progress.rank.adept': '能手',

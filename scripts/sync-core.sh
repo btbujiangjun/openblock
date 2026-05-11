@@ -46,12 +46,11 @@ FILES=(
   "shapes.js"
   "gameRules.js"
   "difficulty.js"
+  "boardTopology.js"
+  "playerAbilityModel.js"
   "adaptiveSpawn.js"
-  "hintEngine.js"
+  "playerProfile.js"
   "bot/blockSpawn.js"
-  "bot/simulator.js"
-  "bot/features.js"
-  "bot/gameEnvironment.js"
 )
 
 for f in "${FILES[@]}"; do
@@ -67,7 +66,8 @@ for f in "${FILES[@]}"; do
   content=$(cat "$src_file")
 
   # 1. import { X } from './Y.js'  →  const { X } = require('./Y')
-  content=$(echo "$content" | sed -E "s/import \{([^}]+)\} from '([^']+)\.js'/const {\1} = require('\2')/g")
+  #    用 perl -0 处理 adaptiveSpawn / simulator 这类多行具名 import。
+  content=$(printf "%s" "$content" | perl -0pe "s/import\s+\{([^}]+)\}\s+from\s+'([^']+)\.js';/const {\1} = require('\2');/gs")
 
   # 2. import X from './Y.json'  →  const X = require('./Y.json')
   content=$(echo "$content" | sed -E "s/import ([A-Za-z_][A-Za-z0-9_]*) from '([^']+\.json)'/const \1 = require('\2')/g")

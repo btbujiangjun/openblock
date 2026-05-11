@@ -18,18 +18,36 @@ const {
 } = require('../core/bonusScoring');
 const { vibrateShort } = require('../adapters/platform');
 const {
+  resolveAdaptiveStrategy,
+  resetAdaptiveMilestone,
+} = require('../core/adaptiveSpawn');
+const {
+  computeCandidatePlacementMetric,
   generateDockShapes,
+  getLastSpawnDiagnostics,
   resetSpawnMemory,
   validateSpawnTriplet,
-} = require('./spawnHeuristic');
+} = require('../core/bot/blockSpawn');
+const { PlayerProfile } = require('../core/playerProfile');
 
 class GameController {
   constructor(strategyId = 'normal', opts = {}) {
     this.strategyId = strategyId;
     this.skin = opts.skin || null;
+    this._bestScore = Math.max(0, Number(opts.bestScore) || 0);
+    this._runStreak = Math.max(0, Number(opts.runStreak) || 0);
     this.onStateChange = opts.onStateChange || (() => {});
     this.onLineClear = opts.onLineClear || (() => {});
     this.onGameOver = opts.onGameOver || (() => {});
+
+    this._profile = PlayerProfile.load();
+    if (opts.historicalStats && typeof this._profile.ingestHistoricalStats === 'function') {
+      try { this._profile.ingestHistoricalStats(opts.historicalStats); } catch (_) {}
+    }
+
+    this._maxCombo = 0;
+    this._missCount = 0;
+
     this.reset();
   }
 
@@ -44,14 +62,24 @@ class GameController {
     this.dock = [];
     this.gameOver = false;
     this._roundClearCount = 0;
+    this._maxCombo = 0;
+    this._missCount = 0;
+    if (this._profile && typeof this._profile.recordNewGame === 'function') {
+      this._profile.recordNewGame();
+    }
     this._spawnContext = {
       lastClearCount: 0,
       roundsSinceClear: 0,
       recentCategories: [],
       totalRounds: 0,
       scoreMilestone: false,
+      bestScore: this._bestScore,
+      bottleneckTrough: Infinity,
+      bottleneckSolutionTrough: Infinity,
+      bottleneckSamples: 0,
     };
     resetSpawnMemory();
+    resetAdaptiveMilestone();
     this._initPlayableBoard();
     this.onStateChange(this._snapshot());
   }
@@ -75,20 +103,18 @@ class GameController {
   }
 
   _spawnDock({ ensureMove = false } = {}) {
-    const cfg = this.config;
     const allShapes = getAllShapes();
-    const spawnConfig = {
-      ...cfg,
-      spawnHints: this._deriveSpawnHints(),
-    };
-    let shapes = generateDockShapes(this.grid, spawnConfig, this._spawnContext);
-    const valid = validateSpawnTriplet(this.grid, shapes, { searchBudget: 9000 });
+    const layered = this._resolveSpawnStrategy();
+    let shapes = generateDockShapes(this.grid, layered, this._spawnContext);
+    const valid = validateSpawnTriplet(this.grid, shapes, { searchBudget: 14000 });
     if (!valid.ok || (ensureMove && !shapes.some((s) => this.grid.canPlaceAnywhere(s.data)))) {
       const fallback = allShapes.filter((s) => this.grid.canPlaceAnywhere(s.data)).slice(0, 3);
       shapes = fallback.length >= 3 ? fallback : allShapes.slice(0, 3);
     }
 
-    const colorBias = monoNearFullLineColorWeights(this.grid, this.skin);
+    const iconBonusTarget = Math.max(0, Math.min(1, layered.spawnHints?.iconBonusTarget ?? 0));
+    const colorBias = monoNearFullLineColorWeights(this.grid, this.skin)
+      .map((w) => w * (1 + iconBonusTarget * 2.5));
     const colors = pickThreeDockColors(colorBias);
     this.dock = shapes.map((s, i) => ({
       id: s.id,
@@ -96,48 +122,68 @@ class GameController {
       colorIdx: colors[i % colors.length],
       placed: false,
     }));
+    this._commitSpawnContext(layered);
+    if (this._profile && typeof this._profile.recordSpawn === 'function') {
+      this._profile.recordSpawn();
+    }
   }
 
-  _deriveSpawnHints() {
+  _resolveSpawnStrategy() {
     const fill = this.grid?.getFillRatio?.() || 0;
-    const ctx = this._spawnContext || {};
-    let clearGuarantee = 1;
-    let sizePreference = 0;
-    let diversityBoost = 0.16;
-    let multiClearBonus = 0.22;
-    let multiLineTarget = 0;
-    let rhythmPhase = 'neutral';
+    return resolveAdaptiveStrategy(
+      this.strategyId,
+      this._profile,
+      this.score,
+      this._runStreak,
+      fill,
+      {
+        ...(this._spawnContext || {}),
+        bestScore: this._bestScore,
+        _gridRef: this.grid,
+        _dockShapePool: (this.dock || [])
+          .filter((b) => b && !b.placed && Array.isArray(b.shape))
+          .map((b) => ({ data: b.shape })),
+      },
+    );
+  }
 
-    if ((ctx.totalRounds || 0) <= 2) {
-      clearGuarantee = 2;
-      sizePreference = Math.min(sizePreference, -0.2);
-      diversityBoost = Math.max(diversityBoost, 0.24);
-    }
-    if ((ctx.roundsSinceClear || 0) >= 2 || fill > 0.52) {
-      clearGuarantee = Math.max(clearGuarantee, 2);
-      sizePreference = Math.min(sizePreference, -0.25);
-      multiClearBonus = Math.max(multiClearBonus, 0.45);
-    }
-    if ((ctx.roundsSinceClear || 0) >= 4 || fill > 0.64) {
-      clearGuarantee = 3;
-      sizePreference = Math.min(sizePreference, -0.35);
-      multiLineTarget = Math.max(multiLineTarget, 1);
-      rhythmPhase = 'payoff';
-    }
-    if ((ctx.lastClearCount || 0) >= 2) {
-      multiClearBonus = Math.max(multiClearBonus, 0.5);
-      multiLineTarget = Math.max(multiLineTarget, 1);
-      rhythmPhase = 'payoff';
+  _commitSpawnContext(layered) {
+    this._spawnContext.prevAdaptiveStress = layered?._adaptiveStress;
+    if (Number.isFinite(layered?._occupancyFillAnchor)) {
+      this._spawnContext._occupancyFillAnchor = layered._occupancyFillAnchor;
     }
 
-    return {
-      clearGuarantee,
-      sizePreference,
-      diversityBoost,
-      multiClearBonus,
-      multiLineTarget,
-      rhythmPhase,
-    };
+    const diag = getLastSpawnDiagnostics();
+    this._spawnContext.nearFullLines = diag?.layer1?.nearFullLines ?? 0;
+    this._spawnContext.close1 = diag?.layer1?.close1 ?? 0;
+    this._spawnContext.close2 = diag?.layer1?.close2 ?? 0;
+    this._spawnContext.pcSetup = diag?.layer1?.pcSetup ?? 0;
+    this._spawnContext.holes = diag?.layer1?.holes ?? 0;
+    this._spawnContext.multiClearCandidates = diag?.layer1?.multiClearCandidates ?? 0;
+    this._spawnContext.perfectClearCandidates = diag?.layer1?.perfectClearCandidates ?? 0;
+    this._resetBottleneckTrough();
+  }
+
+  _resetBottleneckTrough() {
+    this._spawnContext.bottleneckTrough = Infinity;
+    this._spawnContext.bottleneckSolutionTrough = Infinity;
+    this._spawnContext.bottleneckSamples = 0;
+  }
+
+  _updateBottleneckTrough() {
+    const snap = computeCandidatePlacementMetric(this.grid, this.dock);
+    if (!snap) return;
+    const fmf = Number(snap.firstMoveFreedom);
+    const sc = Number(snap.solutionCount);
+    if (Number.isFinite(fmf)) {
+      const prev = Number(this._spawnContext.bottleneckTrough);
+      this._spawnContext.bottleneckTrough = Number.isFinite(prev) ? Math.min(prev, fmf) : fmf;
+    }
+    if (Number.isFinite(sc)) {
+      const prev = Number(this._spawnContext.bottleneckSolutionTrough);
+      this._spawnContext.bottleneckSolutionTrough = Number.isFinite(prev) ? Math.min(prev, sc) : sc;
+    }
+    this._spawnContext.bottleneckSamples = (Number(this._spawnContext.bottleneckSamples) || 0) + 1;
   }
 
   _advanceSpawnContext() {
@@ -196,6 +242,7 @@ class GameController {
       clears = result.count;
       this._roundClearCount += clears;
       this.totalClears += clears;
+      this._maxCombo = Math.max(this._maxCombo, clears);
       const { clearScore } = computeClearScore(this.strategyId, result);
       gain = clearScore;
       this.score += gain;
@@ -210,6 +257,10 @@ class GameController {
         bonusLines: result.bonusLines || [],
       });
     }
+    if (this._profile && typeof this._profile.recordPlace === 'function') {
+      this._profile.recordPlace(clears > 0, clears, this.grid.getFillRatio());
+    }
+    this._updateBottleneckTrough();
 
     if (this.dock.every((d) => d.placed)) {
       this._advanceSpawnContext();
@@ -219,6 +270,7 @@ class GameController {
     const remaining = this.dock.filter((d) => !d.placed);
     if (!this.gameOver && remaining.length > 0 && !this.grid.hasAnyMove(this.dock)) {
       this.gameOver = true;
+      this._finalizeSession();
       this.onGameOver({
         score: this.score,
         steps: this.steps,
@@ -228,6 +280,38 @@ class GameController {
 
     this.onStateChange(this._snapshot());
     return { gain, clears, cleared: result.cells || [] };
+  }
+
+  /**
+   * 局末同步画像：写入会话历史 + 持久化。
+   * 同时被 game over 路径与外部「主动放弃」入口调用，保证两条路径一致。
+   */
+  _finalizeSession() {
+    if (!this._profile) return;
+    try {
+      if (typeof this._profile.recordSessionEnd === 'function') {
+        this._profile.recordSessionEnd({
+          score: this.score,
+          placements: this.steps,
+          clears: this.totalClears,
+          misses: this._missCount || 0,
+          maxCombo: this._maxCombo || 0,
+          mode: this.config?.mode || 'endless',
+        });
+      }
+      if (typeof this._profile.save === 'function') {
+        this._profile.save();
+      }
+    } catch (_) {
+      // 持久化失败（隐私模式 / 存储满）不阻塞游戏流程
+    }
+  }
+
+  /** 供 page 在用户主动结束（弃局、退出）时调用，确保画像与持久化收口。 */
+  abandonRun() {
+    if (this.gameOver) return;
+    this.gameOver = true;
+    this._finalizeSession();
   }
 
   _snapshot() {

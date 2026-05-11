@@ -6,7 +6,8 @@
  * 设计要点
  * --------
  * - **触发**：周一 / 周五 12:00 后首次进入游戏自动弹（toast 提示），用户点击触发
- * - **奖池**：8 段：4× 提示券 / 3× 撤销 / 2× 炸弹 / 1× 彩虹 / 50 金币 / 200 金币 / 12h 试穿券 / 谢谢参与（防强保底）
+ * - **奖池**：8 段：4× 提示券 / 3× 撤销 / 2× 炸弹 / 1× 彩虹 / 10 金币 / 50 金币 / 200 金币 / 12h 试穿券
+ *   （10 金币为小额安慰奖，承接"必有奖"设计；不再使用"谢谢参与"以免与赠品产生语义冲突）
  * - **localStorage `openblock_lucky_wheel_v1`**：{ lastSpinDate, recentResults }
  */
 
@@ -27,7 +28,8 @@ const PRIZES = [
     { id: 'coin50',   name: '金币',   count: '×50',   label: '金币 ×50',           items: { coin: 50 }, weight: 16 },
     { id: 'coin200',  name: '金币',   count: '×200',  label: '金币 ×200',          items: { coin: 200 }, weight: 6 },
     { id: 'trial12h', name: '皮肤试穿', count: '12h', label: '12h 限定皮肤试穿',   items: { _trial: 12 }, weight: 4 },
-    { id: 'thanks',   name: '谢谢参与', count: '+撤销×1', label: '谢谢参与（赠 1 撤销）', items: { undoToken: 1 }, weight: 14 },
+    /* 第 8 段：小额金币安慰奖（承接"必有奖"设计；不再使用"谢谢参与"以免与赠品语义冲突） */
+    { id: 'coin10',   name: '金币',   count: '×10',   label: '金币 ×10',           items: { coin: 10 }, weight: 14 },
 ];
 
 const TRIAL_POOL = ['forbidden', 'demon', 'fairy', 'mahjong', 'aurora'];

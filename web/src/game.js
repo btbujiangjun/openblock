@@ -496,6 +496,13 @@ export class Game {
         root.style.setProperty('--board-overlay-bottom', `${rect.bottom}px`);
         root.style.setProperty('--board-overlay-center-x', `${rect.left + rect.width / 2}px`);
         root.style.setProperty('--board-overlay-center-y', `${rect.top + rect.height / 2}px`);
+
+        const panel = document.querySelector('.play-stack');
+        const panelRect = panel?.getBoundingClientRect?.();
+        if (panelRect && panelRect.width > 0 && panelRect.height > 0) {
+            root.style.setProperty('--game-panel-overlay-center-x', `${panelRect.left + panelRect.width / 2}px`);
+            root.style.setProperty('--game-panel-overlay-center-y', `${panelRect.top + panelRect.height / 2}px`);
+        }
     }
 
     /** 主菜单打开时隐藏主界面与难度条；game-over 浮层保留棋盘可见 */
@@ -1339,16 +1346,17 @@ export class Game {
     }
 
     /**
-     * 鼠标拖拽增益：保持起点不变，把后续位移按比例放大，让从候选区拖到盘面的距离更短。
-     * 仅对 mouse 生效；touch 保持 1:1，避免手指下目标与真实触点分离造成误触。
+     * 拖拽虚拟指针：鼠标只放大位移；触屏同时放大位移并把幽灵块抬到手指上方。
+     * 这样能减少滑动距离，也避免手指正好压住候选块中心。
      */
     _applyDragPointerGain(x, y) {
-        if (!this.drag || this.drag.inputType !== 'mouse') {
+        if (!this.drag) {
             return { x, y };
         }
-        const gain = Number(CONFIG.DRAG_MOUSE_GAIN) || 1;
+        const isTouch = this.drag.inputType === 'touch';
+        const gain = Number(isTouch ? CONFIG.DRAG_TOUCH_GAIN : CONFIG.DRAG_MOUSE_GAIN) || 1;
         if (gain <= 1) {
-            return { x, y };
+            return isTouch ? { x, y: y - this._touchDragLiftPx() } : { x, y };
         }
         const dx = x - this.drag.startX;
         const dy = y - this.drag.startY;
@@ -1367,8 +1375,18 @@ export class Game {
         }
         return {
             x: x + extraX,
-            y: y + extraY,
+            y: y + extraY - (isTouch ? this._touchDragLiftPx() : 0),
         };
+    }
+
+    _touchDragLiftPx() {
+        if (!this.dragBlock) return 0;
+        const cell = this._boardDisplayCellSize();
+        const blockHalf = Math.max(0, this.dragBlock.height || 0) * cell / 2;
+        const gap = (Number(CONFIG.DRAG_TOUCH_LIFT_GAP_CELLS) || 0) * cell;
+        const maxLift = Math.max(0, (Number(CONFIG.DRAG_TOUCH_LIFT_MAX_CELLS) || 0) * cell);
+        const lift = blockHalf + gap;
+        return maxLift > 0 ? Math.min(lift, maxLift) : lift;
     }
 
     _pointInsideBoard(x, y) {
