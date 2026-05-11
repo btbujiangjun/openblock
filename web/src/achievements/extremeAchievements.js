@@ -19,6 +19,7 @@
  */
 
 import { getWallet } from '../skills/wallet.js';
+import { t } from '../i18n/i18n.js';
 
 const KEY = 'openblock_extreme_achievements_v1';
 
@@ -137,7 +138,7 @@ function _showToast(ach) {
         el.id = id;
         document.body.appendChild(el);
     }
-    el.textContent = `${ach.icon} 成就解锁：${ach.label}`;
+    el.textContent = t('reward.extremeAchievement', { icon: ach.icon, label: ach.label });
     el.dataset.tier = 'celebrate';   // 极限成就解锁为罕见庆贺事件
     el.classList.remove('is-visible');
     void el.offsetHeight;

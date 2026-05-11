@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': '全消し',
     'effect.multiClear': '{{n}} ライン消し',
     'effect.doubleClear': 'ダブル消し',
-    'effect.iconBonus': '爆発大消去',
+    'effect.iconBonus': 'ロイヤルフラッシュ大消去',
     'effect.newRecord': '新記録',
 
     'skin.name.classic': '✨ ミニマルクラシック',

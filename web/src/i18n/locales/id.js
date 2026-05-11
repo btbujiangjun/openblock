@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Bersih total',
     'effect.multiClear': '{{n}} baris',
     'effect.doubleClear': 'Bersih ganda',
-    'effect.iconBonus': 'Bersih ledakan besar',
+    'effect.iconBonus': 'Pembersihan Royal Flush',
     'effect.newRecord': 'Rekor baru',
 
     'skin.name.classic': '✨ Klasik minimal',

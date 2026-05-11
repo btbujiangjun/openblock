@@ -200,20 +200,15 @@ body.block-drag-active #app {
     background: rgba(84, 92, 112, 0.70);
 }
 
-#quality-toggle[data-quality="balanced"] {
-    opacity: 0.82;
-}
-
-#quality-toggle[data-quality="high"] {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.88), rgba(168, 85, 247, 0.78));
-    box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.18) inset,
-        0 0 12px rgba(56, 189, 248, 0.24);
-}
-
-#quality-toggle[data-quality="low"] {
-    opacity: 0.62;
-    background: rgba(72, 84, 104, 0.72);
+/* 画质按钮三档（high / balanced / low）只用 icon（🌈/⚖️/🔋）表达档位差异，
+ * 背景 / 不透明度强制保持与其他快捷按钮一致——画质本质上是"始终开启的某一档"，
+ * 不存在"未按下/关闭"语义，因此不应继承 [aria-pressed="false"] 的半透明态
+ * （那是给"特效关闭 / 音效关闭"等"否定开关"用的）。 */
+#quality-toggle,
+#quality-toggle[aria-pressed="false"],
+#quality-toggle[aria-pressed="true"] {
+    opacity: 1;
+    background: rgba(22, 26, 38, 0.78);
 }
 
 .feedback-toggle-btn:hover,
@@ -1293,6 +1288,32 @@ body.game-rl-preview .block-dock {
     order: 99;
     opacity: 0.85;
     filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+}
+
+/* v1.43：落子失败时 ghost 在原位"抖动 + 淡出"，配合 audioFx tick 与触感作为负反馈
+ * 让玩家立刻明白"刚才那个位置不行"，避免错以为游戏出 bug 了 */
+@keyframes drag-ghost-reject-shake {
+    0%   { transform: translateX(0); opacity: 0.85; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2)); }
+    15%  { transform: translateX(-6px) rotate(-2deg); }
+    30%  { transform: translateX(6px) rotate(2deg); }
+    45%  { transform: translateX(-4px) rotate(-1.5deg); }
+    60%  { transform: translateX(4px) rotate(1.5deg); }
+    75%  { transform: translateX(-2px); opacity: 0.55; }
+    100% { transform: translateX(0) scale(0.92); opacity: 0; filter: drop-shadow(0 0 0 transparent); }
+}
+
+#drag-ghost.is-rejected {
+    animation: drag-ghost-reject-shake 240ms ease-out forwards;
+    /* 失败抖动期间叠加红色描边色调，强化"这里放不下"的语义 */
+    filter: drop-shadow(0 0 6px rgba(220, 38, 38, 0.55)) drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+}
+
+/* 用户开启了系统级"减少动画"偏好时，仅淡出而不抖动 */
+@media (prefers-reduced-motion: reduce) {
+    @keyframes drag-ghost-reject-shake {
+        0%   { opacity: 0.85; }
+        100% { opacity: 0; }
+    }
 }
 
 /* v10.17.15：dock 恢复独立背景（v10.17.14 去卡片化撤销）

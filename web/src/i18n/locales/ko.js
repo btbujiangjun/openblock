@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': '전체 클리어',
     'effect.multiClear': '{{n}}줄 클리어',
     'effect.doubleClear': '더블 클리어',
-    'effect.iconBonus': '폭발 대소거',
+    'effect.iconBonus': '로열 플러시 대소거',
     'effect.newRecord': '신기록',
 
     'skin.name.classic': '✨ 미니멀 클래식',

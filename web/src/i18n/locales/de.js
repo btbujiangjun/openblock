@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Alles gelöscht',
     'effect.multiClear': '{{n}}x Löschen',
     'effect.doubleClear': 'Doppellöschung',
-    'effect.iconBonus': 'Große Explosionsräumung',
+    'effect.iconBonus': 'Royal Flush Räumung',
     'effect.newRecord': 'Neuer Rekord',
 
     'skin.name.classic': '✨ Minimal klassisch',

@@ -27,11 +27,28 @@
       <text wx:if="{{bestGapVisible}}" class="stat-subline best-gap">{{bestGapText}}</text>
       <view wx:if="{{!bestGapVisible}}" class="stat-subline stat-subline--spacer"></view>
     </view>
-    <view
-      class="audio-toggle {{audioOn ? 'audio-toggle--on' : 'audio-toggle--off'}}"
-      catchtap="onToggleAudio"
-    >
-      <text class="audio-toggle-icon">{{audioOn ? '🔊' : '🔇'}}</text>
+    <view class="fx-toolbar">
+      <view
+        class="fx-toggle fx-toggle--quality"
+        catchtap="onCycleQuality"
+        aria-label="{{qualityLabel}}"
+      >
+        <text class="fx-toggle-icon">{{qualityIcon}}</text>
+      </view>
+      <view
+        class="fx-toggle {{visualOn ? 'fx-toggle--on' : 'fx-toggle--off'}}"
+        catchtap="onToggleVisual"
+        aria-label="{{visualLabel}}"
+      >
+        <text class="fx-toggle-icon">{{visualIcon}}</text>
+      </view>
+      <view
+        class="fx-toggle {{audioOn ? 'fx-toggle--on' : 'fx-toggle--off'}}"
+        catchtap="onToggleAudio"
+        aria-label="{{audioOn ? text.audioOn : text.audioOff}}"
+      >
+        <text class="fx-toggle-icon">{{audioOn ? '🔊' : '🔇'}}</text>
+      </view>
     </view>
   </view>
 
@@ -78,7 +95,7 @@
     wx:if="{{dragPreviewVisible}}"
     type="2d"
     id="drag-preview-canvas"
-    class="drag-preview-canvas"
+    class="drag-preview-canvas {{dragPreviewRejected ? 'drag-preview-canvas--rejected' : ''}}"
     style="{{dragPreviewStyle}}"
   />
 

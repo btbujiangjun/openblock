@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Pełne czyszczenie',
     'effect.multiClear': '{{n}} linii',
     'effect.doubleClear': 'Podwójne czyszczenie',
-    'effect.iconBonus': 'Wielkie wybuchowe czyszczenie',
+    'effect.iconBonus': 'Czyszczenie Pokerem Królewskim',
     'effect.newRecord': 'Nowy rekord',
 
     'skin.name.classic': '✨ Minimalistyczna klasyka',

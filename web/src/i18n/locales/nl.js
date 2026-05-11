@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Alles leeg',
     'effect.multiClear': '{{n}} rijen',
     'effect.doubleClear': 'Dubbele clear',
-    'effect.iconBonus': 'Grote explosie-clear',
+    'effect.iconBonus': 'Royal Flush Opruiming',
     'effect.newRecord': 'Nieuw record',
 
     'skin.name.classic': '✨ Minimalistisch klassiek',

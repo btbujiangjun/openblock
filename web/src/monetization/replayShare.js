@@ -9,6 +9,7 @@
  */
 
 import { getFlag } from './featureFlags.js';
+import { t } from '../i18n/i18n.js';
 
 /** 截取游戏画布为 Blob */
 async function _captureCanvas() {
@@ -61,7 +62,7 @@ function _showCopyToast() {
     if (typeof document === 'undefined') return;
     const el = document.createElement('div');
     el.className = 'mon-toast mon-share-toast';
-    el.textContent = '📋 分享链接已复制到剪贴板';
+    el.textContent = t('toast.shareLinkCopied');
     document.body.appendChild(el);
     setTimeout(() => el.classList.add('mon-toast-visible'), 10);
     setTimeout(() => { el.classList.remove('mon-toast-visible'); setTimeout(() => el.remove(), 400); }, 3000);

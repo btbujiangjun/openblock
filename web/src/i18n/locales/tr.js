@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Tam temizlik',
     'effect.multiClear': '{{n}} satır',
     'effect.doubleClear': 'Çifte temizlik',
-    'effect.iconBonus': 'Büyük patlamalı temizleme',
+    'effect.iconBonus': 'Royal Flush Temizleme',
     'effect.newRecord': 'Yeni rekor',
 
     'skin.name.classic': '✨ Minimal klasik',

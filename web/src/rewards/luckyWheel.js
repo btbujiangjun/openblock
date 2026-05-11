@@ -13,6 +13,7 @@
 
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
+import { t } from '../i18n/i18n.js';
 
 const KEY = 'openblock_lucky_wheel_v1';
 
@@ -131,7 +132,7 @@ function _doSpin(panel) {
     }
     if (btn) {
         btn.disabled = true;
-        btn.textContent = '抽奖中…';
+        btn.textContent = t('reward.luckyWheel.spinning');
     }
     _audio?.play?.('combo');
 
@@ -146,7 +147,7 @@ function _doSpin(panel) {
             result.hidden = false;
             result.textContent = `🎉 ${prize.label}`;
         }
-        if (btn) btn.textContent = '今日已抽';
+        if (btn) btn.textContent = t('reward.luckyWheel.usedToday');
         _audio?.play?.('unlock');
         _audio?.vibrate?.([20, 60, 20, 60, 80]);
     }, 2500);

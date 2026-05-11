@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Полная очистка',
     'effect.multiClear': '{{n}} линий',
     'effect.doubleClear': 'Двойная очистка',
-    'effect.iconBonus': 'Большое взрывное очищение',
+    'effect.iconBonus': 'Большая очистка Роял-Флэш',
     'effect.newRecord': 'Новый рекорд',
 
     'skin.name.classic': '✨ Минимализм',

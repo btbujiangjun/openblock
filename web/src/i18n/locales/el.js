@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Πλήρης καθαρισμός',
     'effect.multiClear': '{{n}} γραμμές',
     'effect.doubleClear': 'Διπλός καθαρισμός',
-    'effect.iconBonus': 'Μεγάλη εκρηκτική εκκαθάριση',
+    'effect.iconBonus': 'Εκκαθάριση Royal Flush',
     'effect.newRecord': 'Νέο ρεκόρ',
 
     'skin.name.classic': '✨ Μινιμαλιστικό κλασικό',

@@ -14,11 +14,18 @@ const { PERFECT_CLEAR_MULT, bonusEffectHoldMs } = require('../../core/bonusScori
 const { getActiveSkin, setActiveSkinId } = require('../../core/skins');
 const { setLanguage, t } = require('../../core/i18n');
 const { createAudioFx } = require('../../utils/audioFx');
+const { createFeedbackToggles } = require('../../utils/feedbackToggles');
 
 const TOUCH_DRAG_GAIN = 1.12;
-const TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS = 2.25;
+const TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS = 3.0;
 const TOUCH_DRAG_LIFT_GAP_CELLS = 0.35;
 const TOUCH_DRAG_LIFT_MAX_CELLS = 2.4;
+/* 悬停（移动中）snap 半径：保守，避免 preview 跳到太远的"全局好点" */
+const PLACE_HOVER_SNAP_RADIUS = 2;
+/* 释放（touchend）snap 半径：更宽容，"既然已经放手，就尽量帮忙落成"，避免离合法点 2.5 格被静默丢弃 */
+const PLACE_RELEASE_SNAP_RADIUS = 3;
+/* 落子失败时 preview 抖动 + 隐藏的总时长（与 wxss keyframes 对齐） */
+const REJECT_ANIM_MS = 240;
 
 Page({
   data: {
@@ -48,6 +55,12 @@ Page({
     scoreText: '',
     clearsText: '',
     audioOn: true,
+    visualOn: true,
+    visualIcon: '✨',
+    visualLabel: '',
+    qualityMode: 'high',
+    qualityIcon: '🌈',
+    qualityLabel: '',
     text: {},
   },
 
@@ -76,6 +89,7 @@ Page({
   _layoutKey: '',
   _resizeTimer: null,
   _audio: null,
+  _toggles: null,
 
   onLoad(query) {
     const strategyId = query.strategy || 'normal';
@@ -90,11 +104,62 @@ Page({
     const best = Number(storage.getItem(bestKey) || 0) || 0;
     this._bestScore = best;
     this._newBestCelebrated = false;
+    /* renderer 在 onReady 才会创建，先用空 renderer 初始化偏好控制器，
+       等 renderer 就绪后再 _wireRendererToggles() 把当前偏好套回去。 */
+    this._initToggles();
     this._refreshText();
     this.setData({
       bestScore: best,
       audioOn: audioPrefs.sound !== false,
     });
+  },
+
+  _initToggles() {
+    if (this._toggles) return;
+    this._toggles = createFeedbackToggles({
+      renderer: null,
+      onChange: ({ visualEnabled, qualityMode }) => {
+        const visualMeta = this._toggles.getVisualMeta();
+        const qualityMeta = this._toggles.getQualityMeta();
+        this.setData({
+          visualOn: visualEnabled,
+          visualIcon: visualMeta.icon,
+          visualLabel: t(visualMeta.labelKey),
+          qualityMode,
+          qualityIcon: qualityMeta.icon,
+          qualityLabel: t(qualityMeta.labelKey),
+        });
+      },
+    });
+  },
+
+  _wireRendererToggles() {
+    if (!this._toggles || !this._renderer) return;
+    /* 把首屏读取到的偏好同步到刚创建的 renderer。 */
+    const { visualEnabled, qualityMode } = this._toggles.getState();
+    this._renderer.setQualityMode?.(qualityMode);
+    this._renderer.setEffectsEnabled?.(visualEnabled);
+  },
+
+  onToggleVisual() {
+    if (!this._toggles) this._initToggles();
+    this._wireRendererToggles();
+    this._toggles.toggleVisual();
+    /* 反馈一下开关动作；关闭特效但保留音效（走的是 audio-toggle 路径，互不影响）。 */
+    if (this._audio?.getPrefs?.().sound !== false) {
+      this._audio.play('tick', { force: true });
+    }
+    this._redraw?.();
+  },
+
+  onCycleQuality() {
+    if (!this._toggles) this._initToggles();
+    this._wireRendererToggles();
+    this._toggles.cycleQualityMode();
+    if (this._audio?.getPrefs?.().sound !== false) {
+      this._audio.play('tick', { force: true });
+    }
+    this._redraw?.();
   },
 
   onToggleAudio() {
@@ -120,6 +185,8 @@ Page({
         best: t('best'),
         gameOver: t('gameOver'),
         restart: t('restart'),
+        audioOn: t('audioOn'),
+        audioOff: t('audioOff'),
       },
     });
   },
@@ -195,28 +262,45 @@ Page({
     return Math.min(lift, TOUCH_DRAG_LIFT_MAX_CELLS * this._cellSize);
   },
 
+  /**
+   * 触屏控制点：preview / 落点判定使用的"虚拟指针"位置。
+   *
+   * 关键不变量（与 web 端 _applyDragPointerGain 同源）：preview = 触点 + _dragExtraOffset，
+   * _dragExtraOffset 单调累加而不重算——已经被加速放大的部分不会因后续慢速回调被退回，
+   * 跨帧 preview 严格连续，不会跳跃。同时把 preview 整体上移 `_touchDragLiftPx`，
+   * 避免手指压住候选块中心。
+   */
   _touchControlPoint(e, block) {
     const touch = this._touchPoint(e);
     if (!touch) return null;
     if (!this._dragStartTouch) {
       this._dragStartTouch = { x: touch.clientX, y: touch.clientY };
     }
+    if (!this._dragExtraOffset) {
+      this._dragExtraOffset = { x: 0, y: 0 };
+    }
 
-    const dx = touch.clientX - this._dragStartTouch.x;
-    const dy = touch.clientY - this._dragStartTouch.y;
-    let extraX = dx * (TOUCH_DRAG_GAIN - 1);
-    let extraY = dy * (TOUCH_DRAG_GAIN - 1);
+    const last = this._dragLastTouch;
+    const stepGain = Math.max(0, TOUCH_DRAG_GAIN - 1);
+    if (last && stepGain > 0) {
+      this._dragExtraOffset.x += (touch.clientX - last.x) * stepGain;
+      this._dragExtraOffset.y += (touch.clientY - last.y) * stepGain;
+    }
+    this._dragLastTouch = { x: touch.clientX, y: touch.clientY };
+
     const maxExtra = TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS * (this._cellSize || 0);
-    const extraLen = Math.hypot(extraX, extraY);
-    if (maxExtra > 0 && extraLen > maxExtra) {
-      const clamp = maxExtra / extraLen;
-      extraX *= clamp;
-      extraY *= clamp;
+    if (maxExtra > 0) {
+      const len = Math.hypot(this._dragExtraOffset.x, this._dragExtraOffset.y);
+      if (len > maxExtra) {
+        const clamp = maxExtra / len;
+        this._dragExtraOffset.x *= clamp;
+        this._dragExtraOffset.y *= clamp;
+      }
     }
 
     return {
-      clientX: touch.clientX + extraX,
-      clientY: touch.clientY + extraY - this._touchDragLiftPx(block),
+      clientX: touch.clientX + this._dragExtraOffset.x,
+      clientY: touch.clientY + this._dragExtraOffset.y - this._touchDragLiftPx(block),
     };
   },
 
@@ -379,6 +463,7 @@ Page({
         this._renderer = new GameRenderer(canvas, dpr);
         this._renderer._ctx = ctx;
         this._renderer.setSkin(this._skin || getActiveSkin());
+        this._wireRendererToggles();
 
         if (!this._controller) {
           this._controller = new GameController(this._strategyId, {
@@ -642,6 +727,16 @@ Page({
     if (!b || b.placed) return;
     this._audio?.play('tick');
     this._refreshGridRect();
+
+    // 上一次失败落子触发的 preview 抖动若仍在播放 → 立刻取消，由本次拖拽接管
+    if (this._previewRejectTimer) {
+      clearTimeout(this._previewRejectTimer);
+      this._previewRejectTimer = null;
+    }
+    if (this.data.dragPreviewRejected) {
+      this.setData({ dragPreviewRejected: false });
+    }
+
     this._dragging = true;
     this._dragBlockIdx = idx;
     this._dragGx = -1;
@@ -649,6 +744,8 @@ Page({
     this._dragTrail = [];
     const touch = this._touchPoint(e);
     this._dragStartTouch = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    this._dragLastTouch = this._dragStartTouch ? { ...this._dragStartTouch } : null;
+    this._dragExtraOffset = { x: 0, y: 0 };
     this._updateDragPreviewFromEvent(e, b);
     this.setData({
       dragIdx: idx,
@@ -669,7 +766,9 @@ Page({
   },
 
   _finishDrag(e) {
-    const placedPos = this._smartPlacementFromEvent(e);
+    /* 释放时使用更宽 snap 半径（PLACE_RELEASE_SNAP_RADIUS = 3 vs hover 时 2），
+     * 让"差一点点"的释放也能放成功——只要用户表达了"我要放在这附近"，就尽量挽救。 */
+    const placedPos = this._smartPlacementFromEvent(e, PLACE_RELEASE_SNAP_RADIUS);
     const idx = this._dragBlockIdx;
 
     this._dragging = false;
@@ -678,13 +777,16 @@ Page({
     this._dragGy = -1;
     this._dragTrail = [];
     this._dragStartTouch = null;
-    this._hideDragPreview();
+    this._dragLastTouch = null;
+    this._dragExtraOffset = null;
 
     if (placedPos) {
-      const result = this._controller.place(idx, placedPos.x, placedPos.y);
-      if (!result || result.clears <= 0) {
-        this._audio?.feedback('place');
-      }
+      /* 成功：立即收掉 preview，让消行 / 落子动效成为视觉焦点。
+       * audio.feedback('place') 始终调用——之前只在非消行时调，导致消行时少了"咬合"反馈；
+       * audio 内部 priority 节流会保证 'place' 不会与同帧的 'clear' 双响（'clear' 优先）。 */
+      this._hideDragPreview();
+      this._audio?.feedback('place');
+      this._controller.place(idx, placedPos.x, placedPos.y);
       this.setData({
         dragIdx: -1,
         dock: this._dockViewData(this._controller.dock, -1),
@@ -693,6 +795,18 @@ Page({
       });
       this._redraw();
     } else {
+      /* 失败：preview 在原位"抖动 + 红光淡出"，配 tick 音 + 'select' 触感作为负反馈
+       * —— 让玩家立刻明白"刚刚那个位置不行"，而不是疑惑游戏出 bug 了。 */
+      this._audio?.play('tick', { force: true });
+      this._audio?.vibrate('select');
+      if (this._previewRejectTimer) clearTimeout(this._previewRejectTimer);
+      this.setData({ dragPreviewRejected: true });
+      this._previewRejectTimer = setTimeout(() => {
+        this._previewRejectTimer = null;
+        if (this._dragging) return;   // 抖动期间用户已开始下一次拖拽 → 由 onDockTouchStart 接管
+        this._hideDragPreview();
+        this.setData({ dragPreviewRejected: false });
+      }, REJECT_ANIM_MS);
       this.setData({
         dragIdx: -1,
         dock: this._dockViewData(this._controller.dock, -1),
@@ -779,7 +893,7 @@ Page({
       });
   },
 
-  _smartPlacementFromEvent(e) {
+  _smartPlacementFromEvent(e, snapRadius = PLACE_HOVER_SNAP_RADIUS) {
     if (!this._controller || this._dragBlockIdx < 0) return null;
     const block = this._controller.dock[this._dragBlockIdx];
     const touch = this._touchControlPoint(e, block);
@@ -802,7 +916,7 @@ Page({
       aimCy,
       anchor.anchorX,
       anchor.anchorY,
-      2
+      snapRadius
     );
   },
 

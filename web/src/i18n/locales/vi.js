@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Dọn sạch bàn',
     'effect.multiClear': 'Xóa {{n}} hàng',
     'effect.doubleClear': 'Xóa đôi',
-    'effect.iconBonus': 'Nổ xóa lớn',
+    'effect.iconBonus': 'Xóa Sảnh Rồng',
     'effect.newRecord': 'Kỷ lục mới',
 
     'skin.name.classic': '✨ Tối giản cổ điển',

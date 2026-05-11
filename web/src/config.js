@@ -14,14 +14,30 @@ export const CONFIG = {
     GRID_SIZE: _defaultGrid,
     /** 棋盘 & 候选区共用的单格像素 */
     CELL_SIZE: 38,
-    /** 落点吸附：仅在以「指针粗对齐」为锚点的切比雪夫半径内选最近合法位，不做全盘策略 */
+    /** 落点吸附：悬停预览半径（切比雪夫，格）。保守值避免预览跳到太远的"全局好点" */
     PLACE_SNAP_RADIUS: 2,
-    /** 鼠标拖拽增益：幽灵块相对起点按更大比例移动，减少从候选区拖到盘面的手腕距离 */
-    DRAG_MOUSE_GAIN: 1.18,
+    /**
+     * 落点吸附：释放（mouseup/touchend）时半径。比 PLACE_SNAP_RADIUS 更宽容 1 格 —
+     * 预览阶段保守是为了让玩家清楚"将落在哪"；释放阶段宽容是为了"既然你已经选择放手，就尽量帮你放成功"，
+     * 避免离合法点 2.5 格被静默丢弃。
+     */
+    PLACE_RELEASE_SNAP_RADIUS: 3,
+    /**
+     * 鼠标拖拽最大增益（高速时）：幽灵块相对起点放大移动，减少从候选区拖到盘面的手腕距离。
+     * 与 DRAG_MOUSE_GAIN_MIN 配合形成"低速 1:1、高速加速"的动态曲线（参考桌面操作系统的
+     * pointer ballistics），慢速精准、快速省力。
+     */
+    DRAG_MOUSE_GAIN: 1.32,
+    /** 鼠标拖拽最小增益（低速 / 静止时）：保留 1:1 跟随，避免精细落点对位时幽灵块抢跑 */
+    DRAG_MOUSE_GAIN_MIN: 1.0,
+    /** 鼠标速度下界（px/ms）：≤ 此速度按 DRAG_MOUSE_GAIN_MIN，对应"对位精细动作" */
+    DRAG_MOUSE_SPEED_SLOW_PX_MS: 0.30,
+    /** 鼠标速度上界（px/ms）：≥ 此速度按 DRAG_MOUSE_GAIN，对应"快速甩动到目标格" */
+    DRAG_MOUSE_SPEED_FAST_PX_MS: 1.50,
     /** 触屏拖拽增益：轻微放大手指位移，减少从候选区拖到盘面的滑动距离 */
     DRAG_TOUCH_GAIN: 1.12,
     /** 拖拽增益额外偏移上限（格）：避免快速甩动时幽灵块过度领先鼠标 */
-    DRAG_GAIN_MAX_OFFSET_CELLS: 2.25,
+    DRAG_GAIN_MAX_OFFSET_CELLS: 3.0,
     /** 触屏防遮挡：幽灵块在手指上方额外留出的间隙（格） */
     DRAG_TOUCH_LIFT_GAP_CELLS: 0.35,
     /** 触屏防遮挡：上移距离上限（格），避免长条块离手指过远 */

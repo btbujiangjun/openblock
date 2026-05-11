@@ -1,4 +1,5 @@
 import { persistCheckinBundleToServer } from './checkinSync.js';
+import { t } from '../i18n/i18n.js';
 
 /**
  * loginStreak.js — v10.16 连登勋章（P1）
@@ -70,7 +71,7 @@ function _showMilestoneToast(m) {
         el.id = id;
         document.body.appendChild(el);
     }
-    el.textContent = `${m.icon} ${m.label} 已解锁`;
+    el.textContent = t('reward.loginStreakUnlocked', { icon: m.icon, label: m.label });
     el.dataset.tier = 'celebrate';   // 连登勋章为罕见庆贺事件
     el.classList.remove('is-visible');
     void el.offsetHeight;

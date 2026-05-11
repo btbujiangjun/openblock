@@ -21,6 +21,8 @@
  *   initAsyncPk({ game });
  */
 
+import { t as i18nT } from '../i18n/i18n.js';
+
 const STORAGE_KEY = 'openblock_async_pk_v1';
 
 let _game = null;
@@ -179,7 +181,7 @@ function _maybeShowShareCta(score) {
         if (typeof navigator !== 'undefined' && navigator.clipboard) {
             navigator.clipboard.writeText(u).catch(() => {});
         }
-        t.querySelector('.apk-copy').textContent = '已复制 ✓';
+        t.querySelector('.apk-copy').textContent = i18nT('toast.copied');
     });
     t.querySelector('.apk-close').addEventListener('click', () => {
         t.classList.remove('is-visible');

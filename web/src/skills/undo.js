@@ -23,6 +23,7 @@
  */
 
 import { getWallet } from './wallet.js';
+import { t } from '../i18n/i18n.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
 
 let _game = null;
@@ -149,12 +150,12 @@ export function canUndo() {
 
 export function undoOnce() {
     if (!canUndo()) {
-        _showToast('↩ 暂无可撤销的步骤');
+        _showToast(t('skill.undo.empty'));
         return false;
     }
     const wallet = getWallet();
     if (!wallet.spend('undoToken', 1, 'undo-skill')) {
-        _showToast('⚠ 扣费失败，请重试');
+        _showToast(t('skill.undo.payFail'));
         return false;
     }
 
@@ -196,7 +197,7 @@ export function undoOnce() {
         _game.markDirty?.();
     } catch (e) {
         console.warn('[undo] restore failed', e);
-        _showToast('⚠ 撤销失败，请重试');
+        _showToast(t('skill.undo.fail'));
         // 失败时尝试退还代币
         wallet.addBalance('undoToken', 1, 'undo-refund');
         refreshSkillBar();
@@ -206,7 +207,7 @@ export function undoOnce() {
     _audio?.play?.('tick');
     _audio?.vibrate?.(20);
     refreshSkillBar();
-    _showToast('↩ 已撤销最近一步');
+    _showToast(t('skill.undo.ok'));
     return true;
 }
 

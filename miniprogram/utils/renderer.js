@@ -108,10 +108,54 @@ class GameRenderer {
     this._blastWaveCount = 0;
     this._cellSizeForFx = 0;
     this._gridLogicalSize = 0;
+    /* 与 web/src/renderer.js 对齐：特效开关 + 画质等级（high/balanced/low）。
+       关闭特效时所有粒子/抖动/闪光均被守卫拒绝；省电画质会按比例削减粒子数量。 */
+    this._effectsEnabled = true;
+    this._qualityMode = 'high';
   }
 
   setSkin(skin) {
     this._skin = { ...DEFAULT_SKIN, ...skin };
+  }
+
+  /** 关闭后所有 trigger/add/setShake 都直接 no-op，并清空已堆积的特效。 */
+  setEffectsEnabled(enabled) {
+    this._effectsEnabled = !!enabled;
+    if (!this._effectsEnabled) {
+      this.clearFx();
+    }
+  }
+
+  getEffectsEnabled() {
+    return this._effectsEnabled;
+  }
+
+  setQualityMode(mode) {
+    const next = ['high', 'balanced', 'low'].includes(mode) ? mode : 'high';
+    if (this._qualityMode === next) return;
+    this._qualityMode = next;
+    /* 切档不强制清空已激活粒子，保留观感连续；下一次发射开始按新档位计算。 */
+  }
+
+  getQualityMode() {
+    return this._qualityMode || 'high';
+  }
+
+  /** 粒子数量缩放：low 0.45 / balanced 0.78 / high 1.0。所有 add* 方法用它统一调节。 */
+  _qualityParticleScale() {
+    if (this._qualityMode === 'low') return 0.45;
+    if (this._qualityMode === 'balanced') return 0.78;
+    return 1;
+  }
+
+  /** 与 web 端语义一致：把当前所有正在播放的特效（粒子/抖动/闪光/波纹）一次性清空。 */
+  clearFx() {
+    this.clearParticles();
+    this.shakeIntensity = 0;
+    this.shakeDuration = 0;
+    this.shakeOffset = { x: 0, y: 0 };
+    this.clearCells = [];
+    this.previewClearCells = [];
   }
 
   resize(widthPx, heightPx) {
@@ -424,10 +468,19 @@ class GameRenderer {
   }
 
   setClearCells(cells) {
+    /* 关闭特效时仍允许清空（cells 为空），但拒绝新的高亮，避免残留闪烁。 */
+    if (!this._effectsEnabled && cells && cells.length) {
+      this.clearCells = [];
+      return;
+    }
     this.clearCells = cells || [];
   }
 
   setPreviewClearCells(cells) {
+    if (!this._effectsEnabled && cells && cells.length) {
+      this.previewClearCells = [];
+      return;
+    }
     this.previewClearCells = cells || [];
   }
 
@@ -465,8 +518,11 @@ class GameRenderer {
   }
 
   addClearBurst(cells, countPerCell = 4, cellSize = this._cellSizeForFx) {
+    if (!this._effectsEnabled) return;
     if (!Array.isArray(cells) || !cells.length || !cellSize) return;
-    const maxParticles = 96;
+    const qScale = this._qualityParticleScale();
+    countPerCell = Math.max(1, Math.round(countPerCell * qScale));
+    const maxParticles = Math.max(24, Math.round(96 * qScale));
     const palette = this._skin.blockColors || CLASSIC_PALETTE;
     let emitted = 0;
     for (const cell of cells) {
@@ -496,12 +552,14 @@ class GameRenderer {
   }
 
   addMultiClearBurst(lines = {}, cells = [], lineCount = 2, cellSize = this._cellSizeForFx) {
+    if (!this._effectsEnabled) return;
     if (!cellSize) return;
     const rows = lines.rows || [];
     const cols = lines.cols || [];
     const n = Math.max(1, this._gridLogicalSize / cellSize || 8);
     const strength = Math.max(2, lineCount || rows.length + cols.length);
-    const maxParticles = Math.min(140, 44 + strength * 22);
+    const qScale = this._qualityParticleScale();
+    const maxParticles = Math.max(24, Math.round(Math.min(140, 44 + strength * 22) * qScale));
     let emitted = 0;
     const colors = ['#FFFFFF', '#5AD487', '#7DD3FC', '#FFD166'];
     const push = (x, y, angle, speed, color) => {
@@ -550,6 +608,7 @@ class GameRenderer {
   }
 
   addBigBlast(cells = [], bonusLines = [], cellSize = this._cellSizeForFx) {
+    if (!this._effectsEnabled) return;
     if (!cellSize) return;
     const logical = this._gridLogicalSize || (this._canvas.width / this._dpr);
     const source = Array.isArray(cells) && cells.length ? cells : [{ x: 3.5, y: 3.5 }];
@@ -564,7 +623,8 @@ class GameRenderer {
     const gold = '#FFD700';
     const white = '#FFFFFF';
     const purple = '#B794F4';
-    const count = Math.min(180, 72 + (bonusLines.length || 1) * 34);
+    const qScale = this._qualityParticleScale();
+    const count = Math.max(20, Math.round(Math.min(180, 72 + (bonusLines.length || 1) * 34) * qScale));
 
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -587,7 +647,8 @@ class GameRenderer {
       });
     }
 
-    for (let k = 0; k < Math.min(28, source.length); k++) {
+    const sparkLimit = Math.max(4, Math.round(28 * qScale));
+    for (let k = 0; k < Math.min(sparkLimit, source.length); k++) {
       const c = source[k];
       const x = ((c.x ?? c[0] ?? 0) + 0.5) * cellSize;
       const y = ((c.y ?? c[1] ?? 0) + 0.5) * cellSize;
@@ -623,8 +684,12 @@ class GameRenderer {
    * @param {number} cellSize
    */
   addBonusLineBurst(bonusLine, cssColor, count = 48, gridSize, cellSize) {
+    if (!this._effectsEnabled) return;
     const n = gridSize;
     const cs = cellSize;
+    const qScale = this._qualityParticleScale();
+    count = Math.max(8, Math.round(count * qScale));
+    const sideCount = Math.max(4, Math.round(22 * qScale));
     const gold = '#FFD700';
     const white = '#FFFFFF';
     const pushBurst = (x, y, angle, speed, color, life, decay, sz, gMul) => {
@@ -660,7 +725,7 @@ class GameRenderer {
         6 + Math.random() * 12,
         0.52);
     }
-    for (let k = 0; k < 22; k++) {
+    for (let k = 0; k < sideCount; k++) {
       let x;
       let y;
       if (bonusLine.type === 'row') {
@@ -678,7 +743,7 @@ class GameRenderer {
         3 + Math.random() * 5,
         0.38);
     }
-    for (let j = 0; j < 22; j++) {
+    for (let j = 0; j < sideCount; j++) {
       let x;
       let y;
       if (bonusLine.type === 'row') {
@@ -770,7 +835,10 @@ class GameRenderer {
   }
 
   setShake(intensity, duration) {
-    this.shakeIntensity = intensity;
+    if (!this._effectsEnabled) return;
+    /* low 画质：保留抖动但削弱 60%，确保仍有"打击感"。 */
+    const damp = this._qualityMode === 'low' ? 0.4 : 1;
+    this.shakeIntensity = intensity * damp;
     this.shakeDuration = duration;
     this.shakeStart = Date.now();
   }
@@ -797,11 +865,13 @@ class GameRenderer {
   }
 
   triggerPerfectFlash() {
+    if (!this._effectsEnabled) return;
     this._perfectFlash = 1.0;
     this._perfectHue = 0;
   }
 
   triggerDoubleWave(clearedRows) {
+    if (!this._effectsEnabled) return;
     this._doubleWave = 1.0;
     if (Array.isArray(clearedRows)) {
       this._doubleWaveLines = { rows: clearedRows, cols: [] };
@@ -814,16 +884,19 @@ class GameRenderer {
   }
 
   triggerComboFlash(lineCount) {
+    if (!this._effectsEnabled) return;
     const n = Math.max(3, lineCount || 3);
     this._comboFlash = Math.min(0.95, 0.28 + n * 0.09);
   }
 
   triggerBonusMatchFlash(bonusLineCount = 1) {
+    if (!this._effectsEnabled) return;
     const n = Math.max(1, bonusLineCount);
     this._bonusMatchFlash = Math.min(1, 0.55 + n * 0.18);
   }
 
   triggerBigBlast(bonusLineCount = 1) {
+    if (!this._effectsEnabled) return;
     const n = Math.max(1, bonusLineCount);
     this._blastWave = 1.0;
     this._blastWaveCount = n;

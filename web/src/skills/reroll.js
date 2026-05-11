@@ -19,6 +19,7 @@
 
 import { getWallet } from './wallet.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
+import { t } from '../i18n/i18n.js';
 
 const SKILL_ID = 'reroll';
 
@@ -50,12 +51,12 @@ function _isUsable() {
 
 function _trigger() {
     if (!_isUsable()) {
-        _showToast('🎲 当前不可使用');
+        _showToast(t('skill.reroll.unavailable'));
         return;
     }
     const wallet = getWallet();
     if (wallet.getBalance('rerollToken') <= 0) {
-        _showToast('🎲 重摇券不足');
+        _showToast(t('skill.reroll.empty'));
         return;
     }
 
@@ -83,17 +84,17 @@ function _trigger() {
         }
     } catch (e) {
         console.warn('[reroll] spawnBlocks failed', e);
-        _showToast('⚠ 重摇失败');
+        _showToast(t('skill.reroll.fail'));
         return;
     }
 
     if (!wallet.spend('rerollToken', 1, 'reroll')) {
-        _showToast('⚠ 扣费失败');
+        _showToast(t('skill.reroll.payFail'));
         return;
     }
     _audio?.play?.('tick');
     refreshSkillBar();
-    _showToast('🎲 已重摇候选块');
+    _showToast(t('skill.reroll.ok'));
 }
 
 function _showToast(msg) {

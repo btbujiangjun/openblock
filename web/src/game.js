@@ -116,6 +116,11 @@ export class Game {
         // 当 #game-grid-fx 不存在时（如旧 HTML / 测试环境），Renderer 自动退回为单画布行为。
         this.fxCanvas = document.getElementById('game-grid-fx');
         this.renderer = new Renderer(this.canvas, { fxCanvas: this.fxCanvas });
+        /* canvas 物理像素重置（resize / setQualityMode 改 DPR）会清空 canvas 内容。
+         * high 画质有 watermark idle 动画掩盖该空帧；balanced/low 没有任何驱动，
+         * 切 RL 面板等触发 resize 后盘面会停留在空白上。registry 一个 markDirty 回调
+         * 保证下一帧立刻补画。 */
+        this.renderer.onCanvasReset?.(() => this.markDirty());
         this.db = new Database();
 
         this.score = 0;
@@ -639,7 +644,7 @@ export class Game {
         const rd = GAME_RULES.runDifficulty;
         if (rd?.enabled && this.runStreak > 0) {
             el.hidden = false;
-            el.textContent = `连战第 ${this.runStreak} 局：初始更挤、出块略难（回菜单重置）`;
+            el.textContent = t('effect.runStreakHint', { n: this.runStreak });
         } else {
             el.hidden = true;
             el.textContent = '';
@@ -1310,12 +1315,23 @@ export class Game {
         const block = this.dockBlocks[index];
         if (!block || block.placed) return;
 
+        // 上一次失败落子触发的"抖动 + 延迟隐藏 ghost"还未结束 → 立刻取消，由本次拖拽重新接管 ghost
+        if (this._ghostHideTimer) {
+            clearTimeout(this._ghostHideTimer);
+            this._ghostHideTimer = null;
+            this.ghostCanvas.classList.remove('is-rejected');
+        }
+
         this.drag = {
             index,
             inputType,
             startX: x,
             startY: y,
             hasEnteredBoard: false,
+            // 增量积分式增益：每帧把"本帧位移 × (gain-1)"累加进 _extraOffset，
+            // ghost 位置 = 鼠标位置 + _extraOffset。即时增益变化只影响"下一段"的累加，
+            // 不会把累积位移整体重算，从而消除帧间跳跃。
+            _extraOffset: { x: 0, y: 0 },
         };
         this.dragBlock = block;
         this._resetGhostDomStyles();
@@ -1346,36 +1362,73 @@ export class Game {
     }
 
     /**
-     * 拖拽虚拟指针：鼠标只放大位移；触屏同时放大位移并把幽灵块抬到手指上方。
-     * 这样能减少滑动距离，也避免手指正好压住候选块中心。
+     * 拖拽虚拟指针：鼠标按"速度感知"动态增益（慢速 1:1 精准、快速放大省力，
+     * 类似桌面操作系统的 pointer ballistics）；触屏使用固定轻量增益并把幽灵
+     * 块抬到手指上方，避免手指压住候选块中心。
+     *
+     * 关键不变量：ghost = 鼠标位置 + _extraOffset，_extraOffset 单调累加而不重算。
+     * 即"已经被加速的部分"不会因后续慢速回调而被退回，避免 ghost 在屏幕上跳跃。
+     *
+     * 鼠标增益曲线（仅基于瞬时帧间速度）：
+     *   speed ≤ SLOW  → DRAG_MOUSE_GAIN_MIN（1.0）  → 本帧增量按原值累加（_extraOffset 不增）
+     *   speed ≥ FAST  → DRAG_MOUSE_GAIN（1.32）     → 本帧增量额外贡献 32% 到 _extraOffset
+     *   中间段在二者之间线性插值
      */
     _applyDragPointerGain(x, y) {
         if (!this.drag) {
             return { x, y };
         }
         const isTouch = this.drag.inputType === 'touch';
-        const gain = Number(isTouch ? CONFIG.DRAG_TOUCH_GAIN : CONFIG.DRAG_MOUSE_GAIN) || 1;
-        if (gain <= 1) {
-            return isTouch ? { x, y: y - this._touchDragLiftPx() } : { x, y };
+
+        if (!this.drag._extraOffset) {
+            this.drag._extraOffset = { x: 0, y: 0 };
         }
-        const dx = x - this.drag.startX;
-        const dy = y - this.drag.startY;
-        const extraScale = gain - 1;
+        const last = this.drag._lastPointer;
+        const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+        let stepGain;   // 本帧增量增益（gain - 1，仅对增量生效）
+        if (isTouch) {
+            const touchGain = Number(CONFIG.DRAG_TOUCH_GAIN) || 1;
+            stepGain = Math.max(0, touchGain - 1);
+        } else {
+            const maxGain = Number(CONFIG.DRAG_MOUSE_GAIN) || 1;
+            const minGain = Number(CONFIG.DRAG_MOUSE_GAIN_MIN) || 1;
+            const slowSpeed = Number(CONFIG.DRAG_MOUSE_SPEED_SLOW_PX_MS) || 0.3;
+            const fastSpeed = Number(CONFIG.DRAG_MOUSE_SPEED_FAST_PX_MS) || 1.5;
+            let velocityFactor = 0;   // 默认按低速处理（首帧无历史时不放大，避免抓起即抢跑）
+            if (last) {
+                const dt = Math.max(1, now - last.t);
+                const dist = Math.hypot(x - last.x, y - last.y);
+                const speed = dist / dt;
+                const span = Math.max(0.001, fastSpeed - slowSpeed);
+                velocityFactor = Math.max(0, Math.min(1, (speed - slowSpeed) / span));
+            }
+            const effectiveGain = minGain + (maxGain - minGain) * velocityFactor;
+            stepGain = Math.max(0, effectiveGain - 1);
+        }
+
+        if (last && stepGain > 0) {
+            this.drag._extraOffset.x += (x - last.x) * stepGain;
+            this.drag._extraOffset.y += (y - last.y) * stepGain;
+        }
+        this.drag._lastPointer = { x, y, t: now };
+
         const maxExtra = Math.max(
             0,
             (Number(CONFIG.DRAG_GAIN_MAX_OFFSET_CELLS) || 0) * this._boardDisplayCellSize()
         );
-        let extraX = dx * extraScale;
-        let extraY = dy * extraScale;
-        const extraLen = Math.hypot(extraX, extraY);
-        if (maxExtra > 0 && extraLen > maxExtra) {
-            const clamp = maxExtra / extraLen;
-            extraX *= clamp;
-            extraY *= clamp;
+        if (maxExtra > 0) {
+            const len = Math.hypot(this.drag._extraOffset.x, this.drag._extraOffset.y);
+            if (len > maxExtra) {
+                const clamp = maxExtra / len;
+                this.drag._extraOffset.x *= clamp;
+                this.drag._extraOffset.y *= clamp;
+            }
         }
+
         return {
-            x: x + extraX,
-            y: y + extraY - (isTouch ? this._touchDragLiftPx() : 0),
+            x: x + this.drag._extraOffset.x,
+            y: y + this.drag._extraOffset.y - (isTouch ? this._touchDragLiftPx() : 0),
         };
     }
 
@@ -1568,13 +1621,16 @@ export class Game {
                 aimCx,
                 aimCy
             );
+            // 释放时使用更宽的 snap 半径（PLACE_RELEASE_SNAP_RADIUS），让"差一点点"的释放也能放成功，
+            // 避免玩家盘面区域内大幅快速拖拽时偶尔的"鸽子掉地"——只要用户表达了"我要放在这附近"，就尽量挽救。
+            const releaseRadius = Number(CONFIG.PLACE_RELEASE_SNAP_RADIUS) || CONFIG.PLACE_SNAP_RADIUS;
             placedPos = this.grid.pickSmartHoverPlacement(
                 this.dragBlock.shape,
                 aimCx,
                 aimCy,
                 anchorX,
                 anchorY,
-                CONFIG.PLACE_SNAP_RADIUS,
+                releaseRadius,
                 {
                     colorIdx: this.dragBlock.colorIdx,
                     previous: this.previewPos,
@@ -1587,15 +1643,45 @@ export class Game {
             );
         }
 
-        this._resetGhostDomStyles();
-        this.ghostCanvas.style.display = 'none';
         document.body.classList.remove('block-drag-active');
         const _eDpr = Math.round(window.devicePixelRatio || 1) || 1;
-        this.ghostCtx.clearRect(0, 0,
-            this.ghostCanvas.width / _eDpr, this.ghostCanvas.height / _eDpr);
 
         const dockCanvas = document.querySelector(`.dock-block[data-index="${this.drag.index}"] canvas`);
         if (dockCanvas) dockCanvas.style.opacity = '1';
+
+        if (placedPos) {
+            // 成功：立即收掉 ghost，让消行/震屏特效成为视觉焦点
+            this._resetGhostDomStyles();
+            this.ghostCanvas.style.display = 'none';
+            this.ghostCtx.clearRect(0, 0,
+                this.ghostCanvas.width / _eDpr, this.ghostCanvas.height / _eDpr);
+            // 「咬合」反馈：极轻量震屏 + place 短促音 + 8ms 触感（audioFx 已注册但此前从未被调用，
+            // 接入后能让"我已经放下了"这件事在听感/触觉上得到确认，区分于纯视觉的方块出现）
+            try { window.__audioFx?.play?.('place'); } catch { /* ignore */ }
+            try { window.__audioFx?.vibrate?.([8]); } catch { /* ignore */ }
+            this.renderer?.setShake?.(2.5, 90);
+        } else {
+            // 失败：ghost 在原位"抖动+淡出"，并配 tick 音 + 较强触感作为负反馈
+            // —— 让玩家立刻明白"刚刚那个位置不行"，而不是疑惑"游戏出 bug 了"
+            const ghost = this.ghostCanvas;
+            const ctx = this.ghostCtx;
+            if (this._ghostHideTimer) {
+                clearTimeout(this._ghostHideTimer);
+                this._ghostHideTimer = null;
+            }
+            ghost.classList.add('is-rejected');
+            this._ghostHideTimer = setTimeout(() => {
+                this._ghostHideTimer = null;
+                if (this.drag) return;   // 240ms 内用户已开始下一次拖拽 → 由新 startDrag 接管
+                ghost.classList.remove('is-rejected');
+                ghost.style.display = 'none';
+                ghost.style.width = '';
+                ghost.style.height = '';
+                ctx.clearRect(0, 0, ghost.width / _eDpr, ghost.height / _eDpr);
+            }, 240);
+            try { window.__audioFx?.play?.('tick', { force: true }); } catch { /* ignore */ }
+            try { window.__audioFx?.vibrate?.([20, 30, 20]); } catch { /* ignore */ }
+        }
 
         if (placedPos) {
             const fillBefore = this.grid.getFillRatio();
@@ -1702,7 +1788,6 @@ export class Game {
         result.perfectClear = perfectClear;
         const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
 
-        const scoreBeforeClear = this.score;
         this.score += clearScore;
         this.gameStats.score = this.score;
         this.gameStats.clears += result.count;
@@ -1716,7 +1801,7 @@ export class Game {
             scoreGain: clearScore
         });
 
-        const madeNewBest = this._maybeCelebrateNewBest(scoreBeforeClear);
+        const madeNewBest = this._maybeCelebrateNewBest();
 
         const isCombo = result.count >= 3;
         const isDouble = result.count === 2;
@@ -1835,7 +1920,7 @@ export class Game {
         const el = document.createElement('div');
         el.className = 'streak-badge';
         const fires = streak >= 5 ? '🔥🔥🔥' : streak >= 4 ? '🔥🔥' : '🔥';
-        el.textContent = `${fires} ${streak} 连消`;
+        el.textContent = t('effect.streakCombo', { fires, n: streak });
         el.style.left = '50%';
         el.style.top = '14%';
         el.style.transform = 'translateX(-50%)';
@@ -2324,19 +2409,29 @@ export class Game {
         this._enqueuePopupToast(() => {
             const el = document.createElement('div');
             el.className = 'achievement-popup';
-            el.innerHTML = `<div class="title">🏆 Achievement Unlocked!</div>${achievement.icon} ${achievement.name}<div style="font-size:12px;color:#666">${achievement.desc}</div>`;
+            el.innerHTML = `<div class="title">${t('effect.achievementUnlocked')}</div>${achievement.icon} ${achievement.name}<div style="font-size:12px;color:#666">${achievement.desc}</div>`;
             return el;
         }, 3000);
     }
 
-    _maybeCelebrateNewBest(scoreBeforeClear) {
+    /**
+     * 严格大于本局开始时的历史最佳即触发"新纪录"庆祝；每局只触发一次。
+     *
+     * 与之前实现的差异：
+     * - 去掉了 `score <= scoreBeforeClear` 这条冗余守卫——它只在 playClearEffect
+     *   的特定调用路径上有意义，会让"非消行 score 增长（如 daily firstWinBoost、
+     *   mini-goal 奖励）跨过历史最高"无法触发新纪录特效。
+     * - 调用方现已挪到 updateUI（通用入口），任何 score 改变都会被复检；
+     *   playClearEffect 仍然显式调一次以拿到返回值用于 floatScore type 切换。
+     */
+    _maybeCelebrateNewBest() {
         if (this._newBestCelebrated) return false;
         const runStartBest = Number(this._bestScoreAtRunStart);
         const currentBest = Number(this.bestScore);
         const previousBest = Number.isFinite(runStartBest) && runStartBest > 0
             ? runStartBest
             : (Number.isFinite(currentBest) ? currentBest : 0);
-        if (this.score <= previousBest || this.score <= scoreBeforeClear) return false;
+        if (!(Number.isFinite(this.score) && this.score > previousBest)) return false;
 
         this._newBestCelebrated = true;
         this.bestScore = this.score;
@@ -2348,7 +2443,8 @@ export class Game {
 
         const el = document.createElement('div');
         el.className = 'new-best-popup';
-        el.innerHTML = `<div class="new-best-title">NEW BEST</div><div class="new-best-score">${this.score}</div>`;
+        const titleText = t('effect.newRecord');
+        el.innerHTML = `<div class="new-best-title">${titleText}</div><div class="new-best-score">${this.score}</div>`;
         document.body.appendChild(el);
         notePopupShown(2300, 900);
         setTimeout(() => el.remove(), 2300);
@@ -2457,6 +2553,10 @@ export class Game {
             }
         }
         this._updateProgressionHud();
+        // 通用入口：任何渠道导致的 score 增长（消行、daily 加成、奖励兑现等）只要
+        // 跨过本局开始时的历史最佳即触发新纪录庆祝。_newBestCelebrated flag 保证一局
+        // 只触发一次；庆祝路径内部会再调 updateUI()，但因 flag 已置位会被自然短路。
+        this._maybeCelebrateNewBest();
     }
 
     /** 关卡失败多次后，在结算界面展示有针对性的提示 */
@@ -2471,15 +2571,10 @@ export class Game {
             return;
         }
 
-        const hints = [
-            '尝试先放置较小的方块，为后续大块留出空间',
-            '优先消除边角区域，保持中央灵活度',
-            '遇到 L/T 型块时，尽量靠边放置',
-            '保持棋盘整洁比追求一次消多行更重要',
-        ];
-        const hint = hints[Math.min(streak - 1, hints.length - 1)];
+        const hintIdx = Math.min(streak, 4);
+        const hint = t(`effect.levelFailHint.${hintIdx}`);
         textEl.textContent = streak >= 2
-            ? `已连续失败 ${streak + 1} 次 · ${hint}`
+            ? t('effect.levelFailHintWithStreak', { n: streak + 1, hint })
             : hint;
         hintEl.hidden = false;
     }

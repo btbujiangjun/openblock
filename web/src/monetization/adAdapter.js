@@ -17,6 +17,7 @@
 import { getFlag } from './featureFlags.js';
 import { notePopupShown } from '../popupCoordinator.js';
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
+import { t } from '../i18n/i18n.js';
 
 const STORAGE_KEY = 'openblock_mon_ads_removed';
 
@@ -89,16 +90,16 @@ function _stubRewardedUI(reason) {
         document.body.appendChild(overlay);
         notePopupShown(5000, 900);
 
-        let t = 5;
+        let secondsLeft = 5;
         const timer = overlay.querySelector('#mon-ad-timer');
         const skip = overlay.querySelector('#mon-ad-skip');
 
         const iv = setInterval(() => {
-            t--;
-            if (timer) timer.textContent = t;
-            if (t <= 0) {
+            secondsLeft--;
+            if (timer) timer.textContent = secondsLeft;
+            if (secondsLeft <= 0) {
                 clearInterval(iv);
-                if (skip) { skip.disabled = false; skip.textContent = '领取奖励'; }
+                if (skip) { skip.disabled = false; skip.textContent = t('toast.adClaim'); }
             }
         }, 1000);
 

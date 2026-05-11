@@ -29,6 +29,7 @@
  */
 
 import { SKINS, setActiveSkinId, getActiveSkinId } from './skins.js';
+import { t } from './i18n/i18n.js';
 
 const STORAGE_KEY = 'openblock_seasonal_v1';
 const USER_CHOSEN_KEY = 'openblock_skin_user_chosen';
@@ -334,7 +335,7 @@ function _showBirthdayToast() {
         el.id = id;
         document.body.appendChild(el);
     }
-    el.textContent = '🎂 生日快乐！糖果皮肤试穿 24h + 5 提示券 + 1 彩虹';
+    el.textContent = t('reward.birthdayCandy');
     el.classList.remove('is-visible');
     void el.offsetHeight;
     el.classList.add('is-visible');

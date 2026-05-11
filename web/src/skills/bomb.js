@@ -18,6 +18,7 @@
 import { getWallet } from './wallet.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
 import { enterAim, exitAim, isAiming } from './aimManager.js';
+import { t } from '../i18n/i18n.js';
 
 const SKILL_ID = 'bomb';
 
@@ -50,12 +51,12 @@ function _isUsable() {
 
 function _toggleAim() {
     if (!_isUsable()) {
-        _showToast('💣 当前不可使用炸弹');
+        _showToast(t('skill.bomb.unavailable'));
         return;
     }
     const wallet = getWallet();
     if (wallet.getBalance('bombToken') <= 0) {
-        _showToast('💣 炸弹不足 — 完成任务或宝箱可获得');
+        _showToast(t('skill.bomb.empty'));
         return;
     }
     if (isAiming(SKILL_ID)) {
@@ -64,7 +65,7 @@ function _toggleAim() {
         return;
     }
     enterAim(SKILL_ID, { onCancel: () => refreshSkillBar() });
-    _showToast('💣 点击盘面任一格放置炸弹（ESC 取消）');
+    _showToast(t('skill.bomb.aim'));
     refreshSkillBar();
 }
 
@@ -112,7 +113,7 @@ export function _explodeAt(cx, cy) {
 
     const wallet = getWallet();
     if (wallet.getBalance('bombToken') <= 0) {
-        _showToast('💣 炸弹不足');
+        _showToast(t('skill.bomb.shortage'));
         exitAim(SKILL_ID);
         refreshSkillBar();
         return false;
@@ -133,12 +134,12 @@ export function _explodeAt(cx, cy) {
 
     if (cells.length === 0) {
         // 全空区域不扣费
-        _showToast('💣 该区域为空 — 请选择有方块的位置');
+        _showToast(t('skill.bomb.emptyCell'));
         return false;
     }
 
     if (!wallet.spend('bombToken', 1, 'bomb-skill')) {
-        _showToast('⚠ 扣费失败，请重试');
+        _showToast(t('skill.bomb.payFail'));
         exitAim(SKILL_ID);
         refreshSkillBar();
         return false;

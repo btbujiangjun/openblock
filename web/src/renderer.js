@@ -827,8 +827,27 @@ export class Renderer {
         /** 同色/同 icon 整行整列消除：紫金光晕全屏脉冲 0~1 */
         this._bonusMatchFlash = 0;
         this._effectsEnabled = true;
+        /** 物理像素重置（_applyCanvasSize / _onCanvasResize / setQualityMode）后触发的回调。
+         *  Canvas 规范：写入 canvas.width/height 会清空内容；只有 high 画质有 watermark
+         *  动画循环掩盖该空帧，balanced/low 静止状态下盘面会停留在空白上。
+         *  game 层在 constructor 注册 markDirty() 以保证下一帧立刻补画。 */
+        this._resizeListeners = new Set();
         // 监听 CSS 尺寸变化，动态保持 canvas 物理像素 = CSS 像素 × DPR
         this._setupPixelPerfectResize();
+    }
+
+    /** 注册 canvas 物理像素重置后的回调；返回反注册函数。 */
+    onCanvasReset(fn) {
+        if (typeof fn !== 'function') return () => {};
+        this._resizeListeners.add(fn);
+        return () => this._resizeListeners.delete(fn);
+    }
+
+    _emitCanvasReset() {
+        if (!this._resizeListeners?.size) return;
+        for (const fn of this._resizeListeners) {
+            try { fn(); } catch { /* 单个监听器异常不影响其它 */ }
+        }
     }
 
     setEffectsEnabled(enabled) {
@@ -910,6 +929,9 @@ export class Renderer {
         this.canvas.height = Math.round(lh * this.dpr);
         this.ctx.scale(this.dpr, this.dpr);
         this._applyFxCanvasSize();
+        /* canvas.width 写入会清空 canvas 内容；通知 game 层补一帧，避免
+         * balanced/low 画质下静止盘面停留在空白上（无 idle 动画驱动重绘）。 */
+        this._emitCanvasReset();
     }
 
     /**

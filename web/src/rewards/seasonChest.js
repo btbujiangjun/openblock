@@ -14,6 +14,7 @@ import { loadProgress } from '../progression.js';
 import { skipWhenDocumentHidden } from '../lib/pageVisibility.js';
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
+import { t } from '../i18n/i18n.js';
 
 const KEY = 'openblock_season_chest_v1';
 
@@ -76,7 +77,7 @@ function _grantAndNotify(tier) {
     }
     _audio?.play?.('unlock');
     _audio?.vibrate?.([40, 80, 40, 80, 100]);
-    _showToast(`🏆 ${tier.label} 已解锁`);
+    _showToast(t('reward.seasonChestUnlocked', { label: tier.label }));
 }
 
 function _showToast(msg) {

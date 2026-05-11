@@ -110,17 +110,24 @@
   text-align: center;
 }
 
-.audio-toggle {
+/* --- 顶栏右上角 fx 工具条：画质 / 视觉特效 / 音效 --- */
+.fx-toolbar {
   position: absolute;
-  top: 10rpx;
+  top: 8rpx;
   right: 10rpx;
+  display: flex;
+  flex-direction: row;
+  gap: 8rpx;
+  z-index: 6;
+}
+
+.fx-toggle {
   width: 46rpx;
   height: 46rpx;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 6;
   background:
     radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.24), transparent 48%),
     rgba(12, 16, 34, 0.68);
@@ -128,20 +135,28 @@
   box-shadow:
     0 2rpx 0 rgba(255, 255, 255, 0.10) inset,
     0 8rpx 16rpx rgba(0, 0, 0, 0.24);
+  /* 关键：始终保持 100% 不透明，与 web 端 #quality-toggle 一致，
+     避免"开/关"时透明度差异让按钮看起来不对齐。 */
+  opacity: 1;
 }
 
-.audio-toggle--on {
+.fx-toggle--on {
   background:
     radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.30), transparent 48%),
     rgba(32, 104, 68, 0.78);
   border-color: rgba(90, 212, 135, 0.38);
 }
 
-.audio-toggle--off {
+.fx-toggle--off {
   opacity: 0.72;
 }
 
-.audio-toggle-icon {
+.fx-toggle--quality {
+  /* 画质三档共享同一底色（与 web 端 #quality-toggle 强制 opacity:1 一致），
+     图标即为视觉差异（🌈 / ⚖️ / 🔋），不靠透明度区分。 */
+}
+
+.fx-toggle-icon {
   font-size: 24rpx;
   line-height: 1;
 }
@@ -244,6 +259,24 @@
   z-index: 92;
   pointer-events: none;
   filter: drop-shadow(0 14rpx 22rpx rgba(0, 0, 0, 0.28));
+}
+
+/* 落子失败时 preview 在原位"抖动 + 红光淡出"，与 web 端 #drag-ghost.is-rejected 同源
+ * 让玩家立刻明白"刚才那个位置不行"，避免错以为游戏出 bug 了 */
+@keyframes drag-preview-reject-shake {
+  0%   { transform: translateX(0); opacity: 1; filter: drop-shadow(0 14rpx 22rpx rgba(0, 0, 0, 0.28)); }
+  15%  { transform: translateX(-12rpx) rotate(-2deg); }
+  30%  { transform: translateX(12rpx) rotate(2deg); }
+  45%  { transform: translateX(-8rpx) rotate(-1.5deg); }
+  60%  { transform: translateX(8rpx) rotate(1.5deg); }
+  75%  { transform: translateX(-4rpx); opacity: 0.55; }
+  100% { transform: translateX(0) scale(0.92); opacity: 0; filter: drop-shadow(0 0 0 transparent); }
+}
+
+.drag-preview-canvas--rejected {
+  animation: drag-preview-reject-shake 240ms ease-out forwards;
+  /* 失败抖动期间叠加红光，强化"这里放不下"的语义 */
+  filter: drop-shadow(0 0 12rpx rgba(220, 38, 38, 0.65)) drop-shadow(0 14rpx 22rpx rgba(0, 0, 0, 0.28));
 }
 /* --- 游戏结束 --- */
 .game-over-overlay {

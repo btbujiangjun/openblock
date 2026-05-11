@@ -199,4 +199,86 @@ describe('miniprogram core parity', () => {
     expect(skinName('titanium', '', 'zh-CN')).toBe('💎 钛晶矩阵');
     expect(skinName('titanium', '', 'en')).toBe('💎 Titanium Matrix');
   });
+
+  it('mirrors web feedbackToggles: persists visual + quality prefs and applies to a renderer-like target', () => {
+    const store = new Map();
+    const originalWx = globalThis.wx;
+    globalThis.wx = {
+      getStorageSync: (k) => (store.has(k) ? store.get(k) : ''),
+      setStorageSync: (k, v) => { store.set(k, v); },
+      removeStorageSync: (k) => { store.delete(k); },
+      clearStorageSync: () => store.clear(),
+    };
+    try {
+      const { createFeedbackToggles, QUALITY_MODES } = requireCjs('../miniprogram/utils/feedbackToggles.js');
+      const calls = { effects: [], quality: [], cleared: 0 };
+      const renderer = {
+        setEffectsEnabled(v) { calls.effects.push(v); this._fx = !!v; },
+        setQualityMode(m) { calls.quality.push(m); this._q = m; },
+        clearFx() { calls.cleared += 1; },
+      };
+      const toggles = createFeedbackToggles({ renderer });
+      expect(renderer._fx).toBe(true);
+      expect(renderer._q).toBe('high');
+
+      toggles.toggleVisual();
+      expect(renderer._fx).toBe(false);
+      expect(calls.cleared).toBeGreaterThan(0);
+      expect(JSON.parse(store.get('openblock_visualfx_v1'))).toEqual({ enabled: false });
+
+      const next = toggles.cycleQualityMode();
+      expect(QUALITY_MODES.includes(next)).toBe(true);
+      expect(renderer._q).toBe(next);
+      expect(JSON.parse(store.get('openblock_quality_v1'))).toEqual({ mode: next });
+
+      const reborn = createFeedbackToggles({ renderer: { setEffectsEnabled() {}, setQualityMode() {}, clearFx() {} } });
+      expect(reborn.getState()).toEqual({ visualEnabled: false, qualityMode: next });
+    } finally {
+      if (originalWx === undefined) delete globalThis.wx;
+      else globalThis.wx = originalWx;
+    }
+  });
+
+  it('miniprogram renderer guards: disabling effects no-ops particle/shake/flash triggers and clears state', () => {
+    const { GameRenderer } = requireCjs('../miniprogram/utils/renderer.js');
+    /* 桩 canvas/ctx：renderer 仅依赖 width/height/ctx.scale + fillRect 等，本测试只验证守卫语义。 */
+    const ctx = new Proxy({}, { get: () => () => {} });
+    const canvas = { width: 240, height: 240, getContext: () => ctx };
+    const r = new GameRenderer(canvas, 1);
+    r._cellSizeForFx = 30;
+    r._gridLogicalSize = 240;
+
+    r.setEffectsEnabled(true);
+    r.setQualityMode('high');
+    r.addClearBurst([{ x: 0, y: 0, color: 0 }], 4, 30);
+    r.setShake(10, 200);
+    r.triggerComboFlash(4);
+    expect(r.particles.length).toBeGreaterThan(0);
+    expect(r.shakeDuration).toBe(200);
+    expect(r._comboFlash).toBeGreaterThan(0);
+
+    r.setEffectsEnabled(false);
+    expect(r.particles.length).toBe(0);
+    expect(r.shakeDuration).toBe(0);
+
+    r.addClearBurst([{ x: 0, y: 0, color: 0 }], 4, 30);
+    r.setShake(10, 200);
+    r.triggerComboFlash(4);
+    r.triggerPerfectFlash();
+    r.triggerBigBlast(2);
+    expect(r.particles.length).toBe(0);
+    expect(r.shakeDuration).toBe(0);
+    expect(r._comboFlash).toBe(0);
+    expect(r._perfectFlash).toBe(0);
+    expect(r._blastWave).toBe(0);
+
+    r.setEffectsEnabled(true);
+    r.setQualityMode('low');
+    r.addClearBurst([{ x: 0, y: 0, color: 0 }], 8, 30);
+    const lowCount = r.particles.length;
+    r.clearParticles();
+    r.setQualityMode('high');
+    r.addClearBurst([{ x: 0, y: 0, color: 0 }], 8, 30);
+    expect(r.particles.length).toBeGreaterThan(lowCount);
+  });
 });

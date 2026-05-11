@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'Limpeza total',
     'effect.multiClear': '{{n}} linhas',
     'effect.doubleClear': 'Limpeza dupla',
-    'effect.iconBonus': 'Grande explosão',
+    'effect.iconBonus': 'Eliminação Sequência Real',
     'effect.newRecord': 'Novo recorde',
 
     'skin.name.classic': '✨ Clássico minimalista',

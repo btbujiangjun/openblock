@@ -23,6 +23,7 @@
 
 import { getWallet } from './wallet.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
+import { t } from '../i18n/i18n.js';
 import { enterAim, exitAim, isAiming } from './aimManager.js';
 
 const SKILL_ID = 'freeze';
@@ -59,13 +60,13 @@ function _isUsable() {
 
 function _toggleAim() {
     if (!_isUsable()) {
-        if (_game && _game._frozenRow != null) _showToast('❄ 本局已使用过冻结');
-        else _showToast('❄ 当前不可使用');
+        if (_game && _game._frozenRow != null) _showToast(t('skill.freeze.usedThisRun'));
+        else _showToast(t('skill.freeze.unavailable'));
         return;
     }
     const wallet = getWallet();
     if (wallet.getBalance('freezeToken') <= 0) {
-        _showToast('❄ 冻结券不足');
+        _showToast(t('skill.freeze.empty'));
         return;
     }
     if (isAiming(SKILL_ID)) {
@@ -74,7 +75,7 @@ function _toggleAim() {
         return;
     }
     enterAim(SKILL_ID, { onCancel: () => refreshSkillBar() });
-    _showToast('❄ 点击棋盘任意行进行冻结（ESC 取消）');
+    _showToast(t('skill.freeze.aim'));
     refreshSkillBar();
 }
 
@@ -105,13 +106,13 @@ function _installGridListener() {
 function _doFreeze(row) {
     const wallet = getWallet();
     if (!wallet.spend('freezeToken', 1, 'freeze')) {
-        _showToast('⚠ 扣费失败');
+        _showToast(t('skill.freeze.payFail'));
         return;
     }
     _game._frozenRow = row;
     _audio?.play?.('tick');
     _game.markDirty?.();
-    _showToast(`❄ 第 ${row + 1} 行已冻结 — 本局不被消除`);
+    _showToast(t('skill.freeze.ok', { row: row + 1 }));
 }
 
 /* 装饰 grid.checkLines：从返回结果里剔除被冻结的行 */

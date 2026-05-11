@@ -20,6 +20,7 @@
 
 import { getWallet } from './wallet.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
+import { t } from '../i18n/i18n.js';
 
 const SKILL_ID = 'preview';
 
@@ -51,7 +52,7 @@ function _trigger() {
     if (!_isUsable()) return;
     const wallet = getWallet();
     if (wallet.getBalance('previewToken') <= 0) {
-        _showToast('👁 预览券不足');
+        _showToast(t('skill.preview.empty'));
         return;
     }
     /* 推导下一波：优先用 blockPool 看牌堆顶 */
@@ -72,7 +73,7 @@ function _trigger() {
     }
 
     if (!wallet.spend('previewToken', 1, 'preview')) {
-        _showToast('⚠ 扣费失败');
+        _showToast(t('skill.preview.payFail'));
         return;
     }
     _audio?.play?.('tick');

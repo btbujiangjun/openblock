@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'เคลียร์หมด',
     'effect.multiClear': 'เคลียร์ {{n}} แถว',
     'effect.doubleClear': 'เคลียร์คู่',
-    'effect.iconBonus': 'ระเบิดเคลียร์ครั้งใหญ่',
+    'effect.iconBonus': 'ล้างใหญ่รอยัลฟลัช',
     'effect.newRecord': 'สถิติใหม่',
 
     'skin.name.classic': '✨ คลาสสิกมินิมอล',

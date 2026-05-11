@@ -56,7 +56,7 @@ export default {
     'effect.perfectClear': 'مسح كامل',
     'effect.multiClear': 'مسح ×{{n}}',
     'effect.doubleClear': 'مسح مزدوج',
-    'effect.iconBonus': 'إزالة انفجارية كبيرة',
+    'effect.iconBonus': 'إزالة فلاش ملكي',
     'effect.newRecord': 'رقم قياسي جديد',
 
     'skin.name.classic': '✨ كلاسيكي بسيط',
