@@ -23,7 +23,7 @@ export function invalidateProgressCache() {
 }
 
 /** 等级成就：达到 minLevel 时解锁对应成就 id */
-export const LEVEL_ACHIEVEMENT_THRESHOLDS = [
+const LEVEL_ACHIEVEMENT_THRESHOLDS = [
     { minLevel: 5, id: 'level_5' },
     { minLevel: 10, id: 'level_10' },
     { minLevel: 25, id: 'level_25' }

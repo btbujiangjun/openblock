@@ -107,7 +107,7 @@ function _writeSeasonal(state) {
  * 4 月 1 日：覆盖所有皮肤的 blockIcons 为表情 emoji
  * 在 applySkinToDocument 之前调用即可生效（不影响 localStorage 中的皮肤选择）
  * --------------------------------------------------------- */
-export function isAprilFools(date = new Date()) {
+function isAprilFools(date = new Date()) {
     if (_readStorage(APRIL_FOOLS_OPTOUT_KEY) === '1') return false;
     return date.getMonth() === 3 && date.getDate() === 1;
 }
@@ -289,13 +289,13 @@ function _showWeekendToast(skinId) {
  * v10.16: 生日皮肤（注册生日当天送 24h 试穿券）
  * 用户首次进入游戏 / 设置面板提示绑定生日（非强制）
  * --------------------------------------------------------- */
-export function setUserBirthday(monthDay) {
+function _setUserBirthday(monthDay) {
     /* monthDay 形如 'MM-DD'（不存年份避免隐私） */
     if (!/^\d{2}-\d{2}$/.test(monthDay || '')) return false;
     _writeStorage(BIRTHDAY_KEY, monthDay);
     return true;
 }
-export function getUserBirthday() {
+function _getUserBirthday() {
     return _readStorage(BIRTHDAY_KEY);
 }
 

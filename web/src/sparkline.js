@@ -2,7 +2,7 @@
  * 指标迷你折线图（回放面板与玩家画像「实时状态」共用）
  */
 export const SPARK_W = 200;
-export const SPARK_H = 24;
+const SPARK_H = 24;
 const SPARK_PAD = 3;
 
 /** 与回放序列分组一致；v1.13 新增 stress 组（pink）承载 stressBreakdown 各分量曲线，
@@ -16,7 +16,7 @@ export const METRIC_GROUP_COLORS = {
 };
 
 /** 指标名专用高饱和配色（用于「实时状态/回放」左侧标签）。 */
-export const METRIC_LABEL_COLORS = {
+const METRIC_LABEL_COLORS = {
     topologyHoles: '#94a3b8',
     tripletSolutionCount: '#fbbf24',
     score: '#ffd166',

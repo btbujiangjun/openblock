@@ -18,7 +18,7 @@
  * 5. hintEngine 评分增加旋转维度（候选 4 个朝向）
  */
 
-export function rotateShape90(shape) {
+function rotateShape90(shape) {
     if (!shape || !shape.length) return shape;
     const h = shape.length;
     const w = shape[0].length;
@@ -35,12 +35,12 @@ export function rotateShape90(shape) {
 
 const STORAGE_KEY = 'openblock_rotation_mode_v1';
 
-export function isRotationModeEnabled() {
+function isRotationModeEnabled() {
     try { return localStorage.getItem(STORAGE_KEY) === '1'; }
     catch { return false; }
 }
 
-export function setRotationModeEnabled(b) {
+function setRotationModeEnabled(b) {
     try { localStorage.setItem(STORAGE_KEY, b ? '1' : '0'); }
     catch { /* ignore */ }
 }

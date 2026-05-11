@@ -7,7 +7,7 @@
  */
 import { getStrategyConfig } from './strategy/index.js';
 
-export const COMMERCIAL_MODEL_VERSION = 1;
+const COMMERCIAL_MODEL_VERSION = 1;
 
 function clamp01(v) {
     const n = Number(v);

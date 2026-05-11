@@ -5,7 +5,7 @@ import { Grid } from '../grid.js';
 import { getStrategy } from '../config.js';
 import { getAllShapes } from '../shapes.js';
 import { FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
-import { generateDockShapes, generateBlocksForGrid } from './blockSpawn.js';
+import { generateDockShapes } from './blockSpawn.js';
 import {
     computeClearScore,
     detectBonusLines,
@@ -30,8 +30,6 @@ const _AN = FEATURE_ENCODING?.actionNorm || {};
 function _rlBonusSkin() {
     return getRlTrainingBonusLineSkin();
 }
-
-export { generateDockShapes, generateBlocksForGrid };
 
 function _countHoles(grid) {
     return countUnfillableCells(grid);

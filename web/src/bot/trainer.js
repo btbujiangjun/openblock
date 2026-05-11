@@ -48,13 +48,13 @@ export function resolveBrowserRlTrainingConfig() {
     };
 }
 
-export function temperatureForLocalEpisode(episodeIndex, cfg = resolveBrowserRlTrainingConfig()) {
+function temperatureForLocalEpisode(episodeIndex, cfg = resolveBrowserRlTrainingConfig()) {
     const { start, min, decay } = cfg.tempLocal;
     const e = Math.max(0, episodeIndex);
     return Math.max(min, start - e * decay);
 }
 
-export function temperatureForBackendEpisode(globalEpisode, cfg = resolveBrowserRlTrainingConfig()) {
+function temperatureForBackendEpisode(globalEpisode, cfg = resolveBrowserRlTrainingConfig()) {
     const { start, min, decay } = cfg.tempBackend;
     const e = Math.max(0, globalEpisode);
     return Math.max(min, start - e * decay);

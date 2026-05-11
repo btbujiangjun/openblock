@@ -444,7 +444,7 @@ async function _probeAndToggleMenu(menuBtn) {
     }
 }
 
-export function openDbDebugPage() {
+function openDbDebugPage() {
     _game?.showScreen('db-debug-screen');
     /* 打开时再拉一次元数据，避免他处改过库结构 */
     void _loadTables({ loading: true });

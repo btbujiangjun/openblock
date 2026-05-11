@@ -30,12 +30,12 @@ const WEATHER_TO_SKIN = {
     cloudy:  'aurora',       // 4-9
 };
 
-export function isWeatherSenseEnabled() {
+function isWeatherSenseEnabled() {
     try { return localStorage.getItem(STORAGE_KEY + '_optin') === '1'; }
     catch { return false; }
 }
 
-export function setWeatherSenseEnabled(b) {
+function setWeatherSenseEnabled(b) {
     try { localStorage.setItem(STORAGE_KEY + '_optin', b ? '1' : '0'); }
     catch { /* ignore */ }
 }

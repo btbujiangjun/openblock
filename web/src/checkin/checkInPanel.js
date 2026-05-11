@@ -86,9 +86,9 @@ function _maybeOpen() {
     openCheckInPanel();
 }
 
-export function getCheckInState() { return _load(); }
+function getCheckInState() { return _load(); }
 
-export function openCheckInPanel() {
+function openCheckInPanel() {
     const state = _load();
     const today = _ymd();
     const alreadyClaimed = state.lastClaimYmd === today;

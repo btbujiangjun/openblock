@@ -461,6 +461,6 @@ export function createAmbientParticles(opts) {
     return _instance;
 }
 
-export function getAmbientParticles() { return _instance; }
+function _getAmbientParticles() { return _instance; }
 
-export const AMBIENT_PRESETS = Object.freeze({ ...PRESETS });
+const _AMBIENT_PRESETS = Object.freeze({ ...PRESETS });

@@ -36,7 +36,7 @@ export function initLightningMode({ game } = {}) {
     }
 }
 
-export async function startLightning() {
+async function startLightning() {
     if (_running || !_game) return;
     _running = true;
     _endTs = performance.now() + DURATION_MS;
@@ -49,7 +49,7 @@ export async function startLightning() {
     _tick();
 }
 
-export function stopLightning() {
+function stopLightning() {
     _running = false;
     cancelAnimationFrame(_rafId);
     _hud?.remove();

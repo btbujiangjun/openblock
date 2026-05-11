@@ -450,4 +450,4 @@ export function createAudioFx() {
     return _instance;
 }
 
-export function getAudioFx() { return _instance; }
+function _getAudioFx() { return _instance; }

@@ -36,7 +36,7 @@ export function notePopupShown(estimatedDurationMs = 0, gapMs = DEFAULT_GAP_MS) 
     _quietUntil = Math.max(_quietUntil, _now() + Math.max(0, estimatedDurationMs) + gapMs);
 }
 
-export function isTransientPopupActive() {
+function isTransientPopupActive() {
     if (typeof document === 'undefined') return false;
     return TRANSIENT_POPUP_SELECTORS.some((sel) => Boolean(document.querySelector(sel)));
 }
@@ -46,7 +46,7 @@ export function isGameOverScreenActive() {
     return Boolean(document.getElementById('game-over')?.classList.contains('active'));
 }
 
-export function isPopupQuiet() {
+function isPopupQuiet() {
     return !isTransientPopupActive() && _now() >= _quietUntil;
 }
 

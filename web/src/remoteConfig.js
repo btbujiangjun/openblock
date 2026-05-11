@@ -36,6 +36,6 @@ export async function fetchRemoteConfig({ force = false } = {}) {
 }
 
 /** @returns {Record<string, unknown>} 最近一次拉取结果（未拉取则为 {}） */
-export function getRemoteConfigSync() {
+function _getRemoteConfigSync() {
     return _cache || {};
 }

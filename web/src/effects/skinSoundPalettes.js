@@ -132,5 +132,5 @@ export function initSkinSoundPalettes({ audioFx }) {
     onSkinAfterApply(apply);
 }
 
-export function getCurrentPalette() { return _current; }
+function _getCurrentPalette() { return _current; }
 export const __test_only__ = { PALETTES };

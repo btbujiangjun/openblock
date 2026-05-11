@@ -18,7 +18,7 @@ import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 const SPAWN_MODE_KEY = 'ob_spawn_mode';
 export const SPAWN_MODE_RULE = 'rule';
 export const SPAWN_MODE_MODEL_V3 = 'model-v3';
-export const SPAWN_MODES = [SPAWN_MODE_RULE, SPAWN_MODE_MODEL_V3];
+const _SPAWN_MODES = [SPAWN_MODE_RULE, SPAWN_MODE_MODEL_V3];
 export const SPAWN_MODEL_V3_VERSION = 'v3.1-behavior';
 export const SPAWN_MODEL_CONTEXT_DIM = 24;
 export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 56;
@@ -99,7 +99,7 @@ export async function getModelStatus() {
     }
 }
 
-export async function startTraining(opts = {}) {
+async function _startTraining(opts = {}) {
     return _api('/api/spawn-model/train', {
         method: 'POST',
         body: JSON.stringify({
@@ -114,7 +114,7 @@ export async function stopTraining() {
     return _api('/api/spawn-model/stop', { method: 'POST' });
 }
 
-export async function reloadModel() {
+async function _reloadModel() {
     return _api('/api/spawn-model/reload', { method: 'POST' });
 }
 
@@ -140,7 +140,7 @@ function _gridToBoard(grid) {
     return board;
 }
 
-export function shapeIdToIndex(id) {
+function shapeIdToIndex(id) {
     const idx = SHAPE_VOCAB.indexOf(id);
     return idx >= 0 ? idx : 0;
 }
@@ -303,7 +303,7 @@ export function buildSpawnModelContext(grid, profile, adaptiveInsight, opts = {}
  * @param {number} [temperature=0.8]
  * @returns {Promise<Array<{id: string, data: number[][], category: string}> | null>} null = 模型不可用
  */
-export async function predictShapes(grid, profile, recentHistory, adaptiveInsight, temperature = 0.8) {
+async function _predictShapes(grid, profile, recentHistory, adaptiveInsight, temperature = 0.8) {
     const board = [];
     for (let y = 0; y < grid.size; y++) {
         const row = [];

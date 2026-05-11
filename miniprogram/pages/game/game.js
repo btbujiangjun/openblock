@@ -624,7 +624,7 @@ Page({
   },
 
   // --- 棋盘 touch（备用：直接点击棋盘放置） ---
-  onGridTouchStart(e) {},
+  onGridTouchStart(_e) {},
   onGridTouchMove(e) {
     if (!this._dragging) return;
     this._updateDragPositionFromEvent(e);

@@ -42,7 +42,7 @@ export const ZONES_STRIPS_V = [
 ];
 
 /** 横条：4 行各占 2×8 */
-export const ZONES_STRIPS_H = [
+const _ZONES_STRIPS_H = [
     { x: 0, y: 0, w: 8, h: 2, label: '①', color: 'rgba(255,80,80,0.15)' },
     { x: 0, y: 2, w: 8, h: 2, label: '②', color: 'rgba(80,200,80,0.15)' },
     { x: 0, y: 4, w: 8, h: 2, label: '③', color: 'rgba(80,120,255,0.15)' },

@@ -1041,9 +1041,6 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     return blocks.slice(0, 3);
 }
 
-/** @deprecated 使用 generateDockShapes */
-export const generateBlocksForGrid = generateDockShapes;
-
 // ========================================================================
 // 分层接口适配（供测试与未来关卡模式使用）
 // ========================================================================

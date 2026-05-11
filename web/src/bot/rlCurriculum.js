@@ -20,7 +20,7 @@ function _envCurriculumOff() {
 }
 
 /** 与 Python：环境变量关闭优先于 JSON enabled */
-export function rlCurriculumEnabled() {
+function rlCurriculumEnabled() {
   if (_envCurriculumOff()) {
     return false;
   }

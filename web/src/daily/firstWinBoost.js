@@ -35,12 +35,12 @@ function _save(s) {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
 }
 
-export function isBoostAvailableToday() {
+function isBoostAvailableToday() {
     const s = _load();
     return s.lastBoostYmd !== _ymd();
 }
 
-export function getBoostRatio() {
+function _getBoostRatio() {
     return BOOST_RATIO;
 }
 

@@ -100,7 +100,7 @@ function _registerHiddenSkin() {
     }
 }
 
-export function isKonamiUnlocked() {
+function _isKonamiUnlocked() {
     try { return localStorage.getItem(KONAMI_KEY) === '1'; } catch { return false; }
 }
 

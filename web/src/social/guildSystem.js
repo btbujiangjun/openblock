@@ -24,7 +24,7 @@ export const GUILD_STATES = {
     MEMBER: 'member'
 };
 
-export const GUILD_ACTIVITIES = {
+const GUILD_ACTIVITIES = {
     WEEKLY_QUEST: 'weekly_quest',
     TOURNAMENT: 'tournament',
     DONATION: 'donation',

@@ -155,7 +155,7 @@ export async function saveRemoteCheckpoint(path) {
     return postJson('/api/rl/save', path ? { path } : {});
 }
 
-export async function loadRemoteCheckpoint(path) {
+async function _loadRemoteCheckpoint(path) {
     return postJson('/api/rl/load', { path });
 }
 

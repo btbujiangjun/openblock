@@ -297,6 +297,6 @@ export function initGoalSystem() {
     return system;
 }
 
-export function getGoalSystemInstance() {
+function _getGoalSystemInstance() {
     return getGoalSystem();
 }

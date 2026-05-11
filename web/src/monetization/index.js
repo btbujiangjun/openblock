@@ -142,6 +142,6 @@ export function shutdownMonetization() {
 /**
  * 获取已加载模块
  */
-export function getLoadedModules() {
+function _getLoadedModules() {
     return { ..._lazyModules };
 }

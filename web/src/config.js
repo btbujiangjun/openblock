@@ -122,7 +122,7 @@ export const ACHIEVEMENTS_BY_ID = Object.fromEntries(
     Object.values(ACHIEVEMENTS).map((a) => [a.id, a])
 );
 
-export const DEFAULT_STRATEGIES = buildDefaultStrategiesMap();
+const DEFAULT_STRATEGIES = buildDefaultStrategiesMap();
 
 /** 与 DEFAULT_STRATEGIES 相同，保留别名以兼容测试与外部引用 */
 export const STRATEGIES = DEFAULT_STRATEGIES;
@@ -169,16 +169,16 @@ export function getStrategy(id) {
     return DEFAULT_STRATEGIES[id] || DEFAULT_STRATEGIES.normal;
 }
 
-export function saveCustomStrategy(strategy) {
+function _saveCustomStrategy(strategy) {
     const strategies = JSON.parse(localStorage.getItem('custom_strategies') || '{}');
     strategies[strategy.id] = strategy;
     localStorage.setItem('custom_strategies', JSON.stringify(strategies));
 }
 
-export function getCustomStrategies() {
+function getCustomStrategies() {
     return JSON.parse(localStorage.getItem('custom_strategies') || '{}');
 }
 
-export function getAllStrategies() {
+function _getAllStrategies() {
     return { ...DEFAULT_STRATEGIES, ...getCustomStrategies() };
 }

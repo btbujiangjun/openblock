@@ -26,9 +26,6 @@ export const PLAYER_STATE_SNAPSHOT_VERSION = 2;
  */
 export const MIN_PERSIST_PLACE_STEPS = 5;
 
-/** @deprecated 使用 MIN_PERSIST_PLACE_STEPS。保留导出避免旧代码/测试立即失效。 */
-export const MIN_PERSIST_MOVE_FRAMES = MIN_PERSIST_PLACE_STEPS;
-
 /**
  * 序列中用户真实落子次数（`t === 'place'`）。
  * 与总帧数关系：总帧 ≈ 1（init）+ 轮数×（1 spawn + 至多 3 place）+ 可能未完成的最后一轮 spawn。

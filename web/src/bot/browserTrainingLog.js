@@ -67,7 +67,7 @@ export function getBrowserTrainingLog(tail = 800) {
     return { entries: slice, path: 'localStorage:' + STORAGE_KEY, exists: list.length > 0 };
 }
 
-export function clearBrowserTrainingLog() {
+function _clearBrowserTrainingLog() {
     try {
         localStorage.removeItem(STORAGE_KEY);
     } catch {

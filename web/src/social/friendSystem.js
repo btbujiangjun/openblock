@@ -17,7 +17,7 @@ export const FRIEND_STATES = {
     BLOCKED: 'blocked'
 };
 
-export const ONLINE_STATES = {
+const ONLINE_STATES = {
     OFFLINE: 'offline',
     ONLINE: 'online',
     IN_GAME: 'in_game'

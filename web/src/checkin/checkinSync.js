@@ -4,7 +4,7 @@
  */
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 
-export const CHECKIN_STORAGE_KEYS = {
+const CHECKIN_STORAGE_KEYS = {
     checkin: 'openblock_checkin_v1',
     loginStreak: 'openblock_login_streak_v1',
     monthly: 'openblock_monthly_milestone_v1',
@@ -67,7 +67,7 @@ function _readJson(key, fallback) {
 }
 
 /** 从当前 localStorage 组装与 PUT 一致的 bundle（供调试或测试） */
-export function buildCheckinBundleFromLocalStorage() {
+function buildCheckinBundleFromLocalStorage() {
     const c = _readJson(CHECKIN_STORAGE_KEYS.checkin, null);
     const sf = _readJson(CHECKIN_STORAGE_KEYS.skinFragments, null);
     return {

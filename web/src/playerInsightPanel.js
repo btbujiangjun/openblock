@@ -1143,7 +1143,7 @@ function _clearHints(game) {
  * @param {object[]} frames 回放帧序列（与 replayUI 内 replayFramesRef 同源）
  * @param {number}   idx    当前帧下标
  */
-export function renderStressMeterReplay(frames, idx) {
+function renderStressMeterReplay(frames, idx) {
     const host = document.getElementById('stress-meter-host');
     if (!host || !Array.isArray(frames) || frames.length === 0) return;
 
@@ -1190,7 +1190,7 @@ let _insightReplayCells = [];
 let _insightReplayTotalFrames = 0;
 
 /** 是否处于"实时状态"回放模式（外部调试用） */
-export function isInsightReplayMode() {
+function _isInsightReplayMode() {
     return _insightReplayFrames !== null;
 }
 

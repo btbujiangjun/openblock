@@ -8,7 +8,7 @@
  * @param {number} win
  * @returns {number[]}
  */
-export function rollingMean(arr, win) {
+function rollingMean(arr, win) {
     const n = arr.length;
     const out = new Array(n).fill(NaN);
     const w = Math.max(1, Math.floor(win));
@@ -32,7 +32,7 @@ export function rollingMean(arr, win) {
  * @param {object[]} entries 来自 /api/rl/training_log
  * @returns {object[]}
  */
-export function extractTrainEpisodeRows(entries) {
+function extractTrainEpisodeRows(entries) {
     const raw = (entries || []).filter(
         (e) => e && e.event === 'train_episode' && typeof e.episodes === 'number'
     );

@@ -30,7 +30,7 @@ export function initZenMode({ game } = {}) {
     }
 }
 
-export async function startZen() {
+async function startZen() {
     if (_running || !_game) return;
     _running = true;
     _game._zenMode = true;
@@ -48,7 +48,7 @@ export async function startZen() {
     _renderHud();
 }
 
-export function stopZen() {
+function stopZen() {
     _running = false;
     if (_game) _game._zenMode = false;
     if (_origNoMovesWarning && _game) {

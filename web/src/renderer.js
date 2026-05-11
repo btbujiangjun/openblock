@@ -727,7 +727,7 @@ export function syncGridDisplayPx(canvas) {
 const _gridDisplayRo = new WeakMap();
 
 /** 监听棋盘 canvas 的 CSS 尺寸（缩放、侧栏挤压等），保持候选块与盘面一格同大 */
-export function ensureGridDisplayResizeSync(canvas) {
+function ensureGridDisplayResizeSync(canvas) {
     if (typeof document === 'undefined' || !canvas || _gridDisplayRo.has(canvas)) {
         return;
     }

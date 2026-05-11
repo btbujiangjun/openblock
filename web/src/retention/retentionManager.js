@@ -187,6 +187,6 @@ function generateRecommendations(retention, levelSummary, goalProgress) {
     return recommendations;
 }
 
-export function getRetentionManagerInstance() {
+function _getRetentionManagerInstance() {
     return getRetentionManager();
 }

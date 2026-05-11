@@ -194,7 +194,7 @@ export function getLevelById(id) {
 }
 
 /** 按难度分组 */
-export const LEVEL_PACK_BY_DIFFICULTY = {
+const _LEVEL_PACK_BY_DIFFICULTY = {
     easy:   LEVEL_PACK.filter(l => l.difficulty === 'easy'),
     normal: LEVEL_PACK.filter(l => l.difficulty === 'normal'),
     hard:   LEVEL_PACK.filter(l => l.difficulty === 'hard'),

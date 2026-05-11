@@ -138,4 +138,4 @@ export function initPushNotification(game) {
     return _instance;
 }
 
-export function getPushNotification() { return _instance; }
+function _getPushNotification() { return _instance; }

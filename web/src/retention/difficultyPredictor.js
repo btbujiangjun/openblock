@@ -249,7 +249,7 @@ export function predictDifficulty(playerProfile) {
     };
 }
 
-export function getDifficultyAdjustment(currentLevel, playerProfile) {
+function getDifficultyAdjustment(currentLevel, playerProfile) {
     const prediction = predictDifficulty(playerProfile);
     
     const currentIndex = DIFFICULTY_LEVELS.indexOf(currentLevel);
@@ -290,7 +290,7 @@ function generateReason(prediction, playerProfile) {
     return reasons;
 }
 
-export function getRetentionMetrics() {
+function getRetentionMetrics() {
     if (_featureBuffer.length < 2) {
         return { trend: 'unknown', improvement: 0 };
     }
@@ -327,6 +327,6 @@ export function getDifficultyPredictor() {
     return _instance;
 }
 
-export function getDifficultyPredictorInstance() {
+function _getDifficultyPredictorInstance() {
     return getDifficultyPredictor();
 }

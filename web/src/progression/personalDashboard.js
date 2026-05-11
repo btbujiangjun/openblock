@@ -54,7 +54,7 @@ export function initPersonalDashboard() {
     setTimeout(_maybeShowYearReview, 4000);
 }
 
-export function collectStats() {
+function collectStats() {
     const reg = _getOrCreateRegistration();
     const days = Math.max(1, Math.floor((Date.now() - (reg.ts || Date.now())) / 86_400_000));
 
@@ -192,7 +192,7 @@ function _formatLedgerEntry(row) {
     </div>`;
 }
 
-export function openDashboard() {
+function openDashboard() {
     if (typeof document === 'undefined') return;
     document.getElementById('personal-dashboard')?.remove();
     const s = collectStats();

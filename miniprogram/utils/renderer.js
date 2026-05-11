@@ -332,7 +332,6 @@ class GameRenderer {
   /** 绘制候选块（dock 区域中的小预览） */
   drawDockBlock(shape, colorIdx, x, y, cellSize) {
     if (!Array.isArray(shape) || !Number.isFinite(cellSize) || cellSize <= 0) return;
-    const ctx = this._ctx;
     const color = this._skin.blockColors[colorIdx % this._skin.blockColors.length];
     for (let sy = 0; sy < shape.length; sy++) {
       for (let sx = 0; sx < shape[sy].length; sx++) {

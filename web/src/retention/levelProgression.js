@@ -284,6 +284,6 @@ export function getLevelProgression() {
     return _instance;
 }
 
-export function getLevelProgressionInstance() {
+function _getLevelProgressionInstance() {
     return getLevelProgression();
 }

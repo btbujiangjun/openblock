@@ -55,7 +55,7 @@ function _load() {
     catch { return {}; }
 }
 
-export function getCompanion(skinId) {
+function getCompanion(skinId) {
     return COMPANIONS[skinId] || null;
 }
 

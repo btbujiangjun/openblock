@@ -67,7 +67,7 @@ const GOAL_TEMPLATES = {
 const REFRESH_EVERY_MIN = 3;
 const REFRESH_EVERY_MAX = 5;
 
-export class MiniGoalManager {
+class MiniGoalManager {
     constructor() {
         this._data   = this._load();
         this._game   = null;
@@ -308,4 +308,4 @@ export function initMiniGoals(game) {
     return _instance;
 }
 
-export function getMiniGoals() { return _instance; }
+function _getMiniGoals() { return _instance; }
