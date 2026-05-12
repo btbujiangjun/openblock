@@ -87,7 +87,10 @@ export async function generatePoster() {
     const skin = getActiveSkin();
     const palette = _derivePalette(skin);
     const score = (window.openBlockGame?.score | 0) || 0;
-    const gameCanvas = typeof document !== 'undefined' ? document.getElementById('game-grid') : null;
+    /* 优先使用 game.captureBoardSnapshot 取一份"重新以高 DPR 渲染"的离屏 canvas，
+     * 物理像素至少 = 海报内棋盘逻辑尺寸 × POSTER_DPR = 640 × 2 = 1280。
+     * 拿不到时（旧版本游戏 / 测试环境）回退到屏幕 #game-grid。 */
+    const gameCanvas = _resolveBoardSource();
 
     /* 自下而上图层堆叠：背景渐变 + 暗化 ghost wordmark + 放射光，不再撒色块 confetti（用户反馈干扰主体）。 */
     _drawBackdrop(ctx, palette);
@@ -493,6 +496,24 @@ function _drawCrossStar(ctx, cx, cy, w, h, hueMid) {
     ctx.fill();
 
     ctx.restore();
+}
+
+/**
+ * 棋盘快照源选择：先取游戏自己重新渲染的高分辨率 offscreen canvas，
+ * 拿不到时回退到屏幕上的 #game-grid（受设备 DPR 限制，可能模糊）。
+ *
+ * 海报内棋盘 imgSize=640 × POSTER_DPR=2 = 1280 物理像素，对低端设备屏幕版
+ * canvas（DPR=1, 物理像素 ≈ 360–540）会被强放大 2.4×–3.5× 出现锯齿与模糊，
+ * 因此优先走 game.captureBoardSnapshot(1280) 拿一份临时升 DPR 重渲染的快照。
+ */
+function _resolveBoardSource() {
+    if (typeof document === 'undefined') return null;
+    const physicalTarget = 640 * POSTER_DPR; // 1280
+    try {
+        const snap = window.openBlockGame?.captureBoardSnapshot?.(physicalTarget);
+        if (snap && snap.width > 0 && snap.height > 0) return snap;
+    } catch { /* 任何异常都安全回退到屏幕 canvas */ }
+    return document.getElementById('game-grid');
 }
 
 /** 棋盘舞台：纯净嵌入式——椭圆地面投影 + 黑色背板 + 柔和黑色阴影 + 极淡白色内沿。

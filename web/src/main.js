@@ -11,6 +11,7 @@ import {
     getLocale,
     subscribeLocale,
     AVAILABLE_LOCALES,
+    t,
 } from './i18n/i18n.js';
 import { Game } from './game.js';
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
@@ -334,4 +335,44 @@ function _wireShareBtn(game, audio) {
             }
         });
     }
+
+    /* #replay-btn：一键打开"刚结束这一局"的回放，无需用户去回放列表里找。
+     * 数据源直接读 game.moveSequence（结算后仍在内存里，下一局 startGame 才清空），
+     * 复用 replayUI 的回放屏 + slider/play/pause + 序列面板。
+     * 退出回放后通过 exitTarget='game-over' 让 viewBack 回到结算面板而不是回放列表，
+     * 用户可以接着点「再来一局」/「分享」/「海报」继续操作。 */
+    const replayBtn = document.getElementById('replay-btn');
+    if (replayBtn) {
+        replayBtn.addEventListener('click', () => {
+            const frames = game?.moveSequence;
+            const ui = typeof window !== 'undefined' ? window.__replayUI : null;
+            if (!Array.isArray(frames) || frames.length < 2 || !ui?.openFromFrames) {
+                _showReplayToast(t('game.replay.noFrames'));
+                return;
+            }
+            const ok = ui.openFromFrames(frames, {
+                score: game?.score,
+                exitTarget: 'game-over',
+            });
+            if (!ok) {
+                _showReplayToast(t('game.replay.noFrames'));
+                return;
+            }
+            audio?.play?.('unlock');
+        });
+    }
+}
+
+/** 轻量 toast：复用 .mon-toast 类，避免引入新样式依赖。 */
+function _showReplayToast(text) {
+    if (typeof document === 'undefined' || !text) return;
+    const el = document.createElement('div');
+    el.className = 'mon-toast mon-share-toast';
+    el.textContent = text;
+    document.body.appendChild(el);
+    setTimeout(() => el.classList.add('mon-toast-visible'), 10);
+    setTimeout(() => {
+        el.classList.remove('mon-toast-visible');
+        setTimeout(() => el.remove(), 400);
+    }, 2400);
 }

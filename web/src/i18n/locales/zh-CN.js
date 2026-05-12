@@ -79,8 +79,11 @@ export default {
     'game.summary.duration': '用时',
     'game.actions.poster': '海报',
     'game.actions.share': '分享',
+    'game.actions.replay': '回放',
     'game.actions.posterAria': '生成战绩海报',
     'game.actions.shareAria': '分享本局战绩',
+    'game.actions.replayAria': '查看本局回放',
+    'game.replay.noFrames': '本局帧数据不足，暂无法回放',
 
     'share.poster.callToPlay': '立即挑战',
     'share.poster.hookHeadline': '你能击败 {{score}} 分吗？',

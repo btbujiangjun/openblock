@@ -18,9 +18,29 @@
  */
 
 import { getWallet } from './wallet.js';
+import { animateBadgeChange, setBadgeImmediate } from '../effects/badgeAnimator.js';
 
 const REGISTRY = new Map();
 let _bootstrapped = false;
+
+/**
+ * 决定本次刷新是否要展示数字动效。
+ * - 入账（addBalance / 任务奖励 / 宝箱 / 广告 / IAP）→ gain（+N 飘字 + pop）
+ * - 消耗（spend）→ drain（缩 pulse，无飘字）
+ * - hydrate（首次水合服务端钱包）/ 缺省 detail → none，不弹动效避免开局齐喷
+ *
+ * `cappedFrom` 表示 amount 被每日上限完全截断（实际 0 入账），不应做 +N 反馈
+ * 但仍需更新文本（amount=0 时 newCount 与 oldCount 相同，下方 animate 会 no-op）。
+ */
+function _toneFromDetail(detail) {
+    if (!detail || typeof detail !== 'object') return 'none';
+    if (detail.action === 'add') {
+        if ((detail.amount | 0) > 0) return 'gain';
+        return 'none';
+    }
+    if (detail.action === 'spend') return 'drain';
+    return 'none';
+}
 
 function _bootstrap() {
     if (_bootstrapped) return;
@@ -57,12 +77,13 @@ function _renderAll() {
     }
 }
 
-function _renderSkill(container, skill) {
+function _renderSkill(container, skill, changeDetail = null) {
     let btn = container.querySelector(`[data-skill-id="${skill.id}"]`);
     const wallet = getWallet();
     const count = skill.kind ? wallet.getBalance(skill.kind) : null;
     const hasBalance = !skill.kind || count > 0;
     const enabled = (skill.enabled ? !!skill.enabled() : true) && hasBalance;
+    let isFirstRender = false;
 
     if (!btn) {
         btn = document.createElement('button');
@@ -80,18 +101,53 @@ function _renderSkill(container, skill) {
             try { skill.onClick?.({ wallet }); } catch (err) { console.warn('[skillBar]', skill.id, err); }
         });
         container.appendChild(btn);
+        isFirstRender = true;
 
-        // 监听钱包变化自动刷新
+        // 监听钱包变化自动刷新；把 emit detail 透传给下次渲染，
+        // 让"宝箱入账 / 道具消耗"等场景能驱动数字动效与 +N 飘字。
         if (skill.kind) {
-            wallet.onChange(skill.kind, () => _renderSkill(container, skill));
+            wallet.onChange(skill.kind, (detail) => _renderSkill(container, skill, detail));
         }
     }
 
     const countEl = btn.querySelector('.skill-btn__count');
     if (skill.kind && countEl) {
+        // 解析展示前后的数值，用于决策动效与 +N 浮字
+        const wasHidden = !!countEl.hidden;
+        const oldNum = wasHidden ? 0 : (() => {
+            const t = String(countEl.textContent || '').trim();
+            if (/^99\+$/.test(t)) return 99;
+            const n = Number(t);
+            return Number.isFinite(n) ? n : 0;
+        })();
+
         if (count > 0) {
-            countEl.textContent = count > 99 ? '99+' : String(count);
             countEl.hidden = false;
+            const tone = _toneFromDetail(changeDetail);
+            // 首次渲染（页面打开 / 注册按钮）即便 oldNum=0，也不应弹 +N，
+            // 否则玩家进游戏会被存量道具的"+95"齐喷淹没体验。
+            const skipAnim = isFirstRender || changeDetail?.action === 'hydrate' || tone === 'none';
+            if (skipAnim) {
+                setBadgeImmediate(countEl, count);
+            } else {
+                animateBadgeChange(countEl, count, {
+                    oldVal: oldNum,
+                    tone,
+                    floatPlus: tone === 'gain',
+                });
+            }
+        } else if (oldNum > 0) {
+            // 余额刚好被打到 0：先动效到 0，结束后再隐藏，避免"啪"地一下消失
+            animateBadgeChange(countEl, 0, {
+                oldVal: oldNum,
+                tone: 'drain',
+                floatPlus: false,
+            });
+            setTimeout(() => {
+                if ((skill.kind ? wallet.getBalance(skill.kind) : 0) === 0) {
+                    countEl.hidden = true;
+                }
+            }, 700);
         } else {
             countEl.hidden = true;
         }
@@ -132,4 +188,4 @@ export function refreshSkillBar() {
 }
 
 /** 测试导出 */
-export const __test_only__ = { REGISTRY };
+export const __test_only__ = { REGISTRY, _toneFromDetail };

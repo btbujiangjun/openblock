@@ -124,6 +124,9 @@ export function initReplayUI(game) {
     /** @type {object[] | null} 当前打开的回放帧（供玩家状态同步展示） */
     let replayFramesRef = null;
     let replayAnalysisRef = null;
+    /** 退出回放屏后的目标：'list'（默认，返回回放列表）| 'game-over'（返回结算面板）。
+     *  结算面板的「本局回放」入口会传 'game-over'，让用户回放后无缝回到结算页继续操作。 */
+    let _viewExitTarget = 'list';
 
     /* ── Series view state ── */
     let _seriesData = null;
@@ -532,9 +535,55 @@ export function initReplayUI(game) {
         // 短暂残留回放最后一帧的 stressMeter / sparkline 状态让玩家困惑。
         exitInsightReplay();
         game._refreshPlayerInsightPanel?.();
+        if (_viewExitTarget === 'game-over') {
+            const gameOver = document.getElementById('game-over');
+            if (gameOver) {
+                /* beginReplayFromFrames 把 isGameOver 设为 false，结算页路径要还原回 true，
+                 * 避免回到浮层后底层 dock 的输入门控被意外解开。 */
+                game.isGameOver = true;
+                show(gameOver);
+                _viewExitTarget = 'list';
+                return;
+            }
+        }
+        _viewExitTarget = 'list';
         show(listScreen);
         void openList();
     });
+
+    /**
+     * 一键打开"指定帧序列"的回放（不经过列表）。供结算面板「本局回放」按钮使用。
+     *
+     * 与列表入口相比，本路径直接复用调用方传入的 frames（通常是 game.moveSequence
+     * 内存版本，无需查询 SQLite），并在退出回放屏时根据 exitTarget 决定回到结算页
+     * 还是回到回放列表。失败返回 false，调用方自行降级（toast 等）。
+     *
+     * @param {object[]} frames 帧数组（首帧需为含 grid 的 init）
+     * @param {{ score?: number, exitTarget?: 'list' | 'game-over' }} [meta]
+     * @returns {boolean} 是否成功进入回放屏
+     */
+    function openFromFrames(frames, meta = {}) {
+        if (!Array.isArray(frames) || frames.length === 0) return false;
+        _viewExitTarget = meta.exitTarget === 'game-over' ? 'game-over' : 'list';
+        const session = {
+            score: meta.score,
+            startTime: meta.startTime ?? Date.now(),
+            analysis: meta.analysis ?? null,
+        };
+        try {
+            openView(session, frames);
+            return true;
+        } catch (e) {
+            console.warn('[replay] openFromFrames failed', e);
+            _viewExitTarget = 'list';
+            return false;
+        }
+    }
+
+    /* 暴露给结算面板等外部入口；仅 view-replay 流程，不影响 menu-replay-btn 与列表逻辑。 */
+    if (typeof window !== 'undefined') {
+        window.__replayUI = Object.assign(window.__replayUI || {}, { openFromFrames });
+    }
 
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {

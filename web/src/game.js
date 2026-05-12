@@ -2650,6 +2650,16 @@ export class Game {
     }
 
     /** 整帧重绘（含消除高亮与粒子）；与 markDirty 等价，避免漏画 clearCells 导致闪烁 */
+    /**
+     * 高分辨率盘面快照：用于分享海报等场景，避免直接采样屏幕 #game-grid 因
+     * 设备 DPR 限制而失真。返回离屏 canvas（物理像素 ≥ targetPhysicalSize），
+     * 失败回退 null，调用方自行降级到 `this.canvas`。
+     */
+    captureBoardSnapshot(targetPhysicalSize) {
+        if (!this.renderer?.captureHighResSnapshot) return null;
+        return this.renderer.captureHighResSnapshot(targetPhysicalSize, () => this.render());
+    }
+
     render() {
         this.renderer.decayComboFlash();
         this.renderer.decayBonusMatchFlash();

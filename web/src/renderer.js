@@ -6,9 +6,36 @@ import { CONFIG } from './config.js';
 import { getActiveSkin, getBlockColors, SKINS } from './skins.js';
 import { paintMahjongTileIcon } from './mahjongTileIcon.js';
 
-const WATERMARK_DRIFT_MIN_INTERVAL_MS = 7600;
-const WATERMARK_DRIFT_MAX_INTERVAL_MS = 13200;
+/* 高清模式盘面水印漂移（v10.x: 小范围抖动 → v10.y: 大范围慢速漂浮）
+ *
+ * 设计目标：每个 icon 像独立的浮萍一样在盘面中缓慢游走，能穿越自己的初始象限，
+ * 偶尔擦边出现在角落 / 中央 / 对角，营造"水面上漂浮的标记物"感而非"原地震颤"。
+ *
+ * 与旧值的对比：
+ *   - retarget 间距：7.6–13.2s → 14–24s（目标切换更稀疏，避免频繁拉拽）
+ *   - 缓动时长（_watermarkPointsForFrame 内）：5.2–9.4s → 10–18s（"漂"而非"窜"）
+ *   - 漂移振幅（_randomWatermarkTarget）：span × 5.5–13%   → span × 14–24%（约 2.5×，跨象限）
+ *   - 高频呼吸 phaseSpeed：0.12–0.34 mHz → 0.06–0.16 mHz（速度减半）
+ *   - 高频呼吸 wobble：span × 1.2% → span × 1.8%（略放大但 phase 慢，整体更柔）
+ *
+ * 帧率仍保持 ~8.3 FPS（120ms/帧）—— 漂浮内容速度低，不需要 30/60 FPS 平滑。 */
+const WATERMARK_DRIFT_MIN_INTERVAL_MS = 14000;
+const WATERMARK_DRIFT_MAX_INTERVAL_MS = 24000;
 const WATERMARK_DRIFT_FRAME_MS = 120;
+/** 缓动到 target 的时间常数（毫秒）随机区间，越大越"漂"。 */
+const WATERMARK_EASE_MIN_MS = 10000;
+const WATERMARK_EASE_MAX_MS = 18000;
+/** 高频呼吸 sin/cos 相位推进速度，越小越慢。 */
+const WATERMARK_PHASE_SPEED_MIN = 0.00006;
+const WATERMARK_PHASE_SPEED_MAX = 0.00016;
+/** 高频呼吸幅度占盘面短边的比例，与 phaseSpeed 配合形成柔和呼吸。 */
+const WATERMARK_WOBBLE_RATIO = 0.018;
+/** target 漂移振幅基础与随机叠加占盘面短边的比例（最终 = base + rand×span 内随机方向）。 */
+const WATERMARK_TARGET_AMP_BASE = 0.14;
+const WATERMARK_TARGET_AMP_RAND = 0.10;
+/** target 中心硬 clamp 范围（占盘面比例）：略放出画布外允许"擦边"美感，但不让 icon 完全消失。 */
+const WATERMARK_TARGET_MIN = -0.05;
+const WATERMARK_TARGET_MAX = 1.05;
 
 function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -850,6 +877,68 @@ export class Renderer {
         }
     }
 
+    /**
+     * 高分辨率快照：用于分享海报等需要高像素源的场景。
+     *
+     * 屏幕上的 #game-grid 物理像素 = logicalW × dpr，常见在 360–720 区间。
+     * 海报里把它放到 1280+ 物理像素时会被强烈放大变糊。本方法在不改变 CSS 尺寸
+     * （用户视觉无感）的前提下，临时把 dpr 提升到 targetPhysicalSize / logicalW，
+     * 让 caller 重画一帧到放大的 backing store，复制到离屏 canvas 后立刻还原。
+     *
+     * 注意事项：
+     * - canvas.width 写入会清空内容并重置 transform，必须由 redrawFn 立即重绘；
+     * - _applyCanvasSize 会触发 onCanvasReset → game.markDirty()，但还原阶段也调一次
+     *   redrawFn 把屏幕画面同步回正常 DPR，避免延迟到下一 RAF 才补画导致空帧；
+     * - 仅复制主 canvas，不合并 fxCanvas 的特效层（粒子/闪光在静止盘面上为空，可忽略）；
+     * - 失败/无效输入返回 null，调用方自行回退到原 canvas。
+     *
+     * @param {number} targetPhysicalSize 期望的物理像素短边
+     * @param {() => void} redrawFn 重绘回调（通常是 game.render()）
+     * @returns {HTMLCanvasElement|null}
+     */
+    captureHighResSnapshot(targetPhysicalSize, redrawFn) {
+        if (typeof redrawFn !== 'function') return null;
+        if (!Number.isFinite(targetPhysicalSize) || targetPhysicalSize <= 0) return null;
+        const lw = this.logicalW;
+        const lh = this.logicalH;
+        if (!(lw > 0 && lh > 0)) return null;
+
+        const oldDpr = this.dpr;
+        /* 期望物理像素至少达到 targetPhysicalSize；向上取整防止 sub-pixel；
+         * 与现状对比若已经 ≥ 目标，直接复制现状即可，跳过临时升 dpr 的代价。 */
+        const desiredDpr = Math.ceil(targetPhysicalSize / lw);
+        const off = document.createElement('canvas');
+
+        if (desiredDpr <= oldDpr) {
+            off.width = this.canvas.width;
+            off.height = this.canvas.height;
+            try { off.getContext('2d').drawImage(this.canvas, 0, 0); } catch { return null; }
+            return off;
+        }
+
+        try {
+            this.dpr = desiredDpr;
+            this._applyCanvasSize(lw, lh);
+            redrawFn();
+            off.width = this.canvas.width;
+            off.height = this.canvas.height;
+            off.getContext('2d').drawImage(this.canvas, 0, 0);
+        } catch {
+            /* 失败时回退到尽力而为：返回 null，caller 用屏幕版本兜底 */
+            this.dpr = oldDpr;
+            this._applyCanvasSize(lw, lh);
+            try { redrawFn(); } catch { /* ignore */ }
+            return null;
+        } finally {
+            if (this.dpr !== oldDpr) {
+                this.dpr = oldDpr;
+                this._applyCanvasSize(lw, lh);
+                try { redrawFn(); } catch { /* ignore */ }
+            }
+        }
+        return off;
+    }
+
     setEffectsEnabled(enabled) {
         this._effectsEnabled = !!enabled;
         if (!this._effectsEnabled) {
@@ -986,17 +1075,33 @@ export class Renderer {
         syncGridDisplayPx(this.canvas);
     }
 
-    _randomWatermarkTarget(base, span) {
-        const amp = Math.max(8, span * (0.055 + Math.random() * 0.075));
-        return [
-            base[0] + (Math.random() * 2 - 1) * amp,
-            base[1] + (Math.random() * 2 - 1) * amp,
-        ];
+    _randomWatermarkTarget(base, span, W, H) {
+        const amp = Math.max(20, span * (WATERMARK_TARGET_AMP_BASE + Math.random() * WATERMARK_TARGET_AMP_RAND));
+        const tx = base[0] + (Math.random() * 2 - 1) * amp;
+        const ty = base[1] + (Math.random() * 2 - 1) * amp;
+        /* 软 clamp：允许部分溢出画布形成"擦边"漂浮感，但不让 icon 整个消失。
+         * W/H 缺省时（兼容旧调用签名）退化为不裁剪，行为与历史一致。 */
+        if (Number.isFinite(W) && Number.isFinite(H)) {
+            return [
+                Math.max(W * WATERMARK_TARGET_MIN, Math.min(W * WATERMARK_TARGET_MAX, tx)),
+                Math.max(H * WATERMARK_TARGET_MIN, Math.min(H * WATERMARK_TARGET_MAX, ty)),
+            ];
+        }
+        return [tx, ty];
     }
 
     _nextWatermarkRetargetTs(now) {
         return now + WATERMARK_DRIFT_MIN_INTERVAL_MS
             + Math.random() * (WATERMARK_DRIFT_MAX_INTERVAL_MS - WATERMARK_DRIFT_MIN_INTERVAL_MS);
+    }
+
+    _randomWatermarkEaseMs() {
+        return WATERMARK_EASE_MIN_MS + Math.random() * (WATERMARK_EASE_MAX_MS - WATERMARK_EASE_MIN_MS);
+    }
+
+    _randomWatermarkPhaseSpeed() {
+        return WATERMARK_PHASE_SPEED_MIN
+            + Math.random() * (WATERMARK_PHASE_SPEED_MAX - WATERMARK_PHASE_SPEED_MIN);
     }
 
     _watermarkPointsForFrame(skin, basePts, W, H) {
@@ -1010,12 +1115,12 @@ export class Renderer {
 
         if (drift.key !== key || drift.points.length !== basePts.length) {
             drift.key = key;
-            drift.points = basePts.map((p) => this._randomWatermarkTarget(p, span));
-            drift.targets = basePts.map((p) => this._randomWatermarkTarget(p, span));
+            drift.points = basePts.map((p) => this._randomWatermarkTarget(p, span, W, H));
+            drift.targets = basePts.map((p) => this._randomWatermarkTarget(p, span, W, H));
             drift.nextRetargetTs = basePts.map(() => this._nextWatermarkRetargetTs(now));
-            drift.easeMs = basePts.map(() => 5200 + Math.random() * 4200);
+            drift.easeMs = basePts.map(() => this._randomWatermarkEaseMs());
             drift.phase = basePts.map(() => Math.random() * Math.PI * 2);
-            drift.phaseSpeed = basePts.map(() => 0.00012 + Math.random() * 0.00022);
+            drift.phaseSpeed = basePts.map(() => this._randomWatermarkPhaseSpeed());
             drift.lastTs = now;
             return drift.points;
         }
@@ -1024,24 +1129,26 @@ export class Renderer {
         drift.lastTs = now;
         drift.points = drift.points.map((p, i) => {
             if (now >= (drift.nextRetargetTs[i] || 0)) {
-                drift.targets[i] = this._randomWatermarkTarget(basePts[i], span);
+                drift.targets[i] = this._randomWatermarkTarget(basePts[i], span, W, H);
                 drift.nextRetargetTs[i] = this._nextWatermarkRetargetTs(now);
-                drift.easeMs[i] = 5200 + Math.random() * 4200;
-                drift.phaseSpeed[i] = 0.00012 + Math.random() * 0.00022;
+                drift.easeMs[i] = this._randomWatermarkEaseMs();
+                drift.phaseSpeed[i] = this._randomWatermarkPhaseSpeed();
             }
             const t = drift.targets[i] || basePts[i];
-            const ease = 1 - Math.exp(-dt / (drift.easeMs[i] || 7200));
+            const ease = 1 - Math.exp(-dt / (drift.easeMs[i] || WATERMARK_EASE_MAX_MS));
             return [
                 p[0] + (t[0] - p[0]) * ease,
                 p[1] + (t[1] - p[1]) * ease,
             ];
         });
-        const wobble = Math.max(1.5, span * 0.012);
+        const wobble = Math.max(2, span * WATERMARK_WOBBLE_RATIO);
         return drift.points.map((p, i) => {
-            const phase = (drift.phase[i] || 0) + now * (drift.phaseSpeed[i] || 0.00018);
+            const phase = (drift.phase[i] || 0) + now * (drift.phaseSpeed[i] || WATERMARK_PHASE_SPEED_MIN);
+            /* 用不同频率比 (1.0 vs 0.83) 与不同半径让 sin/cos 形成 Lissajous 微闭环，
+             * 比纯圆周 (sin, cos) 更自然，不易被察觉是机械动画。 */
             return [
                 p[0] + Math.sin(phase) * wobble,
-                p[1] + Math.cos(phase * 0.83) * wobble,
+                p[1] + Math.cos(phase * 0.83) * wobble * 0.85,
             ];
         });
     }

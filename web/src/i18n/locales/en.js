@@ -79,8 +79,11 @@ export default {
     'game.summary.duration': 'Time',
     'game.actions.poster': 'Poster',
     'game.actions.share': 'Share',
+    'game.actions.replay': 'Replay',
     'game.actions.posterAria': 'Generate score poster',
     'game.actions.shareAria': 'Share this run',
+    'game.actions.replayAria': 'Watch this round\'s replay',
+    'game.replay.noFrames': 'Not enough frames to replay this round',
 
     'share.poster.callToPlay': 'PLAY NOW',
     'share.poster.hookHeadline': 'Can you beat {{score}} pts?',

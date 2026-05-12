@@ -161,8 +161,7 @@ function _shapeWeightChartHtml(shapeWeightsTop = []) {
     return (
         `<div class="shape-weight-chart" title="${_attrTitle(tip)}">` +
             `<div class="shape-weight-chart__head">` +
-                `<span>出块概率</span>` +
-                `<span>概率</span>` +
+                `<span>出块</span>` +
             `</div>` +
             `<div class="shape-weight-grid">${items}</div>` +
         `</div>`
@@ -959,8 +958,7 @@ function _render(game) {
             spawnDecisionCard =
                 `<div class="spawn-decision-card" title="${_attrTitle(snapshotTip)}">` +
                     `<div class="spawn-decision-card__head">` +
-                        `<span>📷 ${roundLabel} spawn 决策</span>` +
-                        `<span>快照</span>` +
+                        `<span>📷 ${roundLabel} spawn 决策快照</span>` +
                     `</div>` +
                     `<div class="spawn-decision-grid">${decisionCells.join('')}</div>` +
                 `</div>`;
