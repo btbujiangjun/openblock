@@ -185,4 +185,99 @@ export default {
     'skin.name.desert': '🐫 沙漠绿洲',
 
     'boot.fileProtocol': '游戏脚本未加载。请在项目根目录执行 npm run dev，用浏览器打开终端里的本地地址；不要用 file:// 直接打开 HTML。',
+
+    // ============ 玩家生命周期与成熟度系统 ============
+    // 成熟度等级
+    'maturity.L1': '探索者',
+    'maturity.L2': '爱好者',
+    'maturity.L3': '资深玩家',
+    'maturity.L4': '核心玩家',
+
+    // 生命周期阶段
+    'lifecycle.onboarding': '导入期',
+    'lifecycle.exploration': '探索期',
+    'lifecycle.growth': '成长期',
+    'lifecycle.stability': '稳定期',
+    'lifecycle.veteran': '核心期',
+
+    // 流失预警
+    'churn.risk.stable': '状态稳定',
+    'churn.risk.low': '轻度风险',
+    'churn.risk.medium': '中度风险',
+    'churn.risk.high': '高度风险',
+    'churn.risk.critical': '紧急风险',
+    'churn.alert.title': '回归有礼',
+    'churn.alert.message': '您有一份专属回归礼包待领取',
+    'churn.alert.cta': '立即领取',
+
+    // 社交引导
+    'social.intro.addFriend': '添加好友一起玩，更有趣！',
+    'social.intro.joinGuild': '加入公会，与志同道合的玩家一起成长！',
+    'social.intro.challengeFriend': '向好友发起挑战，证明你的实力！',
+    'social.intro.shareReplay': '分享你的精彩操作，吸引更多粉丝！',
+    'social.intro.inviteFriend': '邀请好友一起玩，领取邀请奖励！',
+    'social.progress.completed': '已完成',
+    'social.progress.milestone': '成就里程碑',
+
+    // VIP系统
+    'vip.level.0': '普通玩家',
+    'vip.level.1': 'VIP1',
+    'vip.level.2': 'VIP2',
+    'vip.level.3': 'VIP3',
+    'vip.level.4': 'VIP4',
+    'vip.level.5': 'VIP5',
+    'vip.badge.bronze': '铜牌',
+    'vip.badge.silver': '银牌',
+    'vip.badge.gold': '金牌',
+    'vip.badge.platinum': '铂金',
+    'vip.badge.diamond': '钻石',
+    'vip.benefit.adRemoval': '移除广告',
+    'vip.benefit.dailyBonus': '每日奖励',
+    'vip.benefit.expireProtection': '道具保护',
+    'vip.benefit.exclusiveShop': '专属商店',
+    'vip.benefit.prioritySupport': '优先客服',
+    'vip.benefit.betaAccess': '测试版体验',
+    'vip.benefit.customAvatar': '自定义头像',
+    'vip.benefit.nameColor': '专属名字颜色',
+    'vip.benefit.dedicatedChannel': '专属客服',
+
+    // 付费漏斗
+    'purchase.funnel.awareness': '认知',
+    'purchase.funnel.interest': '兴趣',
+    'purchase.funnel.consideration': '考虑',
+    'purchase.funnel.purchase': '购买',
+    'purchase.funnel.retention': '复购',
+    'purchase.firstOffer.starter': '首充特惠',
+    'purchase.firstOffer.value': '超值礼包',
+    'purchase.firstOffer.premium': '豪华大礼包',
+
+    // 难度适配
+    'difficulty.beginner': '新手模式',
+    'difficulty.easy': '简单模式',
+    'difficulty.normal': '普通模式',
+    'difficulty.hard': '困难模式',
+    'difficulty.expert': '专家模式',
+    'difficulty.reason.churnPrevention': '流失风险-降低难度',
+    'difficulty.reason.beginnerBonus': '新手保护-快速成功',
+    'difficulty.reason.onboarding': '导入期-温和难度',
+    'difficulty.reason.corePlayer': '核心玩家-提升挑战',
+
+    // 游戏结束
+    'game.over.newBest': '新纪录！',
+    'game.over.bestScore': '最高分',
+    'game.over.crown': '🏆',
+    'game.over.combo': '{{n}}连击',
+    'game.over.perfect': '完美！',
+
+    // 干预提示
+    'intervention.tutorial': '新手指南',
+    'intervention.firstPack': '首日大礼包',
+    'intervention.difficulty': '调整难度',
+    'intervention.quickWin': '快速成功体验',
+    'intervention.dailyTask': '每日任务',
+    'intervention.socialIntro': '社交功能',
+    'intervention.firstPurchase': '首充优惠',
+    'intervention.guildInvite': '邀请加入公会',
+    'intervention.rankPush': '段位冲刺',
+    'intervention.vipBadge': 'VIP标识',
 };

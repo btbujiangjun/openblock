@@ -3,6 +3,7 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
+import { initScoreAnimator, animateScore, setScoreImmediate, stopScoreAnimation } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from './adaptiveSpawn.js';
 import { PlayerProfile } from './playerProfile.js';
 import { GAME_RULES } from './gameRules.js';
@@ -2133,7 +2134,14 @@ export class Game {
                 console.error('progression', pe);
             } finally {
                 const overScore = document.getElementById('over-score');
-                if (overScore) overScore.textContent = this.score;
+                if (overScore) {
+                    initScoreAnimator();
+                    if (this.score > 0) {
+                        animateScore(this.score);
+                    } else {
+                        setScoreImmediate(this.score);
+                    }
+                }
                 const overXp = document.getElementById('over-xp');
                 if (overXp) {
                     if (progressionResult) {

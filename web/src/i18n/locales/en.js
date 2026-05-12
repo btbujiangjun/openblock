@@ -185,4 +185,99 @@ export default {
     'skin.name.desert': '🐫 Desert Oasis',
 
     'boot.fileProtocol': 'Game script did not load. Run npm run dev from the project root and open the local URL shown in the terminal; do not open the HTML via file://.',
+
+    // ============ Player Lifecycle & Maturity System ============
+    // Maturity Levels
+    'maturity.L1': 'Explorer',
+    'maturity.L2': 'Enthusiast',
+    'maturity.L3': 'Veteran',
+    'maturity.L4': 'Core Player',
+
+    // Lifecycle Stages
+    'lifecycle.onboarding': 'Onboarding',
+    'lifecycle.exploration': 'Exploration',
+    'lifecycle.growth': 'Growth',
+    'lifecycle.stability': 'Stability',
+    'lifecycle.veteran': 'Veteran',
+
+    // Churn Warning
+    'churn.risk.stable': 'Stable',
+    'churn.risk.low': 'Low Risk',
+    'churn.risk.medium': 'Medium Risk',
+    'churn.risk.high': 'High Risk',
+    'churn.risk.critical': 'Critical',
+    'churn.alert.title': 'Welcome Back!',
+    'churn.alert.message': 'You have an exclusive welcome gift waiting!',
+    'churn.alert.cta': 'Claim Now',
+
+    // Social Intro
+    'social.intro.addFriend': 'Add friends to play together - more fun!',
+    'social.intro.joinGuild': 'Join a guild and grow with like-minded players!',
+    'social.intro.challengeFriend': 'Challenge your friends and prove your skills!',
+    'social.intro.shareReplay': 'Share your amazing plays and attract fans!',
+    'social.intro.inviteFriend': 'Invite friends and earn rewards!',
+    'social.progress.completed': 'Completed',
+    'social.progress.milestone': 'Achievement Milestone',
+
+    // VIP System
+    'vip.level.0': 'Regular',
+    'vip.level.1': 'VIP1',
+    'vip.level.2': 'VIP2',
+    'vip.level.3': 'VIP3',
+    'vip.level.4': 'VIP4',
+    'vip.level.5': 'VIP5',
+    'vip.badge.bronze': 'Bronze',
+    'vip.badge.silver': 'Silver',
+    'vip.badge.gold': 'Gold',
+    'vip.badge.platinum': 'Platinum',
+    'vip.badge.diamond': 'Diamond',
+    'vip.benefit.adRemoval': 'Ad Removal',
+    'vip.benefit.dailyBonus': 'Daily Bonus',
+    'vip.benefit.expireProtection': 'Item Protection',
+    'vip.benefit.exclusiveShop': 'Exclusive Shop',
+    'vip.benefit.prioritySupport': 'Priority Support',
+    'vip.benefit.betaAccess': 'Beta Access',
+    'vip.benefit.customAvatar': 'Custom Avatar',
+    'vip.benefit.nameColor': 'Name Color',
+    'vip.benefit.dedicatedChannel': 'Dedicated Support',
+
+    // Purchase Funnel
+    'purchase.funnel.awareness': 'Awareness',
+    'purchase.funnel.interest': 'Interest',
+    'purchase.funnel.consideration': 'Consideration',
+    'purchase.funnel.purchase': 'Purchase',
+    'purchase.funnel.retention': 'Repurchase',
+    'purchase.firstOffer.starter': 'First Purchase',
+    'purchase.firstOffer.value': 'Value Pack',
+    'purchase.firstOffer.premium': 'Premium Pack',
+
+    // Difficulty
+    'difficulty.beginner': 'Beginner',
+    'difficulty.easy': 'Easy',
+    'difficulty.normal': 'Normal',
+    'difficulty.hard': 'Hard',
+    'difficulty.expert': 'Expert',
+    'difficulty.reason.churnPrevention': 'Churn Prevention - Easing Difficulty',
+    'difficulty.reason.beginnerBonus': 'Beginner Protection - Quick Success',
+    'difficulty.reason.onboarding': 'Onboarding - Gentle Difficulty',
+    'difficulty.reason.corePlayer': 'Core Player - Increased Challenge',
+
+    // Game Over
+    'game.over.newBest': 'New Record!',
+    'game.over.bestScore': 'Best',
+    'game.over.crown': '🏆',
+    'game.over.combo': '{{n}} Combo',
+    'game.over.perfect': 'Perfect!',
+
+    // Intervention
+    'intervention.tutorial': 'Tutorial',
+    'intervention.firstPack': 'First Day Pack',
+    'intervention.difficulty': 'Adjust Difficulty',
+    'intervention.quickWin': 'Quick Success',
+    'intervention.dailyTask': 'Daily Tasks',
+    'intervention.socialIntro': 'Social Features',
+    'intervention.firstPurchase': 'First Purchase',
+    'intervention.guildInvite': 'Join Guild',
+    'intervention.rankPush': 'Rank Push',
+    'intervention.vipBadge': 'VIP Badge',
 };

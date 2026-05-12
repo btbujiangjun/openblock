@@ -125,3 +125,54 @@
 - 社交功能优先做异步和轻分享，不强制好友关系。
 - 长期进度要可见、可解释、可暂停恢复。
 
+---
+
+## 7. v1.13 新增实现 (2026-05)
+
+> 以下模块已实现并通过测试，集成到 `web/src/retention/` 目录。
+
+### 7.1 玩家成熟度模型
+
+| 模块 | 功能 | 测试 |
+|------|------|------|
+| `playerMaturity.js` | L1-L4 四级成熟度计算模型 | 21 tests |
+| `playerLifecycleDashboard.js` | 生命周期阶段判定与分层指标 | 13 tests |
+| `churnPredictor.js` | 流失预警模型与干预机制 | 16 tests |
+| `difficultyAdapter.js` | 基于成熟度的智能难度适配 | 10 tests |
+
+### 7.2 社交与商业化
+
+| 模块 | 功能 | 测试 |
+|------|------|------|
+| `socialIntroTrigger.js` | 社交引入节点优化 | 6 tests |
+| `firstPurchaseFunnel.js` | 付费初体验漏斗 | 7 tests |
+| `vipSystem.js` | VIP等级体系与权益 | 9 tests |
+
+### 7.3 i18n 支持
+
+已为所有玩家面向内容添加多语言支持（zh-CN/en）：
+
+- 成熟度等级：`maturity.L1` - `maturity.L4`
+- 生命周期阶段：`lifecycle.onboarding` - `lifecycle.veteran`
+- 流失预警：`churn.risk.*`, `churn.alert.*`
+- 社交引导：`social.intro.*`, `social.progress.*`
+- VIP系统：`vip.level.*`, `vip.benefit.*`
+- 难度适配：`difficulty.*`, `intervention.*`
+
+### 7.4 测试验证
+
+```bash
+# 运行所有留存相关测试
+npm test -- tests/playerMaturity.test.js tests/playerLifecycleDashboard.test.js \
+  tests/churnPredictor.test.js tests/difficultyAdapter.test.js \
+  tests/socialIntroTrigger.test.js tests/firstPurchaseFunnel.test.js \
+  tests/vipSystem.test.js
+
+# 结果: 82 tests passed
+```
+
+### 7.5 文档入口
+
+- 完整 API 文档：`docs/platform/MONETIZATION_GUIDE.md` v1.13
+- 运营策略参考：`docs/platform/MONETIZATION_GUIDE.md` v1.13 玩家生命周期章节
+
