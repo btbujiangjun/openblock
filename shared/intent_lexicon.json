@@ -1,0 +1,71 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "since": "2026-05-12",
+    "purpose": "Shared lexicon between adaptiveSpawn / stressMeter (in-game) and pushNotificationSystem / dailyTasks (out-of-game) so spawnIntent semantics stay aligned with player-facing copy.",
+    "blueprintTask": "PLAYER_LIFECYCLE_MATURITY_BLUEPRINT P2-4",
+    "ownerDoc": "docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md"
+  },
+  "intents": {
+    "relief": {
+      "label_zh": "救济",
+      "label_en": "Relief",
+      "in_game_narrative_zh": "盘面通透又是兑现窗口，悄悄给你减压享受多消。",
+      "out_of_game_push_zh": "看到你最近遇到了挑战，登录领取一份小礼包重新出发。",
+      "out_of_game_task_zh": "完成 1 局轻松局可领取免费提示券。",
+      "tone": "supportive",
+      "preferred_stages": ["S0", "S1", "S4"],
+      "preferred_bands": ["M0", "M1"]
+    },
+    "engage": {
+      "label_zh": "召回",
+      "label_en": "Engage",
+      "in_game_narrative_zh": "注意到你停顿了一下，给你一个明显得分目标 + 友好开局。",
+      "out_of_game_push_zh": "新挑战已经准备好了，回来试试这个友好开局。",
+      "out_of_game_task_zh": "登录即可领取连击保护券，体验流畅手感。",
+      "tone": "inviting",
+      "preferred_stages": ["S2", "S3", "S4"],
+      "preferred_bands": ["M1", "M2"]
+    },
+    "pressure": {
+      "label_zh": "加压",
+      "label_en": "Pressure",
+      "in_game_narrative_zh": "正在挑战自我！系统略加压让收尾更有仪式感。",
+      "out_of_game_push_zh": "你离个人最佳只差一步，回来挑战刷新纪录。",
+      "out_of_game_task_zh": "今日挑战：再次冲击个人最佳分。",
+      "tone": "challenge",
+      "preferred_stages": ["S2", "S3"],
+      "preferred_bands": ["M2", "M3", "M4"]
+    },
+    "flow": {
+      "label_zh": "心流",
+      "label_en": "Flow",
+      "in_game_narrative_zh": "心流稳定，系统继续维持流畅的出块节奏。",
+      "out_of_game_push_zh": "进入心流的状态保持得不错，今天再来一局。",
+      "out_of_game_task_zh": "完成 1 局连续 3 次消行可领取额外奖励。",
+      "tone": "steady",
+      "preferred_stages": ["S1", "S2", "S3"],
+      "preferred_bands": ["M1", "M2", "M3"]
+    },
+    "harvest": {
+      "label_zh": "兑现",
+      "label_en": "Harvest",
+      "in_game_narrative_zh": "识别到密集消行机会，正在投放促清的形状。",
+      "out_of_game_push_zh": "盘面已经准备好让你大量消行，回来收获一波。",
+      "out_of_game_task_zh": "今日目标：单局达成多消组合。",
+      "tone": "rewarding",
+      "preferred_stages": ["S2", "S3"],
+      "preferred_bands": ["M2", "M3", "M4"]
+    },
+    "maintain": {
+      "label_zh": "维持",
+      "label_en": "Maintain",
+      "in_game_narrative_zh": "看起来比较轻松，悄悄加点料维持新鲜感。",
+      "out_of_game_push_zh": "保持每日节奏，登录领取累计奖励。",
+      "out_of_game_task_zh": "完成今日 1 局即可累计签到。",
+      "tone": "neutral",
+      "preferred_stages": ["S1", "S2"],
+      "preferred_bands": ["M1", "M2"]
+    }
+  }
+}
