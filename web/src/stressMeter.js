@@ -522,6 +522,10 @@ export function renderStressMeter(root, insight, stressHistory = []) {
                     `</div>` +
                     `<div class="stress-meter__bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${barPct}">` +
                         `<div class="stress-meter__bar-fill"></div>` +
+                        (Number.isFinite(insight.stressTarget)
+                            ? `<div class="stress-meter__bar-target" style="left:${_stressToBar(insight.stressTarget)}%" title="目标压力 ${insight.stressTarget.toFixed(2)}（${(insight.stressTarget * 100).toFixed(0)}%）"></div>` +
+                              `<div class="stress-meter__bar-delta">${stress >= insight.stressTarget ? '↑' : '↓'}${Math.abs(stress - insight.stressTarget).toFixed(2)}</div>`
+                            : '') +
                     `</div>` +
                     `<div class="stress-meter__story">${_attrText(story)}</div>` +
                 `</div>` +

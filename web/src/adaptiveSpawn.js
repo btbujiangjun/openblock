@@ -39,6 +39,7 @@ import {
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { analyzeBoardTopology } from './boardTopology.js';
 import { getAllShapes } from './shapes.js';
+import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -739,6 +740,58 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         .reduce((sum, [, value]) => sum + value, 0);
     stressBreakdown.rawStress = stress;
 
+    /* ---------- v1.32：S/M 标签生命周期难度调制 ----------
+     * 基于 PLAYER_LIFECYCLE_MATURITY_BLUEPRINT，不同阶段的玩家承受不同的压力上限。
+     * S0/S4 回流期需要保护；S2/S3 成长/稳定期可以承受更高压力。
+     */
+    let lifecycleStressAdjust = 0;
+    try {
+        const snap = getLifecycleMaturitySnapshot({
+            daysSinceInstall: profile?._daysSinceInstall ?? 0,
+            totalSessions: profile?._totalSessions ?? profile?.lifetimeGames ?? 0,
+            daysSinceLastActive: profile?._daysSinceLastActive ?? 0,
+        });
+        const stage = snap?.stageCode ?? 'S0';
+        const band = snap?.band ?? 'M0';
+        const key = `${stage}·${band}`;
+
+        /* S/M 压力上限映射表（与 lifecyclePlaybook 同步） */
+        const lifecycleStressCapMap = {
+            'S0·M0': { cap: 0.50, adjust: -0.15 },   // 新手强保护
+            'S1·M0': { cap: 0.60, adjust: -0.10 },   // 探索期减压
+            'S1·M1': { cap: 0.65, adjust: -0.05 },
+            'S1·M2': { cap: 0.70, adjust: 0 },
+            'S2·M0': { cap: 0.65, adjust: -0.10 },   // 成长新手友好
+            'S2·M1': { cap: 0.70, adjust: 0 },
+            'S2·M2': { cap: 0.75, adjust: 0.05 },
+            'S2·M3': { cap: 0.82, adjust: 0.10 },   // 高手可承受更高压力
+            'S3·M1': { cap: 0.72, adjust: 0 },
+            'S3·M2': { cap: 0.78, adjust: 0.05 },
+            'S3·M3': { cap: 0.85, adjust: 0.10 },
+            'S3·M4': { cap: 0.88, adjust: 0.12 },   // 核心玩家
+            'S4·M0': { cap: 0.55, adjust: -0.15 },   // 回流保护
+            'S4·M1': { cap: 0.60, adjust: -0.10 },
+            'S4·M2': { cap: 0.70, adjust: 0 },
+            'S4·M3': { cap: 0.75, adjust: 0.05 },
+            'S4·M4': { cap: 0.80, adjust: 0.08 },
+        };
+
+        const config = lifecycleStressCapMap[key];
+        if (config) {
+            /* 1. 应用压力上限：当前 stress 超过上限时压低 */
+            if (stress > config.cap) {
+                lifecycleStressAdjust = config.cap - stress;
+                stress = config.cap;
+            }
+            /* 2. 额外偏移：某些阶段整体减压或加压 */
+            stress += config.adjust;
+            stress = Math.max(-0.2, Math.min(1, stress));
+        }
+        stressBreakdown.lifecycleStage = stage;
+        stressBreakdown.lifecycleBand = band;
+        stressBreakdown.lifecycleStressAdjust = lifecycleStressAdjust;
+    } catch { /* lifecycle 数据缺失不影响主流程 */ }
+
     /* ---------- 特殊覆写：新手保护 ---------- */
     const inOnboarding = profile.isInOnboarding;
     if (inOnboarding) {
@@ -1364,6 +1417,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             orderMaxValidPerms: Math.max(1, Math.min(6, orderMaxValidPerms))
         },
         _adaptiveStress: stress,
+        _stressTarget: 0.325,
         _difficultyBias: difficultyBias,
         _difficultyTuning: difficultyTuning,
         _holePressure: holePressure,

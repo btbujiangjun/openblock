@@ -340,6 +340,7 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             stress: layered._adaptiveStress,
+            stressTarget: layered._stressTarget ?? 0.325,
             difficultyBias: layered._difficultyBias,
             flowState: layered._flowState,
             flowDeviation: layered._flowDeviation,
@@ -757,6 +758,9 @@ export class Game {
             this.isGameOver = false;
             this._endGameInFlight = null;
             document.body.classList.remove('game-over-active');
+            // v10.18.6：清理游戏结束浮层中的皇冠图标
+            const _crown = document.querySelector('.new-best-crown');
+            if (_crown) _crown.remove();
             // v10.18：仅复位每局重新渲染的内嵌进度；分享/海报按钮一次注入后跨局复用，不在这里清空
             const _digest = document.getElementById('over-digest');
             if (_digest) { _digest.innerHTML = ''; _digest.hidden = true; }
@@ -1151,7 +1155,11 @@ export class Game {
             if (requestId !== this._spawnRequestId || this.isGameOver) return;
             this._lastAdaptiveInsight = this._lastAdaptiveInsight || {};
             this._lastAdaptiveInsight.spawnModelMeta = meta;
+            const prevStress = this._spawnContext.prevAdaptiveStress ?? layered._adaptiveStress;
+            const currStress = layered._adaptiveStress ?? 0.5;
+            const smoothDelta = Math.max(-0.15, Math.min(0.15, currStress - prevStress));
             this._commitSpawn(shapes, layered, opts, source);
+            this._spawnContext.prevAdaptiveStress = (this._spawnContext.prevAdaptiveStress ?? 0.5) + smoothDelta;
             this._spawnPending = false;
             if (opts.checkGameOver !== false) {
                 this.checkGameOver();
@@ -1737,6 +1745,13 @@ export class Game {
                     blockId: this.dragBlock.id
                 });
 
+                /* v1.32：近失反馈强化 — 当板面较满但未能消行时，触发鼓励性反馈
+                 * 心理学依据：研究表明 "near-miss" 场景反而增强玩家续玩意愿
+                 * 条件：放置前 fill > 0.55 且本轮消行数 = 0 */
+                if (fillBefore > 0.55) {
+                    this._triggerNearMissFeedback();
+                }
+
                 this._checkToughPlacement(this.dragBlock, fillBefore, validsBefore);
 
                 if (this.dockBlocks.every(b => b.placed)) {
@@ -1790,6 +1805,11 @@ export class Game {
         const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
 
         this.score += clearScore;
+        const justHitMilestone = this._lastAdaptiveInsight?.milestoneHit === true;
+        if (justHitMilestone) {
+            this._lastAdaptiveInsight.milestoneHit = false;
+            this.showFloatScore(0, 'milestone');
+        }
         this.gameStats.score = this.score;
         this.gameStats.clears += result.count;
         this.gameStats.maxLinesCleared = Math.max(this.gameStats.maxLinesCleared, result.count);
@@ -1977,14 +1997,25 @@ export class Game {
     showNoMovesWarning() {
         clearTimeout(this._noMovesTimer);
         this._noMovesTimer = null;
-        // 兼容旧实现可能残留的浮层
         document.querySelectorAll('.no-moves-overlay').forEach((el) => el.remove());
         if (this.isGameOver || this._endGameInFlight) return;
-        // 给最后一次粒子收尾留 250ms，再进入内嵌结算
+        const nearMiss = this._lastAdaptiveInsight?.nearMissCount > 0
+            || this._spawnContext?.roundsSinceClear >= 3;
+        if (nearMiss) {
+            const tipEl = document.createElement('div');
+            tipEl.className = 'float-score float-near-miss';
+            tipEl.innerHTML = `<span class="float-label">差一点...</span><span class="float-pts">再冲一把！</span>`;
+            tipEl.style.left = '50%';
+            tipEl.style.top = '28%';
+            tipEl.style.transform = 'translateX(-50%)';
+            tipEl.style.zIndex = '1300';
+            document.body.appendChild(tipEl);
+            setTimeout(() => tipEl.remove(), 1200);
+        }
         this._noMovesTimer = setTimeout(() => {
             this._noMovesTimer = null;
             void this.endGame({ noMovesLoss: true });
-        }, 250);
+        }, nearMiss ? 600 : 250);
     }
 
     /**
@@ -2135,6 +2166,14 @@ export class Game {
             } finally {
                 const overScore = document.getElementById('over-score');
                 if (overScore) {
+                    const persistedBestBase = this._bestScoreAtRunStart ?? this.bestScore;
+                    const isNewBest = this.score > persistedBestBase;
+                    if (isNewBest) {
+                        const crown = document.createElement('span');
+                        crown.className = 'new-best-crown';
+                        crown.textContent = t('game.over.crown');
+                        overScore.parentNode.insertBefore(crown, overScore);
+                    }
                     initScoreAnimator();
                     if (this.score > 0) {
                         animateScore(this.score);
@@ -2439,7 +2478,8 @@ export class Game {
         const previousBest = Number.isFinite(runStartBest) && runStartBest > 0
             ? runStartBest
             : (Number.isFinite(currentBest) ? currentBest : 0);
-        if (!(Number.isFinite(this.score) && this.score > previousBest)) return false;
+        const EPSILON = 1e-9;
+        if (!(Number.isFinite(this.score) && this.score > previousBest + EPSILON)) return false;
 
         this._newBestCelebrated = true;
         this.bestScore = this.score;
@@ -2460,6 +2500,21 @@ export class Game {
     }
 
     /**
+     * v1.32：近失反馈强化
+     * 当板面较满但未能消行时触发，给玩家鼓励性反馈，增强续玩意愿
+     */
+    _triggerNearMissFeedback() {
+        const nearMissEl = document.createElement('div');
+        nearMissEl.className = 'float-score float-near-miss';
+        nearMissEl.innerHTML = `<span class="float-label">差一点！</span><span class="float-pts">💪</span>`;
+        nearMissEl.style.left = '50%';
+        nearMissEl.style.top = '28%';
+        nearMissEl.style.transform = 'translateX(-50%)';
+        document.body.appendChild(nearMissEl);
+        setTimeout(() => nearMissEl.remove(), 1500);
+    }
+
+    /**
      * @param {number} [bonusUiHoldMs=0]  有同色 bonus 时传入与粒子阶段相同的 hold（ms），用于顶栏分数与粒子同步消失
      */
     showFloatScore(score, type, linesCleared = 0, iconBonus = 0, bonusUiHoldMs = 0) {
@@ -2467,6 +2522,7 @@ export class Game {
         const isNewBest = type === 'new-best';
         const isCombo = type === 'combo';
         const isPerfect = type === 'perfect';
+        const isMilestone = type === 'milestone';
         const hasIconBonus = iconBonus > 0;
 
         if (hasIconBonus) {
@@ -2508,15 +2564,18 @@ export class Game {
             el.innerHTML = `<span class="float-label">${t('effect.multiClear', { n: linesCleared })}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
             el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}</span><span class="float-pts">+${score}</span>`;
+        } else if (isMilestone) {
+            el.className = 'float-score float-new-best';
+            el.innerHTML = `<span class="float-label">${t('effect.milestoneHit')}</span><span class="float-pts">🎯</span>`;
         } else {
             el.textContent = '+' + score;
         }
 
         el.style.left = '50%';
-        el.style.top = isNewBest ? '16%' : isPerfect ? '18%' : isCombo ? '22%' : '25%';
+        el.style.top = isNewBest ? '16%' : isPerfect ? '18%' : isCombo ? '22%' : isMilestone ? '14%' : '25%';
         el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
-        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : 600;
+        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : isMilestone ? 1800 : 600;
         setTimeout(() => el.remove(), floatHoldMs);
     }
 
@@ -2552,10 +2611,17 @@ export class Game {
         if (gapEl) {
             const gap = this.bestScore - this.score;
             if (this._levelMode === 'endless' && gap > 0 && this.bestScore > 0) {
-                gapEl.textContent = t('best.gap', { gap });
+                const ratio = gap / this.bestScore;
+                const msg = ratio <= 0
+                    ? t('best.gap.victory')
+                    : ratio <= 0.05
+                        ? t('best.gap.close')
+                        : ratio <= 0.15
+                            ? t('best.gap.neutral', { gap })
+                            : t('best.gap.far');
+                gapEl.textContent = msg;
                 gapEl.hidden = false;
-                // 接近最高分时高亮
-                gapEl.className = 'best-gap' + (gap <= this.bestScore * 0.1 ? ' best-gap--close' : '');
+                gapEl.className = 'best-gap' + (ratio <= 0.05 ? ' best-gap--close' : '');
             } else {
                 gapEl.hidden = true;
             }

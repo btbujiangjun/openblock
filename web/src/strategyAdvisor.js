@@ -11,13 +11,17 @@
  *   pace       — 节奏：放慢 / 加速 / 节奏呼吸
  *   explore    — 探索：新手引导 / 新鲜感
  *   combo      — 连击链：combo 催化 / 里程碑
+ *   lifecycle  — 生命周期：S/M 标签驱动的长期策略
  *
  * Layer 同步：
  *   insight.spawnHints.rhythmPhase   → 节奏建议
  *   insight.spawnHints.comboChain    → combo 链建议
  *   insight.spawnHints.sessionArc    → session 弧线建议
  *   insight.spawnDiagnostics         → 盘面拓扑建议
+ *   S/M 标签（lifecyclePlaybook）     → 长期策略建议
  */
+
+import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
 
 /**
  * @typedef {Object} StrategyTip
@@ -92,6 +96,74 @@ export function generateStrategyTips(profile, insight, gridInfo) {
     const _liveMultiClearCands = Number.isFinite(gridInfo?.liveMultiClearCandidates)
         ? gridInfo.liveMultiClearCandidates
         : (diag?.layer1?.multiClearCandidates ?? 0);
+
+    /* ── 0. S/M 标签与生命周期策略 ──
+     * v1.32：基于 PLAYER_LIFECYCLE_MATURITY_BLUEPRINT，把 S（生命周期阶段）× M（成熟度）
+     * 标签融入策略解释，让玩家理解当前出块背后的长期运营意图。
+     *
+     * 策略映射表：
+     *   S0·M0：新手保护期 → 友好出块 + 快速成功体验
+     *   S1·M0：探索期新手 → 瓶颈引导 + 安全网
+     *   S1·M1：探索期成长 → 轻度挑战 + 任务密度
+     *   S1·M2：探索期熟练 → 周循环种子
+     *   S2·M0：成长期新手 → 友好出块 + 首购预热
+     *   S2·M1：成长期成长 → 周挑战主推 + 首购礼包
+     *   S2·M2：成长期熟练 → 限时挑战 + 层级礼包
+     *   S2·M3：成长期资深 → 段位冲刺 + 排行榜推送
+     *   S3·M1：稳定期成长 → 里程碑晋升
+     *   S3·M2：稳定期熟练 → 赛季目标 + 层级升级
+     *   S3·M3：稳定期资深 → 排行榜推送 + 社区邀请
+     *   S3·M4：稳定期核心 → VIP 特权
+     *   S4·M0：回流期新手 → 保护局 + 高价值小奖励
+     *   S4·M1：回流期成长 → 保护局 + 首购召回
+     *   S4·M2：回流期熟练 → 回流挑战 + 召回礼包
+     *   S4·M3：回流期资深 → 回流挑战 + 赛季重置
+     *   S4·M4：回流期核心 → VIP 召回包
+     */
+    let lifecycleTip = null;
+    try {
+        const snap = getLifecycleMaturitySnapshot({
+            daysSinceInstall: profile?._daysSinceInstall ?? 0,
+            totalSessions: profile?._totalSessions ?? profile?.lifetimeGames ?? 0,
+            daysSinceLastActive: profile?._daysSinceLastActive ?? 0,
+        });
+        const stage = snap?.stageCode ?? 'S0';
+        const band = snap?.band ?? 'M0';
+        const key = `${stage}·${band}`;
+
+        const lifecycleStrategyMap = {
+            'S0·M0': { icon: '🌱', title: '新手保护', detail: '出块已优化为友好模式，快速建立消行节奏，体验成就感。', priority: 0.92 },
+            'S1·M0': { icon: '🎯', title: '瓶颈引导', detail: '遇到困难时系统会减压；先熟悉基础操作和消行规律。', priority: 0.85 },
+            'S1·M1': { icon: '⚡', title: '适度挑战', detail: '出块难度逐渐提升，尝试构建多行同消获得更高分。', priority: 0.80 },
+            'S1·M2': { icon: '🏆', title: '周循环', detail: '解锁周挑战资格，出块开始引入更有节奏感的压力波动。', priority: 0.75 },
+            'S2·M0': { icon: '🌱', title: '友好过渡', detail: '出块偏友好，帮助建立信心，逐步适应游戏节奏。', priority: 0.85 },
+            'S2·M1': { icon: '📋', title: '任务驱动', detail: '每日任务已激活，完成目标可获得额外奖励，关注任务进度。', priority: 0.78 },
+            'S2·M2': { icon: '⏱️', title: '限时挑战', detail: '系统推送限时挑战，完成可加速成长；尝试连续消行获得高分。', priority: 0.72 },
+            'S2·M3': { icon: '📈', title: '冲刺段位', detail: '接近段位提升阈值，出块挑战加大，专注构型争取连消。', priority: 0.68 },
+            'S3·M1': { icon: '🎖️', title: '里程碑', detail: '接近成熟度晋升，达成目标解锁新功能和特权。', priority: 0.70 },
+            'S3·M2': { icon: '🎯', title: '赛季目标', detail: '赛季目标进行中，完成可获得限定奖励，关注排行榜位置。', priority: 0.65 },
+            'S3·M3': { icon: '👑', title: '排行榜冲刺', detail: '当前处于高段位竞争，出块难度达峰值；专注长期规划。', priority: 0.60 },
+            'S3·M4': { icon: '💎', title: 'VIP 特权', detail: '核心玩家特权激活，享专属内容和加速通道；感谢支持！', priority: 0.55 },
+            'S4·M0': { icon: '🛡️', title: '回归保护', detail: '久别回归，系统提供保护局和友好出块，慢慢找回手感。', priority: 0.90 },
+            'S4·M1': { icon: '🎁', title: '召回礼包', detail: '首购优惠进行中，完成任务可获得超值道具。', priority: 0.82 },
+            'S4·M2': { icon: '🔥', title: '回流挑战', detail: '回归挑战已激活，短时间内达成目标可获额外奖励。', priority: 0.75 },
+            'S4·M3': { icon: '🔄', title: '赛季重置', detail: '新赛季开始，重置排行榜位置；抓住机会冲击新高。', priority: 0.70 },
+            'S4·M4': { icon: '👑', title: 'VIP 召回', detail: '核心玩家回归礼包待领取，专属特权已备好，欢迎回来！', priority: 0.65 },
+        };
+
+        const mapped = lifecycleStrategyMap[key];
+        if (mapped) {
+            lifecycleTip = {
+                icon: mapped.icon,
+                title: mapped.title,
+                detail: mapped.detail,
+                priority: mapped.priority,
+                category: 'lifecycle',
+                stage,
+                band,
+            };
+        }
+    } catch { /* lifecycle 数据缺失不应阻塞策略建议 */ }
 
     /* ── 1. 生存优先 (Layer 1) ── */
     if (fill > 0.75) {
@@ -324,6 +396,14 @@ export function generateStrategyTips(profile, insight, gridInfo) {
             detail: '游戏时间较长且状态有所下滑，适当休息能恢复专注力。',
             priority: 0.35, category: 'pace'
         });
+    }
+
+    /* ── 14. S/M 生命周期策略 ──
+     * v1.32：基于 lifecyclePlaybook 的 S×M 矩阵，展示当前出块策略背后的长期运营意图。
+     * 非新手玩家均可看到；优先级略低于生存/连击类建议，但高于构型/节奏类建议。
+     */
+    if (lifecycleTip && tips.length < 4) {
+        tips.push(lifecycleTip);
     }
 
     /* ── 兜底 ── */

@@ -199,6 +199,341 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
+## 8. S/M 标签在策略面板的生效机制（v1.32）
+
+> 本节记录 S（生命周期阶段）× M（成熟度）标签如何在 `playerInsightPanel.js` 的「实时策略」与「策略解释」区域落地展示。
+
+### 8.1 概述
+
+| 组件 | 数据来源 | 展示内容 |
+|------|----------|----------|
+| **实时策略卡片** | `strategyAdvisor.js` → `generateStrategyTips()` | 1~3 条策略建议，含 lifecycle category |
+| **策略解释** | `playerInsightPanel.js` → `_buildWhyLines()` / `_hintsExplain()` | 按来源分组：自适应出块 / 出块决策 / 生命周期 |
+
+### 8.2 生命周期策略映射表
+
+| 标签组合 | 策略标题 | 核心意图 | 说明 |
+|----------|----------|----------|------|
+| S0·M0 | 🌱 新手保护 | 友好出块，快速建立消行节奏 | 新手保护期内，stress 上限压低 |
+| S1·M0 | 🎯 瓶颈引导 | 瓶颈提示 + 安全网 | 遇到困难时系统减压 |
+| S1·M1 | ⚡ 适度挑战 | 逐步提升难度 | 尝试构建多行同消 |
+| S1·M2 | 🏆 周循环 | 解锁周挑战资格 | 出块引入节奏感压力波动 |
+| S2·M0 | 🌱 友好过渡 | 友好出块 + 首购预热 | 帮助建立信心 |
+| S2·M1 | 📋 任务驱动 | 每日任务已激活 | 完成目标获得额外奖励 |
+| S2·M2 | ⏱️ 限时挑战 | 限时挑战 + 层级礼包 | 尝试连续消行获得高分 |
+| S2·M3 | 📈 冲刺段位 | 段位冲刺 + 排行榜推送 | 专注构型争取连消 |
+| S3·M1 | 🎖️ 里程碑 | 成熟度晋升 | 达成目标解锁新功能 |
+| S3·M2 | 🎯 赛季目标 | 赛季目标进行中 | 关注排行榜位置 |
+| S3·M3 | 👑 排行榜冲刺 | 高段位竞争 | 出块难度达峰值，专注长期规划 |
+| S3·M4 | 💎 VIP 特权 | 核心特权 | 专属内容和加速通道 |
+| S4·M0 | 🛡️ 回归保护 | 保护局 + 高价值小奖励 | 慢慢找回手感 |
+| S4·M1 | 🎁 召回礼包 | 首购优惠进行中 | 完成任务获得超值道具 |
+| S4·M2 | 🔥 回流挑战 | 回归挑战已激活 | 短时间内达成目标获额外奖励 |
+| S4·M3 | 🔄 赛季重置 | 新赛季开始 | 重置排行榜位置，冲击新高 |
+| S4·M4 | 👑 VIP 召回 | 核心回归礼包 | 专属特权已备好，欢迎回来 |
+
+### 8.3 代码入口
+
+**策略生成** (`web/src/strategyAdvisor.js`):
+```javascript
+// 导入生命周期快照
+import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
+
+// 生成策略时获取 S/M 标签
+const snap = getLifecycleMaturitySnapshot({ daysSinceInstall, totalSessions, daysSinceLastActive });
+const stage = snap?.stageCode ?? 'S0';
+const band = snap?.band ?? 'M0';
+const key = `${stage}·${band}`;
+
+// 根据 key 匹配策略映射
+const lifecycleStrategyMap = {
+    'S0·M0': { icon: '🌱', title: '新手保护', detail: '...', priority: 0.92 },
+    // ...
+};
+
+// 生成 lifecycle tip
+const lifecycleTip = {
+    icon: mapped.icon,
+    title: mapped.title,
+    detail: mapped.detail,
+    priority: mapped.priority,
+    category: 'lifecycle',
+    stage,
+    band,
+};
+```
+
+**面板渲染** (`web/src/playerInsightPanel.js`):
+```javascript
+// 实时策略区域
+const tips = generateStrategyTips(p, ins, gridInfo);
+// tips 中包含 lifecycle 类别的策略
+
+// 策略解释区域 - 按来源分组
+const adaptiveBullets = _buildWhyLines(ins, p);           // 自适应出块
+const spawnBullets = _hintsExplain(ins.spawnHints);       // 出块决策
+const lifecycleBullets = [lifecycleTip.detail];            // 生命周期
+
+// 分组 HTML
+htmlParts.push(`<div class="why-group">
+    <div class="why-group-label">📊 自适应出块</div>
+    <ul>${adaptiveBullets}</ul>
+</div>`);
+htmlParts.push(`<div class="why-group">
+    <div class="why-group-label">🎯 出块决策</div>
+    <ul>${spawnBullets}</ul>
+</div>`);
+htmlParts.push(`<div class="why-group">
+    <div class="why-group-label">📱 生命周期</div>
+    <ul>${lifecycleBullets}</ul>
+</div>`);
+```
+
+### 8.4 策略优先级体系
+
+| 优先级 | 类别 | 说明 |
+|--------|------|------|
+| 0.95+ | survival | 紧急清行、恢复模式 |
+| 0.85+ | combo | 连击链、里程碑 |
+| 0.78+ | lifecycle | S/M 标签策略 |
+| 0.65+ | build | 构型建议 |
+| 0.45+ | pace | 节奏建议 |
+
+### 8.5 样式配置
+
+| CSS 类 | 样式 | 说明 |
+|--------|------|------|
+| `.strategy-tip--lifecycle` | 紫色标题 `#9333ea` | 生命周期策略卡片 |
+| `.why-group` | 分组容器 | 策略解释分组 |
+| `.why-group-label` | 分组标题 | 9px 粗体，次要文字色 |
+
+---
+
+## 9. 挑战最高分游戏设计优化（v1.32）
+
+> 本节记录"挑战个人最高分"游戏模式的全部优化实现，包括 S/M 生命周期联动、近失反馈强化、分数锚定可视化、难度曲线平滑、里程碑触发、策略面板深度整合和失败过渡优化。
+
+### 9.1 S/M 标签与出块难度联动
+
+**目标**：S/M 标签实际影响出块难度，而非仅限 UI 显示。
+
+**实现位置**：`web/src/adaptiveSpawn.js` — `lifecycleStressCapMap`（第 759~777 行）
+
+**机制**：
+- 在综合 stress 计算完成后，基于 `getLifecycleMaturitySnapshot` 获取 `stageCode`（S0~S4）和 `band`（M0~M4）
+- 从 `lifecycleStressCapMap` 查表获取该阶段×成熟度的压力上限（cap）和偏移量（adjust）
+- 对 stress 应用上限（超过 cap 时压低）+ 额外偏移
+- 结果写入 `stressBreakdown.lifecycleStage`、`stressBreakdown.lifecycleBand`、`stressBreakdown.lifecycleStressAdjust`
+
+**映射表**（与 `lifecyclePlaybook` 同步）：
+
+| 标签 | cap | adjust | 说明 |
+|------|-----|--------|------|
+| S0·M0 | 0.50 | -0.15 | 新手强保护 |
+| S1·M0 | 0.60 | -0.10 | 探索期减压 |
+| S1·M1 | 0.65 | -0.05 | |
+| S1·M2 | 0.70 | 0 | |
+| S2·M0 | 0.65 | -0.10 | 成长新手友好 |
+| S2·M1 | 0.70 | 0 | |
+| S2·M2 | 0.75 | 0.05 | |
+| S2·M3 | 0.82 | 0.10 | 高手可承受更高压力 |
+| S3·M1 | 0.72 | 0 | |
+| S3·M2 | 0.78 | 0.05 | |
+| S3·M3 | 0.85 | 0.10 | |
+| S3·M4 | 0.88 | 0.12 | 核心玩家 |
+| S4·M0 | 0.55 | -0.15 | 回流保护 |
+| S4·M1 | 0.60 | -0.10 | |
+| S4·M2 | 0.70 | 0 | |
+| S4·M3 | 0.75 | 0.05 | |
+| S4·M4 | 0.80 | 0.08 | |
+
+### 9.2 近失反馈强化
+
+**目标**：在"差一点就消行"的局面下提供明显的视觉和文字鼓励。
+
+**触发条件**：`fillBefore > 0.55` 且本轮消行数 = 0（在 `game.js` 第 1746 行）
+
+**浮层实现**（`_triggerNearMissFeedback`，第 2485 行）：
+- 元素 class：`float-score float-near-miss`
+- 文字内容：`<span class="float-label">差一点！</span><span class="float-pts">💪</span>`
+- 持续时间：1500ms
+
+**CSS 样式**（`main.css`）：
+```css
+.float-near-miss {
+    color: #c0392b;          /* 深红配橙色 */
+    font-size: clamp(26px, 5.5vw, 38px);
+    animation: nearMissFloat 1.5s ease-out forwards;
+    text-shadow:
+        0 0 14px rgba(255, 80, 80, 0.85),
+        0 0 28px rgba(255, 60, 30, 0.5),
+        0 2px 5px rgba(0, 0, 0, 0.3);
+    z-index: 1200;
+}
+.float-near-miss .float-label {
+    color: #ff6b6b;           /* 明亮红 */
+    letter-spacing: 0.15em;
+}
+.float-near-miss .float-pts {
+    font-size: 1.05em;
+}
+@keyframes nearMissFloat {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.78); }
+    15%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.16); }
+    45%  { opacity: 1; transform: translateX(-50%) translateY(-10px) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-44px) scale(0.94); }
+}
+```
+
+### 9.3 分数锚定可视化
+
+**目标**：显示与历史最佳分的差距，根据比例展示不同档位信息。
+
+**实现位置**：`game.js` — `updateUI()` 第 2590~2606 行
+
+**档位判定**（ratio = gap / bestScore）：
+
+| ratio 区间 | i18n key | 中文示例 | CSS 类 |
+|------------|----------|----------|--------|
+| ≤ 0 | `best.gap.victory` | 就差一点！再冲一把！ | — |
+| ≤ 5% | `best.gap.close` | 接近了！💪 | `best-gap--close` |
+| ≤ 15% | `best.gap.neutral` | 差 {gap} 分 | — |
+| > 15% | `best.gap.far` | 继续努力~ | — |
+
+**i18n 新增键**（`zh-CN.js` / `en.js`）：
+- `best.gap.victory` / `best.gap.close` / `best.gap.neutral` / `best.gap.far`
+
+**接近时触发高亮动画**（`best-gap--close`）：
+```css
+.best-gap--close {
+    animation: best-gap-pulse 1.2s ease-in-out infinite;
+}
+```
+
+### 9.4 难度曲线平滑
+
+**目标**：防止 stress 在相邻轮次间发生剧烈跳变，最大 ±0.15/步。
+
+**实现位置**：`game.js` — `_spawnBlocksWithModel()` 的 `finish()` 回调（第 1157~1161 行）
+
+**机制**：
+```javascript
+const prevStress = this._spawnContext.prevAdaptiveStress ?? layered._adaptiveStress;
+const currStress = layered._adaptiveStress ?? 0.5;
+const smoothDelta = Math.max(-0.15, Math.min(0.15, currStress - prevStress));
+this._commitSpawn(shapes, layered, opts, source);
+this._spawnContext.prevAdaptiveStress = (this._spawnContext.prevAdaptiveStress ?? 0.5) + smoothDelta;
+```
+- 仅在模型路径（`model-v3` / `rule-fallback`）的 `finish()` 中应用
+- 记录到 `_spawnContext.prevAdaptiveStress`，供下一轮平滑使用
+
+### 9.5 多级里程碑触发
+
+**目标**：在分数达到里程碑时（50/100/150/200/300/500）展示显著视觉反馈。
+
+**触发时机**：`playClearEffect()` 中消费 `_lastAdaptiveInsight.milestoneHit`（第 1810 行）
+
+**浮层类型**：`showFloatScore(0, 'milestone')`（第 1813 行）
+
+**样式**：复用 `float-new-best` 的彩虹渐变动画（2.3s），位置偏上（top: 14%），持续 1800ms
+
+**i18n**：`effect.milestoneHit` = "里程碑达成！" / "Milestone!"
+
+**里程碑列表**（`adaptiveSpawn.js` 第 427 行）：
+```javascript
+const MILESTONE_SCORES = [50, 100, 150, 200, 300, 500];
+```
+
+### 9.6 策略面板深度整合
+
+**目标**：策略面板显示当前 stress vs 目标 stress 的对比。
+
+**数据流**：
+1. `adaptiveSpawn.js` 输出 `_stressTarget: 0.325`（第 1422 行）
+2. `game.js` 将其同步到 `_lastAdaptiveInsight.stressTarget`（第 364 行）
+3. `stressMeter.js` 的 `renderStressMeter()` 读取并渲染（第 525~528 行）
+
+**UI 元素**：
+- **目标标记线**：金色竖线（`.stress-meter__bar-target`）在进度条上标记目标位置
+- **差值显示**：小标签（`.stress-meter__bar-delta`）显示 `↑+0.05` 或 `↓-0.12`（当前值与目标的差）
+
+**CSS 样式**（`main.css`）：
+```css
+.stress-meter__bar-target {
+    position: absolute;
+    top: -2px;
+    width: 3px;
+    height: 10px;
+    background: #fbbf24;
+    border-radius: 1.5px;
+    transform: translateX(-50%);
+    opacity: 0.85;
+    box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
+    z-index: 1;
+}
+.stress-meter__bar-delta {
+    position: absolute;
+    right: 2px;
+    top: -14px;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--sm-deep, #64748b);
+    opacity: 0.7;
+    letter-spacing: 0.02em;
+}
+```
+
+### 9.7 失败过渡优化
+
+**目标**：在无步可走即将结束时，给玩家一个鼓励性的反馈，然后平滑进入结算。
+
+**实现位置**：`game.js` — `showNoMovesWarning()`（第 1996 行）
+
+**机制**：
+1. 检测近失信号：`nearMissCount > 0` 或 `roundsSinceClear >= 3`
+2. 有近失时：先展示浮层（60% opacity + 提示文案"差一点..." + "再冲一把！"），延迟 600ms 进入结算
+3. 无近失时：直接 250ms 后进入结算
+
+```javascript
+const nearMiss = this._lastAdaptiveInsight?.nearMissCount > 0
+    || this._spawnContext?.roundsSinceClear >= 3;
+if (nearMiss) {
+    const tipEl = document.createElement('div');
+    tipEl.className = 'float-score float-near-miss';
+    tipEl.innerHTML = `<span class="float-label">差一点...</span><span class="float-pts">再冲一把！</span>`;
+    tipEl.style.left = '50%';
+    tipEl.style.top = '28%';
+    tipEl.style.transform = 'translateX(-50%)';
+    tipEl.style.zIndex = '1300';
+    document.body.appendChild(tipEl);
+    setTimeout(() => tipEl.remove(), 1200);
+}
+this._noMovesTimer = setTimeout(() => {
+    this._noMovesTimer = null;
+    void this.endGame({ noMovesLoss: true });
+}, nearMiss ? 600 : 250);
+```
+
+### 9.8 代码索引
+
+| 功能 | 文件 | 行号 | 说明 |
+|------|------|------|------|
+| S/M 难度调制 | `adaptiveSpawn.js` | 743~793 | lifecycleStressCapMap |
+| 近失浮层 | `game.js` | 2485~2494 | `_triggerNearMissFeedback()` |
+| 近失触发 | `game.js` | 1743~1748 | `fillBefore > 0.55` |
+| 分数锚定 | `game.js` | 2590~2606 | `updateUI()` gapEl |
+| 难度平滑 | `game.js` | 1157~1161 | `finish()` 回调 |
+| 里程碑触发 | `game.js` | 1810~1813 | `playClearEffect()` |
+| 里程碑浮层 | `game.js` | 2560~2564 | `showFloatScore` type='milestone' |
+| 目标压力输出 | `adaptiveSpawn.js` | 1422 | `_stressTarget: 0.325` |
+| 目标压力同步 | `game.js` | 364 | `stressTarget: layered._stressTarget` |
+| 目标标记渲染 | `stressMeter.js` | 523~529 | `renderStressMeter()` bar target |
+| 目标标记样式 | `main.css` | 2323~2337 | `.stress-meter__bar-target` |
+| 失败过渡 | `game.js` | 1996~2024 | `showNoMovesWarning()` |
+| 近失 CSS | `main.css` | 3788~3812 | `.float-near-miss` |
+
+---
+
 ## 7. 入口与相关文档
 
 * 顶层方法论：[体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md) · [策略体验栈](../player/STRATEGY_EXPERIENCE_MODEL.md)

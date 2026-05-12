@@ -956,8 +956,8 @@ function _render(game) {
             decisionCells.push(_decisionCell('偏好', psLabel, psTip));
 
             spawnDecisionCard =
-                `<div class="spawn-decision-card" title="${_attrTitle(snapshotTip)}">` +
-                    `<div class="spawn-decision-card__head">` +
+                `<div class="spawn-decision-card" style="text-align:left" title="${_attrTitle(snapshotTip)}">` +
+                    `<div class="spawn-decision-card__head" style="text-align:left">` +
                         `<span>📷 ${roundLabel} spawn 决策快照</span>` +
                     `</div>` +
                     `<div class="spawn-decision-grid">${decisionCells.join('')}</div>` +
@@ -1012,7 +1012,7 @@ function _render(game) {
             shapeWeightChart
         ].filter(Boolean).join('');
 
-        elSpawn.innerHTML = `<div class="insight-spawn-stack">${allRows}</div>`;
+        elSpawn.innerHTML = `<div class="insight-spawn-stack" style="text-align:left">${allRows}</div>`;
     } else if (elSpawn) {
         elSpawn.innerHTML =
             `<div class="insight-spawn-stack">` +
@@ -1021,20 +1021,22 @@ function _render(game) {
     }
 
     const elStrategy = document.getElementById('insight-strategy');
+    const gridInfo = game.grid ? {
+        fillRatio: game.grid.getFillRatio(),
+        maxHeight: _gridMaxHeight(game.grid),
+        holesCount: _gridHoles(game.grid),
+        liveTopology,
+        liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid, game.dockBlocks),
+        liveSolutionMetrics: _placementSolutionForGame(game)
+    } : undefined;
+    const tips = generateStrategyTips(p, ins, gridInfo);
+
     if (elStrategy) {
+        elStrategy.style.textAlign = 'left';
         /* v1.20：把 live 几何（liveTopology + liveMultiClearCandidates）注入
          * gridInfo，让 strategyAdvisor 多消机会卡 / 瓶颈块卡读 live、不再走
          * spawn-time snapshot，消除"卡说有 4 多消、面板 pill 显示 0"的撞墙。
          * liveTopology 上方已经算过（用于 ability 与 diagPills），这里直接复用。 */
-        const gridInfo = game.grid ? {
-            fillRatio: game.grid.getFillRatio(),
-            maxHeight: _gridMaxHeight(game.grid),
-            holesCount: _gridHoles(game.grid),
-            liveTopology,
-            liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid, game.dockBlocks),
-            liveSolutionMetrics: _placementSolutionForGame(game)
-        } : undefined;
-        const tips = generateStrategyTips(p, ins, gridInfo);
         if (tips.length > 0) {
             const cards = tips.map(t => {
                 const catCls = `strategy-tip--${t.category}`;
@@ -1052,15 +1054,29 @@ function _render(game) {
     }
 
     if (elWhy) {
-        const bullets = ins ? _buildWhyLines(ins, p) : [];
-        const hintBullets = ins?.spawnHints ? _hintsExplain(ins.spawnHints) : [];
-        const all = [...bullets, ...hintBullets];
-        if (all.length) {
-            elWhy.innerHTML =
-                `<ul class="insight-why-list">${all.map((t) => `<li>${_stripTrailingSentencePunct(t)}</li>`).join('')}</ul>`;
-        } else {
-            elWhy.innerHTML = '';
+        elWhy.style.textAlign = 'left';
+        const adaptiveBullets = ins ? _buildWhyLines(ins, p) : [];
+        const spawnBullets = ins?.spawnHints ? _hintsExplain(ins.spawnHints) : [];
+        const lifecycleBullets = [];
+        if (tips?.length > 0) {
+            const lifecycleTip = tips.find(t => t.category === 'lifecycle');
+            if (lifecycleTip) {
+                lifecycleBullets.push(`${lifecycleTip.title}：${lifecycleTip.detail}`);
+            }
         }
+
+        const htmlParts = [];
+        if (adaptiveBullets.length) {
+            htmlParts.push(`<div class="why-group"><div class="why-group-label">📊 自适应出块</div><ul class="insight-why-list">${adaptiveBullets.map(t => `<li>${_stripTrailingSentencePunct(t)}</li>`).join('')}</ul></div>`);
+        }
+        if (spawnBullets.length) {
+            htmlParts.push(`<div class="why-group"><div class="why-group-label">🎯 出块决策</div><ul class="insight-why-list">${spawnBullets.map(t => `<li>${_stripTrailingSentencePunct(t)}</li>`).join('')}</ul></div>`);
+        }
+        if (lifecycleBullets.length) {
+            htmlParts.push(`<div class="why-group"><div class="why-group-label">📱 生命周期</div><ul class="insight-why-list">${lifecycleBullets.map(t => `<li>${_stripTrailingSentencePunct(t)}</li>`).join('')}</ul></div>`);
+        }
+
+        elWhy.innerHTML = htmlParts.length ? htmlParts.join('') : '';
     }
 }
 
