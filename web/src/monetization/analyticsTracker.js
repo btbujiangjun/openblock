@@ -37,7 +37,20 @@ export const ANALYTICS_EVENTS = {
     // 留存事件
     SESSION_START: { category: 'retention', name: 'session_start' },
     SESSION_END: { category: 'retention', name: 'session_end' },
-    DAILY_RETURN: { category: 'retention', name: 'daily_return' }
+    DAILY_RETURN: { category: 'retention', name: 'daily_return' },
+
+    /* PLAYER_LIFECYCLE_MATURITY_BLUEPRINT P0-4 新增：让生命周期/成熟度看板可重放。
+     * 命名遵循 GOLDEN_EVENTS.md 的 snake_case 约定；触发位见各 trackEvent 调用方。 */
+    FTUE_STEP_COMPLETE: { category: 'lifecycle', name: 'ftue_step_complete' },
+    INTENT_EXPOSED: { category: 'lifecycle', name: 'intent_exposed' },
+    INTENT_FOLLOWED: { category: 'lifecycle', name: 'intent_followed' },
+    BOTTLENECK_HIT: { category: 'lifecycle', name: 'bottleneck_hit' },
+    RECOVERY_SUCCESS: { category: 'lifecycle', name: 'recovery_success' },
+    MATURITY_MILESTONE_COMPLETE: { category: 'lifecycle', name: 'maturity_milestone_complete' },
+    WEEKLY_CHALLENGE_JOIN: { category: 'lifecycle', name: 'weekly_challenge_join' },
+    WEEKLY_CHALLENGE_COMPLETE: { category: 'lifecycle', name: 'weekly_challenge_complete' },
+    WINBACK_SESSION_STARTED: { category: 'lifecycle', name: 'winback_session_started' },
+    WINBACK_SESSION_COMPLETED: { category: 'lifecycle', name: 'winback_session_completed' },
 };
 
 /**

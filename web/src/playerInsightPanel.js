@@ -24,6 +24,7 @@ import { analyzeBoardTopology, countUnfillableCells } from './boardTopology.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { getAllShapes } from './shapes.js';
 import { computeCandidatePlacementMetric } from './bot/blockSpawn.js';
+import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
 
 /** 与 Game.getCandidatePlacementSolutionSnapshot 一致；无 game 实例时直算 */
 function _placementSolutionForGame(game) {
@@ -107,6 +108,10 @@ function _tooltipForLiveFlag(text) {
     if (t === '近失') return LIVE_FLAG_TITLE['近失'];
     if (t === '恢复') return LIVE_FLAG_TITLE['恢复'];
     if (t === '新手') return LIVE_FLAG_TITLE['新手'];
+    /* P0-5：S?·M? 标签的 tooltip，让画像面板与运营蓝图字典同源。 */
+    if (/^S[0-4]\+?·M[0-4]$/.test(t)) {
+        return '运营标签：S? 为生命周期阶段（S0 新入场 / S1 激活 / S2 习惯 / S3 稳定 / S4 回流）、M? 为成熟度 band（M0 新手 / M1 成长 / M2 熟练 / M3 资深 / M4 核心）。详见 docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md。';
+    }
     return '本局实时状态标志。';
 }
 
@@ -818,6 +823,26 @@ function _render(game) {
         _renderInsightStateSeries(game, elState);
         const afk = p.metrics.afkCount;
         const flags = [];
+        /* 落地 PLAYER_LIFECYCLE_MATURITY_BLUEPRINT P0-5：把生命周期阶段（S0–S4）与
+         * 成熟度 band（M0–M4）做成单一标签，与 AFK/近失/恢复/新手 同屏展示，让局内
+         * 策略与运营标签同源。snapshot 内部直接读 playerMaturity / playerLifecycleDashboard
+         * 单例，对未初始化的开发模式（无 localStorage 历史）退化为 S0·M0，不阻塞渲染。 */
+        try {
+            const snap = getLifecycleMaturitySnapshot({
+                daysSinceInstall: p?.profile?.daysSinceInstall
+                    ?? game?.gameStats?.daysSinceInstall
+                    ?? 0,
+                totalSessions: p?.profile?.totalSessions
+                    ?? game?.gameStats?.totalSessions
+                    ?? 0,
+                daysSinceLastActive: p?.profile?.daysSinceLastActive
+                    ?? game?.gameStats?.daysSinceLastActive
+                    ?? 0,
+            });
+            if (snap?.shortLabel) {
+                flags.push(snap.shortLabel);
+            }
+        } catch { /* lifecycle 数据缺失不应阻塞画像面板 */ }
         if (afk > 0) flags.push(`AFK ${afk}`);
         if (p.hadRecentNearMiss) flags.push('近失');
         if (p.needsRecovery) flags.push('恢复');

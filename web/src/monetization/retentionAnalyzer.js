@@ -1,15 +1,26 @@
 /**
- * RetentionAnalyzer - 用户留存与转化漏斗分析
- * 
- * 功能：
- * 1. 留存率计算
- * 2. 转化漏斗分析
- * 3. 用户生命周期追踪
- * 4. cohort 分析
+ * RetentionAnalyzer — 用户留存与转化漏斗分析
+ *
+ * 落地 PLAYER_LIFECYCLE_MATURITY_BLUEPRINT P0-3：修复 cohort/funnel/趋势三处口径偏差。
+ *
+ *   1) `_conversionData[event].users` 持久化用 Set 不可序列化，重启后 .add 成 undefined。
+ *      → 内部仍用 Set 计算唯一用户，序列化时转 Array、反序列化时还原 Set。
+ *   2) `_calculateRetention` 旧实现以 _userSessions[0]（"第一个曾出现过的用户"）当 cohort
+ *      起点，把所有用户硬归到同一 cohort，结果失真。
+ *      → 改为 per-user cohort：每名用户以自身 firstSeen 为锚，独立判断 D{n} 是否回访，
+ *        再聚合所有用户算分阶段留存率。
+ *   3) `calculateFunnel` 取 `stepData?.uniqueUsers`，但 _conversionData 里只有 users(Set) /
+ *      count，没有 uniqueUsers 字段，永远拿到 0。
+ *      → 直接以 users.size 为唯一用户数计算转化率。
+ *   4) `getRetentionTrend` 旧实现用随机模拟值充当趋势线，对线上看板有误导性。
+ *      → 改为按"过去 7 天"重算每天的 D1/D7/D30 留存率；无足够数据时返回空数组。
+ *
+ * 详见 docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md §3 / §4.1 P0-3。
  */
-// analyticsTracker 由 RetentionManager 注入数据，此处不直接耦合，便于无 tracker 环境也能复用统计逻辑。
 
 const RETENTION_PERIODS = [1, 3, 7, 14, 30, 60, 90];
+const STORAGE_KEY = 'openblock_retention_v1';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 class RetentionAnalyzer {
     constructor() {
@@ -18,218 +29,226 @@ class RetentionAnalyzer {
         this._userSessions = [];
     }
 
-    /**
-     * 初始化
-     */
     init() {
         this._loadData();
         console.log('[Retention] Initialized');
     }
 
-    /**
-     * 加载数据
-     */
     _loadData() {
         try {
-            const stored = localStorage.getItem('openblock_retention_v1');
-            if (stored) {
-                const data = JSON.parse(stored);
-                this._retentionData = data.retention || {};
-                this._conversionData = data.conversion || {};
-                this._userSessions = data.sessions || [];
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (!stored) return;
+            const data = JSON.parse(stored);
+            this._retentionData = data.retention || {};
+            this._userSessions = data.sessions || [];
+            /* P0-3 修复 1：把序列化时存为 Array 的 users 还原为 Set，否则 add() 会
+             * 变成 undefined.add()。同时兼容历史 v1 没有 users 字段的存档。 */
+            const conv = data.conversion || {};
+            const restored = {};
+            for (const [event, payload] of Object.entries(conv)) {
+                const userArr = Array.isArray(payload.users)
+                    ? payload.users
+                    : (payload.users && typeof payload.users === 'object'
+                        ? Object.keys(payload.users)
+                        : []);
+                restored[event] = {
+                    event,
+                    users: new Set(userArr),
+                    count: payload.count || 0,
+                    totalValue: payload.totalValue || 0,
+                };
             }
-        } catch {}
+            this._conversionData = restored;
+        } catch {
+            /* 静默失败：保持构造器默认值 */
+        }
     }
 
-    /**
-     * 保存数据
-     */
     _saveData() {
         try {
-            localStorage.setItem('openblock_retention_v1', JSON.stringify({
+            const conversion = {};
+            for (const [event, payload] of Object.entries(this._conversionData)) {
+                conversion[event] = {
+                    event,
+                    users: Array.from(payload.users || []),
+                    count: payload.count || 0,
+                    totalValue: payload.totalValue || 0,
+                };
+            }
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
                 retention: this._retentionData,
-                conversion: this._conversionData,
-                sessions: this._userSessions
+                conversion,
+                sessions: this._userSessions,
             }));
         } catch {}
     }
 
-    /**
-     * 记录用户会话（每次打开应用时调用）
-     */
+    /** 记录用户会话（每次打开应用时调用） */
     recordSession(userId) {
         const now = Date.now();
         const today = new Date().toISOString().slice(0, 10);
-        
-        // 查找用户会话
-        let userSession = this._userSessions.find(s => s.userId === userId);
-        
+
+        let userSession = this._userSessions.find((s) => s.userId === userId);
+
         if (!userSession) {
             userSession = {
                 userId,
                 firstSeen: now,
                 lastSeen: now,
-                sessions: []
+                sessions: [],
             };
             this._userSessions.push(userSession);
         }
-        
-        // 检查今天是否已记录
-        const todaySession = userSession.sessions.find(s => s.date === today);
-        
+
+        const todaySession = userSession.sessions.find((s) => s.date === today);
+
         if (!todaySession) {
             userSession.sessions.push({
                 date: today,
-                timestamp: now
+                timestamp: now,
             });
         }
-        
+
         userSession.lastSeen = now;
-        
+
         this._calculateRetention();
         this._saveData();
-        
+
         return userSession;
     }
 
-    /**
-     * 计算留存率
-     */
+    /** 计算留存率（per-user cohort 聚合） */
     _calculateRetention() {
-        if (this._userSessions.length === 0) return;
-        
-        const firstUser = this._userSessions[0];
-        // firstDate 仍可用于按 cohort 切片的扩展统计；当前实现按 firstSeen + period 计算。
+        if (this._userSessions.length === 0) {
+            for (const period of RETENTION_PERIODS) {
+                this._retentionData[`d${period}`] = { period, retained: 0, total: 0, rate: 0 };
+            }
+            return;
+        }
 
-        // 按日期统计留存
         for (const period of RETENTION_PERIODS) {
-            const periodMs = period * 24 * 60 * 60 * 1000;
-            const targetDate = new Date(firstUser.firstSeen + periodMs).toISOString().slice(0, 10);
-            
-            // 计算该日期的回访用户数
-            const retained = this._userSessions.filter(u => {
-                return u.sessions.some(s => s.date >= targetDate);
-            }).length;
-            
-            const total = this._userSessions.length;
-            const rate = total > 0 ? (retained / total * 100).toFixed(1) : 0;
-            
+            let eligible = 0;
+            let retained = 0;
+            const periodMs = period * DAY_MS;
+
+            for (const user of this._userSessions) {
+                /* eligible：必须装机至少 period 天，否则该用户当前 cohort 还未进入观测窗。 */
+                const ageMs = Date.now() - user.firstSeen;
+                if (ageMs < periodMs) continue;
+                eligible++;
+
+                const targetTimestamp = user.firstSeen + periodMs;
+                const targetDate = new Date(targetTimestamp).toISOString().slice(0, 10);
+                /* "在 D{n} 当天或之后是否回访"——抗时区误差与同日多次会话。 */
+                const hasReturn = user.sessions.some((s) => s.date >= targetDate);
+                if (hasReturn) retained++;
+            }
+
+            const rate = eligible > 0 ? Number(((retained / eligible) * 100).toFixed(1)) : 0;
             this._retentionData[`d${period}`] = {
                 period,
                 retained,
-                total,
-                rate: parseFloat(rate)
+                total: eligible,
+                rate,
             };
         }
     }
 
-    /**
-     * 获取留存率
-     */
     getRetentionRate(period) {
         const key = `d${period}`;
         return this._retentionData[key] || { period, rate: 0, retained: 0, total: 0 };
     }
 
-    /**
-     * 获取所有留存率
-     */
     getAllRetentionRates() {
-        return RETENTION_PERIODS.map(p => this.getRetentionRate(p));
+        return RETENTION_PERIODS.map((p) => this.getRetentionRate(p));
     }
 
-    /**
-     * 记录转化事件
-     */
+    /** 记录转化事件 */
     recordConversion(eventName, userId, properties = {}) {
         if (!this._conversionData[eventName]) {
             this._conversionData[eventName] = {
                 event: eventName,
                 users: new Set(),
                 count: 0,
-                totalValue: 0
+                totalValue: 0,
             };
         }
-        
-        this._conversionData[eventName].users.add(userId);
-        this._conversionData[eventName].count++;
-        
-        if (properties.value) {
-            this._conversionData[eventName].totalValue += properties.value;
+
+        const entry = this._conversionData[eventName];
+        /* 防御：如果某次反序列化失败 users 不是 Set（例如外部直写存档），现场补救。 */
+        if (!(entry.users instanceof Set)) {
+            entry.users = new Set(Array.isArray(entry.users) ? entry.users : []);
         }
-        
+        entry.users.add(userId);
+        entry.count++;
+
+        if (properties.value) {
+            entry.totalValue += properties.value;
+        }
+
         this._saveData();
     }
 
-    /**
-     * 获取转化数据
-     */
     getConversionData() {
         const result = {};
-        
+
         for (const [event, data] of Object.entries(this._conversionData)) {
+            const uniqueUsers = data.users instanceof Set ? data.users.size : 0;
             result[event] = {
                 event,
-                uniqueUsers: data.users.size,
+                uniqueUsers,
                 totalCount: data.count,
-                avgValue: data.count > 0 ? (data.totalValue / data.count).toFixed(2) : 0
+                avgValue: data.count > 0 ? Number((data.totalValue / data.count).toFixed(2)) : 0,
             };
         }
-        
+
         return result;
     }
 
-    /**
-     * 计算漏斗转化率
-     */
+    /** 计算漏斗转化率（uniqueUsers 直接来自 users Set） */
     calculateFunnel(funnelSteps) {
         if (!funnelSteps || funnelSteps.length === 0) return null;
-        
+
         const results = [];
         let previousCount = 0;
-        
+
         for (let i = 0; i < funnelSteps.length; i++) {
             const step = funnelSteps[i];
             const stepData = this._conversionData[step.event];
-            
-            const currentCount = stepData?.uniqueUsers || 0;
-            
-            // 第一个步骤以总用户数为基准
+            /* P0-3 修复 3：直接从 Set 取 size，不再读不存在的 uniqueUsers 字段。 */
+            const currentCount = stepData?.users instanceof Set ? stepData.users.size : 0;
+
             if (i === 0) {
                 previousCount = Math.max(currentCount, 1);
             }
-            
-            const conversionRate = previousCount > 0 
-                ? (currentCount / previousCount * 100).toFixed(1) 
+
+            const conversionRate = previousCount > 0
+                ? Number(((currentCount / previousCount) * 100).toFixed(1))
                 : 0;
-            
+
             results.push({
                 step: i + 1,
                 name: step.name,
                 event: step.event,
                 users: currentCount,
-                conversionRate: parseFloat(conversionRate),
-                dropOff: i > 0 ? (100 - parseFloat(conversionRate)).toFixed(1) : 0
+                conversionRate,
+                dropOff: i > 0 ? Number((100 - conversionRate).toFixed(1)) : 0,
             });
-            
+
             previousCount = currentCount;
         }
-        
-        // 计算整体转化率
+
         const firstStep = results[0]?.users || 1;
         const lastStep = results[results.length - 1]?.users || 0;
-        const overallRate = (lastStep / firstStep * 100).toFixed(1);
-        
+        const overallRate = Number(((lastStep / firstStep) * 100).toFixed(1));
+
         return {
             steps: results,
-            overall: parseFloat(overallRate),
-            totalDropOff: (100 - parseFloat(overallRate)).toFixed(1)
+            overall: overallRate,
+            totalDropOff: Number((100 - overallRate).toFixed(1)),
         };
     }
 
-    /**
-     * 获取预设漏斗
-     */
     getPresetFunnels() {
         return {
             monetization: this.calculateFunnel([
@@ -237,109 +256,109 @@ class RetentionAnalyzer {
                 { name: '首次游戏', event: 'game_start' },
                 { name: '进入商店', event: 'shop_view' },
                 { name: '选择商品', event: 'product_select' },
-                { name: '完成购买', event: 'iap_purchase' }
+                { name: '完成购买', event: 'iap_purchase' },
             ]),
-            
+
             engagement: this.calculateFunnel([
                 { name: '打开应用', event: 'app_open' },
                 { name: '开始游戏', event: 'game_start' },
                 { name: '完成游戏', event: 'game_end' },
-                { name: '分享成绩', event: 'share' }
+                { name: '分享成绩', event: 'share' },
             ]),
-            
+
             retention: this.calculateFunnel([
                 { name: '第1天', event: 'daily_return_d1' },
                 { name: '第3天', event: 'daily_return_d3' },
                 { name: '第7天', event: 'daily_return_d7' },
                 { name: '第14天', event: 'daily_return_d14' },
-                { name: '第30天', event: 'daily_return_d30' }
-            ])
+                { name: '第30天', event: 'daily_return_d30' },
+            ]),
         };
     }
 
-    /**
-     * 获取用户生命周期阶段
-     */
+    /** 获取用户生命周期阶段（基于 RetentionAnalyzer 内部数据，仅用于报告） */
     getUserLifecycle(userId) {
-        const user = this._userSessions.find(u => u.userId === userId);
-        
+        const user = this._userSessions.find((u) => u.userId === userId);
+
         if (!user) return 'new';
-        
+
         const now = Date.now();
-        const daysSinceFirst = Math.floor((now - user.firstSeen) / (24 * 60 * 60 * 1000));
-        const daysSinceLast = Math.floor((now - user.lastSeen) / (24 * 60 * 60 * 1000));
+        const daysSinceFirst = Math.floor((now - user.firstSeen) / DAY_MS);
+        const daysSinceLast = Math.floor((now - user.lastSeen) / DAY_MS);
         const sessionCount = user.sessions.length;
-        
-        // 生命周期判断
+
         if (daysSinceFirst <= 1) return 'new';
         if (daysSinceFirst <= 7 && sessionCount >= 3) return 'active';
         if (daysSinceFirst > 7 && daysSinceLast <= 3) return 'engaged';
         if (daysSinceLast <= 7) return 'at_risk';
         if (daysSinceLast > 14) return 'dormant';
         if (daysSinceLast > 30) return 'churned';
-        
+
         return 'active';
     }
 
     /**
-     * 获取留存趋势
+     * 留存趋势：过去 7 天每天的 D1/D7/D30 留存率（基于真实数据，不再返回随机值）。
+     *
+     * 算法：对每个 day d ∈ [today-6, today]，把"在 day-{period} 当天或之前首装机"的用户
+     * 作为 cohort，看他们在 day 当天或之后是否还有会话。无足够数据时返回空数组。
      */
     getRetentionTrend() {
-        // 返回模拟数据（实际应从服务端获取）
+        if (this._userSessions.length === 0) return [];
+
+        const now = Date.now();
         const trend = [];
-        
         for (let i = 6; i >= 0; i--) {
-            const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-            trend.push({
-                date,
-                d1: 40 + Math.random() * 10,
-                d7: 20 + Math.random() * 10,
-                d30: 10 + Math.random() * 5
-            });
+            const dayTimestamp = now - i * DAY_MS;
+            const dayDateStr = new Date(dayTimestamp).toISOString().slice(0, 10);
+            const point = { date: dayDateStr };
+            for (const period of [1, 7, 30]) {
+                const cohortAnchor = dayTimestamp - period * DAY_MS;
+                const cohort = this._userSessions.filter((u) => u.firstSeen <= cohortAnchor);
+                if (cohort.length === 0) {
+                    point[`d${period}`] = 0;
+                    continue;
+                }
+                const retainedCount = cohort.filter((u) => u.sessions.some((s) => s.date >= dayDateStr)).length;
+                point[`d${period}`] = Number(((retainedCount / cohort.length) * 100).toFixed(1));
+            }
+            trend.push(point);
         }
-        
         return trend;
     }
 
-    /**
-     * 获取分析报告
-     */
     getReport() {
         const retention = this.getAllRetentionRates();
         const conversions = this.getConversionData();
         const funnels = this.getPresetFunnels();
         const lifecycle = {};
-        
-        // 统计各生命周期用户数
+
         for (const user of this._userSessions) {
             const stage = this.getUserLifecycle(user.userId);
             lifecycle[stage] = (lifecycle[stage] || 0) + 1;
         }
-        
+
         return {
             generatedAt: new Date().toISOString(),
             retention: {
                 periods: retention,
-                trend: this.getRetentionTrend()
+                trend: this.getRetentionTrend(),
             },
             conversion: conversions,
             funnels,
             lifecycle,
             summary: {
                 totalUsers: this._userSessions.length,
-                activeUsers: this._userSessions.filter(u => 
+                activeUsers: this._userSessions.filter((u) =>
                     this.getUserLifecycle(u.userId) === 'active'
                 ).length,
-                atRiskUsers: this._userSessions.filter(u => 
+                atRiskUsers: this._userSessions.filter((u) =>
                     this.getUserLifecycle(u.userId) === 'at_risk'
-                ).length
-            }
+                ).length,
+            },
         };
     }
 
-    /**
-     * 重置数据
-     */
     reset() {
         this._retentionData = {};
         this._conversionData = {};
@@ -359,4 +378,9 @@ export function getRetentionAnalyzer() {
 
 export function initRetentionAnalyzer() {
     getRetentionAnalyzer().init();
+}
+
+/** 仅供测试使用：重置单例，避免不同测试用例间数据污染。 */
+export function _resetRetentionAnalyzerForTests() {
+    _retentionInstance = null;
 }

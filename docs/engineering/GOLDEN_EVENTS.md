@@ -8,6 +8,7 @@
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 1.0 | 2026-05-02 | 首版：玩法事件 + 埋点字段约定 |
+| 1.1 | 2026-05-12 | 新增生命周期 / 成熟度类事件（蓝图 P0-4 + P1-4 + P2-1 + P2-3） |
 
 ## 玩法事件（MonetizationBus / game）
 
@@ -40,3 +41,27 @@
 | `iap_purchase` | 内购成功（客户端上报补充） |
 
 服务端广告占位表：`ad_impressions`（见 `enterprise_extensions.py`、`ENTERPRISE_EXTENSIONS.md`）。
+
+## 生命周期 / 成熟度事件（v1.1）
+
+> 由 [玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) §4.1 P0-4、§4.2 P1-4、§4.3 P2-1/P2-3 引入。
+> 全部声明在 `web/src/monetization/analyticsTracker.js` 的 `ANALYTICS_EVENTS`，category 统一为 `lifecycle`。
+
+| event_type | 触发模块 | 关键 `properties` |
+|------------|----------|-------------------|
+| `ftue_step_complete` | FTUE 流程 / `playerLifecycleDashboard.shouldTriggerIntervention` | `step`, `attempts`, `durationMs` |
+| `intent_exposed` | `web/src/strategyAdvisor.js`（建议出现给玩家） | `intent`, `stage`, `band`, `stress` |
+| `intent_followed` | `web/src/strategyAdvisor.js`（玩家在 3 步内执行） | `intent`, `followStep`, `tookHint` |
+| `bottleneck_hit` | `web/src/bot/blockSpawn.js`（`firstMoveFreedom ≤ 2`） | `firstMoveFreedom`, `dockRound`, `solutionCount` |
+| `recovery_success` | `web/src/adaptiveSpawn.js` / `web/src/stressMeter.js`（stress > 0.65 → < 0.45） | `peakStress`, `recoverSteps`, `valley` |
+| `maturity_milestone_complete` | `web/src/retention/maturityMilestones.js` | `milestoneId`, `band`, `stage` |
+| `weekly_challenge_join` | `web/src/monetization/weeklyChallenge.js` | `challengeId`, `cycle`, `stage`, `band` |
+| `weekly_challenge_complete` | 同上 | `challengeId`, `score`, `cycle`, `durationMs` |
+| `winback_session_started` | `web/src/retention/winbackProtection.js` | `daysSinceLastActive`, `protectionPreset` |
+| `winback_session_completed` | 同上 | `protectedRounds`, `survived`, `score` |
+
+### 命名与维护规约
+
+1. event_type 全小写 snake_case，建议带模块前缀（`weekly_challenge_*` / `winback_*` / `intent_*` 等）。
+2. `properties` 字段集合可向后兼容扩展（仅追加键）。删除/重命名键须升级本文件 minor 版本。
+3. 所有 lifecycle 事件都应可被 `analyticsTracker.getUserJourney()` 重放，UI 字段名与本表一致。
