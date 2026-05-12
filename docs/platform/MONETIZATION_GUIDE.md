@@ -2735,5 +2735,335 @@ npm run build
 
 ---
 
-文档版本：1.12.0
-更新日期：2026-05-06
+## v1.13 玩家生命周期与成熟度系统
+
+> 本节记录玩家生命周期管理、成熟度划分、流失预警和分层运营的核心模块。
+
+### 1. 玩家成熟度模型 (`retention/playerMaturity.js`)
+
+**功能：** 基于玩家行为数据计算成熟度等级 L1-L4，为分层运营提供依据。
+
+**成熟度分级：**
+
+| 等级 | 名称 | 特征 | 占比 |
+|------|------|------|------|
+| L1 | 探索者 | 完成 FTUE，未形成习惯 | 40-50% |
+| L2 | 爱好者 | 每日登录，有活跃任务 | 25-30% |
+| L3 | 资深玩家 | 深度参与，追求段位/收藏 | 15-20% |
+| L4 | 核心玩家 | 高活跃度，高付费贡献 | 5-10% |
+
+**核心接口：**
+
+```javascript
+import { calculateMaturityScore, getMaturityLevel, getPlayerMaturity, updateMaturity } from './retention/playerMaturity.js';
+
+// 计算成熟度分数 (0-100)
+const score = calculateMaturityScore(playerData);
+
+// 获取成熟度等级
+const level = getMaturityLevel(score); // 'L1' | 'L2' | 'L3' | 'L4'
+
+// 更新成熟度数据
+const result = updateMaturity({
+    sessionCount: 10,
+    totalScore: 5000,
+    maxLevel: 15,
+    totalSpend: 100,
+    adsWatched: 20
+});
+
+// 获取成熟度洞察
+import { getMaturityInsights, getRecommendedActions } from './retention/playerMaturity.js';
+const insights = getMaturityInsights();
+// { level, score, scoreTrend, sessionTrend, churnRisk, totalSessions, ... }
+```
+
+### 2. 生命周期阶段判定 (`retention/playerLifecycleDashboard.js`)
+
+**功能：** 基于天数和游戏局数判定玩家所处生命周期阶段。
+
+**阶段定义：**
+
+| 阶段 | 天数 | 局数 | 核心策略 |
+|------|------|------|----------|
+| onboarding | D0-D3 | ≤10 | 新手引导与首日体验 |
+| exploration | D4-D14 | ≤50 | 玩法探索与习惯养成 |
+| growth | D15-D30 | ≤200 | 深度参与与付费转化 |
+| stability | D31-D90 | ≤500 | 长期价值维护 |
+| veteran | D90+ | >500 | 核心价值与生态贡献 |
+
+**核心接口：**
+
+```javascript
+import { getPlayerLifecycleStage, getLifecycleConfig, getLifecycleDashboardData, shouldTriggerIntervention } from './retention/playerLifecycleDashboard.js';
+
+// 获取玩家阶段
+const stage = getPlayerLifecycleStage({ daysSinceInstall: 7, totalSessions: 30 }); // 'exploration'
+
+// 获取完整 dashboard 数据
+const data = getLifecycleDashboardData(playerData);
+// { stage, stageName, stageColor, maturityLevel, churnRisk, recommendedActions, ... }
+
+// 检查是否需要干预
+const triggers = shouldTriggerIntervention(playerData);
+// [{ type: 'churn_prevention', priority: 'high', reason: '...' }, ...]
+```
+
+### 3. 流失预警模型 (`retention/churnPredictor.js`)
+
+**功能：** 基于玩家行为趋势预测流失风险，提供早期干预触发点。
+
+**风险等级：**
+
+| 风险等级 | 风险值区间 | 干预策略 |
+|----------|------------|----------|
+| stable | 0-14% | 常规保持 |
+| low | 15-29% | 温和唤醒 |
+| medium | 30-49% | 定向激励 |
+| high | 50-69% | 强力召回 |
+| critical | 70-100% | 紧急干预 |
+
+**核心接口：**
+
+```javascript
+import { recordSessionMetrics, getChurnPrediction, shouldSendChurnAlert, getChurnIntervention } from './retention/churnPredictor.js';
+
+// 记录会话指标
+recordSessionMetrics({
+    sessionCount: 5,
+    avgScore: 200,
+    avgDuration: 180,
+    engagement: 0.6
+});
+
+// 获取流失预测
+const prediction = getChurnPrediction();
+// { risk: 45, level: 'medium', trend: 5, isWorsening: true, ... }
+
+// 检查是否需要发送告警
+const alert = shouldSendChurnAlert({ stage: 'exploration' });
+// { shouldAlert: true, priority: 'high', reason: '...' }
+
+// 获取干预内容
+const intervention = getChurnIntervention({ stage: 'exploration' });
+// { type: '激励召回', reward: [...], message: '...' }
+```
+
+### 4. 智能难度适配 (`retention/difficultyAdapter.js`)
+
+**功能：** 基于玩家成熟度和流失风险动态调整游戏难度。
+
+**适配策略：**
+
+- L1 玩家：stressOffset -15, 启用挫败感减压
+- L2 玩家：stressOffset -5, 适度减压
+- L3 玩家：stressOffset 0, 标准难度
+- L4 玩家：stressOffset +5, 提升挑战
+
+**核心接口：**
+
+```javascript
+import { getDifficultyAdapterConfig, adjustStressForPlayer, shouldTriggerFrustrationRelief, getDifficultyRecommendation } from './retention/difficultyAdapter.js';
+
+// 获取难度适配配置
+const config = getDifficultyAdapterConfig();
+// { stressOffset, maxStress, enableFrustrationRelief, enableBeginnerBonus, recommendedProfile, churnRisk, ... }
+
+// 调整基础压力值
+const result = adjustStressForPlayer(50);
+// { stress: 35, config: {...}, reason: '新手保护-快速成功' }
+
+// 检查是否触发挫败感减压
+const relief = shouldTriggerFrustrationRelief(consecutiveNoClear, playerScore);
+// { shouldTrigger: true, action: { type: 'hint', params: { count: 1 } }, reason: '...' }
+
+// 获取难度推荐
+const recommendation = getDifficultyRecommendation();
+// { recommendedProfile, stressAdjustment, warnings: [...], metadata: {...} }
+```
+
+### 5. 社交引入节点 (`retention/socialIntroTrigger.js`)
+
+**功能：** 在玩家生命周期关键节点引入社交功能。
+
+**触发节点：**
+
+| 社交动作 | 触发阶段 | 阈值 | 奖励 |
+|----------|----------|------|------|
+| add_friend | exploration | 10局/5天 | 提示券 x1 |
+| share_replay | exploration | 15局/7天 | 金币 x50 |
+| join_guild | growth | 30局/14天 | 金币 x100 |
+| challenge_friend | growth | 50局/21天 | 胜利奖励翻倍 |
+| invite_friend | stability | 100局/30天 | 限定皮肤碎片 x5 |
+
+**核心接口：**
+
+```javascript
+import { checkSocialIntroTrigger, triggerSocialIntro, completeSocialIntro, getSocialProgress } from './retention/socialIntroTrigger.js';
+
+// 检查是否触发社交引导
+const check = checkSocialIntroTrigger(gameCount, daysSinceInstall);
+// { shouldTrigger: true, nextIntro: { id: 'add_friend', config: {...} }, availableIntros: [...] }
+
+// 触发社交引导
+triggerSocialIntro('add_friend');
+// { success: true, introId, message, reward, location }
+
+// 完成社交引导
+completeSocialIntro('add_friend', { friendId: 'user_123' });
+// { success: true, introId, reward: [...], completionBonus: ... }
+
+// 获取社交进度
+const progress = getSocialProgress();
+// { completed: 2, total: 5, progress: 40, friendCount: 3, hasGuild: true, milestones: [...] }
+```
+
+### 6. 付费初体验漏斗 (`retention/firstPurchaseFunnel.js`)
+
+**功能：** 追踪玩家付费转化路径，优化首充转化率。
+
+**漏斗阶段：**
+
+```
+awareness (认知) → interest (兴趣) → consideration (考虑) → purchase (购买) → retention (复购)
+```
+
+**首充优惠：**
+
+| 礼包 | 价格 | 触发条件 | 包含内容 |
+|------|------|----------|----------|
+| starter | ¥1 | 3-14天, 10-100局 | 提示券x10, 金币x100, VIP3天 |
+| value | ¥6 | 7-30天, 30-200局 | 提示券x30, 金币x500, 炸弹x5, VIP7天 |
+| premium | ¥30 | 14-60天, 50-300局 | 提示券x100, 金币x2000, 彩虹x10, VIP30天 |
+
+**核心接口：**
+
+```javascript
+import { trackFunnelEvent, recordPurchase, getRecommendedOffer, getFunnelAnalytics } from './retention/firstPurchaseFunnel.js';
+
+// 追踪漏斗事件
+trackFunnelEvent('view_shop');
+trackFunnelEvent('click_product');
+trackFunnelEvent('start_checkout');
+// { currentStage: 'consideration', stageName: '考虑' }
+
+// 记录购买
+recordPurchase({ productId: 'starter_pack', price: 1 });
+// { id, productId, price, isFirst: true }
+
+// 获取推荐优惠
+const offer = getRecommendedOffer(daysSinceInstall, totalGames);
+// { available: true, offer: {...}, reason: '...' }
+
+// 获取漏斗分析
+const analytics = getFunnelAnalytics();
+// { currentStage, stageConversion: {...}, conversionRate: 15, firstPurchasePrice: 1, ... }
+```
+
+### 7. VIP体系 (`retention/vipSystem.js`)
+
+**功能：** 为核心玩家提供专属VIP权益，提升长期价值。
+
+**VIP等级：**
+
+| 等级 | 名称 | 累计分数 | 专属权益 |
+|------|------|----------|----------|
+| VIP0 | 普通玩家 | 0 | 无 |
+| VIP1 | VIP1 | ≥1000 | 移除插屏广告, 1.2倍每日奖励 |
+| VIP2 | VIP2 | ≥5000 | 移除所有广告, 1.5倍奖励, 7天道具保护 |
+| VIP3 | VIP3 | ≥20000 | 专属商店, 优先客服 |
+| VIP4 | VIP4 | ≥50000 | 测试版优先体验, 自定义头像 |
+| VIP5 | VIP5 | ≥100000 | 专属名字颜色, 专属客服频道 |
+
+**核心接口：**
+
+```javascript
+import { updateVipScore, getVipStatus, getVipBenefits, canAccessVipFeature } from './retention/vipSystem.js';
+
+// 更新VIP分数
+const result = updateVipScore(5000);
+// { currentLevel: 'vip2', levelName: 'VIP2', badge: 'silver', leveledUp: true, previousLevel: 'vip1' }
+
+// 获取VIP状态
+const status = getVipStatus();
+// { currentLevel, levelName, badge, lifetimeScore, nextLevel: {...}, progress, benefits: [...] }
+
+// 获取当前等级权益
+const benefits = getVipBenefits();
+// [{ type: 'ad_removal', value: 'all', description: '移除所有广告', active: true }, ...]
+
+// 检查功能访问权限
+const access = canAccessVipFeature('exclusive_shop');
+// { allowed: true, value: true } 或 { allowed: false, required: 'vip2' }
+```
+
+### 8. 统一留存管理器 (`retention/retentionManager.js`)
+
+**功能：** 整合所有留存模块，提供统一API。
+
+```javascript
+import { initRetentionManager, getRetentionManager } from './retention/retentionManager.js';
+
+// 初始化
+initRetentionManager(userId);
+
+// 获取管理器
+const retention = getRetentionManager();
+
+// 游戏结束后更新
+const result = retention.afterGameEnd({
+    score: 500,
+    clears: 10,
+    achieved: ['first_clear'],
+    perfectClears: 2
+});
+// { completedGoals: [...], canClaim: true }
+
+// 获取难度推荐
+const difficulty = retention.getDifficultyRecommendation(playerProfile);
+
+// 获取活跃目标
+const goals = retention.getActiveGoals();
+// { shortTerm: [...], longTerm: [...] }
+
+// 获取关卡进度
+const level = retention.getLevelSummary();
+```
+
+### 测试验证
+
+执行所有留存相关测试：
+
+```bash
+npm test -- tests/playerMaturity.test.js tests/playerLifecycleDashboard.test.js tests/churnPredictor.test.js tests/difficultyAdapter.test.js tests/socialIntroTrigger.test.js tests/firstPurchaseFunnel.test.js tests/vipSystem.test.js
+```
+
+应通过 **82 tests**。
+
+### 与《玩家生命周期与成熟度运营蓝图》双分制的关系
+
+v1.13 引入的是 **单分制成熟度** `MaturityScore`（落在 L1–L4），同时承担"分群"与"运营决策权重"两个职责。后续的
+[玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) 在不破坏 v1.13 接口的
+前提下，把这两个职责拆分为：
+
+- **`SkillScore`**（驱动 M0–M4 成熟度 band）：只看玩法行为信号（盘面熟练、决策质量、消行成就等），**不掺入付费 / 广告**。
+- **`ValueScore`**（驱动报价、频控、IAA↔IAP 切换）：只看商业化信号（IAP 总额、广告曝光、留存稳定度），**不参与 band 判定**。
+- **`MatureIndex = α·SkillScore + (1-α)·ValueScore`**（决策可观测）：用于报表/同屏标签的统一索引。
+
+向后兼容契约（已被 `tests/playerMaturity.test.js` 锁定）：
+
+| v1.13 接口 | 蓝图后行为 |
+|------------|-----------|
+| `calculateMaturityScore(playerData)` | 等价 `calculateSkillScore(playerData)`，旧调用方无感 |
+| `getMaturityLevel(score)` 返回 `'L1'..'L4'` | 不变；新增 `getMaturityBand(score)` 返回 `'M0'..'M4'`（M0 ≈ 未达 L1，其他与 L1–L4 一一对应） |
+| `getPlayerMaturity()` | 字段在 v1.13 基础上**新增** `skillScore` / `valueScore` / `matureIndex` / `band` 4 项；旧字段全部保留 |
+| i18n key `maturity.L1`–`L4` | 不变；如需 M-band 文案另起 `maturity.M0`–`M4`（默认未提供，由策略层自定义） |
+
+**因此本章节的 5 个模块（`churnPredictor` / `difficultyAdapter` / `firstPurchaseFunnel` / `socialIntroTrigger` /
+`vipSystem`）继续以 v1.13 单分制接口工作即可**；如需用 ValueScore 做付费分层（例如 VIP 入口的"高价值核心"识别），
+直接读取 `getPlayerMaturity().valueScore` 不需要改动现有判断分支。
+
+---
+
+文档版本：1.13.0
+更新日期：2026-05-12
