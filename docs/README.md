@@ -91,6 +91,7 @@ docs/
 | 文档 | 核心问题 | 适合角色 |
 |------|----------|----------|
 | [四模型系统设计](./algorithms/MODEL_SYSTEMS_FOUR_MODELS.md) | 启发式出块、生成式出块、PyTorch RL、浏览器 RL 的设计思路、网络结构、损失函数、样本构建与作用机制 | 算法、架构、测试 |
+| [模型工程总览](./algorithms/MODEL_ENGINEERING_GUIDE.md) | 把 RL、出块生成、自适应难度、玩家能力、商业化决策、LTV、PCGRL 放在同一张工程地图，统一假设、特征、网络与训练流程 | 算法、架构 |
 | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) | 规则 + SpawnTransformer 的形式化与训练/推理 | 算法 |
 | [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) | Layer 1/2/3 如何从盘面到体验生成三连块 | 算法、架构、测试 |
 | [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) | 10 信号 stress、心流、爽感兑现、spawnHints | 产品、算法 |
@@ -110,6 +111,11 @@ docs/
 | [RL v9.3 提分深度分析](./algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md) | Replay 新鲜度、teacher 覆盖、目标尺度、评估口径和 bonus auxiliary | 算法 |
 | [OpenBlock RL 自博弈提升路线图](./algorithms/RL_SELF_PLAY_ROADMAP.md) | 搜索 teacher、Ranked Reward、困难样本和评估门控路线 | 算法 |
 | [自博弈 RL 文献对照与 OpenBlock 适配](./algorithms/RL_SELF_PLAY_LITERATURE_COMPARISON.md) | AlphaZero、MuZero、Expert Iteration、Gumbel AlphaZero 等路线对比 | 算法 |
+| [RL 看板数据流与刷新机制](./algorithms/RL_TRAINING_DASHBOARD_FLOW.md) | RL 看板的数据来源、刷新机制和自检方法 | 算法、测试 |
+| [RL 训练优化清单](./algorithms/RL_TRAINING_OPTIMIZATION.md) | 训练流程优化、超参建议与瓶颈排查清单 | 算法 |
+| [RL AlphaZero 优化方案](./algorithms/RL_ALPHAZERO_OPTIMIZATION.md) | AlphaZero 风格搜索 + 蒸馏在 OpenBlock 的适配方案 | 算法 |
+| [RL 浏览器侧优化](./algorithms/RL_BROWSER_OPTIMIZATION.md) | 浏览器内推理与轻量训练的内存/性能优化方案 | 算法、前端 |
+| [RL 复杂度与瓶颈研究](./algorithms/RL_ANALYSIS.md) | RL 任务复杂度、模型与优化候选池研究专题 | 算法 |
 | [训练观测与排障](./algorithms/RL_README.md#23-训练观测与排障) | 看板数据流、趋势解读、数值稳定和调参优先级 | 算法、测试 |
 
 ### 商业化与运营
@@ -122,9 +128,28 @@ docs/
 | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) | 鲸鱼分、规则引擎、LTV、CPI 出价 | 算法、运营 |
 | [商业化定制](./operations/MONETIZATION_CUSTOMIZATION.md) | 接入真实广告/IAP SDK、规则扩展 | 架构、运营 |
 | [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) | 面板设计、指标、调参 PlayBook | 运营、产品 |
+| [Block Blast 商业化运营指南](./platform/MONETIZATION_GUIDE.md) | 跨平台 PWA / 广告 / IAP / 签到 / 分享配置（位于 `docs/platform/`，内容属商业化） | 运营、平台 |
 | [商业运营参考分析](./operations/COMMERCIAL_OPERATIONS.md) | 运营机会池与策略参考，不作为当前实现事实来源 | 运营 |
+| [商业化改进清单](./operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) | 运营机会池与改进清单，不作为当前实现事实来源 | 运营、产品 |
+| [合规与运维 SOP](./operations/COMPLIANCE_AND_SOPS.md) | 隐私、同意管理、数据导出/删除、敏感字段掩码 SOP | 运营、合规、后端 |
 | [个性化变现](./archive/MONETIZATION_PERSONALIZATION.md) | 归档：个性化商业化 v2 设计 | 参考 |
 | [变现优化](./archive/MONETIZATION_OPTIMIZATION.md) | 归档：行业调研与早期优化清单 | 参考 |
+
+### 运维与部署
+
+| 文档 | 何时阅读 | 维护定位 |
+|------|----------|----------|
+| [Deployment Guide](./operations/DEPLOYMENT.md) | 单体 / 微服务 mesh 上线、备份恢复 Runbook | 运维、SRE、平台 |
+| [Kubernetes Deployment](./operations/K8S_DEPLOYMENT.md) | `k8s/base/` 8 个 manifest、Helm chart、HPA | 运维、SRE |
+| [Observability](./operations/OBSERVABILITY.md) | Prometheus `/metrics` + OpenTelemetry 接入 | 运维、SRE、后端 |
+| [Security Hardening](./operations/SECURITY_HARDENING.md) | Argon2id、Fernet、JWT 旋转、Redis RateLimit | 安全、运维、后端 |
+
+### 外部集成
+
+| 文档 | 何时阅读 | 维护定位 |
+|------|----------|----------|
+| [广告与 IAP 真实接入清单](./integrations/ADS_IAP_SETUP.md) | 接入 AdMob / AppLovin / Stripe / 微信 IAP 的标准步骤 | 运营、平台、商业化 |
+| [企业扩展 API](./integrations/ENTERPRISE_EXTENSIONS.md) | `enterprise_extensions.py` 提供的远程配置、策略注册、支付/广告占位 | 后端、平台 |
 
 ### 平台、视觉与内容系统
 
