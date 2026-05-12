@@ -9,6 +9,7 @@
 ### 当前事实入口
 
 - [商业化策略](./MONETIZATION.md)：商业化架构、数据流、策略配置、CommercialModelVector、API 与运维边界的权威入口。
+- [玩家生命周期与成熟度运营蓝图](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)：双轴模型（S0–S4 生命周期 × M0–M4 成熟度）、KPI 字典、双分制成熟度（SkillScore / ValueScore）、90 天可落地任务清单与 8 个实验。
 - [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md)：`/ops` 是否接数据库、指标 SQL 口径、截图数值复核、风险和修正建议。
 
 ### 专题补充

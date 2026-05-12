@@ -3377,6 +3377,7 @@ _DOC_CATEGORIES = [
         "name": "商业化与运营",
         "docs": [
             "operations/MONETIZATION.md",
+            "operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md",
             "operations/OPS_DASHBOARD_METRICS_AUDIT.md",
             "operations/MONETIZATION_CUSTOMIZATION.md",
             "operations/MONETIZATION_TRAINING_PANEL.md",

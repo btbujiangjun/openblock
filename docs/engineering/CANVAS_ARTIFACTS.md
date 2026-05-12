@@ -31,6 +31,7 @@
 |------|-------------|------|
 | [彩蛋 / 惊喜路线图](../product/EASTER_EGGS_ROADMAP.md) | `easter-eggs-roadmap.canvas.tsx` | 彩蛋、感官反馈、皮肤微动效、节日换皮、主动道具、隐藏惊喜、签到经济和社交分享机会池 |
 | [玩家留存 / 活跃提升路线图](../product/PLAYER_RETENTION_ROADMAP.md) | `player-retention-roadmap.canvas.tsx` | 留存、活跃、任务、召回、社交和长期成长的路线图分析 |
+| [玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | `player-lifecycle-maturity-ops-blueprint.canvas.tsx` | 双轴模型（S0–S4 × M0–M4）、KPI 字典、双分制成熟度（SkillScore / ValueScore）、90 天落地任务清单、8 个实验、行业基准与维护规约 |
 
 ### 2.3 出块、候选块与玩法解释
 
