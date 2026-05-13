@@ -7,7 +7,13 @@
  * 3. 配置版本管理
  * 4. 灰度发布
  */
-import { getApiBaseUrl, isSqliteClientDatabase } from './cohortManager.js';
+/* v1.49.x P0-5：原 import 写成 './cohortManager.js'，但这俩函数实际定义在
+ * '../config.js'（cohortManager 仅消费它们、不再 re-export）。结果：
+ *   - import 解析为 undefined → fetchRemoteConfig 内 fetch(`${undefined}/...`) 报错
+ *   - 整个 RemoteConfig.init() 被异常吞掉，DEFAULT_CONFIG 永远生效
+ *   - 配套的 ExperimentPlatform.initRemoteConfig() 静默失败 → A/B 配置永挂初始值
+ * 修正后远程配置通道才能在 initExperimentPlatform 接入时真正打通（P2 阶段）。 */
+import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 
 const CONFIG_STORAGE_KEY = 'openblock_remote_config_v1';
 

@@ -37,6 +37,9 @@ import {
     computeXpGain,
     saveProgress,
     invalidateProgressCache,
+    isSkinUnlocked,
+    setSkinUnlockProvider,
+    resetSkinUnlockProvider,
 } from '../web/src/progression.js';
 
 beforeEach(() => {
@@ -77,6 +80,28 @@ describe('progression', () => {
         expect(loadProgress().totalXp).toBe(10);
         saveProgress({ totalXp: 22, bonusDayYmd: '', streakYmd: '', dailyStreak: 1 });
         expect(loadProgress().totalXp).toBe(22);
+    });
+
+    /* v1.49.x P1-5：progression.isSkinUnlocked 默认放开（向后兼容），
+     * 注入 provider 后改用真分级；调 reset 后恢复默认。 */
+    it('P1-5 isSkinUnlocked 默认全部开放（向后兼容）', () => {
+        resetSkinUnlockProvider();
+        expect(isSkinUnlocked('forest', 100)).toBe(true);
+        expect(isSkinUnlocked('midnight', 0)).toBe(true);
+    });
+
+    it('P1-5 注入 provider 后委托给 monetization/skinUnlock 真逻辑', () => {
+        setSkinUnlockProvider((skinId, _xp) => skinId === 'free_skin');
+        expect(isSkinUnlocked('free_skin')).toBe(true);
+        expect(isSkinUnlocked('locked_skin')).toBe(false);
+        resetSkinUnlockProvider();
+        expect(isSkinUnlocked('locked_skin')).toBe(true);
+    });
+
+    it('P1-5 provider 抛错时退化为 true（不阻塞 UI 渲染）', () => {
+        setSkinUnlockProvider(() => { throw new Error('boom'); });
+        expect(isSkinUnlocked('any')).toBe(true);
+        resetSkinUnlockProvider();
     });
 
     it('computeXpGain applies strategy multiplier', () => {

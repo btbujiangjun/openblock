@@ -292,3 +292,65 @@ export function getFunnelAnalytics() {
 export function invalidateFunnelCache() {
     _funnelDataCache = null;
 }
+
+/**
+ * v1.49.x P3-3：首充时机优化（规则版）。
+ *
+ * 在玩家"自信高 + 心流稳 + 处于推荐 offer 触发窗口"时返回 trigger=true，
+ * 让 lifecycleOrchestrator 主动 emit lifecycle:offer_available。
+ *
+ * 规则：
+ *   - 没有 firstPurchase
+ *   - 命中 getRecommendedOffer.available
+ *   - confidence ≥ 0.55  且  flowState ≥ 0.50  且  frustrationLevel ≤ 0.40
+ *
+ * 命中后给出 score = 0.5 + 0.3 * confidence + 0.2 * flowState（钳到 [0,1]），
+ * 用作 push / Toast 排序的优先级权重。
+ *
+ * 仍保留接口给 RL 注入（setFirstPurchaseTimingPolicy）；规则版作为 fallback。
+ */
+let _firstPurchaseTimingPolicy = null;
+
+export function evaluateFirstPurchaseTimingSignal(input = {}) {
+    const daysSinceInstall = Number(input.daysSinceInstall ?? 0);
+    const totalGames = Number(input.totalGames ?? 0);
+    const confidence = Number(input.confidence ?? 0);
+    const flowState = Number(input.flowState ?? 0);
+    const frustrationLevel = Number(input.frustrationLevel ?? 0);
+
+    if (typeof _firstPurchaseTimingPolicy === 'function') {
+        try {
+            const r = _firstPurchaseTimingPolicy({ daysSinceInstall, totalGames, confidence, flowState, frustrationLevel });
+            if (r && typeof r === 'object') {
+                return {
+                    trigger: !!r.trigger,
+                    reason: r.trigger ? (r.reason || 'policy') : null,
+                    score: Math.max(0, Math.min(1, Number(r.score ?? 0))),
+                    recommendedOfferId: r.recommendedOfferId ?? null,
+                };
+            }
+        } catch { /* fallthrough */ }
+    }
+
+    const recommended = getRecommendedOffer(daysSinceInstall, totalGames);
+    if (!recommended.available) {
+        return { trigger: false, reason: null, score: 0, recommendedOfferId: null };
+    }
+
+    const confidenceOk = confidence >= 0.55;
+    const flowOk = flowState >= 0.50;
+    const frustOk = frustrationLevel <= 0.40;
+    const trigger = confidenceOk && flowOk && frustOk;
+    const score = Math.max(0, Math.min(1, 0.5 + 0.3 * confidence + 0.2 * flowState));
+    return {
+        trigger,
+        reason: trigger ? 'rule' : null,
+        score,
+        recommendedOfferId: trigger ? recommended.offer?.id ?? null : null,
+    };
+}
+
+/** 注入 RL/远端策略；传入 null 恢复规则版。 */
+export function setFirstPurchaseTimingPolicy(fn) {
+    _firstPurchaseTimingPolicy = typeof fn === 'function' ? fn : null;
+}

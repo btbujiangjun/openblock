@@ -82,9 +82,11 @@ class PlayerProfile {
         const cfg = _cfg();
         this._window = windowSize ?? cfg.profileWindow ?? 15;
 
-        /** @type {Array<{ts:number, thinkMs:number, cleared:boolean, lines:number, fill:number, miss:boolean}>} */
+        /** @type {Array<{ts:number, thinkMs:number, pickToPlaceMs:number|null, cleared:boolean, lines:number, fill:number, miss:boolean}>} */
         this._moves = [];
         this._lastActionTs = 0;
+        /** v1.46『反应』指标——参见 web 端同名实现注释 */
+        this._pickupAt = 0;
 
         this._smoothSkill = 0.5;
         this._recoveryCounter = 0;
@@ -148,6 +150,15 @@ class PlayerProfile {
     }
 
     /**
+     * v1.46：玩家激活候选块（dock 上 touchstart）即调用本方法。
+     * 与 web 端 PlayerProfile.recordPickup 等价；下一次 recordPlace/recordMiss
+     * 与之相减得 pickToPlaceMs（即"反应"指标）。
+     */
+    recordPickup() {
+        this._pickupAt = Date.now();
+    }
+
+    /**
      * @param {boolean} cleared 本次放置是否触发消行
      * @param {number} linesCleared 消除行数
      * @param {number} boardFill 放置后板面填充率 0~1
@@ -157,9 +168,15 @@ class PlayerProfile {
         const thinkMs = this._lastActionTs > 0
             ? Math.min(now - this._lastActionTs, 60000)
             : 3000;
+        const pickToPlaceMs = this._pickupAt > 0
+            ? Math.min(now - this._pickupAt, 60000)
+            : null;
 
-        this._pushMove({ ts: now, thinkMs, cleared, lines: linesCleared, fill: boardFill, miss: false });
+        this._pushMove({
+            ts: now, thinkMs, pickToPlaceMs, cleared, lines: linesCleared, fill: boardFill, miss: false
+        });
         this._lastActionTs = now;
+        this._pickupAt = 0;
         this._totalLifetimePlacements++;
 
         if (linesCleared >= 2) {
@@ -209,7 +226,13 @@ class PlayerProfile {
         const thinkMs = this._lastActionTs > 0
             ? Math.min(now - this._lastActionTs, 60000)
             : 1000;
-        this._pushMove({ ts: now, thinkMs, cleared: false, lines: 0, fill: 0, miss: true });
+        const pickToPlaceMs = this._pickupAt > 0
+            ? Math.min(now - this._pickupAt, 60000)
+            : null;
+        this._pushMove({
+            ts: now, thinkMs, pickToPlaceMs, cleared: false, lines: 0, fill: 0, miss: true
+        });
+        this._pickupAt = 0;
         this._consecutiveNonClears++;
     }
 
@@ -331,6 +354,7 @@ class PlayerProfile {
         if (recent.length === 0) {
             return {
                 thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1,
+                pickToPlaceMs: null, reactionSamples: 0,
                 afkCount: 0, samples: 0, activeSamples: 0
             };
         }
@@ -340,6 +364,15 @@ class PlayerProfile {
         const afkCount = placed.length - active.length;
         const clearCount = active.filter(m => m.cleared).length;
         const comboCount = active.filter(m => m.lines >= 2).length;
+
+        /* v1.46『反应』(pickToPlaceMs) 窗口平均；详见 web 端同名实现注释。
+         * 小程序端目前没有 startDrag→recordPickup 接线，所以正常情况 reactionSamples=0
+         * → 自动回退 null，stress 不参与。仅在工具/测试主动注入 pickup 时才会有值。 */
+        const reactive = recent.filter(m => m.pickToPlaceMs != null && m.pickToPlaceMs < afkMs);
+        const pickToPlaceMs = reactive.length > 0
+            ? reactive.reduce((s, m) => s + m.pickToPlaceMs, 0) / reactive.length
+            : null;
+
         return {
             thinkMs: active.length > 0
                 ? active.reduce((s, m) => s + m.thinkMs, 0) / active.length
@@ -349,6 +382,8 @@ class PlayerProfile {
             missRate: recent.length > 0
                 ? recent.filter(m => m.miss).length / recent.length
                 : 0,
+            pickToPlaceMs,
+            reactionSamples: reactive.length,
             afkCount,
             samples: recent.length,
             activeSamples: active.length

@@ -221,26 +221,45 @@ class GameRenderer {
     }
   }
 
+  /**
+   * 盘面水印（小程序 canvas，静态绘制 — 不参与 web 端的 Catmull-Rom 漂浮动画）。
+   *
+   * v1.49 (2026-05) — HD 模式可选 emoji 换装：
+   *   皮肤可在 boardWatermark 上声明 `hdIcons / hdOpacity / hdScale / hdAnchors`，
+   *   仅当 _qualityMode='high' 时切换；其他画质保持基础 icons 控制开销。
+   *   与 web/src/renderer.js 同字段同语义。
+   *   首批接入：mahjong 仅覆盖 hdIcons（基础 ['🀅','🀀'] → HD ['🎲','🀐']
+   *   骰子 + 一索/雀），数量 / 亮度 / scale / 锚点全部继承基础值，与所有皮肤一致。
+   */
   _renderBoardWatermark(offsetX, offsetY, total, skin) {
     const wm = skin.boardWatermark;
     if (!wm || !Array.isArray(wm.icons) || wm.icons.length === 0 || total <= 0) return;
     const ctx = this._ctx;
-    const size = Math.round(total * (wm.scale || 0.24));
-    const points = [
-      [0.23, 0.23],
-      [0.77, 0.23],
-      [0.50, 0.50],
-      [0.23, 0.77],
-      [0.77, 0.77],
-    ];
+
+    const isHd = this._qualityMode === 'high';
+    const useHdSet = isHd && Array.isArray(wm.hdIcons) && wm.hdIcons.length > 0;
+    const icons = useHdSet ? wm.hdIcons : wm.icons;
+    const opacity = useHdSet ? (wm.hdOpacity ?? wm.opacity ?? 0.045) : (wm.opacity ?? 0.045);
+    const scale = useHdSet ? (wm.hdScale ?? wm.scale ?? 0.24) : (wm.scale ?? 0.24);
+    const points = (useHdSet && Array.isArray(wm.hdAnchors) && wm.hdAnchors.length > 0)
+      ? wm.hdAnchors
+      : [
+        [0.23, 0.23],
+        [0.77, 0.23],
+        [0.50, 0.50],
+        [0.23, 0.77],
+        [0.77, 0.77],
+      ];
+
+    const size = Math.round(total * scale);
     ctx.save();
-    ctx.globalAlpha = wm.opacity ?? 0.045;
+    ctx.globalAlpha = opacity;
     ctx.font = `${Math.round(size * 0.88)}px ${ICON_FONT_STACK}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(55, 65, 81, 0.88)';
     for (let i = 0; i < points.length; i++) {
-      const icon = normalizeCanvasIcon(wm.icons[i % wm.icons.length]);
+      const icon = normalizeCanvasIcon(icons[i % icons.length]);
       ctx.fillText(icon, offsetX + total * points[i][0], offsetY + total * points[i][1]);
     }
     ctx.restore();

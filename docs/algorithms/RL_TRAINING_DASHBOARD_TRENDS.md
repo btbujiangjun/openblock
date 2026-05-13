@@ -105,7 +105,7 @@
 
 | 文档 | 内容 |
 |------|------|
-| [`RL_TRAINING_OPTIMIZATION.md`](./RL_TRAINING_OPTIMIZATION.md) | 训练架构演进与损失设计 |
+| [`RL_TRAINING_OPTIMIZATION.md`](../archive/algorithms/RL_TRAINING_OPTIMIZATION.md) | 训练架构演进与损失设计（已归档） |
 | [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) | Lv 爆炸根因与裁剪环境变量 |
 | [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) | 看板数据从哪来、如何刷新 |
 | **本文** | **趋势判读 + 是否正常 + 优化清单** |

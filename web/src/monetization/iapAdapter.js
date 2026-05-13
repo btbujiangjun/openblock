@@ -304,6 +304,21 @@ export async function purchase(productId) {
         _applyPurchase(product);
         const receipt = result.receipt || result.transactionId || '';
         void _syncPurchaseToServer(product, receipt);
+        /* v1.49.x P0-1：统一双 emit。
+         *   - 'purchase_completed'（标准事件名，载荷含 price/currency/transactionId）
+         *     供 lifecycleAwareOffers / firstPurchaseFunnel / vipSystem / analyticsTracker 订阅
+         *   - 'iap_purchase'（保留向后兼容，载荷不变）
+         * 旧代码只 emit 'iap_purchase' 导致 lifecycleAwareOffers 订阅 'purchase_completed' 永不触发，
+         * 首充漏斗 recordPurchase 路径全程未跑过。 */
+        const priceNum = Number(product?.priceNum ?? product?.price ?? 0) || 0;
+        emit('purchase_completed', {
+            productId,
+            product,
+            price: priceNum,
+            currency: product?.currency || 'CNY',
+            transactionId: result.transactionId || receipt || '',
+            timestamp: Date.now(),
+        });
         emit('iap_purchase', { productId, product });
     }
 

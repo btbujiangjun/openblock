@@ -89,6 +89,41 @@
     0 0 20rpx rgba(90, 212, 135, 0.28);
 }
 
+/* v1.46 HUD 分数 burst：得分时按 delta 分档 scale + 高亮脉冲，让玩家感知分数刚刚跳了。
+ * burst class 在 _onStateChange 里按 delta(>0) 临时挂上，N ms 后清除。 */
+.score-burst {
+  display: inline-block;
+  transform-origin: center;
+  will-change: transform, color;
+}
+.score-burst--small {
+  animation: scoreBurstSmall 540ms cubic-bezier(.2, .7, .2, 1) both;
+}
+.score-burst--medium {
+  animation: scoreBurstMedium 800ms cubic-bezier(.2, .7, .2, 1) both;
+}
+.score-burst--large {
+  animation: scoreBurstLarge 1100ms cubic-bezier(.2, .7, .2, 1) both;
+}
+@keyframes scoreBurstSmall {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+@keyframes scoreBurstMedium {
+  0%   { transform: scale(1);    color: #1c9b5f; }
+  30%  { transform: scale(1.22); color: #38bdf8; }
+  70%  { transform: scale(1.05); color: #1c9b5f; }
+  100% { transform: scale(1);    color: #1c9b5f; }
+}
+@keyframes scoreBurstLarge {
+  0%   { transform: scale(1);    color: #1c9b5f; text-shadow: 0 0 20rpx rgba(90, 212, 135, 0.28); }
+  25%  { transform: scale(1.32); color: #fde047; text-shadow: 0 0 24rpx rgba(250, 204, 21, 0.85); }
+  55%  { transform: scale(1.10); color: #fde047; text-shadow: 0 0 18rpx rgba(250, 204, 21, 0.55); }
+  85%  { transform: scale(1.04); color: #1c9b5f; text-shadow: 0 0 20rpx rgba(90, 212, 135, 0.28); }
+  100% { transform: scale(1);    color: #1c9b5f; text-shadow: 0 0 20rpx rgba(90, 212, 135, 0.28); }
+}
+
 .score-theme-row .stat-subline--spacer {
   visibility: hidden;
   pointer-events: none;

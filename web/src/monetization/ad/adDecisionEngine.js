@@ -4,10 +4,16 @@
  * 整合商业模型，统一的广告展示决策层
  * 场景化广告触发 + 智能频率控制
  */
+/* v1.49.x P2-3：import 路径修复。
+ * 文件位置在 web/src/monetization/ad/，但旧代码用 './strategy/index.js'（漏 ../）
+ * 与 './adAdapter.js'（漏 ../），导致 import 解析失败 → AdDecisionEngine 单例从未跑过。
+ * 现在两条均改为相对父目录的正确路径，并把缺失的 import 补全。 */
 import { buildCommercialModelVector, shouldAllowMonetizationAction } from '../commercialModel.js';
-import { getStrategyConfig } from './strategy/index.js';
+import { getStrategyConfig } from '../strategy/index.js';
 import { getPlayerAbilityModel } from '../../playerAbilityModel.js';
-import { getAdAdapter } from './adAdapter.js';
+import * as adAdapter from '../adAdapter.js';
+import { getFlag } from '../featureFlags.js';
+import { buildAdInsertionState, selectAdInsertionAction } from './adInsertionRL.js';
 
 const AD_SCENES = {
   GAME_OVER: 'game_over',           // 游戏结束
@@ -95,7 +101,6 @@ class AdDecisionEngine {
   async requestAd(scene, context = {}) {
     const config = getStrategyConfig().commercialModel ?? {};
     const vector = this.getCommercialVector();
-    const adAdapter = getAdAdapter();
 
     // Guardrail 检查
     if (!shouldAllowMonetizationAction(vector, 'interstitial') && !shouldAllowMonetizationAction(vector, 'rewarded')) {
@@ -108,29 +113,57 @@ class AdDecisionEngine {
       return sceneResult;
     }
 
-    // 选择最佳广告类型
-    const adType = this._selectBestAdType(scene, vector, config);
-    
+    /* v1.49.x P3-2：feature flag adInsertionRL=on 时，由 RL scaffolding 输出动作。
+     * scaffolding 的规则版默认与 _selectBestAdType 等价；线下训练好后通过
+     * setAdInsertionPolicy 热替换即可。skip 动作 → 直接返回不展示。 */
+    let adType;
+    if (getFlag('adInsertionRL')) {
+        try {
+            const state = buildAdInsertionState({
+                player: context?.player,
+                lifecycle: context?.lifecycle,
+                adFreq: this._getAdFrequencyState(),
+                commercialVector: vector,
+                scene,
+            });
+            const decision = selectAdInsertionAction(state);
+            if (decision.action === 'skip') {
+                return { allowed: false, adType: null, reason: 'rl_skip', vector, rl: decision };
+            }
+            adType = decision.action;
+        } catch {
+            adType = this._selectBestAdType(scene, vector, config);
+        }
+    } else {
+        adType = this._selectBestAdType(scene, vector, config);
+    }
+
     // 频率检查
     if (!this._checkFrequency(adType, config)) {
       return { allowed: false, adType: null, reason: 'frequency_limit', vector };
     }
 
-    // 尝试加载广告
+    /* v1.49.x P2-3：适配真 adAdapter API。
+     * 旧版本调 `getAdAdapter().loadAd(adType)`，但 adAdapter 现行 API 是
+     * `showRewardedAd(reason)` / `showInterstitialAd()`；这里按 adType 路由。 */
     try {
-      const loadResult = await adAdapter.loadAd(adType);
-      if (loadResult.success) {
-        this._recordAdShown(adType);
-        return { 
-          allowed: true, 
-          adType, 
-          reason: 'success',
-          ad: loadResult.ad,
-          vector
-        };
+      let result;
+      if (adType === AD_TYPES.REWARDED) {
+        result = await adAdapter.showRewardedAd(context?.reason || scene);
+      } else if (adType === AD_TYPES.INTERSTITIAL) {
+        result = await adAdapter.showInterstitialAd();
+        result = { rewarded: true, ...result };
       } else {
-        return { allowed: false, adType, reason: 'ad_load_failed', detail: loadResult.error };
+        return { allowed: false, adType, reason: 'unsupported_type', vector };
       }
+      this._recordAdShown(adType);
+      return {
+        allowed: true,
+        adType,
+        reason: 'success',
+        ad: result,
+        vector,
+      };
     } catch (e) {
       console.warn('[AdEngine] Load ad error:', e);
       return { allowed: false, adType, reason: 'exception', detail: e.message };

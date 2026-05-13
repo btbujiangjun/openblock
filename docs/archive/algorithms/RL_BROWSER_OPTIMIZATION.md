@@ -1,7 +1,7 @@
 # RL 历史实验：浏览器线性模型
 
 > 当前定位：浏览器线性 RL fallback 的实验记录和取舍说明，不作为当前 RL 算法事实入口。
-> 当前 RL 总览见 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)，栏目导航见 [`RL_README.md`](./RL_README.md)。
+> 当前 RL 总览见 [`ALGORITHMS_RL.md`](../../algorithms/ALGORITHMS_RL.md)，栏目导航见 [`RL_README.md`](../../algorithms/RL_README.md)。
 
 ## 1. 问题诊断
 

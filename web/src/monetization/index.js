@@ -12,6 +12,7 @@
 import { attach, detach } from './MonetizationBus.js';
 import { getFlag } from './featureFlags.js';
 import { injectMonStyles } from './styles.js';
+// progression / skinUnlock 通过 dynamic import 在 init 内引入，避免顶层循环依赖
 
 let _initialized = false;
 let _cleanups = [];
@@ -110,6 +111,72 @@ export async function initMonetization(game) {
         }
     } catch (e) {
         console.warn('[Monetization] personalization unavailable:', e);
+    }
+
+    /* 5. v1.48：生命周期感知商业化层 —— 订阅 lifecycle:session_start/end，把
+     *    firstPurchaseFunnel / vipSystem 等"已实装但孤立"的模块接到主流程。
+     *    与 commercialModel 的实时报价决策互补：前者管"现在能不能弹"，
+     *    后者管"会话结束后该不该送优惠券 / 累计 VIP 分"。 */
+    try {
+        const lifecycleAware = await import('./lifecycleAwareOffers.js');
+        const detach = lifecycleAware.attachLifecycleAwareOffers();
+        if (typeof detach === 'function') _cleanups.push(detach);
+    } catch (e) {
+        console.warn('[Monetization] lifecycleAwareOffers unavailable:', e);
+    }
+
+    /* 6. v1.49.x P0-7：lifecycle 事件 → UI Toast 接线。
+     *    lifecycleAwareOffers emit 的 `lifecycle:offer_available` /
+     *    `lifecycle:first_purchase` / `lifecycle:churn_high` 之前没有任何 UI 订阅方，
+     *    玩家完全感知不到回流券 / 首充祝贺；offerToast 是最小可行 UI 接线。 */
+    try {
+        const offerToast = await import('./offerToast.js');
+        const detach = offerToast.attachOfferToast();
+        if (typeof detach === 'function') _cleanups.push(detach);
+    } catch (e) {
+        console.warn('[Monetization] offerToast unavailable:', e);
+    }
+
+    /* 7a. v1.49.x P2-2：lifecycle 事件 → push/share/invite 孤儿模块接线。
+     *     之前 pushNotificationSystem / shareCardGenerator 全仓 0 调用，
+     *     这里在 lifecycle:churn_high / first_purchase / offer_available 时触发，
+     *     把"已实装但孤立"的运营能力真正用起来。 */
+    try {
+        const outreach = await import('./lifecycleOutreach.js');
+        const detach = outreach.attachLifecycleOutreach();
+        if (typeof detach === 'function') _cleanups.push(detach);
+    } catch (e) {
+        console.warn('[Monetization] lifecycleOutreach unavailable:', e);
+    }
+
+    /* 6b. v1.49.x 算法层 P0-3：actionOutcomeMatrix 总线接线。
+     *     监听 purchase_completed / ad_complete / lifecycle:session_end 自动累积
+     *     "推荐 action × 实际 outcome"矩阵，看板调 getMatrix() 拿数据。
+     *     默认 on（feature flag `actionOutcomeMatrix`）。 */
+    if (getFlag('actionOutcomeMatrix')) {
+        try {
+            const aom = await import('./quality/actionOutcomeMatrix.js');
+            const detach = aom.attachActionOutcomeMatrix();
+            if (typeof detach === 'function') _cleanups.push(detach);
+        } catch (e) {
+            console.warn('[Monetization] actionOutcomeMatrix unavailable:', e);
+        }
+    }
+
+    /* 7. v1.49.x P1-5：把 progression.isSkinUnlocked 委托给 monetization/skinUnlock。
+     *    历史问题：progression.isSkinUnlocked() 始终 return true，
+     *    monetization/skinUnlock.isSkinUnlocked() 已实现完整解锁逻辑但从未生效。
+     *    这里通过反向控制（progression.setSkinUnlockProvider）打通。
+     *    feature flag `skinUnlockBridge` 控制是否启用（默认 on）。 */
+    if (getFlag('skinUnlockBridge')) {
+        try {
+            const skinUnlock = await import('./skinUnlock.js');
+            const progression = await import('../progression.js');
+            progression.setSkinUnlockProvider(skinUnlock.isSkinUnlocked);
+            _cleanups.push(() => progression.resetSkinUnlockProvider());
+        } catch (e) {
+            console.warn('[Monetization] skinUnlock bridge unavailable:', e);
+        }
     }
 
     console.log('[Monetization] Initialized');

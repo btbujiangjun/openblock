@@ -27,7 +27,7 @@
 
 | 层 | 通用职责 | 典型输入 | 典型输出 |
 |----|----------|-----------|----------|
-| **L1 状态估计** | 从行为与盘面估计「玩家有多紧张、多挫败、能力区间」 | 操作间隔、消行历史、填充率、拓扑特征 | 技能/动量/心流/挫败等状态向量 |
+| **L1 状态估计** | 从行为与盘面估计「玩家有多紧张、多挫败、能力区间」 | 操作间隔（思考 / **反应**）、消行历史、填充率、拓扑特征 | 技能/动量/心流/挫败等状态向量 |
 | **L2 策略解析** | 把状态与规则配置合成为**标量压力**与**结构化提示** | L1、分数、会话阶段、难度档 | `stress`、权重曲线、hints（消行保证、清屏/同 icon/多消概率目标、节奏相位等） |
 | **L3 内容生成** | 在公平性与可解性约束下**采样**具体关卡内容（此处为三连块） | L2、盘面、形状池 | 候选块、诊断指标（可解性、解空间统计） |
 | **L4 体验呈现** | 将系统状态**翻译**为玩家可理解的情绪与建议 | L2 快照、L3 诊断、当前盘面 | 压力表档位、一句话叙事、1～N 条策略卡 |
@@ -177,6 +177,30 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 | `firstMoveFreedom`/`solutionCount` 由 strategyAdvisor 实时计算用于「瓶颈块」卡片，但**未反馈到自适应出块**——上一波三块在玩家手中跌到只剩 1~2 个落子（"被困高压"），下一波 spawn 完全不知情、不会减压 | 引入 `_updateBottleneckTrough()`：每次 `recordPlace` 后用 `getCandidatePlacementSolutionSnapshot()` 更新 `_spawnContext.bottleneckTrough`（dock 周期最低点）；下一次 `resolveAdaptiveStrategy` 把 trough ≤ `topologyDifficulty.bottleneckTroughThreshold` 转换为 `stressBreakdown.bottleneckRelief`（最高 -0.12）+ 自动抬高 `clearGuarantee/sizePreference` + 进入 `playerDistress` 派生 `spawnIntent='relief'` | `web/src/game.js` (`_updateBottleneckTrough`/`_resetBottleneckTrough`) + `web/src/adaptiveSpawn.js` + `shared/game_rules.json → adaptiveSpawn.topologyDifficulty.bottleneck*` + `signals.bottleneckRelief` |
 | 与 `friendlyBoardRelief` / `frustrationRelief` / `recoveryAdjust` 栈叠形成「双重救济」 | 任一同向触发时 bottleneckRelief × 0.5；onboarding 内置零 | `adaptiveSpawn.js` |
 | 派生痕迹回溯 | `bottleneckTrough/bottleneckSamples` 写入 `stressBreakdown` 与 `_lastAdaptiveInsight`；`stressMeter.summarizeContributors` skip 列表与新 `SIGNAL_LABELS.bottleneckRelief` 同步 | `adaptiveSpawn.js` + `stressMeter.js` |
+
+**v1.46 新增：思考-反应双轨度量（`pickToPlaceMs` / `reactionAdjust`）**
+
+> 老的 `thinkMs`（上一动作 → 落子）含**等系统出新块、看新一波、选块、拖动**全过程，
+> 当系统侧延迟（如成熟度浮层、连消庆祝）变化时会污染"决策耗时"信号；
+> 升级后引入纯执行段 `pickToPlaceMs` 作为"反应"通道，与"思考"双轨呈现。
+
+| 维度 | thinkMs（思考） | pickToPlaceMs（反应） |
+|------|----------------|----------------------|
+| 区间 | 上一动作 ts → 当前 recordPlace/Miss | startDrag → recordPlace/Miss |
+| 含等系统侧延迟 | 是（出新块 / 浮层 / 庆祝） | 否（剔除观察 / 选块 / 等待） |
+| 反映 | 决策耗时（含规划） | 操作执行 / 临场犹豫 |
+| 在面板 | sparkline `thinkMs`（浅蓝） | sparkline `pickToPlaceMs`（紫蓝），点击放大可见详细分析 |
+| 入压 | `cognitiveLoad`（基于方差）→ `_computeRawSkill` | `stressBreakdown.reactionAdjust`（±0.05，详见下） |
+
+入口与反馈链：
+1. `Game.startDrag` → `PlayerProfile.recordPickup()` 打时间戳；
+2. 下一次 `recordPlace/Miss` 写入该 move 的 `pickToPlaceMs`；
+3. `metrics.pickToPlaceMs / reactionSamples` 通过 `buildPlayerStateSnapshot` 进入回放与决策快照；
+4. `resolveAdaptiveStrategy` 在 `reactionSamples ≥ minSamples` 时把它折成 `reactionAdjust`：
+   - `< fastMs`（默认 350ms）反射式快放 → +stress（最多 +0.05），倾向 bored 加压；
+   - `> slowMs`（默认 4500ms）拖动犹豫 → −stress（最多 −0.05），倾向 anxious 减压；
+   - 中段（健康区）零作用；与 `nearMissAdjust` 显著同向时让位（弱信号让强信号）。
+5. 配置位：`shared/game_rules.json → adaptiveSpawn.reactionAdjust`。
 
 **v1.31 新增：叙事-体感对齐两条窄守卫**
 

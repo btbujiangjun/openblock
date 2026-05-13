@@ -47,8 +47,8 @@
 | 文档 | 用途 |
 |------|------|
 | [`RL_ANALYSIS.md`](./RL_ANALYSIS.md) | 复杂度分析、瓶颈诊断、优化候选池 |
-| [`RL_BROWSER_OPTIMIZATION.md`](./RL_BROWSER_OPTIMIZATION.md) | 浏览器线性 RL fallback 的实验结论 |
-| [`RL_TRAINING_OPTIMIZATION.md`](./RL_TRAINING_OPTIMIZATION.md) | 直接监督头等训练架构演进记录 |
+| [`RL_BROWSER_OPTIMIZATION.md`](../archive/algorithms/RL_BROWSER_OPTIMIZATION.md) | 浏览器线性 RL fallback 的实验结论（已归档） |
+| [`RL_TRAINING_OPTIMIZATION.md`](../archive/algorithms/RL_TRAINING_OPTIMIZATION.md) | 直接监督头等训练架构演进记录（已归档） |
 | [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) | AlphaZero/MCTS 对比和搜索蒸馏思路 |
 
 ---

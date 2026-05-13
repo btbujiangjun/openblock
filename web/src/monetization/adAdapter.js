@@ -18,6 +18,17 @@ import { getFlag } from './featureFlags.js';
 import { notePopupShown } from '../popupCoordinator.js';
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 import { t } from '../i18n/i18n.js';
+import { emit } from './MonetizationBus.js';
+
+/* v1.49.x P2-5：把广告生命周期事件 emit 到 MonetizationBus + analyticsTracker。
+ * 之前 ad_show / ad_complete 在 ANALYTICS_EVENTS 已声明但全仓 0 emit，
+ * funnels.AD_WATCH 漏斗永远停在 ad_trigger 第一步、看板 0 数据。 */
+async function _trackAdEvent(eventName, props) {
+    try {
+        const mod = await import('./analyticsTracker.js');
+        mod.getAnalyticsTracker().trackEvent(eventName, props || {});
+    } catch { /* analyticsTracker 不可用时静默 */ }
+}
 
 const STORAGE_KEY = 'openblock_mon_ads_removed';
 
@@ -171,9 +182,19 @@ async function _reportAdImpression(kind, filled, meta = {}) {
  */
 export async function showRewardedAd(reason = '') {
     if (!getFlag('adsRewarded')) return { rewarded: false };
+
+    /* v1.49.x P2-5：ad_show 事件（玩家看到广告 UI）。 */
+    void _trackAdEvent('ad_show', { type: 'rewarded', reason });
+    emit('ad_show', { type: 'rewarded', reason });
+
     const r = _provider
         ? await _provider.showRewarded(reason)
         : await _stubRewardedUI(reason);
+
+    /* P2-5：ad_complete 事件（含完播标记）。 */
+    void _trackAdEvent('ad_complete', { type: 'rewarded', reason, rewarded: !!r?.rewarded });
+    emit('ad_complete', { type: 'rewarded', reason, rewarded: !!r?.rewarded });
+
     void _reportAdImpression('rewarded', r?.rewarded, { reason });
     return r;
 }
@@ -185,7 +206,15 @@ export async function showRewardedAd(reason = '') {
 export async function showInterstitialAd() {
     if (!getFlag('adsInterstitial')) return;
     if (_adsRemoved) return;
+
+    void _trackAdEvent('ad_show', { type: 'interstitial' });
+    emit('ad_show', { type: 'interstitial' });
+
     if (_provider) await _provider.showInterstitial();
     else await _stubInterstitialUI();
+
+    void _trackAdEvent('ad_complete', { type: 'interstitial', rewarded: true });
+    emit('ad_complete', { type: 'interstitial', rewarded: true });
+
     void _reportAdImpression('interstitial', true, {});
 }

@@ -33,6 +33,17 @@ const DEFAULT_PROTECTION_PRESET = Object.freeze({
 const TRIGGER_DAYS_SINCE_LAST_ACTIVE = 7; /* 蓝图 S4 默认窗口 */
 const PROTECTED_ROUNDS = 3;
 
+/* v1.49.x P3-1：early winback 触发阈值（confidence 衰减 + 沮丧叠加）。
+ * 规则版：confidence < 0.30 且 frustrationLevel ≥ 0.55 时提前预热回流挽留卡。
+ * 注：early signal 只是 hint（用来提前 push / offer），并不直接 activateWinback；
+ * 真实 stress 保护包仍由 daysSinceLastActive ≥ 7 触发。 */
+const EARLY_WINBACK_CONFIDENCE_MAX = 0.30;
+const EARLY_WINBACK_FRUSTRATION_MIN = 0.55;
+const EARLY_WINBACK_MISSRATE_MIN = 0.40;
+
+/* RL/外部策略可通过 setEarlyWinbackPolicy 注入自定义评估器，规则版作为 fallback。 */
+let _earlyWinbackPolicy = null;
+
 let _stateCache = null;
 
 function _loadState() {
@@ -134,13 +145,85 @@ export function getWinbackStatus() {
 /** 仅供测试使用：清空缓存与持久化。 */
 export function _resetWinbackForTests() {
     _stateCache = null;
+    _earlyWinbackPolicy = null;
     try {
         localStorage.removeItem(STORAGE_KEY);
     } catch {}
+}
+
+/**
+ * v1.49.x P3-1：评估"提前 winback"信号。
+ *
+ * 输入字段（全可选，缺失按 0 / 1 处理）：
+ *   - confidence: AbilityVector.confidence（0..1，越低越没把握）
+ *   - frustrationLevel: profile.metrics.frustrationLevel（0..1，越高越沮丧）
+ *   - missRate: profile.metrics.missRate（0..1，最近 N 局没消行的比例）
+ *   - daysSinceLastActive: 真实 winback 已经触发时直接返回 trigger=false（避免重复挽留）
+ *
+ * 返回：
+ *   - trigger: 是否触发提前挽留
+ *   - reason: 'rule' | 'policy' | null
+ *   - score: 0..1 风险打分（供 push/offer 排序）
+ *   - signals: { confidence, frustrationLevel, missRate } 原值，便于上层日志
+ *
+ * 设计：纯函数；不写 storage、不发事件。lifecycleOrchestrator 决定何时调用 + 路由事件。
+ */
+export function evaluateEarlyWinbackSignal(input = {}) {
+    const confidence = Number(input.confidence ?? 1);
+    const frustrationLevel = Number(input.frustrationLevel ?? 0);
+    const missRate = Number(input.missRate ?? 0);
+    const daysSinceLastActive = Number(input.daysSinceLastActive ?? 0);
+
+    /* 已经满足真实 winback 触发条件，提前挽留无意义。 */
+    if (daysSinceLastActive >= TRIGGER_DAYS_SINCE_LAST_ACTIVE) {
+        return { trigger: false, reason: null, score: 0, signals: { confidence, frustrationLevel, missRate } };
+    }
+
+    /* 优先调用注入的策略（RL / 远端配置）。 */
+    if (typeof _earlyWinbackPolicy === 'function') {
+        try {
+            const r = _earlyWinbackPolicy({ confidence, frustrationLevel, missRate, daysSinceLastActive });
+            if (r && typeof r === 'object') {
+                return {
+                    trigger: !!r.trigger,
+                    reason: r.trigger ? (r.reason || 'policy') : null,
+                    score: Math.max(0, Math.min(1, Number(r.score ?? 0))),
+                    signals: { confidence, frustrationLevel, missRate },
+                };
+            }
+        } catch { /* 策略异常时回落到规则版 */ }
+    }
+
+    /* 规则版：confidence 弱 + 沮丧高 / missRate 高 → trigger。 */
+    const confidenceLow = confidence < EARLY_WINBACK_CONFIDENCE_MAX;
+    const frustHigh = frustrationLevel >= EARLY_WINBACK_FRUSTRATION_MIN;
+    const missHigh = missRate >= EARLY_WINBACK_MISSRATE_MIN;
+    const trigger = confidenceLow && (frustHigh || missHigh);
+
+    /* score = 0.4 * (1 - confidence) + 0.4 * frustrationLevel + 0.2 * missRate（钳到 [0,1]）。
+     * 仅当 trigger=true 时上层才使用 score；trigger=false 时保留以便 dashboards 观察临界状态。 */
+    const score = Math.max(0, Math.min(1,
+        0.4 * (1 - confidence) + 0.4 * frustrationLevel + 0.2 * missRate
+    ));
+
+    return {
+        trigger,
+        reason: trigger ? 'rule' : null,
+        score,
+        signals: { confidence, frustrationLevel, missRate },
+    };
+}
+
+/** 注入 RL/远端 winback 策略；传入 null 恢复规则版。 */
+export function setEarlyWinbackPolicy(fn) {
+    _earlyWinbackPolicy = typeof fn === 'function' ? fn : null;
 }
 
 export {
     DEFAULT_PROTECTION_PRESET,
     TRIGGER_DAYS_SINCE_LAST_ACTIVE,
     PROTECTED_ROUNDS,
+    EARLY_WINBACK_CONFIDENCE_MAX,
+    EARLY_WINBACK_FRUSTRATION_MIN,
+    EARLY_WINBACK_MISSRATE_MIN,
 };

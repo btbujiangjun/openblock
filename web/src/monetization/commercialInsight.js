@@ -14,13 +14,14 @@
  *   - MonetizationBus（事件订阅）
  */
 
-import { getCommercialInsight, getCommercialModelContext, updateRealtimeSignals } from './personalization.js';
+import { getCommercialInsight, getCommercialModelContext, updateRealtimeSignals, updateAbilitySegment } from './personalization.js';
 import { on } from './MonetizationBus.js';
 import { openMonPanel } from './monPanel.js';
 import { getLTVEstimate, renderLTVCard } from './ltvPredictor.js';
 import { getAdFreqSnapshot } from './adTrigger.js';
 import { buildCommercialModelVector } from './commercialModel.js';
 import { getHelpText } from './strategy/index.js';
+import { buildPlayerAbilityVector } from '../playerAbilityModel.js';
 
 const SECTION_ID = 'insight-commercial';
 
@@ -111,11 +112,27 @@ function _refreshCommercialSection(game) {
     let ltv = null;
     try {
         ltv = getLTVEstimate(game?.playerProfile);
+        /* v1.49.x P1-1：把 abilityVector 喂进 commercialModel —— 高规划/高自信的玩家
+         * 在 IAP/churn/ad 决策上获得偏置；feature flag `abilityCommercial` 灰度。
+         * playerAbilityModel 不反向 import 任何 monetization 模块，所以无循环依赖。 */
+        let ability = null;
+        try {
+            ability = buildPlayerAbilityVector(game?.playerProfile, {
+                grid: game?.grid,
+                gameStats: game?.gameStats,
+                adaptiveInsight: game?._lastAdaptiveInsight,
+            }) || null;
+            /* P1-4：刷新 abilitySegment 缓存，让 getCommercialInsight 下次输出新值。 */
+            if (ability) {
+                updateAbilitySegment(ability, game?.playerProfile?.metrics ?? {});
+            }
+        } catch { /* ability 计算失败时退化到旧行为 */ }
         commercialModel = buildCommercialModelVector({
             ...getCommercialModelContext(),
             profile: game?.playerProfile,
             ltv,
             adFreq: getAdFreqSnapshot(),
+            ability,
         });
         insight.model = commercialModel;
         insight.whyLines = [

@@ -82,9 +82,20 @@ export class PlayerProfile {
         const cfg = _cfg();
         this._window = windowSize ?? cfg.profileWindow ?? 15;
 
-        /** @type {Array<{ts:number, thinkMs:number, cleared:boolean, lines:number, fill:number, miss:boolean}>} */
+        /** @type {Array<{ts:number, thinkMs:number, pickToPlaceMs:number|null, cleared:boolean, lines:number, fill:number, miss:boolean}>} */
         this._moves = [];
         this._lastActionTs = 0;
+        /**
+         * v1.46「反应」指标：startDrag（玩家激活候选块）→ recordPlace/recordMiss 的纯操作执行段时长。
+         *
+         * 与 thinkMs 的区别（务必区分）：
+         *   - thinkMs        = 上一动作 → 当前落子；包含"等系统出新块 / 看新一波 / 选块 / 拖动"全过程
+         *   - pickToPlaceMs  = startDrag → 落子；只含"我握起这一块到我放下"的纯执行时间
+         *
+         * 0 / null = 玩家未经过 startDrag 的程序化路径（教程脚本、replay、bot 等）→
+         *           不计入"反应"窗口均值，避免污染指标。
+         */
+        this._pickupAt = 0;
 
         this._smoothSkill = 0.5;
         this._recoveryCounter = 0;
@@ -133,6 +144,11 @@ export class PlayerProfile {
             collection: 0,
         };
         this._lastSessionEndTs = 0;
+        /* v1.48 (2026-05) — 数据层统一：玩家"装机时间戳"。
+         * 用于 daysSinceInstall 计算，supersede 之前散落在 gameStats 上的同名字段。
+         * 第一次构造（首次启动）写 now；fromJSON 读旧记录时若缺该字段则用最早的
+         * sessionHistory[0].ts 兜底，再不行再回退到 now（视作刚装机）。 */
+        this._installTs = Date.now();
     }
 
     /* ================================================================== */
@@ -148,6 +164,19 @@ export class PlayerProfile {
     }
 
     /**
+     * v1.46：玩家在 dock 上按下/触摸一个候选块（Game.startDrag 入口）即调用本方法。
+     *
+     * 仅记录最近一次 pickup 时刻；下一次 recordPlace / recordMiss 时与之相减，
+     * 写入该 move 的 pickToPlaceMs，反映"激活到落子"的纯反应/操作耗时。
+     *
+     * 重复调用是安全的（拖→拖出→重新选另一块）：以最后一次为准；松手取消（onDragCancel）
+     * 不需要清零，因为下一次 startDrag 会覆盖。
+     */
+    recordPickup() {
+        this._pickupAt = Date.now();
+    }
+
+    /**
      * @param {boolean} cleared 本次放置是否触发消行
      * @param {number} linesCleared 消除行数
      * @param {number} boardFill 放置后板面填充率 0~1
@@ -157,9 +186,15 @@ export class PlayerProfile {
         const thinkMs = this._lastActionTs > 0
             ? Math.min(now - this._lastActionTs, 60000)
             : 3000;
+        const pickToPlaceMs = this._pickupAt > 0
+            ? Math.min(now - this._pickupAt, 60000)
+            : null;
 
-        this._pushMove({ ts: now, thinkMs, cleared, lines: linesCleared, fill: boardFill, miss: false });
+        this._pushMove({
+            ts: now, thinkMs, pickToPlaceMs, cleared, lines: linesCleared, fill: boardFill, miss: false
+        });
         this._lastActionTs = now;
+        this._pickupAt = 0;
         this._totalLifetimePlacements++;
 
         if (linesCleared >= 2) {
@@ -209,7 +244,13 @@ export class PlayerProfile {
         const thinkMs = this._lastActionTs > 0
             ? Math.min(now - this._lastActionTs, 60000)
             : 1000;
-        this._pushMove({ ts: now, thinkMs, cleared: false, lines: 0, fill: 0, miss: true });
+        const pickToPlaceMs = this._pickupAt > 0
+            ? Math.min(now - this._pickupAt, 60000)
+            : null;
+        this._pushMove({
+            ts: now, thinkMs, pickToPlaceMs, cleared: false, lines: 0, fill: 0, miss: true
+        });
+        this._pickupAt = 0;
         this._consecutiveNonClears++;
     }
 
@@ -327,11 +368,35 @@ export class PlayerProfile {
      * }}
      */
     get metrics() {
-        const recent = this._recentMoves();
+        return this.metricsForWindow(this._window);
+    }
+
+    /**
+     * v2 (2026-05)：按指定窗口长度聚合 metrics，供 `playerAbilityModel` 让不同能力指标
+     * 使用各自合适的时间尺度（控制看短窗体现手感、消行看中窗等待机会积累）。
+     *
+     * 与原 `metrics` 行为完全一致：windowSize === this._window 时复用同一冷启动占位语义、
+     * 同一 AFK 过滤、同一返回字段集（保证下游 UI / 自适应 / 回放无缝切换）。
+     *
+     * @param {number} windowSize 取最近 N 步聚合；非有限值或 ≤0 时回退到默认 _window
+     * @returns {{
+     *   thinkMs:number, clearRate:number, comboRate:number, missRate:number,
+     *   multiClearRate:number, perfectClearRate:number, avgLines:number,
+     *   pickToPlaceMs:number|null, reactionSamples:number,
+     *   afkCount:number, samples:number, activeSamples:number, windowSize:number
+     * }}
+     */
+    metricsForWindow(windowSize) {
+        const w = Number.isFinite(windowSize) && windowSize > 0
+            ? Math.floor(windowSize)
+            : this._window;
+        const recent = this._moves.slice(-w);
         if (recent.length === 0) {
             return {
                 thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1,
-                afkCount: 0, samples: 0, activeSamples: 0
+                multiClearRate: 0, perfectClearRate: 0, avgLines: 0,
+                pickToPlaceMs: null, reactionSamples: 0,
+                afkCount: 0, samples: 0, activeSamples: 0, windowSize: w
             };
         }
         const placed = recent.filter(m => !m.miss);
@@ -340,6 +405,26 @@ export class PlayerProfile {
         const afkCount = placed.length - active.length;
         const clearCount = active.filter(m => m.cleared).length;
         const comboCount = active.filter(m => m.lines >= 2).length;
+
+        const reactive = recent.filter(m => m.pickToPlaceMs != null && m.pickToPlaceMs < afkMs);
+        const pickToPlaceMs = reactive.length > 0
+            ? reactive.reduce((s, m) => s + m.pickToPlaceMs, 0) / reactive.length
+            : null;
+
+        /* v2：multiClear / perfectClear 在窗口口径内单独统计，让 clearEfficiency
+         * 不必依赖 PlayerProfile 全局 _window 的 multiClearRate / perfectClearRate getter
+         * （那两个 getter 仍保留作为对外公开 API，与本窗口口径一致）。 */
+        const cleared = active.filter(m => m.cleared);
+        const multiClearRate = cleared.length >= 2
+            ? cleared.filter(m => m.lines >= 2).length / cleared.length
+            : 0;
+        const perfectClearRate = cleared.length >= 2
+            ? cleared.filter(m => m.fill === 0).length / cleared.length
+            : 0;
+        const avgLines = cleared.length > 0
+            ? cleared.reduce((s, m) => s + m.lines, 0) / cleared.length
+            : 0;
+
         return {
             thinkMs: active.length > 0
                 ? active.reduce((s, m) => s + m.thinkMs, 0) / active.length
@@ -349,9 +434,15 @@ export class PlayerProfile {
             missRate: recent.length > 0
                 ? recent.filter(m => m.miss).length / recent.length
                 : 0,
+            multiClearRate,
+            perfectClearRate,
+            avgLines,
+            pickToPlaceMs,
+            reactionSamples: reactive.length,
             afkCount,
             samples: recent.length,
-            activeSamples: active.length
+            activeSamples: active.length,
+            windowSize: w
         };
     }
 
@@ -756,6 +847,100 @@ export class PlayerProfile {
         return this._totalLifetimePlacements;
     }
 
+    /**
+     * v2 (2026-05)：玩家最近一次活跃时间戳（ms epoch）。
+     *
+     * 优先级：本进程上一局结束（_lastSessionEndTs） > 历史缓存里的 lastSessionTs > 0。
+     * 供 `playerAbilityModel.confidence` 的 recencyDecay 项使用——长草玩家终身放置数
+     * 仍可能很大，但近 N 天没玩说明模型对其当前状态把握不再可靠，置信度应衰减。
+     *
+     * 与 `returningWarmupStrength` 共用同一时间源，保持"沉默回归"信号家族的一致性。
+     */
+    get lastActiveTs() {
+        return this._lastSessionEndTs || this._getHistoricalCache().lastSessionTs || 0;
+    }
+
+    /* ============================================================================
+     * v1.48 (2026-05) — 数据层统一：生命周期"三大裸字段"
+     *
+     * 此前 `getLifecycleMaturitySnapshot` 期望从 `profile._daysSinceInstall /
+     * _totalSessions / _daysSinceLastActive` 读取，但 `PlayerProfile` 从未提供
+     * 这些字段的写入入口；同时 `playerInsightPanel` 用的是 `gameStats.daysSinceInstall`，
+     * `playerLifecycleDashboard` / `socialIntroTrigger` 又各自从外部 `playerData`
+     * 参数取数 —— 三者**不同源**，导致 snapshot.stageCode 实际几乎不离开 S0。
+     *
+     * 这里把"三大裸字段"统一在 `PlayerProfile` 上，所有上层（出块 / UI / 商业化 /
+     * 召回）都从同一处取数；详见 docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md
+     * 的"统一数据层"章节。
+     * ============================================================================ */
+
+    /** 装机至今天数（向下取整 0 起）。`_installTs` 在新构造时为 now，旧记录
+     *  fromJSON 时回填为 sessionHistory[0].ts，再不行回退 now。 */
+    get daysSinceInstall() {
+        const ts = Number(this._installTs) || 0;
+        if (!ts) return 0;
+        return Math.max(0, Math.floor((Date.now() - ts) / 86_400_000));
+    }
+
+    /** 终身会话数（recordSessionEnd 计入 `_sessionHistory`，cap=30）。
+     *  与 `lifetimeGames` 区别：`lifetimeGames` 来自 `_totalLifetimeGames`，
+     *  即便历史 cap 之外也保留计数；`totalSessions` 优先用累计计数，
+     *  缺失则降级到 `_sessionHistory.length`。 */
+    get totalSessions() {
+        return Math.max(this._totalLifetimeGames || 0, this._sessionHistory.length || 0);
+    }
+
+    /** 距上次活跃天数。lastActiveTs=0（从未活跃）时返回 0（视作"今天活跃"），
+     *  避免冷启动玩家被误判为长草用户触发 winback。 */
+    get daysSinceLastActive() {
+        const last = this.lastActiveTs;
+        if (!last) return 0;
+        return Math.max(0, Math.floor((Date.now() - last) / 86_400_000));
+    }
+
+    /**
+     * 生命周期"三大裸字段"打包：直接喂给 `getLifecycleMaturitySnapshot` /
+     * `getPlayerLifecycleStage` / `evaluateWinbackTrigger` 等所有 retention 模块。
+     *
+     * 用法：`getLifecycleMaturitySnapshot(profile.lifecyclePayload)`。
+     */
+    get lifecyclePayload() {
+        return {
+            daysSinceInstall: this.daysSinceInstall,
+            totalSessions: this.totalSessions,
+            daysSinceLastActive: this.daysSinceLastActive,
+        };
+    }
+
+    /**
+     * v2 (2026-05)：盘面填充率最近变化速度（每步 fill 增量的窗口均值）。
+     *
+     * 物理含义：玩家最近 N 步把盘面"加速度往满了堆"的程度——boardFill 静态值
+     * 0.75 表示当前满度，但"3 步内从 0.5 冲到 0.75"和"稳定停在 0.75"对死局风险
+     * 的预示完全不同。前者 velocity ≈ +0.083，后者 ≈ 0。
+     *
+     * 实现：取最近 max(2, samples) 个 placed move（不含 miss），做相邻 fill 差分平均。
+     * 样本不足返回 0；只看正向（消行后 fill 跳降不算"减压"，避免 velocity 抖到负值
+     * 影响 riskLevel 估计）。
+     *
+     * @param {number} [windowSteps=5]  统计窗口
+     * @returns {number}  通常 -0.1 ~ +0.2 之间，正值代表盘面在变满
+     */
+    boardFillVelocity(windowSteps = 5) {
+        const w = Number.isFinite(windowSteps) && windowSteps > 1 ? Math.floor(windowSteps) : 5;
+        const placed = this._moves.slice(-w).filter(m => !m.miss && Number.isFinite(m.fill));
+        if (placed.length < 2) return 0;
+        let sum = 0;
+        let count = 0;
+        for (let i = 1; i < placed.length; i++) {
+            const dv = placed[i].fill - placed[i - 1].fill;
+            // 消行后 fill 会跳降，跳降不算"减压"信号——只取正向 / 0 保留 velocity 的"风险加速"语义
+            sum += Math.max(0, dv);
+            count++;
+        }
+        return count > 0 ? sum / count : 0;
+    }
+
     /** 闭环反馈偏移量，正值=玩家消行多于预期→可加压，负值=消行不足→应减压 */
     get feedbackBias() {
         return this._feedbackBias;
@@ -786,6 +971,7 @@ export class PlayerProfile {
             preferenceSignals: this._preferenceSignals,
             modeCount: this._modeCount,
             lastSessionEndTs: this._lastSessionEndTs,
+            installTs: this._installTs,
             savedAt: Date.now()
         };
     }
@@ -838,6 +1024,16 @@ export class PlayerProfile {
             p._lastSessionEndTs = Number(data.lastSessionEndTs);
         } else if (p._sessionHistory.length > 0) {
             p._lastSessionEndTs = p._sessionHistory[p._sessionHistory.length - 1].ts || 0;
+        }
+        /* v1.48：installTs 兼容旧记录——如果旧 JSON 没存这字段，回退到
+         * 最早的 sessionHistory[0].ts；再不行用 savedAt（视作"那时已安装"）；
+         * 最后兜底 Date.now() 让 daysSinceInstall=0（视作刚装机）。 */
+        if (Number.isFinite(Number(data?.installTs)) && Number(data.installTs) > 0) {
+            p._installTs = Number(data.installTs);
+        } else if (p._sessionHistory.length > 0 && p._sessionHistory[0].ts) {
+            p._installTs = p._sessionHistory[0].ts;
+        } else if (Number.isFinite(Number(data?.savedAt)) && Number(data.savedAt) > 0) {
+            p._installTs = Number(data.savedAt);
         }
         return p;
     }

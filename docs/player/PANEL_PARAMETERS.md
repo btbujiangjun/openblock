@@ -48,6 +48,12 @@
 
 能力指标区每次面板刷新都会用当前棋盘重新构建 `AbilityVector`：`skillScore`、`controlScore`、`clearEfficiency` 主要来自 `PlayerProfile` 滑动窗口；`boardPlanning`、`riskLevel` 会叠加当前 `analyzeBoardTopology(grid)` 的 `fillRatio / holes / closeLines`。因此它与下方实时拓扑指标使用同一盘面口径。
 
+> **v2 (2026-05) 体感升级**：6 个 pill 的 hover tooltip 已扩写到 v2 公式语义；
+> - 视觉分组：能力 / 操作 / 消行 / 规划 = 暖色（向上=好），风险 = 红色（向下=好），置信 = 灰色（数据元）；
+> - hover 任意 pill 弹出 6 维 SVG 雷达浮层，风险轴在雷达内被翻转为 1−x，让"向外=好"的语义在所有 6 个轴上一致；
+> - `controlScore` / `clearEfficiency` 各自使用独立窗口（8 步 / 16 步），不再共用 PlayerProfile 全局窗口。
+> - 详细公式与权重见 [`ALGORITHMS_PLAYER_MODEL.md §13.7`](../algorithms/ALGORITHMS_PLAYER_MODEL.md)。
+
 ### 2.1 技能 (skillLevel)
 
 | 属性 | 值 |

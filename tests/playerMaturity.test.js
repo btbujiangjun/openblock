@@ -301,11 +301,13 @@ describe('Player Maturity Model', () => {
             expect(calculateCombinedMatureIndex(80, 20, 0.5)).toBe(50);
         });
 
-        it('getMaturityBand 应映射 L→M', () => {
+        it('getMaturityBand 应映射到 M0–M4（v1.48：SkillScore≥90 进 M4）', () => {
             expect(getMaturityBand(10)).toBe('M0');
             expect(getMaturityBand(45)).toBe('M1');
             expect(getMaturityBand(70)).toBe('M2');
-            expect(getMaturityBand(95)).toBe('M3');
+            expect(getMaturityBand(85)).toBe('M3');   // L4 但 < 90 仍 M3
+            expect(getMaturityBand(95)).toBe('M4');   // v1.48：顶端核心进 M4，让 lifecycleStressCapMap 的 S*·M4 能命中
+            expect(getMaturityBand(100)).toBe('M4');
         });
 
         it('updateMaturity 写入并返回 skillScore / valueScore / matureIndex / band', () => {

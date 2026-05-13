@@ -1048,7 +1048,7 @@ useBackend=false → trainer.js 用 LinearAgent
 
 - **代码**：`web/src/bot/linearAgent.js`（`W·φ` 策略、`Vw·ψ` 价值）、`web/src/bot/trainer.js`（`runSelfPlayEpisode`、`trainSelfPlay`、`reinforceUpdate`）。
 - **超参与温度**：`shared/game_rules.json` → **`browserRlTraining`**（`gamma`、`policyLr`、`valueLr`、`entropyCoef`、`maxGradNorm`、`temperatureLocal`、`temperatureBackend`）。前端通过 `resolveBrowserRlTrainingConfig()` 读取；**PyTorch 在线训练**路径每局采样温度使用 `temperatureBackend`。
-- **算法要点**：回报 Welford 标准化 + 批内优势标准化 + 裁剪；策略更新为 **REINFORCE + 基线**，并叠加 **熵 bonus**：`ΔW ∝ lr · (A · ∇logπ(a) + β · ∇_W H)`，β=`entropyCoef`（详见 [`RL_BROWSER_OPTIMIZATION.md`](./RL_BROWSER_OPTIMIZATION.md) §3.2 / §5）。
+- **算法要点**：回报 Welford 标准化 + 批内优势标准化 + 裁剪；策略更新为 **REINFORCE + 基线**，并叠加 **熵 bonus**：`ΔW ∝ lr · (A · ∇logπ(a) + β · ∇_W H)`，β=`entropyCoef`（详见 [`RL_BROWSER_OPTIMIZATION.md`](../archive/algorithms/RL_BROWSER_OPTIMIZATION.md) §3.2 / §5，已归档）。
 
 ### 15.3 关键差异
 
@@ -1185,8 +1185,8 @@ def _safe_aux(t):
 | **v7** | + 评估门控 / spawn predictor / MCTS 完整 | 路线图 |
 
 详见各分册：
-- v5：`RL_TRAINING_OPTIMIZATION.md`
-- v6/v7：`RL_ALPHAZERO_OPTIMIZATION.md`
+- v5：[`RL_TRAINING_OPTIMIZATION.md`](../archive/algorithms/RL_TRAINING_OPTIMIZATION.md)（已归档）
+- v6/v7：[`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md)
 
 ---
 
@@ -1309,10 +1309,10 @@ def _safe_aux(t):
 | [`ALGORITHMS_HANDBOOK.md`](./ALGORITHMS_HANDBOOK.md) | 总索引 |
 | [`RL_AND_GAMEPLAY.md`](./RL_AND_GAMEPLAY.md) | 系统分层与单一数据源 |
 | [`RL_ANALYSIS.md`](./RL_ANALYSIS.md) | 早期评估与改进建议 |
-| [`RL_TRAINING_OPTIMIZATION.md`](./RL_TRAINING_OPTIMIZATION.md) | v4 → v5 重构记录 |
+| [`RL_TRAINING_OPTIMIZATION.md`](../archive/algorithms/RL_TRAINING_OPTIMIZATION.md) | v4 → v5 重构记录（已归档） |
 | [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) | 数值稳定专章 |
 | [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) | v6/v7 路线图（Q 蒸馏 / search） |
-| [`RL_BROWSER_OPTIMIZATION.md`](./RL_BROWSER_OPTIMIZATION.md) | 浏览器 LinearAgent 调优 |
+| [`RL_BROWSER_OPTIMIZATION.md`](../archive/algorithms/RL_BROWSER_OPTIMIZATION.md) | 浏览器 LinearAgent 调优（已归档） |
 | [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) | 训练看板数据流 |
 | [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | 训练曲线判读 |
 

@@ -242,6 +242,11 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             clearRate: hasActiveSample ? m.clearRate : null,
             comboRate: hasActiveSample ? m.comboRate : null,
             missRate: hasAnySample ? m.missRate : null,
+            /* v1.46「反应」指标：startDrag→落子的纯执行段。
+             * - reactionSamples=0 → null：避免冷启动 / 教程脚本污染曲线
+             * - 数值范围典型 200~6000ms，与 thinkMs 同量纲但语义更纯（剔除观察/选块/上一块庆祝） */
+            pickToPlaceMs: m.reactionSamples > 0 ? m.pickToPlaceMs : null,
+            reactionSamples: m.reactionSamples ?? 0,
             afkCount: m.afkCount,
             samples,
             activeSamples
@@ -251,6 +256,16 @@ export function buildPlayerStateSnapshot(profile, ctx) {
     if (geo && typeof geo === 'object') {
         slim.spawnGeo = {
             holes: geo.holes != null && Number.isFinite(Number(geo.holes)) ? Number(geo.holes) : null,
+            /* v1.46：把表面"平整"与首手"瓶颈块自由度"也写入快照，
+             * 让回放与服务端持久化都能曲线化展示这两个原本只在 pill 区显示的几何指标。 */
+            flatness:
+                geo.flatness != null && Number.isFinite(Number(geo.flatness))
+                    ? Number(geo.flatness)
+                    : null,
+            firstMoveFreedom:
+                geo.firstMoveFreedom != null && Number.isFinite(Number(geo.firstMoveFreedom))
+                    ? Number(geo.firstMoveFreedom)
+                    : null,
             solutionCount:
                 geo.solutionCount != null && Number.isFinite(Number(geo.solutionCount))
                     ? Number(geo.solutionCount)
@@ -792,7 +807,22 @@ export const REPLAY_METRICS = [
         group: 'ability',
         extract: ps => ps.metrics?.thinkMs,
         fmt: 'int',
-        tooltip: '平均思考时间（毫秒）：从候选块出现到落子的间隔。过长可能推高焦虑与负荷；过短可能进入无聊区，均会参与心流判断。\n📈 看图：1000~3000ms = 健康决策；> 8000ms 持续 + 高负荷 → 触发"简化决策"卡；< 500ms 持续 + 高消行率 → 倾向 bored，触发"提升挑战"卡。'
+        tooltip: '平均思考时间（毫秒）：从「上一动作」到「当前落子」的总时长，包含「等系统出新块 / 看新一波 / 选块 / 拖动」全过程。过长可能推高焦虑与负荷；过短可能进入无聊区，均会参与心流判断。\n📈 看图：1000~3000ms = 健康决策；> 8000ms 持续 + 高负荷 → 触发"简化决策"卡；< 500ms 持续 + 高消行率 → 倾向 bored，触发"提升挑战"卡。\n⚠ 与「反应」(pickToPlaceMs) 不同：思考含等待+观察+操作，反应只含纯执行段。'
+    },
+    /* v1.46：「反应」(pickToPlaceMs) — 玩家激活候选块（startDrag）→ 落子完成 的纯操作执行段。
+     * 与 thinkMs 形成对照：
+     *   - thinkMs：上一动作 → 落子（含观察 / 选块 / 等系统出块）
+     *   - pickToPlaceMs：startDrag → 落子（剔除观察，只剩"我握起到我放下"的执行时间）
+     * 反应过快（≈短于 250ms）多见于熟练玩家或简单形状；反应过长（>5000ms）通常意味着
+     * 玩家在拖动中犹豫、来回比划，是认知负担与焦虑的早期信号；adaptiveSpawn 把它纳入
+     * stressBreakdown.reactionAdjust 做轻微的 stress 微调（绝对值 ≤ 0.05）。 */
+    {
+        key: 'pickToPlaceMs',
+        label: '反应',
+        group: 'ability',
+        extract: ps => ps.metrics?.pickToPlaceMs,
+        fmt: 'int',
+        tooltip: '反应时间（毫秒）：从「玩家点/触摸候选块」(startDrag) 到「落子完成」的纯操作执行段；不含观察新一波块、选哪一块的认知前期。是衡量"手眼协调 / 操作熟练度 / 临场犹豫"的核心指标。\n📈 看图：典型 800~3000ms = 顺畅；< 300ms 持续 = 反射式落子（多见于训练有素或简单盘面，倾向 bored 加压）；> 5000ms 持续 = 拖动中犹豫、来回比划（与「负荷」「失误」常同步抬升，倾向 anxious 减压）。\n🔁 反馈链：metrics.pickToPlaceMs → adaptiveSpawn.reactionAdjust（≤±0.05）→ stress → 出块强度。'
     },
     {
         key: 'feedbackBias',
@@ -841,6 +871,16 @@ export const REPLAY_METRICS = [
         fmt: 'f2',
         tooltip: '心流偏移修正：F(t) 偏向无聊（玩家觉得太简单）→ 加压；偏向焦虑 → 减压。绝对值越大说明系统越主动调整难度。\n📈 看图：与「F(t)」+「消行率」共看——F(t)>0.55 + clearRate>42% → 正向（加压抗 bored）；F(t)>0.55 + clearRate<30% → 负向（减压救 anxious）。值贴近 0 = 玩家在沉浸区，无需主动干预。'
     },
+    /* v1.46：「反应触发的 stress 微调」(reactionAdjust) — pickToPlaceMs 落入快/慢区间时
+     * 对 stress 施加 ±0.05 的微调；与 flowAdjust 同列展示，便于看"反应快慢→出块强度"的反馈链。 */
+    {
+        key: 'reactionAdjust',
+        label: '反应调',
+        group: 'stress',
+        extract: ps => ps.adaptive?.stressBreakdown?.reactionAdjust,
+        fmt: 'f2',
+        tooltip: '反应触发的 stress 微调（v1.46）：依据「反应」(pickToPlaceMs) 落点对 stress 施加 ±0.05 偏移——\n• < 350ms（反射式快放，倾向 bored）→ +stress；\n• > 4500ms（拖动犹豫，倾向 anxious）→ −stress；\n• 中段（健康区）→ 0；\n• `reactionSamples` < 3 时强制 0（避免冷启动噪声）；\n• 与 nearMissAdjust 显著同向时让位（弱信号让强信号）。\n📈 看图：与「反应」(pickToPlaceMs) 配对查看——反应曲线进入极端区间，本曲线才会偏离 0；本指标长期 0 = 玩家反应处于健康区间。'
+    },
     {
         key: 'pacingAdjust',
         // v1.20：原标签"节奏"与右侧 spawnHints.rhythmPhase pill 的「节奏 收获/中性/搭建」
@@ -879,16 +919,37 @@ export const REPLAY_METRICS = [
     {
         key: 'topologyHoles',
         label: '空洞',
-        group: 'spawn',
+        group: 'game',
         extract: ps => ps.spawnGeo?.holes,
         fmt: 'int',
         tooltip:
-            '盘面空洞数：analyzeBoardTopology 统计的、当前所有可出形状在任何合法位置都无法覆盖的空格数；越多越难修复。\n📈 看图：随落子与消行波动；与下方投放区「平整」等几何信号同向印证。'
+            '盘面空洞数：analyzeBoardTopology 统计的、当前所有可出形状在任何合法位置都无法覆盖的空格数；越多越难修复。\n📈 看图：随落子与消行波动；与下方「平整」等几何信号同向印证。'
+    },
+    /* v1.46：把原本只在 spawn 决策快照下方 pill 区显示的「平整」与「首手自由度」
+     * 升级为时间序列指标——与 holes/solutionCount 一起构成"盘面几何"四件套，
+     * 既支持 sparkline 实时观察、也随 ps 一并写入回放与数据库。 */
+    {
+        key: 'flatness',
+        label: '平整',
+        group: 'game',
+        extract: ps => ps.spawnGeo?.flatness,
+        fmt: 'f2',
+        tooltip:
+            '盘面平整度（0~1）：1/(1+heightVariance)，1=完全平整。\n空盘≈1.00；单根孤柱在 9×9 约 0.15~0.30，在 8×8 高度 3 时正好 0.50（数学上无误）。\n📈 看图：消行后通常回升；< 0.4 持续提示"有突起"，常与「空洞/未消行」同步抬升；> 0.7 表示盘面比较扁平、规划更自由。\n⚠ 此指标只衡量列高度均一性，不衡量"相邻列差/局部锯齿"；后者请参考「空洞」与「首手」。'
+    },
+    {
+        key: 'firstMoveFreedom',
+        label: '首手',
+        group: 'game',
+        extract: ps => ps.spawnGeo?.firstMoveFreedom,
+        fmt: 'int',
+        tooltip:
+            '首手自由度（瓶颈块）：当前 dock 中各候选块独立放置时合法位置数的最小值。数值越小，玩家选错位置后越容易卡死。\n📈 看图：典型范围 5~30；≤ 2 持续 = 系统下一轮 spawn 会触发 bottleneckRelief（最高 -0.12 减压 + 抬高 clearGuarantee/sizePreference）；与右侧「投放区」的瓶颈低谷信号同源，是"被困高压"的早期预警。'
     },
     {
         key: 'tripletSolutionCount',
         label: '解法',
-        group: 'spawn',
+        group: 'game',
         extract: ps => ps.spawnGeo?.solutionCount,
         fmt: 'int',
         tooltip:

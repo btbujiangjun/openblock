@@ -8,7 +8,7 @@
   <view class="score-theme-row">
     <view class="stat-box">
       <text class="stat-label">{{text.score}}</text>
-      <text class="stat-value stat-value--accent">{{score}}</text>
+      <text class="stat-value stat-value--accent score-burst {{scoreBurstClass}}">{{score}}</text>
       <view class="stat-subline stat-subline--spacer"></view>
     </view>
     <view class="stat-box">

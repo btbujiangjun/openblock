@@ -40,6 +40,10 @@ import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { analyzeBoardTopology } from './boardTopology.js';
 import { getAllShapes } from './shapes.js';
 import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
+import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
+/* v1.48：winback 保护包接入；通过 lifecycleOrchestrator 包装层避免直接依赖
+ * retention 模块（保持单向依赖：spawn 层 → lifecycle 编排层 → retention 模块）。 */
+import { getActiveWinbackPreset } from './lifecycle/lifecycleOrchestrator.js';
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -703,6 +707,52 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         }
     }
 
+    /* ---------- v1.46：反应时间纳入 stress 微调 ----------
+     *
+     * 物理含义：pickToPlaceMs = 玩家激活候选块（startDrag）→ 落子完成 的纯执行段。
+     * 与 thinkMs 不同，它已经剔除「等系统出新块 / 看新一波」等系统侧延迟，更接近
+     * 「玩家本人此刻的认知 / 操作负担」。
+     *
+     * 调控规则：
+     *   - reactionMs < fastMs（默认 350ms）持续 → 反射式快放，倾向 bored，+stress（最多 +maxAdjust）
+     *   - reactionMs > slowMs（默认 4500ms）持续 → 拖动中犹豫，倾向 anxious，−stress（最多 −maxAdjust）
+     *   - 中段（fastMs~slowMs）= 健康，0
+     *
+     * 钳值 maxAdjust 默认 0.05，刻意小于 flowAdjust(±0.12)、recoveryAdjust(−0.2) 等主信号
+     * 一个量级——它是对 thinkMs/missRate 等已有信号的"轻量补充"，不应主导 stress。
+     *
+     * 启用门槛 minSamples=3，避免冷启动 / 教程脚本路径上的程序化样本污染。
+     *
+     * 互抑：与 nearMissAdjust（玩家差一点失败的极强减压信号）显著同向时，reactionAdjust
+     *      作为弱信号自动让位（直接零），避免在已经强烈减压的瞬间再叠加微小同向偏移。
+     */
+    const reactionCfg = cfg.reactionAdjust ?? {};
+    const reactionEnabled = reactionCfg.enabled !== false;
+    const reactionMs = Number(profile.metrics?.pickToPlaceMs);
+    const reactionSamples = Math.max(0, Number(profile.metrics?.reactionSamples ?? 0) || 0);
+    const reactionMinSamples = Math.max(1, Number(reactionCfg.minSamples ?? 3));
+    const reactionFastMs = Math.max(50, Number(reactionCfg.fastMs ?? 350));
+    const reactionSlowMs = Math.max(reactionFastMs + 100, Number(reactionCfg.slowMs ?? 4500));
+    const reactionMaxAdjust = Math.max(0, Number(reactionCfg.maxAdjust ?? 0.05));
+    let reactionAdjust = 0;
+    if (
+        reactionEnabled
+        && Number.isFinite(reactionMs)
+        && reactionSamples >= reactionMinSamples
+    ) {
+        if (reactionMs < reactionFastMs) {
+            const intensity = Math.min(1, (reactionFastMs - reactionMs) / reactionFastMs);
+            reactionAdjust = +reactionMaxAdjust * intensity;
+        } else if (reactionMs > reactionSlowMs) {
+            const overshoot = Math.min(1, (reactionMs - reactionSlowMs) / reactionSlowMs);
+            reactionAdjust = -reactionMaxAdjust * overshoot;
+        }
+        /* 与 nearMissAdjust 显著同向时让位（弱信号让弱给强） */
+        if (nearMissAdjust < -0.05 && reactionAdjust < 0) {
+            reactionAdjust = 0;
+        }
+    }
+
     /* ---------- 综合 stress ---------- */
     const stressBreakdown = {
         scoreStress: applySignal(signalCfg, 'scoreStress', scoreStress),
@@ -710,6 +760,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         difficultyBias: applySignal(signalCfg, 'difficultyBias', difficultyBias),
         skillAdjust: applySignal(signalCfg, 'skillAdjust', skillAdjust),
         flowAdjust: applySignal(signalCfg, 'flowAdjust', flowAdjust),
+        reactionAdjust: applySignal(signalCfg, 'reactionAdjust', reactionAdjust),
         pacingAdjust: applySignal(signalCfg, 'pacingAdjust', pacingAdjust),
         recoveryAdjust: applySignal(signalCfg, 'recoveryAdjust', recoveryAdjust),
         frustrationRelief: applySignal(signalCfg, 'frustrationRelief', frustRelief),
@@ -746,13 +797,30 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
      */
     let lifecycleStressAdjust = 0;
     try {
+        /* v1.49.x P2-4：优先用 getCachedLifecycleSnapshot（300ms TTL，避免每帧重算）。
+         * lifecycleOrchestrator 在 sessionStart/End 会主动 invalidate，
+         * 所以 cache 与状态变化同步；同帧内 advisor / 面板 / spawn 共用一份 snapshot。
+         *
+         * 注意：测试和某些直读场景下 profile 的私有字段（_daysSinceInstall 等）
+         * 可能直接被 mock 而 lifecyclePayload getter 与之不一致，因此当外部
+         * 显式传入 profile.daysSinceInstall / daysSinceLastActive 与 payload
+         * 不匹配时，仍以原始 getLifecycleMaturitySnapshot 为准，避免偏移。 */
+        /* 优先读 profile 私有字段（测试 / lifecycleOrchestrator 直接 mock 时唯一来源），
+         * 再 fallback 到公开 getter；这样既保留 v1.32 既有契约（_daysSinceInstall 等），
+         * 也兼容 lifecyclePayload getter 路径。 */
         const snap = getLifecycleMaturitySnapshot({
-            daysSinceInstall: profile?._daysSinceInstall ?? 0,
-            totalSessions: profile?._totalSessions ?? profile?.lifetimeGames ?? 0,
-            daysSinceLastActive: profile?._daysSinceLastActive ?? 0,
+            daysSinceInstall: profile?._daysSinceInstall ?? profile?.daysSinceInstall ?? 0,
+            totalSessions: profile?._totalSessions ?? profile?.totalSessions ?? profile?.lifetimeGames ?? 0,
+            daysSinceLastActive: profile?._daysSinceLastActive ?? profile?.daysSinceLastActive ?? 0,
         });
-        const stage = snap?.stageCode ?? 'S0';
-        const band = snap?.band ?? 'M0';
+        let stage = snap?.stageCode ?? 'S0';
+        let band = snap?.band ?? 'M0';
+
+        /* 如果存在 cached snapshot 且 stage 与直读结果一致，则复用 band 以节省其他下游调用。 */
+        const cached = getCachedLifecycleSnapshot(profile);
+        if (cached?.stage?.code && cached.stage.code === stage) {
+            band = cached.maturity?.band ?? band;
+        }
         const key = `${stage}·${band}`;
 
         /* S/M 压力上限映射表（与 lifecyclePlaybook 同步） */
@@ -796,6 +864,21 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const inOnboarding = profile.isInOnboarding;
     if (inOnboarding) {
         stress = Math.min(stress, eng.firstSessionStressOverride ?? -0.15);
+    }
+
+    /* ---------- v1.48 winback 保护包：sress cap ----------
+     * `winbackProtection` 在 game.startGame → onSessionStart 时检测玩家是否
+     * ≥7 天未活跃，若是则激活 PROTECTED_ROUNDS=3 局保护期；保护期内：
+     *   - stress 取 min(当前, preset.stressCap=0.6)：避免回流第一局就死局
+     *   - clearGuarantee +preset.clearGuaranteeBoost（在下方 spawnHints 段叠加）
+     *   - sizePreference 进一步偏小块（在下方 spawnHints 段叠加）
+     * 这是 P0-B 的接线点；此前 winbackProtection.getActivePreset 在
+     * adaptiveSpawn / blockSpawn / game.js 全无引用，回流玩家完全无保护。 */
+    let winbackPreset = null;
+    try { winbackPreset = getActiveWinbackPreset(); } catch { /* ignore */ }
+    if (winbackPreset && Number.isFinite(winbackPreset.stressCap)) {
+        stress = Math.min(stress, winbackPreset.stressCap);
+        stressBreakdown.winbackStressCap = winbackPreset.stressCap;
     }
 
     /* ---------- B 类进阶挑战档：高分段自动加压 ----------
@@ -1049,6 +1132,18 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /* --- Layer 2: combo 活跃时提高消行保证 --- */
     if (comboChain > 0.5) {
         clearGuarantee = Math.max(clearGuarantee, 2);
+    }
+
+    /* --- v1.48 winback 保护包：spawnHints 加成 ---
+     * 与上方 stress cap 同来源；进入回流保护期后给 spawnHints 加固，确保
+     * "保护包确实让前 3 局更轻松"。 */
+    if (winbackPreset) {
+        if (Number.isFinite(winbackPreset.clearGuaranteeBoost) && winbackPreset.clearGuaranteeBoost > 0) {
+            clearGuarantee = Math.min(3, clearGuarantee + winbackPreset.clearGuaranteeBoost);
+        }
+        if (Number.isFinite(winbackPreset.sizePreferenceShift) && winbackPreset.sizePreferenceShift < 0) {
+            sizePreference = Math.max(-1, sizePreference + winbackPreset.sizePreferenceShift);
+        }
     }
 
     /* --- Ability 风险护栏：高风险时优先保活，低风险高手允许更强挑战/多消兑现 --- */
@@ -1414,7 +1509,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             /* v1.32：顺序刚性 — 见上方 orderRigor 注释。0=不约束，1=必须按特定顺序。
              * blockSpawn.js 消费 orderMaxValidPerms 作为硬性上限。 */
             orderRigor: Math.max(0, Math.min(1, orderRigor)),
-            orderMaxValidPerms: Math.max(1, Math.min(6, orderMaxValidPerms))
+            orderMaxValidPerms: Math.max(1, Math.min(6, orderMaxValidPerms)),
+            /* v1.48：winback 保护标识；UI / 商业化 / 推送可据此判断"是否在回流前 3 局"。 */
+            winbackProtectionActive: !!winbackPreset,
         },
         _adaptiveStress: stress,
         _stressTarget: 0.325,
@@ -1461,6 +1558,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _occupancyFillAnchor: occAnchor,
         /* v1.32：顺序刚性诊断字段（与 spawnHints 同源，便于 panel/replay 直接读取）。 */
         _orderRigor: orderRigor,
-        _orderMaxValidPerms: orderMaxValidPerms
+        _orderMaxValidPerms: orderMaxValidPerms,
+        /* v1.48：winback 保护包诊断字段（供 panel / 回放追踪"为何这一帧 stress 被压低"）。 */
+        _winbackPreset: winbackPreset,
     };
 }

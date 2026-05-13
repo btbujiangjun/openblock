@@ -1158,7 +1158,7 @@ RL 模型主要用于：
 - [RL 算法手册](./ALGORITHMS_RL.md)
 - [PyTorch RL 服务与评估](./RL_PYTORCH_SERVICE.md)
 - [RL 与玩法契约](./RL_AND_GAMEPLAY.md)
-- [浏览器 RL 优化](./RL_BROWSER_OPTIMIZATION.md)
+- [浏览器 RL 优化（归档）](../archive/algorithms/RL_BROWSER_OPTIMIZATION.md)
 - [实时策略系统](../player/REALTIME_STRATEGY.md)
 
 ---

@@ -11,6 +11,10 @@ import {
     getMaturityInsights
 } from './playerMaturity.js';
 import { getChurnPrediction, getChurnRiskLevel } from './churnPredictor.js';
+/* v1.48 (2026-05) — 统一阶段定义到 lifecycleDashboard 的 AND 门，消除
+ * "同一玩家在不同模块被打成不同 stage"的撕裂。详见
+ * docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md「统一数据层」。 */
+import { getPlayerLifecycleStage } from './playerLifecycleDashboard.js';
 
 const MATURITY_DIFFICULTY_ADJUST = {
     L1: {
@@ -109,15 +113,34 @@ export function getDifficultyAdapterConfig() {
     };
 }
 
+/**
+ * v1.48：统一阶段定义到 `playerLifecycleDashboard.getPlayerLifecycleStage`。
+ *
+ * 旧实现用 OR(days, sessions)：高频玩家（days=2, sessions=100）会被锁在 onboarding；
+ * 长草玩家（days=60, sessions=8）会被推到 stability —— 与 dashboard 的 AND 门
+ * 完全相反。两套阶段并存导致同一玩家在 difficultyAdapter 与 adaptiveSpawn 被
+ * 打成不同档，stress 调整互相抵消。
+ *
+ * 此处委托给 dashboard 的统一实现；保留 try/catch 兜底以防 dashboard 异常。
+ */
 function _inferStage(insights) {
-    const days = insights.daysAsPlayer || 0;
-    const sessions = insights.totalSessions || 0;
-
-    if (days <= 3 || sessions <= 10) return 'onboarding';
-    if (days <= 14 || sessions <= 50) return 'exploration';
-    if (days <= 30 || sessions <= 200) return 'growth';
-    if (days <= 90 || sessions <= 500) return 'stability';
-    return 'veteran';
+    try {
+        return getPlayerLifecycleStage({
+            daysSinceInstall: insights.daysAsPlayer || 0,
+            totalSessions: insights.totalSessions || 0,
+            // dashboard 同时考虑 daysSinceLastActive，但 maturityInsights 不带该字段；
+            // 这里传 undefined 让 dashboard 用默认 recencyDecay=1。
+        });
+    } catch {
+        // 兜底：用 AND 门复刻 dashboard 行为，避免任何情况下回到旧 OR 语义
+        const days = insights.daysAsPlayer || 0;
+        const sessions = insights.totalSessions || 0;
+        if (days <= 3 && sessions <= 10) return 'onboarding';
+        if (days <= 14 && sessions <= 50) return 'exploration';
+        if (days <= 30 && sessions <= 200) return 'growth';
+        if (days <= 90 && sessions <= 500) return 'stability';
+        return 'veteran';
+    }
 }
 
 function _getRecommendedProfile(stressOffset) {

@@ -7,8 +7,500 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — 文档中心结构重构（去除中间态表述、对齐代码事实）
+
+- 把 sprint / 路线图类文档移入 `docs/archive/`：
+  - RL 版本分析：`docs/archive/algorithms/RL_V9_1_DEEP_ANALYSIS.md` /
+    `RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md` / `RL_SELF_PLAY_ROADMAP.md` /
+    `RL_TRAINING_OPTIMIZATION.md` / `RL_BROWSER_OPTIMIZATION.md`
+  - product 路线图：`docs/archive/product/PLAYER_RETENTION_ROADMAP.md` /
+    `EASTER_EGGS_ROADMAP.md` / `RETENTION_ROADMAP_V10_17.md`
+- 重写：`docs/algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md`（"v1.49.x 评审" → 稳定的"商业化模型架构设计"）；
+  `docs/architecture/MONETIZATION_EVENT_BUS_CONTRACT.md`（按真实 emit 点重写）；
+  `docs/operations/COMMERCIAL_STRATEGY_REVIEW.md`（"路线图 + 实施成果" → "商业化系统综合报告"）；
+  `docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`（"90 天 P0/P1 任务清单" → "系统能力与运营接入点"）；
+  `docs/operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md`（"61 项对照实现" → "能力对照表"）
+- 修正 `docs/algorithms/ALGORITHMS_MONETIZATION.md` 与代码事实不一致的章节：
+  默认规则矩阵（实际为 `whale_default_monthly` / `dolphin_default_weekly` 等 9 条）、
+  排序键去掉不存在的 `ruleId ASC`、§6.2 标题 "5 个分组" → "6 个分组"、
+  `_activityCoeff` / `_skillCoeff` 伪代码补齐 `trend` 与 `seg` 局部变量、
+  §9 广告频次按 `AD_CONFIG`（rewarded `maxPerGame:3 / maxPerDay:12 / cooldownMs:90s`，interstitial `maxPerDay:6 / cooldownMs:180s`）、
+  §13.6 频次表去掉不存在的 `native` 行、
+  §15 收缩为算法层扩展模块索引（详细设计指向 `COMMERCIAL_MODEL_DESIGN_REVIEW.md`）
+
+### Added (v1.49.x — 商业化模型算法层一揽子改造：snapshot / calibration / MTL / bandit / drift)
+
+**背景**：商业化策略 Phase 1–4 落地后，对 `commercialModel` 做了一次**算法工程师视角**的建模评审（详见 `docs/algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md`），识别四个核心问题：propensity 打分不是真实概率（缺 calibration）、4 个 head 强耦合（无 MTL）、训练标签自我闭环（selection bias）、权重静态不自适应分布。本轮按 P0–P3 共 14 项实装可注入的 ML scaffolding，所有改造默认 **opt-in / 向后兼容**，feature flag 灰度。
+
+**P0 — 观测能力（无 ROI 无法决策）**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| snapshot | `commercialFeatureSnapshot.js`（新文件） | 25 维统一特征 schema（versioned + frozen）；解决训练-推理 skew；`featureSnapshotDigest` 32-bit FNV-1a 哈希用于 outcome attribution |
+| P0-1 | `calibration/propensityCalibrator.js`（新文件） | isotonic regression + Platt scaling 推理 + identity fallback；`setCalibrationBundle({...})` 让线下训练好的校准表通过 RemoteConfig 热更；commercialModel.vector 输出 `calibrated` 字段 |
+| P0-2 | `quality/modelQualityMonitor.js`（新文件） | 滑动缓冲 max 2000 样本/task；输出 PR-AUC / Brier / log-loss / hit-rate@10；同时报 raw vs calibrated 对照；24h 报告窗 |
+| P0-3 | `quality/actionOutcomeMatrix.js`（新文件） | 推荐 action × 实际 outcome 矩阵；30min attribution 窗 + snapshotDigest 精确匹配；MonetizationBus 自动接线（`purchase_completed` / `ad_complete` / `lifecycle:session_end`） |
+
+**P1 — 减少建模偏差**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| P1-1 | `explorer/epsilonGreedyExplorer.js`（新文件） | ε-greedy 包装器（默认 ε=0.05）+ IPS propensity 标签；用户级冷却（每小时 ≤6 次探索） |
+| P1-2 | `ml/multiTaskEncoder.js`（新文件） | shared linear encoder W ∈ ℝ^(16×25) + b → ReLU → 4 个 sigmoid head（iap/rewarded/interstitial/churn）；默认 identity encoder + uniform head；`setMultiTaskWeights()` 接受线下 PyTorch 训练参数 |
+| P1-3 | `lifecycle/lifecycleSignals.js` | `setChurnBlendWeights({...})` 接口：unifiedRisk 三腿权重可注入（按线下 PR-AUC 比例归一），自动 normalize 到和=1；旧 `CHURN_BLEND_WEIGHTS` 名字保留 Proxy 兼容 |
+
+**P2 — 模型升级**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| P2-1 | `ml/zilnLtvModel.js`（新文件） | Zero-Inflated Lognormal LTV 推理：`E[LTV30 \| x] = (1 - p_zero) · exp(μ + σ²/2)`；`toLegacyLtvShape` 提供 drop-in 替换 ltvPredictor 的接口 |
+| P2-2 | `ml/priceElasticityModel.js`（新文件） | DML demand curve scaffolding：`σ(logit(baseline_p) + α·(-d) + β·d²)`；`recommendDiscount({stageCode, riskBucket, basePrice})` argmax_d expected_revenue |
+| P2-3 | `quality/distributionDriftMonitor.js`（新文件） | per-feature 10-bin 直方图；`KL(p_live ‖ p_train)` 报告：> 0.10 = high drift（建议重训练），> 0.25 = critical（建议下线） |
+
+**P3 — 探索方向**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| P3-1 | `ml/contextualBandit.js`（新文件） + flag `adInsertionBandit` | LinUCB 在线学习（Li et al. 2010）：`A_a += xx^T, b_a += r·x`；`UCB = θ^T x + α·√(x^T A^{-1} x)`；`buildBanditPolicyForAdInsertion()` 注入 adInsertionRL |
+| P3-2 | `ml/survivalPushTiming.js`（新文件） | Cox 比例风险推理：`S(t \| x) ≈ S_0(t)^{exp(β^T x)}`；`recommendPushTime({features, threshold=0.7, horizon=21})` 找最早跌破 threshold 的天数 |
+
+**工程层**
+
+| 改造 | 关键改动 |
+|---|---|
+| `commercialModel.getCommercialChurnRisk01` 缓存 | 50ms TTL；同一 ctx 重复调用直接复用，避免 _abilityBias / snapshot / calibration 算两次 |
+| `adInsertionRL` features 双视图 | `state.features`（array）+ `state.featuresByKey`（dict）；导出 `FEATURE_KEYS` 索引语义；下游消除"魔术索引 11=churnRisk" |
+| `commercialPolicy.decideAndRecord`（新文件） | 推理 → 探索包装 → outcomeMatrix 记录"三合一"入口；commercialModel + explorer + AOM 不再各调各的 |
+
+**Feature flags 默认值**：`commercialModelQualityRecording=true / actionOutcomeMatrix=true / distributionDriftMonitoring=true`，`commercialCalibration=false / explorerEpsilonGreedy=false / multiTaskEncoder=false / adInsertionBandit=false`（observation-first，决策路径需金丝雀验证后再放量）。
+
+**测试覆盖**：13 个新测试文件、约 80 个 cases。`tests/commercialFeatureSnapshot.test.js` / `propensityCalibrator.test.js` / `modelQualityMonitor.test.js` / `actionOutcomeMatrix.test.js` / `epsilonGreedyExplorer.test.js` / `multiTaskEncoder.test.js` / `churnBlendWeights.test.js` / `zilnLtvModel.test.js` / `priceElasticityModel.test.js` / `distributionDriftMonitor.test.js` / `contextualBandit.test.js` / `survivalPushTiming.test.js` / `commercialPolicy.test.js`。本轮全量回归 88 测试文件 / 1306 用例 全绿、lint 0 errors。
+
+**文档**：新增 `docs/algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md`（商业化模型架构设计：模型本质、推理流水线、训练-推理契约、公式集合）；`docs/algorithms/ALGORITHMS_MONETIZATION.md` 第 15 章作为算法层扩展模块索引；`docs/architecture/MONETIZATION_EVENT_BUS_CONTRACT.md` 按真实 emit 点重写事件全集与订阅方索引；`docs/operations/COMMERCIAL_STRATEGY_REVIEW.md` 重写为商业化系统综合报告；`docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md` 从 90 天清单改写为能力 / 接入点对照表。
+
+### Added (v1.49.x — 商业化策略改进 Phase 1–4 完整落地)
+
+**背景**：基于"新玩家信号 + 长期行为"对当前商业化系统的综合分析（详见 `docs/operations/COMMERCIAL_STRATEGY_REVIEW.md`），识别出 P0–P3 共 21 个改进项，分四个 Phase 落地。
+
+**Phase 1 — 数据管道 / 关键修复（P0）**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| P0-1 | `iapAdapter.js` / `lifecycleAwareOffers.js` | 统一付费事件 `purchase_completed`；接到 firstPurchaseFunnel + vipSystem.updateVipScore + analyticsTracker 三路；emit `lifecycle:first_purchase` 供 UI 订阅 |
+| P0-2 | `lifecycleOrchestrator.onSessionEnd` | 调 `commercialModel.getCommercialChurnRisk01` 把"商业体感"那条腿补齐，`unifiedRisk` 从此前的双腿（churnPredictor + maturity）变成事件 + 技能 + 体感三腿投票 |
+| P0-3 | `playerInsightPanel.js` | 修 `p?.profile?.daysSinceInstall` 笔误（p 自身就是 PlayerProfile） |
+| P0-4 | `lifecycleOrchestrator.onSessionEnd` | 真正调 `updateMaturity`，让 `getMaturityInsights()` 不再永远返回首装 L1/M0 默认值 |
+| P0-5 | `remoteConfigManager.js` | 修 `getApiBaseUrl` import 路径（`./cohortManager.js` → `../config.js`） |
+| P0-6 | `paymentManager.LIMITED_OFFERS` | 补 `winback_user`：≥7 天未活跃自动激活 50% 折扣回流券 |
+| P0-7 | `monetization/offerToast.js`（新文件） | 订阅 `lifecycle:offer_available` / `first_purchase` / `churn_high`，最小 UI Toast 接线，cooldown=24h（in-memory + localStorage 双保险） |
+
+**Phase 2 — 信号增益（P1）**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| P1-1 | `commercialModel.js` + flag `abilityCommercial` | `buildCommercialModelVector` 引入 `_abilityBias`：`planning / confidence / clearEff / risk / skill` 五项各以 0.5 为中心做线性微调（系数 0.08–0.18，总修正幅度约 ±0.15），让 IAP/激励/插屏/流失四路 propensity 反映真实玩家能力 |
+| P1-2 | `adTrigger.js` | 新增 flow / cognitiveFatigue 两条护栏：心流中或反应已退化到 baseline×1.5 时硬阻拦插屏（rewarded 在 cognitiveFatigue 时也跳过）；导出 `getAdGuardrailState` |
+| P1-3 | `paymentManager.js` + flag `dynamicPricing` | 新 `DYNAMIC_PRICING_MATRIX` 与 `getDynamicPricingBonus`：按 `stage × unifiedRisk01` 给最多 +20% 折扣；`calculateDiscountedPrice` 接受 `lifecycleHints` 注入 |
+| P1-4 | `personalization.js` | 新增 `getAbilitySegment`（prudent/speed/strategic/impulsive/balanced）+ `getAbilitySegmentMeta`，写入 `getCommercialInsight` |
+| P1-5 | `progression.isSkinUnlocked` + flag `skinUnlockBridge` | 通过 `setSkinUnlockProvider` 注入 `skinUnlock.isSkinUnlocked`，避免两套等级解锁不一致 |
+
+**Phase 3 — 结构清理（P2）**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| P2-1 | `seasonPass.js` | UI 任务系统调用 `addMonSeasonXp`，与 `monetization/seasonPass.js` 的 tier XP 实时同步 |
+| P2-2 | `monetization/lifecycleOutreach.js`（新文件） | 把孤儿模块 `pushNotificationSystem` / `shareCardGenerator` 接到 lifecycle 事件流：`churn_high → CHURN_WARNING push`、`first_purchase → 庆祝 push + 分享卡`、`offer_available → LIMITED_OFFER push` |
+| P2-3 | `ad/adDecisionEngine.js` + flag `adDecisionEngine` | 修 import 路径（漏 `../`）；`adAdapter.loadAd` 改用真实 API `showRewardedAd / showInterstitialAd`；`adTrigger.on('game_over')` 在 flag=on 时委托决策 |
+| P2-4 | `adaptiveSpawn.js` / `strategyAdvisor.js` / `playerInsightPanel.js` | 优先调 `getCachedLifecycleSnapshot`（300ms TTL），同帧内三处共用一份 snapshot；snapshot stage 与直读不一致时仍以直读为准（兼容 `_daysSinceInstall` 私有字段 mock） |
+| P2-5 | `adAdapter.js` | `showRewardedAd` / `showInterstitialAd` 全程 emit `ad_show` / `ad_complete` 到 MonetizationBus + analyticsTracker，让 `funnels.AD_WATCH` 真正有数据 |
+
+**Phase 4 — 智能化（P3）**
+
+| 项 | 模块 | 关键改动 |
+|---|---|---|
+| P3-1 | `winbackProtection.evaluateEarlyWinbackSignal` | confidence < 0.30 + frustration ≥ 0.55（或 missRate ≥ 0.40）→ 提前 emit `lifecycle:early_winback` + `lifecycle:offer_available`，无需等待 7 天；`setEarlyWinbackPolicy` 预留 RL 注入面 |
+| P3-2 | `monetization/ad/adInsertionRL.js`（新文件） + flag `adInsertionRL` | RL scaffolding：`buildAdInsertionState` 状态特征（4 体感 + 3 生命周期 + 3 频率 + 5 commercial vector + N scenes one-hot）、`computeAdInsertionReward` 奖励函数、`selectAdInsertionAction` 策略接口（默认规则版 = `_selectBestAdType`，可热替换） |
+| P3-3 | `firstPurchaseFunnel.evaluateFirstPurchaseTimingSignal` + flag `firstPurchaseTiming` | confidence ≥ 0.55 + flow ≥ 0.50 + frustration ≤ 0.40 + 命中推荐 offer 窗口时主动 emit `lifecycle:offer_available { type: 'first_purchase_window' }` |
+| P3-4 | `adTrigger._isLtvShielded` + flag `ltvAdShield` | VIP T2+ 或 lifetimeSpend ≥ 50 的玩家：插屏 70% 概率主动跳过；rewarded 不受影响；`getAdGuardrailState` 暴露 `ltvShielded` 字段 |
+
+**Feature flags 默认值**：`abilityCommercial=true / dynamicPricing=true / skinUnlockBridge=true / lifecycleOfferToast=true / firstPurchaseTiming=true / ltvAdShield=true`，`adDecisionEngine=false / adInsertionRL=false`（金丝雀）。
+
+**测试覆盖**：新增 `tests/lifecycleOutreach.test.js`、`tests/adAdapterEvents.test.js`、`tests/winbackEarlySignal.test.js`、`tests/adInsertionRL.test.js`、`tests/firstPurchaseTiming.test.js`，并扩充 `tests/lifecycleSignals.test.js` / `tests/commercialModel.test.js` / `tests/adTrigger.test.js` / `tests/paymentManagerDynamicPricing.test.js` / `tests/abilitySegment.test.js` / `tests/progression.test.js`。
+
+**事件契约扩展**：MonetizationBus 新增 `purchase_completed` / `ad_show` / `ad_complete` / `lifecycle:early_winback`；`lifecycle:offer_available` 新增 `type: 'early_winback' | 'first_purchase_window'` 子类。详见 `docs/architecture/MONETIZATION_EVENT_BUS_CONTRACT.md`。
+
+### Fixed (v1.49.x — 回放时得分未同步更新；瞬移分数 DOM 永远停在旧值)
+
+**用户报告**："回放时得分未同步更新"。打开本局结算 → 回放，HUD `#score` 始终停留在打开回放前的旧值，无论拖动滑块到任何帧或自动播放，分数都不变（盘面、待选块、画像面板都正常切换）。
+
+**根因**：`game.applyReplayFrameIndex(idx)` 与 `game.syncFromSimulator(sim)` 两条"瞬移分数"路径，为了**压制 HUD 滚动 / `+N` 飘字**（拖时间轴时狂闪），把 `_lastDisplayedScore` 与 `this.score` **同时**设为目标分数后再调 `updateUI()`：
+
+```js
+// applyReplayFrameIndex（旧）
+this._lastDisplayedScore = st.score;
+this.score = st.score;
+this.updateUI();
+```
+
+但 `updateUI()` 里更新 `#score` DOM 的两个分支只覆盖了：
+
+```js
+// updateUI（旧）— 两路都进不去
+if (this._lastDisplayedScore == null) {
+    scoreEl.textContent = String(this.score);          // 重开局首帧
+} else if (this._lastDisplayedScore !== this.score) {
+    animateHudScoreChange(scoreEl, this.score, ...);   // 实机加分
+}
+```
+
+`_lastDisplayedScore === this.score` 时**两个分支都进不去** → DOM 永远停在打开回放之前的值（如上一局结束时的 1280），用户感知到"回放时得分未同步"。RL 演示路径 `syncFromSimulator` 同样受影响。
+
+**修复**：把分数 DOM 同步逻辑抽成 `scoreAnimator.js` 的 named export `syncHudScoreElement(element, score, lastDisplayedScore)`，新增第三个 **`'sync'` 兜底分支**——当 `lastDisplayedScore === score` 但 `element.textContent !== String(score)` 时直接 textContent 写入（无动画，符合"瞬移"语义）：
+
+| 分支 | 触发条件 | 行为 |
+|---|---|---|
+| `'no-element'` | `element == null` | 无副作用，返回标志 |
+| `'init'` | `lastDisplayedScore == null` | 直接 textContent（重开局首帧 / RAF cold start） |
+| `'animate'` | `lastDisplayedScore !== score` | 走 `animateHudScoreChange`：滚动 + `+N` 飘字 + burst |
+| **`'sync'`** | **`lastDisplayedScore === score` 且 DOM 文本陈旧** | **直接 textContent（修复回放 / RL 瞬移）** |
+| `'noop'` | `lastDisplayedScore === score` 且 DOM 文本已对齐 | 不写 DOM（性能不变） |
+
+实机加分 / 重开局首帧 / 同值不写 DOM 三种现有行为完全不变。
+
+**实施**：
+
+- `web/src/scoreAnimator.js`：新增 `syncHudScoreElement` 与 4 分支决策表 docstring。
+- `web/src/game.js`：
+  - `updateUI()` 里的 `#score` 块从 4 行 if/else 简化为 `syncHudScoreElement(scoreEl, this.score, this._lastDisplayedScore)`。
+  - `applyReplayFrameIndex` 与 `syncFromSimulator` 注释更新，说明 DOM 同步由 `'sync'` 兜底分支负责。
+  - 移除不再需要的 `animateHudScoreChange` 直接 import（仍由 `syncHudScoreElement` 内部使用）。
+
+**单测**（`tests/scoreAnimator.test.js` 新增 `syncHudScoreElement — 回放/RL 瞬移分数 DOM 同步决策器（v1.49.x）` describe 块，**8 项**）：
+
+- `element == null/undefined` → `'no-element'` 不抛错
+- `lastDisplayedScore == null`（重开局首帧）→ `'init'` + 直接 textContent，无动画 / 无飘字
+- `lastDisplayedScore !== score`（实机加分）→ `'animate'` + 触发滚动 + `+N` 飘字 + burst class
+- **回放跳帧**（`last == score` 但 DOM 文本陈旧 '1280' → 目标 0）→ `'sync'` + DOM 写入 '0'，**无 burst / 无飘字**（核心修复用例）
+- 回放滑块连续拖动 3 帧（240 → 1280 → 60，全程 `last == score`）→ 每帧都进 `'sync'`，全程零 burst / 零飘字
+- 同值同 DOM（`updateUI` 反复调）→ `'noop'`，DOM 不写，无副作用
+- RL `syncFromSimulator`（`last == score` DOM '420' → 目标 850）→ 与回放路径同走 `'sync'`
+- 边界：回放第 0 帧分数恰好 == 上一局 HUD 残留 → `'noop'`（不画蛇添足）
+
+全量 **1164/1164 passed**（原 1156 + 新 8）。
+
+### Added (v1.49 — 盘面水印漂浮三次重写 + 麻将皮肤 HD"emoji 换装")
+
+两件事在同一版本内多次迭代，本节记录最终方案。
+
+#### A. 漂浮算法三次重写：从 dt-ease → smootherstep → Catmull-Rom spline
+
+**演进路径**：
+
+1. **旧实现「dt-ease 增量」** `new = old + (target-old) * (1 - exp(-dt/τ))`。
+   8.3 FPS 上 RAF/setTimeout 调度漂移导致 `dt` 在 16-240ms 范围跳变 → ease 推进比例跳变 → 视觉"前快后慢"的不规律抖动。
+
+2. **中间方案「wall-time + smootherstep 段插值」**：位置 = `lerp(prev, target, smootherstep(t))`，`t = (now-startTs)/dur`。彻底消除了 dt 抖动（位置变成 wall-time 的纯函数），但 smootherstep 在 t=0/1 处 `f'=0`（C² 性质带来的副作用） → icon 在段头尾接近静止；段头尾的"几乎静止 + 高频 wobble"让人感觉到"原地小幅抖"。
+
+3. **当前方案「Catmull-Rom spline 滑动窗口」**：每个 icon 维护 4 个 waypoint `[p0, p1, p2, p3]`，当前段在 `p1 → p2` 之间，用 `catmullRom(p0, p1, p2, p3, t)` 插值。Catmull-Rom 在段端点切线为 `(p2-p0)/2` 和 `(p3-p1)/2` —— 速度 C¹ 连续且**不为零**，icon 持续在动；轨迹由相邻 waypoint 几何决定的自然弯曲（像浮萍随波）替代了原 wobble，不再需要任何高频抖动。段结束时数组 shift：`[p0,p1,p2,p3] → [p1,p2,p3,新随机 target]`，前段 t=1 切线 = `(p3-p1)/2` 与新段 t=0 切线 = `(p2'-p0')/2 = (p3-p1)/2` 严格相等，**速度天然连续**。
+
+**保留的核心特性**：位置 = wall-time 的纯解析函数 → dt 抖动只影响"何时取样"而不影响"取样值"，帧率从 8.3 FPS 升到 60 FPS 也只改变取样稠密度，曲线本身完全相同。
+
+**节奏参数变化**：
+
+- segment 时长：14–24s → **8–14s**（spline 端点恒速 → 段切换更频繁但无停顿瑕疵，整体感觉"持续在飘"而非"段段缓动"）
+- 高频 wobble：**已删除**（Catmull-Rom 自然弯曲足够）
+- waypoint 振幅 / 帧率：保持不变（span × 14–24% / ~8.3 FPS）
+
+**「换皮不换轨」契约**（v1.49 修订）：`drift.key` 公式从 `${skinId}:${W}x${H}:${basePtsLen}` 简化为 `${W}x${H}:${basePtsLen}`，**不再包含 skin.id**。这样所有同 5 锚点皮肤（即绝大多数皮肤，包括 mahjong / sakura / aurora / pixel8 等）共享同一漂浮时间线 —— 切换皮肤时 icon 继续从当前位置漂浮、不重置回锚点，仅 `fillText` 的 emoji 字符替换。这从代码层面保证了"麻将水印的运动轨迹 ≡ 其他皮肤水印的运动轨迹"，而不仅仅是"算法相同"。仅当 basePts.length 变化（皮肤覆盖了 hdAnchors 数量）或盘面尺寸 W×H 变化时才重建 waypoint。
+
+**实施**：
+
+- `web/src/renderer.js`：
+  - 删除 `WATERMARK_PHASE_SPEED_MIN/MAX` / `WATERMARK_WOBBLE_RATIO` / `_randomWatermarkPhaseSpeed()`。
+  - 删除 `smootherstep` 命名导出（中间方案的 helper，不再需要）。
+  - 新增 `catmullRom(p0,p1,p2,p3,t)` 命名导出（uniform Catmull-Rom，τ=0.5）。
+  - 重写 `_watermarkDrift` 数据结构：`{ key, waypoints[], startTs[], durationMs[] }`，每个 icon 维护 4 个 waypoint 的滑动窗口。
+  - 重写 `_watermarkPointsForFrame`：从"读 wall-time + smootherstep 段插值 + wobble 叠加"简化为"读 wall-time + Catmull-Rom 段插值"，删除 wobble 路径。
+  - segment 常量 14000/24000 → 8000/14000。
+  - `drift.key` 移除 `skin.id` 前缀，实现"换皮不换轨"。
+
+#### B. 全量 34 个皮肤 HD"emoji 换装"（5 件套终版，盘面 5 个水印两两不同）
+
+mahjong 是 v1.49 首批接入的皮肤；终版扩展为**全量 34 个皮肤都注入 hdIcons**。
+
+**v4 关键修复（"水印图片不得重复"）**：v3 的 hdIcons 数量 = 基础 icons 数量（多为 2-4 件），但默认锚点数是 5，渲染按 `icons[i % length]` 取值 → 当 `length < 5` 时必然出现重复 emoji（mahjong 2 件套在 5 锚点上 i%2 循环 → 锚点 0/2/4 = 🎲, 锚点 1/3 = 🀐 → **3 个 🎲 + 2 个 🀐**，用户截图证实"图片重复"）。v4 把所有皮肤的 hdIcons 数量统一抬到 **5 件 = 默认锚点数**，使 `icons[i % 5] = icons[i]` 在 5 个锚点上**两两不同**。每个皮肤 5 件主题强相关 emoji，**全局 170 件 emoji 唯一**且不与任何皮肤的基础 icons 重叠。HD 模式仅替换 emoji，**不引入 hdOpacity / hdScale / hdAnchors**——所有皮肤共享默认 5 锚点 + 默认 scale + 同一 segment 时长，与"换皮不换轨"契约（§A）配合形成完整产品体感。
+
+**全量设计表**（170 个 hdIcons emoji，全局唯一）：
+
+| id | 主题 | 基础 icons | hdIcons (5 件) |
+|---|---|---|---|
+| classic | ✨ 极简经典 | 🎮 ⭐ | 🕹️ 🎯 🏁 🎴 🎟️ |
+| titanium | 💎 钛晶矩阵 | 💠 🔷 | 🔶 🔺 🟧 🟩 🟦 |
+| aurora | 🌌 冰川极光 | 🐧 🐻‍❄️ ❄️ 🌌 | 🧊 ☃️ ⛷️ 🌨️ 🏂 |
+| neonCity | 🌃 霓虹都市 | 🌃 🏙️ | 🌆 🚖 🏨 🚇 🚥 |
+| ocean | 🌊 深海幽域 | 🦈 🐠 | 🐳 🐙 🐬 🐢 🦑 |
+| sunset | 🌅 琥珀流光 | 🌅 🔆 | 🌇 🌞 🍹 🥥 🐚 |
+| sakura | 🌸 樱花飞雪 | 🌸 🌺 | 🌷 🌹 🌼 💐 🪷 |
+| koi | 🎏 锦鲤跃龙 | 🎏 🐟 | 🐉 🌊 🦞 🦀 ⛩️ |
+| candy | 🍭 糖果甜心 | 🍭 🍬 | 🍦 🧁 🍫 🍪 🎂 |
+| bubbly | 🫧 元气泡泡 | 🫧 🐡 | 🥤 🪀 🧋 🪩 💫 |
+| toon | 🎨 卡通乐园 | 🎪 🎠 | 🤡 🎈 🪅 🎭 🤖 |
+| pixel8 | 👾 街机格斗 | 👾 🎮 🍄 🥊 | 🪙 🏯 ⚔️ 🛡️ 🗡️ |
+| dawn | ☀️ 晨光微曦 | 🌄 🌻 🕊️ 🍃 | 🐝 🦋 🌾 🍯 🌱 |
+| food | 🍕 美食盛宴 | 🍕 🍔 | 🍣 🍩 🥐 🌮 🥗 |
+| music | 🎹 音乐律动 | 🎹 🎸 | 🎷 🥁 🎺 🎻 🎤 |
+| pets | 🐶 萌宠天地 | 🐶 🐾 | 🐱 🐰 🐹 🐤 🦊 |
+| universe | 🪐 宇宙星空 | 🪐 ⭐ | 🚀 🛸 🌠 ☄️ 🌑 |
+| fantasy | 🔮 魔法奇境 | 🔮 ✨ | 🧙 🪄 🧝 🧞 🪬 |
+| beast | 🦁 野兽王国 | 🦁 🐯 | 🐆 🐺 🐘 🦏 🦒 |
+| greece | 🏛️ 希腊神话 | 🏛️ ⚡ | 🦉 🏺 🗿 🏹 🐎 |
+| demon | 😈 暗黑魔界 | 😈 💀 | 👻 🦇 🕷️ 🕸️ 👹 |
+| jurassic | 🦕 侏罗纪 | 🦕 🦖 | 🦴 🌋 🥚 🪨 🦎 |
+| fairy | 🧚 童话森林 | 🧚 🌸 | 🦌 🐿️ 🪺 🍂 🌰 |
+| industrial | 🏭 蒸汽工业 | 🏭 ⚙️ | 🔩 🛠️ ⚒️ 🪛 ⛏️ |
+| forbidden | 👑 紫禁城 | 👑 🐲 | 🪭 🧧 🏮 🥢 🍵 |
+| **mahjong** | 🀄 麻将牌局 | 🀅 🀀 | 🎲 🀐 🀙 🀇 🀄 |
+| boardgame | ♠️ 扑克博弈 | 🃏 ♠️ | 🎰 ♟️ ♣️ ♥️ ♦️ |
+| sports | ⚽ 运动竞技 | ⚽ 🏆 | 🏀 🥇 🏐 🏈 ⚾ |
+| outdoor | 🥾 户外运动 | 🥾 ⛺ | 🏔️ 🧗 🎒 🧭 🪃 |
+| vehicles | 🏎️ 极速引擎 | 🏎️ ✈️ | 🚂 🚁 🚤 🛵 🚜 |
+| forest | 🌳 山林秘境 | 🌳 🍁 | 🌲 🐻 🐗 🦔 🍇 |
+| pirate | 🦜 海盗航行 | 🦜 🏴‍☠️ | ⚓ 🗺️ 💰 🛶 🚣 |
+| farm | 🐄 田园农场 | 🐄 🌽 | 🐔 🥕 🐑 🐖 🥬 |
+| desert | 🐫 沙漠绿洲 | 🐫 🌵 | 🦂 🌴 🏜️ 🐍 🌶️ |
+
+总计：34 皮肤 × 5 = **170 个 hdIcons emoji，全部互异，全部不与 74 个基础 icons 重叠**。
+
+**约束（由 `tests/mahjongHdWatermark.test.js` §4 全量 describe 块强制）**：
+
+1. 所有 34 个皮肤都必须声明 hdIcons
+2. **每个皮肤 hdIcons 数量 = 5（默认锚点数，盘面 5 个水印两两不同，杜绝"图片重复"）**
+3. 每个皮肤 hdIcons 与该皮肤基础 icons 不重叠（HD 必须真正"换装"）
+4. 全局 hdIcons emoji 唯一（任意两个皮肤的 hdIcons 不交，34×5=170 全互异）
+5. hdIcons emoji 不在任何皮肤的基础 icons 全集里（避免与基础水印混淆）
+6. 所有皮肤都不引入 hdOpacity / hdScale / hdAnchors（仅替换 emoji）
+7. 小程序 hdIcons 与 web 完全一致（防止 sync 脚本漏改）
+
+**字符细节**：注意 `🐉`（dragon `U+1F409`，koi）vs `🐲`（dragon-face `U+1F432`，forbidden 基础）是不同 codepoint；`🐻‍❄️`（polar-bear ZWJ sequence，aurora 基础）vs `🐻`（bear `U+1F43B`，forest hd）是不同 sequence；`🌳`（deciduous-tree，forest 基础）vs `🌲`（evergreen-tree，forest hd）vs `🌴`（palm-tree，desert hd）vs `🌱`（seedling，dawn hd）四种树木 emoji 完全互异；`🐱`（cat-face，pets）vs `🐈`（cat 普通形，未用）；这些是 Unicode 上的合法区分点，已通过约束 4/5 的逐字符校验。
+
+**麻将皮肤的特殊回退记录**（v1.49 麻将专属四次演进，详见 `mahjong` describe 块）：
+
+| 版本 | 方案 | 回退原因 |
+|------|------|---------|
+| v1 | 6 件套 + 自定义 6 锚点（六侧分布） | 破坏与其他皮肤一致的"5 锚点漂浮节奏" |
+| v2 | 3 件套 + `hdOpacity 0.13`（vs 其他皮肤最高 dawn 0.12） | 亮度高于所有皮肤 |
+| v3 | 2 件套 + 仅覆盖 hdIcons | 5 锚点 i%2 循环 → 3 个 🎲 重复（用户截图证实） |
+| **v4 当前** | **5 件套（=锚点数）+ 仅覆盖 hdIcons** | 盘面 5 个水印 emoji 两两不同；亮度 / scale / 锚点 / 节奏全部继承基础值，与所有皮肤完全对齐 |
+
+**渲染契约**（`boardWatermark` 新增 4 个可选字段，对所有皮肤开放）：
+
+- `hdIcons: string[]` —— HD 模式覆盖的 emoji 数组；`qualityMode='high'` 时生效，其他画质保持基础 `icons` 控制开销。**强烈建议 `hdIcons.length === 5`**（= 默认锚点数，保证盘面 5 个位置 emoji 两两不同；< 5 时 i % length 循环必出现重复）。
+- `hdOpacity: number` —— HD 模式不透明度（覆盖基础 `opacity`）；**所有皮肤 v4 都不引入此覆盖**，沿用基础值。
+- `hdScale: number` —— HD 模式 emoji 占盘面短边比例（覆盖基础 `scale`）；**所有皮肤 v4 都不引入此覆盖**，沿用默认 0.24。
+- `hdAnchors: Array<[xRatio, yRatio]>` —— HD 模式锚点（覆盖默认 5 锚点）；**所有皮肤 v4 都不引入此覆盖**，与所有皮肤共享默认 5 锚点。
+
+任一 `hd*` 字段缺失自动回退到对应基础字段；`hdIcons` 缺失则整个 HD 套装不启用，其他皮肤完全不受影响。
+
+**实施清单**：
+
+- `web/src/skins.js`：34 个皮肤 boardWatermark 全量注入 `hdIcons`（每个皮肤 5 件，mahjong 已有 v1/v2/v3/v4 完整注释）。
+- `web/src/renderer.js`：`_renderBoardWatermark` 重写支持 HD 字段切换；新增常量 `DEFAULT_WATERMARK_ANCHOR_RATIOS`。
+- `scripts/sync-miniprogram-skins.cjs`：`BOARD_WATERMARKS` 全量同步 5 件套 `hdIcons`，与 web 端逐字符一致。
+- `miniprogram/utils/renderer.js`：`_renderBoardWatermark` 同步 HD 字段切换逻辑（小程序仍是静态绘制，不涉及 spline 漂浮）；注释更新明确"小程序不参与 web 端 Catmull-Rom 漂浮"。
+- `miniprogram/core/skins.js`：由 sync 脚本自动重新生成（34 个皮肤镜像同步）。
+
+#### 单测（v4 终版共 25 项 + 19 项漂浮 = 44 项 HD 相关）
+
+- `tests/watermarkDriftMotion.test.js`（19 项，未变）：catmullRom 数学性质 / 滑动窗口段交界 C¹ 连续 / 段端点速度非零 / wall-time 取样与 dt 解耦 / 「换皮不换轨」契约。
+- `tests/mahjongHdWatermark.test.js`（25 项 v4 终版）：
+  - **§1 mahjong 专属约束**（4 项）：`hdIcons === ['🎲', '🀐', '🀙', '🀇', '🀄']`（5 件套）+ `length === 5`；`hdOpacity / hdScale / hdAnchors === undefined`（v4 关键约束）。
+  - **§2 小程序双端一致**（4 项）：mahjong sync 后字段完全相同。
+  - **§3 `_renderBoardWatermark` 行为**（6 项）：HD/balanced/low 切换 + 缺失字段 fallback。
+  - **§4 mahjong vs boardgame 姊妹皮肤错位**（2 项）：mahjong HD 含 ≥ 4 张麻将牌 + 1 颗骰子；boardgame HD 与 mahjong 全异。
+  - **§5 全量 34 皮肤约束**（9 项 = 7 约束 + 1 计数 + 1 snapshot）：所有 34 个皮肤都有 hdIcons / **数量 = 5（v4 关键，杜绝图片重复）** / hdIcons 与基础 icons 不重叠 / 全局 hdIcons emoji 唯一（170 件） / hdIcons emoji 不在任何皮肤的基础 icons 全集里 / 所有皮肤都不引入 hd*Opacity/Scale/Anchors / 小程序双端 hdIcons 完全一致 / snapshot 锁定 v4 完整设计表。
+- 全量 **1156/1156 passed**。
+
+**未来扩展**
+
+- 新增皮肤时必须同时为其设计 **5 件** hdIcons（`tests/mahjongHdWatermark.test.js` §5 约束 1+2 会强制失败）；推荐姿势：**只覆盖 `hdIcons`**，其他字段全部继承基础值，与所有皮肤共享漂浮节奏。
+- 设计 hdIcons 时需避开已有 74 + 170 = 244 个 emoji（全部基础 icons + 已有 hdIcons），约束 4/5 会自动校验。
+- 只有运动模式确实需要差异化（如 `pixel8` 想要 8-bit 像素跳格运动）才覆盖 `hdAnchors`；此时 hdIcons.length 必须改为 = `hdAnchors.length` 才能继续维持"图片不重复"，需同步放宽约束 6 / 改写约束 2 并补充对应单测。
+- 若在不同 segment 时长 / 振幅之间做小幅 A/B（不同皮肤性格映射），调 `WATERMARK_SEGMENT_MIN/MAX_MS` 和 `WATERMARK_TARGET_AMP_*` 即可，spline 数学契约不变。
+
+### Added (v1.48 — 生命周期 / 成熟度策略架构重构：数据层 + 编排层 + 策略层)
+
+围绕"用户成熟度 / 生命周期对策略的影响"专题分析（详见 [`docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md` §统一数据层](docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)），把此前散落在 4 套"成熟度家族"和 3 套"流失风险"中的孤岛信号，重构为**底层统一数据层 + 上层业务策略层**的三段式架构，并把 6 个"已实装但生产代码无任何调用方"的 retention / 商业化模块真正接到主流程。
+
+**新增架构：数据层 / 编排层 / 策略层**
+
+- **数据层** `web/src/lifecycle/lifecycleSignals.js`（新文件）
+  - `getUnifiedLifecycleSnapshot(profile, opts)` —— 把 `playerLifecycleDashboard.getLifecycleMaturitySnapshot` / `playerMaturity.getMaturityInsights` / `winbackProtection.getWinbackStatus` / `PlayerProfile.lifecyclePayload` 4 套信号一次性打包成稳定契约 `{ install, onboarding, returning, stage, maturity, churn, segment }`，所有上层（出块 / 商业化 / UI / 推送）只从这一处取数。
+  - `getUnifiedChurnRisk(...)` —— 三套互不归一的 churnRisk（`commercialModel` 0..1 / `churnPredictor` 0..100 / `playerMaturity` 离散标签）按权重投票（0.45 / 0.35 / 0.20）合成单一 `unifiedRisk ∈ [0,1]` + 5 档枚举，并保留每个来源的明细供 UI 调试。任一来源缺失自动重算权重，不归零。
+  - `getCachedLifecycleSnapshot` / `invalidateLifecycleSnapshotCache` —— 300ms TTL 缓存，避免同帧内 adaptiveSpawn / strategyAdvisor / playerInsightPanel 重复 localStorage 读取。
+  - 纯函数：不写 localStorage、不发事件、不修改 profile。
+- **编排层** `web/src/lifecycle/lifecycleOrchestrator.js`（新文件）
+  - `onSessionStart(profile)` —— 在 `game.startGame()` 中调用：检测 winback 触发条件（≥7 天未活跃 + 未在保护期）→ 自动激活；通过 `MonetizationBus` 广播 `lifecycle:session_start` 事件。
+  - `onSessionEnd(profile, sessionResult)` —— 在 `game.endGame()` 内 `recordSessionEnd` 之后调用：
+    1. 把会话指标（score / duration / placements / misses / engagement）写入 `churnPredictor.recordSessionMetrics`（**P0-A**：此前生产代码无任何写入点，整套流失风险评估退化为常量）。
+    2. 调 `winbackProtection.consumeProtectedRound`，达到 `PROTECTED_ROUNDS=3` 后自动退出（**P0-B**：此前 winback 模块 100% 孤立，回流玩家无任何保护）。
+    3. 计算 `shouldTriggerIntervention`，命中则广播 `lifecycle:intervention` 事件，让推送 / 弹窗 / 任务系统订阅（**P0-C**：此前 dashboard 干预 API 与商业化总线无任何连接）。
+    4. 失效 lifecycleSignals 缓存。
+  - `getActiveWinbackPreset()` —— 给 `adaptiveSpawn` 的薄包装，避免 spawn 层直接 import retention 模块（保持单向依赖：spawn → lifecycle 编排层 → retention）。
+  - `setLifecycleOrchestrationEnabled(bool)` —— 全局开关，便于灰度 / 单测关闭。
+- **策略层** `web/src/monetization/lifecycleAwareOffers.js`（新文件）
+  - 订阅 `lifecycle:session_start` —— 根据 stage / band / 沉默天数触发首充漏斗 / 复购 / `winback_user` offer，把 `firstPurchaseFunnel.getRecommendedOffer` + `paymentManager.triggerOffer` 接入主流程；命中后 emit `lifecycle:offer_available` 让弹窗 / banner / 推送订阅。
+  - 订阅 `lifecycle:session_end` —— 把本局得分累加到 `vipSystem.updateVipScore`（**此前 VIP 等级永远是初始 V0**）；`unifiedRisk ≥ 0.5` 时 emit `lifecycle:churn_high`。
+  - 订阅 `purchase_completed` —— 把购买记录回写 `firstPurchaseFunnel.recordPurchase`，让首充→复购窗口推进。
+  - 通过 `monetization/index.js` 在 `initMonetization` 后期 attach；与 `commercialModel` 互补：前者管"现在能不能弹"，后者管"会话结束后该不该送优惠券"。
+
+**P0 接线（修复"全瘫"链路）**
+
+- **P0-A**：`web/src/game.js → endGame()` 在 `recordSessionEnd` 之后调用 `onSessionEnd(profile, sessionResult)`。流失风险评估从此有数据。
+- **P0-B**：`web/src/game.js → startGame()` 在 `recordNewGame` 之后调用 `onSessionStart(profile)`；`adaptiveSpawn.js` 把 `getActiveWinbackPreset()` 融入 `stress` cap 与 `spawnHints.{clearGuarantee, sizePreference}`，并把 `winbackProtectionActive: true` 写入 spawnHints + 私有诊断 `_winbackPreset`，方便 panel / 回放追踪"为何这一帧 stress 被压低"。
+- **P0-C**：通过 `MonetizationBus` 的 `lifecycle:intervention` 事件解耦——dashboard 只产出 trigger 列表，订阅方决定如何呈现（推送 / 弹窗 / 任务奖励）。
+
+**P1 阶段定义统一 + 死键修复**
+
+- **`web/src/retention/difficultyAdapter.js`**：`_inferStage` 改为委托给 `playerLifecycleDashboard.getPlayerLifecycleStage`（AND 门）。旧 OR 实现会让"高频玩家（days=2, sessions=100）锁在 onboarding"、"长草玩家（days=60, sessions=8）推到 stability"——与 dashboard 完全相反；两套阶段并存导致同一玩家在 difficultyAdapter 与 adaptiveSpawn 被打成不同档，stress 调整互相抵消。保留 try/catch 兜底以 AND 门复刻，绝不回到旧 OR 语义。
+- **`web/src/retention/playerMaturity.js`**：`getMaturityBand(skillScore)` 重写——独立于 L→M 表，按 SkillScore 阈值映射 `≥90→M4 / ≥80→M3 / ≥60→M2 / ≥40→M1 / 其它→M0`。此前 `MATURITY_BAND_MAP.L4='M3'`，导致 `lifecycleStressCapMap` 里所有 `S*·M4` 键永远是死键。新增 `M_BAND_THRESHOLDS` 常量。
+
+**P2 商业化接 firstPurchaseFunnel + vipSystem + 三套 churnRisk 归一**
+
+- 见上"策略层"`lifecycleAwareOffers.js`。三套 churnRisk 归一通过 `getUnifiedChurnRisk` 在数据层完成；商业化层只看 `snapshot.churn.unifiedRisk`，避免再次决策"信哪一套"。
+
+**P3 API 兼容修复**
+
+- **`web/src/playerAbilityModel.js`** 末尾新增 `getPlayerAbilityModel()` facade、`getPersona / getRealtimeState / getLTV` named exports。此前 `monetization/ad/adDecisionEngine.js`、`pushNotificationManager.js`、`paymentPredictionModel.js`、`analyticsDashboard.js` 4 个模块 import `getPlayerAbilityModel` 期望 `{ getPersona, getRealtimeState, getLTV }` 形态，但本文件从未导出该函数 → 4 个 import 在生产中要么 ReferenceError 被外层 try 吞、要么对应模块整体未启动。新适配器代理到 `personalization.getCommercialModelContext` + `ltvPredictor.getLTVEstimate`，任何字段缺失都返回稳定空骨架。
+
+**`PlayerProfile` 三个统一 getter（v1.48 数据层裸字段）**
+
+- `daysSinceInstall` —— 来自新增 `_installTs`（首次构造时为 now，`fromJSON` 兼容旧记录回填到最早 `sessionHistory[0].ts` / `savedAt` / now）。
+- `totalSessions` —— `max(_totalLifetimeGames, _sessionHistory.length)`，与 `lifetimeGames` 区别详见 docstring。
+- `daysSinceLastActive` —— 基于 `lastActiveTs`；`=0` 视作"今天活跃"，避免冷启动玩家被误判长草触发 winback。
+- `lifecyclePayload` —— 三大裸字段一次性打包，所有 retention 模块（`getLifecycleMaturitySnapshot` / `getPlayerLifecycleStage` / `evaluateWinbackTrigger`）只用这一个 payload。
+- `toJSON` / `fromJSON` 持久化 `installTs`。
+
+**单测**
+
+- `tests/lifecycleSignals.test.js`（新文件，19 项）：覆盖数据层字段完整性、三套 churnRisk 归一、PlayerProfile 三个统一 getter、orchestrator 接线（churn 写入 / winback 自动激活 / 保护轮自动退出 / 总线 emit / 全局开关）、lifecycleAwareOffers 总线订阅、`getMaturityBand` 死键修复。
+- `tests/playerMaturity.test.js`：更新断言匹配新 `getMaturityBand(95)='M4'`、`getMaturityBand(85)='M3'` 行为，并显式覆盖 100 分边界。
+- 全量 1112/1112 passed（原 1093 + 新增 19）。
+
+**架构图（最终单向依赖）**
+
+```
+PlayerProfile + retention/* (源数据)
+        ↓
+lifecycle/lifecycleSignals.js (数据层：定义 / 归一 / 缓存)
+        ↓
+lifecycle/lifecycleOrchestrator.js (编排层：会话钩子 / 总线发送)
+        ↓                       ↓                      ↓
+adaptiveSpawn.js        lifecycleAwareOffers.js   pushNotificationManager.js
+(出块策略层)            (商业化策略层)             (运营策略层)
+```
+
+详见新增的 [`docs/architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md`](docs/architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md)（架构专题）。
+
+### Changed (v1.47 — 玩家能力指标 v2：7 项升级)
+针对 v1 6 个 pill 的三个共性问题（信号冗余、信号闲置、阈值刻舟）做的一次性体检，对应用户提出的 7 项优化建议（按 P0/P1/P2/P3 排序）。
+详细推导与公式见 [`docs/algorithms/ALGORITHMS_PLAYER_MODEL.md §13.7`](docs/algorithms/ALGORITHMS_PLAYER_MODEL.md)。
+- **P0-1：`controlScore` 接入「反应」(`pickToPlaceMs`)**——v1.46 投入的"激活→落子"耗时
+  终于进入闭环。`reactionScore = 1 - clamp((pickToPlaceMs - 350) / (2200 - 350))`，反应
+  样本不足（< 3）时反应项不参与、其它四项权重按比例归一，避免冷启动伪精确。权重重平衡
+  `miss 0.34 / cog 0.22 / afk 0.13 / apm 0.15 / reaction 0.16`，apmMax 14→18。
+- **P0-2：`clearEfficiency` 接入多消深度 + 清屏稀缺事件**——把"消行密度"(clearRate)、
+  "连消密度"(comboRate)、"单次行数"(avgLines)、**"多消深度"**(multiClearRate, lines≥2 占比)、
+  **"清屏稀缺事件"**(perfectClearRate, fill→0 占比) 解耦为 5 项独立权重 0.40 / 0.18 / 0.14 / 0.18 / 0.10，
+  让"光会拼单消"与"会做多消大爆发"的玩家显著拉开。
+- **P1-3：`riskLevel` 接入填充加速度 + dock 锁死概率**——把"静态满"和"急速变满"、
+  "还能落子"和"dock 全锁死"区分开。`boardFillVelocity` = 最近 5 步 fill 增量均值（仅取正向），
+  `lockRisk = 1 - clamp(firstMoveFreedom/8)`。权重重平衡，新增两项各占 0.10 / 0.08。
+  PlayerProfile 新增 `boardFillVelocity(N)` 方法；playerInsightPanel 调 `buildPlayerAbilityVector`
+  时注入 `firstMoveFreedom`。
+- **P1-4：`confidence` 接入近期活跃衰减**——`recencyDecay = exp(-days_since_last_active / 14)`，
+  长草玩家 `lifetimePlacements` 仍很大但 30 天没玩 → recencyDecay≈0.117 → confidence 显著下降，
+  让模型基线融合自动退化为"先信实时数据"。`profileWeight 0.65→0.55`、`lifetimePlacementsMax 80→200`，
+  腾出 0.10 给 recencyDecay。PlayerProfile 暴露 `lastActiveTs` getter。
+- **P2-5：阈值校准框架**——`shared/game_rules.json → playerAbilityModel.calibrationNote` 标注
+  所有 `*_Max` 当前是基于产品体感的初始值，附 SQL 模板让运营离线跑 `move_sequences` 求
+  P10/P50/P90 后回填，使全玩家分布大致 N(0.5, 0.15)，6 个 pill 不再压在中段失去判别力。
+- **P2-6：各能力指标使用独立时间窗口**——`PlayerProfile.metricsForWindow(N)` 是 v2 新增 API，
+  让 `controlScore` 看 8 步短窗（手感变化）、`clearEfficiency` 看 16 步中窗（机会积累）、
+  `boardPlanning` 走瞬时（拓扑），不再被单一 `_window` 同时迟钝又过敏。窗口长度集中在
+  `playerAbilityModel.windows`，AbilityVector 输出新增 `windows` 字段供调试与训练。
+- **P3-7：UI 视觉分组 + 雷达 hover**——`ABILITY_METRIC_ROWS` 每行带 `tone`：
+  能力/操作/消行/规划=positive 强势配色、风险=negative 红色基调（越低越安全）、
+  置信=neutral 灰色基调（数据元）。hover 任意 pill 弹出 6 维 SVG 雷达浮层；风险轴在
+  SVG 内被翻转为 `1-risk`，让"向外=好"的语义在所有 6 个轴上一致，玩家一眼看出强项 / 短板形状。
+- **`AbilityVector.version` 1→2**：消费方（spawnModel / churnPredictor / 回放面板）能感知字段集合扩展；
+  `vector.features` 新增 `reactionScore / pickToPlaceMs / multiClearRate / perfectClearRate /
+  boardFillVelocity / lockRisk / recencyDecay / avgLines` 子分项，供 hover tooltip 与训练特征列。
+- **小程序同步**：`miniprogram/core/gameRulesData.js` 同步 v2 全部配置；小程序端 ability vector
+  自动随 shared 模型生效（无 JS 改动需要）。
+- **测试**：`tests/playerAbilityModel.test.js` 新增 9 个 v2 专项测试用例（反应快/慢、多消、
+  清屏、攀升风险、锁死、长草、向后兼容、独立窗口）。1093/1093 全绿。
+- **文档**：`docs/algorithms/ALGORITHMS_PLAYER_MODEL.md` 新增 §13.7（v2 7 项升级）+ 重写 §15.6
+  参数表 + 13.1 输出字段表加 `windows` / `features` 行 + 校准说明。
+
+### Changed (v1.46.2 — 玩家洞察面板·指标网格紧凑布局)
+- **`.replay-series-cell` 行高 22→18 px、`.series-spark-wrap` 14→14 px**：标签 / sparkline /
+  数值在 18 px 行内更贴合（9 px 字体配合 `line-height:1`，留 4.5 px 上下气流），
+  24 行指标节省 ~96 px 垂直空间。
+- **`.replay-series-grid` 行 gap 2→1 px**：再省 ~24 px。
+- **`.replay-series-group-head` 上下间距收紧** `margin: 6/1 → 3/0`、`padding: 1/2 → 0/1`、
+  首组 `margin-top: 2 → 0`：5 个组头共节省 ~25 px。
+- **`.replay-series-cell` 列宽 `3.2em / 1fr / 3.2em` → `2.8em / 1fr / 3em`**：
+  标签 / 数值各让出 0.4em / 0.2em 给 sparkline，曲线变更宽，趋势更易读。
+- **`.insight-state-row.insight-state-series` 容器内边距** `4/6/5 → 3/6/3`、
+  `margin-top: 2 → 0`，再省 ~5 px。
+- 总计：玩家洞察面板的实时指标网格区在不裁切任何信息的前提下垂直空间紧凑 ~150 px，
+  让"盘面 6 / 玩家·能力 5 / 玩家·状态 4 / 系统·决策 2 / 系统·压力分量 7"全部 24 条曲线
+  在常规视口下不需要滚动也能纵览。
+
+### Changed (v1.46.1 — HUD 分数 burst 时长延长 + 飘字位置上移)
+- **`HUD_SCORE_CONFIG.duration*` / `HUD_BURST_DURATION` 全档延长**：按玩家反馈调整——
+  - 滚动：base 280→520 / per-log 90→180 / max 700→**1200 ms**（`+5` 约 630 ms、`+50` 约 1000 ms、`+500` 触顶 1200 ms）
+  - 脉冲：small 360→**540** / medium 520→**800** / large 700→**1100 ms**，与滚动节奏相称、可看清
+- **`+N` 飘字锚点从"分数中心"上移到"分数顶端再上 8 px"**：把 `top: rect.top + rect.height/2`
+  改为 `top: rect.top - floatAnchorGapPx` + `translate(-50%, -100%)`——飘字底部对齐分数上沿，
+  全程不与分数文字重叠，玩家可以同时看到滚动中的分数与飘字 `+N`。
+- 相应：`floatRiseDistance` 28→44 px、`scoreFloatRise` 时长 900→1300 ms、
+  小程序 wxss `scoreBurst*` keyframes 时长全部对齐。
+- 单测同步：`hudDurationFor` 上限从 700→1200，新增"大 delta 时长 ≥ 小 delta × 1.5"用例。
+
 ### Added
+- **v1.46 落子得分滚动 + 强化反馈**：把过去"分数瞬切"改为"按 delta 分档的滚动 + 脉冲 + 飘字 +N"，让玩家每次落子得分都能强感知。
+  - Web HUD（`#score`）：`scoreAnimator.animateHudScoreChange` 在 `Game.updateUI` 里读上次显示值算 delta：
+    - delta=0 / 减分 / 重开局 → 直接写入，不做反向动画（避免误反馈）
+    - delta>0 → 启动 RAF 滚动（`animateValueOnElement`，easeOutExpo，自适应时长 280–700 ms）+ 按档位挂 `score-burst--small/medium/large`（scale 1.12 / 1.22 / 1.32 + 高亮 + 大档变金色 #fde047）+ 在分数元素上方飘 `+N` 字样上浮淡出。
+    - 滚动被新一轮打断 → 用"当前帧值"作为新起点，不归零回拨（连消帧间连续）。
+    - `prefers-reduced-motion` 用户：跳过滚动，仍发轻量 burst + 飘字（保留可感知反馈、避免眩晕）。
+  - 小程序 HUD：`_onStateChange` 算 delta 后写入 `scoreBurstClass` 触发 wxss 同款 keyframes（scale + 颜色脉冲 + 大档金色光晕）；既有 `_showFloatScore` 飘字保留为消行专属强化。setData 节奏不变，避免逐帧滚动的开销。
+  - RL 演示 / 回放跳帧路径：把 `_lastDisplayedScore` 与 `score` 同步赋值，跳帧不触发 burst（拖时间轴不会狂闪）。
+  - 测试：`tests/scoreAnimator.test.js`（17 例）覆盖 `hudBurstTier` 三档分类、`hudDurationFor` 单调与上限钳制、`animateHudScoreChange` delta 各分支的 DOM 副作用、`animateValueOnElement` cancel/防御性。
+- **v1.46 触屏拖拽·小幅手势即可落子（pointer ballistics 触屏化）**：把鼠标既有的"低速 1:1 / 高速放大"速度感知曲线下沉给触屏，配合"起手 boost + 释放容错放宽"，让玩家小幅拖动就能完成 dock→盘面→落子的完整链路。
+  - 速度感知曲线（核心）：`web/src/dragPointerCurve.js → computeStepGain` 由 `velocityFactor + effectiveGain` 两个纯函数组合，覆盖鼠标 / 触屏共用。两端只是参数取值不同：
+    - 鼠标：`MIN=1.0 / MAX=1.32 / SLOW=0.30 / FAST=1.50 px·ms⁻¹`（精细对位不变）
+    - 触屏：`MIN=1.05 / MAX=1.7 / SLOW=0.10 / FAST=0.80 px·ms⁻¹`（指尖滑动慢、距离长，阈值整体下移、上限提高）
+  - 起手 boost：`CONFIG.DRAG_TOUCH_BOOST_CELLS = 1.4`，触屏 `Game.startDrag` / 小程序 `onDockTouchStart` 在抓起候选块时给 `_extraOffset.y` 一次性向上偏移 ≈1.4 格，把"dock→盘面下缘"这段固定物理距离免掉。
+  - 累计偏移上限：`DRAG_GAIN_MAX_OFFSET_CELLS` 3.0 → 6.0，避免快速一甩被钳住。
+  - 释放容错半径：`PLACE_RELEASE_SNAP_RADIUS` 3 → 4 格（hover 半径仍为 2 保持预览精度）。
+  - 小程序端同源同参 inline 复用：`miniprogram/pages/game/game.js → _touchControlPoint`（速度感知）+ `onDockTouchStart`（起手 boost）+ 顶部常量。
+  - 测试：`tests/dragPointerCurve.test.js`（18 例）覆盖阈值边界、单调性、NaN/Infinity 回退、触屏 vs 鼠标省力差。
+
 - **签到与里程碑服务端持久化（SQLite）**：在 `VITE_USE_SQLITE_DB=true` 时，每日签到、连登勋章、月度里程碑与 `openblock_skin_fragments_v1`（永久解锁列表、`lastEarnYmd` 等）通过 `GET/PUT /api/checkin-bundle` 与表 `user_checkin_bundle` 整包同步；换设备或清缓存后可在登录同一 `user_id` 时从服务端恢复（仍保留 localStorage 作为运行时缓存）。钱包（含 fragment 余额）继续走既有 `/api/wallet`。
+- **v1.46 思考-反应双轨度量**：新增「反应」指标 `pickToPlaceMs`（startDrag → 落子的纯执行段，剔除观察 / 选块 / 等系统出块），与现有「思考」`thinkMs` 双轨呈现。
+  - 录入：`PlayerProfile.recordPickup()`（由 `Game.startDrag` 入口调用）；`recordPlace/Miss` 与 `_pickupAt` 相减写入该 move。
+  - 输出：`metrics.pickToPlaceMs / reactionSamples`、`PlayerStateSnapshot.metrics.pickToPlaceMs`、`REPLAY_METRICS.pickToPlaceMs`（面板 sparkline，紫蓝色 `#818cf8`，点击放大可看物理含义与曲线分析）。
+  - 反馈链：纳入 `adaptiveSpawn → stressBreakdown.reactionAdjust`（钳值 ±0.05）—— 反应过快 → +stress 倾向 bored 加压；反应过慢 → −stress 倾向 anxious 减压；中段健康区 0；与 `nearMissAdjust` 同向时让位。门槛：`reactionSamples ≥ minSamples`（默认 3）才参与，避免冷启动 / 程序化路径噪声。
+  - 配置：`shared/game_rules.json → adaptiveSpawn.reactionAdjust`（`enabled / minSamples / fastMs / slowMs / maxAdjust`），并同步 `miniprogram/core/gameRulesData.js` 镜像。
+  - 文档：`docs/engineering/GOLDEN_EVENTS.md`（v1.2）、`docs/algorithms/ADAPTIVE_SPAWN.md`（信号表 + 数据录入接口）、`docs/player/STRATEGY_EXPERIENCE_MODEL.md`（v1.46 双轨章节）、`docs/player/REALTIME_STRATEGY.md`（事件 / metrics 表）。
+- **v1.46 玩家洞察面板·几何指标曲线化 + 分组布局**：把原本只在 spawn 决策快照下方 pill 区显示的「平整 / 首手」升级为时间序列曲线，并把 sparkline 网格按"描述主体"分 5 组布局（盘面 / 玩家·能力 / 玩家·状态 / 系统·决策 / 系统·压力分量）。
+  - `_spawnGeoForSnapshot()` 与 `buildPlayerStateSnapshot.spawnGeo` 新增 `flatness / firstMoveFreedom`，随 ps 一并入回放与 SQLite。
+  - `REPLAY_METRICS` 新增 `flatness / firstMoveFreedom / reactionAdjust` 三条曲线；`topologyHoles / tripletSolutionCount` 由 `spawn` 组迁回 `game` 组（与盘面同主体）。
+  - 修复 `_buildLiveSnapshotForSeries` 漏写 `pickToPlaceMs / reactionSamples / flatness / firstMoveFreedom`，导致实时面板对应曲线显示「—」的问题。
+  - 面板分组小标题样式：`web/public/styles/main.css → .replay-series-group-head`；分组定义：`web/src/playerInsightPanel.js → METRIC_LAYOUT_GROUPS`（live + replay 路径共用）。
+  - 决策快照下方 pill 区移除「平整 / 首手」重复显示（曲线已覆盖），保留"近满 / 多消候选 / 清屏候选 / 区间"等纯候选判定信号。
 
 ### Changed (v1.28 — ValidPerms Accuracy + Copy Simplification)
 - **`evaluateTripletSolutions` 修复 `validPerms` 低估**：

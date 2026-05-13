@@ -333,4 +333,55 @@ describe('PlayerProfile', () => {
             expect(p.confidence).toBeGreaterThan(0.1);
         });
     });
+
+    /* v1.46『反应』指标（pickToPlaceMs）：startDrag → recordPlace 的纯执行段 */
+    describe('reaction (pickToPlaceMs) — v1.46', () => {
+        it('未调用 recordPickup → metrics.pickToPlaceMs=null, reactionSamples=0', () => {
+            simulatePlays(p, 6);
+            const m = p.metrics;
+            expect(m.pickToPlaceMs).toBeNull();
+            expect(m.reactionSamples).toBe(0);
+        });
+
+        it('recordPickup 后立即 recordPlace → 该 move 写入 pickToPlaceMs 且 metrics 反映窗口均值', async () => {
+            for (let i = 0; i < 4; i++) {
+                p.recordPickup();
+                await new Promise(r => setTimeout(r, 6));
+                p.recordPlace(true, 1, 0.4);
+            }
+            const m = p.metrics;
+            expect(m.pickToPlaceMs).not.toBeNull();
+            expect(m.pickToPlaceMs).toBeGreaterThanOrEqual(0);
+            expect(m.reactionSamples).toBe(4);
+        });
+
+        it('recordPlace 后 _pickupAt 应被清零，避免后续无 pickup 的 place 重复计入', async () => {
+            p.recordPickup();
+            await new Promise(r => setTimeout(r, 5));
+            p.recordPlace(false, 0, 0.3);
+            p.recordPlace(true, 1, 0.35);
+            const m = p.metrics;
+            expect(m.reactionSamples).toBe(1);
+        });
+
+        it('pickup→miss 也写入 pickToPlaceMs（衡量"拖出有效区"的反应代价）', async () => {
+            p.recordPickup();
+            await new Promise(r => setTimeout(r, 4));
+            p.recordMiss();
+            const m = p.metrics;
+            expect(m.reactionSamples).toBe(1);
+            expect(m.pickToPlaceMs).toBeGreaterThanOrEqual(0);
+        });
+
+        it('混合 pickup / 程序化 place → reactionSamples 只计 pickup 路径', async () => {
+            for (let i = 0; i < 3; i++) {
+                p.recordPickup();
+                await new Promise(r => setTimeout(r, 4));
+                p.recordPlace(true, 1, 0.3);
+                p.recordPlace(false, 0, 0.32);
+            }
+            const m = p.metrics;
+            expect(m.reactionSamples).toBe(3);
+        });
+    });
 });

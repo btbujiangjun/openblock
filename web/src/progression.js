@@ -132,9 +132,28 @@ export function titleForLevel(level) {
     return t('progress.rank.novice');
 }
 
-/** 主题不再与等级挂钩，任意主题可随时选用 */
-export function isSkinUnlocked(_skinId, _totalXp) {
-    return true;
+/* v1.49.x P1-5：可选 provider —— 让 monetization/skinUnlock 注入"真分级"逻辑。
+ *
+ * 历史：progression.isSkinUnlocked 始终 return true，但 monetization/skinUnlock
+ * 已实现完整的 level / iap / task_points / season 分级解锁；两者从未对接，
+ * 商业化层的努力等于白做。这里通过 provider 反向控制，避免 progression
+ * 直接 import monetization（循环依赖）。
+ *
+ * 默认 provider 维持 v1.0 行为（全开放）；monetization 启动时调
+ * `setSkinUnlockProvider(fnFromSkinUnlock)` 替换。 */
+let _skinUnlockProvider = (_skinId, _totalXp) => true;
+
+export function setSkinUnlockProvider(fn) {
+    if (typeof fn === 'function') _skinUnlockProvider = fn;
+}
+
+export function resetSkinUnlockProvider() {
+    _skinUnlockProvider = (_skinId, _totalXp) => true;
+}
+
+/** 主题不再与等级挂钩，任意主题可随时选用（除非注入了真 provider） */
+export function isSkinUnlocked(skinId, totalXp) {
+    try { return !!_skinUnlockProvider(skinId, totalXp); } catch { return true; }
 }
 
 /**

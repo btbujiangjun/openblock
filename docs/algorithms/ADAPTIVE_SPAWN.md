@@ -142,8 +142,9 @@
 | 方法 | 调用时机 | 采集信息 |
 |------|---------|---------|
 | `recordSpawn()` | 每轮出块时 | 更新 lastActionTs、spawnCounter |
-| `recordPlace(cleared, lines, fill)` | 成功放置后 | thinkMs、消行结果、板面填充率 |
-| `recordMiss()` | 拖放失败时 | thinkMs、失误计数 |
+| `recordPickup()` | 玩家激活候选块（`Game.startDrag` 入口） | 更新 `_pickupAt`，下一次 place/miss 与之相减得 `pickToPlaceMs`（v1.46） |
+| `recordPlace(cleared, lines, fill)` | 成功放置后 | thinkMs、**pickToPlaceMs**、消行结果、板面填充率 |
+| `recordMiss()` | 拖放失败时 | thinkMs、**pickToPlaceMs**（拖出有效区也算反应代价）、失误计数 |
 | `recordNewGame()` | 新局开始 | 重置局内计数器、累加终身局数 |
 
 ### 3.2 能力维度
@@ -157,6 +158,9 @@
 | `clearRate` | 0~1 | 消行次数 / 放置总数 | 消行能力 |
 | `comboRate` | 0~1 | 多行消行 / 总消行 | 组合规划力 |
 | `missRate` | 0~1 | 失误次数 / 总操作 | 操作精度 |
+| `metrics.thinkMs` | ms | 上一动作 → 落子的窗口均值 | 决策耗时（含等系统出块/观察/选块/拖动） |
+| `metrics.pickToPlaceMs` | ms / null | startDrag → 落子的窗口均值（剔除观察） | **反应**（v1.46）：纯执行段，反映临场操作熟练度与犹豫 |
+| `metrics.reactionSamples` | int ≥ 0 | 窗口内含 pickup 链路的有效样本数 | < `reactionAdjust.minSamples` 时反应信号不参与 stress |
 
 #### skillLevel 计算公式
 
@@ -508,6 +512,7 @@ const canPromoteToPayoff = nearFullLines ≥ 1
 | scoreStress | + | 0~0.78 | 分数越高 | 传统递进难度 |
 | skillAdjust | ± | ±0.15 | 技能偏离中位 | 个性化适配 |
 | flowAdjust | ± | -0.12~+0.08 | 心流偏移 | Csíkszentmihályi |
+| reactionAdjust | ± | ±0.05 | `pickToPlaceMs` < `fastMs` (默认 350ms) → 反射式快放 +stress；> `slowMs` (4500ms) → 拖动犹豫 -stress；`reactionSamples ≥ minSamples`（默认 3）才启用；与 `nearMissAdjust` 同向时让位 | 反应/操作熟练度的早期信号（v1.46） |
 | pacingAdjust | ± | -0.12~+0.04 | 周期相位 | 张弛有度 |
 | recoveryAdjust | - | -0.2 | fill > 82% | 防止不公平死局 |
 | frustrationRelief | - | -0.18 | ≥ 4 步未消行 | 流失预防 |

@@ -7,11 +7,53 @@
  * 3. 订单追踪
  * 4. 支付回调处理
  */
-// PaymentManager 当前未直接消费 feature flag（promo state 全部本地存储），后续接入时再启用 getFlag。
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 import { getWallet } from '../skills/wallet.js';
+import { getFlag } from './featureFlags.js';
 
 const PROMO_STORAGE_KEY = 'openblock_promo_state_v1';
+
+/* v1.49.x P1-3：动态定价矩阵 stage × unifiedRisk。
+ *
+ * 业界做法：高流失风险 × 早期玩家给最高折扣（钩住未付费），
+ * 低流失风险 × 高 LTV 鲸鱼几乎不打折（保利润）。
+ * 矩阵值是"在原 LIMITED_OFFERS.discountPercent 上的*额外*折扣百分点"，
+ * 范围 -10..+20；负值用于"流失低 + veteran 鲸鱼"场景的小幅缩水（防滥发）。
+ *
+ * stage 取自 lifecycleSignals.snapshot.stage.code（S0..S4），
+ * unifiedRisk 取自 lifecycleSignals.snapshot.churn.unifiedRisk[0..1]。
+ *
+ * 表格设计原则：
+ *   - 同一行（stage 固定）随 risk 单调递增；同一列（risk 固定）S0/S4 偏高
+ *     （新手 + 沉默回流），S2/S3 偏低（成熟玩家不需要狂打折）。
+ *   - 总加成 ≤ +20%，避免与 promo 叠加后让某些产品变 0 元。 */
+const DYNAMIC_PRICING_MATRIX = Object.freeze({
+    /* stage → [riskLow,  riskMid, riskHigh, riskCritical] */
+    S0:   [0,   8,  16, 20], // 新手：风险高时大力托底
+    S1:   [-2,  6,  12, 18],
+    S2:   [-5,  4,  10, 15],
+    S3:   [-8,  2,   8, 12], // 成熟：基本不加；只在临死时给点折
+    'S3+': [-10, 0,   6, 10],
+    S4:   [5,  10,  18, 20], // 沉默回流：默认就比常态高一档
+});
+
+function _riskBucket(risk01) {
+    const r = Number(risk01) || 0;
+    if (r >= 0.70) return 3; // critical
+    if (r >= 0.50) return 2; // high
+    if (r >= 0.30) return 1; // mid
+    return 0;                // low/stable
+}
+
+/**
+ * v1.49.x P1-3：返回当前 stage × risk 的动态额外折扣（百分点）。
+ * 失败 / 关闭 feature flag 时返回 0，与旧版 LIMITED_OFFERS.discountPercent 完全等价。
+ */
+export function getDynamicPricingBonus(stageCode, unifiedRisk01) {
+    if (!getFlag('dynamicPricing')) return 0;
+    const row = DYNAMIC_PRICING_MATRIX[stageCode] || DYNAMIC_PRICING_MATRIX.S0;
+    return Number(row[_riskBucket(unifiedRisk01)]) || 0;
+}
 
 /**
  * 首充优惠配置
@@ -67,6 +109,29 @@ export const LIMITED_OFFERS = {
             const daysSinceLastPurchase = (Date.now() - lastPurchaseDate) / (24 * 60 * 60 * 1000);
             return daysSinceLastPurchase >= 30;
         }
+    },
+    /* v1.49.x P0-6：补 winback_user offer。
+     *
+     * 之前 lifecycleAwareOffers._onSessionStart 已在调 paymentManager.triggerOffer('winback_user', ...)
+     * 但 LIMITED_OFFERS 中没有此 key，triggerOffer 直接 `return null`，
+     * 整条沉默回流促销的最后一公里被悄悄丢弃；
+     * 现在补上：≥7 天未活跃的玩家在下次开局时拿到 7 折回流券，覆盖首充包/月卡/年卡。
+     *
+     * 与 returning_user 的区别：
+     *   - returning_user 看"上次付费时间"≥30 天，专为流失付费玩家设计；
+     *   - winback_user 看"上次活跃时间"≥7 天，覆盖更多沉默用户（含未付费）；
+     *   两者可同时生效但互不冲突，前端 UI 按 priority 取 winback_user > returning_user。 */
+    winback_user: {
+        id: 'winback_user',
+        name: '回流欢迎包',
+        desc: '欢迎回来！7 折迎新礼包等你领取',
+        discountPercent: 30,
+        validHours: 72,
+        products: ['first_purchase_starter', 'starter_pack', 'monthly_pass'],
+        priority: 10, // 高于 returning_user
+        triggerCondition: (_purchaseHistory, daysSinceLastActive = 0) => {
+            return Number(daysSinceLastActive) >= 7;
+        }
     }
 };
 
@@ -114,15 +179,22 @@ class PaymentManager {
 
     /**
      * 检查可用的限时优惠
+     *
+     * v1.49.x P0-5：localStorage 在 jsdom / 小程序 / 隐私模式下可能 throw；
+     * 之前 `localStorage.getItem` / `setItem` 直接调用会让单点失败炸掉 getActiveOffers，
+     * 进而拖垮 commercialInsight 面板渲染和 lifecycleAwareOffers 链路。
+     * 内存中的 _activeOffers Map 是单一权威源，localStorage 仅做持久化兜底。
      */
     _checkActiveOffers() {
         const now = Date.now();
-        
+
         for (const [id, offer] of Object.entries(LIMITED_OFFERS)) {
-            // 检查是否在有效期内
             const offerKey = `offer_${id}_valid_until`;
-            const validUntil = parseInt(localStorage.getItem(offerKey) || '0');
-            
+            let validUntil = 0;
+            try {
+                validUntil = parseInt(localStorage.getItem(offerKey) || '0', 10) || 0;
+            } catch { validUntil = 0; }
+
             if (validUntil > now) {
                 this._activeOffers.set(id, { ...offer, validUntil });
             }
@@ -131,25 +203,29 @@ class PaymentManager {
 
     /**
      * 触发限时优惠
+     *
+     * v1.49.x P0-5：localStorage 写入失败时只跳过持久化，仍写入内存 _activeOffers，
+     * 让本进程剩余流程可见 offer；下次冷启动会重新触发（幂等）。
      */
     triggerOffer(offerId, purchaseHistory = [], daysSinceRegister = 0) {
         const offer = LIMITED_OFFERS[offerId];
         if (!offer) return null;
-        
-        // 检查触发条件
-        const lastPurchaseDate = this._lastPurchaseTimestamp 
-            ? new Date(this._lastPurchaseTimestamp).getTime() 
+
+        const lastPurchaseDate = this._lastPurchaseTimestamp
+            ? new Date(this._lastPurchaseTimestamp).getTime()
             : null;
-            
+
         if (offer.triggerCondition(purchaseHistory, daysSinceRegister, lastPurchaseDate)) {
             const validUntil = Date.now() + offer.validHours * 60 * 60 * 1000;
-            localStorage.setItem(`offer_${offerId}_valid_until`, String(validUntil));
+            try {
+                localStorage.setItem(`offer_${offerId}_valid_until`, String(validUntil));
+            } catch { /* localStorage 不可用时仅跳过持久化 */ }
             this._activeOffers.set(offerId, { ...offer, validUntil });
-            
+
             console.log('[PaymentManager] Offer triggered:', offerId);
             return this._activeOffers.get(offerId);
         }
-        
+
         return null;
     }
 
@@ -163,16 +239,22 @@ class PaymentManager {
 
     /**
      * 计算折扣价格
+     *
+     * v1.49.x P1-3：可选第三参 lifecycleHints 用于动态定价。
+     * 当 feature flag `dynamicPricing` 开启且传入 stageCode/unifiedRisk01 时，
+     * 在原折扣基础上叠加 stage×risk 矩阵给出的额外百分点（最高 +20）。
+     *
+     * @param {object} product
+     * @param {string|null} offerId
+     * @param {{ stageCode?: string, unifiedRisk01?: number }} [lifecycleHints]
      */
-    calculateDiscountedPrice(product, offerId = null) {
+    calculateDiscountedPrice(product, offerId = null, lifecycleHints = null) {
         const basePrice = product.priceNum;
         let discountPercent = 0;
-        
-        // 优先使用指定优惠
+
         if (offerId && this._activeOffers.has(offerId)) {
             discountPercent = this._activeOffers.get(offerId).discountPercent;
         } else {
-            // 检查是否有适用于该商品的优惠
             for (const offer of this._activeOffers.values()) {
                 if (offer.products && offer.products.includes(product.id)) {
                     discountPercent = Math.max(discountPercent, offer.discountPercent);
@@ -180,12 +262,24 @@ class PaymentManager {
                 }
             }
         }
-        
+
+        let dynamicBonus = 0;
+        if (lifecycleHints && (lifecycleHints.stageCode || lifecycleHints.unifiedRisk01 != null)) {
+            dynamicBonus = getDynamicPricingBonus(
+                lifecycleHints.stageCode || 'S0',
+                lifecycleHints.unifiedRisk01 ?? 0,
+            );
+        }
+        const totalDiscount = Math.max(0, Math.min(80, discountPercent + dynamicBonus));
+
+        const discounted = Math.round(basePrice * (100 - totalDiscount) / 100);
         return {
             original: basePrice,
-            discounted: Math.round(basePrice * (100 - discountPercent) / 100),
-            discountPercent,
-            savings: basePrice - Math.round(basePrice * (100 - discountPercent) / 100)
+            discounted,
+            discountPercent: totalDiscount,
+            baseDiscountPercent: discountPercent,
+            dynamicBonus,
+            savings: basePrice - discounted,
         };
     }
 

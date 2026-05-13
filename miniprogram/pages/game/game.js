@@ -16,14 +16,29 @@ const { setLanguage, t } = require('../../core/i18n');
 const { createAudioFx } = require('../../utils/audioFx');
 const { createFeedbackToggles } = require('../../utils/feedbackToggles');
 
-const TOUCH_DRAG_GAIN = 1.12;
-const TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS = 3.0;
+/* v1.46 触屏速度感知曲线（与 web/src/config.js 对齐，参考桌面 OS pointer ballistics）：
+ *   speed ≤ TOUCH_DRAG_SPEED_SLOW (px/ms) → TOUCH_DRAG_GAIN_MIN（1.05，对位精准不抢跑）
+ *   speed ≥ TOUCH_DRAG_SPEED_FAST (px/ms) → TOUCH_DRAG_GAIN（1.7，快速一甩到对岸省力）
+ *   中间段线性插值
+ *
+ * 旧的恒定 1.12 增益太弱，玩家从 dock 拖到盘面对岸要走完整物理距离；调高就毁掉
+ * 对位手感。速度感知曲线把"精准 / 省力"两个目标解耦，再叠加 startBoost 与
+ * 累计偏移上限上调，让小幅手势即可完成落子。 */
+const TOUCH_DRAG_GAIN = 1.7;
+const TOUCH_DRAG_GAIN_MIN = 1.05;
+const TOUCH_DRAG_SPEED_SLOW_PX_MS = 0.10;
+const TOUCH_DRAG_SPEED_FAST_PX_MS = 0.80;
+const TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS = 6.0;
+/* 触屏起手 boost：抓起候选块时给 preview 一次性向上偏移 N 格，把"dock→盘面下缘"
+ * 这段固定物理距离免掉。0 = 关闭。 */
+const TOUCH_DRAG_BOOST_CELLS = 1.4;
 const TOUCH_DRAG_LIFT_GAP_CELLS = 0.35;
 const TOUCH_DRAG_LIFT_MAX_CELLS = 2.4;
 /* 悬停（移动中）snap 半径：保守，避免 preview 跳到太远的"全局好点" */
 const PLACE_HOVER_SNAP_RADIUS = 2;
-/* 释放（touchend）snap 半径：更宽容，"既然已经放手，就尽量帮忙落成"，避免离合法点 2.5 格被静默丢弃 */
-const PLACE_RELEASE_SNAP_RADIUS = 3;
+/* 释放（touchend）snap 半径：更宽容，"既然已经放手，就尽量帮忙落成"。
+ * v1.46：3 → 4 格，配合速度感知 + 起手 boost 让"小幅拖动即可落子"。 */
+const PLACE_RELEASE_SNAP_RADIUS = 4;
 /* 落子失败时 preview 抖动 + 隐藏的总时长（与 wxss keyframes 对齐） */
 const REJECT_ANIM_MS = 240;
 
@@ -51,6 +66,11 @@ Page({
     floatScoreVisible: false,
     floatScoreText: '',
     floatScoreClass: '',
+    /* v1.46 HUD 分数滚动强化：每次 score 变化时根据 delta 分档（small/medium/large）
+     * 给 stat-value 临时挂上 score-burst--N class 触发 wxss 内的 scale + 高亮动画。
+     * 小程序 setData 性能开销较大，不做"逐帧滚动"——一次性写入 + CSS 脉冲已经能让
+     * 玩家感知到分数刚跳；既有 _showFloatScore 提供的"+N 飘字"是补充。 */
+    scoreBurstClass: '',
     bestGapText: '',
     scoreText: '',
     clearsText: '',
@@ -80,6 +100,8 @@ Page({
   _particleRafId: null,
   _clearCellsTimer: null,
   _floatScoreTimer: null,
+  _scoreBurstTimer: null,
+  _lastDisplayedScore: null,
   _gameOverTimer: null,
   _gameOverAudioTimer: null,
   _gameOverQuietUntil: 0,
@@ -280,13 +302,29 @@ Page({
       this._dragExtraOffset = { x: 0, y: 0 };
     }
 
+    /* v1.46：与 web 端 _applyDragPointerGain 同款速度感知曲线
+     *   speed ≤ SLOW → MIN_GAIN（对位精准不抢跑）
+     *   speed ≥ FAST → MAX_GAIN（快速一甩到对岸省力）
+     *   中间段线性插值
+     * 首帧无 last 时按 1（高速）处理——抓起后立即抬手必然是位移意图。 */
     const last = this._dragLastTouch;
-    const stepGain = Math.max(0, TOUCH_DRAG_GAIN - 1);
+    const now = Date.now();
+    const span = Math.max(0.001, TOUCH_DRAG_SPEED_FAST_PX_MS - TOUCH_DRAG_SPEED_SLOW_PX_MS);
+    let velocityFactor = 1;
+    if (last) {
+      const dt = Math.max(1, now - (last.t || now));
+      const dist = Math.hypot(touch.clientX - last.x, touch.clientY - last.y);
+      const speed = dist / dt;
+      velocityFactor = Math.max(0, Math.min(1, (speed - TOUCH_DRAG_SPEED_SLOW_PX_MS) / span));
+    }
+    const effectiveGain = TOUCH_DRAG_GAIN_MIN + (TOUCH_DRAG_GAIN - TOUCH_DRAG_GAIN_MIN) * velocityFactor;
+    const stepGain = Math.max(0, effectiveGain - 1);
+
     if (last && stepGain > 0) {
       this._dragExtraOffset.x += (touch.clientX - last.x) * stepGain;
       this._dragExtraOffset.y += (touch.clientY - last.y) * stepGain;
     }
-    this._dragLastTouch = { x: touch.clientX, y: touch.clientY };
+    this._dragLastTouch = { x: touch.clientX, y: touch.clientY, t: now };
 
     const maxExtra = TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS * (this._cellSize || 0);
     if (maxExtra > 0) {
@@ -494,7 +532,22 @@ Page({
         this._gameOverTimer = null;
       }, gameOverQuietMs);
     }
-    this.setData({
+    /* v1.46 HUD 分数 burst：
+     *   delta>0 → 按档位挂 score-burst--small/medium/large，wxss 触发 scale + 高亮脉冲
+     *   delta=0 / 减分（重开局）→ 不触发，避免误反馈
+     * _lastDisplayedScore 为 null 表示首帧 / 重开局，不算 delta（避免"老分数→0"反向触发）
+     */
+    const prev = this._lastDisplayedScore;
+    const delta = (prev != null) ? (snap.score - prev) : 0;
+    let burstClass = '';
+    if (delta > 0) {
+      burstClass = delta >= 80 ? 'score-burst--large'
+                 : delta >= 20 ? 'score-burst--medium'
+                 : 'score-burst--small';
+    }
+    this._lastDisplayedScore = snap.score;
+
+    const dataPatch = {
       score: snap.score,
       steps: snap.steps,
       totalClears: snap.totalClears,
@@ -506,7 +559,19 @@ Page({
       bestGapText: t('bestGap', { n: gap }),
       scoreText: t('finalScore', { n: snap.score }),
       clearsText: t('finalClears', { n: snap.totalClears }),
-    });
+    };
+    if (burstClass) {
+      dataPatch.scoreBurstClass = burstClass;
+      if (this._scoreBurstTimer) clearTimeout(this._scoreBurstTimer);
+      /* v1.46.1：与 web 端 HUD_BURST_DURATION 对齐——延长到玩家可看清的时长，与滚动节奏相称 */
+      const burstMs = burstClass === 'score-burst--large' ? 1100
+                    : burstClass === 'score-burst--medium' ? 800 : 540;
+      this._scoreBurstTimer = setTimeout(() => {
+        this._scoreBurstTimer = null;
+        this.setData({ scoreBurstClass: '' });
+      }, burstMs);
+    }
+    this.setData(dataPatch);
   },
 
   _onLineClear(info) {
@@ -744,8 +809,11 @@ Page({
     this._dragTrail = [];
     const touch = this._touchPoint(e);
     this._dragStartTouch = touch ? { x: touch.clientX, y: touch.clientY } : null;
-    this._dragLastTouch = this._dragStartTouch ? { ...this._dragStartTouch } : null;
-    this._dragExtraOffset = { x: 0, y: 0 };
+    this._dragLastTouch = this._dragStartTouch ? { ...this._dragStartTouch, t: Date.now() } : null;
+    /* v1.46 起手 boost：抓起候选块时给 preview 一次性向上偏移，
+     * 把"dock→盘面下缘"这段固定物理距离免掉。 */
+    const initialBoostY = -1 * (TOUCH_DRAG_BOOST_CELLS || 0) * (this._cellSize || 0);
+    this._dragExtraOffset = { x: 0, y: initialBoostY };
     this._updateDragPreviewFromEvent(e, b);
     this.setData({
       dragIdx: idx,
@@ -966,8 +1034,15 @@ Page({
     this._controller.reset();
     this._renderer.clearParticles();
     this._renderer.setClearCells([]);
+    /* 重开局：清理 score burst 基线，避免新局首次 _onStateChange 出现"老分数→0"反向计算 delta */
+    this._lastDisplayedScore = null;
+    if (this._scoreBurstTimer) {
+      clearTimeout(this._scoreBurstTimer);
+      this._scoreBurstTimer = null;
+    }
     this.setData({
       floatScoreVisible: false,
+      scoreBurstClass: '',
     });
     this._redraw();
     this._drawDockBlocks();

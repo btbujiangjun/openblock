@@ -44,5 +44,6 @@
 
 ## 相关文档
 
-- [留存路线图](./RETENTION_ROADMAP_V10_17.md)（宝箱在留存中的定位）
+- [留存路线图（归档）](../archive/product/RETENTION_ROADMAP_V10_17.md)（宝箱在留存中的定位）
+- [玩家生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（当前权威留存模型）
 - [彩蛋与惊喜](./EASTER_EGGS_AND_DELIGHT.md)（体验节奏交叉参考）

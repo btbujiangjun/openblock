@@ -453,6 +453,14 @@ module.exports = {
       "recoveryAdjust": -0.2,
       "comboRewardAdjust": 0.05
     },
+    "reactionAdjust": {
+      "comment": "v1.46『反应』指标 → stress 微调：startDrag→落子的纯执行段（pickToPlaceMs）落入快/慢区间时，对 stress 施加 ±maxAdjust 的轻微偏移；中段（slow~fast 之间）零作用。仅当 reactionSamples ≥ minSamples 时启用，避免冷启动单点噪声；钳值刻意比 flowAdjust 小一个量级，作为现有信号的一个轻量补充而非主导项。",
+      "enabled": true,
+      "minSamples": 3,
+      "fastMs": 350,
+      "slowMs": 4500,
+      "maxAdjust": 0.05
+    },
     "solutionDifficulty": {
       "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。",
       "enabled": true,
@@ -514,14 +522,20 @@ module.exports = {
     }
   },
   "playerAbilityModel": {
-    "comment": "AbilityVector 规则模型配置。所有权重与阈值集中在此，避免 playerAbilityModel.js / adaptiveSpawn.js 直接写模型魔术数字；仅影响真人路径的能力展示、回放快照和自适应减压。",
-    "version": 1,
+    "comment": "AbilityVector 规则模型配置。v2：引入反应/多消/清屏/速度/锁死/新鲜度，并允许各指标使用独立时间窗口。",
+    "version": 2,
+    "calibrationNote": "所有 *_Max / *_Min 阈值当前是基于产品体感的初始猜测；建议运营离线跑 sql/move_sequences + live_sessions 求各信号的 P10/P50/P90，再回填这里。",
     "bands": {
       "riskHigh": 0.72,
       "riskMid": 0.42,
       "skillExpert": 0.78,
       "skillAdvanced": 0.58,
       "skillDeveloping": 0.36
+    },
+    "windows": {
+      "control": 8,
+      "clearEfficiency": 16,
+      "skillBlend": 12
     },
     "baseline": {
       "skillMinConfidence": 0.35,
@@ -532,29 +546,37 @@ module.exports = {
     "control": {
       "missRateMax": 0.3,
       "afkMax": 3,
-      "apmMax": 14,
+      "apmMax": 18,
+      "reactionFastMs": 350,
+      "reactionSlowMs": 2200,
+      "reactionMinSamples": 3,
       "weights": {
-        "miss": 0.38,
-        "cognitiveLoad": 0.27,
-        "afk": 0.17,
-        "apm": 0.18
+        "miss": 0.34,
+        "cognitiveLoad": 0.22,
+        "afk": 0.13,
+        "apm": 0.15,
+        "reaction": 0.16
       }
     },
     "clearEfficiency": {
       "clearRateMax": 0.55,
       "comboRateMax": 0.45,
       "avgLinesMax": 2.5,
+      "multiClearRateMax": 0.5,
+      "perfectClearRateMax": 0.15,
       "weights": {
-        "clearRate": 0.55,
-        "comboRate": 0.25,
-        "avgLines": 0.2
+        "clearRate": 0.4,
+        "comboRate": 0.18,
+        "avgLines": 0.14,
+        "multiClear": 0.18,
+        "perfectClear": 0.1
       }
     },
     "boardPlanning": {
-      "holeMax": 10,
+      "holeMax": 8,
       "fillPenaltyStart": 0.58,
       "fillPenaltySpan": 0.36,
-      "mobilityMax": 120,
+      "mobilityMax": 200,
       "closeLinesMax": 6,
       "fallbackMobilityScore": 0.55,
       "weights": {
@@ -567,12 +589,16 @@ module.exports = {
     "risk": {
       "frustrationMax": 5,
       "roundsSinceClearMax": 4,
+      "boardFillVelocityMax": 0.18,
+      "firstMoveFreedomSafe": 8,
       "weights": {
-        "boardFill": 0.32,
-        "holes": 0.28,
-        "frustration": 0.18,
-        "roundsSinceClear": 0.12,
-        "control": 0.1
+        "boardFill": 0.26,
+        "holes": 0.22,
+        "frustration": 0.14,
+        "roundsSinceClear": 0.1,
+        "control": 0.1,
+        "boardFillVelocity": 0.1,
+        "lockRisk": 0.08
       }
     },
     "riskTolerance": {
@@ -586,11 +612,13 @@ module.exports = {
       }
     },
     "confidence": {
-      "profileWeight": 0.65,
-      "lifetimePlacementsMax": 80,
+      "profileWeight": 0.55,
+      "lifetimePlacementsMax": 200,
       "lifetimePlacementsWeight": 0.25,
       "gamePlacementsMax": 20,
-      "gamePlacementsWeight": 0.1
+      "gamePlacementsWeight": 0.1,
+      "recencyWeight": 0.1,
+      "recencyHalfLifeDays": 14
     },
     "explain": {
       "clearEfficiencyHigh": 0.72,

@@ -14,17 +14,19 @@
 | `PlayerProfile` | `web/src/playerProfile.js` | 维护实时技能、心流、挫败、近失、动量、风格和置信度 |
 | `AbilityVector` | `web/src/playerAbilityModel.js` | 将画像、拓扑和局内统计聚合为统一能力向量 |
 
-`AbilityVector` 当前输出：
+`AbilityVector` 当前输出（v2，2026-05）：
 
-| 字段 | 产品语义 | 主要消费方 |
-|------|----------|------------|
-| `skillScore` | 综合能力 | `adaptiveSpawn`、玩家洞察面板 |
-| `controlScore` | 操作稳定性 | 玩家洞察面板 |
-| `clearEfficiency` | 消行效率 | 玩家洞察面板、离线样本 |
-| `boardPlanning` | 盘面规划 | 玩家洞察面板、离线样本 |
-| `riskTolerance` | 风险偏好 | 个性化与后续分析 |
-| `riskLevel` | 短期死局风险 | `adaptiveSpawn` 减压门控 |
-| `confidence` | 当前判断可信度 | 所有消费者的门控 |
+| 字段 | 产品语义 | 主要消费方 | v2 增量 |
+|------|----------|------------|---------|
+| `skillScore` | 综合能力 | `adaptiveSpawn`、玩家洞察面板 | — |
+| `controlScore` | 操作稳定性 | 玩家洞察面板 | 接入「反应」(`pickToPlaceMs`)，反应快/稳更高分 |
+| `clearEfficiency` | 消行效率 | 玩家洞察面板、离线样本 | 接入多消深度 + 清屏稀缺事件，会做大消除的玩家显著拉开 |
+| `boardPlanning` | 盘面规划 | 玩家洞察面板、离线样本 | — |
+| `riskTolerance` | 风险偏好 | 个性化与后续分析 | — |
+| `riskLevel` | 短期死局风险 | `adaptiveSpawn` 减压门控 | 接入填充加速度 + dock 锁死概率（区分"静态满"vs"急速满"、"还能落子"vs"全锁死"） |
+| `confidence` | 当前判断可信度 | 所有消费者的门控 | 接入近期活跃度衰减（exp(-days/14)），长草玩家自动衰减 |
+
+> v2 同时引入"各能力指标使用独立时间窗口"（控制 8 步 / 消行 16 步 / 规划瞬时）与"6 维 hover 雷达图"。详见 [`ALGORITHMS_PLAYER_MODEL.md §13.7`](../algorithms/ALGORITHMS_PLAYER_MODEL.md)。
 
 ---
 

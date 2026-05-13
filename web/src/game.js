@@ -3,10 +3,13 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
-import { initScoreAnimator, animateScore, setScoreImmediate, stopScoreAnimation } from './scoreAnimator.js';
+import { initScoreAnimator, animateScore, setScoreImmediate, stopScoreAnimation, syncHudScoreElement } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from './adaptiveSpawn.js';
 import { PlayerProfile } from './playerProfile.js';
 import { GAME_RULES } from './gameRules.js';
+/* v1.48 (2026-05) — 生命周期编排层接线员，把 churnPredictor / winbackProtection /
+ * shouldTriggerIntervention 等孤立模块通过 startGame / endGame 钩子接到主流程。 */
+import { onSessionStart, onSessionEnd } from './lifecycle/lifecycleOrchestrator.js';
 import {
     applyGameEndProgression,
     loadProgress,
@@ -28,6 +31,7 @@ import {
 } from './skins.js';
 import { Grid } from './grid.js';
 import { analyzeBoardTopology } from './boardTopology.js';
+import { computeStepGain } from './dragPointerCurve.js';
 import {
     generateDockShapes,
     resetSpawnMemory,
@@ -270,9 +274,9 @@ export class Game {
      */
     _spawnGeoForSnapshot() {
         if (!this.grid) return null;
-        let holes;
+        let topo;
         try {
-            holes = analyzeBoardTopology(this.grid).holes;
+            topo = analyzeBoardTopology(this.grid);
         } catch {
             return null;
         }
@@ -281,7 +285,21 @@ export class Game {
             snap != null && Number.isFinite(Number(snap.solutionCount))
                 ? Number(snap.solutionCount)
                 : null;
-        return { holes, solutionCount };
+        /* v1.46：把"平整"与"首手自由度"也纳入 ps.spawnGeo，与回放/数据库一并持久化。
+         * - flatness：1/(1+heightVariance)，1=完全平整；空盘约 1.0；单根孤柱在 9×9
+         *   通常 0.15~0.30，截图里 8×8 + 高度 3 的孤柱就是 0.50（数学上无误）。
+         * - firstMoveFreedom：当前各候选块独立放置时的最小合法点数（"瓶颈块自由度"），
+         *   ≤2 时下一轮 spawn 触发 bottleneckRelief 减压（详见 adaptiveSpawn.js）。 */
+        const sm = snap ?? computeCandidatePlacementMetric(this.grid, this.dockBlocks || []);
+        const firstMoveFreedom = sm != null && Number.isFinite(Number(sm.firstMoveFreedom))
+            ? Number(sm.firstMoveFreedom)
+            : null;
+        return {
+            holes: topo.holes,
+            flatness: Number.isFinite(topo.flatness) ? topo.flatness : null,
+            firstMoveFreedom,
+            solutionCount
+        };
     }
 
     /**
@@ -753,6 +771,8 @@ export class Game {
 
             this.grid.clear();
             this.score = 0;
+            // 重开局：清理上一局滚动基线，避免新局首次 updateUI() 出现"老分数→0"的反向动画
+            this._lastDisplayedScore = null;
             this._bestScoreAtRunStart = this.bestScore || 0;
             this._newBestCelebrated = false;
             this.isGameOver = false;
@@ -817,6 +837,12 @@ export class Game {
             resetAdaptiveMilestone();
 
             this.playerProfile.recordNewGame();
+
+            /* v1.48：生命周期编排会话开始钩子 —— 检查 winback 触发（≥7 天未活跃则
+             * 自动激活保护包）+ 广播 lifecycle:session_start 让商业化 / 推送等订阅。 */
+            try { onSessionStart(this.playerProfile, { tracker: this.analyticsTracker || null }); } catch (e) {
+                console.warn('[lifecycle] onSessionStart failed:', e?.message || e);
+            }
 
             const baseStrategy = getStrategy(this.strategy);
             const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, {
@@ -1270,6 +1296,9 @@ export class Game {
         this.grid.size = j.size;
         this.renderer.setGridSize(this.grid.size);
         this.grid.fromJSON(j);
+        // RL 演示路径：分数瞬移到模拟器值，不要走 HUD 滚动动画（避免与训练帧抢节拍）。
+        // v1.49.x：updateUI() 内"DOM 文本不一致兜底分支"会负责把 #score DOM 真正写到目标值。
+        this._lastDisplayedScore = sim.score;
         this.score = sim.score;
         this.isGameOver = false;
 
@@ -1324,12 +1353,23 @@ export class Game {
         const block = this.dockBlocks[index];
         if (!block || block.placed) return;
 
+        // v1.46「反应」指标：记录玩家激活候选块的时刻，下一次 recordPlace/recordMiss 与之相减得到 pickToPlaceMs。
+        // 重选另一块（多次 startDrag）安全：以最后一次为准。
+        this.playerProfile?.recordPickup?.();
+
         // 上一次失败落子触发的"抖动 + 延迟隐藏 ghost"还未结束 → 立刻取消，由本次拖拽重新接管 ghost
         if (this._ghostHideTimer) {
             clearTimeout(this._ghostHideTimer);
             this._ghostHideTimer = null;
             this.ghostCanvas.classList.remove('is-rejected');
         }
+
+        /* v1.46 触屏起手 boost：抓起候选块时给 ghost 一次性向上偏移 N 格，
+         * 把"dock→盘面下缘"这段固定物理距离免掉，让玩家只需要在盘面内做最后定位。
+         * 仅触屏路径生效；鼠标依靠 pointer ballistics 自身就能省力（且玩家有可视参考）。 */
+        const initialBoostY = (inputType === 'touch')
+            ? -1 * (Number(CONFIG.DRAG_TOUCH_BOOST_CELLS) || 0) * this._boardDisplayCellSize()
+            : 0;
 
         this.drag = {
             index,
@@ -1340,7 +1380,7 @@ export class Game {
             // 增量积分式增益：每帧把"本帧位移 × (gain-1)"累加进 _extraOffset，
             // ghost 位置 = 鼠标位置 + _extraOffset。即时增益变化只影响"下一段"的累加，
             // 不会把累积位移整体重算，从而消除帧间跳跃。
-            _extraOffset: { x: 0, y: 0 },
+            _extraOffset: { x: 0, y: initialBoostY },
         };
         this.dragBlock = block;
         this._resetGhostDomStyles();
@@ -1395,26 +1435,34 @@ export class Game {
         const last = this.drag._lastPointer;
         const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
-        let stepGain;   // 本帧增量增益（gain - 1，仅对增量生效）
-        if (isTouch) {
-            const touchGain = Number(CONFIG.DRAG_TOUCH_GAIN) || 1;
-            stepGain = Math.max(0, touchGain - 1);
-        } else {
-            const maxGain = Number(CONFIG.DRAG_MOUSE_GAIN) || 1;
-            const minGain = Number(CONFIG.DRAG_MOUSE_GAIN_MIN) || 1;
-            const slowSpeed = Number(CONFIG.DRAG_MOUSE_SPEED_SLOW_PX_MS) || 0.3;
-            const fastSpeed = Number(CONFIG.DRAG_MOUSE_SPEED_FAST_PX_MS) || 1.5;
-            let velocityFactor = 0;   // 默认按低速处理（首帧无历史时不放大，避免抓起即抢跑）
-            if (last) {
-                const dt = Math.max(1, now - last.t);
-                const dist = Math.hypot(x - last.x, y - last.y);
-                const speed = dist / dt;
-                const span = Math.max(0.001, fastSpeed - slowSpeed);
-                velocityFactor = Math.max(0, Math.min(1, (speed - slowSpeed) / span));
+        /* v1.46：鼠标 / 触屏共用同一套"速度感知"曲线（参考桌面 OS pointer ballistics），
+         * 由 dragPointerCurve.computeStepGain 实现。两端只是参数取值不同：
+         *   - 鼠标：MIN=1.0 / MAX=1.32 / SLOW=0.30 / FAST=1.50（精细对位）
+         *   - 触屏：MIN=1.05 / MAX=1.7 / SLOW=0.10 / FAST=0.80（指尖滑动整体偏慢、距离偏长）
+         *
+         * 触屏首帧无 last 时按高速处理（velocityFactor=1）——抓起后立即抬手必然是位移意图，
+         * 让起手就吃到放大；鼠标首帧按低速（factor=0）避免点击瞬间 ghost 抢跑。 */
+        const cfg = isTouch
+            ? {
+                slow: Number(CONFIG.DRAG_TOUCH_SPEED_SLOW_PX_MS) || 0.1,
+                fast: Number(CONFIG.DRAG_TOUCH_SPEED_FAST_PX_MS) || 0.8,
+                minGain: Number(CONFIG.DRAG_TOUCH_GAIN_MIN) || 1,
+                maxGain: Number(CONFIG.DRAG_TOUCH_GAIN) || 1,
             }
-            const effectiveGain = minGain + (maxGain - minGain) * velocityFactor;
-            stepGain = Math.max(0, effectiveGain - 1);
+            : {
+                slow: Number(CONFIG.DRAG_MOUSE_SPEED_SLOW_PX_MS) || 0.3,
+                fast: Number(CONFIG.DRAG_MOUSE_SPEED_FAST_PX_MS) || 1.5,
+                minGain: Number(CONFIG.DRAG_MOUSE_GAIN_MIN) || 1,
+                maxGain: Number(CONFIG.DRAG_MOUSE_GAIN) || 1,
+            };
+        let speedPxMs;
+        if (last) {
+            const dt = Math.max(1, now - last.t);
+            speedPxMs = Math.hypot(x - last.x, y - last.y) / dt;
+        } else {
+            speedPxMs = isTouch ? cfg.fast : 0;
         }
+        const stepGain = computeStepGain(speedPxMs, cfg);
 
         if (last && stepGain > 0) {
             this.drag._extraOffset.x += (x - last.x) * stepGain;
@@ -1937,15 +1985,43 @@ export class Game {
         animate();
     }
 
+    /**
+     * 把一个 fixed 元素锚定到「盘面（#game-grid）几何中心」上。
+     *
+     * 替代旧的 `el.style.left = '50%'; el.style.top = '14%'; transform: translateX(-50%)`，
+     * 后者基于「视口」居中——在窄屏 / 侧栏 / 不同纵横比下飘字会偏到盘面之外（见 v1.45 截图反馈：
+     * 「+20」出现在盘面左上方，而非盘面正中）。统一改为基于盘面 rect 计算精确像素坐标。
+     *
+     * @param {HTMLElement} el                目标元素（应当 position: fixed）
+     * @param {object}      [opts]
+     * @param {number}      [opts.dyRatio=0]  垂直偏移 = boardHeight × dyRatio
+     *                                        - 0     ：盘面正中（默认；满足"在盘面居中位置显示"诉求）
+     *                                        - -0.18 ：盘面顶部 1/5 区
+     *                                        - +0.20 ：盘面下部
+     */
+    _anchorOnBoard(el, { dyRatio = 0 } = {}) {
+        const rect = this.canvas?.getBoundingClientRect?.();
+        if (!rect || rect.width === 0 || rect.height === 0) {
+            // 兜底：保留旧的 viewport 居中行为，避免特效完全消失
+            el.style.left = '50%';
+            el.style.top = '25%';
+            el.style.transform = 'translate(-50%, -50%)';
+            return;
+        }
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top  + rect.height / 2 + rect.height * dyRatio;
+        el.style.left = `${cx}px`;
+        el.style.top  = `${cy}px`;
+        el.style.transform = 'translate(-50%, -50%)';
+    }
+
     _showStreakBadge(streak) {
         const el = document.createElement('div');
         el.className = 'streak-badge';
         const fires = streak >= 5 ? '🔥🔥🔥' : streak >= 4 ? '🔥🔥' : '🔥';
         el.textContent = t('effect.streakCombo', { fires, n: streak });
-        el.style.left = '50%';
-        el.style.top = '14%';
-        el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
+        this._anchorOnBoard(el);
         setTimeout(() => el.remove(), 1600);
     }
 
@@ -2005,11 +2081,9 @@ export class Game {
             const tipEl = document.createElement('div');
             tipEl.className = 'float-score float-near-miss';
             tipEl.innerHTML = `<span class="float-label">差一点...</span><span class="float-pts">再冲一把！</span>`;
-            tipEl.style.left = '50%';
-            tipEl.style.top = '28%';
-            tipEl.style.transform = 'translateX(-50%)';
             tipEl.style.zIndex = '1300';
             document.body.appendChild(tipEl);
+            this._anchorOnBoard(tipEl);
             setTimeout(() => tipEl.remove(), 1200);
         }
         this._noMovesTimer = setTimeout(() => {
@@ -2102,6 +2176,26 @@ export class Game {
                     ...this.gameStats,
                     mode: this._levelMode ?? 'endless',
                 });
+
+                /* v1.48：生命周期编排会话结束钩子 —— 写入 churnPredictor 让流失风险
+                 * 评估有数据；消耗一轮 winback 保护；命中 dashboard 干预条件时
+                 * 通过 MonetizationBus 广播 lifecycle:intervention，让推送 / 弹窗订阅。
+                 *
+                 * 关键修复：此前 churnPredictor.recordSessionMetrics 在生产代码中
+                 * 无任何调用方，导致整个流失风险评估退化为常量；本钩子是该模块
+                 * 第一个真实数据写入点。 */
+                try {
+                    onSessionEnd(this.playerProfile, {
+                        score: this.score,
+                        durationMs: Date.now() - this.gameStats.startTime,
+                        clears: this.gameStats.clears,
+                        placements: this.gameStats.placements,
+                        misses: this.gameStats.misses,
+                        gameOver: !!opts.noMovesLoss,
+                    }, { tracker: this.analyticsTracker || null });
+                } catch (e) {
+                    console.warn('[lifecycle] onSessionEnd failed:', e?.message || e);
+                }
 
                 await this.saveSession();
 
@@ -2412,6 +2506,10 @@ export class Game {
         this.grid.size = st.gridJSON.size;
         this.renderer.setGridSize(this.grid.size);
         this.grid.fromJSON(st.gridJSON);
+        // 回放跳帧：分数瞬移到该帧值，不要触发 HUD 滚动 / 飘字（拖时间轴会狂闪）。
+        // v1.49.x：把 _lastDisplayedScore 与 score 同时设为目标值压制滚动；
+        // updateUI() 内"DOM 文本不一致兜底分支"会负责把 #score DOM 真正写到目标值。
+        this._lastDisplayedScore = st.score;
         this.score = st.score;
         this.previewPos = null;
         this.previewBlock = null;
@@ -2507,10 +2605,8 @@ export class Game {
         const nearMissEl = document.createElement('div');
         nearMissEl.className = 'float-score float-near-miss';
         nearMissEl.innerHTML = `<span class="float-label">差一点！</span><span class="float-pts">💪</span>`;
-        nearMissEl.style.left = '50%';
-        nearMissEl.style.top = '28%';
-        nearMissEl.style.transform = 'translateX(-50%)';
         document.body.appendChild(nearMissEl);
+        this._anchorOnBoard(nearMissEl);
         setTimeout(() => nearMissEl.remove(), 1500);
     }
 
@@ -2544,10 +2640,8 @@ export class Game {
                 `<span class="float-bonus-mult-wrap">(${ICON_BONUS_LINE_MULT}x)</span>` +
                 `</span>` +
                 `</span>`;
-            el.style.left = '50%';
-            el.style.top = isPerfect ? '18%' : isCombo ? '22%' : '28%';
-            el.style.transform = 'translateX(-50%)';
             document.body.appendChild(el);
+            this._anchorOnBoard(el);
             const floatHoldMs = bonusUiHoldMs > 0 ? Math.round(bonusUiHoldMs) : 4000;
             setTimeout(() => el.remove(), floatHoldMs);
             return;
@@ -2571,10 +2665,8 @@ export class Game {
             el.textContent = '+' + score;
         }
 
-        el.style.left = '50%';
-        el.style.top = isNewBest ? '16%' : isPerfect ? '18%' : isCombo ? '22%' : isMilestone ? '14%' : '25%';
-        el.style.transform = 'translateX(-50%)';
         document.body.appendChild(el);
+        this._anchorOnBoard(el);
         const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : isMilestone ? 1800 : 600;
         setTimeout(() => el.remove(), floatHoldMs);
     }
@@ -2604,7 +2696,16 @@ export class Game {
     }
 
     updateUI() {
-        document.getElementById('score').textContent = this.score;
+        /* v1.46 实时分数滚动 / v1.49.x 回放瞬移兜底：决策表统一委托给 syncHudScoreElement
+         * （决策矩阵 init / animate / sync / noop / no-element 见 scoreAnimator.js）。
+         * `_lastDisplayedScore` 是"上次写入 DOM 的值"；瞬移路径（applyReplayFrameIndex /
+         * syncFromSimulator）通过把它和 score 同时设为目标值来压制滚动/飘字，
+         * 由 syncHudScoreElement 的 'sync' 分支负责把 DOM textContent 真正写到目标值。 */
+        const scoreEl = document.getElementById('score');
+        if (scoreEl) {
+            syncHudScoreElement(scoreEl, this.score, this._lastDisplayedScore);
+            this._lastDisplayedScore = this.score;
+        }
         document.getElementById('best').textContent = this.bestScore;
         // 最高分差距提示（无尽模式 + 尚未超越时显示）
         const gapEl = document.getElementById('best-gap');

@@ -22,6 +22,7 @@
  */
 
 import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
+import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
 
 /**
  * @typedef {Object} StrategyTip
@@ -122,13 +123,23 @@ export function generateStrategyTips(profile, insight, gridInfo) {
      */
     let lifecycleTip = null;
     try {
-        const snap = getLifecycleMaturitySnapshot({
-            daysSinceInstall: profile?._daysSinceInstall ?? 0,
-            totalSessions: profile?._totalSessions ?? profile?.lifetimeGames ?? 0,
-            daysSinceLastActive: profile?._daysSinceLastActive ?? 0,
-        });
-        const stage = snap?.stageCode ?? 'S0';
-        const band = snap?.band ?? 'M0';
+        /* v1.49.x P2-4：与 adaptiveSpawn 共用 cached snapshot，避免每次 advise()
+         * 都重算 maturity insights / lifecycle stage（每帧 1-2ms 累加在 30fps 看板里
+         * 会感知到帧抖动）。orchestrator.invalidate 后下次 cache miss 自动重算。 */
+        let stage, band;
+        const cached = getCachedLifecycleSnapshot(profile);
+        if (cached?.stage?.code) {
+            stage = cached.stage.code;
+            band = cached.maturity?.band ?? 'M0';
+        } else {
+            const snap = getLifecycleMaturitySnapshot({
+                daysSinceInstall: profile?.daysSinceInstall ?? 0,
+                totalSessions: profile?.totalSessions ?? profile?.lifetimeGames ?? 0,
+                daysSinceLastActive: profile?.daysSinceLastActive ?? 0,
+            });
+            stage = snap?.stageCode ?? 'S0';
+            band = snap?.band ?? 'M0';
+        }
         const key = `${stage}·${band}`;
 
         const lifecycleStrategyMap = {

@@ -29,9 +29,9 @@
 
 | 文档 | 来源 Canvas | 内容 |
 |------|-------------|------|
-| [彩蛋 / 惊喜路线图](../product/EASTER_EGGS_ROADMAP.md) | `easter-eggs-roadmap.canvas.tsx` | 彩蛋、感官反馈、皮肤微动效、节日换皮、主动道具、隐藏惊喜、签到经济和社交分享机会池 |
-| [玩家留存 / 活跃提升路线图](../product/PLAYER_RETENTION_ROADMAP.md) | `player-retention-roadmap.canvas.tsx` | 留存、活跃、任务、召回、社交和长期成长的路线图分析 |
-| [玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | `player-lifecycle-maturity-ops-blueprint.canvas.tsx` | 双轴模型（S0–S4 × M0–M4）、KPI 字典、双分制成熟度（SkillScore / ValueScore）、90 天落地任务清单、8 个实验、行业基准与维护规约 |
+| [彩蛋 / 惊喜路线图（归档）](../archive/product/EASTER_EGGS_ROADMAP.md) | `easter-eggs-roadmap.canvas.tsx` | 彩蛋、感官反馈、皮肤微动效、节日换皮、主动道具、隐藏惊喜、签到经济和社交分享机会池 —— 已归档，当前以 [`product/EASTER_EGGS_AND_DELIGHT.md`](../product/EASTER_EGGS_AND_DELIGHT.md) 为准 |
+| [玩家留存 / 活跃提升路线图（归档）](../archive/product/PLAYER_RETENTION_ROADMAP.md) | `player-retention-roadmap.canvas.tsx` | 留存、活跃、任务、召回、社交和长期成长的路线图分析 —— 已归档，当前以 [`operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) 为准 |
+| [玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | `player-lifecycle-maturity-ops-blueprint.canvas.tsx` | 双轴模型（S0–S4 × M0–M4）、KPI 字典、双分制成熟度（SkillScore / ValueScore）、能力与运营接入点对照表、推荐实验与维护规约 |
 
 ### 2.3 出块、候选块与玩法解释
 
@@ -43,9 +43,9 @@
 
 | 文档 | 来源 Canvas | 内容 |
 |------|-------------|------|
-| [RL v9.1 深度分析](../algorithms/RL_V9_1_DEEP_ANALYSIS.md) | `rl-v9-1-deep-analysis.canvas.tsx` | RL v9.1 训练瓶颈、优先修复项、实验方案和价值归一化问题 |
-| [RL v9.3 提分深度分析](../algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md) | `rl-v9-3-score-breakthrough-analysis.canvas.tsx` | 搜索 teacher、beam/MCTS、replay 新鲜度、评估口径和 bonus auxiliary 的提分分析 |
-| [OpenBlock RL 自博弈提升路线图](../algorithms/RL_SELF_PLAY_ROADMAP.md) | `rl-self-play-roadmap.canvas.tsx` | 自博弈改进路线、搜索蒸馏、credit assignment、curriculum 和 OpenBlock 适配 |
+| [RL v9.1 深度分析（归档）](../archive/algorithms/RL_V9_1_DEEP_ANALYSIS.md) | `rl-v9-1-deep-analysis.canvas.tsx` | RL v9.1 训练瓶颈、优先修复项、实验方案和价值归一化问题 —— 已归档，当前以 [`algorithms/RL_README.md`](../algorithms/RL_README.md) 为准 |
+| [RL v9.3 提分深度分析（归档）](../archive/algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md) | `rl-v9-3-score-breakthrough-analysis.canvas.tsx` | 搜索 teacher、beam/MCTS、replay 新鲜度、评估口径和 bonus auxiliary 的提分分析 —— 已归档 |
+| [OpenBlock RL 自博弈提升路线图（归档）](../archive/algorithms/RL_SELF_PLAY_ROADMAP.md) | `rl-self-play-roadmap.canvas.tsx` | 自博弈改进路线、搜索蒸馏、credit assignment、curriculum 和 OpenBlock 适配 —— 已归档 |
 | [自博弈 RL 文献对照与 OpenBlock 适配](../algorithms/RL_SELF_PLAY_LITERATURE_COMPARISON.md) | `rl-self-play-literature-comparison.canvas.tsx` | AlphaZero、MuZero、Gumbel AlphaZero、Expert Iteration 等自博弈论文与 OpenBlock 的横向对比 |
 
 ---

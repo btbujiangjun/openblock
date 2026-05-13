@@ -176,6 +176,59 @@ export function getCommercialModelContext() {
     };
 }
 
+/* v1.49.x P1-4：按"操作风格"维度补一层 abilitySegment，与既有 5 段商业分群正交。
+ *
+ *   - prudent     谨慎型：boardPlanning 高、riskLevel 低、missRate 低、反应中等
+ *                 → 适合"高客单 / 长线"商品（年卡 / 月卡）
+ *   - speed       速度型：反应极快（pickToPlaceMs 低）、思考短、控制中等
+ *                 → 适合"快节奏激励"（连胜任务、快闪礼包）
+ *   - strategic   策略型：boardPlanning 极高、confidence 高、thinkMs 长
+ *                 → 适合"成就向"内容（赛季通行证、精英排行榜）
+ *   - impulsive   冲动型：boardPlanning 低、missRate 高、reaction 短但控制差
+ *                 → 适合"小额冲动消费"（道具补给 / 提示包）
+ *   - balanced    其他：默认兜底；不主动推荐特定商品。
+ *
+ * 输入是已经计算好的 abilityVector + metrics 快照，函数纯计算无副作用。
+ */
+export function getAbilitySegment(ability, metrics = {}) {
+    if (!ability || typeof ability !== 'object') return 'balanced';
+    const planning = Number(ability.boardPlanning ?? 0);
+    const control = Number(ability.controlScore ?? 0);
+    const confidence = Number(ability.confidence ?? 0);
+    const risk = Number(ability.riskLevel ?? 0);
+    const skill = Number(ability.skillScore ?? 0);
+    const reactionMs = Number(metrics.pickToPlaceMs ?? 0);
+    const thinkMs = Number(metrics.thinkMs ?? 0);
+    const miss = Number(metrics.missRate ?? 0);
+    const samples = Number(metrics.samples ?? 0);
+
+    /* 样本量不足时不打 segment（balanced 兜底）—— 避免冷启动期错配。 */
+    if (samples < 8) return 'balanced';
+
+    if (planning >= 0.65 && confidence >= 0.6 && thinkMs >= 2200) return 'strategic';
+    if (planning >= 0.55 && risk <= 0.4 && miss <= 0.1) return 'prudent';
+    if (reactionMs > 0 && reactionMs <= 900 && control >= 0.55) return 'speed';
+    if ((planning <= 0.35 && miss >= 0.18) || (control <= 0.35 && reactionMs > 0 && reactionMs <= 1200)) {
+        return 'impulsive';
+    }
+    /* 兜底：高技能 -> strategic，低技能 -> impulsive，否则 balanced。 */
+    if (skill >= 0.7) return 'strategic';
+    if (skill <= 0.3) return 'impulsive';
+    return 'balanced';
+}
+
+const ABILITY_SEGMENT_LABEL = {
+    prudent:   { icon: '🧮', label: '谨慎型', color: '#34d399' },
+    speed:     { icon: '⚡', label: '速度型', color: '#facc15' },
+    strategic: { icon: '🏆', label: '策略型', color: '#a78bfa' },
+    impulsive: { icon: '🎲', label: '冲动型', color: '#fb7185' },
+    balanced:  { icon: '⚖️', label: '均衡型', color: '#94a3b8' },
+};
+
+export function getAbilitySegmentMeta(segmentKey) {
+    return ABILITY_SEGMENT_LABEL[segmentKey] || ABILITY_SEGMENT_LABEL.balanced;
+}
+
 /**
  * 返回当前个性化洞察（供面板渲染）。
  * 结构契约（保持向后兼容）：
@@ -204,16 +257,36 @@ export function getCommercialInsight() {
     // 3. 推理摘要
     const whyLines = buildWhyLines(evalCtx);
 
+    /* v1.49.x P1-4：abilitySegment 默认 balanced；上游（commercialInsight / lifecycleAwareOffers）
+     * 在调用前把 ability + metrics 写进 _state 以增量丰富 insight。 */
+    const abilitySegment = _state.abilitySegment || 'balanced';
+    const abilitySegmentMeta = getAbilitySegmentMeta(abilitySegment);
+
     return {
         segment:       _state.segment,
         segmentLabel:  meta.label,
         segmentColor:  meta.color,
         segmentIcon:   meta.icon,
+        abilitySegment,
+        abilitySegmentLabel: abilitySegmentMeta.label,
+        abilitySegmentIcon:  abilitySegmentMeta.icon,
+        abilitySegmentColor: abilitySegmentMeta.color,
         signals,
         actions,
         explain:       _state.serverExplain ?? '',
         whyLines,
     };
+}
+
+/**
+ * v1.49.x P1-4：把当前玩家的 ability + metrics 转为 abilitySegment 写入 _state，
+ * 让下次 getCommercialInsight 输出 abilitySegment 字段。
+ *
+ * @param {object} ability     来自 buildPlayerAbilityVector
+ * @param {object} metrics     PlayerProfile.metrics 快照
+ */
+export function updateAbilitySegment(ability, metrics) {
+    _state.abilitySegment = getAbilitySegment(ability, metrics);
 }
 
 // ── 信号卡片渲染 ──────────────────────────────────────────────────────────────

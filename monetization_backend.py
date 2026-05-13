@@ -150,10 +150,15 @@ def _compute_user_profile(db, user_id: str) -> dict:
     """
     从 SQLite 聚合用户商业画像。
 
-    分群指标：
-      whale_score = best_score/1000 * w0 + total_games/50 * w1 + avg_session_min/10 * w2
-      activity_score = recent_7d_games/7 * 0.6 + (streak > 0) * 0.4
-      segment = whale(>0.60) | dolphin(0.30-0.60) | minnow(<0.30)
+    分群指标（实际公式见下方实现，权重在 `mon_model_config.segmentWeights` 可热更）：
+      best_score_norm  = min(1, best_score / 2000)
+      total_games_norm = min(1, total_games / 50)
+      avg_session_norm = min(1, avg_session_sec / 600)
+      whale_score      = w0 * best_score_norm + w1 * total_games_norm + w2 * avg_session_norm
+                         默认 w0=0.40 / w1=0.30 / w2=0.30
+
+      activity_score   = 0.60 * min(1, recent_7d / 7) + 0.40 * (1 if recent_7d > 0 else 0)
+      segment          = whale(≥0.60) | dolphin(0.30–0.60) | minnow(<0.30)
     """
     cfg = _model_cfg(db)
     seg_w = cfg.get('segmentWeights', {})

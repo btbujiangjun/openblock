@@ -3296,11 +3296,8 @@ _DOC_CATEGORIES = [
             "product/CLEAR_SCORING.md",
             "product/CHEST_AND_WALLET.md",
             "product/EASTER_EGGS_AND_DELIGHT.md",
-            "product/EASTER_EGGS_ROADMAP.md",
-            "product/PLAYER_RETENTION_ROADMAP.md",
             "product/SKINS_CATALOG.md",
             "product/SKIN_ICON_SEMANTIC_POOL.md",
-            "product/RETENTION_ROADMAP_V10_17.md",
         ],
     },
     {
@@ -3324,8 +3321,18 @@ _DOC_CATEGORIES = [
             "algorithms/ALGORITHMS_PLAYER_MODEL.md",
             "algorithms/ALGORITHMS_RL.md",
             "algorithms/ALGORITHMS_MONETIZATION.md",
+            "algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md",
             "algorithms/MODEL_SYSTEMS_FOUR_MODELS.md",
             "algorithms/MODEL_ENGINEERING_GUIDE.md",
+        ],
+    },
+    {
+        # 架构契约：跨模块的事件总线、数据-策略分层、单向依赖约束。
+        # 算法和商业化文档落地的设计基线，单独成栏便于架构 / SRE / 算法工程师索引。
+        "name": "架构契约",
+        "docs": [
+            "architecture/MONETIZATION_EVENT_BUS_CONTRACT.md",
+            "architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md",
         ],
     },
     {
@@ -3359,16 +3366,11 @@ _DOC_CATEGORIES = [
                 ],
             },
             {
-                "name": "研究与历史实验",
+                "name": "研究与文献对比",
                 "docs": [
                     "algorithms/RL_ANALYSIS.md",
-                    "algorithms/RL_V9_1_DEEP_ANALYSIS.md",
-                    "algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md",
-                    "algorithms/RL_SELF_PLAY_ROADMAP.md",
                     "algorithms/RL_SELF_PLAY_LITERATURE_COMPARISON.md",
-                    "algorithms/RL_TRAINING_OPTIMIZATION.md",
                     "algorithms/RL_ALPHAZERO_OPTIMIZATION.md",
-                    "algorithms/RL_BROWSER_OPTIMIZATION.md",
                 ],
             },
         ],
@@ -3377,6 +3379,7 @@ _DOC_CATEGORIES = [
         "name": "商业化与运营",
         "docs": [
             "operations/MONETIZATION.md",
+            "operations/COMMERCIAL_STRATEGY_REVIEW.md",
             "operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md",
             "operations/OPS_DASHBOARD_METRICS_AUDIT.md",
             "operations/MONETIZATION_CUSTOMIZATION.md",
@@ -3415,10 +3418,20 @@ _DOC_CATEGORIES = [
         ],
     },
     {
+        # 归档区域：sprint 路线图、早期分析、被吸收的设计稿。
+        # 用于追溯演进背景，不作为当前实现事实来源；与活动文档冲突时以活动文档为准。
         "name": "归档",
         "docs": [
             "archive/MONETIZATION_OPTIMIZATION.md",
             "archive/MONETIZATION_PERSONALIZATION.md",
+            "archive/algorithms/RL_V9_1_DEEP_ANALYSIS.md",
+            "archive/algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md",
+            "archive/algorithms/RL_SELF_PLAY_ROADMAP.md",
+            "archive/algorithms/RL_TRAINING_OPTIMIZATION.md",
+            "archive/algorithms/RL_BROWSER_OPTIMIZATION.md",
+            "archive/product/EASTER_EGGS_ROADMAP.md",
+            "archive/product/PLAYER_RETENTION_ROADMAP.md",
+            "archive/product/RETENTION_ROADMAP_V10_17.md",
         ],
     },
 ]

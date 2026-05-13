@@ -50,8 +50,9 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 | 事件 | 写入内容 | 入口方法 | 评审注意 |
 |------|----------|----------|----------|
 | 出块刷新 | 时间戳；开启闭环反馈窗口 | `recordSpawn()` | 与 `spawnCounter`、节奏相位同步 |
-| 放置成功 | thinkMs、是否消行、lines、放置后 fill | `recordPlace()` | fill 为**消行后**占用率，诊断与顾问依赖此口径 |
-| 放置失败 | thinkMs | `recordMiss()` | 推高 miss 与挫败相关信号 |
+| **激活候选块**（v1.46） | `_pickupAt = now` | `recordPickup()` | 由 `Game.startDrag` 调用；下一次 place/miss 写入 `pickToPlaceMs` |
+| 放置成功 | thinkMs、**pickToPlaceMs**、是否消行、lines、放置后 fill | `recordPlace()` | fill 为**消行后**占用率，诊断与顾问依赖此口径 |
+| 放置失败 | thinkMs、**pickToPlaceMs** | `recordMiss()` | 推高 miss 与挫败相关信号；拖出有效区也记反应代价 |
 | 新局 | 局内计数重置 | `recordNewGame()` | 冷启动占位见 `metrics.samples` |
 
 **AFK**：单次 `thinkMs` 超过 `adaptiveSpawn.afk.thresholdMs`（默认 15000ms）的放置不计入「活跃」子集，避免挂机污染 `clearRate`/思考时间均值。
@@ -60,7 +61,11 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 
 | 字段 | 定义要点 | 取值与占位 | 物理含义（策略上） |
 |------|----------|------------|---------------------|
-| **thinkMs** | 活跃放置步的平均思考间隔 | 无样本时占位 3000 | 偏低可能偏「随手」或熟练；偏高可能犹豫或困难局面 |
+| **thinkMs** | 活跃放置步的平均思考间隔（含等系统出块、观察、选块、拖动） | 无样本时占位 3000 | 偏低可能偏「随手」或熟练；偏高可能犹豫或困难局面 |
+| **pickToPlaceMs**（v1.46） | startDrag → 落子的平均纯执行段（剔除观察） | `reactionSamples=0` 时为 `null` | 偏短=反射式快放（→ bored 加压候选）；偏长=拖动犹豫（→ anxious 减压候选） |
+| **reactionSamples**（v1.46） | 当前窗口内含 pickup 链路的样本数 | 0 表示冷启动 / 程序化路径 | <`adaptiveSpawn.reactionAdjust.minSamples` 时 `reactionAdjust=0` |
+| **spawnGeo.flatness**（v1.46） | `1 / (1 + heightVariance)` | 0~1，1=完全平整 | 仅衡量列高度均一性，不衡量"局部锯齿"；后者由「空洞 / 首手」补充 |
+| **spawnGeo.firstMoveFreedom**（v1.46） | dock 各候选块独立放置时合法位置数的最小值 | int ≥ 0 | ≤2 持续 → 下一轮 spawn 触发 `bottleneckRelief` 减压 |
 | **clearRate** | 活跃放置中「本步产生消行」的比例 | 无样本时占位 0.3 | 越高越能持续解压；低则易触发挫败链 |
 | **comboRate** | 在「有消行」的步中，lines≥2 的比例 | 无清除时可退化为 0 | 多消/连击倾向，影响 playstyle 与顾问 |
 | **missRate** | 窗口内 miss / 总事件 | 无样本时占位 0.1 | 操作失误压力，进心流判定 |

@@ -51,13 +51,27 @@ const MATURITY_THRESHOLDS = {
     L4: { min: 80, max: 100 },
 };
 
-/** SkillScore → M0–M4，并保留 L1/L2/L3/L4 兼容映射。 */
+/** SkillScore → M0–M3 兼容映射（L1..L4 标签 → M0..M3）。
+ *
+ * 注意：M4 不通过 L?→M? 表查表，而由 `getMaturityBand` 在 SkillScore ≥ 90 时
+ * 单独返回；此前 v1.47 之前因为没有 L→M4 映射，`lifecycleStressCapMap` 里的
+ * `S*·M4` 键永远不命中（死键）。详见 v1.48 CHANGELOG。 */
 const MATURITY_BAND_MAP = {
     L1: 'M0',
     L2: 'M1',
     L3: 'M2',
     L4: 'M3',
 };
+
+/** v1.48：M-band 阈值（独立于 L 标签）。SkillScore ≥ 90 才进 M4，让顶端核心
+ * 玩家与一般 L4 拉开差距，对应蓝图里"S*·M4"的高压配置真正能被命中。 */
+const M_BAND_THRESHOLDS = Object.freeze([
+    { band: 'M4', min: 90 },
+    { band: 'M3', min: 80 },
+    { band: 'M2', min: 60 },
+    { band: 'M1', min: 40 },
+    { band: 'M0', min: 0 },
+]);
 
 /** 综合 MatureIndex 默认融合权重；ValueScore 不再左右 M0–M4 分群。 */
 const DEFAULT_COMBINED_ALPHA = 0.6;
@@ -155,9 +169,20 @@ export function getMaturityLevel(score) {
     return 'L1';
 }
 
-/** 蓝图统一对外的 M-band 标签。L?→M? 由 MATURITY_BAND_MAP 兼容映射。 */
+/**
+ * 蓝图统一对外的 M-band 标签。v1.48 起：
+ *   - SkillScore ≥ 90 → M4（顶端核心）
+ *   - 80-89 → M3 / 60-79 → M2 / 40-59 → M1 / 0-39 → M0
+ *
+ * 与 L1..L4 标签的关系：L4(80-100) 内部按 SkillScore 进一步分 M3 / M4，
+ * 让 `lifecycleStressCapMap` 里的 `S*·M4` 键有机会命中（此前永远是死键）。
+ */
 export function getMaturityBand(skillScore) {
-    return MATURITY_BAND_MAP[getMaturityLevel(skillScore)] || 'M0';
+    const s = Number(skillScore) || 0;
+    for (const t of M_BAND_THRESHOLDS) {
+        if (s >= t.min) return t.band;
+    }
+    return 'M0';
 }
 
 export function updateMaturity(gameData) {

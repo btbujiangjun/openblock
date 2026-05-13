@@ -17,11 +17,13 @@ export const CONFIG = {
     /** 落点吸附：悬停预览半径（切比雪夫，格）。保守值避免预览跳到太远的"全局好点" */
     PLACE_SNAP_RADIUS: 2,
     /**
-     * 落点吸附：释放（mouseup/touchend）时半径。比 PLACE_SNAP_RADIUS 更宽容 1 格 —
+     * 落点吸附：释放（mouseup/touchend）时半径。比 PLACE_SNAP_RADIUS 更宽容 —
      * 预览阶段保守是为了让玩家清楚"将落在哪"；释放阶段宽容是为了"既然你已经选择放手，就尽量帮你放成功"，
-     * 避免离合法点 2.5 格被静默丢弃。
+     * 避免离合法点 3+ 格被静默丢弃。
+     *
+     * v1.46：3 → 4 格，配合触屏速度感知曲线 + 起手 boost，使"小幅拖动即可完成落子"。
      */
-    PLACE_RELEASE_SNAP_RADIUS: 3,
+    PLACE_RELEASE_SNAP_RADIUS: 4,
     /**
      * 鼠标拖拽最大增益（高速时）：幽灵块相对起点放大移动，减少从候选区拖到盘面的手腕距离。
      * 与 DRAG_MOUSE_GAIN_MIN 配合形成"低速 1:1、高速加速"的动态曲线（参考桌面操作系统的
@@ -34,10 +36,35 @@ export const CONFIG = {
     DRAG_MOUSE_SPEED_SLOW_PX_MS: 0.30,
     /** 鼠标速度上界（px/ms）：≥ 此速度按 DRAG_MOUSE_GAIN，对应"快速甩动到目标格" */
     DRAG_MOUSE_SPEED_FAST_PX_MS: 1.50,
-    /** 触屏拖拽增益：轻微放大手指位移，减少从候选区拖到盘面的滑动距离 */
-    DRAG_TOUCH_GAIN: 1.12,
-    /** 拖拽增益额外偏移上限（格）：避免快速甩动时幽灵块过度领先鼠标 */
-    DRAG_GAIN_MAX_OFFSET_CELLS: 3.0,
+    /**
+     * 触屏拖拽增益（v1.46 速度感知曲线，与鼠标 pointer ballistics 同构）：
+     *
+     *   speed ≤ DRAG_TOUCH_SPEED_SLOW (px/ms) → DRAG_TOUCH_GAIN_MIN（≈1.05，几乎 1:1，对位精准不抢跑）
+     *   speed ≥ DRAG_TOUCH_SPEED_FAST (px/ms) → DRAG_TOUCH_GAIN（≈1.7，快速一甩到对岸省力）
+     *   中间段在两者之间线性插值
+     *
+     * 旧的恒定 1.12 增益（v1.45 之前）"对位精准"和"长距离省力"被同一个数夹住——
+     * 1.12 太弱，玩家从 dock 拖到盘面对岸需要走完整的物理距离，而再调高就毁掉对位手感。
+     * 速度感知曲线把这两个目标解耦：玩家停顿/微调时是 1.05 的精准跟随；快速甩动时
+     * 自动放大到 1.7，配合 startBoost + 累计偏移 6 格，小幅手势即可完成落子。
+     */
+    DRAG_TOUCH_GAIN: 1.7,
+    DRAG_TOUCH_GAIN_MIN: 1.05,
+    /** 触屏速度下界（px/ms）：≤ 此速度按 DRAG_TOUCH_GAIN_MIN，对应"对位精细动作" */
+    DRAG_TOUCH_SPEED_SLOW_PX_MS: 0.10,
+    /** 触屏速度上界（px/ms）：≥ 此速度按 DRAG_TOUCH_GAIN，对应"快速滑到目标格" */
+    DRAG_TOUCH_SPEED_FAST_PX_MS: 0.80,
+    /** 拖拽增益额外偏移上限（格）：避免快速甩动时幽灵块过度领先指针 */
+    DRAG_GAIN_MAX_OFFSET_CELLS: 6.0,
+    /**
+     * 触屏起手 boost（v1.46）：抓起候选块时给 ghost 一次性向上偏移 N 格，
+     * 把"dock→盘面下缘"这段固定物理距离免掉——玩家只需在盘面内做最后定位。
+     *
+     * - DRAG_TOUCH_BOOST_CELLS 0 = 关闭起手 boost（保留旧体验）
+     * - 设 ≥ 1 时，startDrag 后立即把 _extraOffset.y 减去 N × cell（向上）
+     * - 与 lift/gain 是叠加关系（lift 是恒定上移、gain 放大手势位移、boost 是一次性起手推力）
+     */
+    DRAG_TOUCH_BOOST_CELLS: 1.4,
     /** 触屏防遮挡：幽灵块在手指上方额外留出的间隙（格） */
     DRAG_TOUCH_LIFT_GAP_CELLS: 0.35,
     /** 触屏防遮挡：上移距离上限（格），避免长条块离手指过远 */

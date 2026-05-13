@@ -19,6 +19,10 @@ export const METRIC_GROUP_COLORS = {
 const METRIC_LABEL_COLORS = {
     topologyHoles: '#94a3b8',
     tripletSolutionCount: '#fbbf24',
+    /* v1.46：「平整」与「首手自由度」并入 game 组，与盘面/几何同源；
+     * flatness 取浅蓝绿（与 boardFill 同色相、稍冷），firstMoveFreedom 取暖琥珀（与瓶颈预警观感对齐）。 */
+    flatness: '#67e8f9',
+    firstMoveFreedom: '#fcd34d',
     score: '#ffd166',
     boardFill: '#4cc9f0',
     stress: '#ff6b6b',
@@ -32,9 +36,15 @@ const METRIC_LABEL_COLORS = {
     frustration: '#f97316',
     missRate: '#f43f5e',
     thinkMs: '#93c5fd',
+    /* v1.46「反应」（pickToPlaceMs）：与 thinkMs(浅蓝) 同语义层（ability 组），
+     * 取偏冷的紫蓝形成"思考-反应"双轨对照；避开 feedbackBias 已占用的 #a78bfa。 */
+    pickToPlaceMs: '#818cf8',
 
     feedbackBias: '#a78bfa',
     flowAdjust: '#22d3ee',
+    /* v1.46「反应触发的 stress 微调」(reactionAdjust)：与 reaction(pickToPlaceMs) 同源；
+     * 取暖橙以与 flowAdjust(青) / pacingAdjust(绿) / sessionArcAdjust(粉紫) 拉开色相。 */
+    reactionAdjust: '#fb923c',
     pacingAdjust: '#34d399',
     friendlyBoardRelief: '#60a5fa',
     sessionArcAdjust: '#e879f9',

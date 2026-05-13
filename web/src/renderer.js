@@ -6,36 +6,86 @@ import { CONFIG } from './config.js';
 import { getActiveSkin, getBlockColors, SKINS } from './skins.js';
 import { paintMahjongTileIcon } from './mahjongTileIcon.js';
 
-/* 高清模式盘面水印漂移（v10.x: 小范围抖动 → v10.y: 大范围慢速漂浮）
+/* 高清模式盘面水印漂移
  *
- * 设计目标：每个 icon 像独立的浮萍一样在盘面中缓慢游走，能穿越自己的初始象限，
+ * 设计目标：每个 icon 像独立的浮萍一样在盘面中持续漂动，能穿越自己的初始象限，
  * 偶尔擦边出现在角落 / 中央 / 对角，营造"水面上漂浮的标记物"感而非"原地震颤"。
  *
- * 与旧值的对比：
- *   - retarget 间距：7.6–13.2s → 14–24s（目标切换更稀疏，避免频繁拉拽）
- *   - 缓动时长（_watermarkPointsForFrame 内）：5.2–9.4s → 10–18s（"漂"而非"窜"）
- *   - 漂移振幅（_randomWatermarkTarget）：span × 5.5–13%   → span × 14–24%（约 2.5×，跨象限）
- *   - 高频呼吸 phaseSpeed：0.12–0.34 mHz → 0.06–0.16 mHz（速度减半）
- *   - 高频呼吸 wobble：span × 1.2% → span × 1.8%（略放大但 phase 慢，整体更柔）
+ * v1.49 演进路径（同一版本两次重写，本注释记录最终方案）：
  *
- * 帧率仍保持 ~8.3 FPS（120ms/帧）—— 漂浮内容速度低，不需要 30/60 FPS 平滑。 */
-const WATERMARK_DRIFT_MIN_INTERVAL_MS = 14000;
-const WATERMARK_DRIFT_MAX_INTERVAL_MS = 24000;
+ *   1) 旧实现「dt-ease 增量」：`new = old + (target-old) * (1 - exp(-dt/τ))`
+ *      8.3 FPS 上 RAF/setTimeout 调度漂移导致 dt 在 16-240ms 范围跳变 → ease
+ *      推进比例跳变 → 视觉"前快后慢"的不规律抖动。
+ *
+ *   2) 中间方案「wall-time + smootherstep 段插值」：位置 = lerp(prev, target,
+ *      smootherstep(t))，t = (now-startTs)/dur。彻底消除了 dt 抖动（位置是
+ *      wall-time 的纯函数），但 smootherstep 在 t=0/1 处 f'=0（C² 性质带来的
+ *      副作用） → icon 在段头尾接近静止；段头尾的"几乎静止 + 高频 wobble"
+ *      让人感觉到"原地小幅抖"。
+ *
+ *   3) 当前方案「Catmull-Rom spline 滑动窗口」：每个 icon 维护 4 个 waypoint
+ *      `[p0, p1, p2, p3]`，当前段在 p1 → p2 之间，t = (now-startTs)/dur。
+ *      Catmull-Rom 在段端点切线为 (p2-p0)/2 和 (p3-p1)/2 —— 速度 C¹ 连续
+ *      且不为零，icon 持续在动；轨迹由相邻 waypoint 几何决定的自然弯曲
+ *      （像浮萍随波）替代了原 wobble，不再需要任何高频抖动。
+ *      段结束时数组 shift：[p0,p1,p2,p3] → [p1,p2,p3,新随机 target]，
+ *      速度天然连续。
+ *
+ *   保留中间方案的"位置 = wall-time 纯函数"特性 —— dt 抖动只影响"何时取样"
+ *   而不影响"取样值"，帧率从 8.3 FPS 升到 60 FPS 也只改变取样稠密度，曲线
+ *   本身完全相同。
+ *
+ * 节奏参数：
+ *   - segment 时长 8–14s（比上一方案 14–24s 缩短，配合 spline 端点恒速 →
+ *     段切换更频繁但无停顿瑕疵，整体感觉"持续在飘"而非"段段缓动"）
+ *   - waypoint 振幅：span × 14–24%（不变）
+ *   - 不再有 wobble */
 const WATERMARK_DRIFT_FRAME_MS = 120;
-/** 缓动到 target 的时间常数（毫秒）随机区间，越大越"漂"。 */
-const WATERMARK_EASE_MIN_MS = 10000;
-const WATERMARK_EASE_MAX_MS = 18000;
-/** 高频呼吸 sin/cos 相位推进速度，越小越慢。 */
-const WATERMARK_PHASE_SPEED_MIN = 0.00006;
-const WATERMARK_PHASE_SPEED_MAX = 0.00016;
-/** 高频呼吸幅度占盘面短边的比例，与 phaseSpeed 配合形成柔和呼吸。 */
-const WATERMARK_WOBBLE_RATIO = 0.018;
-/** target 漂移振幅基础与随机叠加占盘面短边的比例（最终 = base + rand×span 内随机方向）。 */
+/** 关键帧段时长（ms）随机区间。每段结束立即 shift waypoint 数组开下一段。 */
+const WATERMARK_SEGMENT_MIN_MS = 8000;
+const WATERMARK_SEGMENT_MAX_MS = 14000;
+/** waypoint 漂移振幅基础与随机叠加占盘面短边的比例（最终 = base + rand×span 内随机方向）。 */
 const WATERMARK_TARGET_AMP_BASE = 0.14;
 const WATERMARK_TARGET_AMP_RAND = 0.10;
-/** target 中心硬 clamp 范围（占盘面比例）：略放出画布外允许"擦边"美感，但不让 icon 完全消失。 */
+/** waypoint 中心硬 clamp 范围（占盘面比例）：略放出画布外允许"擦边"美感，但不让 icon 完全消失。 */
 const WATERMARK_TARGET_MIN = -0.05;
 const WATERMARK_TARGET_MAX = 1.05;
+
+/* 默认 5 锚点：四角 + 中心；与 v10.x 既有所有皮肤的水印分布兼容。
+ * 皮肤可通过 boardWatermark.hdAnchors 在 HD 模式下覆盖锚点布局——但为了与
+ * 其他皮肤保持一致的"漂浮节奏"（5 锚点 + segment 时长），建议优先复用默认锚点。 */
+const DEFAULT_WATERMARK_ANCHOR_RATIOS = Object.freeze([
+    [0.23, 0.23],
+    [0.77, 0.23],
+    [0.50, 0.50],
+    [0.23, 0.77],
+    [0.77, 0.77],
+]);
+
+/**
+ * Catmull-Rom spline（uniform，张力 τ=0.5），用 4 个控制点 p0/p1/p2/p3 在 t∈[0,1]
+ * 内对 p1 → p2 段做 C¹ 连续插值。端点切线 = (p2-p0)/2 和 (p3-p1)/2，因此当
+ * waypoint 滑动窗口 shift 时，前一段的 p3 切线 = 后一段的 p2 切线（同一向量），
+ * 速度天然连续且非零 —— icon 持续在动，不会出现段端点"减速到 0 再加速"的
+ * 停顿感（这正是中间方案 smootherstep 在端点 f'=0 导致原地抖动的根因）。
+ *
+ *   pos(t) = 0.5 · ( 2·p1
+ *                  + (-p0 + p2) · t
+ *                  + (2·p0 - 5·p1 + 4·p2 - p3) · t²
+ *                  + (-p0 + 3·p1 - 3·p2 + p3) · t³ )
+ *
+ * 命名导出以便单测覆盖端点 / 切线连续性，并允许其他动画模块复用同一曲线。
+ */
+export function catmullRom(p0, p1, p2, p3, t) {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return 0.5 * (
+        (2 * p1)
+        + (-p0 + p2) * t
+        + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+        + (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+    );
+}
 
 function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -838,15 +888,18 @@ export class Renderer {
         this._perfectFlash = 0;
         this._perfectShockwave = 0;
         this._perfectHue = 0;
+        /* v1.49：水印漂浮 Catmull-Rom spline 滑动窗口数据。
+         *   每个 icon 维护 4 个 waypoint `[p0, p1, p2, p3]`（每个 waypoint 为 [x, y]）：
+         *     - 当前段在 p1 → p2 之间，用 catmullRom(p0, p1, p2, p3, t) 插值
+         *     - t = clamp((now - startTs) / durationMs, 0, 1)
+         *     - 段结束（t≥1）时数组 shift：[p0,p1,p2,p3] → [p1,p2,p3,新随机 target]
+         *       前段 p3 切线 = 后段 p2 切线（同一向量），速度连续 → 持续在动无停顿
+         *   位置完全是 wall-time 的解析函数，dt 抖动不影响取样值。 */
         this._watermarkDrift = {
             key: '',
-            points: [],
-            targets: [],
-            nextRetargetTs: [],
-            easeMs: [],
-            phase: [],
-            phaseSpeed: [],
-            lastTs: 0,
+            waypoints: [],
+            startTs: [],
+            durationMs: [],
         };
         /** Double 消除：涟漪扩散效果 0~1 */
         this._doubleWave = 0;
@@ -1090,92 +1143,124 @@ export class Renderer {
         return [tx, ty];
     }
 
-    _nextWatermarkRetargetTs(now) {
-        return now + WATERMARK_DRIFT_MIN_INTERVAL_MS
-            + Math.random() * (WATERMARK_DRIFT_MAX_INTERVAL_MS - WATERMARK_DRIFT_MIN_INTERVAL_MS);
+    _randomWatermarkSegmentMs() {
+        return WATERMARK_SEGMENT_MIN_MS
+            + Math.random() * (WATERMARK_SEGMENT_MAX_MS - WATERMARK_SEGMENT_MIN_MS);
     }
 
-    _randomWatermarkEaseMs() {
-        return WATERMARK_EASE_MIN_MS + Math.random() * (WATERMARK_EASE_MAX_MS - WATERMARK_EASE_MIN_MS);
-    }
-
-    _randomWatermarkPhaseSpeed() {
-        return WATERMARK_PHASE_SPEED_MIN
-            + Math.random() * (WATERMARK_PHASE_SPEED_MAX - WATERMARK_PHASE_SPEED_MIN);
-    }
-
+    /**
+     * v1.49 — Catmull-Rom spline 滑动窗口（取代中间方案的 smootherstep 段插值）。
+     *
+     * 渲染契约：每帧返回 `basePts.length` 个点；位置 = wall-time 的纯解析函数，
+     * dt 抖动只影响"何时取样"而不影响"取样值"——位置始终落在确定的曲线上。
+     *
+     * 段端点速度连续且非零（C¹）：catmullRom 在 t=0 处切线为 (p2-p0)/2，
+     * 在 t=1 处切线为 (p3-p1)/2；下一段把数组左移一位后 p1' = p2、p2' = p3，
+     * 新段 t=0 切线 = (p2'-p0')/2 = (p3-p1)/2 = 旧段 t=1 切线 → 速度天然连续。
+     * 因此 icon 不会在段端点"减速到 0 再加速"（这正是上一方案 smootherstep
+     * 在 f'(0)=f'(1)=0 处导致"原地小幅抖"的根因），而是像浮萍随波持续在动。
+     *
+     * 数据流（每个 icon 独立）：
+     *   1. 段进度  t = clamp((now - startTs) / durationMs, 0, 1)
+     *   2. 段插值  pos = (catmullRom(p0.x..p3.x, t), catmullRom(p0.y..p3.y, t))
+     *   3. 段终止（t≥1）→ 滑动窗口：waypoints.shift(); waypoints.push(新随机 target)
+     *
+     * 「换皮不换轨」契约（v1.49 修订）：drift.key **不包含 skin.id**，仅包含盘面
+     * 尺寸 W×H 与 icon 数 basePts.length。这样所有 5 锚点皮肤（即绝大多数皮肤，
+     * 包括 mahjong / sakura / aurora / pixel8 等）共享**同一漂浮时间线**：切换皮肤
+     * 时 icon 继续从当前位置漂浮、不重置回锚点，仅 fillText 的 emoji 字符替换。
+     * 这确保了"麻将水印的运动轨迹 ≡ 其他皮肤水印的运动轨迹"，而不仅仅是"算法相同"。
+     * basePts.length 变化（如某皮肤覆盖 hdAnchors 数量）才会重建。
+     */
     _watermarkPointsForFrame(skin, basePts, W, H) {
         if (!this.hasBoardWatermarkMotion()) {
             return basePts;
         }
         const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        const key = `${skin.id || skin.name}:${Math.round(W)}x${Math.round(H)}:${basePts.length}`;
+        // key 不含 skin.id：换皮不换轨，所有同锚点数皮肤共享同一时间线
+        const key = `${Math.round(W)}x${Math.round(H)}:${basePts.length}`;
         const drift = this._watermarkDrift;
         const span = Math.min(W, H);
 
-        if (drift.key !== key || drift.points.length !== basePts.length) {
+        /* 盘面尺寸变化 / icon 数（锚点数）变化 → 重建 waypoint 滑动窗口。
+         * 单纯切换皮肤（同 5 锚点 + 同 W×H）不触发重建，icon 继续从当前位置漂浮。
+         * 初始 waypoints = [base, base, target1, target2]：
+         *   - p1 = basePt 视觉起点（首帧位置 = 锚点，无跳变）
+         *   - p0 = basePt 让起点切线 = (p2-p0)/2 = (target1-basePt)/2 → 平滑起步
+         *   - p2 / p3 = 两个独立随机 target，启动 spline 弯曲
+         */
+        if (drift.key !== key || drift.waypoints.length !== basePts.length) {
             drift.key = key;
-            drift.points = basePts.map((p) => this._randomWatermarkTarget(p, span, W, H));
-            drift.targets = basePts.map((p) => this._randomWatermarkTarget(p, span, W, H));
-            drift.nextRetargetTs = basePts.map(() => this._nextWatermarkRetargetTs(now));
-            drift.easeMs = basePts.map(() => this._randomWatermarkEaseMs());
-            drift.phase = basePts.map(() => Math.random() * Math.PI * 2);
-            drift.phaseSpeed = basePts.map(() => this._randomWatermarkPhaseSpeed());
-            drift.lastTs = now;
-            return drift.points;
+            drift.waypoints = basePts.map((p) => [
+                [p[0], p[1]],
+                [p[0], p[1]],
+                this._randomWatermarkTarget(p, span, W, H),
+                this._randomWatermarkTarget(p, span, W, H),
+            ]);
+            drift.startTs = basePts.map(() => now);
+            drift.durationMs = basePts.map(() => this._randomWatermarkSegmentMs());
+            return basePts.map((p) => [p[0], p[1]]);
         }
 
-        const dt = Math.min(240, Math.max(16, now - (drift.lastTs || now)));
-        drift.lastTs = now;
-        drift.points = drift.points.map((p, i) => {
-            if (now >= (drift.nextRetargetTs[i] || 0)) {
-                drift.targets[i] = this._randomWatermarkTarget(basePts[i], span, W, H);
-                drift.nextRetargetTs[i] = this._nextWatermarkRetargetTs(now);
-                drift.easeMs[i] = this._randomWatermarkEaseMs();
-                drift.phaseSpeed[i] = this._randomWatermarkPhaseSpeed();
+        const out = new Array(basePts.length);
+        for (let i = 0; i < basePts.length; i++) {
+            /* 段终止 → 滑动窗口：丢弃 p0、补一个新 target 到末尾。
+             * 因 Catmull-Rom 端点切线连续（见 catmullRom 注释），段交界无速度突变。 */
+            const dur = drift.durationMs[i] || WATERMARK_SEGMENT_MAX_MS;
+            const elapsed = now - (drift.startTs[i] || now);
+            if (elapsed >= dur) {
+                const w = drift.waypoints[i];
+                w.shift();
+                w.push(this._randomWatermarkTarget(basePts[i], span, W, H));
+                drift.startTs[i] = now;
+                drift.durationMs[i] = this._randomWatermarkSegmentMs();
             }
-            const t = drift.targets[i] || basePts[i];
-            const ease = 1 - Math.exp(-dt / (drift.easeMs[i] || WATERMARK_EASE_MAX_MS));
-            return [
-                p[0] + (t[0] - p[0]) * ease,
-                p[1] + (t[1] - p[1]) * ease,
+            const ts = (now - drift.startTs[i]) / drift.durationMs[i];
+            const t = ts < 0 ? 0 : (ts > 1 ? 1 : ts);
+            const w = drift.waypoints[i];
+            out[i] = [
+                catmullRom(w[0][0], w[1][0], w[2][0], w[3][0], t),
+                catmullRom(w[0][1], w[1][1], w[2][1], w[3][1], t),
             ];
-        });
-        const wobble = Math.max(2, span * WATERMARK_WOBBLE_RATIO);
-        return drift.points.map((p, i) => {
-            const phase = (drift.phase[i] || 0) + now * (drift.phaseSpeed[i] || WATERMARK_PHASE_SPEED_MIN);
-            /* 用不同频率比 (1.0 vs 0.83) 与不同半径让 sin/cos 形成 Lissajous 微闭环，
-             * 比纯圆周 (sin, cos) 更自然，不易被察觉是机械动画。 */
-            return [
-                p[0] + Math.sin(phase) * wobble,
-                p[1] + Math.cos(phase * 0.83) * wobble * 0.85,
-            ];
-        });
+        }
+        return out;
     }
 
     /**
      * 盘面大水印：高画质下随机缓慢漂移；均衡/省电保持固定锚点，避免干扰落点判断。
+     *
+     * v1.49 (2026-05) — HD 模式专属水印组：
+     *   皮肤可在 boardWatermark 上声明 `hdIcons / hdOpacity / hdScale / hdAnchors`，
+     *   仅当 qualityMode='high' 时切换到 HD 套装；其他画质保持基础 icons 控制开销。
+     *   典型用法：mahjong 在 HD 下展开 6 件雀馆道具（骰子 / 红中 / 一索 / 一筒 /
+     *   一万 / 發），围绕盘面六侧分布；普通模式仍用發 + 东双字保持识别度。
+     *
+     * 任一 hd* 字段缺失时回退到对应基础字段；hdAnchors 缺失时回退到 5 锚点默认布局。
      */
     _renderBoardWatermark(skin) {
         const wm = skin.boardWatermark;
         if (!wm?.icons?.length) return;
         const W = this.logicalW;
         const H = this.logicalH;
-        const icons = wm.icons;
-        const sz = Math.round(Math.min(W, H) * (wm.scale ?? 0.24));
+
+        /* HD 模式专属水印组解析：仅当 qualityMode='high' + hdIcons 非空时生效。 */
+        const isHd = this._qualityMode === 'high';
+        const useHdSet = isHd && Array.isArray(wm.hdIcons) && wm.hdIcons.length > 0;
+        const icons = useHdSet ? wm.hdIcons : wm.icons;
+        const opacity = useHdSet ? (wm.hdOpacity ?? wm.opacity ?? 0.07) : (wm.opacity ?? 0.07);
+        const scale = useHdSet ? (wm.hdScale ?? wm.scale ?? 0.24) : (wm.scale ?? 0.24);
+        const anchorRatios = (useHdSet && Array.isArray(wm.hdAnchors) && wm.hdAnchors.length > 0)
+            ? wm.hdAnchors
+            : DEFAULT_WATERMARK_ANCHOR_RATIOS;
+
+        const sz = Math.round(Math.min(W, H) * scale);
         this.ctx.save();
-        this.ctx.globalAlpha = wm.opacity ?? 0.07;
+        this.ctx.globalAlpha = opacity;
         this.ctx.font = `${Math.round(sz * 0.88)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
 
-        const basePts = [
-            [W * 0.23, H * 0.23],
-            [W * 0.77, H * 0.23],
-            [W * 0.50, H * 0.50],
-            [W * 0.23, H * 0.77],
-            [W * 0.77, H * 0.77],
-        ];
+        const basePts = anchorRatios.map(([rx, ry]) => [W * rx, H * ry]);
         const pts = this._watermarkPointsForFrame(skin, basePts, W, H);
         pts.forEach(([bx, by], i) => {
             this.ctx.fillText(icons[i % icons.length], bx, by);

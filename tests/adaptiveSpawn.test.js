@@ -1109,4 +1109,50 @@ describe('resolveAdaptiveStrategy', () => {
         expect(s.spawnHints.iconBonusTarget).toBeGreaterThanOrEqual(0.28);
         expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(2);
     });
+
+    /* v1.46『反应』(pickToPlaceMs) → reactionAdjust：startDrag→落子的纯执行段
+     * 落入快/慢区间时，对 stress 施加 ±maxAdjust 的轻微偏移（默认 ±0.05）。 */
+    describe('v1.46 reactionAdjust', () => {
+        function withReaction(pickToPlaceMs, reactionSamples = 5) {
+            const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+            const realMetrics = p.metrics;
+            Object.defineProperty(p, 'metrics', {
+                get() {
+                    return { ...realMetrics, pickToPlaceMs, reactionSamples };
+                },
+                configurable: true
+            });
+            return p;
+        }
+
+        it('reactionSamples 不足 → reactionAdjust=0（避免冷启动噪声）', () => {
+            const s = resolveAdaptiveStrategy('normal', withReaction(200, 1), 100, 0, 0.4);
+            expect(s._stressBreakdown.reactionAdjust).toBe(0);
+        });
+
+        it('反应过快 (< fastMs=350) → +stress 微调', () => {
+            const s = resolveAdaptiveStrategy('normal', withReaction(150, 6), 100, 0, 0.4);
+            expect(s._stressBreakdown.reactionAdjust).toBeGreaterThan(0);
+            expect(s._stressBreakdown.reactionAdjust).toBeLessThanOrEqual(0.05);
+        });
+
+        it('反应过慢 (> slowMs=4500) → -stress 微调', () => {
+            const s = resolveAdaptiveStrategy('normal', withReaction(7000, 6), 100, 0, 0.4);
+            expect(s._stressBreakdown.reactionAdjust).toBeLessThan(0);
+            expect(s._stressBreakdown.reactionAdjust).toBeGreaterThanOrEqual(-0.05);
+        });
+
+        it('中段反应 (1500ms) → reactionAdjust=0（健康区间）', () => {
+            const s = resolveAdaptiveStrategy('normal', withReaction(1500, 6), 100, 0, 0.4);
+            expect(s._stressBreakdown.reactionAdjust).toBe(0);
+        });
+
+        it('reactionAdjust 与 nearMissAdjust 显著同向时让位（弱信号让强信号）', () => {
+            const p = withReaction(7000, 6);
+            Object.defineProperty(p, 'hadRecentNearMiss', { value: true, configurable: true });
+            const s = resolveAdaptiveStrategy('normal', p, 100, 0, 0.4);
+            expect(s._stressBreakdown.nearMissAdjust).toBeLessThan(-0.05);
+            expect(s._stressBreakdown.reactionAdjust).toBe(0);
+        });
+    });
 });

@@ -874,16 +874,20 @@ localStorage['openblock_player_profile']
 
 ### 13.1 输出字段
 
+> v2 (2026-05)：`controlScore` 接入「反应」(`pickToPlaceMs`)；`clearEfficiency` 接入多消深度与清屏稀缺事件；`riskLevel` 接入填充加速度与 dock 锁死；`confidence` 接入近期活跃度衰减。详见 §13.7。
+
 | 字段 | 范围 | 含义 | 当前消费方 |
 |------|------|------|------------|
 | `skillScore` | 0~1 | 综合能力；默认来自 `profile.skillLevel`，可被离线模型基线小幅校准 | 面板 / adaptiveSpawn |
-| `controlScore` | 0~1 | 操作稳定性；综合失误率、认知负荷、AFK 与 APM | 面板解释 |
-| `clearEfficiency` | 0~1 | 消行效率；综合消行率、多消率、平均消行条数 | 面板解释 |
+| `controlScore` | 0~1 | 操作稳定性；失误率 + 认知负荷 + AFK + APM + **反应**（v2）综合 | 面板解释 |
+| `clearEfficiency` | 0~1 | 消行效率；消行率 + 连消密度 + 单次行数 + **多消深度**（v2）+ **清屏稀缺事件**（v2） | 面板解释 |
 | `boardPlanning` | 0~1 | 盘面规划；综合空洞、填充压力、可落位空间、临消机会 | 面板解释 |
 | `riskTolerance` | 0~1 | 风险偏好；高填充下继续搭建、多消等待、近失等会抬高 | 后续个性化 |
-| `riskLevel` | 0~1 | 短期风险；高填充、空洞、连续未消行和操作不稳会抬高 | adaptiveSpawn 减压 |
-| `confidence` | 0~1 | 当前向量可信度；历史局数、终身落子数、本局样本越多越高 | 模型门控 |
+| `riskLevel` | 0~1 | 短期风险；填充率 + 空洞 + 控制差 + **填充加速度**（v2）+ **dock 锁死概率**（v2） | adaptiveSpawn 减压 |
+| `confidence` | 0~1 | 当前向量可信度；历史局数、终身落子数、本局样本 + **近期活跃衰减**（v2） | 模型门控 |
 | `explain[]` | 文本 | 最多 3 条解释，用于把模型输出翻译成策划可读原因 | 面板 |
+| `windows`（v2） | 对象 | 各能力指标使用的窗口长度；`{ control, clearEfficiency, general }` | 调试 / 训练样本 |
+| `features`（v2 扩展） | 对象 | 增补 `reactionScore` / `pickToPlaceMs` / `multiClearRate` / `perfectClearRate` / `boardFillVelocity` / `lockRisk` / `recencyDecay` 等子分项，供 hover tooltip 与训练特征列 | 面板 / 训练 |
 
 ### 13.2 与实时画像的关系
 
@@ -975,6 +979,100 @@ const ability = buildPlayerAbilityVector(profile, {
 - `riskLevel` 高于 `playerAbilityModel.adaptiveSpawnRiskAdjust.riskThreshold` 时触发额外减压。
 - `explain[]` 进入玩家洞察面板，帮助策划判断是消行效率、盘面规划还是操作稳定性导致变化。
 - `features` 与 `labels` 进入离线样本，用于后续 baseline 模型训练。
+
+### 13.7 v2 (2026-05) 增量：分项能力 7 项升级
+
+v1 版 6 个 pill 存在三个共性问题：信号冗余（`boardFill / holes` 在 3 个指标里同时被引用，等价共线性）、信号闲置（`pickToPlaceMs / multiClearRate / perfectClearRate / lastActiveTs` 已经采集但未进能力向量）、阈值刻舟（所有 `_Max` 是产品体感初始值，从未基于真实分布校准）。v2 一次性修这 3 类问题：
+
+#### 1. controlScore 接入「反应」(`pickToPlaceMs`)
+
+```
+reactionScore = 1 - clamp(0, 1, (pickToPlaceMs - reactionFastMs) / (reactionSlowMs - reactionFastMs))
+```
+
+- 默认 `reactionFastMs=350` / `reactionSlowMs=2200`，反应 ≤ 350ms 满分、≥ 2.2s 0 分；
+- 样本不足（`reactionSamples < reactionMinSamples=3`）→ 反应项不参与，权重按比例重分配给其它四项，避免冷启动伪精确；
+- 权重重平衡：`miss 0.34 / cognitiveLoad 0.22 / afk 0.13 / apm 0.15 / reaction 0.16`，total 仍为 1。
+
+物理意义：把"看到 dock 块到落到目标位"的耗时作为操作熟练度的直接体现，弥补了 `thinkMs`（举棋不定）和 `missRate`（错指）之间的盲区。
+
+#### 2. clearEfficiency 接入多消深度 + 清屏稀缺事件
+
+旧版 3 项（`clearRate / comboRate / avgLines`）只能区分"消行密度"，无法区分"光会拼单消"与"会做多消大爆发"的玩家：
+
+```
+clearEfficiency = 0.40 · clearRate/0.55       # 消行密度
+                + 0.18 · comboRate/0.45        # 连消密度
+                + 0.14 · avgLines/2.5          # 单次平均行数
+                + 0.18 · multiClearRate/0.5    # 多消深度（lines≥2 占比）（v2）
+                + 0.10 · perfectClearRate/0.15 # 清屏稀缺事件（fill→0 占比）（v2）
+```
+
+`multiClearRate / perfectClearRate` 在 `metricsForWindow(16)` 内重新统计（不是直接使用 `PlayerProfile` 的全局 getter），保证与 `clearEfficiency` 的口径一致。
+
+#### 3. riskLevel 接入填充加速度 + dock 锁死概率
+
+v1 的 `riskLevel` 把"静态满"和"急速变满"等同，把"还能落子"和"dock 全锁死"等同——v2 加两个动态信号区分：
+
+```
+boardFillVelocity = mean(max(0, fill[i] - fill[i-1])) over last 5 placed moves
+fillVelocityScore = clamp(0, 1, boardFillVelocity / 0.18)
+
+# lockRisk 优先级：直接传入的 placementSolutionScore → ctx.firstMoveFreedom 归一
+lockRisk = 1 - clamp(0, 1, firstMoveFreedom / firstMoveFreedomSafe=8)
+```
+
+权重重平衡：`boardFill 0.26 / holes 0.22 / frustration 0.14 / roundsSinceClear 0.10 / control 0.10 / boardFillVelocity 0.10 / lockRisk 0.08`。设计上 lockRisk 默认权重较低，让"已经死局"的极端信号必须叠加其它压力才会推上 high band，避免单帧抖动假报警。
+
+#### 4. confidence 接入近期活跃度衰减
+
+```
+recencyDecay = exp(-days_since_last_active / recencyHalfLifeDays=14)
+confidence = 0.55 · profile.confidence
+           + 0.25 · clamp(lifetimePlacements/200, 0, 1)
+           + 0.10 · clamp(gameStats.placements/20, 0, 1)
+           + 0.10 · recencyDecay
+```
+
+老玩家 `lifetimePlacements` 仍很大但 30 天没玩，`recencyDecay ≈ 0.117` → confidence 显著下降，让模型基线融合（`baseline.confidence` 门控）自动退化为"先信实时数据"。冷启动场景 `lastActiveTs=0` 时默认 `recencyDecay=1`，不惩罚新玩家。
+
+#### 5. 各能力指标使用独立时间窗口（`metricsForWindow`）
+
+```json
+"windows": { "control": 8, "clearEfficiency": 16, "skillBlend": 12 }
+```
+
+| 指标 | 窗口 | 物理含义 |
+|------|------|----------|
+| `controlScore` | 8 步 | 看短窗体现"我刚才操作变稳/变虚了" |
+| `clearEfficiency` | 16 步 | 看中窗等待消行机会积累，避免"一局没消就 0 分" |
+| `boardPlanning` | 瞬时 | 完全靠当前盘面拓扑（holes / mobility / closeLines），不依赖历史 |
+
+`PlayerProfile.metricsForWindow(N)` 是 v2 新增的窗口聚合 API，老调用方 / 测试桩不实现该方法时回退到 `metrics`，向后兼容。
+
+#### 6. 阈值校准框架
+
+`shared/game_rules.json → playerAbilityModel.calibrationNote` 标注了所有 `*_Max` 当前是基于产品体感的初始猜测；建议运营离线跑：
+
+```sql
+SELECT
+  PERCENTILE_CONT(0.10) WITHIN GROUP (ORDER BY pick_to_place_ms) AS p10,
+  PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY pick_to_place_ms) AS p50,
+  PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY pick_to_place_ms) AS p90
+FROM move_sequences;
+```
+
+把 P10 → `reactionFastMs`、P90 → `reactionSlowMs`，依次校准 `apmMax / multiClearRateMax / perfectClearRateMax / boardFillVelocityMax`，让全玩家分布大致 N(0.5, 0.15)，6 个 pill 不再压在中段失去判别力。
+
+#### 7. UI 视觉分组 + 雷达 hover
+
+`ABILITY_METRIC_ROWS` 的每行带 `tone` 标记：
+
+- `positive`（能力 / 操作 / 消行 / 规划）：默认强势配色，越高越强
+- `negative`（风险）：红色基调，越低越安全；视觉与上四项相反，避免"风险 25%"被误读为弱
+- `neutral`（置信）：灰色基调，作为数据元，不参与"强弱"语义
+
+hover 任意 pill 弹出 6 维 SVG 雷达浮层；风险轴在 SVG 内被翻转为 `1 - risk`，让"向外=好"的语义在所有 6 个轴上一致。
 
 ---
 
@@ -1106,27 +1204,35 @@ $$
 | MAX_DECAY | 0.5 |
 | DECAY_FULL_DAYS | 7 |
 
-### 15.6 AbilityVector 配置
+### 15.6 AbilityVector 配置（v2，2026-05）
 
-来源：`shared/game_rules.json → playerAbilityModel`。这些参数控制 `web/src/playerAbilityModel.js` 的统一能力向量，以及 `adaptiveSpawn` 对高风险局面的额外减压。
+来源：`shared/game_rules.json → playerAbilityModel`。控制 `web/src/playerAbilityModel.js` 的统一能力向量，以及 `adaptiveSpawn` 对高风险局面的额外减压。
+
+> **校准说明**（`calibrationNote`）：所有 `*_Max` 阈值当前是基于产品体感的初始猜测；建议运营离线跑 `move_sequences` 求各信号的 P10/P50/P90 后回填，使全玩家分布大致 N(0.5, 0.15)。详见 §13.7-(6)。
 
 | 分组 | 参数 | 默认 | 用途 |
 |------|------|------|------|
+| `version` | — | `2` | v2 = 引入反应/多消/清屏/速度/锁死/新鲜度，并允许各指标独立时间窗口 |
 | `bands` | `riskHigh` / `riskMid` | 0.72 / 0.42 | `riskBand` 分档 |
 | `bands` | `skillExpert` / `skillAdvanced` / `skillDeveloping` | 0.78 / 0.58 / 0.36 | `skillBand` 分档 |
+| `windows`（v2） | `control` / `clearEfficiency` / `skillBlend` | 8 / 16 / 12 | 各能力指标独立的滑动窗口长度 |
 | `baseline` | `skillMinConfidence` / `skillBlendScale` | 0.35 / 0.35 | 离线能力 baseline 与实时 `skillLevel` 融合 |
 | `baseline` | `riskMinConfidence` / `riskBlend` | 0.45 / 0.25 | 离线风险 baseline 与实时风险融合 |
-| `control` | `missRateMax` / `afkMax` / `apmMax` | 0.3 / 3 / 14 | 操作稳定性归一化 |
-| `control.weights` | miss / cognitiveLoad / afk / apm | 0.38 / 0.27 / 0.17 / 0.18 | `controlScore` 加权 |
+| `control` | `missRateMax` / `afkMax` / `apmMax` | 0.3 / 3 / 18 | 操作稳定性归一化（v2：apmMax 14→18） |
+| `control`（v2） | `reactionFastMs` / `reactionSlowMs` / `reactionMinSamples` | 350 / 2200 / 3 | 反应项归一化与生效门槛 |
+| `control.weights`（v2） | miss / cognitiveLoad / afk / apm / reaction | 0.34 / 0.22 / 0.13 / 0.15 / 0.16 | `controlScore` 加权（reaction 样本不足时其它四项按比例归一） |
 | `clearEfficiency` | `clearRateMax` / `comboRateMax` / `avgLinesMax` | 0.55 / 0.45 / 2.5 | 消行效率归一化 |
-| `clearEfficiency.weights` | clearRate / comboRate / avgLines | 0.55 / 0.25 / 0.20 | `clearEfficiency` 加权 |
-| `boardPlanning` | `holeMax` / `mobilityMax` / `closeLinesMax` | 10 / 120 / 6 | 盘面规划归一化 |
+| `clearEfficiency`（v2） | `multiClearRateMax` / `perfectClearRateMax` | 0.5 / 0.15 | 多消深度 / 清屏稀缺事件归一化 |
+| `clearEfficiency.weights`（v2） | clearRate / comboRate / avgLines / multiClear / perfectClear | 0.40 / 0.18 / 0.14 / 0.18 / 0.10 | `clearEfficiency` 加权 |
+| `boardPlanning` | `holeMax` / `mobilityMax` / `closeLinesMax` | 8 / 200 / 6 | 盘面规划归一化（v2：holeMax 10→8、mobilityMax 120→200） |
 | `boardPlanning` | `fillPenaltyStart` / `fillPenaltySpan` | 0.58 / 0.36 | 高填充惩罚曲线 |
 | `boardPlanning.weights` | holes / fill / mobility / nearClear | 0.36 / 0.22 / 0.22 / 0.20 | `boardPlanning` 加权 |
 | `risk` | `frustrationMax` / `roundsSinceClearMax` | 5 / 4 | 短期风险归一化 |
-| `risk.weights` | boardFill / holes / frustration / roundsSinceClear / control | 0.32 / 0.28 / 0.18 / 0.12 / 0.10 | `riskLevel` 加权 |
+| `risk`（v2） | `boardFillVelocityMax` / `firstMoveFreedomSafe` | 0.18 / 8 | 填充加速度上限 / dock 锁死安全垫 |
+| `risk.weights`（v2） | boardFill / holes / frustration / roundsSinceClear / control / boardFillVelocity / lockRisk | 0.26 / 0.22 / 0.14 / 0.10 / 0.10 / 0.10 / 0.08 | `riskLevel` 加权 |
 | `riskTolerance` | `nearMissBonus` / `recoveryPenalty` / `comboRateMax` | 0.18 / -0.15 / 0.5 | 风险偏好调节 |
-| `confidence` | profile / lifetime / game 权重 | 0.65 / 0.25 / 0.10 | AbilityVector 置信度 |
+| `confidence`（v2） | profile / lifetime / game / recency 权重 | 0.55 / 0.25 / 0.10 / 0.10 | AbilityVector 置信度（v2：profileWeight 0.65→0.55，腾出 0.10 给 recencyDecay） |
+| `confidence`（v2） | `lifetimePlacementsMax` / `recencyHalfLifeDays` | 200 / 14 | 终身放置数饱和点 / 近期活跃半衰期（v2：200 较 v1 的 80 更接近真实老用户分布） |
 | `explain` | high/low 解释阈值 | 见 JSON | 面板解释文案触发 |
 | `adaptiveSpawnRiskAdjust` | `minConfidence` / `riskThreshold` / `stressRelief` | 0.25 / 0.62 / -0.08 | 高风险局面额外减压 |
 

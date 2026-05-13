@@ -17,6 +17,7 @@ import {
     METRIC_GROUP_COLORS,
     getMetricLabelColor
 } from './sparkline.js';
+import { openInsightMetricModal } from './insightMetricModal.js';
 import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { renderStressMeter, summarizeContributors } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
@@ -25,6 +26,7 @@ import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { getAllShapes } from './shapes.js';
 import { computeCandidatePlacementMetric } from './bot/blockSpawn.js';
 import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
+import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
 
 /** 与 Game.getCandidatePlacementSolutionSnapshot 一致；无 game 实例时直算 */
 function _placementSolutionForGame(game) {
@@ -34,28 +36,150 @@ function _placementSolutionForGame(game) {
     return computeCandidatePlacementMetric(game?.grid, game?.dockBlocks || []);
 }
 
-/** 模型化能力指标区：统一 AbilityVector 的 6 个核心维度 */
+/**
+ * 模型化能力指标区：统一 AbilityVector 的 6 个核心维度。
+ *
+ * tone 决定 UI 视觉分组：
+ *   - positive：能力 / 操作 / 消行 / 规划（越高越强，暖色）
+ *   - negative：风险（越低越安全，红色基调，与上四项视觉相反）
+ *   - neutral：置信（数据元，灰度，不参与"强弱"语义）
+ *
+ * 用户感知：6 个 pill 不再是同质的 0–100%，玩家一眼能区分"我哪些项是该高的、
+ * 风险该低、置信只是数据元"，避免 v1 时期"风险 25%、置信 100%"两条都是绿色
+ * 强势配色导致的误读。
+ */
 const ABILITY_METRIC_ROWS = [
-    { key: 'skillScore', label: '能力', tooltip: '综合能力：融合局内技能 EMA、历史基线与模型化长期能力校准。' },
-    { key: 'controlScore', label: '操作', tooltip: '操作稳定性：由失误率、认知负荷、AFK 和操作频率综合得到。' },
-    { key: 'clearEfficiency', label: '消行', tooltip: '消行效率：由消行率、多消率、每次消行条数综合得到。' },
-    { key: 'boardPlanning', label: '规划', tooltip: '盘面规划：由空洞、填充压力、可落位空间和临消机会综合得到。' },
-    { key: 'riskLevel', label: '风险', tooltip: '短期风险：高填充、空洞、连续未消行和操作不稳会抬高该值。' },
-    { key: 'confidence', label: '置信', tooltip: '数据置信度：历史局数、终身落子数和本局采样越多越高。' }
+    { key: 'skillScore', label: '能力', tone: 'positive', tooltip: '综合能力：融合局内技能 EMA、历史基线与模型化长期能力校准。' },
+    { key: 'controlScore', label: '操作', tone: 'positive', tooltip: 'v2：操作稳定性 = 失误率 + 认知负荷 + AFK + APM + 反应（pickToPlaceMs，激活→落子耗时）综合，反应快/稳更高分。' },
+    { key: 'clearEfficiency', label: '消行', tone: 'positive', tooltip: 'v2：消行效率 = 消行率 + 连消密度 + 单次行数 + 多消深度 + 清屏稀缺事件，会做大消除的玩家显著拉开。' },
+    { key: 'boardPlanning', label: '规划', tone: 'positive', tooltip: '盘面规划：由空洞、填充压力、可落位空间和临消机会综合得到。' },
+    { key: 'riskLevel', label: '风险', tone: 'negative', tooltip: 'v2：短期死局风险 = 填充率 + 空洞 + 连续未消 + 控制差 + 填充加速度 + dock 锁死概率（首手自由度）；越低越安全。' },
+    { key: 'confidence', label: '置信', tone: 'neutral', tooltip: 'v2：数据置信度 = 历史画像 + 终身落子 + 本局采样 + 近期活跃度衰减（exp(-days/14)），长草玩家自动衰减。' }
 ];
 
 const _METRIC_TOOLTIP_BY_KEY = Object.fromEntries(
     REPLAY_METRICS.map((m) => [m.key, m.tooltip || ''])
 );
+const _METRIC_DEF_BY_KEY = Object.fromEntries(REPLAY_METRICS.map((m) => [m.key, m]));
+
+/**
+ * 把 collectSeriesFromSnapshots(...) 的输出绑定到 .replay-series-cell 上：
+ * 点击任一行 → openInsightMetricModal 展示放大曲线 + 物理含义 + 曲线分析。
+ *
+ * 同时为 cell 加上 cursor:zoom-in 视觉提示，与原有 [title] hover 文案不冲突
+ * （hover 看简短解释；click 看详读浮层）。
+ *
+ * @param {HTMLElement} elState  容纳 .replay-series-grid 的容器
+ * @param {ReturnType<typeof collectSeriesFromSnapshots>} data
+ * @param {{ cursorIdx?: number }} [opts]
+ */
+function _attachMetricCellClickToModal(elState, data, opts = {}) {
+    if (!elState || !data) return;
+    const cells = elState.querySelectorAll('.replay-series-cell[data-key]');
+    cells.forEach((cell) => {
+        const key = cell.getAttribute('data-key');
+        const m = _METRIC_DEF_BY_KEY[key];
+        const s = data.series?.[key];
+        if (!m || !s) return;
+        cell.classList.add('replay-series-cell--clickable');
+        cell.setAttribute('role', 'button');
+        cell.setAttribute('tabindex', '0');
+        cell.setAttribute('aria-label', `${m.label} 指标详读`);
+        const open = () => {
+            const color =
+                METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+            openInsightMetricModal({
+                metricKey: key,
+                label: m.label,
+                group: m.group,
+                fmt: m.fmt,
+                color,
+                tooltip: m.tooltip || '',
+                data: { points: s.points || [], totalFrames: data.totalFrames || 0 },
+                cursorIdx: opts.cursorIdx,
+            });
+        };
+        cell.addEventListener('click', open);
+        cell.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                open();
+            }
+        });
+    });
+}
 
 const CHARTED_STRESS_BREAKDOWN_KEYS = new Set([
     'difficultyBias',
     'flowAdjust',
+    /* v1.46『反应』(pickToPlaceMs) → reactionAdjust（≤±0.05）；与 flowAdjust 同列展示，
+     * 让运营在面板上能直观看到"反应快慢→ stress 微调"的反馈链。 */
+    'reactionAdjust',
     'pacingAdjust',
     'friendlyBoardRelief',
     'sessionArcAdjust',
     'challengeBoost',
 ]);
+
+/* v1.46：sparkline 网格按"描述主体"分组的元信息。
+ *
+ * 顺序固定为「盘面 → 玩家·能力 → 玩家·状态 → 系统·决策 → 系统·压力分量」，
+ * 既符合"先客观后主观、再系统响应"的认知顺序，也与左下 _whyLines 的叙事顺序一致。
+ *
+ * group 字段直接复用 REPLAY_METRICS[i].group，已稳定的颜色不变（METRIC_GROUP_COLORS）。
+ */
+const METRIC_LAYOUT_GROUPS = [
+    {
+        group: 'game',
+        title: '🎮 盘面',
+        color: '#5b9bd5',
+        desc: '客观盘面与几何指标：得分、占用率、空洞、平整、首手自由度、解法数。'
+    },
+    {
+        group: 'ability',
+        title: '👤 玩家·能力',
+        color: '#27ae60',
+        desc: '玩家可被观测的能力维度：技能、消行率、失误、思考、反应。'
+    },
+    {
+        group: 'state',
+        title: '👤 玩家·状态',
+        color: '#e67e22',
+        desc: '玩家心流/情绪/动量等内部状态：F(t)、动量、未消行、负荷。'
+    },
+    {
+        group: 'spawn',
+        title: '⚙️ 系统·决策',
+        color: '#8e44ad',
+        desc: '系统侧聚合输出：综合压力 stress、闭环反馈偏差。'
+    },
+    {
+        group: 'stress',
+        title: '⚙️ 系统·压力分量',
+        color: '#ec407a',
+        desc: 'stress 的细分构成（难度/心流/反应/松紧/救济/会话/挑战），求和约等于 stress。'
+    }
+];
+
+/**
+ * 按预设 group 顺序分组，未登记的 group 落入末尾"其它"分组（防御性）。
+ * @param {Array<{key:string, label:string, group?:string}>} metrics
+ */
+function _groupMetricsForLayout(metrics) {
+    const buckets = METRIC_LAYOUT_GROUPS.map((g) => ({ ...g, metrics: [] }));
+    const byGroup = new Map(buckets.map((b) => [b.group, b]));
+    /** @type {Array<{key:string, label:string, group?:string}>} */
+    const orphan = [];
+    for (const m of metrics) {
+        const target = byGroup.get(m.group);
+        if (target) target.metrics.push(m);
+        else orphan.push(m);
+    }
+    if (orphan.length > 0) {
+        buckets.push({ group: '_other', title: '· 其它', color: '#94a3b8', desc: '未分组指标', metrics: orphan });
+    }
+    return buckets;
+}
 
 /** 实时状态顶栏标签（心流 / 节奏 / 会话阶段 / 出块轮） */
 const LIVE_TAG_TITLE = {
@@ -161,7 +285,7 @@ function _shapeWeightChartHtml(shapeWeightsTop = []) {
     return (
         `<div class="shape-weight-chart" title="${_attrTitle(tip)}">` +
             `<div class="shape-weight-chart__head">` +
-                `<span>出块</span>` +
+                `<span>🎲 出块概率</span>` +
             `</div>` +
             `<div class="shape-weight-grid">${items}</div>` +
         `</div>`
@@ -297,6 +421,95 @@ function _spawnPill(text, title) {
 function _pct(x) {
     if (x == null || Number.isNaN(x)) return '—';
     return `${Math.round(Math.max(0, Math.min(1, x)) * 100)}%`;
+}
+
+/**
+ * 渲染 6 维能力雷达图（SVG，纯无依赖）。
+ *
+ * 6 个轴顺序与 `ABILITY_METRIC_ROWS` 一致，但风险项取 (1 - riskLevel) 让"安全度"
+ * 与其它正向项同向（向外=好），雷达形状是"全方向越大越好"，玩家直觉立刻成立。
+ *
+ * 数据缺失（值非有限）→ 当作 0 收缩到中心，避免 SVG path 出 NaN。
+ *
+ * @param {{[k:string]: number}} ability
+ * @returns {string} 内联 SVG 字符串
+ */
+function _renderAbilityRadarSvg(ability) {
+    const W = 180;
+    const H = 180;
+    const cx = W / 2;
+    const cy = H / 2;
+    const R = 64;
+    const axes = ABILITY_METRIC_ROWS.map((row, i) => {
+        const angle = (-Math.PI / 2) + (i * 2 * Math.PI) / ABILITY_METRIC_ROWS.length;
+        let v = Number(ability?.[row.key]);
+        if (!Number.isFinite(v)) v = 0;
+        if (row.tone === 'negative') v = 1 - Math.max(0, Math.min(1, v));
+        const r = R * Math.max(0, Math.min(1, v));
+        return {
+            row,
+            angle,
+            // 数据点
+            px: cx + r * Math.cos(angle),
+            py: cy + r * Math.sin(angle),
+            // 轴端点（满分位）
+            ax: cx + R * Math.cos(angle),
+            ay: cy + R * Math.sin(angle),
+            // 标签锚点（轴端外推一点）
+            lx: cx + (R + 14) * Math.cos(angle),
+            ly: cy + (R + 14) * Math.sin(angle),
+        };
+    });
+    const polyPts = axes.map((a) => `${a.px.toFixed(1)},${a.py.toFixed(1)}`).join(' ');
+    const axisLines = axes.map((a) => `<line x1="${cx}" y1="${cy}" x2="${a.ax.toFixed(1)}" y2="${a.ay.toFixed(1)}" class="ar-axis"/>`).join('');
+    const ringLevels = [0.25, 0.5, 0.75, 1.0];
+    const rings = ringLevels.map((lv) => {
+        const pts = axes.map((a) => {
+            const x = cx + R * lv * Math.cos(a.angle);
+            const y = cy + R * lv * Math.sin(a.angle);
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        return `<polygon points="${pts}" class="ar-ring${lv === 1 ? ' ar-ring--outer' : ''}"/>`;
+    }).join('');
+    const labels = axes.map((a) => `<text x="${a.lx.toFixed(1)}" y="${a.ly.toFixed(1)}" class="ar-label ar-label--${a.row.tone || 'positive'}" text-anchor="middle" dominant-baseline="middle">${a.row.label}</text>`).join('');
+    const dots = axes.map((a) => `<circle cx="${a.px.toFixed(1)}" cy="${a.py.toFixed(1)}" r="2.5" class="ar-dot ar-dot--${a.row.tone || 'positive'}"/>`).join('');
+    return (
+        `<svg class="ability-radar-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-label="能力雷达">`
+        + rings
+        + axisLines
+        + `<polygon points="${polyPts}" class="ar-data"/>`
+        + dots
+        + labels
+        + `</svg>`
+        + `<div class="ability-radar-tip">六维能力雷达（风险已取 1−x，向外=优）</div>`
+    );
+}
+
+/** hover 任意能力 pill 时显示雷达浮层；离开整个能力区时隐藏。 */
+function _wireAbilityRadarHover(elAbility) {
+    const popup = elAbility.querySelector('.ability-radar-popup');
+    if (!popup) return;
+    let hideTimer = null;
+    const show = () => {
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+        popup.hidden = false;
+        popup.classList.add('is-visible');
+    };
+    const scheduleHide = () => {
+        if (hideTimer) clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => {
+            popup.classList.remove('is-visible');
+            // 等淡出过渡完成再 hidden，避免下一次 hover 出现"跳一帧"
+            setTimeout(() => { popup.hidden = true; }, 160);
+            hideTimer = null;
+        }, 120);
+    };
+    elAbility.querySelectorAll('.insight-metric').forEach((pill) => {
+        pill.addEventListener('mouseenter', show);
+        pill.addEventListener('mouseleave', scheduleHide);
+    });
+    popup.addEventListener('mouseenter', show);
+    popup.addEventListener('mouseleave', scheduleHide);
 }
 
 function _gridMaxHeight(grid) {
@@ -517,6 +730,8 @@ function _buildLiveSnapshotForSeries(game) {
         gameStats: game.gameStats,
         spawnContext: game._spawnContext,
         adaptiveInsight: ins,
+        // v2：dock 当前的"首手自由度"灌入 lockRisk，让 riskLevel 能预警死局
+        firstMoveFreedom: _placementSolutionForGame(game)?.firstMoveFreedom,
     });
     /* v1.13：冷启动隔离 —— PlayerProfile.metrics 在 recent.length=0 时返回硬编码占位值
      * （3000ms / 30% / 10% / 10%）以便内部 stress / skill 计算不至于除零或抖到极端，
@@ -535,6 +750,11 @@ function _buildLiveSnapshotForSeries(game) {
         clearRate: hasActiveSample ? m.clearRate : null,
         comboRate: hasActiveSample ? m.comboRate : null,
         missRate: hasAnySample ? m.missRate : null,
+        /* v1.46：与 buildPlayerStateSnapshot.metrics 对齐，否则 live 面板的「反应」
+         * sparkline 会因为 ps.metrics.pickToPlaceMs 永远是 undefined 而显示为「—」，
+         * 即便 PlayerProfile.recordPickup 已经在采集（只在出块帧的 ps 里有数据）。 */
+        pickToPlaceMs: m.reactionSamples > 0 ? m.pickToPlaceMs : null,
+        reactionSamples: m.reactionSamples ?? 0,
         afkCount: m.afkCount,
         samples,
         activeSamples
@@ -583,13 +803,24 @@ function _buildLiveSnapshotForSeries(game) {
     }
     if (game.grid) {
         try {
-            const holes = analyzeBoardTopology(game.grid).holes;
+            const topo = analyzeBoardTopology(game.grid);
             const liveSm = _placementSolutionForGame(game);
             const solutionCount =
                 liveSm != null && Number.isFinite(Number(liveSm.solutionCount))
                     ? Number(liveSm.solutionCount)
                     : null;
-            slim.spawnGeo = { holes, solutionCount };
+            const firstMoveFreedom =
+                liveSm != null && Number.isFinite(Number(liveSm.firstMoveFreedom))
+                    ? Number(liveSm.firstMoveFreedom)
+                    : null;
+            /* v1.46：live 面板的 spawnGeo 与 buildPlayerStateSnapshot.spawnGeo 对齐，
+             * 把"平整"和"首手自由度"也写入，让它们作为曲线指标实时刷新。 */
+            slim.spawnGeo = {
+                holes: topo.holes,
+                flatness: Number.isFinite(topo.flatness) ? topo.flatness : null,
+                firstMoveFreedom,
+                solutionCount
+            };
         } catch {
             /* ignore */
         }
@@ -639,18 +870,37 @@ function _renderInsightStateSeries(game, elState) {
 
     let html =
         '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>';
+    /* v1.46：按"描述主体"分组布局——
+     * - 🎮 盘面 / 局面（game）：score, boardFill, holes, flatness, firstMove, solutionCount
+     * - 👤 玩家·能力（ability）：skill, clearRate, missRate, thinkMs, pickToPlaceMs
+     * - 👤 玩家·状态（state）：F(t), 动量, 未消行, 负荷
+     * - ⚙️ 系统·决策（spawn）：stress, feedbackBias
+     * - ⚙️ 系统·压力分量（stress）：6 项 stressBreakdown + reactionAdjust
+     * 每组渲染一个分组小标题 + 该组所有 cell；同组 cell 共用一个色调。
+     */
+    const grouped = _groupMetricsForLayout(data.metrics);
     html += '<div class="replay-series-grid insight-live-series-grid">';
-    for (let i = 0; i < data.metrics.length; i++) {
-        const m = data.metrics[i];
-        const s = data.series[m.key];
-        const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
-        const labelColor = getMetricLabelColor(m.key, color, i);
-        const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
+    let cellIdx = 0;
+    for (const g of grouped) {
+        if (g.metrics.length === 0) continue;
         html +=
-            `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor}">${m.label}</span>` +
-            `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
-            `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
+            `<div class="replay-series-group-head" title="${_attrTitle(g.desc)}">` +
+            `<span class="rsg-dot" style="background:${g.color}"></span>` +
+            `<span class="rsg-title">${g.title}</span>` +
+            `<span class="rsg-count">${g.metrics.length}</span>` +
+            `</div>`;
+        for (const m of g.metrics) {
+            const s = data.series[m.key];
+            const color = METRIC_GROUP_COLORS[m.group] || g.color;
+            const labelColor = getMetricLabelColor(m.key, color, cellIdx);
+            const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
+            html +=
+                `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
+                `<span class="series-label series-label--metric" style="--series-label-color:${labelColor}">${m.label}</span>` +
+                `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
+                `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
+            cellIdx++;
+        }
     }
     html += '</div>';
     elState.innerHTML = html;
@@ -678,6 +928,9 @@ function _renderInsightStateSeries(game, elState) {
         line.setAttribute('x1', cx.toFixed(1));
         line.setAttribute('x2', cx.toFixed(1));
     });
+
+    // 实时模式：把当前快照同时挂为可点击源（cursorIdx 传当前最后一帧）
+    _attachMetricCellClickToModal(elState, data, { cursorIdx: lastIdx });
 }
 
 /**
@@ -776,6 +1029,8 @@ function _render(game) {
         gameStats: game.gameStats,
         spawnContext: game._spawnContext,
         adaptiveInsight: ins,
+        // v2：dock 当前的"首手自由度"灌入 lockRisk，让 riskLevel 能预警死局
+        firstMoveFreedom: _placementSolutionForGame(game)?.firstMoveFreedom,
     });
 
     const elAbility = document.getElementById('insight-ability');
@@ -812,10 +1067,15 @@ function _render(game) {
             else if (row.key === 'clearEfficiency') cold = clearCold;
             const tt = (row.tooltip || '') + (cold ? COLD_HINT : '');
             const val = cold ? '—' : _pct(ability[row.key]);
-            return `<div class="insight-metric${cold ? ' insight-metric--cold' : ''}" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
+            const toneClass = row.tone ? ` insight-metric--${row.tone}` : '';
+            return `<div class="insight-metric${cold ? ' insight-metric--cold' : ''}${toneClass}" data-key="${row.key}" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
         }).join('');
 
-        elAbility.innerHTML = abilityHtml;
+        // v2：6 维雷达 hover 浮层——把 6 个 pill 的孤立百分比同时呈现，让玩家一眼看到强项 / 短板形状。
+        // 风险项可视化时取 (1 - riskLevel) 让"安全度"与其它正向项同向（向外=好），避免雷达图歪斜方向不直观。
+        const radarHtml = `<div class="ability-radar-popup" id="ability-radar-popup" hidden>${_renderAbilityRadarSvg(ability)}</div>`;
+        elAbility.innerHTML = abilityHtml + radarHtml;
+        _wireAbilityRadarHover(elAbility);
     }
 
     if (elState) {
@@ -827,17 +1087,30 @@ function _render(game) {
          * 策略与运营标签同源。snapshot 内部直接读 playerMaturity / playerLifecycleDashboard
          * 单例，对未初始化的开发模式（无 localStorage 历史）退化为 S0·M0，不阻塞渲染。 */
         try {
-            const snap = getLifecycleMaturitySnapshot({
-                daysSinceInstall: p?.profile?.daysSinceInstall
-                    ?? game?.gameStats?.daysSinceInstall
-                    ?? 0,
-                totalSessions: p?.profile?.totalSessions
-                    ?? game?.gameStats?.totalSessions
-                    ?? 0,
-                daysSinceLastActive: p?.profile?.daysSinceLastActive
-                    ?? game?.gameStats?.daysSinceLastActive
-                    ?? 0,
-            });
+            /* v1.49.x P0-3：修笔误 `p?.profile?.X` → `p?.X`。
+             * v1.49.x P2-4：优先用 getCachedLifecycleSnapshot（同帧内复用 spawn / advisor 算的快照）。
+             *
+             * 上面 `const p = game.playerProfile`，p 已经是 PlayerProfile 实例。
+             * cached snapshot 里已经有 stage.code 和 maturity.band 等字段；
+             * 仅在 cached 不可用时退回 dashboard 直读路径。 */
+            const cached = (() => { try { return getCachedLifecycleSnapshot(p); } catch { return null; } })();
+            const snap = cached
+                ? {
+                    shortLabel: `${cached.stage?.code || 'S0'}·${cached.maturity?.band || 'M0'}`,
+                    stageCode: cached.stage?.code,
+                    band: cached.maturity?.band,
+                  }
+                : getLifecycleMaturitySnapshot({
+                    daysSinceInstall: p?.daysSinceInstall
+                        ?? game?.gameStats?.daysSinceInstall
+                        ?? 0,
+                    totalSessions: p?.totalSessions
+                        ?? game?.gameStats?.totalSessions
+                        ?? 0,
+                    daysSinceLastActive: p?.daysSinceLastActive
+                        ?? game?.gameStats?.daysSinceLastActive
+                        ?? 0,
+                });
             if (snap?.shortLabel) {
                 flags.push(snap.shortLabel);
             }
@@ -956,8 +1229,8 @@ function _render(game) {
             decisionCells.push(_decisionCell('偏好', psLabel, psTip));
 
             spawnDecisionCard =
-                `<div class="spawn-decision-card" style="text-align:left" title="${_attrTitle(snapshotTip)}">` +
-                    `<div class="spawn-decision-card__head" style="text-align:left">` +
+                `<div class="spawn-decision-card" title="${_attrTitle(snapshotTip)}">` +
+                    `<div class="spawn-decision-card__head">` +
                         `<span>📷 ${roundLabel} spawn 决策快照</span>` +
                     `</div>` +
                     `<div class="spawn-decision-grid">${decisionCells.join('')}</div>` +
@@ -968,10 +1241,10 @@ function _render(game) {
         const diag = ins.spawnDiagnostics;
         if (liveTopology || diag?.layer1) {
             const l1 = diag?.layer1 || {};
-            const flatness = liveTopology?.flatness ?? l1.flatness;
             const nearFullLines = liveTopology?.nearFullLines ?? l1.nearFullLines ?? 0;
-            /* 「空洞」已并入上方实时状态 sparkline（topologyHoles），此处不再重复 pill */
-            if (flatness != null) diagPills.push(_spawnPill(`平整 ${flatness.toFixed(2)}`, SPAWN_TOOLTIP.flatness));
+            /* v1.46：「空洞 / 平整 / 首手 / 解法」已并入上方实时状态 sparkline（topologyHoles
+             * / flatness / firstMoveFreedom / tripletSolutionCount），此处不再重复显示，
+             * 只保留曲线未覆盖的"近满 / 多消候选 / 清屏候选"等纯候选判定信号。 */
             if (nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${nearFullLines}`, SPAWN_TOOLTIP.nearFull));
             const liveMultiCandidates = _countLiveMultiClearCandidates(game.grid, game.dockBlocks);
             if (liveMultiCandidates != null) {
@@ -980,15 +1253,6 @@ function _render(game) {
             const livePerfectCandidates = _countLivePerfectClearCandidates(game.grid, liveTopology);
             if (livePerfectCandidates > 0) {
                 diagPills.push(_spawnPill(`清屏候选 ${livePerfectCandidates}`, SPAWN_TOOLTIP.perfectClearCandidates));
-            }
-            // 解法 = 未放置候选可落子数之和（Game 侧按 dock 签名缓存）；无则回退 spawn 时 DFS 口径
-            const liveSm = _placementSolutionForGame(game);
-            const sm = liveSm ?? l1.solutionMetrics;
-            if (sm) {
-                /* 「解法」已在上方曲线 tripletSolutionCount 展示；这里仅保留曲线未覆盖的瓶颈首手自由度。 */
-                if (Number.isFinite(sm.firstMoveFreedom)) {
-                    diagPills.push(_spawnPill(`首手 ${sm.firstMoveFreedom}`, SPAWN_TOOLTIP.firstMoveFreedom));
-                }
             }
             const tsr = l1.targetSolutionRange;
             if (tsr && (tsr.min != null || tsr.max != null)) {
@@ -1277,18 +1541,30 @@ export function enterInsightReplay(frames) {
 
     let html =
         '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>';
+    /* v1.46：回放路径与 live 路径用同一套分组布局，避免两边显示割裂。 */
+    const grouped = _groupMetricsForLayout(data.metrics);
     html += '<div class="replay-series-grid insight-live-series-grid">';
-    for (let i = 0; i < data.metrics.length; i++) {
-        const m = data.metrics[i];
-        const s = data.series[m.key];
-        const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
-        const labelColor = getMetricLabelColor(m.key, color, i);
-        const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
+    let cellIdx = 0;
+    for (const g of grouped) {
+        if (g.metrics.length === 0) continue;
         html +=
-            `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
-            `<span class="series-label series-label--metric" style="--series-label-color:${labelColor}">${m.label}</span>` +
-            `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
-            `<span class="series-value">—</span></div>`;
+            `<div class="replay-series-group-head" title="${_attrTitle(g.desc)}">` +
+            `<span class="rsg-dot" style="background:${g.color}"></span>` +
+            `<span class="rsg-title">${g.title}</span>` +
+            `<span class="rsg-count">${g.metrics.length}</span>` +
+            `</div>`;
+        for (const m of g.metrics) {
+            const s = data.series[m.key];
+            const color = METRIC_GROUP_COLORS[m.group] || g.color;
+            const labelColor = getMetricLabelColor(m.key, color, cellIdx);
+            const cellTip = _METRIC_TOOLTIP_BY_KEY[m.key] || '';
+            html +=
+                `<div class="replay-series-cell" data-key="${m.key}" title="${_attrTitle(cellTip)}">` +
+                `<span class="series-label series-label--metric" style="--series-label-color:${labelColor}">${m.label}</span>` +
+                `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
+                `<span class="series-value">—</span></div>`;
+            cellIdx++;
+        }
     }
     html += '</div>';
     elState.innerHTML = html;
@@ -1314,6 +1590,9 @@ export function enterInsightReplay(frames) {
             valueEl
         });
     }
+
+    // 回放模式：cell 点击同样进入详读浮层；初始 cursorIdx = 0（updateInsightReplayFrame 不改 modal）
+    _attachMetricCellClickToModal(elState, data, { cursorIdx: 0 });
 }
 
 /**

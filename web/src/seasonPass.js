@@ -1,18 +1,27 @@
 /**
- * SeasonPass — 赛季通行证框架
+ * SeasonPass — 赛季通行证 UI / 任务追踪层
  *
- * 功能
- * ----
- * - 维护当前赛季信息（名称、开始/结束时间）
- * - 追踪赛季任务进度与积分
- * - 提供 UI 面板（注入到玩家画像面板旁）
- * - 为 C 类鲸鱼用户提供持续价值供给
+ * v1.49.x P2-1 合并归一：本文件与 `web/src/monetization/seasonPass.js` 互补，
+ * 共同实现完整赛季通行证：
  *
- * 商业化接入点
- * -----------
- * - seasonPass.isPremium：区分免费/付费通行证
- * - 付费通行证解锁：调用 adAdapter.purchaseSeasonPass()
- * - 任务完成奖励：皮肤/复活次数/徽章（通过 featureFlags 控制）
+ *   ┌─────────────────────────────────────────────────────────────┐
+ *   │  本文件 (web/src/seasonPass.js)                              │
+ *   │   - UI 面板（#season-pass-panel）注入与刷新                  │
+ *   │   - 任务对象（CURRENT_SEASON.tasks）追踪：clears/score/streak │
+ *   │   - 任务完成 → 弹 toast、积分 +100、调后端 /api/season-pass    │
+ *   │   - STORAGE_KEY = 'openblock_season_pass'（任务/积分/UI 状态）│
+ *   ├─────────────────────────────────────────────────────────────┤
+ *   │  monetization/seasonPass.js                                 │
+ *   │   - XP / Tier 解锁后端：FREE_TIERS / PAID_TIERS              │
+ *   │   - 监听 MonetizationBus 'game_over' 估算 XP，写钱包奖励       │
+ *   │   - STORAGE_KEY = 'openblock_mon_season_v1'（XP/tier 状态）   │
+ *   └─────────────────────────────────────────────────────────────┘
+ *
+ * 数据流（合并后）：
+ *   recordEvent → 任务进度更新（本文件）+ addSeasonXp（monetization 版本）
+ *   game_over   → addSeasonXp（monetization 版本）+ 任务计数（本文件 _bindEvents）
+ *
+ * 这样两个文件不再"双源不同步"，而是各自负责一半（UI vs XP/tier）但输入对齐。
  *
  * 使用方式
  * -------
@@ -20,7 +29,19 @@
  *   initSeasonPass(game);
  */
 
+import { addSeasonXp as addMonSeasonXp } from './monetization/seasonPass.js';
+
 const STORAGE_KEY = 'openblock_season_pass';
+
+/* P2-1：把任务进度增量映射成 XP 增量，喂进 monetization 版的 addSeasonXp，
+ * 保证 tier 解锁不再依赖 game_over 时序。 */
+const TASK_TYPE_TO_XP = Object.freeze({
+    clears: 5,        // 每次消行 5 XP
+    games: 30,        // 每局结束 30 XP
+    levels_done: 50,  // 每完成一关 50 XP
+    score_once: 0,    // 单局得分仅为里程碑，不重复发 XP（避免双重计算）
+    streak_days: 0,   // 连签由专门的奖励逻辑处理
+});
 
 // ── 赛季配置（上线时替换） ───────────────────────────────────────────────────
 const CURRENT_SEASON = {
@@ -84,6 +105,13 @@ export class SeasonPass {
         this._checkTaskCompletion();
         this._save();
         this._refreshPanel();
+
+        /* P2-1：把任务进度同步成 XP 给 monetization/seasonPass，让 tier 解锁
+         * 不再单独依赖 game_over 估算（与 game.js 的 logBehavior 时序解耦）。 */
+        try {
+            const xp = (TASK_TYPE_TO_XP[type] ?? 0) * (Math.max(1, value) | 0);
+            if (xp > 0) addMonSeasonXp(xp);
+        } catch { /* monetization 模块不可用时静默 */ }
     }
 
     // ── 内部实现 ──────────────────────────────────────────────────────────────

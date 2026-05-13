@@ -102,7 +102,7 @@
 | **召回触点** | Push/邮件/订阅占位；权限与频次分离 |
 | **社交轻量** | 排行榜、分享图、异步影子 PK（可选） |
 
-**OpenBlock 对照**：`web/src/progression.js`、`monetization/dailyTasks.js`、`seasonPass.js`、`docs/product/RETENTION_ROADMAP_V10_17.md`。
+**OpenBlock 对照**：`web/src/progression.js`、`monetization/dailyTasks.js`、`seasonPass.js`、`docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`。
 
 ---
 

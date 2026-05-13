@@ -182,7 +182,7 @@ export const SKINS = {
     classic: {
         id: 'classic',
         name: '✨ 极简经典',
-        boardWatermark: { icons: ['🎮', '⭐'], opacity: 0.07 },
+        boardWatermark: { icons: ['🎮', '⭐'], opacity: 0.07, hdIcons: ['🕹️', '🎯', '🏁', '🎴', '🎟️'] },
         // 休闲消除经典 8 色：皇家蓝 / 天蓝 / 翠绿 / 金黄 / 橙 / 紫 / 浅蓝 / 朱红
         blockColors: [
             '#3F6DD8', '#4FB8E8', '#52BC4B', '#FFC428',
@@ -208,7 +208,7 @@ export const SKINS = {
     titanium: {
         id: 'titanium',
         name: '💎 钛晶矩阵',
-        boardWatermark: { icons: ['💠', '🔷'], opacity: 0.07 },
+        boardWatermark: { icons: ['💠', '🔷'], opacity: 0.07, hdIcons: ['🔶', '🔺', '🟧', '🟩', '🟦'] },
         blockColors: [
             '#6AAEE8', '#94BDDF', '#78B8EB', '#A8CCF0',
             '#88D0F0', '#7DBAE2', '#B4D8EC', '#8DB6D8'
@@ -237,7 +237,7 @@ export const SKINS = {
     aurora: {
         id: 'aurora',
         name: '🌌 冰川极光',
-        boardWatermark: { icons: ['🐧', '🐻‍❄️', '❄️', '🌌'], opacity: 0.08 },
+        boardWatermark: { icons: ['🐧', '🐻‍❄️', '❄️', '🌌'], opacity: 0.08, hdIcons: ['🧊', '☃️', '⛷️', '🌨️', '🏂'] },
         // 极地动物 + 冰雪天象（专属：❄️🌌🏔️ + 🐻‍❄️🦌🐧🐋🦭，移除通用 🦊🐟🦅）
         // 蓝鲸放浅紫底，雪花落绿底，星河压亮青底，雪山落天蓝底——色相全对冲
         blockIcons: ['🦌', '🐧', '🐋', '❄️', '🌌', '🐻‍❄️', '🦭', '🏔️'],
@@ -265,7 +265,7 @@ export const SKINS = {
     neonCity: {
         id: 'neonCity',
         name: '🌃 霓虹都市',
-        boardWatermark: { icons: ['🌃', '🏙️'], opacity: 0.07 },
+        boardWatermark: { icons: ['🌃', '🏙️'], opacity: 0.07, hdIcons: ['🌆', '🚖', '🏨', '🚇', '🚥'] },
         blockColors: [
             '#FF2DAA', '#9B72FF', '#00E5FF', '#76FF03',
             '#FFAB40', '#FF4081', '#448AFF', '#18FFFF'
@@ -294,7 +294,7 @@ export const SKINS = {
     ocean: {
         id: 'ocean',
         name: '🌊 深海幽域',
-        boardWatermark: { icons: ['🦈', '🐠'], opacity: 0.07 },
+        boardWatermark: { icons: ['🦈', '🐠'], opacity: 0.07, hdIcons: ['🐳', '🐙', '🐬', '🐢', '🦑'] },
         // 深海生物 + 珊瑚贝壳：🐙章鱼 / 🦞龙虾 / 🐡河豚 / 🪸珊瑚 / 🐚海螺 / 🐳蓝鲸 / 🦈鲨鱼 / 🦑鱿鱼
         // 移除通用 🐠🦭，专属深海符号（🪸珊瑚 / 🐚海螺）独占；蓝鲸/鲨鱼放暖块（橙/红）反差最强
         blockIcons: ['🐙', '🦞', '🐡', '🪸', '🐚', '🐳', '🦈', '🦑'],
@@ -329,7 +329,7 @@ export const SKINS = {
     sunset: {
         id: 'sunset',
         name: '🌅 琥珀流光',
-        boardWatermark: { icons: ['🌅', '🔆'], opacity: 0.08 },
+        boardWatermark: { icons: ['🌅', '🔆'], opacity: 0.08, hdIcons: ['🌇', '🌞', '🍹', '🥥', '🐚'] },
         blockColors: [
             '#FF6A50', '#FF8E3A', '#FFB230', '#FFD638',
             '#FF7090', '#E04098', '#A858DC', '#FFAE6A'
@@ -358,7 +358,7 @@ export const SKINS = {
     sakura: {
         id: 'sakura',
         name: '🌸 樱花飞雪',
-        boardWatermark: { icons: ['🌸', '🌺'], opacity: 0.09 },
+        boardWatermark: { icons: ['🌸', '🌺'], opacity: 0.09, hdIcons: ['🌷', '🌹', '🌼', '💐', '🪷'] },
         blockColors: [
             '#FF4490', '#FF2870', '#FFB0D8', '#78D860',
             '#78B8F0', '#CC60E8', '#FFBA30', '#58D890'
@@ -383,7 +383,7 @@ export const SKINS = {
     koi: {
         id: 'koi',
         name: '🎏 锦鲤跃龙',
-        boardWatermark: { icons: ['🎏', '🐟'], opacity: 0.08 },
+        boardWatermark: { icons: ['🎏', '🐟'], opacity: 0.08, hdIcons: ['🐉', '🌊', '🦞', '🦀', '⛩️'] },
         // 锦鲤池 + 日式风物：🎏鲤鱼旗 / 🎋七夕竹 / 🌊浪涌 / 🪷莲花 / ⛩️鸟居 /
         //                  🏮红灯笼 / 🎐风铃 / 🐟池中鲤
         // 移除与深海重复的 🦈🐡🐙🐠，全部换成日本意象专属 emoji
@@ -418,7 +418,7 @@ export const SKINS = {
     candy: {
         id: 'candy',
         name: '🍭 糖果甜心',
-        boardWatermark: { icons: ['🍭', '🍬'], opacity: 0.09 },
+        boardWatermark: { icons: ['🍭', '🍬'], opacity: 0.09, hdIcons: ['🍦', '🧁', '🍫', '🍪', '🎂'] },
         // 纯糖果甜点（移除与 food 重复的 🍦、与 fairy 重复的 🌈）
         // 加入 🍪饼干、🍩甜甜圈，全部专属糖果系；棕色甜点压亮黄/红底，彩色棒糖压粉紫底
         blockIcons: ['🍪', '🎀', '🍫', '🍰', '🍩', '🍬', '🍭', '🧁'],
@@ -446,7 +446,7 @@ export const SKINS = {
     bubbly: {
         id: 'bubbly',
         name: '🫧 元气泡泡',
-        boardWatermark: { icons: ['🫧', '🐡'], opacity: 0.09 },
+        boardWatermark: { icons: ['🫧', '🐡'], opacity: 0.09, hdIcons: ['🥤', '🪀', '🧋', '🪩', '💫'] },
         blockColors: [
             '#FF72BB', '#4898F8', '#42C442', '#FFAA18',
             '#22C87A', '#E060FF', '#FF8848', '#12C4E8'
@@ -478,7 +478,7 @@ export const SKINS = {
     toon: {
         id: 'toon',
         name: '🎨 卡通乐园',
-        boardWatermark: { icons: ['🎪', '🎠'], opacity: 0.08 },
+        boardWatermark: { icons: ['🎪', '🎠'], opacity: 0.08, hdIcons: ['🤡', '🎈', '🪅', '🎭', '🤖'] },
         // v10.5：🦘 #FF6098 (与 🐼 #FF5570 同粉色族) → #B85828 袋鼠毛棕，区分两个粉系动物
         blockColors: [
             '#FF5570', '#FF7F11', '#FFD600', '#00C853',
@@ -509,7 +509,7 @@ export const SKINS = {
     pixel8: {
         id: 'pixel8',
         name: '👾 街机格斗',
-        boardWatermark: { icons: ['👾', '🎮', '🍄', '🥊'], opacity: 0.10, scale: 0.72 },
+        boardWatermark: { icons: ['👾', '🎮', '🍄', '🥊'], opacity: 0.10, scale: 0.72, hdIcons: ['🪙', '🏯', '⚔️', '🛡️', '🗡️'] },
         // 街机·8-bit·格斗：💣炸弹 / 🪙金币 / 🥊拳套 / 🎮手柄 / 👊重拳 / 🍄蘑菇 /
         //                  🕹️摇杆 / 👾外星人
         // 移除与 greece 撞色的 ⚡（雷电意象更属希腊神话），加入 💣🪙 强化「街机经典符号」
@@ -546,7 +546,7 @@ export const SKINS = {
     dawn: {
         id: 'dawn',
         name: '☀️ 晨光微曦',
-        boardWatermark: { icons: ['🌄', '🌻', '🕊️', '🍃'], opacity: 0.12, scale: 0.28 },
+        boardWatermark: { icons: ['🌄', '🌻', '🕊️', '🍃'], opacity: 0.12, scale: 0.28, hdIcons: ['🐝', '🦋', '🌾', '🍯', '🌱'] },
         blockColors: [
             '#E06E62', '#5A92D6', '#D8A84E', '#55A873',
             '#8D75CE', '#42A7A8', '#D46282', '#6B7DDD'
@@ -586,7 +586,7 @@ export const SKINS = {
     food: {
         id: 'food',
         name: '🍕 美食盛宴',
-        boardWatermark: { icons: ['🍕', '🍔'], opacity: 0.08 },
+        boardWatermark: { icons: ['🍕', '🍔'], opacity: 0.08, hdIcons: ['🍣', '🍩', '🥐', '🌮', '🥗'] },
         // v10.5：🍔 #D87040 (与 🌮 #E09050 同暖橙) → #B05028 烤肉锈棕，汉堡牛肉色
         blockColors: [
             '#FF5040', '#F09020', '#F8D020', '#60B830',
@@ -620,7 +620,7 @@ export const SKINS = {
     music: {
         id: 'music',
         name: '🎹 音乐律动',
-        boardWatermark: { icons: ['🎹', '🎸'], opacity: 0.08 },
+        boardWatermark: { icons: ['🎹', '🎸'], opacity: 0.08, hdIcons: ['🎷', '🥁', '🎺', '🎻', '🎤'] },
         blockColors: [
             '#FF3060', '#FF9020', '#FFE820', '#40E840',
             '#3088FF', '#E040FF', '#FF60A0', '#40E8E8'
@@ -653,7 +653,7 @@ export const SKINS = {
     pets: {
         id: 'pets',
         name: '🐶 萌宠天地',
-        boardWatermark: { icons: ['🐶', '🐾'], opacity: 0.09 },
+        boardWatermark: { icons: ['🐶', '🐾'], opacity: 0.09, hdIcons: ['🐱', '🐰', '🐹', '🐤', '🦊'] },
         // v10.5：🐭 深紫区分度；v10.20：整体提亮降艳
         blockColors: [
             '#C89088', '#B8A090', '#A8A878', '#78A890',
@@ -692,7 +692,7 @@ export const SKINS = {
     universe: {
         id: 'universe',
         name: '🪐 宇宙星际',
-        boardWatermark: { icons: ['🪐', '⭐'], opacity: 0.07 },
+        boardWatermark: { icons: ['🪐', '⭐'], opacity: 0.07, hdIcons: ['🚀', '🛸', '🌠', '☄️', '🌑'] },
         blockColors: [
             '#E84020', '#F09030', '#D8C820', '#3898D0',
             '#D040D0', '#20B0C0', '#D88020', '#9070F0'
@@ -724,7 +724,7 @@ export const SKINS = {
     fantasy: {
         id: 'fantasy',
         name: '🔮 魔幻秘境',
-        boardWatermark: { icons: ['🔮', '✨'], opacity: 0.08 },
+        boardWatermark: { icons: ['🔮', '✨'], opacity: 0.08, hdIcons: ['🧙', '🪄', '🧝', '🧞', '🪬'] },
         blockColors: [
             '#CC48FF', '#5080F0', '#18B848', '#E82020',
             '#E8B820', '#20B0D8', '#E020A0', '#9060E0'
@@ -750,7 +750,7 @@ export const SKINS = {
     beast: {
         id: 'beast',
         name: '🗺️ 冒险奇境',
-        boardWatermark: { icons: ['🦁', '🐯'], opacity: 0.08 },
+        boardWatermark: { icons: ['🦁', '🐯'], opacity: 0.08, hdIcons: ['🐆', '🐺', '🐘', '🦏', '🦒'] },
         // 陆地猛兽八连：🐺狼 / 🦏犀牛 / 🐯虎 / 🦁狮 / 🐗野猪 / 🦅雕 / 🐆豹 / 🐻熊
         // v10.5 重做：原色板顺序与 icons 不对齐（注释里 #40A0D8 标 🦈 但实际 idx7 是 🐻），
         //          且 🐯/🐻 共占近蓝色族 (#5090D8 vs #40A0D8) 视觉混淆。
@@ -788,7 +788,7 @@ export const SKINS = {
     greece: {
         id: 'greece',
         name: '🏛️ 希腊神话',
-        boardWatermark: { icons: ['🏛️', '⚡'], opacity: 0.08 },
+        boardWatermark: { icons: ['🏛️', '⚡'], opacity: 0.08, hdIcons: ['🦉', '🏺', '🗿', '🏹', '🐎'] },
         // 奥林匹斯诸神图腾：⚡宙斯雷霆 / 🔱波塞冬三叉戟 / 🦉雅典娜之猫头鹰 /
         // ☀️阿波罗烈日 / 🏹阿尔忒弥斯之弓 / 🍷狄俄尼索斯酒神 / 💘阿芙罗狄忒爱神之箭 /
         // 🦚赫拉孔雀
@@ -825,7 +825,7 @@ export const SKINS = {
     demon: {
         id: 'demon',
         name: '😈 恶魔冥界',
-        boardWatermark: { icons: ['😈', '💀'], opacity: 0.08 },
+        boardWatermark: { icons: ['😈', '💀'], opacity: 0.08, hdIcons: ['👻', '🦇', '🕷️', '🕸️', '👹'] },
         // 冥府八符：👁️邪眼 / ⚔️双剑 / 💀骷髅 / 🕷️毒蛛 / 🦇蝙蝠 / 👹鬼面 / ☠️死亡之骨 / 😈魔王
         // 把同形的 👿 换成 👹（鬼面），与 😈 视觉差异更大；☠️ 由 greece 让出，独占冥界
         // 暗色 icon（🦇🕷️）压粉/紫底，红魔王（😈👹）压绿/紫底，全互补
@@ -862,7 +862,7 @@ export const SKINS = {
     jurassic: {
         id: 'jurassic',
         name: '🦕 恐龙世界',
-        boardWatermark: { icons: ['🦕', '🦖'], opacity: 0.08 },
+        boardWatermark: { icons: ['🦕', '🦖'], opacity: 0.08, hdIcons: ['🦴', '🌋', '🥚', '🪨', '🦎'] },
         // 恐龙世界 — 史前爬行类 + 化石 + 火山：
         // 🥚恐龙蛋 / 🌋火山（灭绝意象） / 🦕腕龙 / 🦴化石 / 🐉翼龙 / 🦖霸王龙 / 🐊棘龙 / 🐍蛇颈龙
         // 把 🐢（让给 bubbly 萌系）替换为 🌋火山，更具 K-Pg 灭绝叙事；与所有皮肤无重复
@@ -901,7 +901,7 @@ export const SKINS = {
     fairy: {
         id: 'fairy',
         name: '🧚 花仙梦境',
-        boardWatermark: { icons: ['🧚', '🌸'], opacity: 0.08 },
+        boardWatermark: { icons: ['🧚', '🌸'], opacity: 0.08, hdIcons: ['🦌', '🐿️', '🪺', '🍂', '🌰'] },
         // 花仙系专属：🧚花仙子 / 🦋蝶仙 / 🌹玫瑰 / 🌷郁金香 / 🌻向日葵 / 🍃嫩叶 / 🪄魔棒 / 🌈彩虹
         // 黄向日葵/绿嫩叶/红玫瑰落紫/粉/品红底 → 强冷暖反差；蝴蝶蓝放粉底，樱花粉换为玫瑰
         blockIcons: ['🌻', '🦋', '🌹', '🍃', '🪄', '🌷', '🌈', '🧚'],
@@ -942,7 +942,7 @@ export const SKINS = {
     industrial: {
         id: 'industrial',
         name: '🏭 古典工业',
-        boardWatermark: { icons: ['🏭', '⚙️'], opacity: 0.08 },
+        boardWatermark: { icons: ['🏭', '⚙️'], opacity: 0.08, hdIcons: ['🔩', '🛠️', '⚒️', '🪛', '⛏️'] },
         // 蒸汽朋克八件套（全部专属，未与现有 16 款 icon 皮肤重复）：
         //   ⚙️齿轮 / 🔧扳手 / 🔩螺栓 / 🛠️锤扳工具 / ⛓️锁链 /
         //   🚂蒸汽火车 / 🏭工厂烟囱 / ⚒️锤镐
@@ -984,7 +984,7 @@ export const SKINS = {
     forbidden: {
         id: 'forbidden',
         name: '👑 北京皇城',
-        boardWatermark: { icons: ['👑', '🐲'], opacity: 0.08 },
+        boardWatermark: { icons: ['👑', '🐲'], opacity: 0.08, hdIcons: ['🪭', '🧧', '🏮', '🥢', '🍵'] },
         // 紫禁城八件套（全部专属，注意 🐲 龙颜 ≠ jurassic 的 🐉 翼龙）：
         //   🐲龙颜 / 👑凤冠皇冠 / 🪭折扇 / 🧧红包 / 🥮月饼 /
         //   🀄麻将红中 / 📜圣旨卷轴 / 🍵御茶
@@ -1043,7 +1043,34 @@ export const SKINS = {
     mahjong: {
         id: 'mahjong',
         name: '🀄 麻将牌局',
-        boardWatermark: { icons: ['🀅', '🀀'], opacity: 0.10 },
+        /* v1.49 (2026-05) — HD 模式"麻将特色 emoji 换装"：
+         *   仅替换 emoji 选型，**亮度 / scale / 锚点 / 漂浮节奏全部与其他皮肤完全一致**。
+         *
+         *   - 基础水印：['🀅', '🀀'] 發 + 东，2 件、opacity 0.10
+         *   - HD 水印：  ['🎲', '🀐', '🀙', '🀇', '🀄'] 骰子 + 一索（幺鸡 / 港粤"打雀"的雀）
+         *               + 一筒 + 一万 + 红中，**5 件套**（与默认锚点数 5 完全对齐 ——
+         *               盘面同时显示的 5 个水印 emoji 两两不同，杜绝"图片重复"），
+         *               依然继承基础 opacity 0.10、依然走默认 5 锚点 + 默认 scale +
+         *               默认 segment 时长。骰子是麻将开局的灵魂道具；一索（幺鸡）是
+         *               麻将"雀"的具象；一筒/一万选「一」头牌代表筒子/万子两门数牌；
+         *               红中是麻将的精神图腾，配齐"骰⇒数⇒字"完整国粹叙事。
+         *
+         * 渲染契约：boardWatermark 顶层 icons / opacity / scale 是基础锚定值；
+         * hdIcons / hdOpacity / hdScale / hdAnchors 是 HD 模式可选覆盖项，任一
+         * 缺失则继承基础值。**麻将仅覆盖 hdIcons**，其余字段全部保持与基础一致 ——
+         * 这与 v1.49 中"所有 HD 皮肤亮度 / 运动模式一致 + 单局水印图片不重复"
+         * 双重产品约束对齐。
+         *
+         * v1.49 修订记录：
+         *   - v1：6 件套 + 自定义 6 锚点（六侧分布）→ 破坏运动模式一致性，回退
+         *   - v2：3 件套 + hdOpacity 0.13 → 亮度高于所有皮肤（dawn 0.12 已是最高），回退
+         *   - v3：2 件套 + 无 hdOpacity → 5 锚点上 i%2 循环导致 3 个 🎲 重复，回退
+         *   - 当前 v4：**5 件套**（=默认锚点数）+ 无 hdOpacity，盘面 5 个水印两两不同 */
+        boardWatermark: {
+            icons: ['🀅', '🀀'],
+            opacity: 0.10,
+            hdIcons: ['🎲', '🀐', '🀙', '🀇', '🀄'],
+        },
         // 列表前缀用 🀄（红中）提高彩色字形面积；盘面 blockIcons 仍为 U+1F000 八牌（🀅 發 等）
         blockIcons: ['🀀', '🀁', '🀂', '🀃', '🀅', '🀇', '🀙', '🀐'],
         blockColors: [
@@ -1102,7 +1129,7 @@ export const SKINS = {
     boardgame: {
         id: 'boardgame',
         name: '🃏 扑克博弈',
-        boardWatermark: { icons: ['🃏', '♠️'], opacity: 0.055 },
+        boardWatermark: { icons: ['🃏', '♠️'], opacity: 0.055, hdIcons: ['🎰', '♟️', '♣️', '♥️', '♦️'] },
         // 扑克博弈 8 件套（v10.17.10：8 件全彩 emoji 字形，风格一致）：
         //   扑克核心 5 件：♠️ 黑桃 · ♥️ 红心 · ♦️ 方片 · ♣️ 梅花 · 🃏 大王（彩色百搭）
         //   博弈场景 3 件：🎴 花札（红和风牌） · 🎰 老虎机（多色赌场） · 🎲 骰子（立体白点骰）
@@ -1146,7 +1173,7 @@ export const SKINS = {
     sports: {
         id: 'sports',
         name: '⚽ 运动竞技',
-        boardWatermark: { icons: ['⚽', '🏆'], opacity: 0.08 },
+        boardWatermark: { icons: ['⚽', '🏆'], opacity: 0.08, hdIcons: ['🏀', '🥇', '🏐', '🏈', '⚾'] },
         // 八大主流球类全家福（全部专属，无与现有皮肤重复）：
         //   ⚽足球 / 🏀篮球 / ⚾棒球 / 🎾网球 / 🏐排球 /
         //   🏈橄榄球 / 🥎垒球 / 🏆奖杯
@@ -1196,7 +1223,7 @@ export const SKINS = {
     outdoor: {
         id: 'outdoor',
         name: '🥾 户外运动',
-        boardWatermark: { icons: ['🥾', '⛺'], opacity: 0.10 },
+        boardWatermark: { icons: ['🥾', '⛺'], opacity: 0.10, hdIcons: ['🏔️', '🧗', '🎒', '🧭', '🪃'] },
         // 户外运动八件套（全部专属，避开 sports/forest/vehicles 已用 emoji）：
         //   🥾徒步 / ⛺露营 / 🧗攀岩 / 🚴骑行 / 🏄冲浪 / 🏂滑雪 / 🛶皮划艇 / 🎣垂钓
         blockIcons: ['🥾', '⛺', '🧗', '🚴', '🏄', '🏂', '🛶', '🎣'],
@@ -1233,7 +1260,7 @@ export const SKINS = {
     vehicles: {
         id: 'vehicles',
         name: '🏎️ 极速引擎',
-        boardWatermark: { icons: ['🏎️', '✈️'], opacity: 0.08 },
+        boardWatermark: { icons: ['🏎️', '✈️'], opacity: 0.08, hdIcons: ['🚂', '🚁', '🚤', '🛵', '🚜'] },
         // 八大现代载具（表意直出；避开 industrial 的 🚂 蒸汽火车）：
         //   🏎️赛车 / ✈️客机 / 🚀火箭 / 🚁直升机 / 🚢邮轮 / 🛵摩托 / 🚗轿车 / 🚌公交
         // 多数 emoji 体积大、颜色丰富；用「金属灰/钴蓝/火橙/草绿」分布拉开色相
@@ -1271,7 +1298,7 @@ export const SKINS = {
     forest: {
         id: 'forest',
         name: '🌳 山林秘境',
-        boardWatermark: { icons: ['🌳', '🍁'], opacity: 0.08 },
+        boardWatermark: { icons: ['🌳', '🍁'], opacity: 0.08, hdIcons: ['🌲', '🐻', '🐗', '🦔', '🍇'] },
         // 林间八件（与 fairy 花卉、food 蔬果完全错开）：
         //   🌳阔叶树 / 🌲针叶松 / 🌴椰树 / 🍁红枫叶 / 🍂落叶 /
         //   🌾麦穗 / 🪵木桩 / 🪺鸟巢
@@ -1310,7 +1337,7 @@ export const SKINS = {
     pirate: {
         id: 'pirate',
         name: '🦜 海盗航行',
-        boardWatermark: { icons: ['🦜', '🏴‍☠️'], opacity: 0.08 },
+        boardWatermark: { icons: ['🦜', '🏴‍☠️'], opacity: 0.08, hdIcons: ['⚓', '🗺️', '💰', '🛶', '🚣'] },
         // 大航海八件套（全部专属）：
         //   ⚓船锚 / 🏴‍☠️海盗旗 / 🪝船钩 / 🦜肩头鹦鹉 /
         //   ⛵风帆船 / 🗺️藏宝图 / 🧭罗盘 / 💎宝石
@@ -1351,7 +1378,7 @@ export const SKINS = {
     farm: {
         id: 'farm',
         name: '🐄 田园农场',
-        boardWatermark: { icons: ['🐄', '🌽'], opacity: 0.055 },
+        boardWatermark: { icons: ['🐄', '🌽'], opacity: 0.055, hdIcons: ['🐔', '🥕', '🐑', '🐖', '🥬'] },
         // 农场八件套（与 pets 家宠/food 主食/toon 动物园全错开）：
         //   🐄奶牛 / 🐖猪 / 🐑绵羊 / 🐔母鸡 / 🐣雏鸡 /
         //   🌽玉米 / 🥕胡萝卜 / 🍎苹果
@@ -1397,7 +1424,7 @@ export const SKINS = {
     desert: {
         id: 'desert',
         name: '🐫 沙漠绿洲',
-        boardWatermark: { icons: ['🐫', '🌵'], opacity: 0.055 },
+        boardWatermark: { icons: ['🐫', '🌵'], opacity: 0.055, hdIcons: ['🦂', '🌴', '🏜️', '🐍', '🌶️'] },
         // 沙漠绿洲八件套（中东/北非/印度异域风物）：
         //   🐫骆驼 / 🦂蝎子 / 🌵仙人掌 / 🏜️沙丘 / 🪨岩石 /
         //   🏺赤陶罐 / 🛕古寺 / 🌅日出

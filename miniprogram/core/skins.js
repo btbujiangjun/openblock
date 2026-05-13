@@ -1085,40 +1085,55 @@ function _mobileGridOuterColor(hex, gridCellHex, fallback = '#182235') {
 }
 
 const BOARD_WATERMARKS = {
-  classic: { icons: ['🎮', '⭐'], opacity: 0.045 },
-  titanium: { icons: ['💠', '🔷'], opacity: 0.045 },
-  aurora: { icons: ['🐧', '❄️', '🌌'], opacity: 0.05 },
-  neonCity: { icons: ['🌃', '🏙️'], opacity: 0.045 },
-  ocean: { icons: ['🦈', '🐠'], opacity: 0.045 },
-  sunset: { icons: ['🌅', '🔆'], opacity: 0.05 },
-  sakura: { icons: ['🌸', '🌺'], opacity: 0.052 },
-  koi: { icons: ['🎏', '🐟'], opacity: 0.05 },
-  candy: { icons: ['🍭', '🍬'], opacity: 0.052 },
-  bubbly: { icons: ['🫧', '🐡'], opacity: 0.052 },
-  toon: { icons: ['🎪', '🎠'], opacity: 0.048 },
-  pixel8: { icons: ['👾', '🎮', '🍄'], opacity: 0.055, scale: 0.34 },
-  dawn: { icons: ['🌄', '🌻', '🍃'], opacity: 0.052 },
-  food: { icons: ['🍕', '🍔'], opacity: 0.048 },
-  music: { icons: ['🎹', '🎸'], opacity: 0.048 },
-  pets: { icons: ['🐶', '🐾'], opacity: 0.05 },
-  universe: { icons: ['🪐', '⭐'], opacity: 0.045 },
-  fantasy: { icons: ['🔮', '✨'], opacity: 0.048 },
-  beast: { icons: ['🦁', '🐯'], opacity: 0.048 },
-  greece: { icons: ['🏛️', '⚡'], opacity: 0.048 },
-  demon: { icons: ['😈', '💀'], opacity: 0.045 },
-  jurassic: { icons: ['🦕', '🦖'], opacity: 0.048 },
-  fairy: { icons: ['🧚', '🌸'], opacity: 0.05 },
-  industrial: { icons: ['🏭', '⚙️'], opacity: 0.045 },
-  forbidden: { icons: ['👑', '🐲'], opacity: 0.048 },
-  mahjong: { icons: ['🀅', '🀀'], opacity: 0.06 },
-  boardgame: { icons: ['🃏', '♠️'], opacity: 0.04 },
-  sports: { icons: ['⚽', '🏆'], opacity: 0.048 },
-  outdoor: { icons: ['🥾', '⛺'], opacity: 0.052 },
-  vehicles: { icons: ['🏎️', '✈️'], opacity: 0.048 },
-  forest: { icons: ['🌳', '🍁'], opacity: 0.048 },
-  pirate: { icons: ['🦜', '🏴‍☠️'], opacity: 0.048 },
-  farm: { icons: ['🐄', '🌽'], opacity: 0.04 },
-  desert: { icons: ['🐫', '🌵'], opacity: 0.04 },
+  // v1.49 (2026-05) — 全量皮肤 HD 模式 emoji 换装（5 件套终版）：
+  //   每个皮肤都注入 **5 件** hdIcons（= 默认锚点数），保证盘面上同时显示的 5 个水印
+  //   两两不同，杜绝"图片重复"。主题强相关 + 全局唯一（与所有皮肤的基础 icons /
+  //   其他皮肤的 hdIcons 均不重复），仅替换 emoji，不引入 hdOpacity / hdScale / hdAnchors。
+  //   小程序 hdIcons 与 web 完全一致，确保 HD 模式双端 emoji 内容完全对齐。
+  classic: { icons: ['🎮', '⭐'], opacity: 0.045, hdIcons: ['🕹️', '🎯', '🏁', '🎴', '🎟️'] },
+  titanium: { icons: ['💠', '🔷'], opacity: 0.045, hdIcons: ['🔶', '🔺', '🟧', '🟩', '🟦'] },
+  aurora: { icons: ['🐧', '❄️', '🌌'], opacity: 0.05, hdIcons: ['🧊', '☃️', '⛷️', '🌨️', '🏂'] },
+  neonCity: { icons: ['🌃', '🏙️'], opacity: 0.045, hdIcons: ['🌆', '🚖', '🏨', '🚇', '🚥'] },
+  ocean: { icons: ['🦈', '🐠'], opacity: 0.045, hdIcons: ['🐳', '🐙', '🐬', '🐢', '🦑'] },
+  sunset: { icons: ['🌅', '🔆'], opacity: 0.05, hdIcons: ['🌇', '🌞', '🍹', '🥥', '🐚'] },
+  sakura: { icons: ['🌸', '🌺'], opacity: 0.052, hdIcons: ['🌷', '🌹', '🌼', '💐', '🪷'] },
+  koi: { icons: ['🎏', '🐟'], opacity: 0.05, hdIcons: ['🐉', '🌊', '🦞', '🦀', '⛩️'] },
+  candy: { icons: ['🍭', '🍬'], opacity: 0.052, hdIcons: ['🍦', '🧁', '🍫', '🍪', '🎂'] },
+  bubbly: { icons: ['🫧', '🐡'], opacity: 0.052, hdIcons: ['🥤', '🪀', '🧋', '🪩', '💫'] },
+  toon: { icons: ['🎪', '🎠'], opacity: 0.048, hdIcons: ['🤡', '🎈', '🪅', '🎭', '🤖'] },
+  pixel8: { icons: ['👾', '🎮', '🍄'], opacity: 0.055, scale: 0.34, hdIcons: ['🪙', '🏯', '⚔️', '🛡️', '🗡️'] },
+  dawn: { icons: ['🌄', '🌻', '🍃'], opacity: 0.052, hdIcons: ['🐝', '🦋', '🌾', '🍯', '🌱'] },
+  food: { icons: ['🍕', '🍔'], opacity: 0.048, hdIcons: ['🍣', '🍩', '🥐', '🌮', '🥗'] },
+  music: { icons: ['🎹', '🎸'], opacity: 0.048, hdIcons: ['🎷', '🥁', '🎺', '🎻', '🎤'] },
+  pets: { icons: ['🐶', '🐾'], opacity: 0.05, hdIcons: ['🐱', '🐰', '🐹', '🐤', '🦊'] },
+  universe: { icons: ['🪐', '⭐'], opacity: 0.045, hdIcons: ['🚀', '🛸', '🌠', '☄️', '🌑'] },
+  fantasy: { icons: ['🔮', '✨'], opacity: 0.048, hdIcons: ['🧙', '🪄', '🧝', '🧞', '🪬'] },
+  beast: { icons: ['🦁', '🐯'], opacity: 0.048, hdIcons: ['🐆', '🐺', '🐘', '🦏', '🦒'] },
+  greece: { icons: ['🏛️', '⚡'], opacity: 0.048, hdIcons: ['🦉', '🏺', '🗿', '🏹', '🐎'] },
+  demon: { icons: ['😈', '💀'], opacity: 0.045, hdIcons: ['👻', '🦇', '🕷️', '🕸️', '👹'] },
+  jurassic: { icons: ['🦕', '🦖'], opacity: 0.048, hdIcons: ['🦴', '🌋', '🥚', '🪨', '🦎'] },
+  fairy: { icons: ['🧚', '🌸'], opacity: 0.05, hdIcons: ['🦌', '🐿️', '🪺', '🍂', '🌰'] },
+  industrial: { icons: ['🏭', '⚙️'], opacity: 0.045, hdIcons: ['🔩', '🛠️', '⚒️', '🪛', '⛏️'] },
+  forbidden: { icons: ['👑', '🐲'], opacity: 0.048, hdIcons: ['🪭', '🧧', '🏮', '🥢', '🍵'] },
+  // v1.49 (2026-05) — mahjong HD 模式"麻将特色 emoji 换装"（5 件套终版）：
+  //   基础 ['🀅','🀀'] → HD ['🎲','🀐','🀙','🀇','🀄']（骰子 + 一索/幺鸡 + 一筒 + 一万 + 红中），
+  //   5 件 = 默认锚点数，保证盘面上 5 个水印两两不同（杜绝 i%2 循环导致的"3 个 🎲 重复"）。
+  //   亮度 / scale / 锚点 / 漂浮节奏全部与其他皮肤完全一致（不引入 hdOpacity / hdScale / hdAnchors）。
+  //   小程序基础水印保留双字（移动端默认 opacity 0.06）；
+  //   高画质模式（_qualityMode='high'）切到 hdIcons 5 件套，与 web 端体验对齐。
+  mahjong: {
+    icons: ['🀅', '🀀'],
+    opacity: 0.06,
+    hdIcons: ['🎲', '🀐', '🀙', '🀇', '🀄'],
+  },
+  boardgame: { icons: ['🃏', '♠️'], opacity: 0.04, hdIcons: ['🎰', '♟️', '♣️', '♥️', '♦️'] },
+  sports: { icons: ['⚽', '🏆'], opacity: 0.048, hdIcons: ['🏀', '🥇', '🏐', '🏈', '⚾'] },
+  outdoor: { icons: ['🥾', '⛺'], opacity: 0.052, hdIcons: ['🏔️', '🧗', '🎒', '🧭', '🪃'] },
+  vehicles: { icons: ['🏎️', '✈️'], opacity: 0.048, hdIcons: ['🚂', '🚁', '🚤', '🛵', '🚜'] },
+  forest: { icons: ['🌳', '🍁'], opacity: 0.048, hdIcons: ['🌲', '🐻', '🐗', '🦔', '🍇'] },
+  pirate: { icons: ['🦜', '🏴‍☠️'], opacity: 0.048, hdIcons: ['⚓', '🗺️', '💰', '🛶', '🚣'] },
+  farm: { icons: ['🐄', '🌽'], opacity: 0.04, hdIcons: ['🐔', '🥕', '🐑', '🐖', '🥬'] },
+  desert: { icons: ['🐫', '🌵'], opacity: 0.04, hdIcons: ['🦂', '🌴', '🏜️', '🐍', '🌶️'] },
 };
 
 function _optimizeSkinForMobile(skin) {

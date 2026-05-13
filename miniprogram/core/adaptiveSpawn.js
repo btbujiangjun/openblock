@@ -702,6 +702,33 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         }
     }
 
+    /* ---------- v1.46：反应时间 → stress 微调（详见 web/src/adaptiveSpawn.js 同段注释） ---------- */
+    const reactionCfg = cfg.reactionAdjust ?? {};
+    const reactionEnabled = reactionCfg.enabled !== false;
+    const reactionMs = Number(profile.metrics?.pickToPlaceMs);
+    const reactionSamples = Math.max(0, Number(profile.metrics?.reactionSamples ?? 0) || 0);
+    const reactionMinSamples = Math.max(1, Number(reactionCfg.minSamples ?? 3));
+    const reactionFastMs = Math.max(50, Number(reactionCfg.fastMs ?? 350));
+    const reactionSlowMs = Math.max(reactionFastMs + 100, Number(reactionCfg.slowMs ?? 4500));
+    const reactionMaxAdjust = Math.max(0, Number(reactionCfg.maxAdjust ?? 0.05));
+    let reactionAdjust = 0;
+    if (
+        reactionEnabled
+        && Number.isFinite(reactionMs)
+        && reactionSamples >= reactionMinSamples
+    ) {
+        if (reactionMs < reactionFastMs) {
+            const intensity = Math.min(1, (reactionFastMs - reactionMs) / reactionFastMs);
+            reactionAdjust = +reactionMaxAdjust * intensity;
+        } else if (reactionMs > reactionSlowMs) {
+            const overshoot = Math.min(1, (reactionMs - reactionSlowMs) / reactionSlowMs);
+            reactionAdjust = -reactionMaxAdjust * overshoot;
+        }
+        if (nearMissAdjust < -0.05 && reactionAdjust < 0) {
+            reactionAdjust = 0;
+        }
+    }
+
     /* ---------- 综合 stress ---------- */
     const stressBreakdown = {
         scoreStress: applySignal(signalCfg, 'scoreStress', scoreStress),
@@ -709,6 +736,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         difficultyBias: applySignal(signalCfg, 'difficultyBias', difficultyBias),
         skillAdjust: applySignal(signalCfg, 'skillAdjust', skillAdjust),
         flowAdjust: applySignal(signalCfg, 'flowAdjust', flowAdjust),
+        reactionAdjust: applySignal(signalCfg, 'reactionAdjust', reactionAdjust),
         pacingAdjust: applySignal(signalCfg, 'pacingAdjust', pacingAdjust),
         recoveryAdjust: applySignal(signalCfg, 'recoveryAdjust', recoveryAdjust),
         frustrationRelief: applySignal(signalCfg, 'frustrationRelief', frustRelief),
