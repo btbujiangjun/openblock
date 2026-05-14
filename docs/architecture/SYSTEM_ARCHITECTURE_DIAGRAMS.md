@@ -169,7 +169,7 @@ flowchart LR
   commercialPolicy --> iapAdapter
   commercialPolicy --> offers
   bus ==> tasks
-  insightPanel <-- commercialModel
+  commercialModel --> insightPanel
 ```
 
 **解读**：`personalization` 是 Player ↔ Monetization 的桥；`adaptiveSpawn`
@@ -339,7 +339,7 @@ flowchart LR
   end
 
   subgraph routesMon["monetization_backend.py"]
-    monProfile["/api/mon/user-profile/<userId>"]
+    monProfile["/api/mon/user-profile/{userId}"]
     monAgg["/api/mon/aggregate"]
     monModel["/api/mon/model/config (GET/PUT)"]
     monLog["/api/mon/strategy/log"]
@@ -356,7 +356,7 @@ flowchart LR
     entComp["/api/compliance/{consent,export,delete}"]
   end
 
-  subgraph dbCore[("SQLite 核心表")]
+  subgraph dbCore["SQLite 核心表"]
     tSessions[("sessions<br/>+ attribution JSON")]
     tBehaviors[("behaviors")]
     tScores[("scores")]
@@ -366,7 +366,7 @@ flowchart LR
     tClient[("client_strategies")]
   end
 
-  subgraph dbMon[("商业化表")]
+  subgraph dbMon["商业化表"]
     tSeg[("mon_user_segments<br/>whale/dolphin/minnow")]
     tCfg[("mon_model_config")]
     tLog[("mon_strategy_log")]
