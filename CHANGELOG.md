@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 系统架构图与可复用生成 Prompt
+
+- 新增 [`docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md`](docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)：
+  6 张 Mermaid 架构图覆盖容器视图、L3 组件、MonetizationBus 事件总线、
+  出块 / RL 双轨、后端路由 + 持久化、四端同步与部署拓扑；每张图节点数控制
+  在 12–25 之间，前后置问题陈述与解读。
+- 新增 [`docs/architecture/ARCHITECTURE_DIAGRAM_PROMPT.md`](docs/architecture/ARCHITECTURE_DIAGRAM_PROMPT.md)：
+  可复用的"喂给大模型即生成完整架构图集合"的 prompt 模板，包含事实包、
+  设计原则、输出规格、Mermaid 编码约定、禁止红线与自检清单。
+- `server.py` 架构契约分类登记两份新文档；`docs/README.md` 跨模块架构契约
+  表同步增加两行。
+
 ### Changed — 文档中心结构重构（去除中间态表述、对齐代码事实）
 
 - 把 sprint / 路线图类文档移入 `docs/archive/`：

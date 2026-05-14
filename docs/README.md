@@ -68,8 +68,10 @@ docs/
 
 | 文档 | 核心问题 | 适合角色 |
 |------|----------|----------|
+| [系统架构图（6 张 Mermaid）](./architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md) | 容器 / 组件 / 事件总线 / 双轨算法 / 后端路由 / 部署拓扑 | 全角色 |
 | [MonetizationBus 事件契约](./architecture/MONETIZATION_EVENT_BUS_CONTRACT.md) | 商业化 / 生命周期 / 广告事件全集、payload、订阅方 | 架构、商业化、广告 |
 | [生命周期数据→策略分层](./architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md) | 数据层 + 编排层 + 策略层三段式架构与单向依赖约束 | 架构、商业化、留存 |
+| [架构图生成 Prompt](./architecture/ARCHITECTURE_DIAGRAM_PROMPT.md) | 重生成系统架构图的可复用 prompt 模板与事实包 | 架构、AI 协作 |
 
 ### 领域知识与产品方法论
 

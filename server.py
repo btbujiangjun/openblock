@@ -3331,8 +3331,10 @@ _DOC_CATEGORIES = [
         # 算法和商业化文档落地的设计基线，单独成栏便于架构 / SRE / 算法工程师索引。
         "name": "架构契约",
         "docs": [
+            "architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md",
             "architecture/MONETIZATION_EVENT_BUS_CONTRACT.md",
             "architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md",
+            "architecture/ARCHITECTURE_DIAGRAM_PROMPT.md",
         ],
     },
     {
