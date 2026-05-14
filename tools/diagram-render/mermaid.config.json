@@ -1,0 +1,12 @@
+{
+  "theme": "default",
+  "themeVariables": {
+    "fontFamily": "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+    "fontSize": "14px"
+  },
+  "flowchart": {
+    "useMaxWidth": true,
+    "htmlLabels": true,
+    "curve": "basis"
+  }
+}

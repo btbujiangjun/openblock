@@ -33,3 +33,7 @@ mobile/ios/**/*.xcuserdata/
 
 # v1.15: alembic local dev sqlite (CI uses :memory:)
 services/_alembic_dev.sqlite
+
+# mermaid CLI 渲染中间产物（mmd/svg/png 工作目录，可由源 markdown 重新生成）
+tools/diagram-render/work/
+tools/diagram-render/algo-work/

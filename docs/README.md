@@ -4,6 +4,16 @@
 > 在线查阅：[文档中心](http://localhost:5000/docs)（服务运行时可用）。
 > 根目录入口：[README.md](../README.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 
+![OpenBlock 业务架构：四支柱 + 共享数据源 + 统一生态](./architecture/assets/business-architecture.png)
+
+> **一图入门**：OpenBlock 由四大产品支柱（🎮 游戏引擎 · 🧠 自适应出块 AI ·
+> 🤖 强化学习训练 · 💰 商业化框架）通过共享数据源串成一个正反馈生态闭环。
+> 想要技术细节，先读
+> [系统架构图](./architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md#业务架构总览四支柱--统一生态)
+> 与
+> [算法架构图](./algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md)；
+> 想要落到代码与扩展点，看下面"角色导航"按角色入口。
+
 ## 如何阅读
 
 OpenBlock 不是单一小游戏代码库，而是一个 **休闲益智玩法 + 自适应出块 + 玩家画像 +
@@ -38,7 +48,7 @@ docs/
 | 角色 | 先读 | 再读 | 目标 |
 |------|------|------|------|
 | 产品 / 玩法策划 | [体验设计基石](./player/EXPERIENCE_DESIGN_FOUNDATIONS.md) → [领域知识](./domain/DOMAIN_KNOWLEDGE.md) → [休闲游戏品类分析](./domain/CASUAL_GAME_ANALYSIS.md) | [难度模式](./product/DIFFICULTY_MODES.md) → [彩蛋与惊喜](./product/EASTER_EGGS_AND_DELIGHT.md) → [策略定制指南](./engineering/STRATEGY_GUIDE.md) | 理解体验曲线、心流、奖励节奏与玩法可调面 |
-| 算法工程师 | [算法与模型手册](./algorithms/ALGORITHMS_HANDBOOK.md) → [四模型系统设计](./algorithms/MODEL_SYSTEMS_FOUR_MODELS.md) | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) → [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md) → [RL 手册](./algorithms/ALGORITHMS_RL.md) → [商业化模型架构设计](./algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md) | 统一符号、公式、模型结构、训练 / 推理链路 |
+| 算法工程师 | [算法架构图（六层 + 七子模型设计参考 + 8 子图）](./algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md) → [算法与模型手册](./algorithms/ALGORITHMS_HANDBOOK.md) → [四模型系统设计](./algorithms/MODEL_SYSTEMS_FOUR_MODELS.md) | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) → [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md) → [RL 手册](./algorithms/ALGORITHMS_RL.md) → [商业化模型架构设计](./algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md) | 统一符号、公式、模型结构、训练 / 推理链路 |
 | 架构 / 平台工程师 | [架构总览](../ARCHITECTURE.md) → [技术总览](./engineering/PROJECT.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → [Android / iOS 客户端外壳](./platform/MOBILE_CLIENTS.md) → [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) → [四端同步契约](./platform/SYNC_CONTRACT.md) | 理解模块边界、数据流、扩展接口与跨端同步 |
 | 运营 / 商业化 | [商业化系统全景](./operations/MONETIZATION.md) → [商业化系统综合报告](./operations/COMMERCIAL_STRATEGY_REVIEW.md) → [生命周期与成熟度蓝图](./operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [能力对照表](./operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) | 理解分群、触发策略、运营面板、KPI 与企业落地项 |
 | 测试 / QA | [测试指南](./engineering/TESTING.md) | [PROJECT 测试章节](./engineering/PROJECT.md#测试) → [RL 数值稳定](./algorithms/RL_TRAINING_NUMERICAL_STABILITY.md) → [训练看板趋势](./algorithms/RL_TRAINING_DASHBOARD_TRENDS.md) | 建立功能 / 算法 / 回归 / 数据一致性验证清单 |
@@ -68,10 +78,12 @@ docs/
 
 | 文档 | 核心问题 | 适合角色 |
 |------|----------|----------|
-| [系统架构图（6 张 Mermaid）](./architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md) | 容器 / 组件 / 事件总线 / 双轨算法 / 后端路由 / 部署拓扑 | 全角色 |
+| [系统架构图（业务架构 + 全栈分层 + 6 子图）](./architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md) | 业务四支柱 / 容器 / 组件 / 事件总线 / 双轨算法 / 后端路由 / 部署拓扑 | 全角色 |
+| [算法架构图（设计参考 + 紧凑概念图 + 8 子图）](./algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md) | 六层结构 + 七子模型 + 反馈闭环（设计参考） / 信号采集 + 算法核心 + 决策策略 + 训练监控（紧凑概念） | 算法、商业化、留存、新成员 |
 | [MonetizationBus 事件契约](./architecture/MONETIZATION_EVENT_BUS_CONTRACT.md) | 商业化 / 生命周期 / 广告事件全集、payload、订阅方 | 架构、商业化、广告 |
 | [生命周期数据→策略分层](./architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md) | 数据层 + 编排层 + 策略层三段式架构与单向依赖约束 | 架构、商业化、留存 |
-| [架构图生成 Prompt](./architecture/ARCHITECTURE_DIAGRAM_PROMPT.md) | 重生成系统架构图的可复用 prompt 模板与事实包 | 架构、AI 协作 |
+| [架构图生成 Prompt（系统侧）](./architecture/ARCHITECTURE_DIAGRAM_PROMPT.md) | 重生成系统架构图的可复用 prompt 模板与事实包 | 架构、AI 协作 |
+| [架构图生成 Prompt（算法侧）](./algorithms/ALGORITHM_DIAGRAM_PROMPT.md) | 重生成算法架构图的可复用 prompt 模板与事实包 | 算法、AI 协作 |
 
 ### 领域知识与产品方法论
 

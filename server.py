@@ -3316,6 +3316,8 @@ _DOC_CATEGORIES = [
     {
         "name": "算法与模型",
         "docs": [
+            "algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md",
+            "algorithms/ALGORITHM_DIAGRAM_PROMPT.md",
             "algorithms/ALGORITHMS_HANDBOOK.md",
             "algorithms/ALGORITHMS_SPAWN.md",
             "algorithms/ALGORITHMS_PLAYER_MODEL.md",
@@ -3327,14 +3329,18 @@ _DOC_CATEGORIES = [
         ],
     },
     {
-        # 架构契约：跨模块的事件总线、数据-策略分层、单向依赖约束。
-        # 算法和商业化文档落地的设计基线，单独成栏便于架构 / SRE / 算法工程师索引。
+        # 架构契约：跨模块的事件总线、数据-策略分层、单向依赖约束、系统/算法
+        # 架构图集与可复用生成 prompt。算法和商业化文档落地的设计基线，单独成
+        # 栏便于架构 / SRE / 算法工程师索引；图集允许跨栏出现（也保留在「算法
+        # 与模型」），从不同入口进入用户都能找到同一份事实。
         "name": "架构契约",
         "docs": [
             "architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md",
+            "algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md",
             "architecture/MONETIZATION_EVENT_BUS_CONTRACT.md",
             "architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md",
             "architecture/ARCHITECTURE_DIAGRAM_PROMPT.md",
+            "algorithms/ALGORITHM_DIAGRAM_PROMPT.md",
         ],
     },
     {
@@ -3572,6 +3578,65 @@ def docs_raw(filename):
         200,
         {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache"},
     )
+
+
+_DOC_ASSET_EXT_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+}
+
+
+@app.route("/docs/asset/<path:filename>")
+def docs_asset(filename):
+    """派发 docs/ 目录内的图片资源（README/architecture/etc 引用）。
+
+    仅允许图片扩展名，禁止路径穿越；前端 docs.html 会把 markdown 中的相对
+    路径（如 `./assets/architecture-overview.png`）按当前文档目录改写到此路由。
+
+    缓存策略：
+      - 用 ``ETag``（基于 mtime + size）做强协商缓存：文件不变时 304；
+        文件被替换/重命名/扩展名修正时 ETag 即变化，浏览器立即重新拉取。
+      - ``Cache-Control: public, max-age=60, must-revalidate``：短窗口
+        减少冷启动 RTT，但每次都会回源 If-None-Match，避免历史上扩展名
+        与 MIME 不一致那类失败响应被长时间钉死在浏览器/CDN。
+    """
+    import re
+
+    if ".." in filename or filename.startswith("/") or "\\" in filename:
+        return jsonify({"error": "invalid filename"}), 400
+    if not re.match(r"^[\w\-/\.]+$", filename, re.ASCII):
+        return jsonify({"error": "invalid filename"}), 400
+
+    suffix = Path(filename).suffix.lower()
+    mime = _DOC_ASSET_EXT_MIME.get(suffix)
+    if mime is None:
+        return jsonify({"error": "unsupported asset type"}), 400
+
+    base = _DOCS_DIR.resolve()
+    candidate = (base / filename).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return jsonify({"error": "path escapes docs root"}), 400
+    if not candidate.is_file():
+        return jsonify({"error": "not found"}), 404
+
+    stat = candidate.stat()
+    etag = f'W/"{int(stat.st_mtime)}-{stat.st_size}"'
+    headers = {
+        "Content-Type": mime,
+        "Cache-Control": "public, max-age=60, must-revalidate",
+        "ETag": etag,
+    }
+    inm = request.headers.get("If-None-Match", "")
+    if inm and etag in [t.strip() for t in inm.split(",")]:
+        return ("", 304, headers)
+
+    return (candidate.read_bytes(), 200, headers)
 
 
 def create_app():

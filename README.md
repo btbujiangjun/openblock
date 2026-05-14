@@ -9,6 +9,19 @@
 
 [English](#english) · [中文说明](#中文说明) · [文档中心](docs/README.md) · [架构文档](ARCHITECTURE.md) · [二次开发](./docs/engineering/DEV_GUIDE.md)
 
+![OpenBlock Business Architecture: Casual Puzzle + Adaptive AI + RL + Monetization Framework](docs/architecture/assets/business-architecture.png)
+
+> **Business Architecture Overview** — OpenBlock as four product pillars
+> (Games Engine · Adaptive Spawning AI · Reinforcement Learning Trainer ·
+> Monetization Framework) connected through a Shared Data Source forming a
+> Unified Ecosystem feedback loop. For technical depth, see
+> [System Architecture Diagrams](docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)
+> and [Algorithm Architecture Diagrams](docs/algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md).
+>
+> **业务架构总览** — OpenBlock 由四大产品支柱（游戏引擎 · 自适应出块 AI ·
+> 强化学习训练 · 商业化框架）通过共享数据源串成一个正反馈生态闭环。
+> 技术细节请见上述系统架构图与算法架构图。
+
 ---
 
 ## English

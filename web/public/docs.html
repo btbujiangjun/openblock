@@ -34,7 +34,33 @@
       sequence: { useMaxWidth: true },
       themeVariables: { fontFamily: 'inherit', fontSize: '14px' }
     });
+    // ELK 布局加载器：嵌套 subgraph 的 `direction LR` dagre 默认实现不可靠，
+    // 需要 ELK 才能正确渲染分层架构图（架构总览图通过 `config: layout: elk` 启用）。
+    // 优先 esm.sh（动态 import 在跨域时最稳），失败再退 jsdelivr `+esm`，
+    // 都失败时静默回退 dagre，不阻塞其他图。
+    const ELK_SOURCES = [
+      'https://esm.sh/@mermaid-js/layout-elk@0.2',
+      'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.2/+esm',
+    ];
+    let elkRegistered = false;
+    for (const src of ELK_SOURCES) {
+      try {
+        const elkMod = await import(src);
+        if (elkMod && elkMod.default && typeof mermaid.registerLayoutLoaders === 'function') {
+          mermaid.registerLayoutLoaders(elkMod.default);
+          elkRegistered = true;
+          console.log('[mermaid] ELK 布局已注册 ←', src);
+          break;
+        }
+      } catch (e) {
+        console.warn('[mermaid] ELK 加载失败 ←', src, '|', e && e.message ? e.message : e);
+      }
+    }
+    if (!elkRegistered) {
+      console.warn('[mermaid] ELK 布局全部源不可用，已回退默认 dagre 渲染器');
+    }
     window.mermaid = mermaid;
+    window._mermaidElkReady = elkRegistered;
   </script>
 
   <style>
@@ -329,6 +355,110 @@
     }
     .back-btn:hover { text-decoration: underline; }
 
+    /* ─── 图片 / Mermaid 点击放大（Lightbox） ─── */
+    .md-body img.zoomable,
+    .md-body .mermaid svg { cursor: zoom-in; transition: filter .15s; }
+    .md-body img.zoomable:hover,
+    .md-body .mermaid:hover svg { filter: brightness(1.05) drop-shadow(0 2px 8px rgba(0,0,0,.08)); }
+    /* ─── 图片加载失败占位条（onerror 自愈仍失败时显示）─── */
+    .md-body .img-load-error {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 12px 16px; margin: 12px 0;
+      border: 1px dashed #f97316; border-radius: 8px;
+      background: #fff7ed; color: #9a3412; font-size: 14px;
+    }
+    .md-body .img-load-error strong { color: #c2410c; }
+    .md-body .img-load-error a { color: #1d4ed8; text-decoration: underline; word-break: break-all; }
+    .md-body .img-load-error .ile-url {
+      font-size: 12px; color: #57534e; background: #fef3c7; padding: 4px 8px;
+      border-radius: 4px; word-break: break-all; cursor: copy; user-select: all;
+    }
+    .md-body .img-load-error .ile-meta { font-size: 12px; color: #78716c; }
+    .md-body .img-load-error .ile-meta code {
+      background: #fef3c7; padding: 1px 6px; border-radius: 3px;
+    }
+    .md-body .img-load-error .ile-actions { display: flex; gap: 8px; margin-top: 4px; }
+    .md-body .img-load-error .ile-diag {
+      cursor: pointer; padding: 4px 12px; font-size: 12px;
+      border: 1px solid #f97316; background: #fff7ed; color: #c2410c;
+      border-radius: 4px; font-family: inherit;
+    }
+    .md-body .img-load-error .ile-diag:hover { background: #fed7aa; }
+    .md-body .img-load-error .ile-diag-out {
+      font-size: 11px; line-height: 1.5; padding: 8px 12px; margin: 4px 0 0 0;
+      background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px;
+      color: #44403c; white-space: pre-wrap; word-break: break-all;
+      max-height: 240px; overflow: auto;
+    }
+    .lightbox {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(15, 17, 23, .92);
+      display: none;
+      flex-direction: column;
+      backdrop-filter: blur(2px);
+      animation: lb-fade .15s ease-out;
+    }
+    .lightbox.open { display: flex; }
+    @keyframes lb-fade { from { opacity: 0; } to { opacity: 1; } }
+    .lightbox-toolbar {
+      flex: 0 0 auto;
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 16px;
+      background: rgba(0, 0, 0, .35);
+      color: #fff;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+    }
+    .lightbox-title {
+      flex: 1 1 auto; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: #d0d4dc;
+    }
+    .lightbox-zoom {
+      flex: 0 0 auto;
+      color: #9aa3b2; font-variant-numeric: tabular-nums;
+      min-width: 56px; text-align: right;
+    }
+    .lightbox-btn {
+      flex: 0 0 auto;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 32px; height: 32px; padding: 0 10px;
+      background: rgba(255, 255, 255, .08);
+      color: #fff; border: 1px solid rgba(255, 255, 255, .15);
+      border-radius: 6px; cursor: pointer; text-decoration: none;
+      font-size: 13px; line-height: 1;
+      transition: background .12s, border-color .12s;
+    }
+    .lightbox-btn:hover { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .3); }
+    .lightbox-btn[data-action="close"] { background: rgba(220, 60, 60, .25); border-color: rgba(220, 60, 60, .5); }
+    .lightbox-btn[data-action="close"]:hover { background: rgba(220, 60, 60, .45); }
+    .lightbox-stage {
+      flex: 1 1 auto;
+      overflow: auto;
+      padding: 16px;
+      cursor: grab;
+      /* 用 grid 居中而非 flex：grid 的 place-items 在子元素超过容器时仍能正确滚动到全部内容 */
+      display: grid;
+      place-items: center;
+    }
+    .lightbox-stage.is-panning { cursor: grabbing; }
+    .lightbox-canvas {
+      display: inline-block;
+      background: #fff;
+      border-radius: 4px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, .4);
+      user-select: none;
+      -webkit-user-drag: none;
+      line-height: 0; /* 消除 inline 元素行高造成的底部空隙 */
+    }
+    .lightbox-canvas img,
+    .lightbox-canvas svg { display: block; max-width: none; height: auto; }
+    @media (max-width: 600px) {
+      .lightbox-toolbar { flex-wrap: wrap; padding: 8px 10px; gap: 4px; }
+      .lightbox-title { flex: 1 0 100%; order: -1; margin-bottom: 4px; }
+      .lightbox-btn { min-width: 28px; height: 28px; padding: 0 6px; font-size: 12px; }
+    }
+
     /* ─── 响应式 ─── */
     @media (max-width: 768px) {
       :root { --sidebar-w: 220px; }
@@ -486,7 +616,18 @@
 
   // ─── 渲染 DOM 中所有待渲染的 Mermaid 图 ───
   // mermaid 以 ES module import，window.mermaid 可能尚未就绪；轮询等待最多 10s。
-  // 失败时降级为 <pre> 显示原始源码，不阻塞页面。
+  // 单图渲染加 15s 硬超时（防 ELK 懒加载链卡死），超时即降级为 <pre> 显示
+  // 原始源码与错误信息，不阻塞页面。
+  function renderWithTimeout(id, source, ms) {
+    return Promise.race([
+      window.mermaid.render(id, source),
+      new Promise(function(_, reject) {
+        setTimeout(function() {
+          reject(new Error('render timeout after ' + ms + 'ms (检查 Console: ELK 是否加载成功)'));
+        }, ms);
+      }),
+    ]);
+  }
   async function renderPendingMermaid(container) {
     const els = Array.from(container.querySelectorAll('.mermaid-pending'));
     if (!els.length) return;
@@ -497,11 +638,18 @@
         const source = el.textContent;
         const id = 'mmd-' + Math.random().toString(36).slice(2, 10);
         try {
-          const { svg } = await window.mermaid.render(id, source);
+          const { svg } = await renderWithTimeout(id, source, 15000);
           const wrapper = document.createElement('div');
           wrapper.className = 'mermaid';
           wrapper.innerHTML = svg;
           el.replaceWith(wrapper);
+          // 为 mermaid SVG 绑定点击放大（lightbox 内按 SVG 原始 viewBox 渲染，矢量无损）
+          const svgEl = wrapper.querySelector('svg');
+          if (svgEl) {
+            svgEl.addEventListener('click', () => {
+              openLightbox({ svg: svgEl.outerHTML, alt: 'Mermaid 图表', kind: 'svg' });
+            });
+          }
         } catch (e) {
           const pre = document.createElement('pre');
           pre.className = 'mermaid-error';
@@ -537,6 +685,237 @@
     }, 100);
   }
 
+  // ─── 图片 / Mermaid 点击放大（Lightbox） ───
+  // 解决：静态 PNG 截图随容器宽自适应缩放后看不清细节；mermaid SVG 在窄屏被压缩到不可读。
+  // 方案：单例全屏遮罩 + 缩放/平移/原始尺寸/适应屏幕/新窗口打开/Esc 关闭。
+  //   - PNG 用原始 src 打开（浏览器按图像位图加载，缩放到 100% 即接近 1:1 像素）
+  //   - SVG 直接克隆 outerHTML 进 lightbox-canvas，矢量缩放无损
+  //   - 缩放：toolbar +/− 按钮（×1.25 / ÷1.25）/ Ctrl+滚轮 / 双击切换 fit↔1:1
+  //   - 平移：拖拽（mousedown→mousemove），适合放大后定位细节
+  //   - 键盘：Esc 关闭，0/F=fit，1=1:1，+/=放大，-缩小
+  let _lb = null;
+  let _lbState = {
+    kind: 'img',          // 'img' | 'svg'
+    naturalW: 0,          // 内容原始宽（px 或 viewBox.width）
+    zoom: 1,              // 当前显示比例（1 = 1:1）
+    fitZoom: 1,           // 适应屏幕的比例
+    dragging: false,
+    sx: 0, sy: 0,         // 拖拽起点
+    dx: 0, dy: 0          // 拖拽起点 stage 的 scrollLeft/Top
+  };
+
+  function _ensureLightbox() {
+    if (_lb) return _lb;
+    _lb = document.createElement('div');
+    _lb.className = 'lightbox';
+    _lb.innerHTML = ''
+      + '<div class="lightbox-toolbar">'
+      +   '<span class="lightbox-title"></span>'
+      +   '<span class="lightbox-zoom"></span>'
+      +   '<button class="lightbox-btn" data-action="fit" title="适应屏幕 (F / 0)">⤢</button>'
+      +   '<button class="lightbox-btn" data-action="actual" title="原始尺寸 (1)">1:1</button>'
+      +   '<button class="lightbox-btn" data-action="zoom-out" title="缩小 (-)">−</button>'
+      +   '<button class="lightbox-btn" data-action="zoom-in" title="放大 (+)">＋</button>'
+      +   '<a class="lightbox-btn" data-action="open" target="_blank" rel="noopener" title="新标签打开">↗</a>'
+      +   '<button class="lightbox-btn" data-action="close" title="关闭 (Esc)">✕</button>'
+      + '</div>'
+      + '<div class="lightbox-stage"><div class="lightbox-canvas"></div></div>';
+    document.body.appendChild(_lb);
+
+    const stage = _lb.querySelector('.lightbox-stage');
+    const canvas = _lb.querySelector('.lightbox-canvas');
+
+    _lb.addEventListener('click', (e) => {
+      const action = e.target.closest('[data-action]')?.getAttribute('data-action');
+      if (action) { _lbAction(action); return; }
+      if (e.target === _lb || e.target === stage) closeLightbox();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (!_lb || !_lb.classList.contains('open')) return;
+      const k = e.key;
+      if (k === 'Escape') { closeLightbox(); e.preventDefault(); }
+      else if (k === '+' || k === '=') { _lbAction('zoom-in'); e.preventDefault(); }
+      else if (k === '-' || k === '_') { _lbAction('zoom-out'); e.preventDefault(); }
+      else if (k === '0' || k === 'f' || k === 'F') { _lbAction('fit'); e.preventDefault(); }
+      else if (k === '1') { _lbAction('actual'); e.preventDefault(); }
+    });
+
+    stage.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      _lbAction(e.deltaY < 0 ? 'zoom-in' : 'zoom-out');
+    }, { passive: false });
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      _lbState.dragging = true;
+      _lbState.sx = e.clientX; _lbState.sy = e.clientY;
+      _lbState.dx = stage.scrollLeft; _lbState.dy = stage.scrollTop;
+      stage.classList.add('is-panning');
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!_lbState.dragging) return;
+      stage.scrollLeft = _lbState.dx - (e.clientX - _lbState.sx);
+      stage.scrollTop  = _lbState.dy - (e.clientY - _lbState.sy);
+    });
+    window.addEventListener('mouseup', () => {
+      if (!_lbState.dragging) return;
+      _lbState.dragging = false;
+      stage.classList.remove('is-panning');
+    });
+    canvas.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      _lbAction(Math.abs(_lbState.zoom - _lbState.fitZoom) < 0.02 ? 'actual' : 'fit');
+    });
+
+    return _lb;
+  }
+
+  function _applyLbZoom() {
+    if (!_lb || !_lbState.naturalW) return;
+    const target = _lb.querySelector('.lightbox-canvas img, .lightbox-canvas svg');
+    if (!target) return;
+    const w = Math.max(1, Math.round(_lbState.naturalW * _lbState.zoom));
+    target.style.width = w + 'px';
+    target.removeAttribute('height'); // 让浏览器按 aspect ratio 自适应高度
+    target.style.height = 'auto';
+    _lb.querySelector('.lightbox-zoom').textContent = `${Math.round(_lbState.zoom * 100)}%`;
+  }
+
+  function _measureFitZoom() {
+    if (!_lb || !_lbState.naturalW) return 1;
+    const stage = _lb.querySelector('.lightbox-stage');
+    const target = _lb.querySelector('.lightbox-canvas img, .lightbox-canvas svg');
+    if (!target) return 1;
+    const sw = stage.clientWidth - 32;
+    const sh = stage.clientHeight - 32;
+    if (sw <= 0 || sh <= 0) return 1;
+    // 按内容原始宽计算 fit；高度根据 aspect ratio 推导
+    const naturalH = _lbState.naturalH || (_lbState.naturalW * (target.naturalHeight || 1) / (target.naturalWidth || 1));
+    const wRatio = sw / _lbState.naturalW;
+    const hRatio = sh / naturalH;
+    return Math.max(0.05, Math.min(1, Math.min(wRatio, hRatio)));
+  }
+
+  function _lbAction(action) {
+    if (!_lb) return;
+    if (action === 'close') return closeLightbox();
+    if (action === 'open') return; // <a target=_blank> 自身处理
+    if (action === 'fit') _lbState.zoom = _lbState.fitZoom;
+    else if (action === 'actual') _lbState.zoom = 1;
+    else if (action === 'zoom-in') _lbState.zoom = Math.min(8, _lbState.zoom * 1.25);
+    else if (action === 'zoom-out') _lbState.zoom = Math.max(0.05, _lbState.zoom / 1.25);
+    _applyLbZoom();
+  }
+
+  function openLightbox({ src, svg, alt, kind }) {
+    const lb = _ensureLightbox();
+    const canvas = lb.querySelector('.lightbox-canvas');
+    const openBtn = lb.querySelector('[data-action="open"]');
+    lb.querySelector('.lightbox-title').textContent = alt || (src ? src.split('/').pop() : 'Diagram');
+
+    canvas.innerHTML = '';
+    _lbState.kind = kind;
+    _lbState.naturalW = 0;
+    _lbState.naturalH = 0;
+    _lbState.zoom = 1;
+    _lbState.fitZoom = 1;
+
+    function _refit() {
+      _lbState.fitZoom = _measureFitZoom();
+      _lbState.zoom = _lbState.fitZoom;
+      _applyLbZoom();
+    }
+
+    if (kind === 'svg' && svg) {
+      canvas.innerHTML = svg;
+      const svgEl = canvas.querySelector('svg');
+      if (svgEl) {
+        // 清掉 mermaid 设的 max-width/style，让我们能按 viewBox 自由控制宽度
+        svgEl.removeAttribute('style');
+        const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
+        const w = (vb && vb.width) || svgEl.getBBox?.().width || 800;
+        const h = (vb && vb.height) || svgEl.getBBox?.().height || 600;
+        _lbState.naturalW = w;
+        _lbState.naturalH = h;
+        // 确保 SVG 用 viewBox 而不是固定 width/height 限制缩放
+        if (!svgEl.getAttribute('viewBox') && w && h) {
+          svgEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        }
+        svgEl.removeAttribute('width');
+        svgEl.removeAttribute('height');
+        svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      }
+      openBtn.style.display = 'none';
+      lb.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      requestAnimationFrame(_refit);
+    } else {
+      const img = document.createElement('img');
+      img.alt = alt || '';
+      img.draggable = false;
+      canvas.appendChild(img);
+      openBtn.href = src;
+      openBtn.style.display = '';
+      lb.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      img.addEventListener('load', () => {
+        _lbState.naturalW = img.naturalWidth;
+        _lbState.naturalH = img.naturalHeight;
+        _refit();
+      }, { once: true });
+      img.src = src;
+    }
+  }
+
+  function closeLightbox() {
+    if (!_lb) return;
+    _lb.classList.remove('open');
+    document.body.style.overflow = '';
+    const canvas = _lb.querySelector('.lightbox-canvas');
+    canvas.innerHTML = '';
+  }
+
+  // 暴露给手动场景使用（暂未用到，留扩展位）
+  window.__openLightbox = openLightbox;
+  window.__closeLightbox = closeLightbox;
+
+  // ─── 文档相对路径解析 ───
+  //   currentDir: 当前文档所在的 docs 内目录（如 'architecture'，根目录传 ''）
+  //   href:       markdown 中写的相对路径（如 '../algorithms/X.md' / './Y.md' / 'Z.md'）
+  //   返回：以 docs/ 为根的标准化相对路径（如 'algorithms/X.md'）。
+  // 用纯 split/stack 实现而非 `new URL(href, base)`，避免引入虚假 origin
+  // 和对 file:/// 等场景的兼容坑。
+  function _resolveDocPath(currentDir, href) {
+    const stack = currentDir ? currentDir.split('/').filter(Boolean) : [];
+    for (const seg of href.split('/')) {
+      if (seg === '' || seg === '.') continue;
+      if (seg === '..') { stack.pop(); continue; }
+      stack.push(seg);
+    }
+    return stack.join('/');
+  }
+
+  // 在 _categories 中按 basename 反查完整 docs 内路径（兜底裸 filename）
+  function _findDocByBasename(basename) {
+    if (!basename || !Array.isArray(_categories)) return null;
+    for (const cat of _categories) {
+      const lists = [cat.docs || []];
+      for (const g of (cat.groups || [])) lists.push(g.docs || []);
+      for (const list of lists) {
+        for (const d of list) {
+          if (!d || !d.file) continue;
+          if (d.file === basename) return d.file;
+          const tail = d.file.split('/').pop();
+          if (tail === basename) return d.file;
+        }
+      }
+    }
+    return null;
+  }
+
   // ─── 渲染后处理：标题加 id + 链接分类修正 ───
   // 之所以用 DOM 后处理而非 renderer.link/heading：
   //   marked v12 在 marked.use({ renderer: instance }) 下
@@ -554,18 +933,106 @@
       if (id) el.id = id;
     });
 
-    // 2. 修正所有链接
+    // 2. 修正所有相对路径图片：./assets/x.png → /docs/asset/<currentDocDir>/assets/x.png
+    //    供 markdown 中 ![alt](./assets/x.png) 在门户内正确加载（GitHub 上仍按相对路径渲染）
+    //    同时：
+    //      · 加 .zoomable + 点击放大（lightbox），解决静态截图缩放后的清晰度问题
+    //      · 加 onerror 自动 cache-busting 重试一次（防御浏览器缓存了历史失败响应，
+    //        如曾经出现过的 architecture-overview.png 扩展名/MIME 不一致死锁）
+    //      · 重试仍失败则在原位渲染醒目错误条，含 URL 与 HTTP 状态，方便用户上报
+    const currentDir = (_current || '').includes('/')
+      ? _current.slice(0, _current.lastIndexOf('/'))
+      : '';
+    container.querySelectorAll('img[src]').forEach(el => {
+      const src = el.getAttribute('src') || '';
+      if (!/^(?:https?:|data:|blob:|\/)/.test(src)) {
+        const clean = src.replace(/^\.\//, '');
+        const resolved = currentDir ? `${currentDir}/${clean}` : clean;
+        el.setAttribute('src', `${API_BASE}/docs/asset/${resolved}`);
+      }
+      el.setAttribute('loading', 'lazy');
+      el.classList.add('zoomable');
+
+      // onerror 自愈：先尝试 cache-busting 一次，仍失败再回退到错误占位
+      el.addEventListener('error', function onErr() {
+        if (el.dataset.lbRetried === '1') {
+          // 已重试仍失败：换成醒目的错误占位条 + 完整诊断（明文 URL +
+          // 当前 origin + "运行诊断"按钮，按钮会跑 fetch 并把状态码 / 响应
+          // 头 / 前 80 字节贴回页面，便于用户截图上报，免去开 DevTools）
+          const failedUrl = el.src;
+          const escAttr = s => String(s).replace(/[<>&"']/g, c =>
+            ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+          const placeholder = document.createElement('div');
+          placeholder.className = 'img-load-error';
+          placeholder.innerHTML = `
+            <strong>图片加载失败</strong>
+            <span class="ile-alt">${escAttr(el.alt || '')}</span>
+            <code class="ile-url" title="点击复制">${escAttr(failedUrl)}</code>
+            <span class="ile-meta">page origin: <code>${escAttr(location.origin)}</code> · API_BASE: <code>${escAttr(API_BASE || '(empty / same-origin)')}</code></span>
+            <div class="ile-actions">
+              <a href="${escAttr(failedUrl)}" target="_blank" rel="noopener">直接打开 ↗</a>
+              <button type="button" class="ile-diag">运行诊断</button>
+            </div>
+            <pre class="ile-diag-out" hidden></pre>`;
+          el.replaceWith(placeholder);
+          console.warn('[docs] image load failed:', failedUrl);
+
+          placeholder.querySelector('.ile-url').addEventListener('click', () => {
+            navigator.clipboard?.writeText(failedUrl).catch(() => {});
+          });
+          placeholder.querySelector('.ile-diag').addEventListener('click', async () => {
+            const out = placeholder.querySelector('.ile-diag-out');
+            out.hidden = false;
+            out.textContent = '诊断中…';
+            const lines = [];
+            // 同 origin 直接 fetch + 候选 :5000 fetch（如 origin 不是 :5000）
+            const targets = [failedUrl];
+            try {
+              const u = new URL(failedUrl, location.href);
+              const altOrigin = 'http://' + u.hostname + ':5000';
+              if (u.origin !== altOrigin) targets.push(altOrigin + u.pathname + u.search);
+            } catch {}
+            for (const t of targets) {
+              try {
+                const r = await fetch(t, { cache: 'no-store' });
+                const ct = r.headers.get('content-type') || '(none)';
+                const cl = r.headers.get('content-length') || '?';
+                const buf = await r.clone().arrayBuffer();
+                const head = Array.from(new Uint8Array(buf).slice(0, 8))
+                  .map(b => b.toString(16).padStart(2, '0')).join(' ');
+                lines.push(`[${r.status}] ${t}\n  Content-Type: ${ct}\n  Content-Length: ${cl}\n  body[0..8]: ${head}`);
+              } catch (err) {
+                lines.push(`[ERR] ${t}\n  ${err.name}: ${err.message}`);
+              }
+            }
+            out.textContent = lines.join('\n\n');
+          });
+          return;
+        }
+        el.dataset.lbRetried = '1';
+        const sep = el.src.includes('?') ? '&' : '?';
+        const next = `${el.src}${sep}_t=${Date.now()}`;
+        console.info('[docs] image retry with cache-bust:', next);
+        el.src = next;
+      }, { once: false });
+
+      el.addEventListener('click', () => {
+        openLightbox({ src: el.currentSrc || el.src, alt: el.alt || '', kind: 'img' });
+      });
+    });
+
+    // 3. 修正所有链接
     container.querySelectorAll('a[href]').forEach(el => {
       const href = el.getAttribute('href') || '';
 
-      // 2a. 外部链接 → 新标签页打开
+      // 3a. 外部链接 → 新标签页打开
       if (/^https?:\/\//.test(href)) {
         el.setAttribute('target', '_blank');
         el.setAttribute('rel', 'noopener');
         return;
       }
 
-      // 2b. 页内锚点 (#xxx) → 平滑滚动，不触发 hashchange
+      // 3b. 页内锚点 (#xxx) → 平滑滚动，不触发 hashchange
       if (href.startsWith('#')) {
         const anchor = decodeURIComponent(href.slice(1));
         el.setAttribute('href', 'javascript:void(0)');
@@ -573,21 +1040,27 @@
         return;
       }
 
-      // 2c. Markdown 文档链接 (*.md 或 *.md#section) → 门户内导航
+      // 3c. Markdown 文档链接 (*.md 或 *.md#section) → 门户内导航
+      //
+      //  ⚠️ 关键 bug 修复（2026-05）：旧实现 `filePart.split('/').pop()` 会把
+      //     `../algorithms/ALGORITHMS_RL.md` 砍成 `ALGORITHMS_RL.md`，导致
+      //     `_current` 丢失目录前缀，进而让该文档内所有相对路径图片
+      //     `./assets/x.jpg` 拼成 `/docs/asset/assets/x.jpg`（缺中间目录）
+      //     —— 整页破图。改为基于当前文档目录正确 resolve 出完整 docs 内路径。
       if (href.includes('.md')) {
         const hashIdx = href.indexOf('#');
         const filePart   = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
         const anchorPart = hashIdx >= 0 ? href.slice(hashIdx + 1) : '';
-        const filename   = filePart.split('/').pop(); // 只取文件名
-        if (!filename.endsWith('.md')) return;
+        if (!filePart.endsWith('.md')) return;
 
+        const resolved = _resolveDocPath(currentDir, filePart);
         el.setAttribute('href', 'javascript:void(0)');
-        el.setAttribute('data-file', filename);
+        el.setAttribute('data-file', resolved);
         if (anchorPart) el.setAttribute('data-anchor', anchorPart);
 
         el.addEventListener('click', e => {
           e.preventDefault();
-          openDoc(filename, anchorPart || undefined);
+          openDoc(resolved, anchorPart || undefined);
         });
         return;
       }
@@ -703,6 +1176,16 @@
 
   // ─── 打开文档 ───
   async function openDoc(filename, scrollToAnchor) {
+    // 兜底：如果传入的是裸文件名（历史 hash / 旧书签 / 第三方链接），
+    // 从 _categories 反查完整的 docs 内路径，避免 _current 缺目录前缀
+    // 导致后续图片相对路径全部拼错。
+    if (filename && !filename.includes('/')) {
+      const found = _findDocByBasename(filename);
+      if (found && found !== filename) {
+        console.info('[docs] resolved bare filename', filename, '→', found);
+        filename = found;
+      }
+    }
     _current = filename;
     // 只在 hash 不同时更新，避免页内锚点触发多余的 hashchange
     if (location.hash !== '#' + filename) location.hash = filename;

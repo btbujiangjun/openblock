@@ -79,11 +79,13 @@ export default {
         strictPort: true,
         open: true,
         proxy: {
-            // 文档 API（/docs/list、/docs/raw/*）→ Flask 后端
-            '/docs/list': { target: apiOrigin, changeOrigin: true },
-            '/docs/raw':  { target: apiOrigin, changeOrigin: true },
-            // 其余 /api/* 也透传（保持与原有行为一致）
-            '/api':       { target: apiOrigin, changeOrigin: true },
+            // 文档 API（/docs/list、/docs/raw/*、/docs/asset/*）→ Flask 后端
+            // 注意：/docs/asset/* 必须代理，否则 markdown 内嵌图片在 vite dev
+            //   下会被 SPA fallback 吃掉，浏览器把 HTML 当 image 解析 → 破图
+            '/docs/list':  { target: apiOrigin, changeOrigin: true },
+            '/docs/raw':   { target: apiOrigin, changeOrigin: true },
+            '/docs/asset': { target: apiOrigin, changeOrigin: true },
+            '/api':        { target: apiOrigin, changeOrigin: true },
         }
     }
 };

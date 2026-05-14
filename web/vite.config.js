@@ -17,9 +17,10 @@ export default {
         strictPort: true,
         open: true,
         proxy: {
-            '/docs/list': { target: apiOrigin, changeOrigin: true },
-            '/docs/raw':  { target: apiOrigin, changeOrigin: true },
-            '/api':       { target: apiOrigin, changeOrigin: true },
+            '/docs/list':  { target: apiOrigin, changeOrigin: true },
+            '/docs/raw':   { target: apiOrigin, changeOrigin: true },
+            '/docs/asset': { target: apiOrigin, changeOrigin: true },
+            '/api':        { target: apiOrigin, changeOrigin: true },
         },
     },
 };

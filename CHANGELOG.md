@@ -7,15 +7,454 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 9 张图全部渲染失败 / 法棍布局
+
+**用户反馈**：浏览器在文档门户中渲染算法架构图时多张报错
+`render timeout after 15000ms (检查 Console: ELK 是否加载成功)`，且即使
+渲染成功的图也呈现"竖直法棍"形态（宽 < 高，需要纵向滚动数屏才能看完）。
+
+**根因诊断**（本地 `mmdc` 复现 + viewBox 测量）：
+
+1. **algo-01（视图 B）强制 `layout: elk`**：浏览器从 jsdelivr/esm.sh 加载
+   `@mermaid-js/layout-elk` 时 CDN 抖动叠加 ELK 自身算法耗时，触发 15s
+   超时。本地 mmdc 也要 16-20s。
+2. **algo-02 用 `switch` 作节点 ID + classDef 同名**：`switch` 是 JS 保留字，
+   mermaid 11 lexer 在分支语法歧义时进入潜在死循环（本地 mmdc 也卡到被
+   90s perl harness kill）。
+3. **algo-03 用 `IN` 作 subgraph ID + 节点标签含括号 `()`/竖线 `|`**：
+   类似根因，`|` 在 mermaid 边标签里有特殊语义，与 `[]` 节点混用引发
+   解析歧义，浏览器静默卡死直到 15s 超时。
+4. **9 张图统一是 `flowchart TB` + 嵌套 `subgraph direction LR/TB`**：
+   mermaid 11 dagre 对嵌套 direction 的支持不可靠，结果是数据流向纵向、
+   每个 subgraph 自身又是 TB → 整体宽高比 0.18-0.53（视图 B 0.28、
+   图 4 0.18、图 7 0.53）。
+
+**测量数据（修复前 9 张本地 mmdc viewBox）**：
+
+| 图 | 类型 | viewBox | 宽高比 |
+|---|---|---|---|
+| algo-01 视图 B | flowchart TB + ELK | 559 × 2026 | 0.28 法棍 |
+| algo-02 出块双轨 | flowchart TB | 90s 超时 | — |
+| algo-03 SpawnV3 | flowchart TB | 90s 超时 | — |
+| algo-04 RL 训练 | flowchart TB | 811 × 2221 | 0.37 法棍 |
+| algo-05 玩家画像 | flowchart TB | 404 × 2208 | 0.18 极纵 |
+| algo-06 商业化决策 | flowchart TB | 1286 × 1546 | 0.83 |
+| algo-07 ML scaffold | flowchart TB | 2550 × 1111 | 2.30 |
+| algo-08 决策管线 | flowchart TB | 1030 × 1948 | 0.53 法棍 |
+| algo-09 生命周期 | flowchart TB | 1558 × 1127 | 1.38 |
+
+**修复策略**（按 `SYSTEM_ARCHITECTURE_DIAGRAMS.md` 视图 B 的成功模板分类）：
+
+| 类型 | 适用图 | 渲染方案 |
+|---|---|---|
+| 结构图（无复杂内部流向） | algo-01 / 03 / 05 / 09 | mermaid 11 `block-beta` 网格（不依赖 ELK CDN，箭头流向用文字补述） |
+| 流水线 / 决策图（有真流向） | algo-02 / 04 / 06 / 07 / 08 | `flowchart LR`（横向主轴），subgraph 内 `direction TB`，避免嵌套 direction 歧义；节点 ID 重命名（去掉 `switch` / `IN` 等关键字与括号嵌套标签） |
+
+**测量数据（修复后 9 张本地 mmdc viewBox）**：
+
+| 图 | 渲染方案 | viewBox | 宽高比 |
+|---|---|---|---|
+| algo-01 视图 B | block-beta | 1057 × 347 | **3.05** ✓ |
+| algo-02 出块双轨 | flowchart LR | 2079 × 482 | 4.31 |
+| algo-03 SpawnV3 | block-beta | 1026 × 347 | **2.96** ✓ |
+| algo-04 RL 训练 | flowchart LR | 2893 × 484 | 5.97 |
+| algo-05 玩家画像 | block-beta | 1093 × 274 | **3.99** ✓ |
+| algo-06 商业化决策 | flowchart LR | 2519 × 472 | 5.34 |
+| algo-07 ML scaffold | flowchart LR | 3194 × 806 | **3.96** ✓ |
+| algo-08 决策管线 | flowchart LR | 2129 × 792 | **2.69** ✓ |
+| algo-09 生命周期 | block-beta | 1013 × 397 | **2.55** ✓ |
+
+9/9 全部从"法棍纵向（0.18-0.99）"翻转到"横向紧凑（2.55-5.97）"，
+浏览器中容器宽 1200px → 图高 200-470px，一屏可见无需滚动；点击放大
+（lightbox）可在原始 viewBox 下逐节点查看细节。
+
+**lessons learned（与 SYSTEM 文档已记录的经验一致）**：
+
+1. **mermaid 节点 / subgraph ID 严禁使用 JS / SQL 保留字**（`switch`、`IN`、
+   `case`、`for`、`from`、`select` 等），否则 lexer 静默卡死无错误信息。
+2. **节点标签里避免裸括号 `(...)` 和竖线 `|`**：即使在 `["..."]` 引号包裹
+   下也可能引发解析歧义（mermaid lexer 多次回退）；用 `<br/>` 折行或换
+   ASCII 友好符号（`·` / `_` / `→`）。
+3. **嵌套 `subgraph direction LR/TB` 不可靠**：mermaid 11 dagre 经常忽略
+   inner direction，结果总是被外层方向覆盖。可靠做法：
+   - 结构图（无内部箭头）→ `block-beta` 网格（精确控制 columns）
+   - 流水线图（有箭头）→ 主图 `flowchart LR`，subgraph 内不嵌套 direction
+4. **强制 `layout: elk` 是浏览器超时的高危项**：ELK CDN 加载（esm.sh /
+   jsdelivr）+ ELK 算法本身都不快，`docs.html` 已设 15s 硬超时。
+   能用 `block-beta` 替代时优先 `block-beta`。
+5. **block-beta 不支持箭头但可补救**：流向 / 反馈环写在图下方"流向 /
+   反馈环"小节文字补述；垂直堆叠的层本身已隐含主流向。
+
+### Changed — 文档资产参考图统一切换到 PNG（无损）
+
+将文档中三张设计参考图（业务架构 / 系统全栈分层 / 算法架构）的引用
+从 `.jpg` 全部改为已存在的 `.png` 版本，规避 JPEG 压缩在文字密集
+架构图上的细节损失（边框毛刺、小字模糊）。文件本身未新增，仅替换
+markdown 引用路径。
+
+**替换 6 处引用（均指向已落盘的 PNG）：**
+
+| 文档 | 资产引用 |
+|---|---|
+| `README.md` | `docs/architecture/assets/business-architecture.png` |
+| `docs/README.md` | `./architecture/assets/business-architecture.png` |
+| `docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md` | `./assets/business-architecture.png` |
+| `docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md` | `./assets/architecture-overview.png` |
+| `docs/algorithms/README.md` | `./assets/algorithm-architecture.png` |
+| `docs/algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md` | `./assets/algorithm-architecture.png` |
+
+**回归验证：**
+
+- `file -b` 三个 PNG 均为真实 `PNG image data`，扩展名/MIME 一致。
+- `curl -I` 三条 URL 均返回 `200 image/png`，Content-Length 与磁盘文件
+  字节数 1:1 对齐（1.57 MB / 1.65 MB / 1.35 MB），未触发 `_resolveDocPath`
+  路径 bug 或缓存陈旧响应。
+- `rg "!\[[^\]]*\]\([^)]+\.(jpg|jpeg)\)"` 在 `docs/` + `README.md` 已无残留。
+
+**已删除冗余 .jpg 文件：** `business-architecture.jpg` / `architecture-overview.jpg`
+/ `algorithm-architecture.jpg` 已从 `assets/` 目录移除（共回收 ~503 KB
+磁盘空间）。无任何文档/代码/HTML/JS 仍引用这些 jpg 路径；同步更新
+`server.py` 注释与 `ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 元信息描述
+中的扩展名示例。注：本 CHANGELOG 早期条目（"新增 ... .jpg"、"重命名
+PNG → JPG 修 MIME"等）属历史事实记录，刻意保留未改写。
+
+### Changed — 图 2 / 3 / 4 / 5 / 6 全部对齐"视图 B + 图 1"的 4:3 横向紧凑风格
+
+完成 `SYSTEM_ARCHITECTURE_DIAGRAMS.md` 全部 6 张主图的紧凑化重构，配合
+此前已优化的视图 B + 图 1，整文档共 **11 张 mermaid 图**，**10/11 进入
+4:3 横向紧凑区间（宽高比 1.3-2.5）**，唯一例外 6.2 是流水线本质 TB 图
+（已加注释指引用户回看 6.1 的横向构成视图）。
+
+按内容性质分两类处理：
+
+**A. 拆为「构成（block-beta）+ 数据流（flowchart）」双视图**
+（适用于"组件多、关系多"的复合图）：
+
+| 原图 | 新视图 | 类型 | viewBox | 宽高比 |
+|---|---|---|---|---|
+| 图 2 L3 Domain Services | 2.1 组件构成 | block-beta | 1105 × 690 | **1.60** ✓ |
+|  | 2.2 关键协作 | flowchart LR | 1190 × 506 | **2.35** ✓ |
+| 图 5 后端路由 + 数据 | 5.1 路由+表+微服务 | block-beta | 1044 × 627 | **1.66** ✓ |
+|  | 5.2 路由 → 表映射 | flowchart LR | 1068 × 670 | **1.59** ✓ |
+| 图 6 四端同步 + 部署 | 6.1 四端 + 部署形态 | block-beta | 821 × 346 | **2.37** ✓ |
+|  | 6.2 同步流水线 | flowchart TB | 688 × 870 | 0.79 ⓘ |
+
+**B. 保留单图 flowchart，但优化布局参数 + 颜色染色**
+（适用于"核心是箭头/数据流"的图）：
+
+| 图 | 优化点 | viewBox | 宽高比 |
+|---|---|---|---|
+| 图 3 MonetizationBus | 三栏 LR（发布方｜总线｜订阅方）+ 事件名按家族压缩 | 1212 × 638 | **1.90** ✓ |
+| 图 4 出块+RL 双轨 | TB→LR + RL/spawn 分组 + 子系统配色 | 1769 × 1226 | **1.44** ✓ |
+
+**关键工程经验**（沉淀到 docs 内注释，供后续维护参考）：
+
+1. **嵌套 subgraph 的 `direction LR` 不可靠**：dagre 经常无视该提示，
+   把节点排成 N×M 网格而非单行；ELK 也有同样问题。如需"严格的水平
+   网格布局"，**首选 mermaid 11 的 `block-beta`**（`columns N` 精确
+   控制每行列数，所见即所得）。
+2. **block-beta 不支持箭头**：含数据流/调用关系的图必须辅以独立的
+   小型 flowchart 子图，色块编码与构成图严格对齐以便交叉对照。
+3. **多 subgraph 横向排列技巧**：dagre 默认会把没有跨 subgraph 边的
+   多个 subgraph 上下堆，需要在两个 subgraph 间加一条 invisible edge
+   `~~~`（如 5.2 的 `tMon ~~~ nginx`）才能强制 LR。
+4. **block-beta 标题与节点重叠**：`block:ID["title"]:N` 自带标题在
+   mermaid 当前版本会与子节点文字重叠；改用"独立 1 列彩色标题单元
+   + 6 列内容子 block"的结构（视图 B / 1.1 / 2.1 / 5.1 / 6.1 同款）。
+
+### Changed — 图 1 "宏观分层（C4 容器视图）" 拆为 1.1/1.2 双视图，对齐视图 B 的 block-beta 4:3 风格
+
+- **背景**：原图 1 用 `flowchart TB` + 5 个 subgraph + 大量 REST 箭头，
+  在浏览器实际渲染时同样会被自动布局算法挤成接近正方形、边交叉严重，
+  与刚优化好的视图 B 风格不一致。
+- **方案**：拆为两张独立的紧凑视图，各自用最适合的 mermaid 语法：
+  - **1.1 容器构成（block-beta）**：5 大容器组（客户端 / 前端五层 /
+    后端 / RL 训练 / 微服务）按视图 B 同款"左 1 列彩色标题 + 右 6 列
+    节点群"的网格布局；实测 viewBox `1037 × 511`，宽高比 **2.03**，
+    比 4:3 还要更横向，一屏可视所有容器。
+  - **1.2 关键数据流（flowchart LR）**：把原图里 9 条核心 REST / 文件
+    依赖箭头独立画出（block-beta 不支持箭头），节点配色与 1.1 一致：
+    紫色=前端层 / 绿色=后端 / 粉色=RL / 灰色=微服务，便于与 1.1 对照
+    阅读；实测 viewBox `857 × 488`，宽高比 1.76。
+- **保留信息**：所有原图 1 的容器和箭头都迁移到了 1.1 + 1.2，无丢失。
+
+### Changed — 视图 B "紧凑概念图" 改用 `block-beta` 网格，强制 4:3 横向
+
+- **现象**：原 `flowchart TB` + 嵌套 `subgraph direction LR` + `layout: elk`
+  方案在浏览器实际渲染时，ELK 经常无视 `direction LR` 提示，把每层节点
+  挤成 2×N 竖向网格（"法棍布局"），用户截图：客户端 4 个节点变成 2 列 4 行、
+  应用编排层 6 个节点变成 2 列 3 行，整体宽高比接近 1:1，无法一屏可视。
+- **根因**：mermaid 当前对 ELK 嵌套 subgraph 的 `direction` 透传不稳；
+  自动布局算法的"美学优化"会无视 LR 提示把节点重新打散。试过的 dagre +
+  invisible edges (`~~~`) 强制水平串联也无效（dagre 同样按自己的算法
+  排版），实测 viewBox 1080×1100，仍接近 1:1。
+- **方案**：换用 mermaid 11 的 **`block-beta`** 网格语法。它不走自动
+  布局算法，`columns N` 精确指定每行列数，所见即所得：
+  - 总 grid `columns 7`：左 1 列层标题 + 右 6 列节点群
+  - 每层用独立的 `block:Lx:6 columns M` 嵌套，强制 M 个节点单行横排
+  - 层标题改用独立单元格（避免 block-beta 自带标题渲染 bug 与节点
+    重叠），用 `classDef titleXxx` 染深色 + 白字，作为视觉锚点
+- **实测尺寸**：viewBox `953 × 727`，宽高比 1.31，**正好 4:3**；7 层 ×
+  3-6 列横排，整体一屏可视，桌面/移动端皆可读。
+
+### Fixed — 文档门户内部 .md 链接砍目录前缀，导致跳转后整页破图
+
+**真根因**（用户在错误占位条点"运行诊断"截图后定位）：
+失败 URL 为 `http://localhost:5000/docs/asset/assets/business-architecture.jpg`，
+**path 缺中间的 `architecture/` 目录段**。回溯到 `web/public/docs.html` 的
+`fixRenderedContent()` 第 3c 段处理内部 `.md` 链接的代码：
+
+```js
+const filename = filePart.split('/').pop(); // 只取文件名 — BUG
+```
+
+它把 `../algorithms/ALGORITHMS_RL.md` 砍成 `ALGORITHMS_RL.md`，于是只要
+用户从文档 A 点链接进文档 B（B 在子目录），`_current` 就丢了目录前缀，
+后续 B 文档里所有 `./assets/x.jpg` 全部拼成 `/docs/asset/assets/x.jpg`
+（缺中间目录）→ 整页破图。该 bug 影响 `docs/` 下所有非根目录的文档。
+
+**修复**：
+
+1. **新增 `_resolveDocPath(currentDir, href)`**：基于当前文档目录正确解析
+   相对路径，把 `../algorithms/X.md` resolve 为 `algorithms/X.md`，把
+   `./Y.md` resolve 为 `<currentDir>/Y.md`，把根目录传 `''` 时透传裸文件名。
+   实现用纯 split/stack（不引入虚假 origin），8 条单测全过：
+   - `('architecture', '../algorithms/X.md')` → `'algorithms/X.md'`
+   - `('architecture', './LIFECYCLE.md')` → `'architecture/LIFECYCLE.md'`
+   - `('algorithms/sub', '../../architecture/foo.md')` → `'architecture/foo.md'`
+   - `('architecture', '../README.md')` → `'README.md'` 等
+2. **重写 3c 链接处理**：用 `_resolveDocPath` 替代 `split('/').pop()`，
+   `data-file` / `openDoc()` 都拿到完整 docs 内路径。
+3. **新增 `_findDocByBasename` + `openDoc` 入口兜底**：如果传入的是
+   裸 filename（历史 hash / 旧书签 / 第三方链接），自动从 `_categories`
+   反查完整路径，并在 console 提示 `[docs] resolved bare filename …`。
+   这样即便出现新的回归，旧 hash 也不会再触发整页破图。
+4. **错误占位条增强诊断**（同步落地）：失败时显示明文 URL、page origin、
+   API_BASE，并提供"运行诊断"按钮，会用 fetch 测同 origin + 候选 :5000，
+   把状态码 / Content-Type / 响应头 / 前 8 字节魔术头贴回页面，无需
+   开发者工具即可上报根因（本次诊断输出就是用它定位到的）。
+
+### Added — 文档图片端到端"系统化"修复套件
+
+针对用户反馈"图片加载问题在多次后端修复后仍出现破图"的现象，做一轮端到端
+治理，把"服务端正常 / 浏览器仍破图"这类排障盲区彻底消除。
+
+- **新增** [`tools/diagram-render/audit_docs_images.py`](tools/diagram-render/audit_docs_images.py)：
+  跨 docs/ 全量扫描 markdown 图片引用，逐项验证：
+  1. 物理文件存在性（杜绝引用孤儿）；
+  2. 扩展名 vs 真实魔术头一致（防御 `architecture-overview.png` 那类
+     "扩展名 PNG，实际 JPEG" 的 MIME 不一致问题）；
+  3. `/docs/asset/<path>` HTTP 路由可达（默认 `:5000`，可经
+     `OPENBLOCK_API_BASE` 切换）；
+  4. HTTP `Content-Type` 与扩展名预期吻合；
+  非零退出码便于接入 CI / pre-commit。
+  当前基线：扫描 95 个 markdown，4 个唯一图片 URL，全绿。
+- **改造** `web/public/docs.html` 中 markdown `<img>` 后处理流程：
+  - 加 `onerror` 自动 **cache-busting 重试**（追加 `?_t=Date.now()`），
+    彻底绕开浏览器缓存的历史失败响应；
+  - 重试仍失败则把 `<img>` 替换成醒目错误占位条（`.img-load-error`），
+    显示 alt 文案 + "直接访问 →"链接，让用户能一键复现并截图上报，
+    取代以往无信息的"破图占位符"；
+  - 同步在 console 打印 `[docs] image retry with cache-bust:` /
+    `[docs] image load failed:` 诊断信息。
+- **修补** `vite.config.js` + `web/vite.config.js` 代理规则：
+  补 `/docs/asset` → Flask 后端。先前只代理 `/docs/list` `/docs/raw`，
+  导致从 vite dev server 打开门户时，markdown 内嵌图片会被 vite 的
+  SPA fallback 吃掉返回 HTML，浏览器尝试把 HTML 当 image 解析 → 破图。
+  此次根治后无论 Flask 单跑还是 vite + Flask 联跑，行为一致。
+
+### Changed — `/docs/asset` 接入 ETag 协商缓存，避免历史失败响应被钉死
+
+- 背景：上一条 fix 中，`architecture-overview.png` 因扩展名/MIME 不一致
+  触发浏览器拒绝渲染；即便文件已修，浏览器仍会在原 `Cache-Control:
+  max-age=300` 的 5 分钟窗口内复用那条失败响应，导致用户必须 hard
+  reload 才能看到新图。`business-architecture.jpg` 同一区块的破图截图
+  即由该缓存效应导致。
+- 改动（`server.py:docs_asset`）：
+  1. 计算 ETag = `W/"{mtime}-{size}"`，文件被替换/重命名/扩展名修正时
+     ETag 立即变化；
+  2. 把 `Cache-Control` 从 `public, max-age=300` 改为
+     `public, max-age=60, must-revalidate`，缩短零网络命中窗口，强制
+     每次回源做 `If-None-Match` 协商；
+  3. 命中 ETag 直接返回 `304 Not Modified`（无 body，省带宽），未命中
+     则正常 200 全量响应。
+- 验证：
+  - 第一次请求：`200 OK` + `ETag: W/"1778749266-154837"` +
+    `Cache-Control: public, max-age=60, must-revalidate`；
+  - 携带相同 ETag 二请求：`304 Not Modified`，无 body；
+  - 携带陈旧 ETag：`200 OK` 全量重发；
+  - `architecture-overview.jpg`（重命名后）独立 ETag = `W/"...178159"`，
+    与 `business-architecture.jpg` 互不污染。
+
+### Fixed — `SYSTEM_ARCHITECTURE_DIAGRAMS.md` 设计参考图加载失败
+
+- 现象：`docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md` 的"视图 A：设计
+  参考图"在文档门户中无法显示，控制台报 MIME / 解码相关警告。
+- 根因：`docs/architecture/assets/architecture-overview.png` **实际是 JPEG
+  数据**（来源截图工具默认导出 JPEG 并被错误命名为 `.png`）。Flask
+  `/docs/asset/<path>` 路由按扩展名将 `Content-Type` 写为 `image/png`，与
+  二进制流不一致，触发 Chrome 等浏览器的 MIME 强校验拒绝渲染。
+- 修复：
+  1. 物理重命名 `architecture-overview.png` → `architecture-overview.jpg`，
+     使扩展名与真实 JPEG 数据匹配；
+  2. 同步更新 `docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md` 的图片
+     引用与 `server.py` 路由示例注释；
+  3. 全 `docs/` 资源目录批量复核扩展名/MIME 一致性，确认仅此一例越界。
+- 验证：
+  - 旧路径 `/docs/asset/architecture/assets/architecture-overview.png` →
+    HTTP 404（符合预期，避免缓存命中错误 MIME）；
+  - 新路径 `/docs/asset/architecture/assets/architecture-overview.jpg` →
+    HTTP 200，`Content-Type: image/jpeg`，`Content-Length: 178159`；
+  - `file(1)` 复检：四个 docs/ 资源全部 ext / 实际 MIME 一致。
+
+### Added — 算法架构图与可复用生成 Prompt
+
+- 新增 [`docs/algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md`](docs/algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md)：
+  以**资深算法设计师**视角重新组织算法栈视图，1 张总览图 + 8 张算法子图：
+  - **总览图**：信号采集（玩家画像 / 能力 / 生命周期信号 / 特征快照）→ 算法
+    核心（出块双轨 / Gameplay RL / 商业化模型 / Lifecycle 编排）→ 决策与
+    策略（规则引擎 / 频控 / Policy 包装 / 留存触点）→ 训练与监控（PyTorch /
+    SpawnV3 trainer / drift / quality）四层 + 4 条算法侧设计原则。
+  - **图 1**：出块双轨决策架构（启发式 12 信号 → adaptiveStress → 10 档
+    profile vs 生成式 buildContext → V3 predict → fallback；硬切换 + 统一
+    护栏）。
+  - **图 2**：SpawnTransformerV3 网络与推理流（TransformerEncoder + LoRA +
+    autoregressive joint + feasibility head + 温度 0.8 / topK 8）。
+  - **图 3**：Gameplay RL 训练栈（PPO + GAE + ConvSharedPolicyValueNet +
+    DockBoardAttention + 5 多任务辅助头 + EvalGate）。
+  - **图 4**：玩家画像与能力评估（Bayes 快收敛 + EWMA 0.85 + EWLS trend +
+    segment5 + AbilityVector v2 五维）。
+  - **图 5**：商业化核心决策（线性加权 + abilityBias ±0.12-0.18 + 5 段
+    guardrail 链 + recommendedAction 阈值）。
+  - **图 6**：商业化 ML scaffolding 栈（calibration / explorer ε=0.05 /
+    LinUCB α=0.5 / ZILN / Survival / MTL / drift KL>0.10 / quality）。
+  - **图 7**：决策与执行管线（strategyEngine + adTrigger 多窗 cap + LTV
+    shield + commercialPolicy + adInsertionRL）。
+  - **图 8**：生命周期信号 → 编排 → 策略（churn 三源 blend 0.45/0.35/0.20
+    + engagement 公式 + winback 7d / 复购 7d / churn_high）。
+  - **scaffolding 诚实标注**：calibration / explorer / bandit / ZILN / MTL
+    / survival / adInsertionRL 全部用虚线 + `flag:` 边标签标注 opt-in，
+    不画成已稳定上线。
+- 新增 [`docs/algorithms/ALGORITHM_DIAGRAM_PROMPT.md`](docs/algorithms/ALGORITHM_DIAGRAM_PROMPT.md)：
+  可复用的"喂给大模型即生成完整算法架构图集合"的 prompt 模板，事实包覆盖
+  10 节（信号采集 / 出块双轨 / Gameplay RL / 商业化核心 / 商业化 ML
+  scaffolding / 决策与执行 / 生命周期 / 后端辅助 / 跨模块协同 / 上线路径
+  速查），含全部模型默认值与阈值；输出规格含 1 总览图 + 8 子图、Mermaid
+  编码约定（推荐 ELK 布局）、禁止红线（不画 scaffolding 为已稳定 / 不
+  混淆 SpawnV3 与 Gameplay RL）、自检清单。
+- `server.py` 在「算法与模型」分类登记两份新文档；`docs/README.md`「跨
+  模块架构契约」补充算法架构图与算法 prompt 行；算法工程师角色入门链路
+  增加算法架构图为第一站；`docs/algorithms/README.md` 新增「一图入门」
+  小节作为算法目录的快速入口。
+- 算法总览图离线渲染产物：`docs/algorithms/assets/algorithms-overview.png`
+  （ELK 布局，~340KB），与系统架构总览的 `architecture-overview.png` 对齐
+  策略，使 `ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 在 GitHub / 不支持 Mermaid
+  的阅读器中也可直出总览；门户与 mermaid.live 仍按下方源码块实时重渲染。
+- 新增渲染工具链 `tools/diagram-render/`：`extract_mermaid.py`
+  抽取 markdown 中的 ` ```mermaid ` 块到 `work/algo-NN.mmd` 并写入
+  `algo-manifest.json`（记录每块 start/end 行号）；`puppeteer.json`
+  把 puppeteer 指向本机 `/Applications/Google Chrome.app`，避免 mmdc
+  下载 chromium；`mermaid.config.json` 统一字体（PingFang SC / 微软雅黑
+  fallback）与 flowchart 默认配置。`work/algo-01.svg ~ algo-09.svg`
+  为本轮通过 `npx @mermaid-js/mermaid-cli mmdc` 离线渲染的全部 9 张图，
+  仅作工程产物保留，不入文档主链路。
+
+### Added — 算法架构图（六层 + 七子模型设计参考稿）
+
+- 新增 `docs/algorithms/assets/algorithm-architecture.jpg`（1024×768 ·
+  176 KB）：OpenBlock 算法栈的"设计参考稿"，覆盖六层结构（① 数据输入
+  / ② 核心模型 / ③ 决策输出 / ④ 训练与优化 / ⑤ 支撑 / ⑥ 反馈闭环），
+  把核心模型层的 7 个具名子模型（PlayerProfile · AbilityVector ·
+  CommercialPolicy · AdTrigger · AdInsertionRL · LifecycleOrchestrator
+  · ActionOutcomeMetrics）围绕"融合决策引擎"展开，并把"奖励信号
+  （收益 / 留存 / 满意度 / 风险 / 生态健康）"作为训练层的多目标优化
+  底座单独画一行。
+- `docs/algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 总览区从单视图
+  扩为双视图：
+  - **视图 A：设计参考图**（新 hero 图）—— 评审 / 培训 / 对外宣讲
+    使用，附 6 行表把每层映射到代码模块与权威文档（SQLITE_SCHEMA /
+    ALGORITHMS_HANDBOOK / MODEL_SYSTEMS_FOUR_MODELS / ALGORITHMS_RL /
+    PROJECT / OBSERVABILITY / LIFECYCLE_DATA_STRATEGY_LAYERING）。
+  - **视图 B：紧凑概念图**（既有 ELK PNG + Mermaid）—— 与下方 8 张
+    展开图保持同一节点 / 边粒度，便于逐图深入。
+  - 文档头 `定位` / `范围` / `生成方式` 同步扩到双视图描述；阅读顺序
+    表同步说明视图 A / 视图 B 各回答什么问题。
+  - 在视图 A 表后追加"诚实标注"提示：图中"七大子模型"覆盖**已稳定**
+    与 **opt-in scaffolding** 两类（calibration / explorer ε / LinUCB
+    / MTL / ZILN / survival / drift 等以 baseline 入库 + flag 默认 OFF），
+    具体见下方 8 张展开图。
+- `docs/algorithms/README.md`「一图入门」章节顶部嵌入新 hero 图 +
+  双视图说明；`docs/README.md` 算法工程师角色入门链路与跨模块架构
+  契约表行同步改为「设计参考 + 紧凑概念图 + 8 子图」。
+
+### Added — 业务架构图（产品最高层视图）
+
+- 新增 `docs/architecture/assets/business-architecture.jpg`（1024×558 ·
+  155 KB）：OpenBlock 作为 **"游戏 + AI + RL + 商业化"** 开源平台的最高层
+  产品视图——四支柱 🎮 Games Engine / 🧠 Adaptive Spawning AI / 🤖
+  Reinforce Learning Trainer / 💰 Monetization Framework，由 🗄️ Shared
+  Data Source 串成 🔁 Unified Ecosystem 正反馈闭环。
+- 三处入口同步嵌入（hero 位置）：
+  1. **根 `README.md`**：在中英文导航行下方插入 hero 图 + 中英文双语
+     "业务架构总览"段落，作为新人扫到项目的第一眼视觉，引向系统架构图
+     与算法架构图。
+  2. **`docs/README.md`**（文档中心）：在「如何阅读」之前插入 hero 图 +
+     "一图入门"段落，配合下方角色导航形成"先看图 → 再按角色找文档"
+     的双层入口。
+  3. **`docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md`**：新增「业务
+     架构总览：四支柱 + 统一生态」章节，置于"全栈分层"技术总览之上，
+     用一张表把每个支柱与对应的技术展开图、权威算法 / 商业化 / 平台
+     文档一一对应起来；同步把阅读顺序表加 1 行、文档头 `定位` /
+     `范围` 同步扩到三层（业务 → 全栈 → 6 子图）。
+- `docs/README.md` 跨模块架构契约表中"系统架构图"行同步改为"业务架构 +
+  全栈分层 + 6 子图"，让一行说清三视图全貌。
+
 ### Added — 系统架构图与可复用生成 Prompt
 
 - 新增 [`docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md`](docs/architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)：
-  6 张 Mermaid 架构图覆盖容器视图、L3 组件、MonetizationBus 事件总线、
-  出块 / RL 双轨、后端路由 + 持久化、四端同步与部署拓扑；每张图节点数控制
-  在 12–25 之间，前后置问题陈述与解读。
+  - **总览图**置于文档最前，含两种视图：
+    - 视图 A：`docs/architecture/assets/architecture-overview.png` 设计参考稿
+      （6 层 × 模块卡 + 层内约束 + 底部 6 条全局原则带），评审 / 培训 / 对外
+      宣讲时使用。
+    - 视图 B：紧凑 Mermaid 概念图（一屏可视），层内只保留模块标题，原"层内
+      约束 / 设计原则"文案下沉到下方两个解读表，避免单图过宽过高。
+    - 布局：嵌套 subgraph 中 `direction LR` 在 mermaid 默认 dagre 渲染器下
+      不可靠（实际表现为各层被挤成单列、整体呈斜向阶梯），改用 **ELK 渲染器**
+      （通过 mermaid YAML 前置 `config: layout: elk` 启用，仅作用于本图）；
+      `web/public/docs.html` 异步加载 `@mermaid-js/layout-elk@0.2/+esm`
+      并 `registerLayoutLoaders`，加载失败静默回退默认渲染器。
+  - 6 张 Mermaid 展开图覆盖容器视图、L3 组件、MonetizationBus 事件总线、
+    出块 / RL 双轨、后端路由 + 持久化、四端同步与部署拓扑；每张图节点数
+    控制在 12–25 之间，前后置问题陈述与解读。
 - 新增 [`docs/architecture/ARCHITECTURE_DIAGRAM_PROMPT.md`](docs/architecture/ARCHITECTURE_DIAGRAM_PROMPT.md)：
   可复用的"喂给大模型即生成完整架构图集合"的 prompt 模板，包含事实包、
   设计原则、输出规格、Mermaid 编码约定、禁止红线与自检清单。
+- `web/public/docs.html` 文档门户接入 `mermaid@11`：拦截 ` ```mermaid `
+  代码块、转 `<div class="mermaid-pending">` 占位，异步等待 `window.mermaid`
+  就绪后渲染为 SVG；含失败回退与代码原文展示。
+- 文档图片资源管线：`server.py` 新增 `/docs/asset/<path>` 路由派发 `docs/`
+  下图片（仅允许 png/jpg/jpeg/gif/webp/svg，含路径穿越与扩展名校验）；
+  `web/public/docs.html` `fixRenderedContent` 把 markdown 中相对图片路径
+  （如 `./assets/x.png`）按当前文档目录改写到该路由。这样同一份 markdown
+  在 GitHub 上按相对路径直出，在文档门户内通过路由透出。
+- 文档门户图片 / Mermaid 点击放大（Lightbox）：`web/public/docs.html` 新增
+  全屏遮罩浏览器，解决静态 PNG 截图（如 `architecture-overview.png` /
+  `algorithms-overview.png`）随容器宽自适应缩放后看不清细节、Mermaid SVG
+  在窄屏被压缩到不可读的问题。
+  - 触发：所有 markdown `<img>` 自动加 `.zoomable` + click handler；mermaid
+    渲染完成后给 SVG 加同样 click handler。
+  - 工具栏：`⤢` 适应屏幕 / `1:1` 原始尺寸 / `−`/`＋` 缩放 / `↗` 新标签打开
+    原图 / `✕` 关闭；右上角实时显示当前缩放百分比。
+  - 缩放采用 **resize-by-width** 而非 `transform: scale`：layout 与 visual
+    同步，stage 用 `display: grid; place-items: center` + `overflow: auto`，
+    放大后超出屏幕仍可正常滚动到全部内容（transform-scale 在居中布局下会
+    截断左侧溢出）。
+  - 交互：拖拽平移（`mousedown` + `mousemove` 改 `scrollLeft/Top`）/
+    `Ctrl|⌘ + 滚轮` 缩放 / 双击切换 fit↔1:1 / 键盘 `Esc` 关 / `0|F` fit /
+    `1` 1:1 / `+|-` 缩放。
+  - SVG 路径：清掉 mermaid 设的 `max-width:100%` 内联 style，确保按
+    `viewBox` 放大无损；PNG 路径：测量 `naturalWidth/Height` 后按 fit 比例
+    展开。
 - `server.py` 架构契约分类登记两份新文档；`docs/README.md` 跨模块架构契约
   表同步增加两行。
 

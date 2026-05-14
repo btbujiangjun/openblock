@@ -2,6 +2,20 @@
 
 出块、玩家画像、强化学习和商业化推断的算法与模型文档。
 
+## 一图入门
+
+![OpenBlock 算法架构总览：六层 + 七子模型 + 反馈闭环](./assets/algorithm-architecture.png)
+
+- [算法架构图（设计参考 + 紧凑概念图 + 8 子图）](./ALGORITHM_ARCHITECTURE_DIAGRAMS.md)
+  —— **视图 A 设计参考稿**（上图）：六层（数据输入 / 核心模型 / 决策输出
+  / 训练优化 / 支撑 / 反馈闭环）+ 七大具名子模型（PlayerProfile ·
+  AbilityVector · CommercialPolicy · AdTrigger · AdInsertionRL ·
+  LifecycleOrchestrator · ActionOutcomeMetrics）+ 中央融合决策引擎；
+  **视图 B 紧凑概念图**：信号采集 / 算法核心 / 决策策略 / 训练监控四层
+  + 反馈环；每个算法模型的内部结构、阈值与默认值都在子图里
+- [算法架构图生成 Prompt](./ALGORITHM_DIAGRAM_PROMPT.md) —— 重生成视图 B
+  + 8 子图的可复用 prompt 模板（含完整事实包）
+
 ## 权威手册
 
 - [算法与模型手册](./ALGORITHMS_HANDBOOK.md) —— 总索引与符号约定
