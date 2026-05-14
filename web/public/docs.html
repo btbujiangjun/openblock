@@ -23,6 +23,19 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16/dist/contrib/auto-render.min.js"></script>
+  <!-- Mermaid — 流程图 / 架构图 / 时序图渲染 -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'default',
+      securityLevel: 'loose',
+      flowchart: { htmlLabels: true, useMaxWidth: true, curve: 'basis' },
+      sequence: { useMaxWidth: true },
+      themeVariables: { fontFamily: 'inherit', fontSize: '14px' }
+    });
+    window.mermaid = mermaid;
+  </script>
 
   <style>
     /* ─── CSS 变量 ─── */
@@ -241,6 +254,49 @@
     .katex-pending { display: inline-block; color: var(--text-muted); font-style: italic; font-size: .9em; }
     .katex-pending::before { content: attr(data-formula); }
 
+    /* ─── Mermaid 图样式 ─── */
+    .md-body .mermaid {
+      display: block;
+      text-align: center;
+      margin: 16px 0;
+      background: var(--code-bg);
+      border-radius: var(--radius);
+      padding: 16px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .md-body .mermaid svg { max-width: 100%; height: auto; }
+    /* 等待 mermaid 就绪时不显示原始源码（轮询完成会替换为 .mermaid 容器） */
+    .md-body .mermaid-pending {
+      display: block;
+      min-height: 60px;
+      background: var(--code-bg);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      color: transparent;
+      font-size: 0;
+      line-height: 0;
+      position: relative;
+    }
+    .md-body .mermaid-pending::after {
+      content: '正在渲染图表…';
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .md-body .mermaid-error {
+      color: #c0392b;
+      background: #fff5f5;
+      border: 1px solid #f3c1c1;
+      border-radius: var(--radius);
+      padding: 12px;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+
     /* ─── 加载 / 错误 ─── */
     .status-msg {
       display: flex; align-items: center; justify-content: center;
@@ -332,6 +388,12 @@
     renderer.code = function (code, lang) {
       const codeStr = typeof code === 'object' ? (code.text || '') : (code || '');
       const langStr = typeof code === 'object' ? (code.lang || lang || '') : (lang || '');
+      // Mermaid 块：emit 占位符，DOM 插入后由 renderPendingMermaid 异步渲染。
+      // 源码做 HTML 实体转义，innerHTML 后通过 textContent 还原回 Mermaid 原文。
+      if (langStr === 'mermaid') {
+        const esc = codeStr.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<div class="mermaid-pending">${esc}</div>`;
+      }
       if (typeof hljs !== 'undefined' && langStr && hljs.getLanguage(langStr)) {
         try {
           const hl = hljs.highlight(codeStr, { language: langStr }).value;
@@ -420,6 +482,59 @@
         }
       }, 100);
     }
+  }
+
+  // ─── 渲染 DOM 中所有待渲染的 Mermaid 图 ───
+  // mermaid 以 ES module import，window.mermaid 可能尚未就绪；轮询等待最多 10s。
+  // 失败时降级为 <pre> 显示原始源码，不阻塞页面。
+  async function renderPendingMermaid(container) {
+    const els = Array.from(container.querySelectorAll('.mermaid-pending'));
+    if (!els.length) return;
+
+    async function doRender() {
+      for (const el of els) {
+        if (!el.isConnected) continue;
+        const source = el.textContent;
+        const id = 'mmd-' + Math.random().toString(36).slice(2, 10);
+        try {
+          const { svg } = await window.mermaid.render(id, source);
+          const wrapper = document.createElement('div');
+          wrapper.className = 'mermaid';
+          wrapper.innerHTML = svg;
+          el.replaceWith(wrapper);
+        } catch (e) {
+          const pre = document.createElement('pre');
+          pre.className = 'mermaid-error';
+          pre.textContent = '[mermaid render error] ' + (e && e.message ? e.message : e) + '\n\n' + source;
+          el.replaceWith(pre);
+        }
+      }
+    }
+
+    if (window.mermaid) {
+      await doRender();
+      return;
+    }
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      attempts++;
+      if (window.mermaid) {
+        clearInterval(timer);
+        await doRender();
+      } else if (attempts >= 100) {
+        clearInterval(timer);
+        // 超时：降级为原始代码块
+        els.forEach(function(el) {
+          if (!el.isConnected) return;
+          const pre = document.createElement('pre');
+          const code = document.createElement('code');
+          code.className = 'language-mermaid';
+          code.textContent = el.textContent;
+          pre.appendChild(code);
+          el.replaceWith(pre);
+        });
+      }
+    }, 100);
   }
 
   // ─── 渲染后处理：标题加 id + 链接分类修正 ───
@@ -636,6 +751,8 @@
       fixRenderedContent(mdContent);
       // 异步渲染数学公式（自动等待 KaTeX defer 脚本就绪）
       renderPendingMath(mdContent);
+      // 异步渲染 Mermaid 图（自动等待 mermaid ES module 就绪）
+      renderPendingMermaid(mdContent);
 
       // 若指定了锚点则滚过去（跨文档跳转后）
       if (scrollToAnchor) {
