@@ -125,7 +125,26 @@ export function getPlayerMaturity() {
     return { ..._maturityCache };
 }
 
-/** 玩法能力分（M0–M4 分群依据；不含付费/广告） */
+/**
+ * 玩法能力分（**maturity SkillScore**，M0–M4 分群依据；不含付费/广告）
+ *
+ * ⚠️ 不要与 `web/src/playerAbilityModel.js` 输出的 `AbilityVector.skillScore`
+ * 混淆——后者是局内 5 维加权 EMA，每帧刷新，直接进 `adaptiveSpawn.skillAdjust`；
+ * 这里的 SkillScore 是**跨局画像**，按天 EMA，仅用于决定 maturity band（M0..M4），
+ * band 再通过 `lifecycle/lifecycleStressCapMap.js` 影响出块算法 stress cap/adjust。
+ *
+ * 输入字段（来自 `lifecycleOrchestrator.onSessionEnd → updateMaturity`）：
+ *   - avgSessionCount   会话频次
+ *   - sessionDuration   平均时长
+ *   - returnFrequency   回访频次
+ *   - featureAdoption   功能采用率（落子完成率代理）
+ *   - maxLevel          score/1000 代理
+ *   - totalScore        本局得分
+ *   - achievementCount  成就数
+ *
+ * 阈值映射（见 `getMaturityBand`）：
+ *   ≥ 90 → M4 核心 / 80–89 → M3 资深 / 60–79 → M2 熟练 / 40–59 → M1 成长 / < 40 → M0 新手
+ */
 export function calculateSkillScore(playerData) {
     if (!playerData) return 0;
     let s = 0;

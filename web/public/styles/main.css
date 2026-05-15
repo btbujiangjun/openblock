@@ -2111,6 +2111,12 @@ body.game-over-active .first-win-banner {
     padding: 4px 6px;
 }
 
+/* v1.50.x：能力指标整合阶段·成熟度后变 8 项 → 4×2。
+ * 用独立 modifier，未集成 lifecycle 的旧布局（如回放）仍走 3 列。 */
+.insight-grid--with-lifecycle {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .panel-section > .insight-grid {
     margin-bottom: 0;
     background: none;
@@ -2184,6 +2190,46 @@ body.game-over-active .first-win-banner {
 .insight-metric--neutral strong {
     color: var(--text-secondary, #64748b);
     font-weight: 600;
+}
+
+/* v1.50.x：lifecycle pill（阶段 / 成熟度）—— stage / band 作为基础指标 badge
+ * 与 6 项能力 pill 同框做 4×2 布局。strong 显示中文短名（稳定 / 新手 / 资深 ...），
+ * code (S3/M0) 沉到前缀小灰字；边框/中文字色由 JS 内联 --lifecycle-color 注入。 */
+.insight-metric--lifecycle {
+    --lifecycle-color: #64748b;
+    background: color-mix(in srgb, var(--lifecycle-color) 10%, transparent);
+    border-color: color-mix(in srgb, var(--lifecycle-color) 38%, transparent);
+    border-left: 3px solid var(--lifecycle-color);
+    /* 抵消因 border-left 加粗 2px 引起的内容右移，保持与其他 pill label 起点一致 */
+    padding-left: 6px;
+    cursor: help;
+}
+
+.insight-metric--lifecycle strong {
+    /* 中文短名（稳定 / 新手 / 熟练 / 资深 / 核心 / 新入场 / 激活 / 习惯 / 回流），
+     * 沿用主面板字体，不再 monospace；color 跟主题色（stageColor/bandColor）。 */
+    font-weight: 700;
+    font-size: 9.5px;
+    color: var(--lifecycle-color);
+    /* 取消父级 .insight-metric strong 的 ellipsis：3 字以内的中文 + 2 字 code 不需要溢出处理 */
+    overflow: visible;
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    /* strong 默认 text-align:right，2 字中文挤右边视觉太紧；改 flex-end 但保留 gap */
+    justify-content: flex-end;
+}
+
+/* code 前缀（S3 / M0）：用更小、更轻的字号 + 半透明，让中文短名成为视觉主角 */
+.insight-metric__code {
+    font-family: 'JetBrains Mono', 'Menlo', monospace;
+    font-size: 7.5px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    color: var(--lifecycle-color);
+    opacity: 0.6;
+    /* 下沉到 baseline，与中文 strong 字符基线对齐（中文比 ASCII 高，需要往下 1px） */
+    transform: translateY(-1px);
 }
 
 /* v2 能力雷达 hover 浮层：把 6 维 pill 的孤立百分比同时呈现，让玩家一眼看出强项 / 短板形状。
@@ -3990,6 +4036,68 @@ body.game-over-active .first-win-banner {
 .float-new-best .float-label {
     font-size: 0.5em;
     letter-spacing: 0.2em;
+}
+
+/* ── Score Milestone（局内分数突破，区别于 new-best 的"打破历史最佳"） ── */
+
+.float-milestone {
+    color: #2980b9;
+    font-size: clamp(24px, 5vw, 34px);
+    letter-spacing: 0.06em;
+    animation: milestoneFloat 1.8s ease-out forwards;
+    text-shadow:
+        0 0 12px rgba(80, 160, 255, 0.85),
+        0 0 24px rgba(40, 120, 220, 0.5),
+        0 2px 5px rgba(0, 0, 0, 0.28);
+    z-index: 1200;
+}
+
+.float-milestone .float-label {
+    color: #6ab7f0;
+    letter-spacing: 0.14em;
+    font-size: 0.7em;
+}
+
+.float-milestone .float-pts {
+    font-size: 1.05em;
+}
+
+@keyframes milestoneFloat {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.82); }
+    18%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.12); }
+    55%  { opacity: 1; transform: translateX(-50%) translateY(-8px) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-40px) scale(0.94); }
+}
+
+/* ── No Moves End（无路可走、即将 game over 的鼓励语，区别于 near-miss） ── */
+
+.float-no-moves {
+    color: #d35400;
+    font-size: clamp(22px, 4.8vw, 32px);
+    letter-spacing: 0.05em;
+    animation: noMovesFloat 1.5s ease-out forwards;
+    text-shadow:
+        0 0 12px rgba(255, 140, 60, 0.8),
+        0 0 24px rgba(220, 110, 30, 0.45),
+        0 2px 5px rgba(0, 0, 0, 0.3);
+    z-index: 1300;
+}
+
+.float-no-moves .float-label {
+    color: #f0a064;
+    letter-spacing: 0.12em;
+    font-size: 0.85em;
+}
+
+.float-no-moves .float-pts {
+    font-size: 1.1em;
+}
+
+@keyframes noMovesFloat {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.85); }
+    20%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.08); }
+    60%  { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-30px) scale(0.96); }
 }
 
 @keyframes newBestFloat {
@@ -5863,7 +5971,14 @@ body.doc-visibility-hidden #menu * {
     pointer-events: none;
 }
 
-/* 2. 节日 / 时段推荐 toast（顶部居中条幅，含「切换」按钮） */
+/* 2. 节日 / 时段推荐 toast（顶部居中条幅，含「切换」按钮）
+ * v1.50 配色修复：旧版 background: var(--text-primary) 在 uiDark 主题
+ * （mahjong 麻将牌局 / forbidden 紫禁城 等）下被覆写为 #e8eef4 浅色，
+ * 与写死的 color:#fff 叠加形成「白底白字」不可读。
+ * 新版与 #easter-egg-toast 对齐：固定深色半透明背景 + 边框 + 阴影，
+ * 与主题 token 完全解耦，全部 30+ 皮肤下白文字均可读。
+ * 按钮配色同步加固：accent 背景 + 白字 + text-shadow / box-shadow 描边，
+ * 修复 mahjong 蜜蜡黄金 (#E0A040) 这种浅亮 accent 下白字对比不足问题。 */
 #seasonal-toast {
     position: fixed;
     top: max(14px, calc(var(--board-overlay-top, 0px) + 8px));
@@ -5874,18 +5989,23 @@ body.doc-visibility-hidden #menu * {
     align-items: center;
     gap: 12px;
     padding: 10px 16px;
-    background: var(--text-primary, #1e293b);
+    background: rgba(22, 22, 32, 0.88);
     color: #fff;
     font-size: 13px;
     line-height: 1.4;
     border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.32),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
     max-width: 92vw;
     opacity: 0;
     transition: opacity .35s ease, transform .35s ease;
     pointer-events: none;
 }
 #seasonal-toast.is-visible {
-    opacity: 0.96;
+    opacity: 1;
     transform: translate(-50%, 0);
     pointer-events: auto;
 }
@@ -5901,10 +6021,15 @@ body.doc-visibility-hidden #menu * {
     background: var(--accent-color, #38bdf8);
     color: #fff;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    box-shadow:
+        0 2px 6px rgba(0, 0, 0, 0.22),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.18);
 }
-.seasonal-toast__btn:hover { opacity: 0.92; }
+.seasonal-toast__btn:hover { filter: brightness(1.08); }
+.seasonal-toast__btn:active { filter: brightness(0.92); }
 
 /* v10.17.11：每日首胜加成 reminder — 紧贴 .score-theme-row 下方的 inline banner
  * · 不用 fixed/浮层，不会遮挡盘面 / dock 主操作区

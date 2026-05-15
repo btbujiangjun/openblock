@@ -339,9 +339,12 @@
             </div>
         </div>
         <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>
+        <!-- v1.50.x：阶段·成熟度（S·M）整合进「能力指标」做 4×2 布局，
+             把"基础生命周期标签"与"局内能力指标"同屏并列；出块影响一句话
+             已沉到下方"💬 策略解释"的「📱 生命周期」分组，避免重复占位。 -->
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">🎚️</span>能力指标</summary>
-            <div id="insight-ability" class="insight-grid"></div>
+            <div id="insight-ability" class="insight-grid insight-grid--with-lifecycle"></div>
         </details>
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📡</span>实时状态</summary>

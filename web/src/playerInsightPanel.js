@@ -27,6 +27,14 @@ import { getAllShapes } from './shapes.js';
 import { computeCandidatePlacementMetric } from './bot/blockSpawn.js';
 import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
 import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
+import {
+    LIFECYCLE_STAGE_LABEL,
+    LIFECYCLE_BAND_LABEL,
+    LIFECYCLE_STAGE_COLOR,
+    LIFECYCLE_BAND_COLOR,
+    getLifecycleStressCap,
+    describeLifecycleStressCap,
+} from './lifecycle/lifecycleStressCapMap.js';
 
 /** 与 Game.getCandidatePlacementSolutionSnapshot 一致；无 game 实例时直算 */
 function _placementSolutionForGame(game) {
@@ -1014,6 +1022,237 @@ function _buildWhyLines(insight, profile) {
     return lines;
 }
 
+/* ==============================================================
+ * v1.50 — 顶部"阶段 · 成熟度"基础指标卡
+ *
+ * 把生命周期 stage（S0–S4）+ 成熟度 band（M0–M4）从原本与 AFK/近失/恢复
+ * 同屏的 .insight-live-flags chip，提升为画像面板第一屏的"基础指标"双卡。
+ *
+ * 设计要点：
+ *   - 双卡布局：左 stage（彩色 stageColor + 中文短名 + 置信百分比）
+ *               右 band  （阶梯色 bandColor + 中文短名 + skillScore%）
+ *   - 出块影响一句话叙事（"压力上限 0.65 · 整体减压 -0.10"），数值由
+ *     lifecycleStressCapMap.describeLifecycleStressCap 直接给出，与
+ *     adaptiveSpawn.js 同源。
+ *   - hover 时浮 lifecycleStressCapMap 完整说明 + 蓝图链接，让运营 / QA
+ *     在面板上直接看到当前 S·M 给出块设了什么硬约束。
+ * ============================================================== */
+
+/**
+ * 复用 elState 段历史路径：先取 cached snapshot，否则直读 dashboard。
+ * snapshot 字段统一为 { stageCode, stageName, stageColor, confidence,
+ * band, matureIndex, isWinbackCandidate, shortLabel }。
+ */
+function _computeLifecycleSnap(p, game) {
+    /* stageName 统一规则：cached.stage.name 是英文 enum（onboarding /
+     * exploration / growth / stability / veteran），UI 上需要 LIFECYCLE_STAGE_LABEL
+     * 给出的中文短名（新入场 / 激活 / 习惯 / 稳定 / 回流）。fallback 链：
+     *   getLifecycleMaturitySnapshot.stageName（已是中文「导入期/探索期/...」）
+     *   → LIFECYCLE_STAGE_LABEL[code]（v1.50 短名「新入场/激活/...」）
+     *   → cached.stage.name（最后兜底，至少有英文不至于空白）
+     * 修 v1.50 上一轮的中文显示 bug：stage chip 显示 "stability" 英文。 */
+    const _resolveStageName = (code, raw) =>
+        raw || LIFECYCLE_STAGE_LABEL[code] || code || '';
+
+    try {
+        const cached = (() => { try { return getCachedLifecycleSnapshot(p); } catch { return null; } })();
+        if (cached?.stage?.code) {
+            const code = cached.stage.code;
+            return {
+                stageCode: code,
+                /* cached.stage.name 来自 stageDetail.stage（英文 enum），
+                 * 不能直接显示给用户 → 走 LIFECYCLE_STAGE_LABEL 映射。 */
+                stageName: LIFECYCLE_STAGE_LABEL[code] || cached.stage.label || code,
+                stageColor: cached.stage.color || null,
+                confidence: cached.stage.confidence ?? null,
+                band: cached.maturity?.band || 'M0',
+                skillScore: cached.maturity?.skillScore ?? cached.maturity?.score ?? null,
+                isWinbackCandidate: cached.isWinbackCandidate || code === 'S4',
+                shortLabel: `${code}·${cached.maturity?.band || 'M0'}`,
+            };
+        }
+        const direct = getLifecycleMaturitySnapshot({
+            daysSinceInstall: p?.daysSinceInstall ?? game?.gameStats?.daysSinceInstall ?? 0,
+            totalSessions: p?.totalSessions ?? game?.gameStats?.totalSessions ?? 0,
+            daysSinceLastActive: p?.daysSinceLastActive ?? game?.gameStats?.daysSinceLastActive ?? 0,
+        });
+        return direct ? {
+            stageCode: direct.stageCode,
+            stageName: _resolveStageName(direct.stageCode, direct.stageName),
+            stageColor: direct.stageColor,
+            confidence: direct.confidence,
+            band: direct.band,
+            skillScore: direct.skillScore ?? direct.score ?? null,
+            isWinbackCandidate: direct.isWinbackCandidate,
+            shortLabel: direct.shortLabel,
+        } : null;
+    } catch {
+        return null;
+    }
+}
+
+/** stage code → 该阶段在出块算法中的"运营寓意"短句（与 lifecyclePlaybook 配色一致） */
+const _STAGE_INTENT_HINT = {
+    S0: '强保护：出块友好、stress 上限最低（0.50），优先保留下手机会。',
+    S1: '探索期减压：stress 上限中低，鼓励玩家形成习惯，避免早期挫败。',
+    S2: '成长期：stress 上限按 band 递增（0.65 → 0.82），高 band 玩家开始被加压。',
+    S3: '稳定期：stress 上限最宽（0.72 → 0.88），核心 M4 玩家给最高挑战。',
+    S4: '回流保护：≥7 天未活跃，前 3 局额外保消 + 偏小块 + stress cap 0.55。',
+};
+
+/** band code → 在出块算法中"成熟度"扮演的角色（决定 cap/adjust 横向变化） */
+const _BAND_ROLE_HINT = {
+    M0: '新手 SkillScore<40：与 stage 一起触发新手友好通路（cap 最低、保消上调）。',
+    M1: '成长 SkillScore 40–59：基本无偏移，按 stage 默认 cap 走。',
+    M2: '熟练 SkillScore 60–79：在 S2/S3 阶段开始正向加压（adjust ≥ 0）。',
+    M3: '资深 SkillScore 80–89：S3·M3 起 cap≥0.85，给"接近上限"的挑战。',
+    M4: '核心 SkillScore ≥90：触发 S3·M4 上限峰值（cap 0.88，adjust +0.12）。',
+};
+
+/**
+ * 生成「能力指标」grid 内的 stage / band 两个特殊 pill HTML。
+ *
+ * v1.50.x：把原独立的 #insight-lifecycle 双卡折回到 .insight-grid 里，与
+ * 6 项能力 pill 同框做 4×2 布局，节省侧栏垂直空间；视觉上用
+ * --lifecycle-color CSS var 喂 stageColor / bandColor 把 pill 与普通能力
+ * pill（绿/红/灰 tone）区分开。
+ *
+ * @param {ReturnType<typeof _computeLifecycleSnap>} snap
+ * @returns {string}  两个 .insight-metric--lifecycle pill 的 HTML 串
+ */
+function _lifecyclePillsHtml(snap) {
+    if (!snap || !snap.stageCode) {
+        /* 冷启动 / 数据缺失：保留两格占位，避免 4×2 grid 错位为 6 项 3×2。 */
+        const placeholder = `<div class="insight-metric insight-metric--lifecycle insight-metric--cold" title="生命周期数据初始化中…（首次启动需 1–2 局采样）"><span>阶段</span><strong>—</strong></div>`
+            + `<div class="insight-metric insight-metric--lifecycle insight-metric--cold" title="成熟度数据初始化中（依赖 SkillScore 累积）"><span>成熟</span><strong>—</strong></div>`;
+        return placeholder;
+    }
+
+    const stageCode = snap.stageCode;
+    const band = snap.band || 'M0';
+    const stageColor = snap.stageColor || LIFECYCLE_STAGE_COLOR[stageCode] || '#64748b';
+    const bandColor = LIFECYCLE_BAND_COLOR[band] || '#94a3b8';
+    const stageName = snap.stageName || LIFECYCLE_STAGE_LABEL[stageCode] || stageCode;
+    const bandName = LIFECYCLE_BAND_LABEL[band] || band;
+
+    const confTxt = Number.isFinite(snap.confidence)
+        ? `置信 ${Math.round(snap.confidence * 100)}%`
+        : '置信 —';
+    const skillTxt = Number.isFinite(snap.skillScore)
+        ? `Skill ${Math.round(snap.skillScore)}%`
+        : 'Skill —';
+
+    const winbackHint = snap.isWinbackCandidate
+        ? '\n[回流保护激活] ≥7 天未活跃，前 3 局：cap 0.6、保消 +1、sizePref 偏小。'
+        : '';
+
+    const stageTip = _attrTitle(
+        `${stageCode} · ${stageName}（${confTxt}）\n` +
+        `${_STAGE_INTENT_HINT[stageCode] || ''}\n` +
+        `判定：daysSinceInstall + totalSessions + daysSinceLastActive 三项合成。\n` +
+        `详细出块影响见下方"💬 策略解释 → 📱 生命周期"分组。${winbackHint}`
+    );
+    const bandTip = _attrTitle(
+        `${band} · ${bandName}（${skillTxt}）\n` +
+        `${_BAND_ROLE_HINT[band] || ''}\n` +
+        `判定：SkillScore（玩法能力分，不含付费/广告）阈值映射 M0..M4。`
+    );
+
+    /* v1.50.x：strong 改为中文短名（稳定 / 新手 / 资深 ...），把 S3 / M0 这类
+     * 字母 code 沉到前缀的小灰字 + hover tooltip 第一行。理由：
+     *   - 中文短名对玩家直观可读（不需要查"S3 是什么"）
+     *   - code 仍保留：策划/QA 在 hover 一眼看到契约 ID（与 lifecycleStressCapMap
+     *     的 key 'S3·M0' 对齐），同时 4×2 grid 内空间够放 2-3 字短名
+     *   - 颜色仍由 --lifecycle-color 喂边框 + 中文字色，与 stageColor / bandColor 同源 */
+    return ''
+        + `<div class="insight-metric insight-metric--lifecycle"`
+        + ` style="--lifecycle-color:${stageColor};"`
+        + ` data-key="lifecycleStage" title="${stageTip}">`
+        + `<span>阶段</span><strong><small class="insight-metric__code">${stageCode}</small>${stageName}</strong></div>`
+        + `<div class="insight-metric insight-metric--lifecycle"`
+        + ` style="--lifecycle-color:${bandColor};"`
+        + ` data-key="lifecycleBand" title="${bandTip}">`
+        + `<span>成熟</span><strong><small class="insight-metric__code">${band}</small>${bandName}</strong></div>`;
+}
+
+/**
+ * 生成「策略解释 → 📱 生命周期」分组的"出块影响"bullet 文案。
+ *
+ * v1.50.x：把出块影响一句话从顶部独立卡迁到策略解释段，作为
+ * lifecycleBullets 的一项；保留实时反馈（lifecycleStressAdjust 真正触发时
+ * 会显示 "△ -0.07" 这类增量，让运营看到 cap 是否被踩到）。
+ *
+ * @param {ReturnType<typeof _computeLifecycleSnap>} snap
+ * @param {object} ins  game._lastAdaptiveInsight，用于读 stressBreakdown 实时值
+ * @returns {string|null}  bullet 文本，无数据时返回 null（调用方跳过）
+ */
+function _lifecycleWhyBullet(snap, ins) {
+    if (!snap?.stageCode) return null;
+    const stageCode = snap.stageCode;
+    const band = snap.band || 'M0';
+    const stageName = snap.stageName || LIFECYCLE_STAGE_LABEL[stageCode] || stageCode;
+    const bandName = LIFECYCLE_BAND_LABEL[band] || band;
+
+    const cap = getLifecycleStressCap(stageCode, band);
+    const desc = describeLifecycleStressCap(stageCode, band);
+    const adj = ins?.stressBreakdown?.lifecycleStressAdjust;
+    const capHit = (Number.isFinite(adj) && Math.abs(adj) > 1e-3)
+        ? `（本帧已触发 cap，△ ${adj > 0 ? '+' : ''}${adj.toFixed(2)}）`
+        : '';
+
+    const winbackTag = snap.isWinbackCandidate
+        ? '；🛡 winback 保护包激活（前 3 局 cap 0.6 + 保消 +1 + 偏小块）'
+        : '';
+
+    const head = `${stageCode}·${band}（${stageName}·${bandName}）`;
+    if (cap) {
+        return `阶段调制 ${head} → ${desc}${capHit}${winbackTag}。`;
+    }
+    /* 未在 17 项调制表内（如 S3·M0、S0·M2 等少见组合）：明确告知"按 raw stress
+     * 直通"，并解释为什么这是合理设计 —— 该组合在产线分布极低，运营未配置 cap，
+     * 出块算法仅按通用 stress 通路 + onboarding/winback 特例处理。 */
+    return `阶段调制 ${head} → 未在调制表内，按 raw stress 直通${winbackTag}（该组合产线分布极低，仅由通用 stress 通路 + 特例保护处理）。`;
+}
+
+/**
+ * 生成「📱 生命周期 → 成熟度横向影响」bullet：把 band 在出块算法里的独立贡献
+ * 摆到台面上 ——「同阶段下，band 左右移动一档，cap 各是多少」。
+ *
+ * 出现的动机：
+ *   `_lifecycleWhyBullet` 返回的是 (stage, band) 联合调制结果，但玩家/运营
+ *   看完会有个自然问题——"如果我的 band 升一档 / 降一档，难度会变多少？"。
+ *   这条 bullet 把答案显式给出，让"成熟度档位"对出块算法的影响显式可读，
+ *   不再只是隐藏在 17 项调制表里。
+ *
+ * 显示示例（snap = { stageCode:'S3', band:'M2', skillScore:65 }）：
+ *   "成熟度 M2 熟练（Skill 65/100）→ 同阶段 M1 cap 0.72 · M2 cap 0.78 · M3 cap 0.85"
+ *
+ * @param {ReturnType<typeof _computeLifecycleSnap>} snap
+ * @returns {string|null}
+ */
+function _maturityImpactBullet(snap) {
+    if (!snap?.stageCode || !snap.band) return null;
+    const stageCode = snap.stageCode;
+    const band = snap.band;
+    const bandName = LIFECYCLE_BAND_LABEL[band] || band;
+    const skillTxt = Number.isFinite(snap.skillScore)
+        ? `Skill ${Math.round(snap.skillScore)}/100`
+        : 'Skill —';
+
+    /* 找出当前 band 在调制表中的"邻居 cap"，构造横向对比串。
+     *   - 当前 band 高亮显示（cap 用 **粗体**）
+     *   - 不在表内的 band 标 '—'
+     *   - 顺序固定 M0→M4，让玩家一眼看到自己处在档位序列的哪一段 */
+    const allBands = ['M0', 'M1', 'M2', 'M3', 'M4'];
+    const compare = allBands.map((b) => {
+        const cap = getLifecycleStressCap(stageCode, b);
+        const txt = cap ? cap.cap.toFixed(2) : '—';
+        return b === band ? `**${b} cap ${txt}**` : `${b} cap ${txt}`;
+    }).join(' · ');
+
+    return `成熟度 ${band} ${bandName}（${skillTxt}）→ 同 ${stageCode} 阶段：${compare}`;
+}
+
 function _render(game) {
     const root = document.getElementById('player-insight-panel');
     if (!root) return;
@@ -1038,6 +1277,13 @@ function _render(game) {
     const elSpawn = document.getElementById('insight-spawn');
     const elWhy = document.getElementById('insight-why');
     const elStressMeter = document.getElementById('stress-meter-host');
+
+    /* v1.50.x：lifecycle snapshot 单帧只算一次，供三处复用：
+     *   1) elAbility 段拼出 stage/band 两个 pill（4×2 grid 末尾两格）
+     *   2) elWhy 段生命周期分组的"出块影响" bullet
+     *   3) elState 段 winback flag（如有）
+     * 避免不同段各自取数导致漂移。 */
+    const lifecycleSnap = _computeLifecycleSnap(p, game);
 
     if (elStressMeter) {
         // 历史 stress 序列：从 _insightLiveHistory 抽取，已包含本帧（_renderInsightStateSeries 会 append）
@@ -1071,10 +1317,15 @@ function _render(game) {
             return `<div class="insight-metric${cold ? ' insight-metric--cold' : ''}${toneClass}" data-key="${row.key}" title="${_attrTitle(tt)}"><span>${row.label}</span><strong>${val}</strong></div>`;
         }).join('');
 
+        /* v1.50.x：grid 末尾追加 stage / band 两个 lifecycle pill，凑齐 8 项 4×2。
+         * 这两个 pill 的 strong 内容是 code（S3/M0），不是百分比；hover 给出
+         * "判定来源 + 出块算法寓意 + 跳到策略解释段"提示。 */
+        const lifecycleHtml = _lifecyclePillsHtml(lifecycleSnap);
+
         // v2：6 维雷达 hover 浮层——把 6 个 pill 的孤立百分比同时呈现，让玩家一眼看到强项 / 短板形状。
         // 风险项可视化时取 (1 - riskLevel) 让"安全度"与其它正向项同向（向外=好），避免雷达图歪斜方向不直观。
         const radarHtml = `<div class="ability-radar-popup" id="ability-radar-popup" hidden>${_renderAbilityRadarSvg(ability)}</div>`;
-        elAbility.innerHTML = abilityHtml + radarHtml;
+        elAbility.innerHTML = abilityHtml + lifecycleHtml + radarHtml;
         _wireAbilityRadarHover(elAbility);
     }
 
@@ -1082,39 +1333,9 @@ function _render(game) {
         _renderInsightStateSeries(game, elState);
         const afk = p.metrics.afkCount;
         const flags = [];
-        /* 落地 PLAYER_LIFECYCLE_MATURITY_BLUEPRINT P0-5：把生命周期阶段（S0–S4）与
-         * 成熟度 band（M0–M4）做成单一标签，与 AFK/近失/恢复/新手 同屏展示，让局内
-         * 策略与运营标签同源。snapshot 内部直接读 playerMaturity / playerLifecycleDashboard
-         * 单例，对未初始化的开发模式（无 localStorage 历史）退化为 S0·M0，不阻塞渲染。 */
-        try {
-            /* v1.49.x P0-3：修笔误 `p?.profile?.X` → `p?.X`。
-             * v1.49.x P2-4：优先用 getCachedLifecycleSnapshot（同帧内复用 spawn / advisor 算的快照）。
-             *
-             * 上面 `const p = game.playerProfile`，p 已经是 PlayerProfile 实例。
-             * cached snapshot 里已经有 stage.code 和 maturity.band 等字段；
-             * 仅在 cached 不可用时退回 dashboard 直读路径。 */
-            const cached = (() => { try { return getCachedLifecycleSnapshot(p); } catch { return null; } })();
-            const snap = cached
-                ? {
-                    shortLabel: `${cached.stage?.code || 'S0'}·${cached.maturity?.band || 'M0'}`,
-                    stageCode: cached.stage?.code,
-                    band: cached.maturity?.band,
-                  }
-                : getLifecycleMaturitySnapshot({
-                    daysSinceInstall: p?.daysSinceInstall
-                        ?? game?.gameStats?.daysSinceInstall
-                        ?? 0,
-                    totalSessions: p?.totalSessions
-                        ?? game?.gameStats?.totalSessions
-                        ?? 0,
-                    daysSinceLastActive: p?.daysSinceLastActive
-                        ?? game?.gameStats?.daysSinceLastActive
-                        ?? 0,
-                });
-            if (snap?.shortLabel) {
-                flags.push(snap.shortLabel);
-            }
-        } catch { /* lifecycle 数据缺失不应阻塞画像面板 */ }
+        /* v1.50：S·M shortLabel 已上移到顶部 #insight-lifecycle 卡作为基础指标
+         * 高亮展示（详见 _renderLifecycleCard），此处不再与 AFK/近失/恢复/新手
+         * 同屏重复；保留 flags 行用于"局内瞬态信号"（生命周期是跨局信号）。 */
         if (afk > 0) flags.push(`AFK ${afk}`);
         if (p.hadRecentNearMiss) flags.push('近失');
         if (p.needsRecovery) flags.push('恢复');
@@ -1328,6 +1549,17 @@ function _render(game) {
                 lifecycleBullets.push(`${lifecycleTip.title}：${lifecycleTip.detail}`);
             }
         }
+        /* v1.50.x：把 (S·M) → cap/adjust 的"出块影响"一句话从顶部独立卡迁到
+         * 这里，与 strategyAdvisor 的 lifecycleTip 同框展示，让玩家能在一处
+         * 看完"我处于什么阶段 / 出块算法对我做了什么调制 / 系统对应给了什么策略建议"。
+         *
+         * v1.50.y：紧随其后再加一条"成熟度横向影响" bullet —— 让 band 在出块算法
+         * 中的独立贡献显式化（同 stage 下 M0..M4 的 cap 对比），运营/玩家直观
+         * 看到"如果 band 升 / 降一档，难度会怎么变"。 */
+        const lifecycleImpactBullet = _lifecycleWhyBullet(lifecycleSnap, ins);
+        const maturityImpactBullet = _maturityImpactBullet(lifecycleSnap);
+        if (maturityImpactBullet) lifecycleBullets.unshift(maturityImpactBullet);
+        if (lifecycleImpactBullet) lifecycleBullets.unshift(lifecycleImpactBullet);
 
         const htmlParts = [];
         if (adaptiveBullets.length) {

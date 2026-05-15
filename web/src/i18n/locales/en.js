@@ -103,10 +103,17 @@ export default {
     'progress.rank.legend': 'Legend',
     'progress.streakDays': '{{n}} days streak',
     'best.gap': '{{gap}} pts to best',
-    'best.gap.victory': 'So close! Go for it!',
+    'best.gap.victory': 'About to break your record!',
     'best.gap.close': 'Almost there! 💪',
     'best.gap.neutral': '{{gap}} pts short',
     'best.gap.far': 'Keep going~',
+    /* In-run score milestone (different from maturity_milestone_complete which is cross-run) */
+    'effect.scoreMilestone': 'Score broke {{score}}!',
+    /* Placement didn't clear, but a row/col is already one cell away from clearing */
+    'effect.nearMissPlace': 'One cell from a clear!',
+    /* No moves left, game over imminent */
+    'effect.noMovesEnd': "Board's full — try again!",
+    /* @deprecated since v1.49; use effect.scoreMilestone */
     'effect.milestoneHit': 'Milestone!',
     'effect.perfectClear': 'Perfect Clear',
     'effect.multiClear': '{{n}}x Clear',

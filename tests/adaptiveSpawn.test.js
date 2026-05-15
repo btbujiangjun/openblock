@@ -223,12 +223,14 @@ describe('resolveAdaptiveStrategy', () => {
         expect(hard.spawnHints.targetSolutionRange).toBeNull();
     });
 
-    it('milestone hit produces scoreMilestone spawnHint', () => {
+    it('score milestone hit produces scoreMilestone spawnHint (v1.49: _milestoneHit → _scoreMilestoneHit)', () => {
         resetAdaptiveMilestone();
         const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.3);
         if (s.spawnHints) {
-            expect(s._milestoneHit).toBe(true);
+            expect(s._scoreMilestoneHit).toBe(true);
+            expect(s._scoreMilestoneValue).toBe(50);
             expect(s.spawnHints.scoreMilestone).toBe(true);
+            expect(s.spawnHints.scoreMilestoneValue).toBe(50);
         }
     });
 

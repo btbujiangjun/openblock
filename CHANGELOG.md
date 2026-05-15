@@ -7,6 +7,621 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — v1.49 「差一点」与「里程碑」提示逻辑：表意分家、死代码清理、几何近失、相对化里程碑
+
+**用户反馈**：上一轮诊断报告指出 4 类局内 toast（A 落子近失 / B 无路可走 / C 分数里程碑 / D 接近 best）
+存在表意不清、莫名其妙的问题——同一句"差一点... 再冲一把！"被复用在三种完全不同的心理目的上，
+两处死字段引用永远不可达，分数里程碑表对老玩家失效。要求"逐个修复，让用户能明显感知具体含义，
+支持 i18n，并更新文档"。
+
+**改动范围**（按问题分组）：
+
+1. **P0：删除 `nearMissCount` 死字段引用**（`web/src/game.js` `_handleNoMoves`）
+   - **症状**：旧版判定 `nearMissCount > 0 || roundsSinceClear >= 3`，但 `nearMissCount` 字段从未在
+     `_lastAdaptiveInsight` 中被写入（整库 `rg "nearMissCount\s*[=:]"` 零命中），实际只剩 `roundsSinceClear>=3`
+     起作用，语义跟"差一点"无关——是濒死安抚而非几何近失。
+   - **修复**：删除死字段引用；`_handleNoMoves` 触发时**无条件**展示濒死鼓励语，并设置 `_pendingNoMovesEnd`
+     互斥锁。
+
+2. **P0：修复 `best.gap.victory` 的 `ratio <= 0` 死分支**（`web/src/game.js` 约 2762 行）
+   - **症状**：外层已强制 `gap > 0`，则 `ratio = gap/bestScore > 0`，分支 `ratio <= 0` 不可达，
+     i18n key `best.gap.victory` 在六种语言里都写了文案但永远不会显示。
+   - **修复**：改为 `ratio <= 0.02`（距 best 不到 2% 触发"即将刷新最佳"）；同步把 `zh-CN` 文案
+     从"就差一点！再冲一把！"（与 B 的濒死鼓励语撞车）替换为"即将刷新最佳！冲刺！"，
+     `en` 改为"About to break your record!"。
+
+3. **P0：A 与 B 在 game over 前的连击索体验**
+   - **症状**：落子触发 A 「差一点！💪」→ 系统检测无路可走再触发 B 「差一点... 再冲一把！」→
+     600ms 后 endGame，玩家在最后两秒看到鼓励语 + 死亡的违和叠加，且 toast hold 1200ms 大于
+     endGame 延迟 600ms，鼓励语会被 game over 弹窗盖在下面。
+   - **修复**：`_handleNoMoves` 触发后置 `_pendingNoMovesEnd=true` 互斥锁，下次 `placeBlock` 落子时
+     `_triggerNearMissFeedback` 让位；endGame 延迟从 600ms 拉长到 1200ms，确保先看完安抚语再进结算弹窗。
+
+4. **P1：A 的触发改为几何意义上的 near-miss**（`web/src/grid.js` 新增 `getMaxLineFill()`、`web/src/game.js`）
+   - **症状**：旧版 v1.32 实现 `fillBefore > 0.55` 即触发，0.55 的填充率远谈不上"差一点消行"——
+     盘面常态在 60%+ 时玩家**每次落子都会看到** "差一点！💪"，提示频次过高 → 表意贬值 → 玩家忽略。
+   - **修复**：触发改为 `grid.getMaxLineFill() ≥ 0.78` —— 即存在某行/列已 7/8 格、只差 1–2 格即可消，
+     这是**几何意义上**的真实 near-miss。`Grid.getMaxLineFill()` 作为新增公共工具方法暴露。
+
+5. **P1：四类 toast 的视觉与措辞分家**
+   - **症状**：分数里程碑 `effect.milestoneHit` 复用 `.float-new-best` 样式（金色），与"刷新历史最佳"
+     视觉撞车；A、B 又共用 `.float-near-miss` 红色样式 + 同一句"差一点"开头。
+   - **修复**：新增独立 CSS 类 `.float-milestone`（蓝色系，区别于 new-best 的金色）和 `.float-no-moves`
+     （橙色，介于警示与积极之间）。i18n key 一一分家：
+     - A：`effect.nearMissPlace`（"差一格就能消！" / "One cell from a clear!"）
+     - B：`effect.noMovesEnd`（"棋盘填满，再来一局！" / "Board's full — try again!"）
+     - C：`effect.scoreMilestone`（"分数突破 {{score}}！" / "Score broke {{score}}!"）
+     - D：`best.gap.victory`（"即将刷新最佳！冲刺！"）
+
+6. **P1：`milestone` 命名分家——`scoreMilestone` vs `maturityMilestone`**
+   （`web/src/adaptiveSpawn.js`、`miniprogram/core/adaptiveSpawn.js`）
+   - **症状**：仓库内"milestone"指代两类完全不同的事物：
+     - `effect.milestoneHit`（C，局内分数门槛 [50,100,150,200,300,500]，单局多次）
+     - `maturity_milestone_complete`（E，跨局成熟度晋升 M0→M1→M2，跨局生涯各一次）
+     量级相差几个数量级，但策划/运营/文档无法区分指哪一个。
+   - **修复**：`adaptiveSpawn.js` 中 `_milestoneHit` → `_scoreMilestoneHit`；新增 `_scoreMilestoneValue`
+     字段用于 toast 的 `{{score}}` 占位符；`spawnHints.scoreMilestone` 字段名保持，新增
+     `spawnHints.scoreMilestoneValue`。`effect.milestoneHit` i18n key 标记 `@deprecated`，保留作为
+     向后兼容；新代码统一调用 `effect.scoreMilestone`。`showFloatScore('milestone'|'scoreMilestone')`
+     接受两个别名（旧调用方仍工作）。
+
+7. **P2：`MILESTONE_SCORES` 相对化**（`web/src/adaptiveSpawn.js: deriveScoreMilestones`）
+   - **症状**：旧版 `[50, 100, 150, 200, 300, 500]` 是绝对档位——
+     新手偶尔触发 / 中段玩家开局头几秒被 6 个 toast 连击 / 老玩家前 30 秒刷掉所有里程碑后整局再无反馈。
+   - **修复**：
+     - `bestScore < 200`（新手 / 未知）：沿用绝对档，保留稳定的"突破 50→100→150"节奏；
+     - `bestScore ≥ 200`：按 `[0.25, 0.5, 0.75, 1.0, 1.25] × bestScore` 派生——`bestScore=1000`
+       的玩家会在 250 / 500 / 750 / 1000 / 1250 分各触发一次，节奏完全跟随个人水位。
+   - 小程序 `miniprogram/core/adaptiveSpawn.js` 同步实现，保持四端一致。
+
+8. **P2：A、B 抽出为 i18n key**（`web/src/i18n/locales/zh-CN.js`、`en.js`）
+   - 4 个新/改 key（`effect.scoreMilestone` / `effect.nearMissPlace` / `effect.noMovesEnd` /
+     `best.gap.victory` 文案替换）当前精校覆盖 zh-CN + en，其他 17 种语言通过现有 fallback chain
+     回退到 zh-CN（与既有 `effect.milestoneHit` / `best.gap.*` 等 key 的多语言覆盖现状一致）。
+   - 旧硬编码字符串 `'差一点！💪'`、`'差一点... 再冲一把！'` 全部替换为 `t(...)` 调用。
+
+9. **P3：单元测试守护 4 个触发点**（`tests/nearMissAndMilestone.test.js`，新增 15 个用例）
+   - `Grid.getMaxLineFill()` 边界条件（空盘 / 整行满 / 整列满 / 7/8 近失 / 棋盘格半填充不误触发）
+   - `_scoreMilestoneHit` / `_scoreMilestoneValue` 字段存在；旧字段 `_milestoneHit` 已删除
+   - 同一里程碑同局不重复触发
+   - `bestScore` 缺失走绝对档；`bestScore=1000` 走相对档；老玩家不再被绝对 50/100 档误触发
+   - 4 个 i18n key 在 zh-CN 与 en 中均存在；`effect.scoreMilestone` 支持 `{{score}}` 占位符；
+     `best.gap.victory` 不再撞车 B 的"再冲一把"
+   - 同步更新两处既有断言（`tests/adaptiveSpawn.test.js`、`tests/challengeDesignOptimization.test.js`）
+     由 `_milestoneHit` 改为 `_scoreMilestoneHit`，回归全套 1311 个用例通过。
+
+**文档同步**：
+
+- `docs/algorithms/ADAPTIVE_SPAWN.md`：§1.2 差一点效应补几何 near-miss 落地；新增"局内分数里程碑相对化"
+  小节，给出新手 vs 中段玩家的派生档位对照表；新增 `scoreMilestoneValue` 行；显式说明
+  `scoreMilestone` 与 `maturity_milestone_complete` 是两个独立概念，列出对照表。
+- `docs/player/EXPERIENCE_DESIGN_FOUNDATIONS.md`：§A.6 损失厌恶 + 近失效应补"v1.49 OpenBlock 落地"
+  小节，给出三类 UI 反馈（几何近失 / 无路可走 / 接近 best）的触发条件、i18n key、CSS 类对照表。
+- `docs/engineering/I18N.md`：§5 文案键约定补 4 个新 key 行 + 多语言覆盖说明。
+
+### Changed — 文档中心首页：清理"正确的废话"，每句话强制落到仓库内可验证的事实
+
+**用户反馈**（接上一轮"去口水化"）：上一版仍存在不少"言无所指、空洞跳跃"的句子。用户特别举出反例——
+> 它回答的是一个朴素而长期的问题：当休闲游戏走到由数据与算法持续雕刻体验的时代，研发应该具备怎样的基础设施？这套仓库给出了一个具体、可读、可改、可被否定的样本——它欢迎被拆解、被借走某一层，也欢迎在更严肃的体验项目中被作为参照系来挑战。
+
+要求："不要写正确的废话，需要言有所指，能落实到实处但不详解到代码层面"。
+
+**改动范围**（仅 `docs/README.md` 顶部章节，三视角表格、图片、引言、横向参照保持不变）：
+
+1. **项目定位段**——删去"它回答的是一个朴素而长期的问题"反问句、"具体、可读、可改、可被否定的样本"、"欢迎被拆解、被借走"等抒情式表达。改为：
+   - 第一段保留"四件事写在同一份代码、同一组特征、同一根事件总线之下"的事实陈述；
+   - 中段用四条具体研发场景（难度 / 变现 / 算法 / 跨端）说明 OpenBlock 面向的问题域；
+   - 第三段直接列出 OpenBlock 提供的具体支柱（自适应出块、双层玩家画像、PyTorch + MLX 双训练栈、5×5 双轴运营策略矩阵、四端同步底座），并用一句话预告三视角各自看什么——不再使用"互相印证 / 自然落位"等比喻。
+
+2. **业务视角散文段**——
+   - 删去"在同一张地图上协同求解" / "开放式增长（growth-from-experience）的内核命题"等抒情；
+   - 「业务穿透性」改为具体说明：「同一组生命周期阶段（S0–S4）与成熟度档位（M0–M4），既输入到 `adaptiveSpawn` 决定下一回合出块难度，也输入到商业化分群矩阵决定下一次触达内容与节奏」——给出输入端 + 输出端的具体落点；
+   - 「整体接入」改为四类典型场景的具体承接路径（首日体验 / 留存救济 / 付费签到 / 长期策略迭代）；
+   - 「经营回报」三条全部替换为可被验证的事实陈述（25 格分群矩阵触发 / SQL 口径回溯到 `MonetizationBus` 与 `user_stats` 表 / 换皮换品类时的复用项与无需重做项）。
+
+3. **系统视角散文段**——
+   - 删去"业务规模不会反噬技术栈选型"、"复利型回报"、"为业务的长期演进负责而非仅对当前版本"等口号句；
+   - 改为可被指认的事实：跨端同步走 `bash scripts/sync-core.sh`（小程序）+ `npm run mobile:sync`（移动端），微服务拆分按 `k8s/base/` 提供的 manifest 与 `k8s/helm/openblock/` Helm chart，安全栈具体到 Argon2id / Fernet / JWT / 隐私同意管理 / 数据导出删除 SOP，AI 协作具体到契约文档为 LLM 提供稳定语义入口。
+
+4. **算法视角散文段**——
+   - 删去"前沿水位"、"可持续工程优势"、"成本中心 → 稳定来源"等主观判断；
+   - 「合理性」中"理论根据"扩为可一一对照的「命题 → 落点」映射：心流 → `flowDeviation`；近失效应 → `nearMissAdjust` / `nearMissCount`；节奏 → 节奏相位识别 + `pickToPlaceMs`；首局保护 → `firstSessionStressOverride` + `firstSessionSpawns`；贝叶斯 → `historicalSkill` 后验更新；挫败 → `frustrationRelief`——全部为仓库内真实存在的标识符；
+   - 「领先性」改为可被复核的事实组合（共享特征定义 / 双层调制 / MCTS+蒸馏 / 不依赖外部 SaaS）；
+   - 「业务指标 → 算法路径」最后一段改为带文档跳转的可追溯映射，删去"成本中心 → 稳定来源"的口号收尾。
+
+5. **「设计取舍」一节**——**整体重写**。
+   - 旧版三段全部为"立场宣言 + 抒情升华"（"体验值得被 instrument" / "契约本身就是文档，文档本身就是测试，测试本身就是质量门禁" 等），属于典型的"正确的废话"；
+   - 新版改为「**非默认选择 + 代价 + 回报**」三栏结构，每段三条 bullet，落到具体仓库事实：
+     - **产品层**：四类体验感受 → 四条特征通路（`flowDeviation` / `spawnHints` + 挫败检测 / 节奏相位识别 / 消行计分曲线 + 同色 / 同 icon bonus）；
+     - **算法层**：四模型共享 `shared/game_rules.json`，跨局画像 × 局内能力两条信号通路严格分流，两套 `SkillScore` 在源码顶部互相警示；
+     - **架构层**：单核多端 + 配置事实源单一，对应同步脚本与契约文档。
+   - 节标题从「设计取舍背后的立场：产品 / 算法 / 架构」改为「设计取舍：产品 / 算法 / 架构层面的非默认选择」——明确指代"具体选择"而非"立场宣言"。
+
+**事实校验**（修订过程中发现并修正）：
+- `nearMissBoost` / `firstSessionGuard` / `npm run sync:miniprogram` 是上一版误写的标识符，仓库内不存在；
+- 已替换为真实存在的：`nearMissAdjust` / `nearMissCount`（在 `web/src/moveSequence.js` / `game.js`）、`firstSessionStressOverride` + `firstSessionSpawns`（在 `web/src/adaptiveSpawn.js` / `playerProfile.js`）、`bash scripts/sync-core.sh` + `npm run mobile:sync`（在 `scripts/` 与 `package.json`）；
+- "25 格商业化分群"措辞不准——25 格实为 5×5 双轴**运营策略矩阵**（生命周期 × 成熟度），同时驱动留存与商业化两侧；改为「5×5（25 格）双轴运营策略矩阵」，并在引用商业化动作时具体说明对应格位决定的项目（广告频次 / IAP 弹出 / 签到奖励等）。
+
+**写作纪律**：
+- 每条 bullet 必须能映射到仓库内可被 Grep 命中的标识符、文件路径、命令、文档或具体行业实践；
+- 严禁"具体 / 可读 / 可改 / 可被否定 / 复利型 / 长线 / 可持续 / 前沿水位 / 可工程化 / instrument"等主观形容词独立出现；
+- 描述粒度卡在"读者能立即理解 + 可点入相关手册深入"之间，不下沉到代码片段；
+- 三视角与设计取舍均**不再以抒情句收尾**，结尾要么是文档跳转、要么是具体输入输出。
+
+**意图**：让首页从"读起来流畅但每句话都难以指向仓库事实"升级为"每句话都能被读者通过文档跳转或仓库 grep 验证"——这才符合开源参考实现的可信度门槛。
+
+**验证**：`ReadLints` 干净；所有引用的标识符、命令、目录均经 grep / glob 在仓库内复核存在；表格、图片、章节编号与所有内联链接保持原状。
+
+---
+
+### Changed — 文档中心首页：三视角散文段重写为结构化专业表达，去口水化与散文化
+
+**用户反馈**（接上一轮"按目标读者重写"）：上一版三视角虽然落到了业务/运营/绩效，但**文风偏散文化、口水话过重**——「这意味着」「它对应的是」「这正是」类连接词频出，单段过长难以扫读，专业性不足。
+
+**改动**（仅 `docs/README.md`，三视角散文段；引言、表格、图片、横向参照保持不变）：
+
+将三段散文重写为「**主题词加粗 + 项目符号要点**」的结构化形态——保留信息密度，去掉口水化连接词，提升术语化程度，使决策层与架构师 / 算法架构师都能扫读：
+
+- **业务视角**：以三段「主题词」组织——
+  - **产品形态**：模块化产品组合 + 可被复用的体验底座（整体接入 / 逐项复用）；
+  - **业务穿透性**：体验侧与商业侧共享同一份玩家事实（S0–S4 × M0–M4）；
+  - **经营回报**：体验—变现的相容性 / 商业链路的可审计性 / 跨品类、跨市场的边际成本——三项可量化收益。
+
+- **系统视角**：以两段「主题词」组织——
+  - **架构对业务的穿透力**：把典型运营摩擦点前置为架构默认值（跨端一份代码 / 单体→微服务平滑路径预设 / 可观测合规安全内置为地基能力）；
+  - **契约先行带来的长线迭代杠杆**：复利型回报四项（onboarding 成本压缩 / 品类扩展零基础设施迁移 / 技术债前置框定可预算化 / AI 协作可深度介入），落点"为业务的长期演进负责"。
+
+- **算法视角**：保持「合理性 / 领先性 / 高效率」三性框架，但每项展开为 3–5 条要点，并在末尾汇总到「业务绩效落地」一段——
+  - **合理性**：理论根据 / 手册标注 / 可还原（三栏标注「心理学根据 + 行业基准 + 可调参面」）；
+  - **领先性**：四模型共存 / 双层调制（跨局 × 局内）/ AlphaZero 搜索蒸馏 / 训推同源；
+  - **高效率**：配置即调参 / 端侧轻量推理 / 训-推一致性 / 回归门禁 / 节奏前移；
+  - **业务绩效落地**：留存（stress 调制 + 生命周期保护 + 挫败救济）、ARPU / LTV（25 格分群 + IAA-IAP 切换 + LTV 出价 + 触达节奏）、下一个增长点（RL 自博弈 + bandit 实验）。
+
+**写作纪律**：
+- 去除「这意味着」「它对应的是」「这正是」「最直接、也最务实的承诺」类口水化连接词；
+- 单段长度受控，便于扫读；
+- 术语用业内表述（onboarding 成本、双层调制、训-推漂移、训推同源、bandit 实验、可观测性、合规默认值等）；
+- 不引入"代码行数 / 测试覆盖率"等琐碎技术细节，仅引用与业务理解直接相关的工程事实；
+- 保持正面陈述与全角标点。
+
+**意图**：让三视角散文从「读起来流畅但密度不够」升级为「专业、结构化、可被决策层与架构师扫读」的专业表达——既不退回数字看板，也不停留在抒情段落。
+
+**验证**：`ReadLints` 干净；表格、图片、横向参照、章节编号与所有内联链接保持原状。
+
+---
+
+### Changed — 文档中心首页：三视角散文段按目标读者重写，强化业务/运营/绩效落点
+
+**用户反馈**：三个视角的散文段定位偏均质——业务视角讲了"四支柱共生"但偏概念，系统视角讲了"边界清晰"但偏纯技术，算法视角讲了"算法是玩法的一种长期形式"但偏哲学。希望按各自的目标读者重写：
+1. **业务视角**——侧重描述产品、业务方面的特色和优势，文风适合面向公众、经营决策者、业务负责人；
+2. **系统视角**——面向系统架构师与业务负责人，从系统架构视角凸显对**业务运营、长线迭代**的优势；
+3. **算法视角**——面向算法架构师与业务负责人，从算法和策略视角凸显**合理性、领先性、高效率**，支撑业务目标和绩效更好达成。
+
+**改动**（仅 `docs/README.md`，三视角小节的引言与散文段；表格、图片、横向参照保持不变）：
+
+- **业务视角**：
+  - 引言改为"写给经营决策者、业务负责人、产品总监与公众读者"，关注问题改为"能解决什么业务问题 / 能在哪些品类与市场被复用 / 如何把玩家时长沉淀为经营成果"。
+  - 散文重写为三段递进：① **完整且可独立复用的产品支柱**——OpenBlock 既是整体方案、又是组件库；② **体验与商业共享同一份玩家事实**——让玩家时长能被稳定翻译为商业资产，开放式增长（growth-from-experience）的内核；③ **完整商业链路可被独立审计 + 换皮即换品类无需重建数据中台**——可被业务持续复用的体验底座。
+
+- **系统视角**：
+  - 引言改为"写给系统架构师与业务负责人"，关注问题改为"能否承载业务的长期演进 / 在团队扩张、品类扩展、跨端发布、合规上线、技术债治理等环节能为业务提供怎样的运营杠杆"。
+  - 散文重写为两段：① **把架构能力翻译为业务运营杠杆**——跨端一份代码、单体到微服务平滑演进路径预设、可观测合规安全内置成基础能力；② **把契约先行翻译为长线迭代优势**——团队扩张 onboarding 成本压低、品类扩展基础设施零迁移、技术债被契约逐项框住、AI 协作可深度介入。落点："愿意为业务的下一个十年负责，而不是只对当下版本负责"。
+
+- **算法视角**：
+  - 引言改为"写给算法架构师与业务负责人"，关注问题改为"算法栈在合理性、领先性、高效率三个维度是否过硬 / 能否支撑留存、ARPU、LTV 等业务核心指标的稳定改善"。
+  - 散文重写为四段：开篇引出三性框架，再分别展开 **合理性**（心理学根据 + 行业基准 + 可调参面，让业务团队能用"我能解释"的语言对话）、**领先性**（四模型共存 / 双层调制 / AlphaZero 蒸馏 / 自博弈，且共享配置与契约——领先性被工程化为可持续业务优势而非一次性论文复现）、**高效率**（配置即调参、端侧轻量推理、训-推一致性强约束、单测+契约充当回归门禁，把迭代节奏从"等模型上线再看效果"前移到"边运营边校准"）。落点："算法不再是成本中心，而是业务成果的稳定来源"——三性叠加打通"算法能力 ↔ 商业指标"的可重复、可审计、可被业务持续投资的优化路径。
+
+**写作纪律**：
+- 全部为**散文段**（不引入新表格 / 列表 / 数字看板，呼应上一轮"避免琐碎技术细节"的反馈）；
+- **正面陈述为主**（保持上一轮"避免对比性叙述"的纪律，仅在必要的工程对比处用"不是 X 而是 Y"形式以凸显业务回报）；
+- 三段读者明确：业务/系统/算法各自有专属读者画像与关注问题，不再均质。
+- 全角标点统一，链接保持有效。
+
+**意图**：让三视角不再是均质的"实现描述"，而是按读者画像各自给出**业务感知最强**的优势叙事——业务视角讲"产品组合 + 经营回报"、系统视角讲"运营杠杆 + 复利型迭代"、算法视角讲"三性兜底 + 业务绩效落地"。这让首页对每一类读者都能提供"为什么这套实现值得他/她投入注意力"的直接答案。
+
+**验证**：`ReadLints` 干净；表格、图片、横向参照、章节编号与所有内联链接保持原状；前后段（项目定位 → 三视角 → 设计取舍立场 → 角色阅读建议）逻辑链路顺畅。
+
+---
+
+### Changed — 文档中心首页：新增「设计取舍背后的立场：产品 / 算法 / 架构」抽象分析段
+
+**用户反馈**：除三视角的实现描述之外，应再增加一层从**产品设计理念 / 算法策略 / 技术架构**三个层面的优势抽象分析表达，让首页除了讲"它由什么构成"之外，还能讲清楚"它为什么这样构成"。
+
+**改动**（仅 `docs/README.md`，插入位置：三视角散文段之后、「四、面向四类核心读者的阅读建议」之前）：
+
+新增一节「## 设计取舍背后的立场：产品 / 算法 / 架构」（**不带编号，不破坏下游"四"的章节编号**）。该节由一段引言 + 三段独立散文构成，每段对应一个层面：
+
+1. **产品设计理念：把「体验」视作可被工程化、可被 instrument 的对象**——讲"为什么体验值得被翻译为可调参面、心理学根据与可观测信号"，落点在"让设计师与算法工程师在同一份语言上对话"。
+2. **算法策略：算法不是模型问题，而是契约问题**——讲"为什么 OpenBlock 追求最强契约而非最强模型"，落点在"把算法漂移从治理问题降级为编译期 / 单测 / 文档审查可前置发现的工程问题"。
+3. **技术架构：架构的价值在于「把哪些潜规则前置成了契约」**——讲"为什么所有可能被默契维持的部分都应前置为可读、可改、可审计的契约"，落点在"契约本身就是文档，文档本身就是测试，测试本身就是质量门禁"。
+
+写作纪律：
+- 三段全部为**散文段**（不带列表、不带数字、不带表格、不带代码引用），每段约 200–280 字；
+- 全部**正面陈述**（呼应上一轮"避免对比性叙述"的反馈，不出现"不是 X 而是 Y"的句式）；
+- 三段共同形成一个抽象层次——"它由什么构成"（三视角）→ "它为什么这样构成"（本节）→ "推荐你怎么读"（角色阅读建议）的递进。
+
+**意图**：把首页从"实现描述层"补齐到"价值判断层"，让读者除了看到 OpenBlock 写了什么，还能看到 OpenBlock 在三个层面上**坚持什么、放弃什么、把哪些事看作了根本**。这一层是判断"这套参考实现是否与自己项目的方向相契"的真正依据。
+
+**验证**：`ReadLints` 干净；前后段衔接顺畅；不破坏任何下游章节编号与链接。
+
+---
+
+### Changed — 文档中心首页：项目定位段措辞改为纯正面陈述（避免对比性叙述）
+
+**用户反馈**：项目定位第二段开头"我们关心的不是「再做一个 Block Blast 克隆」"以**否定他人 / 对比某竞品**的方式开篇，违背"正面描述自己"的原则；第一段中"通常被分别开源的四件事"也带有隐含对比意味。
+
+**改动**（仅 `docs/README.md` 项目定位段）：
+- **第一段**：删去"通常被分别开源的"这种暗藏行业现状对比的措辞，直接陈述"把玩法、玩家画像、强化学习、商业化这四股力量统摄到同一份代码……之下"；
+- **第二段**：删去"我们关心的不是「再做一个 Block Blast 克隆」，而是回答一个更朴素的问题"的对比开篇，改为直接抛问题——"它回答的是一个朴素而长期的问题：当休闲游戏走到由数据与算法持续雕刻体验的时代，研发应该具备怎样的基础设施？"
+
+文末「权威文档地图 / 平台、视觉与内容系统」表里 [Block Blast 商业化运营指南](./platform/MONETIZATION_GUIDE.md) 一行作为**事实文件名引用**保留。
+
+**意图**：让首页项目定位完全靠"它是什么、它要回答什么、它愿意被怎样使用"这三件正面信息撑起，不依赖任何"它不是什么"的对比性叙述。
+
+---
+
+### Changed — 文档中心首页：回退技术堆砌、改在语言层面提炼项目立场与定位感
+
+**用户反馈**（接上一轮"进一步强化优势与特色"）：作为整体文档概览，不适合"六大核心特色 + 同类对比 + 工程成熟度速查"这种琐碎技术细节堆砌；首页要做的不是数字看板，而是**用更有立场、有审美、有定位感的语言**把项目特色与核心优势讲清楚。
+
+**改动**（核心：回退 + 语言层面提炼）：
+
+1. **回退技术堆砌（删除 3 大块）**：
+   - 删除「六大核心特色 × 量化证据」整块（228/37/40/57/17/25 等数字密集列表）；
+   - 删除「与同类开源项目的差异化对比」10 行 ❌⚠️✅ 矩阵；
+   - 删除「五、工程成熟度速查（客观可验证）」9 维 × 3 列指标 + 复核命令表。
+   首页结构回到上一版骨架：项目定位 → 三视角（业务 / 系统 / 算法）→ 角色阅读建议 → 如何阅读 → 目录结构 → 角色导航 → 权威文档地图 → ……
+
+2. **「项目定位」段升级为 manifesto 式立场陈述**：
+   - 旧版：陈述项目是"以方块益智为最小可运行体验、对外完整开放...全套生产级实现的开源研究与工程平台"；
+   - 新版：先给立场——"OpenBlock 是一项关于「如何把休闲游戏作为可工程化体验设计」的开源参考实现"；再给问题感——"当休闲游戏走到由数据与算法持续雕刻体验的时代，研发应该具备怎样的基础设施？这套仓库给出了一个具体、可读、可改、可被否定的样本"；最后给开放姿态——"它欢迎被拆解、被借走某一层，也欢迎在更严肃的体验项目中被作为参照系来挑战"。
+
+3. **三视角的引言从"目标读者 / 关键问题"升级为"写给谁 / 帮你回答什么"**：
+   - 业务视角："写给经营决策层、产品负责人、游戏策划与商业化运营——帮助你回答：这套体验生态由哪几股力量构成？它们之间的能量怎样循环？我能在哪里施加经营杠杆而不破坏体验本身？"
+   - 系统视角："写给架构师、后端、平台与测试工程师——帮助你回答：哪些模块独立、哪些共享？事件按什么形状流转？跨端依靠什么对齐？质量门禁是不是说说而已？"
+   - 算法视角："写给算法工程师、ML 工程师与体验研究员——帮助你回答：哪里允许实验、哪里必须保守？"
+
+4. **三视角下原"对XX的核心优势" 1/2/3 列表换为有思想厚度的散文段**：
+   - 业务视角散文段抓"行业里玩法/增长团队各画一套用户标签的隐性割裂"，给出 OpenBlock 的主张："玩家就是玩家，画像不应该被分给两支团队各画一套"；
+   - 系统视角散文段提炼为三句工程审美宣言："跨端是一份代码而不是四份代码 / 契约比注释更可靠 / 质量门禁是日常仪式而非发布前补救"；
+   - 算法视角散文段引出最核心的工程立场："**算法是玩法的一种长期形式**"——这是 OpenBlock 把训练栈与玩法栈写在同一个 `shared/` 之下的真正动机。
+
+5. **「四、四类角色速览」表从 4 列 (角色 / 一句话价值 / 立刻能拿到 / 1 行体验) 收敛为 3 列 (角色 / 它对你的价值 / 推荐起点)**：
+   - 删除"立刻能拿到"列（属于细节，应在子文档中由读者自己发现）；
+   - "它对你的价值"列从短语升级为**有立场的完整一句话**（如"让经营策略与体验策略第一次共享同一组事实"、"让设计意图能够落到代码而不是停留在脑海"、"把'算法漂移'与'训-推不一致'作为可被预防的工程问题处理"、"把'四端各写一份'的常见困境转化为一份契约管理问题"）。
+
+**保留**：
+- 三张架构图与配套表（业务四支柱 / 系统容器→组件→事件→部署 / 算法六层结构）；
+- 上一版做过的事实修正（`mobile/{android,ios}/`、PyTorch + MLX 双栈、删 difficultyAdapter 后 single source of truth 的演进备注）；
+- 章节顺序与下游所有内容（如何阅读 / 目录结构 / 角色导航 / 权威文档地图 / 方法论 / 速查）。
+
+**意图**：作为整体文档概览，首页应当承担"建立项目立场与审美坐标系"的职责，而不是"在第一屏堆砌可对账数字"。技术细节归子文档（已有 84 份现役文档承载），首页用语言把"为什么是 OpenBlock、它在解决一个怎样的问题"讲清楚，让任何角色读完都能感到"这个项目知道自己在干什么"。
+
+**验证**：
+- `ReadLints docs/README.md` 干净；
+- 文本通读衔接顺畅，三视角散文段各自落到一句明确的工程主张；
+- 章节顺序与上下游链接（`SYSTEM_ARCHITECTURE_DIAGRAMS.md` / `ALGORITHM_ARCHITECTURE_DIAGRAMS.md` / `PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md` 等）保持不变。
+
+---
+
+### Changed — 文档中心首页：以三张架构图（业务/系统/算法）重构开篇，强化项目特色与核心优势叙事
+
+**用户反馈**：文档中心首页（`docs/README.md`）开篇只有一张业务架构图 + 一段引言，对**经营决策层、游戏策划、算法工程师、平台工程师**四类核心读者的价值主张表达过于简略，无法在第一屏建立"这个项目能给我什么"的判断。
+
+**改动**：
+
+`docs/README.md` 开头从原 27 行（一张图 + 一段引言 + 简短"如何阅读"）扩展为 ~110 行的「项目定位 + 三视角介绍 + 角色速览 + 如何阅读」结构：
+
+1. **新增「项目定位」一段**：用一句话明确 OpenBlock = 「以方块益智为最小可运行体验、对外完整开放自适应出块 + 玩家画像 + RL + 商业化全套生产级实现的开源研究与工程平台」，并解释三张图为什么互为参照（同源、同事实、面向不同角色）。
+
+2. **新增「一、业务视角」**（图 1：`architecture/assets/business-architecture.png`）：
+   - 目标读者明示"经营决策层 / 产品负责人 / 游戏策划 / 商业化运营"+ 三个关键问题；
+   - 四支柱 × 共享数据底盘的业务结构表（业务定位 + 经营杠杆两列）；
+   - 正反馈闭环段：解释同一份玩家画像（S0–S4 × M0–M4）如何同时为产品体验和经营策略服务（不再"玩法 / 增长各自一套用户标签"）；
+   - "对决策层的核心优势" 三条：完整开放可复用 / 科研级算法栈下沉到生产 / 可审计 KPI（每条都附带可追溯的代码或文档链接）。
+
+3. **新增「二、系统视角」**（图 2：`architecture/assets/architecture-overview.png`）：
+   - 目标读者"架构师 / 后端 / 平台 / 测试"+ 三个关键问题；
+   - 四层（容器 → 组件 → 事件 → 部署）的关键约束 + 代码入口表；
+   - "对架构与工程团队的核心优势" 三条：四端真共享（不是 webview 套壳）/ 架构事实可追溯 / 质量门禁完整（1296 case Vitest）；
+   - 横向参照指向 `SYSTEM_ARCHITECTURE_DIAGRAMS.md` 的 8 张子图分解。
+
+4. **新增「三、算法视角」**（图 3：`algorithms/assets/algorithm-architecture.png`）：
+   - 目标读者"算法工程师 / ML 工程师 / 体验研究员"+ 三个关键问题；
+   - 六层（信号采集 → 玩家画像 → 自适应决策 → 内容生成 → 强化学习 → 训练监控）+ 七子模型表；
+   - 反馈闭环段 + RL 训练独立性说明（不污染真人对局，但与在线推理共享特征）；
+   - "对算法团队的核心优势" 三条：同一份特征定义跨四模型复用 / 画像与算法严格解耦（顺便指向上一轮 docstring 警示表与 `ADAPTIVE_SPAWN.md §5.1.2`）/ 训练-推理可重现；
+   - 横向参照指向 `ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 的 8 张子图分解。
+
+5. **新增「四、面向四类角色的核心优势速览」表**：四行 × 4 列（角色 / 一句话价值 / 立刻能拿到 / 1 行体验入口），让读者用 30 秒决定"先读哪份文档"。
+
+6. **保留并简化「如何阅读」**：合并入"领域 / 方法论 / 工程"三层结构（保留三条编号），不再重复"OpenBlock 不是单一小游戏代码库"那句——它已被新的"项目定位"段更精炼地承载。
+
+**意图**：把首页从"链接索引页"升级为"先看完三张图就能判断要不要继续读 / 该往哪条线读"的决策性入口；同时让三张架构图（业务 / 系统 / 算法）在 `docs/README.md`、`SYSTEM_ARCHITECTURE_DIAGRAMS.md`、`ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 三处保持同源引用，避免重复维护。
+
+**验证**：
+- `ReadLints docs/README.md` 干净；
+- 三张图相对路径 `./architecture/assets/business-architecture.png` / `./architecture/assets/architecture-overview.png` / `./algorithms/assets/algorithm-architecture.png` 与 `SYSTEM_ARCHITECTURE_DIAGRAMS.md` / `ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 引用的路径一致，文档中心已修过的 `fixRenderedContent` 路径解析逻辑可正常加载；
+- 锚点 `#跨模块架构契约` 在本文件 line 166 实际存在；外链 `ADAPTIVE_SPAWN.md §5.1.2` 锚点为本轮新增 `#512-生命周期--成熟度-stress-调制v132`。
+
+---
+
+### Changed — 成熟度→出块算法的影响显式化 + 删除 v1 残留 difficultyAdapter dead code
+
+**用户反馈（接上一轮三件事的延伸）**：
+1. 上一轮回答提到 `retention/difficultyAdapter.js` 是 v1 残留并行实现，应清理；
+2. 提到两处 `SkillScore`（`AbilityVector.skillScore` vs `playerMaturity.calculateSkillScore`）容易混淆，需要 docstring 警示；
+3. "成熟度对出块算法的影响"应该独立加到策略解释段，并同步更新出块算法策略文档。
+
+**改动**：
+
+1. **删除 dead code**
+   - 移除 `web/src/retention/difficultyAdapter.js`（254 行，定义 `MATURITY_DIFFICULTY_ADJUST L1–L4 → stressOffset/maxStress` 平行实现，但全仓**没有任何生产代码**调用它到 spawn 路径，仅自测引用，是 v1 时期遗留）；
+   - 同步删除 `tests/difficultyAdapter.test.js`（10 个 case）；
+   - 修 `docs/platform/MONETIZATION_GUIDE.md` §4 "智能难度适配"残链 → 重写为指向 v1.32 起的 `lifecycle/lifecycleStressCapMap.js`，附 L1–L4 → M0–M4 升级说明（M-band 多一档分辨率：M4 顶端核心）。
+
+2. **两处 SkillScore docstring 警示**
+   - `web/src/playerAbilityModel.js` 顶部加表格对比 `AbilityVector.skillScore`（局内 5 维 EMA、每帧、进 `skillAdjust`）与 maturity SkillScore（跨局画像、按天 EMA、进 M-band → `lifecycleStressCapMap`），明确"重叠但不同源"；
+   - `web/src/retention/playerMaturity.calculateSkillScore` 同步加详细 docstring（输入字段表 + 阈值映射 + 与 `AbilityVector.skillScore` 的差异），并指向 `ADAPTIVE_SPAWN.md` §5.1.2 锚点。
+
+3. **策略解释段：成熟度横向影响 bullet（独立于 stage 调制 bullet）**
+   - `web/src/playerInsightPanel.js` 新增 `_maturityImpactBullet(snap)`：把"同 stage 下 M0..M4 的 cap 全列出，当前 band 加粗"这段信息显式化——
+     例如 `S3·M2 玩家会看到："成熟度 M2 熟练（Skill 65/100）→ 同 S3 阶段：M0 cap — · M1 cap 0.72 · **M2 cap 0.78** · M3 cap 0.85 · M4 cap 0.88"`；
+   - 在 `_render` 的 elWhy 段紧接 `_lifecycleWhyBullet`（"阶段调制 ... cap+adjust"）之后插入这条 bullet，让运营/玩家直观看到"如果 band 升 / 降一档，难度会变多少"，而不仅是当前点的快照；
+   - 设计动机写在函数 docstring：解决"看完联合调制结果后玩家自然产生的横向假设问题"。
+
+4. **出块算法策略文档全面同步（核心交付）**
+   - `docs/algorithms/ADAPTIVE_SPAWN.md`：
+     - 新增 §5.1.2 "生命周期 + 成熟度 stress 调制（v1.32 起）"——含输入维度表、17 项调制矩阵（5×5 中 17 项命中 + 8 项 fallback 标注 "—"）、两个维度的影响幅度（"band 移动 → cap 抬升 0.16–0.25 ≈ 10 档 profile 的 3–4 档"）、与 onboarding/winback/B 类挑战的串联关系、`stressBreakdown` 透出字段、SkillScore 命名警示、历史 difficultyAdapter 备注；
+     - §5.2 信号效果总览表新增 `lifecycleStressCap` / `winbackStressCap` 两行；
+   - `docs/algorithms/SPAWN_ALGORITHM.md`：
+     - 新增 §5.5 "跨局画像调制：生命周期阶段 + 成熟度档位（v1.32 起）"——同源结构，附调制公式、矩阵、与本文 10 档 profile 的对齐关系；
+     - §6.1 投放区指标表新增 阶段 / 成熟 / 调制 三行（指向 `stressBreakdown.lifecycleStage / lifecycleBand / lifecycleStressAdjust`）；
+   - `docs/algorithms/ALGORITHMS_SPAWN.md`（算法工程师手册）：
+     - 在 §4 "自适应映射：从画像到 stress" 下新增 §4.1.x "跨局画像调制（生命周期 stage × 成熟度 band，v1.32 起）"——含 LaTeX 公式 `stress_final = clamp(min(stress_raw, cap_(s,b)) + δ_(s,b), -0.2, 1.0)`、(cap, adjust) 元组矩阵、SkillScore 区分表（强调与 §4.1 公式的 `skill_z` 正交）、历史 difficultyAdapter 备注；
+   - `docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md` §8：
+     - 顶部新增 "全仓唯一接线点（Single Source of Truth）" 框，列出三个唯一消费方（`adaptiveSpawn.js` 一处 + `playerInsightPanel.js` 两处）、明确 `difficultyAdapter.js` 已废止、警告"局部复现 `'S0·M0': { cap: 0.50 }` 字面值"是反模式；
+     - 同步加两处 SkillScore 不要混淆的警示（与代码 docstring 互引）。
+
+**验证**：
+- `npm run test` → 87 个测试文件，1296 个 case 全绿（从 1306 减 10 个 difficultyAdapter case，符合预期）；
+- ReadLints 无新增 lint 错误；
+- 全仓 `rg "difficultyAdapter"` 仅剩本 CHANGELOG 与文档历史备注引用，无任何生产 import。
+
+**意图**：把"成熟度档位对出块算法的影响"从隐形的查表副作用，提升为玩家面板上"看一眼就懂横向梯度"的一等显示物，同时让算法手册（三份 spawn 文档 + blueprint）有了 single source of truth 的锚点，为后续接入 RL spawn / Transformer V3 训练时直接复用 `(stage, band) → stress` 这条画像通路打底。
+
+---
+
+### Changed — 阶段·成熟度中文展示 + 写入 user_stats 画像数据表（全链路同步）
+
+**用户反馈（接前两轮整合）**：
+- pill 上仍显示英文 `S3 / M0`，玩家不知道含义；
+- 想确认这两个指标"写入用户画像数据表，并保持更新和同步"——希望除了
+  前端 localStorage，后端 SQLite 也有一处可 SQL 查询的"画像列"。
+
+**改动**：
+
+1. **pill 中文化（`web/src/playerInsightPanel.js` + `web/public/styles/main.css`）**
+   - `_lifecyclePillsHtml` 把 `<strong>${stageCode}</strong>` 改为
+     `<strong><small class="insight-metric__code">${stageCode}</small>${stageName}</strong>`，
+     主显示用中文短名（稳定 / 新手 / 资深 / 核心 / 新入场 / 激活 / 习惯 / 回流），
+     code (S3/M0) 沉到前缀小灰字（保留契约 ID 给运营/QA 排查）；
+   - `.insight-metric--lifecycle strong` 不再 monospace + `letter-spacing`，
+     改用 `flex align-items: baseline + gap` 让 code 与中文 baseline 对齐；
+   - 新增 `.insight-metric__code` 样式：JetBrains Mono · 7.5px · 800 weight ·
+     opacity 0.6，与中文短名形成 60/40 视觉权重。
+
+2. **前端写入数据表（`web/src/game.js`）**
+   - 在 `saveSession()` 调 `db.updateSession(sessionId, {gameStats})` 之前，
+     基于 `getCachedLifecycleSnapshot(playerProfile)` 拼出 `lifecycle: { stage,
+     band, skillScore, confidence, isWinbackCandidate, ts }` 子对象注入
+     `gameStats`，failure-soft（取数失败 → null，不阻塞主流程）。
+   - 时序保证：`onSessionEnd` 已经先 invalidate cache + updateMaturity，
+     所以这里读到的是"本局结束后"的最新 stage / band，而不是开局前的旧值。
+
+3. **后端画像数据表（`server.py`）**
+   - `user_stats` 加 4 列：`lifecycle_stage` (TEXT) · `maturity_band` (TEXT) ·
+     `skill_score` (REAL) · `lifecycle_updated_at` (INTEGER unix sec)。
+     - `CREATE TABLE` 一步到位（新装机库）
+     - `_migrate_schema` 走 `ALTER TABLE ... ADD COLUMN`（旧库幂等迁移）
+   - 新工具函数 `_extract_lifecycle_payload(game_stats)`：白名单校验
+     stage∈{S0..S4} / band∈{M0..M4}，skillScore 强转 float，ts 兜底当前时间秒；
+     任一字段不合法 → 返回 None，不污染 user_stats。
+   - 新工具函数 `_upsert_user_lifecycle(cursor, user_id, payload)`：
+     `UPDATE user_stats SET ... WHERE user_id = ?` 幂等更新；`skill_score` 用
+     `COALESCE(?, skill_score)` 兼容"前端没传 SkillScore 时不覆盖旧值"。
+   - `PATCH /api/session/<id>` 在原有 `gameStats` JSON 写入之外，额外解析
+     `lifecycle` 子对象 → `_upsert_user_lifecycle`。与 `status='completed'`
+     切换解耦：进行中的局只要带 lifecycle 块也会同步，方便运营 dashboard
+     在游戏过程中跟踪 stage 漂移。
+   - `GET /api/stats?user_id=xxx` 响应新增 4 字段（`lifecycle_stage` /
+     `maturity_band` / `skill_score` / `lifecycle_updated_at`），运营 / 第三方
+     dashboard 直接消费。
+
+**完整持久化路径（已确认全部齐全 + 同步）**：
+
+| 数据点 | 持久化位置 | 写入触发器 |
+|---|---|---|
+| **band**（成熟度）| `localStorage[openblock_player_maturity_v1]` | `onSessionEnd → updateMaturity` |
+| **stage 派生事实** | `localStorage[openblock_playerProfile_v1]` 的 `installTs / lastSessionEndTs / totalLifetimeGames` | `recordSessionEnd → save` |
+| **运行时 snapshot** | `getCachedLifecycleSnapshot` 300ms TTL 缓存 | 每帧请求时按需重算，`onSessionEnd → invalidateLifecycleSnapshotCache` 主动失效 |
+| **stage·band 跨设备/外部查询** | 后端 `sqlite.user_stats.{lifecycle_stage, maturity_band, skill_score, lifecycle_updated_at}` | `endGame → saveSession → PATCH /api/session → _upsert_user_lifecycle` |
+| **跨局历史 trace** | 后端 `sqlite.sessions.game_stats` JSON 内的 `lifecycle` 子对象 | 同上 PATCH |
+| **小程序同源** | `wx.*StorageSync`（经 `miniprogram/adapters/storageShim.js` 桥成 `localStorage`）| 同 Web 路径 |
+
+**E2E 验证**（POST /api/session → PATCH /api/session 携带 lifecycle → GET /api/stats）：
+```
+PATCH 写入：S3 / M2 / 68.5 / 1715750000
+GET 读出：  "lifecycle_stage": "S3", "maturity_band": "M2",
+            "skill_score": 68.5, "lifecycle_updated_at": 1715750000
+SQL 直查：  e2e_lifecycle_test|S3|M2|68.5|1715750000
+```
+
+**回归覆盖**：
+- 全量 `npx vitest run` 88 文件 / 1306 用例全过
+- ESLint 无警告
+- Flask 旧库 ALTER TABLE 迁移成功（`PRAGMA table_info(user_stats)` 见 4 列就位）
+
+### Changed — 玩家画像「阶段 · 成熟度」整合到能力指标 4×2 + 出块影响下沉到策略解释
+
+**用户反馈（接前序整合一轮的迭代）**：
+- 顶部独立「🌱 阶段 · 成熟度」段虽然显眼，但额外占了 ≈90px 垂直空间，
+  与下方「🎚️ 能力指标」(3×2) 在视觉上是同质的"基础指标"，应合并；
+- "出块影响"一句话单独占一行也是浪费，应合并到下方「💬 策略解释 → 📱 生命周期」
+  分组，让"我处于什么阶段 / 出块算法对我做了什么 / 策略建议"在一处看完；
+- 截图里 stage 显示英文 `stability` 而不是中文「稳定」，是
+  `_computeLifecycleSnap` 把 cached snapshot 的英文 enum (`stage.name`) 直接当
+  显示文本造成的 bug。
+
+**改动**：
+
+1. **HTML：`web/index.html`** 删除独立 `<details>🌱 阶段·成熟度</details>` 段，
+   `#insight-ability` 加 modifier `insight-grid--with-lifecycle` 标记 4 列布局。
+
+2. **JS：`web/src/playerInsightPanel.js`**
+   - 删除 `_renderLifecycleCard`（独立卡片），换成两个工具函数：
+     - `_lifecyclePillsHtml(snap)`：生成 stage / band 两个 `.insight-metric--lifecycle`
+       pill，追加到 6 项能力 pill 末尾凑齐 8 项 4×2，stage/band 颜色用
+       `--lifecycle-color` CSS var 注入；冷启动给灰色占位避免 grid 错位为 3×2。
+     - `_lifecycleWhyBullet(snap, ins)`：生成 "阶段调制 S3·M0 → ... " 格式的
+       bullet，自动叠加 `lifecycleStressAdjust` 实时反馈（"本帧已触发 cap，
+       △ -0.07"）和 winback 标记，未在调制表内时给出"为什么按 raw stress 直通"
+       的解释。
+   - `_render` 改造：lifecycle snapshot 单帧只算一次，分别喂给 ability grid
+     末尾两 pill + elWhy 的 lifecycleBullets（unshift 到分组首位）+ elState 的
+     winback 标识；不再渲染 `#insight-lifecycle`。
+   - **Bug fix `_computeLifecycleSnap`**：`cached.stage.name` 是英文 enum
+     (`onboarding/exploration/growth/stability/veteran`)，UI 应显示中文短名。
+     改为直接走 `LIFECYCLE_STAGE_LABEL[code]` 映射（新入场/激活/习惯/稳定/回流），
+     直读路径 (`getLifecycleMaturitySnapshot`) 的 `stageName` 已经是中文（导入期/
+     探索期/...），二者经由统一 `_resolveStageName` 兜底，不会再出现英文。
+
+3. **CSS：`web/public/styles/main.css`**
+   - 删除 `.insight-lifecycle*`（独立卡片）所有规则
+   - `.insight-grid--with-lifecycle { grid-template-columns: repeat(4, 1fr) }`
+     专门走 4 列；旧的 `.insight-grid` 仍是 3 列，回放面板等场景兼容
+   - 新增 `.insight-metric--lifecycle`：`--lifecycle-color` 内联色 + 3px 左强调条；
+     `strong` 用 JetBrains Mono / 800 weight 显示 code（S3/M0），覆盖父规则的
+     ellipsis 让 2 字符 code 居中显示
+
+**验证**：
+- 全量 `npx vitest run` 88 文件 / 1306 用例全过
+- 关键：`tests/challengeDesignOptimization.test.js` 三个 P1-1 case 继续绿
+- ESLint 无警告
+
+### Changed — 玩家画像顶部新增「阶段 · 成熟度」基础指标卡 + 出块影响透出
+
+**用户反馈**：截图里 `S3·M0` 的生命周期 chip 被埋在画像面板底部
+`.insight-live-flags` 行，与 `AFK / 近失 / 恢复 / 新手` 同质并排，
+作为"决定出块算法 stress cap/adjust 的基础输入"显得**完全不显眼**；
+而且玩家/QA 看不出"这两个指标到底怎么影响了出块"。
+
+**改动**（落地 PLAYER_LIFECYCLE_MATURITY_BLUEPRINT P1-X）：
+
+1. **抽 single source of truth：`web/src/lifecycle/lifecycleStressCapMap.js`**
+   - 把 `adaptiveSpawn.js` 内嵌的 17 项 `lifecycleStressCapMap` 提到独立模块
+   - 同时导出 `LIFECYCLE_STAGE_LABEL / LIFECYCLE_BAND_LABEL /
+     LIFECYCLE_STAGE_COLOR / LIFECYCLE_BAND_COLOR` 字典，供 panel 与文档复用
+   - 提供 `getLifecycleStressCap(stage, band)` 查表 API 与
+     `describeLifecycleStressCap` 自然语言描述函数
+   - `adaptiveSpawn.js` 改为 `import { getLifecycleStressCap }` 直接查表，
+     删除本地副本，避免运营调表时两处漂移
+
+2. **HTML：`web/index.html`** 在「能力指标」之上新增 `<details>`
+   ```
+   🌱 阶段 · 成熟度
+   #insight-lifecycle  ← 新基础指标位
+   🎚️ 能力指标
+   📡 实时状态
+   ```
+
+3. **JS：`web/src/playerInsightPanel.js`** 新增 `_renderLifecycleCard`
+   - 顶部抽公共函数 `_computeLifecycleSnap` 一次取数（cached → dashboard），
+     `_render` 把 snapshot 同时喂给顶部卡 + 底部 flags（避免双路径不同步）
+   - 顶部双卡：左 stage（彩色 stageColor + 中文短名 + 置信%），
+     右 band（阶梯色 bandColor + 中文短名 + SkillScore%）
+   - 第二行「出块影响」一句话叙事：直接调
+     `describeLifecycleStressCap(stage, band)` 显示 `cap` / `adjust` 数值，
+     并叠加 `ins.stressBreakdown.lifecycleStressAdjust` 实时反馈"本帧是否
+     真的被 cap 拦截"
+   - hover 三段 tooltip：stage 含义 / band 含义 / 出块算法的硬约束 + 蓝图链
+   - winback 候选（S4）独立加 `回流保护` 红 chip
+   - 同步从 `.insight-live-flags` 移除 `shortLabel`，避免与新顶部卡重复展示
+
+4. **CSS：`web/public/styles/main.css`** 新增 `.insight-lifecycle*` 样式
+   - 用 CSS 自定义属性 `--lifecycle-color` 由 JS 内联，stage 5 色 / band
+     5 色不需要 25 条选择器
+   - hover 触发 `box-shadow` 外发光 + 1px translateY，与 `.insight-metric`
+     的 pill 视觉风格保持一致
+   - `.insight-lifecycle-impact` 用虚线边 + `🔖 出块影响` 标签，与"指标 pill"
+     做层次区分
+
+**回归覆盖**：
+- 全量 `npx vitest run` 88 文件 / 1306 用例全过
+- 关键覆盖：`tests/challengeDesignOptimization.test.js` 的 P1-1 三个 case
+  （S0·M0 cap 0.50、S3·M4 cap 0.88、S4·M0 cap 0.55）继续绿，证明 map 抽取
+  无任何数值漂移
+- `tests/lifecycleSignals.test.js / lifecycleBlueprint.test.js /
+  playerLifecycleDashboard.test.js / playerMaturity.test.js / adaptiveSpawn.test.js`
+  全过
+
+**回答用户问题 2「出块算法是如何应用这两个指标的」**：
+1. `(stage, band)` 二元组每帧查 `LIFECYCLE_STRESS_CAP_MAP`（17 项），
+   得到该群体专属的 `{ cap, adjust }`
+2. 若 raw stress > cap → 强制压回 cap（`lifecycleStressAdjust < 0`）
+3. 再叠加 `adjust` 整体偏移；clamp 到 `[-0.2, 1]`
+4. 最终 stress → 选 10 档难度 profile + 决定 `clearGuarantee /
+   sizePreference / multiClearBonus / spatialPressure` 等 `spawnHints`
+5. 特殊通路：`stage='S0'`（onboarding）触发 `firstSessionStressOverride`
+   全局压制；`stage='S4'` + `daysSinceLastActive≥7` 触发 winback 保护包
+   （前 3 局 cap 0.6 + 保消 +1 + sizePref 偏小）
+6. 所有调制结果都透出到 `ins.stressBreakdown.lifecycleStage /
+   lifecycleBand / lifecycleStressAdjust / winbackStressCap`，新顶部卡的
+   "出块影响"行直接读这些字段，做到"运营在面板上看到的就是算法实际跑的"。
+
+### Fixed — 转盘提示 toast 在 mahjong / forbidden 等 uiDark 主题下「白底白字」
+
+**用户反馈**：在「🀄 麻将牌局」皮肤下，盘面顶部出现 `🎰 今日免费转盘可
+领取 [去抽]` 提示条，但**整条文字几乎看不见**，只剩按钮「去抽」勉强可
+辨——背景是浅米黄色，文字是白色，对比度近 0。
+
+**根因**（`web/public/styles/main.css` `#seasonal-toast`）：
+
+```css
+#seasonal-toast {
+    background: var(--text-primary, #1e293b);  /* 误把"前景文本色"当背景 */
+    color: #fff;                                /* 写死白色 */
+}
+```
+
+设计假设 `--text-primary` 永远是深色。但 `web/src/skins.js` 的
+`UI_DARK_BASE` 在 `uiDark: true` 主题（mahjong / forbidden / 多款 8.x
++ v10 重制深色皮肤）下把 `--text-primary` 覆写为 `#e8eef4`（浅蓝白）
+—— 这在游戏 HUD 里是正确的（深 cssBg 上要浅文字），但被 toast 当背景
+后就退化成「白底白字」。
+
+按钮 `.seasonal-toast__btn` 同样有隐患：mahjong 主题
+`--accent-color: #E0A040`（蜜蜡黄金）+ 写死 `color:#fff`，对比度仅
+1.78:1，远低于 WCAG AA 4.5:1 阈值。
+
+**修复**（与 `#easter-egg-toast` 已有的"全主题安全"方案对齐）：
+
+- 容器背景从 `var(--text-primary)` 改为固定 `rgba(22, 22, 32, 0.88)`，
+  与主题 token 完全解耦，所有 30+ 皮肤下白文字均可读。
+- 加 `border: 1px solid rgba(255,255,255,0.08)` + `box-shadow` 内外双层，
+  在浅色主题（welcome / cherry / dawn 等 `uiDark:false`）下也有立体感。
+- 文字 `text-shadow: 0 1px 2px rgba(0,0,0,0.45)` 兜底——即使未来 token
+  再被误覆，也有最后一道描边保读性。
+- 去掉 `opacity: 0.96`（rgba alpha 已替代），`is-visible` 改 `opacity: 1`
+  消除半透明导致的边缘模糊。
+- 按钮同步加 `font-weight: 700` + `text-shadow` + `box-shadow inset`
+  描边阴影，确保任何浅亮 accent 色（黄金 / 浅蓝 / 浅粉）下白字仍有
+  足够对比；hover/active 用 `filter: brightness(...)` 替代 `opacity`，
+  与全站按钮态一致。
+
+**全仓回归**：`rg "background[^;]*:\s*var\(--text-primary"` 在 `web/`
+仅 1 处匹配（即本次修复点），无其它「token 错位」隐患。
+
 ### Fixed — `ALGORITHM_ARCHITECTURE_DIAGRAMS.md` 9 张图全部渲染失败 / 法棍布局
 
 **用户反馈**：浏览器在文档门户中渲染算法架构图时多张报错

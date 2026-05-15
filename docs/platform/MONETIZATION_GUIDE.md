@@ -2849,38 +2849,32 @@ const intervention = getChurnIntervention({ stage: 'exploration' });
 // { type: '激励召回', reward: [...], message: '...' }
 ```
 
-### 4. 智能难度适配 (`retention/difficultyAdapter.js`)
+### 4. 智能难度适配 (`adaptiveSpawn.js` + `lifecycle/lifecycleStressCapMap.js`)
 
-**功能：** 基于玩家成熟度和流失风险动态调整游戏难度。
+**v1.50.x 起：** 旧的 `retention/difficultyAdapter.js` 已**移除**——它定义了一套
+基于成熟度 L1–L4 的 `stressOffset/maxStress` 平行实现，但全仓**没有任何生产
+代码调用它到出块算法路径**（仅自测引用），是 v1 残留的并行设计。其职责由
+v1.32 起的 `(stage·band) → cap/adjust` 调制表（`lifecycle/lifecycleStressCapMap.js`）
+统一接管，详见 [`docs/algorithms/ADAPTIVE_SPAWN.md` §5.1.2 生命周期 + 成熟度
+stress 调制](../algorithms/ADAPTIVE_SPAWN.md#512-生命周期--成熟度-stress-调制v132)
+与 [`docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)。
 
-**适配策略：**
-
-- L1 玩家：stressOffset -15, 启用挫败感减压
-- L2 玩家：stressOffset -5, 适度减压
-- L3 玩家：stressOffset 0, 标准难度
-- L4 玩家：stressOffset +5, 提升挑战
-
-**核心接口：**
+**当前唯一接线点（替代旧 difficultyAdapter）：**
 
 ```javascript
-import { getDifficultyAdapterConfig, adjustStressForPlayer, shouldTriggerFrustrationRelief, getDifficultyRecommendation } from './retention/difficultyAdapter.js';
+import { getLifecycleStressCap } from './lifecycle/lifecycleStressCapMap.js';
 
-// 获取难度适配配置
-const config = getDifficultyAdapterConfig();
-// { stressOffset, maxStress, enableFrustrationRelief, enableBeginnerBonus, recommendedProfile, churnRisk, ... }
-
-// 调整基础压力值
-const result = adjustStressForPlayer(50);
-// { stress: 35, config: {...}, reason: '新手保护-快速成功' }
-
-// 检查是否触发挫败感减压
-const relief = shouldTriggerFrustrationRelief(consecutiveNoClear, playerScore);
-// { shouldTrigger: true, action: { type: 'hint', params: { count: 1 } }, reason: '...' }
-
-// 获取难度推荐
-const recommendation = getDifficultyRecommendation();
-// { recommendedProfile, stressAdjustment, warnings: [...], metadata: {...} }
+// 在 adaptiveSpawn.js 内查表
+const config = getLifecycleStressCap(stage, band);  // 'S3', 'M3' → { cap: 0.85, adjust: +0.10 }
+if (config) {
+    if (stress > config.cap) stress = config.cap;
+    stress += config.adjust;
+}
 ```
+
+旧 difficultyAdapter 的 L1–L4 → M0–M4 升级：M-band 由 SkillScore 阈值
+（≥90→M4 / 80–89→M3 / 60–79→M2 / 40–59→M1 / <40→M0）派生，比 L1–L4 多一档
+分辨率（M4 顶端核心）。
 
 ### 5. 社交引入节点 (`retention/socialIntroTrigger.js`)
 

@@ -23,8 +23,13 @@
  *   rhythmPhase     'setup'|'payoff'|'neutral'  出块节奏相位
  *
  * === Layer 3 新增 spawnHints ===
- *   sessionArc      'warmup'|'peak'|'cooldown'  单局弧线
- *   scoreMilestone   boolean  是否刚达到分数里程碑
+ *   sessionArc          'warmup'|'peak'|'cooldown'  单局弧线
+ *   scoreMilestone      boolean  是否刚达到局内分数里程碑（区别于跨局成熟度里程碑）
+ *   scoreMilestoneValue number|null  当 scoreMilestone=true 时给出具体跨过的分数档
+ *
+ * v1.49：字段命名统一——内部 `_milestoneHit` 重命名为 `_scoreMilestoneHit`；
+ *         "里程碑表"改为按 ctx.bestScore 派生的相对档位（见 deriveScoreMilestones）。
+ *         注意与 retention/maturityMilestones.js 中的「成熟度晋升里程碑」是完全不同的概念。
  *
  * 当 adaptiveSpawn.enabled=false 时透传 resolveLayeredStrategy。
  */
@@ -44,6 +49,9 @@ import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
 /* v1.48：winback 保护包接入；通过 lifecycleOrchestrator 包装层避免直接依赖
  * retention 模块（保持单向依赖：spawn 层 → lifecycle 编排层 → retention 模块）。 */
 import { getActiveWinbackPreset } from './lifecycle/lifecycleOrchestrator.js';
+/* v1.50：lifecycleStressCapMap 抽到独立模块，与 playerInsightPanel /
+ * 文档共用 single source of truth；本地不再保留副本，避免漂移。 */
+import { getLifecycleStressCap } from './lifecycle/lifecycleStressCapMap.js';
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -425,10 +433,37 @@ function deriveDelightTuning(profile, ctx, fill, cfg = {}) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Layer 3: session 弧线 + 里程碑                                     */
+/*  Layer 3: session 弧线 + 局内分数里程碑                              */
+/*                                                                    */
+/*  注意：本节的「里程碑」指 *局内分数突破档位*（score milestone），与   */
+/*  retention/maturityMilestones.js 中的「成熟度晋升里程碑」（跨局      */
+/*  M0→M1→M2 等，事件 `maturity_milestone_complete`）是两个完全独立的概念。 */
+/*  字段命名 v1.49 已统一改为 scoreMilestone* 前缀，便于跨模块辨识。       */
 /* ------------------------------------------------------------------ */
 
-const MILESTONE_SCORES = [50, 100, 150, 200, 300, 500];
+/** 新手 / bestScore 未知时的绝对档位（fallback） */
+const SCORE_MILESTONES_ABS = [50, 100, 150, 200, 300, 500];
+
+/** 已有 bestScore 时的相对档位比例 — 让所有水位玩家都能感受到节奏 */
+const SCORE_MILESTONES_REL = [0.25, 0.5, 0.75, 1.0, 1.25];
+
+/**
+ * 派生当前生效的分数里程碑表。
+ *
+ * - 当 bestScore < 200（新手或刚起步）时，沿用绝对档位 [50,100,150,200,300,500]——
+ *   保证新手能感受到稳定的"突破 50→100→150"节奏；
+ * - 当 bestScore ≥ 200 时，按 [0.25, 0.5, 0.75, 1.0, 1.25] × bestScore 派生——
+ *   避免老玩家开局头几秒被 6 个绝对档位连击、之后再无任何里程碑反馈。
+ *
+ * @param {number} bestScore 当前账号历史最佳；0 或缺失时按新手处理。
+ * @returns {number[]} 单调递增的里程碑分数数组
+ */
+function deriveScoreMilestones(bestScore) {
+    if (!Number.isFinite(bestScore) || bestScore < 200) {
+        return SCORE_MILESTONES_ABS.slice();
+    }
+    return SCORE_MILESTONES_REL.map(r => Math.round(bestScore * r));
+}
 
 /**
  * 推导 session 弧线阶段
@@ -443,13 +478,14 @@ function deriveSessionArc(totalRounds, sessionPhase) {
 }
 
 /**
- * 检查分数是否刚跨越里程碑
- * @param {number} score
- * @param {number} prevMilestone 上次触发的里程碑分数
+ * 检查分数是否刚跨越分数里程碑（局内）。
+ * @param {number} score 当前局内分数
+ * @param {number} prevMilestone 上次触发的里程碑分数（已写入 _prevScoreMilestone）
+ * @param {number[]} milestones 当前生效的里程碑表（来自 deriveScoreMilestones）
  * @returns {{ hit: boolean, milestone: number }}
  */
-function checkMilestone(score, prevMilestone) {
-    for (const m of MILESTONE_SCORES) {
+function checkScoreMilestone(score, prevMilestone, milestones) {
+    for (const m of milestones) {
         if (score >= m && (prevMilestone ?? 0) < m) {
             return { hit: true, milestone: m };
         }
@@ -457,11 +493,11 @@ function checkMilestone(score, prevMilestone) {
     return { hit: false, milestone: prevMilestone ?? 0 };
 }
 
-/** 记录上次触发的里程碑分数 */
-let _prevMilestone = 0;
+/** 记录上次触发的分数里程碑（模块级状态，每局开始由 resetAdaptiveMilestone 清零） */
+let _prevScoreMilestone = 0;
 
 export function resetAdaptiveMilestone() {
-    _prevMilestone = 0;
+    _prevScoreMilestone = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -600,9 +636,10 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (sessionArc === 'warmup') sessionArcAdjust = -0.08;
     else if (sessionArc === 'cooldown' && profile.momentum < -0.2) sessionArcAdjust = -0.05;
 
-    /* ---------- Layer 3: 里程碑 ---------- */
-    const milestoneCheck = checkMilestone(score, _prevMilestone);
-    if (milestoneCheck.hit) _prevMilestone = milestoneCheck.milestone;
+    /* ---------- Layer 3: 局内分数里程碑（与跨局成熟度里程碑无关） ---------- */
+    const scoreMilestones = deriveScoreMilestones(ctx.bestScore ?? 0);
+    const scoreMilestoneCheck = checkScoreMilestone(score, _prevScoreMilestone, scoreMilestones);
+    if (scoreMilestoneCheck.hit) _prevScoreMilestone = scoreMilestoneCheck.milestone;
     const delight = deriveDelightTuning(profile, ctx, _boardFill ?? 0, cfg.delight ?? {});
     const abilityRiskCfg = GAME_RULES.playerAbilityModel?.adaptiveSpawnRiskAdjust ?? {};
     const abilityRiskMinConf = abilityRiskCfg.minConfidence ?? 0.25;
@@ -821,30 +858,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         if (cached?.stage?.code && cached.stage.code === stage) {
             band = cached.maturity?.band ?? band;
         }
-        const key = `${stage}·${band}`;
-
-        /* S/M 压力上限映射表（与 lifecyclePlaybook 同步） */
-        const lifecycleStressCapMap = {
-            'S0·M0': { cap: 0.50, adjust: -0.15 },   // 新手强保护
-            'S1·M0': { cap: 0.60, adjust: -0.10 },   // 探索期减压
-            'S1·M1': { cap: 0.65, adjust: -0.05 },
-            'S1·M2': { cap: 0.70, adjust: 0 },
-            'S2·M0': { cap: 0.65, adjust: -0.10 },   // 成长新手友好
-            'S2·M1': { cap: 0.70, adjust: 0 },
-            'S2·M2': { cap: 0.75, adjust: 0.05 },
-            'S2·M3': { cap: 0.82, adjust: 0.10 },   // 高手可承受更高压力
-            'S3·M1': { cap: 0.72, adjust: 0 },
-            'S3·M2': { cap: 0.78, adjust: 0.05 },
-            'S3·M3': { cap: 0.85, adjust: 0.10 },
-            'S3·M4': { cap: 0.88, adjust: 0.12 },   // 核心玩家
-            'S4·M0': { cap: 0.55, adjust: -0.15 },   // 回流保护
-            'S4·M1': { cap: 0.60, adjust: -0.10 },
-            'S4·M2': { cap: 0.70, adjust: 0 },
-            'S4·M3': { cap: 0.75, adjust: 0.05 },
-            'S4·M4': { cap: 0.80, adjust: 0.08 },
-        };
-
-        const config = lifecycleStressCapMap[key];
+        /* v1.50：调制表抽到 lifecycle/lifecycleStressCapMap.js（单一来源），
+         * 此处仅查表 + 应用；详细 (S·M) → cap/adjust 字典见该模块。 */
+        const config = getLifecycleStressCap(stage, band);
         if (config) {
             /* 1. 应用压力上限：当前 stress 超过上限时压低 */
             if (stress > config.cap) {
@@ -1210,8 +1226,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         multiLineTarget = Math.max(multiLineTarget, 2);
     }
 
-    /* --- Layer 3: 里程碑庆祝 — 出块友好化 --- */
-    if (milestoneCheck.hit) {
+    /* --- Layer 3: 分数里程碑庆祝 — 出块友好化（v1.49 字段更名 milestoneCheck → scoreMilestoneCheck） --- */
+    if (scoreMilestoneCheck.hit) {
         clearGuarantee = Math.max(clearGuarantee, 2);
         sizePreference = Math.min(sizePreference, -0.2);
     }
@@ -1497,7 +1513,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             delightMode: delight.mode,
             rhythmPhase,
             sessionArc,
-            scoreMilestone: milestoneCheck.hit,
+            scoreMilestone: scoreMilestoneCheck.hit,
+            scoreMilestoneValue: scoreMilestoneCheck.hit ? scoreMilestoneCheck.milestone : null,
             targetSolutionRange,
             spawnIntent,
             motivationIntent,
@@ -1534,7 +1551,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _sessionArc: sessionArc,
         _comboChain: comboChain,
         _rhythmPhase: rhythmPhase,
-        _milestoneHit: milestoneCheck.hit,
+        /* v1.49：字段更名 _milestoneHit → _scoreMilestoneHit，避免与跨局成熟度里程碑（maturityMilestones.js）混淆。 */
+        _scoreMilestoneHit: scoreMilestoneCheck.hit,
+        _scoreMilestoneValue: scoreMilestoneCheck.hit ? scoreMilestoneCheck.milestone : null,
         _playstyle: playstyle,
         _delightMode: delight.mode,
         _delightBoost: delight.multiClearBoost,

@@ -436,6 +436,44 @@ if (flowState === 'flow' && rhythmPhase === 'payoff' && holes === 0
 >   `holeReliefAdjust` / `boardRiskReliefAdjust` 等全部 17 条减压通路；标签 + tooltip
 >   直接复用 `SIGNAL_LABELS`，避免重复定义。
 
+### 4.1.x 跨局画像调制（生命周期 stage × 成熟度 band，v1.32 起）
+
+§4.1 公式得到 `rawStress` 后，进入 `clamp([-0.2, 1])` 之前，会再走一道**跨局画像驱动的硬调制**：
+
+$$
+\text{stress}_\text{final} = \text{clamp}\!\big(\min(\text{stress}_\text{raw},\ \text{cap}_{(s,b)}) + \delta_{(s,b)},\ -0.2,\ 1.0\big)
+$$
+
+其中 $(\text{cap}_{(s,b)},\ \delta_{(s,b)})$ 来自 `web/src/lifecycle/lifecycleStressCapMap.js` 的 17 项查表，索引 $s \in \{S_0..S_4\}$（生命周期阶段，由 `daysSinceInstall + totalSessions + daysSinceLastActive` 三项 AND 门派生）、$b \in \{M_0..M_4\}$（成熟度档位，由 maturity SkillScore 阈值 ≥90/80/60/40/<40 派生）。
+
+**调制矩阵**：
+
+|        | M0 | M1 | M2 | M3 | M4 |
+|--------|----|----|----|----|----|
+| **S0** | (0.50, −0.15) | — | — | — | — |
+| **S1** | (0.60, −0.10) | (0.65, −0.05) | (0.70, 0) | — | — |
+| **S2** | (0.65, −0.10) | (0.70, 0) | (0.75, +0.05) | (0.82, +0.10) | — |
+| **S3** | — | (0.72, 0) | (0.78, +0.05) | (0.85, +0.10) | **(0.88, +0.12)** |
+| **S4** | (0.55, −0.15) | (0.60, −0.10) | (0.70, 0) | (0.75, +0.05) | (0.80, +0.08) |
+
+**两个维度的影响幅度**：
+
+- **band 横向移动（同 stage）**：M0→M4 → cap 抬升 0.16~0.25 → 对应 §4.2 的 10 档 profile 的 **3–4 档**差距（profile_levels 跨度 0.4–0.6）；
+- **stage 纵向移动（同 band）**：保护期 (S0/S4) vs 挑战期 (S2/S3) cap 差 0.10–0.30 → 同 band 下保护期玩家拿到的形状权重明显偏向 §4.2 的低 stress 档位。
+
+**未在矩阵内的组合（如 S3·M0、S0·M3）**：`getLifecycleStressCap` 返回 `null`，本调制段直接跳过——产线分布极低（如 stability 期玩家的 SkillScore 不会还在 M0），仅由通用 stress 通路 + onboarding/winback 特例处理。
+
+**关键设计：M-band SkillScore ≠ §4.1 公式中的 `skill_z`**：
+
+| 字段 | 出处 | 时间窗 | 在算法中的作用 |
+|---|---|---|---|
+| `skill_z` (本节 §4.1) | `playerProfile.skill` → `AbilityVector.skillScore` | 局内每帧 EMA | 直接进 `skillAdjust = ±0.15·tanh(z)` |
+| maturity SkillScore | `retention/playerMaturity.calculateSkillScore` | 跨局按天 EMA，仅在 `onSessionEnd` 写盘 | 仅决定 M-band → 进本节调制矩阵 |
+
+二者**正交**——一个调"局内难度微调"，一个调"跨局难度上限"。详见 `playerAbilityModel.js` 与 `playerMaturity.js` 的 docstring 警示，以及 [`ADAPTIVE_SPAWN.md` §5.1.2](./ADAPTIVE_SPAWN.md#512-生命周期--成熟度-stress-调制v132)。
+
+> 历史备注：v1 时期的 `retention/difficultyAdapter.js` 曾定义 `MATURITY_DIFFICULTY_ADJUST = { L1:-15, L2:-5, L3:0, L4:+5 }` 平行实现，但全仓**没有任何生产代码调用它到 spawn 路径**，已于 v1.50.x 移除，统一由本节查表接管。
+
 ### 4.2 10 档 profile 插值
 
 `shapeWeights` 在 10 档预设之间按 stress 线性插值：

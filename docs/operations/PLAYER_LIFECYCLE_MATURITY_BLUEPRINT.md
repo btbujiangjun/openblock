@@ -256,8 +256,27 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ## 8. S/M 标签 → 出块难度调制
 
-`web/src/adaptiveSpawn.js` 的 `lifecycleStressCapMap` 在综合 stress 计算完成后
-按阶段 × 成熟度查表，对 stress 应用上限 + 偏移：
+> **全仓唯一接线点（Single Source of Truth）**：v1.50.x 起，调制矩阵抽到独立模块
+> `web/src/lifecycle/lifecycleStressCapMap.js`，导出 `LIFECYCLE_STRESS_CAP_MAP`、
+> `LIFECYCLE_STAGE_LABEL`、`LIFECYCLE_BAND_LABEL`、`LIFECYCLE_*_COLOR`、
+> `getLifecycleStressCap()`、`describeLifecycleStressCap()`。
+>
+> 全仓**只有以下三个消费方**读这张表，调表数据 = 改这一处：
+>
+> | 消费方 | 调用 | 用途 |
+> |---|---|---|
+> | `web/src/adaptiveSpawn.js` | `getLifecycleStressCap(stage, band)` | 真正的出块算法 stress 调制（每帧） |
+> | `web/src/playerInsightPanel.js` | `getLifecycleStressCap` + `describeLifecycleStressCap` | 策略解释段两条 bullet（"阶段调制"+"成熟度横向影响"） |
+> | `web/src/playerInsightPanel.js` | `LIFECYCLE_STAGE_LABEL` / `LIFECYCLE_BAND_LABEL` / `_COLOR` | 4×2 能力指标网格中两个 lifecycle pill 的中文 + 配色 |
+>
+> 其余早期实现已废止：
+>
+> - **`web/src/retention/difficultyAdapter.js`**（v1 残留）：曾定义平行的 `MATURITY_DIFFICULTY_ADJUST = { L1:-15, L2:-5, L3:0, L4:+5 }`，但全仓**没有任何生产代码**调用它到 spawn 路径，仅自测引用。**v1.50.x 已删除**，文档残链统一指向本节。
+> - 任何复现 `'S0·M0': { cap: 0.50 }` 字面值的局部代码都属于反模式，应改为 `import { LIFECYCLE_STRESS_CAP_MAP } from 'lifecycle/lifecycleStressCapMap.js'`。
+>
+> ⚠️ **两个 SkillScore 不要混淆**——M-band 阈值用的是 `retention/playerMaturity.calculateSkillScore`（跨局画像、按天 EMA、不含付费/广告）；不是 `playerAbilityModel.buildPlayerAbilityVector` 输出的 `AbilityVector.skillScore`（局内 5 维 EMA、每帧刷新、直接进 `skillAdjust`）。两个文件 docstring 顶部都有警示表。
+
+`web/src/adaptiveSpawn.js` 在综合 stress 计算完成后按阶段 × 成熟度查表，对 stress 应用上限 + 偏移：
 
 | 标签 | cap | adjust | 说明 |
 |------|-----|--------|------|

@@ -164,6 +164,70 @@ def _ensure_column(cursor, table: str, column: str, decl: str) -> None:
         pass
 
 
+# v1.50.x：玩家画像数据表四列同步契约。
+#
+# 前端在 game.js → saveSession() 调 db.updateSession(sessionId, {gameStats:{...,
+# lifecycle:{stage, band, skillScore, confidence, isWinbackCandidate, ts}}})。
+# 这里把这块子对象抽出来，转成 user_stats 的 4 列 + 透传 ts（兜底用本地时间）。
+#
+# 容错：
+#   - 任一字段缺失 / 类型不对 → 该列回 None，不阻塞主路径
+#   - lifecycle 缺失 / 不是 dict → 返回 None（告诉调用方"无须 UPSERT"）
+_VALID_STAGES = {"S0", "S1", "S2", "S3", "S4"}
+_VALID_BANDS = {"M0", "M1", "M2", "M3", "M4"}
+
+
+def _extract_lifecycle_payload(game_stats: dict) -> dict | None:
+    if not isinstance(game_stats, dict):
+        return None
+    lc = game_stats.get("lifecycle")
+    if not isinstance(lc, dict):
+        return None
+    stage = lc.get("stage")
+    band = lc.get("band")
+    if stage not in _VALID_STAGES or band not in _VALID_BANDS:
+        return None
+    skill = lc.get("skillScore")
+    try:
+        skill_val = float(skill) if skill is not None else None
+    except (TypeError, ValueError):
+        skill_val = None
+    ts = lc.get("ts")
+    try:
+        ts_sec = int(ts) // 1000 if ts else int(time.time())
+    except (TypeError, ValueError):
+        ts_sec = int(time.time())
+    return {
+        "lifecycle_stage": stage,
+        "maturity_band": band,
+        "skill_score": skill_val,
+        "lifecycle_updated_at": ts_sec,
+    }
+
+
+def _upsert_user_lifecycle(cursor, user_id: str, payload: dict) -> None:
+    """幂等更新 user_stats 4 列；user_stats 行不存在时跳过（end_session 路径会建）。"""
+    if not user_id or not payload:
+        return
+    cursor.execute(
+        """
+        UPDATE user_stats SET
+            lifecycle_stage = ?,
+            maturity_band = ?,
+            skill_score = COALESCE(?, skill_score),
+            lifecycle_updated_at = ?
+        WHERE user_id = ?
+        """,
+        (
+            payload["lifecycle_stage"],
+            payload["maturity_band"],
+            payload["skill_score"],
+            payload["lifecycle_updated_at"],
+            user_id,
+        ),
+    )
+
+
 def _migrate_behaviors_columns(cursor):
     """旧版库可能缺少 behaviors 字段，补列后再建索引。"""
     cursor.execute(
@@ -300,6 +364,18 @@ def _migrate_schema(cursor):
             ("total_placements", "INTEGER DEFAULT 0"),
             ("total_misses", "INTEGER DEFAULT 0"),
             ("last_ip", "TEXT"),
+            # v1.50.x：玩家画像数据表四列 —— 每次 PATCH /api/session 携带
+            # game_stats.lifecycle 时同步 UPSERT；运营从 SQL 即可按
+            # (lifecycle_stage, maturity_band) 分群查留存 / ARPU。
+            # 字段语义见 web/src/lifecycle/lifecycleStressCapMap.js
+            #   lifecycle_stage  S0..S4    新入场/激活/习惯/稳定/回流
+            #   maturity_band    M0..M4    新手/成长/熟练/资深/核心
+            #   skill_score      0..100    SkillScore（不含付费/广告）
+            #   lifecycle_updated_at      最近一次刷新的 unix 秒
+            ("lifecycle_stage", "TEXT"),
+            ("maturity_band", "TEXT"),
+            ("skill_score", "REAL"),
+            ("lifecycle_updated_at", "INTEGER"),
         ):
             if col_name not in st_cols:
                 try:
@@ -372,7 +448,12 @@ def init_db():
                 total_placements INTEGER DEFAULT 0,
                 total_misses INTEGER DEFAULT 0,
                 last_ip TEXT,
-                last_seen INTEGER DEFAULT (strftime('%s', 'now'))
+                last_seen INTEGER DEFAULT (strftime('%s', 'now')),
+                -- v1.50.x：玩家画像数据列（详见 _migrate_schema 注释）
+                lifecycle_stage TEXT,
+                maturity_band TEXT,
+                skill_score REAL,
+                lifecycle_updated_at INTEGER
             )
         """)
 
@@ -645,6 +726,15 @@ def patch_session(session_id):
                 row["user_id"],
             ),
         )
+
+    # v1.50.x：把 game_stats.lifecycle 子对象 UPSERT 到 user_stats 的 4 列。
+    # 与 status 切换解耦——只要本次 PATCH 带了 lifecycle 块就同步（含进行中
+    # 的局），方便运营在游戏过程中的 dashboard 也能跟踪 stage 漂移。
+    if data.get("gameStats") is not None:
+        lc_payload = _extract_lifecycle_payload(data["gameStats"])
+        if lc_payload:
+            _upsert_user_lifecycle(cur, row["user_id"], lc_payload)
+
     db.commit()
     cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
     return jsonify(_row_session_api(cur.fetchone()))
@@ -916,6 +1006,7 @@ def get_stats():
         row = cursor.fetchone()
 
         if row:
+            row_keys = row.keys()
             return jsonify(
                 {
                     "user_id": row["user_id"],
@@ -927,12 +1018,22 @@ def get_stats():
                     "max_combo": row["max_combo"],
                     "total_placements": row["total_placements"],
                     "total_misses": row["total_misses"],
-                    "last_ip": row["last_ip"] if "last_ip" in row.keys() else "",
+                    "last_ip": row["last_ip"] if "last_ip" in row_keys else "",
                     "accuracy": row["total_placements"]
                     / (row["total_placements"] + row["total_misses"])
                     * 100
                     if (row["total_placements"] + row["total_misses"]) > 0
                     else 0,
+                    # v1.50.x：玩家画像数据 4 字段。运营 / 第三方 dashboard 可
+                    # 直接通过 GET /api/stats?user_id=xxx 拿到当前 stage·band。
+                    "lifecycle_stage": row["lifecycle_stage"]
+                    if "lifecycle_stage" in row_keys else None,
+                    "maturity_band": row["maturity_band"]
+                    if "maturity_band" in row_keys else None,
+                    "skill_score": row["skill_score"]
+                    if "skill_score" in row_keys else None,
+                    "lifecycle_updated_at": row["lifecycle_updated_at"]
+                    if "lifecycle_updated_at" in row_keys else None,
                 }
             )
 

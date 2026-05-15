@@ -3,6 +3,18 @@
  *
  * 该模块把 PlayerProfile 的实时规则信号、盘面拓扑和局级统计聚合为可展示、
  * 可用于自适应投放、也可离线训练校准的 AbilityVector。
+ *
+ * ⚠️ 命名注意：本模块输出的 `AbilityVector.skillScore` 与 `retention/playerMaturity.js`
+ * 的 `calculateSkillScore` 是**两个不同的指标**，不要混用：
+ *
+ * | 字段                            | 出处                              | 数据源 / 时间窗口                                   | 用途                                                         |
+ * |---------------------------------|-----------------------------------|---------------------------------------------------|-------------------------------------------------------------|
+ * | `AbilityVector.skillScore`      | 本文件 `buildPlayerAbilityVector` | 5 维加权（落子样本 EMA），每帧实时刷新               | 直接进入 `adaptiveSpawn.skillAdjust / difficultyTuning`，影响"局内"难度 |
+ * | maturity SkillScore             | `retention/playerMaturity.js`     | 跨局累计，按天 EMA，不含付费/广告                  | 决定 M0–M4 band（≥90→M4 / 80–89→M3 / 60–79→M2 / 40–59→M1 / <40→M0）→ 进 `lifecycleStressCapMap` 决定 stress cap/adjust |
+ *
+ * 二者语义"重叠但不同源"——一个是局内 EMA，一个是跨局画像。M-band 只通过 maturity
+ * SkillScore 派生，**不**通过 AbilityVector。详见
+ * `docs/algorithms/ADAPTIVE_SPAWN.md` §5.1.2。
  */
 import { analyzeBoardTopology } from './boardTopology.js';
 import { GAME_RULES } from './gameRules.js';

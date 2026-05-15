@@ -587,6 +587,33 @@ export class Grid {
         return filled / (this.size * this.size);
     }
 
+    /**
+     * 几何近失指标：返回所有行/列中"填充率最高"的那一条的填充比例（0–1）。
+     *
+     * 用途：定义"差一点消行"——当某行/列已经填到 ≥ 0.78（8 格中 ≥ 7 格、即只差 1–2 格即可消）时，
+     * 调用方可视为玩家处于真正几何意义上的近失状态，触发对应反馈。
+     * 与 getFillRatio()（盘面整体填充率）正交：盘面整体只有 0.55 时，单行单列也可能已经 0.875。
+     */
+    getMaxLineFill() {
+        if (!this.size) return 0;
+        let maxFill = 0;
+        const rowCounts = new Array(this.size).fill(0);
+        const colCounts = new Array(this.size).fill(0);
+        for (let y = 0; y < this.size; y++) {
+            for (let x = 0; x < this.size; x++) {
+                if (this.cells[y][x] !== null) {
+                    rowCounts[y]++;
+                    colCounts[x]++;
+                }
+            }
+        }
+        for (let i = 0; i < this.size; i++) {
+            if (rowCounts[i] > maxFill) maxFill = rowCounts[i];
+            if (colCounts[i] > maxFill) maxFill = colCounts[i];
+        }
+        return maxFill / this.size;
+    }
+
     toJSON() {
         return {
             size: this.size,

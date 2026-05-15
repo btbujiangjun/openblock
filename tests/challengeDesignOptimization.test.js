@@ -189,11 +189,12 @@ describe('P2-5：多级里程碑触发', () => {
         expect(r.spawnHints.scoreMilestone).toBe(false);
     });
 
-    it('_milestoneHit 字段与 spawnHints.scoreMilestone 一致', () => {
+    it('_scoreMilestoneHit 字段与 spawnHints.scoreMilestone 一致（v1.49 字段更名）', () => {
         resetAdaptiveMilestone();
         const p = makeProfile();
         const r = resolveAdaptiveStrategy('normal', p, 50, 0, 0.3, { totalRounds: 3 });
-        expect(r.spawnHints.scoreMilestone).toBe(r._milestoneHit);
+        expect(r.spawnHints.scoreMilestone).toBe(r._scoreMilestoneHit);
+        expect(r.spawnHints.scoreMilestoneValue).toBe(r._scoreMilestoneValue);
     });
 
     it('里程碑列表包含 50/100/150/200/300/500', () => {

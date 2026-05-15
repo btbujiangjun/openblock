@@ -275,6 +275,58 @@ comboChain = min(1, streak * 0.25 + (lastClear > 0 ? 0.3 : 0))
 - **confidence**: 数据置信度 → 收窄/放宽技能调节幅度
 - **historicalSkill**: 历史综合技能 → 与实时技能混合
 
+### 5.5 跨局画像调制：生命周期阶段 + 成熟度档位（v1.32 起）
+
+`adaptiveSpawn.js` 在 Layer 1/2/3 所有信号合成出 `rawStress` 后、`clamp([-0.2, 1])` 之前，会对 stress 再走一道**由跨局画像驱动的硬调制**：
+
+```
+final.stress = clamp(
+    min(rawStress, lifecycleCap)  +  lifecycleAdjust,
+    -0.2, 1.0
+)
+其中 (lifecycleCap, lifecycleAdjust) = getLifecycleStressCap(stage, band)
+```
+
+**两个画像维度**（与本文 Layer1/2/3 的局内信号正交）：
+
+| 维度 | 来源 | 取值 | 数据更新 |
+|---|---|---|---|
+| `stage` 生命周期 | `retention/playerLifecycleDashboard.js` | `S0..S4`（新入场 / 激活 / 习惯 / 稳定 / 回流） | 三项 AND 门：`daysSinceInstall + totalSessions + daysSinceLastActive`，每帧按需重算（300ms TTL） |
+| `band` 成熟度 | `retention/playerMaturity.js` | `M0..M4`（新手 / 成长 / 熟练 / 资深 / 核心） | maturity SkillScore 阈值映射（≥90→M4 / 80–89→M3 / 60–79→M2 / 40–59→M1 / <40→M0），每局 `onSessionEnd` 写盘 |
+
+> ⚠️ M-band 的 SkillScore 与本文 §3 投放区的 `AbilityVector.skillScore` 是两个不同指标——前者是跨局画像、按天 EMA、仅决定 band；后者是局内 5 维 EMA、每帧刷新、直接进 `skillAdjust`。详见 `web/src/playerAbilityModel.js` 与 `web/src/retention/playerMaturity.js` 的 docstring 警示。
+
+**调制表（`web/src/lifecycle/lifecycleStressCapMap.js`，全仓 single source of truth）**：
+
+|        | M0 新手 | M1 成长 | M2 熟练 | M3 资深 | M4 核心 |
+|--------|---------|---------|---------|---------|---------|
+| **S0 新入场** | cap 0.50 / adj −0.15 | — | — | — | — |
+| **S1 激活**   | 0.60 / −0.10 | 0.65 / −0.05 | 0.70 / 0 | — | — |
+| **S2 习惯**   | 0.65 / −0.10 | 0.70 / 0 | 0.75 / +0.05 | 0.82 / +0.10 | — |
+| **S3 稳定**   | — | 0.72 / 0 | 0.78 / +0.05 | 0.85 / +0.10 | **0.88 / +0.12** |
+| **S4 回流**   | 0.55 / −0.15 | 0.60 / −0.10 | 0.70 / 0 | 0.75 / +0.05 | 0.80 / +0.08 |
+
+**两个维度的影响幅度**：
+
+- **band 移动**（同 stage）：M0→M4 → cap 抬升 0.16–0.25 → 对应本文 §7 的 10 档 difficulty profile 的 **3–4 档**差距；
+- **stage 移动**（同 band）：S0/S4（保护期）vs S2/S3（挑战期）在同 band 下 cap 差 0.10–0.30。
+
+**未在调制表内的组合**（如 `S0·M3` / `S3·M0`）：`getLifecycleStressCap` 返回 `null`，本调制段直接跳过——产线分布极低，仅由通用 stress 通路 + onboarding/winback 特例处理。
+
+**与现有特殊保护通路的关系**（串联，不替代）：
+
+1. **新手保护**（`profile.isInOnboarding === true`，stage=S0）→ 进一步把 stress 压到 `≤ -0.15`；
+2. **winback 保护包**（`daysSinceLastActive ≥ 7`，stage=S4）→ 前 3 局 cap 取 `min(0.6, lifecycleCap)`；
+3. **B 类高分挑战**（segment5='B' 且 score ≥ best×0.8）→ stress 加 `≤ +0.15`，与 lifecycle adjust 同向时不叠加。
+
+**透出字段**（`stressBreakdown`，回放面板可追踪）：
+
+- `lifecycleStage` / `lifecycleBand`：当前判定的画像
+- `lifecycleStressAdjust`：cap 实际触发时的差值（负值 = stress 被压低）
+- `winbackStressCap`：winback 包激活时的 cap
+
+详细推导与历史演进见 [`ADAPTIVE_SPAWN.md` §5.1.2](./ADAPTIVE_SPAWN.md#512-生命周期--成熟度-stress-调制v132)。
+
 ## 6. 策略解释面板同步
 
 ### 6.1 投放区新增指标
@@ -289,6 +341,9 @@ comboChain = min(1, streak * 0.25 + (lastClear > 0 ? 0.3 : 0))
 | 空洞 | `spawnDiagnostics.layer1.holes` | 盘面空洞数 |
 | 平整 | `spawnDiagnostics.layer1.flatness` | 表面平整度 |
 | 近满 | `spawnDiagnostics.layer1.nearFullLines` | 接近满行数 |
+| 阶段 | `stressBreakdown.lifecycleStage` | S0..S4 → 进 §5.5 调制表 |
+| 成熟 | `stressBreakdown.lifecycleBand`  | M0..M4 → 进 §5.5 调制表 |
+| 调制 | `stressBreakdown.lifecycleStressAdjust` | cap 触发时的 stress 差值 |
 
 ### 6.2 策略建议新增条目
 

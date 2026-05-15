@@ -10,6 +10,12 @@ import { GAME_RULES } from './gameRules.js';
 /* v1.48 (2026-05) — 生命周期编排层接线员，把 churnPredictor / winbackProtection /
  * shouldTriggerIntervention 等孤立模块通过 startGame / endGame 钩子接到主流程。 */
 import { onSessionStart, onSessionEnd } from './lifecycle/lifecycleOrchestrator.js';
+/* v1.50.x：把每局结束时的 lifecycle snapshot（stage / band / skillScore /
+ * confidence）注入 sessions.game_stats.lifecycle，让后端 PATCH 可同步到
+ * user_stats 的 lifecycle_stage / maturity_band / skill_score / lifecycle_updated_at
+ * 4 列；运营从 SQL 即可按"阶段·成熟度"分群查留存 / ARPU。 */
+import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
+import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
 import {
     applyGameEndProgression,
     loadProgress,
@@ -379,7 +385,9 @@ export class Game {
             sessionArc: layered._sessionArc,
             comboChain: layered._comboChain,
             rhythmPhase: layered._rhythmPhase,
-            milestoneHit: layered._milestoneHit,
+            /* v1.49：字段更名 milestoneHit → scoreMilestoneHit；同时记录跨过的具体分数档 */
+            scoreMilestoneHit: layered._scoreMilestoneHit,
+            scoreMilestoneValue: layered._scoreMilestoneValue,
             spawnHints: layered.spawnHints ? { ...layered.spawnHints } : null,
             spawnDiagnostics: getLastSpawnDiagnostics(),
             fillRatio: layered.fillRatio,
@@ -1793,10 +1801,14 @@ export class Game {
                     blockId: this.dragBlock.id
                 });
 
-                /* v1.32：近失反馈强化 — 当板面较满但未能消行时，触发鼓励性反馈
-                 * 心理学依据：研究表明 "near-miss" 场景反而增强玩家续玩意愿
-                 * 条件：放置前 fill > 0.55 且本轮消行数 = 0 */
-                if (fillBefore > 0.55) {
+                /* v1.49：几何近失反馈 — 当本次落子未消行，且盘面存在某行/列已经"差一格就能消"时触发
+                 * 心理学依据：研究表明真正几何意义上的 near-miss（差 1–2 格即可消）反而增强玩家续玩意愿；
+                 *          v1.32 旧版仅以 fillBefore>0.55 为条件，会在中等填充率下高频误触发，已废弃。
+                 * 条件：本轮消行数 = 0 且 grid.getMaxLineFill() ≥ 0.78（8 格中 ≥ 7 格）
+                 * 互斥：若同一帧内 _handleNoMoves 即将触发（_pendingNoMovesEnd），让位给 game over 鼓励语，
+                 *      避免"差一格就能消！" + "棋盘填满，再来一局！"两条 toast 在 game over 前连击。 */
+                const maxLineFill = this.grid.getMaxLineFill();
+                if (maxLineFill >= 0.78 && !this._pendingNoMovesEnd) {
                     this._triggerNearMissFeedback();
                 }
 
@@ -1853,10 +1865,13 @@ export class Game {
         const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
 
         this.score += clearScore;
-        const justHitMilestone = this._lastAdaptiveInsight?.milestoneHit === true;
-        if (justHitMilestone) {
-            this._lastAdaptiveInsight.milestoneHit = false;
-            this.showFloatScore(0, 'milestone');
+        /* v1.49：字段更名 milestoneHit → scoreMilestoneHit，并把跨过的具体分数档传给 toast。
+         * 注意这里的"分数里程碑"是局内分数突破档位，与 maturityMilestones.js 的"成熟度晋升里程碑"无关。 */
+        const justHitScoreMilestone = this._lastAdaptiveInsight?.scoreMilestoneHit === true;
+        if (justHitScoreMilestone) {
+            const milestoneValue = this._lastAdaptiveInsight.scoreMilestoneValue ?? 0;
+            this._lastAdaptiveInsight.scoreMilestoneHit = false;
+            this.showFloatScore(milestoneValue, 'scoreMilestone');
         }
         this.gameStats.score = this.score;
         this.gameStats.clears += result.count;
@@ -2075,21 +2090,29 @@ export class Game {
         this._noMovesTimer = null;
         document.querySelectorAll('.no-moves-overlay').forEach((el) => el.remove());
         if (this.isGameOver || this._endGameInFlight) return;
-        const nearMiss = this._lastAdaptiveInsight?.nearMissCount > 0
-            || this._spawnContext?.roundsSinceClear >= 3;
-        if (nearMiss) {
-            const tipEl = document.createElement('div');
-            tipEl.className = 'float-score float-near-miss';
-            tipEl.innerHTML = `<span class="float-label">差一点...</span><span class="float-pts">再冲一把！</span>`;
-            tipEl.style.zIndex = '1300';
-            document.body.appendChild(tipEl);
-            this._anchorOnBoard(tipEl);
-            setTimeout(() => tipEl.remove(), 1200);
-        }
+
+        /* v1.49：game over 前的鼓励语
+         * - 旧版：判定条件 `nearMissCount > 0 || roundsSinceClear >= 3`，但 nearMissCount 字段从未在
+         *   _lastAdaptiveInsight 中被写入（死字段引用），实际只剩 roundsSinceClear>=3 起作用，
+         *   语义跟"差一点"无关——是濒死安抚，而非几何近失。
+         * - 新版：无条件触发"棋盘填满，再来一局！"安抚语；同时设置 _pendingNoMovesEnd 互斥锁，
+         *   抑制同一帧内 _triggerNearMissFeedback 的重复 toast；toast hold 1100ms 略短于
+         *   endGame 延迟 1200ms，确保先看完安抚语再进 game over 弹窗。
+         * - i18n：effect.noMovesEnd（"棋盘填满，再来一局！" / "Board's full — try again!"）
+         */
+        this._pendingNoMovesEnd = true;
+        const tipEl = document.createElement('div');
+        tipEl.className = 'float-score float-no-moves';
+        tipEl.innerHTML = `<span class="float-label">${t('effect.noMovesEnd')}</span><span class="float-pts">💪</span>`;
+        document.body.appendChild(tipEl);
+        this._anchorOnBoard(tipEl);
+        setTimeout(() => tipEl.remove(), 1100);
+
         this._noMovesTimer = setTimeout(() => {
             this._noMovesTimer = null;
+            this._pendingNoMovesEnd = false;
             void this.endGame({ noMovesLoss: true });
-        }, nearMiss ? 600 : 250);
+        }, 1200);
     }
 
     /**
@@ -2339,6 +2362,47 @@ export class Game {
         });
         await this._flushMoveSequence(replayAnalysis);
 
+        /* v1.50.x：lifecycle 子对象注入。流程上紧跟 onSessionEnd（已 invalidate
+         * cache + updateMaturity），所以这里读到的 snapshot 就是"本局结束后"的
+         * 最新 stage / band。failure-soft：localStorage 不可用 / 数据初始化中
+         * → 走 null，不阻塞 saveSession 主流程。
+         *
+         * 字段对齐：与 server.py PATCH /api/session 中 _extract_lifecycle_payload
+         * 解析的字段一一对应 ⟹ 后端无需做容错。 */
+        const lifecyclePayload = (() => {
+            try {
+                const cached = getCachedLifecycleSnapshot(this.playerProfile);
+                if (cached?.stage?.code) {
+                    return {
+                        stage: cached.stage.code,
+                        band: cached.maturity?.band || 'M0',
+                        skillScore: Number.isFinite(cached.maturity?.skillScore)
+                            ? cached.maturity.skillScore
+                            : (cached.maturity?.score ?? null),
+                        confidence: cached.stage.confidence ?? null,
+                        isWinbackCandidate: !!cached.isWinbackCandidate || cached.stage.code === 'S4',
+                        ts: Date.now(),
+                    };
+                }
+                const direct = getLifecycleMaturitySnapshot({
+                    daysSinceInstall: this.playerProfile?.daysSinceInstall ?? 0,
+                    totalSessions: this.playerProfile?.totalSessions ?? 0,
+                    daysSinceLastActive: this.playerProfile?.daysSinceLastActive ?? 0,
+                });
+                return direct?.stageCode ? {
+                    stage: direct.stageCode,
+                    band: direct.band || 'M0',
+                    skillScore: direct.skillScore ?? direct.score ?? null,
+                    confidence: direct.confidence ?? null,
+                    isWinbackCandidate: !!direct.isWinbackCandidate,
+                    ts: Date.now(),
+                } : null;
+            } catch (e) {
+                console.warn('[lifecycle] saveSession snapshot failed:', e?.message || e);
+                return null;
+            }
+        })();
+
         await this.db.updateSession(this.sessionId, {
             endTime: Date.now(),
             score: this.score,
@@ -2349,7 +2413,8 @@ export class Game {
                     rating: replayAnalysis.rating,
                     tags: replayAnalysis.tags,
                     summary: replayAnalysis.summary
-                }
+                },
+                ...(lifecyclePayload ? { lifecycle: lifecyclePayload } : {}),
             }
         });
 
@@ -2598,13 +2663,15 @@ export class Game {
     }
 
     /**
-     * v1.32：近失反馈强化
-     * 当板面较满但未能消行时触发，给玩家鼓励性反馈，增强续玩意愿
+     * v1.49：几何近失反馈
+     * 当本次落子未消行、但盘面已存在某行/列只差 1–2 格即可消时触发。
+     * 心理学依据：真正几何意义上的 near-miss 反而增强玩家续玩意愿（v1.32 旧版仅按 fill>0.55 高频误触发，已废弃）。
+     * i18n：effect.nearMissPlace（"差一格就能消！" / "One cell from a clear!"）
      */
     _triggerNearMissFeedback() {
         const nearMissEl = document.createElement('div');
         nearMissEl.className = 'float-score float-near-miss';
-        nearMissEl.innerHTML = `<span class="float-label">差一点！</span><span class="float-pts">💪</span>`;
+        nearMissEl.innerHTML = `<span class="float-label">${t('effect.nearMissPlace')}</span><span class="float-pts">🎯</span>`;
         document.body.appendChild(nearMissEl);
         this._anchorOnBoard(nearMissEl);
         setTimeout(() => nearMissEl.remove(), 1500);
@@ -2618,7 +2685,9 @@ export class Game {
         const isNewBest = type === 'new-best';
         const isCombo = type === 'combo';
         const isPerfect = type === 'perfect';
-        const isMilestone = type === 'milestone';
+        /* v1.49：'milestone' 视为 'scoreMilestone' 的别名（向后兼容），
+         * 新代码统一传 'scoreMilestone'，区别于跨局的"成熟度里程碑"。 */
+        const isScoreMilestone = type === 'scoreMilestone' || type === 'milestone';
         const hasIconBonus = iconBonus > 0;
 
         if (hasIconBonus) {
@@ -2658,16 +2727,18 @@ export class Game {
             el.innerHTML = `<span class="float-label">${t('effect.multiClear', { n: linesCleared })}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
             el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}</span><span class="float-pts">+${score}</span>`;
-        } else if (isMilestone) {
-            el.className = 'float-score float-new-best';
-            el.innerHTML = `<span class="float-label">${t('effect.milestoneHit')}</span><span class="float-pts">🎯</span>`;
+        } else if (isScoreMilestone) {
+            /* v1.49：分数里程碑不再复用 .float-new-best 样式（避免与"刷新历史最佳"撞车），
+             * 改用独立的 .float-milestone（蓝色系），并显示具体跨过的分数档。 */
+            el.className = 'float-score float-milestone';
+            el.innerHTML = `<span class="float-label">${t('effect.scoreMilestone', { score })}</span><span class="float-pts">🏁</span>`;
         } else {
             el.textContent = '+' + score;
         }
 
         document.body.appendChild(el);
         this._anchorOnBoard(el);
-        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : isMilestone ? 1800 : 600;
+        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : isScoreMilestone ? 1800 : 600;
         setTimeout(() => el.remove(), floatHoldMs);
     }
 
@@ -2713,7 +2784,9 @@ export class Game {
             const gap = this.bestScore - this.score;
             if (this._levelMode === 'endless' && gap > 0 && this.bestScore > 0) {
                 const ratio = gap / this.bestScore;
-                const msg = ratio <= 0
+                /* v1.49：原 ratio<=0 分支永不可达（外层已强制 gap>0），best.gap.victory 文案因此从未显示。
+                 * 改为 ratio<=0.02（距 best 不到 2%）触发，对应"即将刷新最佳"。 */
+                const msg = ratio <= 0.02
                     ? t('best.gap.victory')
                     : ratio <= 0.05
                         ? t('best.gap.close')

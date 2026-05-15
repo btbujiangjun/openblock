@@ -31,7 +31,13 @@
 
 - **核心**：差 1-2 步失败时续玩欲望最强——超过胜利和惨败（Candy Crush 心理学研究）
 - **机制**：将失败重构为「距成功很近」，触发更高心率和多巴胺释放
-- **落地**：`hadRecentNearMiss` → 下轮投放消行友好块，制造「戏剧性消行」正反馈
+- **落地（出块层）**：`hadRecentNearMiss` → 下轮投放消行友好块，制造「戏剧性消行」正反馈
+- **落地（UI 反馈层，v1.49）**：`Grid.getMaxLineFill()` ≥ 0.78（某行/列已 7/8 格、只差 1–2 格即可消）
+  时触发浮动文本 `effect.nearMissPlace`（"差一格就能消！"），将"差一点"从模糊的盘面填充率
+  指标升级为**几何意义上**的近失判定，避免 v1.32 旧版 `fillBefore>0.55` 在中等填充率下高频误触发。
+- **与"无路可走"语义分家（v1.49）**：当 `_handleNoMoves` 触发后会置 `_pendingNoMovesEnd` 互斥锁，
+  抑制同帧 near-miss toast，并改用独立的 `effect.noMovesEnd`（"棋盘填满，再来一局！"）展示濒死安抚语，
+  避免同一文案"差一点... 再冲一把！"被复用在三个完全不同的语境里。
 
 ### 1.3 节奏张弛（Pacing / Tension-Release Cycles）
 
@@ -505,6 +511,69 @@ const canPromoteToPayoff = nearFullLines ≥ 1
 
 这样高压可以表现为“解空间更窄”“空间规划更强”“payoff 窗口更短”，不必总是表现为“方块更怪”；低压也可以通过更宽解空间、更多清线机会和小块救场实现。
 
+### 5.1.2 生命周期 + 成熟度 stress 调制（v1.32 起）
+
+`scoreStress / runStreakStress / skillAdjust / flowAdjust ...` 等所有"局内"信号合成 `rawStress` 之后、进入 `clamp([-0.2, 1])` 之前，会再走**一道由跨局画像驱动的硬调制**：
+
+```
+rawStress  ──┐
+             ├─→ getLifecycleStressCap(stage, band) ──→ { cap, adjust }
+             │                                             │
+             ▼                                             ▼
+   if (stress > cap):  stress = cap   ←─ 硬上限保护新人 / 防流失
+   stress += adjust                    ←─ 整体减压 / 加压
+   stress = clamp([-0.2, 1])
+```
+
+**输入两个跨局画像维度**（与本文 §5.1 局内 6 维信号正交）：
+
+| 维度 | 来源 | 取值 | 数据更新触发 |
+|---|---|---|---|
+| `stage` 生命周期阶段 | `retention/playerLifecycleDashboard.js` | `S0..S4`（新入场 / 激活 / 习惯 / 稳定 / 回流） | `daysSinceInstall + totalSessions + daysSinceLastActive` 三项 AND 门，每帧按需重算（300ms TTL 缓存） |
+| `band` 成熟度档位 | `retention/playerMaturity.js → calculateSkillScore` | `M0..M4`（新手 / 成长 / 熟练 / 资深 / 核心） | maturity SkillScore 阈值映射，每局 `onSessionEnd → updateMaturity` 写盘 |
+
+> ⚠️ `band` 的判定数据源是 **maturity SkillScore（跨局画像，按天 EMA）**，与 `AbilityVector.skillScore`（局内 5 维 EMA，每帧刷新）**不是同一个指标**——后者直接进上面的 `skillAdjust`，前者只通过 band 进入这道 cap/adjust 调制。详见 `web/src/playerAbilityModel.js` 与 `web/src/retention/playerMaturity.js` 的 docstring 警示。
+
+**调制表（17 项 `lifecycle/lifecycleStressCapMap.js`，single source of truth）**：
+
+|        | M0 新手 | M1 成长 | M2 熟练 | M3 资深 | M4 核心 |
+|--------|---------|---------|---------|---------|---------|
+| **S0 新入场** | cap 0.50 / adj −0.15 | — | — | — | — |
+| **S1 激活**   | 0.60 / −0.10 | 0.65 / −0.05 | 0.70 / 0 | — | — |
+| **S2 习惯**   | 0.65 / −0.10 | 0.70 / 0 | 0.75 / +0.05 | 0.82 / +0.10 | — |
+| **S3 稳定**   | — | 0.72 / 0 | 0.78 / +0.05 | 0.85 / +0.10 | **0.88 / +0.12** |
+| **S4 回流**   | 0.55 / −0.15 | 0.60 / −0.10 | 0.70 / 0 | 0.75 / +0.05 | 0.80 / +0.08 |
+
+**两个维度的影响幅度（实测）**：
+
+- **stage 固定，band 移动**：同一阶段内 M0→M4 → cap 提高 0.16–0.25 → 对应 10 档 difficulty profile 的 **3–4 档**差距；
+- **band 固定，stage 移动**：S0/S4 vs S2/S3 在同 band 下 cap 差距 0.10–0.30 → S0/S4 给"保护通路"、S2/S3 给"挑战通路"。
+
+**未在调制表内的 (stage, band) 组合**（如 `S0·M3` / `S3·M0` / `S2·M4`）：`getLifecycleStressCap` 返回 `null`，本调制段直接跳过——这些组合在产线分布极低（如 stability 期玩家的 SkillScore 不会还在 M0），仅由通用 stress 通路 + onboarding/winback 特例处理。
+
+**特殊保护通路**（与上述 cap/adjust 串联，不替代）：
+
+1. **新手保护**：`profile.isInOnboarding === true`（即 stage=S0）→ `stress = min(stress, firstSessionStressOverride=-0.15)`；spawnHints `clearGuarantee≥2 / sizePreference=-0.4`；
+2. **winback 保护包**：`daysSinceLastActive ≥ 7`（即 stage=S4）自动激活 `PROTECTED_ROUNDS=3` 局 → `stress cap = min(0.6, lifecycle cap)`、`clearGuarantee += boost`、`sizePreference += shift`（更小块）；
+3. **B 类高分挑战**：`segment5='B'` 且 `score ≥ bestScore × 0.8` 且 stress<0.7 → `stress += challengeBoost (≤0.15)`，与 `friendlyBoardRelief` 互抑。
+
+**调制结果透出**（`stressBreakdown`）：
+
+| 字段 | 语义 |
+|---|---|
+| `lifecycleStage` | 当前判定的 `S0..S4` |
+| `lifecycleBand`  | 当前判定的 `M0..M4` |
+| `lifecycleStressAdjust` | `cap - rawStress` 之差（负值表示 cap 实际触发，玩家 stress 被压低） |
+| `winbackStressCap` | winback 保护包激活时的 cap 值（仅 S4 命中时存在） |
+
+下游消费方都能读到这些字段：
+
+- 玩家画像面板（`#insight-ability` 4×2 grid 的 stage/band 两个 pill）
+- 策略解释段（`#insight-why → 📱 生命周期`：阶段调制 bullet + 成熟度横向影响 bullet）
+- `_winbackPreset` 在 `ins._winbackPreset`，回放面板可追踪"为何这一帧 stress 被压低"
+
+> 历史备注：v1.50.x 之前 `web/src/retention/difficultyAdapter.js` 定义了一套基于 maturity L1–L4 的 `MATURITY_DIFFICULTY_ADJUST = { L1: stressOffset:-15, L2: -5, L3: 0, L4: 5 }` 平行实现，但全仓**没有任何生产代码调用它到 spawn 路径**（仅自测引用），是 v1 时期遗留。v1.50.x 已**移除**该模块，统一由本文小节描述的 `(stage·band) → cap/adjust` 调制表接管。
+
 ### 5.2 信号效果总览
 
 | 信号 | 方向 | 幅度 | 触发条件 | 心理学依据 |
@@ -521,6 +590,8 @@ const canPromoteToPayoff = nearFullLines ≥ 1
 | comboReward | + | +0.05 | combo ≥ 2 | 正反馈 |
 | delightStressAdjust | ± | 约 ±0.08 | 高技能无聊 / 焦虑恢复 | 挑战-奖励匹配 |
 | onboarding | 覆写 | ≤ -0.15 | 新玩家前 5 轮 | 首局保护 |
+| lifecycleStressCap | 覆写 + ± | cap 0.50 ~ 0.88 / adjust −0.15 ~ +0.12 | (S0..S4)·(M0..M4) 二元查表 | 跨局画像分群（详见 §5.1.2） |
+| winbackStressCap | 覆写 | ≤ 0.6 | `daysSinceLastActive ≥ 7` 后前 3 局 | 回流玩家保护 |
 
 ### 5.4 信号配置与校准
 
@@ -568,10 +639,43 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 | `delightMode` | challenge_payoff / flow_payoff / relief / neutral | 爽感调节模式 | 驱动 payoff、救援偏小块、消行保证 |
 | `rhythmPhase` | setup / payoff / neutral | 搭建 / 收获 / 中性（payoff 需几何门控） | augmentPool 相位乘子 |
 | `sessionArc` | warmup / peak / cooldown | 局内前段 / 中段 / 收官 | stress 与友好化 hint |
-| `scoreMilestone` | bool | 刚跨里程碑 | 短暂出块友好 |
+| `scoreMilestone` | bool | 刚跨**局内分数里程碑**（区别于 `maturity_milestone_complete` 的跨局成熟度晋升） | 短暂出块友好 + UI toast |
+| `scoreMilestoneValue` | number\|null | 当 `scoreMilestone=true` 时给出具体跨过的分数档（用于 i18n `effect.scoreMilestone` 的 `{{score}}` 占位符） | UI 浮动文本显示 |
 | `targetSolutionRange` | min/max 或 null | v9 解法数量档位 | 通过可解性校验后收缩解空间 |
 | `orderRigor` | 0~1 | **v1.32 新增**：顺序刚性强度（0=不约束，1=必须按特定顺序） | 仅用于诊断/面板展示 |
 | `orderMaxValidPerms` | 1~6 | **v1.32 新增**：硬上限 — 6 种排列里允许的最大可解数 | `blockSpawn` 在早期 attempt 拒绝 `validPerms > N` 的 triplet |
+
+### 局内分数里程碑相对化（v1.49）
+
+**为什么要相对化**：旧版 `MILESTONE_SCORES = [50, 100, 150, 200, 300, 500]` 是绝对档位，对不同水位玩家
+的反馈节奏完全失衡：
+
+- **新手**（一局 30–50 分）：偶尔触发一两次，反馈节奏正常；
+- **中段玩家**（一局 200–500 分）：开局头几秒被 6 个 milestone toast 连击，单局之后再无任何里程碑反馈；
+- **老玩家**（一局 1000+ 分）：前 30 秒刷掉所有 6 个里程碑，之后整局都没有"分数里程碑"反馈——机制对其失效。
+
+**新版（`adaptiveSpawn.js: deriveScoreMilestones`）**：
+
+| 玩家分层 | 触发条件 | 派生档位 |
+|---|---|---|
+| 新手 / `bestScore < 200` | 沿用绝对档（保留稳定的"突破 50→100→150"节奏） | `[50, 100, 150, 200, 300, 500]` |
+| 中段以上 / `bestScore ≥ 200` | 按 `bestScore` 比例派生 | `[0.25, 0.5, 0.75, 1.0, 1.25] × bestScore` |
+
+例如 `bestScore=1000` 的玩家会在 250 / 500 / 750 / 1000 / 1250 分各触发一次——节奏完全跟随个人水位。
+
+**与跨局成熟度里程碑（`maturity_milestone_complete`）严格区分**：
+
+| | 局内分数里程碑（本节） | 跨局成熟度里程碑 |
+|---|---|---|
+| 实现位置 | `adaptiveSpawn.js: scoreMilestoneCheck` | `retention/maturityMilestones.js` |
+| 字段 | `_scoreMilestoneHit` / `_scoreMilestoneValue` / `spawnHints.scoreMilestone` | `playerProfile.maturity` 跃迁（M0→M4） |
+| 触发频率 | 单局多次 | 跨局生涯中各一次 |
+| 上报事件 | 仅前端浮动 toast | `ANALYTICS_EVENTS.MATURITY_MILESTONE_COMPLETE` |
+| i18n key | `effect.scoreMilestone`（"分数突破 {{score}}！"） | maturity toast 走 `progress.*` 与 retention 模块独立翻译 |
+| CSS 样式 | `.float-milestone`（蓝色） | retention 自己的 toast / overlay |
+
+**v1.49 之前**两者都被叫"milestone"且文档里没有显式区分；现统一以 `scoreMilestone` vs `maturityMilestone`
+两个独立前缀辨识，避免策划/运营/工程在沟通"里程碑"时所指不一。
 
 ### 局间热身（无步可走 → 下一局）
 

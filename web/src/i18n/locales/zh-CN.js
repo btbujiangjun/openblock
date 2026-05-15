@@ -103,10 +103,17 @@ export default {
     'progress.rank.legend': '传奇',
     'progress.streakDays': '连续 {{n}} 天',
     'best.gap': '差 {{gap}} 分',
-    'best.gap.victory': '就差一点！再冲一把！',
+    'best.gap.victory': '即将刷新最佳！冲刺！',
     'best.gap.close': '接近了！💪',
     'best.gap.neutral': '差 {{gap}} 分',
     'best.gap.far': '继续努力~',
+    /* 分数里程碑（局内分数突破档位）；与 maturity_milestone_complete（跨局成熟度晋升）是不同概念 */
+    'effect.scoreMilestone': '分数突破 {{score}}！',
+    /* 落子未消行但盘面已"差一格就能消"——几何意义上的近失 */
+    'effect.nearMissPlace': '差一格就能消！',
+    /* 无路可走、即将 game over 的鼓励语 */
+    'effect.noMovesEnd': '棋盘填满，再来一局！',
+    /* @deprecated v1.49 起改用 effect.scoreMilestone；保留以兼容旧调用 */
     'effect.milestoneHit': '里程碑达成！',
     'effect.perfectClear': '清屏',
     'effect.multiClear': '{{n}} 消',
