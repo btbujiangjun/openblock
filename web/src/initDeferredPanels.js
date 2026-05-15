@@ -18,6 +18,7 @@ export async function initDeferredPanels(ctx) {
         dashMod,
         seasonMod,
         passEntryMod,
+        decisionFlowMod,
     ] = await Promise.all([
         import('./bot/rlPanel.js'),
         import('./spawnModelPanel.js'),
@@ -26,6 +27,8 @@ export async function initDeferredPanels(ctx) {
         import('./progression/personalDashboard.js'),
         import('./seasonPass.js'),
         import('./daily/seasonPassEntry.js'),
+        /* v1.51：决策数据流可视化（炫酷面板，分析/调参用） */
+        import('./decisionFlowViz.js'),
     ]);
 
     rlMod.initRLPanel(game);
@@ -46,4 +49,10 @@ export async function initDeferredPanels(ctx) {
     }
     document.getElementById('season-pass-btn')?.addEventListener('click', () => seasonMod.toggleSeasonPass());
     passEntryMod.initSeasonPassEntry({ seasonPass, toggleSeasonPass: seasonMod.toggleSeasonPass });
+
+    /* 决策数据流：自挂 skill-bar 🌌 按钮 + Shift+D 快捷键，无需额外 wiring */
+    const dfv = decisionFlowMod.initDecisionFlowViz(game);
+    if (typeof window !== 'undefined') {
+        window.__decisionFlowViz = dfv;
+    }
 }

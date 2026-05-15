@@ -125,3 +125,72 @@ describe('shouldShowNearMissPlaceFeedback v1.50.1 — only when player truly suf
         }).show).toBe(false);
     });
 });
+
+/**
+ * v1.51.1 — placement / near-full-line binding：
+ * 仅当玩家本次落子至少 1 格落在某条 ≥ minLineFill 的行/列上时才放行 toast。
+ * 这条规则是修复"瞬时触发 + 延时 toast"在玩家继续操作后与盘面脱节的核心防线。
+ */
+describe('shouldShowNearMissPlaceFeedback v1.51.1 — placement-on-near-full-line binding', () => {
+    const NEAR_FULL_LINES = [
+        { type: 'row', index: 6, fill: 0.875 },
+        { type: 'col', index: 2, fill: 0.875 },
+    ];
+
+    it('shows when placedCells overlap a near-full row', () => {
+        const out = shouldShowNearMissPlaceFeedback({
+            ...BAD,
+            placedCells: [{ x: 4, y: 6 }, { x: 5, y: 6 }],
+            nearFullLines: NEAR_FULL_LINES,
+        });
+        expect(out.show).toBe(true);
+        expect(out.line).toEqual({ type: 'row', index: 6, fill: 0.875 });
+    });
+
+    it('shows when placedCells overlap a near-full column', () => {
+        const out = shouldShowNearMissPlaceFeedback({
+            ...BAD,
+            placedCells: [{ x: 2, y: 0 }, { x: 2, y: 1 }],
+            nearFullLines: NEAR_FULL_LINES,
+        });
+        expect(out.show).toBe(true);
+        expect(out.line).toEqual({ type: 'col', index: 2, fill: 0.875 });
+    });
+
+    it('blocks when placedCells do NOT touch any near-full line', () => {
+        const out = shouldShowNearMissPlaceFeedback({
+            ...BAD,
+            placedCells: [{ x: 7, y: 0 }, { x: 7, y: 1 }],
+            nearFullLines: NEAR_FULL_LINES,
+        });
+        expect(out.show).toBe(false);
+        expect(out.reason).toBe('placement_not_on_near_full_line');
+    });
+
+    it('blocks when nearFullLines is empty even if maxLineFill ≥ threshold (defensive)', () => {
+        const out = shouldShowNearMissPlaceFeedback({
+            ...BAD,
+            placedCells: [{ x: 4, y: 6 }],
+            nearFullLines: [],
+        });
+        // 空 nearFullLines 视为 binding 入参缺省 → 跳过 binding，走旧路径放行
+        expect(out.show).toBe(true);
+    });
+
+    it('skips binding (back-compat) when placedCells is omitted', () => {
+        // 旧调用方未提供 placedCells / nearFullLines → 跳过 binding，行为同 v1.50.1
+        const out = shouldShowNearMissPlaceFeedback({ ...BAD, nearFullLines: NEAR_FULL_LINES });
+        expect(out.show).toBe(true);
+    });
+
+    it('still respects geometry gate (line_not_near_full takes precedence over binding)', () => {
+        const out = shouldShowNearMissPlaceFeedback({
+            ...BAD,
+            maxLineFill: 0.5,
+            placedCells: [{ x: 4, y: 6 }],
+            nearFullLines: NEAR_FULL_LINES,
+        });
+        expect(out.show).toBe(false);
+        expect(out.reason).toBe('line_not_near_full');
+    });
+});

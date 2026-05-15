@@ -40,6 +40,15 @@
 - **与"无路可走"语义分家（v1.49）**：当 `_handleNoMoves` 触发后会置 `_pendingNoMovesEnd` 互斥锁，
   抑制同帧 near-miss toast，并改用独立的 `effect.noMovesEnd`（"棋盘填满，再来一局！"）展示濒死安抚语，
   避免同一文案"差一点... 再冲一把！"被复用在三个完全不同的语境里。
+- **触发-展示一致性（v1.51.1）**：toast hold 时长 2.8 s 远长于一次落子，纯靠"触发瞬间几何条件"
+  无法保证整段展示与盘面一致。本版本加双闸门：
+  - **A. placement / line binding**：`Grid.getMaxLineFillLines(0.875)` 返回所有 ≥ 阈值的 row/col 列表，
+    `shouldShowNearMissPlaceFeedback` 必须验证玩家本次落子至少 1 格 `(x,y)` 落在某条 line 上才放行
+    （`reason='placement_not_on_near_full_line'`），杜绝"盘面别处近满 / 本次落子与近失线无关"误触发；
+  - **B. 显示期间持续校验**：`_triggerNearMissFeedback` 启动 100 ms 轮询，全局 `maxLineFill` 跌破阈值
+    或目标 `targetLine.{type,index}` 不再 ≥ 阈值（被消行 / 被旋洗）→ 立刻加 `.float-near-miss--fading`
+    220 ms 透明度+位移过渡提前撤回。`HOLD_MS + FADE_MS + 50 ms` 强制 remove 兜底，timer 在所有路径
+    都会 `clearInterval`，不漏。
 
 ### 1.3 节奏张弛（Pacing / Tension-Release Cycles）
 

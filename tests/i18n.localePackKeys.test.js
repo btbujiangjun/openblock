@@ -71,4 +71,21 @@ describe('i18n locale packs', () => {
             expect(zhCN[key]).toBeDefined();
         }
     });
+
+    /**
+     * v1.51.4：决策数据流面板 (Shift+D 开发分析工具) 的 dfv.* keys
+     * 必须在 zh-CN 与 en 两个核心语言中保持平价，避免新增/删除 key 时一边漏。
+     * 其它 17 个语言不强制（缺译 fallback 到 zh-CN，对开发工具可接受）。
+     */
+    it('dfv.* keys: zh-CN ⇔ en parity', () => {
+        const dfvKeys = (dict) => Object.keys(dict).filter((k) => k.startsWith('dfv.'));
+        const zhKeys = new Set(dfvKeys(zhCN));
+        const enKeys = new Set(dfvKeys(en));
+        const onlyZh = [...zhKeys].filter((k) => !enKeys.has(k));
+        const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k));
+        expect(onlyZh, `dfv.* keys only in zh-CN: ${onlyZh.join(', ')}`).toEqual([]);
+        expect(onlyEn, `dfv.* keys only in en: ${onlyEn.join(', ')}`).toEqual([]);
+        // 至少 60 个 keys（防止整个分组被误删）
+        expect(zhKeys.size).toBeGreaterThanOrEqual(60);
+    });
 });

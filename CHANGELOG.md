@@ -7,6 +7,347 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — v1.51.9 决策数据流面板：所有指标名全中文 + 完整 i18n
+
+**用户反馈**：v1.51.8 截图右栏 section title 仍是「stress 贡献 / shapeWeights / spawnTargets / spawnHints」半中半英；spawnHints 第二列的枚举值（如 `tension / payoff / peak / flow_payoff / setup`）也是英文；`stress 贡献` 项的中文 label（来自 stressMeter.js 的 SIGNAL_LABELS）虽然已是中文但**不可 i18n**（en 时仍中文）。
+
+**改造**：
+
+- **A · 修 zh-CN 残留英文**（`web/src/i18n/locales/zh-CN.js`）：
+  - `dfv.sec.contrib`：`stress 贡献` → **`压力贡献`**
+  - `dfv.sec.shapes`：`shapeWeights` → **`形状权重`**
+  - `dfv.sec.targets`：`spawnTargets` → **`出块目标`**
+  - `dfv.sec.hints`：`spawnHints` → **`调度提示`**
+  - `dfv.sec.contribSub`：`top 4` → **`前 4 项`**
+  - `dfv.sec.shapesSub`：`top 5 · 概率` → **`前 5 项 · 概率`**
+  - `dfv.pulseWaiting`：`待 spawn` → **`待出块`**
+  - `dfv.foot.pulseHint`：`脉冲=新 spawn` → **`脉冲=新出块`**
+
+- **B · 新增 i18n 命名空间**（zh-CN + en 同步）：
+  - **`dfv.sec.targetsSub`**：`前 6 项 / top 6`（之前 spawnTargets section 没 sub）
+  - **`dfv.sec.hintsSub`**：`调度参数 / scheduling`
+  - **`dfv.contrib.*`**（27 项）：与 stressMeter.SIGNAL_LABELS 同源；让 dfv 面板的"压力贡献"项可独立 i18n（zh 时显示「难度模式 / 心流 / 友好盘面 / 末段崩盘 ...」，en 时显示 `difficulty mode / flow / friendly board / late distress ...`）。fallback 仍用 SIGNAL_LABELS 的中文。
+  - **`dfv.val.pacing.* / rhythm.* / arc.* / delight.*`**（22 项）：spawnHints 的枚举值翻译。例如：
+    - `pacing.tension` → 紧绷 / tension
+    - `rhythm.payoff`  → 兑现 / payoff
+    - `arc.peak`       → 巅峰 / peak
+    - `arc.cooldown`   → 收官 / cooldown
+    - `delight.flow_payoff` → `心流·兑现` / `flow · payoff`
+
+- **C · `web/src/decisionFlowViz.js` 渲染改造**：
+  - **HTML 模板**：spawnTargets / spawnHints section 标题加 `${T.secTargetsSub}` / `${T.secHintsSub}` 副标题，与 contrib/shapes 对齐。
+  - **`_renderDetails` contrib 渲染**：把 stressMeter 返回的 `label` 用 `_ti('dfv.contrib.' + key, label)` 二次包装。stressMeter 中文做 fallback；en 切换时自动走英文。
+  - **`_renderDetails` hints 渲染**：新增 `HINT_VALUE_NS = { pacingPhase:'pacing', rhythmPhase:'rhythm', sessionArc:'arc', delightMode:'delight' }` 映射；遇到 enum 字符串值时调 `_ti('dfv.val.' + ns + '.' + v, String(v))`；其他类型仍按数值 toFixed(2) / String() 处理。
+  - **空态**：`contribs.length === 0` 时 hardcoded 的 `'<li class="dfv-list-empty">—</li>'` 改用 `${_emptyContrib}`（_ti('dfv.foot.empty')），与其它列表统一。
+
+- **D · en.js 优化**：把残留 camelCase 的 `dfv.hint.*`（`clearGuarantee` 等）和 `dfv.sec.shapes/targets/hints` 改成可读英文（`clear guarantee / Shape Weights / Spawn Targets / Spawn Hints`）。
+
+**i18n 完整度（v1.51.9 后）**：
+
+| 分类 | zh-CN keys | en keys | i18n 化进度 |
+|---|---|---|---|
+| 顶部 | 8 | 8 | 100% |
+| 信号节点 | 10 | 10 | 100% |
+| section 标题 | 10 | 10 | 100% (新加 targetsSub/hintsSub) |
+| 意图释义 | 6 | 6 | 100% |
+| Reason | 7 | 7 | 100% |
+| 决策标志 | 8 | 8 | 100% |
+| shape 类别 | 7 | 7 | 100% |
+| spawnTargets | 6 | 6 | 100% |
+| spawnHints key | 12 | 12 | 100% |
+| spawnHints **value** | **22** | **22** | **新增 100%** |
+| **压力贡献项** | **27** | **27** | **新增 100%** |
+| sparkline | 5 | 5 | 100% |
+| 脚部 | 4 | 4 | 100% |
+
+**测试**：1348/1348 vitest 全绿（包括 `i18n.localePackKeys.test.js` 的 `dfv.* keys: zh-CN ⇔ en parity`），零回归，零 lint 错误。Footer 版本号 `v1.51.8 → v1.51.9`。
+
+---
+
+### Fixed — v1.51.8 决策数据流面板：信号节点连线"看起来只有部分"问题修复
+
+**用户反馈（截图）**：v1.51.7 截图显示左列 10 个信号节点中，**只有 6 个有连线到压力球**（技能/动量/挫败/心流/阶段/负荷），而消行率/占盘/连击/失放率 4 个**完全没连线**，视觉上好像它们与压力球"无关"，给人"这些指标没参与决策"的错觉。
+
+**根因**：
+
+1. 旧 `_renderContributionEdges` 是"按需创建"模式：只为 `stressBreakdown[key]` 当前 |v| ≥ 0.01 的字段画一条边，无贡献时直接 remove。所以**短时间内某个分量为 0 → 整条边消失**。
+2. 失放率 (missRate) 节点是**孤儿**：`BREAKDOWN_TO_SOURCE` 表里没有任何字段映射到 'missRate'，所以它**永远不可能**有连线（结构性 bug）。
+
+**修复**（`web/src/decisionFlowViz.js`）：
+
+- **A · 引入 baseline 常驻连线**（`_buildScene` 末尾）：
+  - 为 10 个 SIGNAL_NODES 各预创建一条**弱灰虚线** baseline 边（stroke `#475569`、width 0.7、opacity 0.28、dasharray "4 4"），无 glow，永远在；
+  - 视觉表达："这些信号都通入压力，但当前未必有贡献"。
+
+- **B · `_renderContributionEdges` 改"原地强化"模式**：
+  - 不再 add/remove 边；
+  - 按 source key 聚合 stressBreakdown（多个字段映射到同一 source 时累加 sum / 取 maxAbs）；
+  - 有贡献：橙（净加压）/ 青（净救济），width 0.9~6 / alpha 0.32~0.9，加 glow（`dfv-edge--active` class）；
+  - 无贡献：恢复 baseline 弱灰虚线（`dfv-edge--baseline` class）。
+
+- **C · CSS 区分两种状态**：
+  ```css
+  .dfv-svg .dfv-edge { transition: stroke-width .25s, stroke-opacity .25s, stroke .25s; }
+  .dfv-svg .dfv-edge--baseline { filter: none; stroke-dasharray: 4 4; }
+  .dfv-svg .dfv-edge--active   { filter: drop-shadow(0 0 4px currentColor); stroke-dasharray: none; }
+  ```
+
+- **D · 关于 missRate 孤儿**：
+  - baseline 自动覆盖了它的视觉关联（不再"游离"）；
+  - 注：`BREAKDOWN_TO_SOURCE` 表里目前没有专属于 missRate 的 stress 字段——`reactionAdjust` (映射到 'load') 实际上在 adaptiveSpawn.js 里是由 `thinkMs` + `missRate` 共同驱动的。**若后续需要把 reactionAdjust 也强化 missRate 边，可在表里加一行 `reactionAdjust_missRate: 'missRate'` 二级映射**（暂未做，待用户决定）。
+
+**视觉效果**：
+- 压力球周围始终有 10 条 baseline 虚线挂着，**任何信号都"在系统里"**；
+- spawn 时强化 4~6 条实线，"哪些信号在驱动当下决策"一眼可见；
+- 颜色（橙=加压 / 青=救济）+ 粗细（贡献量）+ glow（活跃）三层编码。
+
+**测试**：1348/1348 vitest 全绿，零回归，零 lint 错误。Footer 版本号 `v1.51.7 → v1.51.8`。
+
+---
+
+### Changed — v1.51.7 决策数据流面板：压力/意图右锚定 + 横纵双向拉距
+
+**用户反馈（截图）**：v1.51.6 在 460 × 870 的左 SVG 区下，stress 球虽已垂直居中，但 x 仍在「信号列右缘 ↔ 卡片右边界」中点（约 W × 0.59），**离右边界还有 ~190px 留白**，导致信号节点 → 压力的水平粒子轨迹只走了 W 的 ~50%；同时纵向间距也希望再大一档以"让粒子瀑布更壮观"。
+
+**改造**（`web/src/decisionFlowViz.js` `_buildScene`）：
+
+- **A · 横向：右锚定**
+  - 从「signal 右缘 + 卡片右缘 中点」改为 **`rightAnchorX = W - max(stressR, intentR) - 24`**：压力球 / 意图六边形 x 锚定到 SVG 区右侧，仅留 24px 内边距；
+  - 同时保留与信号节点的最小间距（`minCenterX = signalX + max(r) × 3`），窄屏（W < ~200）时回落为「居中」防贴脸。
+  - **效果**（典型 W=460）：centerX 从 280 → 400（+120px，+43%），信号→压力 粒子轨迹长度从 ~196px 增至 ~317px（+62%）。
+
+- **B · 纵向：拉距 +24px**
+  - `SAFE_GAP_V`：36 → **60**（v1.51.6 的"压力下方至少 stressR + intentR + 36"硬下限提升到 + 60）；
+  - 默认 `intentY` 从 `H × 0.86` → **`H × 0.90`**（再向底部偏 4% H）；
+  - 底部溢出保护不变（`min(intentY, H - intentR - 4)`）。
+  - **效果**（H=870）：stress 中心 (400, 435) → intent 中心 (400, 783)，纵向距离从 313px → 348px（+35px）。
+
+- **C · 几何不变量验证**（最坏 W=200, H=320）：
+  - stressR=22, intentR=18, rightAnchorX=200-22-24=154, minCenterX=36+66=102 → centerX=154 ✓
+  - intentY = max(320 × 0.90, 160 + 22 + 18 + 60) = max(288, 260) = 288，底部余 320-288-18 = 14px ≥ 4 ✓
+
+- **D · 视觉因果**：信号节点（左 18%）→ ~317px 横向粒子瀑布 → 压力球（右 87%, 中央）→ ~348px 纵向 intent 色粒子瀑布 → 意图六边形（右 87%, 底部 90%）。整个 SVG 区的"对角线"动效更壮观。
+
+**测试**：1348/1348 vitest 全绿，零回归，零 lint 错误。Footer 版本号 `v1.51.6 → v1.51.7`。
+
+---
+
+### Changed — v1.51.6 决策数据流面板：压力 / 意图改纵向布局 + 决策传导粒子流
+
+**用户反馈（截图）**：v1.51.5 在 660px 宽中宽屏下，stress 球与意图六边形虽不再重叠但仍是**水平并排**，两者中心距离仅 ~120px，粒子动效"信号→压力"短促、"压力→意图"几乎不可见，达不到"凸显动效"的目的。同时 stress 球被信号节点列垂直挤压，**不在 SVG 区垂直中心**。
+
+**改造**（仅 `web/src/decisionFlowViz.js`，全部新增不影响既有功能）：
+
+- **A · 压力 + 意图改纵向排列**（`_buildScene`）：
+  - **stress 球**：水平居中在「信号列右缘 → 卡片右边界」之间，y = **H × 0.50（严格垂直居中）**；
+  - **意图六边形**：与 stress **同 x**，y = max(H × 0.86, stressY + stressR + intentR + 36px) —— 默认放在底部 86% 处，硬保证与 stress 中心至少 `stressR + intentR + 36px` 的间距；
+  - 同时校验不溢出底部（留 intentR + 4px 边距）；
+  - 中央灯环（pulse ring）也跟 stress 几何一并下移到正中央。
+  - **效果**：660 × 480 屏下，stress 球中心在 (W/2, 240)，意图中心在 (W/2, 413)，两者**纵向距离 173px**（vs v1.51.5 横向 120px），粒子轨迹长度 +44%。
+
+- **B · 新增"决策传导"粒子流**（`_triggerSpawnPulse`）：
+  - 每次 spawn 后，除了原有「信号节点 → stress」的多色粒子流，**额外从 stress 球底部向意图六边形顶部发射 5 条粒子**：
+    - 控制点带 jitter（±max(40, dy × 0.45)），形成弧形喷射；
+    - 颜色用当前 spawnIntent 颜色（relief=teal、challenge=red、maintain=violet 等），让"压力 → 意图"的因果关系一眼可见；
+    - 粒子持续 0.85 ~ 1.20s，逐条延迟 0.06s，形成连续喷流；
+  - 粒子池上限 80 → 96，容纳新增 5 条不影响旧粒子。
+
+- **C · 视觉因果链路**：
+  - 信号节点（左列） →（多色粒子）→ stress 球（中央）→（intent 色粒子）→ 意图六边形（下方）
+  - 一次 spawn 的视觉叙事：玩家信号在压力中聚合 → 压力转化为出块意图 → 意图驱动下一块。
+
+**测试**：
+- 1348/1348 vitest 全绿，零回归。
+- 几何不变量（最坏情况 W=200, H=320）：stress 中心 y=160, intent 中心 y=160 + stressR(22) + intentR(18) + 36 = 236，仍在 SVG 内（边距 320 - 236 - 18 = 66px ≥ 4 ✓）。
+
+**Footer 版本号**：`v1.51.5 → v1.51.6`。
+
+---
+
+### Changed — v1.51.5 决策数据流面板：右栏紧凑模式 + 左栏 SVG 几何保护
+
+**用户反馈（截图）**：v1.51.4 卡片在中宽屏（~990px）下，右栏吃了 ~53% 宽度，左侧 SVG 被压缩到 ~440px，**stress 球与意图六边形几乎重叠**（截图里"-0.20"球与"relief"六边形紧贴）。
+
+**改造**：
+
+- **A · 右栏宽度固定**（`web/src/decisionFlowViz.js`）：
+  - `dfv-body` 的 grid 从 `minmax(200px, 0.95fr) minmax(220px, 1.1fr)` → **`minmax(0, 1fr) 240px`**：右栏永远 240px，左栏吃所有剩余宽度。卡片再宽（甚至到 1200px）也不会让右栏侵占中央 SVG 空间。
+
+- **B · 详情区极致紧凑**（保证 6 个 section 在固定 240 内不溢出）：
+  - 列表行高 `18px → 16px`；字号 `10px → 9px`；li padding `0/4 → 0/3`；
+  - section padding `4/7/5 → 3/6/4`、border-radius `6 → 5`；
+  - section title 字号 `10 → 9.5`，sub `9 → 8.5`；间距/border-bottom 进一步压；
+  - intent pill 字号 `11 → 10`、padding 压；
+  - flag chip 字号 `9 → 8.5`，gap `3 → 2`；
+  - section gap `5 → 4`，font-size `11 → 10`，scrollbar `5px → 4px`。
+
+- **C · 左栏 SVG 几何保护**（彻底杜绝 stress 球 / 意图六边形重叠）：
+  - 引入"按宽度自适应 + 互斥放置"算法：
+    - `stressR = clamp(22, (W-80) * 0.18, 36)` —— 左栏越窄球越小；
+    - `intentR = clamp(18, (W-80) * 0.14, 28)` —— 同理；
+    - `intentX = W - intentR - 8` —— 六边形锚定右边距 8px；
+    - `stressX = (signalX + (intentX - intentR)) / 2` —— 居中在「信号节点 → 意图」之间；
+    - **安全检测**：若 `stressX + stressR + 12px (SAFE_GAP) > intentX - intentR` 则反向偏移 stress，硬性保证 12px 安全间距；
+  - `_renderStressBall` 的 pulse 半径动画也按 `_stressBaseR` 等比缩放，避免 ring 跑出球外。
+
+- **D · 几何安全性测算**（任意 W 下）：
+  | 左栏宽 W | stressR | intentR | stress 右边界 | 六边形左边界 | 安全间距 |
+  |---|---|---|---|---|---|
+  | 200 | 22 | 18 | 118 | 156 | 38px ✓ |
+  | 300 | 36 | 28 | 181 | 236 | 55px ✓ |
+  | 400 | 36 | 28 | 240 | 336 | 96px ✓ |
+  | 500 | 36 | 28 | 290 | 436 | 146px ✓ |
+
+**测试**：纯几何 + CSS 改动 → 全量回归 **1348 / 1348 passed**。
+
+### Changed — v1.51.4 决策数据流面板：i18n 支持 + 修「意图」截断 + 右栏 2 × N 紧凑
+
+**用户反馈（截图）**：
+
+1. 整面板硬编码中文，缺 i18n —— 英文等其它语言下面板也是中文，不友好；
+2. 中央六边形「意图 engag…」被截断（"engage" 6 字母在 r=28 / font-size 11 内放不下）；
+3. 右栏列表是单列长条，希望按 2 × N 紧凑铺开。
+
+**改造**：
+
+- **A · i18n 接入**（`web/src/decisionFlowViz.js` + 两个语言包）：
+  - 新增 `dfv.*` 命名空间共 ~65 个 key；分类：title / 信号节点 (10) / section 标题 / 意图释义 (6) / Reason (7) / Decision flag (8) / shape category (7) / spawnTargets (6) / spawnHints (12) / sparkline (5) / foot 图例；
+  - `web/src/i18n/locales/zh-CN.js` + `en.js` 全套覆盖；其它 17 语言缺译时自动 fallback 到 zh-CN（`t()` 内置 FALLBACK，对开发分析工具可接受）；
+  - 引入 `_ti(key, fallback)` 帮助函数：i18n key 缺失时返回 fallback，确保面板永远不空；硬编码字符串保留为 fallback，便于审阅；
+  - 字段命名：`SIGNAL_NODES` 加 `i18nKey`、`SHAPE_CATEGORY_CN`/`SPAWN_TARGET_CN`/`HINT_CN`/`SPARK_LABEL_CN` 改作 fallback 字典；
+  - 头部 / 按钮 title / aria-label / pulse tag / 5 个 section 标题 / Reason / 8 个 flag chip / shapeWeights label / spawnTargets label / spawnHints label / sparkline label / 3 个 foot 图例 全部走 i18n。
+
+- **B · 修「意图」六边形截断**：
+  - 六边形几何调整：`r` 28 → 34、`cx` 改用 `W - 42`（绝对右距）保证内容不靠近右边界；
+  - 文本加 `textLength=2r-8 + lengthAdjust='spacingAndGlyphs'` 让 "engage" / "pressure" / "maintain" 等长 intent 自动 squeeze 到六边形宽度内（SVG 原生缩放，无字形丢失）；
+  - 每帧切换 intent 时重置 `textLength`，避免浏览器缓存旧 squeeze 结果。
+
+- **C · 右栏 2 × N 紧凑布局**：
+  - 4 个数据列表（contributors / shapeWeights / spawnTargets / spawnHints）全部加 `dfv-list--two-col` class；
+  - `.dfv-list--two-col` 改强制 `repeat(2, minmax(0, 1fr))` + 列间距 8px；窄屏（≤640px）回退 1 列；
+  - spawnTargets top 6（原 top 5），与 6 个目标维度数量对齐，2×3 整齐铺开；
+  - shapeWeights top 5：2 列 + 行 wrap，整体高度由 5 行降到 3 行；
+  - 长 hint 文本（"sessionArc=plateau" 等）`text-overflow: ellipsis`，hover title 显示原英文 key 便于排障。
+
+- **D · 回归测试**：`tests/i18n.localePackKeys.test.js` 新增 `dfv.* keys: zh-CN ⇔ en parity`：
+  - 验证 dfv.* keys 在 zh-CN 与 en 完全对称（避免新增/删除时漏一边）；
+  - 至少 60 个 key（防止整个分组被误删）；
+  - 全量 **1347 / 1347 passed + 新增 1 用例 → 1348 / 1348**。
+
+### Changed — v1.51.3 决策数据流面板：中文化 + 紧凑布局 + 修复贡献者串扰
+
+**用户反馈（截图）**：
+
+1. 右栏满是英文术语：`harvest / orderMaxValidPerms / lines / payoffIntensity / stress / momentum` 等，对策划/产品不友好；
+2. stress 贡献 top 4 出现 `orderMaxValidPerms +6.000` / `bottleneckSamples +2.000` —— 这些**根本不是 stress 分量**（前者是顺序刚性数值上限 1~6，后者是采样计数），错误地占据 top 位置；
+3. 列表 padding 偏大、行间距宽，与左侧"实时状态面板"（`.replay-series-cell` 18px 紧凑行）不协调。
+
+**修复（一次到位）**：
+
+- **A · 中文化**（`web/src/decisionFlowViz.js`）：
+  - 新增 4 张映射表：`SHAPE_CATEGORY_CN`（lines→长条 / rects→矩形 / squares→方块 / tshapes→T 形 / zshapes→Z 形 / lshapes→L 形 / jshapes→J 形）、`SPAWN_TARGET_CN`（6 项）、`HINT_CN`（13 项）、`SPARK_LABEL_CN`（5 项）；
+  - 详情区文案、sparkline 标签全部中文化；原英文 key 留作 `title`/`hover` tooltip 便于排障；
+  - SVG 中央 `STRESS` → `压力`、`INTENT` → `意图`。
+- **B · 修复"贡献者串扰" bug**：原代码直接 `Object.entries(breakdown).filter(|v|≥0.005).sort()`，没有过滤 `bottleneckSamples / orderMaxValidPerms / orderRigor / boardRisk / rawStress / beforeClamp / ...` 这些"原始观测痕迹/派生标记"。改为复用 `stressMeter.summarizeContributors(breakdown, 4)` 统一 skip 集合 → 只显示真正的 stress 加减分量，标签也复用 `SIGNAL_LABELS`（已中文）。
+- **C · 紧凑布局**（参考 `.replay-series-cell` 18px 行高规范）：
+  - 列表行 `display: grid; grid-template-columns: 1fr auto; height: 18px; font-size: 10px`，label `text-overflow: ellipsis`，value `font-variant-numeric: tabular-nums` + 右对齐；
+  - section 卡片 padding `6/8 → 4/7`、title 加 dashed `border-bottom` 替代 4px gap；
+  - sparkline 行高 `22 → 18px`、grid 列宽 `60/1fr/38 → 2.6em/1fr/3em`，与左侧对齐；
+  - body padding `8/10 → 6/10`，stage `min-height: 360 → 320px`；整体节约 ~80px 垂直空间，6 个 section 全开时不需要滚动。
+- **D · 行 hover 高亮**：`li:hover { background: rgba(56,189,248,0.06) }` 提示当前关注行；title hover 仍展示英文 raw key 便于程序员排障。
+
+**测试**：纯 UI 改动（CSS + 中文映射 + summarizeContributors 替换）→ 全量回归 **1347 / 1347 passed**。
+
+### Changed — v1.51.2 决策数据流面板大幅增强（拖动 / 信息密度 / 时间序列 / 入口迁移）
+
+**用户反馈（截图）**：
+
+1. 弹窗右侧 `shapeWeights · top3` 和 `spawnTargets` 文字越界被裁断；shapeWeights 显示为 `?`；
+2. 信息只剩"快照"，看不到趋势变化；
+3. 信号节点不够多（只有 7 个），难以追踪 boardFill / combo / missRate 等关键状态；
+4. 决策只看到 `INTENT engage`，不知道为什么、命中了哪些 flag；
+5. 入口在 dock 上方 skill-bar，与"游戏内技能"语义不符。
+
+**改造（六项一次落地，全部零侵入 game.js）**：
+
+- **A · 整面板拖动**（`web/src/decisionFlowViz.js` `_bindDrag`）：head 区按住可拖（mouse + touch），首次拖动后转为自由 `left/top` 像素并 clamp 到视口（保留 60×36px 可见区不会拖丢）；点 head 内的按钮（折叠/关闭）不会触发拖动。
+- **B · 显示优化**：
+  - 卡片宽 `min(580px, vw-24px)` × 高 `min(82vh, 720px)`，`max-height` + 内 scroll；
+  - 主体改 `grid-template-columns` 双栏（左 SVG 信号管道 / 右 HTML 详情区），HTML 区文本溢出用 `text-overflow: ellipsis` + `overflow:hidden`，**彻底告别 SVG 文字越界**；
+  - 修复"`?`"显示：原读 `item.shape ?? item.id`，但 `_topShapeWeightEntries` 实际给的是 `category` 字段；
+  - 窄屏（≤640px）grid 自动塌成单列；折叠态卡片缩到 320px 仅显示 head + sparkline + foot。
+- **C · 数据实时搜集 + 展示**：新增 5 路 ring buffer（`stress / momentum / clearRate / boardFill / frustrationLevel`，各 240 采样点 / Float32Array），每帧采样、每 3 帧（≈20 Hz）渲染 sparkline 折线条；底部独立 `.dfv-sparks` 区域 grid 自适应布局。
+- **D · 引入更多信号**：左列节点 7 → 10：新增 `boardFill / combo / missRate`；半径自适应（≤8 节点 r=20，>8 节点 r=16）；signed 信号（如 momentum）色阶按 `|value|/max` 归一，避免负方向显蓝色失衡。
+- **E · 给出更多决策信息**（HTML 详情区 6 个 section）：
+  - **意图卡片**：意图 pill + 中文释义 + **Reason 推导**（`forceReliefIntent / lateCollapse / 高挫败 / 心流稳定` 等 5 类口径）；
+  - **stress contributors top 4**：复用 `SIGNAL_LABELS` 中文标签 + 正负色（橙/青）；
+  - **决策标志（8 个 chip）**：强制救济 / 末段崩盘 / 挫败临界 / 新手保护 / 里程碑 / AFK 介入 / 回流保护 / 个性化，按 neg/pos/neutral 三色；
+  - **shapeWeights · top 5**：`category · 概率%`；
+  - **spawnTargets · top 5**：按 |value| 排序；
+  - **spawnHints**：`clearGuarantee / sizePreference / orderRigor / diversityBoost / comboChain / pacingPhase / rhythmPhase / sessionArc / delightMode` 双列展示；
+  - 详情区每 6 帧（≈10 Hz）刷新一次，避免每帧 reflow。
+- **F · 入口迁移**：从 `#skill-bar` 移到 `#sound-effects-toggle` **之后**（与 ✨/🖼/🔊/☰ 同列），用 `feedback-toggle-btn` 风格融入快捷开关簇。`#sound-effects-toggle` 缺失时回退 `#skill-bar`，再缺失时挂右上 floating 按钮——三级 fallback 保证可达。
+
+**性能**：
+
+- 关闭态零 cost（`display:none` + `cancelAnimationFrame` + 清空粒子）；
+- 打开态 ~60 fps RAF；DOM 节点 ≤ 36（10 信号 + stress + intent + 灯环 + 5 sparkline + 6 section），Canvas 粒子 cap 80；
+- 详情区 10 Hz、sparkline 20 Hz —— 比"60 fps 全量重绘"少 6× / 3× 的 DOM 操作。
+
+**测试**：纯 UI 注入层 + 零 game.js 改动 → 全量回归 **1347 / 1347 passed**。
+
+### Fixed — v1.51.1 「再一格就消行」toast 与玩家操作脱节修复
+
+**用户反馈**：截图显示画面 maxLineFill ≈ 0.625（左下区有 5 块、右下/右上各 1 块），盘面**根本没有 7/8 满线**，
+却弹出了「差一格就…」toast。
+
+**根因**：`_triggerNearMissFeedback` 是「瞬时触发 → 2.8s 持续展示」的设计，玩家在落子瞬间确实满足
+`maxLineFill ≥ 0.875`，但接下来 2.8s 内可能继续操作（消掉那行、把那列洗掉）—— toast 还在显示，盘面已变，
+文案"再一格就消行"与画面就脱节了。截图正是这种"刚消完那行 / 刚旋转完盘面"的尾帧。
+
+**修复（A + B 双闸门，全部带回归测试）**：
+
+- **A · 触发条件加强：placement / near-full-line binding**（`web/src/grid.js` + `web/src/nearMissPlaceFeedback.js` + `web/src/game.js`）：
+  - `Grid` 新增 `getMaxLineFillLines(threshold=0.875)`，除 `maxFill` 外还返回 `lines: [{type:'row'|'col', index, count, fill}]` 列表（所有 ≥ 阈值的 row/col）；旧 `getMaxLineFill()` 改为内部委托，向后兼容；
+  - `shouldShowNearMissPlaceFeedback` 增加 `placedCells` + `nearFullLines` 两个入参，**仅当玩家本次落子至少 1 格落在某条 ≥ 阈值的 line 上时才放行**，否则 `reason: 'placement_not_on_near_full_line'`；两参数任一缺省即跳过本步骤（兼容旧调用）；
+  - `game.js` 调用处新增 `placedCells = dragBlock.shape × placedPos` 计算，并把 `nearFullSnap.lines` 一同传入；返回的 `decision.line` 透传给 `_triggerNearMissFeedback` 用于后续校验。
+
+- **B · 显示期间持续校验：几何破坏即提前淡出**（`web/src/game.js` `_triggerNearMissFeedback` + `web/public/styles/main.css`）：
+  - toast 显示后启动 `setInterval(100ms)` 轮询，**全局 `maxLineFill < 0.875`** 或 **`targetLine.{type,index}` 不再 ≥ 阈值** → 立刻加 `.float-near-miss--fading` CSS 类（220ms 透明度+位移过渡）提前撤回；
+  - 新增 `.float-near-miss--fading` 样式：`animation: none !important; transition: opacity 220ms` 覆盖 nearMissFloat 关键帧；
+  - 设了双层兜底：`HOLD_MS=2800` 到点必清；`HOLD_MS + FADE_MS + 50` 强制 `remove()`；轮询 timer 在任意路径都被 `clearInterval`，无泄漏。
+
+**测试**：
+- `tests/nearMissPlaceFeedback.test.js` 新增 `placement-on-near-full-line binding` describe（6 用例）：覆盖落子在/不在近失行、近失列、空 nearFullLines、缺省回退、几何门优先级；
+- `tests/nearMissAndMilestone.test.js` 新增 `Grid.getMaxLineFillLines` describe（4 用例）：覆盖空盘、单行 7/8、多线命中、threshold=1.0 行为；
+- 全量回归：**1347 / 1347 passed**（与 v1.51 持平）。
+
+**影响面**：仅 toast 触发与撤回路径，不动 `playerProfile / adaptiveSpawn` 决策核心；不消行才走的分支，无 perf cost。
+小程序版本暂未同步（与 v1.51 一致策略）。
+
+### Added — v1.51 决策数据流可视化（炫酷分析面板）
+
+**目的**：把"玩家底层信号 → stress 分解 → 出块意图"的实时决策管道用 SVG 节点 + Canvas 粒子光流呈现，便于策划/算法/工程师同框分析、定位调参点。**新增功能、不影响任何现有逻辑**。
+
+**入口**：游戏内 dock 上方 `🌌` 按钮（与 💡/🏆/🔁 同列）/ 键盘快捷键 **Shift+D** / `window.__decisionFlowViz.toggle()`。
+
+**视觉**：
+- **三栏管道**：
+  - 左：7 个玩家信号节点（`skillLevel / momentum / frustrationLevel / flowState / sessionPhase / cognitiveLoad / clearRate`），节点颜色随 |value| 在蓝→绿→黄→红热力色阶过渡，flowState/sessionPhase 等枚举有专属配色
+  - 中：能量球 STRESS（双层光晕脉动 + 数值显示）+ stress contributors bezier 边（粗细 = `|value| × 14`，正贡献橙红 / 负贡献青蓝）
+  - 右：六边形 INTENT 节点（按 `SPAWN_INTENT_COLOR` 上色）+ shapeWeights top3 + spawnTargets top3
+- **脉冲触发**：每次 `playerProfile.spawnRoundIndex` 变化（即新 spawn 决策），中央 stress 球扩散光环 0.4s + 每条贡献边按 |value| 发射 1~3 个粒子沿 bezier 流向 STRESS（粒子带 5 段拖尾 + 头部辉光）+ INTENT 六边形闪烁
+- **数值缓动**：所有节点数值用 60fps `lerp` 平滑过渡（decay=0.18），杜绝硬跳变
+
+**性能**：
+- 关闭态零开销（display:none + 取消 RAF + 清空粒子数组）
+- 打开态 60fps RAF，SVG 节点/边 DOM ≤ 30、Canvas 粒子 cap 80
+- 弹窗复用全站 `--game-panel-overlay-center-x/y` 锚点，盘面居中、resize 自动跟随
+
+**文件**：
+- 新增 `web/src/decisionFlowViz.js`（596 行，含 CSS 内联）
+- `web/src/initDeferredPanels.js` 加 1 个动态 import 与 init 调用
+
 ### Fixed — v1.51 末段崩盘 stress 失真修复（screenshot 实测：高分 + 濒死却显示舒缓档）
 
 **用户反馈**：临 game over 一帧 stress=0.04（舒缓档）、flowState=bored、tags=`bored / tension / late`、

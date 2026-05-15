@@ -49,8 +49,14 @@ export function getNearMissPlaceFeedbackCfg() {
  * @param {number} [input.currentPlacementIndex] 当前 placements 计数
  * @param {number|null} [input.lastShownAt] 上次展示时间戳 ms
  * @param {number} [input.now] 当前时间戳 ms
+ * @param {Array<{x:number,y:number}>} [input.placedCells]
+ *        v1.51.1：玩家本次落子贡献的所有格子坐标（盘面坐标系）。
+ * @param {Array<{type:'row'|'col',index:number,fill:number}>} [input.nearFullLines]
+ *        v1.51.1：grid.getMaxLineFillLines() 返回的 ≥ minLineFill 的所有 line。
+ *        若提供，必须有 ≥1 个 placedCells 与某 line 重叠才放行（避免"toast 与玩家
+ *        本次操作脱节"）。两者中任一缺省则跳过 binding 校验，向后兼容旧调用。
  * @param {object} [input.cfg] 覆盖配置（测试用）
- * @returns {{ show: boolean, reason?: string }}
+ * @returns {{ show: boolean, reason?: string, line?: {type:'row'|'col',index:number,fill:number} }}
  */
 export function shouldShowNearMissPlaceFeedback(input) {
     const cfg = { ...DEFAULT_CFG, ...(input.cfg ?? getNearMissPlaceFeedbackCfg()) };
@@ -61,6 +67,29 @@ export function shouldShowNearMissPlaceFeedback(input) {
     const maxLineFill = Number(input.maxLineFill) || 0;
     if (maxLineFill < (cfg.minLineFill ?? 0.875)) {
         return { show: false, reason: 'line_not_near_full' };
+    }
+
+    /* 1.5) v1.51.1：落子-近失线 binding —— 仅当玩家本次落子至少 1 格落在某条
+     * 接近满的 line 上时才放行。这能确保 toast 文案"再一格就消行"与玩家的操作
+     * 直觉绑定，避免"刚好盘面别处有 7/8 line / toast 显示期间盘面变化"导致的脱节。
+     * 两个入参任一缺省即跳过本步骤（向后兼容旧调用）。 */
+    let matchedLine = null;
+    if (Array.isArray(input.placedCells) && input.placedCells.length > 0
+        && Array.isArray(input.nearFullLines) && input.nearFullLines.length > 0) {
+        for (const line of input.nearFullLines) {
+            const hit = input.placedCells.some((c) => {
+                if (line.type === 'row') return c.y === line.index;
+                if (line.type === 'col') return c.x === line.index;
+                return false;
+            });
+            if (hit) {
+                matchedLine = line;
+                break;
+            }
+        }
+        if (!matchedLine) {
+            return { show: false, reason: 'placement_not_on_near_full_line' };
+        }
     }
 
     /* 2) 体感很差才放行——二选一：硬挫败 OR (anxious 心流 + 中等挫败) */
@@ -109,5 +138,5 @@ export function shouldShowNearMissPlaceFeedback(input) {
         return { show: false, reason: 'time_cooldown' };
     }
 
-    return { show: true };
+    return { show: true, line: matchedLine };
 }

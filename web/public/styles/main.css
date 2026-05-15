@@ -3977,6 +3977,16 @@ body.game-over-active .first-win-banner {
     100% { opacity: 0; transform: translateX(-50%) translateY(-44px) scale(0.94); }
 }
 
+/* v1.51.1：toast 显示期间几何条件失效（目标 line 被消行/被破坏）时提前淡出，
+ * 避免文案与盘面脱节。覆盖 nearMissFloat 关键帧的位移与透明度。 */
+.float-near-miss--fading {
+    animation: none !important;
+    transition: opacity 220ms ease-out, transform 220ms ease-out;
+    opacity: 0 !important;
+    transform: translateX(-50%) translateY(-18px) scale(0.96) !important;
+    pointer-events: none;
+}
+
 /* ── Combo (3+行) ── */
 
 .float-combo {

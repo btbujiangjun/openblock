@@ -595,8 +595,27 @@ export class Grid {
      * 与 getFillRatio()（盘面整体填充率）正交：盘面整体只有 0.55 时，单行单列也可能已经 0.875。
      */
     getMaxLineFill() {
-        if (!this.size) return 0;
-        let maxFill = 0;
+        return this.getMaxLineFillLines().maxFill;
+    }
+
+    /**
+     * v1.51.1：返回最大行/列填充率以及"达到该填充率"的所有行/列索引。
+     *
+     * 用于 nearMissPlaceFeedback 把"差一格"判定与玩家本次落子精准绑定：
+     * 仅当玩家本次落子的某格 (x, y) 落在一条 fill ≥ 阈值的 line 上时才触发，
+     * 避免"瞬时触发→延时 toast"在玩家继续操作后与盘面脱节。
+     *
+     * `fillThreshold` 默认 0.875：返回所有占用比例 ≥ 该阈值的 line（不限于 max）。
+     * 设为 1.0 时只会返回真正的 maxFill line（向后兼容旧行为）。
+     *
+     * @param {number} [fillThreshold=0.875] 0~1
+     * @returns {{
+     *   maxFill: number,
+     *   lines: Array<{ type:'row'|'col', index:number, count:number, fill:number }>
+     * }}
+     */
+    getMaxLineFillLines(fillThreshold = 0.875) {
+        if (!this.size) return { maxFill: 0, lines: [] };
         const rowCounts = new Array(this.size).fill(0);
         const colCounts = new Array(this.size).fill(0);
         for (let y = 0; y < this.size; y++) {
@@ -607,11 +626,22 @@ export class Grid {
                 }
             }
         }
+        let maxCount = 0;
         for (let i = 0; i < this.size; i++) {
-            if (rowCounts[i] > maxFill) maxFill = rowCounts[i];
-            if (colCounts[i] > maxFill) maxFill = colCounts[i];
+            if (rowCounts[i] > maxCount) maxCount = rowCounts[i];
+            if (colCounts[i] > maxCount) maxCount = colCounts[i];
         }
-        return maxFill / this.size;
+        const minCount = Math.ceil(fillThreshold * this.size);
+        const lines = [];
+        for (let i = 0; i < this.size; i++) {
+            if (rowCounts[i] >= minCount) {
+                lines.push({ type: 'row', index: i, count: rowCounts[i], fill: rowCounts[i] / this.size });
+            }
+            if (colCounts[i] >= minCount) {
+                lines.push({ type: 'col', index: i, count: colCounts[i], fill: colCounts[i] / this.size });
+            }
+        }
+        return { maxFill: maxCount / this.size, lines };
     }
 
     toJSON() {

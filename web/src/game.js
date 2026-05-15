@@ -23,7 +23,7 @@ import {
     titleForLevel
 } from './progression.js';
 import { t, tSkinName } from './i18n/i18n.js';
-import { shouldShowNearMissPlaceFeedback } from './nearMissPlaceFeedback.js';
+import { shouldShowNearMissPlaceFeedback, getNearMissPlaceFeedbackCfg } from './nearMissPlaceFeedback.js';
 import {
     getActiveSkinId,
     getBlockColors,
@@ -1811,9 +1811,23 @@ export class Game {
 
                 /* v1.50：几何近失 toast — 仅救场/提振士气，严格控频（见 nearMissPlaceFeedback.js）。
                  * 文案说明「整行/整列差 1 格满、再落一块即可消行」，避免抽象「差一格」；
-                 * 需连续未消行/焦虑心流等门槛，顺风光头与高频盘面不打扰。 */
+                 * 需连续未消行/焦虑心流等门槛，顺风光头与高频盘面不打扰。
+                 * v1.51.1：传入 placedCells + nearFullLines，确保 toast 与玩家本次落子绑定，
+                 *         避免"瞬时触发→延时显示"在玩家继续操作后与盘面脱节。 */
+                const nearFullSnap = this.grid.getMaxLineFillLines(0.875);
+                const placedCells = [];
+                {
+                    const shape = this.dragBlock.shape;
+                    for (let _sy = 0; _sy < shape.length; _sy++) {
+                        for (let _sx = 0; _sx < shape[_sy].length; _sx++) {
+                            if (shape[_sy][_sx]) {
+                                placedCells.push({ x: placedPos.x + _sx, y: placedPos.y + _sy });
+                            }
+                        }
+                    }
+                }
                 const nearMissDecision = shouldShowNearMissPlaceFeedback({
-                    maxLineFill: this.grid.getMaxLineFill(),
+                    maxLineFill: nearFullSnap.maxFill,
                     pendingNoMovesEnd: !!this._pendingNoMovesEnd,
                     frustrationLevel: this.playerProfile.frustrationLevel,
                     flowState: this._lastAdaptiveInsight?.flowState ?? this.playerProfile.flowState,
@@ -1823,9 +1837,11 @@ export class Game {
                     lastPlacementIndex: this._nearMissPlaceLastPlacement,
                     currentPlacementIndex: this.gameStats.placements,
                     lastShownAt: this._nearMissPlaceLastAt,
+                    placedCells,
+                    nearFullLines: nearFullSnap.lines,
                 });
                 if (nearMissDecision.show) {
-                    this._triggerNearMissFeedback();
+                    this._triggerNearMissFeedback(nearMissDecision.line);
                 }
 
                 this._checkToughPlacement(this.dragBlock, fillBefore, validsBefore);
@@ -2682,8 +2698,14 @@ export class Game {
     /**
      * v1.50：几何近失救场鼓励（调用方须先通过 shouldShowNearMissPlaceFeedback）。
      * i18n：effect.nearMissPlace — 整行/整列差 1 格满，再落一块即可消行；单局控频见 game_rules.nearMissPlaceFeedback。
+     *
+     * v1.51.1：toast 显示期间持续校验几何条件，若目标 line 已被消除/被破坏则提前淡出，
+     *          避免"toast 显示中玩家把那行消掉/盘面被洗"导致文案与画面不一致。
+     *
+     * @param {{type:'row'|'col',index:number,fill:number}|null} [targetLine]
+     *        触发瞬间命中的 row/col；为 null 时仅做 maxLineFill 全局校验（向后兼容）。
      */
-    _triggerNearMissFeedback() {
+    _triggerNearMissFeedback(targetLine = null) {
         this._nearMissPlaceToastCount = (this._nearMissPlaceToastCount ?? 0) + 1;
         this._nearMissPlaceLastAt = Date.now();
         this._nearMissPlaceLastPlacement = this.gameStats.placements ?? 0;
@@ -2693,8 +2715,65 @@ export class Game {
         nearMissEl.innerHTML = `<span class="float-label">${t('effect.nearMissPlace')}</span><span class="float-pts">🎯</span>`;
         document.body.appendChild(nearMissEl);
         this._anchorOnBoard(nearMissEl);
+
         /* v1.50.2：从 1500ms 提到 2800ms，与 .float-near-miss 动画时长对齐，确保玩家看清。 */
-        setTimeout(() => nearMissEl.remove(), 2800);
+        const HOLD_MS = 2800;
+        const FADE_MS = 220;
+        const POLL_MS = 100;
+        const minLineFill = (getNearMissPlaceFeedbackCfg().minLineFill) ?? 0.875;
+        const startedAt = Date.now();
+        let removed = false;
+        let pollTimer = null;
+
+        const cleanup = () => {
+            if (removed) return;
+            removed = true;
+            if (pollTimer != null) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+            nearMissEl.classList.add('float-near-miss--fading');
+            setTimeout(() => { try { nearMissEl.remove(); } catch { /* ignore */ } }, FADE_MS);
+        };
+        const removeImmediate = () => {
+            if (removed) return;
+            removed = true;
+            if (pollTimer != null) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+            try { nearMissEl.remove(); } catch { /* ignore */ }
+        };
+
+        pollTimer = setInterval(() => {
+            if (removed) return;
+            if (Date.now() - startedAt >= HOLD_MS) {
+                cleanup();
+                return;
+            }
+
+            /* 几何破坏校验：
+             *   1) 全局 maxLineFill 跌破阈值 → 整盘已无近失线，文案完全失效；
+             *   2) targetLine 提供时进一步校验该具体行/列是否仍 ≥ 阈值（被消行/被旋洗都算破坏）。 */
+            let snap;
+            try { snap = this.grid.getMaxLineFillLines(minLineFill); } catch { snap = null; }
+            if (!snap || snap.maxFill < minLineFill) {
+                cleanup();
+                return;
+            }
+            if (targetLine && Array.isArray(snap.lines)) {
+                const stillHot = snap.lines.some(
+                    (l) => l.type === targetLine.type && l.index === targetLine.index,
+                );
+                if (!stillHot) {
+                    cleanup();
+                    return;
+                }
+            }
+        }, POLL_MS);
+
+        /* 兜底：HOLD_MS 后无论 poll 是否触发都强制清理（含淡出阶段） */
+        setTimeout(removeImmediate, HOLD_MS + FADE_MS + 50);
     }
 
     /**

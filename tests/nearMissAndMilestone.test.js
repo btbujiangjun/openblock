@@ -91,6 +91,49 @@ describe('Grid.getMaxLineFill (geometric near-miss helper)', () => {
     });
 });
 
+describe('Grid.getMaxLineFillLines (v1.51.1 placement-binding helper)', () => {
+    it('returns empty lines when board has no near-full row/col', () => {
+        const g = new Grid(8);
+        for (let x = 0; x < 4; x++) g.cells[0][x] = 'red'; // 0/8 .. 4/8
+        const out = g.getMaxLineFillLines(0.875);
+        expect(out.maxFill).toBeCloseTo(0.5, 5);
+        expect(out.lines).toEqual([]);
+    });
+
+    it('returns the specific row index when a row is 7/8 full', () => {
+        const g = new Grid(8);
+        for (let x = 0; x < 7; x++) g.cells[3][x] = 'green';
+        const out = g.getMaxLineFillLines(0.875);
+        expect(out.maxFill).toBeCloseTo(0.875, 5);
+        expect(out.lines).toEqual([
+            { type: 'row', index: 3, count: 7, fill: 0.875 },
+        ]);
+    });
+
+    it('returns multiple rows and cols when several lines hit the threshold', () => {
+        const g = new Grid(8);
+        for (let x = 0; x < 7; x++) g.cells[1][x] = 'a';
+        for (let x = 0; x < 7; x++) g.cells[5][x] = 'b';
+        for (let y = 0; y < 7; y++) g.cells[y][2] = 'c';
+        const out = g.getMaxLineFillLines(0.875);
+        expect(out.maxFill).toBeGreaterThanOrEqual(0.875);
+        const sig = out.lines.map((l) => `${l.type}:${l.index}`).sort();
+        expect(sig).toContain('row:1');
+        expect(sig).toContain('row:5');
+        expect(sig).toContain('col:2');
+    });
+
+    it('honours the threshold (1.0 → only fully-filled lines)', () => {
+        const g = new Grid(8);
+        for (let x = 0; x < 7; x++) g.cells[2][x] = 'a';     // 7/8
+        for (let x = 0; x < 8; x++) g.cells[6][x] = 'b';     // 8/8
+        const out = g.getMaxLineFillLines(1.0);
+        expect(out.lines).toEqual([
+            { type: 'row', index: 6, count: 8, fill: 1 },
+        ]);
+    });
+});
+
 describe('resolveAdaptiveStrategy: scoreMilestone field rename and relative scaling', () => {
     beforeEach(() => { resetAdaptiveMilestone(); });
 
