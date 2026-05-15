@@ -32,9 +32,11 @@
 - **核心**：差 1-2 步失败时续玩欲望最强——超过胜利和惨败（Candy Crush 心理学研究）
 - **机制**：将失败重构为「距成功很近」，触发更高心率和多巴胺释放
 - **落地（出块层）**：`hadRecentNearMiss` → 下轮投放消行友好块，制造「戏剧性消行」正反馈
-- **落地（UI 反馈层，v1.49）**：`Grid.getMaxLineFill()` ≥ 0.78（某行/列已 7/8 格、只差 1–2 格即可消）
-  时触发浮动文本 `effect.nearMissPlace`（"差一格就能消！"），将"差一点"从模糊的盘面填充率
-  指标升级为**几何意义上**的近失判定，避免 v1.32 旧版 `fillBefore>0.55` 在中等填充率下高频误触发。
+- **落地（UI 反馈层，v1.50.1）**：`Grid.getMaxLineFill()` ≥ 0.875（整行/整列差 1 格满）且**体感很差**
+  （`frustrationLevel ≥ 4` 或 `anxious` 心流叠加挫败 ≥ 2）才展示 `effect.nearMissPlace`（"再一格就消行"）；
+  `clearRate ≥ 0.30` / 动量为正 / 心流顺畅任一即抑制；冷启动 12 次落子内不出；单局上限 1、间隔 ≥ 12 落子且 ≥ 30 s。
+  门槛与控频集中在 `web/src/nearMissPlaceFeedback.js` 与 `shared/game_rules.json: adaptiveSpawn.nearMissPlaceFeedback`，
+  19 个语言包均覆盖 `effect.nearMissPlace` 短句，不回退 zh-CN。
 - **与"无路可走"语义分家（v1.49）**：当 `_handleNoMoves` 触发后会置 `_pendingNoMovesEnd` 互斥锁，
   抑制同帧 near-miss toast，并改用独立的 `effect.noMovesEnd`（"棋盘填满，再来一局！"）展示濒死安抚语，
   避免同一文案"差一点... 再冲一把！"被复用在三个完全不同的语境里。
@@ -452,6 +454,38 @@ const canPromoteToPayoff = nearFullLines ≥ 1
 4. **`playerProfile.flowState` borderline 去抖**
    旧版 `fd > 0.5 && clearRate > 0.4` 在 borderline 反复翻面，加 5% 缓冲：
    `fd > 0.55 && clearRate > 0.42`。
+
+**v1.51：末段崩盘 stress 失真修复**——screenshot 实测发现高分濒死场景下 `stress=0.04` 显示舒缓档、`flowState=bored`、`spawnIntent=harvest`，与玩家 `momentum=-0.53 / 最后 8 步 0 消行` 真实状态严重错位。根因：依赖累计均值的 metric 被前 5 分钟良好表现稀释。本节是该问题的全栈修复。
+
+1. **`PlayerProfile.flowState` 三条新通道**（`web/src/playerProfile.js`）
+   - `momentum ≤ -0.35` 在所有判定前硬触发 `anxious`，避免"动量持续下行却被误判 bored"；
+   - 新增 `_burstStruggleSignals()` 末段 8 步瞬时窗口（newer-half 消行率 ≤ 0.20、思考时间 +20%、
+     fill 上升、连续 ≥4 步 0 消，命中 ≥3 即触发）——与累计 `struggleSignals` OR 关系，
+     解决"前 5 分钟良好 + 最后 1 分钟崩盘"被均值稀释的盲区；
+   - borderline (`fd > 0.55 && clearRate > 0.42`) 加方向门：必须 `boardPressureRatio < 1`
+     AND `momentum > -0.15` 才允许 `bored`，否则 fall through 到 `flow` / 由前两条接管。
+2. **`adaptiveSpawn.endSessionDistress` 独立 stress 分量**（`web/src/adaptiveSpawn.js` + `shared/game_rules.json` 加 `signals.endSessionDistress` 配置）
+   `sessionPhase === 'late' && momentum ≤ -0.30` 时 `−(0.05 + (|momentum|-0.30) * 0.5)`，
+   `frustrationLevel ≥ 4` 再叠加 `−0.06`，下限钳制 `−0.25`。与 `sessionArcAdjust` 互补：
+   后者看 cooldown 弧线档位、本信号看玩家自己的崩盘强度，两者同时为负但语义独立。
+3. **`sessionArcAdjust` cooldown 救济按 `|momentum|` 线性放大**
+   旧版 `−0.05` 固定值在 `momentum=-0.53` 时力度不足。新版按 `|momentum|` 在
+   `[-0.2, -0.6]` 区间线性放大到 `[-0.05, -0.20]`，与崩盘力度同向。
+4. **`spawnIntent` 末段/高挫败强制 `relief`**
+   `endSessionDistressActive || frustrationLevel ≥ 5` → `forceReliefIntent=true`，
+   即便 `playerDistress` 累计未到 `−0.10` 也走 relief 叙事，杜绝 game over 前一帧
+   仍显"识别到密集消行机会，正在投放促清的形状"与濒死状态错位的问题。
+5. **`playerInsightPanel` 实时四联 chip 互斥/方向解读**（`_resolveLiveHeadTags`）
+   `late + momentum ≤ -0.30` 时 `bored` chip 替换为 `late-stress`、`tension` chip
+   加 `series-tag--muted`（line-through + 0.45 opacity），避免"无聊 + 紧张期 + 后期"
+   三条标签互相打架。
+6. **`stressMeter` 挣扎中变体**（`getStressDisplay` 加 `distress` 入参）
+   `stress < 0.20 && (calm/easy 档) && (lateCollapse || frustration ≥ 5)` 时
+   face → `😣`，label → 「挣扎中（救济中）」，vibe → "动量持续下行、临 game over，
+   系统已强制 relief 出块抢救节奏"。优先级高于 v1.18 的 relief 救济变体。
+7. **回归测试 `tests/endSessionStress.test.js`**：10 用例守护 momentum 硬触发、burst 窗口、
+   borderline 方向、`endSessionDistress` sign / late-only、`forceReliefIntent`、
+   `stressMeter` 三档变体。
 
 **v1.20：Live ↔ Snapshot 一致性补丁 + 标签解耦**——v1.18~v1.19 解决了"指标内涵不准"，本节再处理"同一帧不同来源说不同话"。
 

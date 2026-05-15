@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Lenda',
     'progress.streakDays': '{{n}} dias seguidos',
     'best.gap': '{{gap}} pts até o recorde',
+    'effect.nearMissPlace': 'Falta uma para limpar',
     'effect.perfectClear': 'Limpeza total',
     'effect.multiClear': '{{n}} linhas',
     'effect.doubleClear': 'Limpeza dupla',

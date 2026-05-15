@@ -603,6 +603,16 @@ export class PlayerProfile {
     /**
      * 心流状态：bored（无聊→加压）/ flow（心流→维持）/ anxious（焦虑→减压）
      * 基于量化 flowDeviation + 方向判定，替代纯启发式阈值。
+     *
+     * v1.51（末段崩盘修复）：
+     * - 新增"末段瞬时窗口"挣扎信号（最近 8 步），与累计均值 OR 关系，
+     *   解决"前 5 分钟良好 + 最后 1 分钟挣扎"被均值稀释的盲区；
+     * - 新增"动量强烈下行"硬触发（momentum < -0.35）——直接返 anxious，
+     *   解决濒死玩家被误判 bored 的问题；
+     * - borderline (fd > 0.55) 分支加方向判定：必须 boardPressure < skill
+     *   且 momentum ≥ -0.15 才允许判 bored；否则 fall through 到 flow，
+     *   或在 anxious 信号叠加时优先返 anxious。
+     *
      * @returns {'bored'|'flow'|'anxious'}
      */
     get flowState() {
@@ -616,16 +626,23 @@ export class PlayerProfile {
             ? placedMoves.reduce((s, r) => s + r.fill, 0) / placedMoves.length
             : 0;
 
-        /* v1.18：复合挣扎检测（先于 F(t) 早返回）——
-         * 单个阈值都没踩穿、但多个"弱挣扎信号"同时出现时也判定为 anxious，
-         * 避免出现「思考 4 秒 + 失误 13% + 板面 58% + 消行率 25%」却仍然被
-         * 认定为 'flow' 的盲区（玩家已在挣扎，但 F(t) 低于 0.25 早返回会跳过判定）。
-         * 阈值刻意宽松，每条都是"轻度负面"，需要 ≥3 条同时成立才生效。 */
+        /* v1.51：动量强烈下行硬触发——濒死玩家的最稳健信号（动量噪声衰减后仍 < -0.35
+         * 意味着真实崩盘趋势）。这条放在最前，避免后面 borderline 把它误判成 bored。 */
+        const momentumNow = this.momentum;
+        if (momentumNow <= -0.35) return 'anxious';
+
+        /* v1.18：复合挣扎检测（累计均值）——4 条阈值 ≥3 条命中视为挣扎。 */
         const struggleSignals = (m.missRate > 0.10 ? 1 : 0)
             + (m.thinkMs > (fz.thinkTimeStruggleMs ?? 3500) ? 1 : 0)
             + (m.clearRate < 0.30 ? 1 : 0)
             + (avgFill > 0.55 && m.clearRate < 0.40 ? 1 : 0);
         if (struggleSignals >= 3) return 'anxious';
+
+        /* v1.51：末段瞬时挣扎窗口——最近 8 步内消行数 ≤1、思考时间在上升、avgFill 在
+         * 上升 → "局尾崩盘"。与上面的"累计均值"挣扎检测互补：
+         *   累计 OR 末段任一命中 ≥3 信号即判 anxious。 */
+        const burstSignals = this._burstStruggleSignals();
+        if (burstSignals >= 3) return 'anxious';
 
         const fd = this.flowDeviation;
         if (fd < 0.25) return 'flow';
@@ -646,15 +663,59 @@ export class PlayerProfile {
 
         if (this.cognitiveLoad > 0.7 && m.clearRate < 0.25) return 'anxious';
 
-        /* v1.21：borderline 去抖 ——
-         * 旧版 `fd > 0.5 && clearRate > 0.4` 在玩家停在 (fd≈0.5, clearRate≈0.4) 时
-         * 会因 micro-sample 抖动在 'bored' / 'flow' 之间反复翻面（截图里见过 snapshot
-         * = bored / live = flow 同帧打架的情况）。两条阈值各加 5% 缓冲（fd>0.55,
-         * clearRate>0.42），让 borderline 默认 fall through 到 'flow'，单向偏好
-         * 心流（flicker → 'flow' 而非 'bored'），等真正越过缓冲带再宣布 bored。 */
-        if (fd > 0.55 && m.clearRate > 0.42) return 'bored';
+        /* v1.51 borderline 方向判定 ——
+         * 旧版 `fd > 0.55 && clearRate > 0.42 → bored` 单看 fd 大小不看方向，
+         * 把 boardPressure 高出 skill（→ anxious）的玩家误判成 bored。
+         * 修复：必须满足 (a) boardPressure < skill（即 ratio < 1，板面比能力弱→真无聊）
+         *      AND (b) momentum 不强烈下行（≥ -0.15）才判 bored；否则 fall through 到 flow。
+         * 截图实测玩家 fd=0.60 + clearRate=50% + momentum=-0.53 + late，按旧规则误判为
+         * bored、按新规则在 momentumNow ≤ -0.35 早返回 anxious。 */
+        if (fd > 0.55 && m.clearRate > 0.42) {
+            const skill = Math.max(0.05, this.skillLevel);
+            const boardPressureRatio = (1 - this.flowDeviation < 0)
+                ? 1 + this.flowDeviation
+                : 1 - this.flowDeviation;
+            const boardWeakerThanSkill = boardPressureRatio < 1;
+            const momentumStable = momentumNow > -0.15;
+            if (boardWeakerThanSkill && momentumStable && skill > 0) {
+                return 'bored';
+            }
+        }
 
         return 'flow';
+    }
+
+    /**
+     * v1.51 末段瞬时挣扎窗口：最近 8 步（默认）窗口内的"局尾崩盘"信号。
+     *
+     * 与 metrics 的累计均值正交——当玩家前 5 分钟良好、最后 1 分钟挣扎时，累计均值
+     * 仍然漂亮，但本窗口能立即捕获"局尾消行率塌陷 / 思考时间显著上升 / 盘面接近
+     * 满格"等真实濒死信号。
+     *
+     * @private
+     * @returns {number} 0~3 命中信号数（≥3 即触发 anxious）
+     */
+    _burstStruggleSignals() {
+        const window = 8;
+        const recent = this._moves.slice(-window).filter(m => !m.miss);
+        if (recent.length < 5) return 0;
+        const half = Math.floor(recent.length / 2);
+        const older = recent.slice(0, half);
+        const newer = recent.slice(half);
+        if (older.length === 0 || newer.length === 0) return 0;
+
+        const newerClearRate = newer.filter(m => m.cleared).length / newer.length;
+        const newerThinkAvg = newer.reduce((s, m) => s + m.thinkMs, 0) / newer.length;
+        const olderThinkAvg = older.reduce((s, m) => s + m.thinkMs, 0) / older.length;
+        const newerFillAvg = newer.reduce((s, m) => s + m.fill, 0) / newer.length;
+        const olderFillAvg = older.reduce((s, m) => s + m.fill, 0) / older.length;
+
+        let count = 0;
+        if (newerClearRate <= 0.20) count++;
+        if (newerThinkAvg > 3500 && newerThinkAvg > olderThinkAvg * 1.2) count++;
+        if (newerFillAvg >= 0.70 && newerFillAvg > olderFillAvg + 0.05) count++;
+        if (newer.filter(m => m.cleared).length === 0 && newer.length >= 4) count++;
+        return count;
     }
 
     /**

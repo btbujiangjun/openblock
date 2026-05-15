@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'ตำนาน',
     'progress.streakDays': 'ต่อเนื่อง {{n}} วัน',
     'best.gap': 'ขาดอีก {{gap}} คะแนนถึงสถิติ',
+    'effect.nearMissPlace': 'อีก 1 ช่องเคลียร์',
     'effect.perfectClear': 'เคลียร์หมด',
     'effect.multiClear': 'เคลียร์ {{n}} แถว',
     'effect.doubleClear': 'เคลียร์คู่',

@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Легенда',
     'progress.streakDays': '{{n}} дней подряд',
     'best.gap': '{{gap}} оч. до рекорда',
+    'effect.nearMissPlace': 'Ещё одна — и линия!',
     'effect.perfectClear': 'Полная очистка',
     'effect.multiClear': '{{n}} линий',
     'effect.doubleClear': 'Двойная очистка',

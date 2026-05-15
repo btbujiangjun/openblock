@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Efsane',
     'progress.streakDays': '{{n}} gün üst üste',
     'best.gap': 'Rekora {{gap}} puan',
+    'effect.nearMissPlace': 'Tek bir taş yeter',
     'effect.perfectClear': 'Tam temizlik',
     'effect.multiClear': '{{n}} satır',
     'effect.doubleClear': 'Çifte temizlik',

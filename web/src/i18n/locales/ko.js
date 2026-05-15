@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': '전설',
     'progress.streakDays': '{{n}}일 연속',
     'best.gap': '최고 기록까지 {{gap}}점',
+    'effect.nearMissPlace': '한 칸이면 줄 완성',
     'effect.perfectClear': '전체 클리어',
     'effect.multiClear': '{{n}}줄 클리어',
     'effect.doubleClear': '더블 클리어',

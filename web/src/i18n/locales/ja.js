@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'レジェンド',
     'progress.streakDays': '{{n}}日連続',
     'best.gap': 'ベストまであと {{gap}} 点',
+    'effect.nearMissPlace': 'あと1マスで消える',
     'effect.perfectClear': '全消し',
     'effect.multiClear': '{{n}} ライン消し',
     'effect.doubleClear': 'ダブル消し',

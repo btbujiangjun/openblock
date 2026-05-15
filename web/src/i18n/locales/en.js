@@ -109,8 +109,8 @@ export default {
     'best.gap.far': 'Keep going~',
     /* In-run score milestone (different from maturity_milestone_complete which is cross-run) */
     'effect.scoreMilestone': 'Score broke {{score}}!',
-    /* Placement didn't clear, but a row/col is already one cell away from clearing */
-    'effect.nearMissPlace': 'One cell from a clear!',
+    /* Placement didn't clear: a row/column is one cell from full — morale boost only, rate-limited */
+    'effect.nearMissPlace': 'One more to clear',
     /* No moves left, game over imminent */
     'effect.noMovesEnd': "Board's full — try again!",
     /* @deprecated since v1.49; use effect.scoreMilestone */

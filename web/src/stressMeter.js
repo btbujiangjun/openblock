@@ -52,8 +52,30 @@ export function getStressLevel(stress) {
  * 是真正的"被压低"区间）时启用；easy 档（−0.05 ~ 0.20）已是温和挑战区，
  * "舒缓 + 主动减压"读起来不冲突，无需切变体。
  */
-export function getStressDisplay(stress, spawnIntent) {
+export function getStressDisplay(stress, spawnIntent, distress = null) {
     const base = getStressLevel(stress);
+
+    /* v1.51：挣扎中变体 —— 当 stress 数值停留在 calm/easy 低压档，但 endSessionDistress
+     * 强力激活（末段 + momentum 强烈下行）或 frustrationLevel ≥ 5 时，纯 stress 数值
+     * 会"伪装"为舒缓，必须给档位一个独立标识，否则玩家临 game over 仍看到 😌 放松。
+     * 优先级高于 relief 救济变体（救济只描述"被照顾"，挣扎中描述"在崩盘"）。 */
+    if (distress && Number.isFinite(stress) && stress < 0.20
+        && (base.id === 'calm' || base.id === 'easy')) {
+        const lateCollapse = distress.sessionPhase === 'late' && Number(distress.momentum) <= -0.30;
+        const frustrationCritical = Number(distress.frustrationLevel) >= 5;
+        if (lateCollapse || frustrationCritical) {
+            return {
+                ...base,
+                id: `${base.id}-struggling`,
+                face: '😣',
+                label: '挣扎中（救济中）',
+                vibe: lateCollapse
+                    ? '动量持续下行、临 game over，系统已强制 relief 出块抢救节奏。'
+                    : '挫败累积偏高，系统已切 relief 节奏，候选块更小、更易消。'
+            };
+        }
+    }
+
     if (spawnIntent === 'relief'
         && Number.isFinite(stress)
         && stress <= -0.05
@@ -467,7 +489,11 @@ export function renderStressMeter(root, insight, stressHistory = []) {
      * 且 stress 已被压到 ≤ −0.05 时，face/label/vibe 切到"被照顾"变体，
      * 与故事线"系统正在主动减压"对齐，避免"😌 放松"+"挫败感偏高"看起来打架。 */
     const intent = insight.spawnHints?.spawnIntent ?? insight.spawnIntent ?? null;
-    const level = getStressDisplay(stress, intent);
+    const level = getStressDisplay(stress, intent, {
+        sessionPhase: insight.sessionPhase,
+        momentum: insight.momentum,
+        frustrationLevel: insight.frustration ?? insight.frustrationLevel,
+    });
     const trend = computeTrend(stressHistory, stress, 6);
     /* v1.31：把 spawn 时刻的盘面几何（fill / holes / nearFullLines / mcc）透传给
      * buildStoryLine，用于：

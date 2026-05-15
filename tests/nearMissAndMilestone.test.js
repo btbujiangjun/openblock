@@ -17,6 +17,23 @@ import { PlayerProfile } from '../web/src/playerProfile.js';
 import { Grid } from '../web/src/grid.js';
 import zhCN from '../web/src/i18n/locales/zh-CN.js';
 import en from '../web/src/i18n/locales/en.js';
+import jaLocale from '../web/src/i18n/locales/ja.js';
+import koLocale from '../web/src/i18n/locales/ko.js';
+import frLocale from '../web/src/i18n/locales/fr.js';
+import deLocale from '../web/src/i18n/locales/de.js';
+import esLocale from '../web/src/i18n/locales/es.js';
+import itLocale from '../web/src/i18n/locales/it.js';
+import ptBRLocale from '../web/src/i18n/locales/pt-BR.js';
+import nlLocale from '../web/src/i18n/locales/nl.js';
+import ruLocale from '../web/src/i18n/locales/ru.js';
+import ukLocale from '../web/src/i18n/locales/uk.js';
+import plLocale from '../web/src/i18n/locales/pl.js';
+import trLocale from '../web/src/i18n/locales/tr.js';
+import viLocale from '../web/src/i18n/locales/vi.js';
+import thLocale from '../web/src/i18n/locales/th.js';
+import idLocale from '../web/src/i18n/locales/id.js';
+import arLocale from '../web/src/i18n/locales/ar.js';
+import elLocale from '../web/src/i18n/locales/el.js';
 
 function makeProfile() { return new PlayerProfile(15); }
 
@@ -149,6 +166,27 @@ describe('i18n: milestone & near-miss & best-gap keys exist in zh-CN and en', ()
         // 旧 zh-CN: '就差一点！再冲一把！' 与 _handleNoMoves 硬编码 '差一点... 再冲一把！' 高度撞车，
         // v1.49 已替换为更精准的"即将刷新最佳"。
         expect(zhCN['best.gap.victory']).not.toMatch(/再冲一把/);
+    });
+
+    it('effect.nearMissPlace is short and refers to clearing (v1.50.1)', () => {
+        expect(zhCN['effect.nearMissPlace']).toMatch(/消/);
+        expect(zhCN['effect.nearMissPlace'].length).toBeLessThanOrEqual(10);
+        expect(en['effect.nearMissPlace']).toMatch(/clear/i);
+        expect(en['effect.nearMissPlace'].length).toBeLessThanOrEqual(24);
+    });
+
+    it('effect.nearMissPlace is provided in all 19 supported locales (no fallback to zh-CN)', () => {
+        const locales = {
+            'zh-CN': zhCN, en,
+            ja: jaLocale, ko: koLocale, fr: frLocale, de: deLocale, es: esLocale,
+            it: itLocale, 'pt-BR': ptBRLocale, nl: nlLocale, ru: ruLocale, uk: ukLocale,
+            pl: plLocale, tr: trLocale, vi: viLocale, th: thLocale, id: idLocale,
+            ar: arLocale, el: elLocale,
+        };
+        for (const [code, dict] of Object.entries(locales)) {
+            expect(dict['effect.nearMissPlace'], `${code} missing effect.nearMissPlace`).toBeTruthy();
+            expect(typeof dict['effect.nearMissPlace']).toBe('string');
+        }
     });
 
     it('legacy effect.milestoneHit is kept as a deprecated alias (back-compat)', () => {

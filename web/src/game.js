@@ -23,6 +23,7 @@ import {
     titleForLevel
 } from './progression.js';
 import { t, tSkinName } from './i18n/i18n.js';
+import { shouldShowNearMissPlaceFeedback } from './nearMissPlaceFeedback.js';
 import {
     getActiveSkinId,
     getBlockColors,
@@ -183,6 +184,10 @@ export class Game {
         this.backendSync = new BackendSync(this.db.userId);
         /** @type {ReturnType<typeof setTimeout> | null} */
         this._noMovesTimer = null;
+        /** v1.50：几何近失 toast 控频（单局次数 / 落子间隔 / 时间冷却） */
+        this._nearMissPlaceToastCount = 0;
+        this._nearMissPlaceLastAt = null;
+        this._nearMissPlaceLastPlacement = null;
         /** 模型异步出块进行中，跳过 game over 检查 */
         this._spawnPending = false;
         this._spawnRequestId = 0;
@@ -820,6 +825,9 @@ export class Game {
                 startTime: Date.now()
             };
             this._clearStreak = 0;
+            this._nearMissPlaceToastCount = 0;
+            this._nearMissPlaceLastAt = null;
+            this._nearMissPlaceLastPlacement = null;
             this._spawnContext = {
                 lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
                 bestScore: this.bestScore ?? 0,
@@ -1801,14 +1809,22 @@ export class Game {
                     blockId: this.dragBlock.id
                 });
 
-                /* v1.49：几何近失反馈 — 当本次落子未消行，且盘面存在某行/列已经"差一格就能消"时触发
-                 * 心理学依据：研究表明真正几何意义上的 near-miss（差 1–2 格即可消）反而增强玩家续玩意愿；
-                 *          v1.32 旧版仅以 fillBefore>0.55 为条件，会在中等填充率下高频误触发，已废弃。
-                 * 条件：本轮消行数 = 0 且 grid.getMaxLineFill() ≥ 0.78（8 格中 ≥ 7 格）
-                 * 互斥：若同一帧内 _handleNoMoves 即将触发（_pendingNoMovesEnd），让位给 game over 鼓励语，
-                 *      避免"差一格就能消！" + "棋盘填满，再来一局！"两条 toast 在 game over 前连击。 */
-                const maxLineFill = this.grid.getMaxLineFill();
-                if (maxLineFill >= 0.78 && !this._pendingNoMovesEnd) {
+                /* v1.50：几何近失 toast — 仅救场/提振士气，严格控频（见 nearMissPlaceFeedback.js）。
+                 * 文案说明「整行/整列差 1 格满、再落一块即可消行」，避免抽象「差一格」；
+                 * 需连续未消行/焦虑心流等门槛，顺风光头与高频盘面不打扰。 */
+                const nearMissDecision = shouldShowNearMissPlaceFeedback({
+                    maxLineFill: this.grid.getMaxLineFill(),
+                    pendingNoMovesEnd: !!this._pendingNoMovesEnd,
+                    frustrationLevel: this.playerProfile.frustrationLevel,
+                    flowState: this._lastAdaptiveInsight?.flowState ?? this.playerProfile.flowState,
+                    momentum: this._lastAdaptiveInsight?.momentum ?? this.playerProfile.momentum,
+                    clearRate: this.playerProfile.metrics?.clearRate ?? 0,
+                    toastCount: this._nearMissPlaceToastCount,
+                    lastPlacementIndex: this._nearMissPlaceLastPlacement,
+                    currentPlacementIndex: this.gameStats.placements,
+                    lastShownAt: this._nearMissPlaceLastAt,
+                });
+                if (nearMissDecision.show) {
                     this._triggerNearMissFeedback();
                 }
 
@@ -2096,8 +2112,8 @@ export class Game {
          *   _lastAdaptiveInsight 中被写入（死字段引用），实际只剩 roundsSinceClear>=3 起作用，
          *   语义跟"差一点"无关——是濒死安抚，而非几何近失。
          * - 新版：无条件触发"棋盘填满，再来一局！"安抚语；同时设置 _pendingNoMovesEnd 互斥锁，
-         *   抑制同一帧内 _triggerNearMissFeedback 的重复 toast；toast hold 1100ms 略短于
-         *   endGame 延迟 1200ms，确保先看完安抚语再进 game over 弹窗。
+         *   抑制同一帧内 _triggerNearMissFeedback 的重复 toast；v1.50.2 起 toast hold 2400ms 略短于
+         *   endGame 延迟 2600ms，确保先看完安抚语再进 game over 弹窗。
          * - i18n：effect.noMovesEnd（"棋盘填满，再来一局！" / "Board's full — try again!"）
          */
         this._pendingNoMovesEnd = true;
@@ -2106,13 +2122,14 @@ export class Game {
         tipEl.innerHTML = `<span class="float-label">${t('effect.noMovesEnd')}</span><span class="float-pts">💪</span>`;
         document.body.appendChild(tipEl);
         this._anchorOnBoard(tipEl);
-        setTimeout(() => tipEl.remove(), 1100);
+        /* v1.50.2：toast hold 从 1100ms 提到 2400ms，与 .float-no-moves 2.4s 动画对齐 */
+        setTimeout(() => tipEl.remove(), 2400);
 
         this._noMovesTimer = setTimeout(() => {
             this._noMovesTimer = null;
             this._pendingNoMovesEnd = false;
             void this.endGame({ noMovesLoss: true });
-        }, 1200);
+        }, 2600); /* v1.50.2：从 1200ms 拉到 2600ms，确保安抚语完整显示后再进 game over 弹窗 */
     }
 
     /**
@@ -2663,18 +2680,21 @@ export class Game {
     }
 
     /**
-     * v1.49：几何近失反馈
-     * 当本次落子未消行、但盘面已存在某行/列只差 1–2 格即可消时触发。
-     * 心理学依据：真正几何意义上的 near-miss 反而增强玩家续玩意愿（v1.32 旧版仅按 fill>0.55 高频误触发，已废弃）。
-     * i18n：effect.nearMissPlace（"差一格就能消！" / "One cell from a clear!"）
+     * v1.50：几何近失救场鼓励（调用方须先通过 shouldShowNearMissPlaceFeedback）。
+     * i18n：effect.nearMissPlace — 整行/整列差 1 格满，再落一块即可消行；单局控频见 game_rules.nearMissPlaceFeedback。
      */
     _triggerNearMissFeedback() {
+        this._nearMissPlaceToastCount = (this._nearMissPlaceToastCount ?? 0) + 1;
+        this._nearMissPlaceLastAt = Date.now();
+        this._nearMissPlaceLastPlacement = this.gameStats.placements ?? 0;
+
         const nearMissEl = document.createElement('div');
         nearMissEl.className = 'float-score float-near-miss';
         nearMissEl.innerHTML = `<span class="float-label">${t('effect.nearMissPlace')}</span><span class="float-pts">🎯</span>`;
         document.body.appendChild(nearMissEl);
         this._anchorOnBoard(nearMissEl);
-        setTimeout(() => nearMissEl.remove(), 1500);
+        /* v1.50.2：从 1500ms 提到 2800ms，与 .float-near-miss 动画时长对齐，确保玩家看清。 */
+        setTimeout(() => nearMissEl.remove(), 2800);
     }
 
     /**
@@ -2738,7 +2758,8 @@ export class Game {
 
         document.body.appendChild(el);
         this._anchorOnBoard(el);
-        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : isScoreMilestone ? 1800 : 600;
+        /* v1.50.2：分数里程碑从 1800ms 提到 2800ms，与 .float-milestone 2.8s 动画对齐 */
+        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : isScoreMilestone ? 2800 : 600;
         setTimeout(() => el.remove(), floatHoldMs);
     }
 

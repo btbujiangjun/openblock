@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Θρύλος',
     'progress.streakDays': '{{n}} μέρες σερί',
     'best.gap': '{{gap}} πόντοι από το ρεκόρ',
+    'effect.nearMissPlace': 'Άλλο ένα για γραμμή',
     'effect.perfectClear': 'Πλήρης καθαρισμός',
     'effect.multiClear': '{{n}} γραμμές',
     'effect.doubleClear': 'Διπλός καθαρισμός',

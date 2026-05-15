@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Legende',
     'progress.streakDays': '{{n}} dagen op rij',
     'best.gap': '{{gap}} ptn tot record',
+    'effect.nearMissPlace': 'Nog één om te wissen',
     'effect.perfectClear': 'Alles leeg',
     'effect.multiClear': '{{n}} rijen',
     'effect.doubleClear': 'Dubbele clear',

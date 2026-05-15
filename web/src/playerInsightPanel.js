@@ -611,6 +611,49 @@ function _flowExplain(flow) {
     return '节奏与能力较匹配 → 维持当前难度曲线。';
 }
 
+/**
+ * v1.51：实时状态四联 chip 互斥/方向解读 ——
+ * 旧版逐字段直接展示 (flowState / pacingPhase / sessionPhase / R)，会出现：
+ *   - flowState='bored'（系统判读"无聊→加压"）与 momentum 强烈下行（玩家明显挣扎）
+ *     同帧并列，玩家读到自相矛盾的"无聊 + 紧张期 + 后期";
+ *   - pacingPhase='tension'（紧张期）与濒死叙事冲突。
+ * 修复：late + momentum ≤ -0.30 时，把 bored / tension 两个加压向 chip muted，
+ * 并提示"读为末段崩盘救济"；其他场景维持原直读。
+ *
+ * @param {object} lastPs adaptive snapshot（含 flowState/pacingPhase/sessionPhase/momentum/spawnRound）
+ * @returns {{ label:string, muted:boolean, title:string }[]} 四联 chip
+ */
+function _resolveLiveHeadTags(lastPs) {
+    const flowState = lastPs.flowState || '—';
+    const pacingPhase = lastPs.pacingPhase || '—';
+    const sessionPhase = lastPs.sessionPhase || '—';
+    const round = lastPs.spawnRound;
+    const momentum = Number.isFinite(lastPs.momentum) ? lastPs.momentum : 0;
+    const lateCollapse = sessionPhase === 'late' && momentum <= -0.30;
+
+    const tags = [];
+    if (lateCollapse && flowState === 'bored') {
+        tags.push({
+            label: 'late-stress',
+            muted: false,
+            title: 'v1.51：late + momentum 强烈下行（≤−0.30）时 bored 解读为末段崩盘'
+                + '（板面跑赢能力但消行率塌陷），系统已切 relief 叙事。',
+        });
+    } else {
+        tags.push({ label: flowState, muted: false, title: '' });
+    }
+
+    if (lateCollapse && pacingPhase === 'tension') {
+        tags.push({ label: 'release', muted: true, title: 'v1.51：末段崩盘场景下紧张期被抑制为释放期叙事，避免与 relief 冲突。' });
+    } else {
+        tags.push({ label: pacingPhase, muted: false, title: '' });
+    }
+
+    tags.push({ label: sessionPhase, muted: false, title: '' });
+    tags.push({ label: 'R' + (round ?? '—'), muted: false, title: '' });
+    return tags;
+}
+
 function _pacingExplain(phase) {
     /* v1.17：与 spawnHints.rhythmPhase（出块节奏：setup/payoff/neutral）拆开
      * 命名口径，避免在策略解释段同时出现「节奏相位：紧张期」+ 紧凑 pill「节奏 收获」时
@@ -916,16 +959,11 @@ function _renderInsightStateSeries(game, elState) {
 
     const head = document.getElementById('insight-live-series-head');
     if (head && lastPs) {
-        const tags = [
-            lastPs.flowState || '—',
-            lastPs.pacingPhase || '—',
-            lastPs.sessionPhase || '—',
-            'R' + (lastPs.spawnRound ?? '—')
-        ];
+        const tags = _resolveLiveHeadTags(lastPs);
         const tagsHtml = tags
             .map(
                 (t) =>
-                    `<span class="series-tag" title="${_attrTitle(_tooltipForLiveTag(t))}">${t}</span>`
+                    `<span class="series-tag${t.muted ? ' series-tag--muted' : ''}" title="${_attrTitle(t.title || _tooltipForLiveTag(t.label))}">${t.label}</span>`
             )
             .join('');
         head.innerHTML =
@@ -1871,16 +1909,11 @@ export function updateInsightReplayFrame(idx) {
     // tag 行（flow/release/peak/R{n}）随当前帧切换
     const headTags = document.querySelector('#insight-live-series-head .insight-live-head-tags');
     if (headTags && curPs) {
-        const tags = [
-            curPs.flowState || '—',
-            curPs.pacingPhase || '—',
-            curPs.sessionPhase || '—',
-            'R' + (curPs.spawnRound ?? '—')
-        ];
+        const tags = _resolveLiveHeadTags(curPs);
         headTags.innerHTML = tags
             .map(
                 (t) =>
-                    `<span class="series-tag" title="${_attrTitle(_tooltipForLiveTag(t))}">${t}</span>`
+                    `<span class="series-tag${t.muted ? ' series-tag--muted' : ''}" title="${_attrTitle(t.title || _tooltipForLiveTag(t.label))}">${t.label}</span>`
             )
             .join('');
     }

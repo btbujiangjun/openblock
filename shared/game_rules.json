@@ -160,6 +160,19 @@
       "nearMissClearGuarantee": 2,
       "noveltyDiversityBoost": 0.15
     },
+    "nearMissPlaceFeedback": {
+      "comment": "落子未消行时的几何近失 toast（game.js）。v1.50.1 收紧：仅在玩家体感很差时出现（高挫败 / anxious 心流叠加挫败 / 强 stress 救济）；clearRate/动量任一为正即抑制；单局最多 1 次、落子间隔 12、冷却 30s、前 12 次落子不出。",
+      "enabled": true,
+      "minLineFill": 0.875,
+      "minFrustrationLevel": 4,
+      "minFrustrationWhenAnxious": 2,
+      "maxPerSession": 1,
+      "minPlacementsBetween": 12,
+      "cooldownMs": 30000,
+      "minPlacementsBeforeFirst": 12,
+      "healthyClearRate": 0.30,
+      "healthyMomentum": 0.05
+    },
     "feedback": {
       "comment": "闭环反馈（敏感版）：更短窗口、更高 alpha、更慢衰减，bias 变化更易在面板/stress 上体现；仍钳制在 biasClamp。",
       "horizon": 3,
@@ -183,6 +196,7 @@
       "feedbackBias": { "enabled": true, "scale": 1 },
       "trendAdjust": { "enabled": true, "scale": 1 },
       "sessionArcAdjust": { "enabled": true, "scale": 1 },
+      "endSessionDistress": { "enabled": true, "scale": 1 },
       "holeReliefAdjust": { "enabled": true, "scale": 1 },
       "boardRiskReliefAdjust": { "enabled": true, "scale": 1 },
       "abilityRiskAdjust": { "enabled": true, "scale": 1 },

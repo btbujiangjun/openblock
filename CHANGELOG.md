@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — v1.51 末段崩盘 stress 失真修复（screenshot 实测：高分 + 濒死却显示舒缓档）
+
+**用户反馈**：临 game over 一帧 stress=0.04（舒缓档）、flowState=bored、tags=`bored / tension / late`、
+spawnIntent=`harvest`（"识别到密集消行机会"），与玩家 momentum=−0.53、long-think、最后 8 步 0 消行的真实
+"濒死时刻"严重错位。诊断：依赖累计均值的 metric 被前 5 分钟良好表现稀释，掩盖了局尾崩盘。
+
+**修复（按优先级落地，全部带回归测试）**：
+
+- **P0 · `flowState` 直接判 anxious 三条新通道**（`web/src/playerProfile.js`）：
+  - `momentum ≤ -0.35` 硬触发 → 解决"动量持续下行却被误判 bored"；
+  - 末段瞬时窗口 `_burstStruggleSignals()`（最近 8 步 newer-half 消行率 ≤ 0.20、思考时间相对前半段 +20%、
+    fill 上升、连续 ≥ 4 步 0 消）≥ 3 条命中 → 即便累计 clearRate 漂亮也判 anxious；
+  - borderline (`fd > 0.55 && clearRate > 0.42`) 加方向门：必须 `boardPressureRatio < 1` AND `momentum > -0.15`
+    才允许判 bored，否则 fall through 到 flow / 由前两条接管。
+- **P0 · `endSessionDistress` 独立 stress 分量**（`web/src/adaptiveSpawn.js` + `shared/game_rules.json` 加配置）：
+  `sessionPhase=late && momentum ≤ -0.30` 时 `−(0.05 + (|momentum|-0.30) * 0.5)`，`frustrationLevel ≥ 4`
+  再叠加 `−0.06`，下限钳制 `−0.25`。与 `sessionArcAdjust` 互补：前者看玩家自己的崩盘强度、后者看 cooldown 弧线档位。
+- **P1 · `sessionArc` cooldown 救济按 `|momentum|` 线性放大**：旧 `−0.05` 固定值放宽到 `−0.05 ~ −0.20`
+  （`momentum=-0.30→-0.075 / -0.40→-0.10 / -0.53→-0.135 / -0.60→-0.20`），与崩盘力度同向。
+- **P1 · `spawnIntent` 末段/高挫败强制 `relief`**：`endSessionDistressActive || frustrationLevel ≥ 5`
+  时 `forceReliefIntent=true`，即便 distress 累计未到 −0.10 也走 relief 叙事，杜绝"系统在加压"的错位文案。
+- **P1 · 实时四联 chip 互斥/方向解读**（`web/src/playerInsightPanel.js` 新增 `_resolveLiveHeadTags`）：
+  `late + momentum ≤ -0.30` 时 `bored` chip 替换为 `late-stress`、`tension` chip 加 `series-tag--muted`
+  (line-through + 0.45 opacity)，避免"无聊 + 紧张期 + 后期" 三条互相打架的标签同屏。
+- **P2 · `stressMeter` 挣扎中变体**（`web/src/stressMeter.js` `getStressDisplay` 加 `distress` 入参）：
+  `stress < 0.20 && (calm/easy 档) && (lateCollapse || frustration ≥ 5)` 时 face → `😣`，label → 「挣扎中（救济中）」，
+  vibe → "动量持续下行、临 game over，系统已强制 relief 出块抢救节奏"。优先级高于 v1.18 的 relief 救济变体。
+- **P3 · 回归测试 `tests/endSessionStress.test.js`**：10 个用例守护 momentum 硬触发、burst 窗口、borderline 方向、
+  endSessionDistress sign / late-only、forceRelief、stressMeter 三档变体。
+
+> 影响面：`web/src/playerProfile.js` / `adaptiveSpawn.js` / `playerInsightPanel.js` / `stressMeter.js`、
+> `shared/game_rules.json`、`web/public/styles/main.css`；新增 `tests/endSessionStress.test.js`（10 用例）。
+> 旧回放（无 `endSessionDistress` 字段）会 fallback 到 0，向后兼容。
+> miniprogram/core 因仓库内的预存在 sync 漂移（`web/src/playerAbilityModel.js` 用 `import * as` 接 monetization
+> 子树而 sync-core.sh 不转义，且小程序包不打包 monetization）本轮未同步，留待解决 sync 链路后单独提交。
+
+### UX — v1.50.2 反馈 toast 显示时长上调，留足看清的窗口
+
+特效一闪而过看不清；将 4 类 toast 的"清晰停留段"延长到 ≥1s。
+
+| Toast | 总时长 | 主要变化 |
+|-------|--------|----------|
+| `effect.nearMissPlace`（差一格） | 1.5s → **2.8s** | 8% 起跳→78% 保持完整不动，最后 22% 才退场 |
+| `effect.scoreMilestone`（分数突破） | 1.8s → **2.8s** | 同上，与 near-miss 节奏对齐 |
+| `effect.noMovesEnd`（无路可走） | 1.5s → **2.4s** | endGame 倒计时同步 1.2s → **2.6s**，确保安抚语完整看完再进结算弹窗 |
+| combo / perfect / new-best | 不动 | 已经有 1.5–2.3s |
+
+CSS 关键帧把"完全显示"段从原来 30%（≈0.45s）拉到 ~58%（≈1.6s），玩家有充裕时间识别文字。
+
+### Fixed — v1.50.1 几何近失 toast：文案再短化 + 19 语种覆盖 + 严格只在体感很差时出现
+
+**用户反馈**（接 v1.50）：1) 文案过长；2) i18n 不能仅依赖 fallback；3) 时机不对，必须只在玩家体感很差时出现，杜绝打扰。
+
+**改动**：
+- **文案**：精简到 ≤10 个汉字 / ≤24 个英文字符 — `effect.nearMissPlace` = `再一格就消行` / `One more to clear`。
+- **i18n 全覆盖**：在 19 个语言包（zh-CN / en / ja / ko / fr / de / es / it / pt-BR / nl / ru / uk / pl / tr / vi / th / id / ar / el）中补齐 `effect.nearMissPlace` 短句，不再回退 zh-CN。新增回归测试守护。
+- **触发收紧（`web/src/nearMissPlaceFeedback.js`）** — 必须**同时**满足：
+  - 几何：`getMaxLineFill() ≥ 0.875`（整行/列只差 1 格满）；
+  - 体感很差（二选一）：`frustrationLevel ≥ 4`（与 `engagement.frustrationThreshold` 对齐）**或** `flowState === 'anxious'` 且 `frustrationLevel ≥ 2`；
+  - 顺风强抑制：`clearRate ≥ 0.30` / `momentum ≥ 0.05` / `flowState === 'flow'` 任一成立都直接屏蔽；
+  - 冷启动：局内前 12 次落子不出。
+- **频次再降**：单局上限 2 → **1**；落子间隔 8 → **12**；冷却 15s → **30s**；配置项 `adaptiveSpawn.nearMissPlaceFeedback` 同步更新。
+- **测试**：`tests/nearMissPlaceFeedback.test.js` 14 用例覆盖每一条门槛；`tests/nearMissAndMilestone.test.js` 增加 19 语种 i18n 完整性断言。
+
 ### Fixed — v1.49 「差一点」与「里程碑」提示逻辑：表意分家、死代码清理、几何近失、相对化里程碑
 
 **用户反馈**：上一轮诊断报告指出 4 类局内 toast（A 落子近失 / B 无路可走 / C 分数里程碑 / D 接近 best）

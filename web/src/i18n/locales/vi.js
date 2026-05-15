@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Huyền thoại',
     'progress.streakDays': 'Chuỗi {{n}} ngày',
     'best.gap': 'Còn {{gap}} điểm tới kỷ lục',
+    'effect.nearMissPlace': 'Thêm 1 ô là tiêu',
     'effect.perfectClear': 'Dọn sạch bàn',
     'effect.multiClear': 'Xóa {{n}} hàng',
     'effect.doubleClear': 'Xóa đôi',

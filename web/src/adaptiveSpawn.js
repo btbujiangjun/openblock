@@ -629,12 +629,33 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const trendScale = fz.trendAdjustScale ?? 0.08;
     const trendAdjust = trend * trendScale * conf;
 
-    /* ---------- Layer 3: session 弧线调节 ---------- */
+    /* ---------- Layer 3: session 弧线调节 ----------
+     * v1.51 强化 cooldown 救济：旧版 -0.05 固定值对"动量从 0 跌到 -0.53"这种崩盘
+     * 力度不足，导致截图实测玩家临 game over 时 stress 仍显示 0.04（舒缓档）。
+     * 新版按 |momentum| 在 [-0.2, -0.6] 区间线性放大到 [-0.05, -0.20]：
+     *   momentum = -0.30 → -0.075；-0.40 → -0.10；-0.53 → -0.135；-0.60 → -0.20。 */
     const totalRounds = ctx.totalRounds ?? 0;
     const sessionArc = deriveSessionArc(totalRounds, profile.sessionPhase);
     let sessionArcAdjust = 0;
     if (sessionArc === 'warmup') sessionArcAdjust = -0.08;
-    else if (sessionArc === 'cooldown' && profile.momentum < -0.2) sessionArcAdjust = -0.05;
+    else if (sessionArc === 'cooldown' && profile.momentum < -0.2) {
+        const momentumExcess = Math.min(0.4, Math.abs(profile.momentum) - 0.2);
+        sessionArcAdjust = -0.05 - momentumExcess * 0.375; /* -0.05 ~ -0.20 */
+    }
+
+    /* v1.51 末段崩盘救济（endSessionDistress）—— 解决"前 5 分钟良好 + 最后 1 分钟崩盘"
+     * 时累计 stress 仍判舒缓的盲区。当 sessionPhase=late + momentum 强烈下行时，
+     * 给一笔独立的减压脉冲，确保 stress 与玩家真实体感同向。
+     *   momentum ≤ -0.30 触发；frustrationLevel ≥ 4 时再叠加 0.06。
+     * 与 sessionArcAdjust 互补：sessionArcAdjust 看 cooldown 弧线档位、本信号看
+     * "玩家自己的崩盘强度"，两者同时为负但语义独立。 */
+    let endSessionDistress = 0;
+    if (profile.sessionPhase === 'late' && profile.momentum <= -0.30) {
+        const slope = Math.min(0.30, Math.abs(profile.momentum) - 0.30);
+        endSessionDistress = -(0.05 + slope * 0.5);
+        if ((profile.frustrationLevel ?? 0) >= 4) endSessionDistress -= 0.06;
+        endSessionDistress = Math.max(-0.25, endSessionDistress);
+    }
 
     /* ---------- Layer 3: 局内分数里程碑（与跨局成熟度里程碑无关） ---------- */
     const scoreMilestones = deriveScoreMilestones(ctx.bestScore ?? 0);
@@ -806,6 +827,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         feedbackBias: applySignal(signalCfg, 'feedbackBias', feedbackBias),
         trendAdjust: applySignal(signalCfg, 'trendAdjust', trendAdjust),
         sessionArcAdjust: applySignal(signalCfg, 'sessionArcAdjust', sessionArcAdjust),
+        endSessionDistress: applySignal(signalCfg, 'endSessionDistress', endSessionDistress),
         holeReliefAdjust: applySignal(signalCfg, 'holeReliefAdjust', holeReliefAdjust),
         boardRiskReliefAdjust: applySignal(signalCfg, 'boardRiskReliefAdjust', boardRiskReliefAdjust),
         abilityRiskAdjust: applySignal(signalCfg, 'abilityRiskAdjust', abilityRiskAdjust),
@@ -1469,7 +1491,15 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         + (stressBreakdown.holeReliefAdjust ?? 0)
         + (stressBreakdown.boardRiskReliefAdjust ?? 0)
         /* v1.30：瓶颈低谷救济也作为困境信号，让 spawnIntent 优先派生 'relief'。 */
-        + (stressBreakdown.bottleneckRelief ?? 0);
+        + (stressBreakdown.bottleneckRelief ?? 0)
+        /* v1.51：末段崩盘救济也参与 distress 累加，确保濒死玩家走 relief 叙事。 */
+        + (stressBreakdown.endSessionDistress ?? 0);
+    /* v1.51：末段崩盘 / 高挫败否决 —— 当玩家明显挣扎时强制走 relief 叙事，
+     * 解决截图实测中 game over 前一帧仍显"识别到密集消行机会，正在投放促清的形状"
+     * 与濒死状态严重错位的问题。 */
+    const endSessionDistressActive = profile.sessionPhase === 'late' && profile.momentum <= -0.30;
+    const frustrationCritical = (profile.frustrationLevel ?? 0) >= 5;
+    const forceReliefIntent = endSessionDistressActive || frustrationCritical;
     /* v1.17：harvest 收紧 —— 必须存在真实的"近一手就能兑现"的几何
      *   - nearFullLines ≥ 2：已有≥2 条临消行/列（与 deriveRhythmPhase 中 nearGeom 同口径）
      *   - 或 pcSetup ≥1 且占用 ≥ PC_SETUP_MIN_FILL：清屏候选+足够"满"才算窗口
@@ -1480,7 +1510,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const harvestable = nearFullForIntent >= 2
         || (pcSetupForIntent >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL);
     let spawnIntent;
-    if (playerDistress < -0.10 || delight.mode === 'relief') {
+    if (playerDistress < -0.10 || delight.mode === 'relief' || forceReliefIntent) {
         spawnIntent = 'relief';
     } else if (afkEngageActive) {
         spawnIntent = 'engage';

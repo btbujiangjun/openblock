@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Legenda',
     'progress.streakDays': '{{n}} hari berturut-turut',
     'best.gap': '{{gap}} poin menuju rekor',
+    'effect.nearMissPlace': 'Satu lagi untuk hapus',
     'effect.perfectClear': 'Bersih total',
     'effect.multiClear': '{{n}} baris',
     'effect.doubleClear': 'Bersih ganda',

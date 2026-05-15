@@ -3951,7 +3951,8 @@ body.game-over-active .first-win-banner {
 .float-near-miss {
     color: #c0392b;
     font-size: clamp(26px, 5.5vw, 38px);
-    animation: nearMissFloat 1.5s ease-out forwards;
+    /* v1.50.2：从 1.5s 提到 2.8s，延长"清晰停留段"，确保玩家来得及看清 */
+    animation: nearMissFloat 2.8s ease-out forwards;
     text-shadow:
         0 0 14px rgba(255, 80, 80, 0.85),
         0 0 28px rgba(255, 60, 30, 0.5),
@@ -3970,8 +3971,9 @@ body.game-over-active .first-win-banner {
 
 @keyframes nearMissFloat {
     0%   { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.78); }
-    15%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.16); }
-    45%  { opacity: 1; transform: translateX(-50%) translateY(-10px) scale(1); }
+    8%   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.16); }
+    20%  { opacity: 1; transform: translateX(-50%) translateY(-2px) scale(1.05); }
+    78%  { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1); }
     100% { opacity: 0; transform: translateX(-50%) translateY(-44px) scale(0.94); }
 }
 
@@ -4044,7 +4046,8 @@ body.game-over-active .first-win-banner {
     color: #2980b9;
     font-size: clamp(24px, 5vw, 34px);
     letter-spacing: 0.06em;
-    animation: milestoneFloat 1.8s ease-out forwards;
+    /* v1.50.2：从 1.8s 提到 2.8s，与 near-miss 对齐 */
+    animation: milestoneFloat 2.8s ease-out forwards;
     text-shadow:
         0 0 12px rgba(80, 160, 255, 0.85),
         0 0 24px rgba(40, 120, 220, 0.5),
@@ -4064,8 +4067,9 @@ body.game-over-active .first-win-banner {
 
 @keyframes milestoneFloat {
     0%   { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.82); }
-    18%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.12); }
-    55%  { opacity: 1; transform: translateX(-50%) translateY(-8px) scale(1); }
+    10%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.12); }
+    22%  { opacity: 1; transform: translateX(-50%) translateY(-2px) scale(1.04); }
+    78%  { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1); }
     100% { opacity: 0; transform: translateX(-50%) translateY(-40px) scale(0.94); }
 }
 
@@ -4075,7 +4079,8 @@ body.game-over-active .first-win-banner {
     color: #d35400;
     font-size: clamp(22px, 4.8vw, 32px);
     letter-spacing: 0.05em;
-    animation: noMovesFloat 1.5s ease-out forwards;
+    /* v1.50.2：从 1.5s 提到 2.4s，并把 endGame 倒计时同步从 1.2s 拉到 2.6s，确保安抚语完整显示 */
+    animation: noMovesFloat 2.4s ease-out forwards;
     text-shadow:
         0 0 12px rgba(255, 140, 60, 0.8),
         0 0 24px rgba(220, 110, 30, 0.45),
@@ -4095,8 +4100,9 @@ body.game-over-active .first-win-banner {
 
 @keyframes noMovesFloat {
     0%   { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.85); }
-    20%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.08); }
-    60%  { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1); }
+    10%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.08); }
+    25%  { opacity: 1; transform: translateX(-50%) translateY(-2px) scale(1.02); }
+    80%  { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1); }
     100% { opacity: 0; transform: translateX(-50%) translateY(-30px) scale(0.96); }
 }
 
@@ -5432,6 +5438,14 @@ body.doc-visibility-hidden #menu * {
     color: var(--text-secondary, #64748b);
     font-weight: 600;
     letter-spacing: 0.01em;
+}
+
+/* v1.51：与末段崩盘冲突的 chip（bored / tension）置灰，
+ * 让玩家一眼看出"这个标签当前已被 relief 叙事抑制"，避免标签互相打架。 */
+.series-tag.series-tag--muted {
+    opacity: 0.45;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
 }
 
 .replay-series-grid {

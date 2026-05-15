@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'أسطورة',
     'progress.streakDays': '{{n}} أيام متتالية',
     'best.gap': '{{gap}} نقطة عن الرقم القياسي',
+    'effect.nearMissPlace': 'خانة واحدة للمسح',
     'effect.perfectClear': 'مسح كامل',
     'effect.multiClear': 'مسح ×{{n}}',
     'effect.doubleClear': 'مسح مزدوج',

@@ -109,8 +109,8 @@ export default {
     'best.gap.far': '继续努力~',
     /* 分数里程碑（局内分数突破档位）；与 maturity_milestone_complete（跨局成熟度晋升）是不同概念 */
     'effect.scoreMilestone': '分数突破 {{score}}！',
-    /* 落子未消行但盘面已"差一格就能消"——几何意义上的近失 */
-    'effect.nearMissPlace': '差一格就能消！',
+    /* 落子未消行：整行/整列差 1 格满 — 救场鼓励（需控频，见 nearMissPlaceFeedback） */
+    'effect.nearMissPlace': '再一格就消行',
     /* 无路可走、即将 game over 的鼓励语 */
     'effect.noMovesEnd': '棋盘填满，再来一局！',
     /* @deprecated v1.49 起改用 effect.scoreMilestone；保留以兼容旧调用 */

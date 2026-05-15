@@ -53,6 +53,7 @@ export default {
     'progress.rank.legend': 'Legende',
     'progress.streakDays': '{{n}} Tage Serie',
     'best.gap': '{{gap}} Pkt. bis zum Rekord',
+    'effect.nearMissPlace': 'Eins fehlt zur Reihe',
     'effect.perfectClear': 'Alles gelöscht',
     'effect.multiClear': '{{n}}x Löschen',
     'effect.doubleClear': 'Doppellöschung',
