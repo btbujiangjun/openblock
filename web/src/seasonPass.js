@@ -315,7 +315,58 @@ export class SeasonPass {
         this._panelEl?.classList.toggle('sp-open');
         if (this._panelEl?.classList.contains('sp-open')) {
             this._refreshPanel();
+            this._alignToBoard();
+            this._bindAlignWatchers();
+        } else {
+            this._unbindAlignWatchers();
         }
+    }
+
+    /**
+     * v1.51 锚点居中：弹窗中心对齐 #game-wrapper（盘面 canvas 父容器）的中心。
+     * 通过设置 CSS 变量 --sp-anchor-x/y 让 CSS 用 transform 完成对齐。
+     * 若 #game-wrapper 不可用（菜单态/未挂载）则回落到视口中心。
+     * @private
+     */
+    _alignToBoard() {
+        if (!this._panelEl) return;
+        const board = document.getElementById('game-wrapper');
+        const fallbackX = window.innerWidth / 2;
+        const fallbackY = window.innerHeight / 2;
+        let cx = fallbackX, cy = fallbackY;
+        if (board) {
+            const rect = board.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                cx = rect.left + rect.width / 2;
+                cy = rect.top + rect.height / 2;
+            }
+        }
+        /* clamp：保证弹窗中心至少留 (panelHalf + 16px) 余量到视口边缘，
+         * 避免在小屏盘面贴边时弹窗顶/底溢出视口被裁切。 */
+        const panelW = this._panelEl.offsetWidth || 420;
+        const panelH = this._panelEl.offsetHeight || Math.min(window.innerHeight * 0.8, 600);
+        const marginX = panelW / 2 + 16;
+        const marginY = panelH / 2 + 16;
+        cx = Math.max(marginX, Math.min(window.innerWidth - marginX, cx));
+        cy = Math.max(marginY, Math.min(window.innerHeight - marginY, cy));
+        this._panelEl.style.setProperty('--sp-anchor-x', `${cx}px`);
+        this._panelEl.style.setProperty('--sp-anchor-y', `${cy}px`);
+    }
+
+    /** @private */
+    _bindAlignWatchers() {
+        if (this._alignHandler) return;
+        this._alignHandler = () => this._alignToBoard();
+        window.addEventListener('resize', this._alignHandler);
+        window.addEventListener('orientationchange', this._alignHandler);
+    }
+
+    /** @private */
+    _unbindAlignWatchers() {
+        if (!this._alignHandler) return;
+        window.removeEventListener('resize', this._alignHandler);
+        window.removeEventListener('orientationchange', this._alignHandler);
+        this._alignHandler = null;
     }
 
     _bindEvents(game) {
@@ -340,13 +391,19 @@ export class SeasonPass {
         style.id = 'season-pass-styles';
         style.textContent = `
 .season-pass-panel {
+    /* v1.51 锚点居中：以游戏盘面 #game-wrapper 的中心为锚（不是视口中心），
+     * 锚点坐标由 JS _alignToBoard() 写入 --sp-anchor-x/y，CSS 用 transform
+     * 把弹窗几何中心对齐到锚点。视口 resize/orientationchange 时 JS 重算。
+     * 缺省值 50%/50% 兜底（菜单态 / 未挂载盘面 / 异常时退化为视口居中）。 */
     display: none;
-    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-    width: min(420px, 100vw); max-height: 70vh;
+    position: fixed;
+    top: var(--sp-anchor-y, 50%); left: var(--sp-anchor-x, 50%);
+    transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - 32px)); max-height: min(80vh, calc(100vh - 32px));
     background: var(--stat-surface, #fff);
     border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 12%, transparent);
-    border-bottom: none; border-radius: 16px 16px 0 0;
-    box-shadow: 0 -4px 24px rgba(0,0,0,.12);
+    border-radius: 16px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.22), 0 4px 12px rgba(0,0,0,.10);
     z-index: 1500; overflow-y: auto;
     flex-direction: column;
 }
