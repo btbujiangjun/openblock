@@ -4,7 +4,7 @@
  * 自适应出块策略引擎：resolveAdaptiveStrategy 在不同玩家状态下的行为
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from '../web/src/adaptiveSpawn.js';
+import { resolveAdaptiveStrategy, resetAdaptiveMilestone, normalizeStress } from '../web/src/adaptiveSpawn.js';
 import { PlayerProfile } from '../web/src/playerProfile.js';
 
 function makeProfile(overrides = {}) {
@@ -96,7 +96,10 @@ describe('resolveAdaptiveStrategy', () => {
         expect(typeof s._stressBreakdown.scoreStress).toBe('number');
         expect(typeof s._stressBreakdown.difficultyBias).toBe('number');
         expect(typeof s._stressBreakdown.boardRisk).toBe('number');
-        expect(s._stressBreakdown.finalStress).toBeCloseTo(s._adaptiveStress, 6);
+        /* v1.55.17：_adaptiveStress 已切到 norm 域 [0,1]，而 stressBreakdown.finalStress
+         * 仍是 raw 域 [-0.2, 1]（保留供调试 / 训练）。两者应满足 normalize 关系。 */
+        expect(s._stressBreakdown.finalStress).toBeCloseTo(s._adaptiveStressRaw, 6);
+        expect(s._adaptiveStress).toBeCloseTo(normalizeStress(s._stressBreakdown.finalStress), 6);
     });
 
     it('projects stress into multi-axis spawn targets', () => {
@@ -148,13 +151,15 @@ describe('resolveAdaptiveStrategy', () => {
             prevAdaptiveStress: 0.1
         });
         expect(smoothed._adaptiveStress).toBeLessThan(noPrev._adaptiveStress);
-        expect(smoothed._adaptiveStress).toBeLessThanOrEqual(0.28);
+        /* v1.55.17：_adaptiveStress 切到 norm 域；原 raw 0.28 → norm 0.4。
+         * 注意 ctx.prevAdaptiveStress 仍按 raw 域传入（smoothStress 内部仍用 raw）。 */
+        expect(smoothed._adaptiveStress).toBeLessThanOrEqual(normalizeStress(0.28));
 
         const relief = resolveAdaptiveStrategy('normal', makeProfile({ consecutiveNonClears: 8 }), 180, 0, 0.35, {
             totalRounds: 8,
             prevAdaptiveStress: 0.9
         });
-        expect(relief._adaptiveStress).toBeLessThan(0.9);
+        expect(relief._adaptiveStress).toBeLessThan(normalizeStress(0.9));
         expect(relief._stressBreakdown.frustrationRelief).toBeLessThan(0);
     });
 
@@ -180,7 +185,8 @@ describe('resolveAdaptiveStrategy', () => {
         newP._spawnCounter = 2;
         const s = resolveAdaptiveStrategy('normal', newP, 0, 0, 0.1);
         if (s._adaptiveStress != null) {
-            expect(s._adaptiveStress).toBeLessThanOrEqual(0.1);
+            /* v1.55.17：_adaptiveStress 切到 norm 域；原 raw 0.1 → norm 0.25 */
+            expect(s._adaptiveStress).toBeLessThanOrEqual(normalizeStress(0.1));
         }
     });
 
@@ -223,14 +229,15 @@ describe('resolveAdaptiveStrategy', () => {
         expect(hard.spawnHints.targetSolutionRange).toBeNull();
     });
 
-    it('score milestone hit produces scoreMilestone spawnHint (v1.49: _milestoneHit → _scoreMilestoneHit)', () => {
+    it('score milestone hit produces scoreMilestone spawnHint (v1.55.10: bestScore≥500, [0.50, 0.75, 0.90])', () => {
         resetAdaptiveMilestone();
-        const s = resolveAdaptiveStrategy('normal', makeProfile(), 50, 0, 0.3);
+        // bestScore=1000 → 派生档位 [500, 750, 900]；score=510 跨过 500 档
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 510, 0, 0.3, { bestScore: 1000 });
         if (s.spawnHints) {
             expect(s._scoreMilestoneHit).toBe(true);
-            expect(s._scoreMilestoneValue).toBe(50);
+            expect(s._scoreMilestoneValue).toBe(500);
             expect(s.spawnHints.scoreMilestone).toBe(true);
-            expect(s.spawnHints.scoreMilestoneValue).toBe(50);
+            expect(s.spawnHints.scoreMilestoneValue).toBe(500);
         }
     });
 
@@ -303,13 +310,18 @@ describe('resolveAdaptiveStrategy', () => {
         }
     });
 
-    it('stress is clamped to [-0.2, 1]', () => {
+    it('stress 对外口径 clamp 到 norm [0, 1]，对内 _adaptiveStressRaw 保留 raw [-0.2, 1]', () => {
+        /* v1.55.17：_adaptiveStress 对外归一化为 [0, 1]；raw 域校验放到 _adaptiveStressRaw。 */
         for (let skill = 0; skill <= 1; skill += 0.25) {
             for (let score = 0; score <= 1000; score += 200) {
                 const s = resolveAdaptiveStrategy('normal', makeProfile({ smoothSkill: skill }), score, 5, 0.8);
                 if (s._adaptiveStress != null) {
-                    expect(s._adaptiveStress).toBeGreaterThanOrEqual(-0.2);
+                    expect(s._adaptiveStress).toBeGreaterThanOrEqual(0);
                     expect(s._adaptiveStress).toBeLessThanOrEqual(1);
+                }
+                if (s._adaptiveStressRaw != null) {
+                    expect(s._adaptiveStressRaw).toBeGreaterThanOrEqual(-0.2);
+                    expect(s._adaptiveStressRaw).toBeLessThanOrEqual(1);
                 }
             }
         }
@@ -383,7 +395,9 @@ describe('resolveAdaptiveStrategy', () => {
         });
         // 仅在场景成立（flow + payoff）时校验封顶；否则跳过（防止环境差异导致不稳定）
         if (p.flowState === 'flow' && s.spawnHints?.rhythmPhase === 'payoff') {
-            expect(s._adaptiveStress).toBeLessThanOrEqual(0.79 + 1e-6);
+            /* v1.55.17：_adaptiveStress 切到 norm 域；原 raw 0.79 → norm 0.825；
+             * flowPayoffCap 是 stressBreakdown 内部字段，保留 raw 域 0.79。 */
+            expect(s._adaptiveStress).toBeLessThanOrEqual(normalizeStress(0.79) + 1e-6);
             expect(s._stressBreakdown.flowPayoffCap).toBeCloseTo(0.79, 6);
         }
     });
@@ -416,17 +430,19 @@ describe('resolveAdaptiveStrategy', () => {
         // 低占用必有衰减；中等占用（≥0.5）衰减为 0
         expect(lowFill._stressBreakdown.occupancyDamping).toBeLessThan(0);
         expect(midFill._stressBreakdown.occupancyDamping).toBe(0);
-        // 衰减后 stress 严格小于不衰减场景
+        // 衰减后 stress 严格小于不衰减场景（对外口径，norm 域）
         expect(lowFill._adaptiveStress).toBeLessThan(midFill._adaptiveStress);
-        // 衰减系数下限 0.4，stress 不会被吃掉超过 60%
-        expect(lowFill._adaptiveStress).toBeGreaterThanOrEqual(midFill._adaptiveStress * 0.4 - 1e-6);
+        /* v1.55.17：衰减系数下限 0.4 的 ratio 关系建立在 raw 域（norm 是非线性映射，
+         * ratio 不保持），改读 _adaptiveStressRaw 验证 raw 域的 0.4 倍下限。 */
+        expect(lowFill._adaptiveStressRaw).toBeGreaterThanOrEqual(midFill._adaptiveStressRaw * 0.4 - 1e-6);
     });
 
     it('v1.16 occupancyDamping：负向 stress（救济）不被衰减', () => {
         const p = makeProfile({ smoothSkill: 0.5, consecutiveNonClears: 8 });
         const s = resolveAdaptiveStrategy('normal', p, 50, 0, 0.10);
-        // 救济场景下 stress 应为负，衰减应为 0
-        expect(s._adaptiveStress).toBeLessThan(0);
+        /* v1.55.17：救济场景下 raw 应为负，对应 norm < baseline(1/6)；同时显式校验 raw < 0。 */
+        expect(s._adaptiveStressRaw).toBeLessThan(0);
+        expect(s._adaptiveStress).toBeLessThan(normalizeStress(0));
         expect(s._stressBreakdown.occupancyDamping).toBe(0);
     });
 

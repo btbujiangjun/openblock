@@ -145,36 +145,44 @@ describe('resolveAdaptiveStrategy: scoreMilestone field rename and relative scal
         expect('_milestoneHit' in s).toBe(false);
     });
 
-    it('uses absolute milestones [50,100,150,200,300,500] when bestScore is unknown / new player', () => {
-        // 新玩家：bestScore=0；分数 60 → 跨过 50 档
-        const s = resolveAdaptiveStrategy('normal', makeProfile(), 60, 0, 0.3, { totalRounds: 5, bestScore: 0 });
-        expect(s._scoreMilestoneHit).toBe(true);
-        expect(s._scoreMilestoneValue).toBe(50);
+    it('does NOT trigger any milestone when bestScore is below MIN_BEST_FOR_MILESTONE_TOAST (v1.55.10)', () => {
+        // v1.55.10：低 best 玩家（bestScore < 500）任何分数都不触发 milestone toast，
+        // 把"分数情绪反馈"完全让位给 PB 庆祝 / 追平 / near-PB。
+        const s1 = resolveAdaptiveStrategy('normal', makeProfile(), 60, 0, 0.3, { totalRounds: 5, bestScore: 0 });
+        expect(s1._scoreMilestoneHit).toBe(false);
+        const s2 = resolveAdaptiveStrategy('normal', makeProfile(), 260, 0, 0.3, { totalRounds: 5, bestScore: 499 });
+        expect(s2._scoreMilestoneHit).toBe(false);
     });
 
     it('does not re-trigger the same milestone twice within the same run', () => {
-        // 跨过 50 档触发一次；再 resolve 一次（仍为 60 分），不应再触发
-        resolveAdaptiveStrategy('normal', makeProfile(), 60, 0, 0.3, { totalRounds: 5, bestScore: 0 });
-        const s2 = resolveAdaptiveStrategy('normal', makeProfile(), 70, 0, 0.3, { totalRounds: 6, bestScore: 0 });
+        // bestScore=1000 → 派生档位 [500, 750, 900]；分数 510 → 跨过 500 档（一次）
+        // 再 resolve（分数 760）不再触发任何 milestone（v1.55.10 局内一次契约）
+        resolveAdaptiveStrategy('normal', makeProfile(), 510, 0, 0.3, { totalRounds: 5, bestScore: 1000 });
+        const s2 = resolveAdaptiveStrategy('normal', makeProfile(), 760, 0, 0.3, { totalRounds: 6, bestScore: 1000 });
         expect(s2._scoreMilestoneHit).toBe(false);
     });
 
-    it('scales milestones relative to bestScore for advanced players', () => {
-        // bestScore=1000 → 派生档位 [250, 500, 750, 1000, 1250]；分数 260 → 跨过 250 档
-        const s = resolveAdaptiveStrategy('normal', makeProfile(), 260, 0, 0.3, { totalRounds: 5, bestScore: 1000 });
+    it('scales milestones relative to bestScore for advanced players (v1.55.10: [0.50, 0.75, 0.90])', () => {
+        // bestScore=1000 → 派生档位 [500, 750, 900]；分数 510 → 跨过 500 档
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 510, 0, 0.3, { totalRounds: 5, bestScore: 1000 });
         expect(s._scoreMilestoneHit).toBe(true);
-        expect(s._scoreMilestoneValue).toBe(250);
+        expect(s._scoreMilestoneValue).toBe(500);
     });
 
-    it('does NOT trigger the absolute 50/100 milestones for advanced players (regression for "6 toasts in first 30 seconds")', () => {
-        // bestScore=1000 → 派生档位 [250, 500, 750, 1000, 1250]
-        // 分数 60 / 110 / 180 都不应触发任何里程碑
-        const s1 = resolveAdaptiveStrategy('normal', makeProfile(), 60, 0, 0.3, { totalRounds: 5, bestScore: 1000 });
-        expect(s1._scoreMilestoneHit).toBe(false);
-        const s2 = resolveAdaptiveStrategy('normal', makeProfile(), 110, 0, 0.3, { totalRounds: 6, bestScore: 1000 });
+    it('only triggers ONCE per run even across different milestones (v1.55.10 in-run cap)', () => {
+        // bestScore=1000；第一次到 510 跨 500 → hit。第二次到 760 应跨 750 但被局内一次拦截。
+        const s1 = resolveAdaptiveStrategy('normal', makeProfile(), 510, 0, 0.3, { totalRounds: 5, bestScore: 1000 });
+        expect(s1._scoreMilestoneHit).toBe(true);
+        const s2 = resolveAdaptiveStrategy('normal', makeProfile(), 760, 0, 0.3, { totalRounds: 6, bestScore: 1000 });
         expect(s2._scoreMilestoneHit).toBe(false);
-        const s3 = resolveAdaptiveStrategy('normal', makeProfile(), 180, 0, 0.3, { totalRounds: 7, bestScore: 1000 });
+        const s3 = resolveAdaptiveStrategy('normal', makeProfile(), 920, 0, 0.3, { totalRounds: 7, bestScore: 1000 });
         expect(s3._scoreMilestoneHit).toBe(false);
+    });
+
+    it('does NOT trigger the obsolete 0.25 / 1.0 / 1.25 ratios (v1.55.10 removed)', () => {
+        // bestScore=1000；旧版会在 score=260（0.25 档）触发，新版不再触发
+        const s = resolveAdaptiveStrategy('normal', makeProfile(), 260, 0, 0.3, { totalRounds: 5, bestScore: 1000 });
+        expect(s._scoreMilestoneHit).toBe(false);
     });
 });
 
@@ -203,6 +211,20 @@ describe('i18n: milestone & near-miss & best-gap keys exist in zh-CN and en', ()
     it('effect.scoreMilestone supports the {{score}} placeholder', () => {
         expect(zhCN['effect.scoreMilestone']).toMatch(/\{\{score\}\}/);
         expect(en['effect.scoreMilestone']).toMatch(/\{\{score\}\}/);
+    });
+
+    it('v1.55.10: effect.scoreMilestonePct exists with {{pct}} placeholder in both locales', () => {
+        expect(zhCN['effect.scoreMilestonePct']).toBeTruthy();
+        expect(zhCN['effect.scoreMilestonePct']).toMatch(/\{\{pct\}\}/);
+        expect(en['effect.scoreMilestonePct']).toBeTruthy();
+        expect(en['effect.scoreMilestonePct']).toMatch(/\{\{pct\}\}/);
+    });
+
+    it('v1.55.10: effect.tieBest exists in both locales (non-empty)', () => {
+        expect(zhCN['effect.tieBest']).toBeTruthy();
+        expect(typeof zhCN['effect.tieBest']).toBe('string');
+        expect(en['effect.tieBest']).toBeTruthy();
+        expect(typeof en['effect.tieBest']).toBe('string');
     });
 
     it('best.gap.victory no longer reuses the no-moves-end phrasing', () => {

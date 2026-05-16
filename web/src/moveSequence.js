@@ -914,7 +914,7 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.challengeBoost,
         fmt: 'f2',
-        tooltip: 'B 类挑战加压：当前分数逼近历史最佳分时主动略加压，让收尾更有仪式感；远离最佳分为 0。\n📈 看图：触发条件是 score ≥ bestScore × 0.8 且 stress < 0.7（公式 min(0.15, (score/best - 0.8) × 0.75)）。在到达 80% 阈值前曲线恒为 0 是预期；从 0 抬到正值说明你正在冲击新高、系统要把节奏推到"决赛圈"。同时会把 spawnIntent 切到 pressure。本局最佳为 0 时（首局）也恒为 0。'
+        tooltip: 'B 类挑战加压：当前分数逼近历史最佳分时主动略加压，让收尾更有仪式感；远离最佳分为 0。\n📈 看图：触发条件是 score ≥ bestScore × 0.8 且 stress < 0.7（公式 min(0.15, (score/best - 0.8) × 0.75)）。在到达 80% 阈值前曲线恒为 0 是预期；从 0 抬到正值说明你正在冲击新高、系统要把节奏推到"决赛圈"。同时会把 spawnIntent 切到 pressure。本局最佳为 0 时（首局）也恒为 0。\nv1.55 §4.2：救济期 / 瓶颈 / 挫败 / warmup / 破纪录释放窗口期间自动 bypass，避免与 stress 救济信号打架；具体 bypass 原因见 stressBreakdown.challengeBoostBypass。'
     },
     {
         key: 'topologyHoles',

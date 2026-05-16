@@ -40,6 +40,12 @@
     "blockIcons": null
   },
   "defaultStrategyId": "normal",
+  "bestScoreSanity": {
+    "comment": "v1.55 §4.10 异常分守卫：单局 score > previousBest × multiplier 时进入审核态：仅更新内存 bestScore，不写后端持久化。previousBest < minBase 时跳过守卫（新玩家锚点不足）。",
+    "enabled": true,
+    "multiplier": 5,
+    "minBase": 50
+  },
   "dynamicDifficulty": {
     "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。v1.13 起 scoreStress 在 ctx.bestScore>0 时按个人百分位映射，避免一次冲过末档后压力锁死。",
     "enabled": true,

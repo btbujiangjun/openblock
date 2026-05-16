@@ -132,7 +132,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 |------|------|--------|
 | 首手瓶颈中位数 | `P50(firstMoveFreedom)` 7 天窗口 | `web/src/game.js` + `bot/blockSpawn.js` |
 | 策略执行率 | 建议动作触发后 3 步内兑现率 | `web/src/strategyAdvisor.*` + replay |
-| 压力恢复时间 | `stress > 0.65` → 回落 `< 0.45` 步数 | `web/src/adaptiveSpawn.js` + `stressMeter.js` |
+| 压力恢复时间 | norm `stress > 0.708` → 回落 `< 0.542` 步数（v1.55.17 起；等价 raw `> 0.65 → < 0.45`） | `web/src/adaptiveSpawn.js` + `stressMeter.js` |
 | 容错依赖比 | `(undo + hint) / 总局数` | `web/src/skills/*` + `analyticsTracker` |
 | 操作效率 | 每局 `clears / placements` | `analyticsTracker.GAME_END` |
 | 价值成熟度 | IAA 倾向 + IAP 倾向 + 付费深度 | `monetization/adAdapter.js` + `iapAdapter.js` |
@@ -276,9 +276,9 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 >
 > ⚠️ **两个 SkillScore 不要混淆**——M-band 阈值用的是 `retention/playerMaturity.calculateSkillScore`（跨局画像、按天 EMA、不含付费/广告）；不是 `playerAbilityModel.buildPlayerAbilityVector` 输出的 `AbilityVector.skillScore`（局内 5 维 EMA、每帧刷新、直接进 `skillAdjust`）。两个文件 docstring 顶部都有警示表。
 
-`web/src/adaptiveSpawn.js` 在综合 stress 计算完成后按阶段 × 成熟度查表，对 stress 应用上限 + 偏移：
+`web/src/adaptiveSpawn.js` 在综合 stress 计算完成后按阶段 × 成熟度查表，对 stress 应用上限 + 偏移（下表 **cap / adjust 均为 raw 域**，与 `lifecycleStressCapMap.js` 源码一致；面板对外 stress 经 `(raw + 0.2) / 1.2` 归一化到 `[0, 1]`，详见 [自适应出块 §3.5 stress 域口径](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径v15517)）：
 
-| 标签 | cap | adjust | 说明 |
+| 标签 | cap（raw） | adjust（raw delta） | 说明 |
 |------|-----|--------|------|
 | S0·M0 | 0.50 | -0.15 | 新手强保护 |
 | S1·M0 | 0.60 | -0.10 | 探索期减压 |

@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} lignes',
     'effect.doubleClear': 'Double ligne',
     'effect.iconBonus': 'Élimination Quinte Royale',
-    'effect.newRecord': 'Nouveau record',
+    'effect.newRecord': '🏆 Nouveau record !',
 
     'skin.name.classic': '✨ Classique minimal',
     'skin.name.titanium': '💎 Matrice titane',

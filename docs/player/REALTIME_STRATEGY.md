@@ -1,7 +1,13 @@
 # 实时策略系统：信号流与出块链路
 
-> **版本**：2.1 · **更新**：2026-05-10  
+> **版本**：2.2 · **更新**：2026-05-17  
 > **读者**：产品、算法、策划复盘、策略合理性评审；与 **[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)**（通用模型与风险缓解）互为补充——本文是**可操作的指标与管线手册**，策略体验栈是**架构与一致性原则**。
+
+> **stress 域口径（v1.55.17）**：本文存在**两种** stress 数值口径，请按上下文判断——
+>
+> - **对外口径 `[0, 1]` norm**：玩家面板、DFV、策略卡、stressMeter 6 档、`insight.stress` / `_adaptiveStress`、本文 §5 「策略卡 / 压力表」相关章节统一为归一化值；
+> - **对内口径 `[-0.2, 1]` raw**：算法源码阈值、`game_rules.json` 配置、`stressBreakdown.finalStress`、§3.1 stress 管线公式、§3.2 默认值列表、§3.6 信号→下游作用机制等"算法事实表"统一为 raw 域，与源码一致便于调参；
+> - **换算**：`norm = (raw + 0.2) / 1.2`，详见 [自适应出块 §3.5 stress 域口径](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径v15517) 的完整对照表与例外说明。
 
 ---
 
@@ -147,7 +153,7 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 
 ### 3.2 压力指标体系（Stress Indicators）
 
-> **总览**：综合压力 \(\text{stress}\in[-0.2, 1]\) 由 **19 条**设计型独立信号经求和、覆写、平滑与封顶得到（v1.30 起新增 `bottleneckRelief`）。`stressBreakdown` 在 `web/src/adaptiveSpawn.js` 写入；面板叙事标签见 `web/src/stressMeter.js → SIGNAL_LABELS`。  
+> **总览**：综合压力 \(\text{stress}\) 由 **19 条**设计型独立信号经求和、覆写、平滑与封顶得到（v1.30 起新增 `bottleneckRelief`）。**算法内部 raw 域 `[-0.2, 1]`**（本节公式与默认值均按此口径，与源码一致），**对外面板 norm 域 `[0, 1]`**（v1.55.17 起）。`stressBreakdown` 在 `web/src/adaptiveSpawn.js` 写入；面板叙事标签见 `web/src/stressMeter.js → SIGNAL_LABELS`。  
 > **符号约定**：**正值 → 加压（更挑战）**，**负值 → 减压（更友好）**；个别字段（`occupancyDamping`/`flowPayoffCap`/`bottleneckTrough`/`bottleneckSamples`/`*Trace`）是**派生痕迹**，不是独立设计分量。  
 > **关闭/缩放**：每一个信号都可在 `game_rules.json → adaptiveSpawn.signals.<key>` 关闭或乘 `scale`，便于 A/B、回放校准。
 
@@ -265,7 +271,7 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 
 #### A. `finalStress → 10 档 profile → shapeWeights`
 
-`finalStress` 在 `profiles[].stress` 锚点（`-0.2 ~ 0.85`）间**线性插值** `shapeWeights`，最终影响形状抽样概率。**非线性区段**：
+`finalStress`（raw 域）在 `profiles[].stress` 锚点（**raw 域** `-0.2 ~ 0.85`，对外 norm 域等价 `0 ~ 0.875`）间**线性插值** `shapeWeights`，最终影响形状抽样概率。**非线性区段**：
 
 - `< 0`：`onboarding/recovery/comfort` 段，linesWeight 显著抬高（≈3.18→2.65），不规则块降到 0.45 ~ 0.83。
 - `0 ~ 0.4`：`comfort → balanced`，逐步加入不规则块，仍以消行友好为主。
@@ -338,9 +344,9 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 | 顾问读 `live*` 几何 | `liveMultiClearCands < 2` | 出「**逐条清理**」而非「多消机会」 |
 | 顾问读 `liveSolutionMetrics` | `firstMoveFreedom ≤ 2 ∧ fill ≥ 0.4` | 出「**瓶颈块**」 |
 | 顾问读 `harvestNow` | `intent='harvest' ∨ rhythm='payoff'` | 抑制「**提升挑战**/**规划堆叠**」与兑现冲突的卡 |
-| stressMeter 档位 | `finalStress ∈ [0.65, 0.80)` | 「**紧张** 😰」档 + 进度条 + 趋势箭头 |
+| stressMeter 档位 | `finalStress ∈ [0.65, 0.80)`（raw）= `insight.stress ∈ [0.708, 0.833)`（norm） | 「**紧张** 😰」档 + 进度条 + 趋势箭头 |
 | stressMeter 叙事 | `intent='harvest'` 且档位为 tense/intense | 走 **harvest 高压守卫**：「盘面吃紧，但已识别…促清组合帮你逐步降压」 |
-| stressMeter 副标 | `intent='relief' ∧ stress ≤ -0.05` | label 切「放松（救济中）」🤗 |
+| stressMeter 副标 | `intent='relief' ∧ stress ≤ -0.05`（raw）= `≤ 0.125`（norm） | label 切「放松（救济中）」🤗 |
 
 ---
 
@@ -467,7 +473,7 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 | 标题标签 | `getStressDisplay(...).label` | 同头像 | 当前综合压力档位，不等同于具体出块意图 |
 | 数值 | `insight.stress` | `Number.isFinite` 时保留两位小数；缺失按 0 | L2 自适应综合压力的最终值 |
 | 趋势箭头 | `computeTrend(history, stress, 6)` | 当前值与最近 6 帧均值比较，阈值 `0.04` | 压力相对近期是在上升、下降还是持平 |
-| 进度条 | `_stressToBar(stress)` | `clamp(stress, -0.2, 1)` 后线性映射到 `0%~100%` | 压力强弱的连续量，不是独立指标 |
+| 进度条 | `_stressToBar(stress)` | v1.55.17：入参已 norm，`clamp(stress, 0, 1) × 100` 直接得 0%~100% | 压力强弱的连续量，不是独立指标 |
 | 一句话叙事 | `buildStoryLine(level, breakdown, targets, hints, geometry)` | 按 §5.5.4 决策树第一个命中分支返回 | 系统当前动作意图：救济、召回、加压、心流维持、促清兑现等 |
 | 呼吸速度 | `breathMs = 2400 - barPct × 14` | 与进度条同源 | 视觉节奏随压力增强而加快 |
 
@@ -481,17 +487,18 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 #### 5.5.1 6 档压力等级（`STRESS_LEVELS`）
 
 `stressMeter.js → STRESS_LEVELS`。区间为**左闭右开**，超出范围按首/末档兜底（`getStressLevel(stress)`）。
+**v1.55.17 起**，入参为**对外 norm 域 `[0, 1]`**，6 档区间也按 norm 重新划定；下表第 3 列同时给出 norm 与 raw 等价区间方便交叉查表。
 
-| `id` | 标签 | 区间 | 头像 | 默认 vibe（兜底叙事） | 体感设计 |
+| `id` | 标签 | 区间（norm 对外 / raw 等价） | 头像 | 默认 vibe（兜底叙事） | 体感设计 |
 |------|------|------|------|----------------------|----------|
-| `calm`    | 放松 | `(-∞, -0.05)` | 😌 | 盘面整洁，心情舒缓。 | 玩家**或系统主动**减压；常伴 friendlyBoardRelief / frustrationRelief / recoveryAdjust |
-| `easy`    | 舒缓 | `[-0.05, 0.20)` | 🙂 | 操作轻松，节奏从容。 | 心流前奏；`finalStress ≈ 0` 的常态档 |
-| `flow`    | 心流 | `[0.20, 0.45)` | 😀 | 挑战与能力匹配，正爽快。 | 主体心流带；`flowDeviation` 小、`pacingPhase` 自然交替 |
-| `engaged` | 投入 | `[0.45, 0.65)` | 🤔 | 需要思考，节奏开始拉紧。 | 解空间收紧、`solutionSpacePressure` 上行 |
-| `tense`   | 紧张 | `[0.65, 0.80)` | 😰 | 盘面吃紧，留意可消行机会。 | 触发 `flowPayoffCap`(0.79) 软封顶的上沿 |
-| `intense` | 高压 | `[0.80, +∞)` | 🥵 | 高强度对局，系统会优先保活。 | 已超 cap；通常仅 Hard 模式 + B 类挑战可达 |
+| `calm`    | 放松 | `(-∞, 0.125)` / `(-∞, -0.05)` | 😌 | 盘面整洁，心情舒缓。 | 玩家**或系统主动**减压；常伴 friendlyBoardRelief / frustrationRelief / recoveryAdjust |
+| `easy`    | 舒缓 | `[0.125, 0.333)` / `[-0.05, 0.20)` | 🙂 | 操作轻松，节奏从容。 | 心流前奏；norm `≈ 0.167`（raw 0）的常态档 |
+| `flow`    | 心流 | `[0.333, 0.542)` / `[0.20, 0.45)` | 😀 | 挑战与能力匹配，正爽快。 | 主体心流带；`flowDeviation` 小、`pacingPhase` 自然交替 |
+| `engaged` | 投入 | `[0.542, 0.708)` / `[0.45, 0.65)` | 🤔 | 需要思考，节奏开始拉紧。 | 解空间收紧、`solutionSpacePressure` 上行 |
+| `tense`   | 紧张 | `[0.708, 0.833)` / `[0.65, 0.80)` | 😰 | 盘面吃紧，留意可消行机会。 | 触发 `flowPayoffCap`（raw 0.79 / norm 0.825）软封顶的上沿 |
+| `intense` | 高压 | `[0.833, +∞)` / `[0.80, +∞)` | 🥵 | 高强度对局，系统会优先保活。 | 已超 cap；通常仅 Hard 模式 + B 类挑战可达 |
 
-**进度条映射**：`barPct = round((clamp(stress, -0.2, 1) + 0.2) / 1.2 × 100)`，故 `stress=-0.2 → 0%`，`stress=1 → 100%`，`stress=0` 落在约 17%。  
+**进度条映射（v1.55.17 简化）**：`barPct = round(clamp(stress, 0, 1) × 100)`，故 norm `0 → 0%`、`1 → 100%`、`1/6 ≈ 17%`（baseline 中性）。  
 **呼吸频率**：`breathMs = 2400 - barPct × 14` ms（barPct=0→2.4 s 缓呼吸，barPct=100→1.0 s 急促）。
 
 #### 5.5.2 救济变体：低压档的「被照顾」覆盖
@@ -673,7 +680,7 @@ delta = current - avg
 
 | 信号 | 取值 | 命中规则 |
 |------|------|----------|
-| `stress` | `≈ -0.08` | 落入 §5.5.1 `calm` 档 `(-∞, -0.05)` → label「放松」😌 |
+| `stress` | `≈ 0.10`（norm）/ 等价 raw `≈ -0.08` | 落入 §5.5.1 `calm` 档 `(-∞, 0.125)` → label「放松」😌 |
 | `spawnIntent` | `engage` | §5.5.4 第 5 条命中 `SPAWN_INTENT_NARRATIVE.engage` |
 | `trend.delta` | `|delta| < 0.04` | §5.5.3 → `flat → →` |
 | 救济变体 | 不命中 | `spawnIntent !== 'relief'`，所以不显示「放松（救济中）」🤗 |
@@ -682,13 +689,13 @@ delta = current - avg
 
 ##### B. `flow + setup` 心流搭建
 
-观察到的状态：标签「**舒缓**」🙂 + `stress = -0.01` + 趋势 `→` + 叙事「**心流稳定，节奏稳步搭建，先留好通道等下一波兑现。**」
+观察到的状态：标签「**舒缓**」🙂 + `stress = 0.16`（norm，等价 raw -0.01）+ 趋势 `→` + 叙事「**心流稳定，节奏稳步搭建，先留好通道等下一波兑现。**」
 
 逐字段反推：
 
 | 信号 | 取值 | 命中规则 |
 |------|------|----------|
-| `stress` | `≈ -0.01` | 落入 §5.5.1 `easy` 档 `[-0.05, 0.20)` → label「舒缓」🙂 |
+| `stress` | `≈ 0.16`（norm）/ 等价 raw `≈ -0.01` | 落入 §5.5.1 `easy` 档 `[0.125, 0.333)` → label「舒缓」🙂 |
 | `spawnIntent` | `flow` | §5.5.4 第 2 条命中 |
 | `level.id` | `easy`（不在高压档）| §5.5.4 第 2a 条不命中，进 2b |
 | `spawnHints.rhythmPhase` | `setup` | §5.5.5-B → 「心流稳定，节奏稳步搭建，先留好通道等下一波兑现。」 |

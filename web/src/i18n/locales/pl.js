@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} linii',
     'effect.doubleClear': 'Podwójne czyszczenie',
     'effect.iconBonus': 'Czyszczenie Pokerem Królewskim',
-    'effect.newRecord': 'Nowy rekord',
+    'effect.newRecord': '🏆 Nowy rekord!',
 
     'skin.name.classic': '✨ Minimalistyczna klasyka',
     'skin.name.titanium': '💎 Matryca tytanu',

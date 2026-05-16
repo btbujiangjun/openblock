@@ -1,13 +1,19 @@
 # 自适应出块引擎：10 信号融合 + 爽感兑现
 
 > 本文描述 OpenBlock 的自适应出块（Adaptive Spawn）系统的设计理念、架构、配置与调优指南，方便后续迭代。
+>
+> **配套阅读**：本文聚焦"策略层"——`stress` 是如何由多信号合成的、`spawnHints` 各字段如何被派生。
+> 关于"策略层产出的 hints 如何**翻译到具体 3 个块的选择过程**"（5 阶段流水线、30+ 加权乘子、硬约束循环、实数跑步示例），
+> 请阅 [出块算法：三层架构 §2.5 策略 → 出块翻译机制](./SPAWN_ALGORITHM.md#25-策略--出块翻译机制v15516)。
 
 ## 目录
 
 - [1. 领域知识基础](#1-领域知识基础)
 - [2. 系统架构](#2-系统架构)
 - [3. 玩家能力画像（PlayerProfile）](#3-玩家能力画像playerprofile)
+  - [3.5 stress 域口径（v1.55.17）](#35-stress-域口径v15517)
 - [4. 策略候选库（10 档 Profiles）](#4-策略候选库10-档-profiles)
+- [10.6 外部实证基线：SGAZ × Tetris Block Puzzle](#106-外部实证基线sgaz--tetris-block-puzzlev15517)
 - [5. 自适应引擎（AdaptiveSpawn）](#5-自适应引擎adaptivespawn)
 - [6. 出块提示（SpawnHints）](#6-出块提示spawnhints)
 - [7. 配置参考（game\_rules.json）](#7-配置参考game_rulesjson)
@@ -210,24 +216,86 @@ smoothSkill += α × (rawSkill - smoothSkill)
 - 衰减机制：超过 24 小时不玩，技能估计向 0.5 衰减（最多 50%），防止久别玩家难度不匹配
 - 局内状态（moves 窗口、计数器等）不持久化，每局重建
 
+### 3.5 stress 域口径（v1.55.17）
+
+**对外归一化 [0, 1]，对内保持 raw [-0.2, 1]，**两侧通过 `(raw + 0.2) / 1.2` 一次线性变换互转。
+
+#### 背景
+
+历史上 stress 标量值域是 `[-0.2, 1]`，由 17 个带符号分量（如 `scoreStress`、`flowAdjust`、`recoveryAdjust`、…）求和后 clamp 而成。**但这个值域对外不直观**：
+- 玩家面板 / 运营看板 / 策略卡 / DFV / 文档读者看到 `stress = -0.20` 时无法即刻理解"这是被压到最低还是某种异常"；
+- 心智模型上"压力指数"普遍认为应为 `[0, 1]`。
+
+#### 决策（B-Clean）
+
+| 维度 | 对外（玩家面板 / DFV / 策略卡 / 文档 / `_adaptiveStress` / `insight.stress`） | 对内（算法源码阈值 / `stressBreakdown.finalStress` / `prevAdaptiveStress` / ML 特征） |
+|------|----------------------------------------------------------|--------------------------------------------------------------------|
+| 值域 | **`[0, 1]`** 归一化（v1.55.17 起）                           | `[-0.2, 1]` raw（保持不变）                                          |
+| 字段名 | `layered._adaptiveStress`、`insight.stress`                | `layered._adaptiveStressRaw`、`stressBreakdown.finalStress`        |
+| 数学 | `norm = clamp01((raw + 0.2) / 1.2)`                       | 算法内部 17 个 adjust 求和、25+ 比较阈值、profile 锚点、`lifecycle cap` 表、`game_rules.json` 一律保留 raw |
+
+源码内部所有 `if (stress < 0.7)`、`Math.min(stress, 0.85)`、`flowPayoffStressCap = 0.79` 等阈值**保留 raw 写法**，行内加 "raw 0.7 ≈ norm 0.75" 提示，避免代数变换带来的大量"丑数字"（如 `0.0417`、`0.5833`、`0.8333`）破坏调参直觉与训练时特征分布。
+
+#### 常用锚点对照
+
+| 语义 | raw（内部） | norm（对外） |
+|------|------------|-------------|
+| 完全减压（onboarding profile） | `-0.20` | `0` |
+| baseline / 中性（无任何 adjust） | `0` | `≈ 0.1667`（即 `1/6`） |
+| `comfort` profile | `0` | `≈ 0.1667` |
+| `balanced` profile（心流核心） | `0.4` | `0.5` |
+| `_stressTarget` 中性锚 | `0.325` | `≈ 0.4375` |
+| `variety` profile | `0.5` | `≈ 0.5833` |
+| `challenge` profile | `0.65` | `≈ 0.7083` |
+| `challengeBoost` 饱和门槛 | `0.7` | `0.75` |
+| `flowPayoffStressCap`（兑现窗口硬顶） | `0.79` | `0.825` |
+| `challengeBoost` 上限 | `0.85` | `0.875` |
+| `intense` profile | `0.85` | `0.875` |
+| 全局硬顶 | `1.0` | `1.0` |
+
+#### stressMeter 6 档（v1.55.17 起按 norm 域划分）
+
+| 档位 | norm 区间 | raw 等价区间 |
+|------|----------|-------------|
+| `calm`（放松） | `[-∞, 0.125)` | `[-∞, -0.05)` |
+| `easy`（舒缓） | `[0.125, 0.333)` | `[-0.05, 0.20)` |
+| `flow`（心流） | `[0.333, 0.542)` | `[0.20, 0.45)` |
+| `engaged`（投入） | `[0.542, 0.708)` | `[0.45, 0.65)` |
+| `tense`（紧张） | `[0.708, 0.833)` | `[0.65, 0.80)` |
+| `intense`（高压） | `[0.833, ∞)` | `[0.80, ∞)` |
+
+#### 例外（继续使用 raw 域的下游）
+
+| 下游 | 字段 | 原因 |
+|------|------|------|
+| `game.js _spawnContext.prevAdaptiveStress` | raw `[-0.2, 1]` | `adaptiveSpawn.smoothStress(current, ctx, ...)` 的 `current` 是 raw 域，写入与读取必须同单位，否则 `maxStepUp/Down` 步长被错误压缩 |
+| `spawnModel.js` ML 特征 `[20-23]` `a.stressRaw` | raw `[-0.2, 1]` | SpawnTransformerV3 模型权重按 raw 训练，norm 域会破坏特征分布尺度 |
+| `spawnModel.computeSpawnTargetDifficulty` 公式 `0.15 * stress` | raw | 系数按 raw 域校准（早期回归），切到 norm 会改变量纲 |
+| `stressBreakdown.finalStress` | raw | 调试 / 回放 / 训练数据落盘字段，与 17 个 `*Adjust` 同口径便于审计 |
+
+实现位置：`web/src/adaptiveSpawn.js` 顶部 `normalizeStress / denormalizeStress` 函数（导出）；常量 `STRESS_NORM_OFFSET = 0.2`、`STRESS_NORM_SCALE = 1.2`；契约测试 `tests/stressNormalization.test.js`。小程序平行实现：`miniprogram/core/adaptiveSpawn.js` 同步导出。
+
 ---
 
 ## 4. 策略候选库（10 档 Profiles）
 
 10 档 profile 按 `stress` 值升序排列，引擎在相邻两档间做线性插值。
 
-| # | ID | stress | 线条权重 | 不规则权重 | 设计意图 |
+> **stress 列为 raw 域**（与 `game_rules.json` 配置一致，便于调参时直接对照源码），
+> 对外面板与 DFV 显示请按 §3.5 表换算为 norm 域 `[0, 1]`（如 raw `0.85` ≈ norm `0.875`）。
+
+| # | ID | stress（raw / norm） | 线条权重 | 不规则权重 | 设计意图 |
 |---|-----|--------|---------|-----------|---------|
-| 1 | `onboarding` | -0.2 | 3.0 | 0.35~0.45 | 新玩家首 5 轮：极高消行友好块，建立信心 |
-| 2 | `recovery` | -0.1 | 2.8 | 0.5~0.6 | 板面快满：大量线条便于自救 |
-| 3 | `comfort` | 0.0 | 2.5 | 0.65~0.75 | 低技能/挫败后：恢复信心，偶尔引入简单不规则块 |
-| 4 | `momentum` | 0.1 | 2.4 | 0.78~0.85 | combo 后催化：偏向能串联消行的块型 |
-| 5 | `guided` | 0.2 | 2.3 | 0.88~0.95 | 中低技能成长：逐步引入不规则块 |
-| 6 | `breathing` | 0.3 | 2.15 | 0.95~1.0 | 紧张期后释放：给玩家喘息空间 |
-| 7 | `balanced` | 0.4 | 2.0 | 1.12 | 心流核心区（≈ normal 策略） |
-| 8 | `variety` | 0.5 | 1.85 | 1.15~1.2 | 防审美疲劳：拉平权重增加多样性 |
-| 9 | `challenge` | 0.65 | 1.7 | 1.25~1.3 | 中高手进阶：不规则块明显增多 |
-| 10 | `intense` | 0.85 | 1.45 | 1.38~1.48 | 高手极限：T/Z/L/J 权重超过线条 |
+| 1 | `onboarding` | -0.20 / 0.000 | 3.0 | 0.35~0.45 | 新玩家首 5 轮：极高消行友好块，建立信心 |
+| 2 | `recovery` | -0.10 / 0.083 | 2.8 | 0.5~0.6 | 板面快满：大量线条便于自救 |
+| 3 | `comfort` | 0.00 / 0.167 | 2.5 | 0.65~0.75 | 低技能/挫败后：恢复信心，偶尔引入简单不规则块 |
+| 4 | `momentum` | 0.10 / 0.250 | 2.4 | 0.78~0.85 | combo 后催化：偏向能串联消行的块型 |
+| 5 | `guided` | 0.20 / 0.333 | 2.3 | 0.88~0.95 | 中低技能成长：逐步引入不规则块 |
+| 6 | `breathing` | 0.30 / 0.417 | 2.15 | 0.95~1.0 | 紧张期后释放：给玩家喘息空间 |
+| 7 | `balanced` | 0.40 / 0.500 | 2.0 | 1.12 | 心流核心区（≈ normal 策略） |
+| 8 | `variety` | 0.50 / 0.583 | 1.85 | 1.15~1.2 | 防审美疲劳：拉平权重增加多样性 |
+| 9 | `challenge` | 0.65 / 0.708 | 1.7 | 1.25~1.3 | 中高手进阶：不规则块明显增多 |
+| 10 | `intense` | 0.85 / 0.875 | 1.45 | 1.38~1.48 | 高手极限：T/Z/L/J 权重超过线条 |
 
 ### 设计原则
 
@@ -240,6 +308,8 @@ smoothSkill += α × (rawSkill - smoothSkill)
 ## 5. 自适应引擎（AdaptiveSpawn）
 
 ### 5.1 Stress 计算公式
+
+> **域口径**：本节所有 stress 数值（包括下方公式、阈值、profile 锚点、`flowPayoffStressCap = 0.79`、`challengeBoost` 上限 `0.85` 等）均为**算法内部 raw 域** `[-0.2, 1]`，与源码一致；面板 / DFV / 策略卡显示的是经 `(raw + 0.2) / 1.2` 归一化后的 norm 域 `[0, 1]`。详见 [§3.5 stress 域口径](#35-stress-域口径v15517)。
 
 当前实现把六类输入显式映射到 `stress` 与 `spawnHints`：
 
@@ -682,8 +752,8 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 | `delightMode` | challenge_payoff / flow_payoff / relief / neutral | 爽感调节模式 | 驱动 payoff、救援偏小块、消行保证 |
 | `rhythmPhase` | setup / payoff / neutral | 搭建 / 收获 / 中性（payoff 需几何门控） | augmentPool 相位乘子 |
 | `sessionArc` | warmup / peak / cooldown | 局内前段 / 中段 / 收官 | stress 与友好化 hint |
-| `scoreMilestone` | bool | 刚跨**局内分数里程碑**（区别于 `maturity_milestone_complete` 的跨局成熟度晋升） | 短暂出块友好 + UI toast |
-| `scoreMilestoneValue` | number\|null | 当 `scoreMilestone=true` 时给出具体跨过的分数档（用于 i18n `effect.scoreMilestone` 的 `{{score}}` 占位符） | UI 浮动文本显示 |
+| `scoreMilestone` | bool | 刚跨**局内分数里程碑**（区别于 `maturity_milestone_complete` 的跨局成熟度晋升） | 三条通路：①`adaptiveSpawn` 内部抬高 `clearGuarantee` / 压低 `sizePreference`（出块友好化）；②`game.js spawnBlocks()` 顶部桥接到 `_spawnContext.scoreMilestone`，触发 `blockSpawn.js:870-872` 的 `*= 1.3` 加权（v1.55.16 修复，此前为 dead branch）；③策略卡 / Player Insight 面板 / DFV 仍展示数据流（**UI float toast 已于 v1.55.11 撤销**） |
+| `scoreMilestoneValue` | number\|null | 当 `scoreMilestone=true` 时给出具体跨过的分数档（用于 i18n `effect.scoreMilestone` 的 `{{score}}` 占位符） | 仅供策略卡 / Insight 面板 / DFV 数据展示（局内浮层已撤销） |
 | `targetSolutionRange` | min/max 或 null | v9 解法数量档位 | 通过可解性校验后收缩解空间 |
 | `orderRigor` | 0~1 | **v1.32 新增**：顺序刚性强度（0=不约束，1=必须按特定顺序） | 仅用于诊断/面板展示 |
 | `orderMaxValidPerms` | 1~6 | **v1.32 新增**：硬上限 — 6 种排列里允许的最大可解数 | `blockSpawn` 在早期 attempt 拒绝 `validPerms > N` 的 triplet |
@@ -916,6 +986,62 @@ saveSession()        → profile.save()               // 持久化到 localStora
 | `socialFairChallenge` | 关闭个体化分量 | 固定规则/固定 seed | 用于异步挑战公平性 |
 
 这些字段会被写入 `spawnHints`、`_lastAdaptiveInsight` 和面板快照，供策略评审追踪。
+
+---
+
+## 10.5 延伸阅读：策略 → 出块的具体翻译
+
+本文止于 `stress` 合成与 `spawnHints` 派生。**「`spawnHints` 如何作用到 `generateDockShapes` 内具体抽出 3 个块」** 的完整路径——5 阶段流水线、每条 hint 对应的加权乘子精确公式、阶段 4 硬约束循环、一个带实数计算的具体场景跑步、以及"概率偏好 / 数量保证 / 难度调控"三层结构设计哲学——见 [出块算法：三层架构 §2.5](./SPAWN_ALGORITHM.md#25-策略--出块翻译机制v15516)。
+
+简要对应关系：
+
+| 本文（策略层） | SPAWN_ALGORITHM.md §2.5（出块层） |
+|---|---|
+| §5 `stress` 合成 | §2.5.2 表 B 第 1 行 `shapeWeights[category]` 由 `interpolateProfileWeights(stress)` 决定 |
+| §6 `spawnHints` 字典 | §2.5.2 表 A（占位）+ 表 B（30+ 加权乘子）+ 表 C（硬约束）三处消费 |
+| §6 `scoreMilestone` | §2.5.5 v1.55.16 修复历史：`spawnHints → _spawnContext` 桥接，`blockSpawn.js:870-872` 从 dead branch 变为真生效 |
+
+---
+
+## 10.6 外部实证基线：SGAZ × Tetris Block Puzzle（v1.55.17）
+
+> **来源**：Wang C-J. et al., *Evaluating Game Difficulty in Tetris Block Puzzle*, arXiv:2603.18994（NYCU × Academia Sinica，2026）。  
+> **方法**：用 Stochastic Gumbel AlphaZero（SGAZ，结合 Gumbel-Top-k 与 Sequential Halving 的随机环境版 AlphaZero）作为"强 AI 难度评估器"，对 8×8 Tetris Block Puzzle 的规则变体跑短训练，以**训练奖励**（最后 50 iter 平均）与**收敛迭代数**（连续 3 iter 达最大奖励）量化难度。
+
+#### 为什么这篇论文几乎可以直接对位 OpenBlock
+
+| 维度 | 论文（Tetris Block Puzzle） | OpenBlock 默认配置 |
+|---|---|---|
+| 网格 | 8×8 | 8×8（`web/src/grid.js`） |
+| 候选块数 `h` | `h ∈ {1, 2, 3}`，经典 `h=3` | 固定 `dock=3` |
+| 块旋转 | 不允许 | 不允许（设计契约） |
+| 预览候选 `p` | `p ∈ {0…4}`，经典 `p=0` | 无 preview 机制（`p=0`） |
+| 形状库 | 标准 tetromino（+ 可选 U/V/X/T-pentomino） | 标准 tetromino + 内部变体，**无 pentomino** |
+| 计分 | 完整线 +1 分 | 等价 + multi-clear 加成 |
+
+**结论**：OpenBlock 默认配置 = 论文 **classic `h=3, p=0`** baseline。论文实证该 baseline 下 SGAZ 收敛仅需 **61 iter**、训练奖励 **6544（≈ 上限 6750 的 97%）**——表明在"标准 tetromino + dock=3 + 无预览 + 8×8"这个组合下，强 AI 接近通关，**所有 OpenBlock 的难度调控空间都在这个"已被强 AI 摸顶"的规则边界之内**。
+
+#### 三类规则变体的实证难度强度
+
+| 规则杠杆 | 论文实证强度 | 关键数据 | OpenBlock 现状 |
+|---|---|---|---|
+| **候选块数 `h`** | **★★★ 最强** | `h=3 → h=2`：奖励从 6544 掉到 4126（−37%），收敛从 61 → 160 iter（+162%）；`h=1` 几乎不可玩（奖励 39，未收敛） | ✗ 固定 `dock=3`，从未浮动 |
+| **形状库扩充** | **★★ 强** | 加任意一个 pentomino 即可让奖励显著下行；加两个 pentomino 在 `h=2, p=0` 下直接训练不收敛；**T-pentomino 单独造成最大减速** | ✗ 仅在固定形状池里调 `shapeWeights` profile |
+| **预览数 `p`** | ★ 弱 | 增加 `p` 仅小幅降低难度；`h=1, p=4` 仍只能收敛到 ~5000 奖励，远不及 `h=3, p=0` 的 6544 | ✗ 无 preview 机制 |
+| `shapeWeights` profile 插值 | 论文未直接测；OpenBlock 现行主要手段 | — | ✓ 10 档 profile + 17 stress 分量 |
+
+#### 对 OpenBlock 调参的硬约束（**作为决策原则录入**）
+
+1. **杠杆排序原则**：候选块数 > 形状库 > `shapeWeights` 插值 > 预览数。当前 OpenBlock 所有 17 个 stress 分量、25 格 `lifecycle cap`、30+ `blockSpawn` 加权乘子都聚焦于"同一形状池里调权重"这一**中等强度杠杆**；论文实证更强的"调候选块数 / 形状库"完全未被使用。**这意味着我们 stress 调到极限（norm 0.875 / raw 0.85）时仍处在一个相对"温和"的难度天花板下**——这是当前架构的真实边界。
+2. **避免实质性 `h=1` 局面**：论文实证 `h=1` 是不可玩的崖底。OpenBlock 虽然名义上 `dock=3`，但在 `fill` 较高 + 形状库收紧 + 全候选块都不可放置时，会出现"实质性 `h=1`"。`bottleneckRelief`、`firstMoveFreedom` 信号即为此设计；调参时**任何会增加 dock 三块全部不可放概率的改动都必须配套加强 `bottleneckRelief`**。
+3. **预览的边际效应可控**：未来若引入 preview 机制，论文实证其难度影响小于形状权重调控——意味着 preview 更适合作为**心理安抚 / 仪式感工具**（让玩家"觉得自己能规划"），而非真正改变胜率的杠杆。
+
+#### 与 OpenBlock 自身校准的关系
+
+- 当前 `LIFECYCLE_STRESS_CAP_MAP`（25 格 cap × adjust）与 `difficultyTuning.{easy/normal/hard}.minStress` 均为**经验设置**，无独立可复现基线。论文方法论（"SGAZ 短训练 → 训练奖励 + 收敛迭代"）给出了一个**廉价、可复现的客观校准工具**——未来若要在 `tools/` 中加入"规则变体难度回归"（参考 `tools/spawn_model_*`），可直接复用该范式。
+- 论文给出的 baseline（`h=3, p=0` 经典：收敛 61 iter / 奖励 6544）可作为 OpenBlock 自家 SpawnTransformerV3 训练曲线的**外部参照锚**：我们的模型若学会"在此 baseline 下接近 max reward"则证明规则学习成功；继续提升只能通过**改 ruleProfile**（论文路径）而非"再调更多 stress 分量"。
+
+> **关于"挑战自我"主线**：本节启示更细的应用映射详见 [最佳分追逐策略 §5.z 规则层调控（未来方向）](../player/BEST_SCORE_CHASE_STRATEGY.md#5z-基于-sgaz-实证的规则层调控未来方向v15517)。
 
 ---
 

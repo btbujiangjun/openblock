@@ -51,6 +51,8 @@
 | 🔁 **Unified Ecosystem** | 闭环正反馈 | 玩家行为 → 数据 → AI 决策 → 体验 → 行为 | [LIFECYCLE_DATA_STRATEGY_LAYERING](./LIFECYCLE_DATA_STRATEGY_LAYERING.md) |
 
 > **下一步**：业务上明白后，接着看下方"全栈分层"总览了解技术形态；
+> 主策划 / 玩法设计师可直接跳到
+> [OpenBlock 产品架构图](./PRODUCT_ARCHITECTURE_DIAGRAMS.md) 看 "玩家旅程视角"；
 > 算法工程师可直接跳到
 > [算法架构图](../algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md)。
 

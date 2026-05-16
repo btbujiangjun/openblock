@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} ライン消し',
     'effect.doubleClear': 'ダブル消し',
     'effect.iconBonus': 'ロイヤルフラッシュ大消去',
-    'effect.newRecord': '新記録',
+    'effect.newRecord': '🏆 新記録！',
 
     'skin.name.classic': '✨ ミニマルクラシック',
     'skin.name.titanium': '💎 チタンマトリックス',

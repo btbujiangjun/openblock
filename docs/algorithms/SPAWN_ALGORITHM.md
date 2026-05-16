@@ -106,6 +106,214 @@ v3.1 起，颜色分配改为**轻偏置随机**：
 
 该层只改变软权重与 `spawnHints`，不绕过 `minMobilityTarget`、`tripletSequentiallySolvable`、解法数量过滤等公平性约束。
 
+## 2.5 策略 → 出块翻译机制（v1.55.16）
+
+> **本节回答的问题**：`adaptiveSpawn` 算出来的那一堆 `stress` / `spawnHints` / `spawnTargets`，**到底是怎么变成具体的 3 个块**的？源码事实链路是什么、每条策略落在哪个加权乘子或硬约束上、最终 3 个 Shape 的选择过程是否可解释、可调控、可兜底。
+
+### 2.5.1 出块的 5 阶段流水线
+
+`generateDockShapes` (`web/src/bot/blockSpawn.js:540`) 是从「策略 hints」到「3 个 Shape」的实际抽块器。**它不是一个 argmax 选择器，而是一个「概率分布塑形 + 多层过滤」过程**：
+
+```
+策略层输出（adaptiveSpawn.js → layered = { shapeWeights, spawnHints, spawnTargets, ... }）
+    │
+    ▼ generateDockShapes(grid, layered, ctx)
+    │
+[阶段 0] 解包 hints / shapeWeights / spawnTargets / ctx                     (blockSpawn.js:540-580)
+    │
+[阶段 1] 候选池构建：28 个 shape 逐个评分                                    (:583-628)
+    │   产物：scored[]（每条带 6 维属性：placements / multiClear / pcPotential
+    │              / gapFills / holeReduce / weight）
+    │   排序：清屏 > 多消 > 消行（保证清屏一手永远在最前）
+    │
+[阶段 2] 清屏 / 消行优先槽位                                                 (:695-751)
+    │   规则：clearGuarantee + comboChain + clearOpportunityTarget → 决定占几槽
+    │   特例：见到 pcPotential===2 一手清屏 → 直接抢占；
+    │        pcSetup≥2 / perfectClearBoost≥0.9 → 3 槽全用消行
+    │   产物：blocks[0..N]，N ∈ {0..3}
+    │
+[阶段 3] 加权抽样补齐（augmentPool）                                          (:753-877)
+    │   把 30+ 条 hints / spawnTargets / ctx 翻译为乘子（详见 §2.5.2 表 B），
+    │   按 pickWeighted 轮盘抽样 —— 不是 argmax，保留随机感
+    │
+[阶段 4] 硬约束校验循环（最多 MAX_SPAWN_ATTEMPTS 次）                          (:903-985)
+    │   ① 最低机动性    minPc ≥ mobTarget(fill, attempt)
+    │   ② 序贯可解性    tripletSequentiallySolvable（fill≥0.52 才检）
+    │   ③ 解法数量软过滤 targetSolutionRange.min/max
+    │   ④ 解空间压力    solutionSpacePressure 双边
+    │   ⑤ 顺序刚性硬过滤 validPerms ≤ orderMaxValidPerms
+    │   任一失败 → continue 重抽（早期严格、后期渐进放松，避免死循环）
+    │
+[阶段 5] 打乱顺序 → 写诊断（diagnostics）→ 返回 3 个 Shape                    (:987-1005)
+```
+
+**关键工程取舍**：策略层产出 **17 个 stress 分量 + 30+ 个 spawnHints**，但它们**绝不直接选块**——全部经"占位 + 乘子 + 软硬过滤"三段式作用于抽样过程。
+
+### 2.5.2 策略 → 出块翻译表
+
+按"出块层消费方式"分 3 类。每条都可在 `web/src/bot/blockSpawn.js` 精确行号回溯。
+
+#### A. 决定"哪些块直接进消行槽位"（阶段 2 占位）
+
+| 策略输入 | 转译规则（精确行号） | 出块层效果 |
+|---|---|---|
+| `clearGuarantee` (0..3) | `effectiveClearTarget = clearTarget + (comboChain>0.5?1:0) + (clearOpp≥0.72?1:0)` (`:714-717`) | 至少几个槽留给"能消行"的块 |
+| `perfectClearBoost ≥ 0.9` 或 `pcSetup ≥ 2` | `clearSeats = min(3, candidates)` (`:722-723`) | **3 槽全部强制是消行块**（清屏窗口期不留杂块） |
+| `delightBoost > 0.65` 或 `nearFullLines ≥ 4` | `maxClearSeats = 3` (`:720`) | 允许 3 槽全消行 |
+| `multiClearBonus > 0.3` / `delightBoost > 0.25` / `multiLineTarget ≥ 2` | 优先从 `multiClear≥2` 池中抽 (`:739-741`) | 消行槽里偏好**多消块**而非"只能消 1 行" |
+| 任意候选 `pcPotential === 2` | 直接占第一个槽 (`:736-738`) | **见到一手清屏就抢占** |
+
+#### B. 决定"剩下槽位选什么"（阶段 3 加权乘子）
+
+`augmentPool` 内 30+ 条乘子叠乘。`w` 初值 = `shapeWeights[category]`（来自 `interpolateProfileWeights(stress)`），然后按下表逐条相乘。
+
+| 策略 / 信号 | 公式 | 行号 | 物理含义 |
+|---|---|---|---|
+| **stress → shapeWeights** | `w₀ = weights[category]` | `:758` | stress 通过 `interpolateProfileWeights` 在 category 权重间插值 |
+| **fill 自适应机动性** | `w *= 1 + log1p(placements) * (0.35 + fill*0.55)` | `:764` | 高填充时**强烈偏好合法落点多的块**（自救） |
+| **空洞修复** | `fill>0.5 && holes>2` → `w *= 1 + holeReduce*0.4` | `:770-772` | 高填充 + 多孔时偏好"减少空洞"的块 |
+| **清屏一手** | `pcPotential===2` → `w *= 18.0 + perfectClearBoost*14.0` | `:775-777` | **18~32×** 压顶级倍率，覆盖一切 |
+| **清屏准备** | `pcSetup≥1 && gapFills>0` → `w *= 1 + pcSetup*3.0 + perfectClearBoost*2.0` | `:778-781` | pcSetup=2 时 ×7+，pcSetup=1 时 ×4+ |
+| **多消** | `mc≥1` → `w *= 1 + mc*(0.6 + multiClearBonus*0.6 + delightBoost*0.45 + payoffTarget*0.35)` | `:783-788` | mc 数 + 多 hint 叠加加权 |
+| **multiLineTarget=2** | `mc≥2` → `w *= 1.45 + multiClearBonus*0.28` | `:790-791` | 显式"同时多线"目标 |
+| **postCombo + payoff** | `lastClearCount≥2 && rhythmPhase='payoff' && gapFills>0 && cells∈[2,6]` → `w *= 1.28` | `:796-799` | 刚多消完，给小巧消行块续手感 |
+| **临消行机会** | `nearFullFactor>0 && gapFills>0` → `w *= 1 + nearFullFactor*(2.0 + clearOpp)` | `:802-804` | 临消行越多越偏好消行块 |
+| **清屏窗口期多消** | `nearFullLines≥5 && mc≥2` → `w *= 1.6` | `:806-808` | 额外加持 |
+| **comboChain** | `comboChain>0.1 && gapFills>0` → `w *= 1 + comboChain*0.8` | `:811-813` | combo 活跃时催化续链 |
+| **shapeComplexityTarget** | `≥0.55` 偏异形；`<0.55` 偏规整（双向插值） | `:815-820` | 难度调控直接落到形状复杂度 |
+| **rhythmPhase='payoff'** | `gapFills>0 → ×1.7`；`mc≥2 → ×1.4`；`delightBoost>0.35 → ×(1+delight*0.55)` | `:823-826` | 收获相位"组合拳" |
+| **rhythmPhase='setup'** | `cells∈[4,6] && gapFills===0` → `w *= 1.2 + spatialPressure*0.25` | `:827-829` | 搭建相位偏好"中等不消行"块 |
+| **delightMode='relief'** | `gapFills>0 && cells≤5` → `w *= 1.18 + delightBoost*0.35` | `:830-832` | 救援模式偏小且能消行的块 |
+| **sizePreference** | `<0` 偏小，`>0` 偏大；中性时若 `bulky≥10` 强偏小 | `:834-844` | 块体积调控（小=救场，大=加压） |
+| **spatialPressureTarget** | `>0.55 && fill<0.62` 偏大；否则偏小 | `:845-851` | 与 sizePref 独立但同向调制 |
+| **diversityBoost + noveltyTarget** | 同轮已选 category → `w *= max(0.2, 1-divBoost*catPenalty)`；跨轮记忆 >2 进一步压低 | `:854-862` | 防"连刷同类块" |
+| **clearGuarantee 补足** | `clearCount<clearTarget && gapFills>0` → `w *= 1.6 + clearOpp*0.55`；`mc≥2` 再 `×1.3` | `:864-868` | 阶段 2 没占满消行槽时，阶段 3 用乘子补救 |
+| **`scoreMilestone`（v1.55.16 修复）** | `ctx.scoreMilestone && gapFills>0` → `w *= 1.3` | `:870-872` | 接近 PB 50/75/90% 时偏好能消行块（修复前为 dead branch，详见 §2.5.4） |
+
+**抽样动作**：`pickWeighted(pool)` 按 `w` 做**轮盘抽样**（不是 argmax）。所以所有乘子是**概率权重，不是硬选择**——这保证策略在统计意义上生效，但单次仍有随机性。
+
+#### C. 决定"3 块能不能一起出"（阶段 4 硬约束）
+
+| 策略 | 校验公式 | 行号 | 失败行为 |
+|---|---|---|---|
+| **最低机动性** | `min(placements₁₋₃) ≥ mobTarget(fill, attempt)` | `:903-908` | continue 重抽 |
+| **序贯可解性** | `fill≥0.52` 时调 `tripletSequentiallySolvable`（DFS 搜索 3! 种顺序，任一种 3 块能依次放下即通过） | `:910-919` | continue（不让玩家拿到必死组合） |
+| **`targetSolutionRange`** | `solutionCount ∈ [min, max]`，由 `solutionDifficulty` v9 按 stress 调档 | `:934-944` | tooFew / tooMany 拒绝 |
+| **`solutionSpacePressure` 双边** | ≥0.78 → 解法数 ≤48；≤0.22 → firstMoveFreedom≥5 | `:945-955` | 控制解法**绝对数量** |
+| **`orderRigor` 顺序刚性** | `validPerms ≤ orderMaxValidPerms`（6 种排列里允许的最大可解数） | `:976-984` | 拒绝"放哪个顺序都行"的组合，**强制玩家规划顺序** |
+
+**重抽守卫**：单次 attempt 任一硬约束失败就 continue 重抽，最多 `MAX_SPAWN_ATTEMPTS` 次；早期 attempt 严格、后期渐进放松（避免死循环）。`truncated=true`（DFS 预算耗尽）时按通过处理（与 v9 同口径）。
+
+### 2.5.3 具体场景跑步示例
+
+**场景**：S2·M3 老玩家，本局得分 750 / PB=1000（75% 里程碑刚命中），盘面 fill=0.55、2 个孔、3 行临消行（`nearFullLines=3`）、上一波刚多消 2 行（postCombo + `rhythmPhase='payoff'`）、心流偏 anxious。
+
+**adaptiveSpawn 输出（简化）**：
+
+```js
+stress = 0.62        // raw 域；对外 norm 域 ≈ 0.683；lifecycle cap (S2·M3 = 0.75) 内
+spawnHints = {
+  clearGuarantee: 2,            // anxious + 临消行抬高
+  sizePreference: -0.15,        // 75% 里程碑命中 → 偏小块
+  multiClearBonus: 0.55,
+  multiLineTarget: 1,
+  delightBoost: 0.35,
+  perfectClearBoost: 0.2,
+  rhythmPhase: 'payoff',        // 刚消行 + lastClearCount=2
+  scoreMilestone: true,         // 跨过 75% 档（v1.55.16 修复后真生效）
+  comboChain: 0.45,
+  orderMaxValidPerms: 4,        // 中等 rigor
+  targetSolutionRange: { min: 8, max: 28 }
+}
+```
+
+**阶段 2 占位结果**：
+- `effectiveClearTarget = 2 + 0 + 0 = 2`（`comboChain=0.45<0.5`、`clearOpp=0.68<0.72` 均不触发 +1）
+- `maxClearSeats = 2`（`pcSetup=0`、`nearFullLines=3<4`、`delightBoost=0.35<0.65`）
+- → **2 个槽强制留给消行块**，其中若有 `multiClear≥2` 候选会优先抢（`multiClearBonus=0.55>0.3` 命中 `:739-741` 分支）
+
+**阶段 3 加权计算**（以 1×3 直条 `cells=3, gapFills=1, multiClear=1` 候选为例）：
+
+```
+w₀ = weights['linear']                                   = 1.0    (假设)
+× 1 + log1p(8)·(0.35+0.55·0.55)                          = 2.30   机动性
+× 1 + 1·(0.6+0.55·0.6+0.35·0.45+0.35·0.35)              = 2.21   多消
+× 1 + 0.6·(2.0+0.68)         (nearFullFactor=3/5=0.6)    = 2.61   临消行
+× 1 + 0.45·0.8                                           = 1.36   comboChain
+× 1 + (0.5-0.4)·(0.55-0.45)·1.1                          ≈ 1.01   shapeComplexity 中性
+× 1.7                                                    = 1.7    payoff + gapFills>0
+× 1.18 + 0.35·0.35           (delightMode=relief 命中)    = 1.30
+× 1 + 0.15·1.5               (sizePref=-0.15, cells=3≤4) = 1.23
+× 1.3                        (v1.55.16 scoreMilestone)   = 1.3
+────────────────────────────────────────────────────────────────
+w_final ≈ 1.0 × 2.30 × 2.21 × 2.61 × 1.36 × 1.01 × 1.7 × 1.30 × 1.23 × 1.3 ≈ 71.4
+```
+
+同场景下的"中性大块" (`cells=8, gapFills=0, multiClear=0`)，`w_final` 大约只有 **~1.4** 量级。
+
+→ pickWeighted 抽到"小巧能消行块"的概率是抽到"大块"的 **~50 倍**。
+
+**阶段 4 校验**：抽出 3 块后算 `validPerms`——
+- `validPerms=5` 时，`5 > orderMaxValidPerms=4` → **重抽**（强制玩家"必须按某种顺序放"）；
+- `validPerms=3` 时通过 → 打乱 → 返回；
+- `solutionCount=42` 时在 `[8,28]` 之外 → **重抽**（解法过多 = 太松，与高 stress 不符）。
+
+### 2.5.4 三层结构的设计哲学
+
+源码呈现的设计是把策略按"作用方式"分到 3 个机制里：
+
+| 策略类型 | 机制 | 行为契约 |
+|---|---|---|
+| **概率偏好**（rhythmPhase / sizePref / comboChain / scoreMilestone / multiClearBonus 等） | 阶段 3 **加权乘子** | 改变分布、不改值域——保证策略生效但不消除"随机感" |
+| **数量保证**（clearGuarantee） | 阶段 2 **占位** + 阶段 3 **补足乘子** 双保险 | 不依赖概率，硬性保证"至少 N 个消行块" |
+| **可玩性 / 难度调控**（mobTarget / sequentiallySolvable / targetSolutionRange / orderRigor） | 阶段 4 **硬过滤 + 重抽** | 拒绝"必死"和"过松/过严"组合，**任何 stress 下都保证可玩** |
+
+**好处**：
+
+1. **可解释性**：每个块为什么被选出来，可由 `diagnostics` 完整回放（`reason: 'perfectClear' / 'clear' / 'weighted' / 'fallback'`）；DFV 面板与 `_lastDiagnostics` 都能跟踪到字段级。
+2. **不可预测性**：乘子 ≠ argmax，所以**相同心情/盘面下仍会拿到不同的 3 块**，避免"看穿算法"。
+3. **公平地板**：硬约束总是兜底，任何策略组合都不能造成必死局——产品可以**激进调策略**而不担心翻车。
+
+### 2.5.5 历史修复：scoreMilestone 桥接（v1.55.16）
+
+在 v1.55.16 之前，`blockSpawn.js:870-872` 的 `ctx.scoreMilestone && s.gapFills > 0 → w *= 1.3` 加权分支属于 **dead branch**：
+
+- `adaptiveSpawn` 把里程碑命中信号写在 `layered.spawnHints.scoreMilestone`（权威源）
+- `blockSpawn` 却读 `ctx.scoreMilestone`（即 `_spawnContext`）
+- `_commitSpawn` 只在每轮末把 `_spawnContext.scoreMilestone` 清为 `false`、**从不置 `true`**
+- → 加权 `×1.3` 在主路径上**从未触发**
+
+**修复**：在 `web/src/game.js spawnBlocks()` 顶部、`generateDockShapes` 调用之前桥接一次：
+
+```js
+this._spawnContext.scoreMilestone = layered?.spawnHints?.scoreMilestone === true;
+```
+
+让 `spawnHints` 成为唯一权威输入；`_commitSpawn` 末尾的清零行作为"栈底重置"语义保留。回归测试见 `tests/gameSpawnMilestoneBridge.test.js`（4 条契约 case）。
+
+---
+
+## 2.6 难度调控杠杆层级（基于 SGAZ 实证 · v1.55.17）
+
+OpenBlock 当前所有难度调控都在"**形状权重 + spawnHints 加权乘子**"这一中等强度杠杆上展开（17 个 stress 分量、25 格 `lifecycle cap`、30+ `blockSpawn` 加权乘子）。但**这并不是难度调控的全部可能性**——下表基于 [Wang C-J. et al., *Evaluating Game Difficulty in Tetris Block Puzzle*, arXiv:2603.18994](https://arxiv.org/pdf/2603.18994)（SGAZ 在 8×8 Tetris Block Puzzle 上的难度量化实验）给出**四类规则杠杆的实证强度排序**，供后续调参与扩展时作为优先级参考。
+
+| 优先级 | 杠杆 | 实证强度 | 数据 | OpenBlock 现状 |
+|---|---|---|---|---|
+| 1 | **候选块数 `dock` / `h`** | ★★★ 最强 | `h=3→h=2`：训练奖励 6544→4126（−37%），收敛 61→160 iter（+162%）；`h=1` 几乎不可玩（奖励 39，未收敛） | ✗ 固定 `dock=3`，从未浮动 |
+| 2 | **形状库扩充**（pentomino） | ★★ 强 | 加任一 pentomino 即可让奖励显著下行；加两个在 `h=2, p=0` 下直接训练不收敛；**T-pentomino 单独造成最大减速** | ✗ 仅在固定形状池里调权重 |
+| 3 | **`shapeWeights` profile 插值** | 中（论文未直接测；OpenBlock 现行主路径） | — | ✓ 10 档 profile × 17 stress 分量（详见 [ADAPTIVE_SPAWN §4 / §5.1](./ADAPTIVE_SPAWN.md)） |
+| 4 | **预览数 `preview` / `p`** | ★ 弱 | 增加 `p` 仅小幅降低难度；`h=1, p=4` 仍只能收敛到 ~5000，远不及 `h=3, p=0` 的 6544 | ✗ 无 preview 机制 |
+
+#### 三条调参原则（直接录入调参手册）
+
+1. **杠杆排序原则**：未来若需"硬难度上调/下调"，优先评估 `dock` / 形状库变体，再调 `shapeWeights`；预览仅作为心理安抚工具，不作为难度主杠杆。
+2. **OpenBlock 默认配置 = 论文 baseline**：当前 `dock=3 + 无 preview + 仅 tetromino` 即论文的 classic `h=3, p=0`——SGAZ 在此 baseline 下接近通关（奖励 6544/6750），意味着我们当前 `shapeWeights` 体系再如何调，都处在一个"强 AI 已摸顶"的难度边界内。
+3. **避免实质性 `h=1`**：dock 名义为 3，但在 fill 较高 + 形状池收紧 + 三块全部不可放时会退化为"实质性 `h=1`"。这是 `bottleneckRelief` / `firstMoveFreedom` / `targetSolutionRange` 等约束存在的根本原因，调参时**任何会增加三块全不可放概率的改动都必须配套加强 `bottleneckRelief`**。
+
+> **完整启示与对"挑战自我"主线的应用**：见 [ADAPTIVE_SPAWN §10.6 外部实证基线](./ADAPTIVE_SPAWN.md#106-外部实证基线sgaz--tetris-block-puzzlev15517) 与 [最佳分追逐策略 §5.z 规则层调控（未来方向）](../player/BEST_SCORE_CHASE_STRATEGY.md#5z-基于-sgaz-实证的规则层调控未来方向v15517)。
+
+---
+
 ## 3. Layer 1: 即时出块 — 盘面感知
 
 ### 3.1 盘面拓扑分析 `analyzeBoardTopology(grid)`
@@ -277,7 +485,7 @@ comboChain = min(1, streak * 0.25 + (lastClear > 0 ? 0.3 : 0))
 
 ### 5.5 跨局画像调制：生命周期阶段 + 成熟度档位（v1.32 起）
 
-`adaptiveSpawn.js` 在 Layer 1/2/3 所有信号合成出 `rawStress` 后、`clamp([-0.2, 1])` 之前，会对 stress 再走一道**由跨局画像驱动的硬调制**：
+`adaptiveSpawn.js` 在 Layer 1/2/3 所有信号合成出 `rawStress` 后、`clamp([-0.2, 1])` 之前（**算法内部仍用 raw 域**；对外口径 `[0, 1]` 见 [自适应出块 §3.5 stress 域口径](./ADAPTIVE_SPAWN.md#35-stress-域口径v15517)），会对 stress 再走一道**由跨局画像驱动的硬调制**：
 
 ```
 final.stress = clamp(

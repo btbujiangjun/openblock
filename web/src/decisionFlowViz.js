@@ -175,11 +175,14 @@ const BREAKDOWN_TO_SOURCE = {
     motivationStressAdjust: 'session',
     accessibilityStressAdjust: 'load',
     returningWarmupAdjust: 'session',
+    /* v1.55 §4.9：postPbRelease 是 score 主线信号，源节点归 'session' */
+    postPbReleaseStressAdjust: 'session',
 };
 
 /** sparkline 时间序列：每帧采样这些字段 */
 const SPARK_SERIES = [
-    { key: 'stress',     label: 'stress',    color: '#22d3ee', range: [-0.3, 1.0], format: (v) => v.toFixed(2) },
+    /* v1.55.17：stress 对外归一化为 [0, 1]（详见 adaptiveSpawn.js normalizeStress JSDoc） */
+    { key: 'stress',     label: 'stress',    color: '#22d3ee', range: [0, 1.0],    format: (v) => v.toFixed(2) },
     { key: 'momentum',   label: 'momentum',  color: '#a78bfa', range: [-1, 1],     format: (v) => v.toFixed(2) },
     { key: 'clearRate',  label: 'clearRate', color: '#10b981', range: [0, 0.6],    format: (v) => v.toFixed(2) },
     { key: 'boardFill',  label: 'boardFill', color: '#fbbf24', range: [0, 1],      format: (v) => v.toFixed(2) },
@@ -245,6 +248,83 @@ function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 /*  主类                                                                         */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
+/* v1.55.1 专项性能优化（DFV）：
+ *
+ * 历史问题：打开决策数据流面板时 Chrome Helper GPU 占用飙到 ~75% / CPU ~60%，
+ * 原因是 _loop() 用 rAF 直驱 ~60fps、每帧重写所有 SVG attribute、Canvas 粒子
+ * 每个 trail 都 fill shadowBlur=12、_edgeFlowPhase 持续推进让所有 stroke-dashoffset
+ * 永不静止、卡片背景 backdrop-filter:blur(10px) 让浏览器对底下棋盘 canvas 持续合成。
+ *
+ * 本次优化（不改产品语义）：
+ *   - rAF 三档自适应频率（active 30fps / idle 6fps / paused 0），见 _scheduleNext
+ *   - 数据指纹去抖（DfvInsightFingerprint），相同指纹的 tick 跳过 SVG 重渲染
+ *   - _edgeFlowPhase 仅在 active（有粒子或新数据）时推进，idle 静止
+ *   - Canvas 粒子去 shadowBlur，trail 5→3，上限 96→64，粒子缓存预渲染贴图
+ *   - 折叠态（.dfv-collapsed）/ tab 隐藏 / DFV 被遮挡时彻底暂停主循环
+ *   - 卡片 backdrop-filter 去除（与 docs/engineering/PERFORMANCE.md §1.1 规约一致）
+ */
+const DFV_FPS_ACTIVE = 30;
+const DFV_FPS_IDLE = 6;
+const DFV_FRAME_MS_ACTIVE = 1000 / DFV_FPS_ACTIVE;
+const DFV_FRAME_MS_IDLE = 1000 / DFV_FPS_IDLE;
+const DFV_IDLE_AFTER_MS = 1200;   // 距上次 active 信号超过这段时间，转入 idle
+const DFV_PARTICLE_CAP = 64;       // 96 → 64
+const DFV_TRAIL_COUNT = 3;         // 5 → 3
+
+/**
+ * 计算 insight 关键字段的低成本指纹；用于跳过相同数据的 SVG 重写。
+ * 取整后拼接，可避免浮点噪声引起的伪变化。
+ * @param {any} insight
+ * @param {any} profile
+ * @returns {string}
+ */
+/**
+ * v1.55.2 SVG attribute 差异写入 helper：
+ *
+ * SVG `setAttribute` 即便值与现值相同，浏览器仍会把该节点标 dirty 进入下一帧的
+ * style recalc / layout 流水线（在大量节点频繁更新场景下成本不可忽视）。在 DFV
+ * active 30fps 持续推流时，多数 attribute 帧间不变，差异写入可显著降低 DOM 工作量。
+ *
+ * 实现：用 WeakMap 给每个 SVG element 挂一个 attribute → lastValue 字典；
+ * 写入前先比较，相同则跳过。
+ */
+const _dfvAttrCache = new WeakMap();
+function _setAttrIfChanged(el, key, value) {
+    if (!el) return;
+    const str = typeof value === 'string' ? value : String(value);
+    let dict = _dfvAttrCache.get(el);
+    if (!dict) {
+        dict = Object.create(null);
+        _dfvAttrCache.set(el, dict);
+    }
+    if (dict[key] === str) return;
+    dict[key] = str;
+    el.setAttribute(key, str);
+}
+
+function _dfvFingerprint(insight, profile) {
+    if (!insight && !profile) return 'empty';
+    const i = insight || {};
+    const p = profile || {};
+    const b = i.stressBreakdown || {};
+    const h = i.spawnHints || {};
+    /* 关键字段：stress 0.01、intent / hints 标志、breakdown 各项取 0.01 */
+    const round = (v) => Number.isFinite(v) ? Math.round(v * 100) : 'x';
+    const parts = [
+        round(i.stress),
+        h.spawnIntent ?? i.spawnIntent ?? '',
+        i.scoreMilestoneHit ? 1 : 0,
+        i.afkEngageActive ? 1 : 0,
+        h.winbackProtectionActive ? 1 : 0,
+        round(p.momentum),
+        round(p.frustrationLevel),
+        p.flowState ?? '',
+        p.sessionPhase ?? '',
+    ];
+    for (const k of Object.keys(b)) parts.push(`${k}:${round(b[k])}`);
+    return parts.join('|');
+}
+
 class DecisionFlowViz {
     constructor() {
         this._game = null;
@@ -259,6 +339,17 @@ class DecisionFlowViz {
         this._lastSpawnRoundSeen = null;
         this._particles = [];
         this._strategyFlashState = new Map();
+
+        /* v1.55.1 调度状态 */
+        this._lastTickAt = 0;
+        this._lastActiveAt = 0;           // 最近一次"有变化"的时间，用于 active→idle 转档
+        this._lastFingerprint = '';        // 上一次 tick 的 insight 指纹
+        this._collapsed = false;           // 折叠态
+        this._docHidden = false;           // 标签页隐藏
+        this._stageVisible = true;         // IntersectionObserver 监测的 DFV 可见性
+        this._visibilityHandler = null;
+        this._intersectionObserver = null;
+        this._particleSprites = new Map(); // 预渲染粒子贴图缓存（color → Canvas）
 
         /** SVG 节点引用 */
         this._nodeEls = new Map();
@@ -307,20 +398,103 @@ class DecisionFlowViz {
         if (this._open) return;
         if (!this._host) this._build();
         this._host.classList.add('dfv-open');
+        document.getElementById(TOGGLE_BTN_ID)?.classList.add('is-active');
         this._open = true;
         this._lastSpawnRoundSeen = null;
         this._frameCount = 0;
-        this._loop();
+        this._lastTickAt = 0;
+        this._lastActiveAt = performance.now();
+        this._lastFingerprint = '';
+        this._installVisibilityHooks();
+        this._scheduleNext(0);
     }
 
     hide() {
         if (!this._open) return;
         this._open = false;
         if (this._host) this._host.classList.remove('dfv-open');
+        document.getElementById(TOGGLE_BTN_ID)?.classList.remove('is-active');
         if (this._rafId) cancelAnimationFrame(this._rafId);
         this._rafId = 0;
         this._particles.length = 0;
         this._strategyFlashState.clear();
+        this._uninstallVisibilityHooks();
+    }
+
+    /* ── v1.55.1 三档调度 ──────────────────────────────────────────
+     *
+     *   - paused: 折叠 / tab 隐藏 / DFV 被遮挡 → 不再 rAF
+     *   - active: 有粒子 / 最近 1.2s 内数据指纹变化 → 30fps
+     *   - idle:   其余情况 → 6fps（DFV 数据回合制刷新，6fps 足够展示）
+     *
+     * 用 rAF 嵌套 + setTimeout 节流：rAF 触发"下一个屏幕帧再决定要不要 tick"，
+     * 避免后台标签页里的 setTimeout 精度退化与 cache miss。
+     */
+    _isPaused() {
+        return this._collapsed || this._docHidden || !this._stageVisible;
+    }
+
+    _scheduleNext(frameMs) {
+        if (!this._open) return;
+        if (this._isPaused()) {
+            this._rafId = 0;
+            return;
+        }
+        const tick = () => {
+            this._rafId = 0;
+            if (!this._open || this._isPaused()) return;
+            this._tick();
+            const hasActiveParticles = this._particles.length > 0;
+            const recentChange = (performance.now() - this._lastActiveAt) < DFV_IDLE_AFTER_MS;
+            const next = (hasActiveParticles || recentChange) ? DFV_FRAME_MS_ACTIVE : DFV_FRAME_MS_IDLE;
+            this._scheduleNext(next);
+        };
+        if (frameMs <= 0) {
+            this._rafId = requestAnimationFrame(tick);
+        } else {
+            // setTimeout 决定"下一次 tick 最早何时发生"，rAF 让其对齐屏幕刷新
+            setTimeout(() => {
+                if (!this._open || this._isPaused()) return;
+                this._rafId = requestAnimationFrame(tick);
+            }, frameMs);
+        }
+    }
+
+    _installVisibilityHooks() {
+        if (typeof document !== 'undefined' && !this._visibilityHandler) {
+            this._visibilityHandler = () => {
+                this._docHidden = document.visibilityState === 'hidden';
+                if (!this._docHidden && this._open) {
+                    this._lastActiveAt = performance.now();
+                    if (!this._rafId) this._scheduleNext(0);
+                }
+            };
+            this._docHidden = document.visibilityState === 'hidden';
+            document.addEventListener('visibilitychange', this._visibilityHandler);
+        }
+        if (typeof IntersectionObserver !== 'undefined' && this._host && !this._intersectionObserver) {
+            this._intersectionObserver = new IntersectionObserver((entries) => {
+                for (const entry of entries) {
+                    this._stageVisible = entry.intersectionRatio > 0.02;
+                }
+                if (this._stageVisible && this._open && !this._rafId) {
+                    this._lastActiveAt = performance.now();
+                    this._scheduleNext(0);
+                }
+            }, { threshold: [0, 0.02, 0.5] });
+            this._intersectionObserver.observe(this._host);
+        }
+    }
+
+    _uninstallVisibilityHooks() {
+        if (this._visibilityHandler && typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', this._visibilityHandler);
+            this._visibilityHandler = null;
+        }
+        if (this._intersectionObserver) {
+            this._intersectionObserver.disconnect();
+            this._intersectionObserver = null;
+        }
     }
 
     /* ── 入口按钮 + 快捷键 ──────────────────────────────────────── */
@@ -336,9 +510,26 @@ class DecisionFlowViz {
         const btn = document.createElement('button');
         btn.id = TOGGLE_BTN_ID;
         btn.type = 'button';
-        btn.title = _ti('dfv.toggleTitle', '🌌 决策数据流 — 实时观察玩家信号 → 压力 → 出块决策（Shift+D）');
+        btn.title = _ti('dfv.toggleTitle', '决策数据流 — 实时观察玩家信号 → 压力 → 出块决策（Shift+D）');
         btn.setAttribute('aria-label', _ti('dfv.aria', '决策数据流面板'));
-        btn.textContent = '🌌';
+        /* v1.55.14（用户反馈"📊 图标太土"）→
+         * v1.55.15（用户二次反馈"表情不清，换为透视、分析主题的 icon"）：
+         *
+         * 旧版 3 节点 + 流线在 14px 尺寸下糊成"两个点 + 一根线"（节点 r=2.4 与 stroke=2
+         * 接近），辨识度低。换为「放大镜 + 内嵌折线」的经典"透视分析"图标：
+         *   - 外圆（放大镜镜头）+ 右下手柄 = 立刻读出"放大 / 观察"语义；
+         *   - 镜头内嵌一条 4 点折线 = "数据趋势 / 分析对象"；
+         *   - 笔画 stroke-width=2 + 折线内嵌略细 1.6 形成主次层次；
+         *   - 与"决策数据流"调试面板的功能定位（透视玩家信号→决策链路）天然契合。
+         * 同步更新 .dfv-head-icon 保持按钮 & 面板头部图标一致（见 _injectHost）。 */
+        btn.innerHTML = ''
+            + '<svg class="dfv-btn-icon" viewBox="0 0 24 24" width="15" height="15" '
+            + 'fill="none" stroke="currentColor" stroke-width="2" '
+            + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + '<circle cx="10" cy="10" r="6.5" />'
+            + '<path d="M15 15 L20 20" stroke-width="2.4" />'
+            + '<polyline points="6.5,12 9,9.5 11,11 13.5,8" stroke-width="1.5" opacity="0.9" />'
+            + '</svg>';
         btn.addEventListener('click', () => this.toggle());
 
         if (soundBtn?.parentNode) {
@@ -398,7 +589,15 @@ class DecisionFlowViz {
             <div class="dfv-card" id="dfv-card">
                 <div class="dfv-head" id="dfv-head" title="${T.dragHint}">
                     <div class="dfv-head-title">
-                        <span class="dfv-head-icon">🌌</span>
+                        <span class="dfv-head-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="15" height="15"
+                                 fill="none" stroke="currentColor" stroke-width="2"
+                                 stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="10" cy="10" r="6.5" />
+                                <path d="M15 15 L20 20" stroke-width="2.4" />
+                                <polyline points="6.5,12 9,9.5 11,11 13.5,8" stroke-width="1.5" opacity="0.9" />
+                            </svg>
+                        </span>
                         <span>${T.title}</span>
                     </div>
                     <div class="dfv-head-meta">
@@ -464,7 +663,16 @@ class DecisionFlowViz {
         host.querySelector('.dfv-close').addEventListener('click', () => this.hide());
         host.querySelector('.dfv-collapse').addEventListener('click', () => {
             this._host.classList.toggle('dfv-collapsed');
+            this._collapsed = this._host.classList.contains('dfv-collapsed');
             requestAnimationFrame(() => this._resizeCanvas());
+            /* v1.55.1：折叠态彻底暂停 rAF；恢复时立刻 tick 一次取最新数据 */
+            if (this._collapsed) {
+                if (this._rafId) cancelAnimationFrame(this._rafId);
+                this._rafId = 0;
+            } else if (this._open && !this._rafId) {
+                this._lastActiveAt = performance.now();
+                this._scheduleNext(0);
+            }
         });
 
         this._buildSparks(host.querySelector('#dfv-sparks'));
@@ -667,7 +875,7 @@ class DecisionFlowViz {
             const n = SPARK_BUFFER_LEN;
             const start = this._seriesIdx >= n ? this._seriesIdx - n : 0;
             const len = Math.min(this._seriesIdx, n);
-            if (len === 0) { ref.path.setAttribute('d', ''); ref.value.textContent = '—'; continue; }
+            if (len === 0) { _setAttrIfChanged(ref.path, 'd', ''); ref.value.textContent = '—'; continue; }
 
             const [lo, hi] = s.range;
             const span = Math.max(1e-6, hi - lo);
@@ -683,8 +891,9 @@ class DecisionFlowViz {
                 d += (d ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
                 lastValid = v;
             }
-            ref.path.setAttribute('d', d);
-            ref.value.textContent = Number.isFinite(lastValid) ? s.format(lastValid) : '—';
+            _setAttrIfChanged(ref.path, 'd', d);
+            const valTxt = Number.isFinite(lastValid) ? s.format(lastValid) : '—';
+            if (ref.value.textContent !== valTxt) ref.value.textContent = valTxt;
         }
     }
 
@@ -976,9 +1185,10 @@ class DecisionFlowViz {
     /* ── 主循环：每帧拉数据 + 缓动 + 重绘 ─────────────────────────── */
 
     _loop() {
+        /* v1.55.1 留作向后兼容（早期外部调用入口）；推荐通过 _scheduleNext 驱动。 */
         if (!this._open) return;
         this._tick();
-        this._rafId = requestAnimationFrame(() => this._loop());
+        if (!this._rafId) this._scheduleNext(0);
     }
 
     _tick() {
@@ -1016,29 +1226,44 @@ class DecisionFlowViz {
         if (Number.isFinite(round) && round !== this._lastSpawnRoundSeen) {
             if (this._lastSpawnRoundSeen !== null && insight) this._triggerSpawnPulse(insight);
             this._lastSpawnRoundSeen = round;
+            this._lastActiveAt = performance.now();
             if (this._pulseTag) this._pulseTag.textContent = `R${round}`;
         }
 
-        /* 1) 左列信号节点 */
-        SIGNAL_NODES.forEach((sig) => this._renderSignalNode(sig, ctx));
+        /* v1.55.1 数据指纹去抖：相同指纹时跳过 SVG 重写（节点 / stress 球 / intent / 边 / 策略），
+         * 只保留 Canvas 粒子动画推进与 sparkline 采样。 */
+        const fp = _dfvFingerprint(insight, profile);
+        const dataChanged = fp !== this._lastFingerprint;
+        if (dataChanged) {
+            this._lastFingerprint = fp;
+            this._lastActiveAt = performance.now();
+        }
+        const hasActiveParticles = this._particles.length > 0;
+        const inSpawnPulseWindow = performance.now() < this._stressPulseUntil + 80;
 
-        /* 2) 中央 stress 球 */
-        this._renderStressBall(insight);
+        if (dataChanged || inSpawnPulseWindow) {
+            /* 1) 左列信号节点 */
+            SIGNAL_NODES.forEach((sig) => this._renderSignalNode(sig, ctx));
+            /* 2) 中央 stress 球 */
+            this._renderStressBall(insight);
+            /* 3) spawnIntent 节点 */
+            this._renderSpawnIntent(insight);
+            /* 3.5) 压力 -> 出块策略（左侧算法呈现） */
+            this._renderStressToStrategy(insight);
+            /* 4) stressBreakdown 贡献边 */
+            this._renderContributionEdges(insight);
+        }
 
-        /* 3) spawnIntent 节点 */
-        this._renderSpawnIntent(insight);
+        /* v1.55.1 _edgeFlowPhase 仅在 active 时推进，idle（无粒子 + 无数据变化）时静止，
+         * 避免无意义的 stroke-dashoffset 更新触发 SVG 重合成。 */
+        if (hasActiveParticles || dataChanged || inSpawnPulseWindow) {
+            this._edgeFlowPhase = (this._edgeFlowPhase + 1.25) % 10000;
+        }
 
-        /* 3.5) 压力 -> 出块策略（左侧算法呈现） */
-        this._renderStressToStrategy(insight);
-
-        /* 4) stressBreakdown 贡献边 */
-        this._edgeFlowPhase = (this._edgeFlowPhase + 1.25) % 10000;
-        this._renderContributionEdges(insight);
-
-        /* 5) Canvas 粒子 */
+        /* 5) Canvas 粒子（有粒子时绘制；无粒子时只 clear 一次） */
         this._renderParticles();
 
-        /* 6) sparkline 采样（每帧）+ 渲染（每 3 帧 ≈ 20Hz） */
+        /* 6) sparkline 采样 + 渲染：active 档 30fps 时全部走，idle 档自然降到 6fps */
         const stressVal = Number.isFinite(insight?.stress) ? insight.stress : NaN;
         this._sampleSeries({
             stress: stressVal,
@@ -1048,10 +1273,11 @@ class DecisionFlowViz {
             frust: Number(profile.frustrationLevel) || 0,
         });
         this._frameCount++;
-        if (this._frameCount % 3 === 0) this._renderSparks();
+        /* 30fps 下每 2 帧渲染一次 ≈ 15Hz，已经够丝滑；idle 档（6fps）每帧都画 */
+        if (this._frameCount % 2 === 0 || !hasActiveParticles) this._renderSparks();
 
-        /* 7) HTML 详情区（每 6 帧 ≈ 10Hz，避免每帧 reflow） */
-        if (this._frameCount % 6 === 0) this._renderDetails(insight, profile);
+        /* 7) HTML 详情区：数据变化时即刻；否则每 12 帧（active≈0.4s / idle≈2s）兜底刷一次 */
+        if (dataChanged || this._frameCount % 12 === 0) this._renderDetails(insight, profile);
     }
 
     _triggerSpawnPulse(insight) {
@@ -1101,8 +1327,8 @@ class DecisionFlowViz {
             }
         }
 
-        if (this._particles.length > 96) {
-            this._particles.splice(0, this._particles.length - 96);
+        if (this._particles.length > DFV_PARTICLE_CAP) {
+            this._particles.splice(0, this._particles.length - DFV_PARTICLE_CAP);
         }
     }
 
@@ -1122,8 +1348,8 @@ class DecisionFlowViz {
         if (sig.type === 'enum') {
             this._setFitText(ref.valueText, String(raw ?? '—'));
             const color = (raw && sig.enumColors?.[raw]) || '#475569';
-            ref.core.setAttribute('fill', color);
-            ref.core.setAttribute('stroke', _shadeColor(color, -20));
+            _setAttrIfChanged(ref.core, 'fill', color);
+            _setAttrIfChanged(ref.core, 'stroke', _shadeColor(color, -20));
             return;
         }
         if (!Number.isFinite(raw)) {
@@ -1138,8 +1364,8 @@ class DecisionFlowViz {
         const sm = approach(this._smooth.get(sig.key) ?? norm, norm, 0.18);
         this._smooth.set(sig.key, sm);
         const color = heatColor(_clamp(sm, 0, 1));
-        ref.core.setAttribute('fill', color);
-        ref.core.setAttribute('stroke', _shadeColor(color, -25));
+        _setAttrIfChanged(ref.core, 'fill', color);
+        _setAttrIfChanged(ref.core, 'stroke', _shadeColor(color, -25));
         const text = sig.format === 'int'
             ? String(Math.round(raw))
             : (Math.abs(raw) < 10 && !Number.isInteger(raw) ? raw.toFixed(2) : String(raw));
@@ -1149,9 +1375,8 @@ class DecisionFlowViz {
     _setFitText(el, text) {
         if (!el) return;
         const s = String(text ?? '—');
-        el.textContent = s;
-        el.removeAttribute('textLength');
-        el.removeAttribute('lengthAdjust');
+        /* v1.55.2：text node 也做差异更新，避免相同字符串重复触发布局/重绘 */
+        if (el.textContent !== s) el.textContent = s;
     }
 
     _triggerStrategyArc(comp, power, intentColor = '#ffffff') {
@@ -1205,8 +1430,10 @@ class DecisionFlowViz {
         const target = Number.isFinite(insight?.stress) ? insight.stress : 0;
         const sm = approach(this._smooth.get('stress') ?? target, target, 0.12);
         this._smooth.set('stress', sm);
-        const norm = (sm + 0.3) / 1.3;
-        const color = heatColor(_clamp(norm, 0, 1));
+        /* v1.55.17：insight.stress 已为 [0, 1] norm 域（layered._adaptiveStress 出口
+         * 已 normalizeStress；详见 web/src/adaptiveSpawn.js 顶部 JSDoc），直接 clamp
+         * 喂入 heatColor，移除历史的 `(sm + 0.3) / 1.3` 二次仿射。 */
+        const color = heatColor(_clamp(sm, 0, 1));
         this._stressBall.core.setAttribute('fill', color);
         this._stressBall.valueText.textContent = sm.toFixed(2);
         const now = performance.now();
@@ -1247,8 +1474,9 @@ class DecisionFlowViz {
         const hints = insight?.spawnHints || {};
         const intent = hints.spawnIntent ?? insight?.spawnIntent ?? 'maintain';
         const intentColor = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
+        /* v1.55.17：stress 已为 [0, 1] norm 域，移除二次仿射，直接 clamp */
         const stress = Number.isFinite(insight?.stress) ? Number(insight.stress) : 0;
-        const stress01 = _clamp((stress + 0.3) / 1.3, 0, 1);
+        const stress01 = _clamp(stress, 0, 1);
         const metrics = {};
         for (const def of STRATEGY_COMPONENT_DEFS) {
             const raw = Number(hints[def.key]);
@@ -1269,16 +1497,16 @@ class DecisionFlowViz {
         const intensity = _clamp(stress01 * 0.56 + strategy01 * 0.44, 0, 1);
 
         if (ref.trunk) {
-            ref.trunk.base.setAttribute('stroke', _shadeColor(intentColor, -15));
-            ref.trunk.base.setAttribute('stroke-width', (0.9 + intensity * 1.25).toFixed(2));
-            ref.trunk.base.setAttribute('stroke-opacity', (0.26 + intensity * 0.33).toFixed(2));
-            ref.trunk.halo.setAttribute('stroke', intentColor);
-            ref.trunk.halo.setAttribute('stroke-opacity', (0.06 + intensity * 0.24).toFixed(2));
-            ref.trunk.halo.setAttribute('stroke-width', (2.2 + intensity * 1.9).toFixed(2));
-            ref.trunk.flow.setAttribute('stroke-opacity', (0.14 + intensity * 0.30).toFixed(2));
-            ref.trunk.flow.setAttribute('stroke-width', (0.95 + intensity * 0.55).toFixed(2));
-            ref.trunk.flow.setAttribute('stroke-dasharray', `${(4.8 - intensity * 1.2).toFixed(1)} ${(10.6 - intensity * 2.0).toFixed(1)}`);
-            ref.trunk.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase * (0.85 + intensity * 2.2)) * -0.72).toFixed(1));
+            _setAttrIfChanged(ref.trunk.base, 'stroke', _shadeColor(intentColor, -15));
+            _setAttrIfChanged(ref.trunk.base, 'stroke-width', (0.9 + intensity * 1.25).toFixed(2));
+            _setAttrIfChanged(ref.trunk.base, 'stroke-opacity', (0.26 + intensity * 0.33).toFixed(2));
+            _setAttrIfChanged(ref.trunk.halo, 'stroke', intentColor);
+            _setAttrIfChanged(ref.trunk.halo, 'stroke-opacity', (0.06 + intensity * 0.24).toFixed(2));
+            _setAttrIfChanged(ref.trunk.halo, 'stroke-width', (2.2 + intensity * 1.9).toFixed(2));
+            _setAttrIfChanged(ref.trunk.flow, 'stroke-opacity', (0.14 + intensity * 0.30).toFixed(2));
+            _setAttrIfChanged(ref.trunk.flow, 'stroke-width', (0.95 + intensity * 0.55).toFixed(2));
+            _setAttrIfChanged(ref.trunk.flow, 'stroke-dasharray', `${(4.8 - intensity * 1.2).toFixed(1)} ${(10.6 - intensity * 2.0).toFixed(1)}`);
+            _setAttrIfChanged(ref.trunk.flow, 'stroke-dashoffset', ((this._edgeFlowPhase * (0.85 + intensity * 2.2)) * -0.72).toFixed(1));
         }
 
         (ref.comps || []).forEach((comp, idx) => {
@@ -1289,38 +1517,36 @@ class DecisionFlowViz {
             const flowSpeed = 0.9 + compPower * 3.3;
             const glow = _shadeColor(comp.color, 16);
 
-            comp.node.setAttribute('fill', `${glow.replace('rgb(', 'rgba(').replace(')', ',0.42)')}`);
-            comp.node.setAttribute('stroke', `${comp.color}${compPower > 0.68 ? 'ff' : 'cc'}`);
-            if (comp.inner) comp.inner.setAttribute('fill', `${glow.replace('rgb(', 'rgba(').replace(')', ',0.20)')}`);
-            if (comp.glow) {
-                comp.glow.setAttribute('fill', `${comp.color}${compPower > 0.55 ? '2f' : '1b'}`);
-            }
-            if (comp.spec) comp.spec.setAttribute('opacity', (0.45 + compPower * 0.4).toFixed(2));
+            _setAttrIfChanged(comp.node, 'fill', `${glow.replace('rgb(', 'rgba(').replace(')', ',0.42)')}`);
+            _setAttrIfChanged(comp.node, 'stroke', `${comp.color}${compPower > 0.68 ? 'ff' : 'cc'}`);
+            if (comp.inner) _setAttrIfChanged(comp.inner, 'fill', `${glow.replace('rgb(', 'rgba(').replace(')', ',0.20)')}`);
+            if (comp.glow) _setAttrIfChanged(comp.glow, 'fill', `${comp.color}${compPower > 0.55 ? '2f' : '1b'}`);
+            if (comp.spec) _setAttrIfChanged(comp.spec, 'opacity', (0.45 + compPower * 0.4).toFixed(2));
             this._setFitText(comp.valueText, m.text);
-            comp.node.setAttribute('r', comp.baseR.toFixed(2));
-            if (comp.inner) comp.inner.setAttribute('r', (comp.baseR * 0.58).toFixed(2));
-            if (comp.glow) comp.glow.setAttribute('r', (comp.baseR + 3.2 + compPower * 1.2).toFixed(2));
+            _setAttrIfChanged(comp.node, 'r', comp.baseR.toFixed(2));
+            if (comp.inner) _setAttrIfChanged(comp.inner, 'r', (comp.baseR * 0.58).toFixed(2));
+            if (comp.glow) _setAttrIfChanged(comp.glow, 'r', (comp.baseR + 3.2 + compPower * 1.2).toFixed(2));
             this._triggerStrategyArc(comp, compPower, intentColor);
 
-            comp.out.base.setAttribute('stroke', comp.color);
-            comp.out.base.setAttribute('stroke-width', width.toFixed(2));
-            comp.out.base.setAttribute('stroke-opacity', alpha.toFixed(2));
-            comp.out.halo.setAttribute('stroke', comp.color);
-            comp.out.halo.setAttribute('stroke-width', (width * 2.1).toFixed(2));
-            comp.out.halo.setAttribute('stroke-opacity', (alpha * 0.42).toFixed(2));
-            comp.out.flow.setAttribute('stroke-width', Math.max(0.9, width * 0.5).toFixed(2));
-            comp.out.flow.setAttribute('stroke-opacity', (0.14 + compPower * 0.62).toFixed(2));
-            comp.out.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + idx * 19) * flowSpeed * -0.14).toFixed(1));
+            _setAttrIfChanged(comp.out.base, 'stroke', comp.color);
+            _setAttrIfChanged(comp.out.base, 'stroke-width', width.toFixed(2));
+            _setAttrIfChanged(comp.out.base, 'stroke-opacity', alpha.toFixed(2));
+            _setAttrIfChanged(comp.out.halo, 'stroke', comp.color);
+            _setAttrIfChanged(comp.out.halo, 'stroke-width', (width * 2.1).toFixed(2));
+            _setAttrIfChanged(comp.out.halo, 'stroke-opacity', (alpha * 0.42).toFixed(2));
+            _setAttrIfChanged(comp.out.flow, 'stroke-width', Math.max(0.9, width * 0.5).toFixed(2));
+            _setAttrIfChanged(comp.out.flow, 'stroke-opacity', (0.14 + compPower * 0.62).toFixed(2));
+            _setAttrIfChanged(comp.out.flow, 'stroke-dashoffset', ((this._edgeFlowPhase + idx * 19) * flowSpeed * -0.14).toFixed(1));
 
-            comp.inbound.base.setAttribute('stroke', comp.color);
-            comp.inbound.base.setAttribute('stroke-width', Math.max(0.8, width * 0.82).toFixed(2));
-            comp.inbound.base.setAttribute('stroke-opacity', (alpha * 0.78).toFixed(2));
-            comp.inbound.halo.setAttribute('stroke', comp.color);
-            comp.inbound.halo.setAttribute('stroke-width', Math.max(1.7, width * 1.7).toFixed(2));
-            comp.inbound.halo.setAttribute('stroke-opacity', Math.min(0.48, alpha * 0.38).toFixed(2));
-            comp.inbound.flow.setAttribute('stroke-width', Math.max(0.85, width * 0.45).toFixed(2));
-            comp.inbound.flow.setAttribute('stroke-opacity', (0.12 + compPower * 0.56).toFixed(2));
-            comp.inbound.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + idx * 29) * flowSpeed * -0.12).toFixed(1));
+            _setAttrIfChanged(comp.inbound.base, 'stroke', comp.color);
+            _setAttrIfChanged(comp.inbound.base, 'stroke-width', Math.max(0.8, width * 0.82).toFixed(2));
+            _setAttrIfChanged(comp.inbound.base, 'stroke-opacity', (alpha * 0.78).toFixed(2));
+            _setAttrIfChanged(comp.inbound.halo, 'stroke', comp.color);
+            _setAttrIfChanged(comp.inbound.halo, 'stroke-width', Math.max(1.7, width * 1.7).toFixed(2));
+            _setAttrIfChanged(comp.inbound.halo, 'stroke-opacity', Math.min(0.48, alpha * 0.38).toFixed(2));
+            _setAttrIfChanged(comp.inbound.flow, 'stroke-width', Math.max(0.85, width * 0.45).toFixed(2));
+            _setAttrIfChanged(comp.inbound.flow, 'stroke-opacity', (0.12 + compPower * 0.56).toFixed(2));
+            _setAttrIfChanged(comp.inbound.flow, 'stroke-dashoffset', ((this._edgeFlowPhase + idx * 29) * flowSpeed * -0.12).toFixed(1));
         });
     }
 
@@ -1356,83 +1582,141 @@ class DecisionFlowViz {
                 // 用 maxAbs 决定 width（避免 sum 抵消导致细线），alpha 同理
                 const width = Math.min(6, Math.max(0.9, agg.maxAbs * 14));
                 const alpha = Math.min(0.9, 0.32 + agg.maxAbs * 1.4);
-                edge.path.setAttribute('stroke', stroke);
-                edge.path.setAttribute('stroke-width', width.toFixed(2));
-                edge.path.setAttribute('stroke-opacity', alpha.toFixed(2));
+                _setAttrIfChanged(edge.path, 'stroke', stroke);
+                _setAttrIfChanged(edge.path, 'stroke-width', width.toFixed(2));
+                _setAttrIfChanged(edge.path, 'stroke-opacity', alpha.toFixed(2));
                 edge.path.classList.add('dfv-edge--active');
                 edge.path.classList.remove('dfv-edge--baseline');
                 if (edge.halo) {
-                    edge.halo.setAttribute('stroke', stroke);
-                    edge.halo.setAttribute('stroke-width', (width * 2.35).toFixed(2));
-                    edge.halo.setAttribute('stroke-opacity', Math.min(0.5, alpha * 0.55).toFixed(2));
+                    _setAttrIfChanged(edge.halo, 'stroke', stroke);
+                    _setAttrIfChanged(edge.halo, 'stroke-width', (width * 2.35).toFixed(2));
+                    _setAttrIfChanged(edge.halo, 'stroke-opacity', Math.min(0.5, alpha * 0.55).toFixed(2));
                 }
                 if (edge.flow) {
                     const dashA = Math.max(4, 10 - agg.maxAbs * 18);
                     const dashB = Math.max(4, 16 - agg.maxAbs * 14);
                     const speed = 1.8 + agg.maxAbs * 42;
-                    edge.flow.setAttribute('stroke', '#ffffff');
-                    edge.flow.setAttribute('stroke-width', Math.max(1.2, width * 0.46).toFixed(2));
-                    edge.flow.setAttribute('stroke-opacity', Math.min(0.85, 0.26 + alpha * 0.9).toFixed(2));
-                    edge.flow.setAttribute('stroke-dasharray', `${dashA.toFixed(1)} ${dashB.toFixed(1)}`);
-                    edge.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + edgeIdx * 17) * speed * -0.1).toFixed(1));
+                    _setAttrIfChanged(edge.flow, 'stroke', '#ffffff');
+                    _setAttrIfChanged(edge.flow, 'stroke-width', Math.max(1.2, width * 0.46).toFixed(2));
+                    _setAttrIfChanged(edge.flow, 'stroke-opacity', Math.min(0.85, 0.26 + alpha * 0.9).toFixed(2));
+                    _setAttrIfChanged(edge.flow, 'stroke-dasharray', `${dashA.toFixed(1)} ${dashB.toFixed(1)}`);
+                    _setAttrIfChanged(edge.flow, 'stroke-dashoffset', ((this._edgeFlowPhase + edgeIdx * 17) * speed * -0.1).toFixed(1));
                 }
             } else {
-                const idleWave = 0.5 + 0.5 * Math.sin((this._edgeFlowPhase + edgeIdx * 9) * 0.085);
-                const idleOpacity = 0.30 + idleWave * 0.10;
-                edge.path.setAttribute('stroke', '#64748b');
-                edge.path.setAttribute('stroke-width', '0.85');
-                edge.path.setAttribute('stroke-opacity', idleOpacity.toFixed(2));
+                /* v1.55.2：baseline 不再做 idle sin 波，固定静态值——
+                 *  idle wave 在没有真实数据贡献时持续推 _edgeFlowPhase，触发所有 stroke-opacity
+                 *  / dashoffset 重写，恰恰是 v1.55.1 已经在 _tick 里阻断 phase 推进的设计意图。
+                 *  这里也保持静态，确保 idle baseline 不引入任何动效。 */
+                _setAttrIfChanged(edge.path, 'stroke', '#64748b');
+                _setAttrIfChanged(edge.path, 'stroke-width', '0.85');
+                _setAttrIfChanged(edge.path, 'stroke-opacity', '0.32');
                 edge.path.classList.add('dfv-edge--baseline');
                 edge.path.classList.remove('dfv-edge--active');
                 if (edge.halo) {
-                    edge.halo.setAttribute('stroke', '#7dd3fc');
-                    edge.halo.setAttribute('stroke-width', '1.8');
-                    edge.halo.setAttribute('stroke-opacity', (0.05 + idleWave * 0.05).toFixed(2));
+                    _setAttrIfChanged(edge.halo, 'stroke', '#7dd3fc');
+                    _setAttrIfChanged(edge.halo, 'stroke-width', '1.8');
+                    _setAttrIfChanged(edge.halo, 'stroke-opacity', '0.06');
                 }
                 if (edge.flow) {
-                    edge.flow.setAttribute('stroke', '#7dd3fc');
-                    edge.flow.setAttribute('stroke-width', '0.9');
-                    edge.flow.setAttribute('stroke-opacity', (0.12 + idleWave * 0.10).toFixed(2));
-                    edge.flow.setAttribute('stroke-dasharray', '3.0 12.0');
-                    edge.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + edgeIdx * 13) * -0.55).toFixed(1));
+                    _setAttrIfChanged(edge.flow, 'stroke', '#7dd3fc');
+                    _setAttrIfChanged(edge.flow, 'stroke-width', '0.9');
+                    _setAttrIfChanged(edge.flow, 'stroke-opacity', '0.16');
+                    _setAttrIfChanged(edge.flow, 'stroke-dasharray', '3.0 12.0');
+                    _setAttrIfChanged(edge.flow, 'stroke-dashoffset', '0');
                 }
             }
             edgeIdx++;
         }
     }
 
+    /**
+     * v1.55.1：粒子绘制专项优化。
+     *
+     * 历史实现痛点：
+     *   - 每个粒子叠 5 层 trail 用 ctx.fill，每帧约 96×5=480 次 Path/fill；
+     *   - 主点用 ctx.shadowBlur=12 模拟发光，shadowBlur 是 GPU 高成本操作（每帧粒子总数倍数级）；
+     *   - 帧率与主 rAF 一致（~60fps），即便没有粒子也每帧 clear 整张 canvas。
+     *
+     * 新实现：
+     *   - 用预渲染的"发光圆形精灵"贴图（offscreen canvas，按 color 缓存）+ drawImage 替代 shadowBlur；
+     *   - trail 5 层 → 3 层，每条贝塞尔总绘制次数从 6 降到 4；
+     *   - 无活跃粒子 + 上一帧已 clear 过时，跳过 clearRect 不重画；
+     *   - 粒子上限 96 → 64，降低 spawn pulse 峰值压力。
+     */
     _renderParticles() {
         const ctx = this._ctx2d;
         if (!ctx) return;
+        const hasParticles = this._particles.length > 0;
+        if (!hasParticles) {
+            if (!this._canvasCleared) {
+                ctx.clearRect(0, 0, this._w, this._h);
+                this._canvasCleared = true;
+            }
+            return;
+        }
         ctx.clearRect(0, 0, this._w, this._h);
-        const dt = 1 / 60;
+        this._canvasCleared = false;
+        const dt = 1 / 30; // tick 频率上限 30fps
         const alive = [];
+        const prevComposite = ctx.globalCompositeOperation;
+        ctx.globalCompositeOperation = 'lighter';
         for (const p of this._particles) {
             p.t += dt / p.dur;
             if (p.t < 0) { alive.push(p); continue; }
             if (p.t > 1) continue;
             const pt = bezierPoint(p.p0, p.p1, p.p2, Math.min(1, p.t));
-            for (let i = 0; i < 5; i++) {
-                const tt = Math.max(0, p.t - i * 0.018);
+            const sprite = this._getParticleSprite(p.color);
+            const spriteR = sprite ? sprite.width / 2 : 0;
+            const TRAIL = DFV_TRAIL_COUNT;
+            for (let i = 0; i < TRAIL; i++) {
+                const tt = Math.max(0, p.t - i * 0.028);
                 const tp = bezierPoint(p.p0, p.p1, p.p2, tt);
-                ctx.globalAlpha = (1 - i / 5) * 0.85;
-                ctx.fillStyle = p.color;
-                const r = Math.max(0.5, p.size * (1 - i / 5));
-                ctx.beginPath();
-                ctx.arc(tp.x, tp.y, r, 0, Math.PI * 2);
-                ctx.fill();
+                const r = Math.max(1.2, p.size * (1 - i / TRAIL));
+                const scale = r / Math.max(1, spriteR);
+                ctx.globalAlpha = (1 - i / TRAIL) * 0.78;
+                const w = sprite.width * scale, h = sprite.height * scale;
+                ctx.drawImage(sprite, tp.x - w / 2, tp.y - h / 2, w, h);
             }
+            /* 主点：用更大的精灵代替 shadowBlur 高斯发光 */
             ctx.globalAlpha = 1;
-            ctx.shadowColor = p.color;
-            ctx.shadowBlur = 12;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, p.size, 0, Math.PI * 2);
-            ctx.fillStyle = '#fff';
-            ctx.fill();
-            ctx.shadowBlur = 0;
+            const headR = p.size * 1.4;
+            const headScale = headR / Math.max(1, spriteR);
+            const hw = sprite.width * headScale, hh = sprite.height * headScale;
+            ctx.drawImage(sprite, pt.x - hw / 2, pt.y - hh / 2, hw, hh);
             alive.push(p);
         }
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = prevComposite;
         this._particles = alive;
+    }
+
+    /**
+     * v1.55.1：预渲染发光粒子精灵（按 color 缓存到 offscreen canvas），
+     * 把昂贵的 shadowBlur 摊到首次创建。
+     * @param {string} color
+     * @returns {HTMLCanvasElement|null}
+     */
+    _getParticleSprite(color) {
+        if (this._particleSprites.has(color)) return this._particleSprites.get(color);
+        if (typeof document === 'undefined') return null;
+        const size = 24; // sprite 总尺寸；中心实心半径 ~3px
+        const c = document.createElement('canvas');
+        c.width = size;
+        c.height = size;
+        const cx = c.getContext('2d');
+        if (!cx) return null;
+        const cxr = size / 2;
+        const grad = cx.createRadialGradient(cxr, cxr, 0, cxr, cxr, cxr);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.30, color);
+        const transparent = color.startsWith('#')
+            ? color + '00'
+            : color.replace(/rgba?\(([^)]+)\)/, (_, parts) => `rgba(${parts.split(',').slice(0, 3).join(',')},0)`);
+        grad.addColorStop(1, transparent);
+        cx.fillStyle = grad;
+        cx.fillRect(0, 0, size, size);
+        this._particleSprites.set(color, c);
+        return c;
     }
 
     /* ── HTML 详情区渲染（每 6 帧）──────────────────────────────── */
@@ -1590,15 +1874,16 @@ class DecisionFlowViz {
     transform: translateY(-50%);
     width: min(540px, calc(100vw - 20px));
     max-height: min(80vh, 680px);
-    background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(2, 6, 23, 0.94));
+    /* v1.55.1：背景从 0.94 上拉到 0.97，配合移除 backdrop-filter（详见 docs/engineering/PERFORMANCE.md §1.1）。
+     * 旧版 backdrop-filter:blur(10px) 会让浏览器对底下棋盘 canvas 持续合成模糊，
+     * 是 DFV 打开时 GPU 飙到 ~75% 的主要原因之一。 */
+    background: linear-gradient(160deg, rgba(15, 23, 42, 0.97), rgba(2, 6, 23, 0.97));
     border: 1px solid rgba(56, 189, 248, 0.32);
     border-radius: 14px;
     box-shadow:
         0 16px 40px rgba(2, 6, 23, 0.55),
         0 0 0 1px rgba(56, 189, 248, 0.18),
         0 0 60px rgba(56, 189, 248, 0.16) inset;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     color: #e2e8f0;
     display: flex; flex-direction: column;
     overflow: hidden;
@@ -1627,7 +1912,8 @@ class DecisionFlowViz {
 }
 .dfv-head:active { cursor: grabbing; }
 .dfv-head-title { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 12px; }
-.dfv-head-icon { font-size: 16px; filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6)); }
+/* v1.55.2：去掉 drop-shadow，emoji 自身辨识度已经足够 */
+.dfv-head-icon { font-size: 16px; }
 .dfv-head-meta { display: flex; align-items: center; gap: 8px; }
 .dfv-head-pulse {
     font-family: ui-monospace, 'SF Mono', monospace;
@@ -1832,57 +2118,57 @@ class DecisionFlowViz {
 .dfv-svg .dfv-stress-value { font-size: 12px; fill: #fff; font-weight: 800; font-family: ui-monospace, 'SF Mono', monospace; }
 .dfv-svg .dfv-intent-label { font-size: 7.8px; fill: #f1f5f9; font-weight: 700; letter-spacing: 0.12em; opacity: 0.85; }
 .dfv-svg .dfv-intent-value { font-size: 10.5px; fill: #fff; font-weight: 800; font-family: ui-monospace, 'SF Mono', monospace; }
-.dfv-svg .dfv-edge { transition: stroke-width .25s, stroke-opacity .25s, stroke .25s; }
-.dfv-svg .dfv-edge--baseline { filter: none; stroke-dasharray: 4 4; }
-.dfv-svg .dfv-edge--active   { filter: drop-shadow(0 0 4px currentColor); stroke-dasharray: none; }
+/* v1.55.2 GPU 合成层瘦身（接续 v1.55.1）：
+ *
+ * 旧版 SVG 用了 11+ 处 filter: drop-shadow/blur、2 处 mix-blend-mode: screen、
+ * 以及无限循环的 @keyframes dfv-node-breathe（transform: scale 永不停止）。
+ * 与 docs/engineering/PERFORMANCE.md §1.1 明确指出的"无限 transform/filter 动画
+ * 永不停止合成"高度相符，是 DFV v1.55.1 优化后 GPU 仍维持 ~44% 的主因。
+ *
+ * 本轮：
+ *   - 移除 dfv-node-breathe 无限呼吸动画（核心 core 永远缩放 1.0）；
+ *   - 全部 SVG filter:drop-shadow/blur 移除，发光改由"已绘的 glow 圆环 + 半透明 fill"承担；
+ *   - 移除两处 mix-blend-mode: screen，避免强制 stacking context 跨层合成；
+ *   - transition 时间统一收到 0.18s 或更低，并去掉对 attribute 变化最频繁的 width/dashoffset transition；
+ *   - intent-flash 还是 .55s 一次性闪烁动画，保留（仅 spawn pulse 时触发，非常驻）。
+ */
+.dfv-svg .dfv-edge { transition: stroke .18s; }
+.dfv-svg .dfv-edge--baseline { stroke-dasharray: 4 4; }
+.dfv-svg .dfv-edge--active   { stroke-dasharray: none; }
 .dfv-svg .dfv-edge--halo {
-    filter: blur(2px) drop-shadow(0 0 10px currentColor);
-    transition: stroke-opacity .2s, stroke-width .2s;
+    /* halo 仍存在，但靠原 SVG stroke-width + 半透色 emulate 发光，不再用 filter:blur */
+    opacity: 0.65;
 }
 .dfv-svg .dfv-edge--flow {
-    mix-blend-mode: screen;
-    filter: drop-shadow(0 0 6px rgba(255,255,255,0.55));
-    transition: stroke-opacity .2s, stroke-width .2s;
+    opacity: 0.95;
 }
 .dfv-svg .dfv-stress-glow-outer,
 .dfv-svg .dfv-stress-glow-mid { opacity: 0.78; }
-.dfv-svg .dfv-stress-core { filter: drop-shadow(0 0 14px currentColor); transition: fill .25s; }
-.dfv-svg .dfv-stress-core-inner { filter: blur(0.2px); transition: fill .25s; }
-.dfv-svg .dfv-stress-spec { filter: blur(0.35px); opacity: 0.9; }
+.dfv-svg .dfv-stress-core { transition: fill .18s; }
+.dfv-svg .dfv-stress-core-inner { transition: fill .18s; }
+.dfv-svg .dfv-stress-spec { opacity: 0.9; }
 .dfv-svg .dfv-stress-ring { transition: r .12s linear; }
-.dfv-svg .dfv-node--intent circle { transition: fill .35s, stroke .35s; filter: drop-shadow(0 0 8px currentColor); }
-.dfv-svg .dfv-stress-core,
-.dfv-svg .dfv-intent-core {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: dfv-node-breathe 2.2s ease-in-out infinite;
-}
-.dfv-svg .dfv-intent-core { animation-delay: -1.1s; }
+.dfv-svg .dfv-node--intent circle { transition: fill .18s, stroke .18s; }
 .dfv-svg .dfv-intent-orbit { opacity: 0.35; }
 .dfv-svg .dfv-intent-flash circle { animation: dfv-flash .55s ease-out; }
-@keyframes dfv-node-breathe {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.055); }
-}
 @keyframes dfv-flash {
     0%   { opacity: 0.45; }
     100% { opacity: 1; }
 }
-.dfv-svg .dfv-node--signal circle { transition: fill .25s, stroke .25s; filter: drop-shadow(0 0 6px currentColor); }
-.dfv-svg .dfv-strategy-link { transition: stroke .2s, stroke-opacity .2s, stroke-width .2s; }
-.dfv-svg .dfv-strategy-branch { transition: stroke .18s, stroke-opacity .18s, stroke-width .18s; }
-.dfv-svg .dfv-strategy-link--halo { filter: blur(1.8px) drop-shadow(0 0 8px currentColor); }
-.dfv-svg .dfv-strategy-link--flow { mix-blend-mode: screen; filter: drop-shadow(0 0 6px rgba(255,255,255,0.55)); }
+.dfv-svg .dfv-node--signal circle { transition: fill .18s, stroke .18s; }
+.dfv-svg .dfv-strategy-link { transition: stroke .18s; }
+.dfv-svg .dfv-strategy-branch { transition: stroke .18s; }
+.dfv-svg .dfv-strategy-link--halo { opacity: 0.55; }
+.dfv-svg .dfv-strategy-link--flow { opacity: 0.95; }
 .dfv-svg .dfv-strategy-node-glow {
-    filter: blur(1.8px) drop-shadow(0 0 10px currentColor);
-    transition: fill .2s, opacity .2s;
+    opacity: 0.45;
+    transition: fill .18s, opacity .18s;
 }
 .dfv-svg .dfv-strategy-node-core {
-    filter: drop-shadow(0 0 8px currentColor);
-    transition: fill .18s, stroke .18s, stroke-opacity .18s;
+    transition: fill .18s, stroke .18s;
 }
 .dfv-svg .dfv-strategy-node-inner { transition: fill .18s; }
-.dfv-svg .dfv-strategy-node-spec { filter: blur(0.2px); transition: opacity .2s; }
+.dfv-svg .dfv-strategy-node-spec { transition: opacity .18s; }
 .dfv-svg .dfv-strategy-node-label {
     fill: #e2e8f0;
     font-size: 6.9px;
@@ -1923,14 +2209,12 @@ class DecisionFlowViz {
     box-shadow: 0 0 8px rgba(56,189,248,0.45);
 }
 
-/* —— 入口按钮（融入快捷开关簇） —— */
-.feedback-toggle-btn--decision-flow {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(168, 85, 247, 0.22));
-}
-.feedback-toggle-btn--decision-flow:hover {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.34), rgba(168, 85, 247, 0.34));
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.45);
-}
+/* —— 入口按钮（融入快捷开关簇） ——
+ * v1.55.6：旧版独立蓝紫渐变底色与其他 feedback-toggle-btn 的统一深色不一致。
+ * v1.55.7：激活态 / 非激活态由 main.css 统一规则（.is-active 接管）。
+ * v1.55.8：删除非激活态的细描边——所有"非激活态"按钮在 main.css 已统一浅灰，
+ *   DFV 关闭时与其他按钮完全融为一体；hover 时由 main.css 给一次蓝紫渐变预览
+ *   ("这是 DFV 入口")，避免抢视觉的同时保留可发现性。 */
 .dfv-floating-btn {
     position: fixed; right: 12px; top: 12px; z-index: 9698;
 }
@@ -1959,6 +2243,19 @@ class DecisionFlowViz {
 }
 
 let _instance = null;
+
+/**
+ * v1.55.1：测试 hook。仅给 tests/decisionFlowViz.test.js 用，不在生产路径调用。
+ */
+export const __dfvTestables = {
+    fingerprint: _dfvFingerprint,
+    DFV_FPS_ACTIVE,
+    DFV_FPS_IDLE,
+    DFV_PARTICLE_CAP,
+    DFV_TRAIL_COUNT,
+    setAttrIfChanged: _setAttrIfChanged,
+    createInstance: () => new DecisionFlowViz(),
+};
 
 export function initDecisionFlowViz(game) {
     if (_instance) return _instance;

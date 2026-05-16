@@ -8,6 +8,9 @@
  * 4. 社交互动（点赞、评论）
  */
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
+/* v1.55.10 修复 PB 风险 5：social leaderboard 的"我的最佳"必须以分桶 PB 为权威源
+ * （HUD / PB 庆祝 / endGame submitScoreToBucket 都用这个），避免与 HUD 显示不一致。 */
+import { getAllBestByStrategy } from '../bestScoreBuckets.js';
 
 const STORAGE_KEY = 'openblock_leaderboard_v1';
 
@@ -257,25 +260,48 @@ class SocialLeaderboard {
     }
 
     /**
-     * 获取我的最高分
+     * 获取我的最高分。
+     *
+     * v1.55.10 修复 PB 风险 5（双源不一致）：
+     *   - 旧版只读 `openblock_best_score`，但 Game 主链路从未写过该 key（只有本
+     *     模块的 checkNewRecord 会写）；HUD/PB 庆祝/分桶都走 `openblock_best_by_strategy_v1`。
+     *     结果：social 排行榜的"我的最佳"与 HUD 显示的"最佳"经常对不齐。
+     *   - 现改为：以 `getAllBestByStrategy` 各档 max 作为权威源，
+     *     `openblock_best_score` 作为兜底（用于第一次启动还没有分桶值时）。
+     *   - 写入路径保留对 `openblock_best_score` 的更新，以兼容 server.py
+     *     CORE_KEYS 跨设备同步（避免 hydrate 出现回滚）。
      */
     getMyBestScore() {
-        // 从本地存储获取
+        let bucketMax = 0;
         try {
-            const best = localStorage.getItem('openblock_best_score');
-            return best ? parseInt(best) : 0;
-        } catch {
-            return 0;
-        }
+            const all = getAllBestByStrategy();
+            bucketMax = Math.max(
+                Number(all?.easy) || 0,
+                Number(all?.normal) || 0,
+                Number(all?.hard) || 0,
+            );
+        } catch { /* lazy import / jsdom edge cases */ }
+        let legacy = 0;
+        try {
+            const raw = localStorage.getItem('openblock_best_score');
+            legacy = raw ? parseInt(raw, 10) || 0 : 0;
+        } catch { /* ignore */ }
+        return Math.max(bucketMax, legacy);
     }
 
     /**
-     * 检查是否是新纪录
+     * 检查是否是新纪录。
+     *
+     * v1.55.10：分桶 PB 由 Game.endGame 内部的 `submitScoreToBucket` 负责更新，
+     * 本方法只负责维护 legacy `openblock_best_score`（保证 social leaderboard 显示
+     * 与跨设备 hydrate 持续可用）。读取统一走 `getMyBestScore` 取 max。
      */
     checkNewRecord(score) {
         const best = this.getMyBestScore();
         if (score > best) {
-            localStorage.setItem('openblock_best_score', String(score));
+            try {
+                localStorage.setItem('openblock_best_score', String(score));
+            } catch { /* ignore privacy mode */ }
             return true;
         }
         return false;

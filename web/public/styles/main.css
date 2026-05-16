@@ -201,20 +201,103 @@ body.block-drag-active #app {
 }
 
 /* 画质按钮三档（high / balanced / low）只用 icon（🌈/⚖️/🔋）表达档位差异，
- * 背景 / 不透明度强制保持与其他快捷按钮一致——画质本质上是"始终开启的某一档"，
- * 不存在"未按下/关闭"语义，因此不应继承 [aria-pressed="false"] 的半透明态
- * （那是给"特效关闭 / 音效关闭"等"否定开关"用的）。 */
+ * 强制 opacity:1——画质本质上是"始终开启的某一档"，不存在"未按下/关闭"语义，
+ * 因此不应继承 [aria-pressed="false"] 的半透明态。
+ * v1.55.8：background 不再强制深色；由通用"非激活态浅灰"规则统一接管。 */
 #quality-toggle,
 #quality-toggle[aria-pressed="false"],
 #quality-toggle[aria-pressed="true"] {
     opacity: 1;
-    background: rgba(22, 26, 38, 0.78);
 }
 
 .feedback-toggle-btn:hover,
 .score-theme-quick-cluster > .in-game-menu-btn--toolbar:hover {
-    background: rgba(32, 38, 54, 0.92);
+    background: rgba(110, 118, 138, 0.85);  /* v1.55.8：与浅灰非激活底协调的加深态 */
     box-shadow: 0 3px 10px rgba(0, 0, 0, 0.16);
+}
+
+/* v1.55.7 激活态统一样式
+ * "开启 / 高清 / DFV 打开" 等所有"激活态"按钮统一蓝紫渐变 + 蓝色光晕，与"关闭 /
+ * 省电 / 中性"的深色非激活态形成清晰对比，让玩家一眼分辨快捷开关当前处于"启用"
+ * 还是"关闭"状态。
+ *
+ * 适用范围（覆盖前面的 #quality-toggle 默认深色规则）：
+ *   - visual-effects-toggle aria-pressed="true"   （✨ 视觉特效开）
+ *   - sound-effects-toggle  aria-pressed="true"   （🔊 音效开）
+ *   - quality-toggle        data-quality="high"   （🌈 高画质 · 动态；balanced/low 不激活）
+ *   - decision-flow-viz-btn .is-active            （📊 决策数据流面板已打开）
+ *
+ * 优先级注解：
+ *   - .feedback-toggle-btn[aria-pressed="true"]:not(#quality-toggle) 选择器特异性 = 1 class + 1 attr + :not(id 100) → 实际接近 ID 等级，安全覆盖 #quality-toggle ID 规则
+ *   - #quality-toggle[data-quality="high"] = ID + attr，自然高于 #quality-toggle
+ *   - .feedback-toggle-btn--decision-flow.is-active = 2 class，但 DFV 按钮不是 #quality-toggle，无冲突 */
+.feedback-toggle-btn[aria-pressed="true"]:not(#quality-toggle),
+#quality-toggle[data-quality="high"],
+.feedback-toggle-btn--decision-flow.is-active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.34), rgba(168, 85, 247, 0.34));
+    border-color: color-mix(in srgb, #38bdf8 50%, rgba(255, 255, 255, 0.14));
+    box-shadow:
+        0 0 10px rgba(56, 189, 248, 0.40),
+        0 2px 8px rgba(0, 0, 0, 0.12),
+        0 0 0 1px rgba(56, 189, 248, 0.22) inset;
+    color: #f0f9ff;
+}
+
+/* 激活态 hover：加强蓝光晕，区别非激活态的"加深浅灰背景" */
+.feedback-toggle-btn[aria-pressed="true"]:not(#quality-toggle):hover,
+#quality-toggle[data-quality="high"]:hover,
+.feedback-toggle-btn--decision-flow.is-active:hover {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.46), rgba(168, 85, 247, 0.46));
+    box-shadow:
+        0 0 14px rgba(56, 189, 248, 0.55),
+        0 3px 10px rgba(0, 0, 0, 0.16),
+        0 0 0 1px rgba(56, 189, 248, 0.35) inset;
+}
+
+/* v1.55.8 非激活态统一浅灰底色
+ * 把所有"关闭 / 均衡 / 省电 / DFV 关 / 菜单入口"按钮的底色统一为浅灰，与激活态
+ * 蓝紫渐变形成"亮 vs 暗 / 暖 vs 冷"的清晰对照，玩家一眼分辨"哪些开关已启用"。
+ *
+ * 覆盖范围（特异性故意压在 v1.55.7 激活态之后，让 CSS 顺序天然决出胜负）：
+ *   - visual-effects-toggle aria-pressed="false"        （✦ 视觉特效关）
+ *   - sound-effects-toggle  aria-pressed="false"        （🔇 音效关）
+ *   - quality-toggle        data-quality="balanced/low" （⚖️/🔋 中性 / 省电档）
+ *   - decision-flow-viz-btn :not(.is-active)            （📊 DFV 关）
+ *   - in-game-menu-btn--toolbar                         （☰ 菜单入口）
+ *
+ * opacity 仍由前面的分组规则控制（保留语义层次）：
+ *   - visual/sound off → 0.52（功能被关闭的弱化）
+ *   - quality 中性 / DFV 入口 / menu → 1（常规入口，不弱化） */
+.feedback-toggle-btn[aria-pressed="false"],
+#quality-toggle:not([data-quality="high"]),
+.feedback-toggle-btn--decision-flow:not(.is-active),
+.score-theme-quick-cluster > .in-game-menu-btn--toolbar {
+    background: rgba(84, 92, 112, 0.70);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #f1f5f9;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* v1.55.14：DFV 按钮图标从 📊 emoji 换成内联 SVG 节点流图（更具科技感且跨平台一致）。
+ * 这里给 SVG 加 `display:block` + 居中，避免 inline SVG 受 baseline 影响导致按钮内
+ * 视觉偏下；SVG 自身用 currentColor，无需在此 override fill/stroke。 */
+.feedback-toggle-btn--decision-flow .dfv-btn-icon {
+    display: block;
+    margin: auto;
+}
+.dfv-head .dfv-head-icon svg {
+    display: block;
+    vertical-align: middle;
+}
+
+/* DFV 关闭时 hover：用蓝紫渐变预览暗示"这是 DFV 入口，点开会变激活态"，
+ * 与其他普通按钮 hover 的"浅灰加深"形成入口辨识。 */
+.feedback-toggle-btn--decision-flow:not(.is-active):hover {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(168, 85, 247, 0.28));
+    border-color: color-mix(in srgb, #38bdf8 38%, rgba(255, 255, 255, 0.14));
+    box-shadow:
+        0 0 10px rgba(56, 189, 248, 0.35),
+        0 3px 10px rgba(0, 0, 0, 0.16);
 }
 
 /* 画质档位（由 feedbackToggles.js 写到 <html>）：
@@ -348,16 +431,24 @@ body.block-drag-active #app {
     overflow: hidden;
 }
 
-/* 各节之间的细分隔线（v10.17.14：略加深，去胶囊后承担信息分组的核心作用） */
+/* 各节之间的细分隔线（v1.55.4：14% 黑 → 10% accent，更柔和；
+ * 同时给 .header-skin 之前不再画分隔线——主题选择器自带圆角边框已经形成视觉分组，
+ * 不需要再叠一条硬竖线；这样左侧 stat 群 + 右侧 主题/按钮群 之间天然留呼吸。 */
 .score-theme-row .stat-box + .stat-box::before {
     content: '';
     position: absolute;
     left: 0;
-    top: 22%;
-    bottom: 22%;
+    top: 24%;
+    bottom: 24%;
     width: 1px;
-    background: color-mix(in srgb, var(--text-primary, #1e293b) 14%, transparent);
+    background: color-mix(in srgb, var(--accent-color, #38bdf8) 18%, transparent);
+    opacity: 0.55;
     pointer-events: none;
+}
+
+/* v1.55.4：主题框前不画分隔线，让"stat 信息群"与"操作 cluster"自然分隔 */
+.score-theme-row .stat-box + .header-skin::before {
+    display: none;
 }
 
 /* 能力框（等级 + 称号）：复用 stat-box 外观，列排列 */
@@ -384,15 +475,62 @@ body.block-drag-active #app {
     letter-spacing: 0.01em;
 }
 
+/* v1.55.13（用户反馈"将 LV 换为金色图标，强化显示"）→
+ * v1.55.14 收敛（用户二次反馈"将达人加入徽章内，弱化徽章样式"）：
+ *
+ * 设计变更（相对 v1.55.13）：
+ *   1. 徽章范围由 .progression-level（仅 Lv.21）扩展到整个 .header-level-val
+ *      （Lv.21 + 达人），形成"★ Lv.21 · 达人"一体化金色胶囊；
+ *   2. 弱化质感：移除 v1.55.13 的双 inset 高光 + 外发光，改为单层柔投影 +
+ *      米黄→淡琥珀的低饱和渐变，避免在 HUD 中过抢视觉；
+ *   3. ★ 图标依然用 Unicode（跨平台颜色一致），但 size / glow 都收一档。
+ *
+ * 改动仅 CSS、不动 #prog-level / #prog-title 的 text 注入（game.js:779/780）。 */
+.header-level .header-level-val {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 9px 1px 7px;
+    line-height: 1.15;
+    letter-spacing: 0.01em;
+    color: #5b3e10;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 55%, #facc6a 100%);
+    border: 1px solid rgba(180, 130, 30, 0.32);
+    border-radius: 999px;
+    box-shadow: 0 1px 2px rgba(180, 110, 0, 0.18);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.header-level .header-level-val::before {
+    content: '★';
+    font-size: 11px;
+    line-height: 1;
+    color: #c47b00;
+    text-shadow: 0 0 3px rgba(255, 190, 50, 0.55);
+}
+
 .header-level .progression-level {
-    font-size: 17px;
+    font-size: 13px;
     font-weight: 800;
+    color: #4a2e00;
 }
 
 .header-level .progression-title {
-    font-size: 16px;
+    font-size: 12px;
     font-weight: 700;
+    color: #6b4a10;
+    opacity: 0.92;
 }
+
+/* dark 主题：低饱和金色背景在暗背景上对比度足够；不再单独提亮金，避免破坏"弱化"取舍 */
+html[data-ui-theme="dark"] .header-level .header-level-val {
+    background: linear-gradient(135deg, #ffe9a8 0%, #f5cf6b 55%, #d9a44c 100%);
+    border-color: rgba(80, 40, 0, 0.42);
+    color: #3a2400;
+    box-shadow: 0 1px 3px rgba(255, 180, 30, 0.22);
+}
+html[data-ui-theme="dark"] .header-level .progression-level { color: #2d1a00; }
+html[data-ui-theme="dark"] .header-level .progression-title { color: #4a2e00; opacity: 0.95; }
 
 .header-level .progression-streak {
     font-size: 11px;
@@ -915,7 +1053,12 @@ body.block-drag-active #app {
     overflow: hidden;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+    /* v1.55.9 dark theme 分支已消除 inset 高光，但浅色 / 系统默认仍是 40% 白线 —
+     * 它与 border 视觉上叠加成"双重线条"（用户截图反馈：截图截到 dark 容器上
+     * 的浅色玻璃 select，inset 上高光仍可见）。
+     * v1.55.15：把所有主题下的 inset 高光统一降到 12%（几乎察觉不到的玻璃头光，
+     * 与 border 不再形成可见的"第二条线"）。 */
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
     transition: border-color .18s, background .18s;
 }
 
@@ -951,13 +1094,16 @@ body.block-drag-active #app {
     transition: background-color .15s;
 }
 
-/* 深色 HUD：下拉字与 emoji 加强轮廓光；展开项用更浅槽底色托起深色剪影符号 */
+/* 深色 HUD：下拉字与 emoji 加强轮廓光；展开项用更浅槽底色托起深色剪影符号
+ * v1.55.9：旧版顶部 inset 1px 亮线为 38% 白 + 外圈 1px 描边 6% 白，与 border 形成
+ * 三层错位边缘，肉眼可见上边缘"重影"（用户截图反馈）。
+ *   - 删除外圈 0 0 0 1px 描边（功能与 border 重复）；
+ *   - 顶部 inset 高光从 38% 白降到 12% 白（几乎察觉不到的玻璃头光，不再与 border
+ *     形成第二条可见线）。 */
 html[data-ui-theme="dark"] .header-skin .skin-picker {
     background: color-mix(in srgb, var(--stat-surface, #fff) 42%, transparent);
     border-color: color-mix(in srgb, var(--text-primary, #fff) 14%, transparent);
-    box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.38) inset,
-        0 0 0 1px rgba(255, 255, 255, 0.06);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
 }
 
 html[data-ui-theme="dark"] .header-skin .skin-picker select {
@@ -2117,9 +2263,12 @@ body.game-over-active .first-win-banner {
 }
 
 /* v1.50.x：能力指标整合阶段·成熟度后变 8 项 → 4×2。
- * 用独立 modifier，未集成 lifecycle 的旧布局（如回放）仍走 3 列。 */
+ * 用独立 modifier，未集成 lifecycle 的旧布局（如回放）仍走 3 列。
+ * v1.55.12：4 列容易把数值（"65%"）压缩到只剩"6.."，所以本 modifier 下
+ * 进一步收窄水平 gap，给 .insight-metric 内 label/strong 留更多字符空间。 */
 .insight-grid--with-lifecycle {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px 4px;
 }
 
 .panel-section > .insight-grid {
@@ -2133,9 +2282,12 @@ body.game-over-active .first-win-banner {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 6px;
+    /* v1.55.12：gap 6→3，padding 4 8→3 5；4 列布局下 label "能力" + 数值 "65%"
+     * 在原 padding/gap 设置中合计 ≈ 53px，超过 4 列分到的 ~50px 单 cell 内宽，
+     * 触发 strong 的 ellipsis 截成"6.."。本次紧凑化后单 cell 实际可用 ~62px，足够。 */
+    gap: 3px;
     min-width: 0;
-    padding: 4px 8px;
+    padding: 3px 5px;
     font-size: 8.5px;
     line-height: 1.2;
     color: var(--text-secondary, #3d5266);
@@ -2146,21 +2298,29 @@ body.game-over-active .first-win-banner {
     overflow: hidden;
 }
 
+/* v1.55.12：label 端允许在极窄屏幕上让位（中文 2 字几乎不会触发 ellipsis），
+ * 把"完整显示数值"作为最高优先级——数值才是决策信息，label 是固定上下文。 */
 .insight-metric > span:first-child {
-    flex-shrink: 0;
-    opacity: 0.92;
-}
-
-.insight-metric strong {
     flex: 1 1 auto;
     min-width: 0;
-    text-align: right;
-    color: var(--accent-color, #1a6b5c);
-    font-size: 9px;
-    font-weight: 700;
-    white-space: nowrap;
+    opacity: 0.92;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* v1.55.12：数值（strong）改 `flex-shrink: 0` + 移除 ellipsis ——
+ * 让 "65%" / "S3稳定" / "M0新手" 始终完整可见，否则面板的核心信息就丢了。
+ * 同时把 font-size 从 9px 微调到 8.5px，让 3 字符值在 ~30px 字符空间内更稳。 */
+.insight-metric strong {
+    flex: 0 0 auto;
+    text-align: right;
+    color: var(--accent-color, #1a6b5c);
+    font-size: 8.5px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
 }
 
 /* v1.13：冷启动占位（尚未采集到样本）—— 数值显示为「—」并降低对比度，
@@ -2382,10 +2542,14 @@ body.game-over-active .first-win-banner {
     animation: stress-meter-breath var(--stress-breath-ms, 1800ms) ease-in-out infinite;
 }
 
+/* v1.55.3 GPU 合成优化：keyframe 内移除 transform: scale，改为 opacity-only。
+ * opacity 是 composite-only 属性（只在合成层做），相比 transform 不再触发 layer
+ * 重新栅格化。视觉略损（脉冲不再缩放只 fade），但 HUD 常驻动画从"持续 raster + compose"
+ * 降为"只 compose"，与 docs/engineering/PERFORMANCE.md §1.1 "尽量不用 keyframe 内
+ * transform/filter" 规约一致。 */
 @keyframes stress-meter-breath {
-    0%   { transform: scale(0.86); opacity: 0.0; }
-    50%  { transform: scale(1.18); opacity: 0.55; }
-    100% { transform: scale(0.86); opacity: 0.0; }
+    0%, 100% { opacity: 0.0; }
+    50%      { opacity: 0.55; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3869,15 +4033,16 @@ body.game-over-active .first-win-banner {
     border: 1px solid color-mix(in srgb, #ffd166 55%, transparent);
     border-radius: 999px;
     color: #ffd166;
+    /* v1.55.5：移除 backdrop-filter:blur(12px)。这个徽章浮在棋盘上方持续 8s，
+     * blur 每帧对底下所有像素做高斯模糊合成，盘面变化时尤其昂贵（§15 黑名单）。
+     * 改为完全不透明背景 + 内描边渐变模拟"玻璃感"，视觉差异极小但 GPU 成本归 0。 */
     background:
-        linear-gradient(180deg, rgba(255, 209, 102, 0.16), rgba(255, 209, 102, 0.06)),
-        rgba(18, 26, 28, 0.78);
+        linear-gradient(180deg, rgba(40, 50, 56, 0.96), rgba(22, 28, 32, 0.96));
     box-shadow:
         0 10px 28px rgba(0, 0, 0, 0.28),
-        0 0 24px rgba(255, 209, 102, 0.24);
+        0 0 24px rgba(255, 209, 102, 0.24),
+        0 1px 0 rgba(255, 209, 102, 0.14) inset;
     pointer-events: none;
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
     animation: rewardBadgePop 8s cubic-bezier(0.16, 1, 0.32, 1) forwards;
 }
 
@@ -3894,16 +4059,15 @@ body.game-over-active .first-win-banner {
     border: 1px solid color-mix(in srgb, #ffd166 55%, transparent);
     border-radius: 4px;
     color: #ffd166;
+    /* v1.55.5：移除 backdrop-filter:blur(10px)（与 .float-daily-reward 同因） */
     background:
-        linear-gradient(180deg, rgba(255, 209, 102, 0.16), rgba(255, 209, 102, 0.06)),
-        rgba(18, 26, 28, 0.78);
+        linear-gradient(180deg, rgba(40, 50, 56, 0.96), rgba(22, 28, 32, 0.96));
     box-shadow:
         0 8px 18px rgba(0, 0, 0, 0.22),
-        0 0 16px rgba(255, 209, 102, 0.22);
+        0 0 16px rgba(255, 209, 102, 0.22),
+        0 1px 0 rgba(255, 209, 102, 0.14) inset;
     pointer-events: none;
     z-index: 1000;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
     animation: scoreRewardBadgePop 8s cubic-bezier(0.16, 1, 0.32, 1) forwards;
 }
 
@@ -4087,6 +4251,9 @@ body.game-over-active .first-win-banner {
     78%  { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1); }
     100% { opacity: 0; transform: translateX(-50%) translateY(-40px) scale(0.94); }
 }
+
+/* v1.55.11：「追平最佳」特效已撤销（用户反馈"追平不触发特效"）。
+ * 原 .float-tie-best 规则已删除；如未来灰度恢复追平，可参考 git history 重新加入。 */
 
 /* ── No Moves End（无路可走、即将 game over 的鼓励语，区别于 near-miss） ── */
 
@@ -5920,6 +6087,94 @@ body.doc-visibility-hidden #menu * {
 }
 .stat-box--best { position: relative; }
 
+/* v1.55.4 §4.13 难度档徽章：
+ *   旧版徽章独占 stat-box 第 3 行（margin-top + inline-block），导致徽章在
+ *   "最佳 7420" 数字下方孤悬，与左侧 stat 群、右侧主题/按钮群完全脱节；
+ *   且亮翠绿 (#34d399→#059669) 与暗色 HUD 配色冲突，视觉上抢戏。
+ *
+ *   新版：
+ *     1. 脱离正常流（absolute 到 stat-box--best 右上角），不再占用 row 高度；
+ *     2. 尺寸收紧（9.5px/微 chip），不抢主数字 20px 的视觉焦点；
+ *     3. EASY 改用低饱和度薄荷渐变 + 深森林文字，传达"稳健、已掌握"的内敛成就感；
+ *     4. HARD 保留金橙呼吸（产品 §4.13 烟火语义），但弱化整体饱和度。 */
+.best-strategy-badge {
+    position: relative; /* hard 的 ::after 光晕需要 */
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: .05em;
+    line-height: 1;
+    padding: 2px 5px 1.5px;
+    border-radius: 6px;
+    user-select: none;
+    pointer-events: none;
+    display: inline-block;
+}
+/* v1.55.6 修复 v1.55.4 回归：
+ *   旧版 grid-row:2 + justify-self:end + margin: 0 -6px -2px 0 让徽章贴 stat-value
+ *   行的右下角，4 位数（如 1960）尾部"60"被徽章直接遮住（用户反馈截图箭头 1）。
+ *   新版：徽章贴 row 1（与 stat-label "最佳" 同行的右侧），与 row 2 数字完全脱开。
+ *   row 1 高度由 label 决定，徽章 align-self:center 顺势对齐 label 中线；不依赖
+ *   label 文字宽度（i18n 切英文 "Best" 也稳定）。 */
+.score-theme-row .stat-box--best .best-strategy-badge {
+    grid-row: 1;
+    grid-column: 1;
+    justify-self: end;
+    align-self: center;
+    margin-right: -8px;  /* 微出 box 右边界，与右侧分隔线/主题框留一小段呼吸 */
+    z-index: 2;
+}
+/* EASY：浅薄荷渐变 + 深森林字，含蓄稳健 */
+.best-strategy-badge--easy {
+    background:
+        linear-gradient(180deg, color-mix(in srgb, #a7f3d0 92%, #fff) 0%, #6ee7b7 100%);
+    color: #065f46;
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.55) inset,
+        0 1px 2px rgba(5, 95, 70, .22);
+    border: 1px solid color-mix(in srgb, #059669 28%, transparent);
+}
+/* HARD：金橙渐变 + 白字 + 呼吸光晕（呼吸通过 ::after opacity 实现，composite-only） */
+.best-strategy-badge--hard {
+    background: linear-gradient(180deg, #fdba74 0%, #ea580c 100%);
+    color: #fff;
+    border: 1px solid color-mix(in srgb, #c2410c 40%, transparent);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.30) inset,
+        0 1px 3px rgba(154, 52, 18, .45),
+        0 0 8px rgba(251, 146, 60, .40);
+    text-shadow: 0 1px 0 rgba(154, 52, 18, .35);
+}
+.best-strategy-badge--hard::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 12px rgba(251, 146, 60, .70);
+    opacity: 0;
+    pointer-events: none;
+    animation: hardBadgeFlicker 2.6s ease-in-out infinite;
+}
+@keyframes hardBadgeFlicker {
+    0%, 100% { opacity: 0.0; }
+    50%      { opacity: 0.7; }
+}
+
+/* 深色 UI 主题下：EASY 改用与暗背景协调的深色 chip（避免亮薄荷在暗背景上"漂浮"） */
+html[data-ui-theme="dark"] .best-strategy-badge--easy {
+    background:
+        linear-gradient(180deg, color-mix(in srgb, #10b981 35%, #0f172a) 0%, color-mix(in srgb, #059669 28%, #0f172a) 100%);
+    color: #a7f3d0;
+    border-color: color-mix(in srgb, #10b981 45%, transparent);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.10) inset,
+        0 1px 2px rgba(0, 0, 0, .45);
+}
+
+/* v1.55 §4.6 二度纪录：弱版庆祝弹窗（保持兴奋但不淹没视觉） */
+.new-best-popup--second .new-best-title { font-size: 22px; opacity: .92; }
+.new-best-popup--second .new-best-score { font-size: 28px; }
+.new-best-popup--second { animation-duration: 1.3s; }
+
 /* v10.17.12：最佳数字保持 70% 比例 —— 28 → 20（弱化光晕，2 层浮雕） */
 .stat-box--best .stat-value {
     font-size: 20px;
@@ -5994,10 +6249,13 @@ body.doc-visibility-hidden #menu * {
     pointer-events: none;
     opacity: 0;
     background: transparent;
-    will-change: opacity, background;
+    /* v1.55.5：will-change 仅在转场期间挂载。
+     * 常驻 will-change: opacity, background 会让浏览器为该元素长期保留独立合成层，
+     * 而皮肤切换是稀有事件（用户 1-2 次/局），平时占着合成层资源无意义。 */
 }
 #skin-transition-overlay.is-running {
     pointer-events: none;
+    will-change: opacity, background;
 }
 
 /* 2. 节日 / 时段推荐 toast（顶部居中条幅，含「切换」按钮）
@@ -6241,13 +6499,23 @@ body.doc-visibility-hidden #menu * {
         transparent 340deg,
         transparent 360deg
     );
+    /* v1.55.5 GPU 泄漏修复：
+     *   13+ 调用方设置 data-tier='celebrate'，但只有 5 个会 delete dataset.tier；
+     *   其余 7 个（rankSystem / monthlyMilestone / skinFragments / wowMoments /
+     *   dailyDish / replayAlbum / firstWinBoost）永久挂着 data-tier="celebrate"。
+     *   即使 toast 不可见（无 .is-visible），3 个 infinite 动画
+     *   （rays/icon-pulse/title-shimmer）仍持续合成，是 GPU 常驻占用源头之一。
+     *   方案：默认 animation-play-state: paused，仅 .is-visible 期间 running；
+     *   动画状态变更几乎零成本，但能彻底消除"toast 隐藏后仍在跑"的泄漏。 */
     animation: celebrate-rays 10s linear infinite;
+    animation-play-state: paused;
     opacity: 0;
     filter: blur(3px);
     transition: opacity 0.6s ease;
 }
 #easter-egg-toast[data-tier="celebrate"].is-visible::before {
     opacity: 0.85;
+    animation-play-state: running;
 }
 
 /* 内圈遮罩 — 让光线只在卡片外围可见 */
@@ -6276,9 +6544,14 @@ body.doc-visibility-hidden #menu * {
     font-size: 56px !important;
     line-height: 1 !important;
     margin: 0 0 12px !important;
+    /* v1.55.5：见 ::before 注释，gate 到 .is-visible 避免常驻泄漏 */
     animation: celebrate-icon-pulse 1.4s ease-in-out infinite alternate;
+    animation-play-state: paused;
     filter: drop-shadow(0 0 22px color-mix(in srgb, var(--accent-color, #fbbf24) 75%, transparent))
             drop-shadow(0 4px 8px rgba(0, 0, 0, 0.55));
+}
+#easter-egg-toast[data-tier="celebrate"].is-visible > div:nth-child(1) {
+    animation-play-state: running;
 }
 
 /* 第 2 个 div：标题字（24px 衬线 + 金色渐变 + 光晕投影） */
@@ -6300,7 +6573,16 @@ body.doc-visibility-hidden #menu * {
     /* 等宽阴影 + 金色光晕 — text-shadow 通过 filter 模拟（兼容 background-clip:text） */
     filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-color, #fbbf24) 65%, transparent))
             drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+    /* v1.55.5：title-shimmer keyframe 内 filter:drop-shadow 是 §15 黑名单（GPU 极高），
+     *   但属于 celebrate 罕见事件（4.5s 内出现），不便用 ::after opacity 替换
+     *   （元素已 background-clip:text + filter，加伪元素会破坏排版）。
+     *   退而求其次：gate 到 .is-visible，确保 toast 隐藏后立即停止；
+     *   且 prefers-reduced-motion 兜底中已 `animation:none`。 */
     animation: celebrate-title-shimmer 2.4s ease-in-out infinite alternate;
+    animation-play-state: paused;
+}
+#easter-egg-toast[data-tier="celebrate"].is-visible > div:nth-child(2) {
+    animation-play-state: running;
 }
 
 /* 第 3 个 div：描述（13px 浅色 + 字距增加） */

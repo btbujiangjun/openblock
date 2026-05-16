@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} baris',
     'effect.doubleClear': 'Bersih ganda',
     'effect.iconBonus': 'Pembersihan Royal Flush',
-    'effect.newRecord': 'Rekor baru',
+    'effect.newRecord': '🏆 Rekor baru!',
 
     'skin.name.classic': '✨ Klasik minimal',
     'skin.name.titanium': '💎 Matriks titanium',

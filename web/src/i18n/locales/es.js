@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} líneas',
     'effect.doubleClear': 'Doble limpieza',
     'effect.iconBonus': 'Eliminación Escalera Real',
-    'effect.newRecord': 'Nuevo récord',
+    'effect.newRecord': '🏆 ¡Nuevo récord!',
 
     'skin.name.classic': '✨ Clásico minimal',
     'skin.name.titanium': '💎 Matriz de titanio',

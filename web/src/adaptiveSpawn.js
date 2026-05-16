@@ -64,6 +64,52 @@ import { getLifecycleStressCap } from './lifecycle/lifecycleStressCapMap.js';
 const PC_SETUP_MIN_FILL = 0.45;
 
 /* ------------------------------------------------------------------ */
+/*  v1.55.17：stress 对外归一化（B-Clean）                              */
+/*
+ * 历史背景：内部 stress 标量值域为 [-0.2, 1]（17 个分量带符号求和后 clamp）；
+ * 但 [-0.2, 1] 对外暴露给玩家面板 / 运营看板 / 策略卡 / DFV / 文档时不直观
+ * （"-0.20 表示什么？"），且与"压力指数"通常的 [0,1] 心智模型不一致。
+ *
+ * 决策（详见 docs/algorithms/ADAPTIVE_SPAWN.md §3.5 与 docs/player/REALTIME_STRATEGY.md
+ * 的「stress 域口径」章节）：
+ *   - 算法内部全过程保持 raw 域 [-0.2, 1] 不变（不动 17 个 delta 常数、25+ 比较阈值、
+ *     profile 锚点、lifecycle cap 表、game_rules.json 配置等）；
+ *   - 所有「对外暴露」的字段（_adaptiveStress / insight.stress / DFV / 面板 / 策略卡
+ *     toast）统一归一化为 [0, 1]：display = (raw + 0.2) / 1.2；
+ *   - 内部状态字段（_adaptiveStressRaw）继续以 raw 域返回，供 game.js 的
+ *     prevAdaptiveStress 平滑链路、spawnModel.js 的 ML 推理（按 raw 训练）等
+ *     "保持训练时分布"的下游使用，避免域错位。
+ *
+ * 数学：normalizeStress(raw) = clamp01((raw + 0.2) / 1.2)
+ *   raw = -0.2  →  norm = 0       （完全减压）
+ *   raw =  0    →  norm = 1/6 ≈ 0.1667（baseline / 中性，对应 _stressTarget=0.325 之前
+ *                                        的「无任何 adjust」起点）
+ *   raw =  0.5  →  norm ≈ 0.5833  （中度加压）
+ *   raw =  0.7  →  norm = 0.75    （challengeBoost 饱和门槛）
+ *   raw =  0.79 →  norm = 0.825   （flowPayoffStressCap，兑现窗口硬顶）
+ *   raw =  0.85 →  norm = 0.875   （challengeBoost 上限）
+ *   raw =  1    →  norm = 1       （全局硬顶）
+ *
+ * 调参提示：源码内部 if/min/max 处的阈值（如 `stress < 0.7`）保留 raw 写法，旁边
+ * 加 "raw 0.7 ≈ norm 0.75" 行内注释（不写在 JSDoc 内以避免注释结束符嵌套），
+ * 让源码读者即刻反查对外口径。
+ */
+export const STRESS_NORM_OFFSET = 0.2;
+export const STRESS_NORM_SCALE = 1.2;
+
+export function normalizeStress(raw) {
+    const n = (Number(raw) + STRESS_NORM_OFFSET) / STRESS_NORM_SCALE;
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
+}
+
+export function denormalizeStress(norm) {
+    const r = Number(norm) * STRESS_NORM_SCALE - STRESS_NORM_OFFSET;
+    if (!Number.isFinite(r)) return 0;
+    return Math.max(-0.2, Math.min(1, r));
+}
+
+/* ------------------------------------------------------------------ */
 /*  profile 插值                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -157,6 +203,15 @@ function _mergeLiveGeometrySignals(ctx) {
     return next;
 }
 
+/**
+ * 盘面几何风险（0..1）。
+ *
+ * **设计注记**：`boardRisk` **不直接参与 stress 标量求和**（见本文件 `_SUM_SKIP` 排除规则，约 line 918），
+ * 而是通过三条独立通路体现，避免与其它风险信号双重计数：
+ *   1. `boardRiskReliefAdjust` —— 走 stressBreakdown 内的"舒缓"通道
+ *   2. `immediateRelief` / `flowPayoffStressCap` —— 作为下游门控条件
+ *   3. `deriveSpawnTargets` —— 作为减法风险舒缓项影响 spawnTargets
+ */
 function deriveBoardRisk(fill, holePressure, abilityRisk) {
     const fillRisk = Math.max(0, Math.min(1, ((fill ?? 0) - 0.45) / 0.4));
     return Math.max(0, Math.min(1, fillRisk * 0.45 + holePressure * 0.35 + (abilityRisk ?? 0) * 0.2));
@@ -441,28 +496,65 @@ function deriveDelightTuning(profile, ctx, fill, cfg = {}) {
 /*  字段命名 v1.49 已统一改为 scoreMilestone* 前缀，便于跨模块辨识。       */
 /* ------------------------------------------------------------------ */
 
-/** 新手 / bestScore 未知时的绝对档位（fallback） */
-const SCORE_MILESTONES_ABS = [50, 100, 150, 200, 300, 500];
+/**
+ * v1.55.10 score milestone 触发的最低 bestScore 门槛。
+ *
+ * 用户反馈："总分很低时，很容易达成最佳，给激励特效不符合认知"——例如新手 best=0
+ * 时跨过 50 就弹"分数突破 50！"，玩家会觉得"我都没努力就突破了"，激励特效反而
+ * 削弱了"挑战自己 PB"的核心叙事。
+ *
+ * 阈值定为 500：大致对应玩家 5-10 分钟稳定游戏后的水平，能区分"还在熟悉游戏"
+ * vs "在挑战自己 PB"两种用户心态。低于 500 时不出 milestone toast，让 PB 庆祝
+ * （_maybeCelebrateNewBest）和"追平最佳"（_maybeCelebrateTiePersonalBest）
+ * 接管所有"分数相关"的情绪反馈。
+ */
+export const MIN_BEST_FOR_MILESTONE_TOAST = 500;
 
-/** 已有 bestScore 时的相对档位比例 — 让所有水位玩家都能感受到节奏 */
-const SCORE_MILESTONES_REL = [0.25, 0.5, 0.75, 1.0, 1.25];
+/**
+ * v1.55.10 当 bestScore ≥ MIN_BEST_FOR_MILESTONE_TOAST 时使用的相对档位（百分比锚点）。
+ *
+ * 仅保留 50% / 75% / 90% 三档（旧版 0.25/0.5/0.75/1.0/1.25 五档过于频繁，且 1.0 与
+ * "追平最佳"撞车、1.25 与"破 PB"庆祝撞车）：
+ *   - 50%：到达半程，激励"继续"
+ *   - 75%：进入冲刺区，激励"再加把劲"
+ *   - 90%：决战前夜（与 _maybeEmitNearPersonalBest @ 95% 互补）
+ * 100% 由"追平最佳"特效专门处理；> 100% 由 PB 庆祝处理。
+ */
+const SCORE_MILESTONES_REL = [0.50, 0.75, 0.90];
 
 /**
  * 派生当前生效的分数里程碑表。
  *
- * - 当 bestScore < 200（新手或刚起步）时，沿用绝对档位 [50,100,150,200,300,500]——
- *   保证新手能感受到稳定的"突破 50→100→150"节奏；
- * - 当 bestScore ≥ 200 时，按 [0.25, 0.5, 0.75, 1.0, 1.25] × bestScore 派生——
- *   避免老玩家开局头几秒被 6 个绝对档位连击、之后再无任何里程碑反馈。
+ * v1.55.10 改造（用户反馈）：
+ *   - 旧版 best < 200 走绝对档位 [50,100,150,200,300,500] —— 已删除：新手 best 很低时
+ *     不该出 milestone toast，否则"刚得 50 分就突破"不符合认知。
+ *   - 旧版 best ≥ 200 走 [0.25, 0.5, 0.75, 1.0, 1.25] —— 改为 [0.50, 0.75, 0.90]
+ *     三档，且要求 best ≥ MIN_BEST_FOR_MILESTONE_TOAST（500）才返回非空表。
+ *   - post-PB 二度里程碑（+10%/+25%）保留（v1.55 §4.6）。
  *
- * @param {number} bestScore 当前账号历史最佳；0 或缺失时按新手处理。
- * @returns {number[]} 单调递增的里程碑分数数组
+ * @param {number} bestScore     当前账号历史最佳；0 或缺失或 < MIN 时返回空表。
+ * @param {number} [currentScore] 当前局内分数，用于派生二度里程碑（v1.55 §4.6）。
+ * @returns {number[]} 单调递增的里程碑分数数组；best < MIN 时返回空表 → 不出 toast
  */
-function deriveScoreMilestones(bestScore) {
-    if (!Number.isFinite(bestScore) || bestScore < 200) {
-        return SCORE_MILESTONES_ABS.slice();
+function deriveScoreMilestones(bestScore, currentScore = 0) {
+    if (!Number.isFinite(bestScore) || bestScore < MIN_BEST_FOR_MILESTONE_TOAST) {
+        /* v1.55.10：低 best 不触发 score milestone toast，把"分数相关情绪反馈"
+         * 完全让位给 PB 庆祝 / 追平 / near-PB 提示。 */
+        return [];
     }
-    return SCORE_MILESTONES_REL.map(r => Math.round(bestScore * r));
+    let base = SCORE_MILESTONES_REL.map(r => Math.round(bestScore * r));
+    /* v1.55 §4.6：玩家已破 PB 时追加 [+10%, +25%] × bestScore 作为"再征服"节点。 */
+    if (Number.isFinite(currentScore) && currentScore > bestScore) {
+        const extras = [1.10, 1.25]
+            .map(r => Math.round(bestScore * r))
+            .filter(m => m > bestScore);
+        if (extras.length > 0) {
+            const merged = Array.from(new Set([...base, ...extras]));
+            merged.sort((a, b) => a - b);
+            base = merged;
+        }
+    }
+    return base;
 }
 
 /**
@@ -484,20 +576,53 @@ function deriveSessionArc(totalRounds, sessionPhase) {
  * @param {number[]} milestones 当前生效的里程碑表（来自 deriveScoreMilestones）
  * @returns {{ hit: boolean, milestone: number }}
  */
-function checkScoreMilestone(score, prevMilestone, milestones) {
+function checkScoreMilestone(score, prevMilestone, milestones, bestScore = 0) {
+    /* v1.55.10 局内频次控制（分两阶段计数，"局内一次"按阶段计算）：
+     *
+     *   阶段 A — base 档（玩家分数 ≤ bestScore 阶段）：
+     *     50% / 75% / 90% 三档，本局最多 hit 1 次。
+     *
+     *   阶段 B — post-PB 二度档（玩家分数 > bestScore，已破纪录的"再征服"段）：
+     *     +10% / +25% 两档，本局最多 hit 1 次。
+     *
+     * 拆成两阶段的原因：
+     *   - 用户反馈"局内特效只出现一次"是针对 base 段的审美疲劳；
+     *   - §4.6 二度档的设计意图是"破纪录之后给一个'再创新高'的节奏"，
+     *     与 base 段属于不同心理时刻，合并计数会让破 PB 玩家完全失去节奏点。
+     *
+     * 单局最多 2 次激励 toast（base + post-PB），且都在玩家"有意义的进度时刻"。
+     */
+    const inPostPbSegment = Number.isFinite(bestScore) && bestScore > 0 && score > bestScore;
+    const firedThisSegment = inPostPbSegment
+        ? _milestoneToastPostPbFiredThisRun
+        : _milestoneToastBaseFiredThisRun;
+    if (firedThisSegment) {
+        return { hit: false, milestone: prevMilestone ?? 0 };
+    }
     for (const m of milestones) {
-        if (score >= m && (prevMilestone ?? 0) < m) {
-            return { hit: true, milestone: m };
-        }
+        if (score < m || (prevMilestone ?? 0) >= m) continue;
+        const isPostPbDoor = Number.isFinite(bestScore) && bestScore > 0 && m > bestScore;
+        /* 段隔离：当前若在 post-PB 段，不回头命中 base 档（避免破 PB 后第一次 resolve
+         * 还把"50% PB"的 toast 弹出来——那已经不再有意义）；反之亦然。 */
+        if (inPostPbSegment !== isPostPbDoor) continue;
+        if (isPostPbDoor) _milestoneToastPostPbFiredThisRun = true;
+        else _milestoneToastBaseFiredThisRun = true;
+        return { hit: true, milestone: m };
     }
     return { hit: false, milestone: prevMilestone ?? 0 };
 }
 
 /** 记录上次触发的分数里程碑（模块级状态，每局开始由 resetAdaptiveMilestone 清零） */
 let _prevScoreMilestone = 0;
+/** v1.55.10：本局是否已经触发过 base 段（≤ PB）的 milestone toast */
+let _milestoneToastBaseFiredThisRun = false;
+/** v1.55.10：本局是否已经触发过 post-PB 段（> PB）的 milestone toast */
+let _milestoneToastPostPbFiredThisRun = false;
 
 export function resetAdaptiveMilestone() {
     _prevScoreMilestone = 0;
+    _milestoneToastBaseFiredThisRun = false;
+    _milestoneToastPostPbFiredThisRun = false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -510,7 +635,8 @@ export function resetAdaptiveMilestone() {
 
 /**
  * 根据 stress 选择解法数量档位。
- * @param {number} stress 综合压力（约 -0.2 ~ 1）
+ * @param {number} stress 综合压力（内部 raw 域 [-0.2, 1]；本函数在算法内部消费，
+ *                        对外面板 stress 域 [0, 1] 见本文件顶部 normalizeStress 注释）
  * @param {object} cfg adaptiveSpawn.solutionDifficulty
  * @param {number} fill 当前盘面填充率
  * @returns {{ min: number|null, max: number|null, label?: string } | null}
@@ -657,9 +783,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         endSessionDistress = Math.max(-0.25, endSessionDistress);
     }
 
-    /* ---------- Layer 3: 局内分数里程碑（与跨局成熟度里程碑无关） ---------- */
-    const scoreMilestones = deriveScoreMilestones(ctx.bestScore ?? 0);
-    const scoreMilestoneCheck = checkScoreMilestone(score, _prevScoreMilestone, scoreMilestones);
+    /* ---------- Layer 3: 局内分数里程碑（与跨局成熟度里程碑无关） ----------
+     * v1.55 §4.6：把 currentScore 透传给 deriveScoreMilestones，让"已破 PB 的本局"
+     * 自动追加 +10% / +25% 的二度里程碑节点，避免破 PB 后失去节奏。 */
+    const scoreMilestones = deriveScoreMilestones(ctx.bestScore ?? 0, score);
+    const scoreMilestoneCheck = checkScoreMilestone(score, _prevScoreMilestone, scoreMilestones, ctx.bestScore ?? 0);
     if (scoreMilestoneCheck.hit) _prevScoreMilestone = scoreMilestoneCheck.milestone;
     const delight = deriveDelightTuning(profile, ctx, _boardFill ?? 0, cfg.delight ?? {});
     const abilityRiskCfg = GAME_RULES.playerAbilityModel?.adaptiveSpawnRiskAdjust ?? {};
@@ -941,16 +1069,46 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /* ---------- B 类进阶挑战档：高分段自动加压 ----------
      * 触发条件：
      *   1. 玩家分群为 B（中度无尽）或 sessionTrend=stable/rising
-     *   2. 当前分数 ≥ 历史最高分 × 0.8（接近最高分时增加挑战感）
+     *   2. 当前分数 ≥ 历史最高分 × 0.8（接近最高分时增加挑战感，对应 D2/D3 段）
      *   3. stress 尚未满档（避免叠加溢出）
+     *
+     * v1.55（BEST_SCORE_CHASE_STRATEGY §4.2 + §4.5）新增四重 bypass：
+     *   - profile.needsRecovery：玩家正在被救场，加压会与减压打架
+     *   - hasBottleneckSignal：v1.30 bottleneckRelief 已介入，再加压等于双重打击
+     *   - frustrationLevel ≥ frustThreshold：已经连失多步，加压会让玩家彻底放弃
+     *   - sessionArc === 'warmup'：本局前 3 轮，不应让玩家开局就被告知"已接近 PB"
+     *   - profile.isInOnboarding：onboarding 期已强制 stressOverride
+     *
+     * v1.55 同时把"被 bypass 的触发原因"写入 stressBreakdown.challengeBoostBypass
+     * 供 DFV / playerInsightPanel / 单测验证；未触发时为 null。
      * 效果：stress 额外 +0.08~+0.15，使出块更复杂、填充更密
      * ---------------------------------------------------------- */
     const segment5 = profile.segment5 ?? 'A';
     const sessionTrend = profile.sessionTrend ?? 'stable';
-    const isBClassChallenge = (segment5 === 'B' || sessionTrend !== 'declining')
-        && ctx.bestScore > 0
-        && score >= ctx.bestScore * 0.8
-        && stress < 0.7;
+    const pbDistanceClose = ctx.bestScore > 0 && score >= ctx.bestScore * 0.8;
+    /** @type {string|null} 命中的 bypass 原因（按优先级返回首个）；未触发任何 bypass 时为 null */
+    let challengeBoostBypass = null;
+    if (!pbDistanceClose) {
+        challengeBoostBypass = 'pb_distance_far';
+    } else if (!(segment5 === 'B' || sessionTrend !== 'declining')) {
+        challengeBoostBypass = 'segment_declining';
+    } else if (!(stress < 0.7)) {
+        challengeBoostBypass = 'stress_saturated';
+    } else if (profile.needsRecovery === true) {
+        challengeBoostBypass = 'recovery';
+    } else if (hasBottleneckSignal) {
+        challengeBoostBypass = 'bottleneck';
+    } else if (Number.isFinite(profile.frustrationLevel)
+        && profile.frustrationLevel >= frustThreshold) {
+        challengeBoostBypass = 'frustration';
+    } else if (sessionArc === 'warmup') {
+        challengeBoostBypass = 'warmup';
+    } else if (ctx.postPbReleaseActive === true) {
+        /* v1.55 §4.9：破纪录释放窗口期内 challengeBoost 完全禁用，
+         * 给玩家"破纪录后短暂的'我赢了'情绪"留出释放空间。 */
+        challengeBoostBypass = 'post_pb_release';
+    }
+    const isBClassChallenge = challengeBoostBypass === null;
     if (isBClassChallenge) {
         let challengeBoost = Math.min(0.15, (score / ctx.bestScore - 0.8) * 0.75);
         /* v1.29：友好盘面救济与 B 类挑战加压同帧显著时互抑，减轻 stress 锯齿抖动 */
@@ -963,6 +1121,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     } else {
         stressBreakdown.challengeBoost = 0;
     }
+    /* v1.55：把 bypass 原因写入 breakdown 供面板/单测；未来 DFV 可显示一句话解释。 */
+    stressBreakdown.challengeBoostBypass = challengeBoostBypass;
 
     stressBreakdown.beforeClamp = stress;
     stress = Math.max(-0.2, Math.min(1, stress));
@@ -1022,6 +1182,22 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         stressBreakdown.flowPayoffCap = flowPayoffCap;
         stressBreakdown.flowPayoffCapAdjust = stress - prevStress;
     }
+    /* v1.55 §4.9：postPbReleaseWindow ——
+     * 玩家刚刚刷新 PB 后，game.js 在 _spawnContext 上写 postPbReleaseActive=true
+     * 与 postPbReleaseRemaining=3（消费完 3 个 spawn 后自动归零）。释放窗口期内：
+     *   - 正向 stress 按 RELEASE_FACTOR=0.7 衰减（让"破纪录后的一瞬间"轻盈）
+     *   - challengeBoost 已经在前面 bypass='post_pb_release'
+     *   - clearGuarantee +1（下方 spawnHints 处再加）
+     * 与 occupancyDamping 互补：occupancyDamping 看"盘面空"，本信号看"刚破 PB"。 */
+    let postPbReleaseStressAdjust = 0;
+    if (ctx.postPbReleaseActive === true && stress > 0) {
+        const RELEASE_FACTOR = 0.7;
+        const scaled = stress * RELEASE_FACTOR;
+        postPbReleaseStressAdjust = scaled - stress;
+        stress = scaled;
+    }
+    stressBreakdown.postPbReleaseActive = ctx.postPbReleaseActive === true;
+    stressBreakdown.postPbReleaseStressAdjust = postPbReleaseStressAdjust;
     stressBreakdown.finalStress = stress;
 
     /* ---------- v1.32：顺序刚性（orderRigor / orderMaxValidPerms） ----------
@@ -1207,6 +1383,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         if (Number.isFinite(winbackPreset.sizePreferenceShift) && winbackPreset.sizePreferenceShift < 0) {
             sizePreference = Math.max(-1, sizePreference + winbackPreset.sizePreferenceShift);
         }
+    }
+
+    /* --- v1.55 §4.9：postPbRelease spawnHints 加成 ---
+     * 与上方 stress×0.7 同来源；释放窗口期内进一步抬保消（+1）+ 略偏小块，
+     * 确保玩家在"破纪录后下三波"切实感到轻盈而不是被下波加压重新攻击。 */
+    if (ctx.postPbReleaseActive === true) {
+        clearGuarantee = Math.min(3, clearGuarantee + 1);
+        sizePreference = Math.min(sizePreference, -0.15);
     }
 
     /* --- Ability 风险护栏：高风险时优先保活，低风险高手允许更强挑战/多消兑现 --- */
@@ -1585,8 +1769,21 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             /* v1.48：winback 保护标识；UI / 商业化 / 推送可据此判断"是否在回流前 3 局"。 */
             winbackProtectionActive: !!winbackPreset,
         },
-        _adaptiveStress: stress,
-        _stressTarget: 0.325,
+        /* v1.55.17：对外暴露 [0,1] 归一化 stress，便于面板 / DFV / 文档 / 策略卡
+         * 用同一套口径解读。算法内部仍以 raw 域 [-0.2, 1] 进行所有阈值比较与
+         * cap/adjust 计算，避免动 17 个 delta 常数与 25+ 阈值带来的代数漂移
+         * 风险（B-Clean 决策；详见本文件顶部 normalizeStress 注释）。
+         *
+         * - _adaptiveStress：对外字段，归一化 [0, 1]，UI / DFV / 面板 / 文档共用
+         * - _adaptiveStressRaw：对内字段，原始 raw [-0.2, 1]，供 game.js 的
+         *   prevAdaptiveStress 平滑链路、spawnModel.js 的 ML 推理使用，保持
+         *   smoothStress 步长语义与训练时特征分布不变 */
+        _adaptiveStress: normalizeStress(stress),
+        _adaptiveStressRaw: stress,
+        /* _stressTarget：归一化后的中性锚（raw 0.325 ≈ norm 0.4375），供面板
+         * 显示「当前 stress 距离中性锚多远」的偏差柱。 */
+        _stressTarget: normalizeStress(0.325),
+        _stressTargetRaw: 0.325,
         _difficultyBias: difficultyBias,
         _difficultyTuning: difficultyTuning,
         _holePressure: holePressure,

@@ -181,7 +181,10 @@ function _buildContext24(grid, profile, adaptiveInsight) {
         Math.max(-1, Math.min(1, profile.trend ?? 0)),
         profile.confidence ?? 0,
         // [20-23] 自适应策略信号
-        Math.max(-0.5, Math.min(1.5, a.stress ?? 0)),
+        /* v1.55.17：ML 上下文用 raw 域 [-0.2, 1] 的 stressRaw，保持训练时特征分布不变；
+         * 不用 a.stress（v1.55.17 起为 norm 域 [0, 1]，会破坏模型权重的尺度假设）。
+         * 详见 web/src/adaptiveSpawn.js 顶部 normalizeStress JSDoc。 */
+        Math.max(-0.5, Math.min(1.5, a.stressRaw ?? a.stress ?? 0)),
         _FLOW_MAP[profile.flowState] ?? 0,
         _PACING_MAP[profile.pacingPhase] ?? 0.5,
         _SESSION_MAP[a.sessionPhase] ?? 0.5,
@@ -252,7 +255,10 @@ function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability
 export function computeSpawnTargetDifficulty(profile, adaptiveInsight, topology = null) {
     const skill = profile.skillLevel ?? 0.5;
     const frustration = profile.frustrationLevel ?? 0;
-    const stress = (adaptiveInsight || {}).stress ?? 0;
+    /* v1.55.17：targetDifficulty 公式的 `0.15 * stress` 权重按 raw 域校准（系数来自模型
+     * 早期回归），改用 stressRaw 保持向后兼容；fallback 到 stress（norm）仅用于尚未升级的
+     * 调用方，行为略不同但量纲一致。详见 adaptiveSpawn.js 顶部 normalizeStress JSDoc。 */
+    const stress = (adaptiveInsight || {}).stressRaw ?? (adaptiveInsight || {}).stress ?? 0;
     const fill = topology?.fillRatio
         ?? adaptiveInsight?.fillRatio
         ?? adaptiveInsight?.boardFill

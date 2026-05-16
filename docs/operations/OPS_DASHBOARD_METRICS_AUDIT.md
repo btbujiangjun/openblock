@@ -73,6 +73,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 | `payments` | `POST /api/payment/verify` | `paymentManager`、`iapAdapter` | **已修正**：按 `user_id + sku + provider + provider_ref` 做幂等返回，避免重试造成收入重复计入。 |
 | `achievements` | `POST /api/achievement` | `Database.unlockAchievement()` | 使用 `(user_id, achievement_id)` 主键与 `INSERT OR IGNORE`，写入幂等正确。 |
 | `ab_events` | `POST /api/ab/report` | `abTest.trackEvent()` | 写入事件计数正确；没有幂等键，适合“事件次数”而非“唯一转化人数”。 |
+| `sessions.game_stats` | `PATCH /api/session/<id>` | `game.js → saveSession()` | 已写入 `bestScoreChase / nearBestQuality / bestBreakSource / lifecycle`；Ops 看板据此聚合个人最佳突破来源。 |
 
 > v1.34 之后，后端会在上述核心写入链路记录访问 IP：事件级表使用 `client_ip`，用户聚合表使用 `user_stats.last_ip`。解析优先级为 `X-Forwarded-For` 首个地址、`X-Real-IP`、`CF-Connecting-IP`、`True-Client-IP`、`request.remote_addr`；如部署环境不信任反向代理头，可设置 `OPENBLOCK_TRUST_PROXY_HEADERS=0`。
 
@@ -129,6 +130,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 | 平均时长 | `455.3s` | 历史 `duration` 为空时用 `end_time-start_time` 计算。 |
 | Top1 分数 | `7420` | 来自 `scores.MAX(score)`，不再被 `user_stats.best_score=0` 污染。 |
 | 分群 | `A=1, B=1, C=2` | 分群使用修正后的最高分兜底后更接近真实高分用户。 |
+| 个人最佳挑战指标 | `bestScoreStats` | 从 `sessions.game_stats.bestScoreChase.finalRatio / bestBreakSource / nearBestQuality` 聚合，前端展示 `best_80_rate / best_95_rate / best_break_rate`、来源占比与 S/M 分组主来源；样本少时只作观测。 |
 
 ---
 

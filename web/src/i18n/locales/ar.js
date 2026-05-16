@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': 'مسح ×{{n}}',
     'effect.doubleClear': 'مسح مزدوج',
     'effect.iconBonus': 'إزالة فلاش ملكي',
-    'effect.newRecord': 'رقم قياسي جديد',
+    'effect.newRecord': '🏆 رقم قياسي جديد!',
 
     'skin.name.classic': '✨ كلاسيكي بسيط',
     'skin.name.titanium': '💎 مصفوفة التيتانيوم',

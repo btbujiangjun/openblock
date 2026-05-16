@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} ліній',
     'effect.doubleClear': 'Подвійне очищення',
     'effect.iconBonus': 'Велика очистка Роял-флеш',
-    'effect.newRecord': 'Новий рекорд',
+    'effect.newRecord': '🏆 Новий рекорд!',
 
     'skin.name.classic': '✨ Мінімалістична класика',
     'skin.name.titanium': '💎 Титанова матриця',

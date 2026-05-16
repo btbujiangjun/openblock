@@ -148,7 +148,9 @@ class GameController {
   }
 
   _commitSpawnContext(layered) {
-    this._spawnContext.prevAdaptiveStress = layered?._adaptiveStress;
+    /* v1.55.17：prevAdaptiveStress 写入 raw 域，与 adaptiveSpawn.smoothStress 单位一致；
+     * 详见 web/src/adaptiveSpawn.js 顶部 normalizeStress JSDoc。 */
+    this._spawnContext.prevAdaptiveStress = layered?._adaptiveStressRaw ?? layered?._adaptiveStress;
     if (Number.isFinite(layered?._occupancyFillAnchor)) {
       this._spawnContext._occupancyFillAnchor = layered._occupancyFillAnchor;
     }

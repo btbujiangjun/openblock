@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} satır',
     'effect.doubleClear': 'Çifte temizlik',
     'effect.iconBonus': 'Royal Flush Temizleme',
-    'effect.newRecord': 'Yeni rekor',
+    'effect.newRecord': '🏆 Yeni rekor!',
 
     'skin.name.classic': '✨ Minimal klasik',
     'skin.name.titanium': '💎 Titanyum matris',

@@ -106,9 +106,16 @@ export default {
     'best.gap.victory': 'About to break your record!',
     'best.gap.close': 'Almost there! 💪',
     'best.gap.neutral': '{{gap}} pts short',
-    'best.gap.far': 'Keep going~',
-    /* In-run score milestone (different from maturity_milestone_complete which is cross-run) */
+    'best.gap.far': 'Best {{best}} · keep climbing',
+    'best.gap.far.alt1': 'Steady pace — two more runs will close the gap',
+    'best.gap.far.alt2': 'Last PB {{best}} · stack the bottom two rows first',
+    /* @deprecated v1.55.11: in-run milestone / tie-best toasts are no longer rendered
+     * (user feedback: keep only "new record" fireworks as the single emotional anchor).
+     * These three keys are retained for i18n platform rollback compatibility; existence is
+     * still asserted by i18n tests, but the game UI never consumes them anymore. */
     'effect.scoreMilestone': 'Score broke {{score}}!',
+    'effect.scoreMilestonePct': '{{pct}}% of your best',
+    'effect.tieBest': '🏁 Tied your best!',
     /* Placement didn't clear: a row/column is one cell from full — morale boost only, rate-limited */
     'effect.nearMissPlace': 'One more to clear',
     /* No moves left, game over imminent */
@@ -119,7 +126,9 @@ export default {
     'effect.multiClear': '{{n}}x Clear',
     'effect.doubleClear': 'Double Clear',
     'effect.iconBonus': 'Royal Flush Clear',
-    'effect.newRecord': 'New Record',
+    'effect.newRecord': '🏆 New Record!',
+    /* v1.55 §4.6: in-run subsequent PB breaks; first break still uses newRecord. */
+    'effect.newRecord.second': 'Again +{{delta}}',
     'effect.streakCombo': '{{fires}} {{n}} Combo',
     'effect.achievementUnlocked': '🏆 Achievement Unlocked!',
     'effect.runStreakHint': 'Run streak #{{n}}: tighter board, harder spawns (back to menu to reset)',
@@ -298,7 +307,8 @@ export default {
 
     // Decision Flow Viz panel (v1.51.4) — dev/design analytics tool. Other locales fall back to zh-CN.
     'dfv.title': 'Decision Flow',
-    'dfv.toggleTitle': '🌌 Decision Flow — live signals → stress → spawn intent (Shift+D)',
+    /* v1.55.14: drop emoji prefix (button now uses inline SVG; tooltip stays text-only) */
+    'dfv.toggleTitle': 'Decision Flow — live signals → stress → spawn intent (Shift+D)',
     'dfv.aria': 'Decision Flow panel',
     'dfv.dragHint': 'Drag to move the panel',
     'dfv.collapseTitle': 'Collapse / Expand',
@@ -422,6 +432,7 @@ export default {
     'dfv.contrib.abilityRiskAdjust':     'ability risk',
     'dfv.contrib.delightStressAdjust':   'milestone',
     'dfv.contrib.challengeBoost':        'B-tier challenge',
+    'dfv.contrib.postPbReleaseStressAdjust': 'PB release',
     'dfv.contrib.friendlyBoardRelief':   'friendly board',
     'dfv.contrib.bottleneckRelief':      'bottleneck',
     'dfv.contrib.motivationStressAdjust':'motivation',

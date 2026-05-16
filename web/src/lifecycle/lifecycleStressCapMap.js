@@ -54,26 +54,65 @@
  * @property {number} adjust  cap 处理后的整体偏移，[-0.2, 0.2]
  */
 
+/**
+ * 完整 5×5 调制表。
+ *
+ * v1.55（BEST_SCORE_CHASE_STRATEGY §4.1）补全此前缺失的 8 格组合
+ * （S0·M1+ / S2·M4 / S3·M0 / 等），消除"表外组合 → null → raw stress 直通"
+ * 的死键问题。补全原则：
+ *
+ *   1. 行内单调（同 stage 内 M0→M4 cap 单调递增、adjust 单调上升）；
+ *   2. 列内 S0/S4 弱（保护新人/回流），S2/S3 强（成长期/稳定期承受力强）；
+ *   3. S0 行整体钳制在 cap ≤ 0.65（即便高 M-band 玩家在 onboarding 期也不应被压制）；
+ *   4. S1 行延续 S0 弱保护风格但放开承受力上限；
+ *   5. 新格的 cap/adjust 在相邻已知格之间线性插值，不破坏原有梯度。
+ *
+ * 历史值（v1.50 抽出时）的 17 格保留不变，避免影响已上线行为。
+ */
 /** @type {Readonly<Record<string, LifecycleStressCapEntry>>} */
 export const LIFECYCLE_STRESS_CAP_MAP = Object.freeze({
+    // S0 新入场：onboarding 期所有 band 都强保护
     'S0·M0': { cap: 0.50, adjust: -0.15 },   // 新手强保护
+    'S0·M1': { cap: 0.55, adjust: -0.12 },   // v1.55 补：onboarding 期高频玩家
+    'S0·M2': { cap: 0.58, adjust: -0.10 },   // v1.55 补：onboarding 期老带号
+    'S0·M3': { cap: 0.62, adjust: -0.08 },   // v1.55 补：onboarding 期资深迁移
+    'S0·M4': { cap: 0.65, adjust: -0.05 },   // v1.55 补：onboarding 期核心迁移（最严限）
+    // S1 激活：探索期，允许 M-band 拉开承受力
     'S1·M0': { cap: 0.60, adjust: -0.10 },   // 探索期减压
     'S1·M1': { cap: 0.65, adjust: -0.05 },
     'S1·M2': { cap: 0.70, adjust:  0    },
+    'S1·M3': { cap: 0.75, adjust:  0.04 },   // v1.55 补：探索期资深略加压
+    'S1·M4': { cap: 0.78, adjust:  0.06 },   // v1.55 补：探索期核心可挑战
+    // S2 习惯：成长期，PB 主战场，承受力按 M-band 显著分层
     'S2·M0': { cap: 0.65, adjust: -0.10 },   // 成长新手友好
     'S2·M1': { cap: 0.70, adjust:  0    },
     'S2·M2': { cap: 0.75, adjust:  0.05 },
     'S2·M3': { cap: 0.82, adjust:  0.10 },   // 高手可承受更高压力
+    'S2·M4': { cap: 0.85, adjust:  0.11 },   // v1.55 补：成长期核心（与 S3·M3 接近）
+    // S3 稳定：稳定期 + 资深 / 核心，PB 增长曲线最陡
+    'S3·M0': { cap: 0.65, adjust: -0.05 },   // v1.55 补：稳定期回退到新手（罕见 case）
     'S3·M1': { cap: 0.72, adjust:  0    },
     'S3·M2': { cap: 0.78, adjust:  0.05 },
     'S3·M3': { cap: 0.85, adjust:  0.10 },
     'S3·M4': { cap: 0.88, adjust:  0.12 },   // 核心玩家
+    // S4 回流：≥7 天未活跃，首要任务是"找回手感"
     'S4·M0': { cap: 0.55, adjust: -0.15 },   // 回流保护
     'S4·M1': { cap: 0.60, adjust: -0.10 },
     'S4·M2': { cap: 0.70, adjust:  0    },
     'S4·M3': { cap: 0.75, adjust:  0.05 },
     'S4·M4': { cap: 0.80, adjust:  0.08 },
 });
+
+/**
+ * 所有合法 stage 代码（与 LIFECYCLE_STAGE_LABEL 对齐）。
+ * v1.55：用于 getLifecycleStressCap 兜底校验与单测全格覆盖。
+ */
+export const LIFECYCLE_STAGE_CODES = Object.freeze(['S0', 'S1', 'S2', 'S3', 'S4']);
+
+/**
+ * 所有合法 band 代码（与 LIFECYCLE_BAND_LABEL 对齐）。
+ */
+export const LIFECYCLE_BAND_CODES = Object.freeze(['M0', 'M1', 'M2', 'M3', 'M4']);
 
 /** Stage code → 中文短名（与 playerInsightPanel tooltip 一致：新入场/激活/习惯/稳定/回流） */
 export const LIFECYCLE_STAGE_LABEL = Object.freeze({

@@ -1,7 +1,10 @@
 /**
  * stressMeter.js — 拟人化压力表
  *
- * 把出块算法的核心信号 `stress`（约 −0.2 ~ 1）转译成玩家可感知的「情绪状态」：
+ * 把出块算法的核心信号 `stress`（**对外归一化口径** `[0, 1]`，v1.55.17 起统一；
+ * 见 `web/src/adaptiveSpawn.js` 顶部 normalizeStress() JSDoc，本文件所有 stress
+ * 入参都以 `insight.stress = layered._adaptiveStress` 这条 norm 通路喂入）转译成
+ * 玩家可感知的「情绪状态」：
  *   1. **面谱头像**：emoji 反映当下情绪（放松 / 心流 / 投入 / 紧张 / 高压）
  *   2. **色带 + 呼吸**：背景色随等级渐变（蓝→绿→琥珀→红），CSS 呼吸节奏随等级加快
  *   3. **趋势箭头**：与最近 N 帧基线对比，给出 ↗ / → / ↘
@@ -20,14 +23,23 @@
 
 /**
  * 压力等级阈值（按综合 stress 经验值划分；可在调参时改）
+ *
+ * v1.55.17：阈值已切到 norm 域 [0, 1]，对应历史 raw 区间映射如下
+ * （norm = (raw + 0.2) / 1.2）：
+ *   calm:    raw [-∞, -0.05) → norm [-∞, 0.125)
+ *   easy:    raw [-0.05, 0.20) → norm [0.125, 0.333)
+ *   flow:    raw [0.20, 0.45) → norm [0.333, 0.542)
+ *   engaged: raw [0.45, 0.65) → norm [0.542, 0.708)
+ *   tense:   raw [0.65, 0.80) → norm [0.708, 0.833)
+ *   intense: raw [0.80, ∞)   → norm [0.833, ∞)
  */
 export const STRESS_LEVELS = [
-    { id: 'calm',      label: '放松',     min: -Infinity, max: -0.05, face: '😌', vibe: '盘面整洁，心情舒缓。' },
-    { id: 'easy',      label: '舒缓',     min: -0.05,     max: 0.20,  face: '🙂', vibe: '操作轻松，节奏从容。' },
-    { id: 'flow',      label: '心流',     min: 0.20,      max: 0.45,  face: '😀', vibe: '挑战与能力匹配，正爽快。' },
-    { id: 'engaged',   label: '投入',     min: 0.45,      max: 0.65,  face: '🤔', vibe: '需要思考，节奏开始拉紧。' },
-    { id: 'tense',     label: '紧张',     min: 0.65,      max: 0.80,  face: '😰', vibe: '盘面吃紧，留意可消行机会。' },
-    { id: 'intense',   label: '高压',     min: 0.80,      max: Infinity, face: '🥵', vibe: '高强度对局，系统会优先保活。' }
+    { id: 'calm',      label: '放松',     min: -Infinity, max: 0.125, face: '😌', vibe: '盘面整洁，心情舒缓。' },
+    { id: 'easy',      label: '舒缓',     min: 0.125,     max: 0.333, face: '🙂', vibe: '操作轻松，节奏从容。' },
+    { id: 'flow',      label: '心流',     min: 0.333,     max: 0.542, face: '😀', vibe: '挑战与能力匹配，正爽快。' },
+    { id: 'engaged',   label: '投入',     min: 0.542,     max: 0.708, face: '🤔', vibe: '需要思考，节奏开始拉紧。' },
+    { id: 'tense',     label: '紧张',     min: 0.708,     max: 0.833, face: '😰', vibe: '盘面吃紧，留意可消行机会。' },
+    { id: 'intense',   label: '高压',     min: 0.833,     max: Infinity, face: '🥵', vibe: '高强度对局，系统会优先保活。' }
 ];
 
 /**
@@ -48,9 +60,10 @@ export function getStressLevel(stress) {
  * 头像换成 🤗（被照顾），label 在原档位后追加"（救济中）"，让玩家理解
  * "我现在轻松，是因为系统正在帮我，而不是我状态本来就很好"。
  *
- * 仅在 spawnIntent === 'relief' 且实际 stress ≤ -0.05（落入 calm 档，
- * 是真正的"被压低"区间）时启用；easy 档（−0.05 ~ 0.20）已是温和挑战区，
- * "舒缓 + 主动减压"读起来不冲突，无需切变体。
+ * v1.55.17：阈值切到 norm 域。仅在 spawnIntent === 'relief' 且实际 stress ≤ 0.125
+ * （原 raw -0.05，落入 calm 档，是真正的"被压低"区间）时启用；easy 档
+ * （norm [0.125, 0.333) / 原 raw [-0.05, 0.20)）已是温和挑战区，"舒缓 +
+ * 主动减压"读起来不冲突，无需切变体。
  */
 export function getStressDisplay(stress, spawnIntent, distress = null) {
     const base = getStressLevel(stress);
@@ -58,8 +71,9 @@ export function getStressDisplay(stress, spawnIntent, distress = null) {
     /* v1.51：挣扎中变体 —— 当 stress 数值停留在 calm/easy 低压档，但 endSessionDistress
      * 强力激活（末段 + momentum 强烈下行）或 frustrationLevel ≥ 5 时，纯 stress 数值
      * 会"伪装"为舒缓，必须给档位一个独立标识，否则玩家临 game over 仍看到 😌 放松。
-     * 优先级高于 relief 救济变体（救济只描述"被照顾"，挣扎中描述"在崩盘"）。 */
-    if (distress && Number.isFinite(stress) && stress < 0.20
+     * 优先级高于 relief 救济变体（救济只描述"被照顾"，挣扎中描述"在崩盘"）。
+     * v1.55.17：阈值切到 norm 域（raw 0.20 → norm 0.333）。 */
+    if (distress && Number.isFinite(stress) && stress < 0.333
         && (base.id === 'calm' || base.id === 'easy')) {
         const lateCollapse = distress.sessionPhase === 'late' && Number(distress.momentum) <= -0.30;
         const frustrationCritical = Number(distress.frustrationLevel) >= 5;
@@ -76,9 +90,10 @@ export function getStressDisplay(stress, spawnIntent, distress = null) {
         }
     }
 
+    /* v1.55.17：阈值切到 norm 域（raw -0.05 → norm 0.125） */
     if (spawnIntent === 'relief'
         && Number.isFinite(stress)
-        && stress <= -0.05
+        && stress <= 0.125
         && base.id === 'calm') {
         return {
             ...base,
@@ -114,7 +129,8 @@ export const SIGNAL_LABELS = {
     boardRiskReliefAdjust: { label: '盘面风险',   hint: '高填充 + 空洞 + 玩家风险的综合救济' },
     abilityRiskAdjust:     { label: '能力风险',   hint: '玩家能力风险偏高时降难度护栏' },
     delightStressAdjust:   { label: '里程碑',     hint: '接近里程碑时的甜点/挑战微调' },
-    challengeBoost:        { label: 'B 类挑战',   hint: '逼近历史最佳分时的额外加压' },
+    challengeBoost:        { label: 'B 类挑战',   hint: '逼近历史最佳分时的额外加压（v1.55 §4.2：救济期 / 瓶颈 / 挫败 / warmup / postPbRelease 时自动 bypass）' },
+    postPbReleaseStressAdjust: { label: '破纪录释放', hint: 'v1.55 §4.9：刚刚刷新 PB 后 3 个 spawn 内 stress×0.7，给玩家"我赢了"情绪释放空间（负值）' },
     lifecycleCapAdjust:    { label: '生命周期封顶', hint: '生命周期阶段压力上限触发时，对 stress 的削减量（负值）' },
     lifecycleBandAdjust:   { label: '生命周期偏移', hint: '生命周期阶段/成熟度带来的固定偏移（可正可负）' },
     onboardingStressOverrideAdjust: { label: '新手覆写', hint: '新手保护期 firstSessionStressOverride 造成的额外调整量' },
@@ -449,11 +465,14 @@ export function __resetStressDetailsOpenForTest() {
 
 /**
  * 把 stress 映射到 0~100 的进度（用于 vibe bar 宽度）
+ *
+ * v1.55.17：入参 stress 已为 norm 域 [0, 1]，去除历史的二次仿射（之前是
+ * `clamp(raw, -0.2, 1)` → `(c+0.2)/1.2*100`）；现在直接 `clamp01 * 100`。
  */
 function _stressToBar(stress) {
-    if (!Number.isFinite(stress)) return 50;
-    const clamped = Math.max(-0.2, Math.min(1, stress));
-    return Math.round(((clamped + 0.2) / 1.2) * 100);
+    if (!Number.isFinite(stress)) return Math.round(((0 + 0.2) / 1.2) * 100); // 50 的旧 baseline
+    const clamped = Math.max(0, Math.min(1, stress));
+    return Math.round(clamped * 100);
 }
 
 function _attrText(s) {
@@ -495,8 +514,9 @@ export function renderStressMeter(root, insight, stressHistory = []) {
 
     const stress = Number.isFinite(insight.stress) ? insight.stress : 0;
     /* v1.18：用 getStressDisplay 替代裸的 getStressLevel —— 当 spawnIntent='relief'
-     * 且 stress 已被压到 ≤ −0.05 时，face/label/vibe 切到"被照顾"变体，
-     * 与故事线"系统正在主动减压"对齐，避免"😌 放松"+"挫败感偏高"看起来打架。 */
+     * 且 stress 已被压到 ≤ 0.125（v1.55.17 norm 域，对应原 raw -0.05）时，
+     * face/label/vibe 切到"被照顾"变体，与故事线"系统正在主动减压"对齐，
+     * 避免"😌 放松"+"挫败感偏高"看起来打架。 */
     const intent = insight.spawnHints?.spawnIntent ?? insight.spawnIntent ?? null;
     const level = getStressDisplay(stress, intent, {
         sessionPhase: insight.sessionPhase,
@@ -551,7 +571,7 @@ export function renderStressMeter(root, insight, stressHistory = []) {
                 `<div class="stress-meter__body">` +
                     `<div class="stress-meter__head">` +
                         `<span class="stress-meter__label">${level.label}</span>` +
-                        `<span class="stress-meter__num" title="综合压力 stress（约 −0.2~1）；细分构成见下方 sparkline 中的「难度/心流/节奏/友好盘面/会话弧线/挑战」曲线。">` +
+                        `<span class="stress-meter__num" title="综合压力 stress（对外归一化 [0, 1]，0=完全减压、≈0.167=baseline 中性、≈0.875=接近上限、1=硬顶）；细分构成见下方 sparkline 中的「难度/心流/节奏/友好盘面/会话弧线/挑战」曲线。">` +
                             `${num} <span class="stress-meter__delta" data-dir="${trend.direction}" title="${_attrText(trendTitle)}">${trend.icon}</span>` +
                         `</span>` +
                     `</div>` +

@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}}x Löschen',
     'effect.doubleClear': 'Doppellöschung',
     'effect.iconBonus': 'Royal Flush Räumung',
-    'effect.newRecord': 'Neuer Rekord',
+    'effect.newRecord': '🏆 Neuer Rekord!',
 
     'skin.name.classic': '✨ Minimal klassisch',
     'skin.name.titanium': '💎 Titan-Matrix',

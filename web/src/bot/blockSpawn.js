@@ -1076,7 +1076,10 @@ export function generateDockShapesLayered(grid, config, spawnHints = {}, spawnCo
         return generateDockShapes(grid, config, spawnHints, spawnContext);
     }
 
-    // 复用原始评分逻辑（仅分层，不重复打分代码）
+    /* TODO(spawnLayers): 当前即便 __spawnLayersMod 已注入，本函数也仍直接返回 generateDockShapes 结果，
+     * 未真正调用 GlobalLayer.adjust() / LaneLayer.filter() / FallbackLayer.ensure()。
+     * 接入路径见 spawnLayers.js 头注释（line 22-27）。在接入前，请勿把"分层架构已落地"作为
+     * 已上线能力对外宣传——`spawnLayers.test.js` 只证明各层单独可用，不代表主出块路径已分层。 */
     const rawResult = generateDockShapes(grid, config, spawnHints, spawnContext);
     return rawResult; // 当前退化为原函数；三层逻辑在 spawnLayers.js 可独立验证
 }

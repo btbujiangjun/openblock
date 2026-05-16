@@ -66,6 +66,13 @@ import {
 import { Database } from './database.js';
 import { Renderer, syncGridDisplayPx } from './renderer.js';
 import { BackendSync } from './services/backendSync.js';
+import { emit as emitMonetizationEvent } from './monetization/MonetizationBus.js';
+import {
+    getBestByStrategy,
+    submitScoreToBucket,
+    submitPeriodBest,
+    getPeriodBest,
+} from './bestScoreBuckets.js';
 import { LevelManager } from './level/levelManager.js';
 import { ClearRuleEngine, RowColRule } from './clearRules.js';
 import { notePopupShown } from './popupCoordinator.js';
@@ -371,8 +378,14 @@ export class Game {
             boardFill: this.grid.getFillRatio(),
             runStreak: this.runStreak,
             strategyId: this.strategy,
+            /* v1.55.17：stress 对外统一 [0,1] 归一化口径（layered._adaptiveStress 已是
+             * norm 域，由 adaptiveSpawn.js 末尾通过 normalizeStress() 翻译；详见
+             * web/src/adaptiveSpawn.js 顶部「stress 对外归一化」JSDoc）。
+             * 中性锚 fallback 0.4375 = normalizeStress(0.325)（即原 raw 中性锚 0.325 的
+             * 对外口径）。stressRaw 用于必须保持训练分布或与内部数学链路对齐的下游。 */
             stress: layered._adaptiveStress,
-            stressTarget: layered._stressTarget ?? 0.325,
+            stressRaw: layered._adaptiveStressRaw,
+            stressTarget: layered._stressTarget ?? 0.4375,
             difficultyBias: layered._difficultyBias,
             flowState: layered._flowState,
             flowDeviation: layered._flowDeviation,
@@ -447,6 +460,16 @@ export class Game {
             await hydrateWalletFromApi(this.db.userId);
             this.bestScore = await this.db.getBestScore();
             this._bestScoreAtRunStart = this.bestScore || 0;
+            /* v1.55 §4.4：读当前难度档对应的分桶 PB；优先展示分桶 PB（更精确，
+             * 反映"在此难度下的个人最佳"）；服务器全账号 PB 仍作为 fallback。
+             * 分桶 PB 若高于服务器 PB，沿用服务器值不覆盖（避免本地客户端外挂）。 */
+            const bucketPb = getBestByStrategy(this.strategy);
+            this._bestScoreByStrategy = bucketPb;
+            if (bucketPb > 0 && bucketPb <= this.bestScore) {
+                /* 分桶 PB 是合法子集（≤ 总 PB），用它作为本难度档 HUD 展示。 */
+                this.bestScore = bucketPb;
+                this._bestScoreAtRunStart = bucketPb;
+            }
             const stats = await this.db.getStats();
             this.playerProfile.ingestHistoricalStats(stats);
         } catch (err) {
@@ -459,6 +482,42 @@ export class Game {
         this.updateUI();
         this.render();
         this._startAmbientFxLoop();
+    }
+
+    /**
+     * v1.55.10 修复 PB 风险 1：解决"init 早于 hydrate"导致跨设备首次加载分桶 PB 为 0 的问题。
+     *
+     * 链路：main.js 中 `game.init()` 在 `initLocalStorageStateSync()` 之前调用，
+     * 而 hydrate 只把"本地缺失"的 key 从远端 bundle 写入 localStorage——
+     * 因此换设备首次打开时，init 读到 `getBestByStrategy=0`（本地空），用全账号 PB 兜底；
+     * 等 hydrate 把远端分桶值写入 localStorage 后，`Game` 实例上的 `bestScore` 不会自动重算。
+     *
+     * 调用契约：main.js 在 `await initLocalStorageStateSync()` 之后调用本方法一次；
+     * 内部仅在分桶 PB 合法且 ≤ 总账号 PB 时才采用（同 init 时的取舍规则），
+     * 并刷新 HUD（updateUI）让"最佳"数字立即对齐。
+     */
+    refreshBestScoreFromBucket() {
+        try {
+            const bucketPb = getBestByStrategy(this.strategy);
+            if (!Number.isFinite(bucketPb) || bucketPb <= 0) return false;
+            /* 仅在分桶 PB ≤ 总账号 PB 且与当前内存值不同时才采用。
+             * 注意：_bestScoreAtRunStart 已被 init() / start() 写入；这里同步更新它，
+             * 让本局接下来的"新纪录判定基线"也对齐到分桶 PB。 */
+            const accountPb = Math.max(Number(this.bestScore) || 0, Number(this._bestScoreByStrategy) || 0);
+            if (bucketPb > accountPb) return false;
+            if (bucketPb === this.bestScore) return false;
+            this._bestScoreByStrategy = bucketPb;
+            this.bestScore = bucketPb;
+            if (!this.isGameOver && this.score === 0) {
+                /* 仅在尚未开始打分的"准备态"才更新 runStart 基线，避免改动正在进行的局的判定。 */
+                this._bestScoreAtRunStart = bucketPb;
+            }
+            this.updateUI();
+            return true;
+        } catch (err) {
+            console.warn('[refreshBestScoreFromBucket] failed:', err?.message || err);
+            return false;
+        }
     }
 
     _startAmbientFxLoop() {
@@ -794,6 +853,18 @@ export class Game {
             this._lastDisplayedScore = null;
             this._bestScoreAtRunStart = this.bestScore || 0;
             this._newBestCelebrated = false;
+            /* v1.55.10 修复跨局状态泄漏：同标签页连续多局（不刷新页面）时，
+             * 这些计数器原本只递增/置 true，导致：
+             *   - _newBestCelebrationCount 累计跨过 3 次上限 → 第 4 局起破 PB 静默
+             *   - _nearPbEmittedThisRun 整段会话只 emit 一次
+             *   - _postPbReleaseUsed 整段会话只启动一次友好出块
+             *   - _tiedBestCelebratedThisRun（v1.55.10 新）整段会话只追平一次
+             *   - _bestScoreSanityFlagged 上一局可疑 PB 残留 → 影响本局结算皇冠 */
+            this._newBestCelebrationCount = 0;
+            this._nearPbEmittedThisRun = false;
+            this._postPbReleaseUsed = false;
+            this._tiedBestCelebratedThisRun = false;
+            this._bestScoreSanityFlagged = false;
             this.isGameOver = false;
             this._endGameInFlight = null;
             document.body.classList.remove('game-over-active');
@@ -834,6 +905,11 @@ export class Game {
             this._nearMissPlaceToastCount = 0;
             this._nearMissPlaceLastAt = null;
             this._nearMissPlaceLastPlacement = null;
+            /* bestScore 在此处一次性灌入作为「开局快照」：本局后续即使破 PB（this.bestScore 被
+             * 抬高），_spawnContext.bestScore 也不会自动同步——这是有意的工程取舍，避免在每次
+             * spawn 里重读 DB/localStorage；其下游消费方包括 difficulty.js getSpawnStressFromScore
+             * 与 adaptiveSpawn.js challengeBoost / deriveScoreMilestones（均通过 ctx.bestScore 读取）。
+             * 契约写在 docs/player/BEST_SCORE_CHASE_STRATEGY.md 的「开局快照」一节。 */
             this._spawnContext = {
                 lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
                 bestScore: this.bestScore ?? 0,
@@ -1183,6 +1259,16 @@ export class Game {
         );
         this._captureAdaptiveInsight(layered);
 
+        /* v1.55.16：桥接 spawnHints.scoreMilestone → _spawnContext.scoreMilestone。
+         * adaptiveSpawn 把里程碑命中信号写在 layered.spawnHints.scoreMilestone（权威源），
+         * blockSpawn (web/src/bot/blockSpawn.js: line 870-872 `if (ctx.scoreMilestone && s.gapFills > 0) w *= 1.3;`)
+         * 却读 ctx.scoreMilestone（即 _spawnContext），而 _commitSpawn 只在每轮末把它清为 false、
+         * 从不置 true —— 历史上这条 1.3 倍加权在主路径上从未触发（dead branch）。
+         * 在传 ctx 给 generateDockShapes / 模型 fallback 之前同步一次，让 hints 成为唯一权威输入：
+         *   - 命中里程碑 → _spawnContext.scoreMilestone = true，本轮 blockSpawn 加权生效
+         *   - _commitSpawn 末尾再清为 false（栈底重置），下一轮重新按 hints 决定 */
+        this._spawnContext.scoreMilestone = layered?.spawnHints?.scoreMilestone === true;
+
         const mode = getSpawnMode();
         if (mode === SPAWN_MODE_MODEL_V3) {
             this._spawnBlocksWithModel(layered, opts);
@@ -1211,11 +1297,14 @@ export class Game {
             if (requestId !== this._spawnRequestId || this.isGameOver) return;
             this._lastAdaptiveInsight = this._lastAdaptiveInsight || {};
             this._lastAdaptiveInsight.spawnModelMeta = meta;
-            const prevStress = this._spawnContext.prevAdaptiveStress ?? layered._adaptiveStress;
-            const currStress = layered._adaptiveStress ?? 0.5;
+            /* v1.55.17：prevAdaptiveStress 用 raw 域 [-0.2, 1]，与 adaptiveSpawn.js
+             * smoothStress(current, ctx, ...) 的 current（raw 域）保持单位一致；
+             * 详见 adaptiveSpawn.js 顶部 normalizeStress 注释里的 _adaptiveStressRaw 用途。 */
+            const prevStress = this._spawnContext.prevAdaptiveStress ?? layered._adaptiveStressRaw;
+            const currStress = layered._adaptiveStressRaw ?? 0;
             const smoothDelta = Math.max(-0.15, Math.min(0.15, currStress - prevStress));
             this._commitSpawn(shapes, layered, opts, source);
-            this._spawnContext.prevAdaptiveStress = (this._spawnContext.prevAdaptiveStress ?? 0.5) + smoothDelta;
+            this._spawnContext.prevAdaptiveStress = (this._spawnContext.prevAdaptiveStress ?? 0) + smoothDelta;
             this._spawnPending = false;
             if (opts.checkGameOver !== false) {
                 this.checkGameOver();
@@ -1270,10 +1359,14 @@ export class Game {
         if ((this._spawnContext.warmupRemaining ?? 0) > 0) {
             this._spawnContext.warmupRemaining--;
         }
+        /* v1.55.16：栈底重置 —— spawnBlocks() 顶部已根据 layered.spawnHints.scoreMilestone
+         * 把本轮的命中信号桥接到 _spawnContext.scoreMilestone（详见 spawnBlocks 注释），
+         * 这里在本轮使用完后清为 false，保证下一轮重新由 hints 决定，不留隔轮残留。 */
         this._spawnContext.scoreMilestone = false;
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
-        this._spawnContext.prevAdaptiveStress = layered._adaptiveStress;
+        /* v1.55.17：用 raw 域写入，保持 smoothStress 步长（maxStepUp/Down）单位一致 */
+        this._spawnContext.prevAdaptiveStress = layered._adaptiveStressRaw;
         /* v1.30：新一波 dock 起始，重置上一周期的瓶颈低谷统计 */
         this._resetBottleneckTrough();
 
@@ -1312,6 +1405,15 @@ export class Game {
         this._spawnContext.holes                   = _diag?.layer1?.holes                   ?? 0;
         this._spawnContext.multiClearCandidates    = _diag?.layer1?.multiClearCandidates    ?? 0;
         this._spawnContext.perfectClearCandidates  = _diag?.layer1?.perfectClearCandidates  ?? 0;
+
+        /* v1.55 §4.9：postPbReleaseWindow 计数衰减 —— 本轮使用完后扣 1；
+         * 归零时清除 active flag，让下次 spawn 回到正常 stress 路径。 */
+        if ((this._spawnContext.postPbReleaseRemaining ?? 0) > 0) {
+            this._spawnContext.postPbReleaseRemaining--;
+            if (this._spawnContext.postPbReleaseRemaining <= 0) {
+                this._spawnContext.postPbReleaseActive = false;
+            }
+        }
 
         this._refreshPlayerInsightPanel();
         this._spawnModelLayerRefresh?.();
@@ -1956,13 +2058,14 @@ export class Game {
         const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
 
         this.score += clearScore;
-        /* v1.49：字段更名 milestoneHit → scoreMilestoneHit，并把跨过的具体分数档传给 toast。
-         * 注意这里的"分数里程碑"是局内分数突破档位，与 maturityMilestones.js 的"成熟度晋升里程碑"无关。 */
-        const justHitScoreMilestone = this._lastAdaptiveInsight?.scoreMilestoneHit === true;
-        if (justHitScoreMilestone) {
-            const milestoneValue = this._lastAdaptiveInsight.scoreMilestoneValue ?? 0;
+        /* v1.49：字段更名 milestoneHit → scoreMilestoneHit，把跨过的具体分数档传给下游。
+         * v1.55.11（用户反馈："已达最佳 N% 不触发特效"）：取消局内的"百分比里程碑"toast 渲染，
+         * 只保留 _lastAdaptiveInsight.scoreMilestoneHit 数据流（DFV 调试面板仍可见，分析侧仍有事件
+         * 记录），消化"局内激励语莫名其妙"+"局内特效只出现一次"反馈后，最终只保留"破 PB 烟花"
+         * 这一种激励信号；50% / 75% / 90% 的"接近感"由 HUD 的 best.gap.* 文案承担。
+         * 仍把 flag 复位以避免下游订阅看到 stale=true。 */
+        if (this._lastAdaptiveInsight?.scoreMilestoneHit === true) {
             this._lastAdaptiveInsight.scoreMilestoneHit = false;
-            this.showFloatScore(milestoneValue, 'scoreMilestone');
         }
         this.gameStats.score = this.score;
         this.gameStats.clears += result.count;
@@ -2316,8 +2419,95 @@ export class Game {
 
                 const persistedBestBase = this._bestScoreAtRunStart ?? this.bestScore;
                 if (this.score > persistedBestBase) {
-                    this.bestScore = this.score;
-                    await this.db.saveScore(this.score, this.strategy);
+                    /* v1.55 §4.10 异常分守卫：单局分数 > previousBest × SANITY_MULTIPLIER 时
+                     * 视为可疑（自动外挂 / 时钟偏移 / 数据回放注入等）。
+                     *
+                     * 决策：仅在本机 bestScore 仍指向当前会话内可见的进度（不持久化到后端，
+                     * 不参与排行榜），同时把可疑事件 emit 到 MonetizationBus，让运营
+                     * 看板能在 24h 内人工核对。新玩家（previousBest < 50）不触发守卫，
+                     * 因为缺乏锚点，少量真实首杀很容易超过 5×。
+                     *
+                     * SANITY_MULTIPLIER=5：高于"普通玩家在原 PB 基础上单局提升 80% 极值"的
+                     * 经验上界，可压制 99.9% 真实玩家误伤；阈值由 GAME_RULES.bestScoreSanity
+                     * 接管以便运营动态调整。 */
+                    const sanityCfg = GAME_RULES.bestScoreSanity ?? {};
+                    const SANITY_MULTIPLIER = Number(sanityCfg.multiplier) || 5;
+                    const SANITY_MIN_BASE = Number(sanityCfg.minBase) || 50;
+                    const suspicious = persistedBestBase >= SANITY_MIN_BASE
+                        && this.score > persistedBestBase * SANITY_MULTIPLIER;
+                    if (suspicious) {
+                        /* 软隔离：仅更新内存 bestScore（让本局 UI 正常展示），
+                         * 不写后端持久化、不参与排行榜。同时 emit lifecycle:suspicious_pb 让
+                         * 风控订阅方接力。 */
+                        this.bestScore = this.score;
+                        this._bestScoreSanityFlagged = true;
+                        try {
+                            const event = {
+                                previousBest: persistedBestBase,
+                                claimedBest: this.score,
+                                multiplier: this.score / persistedBestBase,
+                                strategy: this.strategy,
+                                sessionPlacements: this.gameStats?.placements ?? 0,
+                                durationMs: Date.now() - this.gameStats.startTime,
+                                ts: Date.now(),
+                            };
+                            if (this._monetizationBus && typeof this._monetizationBus.emit === 'function') {
+                                this._monetizationBus.emit('lifecycle:suspicious_pb', event);
+                            } else {
+                                emitMonetizationEvent('lifecycle:suspicious_pb', event);
+                            }
+                        } catch { /* ignore */ }
+                        // eslint-disable-next-line no-console
+                        console.warn('[bestScoreSanity] suspicious PB blocked from persistence:',
+                            { previousBest: persistedBestBase, claimedBest: this.score });
+                    } else {
+                        this.bestScore = this.score;
+                        await this.db.saveScore(this.score, this.strategy);
+                        /* v1.55.10 修复 PB 风险 5（双源同步）：破全账号 PB 时同步更新
+                         * legacy `openblock_best_score`，保证：
+                         *   1) socialLeaderboard.getMyBestScore 的兜底分支可用；
+                         *   2) server.py 的 CORE_KEYS 跨设备同步包含该 key（避免 hydrate
+                         *      给新设备一个 0）。
+                         * 注意：分桶 PB（openblock_best_by_strategy_v1）由下方 submitScoreToBucket
+                         * 单独维护；这里只补 legacy key，不创造新的真理源。 */
+                        try {
+                            if (typeof localStorage !== 'undefined') {
+                                const cur = parseInt(localStorage.getItem('openblock_best_score') || '0', 10) || 0;
+                                if (this.score > cur) {
+                                    localStorage.setItem('openblock_best_score', String(this.score));
+                                }
+                            }
+                        } catch { /* ignore privacy mode */ }
+                    }
+                }
+
+                /* v1.55 §4.4 + §4.7：无论是否破全账号 PB，本局得分都尝试更新
+                 *   1) 当前难度档的分桶 PB（bestByStrategy）
+                 *   2) 本周 / 本月的周期 PB（weeklyBest / monthlyBest）
+                 * 这两条与全账号 PB 解耦：玩家可以在 hard 模式刷新 hard PB 而
+                 * 不影响 normal PB；同时即便没破账号 PB 也可能破"周冠"。
+                 * 写入失败（localStorage 不可用）被 bestScoreBuckets 模块吞掉。 */
+                try {
+                    submitScoreToBucket(this.strategy, this.score);
+                    const periodResult = submitPeriodBest(this.score);
+                    if (periodResult.weeklyUpdated || periodResult.monthlyUpdated) {
+                        try {
+                            const event = {
+                                weeklyUpdated: periodResult.weeklyUpdated,
+                                monthlyUpdated: periodResult.monthlyUpdated,
+                                score: this.score,
+                                strategy: this.strategy,
+                                ts: Date.now(),
+                            };
+                            if (this._monetizationBus && typeof this._monetizationBus.emit === 'function') {
+                                this._monetizationBus.emit('lifecycle:period_best', event);
+                            } else {
+                                emitMonetizationEvent('lifecycle:period_best', event);
+                            }
+                        } catch { /* ignore */ }
+                    }
+                } catch (e) {
+                    console.warn('[bestScoreBuckets] submit failed:', e?.message || e);
                 }
 
                 const stats = await this.db.getStats();
@@ -2376,7 +2566,10 @@ export class Game {
                 const overScore = document.getElementById('over-score');
                 if (overScore) {
                     const persistedBestBase = this._bestScoreAtRunStart ?? this.bestScore;
-                    const isNewBest = this.score > persistedBestBase;
+                    /* v1.55.10 修复：可疑 PB（_bestScoreSanityFlagged=true）已被软隔离，
+                     * 没有写入后端持久化；结算页若仍显示皇冠会形成"UI 像新纪录但下次启动该分不存在"
+                     * 的不一致。这里增加 sanity flag 守卫，可疑 PB 不显示皇冠。 */
+                    const isNewBest = this.score > persistedBestBase && !this._bestScoreSanityFlagged;
                     if (isNewBest) {
                         const crown = document.createElement('span');
                         crown.className = 'new-best-crown';
@@ -2717,41 +2910,180 @@ export class Game {
     }
 
     /**
-     * 严格大于本局开始时的历史最佳即触发"新纪录"庆祝；每局只触发一次。
+     * 严格大于本局开始时的历史最佳即触发"新纪录"庆祝。
      *
-     * 与之前实现的差异：
-     * - 去掉了 `score <= scoreBeforeClear` 这条冗余守卫——它只在 playClearEffect
-     *   的特定调用路径上有意义，会让"非消行 score 增长（如 daily firstWinBoost、
-     *   mini-goal 奖励）跨过历史最高"无法触发新纪录特效。
-     * - 调用方现已挪到 updateUI（通用入口），任何 score 改变都会被复检；
-     *   playClearEffect 仍然显式调一次以拿到返回值用于 floatScore type 切换。
+     * v1.55.11（用户反馈："刷新最佳单局内只触发一次"）：
+     *   - 单局只放一次完整烟花 + new-best-popup（CELEBRATIONS_PER_RUN_CAP=1）；
+     *   - 之后即使分数继续上涨刷新 PB，只静默更新 `this.bestScore` 而不再展示庆祝 UI；
+     *   - 旧 v1.55 §4.6 的"二度 / 三度纪录"轻量庆祝逻辑保留代码骨架（`isFirst` 分支
+     *     仍存在），但实际不会被触发——保留以便未来按运营策略灰度恢复多次庆祝。
+     *
+     * 同时（§4.12）：每次触发都通过 MonetizationBus emit
+     * `lifecycle:new_personal_best`，让商业化 / 留存模块能在 PB 黄金窗口接力。
      */
     _maybeCelebrateNewBest() {
-        if (this._newBestCelebrated) return false;
+        /* v1.55.11：3 → 1。单局只一次破 PB 庆祝；超出阈值后只静默更新 bestScore。 */
+        const CELEBRATIONS_PER_RUN_CAP = 1;
         const runStartBest = Number(this._bestScoreAtRunStart);
-        const currentBest = Number(this.bestScore);
-        const previousBest = Number.isFinite(runStartBest) && runStartBest > 0
+        const previousBestRaw = Number.isFinite(runStartBest) && runStartBest > 0
             ? runStartBest
-            : (Number.isFinite(currentBest) ? currentBest : 0);
+            : (Number.isFinite(this.bestScore) ? this.bestScore : 0);
+        /* 二度 / 三度判定：当前 bestScore（已被首次烟花更新过）作为新比较基线。
+         * 若 _newBestCelebrated=true，则比较对象是 this.bestScore 而非 runStartBest，
+         * 否则同一局内连续 score 增长会反复触发"首次"庆祝。 */
+        const compareBase = this._newBestCelebrated
+            ? Number(this.bestScore)
+            : previousBestRaw;
         const EPSILON = 1e-9;
-        if (!(Number.isFinite(this.score) && this.score > previousBest + EPSILON)) return false;
+        if (!(Number.isFinite(this.score) && this.score > compareBase + EPSILON)) return false;
 
+        const celebrations = (this._newBestCelebrationCount ?? 0);
+        if (celebrations >= CELEBRATIONS_PER_RUN_CAP) {
+            /* 超出上限：只静默更新 bestScore，不再展示庆祝 UI。 */
+            this.bestScore = this.score;
+            return false;
+        }
+
+        const delta = this.score - compareBase;
+        const isFirst = !this._newBestCelebrated;
         this._newBestCelebrated = true;
+        this._newBestCelebrationCount = celebrations + 1;
         this.bestScore = this.score;
         this.updateUI();
 
-        this.renderer.triggerBonusMatchFlash(3);
-        this.renderer.triggerPerfectFlash();
-        this.renderer.setShake(18, 900);
+        /* v1.55 §4.13：hard 模式破 PB 时烟花强度 +30%（更耀眼的金色烟火）；
+         * easy 模式保持原值；normal 默认。
+         * v1.55.11：CELEBRATIONS_PER_RUN_CAP=1 后 isFirst 实际上恒为 true（保留旧分支
+         * 以便未来灰度恢复多次庆祝时无需重写）。 */
+        const isHard = this.strategy === 'hard';
+        const hardScale = isHard ? 1.3 : 1.0;
+        if (isFirst) {
+            this.renderer.triggerBonusMatchFlash(isHard ? 4 : 3);
+            this.renderer.triggerPerfectFlash();
+            this.renderer.setShake(Math.round(18 * hardScale), Math.round(900 * hardScale));
+        } else {
+            /* v1.55.11 后不可达；保留以备灰度恢复。 */
+            this.renderer.triggerBonusMatchFlash(isHard ? 2 : 1);
+            this.renderer.setShake(Math.round(9 * hardScale), Math.round(450 * hardScale));
+        }
 
         const el = document.createElement('div');
-        el.className = 'new-best-popup';
-        const titleText = t('effect.newRecord');
+        el.className = 'new-best-popup' + (isFirst ? '' : ' new-best-popup--second');
+        const titleText = isFirst
+            ? t('effect.newRecord')
+            : t('effect.newRecord.second', { delta });
         el.innerHTML = `<div class="new-best-title">${titleText}</div><div class="new-best-score">${this.score}</div>`;
         document.body.appendChild(el);
-        notePopupShown(2300, 900);
-        setTimeout(() => el.remove(), 2300);
+        const holdMs = isFirst ? 2300 : 1500;
+        notePopupShown(holdMs, isFirst ? 900 : 450);
+        setTimeout(() => el.remove(), holdMs);
+
+        /* v1.55 §4.12：emit lifecycle:new_personal_best 事件，让商业化 /
+         * 留存订阅方在 PB 高情绪窗口接力（推送 / 分享卡 / 任务完成等）。 */
+        try {
+            this._emitPersonalBestEvent({
+                previousBest: compareBase,
+                newBest: this.score,
+                delta,
+                celebrationIndex: this._newBestCelebrationCount,
+                isFirst,
+            });
+        } catch { /* event bus 失败不应阻塞庆祝 UI */ }
+        /* v1.55 §4.9：启动 postPbReleaseWindow，让接下来若干 spawn 内 stress×0.7 +
+         * clearGuarantee+1，给玩家"破纪录后短暂的'我赢了'情绪"留出释放空间。 */
+        this._startPostPbReleaseWindow();
         return true;
+    }
+
+    /**
+     * v1.55 §4.12：向 MonetizationBus emit lifecycle:new_personal_best。
+     * 订阅方契约见 docs/architecture/MONETIZATION_EVENT_BUS_CONTRACT.md。
+     * 测试时若注入 this._monetizationBus（带 emit() 的对象），优先发到该 bus，
+     * 不调用全局 MonetizationBus（避免污染其他订阅方）。
+     * @param {{previousBest:number,newBest:number,delta:number,celebrationIndex:number,isFirst:boolean}} payload
+     */
+    _emitPersonalBestEvent(payload) {
+        const event = {
+            previousBest: Number(payload.previousBest) || 0,
+            newBest: Number(payload.newBest) || 0,
+            delta: Number(payload.delta) || 0,
+            celebrationIndex: Math.max(1, Math.floor(payload.celebrationIndex)) || 1,
+            isFirst: !!payload.isFirst,
+            strategy: this.strategy,
+            sessionPlacements: this.gameStats?.placements ?? 0,
+            ts: Date.now(),
+        };
+        /* 测试注入的 bus 优先；生产环境走全局 MonetizationBus.emit。 */
+        if (this._monetizationBus && typeof this._monetizationBus.emit === 'function') {
+            this._monetizationBus.emit('lifecycle:new_personal_best', event);
+        } else {
+            try { emitMonetizationEvent('lifecycle:new_personal_best', event); }
+            catch { /* bus 故障不应影响 UI 庆祝 */ }
+        }
+    }
+
+    /**
+     * v1.55 §4.12：D3 决战段（pct ≥ 0.95）首次达到时 emit 一次
+     * lifecycle:near_personal_best；本局每个 D3 进入只触发一次（exit + 重入不再 emit），
+     * 用于商业化推荐 / 冲分推送 / 分享卡草稿。
+     */
+    _maybeEmitNearPersonalBest() {
+        if (this._nearPbEmittedThisRun) return;
+        const best = Number(this._bestScoreAtRunStart ?? this.bestScore);
+        if (!Number.isFinite(best) || best <= 0) return;
+        const pct = this.score / best;
+        if (!(pct >= 0.95)) return;
+        this._nearPbEmittedThisRun = true;
+        const event = {
+            bestScore: best,
+            score: Number(this.score) || 0,
+            pct,
+            strategy: this.strategy,
+            sessionPlacements: this.gameStats?.placements ?? 0,
+            ts: Date.now(),
+        };
+        if (this._monetizationBus && typeof this._monetizationBus.emit === 'function') {
+            this._monetizationBus.emit('lifecycle:near_personal_best', event);
+        } else {
+            try { emitMonetizationEvent('lifecycle:near_personal_best', event); }
+            catch { /* ignore */ }
+        }
+    }
+
+    /**
+     * v1.55.11（用户反馈："追平不触发特效"）：本方法保留为 no-op，更新 UI 不会再调用它。
+     *
+     * 历史：v1.55.10 曾在 score === bestScore 时触发轻量绿色 "🏁 追平最佳！" toast，
+     * 但产品评审认为"追平 / 接近"信号会稀释"破 PB"这一唯一激励事件，与"只保留刷新最佳
+     * 烟花作为唯一情绪锚点"的最新策划取舍冲突，因此撤销。
+     *
+     * 保留方法本体（始终 return false 且不触发任何副作用）作为：
+     *   1. 单元测试可独立验证"追平不触发"契约（防止回归）；
+     *   2. 未来若按运营策略灰度恢复"追平"事件，只需删除本方法首行的 early return 即可。
+     */
+    _maybeCelebrateTiePersonalBest() {
+        return false;
+    }
+
+    /**
+     * v1.55 §4.9：postPbReleaseWindow —— 破纪录后释放窗口。
+     *
+     * 触发后接下来 POST_PB_RELEASE_SPAWNS（默认 3）次 spawn 内：
+     *   - 出块 stress 按 POST_PB_RELEASE_STRESS_FACTOR=0.7 衰减
+     *   - clearGuarantee 至少为 1（友好出块）
+     *   - challengeBoost 完全禁用（由 _spawnContext.postPbReleaseActive 透传到 adaptiveSpawn）
+     *
+     * 同一局内即使再次触发（连续刷新 PB），释放窗口只生效一次（cooldown）：
+     * 已激活过的本局不会重置；若已结束（_remaining=0）也不再启动。
+     */
+    _startPostPbReleaseWindow() {
+        if (this._postPbReleaseUsed) return;
+        const ctx = this._spawnContext;
+        if (!ctx) return;
+        const POST_PB_RELEASE_SPAWNS = 3;
+        ctx.postPbReleaseRemaining = POST_PB_RELEASE_SPAWNS;
+        ctx.postPbReleaseActive = true;
+        this._postPbReleaseUsed = true;
     }
 
     /**
@@ -2886,18 +3218,20 @@ export class Game {
         } else if (type === 'multi') {
             el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}</span><span class="float-pts">+${score}</span>`;
         } else if (isScoreMilestone) {
-            /* v1.49：分数里程碑不再复用 .float-new-best 样式（避免与"刷新历史最佳"撞车），
-             * 改用独立的 .float-milestone（蓝色系），并显示具体跨过的分数档。 */
-            el.className = 'float-score float-milestone';
-            el.innerHTML = `<span class="float-label">${t('effect.scoreMilestone', { score })}</span><span class="float-pts">🏁</span>`;
+            /* v1.55.11（用户反馈："已达最佳 N% 不触发特效"）：分数里程碑 toast 已撤销渲染。
+             * 调用方 playClearEffect（line 2037 一带）已不再以 'scoreMilestone' / 'milestone' type
+             * 调用 showFloatScore，但保留本分支作为防御性 no-op（外部入口或旧脚本仍可能传入这两个
+             * type，做到不抛错且不显示）。 */
+            return;
         } else {
             el.textContent = '+' + score;
         }
 
         document.body.appendChild(el);
         this._anchorOnBoard(el);
-        /* v1.50.2：分数里程碑从 1800ms 提到 2800ms，与 .float-milestone 2.8s 动画对齐 */
-        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : isScoreMilestone ? 2800 : 600;
+        /* v1.55.11：isScoreMilestone 分支已在上方提前 return，此处的 2800ms 留位不再生效；
+         * 保留旧三档时长选择以维持其他 type 的行为不变。 */
+        const floatHoldMs = isNewBest ? 2300 : isPerfect ? 2200 : isCombo ? 1450 : 600;
         setTimeout(() => el.remove(), floatHoldMs);
     }
 
@@ -2937,21 +3271,53 @@ export class Game {
             this._lastDisplayedScore = this.score;
         }
         document.getElementById('best').textContent = this.bestScore;
+        /* v1.55 §4.13：在 best 数字下方加难度标签（仅当玩家在 easy/hard 时显示，
+         * normal 默认不显示以减少视觉噪音）。Hard 时显示金色烟火，配合 §4.4 PB 分桶。 */
+        const badgeEl = document.getElementById('best-strategy-badge');
+        if (badgeEl) {
+            const s = this.strategy;
+            if (s === 'hard') {
+                badgeEl.textContent = '🔥 HARD';
+                badgeEl.hidden = false;
+                badgeEl.className = 'best-strategy-badge best-strategy-badge--hard';
+            } else if (s === 'easy') {
+                badgeEl.textContent = '🌱 EASY';
+                badgeEl.hidden = false;
+                badgeEl.className = 'best-strategy-badge best-strategy-badge--easy';
+            } else {
+                badgeEl.hidden = true;
+            }
+        }
         // 最高分差距提示（无尽模式 + 尚未超越时显示）
         const gapEl = document.getElementById('best-gap');
         if (gapEl) {
             const gap = this.bestScore - this.score;
-            if (this._levelMode === 'endless' && gap > 0 && this.bestScore > 0) {
+            /* v1.55（BEST_SCORE_CHASE_STRATEGY §4.5）warmup gate：
+             * 本局前 3 个出块属于 warmup 段（与 adaptiveSpawn.deriveSessionArc 同口径），
+             * 此时显示"差 N 分"会与 runStreakHint / 新手 toast 拥堵；
+             * 显式 hide 等本局正式进入 peak 后再展示。 */
+            const inWarmup = (this.gameStats?.placements ?? 0) < 3;
+            if (this._levelMode === 'endless' && gap > 0 && this.bestScore > 0 && !inWarmup) {
                 const ratio = gap / this.bestScore;
                 /* v1.49：原 ratio<=0 分支永不可达（外层已强制 gap>0），best.gap.victory 文案因此从未显示。
-                 * 改为 ratio<=0.02（距 best 不到 2%）触发，对应"即将刷新最佳"。 */
-                const msg = ratio <= 0.02
-                    ? t('best.gap.victory')
-                    : ratio <= 0.05
-                        ? t('best.gap.close')
-                        : ratio <= 0.15
-                            ? t('best.gap.neutral', { gap })
-                            : t('best.gap.far');
+                 * 改为 ratio<=0.02（距 best 不到 2%）触发，对应"即将刷新最佳"。
+                 *
+                 * v1.55（BEST_SCORE_CHASE_STRATEGY §4.3）远征陪伴：
+                 * 旧版 ratio>0.15 仍走 best.gap.far，但触发面较窄；新版 ratio>0.50（pct<0.50，D0 远征段）
+                 * 启用陪伴文案，并按本局轮数 round-robin 三选一（far.* 文案池）避免单调；
+                 * 0.15<ratio≤0.50 段仍用 neutral（数字距离感）。 */
+                let msg;
+                if (ratio <= 0.02) {
+                    msg = t('best.gap.victory');
+                } else if (ratio <= 0.05) {
+                    msg = t('best.gap.close');
+                } else if (ratio <= 0.50) {
+                    msg = t('best.gap.neutral', { gap });
+                } else {
+                    const variants = ['best.gap.far', 'best.gap.far.alt1', 'best.gap.far.alt2'];
+                    const idx = ((this.gameStats?.placements ?? 0) >>> 0) % variants.length;
+                    msg = t(variants[idx], { best: this.bestScore });
+                }
                 gapEl.textContent = msg;
                 gapEl.hidden = false;
                 gapEl.className = 'best-gap' + (ratio <= 0.05 ? ' best-gap--close' : '');
@@ -2964,6 +3330,13 @@ export class Game {
         // 跨过本局开始时的历史最佳即触发新纪录庆祝。_newBestCelebrated flag 保证一局
         // 只触发一次；庆祝路径内部会再调 updateUI()，但因 flag 已置位会被自然短路。
         this._maybeCelebrateNewBest();
+        /* v1.55.11（用户反馈："追平不触发特效"）：撤销 _maybeCelebrateTiePersonalBest 调用。
+         * 方法本体仍保留为 no-op（return false），以便单元测试 / 灰度回归时可独立验证；
+         * 真实游戏链路完全不再触发追平 toast。 */
+        /* v1.55 §4.12：D3 段（pct ≥ 0.95）首次达到时 emit lifecycle:near_personal_best
+         * 让推送 / 弹窗 / 分享卡草稿在"决战段"接力。
+         * 与 _maybeCelebrateNewBest 互补：前者负责"破纪录瞬间"，后者负责"接近瞬间"。 */
+        this._maybeEmitNearPersonalBest();
     }
 
     /** 关卡失败多次后，在结算界面展示有针对性的提示 */

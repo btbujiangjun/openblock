@@ -340,19 +340,24 @@ Open Block 现状对比：
 - 广告收入/用户 **+43%**
 - D7 留存 **+18%**（少了早期广告骚扰）
 
-### 11 方块益智游戏 RL 最新学术进展（2025）
+### 11 方块益智游戏 RL 最新学术进展（2025-2026）
 
-#### 11.1 Tetris Block Puzzle 难度量化（arXiv:2603.18994）
+#### 11.1 Tetris Block Puzzle 难度量化（arXiv:2603.18994，2026）
 
-用 SGAZ（Stochastic Gumbel AlphaZero）评估游戏难度：
+> **来源**：Wang C-J., Guo J-T., Guei H., Shih C-C., Wu T-R., Wu I-C., *Evaluating Game Difficulty in Tetris Block Puzzle*, [arXiv:2603.18994](https://arxiv.org/pdf/2603.18994)（NYCU × Academia Sinica，2026）。
 
-| 规则变体 | 难度影响 | 结论 |
-|---------|---------|------|
-| 增加 hold 块数 | 显著降低难度 | hold=3 比 hold=0 训练收益高 2x |
-| 增加 preview 数 | 轻微降低难度 | 预览下一块帮助规划 |
-| 添加 T-五联骨牌 | 显著增加难度 | 训练收益降低 40%+ |
+用 SGAZ（Stochastic Gumbel AlphaZero）评估 8×8 Tetris Block Puzzle 不同规则变体的难度，量化指标：训练奖励（最后 50 iter 平均）+ 收敛迭代数：
 
-**意义**：首次为方块类益智游戏提供**可量化的 AI 难度基准**，为关卡设计者提供理论工具。
+| 规则变体 | 难度影响 | 关键数据 |
+|---------|---------|---------|
+| 候选块数 `h`（hold） | **★★★ 最强** | `h=3 → h=2`：奖励 6544→4126（−37%），收敛 61→160 iter（+162%）；`h=1` 几乎不可玩（奖励 39，未收敛） |
+| 预览数 `p`（preview） | ★ 弱 | 增加 `p` 仅小幅降低难度，`h=1, p=4` 仍只能收敛到 ~5000 |
+| 加 pentomino（U/V/X/T） | ★★ 强 | 加任意一个即可让奖励显著下行；`h=2, p=0` 下加两个直接不收敛；**T-pentomino 单独造成最慢收敛** |
+
+**与 OpenBlock 的对位**：OpenBlock 默认 `dock=3 + 无 preview + 仅 tetromino` = 论文 classic `h=3, p=0` baseline（SGAZ 接近通关），意味着我们当前所有 `shapeWeights` 调控空间均处于一个**强 AI 已摸顶的难度边界**内。完整启示与三份策略文档的下游回链见：
+- [自适应出块 §10.6 外部实证基线](../algorithms/ADAPTIVE_SPAWN.md#106-外部实证基线sgaz--tetris-block-puzzlev15517)
+- [出块三层架构 §2.6 难度调控杠杆层级](../algorithms/SPAWN_ALGORITHM.md#26-难度调控杠杆层级基于-sgaz-实证--v15517)
+- [最佳分追逐策略 §5.z 规则层调控（未来方向）](../player/BEST_SCORE_CHASE_STRATEGY.md#5z-基于-sgaz-实证的规则层调控未来方向v15517)
 
 #### 11.2 PCGRL 关卡生成（Linköping 2025）
 
@@ -390,7 +395,7 @@ AlphaZeroES 训练目标：  直接最大化 Episode 总得分
 5. Ryan, R.M. & Deci, E.L. (2000). *Self-Determination Theory and the Facilitation of Intrinsic Motivation*
 6. Engagement-Oriented DDA, MDPI Applied Sciences 15(10), 2025
 7. WWW 2017 — *Dynamic Difficulty Adjustment for Maximized Engagement in Digital Games*
-8. arXiv:2603.18994 (2025) — *Evaluating Game Difficulty in Tetris Block Puzzle*（SGAZ）
+8. Wang C-J. et al. — *Evaluating Game Difficulty in Tetris Block Puzzle*（[arXiv:2603.18994](https://arxiv.org/pdf/2603.18994)，NYCU × Academia Sinica，2026）— SGAZ 难度量化
 9. Johansson, E. (2025) — *Solution-down PCGRL for hyper-casual puzzle games*（Linköping）
 10. AAMAS 2025 — *AlphaZeroES: Direct Score Maximization Outperforms Planning Loss*
 11. arXiv:2504.14636 (2025) — *AlphaZero-Edu: Democratizing Access to AlphaZero*

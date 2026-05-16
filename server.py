@@ -4022,7 +4022,6 @@ _DOC_CATEGORIES = [
     {
         "name": "玩法与产品",
         "docs": [
-            "product/PRODUCT_ARCHITECTURE_DIAGRAM_PROMPT.md",
             "product/DIFFICULTY_MODES.md",
             "product/CLEAR_SCORING.md",
             "product/CHEST_AND_WALLET.md",
@@ -4037,7 +4036,6 @@ _DOC_CATEGORIES = [
         "name": "玩家系统",
         "docs": [
             "player/EXPERIENCE_DESIGN_FOUNDATIONS.md",
-            "player/BEST_SCORE_CHALLENGE_STRATEGY.md",
             "player/STRATEGY_EXPERIENCE_MODEL.md",
             "player/REALTIME_STRATEGY.md",
             "player/PANEL_PARAMETERS.md",

@@ -26,8 +26,8 @@
 出块引擎采用**三层架构**。`stress` 不再只映射为“方块更简单/更复杂”，而是先影响 `shapeWeights`，再投影为 `spawnTargets`，由 `blockSpawn.js` 在解空间、消行机会、空间压力、节奏兑现和新鲜度等多个维度消费：
 
 ```
-stress ∈ [-0.2, 1.0]
-  ├─ shapeWeights       # 形状品类权重插值
+stress（raw 内部 ∈ [-0.2, 1] / norm 对外 ∈ [0, 1]）
+  ├─ shapeWeights       # 形状品类权重插值（按 raw 域 profile 锚点插值）
   ├─ spawnTargets       # 多轴目标：复杂度/解空间/消行/payoff/新鲜度
   └─ spawnHints         # clearGuarantee/sizePreference/multiLineTarget 等
   ↓

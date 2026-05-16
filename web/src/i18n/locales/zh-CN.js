@@ -106,9 +106,15 @@ export default {
     'best.gap.victory': '即将刷新最佳！冲刺！',
     'best.gap.close': '接近了！💪',
     'best.gap.neutral': '差 {{gap}} 分',
-    'best.gap.far': '继续努力~',
-    /* 分数里程碑（局内分数突破档位）；与 maturity_milestone_complete（跨局成熟度晋升）是不同概念 */
+    'best.gap.far': '本次最佳 {{best}} · 慢慢追',
+    'best.gap.far.alt1': '稳住节奏，再练两把就近了',
+    'best.gap.far.alt2': '上次 PB {{best}} · 别急，先稳底两行',
+    /* @deprecated v1.55.11：score milestone toast 已撤销渲染（用户反馈"已达最佳 N% 不触发特效"）。
+     * 三个 key 仍保留以维持 i18n 平台的回滚能力 + 兼容旧调用方；i18n 测试只断言存在性。
+     * 实际游戏 UI 不会再消费这三条文案。 */
     'effect.scoreMilestone': '分数突破 {{score}}！',
+    'effect.scoreMilestonePct': '已达最佳 {{pct}}%',
+    'effect.tieBest': '🏁 追平最佳！',
     /* 落子未消行：整行/整列差 1 格满 — 救场鼓励（需控频，见 nearMissPlaceFeedback） */
     'effect.nearMissPlace': '再一格就消行',
     /* 无路可走、即将 game over 的鼓励语 */
@@ -119,7 +125,9 @@ export default {
     'effect.multiClear': '{{n}} 消',
     'effect.doubleClear': '双消',
     'effect.iconBonus': '同花顺大消除',
-    'effect.newRecord': '新纪录',
+    'effect.newRecord': '🏆 刷新最佳！',
+    /* v1.55 §4.6：同一局连续刷新 PB 的二度（或更多）庆祝文案；首次仍走 newRecord。 */
+    'effect.newRecord.second': '再破纪录 +{{delta}}',
     'effect.streakCombo': '{{fires}} {{n}} 连消',
     'effect.achievementUnlocked': '🏆 成就解锁！',
     'effect.runStreakHint': '连战第 {{n}} 局：初始更挤、出块略难（回菜单重置）',
@@ -298,7 +306,8 @@ export default {
 
     // 决策数据流面板（v1.51.4）— 开发/策划分析工具，所有 dfv.* keys 在缺译时回退 zh-CN
     'dfv.title': '决策数据流',
-    'dfv.toggleTitle': '🌌 决策数据流 — 实时观察玩家信号 → 压力 → 出块决策（Shift+D）',
+    /* v1.55.14：title 去掉 emoji 前缀（按钮已用 inline SVG），避免 tooltip 与按钮图标重复 */
+    'dfv.toggleTitle': '决策数据流 — 实时观察玩家信号 → 压力 → 出块决策（Shift+D）',
     'dfv.aria': '决策数据流面板',
     'dfv.dragHint': '按住拖动整个面板',
     'dfv.collapseTitle': '折叠/展开',
@@ -422,6 +431,7 @@ export default {
     'dfv.contrib.abilityRiskAdjust':     '能力风险',
     'dfv.contrib.delightStressAdjust':   '里程碑',
     'dfv.contrib.challengeBoost':        'B 类挑战',
+    'dfv.contrib.postPbReleaseStressAdjust': '破纪录释放',
     'dfv.contrib.friendlyBoardRelief':   '友好盘面',
     'dfv.contrib.bottleneckRelief':      '瓶颈低谷',
     'dfv.contrib.motivationStressAdjust':'动机画像',

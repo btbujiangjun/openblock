@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': 'Xóa {{n}} hàng',
     'effect.doubleClear': 'Xóa đôi',
     'effect.iconBonus': 'Xóa Sảnh Rồng',
-    'effect.newRecord': 'Kỷ lục mới',
+    'effect.newRecord': '🏆 Kỷ lục mới!',
 
     'skin.name.classic': '✨ Tối giản cổ điển',
     'skin.name.titanium': '💎 Ma trận titan',

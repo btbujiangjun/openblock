@@ -16,21 +16,23 @@ import {
 } from '../web/src/stressMeter.js';
 
 describe('getStressLevel', () => {
-    it('低于 -0.05 走 calm 档', () => {
-        expect(getStressLevel(-0.2).id).toBe('calm');
-        expect(getStressLevel(-0.06).id).toBe('calm');
+    /* v1.55.17：所有入参切到 norm 域 [0,1]（见 web/src/adaptiveSpawn.js normalizeStress JSDoc）。
+     * raw → norm 对照：-0.20→0、-0.05→0.125、0→0.167、0.20→0.333、0.45→0.542、0.65→0.708、0.80→0.833 */
+    it('低于 0.125（原 raw -0.05）走 calm 档', () => {
+        expect(getStressLevel(0).id).toBe('calm');       // 原 raw -0.20 → norm 0
+        expect(getStressLevel(0.10).id).toBe('calm');    // 原 raw -0.08 → norm 0.10
     });
 
-    it('心流区间稳定落在 flow 档', () => {
-        expect(getStressLevel(0.20).id).toBe('flow');
-        expect(getStressLevel(0.30).id).toBe('flow');
-        expect(getStressLevel(0.44).id).toBe('flow');
+    it('心流区间稳定落在 flow 档（norm [0.333, 0.542)）', () => {
+        expect(getStressLevel(0.34).id).toBe('flow');    // 原 raw 0.20 → norm 0.333+
+        expect(getStressLevel(0.42).id).toBe('flow');    // 原 raw 0.30 → norm 0.417
+        expect(getStressLevel(0.53).id).toBe('flow');    // 原 raw 0.44 → norm 0.533
     });
 
-    it('紧张/高压档边界正确', () => {
-        expect(getStressLevel(0.65).id).toBe('tense');
-        expect(getStressLevel(0.79).id).toBe('tense');
-        expect(getStressLevel(0.80).id).toBe('intense');
+    it('紧张/高压档边界正确（tense=[0.708,0.833), intense=[0.833,∞)）', () => {
+        expect(getStressLevel(0.71).id).toBe('tense');   // 原 raw 0.65 → norm 0.708+
+        expect(getStressLevel(0.825).id).toBe('tense');  // 原 raw 0.79 → norm 0.825
+        expect(getStressLevel(0.833).id).toBe('intense'); // 原 raw 0.80 → norm 0.833
         expect(getStressLevel(1.0).id).toBe('intense');
     });
 
@@ -472,8 +474,9 @@ describe('v1.31 harvest 密度分级', () => {
 });
 
 describe('getStressDisplay v1.18 救济变体', () => {
+    /* v1.55.17：入参切到 norm 域。原 raw -0.15 → norm 0.0417；原 0.10 → 0.250；原 0.30 → 0.417；原 -0.10 → 0.0833 */
     it('relief intent + 低 stress（calm）→ 切到「被照顾」face/label', () => {
-        const d = getStressDisplay(-0.15, 'relief');
+        const d = getStressDisplay(0.04, 'relief'); // 原 raw -0.15 → norm 0.042
         expect(d.face).toBe('🤗');
         expect(d.label).toMatch(/救济中/);
         expect(d.id).toBe('calm');
@@ -481,28 +484,28 @@ describe('getStressDisplay v1.18 救济变体', () => {
     });
 
     it('relief intent 但 stress 在 easy 区 → 不切（"舒缓 + 主动减压"语义不冲突）', () => {
-        const d = getStressDisplay(0.10, 'relief');
+        const d = getStressDisplay(0.25, 'relief'); // 原 raw 0.10 → norm 0.25，落入 easy
         expect(d.face).not.toBe('🤗');
         expect(d.label).not.toMatch(/救济中/);
         expect(d.id).toBe('easy');
     });
 
     it('relief intent 但 stress 在 flow 区 → 不切（已离开低压档）', () => {
-        const d = getStressDisplay(0.30, 'relief');
+        const d = getStressDisplay(0.42, 'relief'); // 原 raw 0.30 → norm 0.417，落入 flow
         expect(d.face).not.toBe('🤗');
         expect(d.label).not.toMatch(/救济中/);
     });
 
     it('其它 intent 完全沿用 getStressLevel', () => {
-        const d = getStressDisplay(-0.10, 'flow');
-        const base = getStressLevel(-0.10);
+        const d = getStressDisplay(0.08, 'flow'); // 原 raw -0.10 → norm 0.0833
+        const base = getStressLevel(0.08);
         expect(d.face).toBe(base.face);
         expect(d.label).toBe(base.label);
     });
 
     it('未提供 intent → 沿用基础档', () => {
-        const d = getStressDisplay(-0.10);
-        const base = getStressLevel(-0.10);
+        const d = getStressDisplay(0.08);
+        const base = getStressLevel(0.08);
         expect(d.face).toBe(base.face);
         expect(d.label).toBe(base.label);
     });

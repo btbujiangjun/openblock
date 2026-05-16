@@ -270,6 +270,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         await hydrateCheckinFromServer();
         /* v1.52：按业务分区同步 localStorage ↔ SQLite（防回滚合并 + 分频增量写入） */
         await initLocalStorageStateSync();
+        /* v1.55.10 修复 PB 风险 1：hydrate 把远端分桶 PB 写入 localStorage 后，
+         * 让 Game 实例重新读取并对齐当前难度档的 bestScore（避免跨设备首次加载
+         * HUD 显示"全账号 PB"而非"本难度档 PB"）。 */
+        game.refreshBestScoreFromBucket?.();
         /* v1.53：访问会话日志（start/ping/end）落库，用于运营看板访客分析。 */
         await initVisitTracker();
         initLoginStreak({ audio: audioFx });

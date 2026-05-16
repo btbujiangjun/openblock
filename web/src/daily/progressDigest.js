@@ -34,6 +34,7 @@ export function initProgressDigest({ game } = {}) {
 function _collectFacts() {
     if (!_game) return null;
     const stats = _game.gameStats || {};
+    const replayAnalysis = _game._lastReplayAnalysis || stats.replayAnalysis || null;
     const clears = stats.clears | 0;
     const maxCombo = stats.maxCombo | 0;
     const placements = stats.placements | 0;
@@ -55,7 +56,28 @@ function _collectFacts() {
         duration = `${m}:${String(s).padStart(2, '0')}`;
     }
 
-    return { clears, maxCombo, placements, hitRate, duration };
+    return { clears, maxCombo, placements, hitRate, duration, bestReview: _buildBestReview(replayAnalysis) };
+}
+
+function _buildBestReview(replayAnalysis) {
+    const quality = replayAnalysis?.nearBestQuality;
+    if (quality && Number.isFinite(Number(quality.score))) {
+        return Number(quality.score) >= 0.62
+            ? t('game.summary.nearBestHigh')
+            : t('game.summary.nearBestLow');
+    }
+    const source = replayAnalysis?.bestBreakSource;
+    if (source) {
+        const labels = {
+            skill_break: t('game.summary.bestBreakSkill'),
+            payoff_break: t('game.summary.bestBreakPayoff'),
+            rescue_break: t('game.summary.bestBreakRescue'),
+            risk_break: t('game.summary.bestBreakRisk'),
+            random_like_break: t('game.summary.bestBreakRandom'),
+        };
+        return labels[source] || t('game.summary.bestBreakGeneric');
+    }
+    return null;
 }
 
 function _renderDigest() {
@@ -76,6 +98,7 @@ function _renderDigest() {
         { label: t('game.summary.maxCombo'),  value: `${facts.maxCombo}` },
         ...(facts.hitRate != null ? [{ label: t('game.summary.hitRate'), value: `${facts.hitRate}%` }] : []),
         ...(facts.duration   ? [{ label: t('game.summary.duration'), value: facts.duration }]    : []),
+        ...(facts.bestReview ? [{ label: t('game.summary.bestChallenge'), value: facts.bestReview }] : []),
     ];
 
     slot.hidden = false;

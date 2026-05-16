@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} rijen',
     'effect.doubleClear': 'Dubbele clear',
     'effect.iconBonus': 'Royal Flush Opruiming',
-    'effect.newRecord': 'Nieuw record',
+    'effect.newRecord': '🏆 Nieuw record!',
 
     'skin.name.classic': '✨ Minimalistisch klassiek',
     'skin.name.titanium': '💎 Titanium-matrix',

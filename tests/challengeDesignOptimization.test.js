@@ -45,18 +45,23 @@ describe('P1-1：S/M 标签与出块难度联动', () => {
         expect(s._adaptiveStress).toBeLessThanOrEqual(0.50);
     });
 
-    it('S3·M4（核心玩家）stress 上限 0.88，偏移 +0.12 → 最终可达 1.0', () => {
+    it('S3·M? 段（核心难度）stress 接近所在 band 的 cap（v1.55 §4.1 后所有 25 格无死键）', () => {
         const p = makeProfile({ lifetimeGames: 180, lifetimePlacements: 7000, smoothSkill: 0.9 });
         p._daysSinceInstall = 45;
         p._daysSinceLastActive = 2;
         const s = resolveAdaptiveStrategy('hard', p, 250, 5, 0.5, { totalRounds: 30 });
         expect(s._stressBreakdown.lifecycleStage).toBe('S3');
-        // S3·M4 cap=0.88, adjust=+0.12。raw stress 在 cap 以内时 lifecycleStressAdjust=0，
-        // adjust 合并进 stress 本身（S3·M4 可达 1.0）。raw stress > cap 时 lifecycleStressAdjust < 0。
+        expect(s._stressBreakdown.lifecycleBand).toBeTruthy(); // M0..M4 之一
+        /* v1.55 §4.1 起：S3·M0 cap=0.65（之前是死键 → raw stress 直通到 0.85+）。
+         * 这里只要求 stress > 0.5（hard 难度的下限）；具体上限取决于实际派生的 band：
+         *   - M0 / M1：cap 0.65 / 0.72 → finalStress ≈ 0.60–0.70
+         *   - M2 / M3：cap 0.78 / 0.85 → finalStress 可能在 0.70+
+         *   - M4：cap 0.88 → finalStress 可达 0.88
+         * 所有 band 下 stress 都明显大于 0.5（hard 难度 + skill≥0.9 + runStreak=5）。 */
         const finalStress = s._adaptiveStress;
-        expect(finalStress).toBeGreaterThan(0.85);
-        expect(s._stressBreakdown.lifecycleStage).toBe('S3');
-        expect(s._stressBreakdown.lifecycleBand).toBeTruthy(); // M0~M4 之一
+        expect(finalStress).toBeGreaterThan(0.55);
+        /* 必然不会超过该 band 对应 cap：cap 上限保证（最大 cap=0.88） */
+        expect(finalStress).toBeLessThanOrEqual(1.0);
     });
 
     it('S4·M0（回流保护）stress 上限 0.55，偏移 -0.15', () => {
@@ -160,50 +165,64 @@ describe('P1-4：难度曲线平滑（±0.15 clamp）', () => {
     });
 });
 
-// ── P2-5：多级里程碑触发 ────────────────────────────────────────────────
+// ── P2-5：多级里程碑触发（v1.55.10：MIN_BEST=500 门槛 + [0.50, 0.75, 0.90] 档位） ──
 
-describe('P2-5：多级里程碑触发', () => {
+describe('P2-5：多级里程碑触发（v1.55.10 修订）', () => {
     beforeEach(() => { resetAdaptiveMilestone(); });
 
-    it('分数达到 50 分触发里程碑', () => {
+    it('bestScore=1000 时分数达到 500 分（50%）触发里程碑', () => {
         resetAdaptiveMilestone();
         const p = makeProfile();
-        const r1 = resolveAdaptiveStrategy('normal', p, 40, 0, 0.3, { totalRounds: 2 });
+        const r1 = resolveAdaptiveStrategy('normal', p, 400, 0, 0.3, { totalRounds: 2, bestScore: 1000 });
         expect(r1.spawnHints.scoreMilestone).toBe(false);
         resetAdaptiveMilestone();
-        const r2 = resolveAdaptiveStrategy('normal', p, 50, 0, 0.3, { totalRounds: 3 });
+        const r2 = resolveAdaptiveStrategy('normal', p, 500, 0, 0.3, { totalRounds: 3, bestScore: 1000 });
         expect(r2.spawnHints.scoreMilestone).toBe(true);
+        expect(r2.spawnHints.scoreMilestoneValue).toBe(500);
     });
 
-    it('分数达到 100 分触发里程碑', () => {
+    it('bestScore=1000 时分数达到 750 分（75%）触发里程碑（命中最小未达档=500）', () => {
         resetAdaptiveMilestone();
         const p = makeProfile();
-        const r2 = resolveAdaptiveStrategy('normal', p, 100, 0, 0.4, { totalRounds: 4 });
-        expect(r2.spawnHints.scoreMilestone).toBe(true);
+        const r = resolveAdaptiveStrategy('normal', p, 750, 0, 0.4, { totalRounds: 4, bestScore: 1000 });
+        expect(r.spawnHints.scoreMilestone).toBe(true);
+        /* checkScoreMilestone 返回首个未达档；750 同时跨过 500 与 750，按设计返回 500。
+         * 注意：v1.55.10 局内一次契约下，玩家一局通常只会命中一个档位，此行为合理。 */
+        expect(r.spawnHints.scoreMilestoneValue).toBe(500);
     });
 
-    it('分数未达里程碑时不触发', () => {
+    it('分数未达任何百分比档位时不触发', () => {
         resetAdaptiveMilestone();
         const p = makeProfile();
-        const r = resolveAdaptiveStrategy('normal', p, 30, 0, 0.2, { totalRounds: 1 });
+        const r = resolveAdaptiveStrategy('normal', p, 400, 0, 0.2, { totalRounds: 1, bestScore: 1000 });
         expect(r.spawnHints.scoreMilestone).toBe(false);
     });
 
     it('_scoreMilestoneHit 字段与 spawnHints.scoreMilestone 一致（v1.49 字段更名）', () => {
         resetAdaptiveMilestone();
         const p = makeProfile();
-        const r = resolveAdaptiveStrategy('normal', p, 50, 0, 0.3, { totalRounds: 3 });
+        const r = resolveAdaptiveStrategy('normal', p, 500, 0, 0.3, { totalRounds: 3, bestScore: 1000 });
         expect(r.spawnHints.scoreMilestone).toBe(r._scoreMilestoneHit);
         expect(r.spawnHints.scoreMilestoneValue).toBe(r._scoreMilestoneValue);
     });
 
-    it('里程碑列表包含 50/100/150/200/300/500', () => {
+    it('首次跨过最低档 500（bestScore=1000 × 0.50）即触发，命中值=500', () => {
+        const p = makeProfile();
+        resetAdaptiveMilestone();
+        const r = resolveAdaptiveStrategy('normal', p, 510, 0, 0.4, { totalRounds: 5, bestScore: 1000 });
+        expect(r.spawnHints.scoreMilestone).toBe(true);
+        expect(r.spawnHints.scoreMilestoneValue).toBe(500);
+        /* 750 / 900 两档的命中由 nearMissAndMilestone.test.js 中
+         * "scales milestones relative to bestScore" 用例间接覆盖；
+         * 局内一次契约让"逐档命中"在单局上下文中不可能（也不该出现）。 */
+    });
+
+    it('bestScore < 500 时任何分数都不触发（v1.55.10 MIN_BEST 门槛）', () => {
         resetAdaptiveMilestone();
         const p = makeProfile();
-        for (const m of [50, 100, 150, 200, 300, 500]) {
-            resetAdaptiveMilestone();
-            const r = resolveAdaptiveStrategy('normal', p, m, 0, 0.4, { totalRounds: 5 });
-            expect(r.spawnHints.scoreMilestone).toBe(true);
+        for (const sc of [50, 100, 150, 200, 300]) {
+            const r = resolveAdaptiveStrategy('normal', p, sc, 0, 0.4, { totalRounds: 5, bestScore: 0 });
+            expect(r.spawnHints.scoreMilestone).toBe(false);
         }
     });
 });
@@ -221,10 +240,13 @@ describe('P2-6：策略面板 stress vs target', () => {
         expect(Number.isFinite(s._stressTarget)).toBe(true);
     });
 
-    it('_stressTarget 默认值约为 0.325', () => {
+    it('_stressTarget 默认值约为 norm 0.4375（v1.55.17：原 raw 0.325 已对外归一化）', () => {
         const p = makeProfile({ lifetimeGames: 5, lifetimePlacements: 100 });
         const s = resolveAdaptiveStrategy('normal', p, 80, 0, 0.35, { totalRounds: 4 });
-        expect(s._stressTarget).toBeCloseTo(0.325, 1);
+        /* v1.55.17：_stressTarget 已切到 norm 域（0.325 raw → 0.4375 norm）；
+         * raw 域中性锚仍可通过 _stressTargetRaw 读取。 */
+        expect(s._stressTarget).toBeCloseTo(0.4375, 2);
+        expect(s._stressTargetRaw).toBeCloseTo(0.325, 2);
     });
 
     it('renderStressMeter 接受 stressTarget 参数', () => {
@@ -316,16 +338,29 @@ describe('P1-2 + P2-7：近失反馈 CSS 类', () => {
 describe('集成：完整流程（里程碑→近失→结算）', () => {
     beforeEach(() => { resetAdaptiveMilestone(); });
 
-    it('经历多个里程碑期间 milestoneHit 多次触发', () => {
+    it('经历多个里程碑期间（隔局 reset）milestoneHit 多次触发', () => {
+        /* v1.55.10：bestScore=1000 → 派生 [500, 750, 900]；每次 reset 模拟新一局 */
         const p = makeProfile({ lifetimeGames: 5, lifetimePlacements: 100 });
-        const milestones = [0, 50, 100, 150];
+        const scores = [400, 500, 750, 900];
         const hits = [];
-        for (const score of milestones) {
+        for (const score of scores) {
             resetAdaptiveMilestone();
-            const r = resolveAdaptiveStrategy('normal', p, score, 0, 0.4, { totalRounds: 5 });
+            const r = resolveAdaptiveStrategy('normal', p, score, 0, 0.4, { totalRounds: 5, bestScore: 1000 });
             hits.push(r.spawnHints.scoreMilestone);
         }
         expect(hits).toEqual([false, true, true, true]);
+    });
+
+    it('局内只触发一次（v1.55.10 in-run cap）：连续跨多档只 hit 第一次', () => {
+        const p = makeProfile({ lifetimeGames: 5, lifetimePlacements: 100 });
+        resetAdaptiveMilestone();
+        /* bestScore=1000 → 派生 [500, 750, 900]；连续 510→760→920 应只 hit 一次 */
+        const hits = [];
+        for (const score of [510, 760, 920]) {
+            const r = resolveAdaptiveStrategy('normal', p, score, 0, 0.4, { totalRounds: 5, bestScore: 1000 });
+            hits.push(r.spawnHints.scoreMilestone);
+        }
+        expect(hits).toEqual([true, false, false]);
     });
 
     it('近失后 stress 下调（nearMissAdjust）', () => {

@@ -34,6 +34,9 @@ const CORE_KEYS = new Set([
     'openblock_skin_fragments_v1',
     'openblock_skin',
     'openblock_best_score',
+    /* v1.55 §4.4 + §4.7 + §4.11：PB 分桶 / 周期 / 跨设备同步 */
+    'openblock_best_by_strategy_v1',
+    'openblock_period_best_v1',
     'openblock_strategy',
     'openblock_season_pass',
 ]);

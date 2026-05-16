@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': 'เคลียร์ {{n}} แถว',
     'effect.doubleClear': 'เคลียร์คู่',
     'effect.iconBonus': 'ล้างใหญ่รอยัลฟลัช',
-    'effect.newRecord': 'สถิติใหม่',
+    'effect.newRecord': '🏆 สถิติใหม่!',
 
     'skin.name.classic': '✨ คลาสสิกมินิมอล',
     'skin.name.titanium': '💎 ไทเทเนียมเมทริกซ์',

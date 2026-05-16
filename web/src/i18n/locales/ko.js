@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}}줄 클리어',
     'effect.doubleClear': '더블 클리어',
     'effect.iconBonus': '로열 플러시 대소거',
-    'effect.newRecord': '신기록',
+    'effect.newRecord': '🏆 신기록!',
 
     'skin.name.classic': '✨ 미니멀 클래식',
     'skin.name.titanium': '💎 티타늄 매트릭스',

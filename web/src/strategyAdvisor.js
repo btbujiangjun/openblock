@@ -12,6 +12,7 @@
  *   explore    — 探索：新手引导 / 新鲜感
  *   combo      — 连击链：combo 催化 / 里程碑
  *   lifecycle  — 生命周期：S/M 标签驱动的长期策略
+ *   pbChase    — PB 追逐：v1.55 §4.8 D3.victory / D3.close / D4 决战段叙事卡
  *
  * Layer 同步：
  *   insight.spawnHints.rhythmPhase   → 节奏建议
@@ -175,6 +176,47 @@ export function generateStrategyTips(profile, insight, gridInfo) {
             };
         }
     } catch { /* lifecycle 数据缺失不应阻塞策略建议 */ }
+
+    /* ── 0b. PB 追逐策略卡（v1.55 §4.8） ──
+     * 基于 PB 距离段（D3.close pct≥0.95 / D3.victory pct>=1.00 已破 / D4 释放窗口）
+     * 输出"挑战自己最佳"的专属策略叙事。与 lifecycleTip 互补：lifecycleTip 看
+     * "长期阶段"，pbChaseTip 看"当下离 PB 的距离"。
+     *
+     * 设计原则：
+     *   - D3.close（pct 0.95~0.999）：emit "差临门一脚" 卡，紧迫度高
+     *   - D3.victory（pct ≥ 1.00，已破）：emit "再破纪录" 卡，激励冲二度
+     *   - D4（postPbReleaseActive=true）：emit "庆功小憩" 卡，引导深呼吸
+     *   - 其他段（D0/D1/D2）不出 pbChase 卡，避免泛滥
+     *
+     * 优先级与 lifecycleTip 同一档（0.55~0.86），不会霸占生存卡的 0.88+。
+     */
+    const pbCtx = gridInfo?.pbContext;
+    let pbChaseTip = null;
+    if (pbCtx && pbCtx.bestScore > 0) {
+        const pct = pbCtx.currentScore / pbCtx.bestScore;
+        const celCount = Math.max(0, Math.floor(pbCtx.celebrationCount ?? 0));
+        if (pbCtx.postPbReleaseActive === true) {
+            pbChaseTip = {
+                icon: '🎆', title: '庆功小憩',
+                detail: '刚刚刷新 PB，出块已切到友好模式 3 波，深呼吸再起航。',
+                priority: 0.76, category: 'pbChase',
+            };
+        } else if (pct >= 1.0 && celCount > 0) {
+            /* 已破 PB 但释放窗口已结束：邀请冲二度（+10% / +25%）。 */
+            pbChaseTip = {
+                icon: '🚀', title: '再破纪录',
+                detail: `已突破 PB ${pbCtx.bestScore}！下一节点 ${Math.round(pbCtx.bestScore * 1.1)}（+10%），再上一层。`,
+                priority: 0.78, category: 'pbChase',
+            };
+        } else if (pct >= 0.95) {
+            const remain = Math.max(1, Math.ceil(pbCtx.bestScore - pbCtx.currentScore));
+            pbChaseTip = {
+                icon: '🏁', title: '决战一脚',
+                detail: `距 PB ${pbCtx.bestScore} 仅 ${remain} 分，稳手放慢节奏，多看一拍再落子。`,
+                priority: 0.84, category: 'pbChase',
+            };
+        }
+    }
 
     /* ── 1. 生存优先 (Layer 1) ── */
     if (fill > 0.75) {
@@ -415,6 +457,13 @@ export function generateStrategyTips(profile, insight, gridInfo) {
      */
     if (lifecycleTip && tips.length < 4) {
         tips.push(lifecycleTip);
+    }
+
+    /* ── 15. PB 追逐策略卡（v1.55 §4.8） ──
+     * 与 lifecycleTip 同等级注入，但只在 D3.close/D3.victory/D4 命中时存在。
+     */
+    if (pbChaseTip && tips.length < 5) {
+        tips.push(pbChaseTip);
     }
 
     /* ── 兜底 ── */

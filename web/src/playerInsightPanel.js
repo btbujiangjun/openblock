@@ -358,7 +358,7 @@ const BEHAVIOR_SEGMENT_LABEL = {
 
 const SPAWN_TOOLTIP = {
     stress:
-        '综合压力（约 −0.2～1）。由分数档、连战、技能、心流、节奏、恢复、挫败、combo、近失、闭环反馈等叠加后钳制，用于在配置的多档形状权重间插值。',
+        '综合压力（对外归一化到 [0, 1]，0=完全减压、≈0.167=baseline 中性、≈0.875=接近上限、1=硬顶；v1.55.17 起）。由分数档、连战、技能、心流、节奏、恢复、挫败、combo、近失、闭环反馈等叠加后钳制，用于在配置的多档形状权重间插值。',
     flowDev:
         '心流偏移 F(t)：挑战与能力匹配的偏离程度；参与无聊/焦虑方向的 stress 微调。',
     feedback:
@@ -999,8 +999,10 @@ function _buildWhyLines(insight, profile) {
     if (typeof s === 'number') {
         const diffLabel = insight.strategyId === 'easy' ? '简单' : insight.strategyId === 'hard' ? '困难' : '普通';
         const biasStr = insight.difficultyBias ? ` 难度偏移${insight.difficultyBias > 0 ? '+' : ''}${insight.difficultyBias.toFixed(2)}` : '';
+        /* v1.55.17：stress 归一化为 [0, 1]（0=完全减压、≈0.167=baseline 中性、
+         * ≈0.875=接近上限、1=硬顶）；详见 docs/algorithms/ADAPTIVE_SPAWN.md §3.5。 */
         lines.push(
-            `综合压力 stress=${s.toFixed(2)}（${diffLabel}模式${biasStr}；含分数、连战、心流、节奏等信号）`
+            `综合压力 stress=${s.toFixed(2)}（${diffLabel}模式${biasStr}；归一化到 [0, 1]，含分数、连战、心流、节奏等信号）`
         );
     }
     if (insight.skillLevel != null) {
@@ -1550,7 +1552,15 @@ function _render(game) {
         holesCount: _gridHoles(game.grid),
         liveTopology,
         liveMultiClearCandidates: _countLiveMultiClearCandidates(game.grid, game.dockBlocks),
-        liveSolutionMetrics: _placementSolutionForGame(game)
+        liveSolutionMetrics: _placementSolutionForGame(game),
+        /* v1.55 §4.8：把当前局 score / bestScore 注入 strategyAdvisor，
+         * 使其能在 D3.close / D3.victory / D4 段输出"PB 追逐"专属策略卡。 */
+        pbContext: {
+            currentScore: Number(game.score) || 0,
+            bestScore: Number(game.bestScore) || 0,
+            postPbReleaseActive: game._spawnContext?.postPbReleaseActive === true,
+            celebrationCount: game._newBestCelebrationCount ?? 0,
+        }
     } : undefined;
     const tips = generateStrategyTips(p, ins, gridInfo);
 

@@ -56,6 +56,24 @@ const { getAllShapes } = require('./shapes');
 const PC_SETUP_MIN_FILL = 0.45;
 
 /* ------------------------------------------------------------------ */
+/*  v1.55.17：stress 对外归一化（与 web/src/adaptiveSpawn.js 同口径）   */
+/*  详见 web/src/adaptiveSpawn.js 顶部 normalizeStress 大段 JSDoc。     */
+const STRESS_NORM_OFFSET = 0.2;
+const STRESS_NORM_SCALE = 1.2;
+
+function normalizeStress(raw) {
+    const n = (Number(raw) + STRESS_NORM_OFFSET) / STRESS_NORM_SCALE;
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
+}
+
+function denormalizeStress(norm) {
+    const r = Number(norm) * STRESS_NORM_SCALE - STRESS_NORM_OFFSET;
+    if (!Number.isFinite(r)) return 0;
+    return Math.max(-0.2, Math.min(1, r));
+}
+
+/* ------------------------------------------------------------------ */
 /*  profile 插值                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -487,7 +505,7 @@ function resetAdaptiveMilestone() {
 
 /**
  * 根据 stress 选择解法数量档位。
- * @param {number} stress 综合压力（约 -0.2 ~ 1）
+ * @param {number} stress 综合压力（内部 raw 域 [-0.2, 1]；对外面板 [0, 1]）
  * @param {object} cfg adaptiveSpawn.solutionDifficulty
  * @param {number} fill 当前盘面填充率
  * @returns {{ min: number|null, max: number|null, label?: string } | null}
@@ -1411,7 +1429,9 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             orderRigor: Math.max(0, Math.min(1, orderRigor)),
             orderMaxValidPerms: Math.max(1, Math.min(6, orderMaxValidPerms))
         },
-        _adaptiveStress: stress,
+        /* v1.55.17：对外暴露 norm 域 [0, 1]，与 web/src/adaptiveSpawn.js 一致 */
+        _adaptiveStress: normalizeStress(stress),
+        _adaptiveStressRaw: stress,
         _difficultyBias: difficultyBias,
         _difficultyTuning: difficultyTuning,
         _holePressure: holePressure,
@@ -1461,4 +1481,4 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     };
 }
 
-module.exports = { resetAdaptiveMilestone, resolveAdaptiveStrategy };
+module.exports = { resetAdaptiveMilestone, resolveAdaptiveStrategy, normalizeStress, denormalizeStress };

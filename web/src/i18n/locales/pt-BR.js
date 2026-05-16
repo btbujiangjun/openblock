@@ -58,7 +58,7 @@ export default {
     'effect.multiClear': '{{n}} linhas',
     'effect.doubleClear': 'Limpeza dupla',
     'effect.iconBonus': 'Eliminação Sequência Real',
-    'effect.newRecord': 'Novo recorde',
+    'effect.newRecord': '🏆 Novo recorde!',
 
     'skin.name.classic': '✨ Clássico minimalista',
     'skin.name.titanium': '💎 Matriz de titânio',
