@@ -10,10 +10,11 @@ import sys
 import sqlite3
 import json
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, Response
 from flask_cors import CORS
 
 
@@ -516,6 +517,84 @@ def init_db():
                 payload TEXT NOT NULL,
                 updated_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS player_visits (
+                visit_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                player_info TEXT DEFAULT '{}',
+                page TEXT DEFAULT '/',
+                user_agent TEXT DEFAULT '',
+                client_ip TEXT,
+                started_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL,
+                ended_at INTEGER,
+                duration_sec INTEGER
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_player_visits_user_time
+            ON player_visits(user_id, started_at DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_player_visits_last_seen
+            ON player_visits(last_seen_at DESC)
+        """)
+
+        # v1.52：localStorage 分区持久化（按业务主题拆分表，避免一个大 JSON 互相覆盖）。
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_state_core (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_state_monetization (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_state_social (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_state_preferences (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_state_experiment (
+                user_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_state_dropped_keys_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                section TEXT NOT NULL,
+                dropped_key TEXT NOT NULL,
+                reason TEXT DEFAULT 'not_in_whitelist',
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_state_dropped_user_time
+            ON user_state_dropped_keys_log(user_id, created_at DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_user_state_dropped_key
+            ON user_state_dropped_keys_log(dropped_key)
         """)
 
         _migrate_behaviors_columns(cursor)
@@ -1792,6 +1871,381 @@ def put_checkin_bundle():
     return jsonify({"success": True})
 
 
+@app.route("/api/visit/start", methods=["POST"])
+def visit_start():
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    visit_id = data.get("visit_id", "") or data.get("visitId", "")
+    if not visit_id:
+        visit_id = f"v{int(time.time()*1000)}_{uuid.uuid4().hex[:10]}"
+    started_at = data.get("started_at") or data.get("startedAt") or int(time.time())
+    try:
+        started_at = int(started_at)
+    except (TypeError, ValueError):
+        started_at = int(time.time())
+    player_info = data.get("player_info") or data.get("playerInfo") or {}
+    if not isinstance(player_info, dict):
+        player_info = {}
+    page = (data.get("page") or "/")[:200]
+    user_agent = request.headers.get("User-Agent", "")[:300]
+    client_ip = _client_ip()
+    payload = json.dumps(player_info, ensure_ascii=False)
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO player_visits
+        (visit_id, user_id, player_info, page, user_agent, client_ip, started_at, last_seen_at, ended_at, duration_sec)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+        ON CONFLICT(visit_id) DO UPDATE SET
+            user_id = excluded.user_id,
+            player_info = excluded.player_info,
+            page = excluded.page,
+            user_agent = excluded.user_agent,
+            client_ip = excluded.client_ip,
+            started_at = excluded.started_at,
+            last_seen_at = excluded.last_seen_at
+        """,
+        (visit_id, user_id, payload, page, user_agent, client_ip, started_at, started_at),
+    )
+    db.commit()
+    return jsonify({"success": True, "visitId": visit_id, "startedAt": started_at})
+
+
+@app.route("/api/visit/ping", methods=["POST"])
+def visit_ping():
+    data = request.get_json() or {}
+    visit_id = data.get("visit_id", "") or data.get("visitId", "")
+    if not visit_id:
+        return jsonify({"error": "visit_id required"}), 400
+    now_ts = int(time.time())
+    player_info = data.get("player_info") or data.get("playerInfo")
+    db = get_db()
+    cur = db.cursor()
+    if isinstance(player_info, dict):
+        cur.execute(
+            """
+            UPDATE player_visits
+            SET last_seen_at = ?,
+                player_info = ?
+            WHERE visit_id = ?
+            """,
+            (now_ts, json.dumps(player_info, ensure_ascii=False), visit_id),
+        )
+    else:
+        cur.execute(
+            "UPDATE player_visits SET last_seen_at = ? WHERE visit_id = ?",
+            (now_ts, visit_id),
+        )
+    db.commit()
+    return jsonify({"success": True, "visitId": visit_id, "lastSeenAt": now_ts})
+
+
+@app.route("/api/visit/end", methods=["POST"])
+def visit_end():
+    data = request.get_json() or {}
+    visit_id = data.get("visit_id", "") or data.get("visitId", "")
+    if not visit_id:
+        return jsonify({"error": "visit_id required"}), 400
+    ended_at = data.get("ended_at") or data.get("endedAt") or int(time.time())
+    try:
+        ended_at = int(ended_at)
+    except (TypeError, ValueError):
+        ended_at = int(time.time())
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute(
+        "SELECT started_at FROM player_visits WHERE visit_id = ?",
+        (visit_id,),
+    ).fetchone()
+    if not row:
+        return jsonify({"success": False, "error": "visit not found"}), 404
+    started_at = int(row["started_at"] or ended_at)
+    duration_sec = max(0, ended_at - started_at)
+    cur.execute(
+        """
+        UPDATE player_visits
+        SET ended_at = ?,
+            last_seen_at = ?,
+            duration_sec = ?
+        WHERE visit_id = ?
+        """,
+        (ended_at, ended_at, duration_sec, visit_id),
+    )
+    db.commit()
+    return jsonify({"success": True, "visitId": visit_id, "durationSec": duration_sec})
+
+
+_USER_STATE_TABLES = {
+    "core": "user_state_core",
+    "monetization": "user_state_monetization",
+    "social": "user_state_social",
+    "preferences": "user_state_preferences",
+    "experiment": "user_state_experiment",
+}
+
+_USER_STATE_ALLOWED_KEYS = {
+    "core": {
+        "bb_user_id",
+        "openblock_progression_v1",
+        "openblock_player_profile",
+        "openblock_rank_v1",
+        "openblock_skill_wallet_v1",
+        "openblock_checkin_v1",
+        "openblock_login_streak_v1",
+        "openblock_monthly_milestone_v1",
+        "openblock_skin_fragments_v1",
+        "openblock_skin",
+        "openblock_best_score",
+        "openblock_strategy",
+        "openblock_season_pass",
+    },
+    "monetization": {
+        "openblock_mon_season_v1",
+        "openblock_mon_task_points",
+        "openblock_mon_daily_tasks_v1",
+        "openblock_mon_purchases_v1",
+        "openblock_mon_ads_removed",
+        "openblock_promo_state_v1",
+        "openblock_offer_toast_shown_v1",
+        "openblock_first_purchase_v1",
+        "openblock_first_day_pack_v1",
+        "openblock_weekly_challenge_v1",
+        "openblock_vip_system_v1",
+        "openblock_ad_freq_v1",
+        "openblock_ad_counts_v1",
+        "openblock_chest_state_v1",
+        "openblock_season_chest_v1",
+        "openblock_lucky_wheel_v1",
+        "openblock_mon_lb_lastSubmit",
+    },
+    "social": {
+        "openblock_friends_v1",
+        "openblock_guild_v1",
+        "openblock_async_pk_v1",
+        "openblock_replay_album_v1",
+        "openblock_replay_milestones_v1",
+        "openblock_daily_master_v1",
+        "openblock_mini_goals",
+        "openblock_social_intro_v1",
+        "openblock_welcome_back_v1",
+        "openblock_winback_v1",
+        "openblock_companion_v1",
+        "openblock_personal_stats_v1",
+        "openblock_registration_v1",
+        "openblock_year_review_v1",
+    },
+    "preferences": {
+        "openblock_audiofx_v1",
+        "openblock_bgm_v1",
+        "openblock_ambient_v1",
+        "openblock_quality_v1",
+        "openblock_visualfx_v1",
+        "openblock_locale_v1",
+        "openblock_push_prefs",
+        "openblock_push_v1",
+        "openblock_push_system_v1",
+        "openblock_weather_v1",
+        "openblock_rotation_mode_v1",
+        "openblock_skin_user_chosen",
+        "openblock_april_fools_optout",
+        "openblock_user_birthday_v1",
+        "openblock_weekend_trial_v1",
+        "openblock_personalization_prefs_v1",
+        "openblock_stress_breakdown_open_v1",
+    },
+    "experiment": {
+        "openblock_ab_overrides",
+        "openblock_ab_test_v1",
+        "openblock_remote_config_v1",
+        "openblock_linucb_state_v1",
+        "openblock_drift_live_v1",
+        "openblock_model_quality_v1",
+        "openblock_action_outcome_matrix_v1",
+        "openblock_retention_v1",
+        "openblock_cohorts_v1",
+        "openblock_churn_data_v1",
+        "openblock_churn_signals_v1",
+        "openblock_rl_panel_collapsed_v1",
+        "openblock_spawn_warmup_v1",
+        "custom_strategies",
+        "levelProgression",
+        "rl_use_pytorch",
+    },
+}
+
+_USER_STATE_ALLOWED_PREFIXES = {
+    "core": ("openblock_",),
+    "monetization": ("openblock_mon_", "offer_", "stripe_"),
+    "social": (),
+    "preferences": (),
+    "experiment": (),
+}
+
+
+def _safe_json_obj(v):
+    return v if isinstance(v, dict) else {}
+
+
+def _is_allowed_user_state_key(section: str, key: str) -> bool:
+    if section not in _USER_STATE_TABLES or not isinstance(key, str) or not key:
+        return False
+    if key in _USER_STATE_ALLOWED_KEYS.get(section, set()):
+        return True
+    for prefix in _USER_STATE_ALLOWED_PREFIXES.get(section, ()):
+        if key.startswith(prefix):
+            return True
+    return False
+
+
+@app.route("/api/user-state-bundle", methods=["GET"])
+def get_user_state_bundle():
+    """按业务分区读取 localStorage 持久化快照。"""
+    user_id = request.args.get("user_id", "") or request.args.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    bundle = {}
+    for section, table in _USER_STATE_TABLES.items():
+        cur.execute(f"SELECT payload, updated_at FROM {table} WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        if not row or not row["payload"]:
+            continue
+        try:
+            payload = json.loads(row["payload"])
+            bundle[section] = {
+                "state": _safe_json_obj(payload),
+                "updatedAt": int(row["updated_at"] or 0),
+            }
+        except json.JSONDecodeError:
+            continue
+    return jsonify({"bundle": bundle})
+
+
+@app.route("/api/user-state-bundle", methods=["PUT"])
+def put_user_state_bundle():
+    """按业务分区写入 localStorage 持久化快照（幂等 upsert）。"""
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    bundle = data.get("bundle")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    if bundle is None or not isinstance(bundle, dict):
+        return jsonify({"error": "bundle object required"}), 400
+
+    now = int(time.time())
+    db = get_db()
+    cur = db.cursor()
+    touched = []
+    dropped = {}
+    dropped_rows = []
+    client_ip = _client_ip()
+    for section, table in _USER_STATE_TABLES.items():
+        sec = bundle.get(section)
+        if not isinstance(sec, dict):
+            continue
+        state = sec.get("state")
+        if not isinstance(state, dict):
+            continue
+        # localStorage 本质是 string KV，服务端统一存成 JSON object。
+        normalized = {}
+        for k, v in state.items():
+            if not isinstance(k, str):
+                continue
+            if not _is_allowed_user_state_key(section, k):
+                dropped.setdefault(section, []).append(k)
+                dropped_rows.append((user_id, section, k, "not_in_whitelist", client_ip, now))
+                continue
+            if isinstance(v, str):
+                normalized[k] = v
+            elif v is None:
+                normalized[k] = ""
+            else:
+                normalized[k] = json.dumps(v, ensure_ascii=False)
+        payload = json.dumps(normalized, ensure_ascii=False)
+        sec_updated_at = sec.get("updatedAt")
+        try:
+            updated_at = int(sec_updated_at) if sec_updated_at is not None else now
+        except (TypeError, ValueError):
+            updated_at = now
+        cur.execute(
+            f"""
+            INSERT INTO {table} (user_id, payload, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (user_id, payload, updated_at),
+        )
+        touched.append(section)
+    if dropped_rows:
+        cur.executemany(
+            """
+            INSERT INTO user_state_dropped_keys_log
+            (user_id, section, dropped_key, reason, client_ip, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            dropped_rows,
+        )
+    db.commit()
+    return jsonify({"success": True, "sections": touched, "dropped": dropped})
+
+
+@app.route("/api/user-state-dropped-keys", methods=["GET"])
+def get_user_state_dropped_keys():
+    """查询白名单拦截日志（审计用途）。"""
+    user_id = request.args.get("user_id", "") or request.args.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    try:
+        limit = int(request.args.get("limit", "100"))
+    except (TypeError, ValueError):
+        limit = 100
+    limit = max(1, min(limit, 1000))
+    key = request.args.get("key", "")
+    db = get_db()
+    cur = db.cursor()
+    if key:
+        cur.execute(
+            """
+            SELECT id, user_id, section, dropped_key, reason, client_ip, created_at
+            FROM user_state_dropped_keys_log
+            WHERE user_id = ? AND dropped_key = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, key, limit),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, user_id, section, dropped_key, reason, client_ip, created_at
+            FROM user_state_dropped_keys_log
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+    out = []
+    for r in cur.fetchall():
+        out.append(
+            {
+                "id": int(r["id"]),
+                "userId": r["user_id"],
+                "section": r["section"],
+                "key": r["dropped_key"],
+                "reason": r["reason"],
+                "clientIp": r["client_ip"],
+                "createdAt": int(r["created_at"] or 0),
+            }
+        )
+    return jsonify({"items": out})
+
+
 @app.route("/api/rl/browser-linear-agent", methods=["GET"])
 def get_browser_rl_linear_agent():
     """浏览器线性 RL 权重（每用户一行 JSON：W / Vw）。"""
@@ -1980,8 +2434,15 @@ def clear_user_data():
         ("client_strategies", "user_id"),
         ("user_stats", "user_id"),
         ("skill_wallets", "user_id"),
+        ("player_visits", "user_id"),
         ("browser_rl_linear_agents", "user_id"),
         ("user_checkin_bundle", "user_id"),
+        ("user_state_core", "user_id"),
+        ("user_state_monetization", "user_id"),
+        ("user_state_social", "user_id"),
+        ("user_state_preferences", "user_id"),
+        ("user_state_experiment", "user_id"),
+        ("user_state_dropped_keys_log", "user_id"),
     ):
         cur.execute(f"DELETE FROM {table} WHERE {col} = ?", (user_id,))
     cur.execute("DELETE FROM move_sequences WHERE user_id = ?", (user_id,))
@@ -2229,6 +2690,14 @@ def ops_dashboard():
       }
     """
     days = int(request.args.get("days", 7))
+    visit_user = (request.args.get("visit_user", "") or "").strip()
+    visit_ip = (request.args.get("visit_ip", "") or "").strip()
+    visit_status = (request.args.get("visit_status", "all") or "all").strip().lower()
+    try:
+        visit_limit = int(request.args.get("visit_limit", "60"))
+    except (TypeError, ValueError):
+        visit_limit = 60
+    visit_limit = max(10, min(500, visit_limit))
     since_ms = int((time.time() - days * 86400) * 1000)
     since_ts = int(time.time() - days * 86400)
     db = get_db()
@@ -2553,6 +3022,60 @@ def ops_dashboard():
         item_consumption_per_user = _safe_div(item_use, active_users, 4)
         achievement_completion_rate = _safe_div(ach_count, active_users, 4)
 
+        # ── 玩家访问记录（近窗口） ──
+        visit_sql = [
+            """
+            SELECT visit_id, user_id, player_info, page, user_agent, client_ip, started_at, last_seen_at, ended_at,
+                   COALESCE(duration_sec,
+                            CASE
+                              WHEN ended_at IS NOT NULL THEN MAX(0, ended_at - started_at)
+                              ELSE MAX(0, last_seen_at - started_at)
+                            END
+                   ) AS duration_sec_calc
+            FROM player_visits
+            WHERE started_at >= ?
+            """
+        ]
+        visit_params = [since_ts]
+        if visit_user:
+            visit_sql.append("AND user_id LIKE ?")
+            visit_params.append(f"%{visit_user}%")
+        if visit_ip:
+            visit_sql.append("AND client_ip LIKE ?")
+            visit_params.append(f"%{visit_ip}%")
+        visit_sql.append("ORDER BY started_at DESC LIMIT ?")
+        visit_params.append(visit_limit)
+        visit_rows = db.execute("\n".join(visit_sql), tuple(visit_params)).fetchall()
+        recent_visits = []
+        now_ts = int(time.time())
+        online_users = set()
+        for r in visit_rows:
+            try:
+                pinfo = json.loads(r["player_info"] or "{}")
+            except Exception:
+                pinfo = {}
+            active = (r["ended_at"] is None) and ((now_ts - (r["last_seen_at"] or 0)) <= 90)
+            if active:
+                online_users.add(r["user_id"])
+            if visit_status == "online" and not active:
+                continue
+            if visit_status == "offline" and active:
+                continue
+            recent_visits.append(
+                {
+                    "visitId": r["visit_id"],
+                    "userId": r["user_id"],
+                    "clientIp": r["client_ip"] or "",
+                    "page": r["page"] or "/",
+                    "startedAt": int(r["started_at"] or 0),
+                    "lastSeenAt": int(r["last_seen_at"] or 0),
+                    "endedAt": int(r["ended_at"] or 0) if r["ended_at"] is not None else None,
+                    "durationSec": int(r["duration_sec_calc"] or 0),
+                    "isOnline": active,
+                    "playerInfo": pinfo if isinstance(pinfo, dict) else {},
+                }
+            )
+
         return jsonify(
             {
                 "days": days,
@@ -2626,7 +3149,113 @@ def ops_dashboard():
                         "achievementCompletionRate": achievement_completion_rate,
                     },
                 },
+                "visitStats": {
+                    "onlineUsers": len(online_users),
+                    "recentVisitCount": len(recent_visits),
+                    "avgVisitDurationSec": round(
+                        sum(v["durationSec"] for v in recent_visits) / max(len(recent_visits), 1),
+                        1,
+                    ) if recent_visits else 0.0,
+                },
+                "recentVisits": recent_visits,
+                "visitFilters": {
+                    "visitUser": visit_user,
+                    "visitIp": visit_ip,
+                    "visitStatus": visit_status,
+                    "visitLimit": visit_limit,
+                },
             }
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ops/visits/export", methods=["GET"])
+def ops_export_visits_csv():
+    """按筛选条件导出玩家访问记录 CSV。"""
+    days = int(request.args.get("days", 7))
+    visit_user = (request.args.get("visit_user", "") or "").strip()
+    visit_ip = (request.args.get("visit_ip", "") or "").strip()
+    visit_status = (request.args.get("visit_status", "all") or "all").strip().lower()
+    try:
+        visit_limit = int(request.args.get("visit_limit", "500"))
+    except (TypeError, ValueError):
+        visit_limit = 500
+    visit_limit = max(10, min(5000, visit_limit))
+    since_ts = int(time.time() - days * 86400)
+    db = get_db()
+    try:
+        visit_sql = [
+            """
+            SELECT visit_id, user_id, player_info, page, user_agent, client_ip, started_at, last_seen_at, ended_at,
+                   COALESCE(duration_sec,
+                            CASE
+                              WHEN ended_at IS NOT NULL THEN MAX(0, ended_at - started_at)
+                              ELSE MAX(0, last_seen_at - started_at)
+                            END
+                   ) AS duration_sec_calc
+            FROM player_visits
+            WHERE started_at >= ?
+            """
+        ]
+        visit_params = [since_ts]
+        if visit_user:
+            visit_sql.append("AND user_id LIKE ?")
+            visit_params.append(f"%{visit_user}%")
+        if visit_ip:
+            visit_sql.append("AND client_ip LIKE ?")
+            visit_params.append(f"%{visit_ip}%")
+        visit_sql.append("ORDER BY started_at DESC LIMIT ?")
+        visit_params.append(visit_limit)
+        rows = db.execute("\n".join(visit_sql), tuple(visit_params)).fetchall()
+        now_ts = int(time.time())
+        lines = []
+        header = [
+            "visit_id", "user_id", "client_ip", "page", "started_at", "last_seen_at",
+            "ended_at", "duration_sec", "online", "level", "segment", "rank", "strategy", "skin",
+        ]
+        lines.append(",".join(header))
+
+        def _csv_escape(v):
+            s = "" if v is None else str(v)
+            if any(ch in s for ch in [",", "\"", "\n", "\r"]):
+                s = "\"" + s.replace("\"", "\"\"") + "\""
+            return s
+
+        for r in rows:
+            try:
+                pinfo = json.loads(r["player_info"] or "{}")
+            except Exception:
+                pinfo = {}
+            active = (r["ended_at"] is None) and ((now_ts - (r["last_seen_at"] or 0)) <= 90)
+            if visit_status == "online" and not active:
+                continue
+            if visit_status == "offline" and active:
+                continue
+            vals = [
+                r["visit_id"],
+                r["user_id"],
+                r["client_ip"] or "",
+                r["page"] or "/",
+                int(r["started_at"] or 0),
+                int(r["last_seen_at"] or 0),
+                int(r["ended_at"] or 0) if r["ended_at"] is not None else "",
+                int(r["duration_sec_calc"] or 0),
+                "1" if active else "0",
+                pinfo.get("level", ""),
+                pinfo.get("segment", ""),
+                pinfo.get("rank", ""),
+                pinfo.get("strategy", ""),
+                pinfo.get("skin", ""),
+            ]
+            lines.append(",".join(_csv_escape(v) for v in vals))
+
+        csv_text = "\n".join(lines)
+        fname = f"openblock_visits_{int(time.time())}.csv"
+        return Response(
+            csv_text,
+            mimetype="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={fname}"},
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -3393,6 +4022,7 @@ _DOC_CATEGORIES = [
     {
         "name": "玩法与产品",
         "docs": [
+            "product/PRODUCT_ARCHITECTURE_DIAGRAM_PROMPT.md",
             "product/DIFFICULTY_MODES.md",
             "product/CLEAR_SCORING.md",
             "product/CHEST_AND_WALLET.md",
@@ -3407,6 +4037,7 @@ _DOC_CATEGORIES = [
         "name": "玩家系统",
         "docs": [
             "player/EXPERIENCE_DESIGN_FOUNDATIONS.md",
+            "player/BEST_SCORE_CHALLENGE_STRATEGY.md",
             "player/STRATEGY_EXPERIENCE_MODEL.md",
             "player/REALTIME_STRATEGY.md",
             "player/PANEL_PARAMETERS.md",

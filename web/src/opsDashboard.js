@@ -291,7 +291,16 @@ function _buildScreen() {
       <option value="7" selected>近7天</option>
       <option value="30">近30天</option>
     </select>
+    <input class="ops-select" id="ops-visit-user" placeholder="用户ID筛选" style="min-width:120px" />
+    <input class="ops-select" id="ops-visit-ip" placeholder="IP筛选" style="min-width:120px" />
+    <select class="ops-select" id="ops-visit-status">
+      <option value="all" selected>访问状态: 全部</option>
+      <option value="online">访问状态: 在线</option>
+      <option value="offline">访问状态: 离线</option>
+    </select>
+    <input type="number" class="ops-select" id="ops-visit-limit" value="60" min="10" max="500" style="width:84px" />
     <button class="ops-btn" id="ops-refresh">🔄 刷新</button>
+    <button class="ops-btn" id="ops-export-visits-csv">⬇️ 导出访问CSV</button>
     <span class="ops-last-refresh" id="ops-last-refresh"></span>
     <button class="ops-btn ops-btn--back" id="ops-back">← 返回</button>
   </div>
@@ -304,14 +313,44 @@ function _buildScreen() {
 
 // ── 数据渲染 ──────────────────────────────────────────────────────────────────
 
+function _getVisitFilters() {
+    const visitUser = (document.getElementById('ops-visit-user')?.value || '').trim();
+    const visitIp = (document.getElementById('ops-visit-ip')?.value || '').trim();
+    const visitStatus = (document.getElementById('ops-visit-status')?.value || 'all').trim();
+    const rawLimit = Number(document.getElementById('ops-visit-limit')?.value || 60);
+    const visitLimit = Number.isFinite(rawLimit) ? Math.max(10, Math.min(500, rawLimit | 0)) : 60;
+    return { visitUser, visitIp, visitStatus, visitLimit };
+}
+
+function _exportVisitCsv() {
+    const days = Number(document.getElementById('ops-days')?.value ?? 7);
+    const vf = _getVisitFilters();
+    const q = new URLSearchParams({
+        days: String(days),
+        visit_user: vf.visitUser,
+        visit_ip: vf.visitIp,
+        visit_status: vf.visitStatus,
+        visit_limit: String(vf.visitLimit),
+    });
+    window.open(`/api/ops/visits/export?${q.toString()}`, '_blank');
+}
+
 async function _loadData(days = 7) {
     const bodyEl = document.getElementById('ops-body');
     if (!bodyEl) return;
     bodyEl.innerHTML = '<div class="ops-loading">正在加载…</div>';
 
     try {
+        const vf = _getVisitFilters();
+        const q = new URLSearchParams({
+            days: String(days),
+            visit_user: vf.visitUser,
+            visit_ip: vf.visitIp,
+            visit_status: vf.visitStatus,
+            visit_limit: String(vf.visitLimit),
+        });
         const [dashRes, abRes] = await Promise.all([
-            fetch(`/api/ops/dashboard?days=${days}`),
+            fetch(`/api/ops/dashboard?${q}`),
             fetch('/api/ab/results'),
         ]);
         if (!dashRes.ok) throw new Error(`HTTP ${dashRes.status}`);
@@ -344,6 +383,10 @@ async function _loadData(days = 7) {
 
         // Top 分数
         bodyEl.appendChild(_topScoreCard(dash.topScores));
+
+        // 玩家访问（在线、时长、IP、最近活跃）
+        bodyEl.appendChild(_visitSummaryCard(dash.visitStats || {}));
+        bodyEl.appendChild(_visitTableCard(dash.recentVisits || []));
 
         // A/B 结果
         bodyEl.appendChild(_abCard(abData));
@@ -583,6 +626,62 @@ function _abCard(abData) {
     return c;
 }
 
+function _visitSummaryCard(vs) {
+    const c = _card('访问概览');
+    const online = Number(vs.onlineUsers || 0);
+    const avgDur = Number(vs.avgVisitDurationSec || 0);
+    const recent = Number(vs.recentVisitCount || 0);
+    c.innerHTML += `<div class="ops-kpi-val ${_rc(online, 5, 20)}">${online}<span class="ops-kpi-unit">在线</span></div>`;
+    c.innerHTML += `<div class="ops-text" style="font-size:10px;margin-top:8px">近窗口访问：${recent}</div>`;
+    c.innerHTML += `<div class="ops-text" style="font-size:10px;margin-top:4px">平均访问时长：${avgDur.toFixed(1)}s</div>`;
+    return c;
+}
+
+function _visitTableCard(rows) {
+    const c = _card('玩家访问记录（最近 60 条）', 'ops-card--full');
+    const t = document.createElement('table');
+    t.className = 'ops-table';
+    t.innerHTML = '<tr><th>用户</th><th>IP</th><th>开始</th><th>最后活跃</th><th>时长</th><th>状态</th><th>玩家信息</th></tr>';
+    const list = Array.isArray(rows) ? rows.slice(0, 60) : [];
+    if (!list.length) {
+        const p = document.createElement('div');
+        p.className = 'ops-text';
+        p.style.fontSize = '11px';
+        p.textContent = '暂无访问记录';
+        c.appendChild(p);
+        return c;
+    }
+    for (const r of list) {
+        const uid = String(r.userId || '');
+        const shortUid = uid.length > 10 ? `${uid.slice(0, 10)}...` : uid;
+        const ip = String(r.clientIp || '—');
+        const st = Number(r.startedAt || 0);
+        const lt = Number(r.lastSeenAt || 0);
+        const dur = Number(r.durationSec || 0);
+        const online = !!r.isOnline;
+        const info = r.playerInfo && typeof r.playerInfo === 'object' ? r.playerInfo : {};
+        const infoText = [
+            info.level ? `Lv${info.level}` : '',
+            info.segment ? `seg:${info.segment}` : '',
+            info.rank ? `rank:${info.rank}` : '',
+            info.strategy ? `strategy:${info.strategy}` : '',
+        ].filter(Boolean).join(' · ') || '—';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${shortUid}</td>
+          <td>${ip}</td>
+          <td>${st ? new Date(st * 1000).toLocaleString('zh-CN') : '—'}</td>
+          <td>${lt ? new Date(lt * 1000).toLocaleString('zh-CN') : '—'}</td>
+          <td>${dur}s</td>
+          <td class="${online ? 'ops-good' : 'ops-text'}">${online ? '在线' : '离线'}</td>
+          <td>${infoText}</td>
+        `;
+        t.appendChild(tr);
+    }
+    c.appendChild(t);
+    return c;
+}
+
 // ── 公开 API ──────────────────────────────────────────────────────────────────
 
 let _game = null;
@@ -611,6 +710,25 @@ export function initOpsDashboard(game) {
     // 天数切换
     document.getElementById('ops-days')?.addEventListener('change', (e) => {
         _loadData(Number(e.target.value));
+    });
+    document.getElementById('ops-visit-user')?.addEventListener('change', () => {
+        const days = Number(document.getElementById('ops-days')?.value ?? 7);
+        _loadData(days);
+    });
+    document.getElementById('ops-visit-ip')?.addEventListener('change', () => {
+        const days = Number(document.getElementById('ops-days')?.value ?? 7);
+        _loadData(days);
+    });
+    document.getElementById('ops-visit-status')?.addEventListener('change', () => {
+        const days = Number(document.getElementById('ops-days')?.value ?? 7);
+        _loadData(days);
+    });
+    document.getElementById('ops-visit-limit')?.addEventListener('change', () => {
+        const days = Number(document.getElementById('ops-days')?.value ?? 7);
+        _loadData(days);
+    });
+    document.getElementById('ops-export-visits-csv')?.addEventListener('click', () => {
+        _exportVisitCsv();
     });
 
     // 注册菜单按钮

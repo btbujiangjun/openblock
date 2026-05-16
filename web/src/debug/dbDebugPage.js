@@ -182,6 +182,46 @@ function _injectStyles() {
     color: #fca5a5;
     white-space: pre-wrap;
 }
+.dbdbg-sync-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.dbdbg-sync-snap {
+    margin-top: 6px;
+    max-height: 180px;
+    overflow: auto;
+    border: 1px solid rgba(148,163,184,.15);
+    border-radius: 8px;
+    background: #0b1118;
+    color: #a5b4fc;
+    font-size: 11px;
+    line-height: 1.45;
+    padding: 8px;
+    white-space: pre-wrap;
+}
+.dbdbg-sync-snap:empty {
+    display: none;
+}
+.dbdbg-audit-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.dbdbg-audit-wrap {
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid rgba(148,163,184,.15);
+    border-radius: 8px;
+    background: #0b1118;
+}
+.dbdbg-audit-empty {
+    padding: 10px;
+    font-size: 12px;
+    color: #94a3b8;
+}
 `;
     document.head.appendChild(s);
 }
@@ -214,6 +254,22 @@ function _buildScreen() {
     <button type="button" class="dbdbg-btn" id="dbdbg-schema" data-i18n="dbDebug.schema">填入 PRAGMA 表结构</button>
     <button type="button" class="dbdbg-btn dbdbg-btn--danger" id="dbdbg-clear-result" data-i18n="dbDebug.clearResult">清空结果</button>
   </div>
+  <div class="dbdbg-sync-tools">
+    <button type="button" class="dbdbg-btn" id="dbdbg-sync-monitor-toggle">状态同步监控面板</button>
+    <button type="button" class="dbdbg-btn" id="dbdbg-sync-monitor-sync">手动强制同步</button>
+    <button type="button" class="dbdbg-btn" id="dbdbg-sync-monitor-snap">刷新监控快照</button>
+  </div>
+  <div class="dbdbg-sync-snap" id="dbdbg-sync-snap"></div>
+  <div class="dbdbg-audit-tools">
+    <span class="dbdbg-meta">白名单拦截日志</span>
+    <label class="dbdbg-meta">key</label>
+    <input type="text" class="dbdbg-select" id="dbdbg-audit-key" placeholder="可选：openblock_xxx" style="min-width:220px" />
+    <label class="dbdbg-meta">limit</label>
+    <input type="number" class="dbdbg-input" id="dbdbg-audit-limit" value="50" min="1" max="1000" />
+    <button type="button" class="dbdbg-btn" id="dbdbg-audit-refresh">刷新拦截日志</button>
+    <button type="button" class="dbdbg-btn" id="dbdbg-audit-clear">清空日志视图</button>
+  </div>
+  <div class="dbdbg-audit-wrap" id="dbdbg-audit-wrap"><div class="dbdbg-audit-empty">尚未加载拦截日志</div></div>
   <div class="dbdbg-result-wrap" id="dbdbg-result"><div class="dbdbg-meta" style="padding:10px" data-i18n="dbDebug.resultPlaceholder">查询结果将显示在此处。</div></div>
 </div>`;
     document.body.appendChild(div);
@@ -399,6 +455,92 @@ function _fillSchema() {
     sqlEl.value = `PRAGMA table_info(${tname});`;
 }
 
+function _getSyncMonitorApi() {
+    return (typeof window !== 'undefined' && window.__stateSyncMonitor) ? window.__stateSyncMonitor : null;
+}
+
+function _renderSyncSnapshot() {
+    const box = document.getElementById('dbdbg-sync-snap');
+    if (!box) return;
+    const api = _getSyncMonitorApi();
+    if (!api?.snapshot) {
+        box.textContent = 'stateSync 未初始化（需开启 SQLite 并进入 game.init 后）';
+        return;
+    }
+    try {
+        const s = api.snapshot();
+        const sections = s?.sections || {};
+        const line = [];
+        line.push(`started: ${s.startedAt ? new Date(s.startedAt).toLocaleTimeString() : '—'} | lastHydrate: ${s.lastHydrateAt ? new Date(s.lastHydrateAt).toLocaleTimeString() : '—'} | lastPush: ${s.lastPushAt ? new Date(s.lastPushAt).toLocaleTimeString() : '—'}`);
+        line.push(`push=${s.totalPushes || 0} retry=${s.retryCount || 0} err=${s.totalErrors || 0} reason=${s.lastPushReason || '—'}`);
+        for (const sec of ['core', 'monetization', 'social', 'preferences', 'experiment']) {
+            const x = sections[sec] || {};
+            line.push(`${sec}: changed=${x.changedKeyCount || 0} push=${x.pushCount || 0} skip=${x.skipCount || 0} err=${x.errorCount || 0} lastChange=${x.lastChangeAt ? new Date(x.lastChangeAt).toLocaleTimeString() : '—'} lastSync=${x.lastSyncAt ? new Date(x.lastSyncAt).toLocaleTimeString() : '—'} size=${x.lastPayloadSize || 0}`);
+            if (x.lastError) line.push(`  ↳ ${x.lastError}`);
+        }
+        const dropped = s.droppedByWhitelist || {};
+        const dSecs = Object.keys(dropped);
+        if (dSecs.length) {
+            line.push('dropped by whitelist:');
+            for (const sec of dSecs) {
+                line.push(`  ${sec}: ${(dropped[sec] || []).slice(0, 8).join(', ')}`);
+            }
+        }
+        box.textContent = line.join('\n');
+    } catch (e) {
+        box.textContent = `snapshot error: ${e?.message || String(e)}`;
+    }
+}
+
+function _renderDroppedAudit(items) {
+    const el = document.getElementById('dbdbg-audit-wrap');
+    if (!el) return;
+    if (!Array.isArray(items) || items.length === 0) {
+        el.innerHTML = '<div class="dbdbg-audit-empty">无拦截日志</div>';
+        return;
+    }
+    const cols = ['id', 'createdAt', 'section', 'key', 'reason', 'clientIp'];
+    let html = '<table class="dbdbg-table"><thead><tr>';
+    for (const c of cols) html += `<th>${escapeHtml(c)}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const it of items) {
+        const ts = Number(it?.createdAt) || 0;
+        const createdAt = ts ? new Date(ts * 1000).toLocaleString() : '—';
+        html += '<tr>';
+        html += `<td>${escapeHtml(String(it?.id ?? ''))}</td>`;
+        html += `<td>${escapeHtml(createdAt)}</td>`;
+        html += `<td>${escapeHtml(String(it?.section ?? ''))}</td>`;
+        html += `<td>${escapeHtml(String(it?.key ?? ''))}</td>`;
+        html += `<td>${escapeHtml(String(it?.reason ?? ''))}</td>`;
+        html += `<td>${escapeHtml(String(it?.clientIp ?? ''))}</td>`;
+        html += '</tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+async function _loadDroppedAudit() {
+    const userId = localStorage.getItem('bb_user_id') || '';
+    const el = document.getElementById('dbdbg-audit-wrap');
+    if (!el) return;
+    if (!userId) {
+        el.innerHTML = '<div class="dbdbg-audit-empty">缺少 bb_user_id，无法查询审计日志</div>';
+        return;
+    }
+    const key = (document.getElementById('dbdbg-audit-key')?.value || '').trim();
+    const limRaw = Number(document.getElementById('dbdbg-audit-limit')?.value || 50);
+    const limit = Number.isFinite(limRaw) ? Math.max(1, Math.min(1000, limRaw | 0)) : 50;
+    el.innerHTML = '<div class="dbdbg-audit-empty">加载中...</div>';
+    const q = new URLSearchParams({ user_id: userId, limit: String(limit) });
+    if (key) q.set('key', key);
+    try {
+        const data = await _apiJson(`/api/user-state-dropped-keys?${q}`);
+        _renderDroppedAudit(data?.items || []);
+    } catch (e) {
+        el.innerHTML = `<div class="dbdbg-error">${escapeHtml(e?.message || String(e))}</div>`;
+    }
+}
+
 export function initDbDebugPage(game) {
     _game = game;
     _injectStyles();
@@ -419,6 +561,24 @@ export function initDbDebugPage(game) {
         if (el) {
             el.innerHTML = `<div class="dbdbg-meta" style="padding:10px">${escapeHtml(t('dbDebug.resultPlaceholder'))}</div>`;
         }
+    });
+    document.getElementById('dbdbg-sync-monitor-toggle')?.addEventListener('click', () => {
+        const api = _getSyncMonitorApi();
+        if (!api?.toggle) return _renderSyncSnapshot();
+        api.toggle();
+        _renderSyncSnapshot();
+    });
+    document.getElementById('dbdbg-sync-monitor-sync')?.addEventListener('click', async () => {
+        const api = _getSyncMonitorApi();
+        if (!api?.syncNow) return _renderSyncSnapshot();
+        await api.syncNow();
+        _renderSyncSnapshot();
+    });
+    document.getElementById('dbdbg-sync-monitor-snap')?.addEventListener('click', () => _renderSyncSnapshot());
+    document.getElementById('dbdbg-audit-refresh')?.addEventListener('click', () => void _loadDroppedAudit());
+    document.getElementById('dbdbg-audit-clear')?.addEventListener('click', () => {
+        const el = document.getElementById('dbdbg-audit-wrap');
+        if (el) el.innerHTML = '<div class="dbdbg-audit-empty">尚未加载拦截日志</div>';
     });
 
     const menuBtn = document.getElementById('menu-db-debug-btn');
@@ -448,4 +608,6 @@ function openDbDebugPage() {
     _game?.showScreen('db-debug-screen');
     /* 打开时再拉一次元数据，避免他处改过库结构 */
     void _loadTables({ loading: true });
+    _renderSyncSnapshot();
+    void _loadDroppedAudit();
 }

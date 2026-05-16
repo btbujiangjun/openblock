@@ -214,6 +214,9 @@ export class Game {
         /** 预览消行 outcome 缓存键 */
         this._lastPreviewClearKey = null;
         this._lastPreviewClearCells = null;
+        /** 拖拽输入合帧：高频 move 事件只保留最后一个点，下一帧统一计算 */
+        this._dragMoveRaf = null;
+        this._pendingDragPoint = null;
         /** 候选块「可落子数」缓存：仅在 dock 签名（id+placed）变化时重算 */
         this._dockPlacementSolutionCache = { key: null, solutionCount: null, firstMoveFreedom: null };
     }
@@ -630,8 +633,11 @@ export class Game {
 
         document.addEventListener('mousemove', e => this.onMove(e));
         document.addEventListener('touchmove', e => this.onMove(e), { passive: false });
+        document.addEventListener('pointermove', e => this.onMove(e));
         document.addEventListener('mouseup', () => this.onEnd());
         document.addEventListener('touchend', () => this.onEnd());
+        document.addEventListener('pointerup', () => this.onEnd());
+        document.addEventListener('pointercancel', () => this.onEnd());
 
         // 盘面 CSS 显示尺寸变化（窗口缩放、侧栏挤压等）→ --cell-px 变化 → dock 候选区
         // 必须重新按新 --cell-px 渲染，否则 canvas buffer (CONFIG.CELL_SIZE) 与 CSS 显示尺寸
@@ -1021,11 +1027,19 @@ export class Game {
                     return;
                 }
                 const touch = e.touches ? e.touches[0] : e;
-                this.startDrag(idx, touch.clientX, touch.clientY, e.touches ? 'touch' : 'mouse');
+                const inputType = e.pointerType === 'touch' || e.touches ? 'touch' : 'mouse';
+                if (e.pointerId != null && canvas.setPointerCapture) {
+                    try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+                }
+                this.startDrag(idx, touch.clientX, touch.clientY, inputType);
             };
 
-            canvas.addEventListener('mousedown', startDrag);
-            canvas.addEventListener('touchstart', startDrag, { passive: false });
+            if (typeof window !== 'undefined' && window.PointerEvent) {
+                canvas.addEventListener('pointerdown', startDrag);
+            } else {
+                canvas.addEventListener('mousedown', startDrag);
+                canvas.addEventListener('touchstart', startDrag, { passive: false });
+            }
             div.appendChild(canvas);
             dock.appendChild(div);
         }
@@ -1368,6 +1382,11 @@ export class Game {
         }
         const block = this.dockBlocks[index];
         if (!block || block.placed) return;
+        if (this._dragMoveRaf != null) {
+            cancelAnimationFrame(this._dragMoveRaf);
+            this._dragMoveRaf = null;
+        }
+        this._pendingDragPoint = null;
 
         // v1.46「反应」指标：记录玩家激活候选块的时刻，下一次 recordPlace/recordMiss 与之相减得到 pickToPlaceMs。
         // 重选另一块（多次 startDrag）安全：以最后一次为准。
@@ -1406,12 +1425,16 @@ export class Game {
         const ghostCell = Math.round(cellDisp) || CONFIG.CELL_SIZE;
         const ghostLogW = block.width  * ghostCell;
         const ghostLogH = block.height * ghostCell;
+        const ghostCssW = block.width * cellDisp;
+        const ghostCssH = block.height * cellDisp;
         this.ghostCanvas.width  = ghostLogW * ghostDpr;
         this.ghostCanvas.height = ghostLogH * ghostDpr;
         this.ghostCtx = this.ghostCanvas.getContext('2d');
         this.ghostCtx.scale(ghostDpr, ghostDpr);
-        this.ghostCanvas.style.width  = `${block.width  * cellDisp}px`;
-        this.ghostCanvas.style.height = `${block.height * cellDisp}px`;
+        this.drag._ghostW = ghostCssW;
+        this.drag._ghostH = ghostCssH;
+        this.ghostCanvas.style.width  = `${ghostCssW}px`;
+        this.ghostCanvas.style.height = `${ghostCssH}px`;
         this.ghostCanvas.style.display = 'block';
         document.body.classList.add('block-drag-active');
         this.updateGhostPosition(x, y);
@@ -1550,9 +1573,8 @@ export class Game {
         if (this.drag && this._pointInsideBoard(p.x, p.y)) {
             this.drag.hasEnteredBoard = true;
         }
-        const ghostRect = this.ghostCanvas.getBoundingClientRect();
-        const gw = ghostRect.width || this.ghostCanvas.offsetWidth || parseFloat(this.ghostCanvas.style.width) || this.ghostCanvas.width;
-        const gh = ghostRect.height || this.ghostCanvas.offsetHeight || parseFloat(this.ghostCanvas.style.height) || this.ghostCanvas.height;
+        const gw = this.drag?._ghostW || parseFloat(this.ghostCanvas.style.width) || this.ghostCanvas.width;
+        const gh = this.drag?._ghostH || parseFloat(this.ghostCanvas.style.height) || this.ghostCanvas.height;
         const clamped = this._clampDragPointToMoveArea(p.x, p.y, gw, gh);
         this.ghostCanvas.style.left = `${clamped.x - gw / 2}px`;
         this.ghostCanvas.style.top = `${clamped.y - gh / 2}px`;
@@ -1607,16 +1629,44 @@ export class Game {
         };
     }
 
+    _dragPointFromEvent(e) {
+        if (!e) return null;
+        const list = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : null;
+        const last = list && list.length ? list[list.length - 1] : null;
+        const point = e.touches ? e.touches[0] : (last || e);
+        if (!point || !Number.isFinite(point.clientX) || !Number.isFinite(point.clientY)) {
+            return null;
+        }
+        return { x: point.clientX, y: point.clientY };
+    }
+
+    _scheduleDragMove(point) {
+        this._pendingDragPoint = point;
+        if (this._dragMoveRaf != null) return;
+        this._dragMoveRaf = requestAnimationFrame(() => {
+            this._dragMoveRaf = null;
+            const p = this._pendingDragPoint;
+            this._pendingDragPoint = null;
+            if (p) this._applyDragMoveFrame(p.x, p.y);
+        });
+    }
+
     onMove(e) {
         if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
             return;
         }
         e.preventDefault();
 
-        const touch = e.touches ? e.touches[0] : e;
-        this.updateGhostPosition(touch.clientX, touch.clientY);
-        this.renderGhost();
+        const point = this._dragPointFromEvent(e);
+        if (!point) return;
+        this._scheduleDragMove(point);
+    }
 
+    _applyDragMoveFrame(clientX, clientY) {
+        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
+            return;
+        }
+        this.updateGhostPosition(clientX, clientY);
         const { aimCx, aimCy, overBoard } = this.ghostAimOnGrid();
 
         if (!overBoard || !this.drag.hasEnteredBoard) {
@@ -1647,8 +1697,8 @@ export class Game {
                 clearLineBonus: CONFIG.HOVER_CLEAR_LINE_BONUS,
                 clearCellBonus: CONFIG.HOVER_CLEAR_CELL_BONUS,
                 clearAssistWindow: CONFIG.HOVER_CLEAR_ASSIST_WINDOW,
-                stickyBonus: CONFIG.HOVER_STICKY_BONUS,
-                stickyWindow: CONFIG.HOVER_STICKY_WINDOW,
+                stickyBonus: (Number(CONFIG.HOVER_STICKY_BONUS) || 0) * 0.35,
+                stickyWindow: (Number(CONFIG.HOVER_STICKY_WINDOW) || 0) * 0.55,
             }
         );
 
@@ -1684,6 +1734,15 @@ export class Game {
             return;
         }
 
+        if (this._dragMoveRaf != null) {
+            cancelAnimationFrame(this._dragMoveRaf);
+            this._dragMoveRaf = null;
+        }
+        if (this._pendingDragPoint) {
+            const p = this._pendingDragPoint;
+            this._pendingDragPoint = null;
+            this._applyDragMoveFrame(p.x, p.y);
+        }
         this._cancelPreviewClearAnim();
 
         const { aimCx, aimCy, overBoard } = this.ghostAimOnGrid();
@@ -1710,8 +1769,8 @@ export class Game {
                     clearLineBonus: CONFIG.HOVER_CLEAR_LINE_BONUS,
                     clearCellBonus: CONFIG.HOVER_CLEAR_CELL_BONUS,
                     clearAssistWindow: CONFIG.HOVER_CLEAR_ASSIST_WINDOW,
-                    stickyBonus: CONFIG.HOVER_STICKY_BONUS,
-                    stickyWindow: CONFIG.HOVER_STICKY_WINDOW,
+                    stickyBonus: 0,
+                    stickyWindow: 0,
                 }
             );
         }

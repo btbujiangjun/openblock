@@ -121,6 +121,16 @@ const HINT_CN = {
     behaviorSegment: '行为分组',
 };
 
+/** 压力驱动策略分量（基于 adaptiveSpawn spawnHints 实际字段） */
+const STRATEGY_COMPONENT_DEFS = [
+    { key: 'clearGuarantee', label: '保消', color: '#22d3ee', norm: (v) => Number.isFinite(v) ? _clamp(v / 3, 0, 1) : 0.2, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    { key: 'sizePreference', label: '尺寸', color: '#a78bfa', norm: (v) => Number.isFinite(v) ? Math.min(1, Math.abs(v)) : 0.15, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    { key: 'orderRigor', label: '刚性', color: '#f59e0b', norm: (v) => Number.isFinite(v) ? _clamp(v, 0, 1) : 0.1, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    { key: 'diversityBoost', label: '多样', color: '#10b981', norm: (v) => Number.isFinite(v) ? _clamp(v, 0, 1) : 0.08, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    { key: 'comboChain', label: '连击', color: '#38bdf8', norm: (v) => Number.isFinite(v) ? _clamp(v, 0, 1) : 0.08, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+];
+const STRATEGY_COMPONENT_KEYS = new Set(STRATEGY_COMPONENT_DEFS.map((d) => d.key));
+
 /** v1.51.3：sparkline 中文标签（5 路时间序列） */
 const SPARK_LABEL_CN = {
     stress:    '压力',
@@ -147,9 +157,18 @@ const BREAKDOWN_TO_SOURCE = {
     trendAdjust: 'momentum',
     sessionArcAdjust: 'session',
     endSessionDistress: 'momentum',
+    challengeBoost: 'session',
     holeReliefAdjust: 'boardFill',
     boardRiskReliefAdjust: 'boardFill',
     abilityRiskAdjust: 'skill',
+    lifecycleCapAdjust: 'session',
+    lifecycleBandAdjust: 'session',
+    onboardingStressOverrideAdjust: 'session',
+    winbackStressCapAdjust: 'session',
+    clampAdjust: 'session',
+    smoothingAdjust: 'session',
+    minStressFloorAdjust: 'skill',
+    flowPayoffCapAdjust: 'flow',
     delightStressAdjust: 'flow',
     friendlyBoardRelief: 'frust',
     bottleneckRelief: 'load',
@@ -239,6 +258,7 @@ class DecisionFlowViz {
         this._frameCount = 0;
         this._lastSpawnRoundSeen = null;
         this._particles = [];
+        this._strategyFlashState = new Map();
 
         /** SVG 节点引用 */
         this._nodeEls = new Map();
@@ -249,6 +269,8 @@ class DecisionFlowViz {
         this._stressPulseUntil = 0;
         this._intentEl = null;
         this._curIntent = null;
+        this._edgeFlowPhase = 0;
+        this._strategyLinkEl = null;
 
         /** SVG stage 尺寸 */
         this._w = 360;
@@ -264,6 +286,8 @@ class DecisionFlowViz {
 
         /** 拖拽状态 */
         this._drag = { active: false, dx: 0, dy: 0, freed: false };
+        /** 缩放状态（右下角拖拽） */
+        this._resize = { active: false, sx: 0, sy: 0, sw: 0, sh: 0 };
     }
 
     init(game) {
@@ -296,6 +320,7 @@ class DecisionFlowViz {
         if (this._rafId) cancelAnimationFrame(this._rafId);
         this._rafId = 0;
         this._particles.length = 0;
+        this._strategyFlashState.clear();
     }
 
     /* ── 入口按钮 + 快捷键 ──────────────────────────────────────── */
@@ -423,8 +448,9 @@ class DecisionFlowViz {
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--neg"></span>${T.footRelief}</span>
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--pos"></span>${T.footPressure}</span>
                     <span class="dfv-legend">${T.footPulseHint}</span>
-                    <span class="dfv-legend dfv-legend--ver">v1.51.9</span>
+                    <span class="dfv-legend dfv-legend--ver">v1.54.0</span>
                 </div>
+                <div class="dfv-resize-handle" id="dfv-resize-handle" title="拖拽缩放"></div>
             </div>
         `;
         document.body.appendChild(host);
@@ -444,6 +470,7 @@ class DecisionFlowViz {
         this._buildSparks(host.querySelector('#dfv-sparks'));
         this._cacheDetailEls(host);
         this._bindDrag(host.querySelector('#dfv-head'));
+        this._bindResize(host.querySelector('#dfv-resize-handle'));
 
         this._resizeCanvas();
         new ResizeObserver(() => this._resizeCanvas()).observe(host.querySelector('#dfv-stage'));
@@ -534,6 +561,66 @@ class DecisionFlowViz {
         window.addEventListener('touchcancel', onUp);
     }
 
+    _bindResize(handle) {
+        if (!handle) return;
+        const minW = 480;
+        const maxW = 980;
+        const minH = 380;
+        const maxH = 920;
+
+        const ensureFreed = () => {
+            if (this._drag.freed) return;
+            const rect = this._card.getBoundingClientRect();
+            this._card.style.transform = 'none';
+            this._card.style.top = `${rect.top}px`;
+            this._card.style.left = `${rect.left}px`;
+            this._drag.freed = true;
+        };
+
+        const onDown = (ev) => {
+            const isTouch = ev.type === 'touchstart';
+            const point = isTouch ? ev.touches[0] : ev;
+            const rect = this._card.getBoundingClientRect();
+            ensureFreed();
+            this._resize.active = true;
+            this._resize.sx = point.clientX;
+            this._resize.sy = point.clientY;
+            this._resize.sw = rect.width;
+            this._resize.sh = rect.height;
+            this._card.classList.add('dfv-card--resizing');
+            ev.preventDefault();
+            ev.stopPropagation();
+        };
+        const onMove = (ev) => {
+            if (!this._resize.active) return;
+            const isTouch = ev.type === 'touchmove';
+            const point = isTouch ? ev.touches[0] : ev;
+            const dx = point.clientX - this._resize.sx;
+            const dy = point.clientY - this._resize.sy;
+            const rect = this._card.getBoundingClientRect();
+            const viewportW = Math.max(minW, window.innerWidth - rect.left - 8);
+            const viewportH = Math.max(minH, window.innerHeight - rect.top - 8);
+            const nextW = _clamp(this._resize.sw + dx, minW, Math.min(maxW, viewportW));
+            const nextH = _clamp(this._resize.sh + dy, minH, Math.min(maxH, viewportH));
+            this._card.style.width = `${nextW}px`;
+            this._card.style.height = `${nextH}px`;
+            this._resizeCanvas();
+            ev.preventDefault();
+        };
+        const onUp = () => {
+            if (!this._resize.active) return;
+            this._resize.active = false;
+            this._card.classList.remove('dfv-card--resizing');
+        };
+        handle.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        handle.addEventListener('touchstart', onDown, { passive: false });
+        window.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('touchend', onUp);
+        window.addEventListener('touchcancel', onUp);
+    }
+
     /* ── 时间序列 sparkline ────────────────────────────────────── */
 
     _buildSparks(container) {
@@ -610,6 +697,7 @@ class DecisionFlowViz {
         this._nodeEls.clear();
         this._edgeEls.clear();
         this._geom.clear();
+        this._strategyLinkEl = null;
 
         const W = this._w, H = this._h;
         /* v1.51.7：压力 + 意图"右锚定纵向排列"，进一步拉大与信号节点 / 彼此 的距离。
@@ -621,29 +709,34 @@ class DecisionFlowViz {
          *   ≥ stressR + intentR + 60px（v1.51.6 的 36 → 60，纵向 +24px）；
          * - 半径按左栏宽度自适应；溢出保护：右锚定不能让球贴边（min 24px），
          *   底部不能让六边形溢出（min intentR + 4px）。 */
-        const stressR = Math.min(36, Math.max(22, (W - 80) * 0.18));
-        const intentR = Math.min(28, Math.max(18, (W - 80) * 0.14));
+        const nodeR = Math.min(24, Math.max(17, (W - 80) * 0.128));
+        const stressR = nodeR;
+        const intentR = nodeR;
         const signalX = W * 0.18;
+        const leftN = SIGNAL_NODES.length;
+        const r = leftN <= 8 ? 19 : 15;
 
         const PAD_RIGHT = 24;
         const rightAnchorX = W - Math.max(stressR, intentR) - PAD_RIGHT;
         // 仍要保留与信号节点的最小间距（≥ 球半径 × 3，避免视觉拥堵）
         const minCenterX = signalX + Math.max(stressR, intentR) * 3;
-        const centerX = Math.max(minCenterX, rightAnchorX);
+        const compR = r;
+        const nDefs = STRATEGY_COMPONENT_DEFS.length;
+        const centerIdx = (nDefs - 1) / 2;
+        const compMargin = compR + 8;
+        const span = Math.max(compR * 2.12, Math.min(34, stressR * 1.36));
+        const axisMin = Math.max(minCenterX, compMargin + centerIdx * span);
+        const axisMax = Math.min(rightAnchorX - 18, W - compMargin - centerIdx * span);
+        const targetX = W * 0.74;
+        const centerX = _clamp(targetX, axisMin, axisMax);
         const stressX = centerX;
-        const stressY = H * 0.50;                   // 严格垂直居中
+        const edgeMarginY = Math.max(44, H * 0.12);
+        const stressY = edgeMarginY + stressR;      // 压力上边距与意图下边距保持一致
 
         const intentX = centerX;
-        // 默认目标 y：H * 0.90；硬保证与 stress 中心距离 ≥ stressR + intentR + 60 (SAFE_GAP_V)
-        const SAFE_GAP_V = 60;
-        const minIntentCenterY = stressY + stressR + intentR + SAFE_GAP_V;
-        let intentY = Math.max(H * 0.90, minIntentCenterY);
-        // 不能溢出底部：留 intentR + 4px 边距
-        intentY = Math.min(intentY, H - intentR - 4);
+        const intentY = H - edgeMarginY - intentR;
 
         /* 1) 左列：玩家信号节点（垂直均匀分布 10 个，半径自适应） */
-        const leftN = SIGNAL_NODES.length;
-        const r = leftN <= 8 ? 20 : 16;
         SIGNAL_NODES.forEach((sig, i) => {
             const y = H * 0.06 + (H * 0.88) * (i / Math.max(1, leftN - 1));
             this._geom.set(sig.key, { x: signalX, y, r });
@@ -657,6 +750,108 @@ class DecisionFlowViz {
         /* 3) 中央偏下：spawnIntent 六边形（与 stress 同 x，纵向拉开） */
         this._geom.set('spawnIntent', { x: intentX, y: intentY, r: intentR });
         this._addSpawnIntentNode();
+
+        /* 3.5) 压力 -> 策略分量 -> 意图（常驻）：去文本化，改为多分量图形链路 */
+        {
+            const p0 = { x: stressX, y: stressY + stressR * 0.60 };
+            const p2 = { x: intentX, y: intentY - intentR * 0.62 };
+            const p1 = { x: stressX, y: (p0.y + p2.y) / 2 };
+            const trunkD = bezierPath(p0, p1, p2);
+            const trunkBase = this._svgEl('path', {
+                d: trunkD, fill: 'none', stroke: '#64748b', 'stroke-width': 1.1, 'stroke-opacity': 0.38,
+                'stroke-linecap': 'round', class: 'dfv-strategy-link dfv-strategy-link--base',
+            });
+            const trunkHalo = this._svgEl('path', {
+                d: trunkD, fill: 'none', stroke: '#22d3ee', 'stroke-width': 2.6, 'stroke-opacity': 0.08,
+                'stroke-linecap': 'round', class: 'dfv-strategy-link dfv-strategy-link--halo',
+            });
+            const trunkFlow = this._svgEl('path', {
+                d: trunkD, fill: 'none', stroke: '#e2f7ff', 'stroke-width': 1.3, 'stroke-opacity': 0.30,
+                'stroke-linecap': 'round', 'stroke-dasharray': '4.8 10.8', 'stroke-dashoffset': '0',
+                class: 'dfv-strategy-link dfv-strategy-link--flow',
+            });
+            const midY = (stressY + intentY) / 2;
+            const rowCenterX = stressX;
+            const comps = STRATEGY_COMPONENT_DEFS.map((def, idx) => {
+                const rel = idx - centerIdx;
+                const x = rowCenterX + rel * span;
+                const y = midY;
+                const n = { x, y };
+                const dOut = bezierPath(
+                    p0,
+                    { x: n.x, y: p0.y + (n.y - p0.y) * 0.50 },
+                    n,
+                );
+                const dIn = bezierPath(
+                    n,
+                    { x: n.x, y: n.y + (p2.y - n.y) * 0.50 },
+                    p2,
+                );
+                const outBase = this._svgEl('path', {
+                    d: dOut, fill: 'none', stroke: '#475569', 'stroke-width': 0.95, 'stroke-opacity': 0.28,
+                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link',
+                });
+                const outHalo = this._svgEl('path', {
+                    d: dOut, fill: 'none', stroke: def.color, 'stroke-width': 2.0, 'stroke-opacity': 0.0,
+                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link--halo',
+                });
+                const outFlow = this._svgEl('path', {
+                    d: dOut, fill: 'none', stroke: '#fff', 'stroke-width': 0.95, 'stroke-opacity': 0.0,
+                    'stroke-linecap': 'round', 'stroke-dasharray': '4 8', 'stroke-dashoffset': '0',
+                    class: 'dfv-strategy-branch dfv-strategy-link--flow',
+                });
+                const inBase = this._svgEl('path', {
+                    d: dIn, fill: 'none', stroke: '#475569', 'stroke-width': 0.95, 'stroke-opacity': 0.24,
+                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link',
+                });
+                const inHalo = this._svgEl('path', {
+                    d: dIn, fill: 'none', stroke: def.color, 'stroke-width': 1.8, 'stroke-opacity': 0.0,
+                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link--halo',
+                });
+                const inFlow = this._svgEl('path', {
+                    d: dIn, fill: 'none', stroke: '#fff', 'stroke-width': 0.9, 'stroke-opacity': 0.0,
+                    'stroke-linecap': 'round', 'stroke-dasharray': '3.2 9.2', 'stroke-dashoffset': '0',
+                    class: 'dfv-strategy-branch dfv-strategy-link--flow',
+                });
+                const group = this._svgEl('g', { class: 'dfv-strategy-node', 'data-key': def.key });
+                const baseR = compR;
+                const glow = this._svgEl('circle', {
+                    cx: x, cy: y, r: baseR + 3.2, fill: `${def.color}22`, stroke: 'none', class: 'dfv-strategy-node-glow',
+                }, group);
+                const node = this._svgEl('circle', {
+                    cx: x, cy: y, r: baseR, fill: 'rgba(15,23,42,0.90)', stroke: `${def.color}cc`,
+                    'stroke-width': 1.2, class: 'dfv-strategy-node-core',
+                }, group);
+                const inner = this._svgEl('circle', {
+                    cx: x, cy: y, r: (baseR * 0.58).toFixed(1), fill: 'rgba(255,255,255,0.12)', class: 'dfv-strategy-node-inner',
+                }, group);
+                const spec = this._svgEl('ellipse', {
+                    cx: (x - 3.0).toFixed(1), cy: (y - 3.4).toFixed(1), rx: '2.6', ry: '1.6',
+                    fill: 'rgba(255,255,255,0.45)', class: 'dfv-strategy-node-spec',
+                }, group);
+                const labelText = this._svgEl('text', {
+                    x, y: y - baseR - 2.8, 'text-anchor': 'middle', class: 'dfv-strategy-node-label',
+                }, group);
+                labelText.textContent = def.label;
+                const valueText = this._svgEl('text', {
+                    x, y: y + 4.3, 'text-anchor': 'middle', class: 'dfv-strategy-node-value',
+                }, group);
+                valueText.textContent = '—';
+                return {
+                    ...def,
+                    pos: n,
+                    baseR,
+                    node,
+                    inner,
+                    glow,
+                    spec,
+                    valueText,
+                    out: { base: outBase, halo: outHalo, flow: outFlow },
+                    inbound: { base: inBase, halo: inHalo, flow: inFlow },
+                };
+            });
+            this._strategyLinkEl = { trunk: { base: trunkBase, halo: trunkHalo, flow: trunkFlow }, comps };
+        }
 
         /* 4) 中央灯环（pulse 时显形）— 跟随 stress 球几何 */
         const ring = this._svgEl('circle', {
@@ -683,8 +878,20 @@ class DecisionFlowViz {
                 stroke: '#475569', 'stroke-width': 0.7, 'stroke-opacity': 0.28,
                 'stroke-linecap': 'round', class: 'dfv-edge dfv-edge--baseline',
             });
+            const halo = this._svgEl('path', {
+                d, fill: 'none',
+                stroke: '#475569', 'stroke-width': 2.2, 'stroke-opacity': 0,
+                'stroke-linecap': 'round', class: 'dfv-edge dfv-edge--halo',
+            });
+            const flow = this._svgEl('path', {
+                d, fill: 'none',
+                stroke: '#475569', 'stroke-width': 1.2, 'stroke-opacity': 0,
+                'stroke-linecap': 'round', class: 'dfv-edge dfv-edge--flow',
+            });
             svg.insertBefore(path, svg.firstChild);
-            this._edgeEls.set(sig.key, { path });
+            svg.insertBefore(halo, svg.firstChild);
+            svg.insertBefore(flow, svg.firstChild);
+            this._edgeEls.set(sig.key, { path, halo, flow });
         }
     }
 
@@ -701,49 +908,69 @@ class DecisionFlowViz {
     _addSignalNode(key, label, r) {
         const g = this._geom.get(key);
         const group = this._svgEl('g', { class: 'dfv-node dfv-node--signal', 'data-key': key });
-        this._svgEl('circle', { cx: g.x, cy: g.y, r, fill: '#1e293b', stroke: '#475569', 'stroke-width': 1.5 }, group);
+        this._svgEl('circle', {
+            cx: g.x, cy: g.y, r: r + 2.4, fill: 'rgba(56,189,248,0.08)', stroke: 'none',
+        }, group);
+        const core = this._svgEl('circle', {
+            cx: g.x, cy: g.y, r, fill: '#1e293b', stroke: '#475569', 'stroke-width': 1.5,
+        }, group);
         const labelText = this._svgEl('text', { x: g.x - r - 6, y: g.y + 4, 'text-anchor': 'end', class: 'dfv-node-label' }, group);
         labelText.textContent = label;
-        const valueText = this._svgEl('text', { x: g.x, y: g.y + 4, 'text-anchor': 'middle', class: 'dfv-node-value' }, group);
+        const valueText = this._svgEl('text', {
+            x: g.x, y: g.y + 4, 'text-anchor': 'middle', class: 'dfv-node-value',
+        }, group);
         valueText.textContent = '—';
-        this._nodeEls.set(key, { group, circle: group.querySelector('circle'), valueText });
+        this._nodeEls.set(key, { group, core, valueText });
     }
 
     _addStressBall() {
         const g = this._geom.get('stress');
         const group = this._svgEl('g', { class: 'dfv-node dfv-node--stress', 'data-key': 'stress' });
-        this._svgEl('circle', { cx: g.x, cy: g.y, r: g.r + 16, fill: 'rgba(56,189,248,0.06)', class: 'dfv-stress-glow-outer' }, group);
-        this._svgEl('circle', { cx: g.x, cy: g.y, r: g.r + 8,  fill: 'rgba(56,189,248,0.10)', class: 'dfv-stress-glow-mid' }, group);
-        const core = this._svgEl('circle', { cx: g.x, cy: g.y, r: g.r, fill: '#38bdf8', stroke: '#fff', 'stroke-width': 2, class: 'dfv-stress-core' }, group);
+        this._svgEl('circle', {
+            cx: g.x, cy: g.y, r: g.r + 12, fill: 'rgba(56,189,248,0.06)', class: 'dfv-stress-glow-outer',
+        }, group);
+        this._svgEl('circle', {
+            cx: g.x, cy: g.y, r: g.r + 6, fill: 'rgba(56,189,248,0.10)', class: 'dfv-stress-glow-mid',
+        }, group);
+        const core = this._svgEl('circle', {
+            cx: g.x, cy: g.y, r: g.r, fill: '#38bdf8', stroke: '#fff', 'stroke-width': 2, class: 'dfv-stress-core',
+        }, group);
+        const inner = this._svgEl('circle', {
+            cx: g.x, cy: g.y, r: (g.r * 0.58).toFixed(1), fill: 'rgba(255,255,255,0.12)', class: 'dfv-stress-core-inner',
+        }, group);
+        const spec = this._svgEl('ellipse', {
+            cx: (g.x - g.r * 0.22).toFixed(1),
+            cy: (g.y - g.r * 0.25).toFixed(1),
+            rx: (g.r * 0.22).toFixed(1),
+            ry: (g.r * 0.12).toFixed(1),
+            fill: 'rgba(255,255,255,0.30)',
+            class: 'dfv-stress-spec',
+        }, group);
         const labelText = this._svgEl('text', { x: g.x, y: g.y - 6, 'text-anchor': 'middle', class: 'dfv-stress-label' }, group);
         labelText.textContent = _ti('dfv.stress', '压力');
         const valueText = this._svgEl('text', { x: g.x, y: g.y + 14, 'text-anchor': 'middle', class: 'dfv-stress-value' }, group);
         valueText.textContent = '0.00';
-        this._stressBall = { group, core, valueText };
+        this._stressBall = { group, core, inner, spec, valueText };
     }
 
     _addSpawnIntentNode() {
         const g = this._geom.get('spawnIntent');
         const group = this._svgEl('g', { class: 'dfv-node dfv-node--intent', 'data-key': 'spawnIntent' });
-        const r = g.r;
-        const pts = [];
-        for (let i = 0; i < 6; i++) {
-            const a = -Math.PI / 2 + (i * Math.PI / 3);
-            pts.push(`${(g.x + r * Math.cos(a)).toFixed(1)},${(g.y + r * Math.sin(a)).toFixed(1)}`);
-        }
-        const hex = this._svgEl('polygon', { points: pts.join(' '), fill: '#1e293b', stroke: '#94a3b8', 'stroke-width': 2 }, group);
+        this._svgEl('circle', {
+            cx: g.x, cy: g.y, r: (g.r + 8).toFixed(1), fill: 'none',
+            stroke: 'rgba(148,163,184,0.25)', 'stroke-width': 1.2, class: 'dfv-intent-orbit',
+        }, group);
+        const hex = this._svgEl('circle', {
+            cx: g.x, cy: g.y, r: g.r, fill: '#1e293b', stroke: '#94a3b8', 'stroke-width': 2, class: 'dfv-intent-core',
+        }, group);
         const labelText = this._svgEl('text', { x: g.x, y: g.y - 4, 'text-anchor': 'middle', class: 'dfv-intent-label' }, group);
         labelText.textContent = _ti('dfv.intent', '意图');
-        /* v1.51.4：textLength + lengthAdjust 让长文本（"engage" / "pressure" / "maintain"）
-         * 自动 squeeze 到六边形宽度内（hex 横向最宽 = 2r），不再被截断。 */
-        const innerWidth = (g.r * 2 - 8).toFixed(1);
         const valueText = this._svgEl('text', {
             x: g.x, y: g.y + 12, 'text-anchor': 'middle',
             class: 'dfv-intent-value',
-            textLength: innerWidth, lengthAdjust: 'spacingAndGlyphs',
         }, group);
         valueText.textContent = '—';
-        this._intentEl = { group, hex, valueText, innerWidth };
+        this._intentEl = { group, hex, valueText };
     }
 
     /* ── 主循环：每帧拉数据 + 缓动 + 重绘 ─────────────────────────── */
@@ -801,7 +1028,11 @@ class DecisionFlowViz {
         /* 3) spawnIntent 节点 */
         this._renderSpawnIntent(insight);
 
+        /* 3.5) 压力 -> 出块策略（左侧算法呈现） */
+        this._renderStressToStrategy(insight);
+
         /* 4) stressBreakdown 贡献边 */
+        this._edgeFlowPhase = (this._edgeFlowPhase + 1.25) % 10000;
         this._renderContributionEdges(insight);
 
         /* 5) Canvas 粒子 */
@@ -889,14 +1120,14 @@ class DecisionFlowViz {
         if (!ref) return;
         const raw = _readDeep(ctx, sig.readPath);
         if (sig.type === 'enum') {
-            ref.valueText.textContent = String(raw ?? '—');
+            this._setFitText(ref.valueText, String(raw ?? '—'));
             const color = (raw && sig.enumColors?.[raw]) || '#475569';
-            ref.circle.setAttribute('fill', color);
-            ref.circle.setAttribute('stroke', _shadeColor(color, -20));
+            ref.core.setAttribute('fill', color);
+            ref.core.setAttribute('stroke', _shadeColor(color, -20));
             return;
         }
         if (!Number.isFinite(raw)) {
-            ref.valueText.textContent = '—';
+            this._setFitText(ref.valueText, '—');
             return;
         }
         const [lo, hi] = sig.range || [0, 1];
@@ -907,11 +1138,66 @@ class DecisionFlowViz {
         const sm = approach(this._smooth.get(sig.key) ?? norm, norm, 0.18);
         this._smooth.set(sig.key, sm);
         const color = heatColor(_clamp(sm, 0, 1));
-        ref.circle.setAttribute('fill', color);
-        ref.circle.setAttribute('stroke', _shadeColor(color, -25));
-        ref.valueText.textContent = sig.format === 'int'
+        ref.core.setAttribute('fill', color);
+        ref.core.setAttribute('stroke', _shadeColor(color, -25));
+        const text = sig.format === 'int'
             ? String(Math.round(raw))
             : (Math.abs(raw) < 10 && !Number.isInteger(raw) ? raw.toFixed(2) : String(raw));
+        this._setFitText(ref.valueText, text);
+    }
+
+    _setFitText(el, text) {
+        if (!el) return;
+        const s = String(text ?? '—');
+        el.textContent = s;
+        el.removeAttribute('textLength');
+        el.removeAttribute('lengthAdjust');
+    }
+
+    _triggerStrategyArc(comp, power, intentColor = '#ffffff') {
+        if (!comp?.pos) return;
+        const now = performance.now();
+        const state = this._strategyFlashState.get(comp.key) || { armed: true, last: 0 };
+        if (power < 0.64) {
+            state.armed = true;
+            this._strategyFlashState.set(comp.key, state);
+            return;
+        }
+        if (!state.armed || power < 0.84 || (now - state.last) < 280) {
+            this._strategyFlashState.set(comp.key, state);
+            return;
+        }
+        state.armed = false;
+        state.last = now;
+        this._strategyFlashState.set(comp.key, state);
+
+        const n = comp.pos;
+        const intent = this._geom.get('spawnIntent');
+        const c1 = comp.color || '#7dd3fc';
+        const c2 = intentColor || '#ffffff';
+        for (let i = 0; i < 4; i++) {
+            const a = (Math.PI * 2 * i) / 4 + Math.random() * 0.35;
+            const r = 7 + Math.random() * 8;
+            const p0 = { x: n.x + Math.cos(a) * r * 0.45, y: n.y + Math.sin(a) * r * 0.45 };
+            const p2 = { x: n.x + Math.cos(a) * r, y: n.y + Math.sin(a) * r };
+            const p1 = { x: (p0.x + p2.x) * 0.5 + (Math.random() - 0.5) * 6, y: (p0.y + p2.y) * 0.5 + (Math.random() - 0.5) * 6 };
+            this._particles.push({
+                p0, p1, p2, t: -i * 0.02, dur: 0.16 + Math.random() * 0.14,
+                color: i % 2 ? c1 : '#ffffff', size: 1.8 + Math.random() * 1.1,
+            });
+        }
+        if (intent) {
+            const p0 = { x: n.x, y: n.y };
+            const p2 = { x: intent.x, y: intent.y - intent.r * 0.5 };
+            const p1 = { x: (p0.x + p2.x) * 0.5 + (Math.random() - 0.5) * 18, y: (p0.y + p2.y) * 0.5 + (Math.random() - 0.5) * 14 };
+            this._particles.push({
+                p0, p1, p2, t: -0.03, dur: 0.22 + Math.random() * 0.16, color: c2, size: 2.0 + Math.random() * 1.4,
+            });
+            this._particles.push({
+                p0, p1: { x: p1.x + (Math.random() - 0.5) * 10, y: p1.y + (Math.random() - 0.5) * 10 }, p2,
+                t: -0.05, dur: 0.24 + Math.random() * 0.16, color: c1, size: 1.7 + Math.random() * 1.1,
+            });
+        }
     }
 
     _renderStressBall(insight) {
@@ -935,16 +1221,15 @@ class DecisionFlowViz {
         } else if (this._stressRing) {
             this._stressRing.setAttribute('stroke-opacity', '0');
         }
+        if (this._stressBall.inner) {
+            this._stressBall.inner.setAttribute('fill', `${_shadeColor(color, 35).replace('rgb(', 'rgba(').replace(')', ',0.28)')}`);
+        }
     }
 
     _renderSpawnIntent(insight) {
         if (!this._intentEl) return;
         const intent = insight?.spawnHints?.spawnIntent ?? insight?.spawnIntent ?? '—';
         this._intentEl.valueText.textContent = intent;
-        // v1.51.4：每次更新都重置 textLength，避免浏览器缓存旧 squeeze 结果
-        if (this._intentEl.innerWidth) {
-            this._intentEl.valueText.setAttribute('textLength', this._intentEl.innerWidth);
-        }
         const color = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
         this._intentEl.hex.setAttribute('fill', color);
         this._intentEl.hex.setAttribute('stroke', _shadeColor(color, -20));
@@ -954,6 +1239,89 @@ class DecisionFlowViz {
             void this._intentEl.group.getBoundingClientRect();
             this._intentEl.group.classList.add('dfv-intent-flash');
         }
+    }
+
+    _renderStressToStrategy(insight) {
+        const ref = this._strategyLinkEl;
+        if (!ref) return;
+        const hints = insight?.spawnHints || {};
+        const intent = hints.spawnIntent ?? insight?.spawnIntent ?? 'maintain';
+        const intentColor = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
+        const stress = Number.isFinite(insight?.stress) ? Number(insight.stress) : 0;
+        const stress01 = _clamp((stress + 0.3) / 1.3, 0, 1);
+        const metrics = {};
+        for (const def of STRATEGY_COMPONENT_DEFS) {
+            const raw = Number(hints[def.key]);
+            metrics[def.key] = {
+                value: Number.isFinite(raw) ? raw : NaN,
+                norm: def.norm(raw),
+                text: def.display(raw),
+            };
+        }
+        const strategy01 = _clamp(
+            (metrics.clearGuarantee?.norm ?? 0.2) * 0.30
+            + (metrics.sizePreference?.norm ?? 0.15) * 0.22
+            + (metrics.orderRigor?.norm ?? 0.1) * 0.22
+            + (metrics.diversityBoost?.norm ?? 0.08) * 0.13
+            + (metrics.comboChain?.norm ?? 0.08) * 0.13,
+            0, 1,
+        );
+        const intensity = _clamp(stress01 * 0.56 + strategy01 * 0.44, 0, 1);
+
+        if (ref.trunk) {
+            ref.trunk.base.setAttribute('stroke', _shadeColor(intentColor, -15));
+            ref.trunk.base.setAttribute('stroke-width', (0.9 + intensity * 1.25).toFixed(2));
+            ref.trunk.base.setAttribute('stroke-opacity', (0.26 + intensity * 0.33).toFixed(2));
+            ref.trunk.halo.setAttribute('stroke', intentColor);
+            ref.trunk.halo.setAttribute('stroke-opacity', (0.06 + intensity * 0.24).toFixed(2));
+            ref.trunk.halo.setAttribute('stroke-width', (2.2 + intensity * 1.9).toFixed(2));
+            ref.trunk.flow.setAttribute('stroke-opacity', (0.14 + intensity * 0.30).toFixed(2));
+            ref.trunk.flow.setAttribute('stroke-width', (0.95 + intensity * 0.55).toFixed(2));
+            ref.trunk.flow.setAttribute('stroke-dasharray', `${(4.8 - intensity * 1.2).toFixed(1)} ${(10.6 - intensity * 2.0).toFixed(1)}`);
+            ref.trunk.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase * (0.85 + intensity * 2.2)) * -0.72).toFixed(1));
+        }
+
+        (ref.comps || []).forEach((comp, idx) => {
+            const m = metrics[comp.key] || { value: NaN, norm: 0, text: '—' };
+            const compPower = _clamp(stress01 * 0.42 + m.norm * 0.58, 0, 1);
+            const width = 0.85 + compPower * 1.75;
+            const alpha = 0.20 + compPower * 0.55;
+            const flowSpeed = 0.9 + compPower * 3.3;
+            const glow = _shadeColor(comp.color, 16);
+
+            comp.node.setAttribute('fill', `${glow.replace('rgb(', 'rgba(').replace(')', ',0.42)')}`);
+            comp.node.setAttribute('stroke', `${comp.color}${compPower > 0.68 ? 'ff' : 'cc'}`);
+            if (comp.inner) comp.inner.setAttribute('fill', `${glow.replace('rgb(', 'rgba(').replace(')', ',0.20)')}`);
+            if (comp.glow) {
+                comp.glow.setAttribute('fill', `${comp.color}${compPower > 0.55 ? '2f' : '1b'}`);
+            }
+            if (comp.spec) comp.spec.setAttribute('opacity', (0.45 + compPower * 0.4).toFixed(2));
+            this._setFitText(comp.valueText, m.text);
+            comp.node.setAttribute('r', comp.baseR.toFixed(2));
+            if (comp.inner) comp.inner.setAttribute('r', (comp.baseR * 0.58).toFixed(2));
+            if (comp.glow) comp.glow.setAttribute('r', (comp.baseR + 3.2 + compPower * 1.2).toFixed(2));
+            this._triggerStrategyArc(comp, compPower, intentColor);
+
+            comp.out.base.setAttribute('stroke', comp.color);
+            comp.out.base.setAttribute('stroke-width', width.toFixed(2));
+            comp.out.base.setAttribute('stroke-opacity', alpha.toFixed(2));
+            comp.out.halo.setAttribute('stroke', comp.color);
+            comp.out.halo.setAttribute('stroke-width', (width * 2.1).toFixed(2));
+            comp.out.halo.setAttribute('stroke-opacity', (alpha * 0.42).toFixed(2));
+            comp.out.flow.setAttribute('stroke-width', Math.max(0.9, width * 0.5).toFixed(2));
+            comp.out.flow.setAttribute('stroke-opacity', (0.14 + compPower * 0.62).toFixed(2));
+            comp.out.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + idx * 19) * flowSpeed * -0.14).toFixed(1));
+
+            comp.inbound.base.setAttribute('stroke', comp.color);
+            comp.inbound.base.setAttribute('stroke-width', Math.max(0.8, width * 0.82).toFixed(2));
+            comp.inbound.base.setAttribute('stroke-opacity', (alpha * 0.78).toFixed(2));
+            comp.inbound.halo.setAttribute('stroke', comp.color);
+            comp.inbound.halo.setAttribute('stroke-width', Math.max(1.7, width * 1.7).toFixed(2));
+            comp.inbound.halo.setAttribute('stroke-opacity', Math.min(0.48, alpha * 0.38).toFixed(2));
+            comp.inbound.flow.setAttribute('stroke-width', Math.max(0.85, width * 0.45).toFixed(2));
+            comp.inbound.flow.setAttribute('stroke-opacity', (0.12 + compPower * 0.56).toFixed(2));
+            comp.inbound.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + idx * 29) * flowSpeed * -0.12).toFixed(1));
+        });
     }
 
     /**
@@ -979,6 +1347,7 @@ class DecisionFlowViz {
             cur.maxAbs = Math.max(cur.maxAbs, Math.abs(v));
             bySource.set(srcKey, cur);
         }
+        let edgeIdx = 0;
         for (const [srcKey, edge] of this._edgeEls) {
             if (!edge?.path) continue;
             const agg = bySource.get(srcKey);
@@ -992,13 +1361,43 @@ class DecisionFlowViz {
                 edge.path.setAttribute('stroke-opacity', alpha.toFixed(2));
                 edge.path.classList.add('dfv-edge--active');
                 edge.path.classList.remove('dfv-edge--baseline');
+                if (edge.halo) {
+                    edge.halo.setAttribute('stroke', stroke);
+                    edge.halo.setAttribute('stroke-width', (width * 2.35).toFixed(2));
+                    edge.halo.setAttribute('stroke-opacity', Math.min(0.5, alpha * 0.55).toFixed(2));
+                }
+                if (edge.flow) {
+                    const dashA = Math.max(4, 10 - agg.maxAbs * 18);
+                    const dashB = Math.max(4, 16 - agg.maxAbs * 14);
+                    const speed = 1.8 + agg.maxAbs * 42;
+                    edge.flow.setAttribute('stroke', '#ffffff');
+                    edge.flow.setAttribute('stroke-width', Math.max(1.2, width * 0.46).toFixed(2));
+                    edge.flow.setAttribute('stroke-opacity', Math.min(0.85, 0.26 + alpha * 0.9).toFixed(2));
+                    edge.flow.setAttribute('stroke-dasharray', `${dashA.toFixed(1)} ${dashB.toFixed(1)}`);
+                    edge.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + edgeIdx * 17) * speed * -0.1).toFixed(1));
+                }
             } else {
-                edge.path.setAttribute('stroke', '#475569');
-                edge.path.setAttribute('stroke-width', '0.7');
-                edge.path.setAttribute('stroke-opacity', '0.28');
+                const idleWave = 0.5 + 0.5 * Math.sin((this._edgeFlowPhase + edgeIdx * 9) * 0.085);
+                const idleOpacity = 0.30 + idleWave * 0.10;
+                edge.path.setAttribute('stroke', '#64748b');
+                edge.path.setAttribute('stroke-width', '0.85');
+                edge.path.setAttribute('stroke-opacity', idleOpacity.toFixed(2));
                 edge.path.classList.add('dfv-edge--baseline');
                 edge.path.classList.remove('dfv-edge--active');
+                if (edge.halo) {
+                    edge.halo.setAttribute('stroke', '#7dd3fc');
+                    edge.halo.setAttribute('stroke-width', '1.8');
+                    edge.halo.setAttribute('stroke-opacity', (0.05 + idleWave * 0.05).toFixed(2));
+                }
+                if (edge.flow) {
+                    edge.flow.setAttribute('stroke', '#7dd3fc');
+                    edge.flow.setAttribute('stroke-width', '0.9');
+                    edge.flow.setAttribute('stroke-opacity', (0.12 + idleWave * 0.10).toFixed(2));
+                    edge.flow.setAttribute('stroke-dasharray', '3.0 12.0');
+                    edge.flow.setAttribute('stroke-dashoffset', ((this._edgeFlowPhase + edgeIdx * 13) * -0.55).toFixed(1));
+                }
             }
+            edgeIdx++;
         }
     }
 
@@ -1146,7 +1545,7 @@ class DecisionFlowViz {
             ['rhythmPhase',    hints.rhythmPhase],
             ['sessionArc',     hints.sessionArc],
             ['delightMode',    hints.delightMode],
-        ].filter(([, v]) => v != null && v !== '');
+        ].filter(([k, v]) => !STRATEGY_COMPONENT_KEYS.has(k) && v != null && v !== '');
         /* v1.51.9：hint 的 key → i18n 中文标签；value 若为 enum string，亦走 dfv.val.<ns>.<v>
          * 翻译，让「松紧期 / 节奏相位 / 会话弧线 / 愉悦模式」显示中文枚举（如 紧绷 / 兑现 / 巅峰）。 */
         const HINT_VALUE_NS = {
@@ -1189,11 +1588,11 @@ class DecisionFlowViz {
     top: 50%;
     left: max(12px, env(safe-area-inset-left, 0px));
     transform: translateY(-50%);
-    width: min(580px, calc(100vw - 24px));
-    max-height: min(82vh, 720px);
+    width: min(540px, calc(100vw - 20px));
+    max-height: min(80vh, 680px);
     background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(2, 6, 23, 0.94));
     border: 1px solid rgba(56, 189, 248, 0.32);
-    border-radius: 16px;
+    border-radius: 14px;
     box-shadow:
         0 16px 40px rgba(2, 6, 23, 0.55),
         0 0 0 1px rgba(56, 189, 248, 0.18),
@@ -1203,7 +1602,7 @@ class DecisionFlowViz {
     color: #e2e8f0;
     display: flex; flex-direction: column;
     overflow: hidden;
-    transition: width .22s ease, max-height .22s ease;
+    transition: width .22s ease, height .22s ease, max-height .22s ease;
 }
 .dfv-card--dragging {
     transition: none;
@@ -1215,30 +1614,30 @@ class DecisionFlowViz {
 }
 
 /* 折叠态：仅显示头部 + sparkline + 脚 */
-.dfv-host.dfv-collapsed .dfv-card { width: 320px; max-height: none; }
+.dfv-host.dfv-collapsed .dfv-card { width: 300px; max-height: none; height: auto !important; }
 .dfv-host.dfv-collapsed .dfv-body { display: none; }
 
 .dfv-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px;
+    padding: 8px 12px;
     border-bottom: 1px solid rgba(56, 189, 248, 0.18);
     background: linear-gradient(90deg, rgba(56, 189, 248, 0.08), transparent);
     cursor: grab;
     user-select: none;
 }
 .dfv-head:active { cursor: grabbing; }
-.dfv-head-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; }
+.dfv-head-title { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 12px; }
 .dfv-head-icon { font-size: 16px; filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6)); }
 .dfv-head-meta { display: flex; align-items: center; gap: 8px; }
 .dfv-head-pulse {
     font-family: ui-monospace, 'SF Mono', monospace;
-    font-size: 11px; padding: 2px 7px; border-radius: 8px;
+    font-size: 10px; padding: 2px 6px; border-radius: 8px;
     background: rgba(56, 189, 248, 0.16); color: #38bdf8; font-weight: 700;
     letter-spacing: 0.04em;
 }
 .dfv-iconbtn {
     background: transparent; border: 1px solid rgba(148, 163, 184, 0.4);
-    color: #cbd5e1; width: 24px; height: 24px; border-radius: 12px;
+    color: #cbd5e1; width: 22px; height: 22px; border-radius: 11px;
     font-size: 14px; line-height: 1; cursor: pointer; padding: 0;
     transition: background .15s, border-color .15s;
     display: inline-flex; align-items: center; justify-content: center;
@@ -1252,17 +1651,23 @@ class DecisionFlowViz {
  * 即便屏幕宽到 1200px 也不会让右栏吃掉中央空间，左侧 stress 球与意图六边形不会再撞。 */
 .dfv-body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 240px;
-    gap: 8px;
-    padding: 6px 10px 6px;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 6px;
+    padding: 5px 8px 5px;
     flex: 1 1 auto;
     min-height: 0;
 }
 .dfv-stage {
     position: relative;
-    min-height: 320px;
+    min-height: 270px;
     border-radius: 10px;
-    background: radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.05), transparent 65%);
+    background:
+        radial-gradient(circle at 68% 52%, rgba(56, 189, 248, 0.16), rgba(56, 189, 248, 0.03) 24%, transparent 62%),
+        radial-gradient(circle at 22% 24%, rgba(34, 211, 238, 0.10), transparent 45%),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.26), rgba(2, 6, 23, 0.50));
+    box-shadow:
+        inset 0 0 0 1px rgba(56, 189, 248, 0.10),
+        inset 0 0 44px rgba(56, 189, 248, 0.08);
 }
 .dfv-particles { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .dfv-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -1271,8 +1676,8 @@ class DecisionFlowViz {
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 2px;
-    display: flex; flex-direction: column; gap: 4px;
-    font-size: 10px;
+    display: flex; flex-direction: column; gap: 3px;
+    font-size: 9.5px;
 }
 .dfv-details::-webkit-scrollbar { width: 4px; }
 .dfv-details::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.3); border-radius: 2px; }
@@ -1370,12 +1775,12 @@ class DecisionFlowViz {
 
 /* —— sparkline 时间序列条（v1.51.3 紧凑：参考 .replay-series-cell 18px 行高） —— */
 .dfv-sparks {
-    padding: 4px 12px 4px;
+    padding: 4px 8px 4px;
     border-top: 1px solid rgba(56, 189, 248, 0.18);
     background: rgba(2, 6, 23, 0.5);
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 1px 12px;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 1px 8px;
 }
 .dfv-spark-row {
     display: grid;
@@ -1400,10 +1805,10 @@ class DecisionFlowViz {
 
 /* —— 脚部图例 —— */
 .dfv-foot {
-    display: flex; gap: 14px; padding: 6px 14px;
+    display: flex; gap: 10px; padding: 5px 10px;
     border-top: 1px solid rgba(56, 189, 248, 0.18);
     background: rgba(15, 23, 42, 0.6);
-    font-size: 10px; color: #94a3b8;
+    font-size: 9px; color: #94a3b8;
     align-items: center;
 }
 .dfv-legend { display: inline-flex; align-items: center; gap: 6px; }
@@ -1414,33 +1819,109 @@ class DecisionFlowViz {
 
 /* —— SVG 内部样式 —— */
 .dfv-svg .dfv-node-label { font-size: 10px; fill: #cbd5e1; font-weight: 600; }
-.dfv-svg .dfv-node-value { font-size: 10px; fill: #fff; font-weight: 700; font-family: ui-monospace, 'SF Mono', monospace; }
-.dfv-svg .dfv-stress-label { font-size: 9px; fill: #fff; font-weight: 700; letter-spacing: 0.18em; opacity: 0.8; }
-.dfv-svg .dfv-stress-value { font-size: 16px; fill: #fff; font-weight: 800; font-family: ui-monospace, 'SF Mono', monospace; }
-.dfv-svg .dfv-intent-label { font-size: 8px; fill: #f1f5f9; font-weight: 700; letter-spacing: 0.14em; opacity: 0.85; }
-.dfv-svg .dfv-intent-value { font-size: 11px; fill: #fff; font-weight: 800; font-family: ui-monospace, 'SF Mono', monospace; }
+.dfv-svg .dfv-node-value {
+    font-size: 8.4px;
+    fill: #fff;
+    font-weight: 700;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    paint-order: stroke;
+    stroke: rgba(2, 6, 23, 0.72);
+    stroke-width: 1.6px;
+}
+.dfv-svg .dfv-stress-label { font-size: 7.6px; fill: #fff; font-weight: 700; letter-spacing: 0.12em; opacity: 0.8; }
+.dfv-svg .dfv-stress-value { font-size: 12px; fill: #fff; font-weight: 800; font-family: ui-monospace, 'SF Mono', monospace; }
+.dfv-svg .dfv-intent-label { font-size: 7.8px; fill: #f1f5f9; font-weight: 700; letter-spacing: 0.12em; opacity: 0.85; }
+.dfv-svg .dfv-intent-value { font-size: 10.5px; fill: #fff; font-weight: 800; font-family: ui-monospace, 'SF Mono', monospace; }
 .dfv-svg .dfv-edge { transition: stroke-width .25s, stroke-opacity .25s, stroke .25s; }
 .dfv-svg .dfv-edge--baseline { filter: none; stroke-dasharray: 4 4; }
 .dfv-svg .dfv-edge--active   { filter: drop-shadow(0 0 4px currentColor); stroke-dasharray: none; }
+.dfv-svg .dfv-edge--halo {
+    filter: blur(2px) drop-shadow(0 0 10px currentColor);
+    transition: stroke-opacity .2s, stroke-width .2s;
+}
+.dfv-svg .dfv-edge--flow {
+    mix-blend-mode: screen;
+    filter: drop-shadow(0 0 6px rgba(255,255,255,0.55));
+    transition: stroke-opacity .2s, stroke-width .2s;
+}
 .dfv-svg .dfv-stress-glow-outer,
-.dfv-svg .dfv-stress-glow-mid {
-    transform-origin: center;
-    animation: dfv-pulse 2.6s ease-in-out infinite;
-}
-.dfv-svg .dfv-stress-glow-mid { animation-delay: -0.6s; }
-@keyframes dfv-pulse {
-    0%, 100% { opacity: 0.6; transform: scale(1); }
-    50%      { opacity: 0.95; transform: scale(1.06); }
-}
+.dfv-svg .dfv-stress-glow-mid { opacity: 0.78; }
 .dfv-svg .dfv-stress-core { filter: drop-shadow(0 0 14px currentColor); transition: fill .25s; }
+.dfv-svg .dfv-stress-core-inner { filter: blur(0.2px); transition: fill .25s; }
+.dfv-svg .dfv-stress-spec { filter: blur(0.35px); opacity: 0.9; }
 .dfv-svg .dfv-stress-ring { transition: r .12s linear; }
-.dfv-svg .dfv-node--intent polygon { transition: fill .35s, stroke .35s; filter: drop-shadow(0 0 8px currentColor); }
-.dfv-svg .dfv-intent-flash polygon { animation: dfv-flash .55s ease-out; }
+.dfv-svg .dfv-node--intent circle { transition: fill .35s, stroke .35s; filter: drop-shadow(0 0 8px currentColor); }
+.dfv-svg .dfv-stress-core,
+.dfv-svg .dfv-intent-core {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: dfv-node-breathe 2.2s ease-in-out infinite;
+}
+.dfv-svg .dfv-intent-core { animation-delay: -1.1s; }
+.dfv-svg .dfv-intent-orbit { opacity: 0.35; }
+.dfv-svg .dfv-intent-flash circle { animation: dfv-flash .55s ease-out; }
+@keyframes dfv-node-breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.055); }
+}
 @keyframes dfv-flash {
-    0%   { transform: scale(1.2); opacity: 0.4; }
-    100% { transform: scale(1);   opacity: 1; }
+    0%   { opacity: 0.45; }
+    100% { opacity: 1; }
 }
 .dfv-svg .dfv-node--signal circle { transition: fill .25s, stroke .25s; filter: drop-shadow(0 0 6px currentColor); }
+.dfv-svg .dfv-strategy-link { transition: stroke .2s, stroke-opacity .2s, stroke-width .2s; }
+.dfv-svg .dfv-strategy-branch { transition: stroke .18s, stroke-opacity .18s, stroke-width .18s; }
+.dfv-svg .dfv-strategy-link--halo { filter: blur(1.8px) drop-shadow(0 0 8px currentColor); }
+.dfv-svg .dfv-strategy-link--flow { mix-blend-mode: screen; filter: drop-shadow(0 0 6px rgba(255,255,255,0.55)); }
+.dfv-svg .dfv-strategy-node-glow {
+    filter: blur(1.8px) drop-shadow(0 0 10px currentColor);
+    transition: fill .2s, opacity .2s;
+}
+.dfv-svg .dfv-strategy-node-core {
+    filter: drop-shadow(0 0 8px currentColor);
+    transition: fill .18s, stroke .18s, stroke-opacity .18s;
+}
+.dfv-svg .dfv-strategy-node-inner { transition: fill .18s; }
+.dfv-svg .dfv-strategy-node-spec { filter: blur(0.2px); transition: opacity .2s; }
+.dfv-svg .dfv-strategy-node-label {
+    fill: #e2e8f0;
+    font-size: 6.9px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.88);
+    stroke-width: 1.8px;
+    text-shadow: 0 0 5px rgba(2,6,23,0.85);
+}
+.dfv-svg .dfv-strategy-node-value {
+    fill: #ffffff;
+    font-size: 7.3px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.80);
+    stroke-width: 1.6px;
+}
+.dfv-card--resizing { user-select: none; }
+.dfv-resize-handle {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 16px;
+    height: 16px;
+    border-right: 2px solid rgba(125, 211, 252, 0.7);
+    border-bottom: 2px solid rgba(125, 211, 252, 0.7);
+    border-bottom-right-radius: 6px;
+    opacity: 0.72;
+    cursor: nwse-resize;
+    pointer-events: auto;
+    z-index: 2;
+}
+.dfv-resize-handle:hover {
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(56,189,248,0.45);
+}
 
 /* —— 入口按钮（融入快捷开关簇） —— */
 .feedback-toggle-btn--decision-flow {
@@ -1469,7 +1950,7 @@ class DecisionFlowViz {
 @media (max-width: 640px) {
     .dfv-card { width: calc(100vw - 16px); max-height: 88vh; left: 8px; }
     .dfv-body { grid-template-columns: 1fr; }
-    .dfv-stage { min-height: 280px; }
+    .dfv-stage { min-height: 240px; }
     .dfv-list--two-col { grid-template-columns: 1fr; }
 }
 `;

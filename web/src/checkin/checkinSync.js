@@ -12,6 +12,8 @@ const CHECKIN_STORAGE_KEYS = {
     skinFragments: 'openblock_skin_fragments_v1',
 };
 
+const CHECKIN_DEBUG_FLAG = 'openblock_checkin_debug_v1';
+
 function getBbUserId() {
     try {
         let userId = localStorage.getItem('bb_user_id');
@@ -66,6 +68,143 @@ function _readJson(key, fallback) {
     }
 }
 
+function _isDevEnv() {
+    try {
+        return !!(import.meta && import.meta.env && import.meta.env.DEV);
+    } catch {
+        return false;
+    }
+}
+
+function _isCheckinDebugEnabled() {
+    try {
+        return _isDevEnv() && localStorage.getItem(CHECKIN_DEBUG_FLAG) === '1';
+    } catch {
+        return false;
+    }
+}
+
+function _debugLog(stage, payload) {
+    if (!_isCheckinDebugEnabled()) return;
+    try {
+        console.info(`[checkin-sync][debug] ${stage}`, payload);
+    } catch {
+        // ignore
+    }
+}
+
+function _parseYmdToTs(ymd) {
+    if (typeof ymd !== 'string') return Number.NaN;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+    if (!m) return Number.NaN;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return Number.NaN;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return Number.NaN;
+    return Date.UTC(y, mo - 1, d);
+}
+
+function _compareYmd(a, b) {
+    const ta = _parseYmdToTs(a);
+    const tb = _parseYmdToTs(b);
+    if (Number.isFinite(ta) && Number.isFinite(tb)) return ta === tb ? 0 : (ta > tb ? 1 : -1);
+    if (Number.isFinite(ta)) return 1;
+    if (Number.isFinite(tb)) return -1;
+    return 0;
+}
+
+function _normalizeCheckin(s) {
+    const base = _defaultCheckin();
+    if (!s || typeof s !== 'object') return base;
+    const totalDays = Number.isFinite(s.totalDays) ? Math.max(0, Math.floor(s.totalDays)) : 0;
+    const streak = Number.isFinite(s.streak) ? Math.max(0, Math.floor(s.streak)) : 0;
+    const history = Array.isArray(s.history) ? s.history.filter((x) => typeof x === 'string') : [];
+    return {
+        lastClaimYmd: typeof s.lastClaimYmd === 'string' ? s.lastClaimYmd : null,
+        streak,
+        totalDays,
+        history,
+    };
+}
+
+/**
+ * 防回滚合并：避免服务端旧 bundle 覆盖本地新签到数据（会导致 UI 重新出现“第1天”）。
+ */
+function _mergeCheckinState(localState, remoteState) {
+    const local = _normalizeCheckin(localState);
+    const remote = _normalizeCheckin(remoteState);
+
+    // history 先并集去重，最后截断 90 天（与 checkInPanel 持久化口径一致）
+    const historySet = new Set([...local.history, ...remote.history]);
+    const mergedHistory = Array.from(historySet)
+        .sort((a, b) => _compareYmd(a, b))
+        .slice(-90);
+
+    const cmp = _compareYmd(local.lastClaimYmd, remote.lastClaimYmd);
+    let chosen = local;
+    if (cmp < 0) chosen = remote;
+    else if (cmp === 0) {
+        // 同一天：保留更大的 streak / totalDays，避免因为某端写回不完整而回退
+        chosen = {
+            ...local,
+            streak: Math.max(local.streak, remote.streak),
+            totalDays: Math.max(local.totalDays, remote.totalDays),
+            lastClaimYmd: local.lastClaimYmd || remote.lastClaimYmd || null,
+            history: mergedHistory,
+        };
+    }
+
+    const out = {
+        ...chosen,
+        totalDays: Math.max(local.totalDays, remote.totalDays, chosen.totalDays),
+        history: mergedHistory,
+    };
+    return out;
+}
+
+function _mergeLoginStreak(localMedals, remoteMedals) {
+    const l = localMedals && typeof localMedals === 'object' ? localMedals : {};
+    const r = remoteMedals && typeof remoteMedals === 'object' ? remoteMedals : {};
+    const out = {};
+    for (const id of new Set([...Object.keys(l), ...Object.keys(r)])) {
+        const a = l[id] && typeof l[id] === 'object' ? l[id] : null;
+        const b = r[id] && typeof r[id] === 'object' ? r[id] : null;
+        if (a && b) {
+            out[id] = {
+                unlockedAt: Math.max(Number(a.unlockedAt) || 0, Number(b.unlockedAt) || 0),
+                totalDays: Math.max(Number(a.totalDays) || 0, Number(b.totalDays) || 0),
+            };
+        } else {
+            out[id] = a || b || {};
+        }
+    }
+    return out;
+}
+
+function _mergeMonthlyMilestone(localMs, remoteMs) {
+    const l = localMs && typeof localMs === 'object' ? localMs : { lastMilestoneDay: 0 };
+    const r = remoteMs && typeof remoteMs === 'object' ? remoteMs : { lastMilestoneDay: 0 };
+    return {
+        lastMilestoneDay: Math.max(Number(l.lastMilestoneDay) || 0, Number(r.lastMilestoneDay) || 0),
+    };
+}
+
+function _mergeSkinFragments(localSf, remoteSf) {
+    const l = localSf && typeof localSf === 'object' ? localSf : _defaultSkinFragments();
+    const r = remoteSf && typeof remoteSf === 'object' ? remoteSf : _defaultSkinFragments();
+    const unlocked = Array.from(new Set([
+        ...(Array.isArray(l.unlocked) ? l.unlocked : []),
+        ...(Array.isArray(r.unlocked) ? r.unlocked : []),
+    ]));
+    const localLast = typeof l.lastEarnYmd === 'string' ? l.lastEarnYmd : null;
+    const remoteLast = typeof r.lastEarnYmd === 'string' ? r.lastEarnYmd : null;
+    return {
+        unlocked,
+        lastEarnYmd: _compareYmd(localLast, remoteLast) >= 0 ? localLast : remoteLast,
+    };
+}
+
 /** 从当前 localStorage 组装与 PUT 一致的 bundle（供调试或测试） */
 function buildCheckinBundleFromLocalStorage() {
     const c = _readJson(CHECKIN_STORAGE_KEYS.checkin, null);
@@ -116,29 +255,31 @@ export async function hydrateCheckinFromServer() {
             `/api/checkin-bundle?user_id=${encodeURIComponent(userId)}`,
             { method: 'GET' },
         );
-        const b = data?.bundle;
-        if (!b || typeof b !== 'object') return;
+        const remote = data?.bundle;
+        if (!remote || typeof remote !== 'object') return;
+        const local = buildCheckinBundleFromLocalStorage();
+        const merged = {
+            checkin: _mergeCheckinState(local.checkin, remote.checkin),
+            loginStreakMedals: _mergeLoginStreak(local.loginStreakMedals, remote.loginStreakMedals),
+            monthlyMilestone: _mergeMonthlyMilestone(local.monthlyMilestone, remote.monthlyMilestone),
+            skinFragments: _mergeSkinFragments(local.skinFragments, remote.skinFragments),
+        };
+        _debugLog('hydrate.merge', {
+            localCheckin: local.checkin,
+            remoteCheckin: remote.checkin || null,
+            mergedCheckin: merged.checkin,
+        });
 
-        if (b.checkin && typeof b.checkin === 'object') {
-            localStorage.setItem(CHECKIN_STORAGE_KEYS.checkin, JSON.stringify(b.checkin));
-        }
-        if (b.loginStreakMedals && typeof b.loginStreakMedals === 'object') {
-            localStorage.setItem(
-                CHECKIN_STORAGE_KEYS.loginStreak,
-                JSON.stringify(b.loginStreakMedals),
-            );
-        }
-        if (b.monthlyMilestone && typeof b.monthlyMilestone === 'object') {
-            localStorage.setItem(
-                CHECKIN_STORAGE_KEYS.monthly,
-                JSON.stringify(b.monthlyMilestone),
-            );
-        }
-        if (b.skinFragments && typeof b.skinFragments === 'object') {
-            localStorage.setItem(
-                CHECKIN_STORAGE_KEYS.skinFragments,
-                JSON.stringify(b.skinFragments),
-            );
+        localStorage.setItem(CHECKIN_STORAGE_KEYS.checkin, JSON.stringify(merged.checkin));
+        localStorage.setItem(CHECKIN_STORAGE_KEYS.loginStreak, JSON.stringify(merged.loginStreakMedals));
+        localStorage.setItem(CHECKIN_STORAGE_KEYS.monthly, JSON.stringify(merged.monthlyMilestone));
+        localStorage.setItem(CHECKIN_STORAGE_KEYS.skinFragments, JSON.stringify(merged.skinFragments));
+
+        // 若本地存在更新（合并后与服务端不同），回写服务端以自愈，避免下次启动再次被旧数据“压回去”。
+        const shouldRepersist = JSON.stringify(merged) !== JSON.stringify(remote);
+        _debugLog('hydrate.repersist', { shouldRepersist });
+        if (shouldRepersist) {
+            persistCheckinBundleToServer();
         }
         const { recheckMonthlyAfterHydrate } = await import('./monthlyMilestone.js');
         recheckMonthlyAfterHydrate();
@@ -146,3 +287,15 @@ export async function hydrateCheckinFromServer() {
         console.warn('[checkin-sync] 从 SQLite 拉取签到数据失败，使用本地:', e);
     }
 }
+
+export const __test_only__ = {
+    CHECKIN_DEBUG_FLAG,
+    _isCheckinDebugEnabled,
+    _debugLog,
+    _parseYmdToTs,
+    _compareYmd,
+    _mergeCheckinState,
+    _mergeLoginStreak,
+    _mergeMonthlyMilestone,
+    _mergeSkinFragments,
+};

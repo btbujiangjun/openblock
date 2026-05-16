@@ -115,6 +115,14 @@ export const SIGNAL_LABELS = {
     abilityRiskAdjust:     { label: '能力风险',   hint: '玩家能力风险偏高时降难度护栏' },
     delightStressAdjust:   { label: '里程碑',     hint: '接近里程碑时的甜点/挑战微调' },
     challengeBoost:        { label: 'B 类挑战',   hint: '逼近历史最佳分时的额外加压' },
+    lifecycleCapAdjust:    { label: '生命周期封顶', hint: '生命周期阶段压力上限触发时，对 stress 的削减量（负值）' },
+    lifecycleBandAdjust:   { label: '生命周期偏移', hint: '生命周期阶段/成熟度带来的固定偏移（可正可负）' },
+    onboardingStressOverrideAdjust: { label: '新手覆写', hint: '新手保护期 firstSessionStressOverride 造成的额外调整量' },
+    winbackStressCapAdjust:{ label: '回流封顶',   hint: '回流保护 stressCap 触发时，对 stress 的削减量（负值）' },
+    clampAdjust:           { label: '边界钳制',   hint: '[-0.2, 1] 全局钳制造成的调整量（通常为负）' },
+    smoothingAdjust:       { label: '平滑器',     hint: 'stressSmoothing 对瞬时压力的平滑调整量' },
+    minStressFloorAdjust:  { label: '难度下限',   hint: '难度档位 minStress 托底导致的抬升量（正值）' },
+    flowPayoffCapAdjust:   { label: '心流封顶',   hint: 'flow+payoff 场景 stress cap 触发时的调整量（负值）' },
     friendlyBoardRelief:   { label: '友好盘面',   hint: '盘面整洁且有兑现机会时主动减压，让你享受多消爽点' },
     bottleneckRelief:      { label: '瓶颈低谷',   hint: '上个 dock 周期中，候选块的最少落子数曾跌到阈值（默认 ≤2）；此时减压并保消，避免连续被困' },
     motivationStressAdjust:{ label: '动机画像',   hint: '只根据行为和明示偏好推断的中长期动机：新手胜任、高手挑战、减压、收集或社交；不使用敏感属性' },
@@ -137,7 +145,8 @@ export function summarizeContributors(breakdown, topN = 5) {
     const skip = new Set([
         'boardRisk', 'rawStress', 'beforeClamp', 'afterClamp',
         'afterOccupancy', 'afterSmoothing', 'finalStress',
-        'flowPayoffCap', // 派生标记，不是独立的加减分量
+        'flowPayoffCap', // cap 值本身，不是 delta
+        'winbackStressCap', // cap 值本身，不是 delta
         /* v1.30：bottleneckTrough/Samples 是原始观测痕迹，不是 stress 贡献分量 */
         'bottleneckTrough', 'bottleneckSamples',
         /* v1.32：orderRigor / orderMaxValidPerms 是 spawnHints 派生指标

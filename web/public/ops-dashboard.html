@@ -97,7 +97,16 @@ button:hover { background: color-mix(in srgb, var(--accent) 20%, var(--card2)); 
       <option value="7" selected>近7天</option>
       <option value="30">近30天</option>
     </select>
+    <input id="visit-user" placeholder="用户ID筛选" style="min-width:120px" />
+    <input id="visit-ip" placeholder="IP筛选" style="min-width:120px" />
+    <select id="visit-status">
+      <option value="all" selected>访问状态: 全部</option>
+      <option value="online">访问状态: 在线</option>
+      <option value="offline">访问状态: 离线</option>
+    </select>
+    <input id="visit-limit" type="number" min="10" max="500" value="60" style="width:84px" />
     <button id="refresh-btn">🔄 刷新</button>
+    <button id="export-visits-btn">⬇️ 导出访问CSV</button>
     <span id="last-refresh" style="color:var(--text2);font-size:10px"></span>
   </div>
 </div>
@@ -110,13 +119,34 @@ button:hover { background: color-mix(in srgb, var(--accent) 20%, var(--card2)); 
 const SEG_COLORS = { A:'#5B9BD5', B:'#22c55e', C:'#f59e0b', D:'#a855f7', E:'#94a3b8', unknown:'#475569' };
 const SEG_LABELS = { A:'A类·休闲', B:'B类·无尽', C:'C类·重度', D:'D类·关卡', E:'E类·高能', unknown:'未知' };
 
-async function loadDashboard() {
+function buildVisitQuery() {
   const days = document.getElementById('days-select').value;
+  const visitUser = (document.getElementById('visit-user').value || '').trim();
+  const visitIp = (document.getElementById('visit-ip').value || '').trim();
+  const visitStatus = (document.getElementById('visit-status').value || 'all').trim();
+  const rawLimit = Number(document.getElementById('visit-limit').value || 60);
+  const visitLimit = Number.isFinite(rawLimit) ? Math.max(10, Math.min(500, rawLimit|0)) : 60;
+  return new URLSearchParams({
+    days: String(days),
+    visit_user: visitUser,
+    visit_ip: visitIp,
+    visit_status: visitStatus,
+    visit_limit: String(visitLimit),
+  });
+}
+
+function exportVisitsCsv() {
+  const q = buildVisitQuery();
+  window.open(`/api/ops/visits/export?${q.toString()}`, '_blank');
+}
+
+async function loadDashboard() {
+  const q = buildVisitQuery();
   document.getElementById('ops-body').innerHTML = '<div class="loading">正在加载…</div>';
 
   try {
     const [dashRes, abRes] = await Promise.all([
-      fetch(`/api/ops/dashboard?days=${days}`),
+      fetch(`/api/ops/dashboard?${q}`),
       fetch('/api/ab/results'),
     ]);
     const dash = await dashRes.json();
@@ -201,6 +231,12 @@ async function loadDashboard() {
     topCard.appendChild(ul);
     body.appendChild(topCard);
 
+    // ── 访问概览 ──
+    body.appendChild(visitSummaryCard(dash.visitStats || {}));
+
+    // ── 玩家访问记录 ──
+    body.appendChild(visitTableCard(dash.recentVisits || []));
+
     // ── A/B 实验结果 ──
     const abCard = card('A/B 实验结果', 'card--wide');
     if (!abData.length) {
@@ -277,9 +313,68 @@ function retRow(label, val, target) {
   </tr>`;
 }
 
+function visitSummaryCard(vs) {
+  const c = card('访问概览');
+  const online = Number(vs.onlineUsers || 0);
+  const avgDur = Number(vs.avgVisitDurationSec || 0);
+  const recent = Number(vs.recentVisitCount || 0);
+  const color = online >= 20 ? 'kpi-good' : online >= 5 ? 'kpi-warn' : 'kpi-bad';
+  const box = document.createElement('div');
+  box.className = 'kpi';
+  box.innerHTML = `
+    <div class="kpi-val ${color}">${online}<span style="font-size:12px;font-weight:400;margin-left:2px">在线</span></div>
+    <div class="kpi-sub">近窗口访问：${recent}</div>
+    <div class="kpi-sub">平均访问时长：${avgDur.toFixed(1)}s</div>`;
+  c.appendChild(box);
+  return c;
+}
+
+function visitTableCard(rows) {
+  const c = card('玩家访问记录（最近 60 条）', 'card--full');
+  const list = Array.isArray(rows) ? rows.slice(0, 60) : [];
+  if (!list.length) {
+    c.innerHTML += '<p style="color:var(--text2);font-size:11px">暂无访问记录</p>';
+    return c;
+  }
+  const t = document.createElement('table');
+  t.className = 'ret-table';
+  t.innerHTML = '<tr><th>用户</th><th>IP</th><th>开始</th><th>最后活跃</th><th>时长</th><th>状态</th><th>玩家信息</th></tr>';
+  for (const r of list) {
+    const uid = String(r.userId || '');
+    const shortUid = uid.length > 10 ? `${uid.slice(0, 10)}...` : uid;
+    const st = Number(r.startedAt || 0);
+    const lt = Number(r.lastSeenAt || 0);
+    const dur = Number(r.durationSec || 0);
+    const online = !!r.isOnline;
+    const info = r.playerInfo && typeof r.playerInfo === 'object' ? r.playerInfo : {};
+    const infoText = [
+      info.level ? `Lv${info.level}` : '',
+      info.segment ? `seg:${info.segment}` : '',
+      info.rank ? `rank:${info.rank}` : '',
+      info.strategy ? `strategy:${info.strategy}` : '',
+    ].filter(Boolean).join(' · ') || '—';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${shortUid}</td>
+      <td>${r.clientIp || '—'}</td>
+      <td>${st ? new Date(st*1000).toLocaleString('zh-CN') : '—'}</td>
+      <td>${lt ? new Date(lt*1000).toLocaleString('zh-CN') : '—'}</td>
+      <td>${dur}s</td>
+      <td class="${online ? 'kpi-good' : ''}">${online ? '在线' : '离线'}</td>
+      <td>${infoText}</td>`;
+    t.appendChild(tr);
+  }
+  c.appendChild(t);
+  return c;
+}
+
 // ── 初始化 ────────────────────────────────────────────────────────────────────
 document.getElementById('refresh-btn').addEventListener('click', loadDashboard);
 document.getElementById('days-select').addEventListener('change', loadDashboard);
+document.getElementById('visit-user').addEventListener('change', loadDashboard);
+document.getElementById('visit-ip').addEventListener('change', loadDashboard);
+document.getElementById('visit-status').addEventListener('change', loadDashboard);
+document.getElementById('visit-limit').addEventListener('change', loadDashboard);
+document.getElementById('export-visits-btn').addEventListener('click', exportVisitsCsv);
 loadDashboard();
 </script>
 </body>

@@ -1083,7 +1083,7 @@
   // ─── 加载文档列表 ───
   async function loadList() {
     try {
-      const res = await fetch(`${API_BASE}/docs/list`);
+      const res = await fetch(`${API_BASE}/docs/list?_t=${Date.now()}`, { cache: 'no-store' });
       _categories = await res.json();
       // 统计文档总数
       const total = _categories.reduce((s, c) => s + allDocs(c).length, 0);
@@ -1195,7 +1195,8 @@
     window.scrollTo(0, 0);
 
     try {
-      const res = await fetch(`${API_BASE}/docs/raw/${encodeURIComponent(filename)}`);
+      const sep = filename.includes('?') ? '&' : '?';
+      const res = await fetch(`${API_BASE}/docs/raw/${encodeURIComponent(filename)}${sep}_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}（文档未找到）`);
       const md = await res.text();
 

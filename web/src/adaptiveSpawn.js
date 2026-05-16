@@ -849,12 +849,23 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         .filter(([key, v]) => !_SUM_SKIP.has(key) && Number.isFinite(v))
         .reduce((sum, [, value]) => sum + value, 0);
     stressBreakdown.rawStress = stress;
+    /* 审计字段：后置调制均以 *Adjust 记录 delta，便于还原 finalStress 来源。 */
+    stressBreakdown.lifecycleCapAdjust = 0;
+    stressBreakdown.lifecycleBandAdjust = 0;
+    stressBreakdown.onboardingStressOverrideAdjust = 0;
+    stressBreakdown.winbackStressCapAdjust = 0;
+    stressBreakdown.clampAdjust = 0;
+    stressBreakdown.smoothingAdjust = 0;
+    stressBreakdown.minStressFloorAdjust = 0;
+    stressBreakdown.flowPayoffCapAdjust = 0;
 
     /* ---------- v1.32：S/M 标签生命周期难度调制 ----------
      * 基于 PLAYER_LIFECYCLE_MATURITY_BLUEPRINT，不同阶段的玩家承受不同的压力上限。
      * S0/S4 回流期需要保护；S2/S3 成长/稳定期可以承受更高压力。
      */
     let lifecycleStressAdjust = 0;
+    let lifecycleCapAdjust = 0;
+    let lifecycleBandAdjust = 0;
     try {
         /* v1.49.x P2-4：优先用 getCachedLifecycleSnapshot（300ms TTL，避免每帧重算）。
          * lifecycleOrchestrator 在 sessionStart/End 会主动 invalidate，
@@ -887,21 +898,27 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             /* 1. 应用压力上限：当前 stress 超过上限时压低 */
             if (stress > config.cap) {
                 lifecycleStressAdjust = config.cap - stress;
+                lifecycleCapAdjust = lifecycleStressAdjust;
                 stress = config.cap;
             }
             /* 2. 额外偏移：某些阶段整体减压或加压 */
-            stress += config.adjust;
+            lifecycleBandAdjust = Number(config.adjust) || 0;
+            stress += lifecycleBandAdjust;
             stress = Math.max(-0.2, Math.min(1, stress));
         }
         stressBreakdown.lifecycleStage = stage;
         stressBreakdown.lifecycleBand = band;
+        stressBreakdown.lifecycleCapAdjust = lifecycleCapAdjust;
+        stressBreakdown.lifecycleBandAdjust = lifecycleBandAdjust;
         stressBreakdown.lifecycleStressAdjust = lifecycleStressAdjust;
     } catch { /* lifecycle 数据缺失不影响主流程 */ }
 
     /* ---------- 特殊覆写：新手保护 ---------- */
     const inOnboarding = profile.isInOnboarding;
     if (inOnboarding) {
+        const prevStress = stress;
         stress = Math.min(stress, eng.firstSessionStressOverride ?? -0.15);
+        stressBreakdown.onboardingStressOverrideAdjust = stress - prevStress;
     }
 
     /* ---------- v1.48 winback 保护包：sress cap ----------
@@ -915,8 +932,10 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     let winbackPreset = null;
     try { winbackPreset = getActiveWinbackPreset(); } catch { /* ignore */ }
     if (winbackPreset && Number.isFinite(winbackPreset.stressCap)) {
+        const prevStress = stress;
         stress = Math.min(stress, winbackPreset.stressCap);
         stressBreakdown.winbackStressCap = winbackPreset.stressCap;
+        stressBreakdown.winbackStressCapAdjust = stress - prevStress;
     }
 
     /* ---------- B 类进阶挑战档：高分段自动加压 ----------
@@ -948,6 +967,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     stressBreakdown.beforeClamp = stress;
     stress = Math.max(-0.2, Math.min(1, stress));
     stressBreakdown.afterClamp = stress;
+    stressBreakdown.clampAdjust = stressBreakdown.afterClamp - stressBreakdown.beforeClamp;
 
     /* v1.16：占用率衰减（occupancyDamping）
      * 当盘面填充很低时，scoreStress / runStreakStress 等"分数驱动"信号会把综合 stress
@@ -983,8 +1003,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         || boardRisk >= (cfg.stressSmoothing?.immediateReliefBoardRisk ?? 0.72);
     stress = smoothStress(stress, ctx, cfg.stressSmoothing, immediateRelief);
     stressBreakdown.afterSmoothing = stress;
+    stressBreakdown.smoothingAdjust = stressBreakdown.afterSmoothing - stressBreakdown.afterOccupancy;
     if (!inOnboarding && !profile.needsRecovery && Number.isFinite(difficultyTuning.minStress)) {
+        const prevStress = stress;
         stress = Math.max(stress, difficultyTuning.minStress);
+        stressBreakdown.minStressFloorAdjust = stress - prevStress;
     }
     /* v1.13：flow + payoff 时把 stress 封顶到 tense（默认 0.79），避免拟人化压力表
      * 出现「🥵 高压」与叙事「享受多消快感」并列的认知冲突。仅在盘面无空洞、风险不高时生效。 */
@@ -994,8 +1017,10 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         && earlyRhythmPhase === 'payoff'
         && holes === 0
         && boardRisk < (cfg.flowPayoffMaxBoardRisk ?? 0.5)) {
+        const prevStress = stress;
         stress = Math.min(stress, flowPayoffCap);
         stressBreakdown.flowPayoffCap = flowPayoffCap;
+        stressBreakdown.flowPayoffCapAdjust = stress - prevStress;
     }
     stressBreakdown.finalStress = stress;
 

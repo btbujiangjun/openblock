@@ -82,6 +82,8 @@ import { initAsyncPk } from './social/asyncPk.js';
 import { initSkinFragments } from './progression/skinFragments.js';
 import { initMonthlyMilestone } from './checkin/monthlyMilestone.js';
 import { hydrateCheckinFromServer } from './checkin/checkinSync.js';
+import { initLocalStorageStateSync } from './localStorageStateSync.js';
+import { initVisitTracker } from './visitTracker.js';
 import { initCursorHelpTooltip } from './helpTooltip.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -266,6 +268,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         /* 签到 / 连登 / 月度进度：从 SQLite 恢复后再挂载弹窗与计时器 */
         await hydrateCheckinFromServer();
+        /* v1.52：按业务分区同步 localStorage ↔ SQLite（防回滚合并 + 分频增量写入） */
+        await initLocalStorageStateSync();
+        /* v1.53：访问会话日志（start/ping/end）落库，用于运营看板访客分析。 */
+        await initVisitTracker();
         initLoginStreak({ audio: audioFx });
         initCheckIn({ audio: audioFx });
         initMonthlyMilestone();

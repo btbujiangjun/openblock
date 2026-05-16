@@ -1288,6 +1288,8 @@ body.game-rl-preview .block-dock {
     order: 99;
     opacity: 0.85;
     filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+    contain: layout paint style;
+    will-change: left, top;
 }
 
 /* v1.43：落子失败时 ghost 在原位"抖动 + 淡出"，配合 audioFx tick 与触感作为负反馈
@@ -1357,6 +1359,9 @@ body.game-rl-preview .block-dock {
     max-width: 100%;
     height: auto;
     aspect-ratio: 1 / 1;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-drag: none;
 }
 
 .dock-block:active {
