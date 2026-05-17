@@ -302,7 +302,7 @@ smoothSkill += α × (rawSkill - smoothSkill)
 |---------|---------|------|
 | **A. profile 插值** | `interpolateProfileWeights(profiles, stress)` — 在 10 档 profile 间连续插值 shapeWeights | ✅ 平滑 |
 | **B. spawnTargets 投影** | `deriveSpawnTargets(stress)` — 投影到 6 轴目标（shapeComplexity / solutionSpacePressure / clearOpportunity / spatialPressure / payoffIntensity / novelty） | ✅ 平滑 |
-| **C. targetSolutionRange 软过滤** | `solutionDifficulty.ranges` 按 stress 选区间，blockSpawn 在三连块通过 sequentiallySolvable 后用 DFS 估算解叶子数软过滤 | ⚠️ v1.57.1 P1 新增 '渐紧' 档（minStress=0.5, max=64）填补 0.5~0.6 断档 |
+| **C. targetSolutionRange 软过滤** | `solutionDifficulty.ranges` 按 stress 选区间，blockSpawn 在三连块通过 sequentiallySolvable 后用 DFS 估算解叶子数软过滤 | ⚠️ v1.57.1 P1 新增 '渐紧' 档（minStress=0.5, max=64）填补 0.5~0.6 断档；v1.57.2 在此轴之外新增 **targetHoleIncrement 第二维度**（详见下文）|
 | **D. orderRigor 顺序刚性** | `stressTerm` 控制 `orderRigor`，进而决定 `orderMaxValidPerms` ∈ [2, 4] 软过滤 | ⚠️ v1.57.1 P0 改用 softplus ramp（smoothness=0.08）消除 0.55 跨阈值台阶；P2 D4 高 stress 强锁死（+0.25 boost） |
 | **E. spawnIntent 离散意图** | 6 档枚举（relief/engage/harvest/pressure/flow/maintain），决定 hints 套装与 stressMeter 叙事 | ⚠️ v1.57.1 P3 新增 'sprint' 中间档（stress ∈ [0.45, 0.55)）平滑 maintain → pressure 过渡 |
 
@@ -363,6 +363,145 @@ relief > engage > harvest > pressure > sprint > flow > maintain
 | [0.45, 0.55) | 氛围光 flow→engaged；呼吸 3.0s→2.4s | spawnIntent='sprint'；solutionRange max=64 |
 | [0.55, 0.85) | 氛围光 tense；呼吸 1.9s；震动 ×1.20；音频低通 5.5kHz | orderRigor softplus 平滑上升；spawnIntent='pressure'；solutionRange max=32 |
 | ≥ 0.85 + D4 | 氛围光 intense；呼吸 1.5s；震动 ×1.30；音频低通 4.0kHz | orderRigor + pbOvershootOrderBoost=0.25 → maxValidPerms=2；solutionRange max=12 |
+
+#### v1.57.2 第二维度：targetHoleIncrement（空洞强迫度）
+
+> 在 `targetSolutionRange`（解空间宽度）之外新增 `targetHoleIncrement`（最干净放法的新空洞数），形成"解空间宽度 × 空洞强迫度"双轴 stress 投射。详见 `docs/player/BEST_SCORE_CHASE_STRATEGY.md` §5.α.13。
+
+##### 算法核心
+
+```
+function dfsCountSolutions(grid, perm, depth, accum, budget):
+    if depth >= 3:                              // 叶子节点
+        accum.count++
+        after = countIsolatedHoles(grid)        // O(n²×4)≈256 ops
+        delta = max(0, after - accum.baseHoles) // 消行净降 → 0
+        accum.minHoleIncrement = min(accum.minHoleIncrement, delta)
+        return
+```
+
+`evaluateTripletSolutions` 返回值新增 `minHoleIncrement` / `meanHoleIncrement`。
+
+##### 为什么选"孤立空格"作 hole 口径
+
+| 候选口径 | 性能 | OpenBlock 语义 | 选用 |
+|---------|------|-------------|------|
+| Tetris stacking | O(n²) | ✗ OpenBlock 无重力，"被上方堵住"非物理 hole | 否 |
+| `countUnfillableCells` | O(shapes × n²) ≈ 16k ops | ✓ 严谨 | 否——DFS 内 16k × 64 leaves × 22 attempts ≈ 22M ops/spawn 太重 |
+| **孤立空格（四面非空）** | O(n²×4) ≈ 256 ops | ✓ 玩家心智里的"漏洞"——必须 1×1 才能填 | **是** |
+
+##### `holeIncrement.ranges` 档位（与 P1 锚点对齐）
+
+| stress | label | minIncrement | maxIncrement | 设计意图 |
+|--------|------|-------------|-------------|---------|
+| [-1.0, 0.35) | 干净 | null | **0** | 必有 0 新空洞解 |
+| [0.35, 0.5) | 宽容 | null | **1** | 允许至多 1 新空洞 |
+| [0.5, 0.6) | 渐紧 | null | **2** | 允许至多 2 新空洞 |
+| [0.6, 0.8) | 紧张 | **1** | null | 强迫至少 1 新空洞 |
+| [0.8, 1.0] | 极限 | **2** | null | 强迫至少 2 新空洞（D4 段透出生命周期）|
+
+##### blockSpawn 软过滤分支
+
+```javascript
+if (earlyAttempt && targetHoleIncrement && !solutionMetrics.truncated) {
+    const minInc = solutionMetrics.minHoleIncrement;
+    if (Number.isFinite(minInc)) {
+        if (targetHoleIncrement.max != null && minInc > targetHoleIncrement.max) {
+            diagnostics.solutionRejects.holeTooMany++;  continue;
+        }
+        if (targetHoleIncrement.min != null && minInc < targetHoleIncrement.min) {
+            diagnostics.solutionRejects.holeTooClean++; continue;
+        }
+    }
+}
+```
+
+- 与 `targetSolutionRange` 同窗口（`attempt < 60% × MAX_SPAWN_ATTEMPTS`）；宽松阶段 fallback 保证 spawn 不死锁
+- `truncated=true` / `minHoleIncrement === Infinity` 跳过过滤
+- diagnostics 新增 `solutionRejects.holeTooMany` / `holeTooClean` 字段
+
+##### 双轴矩阵
+
+| stress | targetSolutionRange | targetHoleIncrement | 玩家体感 |
+|--------|-------------------|---------------------|---------|
+| 0.0 | 解 ≥ 4 | 新空洞 ≤ 0 | 多种放法 + 都干净 |
+| 0.4 | 解 ≥ 2 | 新空洞 ≤ 1 | 还有得选 + 可能吞 1 洞 |
+| 0.55 | 解 ≤ 64 | 新空洞 ≤ 2 | 解数受限 + 接受 2 洞 |
+| 0.7 | 解 ≤ 32 | 新空洞 ≥ 1 | 解数少 + **必须**吞 1 洞 |
+| 0.9 | 解 ≤ 12 | 新空洞 ≥ 2 | 解数极少 + **必须**吞 2 洞 |
+
+两轴对玩家是独立可感的两个难度信号——宽度变化 = "我没几种选了"（认知收窄），强迫度变化 = "怎么放都得带漏洞"（结构焦虑）。
+
+##### 配置位置 + 测试
+
+| 配置 | 路径 | 默认值 |
+|------|------|--------|
+| ranges 数组 | `adaptiveSpawn.solutionDifficulty.holeIncrement.ranges` | 5 档（干净/宽容/渐紧/紧张/极限） |
+| enabled 开关 | `adaptiveSpawn.solutionDifficulty.holeIncrement.enabled` | true |
+
+契约测试：`tests/holeIncrementFilter.test.js`（15 用例）。
+
+##### 三层协同（v1.57 → v1.57.1 → v1.57.2）
+
+| 玩家体验感 | §5.α.11 感官（显性）| §5.α.12 算法（潜意识）| §5.α.13 算法（潜意识）|
+|----------|------------------|-------------------|-------------------|
+| 心流期（0.2~0.45）| 氛围光绿、呼吸缓慢 | spawnIntent='maintain'；解空间宽 | 必有干净解（max=0）|
+| 渐紧期（0.45~0.55）| 氛围光暖琥珀、呼吸 2.4s | spawnIntent='sprint'；max=64 | 允许 ≤2 新空洞（"渐紧"）|
+| 高压期（0.55~0.85）| 氛围光橙红、震动 ×1.20 | spawnIntent='pressure'；max=32 | 强迫 ≥1 新空洞（"紧张"）|
+| 极限期（≥0.85，D4）| 氛围光深红、音频 4kHz | orderRigor+0.25 → maxValidPerms=2 | 强迫 ≥2 新空洞（"极限"）|
+
+#### v1.57.3 多轴扩展：9 维 stress→算法 难度投射
+
+> 在 v1.57.2 双轴（`targetSolutionRange` × `targetHoleIncrement`）之外，再引入 9 个 O(n²) 廉价度量，把 stress 投射从 2 轴扩展到 **11 轴**。设计动机：v1.57.2 双轴的过滤约束在中段 stress（0.4~0.6）不够锐利，玩家从 D1 跳到 D2 的"压迫感"切换不显著。详见 `docs/player/BEST_SCORE_CHASE_STRATEGY.md` §5.α.14。
+
+##### 9 维全景
+
+| # | `spawnHints.target*` | 玩家心智轴 | DFS 内代价 | 配置子节 |
+|---|---|---|---|---|
+| ① | `targetMaxHoleIncrement` | 专注度税上界（"随便放也能干净 vs 必须专心"）| O(n²×4)/叶子 | `solutionDifficulty.maxHoleIncrement` |
+| ② | `targetEndFillRatio` | 空间窒息感（剩余决策窗口收窄）| O(n²)/叶子 | `endFillRatio` |
+| ③ | `targetNearFullDelta` | 消行节律（rhythmPhase 直接注入 spawn 算法）| O(n²×2)/叶子 | `nearFullDelta` |
+| ④ | `targetFirstMoveSurvivorRatio` | 试错代价（第一手必须想清楚）| DFS root 标记 | `firstMoveSurvivor` |
+| ⑤ | `targetSolutionDiversity` | 解多样性陷阱（perPermCounts CV）| 零成本 | `solutionDiversity` |
+| ⑥ | `targetEndFlatness` | 凹凸审美焦虑（列高方差）| O(n²)/叶子 | `endFlatness` |
+| ⑦ | `targetEndDangerColumns` | 爆顶预警（接近 game over 信号）| O(n²)/叶子 | `endDangerColumns` |
+| ⑧ | `targetVisualClutter` | 颜色边界审美（花花绿绿 vs 聚团）| O(n²×2)/叶子 | `visualClutter` |
+| ⑨ | `targetHoleIncrementGap` | 专注度税差距 max−min（"专心则过、走神则崩"）| 零成本 | `holeIncrementGap` |
+
+总代价：~6 个 O(n²) 调用 × 64 叶子 ≈ 25k ops/triplet（DFS 入栈相比 leafCap 自身代价完全可忽略）。base 度量在评估开始一次性计算，DFS 内只算 delta/绝对值。
+
+##### 关键设计决策
+
+| 决策 | 原因 |
+|---|---|
+| 单边强约束 / 单边宽松 | 低 stress 段 max 强约束（保护玩家）/ 高 stress 段 min 强约束（强迫面对压力源）；避免双边过严导致 spawn 失败率飙升 |
+| 9 维彼此独立、不重叠 | ①⑨ 都和"空洞"相关但语义独立——`targetHoleIncrement.min` 是最优解脏度下限、`targetMaxHoleIncrement.min` 是最差解脏度下限、`targetHoleIncrementGap.min` 是 max-min 差距 |
+| 廉价度量优先 | **不用**：`countUnfillableCells` (O(shapes×n²) 太重)、真正的 lookahead spawning (O(shapes³) 不可行)、颜色饱和度等需外部模型的指标 |
+| 策略仍然隐性 | 9 维全部只在 `playerInsightPanel` 诊断视图展示数值；主 HUD 只有出块本身 |
+| 与 v1.57.2 共享 stress | 9 维派生器全部使用 `solutionStress`，保证多轴对 stress 单调一致 |
+| 共享 activationFill 守卫 | 各维度全部走 `solutionDifficulty.activationFill = 0.45` 整体启用阈值 |
+
+##### diagnostics 透传
+
+| 字段 | 位置 | 内容 |
+|---|---|---|
+| `_target{Max,Gap,Fill,Near,Survivor,Diversity,Flat,Danger,Clutter}` | adaptive 顶层 | `{min, max, label}` 或 null |
+| `spawnHints.target*` | adaptive.spawnHints | 同上（供 blockSpawn 消费）|
+| `layer1.target*` | blockSpawn diagnostics | 透传上游 hints |
+| `solutionRejects.{maxHoleTooMany, maxHoleTooClean, holeGapTooNarrow, holeGapTooWide, fillTooHigh, fillTooLow, nearFullDeltaTooHigh, nearFullDeltaTooLow, survivorTooHigh, survivorTooLow, diversityTooHigh, diversityTooLow, flatnessTooHigh, flatnessTooLow, dangerColsTooHigh, dangerColsTooLow, clutterTooHigh, clutterTooLow}` | blockSpawn diagnostics | 18 个新计数器（9 维 × min/max 2 侧）|
+
+##### 四层协同（升级版）
+
+v1.57.3 之后 stress → 4 个独立可感维度：
+
+| 玩家体验感 | §5.α.11 感官 | §5.α.12 算法 | §5.α.13 算法 | §5.α.14 算法（v1.57.3 新增） |
+|----------|-----------|----------|-----------|-----------|
+| 心流期（0.2~0.45）| 氛围光绿、呼吸缓慢 | spawnIntent=maintain | 必有干净解（max=0）| `endFillRatio≤0.45 / nearFullDelta≥0.5 / survivor≥0.6 / dangerCol≤2 / flatness≤2 / clutter≤2` |
+| 渐紧期（0.45~0.55）| 氛围光暖琥珀 | spawnIntent=sprint | 允许 ≤2 新空洞 | 中性（多数维度不激活）|
+| 高压期（0.55~0.85）| 氛围光橙红、震动 ×1.20 | spawnIntent=pressure | 强迫 ≥1 新空洞 | `maxHole≥1 / fill≥0.50 / nearFullDelta≤0.5 / survivor≤0.7 / flatness≥3 / dangerCol≥1` |
+| 极限期（≥0.85，D4）| 氛围光深红 | orderRigor+0.25 | 强迫 ≥2 新空洞 | `maxHole≥2 / gap≥3 / fill≥0.65 / nearFullDelta≤-0.5 / survivor≤0.5 / dangerCol≥2 / clutter≥2` |
+
+契约测试：`tests/spawnDimensionalStress.test.js`（18 用例）。
 
 ---
 
@@ -844,6 +983,8 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 | `scoreMilestone` | bool | 刚跨**局内分数里程碑**（区别于 `maturity_milestone_complete` 的跨局成熟度晋升） | 三条通路：①`adaptiveSpawn` 内部抬高 `clearGuarantee` / 压低 `sizePreference`（出块友好化）；②`game.js spawnBlocks()` 顶部桥接到 `_spawnContext.scoreMilestone`，触发 `blockSpawn.js:870-872` 的 `*= 1.3` 加权（v1.55.16 修复，此前为 dead branch）；③策略卡 / Player Insight 面板 / DFV 仍展示数据流（**UI float toast 已于 v1.55.11 撤销**） |
 | `scoreMilestoneValue` | number\|null | 当 `scoreMilestone=true` 时给出具体跨过的分数档（用于 i18n `effect.scoreMilestone` 的 `{{score}}` 占位符） | 仅供策略卡 / Insight 面板 / DFV 数据展示（局内浮层已撤销） |
 | `targetSolutionRange` | min/max 或 null | v9 解法数量档位 | 通过可解性校验后收缩解空间 |
+| `targetHoleIncrement` | min/max 或 null | **v1.57.2 新增**：新空洞难度档位（与 targetSolutionRange 并列双轴）| 通过 DFS 叶子 isolated-holes delta 软过滤候选 triplet——低 stress max 强约束（必有干净解）/ 高 stress min 强约束（玩家必须吞洞） |
+| `targetMaxHoleIncrement` / `targetHoleIncrementGap` / `targetEndFillRatio` / `targetNearFullDelta` / `targetFirstMoveSurvivorRatio` / `targetSolutionDiversity` / `targetEndFlatness` / `targetEndDangerColumns` / `targetVisualClutter` | min/max 或 null | **v1.57.3 新增**：9 维 stress→算法 难度投射（详见 §3.5 v1.57.3 节）| 9 个独立潜意识压力源——专注度税上界/差距、空间窒息、消行节律、试错代价、解多样性、凹凸审美、爆顶预警、视觉杂乱 |
 | `orderRigor` | 0~1 | **v1.32 新增**：顺序刚性强度（0=不约束，1=必须按特定顺序） | 仅用于诊断/面板展示 |
 | `orderMaxValidPerms` | 1~6 | **v1.32 新增**：硬上限 — 6 种排列里允许的最大可解数 | `blockSpawn` 在早期 attempt 拒绝 `validPerms > N` 的 triplet |
 | `farFromPBBoostActive` | bool | **v1.56 §2.1 新增**：远征送爽是否激活（pct &lt; 0.30 且无 bypass 时为 true） | 触发 §2.5 `blockSpawn` 端 multiClear≥2 块权重 ×1.15；触发 §4.3 stressMeter "远征段送爽中" 叙事；豁免 multiClearBonus 几何兜底（≤0.4），让远征段空盘开局仍能保留 multiClearBonus floor=0.45 注入 |

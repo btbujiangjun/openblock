@@ -662,6 +662,120 @@ function deriveTargetSolutionRange(stress, cfg, fill) {
     };
 }
 
+/**
+ * v1.57.2：根据 stress 选择新空洞数难度档（与 targetSolutionRange 并列的第二维度）。
+ *
+ * 语义：blockSpawn 在 earlyAttempt 阶段对每个候选 triplet 计算 minHoleIncrement
+ * （6 种放置顺序所有解的"最干净路径"新空洞数），按本函数返回的 { min, max } 区间软过滤。
+ *
+ *   - max=0   → 候选必须存在 0 新空洞解（"必有干净放法"，玩家放心放）
+ *   - max=N   → 候选最优解新空洞 ≤ N（允许少量空洞解）
+ *   - min=N   → 候选最优解新空洞 ≥ N（"无论怎么放都会脏"，玩家被迫接受）
+ *
+ * 共享 cfg.activationFill 与 cfg.enabled——本函数只在解空间评估开启的前提下生效。
+ *
+ * @param {number} stress  raw 域 [-0.2, 1]
+ * @param {object} cfg     adaptiveSpawn.solutionDifficulty（取其 holeIncrement 子节）
+ * @param {number} fill    当前盘面填充率
+ * @returns {{ min: number|null, max: number|null, label?: string } | null}
+ */
+function deriveTargetHoleIncrement(stress, cfg, fill) {
+    if (!cfg?.enabled) return null;
+    const hi = cfg.holeIncrement;
+    if (!hi?.enabled) return null;
+    const activationFill = cfg.activationFill ?? 0.45;
+    if ((fill ?? 0) < activationFill) return null;
+    const ranges = Array.isArray(hi.ranges) ? hi.ranges : [];
+    if (ranges.length === 0) return null;
+
+    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
+    let chosen = null;
+    for (const r of sorted) {
+        if (stress >= (r.minStress ?? -1)) chosen = r;
+    }
+    if (!chosen) chosen = sorted[0];
+    return {
+        min: chosen.minIncrement ?? null,
+        max: chosen.maxIncrement ?? null,
+        label: chosen.label
+    };
+}
+
+/* ================================================================== */
+/*  v1.57.3 — 9 项 stress→算法 多维难度区间通用派生器                  */
+/*                                                                    */
+/*  与 deriveTargetSolutionRange / deriveTargetHoleIncrement 同源结构  */
+/*  共享 cfg.activationFill 与 cfg.enabled；每个维度独立 enabled 开关  */
+/*  ranges 字段约定：{ minStress, label, min, max }（min/max 均可 null）*/
+/* ================================================================== */
+
+/**
+ * 通用 ranges → { min, max, label } 派生器。
+ *
+ * @param {number} stress       raw 域 [-0.2, 1]
+ * @param {object} dimCfg       某一维度的子节，必须含 { enabled, ranges }
+ * @param {object} parentCfg    父级 solutionDifficulty 节，提供 activationFill 兜底
+ * @param {number} fill         当前盘面填充率
+ * @returns {{ min: number|null, max: number|null, label?: string } | null}
+ */
+function _deriveRangeByStress(stress, dimCfg, parentCfg, fill) {
+    if (!parentCfg?.enabled) return null;
+    if (!dimCfg?.enabled) return null;
+    const activationFill = parentCfg.activationFill ?? 0.45;
+    if ((fill ?? 0) < activationFill) return null;
+    const ranges = Array.isArray(dimCfg.ranges) ? dimCfg.ranges : [];
+    if (ranges.length === 0) return null;
+
+    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
+    let chosen = null;
+    for (const r of sorted) {
+        if (stress >= (r.minStress ?? -1)) chosen = r;
+    }
+    if (!chosen) chosen = sorted[0];
+    return {
+        min: chosen.min ?? null,
+        max: chosen.max ?? null,
+        label: chosen.label
+    };
+}
+
+/** v1.57.3 ① — 最差解新空洞数（专注度税上界）*/
+function deriveTargetMaxHoleIncrement(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.maxHoleIncrement, cfg, fill);
+}
+/** v1.57.3 ⑨ — 专注度税差距 = max − min */
+function deriveTargetHoleIncrementGap(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.holeIncrementGap, cfg, fill);
+}
+/** v1.57.3 ② — 终末填充率（空间窒息）*/
+function deriveTargetEndFillRatio(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.endFillRatio, cfg, fill);
+}
+/** v1.57.3 ③ — 近满 delta（消行节律）*/
+function deriveTargetNearFullDelta(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.nearFullDelta, cfg, fill);
+}
+/** v1.57.3 ④ — 第一步存活率（试错代价）*/
+function deriveTargetFirstMoveSurvivorRatio(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.firstMoveSurvivor, cfg, fill);
+}
+/** v1.57.3 ⑤ — 解多样性 CV */
+function deriveTargetSolutionDiversity(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.solutionDiversity, cfg, fill);
+}
+/** v1.57.3 ⑥ — 终末平整度 */
+function deriveTargetEndFlatness(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.endFlatness, cfg, fill);
+}
+/** v1.57.3 ⑦ — 终末危险列数 */
+function deriveTargetEndDangerColumns(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.endDangerColumns, cfg, fill);
+}
+/** v1.57.3 ⑧ — 视觉杂乱 delta */
+function deriveTargetVisualClutter(stress, cfg, fill) {
+    return _deriveRangeByStress(stress, cfg?.visualClutter, cfg, fill);
+}
+
 /* ------------------------------------------------------------------ */
 /*  自适应策略解析（三层整合）                                          */
 /* ------------------------------------------------------------------ */
@@ -1940,6 +2054,35 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         cfg.solutionDifficulty,
         _boardFill ?? 0
     );
+    /* ---------- v1.57.2: 新空洞难度区间（与解法数量区间并列的第二维度） ----------
+     * 共享 solutionStress（同源 stress 修饰），保证两维度对 stress 单调一致。 */
+    const targetHoleIncrement = deriveTargetHoleIncrement(
+        solutionStress,
+        cfg.solutionDifficulty,
+        _boardFill ?? 0
+    );
+    /* ---------- v1.57.3: 9 项多维 stress→算法 难度区间 ----------
+     * 全部基于 solutionStress 派生（与 v1.57.2 保持单调一致）。任一维度的 enabled=false
+     * 或 boardFill < activationFill 时返回 null（blockSpawn 跳过该轴过滤）。
+     * 不同维度对应不同的玩家心智轴（详见 §5.α.14）：
+     *   ① maxHoleIncrement          —— 专注度税（上界）
+     *   ⑨ holeIncrementGap          —— 专注度税（差距）
+     *   ② endFillRatio              —— 空间窒息感
+     *   ③ nearFullDelta             —— 消行节律
+     *   ④ firstMoveSurvivor         —— 试错代价
+     *   ⑤ solutionDiversity         —— 解多样性陷阱
+     *   ⑥ endFlatness               —— 盘面凹凸审美
+     *   ⑦ endDangerColumns          —— 爆顶预警
+     *   ⑧ visualClutter             —— 颜色边界审美 */
+    const targetMaxHoleIncrement       = deriveTargetMaxHoleIncrement(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetHoleIncrementGap       = deriveTargetHoleIncrementGap(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetEndFillRatio           = deriveTargetEndFillRatio(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetNearFullDelta          = deriveTargetNearFullDelta(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetFirstMoveSurvivorRatio = deriveTargetFirstMoveSurvivorRatio(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetSolutionDiversity      = deriveTargetSolutionDiversity(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetEndFlatness            = deriveTargetEndFlatness(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetEndDangerColumns       = deriveTargetEndDangerColumns(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetVisualClutter          = deriveTargetVisualClutter(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
 
     /* ---------- v1.16：spawnIntent — 出块意图的单一对外口径 ----------
      * 让「压力表叙事 / 商业化策略文案 / 回放标签」读同一个意图字段，避免出现：
@@ -2049,6 +2192,22 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             scoreMilestone: scoreMilestoneCheck.hit,
             scoreMilestoneValue: scoreMilestoneCheck.hit ? scoreMilestoneCheck.milestone : null,
             targetSolutionRange,
+            /* v1.57.2：新空洞难度区间，与 targetSolutionRange 并列双轴：
+             * - targetSolutionRange 控制"解空间宽度"（多少种可解放法）
+             * - targetHoleIncrement 控制"空洞强迫度"（最干净放法也带几个空洞）
+             * blockSpawn earlyAttempt 阶段两者并行硬过滤，stress 越高 minIncrement 越高。 */
+            targetHoleIncrement,
+            /* v1.57.3：9 项多维 stress→算法 难度区间（与 v1.57.2 同源 stress 派生）。
+             * 详见 §5.α.14 / docs/algorithms/ADAPTIVE_SPAWN.md §3.5。 */
+            targetMaxHoleIncrement,
+            targetHoleIncrementGap,
+            targetEndFillRatio,
+            targetNearFullDelta,
+            targetFirstMoveSurvivorRatio,
+            targetSolutionDiversity,
+            targetEndFlatness,
+            targetEndDangerColumns,
+            targetVisualClutter,
             spawnIntent,
             motivationIntent,
             behaviorSegment,
@@ -2112,6 +2271,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _delightBoost: delight.multiClearBoost,
         _perfectClearBoost: delight.perfectClearBoost,
         _targetSolutionRange: targetSolutionRange,
+        _targetHoleIncrement: targetHoleIncrement,
+        // v1.57.3：9 项多维难度区间顶层暴露（_ 前缀字段供 game.js / RL / 面板诊断使用）
+        _targetMaxHoleIncrement: targetMaxHoleIncrement,
+        _targetHoleIncrementGap: targetHoleIncrementGap,
+        _targetEndFillRatio: targetEndFillRatio,
+        _targetNearFullDelta: targetNearFullDelta,
+        _targetFirstMoveSurvivorRatio: targetFirstMoveSurvivorRatio,
+        _targetSolutionDiversity: targetSolutionDiversity,
+        _targetEndFlatness: targetEndFlatness,
+        _targetEndDangerColumns: targetEndDangerColumns,
+        _targetVisualClutter: targetVisualClutter,
         _abilityVector: ability,
         _abilityRiskAdjust: abilityRiskAdjust,
         _boardRisk: boardRisk,

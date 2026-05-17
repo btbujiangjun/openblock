@@ -3523,12 +3523,21 @@ export class Game {
                     } else if (ratio <= 0.50) {
                         // D1：跟随段，默认色
                         msg = t('best.gap.neutral', { gap });
-                    } else if (lowBest) {
-                        // D0 低 best：连 PB 锚点都不暴露（避免 best=80 时持续显示"历史最佳 80"令玩家自卑）
-                        msg = t('best.gap.neutral', { gap });
                     } else {
-                        // D0 正常：保留 PB 锚点作为远征段目标参照（用 baseline，不用实时 bestScore）
-                        msg = t('best.gap.far', { best: pbBaseline });
+                        /* D0 段（远 PB / 低 PB 合并）：统一 "差 N 分"，不再重复暴露 PB 数字
+                         *
+                         * v1.57.3 §5.α.14 修复：用户截图实测显示 HUD 同时出现：
+                         *   - 主 HUD（#best-score）：「最佳 2200」（始终展示绝对 PB）
+                         *   - best-gap 元素：「历史最佳 2200」（旧 best.gap.far 文案）
+                         * 两处展示完全等价，违反"主 HUD = 绝对锚点 / best-gap = 相对差距"分工。
+                         *
+                         * 修复后 D0 段也走 best.gap.neutral 显示"差 N 分"，差异通过 CSS 默认色（无
+                         * extraClass）+ 算法层 farFromPBBoost 体现，与策略隐性原则完全一致。
+                         *
+                         * lowBest 分支合并到 D0 默认：两者文案口径已统一，分支不再有差异。
+                         * best.gap.far 文案保留作 @deprecated key 供 i18n 平台灰度回滚。 */
+                        void lowBest;
+                        msg = t('best.gap.neutral', { gap });
                     }
                 } else if (gap < 0) {
                     /* D4 突破段：score > baseline，over = score - baseline 持续递增。

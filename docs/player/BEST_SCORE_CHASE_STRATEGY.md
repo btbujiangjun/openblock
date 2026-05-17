@@ -56,6 +56,36 @@
 > 4. **rl_pytorch / policy 主线**（PPO/MCTS，`STATE_FEATURE_DIM=181`）：不消费 spawnIntent，**零改动**。
 > 5. **rl_pytorch / game_rules.py**：不主动读取 `adaptiveSpawn` / `topologyDifficulty` / `pbChase` / `sprintIntent` 节点，**零改动**。
 > 6. 多端验证：web 1614 / miniprogram node check / rl_pytorch spawn_model 5/5 / rl_pytorch 全量 76/76 全部通过。详见 §5.α.12 "多端同步策略" 小节。
+>
+> **v1.57.2 stress → 出块算法的"新空洞强迫度"第二维度（2026-05-18，用户驱动："targetSolutionRange 在三连可解性基础上，增加可解带来的新空洞数，多则难少则简"）**：
+> 1. **诊断**：`targetSolutionRange` 单维度（解空间宽度，叶子数 ≤max / ≥min）只能控制"有多少种放法"，无法控制"放法的脏度"。同样 32 解的两组三块，一组每个解都干净（minHoleIncrement=0），另一组每个解都至少带 2 个孤立空洞，对玩家的难度感是完全不同的——但旧算法对它们一视同仁。
+> 2. **修复**：
+>    - **DFS 叶子追踪 isolated holes delta**：`evaluateTripletSolutions` 在每个完整解叶子用"孤立空格"口径（四面非空围住、必须 1×1 才能填的"漏洞"，O(n²×4)≈256 ops）计算 `new_holes = isolated_holes(after) − isolated_holes(before)`，取 6 种排列所有解中 min 作为 `minHoleIncrement`（候选"最干净放置路径"的新空洞数）
+>    - **`solutionDifficulty.holeIncrement.ranges`** 按 stress 选 `{ minIncrement, maxIncrement }` 软过滤档位：低 stress 段 `max=0/1` 强约束（必有干净解，玩家放心放）；高 stress 段 `min≥1/2` 强约束（玩家被迫接受至少 N 个新空洞，"无论怎么放都会脏"的潜意识压力）
+>    - **blockSpawn earlyAttempt 软过滤**：与 `targetSolutionRange` 并列在 attempt < 60% 时硬过滤，宽松失败时 fallback（diagnostics 新增 `solutionRejects.holeTooMany` / `holeTooClean`）
+>    - **adaptiveSpawn 派生**：`spawnHints.targetHoleIncrement` 与 `targetSolutionRange` 同源使用 `solutionStress`（保证两轴对 stress 单调一致）
+> 3. **口径选择**：不用 Tetris-style stacking（OpenBlock 无重力，"被上方堵住"语义不成立）；不用 `countUnfillableCells`（O(shapes × n²) 太重）；选"孤立空格" = 玩家心智里的"漏洞"。
+> 4. **策略隐性保持**：玩家从未看到"空洞 [min, max]" 数字或档位标签；只能从出块体感里**感觉**到"今天怎么放都干净"或"今天每组三块都得吞个洞"。仅 playerInsightPanel 开发者视图展示 `空洞 标签[min, max]` pill。
+> 5. **多端同步**：web/miniprogram 主端同步落地；mobile 零改动；rl_pytorch 模型不消费 `targetHoleIncrement`（zero impact）。
+> 6. 15 个新测试全通过（hole 追踪 + ranges 契约 + adaptive 派生 + blockSpawn 过滤 + 双轴共存）。详见 §5.α.13。
+>
+> **v1.57.3 stress → 出块算法的 9 维难度投射（2026-05-18，用户驱动："完整实现 9 个改进项，使得不同 stress 下体感差异更为显著；修复重复显示"）**：
+> 1. **诊断**：v1.57.2 双轴（解空间宽度 × 空洞强迫度）在中段 stress（0.4~0.6）体感差异依然偏弱——双轴的过滤约束在该带不锐利，玩家从 D1（跟随）跳到 D2（临近）的"压迫感"切换不显著。
+> 2. **修复（9 维 stress→算法 投射）**：在 v1.57.2 双轴基础上再引入 9 个 O(n²) 廉价度量，对每个维度独立给定 stress→ranges 映射、独立软过滤分支、独立 diagnostic pill：
+>    - **① `targetMaxHoleIncrement`** — 最差解空洞数（专注度税上界："随便放也能干净 vs 必须专心"）
+>    - **⑨ `targetHoleIncrementGap`** — max-min 差距（"专心则过、走神则崩"成为常态）
+>    - **② `targetEndFillRatio`** — 终末填充率（空间窒息感）
+>    - **③ `targetNearFullDelta`** — 近满 delta（消行节律；D4 段消耗消行机会，防 PB 通过近满膨胀）
+>    - **④ `targetFirstMoveSurvivorRatio`** — 第一步存活率（试错代价）
+>    - **⑤ `targetSolutionDiversity`** — 解多样性 CV（拒绝"看似宽松但解都一样"的陷阱）
+>    - **⑥ `targetEndFlatness`** — 终末平整度（凹凸审美焦虑）
+>    - **⑦ `targetEndDangerColumns`** — 危险列数（爆顶预警）
+>    - **⑧ `targetVisualClutter`** — 视觉杂乱 delta（颜色边界审美）
+> 3. **DFS 内代价**：~6 个 O(n²) 调用 × 64 叶子 ≈ 25k ops/triplet，相比 leafCap 自身 DFS 入栈代价完全可忽略；base 度量在评估开始一次性计算，DFS 内只算 delta/绝对值。
+> 4. **策略仍然隐性**：9 维全部只在诊断面板展示数字/标签；主 HUD 只有出块本身。玩家从看不到任何"系统进入 X 模式"，靠 9 个独立潜意识压力源累积成"今天怎么感觉哪里都不对"的整体压力感。
+> 5. **多端同步**：web 主端 + miniprogram 完整 9 维同步；mobile 自动同步；rl_pytorch 配置已暴露、模型层下次 retrain 自然吸收。
+> 6. **修复重复显示**：用户截图显示 `#best-score` 主 HUD 已展示 "最佳 2200"，但 `best-gap` 元素同时显示 "历史最佳 2200"，两处完全等价造成视觉重复，违反"主 HUD = 绝对锚点 / best-gap = 相对差距"分工。修复后 D0 段也走 `best.gap.neutral` 显示"差 N 分"，差异通过 CSS 默认色 + 算法 `farFromPBBoost` 体现。`best.gap.far` 文案降级为 deprecated 保留 key 以备 i18n 平台灰度回滚。
+> 7. 18 个新测试全通过（A 9 字段返回 + B 9 套 ranges 契约 + miniprogram 同源 + C 9 个 spawnHints 派生 + D 18 reject 计数 + E 9 layer1 透传）。详见 §5.α.14。
 
 ---
 
@@ -1062,6 +1092,244 @@ npx vitest run tests/adaptiveSpawnV1571.test.js
 | miniprogram 算法语法 | `node --check miniprogram/core/adaptiveSpawn.js` | ✅ OK |
 | rl_pytorch spawn_model | `pytest rl_pytorch/spawn_model/test_v3.py -v` | ✅ 5 passed |
 | rl_pytorch 全量 | `pytest rl_pytorch/ -x` | ✅ 76 passed |
+
+#### §5.α.13 stress → 出块算法的双轴：解空间宽度 × 空洞强迫度（v1.57.2）
+
+> **背景**：v1.57.1 §5.α.12 通过 P0–P3 把 stress 在算法层的传导从 5 条路径里的"硬阈值/无差异区"逐项打通后，仍存在一个语义缺口：
+> `targetSolutionRange` 只回答"有几种放法"，不回答"放法的脏度"——同样 32 解的两组三块，一组每个解都干净（minHoleIncrement=0），另一组每个解至少带 2 个孤立空洞，对玩家的难度感是完全不同的。但旧算法对它们一视同仁。
+
+##### v1.57.2 诊断与修复
+
+| 维度 | 旧版（v1.57.1） | 新版（v1.57.2） |
+|------|---------------|----------------|
+| 解空间宽度 | `targetSolutionRange.{min, max}` 约束解叶子数 | 同上 ✓ |
+| 空洞强迫度 | **无**——同等解数下，干净解和脏解被等价对待 | **`targetHoleIncrement.{min, max}`** 约束所有解中"最干净路径"的新空洞数 |
+| 玩家感受 | "解数多寡"（认知压力） | + "无论怎么放都得吞洞"（潜意识压力） |
+
+##### 算法实现：DFS 叶子 isolated-hole delta 追踪
+
+```
+function dfsCountSolutions(grid, orderedShapes, depth, accum, budget):
+    if depth >= 3:                              # 叶子
+        accum.count++
+        after = countIsolatedHoles(grid)        # O(n²×4)=256 ops
+        delta = max(0, after - accum.baseHoles) # 消行净降 → 0（不视为优势）
+        accum.minHoleIncrement = min(accum.minHoleIncrement, delta)
+        accum.holeSum += delta
+        return
+    ...
+```
+
+`evaluateTripletSolutions` 返回值新增 2 个字段：
+
+| 字段 | 物理含义 |
+|------|---------|
+| `minHoleIncrement` | 6 种排列所有解中"最干净放置路径"的新空洞数；候选这一组三块**最优情况下**会增加多少个 1×1 漏洞 |
+| `meanHoleIncrement` | 6 种排列所有解的新空洞数均值；候选**随便放**的预期脏度 |
+
+##### 为什么选"孤立空格"作为 hole 口径
+
+| 候选口径 | 性能 | OpenBlock 语义匹配度 | 选用 |
+|---------|------|--------------------|------|
+| Tetris stacking（被上方占用堵住的空格）| O(n²) 廉价 | ✗ OpenBlock 无重力，"被上方堵住"在物理上不是难题（任何形状仍可落到那里）| 否 |
+| `countUnfillableCells`（任何形状都无法覆盖的空格）| O(shapes × n² × shape_size) ≈ 16k ops | ✓ 严谨 | 否——DFS 内每叶子 16k×64 leaves = 1M ops/triplet，spawn attempt × 22 = 22M ops/spawn 太重 |
+| **孤立空格（四面非空围住）** | O(n²×4) ≈ 256 ops | ✓ 玩家心智里的"漏洞"——必须用 1×1 才能填 | **是** |
+
+##### 配置：`shared/game_rules.json` → `adaptiveSpawn.solutionDifficulty.holeIncrement.ranges`
+
+| stress 区间 | label | minIncrement | maxIncrement | 设计意图 |
+|------------|------|-------------|-------------|---------|
+| [-1.0, 0.35) | 干净 | null | **0** | 强制必有 0 新空洞解（最宽松，玩家放心放） |
+| [0.35, 0.5) | 宽容 | null | **1** | 允许至多 1 个新空洞解 |
+| [0.5, 0.6) | 渐紧 | null | **2** | 允许至多 2 个新空洞解（与 P1 '渐紧' 档对齐） |
+| [0.6, 0.8) | 紧张 | **1** | null | **至少 1 个新空洞**——玩家必须吞洞 |
+| [0.8, 1.0] | 极限 | **2** | null | **至少 2 个新空洞**——D4 段强迫接受脏盘 |
+
+设计要点：
+- **低 stress 用 `max` 约束、高 stress 用 `min` 约束**：两端语义不同方向。低 stress 是"上限保护"（避免太脏），高 stress 是"下限强迫"（避免太干净）
+- **0.35 / 0.5 / 0.6 / 0.8 与 P1 `ranges` 的档位对齐**：保证两个维度同源同步切档，避免玩家感受到"解空间紧了但空洞没变"的错位
+- **null 表示不限制**：维持单边约束，避免双边都设置后过滤太严导致 spawn 反复失败
+
+##### blockSpawn 软过滤：与 `targetSolutionRange` 并列
+
+```javascript
+if (earlyAttempt && targetHoleIncrement && !solutionMetrics.truncated) {
+    const minInc = solutionMetrics.minHoleIncrement;
+    if (Number.isFinite(minInc)) {
+        if (targetHoleIncrement.max != null && minInc > targetHoleIncrement.max) {
+            diagnostics.solutionRejects.holeTooMany++;  // 候选"必然带太多新空洞"
+            continue;
+        }
+        if (targetHoleIncrement.min != null && minInc < targetHoleIncrement.min) {
+            diagnostics.solutionRejects.holeTooClean++; // 候选"放哪都干净"，不够难
+            continue;
+        }
+    }
+}
+```
+
+- **`earlyAttempt` 窗口**：与 `targetSolutionRange` 同窗口（attempt < 60% × MAX_SPAWN_ATTEMPTS）。宽松阶段 fallback，保证 spawn 不死锁
+- **`truncated=true` 跳过**：DFS 不完整时 min 可能未达全集，按通过处理（与 v9 同口径）
+- **`minHoleIncrement === Infinity` 跳过**：无任何完整解，理论上 `tripletSequentiallySolvable` 已先剔除
+
+##### 与 P1（解空间宽度）的双轴矩阵
+
+| stress | targetSolutionRange | targetHoleIncrement | 玩家体感 |
+|--------|-------------------|---------------------|---------|
+| 0.0 | 解 ≥ 4（"舒适"）| 新空洞 ≤ 0（"干净"）| 多种放法 + 都干净 = 完全放心 |
+| 0.4 | 解 ≥ 2（"标准"）| 新空洞 ≤ 1（"宽容"）| 还有得选 + 可能吞 1 个洞 |
+| 0.55 | 解 ≤ 64（"渐紧"）| 新空洞 ≤ 2（"渐紧"）| 解数开始受限 + 接受 2 洞 |
+| 0.7 | 解 ≤ 32（"紧张"）| 新空洞 ≥ 1（"紧张"）| 解数明显少 + **必须**吞 1 洞 |
+| 0.9 | 解 ≤ 12（"极限"）| 新空洞 ≥ 2（"极限"）| 解数极少 + **必须**吞 2 洞 |
+
+两轴对玩家是**独立可感的两个难度信号**：宽度变化体感是"我没几种选了"（认知收窄），强迫度变化体感是"今天怎么放都得带漏洞"（结构焦虑）。同时收窄时玩家体感是"被卡死"，单独高 stress 时玩家仍有部分操作空间。
+
+##### 策略隐性原则的延续
+
+- **玩家从未看到 "minHoleIncrement"**：HUD / 标语 / 推送都不显示数字或档位
+- **playerInsightPanel 才暴露 pill**：仅开发者诊断视图（`空洞 标签[min, max]`），与 P1 解法区间 pill 并列
+- **叙事文案 `_explainSpawnHints`**：开发者视图里说"空洞上限「干净」：候选三块的最干净放置路径新增空洞 ≤0，保证总能找到清爽放法"；玩家从未看到
+- **整个 v1.57.2 的"产品观感"**：玩家只能从出块体感中**潜移默化**地察觉到"今天放哪都不脏"或"今天每组都得带洞"
+
+##### 多端同步策略（v1.57.2）
+
+| 端 | 集成方式 | v1.57.2 同步状态 | 改动文件 |
+|------|---------|----------------|---------|
+| **web 主端** | 原生实现 | 全部落地 | `web/src/bot/blockSpawn.js`（`countIsolatedHoles` + DFS hole delta + 软过滤）；`web/src/adaptiveSpawn.js`（`deriveTargetHoleIncrement` + spawnHints + 顶层暴露）；`web/src/playerInsightPanel.js`（tooltip + diagnostics pill + 叙事文案）；`shared/game_rules.json`（`holeIncrement.ranges`） |
+| **mobile**（iOS / Android） | Capacitor `webDir: "../dist"` | **零改动自动同步** | （无） |
+| **miniprogram**（微信小程序） | 简化平行实现 | **完整同步**（D4 链路本不在此端，但 hole 过滤是独立维度，可直接复用） | `miniprogram/core/bot/blockSpawn.js`（同 web）；`miniprogram/core/adaptiveSpawn.js`（`deriveTargetHoleIncrement`）；`miniprogram/core/gameRulesData.js`（`holeIncrement.ranges`） |
+| **rl_pytorch / spawn_model** | 不消费 `targetHoleIncrement` 标签（只消费 `spawnIntent`）| **零改动**——hole 维度不进入行为克隆样本 | （无） |
+| **rl_pytorch / policy 主线** | 不消费 `targetHoleIncrement` | **零改动** | （无） |
+| **rl_pytorch / game_rules.py** | 不读取 `holeIncrement` 子节 | **零改动** | （无） |
+
+##### 与 §5.α.11 / §5.α.12 的协同链路
+
+| 玩家体验感 | §5.α.11 感官（显性）| §5.α.12 算法（潜意识）| §5.α.13 算法（潜意识）|
+|----------|------------------|-------------------|-------------------|
+| 心流期（stress 0.2~0.45）| 氛围光绿、呼吸缓慢 | spawnIntent='maintain'；解空间宽 | **必有干净解（max=0）** |
+| 渐紧期（0.45~0.55）| 氛围光暖琥珀、呼吸 2.4s | spawnIntent='sprint'；max=64 | **允许 ≤2 新空洞（"渐紧"）** |
+| 高压期（0.55~0.85）| 氛围光橙红、震动 ×1.20 | spawnIntent='pressure'；max=32 | **强迫 ≥1 新空洞（"紧张"）** |
+| 极限期（≥0.85，D4）| 氛围光深红、音频 4kHz | orderRigor+0.25 → maxValidPerms=2 | **强迫 ≥2 新空洞（"极限"）** |
+
+三层协同让 stress 在玩家身上具象化为三种独立可感的维度：
+1. **§5.α.11**：环境氛围（视觉/听觉/触觉）
+2. **§5.α.12**：解法约束（解数 + 顺序刚性）
+3. **§5.α.13**：盘面脏度（无论怎么放都得吞洞）
+
+##### 验证
+
+```
+npx vitest run tests/holeIncrementFilter.test.js
+# Test Files  1 passed (1)
+#      Tests  15 passed (15)
+```
+
+15 个测试覆盖：
+- evaluateTripletSolutions 返回 `minHoleIncrement` / `meanHoleIncrement` 字段
+- 空盘面 / 必带空洞场景的 min 值正确性
+- `holeIncrement.ranges` 配置契约（5 档完整、minStress 单调、低 stress max / 高 stress min 二分）
+- adaptiveSpawn 派生 `targetHoleIncrement` 单调性 + activationFill 守卫
+- blockSpawn `solutionRejects.holeTooMany` / `holeTooClean` 计数器存在性 + diagnostics 透传
+- 与 `targetSolutionRange` 双轴共存
+
+#### §5.α.14 stress → 出块算法的 9 维难度投射（v1.57.3）
+
+> **背景**：v1.57.2 完成"解空间宽度 × 空洞强迫度"双轴后，体感差异在中段 stress（0.4~0.6）依然偏弱——双轴的过滤约束在该带不锐利。用户指令："完整实现 9 个改进项，使得不同 stress 下体感差异更为显著"。本节是把 stress 投射从 2 轴扩展到 **11 轴**（旧 2 轴 + 新 9 轴）的体系化收口。
+
+##### 9 维度全景
+
+每个维度都对应一个**独立可感的玩家心智轴**——不重叠、不互相替代：
+
+| # | 维度 (`spawnHints.target*`) | 玩家心智轴 | 体感（高 stress 时） | DFS 内代价 |
+|---|---|---|---|---|
+| ① | `targetMaxHoleIncrement` | **专注度税上界** | "随便放也能干净" → 候选被拒，必须专心放 | O(n²×4)/叶子 |
+| ② | `targetEndFillRatio` | **空间窒息感** | 放完后盘面更满 → 决策窗口收窄 | O(n²)/叶子 |
+| ③ | `targetNearFullDelta` | **消行节律** | 消耗近满线 → 防止 PB 通过近满膨胀 | O(n²×2)/叶子 |
+| ④ | `targetFirstMoveSurvivorRatio` | **试错代价** | 第一手必须想清楚 → 错放即崩 | DFS root 标记 |
+| ⑤ | `targetSolutionDiversity` | **解多样性陷阱** | 拒绝"看起来宽松但解都一样"的虚假宽松 | 零成本（perPermCounts 已有）|
+| ⑥ | `targetEndFlatness` | **凹凸审美焦虑** | 盘面更乱 → 审美压力 | O(n²)/叶子 |
+| ⑦ | `targetEndDangerColumns` | **爆顶预警** | 持续"眼看就要顶死"的紧迫感 | O(n²)/叶子 |
+| ⑧ | `targetVisualClutter` | **颜色边界审美** | 鼓励花花绿绿候选 → 视觉负担上升 | O(n²×2)/叶子 |
+| ⑨ | `targetHoleIncrementGap` | **专注度税差距 (max-min)** | "专心则过、走神则崩"成为常态 | 零成本（max-min 派生）|
+
+总 DFS 叶子代价：~6 个 O(n²) 调用 × 64 叶子 ≈ 25k ops/triplet，相比 leafCap 自身 DFS 入栈代价完全可忽略。
+
+##### 设计原则
+
+**1. 单边强约束、单边宽松。** 每个维度的 `ranges` 在不同 stress 段只约束**一侧**（min 或 max），避免双边过严导致 spawn 失败率飙升：
+
+- 低 stress 段：`max` 强约束（保护玩家，"不至于太脏/太满/太花"）；
+- 高 stress 段：`min` 强约束（强迫玩家面对压力源，"必须脏/满/花"）。
+
+**2. 维度独立、不重叠。** ①⑨ 都和"空洞"相关但语义独立：
+- `targetHoleIncrement.min` (v1.57.2)：**最优解**的脏度下限（"最干净放法也至少 N 个洞"）；
+- `targetMaxHoleIncrement.min` (v1.57.3 ①)：**最差解**的脏度下限（"最脏放法也至少 N 个洞"）；
+- `targetHoleIncrementGap.min` (v1.57.3 ⑨)：max-min 差距（"专心放 vs 闭眼放，差距至少 N"）。
+
+三者组合可以**精确刻画**："必带洞但专心能少带" vs "怎么放都得脏" vs "干净有路但陷阱密布"。
+
+**3. 廉价度量优先。** 选取的 9 个度量都是 O(n²) 量级，DFS 叶子调用累计仍可忽略。**不采用**：
+- `boardTopology.countUnfillableCells`：O(shapes×n²) 太重；
+- 真正的 lookahead spawning：O(shapes³) 不可行；
+- 颜色饱和度 / 视觉熵 / 心率预测等需要外部模型的指标：跨工程线、风险高。
+
+**4. 策略仍然隐性。** 9 个维度全部只在**诊断面板**（`playerInsightPanel`）展示数值；主 HUD 只有出块本身。玩家从看不到任何数字/标签，靠 9 个独立潜意识压力源累积成"今天怎么感觉哪里都不对"的整体压力感。
+
+##### 配置位置
+
+| 文件 | 配置块 | 状态 |
+|---|---|---|
+| `shared/game_rules.json` | `adaptiveSpawn.solutionDifficulty.{maxHoleIncrement, holeIncrementGap, endFillRatio, nearFullDelta, firstMoveSurvivor, solutionDiversity, endFlatness, endDangerColumns, visualClutter}` | 9 套子节，每套含 `enabled` + `ranges[]` |
+| `miniprogram/core/gameRulesData.js` | 同上 | 与 web 同源 |
+| `web/src/adaptiveSpawn.js` | 9 个 `deriveTarget*` 函数（通用化为 `_deriveRangeByStress`）| 共享 `solutionStress` 派生 |
+| `miniprogram/core/adaptiveSpawn.js` | 同上 | 同源 |
+| `web/src/bot/blockSpawn.js` | `evaluateTripletSolutions` 返回 9 字段 + `generateDockShapes` 9 软过滤分支 + `solutionRejects` 18 计数器 | 已落地 |
+| `miniprogram/core/bot/blockSpawn.js` | 同上 | 同源 |
+| `web/src/playerInsightPanel.js` | 9 个 `SPAWN_TOOLTIP` 条目 + 9 个 diagnostic pill + 叙事文案 | 已落地 |
+
+##### 体感差异样例（同一 PB 下不同 stress 走位）
+
+| stress | ① maxHole | ② fillRatio | ③ nearFull Δ | ④ survivor | ⑦ dangerCol | 玩家观感 |
+|---|---|---|---|---|---|---|
+| 0.2（D0 远 PB）| `[—,4]` 宽松 | `[—,0.45]` 通透 | `[0.5,—]` 送消 | `[0.6,—]` 放心 | `[—,2]` 安全 | "今天送清屏，多消很多" |
+| 0.5（D1 跟随）| 宽松 | `[—,0.60]` 适中 | 中性 | 中性 | 中性 | "节奏平稳，正常打" |
+| 0.7（D2 临近）| `[1,—]` 陷阱 | `[0.50,—]` 压迫 | `[—,0.5]` 保守 | `[—,0.7]` 代价 | 中性 | "感觉哪里都得想想" |
+| 0.85（D3 极临）| `[2,—]` 高陷阱 | `[0.65,—]` 窒息 | `[—,-0.5]` 消耗 | `[—,0.5]` 高代价 | `[1,—]` 预警 | "怎么放都不对，喘不上气" |
+| 0.95（D4 已破）| 高陷阱 | 窒息 | 消耗 | 高代价 | `[2,—]` 临界 | "PB 之后越来越逼"|
+
+注意 9 维并非同时活跃——`solutionDifficulty.activationFill = 0.45` 守卫决定整体启用阈值；各维度的 `ranges` 在不同 stress 段独立选档。
+
+##### 多端同步状态（v1.57.3）
+
+| 端 | 集成方式 | v1.57.3 同步状态 | 改动文件 |
+|---|---|---|---|
+| Web 主端 | 完整 9 维 | ✅ 已落地 | `blockSpawn.js` / `adaptiveSpawn.js` / `playerInsightPanel.js` |
+| Mobile (Capacitor) | 复用 web bundle | ✅ 自动同步 | — |
+| Miniprogram | 完整 9 维（与 web 同源代码逻辑）| ✅ 已落地 | `core/bot/blockSpawn.js` / `core/adaptiveSpawn.js` / `core/gameRulesData.js` |
+| RL PyTorch | `spawn_model` 不直接消费 spawnHints；ranges 进入 `game_rules.py` mirror 待 RL retrain | ⏸ 配置已暴露、模型层下次 retrain 自然吸收 | — |
+
+##### 四层协同（升级版）
+
+v1.57.3 之后，stress 在玩家身上具象化为 **4 个独立可感的维度**：
+1. **§5.α.11**：环境氛围（视觉/听觉/触觉）—— 显性感官
+2. **§5.α.12**：解法约束（解数 + 顺序刚性）—— 潜意识算法（v9/v1.32）
+3. **§5.α.13**：盘面脏度（无论怎么放都得吞洞）—— 潜意识算法（v1.57.2 双轴）
+4. **§5.α.14**：9 维难度投射（专注度税/空间窒息/消行节律/试错代价/解多样性/凹凸/爆顶/视觉乱/差距）—— 潜意识算法（v1.57.3 多轴）
+
+##### 验证
+
+```
+npx vitest run tests/spawnDimensionalStress.test.js
+# Test Files  1 passed (1)
+#      Tests  18 passed (18)
+```
+
+18 个测试覆盖：
+- A. evaluateTripletSolutions 返回 9 字段且合理（数值/类型/缺省路径）
+- B. game_rules.json 9 套子节契约 + miniprogram 同源
+- C. adaptiveSpawn 派生 9 个 `_target*` 顶层字段 + `activationFill` 守卫
+- D. blockSpawn `solutionRejects` 含 18 个新计数器（9 维 × min/max 2 侧）
+- E. blockSpawn `layer1` 透传 9 个 target 字段
 
 #### §5.α.8 三原则下的算法完整闭环：D4 持续加压 + D0 分级减压 + PB 增长率反向加压（v1.56.4）
 

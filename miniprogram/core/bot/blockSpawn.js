@@ -114,6 +114,103 @@ function placeAndClear(grid, shapeData, gx, gy) {
     return g;
 }
 
+/**
+ * v1.57.2 与 web 同源——"孤立空格"hole 计数：四面（出界算非空边墙）全是非空的空格。
+ * 物理含义：必须用 1×1 形状才能填的"漏洞"。O(n²×4)≈256 ops，DFS 叶子调用足够便宜。
+ */
+function countIsolatedHoles(grid) {
+    if (!grid?.cells) return 0;
+    const n = grid.size;
+    let holes = 0;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== null) continue;
+            const u = y === 0 || grid.cells[y - 1][x] !== null;
+            const d = y === n - 1 || grid.cells[y + 1][x] !== null;
+            const l = x === 0 || grid.cells[y][x - 1] !== null;
+            const r = x === n - 1 || grid.cells[y][x + 1] !== null;
+            if (u && d && l && r) holes++;
+        }
+    }
+    return holes;
+}
+
+/* v1.57.3 与 web 同源——9 维 stress→算法 廉价度量族（详见 web/src/bot/blockSpawn.js 同名函数） */
+function countOccupied(grid) {
+    if (!grid?.cells) return 0;
+    const n = grid.size;
+    let occ = 0;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (grid.cells[y][x] !== null) occ++;
+    return occ;
+}
+function countNearFullLinesCheap(grid, maxEmpty = 2) {
+    if (!grid?.cells) return 0;
+    const n = grid.size;
+    let near = 0;
+    for (let y = 0; y < n; y++) {
+        let empty = 0;
+        for (let x = 0; x < n; x++) if (grid.cells[y][x] === null) empty++;
+        if (empty > 0 && empty <= maxEmpty) near++;
+    }
+    for (let x = 0; x < n; x++) {
+        let empty = 0;
+        for (let y = 0; y < n; y++) if (grid.cells[y][x] === null) empty++;
+        if (empty > 0 && empty <= maxEmpty) near++;
+    }
+    return near;
+}
+function columnHeightVariance(grid) {
+    if (!grid?.cells) return 0;
+    const n = grid.size;
+    const heights = new Array(n).fill(0);
+    for (let x = 0; x < n; x++) {
+        let h = 0;
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) { h = n - y; break; }
+        }
+        heights[x] = h;
+    }
+    let sum = 0;
+    for (const h of heights) sum += h;
+    const mean = sum / n;
+    let v = 0;
+    for (const h of heights) v += (h - mean) * (h - mean);
+    return v / n;
+}
+function countDangerColumns(grid, dangerHeight = 6) {
+    if (!grid?.cells) return 0;
+    const n = grid.size;
+    let danger = 0;
+    for (let x = 0; x < n; x++) {
+        let h = 0;
+        for (let y = 0; y < n; y++) {
+            if (grid.cells[y][x] !== null) { h = n - y; break; }
+        }
+        if (h >= dangerHeight) danger++;
+    }
+    return danger;
+}
+function countColorBoundaries(grid) {
+    if (!grid?.cells) return 0;
+    const n = grid.size;
+    let b = 0;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            const c = grid.cells[y][x];
+            if (c === null) continue;
+            if (x + 1 < n) {
+                const r = grid.cells[y][x + 1];
+                if (r !== null && r !== c) b++;
+            }
+            if (y + 1 < n) {
+                const d = grid.cells[y + 1][x];
+                if (d !== null && d !== c) b++;
+            }
+        }
+    }
+    return b;
+}
+
 function dfsPlaceOrder(grid, orderedShapes, depth, budget) {
     if (depth >= orderedShapes.length) return true;
     const s = orderedShapes[depth];
@@ -211,6 +308,27 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
     }
     if (depth >= orderedShapes.length) {
         accum.count++;
+        // v1.57.2 ① — 孤立空洞 delta（与 web 同源）
+        const afterHoles = countIsolatedHoles(grid);
+        const holeInc = Math.max(0, afterHoles - accum.baseHoles);
+        if (holeInc < accum.minHoleIncrement) accum.minHoleIncrement = holeInc;
+        if (holeInc > accum.maxHoleIncrement) accum.maxHoleIncrement = holeInc;
+        accum.holeSum += holeInc;
+        // v1.57.3 ② — 终末填充率
+        const occ = countOccupied(grid);
+        const fillRatio = occ / accum.totalCells;
+        if (fillRatio < accum.minEndFillRatio) accum.minEndFillRatio = fillRatio;
+        accum.fillSum += fillRatio;
+        // v1.57.3 ③ — 近满 delta
+        accum.nearFullDeltaSum += (countNearFullLinesCheap(grid, 2) - accum.baseNearFull);
+        // v1.57.3 ⑥ — 平整度
+        accum.flatnessSum += columnHeightVariance(grid);
+        // v1.57.3 ⑦ — 危险列
+        accum.dangerColsSum += countDangerColumns(grid, accum.dangerHeight);
+        // v1.57.3 ⑧ — 视觉杂乱 delta
+        accum.clutterDeltaSum += (countColorBoundaries(grid) - accum.baseClutter);
+        // v1.57.3 ④ — root-level survivor 标记
+        if (accum.currentRootIdx >= 0) accum.rootSurvivors[accum.currentRootIdx] = true;
         return;
     }
     const s = orderedShapes[depth];
@@ -219,9 +337,15 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
         for (let x = 0; x < n; x++) {
             if (accum.count >= accum.cap || budget.n <= 0) return;
             if (!grid.canPlace(s, x, y)) continue;
+            const savedRootIdx = accum.currentRootIdx;
+            if (depth === 0) {
+                accum.currentRootIdx = y * n + x;
+                accum.rootCandidatesTotal++;
+            }
             budget.n--;
             const next = placeAndClear(grid, s, x, y);
             dfsCountSolutions(next, orderedShapes, depth + 1, accum, budget);
+            if (depth === 0) accum.currentRootIdx = savedRootIdx;
         }
     }
 }
@@ -243,12 +367,43 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
  */
 function evaluateTripletSolutions(grid, threeData, opts = {}) {
     if (!Array.isArray(threeData) || threeData.length !== 3) {
-        return { validPerms: 0, solutionCount: 0, capped: false, truncated: false, firstMoveFreedom: 0, perPermCounts: [] };
+        return {
+            validPerms: 0, solutionCount: 0, capped: false, truncated: false,
+            firstMoveFreedom: 0, perPermCounts: [],
+            minHoleIncrement: Infinity, meanHoleIncrement: 0,
+            maxHoleIncrement: 0, holeIncrementGap: 0,
+            meanEndFillRatio: 0, minEndFillRatio: 0,
+            meanNearFullDelta: 0,
+            firstMoveSurvivorRatio: 0,
+            solutionDiversity: 0,
+            meanEndFlatness: 0,
+            meanDangerColumns: 0,
+            meanClutterDelta: 0
+        };
     }
 
     const cap = Math.max(1, opts.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT);
     const budget = { n: Math.max(100, opts.budget ?? SOLUTION_BUDGET_DEFAULT) };
-    const accum = { count: 0, cap, truncated: false };
+    /* v1.57.2 / v1.57.3：与 web 同源——9 项 base 度量在评估开始算一次，DFS 内只算 delta/绝对值 */
+    const baseHoles = countIsolatedHoles(grid);
+    const baseNearFull = countNearFullLinesCheap(grid, 2);
+    const baseClutter = countColorBoundaries(grid);
+    const totalCells = (grid?.size ?? 8) * (grid?.size ?? 8);
+    const dangerHeight = Math.max(1, opts.dangerHeight ?? 6);
+
+    const accum = {
+        count: 0, cap, truncated: false,
+        minHoleIncrement: Infinity, maxHoleIncrement: 0, holeSum: 0,
+        baseHoles, baseNearFull, baseClutter, totalCells, dangerHeight,
+        minEndFillRatio: Infinity, fillSum: 0,
+        nearFullDeltaSum: 0,
+        flatnessSum: 0,
+        dangerColsSum: 0,
+        clutterDeltaSum: 0,
+        currentRootIdx: -1,
+        rootSurvivors: {},
+        rootCandidatesTotal: 0
+    };
 
     const perms = permutations3(threeData[0], threeData[1], threeData[2]);
     const perPermCounts = new Array(perms.length).fill(0);
@@ -278,7 +433,6 @@ function evaluateTripletSolutions(grid, threeData, opts = {}) {
             break;
         }
 
-        // solutionCount 可能已触 cap，需独立判定该排列是否可解，避免 validPerms 被低估。
         const existBudget = { n: budget.n, exhaustAsPass: false };
         const hasSolution = dfsPlaceOrder(grid, perms[i], 0, existBudget);
         budget.n = existBudget.n;
@@ -297,13 +451,52 @@ function evaluateTripletSolutions(grid, threeData, opts = {}) {
     }
     if (!Number.isFinite(firstMoveFreedom)) firstMoveFreedom = 0;
 
+    const hasLeaves = accum.count > 0;
+    const meanHoleIncrement = hasLeaves ? accum.holeSum / accum.count : 0;
+    const minHoleIncrement = hasLeaves ? accum.minHoleIncrement : Infinity;
+    const maxHoleIncrement = hasLeaves ? accum.maxHoleIncrement : 0;
+    const holeIncrementGap = hasLeaves ? (maxHoleIncrement - minHoleIncrement) : 0;
+    const meanEndFillRatio = hasLeaves ? accum.fillSum / accum.count : 0;
+    const minEndFillRatio = hasLeaves ? accum.minEndFillRatio : 0;
+    const meanNearFullDelta = hasLeaves ? accum.nearFullDeltaSum / accum.count : 0;
+    const meanEndFlatness = hasLeaves ? accum.flatnessSum / accum.count : 0;
+    const meanDangerColumns = hasLeaves ? accum.dangerColsSum / accum.count : 0;
+    const meanClutterDelta = hasLeaves ? accum.clutterDeltaSum / accum.count : 0;
+
+    let firstMoveSurvivorRatio = 0;
+    if (accum.rootCandidatesTotal > 0) {
+        const survivors = Object.keys(accum.rootSurvivors).length;
+        firstMoveSurvivorRatio = Math.min(1, survivors * perms.length / Math.max(1, accum.rootCandidatesTotal));
+    }
+
+    let solutionDiversity = 0;
+    if (perPermCounts.length > 0) {
+        const sum = perPermCounts.reduce((a, b) => a + b, 0);
+        const mean = sum / perPermCounts.length;
+        if (mean > 0) {
+            let v = 0;
+            for (const c of perPermCounts) v += (c - mean) * (c - mean);
+            const std = Math.sqrt(v / perPermCounts.length);
+            solutionDiversity = std / mean;
+        }
+    }
+
     return {
         validPerms,
         solutionCount: accum.count,
         capped: accum.count >= cap,
         truncated: accum.truncated,
         firstMoveFreedom,
-        perPermCounts
+        perPermCounts,
+        minHoleIncrement, meanHoleIncrement,
+        maxHoleIncrement, holeIncrementGap,
+        meanEndFillRatio, minEndFillRatio,
+        meanNearFullDelta,
+        firstMoveSurvivorRatio,
+        solutionDiversity,
+        meanEndFlatness,
+        meanDangerColumns,
+        meanClutterDelta
     };
 }
 
@@ -554,6 +747,18 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const delightMode = hints.delightMode ?? 'neutral';
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
     const targetSolutionRange = hints.targetSolutionRange || null;
+    /* v1.57.2：新空洞难度区间（与 web 同源；详见 web/src/bot/blockSpawn.js 同名注释） */
+    const targetHoleIncrement = hints.targetHoleIncrement || null;
+    /* v1.57.3：9 项多维 stress→算法 难度区间（与 web 同源） */
+    const targetMaxHoleIncrement = hints.targetMaxHoleIncrement || null;
+    const targetHoleIncrementGap = hints.targetHoleIncrementGap || null;
+    const targetEndFillRatio = hints.targetEndFillRatio || null;
+    const targetNearFullDelta = hints.targetNearFullDelta || null;
+    const targetFirstMoveSurvivorRatio = hints.targetFirstMoveSurvivorRatio || null;
+    const targetSolutionDiversity = hints.targetSolutionDiversity || null;
+    const targetEndFlatness = hints.targetEndFlatness || null;
+    const targetEndDangerColumns = hints.targetEndDangerColumns || null;
+    const targetVisualClutter = hints.targetVisualClutter || null;
     /* v1.32：顺序刚性 — 上游 adaptiveSpawn 派生
      *   orderRigor ∈ [0,1]：强度（仅做诊断展示用）
      *   orderMaxValidPerms ∈ [1,6]：6 种排列里允许的最大可解数（≤2 = 必须按特定顺序）
@@ -654,7 +859,19 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             // v9：解法数量评估结果（仅在 fill ≥ activationFill 且选中三连块通过校验后填充）
             solutionMetrics: null,
             // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
-            targetSolutionRange
+            targetSolutionRange,
+            // v1.57.2：当前应用的新空洞难度区间
+            targetHoleIncrement,
+            // v1.57.3：9 项多维难度区间透传
+            targetMaxHoleIncrement,
+            targetHoleIncrementGap,
+            targetEndFillRatio,
+            targetNearFullDelta,
+            targetFirstMoveSurvivorRatio,
+            targetSolutionDiversity,
+            targetEndFlatness,
+            targetEndDangerColumns,
+            targetVisualClutter
         },
         layer2: {
             comboChain,
@@ -678,8 +895,20 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,
-        // v9：解法过滤的统计（被拒次数）；v1.32 增 orderTooLoose
-        solutionRejects: { tooFew: 0, tooMany: 0, orderTooLoose: 0 },
+        /* v9 / v1.32 / v1.57.2 / v1.57.3：spawn 软过滤被拒次数计数器（与 web 同源） */
+        solutionRejects: {
+            tooFew: 0, tooMany: 0, orderTooLoose: 0,
+            holeTooMany: 0, holeTooClean: 0,
+            maxHoleTooMany: 0, maxHoleTooClean: 0,
+            holeGapTooNarrow: 0, holeGapTooWide: 0,
+            fillTooHigh: 0, fillTooLow: 0,
+            nearFullDeltaTooHigh: 0, nearFullDeltaTooLow: 0,
+            survivorTooHigh: 0, survivorTooLow: 0,
+            diversityTooHigh: 0, diversityTooLow: 0,
+            flatnessTooHigh: 0, flatnessTooLow: 0,
+            dangerColsTooHigh: 0, dangerColsTooLow: 0,
+            clutterTooHigh: 0, clutterTooLow: 0
+        },
         /* v1.32：顺序刚性应用记录（上游 hints 透传 + 最终是否触发了硬过滤） */
         orderRigor: { rigor: orderRigor, maxValidPerms: orderMaxValidPerms, applied: false }
     };
@@ -940,6 +1169,68 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                 if (targetSolutionRange.min != null && sc < targetSolutionRange.min) {
                     diagnostics.solutionRejects.tooFew++;
                     continue;
+                }
+            }
+            /* v1.57.2：新空洞难度软过滤（与 web 同源；详见 web/src/bot/blockSpawn.js 同名段注释） */
+            if (earlyAttempt && targetHoleIncrement && !solutionMetrics.truncated) {
+                const minInc = solutionMetrics.minHoleIncrement;
+                if (Number.isFinite(minInc)) {
+                    if (targetHoleIncrement.max != null && minInc > targetHoleIncrement.max) {
+                        diagnostics.solutionRejects.holeTooMany++;
+                        continue;
+                    }
+                    if (targetHoleIncrement.min != null && minInc < targetHoleIncrement.min) {
+                        diagnostics.solutionRejects.holeTooClean++;
+                        continue;
+                    }
+                }
+            }
+            /* v1.57.3：9 项多维 stress→算法 难度软过滤（与 web 同源；详见 §5.α.14） */
+            if (earlyAttempt && !solutionMetrics.truncated) {
+                if (targetMaxHoleIncrement) {
+                    const maxInc = solutionMetrics.maxHoleIncrement;
+                    if (targetMaxHoleIncrement.max != null && maxInc > targetMaxHoleIncrement.max) { diagnostics.solutionRejects.maxHoleTooMany++; continue; }
+                    if (targetMaxHoleIncrement.min != null && maxInc < targetMaxHoleIncrement.min) { diagnostics.solutionRejects.maxHoleTooClean++; continue; }
+                }
+                if (targetHoleIncrementGap) {
+                    const gap = solutionMetrics.holeIncrementGap;
+                    if (targetHoleIncrementGap.max != null && gap > targetHoleIncrementGap.max) { diagnostics.solutionRejects.holeGapTooWide++; continue; }
+                    if (targetHoleIncrementGap.min != null && gap < targetHoleIncrementGap.min) { diagnostics.solutionRejects.holeGapTooNarrow++; continue; }
+                }
+                if (targetEndFillRatio) {
+                    const f = solutionMetrics.meanEndFillRatio;
+                    if (targetEndFillRatio.max != null && f > targetEndFillRatio.max) { diagnostics.solutionRejects.fillTooHigh++; continue; }
+                    if (targetEndFillRatio.min != null && f < targetEndFillRatio.min) { diagnostics.solutionRejects.fillTooLow++; continue; }
+                }
+                if (targetNearFullDelta) {
+                    const nfd = solutionMetrics.meanNearFullDelta;
+                    if (targetNearFullDelta.max != null && nfd > targetNearFullDelta.max) { diagnostics.solutionRejects.nearFullDeltaTooHigh++; continue; }
+                    if (targetNearFullDelta.min != null && nfd < targetNearFullDelta.min) { diagnostics.solutionRejects.nearFullDeltaTooLow++; continue; }
+                }
+                if (targetFirstMoveSurvivorRatio) {
+                    const sr = solutionMetrics.firstMoveSurvivorRatio;
+                    if (targetFirstMoveSurvivorRatio.max != null && sr > targetFirstMoveSurvivorRatio.max) { diagnostics.solutionRejects.survivorTooHigh++; continue; }
+                    if (targetFirstMoveSurvivorRatio.min != null && sr < targetFirstMoveSurvivorRatio.min) { diagnostics.solutionRejects.survivorTooLow++; continue; }
+                }
+                if (targetSolutionDiversity) {
+                    const div = solutionMetrics.solutionDiversity;
+                    if (targetSolutionDiversity.max != null && div > targetSolutionDiversity.max) { diagnostics.solutionRejects.diversityTooHigh++; continue; }
+                    if (targetSolutionDiversity.min != null && div < targetSolutionDiversity.min) { diagnostics.solutionRejects.diversityTooLow++; continue; }
+                }
+                if (targetEndFlatness) {
+                    const fl = solutionMetrics.meanEndFlatness;
+                    if (targetEndFlatness.max != null && fl > targetEndFlatness.max) { diagnostics.solutionRejects.flatnessTooHigh++; continue; }
+                    if (targetEndFlatness.min != null && fl < targetEndFlatness.min) { diagnostics.solutionRejects.flatnessTooLow++; continue; }
+                }
+                if (targetEndDangerColumns) {
+                    const dc = solutionMetrics.meanDangerColumns;
+                    if (targetEndDangerColumns.max != null && dc > targetEndDangerColumns.max) { diagnostics.solutionRejects.dangerColsTooHigh++; continue; }
+                    if (targetEndDangerColumns.min != null && dc < targetEndDangerColumns.min) { diagnostics.solutionRejects.dangerColsTooLow++; continue; }
+                }
+                if (targetVisualClutter) {
+                    const cl = solutionMetrics.meanClutterDelta;
+                    if (targetVisualClutter.max != null && cl > targetVisualClutter.max) { diagnostics.solutionRejects.clutterTooHigh++; continue; }
+                    if (targetVisualClutter.min != null && cl < targetVisualClutter.min) { diagnostics.solutionRejects.clutterTooLow++; continue; }
                 }
             }
             if (earlyAttempt && !solutionMetrics.truncated) {

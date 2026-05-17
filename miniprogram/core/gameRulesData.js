@@ -490,7 +490,7 @@ module.exports = {
       "maxAdjust": 0.05
     },
     "solutionDifficulty": {
-      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。",
+      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.2：新增 holeIncrement 子节作为'空洞强迫度'第二维度（详见 holeIncrement.comment）。",
       "enabled": true,
       "activationFill": 0.45,
       "leafCap": 64,
@@ -532,7 +532,103 @@ module.exports = {
           "min": 1,
           "max": 12
         }
-      ]
+      ],
+      "holeIncrement": {
+        "comment": "v1.57.2 stress→新空洞难度（与 ranges 解空间宽度并列双轴）。DFS 在每个完整解叶子用'孤立空格'口径（四面非空围住、必须 1×1 才能填的'漏洞'）计算新空洞数；取 6 种顺序所有解中 min 作为 minHoleIncrement（候选'最干净放置路径'的新空洞数）。低 stress 段 maxIncrement 强约束（必须存在干净解）；高 stress 段 minIncrement 强约束（玩家被迫接受至少 N 个新空洞）。与 web 同源实现。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "干净", "minIncrement": null, "maxIncrement": 0 },
+          { "minStress": 0.35, "label": "宽容", "minIncrement": null, "maxIncrement": 1 },
+          { "minStress": 0.5,  "label": "渐紧", "minIncrement": null, "maxIncrement": 2 },
+          { "minStress": 0.6,  "label": "紧张", "minIncrement": 1,    "maxIncrement": null },
+          { "minStress": 0.8,  "label": "极限", "minIncrement": 2,    "maxIncrement": null }
+        ]
+      },
+      "maxHoleIncrement": {
+        "comment": "v1.57.3 ① 与 web 同源——最差解新空洞数（'专注度税'上界）",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
+          { "minStress": 0.5,  "label": "渐紧", "min": null, "max": 4 },
+          { "minStress": 0.6,  "label": "陷阱", "min": 1,    "max": null },
+          { "minStress": 0.8,  "label": "高陷阱", "min": 2,  "max": null }
+        ]
+      },
+      "holeIncrementGap": {
+        "comment": "v1.57.3 ⑨ 与 web 同源——专注度税差距 max−min",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
+          { "minStress": 0.6,  "label": "考验", "min": 2,    "max": null },
+          { "minStress": 0.8,  "label": "高考验", "min": 3,  "max": null }
+        ]
+      },
+      "endFillRatio": {
+        "comment": "v1.57.3 ② 与 web 同源——终末填充率（空间窒息感）",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "通透", "min": null, "max": 0.45 },
+          { "minStress": 0.35, "label": "适中", "min": null, "max": 0.60 },
+          { "minStress": 0.6,  "label": "压迫", "min": 0.50, "max": null },
+          { "minStress": 0.85, "label": "窒息", "min": 0.65, "max": null }
+        ]
+      },
+      "nearFullDelta": {
+        "comment": "v1.57.3 ③ 与 web 同源——近满 delta（消行节律）",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "送消", "min": 0.5, "max": null },
+          { "minStress": 0.35, "label": "中性", "min": null, "max": null },
+          { "minStress": 0.7,  "label": "保守", "min": null, "max": 0.5 },
+          { "minStress": 0.85, "label": "消耗", "min": null, "max": -0.5 }
+        ]
+      },
+      "firstMoveSurvivor": {
+        "comment": "v1.57.3 ④ 与 web 同源——第一步存活率（试错代价）",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽容", "min": 0.6, "max": null },
+          { "minStress": 0.35, "label": "中性", "min": null, "max": null },
+          { "minStress": 0.7,  "label": "代价", "min": null, "max": 0.7 },
+          { "minStress": 0.85, "label": "高代价", "min": null, "max": 0.5 }
+        ]
+      },
+      "solutionDiversity": {
+        "comment": "v1.57.3 ⑤ 与 web 同源——解多样性 CV 系数",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
+          { "minStress": 0.6,  "label": "均衡", "min": null, "max": 1.2 }
+        ]
+      },
+      "endFlatness": {
+        "comment": "v1.57.3 ⑥ 与 web 同源——终末平整度（列高方差）",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "整齐", "min": null, "max": 2.0 },
+          { "minStress": 0.5,  "label": "适中", "min": null, "max": 4.5 },
+          { "minStress": 0.8,  "label": "凌乱", "min": 3.0, "max": null }
+        ]
+      },
+      "endDangerColumns": {
+        "comment": "v1.57.3 ⑦ 与 web 同源——危险列数（爆顶预警）",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "安全", "min": null, "max": 2 },
+          { "minStress": 0.5,  "label": "中性", "min": null, "max": null },
+          { "minStress": 0.8,  "label": "预警", "min": 1, "max": null },
+          { "minStress": 0.9,  "label": "临界", "min": 2, "max": null }
+        ]
+      },
+      "visualClutter": {
+        "comment": "v1.57.3 ⑧ 与 web 同源——视觉杂乱 delta（颜色边界）",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "聚团", "min": null, "max": 2 },
+          { "minStress": 0.5,  "label": "适中", "min": null, "max": null },
+          { "minStress": 0.8,  "label": "繁杂", "min": 2, "max": null }
+        ]
+      }
     },
     "globalPersonalization": {
       "comment": "全球化个性化边界：只消费实时行为、明示偏好、设备负担和语言/地区上下文；敏感属性只允许聚合研究，不进入个体级策略。motivationIntent 描述中长期动机，spawnIntent 仍描述本轮出块意图。",

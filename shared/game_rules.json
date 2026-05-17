@@ -370,7 +370,7 @@
       "maxAdjust": 0.05
     },
     "solutionDifficulty": {
-      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.1 P1：在 0.35→0.6 之间补 '渐紧' 一档（minStress=0.5, max=64），让中段 stress 也有可感知难度差，消除 0.55 跨阈值前的'无感区'。",
+      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.1 P1：在 0.35→0.6 之间补 '渐紧' 一档（minStress=0.5, max=64），让中段 stress 也有可感知难度差，消除 0.55 跨阈值前的'无感区'。v1.57.2：新增 holeIncrement.ranges——在解空间宽度之外引入'空洞强迫度'第二维度（详见 holeIncrement.comment）。",
       "enabled": true,
       "activationFill": 0.45,
       "leafCap": 64,
@@ -382,7 +382,103 @@
         { "minStress": 0.5, "label": "渐紧", "min": 1, "max": 64 },
         { "minStress": 0.6, "label": "紧张", "min": 1, "max": 32 },
         { "minStress": 0.8, "label": "极限", "min": 1, "max": 12 }
-      ]
+      ],
+      "holeIncrement": {
+        "comment": "v1.57.2 stress→新空洞难度（与 ranges 解空间宽度形成双轴）：DFS 在每个完整解叶子节点用'孤立空格'口径（四面非空围住的空格，必须用 1×1 才能填的'漏洞'，O(n²×4)≈256 ops，DFS 内反复调用仍可忽略）计算新空洞数 = 终末盘面 isolated holes − 初始 isolated holes（max(0,·) 避免消行净降产生负值）；取 6 种顺序的全部解中 min 值作为 minHoleIncrement（候选'最干净放置路径'的新空洞数）。按 stress 选 ranges 中的 { minIncrement, maxIncrement } 软过滤：低 stress 段 maxIncrement 强约束（必须存在干净解，space 越大越好玩）；高 stress 段 minIncrement 强约束（玩家被迫接受至少 N 个新空洞，'无论怎么放都会脏'的玩家心智压力）。仅在 earlyAttempt（attempt < ratio·limit）阶段硬过滤，宽松失败时 fallback 到无 hole 过滤以保证 spawn 不失败。activationFill 复用 solutionDifficulty.activationFill；truncated=true 跳过过滤。设计上不选 stacking-style（Tetris 风格）——OpenBlock 无重力，'被上方堵住'语义不成立；也不选 countUnfillableCells（O(shapes × n²) 太重）。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "干净", "minIncrement": null, "maxIncrement": 0 },
+          { "minStress": 0.35, "label": "宽容", "minIncrement": null, "maxIncrement": 1 },
+          { "minStress": 0.5,  "label": "渐紧", "minIncrement": null, "maxIncrement": 2 },
+          { "minStress": 0.6,  "label": "紧张", "minIncrement": 1,    "maxIncrement": null },
+          { "minStress": 0.8,  "label": "极限", "minIncrement": 2,    "maxIncrement": null }
+        ]
+      },
+      "maxHoleIncrement": {
+        "comment": "v1.57.3 ① — 最差解新空洞数（'专注度税'上界）。DFS 叶子追踪每个解的 isolated-holes delta，accum.maxHoleIncrement = 所有解中最脏路径的新空洞数。stress 高时 min 约束（拒绝'放哪都干净'的轻松候选——玩家随便放也不脏 = 缺少专注训练）；与 holeIncrement 形成对偶——min 是'最佳情况脏度'、max 是'最差情况脏度'。max 单独高 = '只有专心放才干净'的有希望紧张感，是 PB 挑战段最想要的体感。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
+          { "minStress": 0.5,  "label": "渐紧", "min": null, "max": 4 },
+          { "minStress": 0.6,  "label": "陷阱", "min": 1,    "max": null },
+          { "minStress": 0.8,  "label": "高陷阱", "min": 2,  "max": null }
+        ]
+      },
+      "holeIncrementGap": {
+        "comment": "v1.57.3 ⑨ — 专注度税差距 = maxHoleIncrement − minHoleIncrement。差距大 = '最优解干净但有陷阱'（专心放则过、走神则崩）；差距小 = 'min ≈ max'，候选要么都干净要么都脏，没有专注训练空间。高 stress 时 min 约束（强制差距大），让 D3/D4 段成为'专注度考验'。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
+          { "minStress": 0.6,  "label": "考验", "min": 2,    "max": null },
+          { "minStress": 0.8,  "label": "高考验", "min": 3,  "max": null }
+        ]
+      },
+      "endFillRatio": {
+        "comment": "v1.57.3 ② — 终末填充率（三块下完后盘面占用率均值，0~1）。stress 高时 min 强约束（偏好'放完后盘面更满'的候选，玩家感受到'剩余决策窗口正在收窄'的窒息感）；stress 低时 max 强约束（保证放完仍有空间，玩家感受'通透'）。与 solutionRange / holeIncrement 正交——fillRatio 是空间剩余，hole 是漏洞。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "通透", "min": null, "max": 0.45 },
+          { "minStress": 0.35, "label": "适中", "min": null, "max": 0.60 },
+          { "minStress": 0.6,  "label": "压迫", "min": 0.50, "max": null },
+          { "minStress": 0.85, "label": "窒息", "min": 0.65, "max": null }
+        ]
+      },
+      "nearFullDelta": {
+        "comment": "v1.57.3 ③ — 近满行/列变化（放完后 nearFullLines 增量均值）。rhythm payoff 期 / 低 stress 偏好 min ≥ 1（'放完后多了一条快满'，玩家感受消行希望）；D4 高 stress 偏好 max ≤ 0（'放完后近满线变少'，消耗消行机会，防止 PB 通过近满膨胀）。这是把 rhythmPhase 节奏感**直接注入 spawn 算法**的关键钩子（旧版 rhythm 只影响 hints 权重）。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "送消", "min": 0.5, "max": null },
+          { "minStress": 0.35, "label": "中性", "min": null, "max": null },
+          { "minStress": 0.7,  "label": "保守", "min": null, "max": 0.5 },
+          { "minStress": 0.85, "label": "消耗", "min": null, "max": -0.5 }
+        ]
+      },
+      "firstMoveSurvivor": {
+        "comment": "v1.57.3 ④ — 第一步存活率（第 1 块所有合法位置中触达完整解的子树占比，0~1）。endless 类游戏的核心难度感——'第一手放错就全完'。stress 高时 max 强约束（survivor ≤ 0.6 → 玩家必须想清楚再放第一手）；stress 低时 min 强约束（survivor ≥ 0.5 → 大部分位置都安全，'放心试'）。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽容", "min": 0.6, "max": null },
+          { "minStress": 0.35, "label": "中性", "min": null, "max": null },
+          { "minStress": 0.7,  "label": "代价", "min": null, "max": 0.7 },
+          { "minStress": 0.85, "label": "高代价", "min": null, "max": 0.5 }
+        ]
+      },
+      "solutionDiversity": {
+        "comment": "v1.57.3 ⑤ — 解的真正差异度（perPermCounts 的变异系数 CV = std/mean）。CV 高 = 不同顺序的解数差异大（'有些顺序顺、有些顺序卡'，玩家需找顺）；CV 低 = 各顺序均衡（'放哪种顺序都差不多'，看似宽松但解相似度高）。stress 高时 max 强约束（拒绝高 CV 的'看起来宽松但解都一样'陷阱）。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
+          { "minStress": 0.6,  "label": "均衡", "min": null, "max": 1.2 }
+        ]
+      },
+      "endFlatness": {
+        "comment": "v1.57.3 ⑥ — 终末平整度（放完后列高方差均值）。OpenBlock 无重力但仍用列高方差代理'盘面凹凸度'。stress 高时 min 强约束（盘面更乱，审美焦虑）；stress 低时 max 强约束（保持齐整，玩家感受'秩序'）。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "整齐", "min": null, "max": 2.0 },
+          { "minStress": 0.5,  "label": "适中", "min": null, "max": 4.5 },
+          { "minStress": 0.8,  "label": "凌乱", "min": 3.0, "max": null }
+        ]
+      },
+      "endDangerColumns": {
+        "comment": "v1.57.3 ⑦ — 终末危险列数（放完后列高 ≥ dangerHeight=6 的列数均值，0~8）。爆顶预警维度——OpenBlock 接近 game over 的客观信号。stress 高时 min 强约束（让 D4 段持续面对'眼看就要顶死'的紧迫感）；stress 极低时 max 强约束（避免新手段落入危险列）。activationFill ≥ 0.45 才有意义。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "安全", "min": null, "max": 2 },
+          { "minStress": 0.5,  "label": "中性", "min": null, "max": null },
+          { "minStress": 0.8,  "label": "预警", "min": 1, "max": null },
+          { "minStress": 0.9,  "label": "临界", "min": 2, "max": null }
+        ]
+      },
+      "visualClutter": {
+        "comment": "v1.57.3 ⑧ — 视觉杂乱 delta（放完后相邻 cell 颜色不同的边数 - 开局基线）。审美焦虑维度——花花绿绿的盘面让玩家心理压力上升；整齐成片的颜色块给人'有序'安全感。stress 高时 min 强约束（鼓励高 clutter 的候选）；低 stress 时 max 强约束（偏好'颜色聚团'的候选，减少视觉负担）。",
+        "enabled": true,
+        "ranges": [
+          { "minStress": -1.0, "label": "聚团", "min": null, "max": 2 },
+          { "minStress": 0.5,  "label": "适中", "min": null, "max": null },
+          { "minStress": 0.8,  "label": "繁杂", "min": 2, "max": null }
+        ]
+      }
     },
     "globalPersonalization": {
       "comment": "全球化个性化边界：只消费实时行为、明示偏好、设备负担和语言/地区上下文；敏感属性只允许聚合研究，不进入个体级策略。motivationIntent 描述中长期动机，spawnIntent 仍描述本轮出块意图。",

@@ -219,13 +219,16 @@ describe('§4.3 best.gap.far 远征陪伴文案（主 + alt1 + alt2）', () => {
         }
     });
 
-    it('zh-CN 主文案与 alt2 支持 {{best}} 占位符（用 PB 数值锚定）', () => {
-        expect(zhCN['best.gap.far']).toMatch(/\{\{best\}\}/);
+    /* v1.57.3 §5.α.14：best.gap.far 文案从 "历史最佳 {{best}}" 降级为 "差 {{gap}} 分"（与 neutral
+     * 同口径），因为用户截图证明主 HUD 已展示 PB 数字 → best-gap 再展示 PB 形成视觉重复。
+     * 主文案 key 保留但占位符从 {{best}} 改为 {{gap}}；alt2 文案保留 {{best}}（@deprecated 旧版灰度回滚锚点）。 */
+    it('zh-CN best.gap.far 主文案使用 {{gap}}（v1.57.3 降级）；alt2 保留 {{best}}', () => {
+        expect(zhCN['best.gap.far']).toMatch(/\{\{gap\}\}/);
         expect(zhCN['best.gap.far.alt2']).toMatch(/\{\{best\}\}/);
     });
 
-    it('en 主文案与 alt2 支持 {{best}} 占位符', () => {
-        expect(en['best.gap.far']).toMatch(/\{\{best\}\}/);
+    it('en best.gap.far 主文案使用 {{gap}}（v1.57.3 降级）；alt2 保留 {{best}}', () => {
+        expect(en['best.gap.far']).toMatch(/\{\{gap\}\}/);
         expect(en['best.gap.far.alt2']).toMatch(/\{\{best\}\}/);
     });
 });

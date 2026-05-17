@@ -405,6 +405,27 @@ const SPAWN_TOOLTIP = {
         '首手自由度（v9）：三块各自单独放置时合法位置数的最小值（瓶颈块）。数值越小，玩家选错位置后越容易卡死。',
     targetSolutionRange:
         '解法区间（v9）：根据综合 stress 在 game_rules.solutionDifficulty.ranges 中选择的目标解空间区间。三连块通过 sequentiallySolvable 后，若解法数量超出区间则在前 60% attempt 内重抽。',
+    targetHoleIncrement:
+        '空洞区间（v1.57.2）：与解法区间并列的第二维度。DFS 在每个完整解叶子用"孤立空格"口径（四面非空围住、必须用 1×1 才能填的"漏洞"）计算新空洞数，取 6 种顺序所有解中 min 作为候选"最干净放置路径"的新空洞数。低 stress 段 max=0/1 强制必有干净解；高 stress 段 min≥1/2 拒绝完全干净候选——"无论怎么放都会脏"的玩家心智压力。',
+    /* ===== v1.57.3 — 9 项多维 stress→算法 难度区间 tooltip ===== */
+    targetMaxHoleIncrement:
+        '最差解空洞（v1.57.3 ①）：6 种排列所有解中"最脏放置路径"的新空洞数。与 targetHoleIncrement 形成对偶——min 是"最佳情况脏度"、max 是"最差情况脏度"。high stress 时 min≥1 强约束，拒绝"放哪都干净"的轻松候选，让候选"专心放才不脏"。max−min 差距大 = 有希望的紧张感（PB 挑战段最想要的体感）。',
+    targetHoleIncrementGap:
+        '专注度税差距（v1.57.3 ⑨）：maxHoleIncrement − minHoleIncrement。差距大 = "最优解干净但有陷阱"（专心则过、走神则崩）；差距小 = min ≈ max（候选要么都干净要么都脏，没专注训练空间）。高 stress 段 min ≥ 2 强约束，让 D3/D4 成为"专注度考验"。',
+    targetEndFillRatio:
+        '终末填充率（v1.57.3 ②）：三块下完后盘面占用率均值（0~1）。空间窒息感维度——与 hole（漏洞）、solutionRange（选择数）完全正交。高 stress 段 min ≥ 0.5 强约束（剩余决策窗口收窄）；低 stress 段 max ≤ 0.5 强约束（保留通透感）。',
+    targetNearFullDelta:
+        '近满 delta（v1.57.3 ③）：放完后近满行/列数变化均值（差 ≤ 2 格即消的线变化）。消行节律维度——把 rhythmPhase 节奏感直接注入 spawn 算法。rhythm payoff 期偏好 ≥ 1（送消行），D4 段偏好 ≤ -1（消耗近满线、防 PB 通过近满膨胀）。',
+    targetFirstMoveSurvivorRatio:
+        '第一步存活率（v1.57.3 ④）：第 1 块所有合法位置中"触达完整解"的子树占比（0~1）。endless 类游戏的核心难度感——"第一手放错就全完"。高 stress 段 max ≤ 0.6 强约束（玩家必须想清楚再放）；低 stress 段 min ≥ 0.5 强约束（放心试错）。',
+    targetSolutionDiversity:
+        '解多样性 CV（v1.57.3 ⑤）：perPermCounts 的变异系数 std/mean。CV 高 = 不同顺序的解数差异大（"有些顺序顺、有些顺序卡"）；CV 低 = 各顺序均衡（"放哪种顺序都差不多"）。高 stress 时 max ≤ 1.2 强约束，拒绝"看起来宽松但解都一样"的陷阱候选。',
+    targetEndFlatness:
+        '终末平整度（v1.57.3 ⑥）：放完后列高方差均值。盘面凹凸审美——OpenBlock 无重力但仍用列高方差代理"齐 vs 乱"。低 stress 段 max ≤ 2 强约束（齐整）；高 stress 段 min ≥ 3 强约束（凹凸焦虑）。',
+    targetEndDangerColumns:
+        '危险列数（v1.57.3 ⑦）：放完后列高 ≥ 6 的列数均值（0~8）。爆顶预警维度——接近 game over 的客观信号。D4 段 min ≥ 1 强约束（持续"眼看就要顶死"的紧迫感）；新手段 max ≤ 2 强约束（保护）。',
+    targetVisualClutter:
+        '视觉杂乱 delta（v1.57.3 ⑧）：放完后相邻 cell 颜色不同的边数变化。审美焦虑维度——花花绿绿的盘面让心理压力上升、整齐成片给"有序"安全感。高 stress 段 min ≥ 2 强约束（鼓励繁杂）；低 stress 段 max ≤ 2 强约束（聚团）。',
     v3Meta:
         '生成式元信息：上一轮 V3 的模型版本、是否命中个性化 LoRA、feasibility mask 可行候选数量，以及护栏失败时的回退原因。'
 };
@@ -719,6 +740,50 @@ function _hintsExplain(h) {
             out.push(`解法下限${label}：候选三块至少要有 ${tsr.min} 种放置顺序可完整下完，避免唯一解卡顿`);
         }
     }
+    /* v1.57.2：新空洞难度区间叙事——与解法宽度同维度的"空洞强迫度"轴。 */
+    const thi = h.targetHoleIncrement;
+    if (thi && (thi.min != null || thi.max != null)) {
+        const label = thi.label ? `「${thi.label}」` : '';
+        if (thi.max != null) {
+            out.push(`空洞上限${label}：候选三块的最干净放置路径新增空洞 ≤${thi.max}，保证总能找到清爽放法`);
+        } else if (thi.min != null && thi.min >= 1) {
+            out.push(`空洞下限${label}：候选三块最干净放法也至少带 ${thi.min} 个新空洞，让"无论怎么放都会脏"的难度自然透出`);
+        }
+    }
+    /* v1.57.3：9 项多维难度区间叙事（每个维度独立短句，仅在该维度激活时输出）。 */
+    const _explainDim = (val, fmtMin, fmtMax) => {
+        if (!val || (val.min == null && val.max == null)) return;
+        const label = val.label ? `「${val.label}」` : '';
+        if (val.max != null && fmtMax) out.push(fmtMax(label, val.max));
+        else if (val.min != null && fmtMin) out.push(fmtMin(label, val.min));
+    };
+    _explainDim(h.targetMaxHoleIncrement,
+        (l, v) => `最差解空洞下限${l}：候选最脏路径也至少带 ${v} 个新空洞，建立"专心放才不脏"的紧张感`,
+        (l, v) => `最差解空洞上限${l}：候选最脏路径新增空洞 ≤${v}，新手段保护`);
+    _explainDim(h.targetHoleIncrementGap,
+        (l, v) => `专注度税差距${l}：候选 max−min ≥ ${v}，让"专心则过、走神则崩"成为常态`,
+        null);
+    _explainDim(h.targetEndFillRatio,
+        (l, v) => `终末填充下限${l}：放完后盘面占用 ≥${Number(v).toFixed(2)}，剩余决策窗口收窄`,
+        (l, v) => `终末填充上限${l}：放完后盘面占用 ≤${Number(v).toFixed(2)}，保留通透感`);
+    _explainDim(h.targetNearFullDelta,
+        (l, v) => `近满 delta 下限${l}：放完后近满线净增 ≥${Number(v).toFixed(2)}，送消行机会`,
+        (l, v) => `近满 delta 上限${l}：放完后近满线净增 ≤${Number(v).toFixed(2)}，消耗消行机会，防分数膨胀`);
+    _explainDim(h.targetFirstMoveSurvivorRatio,
+        (l, v) => `第一步存活下限${l}：根级存活率 ≥${Number(v).toFixed(2)}，放心试错`,
+        (l, v) => `第一步存活上限${l}：根级存活率 ≤${Number(v).toFixed(2)}，第一手必须想清楚`);
+    _explainDim(h.targetSolutionDiversity,
+        null,
+        (l, v) => `解多样性上限${l}：6 排列解数 CV ≤${Number(v).toFixed(2)}，拒绝"看似宽松但解都一样"陷阱`);
+    _explainDim(h.targetEndFlatness,
+        (l, v) => `凹凸下限${l}：放完后列高方差 ≥${Number(v).toFixed(2)}，盘面更乱`,
+        (l, v) => `凹凸上限${l}：放完后列高方差 ≤${Number(v).toFixed(2)}，保持齐整`);
+    _explainDim(h.targetEndDangerColumns,
+        (l, v) => `危险列下限${l}：放完后列高≥6 的列数 ≥${v}，持续"眼看就要顶死"紧迫感`,
+        (l, v) => `危险列上限${l}：放完后列高≥6 的列数 ≤${v}，远离爆顶`);
+    _explainDim(h.targetVisualClutter,
+        (l, v) => `视觉杂乱下限${l}：放完后颜色边界净增 ≥${v}，鼓励繁杂候选`,
+        (l, v) => `视觉杂乱上限${l}：放完后颜色边界净增 ≤${v}，颜色聚团减少视觉负担`);
     if (out.length === 0) {
         out.push('本轮无额外 spawnHints（默认随机权重内抽样）。');
     }
@@ -1527,6 +1592,36 @@ function _render(game) {
                 const label = tsr.label ? `${tsr.label} ` : '';
                 diagPills.push(_spawnPill(`区间 ${label}[${minStr}, ${maxStr}]`, SPAWN_TOOLTIP.targetSolutionRange));
             }
+            /* v1.57.2：新空洞区间 pill。与解法区间并列展示，让开发者诊断 stress 双轴投射。
+             * 主 HUD 不展示（策略隐性原则），玩家通过出块体感感知"必带空洞 vs 必有干净解"。 */
+            const thi = l1.targetHoleIncrement;
+            if (thi && (thi.min != null || thi.max != null)) {
+                const minStr = thi.min != null ? thi.min : '—';
+                const maxStr = thi.max != null ? thi.max : '∞';
+                const label = thi.label ? `${thi.label} ` : '';
+                diagPills.push(_spawnPill(`空洞 ${label}[${minStr}, ${maxStr}]`, SPAWN_TOOLTIP.targetHoleIncrement));
+            }
+
+            /* v1.57.3：9 项多维难度区间 pill。仅诊断视图展示——玩家从主 HUD 看不到任何
+             * 数字/标签，纯靠出块体感感知 9 个独立潜意识压力源。
+             * 每个 pill 仅在 ranges 派生出非空 min/max 时显示，避免空轴占用界面。 */
+            const _dimPill = (val, prefix, tooltip, fmt = (v) => v) => {
+                if (!val || (val.min == null && val.max == null)) return;
+                const minStr = val.min != null ? fmt(val.min) : '—';
+                const maxStr = val.max != null ? fmt(val.max) : '∞';
+                const label = val.label ? `${val.label} ` : '';
+                diagPills.push(_spawnPill(`${prefix} ${label}[${minStr}, ${maxStr}]`, tooltip));
+            };
+            const _f2 = (v) => Number(v).toFixed(2);
+            _dimPill(l1.targetMaxHoleIncrement, '最差洞', SPAWN_TOOLTIP.targetMaxHoleIncrement);
+            _dimPill(l1.targetHoleIncrementGap, '专注Δ', SPAWN_TOOLTIP.targetHoleIncrementGap);
+            _dimPill(l1.targetEndFillRatio, '满度', SPAWN_TOOLTIP.targetEndFillRatio, _f2);
+            _dimPill(l1.targetNearFullDelta, '近满Δ', SPAWN_TOOLTIP.targetNearFullDelta, _f2);
+            _dimPill(l1.targetFirstMoveSurvivorRatio, '首存', SPAWN_TOOLTIP.targetFirstMoveSurvivorRatio, _f2);
+            _dimPill(l1.targetSolutionDiversity, '解CV', SPAWN_TOOLTIP.targetSolutionDiversity, _f2);
+            _dimPill(l1.targetEndFlatness, '凹凸', SPAWN_TOOLTIP.targetEndFlatness, _f2);
+            _dimPill(l1.targetEndDangerColumns, '危列', SPAWN_TOOLTIP.targetEndDangerColumns);
+            _dimPill(l1.targetVisualClutter, '色乱', SPAWN_TOOLTIP.targetVisualClutter);
         }
 
         const fallbackRow = _spawnModeFallbackRowHtml(ins);

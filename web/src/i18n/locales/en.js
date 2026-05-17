@@ -122,7 +122,9 @@ export default {
      * Old keys retained as @deprecated for i18n platform grey-rollback. */
     'best.gap': '{{gap}} pts short',
     'best.gap.neutral': '{{gap}} pts short',
-    'best.gap.far': 'Best {{best}}',
+    /** @deprecated v1.57.3 §5.α.14: D0 segment now uses best.gap.neutral to avoid
+     *   visual duplication with the main HUD's #best-score. Key kept for rollback. */
+    'best.gap.far': '{{gap}} pts short',
     /* v1.56.7: '+N pts' was ambiguous (over what baseline?) when combined with
      * 'Score 210 / Best 210 / +190 pts' — players couldn't reconcile the three
      * numbers. New copy 'Run +N' anchors the comparison to "this run's starting PB"

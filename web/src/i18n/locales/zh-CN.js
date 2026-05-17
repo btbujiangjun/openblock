@@ -130,7 +130,11 @@ export default {
      * 供 i18n 平台灰度回滚使用，实际渲染不再消费。 */
     'best.gap': '差 {{gap}} 分',
     'best.gap.neutral': '差 {{gap}} 分',
-    'best.gap.far': '历史最佳 {{best}}',
+    /** @deprecated v1.57.3 §5.α.14：D0 段不再使用，主 HUD 已展示 PB 绝对值，best-gap 元素
+     *   再展示「历史最佳 N」与之完全等价造成视觉重复（用户截图实测）。D0 段统一改走
+     *   best.gap.neutral 显示「差 N 分」，差异通过默认色 + 算法 farFromPBBoost 体现。
+     *   key 保留以备 i18n 平台灰度回滚。 */
+    'best.gap.far': '差 {{gap}} 分',
     'best.over.neutral': '本局 +{{over}}',
     'endGame.nearMiss': '差 {{gap}} 分',
     /** @deprecated v1.56.3：旧版煽情/教练式文案池，全部降级为事实陈述，保留 key 以备回滚 */

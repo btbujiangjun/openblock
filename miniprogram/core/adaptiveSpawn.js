@@ -531,6 +531,71 @@ function deriveTargetSolutionRange(stress, cfg, fill) {
     };
 }
 
+/**
+ * v1.57.2：与 web/src/adaptiveSpawn.js 同源——按 stress 选新空洞数难度档。
+ * blockSpawn.js earlyAttempt 阶段对每个候选 triplet 计算 minHoleIncrement（6 种放置
+ * 顺序所有解的"最干净路径"新空洞数），按本函数返回的 { min, max } 区间软过滤。
+ *   - max=0 → 候选必须存在 0 新空洞解（"必有干净放法"）
+ *   - min=N → 候选最干净解至少带 N 个新空洞（"无论怎么放都会脏"）
+ *
+ * @param {number} stress  raw 域 [-0.2, 1]
+ * @param {object} cfg     adaptiveSpawn.solutionDifficulty
+ * @param {number} fill    当前盘面填充率
+ * @returns {{ min: number|null, max: number|null, label?: string } | null}
+ */
+function deriveTargetHoleIncrement(stress, cfg, fill) {
+    if (!cfg?.enabled) return null;
+    const hi = cfg.holeIncrement;
+    if (!hi?.enabled) return null;
+    const activationFill = cfg.activationFill ?? 0.45;
+    if ((fill ?? 0) < activationFill) return null;
+    const ranges = Array.isArray(hi.ranges) ? hi.ranges : [];
+    if (ranges.length === 0) return null;
+
+    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
+    let chosen = null;
+    for (const r of sorted) {
+        if (stress >= (r.minStress ?? -1)) chosen = r;
+    }
+    if (!chosen) chosen = sorted[0];
+    return {
+        min: chosen.minIncrement ?? null,
+        max: chosen.maxIncrement ?? null,
+        label: chosen.label
+    };
+}
+
+/* v1.57.3 与 web 同源——通用 ranges 派生器（详见 web/src/adaptiveSpawn.js 同名函数） */
+function _deriveRangeByStress(stress, dimCfg, parentCfg, fill) {
+    if (!parentCfg?.enabled) return null;
+    if (!dimCfg?.enabled) return null;
+    const activationFill = parentCfg.activationFill ?? 0.45;
+    if ((fill ?? 0) < activationFill) return null;
+    const ranges = Array.isArray(dimCfg.ranges) ? dimCfg.ranges : [];
+    if (ranges.length === 0) return null;
+
+    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
+    let chosen = null;
+    for (const r of sorted) {
+        if (stress >= (r.minStress ?? -1)) chosen = r;
+    }
+    if (!chosen) chosen = sorted[0];
+    return {
+        min: chosen.min ?? null,
+        max: chosen.max ?? null,
+        label: chosen.label
+    };
+}
+function deriveTargetMaxHoleIncrement(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.maxHoleIncrement, cfg, fill); }
+function deriveTargetHoleIncrementGap(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.holeIncrementGap, cfg, fill); }
+function deriveTargetEndFillRatio(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.endFillRatio, cfg, fill); }
+function deriveTargetNearFullDelta(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.nearFullDelta, cfg, fill); }
+function deriveTargetFirstMoveSurvivorRatio(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.firstMoveSurvivor, cfg, fill); }
+function deriveTargetSolutionDiversity(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.solutionDiversity, cfg, fill); }
+function deriveTargetEndFlatness(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.endFlatness, cfg, fill); }
+function deriveTargetEndDangerColumns(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.endDangerColumns, cfg, fill); }
+function deriveTargetVisualClutter(stress, cfg, fill) { return _deriveRangeByStress(stress, cfg?.visualClutter, cfg, fill); }
+
 /* ------------------------------------------------------------------ */
 /*  自适应策略解析（三层整合）                                          */
 /* ------------------------------------------------------------------ */
@@ -1360,6 +1425,23 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         cfg.solutionDifficulty,
         _boardFill ?? 0
     );
+    /* v1.57.2：与 web 同源——派生新空洞难度区间（与解法宽度并列双轴）。
+     * blockSpawn earlyAttempt 阶段对每个候选 triplet 计算 minHoleIncrement 软过滤。 */
+    const targetHoleIncrement = deriveTargetHoleIncrement(
+        solutionStress,
+        cfg.solutionDifficulty,
+        _boardFill ?? 0
+    );
+    /* v1.57.3：9 项多维 stress→算法 难度区间（与 web 同源） */
+    const targetMaxHoleIncrement       = deriveTargetMaxHoleIncrement(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetHoleIncrementGap       = deriveTargetHoleIncrementGap(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetEndFillRatio           = deriveTargetEndFillRatio(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetNearFullDelta          = deriveTargetNearFullDelta(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetFirstMoveSurvivorRatio = deriveTargetFirstMoveSurvivorRatio(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetSolutionDiversity      = deriveTargetSolutionDiversity(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetEndFlatness            = deriveTargetEndFlatness(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetEndDangerColumns       = deriveTargetEndDangerColumns(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    const targetVisualClutter          = deriveTargetVisualClutter(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
 
     /* ---------- v1.16：spawnIntent — 出块意图的单一对外口径 ----------
      * 让「压力表叙事 / 商业化策略文案 / 回放标签」读同一个意图字段，避免出现：
@@ -1436,6 +1518,18 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             scoreMilestone: scoreMilestoneCheck.hit,
             scoreMilestoneValue: scoreMilestoneCheck.hit ? scoreMilestoneCheck.milestone : null,
             targetSolutionRange,
+            /* v1.57.2：新空洞难度区间——与 targetSolutionRange 并列双轴（详见 web 同名注释）。 */
+            targetHoleIncrement,
+            /* v1.57.3：9 项多维难度区间（与 web 同源） */
+            targetMaxHoleIncrement,
+            targetHoleIncrementGap,
+            targetEndFillRatio,
+            targetNearFullDelta,
+            targetFirstMoveSurvivorRatio,
+            targetSolutionDiversity,
+            targetEndFlatness,
+            targetEndDangerColumns,
+            targetVisualClutter,
             spawnIntent,
             motivationIntent,
             behaviorSegment,
@@ -1478,6 +1572,16 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _delightBoost: delight.multiClearBoost,
         _perfectClearBoost: delight.perfectClearBoost,
         _targetSolutionRange: targetSolutionRange,
+        _targetHoleIncrement: targetHoleIncrement,
+        _targetMaxHoleIncrement: targetMaxHoleIncrement,
+        _targetHoleIncrementGap: targetHoleIncrementGap,
+        _targetEndFillRatio: targetEndFillRatio,
+        _targetNearFullDelta: targetNearFullDelta,
+        _targetFirstMoveSurvivorRatio: targetFirstMoveSurvivorRatio,
+        _targetSolutionDiversity: targetSolutionDiversity,
+        _targetEndFlatness: targetEndFlatness,
+        _targetEndDangerColumns: targetEndDangerColumns,
+        _targetVisualClutter: targetVisualClutter,
         _abilityVector: ability,
         _abilityRiskAdjust: abilityRiskAdjust,
         _boardRisk: boardRisk,
