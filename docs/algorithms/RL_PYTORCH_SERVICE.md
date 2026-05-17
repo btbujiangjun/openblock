@@ -5,12 +5,31 @@
 
 ## 1. 两条训练路径
 
-| 路径 | 采样来源 | Teacher（q_vals / visit_pi） | Search replay（困难局混合） |
-|------|-----------|------------------------------|-----------------------------|
-| **离线** `python -m rl_pytorch.train` | Python `OpenBlockSimulator` + `collect_episode` | 可有（beam / MCTS / 1-step，依 `game_rules`） | 有（`train_loop` 内） |
-| **在线** 浏览器 → `/api/rl/train_episode` | 浏览器仿真 + POST 轨迹 | **可有**：侧栏 **勾选「1-step lookahead」** 时，每步用 `r + γ V(s')` 选步并 POST **`q_teacher`**；服务端写入 `q_vals` 参与 **Q 蒸馏**（弱 teacher，**不是** MCTS）。未勾选时每步走 **`select_action`**，轨迹无 teacher。**visit_pi** 仍仅在离线或未来协议扩展时出现 | **有**（批量 flush 时与 `train_loop` 对齐，见 §2） |
+| 路径 | 采样来源 | Teacher（q_vals / visit_pi） | Search replay（困难局混合） | v11 闭环课程 |
+|------|-----------|------------------------------|-----------------------------|-----------------|
+| **离线** `python -m rl_pytorch.train` | Python `OpenBlockSimulator` + `collect_episode` | 可有（beam / MCTS / 1-step，依 `game_rules`） | 有（`train_loop` 内） | ✅ `--adaptive-curriculum`（或 `RL_ADAPTIVE_CURRICULUM=1`） |
+| **在线** 浏览器 → `/api/rl/train_episode` | 浏览器仿真 + POST 轨迹 | **可有**：侧栏 **勾选「1-step lookahead」** 时，每步用 `r + γ V(s')` 选步并 POST **`q_teacher`**；服务端写入 `q_vals` 参与 **Q 蒸馏**（弱 teacher，**不是** MCTS）。未勾选时每步走 **`select_action`**，轨迹无 teacher。**visit_pi** 仍仅在离线或未来协议扩展时出现 | **有**（批量 flush 时与 `train_loop` 对齐，见 §2） | ❌ 仅 `rlCurriculum`（线性 ramp），`adaptiveCurriculum` 在线路径不生效 |
 
 结论：`teacher_q_coverage` / `loss_q_distill` 在在线路径上**可以为正**，前提是 **`game_rules.rlRewardShaping.qDistillation` 启用**、侧栏 **勾选 lookahead**、且 **`/api/rl/eval_values` 成功**（合法动作 ≤120 时启用 lookahead 分支）。程序化调用：`trainSelfPlay({ useBackend: true, useLookahead: true })`；未传 **`useLookahead`** 时默认 **`false`**（与侧栏默认一致）。若关闭 lookahead 或 `eval_values` 失败/响应非法，则 **回退 `select_action`**，该步无 `q_teacher`。
+
+### 1.0 两栈选择建议（v11.1）
+
+| 现象 | 现状（在线浏览器训练） | 建议切换到离线训练 |
+|---|---|---|
+| **看板 teacher 覆盖率长期为 0** | lookahead 未勾选 / `eval_values` 静默回退 | 离线默认开 MCTS visit_pi teacher，覆盖率稳定 ≥80% |
+| **win_rate 长期 ≥ 90%** + **mean_score 远高于 `winThresholdEnd`** | 线性 ramp 课程被穿透，无反馈出口 | v11 四档闭环（accel / hold / pause / rollback / severe），自动控住 win_rate ≈ 50% |
+| **Lv 高位震荡（20+）** + **return 不再增长** | 单局 PPO + 无 baseline normalize | 多 worker GAE + Dirichlet root noise，value 头更易拟合 |
+| **想保持低延迟实时观察** | 浏览器看板每局推送 | 离线训练写 `training.jsonl`，刷新看板查看；不实时但稳定 |
+
+**一键启动离线训练**（v11.1 推荐，含 MCTS + Dirichlet + v11 闭环 + 3-ply beam）：
+
+```bash
+./scripts/train_full_mcts.sh                  # 默认 50k ep，自动选 mps/cuda
+RESUME=1 ./scripts/train_full_mcts.sh         # 从 rl_checkpoints/full_mcts.pt 续训
+EPISODES=20000 ./scripts/train_full_mcts.sh   # 短跑 20k 试验
+```
+
+脚本内启用的关键环境变量：`RL_MCTS=1`、`RL_ADAPTIVE_CURRICULUM=1`、`RL_MCTS_REUSE=1`、`RL_ZOBRIST_SHARED=1`、`DIRICHLET_EPSILON=0.20`；与 `shared/game_rules.json` 中 `winThresholdEnd=600`（v11.1）配套，让自适应课程有真正的爬升空间。脚本与浏览器训练**互斥**——同时跑两个会互相覆盖 checkpoint。
 
 ### 1.1 侧栏 UI 与训练循环行为
 

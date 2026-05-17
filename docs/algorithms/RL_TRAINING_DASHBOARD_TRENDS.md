@@ -43,6 +43,113 @@
 
 前 6 图为任务表现，图 7、8 为 teacher / replay 诊断；各图可独立展开/收起。无有效数据时显示说明而非误导性的 **0 线**。摘要条中的 **tq 覆盖**、**replay 占比**、**qH** 便于快速对照图 7、8。
 
+### 1.4 训练日志 `[adap …]` / `[quant …]` 字段（课程模式）
+
+OpenBlock 训练课程现有三模式，启动 banner 会打印当前模式：
+
+```
+Curriculum 模式: quantile  p=70  window=500  emaAlpha=0.05  ... (目标 win_rate≈30%)
+Curriculum 模式: adaptive (v11)  window=200  checkEvery=50  target_wr=0.5
+Curriculum 模式: linear  start=40->end=600 over 40000 ep
+```
+
+#### 1.4.1 `[adap …]`（v11 adaptive 模式）
+
+启用 `rlCurriculum.mode = "adaptive"`（或 `rlRewardShaping.adaptiveCurriculum.enabled=true` 自动推断）后：
+
+```
+... | thr=180  [adap wr=42% vep=8000 act=hold] | sc=145 ...
+```
+
+| 字段 | 含义 | 健康范围 | 异常信号 |
+|---|---|---|---|
+| `wr` | 近 `window` 局（默认 200）滑动胜率 | 30%~60% | 长期 < 10% → 多次 `act=severe` 触发 |
+| `vep` | 虚拟课程局数；驱动 `win_threshold` 推进 | 单调缓慢上升或在塌缩后小幅回退后再爬 | 长期持平 / 长期下降 → 检查 `stepDown` / `severeRollbackFactor` |
+| `act` | 本次反馈决策 | `hold` / `accel` 为主，偶尔 `pause` | 连续 `rollback` 或 `severe` → 模型在当前 threshold 显著塌缩 |
+
+**研判优先级**：当胜率曲线（图 5）长期低于 30% 且日志连续出现 `act=rollback/severe` 时，**等 1k–3k ep 看 vep 是否真在下降**，下降说明闭环在生效；若 vep 也不动则确认 `RL_ADAPTIVE_CURRICULUM=1`（或 `enabled=true`）。详见 [ALGORITHMS_RL §12.3](./ALGORITHMS_RL.md#123-自适应课程v8-引入v11-闭环化)。
+
+#### 1.4.2 `[quant …]`（v11.2 quantile 模式，**当前默认**）
+
+启用 `rlCurriculum.mode = "quantile"` 后：
+
+```
+... | thr=287  [quant p70 tgt=295 ema=287.4 n=500 act=quantile] | sc=312 avg100=255 win%=31.5% | ...
+```
+
+| 字段 | 含义 | 健康范围 | 异常信号 |
+|---|---|---|---|
+| `p` | 目标分位数（与配置一致） | 固定值 | 不应变化 |
+| `tgt` | 当前 `score_history` 的 p 分位数原始值 | 随能力增长稳步上升 | 突降 → 模型最近大量崩盘 |
+| `ema` | 平滑后的内部状态 | 滞后 `tgt` ~14 局 | `tgt` 与 `ema` 长期差 > 20% → 考虑加大 `emaAlpha` |
+| `n` | 当前 `score_history` 样本数（≤ `windowEpisodes`） | 训练 ≥ 500 ep 后稳定为 windowEpisodes | 训练已久仍 < windowEpisodes → 检查 batch_episodes 是否正常累计 |
+| `act` | 当前分支 | 训练 > 100 ep 后稳定为 `quantile` | 长期停在 `bootstrap` → 检查 score 是否被追加 |
+
+**关键观察**：quantile 模式下 win_rate（看板图 5）应**数学上恒等于 `1 - p/100`**（例如 p=70 → 30%）。若长期偏离 ±5pp，说明：
+- **偏低**：模型最近大量崩盘 → 检查策略是否过度收敛、是否需要更多探索
+- **偏高**：策略相对最近 500 局分布过强 → 极少见，可能 score_history 未正确更新
+
+详见 [ALGORITHMS_RL §12.4](./ALGORITHMS_RL.md#124-分位数自适应课程v112-引入新默认)。
+
+#### 1.4.3 `[smooth …]`（v11.2 方案 B 平滑奖励，opt-in）
+
+启用 `rlRewardShaping.smoothWinBonus.enabled=true`（或 `RL_SMOOTH_WIN_BONUS=1`）后：
+
+```
+... | thr=287  [quant ...]  [smooth tgt=180 span=120 r=+18.3 act=smooth] | sc=240 ...
+```
+
+| 字段 | 含义 | 健康范围 | 异常信号 |
+|---|---|---|---|
+| `tgt` | 当前 score 分布的 `targetPercentile`（默认 p50） | 随能力增长稳步上升 | 突降 → 模型最近大量崩盘 |
+| `span` | `spanHighPercentile - spanLowPercentile`（默认 IQR） | 与 `tgt` 同量级，受 `spanFloor` 兜底保护 | 长期 = `spanFloor` → 分布过窄，需调小 floor 或检查多样性 |
+| `r` | 本批最后一局注入的 smooth reward（已被 `saturationClip` 限制） | `[-tanh(c)·winBonus, +tanh(c)·winBonus]` | 长期满量级 → 分数远超分布中心，需检查 reward hacking |
+| `act` | 当前分支 | `bootstrap`（前 `bootstrapEpisodes` 局）→ `smooth`（正常） | 长期 `bootstrap` → score_history 未追加 |
+
+**关键观察**：启用 smooth 后看 `Lv`（图 6）应在 10k+ ep 内**逐步下降**至 < 10。若 `Lv` 未改善，说明问题不在 sparse 跳变（可能是 value head 容量不足或 GAE λ 配错）。
+
+#### 1.4.4 `[rnd …]`（v11.2 方案 C RND Curiosity，opt-in）
+
+启用 `rlRewardShaping.rndCuriosity.enabled=true`（或 `RL_RND=1`）后：
+
+```
+... | thr=287  [quant ...]  [rnd ī=0.68 Lp=0.68 σ=0.11] | sc=312 ...
+```
+
+| 字段 | 含义 | 健康范围 | 异常信号 |
+|---|---|---|---|
+| `ī` | 本批 intrinsic reward 均值（归一化前） | 训练初期 0.5~1.5，长期缓慢下降 | 长期 > 2.0 → 状态空间持续新颖（可能 STATE_FEATURE_DIM 配错）；长期 ≈ 0 → predictor 已完全模仿 target（应降 β） |
+| `Lp` | predictor 网络 loss | 应缓慢下降（前 5k ep 内下降 30%+） | 不降 → 检查 lr / grad_clip / state 是否变化 |
+| `σ` | RND normalizer running std | 训练 ≥ 1k ep 后稳定在 0.05~0.5 | 长期 < 1e-3 → reward 量级过小，β 实际无效 |
+
+**触发监测 alert**（即使 RND disabled 也会在满足条件时打）：
+
+```
+⚠️  RND Trigger: score_stall | 近 N log 段 mean_score 斜率 |0.00042| < 0.001（窗口约 5000 ep） | 建议设 RL_RND=1 或 game_rules.json rndCuriosity.enabled=true
+⚠️  RND Trigger: entropy_collapse | entropy 0.087 < 0.2 且 avg_score 320 < expected×0.8 = 400 | 建议设 RL_RND=1 ...
+```
+
+**关键观察**：启用 RND 后看 entropy（图 4）应**保持在 1.0+ 不再单调下降**，且 avg_score 应在 5k-10k ep 内**重新开始增长**。若启用 RND 但 score 反而下降，说明 β 过大盖过外部奖励，降到 0.05 或更小。
+
+详见 [ALGORITHMS_RL §12.7](./ALGORITHMS_RL.md#127-后续演进路线v12-备选方案) 与 [RL_ALPHAZERO_OPTIMIZATION §9.1.z](./RL_ALPHAZERO_OPTIMIZATION.md#91z-课程后续演进路线v12-备选方案)。
+
+### 1.5 看板图 9：课程门槛与得分分位（v11.2）
+
+新增图 9，专用于 quantile 模式可观测性，含 4 条曲线：
+
+| 曲线 | 字段 | 颜色 | 解读 |
+|---|---|---|---|
+| `win threshold` | `win_threshold` | 红 | 当前 batch 实际生效的胜利门槛（linear/adaptive/quantile 都有） |
+| `quantile target (p)` | `quantile_target` | 蓝（虚线） | score 第 p 分位数原始值（仅 quantile） |
+| `quantile EMA` | `quantile_ema` | 青 | EMA 平滑后的内部状态（仅 quantile） |
+| `win_rate × 100` | `win_rate_recent` | 紫（点线） | 本 log 段胜率，已 ×100 缩放到与 thr 同尺度 |
+
+**典型形态**：
+- **健康**：thr / target / ema 三线接近重合，win_rate × 100 稳定在 (1 - p/100) × 100 附近 ±5pp
+- **EMA 跟不上**：target 与 ema 持续偏离 > 15% → 调大 `emaAlpha`
+- **bootstrap 未退出**：训练 > 100 ep 后 target 仍为空（NaN）→ 检查 `_quant_score_history` 是否被正确追加
+- **非 quantile 模式**：仅有 win_threshold 一条线，target / ema 为空板提示
+
 ---
 
 ## 2. 典型案例研判（长训后期，约 4 万局量级）

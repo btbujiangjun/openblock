@@ -859,10 +859,36 @@ surv_coef:        0.03
 
 ## 12. Curriculum 与课程学习
 
-### 12.1 为什么需要
+### 12.1 胜利门槛对训练效果的影响机制
 
-- 直接训"赢 220 分"局：早期网络几乎不可能赢，所有 episode 都失败 → 学习信号极弱
-- 解法：**线性提升胜利门槛**，从易到难
+OpenBlock 的单步奖励为 dense + sparse 混合，其中只有 `winBonus`（默认 35）是**整局唯一的离散正反馈**：
+
+```python
+r_t = score_gain_t                              # dense
+    + POT_COEF · (potential_after - prev)       # dense
+    + (winBonus if prev_score < thr <= score_t else 0)   # sparse, 整局至多触发 1 次
+```
+
+`thr` 的设定通过四条独立通路传导到训练效果，是 RL 训练中**信噪比**的核心调节器：
+
+| 传导通路 | `thr` 远低于均分（被穿透） | `thr` 远高于均分（够不着） | `thr` ≈ 模型实际能力 |
+|---|---|---|---|
+| **Reward variance** | 几乎每局都拿到 +35 → 变成常数 → 方差 → 0 | 几乎都拿不到 → 方差 → 0 | 一半 win 一半 lose → 方差极大 |
+| **Policy gradient 信噪比** | advantage ≈ 0 → 梯度信号被噪声淹没 | 同左 | advantage 量级大 → 梯度方向锐利 |
+| **Value head 监督信号** | V(s) 把 +35 当固定项 → 学到的是"常数 + 得分增量" | V(s) 学不到稀疏跳变 → 长期与实际偏离 → Lv 高位震荡 | V(s) 必须区分"会赢/会输"状态 → 提供有意义的拟合目标 |
+| **探索激励** | 已知能拿 → 策略趋于最短路径达成 → 局长缩短 | 拿不到 → 方向迷失 → 高熵随机游走 | 既有正反馈又鼓励冒险 → 局长自然延展 |
+
+理论与教育心理学的 **最近发展区（ZPD）** 同构：在 win_rate 30%~60% 区间训练信号最强（Wiewiora 1996；AlphaStar；OpenAI Five）。
+
+#### 12.1.1 典型病态识别
+
+| 症状 | 根因 | 课程层修复方向 |
+|---|---|---|
+| `win_rate` 长期 ≥ 90% + `mean_score` 远高于 `thr` + `Lv` 高位震荡 | `thr` 被穿透 | 拉高 `thr`（linear/adaptive）或换 quantile 模式 |
+| `win_rate` 长期 < 5% + `entropy` 不收敛 + 局长极短 | `thr` 够不着 | 降低 `thr` 起始值或减缓爬升速率 |
+| `mean_score` 增长但 `win_rate` 与之同步漂移到极端 | 课程与能力不同步 | 换 `mode=quantile`（阈值随分布漂移） |
+
+> ⚠️ 这三种病态都不靠"调网络/调学习率"能根治，必须从**环境契约（thr 的设定方式）**入手。
 
 ### 12.2 默认课程（`shared/game_rules.json.rlCurriculum`）
 
@@ -887,22 +913,230 @@ threshold(ep) = startScore + (endScore - startScore) · min(1, ep / totalEpisode
 | 30000 | 175 |
 | 40000+ | 220（上限） |
 
-### 12.3 自适应课程（实验）
+### 12.3 自适应课程（v8 引入，v11 闭环化）
 
-`adaptiveCurriculum.enabled = true` 时，按滑动胜率调整虚拟 episode 推进：
+`adaptiveCurriculum.enabled = true` 时，按滑动胜率四档反馈调整虚拟 episode 推进。**v11 关键修复**：v8 的 `stepDown` 默认 `0` 只升不降，threshold 推到高位后塌缩永远爬不回；v11 默认 `stepDown=1.0` 并引入 severe rollback 形成真闭环。借鉴 search-contempt（[arXiv:2504.07757](https://arxiv.org/pdf/2504.07757) §4.2）"保持 (w+l)/d≈1"思想在 1-player 随机环境的等价物——保持 win_rate ≈ 0.5。
+
+#### 四档分级响应
+
+| win_rate 区间（target=0.5，默认带宽） | 动作 | virtual_ep 变化 | log 显示 |
+|---|---|---|---|
+| `≥ 0.6`（target + accelBand） | **accel** | +stepUp × checkEvery = +100 | `act=accel` |
+| `[0.4, 0.6)` | **hold** | +checkEvery = +50 | `act=hold` |
+| `[0.3, 0.4)` | **pause** | 0 | `act=pause` |
+| `[0.1, 0.3)` | **rollback** | -stepDown × checkEvery = -50 | `act=rollback` |
+| `< 0.1` | **severe** | virtual_ep × severeRollbackFactor = ×0.5 | `act=severe` |
+| 样本数 < `minSamplesForAction` | **warmup** | +checkEvery | `act=warmup` |
+
+#### 配置（`shared/game_rules.json → rlRewardShaping.adaptiveCurriculum`）
+
+```json
+{
+  "enabled": true,
+  "window": 200, "checkEvery": 50, "minSamplesForAction": 10,
+  "targetWinRate": 0.5,
+  "accelBand": 0.1, "holdBand": 0.1,
+  "lowWinRateBand": 0.2, "severeWinRateBand": 0.4,
+  "stepUp": 2.0, "stepDown": 1.0,
+  "minVirtualEp": 0, "rollbackOnSevereDrop": true, "severeRollbackFactor": 0.5
+}
+```
+
+#### 训练日志字段
 
 ```
-if win_rate_last_500 > 0.7:
-    virtual_ep += 1  # 推进更快
-elif win_rate < 0.3:
-    virtual_ep += 0.3  # 慢慢加难度
+ep 12000 | ... | thr=180  [adap wr=42% vep=8000 act=hold] | sc=145 avg100=98.3 win%=35.0% | ...
+                              ↑滑窗胜率 ↑虚拟局 ↑当次决策
 ```
 
-### 12.4 推理与课程
+#### 实现
+
+纯函数 `rl_pytorch/curriculum_feedback.compute_curriculum_action`（pytest 覆盖 16/16）；主循环每 `checkEvery` 局调用一次写回 `_virtual_ep`。可通过 `RL_ADAPTIVE_CURRICULUM=0` 退回固定线性课程。
+
+### 12.4 分位数自适应课程（v11.2 引入，**新默认**）
+
+`rlCurriculum.mode = "quantile"` 时（v11.2 起为默认），完全去掉手工 `winThresholdEnd`，让胜利门槛等于近 N 局分数分布的第 p 分位数：
+
+$$
+\text{thr}_t = \text{EMA}\left(\text{percentile}(\text{recent\_scores}_t, p), \alpha\right)
+$$
+
+数学上有恒等式 $P(\text{score}_t \ge \text{thr}_t) = 1 - p/100$ — 例如 `p=70` → win_rate 自然收敛到 30%，**无论模型当前能力如何**。
+
+#### 设计动机
+
+v11 闭环虽然解决了"只升不降"的问题，但 `winThresholdEnd` 仍是写死的硬上限——这等价于在配置文件里**预先猜模型最终能力**，每次模型升级（架构/算力/算法）都要重设。借鉴 OpenAI Five / AlphaStar 的 **percentile-based reward** 思想，但更朴素：不改奖励函数本体，只让 `winBonus` 触发阈值随分布漂移，把"猜模型上限"这个隐性超参从配置层删掉。
+
+三模式横向对比详见 [§12.6 选型决策](#126-课程模式选型决策)。
+
+#### 状态机
+
+```
+score_history (collections.deque, maxlen=500)
+    │
+    ├── n < bootstrapEpisodes (100):  action=bootstrap, thr=40
+    ├── 首次有效计算           :   action=ema_init, thr=ema=percentile
+    └── 后续                   :   action=quantile, ema = α·target + (1-α)·ema
+```
+
+#### 配置（`shared/game_rules.json → rlCurriculum.quantile`）
+
+```json
+{
+  "mode": "quantile",
+  "quantile": {
+    "p": 70,
+    "windowEpisodes": 500,
+    "emaAlpha": 0.05,
+    "bootstrapEpisodes": 100,
+    "bootstrapThreshold": 40,
+    "floor": 40,
+    "ceil": 9999
+  }
+}
+```
+
+#### 训练日志字段（v11.2）
+
+```
+ep 500 | ... | thr=287  [quant p70 tgt=295 ema=287.4 n=500 act=quantile] | sc=312 avg100=255.6 win%=31.5% | ...
+                          ↑分位数 ↑窗口分位     ↑EMA    ↑样本   ↑分支
+```
+
+- `tgt=295`：近 500 局得分的 70 分位 = 295
+- `ema=287.4`：EMA 平滑后的内部状态
+- `thr=287`：clip 后实际生效的整数阈值（注意 `floor=40` 兜底）
+- `act` 三态：`bootstrap` / `ema_init` / `quantile`
+
+#### 实现
+
+纯函数 `rl_pytorch/curriculum_quantile.compute_quantile_threshold`（pytest 覆盖 21/21，含统计性质验证 `P(win) ≈ 1 - p/100`）；主循环每 batch 调用一次写回 `cur_win_thr`。可通过 `RL_CURRICULUM_MODE=linear` 或 `RL_CURRICULUM_MODE=adaptive` 切回旧模式。
+
+#### 与 v11 闭环的关系
+
+quantile 模式下 v11 的 `compute_curriculum_action` 不再启用（mode 互斥）。若需"分位数控难度 + 闭环监控胜率偏移"组合，下一版可让 v11 在 quantile 下退化为 observer（只打 alert 不调 thr）。当前实现保持简洁：三模式互斥，避免双控制环耦合。
+
+### 12.5 推理与课程
 
 **推理时**统一用 `WIN_SCORE_THRESHOLD = 220`（产品常量），不读 curriculum。仅训练时算"是否赢"用 `sim.win_score_threshold`。
 
 > ⚠️ **已知不一致**：浏览器 `RlGameplayEnvironment.won` 用固定 220，与 Python `collect_episode` 的动态门槛不一致。如做严格对照，需对齐。
+
+### 12.6 课程模式选型决策
+
+三模式互斥共存，由 `rlCurriculum.mode` 或环境变量 `RL_CURRICULUM_MODE` 选择。
+
+#### 12.6.1 横向对比矩阵
+
+| 维度 | `linear`（v8 默认） | `adaptive`（v11） | `quantile`（v11.2，**当前默认**） |
+|---|---|---|---|
+| **`thr` 来源** | `start + (end-start)·ep/ramp` | 同 linear 公式，`ep` → `virtual_ep`（闭环调） | `EMA(percentile(recent_scores, p))` |
+| **输入信号** | episode 计数 | win/lose 序列 | score 数值序列 |
+| **手工硬上限** | `winThresholdEnd` | 同左（仍受 End 限制） | **无** |
+| **数学保证** | 无 | win_rate → target（受 End 限制） | `P(win) ≡ 1 - p/100`（严格恒等式） |
+| **抗模型升级** | ❌ End 被穿透即失效 | ⚠️ End 仍是天花板 | ✅ 阈值自动随分布漂移 |
+| **手工超参** | 3（Start/End/Ramp） | 13（含 4 档带宽 + rollback） | 7（仅 p 一阶关键） |
+| **对应实现** | `rl_win_threshold_for_episode` | `compute_curriculum_action` | `compute_quantile_threshold` |
+| **细节章节** | [§12.2](#122-默认课程shared_game_rulesjsonrlcurriculum) | [§12.3](#123-自适应课程v8-引入v11-闭环化) | [§12.4](#124-分位数自适应课程v112-引入新默认) |
+
+#### 12.6.2 选型决策树
+
+```
+是否需要复现旧实验 / A/B 对照？
+├── 是 → mode=linear（保留固定曲线）
+└── 否
+    └── 模型能力上限是否事先已知（如复现已发表论文）？
+        ├── 是 → mode=adaptive（手工设 End，享受闭环加速）
+        └── 否（生产场景常见）→ mode=quantile（推荐，零调参）
+```
+
+#### 12.6.3 切换路径与回滚
+
+| 切换方向 | 触发条件 | 操作 | 回滚策略 |
+|---|---|---|---|
+| linear → quantile | win_rate 长期 ≥ 90% + Lv 高位震荡 | `mode: "quantile"` 或 `RL_CURRICULUM_MODE=quantile` | 直接回退环境变量，无 checkpoint 兼容问题 |
+| quantile → adaptive | 想精确控住目标 win_rate=50% | 同上，env=adaptive | 同上 |
+| 任意 → 关闭 | 短期 sanity check / debug | `RL_CURRICULUM=0` | 直接取消环境变量 |
+
+> ⚠️ **切换时不需重训**：三模式只改变训练时 `sim.win_score_threshold` 的算法，不改变网络/奖励/损失。同一 checkpoint 可在三模式下接力训练，但**统计指标（win_rate, avg_score）需要 200 ep 左右才能收敛到新模式的稳态**，期间日志可能看似异常。
+
+#### 12.6.4 与其他奖励整形模块的关系
+
+| 模块 | 与课程模式的关系 |
+|---|---|
+| `Ranked Reward`（[§5.3](#53-终局惩罚)）| 独立运行，**不互斥**；在 score 层做分位奖励 |
+| `winBonus`（sparse） | 触发阈值由课程模式决定；本身不变 |
+| `smoothWinBonus` (B, [§12.7](#127-后续演进路线v12-备选方案)) | **替代** sparse `winBonus`，与三种课程模式正交叠加 |
+| `rndCuriosity` (C, [§12.7](#127-后续演进路线v12-备选方案)) | **叠加**到每步 reward，与三种课程模式正交叠加 |
+| `potential` shaping | 与课程模式完全无关 |
+| `辅助监督头`（hole/clear/topo） | 同上 |
+
+---
+
+### 12.7 后续演进路线（v12+ 备选方案）
+
+v11.2 解决了"`thr` 设定方式"的问题；剩余两类训练信号缺陷在 v11.2 已落地为 **opt-in 完整实现 + 默认 off + 触发监测**：未启用前不会改变当前训练曲线，触发条件成立时一行 JSON / 环境变量即可启用。
+
+#### 12.7.1 三个 P-tier 方案对比
+
+| 方案 | 解决问题 | 实施位置 | 启用方式 | 默认 off 的原因 |
+|---|---|---|---|---|
+| **B：平滑奖励整形**<br>（smoothWinBonus） | sparse `winBonus` 在阈值附近的 0/35 跳变让 V 头难拟合 | `rl_pytorch/reward_shaping_smooth.py` + `simulator.py` (屏蔽 sparse) + `train.py` (注入 smooth) | `RL_SMOOTH_WIN_BONUS=1` 或 `rlRewardShaping.smoothWinBonus.enabled=true` | 改变奖励量级 → 旧 checkpoint V 头会失配；需重训或长 warmup |
+| **C：RND Curiosity**<br>（rndCuriosity） | 高 ep 后探索退化（entropy → 0 + 策略陷入"短而稳"局部最优） | `rl_pytorch/intrinsic_rnd.py`（双 MLP + Welford 归一化 + 触发监测）+ `train.py` (集成) | `RL_RND=1` 或 `rlRewardShaping.rndCuriosity.enabled=true`<br>**+ 即使 disabled 也定期评估触发条件并打 alert** | 50k+ ep 前探索通常未塌缩；过早启用会引入未必需要的内在动机干扰已收敛策略 |
+| **D：League / PBT** | — | — | — | **不适用**（OpenBlock 单玩家环境，无对手概念可建模） |
+
+#### 12.7.2 B 方案：平滑奖励整形
+
+**核心公式**（与 `game_rules.json -> rlRewardShaping.smoothWinBonus` 字段对齐）：
+
+$$
+r_{\text{terminal}} = w_{\text{winBonus}} \cdot \tanh\!\left(\operatorname{clip}\!\left(\frac{\text{final\_score} - \mu}{\sigma},\ \pm c\right)\right)
+$$
+
+- $\mu = \mathrm{percentile}_{p_{\text{target}}}(\text{近 N 局 score})$，默认 $p_{50}$
+- $\sigma = \mathrm{percentile}_{p_{\text{high}}} - \mathrm{percentile}_{p_{\text{low}}}$，默认 IQR，下限 `spanFloor=5`
+- $c$ = `saturationClip` = 1.5（让 $\pm 1.5\sigma$ 进入 $\pm 0.905\,w_{\text{winBonus}}$）
+- bootstrap 期（前 `bootstrapEpisodes=200` 局）用固定 `bootstrapTarget=100` / `bootstrapSpan=60`
+
+**与 sparse 的关键差异**：
+
+| 行为 | sparse `winBonus` | smooth (B) |
+|---|---|---|
+| score = target | 0（未触发） | 0 |
+| score = target + σ | 0 或 `winBonus`（视 thr） | `tanh(1)·winBonus ≈ 26.6` |
+| score = target − σ | 0 | `−26.6`（强负反馈） |
+| 永远有梯度信号 | ✗ | ✓ |
+
+**何时启用**：实际训练 5k+ ep 后 `Lv` 仍长期 > 10 且 V 拟合曲线（图 6）误差 > 30%。详见 [RL_ALPHAZERO_OPTIMIZATION §9.1.z](./RL_ALPHAZERO_OPTIMIZATION.md#91z-课程后续演进路线v12-备选方案)。
+
+#### 12.7.3 C 方案：RND Curiosity
+
+**核心公式**（[Burda et al. 2018, arXiv:1810.12894](https://arxiv.org/pdf/1810.12894)）：
+
+$$
+r_{\text{intrinsic}}(s) = \beta \cdot \frac{\left\| f_{\text{target}}(s) - f_{\text{predictor}}(s) \right\|^2}{\sigma_{\text{normalizer}}}
+$$
+
+- $f_{\text{target}}$：随机初始化的小 MLP，参数永远冻结
+- $f_{\text{predictor}}$：在线学习预测 $f_{\text{target}}$ 输出（仅它有梯度）
+- $\sigma_{\text{normalizer}}$：Welford running std，让 β 在不同任务/模型上可比
+
+**自动触发监测**（即使 disabled 也会定期评估并打 alert）：
+
+| 触发条件 | 判定式 | alert 示例 |
+|---|---|---|
+| `score_stall` | 近 `scoreSlopeWindow=5000` ep 内 \|slope\| < `scoreSlopeThreshold=1e-3` | `RND Trigger: score_stall \| 斜率 \|0.00042\| < 0.001` |
+| `entropy_collapse` | entropy < `entropyCollapseThreshold=0.2` 且 avg_score < `expectedScoreAtCollapse × 0.8` | `RND Trigger: entropy_collapse \| entropy 0.087 < 0.2 且 ...` |
+| `manual` | `manual_force=True` 强制 | `RND Trigger: manual` |
+
+**何时启用**：alert 触发后，或主动观察到 entropy 持续低于 0.2 + score 停滞。详见 [RL_ALPHAZERO_OPTIMIZATION §9.1.z](./RL_ALPHAZERO_OPTIMIZATION.md#91z-课程后续演进路线v12-备选方案)。
+
+#### 12.7.4 设计原则
+
+1. **触发条件可观测**：通过看板指标或 alert 自动判断，而非定期"升级"
+2. **与现有模式正交**：B / C 不破坏 `linear` / `adaptive` / `quantile` 三态契约
+3. **可一键回滚**：环境变量或 JSON 字段开关
+4. **默认 off + 监测优先**：未触发条件前不主动启用，避免预先施加未必需要的压力
 
 ---
 
