@@ -1216,4 +1216,88 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         { yMinFloor: 0, robustClip: true, emptyMessage: replayEmpty || undefined },
         replayHelp
     );
+
+    // ── 图 9：课程门槛与得分分位（v11.2）─────────────────────────────────
+    const winThreshold = rows.map((r) => (typeof r.win_threshold === 'number' ? r.win_threshold : NaN));
+    const quantTarget = rows.map((r) => (typeof r.quantile_target === 'number' ? r.quantile_target : NaN));
+    const quantEma = rows.map((r) => (typeof r.quantile_ema === 'number' ? r.quantile_ema : NaN));
+    const winRateRecent = rows.map((r) => (
+        typeof r.win_rate_recent === 'number'
+            ? r.win_rate_recent * 100  // 0..1 → 0..100，与得分对齐尺度
+            : NaN
+    ));
+    const hasCurriculumFields = [winThreshold, quantTarget, quantEma].some(hasFinite);
+    const currMode = (() => {
+        for (let i = rows.length - 1; i >= 0; i--) {
+            const m = rows[i] && rows[i].curriculum_mode;
+            if (typeof m === 'string' && m) return m;
+        }
+        return null;
+    })();
+    const curriculumEmpty = !hasCurriculumFields
+        ? '当前日志没有 win_threshold / quantile_* 字段；离线 PyTorch 训练（python -m rl_pytorch.train）启用 mode=quantile 后会写入。'
+        : !quantTarget.some(Number.isFinite)
+            ? `当前课程模式：${currMode || '未知'}（非 quantile）。仅 quantile 模式会写入 target/ema 曲线，linear/adaptive 仅有 win_threshold 一条线。`
+            : '';
+    const curriculumHelp = combinePanelHelp(
+        '本图：课程门槛（thr）随训练演进，quantile 模式下叠加 score 第 p 分位数（target）与 EMA 平滑后的内部状态（ema）。三线接近重合表示门槛已稳定贴合 score 分布；target 与 ema 持续偏离（>15% 长期）说明 emaAlpha 偏小、响应滞后。win_rate_recent（虚线）以百分比绘制，便于与 thr 跨尺度对照——quantile 模式下应稳定在 (1 - p/100) × 100 附近。详见 [ALGORITHMS_RL §12.4](./ALGORITHMS_RL.md#124-分位数自适应课程v112-引入新默认)。',
+        (() => {
+            if (!hasCurriculumFields) return '日志无课程字段，看板无可绘制曲线。';
+            const tgt = windowMetric(quantTarget, SUMMARY_N);
+            const ema = windowMetric(quantEma, SUMMARY_N);
+            const thr = windowMetric(winThreshold, SUMMARY_N);
+            const wr = windowMetric(winRateRecent, SUMMARY_N);
+            if (currMode === 'quantile' && tgt.avg != null && ema.avg != null) {
+                const dev = tgt.avg > 0 ? Math.abs(tgt.avg - ema.avg) / tgt.avg : 0;
+                const note = dev > 0.15
+                    ? `target↔ema 偏离 ${(dev * 100).toFixed(0)}%（>15%），EMA 跟得慢；考虑提高 emaAlpha。`
+                    : 'target↔ema 收敛良好。';
+                return `thr ${fmtHelpNumber(thr.avg, 0)}，target ${fmtHelpNumber(tgt.avg, 0)}，ema ${fmtHelpNumber(ema.avg, 1)}，win_rate ${fmtHelpNumber(wr.avg, 1)}%。${note}`;
+            }
+            return `课程模式：${currMode || '未知'}；thr 平均 ${fmtHelpNumber(thr.avg, 0)}，最近胜率 ${fmtHelpNumber(wr.avg, 1)}%。`;
+        })(),
+        updatedAt
+    );
+
+    mk(
+        '课程门槛与得分分位（v11.2）',
+        [
+            {
+                label: 'win threshold',
+                color: '#bf360c',
+                y: winThreshold,
+                lineWidth: 2.0,
+                legendHint:
+                    '日志字段 win_threshold：当前 batch 实际生效的胜利分数门槛。linear/adaptive 模式下沿固定曲线/虚拟局数推进；quantile 模式下等于 clip(ema, floor, ceil) 的整数化结果。',
+            },
+            {
+                label: 'quantile target (p)',
+                color: '#1565c0',
+                y: quantTarget,
+                lineWidth: 1.5,
+                dash: [4, 3],
+                legendHint:
+                    '日志字段 quantile_target：近 windowEpisodes 局 score 的第 p 分位数原始值。仅 quantile 模式写入。模型能力上升时该线应同步上扬。',
+            },
+            {
+                label: 'quantile EMA',
+                color: '#00838f',
+                y: quantEma,
+                lineWidth: 1.5,
+                legendHint:
+                    '日志字段 quantile_ema：EMA(target, α) 平滑后的内部状态。win_threshold 实际取整后由此计算。target 与 ema 持续偏离 → 调大 emaAlpha。',
+            },
+            {
+                label: 'win_rate × 100',
+                color: '#6a1b9a',
+                y: winRateRecent,
+                lineWidth: 1.0,
+                dash: [2, 2],
+                legendHint:
+                    '日志字段 win_rate_recent（已 ×100 缩放到与 thr 同尺度方便对照）：本 log 段内胜率。quantile 模式下应稳定在 (1 - p/100) × 100 附近——若偏低说明策略最近大量崩盘，偏高说明 score 分布短期暴涨。',
+            },
+        ],
+        { yMinFloor: 0, robustClip: true, emptyMessage: curriculumEmpty || undefined },
+        curriculumHelp
+    );
 }

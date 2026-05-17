@@ -1979,18 +1979,166 @@ def train_loop(
         _baseline_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
         _best_ever_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
 
-    # --- 自适应课程（v8）---
+    # --- 课程模式三选一（v11.2，详见 rl_pytorch/game_rules.py:rl_curriculum_mode）---
+    #   linear   = 固定线性 ramp（v8 默认）
+    #   adaptive = v11 闭环（compute_curriculum_action 调 virtual_ep 间接调 thr）
+    #   quantile = v11.2 分位数自适应（compute_quantile_threshold 直接计算 thr）
+    from .curriculum_feedback import compute_curriculum_action  # local import 避免循环
+    from .curriculum_quantile import compute_quantile_threshold
+    from .game_rules import rl_curriculum_mode, rl_quantile_config
+
+    _curr_mode = rl_curriculum_mode() if rl_curriculum_enabled() else "linear"
     _adap_cfg = rl_adaptive_curriculum_config()
-    _use_adaptive = _adap_cfg.get("enabled", False) and rl_curriculum_enabled()
+    _use_adaptive = _curr_mode == "adaptive" and _adap_cfg.get("enabled", False) and rl_curriculum_enabled()
+    _use_quantile = _curr_mode == "quantile" and rl_curriculum_enabled()
+
+    # v11 adaptive 状态（仅 _use_adaptive 时使用）
     _adap_window = int(_adap_cfg.get("window", 200))
-    _adap_target_wr = float(_adap_cfg.get("targetWinRate", 0.5))
-    _adap_step_up = float(_adap_cfg.get("stepUp", 2))
-    _adap_step_down = float(_adap_cfg.get("stepDown", 0))
     _adap_check_every = int(_adap_cfg.get("checkEvery", 50))
-    # 虚拟局数：课程推进速度由滑动胜率决定，可快于/慢于实际局数
     _virtual_ep: float = 0.0
     _win_history: collections.deque = collections.deque(maxlen=_adap_window)
     _last_adap_check_ep: int = 0
+    _last_adap_action: str = "warmup"
+    _last_adap_wr: float = -1.0
+    _adap_action_counts: dict[str, int] = {
+        "accel": 0, "hold": 0, "pause": 0,
+        "rollback": 0, "severe": 0, "warmup": 0,
+    }
+
+    # v11.2 quantile 状态（仅 _use_quantile 时使用）
+    _quant_cfg = rl_quantile_config()
+    _quant_window = int(_quant_cfg.get("windowEpisodes", 500))
+    _quant_score_history: collections.deque = collections.deque(maxlen=_quant_window)
+    _quant_ema: float = 0.0
+    _quant_ema_inited: bool = False
+    _quant_last_thr: int = int(_quant_cfg.get("bootstrapThreshold", 40))
+    _quant_last_action: str = "bootstrap"
+    _quant_last_target: float = -1.0
+
+    # v11.2 方案 B：平滑奖励整形（opt-in，默认 off）
+    from .reward_shaping_smooth import compute_smooth_terminal_reward
+    from .game_rules import rl_smooth_win_bonus_config
+
+    _smooth_cfg = rl_smooth_win_bonus_config()
+    _use_smooth_wb = bool(_smooth_cfg.get("enabled", False))
+    _smooth_window = int(_smooth_cfg.get("windowEpisodes", 500))
+    _smooth_score_history: collections.deque = (
+        collections.deque(maxlen=_smooth_window) if _use_smooth_wb else collections.deque(maxlen=1)
+    )
+    _smooth_last_target: float = 0.0
+    _smooth_last_span: float = 0.0
+    _smooth_last_action: str = "off"
+    _smooth_last_reward: float = 0.0
+    _wb_default = float((RL_REWARD_SHAPING or {}).get("winBonus") or 0.0)
+    if _use_smooth_wb:
+        # 通过 env 让 simulator（worker pool 子进程也能继承）跳过 sparse winBonus
+        os.environ["RL_SMOOTH_WIN_BONUS"] = "1"
+        print(
+            f"  Smooth winBonus (方案 B): enabled  win_bonus={_wb_default}  "
+            f"target=p{_smooth_cfg.get('targetPercentile')}  "
+            f"span=[p{_smooth_cfg.get('spanLowPercentile')}, p{_smooth_cfg.get('spanHighPercentile')}]  "
+            f"window={_smooth_window}  saturationClip={_smooth_cfg.get('saturationClip')}",
+            file=sys.stderr,
+        )
+
+    # v11.2 方案 C：RND Curiosity（opt-in，默认 off + trigger 监测）
+    from .game_rules import rl_rnd_curiosity_config
+    from .intrinsic_rnd import (
+        RNDConfig,
+        RNDRewardNormalizer,
+        compute_rnd_trigger,
+    )
+
+    _rnd_cfg = rl_rnd_curiosity_config()
+    _use_rnd = bool(_rnd_cfg.get("enabled", False))
+    _rnd_trigger_every = int(_rnd_cfg.get("triggerCheckEvery", 2000))
+    _rnd_avg_score_history: list[float] = []
+    _rnd_entropy_history: list[float] = []
+    _last_rnd_trigger_ep = 0
+    _last_rnd_trigger: dict = {}
+
+    _rnd_target = None
+    _rnd_predictor = None
+    _rnd_opt = None
+    _rnd_normalizer = RNDRewardNormalizer()
+    _rnd_last_intrinsic_mean = 0.0
+    _rnd_last_intrinsic_max = 0.0
+    _rnd_last_predictor_loss = 0.0
+    _rnd_last_grad_norm = 0.0
+    _rnd_step_counter = 0
+    _rnd_update_every_steps = int(_rnd_cfg.get("updateEverySteps", 1))
+
+    if _use_rnd:
+        _rnd_strict_cfg = RNDConfig(
+            enabled=True,
+            state_dim=int(_rnd_cfg.get("stateDim", 42)),
+            hidden_dim=int(_rnd_cfg.get("hiddenDim", 64)),
+            output_dim=int(_rnd_cfg.get("outputDim", 32)),
+            beta=float(_rnd_cfg.get("beta", 0.1)),
+            learning_rate=float(_rnd_cfg.get("learningRate", 1e-4)),
+            update_every_steps=_rnd_update_every_steps,
+            normalize_intrinsic=bool(_rnd_cfg.get("normalizeIntrinsic", True)),
+            grad_clip=float(_rnd_cfg.get("gradClip", 5.0)),
+        )
+        from .intrinsic_rnd import build_rnd_networks
+        _rnd_target, _rnd_predictor, _rnd_opt = build_rnd_networks(_rnd_strict_cfg, device=device)
+        print(
+            f"  RND Curiosity (方案 C): enabled  β={_rnd_strict_cfg.beta}  "
+            f"hidden={_rnd_strict_cfg.hidden_dim}  out={_rnd_strict_cfg.output_dim}  "
+            f"lr={_rnd_strict_cfg.learning_rate}  normalize={_rnd_strict_cfg.normalize_intrinsic}",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"  RND Curiosity (方案 C): disabled  (trigger check every {_rnd_trigger_every} ep, "
+            f"minEpisode={_rnd_cfg.get('minEpisode')})",
+            file=sys.stderr,
+        )
+
+    # ----- 训练日志 JSONL（与 rl_backend.py 同 schema，看板 rlTrainingCharts.js 可读）-----
+    _training_log_env = os.environ.get("RL_TRAINING_LOG", "").strip()
+    _training_log_path: Path | None = Path(_training_log_env) if _training_log_env else None
+    if _training_log_path is not None:
+        _training_log_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"  Training JSONL: {_training_log_path}", file=sys.stderr)
+
+    def _append_training_jsonl(entry: dict) -> None:
+        """与 rl_backend._append_training_log 字段对齐，看板可同时读取离线/在线日志。"""
+        if _training_log_path is None:
+            return
+        try:
+            row = {"ts": int(time.time()), **entry}
+            with open(_training_log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError:
+            pass  # 写日志失败不应阻塞训练
+
+    if _use_quantile:
+        print(
+            f"  Curriculum 模式: quantile  p={_quant_cfg.get('p')}  "
+            f"window={_quant_window}  emaAlpha={_quant_cfg.get('emaAlpha')}  "
+            f"bootstrap={_quant_cfg.get('bootstrapEpisodes')}ep@{_quant_cfg.get('bootstrapThreshold')}分  "
+            f"(目标 win_rate≈{100 - float(_quant_cfg.get('p', 70)):.0f}%)",
+            file=sys.stderr,
+        )
+    elif _use_adaptive:
+        print(
+            f"  Curriculum 模式: adaptive (v11)  window={_adap_window}  "
+            f"checkEvery={_adap_check_every}  target_wr={_adap_cfg.get('targetWinRate')}",
+            file=sys.stderr,
+        )
+    else:
+        from .game_rules import _DATA as _GR_DATA  # type: ignore[attr-defined]
+        if rl_curriculum_enabled():
+            _lin_cfg = _GR_DATA.get("rlCurriculum", {})
+            print(
+                f"  Curriculum 模式: linear  start={_lin_cfg.get('winThresholdStart', 40)}"
+                f"->end={_lin_cfg.get('winThresholdEnd', 600)} "
+                f"over {_lin_cfg.get('rampEpisodes', 40000)} ep",
+                file=sys.stderr,
+            )
+        else:
+            print("  Curriculum: 已禁用（固定 winScoreThreshold）", file=sys.stderr)
 
     # --- Ranked Reward（single-player self-play）：把绝对分数转成滚动分位奖励 ---
     _rank_cfg = _ranked_reward_config()
@@ -2120,9 +2268,28 @@ def train_loop(
                 for pg in opt.param_groups:
                     pg["lr"] = effective_lr
 
-            # --- 自适应课程：计算当前有效胜利门槛 ---
-            if _use_adaptive:
-                cur_win_thr: int | None = rl_win_threshold_from_virtual_ep(int(_virtual_ep))
+            # --- 课程：计算当前有效胜利门槛（mode 互斥）---
+            if _use_quantile:
+                _q_dec = compute_quantile_threshold(
+                    score_history=_quant_score_history,
+                    ema_state=_quant_ema,
+                    p=float(_quant_cfg.get("p", 70.0)),
+                    ema_alpha=float(_quant_cfg.get("emaAlpha", 0.05)),
+                    bootstrap_episodes=int(_quant_cfg.get("bootstrapEpisodes", 100)),
+                    bootstrap_threshold=int(_quant_cfg.get("bootstrapThreshold", 40)),
+                    floor=int(_quant_cfg.get("floor", 40)),
+                    ceil=int(_quant_cfg.get("ceil", 9999)),
+                    ema_initialized=_quant_ema_inited,
+                )
+                _quant_ema = _q_dec.new_ema
+                if _q_dec.action in ("ema_init", "quantile"):
+                    _quant_ema_inited = True
+                _quant_last_thr = _q_dec.new_threshold
+                _quant_last_action = _q_dec.action
+                _quant_last_target = _q_dec.target_quantile
+                cur_win_thr: int | None = _q_dec.new_threshold
+            elif _use_adaptive:
+                cur_win_thr = rl_win_threshold_from_virtual_ep(int(_virtual_ep))
             else:
                 cur_win_thr = None  # None = collect_episode 内部按线性课程计算
 
@@ -2183,6 +2350,89 @@ def train_loop(
                 _ranked_last_avg = float(np.mean(ranked_vals)) if ranked_vals else 0.0
                 _ranked_last_pct = float(np.mean(ranked_pcts)) if ranked_pcts else 0.5
 
+            # v11.2 方案 B：终局奖励整形（注入到本批每局 traj 最后一步）
+            # 注意顺序：先用"上一批分布"计算 smooth_reward 注入本批，再追加本批分数
+            # 到 history（避免本批分数自我影响）。
+            if _use_smooth_wb:
+                for ep in batch:
+                    _sdec = compute_smooth_terminal_reward(
+                        final_score=float(ep["score"]),
+                        score_history=_smooth_score_history,
+                        enabled=True,
+                        win_bonus=_wb_default,
+                        target_percentile=float(_smooth_cfg.get("targetPercentile", 50.0)),
+                        span_low_percentile=float(_smooth_cfg.get("spanLowPercentile", 25.0)),
+                        span_high_percentile=float(_smooth_cfg.get("spanHighPercentile", 75.0)),
+                        bootstrap_episodes=int(_smooth_cfg.get("bootstrapEpisodes", 200)),
+                        bootstrap_target=float(_smooth_cfg.get("bootstrapTarget", 100.0)),
+                        bootstrap_span=float(_smooth_cfg.get("bootstrapSpan", 60.0)),
+                        span_floor=float(_smooth_cfg.get("spanFloor", 5.0)),
+                        saturation_clip=float(_smooth_cfg.get("saturationClip", 1.5)),
+                    )
+                    _traj = ep.get("trajectory") or []
+                    if _traj and abs(_sdec.reward) > 1e-12:
+                        _traj[-1]["reward"] = float(_traj[-1].get("reward", 0.0)) + _sdec.reward
+                    ep["smooth_reward"] = _sdec.reward
+                    _smooth_last_target = _sdec.target
+                    _smooth_last_span = _sdec.span
+                    _smooth_last_action = _sdec.action
+                    _smooth_last_reward = _sdec.reward
+
+            # v11.2 方案 C：RND intrinsic reward 注入（仅 _use_rnd 时）
+            if _use_rnd and _rnd_target is not None and _rnd_predictor is not None:
+                import numpy as _rnd_np
+                _rnd_all_states: list = []
+                _rnd_step_indices: list[tuple[int, int]] = []  # (ep_idx, step_idx)
+                for _ep_idx, _ep in enumerate(batch):
+                    _traj = _ep.get("trajectory") or []
+                    for _step_idx, _tr in enumerate(_traj):
+                        # trajectory step 用 'state' 存 extract_state_features 的输出
+                        # shape=(STATE_FEATURE_DIM,)；RND 直接复用该特征空间
+                        _sf = _tr.get("state")
+                        if _sf is None:
+                            continue
+                        if hasattr(_sf, "shape"):
+                            if _sf.shape[-1] != _rnd_strict_cfg.state_dim:
+                                continue
+                        elif len(_sf) != _rnd_strict_cfg.state_dim:
+                            continue
+                        _rnd_all_states.append(_sf)
+                        _rnd_step_indices.append((_ep_idx, _step_idx))
+                if _rnd_all_states:
+                    import torch as _t
+                    from .intrinsic_rnd import compute_intrinsic_reward
+                    _arr = _rnd_np.stack([_rnd_np.asarray(s, dtype=_rnd_np.float32) for s in _rnd_all_states])
+                    _states_t = _t.from_numpy(_arr).to(device)
+                    _rewards_t, _pred_loss = compute_intrinsic_reward(
+                        _rnd_target, _rnd_predictor, _states_t,
+                    )
+                    _rewards_cpu = _rewards_t.cpu().numpy().tolist()
+                    # 内在 reward 归一化 + 加权注入到 trajectory step
+                    if _rnd_strict_cfg.normalize_intrinsic:
+                        _rnd_normalizer.update_batch(_rewards_cpu)
+                        _rewards_norm = _rnd_normalizer.normalize_many(_rewards_cpu)
+                    else:
+                        _rewards_norm = list(_rewards_cpu)
+                    for _i, (_ep_idx, _step_idx) in enumerate(_rnd_step_indices):
+                        _ri = _rnd_strict_cfg.beta * float(_rewards_norm[_i])
+                        batch[_ep_idx]["trajectory"][_step_idx]["reward"] = (
+                            float(batch[_ep_idx]["trajectory"][_step_idx].get("reward", 0.0)) + _ri
+                        )
+                    _rnd_last_intrinsic_mean = float(sum(_rewards_cpu) / max(1, len(_rewards_cpu)))
+                    _rnd_last_intrinsic_max = float(max(_rewards_cpu))
+                    _rnd_last_predictor_loss = float(_pred_loss.item())
+                    # predictor 训练一步
+                    _rnd_step_counter += 1
+                    if _rnd_step_counter % max(1, _rnd_update_every_steps) == 0:
+                        _rnd_opt.zero_grad()
+                        _pred_loss.backward()
+                        _gn = _t.nn.utils.clip_grad_norm_(
+                            _rnd_predictor.parameters(), _rnd_strict_cfg.grad_clip,
+                        )
+                        _rnd_opt.step()
+                        _rnd_last_grad_norm = float(_gn.item()) if hasattr(_gn, "item") else float(_gn)
+
+            # ── 本批分数 / 胜负累计（必须在 reward 整形之后，使 history 用最终 reward 视角的 score）──
             for ep in batch:
                 scores.append(ep["score"])
                 won = ep["won"]
@@ -2190,24 +2440,71 @@ def train_loop(
                     wins += 1
                 if _use_adaptive:
                     _win_history.append(1 if won else 0)
+                if _use_quantile:
+                    _quant_score_history.append(float(ep["score"]))
+                if _use_smooth_wb:
+                    _smooth_score_history.append(float(ep["score"]))
+
+            # ── RND trigger 监测（即使 disabled 也定期评估并在触发时打 alert）──
+            if (ep_cursor + bs) - _last_rnd_trigger_ep >= _rnd_trigger_every:
+                _last_rnd_trigger_ep = ep_cursor + bs
+                # 累计 trigger 评估所需的轻量历史（每 log 段一个点）
+                if scores:
+                    _rnd_avg_score_history.append(sum(scores[-min(len(scores), 100):]) / min(len(scores), 100))
+                _trig = compute_rnd_trigger(
+                    episode=ep_cursor + bs,
+                    avg_score_history=_rnd_avg_score_history,
+                    entropy_history=_rnd_entropy_history,
+                    min_episode=int(_rnd_cfg.get("minEpisode", 50000)),
+                    score_slope_window=int(_rnd_cfg.get("scoreSlopeWindow", 5000)),
+                    score_slope_threshold=float(_rnd_cfg.get("scoreSlopeThreshold", 1e-3)),
+                    entropy_collapse_threshold=float(_rnd_cfg.get("entropyCollapseThreshold", 0.2)),
+                    expected_score_at_collapse=(
+                        float(_rnd_cfg["expectedScoreAtCollapse"])
+                        if _rnd_cfg.get("expectedScoreAtCollapse") is not None
+                        else None
+                    ),
+                    score_collapse_ratio=float(_rnd_cfg.get("scoreCollapseRatio", 0.8)),
+                )
+                _last_rnd_trigger = {
+                    "should_enable": _trig.should_enable,
+                    "reason": _trig.reason,
+                    "metric_value": _trig.metric_value,
+                    "explanation": _trig.explanation,
+                }
+                if _trig.should_enable and not _use_rnd:
+                    print(
+                        f"  ⚠️  RND Trigger: {_trig.reason} | {_trig.explanation} | "
+                        f"建议设 RL_RND=1 或 game_rules.json rndCuriosity.enabled=true",
+                        file=sys.stderr,
+                    )
             ep_cursor += bs
 
-            # --- 自适应课程：每 checkEvery 局更新虚拟进度 ---
+            # --- 自适应课程：每 checkEvery 局做一次四档闭环反馈（v11） ---
             if _use_adaptive and ep_cursor - _last_adap_check_ep >= _adap_check_every:
                 _last_adap_check_ep = ep_cursor
-                if len(_win_history) >= 10:
-                    recent_wr = sum(_win_history) / len(_win_history)
-                    if recent_wr > _adap_target_wr:
-                        # 超过目标胜率：加速推进（额外增加虚拟局数）
-                        _virtual_ep += _adap_step_up * _adap_check_every
-                    elif recent_wr < _adap_target_wr * 0.6:
-                        # 远低于目标：暂停推进（保持当前虚拟局数）
-                        _virtual_ep += max(0.0, _adap_step_down * _adap_check_every)
-                    else:
-                        # 正常范围：按实际局数推进
-                        _virtual_ep += float(_adap_check_every)
-                else:
-                    _virtual_ep += float(_adap_check_every)
+                _decision = compute_curriculum_action(
+                    win_history=_win_history,
+                    virtual_ep=_virtual_ep,
+                    target_win_rate=float(_adap_cfg.get("targetWinRate", 0.5)),
+                    accel_band=float(_adap_cfg.get("accelBand", 0.1)),
+                    hold_band=float(_adap_cfg.get("holdBand", 0.1)),
+                    low_win_rate_band=float(_adap_cfg.get("lowWinRateBand", 0.2)),
+                    severe_win_rate_band=float(_adap_cfg.get("severeWinRateBand", 0.4)),
+                    step_up=float(_adap_cfg.get("stepUp", 2)),
+                    step_down=float(_adap_cfg.get("stepDown", 1.0)),
+                    check_every=int(_adap_check_every),
+                    min_virtual_ep=float(_adap_cfg.get("minVirtualEp", 0)),
+                    rollback_on_severe_drop=bool(_adap_cfg.get("rollbackOnSevereDrop", True)),
+                    severe_rollback_factor=float(_adap_cfg.get("severeRollbackFactor", 0.5)),
+                    min_samples_for_action=int(_adap_cfg.get("minSamplesForAction", 10)),
+                )
+                _virtual_ep = _decision.new_virtual_ep
+                _last_adap_action = _decision.action
+                _last_adap_wr = _decision.win_rate
+                _adap_action_counts[_decision.action] = (
+                    _adap_action_counts.get(_decision.action, 0) + 1
+                )
 
             # --- GPU 批量更新（PPO 或 REINFORCE）---
             tt0 = time.perf_counter()
@@ -2256,11 +2553,11 @@ def train_loop(
                 avg = sum(scores[-n:]) / n if n else 0.0
                 eps_since = ep_cursor - last_log_ep
                 wr = 100.0 * wins / max(eps_since, 1)
+                wins_since = int(wins)  # 保留给 jsonl 写入
                 wins = 0
                 last_log_ep = ep_cursor
                 last_ep = batch[-1]
-                # 自适应课程时显示虚拟局数对应的门槛
-                if _use_adaptive and cur_win_thr is not None:
+                if (_use_quantile or _use_adaptive) and cur_win_thr is not None:
                     wt = cur_win_thr
                 else:
                     wt = last_ep.get("win_threshold", WIN_SCORE_THRESHOLD)
@@ -2312,8 +2609,37 @@ def train_loop(
                     hole_str += f"  skip={last_update.get('optimizer_skip_reason') or 'unknown'}"
                 ppo_tag = f"ppo×{ppo_epochs}" if ppo_epochs > 1 else "pg"
                 gpu_pct = 100.0 * t_train_ms / max(t_collect_ms + t_train_ms, 1)
-                # 自适应课程：显示虚拟进度
-                adap_tag = f"  vep={_virtual_ep:.0f}" if _use_adaptive else ""
+                if _use_adaptive:
+                    _wr_str = f"{_last_adap_wr * 100:.0f}%" if _last_adap_wr >= 0 else "—"
+                    adap_tag = (
+                        f"  [adap wr={_wr_str} vep={_virtual_ep:.0f}"
+                        f" act={_last_adap_action}]"
+                    )
+                elif _use_quantile:
+                    _q_target_str = (
+                        f"{_quant_last_target:.0f}" if _quant_last_target >= 0 else "—"
+                    )
+                    adap_tag = (
+                        f"  [quant p{int(_quant_cfg.get('p', 70))}"
+                        f" tgt={_q_target_str} ema={_quant_ema:.1f}"
+                        f" n={len(_quant_score_history)}"
+                        f" act={_quant_last_action}]"
+                    )
+                else:
+                    adap_tag = ""
+                if _use_smooth_wb:
+                    adap_tag += (
+                        f"  [smooth tgt={_smooth_last_target:.0f}"
+                        f" span={_smooth_last_span:.0f}"
+                        f" r={_smooth_last_reward:+.1f}"
+                        f" act={_smooth_last_action}]"
+                    )
+                if _use_rnd:
+                    adap_tag += (
+                        f"  [rnd ī={_rnd_last_intrinsic_mean:.3f}"
+                        f" Lp={_rnd_last_predictor_loss:.3f}"
+                        f" σ={_rnd_normalizer.std:.3f}]"
+                    )
                 rank_tag = (
                     f"  rr={_ranked_last_avg:+.2f}@p{_ranked_last_pct * 100:.0f}/t{_ranked_reward_target_for_episode(ep_cursor, _rank_cfg) * 100:.0f}"
                     if _use_ranked and len(_rank_history) >= int(_rank_cfg.get("warmup", 0))
@@ -2326,6 +2652,90 @@ def train_loop(
                     f"C={t_collect_ms:.0f}ms T={t_train_ms:.0f}ms GPU≈{gpu_pct:.0f}%  |  {dt:.1f}s",
                     file=sys.stderr,
                 )
+
+                # ----- 写 training.jsonl（看板字段，与 rl_backend.py 对齐 + 新增课程字段） -----
+                if _training_log_path is not None:
+                    _jsonl_row: dict = {
+                        "event": "train_episode",
+                        "episodes": ep_cursor,
+                        "batch_size": int(bs),
+                        "ppo_epochs": int(ppo_epochs),
+                        "loss_policy": _num_update("policy_loss") if last_update else None,
+                        "loss_value": _num_update("value_loss") if last_update else None,
+                        "entropy": _num_update("entropy") if last_update else None,
+                        "loss_q_distill": _num_update("loss_q_distill") if last_update else None,
+                        "loss_visit_pi": _num_update("loss_visit_pi") if last_update else None,
+                        "q_distill_coef": _num_update("q_distill_coef") if last_update else None,
+                        "visit_pi_coef": _num_update("visit_pi_coef") if last_update else None,
+                        "loss_hole_aux": _num_update("loss_hole_aux") if last_update else None,
+                        "loss_clear_pred": _num_update("loss_clear_pred") if last_update else None,
+                        "loss_topology_aux": _num_update("loss_topology_aux") if last_update else None,
+                        "loss_bq": _num_update("loss_bq") if last_update else None,
+                        "loss_feas": _num_update("loss_feas") if last_update else None,
+                        "loss_surv": _num_update("loss_surv") if last_update else None,
+                        "pg_steps": int(last_update.get("pg_steps", 0) or 0) if last_update else 0,
+                        "replay_steps": int(last_update.get("replay_steps", 0) or 0) if last_update else 0,
+                        "replay_samples": int(last_update.get("replay_samples", 0) or 0) if last_update else 0,
+                        "teacher_q_coverage": _num_update("teacher_q_coverage") if last_update else None,
+                        "teacher_q_std": _num_update("teacher_q_std") if last_update else None,
+                        "teacher_q_margin": _num_update("teacher_q_margin") if last_update else None,
+                        "teacher_q_entropy_norm": _num_update("teacher_q_entropy_norm") if last_update else None,
+                        "teacher_visit_coverage": _num_update("teacher_visit_coverage") if last_update else None,
+                        "teacher_visit_entropy_norm": _num_update("teacher_visit_entropy_norm") if last_update else None,
+                        "score": float(last_ep["score"]),
+                        "steps": int(last_ep["steps"]),
+                        "won": bool(last_ep["won"]),
+                        "win_threshold": int(wt),
+                        "win_count_recent": wins_since,
+                        "eps_since_last_log": int(eps_since),
+                        "win_rate_recent": (wins_since / max(eps_since, 1)) if eps_since > 0 else 0.0,
+                        "avg100": float(avg),
+                        "curriculum_mode": _curr_mode,
+                    }
+                    # 课程模式特定字段
+                    if _use_quantile:
+                        _jsonl_row.update({
+                            "quantile_thr": int(_quant_last_thr),
+                            "quantile_target": float(_quant_last_target) if _quant_last_target >= 0 else None,
+                            "quantile_ema": float(_quant_ema),
+                            "quantile_action": str(_quant_last_action),
+                            "quantile_n": int(len(_quant_score_history)),
+                            "quantile_p": float(_quant_cfg.get("p", 70.0)),
+                        })
+                    if _use_adaptive:
+                        _jsonl_row.update({
+                            "adap_action": str(_last_adap_action),
+                            "adap_wr": float(_last_adap_wr) if _last_adap_wr >= 0 else None,
+                            "adap_virtual_ep": float(_virtual_ep),
+                        })
+                    if _use_smooth_wb:
+                        _jsonl_row.update({
+                            "smooth_wb_enabled": True,
+                            "smooth_wb_target": float(_smooth_last_target),
+                            "smooth_wb_span": float(_smooth_last_span),
+                            "smooth_wb_reward_last": float(_smooth_last_reward),
+                            "smooth_wb_action": str(_smooth_last_action),
+                        })
+                    if _use_rnd:
+                        _jsonl_row.update({
+                            "rnd_enabled": True,
+                            "rnd_intrinsic_mean": float(_rnd_last_intrinsic_mean),
+                            "rnd_intrinsic_max": float(_rnd_last_intrinsic_max),
+                            "rnd_predictor_loss": float(_rnd_last_predictor_loss),
+                            "rnd_grad_norm": float(_rnd_last_grad_norm),
+                            "rnd_norm_std": float(_rnd_normalizer.std),
+                            "rnd_norm_count": int(_rnd_normalizer.count),
+                            "rnd_beta": float(_rnd_strict_cfg.beta),
+                        })
+                    if _last_rnd_trigger:
+                        _jsonl_row["rnd_trigger"] = dict(_last_rnd_trigger)
+                    _append_training_jsonl(_jsonl_row)
+
+                # 累计 entropy 历史，供 RND trigger 监测使用
+                _ent_v = _num_update("entropy") if last_update else None
+                if isinstance(_ent_v, (int, float)) and math.isfinite(float(_ent_v)):
+                    _rnd_entropy_history.append(float(_ent_v))
+
                 t0 = time.perf_counter()
 
             # --- 评估门控（v8：软/硬门控 + 历史最优保留）---

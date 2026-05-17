@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import os
+
 import numpy as np
 
 from .game_rules import CLEAR_SCORING, FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_bonus_block_icons, strategy_python
@@ -317,6 +319,15 @@ class OpenBlockSimulator:
         rs = RL_REWARD_SHAPING
         wb = float(rs.get("winBonus") or 0.0)
         thr = getattr(self, "win_score_threshold", WIN_SCORE_THRESHOLD)
-        if wb and self.score >= thr and prev_score < thr:
+        # 当外部启用 smooth winBonus（v11.2 方案 B）时，sparse 触发让位给
+        # train.py 在局末统一注入 smooth_reward，避免 sparse + smooth 重复加成。
+        # 优先读 instance 属性；fallback 读环境变量以兼容 worker pool / fork 路径
+        # （子进程通过 env 继承，不需修改 collect_episode 签名）。
+        skip_sparse = bool(getattr(self, "_skip_sparse_win_bonus", False))
+        if not skip_sparse:
+            _env = os.environ.get("RL_SMOOTH_WIN_BONUS", "").strip().lower()
+            if _env in ("1", "true", "yes", "on"):
+                skip_sparse = True
+        if wb and not skip_sparse and self.score >= thr and prev_score < thr:
             r += wb
         return r

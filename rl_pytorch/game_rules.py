@@ -88,17 +88,36 @@ _RL_ADAPTIVE = dict((_DATA.get("rlRewardShaping") or {}).get("adaptiveCurriculum
 
 
 def rl_adaptive_curriculum_config() -> dict:
-    """读取 adaptiveCurriculum 配置；不启用时返回 {'enabled': False}。"""
+    """读取 adaptiveCurriculum 配置；不启用时返回 {'enabled': False}。
+
+    v11 闭环化新增字段（向后兼容，缺省走默认值）：
+      - stepDown          (默认 1.0)  低胜率时虚拟局数退步幅度（v8 默认 0 即只升不降）
+      - accelBand         (默认 0.1)  wr > target + accelBand 触发加速
+      - holdBand          (默认 0.1)  wr ∈ [target - holdBand, target + accelBand) 正常推进
+      - lowWinRateBand    (默认 0.2)  wr < target - lowWinRateBand 触发主动回退
+      - severeWinRateBand (默认 0.4)  wr < target - severeWinRateBand 触发 rollback
+      - minVirtualEp      (默认 0)   virtual_ep 下界
+      - rollbackOnSevereDrop (默认 True)
+      - severeRollbackFactor (默认 0.5)  severe 触发时 virtual_ep × factor
+      - minSamplesForAction  (默认 10)   win_history < 此值时走 warmup（按 +checkEvery 推进）
+    """
     base = {
         "enabled": False,
         "window": 200,
         "targetWinRate": 0.5,
         "stepUp": 2,
-        "stepDown": 0,
+        "stepDown": 1.0,
         "checkEvery": 50,
+        "accelBand": 0.1,
+        "holdBand": 0.1,
+        "lowWinRateBand": 0.2,
+        "severeWinRateBand": 0.4,
+        "minVirtualEp": 0,
+        "rollbackOnSevereDrop": True,
+        "severeRollbackFactor": 0.5,
+        "minSamplesForAction": 10,
     }
     base.update(_RL_ADAPTIVE)
-    # 环境变量覆盖
     if os.environ.get("RL_ADAPTIVE_CURRICULUM", "").strip().lower() in ("1", "true", "yes"):
         base["enabled"] = True
     elif os.environ.get("RL_ADAPTIVE_CURRICULUM", "").strip().lower() in ("0", "false", "no"):
@@ -117,3 +136,144 @@ def rl_win_threshold_from_virtual_ep(virtual_ep: int) -> int:
     t = min(1.0, max(0, virtual_ep) / span)
     v = start + (end - start) * t
     return int(round(v))
+
+
+# ---------------------------------------------------------------------------
+# v11.2 课程模式三选一（linear / adaptive / quantile）
+# ---------------------------------------------------------------------------
+_VALID_CURRICULUM_MODES = ("linear", "adaptive", "quantile")
+
+
+def rl_curriculum_mode() -> str:
+    """返回当前生效的课程模式：'linear' | 'adaptive' | 'quantile'。
+
+    优先级（高 → 低）：
+      1. 环境变量 RL_CURRICULUM_MODE（覆盖一切，方便 A/B 与 hotfix）
+      2. shared/game_rules.json -> rlCurriculum.mode 字段
+      3. 自动推断：rlRewardShaping.adaptiveCurriculum.enabled=true → 'adaptive'，否则 'linear'
+
+    与 rl_curriculum_enabled() 的关系：本函数不检查 enabled；调用方需自行先调
+    rl_curriculum_enabled()，再决定是否走 mode 分支（enabled=false 时不应启用任何课程）。
+    """
+    env = os.environ.get("RL_CURRICULUM_MODE", "").strip().lower()
+    if env in _VALID_CURRICULUM_MODES:
+        return env
+    cfg_mode = str(_RL_CURRICULUM.get("mode", "")).strip().lower()
+    if cfg_mode in _VALID_CURRICULUM_MODES:
+        return cfg_mode
+    adap_cfg = (_DATA.get("rlRewardShaping") or {}).get("adaptiveCurriculum") or {}
+    if bool(adap_cfg.get("enabled", False)):
+        return "adaptive"
+    return "linear"
+
+
+def rl_quantile_config() -> dict:
+    """读取 v11.2 quantile 子节配置；缺失字段走代码默认值。
+
+    Returns
+    -------
+    dict containing: p, windowEpisodes, emaAlpha, bootstrapEpisodes,
+                     bootstrapThreshold, floor, ceil
+    """
+    base = {
+        "p": 70.0,
+        "windowEpisodes": 500,
+        "emaAlpha": 0.05,
+        "bootstrapEpisodes": 100,
+        "bootstrapThreshold": 40,
+        "floor": 40,
+        "ceil": 9999,
+    }
+    user = dict(_RL_CURRICULUM.get("quantile") or {})
+    user.pop("comment", None)
+    for k, v in user.items():
+        if k in base:
+            base[k] = v
+    return base
+
+
+# ---------------------------------------------------------------------------
+# v11.2 方案 B：平滑奖励整形（opt-in）
+# ---------------------------------------------------------------------------
+def rl_smooth_win_bonus_config() -> dict:
+    """读取 rlRewardShaping.smoothWinBonus 子节；缺失字段走代码默认值。
+
+    环境变量 RL_SMOOTH_WIN_BONUS=1/0 可强制开关，便于快速 A/B。
+
+    Returns
+    -------
+    dict containing: enabled, windowEpisodes, targetPercentile,
+                     spanLowPercentile, spanHighPercentile,
+                     bootstrapEpisodes, bootstrapTarget, bootstrapSpan,
+                     spanFloor, saturationClip
+    """
+    base = {
+        "enabled": False,
+        "windowEpisodes": 500,
+        "targetPercentile": 50.0,
+        "spanLowPercentile": 25.0,
+        "spanHighPercentile": 75.0,
+        "bootstrapEpisodes": 200,
+        "bootstrapTarget": 100.0,
+        "bootstrapSpan": 60.0,
+        "spanFloor": 5.0,
+        "saturationClip": 1.5,
+    }
+    user = dict((_DATA.get("rlRewardShaping") or {}).get("smoothWinBonus") or {})
+    user.pop("comment", None)
+    for k, v in user.items():
+        if k in base:
+            base[k] = v
+    env = os.environ.get("RL_SMOOTH_WIN_BONUS", "").strip().lower()
+    if env in ("1", "true", "yes", "on"):
+        base["enabled"] = True
+    elif env in ("0", "false", "no", "off"):
+        base["enabled"] = False
+    return base
+
+
+# ---------------------------------------------------------------------------
+# v11.2 方案 C：RND Curiosity（opt-in）
+# ---------------------------------------------------------------------------
+def rl_rnd_curiosity_config() -> dict:
+    """读取 rlRewardShaping.rndCuriosity 子节；缺失字段走代码默认值。
+
+    环境变量 RL_RND=1/0 可强制开关。
+
+    Returns
+    -------
+    dict containing: enabled, stateDim, hiddenDim, outputDim, beta,
+                     learningRate, updateEverySteps, normalizeIntrinsic, gradClip,
+                     minEpisode, scoreSlopeWindow, scoreSlopeThreshold,
+                     entropyCollapseThreshold, expectedScoreAtCollapse,
+                     scoreCollapseRatio, triggerCheckEvery
+    """
+    base = {
+        "enabled": False,
+        "stateDim": 181,
+        "hiddenDim": 64,
+        "outputDim": 32,
+        "beta": 0.1,
+        "learningRate": 1e-4,
+        "updateEverySteps": 1,
+        "normalizeIntrinsic": True,
+        "gradClip": 5.0,
+        "minEpisode": 50000,
+        "scoreSlopeWindow": 5000,
+        "scoreSlopeThreshold": 1e-3,
+        "entropyCollapseThreshold": 0.2,
+        "expectedScoreAtCollapse": None,
+        "scoreCollapseRatio": 0.8,
+        "triggerCheckEvery": 2000,
+    }
+    user = dict((_DATA.get("rlRewardShaping") or {}).get("rndCuriosity") or {})
+    user.pop("comment", None)
+    for k, v in user.items():
+        if k in base:
+            base[k] = v
+    env = os.environ.get("RL_RND", "").strip().lower()
+    if env in ("1", "true", "yes", "on"):
+        base["enabled"] = True
+    elif env in ("0", "false", "no", "off"):
+        base["enabled"] = False
+    return base
