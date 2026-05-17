@@ -32,7 +32,7 @@ import {
 } from '../web/src/retention/winbackProtection.js';
 import { getChurnData } from '../web/src/retention/churnPredictor.js';
 import { getMaturityBand } from '../web/src/retention/playerMaturity.js';
-import { on, _clearAllHandlers, attach, detach } from '../web/src/monetization/MonetizationBus.js';
+import { on, _clearAllHandlers, detach } from '../web/src/monetization/MonetizationBus.js';
 import {
     attachLifecycleAwareOffers,
     detachLifecycleAwareOffers,

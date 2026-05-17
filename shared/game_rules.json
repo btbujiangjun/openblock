@@ -58,14 +58,14 @@
     "minBase": 50
   },
   "dynamicDifficulty": {
-    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。v1.13 起 scoreStress 在 ctx.bestScore>0 时按个人百分位映射，避免一次冲过末档后压力锁死。",
+    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。v1.13 起 scoreStress 在 ctx.bestScore>0 时按个人百分位映射，避免一次冲过末档后压力锁死。v1.56.6 §5.α.9 P1-C1：percentileMaxOver 从 0.2 → 0.5，让 D4 段（score > best）scoreStress 在 pct ∈ (1.0, 1.5] 仍能继续递增，与 pbOvershootBoost 协同形成'超 PB 越来越难'的完整曲线（旧 0.2 让 pct>1.2 时 stress 早饱和）。",
     "enabled": true,
     "milestones": [0, 45, 90, 135, 180],
     "spawnStress": [0, 0.18, 0.38, 0.58, 0.78],
     "scoreFloor": 180,
     "percentileDecayThreshold": 0.5,
     "percentileDecayFactor": 0.4,
-    "percentileMaxOver": 0.2
+    "percentileMaxOver": 0.5
   },
   "runDifficulty": {
     "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
@@ -81,6 +81,49 @@
     "smoothingFactor": 0.15,
     "fastConvergenceWindow": 5,
     "fastConvergenceAlpha": 0.35,
+    "pbChase": {
+      "comment": "v1.56.2 认知一致性守卫 + v1.56.4 三原则下的算法完整闭环。minBestScoreForIntenseFeedback=200 对应'玩家已掌握基本玩法'；低于此阈值所有 PB 段差异化算法全部 bypass。overshoot=D4 超 PB 持续加压（防分数膨胀）；farRamp=远段分级减压（极远更激进）；pbGrowthThrottle=PB 增长率过快时主动加压（不只 bypass）。",
+      "minBestScoreForIntenseFeedback": 200,
+      "overshoot": {
+        "comment": "v1.56.4 §5.α.8 D4 超 PB 持续加压 —— challengeBoost cap=0.15 在 pct≥1.0 后饱和，与'超 PB 高强度加压防分数膨胀'原则冲突。本机制在 D4 段（score > bestScore）按对数曲线追加 pbOvershootBoost: maxBoost · log10(1 + slope·overshoot)，其中 overshoot = score/best - 1。pct=1.0→0 / pct=1.25→~0.08 / pct=1.50→~0.12 / pct=2.0→~0.16，stress cap 提高到 capStress。配套 spawnHints 收紧：multiClearBonus 上限 / sizePreference 上移 / clearGuarantee 下移。受 minBestScoreForIntenseFeedback / postPbRelease / recovery 等同源 bypass 约束。v1.56.6 §5.α.9 P0：bypassOccupancyDamping / bypassFlowPayoffCap / smoothMaxStepUp 三组豁免，让 D4 段加压在'盘面空 / flow+payoff / 单帧上扬'三种场景下不再被消解。v1.57.1 P2：orderBoostInD4HighStress（默认 0.25）—— D4 段 + stress 已经高位（≥ orderHighStressMin，默认 0.85，即 norm ≈ 0.875）时给 orderRigor 注入额外强 boost，把 maxValidPerms 真正压到 tight=2，让'顺序刚性'也彻底锁死。与 orderBoostInD4 互补：弱场景（仅 overshoot 触发）走 orderBoostInD4=0.08；强场景（overshoot + 高 stress 双重）走本字段。",
+        "enabled": true,
+        "maxBoost": 0.16,
+        "slope": 5.0,
+        "capStress": 0.90,
+        "multiClearBonusCap": 0.18,
+        "sizePreferenceShift": 0.12,
+        "clearGuaranteeShift": -1,
+        "orderBoostInD4": 0.08,
+        "orderBoostInD4HighStress": 0.25,
+        "orderHighStressMin": 0.85,
+        "bypassOccupancyDamping": true,
+        "bypassFlowPayoffCap": true,
+        "smoothMaxStepUp": 0.25
+      },
+      "farRamp": {
+        "comment": "v1.56.4 §5.α.8 远段分级减压 —— v1.56 原版 farFromPBBoost 把 pct∈[0,0.30) 一档处理，pct=0.05（极远，畏难最强）与 pct=0.29（边缘，即将进 D1）相同强度，与'让玩家有信心进入挑战 PB 模式'原则有信息流失。extremeThreshold=0.15 把 D0 切成两档：极远段额外抬 multiClearBonus floor 与 iconBonusTarget floor，让初期更易兑现奖励；边缘段维持原 floor。",
+        "enabled": true,
+        "extremeThreshold": 0.15,
+        "extremeMultiClearBonusFloor": 0.55,
+        "extremeIconBonusTargetFloor": 0.40,
+        "extremeSizePreferenceShift": -0.18
+      },
+      "pbGrowthThrottle": {
+        "comment": "v1.56.4 §5.α.8 PB 增长率反向加压 —— v1.56 原版 pbGrowthFast 仅触发 farFromPBBoost bypass='pb_growth_throttled'（被动节流）。本机制升级为'主动制动'：pbGrowthFast=true 时把 challengeBoost cap 从 0.15 临时上调到 0.15+capDelta，让 D2/D3 段提前进入更强加压。与 overshoot 协同防止 PB 在短时间内连续膨胀（7d 内 ≥10% 增长视为'过快'）。",
+        "enabled": true,
+        "challengeBoostCapDelta": 0.05
+      },
+      "challengeBoost": {
+        "comment": "v1.56.6 §5.α.9 P2：challengeBoost cap 配置化 —— v1.55 硬编码 0.15 在 D3 段（pct=0.95）只产生 0.113 增量，相对 scoreStress 0.76 基础值仅 +17%，加压偏弱。默认 cap 上调到 0.18，让 D2/D3 段的'决战感'更可感。运营可基于看板曲线调整。配套 pbGrowthThrottle.challengeBoostCapDelta 触发时进一步上抬到 0.23。",
+        "baseCap": 0.18
+      },
+      "postPbReleaseWindow": {
+        "comment": "v1.56.6 §5.α.9 P2：破 PB 释放窗口配置化 —— v1.55 硬编码 3 spawn（约 5~10s）偏短，玩家'破纪录爽感'通常持续 10~20s 就被 D4 加压机制接管，体感'突兀变难'。默认 5 spawn，运营可调。与 overshoot bypass 链对齐：释放期内 pbOvershootBoost / pbExtremeOrderBoost / D4 spawnHints 收紧全部 bypass。",
+        "spawns": 5,
+        "stressReleaseFactor": 0.7,
+        "clearGuaranteeBoost": 1
+      }
+    },
     "difficultyTuning": {
       "comment": "玩家选择难度的显式偏置。stressBias 拉开 profile 档位；clearGuaranteeDelta/sizePreferenceDelta/multiClearBonusDelta 直接进入 spawnHints；solutionStressDelta 仅用于解法数量区间选择，让困难模式更早进入低解空间过滤。",
       "easy":   { "stressBias": -0.22, "clearGuaranteeDelta":  1, "sizePreferenceDelta": -0.22, "multiClearBonusDelta":  0.05, "solutionStressDelta": -0.14, "orderRigorBoost":  0.00 },
@@ -175,7 +218,16 @@
       "frustrationRelief": -0.18,
       "nearMissStressBonus": -0.1,
       "nearMissClearGuarantee": 2,
-      "noveltyDiversityBoost": 0.15
+      "noveltyDiversityBoost": 0.15,
+      "farFromPBBoost": {
+        "comment": "v1.56 §2.1 远征送爽：当 score < pctThreshold·bestScore（默认 D0 远征段 pct<0.30）且无救济/瓶颈/warmup/postPbRelease/pbGrowthFast 时，对 spawnHints 注入 clearGuarantee+1、multiClearBonus 抬升、iconBonusTarget 抬升、sizePreference 偏小，降低中长局开局畏难情绪。pbGrowthFast 由 game.js 上游通过最近 N 次 PB 增长率计算后透传到 ctx，默认未启用即不触发。详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §5.α v1.56。",
+        "enabled": true,
+        "pctThreshold": 0.30,
+        "clearGuaranteeBoost": 1,
+        "multiClearBonusFloor": 0.45,
+        "iconBonusTargetFloor": 0.30,
+        "sizePreferenceShift": -0.12
+      }
     },
     "nearMissPlaceFeedback": {
       "comment": "落子未消行时的几何近失 toast（game.js）。v1.50.1 收紧：仅在玩家体感很差时出现（高挫败 / anxious 心流叠加挫败 / 强 stress 救济）；clearRate/动量任一为正即抑制；单局最多 1 次、落子间隔 12、冷却 30s、前 12 次落子不出。",
@@ -246,6 +298,14 @@
       "comment": "将一维 stress 投影为多轴出块目标，避免仅通过方块复杂度消费压力。",
       "frustrationReliefThreshold": 5
     },
+    "sprintIntent": {
+      "comment": "v1.57.1 P3 spawnIntent 'sprint' 中间档配置：旧版 spawnIntent 在 stress=0.55 处一脚跨进 'pressure'（hints 套装翻盘），玩家会有'突然变难'的台阶感。'sprint' 充当 maintain → pressure 的过渡带（stress∈[minStress, maxStress)），hints 为'中等偏紧'：clearGuarantee 维持 1、sizePreference +0.10（略大块）、multiClearBonus 中等。bypass 链：救济 / 召回 / 收获 / 加压期优先级更高，sprint 仅在 stress 落入区间且无其他主导意图时触发。",
+      "enabled": true,
+      "minStress": 0.45,
+      "maxStress": 0.55,
+      "sizePreferenceShift": 0.10,
+      "multiClearBonusFloor": 0.40
+    },
     "delight": {
       "comment": "爽感兑现层：根据玩家能力、心流、动量、恢复需求和盘面机会，实时提高多消/清屏候选概率；高手无聊时略加压并给 payoff，焦虑/恢复时降压但保留清线爽点。",
       "highSkillThreshold": 0.62,
@@ -277,6 +337,7 @@
       "bottleneckSizePreferenceDelta": -0.18,
       "orderRigorEnabled": true,
       "orderRigorStressThreshold": 0.55,
+      "orderRigorStressSmoothness": 0.08,
       "orderRigorScale": 1.6,
       "orderRigorSkillScale": 0.20,
       "orderRigorMaxPermsTight": 2,
@@ -309,7 +370,7 @@
       "maxAdjust": 0.05
     },
     "solutionDifficulty": {
-      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。",
+      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.1 P1：在 0.35→0.6 之间补 '渐紧' 一档（minStress=0.5, max=64），让中段 stress 也有可感知难度差，消除 0.55 跨阈值前的'无感区'。",
       "enabled": true,
       "activationFill": 0.45,
       "leafCap": 64,
@@ -318,6 +379,7 @@
         { "minStress": -1.0, "label": "宽松", "min": 8, "max": null },
         { "minStress": 0.0, "label": "舒适", "min": 4, "max": null },
         { "minStress": 0.35, "label": "标准", "min": 2, "max": null },
+        { "minStress": 0.5, "label": "渐紧", "min": 1, "max": 64 },
         { "minStress": 0.6, "label": "紧张", "min": 1, "max": 32 },
         { "minStress": 0.8, "label": "极限", "min": 1, "max": 12 }
       ]

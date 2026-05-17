@@ -3,9 +3,15 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
-import { initScoreAnimator, animateScore, setScoreImmediate, stopScoreAnimation, syncHudScoreElement } from './scoreAnimator.js';
+import { initScoreAnimator, animateScore, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from './adaptiveSpawn.js';
+/* v1.57：stress 感知化层（A 棋盘氛围光 + B 呼吸节奏 + C 震动幅度 + D 音频滤波）
+ * pushStressAmbience 在 _captureAdaptiveInsight 末尾被调用，把 finalStress 渗透
+ * 到玩家可感知的视/听/触渠道，解决"算法精算 stress 但玩家感知不到"的断层。
+ * 严格遵守 v1.56.3 策略隐性原则：不向主 HUD 暴露数字 / 标签。 */
+import { pushStressAmbience } from './stressAmbience.js';
 import { PlayerProfile } from './playerProfile.js';
+import { recordPersonalBest, isPbGrowthFast, computePbStreakCount } from './pbGrowthTracker.js';
 import { GAME_RULES } from './gameRules.js';
 /* v1.48 (2026-05) — 生命周期编排层接线员，把 churnPredictor / winbackProtection /
  * shouldTriggerIntervention 等孤立模块通过 startGame / endGame 钩子接到主流程。 */
@@ -71,7 +77,6 @@ import {
     getBestByStrategy,
     submitScoreToBucket,
     submitPeriodBest,
-    getPeriodBest,
 } from './bestScoreBuckets.js';
 import { LevelManager } from './level/levelManager.js';
 import { ClearRuleEngine, RowColRule } from './clearRules.js';
@@ -451,6 +456,26 @@ export class Game {
         this._lastAdaptiveInsight.bottleneckTrough = Number.isFinite(_bt) ? _bt : null;
         this._lastAdaptiveInsight.bottleneckSolutionTrough = Number.isFinite(_bs) ? _bs : null;
         this._lastAdaptiveInsight.bottleneckSamples = Number(this._spawnContext.bottleneckSamples) || 0;
+
+        /* v1.57 stress 感知化层（A/B/C/D 四档统一入口）：
+         * 把 finalStress (norm) 推到 4 个玩家可感知渠道。
+         *   - A 棋盘氛围光 / B 呼吸节奏：CSS 变量写入 .play-stack
+         *   - C 震动幅度：renderer.setShake intensity × ambience.shakeMult
+         *   - D 音频滤波：BiquadFilter cutoff 随 stress 调节
+         * 装饰器在 main.js 启动时一次性绑定（attachStressShakeMultiplier /
+         * attachStressAudioFilter）；此处仅推送当前 stress 值。
+         * 严格遵守 v1.56.3 策略隐性原则：不暴露数字 / 标签到主 HUD。 */
+        try {
+            const rootEl = typeof document !== 'undefined'
+                ? document.querySelector('.play-stack')
+                : null;
+            pushStressAmbience({
+                stressNorm: layered._adaptiveStress,
+                rootEl,
+                renderer: this.renderer,
+                audioFx: typeof window !== 'undefined' ? window.__audioFx : null
+            });
+        } catch { /* 感知化层失败不应阻塞主流程 */ }
     }
 
     async init() {
@@ -798,6 +823,29 @@ export class Game {
         if (elTrack) {
             elTrack.setAttribute('aria-valuenow', String(Math.round(frac * 100)));
         }
+
+        /* v1.56 §4.4：连续突破徽章 ——
+         * 7 天内（windowMs 默认 7d）连续 N 次 PB 入栈 → 显示 "🏆 N 连破" 徽章。
+         * N=1 时不显示（只破一次不算"连续"）；N>=2 才挂出徽章。
+         * 历史读 pbGrowthTracker.readPbHistory()，与 §2.4 共用同一份 PB 演进数据。
+         * 字符串本身做了截断（max 9 字符）以兼容 stat-box 副行宽度。
+         *
+         * v1.56.2 §5.α.6：低 PB 守卫——best < 200 时不展示徽章，避免 best=80 + "🏆 3 连破"
+         * 这种夸张的"持续突破"叙事——新手 PB 频繁刷新本就属于成长曲线起步阶段，不构成
+         * 真正意义的"连续突破成就"。 */
+        const elPbBadge = document.getElementById('pb-streak-badge');
+        if (elPbBadge) {
+            let streakN = 0;
+            try { streakN = computePbStreakCount(); }
+            catch { streakN = 0; }
+            if (streakN >= 2 && !this._isLowBestForIntenseCopy()) {
+                elPbBadge.hidden = false;
+                elPbBadge.textContent = t('pbStreak.badge', { n: streakN });
+            } else {
+                elPbBadge.hidden = true;
+                elPbBadge.textContent = '';
+            }
+        }
     }
 
     _enqueuePopupToast(createEl, holdMs = 3000) {
@@ -837,6 +885,31 @@ export class Game {
             el.innerHTML = `<div class="title">${title}</div>${bodyHtml}`;
             return el;
         }, 3200);
+    }
+
+    /**
+     * v1.56.2 §5.α.6：认知一致性守卫 ——
+     *
+     * 当 bestScore 低于 GAME_RULES.adaptiveSpawn.pbChase.minBestScoreForIntenseFeedback
+     * （默认 200）时返回 true，调用方应：
+     *   1. best-gap HUD 跳过"冲刺！靠近！封神！"等激烈文案，统一走中性"差 N 分"
+     *   2. endGame nearMiss banner 不显示（避免"差 5 分就到最佳"喜剧反差）
+     *   3. pb-streak-badge 不显示（best=50 + "🏆 3 连破" 也无意义）
+     *   4. playClearEffect 远征段 ×1.3 振幅放大不生效
+     *
+     * 同源（共用同一阈值）的算法侧 bypass 由 adaptiveSpawn.js 处理：
+     *   - farFromPBBoost → bypass='low_best_score'
+     *   - pbExtremeOrderBoost → 直接跳过
+     *
+     * @returns {boolean} true=当前 best 偏低，应使用中性文案/算法 bypass
+     */
+    _isLowBestForIntenseCopy() {
+        const cfg = GAME_RULES.adaptiveSpawn?.pbChase ?? {};
+        const floor = Number.isFinite(cfg.minBestScoreForIntenseFeedback)
+            ? cfg.minBestScoreForIntenseFeedback
+            : 200;
+        const best = Number(this.bestScore) || 0;
+        return best > 0 && best < floor;
     }
 
     async start(opts = {}) {
@@ -910,9 +983,18 @@ export class Game {
              * spawn 里重读 DB/localStorage；其下游消费方包括 difficulty.js getSpawnStressFromScore
              * 与 adaptiveSpawn.js challengeBoost / deriveScoreMilestones（均通过 ctx.bestScore 读取）。
              * 契约写在 docs/player/BEST_SCORE_CHASE_STRATEGY.md 的「开局快照」一节。 */
+            /* v1.56 §2.4：pbGrowthFast —— 跨局 PB 增长率节流信号
+             * 阈值默认 0.10（每局 PB 平均涨 10%+ 视为"快"），由 pbGrowthTracker 计算；
+             * adaptiveSpawn §2.1 farFromPBBoost 会读取此字段并 bypass='pb_growth_throttled'，
+             * 避免远征段送爽过度地把 PB 反复抬升 → 透支生命周期。 */
+            let _pbGrowthFastSnapshot = false;
+            try {
+                _pbGrowthFastSnapshot = isPbGrowthFast();
+            } catch { /* localStorage 异常时按"非快速"处理 */ }
             this._spawnContext = {
                 lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
                 bestScore: this.bestScore ?? 0,
+                pbGrowthFast: _pbGrowthFastSnapshot,
                 bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0
             };
             try {
@@ -2088,6 +2170,33 @@ export class Game {
         const animDuration = bonusCount > 0 ? Math.max(baseDuration, bonusHoldMs) : baseDuration;
         const bonusShakeMs = bonusCount > 0 ? baseDuration : 0;
 
+        /* v1.56 §4.1 + §4.2：特效强度按 PB 距离调制 ——
+         * 仅在 bestScore > 0 时启用，避免新手（best=0）异常。
+         *   - D0 远征段（pct < 0.5）：多消（count>=2）/ perfect / bonusLines 特效振幅 ×1.3
+         *     → 远征段奖励兑现更亮，配合 §2.1 farFromPBBoost 形成"远征也爽"闭环；
+         *   - D3 决战段（0.95 ≤ pct < 1.0）：单线消行（count===1 且无 bonusLines / 无 perfect）
+         *     全部走弱化路径，仅保留底色动画与微弱 shake
+         *     → 与 §2.3 pbExtremeChase 加难配套，最大化"破 PB 烟花"的反差；
+         *   - 其他段位（D1/D2/D4）保持原行为不变。
+         * 详见 BEST_SCORE_CHASE_STRATEGY.md §5.α v1.56 设计意图。
+         *
+         * v1.56.2 §5.α.6：低 PB 守卫——best < 200 时，D0 远征段 ×1.3 放大与 D3 单线弱化
+         * 全部关闭：低水位玩家本就在"远征段"（pct=0.3 时 score 才 24 分），所有特效保持
+         * 原始振幅就是最自然的反馈强度，再 ×1.3 反而显得"系统在硬塞庆祝"。 */
+        const lowBestForFx = this._isLowBestForIntenseCopy();
+        const _pbPctForFx = this.bestScore > 0 ? (this.score / this.bestScore) : 1;
+        const _isFarFromPB = !lowBestForFx && this.bestScore > 0 && _pbPctForFx < 0.5;
+        const _isPbExtreme = !lowBestForFx
+            && this.bestScore > 0
+            && _pbPctForFx >= 0.95
+            && _pbPctForFx < 1.0
+            && !madeNewBest;
+        const _isSingleLineMinimal = _isPbExtreme
+            && result.count === 1
+            && !perfectClear
+            && bonusCount === 0;
+        const farBoost = _isFarFromPB ? 1.3 : 1.0;
+
         this.renderer.addParticles(result.cells, {
             lines: result.count,
             perfectClear
@@ -2097,7 +2206,8 @@ export class Game {
         // 同 icon/同色 行/列：全屏光晕 + 更密粒子 + 更长展示
         if (bonusCount > 0) {
             const palette = getBlockColors();
-            this.renderer.triggerBonusMatchFlash(bonusCount);
+            // §4.1：远征段 bonusMatchFlash 系数 ×1.3，让"色彩兑现"更亮
+            this.renderer.triggerBonusMatchFlash(Math.round(bonusCount * farBoost));
             const iconLineSpecs = bonusLines
                 .filter(bl => bl.icon)
                 .map(bl => ({ bonusLine: bl, icon: bl.icon }));
@@ -2111,20 +2221,32 @@ export class Game {
             this.renderer.beginBonusColorGush(colorLineSpecs, animDuration);
             for (const bl of bonusLines) {
                 const cssColor = palette[bl.colorIdx] || '#FFD700';
-                this.renderer.addBonusLineBurst(bl, cssColor, 64);
+                this.renderer.addBonusLineBurst(bl, cssColor, Math.round(64 * farBoost));
             }
         }
 
         if (perfectClear) {
             this.renderer.triggerPerfectFlash();
-            this.renderer.setShake(24, bonusCount > 0 ? Math.max(bonusShakeMs, 1150) : 1150);
+            this.renderer.setShake(
+                Math.round(24 * farBoost),
+                bonusCount > 0 ? Math.max(bonusShakeMs, 1150) : 1150
+            );
         } else if (isCombo) {
             this.renderer.triggerComboFlash(result.count);
-            this.renderer.setShake(bonusCount > 0 ? 15 : 11, bonusCount > 0 ? bonusShakeMs : 520);
+            this.renderer.setShake(
+                Math.round((bonusCount > 0 ? 15 : 11) * farBoost),
+                bonusCount > 0 ? bonusShakeMs : 520
+            );
         } else if (isDouble) {
             const waveRows = [...new Set(result.cells.map(c => c.y))];
             this.renderer.triggerDoubleWave(waveRows);
-            this.renderer.setShake(bonusCount > 0 ? 13 : 8, bonusCount > 0 ? bonusShakeMs : 400);
+            this.renderer.setShake(
+                Math.round((bonusCount > 0 ? 13 : 8) * farBoost),
+                bonusCount > 0 ? bonusShakeMs : 400
+            );
+        } else if (_isSingleLineMinimal) {
+            // §4.2：D3 段单线（无 bonus / 无 perfect）特效全部弱化
+            this.renderer.setShake(2, 140);
         } else {
             this.renderer.setShake(bonusCount > 0 ? 11 : 5, bonusCount > 0 ? bonusShakeMs : 280);
         }
@@ -2457,7 +2579,6 @@ export class Game {
                                 emitMonetizationEvent('lifecycle:suspicious_pb', event);
                             }
                         } catch { /* ignore */ }
-                        // eslint-disable-next-line no-console
                         console.warn('[bestScoreSanity] suspicious PB blocked from persistence:',
                             { previousBest: persistedBestBase, claimedBest: this.score });
                     } else {
@@ -2575,6 +2696,32 @@ export class Game {
                         crown.className = 'new-best-crown';
                         crown.textContent = t('game.over.crown');
                         overScore.parentNode.insertBefore(crown, overScore);
+                    } else if (Number.isFinite(persistedBestBase) && persistedBestBase > 0
+                        && !this._isLowBestForIntenseCopy()) {
+                        /* v1.56 §3.4：终局差一口气 banner ——
+                         * 未破 PB 且 pct ≥ 0.85（D2/D3 段）时，注入 "差 N 分" 文案，
+                         * 利用"差一点效应"强化"再来一把"动力。与 §3.2 的 D4 HUD 文案互补：
+                         *   - D4 实时 HUD 显示"已超 N 分"驱动同局继续刷新；
+                         *   - 本 banner 在 D2/D3 终局时驱动重开新局。
+                         * 详见 BEST_SCORE_CHASE_STRATEGY.md §5.α v1.56。
+                         *
+                         * v1.56.2 §5.α.6：低 PB 守卫——best < 200 时不展示，避免 best=80 +
+                         * "差 5 分 · 这把差点就刷了" 形成喜剧反差（5 分对低水位玩家
+                         * 不算"差点"，而是常规波动）。 */
+                        const pctOfBest = this.score / persistedBestBase;
+                        if (pctOfBest >= 0.85 && pctOfBest < 1.0) {
+                            const nmGap = persistedBestBase - this.score;
+                            /* v1.56.3 §5.α.7：D3/D2 文案统一为事实陈述"差 N 分"，
+                             * 不再区分"这把差点就刷了 / 状态不错，再来一把"等教练式措辞。
+                             * 紧张度差异通过 banner 样式（near-miss-banner--D3 红色高亮 vs
+                             * 默认色）体现，不通过文字暴露。 */
+                            const nmKey = 'endGame.nearMiss';
+                            const nmBanner = document.createElement('div');
+                            nmBanner.className = 'near-miss-banner'
+                                + (pctOfBest >= 0.95 ? ' near-miss-banner--D3' : '');
+                            nmBanner.textContent = t(nmKey, { gap: nmGap });
+                            overScore.parentNode.insertBefore(nmBanner, overScore.nextSibling);
+                        }
                     }
                     initScoreAnimator();
                     if (this.score > 0) {
@@ -3020,6 +3167,11 @@ export class Game {
             try { emitMonetizationEvent('lifecycle:new_personal_best', event); }
             catch { /* bus 故障不应影响 UI 庆祝 */ }
         }
+        /* v1.56 §2.4：把新 PB 入历史栈（最近 10 条），下一局 start() 时计算 pbGrowthFast。
+         * recordPersonalBest 是幂等单调写入：newBest <= 历史末值会被跳过；
+         * 不影响 bestScore 数值本身，只追加跨局演进历史。 */
+        try { recordPersonalBest(event.newBest, event.ts); }
+        catch { /* localStorage 异常不阻塞庆祝事件 */ }
     }
 
     /**
@@ -3068,7 +3220,9 @@ export class Game {
     /**
      * v1.55 §4.9：postPbReleaseWindow —— 破纪录后释放窗口。
      *
-     * 触发后接下来 POST_PB_RELEASE_SPAWNS（默认 3）次 spawn 内：
+     * 触发后接下来 POST_PB_RELEASE_SPAWNS（v1.56.6 §5.α.9 P2：默认从 3 提升到 5
+     * spawn，约 10~20s，与"破纪录爽感"心理时长对齐；可通过
+     * adaptiveSpawn.pbChase.postPbReleaseWindow.spawns 配置）次 spawn 内：
      *   - 出块 stress 按 POST_PB_RELEASE_STRESS_FACTOR=0.7 衰减
      *   - clearGuarantee 至少为 1（友好出块）
      *   - challengeBoost 完全禁用（由 _spawnContext.postPbReleaseActive 透传到 adaptiveSpawn）
@@ -3080,7 +3234,9 @@ export class Game {
         if (this._postPbReleaseUsed) return;
         const ctx = this._spawnContext;
         if (!ctx) return;
-        const POST_PB_RELEASE_SPAWNS = 3;
+        /* v1.56.6 §5.α.9 P2：从配置读取窗口长度（默认 5，旧硬编码 3） */
+        const _windowCfg = GAME_RULES.adaptiveSpawn?.pbChase?.postPbReleaseWindow ?? {};
+        const POST_PB_RELEASE_SPAWNS = Number.isFinite(_windowCfg.spawns) ? _windowCfg.spawns : 5;
         ctx.postPbReleaseRemaining = POST_PB_RELEASE_SPAWNS;
         ctx.postPbReleaseActive = true;
         this._postPbReleaseUsed = true;
@@ -3260,6 +3416,23 @@ export class Game {
     }
 
     updateUI() {
+        /* v1.56.7 修复：先同步 bestScore，再写入 DOM ——
+         *
+         * Bug 现象（用户截图）：得分 210 / 最佳 140 / 已超 190 分（三数关系错乱）
+         *   - 根因：旧 updateUI 顺序是「写 best DOM → 末尾才调用 _maybeCelebrateNewBest」，
+         *     当玩家 score 增长到 210 但 bestScore 还停在 140 时，DOM 写入 140，
+         *     之后 _maybeCelebrateNewBest 才把 bestScore 更新到 210，但 DOM 没再次刷新。
+         *     下一次 updateUI 才会显示 210——所以 DOM 永远比内存值"慢一帧"。
+         *   - 加重：静默分支（celebrations≥1）只更新 bestScore 后 return false，不触发
+         *     任何 DOM 刷新，导致破 PB 后连续 score 增长时"最佳" DOM 持续滞后。
+         *
+         * 修复：把 _maybeCelebrateNewBest 移到 updateUI 开头，确保 bestScore 在 DOM
+         * 写入之前已经同步到 score。原 line 3518 的二次调用被移除（避免重复）。
+         *
+         * 内部安全性：庆祝分支内部会嵌套调用 updateUI；嵌套调用时 _newBestCelebrated=true
+         * 且 celebrations≥1，进入静默分支后立即 return false 不再嵌套，无递归风险。 */
+        this._maybeCelebrateNewBest();
+
         /* v1.46 实时分数滚动 / v1.49.x 回放瞬移兜底：决策表统一委托给 syncHudScoreElement
          * （决策矩阵 init / animate / sync / noop / no-element 见 scoreAnimator.js）。
          * `_lastDisplayedScore` 是"上次写入 DOM 的值"；瞬移路径（applyReplayFrameIndex /
@@ -3291,49 +3464,108 @@ export class Game {
         // 最高分差距提示（无尽模式 + 尚未超越时显示）
         const gapEl = document.getElementById('best-gap');
         if (gapEl) {
-            const gap = this.bestScore - this.score;
+            /* v1.56.5 修复：用本局开始时的 PB 基线计算 gap / over，不再用实时 bestScore ——
+             *
+             * Bug 现象（用户截图）：得分=最佳=380，best-gap 显示 "已超 0 分"
+             *   - 根因：右上角"最佳"显示 this.bestScore（实时更新，破 PB 后立即变成 score）
+             *   - 老公式 over = this.score - this.bestScore = 380 - 380 = 0 永远归零
+             *   - over 不会随 score 上涨递增，玩家看不到任何"超越累计"反馈
+             *
+             * 修复：所有 best-gap 文案统一以 _bestScoreAtRunStart（本局开局时的 PB 基线，
+             * 由 start() 写入并在本局内保持不变）作为对比基准：
+             *   - gap = baseline - score（baseline 不变 → 玩家破 PB 后 gap 持续变负）
+             *   - over = score - baseline（baseline 不变 → over 持续上涨，体感正确）
+             *   - ratio = gap / baseline（除以稳定基线，避免 D3→D4 过渡时 jitter）
+             *
+             * 同时增加守卫：_bestScoreAtRunStart === 0（玩家首次玩，无历史 PB）不显示
+             * best-gap HUD —— 避免出现"已超 380 分"（基线为 0，超越 0 无意义）的认知错位。
+             * 玩家结算时通过 endGame 皇冠 + PB 烟花得到"首次破 PB"的仪式感。 */
+            const pbBaseline = Number(this._bestScoreAtRunStart) || 0;
+            const gap = pbBaseline - this.score;
             /* v1.55（BEST_SCORE_CHASE_STRATEGY §4.5）warmup gate：
              * 本局前 3 个出块属于 warmup 段（与 adaptiveSpawn.deriveSessionArc 同口径），
              * 此时显示"差 N 分"会与 runStreakHint / 新手 toast 拥堵；
              * 显式 hide 等本局正式进入 peak 后再展示。 */
             const inWarmup = (this.gameStats?.placements ?? 0) < 3;
-            if (this._levelMode === 'endless' && gap > 0 && this.bestScore > 0 && !inWarmup) {
-                const ratio = gap / this.bestScore;
-                /* v1.49：原 ratio<=0 分支永不可达（外层已强制 gap>0），best.gap.victory 文案因此从未显示。
-                 * 改为 ratio<=0.02（距 best 不到 2%）触发，对应"即将刷新最佳"。
+            if (this._levelMode === 'endless' && pbBaseline > 0 && !inWarmup) {
+                /* v1.56.3 §5.α.7 策略隐性原则：文案统一为事实陈述，五档差异化只在样式上体现 ——
                  *
-                 * v1.55（BEST_SCORE_CHASE_STRATEGY §4.3）远征陪伴：
-                 * 旧版 ratio>0.15 仍走 best.gap.far，但触发面较窄；新版 ratio>0.50（pct<0.50，D0 远征段）
-                 * 启用陪伴文案，并按本局轮数 round-robin 三选一（far.* 文案池）避免单调；
-                 * 0.15<ratio≤0.50 段仍用 neutral（数字距离感）。 */
+                 * 文字层：全部走 best.gap.neutral / best.over.neutral / best.gap.far（D0 远段锚点）
+                 *   - gap > 0  → "差 N 分"（D1/D2/D3 段统一）/ "历史最佳 N"（D0 段保留 PB 锚点）
+                 *   - gap < 0  → "本局 +N"（D4 段统一，N=score-_bestScoreAtRunStart）
+                 *   - gap === 0 → 隐藏（追平基线那一帧由 PB 烟花接管反馈）
+                 *
+                 * 视觉层：通过 extraClass 区分情绪密度（颜色 / 亮度 / 边框）
+                 *   - D3（pct ≥ 0.95）→ best-gap--close（红色高亮，传达紧张感）
+                 *   - D2（0.80 ≤ pct < 0.95）→ best-gap--chase（橙色，传达冲刺感）
+                 *   - D1（0.50 ≤ pct < 0.80）→ 无 extraClass（默认色，中性跟随）
+                 *   - D0（pct < 0.50）→ 无 extraClass（默认色，远征锚点）
+                 *   - D4（gap ≤ 0）→ best-gap--over（金色，传达突破感）
+                 *
+                 * 算法层：D0 段 farFromPBBoost 加多消 / D3 段 pbExtremeOrderBoost 加顺序刚性 /
+                 * D4 段 challengeBoost 加压 —— 都在出块本身体现，玩家通过体感感知。
+                 *
+                 * v1.56.2 §5.α.6：低 PB 守卫（best < 200）仍生效，跳过 D0 远征锚点的 PB 数字
+                 * 暴露（统一走 best.gap.neutral）以及 D4 段所有差异化。 */
+                const lowBest = this._isLowBestForIntenseCopy();
                 let msg;
-                if (ratio <= 0.02) {
-                    msg = t('best.gap.victory');
-                } else if (ratio <= 0.05) {
-                    msg = t('best.gap.close');
-                } else if (ratio <= 0.50) {
-                    msg = t('best.gap.neutral', { gap });
-                } else {
-                    const variants = ['best.gap.far', 'best.gap.far.alt1', 'best.gap.far.alt2'];
-                    const idx = ((this.gameStats?.placements ?? 0) >>> 0) % variants.length;
-                    msg = t(variants[idx], { best: this.bestScore });
+                let extraClass = '';
+                if (gap > 0) {
+                    const ratio = gap / pbBaseline;
+                    if (ratio <= 0.05) {
+                        // D3：极临近 PB，红色高亮
+                        extraClass = ' best-gap--close';
+                        msg = t('best.gap.neutral', { gap });
+                    } else if (ratio <= 0.20) {
+                        // D2：临近段，橙色提示
+                        extraClass = ' best-gap--chase';
+                        msg = t('best.gap.neutral', { gap });
+                    } else if (ratio <= 0.50) {
+                        // D1：跟随段，默认色
+                        msg = t('best.gap.neutral', { gap });
+                    } else if (lowBest) {
+                        // D0 低 best：连 PB 锚点都不暴露（避免 best=80 时持续显示"历史最佳 80"令玩家自卑）
+                        msg = t('best.gap.neutral', { gap });
+                    } else {
+                        // D0 正常：保留 PB 锚点作为远征段目标参照（用 baseline，不用实时 bestScore）
+                        msg = t('best.gap.far', { best: pbBaseline });
+                    }
+                } else if (gap < 0) {
+                    /* D4 突破段：score > baseline，over = score - baseline 持续递增。
+                     * v1.56.5：over 用 baseline（本局开局 PB）计算，不用实时 bestScore，
+                     * 否则破 PB 后 bestScore 被更新到 score，over 永远归零（用户截图反馈）。
+                     *
+                     * v1.56.7 修复：严格 gap < 0 而非 gap <= 0；旧 `<=` 在 gap=0 时（玩家
+                     * 追平开局基线那一帧）走 over 分支显示 "本局 +0"，与用户感知冲突
+                     * （"已超 0 分" 即用户截图所示"逻辑错误"）。
+                     *   - gap === 0：追平开局 PB → msg 保持 undefined → 末尾走 hidden
+                     *     分支隐藏 best-gap HUD；玩家通过得分=最佳的视觉一致性自然感知
+                     *     （这一帧通常 _maybeCelebrateNewBest 已触发 PB 烟花作为更强反馈）。 */
+                    const over = this.score - pbBaseline;
+                    msg = t('best.over.neutral', { over });
+                    extraClass = ' best-gap--over';
                 }
-                gapEl.textContent = msg;
-                /* v1.55.18：副行加 CSS ellipsis 后，长文案（如 "上次 PB 1960 · 别急，先稳住再行"）
-                 * 在中等屏会被截断；把完整文案落到 title，鼠标 hover 即可看到全文，无 i18n 截断风险。 */
-                gapEl.title = msg;
-                gapEl.hidden = false;
-                gapEl.className = 'best-gap' + (ratio <= 0.05 ? ' best-gap--close' : '');
+                /* gap === 0（追平开局基线）：msg 保持 undefined，末尾 if (msg) 走 hidden 分支
+                 * —— 不显示 "本局 +0" / "差 0 分"，避免"超 0"类语义为空的尴尬文案。 */
+                if (msg) {
+                    gapEl.textContent = msg;
+                    /* v1.55.18：副行加 CSS ellipsis 后，长文案在中等屏会被截断；
+                     * 把完整文案落到 title，鼠标 hover 即可看到全文。 */
+                    gapEl.title = msg;
+                    gapEl.hidden = false;
+                    gapEl.className = 'best-gap' + extraClass;
+                } else {
+                    gapEl.hidden = true;
+                    gapEl.removeAttribute('title');
+                }
             } else {
                 gapEl.hidden = true;
                 gapEl.removeAttribute('title');
             }
         }
         this._updateProgressionHud();
-        // 通用入口：任何渠道导致的 score 增长（消行、daily 加成、奖励兑现等）只要
-        // 跨过本局开始时的历史最佳即触发新纪录庆祝。_newBestCelebrated flag 保证一局
-        // 只触发一次；庆祝路径内部会再调 updateUI()，但因 flag 已置位会被自然短路。
-        this._maybeCelebrateNewBest();
+        /* v1.56.7：_maybeCelebrateNewBest 已在 updateUI 开头调用（避免 best DOM
+         * 滞后一帧），此处不再重复调用。详见函数开头的修复说明。 */
         /* v1.55.11（用户反馈："追平不触发特效"）：撤销 _maybeCelebrateTiePersonalBest 调用。
          * 方法本体仍保留为 no-op（return false），以便单元测试 / 灰度回归时可独立验证；
          * 真实游戏链路完全不再触发追平 toast。 */

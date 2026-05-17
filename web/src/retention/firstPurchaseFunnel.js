@@ -5,9 +5,6 @@
  * 与 paymentManager.js 配合
  */
 
-import { getPlayerMaturity } from './playerMaturity.js';
-import { getPlayerLifecycleStage } from './playerLifecycleDashboard.js';
-
 const STORAGE_KEY = 'openblock_first_purchase_v1';
 
 const PURCHASE_FUNNEL_STAGES = {
@@ -262,7 +259,7 @@ export function getFunnelAnalytics() {
 
     const stageConversion = {};
     let prevStage = null;
-    for (const [stageId, stage] of Object.entries(PURCHASE_FUNNEL_STAGES)) {
+    for (const [stageId] of Object.entries(PURCHASE_FUNNEL_STAGES)) {
         const count = funnelData.conversionFunnel[stageId] || 0;
         if (prevStage) {
             const prevCount = funnelData.conversionFunnel[prevStage] || 1;

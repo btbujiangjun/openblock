@@ -77,7 +77,6 @@ export function isLifecycleOrchestrationEnabled() {
 
 function _safe(fn, label) {
     try { return fn(); } catch (e) {
-        // eslint-disable-next-line no-console
         console.warn(`[lifecycle] ${label} failed:`, e?.message || e);
         return null;
     }

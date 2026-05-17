@@ -77,7 +77,7 @@ def test_v3_forward_and_sample():
     assert l0.shape == (B, 28) and l1.shape == (B, 28) and l2.shape == (B, 28)
     assert out['feas_logits'].shape == (B, 28)
     assert out['style_logits'].shape == (B, NUM_PLAYSTYLES)
-    assert out['intent_logits'].shape == (B, 6)
+    assert out['intent_logits'].shape == (B, 7)  # v1.57.1：6 → 7（加 sprint）
     assert out['div_logits'].shape == (B, 3, 7)
 
     sample_board = torch.zeros(1, 8, 8)
@@ -200,7 +200,8 @@ def test_train_v3_helpers():
     sce = style_ce_loss(style_logits, style_targets)
     assert sce.item() > 0
 
-    intent_logits = torch.randn(B, 6)
+    # v1.57.1：intent dim 6 → 7（新增 sprint）
+    intent_logits = torch.randn(B, 7)
     intent_targets = torch.tensor([0, 5])
     ice = intent_ce_loss(intent_logits, intent_targets)
     assert ice.item() > 0

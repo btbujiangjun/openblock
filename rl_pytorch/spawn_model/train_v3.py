@@ -121,10 +121,14 @@ def _infer_playstyle_from_context(context: torch.Tensor) -> torch.Tensor:
 
 
 def _infer_intent_from_behavior_context(behavior_context: torch.Tensor) -> torch.Tensor:
-    """从 V3.1 behavior context 的 spawnIntent one-hot 段提取意图弱标签。"""
-    if behavior_context.size(1) < 54:
+    """从 V3.1 behavior context 的 spawnIntent one-hot 段提取意图弱标签。
+
+    v1.57.1：one-hot 段从 6 维（[48:54]）扩展到 7 维（[48:55]），新增 'sprint' (idx=6)。
+    fallback idx=5 仍指向 'maintain'（与 SPAWN_INTENT_VOCAB 顺序一致）。
+    """
+    if behavior_context.size(1) < 55:
         return torch.full((behavior_context.size(0),), 5, dtype=torch.long, device=behavior_context.device)
-    intent_slice = behavior_context[:, 48:54]
+    intent_slice = behavior_context[:, 48:55]
     has_signal = intent_slice.sum(dim=-1) > 0.01
     pred = intent_slice.argmax(dim=-1).long()
     fallback = torch.full_like(pred, 5)

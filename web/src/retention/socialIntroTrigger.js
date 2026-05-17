@@ -6,7 +6,6 @@
  */
 
 import { t } from '../i18n/i18n.js';
-import { getPlayerMaturity } from './playerMaturity.js';
 import { getPlayerLifecycleStage, getLifecycleConfig } from './playerLifecycleDashboard.js';
 
 const STORAGE_KEY = 'openblock_social_intro_v1';
@@ -91,7 +90,6 @@ function _saveIntroData(data) {
 
 export function checkSocialIntroTrigger(gameCount, daysSinceInstall) {
     const introData = getSocialIntroData();
-    const maturity = getPlayerMaturity();
     const stage = getPlayerLifecycleStage({ daysSinceInstall, totalSessions: gameCount });
 
     const availableIntros = [];

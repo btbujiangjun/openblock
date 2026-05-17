@@ -216,7 +216,6 @@ function _onPurchaseCompleted({ data }) {
 
 function _safe(fn, label) {
     try { return fn(); } catch (e) {
-        // eslint-disable-next-line no-console
         console.warn(`[lifecycleAwareOffers] ${label} failed:`, e?.message || e);
         return null;
     }

@@ -28,7 +28,7 @@ SpawnTransformerV3 — 联合分布 + 风格化 + 可解性 + 个性化骨架。
 forward(board, behavior_context, history, target_difficulty=None,
         playstyle_id=None, prev_shapes=None) -> dict
   - board:            (B, 8, 8) float
-  - behavior_context: (B, 56)   float（V3.1 用户行为特征）
+  - behavior_context: (B, 57)   float（V3.1 用户行为特征；v1.57.1 56→57：加 spawnIntent='sprint'）
   - history:          (B, 3, 3) long（PAD=NUM_SHAPES）
   - target_difficulty:(B, 1)    float ∈ [0,1]
   - playstyle_id:     (B,)      long  ∈ [0, NUM_PLAYSTYLES) or None
@@ -69,7 +69,11 @@ from .dataset import (
 PLAYSTYLE_VOCAB = ['balanced', 'perfect_hunter', 'multi_clear', 'combo', 'survival']
 NUM_PLAYSTYLES = len(PLAYSTYLE_VOCAB)
 PLAYSTYLE_TO_IDX = {s: i for i, s in enumerate(PLAYSTYLE_VOCAB)}
-SPAWN_INTENT_VOCAB = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain']
+# v1.57.1 P3：新增 'sprint' 中间档（stress ∈ [0.45, 0.55) 渐紧过渡带，web/src/adaptiveSpawn.js 同源）。
+# 添加在末尾保持向后兼容：idx 0~5 与旧 vocab 一致，旧 checkpoint 在不重训时仍能映射 5 种基础 intent，
+# 仅新增的 sprint（idx=6）会落空——这是预期的（旧 checkpoint 学不到 sprint 行为模式）。
+# 重训时模型 input shape 因 BEHAVIOR_CONTEXT_DIM 56→57 必然变化，需重新拟合。
+SPAWN_INTENT_VOCAB = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain', 'sprint']
 NUM_SPAWN_INTENTS = len(SPAWN_INTENT_VOCAB)
 
 

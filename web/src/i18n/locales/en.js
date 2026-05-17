@@ -102,13 +102,58 @@ export default {
     'progress.rank.master': 'Master',
     'progress.rank.legend': 'Legend',
     'progress.streakDays': '{{n}} days streak',
-    'best.gap': '{{gap}} pts to best',
-    'best.gap.victory': 'About to break your record!',
-    'best.gap.close': 'Almost there! 💪',
+    /* v1.56.3 §5.α.7 Strategy-hidden principle —
+     *
+     * All best-gap / best.over / endGame.nearMiss strings are unified as plain
+     * factual statements ("{{gap}} pts short" / "+{{over}} pts"). The earlier
+     * coaching-style and emotionally charged variants ("About to break your record!",
+     * "Sprint zone!", "Legend mode", "so close to a new record") are deprecated.
+     *
+     * Rationale: the far-PB relief / near-PB pressure / over-PB harder-pressure
+     * strategy is **executed silently in the algorithm layer** (farFromPBBoost /
+     * challengeBoost / pbExtremeOrderBoost / effect amplitude modulation). Players
+     * perceive it through **block-feel, effect intensity, and HUD color states**
+     * (best-gap--close / --chase / --over), NOT through text that announces
+     * "system entered sprint mode" or "switched to order-rigor mode".
+     *
+     * Five-band (D0~D4) differentiation now lives entirely in CSS classes and
+     * algorithm hints — text stays factual.
+     *
+     * Old keys retained as @deprecated for i18n platform grey-rollback. */
+    'best.gap': '{{gap}} pts short',
     'best.gap.neutral': '{{gap}} pts short',
-    'best.gap.far': 'Best {{best}} · keep climbing',
+    'best.gap.far': 'Best {{best}}',
+    /* v1.56.7: '+N pts' was ambiguous (over what baseline?) when combined with
+     * 'Score 210 / Best 210 / +190 pts' — players couldn't reconcile the three
+     * numbers. New copy 'Run +N' anchors the comparison to "this run's starting PB"
+     * so 210 - 190 = 20 (run-start baseline) becomes mentally inferable. */
+    'best.over.neutral': 'Run +{{over}}',
+    'endGame.nearMiss': '{{gap}} pts short',
+    /** @deprecated v1.56.3: coaching/emotional variants downgraded to factual */
+    'best.gap.victory': '{{gap}} pts short',
+    /** @deprecated v1.56.3 */
+    'best.gap.close': '{{gap}} pts short',
+    /** @deprecated v1.56.1 */
     'best.gap.far.alt1': 'Steady pace — two more runs will close the gap',
+    /** @deprecated v1.56.1 */
     'best.gap.far.alt2': 'Last PB {{best}} · stack the bottom two rows first',
+    /** @deprecated v1.56.3 */
+    'best.gap.follow': '{{gap}} pts short',
+    /** @deprecated v1.56.3 */
+    'best.gap.chase': '{{gap}} pts short',
+    /** @deprecated v1.56.3 */
+    'best.over.toNext10': '+{{over}} pts',
+    /** @deprecated v1.56.3 */
+    'best.over.toNext25': '+{{over}} pts',
+    /** @deprecated v1.56.3 */
+    'best.over.legend': '+{{over}} pts',
+    /** @deprecated v1.56.3: endGame.nearMiss.D2 / D3 merged into endGame.nearMiss */
+    'endGame.nearMiss.D3': '{{gap}} pts short',
+    /** @deprecated v1.56.3 */
+    'endGame.nearMiss.D2': '{{gap}} pts short',
+    /* v1.56 §4.4 / v1.56.3 toned-down: factual count, no fireworks emoji
+     * (effect.newRecord already provides the single celebratory anchor). */
+    'pbStreak.badge': '{{n}}× PB',
     /* @deprecated v1.55.11: in-run milestone / tie-best toasts are no longer rendered
      * (user feedback: keep only "new record" fireworks as the single emotional anchor).
      * These three keys are retained for i18n platform rollback compatibility; existence is
@@ -346,6 +391,9 @@ export default {
     'dfv.intent.engage': 'Engage',
     'dfv.intent.flow': 'Flow',
     'dfv.intent.maintain': 'Maintain',
+    /* v1.57.1 P3: sprint mid-tier (stress ∈ [0.45, 0.55) transition band), smooths
+     * the cross-threshold "sudden harder" cliff at 0.55. Copy stays neutral. */
+    'dfv.intent.sprint': 'Sprint',
     'dfv.intent.pressure': 'Pressure',
     'dfv.intent.harvest': 'Harvest',
 
@@ -356,6 +404,8 @@ export default {
     'dfv.reason.pressure': 'good momentum → can pressure',
     'dfv.reason.engage': 'anxious + frustration → engage',
     'dfv.reason.flow': 'flow stable → maintain',
+    /* v1.57.1 P3: sprint trigger reason (DFV dev panel only) */
+    'dfv.reason.sprint': 'stress ∈ [0.45, 0.55) — gradual ramp',
     'dfv.reason.harvest': 'board has clear opportunity',
 
     // Decision flag chips

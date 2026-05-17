@@ -6,7 +6,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
 const mockStorage = {};
-const mockSessionStorage = {};
+/* v1.56.1：sessionStorage mock 暂未使用但保留挂点，加 _ 前缀通过 lint 例外。 */
+const _mockSessionStorage = {};
 
 Object.defineProperty(globalThis, 'localStorage', {
     value: {

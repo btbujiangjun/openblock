@@ -130,7 +130,13 @@ export const SIGNAL_LABELS = {
     abilityRiskAdjust:     { label: '能力风险',   hint: '玩家能力风险偏高时降难度护栏' },
     delightStressAdjust:   { label: '里程碑',     hint: '接近里程碑时的甜点/挑战微调' },
     challengeBoost:        { label: 'B 类挑战',   hint: '逼近历史最佳分时的额外加压（v1.55 §4.2：救济期 / 瓶颈 / 挫败 / warmup / postPbRelease 时自动 bypass）' },
+    pbExtremeOrderBoost:   { label: 'PB 临近调整', hint: 'v1.56 §2.3 / v1.56.3 隐性化：分数接近历史最佳时给 orderRigor 注入额外提升量。v1.56.4 §5.α.8 扩展到 D4 段以弱强度（默认 0.08）持续作用。仅作开发者调试可见，玩家侧不暴露策略名。' },
     postPbReleaseStressAdjust: { label: '破纪录释放', hint: 'v1.55 §4.9：刚刚刷新 PB 后 3 个 spawn 内 stress×0.7，给玩家"我赢了"情绪释放空间（负值）' },
+    farFromPBBoostActive:  { label: 'PB 远段倾斜', hint: 'v1.56 §2.1 / v1.56.3 隐性化：分数远低于历史最佳时主动加 multiClearBonus / iconBonusTarget / clearGuarantee。仅作开发者调试可见，玩家侧不暴露策略名。' },
+    farExtremeBoostActive: { label: 'PB 极远段倾斜', hint: 'v1.56.4 §5.α.8：D0 极远档（pct < extremeThreshold，默认 0.15）的加强减压，multiClearBonus / iconBonusTarget floor 进一步抬升。仅作开发者调试可见。' },
+    pbOvershootBoost:      { label: 'PB 超越加压', hint: 'v1.56.4 §5.α.8：score > bestScore 时的对数加压量（防分数膨胀，透支生命周期），与 challengeBoost 互补。仅作开发者调试可见。' },
+    pbOvershootActive:     { label: 'PB 超越态', hint: 'v1.56.4 §5.α.8：D4 段激活态；blockSpawn 据此抑制多消权重 ×0.78、抬大块权重 ×1.20。仅作开发者调试可见。' },
+    challengeBoostGrowthCapBonus: { label: 'PB 增长率反向加压', hint: 'v1.56.4 §5.α.8：pbGrowthFast=true 时把 challengeBoost cap 从 0.15 临时上调到 0.20，主动制动 PB 短时间连续膨胀。' },
     lifecycleCapAdjust:    { label: '生命周期封顶', hint: '生命周期阶段压力上限触发时，对 stress 的削减量（负值）' },
     lifecycleBandAdjust:   { label: '生命周期偏移', hint: '生命周期阶段/成熟度带来的固定偏移（可正可负）' },
     onboardingStressOverrideAdjust: { label: '新手覆写', hint: '新手保护期 firstSessionStressOverride 造成的额外调整量' },
@@ -148,7 +154,9 @@ export const SIGNAL_LABELS = {
     occupancyDamping:      { label: '占用衰减',   hint: '盘面占用率 <50% 时按比例衰减正向 stress，避免空盘上 0.89 的伪高压' },
     /* v1.32：orderRigor 是顺序刚性强度（0~1），不是 stress 分量；放这里仅用于面板 tooltip
      * 命中。summarizeContributors 通过 skip 集合把它从「贡献者列表」里排除。 */
-    orderRigor:            { label: '顺序刚性',   hint: '高压且具承受力时，要求三连块 6 种排列里仅 ≤N 种可解，强制玩家做摆放顺序规划（v1.32 新增）' }
+    orderRigor:            { label: '顺序刚性',   hint: '高压且具承受力时，要求三连块 6 种排列里仅 ≤N 种可解，强制玩家做摆放顺序规划（v1.32 新增）' },
+    /* v1.57.1 P2：D4 段强顺序锁死分量（开发者调试可见，玩家侧不暴露策略名）。 */
+    pbOvershootOrderBoost: { label: 'D4 强顺序锁', hint: 'v1.57.1 P2：D4 段（pbOvershootActive=true）+ stress ≥ orderHighStressMin（默认 0.85）时给 orderRigor 注入额外 +0.25，把 maxValidPerms 压到 tight=2，与 D4 高压 stress 形成"数值压 + 顺序压"双锁死。仅作开发者调试可见。' }
 };
 
 /**
@@ -167,7 +175,14 @@ export function summarizeContributors(breakdown, topN = 5) {
         'bottleneckTrough', 'bottleneckSamples',
         /* v1.32：orderRigor / orderMaxValidPerms 是 spawnHints 派生指标
          * （不是 stress 加减分量），从贡献者列表里排除以免混入 0~1 / 1~6 数值。 */
-        'orderRigor', 'orderMaxValidPerms'
+        'orderRigor', 'orderMaxValidPerms',
+        /* v1.56：farFromPBBoost / challengeBoostBypass / pbExtreme... 是标志/枚举/派生
+         * 状态字段，不是 stress 数值贡献分量，从 top-N 贡献者排序中排除。 */
+        'farFromPBBoostActive', 'farFromPBBoostBypass', 'challengeBoostBypass',
+        'pbExtremeOrderBoost',
+        /* v1.57.1 P2：pbOvershootOrderBoost 是 orderRigor 增量（不是 stress 数值），
+         * 与 orderRigor 同口径从贡献者排序中排除，避免与 stress 分量混淆。 */
+        'pbOvershootOrderBoost'
     ]);
     const entries = Object.entries(breakdown)
         .filter(([k, v]) => !skip.has(k) && Number.isFinite(v) && Math.abs(v) >= 0.005)
@@ -220,8 +235,32 @@ export const SPAWN_INTENT_NARRATIVE = {
     pressure: '正在挑战自我！系统略加压让收尾更有仪式感。',
     flow:     '心流稳定，系统继续维持流畅的出块节奏。', // v1.24：去"收获期"硬编码，作 rhythmPhase 缺失时的兜底
     harvest:  '识别到密集消行机会，正在投放促清的形状。',
+    /* v1.57.1 P3：sprint 中间档过渡叙事。文字保持事实陈述（不暴露"算法在过渡"
+     * 这种策略术语），玩家通过氛围光 + 出块体感自然感知"渐紧"。 */
+    sprint:   '节奏渐紧，逐步收束。',
     maintain: '看起来比较轻松，悄悄加点料维持新鲜感。'
 };
+
+/**
+ * v1.56.3 §5.α.7：策略隐性原则 ——
+ *
+ * 早期 v1.56 §4.3 引入了 farBoostActive / pbExtremeChase 两条"PB 距离段联动叙事"，
+ * 但这两条文案直接告诉玩家"系统在偷偷送爽 / 系统已切到顺序约束模式"，把幕后策略
+ * 暴露在字面上，与 strategy-hidden 原则相悖（用户反馈："上述策略是游戏背后的策略，
+ * 不直白体现在字面上"）。
+ *
+ * 现在 buildStoryLine **不再抢占** PB 距离段叙事——farFromPBBoost / pbExtremeOrderBoost
+ * 继续在算法层执行，但叙事层让位给 SPAWN_INTENT_NARRATIVE / 几何密度分级等中性表述，
+ * 让玩家通过出块体感与 HUD 颜色（best-gap--close / --chase / --over）自然感知。
+ *
+ * 此常量保留 export 以保持 API 兼容（旧测试 / 旧外部消费方），但内容已中性化为
+ * 通用节奏描述，不再暴露"系统在为你做什么"。
+ */
+export const PB_DISTANCE_NARRATIVE = {
+    farBoostActive: '节奏顺畅，继续保持。',
+    pbExtremeChase: '节奏紧凑，逐步放稳。'
+};
+
 
 /**
  * v1.24：`flow` 意图按实际 rhythmPhase 选变体文案，与 pill / strategyAdvisor 同口径。
@@ -390,6 +429,15 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints, geome
      * 可落位」与空旷盘面的反差。 */
     if (br >= 0.6) return '盘面很紧张，系统正在为你保活，候选块更易消行。';
     const intent = spawnHints?.spawnIntent;
+
+    /* v1.56.3 §5.α.7 策略隐性原则：移除 v1.56 §4.3 引入的"PB 距离段叙事抢占" ——
+     * 旧实现会在 D0/D3 段返回 "远征段送爽中..." / "冲刺区！系统已切到顺序约束模式..."，
+     * 但这两条文案直接告诉玩家"系统在偷偷做什么"，把幕后策略暴露在字面上。
+     * 现在 buildStoryLine 不再针对 PB 距离段做特殊抢占——farFromPBBoost /
+     * pbExtremeOrderBoost 继续在出块层静默执行（spawnHints / breakdown 字段保留），
+     * 但叙事层让位给中性的 SPAWN_INTENT_NARRATIVE / 几何密度分级，让玩家通过
+     * 出块体感与 HUD 颜色变化（best-gap--close / --chase / --over）自然感知。 */
+
     /* v1.31 score-push 守卫：抢占 FLOW/HARVEST 的高压守卫文案 */
     if (shouldUseScorePushHighStress(level, intent, geometry)) {
         const sp = SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL[level?.id];

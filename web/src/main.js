@@ -158,6 +158,18 @@ document.addEventListener('DOMContentLoaded', async () => {
        零侵入接入：不改 game.js / EffectLayer，仅装饰 renderer 调用点。 */
     audioFx.attachToRenderer(game.renderer);
 
+    /* v1.57 stress 感知化层 C + D 档装饰器（一次性绑定，整局生效）：
+     *   C 档 attachStressShakeMultiplier：装饰 renderer.setShake，
+     *     让 intensity 自动 × stress 倍率（高压震动更强 / 低压更轻）。
+     *   D 档 attachStressAudioFilter：在 audioFx.master → destination 之间
+     *     插入 BiquadFilter（lowpass），cutoff 随 stress 调节（高压闷感）。
+     * A + B 档（棋盘氛围光 + 呼吸节奏）由 game.js 在 _captureAdaptiveInsight
+     * 中通过 pushStressAmbience 直接推送 CSS 变量，无需在此装饰。 */
+    import('./stressAmbience.js').then(({ attachStressShakeMultiplier, attachStressAudioFilter }) => {
+        attachStressShakeMultiplier(game.renderer);
+        attachStressAudioFilter(audioFx);
+    }).catch(() => { /* 加载失败时整个 stress 感知化层降级为无操作（不影响主流程） */ });
+
     /* v10.15: 皮肤环境粒子层（樱花/落叶/气泡/萤火虫/流星）
        根据当前皮肤激活预设；未匹配的皮肤零开销空跑。
        v10.16: 流体背景（aurora 极光带 / koi 涟漪）通过同模块的预设扩展 */

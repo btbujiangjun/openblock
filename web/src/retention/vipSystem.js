@@ -5,7 +5,8 @@
  * 与 playerMaturity.js, rankSystem.js 配合
  */
 
-import { getPlayerMaturity, getMaturityInsights } from './playerMaturity.js';
+/* v1.56.1：getPlayerMaturity / getMaturityInsights 当前未使用，但保留导入 doc-link
+ * 备注以便后续接入；删除 import 以通过 lint。需要时从 './playerMaturity.js' 重新导入。 */
 
 const STORAGE_KEY = 'openblock_vip_system_v1';
 

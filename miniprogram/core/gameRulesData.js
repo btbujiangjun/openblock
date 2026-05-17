@@ -80,6 +80,25 @@ module.exports = {
     "smoothingFactor": 0.15,
     "fastConvergenceWindow": 5,
     "fastConvergenceAlpha": 0.35,
+    "pbChase": {
+      "comment": "v1.57.1 多端策略同步：pbChase 顶层配置（minBestScoreForIntenseFeedback / overshoot 等）占位与 shared/game_rules.json 同口径。小程序当前 adaptiveSpawn.js **未实现** D4 段（pbOvershootBoost / pbExtremeOrderBoost / orderBoostInD4HighStress 等），本配置仅作真理源对齐占位，未来移植 D4 链路时直接消费。配置语义详见 shared/game_rules.json 内同名节点；改动以仓库根 shared/game_rules.json 为准。",
+      "minBestScoreForIntenseFeedback": 200,
+      "overshoot": {
+        "enabled": true,
+        "maxBoost": 0.16,
+        "slope": 5.0,
+        "capStress": 0.9,
+        "multiClearBonusCap": 0.18,
+        "sizePreferenceShift": 0.12,
+        "clearGuaranteeShift": -1,
+        "orderBoostInD4": 0.08,
+        "orderBoostInD4HighStress": 0.25,
+        "orderHighStressMin": 0.85,
+        "bypassOccupancyDamping": true,
+        "bypassFlowPayoffCap": true,
+        "smoothMaxStepUp": 0.25
+      }
+    },
     "difficultyTuning": {
       "comment": "玩家选择难度的显式偏置。stressBias 拉开 profile 档位；clearGuaranteeDelta/sizePreferenceDelta/multiClearBonusDelta 直接进入 spawnHints；solutionStressDelta 仅用于解法数量区间选择，让困难模式更早进入低解空间过滤。",
       "easy": {
@@ -399,6 +418,14 @@ module.exports = {
       "comment": "将一维 stress 投影为多轴出块目标，避免仅通过方块复杂度消费压力。",
       "frustrationReliefThreshold": 5
     },
+    "sprintIntent": {
+      "comment": "v1.57.1 P3 spawnIntent 'sprint' 中间档配置（与 web 同口径）。stress ∈ [minStress, maxStress) 触发 sprint，过渡 maintain → pressure 的台阶感。",
+      "enabled": true,
+      "minStress": 0.45,
+      "maxStress": 0.55,
+      "sizePreferenceShift": 0.1,
+      "multiClearBonusFloor": 0.4
+    },
     "delight": {
       "comment": "爽感兑现层：根据玩家能力、心流、动量、恢复需求和盘面机会，实时提高多消/清屏候选概率；高手无聊时略加压并给 payoff，焦虑/恢复时降压但保留清线爽点。",
       "highSkillThreshold": 0.62,
@@ -430,6 +457,7 @@ module.exports = {
       "bottleneckSizePreferenceDelta": -0.18,
       "orderRigorEnabled": true,
       "orderRigorStressThreshold": 0.55,
+      "orderRigorStressSmoothness": 0.08,
       "orderRigorScale": 1.6,
       "orderRigorSkillScale": 0.2,
       "orderRigorMaxPermsTight": 2,
@@ -485,6 +513,12 @@ module.exports = {
           "label": "标准",
           "min": 2,
           "max": null
+        },
+        {
+          "minStress": 0.5,
+          "label": "渐紧",
+          "min": 1,
+          "max": 64
         },
         {
           "minStress": 0.6,

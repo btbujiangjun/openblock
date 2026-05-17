@@ -12,11 +12,10 @@
  *   - P2-6  策略面板 stress vs target（_stressTarget 输出与渲染）
  *   - P2-7  失败过渡优化（showNoMovesWarning 延迟 600ms）
  */
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from '../web/src/adaptiveSpawn.js';
 import { PlayerProfile } from '../web/src/playerProfile.js';
-import { renderStressMeter, buildStoryLine, STRESS_LEVELS } from '../web/src/stressMeter.js';
-import { generateStrategyTips } from '../web/src/strategyAdvisor.js';
+import { renderStressMeter } from '../web/src/stressMeter.js';
 
 // ── helper ──────────────────────────────────────────────────────────────
 

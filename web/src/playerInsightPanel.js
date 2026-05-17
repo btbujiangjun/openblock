@@ -328,13 +328,18 @@ const PLAYSTYLE_TOOLTIP = {
     balanced: '均衡型：无明显单一偏好，系统按常规自适应策略投放，不做额外风格调整。',
 };
 
-/** spawnIntent 标签：与 stressMeter.SPAWN_INTENT_NARRATIVE / 商业化文案同源 */
+/** spawnIntent 标签：与 stressMeter.SPAWN_INTENT_NARRATIVE / 商业化文案同源
+ *
+ * v1.57.1 P3：新增 'sprint' 中间档（stress ∈ [0.45, 0.55) 渐紧过渡带）；
+ * 优先级低于 relief/engage/harvest/pressure（主导意图照常触发），
+ * 高于 flow/maintain（避免落入"看起来比较轻松"误导叙事）。 */
 const SPAWN_INTENT_LABEL = {
     relief:   '救济',
     engage:   '召回',
     pressure: '加压',
     flow:     '心流',
     harvest:  '兑现',
+    sprint:   '渐紧',
     maintain: '维持',
 };
 
@@ -364,7 +369,7 @@ const SPAWN_TOOLTIP = {
     feedback:
         '闭环反馈（reward bias）：每轮新出块后，在若干步放置窗口内统计消行表现，对 stress 做小幅偏移（正≈好于预期可略加压，负≈不及预期减压）。⚠ 与「近满 N」「多消候选」不同——它衡量的是"近期奖励是否高于预期"，不是"盘面几何上还有几条临消行"。',
     boardFill: '当前棋盘占用率（已占格÷总格），不是开局预填比例 fillRatio。',
-    spawnIntent: '出块意图（spawnIntent）：本轮自适应出块对外的单一口径——relief/engage/pressure/flow/harvest/maintain。压力表叙事、商业化策略文案与回放标签都读这一字段，避免文案与实际出块不一致。',
+    spawnIntent: '出块意图（spawnIntent）：本轮自适应出块对外的单一口径——relief/engage/pressure/flow/harvest/sprint/maintain。压力表叙事、商业化策略文案与回放标签都读这一字段，避免文案与实际出块不一致。v1.57.1 P3 起新增 sprint 中间档（stress ∈ [0.45, 0.55)），消除原 0.55 跨阈值的"突然变难"台阶感。',
     motivationIntent: '动机意图（motivationIntent）：由实时行为和明示偏好推断的中长期个性化目标，如胜任、挑战、减压、收集、社交；不使用年龄/性别/种族/宗教等敏感属性。',
     behaviorSegment: '行为分群：只由清行、思考、失误、分享、挑战、收集等行为信号推断，用于解释个性化策略，不做敏感属性定向。',
     accessibilityLoad: '操作负担：低画质/低动态偏好、误触率、长思考等信号合成；越高越倾向偏小块、保消和低压力。',

@@ -209,9 +209,11 @@ describe('Lifecycle Experiments E1–E8 + ETG', () => {
 });
 
 describe('P2-4 intentLexicon', () => {
-    it('SUPPORTED_INTENTS 与 stressMeter 词典共 6 项', () => {
+    /* v1.57.1 P3：spawnIntent 新增 sprint 中间档（stress ∈ [0.45, 0.55) 渐紧过渡带），
+     * 与 stressMeter.SPAWN_INTENT_NARRATIVE / playerInsightPanel.SPAWN_INTENT_LABEL 同步。 */
+    it('SUPPORTED_INTENTS 与 stressMeter 词典共 7 项（v1.57.1 新增 sprint）', () => {
         expect([...SUPPORTED_INTENTS].sort()).toEqual(
-            ['engage', 'flow', 'harvest', 'maintain', 'pressure', 'relief']
+            ['engage', 'flow', 'harvest', 'maintain', 'pressure', 'relief', 'sprint']
         );
     });
 

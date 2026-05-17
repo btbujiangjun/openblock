@@ -25,9 +25,7 @@
  *   - HTML 详情区每 6 帧重排一次（10Hz），sparkline 每 3 帧（20Hz），避免每帧 reflow
  */
 
-/* eslint-disable no-magic-numbers */
-
-import { SIGNAL_LABELS, summarizeContributors } from './stressMeter.js';
+import { summarizeContributors } from './stressMeter.js';
 import { t } from './i18n/i18n.js';
 
 /**
@@ -68,6 +66,10 @@ const SPAWN_INTENT_COLOR = {
     engage:   '#a78bfa',
     flow:     '#10b981',
     maintain: '#94a3b8',
+    /* v1.57.1 P3：sprint 颜色介于 flow（#10b981 翠绿）和 pressure（#f59e0b 橙）之间，
+     * 用青绿（#0ea5e9 → 偏向 flow 一侧的渐变中点）表达"渐紧但未压"的过渡感。
+     * 在 DFV 球状图中与 flow/pressure 在视觉上形成颜色梯度（绿→青→橙）。 */
+    sprint:   '#0ea5e9',
     pressure: '#f59e0b',
     harvest:  '#f472b6',
 };
@@ -78,6 +80,7 @@ const SPAWN_INTENT_DESC = {
     engage:   '挑战参与',
     flow:     '维持心流',
     maintain: '保持节奏',
+    sprint:   '渐紧过渡',
     pressure: '提升压力',
     harvest:  '收获机会',
 };
@@ -745,7 +748,7 @@ class DecisionFlowViz {
             const isTouch = ev.type === 'touchmove';
             const point = isTouch ? ev.touches[0] : ev;
             const rect = this._card.getBoundingClientRect();
-            const w = rect.width, h = rect.height;
+            const w = rect.width;
             // clamp 到可视范围内（保留 head 至少 36px 可见）
             const maxLeft = window.innerWidth - 60;
             const maxTop = window.innerHeight - 36;
@@ -1756,6 +1759,7 @@ class DecisionFlowViz {
         } else if (intent === 'pressure') { reasonKey = 'dfv.reason.pressure'; reasonFb = '动量良好，可加压'; }
         else if (intent === 'engage')   { reasonKey = 'dfv.reason.engage';   reasonFb = '焦虑/挫败叠加 → 介入引导'; }
         else if (intent === 'flow')     { reasonKey = 'dfv.reason.flow';     reasonFb = '心流稳定 → 维持'; }
+        else if (intent === 'sprint')   { reasonKey = 'dfv.reason.sprint';   reasonFb = 'stress 进入 [0.45, 0.55) 渐紧过渡带（v1.57.1 P3）'; }
         else if (intent === 'harvest')  { reasonKey = 'dfv.reason.harvest';  reasonFb = '盘面具备消行机会'; }
         els.intentReason.textContent = _ti(reasonKey, reasonFb);
 

@@ -275,6 +275,95 @@ smoothSkill += α × (rawSkill - smoothSkill)
 
 实现位置：`web/src/adaptiveSpawn.js` 顶部 `normalizeStress / denormalizeStress` 函数（导出）；常量 `STRESS_NORM_OFFSET = 0.2`、`STRESS_NORM_SCALE = 1.2`；契约测试 `tests/stressNormalization.test.js`。小程序平行实现：`miniprogram/core/adaptiveSpawn.js` 同步导出。
 
+#### stress 感知化层 4 档反馈渠道（v1.57）
+
+> **背景**：v1.55~v1.56 算法层做了大量 stress 精算（lifecycle cap / occupancyDamping / smoothStress / flowPayoffCap / challengeBoost / pbOvershootBoost 等），但用户反馈 "stress 指标不太能体现到玩家感受上来"。审计发现 5 个本可承载 stress 感知的渠道（HUD/视觉/音效/震动/出块）中只有"出块"生效，其余 4 个全部断层。v1.57 通过 `stressAmbience.js` 系统补全玩家感知通道。详见 `docs/player/BEST_SCORE_CHASE_STRATEGY.md` §5.α.11。
+
+| 档位 | 渠道 | 技术实现 | 玩家体感 |
+|------|------|----------|----------|
+| **A** | 棋盘氛围光 | `#game-wrapper::before` outer box-shadow 颜色随 `--stress-ambience-glow` 6 档变化（冷青→暗红） | 棋盘外缘色相潜意识感知 |
+| **B** | 呼吸节奏 | `--stress-ambience-breath-ms` 驱动 keyframe 周期（`[1500, 4200]` ms 6 档） | 低 stress 4.2s 缓慢 / 高 stress 1.5s 急促 |
+| **C** | 消行震动幅度 | 装饰 `renderer.setShake`，intensity × `_stressShakeMultiplier` (`[0.85, 1.30]`) | 高压震感更强 / 低压轻柔 |
+| **D** | 音频低通滤波 | BiquadFilter 插入 `audioFx.master → destination`，cutoff `[4000, 14000]` Hz | 高压时 BGM/音效"闷" / 低压明亮 |
+
+阈值与 stressMeter.STRESS_LEVELS 严格同源（单一真理源）；契约测试 `tests/stressAmbience.test.js`（43 用例）。
+
+**严格护栏（v1.56.3 策略隐性原则）**：
+- 不向主 HUD 暴露 stress 数字/标签（stressMeter 仍只在 insightPanel 内）
+- `stressAmbience.js` 不导出任何 `render*` / `show*` / `*Label` / `*Text` 函数（契约测试白名单）
+- 不写 textContent / innerHTML（所有反馈通过 CSS 变量 / 装饰器 / 音频参数）
+- `prefers-reduced-motion` 关闭呼吸动画 / `:root.quality-low` 关闭氛围光（降级路径）
+
+#### stress → 出块算法的 5 条传导路径与 v1.57.1 精算细化
+
+> v1.57 §5.α.11 解决了"玩家显性感知"，但 stress 在算法层的传导仍有台阶感。v1.57.1 对 5 条传导路径做精算细化。详见 `docs/player/BEST_SCORE_CHASE_STRATEGY.md` §5.α.12。
+
+| 传导路径 | 实现位置 | 状态 |
+|---------|---------|------|
+| **A. profile 插值** | `interpolateProfileWeights(profiles, stress)` — 在 10 档 profile 间连续插值 shapeWeights | ✅ 平滑 |
+| **B. spawnTargets 投影** | `deriveSpawnTargets(stress)` — 投影到 6 轴目标（shapeComplexity / solutionSpacePressure / clearOpportunity / spatialPressure / payoffIntensity / novelty） | ✅ 平滑 |
+| **C. targetSolutionRange 软过滤** | `solutionDifficulty.ranges` 按 stress 选区间，blockSpawn 在三连块通过 sequentiallySolvable 后用 DFS 估算解叶子数软过滤 | ⚠️ v1.57.1 P1 新增 '渐紧' 档（minStress=0.5, max=64）填补 0.5~0.6 断档 |
+| **D. orderRigor 顺序刚性** | `stressTerm` 控制 `orderRigor`，进而决定 `orderMaxValidPerms` ∈ [2, 4] 软过滤 | ⚠️ v1.57.1 P0 改用 softplus ramp（smoothness=0.08）消除 0.55 跨阈值台阶；P2 D4 高 stress 强锁死（+0.25 boost） |
+| **E. spawnIntent 离散意图** | 6 档枚举（relief/engage/harvest/pressure/flow/maintain），决定 hints 套装与 stressMeter 叙事 | ⚠️ v1.57.1 P3 新增 'sprint' 中间档（stress ∈ [0.45, 0.55)）平滑 maintain → pressure 过渡 |
+
+##### P0 orderRigor softplus 公式
+
+```
+旧:  stressTerm = max(0, stress - threshold) * orderScale         // 一阶不连续
+新:  stressTerm = softplus((stress - threshold) / smoothness)
+                * smoothness * orderScale                          // 一阶可导
+```
+
+其中 `softplus(x) = ln(1 + e^x)`；smoothness=0.08 让 threshold ± 0.16 范围内平滑过渡，远离 threshold 时与旧公式渐近一致（高 stress 段强约束效果不变）。
+
+数值对照（threshold=0.55, orderScale=1.6）：
+
+| stress | 旧 stressTerm | 新 stressTerm |
+|--------|--------------|--------------|
+| 0.40   | 0            | 0.018        |
+| 0.55   | 0            | 0.089        |
+| 0.70   | 0.240        | 0.258        |
+| 0.85   | 0.480        | 0.484        |
+
+##### P2 D4 段双重 boost 设计
+
+```
+弱档 orderBoostInD4=0.08          : pbOvershootActive=true（任意 stress）
+强档 orderBoostInD4HighStress=0.25 : pbOvershootActive=true AND stress ≥ 0.85
+```
+
+弱档+强档累加（`pbExtremeOrderBoost = max(0.08)` + `pbOvershootOrderBoost = 0.25`）让 orderRigor 总和 ≥ 0.55 → `maxValidPerms = round(4 - 2 * orderRigor) ≤ 2`，顺序刚性彻底锁死。
+
+##### P3 sprint 优先级链
+
+```
+relief > engage > harvest > pressure > sprint > flow > maintain
+```
+
+- sprint 低于 pressure：challengeBoost > 0 时仍走 pressure
+- sprint 高于 flow / maintain：避免 stress=0.5 落入"看起来比较轻松"误导叙事
+- sprint hints：`sizePreference +0.10` / `multiClearBonus ≥ 0.40` / `clearGuarantee` 维持不削减
+
+##### 配置位置
+
+| 配置 | 路径 | 默认值 |
+|------|------|--------|
+| P0 softplus smoothness | `adaptiveSpawn.topologyDifficulty.orderRigorStressSmoothness` | 0.08 |
+| P1 sprint solutionRange 档 | `adaptiveSpawn.solutionDifficulty.ranges[3]`（minStress=0.5, label="渐紧", min=1, max=64） | — |
+| P2 D4 强锁死 boost | `adaptiveSpawn.pbChase.overshoot.orderBoostInD4HighStress` | 0.25 |
+| P2 D4 高 stress 阈值 | `adaptiveSpawn.pbChase.overshoot.orderHighStressMin` | 0.85 |
+| P3 sprint intent | `adaptiveSpawn.sprintIntent`（enabled / minStress / maxStress / sizePreferenceShift / multiClearBonusFloor） | true / 0.45 / 0.55 / 0.10 / 0.40 |
+
+契约测试：`tests/adaptiveSpawnV1571.test.js`（19 用例）。
+
+##### 与 v1.57 感知化层的协同（玩家体感双闭环）
+
+| stress 区间 | §5.α.11 感官反馈（显性） | §5.α.12 算法精算（潜意识） |
+|------------|------------------------|--------------------------|
+| [0.45, 0.55) | 氛围光 flow→engaged；呼吸 3.0s→2.4s | spawnIntent='sprint'；solutionRange max=64 |
+| [0.55, 0.85) | 氛围光 tense；呼吸 1.9s；震动 ×1.20；音频低通 5.5kHz | orderRigor softplus 平滑上升；spawnIntent='pressure'；solutionRange max=32 |
+| ≥ 0.85 + D4 | 氛围光 intense；呼吸 1.5s；震动 ×1.30；音频低通 4.0kHz | orderRigor + pbOvershootOrderBoost=0.25 → maxValidPerms=2；solutionRange max=12 |
+
 ---
 
 ## 4. 策略候选库（10 档 Profiles）
@@ -757,6 +846,8 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 | `targetSolutionRange` | min/max 或 null | v9 解法数量档位 | 通过可解性校验后收缩解空间 |
 | `orderRigor` | 0~1 | **v1.32 新增**：顺序刚性强度（0=不约束，1=必须按特定顺序） | 仅用于诊断/面板展示 |
 | `orderMaxValidPerms` | 1~6 | **v1.32 新增**：硬上限 — 6 种排列里允许的最大可解数 | `blockSpawn` 在早期 attempt 拒绝 `validPerms > N` 的 triplet |
+| `farFromPBBoostActive` | bool | **v1.56 §2.1 新增**：远征送爽是否激活（pct &lt; 0.30 且无 bypass 时为 true） | 触发 §2.5 `blockSpawn` 端 multiClear≥2 块权重 ×1.15；触发 §4.3 stressMeter "远征段送爽中" 叙事；豁免 multiClearBonus 几何兜底（≤0.4），让远征段空盘开局仍能保留 multiClearBonus floor=0.45 注入 |
+| `winbackProtectionActive` | bool | v1.48 ≥7 天回流玩家保护期标识 | UI / 商业化 / 推送可据此判断"前 3 局保护期内" |
 
 ### 局内分数里程碑相对化（v1.49）
 
@@ -1042,6 +1133,392 @@ saveSession()        → profile.save()               // 持久化到 localStora
 - 论文给出的 baseline（`h=3, p=0` 经典：收敛 61 iter / 奖励 6544）可作为 OpenBlock 自家 SpawnTransformerV3 训练曲线的**外部参照锚**：我们的模型若学会"在此 baseline 下接近 max reward"则证明规则学习成功；继续提升只能通过**改 ruleProfile**（论文路径）而非"再调更多 stress 分量"。
 
 > **关于"挑战自我"主线**：本节启示更细的应用映射详见 [最佳分追逐策略 §5.z 规则层调控（未来方向）](../player/BEST_SCORE_CHASE_STRATEGY.md#5z-基于-sgaz-实证的规则层调控未来方向v15517)。
+
+---
+
+## 13. v1.56 PB 段差异化机制（farFromPBBoost / pbExtremeOrderBoost）
+
+> 与 [BEST_SCORE_CHASE_STRATEGY §5.α](../player/BEST_SCORE_CHASE_STRATEGY.md) 双向引用。本节聚焦算法侧实现细节；产品侧策略意图、用户故事与 KPI 参见策略文档。
+
+### 13.1 PB 距离段五分（D0 ~ D4）
+
+| 段位 | `pct = score / bestScore` | 主导机制 | spawnHints / breakdown 字段 |
+|------|----------------------------|---------|------------------------------|
+| **D0** 远征 | `[0, 0.30)` | `farFromPBBoostActive` 主动送爽 | `clearGuarantee ≥ 2`、`multiClearBonus ≥ 0.45`、`iconBonusTarget ≥ 0.30`、`sizePreference ≤ -0.12` |
+| **D1** 跟随 | `[0.30, 0.80)` | 默认路径（无 PB 段加成） | — |
+| **D2** 临近 | `[0.80, 0.95)` | `challengeBoost`（v1.55 §4.2） | `stressBreakdown.challengeBoost ∈ (0, 0.15]` |
+| **D3** 决战 | `[0.95, 1.00)` | `pbExtremeOrderBoost` 顺序刚性 | `stressBreakdown.pbExtremeOrderBoost = 0.20`，orderRigor +0.20 |
+| **D4** 突破 | `[1.00, ∞)` | `postPbReleaseStressAdjust`（v1.55 §4.9） | stress×0.7 共 3 个 spawn |
+
+**段位边界设计依据**：
+
+- D0 阈值 0.30：基于 P50 玩家"开局前 5 spawn 平均得分≈0.18~0.25 × bestScore"的观测分布
+- D2 阈值 0.80 / D3 阈值 0.95：v1.55 即用阈值，保持与 `challengeBoost` / `bestScoreMilestoneCheck` 兼容
+- D4 自然延伸：破 PB 即进入，不再有上限
+
+### 13.2 `farFromPBBoost` 算法详解（§5.α §2.1）
+
+**输入**：
+
+- `score`（当前局分数）、`ctx.bestScore`（历史 PB 快照）
+- `eng.farFromPBBoost`（`game_rules.json adaptiveSpawn.engagement.farFromPBBoost`）
+- 上下文信号：`sessionArc / profile.needsRecovery / profile.hadRecentNearMiss / ctx.pbGrowthFast / ctx.postPbReleaseActive`
+
+**执行顺序**（必须按以下优先级判定 bypass）：
+
+```
+1. !farCfg.enabled                → 'config_disabled'
+2. !(ctx.bestScore > 0)           → 'no_best_score'
+3. pct >= farCfg.pctThreshold     → 'pct_above_threshold'
+4. sessionArc === 'warmup'        → 'warmup'
+5. profile.needsRecovery          → 'recovery'
+6. profile.hadRecentNearMiss      → 'near_miss'
+7. ctx.pbGrowthFast               → 'pb_growth_throttled'
+8. ctx.postPbReleaseActive        → 'post_pb_release'
+9. 全部通过                       → farFromPBBoostActive=true
+```
+
+**注入字段**（仅在 9 时执行）：
+
+```js
+clearGuarantee = min(3, clearGuarantee + clearGuaranteeBoost);
+multiClearBonus = max(multiClearBonus, multiClearBonusFloor);
+iconBonusTarget = max(iconBonusTarget, iconBonusTargetFloor);
+sizePreference = min(sizePreference, sizePreferenceShift);
+```
+
+注意 floor / shift 都用 `max` / `min`：不会覆盖更强的上游加成（如 `pcSetup ≥ 1` 已经把 multiClearBonus 推到 0.9，本节不会回退到 0.45）。
+
+**多消几何兜底豁免**：
+
+`adaptiveSpawn.js:1745` 的"几何缺失时把 multiClearBonus 封顶到 0.4"逻辑，v1.56 把 `farFromPBBoostActive` 加入豁免名单（与 `afkEngageActive` 同类）。理由：远征段开局通常恰好命中"_mcCands<1 && _nfLines<2 && !_realPcSetup"的空盘特征，若不豁免则 floor=0.45 注入会被立即撤回，让送爽机制失效。
+
+### 13.3 `pbExtremeOrderBoost` 算法详解（§5.α §2.3）
+
+**触发条件**（必须全部满足）：
+
+```
+ctx.bestScore > 0
+∧ score >= ctx.bestScore * 0.95
+∧ score < ctx.bestScore     // D3 内，未越过 PB
+∧ !ctx.postPbReleaseActive   // 释放窗口内免疫
+∧ !profile.needsRecovery
+∧ !hasBottleneckSignal
+∧ sessionArc !== 'warmup'
+∧ !inOnboarding
+```
+
+**注入方式**（仅在触发时执行）：
+
+```js
+pbExtremeOrderBoost = 0.20;
+stressBreakdown.pbExtremeOrderBoost = pbExtremeOrderBoost;
+
+// 在 orderRigor 计算块中：
+orderRigor = clamp01(stressTerm + skillTerm + modeBoost + motivationBoost + pbExtremeOrderBoost);
+```
+
+**与现有 orderRigor 路径的关系**：
+
+- `orderRigor` 公式（v1.32）：`max(0, stress-threshold)*scale + max(0, skill-0.5)*0.20 + difficultyTuning.orderRigorBoost + motivationBoost`
+- D3 段加入的 `pbExtremeOrderBoost=0.20` 与 Hard 模式 `orderRigorBoost=0.30` 同量级但更克制
+- 五重 bypass（onboarding / needsRecovery / bottleneck / holes > 3 / boardFill < 0.50）任一成立时整段 `orderRigor=0`，pbExtremeOrderBoost 也不参与计算
+
+**对盘面感知的影响**：
+
+`orderRigor=0.20+原值` 通常会把 `orderMaxValidPerms` 从 4 收紧到 3 或从 3 收紧到 2，让 6 种排列里只有 2~3 种可行的 spawn 通过 `blockSpawn` 早期过滤。玩家感受为"必须按特定顺序摆这三块"，与 `challengeBoost` 的"形状更难塞"形成正交的两种加难手感。
+
+### 13.4 `pbGrowthFast` 节流机制（§5.α §2.4）
+
+**目的**：防止远征送爽（§2.1）让 PB 在远征段被反复抬升而透支生命周期。
+
+**计算口径**（`web/src/pbGrowthTracker.js`）：
+
+```
+geometricMeanGrowth = (lastPB / firstPB)^(1 / (n-1))
+其中 n = min(5, len(history)), window = history[-n:]
+```
+
+阈值 `isPbGrowthFast(0.10)`：最近 5 次 PB 几何平均增长率 ≥ 10% / 局视为"快速"。
+
+**透传链路**：
+
+```
+game.js _emitPersonalBestEvent → recordPersonalBest(newBest, ts)
+  → localStorage 'openblock_pb_history_v1' = [{value, ts}, ...]
+game.js start() → isPbGrowthFast() → this._spawnContext.pbGrowthFast
+adaptiveSpawn.js §2.1 → ctx.pbGrowthFast → bypass='pb_growth_throttled'
+```
+
+**仅节流远征送爽，不影响其他机制**：challengeBoost、orderRigor、postPbRelease 等正常运行。节流是"收回主动送爽的额外糖"，不是"反过来惩罚玩家"。
+
+### 13.5 stressMeter 联动叙事（§5.α §4.3）
+
+`web/src/stressMeter.js buildStoryLine()` 在 `boardRisk >= 0.6`（保活）之后、`shouldUseScorePushHighStress`（v1.31 守卫）之前插入 PB 距离段抢占：
+
+```js
+if (spawnHints?.farFromPBBoostActive === true) {
+    return PB_DISTANCE_NARRATIVE.farBoostActive;  // "远征段送爽中：候选块更易消、更易触发同色奖励。"
+}
+if (Number.isFinite(breakdown?.pbExtremeOrderBoost) && breakdown.pbExtremeOrderBoost > 0) {
+    return PB_DISTANCE_NARRATIVE.pbExtremeChase;  // "冲刺区！系统已切到顺序约束模式..."
+}
+```
+
+D2/D4 段不在守卫范围（D2 走 challengeBoost / score-push 守卫，D4 已破 PB 由 best.over.* HUD 文案承担叙事）。
+
+### 13.6 验证测试
+
+`tests/bestScoreChaseStrategy.test.js` v1.56 §5.α 段（22 个用例）：
+
+| 段 | 测试范围 | 用例数 |
+|----|---------|--------|
+| §2.1 | farFromPBBoost 5 路 bypass + active 路径 | 5 |
+| §2.3 | pbExtremeOrderBoost 触发 / D2 不触发 / postPbRelease 免疫 | 3 |
+| §3.1/§3.2/§3.4 | i18n key 完整性（zh-CN + en） | 8 |
+| §2.4 | pbGrowthTracker 单调 / 增长率 / streak 计算 | 7（含 _emitPersonalBestEvent 集成 1） |
+| §4.3 | stressMeter PB 联动叙事 + 高 boardRisk 优先级 | 3 |
+
+v1.56.2 §5.α.6 段（12 个用例）见下方 §13.7。
+
+### 13.7 认知一致性守卫：`pbChase.minBestScoreForIntenseFeedback`（v1.56.2）
+
+PB 段差异化机制（farFromPBBoost / pbExtremeOrderBoost / D0 远征特效 ×1.3 / pb-streak-badge / endGame nearMiss banner / best-gap 五档文案）的所有"激烈反馈"在低水位玩家（`bestScore < 200`）身上会与实际水平形成**喜剧反差**——`best=80` 时 score=78 走"顺序约束"路径毫无意义，"差 5 分就到最佳！冲刺！" 与 80 的最佳分对比则是滑稽。
+
+**统一阈值**（`shared/game_rules.json adaptiveSpawn.pbChase`）：
+
+```json
+{
+  "minBestScoreForIntenseFeedback": 200
+}
+```
+
+**算法侧 bypass 链路**：
+
+| 机制 | 触发条件附加项 | bypass 标识 |
+|------|---------------|-------------|
+| `farFromPBBoost` | `ctx.bestScore >= floor` | `bypass='low_best_score'`（位于所有 bypass 之首） |
+| `pbExtremeOrderBoost` | `ctx.bestScore >= floor` | 直接跳过赋值（`pbExtremeOrderBoost` 字段不出现在 breakdown） |
+
+**`challengeBoost` 不受守卫影响**（设计取舍）：
+
+v1.55 已有的 `challengeBoost` 机制已经 cap 在 0.15 内且有 5 路 bypass，低水位玩家在 D2/D3 段仍然能感受到"逼近最佳"的轻度加压。本守卫只 bypass v1.56 新增的两个机制，避免与 v1.55 已稳定的路径互相干扰。
+
+**UI/特效侧守卫**：由 `web/src/game.js Game._isLowBestForIntenseCopy()` 公共 helper 统一判定，分别在 `updateUI` / `endGame` / `_updateProgressionHud` / `playClearEffect` 4 个挂点消费。详见 [BEST_SCORE_CHASE_STRATEGY §5.α.6](../player/BEST_SCORE_CHASE_STRATEGY.md#5α6-认知一致性守卫低-pb-时所有激烈文案降级v1562)。
+
+### 13.8 策略隐性原则：算法静默执行 + 玩家通过体感感知（v1.56.3）
+
+**核心约束**：远 PB 减压 / 近 PB 加压 / 超 PB 加压是**算法层暗中执行**的策略，**不应**在 UI 文字层暴露"系统在为你做什么"。算法机制（`farFromPBBoost` / `pbExtremeOrderBoost` / `challengeBoost` / 出块特效振幅调制）继续工作，但叙事层 / 文字层全部"去策略暴露"。
+
+**算法行为：保留**（与 v1.56 / v1.56.2 完全一致）：
+
+- `farFromPBBoost`：D0 段（pct < 0.30）主动加 multiClearBonus / iconBonusTarget / clearGuarantee + 多消权重 ×1.15
+- `pbExtremeOrderBoost`：D3 段（pct ∈ [0.95, 1)）注入 +0.20 orderRigor
+- `challengeBoost`（v1.55 §4.2）：D2/D3/D4 段数值加压（cap 0.15）
+- `playClearEffect` 振幅调制：D0 段多消/perfect/bonusLines ×1.3 / D3 段单线弱化
+- `near-miss-banner`：D2/D3 终局未破 PB 时展示
+
+**叙事层：移除暴露**：
+
+| 位置 | v1.56 旧实现 | v1.56.3 新实现 |
+|------|---------------|----------------|
+| `buildStoryLine` PB 距离段抢占 | farFromPBBoostActive=true → "远征段送爽中..."; pbExtremeOrderBoost>0 → "冲刺区！系统已切到顺序约束模式..." | **移除抢占块**——叙事让位给中性的 SPAWN_INTENT_NARRATIVE / 几何密度分级 |
+| `PB_DISTANCE_NARRATIVE` 常量 | "远征段送爽中" / "冲刺区！系统已切..." | "节奏顺畅..." / "节奏紧凑..."（中性化，保留 export 兼容性） |
+| `SIGNAL_LABELS.pbExtremeOrderBoost.label` | "D3 决战刚性" | "PB 临近调整" |
+| `SIGNAL_LABELS.farFromPBBoostActive.label` | "远征送爽" | "PB 远段倾斜" |
+
+**文字层（i18n）：统一事实陈述**：
+
+| Key | v1.56 旧文案 | v1.56.3 新文案 |
+|-----|--------------|----------------|
+| `best.gap.victory` | "即将刷新最佳！冲刺！" | "差 {{gap}} 分"（@deprecated） |
+| `best.gap.close` | "接近了！💪" | "差 {{gap}} 分"（@deprecated） |
+| `best.gap.chase` | "冲刺区！还差 {{gap}} 分" | "差 {{gap}} 分"（@deprecated） |
+| `best.gap.follow` | "靠近了 · 再 {{gap}} 分" | "差 {{gap}} 分"（@deprecated） |
+| `best.over.legend` | "🏆 超越 +{{overPct}}% · 封神时刻" | "已超 {{over}} 分"（@deprecated） |
+| `best.over.toNext25` | "突破 +10%！再追 {{next}}" | "已超 {{over}} 分"（@deprecated） |
+| `endGame.nearMiss.D3` | "差 {{gap}} 分 · 这把差点就刷了" | "差 {{gap}} 分"（@deprecated，合并到 `endGame.nearMiss`） |
+| `endGame.nearMiss.D2` | "差 {{gap}} 分 · 状态不错，再来一把" | "差 {{gap}} 分"（@deprecated，合并到 `endGame.nearMiss`） |
+| `pbStreak.badge` | "🏆 {{n}} 连破" | "连破 {{n}} 次" |
+
+**视觉层（CSS extraClass）：差异化保留**：
+
+| 段 | extraClass | 视觉表达 |
+|----|------------|----------|
+| D3（pct ≥ 0.95） | `best-gap--close` | 红色高亮 |
+| D2（0.80 ≤ pct < 0.95） | `best-gap--chase` | 橙色 |
+| D4（gap ≤ 0） | `best-gap--over` | 金色 |
+| D2/D3 终局 banner | `near-miss-banner--D3` | banner 样式区分紧张度 |
+
+**结果**：玩家通过出块体感（"我突然得分更顺了 / 突然变难了"）、HUD 颜色变化（红 / 橙 / 金）、特效强度（多消庆祝 ×1.3 / 单线弱化）感知策略，**而不是**通过文字被告知"系统正在送爽 / 系统已切到顺序约束模式"。详见 [BEST_SCORE_CHASE_STRATEGY §5.α.7](../player/BEST_SCORE_CHASE_STRATEGY.md#5α7-策略隐性原则远-pb-减压--近-pb-加压--超-pb-加压在算法层暗中执行v1563)。
+
+### 13.9 三原则下的算法完整闭环：D4 持续加压 + D0 分级减压 + PB 增长率反向加压（v1.56.4）
+
+v1.56.3 §5.α.7 确立"策略隐性"原则后，算法层在三大原则下还存在 3 处关键缺口（详见 [BEST_SCORE_CHASE_STRATEGY §5.α.8](../player/BEST_SCORE_CHASE_STRATEGY.md#5α8-三原则下的算法完整闭环d4-持续加压--d0-分级减压--pb-增长率反向加压v1564)）。本节聚焦算法侧实现细节。
+
+#### 13.9.1 D4 段 `pbOvershootBoost` 对数加压公式
+
+```
+pbOvershootBoost(score, best) = maxBoost · log10(1 + slope·overshoot) / log10(1 + slope)
+overshoot = score / best - 1.0
+```
+
+默认 maxBoost=0.16, slope=5.0。归一化后保证 pct=∞ 极限为 maxBoost：
+
+| pct | overshoot | log10(1+5·overshoot) | / log10(6) | × 0.16 |
+|-----|-----------|----------------------|------------|--------|
+| 1.00 | 0.00 | 0.0000 | 0.000 | 0.000 |
+| 1.10 | 0.10 | 0.1761 | 0.226 | 0.036 |
+| 1.25 | 0.25 | 0.3522 | 0.453 | 0.072 |
+| 1.50 | 0.50 | 0.5441 | 0.700 | 0.112 |
+| 2.00 | 1.00 | 0.7782 | 1.000 | 0.160 |
+
+stress 累加后 cap 至 `capStress=0.90`（高于普通 0.85）。
+
+#### 13.9.2 D4 段 `pbExtremeOrderBoost` 延续到 D4（弱强度）
+
+v1.56 原版：`score < ctx.bestScore` 硬条件，破 PB 后立即关闭。
+v1.56.4 改为：`_commonOrderGates` 公共门 + 分支
+- D3（`score ∈ [0.95·best, best)`）：orderRigor += 0.20
+- D4（`score > best`，与 pbOvershootActive 同步）：orderRigor += 0.08（`orderBoostInD4` 配置）
+
+`pbExtremeOrderBoost` 字段以两者的 max 写入 stressBreakdown，下游 `orderRigor` 计算块通过 `Math.max` 取 D3 / D4 较大值。
+
+#### 13.9.3 D4 段 spawnHints 收紧（与 farFromPBBoost 对称）
+
+紧跟 farFromPBBoost 块之后，引入 `pbOvershootActive` 时收紧三参数：
+
+```
+multiClearBonus = min(multiClearBonus, overshoot.multiClearBonusCap)  // 默认 0.18
+sizePreference = sizePreference + overshoot.sizePreferenceShift        // 默认 +0.12
+clearGuarantee = max(0, clearGuarantee + overshoot.clearGuaranteeShift)// 默认 -1
+```
+
+#### 13.9.4 D0 段 `farRamp` 分级
+
+farFromPBBoost 触发分支内引入子条件：
+
+```
+isExtremeFar = farRampCfg.enabled !== false && pctOfBest < extremeThreshold  // 默认 0.15
+if (isExtremeFar) {
+  mcbFloor  = max(mcbFloor,  extremeMultiClearBonusFloor)  // 0.55 (原 0.45)
+  iconFloor = max(iconFloor, extremeIconBonusTargetFloor)  // 0.40 (原 0.30)
+  sizeShift = min(sizeShift, extremeSizePreferenceShift)   // -0.18 (原 -0.12)
+}
+```
+
+#### 13.9.5 `pbGrowthFast` challengeBoost cap 动态化
+
+```
+_growthCapDelta = (pbGrowthThrottle.enabled !== false && ctx.pbGrowthFast === true)
+                  ? pbGrowthThrottle.challengeBoostCapDelta  // 默认 0.05
+                  : 0
+_challengeCap = 0.15 + _growthCapDelta
+challengeBoost = min(_challengeCap, (score/best - 0.8) · 0.75)
+```
+
+写入 `stressBreakdown.challengeBoostGrowthCapBonus = _growthCapDelta`（仅在 > 0 时）。
+
+#### 13.9.6 blockSpawn 层消费新 hints
+
+| Hint | 触发条件 | 形状权重调制 |
+|------|----------|---------------|
+| `farFromPBBoostActive` | D0 边缘段 | `s.multiClear >= 2` → ×1.15 |
+| `farExtremeBoostActive` | D0 极远段（叠加） | `s.multiClear >= 2` → ×1.13（叠加后 ≈ ×1.30） |
+| `pbOvershootActive` | D4 超 PB 段 | `s.multiClear >= 2` → ×0.78；`cellCount >= 4` → ×1.20 |
+
+#### 13.9.7 同源 bypass 链（与 v1.56.2 §5.α.6 一致）
+
+所有 v1.56.4 新增机制全部受以下 bypass 约束：
+1. **低 PB 守卫**：`ctx.bestScore < minBestScoreForIntenseFeedback`（默认 200）
+2. **postPbRelease**：`ctx.postPbReleaseActive === true`（破 PB 后 3 spawn 内的"高光释放窗口"）
+3. **救济**：`profile.needsRecovery === true`
+4. **瓶颈**：`hasBottleneckSignal === true`
+5. **warmup / onboarding**：会话弧线在热身段 / 新手期
+
+这保证"算法加压"永远不会与"算法减压"自相矛盾，也不会突破玩家 capability cap。
+
+### 13.10 D4 加压链路 4 处冲突完整修复（v1.56.6）
+
+v1.56.4 §5.α.8 在算法**逻辑层**增加了 pbOvershootBoost / D4 spawnHints 收紧，但**端到端 stress 链路审计**发现 D4 加压被 4 处机制反向消解。本节聚焦修复细节。
+
+#### 13.10.1 冲突诊断矩阵
+
+| # | 冲突源 | 公式 | 对 D4 段净效果 |
+|---|--------|------|----------------|
+| C2 | `occupancyDamping`（line ~1226） | `stress × max(0.4, occAnchor/0.5)` | 玩家破 PB 后盘面骤空 → ×0.5 消解 |
+| C3 | `flowPayoffCap`（line ~1256） | `stress ≤ 0.79`（flow+payoff+无空洞时）| 玩家破 PB 时常处 flow + payoff → cap 截断 |
+| C4 | `smoothStress`（line ~1246） | `maxStepUp = 0.18` | 单 spawn 限速 → "突然变难"被平滑 |
+| C1 | `scoreStress`（difficulty.js percentileMaxOver=0.2） | `projected = min(lastMilestone × 1.2, pct × lastMilestone)` | pct > 1.2 时 scoreStress 完全饱和 |
+
+#### 13.10.2 修复实施
+
+**P0-C2 occupancyDamping 豁免**：
+
+```js
+const _ohBypassOcc = (cfg.pbChase?.overshoot?.bypassOccupancyDamping) !== false;
+const _ohActiveBypassOcc = pbOvershootActive && _ohBypassOcc;
+if (stress > 0 && !_ohActiveBypassOcc) {
+  /* 原 damping 逻辑 */
+}
+stressBreakdown.occupancyDampingBypassed = _ohActiveBypassOcc;
+```
+
+**P0-C3 flowPayoffCap 豁免**：
+
+```js
+const _ohBypassFpc = (cfg.pbChase?.overshoot?.bypassFlowPayoffCap) !== false;
+const _ohActiveBypassFpc = pbOvershootActive && _ohBypassFpc;
+if (... && !_ohActiveBypassFpc) {
+  stress = Math.min(stress, flowPayoffCap);
+}
+if (_ohActiveBypassFpc) stressBreakdown.flowPayoffCapBypassed = true;
+```
+
+**P1-C4 smoothStress 动态 maxStepUp**：
+
+```js
+const _ohSmoothMaxStepUp = Number(cfg.pbChase?.overshoot?.smoothMaxStepUp);  // 默认 0.25
+const _smoothingCfg = pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)
+  ? { ...(cfg.stressSmoothing ?? {}), maxStepUp: _ohSmoothMaxStepUp }
+  : cfg.stressSmoothing;
+stress = smoothStress(stress, ctx, _smoothingCfg, immediateRelief);
+if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
+  stressBreakdown.smoothingDynamicMaxStepUp = _ohSmoothMaxStepUp;
+}
+```
+
+**P1-C1 percentileMaxOver 0.2 → 0.5**（`shared/game_rules.json`）：
+
+```json
+"dynamicDifficulty": { "percentileMaxOver": 0.5 }
+```
+
+让 `projected = min(lastMilestone × 1.5, pct × lastMilestone)`，pct 从 1.0 → 1.5 时 scoreStress 仍持续递增。
+
+#### 13.10.3 配置化
+
+| 配置 | v1.55 旧值 | v1.56.6 默认 | 配置路径 |
+|------|------------|---------------|----------|
+| challengeBoost cap | 0.15（硬编码）| 0.18 | `adaptiveSpawn.pbChase.challengeBoost.baseCap` |
+| postPbRelease 窗口 | 3 spawn（硬编码）| 5 spawn | `adaptiveSpawn.pbChase.postPbReleaseWindow.spawns` |
+| postPbRelease stress 衰减系数 | 0.7（硬编码）| 0.7 | `adaptiveSpawn.pbChase.postPbReleaseWindow.stressReleaseFactor` |
+| D4 occupancyDamping 豁免 | 不存在 | true | `adaptiveSpawn.pbChase.overshoot.bypassOccupancyDamping` |
+| D4 flowPayoffCap 豁免 | 不存在 | true | `adaptiveSpawn.pbChase.overshoot.bypassFlowPayoffCap` |
+| D4 smoothStress maxStepUp | 0.18（共享）| 0.25 | `adaptiveSpawn.pbChase.overshoot.smoothMaxStepUp` |
+
+#### 13.10.4 净效果验证
+
+| 段位 | 场景 | 修复前 finalStress | 修复后 finalStress |
+|------|------|---------------------|---------------------|
+| D2 临近 (pct=0.85) | 任意 | ~0.40 | ~0.40（不变） |
+| D3 决战 (pct=0.97) | 中等 fill | ~0.68 | ~0.71（cap 提升）|
+| **D4 超 PB (pct=1.50)** | **空盘 + flow + payoff** | **~0.50** 🔴 | **~0.85** ✅ |
+| **D4 超 PB (pct=1.20)** | **空盘 + flow + payoff** | **~0.45** 🔴 | **~0.75** ✅ |
+
+→ D4 段与 D2 段 finalStress **落差从 ~0.10 提升到 ~0.45**，玩家可清晰感知"超 PB 后越来越紧"。
+
+详见 [BEST_SCORE_CHASE_STRATEGY §5.α.9](../player/BEST_SCORE_CHASE_STRATEGY.md#5α9-d4-段加压链路-4-处冲突完整修复v1566)。
 
 ---
 

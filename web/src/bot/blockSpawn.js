@@ -547,6 +547,16 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const divBoost = hints.diversityBoost ?? 0;
     const comboChain = hints.comboChain ?? 0;
     const multiClearBonus = hints.multiClearBonus ?? 0;
+    /* v1.56 §2.5 + v1.56.4 §5.α.8：PB 距离段在形状层的差异化
+     *   - farFromPBBoostActive（D0 边缘段，0.15 ≤ pct < 0.30）：多消潜力大块 ×1.15
+     *   - farExtremeBoostActive（D0 极远段，pct < 0.15）：多消潜力大块 ×1.30（叠加）
+     *     让真正"畏难期"得到形状层面的强力送爽；与 v1.56 数值层 farFromPBBoost.extreme 配套
+     *   - pbOvershootActive（D4 超 PB 段，score > best）：多消潜力大块 ×0.78（抑制）+
+     *     大块（size>=4）×1.20（鼓励），形成"超 PB 后多消变难、大块更多"的连续体感，
+     *     防止 PB 通过持续多消继续膨胀。详见 BEST_SCORE_CHASE_STRATEGY.md §5.α.8 v1.56.4。 */
+    const farFromPBBoostActive = hints.farFromPBBoostActive === true;
+    const farExtremeBoostActive = hints.farExtremeBoostActive === true;
+    const pbOvershootActive = hints.pbOvershootActive === true;
     const multiLineTarget = Math.max(0, Math.min(2, hints.multiLineTarget ?? 0));
     const delightBoost = Math.max(0, Math.min(1, hints.delightBoost ?? 0));
     const perfectClearBoost = Math.max(0, Math.min(1, hints.perfectClearBoost ?? 0));
@@ -870,6 +880,36 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 /* Layer 3: 里程碑庆祝 — 偏好能产生消行的块 */
                 if (ctx.scoreMilestone && s.gapFills > 0) {
                     w *= 1.3;
+                }
+
+                /* v1.56 §2.5：远征段额外偏向"多消潜力大块"
+                 * 触发条件：上游 farFromPBBoostActive=true（即 D0 段 pct < 0.30）
+                 * 仅对 multiClear >= 2 的块加权 ×1.15，让送爽落到形状层面：
+                 *   - 与上面 multiClearBonus / clearGuarantee 形成"数值+形状"双重激励
+                 *   - 不依赖 dominantColor（同色块仍由 game.js 染色层处理）
+                 *   - 与里程碑加权（×1.3）数值更克制，避免叠加触顶饱和 */
+                if (farFromPBBoostActive && s.multiClear >= 2) {
+                    w *= 1.15;
+                }
+
+                /* v1.56.4 §5.α.8：D0 极远段（pct<0.15）形状层叠加加权
+                 * 在 farFromPBBoostActive 的 ×1.15 之上再 ×1.13 ≈ 1.30，
+                 * 让真正"畏难期"得到更激进的多消大块倾斜。 */
+                if (farExtremeBoostActive && s.multiClear >= 2) {
+                    w *= 1.13;
+                }
+
+                /* v1.56.4 §5.α.8：D4 超 PB 段形状层反向调制
+                 * 多消大块抑制（×0.78），大块鼓励（cellCount>=4 时 ×1.20），让"超 PB 后"
+                 * 出块体感变化明显但不卡死。与 stress 维度 pbOvershootBoost 协同。 */
+                if (pbOvershootActive) {
+                    if (s.multiClear >= 2) {
+                        w *= 0.78;
+                    }
+                    const _ohCellCount = s.shape?.data ? shapeCellCount(s.shape.data) : 0;
+                    if (_ohCellCount >= 4) {
+                        w *= 1.20;
+                    }
                 }
 
                 return { entry: s, w: Math.max(0.01, w) };

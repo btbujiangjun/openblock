@@ -932,6 +932,10 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         const enabled = topoCfg.orderRigorEnabled !== false;
         const threshold = Number.isFinite(topoCfg.orderRigorStressThreshold)
             ? topoCfg.orderRigorStressThreshold : 0.55;
+        /* v1.57.1 P0：阈值平滑度 softplus smoothness（同步 web 实现）。
+         * 默认 0.08 让 stress=threshold 附近从"硬台阶"变为平滑过渡。 */
+        const smoothness = Number.isFinite(topoCfg.orderRigorStressSmoothness)
+            ? Math.max(0, topoCfg.orderRigorStressSmoothness) : 0.08;
         const orderScale = Number.isFinite(topoCfg.orderRigorScale)
             ? topoCfg.orderRigorScale : 1.6;
         const skillScale = Number.isFinite(topoCfg.orderRigorSkillScale)
@@ -958,7 +962,15 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             || (_boardFill ?? 0) < activFill;
 
         if (!bypass) {
-            const stressTerm = Math.max(0, stress - threshold) * orderScale;
+            /* v1.57.1 P0 softplus ramp（与 web 同口径） */
+            let stressTerm;
+            if (smoothness > 0) {
+                const x = (stress - threshold) / smoothness;
+                const softplus = x > 20 ? x : Math.log1p(Math.exp(x));
+                stressTerm = softplus * smoothness * orderScale;
+            } else {
+                stressTerm = Math.max(0, stress - threshold) * orderScale;
+            }
             const skillTerm = Math.max(0, skill - 0.5) * skillScale;
             orderRigor = Math.max(0, Math.min(1, stressTerm + skillTerm + modeBoost + motivationBoost));
             orderMaxValidPerms = Math.max(
@@ -1380,6 +1392,11 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const pcSetupForIntent = ctx.pcSetup ?? 0;
     const harvestable = nearFullForIntent >= 2
         || (pcSetupForIntent >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL);
+    /* v1.57.1 P3：spawnIntent 'sprint' 中间档（与 web 同口径） */
+    const _sprintCfg = cfg.sprintIntent ?? {};
+    const _sprintEnabled = _sprintCfg.enabled !== false;
+    const _sprintMin = Number.isFinite(_sprintCfg.minStress) ? _sprintCfg.minStress : 0.45;
+    const _sprintMax = Number.isFinite(_sprintCfg.maxStress) ? _sprintCfg.maxStress : 0.55;
     let spawnIntent;
     if (playerDistress < -0.10 || delight.mode === 'relief') {
         spawnIntent = 'relief';
@@ -1390,6 +1407,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     } else if (stressBreakdown.challengeBoost > 0
         || (delight.mode === 'challenge_payoff' && stress >= 0.55)) {
         spawnIntent = 'pressure';
+    } else if (_sprintEnabled && stress >= _sprintMin && stress < _sprintMax) {
+        spawnIntent = 'sprint';
     } else if (delight.mode === 'flow_payoff' || rhythmPhase === 'payoff') {
         spawnIntent = 'flow';
     } else {

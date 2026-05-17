@@ -11,6 +11,12 @@ v2 改进：
 v3.1 改进：
   - BEHAVIOR_CONTEXT_DIM=56：在旧 24 维基础上显式加入冷启动、拓扑、
     AbilityVector、spawnTargets、spawnHints 与 spawnIntent one-hot。
+
+v1.57.1 多端策略同步（2026-05-18）：
+  - BEHAVIOR_CONTEXT_DIM 56 → 57：spawnIntent one-hot 从 6 类扩到 7 类，
+    新增 'sprint' 中间档（stress ∈ [0.45, 0.55) 渐紧过渡带，web/src/adaptiveSpawn.js 同源）。
+  - 旧 checkpoint 因 input shape 变化（board_proj.in_features 120→121）需重训；
+    旧数据（无 sprint 标签）自动落到 maintain（idx=5），不会破坏向后兼容。
 """
 
 import json
@@ -29,7 +35,8 @@ SHAPE_TO_IDX = {s: i for i, s in enumerate(SHAPE_VOCAB)}
 NUM_SHAPES = len(SHAPE_VOCAB)
 GRID_SIZE = 8
 CONTEXT_DIM = 24
-BEHAVIOR_CONTEXT_DIM = 56
+# v1.57.1：56 → 57，spawnIntent one-hot 从 6 → 7 维（新增 sprint，与 web/src/adaptiveSpawn.js 同源）。
+BEHAVIOR_CONTEXT_DIM = 57
 HISTORY_LEN = 3
 
 SHAPE_CATEGORY = {
@@ -68,7 +75,9 @@ def _safe(val, default=0.0):
 _FLOW_MAP = {'bored': -1.0, 'flow': 0.0, 'anxious': 1.0}
 _PACING_MAP = {'early': 0.0, 'tension': 0.5, 'release': 1.0}
 _SESSION_MAP = {'warmup': 0.0, 'peak': 0.5, 'cooldown': 1.0}
-_SPAWN_INTENTS = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain']
+# v1.57.1：新增 'sprint' 中间档（在末尾，保持 idx 0~5 与旧版一致；
+# _intent_one_hot 对未知 intent 已有 ValueError catch → 'maintain' fallback，无需特别处理）。
+_SPAWN_INTENTS = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain', 'sprint']
 _HOLE_PRESSURE_MAX = 8.0
 
 
@@ -134,7 +143,7 @@ def _intent_one_hot(intent):
 
 
 def _parse_behavior_context(ps):
-    """Extract V3.1 56-dim behavior context from player state snapshot."""
+    """Extract V3.1 57-dim behavior context from player state snapshot (v1.57.1 升级，含 sprint one-hot)."""
     if not ps or not isinstance(ps, dict):
         return np.zeros(BEHAVIOR_CONTEXT_DIM, dtype=np.float32)
 
@@ -185,9 +194,9 @@ def _parse_behavior_context(ps):
         float(np.clip((_safe(hints.get('sizePreference'), 0) + 1.0) / 2.0, 0.0, 1.0)),
         _clamp01(hints.get('multiClearBonus', 0)),
         _clamp01(hints.get('orderRigor', 0)),
-        # [48-53] spawnIntent one-hot
+        # [48-54] spawnIntent one-hot (v1.57.1：6 → 7 维，加 sprint)
         *_intent_one_hot(hints.get('spawnIntent') or adaptive.get('spawnIntent')),
-        # [54-55] 额外策略上下文
+        # [55-56] 额外策略上下文
         _scale_unit(hints.get('multiLineTarget'), 2),
         _SESSION_MAP.get(session_arc, 0.5),
     ]

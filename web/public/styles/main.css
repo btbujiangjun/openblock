@@ -1374,6 +1374,66 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
         0 5px 12px rgba(0, 0, 0, 0.08);
 }
 
+/* v1.57 stress 感知层 A + B 档：棋盘氛围光环（呼吸节奏 + 颜色随 stress 变化）
+ *
+ * 设计意图：让算法精算的 stress 通过"棋盘外缘的氛围"潜意识传达给玩家——
+ *   - 低 stress（calm/easy）→ 冷青 / 薄荷绿，淡薄缓慢呼吸（"安稳"暗示）
+ *   - 心流 stress（flow）   → 暖绿色，中速呼吸（默认）
+ *   - 中高 stress（engaged）→ 琥珀，加快呼吸（"集中"暗示）
+ *   - 高 stress（tense）    → 橙红，急促呼吸（"紧张"暗示）
+ *   - 极高 stress（intense）→ 暗红，最急促呼吸（"高压"暗示）
+ *
+ * 严格不暴露任何数字/标签（策略隐性原则 v1.56.3）；玩家无意识跟着氛围调整节奏。
+ *
+ * CSS 变量由 web/src/stressAmbience.js applyStressToDOM() 实时写入 .play-stack；
+ * --stress-ambience-glow / --stress-ambience-glow-strong 是 rgba 色串，
+ * --stress-ambience-breath-ms 是呼吸周期（高 stress 时更短 → 更急促）。
+ *
+ * 性能：纯 GPU 加速（opacity + box-shadow），无 layout / repaint 开销。
+ * 无障碍：prefers-reduced-motion 时取消呼吸动画（仍保留静态光环）。
+ * 画质降级：body[data-quality="off"] / [data-quality="low"] 时关闭，避免低端设备过载。
+ */
+#game-wrapper::before {
+    content: '';
+    position: absolute;
+    /* 完全包住 wrapper 外缘 + 留 6px 余量让 outer shadow 有空间生效；
+     * 故意不与 wrapper 边缘对齐：避免与 wrapper 自身的 box-shadow（4px 描边）冲突。 */
+    inset: -6px;
+    border-radius: 4px;
+    pointer-events: none;
+    /* z-index:0 + 父容器是 game-wrapper（position:relative），让 ::before 在
+     * game-board-flow-bg (z-index:0) 同层；只用 outer box-shadow 不用 inset，
+     * 保证不被 canvas 遮挡（outer shadow 全部位于 wrapper 外部 6px 区域）。 */
+    z-index: 0;
+    box-shadow:
+        0 0 14px var(--stress-ambience-glow, rgba(180, 220, 160, 0.16)),
+        0 0 30px var(--stress-ambience-glow, rgba(180, 220, 160, 0.16)),
+        0 0 60px var(--stress-ambience-glow-strong, rgba(180, 220, 160, 0.26));
+    opacity: 0.85;
+    animation: stress-ambience-breath var(--stress-ambience-breath-ms, 3000ms) ease-in-out infinite;
+    /* 颜色与呼吸节奏的过渡（避免 stress 突变带来的视觉跳跃）；
+     * animation-duration 不在标准 transitionable 属性里，浏览器忽略即可（容错）。 */
+    transition: box-shadow 800ms ease-out;
+}
+
+@keyframes stress-ambience-breath {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50%      { opacity: 1.00; transform: scale(1.004); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #game-wrapper::before {
+        animation: none;
+        opacity: 0.75;
+    }
+}
+
+/* 画质降级路径：低端设备 / 用户主动关闭画质时不绘制氛围光
+ * （与 .game-board-flow-bg / fx canvas 同口径：:root.quality-low 关闭） */
+:root.quality-low #game-wrapper::before {
+    display: none;
+}
+
 /* 棋盘底板：缓慢流动的渐变（canvas 上空格半透明叠加以透出此层） */
 .game-board-flow-bg {
     position: absolute;
@@ -6135,9 +6195,65 @@ body.doc-visibility-hidden #menu * {
     color: var(--accent-color, #5B9BD5);
     animation: best-gap-pulse 1.2s ease-in-out infinite;
 }
+/* v1.56 §3.1：D2 冲刺区文案 — 比 close 弱、比 neutral 强，琥珀色提示"冲刺感"。
+ * 与 §2.3 pbExtremeChase 加难叙事同口径（HUD 文案"冲刺区！"+ 算法加 orderRigor）。 */
+.best-gap--chase {
+    color: #ea580c;
+    font-weight: 700;
+}
+/* v1.56 §3.2：D4 突破段 — 金色，表示"已经超越，继续追下一档"。
+ * 静态金色而非动画，避免与 .new-best-popup 烟花动画在同一帧抢观感。 */
+.best-gap--over {
+    color: #d97706;
+    font-weight: 700;
+    text-shadow: 0 0 4px rgba(217, 119, 6, 0.30);
+}
 @keyframes best-gap-pulse {
     0%,100% { opacity: 1; }
     50%      { opacity: .5; }
+}
+
+/* v1.56 §4.4：连续突破徽章 ——
+ * 7 天内连续 N 次破 PB 时显示在 stat-box--best 内（best-strategy-badge 下方），
+ * 金色叙事强化"持续突破"成就感；与 D4 best-gap--over 文案互补：
+ *   - best-gap--over 解决"我现在已经超了多少"
+ *   - pb-streak-badge 解决"我已经连续突破多少次"
+ * 字体尺寸与 best-strategy-badge 等齐，避免抢戏。 */
+.pb-streak-badge {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d97706;
+    background: color-mix(in srgb, #d97706 14%, transparent);
+    border-radius: 8px;
+    letter-spacing: .02em;
+    line-height: 1.3;
+}
+
+/* v1.56 §3.4：终局差一口气 banner ——
+ * 出现在 over-score 下方，利用"差一点效应"驱动重开新局。
+ * D3 段（pct ≥ 0.95）用更强的橙色 + 微微 pulse；D2 段（0.85~0.95）用中性蓝。 */
+.near-miss-banner {
+    margin: 4px auto 0;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-color, #5B9BD5);
+    text-align: center;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent-color, #5B9BD5) 12%, transparent);
+    max-width: max-content;
+}
+.near-miss-banner--D3 {
+    color: #ea580c;
+    background: color-mix(in srgb, #ea580c 14%, transparent);
+    animation: near-miss-pulse 1.6s ease-in-out infinite;
+}
+@keyframes near-miss-pulse {
+    0%, 100% { transform: scale(1); }
+    50%       { transform: scale(1.04); }
 }
 .stat-box--best { position: relative; }
 

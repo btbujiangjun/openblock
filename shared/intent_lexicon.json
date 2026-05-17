@@ -47,6 +47,19 @@
       "preferred_stages": ["S1", "S2", "S3"],
       "preferred_bands": ["M1", "M2", "M3"]
     },
+    "sprint": {
+      "label_zh": "冲刺",
+      "label_en": "Sprint",
+      "in_game_narrative_zh": "节奏渐紧，逐步收束的过渡阶段。",
+      "in_game_narrative_en": "Pace tightening, gradual ramp into the contested zone.",
+      "out_of_game_push_zh": "状态正佳，回来挑战新一档难度。",
+      "out_of_game_push_en": "You're in form — come back to push your limits.",
+      "out_of_game_task_zh": "今日目标：保持心流并尝试更高 stress 区间。",
+      "out_of_game_task_en": "Today's goal: hold flow and push into the higher stress band.",
+      "tone": "rising",
+      "preferred_stages": ["S2", "S3"],
+      "preferred_bands": ["M2", "M3"]
+    },
     "harvest": {
       "label_zh": "兑现",
       "label_en": "Harvest",

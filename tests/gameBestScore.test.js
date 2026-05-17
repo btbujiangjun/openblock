@@ -95,3 +95,101 @@ describe('Game tie best celebration is disabled (v1.55.11)', () => {
         expect(document.querySelector('.float-milestone')).toBeNull();
     });
 });
+
+// ── v1.56.7：updateUI 调用顺序回归（防止 best DOM 滞后一帧） ──────────────
+// 用户截图反馈："得分 210 / 最佳 140 / 已超 190" —— 三数错乱
+//   根因：_maybeCelebrateNewBest 在 updateUI 末尾才调用，"最佳" DOM 已用旧值写入
+//   修复：把 _maybeCelebrateNewBest 移到 updateUI 开头（DOM 写入之前）
+// 测试方法：mock 一个 _maybeCelebrateNewBest 记录调用时 DOM "best" 值，
+//          验证调用时 DOM 尚未写入（顺序正确）
+
+describe('v1.56.7 updateUI 顺序：_maybeCelebrateNewBest 必须在 best DOM 写入之前', () => {
+    beforeEach(() => {
+        document.body.innerHTML = `
+            <div id="score"></div>
+            <div id="best">OLD</div>
+            <div id="best-strategy-badge"></div>
+            <div id="best-gap"></div>
+        `;
+    });
+
+    it('updateUI 调用 _maybeCelebrateNewBest 时，best DOM 仍是上一帧的值', () => {
+        /* 关键契约：_maybeCelebrateNewBest 在 best DOM 写入之前被调用。
+         * 这样庆祝路径内同步 bestScore 后，紧接着的 DOM 写入能用上最新值。 */
+        let bestDomAtCelebrateCall = null;
+        const game = {
+            score: 210,
+            bestScore: 140,
+            strategy: 'normal',
+            _bestScoreAtRunStart: 20,
+            _lastDisplayedScore: 0,
+            _newBestCelebrated: true,
+            _newBestCelebrationCount: 1,
+            _levelMode: 'endless',
+            gameStats: { placements: 10 },
+            _isLowBestForIntenseCopy: () => false,
+            _updateProgressionHud: vi.fn(),
+            _maybeEmitNearPersonalBest: vi.fn(),
+            _maybeCelebrateNewBest: function () {
+                // 抓拍调用时 DOM 上 best 的值
+                bestDomAtCelebrateCall = document.getElementById('best').textContent;
+                // 模拟静默分支：把 bestScore 同步到 score
+                this.bestScore = this.score;
+            }
+        };
+        Game.prototype.updateUI.call(game);
+        // 调用时 best DOM 仍是初始值 "OLD"（_maybeCelebrateNewBest 在写 DOM 之前执行）
+        expect(bestDomAtCelebrateCall).toBe('OLD');
+        // updateUI 结束后 best DOM 同步到 210（因为 _maybeCelebrateNewBest 已经
+        // 把 bestScore 从 140 更新到 210，紧接着的 DOM 写入才能用上最新值）
+        expect(document.getElementById('best').textContent).toBe('210');
+    });
+
+    it('修复用户截图场景：得分 210 / baseline 20 / bestScore 起始 140 → DOM 最终对齐', () => {
+        const game = {
+            score: 210,
+            bestScore: 140, // 进入 updateUI 时内存 bestScore 滞后
+            strategy: 'normal',
+            _bestScoreAtRunStart: 20,
+            _lastDisplayedScore: 140,
+            _newBestCelebrated: true,
+            _newBestCelebrationCount: 1,
+            _levelMode: 'endless',
+            gameStats: { placements: 10 },
+            _isLowBestForIntenseCopy: () => false,
+            _updateProgressionHud: vi.fn(),
+            _maybeEmitNearPersonalBest: vi.fn(),
+            _maybeCelebrateNewBest: function () {
+                // 复刻真实静默分支
+                if (this.score > this.bestScore) this.bestScore = this.score;
+            }
+        };
+        Game.prototype.updateUI.call(game);
+        // 三数关系自洽：最佳 = 210，best-gap "本局 +190"（参照 baseline=20）
+        expect(document.getElementById('best').textContent).toBe('210');
+        const gapText = document.getElementById('best-gap').textContent;
+        expect(gapText).toContain('190');
+    });
+
+    it('追平开局基线（score === baseline）→ best-gap 隐藏（不显示"本局 +0"）', () => {
+        const game = {
+            score: 300,
+            bestScore: 300,
+            strategy: 'normal',
+            _bestScoreAtRunStart: 300,
+            _lastDisplayedScore: 300,
+            _newBestCelebrated: true,
+            _newBestCelebrationCount: 1,
+            _levelMode: 'endless',
+            gameStats: { placements: 10 },
+            _isLowBestForIntenseCopy: () => false,
+            _updateProgressionHud: vi.fn(),
+            _maybeEmitNearPersonalBest: vi.fn(),
+            _maybeCelebrateNewBest: vi.fn()
+        };
+        Game.prototype.updateUI.call(game);
+        const gapEl = document.getElementById('best-gap');
+        // gap === 0 时 msg 保持 undefined，gapEl 被显式 hide
+        expect(gapEl.hidden).toBe(true);
+    });
+});

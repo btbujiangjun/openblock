@@ -1109,8 +1109,24 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         challengeBoostBypass = 'post_pb_release';
     }
     const isBClassChallenge = challengeBoostBypass === null;
+    /* v1.56.4 §5.α.8 PB 增长率反向加压：pbGrowthFast=true 时把 challengeBoost cap
+     * 从 baseCap 临时上调到 baseCap+capDelta。pbGrowthTracker 检测到 7d 内 PB
+     * 连续 ≥10% 增长时，game.js 通过 ctx.pbGrowthFast 注入，让 D2/D3 段提前进入
+     * 更强加压区，防止 PB 在短时间内继续膨胀。仅在 challengeBoost 未 bypass 时生效。
+     *
+     * v1.56.6 §5.α.9 P2：baseCap 配置化（默认 0.18，旧硬编码 0.15）。D3 段（pct=0.95）
+     * 加压增量从 17% 提升到 ~20%，让"决战感"在 stress 维度更可感。 */
+    const _growthThrottleCfg = (cfg.pbChase?.pbGrowthThrottle) ?? {};
+    const _growthCapDelta = (_growthThrottleCfg.enabled !== false
+        && ctx.pbGrowthFast === true
+        && Number.isFinite(_growthThrottleCfg.challengeBoostCapDelta))
+        ? Math.max(0, Math.min(0.20, _growthThrottleCfg.challengeBoostCapDelta))
+        : 0;
+    const _challengeBoostCfg = (cfg.pbChase?.challengeBoost) ?? {};
+    const _challengeBaseCap = Number.isFinite(_challengeBoostCfg.baseCap) ? _challengeBoostCfg.baseCap : 0.18;
     if (isBClassChallenge) {
-        let challengeBoost = Math.min(0.15, (score / ctx.bestScore - 0.8) * 0.75);
+        const _challengeCap = _challengeBaseCap + _growthCapDelta;
+        let challengeBoost = Math.min(_challengeCap, (score / ctx.bestScore - 0.8) * 0.75);
         /* v1.29：友好盘面救济与 B 类挑战加压同帧显著时互抑，减轻 stress 锯齿抖动 */
         const fbr = stressBreakdown.friendlyBoardRelief ?? 0;
         if (Number.isFinite(fbr) && fbr < -0.09 && challengeBoost > 0) {
@@ -1118,11 +1134,82 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         }
         stress = Math.min(0.85, stress + challengeBoost);
         stressBreakdown.challengeBoost = challengeBoost;
+        if (_growthCapDelta > 0) stressBreakdown.challengeBoostGrowthCapBonus = _growthCapDelta;
     } else {
         stressBreakdown.challengeBoost = 0;
     }
     /* v1.55：把 bypass 原因写入 breakdown 供面板/单测；未来 DFV 可显示一句话解释。 */
     stressBreakdown.challengeBoostBypass = challengeBoostBypass;
+
+    /* v1.56 §2.3：D3 决战段 pbExtremeChase 顺序刚性提升 ——
+     * 当 pct ∈ [0.95, 1.0) 且未在释放窗口 / 救济期 / 瓶颈 / warmup 时，
+     * 给 orderRigor 公式注入 modeBoost-like 的额外提升量（pbExtremeOrderBoost），
+     * 让"顺序约束"在最后 5% 临界段比 challengeBoost 数值加压更精细。
+     * 注意：本变量仅暂存，在下方 orderRigor 计算块消费；不直接改 stress。
+     * 与 §4.2 D3 单线特效克制配套，形成"过程加难 + 失败反差"的最大化叙事。
+     *
+     * v1.56.2 §5.α.6 认知一致性守卫：bestScore < pbChase.minBestScoreForIntenseFeedback
+     * （默认 200）时不触发——避免新手 best=80 时 score=78 也走"顺序约束"导致开局
+     * 莫名其妙感受到一波规则压。 */
+    let pbExtremeOrderBoost = 0;
+    const _pbChaseCfg = cfg.pbChase ?? {};
+    const _intenseFloor = Number.isFinite(_pbChaseCfg.minBestScoreForIntenseFeedback)
+        ? _pbChaseCfg.minBestScoreForIntenseFeedback
+        : 200;
+    const _commonOrderGates = ctx.bestScore >= _intenseFloor
+        && !ctx.postPbReleaseActive
+        && profile.needsRecovery !== true
+        && !hasBottleneckSignal
+        && sessionArc !== 'warmup'
+        && !inOnboarding;
+    if (_commonOrderGates && score >= ctx.bestScore * 0.95 && score < ctx.bestScore) {
+        pbExtremeOrderBoost = 0.20;  // 与 difficultyTuning.hard.orderRigorBoost=0.30 同量级但更克制
+        stressBreakdown.pbExtremeOrderBoost = pbExtremeOrderBoost;
+    }
+
+    /* v1.56.4 §5.α.8 D4 超 PB 持续加压（pbOvershootBoost + 弱顺序约束扩展）——
+     *
+     * 用户原则："超 PB 高强度加压（防止分数膨胀，透支生命周期）"。
+     * v1.56 原版 challengeBoost cap=0.15 在 pct ≥ 1.0 即饱和（公式 (pct-0.8)·0.75
+     * 在 pct=1.0 时已 =0.15），因此 D4 段加压度不再随分数比例提升 —— 与原则冲突。
+     *
+     * 本机制在 D4 段（score > bestScore）追加：
+     *   1) stress 维度：pbOvershootBoost = maxBoost · log10(1 + slope·overshoot)
+     *      - overshoot = score/best - 1.0
+     *      - pct=1.0 → 0；pct=1.25 → ~0.08；pct=1.50 → ~0.12；pct=2.0 → ~0.16
+     *      - 对数曲线保证"超得越多越难，但边际递减"，避免线性失控
+     *      - 与 challengeBoost 共享 cap 调到 capStress（默认 0.90，高于普通 0.85）
+     *   2) orderRigor 维度：pbExtremeOrderBoost 延续到 D4 但强度更弱（默认 0.08，约 D3 的 40%）
+     *      与"破 PB 后顺序约束立即消失"相反，给玩家"超得越多越紧"的连续体感
+     *   3) spawnHints 维度（下方 spawnHints 段处理）：multiClearBonus 上限收紧、
+     *      sizePreference 上移、clearGuarantee 下移
+     *
+     * 同源 bypass 链：minBestScoreForIntenseFeedback / postPbRelease / recovery /
+     * bottleneck / warmup / onboarding 全部直接跳过，与 pbExtremeOrderBoost 同口径。 */
+    const _overshootCfg = (cfg.pbChase?.overshoot) ?? {};
+    let pbOvershootBoost = 0;
+    let pbOvershootActive = false;
+    if (_overshootCfg.enabled !== false
+        && _commonOrderGates
+        && score > ctx.bestScore) {
+        const overshoot = (score / ctx.bestScore) - 1.0;
+        const maxBoost = Number.isFinite(_overshootCfg.maxBoost) ? _overshootCfg.maxBoost : 0.16;
+        const slope = Number.isFinite(_overshootCfg.slope) ? _overshootCfg.slope : 5.0;
+        const capStress = Number.isFinite(_overshootCfg.capStress) ? _overshootCfg.capStress : 0.90;
+        pbOvershootBoost = Math.min(maxBoost, maxBoost * Math.log10(1 + slope * overshoot) / Math.log10(1 + slope));
+        if (pbOvershootBoost > 0) {
+            stress = Math.min(capStress, stress + pbOvershootBoost);
+            pbOvershootActive = true;
+        }
+        // D4 段弱顺序约束扩展：与 D3 同机制但强度更弱，让"超 PB 后越来越紧"连续可感
+        const orderBoostInD4 = Number.isFinite(_overshootCfg.orderBoostInD4) ? _overshootCfg.orderBoostInD4 : 0.08;
+        if (orderBoostInD4 > 0) {
+            pbExtremeOrderBoost = Math.max(pbExtremeOrderBoost, orderBoostInD4);
+            stressBreakdown.pbExtremeOrderBoost = pbExtremeOrderBoost;
+        }
+    }
+    stressBreakdown.pbOvershootBoost = pbOvershootBoost;
+    stressBreakdown.pbOvershootActive = pbOvershootActive;
 
     stressBreakdown.beforeClamp = stress;
     stress = Math.max(-0.2, Math.min(1, stress));
@@ -1147,7 +1234,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (rawFillOcc >= occAnchor) occAnchor = rawFillOcc;
     else occAnchor = Math.max(rawFillOcc, occAnchor * 0.86 + rawFillOcc * 0.14);
     let occupancyDamping = 0;
-    if (stress > 0) {
+    /* v1.56.6 §5.α.9 P0-C2：D4 段豁免 occupancyDamping ——
+     * 玩家破 PB 后通常伴随 perfect clear / 多消大消（盘面骤空 → fill 极低），
+     * 旧 damping 公式 ×0.4~×0.5 会把 pbOvershootBoost 的加压全部消解，与"超 PB 高强度
+     * 加压防分数膨胀"原则直接冲突。本豁免让 D4 段保留完整的加压量。
+     * 受 pbChase.overshoot.bypassOccupancyDamping 配置开关控制。 */
+    const _ohBypassOcc = (cfg.pbChase?.overshoot?.bypassOccupancyDamping) !== false;
+    const _ohActiveBypassOcc = pbOvershootActive && _ohBypassOcc;
+    if (stress > 0 && !_ohActiveBypassOcc) {
         const occupancyScale = Math.max(0.4, Math.min(1, occAnchor / 0.5));
         if (occupancyScale < 1) {
             const damped = stress * occupancyScale;
@@ -1156,31 +1250,55 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         }
     }
     stressBreakdown.occupancyDamping = occupancyDamping;
+    stressBreakdown.occupancyDampingBypassed = _ohActiveBypassOcc;
     stressBreakdown.afterOccupancy = stress;
     const immediateRelief = profile.needsRecovery
         || profile.hadRecentNearMiss
         || profile.frustrationLevel >= frustThreshold
         || boardRisk >= (cfg.stressSmoothing?.immediateReliefBoardRisk ?? 0.72);
-    stress = smoothStress(stress, ctx, cfg.stressSmoothing, immediateRelief);
+    /* v1.56.6 §5.α.9 P1-C4：D4 段动态提高 smoothStress.maxStepUp ——
+     * 旧默认 0.18 让 challengeBoost(0.18) + pbOvershootBoost(0~0.16) 的单帧上扬被截断，
+     * "超 PB 后骤然变难"的体感被平滑抹去。D4 段（pbOvershootActive=true）临时把
+     * maxStepUp 提到 pbChase.overshoot.smoothMaxStepUp（默认 0.25），允许"突然变难"
+     * 在 1 个 spawn 内完成传达。其他段位维持原 0.18，不引入锯齿。 */
+    const _ohSmoothMaxStepUp = Number(cfg.pbChase?.overshoot?.smoothMaxStepUp);
+    const _smoothingCfg = pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)
+        ? { ...(cfg.stressSmoothing ?? {}), maxStepUp: _ohSmoothMaxStepUp }
+        : cfg.stressSmoothing;
+    stress = smoothStress(stress, ctx, _smoothingCfg, immediateRelief);
     stressBreakdown.afterSmoothing = stress;
     stressBreakdown.smoothingAdjust = stressBreakdown.afterSmoothing - stressBreakdown.afterOccupancy;
+    if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
+        stressBreakdown.smoothingDynamicMaxStepUp = _ohSmoothMaxStepUp;
+    }
     if (!inOnboarding && !profile.needsRecovery && Number.isFinite(difficultyTuning.minStress)) {
         const prevStress = stress;
         stress = Math.max(stress, difficultyTuning.minStress);
         stressBreakdown.minStressFloorAdjust = stress - prevStress;
     }
     /* v1.13：flow + payoff 时把 stress 封顶到 tense（默认 0.79），避免拟人化压力表
-     * 出现「🥵 高压」与叙事「享受多消快感」并列的认知冲突。仅在盘面无空洞、风险不高时生效。 */
+     * 出现「🥵 高压」与叙事「享受多消快感」并列的认知冲突。仅在盘面无空洞、风险不高时生效。
+     *
+     * v1.56.6 §5.α.9 P0-C3：D4 段豁免 flowPayoffCap ——
+     * 玩家破 PB 时常处 flow + payoff 状态（爽点击穿带来 flowState='flow' + rhythmPhase='payoff'），
+     * 旧 cap 0.79 会把 D4 加压锁死，与"超 PB 高强度加压"原则直接冲突。本豁免让 D4 段
+     * 保持完整的加压能力。受 pbChase.overshoot.bypassFlowPayoffCap 配置开关控制。 */
+    const _ohBypassFpc = (cfg.pbChase?.overshoot?.bypassFlowPayoffCap) !== false;
+    const _ohActiveBypassFpc = pbOvershootActive && _ohBypassFpc;
     const flowPayoffCap = cfg.flowPayoffStressCap;
     if (Number.isFinite(flowPayoffCap)
         && profile.flowState === 'flow'
         && earlyRhythmPhase === 'payoff'
         && holes === 0
-        && boardRisk < (cfg.flowPayoffMaxBoardRisk ?? 0.5)) {
+        && boardRisk < (cfg.flowPayoffMaxBoardRisk ?? 0.5)
+        && !_ohActiveBypassFpc) {
         const prevStress = stress;
         stress = Math.min(stress, flowPayoffCap);
         stressBreakdown.flowPayoffCap = flowPayoffCap;
         stressBreakdown.flowPayoffCapAdjust = stress - prevStress;
+    }
+    if (_ohActiveBypassFpc) {
+        stressBreakdown.flowPayoffCapBypassed = true;
     }
     /* v1.55 §4.9：postPbReleaseWindow ——
      * 玩家刚刚刷新 PB 后，game.js 在 _spawnContext 上写 postPbReleaseActive=true
@@ -1238,10 +1356,16 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
      */
     let orderRigor = 0;
     let orderMaxValidPerms = 6;
+    let pbOvershootOrderBoostApplied = 0;
     {
         const enabled = topoCfg.orderRigorEnabled !== false;
         const threshold = Number.isFinite(topoCfg.orderRigorStressThreshold)
             ? topoCfg.orderRigorStressThreshold : 0.55;
+        /* v1.57.1 P0：阈值平滑度（softplus smoothness）。0 退化为旧硬阈值 max(0, x)；
+         * 默认 0.08 让 stress ∈ [threshold-0.15, threshold+0.15] 区间从"硬台阶"变为
+         * 平滑过渡，消除玩家在 stress=0.55 跨越点感受到的"突然变难"台阶感。 */
+        const smoothness = Number.isFinite(topoCfg.orderRigorStressSmoothness)
+            ? Math.max(0, topoCfg.orderRigorStressSmoothness) : 0.08;
         const orderScale = Number.isFinite(topoCfg.orderRigorScale)
             ? topoCfg.orderRigorScale : 1.6;
         const skillScale = Number.isFinite(topoCfg.orderRigorSkillScale)
@@ -1268,9 +1392,50 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             || (_boardFill ?? 0) < activFill;
 
         if (!bypass) {
-            const stressTerm = Math.max(0, stress - threshold) * orderScale;
+            /* v1.57.1 P0 softplus ramp：
+             *   stressTerm = softplus((stress - threshold) / smoothness) * smoothness * orderScale
+             * 数学性质：
+             *   - smoothness → 0 时退化为 max(0, stress - threshold) * orderScale（旧公式）
+             *   - 远离 threshold 时与旧公式渐近一致（高 stress 段强度无显著变化）
+             *   - 在 threshold 附近 ±2·smoothness 范围内平滑过渡（消除台阶感）
+             * 例（smoothness=0.08, orderScale=1.6）：
+             *   stress=0.40 → 0.018（旧公式 0）
+             *   stress=0.55 → 0.089（旧公式 0）
+             *   stress=0.70 → 0.258（旧公式 0.240）
+             *   stress=0.85 → 0.484（旧公式 0.480） */
+            let stressTerm;
+            if (smoothness > 0) {
+                const x = (stress - threshold) / smoothness;
+                /* Math.log1p(Math.exp(x)) 等价于 softplus(x)；x 过大时直接退化为 x 避免溢出 */
+                const softplus = x > 20 ? x : Math.log1p(Math.exp(x));
+                stressTerm = softplus * smoothness * orderScale;
+            } else {
+                stressTerm = Math.max(0, stress - threshold) * orderScale;
+            }
             const skillTerm = Math.max(0, skill - 0.5) * skillScale;
-            orderRigor = Math.max(0, Math.min(1, stressTerm + skillTerm + modeBoost + motivationBoost));
+            /* v1.56 §2.3：D3 决战段（pct 0.95~1.0）追加 pbExtremeOrderBoost，
+             * 把临界段的"顺序约束"提升到与 Hard 模式相当的水平，让规则压取代部分数值压。 */
+            /* v1.57.1 P2：D4 段 + stress 已经高位时 orderBoostInD4HighStress 进一步强锁死。
+             * 与现有 _overshootCfg.orderBoostInD4 互补：弱场景（仅 overshoot 触发）走 0.08；
+             * 强场景（pbOvershootActive=true 且 stress ≥ orderHighStressMin，默认 0.85）
+             * 在弱档基础上额外注入 0.25 的 boost，让 maxValidPerms 真正压到 tight=2，
+             * 顺序刚性彻底锁死，体感"系统在和我较劲"。
+             * bypass 链与现有 orderRigor 完全一致（onboarding/recovery/bottleneck/holes/fill）。 */
+            const overshootBoostCfg = cfg.pbChase?.overshoot ?? {};
+            const overshootBoostHighStress = Number.isFinite(overshootBoostCfg.orderBoostInD4HighStress)
+                ? overshootBoostCfg.orderBoostInD4HighStress : 0.25;
+            const overshootMinStress = Number.isFinite(overshootBoostCfg.orderHighStressMin)
+                ? overshootBoostCfg.orderHighStressMin : 0.85;
+            if (overshootBoostCfg.enabled !== false
+                && pbOvershootActive
+                && stress >= overshootMinStress
+                && overshootBoostHighStress > 0) {
+                pbOvershootOrderBoostApplied = overshootBoostHighStress;
+            }
+            orderRigor = Math.max(0, Math.min(1,
+                stressTerm + skillTerm + modeBoost + motivationBoost
+                + pbExtremeOrderBoost + pbOvershootOrderBoostApplied
+            ));
             orderMaxValidPerms = Math.max(
                 tight,
                 Math.min(loose, Math.round(loose - (loose - tight) * orderRigor))
@@ -1279,6 +1444,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     }
     stressBreakdown.orderRigor = orderRigor;
     stressBreakdown.orderMaxValidPerms = orderMaxValidPerms;
+    stressBreakdown.pbOvershootOrderBoost = pbOvershootOrderBoostApplied;
 
     const spawnTargets = deriveSpawnTargets(
         stress,
@@ -1467,6 +1633,98 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (sessionArc === 'warmup') {
         clearGuarantee = Math.max(clearGuarantee, 2);
         sizePreference = Math.min(sizePreference, -0.2);
+    }
+
+    /* --- v1.56 §2.1：farFromPBBoost 远征送爽 spawnHints 加成 ---
+     *
+     * 触发条件：
+     *   - ctx.bestScore > 0（必须有历史 PB，新手 best=0 不触发）
+     *   - score / bestScore < FAR_THRESHOLD（默认 0.30，对应"差 70% 以上"D0 远征段）
+     *   - 至少进入 peak 段（!warmup），避免与新手 toast 拥堵
+     *   - !needsRecovery：玩家正在被救场时让 recovery 路径先处理，避免"双重照顾"
+     *   - !hadRecentNearMiss：nearMiss 已有专属 clearGuarantee 路径
+     *   - !ctx.pbGrowthFast（Q+1.4 节流；若上游识别 PB 增长率过快则跳过）
+     *
+     * 与现有 spawnHints 加成（postPbRelease/recovery/nearMiss）的关键差异：
+     *   - postPbRelease：玩家"刚破 PB"，是奖励性减压
+     *   - recovery / nearMiss：玩家"陷入困境"，是救济性减压
+     *   - farFromPBBoost（本节）：玩家"远征段提前送爽"，主动加 multiClearBonus + iconBonusTarget
+     *     让"差 PB 70%"的中长局开局不会被 challengeBoost 反复打击，降低畏难情绪。
+     *
+     * 配置位于 game_rules.json adaptiveSpawn.engagement.farFromPBBoost（v1.56 新增）。
+     * 详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §5.α v1.56。 */
+    const farCfg = eng.farFromPBBoost ?? null;
+    let farFromPBBoostActive = false;
+    let farFromPBBoostBypass = null;
+    if (farCfg && farCfg.enabled !== false && ctx.bestScore > 0) {
+        const pctOfBest = score / ctx.bestScore;
+        const farThreshold = Number.isFinite(farCfg.pctThreshold) ? farCfg.pctThreshold : 0.30;
+        if (ctx.bestScore < _intenseFloor) {
+            // v1.56.2 §5.α.6：低 PB 守卫——best 太低时（默认 < 200），
+            // 远征送爽对新手无意义（盘面本就空旷、PB 太近无压力），跳过算法注入。
+            farFromPBBoostBypass = 'low_best_score';
+        } else if (pctOfBest >= farThreshold) {
+            farFromPBBoostBypass = 'pct_above_threshold';
+        } else if (sessionArc === 'warmup') {
+            farFromPBBoostBypass = 'warmup';
+        } else if (profile.needsRecovery === true) {
+            farFromPBBoostBypass = 'recovery';
+        } else if (profile.hadRecentNearMiss) {
+            farFromPBBoostBypass = 'near_miss';
+        } else if (ctx.pbGrowthFast === true) {
+            // Q+1.4：PB 增长率过快 → 节流；交由 game.js 上游计算
+            farFromPBBoostBypass = 'pb_growth_throttled';
+        } else if (ctx.postPbReleaseActive === true) {
+            farFromPBBoostBypass = 'post_pb_release';
+        } else {
+            farFromPBBoostActive = true;
+            const cgBoost = Math.max(0, Math.min(2, Number(farCfg.clearGuaranteeBoost) || 1));
+            let mcbFloor = Math.max(0, Math.min(1, Number(farCfg.multiClearBonusFloor) || 0.45));
+            let iconFloor = Math.max(0, Math.min(1, Number(farCfg.iconBonusTargetFloor) || 0.30));
+            let sizeShift = Number(farCfg.sizePreferenceShift) || -0.12;
+            /* v1.56.4 §5.α.8 远段分级：pct<extremeThreshold（默认 0.15）为"极远档"，
+             * 玩家畏难情绪最强、最需要"敢挑战"信号；额外抬高 multiClearBonus / iconBonusTarget
+             * floor，并下压 sizePreference，让初期更易兑现奖励。边缘档（[0.15, 0.30)）
+             * 沿用 v1.56 原参数，避免"即将进 D1"时还在大幅送爽导致 PB 加速膨胀。 */
+            const farRampCfg = (cfg.pbChase?.farRamp) ?? {};
+            const extremeThreshold = Number.isFinite(farRampCfg.extremeThreshold) ? farRampCfg.extremeThreshold : 0.15;
+            const isExtremeFar = farRampCfg.enabled !== false && pctOfBest < extremeThreshold;
+            if (isExtremeFar) {
+                mcbFloor = Math.max(mcbFloor, Number(farRampCfg.extremeMultiClearBonusFloor) || 0.55);
+                iconFloor = Math.max(iconFloor, Number(farRampCfg.extremeIconBonusTargetFloor) || 0.40);
+                sizeShift = Math.min(sizeShift, Number(farRampCfg.extremeSizePreferenceShift) || -0.18);
+            }
+            clearGuarantee = Math.min(3, clearGuarantee + cgBoost);
+            multiClearBonus = Math.max(multiClearBonus, mcbFloor);
+            iconBonusTarget = Math.max(iconBonusTarget, iconFloor);
+            sizePreference = Math.min(sizePreference, sizeShift);
+            stressBreakdown.farExtremeBoostActive = isExtremeFar;
+        }
+    } else if (farCfg && farCfg.enabled === false) {
+        farFromPBBoostBypass = 'config_disabled';
+    } else if (!(ctx.bestScore > 0)) {
+        farFromPBBoostBypass = 'no_best_score';
+    }
+    stressBreakdown.farFromPBBoostActive = farFromPBBoostActive;
+    stressBreakdown.farFromPBBoostBypass = farFromPBBoostBypass;
+
+    /* v1.56.4 §5.α.8 D4 spawnHints 收紧 ——
+     *
+     * pbOvershootActive 已在 stress 维度生效；本块在出块维度配套：
+     *   - multiClearBonus 上限（默认 0.18）：抑制"超 PB 后还频繁多消"导致 PB 继续膨胀
+     *   - sizePreference 上移（默认 +0.12）：让大块/复杂形态更密集
+     *   - clearGuarantee 下移（默认 -1）：减少"白送一块易消行"的兜底
+     *
+     * 与 farFromPBBoost 处于同一 spawnHints 段，但语义对称（一减压一加压）。
+     * 同源 bypass 链同 pbOvershootBoost。 */
+    if (pbOvershootActive) {
+        const _ohCfg = (cfg.pbChase?.overshoot) ?? {};
+        const mcbCap = Number.isFinite(_ohCfg.multiClearBonusCap) ? _ohCfg.multiClearBonusCap : 0.18;
+        const spShift = Number.isFinite(_ohCfg.sizePreferenceShift) ? _ohCfg.sizePreferenceShift : 0.12;
+        const cgShift = Number.isFinite(_ohCfg.clearGuaranteeShift) ? _ohCfg.clearGuaranteeShift : -1;
+        multiClearBonus = Math.min(multiClearBonus, mcbCap);
+        sizePreference = Math.max(sizePreference, sizePreference + spShift);
+        clearGuarantee = Math.max(0, clearGuarantee + cgShift);
     }
 
     /* ================================================================ */
@@ -1662,7 +1920,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         const _isWarmup = (Number(ctx.warmupRemaining) || 0) > 0;
         // AFK engage 与 warmup 同源：是显式的"召回"信号，需要保留鼓励兑现的偏好，
         // 即便此刻盘面几何不支持兑现；给玩家留出"放下手机回来→落几块就有消行"的体感。
-        if (_mcCands < 1 && _nfLines < 2 && !_realPcSetup && !_isWarmup && !afkEngageActive) {
+        // v1.56 §2.1：farFromPBBoostActive 与 afkEngageActive 同类——是显式"送爽"信号，
+        // 远征段开局通常恰好命中 _mcCands<1 && _nfLines<2 && !_realPcSetup 的空盘特征，
+        // 此处兜底会撤回上方 farFromPBBoost 的 multiClearBonus floor=0.45 注入，故同等豁免。
+        if (_mcCands < 1 && _nfLines < 2 && !_realPcSetup && !_isWarmup && !afkEngageActive
+            && !farFromPBBoostActive) {
             multiClearBonus = Math.min(multiClearBonus, 0.4);
             multiLineTarget = 0;
         }
@@ -1718,6 +1980,23 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const pcSetupForIntent = ctx.pcSetup ?? 0;
     const harvestable = nearFullForIntent >= 2
         || (pcSetupForIntent >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL);
+    /* v1.57.1 P3：spawnIntent 'sprint' 中间档 ——
+     *
+     * 旧版 spawnIntent 在 stress=0.55 处一脚跨进 'pressure'（hints 套装翻盘），
+     * 玩家会有"突然变难"的台阶感。'sprint' 充当 maintain → pressure 的过渡带：
+     *   - stress ∈ [sprintMin, sprintMax)（默认 [0.45, 0.55]）
+     *   - hints 为"中等偏紧"：clearGuarantee 维持 1、sizePreference +0.10（略大块）、
+     *     multiClearBonus 中等（≥ 0.40）
+     *   - 优先级低于 relief / engage / harvest / pressure（这些主导意图照常触发）
+     *   - 优先级高于 flow / maintain（避免落入"看起来比较轻松"的误导叙事）
+     *
+     * 给 0.45~0.55 这段"渐紧但未到加压"的区间一个独立意图标签，让 stressMeter /
+     * insightPanel / DFV / 运营推送都能识别这个过渡态，与 P1 solutionDifficulty
+     * 的"渐紧"档形成统一的 stress=0.5 体感锚点。 */
+    const _sprintCfg = cfg.sprintIntent ?? {};
+    const _sprintEnabled = _sprintCfg.enabled !== false;
+    const _sprintMin = Number.isFinite(_sprintCfg.minStress) ? _sprintCfg.minStress : 0.45;
+    const _sprintMax = Number.isFinite(_sprintCfg.maxStress) ? _sprintCfg.maxStress : 0.55;
     let spawnIntent;
     if (playerDistress < -0.10 || delight.mode === 'relief' || forceReliefIntent) {
         spawnIntent = 'relief';
@@ -1728,10 +2007,25 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     } else if (stressBreakdown.challengeBoost > 0
         || (delight.mode === 'challenge_payoff' && stress >= 0.55)) {
         spawnIntent = 'pressure';
+    } else if (_sprintEnabled && stress >= _sprintMin && stress < _sprintMax) {
+        spawnIntent = 'sprint';
     } else if (delight.mode === 'flow_payoff' || rhythmPhase === 'payoff') {
         spawnIntent = 'flow';
     } else {
         spawnIntent = 'maintain';
+    }
+
+    /* v1.57.1 P3：sprint 意图的 hints 应用层 —— 只在判定为 sprint 时调整，
+     * 不影响其他意图（relief/engage/harvest 等已被前置分支拦截）。
+     * sizePreference 上移 +0.10（中等大块）、multiClearBonus 抬到 floor（默认 0.40），
+     * clearGuarantee 维持当前值（不像 pressure 那样削减）。 */
+    if (spawnIntent === 'sprint') {
+        const _sprintSizeShift = Number.isFinite(_sprintCfg.sizePreferenceShift)
+            ? _sprintCfg.sizePreferenceShift : 0.10;
+        const _sprintMCFloor = Number.isFinite(_sprintCfg.multiClearBonusFloor)
+            ? _sprintCfg.multiClearBonusFloor : 0.40;
+        sizePreference = Math.max(-1, Math.min(1, sizePreference + _sprintSizeShift));
+        multiClearBonus = Math.max(multiClearBonus, _sprintMCFloor);
     }
 
     return {
@@ -1768,6 +2062,13 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             orderMaxValidPerms: Math.max(1, Math.min(6, orderMaxValidPerms)),
             /* v1.48：winback 保护标识；UI / 商业化 / 推送可据此判断"是否在回流前 3 局"。 */
             winbackProtectionActive: !!winbackPreset,
+            /* v1.56 §2.1：远征送爽激活态；blockSpawn / stressMeter / DFV 都可据此联动。
+             * v1.56.4 §5.α.8 新增：
+             *   - farExtremeBoostActive：D0 极远段（pct<extremeThreshold）；blockSpawn 进一步抬多消权重
+             *   - pbOvershootActive：D4 超 PB 段；blockSpawn 抑制多消权重 + 抬大块权重 */
+            farFromPBBoostActive,
+            farExtremeBoostActive: !!(stressBreakdown.farExtremeBoostActive),
+            pbOvershootActive,
         },
         /* v1.55.17：对外暴露 [0,1] 归一化 stress，便于面板 / DFV / 文档 / 策略卡
          * 用同一套口径解读。算法内部仍以 raw 域 [-0.2, 1] 进行所有阈值比较与

@@ -102,13 +102,63 @@ export default {
     'progress.rank.master': '大师',
     'progress.rank.legend': '传奇',
     'progress.streakDays': '连续 {{n}} 天',
+    /* v1.56.3 §5.α.7 策略隐性原则 ——
+     * 所有 best-gap / best.over / endGame.nearMiss 文案统一为「事实陈述」（差 N 分 / 已超 N 分），
+     * 不再使用"冲刺！/ 封神时刻 / 这把差点就刷了 / 状态不错 / 冲刺区" 等暴露策略意图、
+     * 教练式评价、煽情措辞。
+     *
+     * 设计原则：远 PB 减压 / 近 PB 加压 / 超 PB 加压 是**算法层暗中执行**的策略
+     * （由 farFromPBBoost / challengeBoost / pbExtremeOrderBoost / 出块振幅调制等机制实现），
+     * 玩家通过**出块体感、特效强度、HUD 颜色变化（best-gap--close / --chase / --over）**
+     * 来感知，而**不应**由文字告诉玩家"系统进入冲刺模式"或"系统已切到顺序约束模式"。
+     *
+     * 五档（D0~D4）的差异化只通过 extraClass（CSS）+ 算法机制体现：
+     *   - 文字：统一"差 N 分 / 本局 +N / 历史最佳 N"
+     *   - 颜色：best-gap--close（D3 红/亮）/ best-gap--chase（D2 橙）/ best-gap--over（D4 金）
+     *   - 出块：farFromPBBoost（D0）/ challengeBoost（D2/D3）/ pbExtremeOrderBoost（D3）
+     *   - 特效：D0 振幅 ×1.3 / D3 单线弱化
+     *
+     * v1.56.7 文案修复：'已超 N 分' → '本局 +N'
+     *   - 旧文案：'已超 190 分'（参照对象不明，玩家看到"得分 210 / 最佳 210 / 已超 190"
+     *     无法理解三数关系——190 既不是 score-bestScore 也不是任何 UI 上可见的数字）
+     *   - 新文案：'本局 +190'（"本局"明确暗示"相比本局开局的 PB"，玩家心算 210-190=20
+     *     得到开局基线，三数关系自洽）
+     *   - 计算：over = score - _bestScoreAtRunStart（开局快照，本局不变）
+     *
+     * 早期 alt1 / alt2 / victory / close / chase / follow / toNext10 / toNext25 / legend
+     * / nearMiss.D3 / nearMiss.D2 / pbStreak.badge 等 key 保留作历史索引（@deprecated），
+     * 供 i18n 平台灰度回滚使用，实际渲染不再消费。 */
     'best.gap': '差 {{gap}} 分',
-    'best.gap.victory': '即将刷新最佳！冲刺！',
-    'best.gap.close': '接近了！💪',
     'best.gap.neutral': '差 {{gap}} 分',
-    'best.gap.far': '本次最佳 {{best}} · 慢慢追',
+    'best.gap.far': '历史最佳 {{best}}',
+    'best.over.neutral': '本局 +{{over}}',
+    'endGame.nearMiss': '差 {{gap}} 分',
+    /** @deprecated v1.56.3：旧版煽情/教练式文案池，全部降级为事实陈述，保留 key 以备回滚 */
+    'best.gap.victory': '差 {{gap}} 分',
+    /** @deprecated v1.56.3 */
+    'best.gap.close': '差 {{gap}} 分',
+    /** @deprecated v1.56.1 */
     'best.gap.far.alt1': '稳住节奏，再练两把就近了',
+    /** @deprecated v1.56.1 */
     'best.gap.far.alt2': '上次 PB {{best}} · 别急，先稳底两行',
+    /** @deprecated v1.56.3 */
+    'best.gap.follow': '差 {{gap}} 分',
+    /** @deprecated v1.56.3 */
+    'best.gap.chase': '差 {{gap}} 分',
+    /** @deprecated v1.56.3 */
+    'best.over.toNext10': '已超 {{over}} 分',
+    /** @deprecated v1.56.3 */
+    'best.over.toNext25': '已超 {{over}} 分',
+    /** @deprecated v1.56.3 */
+    'best.over.legend': '已超 {{over}} 分',
+    /** @deprecated v1.56.3：endGame.nearMiss.D2 / D3 已合并为 endGame.nearMiss */
+    'endGame.nearMiss.D3': '差 {{gap}} 分',
+    /** @deprecated v1.56.3 */
+    'endGame.nearMiss.D2': '差 {{gap}} 分',
+    /* v1.56 §4.4：连续突破徽章（7 天内连续 N 次刷新 PB） ——
+     * v1.56.3 文案克制：去掉"🏆"emoji 在徽章主文，避免与 effect.newRecord 重复打鸡血，
+     * 改为单纯计数标识"连破 N 次"（事实陈述 + 弱化情绪信号）。 */
+    'pbStreak.badge': '连破 {{n}} 次',
     /* @deprecated v1.55.11：score milestone toast 已撤销渲染（用户反馈"已达最佳 N% 不触发特效"）。
      * 三个 key 仍保留以维持 i18n 平台的回滚能力 + 兼容旧调用方；i18n 测试只断言存在性。
      * 实际游戏 UI 不会再消费这三条文案。 */
@@ -345,6 +395,9 @@ export default {
     'dfv.intent.engage': '挑战参与',
     'dfv.intent.flow': '维持心流',
     'dfv.intent.maintain': '保持节奏',
+    /* v1.57.1 P3：sprint 中间档（stress ∈ [0.45, 0.55) 渐紧过渡带），消除原 0.55
+     * 跨阈值"突然变难"台阶感。文字保持中性，不暴露算法术语。 */
+    'dfv.intent.sprint': '渐紧过渡',
     'dfv.intent.pressure': '提升压力',
     'dfv.intent.harvest': '收获机会',
 
@@ -355,6 +408,8 @@ export default {
     'dfv.reason.pressure': '动量良好，可加压',
     'dfv.reason.engage': '焦虑/挫败叠加 → 介入引导',
     'dfv.reason.flow': '心流稳定 → 维持',
+    /* v1.57.1 P3：sprint 触发原因（仅 DFV 开发者面板可见） */
+    'dfv.reason.sprint': 'stress ∈ [0.45, 0.55) 渐紧过渡',
     'dfv.reason.harvest': '盘面具备消行机会',
 
     // 决策标志 chip
