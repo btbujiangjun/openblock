@@ -160,16 +160,18 @@ body.block-drag-active #app {
     flex: none;
 }
 
-/* 统计行右侧：与主题列分隔，仅 ☰ 返回菜单 */
+/* 统计行右侧：与主题列分隔，仅 ☰ 返回菜单
+ * v1.55.18：横向留白 10+14=24px → 6+10=16px，节省 8px；中等屏（见 1024px 媒体查询）
+ *           会进一步收到 4+8=12px。 */
 .score-theme-quick-cluster {
     flex: 0 1 auto;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 6px;
+    gap: 5px;
     min-width: 0;
-    margin-left: 10px;
-    padding-left: 14px;
+    margin-left: 6px;
+    padding-left: 10px;
     border-left: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 14%, transparent);
 }
 
@@ -370,7 +372,11 @@ body.block-drag-active #app {
     -webkit-backdrop-filter: none;
 }
 
-/* 各节内容紧凑居中（v10.17.16：取消等宽 flex:1，改为内容自适应 + 整行居中） */
+/* 各节内容紧凑居中（v10.17.16：取消等宽 flex:1，改为内容自适应 + 整行居中）
+ * v1.55.18：padding 14px → 10px，单行容量增加 ≈32px，缓解中等屏（800~1100px）整行换行
+ *           同时 grid-template-columns: minmax(0, auto) 让 row 3 副行（best-gap / streak）
+ *           无法反推列宽 —— 长文案由 row 3 自身 ellipsis 截断，stat-box 整体宽度由 row 2
+ *           （主数字）决定，避免「最佳 1860」框被「上次 PB 1960 · 别急，先稳住再行」撑爆。 */
 .score-theme-row .stat-box {
     background: none !important;
     border: none !important;
@@ -378,9 +384,10 @@ body.block-drag-active #app {
     border-radius: 0 !important;
     flex: 0 0 auto;
     min-width: 0;
-    padding: 3px 14px;
+    padding: 3px 10px;
     position: relative;
     display: grid;
+    grid-template-columns: minmax(0, auto);
     grid-template-rows: auto minmax(0, 1fr) auto;
     justify-items: center;
     align-items: center;
@@ -404,6 +411,14 @@ body.block-drag-active #app {
     align-self: start;
     width: 100%;
     text-align: center;
+    /* v1.55.18：副行不允许撑爆 grid 列宽 —— 长文案省略，hover 时由 title 揭示
+     * 完整内容（i18n 切英文也安全）。配合 .stat-box grid-template-columns: minmax(0, auto)
+     * 才真正生效；缺一不可。 */
+    min-width: 0;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .score-theme-row .progression-streak {
@@ -5940,6 +5955,45 @@ body.doc-visibility-hidden #menu * {
     line-height: 1.25;
     margin: 0;
     padding: 0;
+}
+
+/* v1.55.18：中等屏 HUD 紧凑模式（笔记本 / 平板横屏 / Cursor 默认窗口区间）
+ * 在 score-theme-row 整体宽度 = play-inner-span + 28px 的约束下，cell-px ∈ [42, 56] 时
+ * play-inner-span ≈ 700~900px；4 个 stat-box + quick-cluster 必须挤进同一行。
+ * 此断点专门让 padding / 按钮 / 主题 select 都收一档，保证 quick-cluster 不被推到第二行。
+ * 不影响 ≤480px 的窄手机断点（下方独立媒体查询）和 ≥1025px 的大屏正常布局。 */
+@media (min-width: 481px) and (max-width: 1024px) {
+    .score-theme-row .stat-box { padding: 3px 6px; }
+    .score-theme-quick-cluster {
+        gap: 4px;
+        margin-left: 4px;
+        padding-left: 8px;
+    }
+    .feedback-toggle-btn,
+    .score-theme-quick-cluster > .in-game-menu-btn--toolbar {
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        min-height: 30px;
+        font-size: 15px;
+        border-radius: 8px;
+    }
+    .header-skin .skin-picker select {
+        min-width: 5.5rem;
+        max-width: min(28vw, 8rem);
+        padding: 5px 18px 5px 8px;
+        font-size: 13px;
+    }
+    .score-theme-row .best-gap,
+    .score-theme-row .progression-streak {
+        max-width: 11rem;
+        font-size: 10px;
+    }
+    /* 副行预留行高也跟随主字号下调，否则会出现「徽章下方留白比主数字还高」的视觉断层 */
+    .score-theme-row .stat-subline--spacer {
+        min-height: calc(10px * 1.1);
+        font-size: 10px;
+    }
 }
 
 @media (max-width: 400px) {

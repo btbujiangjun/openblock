@@ -3319,10 +3319,14 @@ export class Game {
                     msg = t(variants[idx], { best: this.bestScore });
                 }
                 gapEl.textContent = msg;
+                /* v1.55.18：副行加 CSS ellipsis 后，长文案（如 "上次 PB 1960 · 别急，先稳住再行"）
+                 * 在中等屏会被截断；把完整文案落到 title，鼠标 hover 即可看到全文，无 i18n 截断风险。 */
+                gapEl.title = msg;
                 gapEl.hidden = false;
                 gapEl.className = 'best-gap' + (ratio <= 0.05 ? ' best-gap--close' : '');
             } else {
                 gapEl.hidden = true;
+                gapEl.removeAttribute('title');
             }
         }
         this._updateProgressionHud();
