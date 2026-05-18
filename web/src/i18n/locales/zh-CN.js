@@ -393,6 +393,23 @@ export default {
     'dfv.sec.shapesSub': '前 5 项 · 概率',
     'dfv.sec.targetsSub': '前 6 项',
     'dfv.sec.hintsSub': '调度参数',
+    'dfv.sec.dynamics': '决策动态',
+    'dfv.sec.dynamicsSub': '归因 · 灵敏度',
+    'dfv.flowNav.aria': '算法决策结构：信号 → 派生（压力 ∥ 策略 ∥ 目标 ∥ 调度 ∥ 意图 五者并列同源）',
+    'dfv.flowStep.signal': '信号',
+    'dfv.flowStep.stress': '压力',
+    'dfv.flowStep.strategy': '策略',
+    'dfv.flowStep.target': '目标',
+    'dfv.flowStep.schedule': '调度',
+    'dfv.flowStep.intent': '意图',
+    'dfv.flowStep.signalTip': '17+ 玩家信号（profile + ctx + ability + delight）— 是底层因果输入',
+    'dfv.flowStep.stressTip': '派生①：stressBreakdown 12+ 分量加权 + normalize（adaptiveSpawn.js）— 单一标量 [0,1]',
+    'dfv.flowStep.strategyTip': '派生②：spawnHints 5 向量（保消/尺寸/刚性/多样/连击）— 30+ 条 Math.max/min 独立路径并发累加，不读 stress',
+    'dfv.flowStep.targetTip': '派生③：spawnTargets 6 维（复杂/解空/消机/空间/兑现/新奇）— deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight)',
+    'dfv.flowStep.scheduleTip': '派生④：4 调度参数（多消/多线/清屏/图标 加成）— 各自独立 derive 函数（deriveMultiClearBonus / deriveMultiLineTarget / deriveDelightTuning 等）',
+    'dfv.flowStep.intentTip': '派生⑤：resolveIntent 7 优先级规则（intentResolver.js）— 直接读 distress/geometry/delight/stress，不读 5 向量。五者并列同源自信号',
+    'dfv.flowStep.spawn': '出块',
+    'dfv.flowStep.spawnTip': '阶段③ 出块（blockSpawn.generateDockShapes）：消费阶段②全部派生 → 3 子层（Layer1 拓扑+反死局+9 target* 软过滤 / Layer2 combo+品类+节奏 / Layer3 弧线+milestone）→ 22 次抽样 → 3 chosen shape（玩家实际看到）',
 
     // 意图中文释义（与 SPAWN_INTENT_DESC 对齐）
     'dfv.intent.relief': '救济节奏',
@@ -425,6 +442,12 @@ export default {
     'dfv.flag.afkEngage': 'AFK 介入',
     'dfv.flag.winback': '回流保护',
     'dfv.flag.personalization': '个性化',
+    /* v1.58.3: 4 个信号诊断 chip + conflicts 行 */
+    'dfv.flag.endSessionStress': '末段压力',
+    'dfv.flag.lifecycleLateAccel': '生命周期末段加速',
+    'dfv.flag.playerDistressFloor': 'distress 浮标',
+    'dfv.flag.delightModeRelief': '愉悦模式·救济',
+    'dfv.conflicts.label': '跨维度信号冲突',
 
     // shape category 中文（与 shared/shapes.json categoryOrder 对齐）
     'dfv.shape.lines': '长条',
@@ -468,6 +491,7 @@ export default {
     'dfv.foot.relief': '救济',
     'dfv.foot.pressure': '加压',
     'dfv.foot.pulseHint': '脉冲=新出块',
+    'dfv.foot.covaryHint': '虚线=派生共变·非因果',
     'dfv.foot.empty': '—',
 
     // v1.51.9 新增：压力贡献项（与 stressMeter.SIGNAL_LABELS 同源，让 dfv 面板可独立 i18n）

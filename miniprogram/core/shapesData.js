@@ -15,6 +15,58 @@ module.exports = {
   "byCategory": {
     "lines": [
       {
+        "id": "1x2",
+        "name": "1×2",
+        "category": "lines",
+        "data": [
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      {
+        "id": "2x1",
+        "name": "2×1",
+        "category": "lines",
+        "data": [
+          [
+            1
+          ],
+          [
+            1
+          ]
+        ]
+      },
+      {
+        "id": "1x3",
+        "name": "1×3",
+        "category": "lines",
+        "data": [
+          [
+            1,
+            1,
+            1
+          ]
+        ]
+      },
+      {
+        "id": "3x1",
+        "name": "3×1",
+        "category": "lines",
+        "data": [
+          [
+            1
+          ],
+          [
+            1
+          ],
+          [
+            1
+          ]
+        ]
+      },
+      {
         "id": "1x4",
         "name": "1×4",
         "category": "lines",
@@ -236,6 +288,80 @@ module.exports = {
     ],
     "zshapes": [
       {
+        "id": "diag-2a",
+        "name": "Diag 2 ↗",
+        "category": "zshapes",
+        "data": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "diag-2b",
+        "name": "Diag 2 ↘",
+        "category": "zshapes",
+        "data": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      },
+      {
+        "id": "diag-3a",
+        "name": "Diag 3 ↗",
+        "category": "zshapes",
+        "data": [
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            1,
+            0,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "diag-3b",
+        "name": "Diag 3 ↘",
+        "category": "zshapes",
+        "data": [
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            1
+          ]
+        ]
+      },
+      {
         "id": "z-h",
         "name": "Z Horizontal",
         "category": "zshapes",
@@ -309,6 +435,66 @@ module.exports = {
       }
     ],
     "lshapes": [
+      {
+        "id": "l3-a",
+        "name": "L3 ↘",
+        "category": "lshapes",
+        "data": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "id": "l3-b",
+        "name": "L3 ↙",
+        "category": "lshapes",
+        "data": [
+          [
+            1,
+            1
+          ],
+          [
+            0,
+            1
+          ]
+        ]
+      },
+      {
+        "id": "l3-c",
+        "name": "L3 ↗",
+        "category": "lshapes",
+        "data": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      {
+        "id": "l3-d",
+        "name": "L3 ↖",
+        "category": "lshapes",
+        "data": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
       {
         "id": "l-1",
         "name": "L Shape 1",

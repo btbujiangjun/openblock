@@ -170,14 +170,21 @@ describe('buildStoryLine', () => {
     /* v1.23：spawnIntent 是出块意图的唯一对外口径，永远优先 ——
      * 旧版 v1.16 加了 gating `frust > -0.08 && recovery > -0.08`，让 frustRelief 触发时
      * 绕过 SPAWN_INTENT_NARRATIVE，与 v1.18 stressMeter "救济中" label + 友好 vibe 拉扯。
-     * 新版让 spawnIntent 永远优先（除非 boardRisk 极高让"保活"抢占）。 */
-    it('v1.23 spawnIntent=relief + frustRelief=-0.18 时优先 SPAWN_INTENT_NARRATIVE.relief（不再退到老严厉文案）', () => {
+     * 新版让 spawnIntent 永远优先（除非 boardRisk 极高让"保活"抢占）。
+     *
+     * v1.57.5 §B：relief 文案按真实原因分级（RELIEF_NARRATIVE_BY_REASON），原来一律的
+     * "盘面通透又是兑现窗口..."在 fill 较高时与玩家肉眼盘面错位（截图复现）。
+     * 这里 frustRelief=-0.18 主导，新版应走 frustration 分支文案。 */
+    it('v1.23/v1.57.5 spawnIntent=relief + frustRelief=-0.18 → 走 relief 路径（按 reason 分级到 frustration 文案）', () => {
         const story = buildStoryLine(flowLevel,
             { frustrationRelief: -0.18 },
             null,
             { spawnIntent: 'relief' });
-        expect(story).toBe('盘面通透又是兑现窗口，悄悄给你减压享受多消。');
+        // v1.57.5：frustrationRelief 主导 → 走 frustration 分支
+        expect(story).toContain('不太顺');
         expect(story).not.toMatch(/挫败感偏高/);
+        // 不再固定返回老的"盘面通透"文案
+        expect(story).not.toContain('盘面通透');
     });
 
     it('v1.23 spawnIntent=harvest + recoveryAdjust=-0.20 时优先 SPAWN_INTENT_NARRATIVE.harvest（低压档）', () => {
@@ -265,10 +272,15 @@ describe('buildStoryLine', () => {
         expect(story).not.toMatch(/心流稳定|收获期/);
     });
 
-    it('v1.24 其他 intent (relief/harvest 等) 不受 flow 变体表影响', () => {
+    it('v1.24/v1.57.5 其他 intent (relief/harvest 等) 不受 flow 变体表影响', () => {
+        /* v1.57.5 §B：empty breakdown + intent=relief → classifyReliefReason 返回 'default'，
+         * 走 RELIEF_NARRATIVE_BY_REASON.default（与 SPAWN_INTENT_NARRATIVE.relief 同源中性文案）。
+         * 旧的"盘面通透又是兑现窗口..."硬编码已被 reason 分级替代。 */
         const reliefStory = buildStoryLine(flowLevel, {}, null,
             { spawnIntent: 'relief', rhythmPhase: 'setup' });
-        expect(reliefStory).toBe('盘面通透又是兑现窗口，悄悄给你减压享受多消。');
+        expect(reliefStory).toContain('减压');
+        expect(reliefStory).not.toContain('收获期');
+        expect(reliefStory).not.toContain('盘面通透');
 
         // v1.31：geometry 缺失时 harvest 仍回退到旧默认（兼容老回放/缺 spawnDiagnostics）
         const harvestStory = buildStoryLine(flowLevel, {}, null,

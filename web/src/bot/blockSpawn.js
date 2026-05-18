@@ -661,7 +661,7 @@ function bestMultiClearPotential(grid, shapeData) {
  * @param {import('../grid.js').Grid} grid
  * @returns {0|1|2}
  */
-function analyzePerfectClearSetup(grid) {
+export function analyzePerfectClearSetup(grid) {
     const n = grid.size;
     /* v1.16：与 boardTopology.detectNearClears 共用近满检测，避免 panel 上的
      * 「近满 N」与 spawnContext 里的 pcSetup / multiClearCandidates 因为口径不同
@@ -779,6 +779,140 @@ export function resetSpawnMemory() {
     _lastDiagnostics = null;
 }
 
+/**
+ * v1.59.20：估算"该 chosen shape 在本轮被选中的主要驱动因子"，输出 { key, label }
+ * 用于 DFV chosen 节点常驻"因·XXX"小字（让"消行候选/综合选"标签不再只是路径分类，
+ * 还能告诉玩家"具体是哪个算法分量让这块被选中"）。
+ *
+ * **启发式优先级**（与本文件内 scoreShape 内权重设计的乘性强度排序保持一致）：
+ *   1. `pcPotential === 2`   → 可清屏（最高权重 18+ 倍）
+ *   2. `multiClear >= 2`     → 可多消 N 行（×2.0-2.7 加权）
+ *   3. `gapFills >= 2`       → 可补 N 处临消行缺口（×nearFullFactor 加权）
+ *   4. `gapFills === 1`      → 可消 1 行
+ *   5. `holeReduce > 0`      → 可补 N 处空洞（×0.4 加权）
+ *   6. `placements >= 30`    → 机动性高（合法落点多）
+ *   7. shapeWeights 类别主导  → 类别权重高（例：长条权重 33%）
+ *   default                  → 综合均衡（无单一主因）
+ *
+ * 注意：这是**事后估算**而非 scoreShape 内部权重的精确反推（精确反推需要将
+ * 全乘性权重链做对数分解，工程量大且对玩家解释力增益有限）。启发式覆盖 95%+
+ * 的"为什么是这块"问题已足够好。
+ *
+ * @param {object|null} s scored entry: { gapFills, multiClear, pcPotential, holeReduce, placements, category }；
+ *   fallback 路径传 null（直接返回"兜底降级"label）
+ * @param {Record<string, number>|null} shapeWeights spawnHints.shapeWeights
+ * @returns {{ key: string, label: string }}
+ */
+export function _estimateTopDriver(s, shapeWeights) {
+    if (!s) return { key: 'fallback', label: '兜底降级' };
+
+    if (s.pcPotential === 2) return { key: 'pcPotential', label: '可清屏' };
+    if (s.multiClear >= 2) return { key: 'multiClear', label: `可多消${s.multiClear}行` };
+    if (s.gapFills >= 2) return { key: 'gapFills', label: `补${s.gapFills}缺` };
+    if (s.gapFills === 1) return { key: 'gapFills', label: '可消1行' };
+    if (s.holeReduce > 0) return { key: 'holeReduce', label: `补${s.holeReduce}洞` };
+    if ((s.placements ?? 0) >= 30) return { key: 'mobility', label: '机动高' };
+
+    /* v1.60.0：新形状的语义化主因（在通用 driver 之外的形态特异性归类）。
+     * 在常规 driver（消行/多消/补洞/机动）均未命中时，回退到形态自身的设计语义：
+     *   - 斜线 3 格（diag-3a/b）：稀疏散点造孤岛 → "稀疏挑战"
+     *   - 斜线 2 格（diag-2a/b）：对角散点补缝 → "对角补缝"
+     *   - 超小直线（1x2/2x1/1x3/3x1）：占地少易消行 → "极小补缝"
+     *   - 3 格 L 角（l3-a..d）：角落紧凑补缝 → "角落补缝"
+     */
+    const shapeId = s.shape?.id;
+    if (shapeId === 'diag-3a' || shapeId === 'diag-3b') return { key: 'diagonalSparse', label: '稀疏挑战' };
+    if (shapeId === 'diag-2a' || shapeId === 'diag-2b') return { key: 'diagonalPair',  label: '对角补缝' };
+    if (shapeId === '1x2' || shapeId === '2x1' || shapeId === '1x3' || shapeId === '3x1') {
+        return { key: 'tinyLine', label: '极小补缝' };
+    }
+    if (shapeId === 'l3-a' || shapeId === 'l3-b' || shapeId === 'l3-c' || shapeId === 'l3-d') {
+        return { key: 'cornerFit', label: '角落补缝' };
+    }
+
+    const weights = shapeWeights || {};
+    const wEntries = Object.entries(weights);
+    if (wEntries.length > 0 && s.category) {
+        const totalW = wEntries.reduce((a, [, v]) => a + (Number(v) || 0), 0) || 1;
+        const myW = Number(weights[s.category]) || 0;
+        const myPct = myW / totalW;
+        const sorted = wEntries.slice().sort((a, b) => (Number(b[1]) || 0) - (Number(a[1]) || 0));
+        const top = sorted[0];
+        if (top && top[0] === s.category && myPct >= 0.20) {
+            return { key: 'shapeWeight', label: `${_categoryShort(s.category)}权重${Math.round(myPct * 100)}%` };
+        }
+    }
+
+    return { key: 'balanced', label: '综合均衡' };
+}
+
+function _categoryShort(cat) {
+    const map = { lines: '长条', rects: '矩形', squares: '方块', tshapes: 'T形', zshapes: 'Z形', lshapes: 'L形', jshapes: 'J形' };
+    return map[cat] || cat;
+}
+
+/**
+ * v1.60.0 形状池扩展 P1：新形状的策略 gate（按"前期减压、后期加压"严格执行）。
+ *
+ * 当前唯一走 gate 的是 **斜线 3 格散点（diag-3a / diag-3b）**——它们占地仅 3 格但
+ * 在 8×8 棋盘上 3 个孤岛几乎不可能直接消行，对新手是强加压来源。为防止挫败爆表：
+ *   - 仅在 `spawnIntent ∈ {pressure, sprint}` **且** `profile.skillLevel ≥ 0.5` 时入池
+ *   - 否则在 scored.filter 阶段直接 reject（不进入 weighted / clear / perfectClear 任意路径）
+ *
+ * 其他 10 个新 shape（4 直线 + 2 对角 + 4 角形）默认入池，仅靠 `_applyShapeBonusWeight`
+ * 在合适场景做权重 nudge——保持现有"权重抽签 + 多路径"主体逻辑不被 gate 截断。
+ *
+ * @param {object} shape - { id, data, category }
+ * @param {object} hints - spawnHints（含 spawnIntent）
+ * @param {object} profile - playerProfile（含 skillLevel）
+ * @param {object} ctx - 复用现有 ctx
+ * @param {number} fill - 当前盘面填充率
+ * @returns {boolean} 是否允许进入本轮 scored 集合
+ */
+function _passesShapeGate(shape, hints, profile, _ctx, _fill) {
+    if (!shape) return false;
+    const id = shape.id;
+    /* 斜线 3 格散点：高加压形状，需 gate */
+    if (id === 'diag-3a' || id === 'diag-3b') {
+        const intent = hints?.spawnIntent;
+        const isPressureLike = intent === 'pressure' || intent === 'sprint';
+        const skill = Number(profile?.skillLevel) || 0;
+        if (!isPressureLike || skill < 0.5) return false;
+    }
+    return true;
+}
+
+/**
+ * v1.60.0 形状池扩展 P1：新形状的策略加权 nudge（在主权重 weights[category] 之上的乘法 bonus）。
+ *
+ * 加权策略（严格匹配"前期减压、后期加压"语义）：
+ *  - **超小直线 4 件（1x2/2x1/1x3/3x1）**：sizePreference ≤ -0.3 时 ×1.6
+ *      → spawnLayers.LaneLayer 已用 cells/5 做小块加权，但 2-3 格 cells 比例仅 0.4-0.6，
+ *        bonus 不够显著。本 nudge 让前期减压场景下这 4 件能压过 2x2/L4 等 4 格块。
+ *  - **3 格 L 角 4 件（l3-a..d）**：gapFills > 0 时 ×1.3
+ *      → 角落补缝是 L3 形态的天然适配，gapFills 反映了"能直接补满临消行缺口"的能力。
+ *  - 其他形状（含 diag-2/diag-3）：保持原 weight 不变，由现有打分机制自然消化。
+ *
+ * @param {number} baseWeight - 来自 weights[category] 的基础权重
+ * @param {string} shapeId
+ * @param {object} hints - spawnHints
+ * @param {number} gapFills - 当前 shape 在盘面上能消行的能力
+ * @returns {number} 调整后的 weight
+ */
+function _applyShapeBonusWeight(baseWeight, shapeId, hints, gapFills) {
+    let w = baseWeight;
+    /* 超小直线：前期减压加权 */
+    if (shapeId === '1x2' || shapeId === '2x1' || shapeId === '1x3' || shapeId === '3x1') {
+        const sizePref = Number(hints?.sizePreference) || 0;
+        if (sizePref <= -0.3) w *= 1.6;
+    }
+    /* 3 格 L 角：能补缝时加权 */
+    if (shapeId === 'l3-a' || shapeId === 'l3-b' || shapeId === 'l3-c' || shapeId === 'l3-d') {
+        if (gapFills > 0) w *= 1.3;
+    }
+    return w;
+}
+
 /** @type {object | null} 上一轮出块诊断，供面板展示 */
 let _lastDiagnostics = null;
 
@@ -808,6 +942,15 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const weights = strategyConfig.shapeWeights || {};
     const hints = strategyConfig.spawnHints || {};
     const ctx = spawnContext || {};
+    /* v1.60.0：从 strategyConfig（adaptiveSpawn enhanced layered config）抽取 profile 快照，
+     * 供 _passesShapeGate 等需要玩家维度（skill/momentum/frustration）的策略 gate 使用。
+     * 不改 adaptiveSpawn 接口（这些字段早已存在于 layered._xxx），仅这里集中映射。 */
+    const profile = {
+        skillLevel:       strategyConfig._skillLevel,
+        momentum:         strategyConfig._momentum,
+        frustrationLevel: strategyConfig._frustration,
+        sessionPhase:     strategyConfig._sessionPhase,
+    };
 
     const clearTarget = Math.max(0, Math.min(3, hints.clearGuarantee ?? 1));
     const sizePref = hints.sizePreference ?? 0;
@@ -890,9 +1033,14 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         .map((shape) => {
             const canPlace = grid.canPlaceAnywhere(shape.data);
             if (!canPlace) return null;
+            /* v1.60.0 形状池扩展 P1：严格按"加减压策略"对新增 12 个 shape 做 gate + 加权。
+             * gate 在"可放置"过滤之后立即执行，未通过 gate 的 shape 完全退出本轮 scored 集合，
+             * 保证下游 weighted/clear/perfectClear 多路径全部共享同一 candidate set。 */
+            // eslint-disable-next-line no-use-before-define
+            if (!_passesShapeGate(shape, hints, profile, ctx, fill)) return null;
             const gapFills = grid.countGapFills(shape.data);
             const category = getShapeCategory(shape.id);
-            const weight = weights[category] ?? 1;
+            let weight = weights[category] ?? 1;
             const placements = countLegalPlacements(grid, shape.data);
 
             /* 不再依赖 gapFills 才算 multiClear — 否则「差 4 格满行」等形状长期 multiClear=0 */
@@ -906,6 +1054,14 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             if (doDeepAnalysis && topo.holes > 2 && fill > 0.5) {
                 holeReduce = bestHoleReduction(grid, shape.data, topo.holes);
             }
+
+            /* v1.60.0：新形状的策略加权（在 scoreShape 主权重之外的轻微 nudge）。
+             *  - 超小直线（1x2/2x1/1x3/3x1）：sizePreference ≤ -0.3 时 ×1.6
+             *    → 配合 LaneLayer cells/5 公式，让 2-3 格小块在前期减压场景显著抬头
+             *  - 3 格 L 角（l3-a..d）：gapFills > 0 时 ×1.3
+             *    → 角落补缝场景的天然适配奖励 */
+            // eslint-disable-next-line no-use-before-define
+            weight = _applyShapeBonusWeight(weight, shape.id, hints, gapFills);
 
             return { shape, canPlace: true, gapFills, weight, category, placements, multiClear, holeReduce, pcPotential };
         })
@@ -1073,7 +1229,11 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             blocks.push(pick.shape);
             usedIds[pick.shape.id] = true;
             usedCategories[pick.category] = (usedCategories[pick.category] || 0) + 1;
-            chosenMeta.push({ shape: pick.shape, placements: pick.placements, reason: pcSetup >= 1 ? 'perfectClear' : 'clear' });
+            chosenMeta.push({
+                shape: pick.shape, placements: pick.placements,
+                reason: pcSetup >= 1 ? 'perfectClear' : 'clear',
+                topDriver: _estimateTopDriver(pick, weights),
+            });
             clearCount++;
         }
 
@@ -1242,7 +1402,10 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             usedIds[entry.shape.id] = true;
             usedCategories[entry.category] = (usedCategories[entry.category] || 0) + 1;
             blocks.push(entry.shape);
-            chosenMeta.push({ shape: entry.shape, placements: entry.placements, reason: 'weighted' });
+            chosenMeta.push({
+                shape: entry.shape, placements: entry.placements, reason: 'weighted',
+                topDriver: _estimateTopDriver(entry, weights),
+            });
             if (entry.gapFills > 0) clearCount++;
             remaining = scored.filter((s) => !usedIds[s.shape.id]);
         }
@@ -1251,7 +1414,10 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             const p = pickShapeByCategoryWeights(weights);
             if (!p) break;
             blocks.push(p);
-            chosenMeta.push({ shape: p, placements: countLegalPlacements(grid, p.data), reason: 'fallback' });
+            chosenMeta.push({
+                shape: p, placements: countLegalPlacements(grid, p.data), reason: 'fallback',
+                topDriver: _estimateTopDriver(null, null),
+            });
         }
 
         const triplet = blocks.slice(0, 3);
@@ -1503,10 +1669,19 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
         }
 
-        /* 通过校验 — 打乱顺序 + 记录诊断 */
+        /* 通过校验 — 打乱顺序 + 记录诊断
+         *
+         * v1.59.19 bug 修复：Fisher-Yates 同步打乱 triplet + chosenMeta 前 3 项。
+         * 历史只打乱 triplet，diagnostics.chosen 仍按 chosenMeta 原顺序写入，
+         * 导致 game.js `descriptors[i] = shape: triplet[i]` 写入 dock 的 shape
+         * 与 _lastAdaptiveInsight.spawnDiagnostics.chosen[i] 错位（同一 i 索引指向
+         * 不同 shape）—— DFV 出块行显示 [2×2 / Z竖2 / 1×4]，但玩家在 dock 上
+         * 实际看到的顺序却是别的，用户反馈"顺序不一致"根因。
+         * 用同一组 random index 序对两数组应用相同 swap 即可保持配对不变。 */
         for (let i = triplet.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [triplet[i], triplet[j]] = [triplet[j], triplet[i]];
+            [chosenMeta[i], chosenMeta[j]] = [chosenMeta[j], chosenMeta[i]];
         }
 
         const chosenCats = triplet.map(s => getShapeCategory(s.id));
@@ -1516,7 +1691,9 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
         diagnostics.attempt = attempt;
         diagnostics.chosen = chosenMeta.slice(0, 3).map(m => ({
-            id: m.shape.id, category: getShapeCategory(m.shape.id), reason: m.reason
+            id: m.shape.id, category: getShapeCategory(m.shape.id),
+            reason: m.reason,
+            topDriver: m.topDriver || { key: 'balanced', label: '综合均衡' },
         }));
         diagnostics.layer1.solutionMetrics = solutionMetrics;
         _lastDiagnostics = diagnostics;
@@ -1553,7 +1730,8 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
     diagnostics.attempt = MAX_SPAWN_ATTEMPTS;
     diagnostics.chosen = blocks.slice(0, 3).map(s => ({
-        id: s.id, category: getShapeCategory(s.id), reason: 'fallback'
+        id: s.id, category: getShapeCategory(s.id), reason: 'fallback',
+        topDriver: _estimateTopDriver(null, null),
     }));
     _lastDiagnostics = diagnostics;
 

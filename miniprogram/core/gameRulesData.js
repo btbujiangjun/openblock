@@ -7,11 +7,22 @@ module.exports = {
   "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
   "winScoreThreshold": 220,
   "rlCurriculum": {
-    "comment": "胜利门槛从 40 起步，让初学者能拿到 winBonus 正反馈；40k 局后升至 220。可用 RL_CURRICULUM=0 关闭。",
+    "comment": "胜利门槛课程·三模式（mode 字段控制，互斥）：linear=固定线性 ramp（v8 默认，需手工调 winThresholdEnd）；adaptive=v11 闭环（rlRewardShaping.adaptiveCurriculum 提供四档反馈，仍受 winThresholdEnd 上限制约）；quantile=v11.2 分位数自适应（不设 End，winThreshold=EMA(percentile(recent_scores, p))，模型能力变强 → 阈值自动同步上升，win_rate 数学上恒等于 1-p/100）。环境变量 RL_CURRICULUM_MODE 可覆盖；RL_CURRICULUM=0 总闸关闭。winScoreThreshold（顶层）仍是 220，作为产品端「胜利」标识与浏览器推理时的固定阈值，不与 RL 训练时的课程门槛混用。",
     "enabled": true,
+    "mode": "quantile",
     "winThresholdStart": 40,
-    "winThresholdEnd": 220,
-    "rampEpisodes": 40000
+    "winThresholdEnd": 600,
+    "rampEpisodes": 40000,
+    "quantile": {
+      "comment": "v11.2 分位数模式参数。p=70 → 目标 win_rate=30%（比 v11 的 50% 更保守，保证稳定训练信号）。windowEpisodes=500 平衡响应速度与抖动。emaAlpha=0.05 ≈ 14 局衰减一半，抑制单局极值影响。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
+      "p": 70,
+      "windowEpisodes": 500,
+      "emaAlpha": 0.05,
+      "bootstrapEpisodes": 100,
+      "bootstrapThreshold": 40,
+      "floor": 40,
+      "ceil": 9999
+    }
   },
   "browserRlTraining": {
     "comment": "浏览器 LinearAgent REINFORCE 超参与温度日程（含 PyTorch 在线路径每局采样温度）。仅 web/src/bot/trainer.js 读取；改 JSON 无需改代码常量。entropyCoef=0 退化为纯策略梯度。",
@@ -44,8 +55,14 @@ module.exports = {
     "blockIcons": null
   },
   "defaultStrategyId": "normal",
+  "bestScoreSanity": {
+    "comment": "v1.55 §4.10 异常分守卫：单局 score > previousBest × multiplier 时进入审核态：仅更新内存 bestScore，不写后端持久化。previousBest < minBase 时跳过守卫（新玩家锚点不足）。",
+    "enabled": true,
+    "multiplier": 5,
+    "minBase": 50
+  },
   "dynamicDifficulty": {
-    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。v1.13 起 scoreStress 在 ctx.bestScore>0 时按个人百分位映射，避免一次冲过末档后压力锁死。",
+    "comment": "网页对局：在玩家所选难度基础上，局内随分数升高将出块分布向「困难」靠拢；计分仍用所选难度的 scoring。v1.13 起 scoreStress 在 ctx.bestScore>0 时按个人百分位映射，避免一次冲过末档后压力锁死。v1.56.6 §5.α.9 P1-C1：percentileMaxOver 从 0.2 → 0.5，让 D4 段（score > best）scoreStress 在 pct ∈ (1.0, 1.5] 仍能继续递增，与 pbOvershootBoost 协同形成'超 PB 越来越难'的完整曲线（旧 0.2 让 pct>1.2 时 stress 早饱和）。",
     "enabled": true,
     "milestones": [
       0,
@@ -64,7 +81,7 @@ module.exports = {
     "scoreFloor": 180,
     "percentileDecayThreshold": 0.5,
     "percentileDecayFactor": 0.4,
-    "percentileMaxOver": 0.2
+    "percentileMaxOver": 0.5
   },
   "runDifficulty": {
     "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
@@ -81,12 +98,13 @@ module.exports = {
     "fastConvergenceWindow": 5,
     "fastConvergenceAlpha": 0.35,
     "pbChase": {
-      "comment": "v1.57.1 多端策略同步：pbChase 顶层配置（minBestScoreForIntenseFeedback / overshoot 等）占位与 shared/game_rules.json 同口径。小程序当前 adaptiveSpawn.js **未实现** D4 段（pbOvershootBoost / pbExtremeOrderBoost / orderBoostInD4HighStress 等），本配置仅作真理源对齐占位，未来移植 D4 链路时直接消费。配置语义详见 shared/game_rules.json 内同名节点；改动以仓库根 shared/game_rules.json 为准。",
+      "comment": "v1.56.2 认知一致性守卫 + v1.56.4 三原则下的算法完整闭环。minBestScoreForIntenseFeedback=200 对应'玩家已掌握基本玩法'；低于此阈值所有 PB 段差异化算法全部 bypass。overshoot=D4 超 PB 持续加压（防分数膨胀）；farRamp=远段分级减压（极远更激进）；pbGrowthThrottle=PB 增长率过快时主动加压（不只 bypass）。",
       "minBestScoreForIntenseFeedback": 200,
       "overshoot": {
+        "comment": "v1.56.4 §5.α.8 D4 超 PB 持续加压 —— challengeBoost cap=0.15 在 pct≥1.0 后饱和，与'超 PB 高强度加压防分数膨胀'原则冲突。本机制在 D4 段（score > bestScore）按对数曲线追加 pbOvershootBoost: maxBoost · log10(1 + slope·overshoot)，其中 overshoot = score/best - 1。pct=1.0→0 / pct=1.25→~0.08 / pct=1.50→~0.12 / pct=2.0→~0.16，stress cap 提高到 capStress。配套 spawnHints 收紧：multiClearBonus 上限 / sizePreference 上移 / clearGuarantee 下移。受 minBestScoreForIntenseFeedback / postPbRelease / recovery 等同源 bypass 约束。v1.56.6 §5.α.9 P0：bypassOccupancyDamping / bypassFlowPayoffCap / smoothMaxStepUp 三组豁免，让 D4 段加压在'盘面空 / flow+payoff / 单帧上扬'三种场景下不再被消解。v1.57.1 P2：orderBoostInD4HighStress（默认 0.25）—— D4 段 + stress 已经高位（≥ orderHighStressMin，默认 0.85，即 norm ≈ 0.875）时给 orderRigor 注入额外强 boost，把 maxValidPerms 真正压到 tight=2，让'顺序刚性'也彻底锁死。与 orderBoostInD4 互补：弱场景（仅 overshoot 触发）走 orderBoostInD4=0.08；强场景（overshoot + 高 stress 双重）走本字段。",
         "enabled": true,
         "maxBoost": 0.16,
-        "slope": 5.0,
+        "slope": 5,
         "capStress": 0.9,
         "multiClearBonusCap": 0.18,
         "sizePreferenceShift": 0.12,
@@ -97,6 +115,29 @@ module.exports = {
         "bypassOccupancyDamping": true,
         "bypassFlowPayoffCap": true,
         "smoothMaxStepUp": 0.25
+      },
+      "farRamp": {
+        "comment": "v1.56.4 §5.α.8 远段分级减压 —— v1.56 原版 farFromPBBoost 把 pct∈[0,0.30) 一档处理，pct=0.05（极远，畏难最强）与 pct=0.29（边缘，即将进 D1）相同强度，与'让玩家有信心进入挑战 PB 模式'原则有信息流失。extremeThreshold=0.15 把 D0 切成两档：极远段额外抬 multiClearBonus floor 与 iconBonusTarget floor，让初期更易兑现奖励；边缘段维持原 floor。",
+        "enabled": true,
+        "extremeThreshold": 0.15,
+        "extremeMultiClearBonusFloor": 0.55,
+        "extremeIconBonusTargetFloor": 0.4,
+        "extremeSizePreferenceShift": -0.18
+      },
+      "pbGrowthThrottle": {
+        "comment": "v1.56.4 §5.α.8 PB 增长率反向加压 —— v1.56 原版 pbGrowthFast 仅触发 farFromPBBoost bypass='pb_growth_throttled'（被动节流）。本机制升级为'主动制动'：pbGrowthFast=true 时把 challengeBoost cap 从 0.15 临时上调到 0.15+capDelta，让 D2/D3 段提前进入更强加压。与 overshoot 协同防止 PB 在短时间内连续膨胀（7d 内 ≥10% 增长视为'过快'）。",
+        "enabled": true,
+        "challengeBoostCapDelta": 0.05
+      },
+      "challengeBoost": {
+        "comment": "v1.56.6 §5.α.9 P2：challengeBoost cap 配置化 —— v1.55 硬编码 0.15 在 D3 段（pct=0.95）只产生 0.113 增量，相对 scoreStress 0.76 基础值仅 +17%，加压偏弱。默认 cap 上调到 0.18，让 D2/D3 段的'决战感'更可感。运营可基于看板曲线调整。配套 pbGrowthThrottle.challengeBoostCapDelta 触发时进一步上抬到 0.23。",
+        "baseCap": 0.18
+      },
+      "postPbReleaseWindow": {
+        "comment": "v1.56.6 §5.α.9 P2：破 PB 释放窗口配置化 —— v1.55 硬编码 3 spawn（约 5~10s）偏短，玩家'破纪录爽感'通常持续 10~20s 就被 D4 加压机制接管，体感'突兀变难'。默认 5 spawn，运营可调。与 overshoot bypass 链对齐：释放期内 pbOvershootBoost / pbExtremeOrderBoost / D4 spawnHints 收紧全部 bypass。",
+        "spawns": 5,
+        "stressReleaseFactor": 0.7,
+        "clearGuaranteeBoost": 1
       }
     },
     "difficultyTuning": {
@@ -295,7 +336,29 @@ module.exports = {
       "frustrationRelief": -0.18,
       "nearMissStressBonus": -0.1,
       "nearMissClearGuarantee": 2,
-      "noveltyDiversityBoost": 0.15
+      "noveltyDiversityBoost": 0.15,
+      "farFromPBBoost": {
+        "comment": "v1.56 §2.1 远征送爽：当 score < pctThreshold·bestScore（默认 D0 远征段 pct<0.30）且无救济/瓶颈/warmup/postPbRelease/pbGrowthFast 时，对 spawnHints 注入 clearGuarantee+1、multiClearBonus 抬升、iconBonusTarget 抬升、sizePreference 偏小，降低中长局开局畏难情绪。pbGrowthFast 由 game.js 上游通过最近 N 次 PB 增长率计算后透传到 ctx，默认未启用即不触发。详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §5.α v1.56。",
+        "enabled": true,
+        "pctThreshold": 0.3,
+        "clearGuaranteeBoost": 1,
+        "multiClearBonusFloor": 0.45,
+        "iconBonusTargetFloor": 0.3,
+        "sizePreferenceShift": -0.12
+      }
+    },
+    "nearMissPlaceFeedback": {
+      "comment": "落子未消行时的几何近失 toast（game.js）。v1.50.1 收紧：仅在玩家体感很差时出现（高挫败 / anxious 心流叠加挫败 / 强 stress 救济）；clearRate/动量任一为正即抑制；单局最多 1 次、落子间隔 12、冷却 30s、前 12 次落子不出。",
+      "enabled": true,
+      "minLineFill": 0.875,
+      "minFrustrationLevel": 4,
+      "minFrustrationWhenAnxious": 2,
+      "maxPerSession": 1,
+      "minPlacementsBetween": 12,
+      "cooldownMs": 30000,
+      "minPlacementsBeforeFirst": 12,
+      "healthyClearRate": 0.3,
+      "healthyMomentum": 0.05
     },
     "feedback": {
       "comment": "闭环反馈（敏感版）：更短窗口、更高 alpha、更慢衰减，bias 变化更易在面板/stress 上体现；仍钳制在 biasClamp。",
@@ -359,6 +422,10 @@ module.exports = {
         "enabled": true,
         "scale": 1
       },
+      "endSessionDistress": {
+        "enabled": true,
+        "scale": 1
+      },
       "holeReliefAdjust": {
         "enabled": true,
         "scale": 1
@@ -419,7 +486,7 @@ module.exports = {
       "frustrationReliefThreshold": 5
     },
     "sprintIntent": {
-      "comment": "v1.57.1 P3 spawnIntent 'sprint' 中间档配置（与 web 同口径）。stress ∈ [minStress, maxStress) 触发 sprint，过渡 maintain → pressure 的台阶感。",
+      "comment": "v1.57.1 P3 spawnIntent 'sprint' 中间档配置：旧版 spawnIntent 在 stress=0.55 处一脚跨进 'pressure'（hints 套装翻盘），玩家会有'突然变难'的台阶感。'sprint' 充当 maintain → pressure 的过渡带（stress∈[minStress, maxStress)），hints 为'中等偏紧'：clearGuarantee 维持 1、sizePreference +0.10（略大块）、multiClearBonus 中等。bypass 链：救济 / 召回 / 收获 / 加压期优先级更高，sprint 仅在 stress 落入区间且无其他主导意图时触发。",
       "enabled": true,
       "minStress": 0.45,
       "maxStress": 0.55,
@@ -490,7 +557,7 @@ module.exports = {
       "maxAdjust": 0.05
     },
     "solutionDifficulty": {
-      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.2：新增 holeIncrement 子节作为'空洞强迫度'第二维度（详见 holeIncrement.comment）。",
+      "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.1 P1：在 0.35→0.6 之间补 '渐紧' 一档（minStress=0.5, max=64），让中段 stress 也有可感知难度差，消除 0.55 跨阈值前的'无感区'。v1.57.2：新增 holeIncrement.ranges——在解空间宽度之外引入'空洞强迫度'第二维度（详见 holeIncrement.comment）。",
       "enabled": true,
       "activationFill": 0.45,
       "leafCap": 64,
@@ -534,99 +601,279 @@ module.exports = {
         }
       ],
       "holeIncrement": {
-        "comment": "v1.57.2 stress→新空洞难度（与 ranges 解空间宽度并列双轴）。DFS 在每个完整解叶子用'孤立空格'口径（四面非空围住、必须 1×1 才能填的'漏洞'）计算新空洞数；取 6 种顺序所有解中 min 作为 minHoleIncrement（候选'最干净放置路径'的新空洞数）。低 stress 段 maxIncrement 强约束（必须存在干净解）；高 stress 段 minIncrement 强约束（玩家被迫接受至少 N 个新空洞）。与 web 同源实现。",
+        "comment": "v1.57.2 stress→新空洞难度（与 ranges 解空间宽度形成双轴）：DFS 在每个完整解叶子节点用'孤立空格'口径（四面非空围住的空格，必须用 1×1 才能填的'漏洞'，O(n²×4)≈256 ops，DFS 内反复调用仍可忽略）计算新空洞数 = 终末盘面 isolated holes − 初始 isolated holes（max(0,·) 避免消行净降产生负值）；取 6 种顺序的全部解中 min 值作为 minHoleIncrement（候选'最干净放置路径'的新空洞数）。按 stress 选 ranges 中的 { minIncrement, maxIncrement } 软过滤：低 stress 段 maxIncrement 强约束（必须存在干净解，space 越大越好玩）；高 stress 段 minIncrement 强约束（玩家被迫接受至少 N 个新空洞，'无论怎么放都会脏'的玩家心智压力）。仅在 earlyAttempt（attempt < ratio·limit）阶段硬过滤，宽松失败时 fallback 到无 hole 过滤以保证 spawn 不失败。activationFill 复用 solutionDifficulty.activationFill；truncated=true 跳过过滤。设计上不选 stacking-style（Tetris 风格）——OpenBlock 无重力，'被上方堵住'语义不成立；也不选 countUnfillableCells（O(shapes × n²) 太重）。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "干净", "minIncrement": null, "maxIncrement": 0 },
-          { "minStress": 0.35, "label": "宽容", "minIncrement": null, "maxIncrement": 1 },
-          { "minStress": 0.5,  "label": "渐紧", "minIncrement": null, "maxIncrement": 2 },
-          { "minStress": 0.6,  "label": "紧张", "minIncrement": 1,    "maxIncrement": null },
-          { "minStress": 0.8,  "label": "极限", "minIncrement": 2,    "maxIncrement": null }
+          {
+            "minStress": -1,
+            "label": "干净",
+            "minIncrement": null,
+            "maxIncrement": 0
+          },
+          {
+            "minStress": 0.35,
+            "label": "宽容",
+            "minIncrement": null,
+            "maxIncrement": 1
+          },
+          {
+            "minStress": 0.5,
+            "label": "渐紧",
+            "minIncrement": null,
+            "maxIncrement": 2
+          },
+          {
+            "minStress": 0.6,
+            "label": "紧张",
+            "minIncrement": 1,
+            "maxIncrement": null
+          },
+          {
+            "minStress": 0.8,
+            "label": "极限",
+            "minIncrement": 2,
+            "maxIncrement": null
+          }
         ]
       },
       "maxHoleIncrement": {
-        "comment": "v1.57.3 ① 与 web 同源——最差解新空洞数（'专注度税'上界）",
+        "comment": "v1.57.3 ① — 最差解新空洞数（'专注度税'上界）。DFS 叶子追踪每个解的 isolated-holes delta，accum.maxHoleIncrement = 所有解中最脏路径的新空洞数。stress 高时 min 约束（拒绝'放哪都干净'的轻松候选——玩家随便放也不脏 = 缺少专注训练）；与 holeIncrement 形成对偶——min 是'最佳情况脏度'、max 是'最差情况脏度'。max 单独高 = '只有专心放才干净'的有希望紧张感，是 PB 挑战段最想要的体感。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
-          { "minStress": 0.5,  "label": "渐紧", "min": null, "max": 4 },
-          { "minStress": 0.6,  "label": "陷阱", "min": 1,    "max": null },
-          { "minStress": 0.8,  "label": "高陷阱", "min": 2,  "max": null }
+          {
+            "minStress": -1,
+            "label": "宽松",
+            "min": null,
+            "max": null
+          },
+          {
+            "minStress": 0.5,
+            "label": "渐紧",
+            "min": null,
+            "max": 4
+          },
+          {
+            "minStress": 0.6,
+            "label": "陷阱",
+            "min": 1,
+            "max": null
+          },
+          {
+            "minStress": 0.8,
+            "label": "高陷阱",
+            "min": 2,
+            "max": null
+          }
         ]
       },
       "holeIncrementGap": {
-        "comment": "v1.57.3 ⑨ 与 web 同源——专注度税差距 max−min",
+        "comment": "v1.57.3 ⑨ — 专注度税差距 = maxHoleIncrement − minHoleIncrement。差距大 = '最优解干净但有陷阱'（专心放则过、走神则崩）；差距小 = 'min ≈ max'，候选要么都干净要么都脏，没有专注训练空间。高 stress 时 min 约束（强制差距大），让 D3/D4 段成为'专注度考验'。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
-          { "minStress": 0.6,  "label": "考验", "min": 2,    "max": null },
-          { "minStress": 0.8,  "label": "高考验", "min": 3,  "max": null }
+          {
+            "minStress": -1,
+            "label": "宽松",
+            "min": null,
+            "max": null
+          },
+          {
+            "minStress": 0.6,
+            "label": "考验",
+            "min": 2,
+            "max": null
+          },
+          {
+            "minStress": 0.8,
+            "label": "高考验",
+            "min": 3,
+            "max": null
+          }
         ]
       },
       "endFillRatio": {
-        "comment": "v1.57.3 ② 与 web 同源——终末填充率（空间窒息感）",
+        "comment": "v1.57.3 ② — 终末填充率（三块下完后盘面占用率均值，0~1）。stress 高时 min 强约束（偏好'放完后盘面更满'的候选，玩家感受到'剩余决策窗口正在收窄'的窒息感）；stress 低时 max 强约束（保证放完仍有空间，玩家感受'通透'）。与 solutionRange / holeIncrement 正交——fillRatio 是空间剩余，hole 是漏洞。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "通透", "min": null, "max": 0.45 },
-          { "minStress": 0.35, "label": "适中", "min": null, "max": 0.60 },
-          { "minStress": 0.6,  "label": "压迫", "min": 0.50, "max": null },
-          { "minStress": 0.85, "label": "窒息", "min": 0.65, "max": null }
+          {
+            "minStress": -1,
+            "label": "通透",
+            "min": null,
+            "max": 0.45
+          },
+          {
+            "minStress": 0.35,
+            "label": "适中",
+            "min": null,
+            "max": 0.6
+          },
+          {
+            "minStress": 0.6,
+            "label": "压迫",
+            "min": 0.5,
+            "max": null
+          },
+          {
+            "minStress": 0.85,
+            "label": "窒息",
+            "min": 0.65,
+            "max": null
+          }
         ]
       },
       "nearFullDelta": {
-        "comment": "v1.57.3 ③ 与 web 同源——近满 delta（消行节律）",
+        "comment": "v1.57.3 ③ — 近满行/列变化（放完后 nearFullLines 增量均值）。rhythm payoff 期 / 低 stress 偏好 min ≥ 1（'放完后多了一条快满'，玩家感受消行希望）；D4 高 stress 偏好 max ≤ 0（'放完后近满线变少'，消耗消行机会，防止 PB 通过近满膨胀）。这是把 rhythmPhase 节奏感**直接注入 spawn 算法**的关键钩子（旧版 rhythm 只影响 hints 权重）。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "送消", "min": 0.5, "max": null },
-          { "minStress": 0.35, "label": "中性", "min": null, "max": null },
-          { "minStress": 0.7,  "label": "保守", "min": null, "max": 0.5 },
-          { "minStress": 0.85, "label": "消耗", "min": null, "max": -0.5 }
+          {
+            "minStress": -1,
+            "label": "送消",
+            "min": 0.5,
+            "max": null
+          },
+          {
+            "minStress": 0.35,
+            "label": "中性",
+            "min": null,
+            "max": null
+          },
+          {
+            "minStress": 0.7,
+            "label": "保守",
+            "min": null,
+            "max": 0.5
+          },
+          {
+            "minStress": 0.85,
+            "label": "消耗",
+            "min": null,
+            "max": -0.5
+          }
         ]
       },
       "firstMoveSurvivor": {
-        "comment": "v1.57.3 ④ 与 web 同源——第一步存活率（试错代价）",
+        "comment": "v1.57.3 ④ — 第一步存活率（第 1 块所有合法位置中触达完整解的子树占比，0~1）。endless 类游戏的核心难度感——'第一手放错就全完'。stress 高时 max 强约束（survivor ≤ 0.6 → 玩家必须想清楚再放第一手）；stress 低时 min 强约束（survivor ≥ 0.5 → 大部分位置都安全，'放心试'）。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "宽容", "min": 0.6, "max": null },
-          { "minStress": 0.35, "label": "中性", "min": null, "max": null },
-          { "minStress": 0.7,  "label": "代价", "min": null, "max": 0.7 },
-          { "minStress": 0.85, "label": "高代价", "min": null, "max": 0.5 }
+          {
+            "minStress": -1,
+            "label": "宽容",
+            "min": 0.6,
+            "max": null
+          },
+          {
+            "minStress": 0.35,
+            "label": "中性",
+            "min": null,
+            "max": null
+          },
+          {
+            "minStress": 0.7,
+            "label": "代价",
+            "min": null,
+            "max": 0.7
+          },
+          {
+            "minStress": 0.85,
+            "label": "高代价",
+            "min": null,
+            "max": 0.5
+          }
         ]
       },
       "solutionDiversity": {
-        "comment": "v1.57.3 ⑤ 与 web 同源——解多样性 CV 系数",
+        "comment": "v1.57.3 ⑤ — 解的真正差异度（perPermCounts 的变异系数 CV = std/mean）。CV 高 = 不同顺序的解数差异大（'有些顺序顺、有些顺序卡'，玩家需找顺）；CV 低 = 各顺序均衡（'放哪种顺序都差不多'，看似宽松但解相似度高）。stress 高时 max 强约束（拒绝高 CV 的'看起来宽松但解都一样'陷阱）。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "宽松", "min": null, "max": null },
-          { "minStress": 0.6,  "label": "均衡", "min": null, "max": 1.2 }
+          {
+            "minStress": -1,
+            "label": "宽松",
+            "min": null,
+            "max": null
+          },
+          {
+            "minStress": 0.6,
+            "label": "均衡",
+            "min": null,
+            "max": 1.2
+          }
         ]
       },
       "endFlatness": {
-        "comment": "v1.57.3 ⑥ 与 web 同源——终末平整度（列高方差）",
+        "comment": "v1.57.3 ⑥ — 终末平整度（放完后列高方差均值）。OpenBlock 无重力但仍用列高方差代理'盘面凹凸度'。stress 高时 min 强约束（盘面更乱，审美焦虑）；stress 低时 max 强约束（保持齐整，玩家感受'秩序'）。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "整齐", "min": null, "max": 2.0 },
-          { "minStress": 0.5,  "label": "适中", "min": null, "max": 4.5 },
-          { "minStress": 0.8,  "label": "凌乱", "min": 3.0, "max": null }
+          {
+            "minStress": -1,
+            "label": "整齐",
+            "min": null,
+            "max": 2
+          },
+          {
+            "minStress": 0.5,
+            "label": "适中",
+            "min": null,
+            "max": 4.5
+          },
+          {
+            "minStress": 0.8,
+            "label": "凌乱",
+            "min": 3,
+            "max": null
+          }
         ]
       },
       "endDangerColumns": {
-        "comment": "v1.57.3 ⑦ 与 web 同源——危险列数（爆顶预警）",
+        "comment": "v1.57.3 ⑦ — 终末危险列数（放完后列高 ≥ dangerHeight=6 的列数均值，0~8）。爆顶预警维度——OpenBlock 接近 game over 的客观信号。stress 高时 min 强约束（让 D4 段持续面对'眼看就要顶死'的紧迫感）；stress 极低时 max 强约束（避免新手段落入危险列）。activationFill ≥ 0.45 才有意义。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "安全", "min": null, "max": 2 },
-          { "minStress": 0.5,  "label": "中性", "min": null, "max": null },
-          { "minStress": 0.8,  "label": "预警", "min": 1, "max": null },
-          { "minStress": 0.9,  "label": "临界", "min": 2, "max": null }
+          {
+            "minStress": -1,
+            "label": "安全",
+            "min": null,
+            "max": 2
+          },
+          {
+            "minStress": 0.5,
+            "label": "中性",
+            "min": null,
+            "max": null
+          },
+          {
+            "minStress": 0.8,
+            "label": "预警",
+            "min": 1,
+            "max": null
+          },
+          {
+            "minStress": 0.9,
+            "label": "临界",
+            "min": 2,
+            "max": null
+          }
         ]
       },
       "visualClutter": {
-        "comment": "v1.57.3 ⑧ 与 web 同源——视觉杂乱 delta（颜色边界）",
+        "comment": "v1.57.3 ⑧ — 视觉杂乱 delta（放完后相邻 cell 颜色不同的边数 - 开局基线）。审美焦虑维度——花花绿绿的盘面让玩家心理压力上升；整齐成片的颜色块给人'有序'安全感。stress 高时 min 强约束（鼓励高 clutter 的候选）；低 stress 时 max 强约束（偏好'颜色聚团'的候选，减少视觉负担）。",
         "enabled": true,
         "ranges": [
-          { "minStress": -1.0, "label": "聚团", "min": null, "max": 2 },
-          { "minStress": 0.5,  "label": "适中", "min": null, "max": null },
-          { "minStress": 0.8,  "label": "繁杂", "min": 2, "max": null }
+          {
+            "minStress": -1,
+            "label": "聚团",
+            "min": null,
+            "max": 2
+          },
+          {
+            "minStress": 0.5,
+            "label": "适中",
+            "min": null,
+            "max": null
+          },
+          {
+            "minStress": 0.8,
+            "label": "繁杂",
+            "min": 2,
+            "max": null
+          }
         ]
       }
     },
@@ -652,9 +899,9 @@ module.exports = {
     }
   },
   "playerAbilityModel": {
-    "comment": "AbilityVector 规则模型配置。v2：引入反应/多消/清屏/速度/锁死/新鲜度，并允许各指标使用独立时间窗口。",
+    "comment": "AbilityVector 规则模型配置。所有权重与阈值集中在此，避免 playerAbilityModel.js / adaptiveSpawn.js 直接写模型魔术数字；仅影响真人路径的能力展示、回放快照和自适应减压。v2 增量（2026-05）：引入反应/多消/清屏/速度/锁死/新鲜度，并允许各指标使用独立时间窗口。",
     "version": 2,
-    "calibrationNote": "所有 *_Max / *_Min 阈值当前是基于产品体感的初始猜测；建议运营离线跑 sql/move_sequences + live_sessions 求各信号的 P10/P50/P90，再回填这里。",
+    "calibrationNote": "所有 *_Max / *_Min 阈值当前是基于产品体感的初始猜测；建议运营离线跑 sql/move_sequences + live_sessions 求各信号的 P10/P50/P90，再回填这里使全玩家分布大致 N(0.5, 0.15)，避免 6 个 pill 同时压在 60-80 中段失去判别力。",
     "bands": {
       "riskHigh": 0.72,
       "riskMid": 0.42,
@@ -663,6 +910,7 @@ module.exports = {
       "skillDeveloping": 0.36
     },
     "windows": {
+      "comment": "v2：每个能力指标使用各自合适长度的滑动窗口（由 PlayerProfile.metricsForWindow 实现）。控制看短窗体现手感变化、消行看中窗等待机会积累、规划走瞬时；不同窗口避免单一 _window 同时迟钝又过敏。",
       "control": 8,
       "clearEfficiency": 16,
       "skillBlend": 12
@@ -767,6 +1015,38 @@ module.exports = {
   "rlTrainingStrategyId": "normal",
   "rlRewardShaping": {
     "comment": "v6 优化奖励：增大势函数系数与终局信号，降低 outcome 混合比例让 V 学会逐步评估。",
+    "smoothWinBonus": {
+      "comment": "v11.2 方案 B（opt-in，默认 off）：把 sparse winBonus 替换为 tanh((score - target)/span)·winBonus 平滑过渡，target 取近 N 局 score 中位数，span 取 IQR。解决 V 头在阈值附近难拟合（Lv 高位震荡）的问题。⚠️ 启用会改变奖励量级，建议从头训或长 warmup；与 quantile 课程正交可叠加。RL_SMOOTH_WIN_BONUS=1/0 可热切换。",
+      "enabled": false,
+      "windowEpisodes": 500,
+      "targetPercentile": 50,
+      "spanLowPercentile": 25,
+      "spanHighPercentile": 75,
+      "bootstrapEpisodes": 200,
+      "bootstrapTarget": 100,
+      "bootstrapSpan": 60,
+      "spanFloor": 5,
+      "saturationClip": 1.5
+    },
+    "rndCuriosity": {
+      "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
+      "enabled": false,
+      "stateDim": 181,
+      "hiddenDim": 64,
+      "outputDim": 32,
+      "beta": 0.1,
+      "learningRate": 0.0001,
+      "updateEverySteps": 1,
+      "normalizeIntrinsic": true,
+      "gradClip": 5,
+      "minEpisode": 50000,
+      "scoreSlopeWindow": 5000,
+      "scoreSlopeThreshold": 0.001,
+      "entropyCollapseThreshold": 0.2,
+      "expectedScoreAtCollapse": null,
+      "scoreCollapseRatio": 0.8,
+      "triggerCheckEvery": 2000
+    },
     "winBonus": 35,
     "stuckPenalty": -8,
     "holeAuxLossCoef": 0.12,
@@ -846,13 +1126,21 @@ module.exports = {
       "maxAbs": 16
     },
     "adaptiveCurriculum": {
-      "comment": "自适应课程（v8 新增）：根据滑动胜率动态调整课程推进速度。winRate>targetWinRate 时每局额外前进 stepUp 虚拟局；winRate<targetWinRate 时每局暂停推进（不倒退）。checkEvery 控制更新频率，window 为滑动窗口大小。enabled=false 使用原固定线性爬坡。默认开启：低胜率时减缓胜利门槛爬坡，利于弱策略先把均分拉起来。",
+      "comment": "自适应课程（v8 引入，v11 闭环化）：根据滑动胜率四档反应——wr ≥ target+accelBand 加速；wr ∈ [target-holdBand, target+accelBand) 正常；wr ∈ [target-lowWinRateBand, target-holdBand) 暂停；wr < target-lowWinRateBand 主动回退（虚拟局数 -stepDown × checkEvery）；wr < target-severeWinRateBand 触发 severe rollback（virtual_ep × severeRollbackFactor）。注意：v8 旧版只升不降，v11 起 stepDown 默认 1.0 实现真闭环。借鉴 search-contempt 论文 §4.2 (arXiv:2504.07757)。enabled=false 使用原固定线性爬坡，可被 RL_ADAPTIVE_CURRICULUM=0 强制关闭。",
       "enabled": true,
       "window": 200,
       "targetWinRate": 0.5,
       "stepUp": 2,
-      "stepDown": 0,
-      "checkEvery": 50
+      "stepDown": 1,
+      "checkEvery": 50,
+      "accelBand": 0.1,
+      "holdBand": 0.1,
+      "lowWinRateBand": 0.2,
+      "severeWinRateBand": 0.4,
+      "minVirtualEp": 0,
+      "rollbackOnSevereDrop": true,
+      "severeRollbackFactor": 0.5,
+      "minSamplesForAction": 10
     },
     "beam3ply": {
       "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 未放置块数≥3 时激活。v10 起支持 riskAdaptive：高填充、低 mobility、低 leaf count 时动态提高 topK/topK2/maxActions。",

@@ -259,7 +259,7 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 
 | 头 | 维度 | 作用 |
 |----|------|------|
-| `head_0/1/2` | 各 `NUM_SHAPES`（28） | 三槽形状分类 logits |
+| `head_0/1/2` | 各 `NUM_SHAPES`（**40**，v1.60.0：28→40，含 12 个 2-3 格新形状） | 三槽形状分类 logits |
 | `diversity_head` | `7 × 3` → reshape `(3, 7)` | 每槽品类 logits |
 | `difficulty_head` | `1` | 难度回归 |
 

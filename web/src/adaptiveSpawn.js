@@ -44,6 +44,7 @@ import {
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { analyzeBoardTopology } from './boardTopology.js';
 import { getAllShapes } from './shapes.js';
+import { analyzePerfectClearSetup } from './bot/blockSpawn.js';
 import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
 import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
 /* v1.48：winback 保护包接入；通过 lifecycleOrchestrator 包装层避免直接依赖
@@ -178,6 +179,9 @@ function _countMultiClearCandidatesFromShapePool(grid, shapePool) {
  * v1.25：spawn 决策前优先用“当前盘面”重算几何信号，减少 ctx 快照时序滞后。
  * - nearFullLines：来自 analyzeBoardTopology(grid)
  * - multiClearCandidates：优先按当前 dock 三块；dock 不可用时回退全形状库
+ * - pcSetup（v1.57.4 补漏）：来自 analyzePerfectClearSetup(grid)；旧实现只刷新 nfl/mcc
+ *   把 pcSetup 留在快照上，导致 17% 散布盘面玩家消行后 spawnIntent='harvest' 仍命中
+ *   `pcSetup ≥1 && fill ≥ 0.45` 分支（fill 也只有 mergeLiveGeometrySignals 没刷新）。
  *
  * @param {object} ctx
  * @returns {object}
@@ -200,7 +204,122 @@ function _mergeLiveGeometrySignals(ctx) {
     if (Number.isFinite(liveMcc)) {
         next = { ...next, multiClearCandidates: liveMcc };
     }
+    /* v1.57.4：pcSetup 也实时重算。它进入两个口径：
+     *   (a) deriveSpawnIntent 的 harvestable 判定（与 nfl 并列）
+     *   (b) deriveSpawnTargets 的 perfectClearOpportunity 加权
+     * 不重算会让"上次 spawn 时 pcSetup=1"的快照一直驻留，玩家消行后 fill < 0.45
+     * 仍可能误命中 harvest 分支（虽被 PC_SETUP_MIN_FILL 拦住一部分，但 fill 自身
+     * 是 _boardFill 入参的实时值，pcSetup 不重算就让两者口径不对齐）。 */
+    try {
+        const livePc = analyzePerfectClearSetup(grid);
+        if (Number.isFinite(livePc)) {
+            next = { ...next, pcSetup: livePc };
+        }
+    } catch {
+        // pcSetup 重算失败不影响主流程（旧 ctx.pcSetup 兜底）
+    }
     return next;
+}
+
+/**
+ * v1.57.4：spawnIntent 派生纯函数（从 resolveAdaptiveStrategy in-line 块抽出）。
+ *
+ * 抽出动机：让 game.js 能在【玩家每次放置后】用同一套逻辑增量重算 spawnIntent，
+ * 解决 DFV "盘面具备消行机会" / stressMeter "识别到密集消行机会" 与玩家实时
+ * 操作后盘面（已消行 / 已变化）严重错位的"快照滞后"问题。
+ *
+ * 优先级（自高到低）：
+ *   1. relief    — playerDistress<-0.10 ∨ delightMode='relief' ∨ forceReliefIntent
+ *   2. engage    — afkEngageActive（玩家停顿但状态尚可）
+ *   3. harvest   — geometry.nearFullLines≥2 ∨ (geometry.pcSetup≥1 ∧ boardFill≥pcSetupMinFill)
+ *   4. pressure  — challengeBoost>0 ∨ (delightMode='challenge_payoff' ∧ stress≥0.55)
+ *   5. sprint    — sprintCfg.enabled ∧ stress∈[sprintMin, sprintMax)
+ *   6. flow      — delightMode='flow_payoff' ∨ rhythmPhase='payoff'
+ *   7. maintain  — 默认中性
+ *
+ * 设计原则：
+ * - 纯函数（无副作用），所有依赖通过 inputs 传入。
+ * - 几何敏感字段（nearFullLines / pcSetup / boardFill）放在 inputs.geometry 子对象，
+ *   方便 game.js 增量刷新时只换 geometry 而保留决策侧不变量。
+ * - 决策侧不变量（playerDistress / forceReliefIntent / delightMode / stress / 等）
+ *   在 spawn 决策时一次计算、写入 _lastAdaptiveInsight._intentInputs；
+ *   _refreshIntentSnapshot 仅以实时 geometry 配合这些不变量重判 intent。
+ *
+ * @param {object} inputs
+ * @returns {'relief'|'engage'|'harvest'|'pressure'|'sprint'|'flow'|'maintain'}
+ */
+export function deriveSpawnIntent(inputs = {}) {
+    const {
+        playerDistress = 0,
+        forceReliefIntent = false,
+        afkEngageActive = false,
+        challengeBoost = 0,
+        delightMode = null,
+        rhythmPhase = 'neutral',
+        stress = 0,
+        sprintCfg = {},
+        geometry = {},
+        pcSetupMinFill = PC_SETUP_MIN_FILL,
+    } = inputs;
+
+    const nearFullForIntent = Number(geometry?.nearFullLines) || 0;
+    const pcSetupForIntent = Number(geometry?.pcSetup) || 0;
+    const boardFillForIntent = Number(geometry?.boardFill) || 0;
+    const harvestable = nearFullForIntent >= 2
+        || (pcSetupForIntent >= 1 && boardFillForIntent >= pcSetupMinFill);
+
+    const sprintEnabled = sprintCfg?.enabled !== false;
+    const sprintMin = Number.isFinite(sprintCfg?.minStress) ? sprintCfg.minStress : 0.45;
+    const sprintMax = Number.isFinite(sprintCfg?.maxStress) ? sprintCfg.maxStress : 0.55;
+
+    if (playerDistress < -0.10 || delightMode === 'relief' || forceReliefIntent) return 'relief';
+    if (afkEngageActive) return 'engage';
+    if (harvestable) return 'harvest';
+    if (challengeBoost > 0 || (delightMode === 'challenge_payoff' && stress >= 0.55)) return 'pressure';
+    if (sprintEnabled && stress >= sprintMin && stress < sprintMax) return 'sprint';
+    if (delightMode === 'flow_payoff' || rhythmPhase === 'payoff') return 'flow';
+    return 'maintain';
+}
+
+/**
+ * v1.57.4：实时盘面几何快照（供 game.js 在每次玩家放置后增量刷新 _lastAdaptiveInsight）。
+ *
+ * 返回字段与 _commitSpawn 写入 spawnDiagnostics.layer1 的 4 字段完全一致：
+ *   { fill, holes, nearFullLines, multiClearCandidates, pcSetup }
+ *
+ * 计算成本：
+ *   - fill / holes / nearFullLines：复用 analyzeBoardTopology(grid) 一次 O(n²)
+ *   - multiClearCandidates：dock 三块各跑 _bestMultiClearPotential O(n² · pool)
+ *   - pcSetup：analyzePerfectClearSetup 一次 O(n²)
+ * dock=3 时整体 ~3 倍 O(n²)，n=10 即 ~300 次 cell 扫描，远低于每帧渲染开销。
+ *
+ * 失败保护：grid 缺失或任一 helper 抛错时返回 null，调用方降级回上一次 spawn 时的快照。
+ *
+ * @param {import('./grid.js').Grid} grid
+ * @param {Array<{data:number[][]}>} [dockShapePool] 当前 dock 中未放置的形状池
+ * @returns {{fill:number, holes:number, nearFullLines:number, multiClearCandidates:number, pcSetup:number}|null}
+ */
+export function snapshotInsightGeometry(grid, dockShapePool) {
+    if (!grid?.cells?.length || !Number.isFinite(grid.size)) return null;
+    try {
+        const topo = analyzeBoardTopology(grid);
+        const dockPool = Array.isArray(dockShapePool)
+            ? dockShapePool.filter((s) => Array.isArray(s?.data)).map((s) => ({ data: s.data }))
+            : [];
+        const shapePool = dockPool.length > 0 ? dockPool : getAllShapes();
+        const liveMcc = _countMultiClearCandidatesFromShapePool(grid, shapePool);
+        const pcSetup = analyzePerfectClearSetup(grid);
+        const fill = typeof grid.getFillRatio === 'function' ? grid.getFillRatio() : NaN;
+        return {
+            fill: Number.isFinite(fill) ? fill : 0,
+            holes: Number.isFinite(topo?.holes) ? topo.holes : 0,
+            nearFullLines: Number.isFinite(topo?.nearFullLines) ? topo.nearFullLines : 0,
+            multiClearCandidates: Number.isFinite(liveMcc) ? liveMcc : 0,
+            pcSetup: Number.isFinite(pcSetup) ? pcSetup : 0,
+        };
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -2121,47 +2240,40 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
      */
     const nearFullForIntent = ctx.nearFullLines ?? 0;
     const pcSetupForIntent = ctx.pcSetup ?? 0;
-    const harvestable = nearFullForIntent >= 2
-        || (pcSetupForIntent >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL);
-    /* v1.57.1 P3：spawnIntent 'sprint' 中间档 ——
-     *
-     * 旧版 spawnIntent 在 stress=0.55 处一脚跨进 'pressure'（hints 套装翻盘），
-     * 玩家会有"突然变难"的台阶感。'sprint' 充当 maintain → pressure 的过渡带：
-     *   - stress ∈ [sprintMin, sprintMax)（默认 [0.45, 0.55]）
-     *   - hints 为"中等偏紧"：clearGuarantee 维持 1、sizePreference +0.10（略大块）、
-     *     multiClearBonus 中等（≥ 0.40）
-     *   - 优先级低于 relief / engage / harvest / pressure（这些主导意图照常触发）
-     *   - 优先级高于 flow / maintain（避免落入"看起来比较轻松"的误导叙事）
-     *
-     * 给 0.45~0.55 这段"渐紧但未到加压"的区间一个独立意图标签，让 stressMeter /
-     * insightPanel / DFV / 运营推送都能识别这个过渡态，与 P1 solutionDifficulty
-     * 的"渐紧"档形成统一的 stress=0.5 体感锚点。 */
+    /* v1.57.1 P3：spawnIntent 'sprint' 中间档（详见 deriveSpawnIntent JSDoc）。
+     * sprintCfg 不变量在此读取一次，供 deriveSpawnIntent 与下方 sprint hints 应用层共用。 */
     const _sprintCfg = cfg.sprintIntent ?? {};
-    const _sprintEnabled = _sprintCfg.enabled !== false;
-    const _sprintMin = Number.isFinite(_sprintCfg.minStress) ? _sprintCfg.minStress : 0.45;
-    const _sprintMax = Number.isFinite(_sprintCfg.maxStress) ? _sprintCfg.maxStress : 0.55;
-    let spawnIntent;
-    if (playerDistress < -0.10 || delight.mode === 'relief' || forceReliefIntent) {
-        spawnIntent = 'relief';
-    } else if (afkEngageActive) {
-        spawnIntent = 'engage';
-    } else if (harvestable) {
-        spawnIntent = 'harvest';
-    } else if (stressBreakdown.challengeBoost > 0
-        || (delight.mode === 'challenge_payoff' && stress >= 0.55)) {
-        spawnIntent = 'pressure';
-    } else if (_sprintEnabled && stress >= _sprintMin && stress < _sprintMax) {
-        spawnIntent = 'sprint';
-    } else if (delight.mode === 'flow_payoff' || rhythmPhase === 'payoff') {
-        spawnIntent = 'flow';
-    } else {
-        spawnIntent = 'maintain';
-    }
+    /* v1.57.4：spawnIntent 判定抽至 deriveSpawnIntent 纯函数；同样的入参在 game.js
+     * 的 _refreshIntentSnapshot 会被复用，确保玩家每次放置后重判 intent 与本处口径完全一致。
+     * 决策侧不变量（_intentInputs）通过 layered 返回值传给 _captureAdaptiveInsight 缓存。 */
+    const _intentInputs = {
+        playerDistress,
+        forceReliefIntent,
+        afkEngageActive,
+        challengeBoost: stressBreakdown.challengeBoost ?? 0,
+        delightMode: delight.mode,
+        rhythmPhase,
+        stress,
+        sprintCfg: _sprintCfg,
+        pcSetupMinFill: PC_SETUP_MIN_FILL,
+    };
+    const spawnIntent = deriveSpawnIntent({
+        ..._intentInputs,
+        geometry: {
+            nearFullLines: nearFullForIntent,
+            pcSetup: pcSetupForIntent,
+            boardFill: _boardFill ?? 0,
+        },
+    });
 
     /* v1.57.1 P3：sprint 意图的 hints 应用层 —— 只在判定为 sprint 时调整，
      * 不影响其他意图（relief/engage/harvest 等已被前置分支拦截）。
      * sizePreference 上移 +0.10（中等大块）、multiClearBonus 抬到 floor（默认 0.40），
-     * clearGuarantee 维持当前值（不像 pressure 那样削减）。 */
+     * clearGuarantee 维持当前值（不像 pressure 那样削减）。
+     *
+     * v1.57.4 说明：此处仍只在 spawn 决策时生效。_refreshIntentSnapshot 在玩家放置后
+     * 重判 intent，但不再覆盖 hints 套装——sprint→其他切换时 hints 仍是上次出块决策的
+     * 偏好，与"已经出在 dock 里的块"语义保持一致，不撒谎说"这批块是按新意图生成的"。 */
     if (spawnIntent === 'sprint') {
         const _sprintSizeShift = Number.isFinite(_sprintCfg.sizePreferenceShift)
             ? _sprintCfg.sizePreferenceShift : 0.10;
@@ -2289,6 +2401,10 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _stressBreakdown: stressBreakdown,
         _spawnTargets: spawnTargets,
         _spawnIntent: spawnIntent,
+        /* v1.57.4：决策侧不变量快照——供 game.js _refreshIntentSnapshot() 在玩家每次
+         * 放置后用同一套规则、配合实时几何（snapshotInsightGeometry）重判 spawnIntent。
+         * 不含 geometry，调用方需在重判时传入实时 geometry。 */
+        _intentInputs,
         _motivationIntent: motivationIntent,
         _behaviorSegment: behaviorSegment,
         _personalizationApplied: personalizationEnabled,

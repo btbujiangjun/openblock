@@ -572,7 +572,7 @@ Transformer Encoder：
 输出头（从 CLS token）：
   cls_out = norm(tokens_out[:, 0])                                        # [B, 128]
   
-  shape_logits_0 = head_0(cls_out)  # [B, NUM_SHAPES=28]
+  shape_logits_0 = head_0(cls_out)  # [B, NUM_SHAPES=40]  ← v1.60.0：28→40（含 12 个 2-3 格新形状，详见 ADAPTIVE_SPAWN §10.7）
   shape_logits_1 = head_1(cls_out)
   shape_logits_2 = head_2(cls_out)
   
@@ -929,7 +929,7 @@ $$
 | `DANGER_ZONE_FILL` | 0.68 |
 | `STRICT_DANGER_FILL` | 0.75 |
 | `EXTREME_DANGER_FILL` | 0.88 |
-| 形状池大小 | 28 |
+| 形状池大小 | **40**（v1.60.0：原 28 + 12 个 2-3 格新形状，详见 [ADAPTIVE_SPAWN §10.7](./ADAPTIVE_SPAWN.md#107-形状池扩展v1600)） |
 | dock 槽位 | 3 |
 
 ### 10.2 难度模式

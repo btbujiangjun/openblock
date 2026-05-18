@@ -10,7 +10,8 @@ import {
     evaluateTripletSolutions,
     generateDockShapes,
     getLastSpawnDiagnostics,
-    resetSpawnMemory
+    resetSpawnMemory,
+    _estimateTopDriver,
 } from '../web/src/bot/blockSpawn.js';
 import { getStrategy } from '../web/src/config.js';
 
@@ -46,6 +47,63 @@ describe('generateDockShapes', () => {
         const shapes = generateDockShapes(grid, config);
         for (const s of shapes) {
             expect(grid.canPlaceAnywhere(s.data)).toBe(true);
+        }
+    });
+
+    /**
+     * v1.59.19 回归锁：返回的 triplet 顺序 必须 与 diagnostics.chosen 一一对应。
+     *
+     * 历史 bug：blockSpawn 在通过校验后用 Fisher-Yates 打乱 triplet 顺序，但
+     * diagnostics.chosen 仍按 chosenMeta 原顺序写入；game.js _commitSpawn 把
+     * triplet[i] 放进 dockBlocks[i]，DFV 出块行却用 spawnDiagnostics.chosen[i]
+     * 渲染——同一 i 索引在 dock 与 DFV 上指向不同 shape（"顺序不一致"）。
+     *
+     * 修复后：chosenMeta 同步按相同 swap 序打乱，保证 chosen[i].id === triplet[i].id。
+     * 跑 30 次覆盖打乱随机性。
+     */
+    it('diagnostics.chosen 与返回的 triplet 顺序严格一一对应', () => {
+        for (let trial = 0; trial < 30; trial++) {
+            resetSpawnMemory();
+            const localGrid = new Grid(8);
+            const shapes = generateDockShapes(localGrid, config);
+            const diag = getLastSpawnDiagnostics();
+            expect(diag).toBeTruthy();
+            expect(Array.isArray(diag.chosen)).toBe(true);
+            expect(diag.chosen.length).toBe(shapes.length);
+            for (let i = 0; i < shapes.length; i++) {
+                expect(diag.chosen[i].id).toBe(shapes[i].id);
+            }
+        }
+    });
+
+    /**
+     * v1.59.20 回归锁（A+B 方案"主因解释"——A 部分）：
+     * 每个 chosen 必须携带非空 topDriver = { key:string, label:string }，
+     * 为 DFV chosen 节点"因·XXX"小字 + 顶部决策摘要叙事条提供数据源。
+     *
+     * 覆盖：空盘（→ 多为 weighted/balanced）、半填盘（→ 可能 clear/gapFills）、
+     *       高填盘（→ 极端时 fallback），跑 20 次确保 topDriver 永不缺失。
+     */
+    it('diagnostics.chosen[i].topDriver 必须非空（v1.59.20 A+B 解释链 invariant）', () => {
+        const fillScenarios = [0, 0.2, 0.4, 0.55];
+        for (const fillRate of fillScenarios) {
+            for (let trial = 0; trial < 5; trial++) {
+                resetSpawnMemory();
+                const localGrid = new Grid(8);
+                if (fillRate > 0) localGrid.initBoard(fillRate, config.shapeWeights || {});
+                const shapes = generateDockShapes(localGrid, config);
+                const diag = getLastSpawnDiagnostics();
+                expect(diag).toBeTruthy();
+                expect(diag.chosen.length).toBe(shapes.length);
+                for (let i = 0; i < diag.chosen.length; i++) {
+                    const td = diag.chosen[i].topDriver;
+                    expect(td, `chosen[${i}].topDriver 缺失 (fill=${fillRate})`).toBeTruthy();
+                    expect(typeof td.key).toBe('string');
+                    expect(td.key.length).toBeGreaterThan(0);
+                    expect(typeof td.label).toBe('string');
+                    expect(td.label.length).toBeGreaterThan(0);
+                }
+            }
         }
     });
 
@@ -130,6 +188,114 @@ describe('generateDockShapes', () => {
             ctx.totalRounds++;
         }
         expect(seenCategories.size).toBeGreaterThanOrEqual(2);
+    });
+
+    /* ===== v1.60.0 形状池扩展 invariant（12 新形状 + gate + 加权 + driver 语义） ===== */
+
+    /**
+     * 形状池扩展验证：getAllShapes() 应返回 40 个形状，且 12 个新 id 全部存在。
+     */
+    it('v1.60.0：形状池扩展到 40，含 12 个新增 id', () => {
+        const all = getAllShapes();
+        expect(all.length).toBe(40);
+        const ids = new Set(all.map((s) => s.id));
+        const newIds = [
+            '1x2', '2x1', '1x3', '3x1',
+            'diag-2a', 'diag-2b', 'diag-3a', 'diag-3b',
+            'l3-a', 'l3-b', 'l3-c', 'l3-d',
+        ];
+        for (const id of newIds) {
+            expect(ids.has(id), `新形状 ${id} 必须存在于 getAllShapes`).toBe(true);
+        }
+    });
+
+    /**
+     * Gate invariant：在"无 pressure/sprint intent"或"skillLevel < 0.5"场景下，
+     * diag-3a / diag-3b 必须被 gate 拦截，不应出现在任何 spawn 结果中。
+     * 跑 40 次覆盖随机性。
+     */
+    it('v1.60.0：diag-3 在新手场景被 gate 严格屏蔽', () => {
+        const cfgNewbie = {
+            ...config,
+            _skillLevel: 0.2,
+            spawnHints: { ...(config.spawnHints || {}), spawnIntent: 'maintain' },
+        };
+        for (let trial = 0; trial < 40; trial++) {
+            resetSpawnMemory();
+            const localGrid = new Grid(8);
+            const shapes = generateDockShapes(localGrid, cfgNewbie);
+            for (const s of shapes) {
+                expect(s.id === 'diag-3a' || s.id === 'diag-3b',
+                    `新手场景出现 diag-3 (${s.id})，gate 失效`).toBe(false);
+            }
+        }
+    });
+
+    /**
+     * Gate 放行 invariant：高 skill + pressure intent 时，diag-3 应能（按概率）出现。
+     * 跑 60 次累计采样，期待至少 1 次出现（极保守阈值，防御性测试）。
+     */
+    it('v1.60.0：diag-3 在 pressure + 高 skill 时能进入 spawn 候选', () => {
+        const cfgPressure = {
+            ...config,
+            _skillLevel: 0.85,
+            spawnHints: { ...(config.spawnHints || {}), spawnIntent: 'pressure' },
+        };
+        let diagSeen = 0;
+        for (let trial = 0; trial < 60; trial++) {
+            resetSpawnMemory();
+            const localGrid = new Grid(8);
+            const shapes = generateDockShapes(localGrid, cfgPressure);
+            for (const s of shapes) {
+                if (s.id === 'diag-3a' || s.id === 'diag-3b') diagSeen++;
+            }
+        }
+        /* 60 次 × 3 shape = 180 次抽样，diag-3 在 40 个 candidate 中只占 2 个，
+         * 即使不加权出现期望 ~9 次。阈值 ≥ 1 留足容差。 */
+        expect(diagSeen).toBeGreaterThanOrEqual(1);
+    });
+
+    /**
+     * 加权 invariant：sizePreference ≤ -0.3 时，超小直线（1x2/2x1/1x3/3x1）
+     * 在 60 次采样中应至少出现 5 次（不要求精确比例，仅证加权生效 / 不被沉默）。
+     */
+    it('v1.60.0：超小直线在 sizePreference≤-0.3 时显著出现', () => {
+        const cfgSmall = {
+            ...config,
+            spawnHints: { ...(config.spawnHints || {}), sizePreference: -0.6 },
+        };
+        const tinyIds = new Set(['1x2', '2x1', '1x3', '3x1']);
+        let tinySeen = 0;
+        for (let trial = 0; trial < 60; trial++) {
+            resetSpawnMemory();
+            const localGrid = new Grid(8);
+            const shapes = generateDockShapes(localGrid, cfgSmall);
+            for (const s of shapes) {
+                if (tinyIds.has(s.id)) tinySeen++;
+            }
+        }
+        expect(tinySeen).toBeGreaterThanOrEqual(5);
+    });
+
+    /**
+     * _estimateTopDriver 语义 invariant：人造 scored entry 模拟新形状，
+     * 期待返回各自的 driver.key（不被通用 driver 误吞）。
+     * 关键场景：所有通用 driver（pcPotential/multiClear/gapFills/holeReduce/mobility）
+     * 都返回 0，此时应回退到形态特异性 driver。
+     */
+    it('v1.60.0：_estimateTopDriver 对新形状返回形态特异性 driver', () => {
+        const mkEntry = (id, category) => ({
+            shape: { id, data: [[1]] },
+            gapFills: 0, multiClear: 0, pcPotential: 0, holeReduce: 0,
+            placements: 10, category,
+        });
+        const weights = { lines: 1, zshapes: 1, lshapes: 1 };
+
+        expect(_estimateTopDriver(mkEntry('1x2', 'lines'), weights).key).toBe('tinyLine');
+        expect(_estimateTopDriver(mkEntry('3x1', 'lines'), weights).key).toBe('tinyLine');
+        expect(_estimateTopDriver(mkEntry('diag-2a', 'zshapes'), weights).key).toBe('diagonalPair');
+        expect(_estimateTopDriver(mkEntry('diag-3b', 'zshapes'), weights).key).toBe('diagonalSparse');
+        expect(_estimateTopDriver(mkEntry('l3-c', 'lshapes'), weights).key).toBe('cornerFit');
     });
 });
 

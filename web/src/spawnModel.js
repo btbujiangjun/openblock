@@ -23,6 +23,16 @@ export const SPAWN_MODEL_V3_VERSION = 'v3.1-behavior';
 export const SPAWN_MODEL_CONTEXT_DIM = 24;
 export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 56;
 
+/* v1.60.0 形状池扩展（28 → 40）：
+ *   - lines +4：超小直线（1x2/2x1/1x3/3x1）—— 前期减压
+ *   - zshapes +4：斜线（diag-2a/b / diag-3a/b）—— diag-2 中性、diag-3 加压（散点造孤岛）
+ *   - lshapes +4：3 格 L 形（l3-a/b/c/d）—— 中性·角落补缝
+ * 顺序约定（**必须**与 rl_pytorch/spawn_model/dataset.py 的 SHAPE_VOCAB 严格一致）：
+ *   先追加在各 category 末尾（保持原 28 个 idx 不变 → 旧推理路径仍兼容），新 12 个紧随其 category。
+ *
+ * ⚠ 重要：SpawnTransformer / model-v3 checkpoint 的输出维 NUM_SHAPES = 28 → 40 后失效，
+ * 必须重训后才能在 SPAWN_MODE_MODEL_V3 下生效；rule 模式（默认）不受影响。
+ */
 export const SHAPE_VOCAB = [
     '1x4', '4x1', '1x5', '5x1',
     '2x3', '3x2', '2x2', '3x3',
@@ -30,7 +40,11 @@ export const SHAPE_VOCAB = [
     'z-h', 'z-h2', 'z-v', 'z-v2',
     'l-1', 'l-2', 'l-3', 'l-4',
     'l5-a', 'l5-b', 'l5-c', 'l5-d',
-    'j-1', 'j-2', 'j-3', 'j-4'
+    'j-1', 'j-2', 'j-3', 'j-4',
+    /* v1.60.0 新增 12（按 category 顺序追加，保持原 0-27 idx 兼容） */
+    '1x2', '2x1', '1x3', '3x1',
+    'diag-2a', 'diag-2b', 'diag-3a', 'diag-3b',
+    'l3-a', 'l3-b', 'l3-c', 'l3-d',
 ];
 
 function _clamp01(v) {

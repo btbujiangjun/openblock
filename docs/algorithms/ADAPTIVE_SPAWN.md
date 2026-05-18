@@ -503,6 +503,159 @@ v1.57.3 之后 stress → 4 个独立可感维度：
 
 契约测试：`tests/spawnDimensionalStress.test.js`（18 用例）。
 
+#### v1.57.4 决策快照增量刷新：消除 DFV / stressMeter 文案与盘面的"快照滞后"
+
+> 用户反馈：DFV 显示"盘面具备消行机会"、stressMeter 显示"识别到密集消行机会"，但截图盘面占用 25%、近满数为 0——明显与盘面不符。
+>
+> 根因：`_lastAdaptiveInsight.spawnIntent` 与 `_lastAdaptiveInsight.spawnDiagnostics.layer1` 是 `spawnBlocks()` 调用时的"决策快照"，而 `spawnBlocks` 只在 dock 三块全部消化后触发。玩家在 dock 周期内的放置 / 消行不会刷新这两个字段，所有基于 insight 的展示文案（DFV reason / stressMeter buildStoryLine / HARVEST_NARRATIVE_BY_DENSITY）都会读到过期的几何信号。
+
+##### 修复架构
+
+| 层 | 改动 | 文件 |
+|---|---|---|
+| **逻辑抽取** | `deriveSpawnIntent({ playerDistress, forceReliefIntent, afkEngageActive, challengeBoost, delightMode, rhythmPhase, stress, sprintCfg, geometry, pcSetupMinFill })` 纯函数 —— 让 `resolveAdaptiveStrategy` 与 game 层 `_refreshIntentSnapshot` 共用同一套优先级（relief→engage→harvest→pressure→sprint→flow→maintain）| `web/src/adaptiveSpawn.js` |
+| **几何快照** | `snapshotInsightGeometry(grid, dockShapePool)` 函数 —— 返回 `{ fill, holes, nearFullLines, multiClearCandidates, pcSetup }`，复用 `analyzeBoardTopology` + `_countMultiClearCandidatesFromShapePool` + `analyzePerfectClearSetup`；总成本 ~3 倍 O(n²)，远低于每帧渲染开销 | `web/src/adaptiveSpawn.js` |
+| **次发缺陷修复** | `_mergeLiveGeometrySignals` 补 `pcSetup` 实时重算 —— 旧实现只刷新 `nearFullLines` / `multiClearCandidates`，pcSetup 残留快照会让 17% 散布盘面消行后仍命中 `pcSetup ≥ 1 && fill ≥ 0.45` 分支 | `web/src/adaptiveSpawn.js` |
+| **决策侧缓存** | `resolveAdaptiveStrategy` 返回值新增 `_intentInputs`（含 9 个决策侧不变量），`_captureAdaptiveInsight` 落到 `_lastAdaptiveInsight._intentInputs` 供 game 层增量重判时复用 | `web/src/adaptiveSpawn.js` + `web/src/game.js` |
+| **增量刷新入口** | game.js 新增 `_refreshIntentSnapshot()`，在两处调用：(1) `_handlePlace` 内 `grid.place` 之后；(2) `playClearEffect.animate` 末尾、`spawnBlocks` 之前 | `web/src/game.js` |
+
+##### 刷新字段边界（重要约束）
+
+| 字段 | 是否刷新 | 原因 |
+|---|---|---|
+| `spawnIntent` / `spawnHints.spawnIntent` | ✅ 增量重判 | 是 DFV / stressMeter 直接读的"对外口径"，必须与玩家盘面同步 |
+| `spawnDiagnostics.layer1.{fill, holes, nearFullLines, multiClearCandidates, pcSetup}` | ✅ 实时快照 | stressMeter `buildStoryLine` 的 geometry 入参 + DFV 几何 chip 读取源 |
+| `spawnHints.{sizePreference, clearGuarantee, targetSolutionRange, targetHoleIncrement, target*9 维}` | ❌ 不刷新 | 描述【已经出在 dock 里的三块】是按什么策略生成的，玩家放置不改变它——刷新等于撒谎"这批块是按新意图生成的" |
+| `stress` / `stressBreakdown` / `pacingPhase` / `delightMode` / `sessionArc` | ❌ 不刷新 | 这些是 spawn 决策时刻的"心情"快照，需要在下一次 `spawnBlocks()` 时整体重算（避免心情维度的回灌 noise）|
+
+##### 决策侧不变量与几何敏感量分离
+
+`deriveSpawnIntent` 的入参分为两类：
+
+- **决策侧不变量（来自 `_intentInputs`）**：`playerDistress / forceReliefIntent / afkEngageActive / challengeBoost / delightMode / rhythmPhase / stress / sprintCfg / pcSetupMinFill` —— 在 dock 周期内不变，由 spawn 时计算一次并缓存
+- **几何敏感量（来自 `snapshotInsightGeometry`）**：`geometry.{nearFullLines, pcSetup, boardFill}` —— 玩家每次放置后实时刷新
+
+这套分离让"决策意图"与"几何反映"解耦，增量重判只重算 harvestable 子条件，性能开销 ~5 µs/次。
+
+##### 契约测试
+
+`tests/spawnIntentSnapshot.test.js`（28 用例）：
+
+- **A. deriveSpawnIntent 7 分支优先级**：覆盖完整优先级链与边界（sprint 区间端点）
+- **B. snapshotInsightGeometry 几何正确性**：空盘 / 单近满 / 双近满 / null 保护 / 与 `analyzePerfectClearSetup` 口径一致
+- **C. `_mergeLiveGeometrySignals` pcSetup 补漏**：spawn 时 ctx.pcSetup 必须来自实时 grid 重算
+- **D. 集成回归**：harvest 快照 + 玩家消行 → 重判应切换；maintain 快照 + 玩家堆出近满 → 重判应升级 harvest
+- **E. `_intentInputs` 契约**：`resolveAdaptiveStrategy` 返回 `_intentInputs` 含 deriveSpawnIntent 全部决策侧字段；用相同 geometry 重判结果与 `layered._spawnIntent` 一致
+
+##### 多端同步
+
+| 端 | deriveSpawnIntent | snapshotInsightGeometry | _mergeLiveGeometrySignals.pcSetup | _refreshIntentSnapshot |
+|---|---|---|---|---|
+| Web | ✅ | ✅ | ✅ | ✅（`web/src/game.js`）|
+| 微信小程序 | ✅（mp 无 forceReliefIntent，与改前同行为）| ✅ | ✅ | N/A（mp 当前无 DFV / stressMeter 展示层订阅 insight）|
+| Capacitor 移动端 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 |
+| RL PyTorch | 仅消费 `spawnIntent` 作为 one-hot 训练特征，不重新派生（无需同步）|
+
+#### v1.57.5 决策快照展示层一致性治理：6 项 UI 同源 bug 修复
+
+> v1.57.4 已经把决策层（`spawnIntent` / `spawnDiagnostics.layer1`）做到玩家每次放置后增量刷新，但截图复盘发现 UI 展示侧还有 6 项一致性缺陷分布在 DFV / stressMeter / chip 三处。本节是 v1.57.4 的**展示层补完**，从渲染管线、文案分级、视觉降级三个维度收口。
+
+##### 6 项 bug 与修复对应表
+
+| # | 严重度 | 现象 | 根因 | 修复 |
+|---|--------|------|------|------|
+| A | P0 | DFV 左侧"占盘 0.40" vs 底部 sparkline"占盘 0.69" 同帧两值 | `_dfvFingerprint` 只看 insight + profile 决策侧字段，漏算 `liveBoardFill`/`liveClearRate`；指纹不变 → 左侧节点被去抖跳过重渲染 | `_dfvFingerprint(insight, profile, { boardFill, clearRate })` 把实时几何按 0.01 量化纳入指纹；同时让 `_refreshIntentSnapshot` 同步刷新 `insight.boardFill` 顶层字段 |
+| B | P0 | spawnIntent=relief 时叙事一律"盘面通透又是兑现窗口..."，但盘面实际 fill=0.69 不通透 | relief 是 6 项 `playerDistress` 信号累加触发，文案却暗示了 friendlyBoardRelief（不在 distress 内）的几何 | `RELIEF_NARRATIVE_BY_REASON` + `classifyReliefReason(breakdown, fill)` 按 endgame / friendly / hole / boardRisk / bottleneck / frustration / default 七档分级；**friendly 档加 fill < 0.5 守卫**避免"通透"在密集盘面撒谎；`SPAWN_INTENT_NARRATIVE.relief` 默认文案收窄为中性减压语义 |
+| F | P0 | DFV 左侧"消行率 —" vs 底部"消行率 0.31" 同帧两值 | 同 A 同根 —— `liveClearRate` 也漏算 | A 修复一并解决 |
+| D | P1 | spawnIntent=relief 时"AFK 介入" chip 仍高亮，但 AFK 已被 relief 优先级覆盖 | DFV decision flags 只看信号本身，不看是否被当前 intent 覆盖 | chip 计算 `overriddenAfkEngage = (intent === 'relief') && afkEngage`，标记 `.dfv-flag--overridden`：CSS 半透明 + 删除线 + title 提示"信号已激活，但本帧被更高优先级意图（relief）覆盖" |
+| E | P1 | DFV 调香提示同时高亮"策展紧 / 兑现 / 心流·兑现"等 6+ 项 chip 无层级 | hints 是多维独立投射，玩家会把它误解为"7 个独立决定"互相打架 | 在 hints 列表顶部插入"主导意图锚"高亮行，颜色随 intent 变化（与 SPAWN_INTENT_COLOR 同源），title 写明"下方各 chip 是当前主导意图下的多维状态描述" |
+| G | P2 | stress=0.15 (😊 笑脸) + boardFill=0.69 (密集盘面)，视觉与情绪信号反差 | `getStressDisplay` 只看 stress，不看盘面实际占用 | 新增 crowded 变体：`stress < 0.333 (calm/easy)` + `boardFill ≥ 0.65` → 切到 😅 + "（盘面吃紧）" + "盘面较密..." vibe；优先级：挣扎中 > crowded > 救济中 |
+
+##### 关键设计原则
+
+1. **同源治理**（A/F 合并修复）：DFV 节点 / sparkline / playerInsightPanel 三处展示同一指标必须从同一个 `liveBoardFill` 源头出发，去抖指纹也要把"实时几何"维度纳入
+2. **文案与几何对齐**（B）：任何含"盘面 X"几何描述的叙事都必须有 fill 守卫，避免数学正确但情绪信号撒谎
+3. **视觉降级 vs 物理隐藏**（D）：被覆盖的 chip 不应直接隐藏（玩家会丢失"系统检测到了什么信号"的诊断信息），应当半透明 + 删除线表达"激活但未生效"
+4. **锚点 vs 平铺**（E）：多维度 chip 列表必须有主导维度锚，避免玩家把投射当成并列决定
+5. **情绪反馈反差守卫**（G）：低 stress + 高 fill 是"系统在减压但盘面其实紧"的真实矛盾，emoji 必须承认这个反差而不是单纯按 stress 笑脸
+
+##### 契约测试
+
+`tests/insightConsistency_v1575.test.js`（32 用例）：
+- **§A/F**：DFV 指纹对 `liveBoardFill` / `liveClearRate` 敏感，0.01 级抖动量化稳定
+- **§B**：`classifyReliefReason` 七档分类全覆盖，含 friendly 守卫 fill≥0.5 降级、endSessionDistress 优先级、空 breakdown 兜底；`buildStoryLine` 在 intent=relief 路径走分级文案
+- **§G**：`getStressDisplay` 紧盘面 crowded 变体；优先级（挣扎中 > crowded > 救济中）
+- **§D**：AFK chip overridden 判定纯逻辑契约
+
+`tests/stressMeter.test.js` 两条 v1.23/v1.24 旧测试被更新到 v1.57.5 reason 分级新行为（不再期望返回旧"盘面通透"硬编码文案）。
+
+##### 多端同步
+
+| 端 | DFV 指纹 / chip 渲染 | RELIEF 分级文案 | 紧盘面 emoji 守卫 |
+|---|---|---|---|
+| Web | ✅ | ✅ | ✅ |
+| 微信小程序 | N/A（无 DFV）| N/A（无 stressMeter）| N/A（无 stressMeter）|
+| Capacitor 移动端 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 |
+| RL PyTorch | N/A（仅消费 `spawnIntent`）| N/A | N/A |
+
+---
+
+### 3.6 决策派生层（v1.58） — UI 消费算法状态的唯一通道
+
+**v1.58 治理目标**：把 v1.57.5 之前散布在 UI 层的"算法 → 显示"转换逻辑统一收口到新的派生层 `web/src/derivation/`，让 UI 永远只读一个 PresentationModel，杜绝 v1.57.5 §A/B/D/F/G 类"同一指标多 cache 不同步"的根因。
+
+**架构分层**：
+
+```
+算法层（adaptiveSpawn.js）  →  derivation/  →  UI 层（DFV / stressMeter / playerInsightPanel）
+                                  ↑                ↑
+                                SSOT + Trace        只读 PresentationModel
+                                + Contract DSL
+                                + Reducer
+```
+
+**4 个派生层子模块**：
+
+| 文件                                       | 职责                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| `derivation/selectors.js`                | SSOT。所有"实时几何 / insight 字段 / playerProfile 读取"必须走 selector 函数（如 `selectLiveBoardFill(game)`） |
+| `derivation/intentResolver.js`           | 表驱动 `INTENT_RULES` 优先级矩阵；返回 `{intent, trace, overrides}` 三元组                       |
+| `derivation/displayContracts.js`         | 文案 / emoji / chip 契约 DSL；运行时谓词校验 + 自动降级链                                            |
+| `derivation/presentationReducer.js`      | 把上面三层组合成 UI 唯一消费的 PresentationModel（含 chips + intent + narrative + emoji + trace）   |
+
+**算法侧契约**：
+
+- `adaptiveSpawn.deriveSpawnIntent` 仍是算法层入口（决策侧 / 旧测试 / miniprogram 镜像）
+- `derivation/intentResolver.resolveIntent` 是 UI 侧入口（承载 trace + overrides）
+- **行为完全等价**——由 `tests/derivationContracts.test.js §2` 9 条样例 + `tests/properties/derivationInvariants.test.js I1` 1500 次随机扫描强制锁定
+- 未来 v1.58.4 计划让 `deriveSpawnIntent` 内部委托 `resolveIntent` 实现单源化
+
+**spawnDiagnostics.layer1 与派生层的衔接**：
+
+- v1.57.4 已让算法层在每次玩家放置后通过 `_refreshIntentSnapshot()` 增量刷新 `spawnDiagnostics.layer1.{fill, holes, nearFullLines, multiClearCandidates, pcSetup}`
+- v1.58 派生层 `selectLiveGeometry(game)` **优先**读 `layer1`（已是实时值），缺失时降级到 `grid.getFillRatio()`
+- `selectInsightWithLiveGeometry(game)` 把实时几何**注入 insight 顶层 boardFill + layer1**，UI 拿到的 insight 永远是最新的（即便 `_refreshIntentSnapshot` 已经隔了若干帧未再触发）
+
+**详见**：[docs/algorithms/DECISION_DERIVATION_ARCHITECTURE.md](./DECISION_DERIVATION_ARCHITECTURE.md)。
+
+**v1.58.1 增量**：派生层 `selectors.js` 在 `selectReducerInputs(game)` 返回的 `geometry` 上**派生新字段 `harvestReady = (nearFullLines>=1) || (multiClearCandidates>=1) || (pcSetup>=1)`**，作为"节奏类文案承诺（享受多消 / 收获期）"的几何兑现守卫。displayContracts 拆 `flow.payoff` 为 `flow.payoff.ready`（守 harvestReady=true）+ `flow.payoff.waiting`（节奏锁定但无兑现路径时诚实降级），同时 `relief.friendly` 也补加 harvestReady 守卫。性质测试 I11/I12/I12b 跨 contract 锁定"任何含'享受多消/收获期'字样的文案命中时几何必兑现"。
+
+**v1.58.2 增量**：算法层 `forceReliefIntent = endSessionDistressActive || frustrationCritical`（adaptiveSpawn.js:2235）触发后，UI 层 emoji/narrative 也要看 **盘面几何是否确证压力**。`displayContracts` 中 `struggling.lateCollapse` / `struggling.frustCritical` / `relief.endgame` 三档统一加 `boardFill>=0.45` 守卫，盘面通透时分别 fall through 到 `concerned.softRescue.{late,frust}`（emoji 😟 "稍专注（系统已减压）"）/ `relief.endgame.soft`（"临近收尾，盘面仍从容"）——既承认算法在减压，又不撒谎"挣扎"或"接近收尾"。性质 I7（升级）/ I13 / I13b / I14 锁定。
+
+**v1.58.3 增量**：DFV chip 表与算法层完成同源锁定。CHIP_DEFS 中 `lateCollapse` chip 的 on 函数修正为与 stressMeter / adaptiveSpawn 严格同源（`sessionPhase=late && momentum<=-0.30`，之前用 `endSessionDistress<-0.05` 近似），并加 4 个**信号诊断 chip**（`endSessionStress` / `lifecycleLateAccel` / `playerDistressFloor` / `delightModeRelief`）把其它压力链路独立信号也暴露到 DFV。每个 chip 加 `reason(ctx)` 函数，高亮时 title 自动写"触发源：<具体数值>"。同时 `presentationReducer` 派生 `conflicts` 数组（`flowVsIntent` / `pressureVsForce`）显式承认跨维度信号冲突——playerProfile.flowState（中长期）与 adaptiveSpawn.spawnIntent（即时）本就独立可对掐，UI 显式可视化比假装一致更可信。性质 I15 反向锁定"chip 表 vs 算法层 forceReliefIntent 触发条件"同源。
+
+**v1.58.4 增量**：全系统自查 6 处残留修补——`relief.hole` 加 `holes>=1` 守卫、`relief.boardRisk` 加 `boardFill>=0.45` 守卫、`harvest.default` 兜底文案改写（去掉"密集/已识别"虚假承诺）、`flow.intense` + `flow.tense` 加几何守卫（新增 `.soft` 软降级文案）、`reducer._deriveConflicts` 加 `stressVsBoardFill` 跨维度冲突（stress 高但 boardFill 低时显式承认"算法压力来自非几何源"）。性质 I18/I19/I20/I21 锁定。
+
+**新增算法字段时的责任清单**（v1.58 起）：
+
+1. 在算法层（adaptiveSpawn / stress 链）正常加字段
+2. 若新字段需被 UI 显示：
+   - 在 `selectors.js` 加对应 `selectXxx(game)` 函数
+   - 若涉及优先级（新 intent / 新 signal）：在 `intentResolver.INTENT_RULES` 加表项 + 测 `I1` 等价性
+   - 若涉及文案 / emoji 守卫：在 `displayContracts.NARRATIVE_CONTRACTS` / `EMOJI_CONTRACTS` 加 contract（声明 `requires` + `fallback`）
+   - 若涉及 chip：在 `presentationReducer.CHIP_DEFS` 加定义；若是覆盖类信号在 `intentResolver.SIGNAL_TO_INTENT` 加映射
+3. 在 `tests/derivationContracts.test.js` 加单测、在 `tests/properties/derivationInvariants.test.js` 加性质（如果有新的一致性约束）
+
 ---
 
 ## 4. 策略候选库（10 档 Profiles）
@@ -1248,7 +1401,7 @@ saveSession()        → profile.save()               // 持久化到 localStora
 | 候选块数 `h` | `h ∈ {1, 2, 3}`，经典 `h=3` | 固定 `dock=3` |
 | 块旋转 | 不允许 | 不允许（设计契约） |
 | 预览候选 `p` | `p ∈ {0…4}`，经典 `p=0` | 无 preview 机制（`p=0`） |
-| 形状库 | 标准 tetromino（+ 可选 U/V/X/T-pentomino） | 标准 tetromino + 内部变体，**无 pentomino** |
+| 形状库 | 标准 tetromino（+ 可选 U/V/X/T-pentomino） | **40 个变体**（v1.60.0 起，详见 §10.7）：超小直线 + 标准 tetromino + 内部变体 + 斜线散点 + 3 格 L 角；**无 pentomino**（5 格只保留 1x5/5x1/l5-*） |
 | 计分 | 完整线 +1 分 | 等价 + multi-clear 加成 |
 
 **结论**：OpenBlock 默认配置 = 论文 **classic `h=3, p=0`** baseline。论文实证该 baseline 下 SGAZ 收敛仅需 **61 iter**、训练奖励 **6544（≈ 上限 6750 的 97%）**——表明在"标准 tetromino + dock=3 + 无预览 + 8×8"这个组合下，强 AI 接近通关，**所有 OpenBlock 的难度调控空间都在这个"已被强 AI 摸顶"的规则边界之内**。
@@ -1258,7 +1411,7 @@ saveSession()        → profile.save()               // 持久化到 localStora
 | 规则杠杆 | 论文实证强度 | 关键数据 | OpenBlock 现状 |
 |---|---|---|---|
 | **候选块数 `h`** | **★★★ 最强** | `h=3 → h=2`：奖励从 6544 掉到 4126（−37%），收敛从 61 → 160 iter（+162%）；`h=1` 几乎不可玩（奖励 39，未收敛） | ✗ 固定 `dock=3`，从未浮动 |
-| **形状库扩充** | **★★ 强** | 加任意一个 pentomino 即可让奖励显著下行；加两个 pentomino 在 `h=2, p=0` 下直接训练不收敛；**T-pentomino 单独造成最大减速** | ✗ 仅在固定形状池里调 `shapeWeights` profile |
+| **形状库扩充** | **★★ 强** | 加任意一个 pentomino 即可让奖励显著下行；加两个 pentomino 在 `h=2, p=0` 下直接训练不收敛；**T-pentomino 单独造成最大减速** | ✓ v1.60.0：28 → 40 形状（+ 极小直线 / 斜线散点 / 3 格 L 角），并按"加减压策略"做 gate + 加权（详见 §10.7） |
 | **预览数 `p`** | ★ 弱 | 增加 `p` 仅小幅降低难度；`h=1, p=4` 仍只能收敛到 ~5000 奖励，远不及 `h=3, p=0` 的 6544 | ✗ 无 preview 机制 |
 | `shapeWeights` profile 插值 | 论文未直接测；OpenBlock 现行主要手段 | — | ✓ 10 档 profile + 17 stress 分量 |
 
@@ -1660,6 +1813,77 @@ if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
 → D4 段与 D2 段 finalStress **落差从 ~0.10 提升到 ~0.45**，玩家可清晰感知"超 PB 后越来越紧"。
 
 详见 [BEST_SCORE_CHASE_STRATEGY §5.α.9](../player/BEST_SCORE_CHASE_STRATEGY.md#5α9-d4-段加压链路-4-处冲突完整修复v1566)。
+
+---
+
+### 10.7 形状池扩展（v1.60.0：28 → 40，按"加减压策略"做 gate + 加权）
+
+#### 设计目标
+
+§10.6 论文实证「**形状库扩充**是 ★★ 强级杠杆」——OpenBlock 在 v1.60.0 之前从未动用，仅靠 `shapeWeights` profile 插值（★ 中级杠杆）。**v1.60.0** 首次以"形状库扩充"作为减压/加压双向手段：
+
+- **前期减压**：补充更小、更易消行的形状（占地 2-3 格），让初学者/恢复期的玩家在低 `sizePreference` 区间能稳定拿到"易消行小块"，**降低"无可用形状"挫败感**
+- **后期加压**：补充极稀疏散点形状（斜线 3 格），让高手在高 `stress` + `pressure intent` 区间面对"占地少但极难消行"的新挑战类型，**提升 stress 顶部的"形态难度"维度**
+
+#### 新增 12 形状清单（全部 ≤ 3 格，归入既有类目，**不新增 category**）
+
+| ID | 形状 | category | 占格 | 角色 | gate / 加权策略 |
+|---|---|---|---|---|---|
+| `1x2` `2x1` | 1×2 直线 | `lines` | 2 | **减压·极小补缝** | 默认入池；`sizePreference ≤ -0.3` 时 ×1.6 |
+| `1x3` `3x1` | 1×3 直线 | `lines` | 3 | **减压·小补缝** | 默认入池；`sizePreference ≤ -0.3` 时 ×1.6 |
+| `diag-2a` `diag-2b` | 2 格对角 ↗/↘ | `zshapes` | 2 | **中性·对角补缝** | 默认入池；无 bonus |
+| `diag-3a` `diag-3b` | 3 格对角 ↗/↘ | `zshapes` | 3 | **加压·稀疏挑战** | **gate**：仅 `spawnIntent ∈ {pressure, sprint}` **且** `profile.skillLevel ≥ 0.5` 时入池；否则 reject |
+| `l3-a` `l3-b` `l3-c` `l3-d` | 3 格 L 角 ↘/↙/↗/↖ | `lshapes` | 3 | **中性·角落补缝** | 默认入池；`gapFills > 0` 时 ×1.3 |
+
+#### Gate 与加权代码锚点
+
+| 函数 | 文件路径 | 说明 |
+|---|---|---|
+| `_passesShapeGate(shape, hints, profile, ctx, fill)` | `web/src/bot/blockSpawn.js` | 在 `scored.map` 内"可放置过滤"之后执行；diag-3 严格 gate；其他 10 个新形状默认通过 |
+| `_applyShapeBonusWeight(baseWeight, shapeId, hints, gapFills)` | `web/src/bot/blockSpawn.js` | 在 `weight = weights[category]` 之后做乘法 nudge；超小直线在 `sizePreference ≤ -0.3` 时 ×1.6；3 格 L 角在 `gapFills > 0` 时 ×1.3 |
+| `_estimateTopDriver(s, shapeWeights)` | `web/src/bot/blockSpawn.js` | 新增 4 个形态特异性 driver：`tinyLine`（极小补缝）、`diagonalPair`（对角补缝）、`diagonalSparse`（稀疏挑战）、`cornerFit`（角落补缝），供 DFV 顶部摘要展示 |
+
+#### 三路词表对齐
+
+形状池扩展涉及 **3 个独立 SHAPE_VOCAB**，**顺序必须严格一致**（新 12 个紧追末尾 idx 28-39，保持原 0-27 兼容）：
+
+| 词表位置 | 文件 | 用途 |
+|---|---|---|
+| 几何真源 | `shared/shapes.json` | 所有运行时（web + miniprogram + RL）唯一形状数据来源 |
+| 前端推理 | `web/src/spawnModel.js` `SHAPE_VOCAB` | model-v3 推理时 logits idx → shape id 映射 |
+| 训练侧 | `rl_pytorch/spawn_model/dataset.py` `SHAPE_VOCAB` + `SHAPE_CATEGORY` | 训练数据采样标签 + 多样性辅助损失 |
+
+> ⚠ **重训要求**：SpawnTransformer / model-v3 checkpoint 的 `NUM_SHAPES` 输出维 28 → 40，旧 checkpoint **必须重训**才能在 `SPAWN_MODE_MODEL_V3` 下生效。**rule 模式（默认）不受影响**。
+
+#### 与论文实证强度的关系
+
+| 论文 | OpenBlock v1.60.0 现状 |
+|---|---|
+| 加 pentomino 让奖励显著下行 | 我们**仅加 2-3 格小块**（不加 pentomino），且对最难的 diag-3 做 skill+intent 双重 gate；预期**只在合适场景**触发新难度，不破坏 baseline |
+| T-pentomino 单独造成最大减速 | OpenBlock 早已含 t-up/down/left/right 4 个 T 形（基础池），未扩到 5 格 T-pentomino |
+| 形状库扩充 ★★ 强杠杆 | v1.60.0 首次正式动用此杠杆，但**保守、可回滚**：所有新形状均经 `_passesShapeGate` / `_applyShapeBonusWeight` 受控；移除时只需删 12 个 JSON 条目 |
+
+#### 单元测试（5 条 invariant，全过）
+
+详见 `tests/blockSpawn.test.js`：
+
+1. **池扩展**：`getAllShapes().length === 40` 且 12 个新 id 全部存在
+2. **diag-3 gate 拦截**：新手场景（`spawnIntent='maintain'` 或 `skillLevel < 0.5`）40 轮采样中 diag-3 永不出现
+3. **diag-3 gate 放行**：`pressure` + `skillLevel=0.85` 时 60 轮采样累计至少 1 次 diag-3 入池
+4. **超小直线加权**：`sizePreference=-0.6` 时 60 轮采样累计至少 5 次超小直线入选
+5. **driver 语义**：人造 scored entry → `_estimateTopDriver` 对各新形状返回 `tinyLine` / `diagonalPair` / `diagonalSparse` / `cornerFit`
+
+#### 多端同步
+
+| 平台 | 路径 | 同步机制 |
+|---|---|---|
+| Web | `web/src/` | 直读 `shared/shapes.json`（Vite 打包） |
+| 微信/抖音小程序 | `miniprogram/core/shapesData.js` | `bash scripts/sync-core.sh` 一键转换为 CJS 数据模块 |
+| RL 训练（PyTorch） | `rl_pytorch/shapes_data.py` | 运行时读取 `shared/shapes.json`（路径绑定） |
+| RL 训练（MLX） | `rl_mlx/shapes_data.py` | 同上 |
+| Spawn 模型词表 | `web/src/spawnModel.js` + `rl_pytorch/spawn_model/dataset.py` | 手动同步（顺序契约见上） |
+
+> v1.60.0 顺便修复了 `scripts/sync-core.sh` 一个长期漂移：未支持 `import * as X` 转换、未对 `monetization/` `retention/` `lifecycle/` 等"小程序未分发子目录"的 require 做 try-wrap，导致每次同步都把 web 端新依赖硬带回小程序而崩溃。**新增软依赖 try-wrap 机制**后，未来 web 端引入任何新子系统都不会破坏小程序构建。
 
 ---
 

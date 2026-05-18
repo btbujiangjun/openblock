@@ -17,6 +17,19 @@ v1.57.1 多端策略同步（2026-05-18）：
     新增 'sprint' 中间档（stress ∈ [0.45, 0.55) 渐紧过渡带，web/src/adaptiveSpawn.js 同源）。
   - 旧 checkpoint 因 input shape 变化（board_proj.in_features 120→121）需重训；
     旧数据（无 sprint 标签）自动落到 maintain（idx=5），不会破坏向后兼容。
+
+v1.60.0 形状池扩展（2026-05-18）：
+  - SHAPE_VOCAB 28 → 40：新增 12 形状（占格 2-3，配合"前期减压/后期加压"策略）：
+      lines  +4: 1x2 / 2x1 / 1x3 / 3x1                  —— 前期减压（直线小块易消行）
+      zshapes +4: diag-2a / diag-2b / diag-3a / diag-3b —— 斜线散点（diag-2 中性 / diag-3 加压）
+      lshapes +4: l3-a / l3-b / l3-c / l3-d             —— 3 格 L 角（中性·角落补缝）
+    顺序约定（**必须**与 web/src/spawnModel.js SHAPE_VOCAB 严格一致）：
+      旧 28 个保持 idx 0-27 不变（兼容旧统计 / 旧 checkpoint 推理路径前缀），
+      新 12 个紧追在末尾 idx 28-39，且与 web 端顺序逐项对齐。
+  - SHAPE_CATEGORY 同步补 12 个映射（zshapes idx=4、lshapes idx=5，与现有同 category 一致）。
+  - ⚠ 旧 SpawnTransformer / model-v3 checkpoint 的 NUM_SHAPES=28 输出维失效，必须重新训练：
+      `python -m rl_pytorch.spawn_model.train` 或 `train_v3`（数据库 move_sequences 重新采样新形状即可）。
+    重训前 model-v3 推理会因 logits dim mismatch 报错；rule 模式（默认）不受影响。
 """
 
 import json
@@ -29,7 +42,11 @@ SHAPE_VOCAB = [
     't-up', 't-down', 't-left', 't-right',
     'z-h', 'z-h2', 'z-v', 'z-v2',
     'l-1', 'l-2', 'l-3', 'l-4', 'l5-a', 'l5-b', 'l5-c', 'l5-d',
-    'j-1', 'j-2', 'j-3', 'j-4'
+    'j-1', 'j-2', 'j-3', 'j-4',
+    # v1.60.0 新增 12（按 category 顺序追加，保持原 0-27 idx 兼容）
+    '1x2', '2x1', '1x3', '3x1',
+    'diag-2a', 'diag-2b', 'diag-3a', 'diag-3b',
+    'l3-a', 'l3-b', 'l3-c', 'l3-d',
 ]
 SHAPE_TO_IDX = {s: i for i, s in enumerate(SHAPE_VOCAB)}
 NUM_SHAPES = len(SHAPE_VOCAB)
@@ -48,6 +65,10 @@ SHAPE_CATEGORY = {
     'l-1': 5, 'l-2': 5, 'l-3': 5, 'l-4': 5,
     'l5-a': 5, 'l5-b': 5, 'l5-c': 5, 'l5-d': 5,
     'j-1': 6, 'j-2': 6, 'j-3': 6, 'j-4': 6,
+    # v1.60.0 新增 12 形状的 category 映射（与 shared/shapes.json 同源）
+    '1x2': 0, '2x1': 0, '1x3': 0, '3x1': 0,
+    'diag-2a': 4, 'diag-2b': 4, 'diag-3a': 4, 'diag-3b': 4,
+    'l3-a': 5, 'l3-b': 5, 'l3-c': 5, 'l3-d': 5,
 }
 NUM_CATEGORIES = 7
 

@@ -85,7 +85,16 @@ class PlayerProfile {
         /** @type {Array<{ts:number, thinkMs:number, pickToPlaceMs:number|null, cleared:boolean, lines:number, fill:number, miss:boolean}>} */
         this._moves = [];
         this._lastActionTs = 0;
-        /** v1.46『反应』指标——参见 web 端同名实现注释 */
+        /**
+         * v1.46「反应」指标：startDrag（玩家激活候选块）→ recordPlace/recordMiss 的纯操作执行段时长。
+         *
+         * 与 thinkMs 的区别（务必区分）：
+         *   - thinkMs        = 上一动作 → 当前落子；包含"等系统出新块 / 看新一波 / 选块 / 拖动"全过程
+         *   - pickToPlaceMs  = startDrag → 落子；只含"我握起这一块到我放下"的纯执行时间
+         *
+         * 0 / null = 玩家未经过 startDrag 的程序化路径（教程脚本、replay、bot 等）→
+         *           不计入"反应"窗口均值，避免污染指标。
+         */
         this._pickupAt = 0;
 
         this._smoothSkill = 0.5;
@@ -135,6 +144,11 @@ class PlayerProfile {
             collection: 0,
         };
         this._lastSessionEndTs = 0;
+        /* v1.48 (2026-05) — 数据层统一：玩家"装机时间戳"。
+         * 用于 daysSinceInstall 计算，supersede 之前散落在 gameStats 上的同名字段。
+         * 第一次构造（首次启动）写 now；fromJSON 读旧记录时若缺该字段则用最早的
+         * sessionHistory[0].ts 兜底，再不行再回退到 now（视作刚装机）。 */
+        this._installTs = Date.now();
     }
 
     /* ================================================================== */
@@ -150,9 +164,13 @@ class PlayerProfile {
     }
 
     /**
-     * v1.46：玩家激活候选块（dock 上 touchstart）即调用本方法。
-     * 与 web 端 PlayerProfile.recordPickup 等价；下一次 recordPlace/recordMiss
-     * 与之相减得 pickToPlaceMs（即"反应"指标）。
+     * v1.46：玩家在 dock 上按下/触摸一个候选块（Game.startDrag 入口）即调用本方法。
+     *
+     * 仅记录最近一次 pickup 时刻；下一次 recordPlace / recordMiss 时与之相减，
+     * 写入该 move 的 pickToPlaceMs，反映"激活到落子"的纯反应/操作耗时。
+     *
+     * 重复调用是安全的（拖→拖出→重新选另一块）：以最后一次为准；松手取消（onDragCancel）
+     * 不需要清零，因为下一次 startDrag 会覆盖。
      */
     recordPickup() {
         this._pickupAt = Date.now();
@@ -243,6 +261,29 @@ class PlayerProfile {
         this._consecutiveNonClears = 0;
         this._comboStreak = 0;
         this._totalLifetimeGames++;
+
+        /* v1.59.18：补重置"局内派生字段"——历史 recordNewGame 只清了 4 个标量计数器，
+         * 但 _moves[] 滑窗 / _feedbackBias 等"派生信号源"未清，导致新开局首轮：
+         *   - momentum 仍用上一局末尾的 12 步窗口计算（恢复期玩家常呈现 -0.30 → 触发 lateCollapse）
+         *   - clearRate / missRate / cognitiveLoad / multiClearRate / hadRecentNearMiss
+         *     等所有 metrics 字段都基于残留 _moves[]
+         *   - _feedbackBias 累积偏移延续上一局（截图显示 "闭环反馈 -0.99" 异常大值的根因）
+         *   - _recoveryCounter 残留导致 needsRecovery 误判
+         * 上述异常喂入 adaptiveSpawn → 产出非新开局的 stressBreakdown → DFV "决策动态"
+         * 顶部"末段崩盘/挫败临界/末段压力/生命周期末段加速/distress 浮标" chip 误亮。
+         *
+         * **保留字段（跨局玩家档案）**：_smoothSkill / _sessionHistory /
+         * _statsBaselineSkill / _totalLifetimePlacements / _personalizationOptions /
+         * _preferenceSignals / _modeCount / _installTs / _lastSessionEndTs。
+         */
+        this._moves = [];
+        this._lastActionTs = 0;
+        this._pickupAt = 0;
+        this._recoveryCounter = 0;
+        this._feedbackBias = 0;
+        this._feedbackStepsLeft = 0;
+        this._feedbackClearsInWindow = 0;
+        this._cachedHistorical = null;
     }
 
     /**
@@ -350,12 +391,35 @@ class PlayerProfile {
      * }}
      */
     get metrics() {
-        const recent = this._recentMoves();
+        return this.metricsForWindow(this._window);
+    }
+
+    /**
+     * v2 (2026-05)：按指定窗口长度聚合 metrics，供 `playerAbilityModel` 让不同能力指标
+     * 使用各自合适的时间尺度（控制看短窗体现手感、消行看中窗等待机会积累）。
+     *
+     * 与原 `metrics` 行为完全一致：windowSize === this._window 时复用同一冷启动占位语义、
+     * 同一 AFK 过滤、同一返回字段集（保证下游 UI / 自适应 / 回放无缝切换）。
+     *
+     * @param {number} windowSize 取最近 N 步聚合；非有限值或 ≤0 时回退到默认 _window
+     * @returns {{
+     *   thinkMs:number, clearRate:number, comboRate:number, missRate:number,
+     *   multiClearRate:number, perfectClearRate:number, avgLines:number,
+     *   pickToPlaceMs:number|null, reactionSamples:number,
+     *   afkCount:number, samples:number, activeSamples:number, windowSize:number
+     * }}
+     */
+    metricsForWindow(windowSize) {
+        const w = Number.isFinite(windowSize) && windowSize > 0
+            ? Math.floor(windowSize)
+            : this._window;
+        const recent = this._moves.slice(-w);
         if (recent.length === 0) {
             return {
                 thinkMs: 3000, clearRate: 0.3, comboRate: 0.1, missRate: 0.1,
+                multiClearRate: 0, perfectClearRate: 0, avgLines: 0,
                 pickToPlaceMs: null, reactionSamples: 0,
-                afkCount: 0, samples: 0, activeSamples: 0
+                afkCount: 0, samples: 0, activeSamples: 0, windowSize: w
             };
         }
         const placed = recent.filter(m => !m.miss);
@@ -365,13 +429,24 @@ class PlayerProfile {
         const clearCount = active.filter(m => m.cleared).length;
         const comboCount = active.filter(m => m.lines >= 2).length;
 
-        /* v1.46『反应』(pickToPlaceMs) 窗口平均；详见 web 端同名实现注释。
-         * 小程序端目前没有 startDrag→recordPickup 接线，所以正常情况 reactionSamples=0
-         * → 自动回退 null，stress 不参与。仅在工具/测试主动注入 pickup 时才会有值。 */
         const reactive = recent.filter(m => m.pickToPlaceMs != null && m.pickToPlaceMs < afkMs);
         const pickToPlaceMs = reactive.length > 0
             ? reactive.reduce((s, m) => s + m.pickToPlaceMs, 0) / reactive.length
             : null;
+
+        /* v2：multiClear / perfectClear 在窗口口径内单独统计，让 clearEfficiency
+         * 不必依赖 PlayerProfile 全局 _window 的 multiClearRate / perfectClearRate getter
+         * （那两个 getter 仍保留作为对外公开 API，与本窗口口径一致）。 */
+        const cleared = active.filter(m => m.cleared);
+        const multiClearRate = cleared.length >= 2
+            ? cleared.filter(m => m.lines >= 2).length / cleared.length
+            : 0;
+        const perfectClearRate = cleared.length >= 2
+            ? cleared.filter(m => m.fill === 0).length / cleared.length
+            : 0;
+        const avgLines = cleared.length > 0
+            ? cleared.reduce((s, m) => s + m.lines, 0) / cleared.length
+            : 0;
 
         return {
             thinkMs: active.length > 0
@@ -382,11 +457,15 @@ class PlayerProfile {
             missRate: recent.length > 0
                 ? recent.filter(m => m.miss).length / recent.length
                 : 0,
+            multiClearRate,
+            perfectClearRate,
+            avgLines,
             pickToPlaceMs,
             reactionSamples: reactive.length,
             afkCount,
             samples: recent.length,
-            activeSamples: active.length
+            activeSamples: active.length,
+            windowSize: w
         };
     }
 
@@ -547,6 +626,16 @@ class PlayerProfile {
     /**
      * 心流状态：bored（无聊→加压）/ flow（心流→维持）/ anxious（焦虑→减压）
      * 基于量化 flowDeviation + 方向判定，替代纯启发式阈值。
+     *
+     * v1.51（末段崩盘修复）：
+     * - 新增"末段瞬时窗口"挣扎信号（最近 8 步），与累计均值 OR 关系，
+     *   解决"前 5 分钟良好 + 最后 1 分钟挣扎"被均值稀释的盲区；
+     * - 新增"动量强烈下行"硬触发（momentum < -0.35）——直接返 anxious，
+     *   解决濒死玩家被误判 bored 的问题；
+     * - borderline (fd > 0.55) 分支加方向判定：必须 boardPressure < skill
+     *   且 momentum ≥ -0.15 才允许判 bored；否则 fall through 到 flow，
+     *   或在 anxious 信号叠加时优先返 anxious。
+     *
      * @returns {'bored'|'flow'|'anxious'}
      */
     get flowState() {
@@ -560,16 +649,23 @@ class PlayerProfile {
             ? placedMoves.reduce((s, r) => s + r.fill, 0) / placedMoves.length
             : 0;
 
-        /* v1.18：复合挣扎检测（先于 F(t) 早返回）——
-         * 单个阈值都没踩穿、但多个"弱挣扎信号"同时出现时也判定为 anxious，
-         * 避免出现「思考 4 秒 + 失误 13% + 板面 58% + 消行率 25%」却仍然被
-         * 认定为 'flow' 的盲区（玩家已在挣扎，但 F(t) 低于 0.25 早返回会跳过判定）。
-         * 阈值刻意宽松，每条都是"轻度负面"，需要 ≥3 条同时成立才生效。 */
+        /* v1.51：动量强烈下行硬触发——濒死玩家的最稳健信号（动量噪声衰减后仍 < -0.35
+         * 意味着真实崩盘趋势）。这条放在最前，避免后面 borderline 把它误判成 bored。 */
+        const momentumNow = this.momentum;
+        if (momentumNow <= -0.35) return 'anxious';
+
+        /* v1.18：复合挣扎检测（累计均值）——4 条阈值 ≥3 条命中视为挣扎。 */
         const struggleSignals = (m.missRate > 0.10 ? 1 : 0)
             + (m.thinkMs > (fz.thinkTimeStruggleMs ?? 3500) ? 1 : 0)
             + (m.clearRate < 0.30 ? 1 : 0)
             + (avgFill > 0.55 && m.clearRate < 0.40 ? 1 : 0);
         if (struggleSignals >= 3) return 'anxious';
+
+        /* v1.51：末段瞬时挣扎窗口——最近 8 步内消行数 ≤1、思考时间在上升、avgFill 在
+         * 上升 → "局尾崩盘"。与上面的"累计均值"挣扎检测互补：
+         *   累计 OR 末段任一命中 ≥3 信号即判 anxious。 */
+        const burstSignals = this._burstStruggleSignals();
+        if (burstSignals >= 3) return 'anxious';
 
         const fd = this.flowDeviation;
         if (fd < 0.25) return 'flow';
@@ -590,15 +686,59 @@ class PlayerProfile {
 
         if (this.cognitiveLoad > 0.7 && m.clearRate < 0.25) return 'anxious';
 
-        /* v1.21：borderline 去抖 ——
-         * 旧版 `fd > 0.5 && clearRate > 0.4` 在玩家停在 (fd≈0.5, clearRate≈0.4) 时
-         * 会因 micro-sample 抖动在 'bored' / 'flow' 之间反复翻面（截图里见过 snapshot
-         * = bored / live = flow 同帧打架的情况）。两条阈值各加 5% 缓冲（fd>0.55,
-         * clearRate>0.42），让 borderline 默认 fall through 到 'flow'，单向偏好
-         * 心流（flicker → 'flow' 而非 'bored'），等真正越过缓冲带再宣布 bored。 */
-        if (fd > 0.55 && m.clearRate > 0.42) return 'bored';
+        /* v1.51 borderline 方向判定 ——
+         * 旧版 `fd > 0.55 && clearRate > 0.42 → bored` 单看 fd 大小不看方向，
+         * 把 boardPressure 高出 skill（→ anxious）的玩家误判成 bored。
+         * 修复：必须满足 (a) boardPressure < skill（即 ratio < 1，板面比能力弱→真无聊）
+         *      AND (b) momentum 不强烈下行（≥ -0.15）才判 bored；否则 fall through 到 flow。
+         * 截图实测玩家 fd=0.60 + clearRate=50% + momentum=-0.53 + late，按旧规则误判为
+         * bored、按新规则在 momentumNow ≤ -0.35 早返回 anxious。 */
+        if (fd > 0.55 && m.clearRate > 0.42) {
+            const skill = Math.max(0.05, this.skillLevel);
+            const boardPressureRatio = (1 - this.flowDeviation < 0)
+                ? 1 + this.flowDeviation
+                : 1 - this.flowDeviation;
+            const boardWeakerThanSkill = boardPressureRatio < 1;
+            const momentumStable = momentumNow > -0.15;
+            if (boardWeakerThanSkill && momentumStable && skill > 0) {
+                return 'bored';
+            }
+        }
 
         return 'flow';
+    }
+
+    /**
+     * v1.51 末段瞬时挣扎窗口：最近 8 步（默认）窗口内的"局尾崩盘"信号。
+     *
+     * 与 metrics 的累计均值正交——当玩家前 5 分钟良好、最后 1 分钟挣扎时，累计均值
+     * 仍然漂亮，但本窗口能立即捕获"局尾消行率塌陷 / 思考时间显著上升 / 盘面接近
+     * 满格"等真实濒死信号。
+     *
+     * @private
+     * @returns {number} 0~3 命中信号数（≥3 即触发 anxious）
+     */
+    _burstStruggleSignals() {
+        const window = 8;
+        const recent = this._moves.slice(-window).filter(m => !m.miss);
+        if (recent.length < 5) return 0;
+        const half = Math.floor(recent.length / 2);
+        const older = recent.slice(0, half);
+        const newer = recent.slice(half);
+        if (older.length === 0 || newer.length === 0) return 0;
+
+        const newerClearRate = newer.filter(m => m.cleared).length / newer.length;
+        const newerThinkAvg = newer.reduce((s, m) => s + m.thinkMs, 0) / newer.length;
+        const olderThinkAvg = older.reduce((s, m) => s + m.thinkMs, 0) / older.length;
+        const newerFillAvg = newer.reduce((s, m) => s + m.fill, 0) / newer.length;
+        const olderFillAvg = older.reduce((s, m) => s + m.fill, 0) / older.length;
+
+        let count = 0;
+        if (newerClearRate <= 0.20) count++;
+        if (newerThinkAvg > 3500 && newerThinkAvg > olderThinkAvg * 1.2) count++;
+        if (newerFillAvg >= 0.70 && newerFillAvg > olderFillAvg + 0.05) count++;
+        if (newer.filter(m => m.cleared).length === 0 && newer.length >= 4) count++;
+        return count;
     }
 
     /**
@@ -791,6 +931,100 @@ class PlayerProfile {
         return this._totalLifetimePlacements;
     }
 
+    /**
+     * v2 (2026-05)：玩家最近一次活跃时间戳（ms epoch）。
+     *
+     * 优先级：本进程上一局结束（_lastSessionEndTs） > 历史缓存里的 lastSessionTs > 0。
+     * 供 `playerAbilityModel.confidence` 的 recencyDecay 项使用——长草玩家终身放置数
+     * 仍可能很大，但近 N 天没玩说明模型对其当前状态把握不再可靠，置信度应衰减。
+     *
+     * 与 `returningWarmupStrength` 共用同一时间源，保持"沉默回归"信号家族的一致性。
+     */
+    get lastActiveTs() {
+        return this._lastSessionEndTs || this._getHistoricalCache().lastSessionTs || 0;
+    }
+
+    /* ============================================================================
+     * v1.48 (2026-05) — 数据层统一：生命周期"三大裸字段"
+     *
+     * 此前 `getLifecycleMaturitySnapshot` 期望从 `profile._daysSinceInstall /
+     * _totalSessions / _daysSinceLastActive` 读取，但 `PlayerProfile` 从未提供
+     * 这些字段的写入入口；同时 `playerInsightPanel` 用的是 `gameStats.daysSinceInstall`，
+     * `playerLifecycleDashboard` / `socialIntroTrigger` 又各自从外部 `playerData`
+     * 参数取数 —— 三者**不同源**，导致 snapshot.stageCode 实际几乎不离开 S0。
+     *
+     * 这里把"三大裸字段"统一在 `PlayerProfile` 上，所有上层（出块 / UI / 商业化 /
+     * 召回）都从同一处取数；详见 docs/operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md
+     * 的"统一数据层"章节。
+     * ============================================================================ */
+
+    /** 装机至今天数（向下取整 0 起）。`_installTs` 在新构造时为 now，旧记录
+     *  fromJSON 时回填为 sessionHistory[0].ts，再不行回退 now。 */
+    get daysSinceInstall() {
+        const ts = Number(this._installTs) || 0;
+        if (!ts) return 0;
+        return Math.max(0, Math.floor((Date.now() - ts) / 86_400_000));
+    }
+
+    /** 终身会话数（recordSessionEnd 计入 `_sessionHistory`，cap=30）。
+     *  与 `lifetimeGames` 区别：`lifetimeGames` 来自 `_totalLifetimeGames`，
+     *  即便历史 cap 之外也保留计数；`totalSessions` 优先用累计计数，
+     *  缺失则降级到 `_sessionHistory.length`。 */
+    get totalSessions() {
+        return Math.max(this._totalLifetimeGames || 0, this._sessionHistory.length || 0);
+    }
+
+    /** 距上次活跃天数。lastActiveTs=0（从未活跃）时返回 0（视作"今天活跃"），
+     *  避免冷启动玩家被误判为长草用户触发 winback。 */
+    get daysSinceLastActive() {
+        const last = this.lastActiveTs;
+        if (!last) return 0;
+        return Math.max(0, Math.floor((Date.now() - last) / 86_400_000));
+    }
+
+    /**
+     * 生命周期"三大裸字段"打包：直接喂给 `getLifecycleMaturitySnapshot` /
+     * `getPlayerLifecycleStage` / `evaluateWinbackTrigger` 等所有 retention 模块。
+     *
+     * 用法：`getLifecycleMaturitySnapshot(profile.lifecyclePayload)`。
+     */
+    get lifecyclePayload() {
+        return {
+            daysSinceInstall: this.daysSinceInstall,
+            totalSessions: this.totalSessions,
+            daysSinceLastActive: this.daysSinceLastActive,
+        };
+    }
+
+    /**
+     * v2 (2026-05)：盘面填充率最近变化速度（每步 fill 增量的窗口均值）。
+     *
+     * 物理含义：玩家最近 N 步把盘面"加速度往满了堆"的程度——boardFill 静态值
+     * 0.75 表示当前满度，但"3 步内从 0.5 冲到 0.75"和"稳定停在 0.75"对死局风险
+     * 的预示完全不同。前者 velocity ≈ +0.083，后者 ≈ 0。
+     *
+     * 实现：取最近 max(2, samples) 个 placed move（不含 miss），做相邻 fill 差分平均。
+     * 样本不足返回 0；只看正向（消行后 fill 跳降不算"减压"，避免 velocity 抖到负值
+     * 影响 riskLevel 估计）。
+     *
+     * @param {number} [windowSteps=5]  统计窗口
+     * @returns {number}  通常 -0.1 ~ +0.2 之间，正值代表盘面在变满
+     */
+    boardFillVelocity(windowSteps = 5) {
+        const w = Number.isFinite(windowSteps) && windowSteps > 1 ? Math.floor(windowSteps) : 5;
+        const placed = this._moves.slice(-w).filter(m => !m.miss && Number.isFinite(m.fill));
+        if (placed.length < 2) return 0;
+        let sum = 0;
+        let count = 0;
+        for (let i = 1; i < placed.length; i++) {
+            const dv = placed[i].fill - placed[i - 1].fill;
+            // 消行后 fill 会跳降，跳降不算"减压"信号——只取正向 / 0 保留 velocity 的"风险加速"语义
+            sum += Math.max(0, dv);
+            count++;
+        }
+        return count > 0 ? sum / count : 0;
+    }
+
     /** 闭环反馈偏移量，正值=玩家消行多于预期→可加压，负值=消行不足→应减压 */
     get feedbackBias() {
         return this._feedbackBias;
@@ -821,6 +1055,7 @@ class PlayerProfile {
             preferenceSignals: this._preferenceSignals,
             modeCount: this._modeCount,
             lastSessionEndTs: this._lastSessionEndTs,
+            installTs: this._installTs,
             savedAt: Date.now()
         };
     }
@@ -873,6 +1108,16 @@ class PlayerProfile {
             p._lastSessionEndTs = Number(data.lastSessionEndTs);
         } else if (p._sessionHistory.length > 0) {
             p._lastSessionEndTs = p._sessionHistory[p._sessionHistory.length - 1].ts || 0;
+        }
+        /* v1.48：installTs 兼容旧记录——如果旧 JSON 没存这字段，回退到
+         * 最早的 sessionHistory[0].ts；再不行用 savedAt（视作"那时已安装"）；
+         * 最后兜底 Date.now() 让 daysSinceInstall=0（视作刚装机）。 */
+        if (Number.isFinite(Number(data?.installTs)) && Number(data.installTs) > 0) {
+            p._installTs = Number(data.installTs);
+        } else if (p._sessionHistory.length > 0 && p._sessionHistory[0].ts) {
+            p._installTs = p._sessionHistory[0].ts;
+        } else if (Number.isFinite(Number(data?.savedAt)) && Number(data.savedAt) > 0) {
+            p._installTs = Number(data.savedAt);
         }
         return p;
     }

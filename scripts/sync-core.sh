@@ -69,6 +69,10 @@ for f in "${FILES[@]}"; do
   #    用 perl -0 处理 adaptiveSpawn / simulator 这类多行具名 import。
   content=$(printf "%s" "$content" | perl -0pe "s/import\s+\{([^}]+)\}\s+from\s+'([^']+)\.js';/const {\1} = require('\2');/gs")
 
+  # 1b. v1.60.0：import * as X from './Y.js' → const X = require('./Y')
+  #     covers playerAbilityModel 的 personalization / ltvPredictor / MonetizationBus 等动态导入场景。
+  content=$(echo "$content" | sed -E "s/import \* as ([A-Za-z_][A-Za-z0-9_]*) from '([^']+)\.js'/const \1 = require('\2')/g")
+
   # 2. import X from './Y.json'  →  const X = require('./Y.json')
   content=$(echo "$content" | sed -E "s/import ([A-Za-z_][A-Za-z0-9_]*) from '([^']+\.json)'/const \1 = require('\2')/g")
 
@@ -118,6 +122,21 @@ module.exports = { $exports_obj };"
   content=$(echo "$content" | sed "s|require('./shapes.json')|require('./shapesData')|g")
   content=$(echo "$content" | sed "s|require('../game_rules.json')|require('../gameRulesData')|g")
   content=$(echo "$content" | sed "s|require('../shapes.json')|require('../shapesData')|g")
+
+  # v1.60.0：对**未分发到小程序的子目录**（monetization / retention / lifecycle /
+  # achievements / level / daily / playmodes / progression / services / rewards / ...）
+  # 的 require 统一做 try-wrap 软依赖包装。
+  #
+  # 背景：miniprogram/core/ 严格只分发本脚本 FILES 名单 + bot/ 子目录（小程序包瘦身策略），
+  # 而 web/src/ 下的逻辑模块（如 adaptiveSpawn.js）持续接入新子系统的 require。直接 require
+  # 在小程序运行时会 Cannot find module 硬挂；改为 try-wrap 让它软失败回退到空对象，配合
+  # 调用点已有的 typeof check / try-catch / 软失败逻辑，保持小程序运行时安全。
+  #
+  # 正则：匹配 `const X = require('./<subdir>/<modName>');` 但 <subdir> 不是 bot（已 sync）。
+  content=$(printf "%s" "$content" | perl -pe "s|^const (\w+) = require\('\./(?!bot/)(\w+)/([^']+)'\);|let \$1 = {}; try { \$1 = require('./\$2/\$3'); } catch (_e) { /* miniprogram 不分发 \$2/ 子目录，软依赖回退空骨架 */ }|g")
+  # 同样处理具名解构形式：`const { a, b } = require('./<subdir>/<modName>');`
+  # 用 modName 做唯一后缀，避免同一作用域内多个 require 都来自同一 subdir 时 `let` 重复声明。
+  content=$(printf "%s" "$content" | perl -pe "s|^const \{([^}]+)\} = require\('\./(?!bot/)(\w+)/([^']+)'\);|let _softDeps_\$3 = {}; try { _softDeps_\$3 = require('./\$2/\$3'); } catch (_e) { /* miniprogram 不分发 \$2/ 子目录，软依赖回退空骨架 */ } const {\$1} = _softDeps_\$3;|g")
 
   echo "$content" > "$dst_file"
   echo "  [OK] $f"

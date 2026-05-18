@@ -587,6 +587,63 @@ class Grid {
         return filled / (this.size * this.size);
     }
 
+    /**
+     * 几何近失指标：返回所有行/列中"填充率最高"的那一条的填充比例（0–1）。
+     *
+     * 用途：定义"差一点消行"——当某行/列已经填到 ≥ 0.78（8 格中 ≥ 7 格、即只差 1–2 格即可消）时，
+     * 调用方可视为玩家处于真正几何意义上的近失状态，触发对应反馈。
+     * 与 getFillRatio()（盘面整体填充率）正交：盘面整体只有 0.55 时，单行单列也可能已经 0.875。
+     */
+    getMaxLineFill() {
+        return this.getMaxLineFillLines().maxFill;
+    }
+
+    /**
+     * v1.51.1：返回最大行/列填充率以及"达到该填充率"的所有行/列索引。
+     *
+     * 用于 nearMissPlaceFeedback 把"差一格"判定与玩家本次落子精准绑定：
+     * 仅当玩家本次落子的某格 (x, y) 落在一条 fill ≥ 阈值的 line 上时才触发，
+     * 避免"瞬时触发→延时 toast"在玩家继续操作后与盘面脱节。
+     *
+     * `fillThreshold` 默认 0.875：返回所有占用比例 ≥ 该阈值的 line（不限于 max）。
+     * 设为 1.0 时只会返回真正的 maxFill line（向后兼容旧行为）。
+     *
+     * @param {number} [fillThreshold=0.875] 0~1
+     * @returns {{
+     *   maxFill: number,
+     *   lines: Array<{ type:'row'|'col', index:number, count:number, fill:number }>
+     * }}
+     */
+    getMaxLineFillLines(fillThreshold = 0.875) {
+        if (!this.size) return { maxFill: 0, lines: [] };
+        const rowCounts = new Array(this.size).fill(0);
+        const colCounts = new Array(this.size).fill(0);
+        for (let y = 0; y < this.size; y++) {
+            for (let x = 0; x < this.size; x++) {
+                if (this.cells[y][x] !== null) {
+                    rowCounts[y]++;
+                    colCounts[x]++;
+                }
+            }
+        }
+        let maxCount = 0;
+        for (let i = 0; i < this.size; i++) {
+            if (rowCounts[i] > maxCount) maxCount = rowCounts[i];
+            if (colCounts[i] > maxCount) maxCount = colCounts[i];
+        }
+        const minCount = Math.ceil(fillThreshold * this.size);
+        const lines = [];
+        for (let i = 0; i < this.size; i++) {
+            if (rowCounts[i] >= minCount) {
+                lines.push({ type: 'row', index: i, count: rowCounts[i], fill: rowCounts[i] / this.size });
+            }
+            if (colCounts[i] >= minCount) {
+                lines.push({ type: 'col', index: i, count: colCounts[i], fill: colCounts[i] / this.size });
+            }
+        }
+        return { maxFill: maxCount / this.size, lines };
+    }
+
     toJSON() {
         return {
             size: this.size,

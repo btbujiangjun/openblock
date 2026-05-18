@@ -261,6 +261,29 @@ export class PlayerProfile {
         this._consecutiveNonClears = 0;
         this._comboStreak = 0;
         this._totalLifetimeGames++;
+
+        /* v1.59.18：补重置"局内派生字段"——历史 recordNewGame 只清了 4 个标量计数器，
+         * 但 _moves[] 滑窗 / _feedbackBias 等"派生信号源"未清，导致新开局首轮：
+         *   - momentum 仍用上一局末尾的 12 步窗口计算（恢复期玩家常呈现 -0.30 → 触发 lateCollapse）
+         *   - clearRate / missRate / cognitiveLoad / multiClearRate / hadRecentNearMiss
+         *     等所有 metrics 字段都基于残留 _moves[]
+         *   - _feedbackBias 累积偏移延续上一局（截图显示 "闭环反馈 -0.99" 异常大值的根因）
+         *   - _recoveryCounter 残留导致 needsRecovery 误判
+         * 上述异常喂入 adaptiveSpawn → 产出非新开局的 stressBreakdown → DFV "决策动态"
+         * 顶部"末段崩盘/挫败临界/末段压力/生命周期末段加速/distress 浮标" chip 误亮。
+         *
+         * **保留字段（跨局玩家档案）**：_smoothSkill / _sessionHistory /
+         * _statsBaselineSkill / _totalLifetimePlacements / _personalizationOptions /
+         * _preferenceSignals / _modeCount / _installTs / _lastSessionEndTs。
+         */
+        this._moves = [];
+        this._lastActionTs = 0;
+        this._pickupAt = 0;
+        this._recoveryCounter = 0;
+        this._feedbackBias = 0;
+        this._feedbackStepsLeft = 0;
+        this._feedbackClearsInWindow = 0;
+        this._cachedHistorical = null;
     }
 
     /**

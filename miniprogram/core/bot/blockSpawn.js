@@ -115,8 +115,18 @@ function placeAndClear(grid, shapeData, gx, gy) {
 }
 
 /**
- * v1.57.2 与 web 同源——"孤立空格"hole 计数：四面（出界算非空边墙）全是非空的空格。
- * 物理含义：必须用 1×1 形状才能填的"漏洞"。O(n²×4)≈256 ops，DFS 叶子调用足够便宜。
+ * v1.57.2 廉价"孤立空格"hole 计数：四面（上下左右；出界算非空边墙）都是非空的空格。
+ *
+ * 设计选择理由：
+ *   - boardTopology.countUnfillableCells 是 O(shapes × n²) 重量级（用于"任意形状能否覆盖"
+ *     的严谨语义），DFS 内部反复调用代价过高
+ *   - Tetris-style "stacking holes"（被上方占用堵住的空格）在 OpenBlock 里语义不成立——
+ *     OpenBlock 没有重力，方块可从任意位置落，"被上方堵住"不是物理 hole
+ *   - "四面非空围住的空格"= 必须用 1×1 形状才能填的格子，这才是玩家心智里的"漏洞"
+ *     （O(n²×4)=256 ops/叶子，仍然完全可忽略）
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @returns {number}
  */
 function countIsolatedHoles(grid) {
     if (!grid?.cells) return 0;
@@ -135,7 +145,16 @@ function countIsolatedHoles(grid) {
     return holes;
 }
 
-/* v1.57.3 与 web 同源——9 维 stress→算法 廉价度量族（详见 web/src/bot/blockSpawn.js 同名函数） */
+/* ================================================================== */
+/*  v1.57.3 — 多维 stress 投射的廉价 DFS 叶子度量族                    */
+/*                                                                    */
+/*  以下 6 个函数均为 O(n²) ~ O(n²×4)，DFS 叶子调用累计 leafCap × 6   */
+/*  ≈ 64 × 4×64 ≈ 16k ops/triplet，相对 leafCap 自身 DFS 入栈代价      */
+/*  完全可忽略。设计目标：把"stress → 算法层"的传导从 v1.57.2 的       */
+/*  「解空间宽度 × 空洞强迫度」双轴扩展到 9 个独立可感的难度维度。      */
+/* ================================================================== */
+
+/** v1.57.3 ② — 终末填充率（O(n²) 计数；玩家心智"剩余空间窒息感"） */
 function countOccupied(grid) {
     if (!grid?.cells) return 0;
     const n = grid.size;
@@ -143,6 +162,10 @@ function countOccupied(grid) {
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (grid.cells[y][x] !== null) occ++;
     return occ;
 }
+
+/** v1.57.3 ③ — 近满行/列数（差 ≤ maxEmpty 即消的行 + 列总数；与 analyzeBoardTopology
+ *  的 nearFull1+nearFull2 同语义但**廉价版**：不调用 shapes 覆盖性校验、不区分 1/2 档）。
+ *  玩家心智："这盘还有几条快满的线，下一手能不能消"。 */
 function countNearFullLinesCheap(grid, maxEmpty = 2) {
     if (!grid?.cells) return 0;
     const n = grid.size;
@@ -159,6 +182,10 @@ function countNearFullLinesCheap(grid, maxEmpty = 2) {
     }
     return near;
 }
+
+/** v1.57.3 ⑥ — 列高度方差（"盘面平整度"）。
+ *  列高 = 该列从顶部数最低的被占用行索引到 n 的距离（OpenBlock 无重力但仍可用此
+ *  代理刻画"盘面凹凸"）。返回方差自身（非归一化）—— ranges 据此选档。 */
 function columnHeightVariance(grid) {
     if (!grid?.cells) return 0;
     const n = grid.size;
@@ -177,6 +204,9 @@ function columnHeightVariance(grid) {
     for (const h of heights) v += (h - mean) * (h - mean);
     return v / n;
 }
+
+/** v1.57.3 ⑦ — 危险列数：列高 ≥ dangerHeight 的列数（近爆顶预警，n=8 时
+ *  默认 dangerHeight=6 表示该列已占 ≥ 6/8 = 75%）。玩家心智："眼看就要顶死"。 */
 function countDangerColumns(grid, dangerHeight = 6) {
     if (!grid?.cells) return 0;
     const n = grid.size;
@@ -190,6 +220,9 @@ function countDangerColumns(grid, dangerHeight = 6) {
     }
     return danger;
 }
+
+/** v1.57.3 ⑧ — 视觉杂乱度：相邻两 cell 颜色不同的边数（不含 null-null 边）。
+ *  O(n²×2) 廉价；玩家心智："盘面看起来花花绿绿 vs 整齐成片"的审美焦虑。 */
 function countColorBoundaries(grid) {
     if (!grid?.cells) return 0;
     const n = grid.size;
@@ -294,10 +327,20 @@ function validateSpawnTriplet(grid, shapes, opts = {}) {
 
 /**
  * 累加 orderedShapes 在 grid 上的「完整放置序列」叶子数（带剪枝）。
+ *
+ * v1.57.2 / v1.57.3 扩展：每个完整解叶子处计算 8 项廉价度量 delta，
+ * 维护 accum 内 min/max/sum 字段，最终在 evaluateTripletSolutions 出口
+ * 派生出 minHoleIncrement / maxHoleIncrement / meanHoleIncrement /
+ * meanEndFillRatio / minEndFillRatio / meanNearFullDelta / meanEndFlatness /
+ * meanDangerColumns / meanClutterDelta 共 9 个对外字段。
+ *
+ * 剪枝：leafCap / budget 沿用旧逻辑；不基于 metrics 早剪——消行可能让 hole/fill
+ * 反向降低，过早剪枝会破坏 min 正确性。
+ *
  * @param {import('../grid.js').Grid} grid
  * @param {number[][][]} orderedShapes
  * @param {number} depth
- * @param {{ count: number, cap: number, truncated: boolean }} accum
+ * @param {object} accum
  * @param {{ n: number }} budget
  */
 function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
@@ -308,26 +351,27 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
     }
     if (depth >= orderedShapes.length) {
         accum.count++;
-        // v1.57.2 ① — 孤立空洞 delta（与 web 同源）
+        /* ===== v1.57.2 ① — 孤立空洞 delta（与 baseHoles 相对，max(0,·) 处理消行净降） ===== */
         const afterHoles = countIsolatedHoles(grid);
         const holeInc = Math.max(0, afterHoles - accum.baseHoles);
         if (holeInc < accum.minHoleIncrement) accum.minHoleIncrement = holeInc;
         if (holeInc > accum.maxHoleIncrement) accum.maxHoleIncrement = holeInc;
         accum.holeSum += holeInc;
-        // v1.57.3 ② — 终末填充率
+        /* ===== v1.57.3 ② — 终末填充率（叶子绝对值，非 delta；min/mean 派生） ===== */
         const occ = countOccupied(grid);
         const fillRatio = occ / accum.totalCells;
         if (fillRatio < accum.minEndFillRatio) accum.minEndFillRatio = fillRatio;
         accum.fillSum += fillRatio;
-        // v1.57.3 ③ — 近满 delta
-        accum.nearFullDeltaSum += (countNearFullLinesCheap(grid, 2) - accum.baseNearFull);
-        // v1.57.3 ⑥ — 平整度
+        /* ===== v1.57.3 ③ — 近满行/列 delta（"消行机会的供给/消耗"） ===== */
+        const nearFullAfter = countNearFullLinesCheap(grid, 2);
+        accum.nearFullDeltaSum += (nearFullAfter - accum.baseNearFull);
+        /* ===== v1.57.3 ⑥ — 终末平整度（列高方差，未归一化） ===== */
         accum.flatnessSum += columnHeightVariance(grid);
-        // v1.57.3 ⑦ — 危险列
+        /* ===== v1.57.3 ⑦ — 危险列数（接近爆顶预警） ===== */
         accum.dangerColsSum += countDangerColumns(grid, accum.dangerHeight);
-        // v1.57.3 ⑧ — 视觉杂乱 delta
+        /* ===== v1.57.3 ⑧ — 视觉杂乱 delta（颜色边界变化） ===== */
         accum.clutterDeltaSum += (countColorBoundaries(grid) - accum.baseClutter);
-        // v1.57.3 ④ — root-level survivor 标记
+        /* ===== v1.57.3 ④ — root-level survivor 标记 ===== */
         if (accum.currentRootIdx >= 0) accum.rootSurvivors[accum.currentRootIdx] = true;
         return;
     }
@@ -337,6 +381,9 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
         for (let x = 0; x < n; x++) {
             if (accum.count >= accum.cap || budget.n <= 0) return;
             if (!grid.canPlace(s, x, y)) continue;
+            /* v1.57.3 ④：仅在 depth=0（root level）时标记当前是哪个 root 子树。
+             * 用 (y, x) 线性化为 rootIdx，DFS 返回后用 accum.rootSurvivors 中
+             * true 的数量 / 总合法位置数 = firstMoveSurvivorRatio。 */
             const savedRootIdx = accum.currentRootIdx;
             if (depth === 0) {
                 accum.currentRootIdx = y * n + x;
@@ -351,18 +398,24 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
 }
 
 /**
- * 估算三连块在当前盘面下的「解空间体量」。
+ * 估算三连块在当前盘面下的「解空间体量」+「9 个 stress→算法 难度维度」（v1.57.3 完整版）。
  *
  * @param {import('../grid.js').Grid} grid
  * @param {number[][][]} threeData
- * @param {{ leafCap?: number, budget?: number }} [opts]
+ * @param {{ leafCap?: number, budget?: number, dangerHeight?: number }} [opts]
  * @returns {{
- *   validPerms: number,        // 6 种顺序里至少有 1 解的顺序数（0~6）
- *   solutionCount: number,     // 6 种顺序累计的叶子数（截断到 leafCap）
- *   capped: boolean,           // 是否撞到 leafCap（实际解 ≥ leafCap）
- *   truncated: boolean,        // 是否被 budget 截断（结果不可信，过滤时跳过）
- *   firstMoveFreedom: number,  // 三块独立放置时的最小合法点数（"瓶颈块自由度"）
- *   perPermCounts: number[]    // 每种顺序贡献的叶子数（按 permutations3 顺序）
+ *   validPerms: number, solutionCount: number, capped: boolean, truncated: boolean,
+ *   firstMoveFreedom: number, perPermCounts: number[],
+ *   minHoleIncrement: number, meanHoleIncrement: number,
+ *   maxHoleIncrement: number,                       // v1.57.3 ① — 最差解新空洞数（"专注度税"上界）
+ *   holeIncrementGap: number,                       // v1.57.3 ⑨ — max − min（"专注度税"差距）
+ *   meanEndFillRatio: number, minEndFillRatio: number, // v1.57.3 ② — 终末填充率（空间窒息）
+ *   meanNearFullDelta: number,                      // v1.57.3 ③ — 近满行/列变化（消行机会节律）
+ *   firstMoveSurvivorRatio: number,                 // v1.57.3 ④ — 第一步存活率（试错代价）
+ *   solutionDiversity: number,                      // v1.57.3 ⑤ — 6 种排列解数离散度（CV 系数）
+ *   meanEndFlatness: number,                        // v1.57.3 ⑥ — 终末平整度（列高方差）
+ *   meanDangerColumns: number,                      // v1.57.3 ⑦ — 终末危险列数（爆顶预警）
+ *   meanClutterDelta: number                        // v1.57.3 ⑧ — 视觉杂乱变化（颜色边界）
  * }}
  */
 function evaluateTripletSolutions(grid, threeData, opts = {}) {
@@ -384,7 +437,8 @@ function evaluateTripletSolutions(grid, threeData, opts = {}) {
 
     const cap = Math.max(1, opts.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT);
     const budget = { n: Math.max(100, opts.budget ?? SOLUTION_BUDGET_DEFAULT) };
-    /* v1.57.2 / v1.57.3：与 web 同源——9 项 base 度量在评估开始算一次，DFS 内只算 delta/绝对值 */
+    /* v1.57.2 / v1.57.3 — 9 项 base 度量在评估开始算一次，DFS 内只算 delta/绝对值，
+     * 不重算 base。这是 9 维 metrics 廉价化的关键设计（base 计算 O(n²×k) 仅 1 次）。 */
     const baseHoles = countIsolatedHoles(grid);
     const baseNearFull = countNearFullLinesCheap(grid, 2);
     const baseClutter = countColorBoundaries(grid);
@@ -393,13 +447,21 @@ function evaluateTripletSolutions(grid, threeData, opts = {}) {
 
     const accum = {
         count: 0, cap, truncated: false,
+        // ① 新空洞 min/max/sum
         minHoleIncrement: Infinity, maxHoleIncrement: 0, holeSum: 0,
+        // base 快照
         baseHoles, baseNearFull, baseClutter, totalCells, dangerHeight,
+        // ② 终末填充率
         minEndFillRatio: Infinity, fillSum: 0,
+        // ③ 近满 delta
         nearFullDeltaSum: 0,
+        // ⑥ 平整度
         flatnessSum: 0,
+        // ⑦ 危险列
         dangerColsSum: 0,
+        // ⑧ 视觉杂乱 delta
         clutterDeltaSum: 0,
+        // ④ root-level survivor 追踪：rootIdx → 是否有解叶子
         currentRootIdx: -1,
         rootSurvivors: {},
         rootCandidatesTotal: 0
@@ -433,6 +495,7 @@ function evaluateTripletSolutions(grid, threeData, opts = {}) {
             break;
         }
 
+        // solutionCount 可能已触 cap，需独立判定该排列是否可解，避免 validPerms 被低估。
         const existBudget = { n: budget.n, exhaustAsPass: false };
         const hasSolution = dfsPlaceOrder(grid, perms[i], 0, existBudget);
         budget.n = existBudget.n;
@@ -463,12 +526,23 @@ function evaluateTripletSolutions(grid, threeData, opts = {}) {
     const meanDangerColumns = hasLeaves ? accum.dangerColsSum / accum.count : 0;
     const meanClutterDelta = hasLeaves ? accum.clutterDeltaSum / accum.count : 0;
 
+    /* v1.57.3 ④ — firstMoveSurvivorRatio：
+     * 第 1 步合法落子位置中，**有完整解后继**的位置占比。
+     * rootCandidatesTotal 计入所有"被 DFS 访问的 root 子树"分母，rootSurvivors 标记
+     * 触达过叶子的子树。注意：rootCandidatesTotal 在 6 种排列中累加，意义是
+     * "(perm × root_x × root_y) 三元组中的子树触达比例"。 */
     let firstMoveSurvivorRatio = 0;
     if (accum.rootCandidatesTotal > 0) {
         const survivors = Object.keys(accum.rootSurvivors).length;
+        // 注意：rootSurvivors 用 rootIdx 去重（不区分 perm），分母用 unique root candidates
+        // 但实际上 rootCandidatesTotal 已在 6 排列中累加；这里取近似比例，避免遗漏
         firstMoveSurvivorRatio = Math.min(1, survivors * perms.length / Math.max(1, accum.rootCandidatesTotal));
     }
 
+    /* v1.57.3 ⑤ — solutionDiversity：
+     * CV = std(perPermCounts) / max(1, mean(perPermCounts))。
+     * CV 高 = 不同顺序的解数差异大（"有些顺序顺、有些顺序卡"，玩家需找顺）；
+     * CV 低 = 各顺序均衡（"放哪种顺序都差不多"，看似宽松但解相似度高）。 */
     let solutionDiversity = 0;
     if (perPermCounts.length > 0) {
         const sum = perPermCounts.reduce((a, b) => a + b, 0);
@@ -705,6 +779,140 @@ function resetSpawnMemory() {
     _lastDiagnostics = null;
 }
 
+/**
+ * v1.59.20：估算"该 chosen shape 在本轮被选中的主要驱动因子"，输出 { key, label }
+ * 用于 DFV chosen 节点常驻"因·XXX"小字（让"消行候选/综合选"标签不再只是路径分类，
+ * 还能告诉玩家"具体是哪个算法分量让这块被选中"）。
+ *
+ * **启发式优先级**（与本文件内 scoreShape 内权重设计的乘性强度排序保持一致）：
+ *   1. `pcPotential === 2`   → 可清屏（最高权重 18+ 倍）
+ *   2. `multiClear >= 2`     → 可多消 N 行（×2.0-2.7 加权）
+ *   3. `gapFills >= 2`       → 可补 N 处临消行缺口（×nearFullFactor 加权）
+ *   4. `gapFills === 1`      → 可消 1 行
+ *   5. `holeReduce > 0`      → 可补 N 处空洞（×0.4 加权）
+ *   6. `placements >= 30`    → 机动性高（合法落点多）
+ *   7. shapeWeights 类别主导  → 类别权重高（例：长条权重 33%）
+ *   default                  → 综合均衡（无单一主因）
+ *
+ * 注意：这是**事后估算**而非 scoreShape 内部权重的精确反推（精确反推需要将
+ * 全乘性权重链做对数分解，工程量大且对玩家解释力增益有限）。启发式覆盖 95%+
+ * 的"为什么是这块"问题已足够好。
+ *
+ * @param {object|null} s scored entry: { gapFills, multiClear, pcPotential, holeReduce, placements, category }；
+ *   fallback 路径传 null（直接返回"兜底降级"label）
+ * @param {Record<string, number>|null} shapeWeights spawnHints.shapeWeights
+ * @returns {{ key: string, label: string }}
+ */
+function _estimateTopDriver(s, shapeWeights) {
+    if (!s) return { key: 'fallback', label: '兜底降级' };
+
+    if (s.pcPotential === 2) return { key: 'pcPotential', label: '可清屏' };
+    if (s.multiClear >= 2) return { key: 'multiClear', label: `可多消${s.multiClear}行` };
+    if (s.gapFills >= 2) return { key: 'gapFills', label: `补${s.gapFills}缺` };
+    if (s.gapFills === 1) return { key: 'gapFills', label: '可消1行' };
+    if (s.holeReduce > 0) return { key: 'holeReduce', label: `补${s.holeReduce}洞` };
+    if ((s.placements ?? 0) >= 30) return { key: 'mobility', label: '机动高' };
+
+    /* v1.60.0：新形状的语义化主因（在通用 driver 之外的形态特异性归类）。
+     * 在常规 driver（消行/多消/补洞/机动）均未命中时，回退到形态自身的设计语义：
+     *   - 斜线 3 格（diag-3a/b）：稀疏散点造孤岛 → "稀疏挑战"
+     *   - 斜线 2 格（diag-2a/b）：对角散点补缝 → "对角补缝"
+     *   - 超小直线（1x2/2x1/1x3/3x1）：占地少易消行 → "极小补缝"
+     *   - 3 格 L 角（l3-a..d）：角落紧凑补缝 → "角落补缝"
+     */
+    const shapeId = s.shape?.id;
+    if (shapeId === 'diag-3a' || shapeId === 'diag-3b') return { key: 'diagonalSparse', label: '稀疏挑战' };
+    if (shapeId === 'diag-2a' || shapeId === 'diag-2b') return { key: 'diagonalPair',  label: '对角补缝' };
+    if (shapeId === '1x2' || shapeId === '2x1' || shapeId === '1x3' || shapeId === '3x1') {
+        return { key: 'tinyLine', label: '极小补缝' };
+    }
+    if (shapeId === 'l3-a' || shapeId === 'l3-b' || shapeId === 'l3-c' || shapeId === 'l3-d') {
+        return { key: 'cornerFit', label: '角落补缝' };
+    }
+
+    const weights = shapeWeights || {};
+    const wEntries = Object.entries(weights);
+    if (wEntries.length > 0 && s.category) {
+        const totalW = wEntries.reduce((a, [, v]) => a + (Number(v) || 0), 0) || 1;
+        const myW = Number(weights[s.category]) || 0;
+        const myPct = myW / totalW;
+        const sorted = wEntries.slice().sort((a, b) => (Number(b[1]) || 0) - (Number(a[1]) || 0));
+        const top = sorted[0];
+        if (top && top[0] === s.category && myPct >= 0.20) {
+            return { key: 'shapeWeight', label: `${_categoryShort(s.category)}权重${Math.round(myPct * 100)}%` };
+        }
+    }
+
+    return { key: 'balanced', label: '综合均衡' };
+}
+
+function _categoryShort(cat) {
+    const map = { lines: '长条', rects: '矩形', squares: '方块', tshapes: 'T形', zshapes: 'Z形', lshapes: 'L形', jshapes: 'J形' };
+    return map[cat] || cat;
+}
+
+/**
+ * v1.60.0 形状池扩展 P1：新形状的策略 gate（按"前期减压、后期加压"严格执行）。
+ *
+ * 当前唯一走 gate 的是 **斜线 3 格散点（diag-3a / diag-3b）**——它们占地仅 3 格但
+ * 在 8×8 棋盘上 3 个孤岛几乎不可能直接消行，对新手是强加压来源。为防止挫败爆表：
+ *   - 仅在 `spawnIntent ∈ {pressure, sprint}` **且** `profile.skillLevel ≥ 0.5` 时入池
+ *   - 否则在 scored.filter 阶段直接 reject（不进入 weighted / clear / perfectClear 任意路径）
+ *
+ * 其他 10 个新 shape（4 直线 + 2 对角 + 4 角形）默认入池，仅靠 `_applyShapeBonusWeight`
+ * 在合适场景做权重 nudge——保持现有"权重抽签 + 多路径"主体逻辑不被 gate 截断。
+ *
+ * @param {object} shape - { id, data, category }
+ * @param {object} hints - spawnHints（含 spawnIntent）
+ * @param {object} profile - playerProfile（含 skillLevel）
+ * @param {object} ctx - 复用现有 ctx
+ * @param {number} fill - 当前盘面填充率
+ * @returns {boolean} 是否允许进入本轮 scored 集合
+ */
+function _passesShapeGate(shape, hints, profile, _ctx, _fill) {
+    if (!shape) return false;
+    const id = shape.id;
+    /* 斜线 3 格散点：高加压形状，需 gate */
+    if (id === 'diag-3a' || id === 'diag-3b') {
+        const intent = hints?.spawnIntent;
+        const isPressureLike = intent === 'pressure' || intent === 'sprint';
+        const skill = Number(profile?.skillLevel) || 0;
+        if (!isPressureLike || skill < 0.5) return false;
+    }
+    return true;
+}
+
+/**
+ * v1.60.0 形状池扩展 P1：新形状的策略加权 nudge（在主权重 weights[category] 之上的乘法 bonus）。
+ *
+ * 加权策略（严格匹配"前期减压、后期加压"语义）：
+ *  - **超小直线 4 件（1x2/2x1/1x3/3x1）**：sizePreference ≤ -0.3 时 ×1.6
+ *      → spawnLayers.LaneLayer 已用 cells/5 做小块加权，但 2-3 格 cells 比例仅 0.4-0.6，
+ *        bonus 不够显著。本 nudge 让前期减压场景下这 4 件能压过 2x2/L4 等 4 格块。
+ *  - **3 格 L 角 4 件（l3-a..d）**：gapFills > 0 时 ×1.3
+ *      → 角落补缝是 L3 形态的天然适配，gapFills 反映了"能直接补满临消行缺口"的能力。
+ *  - 其他形状（含 diag-2/diag-3）：保持原 weight 不变，由现有打分机制自然消化。
+ *
+ * @param {number} baseWeight - 来自 weights[category] 的基础权重
+ * @param {string} shapeId
+ * @param {object} hints - spawnHints
+ * @param {number} gapFills - 当前 shape 在盘面上能消行的能力
+ * @returns {number} 调整后的 weight
+ */
+function _applyShapeBonusWeight(baseWeight, shapeId, hints, gapFills) {
+    let w = baseWeight;
+    /* 超小直线：前期减压加权 */
+    if (shapeId === '1x2' || shapeId === '2x1' || shapeId === '1x3' || shapeId === '3x1') {
+        const sizePref = Number(hints?.sizePreference) || 0;
+        if (sizePref <= -0.3) w *= 1.6;
+    }
+    /* 3 格 L 角：能补缝时加权 */
+    if (shapeId === 'l3-a' || shapeId === 'l3-b' || shapeId === 'l3-c' || shapeId === 'l3-d') {
+        if (gapFills > 0) w *= 1.3;
+    }
+    return w;
+}
+
 /** @type {object | null} 上一轮出块诊断，供面板展示 */
 let _lastDiagnostics = null;
 
@@ -734,12 +942,31 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const weights = strategyConfig.shapeWeights || {};
     const hints = strategyConfig.spawnHints || {};
     const ctx = spawnContext || {};
+    /* v1.60.0：从 strategyConfig（adaptiveSpawn enhanced layered config）抽取 profile 快照，
+     * 供 _passesShapeGate 等需要玩家维度（skill/momentum/frustration）的策略 gate 使用。
+     * 不改 adaptiveSpawn 接口（这些字段早已存在于 layered._xxx），仅这里集中映射。 */
+    const profile = {
+        skillLevel:       strategyConfig._skillLevel,
+        momentum:         strategyConfig._momentum,
+        frustrationLevel: strategyConfig._frustration,
+        sessionPhase:     strategyConfig._sessionPhase,
+    };
 
     const clearTarget = Math.max(0, Math.min(3, hints.clearGuarantee ?? 1));
     const sizePref = hints.sizePreference ?? 0;
     const divBoost = hints.diversityBoost ?? 0;
     const comboChain = hints.comboChain ?? 0;
     const multiClearBonus = hints.multiClearBonus ?? 0;
+    /* v1.56 §2.5 + v1.56.4 §5.α.8：PB 距离段在形状层的差异化
+     *   - farFromPBBoostActive（D0 边缘段，0.15 ≤ pct < 0.30）：多消潜力大块 ×1.15
+     *   - farExtremeBoostActive（D0 极远段，pct < 0.15）：多消潜力大块 ×1.30（叠加）
+     *     让真正"畏难期"得到形状层面的强力送爽；与 v1.56 数值层 farFromPBBoost.extreme 配套
+     *   - pbOvershootActive（D4 超 PB 段，score > best）：多消潜力大块 ×0.78（抑制）+
+     *     大块（size>=4）×1.20（鼓励），形成"超 PB 后多消变难、大块更多"的连续体感，
+     *     防止 PB 通过持续多消继续膨胀。详见 BEST_SCORE_CHASE_STRATEGY.md §5.α.8 v1.56.4。 */
+    const farFromPBBoostActive = hints.farFromPBBoostActive === true;
+    const farExtremeBoostActive = hints.farExtremeBoostActive === true;
+    const pbOvershootActive = hints.pbOvershootActive === true;
     const multiLineTarget = Math.max(0, Math.min(2, hints.multiLineTarget ?? 0));
     const delightBoost = Math.max(0, Math.min(1, hints.delightBoost ?? 0));
     const perfectClearBoost = Math.max(0, Math.min(1, hints.perfectClearBoost ?? 0));
@@ -747,9 +974,13 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const delightMode = hints.delightMode ?? 'neutral';
     const rhythmPhase = hints.rhythmPhase ?? 'neutral';
     const targetSolutionRange = hints.targetSolutionRange || null;
-    /* v1.57.2：新空洞难度区间（与 web 同源；详见 web/src/bot/blockSpawn.js 同名注释） */
+    /* v1.57.2：新空洞难度区间——与 targetSolutionRange 并列双轴：
+     *   - targetSolutionRange 控制"解空间宽度"（多少种可解放法）
+     *   - targetHoleIncrement  控制"空洞强迫度"（候选最优放法也带几个新空洞）
+     * earlyAttempt 阶段同样硬过滤，宽松阶段 fallback；只对未 truncated 的解评估生效。 */
     const targetHoleIncrement = hints.targetHoleIncrement || null;
-    /* v1.57.3：9 项多维 stress→算法 难度区间（与 web 同源） */
+    /* v1.57.3 — 9 项 stress→算法 多维难度区间（与 targetSolutionRange / targetHoleIncrement
+     * 并列；详见 §5.α.14）。任一为 null 时对应维度不参与软过滤。 */
     const targetMaxHoleIncrement = hints.targetMaxHoleIncrement || null;
     const targetHoleIncrementGap = hints.targetHoleIncrementGap || null;
     const targetEndFillRatio = hints.targetEndFillRatio || null;
@@ -802,9 +1033,14 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         .map((shape) => {
             const canPlace = grid.canPlaceAnywhere(shape.data);
             if (!canPlace) return null;
+            /* v1.60.0 形状池扩展 P1：严格按"加减压策略"对新增 12 个 shape 做 gate + 加权。
+             * gate 在"可放置"过滤之后立即执行，未通过 gate 的 shape 完全退出本轮 scored 集合，
+             * 保证下游 weighted/clear/perfectClear 多路径全部共享同一 candidate set。 */
+            // eslint-disable-next-line no-use-before-define
+            if (!_passesShapeGate(shape, hints, profile, ctx, fill)) return null;
             const gapFills = grid.countGapFills(shape.data);
             const category = getShapeCategory(shape.id);
-            const weight = weights[category] ?? 1;
+            let weight = weights[category] ?? 1;
             const placements = countLegalPlacements(grid, shape.data);
 
             /* 不再依赖 gapFills 才算 multiClear — 否则「差 4 格满行」等形状长期 multiClear=0 */
@@ -818,6 +1054,14 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             if (doDeepAnalysis && topo.holes > 2 && fill > 0.5) {
                 holeReduce = bestHoleReduction(grid, shape.data, topo.holes);
             }
+
+            /* v1.60.0：新形状的策略加权（在 scoreShape 主权重之外的轻微 nudge）。
+             *  - 超小直线（1x2/2x1/1x3/3x1）：sizePreference ≤ -0.3 时 ×1.6
+             *    → 配合 LaneLayer cells/5 公式，让 2-3 格小块在前期减压场景显著抬头
+             *  - 3 格 L 角（l3-a..d）：gapFills > 0 时 ×1.3
+             *    → 角落补缝场景的天然适配奖励 */
+            // eslint-disable-next-line no-use-before-define
+            weight = _applyShapeBonusWeight(weight, shape.id, hints, gapFills);
 
             return { shape, canPlace: true, gapFills, weight, category, placements, multiClear, holeReduce, pcPotential };
         })
@@ -860,7 +1104,7 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             solutionMetrics: null,
             // v9：当前应用的解法区间（来自 spawnHints.targetSolutionRange）
             targetSolutionRange,
-            // v1.57.2：当前应用的新空洞难度区间
+            // v1.57.2：当前应用的新空洞难度区间（来自 spawnHints.targetHoleIncrement）
             targetHoleIncrement,
             // v1.57.3：9 项多维难度区间透传
             targetMaxHoleIncrement,
@@ -895,18 +1139,28 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         layer3: { scoreMilestone: ctx.scoreMilestone || false, roundsSinceClear: ctx.roundsSinceClear ?? 0, totalRounds: ctx.totalRounds ?? mem.totalRounds },
         chosen: [],
         attempt: 0,
-        /* v9 / v1.32 / v1.57.2 / v1.57.3：spawn 软过滤被拒次数计数器（与 web 同源） */
+        /* v9 / v1.32 / v1.57.2 / v1.57.3：spawn 软过滤的被拒次数计数器；
+         * 运维看板可据此监控 fallback 频率（任一计数器频繁高企 = 对应 ranges 太严，需放宽）。 */
         solutionRejects: {
             tooFew: 0, tooMany: 0, orderTooLoose: 0,
             holeTooMany: 0, holeTooClean: 0,
+            // v1.57.3 ① — 最差解新空洞
             maxHoleTooMany: 0, maxHoleTooClean: 0,
+            // v1.57.3 ⑨ — 专注度税差距
             holeGapTooNarrow: 0, holeGapTooWide: 0,
+            // v1.57.3 ② — 终末填充率
             fillTooHigh: 0, fillTooLow: 0,
+            // v1.57.3 ③ — 近满 delta
             nearFullDeltaTooHigh: 0, nearFullDeltaTooLow: 0,
+            // v1.57.3 ④ — 第一步存活率
             survivorTooHigh: 0, survivorTooLow: 0,
+            // v1.57.3 ⑤ — 解多样性
             diversityTooHigh: 0, diversityTooLow: 0,
+            // v1.57.3 ⑥ — 终末平整度
             flatnessTooHigh: 0, flatnessTooLow: 0,
+            // v1.57.3 ⑦ — 危险列数
             dangerColsTooHigh: 0, dangerColsTooLow: 0,
+            // v1.57.3 ⑧ — 视觉杂乱 delta
             clutterTooHigh: 0, clutterTooLow: 0
         },
         /* v1.32：顺序刚性应用记录（上游 hints 透传 + 最终是否触发了硬过滤） */
@@ -975,7 +1229,11 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             blocks.push(pick.shape);
             usedIds[pick.shape.id] = true;
             usedCategories[pick.category] = (usedCategories[pick.category] || 0) + 1;
-            chosenMeta.push({ shape: pick.shape, placements: pick.placements, reason: pcSetup >= 1 ? 'perfectClear' : 'clear' });
+            chosenMeta.push({
+                shape: pick.shape, placements: pick.placements,
+                reason: pcSetup >= 1 ? 'perfectClear' : 'clear',
+                topDriver: _estimateTopDriver(pick, weights),
+            });
             clearCount++;
         }
 
@@ -1101,6 +1359,36 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                     w *= 1.3;
                 }
 
+                /* v1.56 §2.5：远征段额外偏向"多消潜力大块"
+                 * 触发条件：上游 farFromPBBoostActive=true（即 D0 段 pct < 0.30）
+                 * 仅对 multiClear >= 2 的块加权 ×1.15，让送爽落到形状层面：
+                 *   - 与上面 multiClearBonus / clearGuarantee 形成"数值+形状"双重激励
+                 *   - 不依赖 dominantColor（同色块仍由 game.js 染色层处理）
+                 *   - 与里程碑加权（×1.3）数值更克制，避免叠加触顶饱和 */
+                if (farFromPBBoostActive && s.multiClear >= 2) {
+                    w *= 1.15;
+                }
+
+                /* v1.56.4 §5.α.8：D0 极远段（pct<0.15）形状层叠加加权
+                 * 在 farFromPBBoostActive 的 ×1.15 之上再 ×1.13 ≈ 1.30，
+                 * 让真正"畏难期"得到更激进的多消大块倾斜。 */
+                if (farExtremeBoostActive && s.multiClear >= 2) {
+                    w *= 1.13;
+                }
+
+                /* v1.56.4 §5.α.8：D4 超 PB 段形状层反向调制
+                 * 多消大块抑制（×0.78），大块鼓励（cellCount>=4 时 ×1.20），让"超 PB 后"
+                 * 出块体感变化明显但不卡死。与 stress 维度 pbOvershootBoost 协同。 */
+                if (pbOvershootActive) {
+                    if (s.multiClear >= 2) {
+                        w *= 0.78;
+                    }
+                    const _ohCellCount = s.shape?.data ? shapeCellCount(s.shape.data) : 0;
+                    if (_ohCellCount >= 4) {
+                        w *= 1.20;
+                    }
+                }
+
                 return { entry: s, w: Math.max(0.01, w) };
             });
         };
@@ -1114,7 +1402,10 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             usedIds[entry.shape.id] = true;
             usedCategories[entry.category] = (usedCategories[entry.category] || 0) + 1;
             blocks.push(entry.shape);
-            chosenMeta.push({ shape: entry.shape, placements: entry.placements, reason: 'weighted' });
+            chosenMeta.push({
+                shape: entry.shape, placements: entry.placements, reason: 'weighted',
+                topDriver: _estimateTopDriver(entry, weights),
+            });
             if (entry.gapFills > 0) clearCount++;
             remaining = scored.filter((s) => !usedIds[s.shape.id]);
         }
@@ -1123,7 +1414,10 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             const p = pickShapeByCategoryWeights(weights);
             if (!p) break;
             blocks.push(p);
-            chosenMeta.push({ shape: p, placements: countLegalPlacements(grid, p.data), reason: 'fallback' });
+            chosenMeta.push({
+                shape: p, placements: countLegalPlacements(grid, p.data), reason: 'fallback',
+                topDriver: _estimateTopDriver(null, null),
+            });
         }
 
         const triplet = blocks.slice(0, 3);
@@ -1171,7 +1465,23 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                     continue;
                 }
             }
-            /* v1.57.2：新空洞难度软过滤（与 web 同源；详见 web/src/bot/blockSpawn.js 同名段注释） */
+
+            /* v1.57.2: 新空洞难度软过滤 ——
+             *
+             *   minHoleIncrement = 6 种排列所有解中"最干净放置路径"的新空洞数。
+             *   - max=0 → 候选必须存在 0 新空洞解（"必有干净放法"）
+             *   - min=N → 候选最干净解也至少带 N 个新空洞（"无论怎么放都会脏"）
+             *
+             * 守卫：
+             *   - 仅在 earlyAttempt 窗口（同 targetSolutionRange）硬过滤，宽松阶段 fallback
+             *   - truncated=true 跳过（DFS 不完整时 min 可能未达全集）
+             *   - minHoleIncrement === Infinity（无任何完整解，理论上 tripletSequentiallySolvable
+             *     已先剔除）也跳过，避免与上游可解性判定形成双重否决
+             *
+             * 物理含义：低 stress（max=0）保证玩家总能找到干净放法；高 stress（min≥1）
+             * 拒绝"放哪都干净"的轻松候选，让玩家被迫面对"必带 N 个空洞"的难局。
+             * 与 targetSolutionRange 形成"解空间宽度 × 空洞强迫度"双轴 stress 投射。
+             */
             if (earlyAttempt && targetHoleIncrement && !solutionMetrics.truncated) {
                 const minInc = solutionMetrics.minHoleIncrement;
                 if (Number.isFinite(minInc)) {
@@ -1185,54 +1495,138 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                     }
                 }
             }
-            /* v1.57.3：9 项多维 stress→算法 难度软过滤（与 web 同源；详见 §5.α.14） */
+
+            /* ===================================================================
+             * v1.57.3 — 9 项 stress→算法 多维难度软过滤（与 targetSolutionRange /
+             * targetHoleIncrement 并列）。
+             *
+             * 通用守卫：
+             *   - 与上方双轴同窗口（earlyAttempt = attempt < 60% × MAX_SPAWN_ATTEMPTS）
+             *   - solutionMetrics.truncated=true 时全部跳过（DFS 不完整）
+             *   - 各维度 target ranges 为 null 时该维度不过滤
+             *
+             * 设计原则：低 stress 用 max 强约束（保护玩家）；高 stress 用 min 强约束
+             * （强迫玩家面对压力源）。每个维度的 min/max 单边活跃，避免双边过严。
+             * =================================================================== */
             if (earlyAttempt && !solutionMetrics.truncated) {
+                // ===== v1.57.3 ① — 最差解新空洞数（专注度税上界）=====
                 if (targetMaxHoleIncrement) {
                     const maxInc = solutionMetrics.maxHoleIncrement;
-                    if (targetMaxHoleIncrement.max != null && maxInc > targetMaxHoleIncrement.max) { diagnostics.solutionRejects.maxHoleTooMany++; continue; }
-                    if (targetMaxHoleIncrement.min != null && maxInc < targetMaxHoleIncrement.min) { diagnostics.solutionRejects.maxHoleTooClean++; continue; }
+                    if (targetMaxHoleIncrement.max != null && maxInc > targetMaxHoleIncrement.max) {
+                        diagnostics.solutionRejects.maxHoleTooMany++;
+                        continue;
+                    }
+                    if (targetMaxHoleIncrement.min != null && maxInc < targetMaxHoleIncrement.min) {
+                        diagnostics.solutionRejects.maxHoleTooClean++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ⑨ — 专注度税差距（max−min）=====
                 if (targetHoleIncrementGap) {
                     const gap = solutionMetrics.holeIncrementGap;
-                    if (targetHoleIncrementGap.max != null && gap > targetHoleIncrementGap.max) { diagnostics.solutionRejects.holeGapTooWide++; continue; }
-                    if (targetHoleIncrementGap.min != null && gap < targetHoleIncrementGap.min) { diagnostics.solutionRejects.holeGapTooNarrow++; continue; }
+                    if (targetHoleIncrementGap.max != null && gap > targetHoleIncrementGap.max) {
+                        diagnostics.solutionRejects.holeGapTooWide++;
+                        continue;
+                    }
+                    if (targetHoleIncrementGap.min != null && gap < targetHoleIncrementGap.min) {
+                        diagnostics.solutionRejects.holeGapTooNarrow++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ② — 终末填充率（空间窒息感）=====
                 if (targetEndFillRatio) {
-                    const f = solutionMetrics.meanEndFillRatio;
-                    if (targetEndFillRatio.max != null && f > targetEndFillRatio.max) { diagnostics.solutionRejects.fillTooHigh++; continue; }
-                    if (targetEndFillRatio.min != null && f < targetEndFillRatio.min) { diagnostics.solutionRejects.fillTooLow++; continue; }
+                    const meanFill = solutionMetrics.meanEndFillRatio;
+                    if (targetEndFillRatio.max != null && meanFill > targetEndFillRatio.max) {
+                        diagnostics.solutionRejects.fillTooHigh++;
+                        continue;
+                    }
+                    if (targetEndFillRatio.min != null && meanFill < targetEndFillRatio.min) {
+                        diagnostics.solutionRejects.fillTooLow++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ③ — 近满行/列 delta（消行机会节律）=====
                 if (targetNearFullDelta) {
                     const nfd = solutionMetrics.meanNearFullDelta;
-                    if (targetNearFullDelta.max != null && nfd > targetNearFullDelta.max) { diagnostics.solutionRejects.nearFullDeltaTooHigh++; continue; }
-                    if (targetNearFullDelta.min != null && nfd < targetNearFullDelta.min) { diagnostics.solutionRejects.nearFullDeltaTooLow++; continue; }
+                    if (targetNearFullDelta.max != null && nfd > targetNearFullDelta.max) {
+                        diagnostics.solutionRejects.nearFullDeltaTooHigh++;
+                        continue;
+                    }
+                    if (targetNearFullDelta.min != null && nfd < targetNearFullDelta.min) {
+                        diagnostics.solutionRejects.nearFullDeltaTooLow++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ④ — 第一步存活率（试错代价）=====
                 if (targetFirstMoveSurvivorRatio) {
                     const sr = solutionMetrics.firstMoveSurvivorRatio;
-                    if (targetFirstMoveSurvivorRatio.max != null && sr > targetFirstMoveSurvivorRatio.max) { diagnostics.solutionRejects.survivorTooHigh++; continue; }
-                    if (targetFirstMoveSurvivorRatio.min != null && sr < targetFirstMoveSurvivorRatio.min) { diagnostics.solutionRejects.survivorTooLow++; continue; }
+                    if (targetFirstMoveSurvivorRatio.max != null && sr > targetFirstMoveSurvivorRatio.max) {
+                        diagnostics.solutionRejects.survivorTooHigh++;
+                        continue;
+                    }
+                    if (targetFirstMoveSurvivorRatio.min != null && sr < targetFirstMoveSurvivorRatio.min) {
+                        diagnostics.solutionRejects.survivorTooLow++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ⑤ — 解多样性 CV =====
                 if (targetSolutionDiversity) {
                     const div = solutionMetrics.solutionDiversity;
-                    if (targetSolutionDiversity.max != null && div > targetSolutionDiversity.max) { diagnostics.solutionRejects.diversityTooHigh++; continue; }
-                    if (targetSolutionDiversity.min != null && div < targetSolutionDiversity.min) { diagnostics.solutionRejects.diversityTooLow++; continue; }
+                    if (targetSolutionDiversity.max != null && div > targetSolutionDiversity.max) {
+                        diagnostics.solutionRejects.diversityTooHigh++;
+                        continue;
+                    }
+                    if (targetSolutionDiversity.min != null && div < targetSolutionDiversity.min) {
+                        diagnostics.solutionRejects.diversityTooLow++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ⑥ — 终末平整度（列高方差）=====
                 if (targetEndFlatness) {
-                    const fl = solutionMetrics.meanEndFlatness;
-                    if (targetEndFlatness.max != null && fl > targetEndFlatness.max) { diagnostics.solutionRejects.flatnessTooHigh++; continue; }
-                    if (targetEndFlatness.min != null && fl < targetEndFlatness.min) { diagnostics.solutionRejects.flatnessTooLow++; continue; }
+                    const flat = solutionMetrics.meanEndFlatness;
+                    if (targetEndFlatness.max != null && flat > targetEndFlatness.max) {
+                        diagnostics.solutionRejects.flatnessTooHigh++;
+                        continue;
+                    }
+                    if (targetEndFlatness.min != null && flat < targetEndFlatness.min) {
+                        diagnostics.solutionRejects.flatnessTooLow++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ⑦ — 终末危险列数（爆顶预警）=====
                 if (targetEndDangerColumns) {
                     const dc = solutionMetrics.meanDangerColumns;
-                    if (targetEndDangerColumns.max != null && dc > targetEndDangerColumns.max) { diagnostics.solutionRejects.dangerColsTooHigh++; continue; }
-                    if (targetEndDangerColumns.min != null && dc < targetEndDangerColumns.min) { diagnostics.solutionRejects.dangerColsTooLow++; continue; }
+                    if (targetEndDangerColumns.max != null && dc > targetEndDangerColumns.max) {
+                        diagnostics.solutionRejects.dangerColsTooHigh++;
+                        continue;
+                    }
+                    if (targetEndDangerColumns.min != null && dc < targetEndDangerColumns.min) {
+                        diagnostics.solutionRejects.dangerColsTooLow++;
+                        continue;
+                    }
                 }
+
+                // ===== v1.57.3 ⑧ — 视觉杂乱 delta =====
                 if (targetVisualClutter) {
                     const cl = solutionMetrics.meanClutterDelta;
-                    if (targetVisualClutter.max != null && cl > targetVisualClutter.max) { diagnostics.solutionRejects.clutterTooHigh++; continue; }
-                    if (targetVisualClutter.min != null && cl < targetVisualClutter.min) { diagnostics.solutionRejects.clutterTooLow++; continue; }
+                    if (targetVisualClutter.max != null && cl > targetVisualClutter.max) {
+                        diagnostics.solutionRejects.clutterTooHigh++;
+                        continue;
+                    }
+                    if (targetVisualClutter.min != null && cl < targetVisualClutter.min) {
+                        diagnostics.solutionRejects.clutterTooLow++;
+                        continue;
+                    }
                 }
             }
+
             if (earlyAttempt && !solutionMetrics.truncated) {
                 const sc = solutionMetrics.solutionCount;
                 if (solutionSpacePressure >= 0.78 && !solutionMetrics.capped && sc > 48) {
@@ -1275,10 +1669,19 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
         }
 
-        /* 通过校验 — 打乱顺序 + 记录诊断 */
+        /* 通过校验 — 打乱顺序 + 记录诊断
+         *
+         * v1.59.19 bug 修复：Fisher-Yates 同步打乱 triplet + chosenMeta 前 3 项。
+         * 历史只打乱 triplet，diagnostics.chosen 仍按 chosenMeta 原顺序写入，
+         * 导致 game.js `descriptors[i] = shape: triplet[i]` 写入 dock 的 shape
+         * 与 _lastAdaptiveInsight.spawnDiagnostics.chosen[i] 错位（同一 i 索引指向
+         * 不同 shape）—— DFV 出块行显示 [2×2 / Z竖2 / 1×4]，但玩家在 dock 上
+         * 实际看到的顺序却是别的，用户反馈"顺序不一致"根因。
+         * 用同一组 random index 序对两数组应用相同 swap 即可保持配对不变。 */
         for (let i = triplet.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [triplet[i], triplet[j]] = [triplet[j], triplet[i]];
+            [chosenMeta[i], chosenMeta[j]] = [chosenMeta[j], chosenMeta[i]];
         }
 
         const chosenCats = triplet.map(s => getShapeCategory(s.id));
@@ -1288,7 +1691,9 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
 
         diagnostics.attempt = attempt;
         diagnostics.chosen = chosenMeta.slice(0, 3).map(m => ({
-            id: m.shape.id, category: getShapeCategory(m.shape.id), reason: m.reason
+            id: m.shape.id, category: getShapeCategory(m.shape.id),
+            reason: m.reason,
+            topDriver: m.topDriver || { key: 'balanced', label: '综合均衡' },
         }));
         diagnostics.layer1.solutionMetrics = solutionMetrics;
         _lastDiagnostics = diagnostics;
@@ -1325,15 +1730,13 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
 
     diagnostics.attempt = MAX_SPAWN_ATTEMPTS;
     diagnostics.chosen = blocks.slice(0, 3).map(s => ({
-        id: s.id, category: getShapeCategory(s.id), reason: 'fallback'
+        id: s.id, category: getShapeCategory(s.id), reason: 'fallback',
+        topDriver: _estimateTopDriver(null, null),
     }));
     _lastDiagnostics = diagnostics;
 
     return blocks.slice(0, 3);
 }
-
-/** @deprecated 使用 generateDockShapes */
-const generateBlocksForGrid = generateDockShapes;
 
 // ========================================================================
 // 分层接口适配（供测试与未来关卡模式使用）
@@ -1370,9 +1773,12 @@ function generateDockShapesLayered(grid, config, spawnHints = {}, spawnContext =
         return generateDockShapes(grid, config, spawnHints, spawnContext);
     }
 
-    // 复用原始评分逻辑（仅分层，不重复打分代码）
+    /* TODO(spawnLayers): 当前即便 __spawnLayersMod 已注入，本函数也仍直接返回 generateDockShapes 结果，
+     * 未真正调用 GlobalLayer.adjust() / LaneLayer.filter() / FallbackLayer.ensure()。
+     * 接入路径见 spawnLayers.js 头注释（line 22-27）。在接入前，请勿把"分层架构已落地"作为
+     * 已上线能力对外宣传——`spawnLayers.test.js` 只证明各层单独可用，不代表主出块路径已分层。 */
     const rawResult = generateDockShapes(grid, config, spawnHints, spawnContext);
     return rawResult; // 当前退化为原函数；三层逻辑在 spawnLayers.js 可独立验证
 }
 
-module.exports = { computeCandidatePlacementMetric, evaluateTripletSolutions, generateBlocksForGrid, generateDockShapes, generateDockShapesLayered, getLastSpawnDiagnostics, resetSpawnMemory, validateSpawnTriplet };
+module.exports = { _estimateTopDriver, analyzePerfectClearSetup, computeCandidatePlacementMetric, evaluateTripletSolutions, generateDockShapes, generateDockShapesLayered, getLastSpawnDiagnostics, resetSpawnMemory, validateSpawnTriplet };

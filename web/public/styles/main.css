@@ -8147,3 +8147,282 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
     box-shadow: 0 0 0 3px color-mix(in srgb, #38bdf8 65%, transparent);
 }
 
+/* ═════════════════════════════════════════════════════════════════════════ */
+/*  v1.59 — 算法决策动态可视化样式（adc-*）                                     */
+/*  消费方：decisionFlowViz.js（DFV 右侧 details 顶部「决策动态」区段，由         */
+/*  #dfv-dynamics-host 承载 3 个紧凑模块：意图时间线 / stress 分量堆叠 / 灵敏度） */
+/*  设计：高密度信息、对比醒目（intent color 直读 + 正负堆叠 + Pearson 灵敏度）。 */
+/*  注：DFV 内部 _injectStyles 在 .dfv-dynamics-host 作用域下注入紧凑化覆盖样式。 */
+/* ═════════════════════════════════════════════════════════════════════════ */
+.adc-section { display: flex; flex-direction: column; gap: 3px; }
+
+.adc-row-label {
+    font-size: 8.5px; font-weight: 700; letter-spacing: 0.4px;
+    color: var(--text-secondary, #94a3b8);
+    text-transform: uppercase;
+}
+.adc-muted { color: var(--text-secondary, #94a3b8); opacity: 0.7; font-size: 9px; }
+
+/* ── §A 决策核心卡 ── */
+.adc-snapshot { display: flex; flex-direction: column; gap: 4px; }
+.adc-snapshot--empty { padding: 6px; color: var(--text-secondary, #94a3b8); font-size: 9px; text-align: center; }
+.adc-snapshot__row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.adc-snapshot__row--upstream { font-size: 9px; }
+.adc-intent-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 10px;
+    background: color-mix(in srgb, var(--adc-intent-color) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--adc-intent-color) 55%, transparent);
+    color: var(--text-primary, #f1f5f9); font-weight: 600;
+}
+.adc-intent-chip__bullet {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--adc-intent-color);
+}
+.adc-intent-chip__cn { font-size: 9px; opacity: 0.85; margin-left: 2px; }
+.adc-source-chip {
+    padding: 2px 6px; border-radius: 3px; font-size: 9px;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #94a3b8) 20%, transparent);
+}
+.adc-source--rule { background: color-mix(in srgb, #94a3b8 15%, transparent); color: var(--text-secondary, #cbd5e1); }
+.adc-source--model { background: color-mix(in srgb, #14b8a6 20%, transparent); color: #14b8a6; border-color: color-mix(in srgb, #14b8a6 40%, transparent); }
+.adc-mode-chip {
+    padding: 1px 5px; border-radius: 3px; font-size: 9px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 10%, transparent);
+    color: var(--text-secondary, #cbd5e1);
+}
+.adc-mode-chip--delight { background: color-mix(in srgb, #f472b6 18%, transparent); color: #f472b6; }
+.adc-trig-chip {
+    padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 600;
+}
+.adc-trig-chip--protect { background: color-mix(in srgb, #22d3ee 18%, transparent); color: #22d3ee; }
+.adc-trig-chip--press { background: color-mix(in srgb, #f59e0b 22%, transparent); color: #f59e0b; }
+
+.adc-stress-bar { display: flex; align-items: center; gap: 6px; width: 100%; }
+.adc-stress-bar__track {
+    position: relative; flex: 1; height: 6px; border-radius: 3px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 12%, transparent);
+    overflow: hidden;
+}
+.adc-stress-bar__fill {
+    position: absolute; top: 0; bottom: 0; left: 0;
+    background: linear-gradient(90deg, #10b981 0%, #f59e0b 60%, #ef4444 100%);
+    border-radius: 3px;
+}
+.adc-stress-bar__neutral {
+    position: absolute; top: -1px; bottom: -1px; width: 2px;
+    background: rgba(255, 255, 255, 0.6);
+}
+.adc-stress-bar__val { font-size: 9px; color: var(--text-secondary, #cbd5e1); white-space: nowrap; }
+
+.adc-up-chip {
+    padding: 1px 5px; border-radius: 3px; font-size: 9px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 8%, transparent);
+    color: var(--text-secondary, #94a3b8); opacity: 0.55;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 12%, transparent);
+}
+.adc-up-chip--on { opacity: 1; }
+.adc-up-chip--on.adc-up-chip--neg { background: color-mix(in srgb, #22d3ee 22%, transparent); color: #22d3ee; border-color: color-mix(in srgb, #22d3ee 50%, transparent); }
+.adc-up-chip--on.adc-up-chip--neutral { background: color-mix(in srgb, #a78bfa 22%, transparent); color: #a78bfa; border-color: color-mix(in srgb, #a78bfa 50%, transparent); }
+
+/* ── §B 意图时间线 ──
+ * v1.59.4：chip 加 intent 首字母简名（H/R/E/F/M/S/P），透明度 18%→55% 让颜色更醒目，
+ * 高度 14→18 给字母让位；切换点 changed 加左粗黄边 + 上扬，让"N 轮切换"一眼可数。 */
+.adc-timeline { display: flex; flex-direction: column; gap: 3px; }
+.adc-timeline--empty { padding: 6px; color: var(--text-secondary, #94a3b8); font-size: 9px; text-align: center; }
+.adc-timeline__head { display: flex; justify-content: space-between; align-items: center; }
+.adc-timeline__summary { font-size: 9px; color: var(--text-secondary, #94a3b8); }
+.adc-timeline__chips { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(14px, 1fr); gap: 2px; }
+.adc-tl-chip {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 22px;
+    background: color-mix(in srgb, var(--adc-intent-color) 55%, transparent);
+    border-top: 2px solid var(--adc-intent-color);
+    border-radius: 3px; font-size: 8px;
+    gap: 0; line-height: 1;
+    color: #fff;
+}
+.adc-tl-chip__initial {
+    font-weight: 800; font-size: 10px; line-height: 1;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+.adc-tl-chip__round {
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 7px; line-height: 1;
+    margin-top: 1px;
+}
+.adc-tl-chip__bullet { display: none; }
+.adc-tl-chip--changed {
+    border-left: 3px solid #fde047;
+    box-shadow: 0 -1px 0 0 #fde047, 0 0 6px rgba(253, 224, 71, 0.45);
+    transform: translateY(-1px);
+}
+.adc-timeline__bars {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(14px, 1fr); gap: 2px;
+    height: 18px; align-items: end;
+    padding: 1px 0;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 5%, transparent);
+    border-radius: 2px;
+}
+.adc-tl-bar {
+    background: linear-gradient(180deg, #f59e0b, #10b981);
+    border-radius: 1px 1px 0 0;
+    min-height: 1px;
+}
+
+/* ── §C 压力归因（v1.59.4 重做：水平堆叠 → 竖排排序条目）──
+ * 历史水平堆叠在窄栏下 7-8 个 seg 平均分宽，label 全被 ellipsis 吃掉只剩数值。
+ * 新版竖排：每行 1 个分量 = [label][bar][value]，label 完整可见，bar 宽 ∝ |value|。
+ * 左右双栏：左加压 / 右救济，各 top-4 + "其他 N 项 ±X.XX" 归并。 */
+.adc-stack { display: flex; flex-direction: column; gap: 4px; }
+.adc-stack--empty { padding: 6px; color: var(--text-secondary, #94a3b8); font-size: 9px; text-align: center; }
+.adc-stack__head { display: flex; justify-content: space-between; align-items: center; }
+.adc-stack__summary { display: inline-flex; gap: 6px; font-size: 9px; font-family: 'SF Mono', Menlo, monospace; }
+.adc-stack__sum--net { color: var(--text-secondary, #cbd5e1); font-weight: 600; }
+.adc-stack__cols {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    align-items: start;
+}
+.adc-stack-block {
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 2px 4px 3px;
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.30);
+    border-left: 2px solid transparent;
+}
+.adc-stack-block--pos { border-left-color: #ef4444; }
+.adc-stack-block--neg { border-left-color: #10b981; }
+.adc-stack-block__head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 8px; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--text-secondary, #94a3b8);
+    margin-bottom: 1px;
+}
+.adc-stack-block--pos .adc-stack-block__head { color: #fca5a5; }
+.adc-stack-block--neg .adc-stack-block__head { color: #6ee7b7; }
+.adc-stack-block__sum {
+    font-family: 'SF Mono', Menlo, monospace; font-size: 8.5px; font-weight: 700;
+}
+.adc-stack-item {
+    display: grid; grid-template-columns: minmax(0, 1fr) 30px 32px;
+    align-items: center; gap: 3px;
+    font-size: 8.5px; line-height: 1.2;
+    padding: 1px 0;
+}
+.adc-stack-item__label {
+    color: var(--text-primary, #e2e8f0);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+}
+.adc-stack-item__label--muted { color: var(--text-secondary, #94a3b8); font-style: italic; }
+.adc-stack-item__bar {
+    position: relative;
+    height: 4px;
+    background: rgba(148, 163, 184, 0.14);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.adc-stack-item__bar-fill {
+    position: absolute; top: 0; left: 0; height: 100%;
+    border-radius: 2px;
+}
+.adc-stack-item__bar-fill--pos { background: linear-gradient(90deg, rgba(239, 68, 68, 0.7), #ef4444); }
+.adc-stack-item__bar-fill--neg { background: linear-gradient(90deg, rgba(16, 185, 129, 0.7), #10b981); }
+.adc-stack-item__val {
+    font-family: 'SF Mono', Menlo, monospace; font-size: 8.5px; font-weight: 700;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.adc-stack-item__val--pos { color: #fca5a5; }
+.adc-stack-item__val--neg { color: #6ee7b7; }
+.adc-stack-item--rest .adc-stack-item__val { opacity: 0.7; }
+
+/* ── §D 决策反向链路 ── */
+.adc-reasoning { display: flex; flex-direction: column; gap: 5px; }
+.adc-reasoning--empty { padding: 6px; color: var(--text-secondary, #94a3b8); font-size: 9px; text-align: center; }
+.adc-reasoning__sec { display: flex; flex-direction: column; gap: 2px; }
+
+.adc-trace { display: flex; flex-direction: column; gap: 1px; }
+.adc-trace-row {
+    display: grid; grid-template-columns: 70px 28px 1fr; align-items: baseline; gap: 4px;
+    padding: 2px 4px; border-radius: 2px; font-size: 9px;
+}
+.adc-trace-row--hit { background: color-mix(in srgb, #10b981 15%, transparent); }
+.adc-trace-row--miss { background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent); opacity: 0.5; }
+.adc-trace-id { font-weight: 600; color: var(--text-primary, #f1f5f9); font-family: 'SF Mono', Menlo, monospace; }
+.adc-trace-prio { font-size: 8px; color: var(--text-secondary, #94a3b8); }
+.adc-trace-reason { font-size: 8.5px; color: var(--text-secondary, #cbd5e1); }
+.adc-trace-reason--miss { font-style: italic; }
+
+.adc-drivers { display: flex; flex-direction: column; gap: 2px; }
+.adc-driver-row {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;
+    padding: 2px 4px; font-size: 9px;
+    background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
+    border-radius: 2px;
+}
+.adc-driver-field { font-family: 'SF Mono', Menlo, monospace; color: var(--text-primary, #f1f5f9); }
+.adc-driver-arrow { color: var(--text-secondary, #64748b); font-size: 10px; }
+.adc-driver-source { color: var(--text-secondary, #94a3b8); font-size: 8.5px; }
+
+.adc-conflicts { display: flex; flex-direction: column; gap: 1px; }
+.adc-conflict-row {
+    padding: 2px 5px; font-size: 9px; border-radius: 2px;
+    background: color-mix(in srgb, #f59e0b 18%, transparent);
+    color: #f59e0b; border-left: 2px solid #f59e0b;
+}
+.adc-conflict-row--high { background: color-mix(in srgb, #ef4444 20%, transparent); color: #ef4444; border-left-color: #ef4444; }
+
+/* ── §E shape weights 偏差 ── */
+.adc-drift { display: flex; flex-direction: column; gap: 3px; }
+.adc-drift--empty { padding: 6px; color: var(--text-secondary, #94a3b8); font-size: 9px; text-align: center; }
+.adc-drift__head { display: flex; justify-content: space-between; align-items: center; }
+.adc-drift__summary { font-size: 9px; color: var(--text-secondary, #94a3b8); }
+.adc-drift__rows { display: flex; flex-direction: column; gap: 1px; }
+.adc-drift-row {
+    display: grid; grid-template-columns: 32px 1fr 70px 40px; align-items: center; gap: 4px;
+    padding: 1px 2px; font-size: 8.5px;
+}
+.adc-drift-cat { font-size: 9px; color: var(--text-secondary, #cbd5e1); font-weight: 600; }
+.adc-drift-bars { position: relative; height: 12px; display: flex; flex-direction: column; gap: 1px; }
+.adc-drift-bar { height: 5px; border-radius: 1px; min-width: 2px; }
+.adc-drift-bar--promised { background: color-mix(in srgb, #a78bfa 65%, transparent); }
+.adc-drift-bar--actual { background: color-mix(in srgb, #10b981 65%, transparent); }
+.adc-drift-vals { font-family: 'SF Mono', Menlo, monospace; font-size: 8px; display: inline-flex; gap: 2px; align-items: baseline; }
+.adc-drift-val--p { color: #a78bfa; }
+.adc-drift-val--a { color: #10b981; }
+.adc-drift-vals-sep { color: var(--text-secondary, #64748b); font-size: 7px; }
+.adc-drift-eps { font-family: 'SF Mono', Menlo, monospace; font-size: 9px; text-align: right; font-weight: 600; }
+.adc-drift-eps--ok { color: #10b981; }
+.adc-drift-eps--warn { color: #f59e0b; }
+.adc-drift-eps--bad { color: #ef4444; }
+.adc-drift-eps--na { color: var(--text-secondary, #64748b); }
+
+/* ── §F 响应灵敏度 ── */
+.adc-sens { display: flex; flex-direction: column; gap: 3px; }
+.adc-sens--empty { padding: 6px; color: var(--text-secondary, #94a3b8); font-size: 9px; text-align: center; }
+.adc-sens__head { display: flex; justify-content: space-between; align-items: baseline; }
+.adc-sens__subtitle {
+    margin-left: 6px; font-size: 8px; font-weight: 400; letter-spacing: 0;
+    color: var(--text-secondary, #94a3b8); text-transform: none;
+}
+.adc-sens__hint { font-size: 9px; color: var(--text-secondary, #94a3b8); }
+.adc-sens__rows { display: flex; flex-direction: column; gap: 1px; }
+.adc-sens-row {
+    display: grid; grid-template-columns: 130px 45px 1fr; align-items: baseline; gap: 4px;
+    padding: 2px 4px; font-size: 9px; border-radius: 2px;
+}
+.adc-sens-row--good { background: color-mix(in srgb, #10b981 15%, transparent); }
+.adc-sens-row--dull { background: color-mix(in srgb, #f59e0b 12%, transparent); }
+.adc-sens-row--bad { background: color-mix(in srgb, #ef4444 18%, transparent); }
+.adc-sens-row--idle { background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent); opacity: 0.7; }
+.adc-sens-pair { font-family: 'SF Mono', Menlo, monospace; color: var(--text-primary, #f1f5f9); font-size: 8.5px; }
+.adc-sens-r { font-family: 'SF Mono', Menlo, monospace; font-size: 9px; color: var(--text-secondary, #cbd5e1); font-weight: 600; }
+.adc-sens-verdict { font-size: 8.5px; }
+.adc-sens-verdict--good { color: #10b981; }
+.adc-sens-verdict--dull { color: #f59e0b; }
+.adc-sens-verdict--bad { color: #ef4444; font-weight: 600; }
+.adc-sens-verdict--idle { color: var(--text-secondary, #64748b); font-style: italic; }
+
+

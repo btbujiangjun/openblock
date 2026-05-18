@@ -1,0 +1,279 @@
+/**
+ * derivation/selectors.js — v1.58 单一事实源（Single Source of Truth）
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 设计动机
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * v1.57.5 治理后，6 项 UI 一致性 bug 的根因被收口为：**同一指标有 N 个 cache，
+ * 更新触发器各不相同**——DFV 节点读 ctx.profile.boardFill、sparkline 读 IIFE
+ * liveBoardFill、playerInsightPanel 读 game.grid.getFillRatio()，
+ * 三处各算各的，去抖指纹又漏算其中一份。
+ *
+ * v1.58 引入"派生层"（derivation layer），明确职责分离：
+ *
+ *   ┌────────────────┐    ┌─────────────────┐    ┌────────────┐
+ *   │ adaptiveSpawn  │ →  │   derivation/   │ →  │  UI 层      │
+ *   │ (算法决策)      │    │ (SSOT + 派生)   │    │ (DFV / ...) │
+ *   └────────────────┘    └─────────────────┘    └────────────┘
+ *
+ * - **算法层** 产出原始信号（stress / breakdown / spawnHints / ...）
+ * - **派生层** 把信号 + 实时几何 派生成 UI 唯一消费的 PresentationModel
+ * - **UI 层** 只读 PresentationModel，禁止直接读 game.grid / game._lastAdaptiveInsight
+ *
+ * 本文件是派生层的**最底层入口**：任何"实时几何 / 算法快照"读取都必须经过
+ * 这里的 selector 函数。下游模块（intentResolver / displayContracts /
+ * presentationReducer）只接受 selector 的返回值，禁止再次穿透到 game 内部字段。
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 强制约束（ESLint 规则未来可固化）
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ *   ❌ 禁止：`game.grid.getFillRatio()`           （UI 层直接读 grid）
+ *   ❌ 禁止：`game._lastAdaptiveInsight.boardFill` （UI 层直接读 cached 字段）
+ *   ❌ 禁止：`profile.metrics.clearRate`           （UI 层直接读 profile）
+ *
+ *   ✅ 应当：`selectLiveBoardFill(game)`
+ *   ✅ 应当：`selectInsightWithLiveGeometry(game)`
+ *   ✅ 应当：`selectLiveClearRate(game)`
+ *
+ * 这样的好处：
+ *   - 新增 cache 不会让 UI 再出现"同帧两值"
+ *   - 字段重命名 / 重构只改 selector 一处
+ *   - selector 内部可以加 staleness 检测、降级、断言
+ *   - 性质测试 / 监控 probe 可以统一拦截 selector 调用
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  实时几何 Selectors                                                          */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 选择当前盘面占用率（实时）。
+ *
+ * 优先级：grid.getFillRatio() > 顶层 insight.boardFill > 0。
+ *
+ * @param {{grid?: {getFillRatio?: () => number}}} game
+ * @returns {number} 0..1
+ */
+export function selectLiveBoardFill(game) {
+    if (!game) return 0;
+    try {
+        const v = game.grid?.getFillRatio?.();
+        if (Number.isFinite(v)) return v;
+    } catch { /* grid 接口异常时回退 */ }
+    const cached = Number(game._lastAdaptiveInsight?.boardFill);
+    return Number.isFinite(cached) ? cached : 0;
+}
+
+/**
+ * 选择当前消行率（实时，单位 / 块）。
+ *
+ * playerProfile.metrics.clearRate 是 EMA 平滑量，玩家每次放置后立即更新，
+ * 不存在 dock 周期级的快照滞后。直接读最权威的源。
+ *
+ * @param {{playerProfile?: {metrics?: {clearRate?: number}}}} game
+ * @returns {number}
+ */
+export function selectLiveClearRate(game) {
+    if (!game) return 0;
+    const v = Number(game.playerProfile?.metrics?.clearRate);
+    return Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * 选择当前失放率（实时，单位 / 块）。
+ *
+ * @param {{playerProfile?: {metrics?: {missRate?: number}}}} game
+ * @returns {number}
+ */
+export function selectLiveMissRate(game) {
+    if (!game) return 0;
+    const v = Number(game.playerProfile?.metrics?.missRate);
+    return Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * 选择当前盘面几何摘要（实时，5 字段）。
+ *
+ * 优先级：
+ *   1. game._lastAdaptiveInsight.spawnDiagnostics.layer1.{fill,holes,nearFullLines,multiClearCandidates,pcSetup}
+ *      —— 由 v1.57.4 `_refreshIntentSnapshot` 在玩家每次放置后实时刷新
+ *   2. grid.getFillRatio() —— 顶层 fill 兜底
+ *
+ * 这是 "实时几何" 的权威源，下游 contracts / reducer 都从这里取。
+ *
+ * @param {object} game
+ * @returns {{fill:number, holes:number, nearFullLines:number, multiClearCandidates:number, pcSetup:number}}
+ */
+export function selectLiveGeometry(game) {
+    const empty = { fill: 0, holes: 0, nearFullLines: 0, multiClearCandidates: 0, pcSetup: 0 };
+    if (!game) return empty;
+    const layer1 = game._lastAdaptiveInsight?.spawnDiagnostics?.layer1;
+    if (layer1 && typeof layer1 === 'object') {
+        return {
+            fill: Number.isFinite(layer1.fill) ? layer1.fill : selectLiveBoardFill(game),
+            holes: Number.isFinite(layer1.holes) ? layer1.holes : 0,
+            nearFullLines: Number.isFinite(layer1.nearFullLines) ? layer1.nearFullLines : 0,
+            multiClearCandidates: Number.isFinite(layer1.multiClearCandidates) ? layer1.multiClearCandidates : 0,
+            pcSetup: Number.isFinite(layer1.pcSetup) ? layer1.pcSetup : 0,
+        };
+    }
+    return { ...empty, fill: selectLiveBoardFill(game) };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  决策快照 Selectors                                                          */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 选择当前 adaptive insight 决策快照（v1.57.4 后已含增量刷新的 spawnIntent +
+ * spawnDiagnostics.layer1 + 顶层 boardFill）。
+ *
+ * @param {object} game
+ * @returns {object|null}
+ */
+export function selectInsight(game) {
+    return game?._lastAdaptiveInsight ?? null;
+}
+
+/**
+ * 选择"合并实时几何后的 insight 视图"——把 selectLiveGeometry 的结果合入
+ * insight.spawnDiagnostics.layer1 与顶层 boardFill，确保下游 reducer/contracts
+ * 看到的几何一定是最新的，即便 _refreshIntentSnapshot 之后又过了若干帧。
+ *
+ * 这是 reducer 与 contracts 的**唯一推荐入口**。
+ *
+ * @param {object} game
+ * @returns {object|null}
+ */
+export function selectInsightWithLiveGeometry(game) {
+    const insight = selectInsight(game);
+    if (!insight) return null;
+    const geom = selectLiveGeometry(game);
+    return {
+        ...insight,
+        boardFill: geom.fill,
+        spawnDiagnostics: {
+            ...(insight.spawnDiagnostics ?? {}),
+            layer1: {
+                ...(insight.spawnDiagnostics?.layer1 ?? {}),
+                fill: geom.fill,
+                holes: geom.holes,
+                nearFullLines: geom.nearFullLines,
+                multiClearCandidates: geom.multiClearCandidates,
+                pcSetup: geom.pcSetup,
+            },
+        },
+    };
+}
+
+/**
+ * 选择当前 spawnIntent（v1.57.4 起在 spawnHints.spawnIntent 与顶层 spawnIntent
+ * 两处冗余存在；优先取 spawnHints 的最新派生值）。
+ *
+ * @param {object} game
+ * @returns {string|null}
+ */
+export function selectSpawnIntent(game) {
+    const insight = selectInsight(game);
+    if (!insight) return null;
+    return insight.spawnHints?.spawnIntent ?? insight.spawnIntent ?? null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  玩家档案 Selectors                                                          */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 选择 playerProfile 的"压力链路相关字段"子集，供 reducer / contracts 消费。
+ * 不暴露整个 profile 是为了让契约层依赖明确（profile 字段重命名只改这里）。
+ *
+ * @param {object} game
+ * @returns {object|null}
+ */
+export function selectProfileForPresentation(game) {
+    const p = game?.playerProfile;
+    if (!p) return null;
+    return {
+        skillLevel: p.skillLevel,
+        momentum: p.momentum,
+        frustrationLevel: p.frustrationLevel,
+        flowState: p.flowState,
+        sessionPhase: p.sessionPhase,
+        cognitiveLoad: p.cognitiveLoad,
+        recentComboStreak: p.recentComboStreak ?? 0,
+        boardFill: selectLiveBoardFill(game),
+        metrics: {
+            clearRate: selectLiveClearRate(game),
+            missRate: selectLiveMissRate(game),
+            ...(p.metrics ?? {}),
+        },
+        isInOnboarding: p.isInOnboarding,
+    };
+}
+
+/**
+ * 选择"实时几何 + spawnIntent + 顶层 stress" 三件套——presentationReducer
+ * 的最小输入。
+ *
+ * @param {object} game
+ * @returns {{intent: string|null, stress: number, geometry: object, breakdown: object, hints: object, distress: object}}
+ */
+export function selectReducerInputs(game) {
+    const insight = selectInsightWithLiveGeometry(game);
+    const profile = game?.playerProfile;
+    if (!insight) {
+        return {
+            intent: null,
+            stress: 0,
+            geometry: selectLiveGeometry(game),
+            breakdown: {},
+            hints: {},
+            distress: {
+                sessionPhase: profile?.sessionPhase,
+                momentum: profile?.momentum,
+                frustrationLevel: profile?.frustrationLevel ?? 0,
+                boardFill: selectLiveBoardFill(game),
+            },
+            intentInputs: null,
+        };
+    }
+    /* v1.58.1：派生 harvestReady = 当前是否真的存在可兑现的消行路径。
+     * 用于 displayContracts 的"节奏类承诺"守卫（flow.payoff / relief.friendly 等），
+     * 避免 spawnHints.rhythmPhase='payoff' 但 dock+盘面尚无任何 nearFullLines/mcc/pcSetup
+     * 时撒谎"享受多消快感"（v1.58.1 截图 bug 的根因）。 */
+    const layer1 = insight.spawnDiagnostics.layer1;
+    const harvestReady = (Number(layer1.nearFullLines) >= 1)
+        || (Number(layer1.multiClearCandidates) >= 1)
+        || (Number(layer1.pcSetup) >= 1);
+    return {
+        intent: insight.spawnHints?.spawnIntent ?? insight.spawnIntent ?? null,
+        stress: Number.isFinite(insight.stress) ? insight.stress : 0,
+        geometry: {
+            fill: layer1.fill,
+            holes: layer1.holes,
+            nearFullLines: layer1.nearFullLines,
+            multiClearCandidates: layer1.multiClearCandidates,
+            pcSetup: layer1.pcSetup,
+            boardFill: layer1.fill,
+            harvestReady,
+        },
+        breakdown: insight.stressBreakdown ?? {},
+        hints: insight.spawnHints ?? {},
+        intentInputs: insight._intentInputs ?? null,
+        distress: {
+            sessionPhase: insight.sessionPhase ?? profile?.sessionPhase,
+            momentum: insight.momentum ?? profile?.momentum,
+            frustrationLevel: insight.frustration ?? insight.frustrationLevel ?? profile?.frustrationLevel ?? 0,
+            boardFill: insight.spawnDiagnostics.layer1.fill,
+            /* v1.58.3：暴露 flowState（profile 中长期心流判定）给 reducer 派生跨维度冲突。
+             * flowState='bored' 与 intent='relief' 等组合时，reducer 输出 conflicts 数组。 */
+            flowState: profile?.flowState ?? null,
+        },
+        afkEngageActive: !!insight.afkEngageActive,
+        scoreMilestoneHit: !!insight.scoreMilestoneHit,
+        personalizationApplied: !!insight.personalizationApplied,
+        onboarding: !!profile?.isInOnboarding,
+    };
+}

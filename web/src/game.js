@@ -4,7 +4,7 @@
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
 import { initScoreAnimator, animateScore, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
-import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from './adaptiveSpawn.js';
+import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry } from './adaptiveSpawn.js';
 /* v1.57：stress 感知化层（A 棋盘氛围光 + B 呼吸节奏 + C 震动幅度 + D 音频滤波）
  * pushStressAmbience 在 _captureAdaptiveInsight 末尾被调用，把 finalStress 渗透
  * 到玩家可感知的视/听/触渠道，解决"算法精算 stress 但玩家感知不到"的断层。
@@ -295,6 +295,76 @@ export class Game {
     }
 
     /**
+     * v1.57.4：玩家每次成功放置（含消行）后增量刷新 `_lastAdaptiveInsight` 中"几何敏感"
+     * 字段，解决 DFV "盘面具备消行机会" / stressMeter "识别到密集消行机会" 等基于
+     * insight 的展示文案与玩家操作后盘面错位的"快照滞后"问题。
+     *
+     * **修复范围**：
+     *   - spawnIntent / spawnHints.spawnIntent —— 用 deriveSpawnIntent 重判（同 adaptiveSpawn 口径）
+     *   - spawnDiagnostics.layer1.{ fill, holes, nearFullLines, multiClearCandidates, pcSetup }
+     *     —— stressMeter buildStoryLine 与 DFV reason 读取的几何快照
+     *
+     * **不修复**（语义就是"上次出块决策时的偏好"）：
+     *   - spawnHints 中除 spawnIntent 外的所有"投放偏好"字段（sizePreference / clearGuarantee /
+     *     targetSolutionRange 等）—— 这些描述的是【已经出在 dock 里的块】是按什么策略生成的，
+     *     玩家放置不改变它，否则等于撒谎说"这批块是按新意图生成的"
+     *   - stress / stressBreakdown / pacingPhase / delightMode / sessionArc / 等
+     *     —— 这些都是 spawn 决策时刻的"心情"快照，需要在 spawnBlocks() 时整体重算
+     *
+     * **调用时机**（在 game.js 中的两处）：
+     *   1. _handlePlace 内成功 grid.place 之后、_refreshPlayerInsightPanel 之前
+     *   2. playClearEffect.animate 末尾、spawnBlocks() 之前（消行动画完成后）
+     *
+     * 失败保护：grid / _lastAdaptiveInsight / _intentInputs 任一缺失则静默 no-op，
+     * UI 退回到上次 spawn 时的快照（与改动前行为一致，不会更糟）。
+     */
+    _refreshIntentSnapshot() {
+        const insight = this._lastAdaptiveInsight;
+        if (!insight || !this.grid || this.isGameOver) return;
+        const dockPool = (this.dockBlocks || [])
+            .filter((b) => b && !b.placed && Array.isArray(b.shape))
+            .map((b) => ({ data: b.shape }));
+        const geom = snapshotInsightGeometry(this.grid, dockPool);
+        if (!geom) return;
+
+        const prevLayer1 = insight.spawnDiagnostics?.layer1 ?? {};
+        const nextLayer1 = {
+            ...prevLayer1,
+            fill: geom.fill,
+            holes: geom.holes,
+            nearFullLines: geom.nearFullLines,
+            multiClearCandidates: geom.multiClearCandidates,
+            pcSetup: geom.pcSetup,
+        };
+        insight.spawnDiagnostics = {
+            ...(insight.spawnDiagnostics ?? {}),
+            layer1: nextLayer1,
+        };
+        /* v1.57.5 §A：顶层 boardFill 字段也同步实时几何——历史上 DFV / panel /
+         * 商业化策略卡都会通过 insight.boardFill 取"当前盘面占用"，留快照会让多处
+         * 展示读到旧值。同步后所有"基于 insight.boardFill 的展示"与 grid 真实 fill 一致。 */
+        insight.boardFill = geom.fill;
+
+        const intentInputs = insight._intentInputs;
+        if (intentInputs) {
+            const nextIntent = deriveSpawnIntent({
+                ...intentInputs,
+                geometry: {
+                    nearFullLines: geom.nearFullLines,
+                    pcSetup: geom.pcSetup,
+                    boardFill: geom.fill,
+                },
+            });
+            if (nextIntent !== insight.spawnIntent) {
+                insight.spawnIntent = nextIntent;
+                if (insight.spawnHints) {
+                    insight.spawnHints = { ...insight.spawnHints, spawnIntent: nextIntent };
+                }
+            }
+        }
+    }
+
+    /**
      * 写入 move_sequence 帧快照：盘面空洞（实时拓扑）+ 候选块可落子数之和（见 getCandidatePlacementSolutionSnapshot）。
      * @returns {{ holes: number, solutionCount: number | null } | null}
      */
@@ -425,7 +495,13 @@ export class Game {
             accessibilityLoad: layered._accessibilityLoad ?? layered.spawnHints?.accessibilityLoad ?? 0,
             returningWarmupStrength: layered._returningWarmupStrength ?? layered.spawnHints?.returningWarmupStrength ?? 0,
             socialFairChallenge: layered._socialFairChallenge === true,
-            afkEngageActive: layered._afkEngageActive === true
+            afkEngageActive: layered._afkEngageActive === true,
+            /* v1.57.4：缓存决策侧 spawnIntent 不变量，供 _refreshIntentSnapshot() 在玩家
+             * 每次放置后用同一套规则 + 实时几何重判 intent，解决 DFV "盘面具备消行机会" /
+             * stressMeter "识别到密集消行机会" 与玩家操作后盘面错位的"快照滞后"问题。
+             * 注意：此对象由 deriveSpawnIntent 直接消费（除 geometry 子字段外），不要在
+             * game.js 内做"语义改写"，避免与 resolveAdaptiveStrategy 内的口径漂移。 */
+            _intentInputs: layered._intentInputs ? { ...layered._intentInputs } : null
         };
         const m = p.metrics;
         this._lastAdaptiveInsight.profileAtSpawn = {
@@ -2027,6 +2103,10 @@ export class Game {
             result.perfectClear = result.count > 0 && this.grid.getFillRatio() === 0;
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
             this._updateBottleneckTrough();
+            /* v1.57.4：玩家落子后 grid 已变（消行也已 apply），先增量重判 spawnIntent +
+             * 几何快照，再触发 panel 渲染，这样 stressMeter buildStoryLine / DFV reason
+             * 读到的 _lastAdaptiveInsight 与玩家肉眼看到的盘面同步。 */
+            this._refreshIntentSnapshot();
             this._refreshPlayerInsightPanel();
             this._spawnModelLayerRefresh?.();
 
@@ -2291,6 +2371,12 @@ export class Game {
                 self.markDirty();
 
                 self._markDockBlockPlaced(dockIndex);
+
+                /* v1.57.4：消行动画完成后再增量刷新一次 intent + 几何快照——
+                 * checkLines 在动画前就已 apply 到 grid，理论上 _handlePlace 那次刷新
+                 * 已覆盖；但 perfectClear / bonus 等会触发额外副作用，再走一次保险，
+                 * 让 DFV / stressMeter 在动画结束→spawn 重抽之间的窗口也读到实时值。 */
+                self._refreshIntentSnapshot();
 
                 if (self.dockBlocks.every(b => b.placed)) {
                     self._levelManager?.recordRound();

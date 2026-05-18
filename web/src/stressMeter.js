@@ -90,6 +90,28 @@ export function getStressDisplay(stress, spawnIntent, distress = null) {
         }
     }
 
+    /* v1.57.5 §G：盘面吃紧守卫 —— stress 数值停留在 calm/easy 低压档但盘面实际很密
+     * （boardFill ≥ 0.65）时，纯 🙂 / 😌 笑脸与玩家肉眼看到的"密集盘面"反差太大。
+     * 这种"低 stress + 高 fill"组合典型来自 friendlyBoardRelief / scoreStress 减压
+     * 链路（远 PB + 高占用 + 有近满线 → friendlyBoardRelief 把 stress 压到 0.15），
+     * 数学正确但情绪信号撒谎。
+     *
+     * 切到 😅（汗笑），既保留"被照顾"的友好感又承认"盘面其实不轻松"。
+     * 优先级低于"挣扎中"（崩盘比单纯盘面紧更严重），高于"救济中"（救济变体仅靠
+     * stress 低 + intent=relief 触发，不考虑盘面）。 */
+    const fillForGuard = distress && Number.isFinite(distress.boardFill) ? Number(distress.boardFill) : NaN;
+    if (Number.isFinite(stress) && stress < 0.333
+        && (base.id === 'calm' || base.id === 'easy')
+        && Number.isFinite(fillForGuard) && fillForGuard >= 0.65) {
+        return {
+            ...base,
+            id: `${base.id}-crowded`,
+            face: '😅',
+            label: `${base.label}（盘面吃紧）`,
+            vibe: '系统已在帮你减压，但盘面较密——先把消行通道留好，避免列继续堆高。'
+        };
+    }
+
     /* v1.55.17：阈值切到 norm 域（raw -0.05 → norm 0.125） */
     if (spawnIntent === 'relief'
         && Number.isFinite(stress)
@@ -230,7 +252,11 @@ export function computeTrend(history, current, baselineN = 6) {
  *   `flow` 改为按实际 rhythmPhase 选变体；`SPAWN_INTENT_NARRATIVE.flow` 保留作兜底。
  */
 export const SPAWN_INTENT_NARRATIVE = {
-    relief:   '盘面通透又是兑现窗口，悄悄给你减压享受多消。',
+    /* v1.57.5 §B：relief 兜底文案。**调用方应优先用 RELIEF_NARRATIVE_BY_REASON
+     * 按真实触发原因 + fill 守卫挑选叙事**——本默认值仅作 fallback。
+     * 旧文案"盘面通透"在 fill ≥ 0.5（截图 0.69）时与玩家肉眼盘面严重错位，
+     * 已收窄为更通用的"减压"语义；细化变体见 RELIEF_NARRATIVE_BY_REASON。 */
+    relief:   '正在投放更友好的组合，悄悄给你减压。',
     engage:   '注意到你停顿了一下，给你一个明显得分目标 + 友好开局。',
     pressure: '正在挑战自我！系统略加压让收尾更有仪式感。',
     flow:     '心流稳定，系统继续维持流畅的出块节奏。', // v1.24：去"收获期"硬编码，作 rhythmPhase 缺失时的兜底
@@ -240,6 +266,71 @@ export const SPAWN_INTENT_NARRATIVE = {
     sprint:   '节奏渐紧，逐步收束。',
     maintain: '看起来比较轻松，悄悄加点料维持新鲜感。'
 };
+
+/**
+ * v1.57.5 §B：relief 按触发原因分级（修复"盘面通透"在密集盘面撒谎的同源 bug）。
+ *
+ * spawnIntent='relief' 的触发条件是 `playerDistress < -0.10`，但 playerDistress
+ * 是 6 项救济信号累加（recovery + frustration + nearMiss + holeRelief + boardRiskRelief
+ * + bottleneckRelief + endSessionDistress）。**friendlyBoardRelief 不在 playerDistress
+ * 内（见 adaptiveSpawn.js 注释），但 SPAWN_INTENT_NARRATIVE.relief 旧文案"盘面通透又是
+ * 兑现窗口..."的措辞却暗示了 friendly 几何**——当 relief 实际由 frustration / boardRisk
+ * 等其他原因触发，且 fill 不"通透"时（截图 fill=0.69），叙事与盘面严重错位。
+ *
+ * 设计：按 stressBreakdown 各 relief 分量 + fill 守卫挑选真实原因变体。
+ *
+ * - **endgame**：endSessionDistress 主导（末段崩盘救济），优先级最高
+ * - **friendly**：friendlyBoardRelief 主导 **且** fill < 0.5（"通透"语义守卫）
+ * - **hole**：holeReliefAdjust 主导（盘面空洞偏多）
+ * - **boardRisk**：boardRiskReliefAdjust 主导（盘面占用 + 风险综合救济）
+ * - **bottleneck**：bottleneckRelief 主导（瓶颈低谷救济）
+ * - **frustration**：frustrationRelief / recoveryAdjust / nearMissAdjust 累加主导（默认）
+ * - **default**：兜底（与 SPAWN_INTENT_NARRATIVE.relief 一致）
+ */
+export const RELIEF_NARRATIVE_BY_REASON = {
+    endgame:     '本局接近收尾，正投放更稳的组合让你顺利收官。',
+    friendly:    '盘面有可消行机会，悄悄给你减压享受多消。',
+    hole:        '盘面空洞偏多，正在投放更友好的组合帮你慢慢回正。',
+    boardRisk:   '盘面压力较高，正在投放更易消行的组合。',
+    bottleneck:  '注意到你刚刚停顿较多，给你一个更可解的组合。',
+    frustration: '注意到你刚刚不太顺，正在投放更友好的形状。',
+    default:     '正在投放更友好的组合，悄悄给你减压。',
+};
+
+/**
+ * v1.57.5 §B：按 stressBreakdown 各 relief 分量 + fill 守卫分类 relief 主导原因。
+ *
+ * @param {object} breakdown stressBreakdown
+ * @param {number} fill      当前盘面占用（来自 spawnDiagnostics.layer1.fill 或实时 grid）
+ * @returns {'endgame'|'friendly'|'hole'|'boardRisk'|'bottleneck'|'frustration'|'default'}
+ */
+export function classifyReliefReason(breakdown, fill) {
+    if (!breakdown) return 'default';
+    /* 1. endgame：末段崩盘救济优先级最高 */
+    const end = Number(breakdown.endSessionDistress) || 0;
+    if (end < -0.05) return 'endgame';
+    /* 2. friendly：friendlyBoardRelief 主导且 fill < 0.5（"通透"语义守卫）——
+     *    fill ≥ 0.5 时文案中的"盘面通透"会与肉眼盘面错位，必须下沉。 */
+    const friendly = Number(breakdown.friendlyBoardRelief) || 0;
+    const fillNum = Number(fill);
+    if (friendly < -0.05 && Number.isFinite(fillNum) && fillNum < 0.5) return 'friendly';
+    /* 3. 按单项 relief 强度挑主导（取负数中绝对值最大者）；阈值 -0.05 与
+     *    buildStoryLine 兜底链路一致，避免微小信号也宣称"主导"。 */
+    const candidates = [
+        ['hole',       Number(breakdown.holeReliefAdjust)      || 0],
+        ['boardRisk',  Number(breakdown.boardRiskReliefAdjust) || 0],
+        ['bottleneck', Number(breakdown.bottleneckRelief)      || 0],
+        ['frustration', (Number(breakdown.frustrationRelief)  || 0)
+                       + (Number(breakdown.recoveryAdjust)    || 0)
+                       + (Number(breakdown.nearMissAdjust)    || 0)],
+    ];
+    let best = null;
+    let bestVal = -0.05;
+    for (const [key, val] of candidates) {
+        if (val < bestVal) { best = key; bestVal = val; }
+    }
+    return best || 'default';
+}
 
 /**
  * v1.56.3 §5.α.7：策略隐性原则 ——
@@ -460,6 +551,14 @@ export function buildStoryLine(level, breakdown, spawnTargets, spawnHints, geome
         const density = classifyHarvestDensity(geometry);
         return HARVEST_NARRATIVE_BY_DENSITY[density] ?? SPAWN_INTENT_NARRATIVE.harvest;
     }
+    /* v1.57.5 §B：relief 也按真实主导原因 + fill 守卫分级（与 harvest 密度分级同构），
+     * 修复"盘面通透"在密集盘面（fill≥0.5）撒谎的同源 bug。breakdown 缺失或
+     * 分类失败时回到 SPAWN_INTENT_NARRATIVE.relief（v1.57.5 已收窄为中性文案）。 */
+    if (intent === 'relief') {
+        const fillForRelief = Number(geometry?.boardFill);
+        const reason = classifyReliefReason(breakdown, fillForRelief);
+        return RELIEF_NARRATIVE_BY_REASON[reason] ?? SPAWN_INTENT_NARRATIVE.relief;
+    }
     const narrative = intent && SPAWN_INTENT_NARRATIVE[intent];
     if (narrative) return narrative;
 
@@ -566,10 +665,18 @@ export function renderStressMeter(root, insight, stressHistory = []) {
      * face/label/vibe 切到"被照顾"变体，与故事线"系统正在主动减压"对齐，
      * 避免"😌 放松"+"挫败感偏高"看起来打架。 */
     const intent = insight.spawnHints?.spawnIntent ?? insight.spawnIntent ?? null;
+    /* v1.57.5 §G：把实时 boardFill 喂进 getStressDisplay 的 distress 入参，触发
+     * "盘面吃紧守卫"——低 stress + 高 fill（≥0.65）时把 🙂/😌 切到 😅 + "（盘面吃紧）"，
+     * 修复"舒缓笑脸 vs 密集盘面"反差 bug。优先用 spawnDiagnostics.layer1.fill（v1.57.4
+     * 已实时刷新），缺失时降级到 insight.boardFill（v1.57.5 §A 顶层字段同步刷新）。 */
+    const _liveFillForFace = Number.isFinite(insight.spawnDiagnostics?.layer1?.fill)
+        ? insight.spawnDiagnostics.layer1.fill
+        : Number(insight.boardFill);
     const level = getStressDisplay(stress, intent, {
         sessionPhase: insight.sessionPhase,
         momentum: insight.momentum,
         frustrationLevel: insight.frustration ?? insight.frustrationLevel,
+        boardFill: _liveFillForFace,
     });
     const trend = computeTrend(stressHistory, stress, 6);
     /* v1.31：把 spawn 时刻的盘面几何（fill / holes / nearFullLines / mcc）透传给

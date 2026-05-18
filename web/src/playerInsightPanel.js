@@ -18,6 +18,9 @@ import {
     getMetricLabelColor
 } from './sparkline.js';
 import { openInsightMetricModal } from './insightMetricModal.js';
+/* v1.58 §rewire：SSOT 接入。所有"实时盘面占用率"读取改走 selectors，
+ * 避免多处 cache 不同步导致的 v1.57.5 §A 类双显 bug 再次出现。 */
+import { selectLiveBoardFill } from './derivation/selectors.js';
 import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { renderStressMeter, summarizeContributors } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
@@ -847,7 +850,7 @@ function _buildLiveSnapshotForSeries(game) {
     const m = p.metrics;
     const ability = ins?.abilityVector || buildPlayerAbilityVector(p, {
         grid: game.grid,
-        boardFill: game.grid?.getFillRatio?.() ?? 0,
+        boardFill: selectLiveBoardFill(game),
         gameStats: game.gameStats,
         spawnContext: game._spawnContext,
         adaptiveInsight: ins,
@@ -887,7 +890,7 @@ function _buildLiveSnapshotForSeries(game) {
         pv: 2,
         phase: 'live',
         score: game.score,
-        boardFill: game.grid?.getFillRatio?.() ?? 0,
+        boardFill: selectLiveBoardFill(game),
         skill: p.skillLevel,
         momentum: p.momentum,
         cognitiveLoad: cognitiveLoadHasData ? p.cognitiveLoad : null,
@@ -946,7 +949,26 @@ function _buildLiveSnapshotForSeries(game) {
             /* ignore */
         }
     }
+    /* v1.59：dockCategories 记录——为 algorithmDynamicsCard §E 的"算法承诺 vs 实际接收
+     * shapeWeights 偏差柱"提供数据源。每帧记录 dock 三块的 category（即便 placed=true
+     * 也记录，因为它代表"实际从抽样器拿到的块"）。这是观察"shapeWeights 抽样器是否真的
+     * 在按算法承诺出块"的唯一手段。 */
+    if (Array.isArray(game.dockBlocks)) {
+        const cats = game.dockBlocks
+            .map((b) => b?.shapeId ? _dockCategoryOf(b.shapeId) : null)
+            .filter(Boolean);
+        if (cats.length > 0) slim.dockCategories = cats;
+    }
     return slim;
+}
+
+let _dockCategoryCache = null;
+function _dockCategoryOf(shapeId) {
+    if (_dockCategoryCache == null) {
+        _dockCategoryCache = new Map();
+        for (const s of getAllShapes()) _dockCategoryCache.set(s.id, s.category);
+    }
+    return _dockCategoryCache.get(shapeId) ?? null;
 }
 
 function _appendLiveInsightSample(game) {
@@ -1370,7 +1392,9 @@ function _render(game) {
     const p = game.playerProfile;
     const ins = game._lastAdaptiveInsight;
     const liveTopology = game.grid ? analyzeBoardTopology(game.grid) : null;
-    const liveBoardFill = liveTopology?.fillRatio ?? game.grid?.getFillRatio?.() ?? 0;
+    /* v1.58 §rewire SSOT：liveBoardFill 走 selectors，避免 v1.57.5 §A 类双显复发。
+     * topology.fillRatio 优先（它含一次性几何分析的语义），缺失时走 selector。 */
+    const liveBoardFill = liveTopology?.fillRatio ?? selectLiveBoardFill(game);
     const ability = buildPlayerAbilityVector(p, {
         grid: game.grid,
         topology: liveTopology,
@@ -1647,7 +1671,7 @@ function _render(game) {
 
     const elStrategy = document.getElementById('insight-strategy');
     const gridInfo = game.grid ? {
-        fillRatio: game.grid.getFillRatio(),
+        fillRatio: selectLiveBoardFill(game),
         maxHeight: _gridMaxHeight(game.grid),
         holesCount: _gridHoles(game.grid),
         liveTopology,

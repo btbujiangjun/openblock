@@ -26,7 +26,29 @@
  */
 
 import { summarizeContributors } from './stressMeter.js';
+import { getShapeById } from './shapes.js';
 import { t } from './i18n/i18n.js';
+/* v1.58 §rewire：派生层 SSOT 接入。Chip override 状态从硬编码 (intent==='relief')
+ * 改走表驱动 isSignalOverridden，新增 intent/signal 无需再改 DFV 渲染代码。
+ *
+ * v1.58.3 升级：chip 渲染从手写 flags 数组改走 deriveChipsFromCtx + buildChipCtxFromInsight，
+ * 让 DFV chip on 函数与 CHIP_DEFS 表唯一同源——未来新增 chip 只改 CHIP_DEFS 不改 DFV。
+ * 每个 chip 高亮时 title 自动写 reason + 数值，治理"灯亮但无来源"。
+ * conflicts 数组渲染在 chip 区底部一行，承认跨维度信号冲突。 */
+import { resolveIntent as _dfvResolveIntent, isSignalOverridden as _dfvIsSignalOverridden } from './derivation/intentResolver.js';
+import {
+    deriveChipsFromCtx as _dfvDeriveChips,
+    buildChipCtxFromInsight as _dfvBuildChipCtx,
+    deriveConflicts as _dfvDeriveConflicts,
+} from './derivation/presentationReducer.js';
+/* v1.59.6：DFV 右栏"决策动态"段集成 2 个 algorithmDynamicsCard 模块——
+ *   §B 压力归因（stress 分量竖排排序条目，归因型可读 fix）
+ *   §C 响应灵敏度（玩家信号 vs 算法响应 Pearson 粗估）
+ * v1.59.6 删除 §A 意图时间线：信息密度低、占用右栏空间且切换次数已在出块意图段统计。 */
+import {
+    renderStressBreakdownStack as _dfvRenderStressStack,
+    renderResponseSensitivityCard as _dfvRenderSens,
+} from './algorithmDynamicsCard.js';
 
 /**
  * v1.51.4：i18n key 取值帮助函数。失败 / 缺译时回退到 fallback 中文文案。
@@ -45,19 +67,24 @@ const TOGGLE_BTN_ID = 'decision-flow-viz-btn';
  *  - i18nKey：本地化 key；缺译时回退 label。
  *  - range：热力色阶归一化区间；type='enum' 用 enumColors 直接配色。
  *  - format 控制数值展示（默认 toFixed(2) / 整数）。 */
+/* v1.59.8 baseColor：每个信号节点的身份色，永远显示——
+ *   - 加载时 / 数据缺失时：fill 用 baseColor + 低 alpha，stroke 用 baseColor 全色，
+ *     辅以 idle 呼吸动画 让节点"待机但活着"，避免一片灰
+ *   - 有数据时：fill 仍用 baseColor，opacity 由信号强度 [0,1] 驱动（0.45..1.0）
+ *   - enum 节点（flow/session）维持 enumColors 状态切色（已是身份/状态色） */
 const SIGNAL_NODES = [
-    { key: 'skill',      i18nKey: 'dfv.signal.skill',     label: '技能',   readPath: ['profile', 'skillLevel'],          range: [0, 1] },
-    { key: 'momentum',   i18nKey: 'dfv.signal.momentum',  label: '动量',   readPath: ['profile', 'momentum'],            range: [-1, 1], signed: true },
-    { key: 'frust',      i18nKey: 'dfv.signal.frust',     label: '挫败',   readPath: ['profile', 'frustrationLevel'],    range: [0, 8],  format: 'int' },
+    { key: 'skill',      i18nKey: 'dfv.signal.skill',     label: '技能',   readPath: ['profile', 'skillLevel'],          range: [0, 1], baseColor: '#facc15' },
+    { key: 'momentum',   i18nKey: 'dfv.signal.momentum',  label: '动量',   readPath: ['profile', 'momentum'],            range: [-1, 1], signed: true, baseColor: '#fb923c' },
+    { key: 'frust',      i18nKey: 'dfv.signal.frust',     label: '挫败',   readPath: ['profile', 'frustrationLevel'],    range: [0, 8],  format: 'int', baseColor: '#ef4444' },
     { key: 'flow',       i18nKey: 'dfv.signal.flow',      label: '心流',   readPath: ['profile', 'flowState'],           type: 'enum',
-      enumColors: { bored: '#fbbf24', flow: '#10b981', anxious: '#ef4444' } },
+      enumColors: { bored: '#fbbf24', flow: '#10b981', anxious: '#ef4444' }, baseColor: '#10b981' },
     { key: 'session',    i18nKey: 'dfv.signal.session',   label: '阶段',   readPath: ['profile', 'sessionPhase'],        type: 'enum',
-      enumColors: { early: '#60a5fa', peak: '#10b981', late: '#f97316' } },
-    { key: 'load',       i18nKey: 'dfv.signal.load',      label: '负荷',   readPath: ['profile', 'cognitiveLoad'],       range: [0, 1] },
-    { key: 'clearRate',  i18nKey: 'dfv.signal.clearRate', label: '消行率', readPath: ['profile', 'metrics', 'clearRate'], range: [0, 0.55] },
-    { key: 'boardFill',  i18nKey: 'dfv.signal.boardFill', label: '占盘',   readPath: ['profile', 'boardFill'],            range: [0, 1] },
-    { key: 'combo',      i18nKey: 'dfv.signal.combo',     label: '连击',   readPath: ['profile', 'recentComboStreak'],    range: [0, 6],  format: 'int' },
-    { key: 'missRate',   i18nKey: 'dfv.signal.missRate',  label: '失放率', readPath: ['profile', 'metrics', 'missRate'],  range: [0, 0.4] },
+      enumColors: { early: '#60a5fa', peak: '#10b981', late: '#f97316' }, baseColor: '#60a5fa' },
+    { key: 'load',       i18nKey: 'dfv.signal.load',      label: '负荷',   readPath: ['profile', 'cognitiveLoad'],       range: [0, 1], baseColor: '#a78bfa' },
+    { key: 'clearRate',  i18nKey: 'dfv.signal.clearRate', label: '消行率', readPath: ['profile', 'metrics', 'clearRate'], range: [0, 0.55], baseColor: '#34d399' },
+    { key: 'boardFill',  i18nKey: 'dfv.signal.boardFill', label: '占盘',   readPath: ['profile', 'boardFill'],            range: [0, 1], baseColor: '#22d3ee' },
+    { key: 'combo',      i18nKey: 'dfv.signal.combo',     label: '连击',   readPath: ['profile', 'recentComboStreak'],    range: [0, 6],  format: 'int', baseColor: '#f472b6' },
+    { key: 'missRate',   i18nKey: 'dfv.signal.missRate',  label: '失放率', readPath: ['profile', 'metrics', 'missRate'],  range: [0, 0.4], baseColor: '#f87171' },
 ];
 
 /** 决策输出节点定义（右列）spawnIntent 颜色映射（与 stressMeter 叙事同口径） */
@@ -94,6 +121,62 @@ const SHAPE_CATEGORY_CN = {
     zshapes: 'Z 形',
     lshapes: 'L 形',
     jshapes: 'J 形',
+};
+
+/**
+ * v1.59.17：shape category 视觉色（与 STRATEGY_COMPONENT_DEFS / SPAWN_TARGET_DEFS 色系协调），
+ * 供阶段③ 3 chosen shape 节点按 category 染色。每色尽量与同 category 的形状语义对应：
+ *   lines（长条）  → 青蓝（cyan）：直线流畅感
+ *   rects（矩形）  → 紫
+ *   squares（方块）→ 黄：稳定感
+ *   tshapes（T）   → 粉
+ *   zshapes（Z）   → 橙：弯折锋利
+ *   lshapes（L）   → 绿
+ *   jshapes（J）   → 红
+ */
+const SHAPE_CATEGORY_COLOR = {
+    lines:   '#22d3ee',
+    rects:   '#a78bfa',
+    squares: '#fcd34d',
+    tshapes: '#f472b6',
+    zshapes: '#fb923c',
+    lshapes: '#10b981',
+    jshapes: '#ef4444',
+};
+
+/**
+ * v1.59.18：blockSpawn diagnostics.chosen[].reason 标签的完整中文映射。
+ *
+ * **代码事实**：blockSpawn.js 在 chosen 字段只会写入以下 4 种 reason 之一
+ * （详见 web/src/bot/blockSpawn.js L1076/L1245/L1254/L1556）：
+ *   - 'clear'         主路径：消行候选优先（pcSetup<1）
+ *   - 'perfectClear'  主路径：清屏候选优先（pcSetup>=1）
+ *   - 'weighted'      主路径：weighted pool 加权抽选
+ *   - 'fallback'      兜底：主路径失败时降级
+ *
+ * v1.59.17 之前字典含 multiClear/holeReduce/gapFills/pcPotential 等都是误写——
+ * blockSpawn 从不会写这些字串到 chosen.reason，造成 'clear' 漏配进而被
+ * _summarizeReason() 走 slice(0,4) 截成 'clea'（用户反馈"出块文字显示不全"根因）。
+ *
+ * 完整中文用 3~4 字，节点上方居中显示。
+ */
+const SPAWN_REASON_CN = {
+    clear:        '送消行',
+    perfectClear: '送清屏',
+    weighted:     '综合选',
+    fallback:     '兜底块',
+};
+
+/**
+ * v1.59.18：blockSpawn reason 的详细解释（tooltip + 底部 legend 共用，~12-30 字）。
+ * v1.59.19：标签语义直白化（用户反馈"主消行/加权选"看不懂）—— SPAWN_REASON_CN 改为
+ * 含动作的"送消行/送清屏/综合选/兜底块"，并在 dfv-foot legend 一次性展示 4 种 reason 解释。
+ */
+const SPAWN_REASON_TIP = {
+    clear:        '送消行：本块放下后能直接消 1+ 行（消行候选优先路径）',
+    perfectClear: '送清屏：本块能促成全盘清空（perfectClear 候选优先路径）',
+    weighted:     '综合选：5 hints + 6 targets + 4 schedule 多维加权抽选（主流路径）',
+    fallback:     '兜底块：主路径 22 次重试都不满足存活约束，降级使用（少见）',
 };
 
 /** v1.51.3：spawnTargets 6 个目标维度的中文标签（adaptiveSpawn.js 中定义） */
@@ -133,6 +216,292 @@ const STRATEGY_COMPONENT_DEFS = [
     { key: 'comboChain', label: '连击', color: '#38bdf8', norm: (v) => Number.isFinite(v) ? _clamp(v, 0, 1) : 0.08, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
 ];
 const STRATEGY_COMPONENT_KEYS = new Set(STRATEGY_COMPONENT_DEFS.map((d) => d.key));
+
+/**
+ * v1.59.13：每个策略分量的"主驱动信号"集合，**按代码事实**取自 adaptiveSpawn.js 中
+ * 该 hint 实际读取的 ctx/profile 字段（L1706-2130 + L445-475 deriveComboChain）。
+ *
+ * 用途：在 DFV 球状图为每个分量节点向其 driver 信号节点画弱虚线，让用户**看见**
+ * "5 分量 也是从信号集派生的"（v1.59.12 漏画导致 5 分量视觉孤立，描述与实际不符）。
+ *
+ * 取舍：源码 50+ Math.max 路径无法逐一可视化，只保留每分量 3-4 个"高显著度"驱动信号，
+ * 让连线密度在可读范围（5 × 3.5 ≈ 17 条），且每根都对应真实代码路径。
+ *
+ * 不变式：本映射的每个 (hint, signalKey) 对，都必须能在 adaptiveSpawn.js 中找到至少
+ * 一条 if-branch 同时读取 signalKey 对应的 ctx 字段并改写 hint（由文档治理保证）。
+ */
+const HINT_DRIVER_SIGNALS = {
+    /* clearGuarantee 在 hadRecentNearMiss / frustrationLevel / needsRecovery / momentum 负值 /
+     * recentMisses / cognitiveLoad 等场景被 Math.max 拉高 → 挫败/动量/失放率/负荷 4 路。 */
+    clearGuarantee: ['frust', 'momentum', 'missRate', 'load'],
+    /* sizePreference 在 frustration / needsRecovery / topo onset / boardLoad 等场景被 Math.min 压低 →
+     * 挫败/动量/负荷 3 路。 */
+    sizePreference: ['frust', 'momentum', 'load'],
+    /* orderRigor 在 flowState='bored' 五重 bypass、frustration、cognitiveLoad 等场景被 reset/调整 →
+     * 心流/负荷/挫败 3 路。 */
+    orderRigor: ['flow', 'load', 'frust'],
+    /* diversityBoost 在 flow='bored'、cognitiveLoad、missRate 等场景被 Math.max 拉高 →
+     * 心流/负荷/失放率 3 路。 */
+    diversityBoost: ['flow', 'load', 'missRate'],
+    /* comboChain = deriveComboChain(ctx, profile) 读 lastClearCount + recentComboStreak，
+     * 经验上还受 skill / momentum 隐含影响（streak 形成依赖技能稳定与正动量）→ 连击/技能/动量 3 路。 */
+    comboChain: ['combo', 'skill', 'momentum'],
+};
+
+/**
+ * v1.59.13：spawnIntent 的"主驱动信号"集合，按代码事实取自 intentResolver.js INTENT_RULES。
+ *
+ * 各 intent 的 guard 读取字段：
+ *   relief:   playerDistress（由 frustrationLevel 派生）/ delightMode / forceReliefIntent  → frust
+ *   harvest:  geometry.boardFill / nearFullLines / pcSetup                                  → boardFill
+ *   pressure: challengeBoost / delightMode / stress（自身派生，跳过）                       → boardFill(高填充触发)
+ *   sprint:   stress（自身派生，跳过）+ sprintCfg                                          → (无外部信号)
+ *   flow:     delightMode='flow_payoff' / rhythmPhase（由 flowState 派生）                  → flow
+ *   maintain: 兜底
+ *
+ * 简化为：意图 ← 挫败 / 占盘 / 心流 / 阶段 / 动量 5 路（覆盖主要触发场景的底层信号）。
+ */
+const INTENT_DRIVER_SIGNALS = ['frust', 'boardFill', 'flow', 'session', 'momentum'];
+
+/**
+ * v1.59.15：spawnTargets 6 维的定义（与 SPAWN_TARGET_CN 同源 + 颜色 + 归一化）。
+ *
+ * 6 维目标向量由 `adaptiveSpawn.deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight)`
+ * 输出（L404-432），是"5 分量 + delight 调度"之后、`spawnHints` 内的另一层向量化目标，
+ * 供 blockSpawn 在评估候选形状时做加权打分。
+ */
+const SPAWN_TARGET_DEFS = [
+    { key: 'shapeComplexity',       label: '复杂', color: '#f87171', baseColor: '#f87171' },
+    { key: 'solutionSpacePressure', label: '解空', color: '#fb923c', baseColor: '#fb923c' },
+    { key: 'clearOpportunity',      label: '消机', color: '#22d3ee', baseColor: '#22d3ee' },
+    { key: 'spatialPressure',       label: '空间', color: '#a78bfa', baseColor: '#a78bfa' },
+    { key: 'payoffIntensity',       label: '兑现', color: '#10b981', baseColor: '#10b981' },
+    { key: 'novelty',               label: '新奇', color: '#f472b6', baseColor: '#f472b6' },
+];
+
+/**
+ * v1.59.15：spawnTargets 6 维的"主驱动信号"集合，按 adaptiveSpawn.deriveSpawnTargets 实际公式：
+ *   shapeComplexity = stress01*0.75 + boredHighSkill(skill,flow)*0.25 - riskRelief(frust)*0.45
+ *   solutionSpacePressure = stress01*0.7 + shapeComplexity*0.25 - boardRisk(load)*0.55 - recoveryNeed(frust)*0.35
+ *   clearOpportunity = recoveryNeed(frust)*0.55 + payoffOpportunity(boardFill,nearFull)*0.45 - stress01*0.18
+ *   spatialPressure = stress01*0.65 + boardDifficulty(boardFill)*0.25 - boardRisk(load)*0.5 - recoveryNeed(frust)*0.3
+ *   payoffIntensity = delight.multiClearBoost*0.45 + payoffOpportunity(boardFill)*0.4 + max(0,momentum)*0.15
+ *   novelty = (flow==='bored'?0.45:0) + stress01*0.25 + totalRounds(session)/80 - recoveryNeed(frust)*0.2
+ *
+ * 每维取 2-3 个最显著驱动信号，保持画面密度可读。
+ */
+const SPAWN_TARGET_DRIVER_SIGNALS = {
+    shapeComplexity:       ['skill', 'frust'],
+    solutionSpacePressure: ['frust', 'load'],
+    clearOpportunity:      ['frust', 'boardFill'],
+    spatialPressure:       ['boardFill', 'load'],
+    payoffIntensity:       ['momentum', 'boardFill'],
+    novelty:               ['flow', 'session'],
+};
+
+/**
+ * v1.59.15：调度参数 4 个的定义（multiClear/multiLine/perfectClear/iconBonus），与 HINT_CN 同源。
+ *
+ * 这是 spawnHints 顶层的"调度强化"参数，由独立 derive 函数计算：
+ *   multiClearBonus   = deriveMultiClearBonus(ctx, fill)   L459-478（max delight.multiClearBoost）
+ *   multiLineTarget   = deriveMultiLineTarget(ctx, fill)   L528-540
+ *   perfectClearBoost = delight.perfectClearBoost          L～1660（由 deriveDelightTuning 派生）
+ *   iconBonusTarget   = motivation/behavior 驱动           L～1900
+ */
+const SCHEDULE_PARAM_DEFS = [
+    { key: 'multiClearBonus',   label: '多消', color: '#fcd34d', baseColor: '#fcd34d', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    { key: 'multiLineTarget',   label: '多线', color: '#fb923c', baseColor: '#fb923c', norm: (v) => _clampSafe(v / 2, 0, 1), display: (v) => Number.isFinite(v) ? v.toFixed(0) : '—' },
+    { key: 'perfectClearBoost', label: '清屏', color: '#c084fc', baseColor: '#c084fc', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    { key: 'iconBonusTarget',   label: '图标', color: '#ec4899', baseColor: '#ec4899', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+];
+
+/**
+ * v1.59.15：4 调度参数的"主驱动信号"集合，按 adaptiveSpawn.js 实际派生：
+ *   multiClearBonus   ← ctx.{roundsSinceClear, nearFullLines, pcSetup} + fill         → boardFill + clearRate
+ *   multiLineTarget   ← ctx.{pcSetup, nearFullLines, lastClearCount} + fill           → boardFill + combo
+ *   perfectClearBoost ← deriveDelightTuning(skill, momentum, flow, pacing, frust)     → skill + flow
+ *   iconBonusTarget   ← motivationIntent + behaviorSegment（与 session/playstyle 相关）→ session + skill
+ */
+const SCHEDULE_PARAM_DRIVER_SIGNALS = {
+    multiClearBonus:   ['boardFill', 'clearRate'],
+    multiLineTarget:   ['boardFill', 'combo'],
+    perfectClearBoost: ['skill', 'flow'],
+    iconBonusTarget:   ['session', 'skill'],
+};
+
+/**
+ * v1.59.21 方案 C：driver → 派生节点路径映射（反向追溯高亮）。
+ *
+ * 给定 chosen.topDriver.key（由 blockSpawn._estimateTopDriver 输出），返回该 driver
+ * 应该指向的"派生节点 keys 集合"。Hover chosen 节点时，DFV 反向高亮这些派生节点
+ * + 它们的上游信号节点（通过 HINT_DRIVER_SIGNALS / SPAWN_TARGET_DRIVER_SIGNALS /
+ * SCHEDULE_PARAM_DRIVER_SIGNALS / INTENT_DRIVER_SIGNALS 自动扩展），其余节点淡出
+ * 到 0.18 opacity，让玩家**主动探索时**看到"信号 → 派生 → 此 chosen"的完整因果链。
+ *
+ * 映射依据：_estimateTopDriver 的判定优先级 ↔ blockSpawn scoreShape 内对应权重
+ * 所消费的 hint / target / schedule 字段（一一对应，非启发式）：
+ *
+ *   pcPotential   → scoreShape ×18 perfectClearBoost & intent（送清屏路径走 intent gate）
+ *   multiClear    → scoreShape ×2.0-2.7 multiClearBonus + multiLineTarget
+ *   gapFills      → scoreShape ×nearFullFactor strategy.clearGuarantee + target.clearOpportunity
+ *   holeReduce    → scoreShape ×0.4 strategy.clearGuarantee + target.spatialPressure
+ *   mobility      → scoreShape placements 加权 + strategy.diversityBoost + target.solutionSpacePressure/novelty
+ *   shapeWeight   → scoreShape weight 主乘项 strategy.sizePreference + target.shapeComplexity
+ *   balanced      → 无单一主因 → 全 5 派生层 + 全信号微亮（'*'）
+ *   fallback      → 主路径不通 → 仅 chosen 自身高亮（空集）
+ */
+const DRIVER_NODE_PATHS = {
+    pcPotential: { strategy: [],                   targets: [],                                      schedule: ['perfectClearBoost'],                       intent: true },
+    multiClear:  { strategy: [],                   targets: [],                                      schedule: ['multiClearBonus', 'multiLineTarget'],      intent: false },
+    gapFills:    { strategy: ['clearGuarantee'],   targets: ['clearOpportunity'],                    schedule: [],                                          intent: false },
+    holeReduce:  { strategy: ['clearGuarantee'],   targets: ['spatialPressure'],                     schedule: [],                                          intent: false },
+    mobility:    { strategy: ['diversityBoost'],   targets: ['solutionSpacePressure', 'novelty'],    schedule: [],                                          intent: false },
+    shapeWeight: { strategy: ['sizePreference'],   targets: ['shapeComplexity'],                     schedule: [],                                          intent: false },
+    balanced:    { strategy: '*',                  targets: '*',                                     schedule: '*',                                         intent: true },
+    fallback:    { strategy: [],                   targets: [],                                      schedule: [],                                          intent: false },
+};
+
+/* v1.59.15：内部安全 clamp（与 _clamp 同语义，常量定义时 _clamp 尚未引入作用域，用本地副本） */
+function _clampSafe(v, lo, hi) {
+    if (!Number.isFinite(v)) return lo;
+    return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * v1.59.17：把 shape id（如 'L_horizontal' / 'rect_2x3' / 'T_up'）压缩为 ≤3 字节点显示文本。
+ *
+ * 规则（优先级）：
+ *   1. 'rect_2x3' / 'rect_2x4' 等 → 'R23' / 'R24'（取尺寸数字）
+ *   2. 'L_horizontal' / 'T_up' 等 → 取首字母 + 方向首字符（'Lh' / 'Tu'）
+ *   3. 默认 → id 前 3 字大写
+ */
+/**
+ * v1.59.18：shape id → 可读紧凑简写（≤4 字符，节点下方居中显示）。
+ *
+ * 代码事实：shared/shapes.json 实际 id 命名规律：
+ *   - lines:   '1x4' / '4x1' / '1x5' / '5x1'                   → '1×4' '4×1' '1×5' '5×1'
+ *   - rects:   '2x3' / '3x2'                                   → '2×3' '3×2'
+ *   - squares: '2x2' / '3x3'                                   → '2×2' '3×3'
+ *   - tshapes: 't-up' / 't-down' / 't-left' / 't-right'        → 'T↑' 'T↓' 'T←' 'T→'
+ *   - zshapes: 'z-h' / 'z-h2' / 'z-v' / 'z-v2'                 → 'Z横' 'Z横2' 'Z竖' 'Z竖2'
+ *   - lshapes: 'l-1'..'l-4' / 'l5-a' / 'l5-b'                  → 'L1'..'L4' 'L5a' 'L5b'
+ *   - jshapes: 'j-1'..'j-4'                                    → 'J1'..'J4'
+ *
+ * 完整简写（保留方向/序号/尺寸）让玩家一眼能在 mini grid 缩略图 + 简写之间互相确认。
+ */
+/**
+ * v1.59.18：在 chosen 节点核心位置绘制 shape 的 5×5 mini grid 缩略图（关键解释手段）。
+ *
+ * - 输入 shape.data 是 H×W 0/1 二维矩阵，最大可达 5×5（如 1×5/5×1 直线、l5-a/l5-b 等）
+ * - 输出在 (cx, cy) 为中心的 mini grid，cell 边长按 baseR 自适应缩放，整体居中
+ * - cell=1：彩色填充（category color），cell=0：暗灰描边占位（便于看出原 shape bbox）
+ * - DOM 复用：用 .innerHTML='' 清空旧 grid，然后批量 append（每帧 ≤25 个 rect，开销极小）
+ *
+ * 这是 v1.59.18 用户反馈"出块结果缺乏解释，无法理解"的核心修复 —— 之前 'L1' / 'T↑'
+ * 等文字简写信息密度太低，玩家无法在 0.3 秒内识别"这是什么形状"。mini grid 把
+ * shape.data 直接画出来，与 dock 上玩家实际看到的块视觉一致，理解成本降到接近 0。
+ *
+ * @param {SVGGElement|null} gridG - 容器 g（buildScene 已创建，data-cx/data-cy 含中心点）
+ * @param {{data: number[][]}|null} shape - getShapeById 返回的 shape 对象；null 则清空
+ * @param {number} baseR - chosen 节点半径（决定 mini grid 整体尺寸）
+ * @param {string} color - cell=1 的填充色（按 category 取）
+ */
+function _renderChosenMiniGrid(gridG, shape, baseR, color) {
+    if (!gridG) return;
+    while (gridG.firstChild) gridG.removeChild(gridG.firstChild);
+    if (!shape?.data?.length) return;
+    const cx = Number(gridG.getAttribute('data-cx')) || 0;
+    const cy = Number(gridG.getAttribute('data-cy')) || 0;
+    const data = shape.data;
+    const h = data.length;
+    const w = Math.max(...data.map(r => r.length));
+    /* 整体框边长：baseR * 1.5（适配 r=15..19） */
+    const frame = baseR * 1.45;
+    const cell = frame / Math.max(h, w, 5) * 0.95;
+    const gridW = cell * w;
+    const gridH = cell * h;
+    const startX = cx - gridW / 2;
+    const startY = cy - gridH / 2;
+    const ns = 'http://www.w3.org/2000/svg';
+    const filled = color || '#7dd3fc';
+    const darkFill = _hexToRgba(filled, 0.85);
+    for (let r = 0; r < h; r++) {
+        for (let c = 0; c < w; c++) {
+            const v = data[r][c];
+            const rect = document.createElementNS(ns, 'rect');
+            rect.setAttribute('x', (startX + c * cell + 0.4).toFixed(2));
+            rect.setAttribute('y', (startY + r * cell + 0.4).toFixed(2));
+            rect.setAttribute('width', (cell - 0.8).toFixed(2));
+            rect.setAttribute('height', (cell - 0.8).toFixed(2));
+            rect.setAttribute('rx', '0.6');
+            if (v) {
+                rect.setAttribute('fill', darkFill);
+                rect.setAttribute('stroke', filled);
+                rect.setAttribute('stroke-width', '0.5');
+            } else {
+                rect.setAttribute('fill', 'rgba(148,163,184,0.05)');
+                rect.setAttribute('stroke', 'rgba(148,163,184,0.18)');
+                rect.setAttribute('stroke-width', '0.4');
+                rect.setAttribute('stroke-dasharray', '0.6 0.6');
+            }
+            gridG.appendChild(rect);
+        }
+    }
+}
+
+/** v1.59.18：hex (#rrggbb) → rgba 字符串，用于 mini grid cell 半透明填充 */
+function _hexToRgba(hex, alpha) {
+    if (typeof hex !== 'string' || !hex.startsWith('#') || hex.length < 7) {
+        return `rgba(125,211,252,${alpha})`;
+    }
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function _summarizeShapeId(id) {
+    if (typeof id !== 'string' || !id) return '—';
+    const sizeMatch = id.match(/^(\d)x(\d)$/i);
+    if (sizeMatch) return `${sizeMatch[1]}×${sizeMatch[2]}`;
+    const tDir = id.match(/^t-(up|down|left|right)$/i);
+    if (tDir) {
+        const map = { up: '↑', down: '↓', left: '←', right: '→' };
+        return `T${map[tDir[1].toLowerCase()] || '?'}`;
+    }
+    /* v1.60.0 新形状：斜线 diag-2a/b / diag-3a/b → "⤢2↗/⤢3↘"（≤3 字符可读） */
+    const diag = id.match(/^diag-(\d)([ab])$/i);
+    if (diag) {
+        const arrow = diag[2].toLowerCase() === 'a' ? '↗' : '↘';
+        return `⤢${diag[1]}${arrow}`;
+    }
+    /* v1.60.0 新形状：3 格 L 角 l3-a/b/c/d → "L3↘/L3↙/L3↗/L3↖" */
+    const l3 = id.match(/^l3-([abcd])$/i);
+    if (l3) {
+        const arrowMap = { a: '↘', b: '↙', c: '↗', d: '↖' };
+        return `L3${arrowMap[l3[1].toLowerCase()] || '?'}`;
+    }
+    const zVar = id.match(/^z-(h|v)(2?)$/i);
+    if (zVar) return `Z${zVar[1].toLowerCase() === 'h' ? '横' : '竖'}${zVar[2] || ''}`;
+    const ljShort = id.match(/^([lj])-(\d)$/i);
+    if (ljShort) return `${ljShort[1].toUpperCase()}${ljShort[2]}`;
+    const lj5 = id.match(/^([lj])5-([ab])$/i);
+    if (lj5) return `${lj5[1].toUpperCase()}5${lj5[2].toLowerCase()}`;
+    return id.length <= 4 ? id : id.slice(0, 4);
+}
+
+/**
+ * v1.59.18：把 blockSpawn diagnostics.chosen[].reason 翻译为完整中文标签
+ * （节点上方居中显示，≤4 字）。未命中字典时退回原始字串（截断 4 字符）。
+ *
+ * v1.59.17 旧版有 split('+').slice(0,4) 截断逻辑——已废弃，因为 blockSpawn 写入
+ * 的 reason 不含 '+' 复合形式（详见 SPAWN_REASON_CN 字典 JSDoc）。
+ */
+function _summarizeReason(reason) {
+    if (typeof reason !== 'string' || !reason) return '';
+    if (SPAWN_REASON_CN[reason]) return SPAWN_REASON_CN[reason];
+    return reason.length <= 4 ? reason : reason.slice(0, 4);
+}
 
 /** v1.51.3：sparkline 中文标签（5 路时间序列） */
 const SPARK_LABEL_CN = {
@@ -305,12 +674,34 @@ function _setAttrIfChanged(el, key, value) {
     el.setAttribute(key, str);
 }
 
-function _dfvFingerprint(insight, profile) {
-    if (!insight && !profile) return 'empty';
+/**
+ * v1.57.5 §A/F：DFV 渲染去抖指纹。
+ *
+ * 历史 bug（用户截图复现）：
+ *   - 左侧"占盘"信号节点显示 0.40（spawn 决策时的快照），
+ *   - 底部"占盘"sparkline 同时显示 0.69（实时 grid fill），
+ *   - "消行率"同样两处不一致（— vs 0.31）。
+ *
+ * 根因：旧指纹只看 insight + profile 的"决策侧"字段（stress / intent /
+ * breakdown / momentum / frust / flowState / sessionPhase），漏算了 liveBoardFill
+ * 与 liveClearRate 这两个"实时几何"信号。玩家落子后 grid.fill 从 0.40 变到 0.69，
+ * 但 stress / spawnIntent 等 dock 周期内不变，指纹不变 → 左侧节点被去抖跳过刷新；
+ * 而 sparkline 每 tick 都采样+渲染，导致两处数字脱节。
+ *
+ * 修复：把 liveBoardFill / liveClearRate 也纳入指纹（同样按 0.01 量化），
+ * 让任一实时几何变化都触发节点重绘，与 sparkline 同源同步。
+ *
+ * @param {object} insight  game._lastAdaptiveInsight 决策快照
+ * @param {object} profile  game.playerProfile
+ * @param {object} [live]   实时几何快照（v1.57.5 新增）：{ boardFill, clearRate }
+ */
+function _dfvFingerprint(insight, profile, live) {
+    if (!insight && !profile && !live) return 'empty';
     const i = insight || {};
     const p = profile || {};
     const b = i.stressBreakdown || {};
     const h = i.spawnHints || {};
+    const lv = live || {};
     /* 关键字段：stress 0.01、intent / hints 标志、breakdown 各项取 0.01 */
     const round = (v) => Number.isFinite(v) ? Math.round(v * 100) : 'x';
     const parts = [
@@ -323,8 +714,21 @@ function _dfvFingerprint(insight, profile) {
         round(p.frustrationLevel),
         p.flowState ?? '',
         p.sessionPhase ?? '',
+        // v1.57.5 §A/F：实时几何信号纳入指纹，确保左列节点与底部 sparkline 同源刷新
+        `live.fill:${round(lv.boardFill)}`,
+        `live.cr:${round(lv.clearRate)}`,
     ];
     for (const k of Object.keys(b)) parts.push(`${k}:${round(b[k])}`);
+    /* v1.59.17：阶段③ chosen 纳入指纹——blockSpawn 重新 spawn 后 chosen[] 变化（id/reason），
+     * 即便 stress/intent 未变化（极少见但发生），DFV 也应重渲染 chosen 节点行。 */
+    const diag = i.spawnDiagnostics;
+    if (diag && Array.isArray(diag.chosen)) {
+        for (let k = 0; k < diag.chosen.length; k++) {
+            const c = diag.chosen[k];
+            parts.push(`c${k}:${c?.id ?? ''}|${c?.reason ?? ''}`);
+        }
+        parts.push(`atk:${diag.attempt ?? 0}`);
+    }
     return parts.join('|');
 }
 
@@ -342,6 +746,17 @@ class DecisionFlowViz {
         this._lastSpawnRoundSeen = null;
         this._particles = [];
         this._strategyFlashState = new Map();
+        /* v1.59.14：派生依赖虚线（信号→5分量、信号→intent）的 SVG ref，spawn pulse 时短闪强化 */
+        this._hintDeriveLinks = [];
+        this._intentDeriveLinks = [];
+        this._deriveFlashTimer = 0;
+        /* v1.59.15：spawnTargets 6 维 + 4 调度参数节点 SVG ref */
+        this._spawnTargetEls = [];
+        this._scheduleParamEls = [];
+        /* v1.59.17：阶段③ 3 chosen shape 节点 + attempt badge SVG ref */
+        this._chosenShapeEls = [];
+        this._spawnAttemptBadge = null;
+        this._lastChosenSig = '';
 
         /* v1.55.1 调度状态 */
         this._lastTickAt = 0;
@@ -583,9 +998,21 @@ class DecisionFlowViz {
             secTargetsSub:_ti('dfv.sec.targetsSub', '前 6 项'),
             secHints:     _ti('dfv.sec.hints', '调度提示'),
             secHintsSub:  _ti('dfv.sec.hintsSub', '调度参数'),
+            secDynamics:  _ti('dfv.sec.dynamics', '决策动态'),
+            secDynamicsSub: _ti('dfv.sec.dynamicsSub', '归因 · 灵敏度'),
+            flowNavAria:  _ti('dfv.flowNav.aria', '算法决策流水线：信号 → 压力 → 策略 → 意图'),
+            flowStepSignal: _ti('dfv.flowStep.signal', '信号'),
+            flowStepStress: _ti('dfv.flowStep.stress', '压力'),
+            flowStepStrategy: _ti('dfv.flowStep.strategy', '策略'),
+            flowStepIntent: _ti('dfv.flowStep.intent', '意图'),
+            flowStepSignalTip: _ti('dfv.flowStep.signalTip', '10 个玩家信号节点（左列）：技能 / 动量 / 心流 / 阶段 / 占盘 / 消行率 等'),
+            flowStepStressTip: _ti('dfv.flowStep.stressTip', '17+ 信号经 adaptiveSpawn 聚合为单一 stress（中央球，[0,1] 归一化）'),
+            flowStepStrategyTip: _ti('dfv.flowStep.strategyTip', 'stress + 上下文分解为 5 个策略分量：保消 / 尺寸 / 刚性 / 多样 / 连击'),
+            flowStepIntentTip: _ti('dfv.flowStep.intentTip', 'resolveIntent 综合策略选定本帧出块意图：harvest / relief / engage / flow / sprint / pressure / maintain'),
             footRelief:   _ti('dfv.foot.relief', '救济'),
             footPressure: _ti('dfv.foot.pressure', '加压'),
             footPulseHint:_ti('dfv.foot.pulseHint', '脉冲=新 spawn'),
+            footCovaryHint:_ti('dfv.foot.covaryHint', '虚线=派生共变·非因果'),
             empty:        _ti('dfv.foot.empty', '—'),
         };
         host.innerHTML = `
@@ -609,13 +1036,75 @@ class DecisionFlowViz {
                         <button type="button" class="dfv-iconbtn dfv-close" aria-label="${T.close}" title="${T.close}">×</button>
                     </div>
                 </div>
+                <!-- v1.59.20：决策摘要叙事条（A+B 组合的 B 部分）。
+                     将左侧球状图的视觉链路"压力→派生→3 块"翻译成一句自然语言，
+                     消除"看图看不懂"的认知 gap：
+                       · stress 档：低压/中压/高压（含 stressLevel%）
+                       · intent 档：缓冲/护场/平稳/送清屏... 等当前驱动意图
+                       · 偏好：5 hints 中权重最高的 1-2 项（如长条 33%、临消行 0.34）
+                       · 3 块主因：每块 topDriver.label（与 chosen 节点"因·XXX"小字一致）
+                     该叙事条与 chosen 节点的"主因小字"形成"全局摘要 + 局部细节"双层解释。 -->
+                <div class="dfv-decision-summary" id="dfv-decision-summary"
+                     title="决策摘要：用一句话解释当前出块决策的算法依据（stress + intent + 偏好 → 3 块主因）">
+                    <span class="dfv-summary-empty">${T.summaryEmpty ?? '等待首次出块…'}</span>
+                </div>
                 <div class="dfv-body">
-                    <div class="dfv-stage" id="dfv-stage">
+                    <div class="dfv-stage dfv-stage--burst" id="dfv-stage">
+                        <!-- v1.59.2：DFV 整体重构为「左视觉炸裂 / 右文本聚合」双轨——
+                             左侧（dfv-stage）：纯视觉表演，球状图独占整个 stage，背景能量场呼吸、stress
+                             多层辉光、spawn 辐射波纹、意图弹跳，让"信号→压力→决策"的动态过程一眼可感知；
+                             右侧（dfv-details）：所有文本/数值/列表集中聚合，顶部新增「决策动态」区段（意图
+                             时间线 / stress 分量堆叠 / 响应灵敏度），将时间维度、归因、灵敏度同屏可读。
+                             v1.59.3：stage 顶部新增 4 阶段流程导航 overlay（dfv-flow-nav），把"信号→压力
+                             →策略→意图"的算法决策流水线显式标注到球状图上方，让"过程"成为肉眼可读的认知锚。 -->
                         <canvas class="dfv-particles" id="dfv-particles"></canvas>
                         <svg class="dfv-svg" id="dfv-svg" xmlns="http://www.w3.org/2000/svg"
-                             viewBox="0 0 360 480" preserveAspectRatio="xMidYMid meet"></svg>
+                             viewBox="0 0 360 320" preserveAspectRatio="xMidYMid meet"></svg>
+                        <div class="dfv-stage-aura" id="dfv-stage-aura" aria-hidden="true"></div>
+                        <div class="dfv-stage-shock" id="dfv-stage-shock" aria-hidden="true"></div>
+                        <!-- v1.59.11 按源码事实修正：
+                             旧版"信号→压力→策略→意图"是视觉叙事编排，与源码事实不符——
+                             stress / spawnHints 5 向量 / spawnIntent 是 adaptiveSpawn 单次调用
+                             的 3 个并列输出（兄弟节点），都从底层信号派生，彼此之间无因果传递：
+                               · clearGuarantee 由 30+ Math.max 路径累加，从不读 stress
+                               · resolveIntent 7 规则只读 distress/geometry/delight/stress，从不读 5 向量
+                             因此 nav 步序号重映射为「1 信号 → 2 派生（① 压力 ∥ ② 策略 ∥ ③ 意图）」，
+                             用 ∥ 分隔表达并列同源，避免误读为串行决策链。 -->
+                        <div class="dfv-flow-nav" id="dfv-flow-nav" aria-label="${T.flowNavAria ?? '算法决策结构：信号 → 派生（压力 ∥ 策略 ∥ 目标 ∥ 调度 ∥ 意图 五者并列同源）'}">
+                            <span class="dfv-flow-step dfv-flow-step--signal" data-step="signal" title="${T.flowStepSignalTip ?? '17+ 玩家信号 — 底层因果输入'}">
+                                <span class="dfv-flow-step__num">1</span><span class="dfv-flow-step__name">${T.flowStepSignal ?? '信号'}</span>
+                            </span>
+                            <span class="dfv-flow-arrow" aria-hidden="true">▶</span>
+                            <span class="dfv-flow-step dfv-flow-step--stress" data-step="stress" title="${T.flowStepStressTip ?? '派生①：stressBreakdown 12+ 分量加权 + normalize'}">
+                                <span class="dfv-flow-step__num">2①</span><span class="dfv-flow-step__name">${T.flowStepStress ?? '压力'}</span>
+                            </span>
+                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与压力派生自相同底层信号，彼此无因果传递">∥</span>
+                            <span class="dfv-flow-step dfv-flow-step--strategy" data-step="strategy" title="${T.flowStepStrategyTip ?? '派生②：spawnHints 5 向量 — 30+ 独立路径并发累加，不读 stress'}">
+                                <span class="dfv-flow-step__num">2②</span><span class="dfv-flow-step__name">${T.flowStepStrategy ?? '策略'}</span>
+                            </span>
+                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与策略派生自相同底层信号，彼此无因果传递">∥</span>
+                            <span class="dfv-flow-step dfv-flow-step--target" data-step="target" title="${T.flowStepTargetTip ?? '派生③：spawnTargets 6 维 — deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight) 输出'}">
+                                <span class="dfv-flow-step__num">2③</span><span class="dfv-flow-step__name">${T.flowStepTarget ?? '目标'}</span>
+                            </span>
+                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与目标派生自相同底层信号">∥</span>
+                            <span class="dfv-flow-step dfv-flow-step--schedule" data-step="schedule" title="${T.flowStepScheduleTip ?? '派生④：multiClear/multiLine/perfectClear/iconBonus 4 调度参数 — 各自独立 derive 函数'}">
+                                <span class="dfv-flow-step__num">2④</span><span class="dfv-flow-step__name">${T.flowStepSchedule ?? '调度'}</span>
+                            </span>
+                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与调度派生自相同底层信号">∥</span>
+                            <span class="dfv-flow-step dfv-flow-step--intent" data-step="intent" title="${T.flowStepIntentTip ?? '派生⑤：resolveIntent 7 规则 — 直接读 distress/geometry/delight/stress，不读 5 向量'}">
+                                <span class="dfv-flow-step__num">2⑤</span><span class="dfv-flow-step__name">${T.flowStepIntent ?? '意图'}</span>
+                            </span>
+                            <span class="dfv-flow-arrow" aria-hidden="true">▶</span>
+                            <span class="dfv-flow-step dfv-flow-step--spawn" data-step="spawn" title="${T.flowStepSpawnTip ?? '出块（blockSpawn.generateDockShapes）：3 子层（拓扑/局内/局间）+ 22 次抽样软过滤 → 3 chosen shape'}">
+                                <span class="dfv-flow-step__num">3</span><span class="dfv-flow-step__name">${T.flowStepSpawn ?? '出块'}</span>
+                            </span>
+                        </div>
                     </div>
                     <div class="dfv-details" id="dfv-details">
+                        <div class="dfv-section dfv-section--dynamics">
+                            <div class="dfv-sec-title">${T.secDynamics ?? '决策动态'} <span class="dfv-sec-sub">${T.secDynamicsSub ?? '时间线 · 归因 · 灵敏度'}</span></div>
+                            <div class="dfv-dynamics-host" id="dfv-dynamics-host"></div>
+                        </div>
                         <div class="dfv-section dfv-section--intent">
                             <div class="dfv-sec-title">${T.secIntent} <span class="dfv-sec-sub" id="dfv-intent-reason">${T.empty}</span></div>
                             <div class="dfv-intent-card">
@@ -633,7 +1122,7 @@ class DecisionFlowViz {
                         </div>
                         <div class="dfv-section">
                             <div class="dfv-sec-title">${T.secShapes} <span class="dfv-sec-sub">${T.secShapesSub}</span></div>
-                            <ul class="dfv-list dfv-list--two-col" id="dfv-shape-list"></ul>
+                            <ul class="dfv-list dfv-list--three-col" id="dfv-shape-list"></ul>
                         </div>
                         <div class="dfv-section">
                             <div class="dfv-sec-title">${T.secTargets} <span class="dfv-sec-sub">${T.secTargetsSub}</span></div>
@@ -650,7 +1139,15 @@ class DecisionFlowViz {
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--neg"></span>${T.footRelief}</span>
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--pos"></span>${T.footPressure}</span>
                     <span class="dfv-legend">${T.footPulseHint}</span>
+                    <span class="dfv-legend dfv-legend--covary" title="${T.footCovaryHint ?? '虚线=派生共变·非因果'}：纵轴 stress / 5 向量 / intent 是 adaptiveSpawn 的 3 个并列输出，从同一底层信号集派生，彼此之间无直接读取——虚线连线表达共时共变，非因果传递"><span class="dfv-dot dfv-dot--covary"></span>${T.footCovaryHint ?? '虚线=派生共变·非因果'}</span>
                     <span class="dfv-legend dfv-legend--ver">v1.54.0</span>
+                </div>
+                <div class="dfv-foot dfv-foot--reason" title="出块行 3 个 chosen 节点上方的 reason 标签含义（blockSpawn.generateDockShapes 4 种打分路径）">
+                    <span class="dfv-legend dfv-legend--reason-title">出块原因：</span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.clear}"><span class="dfv-reason-tag" style="color:#22d3ee">送消行</span> 能直接消行的块</span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.perfectClear}"><span class="dfv-reason-tag" style="color:#fbbf24">送清屏</span> 能促成清屏的块</span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.weighted}"><span class="dfv-reason-tag" style="color:#a78bfa">综合选</span> 多维加权抽选（主流）</span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.fallback}"><span class="dfv-reason-tag" style="color:#94a3b8">兜底块</span> 主路径不通时降级</span>
                 </div>
                 <div class="dfv-resize-handle" id="dfv-resize-handle" title="拖拽缩放"></div>
             </div>
@@ -683,9 +1180,15 @@ class DecisionFlowViz {
         this._bindDrag(host.querySelector('#dfv-head'));
         this._bindResize(host.querySelector('#dfv-resize-handle'));
 
+        /* v1.59.2：球状图重新独占整个 .dfv-stage（取消上下双区），ResizeObserver 监听整 stage；
+         * 决策动态层（timeline / stack / sens）整体迁至右侧 .dfv-details 顶部，由
+         * #dfv-dynamics-host 承载，与下方各 section 一致的紧凑节奏。 */
         this._resizeCanvas();
         new ResizeObserver(() => this._resizeCanvas()).observe(host.querySelector('#dfv-stage'));
 
+        this._dynamicsHost = host.querySelector('#dfv-dynamics-host');
+        this._stageEl = host.querySelector('#dfv-stage');
+        this._stageShock = host.querySelector('#dfv-stage-shock');
         this._buildScene();
     }
 
@@ -699,6 +1202,8 @@ class DecisionFlowViz {
             shape:      host.querySelector('#dfv-shape-list'),
             target:     host.querySelector('#dfv-target-list'),
             hints:      host.querySelector('#dfv-hints-list'),
+            /* v1.59.20：顶部决策摘要叙事条（A+B 的 B 部分） */
+            summary:    host.querySelector('#dfv-decision-summary'),
         };
     }
 
@@ -844,17 +1349,25 @@ class DecisionFlowViz {
             const row = document.createElement('div');
             row.className = 'dfv-spark-row';
             const cn = _ti(`dfv.spark.${s.key}`, SPARK_LABEL_CN[s.key] || s.label);
+            /* v1.59.8 spark 动效增强——
+             *   stroke 1.4 → 1.8 加粗让线条更醒目；
+             *   末点 pulsing 圆点（dfv-spark-dot）跟随最新采样，CSS animation 让脉动可见；
+             *   背景 fillline（dfv-spark-fill）半透明区域强化"趋势带"视觉，比纯线条更有动感 */
             row.innerHTML = `
                 <span class="dfv-spark-label" style="color:${s.color}" title="${s.label}">${cn}</span>
                 <svg class="dfv-spark-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 18" preserveAspectRatio="none">
-                    <path class="dfv-spark-path" fill="none" stroke="${s.color}" stroke-width="1.4" stroke-linejoin="round" d=""></path>
                     <line class="dfv-spark-zero" x1="0" x2="240" y1="9" y2="9" stroke="rgba(148,163,184,0.18)" stroke-dasharray="2 3"></line>
+                    <path class="dfv-spark-fill" fill="${s.color}" fill-opacity="0.14" stroke="none" d=""></path>
+                    <path class="dfv-spark-path" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" d=""></path>
+                    <circle class="dfv-spark-dot" cx="-9" cy="9" r="2.2" fill="${s.color}" style="--dot-color:${s.color}"></circle>
                 </svg>
                 <span class="dfv-spark-value" style="color:${s.color}">—</span>
             `;
             container.appendChild(row);
             this._sparkEls.set(s.key, {
                 path:  row.querySelector('.dfv-spark-path'),
+                fill:  row.querySelector('.dfv-spark-fill'),
+                dot:   row.querySelector('.dfv-spark-dot'),
                 value: row.querySelector('.dfv-spark-value'),
             });
         }
@@ -878,13 +1391,22 @@ class DecisionFlowViz {
             const n = SPARK_BUFFER_LEN;
             const start = this._seriesIdx >= n ? this._seriesIdx - n : 0;
             const len = Math.min(this._seriesIdx, n);
-            if (len === 0) { _setAttrIfChanged(ref.path, 'd', ''); ref.value.textContent = '—'; continue; }
+            if (len === 0) {
+                _setAttrIfChanged(ref.path, 'd', '');
+                if (ref.fill) _setAttrIfChanged(ref.fill, 'd', '');
+                if (ref.dot) { _setAttrIfChanged(ref.dot, 'cx', '-9'); ref.dot.classList.add('dfv-spark-dot--idle'); }
+                ref.value.textContent = '—';
+                continue;
+            }
 
             const [lo, hi] = s.range;
             const span = Math.max(1e-6, hi - lo);
             const W = 240, H = 18;
             let d = '';
             let lastValid = NaN;
+            let lastX = -9, lastY = H / 2;
+            let firstX = 0;
+            let firstSet = false;
             for (let i = 0; i < len; i++) {
                 const v = buf[(start + i) % n];
                 if (!Number.isFinite(v)) continue;
@@ -893,8 +1415,21 @@ class DecisionFlowViz {
                 const y = H - norm * H;
                 d += (d ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
                 lastValid = v;
+                lastX = x; lastY = y;
+                if (!firstSet) { firstX = x; firstSet = true; }
             }
             _setAttrIfChanged(ref.path, 'd', d);
+            /* v1.59.8：fill area path——从最后一点向 baseline 拉 L 闭合，让"趋势带"半透明色填充 */
+            if (ref.fill && d) {
+                const fillD = `${d} L${lastX.toFixed(1)},${H} L${firstX.toFixed(1)},${H} Z`;
+                _setAttrIfChanged(ref.fill, 'd', fillD);
+            }
+            /* v1.59.8：末点圆点跟随最新采样位置，CSS pulsing 让"实时"可见 */
+            if (ref.dot) {
+                _setAttrIfChanged(ref.dot, 'cx', lastX.toFixed(1));
+                _setAttrIfChanged(ref.dot, 'cy', lastY.toFixed(1));
+                ref.dot.classList.remove('dfv-spark-dot--idle');
+            }
             const valTxt = Number.isFinite(lastValid) ? s.format(lastValid) : '—';
             if (ref.value.textContent !== valTxt) ref.value.textContent = valTxt;
         }
@@ -910,6 +1445,17 @@ class DecisionFlowViz {
         this._edgeEls.clear();
         this._geom.clear();
         this._strategyLinkEl = null;
+        /* v1.59.14：buildScene 重建时清空派生虚线 ref（旧 SVG 节点已被 innerHTML='' 清除） */
+        this._hintDeriveLinks = [];
+        this._intentDeriveLinks = [];
+        /* v1.59.15：清空 spawnTargets / 调度参数节点 ref */
+        this._spawnTargetEls = [];
+        this._scheduleParamEls = [];
+        /* v1.59.17：清空阶段③ chosen ref + dirty 指纹（buildScene 重建 SVG 节点后必须强制下次重渲染，
+         * 否则 _renderChosenShapes 的 dirty check 会跳过首次填充，UI 显示 '—' 占位永远不更新） */
+        this._chosenShapeEls = [];
+        this._spawnAttemptBadge = null;
+        this._lastChosenSig = '';
 
         const W = this._w, H = this._h;
         /* v1.51.7：压力 + 意图"右锚定纵向排列"，进一步拉大与信号节点 / 彼此 的距离。
@@ -924,7 +1470,10 @@ class DecisionFlowViz {
         const nodeR = Math.min(24, Math.max(17, (W - 80) * 0.128));
         const stressR = nodeR;
         const intentR = nodeR;
-        const signalX = W * 0.18;
+        /* v1.59.3：signalX 从 W*0.18 → max(58, W*0.20)，让 label "失放率" 等 3 字 label
+         * 在窄栏（W ≈ 260px 默认 540 卡宽时）也不会贴 viewBox 左边——label x = signalX - r - 6，
+         * 需 signalX ≥ r + 6 + labelWidth(≈30px) ≈ 51px 才安全。 */
+        const signalX = Math.max(58, W * 0.20);
         const leftN = SIGNAL_NODES.length;
         const r = leftN <= 8 ? 19 : 15;
 
@@ -942,89 +1491,102 @@ class DecisionFlowViz {
         const targetX = W * 0.74;
         const centerX = _clamp(targetX, axisMin, axisMax);
         const stressX = centerX;
-        const edgeMarginY = Math.max(44, H * 0.12);
-        const stressY = edgeMarginY + stressR;      // 压力上边距与意图下边距保持一致
+        /* v1.59.3：顶部给 .dfv-flow-nav overlay 让位（4 阶段流程导航条 + padding）。
+         * v1.59.7：flowNavReserve 28 → 32（nav 实际高 = top 6 + padding 6 + chip 内容
+         * ~20 ≈ 32px），且下方 sigTop 还需额外预留节点半径 r 避免"圆顶遮挡 nav"。
+         * v1.59.12：旧版 stressY/intentY 局部变量已被新的 stressYNew/intentYNew 三等分布局替代
+         * （见下方"3 派生节点垂直三等分"逻辑），此处仅保留 intentX。 */
+        const flowNavReserve = 32;
+        const edgeMarginY = Math.max(44, H * 0.12) + flowNavReserve * 0.5;
+        void edgeMarginY;
 
         const intentX = centerX;
-        const intentY = H - edgeMarginY - intentR;
 
-        /* 1) 左列：玩家信号节点（垂直均匀分布 10 个，半径自适应） */
+        /* 1) 左列：玩家信号节点（v1.59.6 自适应撑满全高 / v1.59.7 修 nav 遮挡）。
+         *    v1.59.5 固定 gap=clamp(28,36) 中心对齐让 R10 截图 stage 下方大量空白；
+         *    v1.59.6 改回"sigSpan/9 撑满全高"——leftN=10 节点平均铺满 sigTop..sigBottom；
+         *    v1.59.7 修复"技能节点圆顶遮挡 nav"——sigTop 必须额外预留节点半径 r 而非
+         *    flowNavReserve+6，否则第一个节点圆心 y=sigTop 时圆顶 y=sigTop-r 进入 nav 区。 */
+        const sigTop = flowNavReserve + r + 4;
+        const sigBottom = H - 22 - r;
+        const sigSpanRaw = Math.max(40, sigBottom - sigTop);
+        const sigGap = Math.min(80, sigSpanRaw / Math.max(1, leftN - 1));
+        const sigUsedH = sigGap * (leftN - 1);
+        const sigBaseY = sigTop + ((sigBottom - sigTop) - sigUsedH) / 2;
         SIGNAL_NODES.forEach((sig, i) => {
-            const y = H * 0.06 + (H * 0.88) * (i / Math.max(1, leftN - 1));
+            const y = sigBaseY + sigGap * i;
             this._geom.set(sig.key, { x: signalX, y, r });
             this._addSignalNode(sig.key, _ti(sig.i18nKey, sig.label), r);
         });
 
-        /* 2) 中央：stress 球（垂直居中） */
-        this._geom.set('stress', { x: stressX, y: stressY, r: stressR });
+        /* v1.59.12 几何彻底重排：3 派生节点垂直三等分，明示「并列同源」非「串联因果」——
+         * v1.59.15 扩展到 5 派生层（按 adaptiveSpawn 完整对外字段）
+         * v1.59.17 末端补阶段 3（blockSpawn 3 chosen shape）—— 6 层布局，按 1/8 步长分布：
+         *   1.0/8 ← stress 球（派生①）
+         *   2.3/8 ← 5 核心分量（派生②.a：spawnHints 5 核心）
+         *   3.4/8 ← 6 spawnTargets（派生②.b：spawnHints.spawnTargets 6 维目标向量）
+         *   4.4/8 ← 4 调度参数（派生②.c：multiClearBonus/multiLineTarget/perfectClearBoost/iconBonusTarget）
+         *   5.5/8 ← intent 球（派生③）
+         *   7.0/8 ← 3 chosen shape（阶段③出块：blockSpawn.generateDockShapes 末端输出）
+         *
+         * 阶段 2 的 5 派生节点是"并列同源"（信号扇形派生），阶段 3 的 3 chosen shape 是
+         * **真因果消费**（intent + hints + spawnTargets + 调度 全部输入 blockSpawn → 输出 3 shape）。
+         * 视觉上：5 派生层用虚线扇形（共变·非因果），intent→3 chosen 用实色（真因果传递）。 */
+        const derivedTop = sigTop + 2;
+        const derivedBottom = sigBottom - 2;
+        const derivedSpan = Math.max(220, derivedBottom - derivedTop);
+        const stressYNew      = derivedTop + derivedSpan * (1.0 / 8);
+        const strategyY       = derivedTop + derivedSpan * (2.3 / 8);
+        const spawnTargetsY   = derivedTop + derivedSpan * (3.4 / 8);
+        const scheduleParamsY = derivedTop + derivedSpan * (4.4 / 8);
+        const intentYNew      = derivedTop + derivedSpan * (5.5 / 8);
+        const spawnChosenY    = derivedTop + derivedSpan * (7.0 / 8);
+
+        /* 2) 派生①：stress 球（顶部 1/8） */
+        this._geom.set('stress', { x: stressX, y: stressYNew, r: stressR });
         this._addStressBall();
 
-        /* 3) 中央偏下：spawnIntent 六边形（与 stress 同 x，纵向拉开） */
-        this._geom.set('spawnIntent', { x: intentX, y: intentY, r: intentR });
+        /* 3) 派生③：spawnIntent 六边形（5.5/8） */
+        this._geom.set('spawnIntent', { x: intentX, y: intentYNew, r: intentR });
         this._addSpawnIntentNode();
 
-        /* 3.5) 压力 -> 策略分量 -> 意图（常驻）：去文本化，改为多分量图形链路 */
+        /* 3.5) 派生②：5 个策略分量（横排，独立节点）+ 派生依赖虚线。
+         *
+         * v1.59.12 删除 stress→5分量、5分量→intent 的串联连线（错误的因果暗示）。
+         * v1.59.13 补画"信号 → 5 分量"派生依赖虚线（HINT_DRIVER_SIGNALS 映射），
+         *   让用户视觉上看到"5 分量也是从信号集派生"。这些虚线：
+         *     - 弱色 (rgba(148,163,184,0.18))、1px、dasharray '2 3'，不参与 spawn pulse 强化
+         *     - 与"信号→stress"的真贡献边（橙/青实色）形成视觉对比：实=贡献量化，虚=依赖暗示
+         *     - 用 svg.insertBefore 放到最底层，被节点圆形遮盖，画面不显凌乱 */
         {
-            const p0 = { x: stressX, y: stressY + stressR * 0.60 };
-            const p2 = { x: intentX, y: intentY - intentR * 0.62 };
-            const p1 = { x: stressX, y: (p0.y + p2.y) / 2 };
-            const trunkD = bezierPath(p0, p1, p2);
-            const trunkBase = this._svgEl('path', {
-                d: trunkD, fill: 'none', stroke: '#64748b', 'stroke-width': 1.1, 'stroke-opacity': 0.38,
-                'stroke-linecap': 'round', class: 'dfv-strategy-link dfv-strategy-link--base',
-            });
-            const trunkHalo = this._svgEl('path', {
-                d: trunkD, fill: 'none', stroke: '#22d3ee', 'stroke-width': 2.6, 'stroke-opacity': 0.08,
-                'stroke-linecap': 'round', class: 'dfv-strategy-link dfv-strategy-link--halo',
-            });
-            const trunkFlow = this._svgEl('path', {
-                d: trunkD, fill: 'none', stroke: '#e2f7ff', 'stroke-width': 1.3, 'stroke-opacity': 0.30,
-                'stroke-linecap': 'round', 'stroke-dasharray': '4.8 10.8', 'stroke-dashoffset': '0',
-                class: 'dfv-strategy-link dfv-strategy-link--flow',
-            });
-            const midY = (stressY + intentY) / 2;
             const rowCenterX = stressX;
             const comps = STRATEGY_COMPONENT_DEFS.map((def, idx) => {
                 const rel = idx - centerIdx;
                 const x = rowCenterX + rel * span;
-                const y = midY;
+                const y = strategyY;
                 const n = { x, y };
-                const dOut = bezierPath(
-                    p0,
-                    { x: n.x, y: p0.y + (n.y - p0.y) * 0.50 },
-                    n,
-                );
-                const dIn = bezierPath(
-                    n,
-                    { x: n.x, y: n.y + (p2.y - n.y) * 0.50 },
-                    p2,
-                );
-                const outBase = this._svgEl('path', {
-                    d: dOut, fill: 'none', stroke: '#475569', 'stroke-width': 0.95, 'stroke-opacity': 0.28,
-                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link',
-                });
-                const outHalo = this._svgEl('path', {
-                    d: dOut, fill: 'none', stroke: def.color, 'stroke-width': 2.0, 'stroke-opacity': 0.0,
-                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link--halo',
-                });
-                const outFlow = this._svgEl('path', {
-                    d: dOut, fill: 'none', stroke: '#fff', 'stroke-width': 0.95, 'stroke-opacity': 0.0,
-                    'stroke-linecap': 'round', 'stroke-dasharray': '4 8', 'stroke-dashoffset': '0',
-                    class: 'dfv-strategy-branch dfv-strategy-link--flow',
-                });
-                const inBase = this._svgEl('path', {
-                    d: dIn, fill: 'none', stroke: '#475569', 'stroke-width': 0.95, 'stroke-opacity': 0.24,
-                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link',
-                });
-                const inHalo = this._svgEl('path', {
-                    d: dIn, fill: 'none', stroke: def.color, 'stroke-width': 1.8, 'stroke-opacity': 0.0,
-                    'stroke-linecap': 'round', class: 'dfv-strategy-branch dfv-strategy-link--halo',
-                });
-                const inFlow = this._svgEl('path', {
-                    d: dIn, fill: 'none', stroke: '#fff', 'stroke-width': 0.9, 'stroke-opacity': 0.0,
-                    'stroke-linecap': 'round', 'stroke-dasharray': '3.2 9.2', 'stroke-dashoffset': '0',
-                    class: 'dfv-strategy-branch dfv-strategy-link--flow',
-                });
+
+                /* v1.59.13：先画"信号 → 该分量"派生依赖虚线（最底层）
+                 * v1.59.16：每节点存 deriveLinks 引用，_render* 时按 intensity 驱动 opacity/width */
+                const drivers = HINT_DRIVER_SIGNALS[def.key] || [];
+                const compDeriveLinks = [];
+                for (const sigKey of drivers) {
+                    const src = this._geom.get(sigKey);
+                    if (!src) continue;
+                    const ctrlX = (src.x + x) / 2;
+                    const ctrlY = (src.y + y) / 2 + (y - src.y) * 0.18;
+                    const d = bezierPath(src, { x: ctrlX, y: ctrlY }, n);
+                    const link = this._svgEl('path', {
+                        d, fill: 'none',
+                        stroke: def.color, 'stroke-width': 0.8, 'stroke-opacity': 0.22,
+                        'stroke-linecap': 'round', 'stroke-dasharray': '2 3',
+                        class: 'dfv-derive-link dfv-derive-link--hint',
+                    });
+                    svg.insertBefore(link, svg.firstChild);
+                    this._hintDeriveLinks.push({ el: link, color: def.color });
+                    compDeriveLinks.push({ el: link });
+                }
+
                 const group = this._svgEl('g', { class: 'dfv-strategy-node', 'data-key': def.key });
                 const baseR = compR;
                 const glow = this._svgEl('circle', {
@@ -1049,6 +1611,7 @@ class DecisionFlowViz {
                     x, y: y + 4.3, 'text-anchor': 'middle', class: 'dfv-strategy-node-value',
                 }, group);
                 valueText.textContent = '—';
+                /* v1.59.12：out/inbound 字段保留为 null，下游 _renderStressToStrategy 已加 null-safe 守卫 */
                 return {
                     ...def,
                     pos: n,
@@ -1058,16 +1621,301 @@ class DecisionFlowViz {
                     glow,
                     spec,
                     valueText,
-                    out: { base: outBase, halo: outHalo, flow: outFlow },
-                    inbound: { base: inBase, halo: inHalo, flow: inFlow },
+                    deriveLinks: compDeriveLinks,
+                    out: null,
+                    inbound: null,
                 };
             });
-            this._strategyLinkEl = { trunk: { base: trunkBase, halo: trunkHalo, flow: trunkFlow }, comps };
+            this._strategyLinkEl = { trunk: null, comps };
         }
 
-        /* 4) 中央灯环（pulse 时显形）— 跟随 stress 球几何 */
+        /* 3.6) v1.59.15 派生②.b：spawnTargets 6 维目标向量（紧凑横排）+ 派生依赖虚线。
+         *
+         * 数据源：insight.spawnHints.spawnTargets.{shapeComplexity, solutionSpacePressure,
+         *   clearOpportunity, spatialPressure, payoffIntensity, novelty}
+         * 派生函数：adaptiveSpawn.deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight)
+         *
+         * 节点尺寸 r=10（比 5 核心分量 r=15 略小），与 5 核心分量形成视觉层级。 */
+        {
+            const stN = SPAWN_TARGET_DEFS.length;
+            const stCenterIdx = (stN - 1) / 2;
+            const stR = Math.max(8, Math.min(12, compR - 4));
+            const stSpan = Math.max(stR * 2.05, Math.min(28, span * 0.74));
+            const stCenterX = stressX;
+            this._spawnTargetEls = SPAWN_TARGET_DEFS.map((def, idx) => {
+                const rel = idx - stCenterIdx;
+                const x = stCenterX + rel * stSpan;
+                const y = spawnTargetsY;
+                const n = { x, y };
+
+                const drivers = SPAWN_TARGET_DRIVER_SIGNALS[def.key] || [];
+                const targetDeriveLinks = [];
+                for (const sigKey of drivers) {
+                    const src = this._geom.get(sigKey);
+                    if (!src) continue;
+                    const ctrlX = (src.x + x) / 2;
+                    const ctrlY = (src.y + y) / 2 + (y - src.y) * 0.14;
+                    const d = bezierPath(src, { x: ctrlX, y: ctrlY }, n);
+                    const link = this._svgEl('path', {
+                        d, fill: 'none',
+                        stroke: def.color, 'stroke-width': 0.7, 'stroke-opacity': 0.18,
+                        'stroke-linecap': 'round', 'stroke-dasharray': '2 3',
+                        class: 'dfv-derive-link dfv-derive-link--target',
+                    });
+                    svg.insertBefore(link, svg.firstChild);
+                    this._hintDeriveLinks.push({ el: link, color: def.color });
+                    targetDeriveLinks.push({ el: link });
+                }
+
+                const group = this._svgEl('g', { class: 'dfv-target-node', 'data-key': def.key });
+                const glow = this._svgEl('circle', {
+                    cx: x, cy: y, r: stR + 2.4, fill: `${def.color}22`, stroke: 'none', class: 'dfv-target-node-glow',
+                }, group);
+                const node = this._svgEl('circle', {
+                    cx: x, cy: y, r: stR, fill: 'rgba(15,23,42,0.88)', stroke: `${def.color}cc`,
+                    'stroke-width': 1.0, class: 'dfv-target-node-core',
+                }, group);
+                const labelText = this._svgEl('text', {
+                    x, y: y - stR - 2.0, 'text-anchor': 'middle', class: 'dfv-target-node-label',
+                }, group);
+                labelText.textContent = def.label;
+                const valueText = this._svgEl('text', {
+                    x, y: y + 3.2, 'text-anchor': 'middle', class: 'dfv-target-node-value',
+                }, group);
+                valueText.textContent = '—';
+                this._geom.set(`target:${def.key}`, { x, y, r: stR });
+                return { ...def, pos: n, baseR: stR, node, glow, valueText, deriveLinks: targetDeriveLinks };
+            });
+        }
+
+        /* 3.7) v1.59.15 派生②.c：4 调度参数（紧凑横排）+ 派生依赖虚线。
+         *
+         * 数据源：insight.spawnHints.{multiClearBonus, multiLineTarget, perfectClearBoost, iconBonusTarget}
+         * 各自由独立 derive 函数计算（详见 SCHEDULE_PARAM_DRIVER_SIGNALS 注释）。 */
+        {
+            const spN = SCHEDULE_PARAM_DEFS.length;
+            const spCenterIdx = (spN - 1) / 2;
+            const spR = Math.max(8, Math.min(12, compR - 4));
+            const spSpan = Math.max(spR * 2.4, Math.min(36, span * 0.92));
+            const spCenterX = stressX;
+            this._scheduleParamEls = SCHEDULE_PARAM_DEFS.map((def, idx) => {
+                const rel = idx - spCenterIdx;
+                const x = spCenterX + rel * spSpan;
+                const y = scheduleParamsY;
+                const n = { x, y };
+
+                const drivers = SCHEDULE_PARAM_DRIVER_SIGNALS[def.key] || [];
+                const schedDeriveLinks = [];
+                for (const sigKey of drivers) {
+                    const src = this._geom.get(sigKey);
+                    if (!src) continue;
+                    const ctrlX = (src.x + x) / 2;
+                    const ctrlY = (src.y + y) / 2 + (y - src.y) * 0.10;
+                    const d = bezierPath(src, { x: ctrlX, y: ctrlY }, n);
+                    const link = this._svgEl('path', {
+                        d, fill: 'none',
+                        stroke: def.color, 'stroke-width': 0.7, 'stroke-opacity': 0.18,
+                        'stroke-linecap': 'round', 'stroke-dasharray': '2 3',
+                        class: 'dfv-derive-link dfv-derive-link--schedule',
+                    });
+                    svg.insertBefore(link, svg.firstChild);
+                    this._hintDeriveLinks.push({ el: link, color: def.color });
+                    schedDeriveLinks.push({ el: link });
+                }
+
+                const group = this._svgEl('g', { class: 'dfv-schedule-node', 'data-key': def.key });
+                const glow = this._svgEl('circle', {
+                    cx: x, cy: y, r: spR + 2.4, fill: `${def.color}22`, stroke: 'none', class: 'dfv-schedule-node-glow',
+                }, group);
+                const node = this._svgEl('circle', {
+                    cx: x, cy: y, r: spR, fill: 'rgba(15,23,42,0.88)', stroke: `${def.color}cc`,
+                    'stroke-width': 1.0, class: 'dfv-schedule-node-core',
+                }, group);
+                const labelText = this._svgEl('text', {
+                    x, y: y - spR - 2.0, 'text-anchor': 'middle', class: 'dfv-schedule-node-label',
+                }, group);
+                labelText.textContent = def.label;
+                const valueText = this._svgEl('text', {
+                    x, y: y + 3.2, 'text-anchor': 'middle', class: 'dfv-schedule-node-value',
+                }, group);
+                valueText.textContent = '—';
+                this._geom.set(`schedule:${def.key}`, { x, y, r: spR });
+                return { ...def, pos: n, baseR: spR, node, glow, valueText, deriveLinks: schedDeriveLinks };
+            });
+        }
+
+        /* 3.8) v1.59.13：派生依赖虚线"信号 → intent"。
+         *
+         * 按 INTENT_RULES.guard 实际读取的底层字段映射（intentResolver.js L86-164）：
+         *   relief ← frust（playerDistress 由 frustrationLevel 派生）
+         *   harvest ← boardFill（geometry）
+         *   flow ← flow（rhythmPhase 由 flowState 派生）
+         *   sprint/pressure 主要受 stress 自身约束（跳过——stress 本就并列派生）
+         * 简化为 5 信号 → intent 的弱虚线集合，与"信号→分量"同视觉语言（dasharray '2 3'）。 */
+        {
+            const intentColor = '#a78bfa';
+            const intentGeom = this._geom.get('spawnIntent');
+            if (intentGeom) {
+                const inX = intentGeom.x;
+                const inY = intentGeom.y;
+                for (const sigKey of INTENT_DRIVER_SIGNALS) {
+                    const src = this._geom.get(sigKey);
+                    if (!src) continue;
+                    const ctrlX = (src.x + inX) / 2;
+                    const ctrlY = (src.y + inY) / 2 + (inY - src.y) * 0.10;
+                    const d = bezierPath(src, { x: ctrlX, y: ctrlY }, { x: inX, y: inY - intentR * 0.55 });
+                    const link = this._svgEl('path', {
+                        d, fill: 'none',
+                        stroke: intentColor, 'stroke-width': 0.8, 'stroke-opacity': 0.22,
+                        'stroke-linecap': 'round', 'stroke-dasharray': '2 3',
+                        class: 'dfv-derive-link dfv-derive-link--intent',
+                    });
+                    svg.insertBefore(link, svg.firstChild);
+                    this._intentDeriveLinks.push({ el: link, color: intentColor });
+                }
+                /* v1.59.16：intent 节点的 deriveLinks 用整个 _intentDeriveLinks（intent 球只有一个） */
+            }
+        }
+
+        /* 3.9) v1.59.18 阶段③ 出块（blockSpawn）—— 3 chosen shape 节点行 + 4 派生层多源派生虚线。
+         *
+         * 数据源：insight.spawnDiagnostics.chosen[]（来自 blockSpawn.getLastSpawnDiagnostics()）
+         *   每个 chosen = { id, category, reason }；reason ∈ {'clear','perfectClear','weighted','fallback'}
+         *
+         * **v1.59.17 → v1.59.18 关键修正**：
+         *   旧版仅 intent → 3 chosen 拉 cyan 实色 bezier，暗示"intent 单独决定 shape"——
+         *   这与代码事实矛盾：blockSpawn.generateDockShapes 综合使用 5 hints + 6 targets +
+         *   4 schedule + intent 多维输入打分（详见 blockSpawn.js scoreShape）。
+         *   新版撤掉单源实色线，改为从 **4 个派生层"行中央代表点"分别拉 1 条细虚线** 到
+         *   每个 chosen 节点（共 4×3=12 条弱虚线），视觉表达"多源融合派生"。
+         *   与 5 派生层接收"信号多源派生虚线"的视觉语言对称。
+         *
+         * 节点本体增强：
+         *   - 半径 r=17（放大以容纳 5×5 mini grid 形状缩略图）
+         *   - 核心圆 → 替换为 SVG nested group：mini 5×5 grid 直接绘出 shape.data，
+         *     玩家一眼能识别"3×3 方块 / L1 / T↑..."而非仅靠文字猜
+         *   - 上方居中：完整中文 reason（"主消行/完美消行/加权选/兜底"）
+         *   - 下方居中：紧凑可读 id 简写（"3×3" / "L1" / "T↑"）
+         *   - SVG <title> tooltip：hover 显示原始 id + reason 完整解释（SPAWN_REASON_TIP） */
+        {
+            const chosenN = 3;
+            const chosenCenterIdx = (chosenN - 1) / 2;
+            const chosenR = Math.max(15, Math.min(19, compR + 2));
+            const chosenSpan = Math.max(chosenR * 3.2, Math.min(72, span * 1.85));
+            const chosenCenterX = stressX;
+
+            /* 4 派生层 → chosen 的多源虚线源点（每层"行中央"代表点） */
+            const upstreamLayers = [
+                { x: stressX, y: strategyY,       color: '#22d3ee', name: 'strategy' },
+                { x: stressX, y: spawnTargetsY,   color: '#a78bfa', name: 'targets' },
+                { x: stressX, y: scheduleParamsY, color: '#fbbf24', name: 'schedule' },
+                { x: intentX, y: intentYNew,     color: '#7dd3fc', name: 'intent' },
+            ];
+
+            this._chosenShapeEls = [];
+            this._chosenDeriveLinks = [];
+            for (let idx = 0; idx < chosenN; idx++) {
+                const rel = idx - chosenCenterIdx;
+                const x = chosenCenterX + rel * chosenSpan;
+                const y = spawnChosenY;
+                const n = { x, y };
+
+                /* 4 派生层 → 该 chosen 的多源派生虚线（弱色、最底层，与"信号→派生"虚线语言对称） */
+                const incoming = [];
+                for (const layer of upstreamLayers) {
+                    const ctrlX = (layer.x + x) / 2 + rel * 18;
+                    const ctrlY = (layer.y + y) / 2 + (y - layer.y) * 0.18;
+                    const d = bezierPath({ x: layer.x, y: layer.y }, { x: ctrlX, y: ctrlY }, { x, y: y - chosenR * 0.85 });
+                    const link = this._svgEl('path', {
+                        d, fill: 'none',
+                        stroke: layer.color, 'stroke-width': 0.7, 'stroke-opacity': 0.18,
+                        'stroke-linecap': 'round', 'stroke-dasharray': '2 3',
+                        class: `dfv-derive-link dfv-derive-link--chosen dfv-derive-link--chosen-${layer.name}`,
+                        'data-to-chosen': idx,
+                        'data-source-layer': layer.name,
+                    });
+                    svg.insertBefore(link, svg.firstChild);
+                    /* v1.59.21 方案 C：toChosenIdx + source 记入 link，方便 hover 反向追溯时按
+                     * (chosen idx, source layer) 二维索引精准点亮"驱动该 chosen 的具体派生层 → chosen 那一条虚线"。 */
+                    incoming.push({ el: link, color: layer.color, source: layer.name, toChosenIdx: idx });
+                }
+                this._chosenDeriveLinks.push(...incoming);
+
+                /* chosen shape 节点本体 */
+                const group = this._svgEl('g', { class: 'dfv-chosen-node', 'data-idx': idx });
+                /* v1.59.21 方案 C：hover 反向高亮——根据 chosen[idx].topDriver.key 追溯到驱动派生节点
+                 * + 上游信号节点，其余节点淡出。让玩家主动探索时看到完整"信号→派生→此 chosen"因果链。
+                 * 使用 SVG mouseenter/mouseleave（pointerenter 在 Safari/旧 WebView 兼容性略弱）。 */
+                group.addEventListener('mouseenter', () => this._setDriverHighlight(idx));
+                group.addEventListener('mouseleave', () => this._clearDriverHighlight());
+
+                /* SVG <title> tooltip：原生浏览器 hover 提示，无需自建 tooltip 系统 */
+                const titleEl = this._svgEl('title', {}, group);
+                titleEl.textContent = '—';
+
+                const glow = this._svgEl('circle', {
+                    cx: x, cy: y, r: chosenR + 3.0, fill: 'rgba(125,211,252,0.12)', stroke: 'none',
+                    class: 'dfv-chosen-node-glow',
+                }, group);
+                const bg = this._svgEl('circle', {
+                    cx: x, cy: y, r: chosenR, fill: 'rgba(15,23,42,0.92)',
+                    stroke: 'rgba(125,211,252,0.55)', 'stroke-width': 1.1,
+                    class: 'dfv-chosen-node-bg',
+                }, group);
+
+                /* mini 5×5 grid 容器（v1.59.18 关键解释手段：一眼可见 shape）。
+                 * 每 cell rect 由 _renderChosenShapes 动态创建/复用，初始空 group。 */
+                const gridG = this._svgEl('g', {
+                    class: 'dfv-chosen-node-grid',
+                    'data-cx': x.toFixed(1), 'data-cy': y.toFixed(1),
+                }, group);
+
+                /* 上方居中：完整 reason 中文 */
+                const reasonText = this._svgEl('text', {
+                    x, y: y - chosenR - 4, 'text-anchor': 'middle',
+                    class: 'dfv-chosen-node-reason',
+                }, group);
+                reasonText.textContent = '';
+
+                /* 下方居中：紧凑 id 简写 */
+                const idText = this._svgEl('text', {
+                    x, y: y + chosenR + 9, 'text-anchor': 'middle',
+                    class: 'dfv-chosen-node-id',
+                }, group);
+                idText.textContent = '—';
+
+                /* v1.59.20：再下一行常驻"因·XXX"主驱动因子小字（gap 解释关键）。
+                 * blockSpawn._estimateTopDriver 已在 chosenMeta 写入 topDriver = { key, label }，
+                 * 让玩家不需 hover 就能在 DFV 直接看到"为什么是这块"（消行候选只是路径
+                 * 分类，"因·可消2行 / 因·机动高 / 因·长条权重 33%"才是真正的选中理由）。 */
+                const driverText = this._svgEl('text', {
+                    x, y: y + chosenR + 18, 'text-anchor': 'middle',
+                    class: 'dfv-chosen-node-driver',
+                }, group);
+                driverText.textContent = '';
+
+                this._geom.set(`chosen:${idx}`, { x, y, r: chosenR });
+                this._chosenShapeEls.push({
+                    idx, pos: n, baseR: chosenR, bg, glow, gridG, idText, reasonText, driverText, titleEl,
+                    incoming,
+                });
+            }
+
+            /* 阶段 3 信息条：attempt / solutionRejects 总数（chosen 行右侧 mini badge） */
+            const lastChosenX = chosenCenterX + (chosenN - 1 - chosenCenterIdx) * chosenSpan;
+            const attemptText = this._svgEl('text', {
+                x: lastChosenX + chosenR + 14,
+                y: spawnChosenY + 2,
+                'text-anchor': 'start',
+                class: 'dfv-spawn-attempt-badge',
+            });
+            attemptText.textContent = '';
+            this._spawnAttemptBadge = attemptText;
+        }
+
+        /* 4) 中央灯环（pulse 时显形）— 跟随 stress 球几何（v1.59.12 用新 stressYNew） */
         const ring = this._svgEl('circle', {
-            cx: stressX, cy: stressY, r: stressR,
+            cx: stressX, cy: stressYNew, r: stressR,
             fill: 'none', stroke: 'transparent', 'stroke-width': 2,
             class: 'dfv-stress-ring',
         });
@@ -1079,7 +1927,7 @@ class DecisionFlowViz {
          * 让 10 个信号节点都"挂上"压力球，避免「无贡献时连线消失」的体验断点。
          * `_renderContributionEdges` 在 baseline 上原地强化（颜色 / 粗细 / 不透明度）。
          * 边按 source key 聚合（多个 breakdown 字段映射同一 source 时累加）。 */
-        const stressGeom = { x: stressX, y: stressY, r: stressR };
+        const stressGeom = { x: stressX, y: stressYNew, r: stressR };
         for (const sig of SIGNAL_NODES) {
             const src = this._geom.get(sig.key);
             if (!src) continue;
@@ -1119,12 +1967,23 @@ class DecisionFlowViz {
 
     _addSignalNode(key, label, r) {
         const g = this._geom.get(key);
-        const group = this._svgEl('g', { class: 'dfv-node dfv-node--signal', 'data-key': key });
+        const sigDef = SIGNAL_NODES.find((s) => s.key === key);
+        const baseColor = sigDef?.baseColor || '#7dd3fc';
+        const group = this._svgEl('g', {
+            class: 'dfv-node dfv-node--signal dfv-node--idle',
+            'data-key': key,
+            style: `--node-base:${baseColor}`,
+        });
+        /* v1.59.8：外光环用 baseColor 而非通用 cyan，让"身份色"在 idle 时也可读 */
         this._svgEl('circle', {
-            cx: g.x, cy: g.y, r: r + 2.4, fill: 'rgba(56,189,248,0.08)', stroke: 'none',
+            cx: g.x, cy: g.y, r: r + 2.4, fill: `${baseColor}1f`, stroke: 'none',
+            class: 'dfv-node-aura',
         }, group);
+        /* v1.59.8：核心 fill 直接用 baseColor（idle 时由 CSS opacity 弱化），
+         * stroke 用 baseColor 加深，永远显示身份——避免"初始全灰"。 */
         const core = this._svgEl('circle', {
-            cx: g.x, cy: g.y, r, fill: '#1e293b', stroke: '#475569', 'stroke-width': 1.5,
+            cx: g.x, cy: g.y, r, fill: baseColor, stroke: _shadeColor(baseColor, -28), 'stroke-width': 1.5,
+            class: 'dfv-node-core',
         }, group);
         const labelText = this._svgEl('text', { x: g.x - r - 6, y: g.y + 4, 'text-anchor': 'end', class: 'dfv-node-label' }, group);
         labelText.textContent = label;
@@ -1132,7 +1991,7 @@ class DecisionFlowViz {
             x: g.x, y: g.y + 4, 'text-anchor': 'middle', class: 'dfv-node-value',
         }, group);
         valueText.textContent = '—';
-        this._nodeEls.set(key, { group, core, valueText });
+        this._nodeEls.set(key, { group, core, valueText, baseColor });
     }
 
     _addStressBall() {
@@ -1167,13 +2026,22 @@ class DecisionFlowViz {
 
     _addSpawnIntentNode() {
         const g = this._geom.get('spawnIntent');
-        const group = this._svgEl('g', { class: 'dfv-node dfv-node--intent', 'data-key': 'spawnIntent' });
+        /* v1.59.8：intent 默认身份色用 maintain 的中性紫色（#a78bfa），让"意图节点"
+         * 在初始/无数据时也能识别，不再退化为深灰。具体 intent 值来时 _renderSpawnIntent
+         * 再切换到 SPAWN_INTENT_COLOR[intent]。 */
+        const baseColor = '#a78bfa';
+        const group = this._svgEl('g', {
+            class: 'dfv-node dfv-node--intent dfv-node--idle',
+            'data-key': 'spawnIntent',
+            style: `--node-base:${baseColor}`,
+        });
         this._svgEl('circle', {
             cx: g.x, cy: g.y, r: (g.r + 8).toFixed(1), fill: 'none',
-            stroke: 'rgba(148,163,184,0.25)', 'stroke-width': 1.2, class: 'dfv-intent-orbit',
+            stroke: `${baseColor}40`, 'stroke-width': 1.2, class: 'dfv-intent-orbit',
         }, group);
         const hex = this._svgEl('circle', {
-            cx: g.x, cy: g.y, r: g.r, fill: '#1e293b', stroke: '#94a3b8', 'stroke-width': 2, class: 'dfv-intent-core',
+            cx: g.x, cy: g.y, r: g.r, fill: baseColor, stroke: _shadeColor(baseColor, -25),
+            'stroke-width': 2, 'fill-opacity': 0.55, class: 'dfv-intent-core',
         }, group);
         const labelText = this._svgEl('text', { x: g.x, y: g.y - 4, 'text-anchor': 'middle', class: 'dfv-intent-label' }, group);
         labelText.textContent = _ti('dfv.intent', '意图');
@@ -1234,8 +2102,13 @@ class DecisionFlowViz {
         }
 
         /* v1.55.1 数据指纹去抖：相同指纹时跳过 SVG 重写（节点 / stress 球 / intent / 边 / 策略），
-         * 只保留 Canvas 粒子动画推进与 sparkline 采样。 */
-        const fp = _dfvFingerprint(insight, profile);
+         * 只保留 Canvas 粒子动画推进与 sparkline 采样。
+         *
+         * v1.57.5 §A/F：把 liveBoardFill / liveClearRate 也喂进指纹——旧指纹只看
+         * insight/profile 决策侧字段，会让玩家落子后的"占盘 0.40 vs 0.69"双显 bug
+         * （左侧节点被去抖跳过、底部 sparkline 实时刷新）。同样修复消行率双显。 */
+        const liveClearRate = Number(profile.metrics?.clearRate) || 0;
+        const fp = _dfvFingerprint(insight, profile, { boardFill: liveBoardFill, clearRate: liveClearRate });
         const dataChanged = fp !== this._lastFingerprint;
         if (dataChanged) {
             this._lastFingerprint = fp;
@@ -1244,7 +2117,19 @@ class DecisionFlowViz {
         const hasActiveParticles = this._particles.length > 0;
         const inSpawnPulseWindow = performance.now() < this._stressPulseUntil + 80;
 
-        if (dataChanged || inSpawnPulseWindow) {
+        /* v1.59.19：左侧 SVG 节点也加"每 12 帧兜底刷新"（active≈0.4s / idle≈2s 一次）—— 与右侧
+         * details 渲染节流保持一致（详见下方 L2077 _renderDetails 调用）。历史 v1.55.1 引入指纹
+         * 去抖时仅护城 SVG 节点（dataChanged 才渲染），不护城右侧详情。这会在以下场景产生 bug：
+         *   - 新开局后 DFV 已打开但首次 _tick 时 insight 还未写入 → 节点全 '—'，fingerprint
+         *     = 'empty' 被记入 _lastFingerprint；之后 _captureAdaptiveInsight 才写入完整数据，
+         *     若数据指纹与上一局结束时巧合相同（极少但发生），节点永远停在 '—'。
+         *   - 用户截图：右侧"形状权重 33.1%/22.6%/15.6%、出块目标 0.30/0.11/0.09、压力贡献
+         *     会话弧线 -0.080、调度提示 维持心流"全部有值，但左侧 10 信号 + 5 hints + 6 targets
+         *     + 4 schedule + intent + 3 chosen 节点全 '—'——左右数据源同源却显示不一致。
+         * 修复后左侧节点与右侧详情同频兜底，保证 ≤2 秒内必有一次重渲染消除 '—' 残留。 */
+        const renderTick = dataChanged || inSpawnPulseWindow || (this._frameCount % 12 === 0);
+
+        if (renderTick) {
             /* 1) 左列信号节点 */
             SIGNAL_NODES.forEach((sig) => this._renderSignalNode(sig, ctx));
             /* 2) 中央 stress 球 */
@@ -1253,6 +2138,12 @@ class DecisionFlowViz {
             this._renderSpawnIntent(insight);
             /* 3.5) 压力 -> 出块策略（左侧算法呈现） */
             this._renderStressToStrategy(insight);
+            /* 3.6) v1.59.15：spawnTargets 6 维目标向量 */
+            this._renderSpawnTargets(insight);
+            /* 3.7) v1.59.15：4 调度参数（multiClear/multiLine/perfectClear/iconBonus） */
+            this._renderScheduleParams(insight);
+            /* 3.8) v1.59.17：阶段③ 出块（blockSpawn 3 chosen shape + attempt + solutionRejects） */
+            this._renderChosenShapes(insight);
             /* 4) stressBreakdown 贡献边 */
             this._renderContributionEdges(insight);
         }
@@ -1271,7 +2162,7 @@ class DecisionFlowViz {
         this._sampleSeries({
             stress: stressVal,
             momentum: Number(profile.momentum) || 0,
-            clearRate: Number(profile.metrics?.clearRate) || 0,
+            clearRate: liveClearRate,
             boardFill: liveBoardFill,
             frust: Number(profile.frustrationLevel) || 0,
         });
@@ -1281,10 +2172,53 @@ class DecisionFlowViz {
 
         /* 7) HTML 详情区：数据变化时即刻；否则每 12 帧（active≈0.4s / idle≈2s）兜底刷一次 */
         if (dataChanged || this._frameCount % 12 === 0) this._renderDetails(insight, profile);
+
+        /* 8) v1.59：决策动态层（左侧球状图下方）——
+         *   §A 意图时间线（spawn round 聚合 chip 链 + 切换原因）
+         *   §B stress 分量正负堆叠（左负-右正水平条 + sum_pos/|sum_neg|/net）
+         *   §C 响应灵敏度三灯（玩家信号 vs 算法响应 Pearson 粗估）
+         * 数据来源与右侧 details 同源（insight / profile / game._insightLiveHistory），
+         * 共用 _frameCount % 12 节流节奏。 */
+        if (dataChanged || this._frameCount % 12 === 0) this._renderDynamicsLayer(insight, profile);
+    }
+
+    /**
+     * v1.59.6：渲染右栏决策动态段——精简为 2 个模块：
+     *   §B 压力归因（stress 分量竖排排序条目）
+     *   §C 响应灵敏度（玩家信号 vs 算法响应 Pearson 粗估）
+     *
+     * v1.59.6 删除 §A 意图时间线：实际使用中 N 轮意图 chip 链信息密度低，
+     * 切换次数已统计在右栏 "出块意图" 段，时间线本身不提供新增 insight，
+     * 且占用右栏垂直空间挤占其他段（一删立刻让 7 段无需滚动）。
+     *
+     * 数据要求：game._insightLiveHistory 必须存在（panel 在 _appendLiveInsightSample
+     * 中写入）。若 panel 未初始化或 history 为空，模块各自降级为 empty 提示，不抛错。
+     */
+    _renderDynamicsLayer(insight, profile) {
+        if (!this._dynamicsHost) return;
+        const history = Array.isArray(this._game?._insightLiveHistory)
+            ? this._game._insightLiveHistory : [];
+        const stackHtml = _dfvRenderStressStack(insight);
+        const sensHtml = _dfvRenderSens(history, 12);
+        this._dynamicsHost.innerHTML = `${stackHtml}${sensHtml}`;
+        void profile; // 当前模块未直接用 profile（保留签名以便后续扩展）
     }
 
     _triggerSpawnPulse(insight) {
         this._stressPulseUntil = performance.now() + 400;
+        /* v1.59.2：spawn 时触发全栏一次 shock 动画（径向扩散光环），强化"信号→决策"的炸裂感。
+         * 通过 class toggle 触发 CSS keyframe，0.62s 后清除——比 setTimeout 更"可视"地表达
+         * 出"算法刚做出一次决策"的瞬时事件。 */
+        if (this._stageEl) {
+            this._stageEl.classList.remove('dfv-stage--shock');
+            void this._stageEl.getBoundingClientRect();
+            this._stageEl.classList.add('dfv-stage--shock');
+            if (this._shockTimer) clearTimeout(this._shockTimer);
+            this._shockTimer = setTimeout(() => {
+                this._stageEl?.classList.remove('dfv-stage--shock');
+                this._shockTimer = 0;
+            }, 660);
+        }
         const breakdown = insight.stressBreakdown || {};
         const stressGeom = this._geom.get('stress');
         const intentGeom = this._geom.get('spawnIntent');
@@ -1309,23 +2243,42 @@ class DecisionFlowViz {
             }
         }
 
-        /* v1.51.6：纵向布局新增"决策传导"粒子流：每次 spawn 后从 stress 球发射 3~5 条
-         * 粒子，沿带 jitter 的 bezier 曲线流向意图六边形，颜色用 intent 颜色，让"压力 →
-         * 出块意图"的因果关系一眼可见。控制点偏移让多条粒子形成弧形喷射，动效更立体。 */
+        /* v1.59.14 删除"压力→意图"粒子流（v1.51.6 遗留误叙事）。
+         *
+         * 旧版（v1.51.6）每次 spawn 时从 stress 球向 intent 喷 5 颗粒子，视觉上传递
+         * "压力驱动了意图"的因果关系。但按代码事实（intentResolver.js INTENT_RULES）：
+         *   - relief (100) 读 playerDistress，不读 stress
+         *   - harvest (80) 读 geometry，不读 stress
+         *   - flow (50) 读 delightMode/rhythmPhase，不读 stress
+         *   - pressure/sprint 把 stress 当 guard 阈值（数值判断），不是因果传递
+         *   - stress 与 intent 是 adaptiveSpawn 单次调用的**并列输出**
+         * 这条粒子流违反 v1.59.11~13 已确立的"3 派生并列同源"叙事，必须删除。
+         *
+         * 替代：spawn 时从信号集向 intent 喷粒子（与"信号→stress"对称），但因 intent 派生
+         * 依赖虚线已常驻可见，pulse 时只需让虚线短暂高亮即可——见 _triggerIntentPulse。 */
         if (intentGeom && stressGeom) {
+            this._triggerIntentDeriveFlash(insight, intentGeom);
+        }
+
+        /* v1.59.2：辐射炸裂——以 stress 球为中心向四周喷出 8 颗短寿命粒子，配合 .dfv-stage--shock
+         * 震波形成"算法刚做决策"的爆裂感。距离短、寿命快（0.32~0.5s），不会污染稳态画面。 */
+        if (stressGeom) {
             const intent = insight?.spawnHints?.spawnIntent ?? insight?.spawnIntent ?? 'maintain';
-            const intentColor = SPAWN_INTENT_COLOR[intent] || '#a78bfa';
-            const dy = intentGeom.y - stressGeom.y;
-            for (let i = 0; i < 5; i++) {
-                const jitter = (Math.random() - 0.5) * Math.max(40, dy * 0.45);
+            const burstColor = SPAWN_INTENT_COLOR[intent] || '#a78bfa';
+            const burstN = 8;
+            for (let i = 0; i < burstN; i++) {
+                const ang = (Math.PI * 2 * i) / burstN + (Math.random() - 0.5) * 0.4;
+                const dist = 26 + Math.random() * 24;
+                const x1 = stressGeom.x + Math.cos(ang) * dist;
+                const y1 = stressGeom.y + Math.sin(ang) * dist;
                 this._particles.push({
-                    p0: { x: stressGeom.x, y: stressGeom.y + stressGeom.r * 0.6 },
-                    p1: { x: stressGeom.x + jitter, y: stressGeom.y + dy * 0.55 },
-                    p2: { x: intentGeom.x, y: intentGeom.y - intentGeom.r * 0.6 },
-                    t: -i * 0.06 - 0.05,
-                    dur: 0.85 + Math.random() * 0.35,
-                    color: intentColor,
-                    size: 2.6 + Math.random() * 1.6,
+                    p0: { x: stressGeom.x, y: stressGeom.y },
+                    p1: { x: stressGeom.x + Math.cos(ang) * dist * 0.5, y: stressGeom.y + Math.sin(ang) * dist * 0.5 },
+                    p2: { x: x1, y: y1 },
+                    t: -i * 0.012,
+                    dur: 0.32 + Math.random() * 0.18,
+                    color: i % 2 ? burstColor : '#ffffff',
+                    size: 2.8 + Math.random() * 1.8,
                 });
             }
         }
@@ -1333,6 +2286,33 @@ class DecisionFlowViz {
         if (this._particles.length > DFV_PARTICLE_CAP) {
             this._particles.splice(0, this._particles.length - DFV_PARTICLE_CAP);
         }
+    }
+
+    /**
+     * v1.59.14：spawn pulse 时让"信号→5分量"+"信号→intent"的派生虚线短暂高亮，
+     * 与"信号→stress"实色粒子流形成**3 派生同步从信号集派生**的视觉对称。
+     *
+     * 替代 v1.51.6 错误的"stress→intent"粒子流（违反 INTENT_RULES 代码事实——
+     * relief/harvest/flow 等 intent guard 完全不读 stress，stress 与 intent 是并列输出）。
+     *
+     * @param {object} _insight - 兼容签名（当前未读取，留作后续 intent-specific 高亮）
+     * @param {{x:number,y:number,r:number}} _intentGeom - 兼容签名（当前未读取）
+     */
+    _triggerIntentDeriveFlash(_insight, _intentGeom) {
+        const links = [...this._hintDeriveLinks, ...this._intentDeriveLinks];
+        if (!links.length) return;
+        for (const { el } of links) {
+            _setAttrIfChanged(el, 'stroke-opacity', '0.78');
+            _setAttrIfChanged(el, 'stroke-width', '1.6');
+        }
+        if (this._deriveFlashTimer) clearTimeout(this._deriveFlashTimer);
+        this._deriveFlashTimer = setTimeout(() => {
+            for (const { el } of links) {
+                _setAttrIfChanged(el, 'stroke-opacity', '0.22');
+                _setAttrIfChanged(el, 'stroke-width', '0.8');
+            }
+            this._deriveFlashTimer = 0;
+        }, 520);
     }
 
     _renderEmpty() {
@@ -1348,27 +2328,41 @@ class DecisionFlowViz {
         const ref = this._nodeEls.get(sig.key);
         if (!ref) return;
         const raw = _readDeep(ctx, sig.readPath);
+        const group = ref.group;
+        const baseColor = ref.baseColor || sig.baseColor || '#7dd3fc';
+        /* v1.59.8 节点身份色策略：
+         *   - enum 节点：fill 用 enumColors[state]，未命中时回退 baseColor，**离开 idle**
+         *   - 数值节点·无数据：fill 保持 baseColor，CSS 类 .dfv-node--idle 让 opacity 0.45 + 呼吸
+         *   - 数值节点·有数据：fill 保持 baseColor，**离开 idle**，opacity 由强度 [0.55..1.0] 驱动
+         *   永不退化为灰，永远可识别"这是哪个信号"。 */
         if (sig.type === 'enum') {
             this._setFitText(ref.valueText, String(raw ?? '—'));
-            const color = (raw && sig.enumColors?.[raw]) || '#475569';
+            const hasState = raw != null;
+            const color = (hasState && sig.enumColors?.[raw]) || baseColor;
             _setAttrIfChanged(ref.core, 'fill', color);
-            _setAttrIfChanged(ref.core, 'stroke', _shadeColor(color, -20));
+            _setAttrIfChanged(ref.core, 'stroke', _shadeColor(color, -25));
+            if (hasState) group.classList.remove('dfv-node--idle');
+            else group.classList.add('dfv-node--idle');
             return;
         }
         if (!Number.isFinite(raw)) {
             this._setFitText(ref.valueText, '—');
+            group.classList.add('dfv-node--idle');
             return;
         }
         const [lo, hi] = sig.range || [0, 1];
-        // signed 信号（如 momentum）用 |value|/max 衡量"强度"，色阶仍走 0~1
+        // signed 信号（如 momentum）用 |value|/max 衡量"强度"
         const norm = sig.signed
             ? Math.abs(raw) / Math.max(Math.abs(lo), Math.abs(hi), 1e-6)
             : (raw - lo) / Math.max(1e-6, hi - lo);
         const sm = approach(this._smooth.get(sig.key) ?? norm, norm, 0.18);
         this._smooth.set(sig.key, sm);
-        const color = heatColor(_clamp(sm, 0, 1));
-        _setAttrIfChanged(ref.core, 'fill', color);
-        _setAttrIfChanged(ref.core, 'stroke', _shadeColor(color, -25));
+        /* 强度由 fill-opacity 驱动（0.55~1.0），fill 始终 = baseColor 保身份 */
+        const op = (0.55 + 0.45 * _clamp(sm, 0, 1)).toFixed(2);
+        _setAttrIfChanged(ref.core, 'fill', baseColor);
+        _setAttrIfChanged(ref.core, 'stroke', _shadeColor(baseColor, -28));
+        _setAttrIfChanged(ref.core, 'fill-opacity', op);
+        group.classList.remove('dfv-node--idle');
         const text = sig.format === 'int'
             ? String(Math.round(raw))
             : (Math.abs(raw) < 10 && !Number.isInteger(raw) ? raw.toFixed(2) : String(raw));
@@ -1414,18 +2408,10 @@ class DecisionFlowViz {
                 color: i % 2 ? c1 : '#ffffff', size: 1.8 + Math.random() * 1.1,
             });
         }
-        if (intent) {
-            const p0 = { x: n.x, y: n.y };
-            const p2 = { x: intent.x, y: intent.y - intent.r * 0.5 };
-            const p1 = { x: (p0.x + p2.x) * 0.5 + (Math.random() - 0.5) * 18, y: (p0.y + p2.y) * 0.5 + (Math.random() - 0.5) * 14 };
-            this._particles.push({
-                p0, p1, p2, t: -0.03, dur: 0.22 + Math.random() * 0.16, color: c2, size: 2.0 + Math.random() * 1.4,
-            });
-            this._particles.push({
-                p0, p1: { x: p1.x + (Math.random() - 0.5) * 10, y: p1.y + (Math.random() - 0.5) * 10 }, p2,
-                t: -0.05, dur: 0.24 + Math.random() * 0.16, color: c1, size: 1.7 + Math.random() * 1.1,
-            });
-        }
+        /* v1.59.12：删除"5 分量 → intent"粒子流——源码上 5 向量与 intent 是并列派生兄弟，
+         * 不存在"分量爆发→intent 接收"的因果传递。粒子流只保留分量节点本地的"周围扩散"
+         * 表达"该分量本帧高位"，不再向 intent 喷射。 */
+        void intent; void c2;
     }
 
     _renderStressBall(insight) {
@@ -1433,6 +2419,14 @@ class DecisionFlowViz {
         const target = Number.isFinite(insight?.stress) ? insight.stress : 0;
         const sm = approach(this._smooth.get('stress') ?? target, target, 0.12);
         this._smooth.set('stress', sm);
+        /* v1.59.2：stress > 0.72 时给左栏挂 .dfv-stage--high-stress（边缘红光呼吸）；阈值
+         * 与 stressMeter 高位提示同源（避免视觉冲突）。差分 toggle 防止每帧刷动画。 */
+        if (this._stageEl) {
+            const high = sm > 0.72;
+            const cur = this._stageEl.classList.contains('dfv-stage--high-stress');
+            if (high && !cur) this._stageEl.classList.add('dfv-stage--high-stress');
+            else if (!high && cur) this._stageEl.classList.remove('dfv-stage--high-stress');
+        }
         /* v1.55.17：insight.stress 已为 [0, 1] norm 域（layered._adaptiveStress 出口
          * 已 normalizeStress；详见 web/src/adaptiveSpawn.js 顶部 JSDoc），直接 clamp
          * 喂入 heatColor，移除历史的 `(sm + 0.3) / 1.3` 二次仿射。 */
@@ -1458,17 +2452,30 @@ class DecisionFlowViz {
 
     _renderSpawnIntent(insight) {
         if (!this._intentEl) return;
-        const intent = insight?.spawnHints?.spawnIntent ?? insight?.spawnIntent ?? '—';
+        const rawIntent = insight?.spawnHints?.spawnIntent ?? insight?.spawnIntent;
+        const intent = rawIntent ?? '—';
         this._intentEl.valueText.textContent = intent;
-        const color = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
-        this._intentEl.hex.setAttribute('fill', color);
-        this._intentEl.hex.setAttribute('stroke', _shadeColor(color, -20));
+        /* v1.59.8：有 intent 时移除 idle 类，fill-opacity 拉满；
+         * 无 intent 时保持 idle（baseColor 紫色 + 弱 alpha 呼吸），不退化为灰。 */
+        if (rawIntent) {
+            const color = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
+            this._intentEl.hex.setAttribute('fill', color);
+            this._intentEl.hex.setAttribute('stroke', _shadeColor(color, -20));
+            _setAttrIfChanged(this._intentEl.hex, 'fill-opacity', '1');
+            this._intentEl.group.classList.remove('dfv-node--idle');
+        } else {
+            this._intentEl.group.classList.add('dfv-node--idle');
+        }
         if (this._curIntent !== intent) {
             this._curIntent = intent;
             this._intentEl.group.classList.remove('dfv-intent-flash');
             void this._intentEl.group.getBoundingClientRect();
             this._intentEl.group.classList.add('dfv-intent-flash');
         }
+        /* v1.59.16：intent 派生虚线按"是否有明确 intent + 非 maintain"驱动强度。
+         * 'maintain' = 默认中性兜底（priority=0），强度=0；其他 intent = 1。 */
+        const intentIntensity = rawIntent && rawIntent !== 'maintain' ? 1 : 0;
+        this._renderDeriveLinks(this._intentDeriveLinks, intentIntensity);
     }
 
     _renderStressToStrategy(insight) {
@@ -1531,26 +2538,378 @@ class DecisionFlowViz {
             if (comp.glow) _setAttrIfChanged(comp.glow, 'r', (comp.baseR + 3.2 + compPower * 1.2).toFixed(2));
             this._triggerStrategyArc(comp, compPower, intentColor);
 
-            _setAttrIfChanged(comp.out.base, 'stroke', comp.color);
-            _setAttrIfChanged(comp.out.base, 'stroke-width', width.toFixed(2));
-            _setAttrIfChanged(comp.out.base, 'stroke-opacity', alpha.toFixed(2));
-            _setAttrIfChanged(comp.out.halo, 'stroke', comp.color);
-            _setAttrIfChanged(comp.out.halo, 'stroke-width', (width * 2.1).toFixed(2));
-            _setAttrIfChanged(comp.out.halo, 'stroke-opacity', (alpha * 0.42).toFixed(2));
-            _setAttrIfChanged(comp.out.flow, 'stroke-width', Math.max(0.9, width * 0.5).toFixed(2));
-            _setAttrIfChanged(comp.out.flow, 'stroke-opacity', (0.14 + compPower * 0.62).toFixed(2));
-            _setAttrIfChanged(comp.out.flow, 'stroke-dashoffset', ((this._edgeFlowPhase + idx * 19) * flowSpeed * -0.14).toFixed(1));
+            /* v1.59.16：5 核心分量派生虚线按 compPower 强化（与 stress 边强度逻辑同步） */
+            this._renderDeriveLinks(comp.deriveLinks, compPower);
 
-            _setAttrIfChanged(comp.inbound.base, 'stroke', comp.color);
-            _setAttrIfChanged(comp.inbound.base, 'stroke-width', Math.max(0.8, width * 0.82).toFixed(2));
-            _setAttrIfChanged(comp.inbound.base, 'stroke-opacity', (alpha * 0.78).toFixed(2));
-            _setAttrIfChanged(comp.inbound.halo, 'stroke', comp.color);
-            _setAttrIfChanged(comp.inbound.halo, 'stroke-width', Math.max(1.7, width * 1.7).toFixed(2));
-            _setAttrIfChanged(comp.inbound.halo, 'stroke-opacity', Math.min(0.48, alpha * 0.38).toFixed(2));
-            _setAttrIfChanged(comp.inbound.flow, 'stroke-width', Math.max(0.85, width * 0.45).toFixed(2));
-            _setAttrIfChanged(comp.inbound.flow, 'stroke-opacity', (0.12 + compPower * 0.56).toFixed(2));
-            _setAttrIfChanged(comp.inbound.flow, 'stroke-dashoffset', ((this._edgeFlowPhase + idx * 29) * flowSpeed * -0.12).toFixed(1));
+            /* v1.59.12：out/inbound 连线已删除（5 分量与 stress/intent 视觉孤立），
+             * 仅在仍保留时执行（向后兼容意外重启场景）。 */
+            if (comp.out) {
+                _setAttrIfChanged(comp.out.base, 'stroke', comp.color);
+                _setAttrIfChanged(comp.out.base, 'stroke-width', width.toFixed(2));
+                _setAttrIfChanged(comp.out.base, 'stroke-opacity', alpha.toFixed(2));
+                _setAttrIfChanged(comp.out.halo, 'stroke', comp.color);
+                _setAttrIfChanged(comp.out.halo, 'stroke-width', (width * 2.1).toFixed(2));
+                _setAttrIfChanged(comp.out.halo, 'stroke-opacity', (alpha * 0.42).toFixed(2));
+                _setAttrIfChanged(comp.out.flow, 'stroke-width', Math.max(0.9, width * 0.5).toFixed(2));
+                _setAttrIfChanged(comp.out.flow, 'stroke-opacity', (0.14 + compPower * 0.62).toFixed(2));
+                _setAttrIfChanged(comp.out.flow, 'stroke-dashoffset', ((this._edgeFlowPhase + idx * 19) * flowSpeed * -0.14).toFixed(1));
+            }
+
+            if (comp.inbound) {
+                _setAttrIfChanged(comp.inbound.base, 'stroke', comp.color);
+                _setAttrIfChanged(comp.inbound.base, 'stroke-width', Math.max(0.8, width * 0.82).toFixed(2));
+                _setAttrIfChanged(comp.inbound.base, 'stroke-opacity', (alpha * 0.78).toFixed(2));
+                _setAttrIfChanged(comp.inbound.halo, 'stroke', comp.color);
+                _setAttrIfChanged(comp.inbound.halo, 'stroke-width', Math.max(1.7, width * 1.7).toFixed(2));
+                _setAttrIfChanged(comp.inbound.halo, 'stroke-opacity', Math.min(0.48, alpha * 0.38).toFixed(2));
+                _setAttrIfChanged(comp.inbound.flow, 'stroke-width', Math.max(0.85, width * 0.45).toFixed(2));
+                _setAttrIfChanged(comp.inbound.flow, 'stroke-opacity', (0.12 + compPower * 0.56).toFixed(2));
+                _setAttrIfChanged(comp.inbound.flow, 'stroke-dashoffset', ((this._edgeFlowPhase + idx * 29) * flowSpeed * -0.12).toFixed(1));
+            }
         });
+    }
+
+    /**
+     * v1.59.15：渲染 spawnTargets 6 维目标向量节点（数据来自 insight.spawnHints.spawnTargets）。
+     *
+     * 视觉规则：
+     * - value 数值实时更新（保留 2 位小数）
+     * - fill-opacity 由 value 强度（0..1）线性映射 0.5..1.0，强度越高节点越实
+     * - glow 半径随 value 微胀（强度高时 +1.5px）
+     */
+    _renderSpawnTargets(insight) {
+        if (!this._spawnTargetEls?.length) return;
+        const targets = insight?.spawnHints?.spawnTargets || {};
+        for (const t of this._spawnTargetEls) {
+            const raw = Number(targets[t.key]);
+            const value = Number.isFinite(raw) ? raw : NaN;
+            const intensity = Number.isFinite(value) ? _clamp(value, 0, 1) : 0;
+            const fillOpacity = (0.5 + intensity * 0.5).toFixed(2);
+            const text = Number.isFinite(value) ? value.toFixed(2) : '—';
+            _setAttrIfChanged(t.node, 'fill', t.color);
+            _setAttrIfChanged(t.node, 'fill-opacity', fillOpacity);
+            _setAttrIfChanged(t.node, 'stroke', `${t.color}${intensity > 0.5 ? 'ff' : 'cc'}`);
+            if (t.glow) _setAttrIfChanged(t.glow, 'r', (t.baseR + 2.4 + intensity * 1.5).toFixed(2));
+            if (t.valueText.textContent !== text) t.valueText.textContent = text;
+            /* v1.59.16：派生虚线按 intensity 强化（与 stress 边强度逻辑同步，让 5 派生层视觉一致） */
+            this._renderDeriveLinks(t.deriveLinks, intensity);
+        }
+    }
+
+    /**
+     * v1.59.15：渲染 4 调度参数节点（数据来自 insight.spawnHints 顶层 4 字段）。
+     *
+     * 视觉规则：与 _renderSpawnTargets 同语言，强度 norm 由各 def.norm() 自定义（multiLineTarget 是
+     * 0..2 整数，需 /2 归一化；其余是 0..1 实数）。
+     */
+    _renderScheduleParams(insight) {
+        if (!this._scheduleParamEls?.length) return;
+        const hints = insight?.spawnHints || {};
+        for (const p of this._scheduleParamEls) {
+            const raw = Number(hints[p.key]);
+            const value = Number.isFinite(raw) ? raw : NaN;
+            const intensity = p.norm(value);
+            const fillOpacity = (0.5 + intensity * 0.5).toFixed(2);
+            const text = p.display(value);
+            _setAttrIfChanged(p.node, 'fill', p.color);
+            _setAttrIfChanged(p.node, 'fill-opacity', fillOpacity);
+            _setAttrIfChanged(p.node, 'stroke', `${p.color}${intensity > 0.5 ? 'ff' : 'cc'}`);
+            if (p.glow) _setAttrIfChanged(p.glow, 'r', (p.baseR + 2.4 + intensity * 1.5).toFixed(2));
+            if (p.valueText.textContent !== text) p.valueText.textContent = text;
+            /* v1.59.16：派生虚线按 intensity 强化 */
+            this._renderDeriveLinks(p.deriveLinks, intensity);
+        }
+    }
+
+    /**
+     * v1.59.17：渲染阶段③ 3 chosen shape 节点 + attempt/solutionRejects badge。
+     *
+     * 数据源：insight.spawnDiagnostics.chosen[] = [{ id, category, reason }, ...]
+     *        insight.spawnDiagnostics.attempt（0..22，22 = 兜底）
+     *        insight.spawnDiagnostics.solutionRejects = { tooFew, tooMany, holeIncrement, orderTooLoose, ... }
+     *
+     * 视觉规则：
+     *   - 每个 chosen 节点：category 色填充 + id 缩写居中 + reason 短标签下方
+     *   - intent → chosen 实色 bezier 强度由 attempt 反向驱动（attempt 低 = 算法轻松 = 边变粗）
+     *   - attempt badge: 显示 "尝试 N/22" + solutionRejects 总数（弱字）
+     */
+    _renderChosenShapes(insight) {
+        if (!this._chosenShapeEls?.length) return;
+        const diag = insight?.spawnDiagnostics || {};
+        const chosen = Array.isArray(diag.chosen) ? diag.chosen : [];
+        const attempt = Number.isFinite(diag.attempt) ? diag.attempt : 0;
+        const attemptNorm = _clamp(1 - attempt / 22, 0, 1);
+        /* v1.59.21 方案 C：缓存 attemptNorm + insight，供 hover 反向高亮模式 mouseleave 后恢复 */
+        this._lastAttemptNorm = attemptNorm;
+        this._lastInsight = insight;
+
+        const sig = chosen.map((c) => `${c?.id ?? '-'}|${c?.reason ?? '-'}`).join('||') + `#${attempt}`;
+        const dirty = this._lastChosenSig !== sig;
+        if (!dirty) {
+            this._renderChosenCausalLinks(attemptNorm);
+            return;
+        }
+        this._lastChosenSig = sig;
+
+        for (let i = 0; i < this._chosenShapeEls.length; i++) {
+            const slot = this._chosenShapeEls[i];
+            const meta = chosen[i] || null;
+            if (!meta) {
+                /* 空 slot：底色暗、grid 清空、文字 '—' */
+                _setAttrIfChanged(slot.bg, 'stroke', 'rgba(148,163,184,0.35)');
+                _setAttrIfChanged(slot.bg, 'fill', 'rgba(15,23,42,0.6)');
+                if (slot.glow) _setAttrIfChanged(slot.glow, 'fill', 'rgba(148,163,184,0.08)');
+                _renderChosenMiniGrid(slot.gridG, null, slot.baseR, '#94a3b8');
+                if (slot.idText.textContent !== '—') slot.idText.textContent = '—';
+                if (slot.reasonText.textContent !== '') slot.reasonText.textContent = '';
+                if (slot.driverText && slot.driverText.textContent !== '') slot.driverText.textContent = '';
+                if (slot.titleEl && slot.titleEl.textContent !== '等待出块') slot.titleEl.textContent = '等待出块';
+                continue;
+            }
+            const color = SHAPE_CATEGORY_COLOR[meta.category] || '#7dd3fc';
+            const idShort = _summarizeShapeId(meta.id);
+            const reasonShort = _summarizeReason(meta.reason);
+            /* v1.59.20：从 blockSpawn._estimateTopDriver 透传过来的主驱动因子 */
+            const driverLabel = meta.topDriver?.label ? `因·${meta.topDriver.label}` : '';
+
+            /* 节点背景：彩色描边 + 暗底（让 mini grid 高对比可读） */
+            _setAttrIfChanged(slot.bg, 'stroke', color);
+            _setAttrIfChanged(slot.bg, 'stroke-opacity', '0.92');
+            _setAttrIfChanged(slot.bg, 'fill', 'rgba(15,23,42,0.88)');
+            if (slot.glow) _setAttrIfChanged(slot.glow, 'fill', `${color}30`);
+
+            /* mini 5×5 grid：直接绘出 shape.data，让玩家一眼识别 */
+            const shape = getShapeById(meta.id);
+            _renderChosenMiniGrid(slot.gridG, shape, slot.baseR, color);
+
+            if (slot.idText.textContent !== idShort) slot.idText.textContent = idShort;
+            if (slot.reasonText.textContent !== reasonShort) slot.reasonText.textContent = reasonShort;
+            if (slot.driverText && slot.driverText.textContent !== driverLabel) {
+                slot.driverText.textContent = driverLabel;
+            }
+
+            /* tooltip：完整 id + 完整 reason 解释 + 主驱动因子 */
+            const tip = SPAWN_REASON_TIP[meta.reason] || meta.reason || '';
+            const driverFull = meta.topDriver?.label ? `\n主因：${meta.topDriver.label}（${meta.topDriver.key}）` : '';
+            const titleStr = `${meta.id || '?'} · ${tip}${driverFull}`;
+            if (slot.titleEl && slot.titleEl.textContent !== titleStr) {
+                slot.titleEl.textContent = titleStr;
+            }
+        }
+
+        this._renderChosenCausalLinks(attemptNorm);
+
+        /* attempt badge：弱字显示尝试次数 + softReject 总数 */
+        if (this._spawnAttemptBadge) {
+            const rejects = diag.solutionRejects || {};
+            let totalRej = 0;
+            for (const k of Object.keys(rejects)) {
+                const v = Number(rejects[k]);
+                if (Number.isFinite(v)) totalRej += v;
+            }
+            const badgeText = attempt > 0
+                ? (totalRej > 0 ? `尝试${attempt}·拒${totalRej}` : `尝试${attempt}`)
+                : '';
+            if (this._spawnAttemptBadge.textContent !== badgeText) {
+                this._spawnAttemptBadge.textContent = badgeText;
+            }
+        }
+    }
+
+    /**
+     * v1.59.18：4 派生层 → 3 chosen 的多源派生虚线强度按 attemptNorm 驱动。
+     * attempt 低（算法易找到合法组合 → 上游信号清晰）→ 虚线变亮变粗；
+     * attempt 高（算法挣扎 → 上游信号矛盾或盘面紧绷）→ 虚线变暗变细。
+     *
+     * v1.59.17 旧 intent→chosen 实色双层（base+halo）已撤销，改为 12 条派生虚线统一控制。
+     */
+    _renderChosenCausalLinks(attemptNorm) {
+        if (!this._chosenDeriveLinks?.length) return;
+        const alpha = (0.16 + attemptNorm * 0.34).toFixed(2);
+        const width = (0.7 + attemptNorm * 0.7).toFixed(2);
+        for (const link of this._chosenDeriveLinks) {
+            _setAttrIfChanged(link.el, 'stroke-opacity', alpha);
+            _setAttrIfChanged(link.el, 'stroke-width', width);
+        }
+    }
+
+    /**
+     * v1.59.21 方案 C：hover chosen[idx] 时反向追溯高亮——根据 topDriver.key 在 DRIVER_NODE_PATHS
+     * 中查到驱动它的"派生节点 keys 集合"，再通过 HINT_DRIVER_SIGNALS / SPAWN_TARGET_DRIVER_SIGNALS
+     * / SCHEDULE_PARAM_DRIVER_SIGNALS / INTENT_DRIVER_SIGNALS 扩展到上游信号节点集合。
+     *
+     * v1.59.22 防抖动重构：
+     *   - 旧版抖动根因：chosen[A]→chosen[B] 切换时 mouseleave 立刻 clear → mouseenter 立刻 set，
+     *     SVG 在同一帧内 remove + add `.dfv-svg--driver-mode`，触发 29+ 节点反向 opacity transition
+     *     互相打断，肉眼可见"闪一下又暗下去"。
+     *   - 修复 1：clear 延迟到下一 rAF 执行；mouseenter 同帧到达时 cancelAnimationFrame，SVG 保持
+     *     driver-mode，仅 diff 增删 `.dfv-driver-hl` 子节点（切换节点视觉完全平滑）。
+     *   - 修复 2：去掉 `filter: saturate() drop-shadow()`（合成层重光栅化代价高），改用纯
+     *     opacity + stroke 区分。
+     *   - 修复 3：决策摘要徽章用独立 DOM append/remove，不再 innerHTML 全树重写。
+     *   - 修复 4：内部维护 `_driverHlSet`（id 集合），diff add/remove 而非全清重设。
+     *
+     * 视觉效果：
+     *   - SVG 整体加 .dfv-svg--driver-mode → 全节点 opacity 0.22（CSS 控制）
+     *   - 高亮信号节点 + 派生节点 + 此 chosen 节点 → opacity 1 + 描边加粗变金 (.dfv-driver-hl)
+     *   - 高亮派生层 → 该 chosen 入向虚线亮化（属性级 stroke-opacity 0.92）
+     *   - 顶部 .dfv-decision-summary 末尾 append 金色徽章「追溯：因·XXX」
+     */
+    _setDriverHighlight(idx) {
+        const chosen = this._lastInsight?.spawnDiagnostics?.chosen;
+        const meta = Array.isArray(chosen) ? chosen[idx] : null;
+        const driver = meta?.topDriver;
+        if (!driver || !this._svg) return;
+
+        /* v1.59.22：取消可能 schedule 的 clear，保证 chosen[A→B] 切换时 SVG 不退出 driver-mode */
+        if (this._driverClearRaf != null) {
+            cancelAnimationFrame(this._driverClearRaf);
+            this._driverClearRaf = null;
+        }
+
+        const path = DRIVER_NODE_PATHS[driver.key] || DRIVER_NODE_PATHS.balanced;
+        const pickAll = (defs, sel) => sel === '*' ? defs.map(d => d.key) : (Array.isArray(sel) ? sel : []);
+
+        const strategyKeys = pickAll(STRATEGY_COMPONENT_DEFS, path.strategy);
+        const targetKeys   = pickAll(SPAWN_TARGET_DEFS, path.targets);
+        const scheduleKeys = pickAll(SCHEDULE_PARAM_DEFS, path.schedule);
+        const intentOn     = !!path.intent;
+
+        const signalSet = new Set();
+        for (const k of strategyKeys) (HINT_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
+        for (const k of targetKeys)   (SPAWN_TARGET_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
+        for (const k of scheduleKeys) (SCHEDULE_PARAM_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
+        if (intentOn) INTENT_DRIVER_SIGNALS.forEach(s => signalSet.add(s));
+        if (path.strategy === '*') SIGNAL_NODES.forEach(s => signalSet.add(s.key));
+
+        /* 构造目标 hl 集合（命名空间 + key，方便 diff 与 toggle） */
+        const next = new Set();
+        for (const sig of signalSet) next.add(`signal:${sig}`);
+        for (const k of strategyKeys) next.add(`strategy:${k}`);
+        for (const k of targetKeys) next.add(`target:${k}`);
+        for (const k of scheduleKeys) next.add(`schedule:${k}`);
+        if (intentOn) next.add('intent:_');
+        next.add(`chosen:${idx}`);
+
+        this._svg.classList.add('dfv-svg--driver-mode');
+
+        /* diff：只增删变化的节点 hl 状态（避免全清→全设造成闪烁） */
+        const prev = this._driverHlSet || new Set();
+        for (const id of prev) {
+            if (!next.has(id)) this._toggleDriverHl(id, false);
+        }
+        for (const id of next) {
+            if (!prev.has(id)) this._toggleDriverHl(id, true);
+        }
+        this._driverHlSet = next;
+
+        /* 入向虚线：仅当前 chosen 的入向被驱动层亮化，其他全 chosen 的入向虚线统一弱化 */
+        for (const link of (this._chosenDeriveLinks || [])) {
+            let active = false;
+            if (link.toChosenIdx === idx) {
+                const layer = link.source;
+                if (layer === 'strategy' && strategyKeys.length > 0) active = true;
+                else if (layer === 'targets' && targetKeys.length > 0) active = true;
+                else if (layer === 'schedule' && scheduleKeys.length > 0) active = true;
+                else if (layer === 'intent' && intentOn) active = true;
+                else if (path.strategy === '*') active = true;
+            }
+            _setAttrIfChanged(link.el, 'stroke-opacity', active ? '0.92' : '0.05');
+            _setAttrIfChanged(link.el, 'stroke-width', active ? '1.6' : '0.4');
+        }
+
+        this._updateDriverBadge(driver);
+    }
+
+    /**
+     * v1.59.22：单节点 hl class 增删的 toggle 工具。
+     * id 形如 "signal:frust" / "strategy:clearGuarantee" / "target:novelty" /
+     * "schedule:perfectClearBoost" / "intent:_" / "chosen:1"。
+     */
+    _toggleDriverHl(id, on) {
+        if (!this._svg) return;
+        const colon = id.indexOf(':');
+        if (colon < 0) return;
+        const ns = id.slice(0, colon);
+        const key = id.slice(colon + 1);
+        let el = null;
+        switch (ns) {
+            case 'signal':   el = this._svg.querySelector(`.dfv-node--signal[data-key="${key}"]`); break;
+            case 'strategy': el = this._svg.querySelector(`.dfv-strategy-node[data-key="${key}"]`); break;
+            case 'target':   el = this._svg.querySelector(`.dfv-target-node[data-key="${key}"]`); break;
+            case 'schedule': el = this._svg.querySelector(`.dfv-schedule-node[data-key="${key}"]`); break;
+            case 'intent':   el = this._intentEl?.group || null; break;
+            case 'chosen':   el = this._svg.querySelector(`.dfv-chosen-node[data-idx="${key}"]`); break;
+        }
+        if (!el) return;
+        if (on) el.classList.add('dfv-driver-hl');
+        else el.classList.remove('dfv-driver-hl');
+    }
+
+    _clearDriverHighlight() {
+        /* v1.59.22：延迟到下一帧执行，让 chosen[A]→chosen[B] 切换时 mouseenter 能取消 clear，
+         * SVG 永远不退出 driver-mode（避免 29 节点 opacity 反向过渡互相打断引起的闪烁）。 */
+        if (this._driverClearRaf != null) return;
+        this._driverClearRaf = requestAnimationFrame(() => {
+            this._driverClearRaf = null;
+            if (!this._svg) return;
+            this._svg.classList.remove('dfv-svg--driver-mode');
+            if (this._driverHlSet) {
+                for (const id of this._driverHlSet) this._toggleDriverHl(id, false);
+                this._driverHlSet = null;
+            }
+            if (this._chosenDeriveLinks?.length && this._lastAttemptNorm != null) {
+                this._renderChosenCausalLinks(this._lastAttemptNorm);
+            }
+            this._removeDriverBadge();
+        });
+    }
+
+    /**
+     * v1.59.22：决策摘要徽章用独立 DOM 节点 append / textContent 更新，
+     * 替代旧版 `innerHTML = savedHtml + tag` 子树重写（重写会触发整个 .dfv-decision-summary
+     * 布局重算，且 box-shadow 呼吸动画在重建中重启 → 视觉闪烁）。
+     */
+    _updateDriverBadge(driver) {
+        const host = this._detailEls?.summary;
+        if (!host || !driver) return;
+        const text = `追溯：因·${driver.label}（${driver.key}）`;
+        if (!this._summaryBadgeEl) {
+            const badge = document.createElement('span');
+            badge.className = 'dfv-summary-driver-badge';
+            badge.style.color = '#fde68a';
+            badge.textContent = text;
+            host.appendChild(badge);
+            this._summaryBadgeEl = badge;
+        } else if (this._summaryBadgeEl.textContent !== text) {
+            this._summaryBadgeEl.textContent = text;
+        }
+    }
+
+    _removeDriverBadge() {
+        if (this._summaryBadgeEl?.parentNode) {
+            this._summaryBadgeEl.parentNode.removeChild(this._summaryBadgeEl);
+        }
+        this._summaryBadgeEl = null;
+    }
+
+    /**
+     * v1.59.16：派生依赖虚线（信号→派生节点）按目标节点 intensity（0..1）驱动 opacity/width，
+     * 让 5 派生层视觉一致——强度高时虚线变实变粗，与"信号→stress"实色边强度逻辑同步。
+     *
+     * @param {Array<{el: SVGPathElement}>} links - 该派生节点的入边虚线集合
+     * @param {number} intensity - 派生节点当前归一化强度 [0, 1]
+     */
+    _renderDeriveLinks(links, intensity) {
+        if (!links?.length) return;
+        const inten = _clamp(Number.isFinite(intensity) ? intensity : 0, 0, 1);
+        /* opacity 0.18..0.68（强度高时虚线"显形"），width 0.7..1.6（视觉粗细同 stress 边强化曲线） */
+        const alpha = (0.18 + inten * 0.50).toFixed(2);
+        const width = (0.7 + inten * 0.9).toFixed(2);
+        for (const { el } of links) {
+            _setAttrIfChanged(el, 'stroke-opacity', alpha);
+            _setAttrIfChanged(el, 'stroke-width', width);
+        }
     }
 
     /**
@@ -1575,6 +2934,17 @@ class DecisionFlowViz {
             cur.sum += v;
             cur.maxAbs = Math.max(cur.maxAbs, Math.abs(v));
             bySource.set(srcKey, cur);
+        }
+        /* v1.59.4：把"贡献中"信号节点 toggle .dfv-node--active class——
+         * 让用户一眼看到"这一帧算法被哪些信号驱动"（节点外圈发光 / 其他节点暗淡）。
+         * 这是"决策过程"可视化的关键——节点不再只是被动展示数值，而是表达"是否参与"。 */
+        for (const [srcKey, ref] of this._nodeEls) {
+            if (!ref?.group) continue;
+            const agg = bySource.get(srcKey);
+            const isActive = agg && agg.maxAbs >= 0.01;
+            const cur = ref.group.classList.contains('dfv-node--active');
+            if (isActive && !cur) ref.group.classList.add('dfv-node--active');
+            else if (!isActive && cur) ref.group.classList.remove('dfv-node--active');
         }
         let edgeIdx = 0;
         for (const [srcKey, edge] of this._edgeEls) {
@@ -1745,11 +3115,9 @@ class DecisionFlowViz {
         const frustrationCritical = frust >= 5;
         const forceReliefIntent = endSessionDistressActive || frustrationCritical;
         const lateCollapse = endSessionDistressActive;
-        const personalizationApplied = !!insight?.personalizationApplied;
-        const winbackActive = !!hints?.winbackProtectionActive;
-        const milestoneHit = !!insight?.scoreMilestoneHit;
-        const afkEngage = !!insight?.afkEngageActive;
-        const onboarding = !!profile?.isInOnboarding;
+        /* v1.58.3 起：chip 渲染走 deriveChipsFromCtx + buildChipCtxFromInsight，
+         * 之前手写的 personalizationApplied / winbackActive / milestoneHit / afkEngage / onboarding
+         * 临时变量不再被 flags 渲染消费，已删除——CHIP_DEFS 在 reducer 内统一派生。 */
 
         let reasonKey = 'dfv.reason.default';
         let reasonFb = '常规决策';
@@ -1780,22 +3148,52 @@ class DecisionFlowViz {
                 return `<li class="${cls}"><span class="dfv-li-key" title="${key}">${i18nLabel}</span><span class="dfv-li-val">${sign}${value.toFixed(3)}</span></li>`;
             }).join('');
 
-        /* —— Decision flags（v1.51.4：i18n） —— */
-        const flags = [
-            ['dfv.flag.forceRelief',     '强制救济',  forceReliefIntent,         'neg'],
-            ['dfv.flag.lateCollapse',    '末段崩盘',  endSessionDistressActive,  'neg'],
-            ['dfv.flag.frustCritical',   '挫败临界',  frustrationCritical,       'neg'],
-            ['dfv.flag.onboarding',      '新手保护',  onboarding,                'pos'],
-            ['dfv.flag.milestone',       '里程碑',    milestoneHit,              'pos'],
-            ['dfv.flag.afkEngage',       'AFK 介入',  afkEngage,                 'pos'],
-            ['dfv.flag.winback',         '回流保护',  winbackActive,             'pos'],
-            ['dfv.flag.personalization', '个性化',    personalizationApplied,    'neutral'],
-        ];
+        /* —— Decision flags（v1.51.4 i18n / v1.57.5 §D 覆盖降级 / v1.58 §rewire 派生层化）——
+         *
+         * 历史 bug（用户截图）：spawnIntent='relief' 时 'AFK 介入' chip 仍高亮，
+         * 但实际 afkEngage 被 relief 优先级覆盖。v1.57.5 §D 用硬编码
+         * `(intent === 'relief') && afkEngage` 修复，但新增 intent / 信号要再写副本。
+         *
+         * v1.58 §rewire：把硬编码替换为 `derivation/intentResolver.isSignalOverridden`
+         * —— 优先级矩阵从 INTENT_RULES 表查询，新增 intent/signal 自动获得覆盖判定。
+         * 行为完全等价（contractTest + property 锁定）；overridden 仍接 CSS 半透明 + 删除线。 */
+        const _intentResolved = (insight?._intentInputs)
+            ? _dfvResolveIntent({
+                ...insight._intentInputs,
+                geometry: {
+                    nearFullLines: insight.spawnDiagnostics?.layer1?.nearFullLines ?? 0,
+                    pcSetup: insight.spawnDiagnostics?.layer1?.pcSetup ?? 0,
+                    boardFill: insight.spawnDiagnostics?.layer1?.fill ?? 0,
+                },
+            })
+            : null;
+        /* v1.58.3：chip 渲染走 deriveChipsFromCtx + buildChipCtxFromInsight，
+         * chip on 函数从 CHIP_DEFS 表唯一派生（与 reducer 同源）。
+         * 每个 chip 高亮时 title 自动写"触发源：...具体数值..."。 */
+        const chipCtx = _dfvBuildChipCtx(insight, profile);
+        const chips = _intentResolved
+            ? _dfvDeriveChips(chipCtx, _intentResolved)
+            : _dfvDeriveChips(chipCtx, { intent: intent || 'maintain', overrides: new Set() });
         const emptyTxt = _ti('dfv.foot.empty', '—');
-        els.flags.innerHTML = flags.map(([k, fb, on, kind]) => {
-            const cls = on ? `dfv-flag dfv-flag--on dfv-flag--${kind}` : 'dfv-flag';
-            return `<span class="${cls}">${_ti(k, fb)}</span>`;
+        const chipHtml = chips.map((c) => {
+            const onCls = c.on ? `dfv-flag--on dfv-flag--${c.kind}` : '';
+            const overCls = c.overridden ? ' dfv-flag--overridden' : '';
+            const titleAttr = c.title ? ` title="${c.title.replace(/"/g, '&quot;')}"` : '';
+            const label = _ti(`dfv.flag.${c.id}`, c.label);
+            return `<span class="dfv-flag ${onCls}${overCls}"${titleAttr}>${label}</span>`;
         }).join('');
+
+        /* v1.58.3 conflicts：跨维度信号冲突一行可视化（chip 区下方一行） */
+        const conflicts = _intentResolved
+            ? _dfvDeriveConflicts(chipCtx, _intentResolved)
+            : [];
+        let conflictsHtml = '';
+        if (conflicts.length > 0) {
+            const tip = conflicts.map((c) => c.tip).join(' / ');
+            const safeTip = tip.replace(/"/g, '&quot;');
+            conflictsHtml = `<div class="dfv-conflicts" title="${safeTip}">⚠ 本帧识别到 ${conflicts.length} 处跨维度信号冲突（hover 看详情）</div>`;
+        }
+        els.flags.innerHTML = chipHtml + conflictsHtml;
 
         /* —— shapeWeights top 5（v1.51.4：i18n + 用 category 字段） —— */
         const shapes = Array.isArray(insight?.shapeWeightsTop) ? insight.shapeWeightsTop.slice(0, 5) : [];
@@ -1842,7 +3240,24 @@ class DecisionFlowViz {
             sessionArc:  'arc',
             delightMode: 'delight',
         };
-        els.hints.innerHTML = hintEntries.length === 0
+        /* v1.57.5 §E：在 hints 列表顶部插入"主导意图锚"
+         *
+         * 历史 bug（用户截图）：调香提示列同时高亮"策展紧 / 节奏档位 / 兑现 / 会话强结
+         * / 慢节奏感 / 心流·兑现"等 6+ 项语义独立的 hint 枚举，玩家无法理解"系统到底
+         * 在做什么"——这些 chip 是 spawn 决策的多维度独立投射，不是 7 个独立决策。
+         *
+         * 修复：在列表第一项插入高亮的"主导意图"标签（与 dfv.reason.* 同源 i18n），
+         * 让玩家明白下面的 hints 是这个主导意图下的"各维度状态描述"，而不是 7 个并列决定。
+         * 与 dfv-li-anchor 样式配套，颜色随 intent 变化（同 SPAWN_INTENT_COLOR 色板）。 */
+        const intentForAnchor = intent || 'maintain';
+        const intentLabel = _ti(`dfv.intent.${intentForAnchor}`, SPAWN_INTENT_DESC[intentForAnchor] || intentForAnchor);
+        const intentAnchorTitle = _ti('dfv.hint.anchorTitle', '下方调香项是当前主导意图下的多维度状态描述，不是 N 个并列决定');
+        const intentAnchorLabel = _ti('dfv.hint.anchorLabel', '当前主导意图');
+        const anchorColor = SPAWN_INTENT_COLOR[intentForAnchor] || '#94a3b8';
+        const anchorHtml = `<li class="dfv-li-anchor" title="${intentAnchorTitle}" style="--anchor-color:${anchorColor}">`
+            + `<span class="dfv-li-key">${intentAnchorLabel}</span>`
+            + `<span class="dfv-li-val dfv-li-anchor-val">${intentLabel}</span></li>`;
+        const hintItemsHtml = hintEntries.length === 0
             ? `<li class="dfv-list-empty">${emptyTxt}</li>`
             : hintEntries.map(([k, v]) => {
                 const label = _ti(`dfv.hint.${k}`, HINT_CN[k] || k);
@@ -1852,6 +3267,109 @@ class DecisionFlowViz {
                 else dispV = String(v);
                 return `<li><span class="dfv-li-key" title="${k}">${label}</span><span class="dfv-li-val">${dispV}</span></li>`;
             }).join('');
+        els.hints.innerHTML = anchorHtml + hintItemsHtml;
+
+        /* v1.59.20：A+B 组合的 B 部分——顶部"决策摘要"叙事条。
+         * 用一句自然语言把"压力 → 意图 → 偏好 → 3 块"翻译给玩家，与左侧球状图
+         * 形成"视觉链路 + 文字叙事"双层解释，彻底消除"看图不懂"的认知 gap。 */
+        if (els.summary) {
+            this._renderDecisionSummary(els.summary, insight, profile, intent);
+        }
+    }
+
+    /**
+     * v1.59.20：渲染顶部"决策摘要"叙事条。
+     *
+     * 模板：[stress 档·N%] · [intent 中文]：[偏好 top1-2] → [3 块 topDriver 简写]
+     * 例：
+     *   "高压·82% · harvest（送消行）：临消行 0.34 / 长条 33% → 可消2行 · 可清屏 · 综合"
+     *   "中压·48% · maintain（维持）：机动性 0.6 / 多消 0.3 → 可消1行 · 机动高 · L形权重 28%"
+     *
+     * 数据来源（与 chosen 节点 topDriver 同源，保证一致性）：
+     *   - stress: insight.stressLevel
+     *   - intent: insight.spawnHints.spawnIntent + SPAWN_INTENT_DESC
+     *   - 偏好 top1-2: insight.spawnHints 五向量 + shapeWeights top1（取数值最大的非 0 项）
+     *   - 3 块 topDriver: insight.spawnDiagnostics.chosen[].topDriver.label
+     */
+    _renderDecisionSummary(host, insight, profile, intent) {
+        if (!host || !insight) return;
+        const stressLv = Number.isFinite(insight.stressLevel) ? insight.stressLevel : null;
+        const diag = insight.spawnDiagnostics;
+        const chosen = Array.isArray(diag?.chosen) ? diag.chosen : [];
+        if (stressLv == null && chosen.length === 0) {
+            host.innerHTML = `<span class="dfv-summary-empty">${_ti('dfv.summary.empty', '等待首次出块…')}</span>`;
+            return;
+        }
+
+        /* —— 1) stress 档（低/中/高 + 百分比） —— */
+        let stressBand = '—', stressColor = '#94a3b8';
+        if (stressLv != null) {
+            if (stressLv < 0.35) { stressBand = _ti('dfv.summary.stress.low', '低压'); stressColor = '#34d399'; }
+            else if (stressLv < 0.65) { stressBand = _ti('dfv.summary.stress.mid', '中压'); stressColor = '#fbbf24'; }
+            else { stressBand = _ti('dfv.summary.stress.high', '高压'); stressColor = '#f87171'; }
+        }
+        const stressTxt = stressLv != null
+            ? `<span class="dfv-summary-seg dfv-summary-seg--stress" style="color:${stressColor}">${stressBand} · ${Math.round(stressLv * 100)}%</span>`
+            : '';
+
+        /* —— 2) intent 档（intent + 中文描述） —— */
+        const intentColor = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
+        const intentCn = _ti(`dfv.intent.${intent}`, SPAWN_INTENT_DESC[intent] || intent);
+        const intentTxt = intent
+            ? `<span class="dfv-summary-seg dfv-summary-seg--intent" style="color:${intentColor}">${intent}（${intentCn}）</span>`
+            : '';
+
+        /* —— 3) 偏好 top1-2（spawnHints 五向量 + shapeWeights top1） ——
+         *   覆盖最易解释的 5 个核心 hint，按数值排序取 top1，再加 shapeWeights top1，最多 2 项。 */
+        const hints = insight.spawnHints || {};
+        const hintCandidates = [
+            ['clearGuarantee', hints.clearGuarantee, '临消行'],
+            ['sizePreference', hints.sizePreference, '尺寸偏好'],
+            ['orderRigor',     hints.orderRigor,     '次序约束'],
+            ['diversityBoost', hints.diversityBoost, '多样'],
+            ['comboChain',     hints.comboChain,     '连击'],
+        ].filter(([, v]) => Number.isFinite(v) && Math.abs(v) >= 0.05)
+         .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+        const prefParts = [];
+        if (hintCandidates[0]) {
+            const [, v, cn] = hintCandidates[0];
+            prefParts.push(`${cn} ${v.toFixed(2)}`);
+        }
+        const topShape = Array.isArray(insight.shapeWeightsTop) && insight.shapeWeightsTop[0];
+        if (topShape && Number.isFinite(topShape.probability)) {
+            const cat = topShape.category ?? topShape.shape ?? topShape.id;
+            const catCn = _ti(`dfv.shape.${cat}`, SHAPE_CATEGORY_CN[cat] || cat);
+            prefParts.push(`${catCn} ${(topShape.probability * 100).toFixed(0)}%`);
+        }
+        const prefTxt = prefParts.length > 0
+            ? `<span class="dfv-summary-seg dfv-summary-seg--pref">${prefParts.join(' / ')}</span>`
+            : '';
+
+        /* —— 4) 3 块 topDriver 简写（与 chosen 节点"因·XXX"小字一致） —— */
+        const driverParts = chosen.slice(0, 3).map(c => {
+            const label = c?.topDriver?.label || '综合';
+            return label;
+        });
+        const driverTxt = driverParts.length > 0
+            ? `<span class="dfv-summary-seg dfv-summary-seg--drivers">${driverParts.join(' · ')}</span>`
+            : '';
+
+        const sep = '<span class="dfv-summary-sep">·</span>';
+        const arrow = '<span class="dfv-summary-arrow">→</span>';
+        const segs = [];
+        if (stressTxt) segs.push(stressTxt);
+        if (intentTxt) segs.push(intentTxt);
+        if (prefTxt) segs.push(prefTxt);
+        const left = segs.join(sep);
+        const html = driverTxt ? `${left} ${arrow} ${driverTxt}` : left;
+        const tip = `决策摘要：[${stressBand} ${stressLv != null ? Math.round(stressLv * 100) + '%' : ''}] 触发 [${intent || '—'}] 意图，` +
+            `结合偏好 [${prefParts.join(' / ') || '—'}]，最终选出 3 块（主因：${driverParts.join(' · ') || '—'}）。\n` +
+            `数据源：insight.stressLevel / spawnHints.spawnIntent / shapeWeightsTop / spawnDiagnostics.chosen[].topDriver`;
+        if (host.dataset.lastHtml !== html) {
+            host.innerHTML = html;
+            host.setAttribute('title', tip);
+            host.dataset.lastHtml = html;
+        }
     }
 
     /* ── 样式注入 ──────────────────────────────────────────────── */
@@ -1876,8 +3394,12 @@ class DecisionFlowViz {
     top: 50%;
     left: max(12px, env(safe-area-inset-left, 0px));
     transform: translateY(-50%);
-    width: min(540px, calc(100vw - 20px));
-    max-height: min(80vh, 680px);
+    /* v1.59.6：默认宽 640 / max-height 820 → min(92vh, 900px)。
+     * v1.59.3 已扩容到 640 / 820；v1.59.6 进一步上调 max-height 让 7 段 details 在
+     * 默认状态下不出现滚动条（决策动态删除意图时间线后段高已减 ~30px，配合 max-height
+     * 微调到 900px 可在主流分辨率完整放下）。 */
+    width: min(640px, calc(100vw - 20px));
+    max-height: min(92vh, 900px);
     /* v1.55.1：背景从 0.94 上拉到 0.97，配合移除 backdrop-filter（详见 docs/engineering/PERFORMANCE.md §1.1）。
      * 旧版 backdrop-filter:blur(10px) 会让浏览器对底下棋盘 canvas 持续合成模糊，
      * 是 DFV 打开时 GPU 飙到 ~75% 的主要原因之一。 */
@@ -1935,54 +3457,266 @@ class DecisionFlowViz {
 .dfv-close:hover { background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.6); color: #fca5a5; }
 .dfv-collapse:hover { background: rgba(56, 189, 248, 0.18); border-color: rgba(56, 189, 248, 0.6); color: #7dd3fc; }
 
-/* —— 主体：左 SVG / 右 HTML 详情 —— */
-/* v1.51.5：右栏固定窄宽（保障左侧 SVG 完整展示）。
- * grid 用 "minmax(0, 1fr) 240px" —— 左栏吃所有剩余宽度，右栏永远 240，
- * 即便屏幕宽到 1200px 也不会让右栏吃掉中央空间，左侧 stress 球与意图六边形不会再撞。 */
+/* —— 主体：左视觉炸裂 / 右文本聚合 ——
+ * v1.59.2：DFV 整体重构。
+ * - 左栏（.dfv-stage）：球状图独占整 stage，叠加背景能量场呼吸 / stress 多层辉光 /
+ *   spawn 辐射波纹 / 意图弹跳，让"信号→压力→决策"动态过程具备视觉冲击力（"炸裂样式"）。
+ * - 右栏（.dfv-details）：所有文本/数值/列表/灵敏度信息集中聚合；顶部新增「决策动态」区段
+ *   承载 3 个 adc-* 模块（意图时间线 / stress 分量堆叠 / 响应灵敏度），与下方各 section
+ *   节奏一致。
+ * - grid 从 1fr|220px → 1fr|260px：右栏扩容 40px 容纳额外区段而不挤压左侧球状图。 */
 .dfv-body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 220px;
+    grid-template-columns: minmax(0, 1fr) 260px;
     gap: 6px;
     padding: 5px 8px 5px;
     flex: 1 1 auto;
     min-height: 0;
 }
+/* —— 左栏：球状图独占 + 炸裂视觉层 —— */
 .dfv-stage {
     position: relative;
-    min-height: 270px;
-    border-radius: 10px;
+    min-height: 320px;
+    border-radius: 12px;
+    overflow: hidden;
+    isolation: isolate;
     background:
-        radial-gradient(circle at 68% 52%, rgba(56, 189, 248, 0.16), rgba(56, 189, 248, 0.03) 24%, transparent 62%),
-        radial-gradient(circle at 22% 24%, rgba(34, 211, 238, 0.10), transparent 45%),
-        linear-gradient(180deg, rgba(15, 23, 42, 0.26), rgba(2, 6, 23, 0.50));
+        radial-gradient(circle at 68% 52%, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.03) 26%, transparent 64%),
+        radial-gradient(circle at 22% 24%, rgba(34, 211, 238, 0.12), transparent 48%),
+        radial-gradient(circle at 78% 84%, rgba(168, 85, 247, 0.10), transparent 52%),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.30), rgba(2, 6, 23, 0.62));
     box-shadow:
-        inset 0 0 0 1px rgba(56, 189, 248, 0.10),
-        inset 0 0 44px rgba(56, 189, 248, 0.08);
+        inset 0 0 0 1px rgba(56, 189, 248, 0.14),
+        inset 0 0 56px rgba(56, 189, 248, 0.10);
 }
-.dfv-particles { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.dfv-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* 背景能量场：缓慢呼吸 + 旋转的径向光斑，让左栏始终有"在运转"的感觉 */
+.dfv-stage-aura {
+    position: absolute; inset: -10%;
+    pointer-events: none;
+    z-index: 0;
+    background:
+        radial-gradient(closest-side at 50% 50%, rgba(56, 189, 248, 0.22), rgba(56, 189, 248, 0) 70%),
+        conic-gradient(from 0deg at 50% 50%,
+            rgba(56, 189, 248, 0.0) 0deg,
+            rgba(56, 189, 248, 0.12) 60deg,
+            rgba(168, 85, 247, 0.0) 120deg,
+            rgba(251, 146, 60, 0.10) 200deg,
+            rgba(34, 211, 238, 0.0) 280deg,
+            rgba(56, 189, 248, 0.0) 360deg);
+    filter: blur(28px);
+    mix-blend-mode: screen;
+    opacity: 0.6;
+    animation: dfvAuraSpin 26s linear infinite, dfvAuraBreath 6.5s ease-in-out infinite;
+}
+@keyframes dfvAuraSpin { to { transform: rotate(360deg); } }
+@keyframes dfvAuraBreath {
+    0%,100% { opacity: 0.45; }
+    50%     { opacity: 0.75; }
+}
+/* spawn 时触发的全屏震波（JS 通过 toggle .dfv-stage--shock 触发一次 0.6s 动画） */
+.dfv-stage-shock {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    background:
+        radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0) 30%),
+        radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.32), rgba(56, 189, 248, 0) 55%);
+    mix-blend-mode: screen;
+}
+.dfv-stage--shock .dfv-stage-shock {
+    animation: dfvShock 0.62s cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+@keyframes dfvShock {
+    0%   { opacity: 0.85; transform: scale(0.55); filter: blur(0px); }
+    60%  { opacity: 0.40; transform: scale(1.10); filter: blur(2px); }
+    100% { opacity: 0;    transform: scale(1.35); filter: blur(8px); }
+}
+/* high-stress: 高压时左栏边缘脉动红光（CSS 跟随 .dfv-stage--high-stress） */
+.dfv-stage--high-stress {
+    box-shadow:
+        inset 0 0 0 1px rgba(251, 113, 133, 0.30),
+        inset 0 0 60px rgba(251, 113, 133, 0.22),
+        0 0 28px rgba(251, 113, 133, 0.18);
+    animation: dfvHighStressPulse 1.4s ease-in-out infinite;
+}
+@keyframes dfvHighStressPulse {
+    0%,100% { box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.30), inset 0 0 60px rgba(251, 113, 133, 0.18), 0 0 24px rgba(251, 113, 133, 0.14); }
+    50%     { box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.55), inset 0 0 80px rgba(251, 113, 133, 0.32), 0 0 40px rgba(251, 113, 133, 0.28); }
+}
+.dfv-particles { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+.dfv-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
+
+/* —— 4 阶段流程导航：信号 → 压力 → 策略 → 意图 ——
+ * v1.59.3：absolute 浮在 stage 顶部（不参与 SVG 布局），让"决策过程"成为视觉锚。
+ * 当 stress 球高压（.dfv-stage--high-stress）时 step 2 高亮；spawn 时整条 nav 闪一下
+ * （.dfv-stage--shock 触发 nav 短暂提亮），把"算法刚做出一次决策"的反馈直接连到流程上。 */
+.dfv-flow-nav {
+    position: absolute;
+    top: 6px; left: 8px; right: 8px;
+    z-index: 4;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 4px;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        rgba(96, 165, 250, 0.14) 0%,
+        rgba(34, 211, 238, 0.14) 33%,
+        rgba(168, 85, 247, 0.14) 66%,
+        rgba(244, 114, 182, 0.14) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    pointer-events: auto;
+    font-size: 9.5px;
+    color: #e2e8f0;
+    user-select: none;
+}
+.dfv-flow-step {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(2, 6, 23, 0.45);
+    border: 1px solid rgba(148, 163, 184, 0.20);
+    line-height: 1.4;
+    white-space: nowrap;
+    transition: transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.dfv-flow-step__num {
+    display: inline-flex; align-items: center; justify-content: center;
+    /* v1.59.11：原 13×13 圆形容不下 "2①" 两字符 → 改为药丸形 min-width:16 */
+    min-width: 16px; height: 13px;
+    padding: 0 3px;
+    border-radius: 6.5px;
+    background: rgba(56, 189, 248, 0.20);
+    color: #7dd3fc;
+    font-size: 8px;
+    font-weight: 700;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    line-height: 1;
+}
+.dfv-flow-step__name { font-weight: 600; letter-spacing: 0.04em; }
+/* v1.59.11：并列符 ∥ — 替代原 ▶ 在派生 3 子项之间，表达"同源并列、非串行" */
+.dfv-flow-parallel {
+    color: rgba(125, 211, 252, 0.62);
+    font-size: 10px;
+    font-weight: 700;
+    transform: translateY(-0.5px);
+    letter-spacing: -1px;
+    cursor: help;
+}
+.dfv-flow-step--signal   { border-color: rgba(96, 165, 250, 0.40); }
+.dfv-flow-step--signal   .dfv-flow-step__num { background: rgba(96, 165, 250, 0.24); color: #93c5fd; }
+.dfv-flow-step--stress   { border-color: rgba(34, 211, 238, 0.40); }
+.dfv-flow-step--stress   .dfv-flow-step__num { background: rgba(34, 211, 238, 0.24); color: #67e8f9; }
+.dfv-flow-step--strategy { border-color: rgba(168, 85, 247, 0.40); }
+.dfv-flow-step--strategy .dfv-flow-step__num { background: rgba(168, 85, 247, 0.24); color: #c4b5fd; }
+/* v1.59.15：spawnTargets / 调度参数两个新派生步 */
+.dfv-flow-step--target   { border-color: rgba(16, 185, 129, 0.40); }
+.dfv-flow-step--target   .dfv-flow-step__num { background: rgba(16, 185, 129, 0.24); color: #6ee7b7; }
+.dfv-flow-step--schedule { border-color: rgba(252, 211, 77, 0.40); }
+.dfv-flow-step--schedule .dfv-flow-step__num { background: rgba(252, 211, 77, 0.22); color: #fde68a; }
+.dfv-flow-step--intent   { border-color: rgba(244, 114, 182, 0.40); }
+.dfv-flow-step--intent   .dfv-flow-step__num { background: rgba(244, 114, 182, 0.24); color: #f9a8d4; }
+/* v1.59.17：阶段 3 出块——末端 spawn（blockSpawn → 3 chosen shape），用青绿亮色突出"实际产出" */
+.dfv-flow-step--spawn    { border-color: rgba(125, 211, 252, 0.55); background: rgba(14, 165, 233, 0.10); }
+.dfv-flow-step--spawn    .dfv-flow-step__num { background: rgba(125, 211, 252, 0.34); color: #e0f2fe; }
+.dfv-flow-arrow {
+    color: rgba(148, 163, 184, 0.55);
+    font-size: 8px;
+    transform: translateY(-0.5px);
+}
+/* spawn 时 nav 整条提亮一次，把决策事件传导到流程导航 */
+.dfv-stage--shock .dfv-flow-nav {
+    animation: dfvFlowNavPulse 0.62s ease-out 1;
+}
+@keyframes dfvFlowNavPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55), inset 0 0 24px rgba(56, 189, 248, 0.42); }
+    100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0),    inset 0 0 0    rgba(56, 189, 248, 0); }
+}
+/* 高压时压力 step 持续提亮 */
+.dfv-stage--high-stress .dfv-flow-step--stress {
+    background: rgba(251, 113, 133, 0.22);
+    border-color: rgba(251, 113, 133, 0.65);
+    box-shadow: 0 0 10px rgba(251, 113, 133, 0.35);
+}
+.dfv-stage--high-stress .dfv-flow-step--stress .dfv-flow-step__num {
+    background: rgba(251, 113, 133, 0.55);
+    color: #fff;
+}
+
+/* —— 右栏顶部「决策动态」区段：v1.59.6 简为 2 模块（压力归因 + 响应灵敏度） ——
+ * 删除了意图时间线 + adc-timeline-* CSS 覆盖；右栏总高 ~减 30px，配合 max-height 900 让 7 段
+ * 默认无需滚动。 */
+.dfv-section--dynamics { padding: 2px 6px 4px; }
+.dfv-dynamics-host {
+    display: flex; flex-direction: column; gap: 3px;
+    font-size: 9.5px; color: #cbd5e1;
+}
+.dfv-dynamics-host .adc-row-label {
+    color: #7dd3fc; font-size: 8.5px; letter-spacing: 0.06em; font-weight: 700;
+    text-transform: uppercase;
+}
+.dfv-dynamics-host .adc-muted { color: #64748b; font-size: 8.5px; }
+.dfv-dynamics-host .adc-stack,
+.dfv-dynamics-host .adc-sens { font-size: 9px; gap: 2px; }
+.dfv-dynamics-host .adc-stack--empty,
+.dfv-dynamics-host .adc-sens--empty {
+    padding: 2px 4px; color: #64748b; font-size: 8.5px; text-align: left; font-style: italic;
+}
+/* 压力归因（竖排排序条目）紧凑化：在右栏 260px 下 top-4 双栏布局每行 ~14px */
+.dfv-dynamics-host .adc-stack__head { padding: 0; }
+.dfv-dynamics-host .adc-stack__cols { gap: 3px; }
+.dfv-dynamics-host .adc-stack-block { padding: 2px 4px 2px; gap: 0; }
+.dfv-dynamics-host .adc-stack-block__head { font-size: 8px; margin-bottom: 0; }
+.dfv-dynamics-host .adc-stack-block__sum { font-size: 8px; }
+.dfv-dynamics-host .adc-stack-item {
+    grid-template-columns: minmax(0, 1fr) 24px 28px;
+    gap: 3px;
+    font-size: 8px;
+    padding: 0;
+    line-height: 1.2;
+}
+.dfv-dynamics-host .adc-stack-item__label { font-size: 8px; }
+.dfv-dynamics-host .adc-stack-item__val { font-size: 8px; }
+.dfv-dynamics-host .adc-stack-item__bar { height: 3px; }
+.dfv-dynamics-host .adc-stack__summary { font-size: 8.5px; gap: 4px; }
+/* 响应灵敏度紧凑化 */
+.dfv-dynamics-host .adc-sens__head { padding: 0; }
+.dfv-dynamics-host .adc-sens__subtitle { font-size: 7.5px; margin-left: 4px; }
+.dfv-dynamics-host .adc-sens__hint { font-size: 8px; color: #94a3b8; }
+.dfv-dynamics-host .adc-sens-row {
+    grid-template-columns: 100px 38px 1fr;
+    padding: 1px 4px; font-size: 8px;
+    min-height: 14px;
+}
+.dfv-dynamics-host .adc-sens-pair { font-size: 8px; }
+.dfv-dynamics-host .adc-sens-r { font-size: 8.5px; }
+.dfv-dynamics-host .adc-sens-verdict { font-size: 8px; line-height: 1.2; }
 
 .dfv-details {
+    /* v1.59.6：默认 overflow:hidden，仅当极矮高度（如手机折叠态）才出滚动条；
+     * 主流分辨率下 7 段配合 max-height 900 完整放下，绝不触发滚动。 */
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 2px;
-    display: flex; flex-direction: column; gap: 3px;
+    display: flex; flex-direction: column; gap: 2px;
     font-size: 9.5px;
 }
-.dfv-details::-webkit-scrollbar { width: 4px; }
+.dfv-details::-webkit-scrollbar { width: 3px; }
 .dfv-details::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.3); border-radius: 2px; }
 
-/* v1.51.5 极致紧凑：右栏固定 240px → label/value 字号 9px、行高 16px；
- * section padding/title 也压缩，让 6 个 section 在 max-height 内不溢出。 */
+/* v1.59.6 极致紧凑：section padding 3-6-4 → 2-5-3，title margin 0-0-2 → 0-0-1，
+ * 让 7 段（决策动态 + 6 段）在 max-height 900px 下默认不出滚动。 */
 .dfv-section {
     background: rgba(15, 23, 42, 0.55);
     border: 1px solid rgba(56, 189, 248, 0.10);
     border-radius: 5px;
-    padding: 3px 6px 4px;
+    padding: 2px 5px 3px;
 }
 .dfv-sec-title {
     font-size: 9.5px; font-weight: 700; color: #7dd3fc; letter-spacing: 0.04em;
-    margin: 0 0 2px;
+    margin: 0 0 1px;
     padding-bottom: 1px;
     border-bottom: 1px dashed rgba(56, 189, 248, 0.15);
     display: flex; justify-content: space-between; align-items: baseline; gap: 6px;
@@ -2012,6 +3746,12 @@ class DecisionFlowViz {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 6px;
+}
+/* v1.59.7：3 列网格——形状权重 5 项排 3+2 两行，比 2 列 (3+2) 更紧凑 */
+.dfv-list--three-col {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 4px;
 }
 .dfv-list li {
     display: grid;
@@ -2062,6 +3802,50 @@ class DecisionFlowViz {
 .dfv-flag--on.dfv-flag--neutral {
     background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.55); color: #93c5fd;
 }
+/* v1.57.5 §D：被更高优先级意图覆盖的 chip——半透明 + 删除线，告诉玩家
+ * "信号激活但本帧未生效"，避免把 chip 高亮误解为系统在做这件事。 */
+.dfv-flag--overridden {
+    opacity: 0.5;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    text-decoration-color: rgba(255, 255, 255, 0.45);
+}
+/* v1.58.3：跨维度信号冲突行——显式承认 flowState vs intent 等独立信号源对掐，
+ * 比假装一致更可信。颜色用 amber（warn 而非 error），位置紧贴 chip 区下方。 */
+.dfv-conflicts {
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.30);
+    color: #fcd34d;
+    font-size: 8.5px;
+    line-height: 1.4;
+    font-weight: 500;
+    cursor: help;
+}
+/* v1.57.5 §E：调香提示顶部"主导意图锚"——给下方多 chip 提供视觉锚点，
+ * 让玩家理解"下方各 hint 是这个意图下的多维状态"，而非 N 个并列决定。
+ * 颜色随 intent 变化（inline --anchor-color 由 SPAWN_INTENT_COLOR 注入）。 */
+.dfv-li-anchor {
+    background: rgba(15, 23, 42, 0.78);
+    border-left: 3px solid var(--anchor-color, #94a3b8);
+    border-radius: 4px;
+    padding: 3px 7px;
+    margin-bottom: 3px;
+    font-weight: 700;
+    font-size: 10px;
+    color: #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.dfv-li-anchor .dfv-li-key { color: #94a3b8; font-size: 9px; font-weight: 600; }
+.dfv-li-anchor-val {
+    color: var(--anchor-color, #e2e8f0);
+    font-size: 11px;
+    letter-spacing: 0.3px;
+}
 
 /* —— sparkline 时间序列条（v1.51.3 紧凑：参考 .replay-series-cell 18px 行高） —— */
 .dfv-sparks {
@@ -2087,6 +3871,21 @@ class DecisionFlowViz {
 .dfv-spark-svg { width: 100%; height: 14px; display: block; border-radius: 3px;
     background: color-mix(in srgb, #fff 3%, transparent);
 }
+/* v1.59.8：sparkline 末点脉动圆点——
+ * cx/cy 由 _renderSparks 实时写入，CSS 让圆点周围出现"扩散波纹"配合脉冲，
+ * 强化"实时数据流"的可感知度。idle 时（无数据）圆点缩到画外（cx=-9）+ 弱化呼吸。 */
+.dfv-spark-dot {
+    transition: cx 0.18s ease, cy 0.18s ease;
+    filter: drop-shadow(0 0 3px var(--dot-color, currentColor));
+    animation: dfvSparkDotPulse 1.1s ease-in-out infinite;
+}
+.dfv-spark-dot--idle { animation: none; opacity: 0.35; }
+@keyframes dfvSparkDotPulse {
+    0%,100% { r: 2.0; opacity: 0.95; }
+    50%     { r: 3.0; opacity: 0.55; }
+}
+.dfv-spark-fill { transition: d 0.18s ease; }
+.dfv-spark-path { transition: d 0.18s ease; }
 .dfv-spark-value {
     text-align: right; font-family: ui-monospace, 'SF Mono', monospace;
     font-weight: 700; font-size: 10px;
@@ -2106,6 +3905,72 @@ class DecisionFlowViz {
 .dfv-dot { width: 8px; height: 8px; border-radius: 50%; }
 .dfv-dot--neg { background: #22d3ee; box-shadow: 0 0 8px #22d3ee; }
 .dfv-dot--pos { background: #fb923c; box-shadow: 0 0 8px #fb923c; }
+/* v1.59.11：共变图例点——用与纵轴 covary 虚线同色（slate-gray）+ 虚线边 */
+.dfv-dot--covary { background: transparent; border: 1px dashed #94a3b8; box-shadow: none; }
+.dfv-legend--covary { cursor: help; }
+/* v1.59.19：出块原因图例（chosen 节点上方"送消行/送清屏/综合选/兜底块"语义说明）—— 一次性展示，
+ * 避免玩家逐个 hover 才知道含义。每条 reason 名用 SHAPE_CATEGORY_COLOR 协调色高亮。 */
+.dfv-foot--reason {
+    border-top: 1px dashed rgba(56, 189, 248, 0.12);
+    flex-wrap: wrap; row-gap: 4px;
+    padding: 4px 10px 5px;
+    font-size: 8.4px; color: #cbd5e1;
+}
+.dfv-legend--reason { cursor: help; gap: 4px; }
+.dfv-legend--reason-title { opacity: 0.7; }
+.dfv-reason-tag {
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(15,23,42,0.6);
+    border: 1px solid currentColor;
+    font-size: 8.6px;
+    letter-spacing: 0.02em;
+}
+
+/* v1.59.20：顶部决策摘要叙事条（A+B 组合的 B 部分） */
+.dfv-decision-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 6px 12px 7px;
+    border-bottom: 1px solid rgba(56, 189, 248, 0.10);
+    background: linear-gradient(180deg, rgba(15,23,42,0.45), rgba(15,23,42,0.18));
+    font-size: 10.5px;
+    line-height: 1.35;
+    color: #e2e8f0;
+    cursor: help;
+    user-select: text;
+}
+.dfv-summary-empty { color: #64748b; font-style: italic; font-size: 10px; }
+.dfv-summary-seg {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+.dfv-summary-seg--stress { font-weight: 700; }
+.dfv-summary-seg--intent { font-weight: 700; }
+.dfv-summary-seg--pref { color: #cbd5e1; opacity: 0.85; }
+.dfv-summary-seg--drivers {
+    font-weight: 700;
+    color: #93c5fd;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(59,130,246,0.10);
+    border: 1px solid rgba(147,197,253,0.30);
+}
+.dfv-summary-sep { color: #475569; opacity: 0.6; padding: 0 1px; }
+.dfv-summary-arrow {
+    color: #38bdf8;
+    font-weight: 700;
+    padding: 0 2px;
+    animation: dfvSummaryArrow 2.4s ease-in-out infinite;
+}
+@keyframes dfvSummaryArrow {
+    0%, 100% { opacity: 0.55; transform: translateX(0); }
+    50%      { opacity: 1;    transform: translateX(2px); }
+}
 
 /* —— SVG 内部样式 —— */
 .dfv-svg .dfv-node-label { font-size: 10px; fill: #cbd5e1; font-weight: 600; }
@@ -2159,7 +4024,35 @@ class DecisionFlowViz {
     0%   { opacity: 0.45; }
     100% { opacity: 1; }
 }
-.dfv-svg .dfv-node--signal circle { transition: fill .18s, stroke .18s; }
+.dfv-svg .dfv-node--signal circle { transition: fill .18s, stroke .18s, fill-opacity .22s, opacity .22s; }
+/* v1.59.8：节点身份色策略——核心 fill 始终 = baseColor，强度由 fill-opacity 驱动
+ *   - 数据中：节点本身 opacity:1，fill-opacity 由 _renderSignalNode 设到 0.55..1.0
+ *   - idle（无数据 / 加载初）：dfv-node--idle 让 fill-opacity 限 0.35 + 1.8s 缓慢呼吸，
+ *     视觉上"待机但有身份色"，绝不退化为灰
+ *   - active（贡献中）：保持 v1.59.4 外圈彩光呼吸 + opacity 1 高亮 */
+.dfv-svg .dfv-node--signal { opacity: 1; transition: opacity .22s ease; }
+.dfv-svg .dfv-node--idle .dfv-node-core,
+.dfv-svg .dfv-node--idle .dfv-intent-core {
+    fill-opacity: 0.35 !important;
+    animation: dfvNodeIdleBreath 1.8s ease-in-out infinite;
+}
+@keyframes dfvNodeIdleBreath {
+    0%,100% { fill-opacity: 0.30; }
+    50%     { fill-opacity: 0.55; }
+}
+.dfv-svg .dfv-node--signal.dfv-node--active > circle.dfv-node-aura {
+    fill: var(--node-base, rgba(56, 189, 248, 0.32));
+    fill-opacity: 0.55;
+    animation: dfvNodeActiveBreath 1.4s ease-in-out infinite;
+}
+@keyframes dfvNodeActiveBreath {
+    0%,100% { fill-opacity: 0.85; transform: scale(1); }
+    50%     { fill-opacity: 0.45; transform: scale(1.08); }
+}
+.dfv-svg .dfv-node--signal.dfv-node--active > circle.dfv-node-aura {
+    transform-origin: center;
+    transform-box: fill-box;
+}
 .dfv-svg .dfv-strategy-link { transition: stroke .18s; }
 .dfv-svg .dfv-strategy-branch { transition: stroke .18s; }
 .dfv-svg .dfv-strategy-link--halo { opacity: 0.55; }
@@ -2192,6 +4085,136 @@ class DecisionFlowViz {
     paint-order: stroke;
     stroke: rgba(2,6,23,0.80);
     stroke-width: 1.6px;
+}
+/* v1.59.15: spawnTargets 6 维 + 4 调度参数 mini 节点（比 5 核心分量稍小） */
+.dfv-svg .dfv-target-node-core, .dfv-svg .dfv-schedule-node-core {
+    transition: fill .18s, stroke .18s, fill-opacity .18s;
+}
+.dfv-svg .dfv-target-node-glow, .dfv-svg .dfv-schedule-node-glow { transition: r .18s, fill .18s; }
+.dfv-svg .dfv-target-node-label, .dfv-svg .dfv-schedule-node-label {
+    fill: #cbd5e1;
+    font-size: 6.0px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.88);
+    stroke-width: 1.4px;
+    text-shadow: 0 0 4px rgba(2,6,23,0.80);
+}
+.dfv-svg .dfv-target-node-value, .dfv-svg .dfv-schedule-node-value {
+    fill: #ffffff;
+    font-size: 6.4px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.78);
+    stroke-width: 1.3px;
+}
+/* v1.59.17：阶段③ chosen shape 节点（intent→chosen 实色因果连线 + chosen 节点本体 + reason 标签） */
+/* v1.59.18：chosen 节点新结构（mini grid + 上 reason / 下 id）
+ * v1.59.22：transition 缩短 .35s → .15s——chosen 切换时入向虚线亮/灭更跟手，
+ * 减少 hover 切换 chosen 节点期间"虚线慢淡入淡出"的视觉拖尾感。 */
+.dfv-svg .dfv-derive-link--chosen { transition: stroke-opacity .15s, stroke-width .15s; }
+.dfv-svg .dfv-chosen-node { cursor: help; }
+.dfv-svg .dfv-chosen-node-bg { transition: stroke .25s, stroke-opacity .25s, fill .25s; }
+.dfv-svg .dfv-chosen-node-glow { transition: fill .25s; }
+.dfv-svg .dfv-chosen-node-grid rect { transition: fill .25s, stroke .25s; }
+.dfv-svg .dfv-chosen-node-id {
+    fill: #f1f5f9;
+    font-size: 8.4px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    font-family: ui-monospace, 'SF Mono', monospace;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.92);
+    stroke-width: 1.8px;
+}
+.dfv-svg .dfv-chosen-node-reason {
+    fill: #fcd34d;
+    font-size: 8.2px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.92);
+    stroke-width: 1.8px;
+}
+/* v1.59.21 方案 C：hover chosen 节点时反向追溯高亮——SVG 整体进入"driver-mode"，
+ * 非追溯节点淡化，被驱动路径上的节点 (.dfv-driver-hl) 保持 1.0 + 描边加粗变金。
+ *
+ * v1.59.22 防抖动重构：
+ *   - 去除 filter:saturate / drop-shadow：filter 会强制合成层重光栅化（GPU 重负载），
+ *     29+ 节点同时切换 filter 在 4K 屏 / 低配 GPU 上会引发明显帧抖。改用纯 opacity + stroke。
+ *   - transition 缩短到 .12s（从 .22s）：切换 chosen 节点更跟手，且配合 _clearDriverHighlight
+ *     的 rAF 延迟设计（同帧 mouseenter 会取消 clear），SVG 保持 driver-mode 不抖动。
+ *   - 非追溯派生节点 opacity 从 0.18 提升到 0.22：保留更多位置感知，焦点对比度仍足够。 */
+.dfv-svg.dfv-svg--driver-mode .dfv-node,
+.dfv-svg.dfv-svg--driver-mode .dfv-strategy-node,
+.dfv-svg.dfv-svg--driver-mode .dfv-target-node,
+.dfv-svg.dfv-svg--driver-mode .dfv-schedule-node,
+.dfv-svg.dfv-svg--driver-mode .dfv-chosen-node {
+    transition: opacity .12s ease;
+    opacity: 0.22;
+}
+.dfv-svg.dfv-svg--driver-mode .dfv-derive-link,
+.dfv-svg.dfv-svg--driver-mode .dfv-edge {
+    transition: opacity .12s ease;
+    opacity: 0.10;
+}
+.dfv-svg.dfv-svg--driver-mode .dfv-driver-hl {
+    opacity: 1 !important;
+}
+.dfv-svg.dfv-svg--driver-mode .dfv-driver-hl .dfv-node-core,
+.dfv-svg.dfv-svg--driver-mode .dfv-driver-hl .dfv-strategy-node-core,
+.dfv-svg.dfv-svg--driver-mode .dfv-driver-hl .dfv-target-node-core,
+.dfv-svg.dfv-svg--driver-mode .dfv-driver-hl .dfv-schedule-node-core,
+.dfv-svg.dfv-svg--driver-mode .dfv-driver-hl .dfv-chosen-node-bg,
+.dfv-svg.dfv-svg--driver-mode .dfv-driver-hl .dfv-intent-core {
+    transition: stroke-width .12s ease, stroke .12s ease;
+    stroke-width: 2.6 !important;
+    stroke: #fde68a !important;
+}
+/* 当前 chosen 的入向追溯虚线 (JS 已设 stroke-opacity=0.92) 在 driver-mode 下保持高亮 */
+.dfv-svg.dfv-svg--driver-mode .dfv-derive-link--chosen[stroke-opacity="0.92"] {
+    opacity: 1;
+}
+
+/* v1.59.21 方案 C：决策摘要在 hover 反向高亮期间动态附加"追溯：因·XXX"小徽章 */
+.dfv-summary-driver-badge {
+    font-weight: 700;
+    padding: 1px 6px;
+    margin-left: 6px;
+    border-radius: 3px;
+    background: rgba(253,224,71,0.12);
+    border: 1px solid rgba(253,224,71,0.45);
+    letter-spacing: 0.02em;
+    animation: dfvDriverBadgeBlink 1.2s ease-in-out infinite;
+}
+@keyframes dfvDriverBadgeBlink {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(253,224,71,0.5); }
+    50%      { box-shadow: 0 0 6px 1px rgba(253,224,71,0.7); }
+}
+
+/* v1.59.20：chosen 节点底部第三行"因·XXX"主驱动因子小字
+ * （消除"为什么是这块"的认知 gap，常驻显示不依赖 hover） */
+.dfv-svg .dfv-chosen-node-driver {
+    fill: #93c5fd;
+    font-size: 7.0px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.92);
+    stroke-width: 1.5px;
+    opacity: 0.92;
+}
+.dfv-svg .dfv-spawn-attempt-badge {
+    fill: #94a3b8;
+    font-size: 6.0px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    paint-order: stroke;
+    stroke: rgba(2,6,23,0.80);
+    stroke-width: 1.2px;
 }
 .dfv-card--resizing { user-select: none; }
 .dfv-resize-handle {
@@ -2238,8 +4261,9 @@ class DecisionFlowViz {
 @media (max-width: 640px) {
     .dfv-card { width: calc(100vw - 16px); max-height: 88vh; left: 8px; }
     .dfv-body { grid-template-columns: 1fr; }
-    .dfv-stage { min-height: 240px; }
+    .dfv-stage { min-height: 280px; }
     .dfv-list--two-col { grid-template-columns: 1fr; }
+    .dfv-list--three-col { grid-template-columns: repeat(2, 1fr); }
 }
 `;
         document.head.appendChild(style);

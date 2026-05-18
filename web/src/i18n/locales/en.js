@@ -387,6 +387,23 @@ export default {
     'dfv.sec.shapesSub': 'top 5 · prob',
     'dfv.sec.targetsSub': 'top 6',
     'dfv.sec.hintsSub': 'scheduling',
+    'dfv.sec.dynamics': 'Decision Dynamics',
+    'dfv.sec.dynamicsSub': 'attribution · sensitivity',
+    'dfv.flowNav.aria': 'Algorithm structure: Signals → Derived (Stress ∥ Strategy ∥ Targets ∥ Schedule ∥ Intent — five parallel siblings)',
+    'dfv.flowStep.signal': 'Signals',
+    'dfv.flowStep.stress': 'Stress',
+    'dfv.flowStep.strategy': 'Strategy',
+    'dfv.flowStep.target': 'Targets',
+    'dfv.flowStep.schedule': 'Schedule',
+    'dfv.flowStep.intent': 'Intent',
+    'dfv.flowStep.signalTip': '17+ player signals (profile + ctx + ability + delight) — underlying causal inputs',
+    'dfv.flowStep.stressTip': 'Derived ①: 12+ stressBreakdown components weighted + normalized (adaptiveSpawn.js) — single scalar [0,1]',
+    'dfv.flowStep.strategyTip': 'Derived ②: spawnHints 5-vector (clearGuarantee/size/rigor/diversity/combo) — 30+ Math.max/min independent paths, does NOT read stress',
+    'dfv.flowStep.targetTip': 'Derived ③: spawnTargets 6-dim (complexity/solSpace/clearOpp/spatial/payoff/novelty) — deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight)',
+    'dfv.flowStep.scheduleTip': 'Derived ④: 4 schedule params (multiClear/multiLine/perfectClear/iconBonus boost) — each via independent derive function',
+    'dfv.flowStep.intentTip': 'Derived ⑤: resolveIntent 7 priority rules (intentResolver.js) — reads distress/geometry/delight/stress directly, NOT the 5-vector. All five parallel siblings from signals',
+    'dfv.flowStep.spawn': 'Spawn',
+    'dfv.flowStep.spawnTip': 'Stage ③ Spawn (blockSpawn.generateDockShapes): consumes all Stage ② outputs → 3 sub-layers (Layer1 topology+anti-deadlock+9 target* soft-filter / Layer2 combo+memory+rhythm / Layer3 arc+milestone) → 22 sampling attempts → 3 chosen shapes (what player actually sees)',
 
     // Intent CN-equivalent (English short)
     'dfv.intent.relief': 'Relief',
@@ -419,6 +436,12 @@ export default {
     'dfv.flag.afkEngage': 'AFK Engage',
     'dfv.flag.winback': 'Winback',
     'dfv.flag.personalization': 'Personalized',
+    /* v1.58.3: 4 new diagnostic chips + conflicts row */
+    'dfv.flag.endSessionStress': 'End-Session Stress',
+    'dfv.flag.lifecycleLateAccel': 'Lifecycle Late-Accel',
+    'dfv.flag.playerDistressFloor': 'Distress Floor',
+    'dfv.flag.delightModeRelief': 'Delight Relief',
+    'dfv.conflicts.label': 'cross-dimension signal conflicts',
 
     // Shape category
     'dfv.shape.lines': 'Lines',
@@ -462,6 +485,7 @@ export default {
     'dfv.foot.relief': 'relief',
     'dfv.foot.pressure': 'pressure',
     'dfv.foot.pulseHint': 'pulse = new spawn',
+    'dfv.foot.covaryHint': 'dashed = derived covariance · NOT causal',
     'dfv.foot.empty': '—',
 
     // v1.51.9: Stress contributors (mirror of stressMeter.SIGNAL_LABELS)

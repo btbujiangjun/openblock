@@ -86,6 +86,88 @@
 > 5. **多端同步**：web 主端 + miniprogram 完整 9 维同步；mobile 自动同步；rl_pytorch 配置已暴露、模型层下次 retrain 自然吸收。
 > 6. **修复重复显示**：用户截图显示 `#best-score` 主 HUD 已展示 "最佳 2200"，但 `best-gap` 元素同时显示 "历史最佳 2200"，两处完全等价造成视觉重复，违反"主 HUD = 绝对锚点 / best-gap = 相对差距"分工。修复后 D0 段也走 `best.gap.neutral` 显示"差 N 分"，差异通过 CSS 默认色 + 算法 `farFromPBBoost` 体现。`best.gap.far` 文案降级为 deprecated 保留 key 以备 i18n 平台灰度回滚。
 > 7. 18 个新测试全通过（A 9 字段返回 + B 9 套 ranges 契约 + miniprogram 同源 + C 9 个 spawnHints 派生 + D 18 reject 计数 + E 9 layer1 透传）。详见 §5.α.14。
+>
+> **v1.57.4 spawnIntent 决策快照增量刷新（2026-05-18，用户驱动："DFV 与压力面板都提示『密集消行机会』但盘面只占 25%，与盘面完全不符"）**：
+> 1. **诊断**：`_lastAdaptiveInsight.spawnIntent` 与 `_lastAdaptiveInsight.spawnDiagnostics.layer1` 是 `spawnBlocks()` 的"决策快照"，而 `spawnBlocks` 只在 dock 三块全部消化后触发。玩家在 dock 周期内的放置 / 消行不会刷新它们——DFV reason "盘面具备消行机会" + stressMeter buildStoryLine "识别到密集消行机会" 全部读这两个字段，因此都会与玩家实时盘面错位，最严重可滞后 3 次放置。次发缺陷：`_mergeLiveGeometrySignals` 只刷新 `nearFullLines` 和 `multiClearCandidates`，`pcSetup` 留在旧快照——让 17% 散布盘面消行后仍可能命中 `pcSetup ≥ 1 && fill ≥ 0.45` 的 harvest 分支。
+> 2. **修复方案**（用户决策：方案 C 深修——抽出纯函数 + 增量刷新）：
+>    - **抽 `deriveSpawnIntent({playerDistress, forceReliefIntent, afkEngageActive, challengeBoost, delightMode, rhythmPhase, stress, sprintCfg, geometry, pcSetupMinFill})` 纯函数**：让 `resolveAdaptiveStrategy` 与 game 层 `_refreshIntentSnapshot` 共用同一套优先级（relief→engage→harvest→pressure→sprint→flow→maintain），杜绝两处口径漂移。
+>    - **抽 `snapshotInsightGeometry(grid, dockShapePool)` 函数**：返回 `{ fill, holes, nearFullLines, multiClearCandidates, pcSetup }` 5 字段，~3 倍 O(n²) 总成本，远低于每帧渲染开销。
+>    - **`_mergeLiveGeometrySignals` 补 pcSetup 实时重算**：消除次发缺陷。
+>    - **`resolveAdaptiveStrategy` 返回 `_intentInputs`（含 9 个决策侧不变量）**：spawn 时一次计算并经 `_captureAdaptiveInsight` 落到 `_lastAdaptiveInsight._intentInputs`，供 game 层在玩家每次放置后用同一套规则 + 实时几何重判 intent。
+>    - **`game.js` 新增 `_refreshIntentSnapshot()`**：在两处调用——(a) `_handlePlace` 内 `grid.place` 之后、`_refreshPlayerInsightPanel` 之前；(b) `playClearEffect.animate` 末尾、`spawnBlocks()` 之前。仅刷新 `spawnIntent` / `spawnHints.spawnIntent` / `spawnDiagnostics.layer1.{fill,holes,nearFullLines,multiClearCandidates,pcSetup}`；不动 `sizePreference / clearGuarantee / target* 9 维 / stressBreakdown` 等"上次决策时的偏好快照"——这些描述"已经出在 dock 里的块是按什么策略生成的"，刷新等于撒谎"这批块是按新意图生成的"。
+> 3. **策略隐性原则保持**：本修复只让玩家"以为一直对的东西"真的对得起盘面，没有引入任何"系统在偷偷做什么"的暴露文案。
+> 4. **多端同步**：web/miniprogram `deriveSpawnIntent` + `snapshotInsightGeometry` + `_mergeLiveGeometrySignals.pcSetup` 同步落地；mobile 复用 web 构建；rl_pytorch 仅消费 spawnIntent one-hot 不重新派生，无需同步。miniprogram 当前无 DFV / stressMeter 展示层订阅 insight，仅做配置与函数同步，不接入 `_refreshIntentSnapshot`。
+> 5. 28 个新测试全通过（A deriveSpawnIntent 7 分支优先级 + B snapshotInsightGeometry 几何正确性 + C `_mergeLiveGeometrySignals` pcSetup 补漏 + D 集成 harvest 快照→消行→重判切换 + E `_intentInputs` 契约）。详见 §5.α.15 与 `docs/algorithms/ADAPTIVE_SPAWN.md` §3.5 "v1.57.4 决策快照增量刷新"。
+>
+> **v1.57.5 决策快照展示层一致性治理（2026-05-18，用户驱动："文案表达一致性 → 全部修复"）**：
+> 1. **诊断**：v1.57.4 已经把决策层做到玩家每次放置后增量刷新，但截图复盘发现展示侧还有 6 项一致性缺陷：(A) DFV 左侧"占盘 0.40" vs 底部"占盘 0.69" 同帧两值；(F) 同上"消行率"双显；(B) spawnIntent=relief 时文案一律"盘面通透又是兑现窗口..."，但实际盘面 fill=0.69 不通透；(D) AFK chip 高亮但实际被 relief 优先级覆盖；(E) 调香提示同时高亮 6+ 项 chip 无层级；(G) stress=0.15 (😊) + boardFill=0.69 视觉反差。
+> 2. **修复方案**（用户决策："全部修复"，6 项一次到位）：
+>    - **(A/F)** `_dfvFingerprint(insight, profile, { boardFill, clearRate })` 把实时几何按 0.01 量化纳入去抖指纹——旧实现只看决策侧字段，节点被去抖跳过、sparkline 实时刷新，两处脱节。同时让 `_refreshIntentSnapshot` 同步刷新 `insight.boardFill` 顶层字段，让所有读 insight 顶层 boardFill 的展示侧与 grid 真实 fill 一致。
+>    - **(B)** 新增 `RELIEF_NARRATIVE_BY_REASON` + `classifyReliefReason(breakdown, fill)`：按 endgame / friendly / hole / boardRisk / bottleneck / frustration / default 七档分级；**friendly 档加 fill < 0.5 守卫**——避免"通透"在密集盘面撒谎。`SPAWN_INTENT_NARRATIVE.relief` 默认文案从"盘面通透又是兑现窗口..."收窄为中性"正在投放更友好的组合，悄悄给你减压"。
+>    - **(D)** DFV decision flags 计算 `overriddenAfkEngage = (intent === 'relief') && afkEngage`，被覆盖的 chip 加 `.dfv-flag--overridden`：CSS 半透明 + 删除线 + title 提示"信号已激活，但本帧被更高优先级意图（relief）覆盖"。物理保留 chip 不隐藏，玩家仍能看到"系统检测到 AFK 信号"的诊断信息。
+>    - **(E)** 在 hints 列表顶部插入"主导意图锚"高亮行（与 SPAWN_INTENT_COLOR 同源色），title 写明"下方各 chip 是当前主导意图下的多维状态描述"——避免玩家把投射 chip 误解为 N 个独立决定。
+>    - **(G)** `getStressDisplay` 新增 crowded 变体：`stress < 0.333 (calm/easy)` + `boardFill ≥ 0.65` → 😅 + "（盘面吃紧）" + "盘面较密..." vibe。优先级矩阵：挣扎中（lateCollapse / frustCritical）> crowded > 救济中。
+> 3. **策略隐性原则保持**：本次全部是"让玩家看到的东西真正对得起盘面"的展示层治理，没有引入任何"系统在偷偷做什么"的暴露文案；情绪反馈反差守卫（G）甚至承认"系统在减压但盘面其实紧"的真实矛盾——而不是单纯按 stress 笑脸。
+> 4. **多端同步**：v1.57.5 全部是 web UI 层修复（DFV / stressMeter / chip），算法层未动；miniprogram 无 DFV / stressMeter / playerInsightPanel，无 UI 镜像需要；mobile 复用 web 构建。
+> 5. 32 个新测试 + 2 条 v1.23/v1.24 旧测试更新到新分级行为，共 139 条相关测试全过（A/F DFV 指纹 + B 七档 relief 分类与 buildStoryLine 路径 + G 紧盘面笑脸守卫 + D AFK overridden 判定）。详见 §5.α.16 与 `docs/algorithms/ADAPTIVE_SPAWN.md` §3.5 "v1.57.5 决策快照展示层一致性治理"。
+>
+> **v1.58 决策派生层架构治理（2026-05-18，用户驱动："采用彻底的修复方案，从长远解决问题"）**：
+> 1. **诊断**：v1.57.5 用 6 个单点修复止住了具体 bug，但**根因没解决**——"同一指标有 N 个 cache、UI 各拿各的"这套散点架构下，新增 intent / 新增信号 / 新增文案变体仍会再次撒谎，必须靠用户截图反馈才能修。这是典型的"散弹枪手术 + 特性嫉妒"代码味道。
+> 2. **彻底方案**（架构级）：新建 `web/src/derivation/` 派生层，把"算法 → UI"之间的转换全部收口，UI 只读一个 PresentationModel：
+>    - **`selectors.js`（SSOT）**：8 个 `selectXxx(game)` 函数封装 `game.grid` / `_lastAdaptiveInsight` / `playerProfile` 全部读取。UI 禁止直接读 cached 字段——下次新增 cache 不会再让 UI 双显。
+>    - **`intentResolver.js`（表驱动 + Trace）**：把 7 条 intent 优先级规则从 if-else 抽成 `INTENT_RULES` 表 + `resolveIntent()` 返回 `{intent, trace, overrides}`。`isSignalOverridden('afkEngage', resolved)` 替代 v1.57.5 §D 散落的硬编码——新增 intent / signal 不用再改 DFV 渲染。
+>    - **`displayContracts.js`（DSL + 自动校验）**：27 条 narrative + emoji contract，每条声明 `requires`（前置条件谓词 DSL）+ `fallback`（降级目标）；运行时自动选择 + 自动降级。新增文案守卫只写 contract，不再写 if-else。修复了旧 `evalPredicate` 复合谓词 `{ gte: 0.125, lt: 0.333 }` 只看第一个操作符的 bug。
+>    - **`presentationReducer.js`（中间层）**：`reducePresentation(game)` → 唯一 PresentationModel，含 `liveGeometry / intent / narrative / emoji / chips`（含自动派生的 `overridden` 标记） + 完整 trace。
+> 3. **性质测试基础设施（fast-check）**：10 条不变式 × 1500 次随机扫描 = **15000 次状态验证**，自动捕获 v1.57.5 类似的"我没想到这种状态组合"。已在调试期捕获 2 个真实 bug：复合谓词漏算 + 浮点边界 0.6499... 导致的 emoji 跳变。
+> 4. **UI 接入示范**：DFV chip override 硬编码 → `isSignalOverridden`；playerInsightPanel 4 处 `game.grid.getFillRatio()` → `selectLiveBoardFill(game)`，杜绝 v1.57.5 §A 类双显复发。
+> 5. **测试矩阵**：
+>    - 单元 63 用例（selectors 13 + resolver 15 + contracts 27 + reducer 8）
+>    - 性质 10 不变式 × 1500 次 = 15000 扫描
+>    - 既有 1707 测试 **0 回归**
+>    - **总计 1780 个测试全过，lint 0 errors**
+> 6. **多端同步**：v1.58 是 web 派生层 + 接入；miniprogram 无 DFV/stressMeter/playerInsightPanel UI，算法层 `deriveSpawnIntent` 也未动，**无镜像需要**。
+> 7. **后续渐进迁移路线**（v1.58.x P0-P2 共 5 项）：stressMeter `buildStoryLine` / `getStressDisplay` 完全走 contract DSL；DFV 全 chip 接入 `reducePresentation`；加 lint 规则禁止 UI 直读 cached 字段；`deriveSpawnIntent` 内部委托 `resolveIntent` 实现单源化。详见 [`docs/algorithms/DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6 与 §5.α.17。
+>
+> **v1.58.1 节奏承诺-几何兑现一致性治理（2026-05-18，用户截图驱动："盘面 fill=0.30 / 0 nearFullLines / 0 multiClearCandidates 时仍显示 '准备享受多消快感'"）**：
+> 1. **诊断**：v1.58 派生层 `flow.payoff` contract 守卫只检查算法节奏（`rhythmPhase='payoff'`），**完全没有几何守卫**——`rhythmPhase=payoff` 只代表算法层进入收获节奏，但**当前 dock + 盘面是否真有可兑现路径**是另一回事。这是 v1.57.5 §B"盘面通透撒谎"在 flow 链上的**同构 bug**，v1.58 没覆盖到。
+> 2. **彻底修复**（架构对称）：
+>    - **`selectors.js` 派生 `geometry.harvestReady = (nearFullLines>=1) || (mcc>=1) || (pcSetup>=1)`**——表达"当前盘面确实存在可兑现路径"，与算法层"节奏 payoff"解耦。
+>    - **`displayContracts.js` 拆 `flow.payoff` 为 ready/waiting 两档**：`flow.payoff.ready` 加 `geometry.harvestReady=true` 守卫，保留"准备享受多消快感"；`flow.payoff.waiting` 不通过守卫时降级到"心流稳定，节奏已锁定收获期，dock 在等下一波兑现窗口——先稳住手"，与同 panel 下方"实时策略-待兑现"文案语义对齐。
+>    - **同步补 `relief.friendly` 的 `harvestReady` 守卫**（语义含"享受多消"，与 I12 跨 contract 不变式对齐）。
+> 3. **新增 3 条性质不变式锁定同类问题**：
+>    - **I11**：`flow.payoff.ready` 命中时 `geometry.harvestReady` 必为 true
+>    - **I12**：任何含"享受多消/收获期"字样的 narrative 命中时，`nearFullLines+multiClearCandidates+pcSetup >= 1`（**跨 contract** 不变式，未来新增同类文案自动受保护）
+>    - **I12b**：任何含"享受多消"字样的 narrative 命中时，`geometry.harvestReady` 必为 true
+>    - 每条 1500 次随机扫描 / 0 反例
+> 4. **测试矩阵**：单元 +5（4 新 + 1 旧测试更新）/ 性质 +3，总计 1785 测试 0 回归 / lint 0 errors。
+> 5. **架构启示**：v1.58 派生层的真正价值在 v1.58.1 体现——**整次根因治理只改 2 个文件 + 加 3 不变式**（~30 行新代码 + 3 测试），就让整个"节奏类承诺"得到结构性保护。如果是 v1.58 之前的散点架构，同一类 bug 在 `harvest.*` / 其它 spawnHints 链路上还会陆续爆 N 次。详见 [`docs/algorithms/DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.1 v1.58.1 治理记录。
+>
+> **v1.58.2 算法信号-盘面几何反差治理（2026-05-18，用户截图驱动："盘面 fill=0.31 / 通透 / forceReliefIntent=true 时仍显示 😣 挣扎中 + '本局接近收尾'"）**：
+> 1. **诊断**：v1.58.1 派生层 `struggling.*` / `relief.endgame` 三档守卫**只看算法侧信号**（sessionPhase / momentum / frustration / endSessionDistress），没有任何盘面几何确证。算法侧 forceReliefIntent 触发，但玩家视觉看到通透盘面——是 v1.57.5 §G crowded 守卫的**镜像问题**（"盘面紧但 stress 低"的反向）。
+> 2. **彻底修复**：
+>    - **`struggling.lateCollapse` / `struggling.frustCritical` 加 `boardFill>=0.45` 守卫**，盘面通透时 fall through 到新增的 `concerned.softRescue.{late,frust}` 中间档（emoji 😟 "稍专注（系统已减压）"）——既承认算法在减压，又不撒谎"挣扎"。
+>    - **`relief.endgame` 加 `boardFill>=0.45` 守卫**，盘面通透时 fall through 到新增的 `relief.endgame.soft`（"临近收尾，盘面仍从容，继续稳住即可"）。
+> 3. **新增 4 条性质**：I7 升级（lateCollapse + boardFill>=0.46 必 struggling）/ I13（struggling emoji 必 boardFill>=0.45）/ I13b（concerned emoji 必算法侧信号触发）/ I14（"本局接近收尾" 文案必 boardFill>=0.45）。
+> 4. **测试矩阵**：单元 +5（含 endgame 两档分枝）/ 性质 +3 + I7 升级 = 1796 测试 0 回归。详见 [`DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.2。
+>
+> **v1.58.3 DFV chip 自描述化 + 跨维度信号冲突可视化（2026-05-18，用户截图驱动："DFV 强制救济亮但其它 chip 全暗 + bored 心流 vs relief 意图自相矛盾"）**：
+> 1. **诊断**：（a）v1.58 chip 表的 `lateCollapse` chip on 函数错写为 `endSessionDistress<-0.05`（v1.57.5 §D 简化），与 stressMeter / adaptiveSpawn 实际定义 `sessionPhase=late && momentum<=-0.30` 不一致——典型"两文件用不同口径表达同一概念"漂移；（b）chip 表只 8 条，无法暴露 forceReliefIntent 的真实触发源；（c）chip 无 reason 字段，hover 没数值；（d）playerProfile.flowState 与 adaptiveSpawn.spawnIntent 本就独立可对掐，但 v1.58 之前假装一致。
+> 2. **彻底修复**：
+>    - 修正 `lateCollapse` on 函数与 stressMeter / adaptiveSpawn 严格同源
+>    - CHIP_DEFS 加 4 个**信号诊断 chip**（`endSessionStress` / `lifecycleLateAccel` / `playerDistressFloor` / `delightModeRelief`）暴露所有压力链路独立信号
+>    - 全 chip 加 `reason(ctx)` 函数，高亮时 title 自动写"触发源：<具体数值>"
+>    - reducer 派生 `conflicts` 数组（`flowVsIntent` / `pressureVsForce`），DFV 渲染到 chip 区下方 amber 提示"⚠ 本帧识别到 N 处跨维度信号冲突"
+>    - 抽出公共 API（`deriveChipsFromCtx` / `buildChipCtxFromInsight` / `deriveConflicts`），DFV 与 reducer 共享 chip 派生路径，避免漂移
+> 3. **新增 3 条性质**：I15（forceRelief 亮必 lateCollapse 或 frustCritical 亮，chip 表与算法层 adaptiveSpawn.js:2235 同源锁定）/ I16（chip on=true 必 title 非空）/ I17（bored+relief 必 conflicts 含 flowVsIntent）。
+> 4. **测试矩阵**：单元 +6（4 新 chip + reason + 2 conflicts）/ 性质 +3 = 1798 测试 0 回归。详见 [`DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.3。
+>
+> **v1.58.4 全系统自查残留修补（2026-05-18，系统性 grep + 人工审视）**：
+> 1. **诊断**：v1.58.3 完成后做了一次系统自查，发现 6 处潜在"算法信号缺几何守卫"或"跨维度冲突未可视化"点——E1: `relief.hole` 在 holes=0 时撒谎"盘面空洞偏多"；E2: `relief.boardRisk` 在通透盘面撒谎"盘面压力较高"；E3: `harvest.default` 兜底文案撒谎"识别到密集消行机会"；E4/E5: `flow.intense` / `flow.tense` 在通透盘面撒谎"高压区"；E6: stress 高但 boardFill 低时无冲突可视化。还顺带修了 `flow.payoff.waiting` 文案含"收获期"字样与 I12 措辞冲突的问题。
+> 2. **彻底修复**：全部加几何守卫 + 新增 `flow.intense.soft` / `flow.tense.soft` 软降级文案 + 改写 `harvest.default` 文案 + 新增 `stressVsBoardFill` conflict。
+> 3. **新增 4 条性质**：I18（"盘面空洞偏多" 必 holes>=1）/ I19（"盘面压力较高" 必 boardFill>=0.45）/ I20（"进入高压区" 必 boardFill>=0.45）/ I21（harvest.default 不含"密集/已识别"）。
+> 4. **自查产出附录**：4 处审视但本轮决定不改（`relief.bottleneck` / `relief.frustration` / `engage.default` / `pressure.default` 都是行为/动量信号陈述，无几何对应，文案是事实陈述）。
+> 5. **测试矩阵**：单元 +11（4 新 contract 测试 + 5 自查 E 系列断言 + 2 conflict 测试）/ 性质 +4 = **1809 测试 0 回归**，lint 0 errors。详见 [`DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.4。
+> 6. **架构启示**：v1.58.4 是派生层落地后第一次"系统性自查"——`grep "盘面|压力|高压" displayContracts.js` 在 30 秒内列出所有有"几何承诺"嫌疑的文案，再人工对 contract.requires 逐条检查是否有对应几何守卫。这种"由产物驱动反向审视守卫"的工作流在 v1.58 之前完全无法做（散点架构里没有"全量 contract 表"这种产物）。性质 I18–I21 把审视结果固化为不变式，避免下次同类回归。
 
 ---
 
@@ -1331,6 +1413,129 @@ npx vitest run tests/spawnDimensionalStress.test.js
 - D. blockSpawn `solutionRejects` 含 18 个新计数器（9 维 × min/max 2 侧）
 - E. blockSpawn `layer1` 透传 9 个 target 字段
 
+#### §5.α.15 spawnIntent 决策快照增量刷新（v1.57.4）
+
+> **背景**：v1.57.3 完成 9 维 stress→算法 投射后，用户截图反馈："DFV 说『盘面具备消行机会』、压力面板说『识别到密集消行机会』，但盘面只占 25%、近满数为 0——完全不符。" 经传导路径审计，根因不在 9 维投射本身，而在所有"基于 `_lastAdaptiveInsight` 的展示文案"共享一个被忽视的快照滞后问题。
+
+##### 同源 bug 全景
+
+| 渲染入口 | 数据源 | 滞后窗口 |
+|---|---|---|
+| DFV reason "盘面具备消行机会" | `insight.spawnHints?.spawnIntent` | 最多 3 次放置 |
+| stressMeter buildStoryLine "识别到密集消行机会..." | `insight.spawnHints?.spawnIntent` + `insight.spawnDiagnostics?.layer1.{nearFullLines, multiClearCandidates}` | 最多 3 次放置（intent + geometry 同步过期）|
+| DFV intent 中央六边形节点 | 同上 | 最多 3 次放置 |
+| stressMeter intent narrative（兜底 SPAWN_INTENT_NARRATIVE）| 同上 | 最多 3 次放置 |
+| playerInsightPanel "近满 N" pill | `liveTopology = analyzeBoardTopology(game.grid)` | ✅ 实时 |
+
+只有 `playerInsightPanel` 自带实时 topology，所有其它展示都读 `_lastAdaptiveInsight`——而 insight 是 `spawnBlocks()` 时的快照，`spawnBlocks` 只在 dock 三块全部消化后触发。玩家在 dock 周期内的放置 / 消行不会刷新它，因此 DFV 与 stressMeter 在最坏情况下会与肉眼盘面错位 3 次放置周期。
+
+##### 修复架构（用户决策：方案 C 深修）
+
+| 步骤 | 改动 | 文件 | 行数 |
+|---|---|---|---|
+| ① 抽 `deriveSpawnIntent` 纯函数 | 把 `resolveAdaptiveStrategy` 内的 in-line spawnIntent 判定块迁出；returns relief/engage/harvest/pressure/sprint/flow/maintain | `web/src/adaptiveSpawn.js` | +60 |
+| ② 抽 `snapshotInsightGeometry(grid, dockPool)` | 返回 `{ fill, holes, nearFullLines, multiClearCandidates, pcSetup }` 实时几何 5 字段 | `web/src/adaptiveSpawn.js` | +30 |
+| ③ 补 `_mergeLiveGeometrySignals.pcSetup` 漏算 | 次发缺陷修复——pcSetup 也要实时重算 | `web/src/adaptiveSpawn.js` | +10 |
+| ④ `resolveAdaptiveStrategy` 返回 `_intentInputs` | 决策侧不变量缓存（9 字段），供 game 层增量重判复用 | `web/src/adaptiveSpawn.js` | +20 |
+| ⑤ `_captureAdaptiveInsight` 落 `_intentInputs` | game 层缓存入口 | `web/src/game.js` | +5 |
+| ⑥ game.js 新增 `_refreshIntentSnapshot()` | 用 deriveSpawnIntent + snapshotInsightGeometry 增量重判 | `web/src/game.js` | +50 |
+| ⑦ 在 `_handlePlace` 与 `playClearEffect.animate` 末尾调用 ⑥ | 两个时机：玩家放置 + 消行动画结束 | `web/src/game.js` | +6 |
+| ⑧ miniprogram 同步 ①②③④ | `analyzePerfectClearSetup` 加 export；`module.exports` 加 deriveSpawnIntent + snapshotInsightGeometry | `miniprogram/core/adaptiveSpawn.js` + `miniprogram/core/bot/blockSpawn.js` | +110 |
+
+##### 刷新边界（关键设计约束）
+
+| 字段 | 是否刷新 | 原因 |
+|---|---|---|
+| `spawnIntent` / `spawnHints.spawnIntent` | ✅ 增量重判 | DFV / stressMeter 直接读的"对外口径"，必须与玩家盘面同步 |
+| `spawnDiagnostics.layer1.{fill, holes, nearFullLines, multiClearCandidates, pcSetup}` | ✅ 实时快照 | stressMeter buildStoryLine geometry 入参 + DFV 几何 chip 读取源 |
+| `spawnHints.{sizePreference, clearGuarantee, targetSolutionRange, targetHoleIncrement, target* 9 维}` | ❌ 不刷新 | 描述【已经出在 dock 里的三块】是按什么策略生成的——玩家放置不改变它，刷新等于撒谎"这批块是按新意图生成的" |
+| `stress` / `stressBreakdown` / `pacingPhase` / `delightMode` / `sessionArc` | ❌ 不刷新 | spawn 决策时刻的"心情"快照，需要在下一次 `spawnBlocks()` 时整体重算（避免心情维度的回灌 noise）|
+
+##### 决策侧不变量 vs 几何敏感量
+
+`deriveSpawnIntent` 的入参分为两类，按时序边界严格分离：
+
+- **决策侧不变量（来自 `_intentInputs`）**：`playerDistress / forceReliefIntent / afkEngageActive / challengeBoost / delightMode / rhythmPhase / stress / sprintCfg / pcSetupMinFill`——在 dock 周期内不变，由 spawn 时一次计算并缓存
+- **几何敏感量（来自 `snapshotInsightGeometry`）**：`geometry.{nearFullLines, pcSetup, boardFill}`——玩家每次放置后实时刷新
+
+这套分离让"决策意图"与"几何反映"解耦，增量重判只重算 harvestable 子条件，性能开销 ~5 µs/次（28 测试中已验证）。
+
+##### 策略隐性原则保持
+
+本修复**只**让玩家"以为一直对的东西"真的对得起盘面，**没有引入任何"系统在偷偷做什么"的暴露文案**。玩家继续靠出块体感 + HUD 颜色感知系统状态，DFV / stressMeter 文案恢复"我说什么，盘面就是什么"的诚实契约。
+
+##### 测试覆盖（`tests/spawnIntentSnapshot.test.js` 28 用例）
+
+- **A. deriveSpawnIntent 7 分支优先级**（18 用例）：relief→engage→harvest→pressure→sprint→flow→maintain 各分支独立断言 + sprint 区间端点 + 完整优先级链
+- **B. snapshotInsightGeometry 几何正确性**（5 用例）：空盘 / 近满×1 / 近满×2 / null 保护 / 与 `analyzePerfectClearSetup` 口径一致
+- **C. `_mergeLiveGeometrySignals` pcSetup 补漏**（1 用例）：spawn 时 ctx.pcSetup 必须来自实时 grid 重算
+- **D. 集成回归**（2 用例）：harvest 快照 + 玩家消行 → 重判应切换；maintain 快照 + 玩家堆出近满 → 重判应升级 harvest
+- **E. `_intentInputs` 契约**（2 用例）：`resolveAdaptiveStrategy` 返回 `_intentInputs` 含 deriveSpawnIntent 全部决策侧字段；用相同 geometry 重判结果与 `layered._spawnIntent` 一致
+
+##### 多端同步
+
+| 端 | deriveSpawnIntent | snapshotInsightGeometry | pcSetup 实时重算 | _refreshIntentSnapshot |
+|---|---|---|---|---|
+| Web | ✅ | ✅ | ✅ | ✅（`web/src/game.js`）|
+| 微信小程序 | ✅（mp 缺 v1.51 forceReliefIntent，保持改前同行为）| ✅ | ✅ | N/A（mp 暂无 DFV / stressMeter 展示层订阅 insight）|
+| Capacitor 移动端 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 |
+| RL PyTorch | 仅消费 `spawnIntent` 作为 one-hot 训练特征，不重新派生 | — | — | — |
+
+#### §5.α.16 决策快照展示层一致性治理：6 项 UI 同源 bug 修复（v1.57.5）
+
+> **背景**：v1.57.4 已经把决策层做到玩家每次放置后增量刷新，但截图复盘发现展示侧还有 6 项一致性缺陷分布在 DFV / stressMeter / chip 三处。这些 bug 的根因都是"渲染管线某个环节漏了实时几何 / 文案没考虑真实条件 / 视觉降级缺失"，不是算法错——属于展示层补完。
+
+##### 6 项 bug 全景
+
+| # | 严重度 | 现象 | 截图证据 | 影响半径 |
+|---|--------|------|----------|----------|
+| A | P0 | DFV 左侧"占盘 0.40" vs 底部 sparkline"占盘 0.69" 同帧两值 | 用户上传截图清楚显示同一面板两个不同数 | DFV 信号节点的可信度坍塌 |
+| F | P0 | DFV 左侧"消行率 —" vs 底部"消行率 0.31" 同帧两值 | 同上 | 同上 |
+| B | P0 | spawnIntent=relief 时一律返回"盘面通透又是兑现窗口..."，但盘面 fill=0.69 不通透 | 同上 | stressMeter 主叙事撒谎 |
+| D | P1 | spawnIntent=relief 时"AFK 介入" chip 仍高亮 | 同上 | 玩家混淆"系统在 AFK 介入 vs relief 救济" |
+| E | P1 | DFV 调香提示同时高亮 6+ 项 chip 无层级 | "策展紧 / 节奏档位 / 兑现 / 会话强结 / 慢节奏感 / 心流·兑现" 6 chip 同时亮 | 玩家把多维投射误解为 N 个并列决定打架 |
+| G | P2 | stress=0.15 (😊 笑脸) + boardFill=0.69 (密集盘面) | 同上 | 情绪 emoji 与盘面视觉反差 |
+
+##### 修复架构
+
+| # | 改动 | 文件 | 关键行 |
+|---|------|------|--------|
+| A/F | `_dfvFingerprint(insight, profile, { boardFill, clearRate })` 第三个入参把实时几何按 0.01 量化纳入指纹；`_refreshIntentSnapshot` 同步刷新 `insight.boardFill` 顶层字段 | `web/src/decisionFlowViz.js` + `web/src/game.js` | +30 |
+| B | `RELIEF_NARRATIVE_BY_REASON` 七档分级 + `classifyReliefReason(breakdown, fill)` 主导原因分类 + friendly 档 fill < 0.5 守卫 | `web/src/stressMeter.js` | +80 |
+| D | DFV chips 计算 `overriddenAfkEngage` + `.dfv-flag--overridden` CSS（半透明 + 删除线 + tooltip） | `web/src/decisionFlowViz.js` | +30 |
+| E | hints 列表顶部插入"主导意图锚"高亮行 + `.dfv-li-anchor` CSS（intent 色板） | `web/src/decisionFlowViz.js` | +35 |
+| G | `getStressDisplay` 新增 crowded 变体（`stress < 0.333 + boardFill ≥ 0.65` → 😅 + "盘面吃紧"）；`renderStressMeter` 把 `boardFill` 喂入 distress 入参 | `web/src/stressMeter.js` | +30 |
+
+##### 关键设计原则
+
+1. **同源治理优先于打补丁**（A/F）：DFV 节点 / sparkline / playerInsightPanel 三处展示同一指标必须从同一个 `liveBoardFill` 源头出发，去抖指纹也要把实时几何维度纳入——而不是给某一处加单点 hack
+2. **文案与几何对齐**（B）：任何含"盘面 X"几何描述的叙事都必须有 fill 守卫；数学正确但情绪信号撒谎是更隐蔽、更伤害信任的 bug
+3. **视觉降级 vs 物理隐藏**（D）：被覆盖的 chip 不应直接隐藏——玩家会丢失"系统检测到了什么信号"的诊断信息；半透明 + 删除线表达"激活但未生效"是更诚实的做法
+4. **锚点 vs 平铺**（E）：多维度 chip 列表必须有主导维度锚，避免玩家把投射当成并列决定；颜色随 intent 变化让锚点与决策同源
+5. **情绪反馈反差守卫**（G）：低 stress + 高 fill 是"系统在减压但盘面其实紧"的**真实矛盾**——emoji 必须承认这个反差（😅）而不是单纯按 stress 笑脸（😊）
+
+##### 策略隐性原则保持
+
+本次全部是"让玩家看到的东西真正对得起盘面"的展示层治理，没有引入任何"系统在偷偷做什么"的暴露文案。情绪反馈反差守卫（G）甚至承认"系统在减压但盘面其实紧"的真实矛盾——而不是单纯按 stress 笑脸。
+
+##### 测试覆盖（`tests/insightConsistency_v1575.test.js` 32 用例 + 2 条 v1.23/v1.24 旧测试更新）
+
+- **§A/F**（4 用例）：DFV 指纹对 `liveBoardFill` / `liveClearRate` 敏感，0.01 级抖动量化稳定，向后兼容（缺省 live 参数不破坏旧调用方）
+- **§B**（15 用例）：`classifyReliefReason` 七档分类全覆盖 + friendly 守卫 fill≥0.5 降级 + endSessionDistress 优先级 + 空 breakdown 兜底；`buildStoryLine` 在 intent=relief 路径走分级文案；`SPAWN_INTENT_NARRATIVE.relief` 默认文案已收窄为中性减压语义
+- **§G**（9 用例）：紧盘面 crowded 变体；优先级（挣扎中 > crowded > 救济中）；calm/easy 两档都覆盖；未传 boardFill 向后兼容
+- **§D**（4 用例）：AFK chip overridden 判定纯逻辑契约
+
+`tests/stressMeter.test.js` 两条 v1.23 / v1.24 旧测试更新到 v1.57.5 reason 分级新行为：原来期望 "盘面通透又是兑现窗口..." 的固定文案，现在按 reason 分级返回 frustration / default 等对应文案。139 条相关测试全过。
+
+##### 多端同步
+
+| 端 | DFV 指纹 / chip 渲染 | RELIEF 分级文案 | 紧盘面 emoji 守卫 |
+|---|---|---|---|
+| Web | ✅ | ✅ | ✅ |
+| 微信小程序 | N/A（无 DFV）| N/A（无 stressMeter）| N/A（无 stressMeter）|
+| Capacitor 移动端 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 |
+| RL PyTorch | N/A（仅消费 `spawnIntent`）| N/A | N/A |
+
 #### §5.α.8 三原则下的算法完整闭环：D4 持续加压 + D0 分级减压 + PB 增长率反向加压（v1.56.4）
 
 > **背景**：v1.56.3 §5.α.7 确立"策略隐性"原则后，对**算法层是否真正贯彻三大原则**做了系统性诊断，发现 3 处关键缺口与原则严重不符。本节是对算法层的完整收口。
@@ -1606,6 +1811,91 @@ pbOvershootBoost = maxBoost · log10(1 + slope·overshoot) / log10(1 + slope)
 
 ---
 
+#### §5.α.17 决策派生层架构治理：彻底解决"散弹枪手术"代码味道（v1.58）
+
+> **背景**：v1.57.5 用 6 个单点修复止住了具体 bug，但**根因没解决**——"同一指标有 N 个 cache，UI 各拿各的"这套散点架构下，新增 intent / 新增信号 / 新增文案变体仍会再次撒谎，必须靠用户截图反馈才能修。这是典型的 **"散弹枪手术（Shotgun Surgery）+ 特性嫉妒（Feature Envy）"** 代码味道。
+>
+> 本次 v1.58 不再做单点止血，而是建立 **决策派生层（Decision Derivation Layer）** 作为算法 → UI 之间的唯一桥梁，让 UI 永远只读一个 PresentationModel，杜绝 v1.57.5 类问题的下一轮复发。
+
+##### 架构分层
+
+```
+算法层（adaptiveSpawn.js）  →  derivation/  →  UI 层（DFV / stressMeter / playerInsightPanel）
+                                  ↑                ↑
+                                SSOT + Trace        只读 PresentationModel
+                                + Contract DSL
+                                + Reducer
+```
+
+##### 4 个派生层子模块
+
+| 文件                                       | 行数（约）  | 职责                                                                                  | 解决的 v1.57.5 痛点              |
+| ---------------------------------------- | ------ | ----------------------------------------------------------------------------------- | --------------------------- |
+| `web/src/derivation/selectors.js`        | 230  | SSOT。所有实时几何 / insight / playerProfile 读取必须走 `selectXxx(game)`                       | A/F 占盘 + 消行率双显              |
+| `web/src/derivation/intentResolver.js`   | 240  | 表驱动 `INTENT_RULES` 优先级矩阵；返回 `{intent, trace, overrides}` 三元组                       | D AFK 高亮但被覆盖（消除硬编码）          |
+| `web/src/derivation/displayContracts.js` | 440  | 27 条 narrative + emoji contract；DSL 自动校验 + 自动降级链                                    | B 盘面通透撒谎；G 笑脸 vs 紧盘面（结构化守卫） |
+| `web/src/derivation/presentationReducer.js` | 230  | `reducePresentation(game)` → 唯一 PresentationModel（chip overridden 自动派生 + trace 全程附带） | E 多 chip 无层级（中心化拼装）         |
+
+##### 性质测试基础设施（v1.58 新引入 fast-check）
+
+10 条不变式 × 1500 次随机扫描 = **15000 次状态验证**：
+
+| 不变式  | 锁定的产品意图                                                              |
+| ---- | ---------------------------------------------------------------------- |
+| I1   | `resolveIntent` 与 `deriveSpawnIntent` 行为完全等价（算法等价性）                    |
+| I4   | "盘面通透/可消行机会" 字样永远不在 `boardFill >= 0.5` 时出现                            |
+| I5   | "密集消行机会" 字样永远不在 `nearFullLines < 3` 时出现                                |
+| I6   | emoji 😌 / 🙂 永远不在 `boardFill >= 0.66` 时出现（必须切到 crowded 或 struggling） |
+| I7   | `lateCollapse` / `frustCritical` 触发时永远是 struggling face                |
+| I8   | `afkEngage` chip 在 `intent=relief` 且 `on=true` 时 `overridden` 必为 true   |
+| I10  | `boardRisk >= 0.6` 时 narrative 永远是"保活/紧张"类                            |
+
+**调试期捕获 2 个真实 bug**：
+
+1. 旧 `evalPredicate` 复合谓词 `{ gte: 0.125, lt: 0.333 }` 只看第一个操作符（'lt'），让 0.10 被误判通过 `gte` 守卫——已修。
+2. 浮点边界 `0.6499999...` 让 `gte: 0.65` crowded 守卫失效——给 I6 不变式留 1% 容差（产品意图本就是"明显紧"）。
+
+##### UI 接入（v1.58 第一阶段）
+
+- **DFV chip override**：v1.57.5 §D 硬编码 `(intent === 'relief') && afkEngage` → `isSignalOverridden('afkEngage', resolveIntent(...))`。新增 intent / signal 无需再改 DFV 渲染。
+- **playerInsightPanel boardFill 读取**：4 处 `game.grid.getFillRatio()` → `selectLiveBoardFill(game)`，杜绝 v1.57.5 §A 类双显复发。
+
+##### v1.58.x 渐进迁移路线（建议）
+
+| 优先级 | 接入点                                                                  | 收益                                  |
+| --- | -------------------------------------------------------------------- | ----------------------------------- |
+| P0  | stressMeter `buildStoryLine` 走 `selectNarrative`                   | 删除 `RELIEF_NARRATIVE_BY_REASON` 散表 |
+| P0  | stressMeter `getStressDisplay` 走 `selectEmoji`                     | 删除 4 个 if-else 变体分支                |
+| P1  | DFV chip on 字段走 `reducePresentation().chips`                       | 删除 8 个硬编码 chip 渲染分支                |
+| P1  | DFV `_intentInputs` 缺失分支走 `reducePresentation`                     | 老回放降级路径统一                          |
+| P2  | sparkline / 历史快照消费 `selectInsightWithLiveGeometry`                  | 历史数据上报口径统一                          |
+
+##### 测试矩阵（v1.58 完成态）
+
+| 类别                | 文件                                              | 用例数    | 范围                                            |
+| ----------------- | ----------------------------------------------- | ------ | --------------------------------------------- |
+| 单元 - selectors    | `derivationContracts.test.js §1`                | 13     | SSOT + 降级 + 字段口径                              |
+| 单元 - resolver     | `derivationContracts.test.js §2`                | 15     | 矩阵 + trace + 同源等价                             |
+| 单元 - contracts    | `derivationContracts.test.js §3`                | 27     | DSL + 完整性 + 优先级                               |
+| 单元 - reducer      | `derivationContracts.test.js §4`                | 8      | 端到端 + 降级                                      |
+| 性质 - 不变式 | `properties/derivationInvariants.test.js`       | 10     | 15000 次随机状态扫描                                 |
+| 集成 - 旧测试         | 既有 v1.57.5 测试栈                                  | 1707   | **0 回归**                                      |
+| **总计**            |                                                 | **1780** | **+73 新增 / 0 回归 / lint 0 errors**             |
+
+##### 与 v1.57.5 的对比
+
+| 维度           | v1.57.5（散点修复）                                                                | v1.58（架构治理）                                                       |
+| ------------ | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **修复方式**     | 6 个 bug → 6 处单点改                                                            | 1 个根因 → 4 模块 + 73 测试                                             |
+| **未来 bug 拦截** | 必须靠用户截图反馈                                                                  | 性质测试 15000 次扫描自动捕获                                              |
+| **新增 intent 成本** | 改 4 处（deriveSpawnIntent + DFV chip + narrative + emoji）                       | 改 1 处（INTENT_RULES + 加 contract）                                |
+| **新增文案守卫成本** | 写硬编码 if + 加单测                                                              | 写 contract `requires`，自动校验 + 自动降级                                |
+| **决策不可追溯**   | 看 spawnIntent 字段反推                                                          | `formatIntentTrace` 一行字符串                                       |
+
+详细架构文档参见 [`docs/algorithms/DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md)（含全部 API、契约表清单、UI 接入示范、严禁后续违反规则）。
+
+---
+
 ## 8. 文档关联
 
 - 上游方法论：[体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md)（5 轴体验结构）
@@ -1620,6 +1910,6 @@ pbOvershootBoost = maxBoost · log10(1 + slope·overshoot) / log10(1 + slope)
 
 ---
 
-*文档版本：1.55.11（2026-05-16 初版；2026-05-16 v1.55 落地版 — §4.1~§4.13 全部交付；2026-05-16 v1.55.10 修订版 — PB 5 风险点 + milestone 文案与频次重塑 + 追平最佳新特效；2026-05-16 v1.55.11 收敛版 — 撤销追平 + 撤销 milestone toast 渲染 + PB 庆祝单局 1 次 + 19 语言文案加 🏆 前缀）。*
+*文档版本：1.58.4（2026-05-18 v1.58.4 全系统自查残留修补 — relief.hole/boardRisk 几何守卫 + harvest.default 文案改写 + flow.intense/tense 加守卫 + stressVsBoardFill 冲突 + flow.payoff.waiting 文案去"收获期" + I18/I19/I20/I21 性质 + 1809 测试 0 回归；2026-05-18 v1.58.3 DFV chip 自描述化 — CHIP_DEFS 加 reason 函数 + 4 个信号诊断 chip + flowVsIntent/pressureVsForce conflicts + I15/I16/I17 + 1798 测试 0 回归；2026-05-18 v1.58.2 算法信号-盘面几何反差治理 — struggling/relief.endgame 加 boardFill>=0.45 守卫 + concerned 中间档 + endgame.soft 降级 + I7 升级/I13/I13b/I14 + 1796 测试 0 回归；2026-05-18 v1.58.1 节奏承诺-几何兑现一致性治理 — flow.payoff 拆 ready/waiting + harvestReady 派生 + I11/I12/I12b 性质 + 1785 测试 0 回归；2026-05-18 v1.58 决策派生层架构治理 — derivation/ 4 模块 + fast-check 性质测试基础设施 + DFV/playerInsightPanel SSOT 接入；前版 1.57.5 决策快照展示层一致性治理 — 6 项 UI 同源 bug 修复；前版 1.55.11 收敛 — 撤销追平 + 撤销 milestone toast + PB 庆祝单局 1 次 + 19 语言文案加 🏆 前缀）。*
 *以仓库主分支为事实来源。*
 *维护者：策划组 + 体验算法组联合维护；改动需走 PR 评审并同步更新 §4 改进项编号与 §6 验证清单。*
