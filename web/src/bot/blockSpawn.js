@@ -37,6 +37,11 @@ import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights } from '../s
 import { GAME_RULES } from '../gameRules.js';
 import { analyzeBoardTopology, detectNearClears } from '../boardTopology.js';
 
+/** v1.32+v1.60.0：极端加减压下注入的特殊形状（不参与正常概率出块） */
+export const SPECIAL_RELIEF_SHAPES = ['1x2', '2x1', '1x3', '3x1', 'l3-a', 'l3-b', 'l3-c', 'l3-d'];
+export const SPECIAL_PRESSURE_SHAPES = ['diag-2a', 'diag-2b', 'diag-3a', 'diag-3b'];
+export const SPECIAL_SHAPES = [...SPECIAL_RELIEF_SHAPES, ...SPECIAL_PRESSURE_SHAPES];
+
 const MAX_SPAWN_ATTEMPTS = 22;
 const FILL_SURVIVABILITY_ON = 0.52;
 const SURVIVE_SEARCH_BUDGET = 14000;
@@ -872,26 +877,15 @@ function _categoryShort(cat) {
 function _passesShapeGate(shape, hints, profile, _ctx, _fill) {
     if (!shape) return false;
     const id = shape.id;
-    /* 斜线 3 格散点：高加压形状，需 gate */
-    if (id === 'diag-3a' || id === 'diag-3b') {
-        const intent = hints?.spawnIntent;
-        const isPressureLike = intent === 'pressure' || intent === 'sprint';
-        const skill = Number(profile?.skillLevel) || 0;
-        if (!isPressureLike || skill < 0.5) return false;
-    }
+    /* v1.32+v1.60.0：所有 12 个特殊加减压形状不参与正常概率出块，
+     * 仅在极端条件下由 _injectSpecialBlock 条件注入（每局严格限制出现次数）。 */
+    if (SPECIAL_SHAPES.includes(id)) return false;
     return true;
 }
 
 /**
  * v1.60.0 形状池扩展 P1：新形状的策略加权 nudge（在主权重 weights[category] 之上的乘法 bonus）。
- *
- * 加权策略（严格匹配"前期减压、后期加压"语义）：
- *  - **超小直线 4 件（1x2/2x1/1x3/3x1）**：sizePreference ≤ -0.3 时 ×1.6
- *      → spawnLayers.LaneLayer 已用 cells/5 做小块加权，但 2-3 格 cells 比例仅 0.4-0.6，
- *        bonus 不够显著。本 nudge 让前期减压场景下这 4 件能压过 2x2/L4 等 4 格块。
- *  - **3 格 L 角 4 件（l3-a..d）**：gapFills > 0 时 ×1.3
- *      → 角落补缝是 L3 形态的天然适配，gapFills 反映了"能直接补满临消行缺口"的能力。
- *  - 其他形状（含 diag-2/diag-3）：保持原 weight 不变，由现有打分机制自然消化。
+ * v1.32 优化：特殊形状不再进入此函数（被 _passesShapeGate 拦截），本函数仅处理非特殊形状。
  *
  * @param {number} baseWeight - 来自 weights[category] 的基础权重
  * @param {string} shapeId
@@ -899,18 +893,75 @@ function _passesShapeGate(shape, hints, profile, _ctx, _fill) {
  * @param {number} gapFills - 当前 shape 在盘面上能消行的能力
  * @returns {number} 调整后的 weight
  */
-function _applyShapeBonusWeight(baseWeight, shapeId, hints, gapFills) {
-    let w = baseWeight;
-    /* 超小直线：前期减压加权 */
-    if (shapeId === '1x2' || shapeId === '2x1' || shapeId === '1x3' || shapeId === '3x1') {
-        const sizePref = Number(hints?.sizePreference) || 0;
-        if (sizePref <= -0.3) w *= 1.6;
-    }
-    /* 3 格 L 角：能补缝时加权 */
-    if (shapeId === 'l3-a' || shapeId === 'l3-b' || shapeId === 'l3-c' || shapeId === 'l3-d') {
-        if (gapFills > 0) w *= 1.3;
-    }
-    return w;
+function _applyShapeBonusWeight(baseWeight, _shapeId, _hints, _gapFills) {
+    return baseWeight;
+}
+
+/**
+ * v1.32+v1.60.0：极端加减压下将特殊形状注入 triplet。
+ *
+ * 注入条件基于盘面几何：
+ *   减压（加速得分）：清屏准备/临消行≥2/高填充+可补缝+有空洞
+ *   加压（构造空洞）：加压意图 + 有空间 + 无过多空洞
+ *
+ * 全局上限：max(totalClears × 10%, 3) — 所有特殊形状共享同一计数器。
+ *
+ * @param {Array} triplet
+ * @param {Array} chosenMeta
+ * @param {object} hints  spawnHints
+ * @param {object} ctx    spawnContext（含 specialShapeUsed / totalClears）
+ * @param {import('../grid.js').Grid} grid
+ * @param {number} fill
+ * @param {object} topo   盘面拓扑（nearFullLines, holes）
+ * @param {number} pcSetup 清屏准备信号
+ * @param {Array} scored  scored 数组
+ * @returns {null | { triplet: Array, chosenMeta: Array, isRelief: boolean, injected: string }}
+ */
+export function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pcSetup, scored) {
+    /* 减压条件：清屏准备、高填充率下消除空洞 */
+    const hasClearSetup = pcSetup >= 1;
+    const highFillFillHoles = fill > 0.7 && scored.some(s => s.gapFills > 0) && (topo?.holes ?? 0) > 5;
+    const isRelief = hasClearSetup || highFillFillHoles;
+
+    /* 加压条件：构造空洞 */
+    const pressureIntent = hints.spawnIntent === 'pressure' || hints.spawnIntent === 'sprint';
+    const roomForHoles = fill < 0.45;
+    const notAlreadyFullOfHoles = (topo?.holes ?? 99) < 4;
+    const isPressure = pressureIntent && roomForHoles && notAlreadyFullOfHoles && !isRelief;
+
+    if (!isRelief && !isPressure) return null;
+
+    /* v1.60.0：间隔约束 — 上次出特殊形状后必须间隔 ≥5 轮 */
+    if ((ctx.roundsSinceSpecial ?? 0) < 5) return null;
+
+    const pool = isRelief ? SPECIAL_RELIEF_SHAPES : SPECIAL_PRESSURE_SHAPES;
+    const used = ctx.specialShapeUsed ?? 0;
+    const limit = Math.max(Math.floor((ctx.totalClears ?? 0) * 0.1), 3);
+
+    /* 已达本局上限 */
+    if (used >= limit) return null;
+
+    const allShapes = getAllShapes();
+    const candidates = allShapes.filter(
+        s => pool.includes(s.id) && grid.canPlaceAnywhere(s.data)
+    );
+    if (candidates.length === 0) return null;
+
+    /* 替换 triplet 中最后一个槽位（优先级最低） */
+    const special = candidates[Math.floor(Math.random() * candidates.length)];
+    const newTriplet = [...triplet];
+    const newMeta = [...chosenMeta];
+    const replaceIdx = Math.min(2, newTriplet.length - 1);
+
+    newTriplet[replaceIdx] = special;
+    newMeta[replaceIdx] = {
+        shape: special,
+        placements: countLegalPlacements(grid, special.data),
+        reason: isRelief ? 'special-relief' : 'special-pressure',
+        topDriver: { key: isRelief ? 'relief' : 'pressure', label: isRelief ? '特殊减压' : '特殊加压' },
+    };
+
+    return { triplet: newTriplet, chosenMeta: newMeta, isRelief, injected: special.id };
 }
 
 /** @type {object | null} 上一轮出块诊断，供面板展示 */
@@ -931,6 +982,39 @@ const pickWeighted = (pool) => {
     }
     return pool[pool.length - 1];
 };
+
+/** v1.32+v1.60.0：兜底选块时排除特殊形状（特殊形状仅通过 _tryInjectSpecial 注入） */
+function _pickFallbackSafe(weights) {
+    for (let attempt = 0; attempt < 12; attempt++) {
+        const shape = pickShapeByCategoryWeights(weights);
+        if (!shape) return null;
+        if (!SPECIAL_SHAPES.includes(shape.id)) return shape;
+    }
+    return null;
+}
+
+/**
+ * v1.32+v1.60.0：最终安全网 — 替换 arr 中任何特殊形状为非特殊随机块。
+ * 防御所有可能的外部路径（模型预测、scored 泄漏、兜底遗漏）。
+ */
+export function _sanitizeShapeArr(arr, grid, weights) {
+    for (let i = 0; i < arr.length; i++) {
+        if (SPECIAL_SHAPES.includes(arr[i].id)) {
+            const safe = _pickFallbackSafe(weights);
+            if (safe && grid.canPlaceAnywhere(safe.data)) {
+                arr[i] = safe;
+            } else {
+                const all = getAllShapes().filter(s => !SPECIAL_SHAPES.includes(s.id) && grid.canPlaceAnywhere(s.data));
+                if (all.length > 0) arr[i] = all[Math.floor(Math.random() * all.length)];
+            }
+        }
+    }
+}
+
+/** v1.32+v1.60.0：检查 shapes 数组是否包含特殊形状（供 game.js 模型路径使用） */
+export function hasSpecialShape(shapes) {
+    return Array.isArray(shapes) && shapes.some(s => SPECIAL_SHAPES.includes(s.id));
+}
 
 /**
  * @param {import('../grid.js').Grid} grid
@@ -1411,7 +1495,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         }
 
         while (blocks.length < 3) {
-            const p = pickShapeByCategoryWeights(weights);
+            const p = _pickFallbackSafe(weights);
             if (!p) break;
             blocks.push(p);
             chosenMeta.push({
@@ -1669,6 +1753,19 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
         }
 
+        /* v1.32+v1.60.0：校验通过后，根据盘面几何注入特殊形状 */
+        {
+            const inj = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pcSetup, scored);
+            if (inj) {
+                /* 替换 triplet 与 chosenMeta */
+                for (let i = 0; i < triplet.length; i++) {
+                    triplet[i] = inj.triplet[i];
+                    chosenMeta[i] = inj.chosenMeta[i];
+                }
+                ctx.specialShapeUsed = (ctx.specialShapeUsed ?? 0) + 1;
+            }
+        }
+
         /* 通过校验 — 打乱顺序 + 记录诊断
          *
          * v1.59.19 bug 修复：Fisher-Yates 同步打乱 triplet + chosenMeta 前 3 项。
@@ -1723,7 +1820,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         rem = scored.filter((s) => !usedIds[s.shape.id]);
     }
     while (blocks.length < 3) {
-        const p = pickShapeByCategoryWeights(weights);
+            const p = _pickFallbackSafe(weights);
         if (p) blocks.push(p);
         else break;
     }
@@ -1734,6 +1831,9 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         topDriver: _estimateTopDriver(null, null),
     }));
     _lastDiagnostics = diagnostics;
+
+    /* v1.32+v1.60.0：最终安全网 — 确保兜底输出不含特殊形状 */
+    _sanitizeShapeArr(blocks, grid, weights);
 
     return blocks.slice(0, 3);
 }

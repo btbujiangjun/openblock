@@ -50,8 +50,11 @@ import {
     resetSpawnMemory,
     getLastSpawnDiagnostics,
     validateSpawnTriplet,
-    computeCandidatePlacementMetric
+    computeCandidatePlacementMetric,
+    hasSpecialShape,
+    _sanitizeShapeArr,
 } from './bot/blockSpawn.js';
+import { SPECIAL_SHAPES } from './bot/blockSpawn.js';
 import {
     buildSpawnModelContext,
     getSpawnMode,
@@ -189,7 +192,9 @@ export class Game {
         /** 跨轮出块上下文：传给 adaptiveSpawn + blockSpawn 的三层信号 */
         this._spawnContext = {
             lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
-            bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0
+            bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0,
+            /* v1.32+v1.60.0：特殊形状（不参与概率出块）每局计数器 + 间隔追踪 */
+            specialShapeUsed: 0, totalClears: 0, roundsSinceSpecial: 0,
         };
 
         this.behaviors = [];
@@ -1071,7 +1076,8 @@ export class Game {
                 lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
                 bestScore: this.bestScore ?? 0,
                 pbGrowthFast: _pbGrowthFastSnapshot,
-                bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0
+                bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0,
+            specialShapeUsed: 0, totalClears: 0, roundsSinceSpecial: 0,
             };
             try {
                 if (typeof localStorage !== 'undefined') {
@@ -1485,6 +1491,15 @@ export class Game {
             const modelShapes = result?.shapes || null;
             const validation = modelShapes ? validateSpawnTriplet(this.grid, modelShapes) : { ok: false, reason: 'no-model-result' };
             if (modelShapes && validation.ok) {
+                /* v1.32+v1.60.0：模型可能预测特殊形状，必须过滤 */
+                if (hasSpecialShape(modelShapes)) {
+                    _sanitizeShapeArr(modelShapes, this.grid, layered.shapeWeights);
+                    /* 过滤后重新校验 */
+                    if (hasSpecialShape(modelShapes)) {
+                        finish(fallbackShapes, 'rule-fallback', { ...(result?.meta || {}), modelVersion: result?.meta?.modelVersion || 'v3', fallbackReason: 'special-filter-fail' });
+                        return;
+                    }
+                }
                 const ids = shapeIdsToHistoryRow(modelShapes);
                 if (!this._spawnContext.recentModelHistory) this._spawnContext.recentModelHistory = [];
                 this._spawnContext.recentModelHistory.push(ids);
@@ -1514,6 +1529,10 @@ export class Game {
      */
     _commitSpawn(shapes, layered, opts, source) {
         this._spawnContext.totalRounds++;
+        this._spawnContext.roundsSinceSpecial++;
+        if (shapes?.some(s => SPECIAL_SHAPES.includes(s.id))) {
+            this._spawnContext.roundsSinceSpecial = 0;
+        }
         if ((this._spawnContext.warmupRemaining ?? 0) > 0) {
             this._spawnContext.warmupRemaining--;
         }
@@ -2231,6 +2250,7 @@ export class Game {
         }
         this.gameStats.score = this.score;
         this.gameStats.clears += result.count;
+        this._spawnContext.totalClears = this.gameStats.clears;
         this.gameStats.maxLinesCleared = Math.max(this.gameStats.maxLinesCleared, result.count);
         this.gameStats.maxCombo = Math.max(this.gameStats.maxCombo, result.count);
 

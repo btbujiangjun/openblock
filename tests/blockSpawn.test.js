@@ -12,6 +12,7 @@ import {
     getLastSpawnDiagnostics,
     resetSpawnMemory,
     _estimateTopDriver,
+    _tryInjectSpecial,
 } from '../web/src/bot/blockSpawn.js';
 import { getStrategy } from '../web/src/config.js';
 
@@ -210,71 +211,110 @@ describe('generateDockShapes', () => {
     });
 
     /**
-     * Gate invariant：在"无 pressure/sprint intent"或"skillLevel < 0.5"场景下，
-     * diag-3a / diag-3b 必须被 gate 拦截，不应出现在任何 spawn 结果中。
-     * 跑 40 次覆盖随机性。
+     * v1.32+v1.60.0：12 个特殊形状不参与概率出块，全部被 _passesShapeGate 拦截。
+     * 测试：任意 spawnIntent + skillLevel 组合下，60 轮采样中特殊形状永不出现。
      */
-    it('v1.60.0：diag-3 在新手场景被 gate 严格屏蔽', () => {
-        const cfgNewbie = {
+    it('v1.32+v1.60.0：12 个特殊形状被 gate 完全拦截', () => {
+        const specialIds = new Set(['1x2', '2x1', '1x3', '3x1', 'l3-a', 'l3-b', 'l3-c', 'l3-d', 'diag-2a', 'diag-2b', 'diag-3a', 'diag-3b']);
+        const cfg = {
             ...config,
-            _skillLevel: 0.2,
+            _skillLevel: 0.5,
             spawnHints: { ...(config.spawnHints || {}), spawnIntent: 'maintain' },
         };
-        for (let trial = 0; trial < 40; trial++) {
-            resetSpawnMemory();
-            const localGrid = new Grid(8);
-            const shapes = generateDockShapes(localGrid, cfgNewbie);
-            for (const s of shapes) {
-                expect(s.id === 'diag-3a' || s.id === 'diag-3b',
-                    `新手场景出现 diag-3 (${s.id})，gate 失效`).toBe(false);
-            }
-        }
-    });
-
-    /**
-     * Gate 放行 invariant：高 skill + pressure intent 时，diag-3 应能（按概率）出现。
-     * 跑 60 次累计采样，期待至少 1 次出现（极保守阈值，防御性测试）。
-     */
-    it('v1.60.0：diag-3 在 pressure + 高 skill 时能进入 spawn 候选', () => {
-        const cfgPressure = {
-            ...config,
-            _skillLevel: 0.85,
-            spawnHints: { ...(config.spawnHints || {}), spawnIntent: 'pressure' },
-        };
-        let diagSeen = 0;
+        let seen = 0;
         for (let trial = 0; trial < 60; trial++) {
             resetSpawnMemory();
             const localGrid = new Grid(8);
-            const shapes = generateDockShapes(localGrid, cfgPressure);
+            // 空盘 fill=0，无 relief 条件（nearFull=0, pcSetup=0, fill<0.55），
+            // 且 spawnIntent=maintain 无 pressure → 不会触发注入
+            const shapes = generateDockShapes(localGrid, cfg);
             for (const s of shapes) {
-                if (s.id === 'diag-3a' || s.id === 'diag-3b') diagSeen++;
+                if (specialIds.has(s.id)) seen++;
             }
         }
-        /* 60 次 × 3 shape = 180 次抽样，diag-3 在 40 个 candidate 中只占 2 个，
-         * 即使不加权出现期望 ~9 次。阈值 ≥ 1 留足容差。 */
-        expect(diagSeen).toBeGreaterThanOrEqual(1);
+        expect(seen).toBe(0);
     });
 
     /**
-     * 加权 invariant：sizePreference ≤ -0.3 时，超小直线（1x2/2x1/1x3/3x1）
-     * 在 60 次采样中应至少出现 5 次（不要求精确比例，仅证加权生效 / 不被沉默）。
+     * v1.32+v1.60.0：_tryInjectSpecial 在减压条件（nearFullLines>=2）时注入减压特殊形状。
+     * 不测 generateDockShapes 集成（盘面几何复杂），只测 pure function。
      */
-    it('v1.60.0：超小直线在 sizePreference≤-0.3 时显著出现', () => {
-        const cfgSmall = {
-            ...config,
-            spawnHints: { ...(config.spawnHints || {}), sizePreference: -0.6 },
-        };
-        const tinyIds = new Set(['1x2', '2x1', '1x3', '3x1']);
-        let tinySeen = 0;
-        for (let trial = 0; trial < 60; trial++) {
+    it('v1.32+v1.60.0：_tryInjectSpecial 减压条件注入', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
+        const hints = {};
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 6 };
+        const reliefIds = new Set(['1x2', '2x1', '1x3', '3x1', 'l3-a', 'l3-b', 'l3-c', 'l3-d']);
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.75, topo, 0, triplet.map(s => ({ shape: s, gapFills: 1 })));
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(true);
+        expect(reliefIds.has(result.injected)).toBe(true);
+    });
+
+    /**
+     * v1.32+v1.60.0：_tryInjectSpecial 在加压条件（pressure + 低填充 + 少空洞）时注入加压特殊形状。
+     */
+    it('v1.32+v1.60.0：_tryInjectSpecial 加压条件注入', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
+        const hints = { spawnIntent: 'pressure' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0 };
+        const pressureIds = new Set(['diag-2a', 'diag-2b', 'diag-3a', 'diag-3b']);
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.3, topo, 0, triplet.map(s => ({ shape: s, gapFills: 0 })));
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(false);
+        expect(pressureIds.has(result.injected)).toBe(true);
+    });
+
+    /**
+     * v1.32+v1.60.0：_tryInjectSpecial 在不满足条件时返回 null。
+     */
+    it('v1.32+v1.60.0：_tryInjectSpecial 无触发条件时不注入', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
+        const hints = { spawnIntent: 'maintain' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0 };
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.3, topo, 0, triplet.map(s => ({ shape: s, gapFills: 0 })));
+        expect(result).toBeNull();
+    });
+
+    /**
+     * v1.32+v1.60.0：_tryInjectSpecial 在达每局上限后返回 null。
+     */
+    it('v1.32+v1.60.0：_tryInjectSpecial 达上限后不注入', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
+
+        const hints = { spawnIntent: 'pressure' };
+        const ctx = { specialShapeUsed: 3, totalClears: 3 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0 };
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.3, topo, 0, triplet.map(s => ({ shape: s, gapFills: 0 })));
+        expect(result).toBeNull();
+    });
+
+    /**
+     * v1.32+v1.60.0：验证 generateDockShapes 在任何 fallback 路径下都不会产出特殊形状。
+     * 300 轮空盘+正常weights采样，特殊形状不应出现。
+     */
+    it('v1.32+v1.60.0：generateDockShapes 永不通过 fallback 产出特殊形状', () => {
+        const specialIds = new Set(['1x2', '2x1', '1x3', '3x1', 'l3-a', 'l3-b', 'l3-c', 'l3-d', 'diag-2a', 'diag-2b', 'diag-3a', 'diag-3b']);
+        let seen = 0;
+        for (let trial = 0; trial < 300; trial++) {
             resetSpawnMemory();
             const localGrid = new Grid(8);
-            const shapes = generateDockShapes(localGrid, cfgSmall);
+            const shapes = generateDockShapes(localGrid, config);
             for (const s of shapes) {
-                if (tinyIds.has(s.id)) tinySeen++;
+                if (specialIds.has(s.id)) seen++;
             }
         }
-        expect(tinySeen).toBeGreaterThanOrEqual(5);
+        expect(seen).toBe(0);
     });
 
     /**
