@@ -11,8 +11,19 @@
  *   - 文案：title / 4 项标签 / value 后缀全部走 `i18n.t()`，与英文/中文环境对齐。
  */
 import { t } from '../i18n/i18n.js';
+import { animateValueOnElement } from '../scoreAnimator.js';
 
 let _game = null;
+
+function _prefersReducedMotion() {
+    try {
+        return typeof window !== 'undefined'
+            && typeof window.matchMedia === 'function'
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+        return false;
+    }
+}
 
 export function initProgressDigest({ game } = {}) {
     if (!game || _game) return;
@@ -93,10 +104,13 @@ function _renderDigest() {
         return;
     }
 
+    /* v1.60.3：每项额外携带 numeric 字段（若可数值化）→ 渲染后启动滚动入场，
+     * 让战报数值与 #over-score 老虎机式滚动形成统一"滚动语言"。
+     * 非数字项（用时 3:06 / 文案"差点就刷"）保持静态，仅享受 stagger 浮现。 */
     const items = [
-        { label: t('game.summary.clears'),    value: t('game.summary.clearsValue', { n: facts.clears }) },
-        { label: t('game.summary.maxCombo'),  value: `${facts.maxCombo}` },
-        ...(facts.hitRate != null ? [{ label: t('game.summary.hitRate'), value: `${facts.hitRate}%` }] : []),
+        { label: t('game.summary.clears'),    value: t('game.summary.clearsValue', { n: facts.clears }), numeric: facts.clears },
+        { label: t('game.summary.maxCombo'),  value: `${facts.maxCombo}`,                                 numeric: facts.maxCombo },
+        ...(facts.hitRate != null ? [{ label: t('game.summary.hitRate'), value: `${facts.hitRate}%`, numeric: facts.hitRate }] : []),
         ...(facts.duration   ? [{ label: t('game.summary.duration'), value: facts.duration }]    : []),
         ...(facts.bestReview ? [{ label: t('game.summary.bestChallenge'), value: facts.bestReview }] : []),
     ];
@@ -106,14 +120,52 @@ function _renderDigest() {
     slot.innerHTML = `
         <div class="pd-title">${t('game.summary.title')}</div>
         <div class="pd-grid">
-            ${items.map(it => `
-                <div class="pd-cell">
+            ${items.map((it, idx) => `
+                <div class="pd-cell" style="--i: ${idx}">
                     <div class="pd-cell-label">${it.label}</div>
-                    <div class="pd-cell-value">${it.value}</div>
+                    <div class="pd-cell-value"${
+                        Number.isFinite(it.numeric)
+                            ? ` data-target="${it.numeric}" data-final="${_escapeAttr(it.value)}"`
+                            : ''
+                    }>${it.value}</div>
                 </div>
             `).join('')}
         </div>
     `;
+
+    _animateNumericValues(slot);
+}
+
+/** 把 `9 行` / `100%` / `1,287` 拆成 [prefix, number, suffix]，方便滚动时只动 number 段。 */
+function _splitNumericText(text) {
+    const m = String(text).match(/^(\D*)(\d[\d,]*)(.*)$/);
+    if (!m) return null;
+    return { prefix: m[1], suffix: m[3] };
+}
+
+function _escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+/** 给 .pd-cell-value[data-target] 触发"从 0 滚到目标值"动画，保留原 value 的前后缀。 */
+function _animateNumericValues(slot) {
+    if (!slot || _prefersReducedMotion()) return;
+    const nodes = slot.querySelectorAll('.pd-cell-value[data-target]');
+    nodes.forEach((el, idx) => {
+        const target = Number(el.dataset.target);
+        if (!Number.isFinite(target)) return;
+        const finalText = el.dataset.final || el.textContent;
+        const split = _splitNumericText(finalText);
+        if (!split) return;
+        /* 起手归零，与老虎机分数视觉对齐 */
+        el.textContent = `${split.prefix}0${split.suffix}`;
+        animateValueOnElement(el, target, {
+            /* stagger：与 .pd-cell 入场动画的 80+idx*90ms 节拍接近，整体感更顺 */
+            duration: 760 + idx * 80,
+            format: (v) => `${split.prefix}${Math.floor(v).toLocaleString()}${split.suffix}`,
+            onComplete: () => { el.textContent = finalText; },
+        });
+    });
 }
 
 /** 测试用 */

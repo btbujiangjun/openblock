@@ -87,6 +87,51 @@ const SIGNAL_NODES = [
     { key: 'missRate',   i18nKey: 'dfv.signal.missRate',  label: '失放率', readPath: ['profile', 'metrics', 'missRate'],  range: [0, 0.4], baseColor: '#f87171' },
 ];
 
+/**
+ * v1.60.17：节点 SVG <title> tip 文案集（hover 时浏览器原生 tooltip 显示）。
+ *
+ * 用户反馈"所有节点应有 cursor:help 提示"，配合 CSS 后必须每个节点真有 <title> 才不会
+ * "光标变了但 hover 一片空白"。本字典覆盖 5 类节点共 24 个：
+ *   - 信号 10：来源数据 + 取值范围
+ *   - 策略 5：含义 + 算法消费方式
+ *   - 目标 6：deriveSpawnTargets 公式语义
+ *   - 调度 4：已在 SCHEDULE_PARAM_DEFS.tip（v1.60.12）
+ *   - 意图 1 / 压力球 1：高层语义
+ * 内容均 ≤60 字，避免遮挡正文。后续可扩展为含当前实时值（_render*Node 中更新 textContent）。
+ */
+const SIGNAL_TIP = {
+    skill:     '技能（profile.skillLevel）— 玩家技能水平 [0,1]，影响形状复杂度、解空压力等目标层',
+    momentum:  '动量（profile.momentum）— 近期消行节奏 [-1,1]，负值触发 clearGuarantee 救济',
+    frust:     '挫败（profile.frustrationLevel）— 累计未消轮次 [0,8]，高值触发减压注入',
+    flow:      '心流（profile.flowState）— bored/flow/anxious 三态，驱动 orderRigor / diversityBoost',
+    session:   '阶段（profile.sessionPhase）— early/peak/late，影响 novelty / iconBonusTarget',
+    load:      '负荷（profile.cognitiveLoad）— 同时活跃约束数 [0,1]，high → 收紧 sizePreference',
+    clearRate: '消行率（metrics.clearRate）— 最近 N 步消行频率 [0,0.55]',
+    boardFill: '占盘（profile.boardFill）— 当前实时填充率 [0,1]，主导加压/减压判定',
+    combo:     '连击（recentComboStreak）— 最近连击次数 [0,6]，驱动 comboChain 派生节点',
+    missRate:  '失放率（metrics.missRate）— 最近 N 步未消行频率 [0,0.4]，高值升 clearGuarantee',
+};
+
+const STRATEGY_TIP = {
+    clearGuarantee: '保消（clearGuarantee 0-3）— 三连块中至少 N 个能即时消行；frust/momentum/missRate 多路 Math.max 拉高',
+    sizePreference: '尺寸（sizePreference -1~1）— 偏小块/偏大块；frust/load 高时压低（偏小），sprint 时抬高（偏大）',
+    orderRigor:     '刚性（orderRigor 0-1）— 严格按 placement order；bored/load/frust 多路调节',
+    diversityBoost: '多样（diversityBoost 0-1）— 鼓励三连块品类多样；bored/load/missRate 拉高',
+    comboChain:     '连击（comboChain 0-1）— deriveComboChain 读 lastClearCount + recentComboStreak，技能稳定时强化',
+};
+
+const TARGET_TIP = {
+    shapeComplexity:       '形状复杂度（shapeComplexity）= stress×0.75 + boredHighSkill×0.25 − riskRelief×0.45',
+    solutionSpacePressure: '解空间压力（solutionSpacePressure）= stress×0.7 + complexity×0.25 − boardRisk×0.55 − recoveryNeed×0.35',
+    clearOpportunity:      '消行机会（clearOpportunity）= recoveryNeed×0.55 + payoffOpp×0.45 − stress×0.18',
+    spatialPressure:       '空间压力（spatialPressure）= stress×0.65 + boardDifficulty×0.25 − boardRisk×0.5 − recoveryNeed×0.3',
+    payoffIntensity:       '兑现强度（payoffIntensity）= delight.multiClearBoost×0.45 + payoffOpp×0.4 + max(0,momentum)×0.15',
+    novelty:               '新奇度（novelty）= (bored?0.45:0) + stress×0.25 + session/80 − recoveryNeed×0.2',
+};
+
+const STRESS_TIP = '压力（stress）— delight + 5 派生分量加权合成 [0,1]，DFV 中央球大小映射；hover 决策动态可见 breakdown';
+const INTENT_TIP = '意图（spawnIntent）— intentResolver 根据 stress + 5 hints + delight + sessionArc 选出 harvest/relief/engage/flow/sprint/pressure/maintain 之一';
+
 /** 决策输出节点定义（右列）spawnIntent 颜色映射（与 stressMeter 叙事同口径） */
 const SPAWN_INTENT_COLOR = {
     relief:   '#22d3ee',
@@ -165,6 +210,9 @@ const SPAWN_REASON_CN = {
     perfectClear: '送清屏',
     weighted:     '综合选',
     fallback:     '兜底块',
+    'special-relief':    '送减压',
+    'special-pressure':  '送加压',
+    'special-monoFlush': '送同花',
 };
 
 /**
@@ -177,6 +225,9 @@ const SPAWN_REASON_TIP = {
     perfectClear: '送清屏：本块能促成全盘清空（perfectClear 候选优先路径）',
     weighted:     '综合选：5 hints + 6 targets + 4 schedule 多维加权抽选（主流路径）',
     fallback:     '兜底块：主路径 22 次重试都不满足存活约束，降级使用（少见）',
+    'special-relief':    '送减压：reliefSignal 触发（清盘准备/高填补缝/有空洞），从独立池注入 1x2/1x3/L 块',
+    'special-pressure':  '送加压：pressureSignal 触发（pressure/sprint 意图 + 低 fill + 少空洞），从独立池注入 diag-2/3 散点块',
+    'special-monoFlush': '送同花：盘面有近满同色 line（empty≤2 且预填全同 icon），从独立池注入方向匹配的 1x2/2x1 → 补满即触发 ×5 倍 iconBonus',
 };
 
 /** v1.51.3：spawnTargets 6 个目标维度的中文标签（adaptiveSpawn.js 中定义） */
@@ -309,10 +360,19 @@ const SPAWN_TARGET_DRIVER_SIGNALS = {
  *   iconBonusTarget   = motivation/behavior 驱动           L～1900
  */
 const SCHEDULE_PARAM_DEFS = [
-    { key: 'multiClearBonus',   label: '多消', color: '#fcd34d', baseColor: '#fcd34d', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
-    { key: 'multiLineTarget',   label: '多线', color: '#fb923c', baseColor: '#fb923c', norm: (v) => _clampSafe(v / 2, 0, 1), display: (v) => Number.isFinite(v) ? v.toFixed(0) : '—' },
-    { key: 'perfectClearBoost', label: '清屏', color: '#c084fc', baseColor: '#c084fc', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
-    { key: 'iconBonusTarget',   label: '图标', color: '#ec4899', baseColor: '#ec4899', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    /* v1.60.12：调度节点 tip 字段——SVG <title> 用，说明语义 + "何时被点亮"，
+     * 解决用户反馈"调度层信号用上了吗？图标指标什么意思"——按 driver_node_paths.schedule
+     * 路径，schedule 仅当本轮 chosen 主因 ∈ {multiClear, pcPotential} 才会被 union 高亮覆盖；
+     * 同色 bonus 影响 dock **颜色**（不影响形状评分），不通过 chosen.topDriver 暴露，所以
+     * 在 union 模式下基本始终暗。iconBonusTarget label 从误导的"图标"改为"同色"。 */
+    { key: 'multiClearBonus',   label: '多消', color: '#fcd34d', baseColor: '#fcd34d', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—',
+      tip: '多消加成 — 提升 multiClear≥2 候选权重；本轮 chosen 主因含「可消N行（N≥2）」时点亮' },
+    { key: 'multiLineTarget',   label: '多线', color: '#fb923c', baseColor: '#fb923c', norm: (v) => _clampSafe(v / 2, 0, 1), display: (v) => Number.isFinite(v) ? v.toFixed(0) : '—',
+      tip: '多线目标 — 期望同时消除的行/列数；与多消加成同源，跟随 chosen 「可消N行（N≥2）」点亮' },
+    { key: 'perfectClearBoost', label: '清屏', color: '#c084fc', baseColor: '#c084fc', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—',
+      tip: '清屏加成 — 提升 pcPotential 候选权重；本轮 chosen 主因「可清屏」时点亮' },
+    { key: 'iconBonusTarget',   label: '同色', color: '#ec4899', baseColor: '#ec4899', norm: (v) => _clampSafe(v, 0, 1),     display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—',
+      tip: '同色/同 icon bonus — 影响 dock **颜色权重**（非形状），让 dock 颜色更易补齐近满行列；颜色路径不通过 chosen 主因暴露，union 高亮下通常保持暗（设计正确）' },
 ];
 
 /**
@@ -330,17 +390,17 @@ const SCHEDULE_PARAM_DRIVER_SIGNALS = {
 };
 
 /**
- * v1.59.21 方案 C：driver → 派生节点路径映射（反向追溯高亮）。
+ * v1.59.21 方案 C / v1.60.13 补 relief/pressure：driver → 派生节点路径映射（反向追溯高亮）。
  *
- * 给定 chosen.topDriver.key（由 blockSpawn._estimateTopDriver 输出），返回该 driver
- * 应该指向的"派生节点 keys 集合"。Hover chosen 节点时，DFV 反向高亮这些派生节点
- * + 它们的上游信号节点（通过 HINT_DRIVER_SIGNALS / SPAWN_TARGET_DRIVER_SIGNALS /
- * SCHEDULE_PARAM_DRIVER_SIGNALS / INTENT_DRIVER_SIGNALS 自动扩展），其余节点淡出
- * 到 0.18 opacity，让玩家**主动探索时**看到"信号 → 派生 → 此 chosen"的完整因果链。
+ * 给定 chosen.topDriver.key（由 blockSpawn._estimateTopDriver 输出 或 _tryInjectSpecial
+ * 注入路径直接赋值），返回该 driver 应该指向的"派生节点 keys 集合"。Hover chosen 节点时，
+ * DFV 反向高亮这些派生节点 + 它们的上游信号节点（通过 HINT_DRIVER_SIGNALS /
+ * SPAWN_TARGET_DRIVER_SIGNALS / SCHEDULE_PARAM_DRIVER_SIGNALS / INTENT_DRIVER_SIGNALS
+ * 自动扩展），其余节点淡出到 0.22 opacity，让玩家看到"信号 → 派生 → 此 chosen"的因果链。
  *
- * 映射依据：_estimateTopDriver 的判定优先级 ↔ blockSpawn scoreShape 内对应权重
- * 所消费的 hint / target / schedule 字段（一一对应，非启发式）：
+ * 映射依据：driver key 实际产出位置 ↔ 真实代码路径所消费的 hint / target / schedule 字段。
  *
+ * **常规 scoreShape 路径**（_estimateTopDriver 输出）：
  *   pcPotential   → scoreShape ×18 perfectClearBoost & intent（送清屏路径走 intent gate）
  *   multiClear    → scoreShape ×2.0-2.7 multiClearBonus + multiLineTarget
  *   gapFills      → scoreShape ×nearFullFactor strategy.clearGuarantee + target.clearOpportunity
@@ -349,16 +409,54 @@ const SCHEDULE_PARAM_DRIVER_SIGNALS = {
  *   shapeWeight   → scoreShape weight 主乘项 strategy.sizePreference + target.shapeComplexity
  *   balanced      → 无单一主因 → 全 5 派生层 + 全信号微亮（'*'）
  *   fallback      → 主路径不通 → 仅 chosen 自身高亮（空集）
+ *
+ * **_tryInjectSpecial 注入路径**（v1.60.13 新增）：
+ *   relief        → 减压注入（intent='relief'）。代码事实（blockSpawn.js line 1139-1180+1329）：
+ *                   触发条件读 pcSetup / nearFullLines / fill+holesSignal、replace slot 选最低分槽，
+ *                   slot 偏向把 shape 换成小直线/L角形以"送消行 + 同色 bonus 兜底"。
+ *                   消费派生节点：
+ *                     strategy.clearGuarantee  ←  减压本质是保消 + 救济
+ *                     strategy.sizePreference  ←  减压偏小块（slot 换成 1x2/l3）
+ *                     target.clearOpportunity  ←  near-full 救济触发条件
+ *                     schedule.multiClearBonus ←  送消行加成
+ *                     schedule.iconBonusTarget ←  同色 bonus 让 dock 颜色补齐
+ *                     intent: true             ←  intent='relief'
+ *   pressure      → 加压注入（intent='pressure' / 'sprint'）。代码事实（同 _tryInjectSpecial）：
+ *                   触发条件读 stress + intent + fill 中段，slot 换成 diag-3a/diag-2 等造孤岛形。
+ *                   消费派生节点：
+ *                     strategy.sizePreference   ←  加压偏复杂/大块
+ *                     strategy.diversityBoost   ←  鼓励多样形态
+ *                     target.spatialPressure    ←  加压空间难度
+ *                     target.shapeComplexity    ←  加压偏复杂
+ *                     target.solutionSpacePressure ←  缩窄解空间
+ *                     schedule.multiLineTarget  ←  更高多线目标
+ *                     intent: true              ←  intent='pressure' / 'sprint'
+ *
+ * **不变式**：每个 driver key 在本表里必须有显式条目（即使为空），否则会 fallback 到
+ * balanced（全亮 5 层），让"原本应精确点亮 2-3 节点"的 driver 视觉信息量稀释。新增
+ * driver key 须同步本表 + tests/decisionFlowVizDriverPaths.test.js 覆盖。
  */
 const DRIVER_NODE_PATHS = {
-    pcPotential: { strategy: [],                   targets: [],                                      schedule: ['perfectClearBoost'],                       intent: true },
-    multiClear:  { strategy: [],                   targets: [],                                      schedule: ['multiClearBonus', 'multiLineTarget'],      intent: false },
-    gapFills:    { strategy: ['clearGuarantee'],   targets: ['clearOpportunity'],                    schedule: [],                                          intent: false },
-    holeReduce:  { strategy: ['clearGuarantee'],   targets: ['spatialPressure'],                     schedule: [],                                          intent: false },
-    mobility:    { strategy: ['diversityBoost'],   targets: ['solutionSpacePressure', 'novelty'],    schedule: [],                                          intent: false },
-    shapeWeight: { strategy: ['sizePreference'],   targets: ['shapeComplexity'],                     schedule: [],                                          intent: false },
-    balanced:    { strategy: '*',                  targets: '*',                                     schedule: '*',                                         intent: true },
-    fallback:    { strategy: [],                   targets: [],                                      schedule: [],                                          intent: false },
+    pcPotential: { strategy: [],                                 targets: [],                                                              schedule: ['perfectClearBoost'],                       intent: true },
+    multiClear:  { strategy: [],                                 targets: [],                                                              schedule: ['multiClearBonus', 'multiLineTarget'],      intent: false },
+    gapFills:    { strategy: ['clearGuarantee'],                 targets: ['clearOpportunity'],                                            schedule: [],                                          intent: false },
+    holeReduce:  { strategy: ['clearGuarantee'],                 targets: ['spatialPressure'],                                             schedule: [],                                          intent: false },
+    mobility:    { strategy: ['diversityBoost'],                 targets: ['solutionSpacePressure', 'novelty'],                            schedule: [],                                          intent: false },
+    shapeWeight: { strategy: ['sizePreference'],                 targets: ['shapeComplexity'],                                             schedule: [],                                          intent: false },
+    balanced:    { strategy: '*',                                targets: '*',                                                             schedule: '*',                                         intent: true },
+    fallback:    { strategy: [],                                 targets: [],                                                              schedule: [],                                          intent: false },
+    /* v1.60.13：_tryInjectSpecial 注入路径的两个硬编码 driver key */
+    relief:      { strategy: ['clearGuarantee', 'sizePreference'],         targets: ['clearOpportunity'],                                  schedule: ['multiClearBonus', 'iconBonusTarget'],      intent: true },
+    pressure:    { strategy: ['sizePreference', 'diversityBoost'],         targets: ['spatialPressure', 'shapeComplexity', 'solutionSpacePressure'], schedule: ['multiLineTarget'],                 intent: true },
+    /* v1.60.18：exactFit 完美卡入路径——shape 几何精确嵌入凹槽。
+     * 真实因果链：盘面拓扑提供凹槽（spatialPressure 派生） + 形状契合（shapeComplexity）+
+     * 局部紧凑（sizePreference 偏紧凑块），不消行也是局部最优决策。 */
+    exactFit:    { strategy: ['sizePreference'],                            targets: ['spatialPressure', 'shapeComplexity'],                schedule: [],                                          intent: false },
+    /* v1.60.19：monoFlush 同花顺消除路径——shape 能补满已填同 icon 行/列。
+     * 真实因果链：盘面拓扑提供"已填同色近满 line"（clearOpportunity 派生）+
+     * 调度参数 iconBonusTarget 强化（×5 倍 iconBonus 得分）+ 染色阶段
+     * monoNearFullLineColorWeights 双向锁定颜色匹配。 */
+    monoFlush:   { strategy: ['clearGuarantee'],                            targets: ['clearOpportunity'],                                  schedule: ['iconBonusTarget'],                         intent: false },
 };
 
 /* v1.59.15：内部安全 clamp（与 _clamp 同语义，常量定义时 _clamp 尚未引入作用域，用本地副本） */
@@ -1071,32 +1169,31 @@ class DecisionFlowViz {
                              因此 nav 步序号重映射为「1 信号 → 2 派生（① 压力 ∥ ② 策略 ∥ ③ 意图）」，
                              用 ∥ 分隔表达并列同源，避免误读为串行决策链。 -->
                         <div class="dfv-flow-nav" id="dfv-flow-nav" aria-label="${T.flowNavAria ?? '算法决策结构：信号 → 派生（压力 ∥ 策略 ∥ 目标 ∥ 调度 ∥ 意图 五者并列同源）'}">
-                            <span class="dfv-flow-step dfv-flow-step--signal" data-step="signal" title="${T.flowStepSignalTip ?? '17+ 玩家信号 — 底层因果输入'}">
-                                <span class="dfv-flow-step__num">1</span><span class="dfv-flow-step__name">${T.flowStepSignal ?? '信号'}</span>
+                            <!-- v1.60.7：删除阶段编号 "1"（修复"1→①…⑤→3"数字逻辑断层），
+                                 阶段感靠 ▶ 与颜色已足够表达；"信号"作为名词独立站住。 -->
+                            <span class="dfv-flow-step dfv-flow-step--signal" data-step="signal" title="${T.flowStepSignalTip ?? '阶段 1 · 信号：17+ 玩家信号底层因果输入'}">
+                                <span class="dfv-flow-step__name">${T.flowStepSignal ?? '信号'}</span>
                             </span>
                             <span class="dfv-flow-arrow" aria-hidden="true">▶</span>
-                            <span class="dfv-flow-step dfv-flow-step--stress" data-step="stress" title="${T.flowStepStressTip ?? '派生①：stressBreakdown 12+ 分量加权 + normalize'}">
-                                <span class="dfv-flow-step__num">2①</span><span class="dfv-flow-step__name">${T.flowStepStress ?? '压力'}</span>
+                            <span class="dfv-flow-step dfv-flow-step--stress" data-step="stress" title="${T.flowStepStressTip ?? '派生①：stressBreakdown 12+ 分量加权 + normalize（① ② ③ ④ ⑤ 5 派生同源并列，彼此无因果传递）'}">
+                                <span class="dfv-flow-step__num">①</span><span class="dfv-flow-step__name">${T.flowStepStress ?? '压力'}</span>
                             </span>
-                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与压力派生自相同底层信号，彼此无因果传递">∥</span>
                             <span class="dfv-flow-step dfv-flow-step--strategy" data-step="strategy" title="${T.flowStepStrategyTip ?? '派生②：spawnHints 5 向量 — 30+ 独立路径并发累加，不读 stress'}">
-                                <span class="dfv-flow-step__num">2②</span><span class="dfv-flow-step__name">${T.flowStepStrategy ?? '策略'}</span>
+                                <span class="dfv-flow-step__num">②</span><span class="dfv-flow-step__name">${T.flowStepStrategy ?? '策略'}</span>
                             </span>
-                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与策略派生自相同底层信号，彼此无因果传递">∥</span>
                             <span class="dfv-flow-step dfv-flow-step--target" data-step="target" title="${T.flowStepTargetTip ?? '派生③：spawnTargets 6 维 — deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight) 输出'}">
-                                <span class="dfv-flow-step__num">2③</span><span class="dfv-flow-step__name">${T.flowStepTarget ?? '目标'}</span>
+                                <span class="dfv-flow-step__num">③</span><span class="dfv-flow-step__name">${T.flowStepTarget ?? '目标'}</span>
                             </span>
-                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与目标派生自相同底层信号">∥</span>
-                            <span class="dfv-flow-step dfv-flow-step--schedule" data-step="schedule" title="${T.flowStepScheduleTip ?? '派生④：multiClear/multiLine/perfectClear/iconBonus 4 调度参数 — 各自独立 derive 函数'}">
-                                <span class="dfv-flow-step__num">2④</span><span class="dfv-flow-step__name">${T.flowStepSchedule ?? '调度'}</span>
+                            <span class="dfv-flow-step dfv-flow-step--schedule" data-step="schedule" title="${T.flowStepScheduleTip ?? '派生④：多消/多线/清屏/同色 4 调度参数 — 各自独立 derive 函数。注：仅当本轮 chosen 主因 ∈ {可消N行（N≥2）/可清屏} 才会被 union 反向高亮覆盖；同色 bonus 影响 dock 颜色（非形状），通常保持暗'}">
+                                <span class="dfv-flow-step__num">④</span><span class="dfv-flow-step__name">${T.flowStepSchedule ?? '调度'}</span>
                             </span>
-                            <span class="dfv-flow-parallel" aria-hidden="true" title="并列同源：与调度派生自相同底层信号">∥</span>
                             <span class="dfv-flow-step dfv-flow-step--intent" data-step="intent" title="${T.flowStepIntentTip ?? '派生⑤：resolveIntent 7 规则 — 直接读 distress/geometry/delight/stress，不读 5 向量'}">
-                                <span class="dfv-flow-step__num">2⑤</span><span class="dfv-flow-step__name">${T.flowStepIntent ?? '意图'}</span>
+                                <span class="dfv-flow-step__num">⑤</span><span class="dfv-flow-step__name">${T.flowStepIntent ?? '意图'}</span>
                             </span>
                             <span class="dfv-flow-arrow" aria-hidden="true">▶</span>
-                            <span class="dfv-flow-step dfv-flow-step--spawn" data-step="spawn" title="${T.flowStepSpawnTip ?? '出块（blockSpawn.generateDockShapes）：3 子层（拓扑/局内/局间）+ 22 次抽样软过滤 → 3 chosen shape'}">
-                                <span class="dfv-flow-step__num">3</span><span class="dfv-flow-step__name">${T.flowStepSpawn ?? '出块'}</span>
+                            <!-- v1.60.7：同 signal，删 "3" 编号 -->
+                            <span class="dfv-flow-step dfv-flow-step--spawn" data-step="spawn" title="${T.flowStepSpawnTip ?? '阶段 3 · 出块（blockSpawn.generateDockShapes）：3 子层（拓扑/局内/局间）+ 22 次抽样软过滤 → 3 chosen shape'}">
+                                <span class="dfv-flow-step__name">${T.flowStepSpawn ?? '出块'}</span>
                             </span>
                         </div>
                     </div>
@@ -1205,6 +1302,20 @@ class DecisionFlowViz {
             /* v1.59.20：顶部决策摘要叙事条（A+B 的 B 部分） */
             summary:    host.querySelector('#dfv-decision-summary'),
         };
+
+        /* v1.60.6 抖动修复：mount 时即预创建 driver badge 占位（visibility:hidden），
+         * 让 .dfv-decision-summary 的 flex-wrap 状态从一开始就稳定——首次 hover 不
+         * 再触发"1 行→2 行"的高度跳动；后续 hover/unhover 仅切换 visibility，零 reflow。
+         * badge 文本预填占位（visibility:hidden 用户看不见），让 layout 计算稳定。 */
+        if (this._detailEls.summary && !this._summaryBadgeEl) {
+            const badge = document.createElement('span');
+            badge.className = 'dfv-summary-driver-badge';
+            badge.style.color = '#fde68a';
+            badge.style.visibility = 'hidden';
+            badge.textContent = '追溯：—';
+            this._detailEls.summary.appendChild(badge);
+            this._summaryBadgeEl = badge;
+        }
     }
 
     _resizeCanvas() {
@@ -1456,6 +1567,12 @@ class DecisionFlowViz {
         this._chosenShapeEls = [];
         this._spawnAttemptBadge = null;
         this._lastChosenSig = '';
+        /* v1.60.14：_buildScene 重建 DOM 后必须同步重置 union 高亮状态——否则 _applyHlSet 会按
+         * 旧 _driverHlSet 进行 diff，对"上次高亮但新 DOM 还没创建"的 id 调 _toggleDriverHl(id, false)
+         * 找到的是 null（DOM 被 innerHTML='' 销毁）→ no-op，导致新 DOM 永远不被加 .dfv-driver-hl
+         * （prev 集合"以为"它们已经亮着，next 仍含此 id 时被跳过 add）。 */
+        this._driverHlSet = new Set();
+        if (this._svg) this._svg.classList.remove('dfv-svg--driver-mode');
 
         const W = this._w, H = this._h;
         /* v1.51.7：压力 + 意图"右锚定纵向排列"，进一步拉大与信号节点 / 彼此 的距离。
@@ -1588,6 +1705,7 @@ class DecisionFlowViz {
                 }
 
                 const group = this._svgEl('g', { class: 'dfv-strategy-node', 'data-key': def.key });
+                this._attachNodeTitle(group, STRATEGY_TIP[def.key]);
                 const baseR = compR;
                 const glow = this._svgEl('circle', {
                     cx: x, cy: y, r: baseR + 3.2, fill: `${def.color}22`, stroke: 'none', class: 'dfv-strategy-node-glow',
@@ -1668,6 +1786,7 @@ class DecisionFlowViz {
                 }
 
                 const group = this._svgEl('g', { class: 'dfv-target-node', 'data-key': def.key });
+                this._attachNodeTitle(group, TARGET_TIP[def.key]);
                 const glow = this._svgEl('circle', {
                     cx: x, cy: y, r: stR + 2.4, fill: `${def.color}22`, stroke: 'none', class: 'dfv-target-node-glow',
                 }, group);
@@ -1724,6 +1843,10 @@ class DecisionFlowViz {
                 }
 
                 const group = this._svgEl('g', { class: 'dfv-schedule-node', 'data-key': def.key });
+                /* v1.60.12：SVG <title> 提示 — hover 调度节点看到语义 + "何时被点亮"
+                 * v1.60.17：统一用 _attachNodeTitle helper（保证 title 是 group 第一个子元素，
+                 *           Safari/旧 WebView SVG spec 严格兼容） */
+                this._attachNodeTitle(group, def.tip);
                 const glow = this._svgEl('circle', {
                     cx: x, cy: y, r: spR + 2.4, fill: `${def.color}22`, stroke: 'none', class: 'dfv-schedule-node-glow',
                 }, group);
@@ -1894,9 +2017,32 @@ class DecisionFlowViz {
                 }, group);
                 driverText.textContent = '';
 
+                /* v1.60.6 缺口 #4：⚡ 事件注入 badge —— chosenMeta.original/originalMeta/injectedAt
+                 * 存在时显示在 chosen 节点右上角。relief 子类用青色 ⚡，pressure 用橙色 ⚡，
+                 * 鼠标悬停 group 时 SVG <title> 已带"原 X → 替换为 Y（因 …）"完整 audit。
+                 * 默认 display:none，仅注入时显式 setAttribute('display','inline')，无注入零渲染开销。 */
+                const injectBadge = this._svgEl('text', {
+                    x: x + chosenR - 1, y: y - chosenR + 4,
+                    'text-anchor': 'middle',
+                    class: 'dfv-chosen-node-inject-badge',
+                    display: 'none',
+                }, group);
+                injectBadge.textContent = '⚡';
+
+                /* v1.60.21：⧈ 双胞胎/三胞胎 badge —— chosenMeta.duplicateGroup 存在时显示在
+                 * chosen 节点左上角（与 ⚡ 注入 badge 互不挤位）。replica 紫色实心、main 紫色描边。 */
+                const dupBadge = this._svgEl('text', {
+                    x: x - chosenR + 1, y: y - chosenR + 4,
+                    'text-anchor': 'middle',
+                    class: 'dfv-chosen-node-dup-badge',
+                    display: 'none',
+                }, group);
+                dupBadge.textContent = '⧈';
+
                 this._geom.set(`chosen:${idx}`, { x, y, r: chosenR });
                 this._chosenShapeEls.push({
                     idx, pos: n, baseR: chosenR, bg, glow, gridG, idText, reasonText, driverText, titleEl,
+                    injectBadge, dupBadge,
                     incoming,
                 });
             }
@@ -1965,6 +2111,23 @@ class DecisionFlowViz {
         return el;
     }
 
+    /**
+     * v1.60.17：给节点 group 附加 SVG <title> 子元素（浏览器原生 hover tooltip）。
+     * 配合 CSS cursor:help 让"哪些节点可 hover"和"hover 看到什么"语义一致，避免
+     * "光标变化但 hover 一片空白"的负面体验。
+     *
+     * @param {SVGGElement} group  节点 group 容器
+     * @param {string}      text   tip 文案（空字符串/undefined 静默跳过）
+     */
+    _attachNodeTitle(group, text) {
+        if (!group || !text) return;
+        /* title 作为 group 第一个子元素插入 —— SVG spec 要求 <title> 是 group 的第一个直接
+         * 子元素，否则部分浏览器 hover 不触发 tooltip（如 Safari）。 */
+        const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        titleEl.textContent = text;
+        group.insertBefore(titleEl, group.firstChild);
+    }
+
     _addSignalNode(key, label, r) {
         const g = this._geom.get(key);
         const sigDef = SIGNAL_NODES.find((s) => s.key === key);
@@ -1974,6 +2137,7 @@ class DecisionFlowViz {
             'data-key': key,
             style: `--node-base:${baseColor}`,
         });
+        this._attachNodeTitle(group, SIGNAL_TIP[key]);
         /* v1.59.8：外光环用 baseColor 而非通用 cyan，让"身份色"在 idle 时也可读 */
         this._svgEl('circle', {
             cx: g.x, cy: g.y, r: r + 2.4, fill: `${baseColor}1f`, stroke: 'none',
@@ -1997,6 +2161,7 @@ class DecisionFlowViz {
     _addStressBall() {
         const g = this._geom.get('stress');
         const group = this._svgEl('g', { class: 'dfv-node dfv-node--stress', 'data-key': 'stress' });
+        this._attachNodeTitle(group, STRESS_TIP);
         this._svgEl('circle', {
             cx: g.x, cy: g.y, r: g.r + 12, fill: 'rgba(56,189,248,0.06)', class: 'dfv-stress-glow-outer',
         }, group);
@@ -2035,6 +2200,7 @@ class DecisionFlowViz {
             'data-key': 'spawnIntent',
             style: `--node-base:${baseColor}`,
         });
+        this._attachNodeTitle(group, INTENT_TIP);
         this._svgEl('circle', {
             cx: g.x, cy: g.y, r: (g.r + 8).toFixed(1), fill: 'none',
             stroke: `${baseColor}40`, 'stroke-width': 1.2, class: 'dfv-intent-orbit',
@@ -2643,10 +2809,20 @@ class DecisionFlowViz {
         this._lastAttemptNorm = attemptNorm;
         this._lastInsight = insight;
 
-        const sig = chosen.map((c) => `${c?.id ?? '-'}|${c?.reason ?? '-'}`).join('||') + `#${attempt}`;
+        /* v1.60.6 缺口 #4：sig 包含 injectedAt / original.id，让 ⚡ badge 出现/消失能触发重渲。
+         * v1.60.14：sig 加入 topDriver.key —— 即使 chosen shape id / reason 完全相同，driver 切换
+         * （例如 multiClear=2 → gapFills=2，reason 都是 "clear"）也必须刷新 union baseline。
+         * 历史上 driver-mode union 在罕见的"同 shape 不同 driver"切换下停留在旧 path 不更新。 */
+        const sig = chosen.map((c) => `${c?.id ?? '-'}|${c?.reason ?? '-'}|${c?.topDriver?.key ?? '-'}|${c?.original?.id ?? '-'}|${c?.injectedAt ?? '-'}|${c?.duplicateGroup ?? '-'}|${c?.duplicateRole ?? '-'}`).join('||') + `#${attempt}`;
         const dirty = this._lastChosenSig !== sig;
         if (!dirty) {
             this._renderChosenCausalLinks(attemptNorm);
+            /* v1.60.14：dirty=false 守护 union baseline —— 防止外部时机（窗口 resize / 折叠展开 /
+             * 暂存 mouseleave rAF 被取消等）让 dfv-svg--driver-mode class 丢失。检测到丢失
+             * 立即重渲染 union（_applyHlSet 内部 diff，集合相同时 0 个 DOM 操作，零成本）。 */
+            if (this._svg && !this._svg.classList.contains('dfv-svg--driver-mode')) {
+                this._renderUnionHighlight();
+            }
             return;
         }
         this._lastChosenSig = sig;
@@ -2664,13 +2840,19 @@ class DecisionFlowViz {
                 if (slot.reasonText.textContent !== '') slot.reasonText.textContent = '';
                 if (slot.driverText && slot.driverText.textContent !== '') slot.driverText.textContent = '';
                 if (slot.titleEl && slot.titleEl.textContent !== '等待出块') slot.titleEl.textContent = '等待出块';
+                /* v1.60.6 缺口 #4：空 slot 同时隐藏 ⚡ badge */
+                if (slot.injectBadge) _setAttrIfChanged(slot.injectBadge, 'display', 'none');
+                /* v1.60.21：空 slot 同时隐藏 ⧈ dup badge */
+                if (slot.dupBadge) _setAttrIfChanged(slot.dupBadge, 'display', 'none');
                 continue;
             }
             const color = SHAPE_CATEGORY_COLOR[meta.category] || '#7dd3fc';
             const idShort = _summarizeShapeId(meta.id);
             const reasonShort = _summarizeReason(meta.reason);
-            /* v1.59.20：从 blockSpawn._estimateTopDriver 透传过来的主驱动因子 */
-            const driverLabel = meta.topDriver?.label ? `因·${meta.topDriver.label}` : '';
+            /* v1.59.20：从 blockSpawn._estimateTopDriver 透传过来的主驱动因子
+             * v1.60.10：移除 "因·" 前缀，直接显示 driver.label —— 视觉冗余精简，
+             * 上方 reasonShort（"送消行/综合选"）已隐含因果，标签自身是名词短语已自解释。 */
+            const driverLabel = meta.topDriver?.label || '';
 
             /* 节点背景：彩色描边 + 暗底（让 mini grid 高对比可读） */
             _setAttrIfChanged(slot.bg, 'stroke', color);
@@ -2688,12 +2870,98 @@ class DecisionFlowViz {
                 slot.driverText.textContent = driverLabel;
             }
 
-            /* tooltip：完整 id + 完整 reason 解释 + 主驱动因子 */
+            /* v1.60.6 缺口 #4：⚡ 事件注入 badge ——
+             * meta.original / meta.injectedAt 由 blockSpawn._tryInjectSpecial 写入。
+             * 显示规则：
+             *   subType=relief   → 青色 ⚡，stroke 轻微辉光，tooltip "⚡减压注入 原 X → 当前"
+             *   subType=pressure → 橙色 ⚡，tooltip "⚡加压注入 原 X → 当前"
+             *   无 original      → 隐藏
+             * 颜色用 fill 覆盖，避免改 CSS 类抖动。 */
+            const isInjected = !!meta.original;
+            /* v1.60.9：tooltip 展开 spawnCtx 五字段快照，让玩家点击 ⚡ 即懂"为什么这块出现"
+             * spawnCtx 来自 _tryInjectSpecial 注入决策那一刻：
+             *   fill         注入时盘面填充率（与 v1.60.7 fill 下限对照）
+             *   pcSetup      0/1/2 几何清盘准备度
+             *   holesSignal  enclosedVoidCells（v1.60.6 缺口 #5 后玩家心智口径）
+             *   totalRounds  本局已 spawn 轮数（与 v1.60.7 warmup gate 对照）
+             *   intent       hints.spawnIntent（与 Step 1 priority 矩阵对照）
+             */
+            const sc = meta.spawnCtx;
+            const spawnCtxLine = isInjected && sc
+                ? `\n触发上下文：fill=${typeof sc.fill === 'number' ? sc.fill.toFixed(2) : '-'} · pcSetup=${sc.pcSetup ?? '-'} · holes=${sc.holesSignal ?? '-'} · 轮次=${sc.totalRounds ?? '-'} · intent=${sc.intent ?? '-'}`
+                : '';
+            /* v1.60.23：monoFlush 子类细化文案——明确告知"为了凑同花顺"。 */
+            const subTypeLabel = meta.subType === 'pressure'
+                ? '加压'
+                : (meta.subType === 'monoFlush' ? '同花顺' : '减压');
+            const monoFlushExtra = (meta.subType === 'monoFlush' && sc?.monoFlushLines?.length)
+                ? `\n  ↳ 命中近满同色 line：${sc.monoFlushLines.map(l => `${l.type === 'row' ? '行' : '列'}${l.idx}(差${l.empty}格)`).join('、')}`
+                : '';
+            const injectExtra = isInjected
+                ? `\n⚡事件注入：原 ${_summarizeShapeId(meta.original?.id || '?')} → 替换为 ${idShort}（${subTypeLabel}信号触发，slot #${meta.injectedAt ?? '?'}）${spawnCtxLine}${monoFlushExtra}`
+                : '';
+
+            /* v1.60.21：⧈ 双胞胎/三胞胎 dup badge — meta.duplicateGroup ∈ {'dup2','dup3'} 时显示 */
+            const dupGroup = meta.duplicateGroup;
+            const dupRole = meta.duplicateRole;
+            const isDup = dupGroup === 'dup2' || dupGroup === 'dup3';
+            const dupExtra = isDup
+                ? `\n⧈ ${dupGroup === 'dup3' ? '三胞胎' : '双胞胎'}·新奇注入（${dupRole === 'main' ? '主块' : '复制'}）：高/极度 novelty 阈值触发；单局累积 ≤ 3 次、轮次间隔 > 10`
+                : '';
+
+            /* tooltip：完整 id + 完整 reason 解释 + 主驱动因子 + 注入审计 */
             const tip = SPAWN_REASON_TIP[meta.reason] || meta.reason || '';
-            const driverFull = meta.topDriver?.label ? `\n主因：${meta.topDriver.label}（${meta.topDriver.key}）` : '';
-            const titleStr = `${meta.id || '?'} · ${tip}${driverFull}`;
+            /* v1.60.15 / v1.60.16：driver 语义释义—— "可消N行" 是 multiClear 真模拟（保证消行），
+             * "补N缺/近满补1" 是 gapFills 加权差缺分（不保证消行）。避免重蹈
+             * v1.59.20 "可消1行" 文案误导玩家以为 gapFills=1 就能消行的覆辙。 */
+            const driverKey = meta.topDriver?.key || '';
+            const DRIVER_SEMANTIC = {
+                pcPotential: 'previewClearOutcome 真模拟，本块放下可清空全盘',
+                monoFlush:   'bestMonoFlushPotential 真模拟（v1.60.26 严格定义），本块放下后会触发：消行（line 满）+ 全 line 同 icon —— 即立即触发 ×5 倍 iconBonus 得分（同花顺大消除）',
+                multiClear:  'bestMultiClearPotential 真模拟，本块放下可同时消 N 条行/列',
+                exactFit:    'bestExactFit 真模拟（v1.60.18），本块几何精确嵌入凹槽（外周邻居 ≥85% 被填/边界）；不一定消行，但锁住凹槽 → 不制造新空洞 + 不缩窄解空间',
+                gapFills:    'countGapFills 加权差缺分（差1×3、差2×2、差3-4×1），**不保证放下能消行**；近满补1 = 仅命中差3-4格弱gap',
+                holeReduce:  'bestHoleReduction 真模拟，本块可消除 N 个已存在空洞',
+                mobility:    '合法落点 ≥30，自由度高（无强消行/清屏价值）',
+                shapeWeight: 'shape category 在 weights 中占比 ≥20% 且为榜首',
+                balanced:    '无单一主因，多维加权综合选出（综合选 reason）',
+                relief:      '_tryInjectSpecial 减压注入（独立池事件，硬编码 driver）',
+                pressure:    '_tryInjectSpecial 加压注入（独立池事件，硬编码 driver）',
+                fallback:    '主路径 22 次重试都不过约束，降级使用',
+            };
+            const driverSemantic = DRIVER_SEMANTIC[driverKey] ? `\n  ↳ ${DRIVER_SEMANTIC[driverKey]}` : '';
+            const driverFull = meta.topDriver?.label ? `\n主因：${meta.topDriver.label}（${driverKey}）${driverSemantic}` : '';
+            const titleStr = `${meta.id || '?'} · ${tip}${driverFull}${injectExtra}${dupExtra}`;
             if (slot.titleEl && slot.titleEl.textContent !== titleStr) {
                 slot.titleEl.textContent = titleStr;
+            }
+
+            if (slot.injectBadge) {
+                if (isInjected) {
+                    /* v1.60.23：subType 三态着色——
+                     *   monoFlush → 紫粉色（与 monoFlush driver 节点配色家族保持识别度）
+                     *   pressure  → 橙色
+                     *   relief    → 青色 */
+                    let badgeColor = '#67e8f9';
+                    if (meta.subType === 'pressure') badgeColor = '#fb923c';
+                    else if (meta.subType === 'monoFlush') badgeColor = '#f0abfc';
+                    _setAttrIfChanged(slot.injectBadge, 'display', 'inline');
+                    _setAttrIfChanged(slot.injectBadge, 'fill', badgeColor);
+                } else {
+                    _setAttrIfChanged(slot.injectBadge, 'display', 'none');
+                }
+            }
+            /* v1.60.21：⧈ dup badge —— main 紫色描边、replica 紫色实心。
+             * dup3 比 dup2 颜色更亮（视觉强化"全场极致新奇"）。 */
+            if (slot.dupBadge) {
+                if (isDup) {
+                    const dupColor = dupGroup === 'dup3' ? '#c084fc' : '#a78bfa';
+                    _setAttrIfChanged(slot.dupBadge, 'display', 'inline');
+                    _setAttrIfChanged(slot.dupBadge, 'fill', dupColor);
+                    _setAttrIfChanged(slot.dupBadge, 'fill-opacity', dupRole === 'main' ? '0.35' : '1.0');
+                } else {
+                    _setAttrIfChanged(slot.dupBadge, 'display', 'none');
+                }
             }
         }
 
@@ -2714,6 +2982,11 @@ class DecisionFlowViz {
                 this._spawnAttemptBadge.textContent = badgeText;
             }
         }
+
+        /* v1.60.11：每次 chosen 数据刷新后，重置 union baseline 高亮 —— 3 chosen 各自
+         * driver 路径的并集，让玩家不必 hover 就能看到"哪些信号/派生节点驱动了这 3 块"。
+         * hover 期间若被覆盖会立即回到 hover 视图（mouseenter 重触发 _setDriverHighlight）。 */
+        this._renderUnionHighlight();
     }
 
     /**
@@ -2755,6 +3028,118 @@ class DecisionFlowViz {
      *   - 高亮派生层 → 该 chosen 入向虚线亮化（属性级 stroke-opacity 0.92）
      *   - 顶部 .dfv-decision-summary 末尾 append 金色徽章「追溯：因·XXX」
      */
+    /**
+     * v1.60.11：抽出"由 (driver, idx) 计算 hl set + 各 layer keys"的纯函数，
+     * 供 _setDriverHighlight（hover 单 chosen）和 _renderUnionHighlight（默认 3 chosen 并集）共用。
+     *
+     * 返回结构：
+     *   {
+     *     hlSet:        Set<string>          带 ns 前缀的 id 集合 ("signal:xxx" / "strategy:xxx" / ...)
+     *     strategyKeys: string[]
+     *     targetKeys:   string[]
+     *     scheduleKeys: string[]
+     *     intentOn:     boolean
+     *     isWildcard:   boolean              path.strategy === '*'
+     *   }
+     */
+    _computeHlForDriver(driver, idx) {
+        const path = DRIVER_NODE_PATHS[driver.key] || DRIVER_NODE_PATHS.balanced;
+        const pickAll = (defs, sel) => sel === '*' ? defs.map(d => d.key) : (Array.isArray(sel) ? sel : []);
+
+        const strategyKeys = pickAll(STRATEGY_COMPONENT_DEFS, path.strategy);
+        const targetKeys   = pickAll(SPAWN_TARGET_DEFS, path.targets);
+        const scheduleKeys = pickAll(SCHEDULE_PARAM_DEFS, path.schedule);
+        const intentOn     = !!path.intent;
+        const isWildcard   = path.strategy === '*';
+
+        const signalSet = new Set();
+        for (const k of strategyKeys) (HINT_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
+        for (const k of targetKeys)   (SPAWN_TARGET_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
+        for (const k of scheduleKeys) (SCHEDULE_PARAM_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
+        if (intentOn) INTENT_DRIVER_SIGNALS.forEach(s => signalSet.add(s));
+        if (isWildcard) SIGNAL_NODES.forEach(s => signalSet.add(s.key));
+
+        const hlSet = new Set();
+        for (const sig of signalSet) hlSet.add(`signal:${sig}`);
+        for (const k of strategyKeys) hlSet.add(`strategy:${k}`);
+        for (const k of targetKeys) hlSet.add(`target:${k}`);
+        for (const k of scheduleKeys) hlSet.add(`schedule:${k}`);
+        if (intentOn) hlSet.add('intent:_');
+        if (idx != null) hlSet.add(`chosen:${idx}`);
+
+        return { hlSet, strategyKeys, targetKeys, scheduleKeys, intentOn, isWildcard };
+    }
+
+    /**
+     * v1.60.11：默认（无 hover）以 3 chosen 各自 driver 的并集高亮上游路径。
+     * 让玩家不必 hover 就能看到"哪些信号/派生节点驱动了这 3 块"。
+     *
+     * 入向虚线：每条 link 看自己 toChosenIdx 对应的 driver 是否覆盖该 layer，
+     * 用稍弱透明度（0.55）区分于 hover 单 chosen 的强亮（0.92），避免视觉过载。
+     */
+    _renderUnionHighlight() {
+        if (!this._svg) return;
+        const chosen = this._lastInsight?.spawnDiagnostics?.chosen;
+        if (!Array.isArray(chosen) || chosen.length === 0) {
+            this._applyHlSet(new Set());
+            this._svg.classList.remove('dfv-svg--driver-mode');
+            return;
+        }
+
+        /* 聚合各 chosen 的 hl 集合 + 记录每个 idx 的 layer 覆盖（供入向虚线判断） */
+        const unionSet = new Set();
+        const perIdx = []; /* [{strategyKeys, targetKeys, scheduleKeys, intentOn, isWildcard}, ...] */
+        let anyDriver = false;
+        for (let idx = 0; idx < chosen.length; idx++) {
+            const driver = chosen[idx]?.topDriver;
+            if (!driver) { perIdx.push(null); continue; }
+            anyDriver = true;
+            const info = this._computeHlForDriver(driver, idx);
+            for (const id of info.hlSet) unionSet.add(id);
+            perIdx.push(info);
+        }
+
+        if (!anyDriver) {
+            this._applyHlSet(new Set());
+            this._svg.classList.remove('dfv-svg--driver-mode');
+            return;
+        }
+
+        this._svg.classList.add('dfv-svg--driver-mode');
+        this._applyHlSet(unionSet);
+
+        /* 入向虚线：每条 link 看自己 toChosenIdx 对应的 driver 是否覆盖该 layer */
+        for (const link of (this._chosenDeriveLinks || [])) {
+            const info = perIdx[link.toChosenIdx];
+            let active = false;
+            if (info) {
+                const layer = link.source;
+                if (layer === 'strategy' && info.strategyKeys.length > 0) active = true;
+                else if (layer === 'targets' && info.targetKeys.length > 0) active = true;
+                else if (layer === 'schedule' && info.scheduleKeys.length > 0) active = true;
+                else if (layer === 'intent' && info.intentOn) active = true;
+                else if (info.isWildcard) active = true;
+            }
+            /* union 状态稍弱（0.55 / 1.0），hover 状态强亮（0.92 / 1.6）—— 视觉层级区分 */
+            _setAttrIfChanged(link.el, 'stroke-opacity', active ? '0.55' : '0.08');
+            _setAttrIfChanged(link.el, 'stroke-width', active ? '1.0' : '0.4');
+        }
+    }
+
+    /**
+     * v1.60.11：通用 hl set 应用（diff add/remove），_setDriverHighlight + _renderUnionHighlight 共用。
+     */
+    _applyHlSet(next) {
+        const prev = this._driverHlSet || new Set();
+        for (const id of prev) {
+            if (!next.has(id)) this._toggleDriverHl(id, false);
+        }
+        for (const id of next) {
+            if (!prev.has(id)) this._toggleDriverHl(id, true);
+        }
+        this._driverHlSet = next;
+    }
+
     _setDriverHighlight(idx) {
         const chosen = this._lastInsight?.spawnDiagnostics?.chosen;
         const meta = Array.isArray(chosen) ? chosen[idx] : null;
@@ -2767,52 +3152,20 @@ class DecisionFlowViz {
             this._driverClearRaf = null;
         }
 
-        const path = DRIVER_NODE_PATHS[driver.key] || DRIVER_NODE_PATHS.balanced;
-        const pickAll = (defs, sel) => sel === '*' ? defs.map(d => d.key) : (Array.isArray(sel) ? sel : []);
-
-        const strategyKeys = pickAll(STRATEGY_COMPONENT_DEFS, path.strategy);
-        const targetKeys   = pickAll(SPAWN_TARGET_DEFS, path.targets);
-        const scheduleKeys = pickAll(SCHEDULE_PARAM_DEFS, path.schedule);
-        const intentOn     = !!path.intent;
-
-        const signalSet = new Set();
-        for (const k of strategyKeys) (HINT_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
-        for (const k of targetKeys)   (SPAWN_TARGET_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
-        for (const k of scheduleKeys) (SCHEDULE_PARAM_DRIVER_SIGNALS[k] || []).forEach(s => signalSet.add(s));
-        if (intentOn) INTENT_DRIVER_SIGNALS.forEach(s => signalSet.add(s));
-        if (path.strategy === '*') SIGNAL_NODES.forEach(s => signalSet.add(s.key));
-
-        /* 构造目标 hl 集合（命名空间 + key，方便 diff 与 toggle） */
-        const next = new Set();
-        for (const sig of signalSet) next.add(`signal:${sig}`);
-        for (const k of strategyKeys) next.add(`strategy:${k}`);
-        for (const k of targetKeys) next.add(`target:${k}`);
-        for (const k of scheduleKeys) next.add(`schedule:${k}`);
-        if (intentOn) next.add('intent:_');
-        next.add(`chosen:${idx}`);
-
+        const info = this._computeHlForDriver(driver, idx);
         this._svg.classList.add('dfv-svg--driver-mode');
-
-        /* diff：只增删变化的节点 hl 状态（避免全清→全设造成闪烁） */
-        const prev = this._driverHlSet || new Set();
-        for (const id of prev) {
-            if (!next.has(id)) this._toggleDriverHl(id, false);
-        }
-        for (const id of next) {
-            if (!prev.has(id)) this._toggleDriverHl(id, true);
-        }
-        this._driverHlSet = next;
+        this._applyHlSet(info.hlSet);
 
         /* 入向虚线：仅当前 chosen 的入向被驱动层亮化，其他全 chosen 的入向虚线统一弱化 */
         for (const link of (this._chosenDeriveLinks || [])) {
             let active = false;
             if (link.toChosenIdx === idx) {
                 const layer = link.source;
-                if (layer === 'strategy' && strategyKeys.length > 0) active = true;
-                else if (layer === 'targets' && targetKeys.length > 0) active = true;
-                else if (layer === 'schedule' && scheduleKeys.length > 0) active = true;
-                else if (layer === 'intent' && intentOn) active = true;
-                else if (path.strategy === '*') active = true;
+                if (layer === 'strategy' && info.strategyKeys.length > 0) active = true;
+                else if (layer === 'targets' && info.targetKeys.length > 0) active = true;
+                else if (layer === 'schedule' && info.scheduleKeys.length > 0) active = true;
+                else if (layer === 'intent' && info.intentOn) active = true;
+                else if (info.isWildcard) active = true;
             }
             _setAttrIfChanged(link.el, 'stroke-opacity', active ? '0.92' : '0.05');
             _setAttrIfChanged(link.el, 'stroke-width', active ? '1.6' : '0.4');
@@ -2847,21 +3200,16 @@ class DecisionFlowViz {
     }
 
     _clearDriverHighlight() {
-        /* v1.59.22：延迟到下一帧执行，让 chosen[A]→chosen[B] 切换时 mouseenter 能取消 clear，
-         * SVG 永远不退出 driver-mode（避免 29 节点 opacity 反向过渡互相打断引起的闪烁）。 */
+        /* v1.59.22：延迟到下一帧执行，让 chosen[A]→chosen[B] 切换时 mouseenter 能取消 clear。
+         * v1.60.11：不再彻底清空，而是回到"3 chosen 并集"baseline——
+         *   用户反馈"默认应为三个候选块的并集"，让 mouseleave 回到 union 视图而非"全亮无高亮"。 */
         if (this._driverClearRaf != null) return;
         this._driverClearRaf = requestAnimationFrame(() => {
             this._driverClearRaf = null;
             if (!this._svg) return;
-            this._svg.classList.remove('dfv-svg--driver-mode');
-            if (this._driverHlSet) {
-                for (const id of this._driverHlSet) this._toggleDriverHl(id, false);
-                this._driverHlSet = null;
-            }
-            if (this._chosenDeriveLinks?.length && this._lastAttemptNorm != null) {
-                this._renderChosenCausalLinks(this._lastAttemptNorm);
-            }
             this._removeDriverBadge();
+            /* 回退到 union baseline（保持 driver-mode + 3 chosen 并集高亮） */
+            this._renderUnionHighlight();
         });
     }
 
@@ -2870,27 +3218,41 @@ class DecisionFlowViz {
      * 替代旧版 `innerHTML = savedHtml + tag` 子树重写（重写会触发整个 .dfv-decision-summary
      * 布局重算，且 box-shadow 呼吸动画在重建中重启 → 视觉闪烁）。
      */
+    /**
+     * v1.60.6 抖动修复：徽章永久驻留 DOM（首次 hover 创建后不再 remove），
+     * 通过 visibility 切换显隐——避免 append/remove 引起 .dfv-decision-summary
+     * `flex-wrap` 状态变化（1 行 ↔ 2 行）导致整个浮层高度跳动。
+     *
+     * 同时 CSS 侧给 .dfv-summary-driver-badge 设 `min-width: 180px`，让不同 chosen
+     * 节点之间 hover 切换（driver 文字长度差异）时 summary wrap 状态也保持稳定。
+     */
     _updateDriverBadge(driver) {
         const host = this._detailEls?.summary;
         if (!host || !driver) return;
-        const text = `追溯：因·${driver.label}（${driver.key}）`;
+        /* v1.60.10：去掉"因·"冗余前缀，"追溯：xxx" 已表达因果关系 */
+        const text = `追溯：${driver.label}（${driver.key}）`;
         if (!this._summaryBadgeEl) {
             const badge = document.createElement('span');
             badge.className = 'dfv-summary-driver-badge';
             badge.style.color = '#fde68a';
-            badge.textContent = text;
+            badge.style.visibility = 'hidden';
             host.appendChild(badge);
             this._summaryBadgeEl = badge;
-        } else if (this._summaryBadgeEl.textContent !== text) {
+        }
+        if (this._summaryBadgeEl.textContent !== text) {
             this._summaryBadgeEl.textContent = text;
+        }
+        if (this._summaryBadgeEl.style.visibility !== 'visible') {
+            this._summaryBadgeEl.style.visibility = 'visible';
         }
     }
 
     _removeDriverBadge() {
-        if (this._summaryBadgeEl?.parentNode) {
-            this._summaryBadgeEl.parentNode.removeChild(this._summaryBadgeEl);
+        /* v1.60.6：不再 remove 节点，仅 visibility:hidden —— layout 一致避免抖动。
+         * badge 节点保留在 host 里，下次 hover 时直接复用。 */
+        if (this._summaryBadgeEl && this._summaryBadgeEl.style.visibility !== 'hidden') {
+            this._summaryBadgeEl.style.visibility = 'hidden';
         }
-        this._summaryBadgeEl = null;
     }
 
     /**
@@ -3555,9 +3917,12 @@ class DecisionFlowViz {
     position: absolute;
     top: 6px; left: 8px; right: 8px;
     z-index: 4;
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 4px;
-    padding: 3px 6px;
+    display: flex; align-items: center; justify-content: center;
+    /* v1.60.6 → v1.60.7：进一步紧缩。删 1/3 阶段编号后名词独立站住，
+     * gap 2px / padding 2px 6px，nav 总宽降到 ~290px，580px 浮层有充足余量。 */
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 2px 6px;
     border-radius: 999px;
     background: linear-gradient(90deg,
         rgba(96, 165, 250, 0.14) 0%,
@@ -3568,26 +3933,26 @@ class DecisionFlowViz {
     backdrop-filter: blur(3px);
     -webkit-backdrop-filter: blur(3px);
     pointer-events: auto;
-    font-size: 9.5px;
+    font-size: 9px;
     color: #e2e8f0;
     user-select: none;
 }
 .dfv-flow-step {
-    display: inline-flex; align-items: center; gap: 3px;
-    padding: 1px 6px;
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 1px 5px;
     border-radius: 999px;
     background: rgba(2, 6, 23, 0.45);
     border: 1px solid rgba(148, 163, 184, 0.20);
-    line-height: 1.4;
+    line-height: 1.35;
     white-space: nowrap;
     transition: transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 .dfv-flow-step__num {
     display: inline-flex; align-items: center; justify-content: center;
-    /* v1.59.11：原 13×13 圆形容不下 "2①" 两字符 → 改为药丸形 min-width:16 */
-    min-width: 16px; height: 13px;
-    padding: 0 3px;
-    border-radius: 6.5px;
+    /* v1.60.7：单字符 Unicode 圈数字 ① ②...，宽度收到 12px 内（约等于 1em） */
+    min-width: 12px; height: 12px;
+    padding: 0 1px;
+    border-radius: 6px;
     background: rgba(56, 189, 248, 0.20);
     color: #7dd3fc;
     font-size: 8px;
@@ -3595,16 +3960,16 @@ class DecisionFlowViz {
     font-family: ui-monospace, 'SF Mono', monospace;
     line-height: 1;
 }
-.dfv-flow-step__name { font-weight: 600; letter-spacing: 0.04em; }
-/* v1.59.11：并列符 ∥ — 替代原 ▶ 在派生 3 子项之间，表达"同源并列、非串行" */
-.dfv-flow-parallel {
-    color: rgba(125, 211, 252, 0.62);
-    font-size: 10px;
-    font-weight: 700;
-    transform: translateY(-0.5px);
-    letter-spacing: -1px;
-    cursor: help;
+.dfv-flow-step__name { font-weight: 600; letter-spacing: 0.02em; }
+/* v1.60.7：signal / spawn 两个"名词锚点" step 加微弱视觉强调，
+ * 让玩家在缺少 "1" / "3" 编号情况下仍能感知"流程起点 / 终点"。 */
+.dfv-flow-step--signal .dfv-flow-step__name,
+.dfv-flow-step--spawn .dfv-flow-step__name {
+    font-size: 9.5px;
+    letter-spacing: 0.05em;
 }
+/* v1.60.6 已删除 ∥ 分隔符（".dfv-flow-parallel"），派生 5 项纯靠颜色 + 收紧的 gap 表达"并列同源"；
+ * "并列同源"语义改放进 .dfv-flow-step--stress 的 title hover 提示里，避免侵占横向空间。 */
 .dfv-flow-step--signal   { border-color: rgba(96, 165, 250, 0.40); }
 .dfv-flow-step--signal   .dfv-flow-step__num { background: rgba(96, 165, 250, 0.24); color: #93c5fd; }
 .dfv-flow-step--stress   { border-color: rgba(34, 211, 238, 0.40); }
@@ -3847,49 +4212,86 @@ class DecisionFlowViz {
     letter-spacing: 0.3px;
 }
 
-/* —— sparkline 时间序列条（v1.51.3 紧凑：参考 .replay-series-cell 18px 行高） —— */
+/* —— sparkline 时间序列条（v1.51.3 紧凑：参考 .replay-series-cell 18px 行高） ——
+ * v1.60.6 布局简化：强制 5 等列 repeat(5, minmax(0,1fr))，5 路 sparkline 默认单行；
+ *   极窄面板（< 520px）通过 media query 降级 3 列，再窄到 < 380 才 2 列，避免出现 4+1 的 "4 顶满+1 孤行" 丑布局。 */
 .dfv-sparks {
     padding: 4px 8px 4px;
     border-top: 1px solid rgba(56, 189, 248, 0.18);
     background: rgba(2, 6, 23, 0.5);
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 1px 8px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1px 6px;
 }
 .dfv-spark-row {
     display: grid;
-    /* v1.51.8: label 从 2.6em → 3.4em，容纳 3 字「消行率 / 失放率」不被 ellipsis 截断 */
-    grid-template-columns: 3.4em 1fr 2.8em;
+    /* v1.60.10: 标签 2.6em→3.0em（容纳 3 字「消行率」无截断），
+     * 数值 2.2em→2.8em（容纳 5 字符 "-0.05" / "0.30" 等宽完整显示），
+     * sparkline 路径列 1fr 自然收缩 —— 用户反馈"线条过长、数字显示不全"修复。
+     * min-width:0 让 1fr 列正确收缩，避免内部 SVG 撑爆 grid cell。 */
+    grid-template-columns: 3.0em minmax(0, 1fr) 2.8em;
     align-items: center; gap: 4px;
     height: 18px;
     font-size: 10px;
+    min-width: 0;
 }
 .dfv-spark-label {
     font-weight: 700; letter-spacing: 0.02em;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.dfv-spark-svg { width: 100%; height: 14px; display: block; border-radius: 3px;
+.dfv-spark-svg {
+    width: 100%; height: 14px; display: block; border-radius: 3px;
     background: color-mix(in srgb, #fff 3%, transparent);
+    min-width: 0;
 }
-/* v1.59.8：sparkline 末点脉动圆点——
- * cx/cy 由 _renderSparks 实时写入，CSS 让圆点周围出现"扩散波纹"配合脉冲，
- * 强化"实时数据流"的可感知度。idle 时（无数据）圆点缩到画外（cx=-9）+ 弱化呼吸。 */
+/* v1.59.8 → v1.60.6：sparkline 末点脉动圆点 + 趋势带呼吸 + 折线加粗 ——
+ *   - dot 半径 2.0/3.0 → 2.6/4.2（视觉冲击 +50%）+ 双层 drop-shadow 加强光晕
+ *   - dot 切位置 transition 0.18s → 0.32s ease-out（让"末点跳到新值"更跟手、更有惯性）
+ *   - dot pulse 节奏 1.1s → 0.85s（更急促，"实时心跳"感）
+ *   - fill 区域加 dfvSparkFillBreathe（opacity 0.10↔0.22 呼吸）—— 整条曲线"呼吸"
+ *   - path stroke-width 1.8 → 2.1，更醒目；transition 用 cubic-bezier 强化"弹入"感 */
 .dfv-spark-dot {
-    transition: cx 0.18s ease, cy 0.18s ease;
-    filter: drop-shadow(0 0 3px var(--dot-color, currentColor));
-    animation: dfvSparkDotPulse 1.1s ease-in-out infinite;
+    transition: cx 0.32s cubic-bezier(0.2, 0.7, 0.2, 1), cy 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
+    filter: drop-shadow(0 0 3px var(--dot-color, currentColor))
+            drop-shadow(0 0 6px color-mix(in srgb, var(--dot-color, currentColor) 60%, transparent));
+    animation: dfvSparkDotPulse 0.85s ease-in-out infinite;
 }
-.dfv-spark-dot--idle { animation: none; opacity: 0.35; }
+.dfv-spark-dot--idle { animation: none; opacity: 0.32; filter: none; }
 @keyframes dfvSparkDotPulse {
-    0%,100% { r: 2.0; opacity: 0.95; }
-    50%     { r: 3.0; opacity: 0.55; }
+    0%,100% { r: 2.6; opacity: 1; }
+    50%     { r: 4.2; opacity: 0.45; }
 }
-.dfv-spark-fill { transition: d 0.18s ease; }
-.dfv-spark-path { transition: d 0.18s ease; }
+.dfv-spark-fill {
+    transition: d 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation: dfvSparkFillBreathe 2.4s ease-in-out infinite;
+}
+@keyframes dfvSparkFillBreathe {
+    0%,100% { fill-opacity: 0.10; }
+    50%     { fill-opacity: 0.24; }
+}
+.dfv-spark-path {
+    transition: d 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
+    stroke-width: 2.1;
+    /* path 自身不做"扫光"（dasharray 会让大部分曲线隐藏，看不全趋势）；
+     * 数据流动感全部交给 dot pulse + fill breathe + 弹性 transition 三重叠加。 */
+}
+@media (prefers-reduced-motion: reduce) {
+    .dfv-spark-dot,
+    .dfv-spark-fill { animation: none; }
+}
 .dfv-spark-value {
     text-align: right; font-family: ui-monospace, 'SF Mono', monospace;
     font-weight: 700; font-size: 10px;
     font-variant-numeric: tabular-nums;
+    overflow: hidden;
+}
+
+/* v1.60.6：极窄面板降级 —— 5 列 → 3 列 → 2 列，避免 sparkline 短到只剩 dot */
+@media (max-width: 520px) {
+    .dfv-sparks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 380px) {
+    .dfv-sparks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* —— 脚部图例 —— */
@@ -4116,7 +4518,21 @@ class DecisionFlowViz {
  * v1.59.22：transition 缩短 .35s → .15s——chosen 切换时入向虚线亮/灭更跟手，
  * 减少 hover 切换 chosen 节点期间"虚线慢淡入淡出"的视觉拖尾感。 */
 .dfv-svg .dfv-derive-link--chosen { transition: stroke-opacity .15s, stroke-width .15s; }
-.dfv-svg .dfv-chosen-node { cursor: help; }
+/* v1.60.17：所有可 hover 节点统一 cursor:help —— 用户反馈"节点都有 SVG <title> tooltip
+ * 但鼠标光标无任何提示，看不出哪些节点可 hover"。覆盖 5 类节点：
+ *   .dfv-node            （信号 10 节点 + 压力球 + 意图节点的 g 容器，全用此 base class）
+ *   .dfv-strategy-node   （策略派生 5 节点）
+ *   .dfv-target-node     （目标派生 6 节点）
+ *   .dfv-schedule-node   （调度派生 4 节点）
+ *   .dfv-chosen-node     （chosen 3 节点）
+ * 以及 HUB 的 .dfv-flow-step（HTML span，6 个阶段步骤都有 title）。
+ * cursor:help 是 CSS 标准光标语义—"该元素有附加帮助说明"，hover 时浏览器原生显示 <title>。 */
+.dfv-svg .dfv-node,
+.dfv-svg .dfv-strategy-node,
+.dfv-svg .dfv-target-node,
+.dfv-svg .dfv-schedule-node,
+.dfv-svg .dfv-chosen-node,
+.dfv-flow-step { cursor: help; }
 .dfv-svg .dfv-chosen-node-bg { transition: stroke .25s, stroke-opacity .25s, fill .25s; }
 .dfv-svg .dfv-chosen-node-glow { transition: fill .25s; }
 .dfv-svg .dfv-chosen-node-grid rect { transition: fill .25s, stroke .25s; }
@@ -4179,8 +4595,53 @@ class DecisionFlowViz {
     opacity: 1;
 }
 
-/* v1.59.21 方案 C：决策摘要在 hover 反向高亮期间动态附加"追溯：因·XXX"小徽章 */
+/* v1.60.6 缺口 #4：⚡ 事件注入 badge —— relief 青、pressure 橙（fill 在 JS 侧动态设）。
+ * pulse 动画：8% 亮度循环呼吸，让玩家眼角余光也能捕捉到"这块是事件注入的"。 */
+.dfv-svg .dfv-chosen-node-inject-badge {
+    font-size: 11px;
+    font-weight: 700;
+    paint-order: stroke fill;
+    stroke: rgba(15, 23, 42, 0.92);
+    stroke-width: 2.4;
+    stroke-linejoin: round;
+    pointer-events: none;
+    animation: dfvInjectPulse 1.6s ease-in-out infinite;
+}
+@keyframes dfvInjectPulse {
+    0%, 100% { opacity: 0.95; }
+    50%      { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dfv-svg .dfv-chosen-node-inject-badge { animation: none; }
+}
+
+/* v1.60.21：⧈ 双胞胎/三胞胎 badge —— 与 ⚡ 注入 badge 共用样式但置于左上角，
+ * 紫色配色区分（dup3 比 dup2 更亮）。replica fill-opacity=1.0 实心；main 0.35 描边。 */
+.dfv-svg .dfv-chosen-node-dup-badge {
+    font-size: 11px;
+    font-weight: 700;
+    paint-order: stroke fill;
+    stroke: rgba(15, 23, 42, 0.92);
+    stroke-width: 2.4;
+    stroke-linejoin: round;
+    pointer-events: none;
+    animation: dfvInjectPulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .dfv-svg .dfv-chosen-node-dup-badge { animation: none; }
+}
+
+/* v1.59.21 方案 C：决策摘要在 hover 反向高亮期间动态显示"追溯：因·XXX"小徽章。
+ * v1.60.6 抖动修复：
+ *   - 改为永久驻留 DOM（JS 用 visibility 切换显隐），不再 append/remove
+ *   - min-width 180px 让不同 chosen 节点 hover 切换时 summary wrap 状态稳定
+ *   - display inline-block 让 min-width 生效（flex item 内 inline 默认忽略 min-width）
+ *   - box-sizing 确保 padding 不引发额外宽度抖动 */
 .dfv-summary-driver-badge {
+    display: inline-block;
+    box-sizing: border-box;
+    min-width: 180px;
+    text-align: center;
     font-weight: 700;
     padding: 1px 6px;
     margin-left: 6px;
@@ -4193,6 +4654,9 @@ class DecisionFlowViz {
 @keyframes dfvDriverBadgeBlink {
     0%, 100% { box-shadow: 0 0 0 0 rgba(253,224,71,0.5); }
     50%      { box-shadow: 0 0 6px 1px rgba(253,224,71,0.7); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dfv-summary-driver-badge { animation: none; }
 }
 
 /* v1.59.20：chosen 节点底部第三行"因·XXX"主驱动因子小字
@@ -4283,6 +4747,12 @@ export const __dfvTestables = {
     DFV_TRAIL_COUNT,
     setAttrIfChanged: _setAttrIfChanged,
     createInstance: () => new DecisionFlowViz(),
+    /* v1.60.13：暴露 driver 路径表 + 派生节点定义给 tests/decisionFlowVizDriverPaths.test.js，
+     * 用于锁定"每个 chosenMeta.topDriver.key 都有显式 path"等不变式，防止以后回归。 */
+    DRIVER_NODE_PATHS,
+    STRATEGY_COMPONENT_DEFS,
+    SPAWN_TARGET_DEFS,
+    SCHEDULE_PARAM_DEFS,
 };
 
 export function initDecisionFlowViz(game) {

@@ -104,7 +104,9 @@ function topologyFromContext(ctx) {
         return ctx.topology;
     }
     if (ctx?.grid?.cells?.length) {
-        return analyzeBoardTopology(ctx.grid);
+        /* v1.60.1：能力评估走"玩家失误"口径——boardPlanning / riskLevel 不应被
+         * 独立库块产生的散点孤岛拉低（那是事件注入产物，非玩家规划失误）。 */
+        return analyzeBoardTopology(ctx.grid, { skipSpecialCells: true });
     }
     return null;
 }

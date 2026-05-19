@@ -1908,30 +1908,48 @@ body.game-rl-preview .block-dock {
     line-height: 1;
 }
 
-/* ── v10.18.2：本局战报（事实型 2x2 网格，无进度条，无目标对比） ── */
+/* ── v1.60.4：本局战报"低对比暗玻璃"——去渐变化 ─────────────────────────
+ * v1.60.3 用了双层 gradient + border-image 渐变 + 渐变文字，与分数橙色渐变共同
+ * 形成"渐变堆叠"——用户反馈"渐变色容易造成眼花、最重要信息是得分"。本版本
+ * 全部撤掉 background-clip:text 渐变与多层背景渐变，改成：
+ *   - 容器：单色暗玻璃（slate-900/92）+ 单条暖橙细边
+ *   - 标题/数值：实色暖橙（#fbbf24），可读性更稳、视觉重量更轻
+ *   - 保留 stagger 入场动画（这是节奏感而非颜色噪声，不刺眼）
+ * 让得分 420 成为唯一视觉中心，战报退到"信息支撑"层级。
+ */
 .game-over-card .progress-digest,
 .game-over-card #over-digest {
-    margin: 10px 0 0;
-    padding: 8px 10px 8px;
-    background: rgba(248, 250, 252, 0.88);
-    border: 1px solid rgba(15, 23, 42, 0.10);
-    border-radius: 10px;
+    position: relative;
+    margin: 12px 0 0;
+    padding: 12px 14px 10px;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(251, 191, 36, 0.22);
+    border-radius: 12px;
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.04) inset,
+        0 10px 26px -14px rgba(15, 23, 42, 0.55);
+    color: #f1f5f9;
     width: 100%;
     box-sizing: border-box;
+    overflow: hidden;
 }
 .game-over-card .pd-title {
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: #1e293b;
-    margin: 0 0 6px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    margin: 0 0 8px;
     text-align: left;
+    color: #fbbf24;
+    animation: pdTitleIn 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-/* v10.18.4：4 条战报改为单列「label … value」横排，让所有数值在同一垂直线上对齐 */
+.game-over-card .pd-title::before {
+    content: '◆ ';
+    color: #fbbf24;
+}
 .game-over-card .pd-grid {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 4px;
 }
 .game-over-card .pd-cell {
     display: flex;
@@ -1939,23 +1957,51 @@ body.game-rl-preview .block-dock {
     align-items: baseline;
     gap: 12px;
     min-width: 0;
+    padding: 3px 4px;
+    border-radius: 6px;
+    /* stagger 入场：每个 cell 在 80 + i*90ms 时浮现 */
+    opacity: 0;
+    animation: pdCellIn 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(80ms + var(--i, 0) * 90ms);
+}
+.game-over-card .pd-cell:hover {
+    background: rgba(255, 255, 255, 0.04);
 }
 .game-over-card .pd-cell-label {
     font-size: 12px;
-    font-weight: 500;
-    color: #334155;
+    font-weight: 600;
+    color: rgba(226, 232, 240, 0.82);
+    letter-spacing: 0.02em;
     line-height: 1.3;
     flex: 0 0 auto;
 }
 .game-over-card .pd-cell-value {
-    font-size: 13px;
-    font-weight: 700;
-    color: #0f172a;
+    font-size: 14px;
+    font-weight: 800;
     font-variant-numeric: tabular-nums;
     line-height: 1.3;
     text-align: right;
     flex: 0 0 auto;
     white-space: nowrap;
+    color: #fbbf24;
+}
+
+@keyframes pdTitleIn {
+    0%   { opacity: 0; transform: translateY(-4px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes pdCellIn {
+    0%   { opacity: 0; transform: translateY(6px) scale(0.98); }
+    60%  { opacity: 1; }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .game-over-card .pd-title,
+    .game-over-card .pd-cell {
+        animation-duration: 1ms;
+        animation-delay: 0ms;
+    }
 }
 
 /* ── v10.18.1：内嵌次操作（分享/海报）— 紧凑、扁平、和盘面色调一致 ── */
@@ -8078,37 +8124,9 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
 }
 .apd-decline { background: rgba(255, 255, 255, 0.12); color: #cbd5e1; }
 .apd-accept { background: linear-gradient(90deg, #f472b6, #ec4899); color: #fff; }
-.apk-share-toast {
-    position: fixed;
-    bottom: max(
-        calc(env(safe-area-inset-bottom, 0px) + 18px),
-        calc(100dvh - var(--board-overlay-bottom, 0px) + 18px)
-    );
-    left: var(--board-overlay-center-x, 50vw);
-    transform: translateX(-50%);
-    z-index: 8800;
-    background: rgba(22, 26, 38, 0.92);
-    backdrop-filter: none;
-    color: #f1f5f9;
-    padding: 10px 14px;
-    border-radius: 999px;
-    border: 1px solid rgba(244, 114, 182, 0.32);
-    display: inline-flex; align-items: center; gap: 12px;
-    font-size: 13px;
-    opacity: 0; transition: opacity .28s, transform .28s;
-}
-.apk-share-toast.is-visible { opacity: 1; }
-.apk-icon { font-size: 16px; }
-.apk-copy {
-    background: rgba(244, 114, 182, 0.20);
-    color: #fbcfe8;
-    border: 1px solid rgba(244, 114, 182, 0.35);
-    border-radius: 999px;
-    padding: 4px 10px; font-size: 12px;
-    cursor: pointer;
-}
-.apk-copy:hover { background: rgba(244, 114, 182, 0.32); }
-.apk-close { background: transparent; border: 0; color: #94a3b8; cursor: pointer; }
+/* v1.60.3：原 .gameover-share-cta 内嵌行已弃用——挑战 CTA 折叠为 .game-over-links
+ * 中的"挑战"按钮（与菜单/回放/海报/分享并列），完全复用 .game-over-link 样式，
+ * 不再需要单独的 CSS 块。 */
 
 /* ── 预览 toast（道具） ── */
 .preview-toast {

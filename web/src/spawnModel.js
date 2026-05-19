@@ -292,7 +292,9 @@ export function computeSpawnTargetDifficulty(profile, adaptiveInsight, topology 
 }
 
 export function buildSpawnModelContext(grid, profile, adaptiveInsight, opts = {}) {
-    const topology = opts.topology || (grid ? analyzeBoardTopology(grid) : null);
+    /* v1.60.1：Spawn 模型的特征上下文走"玩家失误评估"口径——boardRisk / nearClear
+     * 等下游计算不应被独立库散点孤岛干扰。 */
+    const topology = opts.topology || (grid ? analyzeBoardTopology(grid, { skipSpecialCells: true }) : null);
     const ability = opts.ability || buildPlayerAbilityVector(profile, {
         grid,
         topology,
@@ -334,7 +336,8 @@ async function _predictShapes(grid, profile, recentHistory, adaptiveInsight, tem
     }
 
     const context = _buildContext24(grid, profile, adaptiveInsight);
-    const targetDifficulty = computeSpawnTargetDifficulty(profile, adaptiveInsight, analyzeBoardTopology(grid));
+    /* v1.60.1：spawn 难度目标走"玩家失误评估"口径 */
+    const targetDifficulty = computeSpawnTargetDifficulty(profile, adaptiveInsight, analyzeBoardTopology(grid, { skipSpecialCells: true }));
 
     try {
         const data = await _api('/api/spawn-model/predict', {

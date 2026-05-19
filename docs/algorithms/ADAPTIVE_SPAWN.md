@@ -1816,74 +1816,1789 @@ if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
 
 ---
 
-### 10.7 形状池扩展（v1.60.0：28 → 40，按"加减压策略"做 gate + 加权）
+### 10.7 形状池扩展（v1.60.0 → v1.60.1：独立库事件注入系统）
 
 #### 设计目标
 
-§10.6 论文实证「**形状库扩充**是 ★★ 强级杠杆」——OpenBlock 在 v1.60.0 之前从未动用，仅靠 `shapeWeights` profile 插值（★ 中级杠杆）。**v1.60.0** 首次以"形状库扩充"作为减压/加压双向手段：
+§10.6 论文实证「**形状库扩充**是 ★★ 强级杠杆」——OpenBlock 在 v1.60.0 之前从未动用，仅靠 `shapeWeights` profile 插值（★ 中级杠杆）。**v1.60.0** 首次以"形状库扩充"作为减压/加压双向手段，**v1.60.1** 将其重构为完整的"独立库事件注入系统"：
 
-- **前期减压**：补充更小、更易消行的形状（占地 2-3 格），让初学者/恢复期的玩家在低 `sizePreference` 区间能稳定拿到"易消行小块"，**降低"无可用形状"挫败感**
-- **后期加压**：补充极稀疏散点形状（斜线 3 格），让高手在高 `stress` + `pressure intent` 区间面对"占地少但极难消行"的新挑战类型，**提升 stress 顶部的"形态难度"维度**
+- **前期减压**：用 8 个小直线 + 3 格 L 角形状（`SPECIAL_RELIEF_SHAPES`），在"清屏准备 / 高填充 + 临消行"场景由 `_tryInjectSpecial` 显式注入，**配合而非替代**主出块路径
+- **后期加压**：用 4 个斜线散点形状（`SPECIAL_PRESSURE_SHAPES`），仅在 `pressure / sprint` 意图 + 低填充时注入，**主动制造稀疏挑战**而不绕过校验
+- **可控**：每局上限 = `max(totalClears × 10%, 3)`、间隔 ≥ 5 轮、relief/pressure 共享计数器
+- **可回放、可观测、可豁免空洞**：v1.60.1 全面契约化（详见下文 §架构 + §三大契约）
 
-#### 新增 12 形状清单（全部 ≤ 3 格，归入既有类目，**不新增 category**）
+#### 12 形状清单（独立库 specialShapeIds，全部 ≤ 3 格）
 
-| ID | 形状 | category | 占格 | 角色 | gate / 加权策略 |
-|---|---|---|---|---|---|
-| `1x2` `2x1` | 1×2 直线 | `lines` | 2 | **减压·极小补缝** | 默认入池；`sizePreference ≤ -0.3` 时 ×1.6 |
-| `1x3` `3x1` | 1×3 直线 | `lines` | 3 | **减压·小补缝** | 默认入池；`sizePreference ≤ -0.3` 时 ×1.6 |
-| `diag-2a` `diag-2b` | 2 格对角 ↗/↘ | `zshapes` | 2 | **中性·对角补缝** | 默认入池；无 bonus |
-| `diag-3a` `diag-3b` | 3 格对角 ↗/↘ | `zshapes` | 3 | **加压·稀疏挑战** | **gate**：仅 `spawnIntent ∈ {pressure, sprint}` **且** `profile.skillLevel ≥ 0.5` 时入池；否则 reject |
-| `l3-a` `l3-b` `l3-c` `l3-d` | 3 格 L 角 ↘/↙/↗/↖ | `lshapes` | 3 | **中性·角落补缝** | 默认入池；`gapFills > 0` 时 ×1.3 |
+| 子库 | 形状 ID | 名称 | 占格 | 角色 |
+|---|---|---|---|---|
+| **Relief** | `1x2` `2x1` `1x3` `3x1` | 超小直线 | 2-3 | 易消行补缝 |
+| **Relief** | `l3-a` `l3-b` `l3-c` `l3-d` | 3 格 L 角 | 3 | 角落补缝 |
+| **Pressure** | `diag-2a` `diag-2b` | 2 格对角 | 2 | 中性散点 |
+| **Pressure** | `diag-3a` `diag-3b` | 3 格对角 | 3 | 稀疏挑战 |
 
-#### Gate 与加权代码锚点
+#### 架构：独立库 = 三层防御 + 单一事件注入入口
 
-| 函数 | 文件路径 | 说明 |
+```
+                       概率出块路径（每轮）                     独立库注入路径（最多每 5 轮 1 次）
+                       ─────────────────                       ──────────────────
+                            │                                          │
+                            ▼                                          ▼
+            ┌──────────────────────────┐              ┌────────────────────────────┐
+            │ pickShapeByCategoryWeights│              │  _tryInjectSpecial(triplet,│
+            │ ✗ 默认过滤 special        │              │   chosenMeta, hints, ctx,  │
+            │ (Issue 5 数据源切断)      │              │   grid, fill, topo,        │
+            └─────────────┬────────────┘              │   pcSetup, scored, {rng})  │
+                          │                            └──────────────┬─────────────┘
+                          ▼                                           │
+            ┌──────────────────────────┐                              │
+            │  scored.map + _passes-   │       第一层防御              │
+            │  ShapeGate（拦截 special）│       (重复保护，0 泄漏)      │
+            └─────────────┬────────────┘                              │
+                          │                                           │
+                          ▼                                           ▼
+            ┌──────────────────────────┐       ┌────────────────────────────────┐
+            │ 主校验 validateSpawnTriplet│       │  (1) 计算 relief/pressure signal│
+            │  - canPlaceAnywhere       │       │  (2) sprint 抢占 relief         │
+            │  - not-sequentially-solv. │       │      (Issue 3)                  │
+            │  - firstMoveFreedom       │       │  (3) 间隔 + 上限节流             │
+            │  - solutionRange / rigor  │       │  (4) candidate × replaceIdx     │
+            └─────────────┬────────────┘       │      智能枚举 (Issue 6)          │
+                          │                    │  (5) ★ 注入后 validateSpawnTri- │
+                          │ ★ 通过校验          │      plet 复校 (Issue 1)         │
+                          │                    │  (6) audit trail (Issue 7)      │
+                          ▼                    └──────────────┬─────────────────┘
+            ┌──────────────────────────┐                      │
+            │ _tryInjectSpecial 调用    │←─────────────────────┘
+            │ （ctx.rng 注入可复现）    │
+            └─────────────┬────────────┘
+                          │
+                          ▼
+            ┌──────────────────────────┐
+            │ Fisher-Yates(triplet,     │       v1.60.1 接受 ctx.rng
+            │  chosenMeta, ctx.rng)     │       (daily/replay 可复现)
+            └─────────────┬────────────┘
+                          │
+                          ▼
+            ┌──────────────────────────┐
+            │ 最终 sanitize             │       v1.60.1 仅作为最后防线
+            │ _sanitizeShapeArr         │       (rule 路径理论不会触发)
+            └─────────────┬────────────┘
+                          │
+                          ▼
+                    dock 下发 (3 块)
+```
+
+#### 三大契约（v1.60.1 关键）
+
+##### 契约 1：**回放无缝**
+
+独立库块通过 `spawn` 帧自带 `id` + `shape: number[][]` + `colorIdx` 写入 `moveSequence`，回放时：
+
+1. 从帧重建时按 `b.id` 是否在 `specialShapeIds` 内打 `isSpecial=true` 标，让 cellMeta 在回放期间也正确
+2. **可种子化**：daily / A/B 实验可注入 `mulberry32(seed)` 给 `ctx.rng`，从 `_tryInjectSpecial` 候选选择 + replaceIdx 排序 + Fisher-Yates + `pickWeighted` 全链路一致复现
+3. 默认行为不变：未传 rng 时降级到 `Math.random`，与 v1.60.0 行为一致
+
+##### 契约 2：**宝箱/奖励天然支持**
+
+`rewards/` 子树（endGameChest / seasonChest / wallet / goalSystem）所有进度计算 **与 placed shape id 无关**——独立库块放置后正常进入 `grid.place` → `checkLines` → `computeClearScore`，分数 / 钱包 / 宝箱进度 / 成就解锁全部生效。**无需白名单**。
+
+> 若产品未来需要"特殊块局末加成"，应作为单独规则在 `_commitSpawn` / `endGame` 显式加判断，本契约不动。
+
+##### 契约 3：**空洞计算豁免**
+
+独立库块（如 `diag-3a` 散点）放置后，邻接其的空格不应被算作"玩家失误孤岛"。实现链路：
+
+1. **数据层** (`grid.js`)：`_cellMeta: Map<"x,y", {placedBy, isSpecial}>` —— 运行时元数据，**不入 toJSON**（跨 session 不追究历史）
+2. **写入** (`game.js / moveSequence.js`)：`grid.place(shape, color, x, y, { shapeId, isSpecial })`
+3. **清行** (`grid.js`)：`checkLines` 同步删除对应 cellMeta（避免 isSpecial 残留误判）
+4. **算法层** (`boardTopology.js`)：`analyzeBoardTopology(grid, { skipSpecialCells: true })`
+   - hole 仍按"无形状能覆盖"计算（口径不变）
+   - 但若该空格 4 邻居至少 1 个 `cellMeta.isSpecial=true` → 计入 `holesNearSpecial`，**不计入 holes**
+5. **下游消费**：所有"玩家失误评估"调用点切换为 `skipSpecialCells: true`：
+   - `game.js _spawnGeoForSnapshot`、`adaptiveSpawn _mergeLiveGeometrySignals / snapshotInsightGeometry`、`playerAbilityModel topologyFromContext`、`playerInsightPanel`、`spawnModel buildSpawnModelContext`、`spawnModelPanel`
+   - bot 内部决策路径（`bot/blockSpawn` / `bot/simulator` / `bot/features`）**保持默认 false** —— bot 看到的是几何真相
+
+#### v1.60.1 全面修复（7 个 Issue）
+
+| Issue | 严重 | 修复 |
 |---|---|---|
-| `_passesShapeGate(shape, hints, profile, ctx, fill)` | `web/src/bot/blockSpawn.js` | 在 `scored.map` 内"可放置过滤"之后执行；diag-3 严格 gate；其他 10 个新形状默认通过 |
-| `_applyShapeBonusWeight(baseWeight, shapeId, hints, gapFills)` | `web/src/bot/blockSpawn.js` | 在 `weight = weights[category]` 之后做乘法 nudge；超小直线在 `sizePreference ≤ -0.3` 时 ×1.6；3 格 L 角在 `gapFills > 0` 时 ×1.3 |
-| `_estimateTopDriver(s, shapeWeights)` | `web/src/bot/blockSpawn.js` | 新增 4 个形态特异性 driver：`tinyLine`（极小补缝）、`diagonalPair`（对角补缝）、`diagonalSparse`（稀疏挑战）、`cornerFit`（角落补缝），供 DFV 顶部摘要展示 |
+| **#1 注入后无复校** | P0 | 注入后调 `validateSpawnTriplet` 复校；失败则降级 candidate → replaceIdx → 放弃注入 |
+| **#2 `roundsSinceSpecial` off-by-one** | P0 | `roundsSinceSpecial++` 移到 `generateDockShapes` 入口，`_commitSpawn` 只负责注入归 0；实际间隔 = 5 轮（与文档承诺一致） |
+| **#3 relief 抢占 pressure** | P1 | 拆 mutual exclusion：`sprint` 强制 pressure；`pressure` + 低 fill 优先 pressure；其他情况 relief 优先 |
+| **#4 `Math.random` 不可复现** | P1 | 抽 `web/src/lib/seededRng.js` 共享 mulberry32；`_tryInjectSpecial` / `pickWeighted` / `fisherYatesInPlace` / `pickShapeByCategoryWeights` 全部接受 `rng` 参数 |
+| **#5 shapes.json 未拆 special** | P2 | shapes.json 新增 `specialShapeIds`；`web/src/shapes.js` 提供 `getRegularShapes / getSpecialShapes / isSpecialShapeId`；`pickShapeByCategoryWeights` 默认过滤 special（根除概率泄漏，无需 12 次重抽兜底） |
+| **#6 固定替换 [2] 槽** | P2 | 按 chosenMeta 评分（`pcPotential×4 + multiClear×2 + gapFills + placements/50`）升序枚举槽位，优先替换最弱 |
+| **#7 audit trail 缺失** | P2 | `chosenMeta[i]` 写入 `original` / `originalMeta` / `injectedAt`，DFV 可加 ⚡ badge |
 
-#### 三路词表对齐
-
-形状池扩展涉及 **3 个独立 SHAPE_VOCAB**，**顺序必须严格一致**（新 12 个紧追末尾 idx 28-39，保持原 0-27 兼容）：
-
-| 词表位置 | 文件 | 用途 |
-|---|---|---|
-| 几何真源 | `shared/shapes.json` | 所有运行时（web + miniprogram + RL）唯一形状数据来源 |
-| 前端推理 | `web/src/spawnModel.js` `SHAPE_VOCAB` | model-v3 推理时 logits idx → shape id 映射 |
-| 训练侧 | `rl_pytorch/spawn_model/dataset.py` `SHAPE_VOCAB` + `SHAPE_CATEGORY` | 训练数据采样标签 + 多样性辅助损失 |
-
-> ⚠ **重训要求**：SpawnTransformer / model-v3 checkpoint 的 `NUM_SHAPES` 输出维 28 → 40，旧 checkpoint **必须重训**才能在 `SPAWN_MODE_MODEL_V3` 下生效。**rule 模式（默认）不受影响**。
-
-#### 与论文实证强度的关系
-
-| 论文 | OpenBlock v1.60.0 现状 |
-|---|---|
-| 加 pentomino 让奖励显著下行 | 我们**仅加 2-3 格小块**（不加 pentomino），且对最难的 diag-3 做 skill+intent 双重 gate；预期**只在合适场景**触发新难度，不破坏 baseline |
-| T-pentomino 单独造成最大减速 | OpenBlock 早已含 t-up/down/left/right 4 个 T 形（基础池），未扩到 5 格 T-pentomino |
-| 形状库扩充 ★★ 强杠杆 | v1.60.0 首次正式动用此杠杆，但**保守、可回滚**：所有新形状均经 `_passesShapeGate` / `_applyShapeBonusWeight` 受控；移除时只需删 12 个 JSON 条目 |
-
-#### 单元测试（5 条 invariant，全过）
+#### 单元测试（35 条全过，新增 10 条 v1.60.1 invariant）
 
 详见 `tests/blockSpawn.test.js`：
 
-1. **池扩展**：`getAllShapes().length === 40` 且 12 个新 id 全部存在
-2. **diag-3 gate 拦截**：新手场景（`spawnIntent='maintain'` 或 `skillLevel < 0.5`）40 轮采样中 diag-3 永不出现
-3. **diag-3 gate 放行**：`pressure` + `skillLevel=0.85` 时 60 轮采样累计至少 1 次 diag-3 入池
-4. **超小直线加权**：`sizePreference=-0.6` 时 60 轮采样累计至少 5 次超小直线入选
-5. **driver 语义**：人造 scored entry → `_estimateTopDriver` 对各新形状返回 `tinyLine` / `diagonalPair` / `diagonalSparse` / `cornerFit`
+1. 常规池 28 / 独立库 12 / 总和 40 互斥
+2. `pickShapeByCategoryWeights` 默认 1000 次 0 泄漏
+3. `_tryInjectSpecial` 同 seed 确定性复现（Issue 4）
+4. `sprint` intent 抢占 relief（Issue 3）
+5. 全盘满 candidate 全 unplaceable 时优雅返 null（Issue 1）
+6. 智能 replaceIdx 保护高价值槽（Issue 6）
+7. audit trail（original / originalMeta / injectedAt）（Issue 7）
+8. Grid `cellMeta` + `isCellNearSpecial` 正确（新需求 3 数据层）
+9. `analyzeBoardTopology({skipSpecialCells:true})` 豁免计入 `holesNearSpecial`（新需求 3 算法）
+10. 清行时 cellMeta 同步清除（防 isSpecial 残留）
 
 #### 多端同步
 
 | 平台 | 路径 | 同步机制 |
 |---|---|---|
 | Web | `web/src/` | 直读 `shared/shapes.json`（Vite 打包） |
-| 微信/抖音小程序 | `miniprogram/core/shapesData.js` | `bash scripts/sync-core.sh` 一键转换为 CJS 数据模块 |
-| RL 训练（PyTorch） | `rl_pytorch/shapes_data.py` | 运行时读取 `shared/shapes.json`（路径绑定） |
-| RL 训练（MLX） | `rl_mlx/shapes_data.py` | 同上 |
-| Spawn 模型词表 | `web/src/spawnModel.js` + `rl_pytorch/spawn_model/dataset.py` | 手动同步（顺序契约见上） |
+| 微信/抖音小程序 | `miniprogram/core/`（含 `lib/seededRng.js` + `shapesData.js`） | `bash scripts/sync-core.sh` 一键转换为 CJS |
+| RL 训练（PyTorch / MLX） | `rl_*/shapes_data.py` | 运行时读 `shared/shapes.json` |
+| Spawn 模型词表 | `web/src/spawnModel.js` + `rl_pytorch/spawn_model/dataset.py` | 手动同步（顺序契约：40 个 idx 0-39 与 shared/shapes.json 顺序一致） |
 
-> v1.60.0 顺便修复了 `scripts/sync-core.sh` 一个长期漂移：未支持 `import * as X` 转换、未对 `monetization/` `retention/` `lifecycle/` 等"小程序未分发子目录"的 require 做 try-wrap，导致每次同步都把 web 端新依赖硬带回小程序而崩溃。**新增软依赖 try-wrap 机制**后，未来 web 端引入任何新子系统都不会破坏小程序构建。
+> ⚠ **重训要求**：SpawnTransformer / model-v3 checkpoint 的 `NUM_SHAPES` 输出维 28 → 40，旧 checkpoint **必须重训**；**rule 模式（默认）不受影响**。
+
+> v1.60.1 同时增强了 `scripts/sync-core.sh`：新增 `lib/` 子目录分发支持（与 `bot/` 同级），未来 web 端引入任何 `lib/` 工具都不需要再改脚本。
+
+---
+
+### 10.7.1 v1.60.6 —— 缺口闭环（系统性自查 5 项修复）
+
+v1.60.1 重构后，10.7 末尾自查列出了 5 个未闭环缺口；v1.60.6 一次性补齐。
+
+#### 缺口闭环表
+
+| # | 旧状态 | v1.60.6 实现 | 影响范围 |
+|---|---|---|---|
+| **#1 配额共享** | ❌ `specialShapeUsed` 单一全局上限，relief 连续触发会吃光 pressure 额度 | 引入 `specialReliefUsed / specialPressureUsed` 双子配额计数器 + 全局上限 = 三道并行 gate；任一子配额耗尽不影响另一类。子配额因子 `0.07 / 0.05`，可被覆写 | `_tryInjectSpecial` Step 2、`game.js _spawnContext` 初始化 |
+| **#2 形状内部 uniform 随机** | ❌ Fisher-Yates 均匀洗牌，1x2 与 l3-a 等概率 | 新增 `SPECIAL_SHAPE_WEIGHTS` 常量 + 在 candidate 选择阶段用 `pickWeighted` "不放回加权抽样" 形成尝试序列，hard-constraint 失败时仍能降级 | `_tryInjectSpecial` Step 3、新增 `SPECIAL_SHAPE_WEIGHTS` |
+| **#3 池硬编码** | ❌ `SPECIAL_RELIEF/PRESSURE_SHAPES` 不能按事件主题动态扩缩 | 新增 `_resolveSpecialPools(ctx)` —— 解析 `ctx.specialOverride` 或 `localStorage['openblock_special_override_v1']`，支持 `relief` / `pressure` / `reliefAppend` / `pressureAppend` / `weights` / `reliefLimitFactor` / `pressureLimitFactor` 7 项可选覆写字段；与默认池合并 | `_resolveSpecialPools` 新函数、ctx schema 扩展 |
+| **#4 DFV ⚡ badge** | ⚠️ Issue 7 已写 audit 字段但 UI 暂未渲染 | DFV chosen 节点右上角加 ⚡ badge：relief 青 `#67e8f9` / pressure 橙 `#fb923c`，呼吸动画 1.6s 一周；SVG `<title>` tooltip 拼接"⚡事件注入：原 X → 替换为 Y（XX 信号触发，slot #N）"。`subType` 字段同步写入 `chosenMeta[i]` 与返回的 `inj.subType` | `decisionFlowViz.js` chosen 节点构造 + dirty sig + CSS |
+| **#5 bot 仍看 coverable** | ⚠️ `_tryInjectSpecial` 读 `topo.holes`，与 UI 玩家心智口径错位 | 信号侧改读 `topo.enclosedVoidCells`（v1.60.5 已暴露），降级到 `topo.holes` 保证后兼容。`highFillFillHoles` 与 `notAlreadyFullOfHoles` 两个条件都受益 —— bot 现在跟玩家"看到"的洞数同口径 | `_tryInjectSpecial` Step 1 `holesSignal` 推导 |
+
+#### Audit Trail 字段（v1.60.6 完整版）
+
+`chosenMeta[i]` 注入成功时写入：
+
+```
+{
+    shape: candidate,
+    reason: 'special-relief' | 'special-pressure',
+    topDriver: { key: 'relief'|'pressure', label: '特殊减压'|'特殊加压' },
+    original: <被替换的原 shape>,
+    originalMeta: { reason, topDriver },     // 原 meta 摘要
+    injectedAt: <replaceIdx>,
+    subType: 'relief' | 'pressure',           // v1.60.6 新增，DFV ⚡ badge 颜色/分析聚合用
+}
+```
+
+返回的 `inj` 同步带 `subType`，供 `generateDockShapes` 更新子配额计数器。
+
+#### 覆写示例（活动/季节）
+
+```js
+// 示例：PK 周（减压 +50%）+ 挑战周（加压 +50%）
+ctx.specialOverride = {
+    reliefAppend: [],           // 不扩池，仅调权重和上限
+    pressureAppend: [],
+    weights: {
+        '1x2': 5,               // 默认 3 → 调到 5
+        '2x1': 5,
+        'diag-3a': 2,           // 默认 1 → 调到 2
+        'diag-3b': 2,
+    },
+    reliefLimitFactor: 0.10,    // 默认 0.07 → 0.10（减压周配额 +43%）
+    pressureLimitFactor: 0.08,
+};
+
+// 也可通过 localStorage 持久化（仅 web，重启游戏后仍生效）：
+localStorage.setItem('openblock_special_override_v1', JSON.stringify(ctx.specialOverride));
+```
+
+#### 单元测试（9 条 v1.60.6 invariant）
+
+`tests/blockSpawn.test.js` `describe('v1.60.6 独立库注入系统 — 缺口修复')`：
+
+1. **#1**：relief 子配额耗尽不影响 pressure 注入
+2. **#1**：pressure 子配额满后该类返 null，但 relief 路径仍能注入
+3. **#2**：300 次注入统计，1x2/2x1（w=3）频次显著高于 l3-a~d（w=1）
+4. **#3**：`ctx.specialOverride.relief = ['1x2']` 后 30 次注入全部 = `1x2`
+5. **#3**：`_resolveSpecialPools` 默认值 + 部分 `weights` 覆写正确合并
+6. **#4**：`r.subType` 与 `chosenMeta[replaceIdx].subType` 一致，且 `original` 字段存在
+7. **#5**：`topo.enclosedVoidCells > 4`（即使 `holes=0`）阻断 pressure 注入
+8. **#5**：`topo` 无 `enclosedVoidCells`（旧调用方）降级到 `holes`，行为不变
+9. （三道 gate 不破坏 v1.60.1 既有 7 项不变量，34 个原有 blockSpawn 测试全过）
+
+全量回归 **1907 / 1907**（v1.60.5 → v1.60.6 净增 8 个 invariant：blockSpawn +9，含上面 8 项；其它套件保持）。
+
+---
+
+### 10.7.2 v1.60.7 —— 三层防御（"空盘出 special-relief" 兜底）
+
+#### 触发根因
+
+v1.60.6 把信号侧切到 `enclosedVoidCells` 后，发现一个边界场景：截图显示 `fill ≈ 0.05` 的近空盘上仍出现了 `L3-` 减压块，DFV chosen 标 "因·特殊减压"。
+
+逐层审计 `_tryInjectSpecial` 的 reliefSignal/pressureSignal：
+
+| 条件 | 空盘表现 | 应当结果 |
+|---|---|---|
+| `pcSetup ≥ 1` | `analyzePerfectClearSetup` 在空盘上 `nearClears` 全空 → 0 | `hasClearSetup=false` |
+| `fill > 0.7 && gapFills > 0 && holes > 5` | `fill=0.05 << 0.7` | `highFillFillHoles=false` |
+| `reliefSignal = hasClearSetup ‖ highFillFillHoles` | 都为 false | **应 return null** |
+| `intent=relief` | 不进入 `isPressureIntent`（pressure/sprint） | `pressureSignal=false` |
+
+按代码事实，**空盘场景理论上应该 `return null`**。截图能看到注入，可能来源：
+1. DFV `chosenMeta` 缓存了上一轮 spawn（spawn 时 fill 高，玩家消行后 fill 降到 0.05，sparkline 实时刷新但 DFV chosen 区未触发新 spawn）；
+2. ctx 状态污染（`roundsSinceSpecial` 被错误初始化为 ≥ 5 但场景实际是新开局）；
+3. 边界条件下 `pcSetup` 假阳性。
+
+不论是哪一种，从玩家体验角度都该把"空盘出 special"的口子关上 —— **代码事实满足条件 ≠ 玩家体验合理**。
+
+#### 三层防御实现
+
+| # | 防御 | 阈值 | 拦截场景 |
+|---|---|---|---|
+| **#1 Warmup gate** | `ctx.totalRounds < 5` → return null | 与 `roundsSinceSpecial<5` 间隔门同源 | 新一局 onboarding 期任何 special；兜底 ctx 状态污染 |
+| **#2 fill 下限** | relief 要求 `fill ≥ 0.25`；pressure 要求 `fill ≥ 0.10` | 实质对弈 / 非空盘 | "空盘出 1x2 救济"、"空盘出 diag-3 散点" |
+| **#3 spawnCtx audit** | 注入结果挂载 `{ fill, pcSetup, holesSignal, totalRounds, intent }` 快照 | —— | 玩家投诉时可对照"当时为什么能注入" |
+
+```js
+// === Step 1.5: warmup ===
+const totalRounds = ctx?.totalRounds;
+if (Number.isFinite(totalRounds) && totalRounds < 5) return null;
+
+// === Step 1.7: fill 下限 ===
+if (isRelief && fill < 0.25) return null;
+if (isPressure && fill < 0.10) return null;
+```
+
+兼容性：`totalRounds` 用 `Number.isFinite` 守护——旧调用方未提供时跳过 gate（生产 `game.js _spawnContext` 总传，必然生效）。
+
+#### Audit 字段（chosenMeta + 返回 inj 双写）
+
+```js
+{
+    // ... v1.60.6 既有字段 ...
+    spawnCtx: {
+        fill: 0.33,           // 注入决策那一刻的盘面填充
+        pcSetup: 0,            // analyzePerfectClearSetup 返回值
+        holesSignal: 0,        // enclosedVoidCells（或 holes 降级）
+        totalRounds: 12,       // _spawnContext.totalRounds
+        intent: 'pressure',    // hints.spawnIntent
+    },
+}
+```
+
+DFV 后续可在 ⚡ badge tooltip 展开此快照（"为什么这块出现？fill=0.33, pcSetup=0, totalRounds=12, intent=pressure"），让玩家点击即懂。
+
+#### 单元测试（7 条 v1.60.7 invariant）
+
+`describe('v1.60.7 特殊块注入三层防御')`：
+1. **#1**：`totalRounds=2` + reliefSignal 全满足 → `null`
+2. **#1**：边界 `totalRounds=5` → 放行
+3. **#1**：`totalRounds=undefined` → 跳过 gate（旧调用方兼容）
+4. **#2**：`fill=0.20` + relief 条件 → `null`
+5. **#2**：`fill=0.05` + pressure intent → `null`
+6. **#2**：边界 `fill=0.25 / 0.10` → 放行
+7. **#3**：注入结果 `spawnCtx` 五字段齐全，与 `chosenMeta[replaceIdx].spawnCtx` 一致
+
+全量回归 **1914 / 1914**（v1.60.6 → v1.60.7 净增 7 个 invariant：blockSpawn +7）。
+
+---
+
+### 10.7.3 v1.60.8 —— 清盘候选保护（"清盘期注入减压块"根治）
+
+#### 概念区分
+
+| 概念 | 含义 | 检测 |
+|---|---|---|
+| **`pcSetup`**（几何近似） | 盘面存在差 ≤ 2 格即满的行/列，若全部填满后残余 ≤ 4 → ≥ 1；残余 = 0 → 2 | `analyzePerfectClearSetup(grid)` —— O(n²) 仅看几何，**不验证有形状可放** |
+| **`pcPotential`**（单步可达） | 单个形状放在某位置后，触发消行并使盘面**真的清空** | `bestPerfectClearPotential(grid, shapeData)` —— 枚举放置位 + 模拟 |
+| **清盘多步可达** | 3 个候选块按某顺序放置后盘面清空 | 当前未做精确枚举；单步可达必蕴含多步可达 |
+
+#### v1.60.7 → v1.60.8 触发根因（截图分析）
+
+截图：fill=0.45 + intent=engage + chosen 三块标 "送清屏" 但中间块被替换为 1x3（special-relief）。
+
+逐层审计 `_tryInjectSpecial` 调用链发现 **3 个隐性 bug**：
+
+| # | bug | 表现 |
+|---|---|---|
+| **A** | `chosenMeta.push` 三处都没传 `pcPotential / multiClear / gapFills` 字段 | v1.60.6 Step 4 智能 replaceIdx 评分公式 `pcPotential*4 + multiClear*2 + gapFills + placements/50` **实际全部为 0**，等价于按 placements 排序——清盘候选未受任何保护 |
+| **B** | `reliefSignal = hasClearSetup ‖ highFillFillHoles`，其中 `hasClearSetup = pcSetup ≥ 1` | 与 spawn 阶段 1 "清盘准备期填 perfectClear 候选" 同时触发；两路径在清盘期打架——spawn 已给清盘候选，relief 又塞 1x3 减压块抢走槽位 |
+| **C** | `diagnostics.chosen` 序列化时只保留 `id/category/reason/topDriver`，**裁掉**所有评分字段 + v1.60.6 audit 字段（`original / originalMeta / injectedAt / subType / spawnCtx`） | DFV ⚡ badge tooltip 无法展开"原 X → 替换为 Y"，可解释性面板拿不到 pcPotential 用于策略说明 |
+
+#### 修复
+
+| 修复 | 范围 | 语义 |
+|---|---|---|
+| **#A 修字段补全** | `chosenMeta.push` 三处（阶段 1 / 阶段 2 / fallback）补 `pcPotential / multiClear / gapFills` | Step 4 智能 replaceIdx 终于真正工作 |
+| **#B-1 Step 1.8 前置门** | `isRelief && chosenMeta.some(m => m.pcPotential >= 2)` → return null | reliefSignal 路径若 chosen 已含真清盘块，**整体跳过 relief 注入**——让清盘机会跑赢减压 |
+| **#B-2 Step 4 槽保护硬约束** | `slotPriority` 过滤 `pcPotential >= 2` 槽位；若过滤后无槽可换 → return null | 兜底 pressure 路径（Step 1.8 仅拦截 relief）+ `ctx.specialOverride` 调高加压配额边界场景 |
+| **#C diagnostics.chosen 字段透传** | `diagnostics.chosen` 加 `pcPotential / multiClear / gapFills / placements / original / originalMeta / injectedAt / subType / spawnCtx` | DFV ⚡ badge / 可解释性面板可读，回放可比对 |
+
+#### 关键代码片段
+
+```js
+// Step 1.8（v1.60.8）：清盘候选前置门
+if (isRelief && chosenMeta.some(m => (m?.pcPotential ?? 0) >= 2)) {
+    return null;
+}
+
+// Step 4（v1.60.8 增强）：pcPotential >= 2 槽位不可替换
+const slotPriority = chosenMeta.slice(0, 3).map((m, i) => ({
+    idx: i,
+    score: (m?.pcPotential ?? 0) * 4 + (m?.multiClear ?? 0) * 2 + ...,
+}))
+    .filter(s => (chosenMeta[s.idx]?.pcPotential ?? 0) < 2)  // 关键
+    .sort((a, b) => a.score - b.score);
+if (slotPriority.length === 0) return null;
+```
+
+#### 单元测试（5 条 v1.60.8 invariant）
+
+`describe('v1.60.7 特殊块注入三层防御')` 末尾追加：
+1. **#B-1**：chosen 含 pcPotential=2 + relief 路径 → `null`
+2. **#B-1**：chosen 全 pcPotential<2 → 仍能注入（保护精确）
+3. **#B-2**：pressure 路径 + 槽 0 是 pcPotential=2 → `replaceIdx != 0`（槽不被替换）
+4. **#B-2**：三槽全 pcPotential>=2 + pressure → `null`
+5. **#A/C**：`generateDockShapes` 输出的 `chosenMeta` / `diagnostics.chosen` 三块都带 pcPotential / multiClear / gapFills 字段（schema 完备性）
+
+全量回归 **1919 / 1919**（v1.60.7 → v1.60.8 净增 5 个 invariant；blockSpawn 50 → 55）。
+
+---
+
+### 10.7.4 v1.60.9 —— 多步可达清盘保护 + DFV spawnCtx 解释
+
+#### 用户定义的"清盘逻辑"严格语义
+
+> 放置候选块、**或者按特定次序放置多个候选方块后**，可以实现盘面全消、清空。
+
+v1.60.8 的 Step 1.8 / Step 4 仅保护**单步可达**（chosen 含 `pcPotential === 2`）。多步可达（"3 块按某序放完后清空"）未覆盖——若 chosen 中无任一块单步能清盘但 3 块组合存在某顺序能清盘，relief 注入仍会抢走清盘机会。
+
+#### 新增函数 `canTripletPerfectClear(grid, triplet, opts)`
+
+| 维度 | 设计 |
+|---|---|
+| **枚举范围** | 全排列 3! = 6 顺序 × 每块 n² 合法位 × DFS 深度 3 |
+| **关键剪枝** | 每步 `place + checkLines` 后 `occupied` **必须严格减少**——铺垫路径剪去（3 块累计 cells ≤ 9，铺垫不消行后续不可能清盘） |
+| **budget 保护** | 默认 8000 模拟上限；超 budget 立刻返 `false`（保守，不阻塞主流程） |
+| **空盘短路** | `occupied === 0` 返 `false`（语义：空盘是开局，无清盘机会需保护） |
+| **实测性能** | 8×8 fill=0.45 场景剪枝后 < 500 模拟，远低于 budget |
+
+```js
+export function canTripletPerfectClear(grid, triplet, opts = {}) {
+    const budget = opts.budget ?? 8000;
+    let used = 0;
+    // ... 空盘 / 防御性过滤 ...
+    function dfs(currentGrid, remainingShapes, depth) {
+        if (used >= budget) return false;
+        if (depth > 0 && isEmpty(currentGrid)) return true;
+        if (remainingShapes.length === 0) return false;
+        const prevCells = countOccupied(currentGrid);
+        for (let i = 0; i < remainingShapes.length; i++) {
+            const shape = remainingShapes[i];
+            const rest = [...remainingShapes.slice(0, i), ...remainingShapes.slice(i + 1)];
+            for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+                if (!currentGrid.canPlace(shape.data, x, y)) continue;
+                used++;
+                const g = currentGrid.clone();
+                g.place(shape.data, 0, x, y); g.checkLines();
+                if (countOccupied(g) >= prevCells) continue; // 强剪枝
+                if (dfs(g, rest, depth + 1)) return true;
+            }
+        }
+        return false;
+    }
+    return dfs(grid, validShapes, 0);
+}
+```
+
+#### Step 1.85 调用点（窄触发）
+
+```js
+// _tryInjectSpecial 流水线：
+// Step 1   reliefSignal/pressureSignal 评估
+// Step 1.5 v1.60.7 warmup
+// Step 1.7 v1.60.7 fill 下限
+// Step 1.8 v1.60.8 单步 pcPotential 前置门
+// Step 1.85 v1.60.9 多步 PC 兜底  ← NEW
+// Step 2/3/4/5 节流 / 候选 / 槽位 / 注入复校
+
+if (isRelief && (pcSetup ?? 0) >= 1) {
+    if (canTripletPerfectClear(grid, triplet, { budget: 8000 })) {
+        return null;
+    }
+}
+```
+
+仅 relief 路径触发（pressure 与 clear 不冲突，且 Step 4 槽兜底）；`pcSetup ≥ 1` 才进入 DFS（性能门控，避免无谓开销）。
+
+#### DFV ⚡ badge tooltip 展开 spawnCtx
+
+之前 ⚡ tooltip 仅显示 `"⚡事件注入：原 X → 替换为 Y（减压信号触发，slot #N）"`。v1.60.9 新增**触发上下文行**：
+
+```
+⚡事件注入：原 1×2 → 替换为 L3-a（减压信号触发，slot #1）
+触发上下文：fill=0.45 · pcSetup=1 · holes=0 · 轮次=14 · intent=engage
+```
+
+5 字段与防御层一一对应：
+| 字段 | 对照防御层 | 玩家可见效果 |
+|---|---|---|
+| `fill` | v1.60.7 Step 1.7 (≥ 0.25/0.10) | 看到 fill 才知道为什么 0.05 空盘场景不会注入 |
+| `pcSetup` | Step 1.85 (≥ 1 才查多步) | 看到 pcSetup=0 才知道没走多步 PC 检查 |
+| `holesSignal` | enclosedVoidCells（v1.60.6 缺口 #5） | 与 UI "Holes" 同口径，无错位 |
+| `totalRounds` | Step 1.5 (≥ 5) | 解释"为什么新局前 5 轮无 special" |
+| `intent` | Step 1 优先级矩阵 | 解释"sprint 才强制 pressure"等语义 |
+
+#### 单元测试（6 条 v1.60.9 invariant）
+
+1. **canTripletPC**：空盘返 `false`（开局非清盘场景，语义边界）
+2. **canTripletPC**：单步可达（行 7 缺 2 格 + 1x2 横放即清盘）
+3. **canTripletPC**：完全无可达组合（单孤立格 + 三大块）返 `false`
+4. **canTripletPC**：`budget=1` 极小超 budget 保守返 `false`（不崩）
+5. **Step 1.85**：4×4 小盘面构造 fill=0.25 + 2x2 单步清盘 + chosenMeta pcPotential=0 → relief 注入 `null`（Step 1.8 漏检 + Step 1.85 兜底）
+6. **Step 1.85**：pcSetup=0 时跳过 DFS 枚举（性能门控）→ 不影响其他 reliefSignal 路径
+
+全量回归 **1925 / 1925**（v1.60.8 → v1.60.9 净增 6 个 invariant；blockSpawn 55 → 61）。
+
+#### 行为对照表（v1.60.7 → v1.60.9）
+
+| 截图场景 | v1.60.6 行为 | v1.60.7 行为 | v1.60.8 行为 | v1.60.9 行为 |
+|---|---|---|---|---|
+| 空盘 fill=0.05 + relief intent | 可能误注入 1x2 | warmup/fill 拦截 ✓ | 同 | 同 |
+| fill=0.45 + chosen 含 pcP=2 | 替换清盘候选 ❌ | 同 | Step 1.8 拦截 ✓ | 同 |
+| fill=0.45 + 3 块组合多步可清 + 单块无 pcP=2 | 注入 1x3 抢清盘 ❌ | 同 | 同 | Step 1.85 拦截 ✓ |
+| fill=0.75 + holes 高（无清盘） | 注入 1x3 减压 ✓（合规） | 同 | 同 | 同（pcSetup=0 跳过 Step 1.85）|
+
+---
+
+### 10.7.5 v1.60.18 —— exactFit 完美卡入策略（"2×2 凹槽 + 2×2 候选块"场景识别）
+
+#### 用户截图反馈的算法盲区
+
+> 截图中盘面有一处 **2×2 凹槽**，下方候选块恰好是一个 **2×2 钻石方块**，但算法既不识别"完美填空"价值，DFV 也无解释。
+
+排查发现现有评分函数**缺一个独立维度**：
+
+| 现有信号 | 不能解释"几何完美嵌入" 的原因 |
+|---|---|
+| `multiClear` | 真模拟消行——2×2 嵌入 2×2 凹槽但**不一定有完整一行/列剩余空缺**，模拟结果常为 0 |
+| `gapFills` | 只看"差 1-4 格的近满行/列"，2×2 局部凹槽不属于近满行 |
+| `holeReduce` | 触发条件 `fill > 0.5 && topo.holes > 2`，凹槽场景常因填充率低或拓扑空洞数 ≤ 2 被跳过 |
+| `pcPotential` | 真模拟清屏——只在"放下后全盘清空"才返 2 |
+| `placements`（mobility） | 自由度高低与"是否精确嵌入"正交，2×2 在凹槽中合法 placement 反而少 |
+
+→ 结论：**几何精确嵌入**是独立于消行/补缺/补洞/清屏/机动性的**第六维**，必须新增独立信号。
+
+#### 新增信号 `Grid.bestExactFit(shape)` ∈ [0, 1]
+
+| 维度 | 设计 |
+|---|---|
+| **定义** | 对 shape 每个合法 placement，统计**外周 4-邻居**（不在 shape 内的邻居）中已被填充或越出边界的比例，取最大值 |
+| **数值含义** | `1.0` = 完美卡入（shape 周边一圈全被填/边界）；`≥0.85` = 紧凑卡入；`≤0.5` = 漂浮在空旷区域 |
+| **复杂度** | O(n² × cells) ≤ 2500 次邻居检查；命中 `1.0` 立即 short-circuit |
+| **边界** | 越出棋盘的邻居视为"已填"（边界等同硬约束）；shape 无合法 placement 返 0 |
+
+#### 集成位置（5 处串联）
+
+```
+Grid.bestExactFit ──┬──→ scored 包含 exactFit 字段
+                    │
+                    ├──→ scoreShape：w *= 1 + (exactFit - 0.5) × 1.5
+                    │     • exactFit=1.00 → ×1.75（与多消单消同量级）
+                    │     • exactFit=0.85 → ×1.36
+                    │     • exactFit=0.70 → ×1.21
+                    │     • exactFit<0.5  → ×1.00（无影响）
+                    │
+                    ├──→ _estimateTopDriver：exactFit ≥ 0.85 返回新 driver
+                    │     • exactFit=1.0     → label "完美卡入"
+                    │     • exactFit≥0.85    → label "紧凑卡入N%"
+                    │     • 优先级：低于 multiClear，高于 gapFills
+                    │
+                    ├──→ chosenMeta / diagnostics.chosen 透传 exactFit 字段
+                    │
+                    └──→ DFV.DRIVER_NODE_PATHS.exactFit
+                          • strategy: ['sizePreference']
+                          • targets: ['spatialPressure', 'shapeComplexity']
+                          • chosen tooltip 释义：「bestExactFit 真模拟，本块几何精确嵌入凹槽
+                                                  （外周邻居 ≥85% 被填/边界）；不一定消行，
+                                                  但锁住凹槽 → 不制造新空洞 + 不缩窄解空间」
+```
+
+#### 完整 driver 优先级（v1.60.18 更新后）
+
+1. `pcPotential === 2`  → **可清屏**（×18 倍主导）
+2. `multiClear >= 1`    → **可消 N 行**（真模拟，保证消行）
+3. **`exactFit >= 0.85`** → **完美卡入 / 紧凑卡入 N%**（v1.60.18 新增，几何嵌入）
+4. `gapFills >= 2`      → 补 N 缺（加权差缺分，不保证消行）
+5. `gapFills === 1`     → 近满补 1
+6. `holeReduce > 0`     → 可补 N 处空洞
+7. `placements >= 30`   → 机动性高
+8. shapeWeights 主导    → 类别权重高
+9. default              → 综合均衡
+
+#### 为何把 exactFit 放在 gapFills 之前？
+
+- **gapFills** 是**加权分数**（差 1×3、差 2×2、差 3-4×1）—— 数字大不代表能消行
+- **exactFit ≥ 0.85** 表达**确定性的几何嵌入**——这块放进去后局部完全闭合
+- 局部完全闭合 ≈ "不制造新空洞 + 不缩窄解空间"，**信号确定性 > gapFills 的概率性 payoff**
+
+#### 不变式测试（`tests/exactFit.test.js`）
+
+1. **Grid.bestExactFit 边界**：空盘契合度 ≤ 0.5；2×2 凹槽 + 2×2 块返回 1.0；满盘返 0；空 shape 返 0
+2. **driver 文案**：`exactFit=1.0 → "完美卡入"`；`exactFit=0.875 → "紧凑卡入88%"`
+3. **优先级**：`multiClear=1 + exactFit=1.0 → driver="multiClear"`；`gapFills=3 + exactFit=0.9 → driver="exactFit"`
+4. **DRIVER_NODE_PATHS.exactFit**：显式映射（非 `*` 通配）且包含 `spatialPressure + shapeComplexity + sizePreference`
+5. **端到端**：2×2 凹槽场景下 10 次抽样中 2×2 块至少出现 1 次（加权生效）
+
+全量回归 **1959 / 1959**（v1.60.17 → v1.60.18 净增 14 个 invariant；exactFit 测试套件独立成文件）。
+
+#### 行为对照表（v1.60.17 → v1.60.18）
+
+| 截图场景 | v1.60.17 行为 | v1.60.18 行为 |
+|---|---|---|
+| 2×2 凹槽 + 2×2 候选块 | 走 balanced/shapeWeight，无独立解释 | **driver="exactFit"，label="完美卡入"** ✓ |
+| 1×3 凹槽 + 1×3 候选块 | 走 gapFills（如近满行命中）或 balanced | exactFit=1.0 → driver="exactFit" ✓ |
+| L 形凹槽 + L 形候选块 | 走 balanced | exactFit=1.0 → driver="exactFit" ✓ |
+| 空盘 + 2×2 候选块 | 走 mobility/balanced | exactFit≈0.5 → 不触发新 driver（无误触）✓ |
+| 多消机会 + 2×2 完美卡入 | 走 multiClear | **仍走 multiClear**（消行硬 payoff 不被卡入抢占）✓ |
+
+---
+
+### 10.7.6 v1.60.19 —— monoFlush 同花顺消除策略（×5 倍 iconBonus 算法识别）
+
+#### 算法盲区诊断
+
+**业务规则**：整行/整列**全部为同一 icon**（或皮肤无 icon 时同 colorIdx）时触发"同花顺大消除"——单 line 得分 ×`ICON_BONUS_LINE_MULT`（默认 5 倍），是仅次于清屏 ×10 的最大乘数。
+
+**问题**：`bot/blockSpawn.js` 在 chosen 选择阶段**完全没有任何"同花顺"识别代码**——
+
+| 信号 | 是否识别同花顺潜力 |
+|---|---|
+| `pcPotential` / `multiClear` / `gapFills` / `holeReduce` / `exactFit` / `mobility` | ❌ 全部不识别 |
+| 染色阶段 `monoNearFullLineColorWeights` | ✓ 仅给"已填同色近满 line"的颜色加 bias，但 chosen 阶段若没选到能补满的 shape，染色多匹配也无用 |
+
+→ 结论：**形状端**完全靠运气命中染色 bias；×5 倍硬 payoff 在 chosen 阶段毫无意识。
+
+#### 新增信号 `Grid.bestMonoFlushPotential(shape, skin)` ∈ {0, 1, 2, ...}
+
+| 维度 | 设计 |
+|---|---|
+| **定义** | shape 任一合法 placement 放下后，可补满"非 shape 占用部分全填 + 全部同 icon"的 row/col 数最大值 |
+| **业务对齐** | 与 `clearScoring.detectBonusLines` 同 icon 判定一一对应 |
+| **退化** | skin 缺失或 blockIcons 为空时，自动退化为 colorIdx 严格相等比较 |
+| **保守性** | shape 完全覆盖整行（line 内 non-shape cells 全空 → refCi=null）时**不计入 bonus**——避免预测错误 |
+| **复杂度** | O(n² × cells × n) ≤ 25000 次检查 |
+
+#### "形状 + 颜色"双向锁定流程
+
+```
+盘面状态：行 7 已填 9 格全为同 icon "A"，缺最右 1 格
+                        ↓
+chosen 阶段（v1.60.19 新增）：
+  grid.bestMonoFlushPotential(1x1, skin) = 1
+  → scoreShape: w *= 1 + 1 × (0.4 + iconBonusTarget × 0.6)
+  → _estimateTopDriver: { key: 'monoFlush', label: '可凑1同花顺' }
+  → chosen 倾向选 1×1 / 1×2 类小块
+                        ↓
+染色阶段（v1.60.0 已有）：
+  monoNearFullLineColorWeights → 给色 0（"A" icon）加 bias
+  pickThreeDockColors → 3 块中色 0 的命中率提升
+                        ↓
+玩家放下匹配块 → detectBonusLines 触发 → ×5 倍得分 + 同花顺特效
+```
+
+#### scoreShape 加权（与 iconBonusTarget 协同）
+
+```js
+if (s.monoFlush >= 1) {
+    w *= 1 + s.monoFlush * (0.4 + iconBonusTarget * 0.6);
+}
+```
+
+| 场景 | iconBonusTarget | monoFlush=1 加权 | monoFlush=2 加权 |
+|---|---|---|---|
+| 调度未强化（默认） | 0.0 | ×1.40 | ×1.80 |
+| 中等强化（peak/late phase） | 0.5 | ×1.70 | ×2.40 |
+| 强化阶段（farFromPB 极远段） | 1.0 | ×2.00 | ×3.00 |
+
+#### 完整 driver 优先级（v1.60.19 更新后）
+
+1. `pcPotential === 2`  → **可清屏**（×10 倍 PERFECT_CLEAR_MULT）
+2. **`monoFlush >= 1`** → **可凑 N 同花顺**（v1.60.19 新增，×5 倍 ICON_BONUS_LINE_MULT）
+3. `multiClear >= 1`    → 可消 N 行（基础 ×1 倍消行 payoff）
+4. `exactFit >= 0.85`   → 完美卡入 / 紧凑卡入 N%
+5. `gapFills >= 2` / `gapFills === 1` / `holeReduce` / `placements` / shapeWeights / balanced
+
+#### 为何 monoFlush 优先级高于 multiClear？
+
+- **multiClear=2**：得分 = `2 × baseUnit × 2² = 8 × baseUnit`（baseUnit=20 → 160）
+- **monoFlush=1 + 消 1 行**：得分 = `baseUnit + baseUnit × 1 × (5-1) = 5 × baseUnit`（baseUnit=20 → 100）
+- **monoFlush=1 + multiClear=2 + 同时同色**：得分 = `2 × baseUnit × 2² + 2 × baseUnit × (5-1) = 16 × baseUnit`（320）
+
+monoFlush 在"染色匹配 + 消行"双重命中下显著超过单纯 multiClear，且对玩家"爽感"贡献远大于普通消行（特效 3-5s + UI 高亮）。优先标注让可解释面板能讲清"这块的核心价值是同花顺"。
+
+#### DRIVER_NODE_PATHS.monoFlush 映射
+
+```js
+monoFlush: {
+    strategy: ['clearGuarantee'],       // 来自"保消"派生（多重 missRate/momentum 拉动）
+    targets:  ['clearOpportunity'],     // 已填同色 line 是 clearOpportunity 子信号
+    schedule: ['iconBonusTarget'],      // ×5 倍同花顺得分调度参数
+    intent:   false,                    // 不通过 intent gate 触发
+}
+```
+
+DFV chosen tooltip 释义：「bestMonoFlushPotential 真模拟（v1.60.19），本块可补满 N 条"已填部分同 icon"的行/列，染色匹配后触发 ×5 倍 iconBonus 得分（同花顺大消除）」
+
+#### skin 上下文注入（链路打通）
+
+`game.js` 在 `spawnBlocks` 中 `this._spawnContext.skin = getActiveSkin()`，让 blockSpawn 无头模块也能拿到 icon 上下文；缺失时退化到 colorIdx 比较，保证测试/RL 无头场景一致。
+
+#### 不变式测试（`tests/monoFlush.test.js`）
+
+1. **算法边界**：空盘返 0；行 7 缺 1 格同色 → 1；行 7 缺 1 格杂色 → 0；十字 (7,7) 同时补满 2 条 → 2；行 7 缺 2 格 → 0；空 shape → 0
+2. **skin 退化**：skin=null 退化 colorIdx 严格相等比较，与 icon 模式语义一致
+3. **driver 文案**：`monoFlush=1 → "可凑1同花顺"`；`monoFlush=2 → "可凑2同花顺"`
+4. **优先级**：`pcPotential=2` 仍胜出（清屏 > 同花顺）；`monoFlush=1` 胜过 `multiClear=2`（×5 > ×1×n）；`monoFlush=1` 胜过 `exactFit=1.0`（硬 payoff > 几何嵌入）
+5. **DRIVER_NODE_PATHS.monoFlush**：显式映射含 `clearOpportunity + iconBonusTarget`
+6. **保守性**：shape 占用部分 row + 行内非 shape 部分全空 → refCi=null → 不计 bonus
+
+全量回归 **1977 / 1977**（v1.60.18 → v1.60.19 净增 18 个 invariant）。
+
+#### 行为对照表（v1.60.18 → v1.60.19）
+
+| 截图场景 | v1.60.18 行为 | v1.60.19 行为 |
+|---|---|---|
+| 行 9 格同色"钻石" + 缺最右 1 格 + 1×1 候选 | balanced/gapFills，无同花顺解释 | **driver="monoFlush"，label="可凑1同花顺"** ✓ |
+| 全盘多条近满同色 line + 多消候选 | multiClear | **仍走 multiClear**（同花顺潜力为 0 不抢占）✓ |
+| 多消 + 同花顺同时命中 | 仅 multiClear 标注 | **monoFlush 优先标注**（×5 倍硬 payoff 更值得解释）✓ |
+| 染色阶段需求色 bias（已有） | bias 单向作用 | **chosen + 染色双向锁定，命中率显著提升** ✓ |
+
+---
+
+### 10.7.7 v1.60.20 —— 完美卡入优先级反转（exactFit=1.0 > multiClear）
+
+#### 用户反馈与诊断
+
+> 截图中候选块都标"送消行 可消N行"，没有体现 exactFit；**优先适配完美卡入**。
+
+v1.60.18 把 exactFit 排在 multiClear 之后是"保守设计"——理由是"消行是真模拟硬 payoff，几何嵌入不一定消行"。但实践中发现：
+
+| 观察 | 含义 |
+|---|---|
+| **完美卡入**（exactFit=1.0）意味着 shape 外周一圈 100% 被填/边界 | 几何上确定性极致信号，**盘面等待已久的精确解** |
+| 外周完全闭合 → 大概率补满相邻 line | 完美卡入**往往同时含消行价值**，不是非此即彼 |
+| 用户看到"可消1行"信息密度低于"完美卡入" | "完美卡入"≈"消行+不留缺口"，是更高维度的解释 |
+| **紧凑卡入**（exactFit ∈ [0.85, 1.0)）非确定性闭合 | 保留 v1.60.18 在 multiClear 之后的位置（让位给真模拟消行） |
+
+#### 优先级反转
+
+**新的 driver 优先级**（v1.60.20 完整表）：
+
+1. `pcPotential = 2`     → 可清屏（×10）
+2. `monoFlush ≥ 1`       → 可凑 N 同花顺（×5 iconBonus）
+3. **`exactFit ≥ 0.999`** → **完美卡入**（v1.60.20 新位置：100% 几何嵌入是确定性极致信号）
+4. `multiClear ≥ 1`      → 可消 N 行（基础 ×1 倍消行 payoff）
+5. `exactFit ∈ [0.85, 1.0)` → 紧凑卡入 N%（v1.60.18 原位置不变，让位给消行）
+6. `gapFills`/`holeReduce`/`placements`/shapeWeights/balanced
+
+#### scoreShape 加权增强
+
+v1.60.18 基础加权（exactFit=1.0 → ×1.75）之上，v1.60.20 再 ×1.4 强化：
+
+```js
+/* v1.60.18 基础加权 */
+if (s.exactFit >= 0.5) {
+    w *= 1 + (s.exactFit - 0.5) * 1.5;  // exactFit=1.0 → ×1.75
+}
+/* v1.60.20 完美卡入额外强化 */
+if (s.exactFit >= 0.999) {
+    w *= 1.4;                            // 总 ×2.45
+}
+```
+
+| exactFit | scoreShape 总加权 |
+|---|---|
+| 0.5（中度契合） | ×1.00 |
+| 0.7（紧凑） | ×1.30 |
+| 0.85（高度契合） | ×1.53 |
+| 0.95（近完美） | ×1.68 |
+| **1.0（完美卡入）** | **×2.45**（与 multiClear=2 + nearFullFactor 联动接近） |
+
+确保完美卡入 shape 进入 chosen 的概率显著超过同类紧凑卡入/普通消行 shape。
+
+#### 为何完美卡入应优先于 multiClear？
+
+**关键观察**：完美卡入是 multiClear 的**真子集**。
+
+- 假设 shape S 在 placement P 处 exactFit=1.0：S 外周一圈 100% 被填/边界
+- → S 占用的每一 row/col 上"非 S 部分"必定**全填**（否则外周邻居就有空格 → exactFit < 1.0）
+- → 这些 row/col 在 S 放下后**必然变满 → 消行**
+- 所以 exactFit=1.0 几乎保证 `multiClear ≥ |affected rows ∪ cols|`
+
+**结论**：标注"完美卡入"比"可消N行"信息密度更高（前者含后者 + 几何契合度），优先标注让玩家/可解释面板能讲清"这块的价值是几何嵌入 + 顺带消行"。
+
+#### 行为对照表（v1.60.19 → v1.60.20）
+
+| 截图场景 | v1.60.19 行为 | v1.60.20 行为 |
+|---|---|---|
+| 凹槽与 shape 完美匹配 + 同时消 1 行 | driver="可消1行"（multiClear 抢占）| **driver="完美卡入"**（更高维度解释）✓ |
+| 凹槽与 shape 完美匹配 + 同时消 2 行 | driver="可消2行" | **driver="完美卡入"**（含消行价值）✓ |
+| 紧凑卡入 88% + 消 1 行 | driver="可消1行" | **仍走 multiClear**（紧凑非确定性嵌入）✓ |
+| 完美卡入但无消行（罕见） | driver="完美卡入"（已是）| 同 ✓ |
+| 完美卡入 vs 同花顺 | driver="可凑1同花顺" | **仍走 monoFlush**（×5 倍硬 payoff 优先）✓ |
+| 完美卡入 vs 清屏 | driver="可清屏" | **仍走 pcPotential**（×10 倍硬 payoff 优先）✓ |
+
+#### 不变式测试更新（`tests/exactFit.test.js`）
+
+将原 v1.60.18 的"multiClear>=1 优于 exactFit"断言改为**分场景反转**：
+
+- 紧凑卡入 0.875 + multiClear=1 → 走 multiClear（原行为不变）
+- 完美卡入 1.0 + multiClear=1 → 走 exactFit（v1.60.20 反转）
+- 完美卡入 1.0 + multiClear=2 → 走 exactFit（含多消价值）
+
+全量回归 **1977 / 1977**（v1.60.19 → v1.60.20 净变化 0，仅修改 1 个现有断言为"分场景反转"）。
+
+---
+
+### 10.7.8 v1.60.21 —— 高/极度 novelty 场景"双胞胎/三胞胎"重复块注入
+
+#### 用户契约（截图反馈）
+
+> 对高度『新奇』时，**小概率**允许两个候选块相同；**极度**『新奇』时允许三个块相同；两者**单局累积不超过 3 次**，且**轮次间隔大于 10**。
+
+#### 设计前提：现有约束
+
+`validateSpawnTriplet` 中硬约束 `duplicate-shape` —— v1.60.21 之前 chosen 永远不允许出现重复。3 个阶段（`clearCandidates` / `weighted` / `fallback`）都用 `usedIds` 去重。
+
+#### 新增配置 `DUP_INJECT_CONFIG`（frozen）
+
+| 字段 | 默认值 | 语义 |
+|---|---|---|
+| `HIGH_THRESHOLD` | `0.65` | "高度新奇"阈值——`novelty ≥ 0.65` 允许 dup2 |
+| `EXTREME_THRESHOLD` | `0.85` | "极度新奇"阈值——`novelty ≥ 0.85` 允许 dup3 |
+| `PROB_HIGH` | `0.05` | HIGH 区间 dup2 触发概率（"小概率"） |
+| `PROB_EXTREME` | `0.10` | EXTREME 区间 dup2/dup3 总触发概率 |
+| `PROB_DUP3_GIVEN_EXTREME` | `0.5` | EXTREME 命中后 dup2 vs dup3 五五开 |
+| `MAX_PER_RUN` | `3` | 单局累积上限（用户契约） |
+| `MIN_ROUND_GAP` | `10` | 节流轮次（"大于 10" → `roundsSince > 10` 才允许） |
+
+#### `_tryInjectDuplicates` 流程（6 步）
+
+```
+Step 1 — 门控
+  - specialInjected=true       → null（与 _tryInjectSpecial 互斥，避免叠加 2 项"特殊化"事件）
+  - dupInjectUsed >= MAX_PER_RUN → null（单局配额）
+  - roundsSinceDupInject <= MIN_ROUND_GAP → null（节流）
+  - novelty < HIGH_THRESHOLD   → null
+  - triplet/chosenMeta 不完整   → null
+
+Step 2 — 概率掷点 + 模式判定
+  novelty >= EXTREME → rng < 0.10 命中 → rng < 0.5 ? dup3 : dup2
+  novelty >= HIGH    → rng < 0.05 命中 → dup2
+  否则 → null
+
+Step 3 — 选主块
+  按 placements 降序排序（安全网：dup3 仍可解），平级取 driver 评分高者
+  driverScore：pcPotential=100 > monoFlush=80 > exactFit=70 > multiClear=50 > gapFills=30
+
+Step 4 — 安全护栏
+  dup2 + 主块 placements < 6  → null
+  dup3 + 主块 placements < 9  → null
+
+Step 5 — 选副槽
+  dup2：除主槽外评分最低 1 个槽
+  dup3：除主槽外的 2 个槽
+
+Step 6 — 注入 + 复校
+  in-place 替换 triplet[副槽] / chosenMeta[副槽]
+  调 validateSpawnTriplet({ allowDuplicates: true }) 复校
+  失败 → 全 revert（保护性）
+```
+
+#### chosenMeta audit 字段（v1.60.21 新增）
+
+```js
+chosenMeta[i] = {
+    ...prev,
+    duplicateGroup: 'dup2' | 'dup3',     // 模式
+    duplicateRole:  'main' | 'replica',  // 角色
+    originalShape:  ...,                 // 被替换前的原 shape（仅 replica）
+    originalMeta:   ...,                 // 被替换前的原 meta（仅 replica）
+    injectedAt:     ctx.totalRounds,     // 注入时的局内轮次
+    topDriver: { key: 'duplicate', label: 'dup3' ? '三胞胎·新奇' : '双胞胎·新奇' },
+};
+```
+
+#### `validateSpawnTriplet({ allowDuplicates: true })` 选项
+
+新增 `opts.allowDuplicates`（默认 `false`，向后兼容）：跳过 `duplicate-shape` 拒绝。仅 `_tryInjectDuplicates` 复校路径使用，其他调用方（如 `_tryInjectSpecial` 后复校、`game.js` 模型路径）行为不变。
+
+#### `_spawnContext` 节流字段（game.js）
+
+```js
+this._spawnContext = {
+    // ... existing fields ...
+    dupInjectUsed: 0,                  // 单局累积次数（≤ MAX_PER_RUN）
+    roundsSinceDupInject: 0,           // 距上次注入轮数（局首 0，至少 11 轮后才可能首次注入）
+};
+```
+
+`spawnBlocks` 入口 `roundsSinceDupInject++`，`generateDockShapes` 注入成功后 `ctx.roundsSinceDupInject = 0`——与 `roundsSinceSpecial` 的 off-by-one 修复模式完全一致。
+
+#### DFV 渲染：⧈ 双胞胎/三胞胎 badge
+
+- **位置**：chosen 节点**左上角**（与右上角 ⚡ 注入 badge 互不挤位）
+- **配色**：`main` 紫色描边（`fill-opacity: 0.35`）；`replica` 紫色实心；dup3 比 dup2 更亮（`#c084fc` vs `#a78bfa`）
+- **hover tooltip**：附加 `⧈ 双胞胎/三胞胎·新奇注入（主块/复制）：高/极度 novelty 阈值触发；单局累积 ≤ 3 次、轮次间隔 > 10`
+- **sig fingerprint**：`_renderChosenShapes` 的 dirty check 包含 `duplicateGroup` / `duplicateRole`，确保模式切换触发重渲
+
+#### 与已有事件注入的关系矩阵
+
+| 事件 | 触发驱动 | 互斥关系 | DFV badge |
+|---|---|---|---|
+| `_tryInjectSpecial` (relief/pressure) | 几何拓扑信号 + 调度参数 | 与 dup 互斥 | ⚡ 右上 |
+| `_tryInjectDuplicates` (dup2/dup3) | novelty 阈值 + 概率 | 与 special 互斥 | ⧈ 左上 |
+
+两者互斥的原因：同一轮同时叠加 2 项"特殊化"事件会让 DFV 叙事过载，且 dup 注入若覆盖了 special 注入的"原 shape"会让 audit trail 混乱。
+
+#### 不变式测试（`tests/dupInject.test.js`）
+
+15 个不变式覆盖：
+1. **常量合理性**：阈值/概率/节流默认值在合理范围 + frozen
+2. **门控 novelty**：`novelty < HIGH` 拒绝；`novelty=0.65 + rng<0.05` 命中
+3. **门控配额**：`dupInjectUsed >= 3` 拒绝；`= 2` 仍允许
+4. **门控间隔**：`roundsSinceDupInject = 10` 拒绝；`= 11` 允许
+5. **互斥**：`specialInjected=true` 跳过
+6. **结果正确性**：extreme + rng→dup3 → 三块全同 + role 正确 + audit 完整
+7. **概率边界**：high novelty 区间不可能命中 dup3
+8. **安全护栏**：`dup3 + placements < 9` 拒绝；`dup2 + placements < 6` 拒绝
+9. **validateSpawnTriplet**：`allowDuplicates: true` 后不再拒绝重复 shape
+
+全量回归 **1992 / 1992**（v1.60.20 → v1.60.21 净增 15）。
+
+#### 行为对照表（v1.60.20 → v1.60.21）
+
+| 场景 | v1.60.20 行为 | v1.60.21 行为 |
+|---|---|---|
+| novelty=0.5（低） | chosen 永不重复 | 同（< HIGH 阈值不触发）|
+| novelty=0.7（高）+ 局内第 5 轮 | chosen 永不重复 | 同（roundsSince ≤ 10 节流拒绝） |
+| novelty=0.7 + 第 15 轮 + rng 命中 | chosen 永不重复 | **5% 概率注入 dup2，⧈ badge** |
+| novelty=0.9 + 第 15 轮 + rng 命中 | chosen 永不重复 | **10% 概率注入 dup2 或 dup3** |
+| 单局已注入 3 次 + novelty=1.0 | chosen 永不重复 | 配额耗尽，仍永不重复（契约） |
+| 同轮 special + dup 同时具备触发条件 | special 注入 | special 注入（dup 互斥跳过） |
+
+---
+
+### 10.7.9 v1.60.22 —— monoFlush 与染色 bias 同口径修复
+
+#### 用户截图反馈
+
+> 方框中同花顺判断逻辑不对。
+
+DFV 红框中 chosen 标"可凑1同花顺"（`monoFlush=1`），但盘面上**找不到任何近满同色 row/col**——明显的算法误判。
+
+#### 诊断：v1.60.19 的隐性 bug
+
+| 阶段 | 函数 | 触发条件 |
+|---|---|---|
+| 染色 bias | `clearScoring.monoNearFullLineColorWeights` | **`empty ∈ [1, 2]`**（行/列已填 ≥ 8 格） |
+| chosen 评分 | `Grid.bestMonoFlushPotential`（v1.60.19） | "row 上非 shape 部分全填同色" — **无 empty 门控** |
+
+→ 两个函数**口径不一致**：
+- shape 占 5-6 格 + 已填 4-3 格同色 → v1.60.19 误计 `monoFlush=1`
+- 染色阶段（`empty=4-5 > 2`）根本不会给对应色加 bias
+- 玩家命中匹配色概率 ≈ 1/8，"可凑1同花顺"成为**虚假承诺**
+
+#### 修复：完全同口径
+
+```js
+const NEAR_FULL_MIN_PREFILLED = n - 2; /* 8 for n=10 */
+
+/* 对每个 placement 的每个 affected row/col 三重门控：
+ * (a) row 上非 shape 部分全填          (allFilled)
+ * (b) preFilled ≥ NEAR_FULL_MIN_PREFILLED（shape 占用 ≤ 2 格——"近满线 + shape 补缺"）
+ * (c) 非 shape 部分全部同 icon         (allSame)
+ * 三者同时满足才计 monoFlush */
+```
+
+#### 语义对齐契约
+
+| 现象 | 之前（v1.60.19） | 之后（v1.60.22） |
+|---|---|---|
+| chosen 阶段识别 `monoFlush=N` | 形状端潜力上限 | **真实"形状 + 颜色双向锁定" line 数** |
+| 染色阶段给对应色加 bias | empty ∈ [1, 2] | empty ∈ [1, 2] |
+| **两者关系** | **口径不齐**（chosen 乐观 / 染色保守） | **双向严格对齐** |
+
+新契约：
+
+> **chosen 阶段识别为 `monoFlush=N`** ⟺ **染色阶段会给对应色加 bias** ⟺ **形状 + 颜色双向锁定的真实概率提升**
+
+#### 行为对照表（v1.60.21 → v1.60.22）
+
+| 场景 | 之前 | 之后 |
+|---|---|---|
+| shape 占 6 格 + 已填 4 格同色（empty=4） | 误计 `monoFlush=1` ❌ | 拒绝（`empty=4 > 2`）✓ |
+| shape 占 3 格 + 已填 7 格同色（empty=3） | 误计 `monoFlush=1` ❌ | 拒绝（`empty=3 > 2`）✓ |
+| shape 占 2 格 + 已填 8 格同色（empty=2） | `monoFlush=1` | `monoFlush=1`（边界保留）✓ |
+| shape 占 1 格 + 已填 9 格同色（empty=1） | `monoFlush=1` | `monoFlush=1` ✓ |
+
+#### 副作用：driver 标注变保守
+
+由于 monoFlush 门控收紧，原本因 v1.60.19 bug 误标"可凑1同花顺"的 chosen，现在会回落到：
+
+- **真正满足 empty ≤ 2** → 仍标"可凑1同花顺"（valid）
+- **不满足 empty ≤ 2** → 走 multiClear/exactFit/gapFills 等下一级 driver
+
+这是**正确的回退路径**：原本就该走的 driver，被 v1.60.19 bug 抢占了。修复后 DFV 解释与真实算法行为完全一致。
+
+#### 不变式测试（`tests/monoFlush.test.js` v1.60.22 子套件）
+
+5 个新增不变式锁定双向同口径：
+
+1. **盘面太空 + 大块覆盖**：non-shape 部分仍空 → `allFilled=false` → `0`
+2. **预填 7 同色（empty=3，刚低于门控）** → `0`
+3. **预填 8 同色（empty=2，刚达门控）** → `1`
+4. **预填 7 杂色** → `0`
+5. **回归契约**：与 `monoNearFullLineColorWeights` 双向锁定 `empty=2` 命中 / `empty=3` 拒绝
+
+全量回归 **1997 / 1997**（v1.60.21 → v1.60.22 净增 5）。
+
+---
+
+### 10.7.10 v1.60.23 —— monoFlush 触发的"事件注入"路径补全
+
+#### 用户反馈与盲区定位
+
+v1.60.22 修复了 `bestMonoFlushPotential` 的口径，但同一天截图复现仍发现：
+> **未识别出同花消除**——盘面 col 5 / col 6 各填 8 格 hook 同 icon（典型 monoFlush empty=2 场景），DFV 标的却是 `可消1行 / 可消2行 / 可消1行`，与同花顺完全无关。
+
+诊断结论：
+1. 业务最优解是放 **2×1 竖块**到 col 5 或 col 6 的 2 个空格 → 立即补满同色 line → 触发 `iconBonus ×5` 同花顺得分；
+2. 而 `2x1` / `1x2` 都在 `SPECIAL_RELIEF_SHAPES = ['1x2', '2x1', '1x3', '3x1', 'l3-a'..'l3-d']` 独立池里——`_passesShapeGate` 会**一刀切**拒绝它们进入主路径 `scored` 列表；
+3. 即使 `bestMonoFlushPotential` 已正确识别 monoFlush 潜力，主路径根本看不到能命中的形状候选，`scoreShape` 的加权也无效；
+4. 而 `_tryInjectSpecial` 原有触发条件（`hasClearSetup` / `highFillFillHoles`）**完全不知道**盘面有 monoFlush 机会——独立池的注入决策完全错过了"补满同色 line"这个高 payoff 事件。
+
+**根因**：注入路径与 monoFlush 信号"两层皮"——主路径有了识别能力但形状不在池中；独立池有方向匹配的形状但不知道何时触发。
+
+#### 修复设计：把 monoFlush 抬升为独立池的第三个触发源
+
+**Step 1 信号扩展**（`web/src/bot/blockSpawn.js::_tryInjectSpecial`）：
+
+```js
+const skin = ctx?.skin ?? null;
+const monoFlushLines = (typeof grid.findNearFullMonoLines === 'function')
+    ? grid.findNearFullMonoLines(skin)
+    : [];
+const monoFlushSignal = monoFlushLines.length > 0;
+
+const hasClearSetup = pcSetup >= 1;
+const highFillFillHoles = fill > 0.7 && scored.some(s => s.gapFills > 0) && holesSignal > 5;
+const reliefSignal = hasClearSetup || highFillFillHoles || monoFlushSignal;
+```
+
+**Grid 新增 `findNearFullMonoLines(skin)`**（`web/src/grid.js`）：与 `clearScoring.monoNearFullLineColorWeights` 完全同口径（`empty ∈ [1, 2]` + 预填全同 icon + 同色 fallback 到 colorIdx）；返回 `[{type:'row'|'col', idx, empty, emptyCells, refCi}]`，DFV 可读 + 用于方向匹配。
+
+**Step 3 方向匹配排序**（仅 empty=2 才有靠注入捕获的价值——empty=1 的 monoFlush 任何形状的 `bestMonoFlushPotential` 都能识别，无需特殊池）：
+
+```js
+if (monoFlushSignal) {
+    const targetIds = new Set();
+    for (const line of monoFlushLines) {
+        if (line.empty !== 2) continue;
+        const cs = line.emptyCells;
+        const adjacent = (line.type === 'row' && Math.abs(cs[0].x - cs[1].x) === 1)
+            || (line.type === 'col' && Math.abs(cs[0].y - cs[1].y) === 1);
+        if (!adjacent) continue;
+        targetIds.add(line.type === 'row' ? '1x2' : '2x1');
+    }
+    if (targetIds.size > 0) {
+        const priority = candidateOrder.filter(s => targetIds.has(s.id));
+        const rest = candidateOrder.filter(s => !targetIds.has(s.id));
+        candidateOrder = [...priority, ...rest];
+    }
+}
+```
+
+**Step 5 subType / topDriver 三态分支**：
+
+```js
+const isMonoFlushCandidate = isRelief && monoFlushSignal
+    && (candidate.id === '1x2' || candidate.id === '2x1');
+newMeta[replaceIdx] = {
+    ...
+    reason: isMonoFlushCandidate ? 'special-monoFlush' : (isRelief ? 'special-relief' : 'special-pressure'),
+    topDriver: isMonoFlushCandidate
+        ? { key: 'monoFlush', label: `补满同色${monoFlushLines.filter(l => l.empty === 2).length}线` }
+        : { key: isRelief ? 'relief' : 'pressure', label: ... },
+    subType: isRelief
+        ? (isMonoFlushCandidate ? 'monoFlush' : 'relief')
+        : 'pressure',
+    spawnCtx: {
+        ...,
+        monoFlushLines: monoFlushSignal
+            ? monoFlushLines.map(l => ({ type: l.type, idx: l.idx, empty: l.empty }))
+            : null,
+    },
+};
+```
+
+#### 与原有防御层的协同关系
+
+monoFlush 触发**走 relief 配额** + 共享所有原有 gate（按顺序）：
+
+| Gate | 编号 | 对 monoFlush 触发的效果 |
+|---|---|---|
+| warmup 保护 | Step 1.5 | `totalRounds < 5` 仍拦截，"事件注入"哲学不破例 |
+| fill 下限 | Step 1.7 | `fill < 0.25` 仍拦截，空盘不构成"近满"事件场景 |
+| 单步清盘候选保护 | Step 1.8 | `chosenMeta` 有 `pcPotential>=2` 仍优先拦截 monoFlush（清盘 ×10 > 同花顺 ×5） |
+| 多步清盘候选保护 | Step 1.85 | `canTripletPerfectClear` 返回 true 仍优先拦截 |
+| 间隔节流 | Step 2 | `roundsSinceSpecial < 5` 仍拦截 |
+| 全局上限 | Step 2 | `specialShapeUsed >= globalLimit` 仍拦截 |
+| 子配额（relief） | Step 2 | `specialReliefUsed >= reliefSubLimit` 仍拦截 |
+| 双层枚举复校 | Step 5 | `validateSpawnTriplet` 失败仍降级试下一槽位/候选 |
+
+**新加的优先级关系**：monoFlush 与 relief 共享 `specialReliefUsed` 配额（同属"减压/给爽点"语义），不新增独立配额状态——降低实现复杂度 + 与 game.js `_spawnContext` 完全兼容（无需新字段）。
+
+#### DFV 联动（`decisionFlowViz.js`）
+
+- **`SPAWN_REASON_CN['special-monoFlush'] = '送同花'`** —— chosen 节点上方 3 字标签
+- **`SPAWN_REASON_TIP['special-monoFlush']`** —— hover 完整解释"盘面有近满同色 line，从独立池注入方向匹配的 1x2/2x1 → 补满即触发 ×5 倍 iconBonus"
+- **⚡ badge 颜色三态**：
+  - `subType=monoFlush` → 紫粉色 `#f0abfc`（与 monoFlush driver 配色家族保持识别度）
+  - `subType=relief` → 青色 `#67e8f9`
+  - `subType=pressure` → 橙色 `#fb923c`
+- **tooltip 附带 monoFlushLines 摘要**：`命中近满同色 line：列5(差2格)、列6(差2格)` —— 玩家点击 ⚡ 即懂"为什么出了 2×1"
+- **DRIVER_SEMANTIC[monoFlush]** 与 v1.60.19 一致复用（同口径）
+
+#### 行为对照表（v1.60.22 → v1.60.23）
+
+| 场景 | 之前（v1.60.22） | 之后（v1.60.23） |
+|---|---|---|
+| col 5/6 各填 8 同色（截图） | chosen=随机普通块，**完全错过** monoFlush 机会 | chosen 含 2×1 竖块，driver="补满同色2线"，⚡紫粉 badge |
+| row 7 填 8 同色 + 2 空连续 | 同上 | chosen 含 1×2 横块，方向匹配 |
+| 2 空不连续（如 col 5 缺 (0,5)+(8,5)） | 同上 | 不触发 monoFlush 路径（targetIds 为空），retain 现有 relief/pressure 选择 |
+| 空盘（fill<0.25） | 不注入 special | 不注入 special（Step 1.7 兜底，monoFlush 不破例） |
+| 已有清盘候选 | 不注入 special | 不注入 special（Step 1.8/1.85 兜底，清盘 ×10 > 同花顺 ×5） |
+| 主路径有可命中 monoFlush 的普通形状（如 2×2 块 covering empty=2） | scoreShape 加权命中，driver="可凑1同花顺" | 主路径不变，特殊池**作为兜底**补充——主路径优先级仍高 |
+
+#### 不变式测试
+
+**`tests/monoFlush.test.js` v1.60.23 子套件（8 个）**：
+1. `findNearFullMonoLines` 空盘返回 `[]`
+2. row 已填 8 同色 + 2 空 → 识别为 row 类型，`empty=2, refCi`
+3. col 已填 8 同色 + 2 空 → 识别为 col 类型
+4. row 预填 8 杂色 → 不识别（mono 不满足）
+5. row 预填 6 同色（empty=4） → 超出门控不识别
+6. row 全空 → 不识别（refCi=null）
+7. row+col 同时近满同色（截图复现）：两条都识别
+8. skin=null → 退化 colorIdx 比较，仍正确
+
+**`tests/blockSpawn.test.js` v1.60.23 子套件（7 个）**：
+1. col 上 2 空近满同色 → 注入 2×1 竖块、subType=monoFlush、spawnCtx.monoFlushLines 非空
+2. row 上 2 空近满同色 → 注入 1×2 横块
+3. 注入后 `topDriver.key='monoFlush'`、`label="补满同色N线"`、`reason='special-monoFlush'`
+4. chosenMeta 含 `pcPotential>=2` → Step 1.8 拦截，即使 monoFlush 触发也不注入
+5. `fill < 0.25` → Step 1.7 拦截
+6. skin=null → 退化 colorIdx 仍可触发
+7. `totalRounds < 5` → Step 1.5 warmup 拦截
+
+全量回归 **2012 / 2012**（v1.60.22 → v1.60.23 净增 15）。
+
+#### 与 v1.60.19~22 mono 系列的最终契约
+
+| 版本 | 作用域 | 解决问题 |
+|---|---|---|
+| v1.60.19 | `scoreShape` + `bestMonoFlushPotential` + DFV | 主路径识别 monoFlush，普通块也能"凑同花顺" |
+| v1.60.22 | `bestMonoFlushPotential` 阈值 | 修复 `empty` 计数 caliber，与染色 bias 双向锁定 |
+| **v1.60.23** | `_tryInjectSpecial` + `findNearFullMonoLines` + DFV | **独立池**作为兜底——主路径不命中时（如截图 col 8 填 hook 的"必须靠 1×2/2×1"场景），事件注入路径接手 |
+
+**完整 monoFlush 流水线**（双层覆盖）：
+1. **优先**：主路径 `scored` 列表中若有任意形状 `bestMonoFlushPotential >= 1` → `scoreShape` 加权 ×(1 + monoFlush × (0.4 + iconBonusTarget×0.6)) → chosen 大概率命中
+2. **兜底**：主路径所有候选 monoFlush=0（如截图场景，普通池无方向匹配的小竖/横块）→ `_tryInjectSpecial` 检测 `findNearFullMonoLines().length > 0` → 触发 relief 配额内的 monoFlush 注入路径 → chosen 含方向匹配的 2×1/1×2
+
+---
+
+### 10.7.11 v1.60.24 —— monoFlush 主路径直通：放行特殊形状 + 消行 seat 选拔
+
+#### 用户反馈与 v1.60.23 设计缺陷暴露
+
+v1.60.23 实施后同一天再复现：
+> **仍然未识别出同花顺消除（优先级高于普通消除），先分析当前代码问题，再修复**
+
+新截图 chosen 仍为 `5×1 / L3 / 4×1` 普通块 + multiClear/gapFills/shapeWeight driver——**v1.60.23 的"独立池兜底"路径完全没生效**。
+
+**根因复盘——v1.60.23 的结构性缺陷**：
+1. 把 monoFlush 推迟到 `_tryInjectSpecial`，那条路径受 **8 道 gate** 制约：
+   - warmup（`totalRounds < 5`）
+   - fill 下限（`fill < 0.25`）
+   - 单步清盘候选保护（chosen 含 `pcPotential >= 2`）
+   - 多步清盘候选保护（`canTripletPerfectClear`）
+   - 间隔节流（`roundsSinceSpecial < 5`）
+   - 全局上限（`specialShapeUsed >= globalLimit`）
+   - 子配额（`specialReliefUsed >= reliefSubLimit`）
+   - 双层枚举复校（`validateSpawnTriplet`）
+2. 这些 gate 是为"**稀有事件注入**"设计的，对 "近满同色 line"这种 **局内随时可发生**的高 payoff 信号过严——任一拒绝 = monoFlush 完全失效；
+3. 同时主路径 `scored` 列表又没有 1×2/2×1（被 `_passesShapeGate` 一刀切拒绝），v1.60.19 的 `scoreShape × monoFlush` 加权**根本无形状可加权**；
+4. 形成"两层都未命中"悖论：主路径**看不到**形状，注入路径**被 gate 拒**。
+
+#### 修复设计：1×2/2×1 在 monoFlush 信号下直通主路径
+
+**核心思想转变**：从"独立池事件注入"改为"**条件性放行**进入主路径"——
+- v1.60.19 的 `scoreShape × monoFlush × iconBonusTarget` 加权直接命中；
+- `_estimateTopDriver` 走 monoFlush 分支 → DFV 显示"可凑N同花顺"；
+- 不受 8 道注入 gate 制约，仅受 `validateSpawnTriplet` 硬约束（duplicate-shape / low-mobility / 可解性）保护。
+
+##### Change 1: scored 构建前预扫描 + 条件性放行（`generateDockShapes`）
+
+```js
+const skin = ctx?.skin ?? null;
+const monoFlushLines = (typeof grid.findNearFullMonoLines === 'function')
+    ? grid.findNearFullMonoLines(skin) : [];
+const monoFlushAllowIds = new Set();
+for (const line of monoFlushLines) {
+    if (line.empty !== 2) continue;
+    const cs = line.emptyCells;
+    const adjacent = (line.type === 'row' && Math.abs(cs[0].x - cs[1].x) === 1)
+        || (line.type === 'col' && Math.abs(cs[0].y - cs[1].y) === 1);
+    if (!adjacent) continue;
+    monoFlushAllowIds.add(line.type === 'row' ? '1x2' : '2x1');
+}
+
+// scored map 中：
+if (monoFlushAllowIds.has(shape.id)) {
+    /* 放行进 scored，跳过 _passesShapeGate 拒绝；下游 scoreShape × monoFlush 加权接力 */
+} else if (!_passesShapeGate(...)) {
+    return null;
+}
+```
+
+**方向匹配规则**（精准放行）：
+- `empty=1` line：主路径任意 shape 占 1 cell 即可命中，不需要放行特殊形状；
+- `empty=2` line + 2 空连续：row 方向 → 放行 `1x2`；col 方向 → 放行 `2x1`；
+- `empty=2` line + 2 空不相邻：无法补满，不放行。
+
+##### Change 2: scoreShape 加权"事件级"提升
+
+`scoreShape` 在 monoFlush=1 时的原加权 `1 + monoFlush × (0.4 + iconBonusTarget × 0.6)` ≈ 1.4~2.0——不足以让 base weight 低的 lines 类（1×2/2×1）从普通块（5×1 等高 base）中胜出。新增"事件级"乘法 boost：
+
+```js
+if (s.monoFlush >= 1) {
+    let monoBoost = 1 + s.monoFlush * (0.4 + iconBonusTarget * 0.6);
+    if (s.shape.id === '1x2' || s.shape.id === '2x1') {
+        monoBoost *= 3.0;  // 方向匹配的特殊小块走"事件级"加权
+    }
+    w *= monoBoost;
+}
+```
+
+**理由**：×5 iconBonus 同花顺消除是当前局**最大单步收益**，必须确保被 chosen 选中。其他形状（2×2 / L 角）的 monoFlush 通过 `_passesShapeGate` 进 scored 已有公平的 base weight，不需要额外抬头。
+
+##### Change 3: 消行 seat 选拔通道补全（关键修复）
+
+**v1.60.24 之前的致命 bug**：`clearCandidates` 过滤条件**不包含 monoFlush**：
+
+```js
+const clearCandidates = scored.filter(
+    (s) => s.gapFills > 0 || s.multiClear >= 1 || s.pcPotential === 2  // ❌ 漏了 monoFlush
+);
+```
+
+即使 1×2/2×1 进了 scored 且 monoFlush=1，因 multiClear=0 + gapFills=0 + pcPotential=0，**根本进不了"消行 seat"选拔通道**，只能走"加权抽样补齐"，被普通块 base weight 抢走。
+
+修复后：
+
+```js
+const clearCandidates = scored.filter(
+    (s) => s.gapFills > 0 || s.multiClear >= 1 || s.pcPotential === 2 || (s.monoFlush ?? 0) >= 1
+);
+```
+
+同步更新 clearCandidates 排序（添加 monoFlush 评分项）：
+
+```js
+const aScore = a.pcPotential * (10 + perfectClearBoost * 10)
+    + (a.monoFlush ?? 0) * (5 + iconBonusTarget * 3)  // 介于 pcPotential 与 multiClear 之间
+    + a.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
+    + a.gapFills * (0.5 + clearOpportunityTarget);
+```
+
+同步更新 sort 触发条件（确保有 monoFlush 候选时也走优先排序）：
+
+```js
+const hasMonoFlushCandidate = clearCandidates.some(s => (s.monoFlush ?? 0) >= 1);
+if (hasDirectPerfectClear || pcSetup >= 1 || ... || hasMonoFlushCandidate) {
+    /* 走优先排序，否则 1×2/2×1 排末尾被抽不到 */
+}
+```
+
+同步更新 pick 分支（优先选 monoFlush 块）：
+
+```js
+if (avail.some(s => s.pcPotential === 2)) {
+    /* 清屏优先 */
+} else if (avail.some(s => (s.monoFlush ?? 0) >= 1)) {
+    const mono = avail.filter(s => (s.monoFlush ?? 0) >= 1);
+    mono.sort((a, b) => (b.monoFlush ?? 0) - (a.monoFlush ?? 0));
+    pick = mono[Math.floor(Math.random() * Math.min(3, mono.length))];
+} else if ((multiClearBonus > 0.3 || ...) && avail.some(s => s.multiClear >= 2)) {
+    /* 多消 */
+} else {
+    /* 单行随机 */
+}
+```
+
+#### 与 v1.60.23 的关系（双层 fallback 架构）
+
+| 层 | 路径 | 实现位置 | 命中条件 | 实际游戏中触发率 |
+|---|---|---|---|---|
+| **L1 主路径**（v1.60.24，本节） | `generateDockShapes` 主流程 | `scored` → `clearCandidates` → pick | monoFlushAllowIds 非空 + 复校通过 | **高**（截图复现场景命中率 ≥50%） |
+| **L2 注入兜底**（v1.60.23） | `_tryInjectSpecial` monoFlush 路径 | 8 道 gate 全通过 | L1 未命中 + warmup/fill/PC/节流/配额全通过 | **极低**（实际游戏几乎不触发） |
+
+**为什么保留 L2？**——L1 在极端场景（如 `scored` 中其他形状有 `pcPotential=2` 抢占所有 seat）仍可能未命中 monoFlush；L2 作为冗余兜底，提供第二条命中通道。两层 fallback 对故障容忍度更高。
+
+#### 行为对照表（v1.60.23 → v1.60.24）
+
+| 场景 | 之前（v1.60.23） | 之后（v1.60.24） |
+|---|---|---|
+| 截图复现：col 5/6 8 同色 | chosen=5×1/L3/4×1，driver=multiClear，**完全错过** monoFlush | chosen 大概率含 2×1，driver=monoFlush，"可凑1同花顺" |
+| row 7 填 8 同色 + 2 空连续 | 同上 | chosen 大概率含 1×2，driver=monoFlush |
+| 2 空不相邻 | 同上 | `monoFlushAllowIds` 为空 → 不放行 → 维持现状 |
+| `totalRounds < 5` warmup 期 | _tryInjectSpecial Step 1.5 拦截 | L1 主路径**不受 warmup 制约**——只要有近满同色 line 就触发 |
+| 已有清盘候选 | _tryInjectSpecial Step 1.8 拦截 | L1 主路径会让 pcPotential=2 优先（在 pick 分支）→ 仍保护清盘机会 |
+| 无 monoFlush 信号 | `monoFlushAllowIds=空` → 1×2/2×1 仍被 `_passesShapeGate` 拒 | 同（v1.60.24 路径在无信号时完全 no-op，不影响其他场景） |
+
+#### 不变式测试（`tests/blockSpawn.test.js` v1.60.24 子套件）
+
+5 个新增端到端测试（蒙特卡洛 20-50 trials）：
+
+1. **截图复现**：col 5/6 各 8 同色 → 20 次抽样 chosen 含 2×1 应 ≥10 次
+2. **row 方向**：row 7 填 8 同色 → 20 次抽样 chosen 含 1×2 应 ≥10 次
+3. **driver 正确性**：chosen 命中后 `diagnostics.chosen` 中 `topDriver.key='monoFlush'`
+4. **无信号场景**：散点杂色盘面 → 50 次抽样 1×2/2×1 泄漏 ≤ 5 次（v1.60.24 路径不破坏 `_passesShapeGate` 的常规过滤）
+5. **skin=null 退化**：colorIdx 比较仍能触发，20 次抽样命中 ≥ 8 次
+
+全量回归 **2017 / 2017**（v1.60.23 → v1.60.24 净增 5）。
+
+---
+
+### 10.7.12 v1.60.25 —— monoFlush 建设期信号补全（empty ≥ 3 场景识别）
+
+#### 用户反馈与 v1.60.19~24 设计盲区
+
+v1.60.24 实施后同一天再复现：
+> **仍然没识别出同花顺消除**
+
+新截图：棋盘右下大片**绿色同 icon 区域**（约 5×5 = 25 cells 同色），但 chosen 三块 driver 全部是 `multiClear=1 / gapFills=6 / multiClear=1`——**完全无 monoFlush 识别**。
+
+#### 根因复盘
+
+v1.60.19~24 的 `bestMonoFlushPotential` 严格要求 **某 row/col 上 `empty ∈ [1, 2]`**（与 `monoNearFullLineColorWeights` 染色 bias 双向锁定）。在新截图场景：
+
+- 大片 5×5 同 icon 已成型，但任一 row/col 上仍 `empty ≥ 5`（远未近满）；
+- `bestMonoFlushPotential = 0` → driver 不触发；
+- v1.60.24 的 `findNearFullMonoLines` 也返回空 → 主路径放行机制不激活；
+- v1.60.23 的 `_tryInjectSpecial` monoFlush 路径同样不触发。
+
+**结论**：v1.60.19~24 的整个 monoFlush 识别体系**只覆盖"兑现期"（即将补满）**，对"**建设期**（朝 8 同色累积）"完全无信号——这正是用户语义中"同花顺机会"的更广涵盖范围。
+
+```
+v1.60.24 之前的同花顺信号体系：
+  monoFlush (empty ≤ 2)  → "可凑N同花顺"  ← 兑现期 ×5 iconBonus
+  ❌ 缺失（empty ≥ 3）   →                 ← 建设期，朝 8 同色累积
+```
+
+#### 修复设计：新增 `bestMonoFlushBuildup` 互补信号
+
+##### Change 1: `Grid.bestMonoFlushBuildup(shape, skin, minBuildup=6)` 新 API
+
+**定义**：shape 放在某位置后，存在 row/col 满足：
+1. 该 line 上 shape 占 ≥ 1 cell；
+2. 该 line 上 non-shape 部分已填 cells 全是同 icon（不含杂色）；
+3. shape 贡献的 cells + 已填同色 cells 总数 ≥ `minBuildup`（默认 6）；
+4. 返回所有合法放置中 max(shape 贡献的 cells 数)。
+
+**与 `bestMonoFlushPotential` 互补**（不重叠）：
+
+| 信号 | empty 阈值 | 触发场景 | 染色 bias | iconBonus |
+|---|---|---|---|---|
+| `bestMonoFlushPotential` | `empty ≤ 2` | 兑现期，立即补满 | 强双向锁定 | **立即 ×5** |
+| `bestMonoFlushBuildup` | 无 empty 限制 | 建设期，朝 8 同色累积 | 不依赖染色 | 未来潜力 |
+
+**实现要点**：
+- shape 不 ci 已知（spawn 阶段未染色），与 `bestMonoFlushPotential` 同样采用"**乐观契约**"——假设染色会被 `monoNearFullLineColorWeights` 染成 match line icon；
+- non-shape 部分必须**全部**同 icon（任一杂色破坏 mono → 该 line 不计入）；
+- 同时扫描 row/col，取所有合法放置 × 所有 affected line 的 max 贡献量。
+
+##### Change 2: `scoreShape` 加权
+
+```js
+if ((s.monoFlushBuildup ?? 0) >= 1) {
+    w *= 1 + s.monoFlushBuildup * 0.25;
+}
+```
+
+**远低于 monoFlush 加权**（monoFlush 兑现 ×5 vs buildup 未来潜力）—— 防止建设期 shape 过度抢占 chosen 槽。
+
+##### Change 3: `_estimateTopDriver` 新分支
+
+```js
+// 优先级：pcPotential > monoFlush > exactFit=1.0 > multiClear > monoFlushBuildup ≥ 2 > exactFit ≥ 0.85 > gapFills
+if (s.multiClear >= 1) return { key: 'multiClear', label: `可消${s.multiClear}行` };
+if ((s.monoFlushBuildup ?? 0) >= 2) {
+    return { key: 'monoFlushBuildup', label: `建${s.monoFlushBuildup}同花` };
+}
+```
+
+- 优先级介于 `multiClear` 和 `exactFit(0.85)` 之间——兑现高于建设，但建设高于"紧凑卡入"和"近满补"；
+- `monoFlushBuildup >= 2` 触发（要求 shape 贡献 ≥ 2 cells，避免单 cell shape 触发"建设期"label）；
+- DFV label `建N同花` 与 `可凑N同花顺`（v1.60.19）视觉/语义上区分清晰。
+
+##### Change 4: DFV 集成
+
+- `DRIVER_NODE_PATHS.monoFlushBuildup` = `DRIVER_NODE_PATHS.monoFlush`（同源 → strategy.clearGuarantee + targets.clearOpportunity + schedule.iconBonusTarget）
+- `DRIVER_SEMANTIC.monoFlushBuildup` = `"bestMonoFlushBuildup 真模拟（v1.60.25），本块在 same-icon line 上贡献 N cells，朝 8 同色累积（建设期，与 monoFlush 兑现期互补；本块放下不立即触发 ×5，但为后续 monoFlush 创造条件）"`
+
+#### 行为对照表（v1.60.24 → v1.60.25）
+
+| 场景 | 之前（v1.60.24） | 之后（v1.60.25） |
+|---|---|---|
+| 截图新场景：右下 5×5 同色（每 line empty ≥ 5） | chosen driver=multiClear/gapFills，无 monoFlush 识别 | 3×3 块 driver=`monoFlushBuildup`，label="建3同花" |
+| 右下 4×4 同色（4 cells per col）+ 3×3 块 | 同上 | shape 占 col 上 3 cells + 4 已填 = 7 ≥ 6 → 触发 buildup driver |
+| 右下 5 cells 同色 + 1×1 块（已填 5+1=6） | driver=mobility/balanced | buildup=1（< 阈值 2）→ 不触发，回落原 driver |
+| 兑现期 empty ≤ 2 同色 line | 走 monoFlush=N → "可凑N同花顺" | 同（buildup 优先级低于 multiClear/monoFlush，不会抢占） |
+
+#### 完整 monoFlush 信号体系（v1.60.19~25 累积契约）
+
+```
+盘面同 icon 累积量？
+  ├─ 0~3 cells per line   → 无信号
+  ├─ 4~7 cells per line   → bestMonoFlushBuildup（建设期）
+  │                          → driver "建N同花"，scoreShape × (1 + N × 0.25)
+  │                          → 不依赖染色 bias（未来潜力）
+  ├─ 8 cells per line     → bestMonoFlushPotential 兑现期：
+  │   ├─ empty=1（shape 占 1 cell 补满）→ 主路径任意 shape 命中
+  │   └─ empty=2（shape 占 2 cells 补满，需方向匹配）
+  │                          → v1.60.24 放行 1×2/2×1 进主路径
+  │                          → scoreShape × 3.0 boost + clearCandidates seat 选拔
+  │                          → driver "可凑N同花顺"，染色 bias 触发 ×5 iconBonus
+  │                          → v1.60.23 _tryInjectSpecial 兜底（极少触发）
+  └─ 9~10 cells per line  → detectBonusLines 实际兑现（结算阶段）
+```
+
+#### 不变式测试（`tests/monoFlush.test.js` v1.60.25 子套件）
+
+11 个新增测试：
+
+`Grid.bestMonoFlushBuildup` 边界（7 个）：
+1. 空盘 → 0
+2. col 5 已 5 同色 + 3×3 → shape 贡献 ≥ 3
+3. 累计 < 6 → 0
+4. 累计 = 6 → 1（阈值边界）
+5. 已填部分有杂色 → 0（mono 不满足）
+6. skin=null → 退化 colorIdx 比较
+7. 截图复现：5×5 同色块 + 3×3 → buildup ≥ 3
+
+`_estimateTopDriver` 分支（4 个）：
+1. `monoFlushBuildup=3` 无其他高优先信号 → driver="建3同花"
+2. `multiClear=1` 优于 `monoFlushBuildup=3`（兑现 > 建设）
+3. `monoFlushBuildup=3` 优于 `gapFills=2`（建设 > 普通补缺）
+4. `monoFlushBuildup=1` < 阈值 2 → 不触发，回落下游
+
+全量回归 **2028 / 2028**（v1.60.24 → v1.60.25 净增 11）。
+
+#### 最终 monoFlush 完整流水线（v1.60.19~24 累积契约）
+
+```
+盘面有近满同色 line？
+  ├─ 是 → grid.findNearFullMonoLines(skin) 扫描
+  │       ├─ empty=1: 任意形状放置占 1 cell → bestMonoFlushPotential >= 1 → scored 中已命中
+  │       ├─ empty=2 + 2 空连续:
+  │       │   ├─ row 方向: monoFlushAllowIds.add('1x2')
+  │       │   └─ col 方向: monoFlushAllowIds.add('2x1')
+  │       └─ 其他: 不放行特殊形状
+  │
+  │       L1 主路径 (v1.60.24):
+  │       ├─ 1×2/2×1 进 scored (绕过 _passesShapeGate)
+  │       ├─ scoreShape × monoFlush × iconBonusTarget × 3.0 加权
+  │       ├─ clearCandidates 包含 monoFlush>=1 → 进消行 seat 选拔
+  │       ├─ sort: pcPotential > monoFlush(×5+iconBonus×3) > multiClear > gapFills
+  │       ├─ pick 优先级: pcPotential=2 > monoFlush>=1 > multiClear>=2 > 单行随机
+  │       └─ chosen 命中后 reason='clear', topDriver={key:'monoFlush', label:'可凑N同花顺'}
+  │
+  │       L2 注入兜底 (v1.60.23, 极少触发):
+  │       └─ _tryInjectSpecial monoFlush 路径
+  │            ├─ 8 道 gate 全通过 → 注入 1×2/2×1
+  │            └─ chosen 标 reason='special-monoFlush', subType='monoFlush'
+  │
+  └─ 否 → 主路径常规 scoreShape 选拔（含 v1.60.19 的 monoFlush=0 时不加权）
+          → 1×2/2×1 仍被 _passesShapeGate 拒绝，维持独立池语义
+```
+
+---
+
+### 10.7.13 v1.60.26 —— monoFlush 严格定义重构（撤销 v1.60.22 阈值 + 撤销 v1.60.25 buildup driver label）
+
+#### 问题复现
+
+v1.60.25 实施后第三天用户再反馈，并首次提供**严格定义**：
+
+> 对同花的判断错误：
+> 1）中间块候选块**无法构建同花**但 driver 标了"建2同花"；
+> 2）右边块**与盘面可以构成同花**但没识别出来。
+>
+> **明确同花定义：候选块放到盘面构成消行，当存在同行或同列是同花时为同花块（得分多，优先级高）。**
+
+#### 根因诊断
+
+**Bug 2（右块漏识别）—— v1.60.22 阈值过严**：
+
+`bestMonoFlushPotential` v1.60.22 引入 `NEAR_FULL_MIN_PREFILLED = n - 2 = 8`，意图"与染色 bias 同口径"，但实际效果等价于 **shape 只能占该 line ≤ 2 cells**。
+
+截图复现：col 9 上 rows 3-9 共 7 个 hook + rows 0-2 空。**3×1 竖块**放 col 9 rows 0-2 → shape 占 3 cells + non-shape 7 cells（全 hook）→ 满 10 + 全同 icon → **真同花**。但 `preFilled = 7 < 8` → 拒绝。漏报。
+
+**Bug 1（中间块误标"建2同花"）—— v1.60.25 buildup 不该作 driver**：
+
+v1.60.25 的 `monoFlushBuildup` 只要求"shape 贡献给 same-icon line ≥ 6 cells 累计"，**不要求消行**。按用户严格定义，shape 放下**不消行**则**不构成同花**。driver label "建N同花" 让玩家误以为有 ×5 iconBonus。误报。
+
+#### 解决方案（v1.60.26 三层重构）
+
+**Layer 1 — `Grid.bestMonoFlushPotential` 严格用户定义**（`web/src/grid.js`）：
+
+```js
+// v1.60.26：撤销 NEAR_FULL_MIN_PREFILLED 阈值
+for (const y of affectedRows) {
+    let allFilled = true;     // (a) shape 放下后 line 满（消行）⟺ non-shape 全填
+    let refCi = null;
+    let allSame = true;       // (b) 全 line 同 icon ⟺ non-shape 全同 icon
+    for (let x = 0; x < n; x++) {
+        if (shapeOccupied.has(`${x},${y}`)) continue;
+        const c = this.cells[y][x];
+        if (c === null) { allFilled = false; break; }
+        if (refCi === null) refCi = c;
+        else if (!sameAs(refCi, c)) { allSame = false; break; }
+    }
+    if (!allFilled) continue;
+    if (!allSame || refCi === null) continue;
+    bonusCount++;
+}
+```
+
+`allFilled` + `allSame` 两条件足够覆盖用户严格定义。shape 占 K=1..n-2 cells 都计入。
+
+**Layer 2 — `clearScoring.monoNearFullLineColorWeights` 同口径拓宽**（`web/src/clearScoring.js`）：
+
+```js
+function biasFor(empty) {
+    if (empty < 1 || empty > n - 2) return 0;
+    if (empty <= 2) return MONO_NEAR_FULL_COLOR_WEIGHT;  // 兑现期 0.55
+    /* 建设期 empty ∈ [3, n-2]：线性衰减 0.40 → 0.15 */
+    const buildupMaxBias = 0.40;
+    const buildupMinBias = 0.15;
+    const t = (empty - 3) / Math.max(1, n - 5);
+    return buildupMaxBias - (buildupMaxBias - buildupMinBias) * Math.max(0, Math.min(1, t));
+}
+```
+
+确保 shape 选定后染色阶段也按 line empty 倾向 match icon，让"几何同花潜力"真转化为"实际同花消除"。bias 分级（兑现 0.55 > 建设 0.40~0.15）保持兑现期主导，避免 dock 颜色被建设期 line 过度统一。
+
+**Layer 3 — `_estimateTopDriver` 移除 monoFlushBuildup driver label**（`web/src/bot/blockSpawn.js`）：
+
+```js
+// v1.60.26：撤销 v1.60.25 monoFlushBuildup driver label
+// 用户严格定义"同花块" = 消行 + 全 line 同 icon
+// monoFlushBuildup 是建设期信号 —— shape 放下不消行 → 不算同花块
+// driver 标 "建N同花" 会误导玩家以为有 iconBonus
+//
+// `bestMonoFlushBuildup` 函数保留作 scoreShape 内部加权（让建设期 shape 有偏向，
+// 但不暴露为 driver 标签），DFV/可解释面板按 monoFlush 为唯一同花判定。
+```
+
+**DFV 清理**（`web/src/decisionFlowViz.js`）：
+
+- 移除 `DRIVER_NODE_PATHS.monoFlushBuildup` 与 `DRIVER_SEMANTIC.monoFlushBuildup`
+- 更新 `monoFlush` 语义文案为 v1.60.26 严格定义："本块放下后会触发：消行（line 满）+ 全 line 同 icon —— 即立即触发 ×5 倍 iconBonus"
+
+#### 行为对照表（v1.60.25 → v1.60.26）
+
+| 场景 | 之前（v1.60.25） | 之后（v1.60.26） |
+|------|------------------|------------------|
+| col 9 上 7 hook + 3 空 + 3×1 竖块 | `bestMonoFlushPotential = 0`（preFilled=7<8 拒）| `bestMonoFlushPotential ≥ 1`（满 10 同 hook → 同花） |
+| 5×1 竖块 + col 上 5 同色 + 5 空 | `bestMonoFlushPotential = 0`（preFilled=5<8 拒）| `bestMonoFlushPotential ≥ 1`（占 5 + 5 同 → 同花） |
+| 散点同色 5×5 区域 + 3×3 块（不消行）| driver = `monoFlushBuildup`,label="建N同花"（**误导**）| driver 回落 `balanced`/`exactFit`/`gapFills`（**正确**） |
+| shape 占 line + non-shape 有杂色 | `bestMonoFlushPotential = 0`（同前） | `bestMonoFlushPotential = 0`（同前，allSame 拒）|
+| empty=3 同色 line | 染色 bias = 0 | 染色 bias ≈ 0.40（建设期权重）|
+| empty=2 同色 line | 染色 bias = 0.55 | 染色 bias = 0.55（兑现期不变）|
+| `monoFlush=1` + `monoFlushBuildup=5` | monoFlush driver 胜出 | monoFlush driver 胜出（同前） |
+
+#### 不变式测试（`tests/monoFlush.test.js` v1.60.26 子套件）
+
+新增 5 条测试 + 改写 4 条测试：
+
+1. **截图 Bug 2 复现**：col 上 7 同色 + 3 空 + 3×1 竖块 → `monoFlush ≥ 1` ✓
+2. **5×1 竖块 + 5 同色 + 5 空 → `monoFlush ≥ 1`** ✓
+3. **杂色破坏 mono → 拒绝** ✓
+4. **non-shape 部分有 null → 拒绝（未满）** ✓
+5. **`monoNearFullLineColorWeights` 同口径**：empty=3 同色 line bias > 0，且兑现期 bias > 建设期 bias ✓
+
+改写：
+- `1×3 + 7 同色 (empty=3) → 1`（v1.60.22 拒 → v1.60.26 接受）
+- `回归契约` 更新为 empty=2/empty=3 都接受
+- 3 条 `_estimateTopDriver buildup driver` 测试改为验证**不再触发** buildup driver
+
+#### 最终 monoFlush 完整流水线（v1.60.19~26 累积契约）
+
+```
+shape 放置位置 P，shape 占某 row/col 的 K cells (K ≥ 1)
+   ↓
+该 row/col 上 non-shape 部分 (n - K cells):
+   ├─ 全填？(allFilled)        ← shape 放下后 line 满 = 消行
+   └─ 全同 icon？(allSame)     ← 全 line 同 icon = iconBonus ×5
+
+  两条件同时满足 ⟺ shape 是"同花块"
+   ↓
+bestMonoFlushPotential = max(bonusCount over all P)
+   ↓
+scoreShape 加权: w *= 1 + monoFlush * (0.4 + iconBonusTarget * 0.6)
+   + 1×2/2×1 → monoBoost *= 3.0
+   ↓
+clearCandidates 包含 monoFlush>=1
+   ↓
+sort/pick 优先级: pcPotential > monoFlush > multiClear > gapFills
+   ↓
+chosen.topDriver = { key: 'monoFlush', label: '可凑N同花顺' }
+   ↓
+染色阶段 (clearScoring.monoNearFullLineColorWeights):
+   兑现期 empty ≤ 2 → bias = 0.55
+   建设期 empty ∈ [3, n-2] → bias = 0.40 → 0.15 衰减
+   ↓
+玩家放下 → 真消行 + 真同 icon → 真 ×5 iconBonus
+```
+
+**辅路保留**（不变）：
+- v1.60.23 `_tryInjectSpecial monoFlush 路径`（L2 注入兜底，8 道 gate 后注入 1×2/2×1）
+- v1.60.24 `1×2/2×1 主路径绕过 _passesShapeGate`（L1 直通）
+
+全量回归 **2032 / 2032**（v1.60.25 → v1.60.26 净增 4，删 3 改 4）。
+
+---
+
+### 10.7.14 v1.60.26 续 —— "送清屏"badge 严格按 shape 自身 pcPotential 派生
+
+#### 问题复现
+
+v1.60.26 当天用户再反馈，明确**清屏的严格定义**：
+
+> 清屏块判断错误：左、中候选块**不能作为清屏块**但被标 "送清屏"。
+>
+> **清屏定义：放置候选块后，构成消除且无块在消除行或消除列之外（消除后盘面清零）。**
+
+截图：3 块 chosen 中**左、中两块**带 badge "送清屏" + driver "可消2行"（即 multiClear=2 但 pcPotential=0），但盘面有 30+ cells，2×2/3×2 块放下后远不能清零。
+
+#### 根因诊断
+
+```js
+// blockSpawn.js Stage 1 clearCandidates 选拔后 push
+reason: pcSetup >= 1 ? 'perfectClear' : 'clear',
+```
+
+`pcSetup` 是 `analyzePerfectClearSetup(grid)` 的全局信号（盘面是否近清屏期），**与 chosen 的具体 shape 是否能清屏无关**。
+
+结果：盘面 `pcSetup ≥ 1` 时，**所有** chosen 块（即使只能 multiClear=2，pcPotential=0）都被错误标 `reason='perfectClear'` → DFV badge "送清屏"。但用户严格定义：**shape 放下消除后盘面必须清零** = `pick.pcPotential === 2`（`bestPerfectClearPotential` 精确实现：`grid.clone() → place → checkLines → 逐 cell 校验全空`）。
+
+#### 解决方案
+
+**Stage 1 clear seats 派生**（`web/src/bot/blockSpawn.js`）：
+
+```js
+reason: (pick.pcPotential ?? 0) === 2 ? 'perfectClear' : 'clear',
+```
+
+**Stage 2 weighted 加权抽样派生**（同文件）：
+
+```js
+reason: (entry.pcPotential ?? 0) === 2 ? 'perfectClear' : 'weighted',
+```
+
+加权抽样也可能命中 `pcPotential=2`（×18 倍率让真清屏 shape 胜出），此时 reason 升级为 'perfectClear'。
+
+#### 行为对照表（v1.60.26 修复前 → 后）
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| pcSetup=1 + chosen.pcPotential=0 + multiClear=2 | reason='perfectClear' → "送清屏"（**误标**）| reason='clear' → "送消行"（**正确**） |
+| pcSetup=2 + chosen.pcPotential=2 | reason='perfectClear' → "送清屏"（正确） | reason='perfectClear' → "送清屏"（同前） |
+| pcSetup=0 + chosen.pcPotential=2（weighted 路径命中）| reason='weighted' → "综合选"（**漏标**）| reason='perfectClear' → "送清屏"（**正确**） |
+| pcSetup=0 + chosen.pcPotential=0 | reason='clear' → "送消行" | reason='clear' → "送消行"（同前） |
+
+#### 不变式测试（`tests/blockSpawn.test.js` v1.60.26 续子套件）
+
+新增 2 条：
+
+1. **pcSetup≥1 但 chosen.pcPotential=0 → reason 必须 ≠ 'perfectClear'**：30 次抽样总块数 90，误标次数 = 0
+2. **chosen.pcPotential===2 → reason 必须 = 'perfectClear'**：30 次抽样捕获真 PC 实例，若有则强制 reason 校验
+
+#### 与既有契约的协同
+
+`_estimateTopDriver` 的优先级 `pcPotential > monoFlush > exactFit > multiClear > gapFills`（v1.60.19）与 reason 派生独立——driver 仅是 chosen 块 label，reason 是 spawn 来源 badge：
+
+| reason | DFV badge | driver 范围 |
+|--------|-----------|-------------|
+| `perfectClear` | "送清屏"（金色 #fbbf24）| `pcPotential` |
+| `clear` | "送消行"（青色 #22d3ee）| `monoFlush` / `multiClear` / `gapFills` / `exactFit` / `balanced` |
+| `weighted` | "综合选"（紫色 #a78bfa）| 任意（含 `monoFlushBuildup`-保留为权重但不作 driver label）|
+| `fallback` | "兜底块"（灰色 #94a3b8）| `fallback` |
+
+全量回归 **2034 / 2034**（v1.60.26 → v1.60.26 续 净增 2）。
+
+---
+
+### 10.7.15 v1.60.27 —— monoFlush 染色强制绑定（修复"driver 标可凑同花顺但实际不染对应色"漏标）
+
+#### 问题复现
+
+v1.60.26 续 修复"送清屏"badge 后，用户再反馈：
+
+> 同花顺判断逻辑仍然不对
+
+截图：chosen 第三块 driver `"可凑1同花顺"`（`monoFlush>=1`）+ badge `"送清屏"`（已被 v1.60.26 续 修复，疑似截图前未刷新），但**核心问题**是 driver 标"可凑同花顺"经过多次修复后仍存在"虚标"——shape 算法层面是同花潜力，但实际玩家放下大概率不触发 ×5 iconBonus。
+
+#### 根因诊断（架构层面）
+
+`bestMonoFlushPotential` 在 spawn 阶段是**乐观估计**——shape 占该 line 的 K cells **假设染成 match icon**。但实际染色逻辑：
+
+```js
+// web/src/game.js
+const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin())
+    .map(w => w * (1 + iconBonusTarget * 2.5));
+const dockColors = pickThreeDockColors(bonusBias);  // ⚠️ 独立随机抽 3 色
+```
+
+`pickThreeDockColors(bonusBias)` 是**独立随机抽样**——3 个 dock 块颜色独立 bias 抽，**不绑定** shape ↔ color：
+
+| 步骤 | 旧实现 | 问题 |
+|------|--------|------|
+| spawn | shape A 标 `monoFlush=1`（前提 ci=cones）| 算法层正确 |
+| 染色 | bias 让 cones 在 8 色中高概率被抽中 | 但分给 shape A / B / C 是**随机**的 |
+| 结果 | cones 可能分给无关 shape B → shape A 染了别的色 | shape A 放下 line 满但 K cells 非 cones → **不触发** iconBonus |
+
+driver label "可凑1同花顺" 因此是**乐观虚标**，玩家放下大概率失望——这就是用户反复反馈"同花顺判断逻辑不对"的真根因。
+
+#### 解决方案（spawn 端目标记录 + 染色端强制绑定）
+
+**Step 1 — `Grid.bestMonoFlushPotential` 增加 `opts.returnTarget`** （`web/src/grid.js`）：
+
+```js
+bestMonoFlushPotential(shapeData, skin = null, opts = {}) {
+    const returnTarget = opts && opts.returnTarget === true;
+    // ... 原逻辑 ...
+    if (bonusCount > best) {
+        best = bonusCount;
+        bestTargetCi = placementTargetCi;   /* 记录 best placement 对应 line 同色 ci */
+    }
+    if (returnTarget) return { count: best, targetCi: bestTargetCi };
+    return best;   /* 默认仍返回 number，向后兼容所有现有调用 */
+}
+```
+
+**Step 2 — `blockSpawn.js` scored 记录 `monoFlushTargetCi`**：
+
+```js
+const monoFlushRes = grid.bestMonoFlushPotential(shape.data, skin, { returnTarget: true });
+const monoFlush = monoFlushRes.count;
+const monoFlushTargetCi = monoFlushRes.targetCi;
+return { /* ... */, monoFlush, monoFlushTargetCi };
+```
+
+`monoFlushTargetCi` 透传给 `chosenMeta` （两处 push）→ `diagnostics.chosen[i].monoFlushTargetCi`。
+
+**Step 3 — `game.js` 染色阶段强制绑定**：
+
+```js
+const spawnDiag = getLastSpawnDiagnostics();
+const chosenMetas = spawnDiag?.chosen || [];
+const dockColors = new Array(3).fill(null);
+const lockedSlots = new Set();
+
+/* 1. monoFlush shape 强制染对应 targetCi */
+for (let i = 0; i < 3; i++) {
+    const meta = chosenMetas[i];
+    if (meta && (meta.monoFlush ?? 0) >= 1 && Number.isInteger(meta.monoFlushTargetCi)) {
+        dockColors[i] = meta.monoFlushTargetCi;
+        lockedSlots.add(i);
+    }
+}
+
+/* 2. 剩余 slots 按 bias 抽（无放回，避开已锁色） */
+if (lockedSlots.size < 3) {
+    const remainingPicks = pickThreeDockColors(bonusBias);
+    const usedSet = new Set();
+    for (const slot of lockedSlots) usedSet.add(dockColors[slot]);
+    const filtered = remainingPicks.filter(c => !usedSet.has(c));
+    let fillIdx = 0;
+    for (let i = 0; i < 3; i++) {
+        if (lockedSlots.has(i)) continue;
+        dockColors[i] = filtered[fillIdx] ?? remainingPicks[fillIdx] ?? Math.floor(Math.random() * 8);
+        fillIdx++;
+    }
+}
+```
+
+`miniprogram/utils/gameController.js` 同步实现，保证多端一致。
+
+#### 行为对照表（v1.60.26 续 → v1.60.27）
+
+| 场景 | 修复前（仅 bias 概率倾斜）| 修复后（强制绑定）|
+|------|--------------------------|-------------------|
+| chosen[0].monoFlush=1, targetCi=cones | dockColors[0] = bias 抽 ∈ 8 色，cones 概率 ~22% | dockColors[0] = cones（100%）|
+| chosen 三块都 monoFlush（极端）| 三块独立抽，互相抢色 | 三块各绑各自 targetCi |
+| chosen[i].monoFlush=0 | bias 抽 | bias 抽（同前）|
+| 多 shape 同 targetCi | 一个抽到、其他没 | 都绑同 targetCi（dock 颜色虽重复，触发率最大化）|
+
+#### 不变式测试
+
+`tests/monoFlush.test.js` 新增 3 条：
+
+1. **`opts.returnTarget=true` 返回 `{ count, targetCi }`，targetCi = line 同色 ci**
+2. **count=0 时 targetCi=null**（空盘面契约）
+3. **`opts` 缺省返回 `number`** —— 向后兼容契约
+
+`tests/blockSpawn.test.js` 新增 2 条：
+
+1. **chosen 命中 monoFlush 时 `diagnostics.chosen[i].monoFlushTargetCi` 必须 = line 同色 ci**（30 次 Monte Carlo 全 pass）
+2. **chosen monoFlush=0 时 monoFlushTargetCi 必须 null**（无虚假目标）
+
+#### 完整 monoFlush 闭环（spawn → dock 染色 → 玩家放下 → 触发 iconBonus）
+
+```
+spawn 阶段：
+  bestMonoFlushPotential(shape, skin, { returnTarget: true })
+    → { count: monoFlush, targetCi: line 同色 ci }
+    ↓
+  scored.monoFlushTargetCi = targetCi
+    ↓
+  scoreShape ×monoFlush 加权 → chosen 命中
+    ↓
+  chosenMeta.monoFlushTargetCi → diagnostics.chosen[i].monoFlushTargetCi
+
+染色阶段（game.js / gameController.js）：
+  for i in [0..2]:
+    if chosen[i].monoFlush >= 1 && targetCi !== null:
+      dockColors[i] = targetCi              ← 强制绑定（v1.60.27 关键）
+      lockedSlots.add(i)
+  remaining slots → pickThreeDockColors(bonusBias) 抽
+
+玩家放下 monoFlush shape：
+  shape ci = targetCi ⟺ line 上 K 个 shape cells 染色 = line 上 (n-K) 个非 shape cells 染色
+    ↓
+  line 满 + 全 line 同 icon → 真触发 ×5 iconBonus
+    ↓
+  driver "可凑1同花顺" 与实际游戏一致 → 玩家不再失望
+```
+
+全量回归 **2039 / 2039**（v1.60.26 续 → v1.60.27 净增 5）。
 
 ---
 

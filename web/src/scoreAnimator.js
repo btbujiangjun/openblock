@@ -389,6 +389,161 @@ export function stopScoreAnimation() {
     }
 }
 
+/* === v1.60.3 老虎机式按位滚动 ============================================
+ * 结算页（#over-score）专用入场动画：把数字拆成 N 个独立的"位"，每位都从
+ * 0 一路滚到目标数字（多滚 N 圈营造翻牌感），高位先停、低位后停，整体动画
+ * 完成时触发既有的 _triggerFinalReinforce 粒子庆祝。
+ *
+ * 与 animateScore（纯 textContent 递增 + scale 弹跳）的视觉差异：
+ *   - 每位数都"看得见地在翻"，比单纯计数更"赢钱感"
+ *   - 千位分隔符（"1,287"）作为静态字符夹在数位之间，不滚
+ *   - reduced-motion 直接落到末位、跳过翻滚（保留粒子庆祝）
+ *
+ * v1.60.4（用户反馈）：得分是结算页的主信息，节奏放慢、让玩家"凝视" — duration
+ *   1500→2200ms，digitStaggerMs 160→240ms；同时按分数档位通过 window.__audioFx
+ *   播声（共享 audioFx.prefs.sound 全局开关，未启用音效或浏览器不支持均静默）。
+ *
+ * v1.60.5：档位从"固定绝对阈值"改为"按 bestScore 占比的动态阈值"——与
+ *   BEST_SCORE_CHASE_STRATEGY §5.α 的"差一口气"banner 同哲学，对低水位玩家
+ *   不再永远听不到任何音效，对高水位玩家不再听到"小题大做"的庆祝。具体见
+ *   `_playHighScoreCheer` 内的档位说明。调用方需在 options 透传 bestScore。
+ *
+ * DOM 结构示例（420）：
+ *   <span class="odo-digit"><span class="odo-strip">…0…9 重复 N 圈 + <i>4</i></span></span>
+ *   <span class="odo-digit">…<i>2</i></span>
+ *   <span class="odo-digit">…<i>0</i></span>
+ */
+export function animateScoreOdometer(targetScore, options = {}) {
+    if (!_scoreElement) initScoreAnimator();
+    if (!_scoreElement) return Promise.resolve();
+
+    const cfg = {
+        duration: 2200,
+        digitStaggerMs: 240,
+        spinExtraTurns: 2,
+        /* v1.60.5：调用方应透传"本局开始前的历史 PB"（与 game.js 的
+         * persistedBestBase = _bestScoreAtRunStart ?? bestScore 一致）——
+         * 用 run-start 时的 PB 而非可能已被本局更新的 this.bestScore，
+         * 避免 pct 永远等于 1.0 的循环引用。 */
+        bestScore: 0,
+        ...options,
+    };
+    const total = Math.max(0, Math.floor(Number(targetScore) || 0));
+    const text = total.toLocaleString();
+
+    _scoreElement.innerHTML = '';
+    _scoreElement.classList.add('odo-host');
+
+    const slots = [];
+    for (const ch of text) {
+        if (/\d/.test(ch)) {
+            const digit = Number(ch);
+            const slot = document.createElement('span');
+            slot.className = 'odo-digit';
+            const strip = document.createElement('span');
+            strip.className = 'odo-strip';
+            const totalCycles = cfg.spinExtraTurns + 1;
+            const cycle = Array.from({ length: 10 }, (_, i) => `<i>${i}</i>`).join('');
+            strip.innerHTML = cycle.repeat(totalCycles) + `<i>${digit}</i>`;
+            slot.appendChild(strip);
+            _scoreElement.appendChild(slot);
+            slots.push({ stripEl: strip, finalDigit: digit, totalCycles });
+        } else {
+            const sep = document.createElement('span');
+            sep.className = 'odo-sep';
+            sep.textContent = ch;
+            _scoreElement.appendChild(sep);
+        }
+    }
+
+    if (_prefersReducedMotion()) {
+        slots.forEach((s) => {
+            const targetRow = s.totalCycles * 10;
+            s.stripEl.style.transition = 'none';
+            s.stripEl.style.transform = `translateY(-${targetRow}em)`;
+        });
+        _triggerFinalReinforce(total);
+        _playHighScoreCheer(total, cfg.bestScore);
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+        requestAnimationFrame(() => {
+            slots.forEach((s, idx) => {
+                const targetRow = s.totalCycles * 10;
+                const delay = idx * cfg.digitStaggerMs;
+                /* 高位略快、低位略慢，强化"翻牌停在最后一位"的节奏 */
+                const slotDuration = Math.max(420, cfg.duration - idx * cfg.digitStaggerMs * 0.3);
+                s.stripEl.style.transition =
+                    `transform ${slotDuration}ms cubic-bezier(.18,.7,.18,1) ${delay}ms`;
+                s.stripEl.style.transform = `translateY(-${targetRow}em)`;
+            });
+        });
+        /* 最后一个位完成的时间作为最终庆祝触发点 */
+        const finishMs = cfg.duration + Math.max(0, slots.length - 1) * cfg.digitStaggerMs + 60;
+        setTimeout(() => {
+            _triggerFinalReinforce(total);
+            _playHighScoreCheer(total, cfg.bestScore);
+            resolve();
+        }, finishMs);
+    });
+}
+
+/**
+ * v1.60.5：按"分数 / 历史 PB 占比"动态选择高分庆祝音效档位。
+ *
+ * 通过 `window.__audioFx`（audioFx.js 启动期已挂载的单例）调用 `.play(type)`，
+ * audioFx 内部统一检查 `this.prefs.sound`——也就是说**完全共享全局音效开关**：
+ * 用户在设置里关掉音效，这里也自动静默；浏览器不支持 WebAudio 同样静默。
+ *
+ * 档位映射（与 BEST_SCORE_CHASE_STRATEGY §5.α 的 D2/D3/D4 段对齐）：
+ *   - pct ≥ 1.00 (D4 破/平 PB)         → 'unlock'（上行胜利感双音叠加）
+ *   - pct ≥ 0.85 (D2/D3 差一口气段)    → 'perfect'（成就级 jingle）
+ *   - pct ≥ 0.50 (达成 PB 一半)        → 'clear'（轻量庆祝，与消行同色）
+ *   - 其他                             → 静默
+ *
+ * 低 PB 守卫：bestScore < HIGH_SCORE_FLOOR (200) 时（含首局 best=0）回退到固定
+ * 绝对阈值，避免 best=10 打到 8 分（pct=0.8）触发"差一口气"音效的虚假胜利
+ * ——与 `_isLowBestForIntenseCopy()` 在 §5.α.6 的低 PB 文案守卫哲学一致。
+ *
+ * @param {number} score      本局最终分数
+ * @param {number} bestScore  本局开始前的历史 PB（persistedBestBase）
+ */
+function _playHighScoreCheer(score, bestScore) {
+    if (typeof window === 'undefined') return;
+    const fx = window.__audioFx;
+    if (!fx || typeof fx.play !== 'function') return;
+    const type = _selectHighScoreCheerType(score, bestScore);
+    if (!type) return;
+    try { fx.play(type, { force: true }); } catch { /* 忽略音频路径异常 */ }
+}
+
+/**
+ * v1.60.5（导出供单测覆盖各档位边界）：按"分数 / 历史 PB 占比"选档位的纯函数。
+ *
+ * @param {number} score
+ * @param {number} bestScore
+ * @param {{ floor?: number }} [opts]   测试可覆写 HIGH_SCORE_FLOOR
+ * @returns {'unlock'|'perfect'|'clear'|null}
+ */
+export function _selectHighScoreCheerType(score, bestScore, opts) {
+    const HIGH_SCORE_FLOOR = Number(opts?.floor) > 0 ? Number(opts.floor) : 200;
+    const best = Number(bestScore) || 0;
+    const s = Number(score) || 0;
+    if (best >= HIGH_SCORE_FLOOR) {
+        const pct = s / best;
+        if (pct >= 1.0) return 'unlock';
+        if (pct >= 0.85) return 'perfect';
+        if (pct >= 0.5) return 'clear';
+        return null;
+    }
+    /* 低 PB 段（含首局 best=0）：回退到绝对阈值 */
+    if (s >= 1000) return 'unlock';
+    if (s >= 500) return 'perfect';
+    if (s >= 200) return 'clear';
+    return null;
+}
+
 export function setScoreImmediate(score) {
     if (!_scoreElement) {
         initScoreAnimator();
@@ -489,6 +644,58 @@ if (typeof document !== 'undefined' && !document.getElementById('score-particle-
             .score-burst--medium,
             .score-burst--large { animation-duration: 1ms; }
             .score-float-delta { animation-duration: 320ms; }
+        }
+
+        /* === v1.60.3 老虎机式按位滚动（#over-score 专用） ===
+         * 父元素 .game-over-score 已用 background-clip:text 实现渐变文字色；
+         * 子节点 .odo-digit/.odo-sep 必须自带同款渐变 + transparent fill 才能
+         * 让翻滚中的每个数字也是橙色渐变（否则会因 overflow:hidden 裁切丢色）。
+         * 高度严格锁定到 1em + overflow:hidden 构造"窥孔"，strip 在垂直滚动。
+         */
+        .game-over-score.odo-host {
+            display: inline-flex;
+            align-items: baseline;
+            justify-content: center;
+            line-height: 1;
+            /* odometer 模式下父元素不再直接渲染字符，背景渐变下放到子节点；
+             * 父级保留 background 以便 :hover 等场景复用，子节点用 inherit */
+        }
+        .game-over-score.odo-host .odo-digit,
+        .game-over-score.odo-host .odo-sep {
+            display: inline-block;
+            line-height: 1;
+            vertical-align: top;
+            font-variant-numeric: tabular-nums;
+            background: inherit;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+        }
+        .game-over-score.odo-host .odo-digit {
+            height: 1em;
+            overflow: hidden;
+            min-width: 0.62em;
+            text-align: center;
+        }
+        .game-over-score.odo-host .odo-strip {
+            display: flex;
+            flex-direction: column;
+            transform: translateY(0);
+            will-change: transform;
+            background: inherit;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+        }
+        .game-over-score.odo-host .odo-strip > i {
+            height: 1em;
+            line-height: 1;
+            display: block;
+            font-style: normal;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
         }
     `;
     document.head.appendChild(style);

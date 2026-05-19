@@ -18,6 +18,7 @@ SHARED="$ROOT/shared"
 echo "=== sync-core: $SRC → $DST ==="
 
 mkdir -p "$DST/bot"
+mkdir -p "$DST/lib"
 
 # 小程序包不直接携带 JSON，避免开发工具把 JSON 解析成 .json.js 或提示未上传。
 # 共享数据以 CommonJS 数据模块形式进入运行时。
@@ -42,6 +43,7 @@ NODE
 
 # 要同步的纯逻辑文件列表
 FILES=(
+  "lib/seededRng.js"
   "grid.js"
   "shapes.js"
   "gameRules.js"
@@ -108,9 +110,9 @@ module.exports = { $exports_obj };"
   fi
 
   # 9. 修复 JSON/模块路径（shared/ 文件已复制到 core/）
-  #    bot/ 下的文件引用 ../../shared/ → ../  (即 core/)
+  #    bot/ 与 lib/ 下的子目录文件引用 ../../shared/ → ../  (即 core/)
   #    core/ 根下的文件引用 ../shared/ → ./  (同目录)
-  if [[ "$f" == bot/* ]]; then
+  if [[ "$f" == bot/* || "$f" == lib/* ]]; then
     content=$(echo "$content" | sed "s|require('../../shared/|require('../|g")
     content=$(echo "$content" | sed "s|require('../shared/|require('../|g")
   else

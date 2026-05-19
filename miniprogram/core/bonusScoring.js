@@ -100,18 +100,28 @@ function monoNearFullLineColorWeights(grid, skin = null) {
   const blockIcons = skin?.blockIcons;
   const getIcon = (ci) => (blockIcons?.length ? blockIcons[ci % blockIcons.length] : null);
 
-  function addNearFull(filledVals) {
-    if (filledVals.length === 0) return;
+  /** v1.60.26：兑现期（empty ≤ 2）= 0.55；建设期（empty ∈ [3, n-2]）= 0.40 → 0.15 线性衰减 */
+  function biasFor(empty) {
+    if (empty < 1 || empty > n - 2) return 0;
+    if (empty <= 2) return MONO_NEAR_FULL_COLOR_WEIGHT;
+    const buildupMaxBias = 0.40;
+    const buildupMinBias = 0.15;
+    const t = (empty - 3) / Math.max(1, n - 5);
+    return buildupMaxBias - (buildupMaxBias - buildupMinBias) * Math.max(0, Math.min(1, t));
+  }
+
+  function addLine(filledVals, biasWeight) {
+    if (filledVals.length === 0 || biasWeight <= 0) return;
     const icon0 = getIcon(filledVals[0]);
     const monoIcon = icon0 !== null && filledVals.every((c) => getIcon(c) === icon0);
     const monoColor = icon0 === null && filledVals.every((c) => c === filledVals[0]);
     if (!monoIcon && !monoColor) return;
     if (monoIcon) {
       const distinctDock = [...new Set(filledVals.map(dockSlot))];
-      const share = MONO_NEAR_FULL_COLOR_WEIGHT / distinctDock.length;
+      const share = biasWeight / distinctDock.length;
       for (const s of distinctDock) w[s] += share;
     } else {
-      w[dockSlot(filledVals[0])] += MONO_NEAR_FULL_COLOR_WEIGHT;
+      w[dockSlot(filledVals[0])] += biasWeight;
     }
   }
 
@@ -122,7 +132,7 @@ function monoNearFullLineColorWeights(grid, skin = null) {
       if (c !== null) filled.push(c);
     }
     const empty = n - filled.length;
-    if (empty >= 1 && empty <= 2) addNearFull(filled);
+    if (empty >= 1 && empty <= n - 2) addLine(filled, biasFor(empty));
   }
   for (let x = 0; x < n; x++) {
     const filled = [];
@@ -131,7 +141,7 @@ function monoNearFullLineColorWeights(grid, skin = null) {
       if (c !== null) filled.push(c);
     }
     const empty = n - filled.length;
-    if (empty >= 1 && empty <= 2) addNearFull(filled);
+    if (empty >= 1 && empty <= n - 2) addLine(filled, biasFor(empty));
   }
   return w;
 }

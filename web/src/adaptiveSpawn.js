@@ -190,7 +190,8 @@ function _mergeLiveGeometrySignals(ctx) {
     const grid = ctx?._gridRef;
     if (!grid?.cells?.length || !Number.isFinite(grid.size)) return ctx;
     let next = ctx;
-    const topo = analyzeBoardTopology(grid);
+    /* v1.60.1：adaptiveSpawn 是"玩家失误评估"链路，独立库块产生的孤岛豁免 */
+    const topo = analyzeBoardTopology(grid, { skipSpecialCells: true });
     if (Number.isFinite(topo?.nearFullLines)) {
         next = { ...next, nearFullLines: topo.nearFullLines };
     }
@@ -302,7 +303,8 @@ export function deriveSpawnIntent(inputs = {}) {
 export function snapshotInsightGeometry(grid, dockShapePool) {
     if (!grid?.cells?.length || !Number.isFinite(grid.size)) return null;
     try {
-        const topo = analyzeBoardTopology(grid);
+        /* v1.60.1：insight 几何快照走"玩家失误评估"口径，独立库散点孤岛豁免 */
+        const topo = analyzeBoardTopology(grid, { skipSpecialCells: true });
         const dockPool = Array.isArray(dockShapePool)
             ? dockShapePool.filter((s) => Array.isArray(s?.data)).map((s) => ({ data: s.data }))
             : [];

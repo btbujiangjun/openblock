@@ -3,7 +3,7 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
-import { initScoreAnimator, animateScore, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
+import { initScoreAnimator, animateScore, animateScoreOdometer, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry } from './adaptiveSpawn.js';
 /* v1.57：stress 感知化层（A 棋盘氛围光 + B 呼吸节奏 + C 震动幅度 + D 音频滤波）
  * pushStressAmbience 在 _captureAdaptiveInsight 末尾被调用，把 finalStress 渗透
@@ -193,8 +193,15 @@ export class Game {
         this._spawnContext = {
             lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
             bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0,
-            /* v1.32+v1.60.0：特殊形状（不参与概率出块）每局计数器 + 间隔追踪 */
-            specialShapeUsed: 0, totalClears: 0, roundsSinceSpecial: 0,
+            /* v1.32+v1.60.0：特殊形状（不参与概率出块）每局计数器 + 间隔追踪。
+             * v1.60.6 缺口 #1：拆 relief / pressure 子配额计数器，保证两类相互不抢额度。 */
+            specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
+            totalClears: 0, roundsSinceSpecial: 0,
+            /* v1.60.21：高/极度 novelty 场景下的"双胞胎/三胞胎"注入计数 + 节流。
+             *   - dupInjectUsed：单局累积次数（≤ DUP_INJECT_CONFIG.MAX_PER_RUN=3）
+             *   - roundsSinceDupInject：距上次注入轮数（> MIN_ROUND_GAP=10 才允许下一次）；
+             *     局首初始化 0 → 自然要求"局内前 11 轮"不会注入（与节流契约一致） */
+            dupInjectUsed: 0, roundsSinceDupInject: 0,
         };
 
         this.behaviors = [];
@@ -377,7 +384,8 @@ export class Game {
         if (!this.grid) return null;
         let topo;
         try {
-            topo = analyzeBoardTopology(this.grid);
+            /* v1.60.1：snapshot 走"玩家失误评估"口径，独立库块产生的散点孤岛豁免 */
+            topo = analyzeBoardTopology(this.grid, { skipSpecialCells: true });
         } catch {
             return null;
         }
@@ -395,8 +403,21 @@ export class Game {
         const firstMoveFreedom = sm != null && Number.isFinite(Number(sm.firstMoveFreedom))
             ? Number(sm.firstMoveFreedom)
             : null;
+        /* v1.60.3 → v1.60.5：UI 层"空洞"用 enclosedVoidCells（4-连通分量 size ≤ 5
+         * 的小型局部空腔总格数）替代之前的 isolatedHoles（4-邻全填的孤洞）：
+         *   - isolatedHoles 漏掉 L 型 / 2-3 格小空腔（用户截图 4 箭头但 UI 只显 2 的根因）
+         *   - enclosedVoidCells 把"被填块圈住的小空腔"整片识别为洞，与玩家视觉对齐
+         * 三档口径同时暴露给下游：
+         *   - holes (UI)            ← enclosedVoidCells（玩家心智，小空腔总格数）
+         *   - holesIsolated         ← isolatedHoles（严格 4-邻全围，原 v1.60.3 口径）
+         *   - holesCoverable        ← topo.holes（严谨可覆盖性，stress/risk 用） */
+        const enclosed = Number.isFinite(topo.enclosedVoidCells) ? topo.enclosedVoidCells : null;
+        const isolated = Number.isFinite(topo.isolatedHoles) ? topo.isolatedHoles : null;
+        const uiHoles = enclosed != null ? enclosed : (isolated != null ? isolated : topo.holes);
         return {
-            holes: topo.holes,
+            holes: uiHoles,
+            holesIsolated: isolated,
+            holesCoverable: topo.holes,
             flatness: Number.isFinite(topo.flatness) ? topo.flatness : null,
             firstMoveFreedom,
             solutionCount
@@ -1028,6 +1049,10 @@ export class Game {
             // v10.18：仅复位每局重新渲染的内嵌进度；分享/海报按钮一次注入后跨局复用，不在这里清空
             const _digest = document.getElementById('over-digest');
             if (_digest) { _digest.innerHTML = ''; _digest.hidden = true; }
+            // v1.60.3：清理上一局的"挑战"次级 link 按钮（由 asyncPk 注入到 .game-over-links），
+            // 避免下一局结算面板显示时残留旧链接。
+            document.getElementById('apk-challenge-btn')?.remove();
+            document.getElementById('apk-challenge-sep')?.remove();
             // 关卡模式：同一关卡连续失败计数（用于失败提示）
             const prevLevelKey = this._currentLevelKey;
             const newLevelKey = opts.levelConfig ? JSON.stringify(opts.levelConfig?.id ?? opts.levelConfig?.objective) : null;
@@ -1077,7 +1102,11 @@ export class Game {
                 bestScore: this.bestScore ?? 0,
                 pbGrowthFast: _pbGrowthFastSnapshot,
                 bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0,
-            specialShapeUsed: 0, totalClears: 0, roundsSinceSpecial: 0,
+            /* v1.60.6 缺口 #1：拆 relief / pressure 子配额计数器（与 game 构造同步） */
+            specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
+            totalClears: 0, roundsSinceSpecial: 0,
+            /* v1.60.21：dup 注入节流（与 game 构造同步） */
+            dupInjectUsed: 0, roundsSinceDupInject: 0,
             };
             try {
                 if (typeof localStorage !== 'undefined') {
@@ -1433,6 +1462,19 @@ export class Game {
          *   - _commitSpawn 末尾再清为 false（栈底重置），下一轮重新按 hints 决定 */
         this._spawnContext.scoreMilestone = layered?.spawnHints?.scoreMilestone === true;
 
+        /* v1.60.1（Issue 2 修复 — off-by-one）：在调用 generateDockShapes 之前 +1，让
+         * `_tryInjectSpecial` 读到的 `roundsSinceSpecial` 就是"距上次注入已过 N 轮"。
+         * 原方案 +1 在 `_commitSpawn`（spawn 之后），导致 gate 检查时永远少 1，实际间隔 6 轮
+         * 而文档承诺 5 轮。`_commitSpawn` 只负责注入归 0（保持），不再 ++。 */
+        this._spawnContext.roundsSinceSpecial = (this._spawnContext.roundsSinceSpecial ?? 0) + 1;
+        /* v1.60.19：注入当前 skin 给 blockSpawn → grid.bestMonoFlushPotential 评估"同花顺"
+         * 潜力。skin 仅在 chosen 评分时只读使用（不修改），缺失时退化为 colorIdx 同色比较。 */
+        this._spawnContext.skin = getActiveSkin();
+        /* v1.60.21：高/极度 novelty 场景"双胞胎/三胞胎"注入的节流计数；
+         * 同 roundsSinceSpecial 的 off-by-one 修复模式——入口 +1，commit 时若注入归 0。
+         * 局首 0 → 自然要求至少 11 轮后才可能首次注入（与 MIN_ROUND_GAP=10 契约一致）。 */
+        this._spawnContext.roundsSinceDupInject = (this._spawnContext.roundsSinceDupInject ?? 0) + 1;
+
         const mode = getSpawnMode();
         if (mode === SPAWN_MODE_MODEL_V3) {
             this._spawnBlocksWithModel(layered, opts);
@@ -1529,7 +1571,9 @@ export class Game {
      */
     _commitSpawn(shapes, layered, opts, source) {
         this._spawnContext.totalRounds++;
-        this._spawnContext.roundsSinceSpecial++;
+        /* v1.60.1（Issue 2）：roundsSinceSpecial 在 spawnBlocks 入口已 +1，这里仅负责"本轮
+         * 若注入特殊形状则归 0"，下一轮 spawnBlocks 顶部再 +1，gate 看到 1（== 间隔 1 轮）。
+         * 旧实现在此处 ++ 会再 +1 → off-by-one（实际间隔 6 轮，文档承诺 5 轮）。 */
         if (shapes?.some(s => SPECIAL_SHAPES.includes(s.id))) {
             this._spawnContext.roundsSinceSpecial = 0;
         }
@@ -1550,7 +1594,45 @@ export class Game {
         const iconBonusTarget = Math.max(0, Math.min(1, layered.spawnHints?.iconBonusTarget ?? 0));
         const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin())
             .map(w => w * (1 + iconBonusTarget * 2.5));
-        const dockColors = pickThreeDockColors(bonusBias);
+
+        /* v1.60.27：monoFlush 染色强制绑定 —— 关键修复（修复"driver 标可凑同花顺但实际不染对应色"漏标）。
+         *
+         * **旧版 bug**：pickThreeDockColors(bonusBias) 是**独立随机抽样**——
+         *   3 个 dock 块颜色独立 bias 抽，**不绑定** shape↔color。结果：
+         *   - blockSpawn 标 shape A 为 monoFlush（前提是它染成 line 同色 icon）
+         *   - 染色阶段 line 同色被分给无关 shape B → shape A 染别的色 → 实际放下不触发同花
+         *   - driver "可凑1同花顺" 是**乐观虚标**，玩家失望。
+         *
+         * **修复**：spawn 阶段 `bestMonoFlushPotential` 同时返回 targetCi（line 同色 ci）。
+         *   染色阶段优先把 monoFlush chosen shape 强制染对应 targetCi，剩余 slots 才按
+         *   bias 抽 —— 保证 driver "可凑同花顺" 与实际染色一致。 */
+        const spawnDiag = getLastSpawnDiagnostics();
+        const chosenMetas = spawnDiag?.chosen || [];
+        const dockColors = new Array(3).fill(null);
+        const lockedSlots = new Set();
+
+        for (let i = 0; i < 3; i++) {
+            const meta = chosenMetas[i];
+            if (meta && (meta.monoFlush ?? 0) >= 1 && Number.isInteger(meta.monoFlushTargetCi)) {
+                dockColors[i] = meta.monoFlushTargetCi;
+                lockedSlots.add(i);
+            }
+        }
+
+        /* 剩余 slots 按 bias 抽 — 保留 pickThreeDockColors 的"无放回"语义避免颜色单调；
+         * 锁定 slot 的颜色从 pool 中剔除，让无放回抽样在剩余 7 色中进行。 */
+        if (lockedSlots.size < 3) {
+            const remainingPicks = pickThreeDockColors(bonusBias);
+            const usedSet = new Set();
+            for (const slot of lockedSlots) usedSet.add(dockColors[slot]);
+            const filtered = remainingPicks.filter(c => !usedSet.has(c));
+            let fillIdx = 0;
+            for (let i = 0; i < 3; i++) {
+                if (lockedSlots.has(i)) continue;
+                dockColors[i] = filtered[fillIdx] ?? remainingPicks[fillIdx] ?? Math.floor(Math.random() * 8);
+                fillIdx++;
+            }
+        }
 
         const descriptors = [];
         for (let i = 0; i < 3; i++) {
@@ -2097,7 +2179,15 @@ export class Game {
         if (placedPos) {
             const fillBefore = this.grid.getFillRatio();
             const validsBefore = this.grid.countValidPlacements(this.dragBlock.shape);
-            this.grid.place(this.dragBlock.shape, this.dragBlock.colorIdx, placedPos.x, placedPos.y);
+            /* v1.60.1（新需求 3）：传 shapeId + isSpecial 给 Grid，让 cellMeta 记录"该格由
+             * 独立库块放置"。下游 boardTopology({skipSpecialCells:true}) 据此豁免散点孤岛。 */
+            this.grid.place(
+                this.dragBlock.shape,
+                this.dragBlock.colorIdx,
+                placedPos.x,
+                placedPos.y,
+                { shapeId: this.dragBlock.id, isSpecial: SPECIAL_SHAPES.includes(this.dragBlock.id) },
+            );
             this.gameStats.placements++;
             this._markDockBlockPlaced(this.drag.index);
 
@@ -2831,7 +2921,13 @@ export class Game {
                     }
                     initScoreAnimator();
                     if (this.score > 0) {
-                        animateScore(this.score);
+                        /* v1.60.3：老虎机式按位滚动取代单值递增。
+                         * animateScore 仍保留导出，便于回放/测试等场景按需复用。
+                         * v1.60.5：透传 persistedBestBase（本局开始前的 PB）让
+                         * 高分音效档位按"挑战完成度"动态判定，与"差一口气"banner
+                         * 共享同一基线；用 _bestScoreAtRunStart 而非 this.bestScore
+                         * 避免本局新 PB 已被写入后导致 pct 永远 = 1 的循环。 */
+                        animateScoreOdometer(this.score, { bestScore: persistedBestBase });
                     } else {
                         setScoreImmediate(this.score);
                     }

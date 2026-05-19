@@ -55,7 +55,8 @@ function _refreshLayerParams(game) {
     // 从 blockSpawn.js 获取上一轮出块诊断（Layer 1 数据来源）
     const diag = getLastSpawnDiagnostics();
     const hints = game._lastAdaptiveInsight?.spawnHints ?? {};
-    const liveTopo = game.grid ? analyzeBoardTopology(game.grid) : null;
+    /* v1.60.1：spawn 模型面板走"玩家失误评估"口径 */
+    const liveTopo = game.grid ? analyzeBoardTopology(game.grid, { skipSpecialCells: true }) : null;
 
     // ── Layer 1: 盘面拓扑感知 ──────────────────────────────────────────────
     const fill = game.grid?.getFillRatio?.() ?? diag?.layer1?.fill ?? null;

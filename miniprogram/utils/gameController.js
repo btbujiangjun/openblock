@@ -115,11 +115,42 @@ class GameController {
     const iconBonusTarget = Math.max(0, Math.min(1, layered.spawnHints?.iconBonusTarget ?? 0));
     const colorBias = monoNearFullLineColorWeights(this.grid, this.skin)
       .map((w) => w * (1 + iconBonusTarget * 2.5));
-    const colors = pickThreeDockColors(colorBias);
+
+    /* v1.60.27：monoFlush 染色强制绑定 —— 与 web/src/game.js 同步实现。
+     * spawn 阶段标 shape 为"可凑同花顺"（前提是它染成 line 同色 icon），
+     * 染色阶段必须绑定 shape ↔ targetCi 让 driver 不再"虚标"。 */
+    const spawnDiag = getLastSpawnDiagnostics();
+    const chosenMetas = spawnDiag?.chosen || [];
+    const dockColorsArr = new Array(3).fill(null);
+    const lockedSlots = new Set();
+
+    for (let i = 0; i < 3; i++) {
+      const meta = chosenMetas[i];
+      if (meta && (meta.monoFlush || 0) >= 1 && Number.isInteger(meta.monoFlushTargetCi)) {
+        dockColorsArr[i] = meta.monoFlushTargetCi;
+        lockedSlots.add(i);
+      }
+    }
+
+    if (lockedSlots.size < 3) {
+      const remainingPicks = pickThreeDockColors(colorBias);
+      const usedSet = new Set();
+      for (const slot of lockedSlots) usedSet.add(dockColorsArr[slot]);
+      const filtered = remainingPicks.filter((c) => !usedSet.has(c));
+      let fillIdx = 0;
+      for (let i = 0; i < 3; i++) {
+        if (lockedSlots.has(i)) continue;
+        dockColorsArr[i] = filtered[fillIdx] !== undefined ? filtered[fillIdx]
+                          : remainingPicks[fillIdx] !== undefined ? remainingPicks[fillIdx]
+                          : Math.floor(Math.random() * 8);
+        fillIdx++;
+      }
+    }
+
     this.dock = shapes.map((s, i) => ({
       id: s.id,
       shape: s.data,
-      colorIdx: colors[i % colors.length],
+      colorIdx: dockColorsArr[i],
       placed: false,
     }));
     this._commitSpawnContext(layered);

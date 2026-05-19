@@ -5,6 +5,7 @@
 import { Grid } from './grid.js';
 import { computeClearScore } from './clearScoring.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
+import { isSpecialShapeId } from './shapes.js';
 
 export const MOVE_SEQUENCE_SCHEMA = 1;
 /** 玩家状态快照内部版本，便于日后扩展字段 */
@@ -633,7 +634,15 @@ export function replayStateAt(frames, lastInclusive) {
             if (!grid.canPlace(b.shape, f.x, f.y)) {
                 continue;
             }
-            grid.place(b.shape, b.colorIdx, f.x, f.y);
+            /* v1.60.1（新需求 3 + 1：回放支持独立库特殊形状）：
+             *   - spawn 帧已记录 dock 内每个 block 的 id（含 special id）；
+             *   - 回放重建时按 b.id 是否在 `specialShapeIds` 内打 isSpecial 标，
+             *     让回放期间的 boardTopology({skipSpecialCells:true}) 也能豁免散点孤岛；
+             *   - 不破坏旧 frame 格式（无 id 字段时 isSpecial=false 自然 fallback）。 */
+            grid.place(b.shape, b.colorIdx, f.x, f.y, {
+                shapeId: b.id,
+                isSpecial: isSpecialShapeId(b.id),
+            });
             const result = grid.checkLines();
             result.perfectClear = result.count > 0 && grid.getFillRatio() === 0;
             const strategyId = first.strategy || 'normal';
@@ -923,7 +932,7 @@ export const REPLAY_METRICS = [
         extract: ps => ps.spawnGeo?.holes,
         fmt: 'int',
         tooltip:
-            '盘面空洞数：analyzeBoardTopology 统计的、当前所有可出形状在任何合法位置都无法覆盖的空格数；越多越难修复。\n📈 看图：随落子与消行波动；与下方「平整」等几何信号同向印证。'
+            '盘面空洞数（v1.60.5 玩家心智口径）：4-连通空格分量 size ≤ 5 的"小型局部空腔"——整片空腔的每个格都计入。\n📈 看图：1 格孤洞→1；2-3 格 L 凹陷→2/3；5 格小腔→5；> 5 格视为"大空区"，不计。随落子与消行波动；与下方「平整」同向印证。\n三档口径全部暴露给下游：\n  - holes（UI）= enclosedVoidCells：玩家心智，小型局部空腔（4-连通分量 size ≤ 5）\n  - holesIsolated = isolatedHoles：严格"4-邻全填"的单格孤洞（v1.60.3 老口径，bot.countIsolatedHoles 同源）\n  - holesCoverable：严谨"任何形状都无法覆盖"的空格（reg 28 池），供 stress / risk 等需"可解性"语义的下游使用\n独立库小块（special）周围的小空腔会被豁免，不计入主指标。'
     },
     /* v1.46：把原本只在 spawn 决策快照下方 pill 区显示的「平整」与「首手自由度」
      * 升级为时间序列指标——与 holes/solutionCount 一起构成"盘面几何"四件套，

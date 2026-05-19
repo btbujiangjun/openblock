@@ -927,7 +927,8 @@ function _buildLiveSnapshotForSeries(game) {
     }
     if (game.grid) {
         try {
-            const topo = analyzeBoardTopology(game.grid);
+            /* v1.60.1：玩家面板展示"玩家失误评估"口径，独立库散点孤岛豁免 */
+            const topo = analyzeBoardTopology(game.grid, { skipSpecialCells: true });
             const liveSm = _placementSolutionForGame(game);
             const solutionCount =
                 liveSm != null && Number.isFinite(Number(liveSm.solutionCount))
@@ -938,9 +939,16 @@ function _buildLiveSnapshotForSeries(game) {
                     ? Number(liveSm.firstMoveFreedom)
                     : null;
             /* v1.46：live 面板的 spawnGeo 与 buildPlayerStateSnapshot.spawnGeo 对齐，
-             * 把"平整"和"首手自由度"也写入，让它们作为曲线指标实时刷新。 */
+             * 把"平整"和"首手自由度"也写入，让它们作为曲线指标实时刷新。
+             * v1.60.5：holes 字段升级为 enclosedVoidCells（4-连通分量 size ≤ 5），
+             * 与 `_spawnGeoForSnapshot` 对齐——见 game.js 同位置注释。 */
+            const enclosed = Number.isFinite(topo.enclosedVoidCells) ? topo.enclosedVoidCells : null;
+            const isolated = Number.isFinite(topo.isolatedHoles) ? topo.isolatedHoles : null;
+            const uiHoles = enclosed != null ? enclosed : (isolated != null ? isolated : topo.holes);
             slim.spawnGeo = {
-                holes: topo.holes,
+                holes: uiHoles,
+                holesIsolated: isolated,
+                holesCoverable: topo.holes,
                 flatness: Number.isFinite(topo.flatness) ? topo.flatness : null,
                 firstMoveFreedom,
                 solutionCount
@@ -1391,7 +1399,8 @@ function _render(game) {
 
     const p = game.playerProfile;
     const ins = game._lastAdaptiveInsight;
-    const liveTopology = game.grid ? analyzeBoardTopology(game.grid) : null;
+    /* v1.60.1：玩家面板拓扑走"玩家失误评估"口径，独立库散点孤岛豁免 */
+    const liveTopology = game.grid ? analyzeBoardTopology(game.grid, { skipSpecialCells: true }) : null;
     /* v1.58 §rewire SSOT：liveBoardFill 走 selectors，避免 v1.57.5 §A 类双显复发。
      * topology.fillRatio 优先（它含一次性几何分析的语义），缺失时走 selector。 */
     const liveBoardFill = liveTopology?.fillRatio ?? selectLiveBoardFill(game);

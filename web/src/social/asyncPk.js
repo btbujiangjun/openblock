@@ -42,12 +42,20 @@ export function initAsyncPk({ game } = {}) {
         }
     }
 
-    /* 监听 game.endGame，用户分数高于 200 时弹"分享挑战"按钮 */
+    /* 监听 game.endGame，用户分数高于 200 时在结算面板"次级链接行"追加一个"挑战"按钮。
+     *
+     * v1.60.2：从"局后 1.2s 弹独立 fixed toast"改为"结算面板内嵌行"——消除浮层叠加。
+     * v1.60.3：把内嵌行进一步折叠为单个 link 按钮，与「菜单·回放·海报·分享」并列
+     *   （用户截图反馈：内嵌行视觉太重，应与其他次级 CTA 同层），点击 = 复制挑战
+     *   链接到剪贴板，按钮文案变"已复制"。 */
     const orig = game.endGame.bind(game);
     game.endGame = async (...args) => {
         const score = game.score | 0;
         const r = await orig(...args);
-        if (score >= 200) setTimeout(() => _maybeShowShareCta(score), 1200);
+        if (score >= 200) {
+            /* 用 rAF 等结算面板 DOM 就位（endGame 内会同步 active+digest），再注入 */
+            requestAnimationFrame(() => _mountChallengeLinkInLinksRow(score));
+        }
         return r;
     };
 
@@ -159,38 +167,55 @@ function _showChallengeDialog(payload) {
     }
 }
 
-function _maybeShowShareCta(score) {
+/**
+ * v1.60.3：把"挑战分享 CTA"折叠为单个 link 按钮"挑战"，追加到结算面板的次级链接
+ * 行 `.game-over-links`，与"菜单·回放·海报·分享"并列，统一所有次级 CTA 的视觉
+ * 层级（用户截图反馈：v1.60.2 的内嵌行视觉太重）。
+ *
+ * 行为：
+ *   - 文案选用"挑战"（短 + 表达 PK 玩法），aria-label="复制挑战链接"
+ *   - 点击 → navigator.clipboard.writeText(url)，按钮 textContent 变"已复制"，置 disabled
+ *   - 跨局清理由 game.js start() 一并 remove `#apk-challenge-btn` / `#apk-challenge-sep`
+ *   - 同一局多次注入：先 remove 旧的 sep+btn 再追加（防御同 id 冲突）
+ */
+function _mountChallengeLinkInLinksRow(score) {
     if (typeof document === 'undefined') return;
-    /* 简易 toast 提示 + 复制链接按钮 */
-    document.getElementById('apk-share-toast')?.remove();
-    const { url } = _createChallenge(score);
-    const t = document.createElement('div');
-    t.id = 'apk-share-toast';
-    t.className = 'apk-share-toast';
-    t.innerHTML = `
-        <span class="apk-icon">⚔</span>
-        <span class="apk-msg">向朋友发起挑战？复制链接即可</span>
-        <button class="apk-copy" type="button" data-url="${url}">复制链接</button>
-        <button class="apk-close" type="button" aria-label="关闭">×</button>
-    `;
-    document.body.appendChild(t);
-    requestAnimationFrame(() => t.classList.add('is-visible'));
+    const linksRow = document.querySelector('#game-over .game-over-links');
+    if (!linksRow) return;
+    /* 防御：同一局已注入过则不重复 */
+    linksRow.querySelector('#apk-challenge-btn')?.remove();
+    linksRow.querySelector('#apk-challenge-sep')?.remove();
 
-    t.querySelector('.apk-copy').addEventListener('click', () => {
-        const u = t.querySelector('.apk-copy').dataset.url;
+    const { url } = _createChallenge(score);
+
+    /* 中点分隔符 — 与 index.html 中已有的 .game-over-link-sep 视觉一致 */
+    const sep = document.createElement('span');
+    sep.id = 'apk-challenge-sep';
+    sep.className = 'game-over-link-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '·';
+
+    /* "挑战"按钮 — 复用 .game-over-link 样式，与其他次级 link 完全同层 */
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'apk-challenge-btn';
+    btn.className = 'game-over-link';
+    btn.dataset.url = url;
+    btn.textContent = '挑战';
+    btn.setAttribute('aria-label', '复制挑战链接');
+
+    btn.addEventListener('click', () => {
+        const u = btn.dataset.url;
         if (typeof navigator !== 'undefined' && navigator.clipboard) {
-            navigator.clipboard.writeText(u).catch(() => {});
+            navigator.clipboard.writeText(u).catch(() => { /* 忽略权限失败 */ });
         }
-        t.querySelector('.apk-copy').textContent = i18nT('toast.copied');
+        btn.textContent = i18nT('toast.copied');
+        btn.disabled = true;
+        btn.setAttribute('aria-disabled', 'true');
     });
-    t.querySelector('.apk-close').addEventListener('click', () => {
-        t.classList.remove('is-visible');
-        setTimeout(() => t.remove(), 280);
-    });
-    setTimeout(() => {
-        t.classList.remove('is-visible');
-        setTimeout(() => t.remove(), 280);
-    }, 8000);
+
+    linksRow.appendChild(sep);
+    linksRow.appendChild(btn);
 }
 
 /** 测试用 */

@@ -56,7 +56,14 @@ export function detectBonusLines(grid, skin) {
 export const MONO_NEAR_FULL_COLOR_WEIGHT = 0.55;
 
 /**
- * 扫描近满行/列：已填入部分若已为同一 icon（优先）或同色（无 icon），则提高对应颜色在本轮 dock 的出现概率。
+ * 扫描近满/已成型同色行/列：已填入部分若已为同一 icon（优先）或同色（无 icon），则提高对应颜色在本轮 dock 的出现概率。
+ *
+ * **v1.60.26 拓宽**：与 `Grid.bestMonoFlushPotential` 严格同口径——
+ *   - 旧版：仅 `empty ∈ [1, 2]` 时加 bias（"立即兑现期"）
+ *   - 新版：`empty ∈ [1, n-2]` 且已填部分全同 icon 时加 bias（覆盖 shape 占 K=1..n-2 cells 的所有同花潜力）
+ *
+ * **bias 衰减**：empty 越大（同花尚远）权重越低；empty=1/2 维持原 0.55，empty 增大时按 `0.55 × (n-2-empty)/(n-2-1)` 递减到 0.15 最小值，
+ * 让"立即可兑现"线仍主导染色，"建设期同色线"在边际加 bias，避免染色 bias 过度集中导致 dock 颜色单调。
  *
  * @param {import('./grid.js').Grid} grid
  * @param {{ blockIcons?: string[] } | null} [skin]
@@ -71,11 +78,23 @@ export function monoNearFullLineColorWeights(grid, skin = null) {
     const getIcon = (ci) => (blockIcons?.length ? blockIcons[ci % blockIcons.length] : null);
     const dockSlot = (ci) => ((ci % 8) + 8) % 8;
 
+    /** v1.60.26：根据 empty 数计算 bias 权重 — empty 越小（越近兑现）权重越大。
+     *  分段：兑现期（empty ≤ 2）= 0.55；建设期（empty ∈ [3, n-2]）= 0.40 → 0.15 线性衰减。 */
+    function biasFor(empty) {
+        if (empty < 1 || empty > n - 2) return 0;
+        if (empty <= 2) return MONO_NEAR_FULL_COLOR_WEIGHT;          /* 0.55 兑现期 */
+        const buildupMaxBias = 0.40;
+        const buildupMinBias = 0.15;
+        const t = (empty - 3) / Math.max(1, n - 5);                  /* empty=3 → 0; empty=n-2 → 1 */
+        return buildupMaxBias - (buildupMaxBias - buildupMinBias) * Math.max(0, Math.min(1, t));
+    }
+
     /**
      * @param {number[]} filledVals row/col 上非 null 的 colorIdx（有序）
+     * @param {number} biasWeight
      */
-    function addWeightsForNearFullLine(filledVals) {
-        if (filledVals.length === 0) return;
+    function addWeightsForLine(filledVals, biasWeight) {
+        if (filledVals.length === 0 || biasWeight <= 0) return;
         const icon0 = getIcon(filledVals[0]);
         const monoIcon = icon0 !== null && filledVals.every((c) => getIcon(c) === icon0);
         const monoColor = icon0 === null && filledVals.every((c) => c === filledVals[0]);
@@ -83,10 +102,10 @@ export function monoNearFullLineColorWeights(grid, skin = null) {
 
         if (monoIcon) {
             const distinctDock = [...new Set(filledVals.map(dockSlot))];
-            const share = MONO_NEAR_FULL_COLOR_WEIGHT / distinctDock.length;
+            const share = biasWeight / distinctDock.length;
             for (const s of distinctDock) w[s] += share;
         } else {
-            w[dockSlot(filledVals[0])] += MONO_NEAR_FULL_COLOR_WEIGHT;
+            w[dockSlot(filledVals[0])] += biasWeight;
         }
     }
 
@@ -97,7 +116,7 @@ export function monoNearFullLineColorWeights(grid, skin = null) {
             if (c !== null) filled.push(c);
         }
         const empty = n - filled.length;
-        if (empty >= 1 && empty <= 2) addWeightsForNearFullLine(filled);
+        if (empty >= 1 && empty <= n - 2) addWeightsForLine(filled, biasFor(empty));
     }
 
     for (let x = 0; x < n; x++) {
@@ -107,7 +126,7 @@ export function monoNearFullLineColorWeights(grid, skin = null) {
             if (c !== null) filled.push(c);
         }
         const empty = n - filled.length;
-        if (empty >= 1 && empty <= 2) addWeightsForNearFullLine(filled);
+        if (empty >= 1 && empty <= n - 2) addWeightsForLine(filled, biasFor(empty));
     }
 
     return w;

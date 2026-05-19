@@ -8,6 +8,23 @@ export class Grid {
     constructor(size = 8) {
         this.size = size;
         this.cells = this.createEmptyGrid();
+        /**
+         * v1.60.1：cell 来源元数据（运行时，不入 toJSON / 不持久化）。
+         *
+         * Map<"x,y", { placedBy: string, isSpecial: boolean }>
+         *   placedBy: 该格被填充时的 shape id
+         *   isSpecial: 是否独立库形状（v1.32+v1.60.0 12 个事件注入形状）
+         *
+         * 用途："独立库块产生的空洞不算"——analyzeBoardTopology 在统计 holes 时
+         * 跳过"邻接特殊块"的空格，避免因事件注入造成的散点孔洞被错误计入玩家失误指标
+         * （distress 信号 / difficulty 调控 / stress）。
+         *
+         * 序列化约定：toJSON 不导出 _cellMeta；fromJSON 重置为空 Map。
+         *   - record-replay：从 spawn 帧重建时按 dock.id ∈ specialShapeIds 重新打标（详见 game.js 回放路径）
+         *   - SQLite 持久化：盘面快照不带 meta，下次加载视为"全部 isSpecial=false"——这是
+         *     有意的语义弱化：跨 session 我们不追究历史块的特殊性，只保证当局 distress 正确
+         */
+        this._cellMeta = new Map();
     }
 
     createEmptyGrid() {
@@ -23,6 +40,8 @@ export class Grid {
 
     clear() {
         this.cells = this.createEmptyGrid();
+        if (this._cellMeta) this._cellMeta.clear();
+        else this._cellMeta = new Map();
     }
 
     clone() {
@@ -32,7 +51,45 @@ export class Grid {
                 grid.cells[y][x] = this.cells[y][x];
             }
         }
+        /* v1.60.1：浅复制 cellMeta — Map 元素为 immutable plain object，浅复制安全 */
+        if (this._cellMeta) {
+            for (const [key, value] of this._cellMeta) grid._cellMeta.set(key, value);
+        }
         return grid;
+    }
+
+    /** v1.60.1：cell 元数据读写 helpers（pure） */
+    _metaKey(x, y) { return x + ',' + y; }
+
+    /**
+     * 返回 (x, y) 处的 cell 元数据，无则 undefined。
+     * @returns {{ placedBy: string, isSpecial: boolean } | undefined}
+     */
+    getCellMeta(x, y) {
+        return this._cellMeta?.get(this._metaKey(x, y));
+    }
+
+    /**
+     * 检查 (x, y) 的 4 邻居（上下左右）是否至少有一个 isSpecial=true 的填充格。
+     * 用于 boardTopology.holes 统计时豁免"邻接特殊块"的空格——这就是
+     * "独立库块产生的空洞不算"在拓扑层面的精确语义。
+     *
+     * @param {number} x
+     * @param {number} y
+     * @returns {boolean}
+     */
+    isCellNearSpecial(x, y) {
+        if (!this._cellMeta || this._cellMeta.size === 0) return false;
+        const deltas = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        for (const [dx, dy] of deltas) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || nx >= this.size || ny < 0 || ny >= this.size) continue;
+            if (this.cells[ny][nx] === null) continue;
+            const meta = this._cellMeta.get(this._metaKey(nx, ny));
+            if (meta && meta.isSpecial) return true;
+        }
+        return false;
     }
 
     canPlace(shape, gx, gy) {
@@ -192,11 +249,30 @@ export class Grid {
         return best;
     }
 
-    place(shape, colorIdx, gx, gy) {
+    /**
+     * 把形状落到 (gx, gy)。
+     *
+     * @param {number[][]} shape
+     * @param {number}     colorIdx
+     * @param {number}     gx
+     * @param {number}     gy
+     * @param {{ shapeId?: string, isSpecial?: boolean }} [opts]
+     *   v1.60.1：可选 meta，未来 holes 统计/distress 信号可豁免独立库块产生的空洞。
+     *   - shapeId: 该形状的 id（如 '1x2' / '2x2'）
+     *   - isSpecial: 是否独立库形状（不传则默认 false）
+     */
+    place(shape, colorIdx, gx, gy, opts) {
+        const shapeId = opts?.shapeId;
+        const isSpecial = opts?.isSpecial === true;
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[y].length; x++) {
                 if (shape[y][x]) {
-                    this.cells[gy + y][gx + x] = colorIdx;
+                    const cx = gx + x;
+                    const cy = gy + y;
+                    this.cells[cy][cx] = colorIdx;
+                    if (shapeId !== undefined && this._cellMeta) {
+                        this._cellMeta.set(this._metaKey(cx, cy), { placedBy: shapeId, isSpecial });
+                    }
                 }
             }
         }
@@ -269,12 +345,15 @@ export class Grid {
         for (const y of fullRows) {
             for (let x = 0; x < this.size; x++) {
                 this.cells[y][x] = null;
+                /* v1.60.1：清行同时清除对应 cellMeta，避免 isSpecial=true 残留误判 */
+                if (this._cellMeta) this._cellMeta.delete(this._metaKey(x, y));
             }
         }
 
         for (const x of fullCols) {
             for (let y = 0; y < this.size; y++) {
                 this.cells[y][x] = null;
+                if (this._cellMeta) this._cellMeta.delete(this._metaKey(x, y));
             }
         }
 
@@ -461,6 +540,407 @@ export class Grid {
             }
         }
         return fills;
+    }
+
+    /**
+     * v1.60.18：扫所有合法 placement，返回 shape 在盘面上的最佳"完美卡入"契合度 ∈ [0, 1]。
+     *
+     * **定义**：契合度 = shape 占用格的"外周 4-邻居"中，已被填充或越出边界的比例。
+     *   - 1.0  → shape 周边一圈全部被填/边界，**完美嵌入凹槽**（视觉上"卡进去"）
+     *   - ≥0.85 → 大部分边界已填，紧凑契合（仍可能留 1 个外角缺口）
+     *   - ≤0.5 → shape 像"漂浮"在空旷区域，不会形成嵌入
+     *
+     * **算法**：对每个 shape cell (dx,dy)：
+     *   - 枚举 4 个邻居方向 (dx±1, dy±1)
+     *   - 若邻居仍在 shape 内部，跳过（不算作"外周"）
+     *   - 若邻居越出棋盘 / 已被填充 → borderFilled++
+     *   - 累计 borderTotal++
+     *   contact = borderFilled / borderTotal
+     *
+     * **设计动机**（用户反馈"截图中 2×2 候选块能完美填空但算法无识别"）：
+     *   现有 multiClear / gapFills / holeReduce 都不奖励"几何精确嵌入"——形如盘面上
+     *   有 2×2 凹槽时，2×2 块即使不消行/不补洞，放下去也是**最优局部决策**（不会制造
+     *   外悬挂、不会缩窄解空间）。本指标补齐了这一盲区。
+     *
+     * **复杂度**：O(n² × cells)，n=size=10、cells≤25 → 每次调用 ≤ 2500 次邻居检查；
+     *   命中 1.0 立即 short-circuit 返回（绝大多数盘面在前几次 placement 就命中）。
+     *
+     * @param {number[][]} shapeData
+     * @returns {number} 最佳契合度 ∈ [0, 1]；shape 无合法 placement 时返回 0
+     */
+    bestExactFit(shapeData) {
+        if (!shapeData || !Array.isArray(shapeData) || shapeData.length === 0) return 0;
+        const sh = shapeData.length;
+        const sw = shapeData[0].length;
+        const n = this.size;
+
+        /* 预收集 shape 占用 cell 的相对坐标 + 邻居偏移过滤 set，避免外层循环重复计算 */
+        const shapeCells = [];
+        const shapeSet = new Set();
+        for (let dy = 0; dy < sh; dy++) {
+            for (let dx = 0; dx < sw; dx++) {
+                if (shapeData[dy][dx]) {
+                    shapeCells.push([dx, dy]);
+                    shapeSet.add(`${dx},${dy}`);
+                }
+            }
+        }
+        if (shapeCells.length === 0) return 0;
+
+        let best = 0;
+        for (let oy = 0; oy <= n - sh; oy++) {
+            for (let ox = 0; ox <= n - sw; ox++) {
+                if (!this.canPlace(shapeData, ox, oy)) continue;
+                let borderTotal = 0, borderFilled = 0;
+                for (const [dx, dy] of shapeCells) {
+                    /* 4 邻居：(dx-1,dy)/(dx+1,dy)/(dx,dy-1)/(dx,dy+1) */
+                    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                    for (const [ddx, ddy] of dirs) {
+                        const nx = dx + ddx, ny = dy + ddy;
+                        /* 邻居仍在 shape 内 → 跳过（属于内部接触，不算外周契合度） */
+                        if (shapeSet.has(`${nx},${ny}`)) continue;
+                        borderTotal++;
+                        const tx = ox + nx, ty = oy + ny;
+                        /* 越出棋盘 → 视为已"填充"（边界等同硬约束） */
+                        if (tx < 0 || tx >= n || ty < 0 || ty >= n) {
+                            borderFilled++;
+                        } else if (this.cells[ty][tx] !== null) {
+                            borderFilled++;
+                        }
+                    }
+                }
+                const score = borderTotal > 0 ? borderFilled / borderTotal : 0;
+                if (score > best) best = score;
+                if (best >= 0.999) return 1; /* 完美匹配 → short-circuit */
+            }
+        }
+        return best;
+    }
+
+    /**
+     * v1.60.19：扫所有合法 placement，返回 shape 放下后可触发的"同花顺消除"（iconBonus）
+     * line 数最大值。
+     *
+     * v1.60.22 关键修复（用户截图反馈"方框中同花顺判断逻辑不对"）：
+     *   与染色阶段 `clearScoring.monoNearFullLineColorWeights` **完全同口径**——只对
+     *   **原本已填 ≥ 8 格的近满 line**（`empty ≤ 2`）才计 monoFlush。
+     *
+     *   之前的 bug：shape 占 9 格 + 已填 1 格同色 → 算法误识别为 monoFlush=1，
+     *   但染色阶段（`empty=9 > 2` 不加 bias）根本不会给对应色 bias，玩家命中率 ≈ 1/8 等同
+     *   不匹配。"可凑1同花顺"成为虚假承诺。
+     *
+     *   修复后语义对齐："chosen 阶段识别为 monoFlush=N" ⟺ "染色阶段会给对应色加 bias"
+     *   ⟺ "形状 + 颜色双向锁定的真实概率提升"。
+     *
+     * **业务定义**（与 `clearScoring.detectBonusLines` 完全对齐）：
+     *   - iconBonus 触发条件：整行/整列**全部为同一 icon**（或皮肤无 icon 时同 colorIdx）
+     *   - 触发后该行/列得分 ×ICON_BONUS_LINE_MULT（默认 5 倍）
+     *
+     * **本函数语义**：识别"shape 放下后能补满若干 line，且这些 line 上**除 shape 占用格之外**
+     * 的已填部分**(a) 至少 8 格 (b) 全部同 icon**"——即**形状端的潜力**，与染色阶段
+     * `monoNearFullLineColorWeights` 完全同口径，形状/颜色双向锁定。
+     *
+     * 返回值 ∈ {0, 1, 2, ...}：
+     *   - 0 → 完全不可能触发 iconBonus（无任何 placement 能补满"近满已填同色" line）
+     *   - 1 → 至少一个 placement 能补满 1 条近满已填同色 line
+     *   - 2+ → 单次放下可补满多条近满已填同色 line（极佳情境）
+     *
+     * **算法**：对每个合法 placement (ox, oy)：
+     *   1. 收集 shape 影响的 row/col 集合，标记 shapeOccupied cells
+     *   2. 对每条受影响 row：
+     *      a. 先数 row 上"非 shape 占用"的预填格子数 `preFilled`；
+     *      b. **如果 `preFilled < n - 2 = 8`，跳过**（不构成近满 line，染色阶段也不加 bias）；
+     *      c. 再检查这些预填格子是否**全部同 icon**；若是 → bonusCount++
+     *   3. 对每条受影响 col：同理
+     *   4. 取所有 placement 的 bonusCount 最大值
+     *
+     * **复杂度**：O(n² × cells × n)；n=10、cells≤25 → ≤ 25000 次检查，可接受。
+     *
+     * @param {number[][]} shapeData
+     * @param {{ blockIcons?: string[] }|null} [skin]  皮肤；不传则按 colorIdx 同色比较
+     * @returns {number} 最佳 placement 下可触发 iconBonus 的 line 数
+     */
+    bestMonoFlushPotential(shapeData, skin = null, opts = {}) {
+        const returnTarget = opts && opts.returnTarget === true;
+        if (!shapeData || !Array.isArray(shapeData) || shapeData.length === 0) {
+            return returnTarget ? { count: 0, targetCi: null } : 0;
+        }
+        const sh = shapeData.length;
+        const sw = shapeData[0].length;
+        const n = this.size;
+        /* v1.60.26：撤销 v1.60.22 的 NEAR_FULL_MIN_PREFILLED 阈值。
+         *
+         * **旧版 bug**：v1.60.22 强制 `preFilled >= n - 2 = 8`，意图与 `monoNearFullLineColorWeights`
+         * 的 `empty ∈ [1, 2]` 同口径，但等价于"shape 只能占该 line ≤ 2 cells"——
+         * 漏掉了 shape 占 K ≥ 3 cells 的合法同花 case（如 3×1 竖块占 col 上 3 cells +
+         * non-shape 7 cells 全同色 → 满 10 + 同 icon = **真同花**）。
+         *
+         * **严格定义同口径**（用户 v1.60.26 反馈）：
+         *   候选块放下**构成消行**（line 满）+ 被消的 line 上**所有 cells 同 icon** → 同花块。
+         *   `allFilled` 已保证 non-shape 部分全填（即 shape 放下后 line 满 = 消行），
+         *   `allSame` 已保证 non-shape 部分全同 icon，shape 假设乐观染色为 match icon。
+         *   两条件足够 — 无需额外阈值。
+         *
+         * **染色 bias 同口径** 通过修改 `monoNearFullLineColorWeights` 也支持 `empty > 2`
+         * 但已 mono 的 line 染色 bias 达成（见 clearScoring.js v1.60.26）—— 确保 shape
+         * 选定后染色阶段也尽力 match line icon，让"几何潜力"真转化为"实际同花"。 */
+
+        const blockIcons = skin?.blockIcons;
+        const getIcon = (ci) => (blockIcons?.length ? blockIcons[ci % blockIcons.length] : null);
+        /* 同色判定：有 icon 优先按 icon 比；无 icon 退化到 colorIdx 严格相等 */
+        const sameAs = (refCi, ci) => {
+            if (refCi == null || ci == null) return false;
+            const refIcon = getIcon(refCi);
+            if (refIcon !== null) return getIcon(ci) === refIcon;
+            return ci === refCi;
+        };
+
+        /* 预收集 shape 占用 cell 偏移 */
+        const shapeCells = [];
+        for (let dy = 0; dy < sh; dy++) {
+            for (let dx = 0; dx < sw; dx++) {
+                if (shapeData[dy][dx]) shapeCells.push([dx, dy]);
+            }
+        }
+        if (shapeCells.length === 0) return returnTarget ? { count: 0, targetCi: null } : 0;
+
+        let best = 0;
+        let bestTargetCi = null;
+        for (let oy = 0; oy <= n - sh; oy++) {
+            for (let ox = 0; ox <= n - sw; ox++) {
+                if (!this.canPlace(shapeData, ox, oy)) continue;
+
+                /* 受影响 row/col + shape 占用 cells（key: "x,y"） */
+                const affectedRows = new Set();
+                const affectedCols = new Set();
+                const shapeOccupied = new Set();
+                for (const [dx, dy] of shapeCells) {
+                    affectedRows.add(oy + dy);
+                    affectedCols.add(ox + dx);
+                    shapeOccupied.add(`${ox + dx},${oy + dy}`);
+                }
+
+                let bonusCount = 0;
+                let placementTargetCi = null;   /* v1.60.27：记录此 placement 命中的 line 同色 ci */
+
+                /* 行检查（v1.60.26 严格用户定义）：
+                 *   (a) shape 放下后 line 满（消行）⟺ non-shape 部分**全填**(allFilled)
+                 *   (b) 全 line 同 icon（同花消除）⟺ non-shape 部分**全同 icon**(allSame)
+                 *
+                 * shape 占的 cells 假设乐观染色为 match icon（spawn 阶段 ci 还未确定，
+                 * 染色 bias 在 clearScoring.monoNearFullLineColorWeights v1.60.26 同步拓宽
+                 * 到 mono 已满足的 line 也加 bias，确保 shape ci 倾向 match）。 */
+                for (const y of affectedRows) {
+                    let allFilled = true;
+                    let refCi = null;
+                    let allSame = true;
+                    for (let x = 0; x < n; x++) {
+                        if (shapeOccupied.has(`${x},${y}`)) continue;
+                        const c = this.cells[y][x];
+                        if (c === null) { allFilled = false; break; }
+                        if (refCi === null) refCi = c;
+                        else if (!sameAs(refCi, c)) { allSame = false; break; }
+                    }
+                    if (!allFilled) continue;
+                    if (!allSame || refCi === null) continue;
+                    bonusCount++;
+                    if (placementTargetCi === null) placementTargetCi = refCi;
+                }
+
+                /* 列检查：同理 */
+                for (const x of affectedCols) {
+                    let allFilled = true;
+                    let refCi = null;
+                    let allSame = true;
+                    for (let y = 0; y < n; y++) {
+                        if (shapeOccupied.has(`${x},${y}`)) continue;
+                        const c = this.cells[y][x];
+                        if (c === null) { allFilled = false; break; }
+                        if (refCi === null) refCi = c;
+                        else if (!sameAs(refCi, c)) { allSame = false; break; }
+                    }
+                    if (!allFilled) continue;
+                    if (!allSame || refCi === null) continue;
+                    bonusCount++;
+                    if (placementTargetCi === null) placementTargetCi = refCi;
+                }
+
+                if (bonusCount > best) {
+                    best = bonusCount;
+                    bestTargetCi = placementTargetCi;
+                }
+            }
+        }
+        if (returnTarget) return { count: best, targetCi: bestTargetCi };
+        return best;
+    }
+
+    /**
+     * v1.60.25：同花顺**建设期**信号 —— `bestMonoFlushPotential` 的互补信号。
+     *
+     * **设计动机**：
+     *   - `bestMonoFlushPotential`（v1.60.19/22）严格要求 row/col 上 `empty ∈ [1, 2]`，
+     *     即"立即可补满"——与 `monoNearFullLineColorWeights` 染色 bias 双向锁定。
+     *   - 但截图场景是大片同色区域已成型（如 5×5 同 icon 块），单 line 上仍 `empty ≥ 3`，
+     *     不达"近满"阈值——`bestMonoFlushPotential = 0`，算法**完全无识别**。
+     *   - 用户语义中的"同花顺机会"涵盖"**朝 8 同色累积**"的建设期，而非仅"立即兑现"。
+     *
+     * **定义**：shape 放在某位置后，存在 row/col 满足：
+     *   1. 该 line 上 shape 占 ≥ 1 cell（不算 buildup 否则与 shape 无关）；
+     *   2. 该 line 上 non-shape 部分已填同 icon cells 数 = K（基线）；
+     *   3. 若 shape 的 ci ∈ {期望同 icon ci 集}，则 buildup = K + shapeCellsOnLine - K = shapeCellsOnLine；
+     *      否则 buildup = 0（shape 引入杂色破坏 mono）；
+     *   4. 仅当 K + buildup ≥ minBuildup（默认 6）时计入。
+     *
+     * **重要**：此函数**不依赖 shape ci**（spawn 阶段 shape 颜色还未确定），假设理想情况
+     * shape 染色会被 `monoNearFullLineColorWeights` 染成 match 该 line 的 icon——
+     * 这是与染色阶段的"乐观契约"，与 `bestMonoFlushPotential` 同源（后者也是假设 shape ci match）。
+     *
+     * **返回值**：所有合法放置中 max(K + buildup) 中 buildup 最大值（即"最佳推进量"）。
+     *
+     * @param {number[][]} shapeData
+     * @param {{ blockIcons?: string[] }|null} [skin]
+     * @param {number} [minBuildup=6]
+     * @returns {number}
+     */
+    bestMonoFlushBuildup(shapeData, skin = null, minBuildup = 6) {
+        const n = this.size;
+        const blockIcons = skin?.blockIcons;
+        const getIcon = (ci) => (blockIcons?.length ? blockIcons[ci % blockIcons.length] : null);
+        const sameAs = (refCi, ci) => {
+            if (refCi == null || ci == null) return false;
+            const refIcon = getIcon(refCi);
+            if (refIcon !== null) return getIcon(ci) === refIcon;
+            return ci === refCi;
+        };
+
+        const sh = shapeData.length;
+        const sw = shapeData[0]?.length || 0;
+        if (sh === 0 || sw === 0) return 0;
+
+        const shapeCells = [];
+        for (let dy = 0; dy < sh; dy++) {
+            for (let dx = 0; dx < sw; dx++) {
+                if (shapeData[dy][dx]) shapeCells.push([dx, dy]);
+            }
+        }
+        if (shapeCells.length === 0) return 0;
+
+        let best = 0;
+        for (let oy = 0; oy <= n - sh; oy++) {
+            for (let ox = 0; ox <= n - sw; ox++) {
+                if (!this.canPlace(shapeData, ox, oy)) continue;
+                const shapeOccupied = new Set(shapeCells.map(([dx, dy]) => `${ox + dx},${oy + dy}`));
+                const affectedRows = new Set(shapeCells.map(([_, dy]) => oy + dy));
+                const affectedCols = new Set(shapeCells.map(([dx, _]) => ox + dx));
+
+                /* 行扫描 */
+                for (const y of affectedRows) {
+                    let refCi = null;
+                    let mono = true;
+                    let preFilled = 0;
+                    let shapeCellsOnLine = 0;
+                    for (let x = 0; x < n; x++) {
+                        if (shapeOccupied.has(`${x},${y}`)) { shapeCellsOnLine++; continue; }
+                        const c = this.cells[y][x];
+                        if (c === null) continue;
+                        preFilled++;
+                        if (refCi === null) refCi = c;
+                        else if (!sameAs(refCi, c)) { mono = false; break; }
+                    }
+                    if (!mono || refCi === null) continue;
+                    const totalSame = preFilled + shapeCellsOnLine;
+                    if (totalSame < minBuildup) continue;
+                    if (shapeCellsOnLine > best) best = shapeCellsOnLine;
+                }
+
+                /* 列扫描 */
+                for (const x of affectedCols) {
+                    let refCi = null;
+                    let mono = true;
+                    let preFilled = 0;
+                    let shapeCellsOnLine = 0;
+                    for (let y = 0; y < n; y++) {
+                        if (shapeOccupied.has(`${x},${y}`)) { shapeCellsOnLine++; continue; }
+                        const c = this.cells[y][x];
+                        if (c === null) continue;
+                        preFilled++;
+                        if (refCi === null) refCi = c;
+                        else if (!sameAs(refCi, c)) { mono = false; break; }
+                    }
+                    if (!mono || refCi === null) continue;
+                    const totalSame = preFilled + shapeCellsOnLine;
+                    if (totalSame < minBuildup) continue;
+                    if (shapeCellsOnLine > best) best = shapeCellsOnLine;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * v1.60.23：扫描盘面所有"近满同色 line"（与 monoNearFullLineColorWeights 同口径）。
+     *
+     * **用途**：`_tryInjectSpecial` 的 monoFlush 触发路径——找到近满同色 line 后，
+     * 注入方向匹配 + 尺寸匹配的 special shape（如 col 上差 2 格 → 2×1 竖块；row 上差 1 格 →
+     * 1×2 横块的第一段）以最大化"形状 + 颜色双向锁定"的命中率。
+     *
+     * **业务对齐**：与 `clearScoring.monoNearFullLineColorWeights` 完全同口径
+     *   - `empty ∈ [1, 2]` 才算近满
+     *   - 预填部分必须全部同 icon（皮肤无 icon 时退化 colorIdx 严格相等）
+     *
+     * @param {{ blockIcons?: string[] }|null} [skin]
+     * @returns {Array<{ type: 'row'|'col', idx: number, empty: number, emptyCells: Array<{x:number,y:number}>, refCi: number }>}
+     */
+    findNearFullMonoLines(skin = null) {
+        const n = this.size;
+        const blockIcons = skin?.blockIcons;
+        const getIcon = (ci) => (blockIcons?.length ? blockIcons[ci % blockIcons.length] : null);
+        const sameAs = (refCi, ci) => {
+            if (refCi == null || ci == null) return false;
+            const refIcon = getIcon(refCi);
+            if (refIcon !== null) return getIcon(ci) === refIcon;
+            return ci === refCi;
+        };
+
+        const out = [];
+        /* 行扫描 */
+        for (let y = 0; y < n; y++) {
+            const emptyCells = [];
+            let refCi = null;
+            let mono = true;
+            for (let x = 0; x < n; x++) {
+                const c = this.cells[y][x];
+                if (c === null) { emptyCells.push({ x, y }); continue; }
+                if (refCi === null) refCi = c;
+                else if (!sameAs(refCi, c)) { mono = false; break; }
+            }
+            if (!mono) continue;
+            if (refCi === null) continue;
+            const empty = emptyCells.length;
+            if (empty < 1 || empty > 2) continue;
+            out.push({ type: 'row', idx: y, empty, emptyCells, refCi });
+        }
+
+        /* 列扫描 */
+        for (let x = 0; x < n; x++) {
+            const emptyCells = [];
+            let refCi = null;
+            let mono = true;
+            for (let y = 0; y < n; y++) {
+                const c = this.cells[y][x];
+                if (c === null) { emptyCells.push({ x, y }); continue; }
+                if (refCi === null) refCi = c;
+                else if (!sameAs(refCi, c)) { mono = false; break; }
+            }
+            if (!mono) continue;
+            if (refCi === null) continue;
+            const empty = emptyCells.length;
+            if (empty < 1 || empty > 2) continue;
+            out.push({ type: 'col', idx: x, empty, emptyCells, refCi });
+        }
+
+        return out;
     }
 
     /**
@@ -654,5 +1134,9 @@ export class Grid {
     fromJSON(data) {
         this.size = data.size || 8;
         this.cells = data.cells.map(row => [...row]);
+        /* v1.60.1：cellMeta 不持久化（toJSON 也不导出），fromJSON 重置为空 Map。
+         * 跨 session 我们不追究历史块特殊性，只保证当局 distress 信号正确。 */
+        if (this._cellMeta) this._cellMeta.clear();
+        else this._cellMeta = new Map();
     }
 }

@@ -14,6 +14,7 @@ import {
     animateHudScoreChange,
     animateValueOnElement,
     syncHudScoreElement,
+    _selectHighScoreCheerType,
 } from '../web/src/scoreAnimator.js';
 
 describe('hudBurstTier', () => {
@@ -256,5 +257,80 @@ describe('syncHudScoreElement — 回放/RL 瞬移分数 DOM 同步决策器（v
         el.textContent = '888';
         expect(syncHudScoreElement(el, 888, 888)).toBe('noop');
         expect(el.textContent).toBe('888');
+    });
+});
+
+/**
+ * v1.60.5：高分庆祝音效档位按"分数 / 历史 PB 占比"动态判定。
+ * 与 BEST_SCORE_CHASE_STRATEGY §5.α D2/D3/D4 段保持一致；低 PB（< 200）回退到
+ * 固定绝对阈值，避免 best=10 / 8 分（pct=0.8）触发"差一口气"虚假胜利。
+ */
+describe('v1.60.5 _selectHighScoreCheerType (按 pct=score/bestScore 选高分音效档位)', () => {
+    /* ── 高 PB 段：按比例判档（best ≥ 200） ───────────────────────────── */
+    it('破 PB（pct >= 1.0）→ unlock', () => {
+        expect(_selectHighScoreCheerType(500, 500)).toBe('unlock');
+        expect(_selectHighScoreCheerType(800, 500)).toBe('unlock');
+        expect(_selectHighScoreCheerType(1200, 1000)).toBe('unlock');
+    });
+
+    it('差一口气段（0.85 ≤ pct < 1.0）→ perfect', () => {
+        /* best=500, score=425 → pct=0.85 边界 */
+        expect(_selectHighScoreCheerType(425, 500)).toBe('perfect');
+        expect(_selectHighScoreCheerType(490, 500)).toBe('perfect');
+        /* best=1000, score=950 */
+        expect(_selectHighScoreCheerType(950, 1000)).toBe('perfect');
+        /* 0.85 严格大于等于（边界包含） */
+        expect(_selectHighScoreCheerType(170, 200)).toBe('perfect');
+    });
+
+    it('达成 PB 一半（0.5 ≤ pct < 0.85）→ clear', () => {
+        /* best=500, score=250 → pct=0.5 边界 */
+        expect(_selectHighScoreCheerType(250, 500)).toBe('clear');
+        expect(_selectHighScoreCheerType(424, 500)).toBe('clear');
+        expect(_selectHighScoreCheerType(700, 1000)).toBe('clear');
+    });
+
+    it('pct < 0.5 且 best 充足 → 静默（null）', () => {
+        expect(_selectHighScoreCheerType(100, 500)).toBeNull();
+        expect(_selectHighScoreCheerType(249, 500)).toBeNull();
+        expect(_selectHighScoreCheerType(0, 500)).toBeNull();
+    });
+
+    /* ── 低 PB 守卫：best < 200 时回退到绝对阈值 ─────────────────────── */
+    it('低 PB（best < 200，含首局 best=0）→ 回退绝对阈值，避免虚假胜利', () => {
+        /* best=10, score=8（pct=0.8 即使在新口径下也会被错误识别为"差一口气"）
+         * 但低 PB 守卫强制回退到绝对阈值：score=8 < 200 → null（静默） */
+        expect(_selectHighScoreCheerType(8, 10)).toBeNull();
+        /* best=100, score=80（pct=0.8）→ 同样静默 */
+        expect(_selectHighScoreCheerType(80, 100)).toBeNull();
+        /* best=0 首局 → 完全走绝对阈值 */
+        expect(_selectHighScoreCheerType(150, 0)).toBeNull();
+        expect(_selectHighScoreCheerType(200, 0)).toBe('clear');
+        expect(_selectHighScoreCheerType(500, 0)).toBe('perfect');
+        expect(_selectHighScoreCheerType(1000, 0)).toBe('unlock');
+        /* best=150（低 PB）+ score=800 → 走绝对阈值 → perfect */
+        expect(_selectHighScoreCheerType(800, 150)).toBe('perfect');
+    });
+
+    /* ── 防御性输入 ───────────────────────────────────────────────────── */
+    it('NaN / undefined / null bestScore → 视为 0，走绝对阈值', () => {
+        expect(_selectHighScoreCheerType(300, undefined)).toBe('clear');
+        expect(_selectHighScoreCheerType(300, null)).toBe('clear');
+        expect(_selectHighScoreCheerType(300, NaN)).toBe('clear');
+    });
+
+    it('floor 选项可覆写（便于 A/B 测试调整低 PB 阈值）', () => {
+        /* 把 floor 提到 1000：best=500 也回退到绝对阈值 */
+        expect(_selectHighScoreCheerType(500, 500, { floor: 1000 })).toBe('perfect');
+        /* best=1500 仍按比例：pct=0.5 → clear */
+        expect(_selectHighScoreCheerType(750, 1500, { floor: 1000 })).toBe('clear');
+    });
+
+    it('档位选择避免"过度反馈"——pct < 0.5 静默而非 small 庆祝', () => {
+        /* 与"差一口气"banner §5.α.6 同设计：低于半 PB 不触发任何庆祝音 */
+        for (const pct of [0.0, 0.1, 0.3, 0.49]) {
+            const score = Math.round(1000 * pct);
+            expect(_selectHighScoreCheerType(score, 1000)).toBeNull();
+        }
     });
 });

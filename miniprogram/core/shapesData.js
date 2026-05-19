@@ -12,6 +12,20 @@ module.exports = {
     "lshapes",
     "jshapes"
   ],
+  "specialShapeIds": [
+    "1x2",
+    "2x1",
+    "1x3",
+    "3x1",
+    "diag-2a",
+    "diag-2b",
+    "diag-3a",
+    "diag-3b",
+    "l3-a",
+    "l3-b",
+    "l3-c",
+    "l3-d"
+  ],
   "byCategory": {
     "lines": [
       {
