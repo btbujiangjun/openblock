@@ -1245,15 +1245,15 @@ class DecisionFlowViz {
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--pos"></span>${T.footPressure}</span>
                     <span class="dfv-legend">${T.footPulseHint}</span>
                     <span class="dfv-legend dfv-legend--covary" title="${T.footCovaryHint ?? '虚线=派生共变·非因果'}：纵轴 stress / 5 向量 / intent 是 adaptiveSpawn 的 3 个并列输出，从同一底层信号集派生，彼此之间无直接读取——虚线连线表达共时共变，非因果传递"><span class="dfv-dot dfv-dot--covary"></span>${T.footCovaryHint ?? '虚线=派生共变·非因果'}</span>
-                    <span class="dfv-legend dfv-legend--ver">v1.60.31</span>
+                    <span class="dfv-legend dfv-legend--ver">v1.60.32</span>
                 </div>
-                <div class="dfv-foot dfv-foot--reason" title="出块行 3 个 chosen 节点上方的 reason 标签含义（blockSpawn.generateDockShapes 4 种打分路径）">
+                <div class="dfv-foot dfv-foot--reason" title="出块行 3 个 chosen 节点上方的 reason 标签含义（hover 各项查看解释）">
                     <span class="dfv-legend dfv-legend--reason-title">出块原因：</span>
-                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.clear}"><span class="dfv-reason-tag" style="color:#22d3ee">送消行</span> 能直接消行的块</span>
-                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.perfectClear}"><span class="dfv-reason-tag" style="color:#fbbf24">★送清屏</span> 特殊块·清零盘面</span>
-                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.monoFlush}"><span class="dfv-reason-tag" style="color:#f0abfc">★送同花</span> 特殊块·×5 大奖</span>
-                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.weighted}"><span class="dfv-reason-tag" style="color:#a78bfa">综合选</span> 多维加权抽选（主流）</span>
-                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.fallback}"><span class="dfv-reason-tag" style="color:#94a3b8">兜底块</span> 主路径不通时降级</span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.clear}"><span class="dfv-reason-tag" style="color:#22d3ee">送消行</span></span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.perfectClear}"><span class="dfv-reason-tag" style="color:#fbbf24">★送清屏</span></span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.monoFlush}"><span class="dfv-reason-tag" style="color:#f0abfc">★送同花</span></span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.weighted}"><span class="dfv-reason-tag" style="color:#a78bfa">综合选</span></span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.fallback}"><span class="dfv-reason-tag" style="color:#94a3b8">兜底块</span></span>
                 </div>
                 <div class="dfv-resize-handle" id="dfv-resize-handle" title="拖拽缩放"></div>
             </div>
@@ -4343,9 +4343,12 @@ class DecisionFlowViz {
  * 避免玩家逐个 hover 才知道含义。每条 reason 名用 SHAPE_CATEGORY_COLOR 协调色高亮。 */
 .dfv-foot--reason {
     border-top: 1px dashed rgba(56, 189, 248, 0.12);
-    flex-wrap: wrap; row-gap: 4px;
+    flex-wrap: nowrap;             /* v1.60.32：删除描述文字后强制不换行，5 个 badge 紧凑一行 */
+    gap: 8px;
     padding: 4px 10px 5px;
     font-size: 8.4px; color: #cbd5e1;
+    white-space: nowrap;
+    overflow: hidden;
 }
 .dfv-legend--reason { cursor: help; gap: 4px; }
 .dfv-legend--reason-title { opacity: 0.7; }
