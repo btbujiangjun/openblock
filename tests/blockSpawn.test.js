@@ -1473,6 +1473,84 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
     });
 });
 
+describe('v1.60.30 — monoFlush 识别 always-on（修复 v1.60.28 漏识别 bug）', () => {
+    const SKIN_8 = { blockIcons: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] };
+
+    function buildStrongMonoScenario() {
+        const localGrid = new Grid(10);
+        for (let y = 2; y < 10; y++) {
+            localGrid.cells[y][5] = 0;
+            localGrid.cells[y][6] = 0;
+        }
+        for (let y = 7; y < 10; y++) for (let x = 0; x < 3; x++) localGrid.cells[y][x] = 1;
+        return localGrid;
+    }
+
+    function buildConfig() {
+        return {
+            shapeWeights: getStrategy().shapeWeights,
+            spawnHints: { clearGuarantee: 0.5, spawnTargets: { iconBonusTarget: 1.0, clearOpportunity: 0.6 } },
+        };
+    }
+
+    beforeEach(() => { resetSpawnMemory(); });
+
+    it('盘面有近满同色 line → chosen 含 monoFlush 块的轮次显著（强信号 + 识别 always-on）', () => {
+        /* v1.60.30：强信号场景（≥3 条近满同色 line）下，自适应概率应让 chosen
+         * 大概率含 monoFlush 块——验证识别 always-on 不再让强信号"漏识别"。 */
+        let hit = 0;
+        const TRIALS = 100;
+        for (let t = 0; t < TRIALS; t++) {
+            const localGrid = buildStrongMonoScenario();
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            if ((diag?.chosen || []).some(m => (m.monoFlush ?? 0) >= 1)) hit++;
+        }
+        const ratio = hit / TRIALS;
+        /* 强信号 monoFlushNearLines ≥ 2 → adaptiveProbability ≥ 0.65 → 命中率 ≥ 50% */
+        expect(ratio, `强信号场景 chosen monoFlush 命中率 ${(ratio*100).toFixed(1)}% (应 ≥ 50%)`).toBeGreaterThanOrEqual(0.5);
+    });
+
+    it('chosen 含 monoFlush 块时 → reason 必为 "monoFlush"（不再标 "clear"，DFV 强化体感）', () => {
+        let foundMonoChosen = false;
+        let allCorrectReason = true;
+        for (let t = 0; t < 100; t++) {
+            const localGrid = buildStrongMonoScenario();
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            for (const m of diag?.chosen || []) {
+                if ((m.monoFlush ?? 0) >= 1 && (m.pcPotential ?? 0) !== 2) {
+                    foundMonoChosen = true;
+                    if (m.reason !== 'monoFlush') {
+                        allCorrectReason = false;
+                    }
+                }
+            }
+        }
+        expect(foundMonoChosen, '100 轮中应至少 1 次 chosen 含 monoFlush 块').toBe(true);
+        expect(allCorrectReason, 'monoFlush>=1 且非 pcPotential → reason 必须 = "monoFlush"').toBe(true);
+    });
+
+    it('弱信号场景 → chosen monoFlush 命中率仍受彩蛋节流（≤35%，不喧宾夺主）', () => {
+        /* 弱信号场景：空盘无 monoFlush line，自适应概率退回 MIN=25% */
+        let hit = 0;
+        const TRIALS = 100;
+        for (let t = 0; t < TRIALS; t++) {
+            const localGrid = new Grid(10);
+            /* 仅 1-2 个零散 cells，无完整近满 line */
+            localGrid.cells[5][5] = 1; localGrid.cells[5][6] = 1;
+            const ctx = { skin: SKIN_8, totalClears: 0, totalRounds: 2, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            if ((diag?.chosen || []).some(m => (m.monoFlush ?? 0) >= 1)) hit++;
+        }
+        const rate = hit / TRIALS;
+        expect(rate, `弱信号场景命中率 ${(rate*100).toFixed(1)}% 应 ≤ 35%`).toBeLessThanOrEqual(0.35);
+    });
+});
+
 describe('v1.60.29 — monoFlush 单 dock 数量 ≤ 1 + reason="monoFlush" 派生', () => {
     const SKIN_8 = { blockIcons: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] };
 

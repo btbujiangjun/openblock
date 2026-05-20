@@ -1245,7 +1245,7 @@ class DecisionFlowViz {
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--pos"></span>${T.footPressure}</span>
                     <span class="dfv-legend">${T.footPulseHint}</span>
                     <span class="dfv-legend dfv-legend--covary" title="${T.footCovaryHint ?? '虚线=派生共变·非因果'}：纵轴 stress / 5 向量 / intent 是 adaptiveSpawn 的 3 个并列输出，从同一底层信号集派生，彼此之间无直接读取——虚线连线表达共时共变，非因果传递"><span class="dfv-dot dfv-dot--covary"></span>${T.footCovaryHint ?? '虚线=派生共变·非因果'}</span>
-                    <span class="dfv-legend dfv-legend--ver">v1.60.29</span>
+                    <span class="dfv-legend dfv-legend--ver">v1.60.30</span>
                 </div>
                 <div class="dfv-foot dfv-foot--reason" title="出块行 3 个 chosen 节点上方的 reason 标签含义（blockSpawn.generateDockShapes 4 种打分路径）">
                     <span class="dfv-legend dfv-legend--reason-title">出块原因：</span>

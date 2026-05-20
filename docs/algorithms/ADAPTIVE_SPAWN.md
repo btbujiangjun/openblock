@@ -3777,6 +3777,106 @@ Tests       2043 passed (v1.60.28 → v1.60.29 净增 2)
 | 视觉彩蛋强度 | 标签"可凑1同花顺"（弱） | **"★送同花" 紫框浓辉光**（强） |
 | 玩家疲劳感（同色多） | 中等 | **低**（默认 3 色异色） |
 
+### 10.7.18 v1.60.30 —— 自适应概率 + 识别 always-on（修复 v1.60.28 强信号漏识别 bug）
+
+**用户反馈**：
+> 未识别出同花（截图：盘面右侧 7+ 列船锚同色，明显的同花机会，但 dock 三块都标"送消行/综合选"，无"★送同花"）
+
+#### 根因诊断
+
+v1.60.28 引入的**固定 25% 概率门槛**在源头屏蔽了**识别能力**：
+
+```javascript
+// v1.60.28 旧版（错误）
+const monoFlushRes = monoFlushRound && grid.bestMonoFlushPotential
+    ? grid.bestMonoFlushPotential(...)
+    : { count: 0, targetCi: null };   // ❌ 75% 轮次强制 0
+```
+
+后果：
+1. 即使盘面真有强同花信号（截图：7+ 列同色），75% 轮次 `bestMonoFlushPotential` 跳过调用
+2. 所有 shape 的 `monoFlush=0`，reason 派生强制走 `'clear'`
+3. DFV 完全看不见同花机会 → 玩家视角"算法漏识别"，体感比"识别后不选"更糟糕
+
+#### 修复方案：双层重构
+
+**层 1：识别 always-on**
+
+| 字段/调用 | 旧（v1.60.28） | 新（v1.60.30） |
+|---|---|---|
+| `monoFlushAllowIds` | 仅 25% 轮次 populate | **始终**基于真实信号 populate |
+| `bestMonoFlushPotential` 调用 | 仅 25% 轮次 | **始终**调用 |
+| `monoFlush` / `monoFlushTargetCi` 字段 | 75% 轮次强制 0/null | **始终**真实值 |
+| `reason` 派生 | monoFlush=0 → 'clear' | monoFlush>=1 → 'monoFlush' |
+
+**层 2：自适应概率**
+
+`monoFlushRound` 概率不再固定 25%，而是基于盘面真实同花强度动态调整：
+
+```javascript
+adaptiveProbability = clamp(
+    0.25 + 兑现期line × 0.20 + 建设期line × 0.06,
+    0.25,  // 弱信号最低
+    0.90   // 极强信号最高 cap
+);
+```
+
+**信号强度 → 概率矩阵**：
+
+| 信号强度（兑现期 line 数 `empty≤2`） | 概率 | 命中率 | 用户感知 |
+|---|---|---|---|
+| 0-1 | 25% | ~22% | 偶然彩蛋（v1.60.28 现状） |
+| 2 | 45% | ~40% | 频繁机会 |
+| 3-4 | 65-85% | ~60-75% | 主动追求 |
+| 5+ | 90% cap | ~85% | **几乎必中（不漏识别）** |
+
+截图场景（兑现期 line ≥3）→ 概率 65-90%，chosen 必含 ★送同花。
+
+#### 三层节流总览（v1.60.30 最终架构）
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. 识别层（always-on）                                              │
+│    monoFlushAllowIds + bestMonoFlushPotential → scored.monoFlush    │
+│    ✓ 不再漏识别，DFV 始终能看到真实同花信号                          │
+├─────────────────────────────────────────────────────────────────────┤
+│ 2. 选拔层（自适应概率 monoFlushRound）                              │
+│    Stage 1 pick 分支：monoFlushRound=true 才启用                    │
+│    Stage 2 augmentPool monoBoost：monoFlushRound=false 时 ×0.3 衰减 │
+│    ✓ 弱信号保持彩蛋频率，强信号几乎必中                              │
+├─────────────────────────────────────────────────────────────────────┤
+│ 3. 数量层（v1.60.29 保留）                                          │
+│    Stage 1 monoFlushPickedInDock ≤ 1                                │
+│    Stage 2 remaining 硬过滤已含 monoFlush 时剔除                    │
+│    L2 _tryInjectSpecial：chosenAlreadyHasMonoFlush 关闭信号         │
+│    ✓ 单 dock 至多 1 个 ★送同花，避免视觉单调                        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 不变式测试（`tests/blockSpawn.test.js` v1.60.30 子套件，新增 3 条）
+
+1. **强信号场景 chosen monoFlush 命中率 ≥ 50%**（100 轮）—— 验证不漏识别
+2. **chosen 含 monoFlush → reason 必为 'monoFlush'**（100 轮）—— 验证识别 always-on 不漏标
+3. **弱信号场景 chosen monoFlush 命中率 ≤ 35%**（100 轮）—— 验证彩蛋节流仍生效
+
+#### 全量回归
+
+```
+Test Files  110 passed
+Tests       2046 passed (v1.60.29 → v1.60.30 净增 3)
+```
+
+#### 设计权衡总结
+
+| 维度 | v1.60.28 | v1.60.29 | v1.60.30 |
+|---|---|---|---|
+| 识别能力（强信号） | ❌ 75% 漏识别 | ❌ 75% 漏识别 | ✅ **always-on** |
+| 概率策略 | 固定 25% | 固定 25% | **自适应 25-90%** |
+| 弱信号命中率 | ~25% | ~25% | ~22% |
+| 强信号命中率 | ~25%（漏） | ~25%（漏） | **~85%（追求）** |
+| 单 dock 上限 | 无限 | 1 | 1 |
+| 用户截图场景 | dock 三块全标"送消行" | dock 三块全标"送消行" | **chosen 含 ★送同花** |
+
 ---
 
 ## 11. 后续迭代方向

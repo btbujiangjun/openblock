@@ -1862,9 +1862,16 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         ? grid.findNearFullMonoLines(skin)
         : [];
 
-    /* v1.60.28：同花顺降为"乐趣 / 彩蛋"——按 MONO_FLUSH_PICK_PROBABILITY 概率门槛。
-     *
-     * **monoFlushRound gate（源头节流）**：每轮 dock 25% 概率开放 monoFlush 评估。
+    /* v1.60.30：同花顺自适应概率 + 识别 always-on（修复 v1.60.28 强信号漏识别 bug）。
+     * 详见 web/src/bot/blockSpawn.js 同名注释。 */
+    const monoFlushNearLines = monoFlushLines.filter(l => l.empty <= 2).length;
+    const monoFlushBuildupLines = monoFlushLines.filter(l => l.empty >= 3 && l.empty <= 5).length;
+    const adaptiveMonoFlushProbability = Math.min(0.90, Math.max(
+        MONO_FLUSH_PICK_PROBABILITY,
+        MONO_FLUSH_PICK_PROBABILITY + monoFlushNearLines * 0.20 + monoFlushBuildupLines * 0.06
+    ));
+
+    /* v1.60.28（保留注释供历史参考）：每轮 dock 25% 概率开放 monoFlush 评估。
      *   - 命中（25%）：scored 正常评估 monoFlush + targetCi，1×2/2×1 放行进 scored，
      *     scoreShape 加权让 chosen 大概率含 monoFlush 候选，driver 标 "可凑N同花顺"，
      *     v1.60.27 染色绑定保证玩家放下 100% 触发 ×5 iconBonus。
@@ -1875,17 +1882,16 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
      * 让同花顺成为常态遮蔽其他乐趣（multiClear/pcPotential/exactFit）。25% 概率
      * ≈ 玩家每 4 次 dock 命中 1 次，足够提供惊喜感而不喧宾夺主。pcPotential（清屏）
      * 仍 100% 优先（终极目标不节流）。 */
-    const monoFlushRound = Math.random() < MONO_FLUSH_PICK_PROBABILITY;
+    const monoFlushRound = Math.random() < adaptiveMonoFlushProbability;
     const monoFlushAllowIds = new Set();
-    if (monoFlushRound) {
-        for (const line of monoFlushLines) {
-            if (line.empty !== 2) continue;
-            const cs = line.emptyCells;
-            const adjacent = (line.type === 'row' && Math.abs(cs[0].x - cs[1].x) === 1)
-                || (line.type === 'col' && Math.abs(cs[0].y - cs[1].y) === 1);
-            if (!adjacent) continue;
-            monoFlushAllowIds.add(line.type === 'row' ? '1x2' : '2x1');
-        }
+    /* v1.60.30：识别 always-on —— monoFlushAllowIds 始终基于盘面真实信号 populate */
+    for (const line of monoFlushLines) {
+        if (line.empty !== 2) continue;
+        const cs = line.emptyCells;
+        const adjacent = (line.type === 'row' && Math.abs(cs[0].x - cs[1].x) === 1)
+            || (line.type === 'col' && Math.abs(cs[0].y - cs[1].y) === 1);
+        if (!adjacent) continue;
+        monoFlushAllowIds.add(line.type === 'row' ? '1x2' : '2x1');
     }
 
     const scored = allShapes
@@ -1925,9 +1931,10 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
              * 染色阶段（game.js）据此**强制绑定** shape ci = targetCi，让"几何同花潜力"
              * 真转化为"实际同花消除"。修复 v1.60.26 前版本染色 bias 仅"概率倾斜"不绑定的漏标问题。
              *
-             * v1.60.28：受 monoFlushRound gate 节流——75% 轮次返回 0/null，
-             * driver 不会标 'monoFlush'，让同花顺成为彩蛋而非常态。 */
-            const monoFlushRes = monoFlushRound && grid.bestMonoFlushPotential
+             * v1.60.30：识别 always-on，bestMonoFlushPotential 始终调用——
+             * 修复 v1.60.28 在 75% 轮次强信号场景下的漏识别 bug。
+             * 频率节流移到 Stage 1 pick 分支 + monoBoost 加权强度（见 monoFlushRound）。 */
+            const monoFlushRes = grid.bestMonoFlushPotential
                 ? grid.bestMonoFlushPotential(shape.data, ctx?.skin || null, { returnTarget: true })
                 : { count: 0, targetCi: null };
             const monoFlush = monoFlushRes.count;
@@ -2128,9 +2135,10 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             if (avail.some(s => s.pcPotential === 2)) {
                 const perfectPicks = avail.filter(s => s.pcPotential === 2);
                 pick = perfectPicks[Math.floor(Math.random() * Math.min(3, perfectPicks.length))];
-            } else if (monoFlushPickedInDock < MAX_MONO_FLUSH_PER_DOCK
+            } else if (monoFlushRound && monoFlushPickedInDock < MAX_MONO_FLUSH_PER_DOCK
                        && avail.some(s => (s.monoFlush ?? 0) >= 1)) {
-                /* v1.60.28 节流 + v1.60.29 dock 内 ≤1 数量上限 */
+                /* v1.60.30：Stage 1 monoFlush 分支由 monoFlushRound 控制（自适应概率），
+                 * 75% 轮次跳过让其他分支接管，但 monoFlush 候选始终存在于 avail（识别 always-on）*/
                 const mono = avail.filter(s => (s.monoFlush ?? 0) >= 1);
                 mono.sort((a, b) => (b.monoFlush ?? 0) - (a.monoFlush ?? 0));
                 pick = mono[Math.floor(Math.random() * Math.min(3, mono.length))];
@@ -2275,12 +2283,16 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                  * 但若 chosen 阶段没选到能补满的 shape，染色多匹配也无用。本权重让 chosen 主动
                  * 倾向"能凑同花顺"的 shape，配合染色 bias 形成双向锁定。 */
                 if (s.monoFlush >= 1) {
-                    /* v1.60.29：chosen 已含 monoFlush → 跳过 monoBoost 加权（与 Stage 1 一致）*/
+                    /* v1.60.29：chosen 已含 monoFlush → 跳过 monoBoost（单 dock ≤1 限制）
+                     * v1.60.30：monoFlushRound=false 轮次 monoBoost ×0.3 弱保留 */
                     const alreadyHasMonoFlush = chosenMeta.some(m => (m?.monoFlush ?? 0) >= 1);
                     if (!alreadyHasMonoFlush) {
                         let monoBoost = 1 + s.monoFlush * (0.4 + iconBonusTarget * 0.6);
                         if (s.shape.id === '1x2' || s.shape.id === '2x1') {
                             monoBoost *= 1.5;
+                        }
+                        if (!monoFlushRound) {
+                            monoBoost = 1 + (monoBoost - 1) * 0.3;
                         }
                         w *= monoBoost;
                     }
