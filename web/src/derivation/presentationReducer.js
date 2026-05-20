@@ -119,8 +119,13 @@ export const CHIP_DEFS = Object.freeze([
     /* —— forceRelief 真实上游触发器（与 adaptiveSpawn.js:2235 严格同源）—— */
     { id: 'lateCollapse',    label: '末段崩盘', kind: 'neg',
       on: (c) => (c.distress?.sessionPhase === 'late')
-              && (Number(c.distress?.momentum) <= -0.30),
-      reason: (c) => `sessionPhase=late + momentum=${Number(c.distress?.momentum).toFixed(2)} ≤ -0.30（末段+动量持续下行 → forceRelief 上游 #1）`,
+              && (Number(c.distress?.momentum) <= -0.30)
+              && !c.intentInputs?.abovePb,          // v1.60.37：已破 PB 豁免
+      reason: (c) => {
+          const mom = Number(c.distress?.momentum).toFixed(2);
+          if (c.intentInputs?.abovePb) return `sessionPhase=late + momentum=${mom} ≤ -0.30，但 score > bestScore（已破 PB），末段崩盘豁免，不触发 forceRelief`;
+          return `sessionPhase=late + momentum=${mom} ≤ -0.30（末段+动量持续下行 → forceRelief 上游 #1）`;
+      },
       overrideSignal: null, forceReliefUpstream: true },
     { id: 'frustCritical',   label: '挫败临界', kind: 'neg',
       on: (c) => Number(c.distress?.frustrationLevel) >= 5,

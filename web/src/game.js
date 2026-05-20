@@ -2942,14 +2942,22 @@ export class Game {
                 if (overXp) {
                     if (progressionResult) {
                         overXp.hidden = false;
-                        let xpText = t('game.xpGained', { n: progressionResult.xpGained });
+                        const xpGainedText = t('game.xpGained', { n: progressionResult.xpGained });
                         if (progressionResult.leveledUp) {
-                            xpText += ' · ' + t('game.xpLevelUp', { level: progressionResult.newLevel });
+                            const lvNum = progressionResult.newLevel;
+                            const lvTitle = titleForLevel(lvNum);
+                            overXp.innerHTML =
+                                `<span>${xpGainedText} ·</span>` +
+                                `<span class="over-lv-badge">` +
+                                `<span class="over-lv-num">Lv.${lvNum}</span>` +
+                                `<span class="over-lv-title">${lvTitle}</span>` +
+                                `</span>`;
+                        } else {
+                            overXp.textContent = xpGainedText;
                         }
-                        overXp.textContent = xpText;
                     } else {
                         overXp.hidden = true;
-                        overXp.textContent = '';
+                        overXp.innerHTML = '';
                     }
                 }
                 this._updateProgressionHud();

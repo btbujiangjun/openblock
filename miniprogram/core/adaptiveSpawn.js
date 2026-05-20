@@ -2231,8 +2231,12 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         + (stressBreakdown.endSessionDistress ?? 0);
     /* v1.51：末段崩盘 / 高挫败否决 —— 当玩家明显挣扎时强制走 relief 叙事，
      * 解决截图实测中 game over 前一帧仍显"识别到密集消行机会，正在投放促清的形状"
-     * 与濒死状态严重错位的问题。 */
-    const endSessionDistressActive = profile.sessionPhase === 'late' && profile.momentum <= -0.30;
+     * 与濒死状态严重错位的问题。
+     * v1.60.37：已破 PB 豁免 —— 若玩家分数已超越历史最佳，说明全局并未"崩盘"，
+     * momentum 下行只是局内节奏起伏；此时 forceReliefIntent 会错误覆盖高分加压状态，
+     * 导致"大幅突破最佳分 + 加压状态 → 仍强制救济"的体感矛盾。 */
+    const abovePb = ctx.bestScore > 0 && score > ctx.bestScore;
+    const endSessionDistressActive = !abovePb && profile.sessionPhase === 'late' && profile.momentum <= -0.30;
     const frustrationCritical = (profile.frustrationLevel ?? 0) >= 5;
     const forceReliefIntent = endSessionDistressActive || frustrationCritical;
     /* v1.17：harvest 收紧 —— 必须存在真实的"近一手就能兑现"的几何
@@ -2251,6 +2255,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const _intentInputs = {
         playerDistress,
         forceReliefIntent,
+        abovePb,                                   // v1.60.37：供 DFV lateCollapse chip 豁免诊断
         afkEngageActive,
         challengeBoost: stressBreakdown.challengeBoost ?? 0,
         delightMode: delight.mode,

@@ -1819,7 +1819,57 @@ body.game-rl-preview .block-dock {
     /* v10.18.1：玻璃背景上的浅蓝太淡，加深到饱和度更高的蓝 */
     color: #0369a1;
     letter-spacing: 0.01em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
 }
+
+/* 结算卡升级徽章：与顶部 .header-level .header-level-val 同款金色胶囊，
+ * 稍微放大一档（padding / font）以适配结算卡的视觉层级。 */
+.over-lv-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px 2px 8px;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    color: #5b3e10;
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 55%, #facc6a 100%);
+    border: 1px solid rgba(180, 130, 30, 0.32);
+    border-radius: 999px;
+    box-shadow: 0 1px 3px rgba(180, 110, 0, 0.2);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+    font-weight: 700;
+    vertical-align: middle;
+}
+.over-lv-badge::before {
+    content: '★';
+    font-size: 11px;
+    line-height: 1;
+    color: #c47b00;
+    text-shadow: 0 0 3px rgba(255, 190, 50, 0.55);
+}
+.over-lv-badge .over-lv-num {
+    font-size: 14px;
+    font-weight: 800;
+    color: #4a2e00;
+}
+.over-lv-badge .over-lv-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #6b4a10;
+    opacity: 0.92;
+}
+html[data-ui-theme="dark"] .over-lv-badge {
+    background: linear-gradient(135deg, #ffe9a8 0%, #f5cf6b 55%, #d9a44c 100%);
+    border-color: rgba(80, 40, 0, 0.42);
+    color: #3a2400;
+    box-shadow: 0 1px 3px rgba(255, 180, 30, 0.22);
+}
+html[data-ui-theme="dark"] .over-lv-badge .over-lv-num  { color: #2d1a00; }
+html[data-ui-theme="dark"] .over-lv-badge .over-lv-title { color: #4a2e00; opacity: 0.95; }
 
 /* v10.18.4：层级化 — 主 CTA 强化、次操作弱化为同款 inline 链接
  * 设计原则：
