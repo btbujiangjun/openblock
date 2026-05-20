@@ -3574,15 +3574,31 @@ class DecisionFlowViz {
             return `<span class="dfv-flag ${onCls}${overCls}"${titleAttr}>${label}</span>`;
         }).join('');
 
-        /* v1.58.3 conflicts：跨维度信号冲突一行可视化（chip 区下方一行） */
+        /* v1.58.3 conflicts：跨维度信号冲突一行可视化（chip 区下方一行）
+         * v1.60.36：原 native title 鼠标稍移就消失、~5s 自动隐藏，且无法显示多行长 tip。
+         * 改为 CSS-only hover popup：popup 是 trigger 的子元素，鼠标从 trigger 移到 popup
+         * 上时 :hover 仍由祖先继承，因此不会消失；多条 conflicts 各占一行清晰展示。 */
         const conflicts = _intentResolved
             ? _dfvDeriveConflicts(chipCtx, _intentResolved)
             : [];
         let conflictsHtml = '';
         if (conflicts.length > 0) {
-            const tip = conflicts.map((c) => c.tip).join(' / ');
-            const safeTip = tip.replace(/"/g, '&quot;');
-            conflictsHtml = `<div class="dfv-conflicts" title="${safeTip}">⚠ 本帧识别到 ${conflicts.length} 处跨维度信号冲突（hover 看详情）</div>`;
+            const esc = (s) => String(s ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const rows = conflicts.map((c) => {
+                const sev = esc(c.severity || 'info');
+                const id = esc(c.id || '');
+                const tip = esc(c.tip || '');
+                return `<div class="dfv-conflict-row dfv-conflict-row--${sev}">`
+                    + `<span class="dfv-conflict-id">${id}</span>`
+                    + `<span class="dfv-conflict-tip">${tip}</span>`
+                    + `</div>`;
+            }).join('');
+            conflictsHtml = `<div class="dfv-conflicts">`
+                + `<div class="dfv-conflicts__label">⚠ 本帧识别到 ${conflicts.length} 处跨维度信号冲突<span class="dfv-conflicts__hint">（hover 查看）</span></div>`
+                + `<div class="dfv-conflicts__popup" role="tooltip">${rows}</div>`
+                + `</div>`;
         }
         els.flags.innerHTML = chipHtml + conflictsHtml;
 
@@ -4205,10 +4221,15 @@ class DecisionFlowViz {
     text-decoration-color: rgba(255, 255, 255, 0.45);
 }
 /* v1.58.3：跨维度信号冲突行——显式承认 flowState vs intent 等独立信号源对掐，
- * 比假装一致更可信。颜色用 amber（warn 而非 error），位置紧贴 chip 区下方。 */
+ * 比假装一致更可信。颜色用 amber（warn 而非 error），位置紧贴 chip 区下方。
+ *
+ * v1.60.36：原 native title 鼠标稍移就消失、~5s 自动隐藏、字号小且无法多行展示。
+ * 改为 CSS-only hover popup —— popup 是 trigger 的子元素，鼠标从 trigger 移到 popup 上时
+ * :hover 仍由祖先继承，因此**只要鼠标在 trigger 或 popup 任一位置就持续显示**，
+ * 完全规避原生 title 的所有交互缺陷。 */
 .dfv-conflicts {
+    position: relative;
     margin-top: 4px;
-    padding: 2px 6px;
     border-radius: 4px;
     background: rgba(245, 158, 11, 0.10);
     border: 1px solid rgba(245, 158, 11, 0.30);
@@ -4218,6 +4239,74 @@ class DecisionFlowViz {
     font-weight: 500;
     cursor: help;
 }
+.dfv-conflicts__label {
+    padding: 2px 6px;
+}
+.dfv-conflicts__hint {
+    margin-left: 4px;
+    opacity: 0.75;
+    font-weight: 400;
+}
+/* 自定义 hover popup —— 默认隐藏；trigger 或 popup 任一 :hover 时显示。
+ * 用 visibility 配合 transition 实现微动效，不影响点击穿透。
+ * z-index 高于面板内部其他装饰层，避免被 DFV 内的圆角/阴影裁切。 */
+.dfv-conflicts__popup {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    padding: 8px;
+    background: rgba(15, 23, 42, 0.97);
+    border: 1px solid rgba(245, 158, 11, 0.55);
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    color: #fde68a;
+    font-size: 10px;
+    line-height: 1.55;
+    font-weight: 400;
+    z-index: 50;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-2px);
+    transition: opacity 120ms ease, transform 120ms ease, visibility 0s linear 120ms;
+    pointer-events: none;
+}
+.dfv-conflicts:hover .dfv-conflicts__popup,
+.dfv-conflicts:focus-within .dfv-conflicts__popup {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition: opacity 120ms ease, transform 120ms ease, visibility 0s linear 0s;
+    pointer-events: auto;
+}
+.dfv-conflict-row {
+    display: grid;
+    grid-template-columns: minmax(96px, auto) 1fr;
+    gap: 8px;
+    padding: 4px 0;
+    border-top: 1px dashed rgba(245, 158, 11, 0.18);
+}
+.dfv-conflict-row:first-child {
+    border-top: none;
+    padding-top: 0;
+}
+.dfv-conflict-row:last-child {
+    padding-bottom: 0;
+}
+.dfv-conflict-id {
+    color: #fbbf24;
+    font-weight: 600;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 9.5px;
+    white-space: nowrap;
+}
+.dfv-conflict-tip {
+    color: #e5e7eb;
+    word-break: break-word;
+}
+/* severity 微差异：warn 用更醒目的橙色边，info 沿用默认 */
+.dfv-conflict-row--warn .dfv-conflict-id { color: #f97316; }
 /* v1.57.5 §E：调香提示顶部"主导意图锚"——给下方多 chip 提供视觉锚点，
  * 让玩家理解"下方各 hint 是这个意图下的多维状态"，而非 N 个并列决定。
  * 颜色随 intent 变化（inline --anchor-color 由 SPAWN_INTENT_COLOR 注入）。 */
