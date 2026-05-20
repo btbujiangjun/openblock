@@ -13,13 +13,23 @@
 - [3. 玩家能力画像（PlayerProfile）](#3-玩家能力画像playerprofile)
   - [3.5 stress 域口径（v1.55.17）](#35-stress-域口径v15517)
 - [4. 策略候选库（10 档 Profiles）](#4-策略候选库10-档-profiles)
-- [10.6 外部实证基线：SGAZ × Tetris Block Puzzle](#106-外部实证基线sgaz--tetris-block-puzzlev15517)
 - [5. 自适应引擎（AdaptiveSpawn）](#5-自适应引擎adaptivespawn)
 - [6. 出块提示（SpawnHints）](#6-出块提示spawnhints)
 - [7. 配置参考（game\_rules.json）](#7-配置参考game_rulesjson)
 - [8. 调优指南](#8-调优指南)
-- [9. 数据流与集成点](#9-数据流与集成点)
-- [10. 后续迭代方向](#10-后续迭代方向)
+- [**10.8 出块算法完整流水线（v1.60.35 代码基准）**](#108-出块算法完整流水线v16035-代码基准)
+  - [10.8.1 入口与上下文提取](#1081-入口与上下文提取)
+  - [10.8.2 阶段 0：盘面感知](#1082-阶段-0盘面感知)
+  - [10.8.3 阶段 1：全形状池评分](#1083-阶段-1全形状池评分scored-构建)
+  - [10.8.4 阶段 2：Stage 1 消行优先席](#1084-阶段-2stage-1--消行优先席clearseats)
+  - [10.8.5 阶段 3：Stage 2 加权补齐](#1085-阶段-3stage-2--加权补齐augmentpool)
+  - [10.8.6 阶段 4：兜底](#1086-阶段-4兜底fallback)
+  - [10.8.7 阶段 5：L2 特殊形状注入](#1087-阶段-5l2-特殊形状注入_tryinjectspecial)
+  - [10.8.8 阶段 6：硬约束验证循环](#1088-阶段-6硬约束验证循环)
+  - [10.8.9 阶段 7：输出与 DFV 标注](#1089-阶段-7输出与-dfv-标注)
+  - [10.8.10 阶段 8：染色绑定](#10810-阶段-8染色绑定gamejs)
+  - [10.8.11 单 dock monoFlush 不变式总览](#10811-单-dock-monoflush-不变式总览)
+- [11. 后续迭代方向](#11-后续迭代方向)
 
 ---
 
@@ -4020,6 +4030,463 @@ blockSpawn  87/87 × 3 次连跑稳定
 Test Files  110 passed
 Tests       2051 passed (v1.60.31 → v1.60.34 净增 2)
 blockSpawn  89/89 × 3 次连跑稳定
+```
+
+---
+
+### 10.7.21 v1.60.35 —— 预算守卫双修：avail 兜底误标 + topDriver 上下行矛盾
+
+**用户反馈**：
+> 截图：单 dock 仍出现两个"★送同花"（v1.60.35 前）  
+> 截图：中间块标"送消行"但副标题显示"可凑1同花顺"（表述与事实不符）
+
+#### Bug 1：avail 兜底导致第 2 个 monoFlush 被随机分支误标
+
+**根因**：Stage 1 `clearSeats` 循环的 avail 过滤有兜底逻辑：
+
+```javascript
+// Stage 1 ci 级别 avail 过滤
+const filtered = avail.filter(s => (s.monoFlush ?? 0) === 0 || s.pcPotential === 2);
+if (filtered.length > 0) avail = filtered;   // ← 若 filtered 为空则 avail 保持原样
+```
+
+当盘面同色 line 密集（如截图的海盗航行主题），所有 `clearCandidates` 都有 `monoFlush >= 1`，`filtered` 为空，兜底使 `avail` 保持全员 monoFlush。
+
+- ci=0：monoFlushRound=true，预算未满，monoFlush 分支正常选出 5×1 → chosenMeta 写入 monoFlush=1
+- ci=1：预算已满（currentMonoFlushCount=1），进入过滤但 filtered 为空 → avail 仍全员 monoFlush → 随机分支选中 4×1 → **旧代码**的 reasonKey 仅检查 `pick.monoFlush >= 1`，不检查预算，误标 `'monoFlush'`
+
+**修复**（v1.60.35）：
+
+```javascript
+// Stage 1 push 前加预算守卫
+const monoFlushAllowed = currentMonoFlushCount < MAX_MONO_FLUSH_PER_DOCK;
+const reasonKey = (pick.pcPotential ?? 0) === 2 ? 'perfectClear'
+                : (monoFlushAllowed && (pick.monoFlush ?? 0) >= 1) ? 'monoFlush'
+                : 'clear';
+const pickForDriver = monoFlushAllowed ? pick : { ...pick, monoFlush: 0 };
+chosenMeta.push({
+    reason: reasonKey,
+    topDriver: _estimateTopDriver(pickForDriver, weights),
+    monoFlush: monoFlushAllowed ? (pick.monoFlush ?? 0) : 0,
+    monoFlushTargetCi: monoFlushAllowed ? (pick.monoFlushTargetCi ?? null) : null,
+    ...
+});
+```
+
+Stage 2 同理：新增 `s2MonoFlushAllowed` 预算检查。
+
+#### Bug 2：topDriver 未受预算守卫 → DFV 上下行矛盾
+
+**根因**：`_estimateTopDriver(pick, weights)` 读取原始 `pick.monoFlush`——即使 Bug 1 已修（reason 降为 `'clear'`），`topDriver.label` 仍由 `pick.monoFlush >= 1` 生成 `"可凑1同花顺"`：
+
+```
+DFV 节点上行：送消行       ← reason（预算守卫后降级）
+DFV 节点下行：可凑1同花顺  ← topDriver.label（未受守卫，仍读原始值）
+```
+
+**修复**：传入 `_estimateTopDriver` 之前，预算耗尽时用 `{ ...pick, monoFlush: 0 }` 修正副本，使下行 label 与上行 reason 语义一致。
+
+#### 三字段联动保证（v1.60.35 不变式）
+
+对 chosenMeta 中所有块，以下三字段保持语义一致：
+
+| 字段 | 预算未满 | 预算已满 |
+|---|---|---|
+| `reason` | `'monoFlush'` | `'clear'` 或 `'weighted'` |
+| `monoFlush` | 真实值（≥1） | **0** |
+| `monoFlushTargetCi` | 真实 ci | **null** |
+| `topDriver.label` | `"可凑N同花顺"` | 其他真实驱动因子 |
+| `topDriver.key` | `'monoFlush'` | 其他 key |
+| 染色强制绑定 | 触发（game.js） | **不触发** |
+
+**关键**：avail 兜底逻辑**不变**（保留对"全员 monoFlush"场景的选择自由）；只保证输出字段语义严格 ≤ 1，不影响 shape 可选性。
+
+#### 全量回归
+
+```
+Test Files  110 passed
+Tests       2051 passed（v1.60.34 → v1.60.35 零净增，纯 bug 修复）
+blockSpawn  89/89 × 2 次连跑稳定（随机波动下首次 1 条概率性抖动，第 2 次全绿）
+```
+
+---
+
+## 10.8 出块算法完整流水线（v1.60.35 代码基准）
+
+> 本节以**当前代码事实**为准，按执行顺序梳理 `generateDockShapes` 的完整 7 阶段流程。  
+> 所有版本演进细节见 §10.7.x；本节只呈现最终稳定形态。
+
+---
+
+### 10.8.1 入口与上下文提取
+
+**函数签名**：`generateDockShapes(grid, strategyConfig, spawnContext)`
+
+| 来源 | 字段 | 说明 |
+|---|---|---|
+| `strategyConfig.spawnHints` | `clearGuarantee`, `sizePreference`, `diversityBoost`, `comboChain`, `multiClearBonus`, `multiLineTarget`, `delightBoost`, `perfectClearBoost`, `iconBonusTarget`, `rhythmPhase`, `orderRigor`… | Layer 2/3 策略提示，由 `adaptiveSpawn.js` 派生 |
+| `strategyConfig.shapeWeights` | `{ lines, rects, squares, tshapes, … }` | 品类基础权重（按 stress 档位插值） |
+| `strategyConfig._skillLevel` 等 | profile 字段 | 供 `_passesShapeGate` 使用 |
+| `spawnContext` | `fill`, `totalRounds`, `roundsSinceClear`, `scoreMilestone`, `recentCategories`, `specialShapeUsed`… | 局内跨轮状态快照 |
+
+---
+
+### 10.8.2 阶段 0：盘面感知
+
+```
+fill = grid.getFillRatio()                     // 盘面填充率 [0,1]
+topo = analyzeBoardTopology(grid)              // nearFullLines, holes, flatness, maxColHeight
+pcSetup = analyzePerfectClearSetup(grid)       // 0=无 / 1=弱 / 2=强（可否清屏）
+nearFullFactor = min(1, topo.nearFullLines / 5)
+
+// monoFlush 信号（识别 always-on）
+monoFlushLines = grid.findNearFullMonoLines(skin)
+monoFlushNearLines = count(line.empty ≤ 2)
+monoFlushBuildupLines = count(3 ≤ line.empty ≤ 5)
+
+// 同花彩蛋节流（自适应概率）
+adaptiveMonoFlushProbability = clamp(
+    MONO_FLUSH_PICK_PROBABILITY + nearLines × 0.017 + buildupLines × 0.007,
+    0.033, 0.10
+)
+monoFlushRound = random() < adaptiveMonoFlushProbability   // 本轮是否激活同花彩蛋
+
+// 放行特殊形状进主路径（方向匹配）
+monoFlushAllowIds = Set{ '1x2'（行 empty=2 连续）, '2x1'（列 empty=2 连续）}
+```
+
+**monoFlush 信号强度 → 概率矩阵**（v1.60.34）：
+
+| 兑现期 line 数 | 概率 | 玩家体感 |
+|---|---|---|
+| 0–1 | 3.3% | 极罕见惊喜 |
+| 2 | ~5% | 偶然相遇 |
+| 3–4 | ~6–8% | 偶尔机会 |
+| 5+ | 10%（cap） | 强信号仍让位给清屏 |
+
+---
+
+### 10.8.3 阶段 1：全形状池评分（scored 构建）
+
+对 `getAllShapes()` 逐 shape 执行：
+
+#### 1-A 形状入池门控
+
+```
+if (!grid.canPlaceAnywhere(shape.data)) → 跳过
+if (monoFlushAllowIds.has(shape.id))    → 放行（跳过 gate）
+if (SPECIAL_SHAPES.includes(shape.id))  → 拒绝（不走正常出块）
+// 其他 shape 全部入池
+```
+
+`SPECIAL_SHAPES`（12 个）= `SPECIAL_RELIEF_SHAPES`（1x2/2x1/1x3/3x1/l3-a~d）+ `SPECIAL_PRESSURE_SHAPES`（diag-2a/2b/3a/3b）
+
+#### 1-B 各维度真模拟打分
+
+| 字段 | 计算方式 | 语义 |
+|---|---|---|
+| `gapFills` | `grid.countGapFills(shape.data)` | 加权差缺分（不保证消行） |
+| `multiClear` | `bestMultiClearPotential(grid, shape.data)` | 真模拟：放下最多能消几行/列 |
+| `pcPotential` | `bestPerfectClearPotential(grid, shape.data)` | 真模拟：放下能否清屏（0/1/2） |
+| `exactFit` | `grid.bestExactFit(shape.data)` | 完美卡入比例 [0,1]（外周邻居填充率） |
+| `monoFlush` | `grid.bestMonoFlushPotential(shape, skin).count` | 放下后能补满几条同色 line |
+| `monoFlushTargetCi` | `.targetCi` | 目标 line 的颜色索引（染色强制绑定用） |
+| `monoFlushBuildup` | `grid.bestMonoFlushBuildup(shape, skin, 6)` | 建设期：对 ≥6 格同色 line 贡献的 cells 数 |
+| `holeReduce` | `bestHoleReduction(grid, shape)` | 消除孤立空洞数（高填充时计算） |
+| `placements` | `countLegalPlacements(grid, shape.data)` | 合法落点数（机动性代理） |
+
+`scored` 初始排序：`pcPotential ↓ > multiClear ↓ > gapFills ↓`
+
+---
+
+### 10.8.4 阶段 2：Stage 1 — 消行优先席（clearSeats）
+
+#### clearCandidates 过滤
+
+```javascript
+clearCandidates = scored.filter(s =>
+    s.gapFills > 0 || s.multiClear >= 1 || s.pcPotential === 2 || s.monoFlush >= 1
+)
+```
+
+#### clearCandidates 动态排序（有条件触发）
+
+```
+aScore = pcPotential × (15 + perfectClearBoost × 15)
+       + monoFlush  × (2  + iconBonusTarget   × 1.5)
+       + multiClear × (1  + multiClearBonus + delightBoost + mlBoost)
+       + gapFills   × (0.5 + clearOpportunityTarget)
+```
+
+**pcPotential=2 + perfectClearBoost=1 时排序系数峰值 30**，远超 monoFlush 的 3.5。
+
+#### clearSeats 席位计算
+
+```javascript
+effectiveClearTarget = min(3, clearTarget + comboBonus + opportunityBonus)
+maxClearSeats = (pcSetup >= 2 || nearFullLines >= 4 || delightBoost > 0.65) ? 3 : 2
+clearSeats = pcSetup >= 2 || perfectClearBoost >= 0.9
+    ? min(3, clearCandidates.length)               // 清屏准备期：尽量全用
+    : min(effectiveClearTarget, clearCandidates.length, maxClearSeats)
+```
+
+#### Stage 1 循环（for ci in [0, clearSeats)）
+
+```
+每次迭代：
+1. avail = clearCandidates.filter(未使用)
+2. 预算守卫（v1.60.35）：
+   currentMonoFlushCount = chosenMeta 中 monoFlush >= 1 的数量
+   if (!monoFlushRound || currentMonoFlushCount >= MAX_MONO_FLUSH_PER_DOCK):
+       filtered = avail.filter(monoFlush == 0 || pcPotential == 2)
+       if filtered.length > 0: avail = filtered   // 兜底：全员 monoFlush 时保留原 avail
+
+3. 分支选取（优先级从高到低）：
+   ① avail 有 pcPotential==2 → 随机取前 3 中一个（perfectClear 分支）
+   ② monoFlushRound && 预算未满 && avail 有 monoFlush>=1 → monoFlush 分支
+   ③ multiClearBonus/delightBoost 信号 && avail 有 multiClear>=2 → multiClear 分支
+   ④ else → 随机取前 3 中一个（random 分支）
+
+4. push 到 chosenMeta（v1.60.35 预算守卫）：
+   monoFlushAllowed = currentMonoFlushCount < MAX_MONO_FLUSH_PER_DOCK
+   reason = pcPotential==2 ? 'perfectClear'
+          : (monoFlushAllowed && monoFlush>=1) ? 'monoFlush'
+          : 'clear'
+   pickForDriver = monoFlushAllowed ? pick : {...pick, monoFlush: 0}
+   chosenMeta.push({
+       reason, topDriver: _estimateTopDriver(pickForDriver),
+       monoFlush: monoFlushAllowed ? pick.monoFlush : 0,
+       monoFlushTargetCi: monoFlushAllowed ? pick.monoFlushTargetCi : null,
+       ...
+   })
+```
+
+**单 dock monoFlush ≤ 1 不变式**：由 avail 过滤 + reason/monoFlush 字段预算守卫双重保证，即使兜底路径选中 monoFlush shape 也只标 'clear'，不触发染色绑定。
+
+---
+
+### 10.8.5 阶段 3：Stage 2 — 加权补齐（augmentPool）
+
+#### remaining 过滤
+
+```javascript
+shouldExcludeMonoFlush = !monoFlushRound || chosenMeta.some(m => m.monoFlush >= 1)
+remaining = scored.filter(s =>
+    !usedIds[s.id]
+    && !(shouldExcludeMonoFlush && s.monoFlush >= 1 && s.pcPotential !== 2)
+)
+```
+
+#### augmentPool 加权公式（乘法链）
+
+```
+w = weights[category]                           // 基础权重
+
+// Layer 1：机动性
+× (1 + log1p(placements) × (0.35 + fill×0.55))
+
+// Layer 1：清屏
+if pcPotential==2:     × (25 + perfectClearBoost × 20)   // 峰值 45 倍
+if pcSetup>=1 & gapFills>0: × (1 + pcSetup×5 + pcb×4)  // 峰值 ~15 倍
+
+// Layer 1：多消
+if multiClear>=1:      × (1 + multiClear × (0.6 + mcBonus×0.6 + delight×0.45))
+if multiLineTarget>=2 & multiClear>=2: × 1.45
+
+// Layer 1：临消行放大
+if nearFullFactor>0 & gapFills>0: × (1 + nearFullFactor × (2.0 + clearOppTarget))
+
+// Layer 1：exactFit（完美卡入）
+if exactFit >= 0.5:    × (1 + (exactFit - 0.5) × 1.5)
+if exactFit >= 0.999:  × 1.4（额外）
+
+// Layer 1：monoFlush
+if monoFlush>=1 & 预算未满:
+    monoBoost = 1 + monoFlush × (0.4 + iconBonusTarget×0.6)
+    if id=='1x2'||'2x1': monoBoost × 1.5
+    if !monoFlushRound:  monoBoost = 1 + (monoBoost-1) × 0.3  // 非同花轮衰减
+    w × monoBoost
+
+// Layer 1：空洞修复
+if holeReduce>0 & fill>0.5: × (1 + holeReduce × 0.4)
+
+// Layer 2：节奏相位
+payoff 阶段：gapFills>0 → ×1.7；multiClear>=2 → ×1.4
+setup 阶段：4-6 格非消行块 → ×1.2
+
+// Layer 2：品类多样性（同轮 + 跨轮记忆惩罚）
+
+// Layer 2：sizePreference / spatialPressureTarget
+
+// Layer 3：里程碑庆祝（gapFills>0 → ×1.3）
+
+// PB 距离段：D0 段 multiClear>=2 → ×1.15~1.30；D4 超PB段 → multiClear ×0.78、大块 ×1.20
+```
+
+#### Stage 2 push（v1.60.35 预算守卫）
+
+```javascript
+s2MonoFlushAllowed = chosenMeta.filter(m => m.monoFlush >= 1).length < MAX_MONO_FLUSH_PER_DOCK
+stage2Reason = pcPotential==2 ? 'perfectClear'
+             : (s2MonoFlushAllowed && entry.monoFlush>=1) ? 'monoFlush'
+             : 'weighted'
+entryForDriver = s2MonoFlushAllowed ? entry : {...entry, monoFlush: 0}
+```
+
+---
+
+### 10.8.6 阶段 4：兜底（fallback）
+
+当 `remaining` 耗尽仍不足 3 块时：
+
+```javascript
+while blocks.length < 3:
+    p = _pickFallbackSafe(weights)   // pickShapeByCategoryWeights，不含 special
+    chosenMeta.push({ reason: 'fallback', topDriver: { key: 'fallback', label: '兜底降级' }, ... })
+```
+
+---
+
+### 10.8.7 阶段 5：L2 特殊形状注入（_tryInjectSpecial）
+
+**功能**：在极端盘面条件下，用"减压/加压"特殊形状替换当前 triplet 中一个弱块。
+
+**8 道 gate（任一拒绝即跳过注入）**：
+
+| Gate | 条件 |
+|---|---|
+| G1 | 信号触发：`reliefSignal = pcSetup>=1 || fill>0.7+holes>5+gapFills || monoFlushSignal` |
+| G2 | 开局 warmup：`totalRounds < 5` → 不注入 |
+| G3 | fill 下限：relief 需 `fill >= 0.25`；pressure 需 `fill >= 0.10` |
+| G4 | 清屏候选保护：chosen 含 `pcPotential >= 2` → 不注入 relief |
+| G5 | 多步清屏保护：`pcSetup >= 1 && canTripletPerfectClear()` → 不注入 relief |
+| G6 | 间隔节流：`roundsSinceSpecial < 5` → 不注入 |
+| G7 | 全局上限：`specialShapeUsed >= max(totalClears × 10%, 3)` → 停止 |
+| G8 | 子配额：relief ≤ `totalClears × 7%`；pressure ≤ `totalClears × 5%` |
+
+**优先级矩阵**：
+
+```
+sprint intent + pressure 信号    → 强制 pressure（玩家主动选难，relief 让位）
+pressure intent + 低 fill        → pressure 优先
+其他 + reliefSignal              → relief
+其他 + pressureSignal only       → pressure
+```
+
+**monoFlushSignal 触发 relief 路径**：
+- 条件：`monoFlushLines.length > 0 && !chosenAlreadyHasMonoFlush`
+- 候选提升：方向匹配的 `1x2`（横 empty=2 连续）/ `2x1`（竖 empty=2 连续）优先尝试
+- 注入后立即 `validateSpawnTriplet` 复校（失败则换候选/换槽/放弃）
+
+**智能槽位选择（replaceIdx）**：按 chosenMeta 重要性评分升序枚举，优先替换最弱 slot，保留高价值 slot（清屏/多消）。
+
+---
+
+### 10.8.8 阶段 6：硬约束验证循环
+
+整体在 `for attempt in [0, MAX_SPAWN_ATTEMPTS=22)` 内循环，每次重新执行阶段 2-5。
+
+**硬约束**（全部通过才输出）：
+
+| 约束 | 条件 |
+|---|---|
+| 可放置性 | 三块均 `canPlaceAnywhere` |
+| 机动性 | `minPlacements >= minMobilityTarget(fill, attempt)` |
+| 顺序可解性 | `fill >= 0.52` 时：6 种排列至少 1 种可顺序放下 3 块 |
+| 解法数量 | `targetSolutionRange` 指定时：解法数在区间内（软过滤，budget 截断后放行） |
+| 空洞强迫度 | `targetHoleIncrement` 指定时：最优放法的新空洞数在区间内 |
+| 9 维多轴区间 | `targetEndFillRatio`, `targetNearFullDelta`, `targetFirstMoveSurvivorRatio`… |
+
+超过 22 次仍不满足时，输出最后一次候选（**不死局**原则）。
+
+---
+
+### 10.8.9 阶段 7：输出与 DFV 标注
+
+**chosenMeta 字段完整表**（每块）：
+
+| 字段 | 来源 | DFV 消费 |
+|---|---|---|
+| `shape` | 形状数据 | miniGrid 渲染 |
+| `reason` | 'perfectClear' / 'monoFlush' / 'clear' / 'weighted' / 'fallback' | reason badge（★送清屏 / ★送同花 / 送消行 / 综合选 / 兜底块） |
+| `topDriver` | `_estimateTopDriver(pickForDriver)` | 节点下行 label |
+| `pcPotential` | 真模拟 0/1/2 | badge 颜色（金色=2） |
+| `multiClear` | 真模拟 | tooltip |
+| `gapFills` | 加权差缺 | tooltip |
+| `exactFit` | [0,1] | tooltip / label |
+| `monoFlush` | **受预算守卫**：超限写 0 | badge 颜色（紫粉=≥1） |
+| `monoFlushTargetCi` | **受预算守卫**：超限写 null | game.js 染色强制绑定 |
+| `monoFlushBuildup` | 建设期贡献 cells | scoreShape 内部加权用 |
+
+**topDriver 优先级顺序**（`_estimateTopDriver`）：
+
+```
+pcPotential == 2       → "可清屏"
+monoFlush >= 1         → "可凑N同花顺"   （受预算守卫；超限不走此分支）
+exactFit >= 0.999      → "完美卡入"
+multiClear >= 1        → "可消N行"
+exactFit >= 0.85       → "紧凑卡入XX%"
+gapFills >= 2          → "补N缺"
+gapFills == 1          → "近满补1"
+holeReduce > 0         → "补N洞"
+placements >= 30       → "机动高"
+category 权重最高      → "XX权重XX%"
+其他                   → "综合均衡"
+```
+
+---
+
+### 10.8.10 阶段 8：染色绑定（game.js）
+
+`_spawnDock()` 在 `generateDockShapes` 返回后执行：
+
+1. **monoFlush 染色强制绑定**（v1.60.27）：  
+   若 `chosenMeta[i].monoFlushTargetCi !== null`，该 slot 颜色强制 = `monoFlushTargetCi`（锁定目标同色 line 颜色）
+
+2. **严格无放回染色**（v1.60.29）：  
+   剩余非锁定 slot 从 `pickThreeDockColors(bonusBias)` 过滤已用色后依次分配，确保三块颜色各不相同（monoFlush 锁定色除外）
+
+3. **最终 dock**：`[shape0+color0, shape1+color1, shape2+color2]` 发往渲染层
+
+---
+
+### 10.8.11 单 dock monoFlush 不变式总览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  monoFlush 在 dock 中的全链路约束（v1.60.35 完整版）             │
+│                                                                 │
+│  信号层（always-on 识别）:                                       │
+│    monoFlushLines 始终计算，monoFlush 字段在 scored 中始终真实   │
+│                                                                 │
+│  节流层（激活控制）:                                             │
+│    monoFlushRound: 3.3%~10% 自适应概率                         │
+│                                                                 │
+│  Stage 1 选取层:                                                │
+│    avail 过滤：!monoFlushRound || count>=1 → 剔除 monoFlush     │
+│    选取分支：monoFlushRound && count==0 → monoFlush 分支        │
+│                                                                 │
+│  Stage 1 记录层（v1.60.35 预算守卫）:                           │
+│    monoFlushAllowed = count < MAX(1)                           │
+│    reason / monoFlush / monoFlushTargetCi / topDriver           │
+│    均受 monoFlushAllowed 守卫                                   │
+│                                                                 │
+│  Stage 2 过滤层:                                                │
+│    shouldExcludeMonoFlush = !monoFlushRound || 已有 monoFlush   │
+│    remaining 剔除 monoFlush（pcPotential==2 例外）              │
+│                                                                 │
+│  Stage 2 记录层（v1.60.35 预算守卫）:                           │
+│    s2MonoFlushAllowed = count < MAX(1)                         │
+│    同上三字段守卫                                               │
+│                                                                 │
+│  L2 注入层:                                                     │
+│    chosenAlreadyHasMonoFlush → monoFlushSignal=false → 不触发   │
+│                                                                 │
+│  染色层:                                                        │
+│    monoFlushTargetCi==null → 不强制锁色                        │
+│                                                                 │
+│  结果：单 dock 最多出现 1 个 ★送同花，DFV 标签/副标题语义一致   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
