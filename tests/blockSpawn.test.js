@@ -1473,6 +1473,67 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
     });
 });
 
+describe('v1.60.34 — 同花概率降低 2/3 + 大幅提升清屏概率', () => {
+    const SKIN_8 = { blockIcons: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] };
+
+    function buildStrongMonoScenario() {
+        const localGrid = new Grid(10);
+        for (let y = 2; y < 10; y++) {
+            localGrid.cells[y][5] = 0;
+            localGrid.cells[y][6] = 0;
+        }
+        for (let y = 7; y < 10; y++) for (let x = 0; x < 3; x++) localGrid.cells[y][x] = 1;
+        return localGrid;
+    }
+
+    function buildConfig() {
+        return {
+            shapeWeights: getStrategy().shapeWeights,
+            spawnHints: { clearGuarantee: 0.5, spawnTargets: { iconBonusTarget: 1.0, clearOpportunity: 0.6 } },
+        };
+    }
+
+    beforeEach(() => { resetSpawnMemory(); });
+
+    it('强信号场景 monoFlush 命中率 ≤ 20%（v1.60.31 的 ≤45% 的 ~2/3 ÷ 1.5 ≈ 20%）', () => {
+        let hit = 0;
+        const TRIALS = 200;
+        for (let t = 0; t < TRIALS; t++) {
+            const localGrid = buildStrongMonoScenario();
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            if ((diag?.chosen || []).some(m => (m.monoFlush ?? 0) >= 1)) hit++;
+        }
+        const rate = hit / TRIALS;
+        expect(rate, `v1.60.34 强信号 monoFlush 命中率 ${(rate*100).toFixed(1)}% (应 ≤ 20%)`).toBeLessThanOrEqual(0.20);
+    });
+
+    it('盘面有 pcPotential 候选时 → chosen 应高概率含 pcPotential===2（清屏权重 ×45 倍）', () => {
+        /* 构造单步清屏场景：8×8 盘面 row 0 缺 4 格，其余全空 → 1×4 放 row 0 缺口 → 整盘空 */
+        let hit = 0;
+        const TRIALS = 30;
+        const pcConfig = {
+            shapeWeights: getStrategy().shapeWeights,
+            spawnHints: { clearGuarantee: 1, perfectClearBoost: 1.0, sizePreference: 0, diversityBoost: 0 },
+        };
+        for (let t = 0; t < TRIALS; t++) {
+            const localGrid = new Grid(8);
+            for (let x = 0; x < 4; x++) localGrid.cells[0][x] = 1;
+            const ctx = { totalClears: 0, totalRounds: 2 };
+            const shapes = generateDockShapes(localGrid, pcConfig, ctx);
+            const diag = getLastSpawnDiagnostics();
+            if ((diag?.chosen || []).some(m => (m.pcPotential ?? 0) === 2)
+                || shapes.some(s => s.id === '1x4')) {
+                hit++;
+            }
+        }
+        const rate = hit / TRIALS;
+        /* 单步清屏可达场景，期望 ≥ 90% 命中（v1.60.34 强化清屏权重 ×45 倍碾压一切） */
+        expect(rate, `单步清屏可达场景命中率 ${(rate*100).toFixed(1)}% (应 ≥ 90%)`).toBeGreaterThanOrEqual(0.90);
+    });
+});
+
 describe('v1.60.31 — monoFlush 极小概率惊喜 + avail 硬过滤修复 v1.60.29 计数泄漏', () => {
     const SKIN_8 = { blockIcons: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] };
 
