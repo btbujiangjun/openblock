@@ -4048,6 +4048,7 @@ _DOC_CATEGORIES = [
         "docs": [
             "algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md",
             "algorithms/ALGORITHM_DIAGRAM_PROMPT.md",
+            "algorithms/SPAWN_DIAGRAM_PROMPT.md",
             "algorithms/ALGORITHMS_HANDBOOK.md",
             "algorithms/ALGORITHMS_SPAWN.md",
             "algorithms/ALGORITHMS_PLAYER_MODEL.md",
@@ -4081,6 +4082,7 @@ _DOC_CATEGORIES = [
             "algorithms/SPAWN_BLOCK_MODELING.md",
             "algorithms/CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md",
             "algorithms/SPAWN_SOLUTION_DIFFICULTY.md",
+            "algorithms/SPAWN_DIAGRAM_PROMPT.md",
         ],
     },
     {

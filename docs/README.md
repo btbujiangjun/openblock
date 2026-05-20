@@ -220,6 +220,7 @@ docs/
 | [生命周期数据→策略分层](./architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md) | 数据层 + 编排层 + 策略层三段式架构与单向依赖约束 |
 | [架构图生成 Prompt（系统侧）](./architecture/ARCHITECTURE_DIAGRAM_PROMPT.md) | 重生成系统架构图的可复用 prompt 模板 |
 | [架构图生成 Prompt（算法侧）](./algorithms/ALGORITHM_DIAGRAM_PROMPT.md) | 重生成算法架构图的可复用 prompt 模板 |
+| [出块算法架构图生成 Prompt](./algorithms/SPAWN_DIAGRAM_PROMPT.md) | `generateDockShapes` 7 层流水线 HTML 可视化架构图 prompt（含完整事实包） |
 
 ### 领域知识与产品方法论
 

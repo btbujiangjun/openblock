@@ -29,11 +29,18 @@
 
 ## 出块专题
 
-- [自适应出块](./ADAPTIVE_SPAWN.md)
+![出块算法架构图：9层流水线（输入层→染色层）](./assets/spawn-architecture.png)
+
+> 上图为 `generateDockShapes` 9 层流水线全览（层 0 输入层 → 层 8 染色层），
+> 详细文字说明见 [自适应出块 §10.8](./ADAPTIVE_SPAWN.md#108-出块算法完整流水线v16035-代码基准)。
+
+- [自适应出块](./ADAPTIVE_SPAWN.md) —— 含 §10.8 出块算法完整流水线（v1.60.35 代码基准）
 - [出块三层架构](./SPAWN_ALGORITHM.md)
 - [解法数量难度](./SPAWN_SOLUTION_DIFFICULTY.md) —— 含 §13–§14 顺序刚性 `orderRigor`
 - [出块建模](./SPAWN_BLOCK_MODELING.md)
 - [候选块概率图鉴](./CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md)
+- [**出块算法架构图生成 Prompt**](./SPAWN_DIAGRAM_PROMPT.md) —— 喂给大模型即生成
+  `generateDockShapes` 9 层流水线 PNG 架构图（事实包 + 视觉规范 + 自检清单）
 
 ## RL 专题
 
