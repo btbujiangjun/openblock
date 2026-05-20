@@ -1595,17 +1595,14 @@ export class Game {
         const bonusBias = monoNearFullLineColorWeights(this.grid, getActiveSkin())
             .map(w => w * (1 + iconBonusTarget * 2.5));
 
-        /* v1.60.27：monoFlush 染色强制绑定 —— 关键修复（修复"driver 标可凑同花顺但实际不染对应色"漏标）。
+        /* v1.60.27：monoFlush 染色强制绑定（spawn 阶段 monoFlushTargetCi → 染色 dockColors[i]）
+         * v1.60.29：丰富候选块着色多样性 —— 同色作为极小概率惊喜，改善玩家疲劳感。
          *
-         * **旧版 bug**：pickThreeDockColors(bonusBias) 是**独立随机抽样**——
-         *   3 个 dock 块颜色独立 bias 抽，**不绑定** shape↔color。结果：
-         *   - blockSpawn 标 shape A 为 monoFlush（前提是它染成 line 同色 icon）
-         *   - 染色阶段 line 同色被分给无关 shape B → shape A 染别的色 → 实际放下不触发同花
-         *   - driver "可凑1同花顺" 是**乐观虚标**，玩家失望。
-         *
-         * **修复**：spawn 阶段 `bestMonoFlushPotential` 同时返回 targetCi（line 同色 ci）。
-         *   染色阶段优先把 monoFlush chosen shape 强制染对应 targetCi，剩余 slots 才按
-         *   bias 抽 —— 保证 driver "可凑同花顺" 与实际染色一致。 */
+         * **核心规则**：
+         *   1. monoFlush chosen 槽强制染 targetCi（保留 v1.60.27 契约，同色是"同花顺彩蛋"的标志）
+         *   2. dock 内 monoFlush 槽 ≤ 1（v1.60.29 blockSpawn 已限）→ 至多 1 个锁定色
+         *   3. 剩余 slots 按 bias 抽，**严格无放回**保证 3 块绝不同色（除非彩蛋同色已锁）
+         *   4. fallback 路径强制选未用色，避免 `Math.floor(Math.random()*8)` 引入重复 */
         const spawnDiag = getLastSpawnDiagnostics();
         const chosenMetas = spawnDiag?.chosen || [];
         const dockColors = new Array(3).fill(null);
@@ -1619,18 +1616,27 @@ export class Game {
             }
         }
 
-        /* 剩余 slots 按 bias 抽 — 保留 pickThreeDockColors 的"无放回"语义避免颜色单调；
-         * 锁定 slot 的颜色从 pool 中剔除，让无放回抽样在剩余 7 色中进行。 */
         if (lockedSlots.size < 3) {
-            const remainingPicks = pickThreeDockColors(bonusBias);
+            /* v1.60.29：在 pool ∖ {locked} 上无放回抽，保证多样性；
+             * pickThreeDockColors 抽 3 色，过滤掉 locked 后剩 ≥2 色（即够 2 槽）。
+             * 但若剩余颜色不足（极端：locked 2 色 + bias 仅向少数色集中），
+             * 用全 8 色 pool 兜底再过滤——绝不让任意 2 个 dock 槽同色。 */
             const usedSet = new Set();
             for (const slot of lockedSlots) usedSet.add(dockColors[slot]);
-            const filtered = remainingPicks.filter(c => !usedSet.has(c));
-            let fillIdx = 0;
+
+            const primaryPicks = pickThreeDockColors(bonusBias).filter(c => !usedSet.has(c));
+            const fallbackPool = [0, 1, 2, 3, 4, 5, 6, 7].filter(c => !usedSet.has(c));
+            let primaryIdx = 0;
             for (let i = 0; i < 3; i++) {
                 if (lockedSlots.has(i)) continue;
-                dockColors[i] = filtered[fillIdx] ?? remainingPicks[fillIdx] ?? Math.floor(Math.random() * 8);
-                fillIdx++;
+                let color = primaryPicks[primaryIdx++];
+                if (color == null || usedSet.has(color)) {
+                    /* primary 抽样耗尽（或某色重复）— 从 fallbackPool 取首未用色 */
+                    color = fallbackPool.find(c => !usedSet.has(c));
+                }
+                if (color == null) color = Math.floor(Math.random() * 8); /* 终极兜底，理论不可达 */
+                dockColors[i] = color;
+                usedSet.add(color);
             }
         }
 

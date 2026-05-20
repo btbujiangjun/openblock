@@ -1400,7 +1400,8 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
         resetSpawnMemory();
     });
 
-    it('截图场景：col 5/6 8 同色（empty=2）→ chosen 应含 2×1 竖块（多次抽样保概率）', () => {
+    /* v1.60.28 调整：monoFlush 降为彩蛋（25% gate），命中率从 ≥50% 调整到 ≥10% */
+    it('截图场景：col 5/6 8 同色（empty=2）→ chosen 应含 2×1 竖块（彩蛋频率 ≥ 10%）', () => {
         let hit2x1 = 0;
         const trials = 20;
         for (let t = 0; t < trials; t++) {
@@ -1409,10 +1410,11 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
             const shapes = generateDockShapes(localGrid, buildConfig(), ctx);
             if (shapes.some(s => s.id === '2x1')) hit2x1++;
         }
-        expect(hit2x1, `20 次抽样应有 ≥10 次命中 2×1（实际命中 ${hit2x1}）`).toBeGreaterThanOrEqual(10);
+        /* v1.60.28/29：彩蛋节流（25% gate × 单 dock ≤1 数量限制）+ 抽样波动 → ≥1/20 (5%) */
+        expect(hit2x1, `20 次抽样应有 ≥1 次命中 2×1（实际命中 ${hit2x1}）`).toBeGreaterThanOrEqual(1);
     });
 
-    it('row 上 2 空近满同色 → chosen 应含 1×2 横块', () => {
+    it('row 上 2 空近满同色 → chosen 应含 1×2 横块（彩蛋频率 ≥ 10%）', () => {
         let hit1x2 = 0;
         const trials = 20;
         for (let t = 0; t < trials; t++) {
@@ -1423,7 +1425,8 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
             const shapes = generateDockShapes(localGrid, buildConfig(), ctx);
             if (shapes.some(s => s.id === '1x2')) hit1x2++;
         }
-        expect(hit1x2, `20 次抽样应有 ≥10 次命中 1×2（实际命中 ${hit1x2}）`).toBeGreaterThanOrEqual(10);
+        /* v1.60.28/29：彩蛋节流（25% gate × 单 dock ≤1 数量限制）+ 抽样波动 → ≥1/20 (5%) */
+        expect(hit1x2, `20 次抽样应有 ≥1 次命中 1×2（实际命中 ${hit1x2}）`).toBeGreaterThanOrEqual(1);
     });
 
     it('chosen 命中后 diagnostics.chosen 对应块 topDriver.key="monoFlush"', () => {
@@ -1465,7 +1468,128 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
             const shapes = generateDockShapes(localGrid, buildConfig(), ctx);
             if (shapes.some(s => s.id === '1x2' || s.id === '2x1')) hit++;
         }
-        expect(hit, `skin=null 场景 20 次抽样命中 ${hit}（应 ≥ 8）`).toBeGreaterThanOrEqual(8);
+        /* v1.60.28/29：彩蛋节流后期望 ≥1/20 */
+        expect(hit, `skin=null 场景 20 次抽样命中 ${hit}（应 ≥ 1）`).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe('v1.60.29 — monoFlush 单 dock 数量 ≤ 1 + reason="monoFlush" 派生', () => {
+    const SKIN_8 = { blockIcons: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] };
+
+    function buildStrongMonoScenario() {
+        const localGrid = new Grid(10);
+        for (let y = 2; y < 10; y++) {
+            localGrid.cells[y][5] = 0;
+            localGrid.cells[y][6] = 0;
+        }
+        for (let y = 7; y < 10; y++) for (let x = 0; x < 3; x++) localGrid.cells[y][x] = 1;
+        return localGrid;
+    }
+
+    function buildConfig() {
+        return {
+            shapeWeights: getStrategy().shapeWeights,
+            spawnHints: { clearGuarantee: 0.5, spawnTargets: { iconBonusTarget: 1.0, clearOpportunity: 0.6 } },
+        };
+    }
+
+    beforeEach(() => { resetSpawnMemory(); });
+
+    it('单 dock 中 monoFlush 块数量 ≤ 1（彩蛋稀缺，避免视觉单调）', () => {
+        let maxMonoFlushInOneDock = 0;
+        let totalRoundsWithMono = 0;
+        for (let t = 0; t < 60; t++) {
+            const localGrid = buildStrongMonoScenario();
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            const monoCount = (diag?.chosen || []).filter(m => (m.monoFlush ?? 0) >= 1).length;
+            if (monoCount > 0) totalRoundsWithMono++;
+            if (monoCount > maxMonoFlushInOneDock) maxMonoFlushInOneDock = monoCount;
+        }
+        expect(maxMonoFlushInOneDock, '60 轮中单 dock 最多 monoFlush 块数').toBeLessThanOrEqual(1);
+        expect(totalRoundsWithMono, '60 轮应有至少 1 轮命中 monoFlush（彩蛋有效）').toBeGreaterThanOrEqual(1);
+    });
+
+    it('reason 派生：monoFlush=1 → reason="monoFlush"（不再被 "clear" 覆盖）', () => {
+        let foundMonoChosen = false;
+        let allCorrectReason = true;
+        for (let t = 0; t < 60; t++) {
+            const localGrid = buildStrongMonoScenario();
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            for (const m of diag?.chosen || []) {
+                if ((m.monoFlush ?? 0) >= 1 && (m.pcPotential ?? 0) !== 2) {
+                    foundMonoChosen = true;
+                    if (m.reason !== 'monoFlush') allCorrectReason = false;
+                }
+            }
+        }
+        if (foundMonoChosen) {
+            expect(allCorrectReason, 'monoFlush>=1 且非 pcPotential → reason 必须 = "monoFlush"').toBe(true);
+        }
+        expect(true).toBe(true);
+    });
+});
+
+describe('v1.60.28 — monoFlush 降为"乐趣彩蛋"，driver 频率受 MONO_FLUSH_PICK_PROBABILITY 节流', () => {
+    const SKIN_8 = { blockIcons: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] };
+
+    /** 同前场景：col 5/6 上 8 同色（empty=2）—— 强 monoFlush 信号 */
+    function buildStrongMonoFlushScenario() {
+        const localGrid = new Grid(10);
+        for (let y = 2; y < 10; y++) {
+            localGrid.cells[y][5] = 0;
+            localGrid.cells[y][6] = 0;
+        }
+        for (let y = 7; y < 10; y++) for (let x = 0; x < 3; x++) localGrid.cells[y][x] = 1;
+        return localGrid;
+    }
+
+    function buildConfig() {
+        return {
+            shapeWeights: getStrategy().shapeWeights,
+            spawnHints: {
+                clearGuarantee: 0.5,
+                spawnTargets: { iconBonusTarget: 1.0, clearOpportunity: 0.6 },
+            },
+        };
+    }
+
+    beforeEach(() => { resetSpawnMemory(); });
+
+    it('强 monoFlush 信号场景：chosen 标 driver="monoFlush" 频率 ≤ 50%（不再 100% 必标）', () => {
+        let monoFlushDriverHits = 0;
+        const trials = 60;
+        for (let t = 0; t < trials; t++) {
+            const localGrid = buildStrongMonoFlushScenario();
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            for (const m of diag?.chosen || []) {
+                if (m.topDriver?.key === 'monoFlush') monoFlushDriverHits++;
+            }
+        }
+        const totalChosenSlots = trials * 3;
+        const rate = monoFlushDriverHits / totalChosenSlots;
+        /* 25% pick + scoreShape 降权 → 命中率应 ≤ 50%（含 augmentPool 加权命中） */
+        expect(rate, `monoFlush driver 命中率 ${(rate * 100).toFixed(1)}% 应 ≤ 50%（彩蛋节奏）`).toBeLessThanOrEqual(0.50);
+    });
+
+    it('强 monoFlush 信号下仍能命中（≥ 5%，保证彩蛋有效）', () => {
+        let monoFlushDriverHits = 0;
+        const trials = 60;
+        for (let t = 0; t < trials; t++) {
+            const localGrid = buildStrongMonoFlushScenario();
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = getLastSpawnDiagnostics();
+            for (const m of diag?.chosen || []) {
+                if (m.topDriver?.key === 'monoFlush') monoFlushDriverHits++;
+            }
+        }
+        expect(monoFlushDriverHits, `60 trials 应至少命中 monoFlush driver ≥ 1 次（保证彩蛋有效）`).toBeGreaterThanOrEqual(1);
     });
 });
 

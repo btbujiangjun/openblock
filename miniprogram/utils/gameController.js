@@ -116,9 +116,8 @@ class GameController {
     const colorBias = monoNearFullLineColorWeights(this.grid, this.skin)
       .map((w) => w * (1 + iconBonusTarget * 2.5));
 
-    /* v1.60.27：monoFlush 染色强制绑定 —— 与 web/src/game.js 同步实现。
-     * spawn 阶段标 shape 为"可凑同花顺"（前提是它染成 line 同色 icon），
-     * 染色阶段必须绑定 shape ↔ targetCi 让 driver 不再"虚标"。 */
+    /* v1.60.27：monoFlush 染色强制绑定（与 web/src/game.js 同步）
+     * v1.60.29：dock 3 块严格无放回，绝不同色（同色仅在 monoFlush 彩蛋时作为锁定色） */
     const spawnDiag = getLastSpawnDiagnostics();
     const chosenMetas = spawnDiag?.chosen || [];
     const dockColorsArr = new Array(3).fill(null);
@@ -133,17 +132,20 @@ class GameController {
     }
 
     if (lockedSlots.size < 3) {
-      const remainingPicks = pickThreeDockColors(colorBias);
       const usedSet = new Set();
       for (const slot of lockedSlots) usedSet.add(dockColorsArr[slot]);
-      const filtered = remainingPicks.filter((c) => !usedSet.has(c));
-      let fillIdx = 0;
+      const primaryPicks = pickThreeDockColors(colorBias).filter((c) => !usedSet.has(c));
+      const fallbackPool = [0, 1, 2, 3, 4, 5, 6, 7].filter((c) => !usedSet.has(c));
+      let primaryIdx = 0;
       for (let i = 0; i < 3; i++) {
         if (lockedSlots.has(i)) continue;
-        dockColorsArr[i] = filtered[fillIdx] !== undefined ? filtered[fillIdx]
-                          : remainingPicks[fillIdx] !== undefined ? remainingPicks[fillIdx]
-                          : Math.floor(Math.random() * 8);
-        fillIdx++;
+        let color = primaryPicks[primaryIdx++];
+        if (color == null || usedSet.has(color)) {
+          color = fallbackPool.find((c) => !usedSet.has(c));
+        }
+        if (color == null) color = Math.floor(Math.random() * 8);
+        dockColorsArr[i] = color;
+        usedSet.add(color);
       }
     }
 

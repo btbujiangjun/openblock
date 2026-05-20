@@ -3602,6 +3602,183 @@ spawn 阶段：
 
 ---
 
+### 10.7.16 v1.60.28 —— monoFlush 降为"乐趣彩蛋"（25% 概率门槛节流）
+
+#### 设计动机
+
+v1.60.19~27 经多轮修复后，monoFlush 信号体系已完整：
+- **判定准确**（v1.60.26 严格用户定义：消行 + 全 line 同 icon）
+- **染色绑定**（v1.60.27 chosen monoFlush shape ↔ targetCi 强制绑定，100% 触发 ×5 iconBonus）
+
+但用户反馈：
+
+> 凑同花顺的判断逻辑正确，**作为乐趣和彩蛋（菜单），要求小概率出现**
+
+判定与绑定都对了，问题在于**命中率**——v1.60.27 之前同花顺信号下 chosen 几乎 100% 含 monoFlush shape，driver 必标 "可凑N同花顺"，**常态化反而失去惊喜彩蛋语义**，且遮蔽其他乐趣（multiClear / pcPotential / exactFit）。
+
+#### 解决方案：源头 gate 节流（`MONO_FLUSH_PICK_PROBABILITY = 0.25`）
+
+**单一节流点**——`monoFlushRound` 在 `generateDockShapes` 入口处一次 RNG 决定：
+
+```js
+const MONO_FLUSH_PICK_PROBABILITY = 0.25;
+
+const monoFlushRound = Math.random() < MONO_FLUSH_PICK_PROBABILITY;
+
+/* 1. monoFlushAllowIds 仅在 monoFlushRound 时放行 1×2/2×1 进 scored */
+if (monoFlushRound) {
+    for (const line of monoFlushLines) { /* ... */ monoFlushAllowIds.add(...); }
+}
+
+/* 2. scored.map 内 bestMonoFlushPotential 仅在 monoFlushRound 时调用，
+ *    否则 monoFlush=0, monoFlushTargetCi=null —— driver 不会标 'monoFlush' */
+const monoFlushRes = monoFlushRound && grid.bestMonoFlushPotential
+    ? grid.bestMonoFlushPotential(shape.data, skin, { returnTarget: true })
+    : { count: 0, targetCi: null };
+```
+
+**为什么源头 gate 而非多层叠加门槛**：
+- 多层门槛会出现 25% × 25% = 6.25% 的"双重稀释"问题，最终命中率过低、彩蛋失效
+- 源头 gate 保证 25% 轮次内 monoFlush 信号**完整保留**，染色绑定、scoreShape 加权全部正常工作 → driver "可凑N同花顺" 与玩家实际触发完全一致
+
+**配套微调**：
+- `scoreShape` 中 1×2/2×1 的 `monoBoost ×3.0 → ×1.5`（避免 25% 命中轮次中 monoFlush 过度抢占）
+- `clearCandidates.sort` 权重 `(5 + iconBonusTarget*3) → (2 + iconBonusTarget*1.5)`
+
+#### 命中率分布（理论 vs 实测）
+
+| 信号 | 概率 | 行为 |
+|------|------|------|
+| 任意轮次 | 25% | `monoFlushRound = true` → 信号体系完整启用 |
+| 任意轮次 | 75% | `monoFlushRound = false` → 所有 shape monoFlush=0，driver 不标 'monoFlush' |
+| monoFlushRound + 强 monoFlush 盘面 | ~20% 总槽数 | 实测（60 trials × 3 slots = 180 槽）|
+
+**实测**（强 monoFlush 信号场景，60 trials）：driver `monoFlush` 命中率 **~20%** ≤ 50% ✓
+
+#### 与 pcPotential 优先级对比
+
+| Driver | 是否节流 | 设计语义 |
+|--------|---------|---------|
+| `pcPotential`（清屏）| **否（100% 优先）** | 终极目标，不节流 |
+| `monoFlush`（同花顺）| **是（25% gate）** | 惊喜彩蛋，节流避免常态化 |
+| `exactFit` / `multiClear` / `gapFills` | 否 | 普通消行信号，按 scoreShape 加权自然分布 |
+
+#### 不变式测试（`tests/blockSpawn.test.js` v1.60.28 子套件）
+
+新增 2 条：
+1. **强 monoFlush 信号场景 60 trials**：driver `monoFlush` 命中率 ≤ 50%（彩蛋节奏）
+2. **强 monoFlush 信号下仍能命中**：60 trials 至少 1 次 monoFlush driver（保证彩蛋有效）
+
+更新 3 条 v1.60.24 测试：1×2/2×1 命中预期从 `≥10/20 (50%)` 调整为 `≥2/20 (10%)`，反映 v1.60.28 节流。
+
+#### 完整 monoFlush 闭环（v1.60.19→28 累积契约）
+
+```
+generateDockShapes 入口：
+    ↓
+monoFlushRound = Math.random() < 0.25  ← v1.60.28 源头 gate
+    ↓
+┌──────────────────────────────────────────────────────────┐
+│ 25% 轮次（monoFlushRound = true）：                        │
+│   1. monoFlushAllowIds 放行 1×2/2×1 进 scored             │
+│   2. bestMonoFlushPotential 返回 { count, targetCi }      │
+│   3. scoreShape × monoFlush 加权（×1.5 for 1×2/2×1）      │
+│   4. clearCandidates 含 monoFlush>=1 → 排序 → pick        │
+│   5. chosen.topDriver = { key:'monoFlush', label:'可凑N同花顺' }│
+│   6. game.js 染色绑定 dockColors[i] = targetCi（v1.60.27）│
+│   7. 玩家放下 → line 满 + 全 line 同 icon → ×5 iconBonus ✓│
+└──────────────────────────────────────────────────────────┘
+    ↓
+┌──────────────────────────────────────────────────────────┐
+│ 75% 轮次（monoFlushRound = false）：                       │
+│   1. monoFlushAllowIds = ∅，1×2/2×1 走 _passesShapeGate 拒绝│
+│   2. 所有 shape monoFlush=0, monoFlushTargetCi=null       │
+│   3. driver 不可能标 'monoFlush' → 自然落到 multiClear /  │
+│      pcPotential / exactFit / gapFills / balanced 等下游  │
+│   4. 染色不绑定 → pickThreeDockColors 按 bias 抽           │
+│   5. 同花顺彩蛋不出现 → 让其他乐趣信号自由发挥             │
+└──────────────────────────────────────────────────────────┘
+```
+
+全量回归 **2041 / 2041**（v1.60.27 → v1.60.28 净增 2）。
+
+### 10.7.17 v1.60.29 —— 特殊块标题强化 + 单 dock 同花顺数量限制 + 染色多样性
+
+**用户反馈三件套**：
+> 1）同花顺、清屏作为特殊块，将其体现到标题上，强化体感；
+> 2）限制同花顺出现的概率和数量；
+> 3）丰富候选块着色多样性，同色只作为极小概率的惊喜出现，来改善玩家的疲劳感。
+
+#### 改造 1：特殊块标题强化体感（DFV chosen 节点）
+
+| 维度 | 旧（v1.60.28） | 新（v1.60.29） |
+|---|---|---|
+| reason 派生 | `pcPotential===2 ? 'perfectClear' : 'clear'` | `pcPotential===2 ? 'perfectClear' : monoFlush>=1 ? 'monoFlush' : 'clear'` |
+| chosen 标题 | "送消行" / "送清屏" / "综合选" | "送消行" / **"★送清屏"**（金）/ **"★送同花"**（紫）/ "综合选" |
+| 节点描边色 | 形状品类色 | 特殊块→金/紫，非特殊→品类色 |
+| 描边粗细 | 1.5 | 特殊块→2.5（凸显） |
+| 辉光强度 | `${color}30` | 特殊块→`${color}55`（浓 1.83 倍） |
+| Legend | 4 项 reason | **5 项**（新增"★送同花"条目） |
+
+**视觉效果**：DFV 上的 chosen 节点一眼可辨"机会块 vs 普通块"，"★" 前缀 + 金/紫高饱和描边 + 浓辉光让玩家瞬间识别彩蛋。
+
+#### 改造 2：单 dock 同花顺数量上限 `≤ 1`
+
+**问题**：v1.60.28 加 25% 轮次门槛后，命中轮次内仍可能 chosen 三槽**全部**标"送同花"——bias 在 monoNearFullLineColorWeights 集中向单一颜色 + scored 中多 shape 都能 monoFlush → 三槽同色同 driver → 视觉过载且彩蛋稀缺感丧失。
+
+**修复（三层防御）**：
+
+| 防御层 | 代码位置 | 规则 |
+|---|---|---|
+| **Stage 1 clearSeats pick** | `for (ci…)` 循环外 `monoFlushPickedInDock=0` | 命中 1 次后 `monoFlushPickedInDock===1`，后续 ci 跳过 monoFlush 分支 |
+| **Stage 2 augmentPool 软**抑制 | `if (!alreadyHasMonoFlush) monoBoost = …` | chosen 已含 monoFlush → 跳过 monoBoost 加权 |
+| **Stage 2 remaining 硬**过滤 | `remaining = scored.filter(s => !(已有monoFlush && s.monoFlush>=1))` | 直接从候选池剔除二次 monoFlush 块 |
+| **L2 `_tryInjectSpecial`** | `monoFlushSignal = !chosenAlreadyHasMonoFlush && lines.length>0` | chosen 已含 monoFlush → 关闭 monoFlush 信号通道 |
+
+**Invariant**（`tests/blockSpawn.test.js` v1.60.29 子套件）：60 轮强 monoFlush 场景中**单 dock monoFlush 最大数 ≤ 1**。
+
+#### 改造 3：dock 3 块严格无放回染色（同色仅作彩蛋锁定色）
+
+**问题**：v1.60.27 染色绑定 + bonusBias 让多槽抽到同色：
+- `pickThreeDockColors` 无放回抽 3 色 → filter(usedSet) 后可能剩 ≤2 色
+- 若不足 → 走 fallback `Math.floor(Math.random()*8)` → 引入重复
+
+**修复**：`game.js` / `gameController.js` 染色循环改为**三级保底**：
+
+```
+1. primaryPicks = pickThreeDockColors(bias).filter(!usedSet)     // bias 优先
+2. fallbackPool = [0..7].filter(!usedSet).find(!usedSet)          // 全色兜底
+3. Math.random()*8                                                 // 终极兜底（不可达）
+每填一槽 → usedSet.add(color)                                      // 严格无放回
+```
+
+| 场景 | 旧（v1.60.27） | 新（v1.60.29） |
+|---|---|---|
+| 无 monoFlush，bias 集中 | 偶发 2 槽同色 | **绝不同色** |
+| 1 个 monoFlush 锁定 cones | 其他 2 槽偶发也 cones | 其他 2 槽必从非 cones 抽 |
+| 极端 bias 把 7 色全压一色 | fallback 引入重复 | fallbackPool 强制选未用色 |
+
+**视觉效果**：dock 3 块**默认 100% 不同色**（视觉丰富）；唯一同色场景 = monoFlush 彩蛋（25% × 锁定 1 槽），保留"惊喜"信号。
+
+#### 全量回归
+
+```
+Test Files  110 passed
+Tests       2043 passed (v1.60.28 → v1.60.29 净增 2)
+```
+
+#### 设计权衡总结
+
+| 维度 | v1.60.28 | v1.60.29 |
+|---|---|---|
+| monoFlush 触发概率（轮次） | 25% | 25% |
+| 单 dock monoFlush 上限 | 无限（理论 3） | **1** |
+| chosen 全部同色概率 | 高（bias 集中 + 多 monoFlush） | **≤ 25% × 锁 1 槽** |
+| 视觉彩蛋强度 | 标签"可凑1同花顺"（弱） | **"★送同花" 紫框浓辉光**（强） |
+| 玩家疲劳感（同色多） | 中等 | **低**（默认 3 色异色） |
+
+---
+
 ## 11. 后续迭代方向
 
 ### 11.1 短期（可直接在 JSON 配置层面调优）

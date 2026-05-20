@@ -128,6 +128,19 @@ const SOLUTION_LEAF_CAP_DEFAULT = 64;
 const SOLUTION_BUDGET_DEFAULT = 8000;
 const SOLUTION_FILTER_ATTEMPT_RATIO = 0.6; // attempt < 60% 时才硬过滤，避免无解死循环
 
+/**
+ * v1.60.28：monoFlush（同花顺消除）chosen pick 概率 —— "乐趣 / 彩蛋"语义。
+ *
+ * **设计动机**：v1.60.19~27 经多轮修复后，monoFlush 判定（bestMonoFlushPotential）准确、
+ * 染色强制绑定（v1.60.27）保证一旦命中必触发 ×5 iconBonus。但若 chosen 100% 必选 monoFlush
+ * 候选，同花顺将常态出现，反而失去"惊喜彩蛋"语义——玩家会习以为常，且常态遮蔽其他
+ * 乐趣（multiClear / pcPotential / exactFit）。
+ *
+ * 25% 概率 ≈ 玩家每 4 次 dock 命中 1 次同花顺机会，足够提供惊喜感而不喧宾夺主。
+ * pcPotential（清屏）仍 100% 优先（清屏是终极目标，不节流）。
+ */
+const MONO_FLUSH_PICK_PROBABILITY = 0.25;
+
 /* ================================================================== */
 /*  基础工具                                                           */
 /* ================================================================== */
@@ -1200,7 +1213,10 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
     const monoFlushLines = (typeof grid.findNearFullMonoLines === 'function')
         ? grid.findNearFullMonoLines(skin)
         : [];
-    const monoFlushSignal = monoFlushLines.length > 0;
+    /* v1.60.29：L2 注入路径检查 chosen 中已有 monoFlush 块 — 若已有则关闭 monoFlushSignal，
+     * 与 Stage 1/Stage 2 限制一致（单 dock monoFlush ≤ 1，避免视觉单调 + 彩蛋过载）。 */
+    const chosenAlreadyHasMonoFlush = (chosenMeta || []).some(m => (m?.monoFlush ?? 0) >= 1);
+    const monoFlushSignal = !chosenAlreadyHasMonoFlush && monoFlushLines.length > 0;
 
     const hasClearSetup = pcSetup >= 1;
     const highFillFillHoles = fill > 0.7 && scored.some(s => s.gapFills > 0) && holesSignal > 5;
@@ -1845,14 +1861,31 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const monoFlushLines = (typeof grid.findNearFullMonoLines === 'function')
         ? grid.findNearFullMonoLines(skin)
         : [];
+
+    /* v1.60.28：同花顺降为"乐趣 / 彩蛋"——按 MONO_FLUSH_PICK_PROBABILITY 概率门槛。
+     *
+     * **monoFlushRound gate（源头节流）**：每轮 dock 25% 概率开放 monoFlush 评估。
+     *   - 命中（25%）：scored 正常评估 monoFlush + targetCi，1×2/2×1 放行进 scored，
+     *     scoreShape 加权让 chosen 大概率含 monoFlush 候选，driver 标 "可凑N同花顺"，
+     *     v1.60.27 染色绑定保证玩家放下 100% 触发 ×5 iconBonus。
+     *   - 未命中（75%）：所有 shape 的 monoFlush=0，driver 不会标 'monoFlush'，
+     *     1×2/2×1 仍走原 _passesShapeGate 拒绝（不破坏特殊形状常规独立池语义）。
+     *
+     * **设计动机**：v1.60.19~27 修复了同花顺判定与染色绑定的正确性，但 100% 命中
+     * 让同花顺成为常态遮蔽其他乐趣（multiClear/pcPotential/exactFit）。25% 概率
+     * ≈ 玩家每 4 次 dock 命中 1 次，足够提供惊喜感而不喧宾夺主。pcPotential（清屏）
+     * 仍 100% 优先（终极目标不节流）。 */
+    const monoFlushRound = Math.random() < MONO_FLUSH_PICK_PROBABILITY;
     const monoFlushAllowIds = new Set();
-    for (const line of monoFlushLines) {
-        if (line.empty !== 2) continue;
-        const cs = line.emptyCells;
-        const adjacent = (line.type === 'row' && Math.abs(cs[0].x - cs[1].x) === 1)
-            || (line.type === 'col' && Math.abs(cs[0].y - cs[1].y) === 1);
-        if (!adjacent) continue;
-        monoFlushAllowIds.add(line.type === 'row' ? '1x2' : '2x1');
+    if (monoFlushRound) {
+        for (const line of monoFlushLines) {
+            if (line.empty !== 2) continue;
+            const cs = line.emptyCells;
+            const adjacent = (line.type === 'row' && Math.abs(cs[0].x - cs[1].x) === 1)
+                || (line.type === 'col' && Math.abs(cs[0].y - cs[1].y) === 1);
+            if (!adjacent) continue;
+            monoFlushAllowIds.add(line.type === 'row' ? '1x2' : '2x1');
+        }
     }
 
     const scored = allShapes
@@ -1890,8 +1923,11 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
              * skin 缺失时退化为同 colorIdx 比较，行为一致。 */
             /* v1.60.27：除返回 count，同时获取此 shape 命中的 line 同色 ci ——
              * 染色阶段（game.js）据此**强制绑定** shape ci = targetCi，让"几何同花潜力"
-             * 真转化为"实际同花消除"。修复 v1.60.26 前版本染色 bias 仅"概率倾斜"不绑定的漏标问题。 */
-            const monoFlushRes = grid.bestMonoFlushPotential
+             * 真转化为"实际同花消除"。修复 v1.60.26 前版本染色 bias 仅"概率倾斜"不绑定的漏标问题。
+             *
+             * v1.60.28：受 monoFlushRound gate 节流——75% 轮次返回 0/null，
+             * driver 不会标 'monoFlush'，让同花顺成为彩蛋而非常态。 */
+            const monoFlushRes = monoFlushRound && grid.bestMonoFlushPotential
                 ? grid.bestMonoFlushPotential(shape.data, ctx?.skin || null, { returnTarget: true })
                 : { count: 0, targetCi: null };
             const monoFlush = monoFlushRes.count;
@@ -2048,12 +2084,16 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         if (hasDirectPerfectClear || pcSetup >= 1 || comboChain > 0.3 || multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2 || hasMonoFlushCandidate) {
             const mlBoost = 0.35 * multiLineTarget + payoffTarget * 0.25;
             clearCandidates.sort((a, b) => {
+                /* v1.60.28：monoFlush 排序权重从 (5 + iconBonusTarget*3) 降到
+                 * (2 + iconBonusTarget*1.5)，让 multiClear/gapFills 也有 fair 排序机会。
+                 * pick 阶段 25% 概率门槛已经节流命中率，此处再降权重避免 monoFlush
+                 * 始终排在最前导致 pickWithPlacements 优先选到它。 */
                 const aScore = a.pcPotential * (10 + perfectClearBoost * 10)
-                    + (a.monoFlush ?? 0) * (5 + iconBonusTarget * 3)
+                    + (a.monoFlush ?? 0) * (2 + iconBonusTarget * 1.5)
                     + a.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
                     + a.gapFills * (0.5 + clearOpportunityTarget);
                 const bScore = b.pcPotential * (10 + perfectClearBoost * 10)
-                    + (b.monoFlush ?? 0) * (5 + iconBonusTarget * 3)
+                    + (b.monoFlush ?? 0) * (2 + iconBonusTarget * 1.5)
                     + b.multiClear * (1 + multiClearBonus + delightBoost + mlBoost)
                     + b.gapFills * (0.5 + clearOpportunityTarget);
                 return bScore - aScore;
@@ -2076,25 +2116,25 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                 maxClearSeats
             );
 
+        /* v1.60.29：限制单 dock 中 monoFlush 块 ≤ 1（彩蛋稀缺感，避免视觉单调） */
+        let monoFlushPickedInDock = 0;
+        const MAX_MONO_FLUSH_PER_DOCK = 1;
+
         for (let ci = 0; ci < clearSeats; ci++) {
             const avail = clearCandidates.filter(s => !usedIds[s.shape.id]);
             if (avail.length === 0) break;
 
             let pick;
-            /* 选拔优先级：清屏 > 同花顺(×5 iconBonus) > 多消 > 单行随机
-             * 只要存在一手清屏块就优先放入一个槽位；仍保留后续可解性校验，避免不公平死局。
-             * v1.60.24：monoFlush ≥ 1 优先级介于 pcPotential 与 multiClear 之间，
-             * 与 _estimateTopDriver / scoreShape 加权的优先级矩阵完全一致。 */
             if (avail.some(s => s.pcPotential === 2)) {
                 const perfectPicks = avail.filter(s => s.pcPotential === 2);
                 pick = perfectPicks[Math.floor(Math.random() * Math.min(3, perfectPicks.length))];
-            } else if (avail.some(s => (s.monoFlush ?? 0) >= 1)) {
-                /* 同花顺补缺 — 仅在确实存在 monoFlush 候选时启用，无显式 hints 也触发，
-                 * 因为"近满同色 line"本身就是局内事件信号（不依赖 hints/schedule）。 */
+            } else if (monoFlushPickedInDock < MAX_MONO_FLUSH_PER_DOCK
+                       && avail.some(s => (s.monoFlush ?? 0) >= 1)) {
+                /* v1.60.28 节流 + v1.60.29 dock 内 ≤1 数量上限 */
                 const mono = avail.filter(s => (s.monoFlush ?? 0) >= 1);
-                /* monoFlush 大的优先（补满线数多 → 触发 ×5 iconBonus 次数多） */
                 mono.sort((a, b) => (b.monoFlush ?? 0) - (a.monoFlush ?? 0));
                 pick = mono[Math.floor(Math.random() * Math.min(3, mono.length))];
+                monoFlushPickedInDock++;
             } else if ((multiClearBonus > 0.3 || delightBoost > 0.25 || multiLineTarget >= 2) && avail.some(s => s.multiClear >= 2)) {
                 const multi = avail.filter(s => s.multiClear >= 2);
                 pick = multi[Math.floor(Math.random() * Math.min(3, multi.length))];
@@ -2120,9 +2160,13 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
              *   - `pick.pcPotential === 2` → reason='perfectClear' → DFV "送清屏" badge
              *   - 仅 multiClear/gapFills/monoFlush 满足 → reason='clear' → DFV "送消行" badge
              *     driver 由 _estimateTopDriver 区分（pcPotential / monoFlush / multiClear / ...） */
+            /* v1.60.29：reason 三级派生（perfectClear / monoFlush / clear）*/
+            const reasonKey = (pick.pcPotential ?? 0) === 2 ? 'perfectClear'
+                            : (pick.monoFlush ?? 0) >= 1 ? 'monoFlush'
+                            : 'clear';
             chosenMeta.push({
                 shape: pick.shape, placements: pick.placements,
-                reason: (pick.pcPotential ?? 0) === 2 ? 'perfectClear' : 'clear',
+                reason: reasonKey,
                 topDriver: _estimateTopDriver(pick, weights),
                 /* v1.60.8：补全评分字段 —— v1.60.6 智能 replaceIdx 评分公式依赖这些字段
                  * 否则三处 push 评分恒为 0，等价于"只按 placements 排序"，pcPotential 保护失效。
@@ -2231,16 +2275,15 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                  * 但若 chosen 阶段没选到能补满的 shape，染色多匹配也无用。本权重让 chosen 主动
                  * 倾向"能凑同花顺"的 shape，配合染色 bias 形成双向锁定。 */
                 if (s.monoFlush >= 1) {
-                    let monoBoost = 1 + s.monoFlush * (0.4 + iconBonusTarget * 0.6);
-                    /* v1.60.24：方向匹配的特殊小块（1×2 / 2×1）在 monoFlush 信号下走
-                     * "事件级"加权——×5 iconBonus 同花顺消除是当前局最大单步收益，
-                     * 必须确保被 chosen 选中而非被其他形状抢走 base weight。
-                     * 其他形状的 monoFlush（比如 2×2 / L 角覆盖 empty=2 line）保持原加权，
-                     * 因为它们通过 _passesShapeGate 进 scored 已有公平的 base weight。 */
-                    if (s.shape.id === '1x2' || s.shape.id === '2x1') {
-                        monoBoost *= 3.0;
+                    /* v1.60.29：chosen 已含 monoFlush → 跳过 monoBoost 加权（与 Stage 1 一致）*/
+                    const alreadyHasMonoFlush = chosenMeta.some(m => (m?.monoFlush ?? 0) >= 1);
+                    if (!alreadyHasMonoFlush) {
+                        let monoBoost = 1 + s.monoFlush * (0.4 + iconBonusTarget * 0.6);
+                        if (s.shape.id === '1x2' || s.shape.id === '2x1') {
+                            monoBoost *= 1.5;
+                        }
+                        w *= monoBoost;
                     }
-                    w *= monoBoost;
                 }
 
                 /* v1.60.25：monoFlushBuildup 建设期加权——朝 8 同色累积的 shape 也加权，
@@ -2349,7 +2392,12 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             });
         };
 
-        let remaining = scored.filter((s) => !usedIds[s.shape.id]);
+        /* v1.60.29：Stage 2 硬过滤——chosen 已含 monoFlush 时剔除所有 monoFlush 候选 */
+        let remaining = scored.filter((s) => {
+            if (usedIds[s.shape.id]) return false;
+            if (chosenMeta.some(m => (m?.monoFlush ?? 0) >= 1) && (s.monoFlush ?? 0) >= 1) return false;
+            return true;
+        });
 
         while (blocks.length < 3 && remaining.length > 0) {
             const pool = augmentPool(remaining);
@@ -2358,12 +2406,13 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             usedIds[entry.shape.id] = true;
             usedCategories[entry.category] = (usedCategories[entry.category] || 0) + 1;
             blocks.push(entry.shape);
-            /* v1.60.26：reason 按 shape 自身 pcPotential 升级。
-             * Stage 2 加权抽样可能因 ×18 倍率让 pcPotential=2 的 shape 胜出，
-             * 此时 reason 应升级为 'perfectClear'，DFV badge 显示 "送清屏"。 */
+            /* v1.60.29：reason 三级派生（与 Stage 1 一致）*/
+            const stage2Reason = (entry.pcPotential ?? 0) === 2 ? 'perfectClear'
+                               : (entry.monoFlush ?? 0) >= 1 ? 'monoFlush'
+                               : 'weighted';
             chosenMeta.push({
                 shape: entry.shape, placements: entry.placements,
-                reason: (entry.pcPotential ?? 0) === 2 ? 'perfectClear' : 'weighted',
+                reason: stage2Reason,
                 topDriver: _estimateTopDriver(entry, weights),
                 pcPotential: entry.pcPotential ?? 0,
                 multiClear:  entry.multiClear ?? 0,
@@ -2374,7 +2423,11 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
                 monoFlushBuildup: entry.monoFlushBuildup ?? 0,
             });
             if (entry.gapFills > 0) clearCount++;
-            remaining = scored.filter((s) => !usedIds[s.shape.id]);
+            remaining = scored.filter((s) => {
+                if (usedIds[s.shape.id]) return false;
+                if (chosenMeta.some(m => (m?.monoFlush ?? 0) >= 1) && (s.monoFlush ?? 0) >= 1) return false;
+                return true;
+            });
         }
 
         while (blocks.length < 3) {

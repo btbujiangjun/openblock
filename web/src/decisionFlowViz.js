@@ -208,11 +208,12 @@ const SHAPE_CATEGORY_COLOR = {
 const SPAWN_REASON_CN = {
     clear:        '送消行',
     perfectClear: '送清屏',
+    monoFlush:    '送同花',          /* v1.60.29：主路径同花顺彩蛋 */
     weighted:     '综合选',
     fallback:     '兜底块',
     'special-relief':    '送减压',
     'special-pressure':  '送加压',
-    'special-monoFlush': '送同花',
+    'special-monoFlush': '送同花',   /* L2 注入路径，同义同色 */
 };
 
 /**
@@ -222,7 +223,8 @@ const SPAWN_REASON_CN = {
  */
 const SPAWN_REASON_TIP = {
     clear:        '送消行：本块放下后能直接消 1+ 行（消行候选优先路径）',
-    perfectClear: '送清屏：本块能促成全盘清空（perfectClear 候选优先路径）',
+    perfectClear: '送清屏：本块能促成全盘清空（perfectClear 候选优先路径，特殊块·100%优先）',
+    monoFlush:    '送同花：本块可凑同花顺消除——放下后整行/列同 icon，触发 ×5 倍 iconBonus 大奖（特殊块·25%彩蛋节流）',
     weighted:     '综合选：5 hints + 6 targets + 4 schedule 多维加权抽选（主流路径）',
     fallback:     '兜底块：主路径 22 次重试都不满足存活约束，降级使用（少见）',
     'special-relief':    '送减压：reliefSignal 触发（清盘准备/高填补缝/有空洞），从独立池注入 1x2/1x3/L 块',
@@ -597,7 +599,13 @@ function _summarizeShapeId(id) {
  */
 function _summarizeReason(reason) {
     if (typeof reason !== 'string' || !reason) return '';
-    if (SPAWN_REASON_CN[reason]) return SPAWN_REASON_CN[reason];
+    if (SPAWN_REASON_CN[reason]) {
+        /* v1.60.29：特殊块（清屏/同花）reason 前加 ★ 强化体感，让玩家一眼识别 */
+        const cn = SPAWN_REASON_CN[reason];
+        const isSpecial = reason === 'perfectClear' || reason === 'monoFlush'
+                       || reason === 'special-monoFlush';
+        return isSpecial ? `★${cn}` : cn;
+    }
     return reason.length <= 4 ? reason : reason.slice(0, 4);
 }
 
@@ -1237,12 +1245,13 @@ class DecisionFlowViz {
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--pos"></span>${T.footPressure}</span>
                     <span class="dfv-legend">${T.footPulseHint}</span>
                     <span class="dfv-legend dfv-legend--covary" title="${T.footCovaryHint ?? '虚线=派生共变·非因果'}：纵轴 stress / 5 向量 / intent 是 adaptiveSpawn 的 3 个并列输出，从同一底层信号集派生，彼此之间无直接读取——虚线连线表达共时共变，非因果传递"><span class="dfv-dot dfv-dot--covary"></span>${T.footCovaryHint ?? '虚线=派生共变·非因果'}</span>
-                    <span class="dfv-legend dfv-legend--ver">v1.54.0</span>
+                    <span class="dfv-legend dfv-legend--ver">v1.60.29</span>
                 </div>
                 <div class="dfv-foot dfv-foot--reason" title="出块行 3 个 chosen 节点上方的 reason 标签含义（blockSpawn.generateDockShapes 4 种打分路径）">
                     <span class="dfv-legend dfv-legend--reason-title">出块原因：</span>
                     <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.clear}"><span class="dfv-reason-tag" style="color:#22d3ee">送消行</span> 能直接消行的块</span>
-                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.perfectClear}"><span class="dfv-reason-tag" style="color:#fbbf24">送清屏</span> 能促成清屏的块</span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.perfectClear}"><span class="dfv-reason-tag" style="color:#fbbf24">★送清屏</span> 特殊块·清零盘面</span>
+                    <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.monoFlush}"><span class="dfv-reason-tag" style="color:#f0abfc">★送同花</span> 特殊块·×5 大奖</span>
                     <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.weighted}"><span class="dfv-reason-tag" style="color:#a78bfa">综合选</span> 多维加权抽选（主流）</span>
                     <span class="dfv-legend dfv-legend--reason" title="${SPAWN_REASON_TIP.fallback}"><span class="dfv-reason-tag" style="color:#94a3b8">兜底块</span> 主路径不通时降级</span>
                 </div>
@@ -2854,11 +2863,26 @@ class DecisionFlowViz {
              * 上方 reasonShort（"送消行/综合选"）已隐含因果，标签自身是名词短语已自解释。 */
             const driverLabel = meta.topDriver?.label || '';
 
+            /* v1.60.29：特殊块（清屏/同花）节点描边升级为对应金/紫色，让玩家一眼识别"惊喜机会"。
+             *   pcPotential / perfectClear → 金色 #fbbf24
+             *   monoFlush / special-monoFlush → 紫粉色 #f0abfc
+             *   其他 → 形状品类色（原色）*/
+            const isPcSpecial = meta.reason === 'perfectClear';
+            const isMonoSpecial = meta.reason === 'monoFlush' || meta.reason === 'special-monoFlush';
+            const nodeColor = isPcSpecial ? '#fbbf24'
+                             : isMonoSpecial ? '#f0abfc'
+                             : color;
+            const strokeWidth = (isPcSpecial || isMonoSpecial) ? 2.5 : 1.5;
+
             /* 节点背景：彩色描边 + 暗底（让 mini grid 高对比可读） */
-            _setAttrIfChanged(slot.bg, 'stroke', color);
+            _setAttrIfChanged(slot.bg, 'stroke', nodeColor);
             _setAttrIfChanged(slot.bg, 'stroke-opacity', '0.92');
+            _setAttrIfChanged(slot.bg, 'stroke-width', String(strokeWidth));
             _setAttrIfChanged(slot.bg, 'fill', 'rgba(15,23,42,0.88)');
-            if (slot.glow) _setAttrIfChanged(slot.glow, 'fill', `${color}30`);
+            if (slot.glow) {
+                /* 特殊块辉光更浓（30→55），强化"机会块"体感 */
+                _setAttrIfChanged(slot.glow, 'fill', `${nodeColor}${(isPcSpecial || isMonoSpecial) ? '55' : '30'}`);
+            }
 
             /* mini 5×5 grid：直接绘出 shape.data，让玩家一眼识别 */
             const shape = getShapeById(meta.id);
@@ -2866,6 +2890,11 @@ class DecisionFlowViz {
 
             if (slot.idText.textContent !== idShort) slot.idText.textContent = idShort;
             if (slot.reasonText.textContent !== reasonShort) slot.reasonText.textContent = reasonShort;
+            /* v1.60.29：reason badge 文字颜色 — 特殊块用金/紫，其他保持青色（默认） */
+            if (slot.reasonText) {
+                const reasonFill = isPcSpecial ? '#fbbf24' : isMonoSpecial ? '#f0abfc' : '#67e8f9';
+                _setAttrIfChanged(slot.reasonText, 'fill', reasonFill);
+            }
             if (slot.driverText && slot.driverText.textContent !== driverLabel) {
                 slot.driverText.textContent = driverLabel;
             }
