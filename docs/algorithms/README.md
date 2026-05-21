@@ -49,6 +49,9 @@
 > 详细文字说明见 [自适应出块 §10.8](./ADAPTIVE_SPAWN.md#108-出块算法完整流水线v16035-代码基准)。
 
 - [自适应出块](./ADAPTIVE_SPAWN.md) —— 含 §10.8 出块算法完整流水线（v1.60.35 代码基准）
+  - [§10.10.10 生命周期 × 成熟度如何作用于出块算法](./ADAPTIVE_SPAWN.md#101010-生命周期--成熟度如何作用于出块算法)
+    —— S0–S4 × M0–M4 的 25 格 stress cap/adjust 调制矩阵、SkillScore 7 维计算公式、
+    onboarding 硬覆写与 winback 保护包三条接入路径、完整影响链图解与典型示例
 - [出块三层架构](./SPAWN_ALGORITHM.md) —— 三层架构 + 5 阶段流水线 + 30+ 加权乘子 + 硬约束表
 - [解法数量难度](./SPAWN_SOLUTION_DIFFICULTY.md) —— 含 §13–§14 顺序刚性 `orderRigor`
 - [出块建模](./SPAWN_BLOCK_MODELING.md)
