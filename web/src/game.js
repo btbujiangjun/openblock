@@ -813,7 +813,14 @@ export class Game {
         /* v10.17.5: dock / 环境层 / EffectLayer 等"被动随皮肤变化"的副作用统一挂到全局 hook，
          * 让任何入口（#skin-select / 皮肤图鉴 lore / 节日 seasonalSkin / Konami / cheat）
          * 切换皮肤后都能自动同步 dock 候选区方块外观。
-         * 修复：从图鉴卡片"试用"或时段推荐切换时，dock 仍保留旧皮肤方块的 bug。
+         *
+         * v1.60.49（用户截图复盘——清缓存后切换主题 board 块未刷新）：
+         *   markDirty() 走 rAF 异步合并，与 skinTransition 300ms 延迟 + DOM
+         *   reflow 重叠时会出现 "render 时机早于 skin apply" 的边界情况，导致
+         *   board canvas 仍按旧 skin 渲染（dock 因 refreshDockSkin 是同步重绘
+         *   而正常更新）。修复：改用 flushRender() 立即同步重绘 board，并补
+         *   rAF 二次重绘兜底任何随后才完成的 DOM 布局变化（如 ResizeObserver
+         *   触发的 cellSize 重算）。
          */
         onSkinAfterApply((id) => {
             try { window.__ambientParticles?.applySkin?.(id); } catch { /* ignore */ }
@@ -824,6 +831,12 @@ export class Game {
             } catch { /* ignore */ }
             this.refreshDockSkin();
             this._normalizeDockState('skin-change');
+            /* v1.60.49：board 也要立即重绘。renderer 内部无 skin 缓存，
+             * 但需要 flushRender 确保不被 rAF 合并到下一帧（避免延迟到下一次
+             * 玩家交互时才更新）。 */
+            try { this.flushRender(); } catch { /* ignore */ }
+            /* 再补一帧 rAF 二次重绘：覆盖任何在 flushRender 之后才完成的
+             * DOM 布局变化（如 ResizeObserver / skin-transition overlay 淡出）。 */
             this.markDirty();
         });
 
@@ -903,6 +916,18 @@ export class Game {
             applySkinToDocument(getActiveSkin());
         }
         skinSelect.value = current;
+        /* v1.60.49：dropdown 与 board canvas 一致性兜底——若 board 的 canvas
+         * 此刻的"视觉感知 skin" 与 localStorage 不同（极少数 race：例如清缓存
+         * 后 main.js 还没应用 CSS vars 就 new Game()），强制再 apply 一次 +
+         * 全帧重绘。无副作用：applySkinToDocument 是 idempotent 的 CSS vars
+         * 写入，重复调用只覆盖相同值。 */
+        try {
+            applySkinToDocument(getActiveSkin());
+            if (this.renderer) {
+                this.renderer.markBackgroundDirty?.();
+                this.markDirty?.();
+            }
+        } catch { /* ignore */ }
     }
 
     _updateProgressionHud() {
