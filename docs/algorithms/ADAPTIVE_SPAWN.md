@@ -45,6 +45,7 @@
   - [10.10.7 spawnHints 消行/尺寸/多样性信号](#10107-spawnhints-消行尺寸多样性信号)
   - [10.10.8 spawnTargets 9 维软过滤目标](#10108-spawntargets-9-维软过滤目标)
   - [10.10.9 spawnIntent 出块意图](#10109-spawnintent-出块意图)
+  - [**10.10.10 生命周期 × 成熟度如何作用于出块算法**](#101010-生命周期--成熟度如何作用于出块算法)
 - [**10.11 第三层：形状评分 → 选拔 → 加权 → 约束 → 输出全链路**](#1011-第三层形状评分--选拔--加权--约束--输出全链路)
   - [10.11.1 形状可达性过滤 & 评分构建（scored[]）](#10111-形状可达性过滤--评分构建scored)
   - [10.11.2 clearCandidates 构建与排序](#10112-clearcandidates-构建与排序)
@@ -4947,6 +4948,168 @@ category 权重最高      → "XX权重XX%"
                          ▼
               generateDockShapes → 三块候选输出
 ```
+
+---
+
+## 10.10.10 生命周期 × 成熟度如何作用于出块算法
+
+> **核心问题**：生命周期阶段（S0–S4）和成熟度等级（M0–M4）是宏观画像，
+> 它们通过什么路径影响每轮具体出块？
+
+---
+
+### 两套维度的定义与计算
+
+**生命周期阶段（stageCode S0–S4）**
+
+| 阶段 | 判定条件（AND 逻辑，任一超界即进下一阶段） | 代码来源 |
+|---|---|---|
+| S0 新入场 | `daysSinceInstall ≤ 3 AND totalSessions ≤ 10` | `LIFECYCLE_THRESHOLDS.onboarding` |
+| S1 激活 | `days ≤ 14 AND sessions ≤ 50` | `LIFECYCLE_THRESHOLDS.exploration` |
+| S2 习惯 | `days ≤ 30 AND sessions ≤ 200` | `LIFECYCLE_THRESHOLDS.growth` |
+| S3 稳定 | `days ≤ 90 AND sessions ≤ 500` | `LIFECYCLE_THRESHOLDS.stability` |
+| S4 回流 | `daysSinceLastActive ≥ 7`（**优先叠加**，无论 S0–S3 哪档均标 S4） | `isWinbackCandidate` |
+
+> S4 回流通过 `daysSinceLastActive ≥ 7` 独立叠加，与 S0–S3 正交：
+> 一位 S3 稳定期玩家若 8 天未活跃，stageCode 变为 S4，享受回流保护。
+
+**成熟度等级（band M0–M4）**
+
+由 `calculateSkillScore(playerData)` 计算**跨局** SkillScore（0–100），再映射到 band：
+
+```
+SkillScore = round( Σ _norm(field, max) × weight × 100 )
+
+7 维输入（均为局间画像，按天 EMA 更新，非局内实时）：
+  avgSessionCount  (max=10 次/日)    × 0.1875
+  sessionDuration  (max=300 秒)      × 0.125
+  returnFrequency  (max=7 次/周)     × 0.1875
+  featureAdoption  (0~1 比例)        × 0.125
+  maxLevel         (max=50)          × 0.125
+  totalScore       (max=100000)      × 0.125
+  achievementCount (max=30)          × 0.125
+
+Band 映射（getMaturityBand）：
+  SkillScore ≥ 90  → M4 核心
+  SkillScore ≥ 80  → M3 资深
+  SkillScore ≥ 60  → M2 熟练
+  SkillScore ≥ 40  → M1 成长
+  SkillScore < 40  → M0 新手
+```
+
+> ⚠️ 这里的 SkillScore 是**局间跨局画像**（局末 `lifecycleOrchestrator.onSessionEnd` 写入
+> localStorage），与局内实时的 `AbilityVector.skillScore`（EMA 5 维每步刷新）是**完全独立
+> 的两个量**，仅名字相似，勿混淆。两者均用于出块，但接入路径不同：前者影响 stress cap/adjust，
+> 后者直接进入 `skillAdjust` stress 分量。
+
+---
+
+### 三条接入路径
+
+#### 路径 1：stress cap/adjust 调制（主路径）
+
+```
+resolveAdaptiveStrategy() → 生命周期 cap 在 rawStress 求和后、smoothing 前执行
+
+① 读取生命周期 + 成熟度
+   getLifecycleMaturitySnapshot({ daysSinceInstall, totalSessions, daysSinceLastActive })
+   → { stageCode: 'S2', band: 'M1', isWinbackCandidate: false, … }
+
+② 查 5×5 调制表（lifecycleStressCapMap.js）
+   getLifecycleStressCap('S2', 'M1') → { cap: 0.70, adjust: 0 }
+
+③ 双步调制
+   if (stress > config.cap):
+       lifecycleCapAdjust = cap − stress
+       stress = cap                     ← 截断到上限
+   lifecycleBandAdjust = config.adjust  ← 整体偏移
+   stress += lifecycleBandAdjust
+   stress = clamp(stress, −0.2, 1.0)
+```
+
+**完整 5×5 调制矩阵**（代码来源 `LIFECYCLE_STRESS_CAP_MAP`）：
+
+| | M0 新手 | M1 成长 | M2 熟练 | M3 资深 | M4 核心 |
+|---|---|---|---|---|---|
+| **S0 新入场** | 0.50 / −0.15 | 0.55 / −0.12 | 0.58 / −0.10 | 0.62 / −0.08 | 0.65 / −0.05 |
+| **S1 激活** | 0.60 / −0.10 | 0.65 / −0.05 | 0.70 / 0 | 0.75 / +0.04 | 0.78 / +0.06 |
+| **S2 习惯** | 0.65 / −0.10 | 0.70 / 0 | 0.75 / +0.05 | 0.82 / +0.10 | 0.85 / +0.11 |
+| **S3 稳定** | 0.65 / −0.05 | 0.72 / 0 | 0.78 / +0.05 | 0.85 / +0.10 | 0.88 / +0.12 |
+| **S4 回流** | 0.55 / −0.15 | 0.60 / −0.10 | 0.70 / 0 | 0.75 / +0.05 | 0.80 / +0.08 |
+
+> 格式：`cap / adjust`。表外组合 → null → 跳过调制（rawStress 直通）。
+> S3·M4 的 `cap=0.88, adj=+0.12` 是全表最高，允许核心稳定玩家承受最大压力。
+
+#### 路径 2：新手保护（isInOnboarding 硬覆写）
+
+```
+if (profile.isInOnboarding):      ← _totalLifetimePlacements<20 && sessionHistory.length<3
+    stress = min(stress, eng.firstSessionStressOverride ?? −0.15)
+```
+
+即使 S0·M4 的 cap=0.65 允许较高 stress，onboarding 硬覆写进一步将 stress 压到 ≤ −0.15，
+确保历史账号带号进入的新手前几步体验最友好。
+
+#### 路径 3：回流保护包（winbackPreset）
+
+```
+if (daysSinceLastActive ≥ 7):
+    winbackPreset = getActiveWinbackPreset()  ← 前 PROTECTED_ROUNDS=3 局生效
+    stress = min(stress, winbackPreset.stressCap = 0.60)  ← stress 再截 0.60
+
+同时叠加 spawnHints（见 §10.10.7）：
+    clearGuarantee = min(3, clearGuarantee + winbackPreset.clearGuaranteeBoost)   ← +1
+    sizePreference = max(−1, sizePreference + winbackPreset.sizePreferenceShift)  ← 负值
+```
+
+回流保护叠加在 S4 矩阵调制之后，形成双层保护：S4 矩阵 cap + winbackPreset cap 取小值。
+
+---
+
+### 影响链（汇总）
+
+```
+§10.9 原始信号
+  daysSinceInstall / totalSessions / daysSinceLastActive（局间历史类）
+         │
+         ▼
+getLifecycleMaturitySnapshot()
+  → stageCode(S0–S4) + band(M0–M4)    ← 宏观画像，每局末更新
+
+         │ ① 主路径（stress cap/adjust）
+         ▼
+LIFECYCLE_STRESS_CAP_MAP[stage·band]
+  → { cap, adjust }
+  → stress = clamp(min(stress, cap) + adjust, −0.2, 1.0)
+
+         │ ② 新手特殊覆写（isInOnboarding）
+         ▼
+stress = min(stress, −0.15)    ← S0 期间强减压
+
+         │ ③ 回流保护包（daysSinceLastActive≥7）
+         ▼
+stress = min(stress, 0.60) + clearGuarantee++ + sizePreference 偏负
+
+         │
+         ▼
+interpolateProfileWeights(stress)   ← 10 档 profile 插值
+  → shapeWeights（品类基础权重）
+  → spawnHints（clearGuarantee / sizePreference / multiClearBonus / …）
+  → spawnTargets（solutionSpacePressure / shapeComplexity / …）
+
+         │
+         ▼
+§10.11 generateDockShapes → 三块候选输出
+```
+
+**典型示例**：
+
+| 玩家画像 | stageCode·band | stress 调制 | 出块效果 |
+|---|---|---|---|
+| 第 1 局新手 | S0·M0 | cap=0.50 + adj=−0.15 + onboarding 覆写 ≤ −0.15 | 最友好：偏小块、消行槽位≥2、无难关 |
+| 活跃 20 天 M2 | S2·M2 | cap=0.75 + adj=+0.05 | 常规：适度挑战，多消/清屏窗口均可出现 |
+| 核心稳定玩家 | S3·M4 | cap=0.88 + adj=+0.12 | 最难：高 solutionSpacePressure、低 orderMaxValidPerms（强迫规划顺序） |
+| 8 天回流玩家 | S4·M2 | cap=0.70 adj=0 → winback cap=0.60 + clearGuarantee+1 | 回流保护：前 3 局 stress≤0.60、消行块多、偏小块 |
 
 ---
 
