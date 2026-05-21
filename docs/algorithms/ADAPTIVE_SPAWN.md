@@ -45,6 +45,16 @@
   - [10.10.7 spawnHints 消行/尺寸/多样性信号](#10107-spawnhints-消行尺寸多样性信号)
   - [10.10.8 spawnTargets 9 维软过滤目标](#10108-spawntargets-9-维软过滤目标)
   - [10.10.9 spawnIntent 出块意图](#10109-spawnintent-出块意图)
+- [**10.11 第三层：形状评分 → 选拔 → 加权 → 约束 → 输出全链路**](#1011-第三层形状评分--选拔--加权--约束--输出全链路)
+  - [10.11.1 形状可达性过滤 & 评分构建（scored[]）](#10111-形状可达性过滤--评分构建scored)
+  - [10.11.2 clearCandidates 构建与排序](#10112-clearcandidates-构建与排序)
+  - [10.11.3 Stage 1 优先选拔（clearSeats 槽位）](#10113-stage-1-优先选拔clearseats-槽位)
+  - [10.11.4 Stage 2 加权补齐（14 维乘子链）](#10114-stage-2-加权补齐14-维乘子链)
+  - [10.11.5 Stage 3 兜底](#10115-stage-3-兜底)
+  - [10.11.6 硬约束验证循环（最多 22 次重试）](#10116-硬约束验证循环最多-22-次重试)
+  - [10.11.7 注入优化（L2 特殊形状 + 双胞胎）](#10117-注入优化l2-特殊形状--双胞胎)
+  - [10.11.8 最终输出与诊断快照](#10118-最终输出与诊断快照)
+  - [10.11.9 全链路信号流向图（三层汇总）](#10119-全链路信号流向图三层汇总)
 - [11. 后续迭代方向](#11-后续迭代方向)
 
 ---
@@ -4936,6 +4946,293 @@ category 权重最高      → "XX权重XX%"
                          │
                          ▼
               generateDockShapes → 三块候选输出
+```
+
+---
+
+## 10.11 第三层：形状评分 → 选拔 → 加权 → 约束 → 输出全链路
+
+> **定义**：在第二层输出的 `spawnHints / spawnTargets / spawnIntent / shapeWeights` 基础上，
+> `generateDockShapes` 内部完成"从 28（+ 放行的特殊形状）个候选形状到最终 3 块"的全流水线。
+> 最多重试 **22 次**（`MAX_SPAWN_ATTEMPTS`），每次产生一套候选组 → 校验 → 通过即返回。
+>
+> 代码基准：`web/src/bot/blockSpawn.js`，棋盘 8×8=64 格，形状池常规 28 个（特殊 12 个按需放行）。
+
+---
+
+### 10.11.1 形状可达性过滤 & 评分构建（scored[]）
+
+> 对全部形状做 O(n²) 真模拟，结果存入 `scored[]`，后续所有阶段均从此数组消费。
+
+**过滤条件**：`grid.canPlaceAnywhere(shape.data) === true`（至少存在 1 个合法落点）
+
+**每个 shape 计算的评分字段**：
+
+| 字段 | 语义 | 计算公式（精确） |
+|---|---|---|
+| `gapFills` | 差缺填充分 | `grid.countGapFills(shape.data)`：枚举所有合法位置，累加"放置后近满行/列缩短的空格数"，贡献 = `max(1, 4 - empty)`（差 4 格 gap 得 1 分） |
+| `placements` | 合法落点数 | `countLegalPlacements(grid, shape.data)`：枚举 8×8 格 canPlace，计数 |
+| `multiClear` | 最大同消行数 | `bestMultiClearPotential(grid, shape.data)`：枚举所有合法位置，模拟放置 + checkLines，返回最大消行数（0-N） |
+| `holeReduce` | 最大空洞减少量 | `bestHoleReduction(grid, shape.data, topo.holes)`：仅在 `fill>0.5 && holes>2` 时计算；枚举放置 → 克隆 grid → analyzeBoardTopology → reduction = before−after holes；budget=2000 |
+| `pcPotential` | 清屏潜力 {0,1,2} | `bestPerfectClearPotential(grid, shape.data)`：仅在 `pcSetup>0 || occupied≤22 || fill≤0.46` 时计算；2=放下后盘面清空，1=部分清屏信号，0=无 |
+| `exactFit` | 完美卡入契合度 [0,1] | `grid.bestExactFit(shape.data)`：所有合法落点中，shape 外周邻居（4-连通）中已填/边界格 / 外周总格数 的最大值 |
+| `monoFlush` | 同花顺消除潜力 {0,1,2,…} | `grid.bestMonoFlushPotential(shape.data, skin, {returnTarget:true})`：放下后能补满"已填同 icon"的行/列数；skin 缺失时退化为同 colorIdx 比较 |
+| `monoFlushTargetCi` | 同花目标色索引 | 同上函数的 `targetCi` 返回值，用于后续染色强制绑定 |
+| `monoFlushBuildup` | 同花建设期贡献 | `grid.bestMonoFlushBuildup(shape.data, skin, 6)`：放下后对某 same-icon line（需 ≥6 已填同色格）能贡献的最大 cells 数（建设期信号，不消行） |
+| `weight` | 初始品类权重 | `shapeWeights[getShapeCategory(shape.id)] ?? 1`；已通过 `_applyShapeBonusWeight` 加成（1×2/2×1 在 sizePref≤−0.3 时 ×1.6；l3-* 在 gapFills>0 时 ×1.3） |
+| `category` | 形状品类 | `getShapeCategory(shape.id)`：lines/rects/squares/tshapes/lshapes/jshapes/zshapes |
+| `complexity` | 形状复杂度 | `categoryComplexity(category)`：lines=0.15，rects/squares=0.32，tshapes=0.68，lshapes/jshapes=0.78，zshapes=0.88 |
+
+**初始排序**（scored 整体）：`pcPotential DESC → multiClear DESC → gapFills DESC`
+
+---
+
+### 10.11.2 clearCandidates 构建与排序
+
+**clearCandidates** = `scored.filter(s => s.gapFills>0 || s.multiClear≥1 || s.pcPotential===2 || s.monoFlush≥1)`
+
+**动态排序公式**（当 pcSetup≥1 / combo / multiClearBonus>0.3 / monoFlush 候选存在时触发）：
+
+```
+mlBoost = 0.35 × multiLineTarget + payoffTarget × 0.25
+
+aScore(s) =
+    s.pcPotential × (15 + perfectClearBoost × 15)     ← 清屏：峰值 30 倍碾压
+  + s.monoFlush × (2 + iconBonusTarget × 1.5)         ← 同花：2~3.5 倍
+  + s.multiClear × (1 + multiClearBonus + delightBoost + mlBoost)   ← 多消
+  + s.gapFills × (0.5 + clearOpportunityTarget)       ← 差缺
+```
+
+按 `bScore − aScore` 降序排列。
+
+**monoFlushRound 彩蛋概率门控**：
+
+```
+adaptiveMonoFlushProbability = clamp(
+    MONO_FLUSH_PICK_PROBABILITY,
+    MONO_FLUSH_PICK_PROBABILITY + monoFlushNearLines × 0.017 + monoFlushBuildupLines × 0.007,
+    MONO_FLUSH_PROB_CAP          ← iOS=0.10, Android=0.15
+)
+monoFlushRound = Math.random() < adaptiveMonoFlushProbability
+```
+
+---
+
+### 10.11.3 Stage 1 优先选拔（clearSeats 槽位）
+
+**动态席位计算**：
+
+```
+effectiveClearTarget = min(3, clearTarget + (comboChain>0.5?1:0) + (clearOpportunityTarget≥0.72?1:0))
+
+maxClearSeats = pcSetup≥2 || nearFullLines≥4 || delightBoost>0.65 ? 3 : 2
+
+clearSeats = pcSetup≥2 || perfectClearBoost≥0.9
+    ? min(3, clearCandidates.length)          ← 强清屏窗口：3 槽全部消行
+    : min(max(hasDirectPerfectClear?1:0, effectiveClearTarget), clearCandidates.length, maxClearSeats)
+```
+
+**每个 clearSeat 的选取优先级**（依次判断，取第一个命中）：
+
+1. `pcPotential===2` 候选存在 → 从前 3 名随机取 1（直接清屏绝对优先）
+2. `monoFlushRound && currentMonoFlushCount<1 && monoFlush≥1` → 从 monoFlush≥1 按 monoFlush 降序随机取前 3
+3. `(multiClearBonus>0.3 || delightBoost>0.25 || multiLineTarget≥2) && multiClear≥2` → 从 multiClear≥2 随机取前 3
+4. 否则 → 从 avail 随机取前 3
+
+**单 dock monoFlush ≤ 1 守卫**：avail 在每次选取前统一过滤：若 `!monoFlushRound || currentMonoFlushCount≥1`，则剔除所有 `monoFlush≥1` 的候选（pcPotential===2 豁免）
+
+**reason 标注**：
+- `pcPotential===2` → `'perfectClear'`
+- `monoFlushAllowed && monoFlush≥1` → `'monoFlush'`
+- 其他 → `'clear'`
+
+---
+
+### 10.11.4 Stage 2 加权补齐（14 维乘子链）
+
+> 对 `remaining = scored ∖ usedIds` 中每个形状计算最终权重 `w`，
+> 然后轮盘抽样（`pickWeighted(pool)`），直到凑够 3 块。
+>
+> 初始 `w = shape.weight`（来自 §10.11.1 的品类权重）。
+
+**乘子顺序（按代码执行顺序，全部相乘叠加）**：
+
+| # | 名称 | 条件 | 公式 |
+|---|---|---|---|
+| M1 | 机动性保障 | 无条件 | `w *= 1 + log1p(placements) × (0.35 + fill×0.55)` |
+| M2 | 机动性紧急救援 | `fill>0.45 && minPl < mobTarget+2` | `w *= 1 + placements / (8 + fill×24)` |
+| M3 | 空洞修复 | `holeReduce>0 && fill>0.5` | `w *= 1 + holeReduce × 0.4` |
+| M4 | 直接清屏 | `pcPotential===2` | `w *= 25 + perfectClearBoost × 20`（峰值 ×45） |
+| M5 | 清屏准备期 | `pcSetup≥1 && gapFills>0` | `w *= 1 + pcSetup×5 + perfectClearBoost×4` |
+| M6 | 多消潜力 | `multiClear≥1` | `w *= 1 + multiClear × (0.6 + multiClearBonus×0.6 + delightBoost×0.45 + payoffTarget×0.35)` |
+| M7 | 多线目标 | `multiLineTarget≥2 && multiClear≥2` | `w *= 1.45 + multiClearBonus×0.28` |
+| M8 | 多线目标弱 | `multiLineTarget=1 && multiClear≥2` | `w *= 1.22` |
+| M9 | postCombo 续手 | `lastClearCount≥2 && rhythmPhase='payoff' && gapFills>0 && multiClear≤1 && 2≤cells≤6` | `w *= 1.28` |
+| M10 | 临消行放大 | `nearFullFactor>0 && gapFills>0` | `w *= 1 + nearFullFactor × (2.0 + clearOpportunityTarget)` |
+| M11 | 清屏窗口多消 | `nearFullLines≥5 && multiClear≥2` | `w *= 1.6` |
+| M12 | 精确卡入（基础） | `exactFit≥0.5` | `w *= 1 + (exactFit−0.5)×1.5`（exactFit=1.0 → ×1.75） |
+| M13 | 完美卡入（强化） | `exactFit≥0.999` | `w *= 1.4`（叠加 M12 → 总 ×2.45） |
+| M14 | 同花顺兑现 | `monoFlush≥1 && !alreadyHasMono` | `monoBoost = 1 + monoFlush×(0.4+iconBonusTarget×0.6)`；1×2/2×1 额外 ×1.5；monoFlushRound=false 时衰减到 `1+(monoBoost−1)×0.3`；`w *= monoBoost` |
+| M15 | 同花建设期 | `monoFlushBuildup≥1` | `w *= 1 + monoFlushBuildup×0.25` |
+| M16 | Combo 催化 | `comboChain>0.1 && gapFills>0` | `w *= 1 + comboChain×0.8` |
+| M17 | 形状复杂度 | 无条件（双向） | `shapeComplexityTarget≥0.55`: `w *= 1 + complexity×(shapeComplexityTarget−0.5)×1.1`；否则 `w *= 1 + (0.5−complexity)×(0.55−shapeComplexityTarget)×1.1` |
+| M18 | 节奏 payoff | `rhythmPhase='payoff'` | gapFills>0: `×1.7`；multiClear≥2: `×1.4`；delightBoost>0.35+multiClear≥1: `×(1+delight×0.55)` |
+| M19 | 节奏 setup | `rhythmPhase='setup' && 4≤cells≤6 && gapFills=0` | `w *= 1.2 + spatialPressureTarget×0.25` |
+| M20 | 救援模式 | `delightMode='relief' && gapFills>0 && cells≤5` | `w *= 1.18 + delightBoost×0.35` |
+| M21 | 体积偏好（小） | `sizePref<−0.01` | cells≤4: `×(1+|sizePref|×1.5)`；cells≥8: `×(1−|sizePref|×0.5)` |
+| M22 | 体积偏好（大） | `sizePref>0.01` | cells≥6: `×(1+sizePref×1.2)`；cells≤3: `×(1−sizePref×0.4)` |
+| M23 | 自救偏小 | `fill>0.52 && bulkyCells≥10 && sizePref≈0` | cells≤4: `×1.65`；cells≥8: `×0.72` |
+| M24 | 空间压力（大块） | `spatialPressureTarget>0.55 && fill<0.62` | cells≥6: `×(1+(spt−0.5)×0.8)`；cells≤3: `×max(0.55, 1−(spt−0.5)×0.35)` |
+| M25 | 空间压力（小块） | `spatialPressureTarget<0.35 || fill>0.62` | cells≤4: `×(1+(0.4−min(0.4,spt))×0.9)`；cells≥8: `×0.82` |
+| M26 | 品类多样性（同轮） | `effectiveDiversity>0 && catPenalty>0` | `w *= max(0.2, 1 − effectiveDiversity×catPenalty)` |
+| M27 | 品类多样性（跨轮） | `memPenalty>2` | `w *= max(0.4, 1 − (memPenalty−2)×(0.12+noveltyTarget×0.08))` |
+| M28 | 消行补足 | `clearCount<clearTarget && gapFills>0` | `w *= 1.6 + clearOpportunityTarget×0.55`；multiClear≥2: 再 `×1.3` |
+| M29 | 里程碑庆祝 | `scoreMilestone && gapFills>0` | `w *= 1.3` |
+| M30 | 远征加压（近PB） | `farFromPBBoostActive && multiClear≥2` | `w *= 1.15` |
+| M31 | 远征加压（极远） | `farExtremeBoostActive && multiClear≥2` | `w *= 1.13`（叠 M30 → 约 ×1.30） |
+| M32 | 超PB抑制 | `pbOvershootActive && multiClear≥2` | `w *= 0.78` |
+| M33 | 超PB大块鼓励 | `pbOvershootActive && cells≥4` | `w *= 1.20` |
+
+最终权重 `w = max(0.01, w)`；轮盘抽样：`pickWeighted(pool)` = 按 `w_i / Σw` 概率选取。
+
+**reason 标注（Stage 2）**：`'perfectClear'` / `'monoFlush'`（预算守卫，≤1） / `'weighted'`
+
+---
+
+### 10.11.5 Stage 3 兜底
+
+当 Stage 1 + Stage 2 仍不足 3 块时，调用 `_pickFallbackSafe(weights)` 从常规池随机补充（已由 getRegularShapes 过滤 special 12 块）。
+
+reason = `'fallback'`，topDriver = `'兜底降级'`，所有评分字段置 0。
+
+---
+
+### 10.11.6 硬约束验证循环（最多 22 次重试）
+
+每次 attempt 构建好 `triplet[3]` 后依次校验以下门控，**任一失败 → `continue`（重抽）**：
+
+| 步骤 | 约束名 | 条件 | 失败行为 |
+|---|---|---|---|
+| V1 | 最低机动性 | `min(placements₀₋₂) ≥ minMobilityTarget(fill, attempt)` | continue；随 attempt 递减（每 5 次放宽 1）；fill 档：≥0.88→10，≥0.75→7，≥0.68→5，≥0.62→4，≥0.48→2，其他→1 |
+| V2 | 序贯可解性 | `fill ≥ 0.52` 时：`tripletSequentiallySolvable(grid, datas, {searchBudget})`；dangerZone+前70%尝试使用 2× budget | continue（不出必死组合） |
+| V3 | 解法数量上限 | `attempt<60%×22 && solutionCount > targetSolutionRange.max` | continue（tooMany） |
+| V4 | 解法数量下限 | `attempt<60%×22 && solutionCount < targetSolutionRange.min` | continue（tooFew） |
+| V5 | 空洞强迫下限 | `attempt<60%×22 && minHoleIncrement > targetHoleIncrement.max` | continue（holeTooMany） |
+| V6 | 空洞干净上限 | `attempt<60%×22 && minHoleIncrement < targetHoleIncrement.min` | continue（holeTooClean） |
+| V7-V15 | 9 维区间 | ① 最差解空洞 ② 终末填充率 ③ 近满 delta ④ 第一步存活率 ⑤ 解多样性 ⑥ 终末平整度 ⑦ 危险列 ⑧ 视觉杂乱 ⑨ 专注度税差距 | continue |
+| V16 | solutionSpacePressure 直接过滤 | `ssp≥0.78 && solutionCount>48` / `ssp≤0.22 && firstMoveFreedom<5` | continue |
+| V17 | 顺序刚性 | `attempt<55%×22 && validPerms > orderMaxValidPerms < 6` | continue（orderTooLoose）；orderMaxValidPerms=1~5 要求玩家必须按特定顺序放置 |
+
+> 说明：V3–V17 仅在 `fill ≥ solutionCfg.activationFill` 时才执行 `evaluateTripletSolutions()`；`truncated=true` 时跳过全部软过滤（按通过处理）。22 次全部失败时输出最后一次候选（**不死局保障**）。
+
+---
+
+### 10.11.7 注入优化（L2 特殊形状 + 双胞胎）
+
+**L2 特殊形状注入** `_tryInjectSpecial()`（在约束全部通过后执行）：
+
+> 详见 §10.8.7，此处仅摘录触发条件和计数器：
+> - 减压注入（`isRelief=true`）：`spawnIntent==='relief'` 且满足三类触发（pcSetup/exactFit/multiClear/monoFlush）
+> - 加压注入（`isPressure=true`）：`spawnIntent∈{pressure,sprint}` 且 `fill<0.45 && holes<4`
+> - 注入成功 → `ctx.specialShapeUsed++`；`ctx.specialReliefUsed++` 或 `specialPressureUsed++`
+
+**双胞胎注入** `_tryInjectDuplicates()`（与 special 注入互斥）：
+
+```
+触发条件（同时满足）：
+  - specialInjected === false
+  - dupInjectUsed < MAX_PER_RUN(3)
+  - roundsSinceDupInject > MIN_ROUND_GAP(10)
+  - novelty ≥ HIGH_THRESHOLD(0.65)
+
+概率：
+  - HIGH(0.65≤novelty<0.85)：5% 触发 dup2（复制主块到第 2 槽）
+  - EXTREME(novelty≥0.85)：10% 触发；其中 50% 为 dup2，50% 为 dup3
+```
+
+---
+
+### 10.11.8 最终输出与诊断快照
+
+**洗牌**：`fisherYatesInPlace(triplet, ctx?.rng)` 同步打乱 triplet + chosenMeta，保证 dock 与 DFV chosen 顺序一致（可复现种子通过 ctx.rng 传入）。
+
+**品类记忆更新**：记录本轮 3 块的 category → `mem.categories`（滑动窗口保留最近 3 轮，供下轮 catFreq 品类惩罚使用）。
+
+**最终输出结构**（`chosenMeta[3]` 每项完整字段）：
+
+| 字段 | 来源 | 消费方 |
+|---|---|---|
+| `shape.id` | 形状 ID | dock 渲染 |
+| `reason` | 选拔路径标注 | DFV badge（★送清屏/★送同花/送消行/综合选/兜底块） |
+| `topDriver` | `_estimateTopDriver(s, weights)` | DFV 节点下行 label（"因·XXX"） |
+| `pcPotential` | 真模拟 {0,1,2} | DFV 金色 badge、spawnIntent 判定 |
+| `multiClear` | 真模拟消行数 | DFV tooltip、adaptiveSpawn 回写 multiClearCandidates |
+| `gapFills` | 加权差缺分 | DFV tooltip |
+| `exactFit` | 完美卡入契合度 | DFV tooltip |
+| `monoFlush` | 同花顺数（≤1 预算守卫后） | DFV 紫粉 badge、染色绑定 |
+| `monoFlushTargetCi` | 目标色索引 | game.js 染色强制绑定 |
+| `monoFlushBuildup` | 建设期贡献 | DFV 信号通道 |
+| `placements` | 合法落点数 | 机动性校验 |
+| `original / originalMeta / injectedAt / subType` | 注入 audit trail（仅注入块） | DFV ⚡ badge |
+| `spawnCtx` | 注入决策那一刻的状态快照 | DFV tooltip / 回放审计 |
+
+---
+
+### 10.11.9 全链路信号流向图（三层汇总）
+
+```
+§10.9 原始信号（45项）
+  盘面几何 + 玩家状态 + 跨轮上下文 + 局间历史
+          │
+          ▼
+§10.10 第二层派生（49项）
+  AbilityVector → stress → spawnHints → spawnTargets → spawnIntent
+  shapeWeights（interpolateProfileWeights(stress)）
+          │
+          ▼
+§10.11.1 形状评分构建 scored[]（28+N 个形状 × 9 维打分）
+  gapFills / placements / multiClear / holeReduce /
+  pcPotential / exactFit / monoFlush / monoFlushBuildup / weight
+          │
+          ▼
+§10.11.2 clearCandidates 构建 + 动态排序（14维 aScore）
+  monoFlushRound 彩蛋概率门控（iOS 3.3~10% / Android 5~15%）
+          │
+          ▼
+§10.11.3 Stage 1 优先选拔（clearSeats 槽位）   ← 由 §10.10.7 clearGuarantee 驱动
+  pcPotential > monoFlush > multiClear > random
+  单 dock monoFlush ≤ 1 预算守卫
+          │
+          ▼
+§10.11.4 Stage 2 加权补齐（33 维乘子链 pickWeighted）
+  M1 机动性 → M4 清屏 → M6 多消 → M12 精确卡入 →
+  M14 同花 → M17 复杂度 → M18 节奏 → M21 体积 → M26 多样性 → …
+          │
+          ▼
+§10.11.5 Stage 3 兜底（getRegularShapes fallback，排除 12 个 special）
+          │
+          ▼
+§10.11.6 硬约束验证（最多 22 次重试）
+  V1 最低机动性 → V2 序贯可解性(fill≥52%) →
+  V3-V4 解法数量 → V5-V6 空洞强迫度 →
+  V7-V15 9维区间 → V16 ssp直接过滤 → V17 顺序刚性
+          │
+          ▼
+§10.11.7 注入优化（通过约束后执行）
+  _tryInjectSpecial（relief/pressure 特殊 12 块，§10.8.7）
+  _tryInjectDuplicates（双胞胎/三胞胎，novelty≥0.65）
+          │
+          ▼
+§10.11.8 最终输出
+  fisherYatesInPlace 洗牌 → 三块候选组 [s₀, s₁, s₂]
+  + chosenMeta[3]（9 字段 reason/topDriver/pcPotential/multiClear/
+                   exactFit/monoFlush/placements + audit trail）
+  + diagnostics（layer1/layer2/layer3 快照 + solutionMetrics）
+          │
+          ▼
+game.js 染色层（§10.8.10）
+  monoFlushTargetCi → dockColors[i] 强制锁色
+  三色无放回加权抽样（monoNearFullLineColorWeights bias）
 ```
 
 ---
