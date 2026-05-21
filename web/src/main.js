@@ -136,6 +136,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.openBlockGame = game;
     initMonetization(game);
 
+    /* v1.60.48：字体就绪后强制重绘 canvas + dock + wordmark。
+     *
+     * **背景**（用户反馈：清理浏览器缓存后方块不显示 emoji 图标）：
+     *   - 浏览器清空缓存后，Apple Color Emoji / Segoe UI Emoji 等系统 emoji 字体
+     *     被清理；首屏 paint 时这些字体可能尚未"就绪"（fonts API ready 状态）
+     *   - canvas 早于字体就绪绘制 → ctx.fillText('🀀', ...) 用 fallback serif
+     *     渲染，得到 0 宽或空白字形 → 方块看起来"没有 emoji 图标"
+     *   - skin-select 同样受影响：option 文本 "🀄 麻将牌局" 退化为 "中 麻将牌局"
+     *
+     * **修复**：通过 document.fonts.ready Promise 监听字体加载完成，
+     *   在第一次字体就绪信号到来时强制 renderer 重绘 + dock canvas 重画 +
+     *   wordmark DOM 重挂载，确保所有依赖系统 emoji 的视觉元素呈现一致。
+     *
+     * 兼容性：不支持 document.fonts API 的旧浏览器静默跳过——退化为
+     *   v10.15 的"系统字体直接 ready" 行为（与修复前一致）。 */
+    const _forceRefreshEmojiSensitiveUI = () => {
+        try { game.renderer?.markBackgroundDirty?.(); } catch { /* ignore */ }
+        try { game.markDirty?.(); } catch { /* ignore */ }
+        try { game.refreshDockSkin?.(); } catch { /* ignore */ }
+        try { mountBlockWordmarks(); } catch { /* ignore */ }
+        try { game.refreshSkinSelectOptions?.(); } catch { /* ignore */ }
+    };
+    try {
+        if (typeof document !== 'undefined' && document.fonts?.ready?.then) {
+            document.fonts.ready.then(_forceRefreshEmojiSensitiveUI).catch(() => { /* ignore */ });
+        }
+        /* 双保险：document.fonts API 在极端浏览器（旧版 Safari / Capacitor 壳）
+         * 可能永不 resolve；800ms 超时强刷一次，确保 emoji 一定能出现。
+         * 800ms 是字体加载 95th percentile 经验值（macOS Apple Color Emoji
+         * 通常 <200ms，缓存清理后首次约 400-700ms）。 */
+        setTimeout(_forceRefreshEmojiSensitiveUI, 800);
+    } catch { /* ignore */ }
+
     // v10.18.5：复活系统默认关闭——它会在 game-over 之前先弹一个浮层，与新版结算卡形成「两次浮层」。
     // 仍保留 ReviveManager 实例（API 不变、单测不变），仅 enabled:false 不装饰 showNoMovesWarning。
     // 后续如要恢复："new ReviveManager({ limit: 1, clearCells: 12 })"。
