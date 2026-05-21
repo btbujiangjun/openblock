@@ -248,13 +248,17 @@ docs/
 
 ### 出块算法与建模
 
+> **一图入门**：`generateDockShapes` 9 层流水线全览——
+> 见 [算法文档出块专题](./algorithms/README.md#出块专题) 或直接查看
+> [`algorithms/assets/spawn-architecture.png`](./algorithms/assets/spawn-architecture.png)。
+
 | 文档 | 核心问题 |
 |------|----------|
 | [四模型系统设计](./algorithms/MODEL_SYSTEMS_FOUR_MODELS.md) | 启发式出块 / 生成式出块 / PyTorch RL / 浏览器 RL 的设计与损失 |
 | [模型工程总览](./algorithms/MODEL_ENGINEERING_GUIDE.md) | 把全部模型放在同一张工程地图，统一假设、特征、网络与训练流程 |
-| [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) | 规则 + SpawnTransformer 的形式化与训练 / 推理 |
-| [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) | 三层结构、5 阶段流水线、策略 → 出块翻译机制 |
-| [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) | 多信号压力、心流、爽感兑现、spawnHints |
+| [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) | 规则 + SpawnTransformer 的形式化与训练 / 推理；含 9 层流水线架构图 |
+| [出块三层架构](./algorithms/SPAWN_ALGORITHM.md) | 三层结构、5 阶段流水线、30+ 加权乘子 · 硬约束表；含 9 层流水线架构图 |
+| [自适应出块](./algorithms/ADAPTIVE_SPAWN.md) | 多信号压力、心流、爽感兑现、spawnHints；§10.8 含 9 层流水线完整文字说明 |
 | [候选块概率图鉴](./algorithms/CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md) | 28 个候选块、类别权重、基础概率、难度档位 |
 | [出块建模](./algorithms/SPAWN_BLOCK_MODELING.md) | 规则引擎与 ML 出块模型的设计 rationale |
 | [解法数量难度](./algorithms/SPAWN_SOLUTION_DIFFICULTY.md) | 解空间计数、区间软过滤、顺序刚性 |

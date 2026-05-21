@@ -1,5 +1,10 @@
 # 出块算法架构图生成 Prompt
 
+> **已生成图片**：当前版本架构图已保存在
+> [`docs/algorithms/assets/spawn-architecture.png`](./assets/spawn-architecture.png)，
+> 可直接在各文档中引用（`ADAPTIVE_SPAWN.md §10.8`、`SPAWN_ALGORITHM.md §1`、
+> `ALGORITHMS_SPAWN.md` 均已内嵌）。本 prompt 用于**重新生成或派生新版图片**。
+>
 > **定位**：可复用的"喂给大模型即生成出块算法架构图"的 prompt 模板。
 > 产出物为 **PNG 格式图片**，视觉规范参考图1（OpenBlock 算法架构总览图）
 > 的设计语言：深色背景 + 分层彩色节点 + 左侧序号徽章 + 横向数据流箭头。
