@@ -1,8 +1,14 @@
 /**
- * decisionFlowViz.js — v1.51.2 决策数据流实时可视化（增强版）
+ * decisionFlowViz.js — v1.60.41 决策数据流实时可视化（增强版）
  *
  * 把"玩家信号 → stress 分解贡献 → 决策输出"三段管道用 SVG（连接线/节点）
  * + Canvas（粒子光流）+ HTML 详情区 + 时间序列 sparkline 渲染成炫酷可视面板。
+ *
+ * v1.60.41 GPU 专项优化（解决 Chrome Helper GPU 占用过高）：
+ *   1. 移除 .dfv-flow-nav 的 backdrop-filter: blur(3px) → 改用半透明背景色补偿
+ *   2. 移除 .dfv-stage-shock 的 mix-blend-mode: screen → 提高径向渐变不透明度模拟
+ *   3. 兜底刷新周期 60 → 120 帧（active 4s / idle 60s），减少 50% 无变化重渲染
+ *   4. _renderParticles 快速路径：无粒子且已 clear 过时跳过函数调用
  *
  * v1.51.2 升级（用户反馈：截图 shapeWeights 文字溢出 / 信息密度不够）：
  *   1. **支持整面板拖动**（head 区按住拖）—— 一旦拖动转为自由 left/top 像素并 clamp 到视口。
@@ -741,12 +747,25 @@ function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
  *   - 折叠态（.dfv-collapsed）/ tab 隐藏 / DFV 被遮挡时彻底暂停主循环
  *   - 卡片 backdrop-filter 去除（与 docs/engineering/PERFORMANCE.md §1.1 规约一致）
  */
-const DFV_FPS_ACTIVE = 30;
-const DFV_FPS_IDLE = 6;
+/* v1.60.43：active 档帧率 30 → 15。移除 inSpawnPulseWindow 后，主循环在出块间隔内
+ * 几乎只做粒子 Canvas 绘制（无 SVG setAttribute），15fps Canvas 动画视觉上完全流畅。
+ * 此调整将 rAF 回调频率减半，降低 JS 引擎调度和 Chrome 合成器唤醒开销。 */
+const DFV_FPS_ACTIVE = 15;
+/* v1.60.41 GPU 优化：idle 档帧率 2 → 1（1000ms/帧）。
+ * v1.60.40 的 2fps 仍在无信号场景下每秒做 2 次 fingerprint+tick 决策，
+ * 配合兜底刷新逻辑形成轻量 GPU/CPU 负担。新 1fps 在视觉上仍可感知到
+ * "DFV 在运转"（sparkline 末点缓动动画 + active 节点呼吸都按 transition
+ * 走，与 tick 频率解耦），但 tick 自身负担再降到原来的 1/2。
+ * active 档 30fps 不动——它代表真有事件发生时的响应频率，必须丝滑。 */
+const DFV_FPS_IDLE = 1;
 const DFV_FRAME_MS_ACTIVE = 1000 / DFV_FPS_ACTIVE;
 const DFV_FRAME_MS_IDLE = 1000 / DFV_FPS_IDLE;
 const DFV_IDLE_AFTER_MS = 1200;   // 距上次 active 信号超过这段时间，转入 idle
-const DFV_PARTICLE_CAP = 64;       // 96 → 64
+/* v1.60.42 GPU 优化：粒子上限 64 → 32。
+ * spawn pulse 触发时粒子爆发（每条 breakdown 贡献 1-3 个，最多 ~15 个/次），
+ * 旧上限 64 允许多次 pulse 叠加，让 canvas 持续绘制。新上限 32 足以显示当轮
+ * 粒子效果，同时确保旧粒子加速淡出，canvas 更快归零（_canvasCleared=true）。 */
+const DFV_PARTICLE_CAP = 32;       // 96 → 64 → 32
 const DFV_TRAIL_COUNT = 3;         // 5 → 3
 
 /**
@@ -808,23 +827,39 @@ function _dfvFingerprint(insight, profile, live) {
     const b = i.stressBreakdown || {};
     const h = i.spawnHints || {};
     const lv = live || {};
-    /* 关键字段：stress 0.01、intent / hints 标志、breakdown 各项取 0.01 */
-    const round = (v) => Number.isFinite(v) ? Math.round(v * 100) : 'x';
+    /* v1.60.40 GPU 优化：精度量化从 0.01 → 0.05（5% 步长），把"几乎每帧
+     * 都微小变化"的实时几何（boardFill / clearRate / momentum / frust /
+     * breakdown 各分量）拍平到稳定离散值上。
+     *
+     * 设计动机：
+     *   - 原 0.01 精度配合 30fps：profile 内任何 0.01 级波动（如 momentum
+     *     从 0.523 → 0.524）即触发 dataChanged=true → 重写 6 个 innerHTML
+     *     + 重渲染 30+ SVG 节点。GPU 持续被推到 49%+ 的核心元凶。
+     *   - 玩家肉眼对"0.52 vs 0.53"差异不可感知，UI 上显示也是 toFixed(2)
+     *     截断到 0.52——把指纹粒度调到与显示粒度一致，零视觉差但去抖效果
+     *     提升 ~5x（理论上 dataChanged 触发率降到原来的 1/5）。
+     *   - 真正关键的离散事件（intent 切换、flowState 跃迁、spawn round
+     *     变化、afk/winback 标志反转）不受精度影响，仍即时触发。
+     *
+     * 注意：stress 自身仍保留 0.01 精度，因为它是 UI 显著的滑动条上的核心
+     * 进度量，玩家会盯着看；其他派生量都用 0.05 步长。 */
+    const roundFine = (v) => Number.isFinite(v) ? Math.round(v * 100) : 'x';
+    const roundCoarse = (v) => Number.isFinite(v) ? Math.round(v * 20) : 'x';
     const parts = [
-        round(i.stress),
+        roundFine(i.stress),
         h.spawnIntent ?? i.spawnIntent ?? '',
         i.scoreMilestoneHit ? 1 : 0,
         i.afkEngageActive ? 1 : 0,
         h.winbackProtectionActive ? 1 : 0,
-        round(p.momentum),
-        round(p.frustrationLevel),
+        roundCoarse(p.momentum),
+        roundCoarse(p.frustrationLevel),
         p.flowState ?? '',
         p.sessionPhase ?? '',
         // v1.57.5 §A/F：实时几何信号纳入指纹，确保左列节点与底部 sparkline 同源刷新
-        `live.fill:${round(lv.boardFill)}`,
-        `live.cr:${round(lv.clearRate)}`,
+        `live.fill:${roundCoarse(lv.boardFill)}`,
+        `live.cr:${roundCoarse(lv.clearRate)}`,
     ];
-    for (const k of Object.keys(b)) parts.push(`${k}:${round(b[k])}`);
+    for (const k of Object.keys(b)) parts.push(`${k}:${roundCoarse(b[k])}`);
     /* v1.59.17：阶段③ chosen 纳入指纹——blockSpawn 重新 spawn 后 chosen[] 变化（id/reason），
      * 即便 stress/intent 未变化（极少见但发生），DFV 也应重渲染 chosen 节点行。 */
     const diag = i.spawnDiagnostics;
@@ -1245,7 +1280,7 @@ class DecisionFlowViz {
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--pos"></span>${T.footPressure}</span>
                     <span class="dfv-legend">${T.footPulseHint}</span>
                     <span class="dfv-legend dfv-legend--covary" title="${T.footCovaryHint ?? '虚线=派生共变·非因果'}：纵轴 stress / 5 向量 / intent 是 adaptiveSpawn 的 3 个并列输出，从同一底层信号集派生，彼此之间无直接读取——虚线连线表达共时共变，非因果传递"><span class="dfv-dot dfv-dot--covary"></span>${T.footCovaryHint ?? '虚线=派生共变·非因果'}</span>
-                    <span class="dfv-legend dfv-legend--ver">v1.60.35</span>
+                    <span class="dfv-legend dfv-legend--ver">v1.60.41</span>
                 </div>
                 <div class="dfv-foot dfv-foot--reason" title="出块行 3 个 chosen 节点上方的 reason 标签含义（hover 各项查看完整解释）">
                     <span class="dfv-legend dfv-legend--reason-title">出块原因：</span>
@@ -2290,19 +2325,24 @@ class DecisionFlowViz {
             this._lastActiveAt = performance.now();
         }
         const hasActiveParticles = this._particles.length > 0;
-        const inSpawnPulseWindow = performance.now() < this._stressPulseUntil + 80;
+        /* v1.60.43：inSpawnPulseWindow 已从所有条件中移除，变量不再需要。 */
 
-        /* v1.59.19：左侧 SVG 节点也加"每 12 帧兜底刷新"（active≈0.4s / idle≈2s 一次）—— 与右侧
-         * details 渲染节流保持一致（详见下方 L2077 _renderDetails 调用）。历史 v1.55.1 引入指纹
-         * 去抖时仅护城 SVG 节点（dataChanged 才渲染），不护城右侧详情。这会在以下场景产生 bug：
-         *   - 新开局后 DFV 已打开但首次 _tick 时 insight 还未写入 → 节点全 '—'，fingerprint
-         *     = 'empty' 被记入 _lastFingerprint；之后 _captureAdaptiveInsight 才写入完整数据，
-         *     若数据指纹与上一局结束时巧合相同（极少但发生），节点永远停在 '—'。
-         *   - 用户截图：右侧"形状权重 33.1%/22.6%/15.6%、出块目标 0.30/0.11/0.09、压力贡献
-         *     会话弧线 -0.080、调度提示 维持心流"全部有值，但左侧 10 信号 + 5 hints + 6 targets
-         *     + 4 schedule + intent + 3 chosen 节点全 '—'——左右数据源同源却显示不一致。
-         * 修复后左侧节点与右侧详情同频兜底，保证 ≤2 秒内必有一次重渲染消除 '—' 残留。 */
-        const renderTick = dataChanged || inSpawnPulseWindow || (this._frameCount % 12 === 0);
+        /* v1.59.19：左侧 SVG 节点 + 右侧 details 同频兜底刷新——保证 '—' 残留不超过
+         * 兜底周期被消除，详见 _renderDetails 节流逻辑下方注释。
+         *
+         * v1.60.40 兜底周期 12 → 60 帧：
+         *   - active 档（30fps）：0.4s → 2s
+         *   - idle 档（2fps）  ：2s   → 30s
+         * v1.60.41 进一步延长到 120 帧：
+         *   - active 档（30fps）：2s → 4s
+         *   - idle 档（2fps）  ：30s → 60s
+         * 玩家不会盯着同一画面等更新，4s/60s 完全可接受，把无变化场景下的
+         * 兜底重渲染从 ~0.5Hz 降到 0.25Hz/0.017Hz。 */
+        /* v1.60.43 根因优化：移除 inSpawnPulseWindow 驱动。
+         * 旧逻辑：每次出块触发 480ms 脉冲窗口 → 14 帧 renderTick=true → 每帧 100+ SVG setAttribute
+         * → GPU 纹理上传 ~467 次/秒。SVG 节点刷新仅由 dataChanged（指纹变化）和兜底定时（120帧）驱动，
+         * 脉冲视觉效果改由 CSS keyframe（stress ring + shock）承接，无需逐帧 JS 写 DOM。 */
+        const renderTick = dataChanged || (this._frameCount % 120 === 0);
 
         if (renderTick) {
             /* 1) 左列信号节点 */
@@ -2323,14 +2363,15 @@ class DecisionFlowViz {
             this._renderContributionEdges(insight);
         }
 
-        /* v1.55.1 _edgeFlowPhase 仅在 active 时推进，idle（无粒子 + 无数据变化）时静止，
-         * 避免无意义的 stroke-dashoffset 更新触发 SVG 重合成。 */
-        if (hasActiveParticles || dataChanged || inSpawnPulseWindow) {
+        /* v1.55.1 _edgeFlowPhase 仅在 active 时推进，idle 时静止避免 stroke-dashoffset 触发 SVG 重合成。
+         * v1.60.43：移除 inSpawnPulseWindow，dashoffset 写入已在 renderTick 块内，
+         * 与 inSpawnPulseWindow 同步移除可确保脉冲窗口内无额外 DOM 写操作。 */
+        if (hasActiveParticles || dataChanged) {
             this._edgeFlowPhase = (this._edgeFlowPhase + 1.25) % 10000;
         }
 
-        /* 5) Canvas 粒子（有粒子时绘制；无粒子时只 clear 一次） */
-        this._renderParticles();
+        /* 5) Canvas 粒子（快速路径：无粒子且已 clear 过时完全跳过函数调用） */
+        if (this._particles.length > 0 || !this._canvasCleared) this._renderParticles();
 
         /* 6) sparkline 采样 + 渲染：active 档 30fps 时全部走，idle 档自然降到 6fps */
         const stressVal = Number.isFinite(insight?.stress) ? insight.stress : NaN;
@@ -2342,19 +2383,21 @@ class DecisionFlowViz {
             frust: Number(profile.frustrationLevel) || 0,
         });
         this._frameCount++;
-        /* 30fps 下每 2 帧渲染一次 ≈ 15Hz，已经够丝滑；idle 档（6fps）每帧都画 */
-        if (this._frameCount % 2 === 0 || !hasActiveParticles) this._renderSparks();
+        /* v1.60.42 GPU 优化：sparkline 降频 %2→%6（active 档 30fps 时 ≈5Hz）。
+         * sparkline 展示趋势而非高频变化，5Hz 肉眼感知不到与 15Hz 的差异，
+         * 但 path d 属性写入次数从 30×60s=1800 次/min 降到 5×60=300 次/min，
+         * 减少 6 倍 SVG paint invalidation。idle 档（1fps）每帧都画保持兜底。 */
+        if (this._frameCount % 6 === 0 || !hasActiveParticles) this._renderSparks();
 
-        /* 7) HTML 详情区：数据变化时即刻；否则每 12 帧（active≈0.4s / idle≈2s）兜底刷一次 */
-        if (dataChanged || this._frameCount % 12 === 0) this._renderDetails(insight, profile);
+        /* 7) HTML 详情区：数据变化时即刻；v1.60.41 兜底周期 60 → 120（active≈4s / idle≈60s） */
+        if (dataChanged || this._frameCount % 120 === 0) this._renderDetails(insight, profile);
 
         /* 8) v1.59：决策动态层（左侧球状图下方）——
-         *   §A 意图时间线（spawn round 聚合 chip 链 + 切换原因）
          *   §B stress 分量正负堆叠（左负-右正水平条 + sum_pos/|sum_neg|/net）
          *   §C 响应灵敏度三灯（玩家信号 vs 算法响应 Pearson 粗估）
          * 数据来源与右侧 details 同源（insight / profile / game._insightLiveHistory），
-         * 共用 _frameCount % 12 节流节奏。 */
-        if (dataChanged || this._frameCount % 12 === 0) this._renderDynamicsLayer(insight, profile);
+         * 共用 _frameCount % 120 节流节奏（v1.60.41 从 60 提升）。 */
+        if (dataChanged || this._frameCount % 120 === 0) this._renderDynamicsLayer(insight, profile);
     }
 
     /**
@@ -2380,7 +2423,15 @@ class DecisionFlowViz {
     }
 
     _triggerSpawnPulse(insight) {
-        this._stressPulseUntil = performance.now() + 400;
+        /* v1.60.43：_stressPulseUntil 仅保留为历史标记，renderTick 已不再读取它。
+         * ring 脉冲改由 CSS keyframe 驱动，在此一次性设置颜色 + class toggle。 */
+        if (this._stressRing) {
+            const sm = this._smooth.get('stress') ?? 0;
+            this._stressRing.setAttribute('stroke', heatColor(_clamp(sm, 0, 1)));
+            this._stressRing.classList.remove('dfv-stress-ring--pulse');
+            void this._stressRing.getBoundingClientRect();
+            this._stressRing.classList.add('dfv-stress-ring--pulse');
+        }
         /* v1.59.2：spawn 时触发全栏一次 shock 动画（径向扩散光环），强化"信号→决策"的炸裂感。
          * 通过 class toggle 触发 CSS keyframe，0.62s 后清除——比 setTimeout 更"可视"地表达
          * 出"算法刚做出一次决策"的瞬时事件。 */
@@ -2608,18 +2659,8 @@ class DecisionFlowViz {
         const color = heatColor(_clamp(sm, 0, 1));
         this._stressBall.core.setAttribute('fill', color);
         this._stressBall.valueText.textContent = sm.toFixed(2);
-        const now = performance.now();
-        if (now < this._stressPulseUntil && this._stressRing) {
-            const k = 1 - (this._stressPulseUntil - now) / 400;
-            const baseR = this._stressBaseR ?? 36;
-            const r = baseR + k * (baseR * 0.7);
-            const op = 1 - k;
-            this._stressRing.setAttribute('r', r.toFixed(1));
-            this._stressRing.setAttribute('stroke', color);
-            this._stressRing.setAttribute('stroke-opacity', op.toFixed(2));
-        } else if (this._stressRing) {
-            this._stressRing.setAttribute('stroke-opacity', '0');
-        }
+        /* v1.60.43：ring 动画由 CSS keyframe 驱动（_triggerSpawnPulse 一次性触发），
+         * 此处不再逐帧写 r / stroke-opacity，彻底消除脉冲窗口内的 SVG setAttribute 热点。 */
         if (this._stressBall.inner) {
             this._stressBall.inner.setAttribute('fill', `${_shadeColor(color, 35).replace('rgb(', 'rgba(').replace(')', ',0.28)')}`);
         }
@@ -3422,8 +3463,13 @@ class DecisionFlowViz {
         this._canvasCleared = false;
         const dt = 1 / 30; // tick 频率上限 30fps
         const alive = [];
+        /* v1.60.42 GPU 优化：composite 从 lighter → source-over。
+         * lighter 要求 GPU 在合成时对 src+dst 做加法混合，浏览器会单独创建离屏
+         * surface 再叠回来（等效多一次 GPU pass）。source-over 是默认模式，
+         * 走 alpha blend 即可，代价低一个数量级。粒子视觉从"叠加发光"变为
+         * "正常半透明叠加"，差异在活跃期微弱，换来常驻 GPU 压力下降。 */
         const prevComposite = ctx.globalCompositeOperation;
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = 'source-over';
         for (const p of this._particles) {
             p.t += dt / p.dur;
             if (p.t < 0) { alive.push(p); continue; }
@@ -3821,6 +3867,10 @@ class DecisionFlowViz {
     display: flex; flex-direction: column;
     overflow: hidden;
     transition: width .22s ease, height .22s ease, max-height .22s ease;
+    /* v1.60.43：contain 告知浏览器重绘边界限于此卡片，避免 SVG 属性变更导致
+     * 页面其他区域（棋盘 canvas）被无谓地纳入重绘区域。style 包含在内确保
+     * CSS 自定义属性变更不向上冒泡触发父级样式重算。 */
+    contain: layout paint style;
 }
 .dfv-card--dragging {
     transition: none;
@@ -3896,60 +3946,88 @@ class DecisionFlowViz {
         inset 0 0 0 1px rgba(56, 189, 248, 0.14),
         inset 0 0 56px rgba(56, 189, 248, 0.10);
 }
-/* 背景能量场：缓慢呼吸 + 旋转的径向光斑，让左栏始终有"在运转"的感觉 */
+/* 背景能量场：缓慢呼吸 + 旋转的径向光斑，让左栏始终有"在运转"的感觉。
+ *
+ * v1.60.39 GPU 优化（用户截图反馈：Chrome Helper GPU 53.4%，CPU 74.9%）：
+ *   - 移除 dfvAuraSpin 26s linear infinite 的永久 transform: rotate
+ *     + 残留的 filter: blur(28px) + mix-blend-mode: screen——这三件套是
+ *     v1.55.2 注释自己警示的"无限 transform/filter 动画永不停止合成"违例，
+ *     永久占据一个 GPU 合成层不释放。
+ *   - filter: blur 改用更轻量的预渲染光晕：扩大 radial-gradient 软边模拟模糊效果，
+ *     视觉相近但完全不需要 GPU per-frame blur。
+ *   - mix-blend-mode: screen 移除（强制 stacking context 跨层合成）。
+ *   - 改为单条 opacity-only 呼吸（dfvAuraBreath 6.5s），低频且仅 opacity——
+ *     GPU 合成代价远低于 transform/filter。 */
 .dfv-stage-aura {
     position: absolute; inset: -10%;
     pointer-events: none;
     z-index: 0;
     background:
-        radial-gradient(closest-side at 50% 50%, rgba(56, 189, 248, 0.22), rgba(56, 189, 248, 0) 70%),
-        conic-gradient(from 0deg at 50% 50%,
-            rgba(56, 189, 248, 0.0) 0deg,
-            rgba(56, 189, 248, 0.12) 60deg,
-            rgba(168, 85, 247, 0.0) 120deg,
-            rgba(251, 146, 60, 0.10) 200deg,
-            rgba(34, 211, 238, 0.0) 280deg,
-            rgba(56, 189, 248, 0.0) 360deg);
-    filter: blur(28px);
-    mix-blend-mode: screen;
-    opacity: 0.6;
-    animation: dfvAuraSpin 26s linear infinite, dfvAuraBreath 6.5s ease-in-out infinite;
+        radial-gradient(closest-side at 50% 50%, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0) 75%),
+        radial-gradient(circle at 30% 30%, rgba(168, 85, 247, 0.06), rgba(168, 85, 247, 0) 55%),
+        radial-gradient(circle at 70% 70%, rgba(251, 146, 60, 0.05), rgba(251, 146, 60, 0) 55%);
+    opacity: 0.55;
+    animation: dfvAuraBreath 6.5s ease-in-out infinite;
 }
-@keyframes dfvAuraSpin { to { transform: rotate(360deg); } }
 @keyframes dfvAuraBreath {
     0%,100% { opacity: 0.45; }
-    50%     { opacity: 0.75; }
+    50%     { opacity: 0.65; }
 }
-/* spawn 时触发的全屏震波（JS 通过 toggle .dfv-stage--shock 触发一次 0.6s 动画） */
+/* spawn 时触发的全屏震波（JS 通过 toggle .dfv-stage--shock 触发一次 0.6s 动画）
+ * v1.60.41 GPU 优化：移除 mix-blend-mode: screen（强制 stacking context 跨层合成），
+ * 改用更高不透明度 + 白色中心光斑模拟叠加效果。 */
 .dfv-stage-shock {
     position: absolute; inset: 0;
     pointer-events: none;
     z-index: 1;
     opacity: 0;
     background:
-        radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0) 30%),
-        radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.32), rgba(56, 189, 248, 0) 55%);
-    mix-blend-mode: screen;
+        radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 30%),
+        radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.45), rgba(56, 189, 248, 0) 55%);
 }
 .dfv-stage--shock .dfv-stage-shock {
     animation: dfvShock 0.62s cubic-bezier(0.16, 1, 0.3, 1) 1;
 }
+/* v1.60.42 GPU 优化：去掉 dfvShock 的 filter:blur。
+ * 每次 spawn（活跃游戏中数秒一次）触发 0.62s 的 blur(8px) 扩散动画，
+ * blur 每帧强制 GPU 高斯模糊合成，代价不低于常驻 aura blur。
+ * 仅保留 opacity + scale，扩散感不变，GPU 合成代价归零。 */
 @keyframes dfvShock {
-    0%   { opacity: 0.85; transform: scale(0.55); filter: blur(0px); }
-    60%  { opacity: 0.40; transform: scale(1.10); filter: blur(2px); }
-    100% { opacity: 0;    transform: scale(1.35); filter: blur(8px); }
+    0%   { opacity: 0.75; transform: scale(0.6); }
+    60%  { opacity: 0.35; transform: scale(1.12); }
+    100% { opacity: 0;    transform: scale(1.38); }
 }
-/* high-stress: 高压时左栏边缘脉动红光（CSS 跟随 .dfv-stage--high-stress） */
+/* high-stress: 高压时左栏边缘脉动红光（CSS 跟随 .dfv-stage--high-stress）。
+ *
+ * v1.60.39 GPU 优化：旧版用 animation: box-shadow 每帧重算 60px inset blur，
+ * 是已知最贵的可动画属性之一。改为：
+ *   - 底层 box-shadow 设为"高亮峰值"形态（静态，不参与动画）；
+ *   - 用 ::before 伪元素 + opacity 动画实现"脉动"——opacity 仅走 compositor，
+ *     完全跳过 paint 阶段，代价相比 box-shadow 动画下降 10x+。
+ *   - 仅 high-stress 状态下激活，且伪元素不影响命中测试。 */
 .dfv-stage--high-stress {
+    position: relative;
     box-shadow:
         inset 0 0 0 1px rgba(251, 113, 133, 0.30),
-        inset 0 0 60px rgba(251, 113, 133, 0.22),
-        0 0 28px rgba(251, 113, 133, 0.18);
+        inset 0 0 60px rgba(251, 113, 133, 0.18),
+        0 0 24px rgba(251, 113, 133, 0.14);
+}
+.dfv-stage--high-stress::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow:
+        inset 0 0 0 1px rgba(251, 113, 133, 0.55),
+        inset 0 0 80px rgba(251, 113, 133, 0.32),
+        0 0 40px rgba(251, 113, 133, 0.28);
+    opacity: 0;
     animation: dfvHighStressPulse 1.4s ease-in-out infinite;
 }
 @keyframes dfvHighStressPulse {
-    0%,100% { box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.30), inset 0 0 60px rgba(251, 113, 133, 0.18), 0 0 24px rgba(251, 113, 133, 0.14); }
-    50%     { box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.55), inset 0 0 80px rgba(251, 113, 133, 0.32), 0 0 40px rgba(251, 113, 133, 0.28); }
+    0%,100% { opacity: 0; }
+    50%     { opacity: 1; }
 }
 .dfv-particles { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
 .dfv-svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
@@ -3969,14 +4047,14 @@ class DecisionFlowViz {
     gap: 2px;
     padding: 2px 6px;
     border-radius: 999px;
+    /* v1.60.41 GPU 优化：移除 backdrop-filter: blur(3px)——这是面板内唯一残留的
+     * backdrop-filter，会对下方 stage 持续模糊合成。改用更深的半透明背景色补偿视觉。 */
     background: linear-gradient(90deg,
         rgba(96, 165, 250, 0.14) 0%,
         rgba(34, 211, 238, 0.14) 33%,
         rgba(168, 85, 247, 0.14) 66%,
         rgba(244, 114, 182, 0.14) 100%);
     border: 1px solid rgba(56, 189, 248, 0.22);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
     pointer-events: auto;
     font-size: 9px;
     color: #e2e8f0;
@@ -4368,34 +4446,30 @@ class DecisionFlowViz {
  *   - dot pulse 节奏 1.1s → 0.85s（更急促，"实时心跳"感）
  *   - fill 区域加 dfvSparkFillBreathe（opacity 0.10↔0.22 呼吸）—— 整条曲线"呼吸"
  *   - path stroke-width 1.8 → 2.1，更醒目；transition 用 cubic-bezier 强化"弹入"感 */
+/* v1.60.42 GPU 优化（GPU 仍 48%）——spark 三件套彻底去 transition/animation：
+ *
+ * 根因：
+ *   - transition: d 0.32s 在 spark-path + spark-fill 各 5 条 = 10 条路径，每次
+ *     _renderSparks 写 d 属性就触发一轮 SVG 路径几何插值（CSS d-interpolation），
+ *     浏览器需要对每帧的中间态重新计算 bezier 控制点并栅格化。5 条折线 × 15Hz
+ *     × transition 0.32s = 同时有 ~5 条路径在 GPU paint 通道持续插值。
+ *   - transition: cx/cy 0.32s 在 spark-dot 5 个圆 = 每次 dot 位置更新触发
+ *     SVG compositor transition，跑 5 个并发圆位移动画。
+ *   - dfvSparkDotPulse (0.85s infinite) × 5 个 dot = 5 个永驻 opacity 动画。
+ *
+ * 修复：全部去掉，sparkline 直接显示最新采样值（_setAttrIfChanged 已确保
+ * 相同值不写，跳帧采样 ~5-15Hz 足够平滑，不需要 CSS 补间）。
+ * 代价：dot "跳到新位置"不再有缓动感，但 sparkline 的意义是趋势走向而非
+ * 逐点动画，去掉后信息密度不变，视觉更干净。 */
 .dfv-spark-dot {
-    transition: cx 0.32s cubic-bezier(0.2, 0.7, 0.2, 1), cy 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
-    filter: drop-shadow(0 0 3px var(--dot-color, currentColor))
-            drop-shadow(0 0 6px color-mix(in srgb, var(--dot-color, currentColor) 60%, transparent));
-    animation: dfvSparkDotPulse 0.85s ease-in-out infinite;
+    animation: none;
 }
-.dfv-spark-dot--idle { animation: none; opacity: 0.32; filter: none; }
-@keyframes dfvSparkDotPulse {
-    0%,100% { r: 2.6; opacity: 1; }
-    50%     { r: 4.2; opacity: 0.45; }
-}
+.dfv-spark-dot--idle { opacity: 0.32; }
 .dfv-spark-fill {
-    transition: d 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
-    animation: dfvSparkFillBreathe 2.4s ease-in-out infinite;
-}
-@keyframes dfvSparkFillBreathe {
-    0%,100% { fill-opacity: 0.10; }
-    50%     { fill-opacity: 0.24; }
+    fill-opacity: 0.16;
 }
 .dfv-spark-path {
-    transition: d 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
     stroke-width: 2.1;
-    /* path 自身不做"扫光"（dasharray 会让大部分曲线隐藏，看不全趋势）；
-     * 数据流动感全部交给 dot pulse + fill breathe + 弹性 transition 三重叠加。 */
-}
-@media (prefers-reduced-motion: reduce) {
-    .dfv-spark-dot,
-    .dfv-spark-fill { animation: none; }
 }
 .dfv-spark-value {
     text-align: right; font-family: ui-monospace, 'SF Mono', monospace;
@@ -4539,7 +4613,20 @@ class DecisionFlowViz {
 .dfv-svg .dfv-stress-core { transition: fill .18s; }
 .dfv-svg .dfv-stress-core-inner { transition: fill .18s; }
 .dfv-svg .dfv-stress-spec { opacity: 0.9; }
-.dfv-svg .dfv-stress-ring { transition: r .12s linear; }
+/* v1.60.43：ring 改为纯 CSS keyframe，移除 JS 逐帧 setAttribute。
+ * transform-box:fill-box + transform-origin:center 确保 scale 以圆心为基准。 */
+.dfv-svg .dfv-stress-ring {
+    stroke-opacity: 0;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+.dfv-svg .dfv-stress-ring--pulse {
+    animation: dfvStressRingPulse 0.45s ease-out 1 forwards;
+}
+@keyframes dfvStressRingPulse {
+    0%   { stroke-opacity: 0.85; transform: scale(1.0); }
+    100% { stroke-opacity: 0;    transform: scale(1.65); }
+}
 .dfv-svg .dfv-node--intent circle { transition: fill .18s, stroke .18s; }
 .dfv-svg .dfv-intent-orbit { opacity: 0.35; }
 .dfv-svg .dfv-intent-flash circle { animation: dfv-flash .55s ease-out; }
@@ -4554,27 +4641,28 @@ class DecisionFlowViz {
  *     视觉上"待机但有身份色"，绝不退化为灰
  *   - active（贡献中）：保持 v1.59.4 外圈彩光呼吸 + opacity 1 高亮 */
 .dfv-svg .dfv-node--signal { opacity: 1; transition: opacity .22s ease; }
+/* v1.60.40 GPU 优化（用户反馈 GPU 仍 49%，CPU 56%）：
+ * idle 节点呼吸是 GPU 重灾——典型场景 15-20 个 idle 节点同时跑 fill-opacity
+ * infinite paint，相当于每秒 20×60=1200 次 SVG paint 调用。
+ * 改为完全静态半透明：idle 在语义上就是"无信号待机"，静止比呼吸更符合直觉，
+ * 同时彻底消除该批节点对持续合成/重绘的拉动。 */
 .dfv-svg .dfv-node--idle .dfv-node-core,
 .dfv-svg .dfv-node--idle .dfv-intent-core {
-    fill-opacity: 0.35 !important;
-    animation: dfvNodeIdleBreath 1.8s ease-in-out infinite;
-}
-@keyframes dfvNodeIdleBreath {
-    0%,100% { fill-opacity: 0.30; }
-    50%     { fill-opacity: 0.55; }
+    fill-opacity: 0.42 !important;
 }
 .dfv-svg .dfv-node--signal.dfv-node--active > circle.dfv-node-aura {
     fill: var(--node-base, rgba(56, 189, 248, 0.32));
     fill-opacity: 0.55;
     animation: dfvNodeActiveBreath 1.4s ease-in-out infinite;
 }
+/* v1.60.39 GPU 优化：去掉 transform: scale —— 每个 active 节点一个 transform
+ * 动画，~20-30 个节点并发即可拉起 GPU 30%+。改为纯 fill-opacity 呼吸：
+ * SVG fill-opacity 走 paint 通道而非 compositor，且单次 paint 区域仅一个圆，
+ * 总体代价远低于 30 个独立 transform 合成层。视觉上保留"脉冲闪烁感"，
+ * 仅失去"放大缩小"的体积变化（让位于性能）。 */
 @keyframes dfvNodeActiveBreath {
-    0%,100% { fill-opacity: 0.85; transform: scale(1); }
-    50%     { fill-opacity: 0.45; transform: scale(1.08); }
-}
-.dfv-svg .dfv-node--signal.dfv-node--active > circle.dfv-node-aura {
-    transform-origin: center;
-    transform-box: fill-box;
+    0%,100% { fill-opacity: 0.85; }
+    50%     { fill-opacity: 0.40; }
 }
 .dfv-svg .dfv-strategy-link { transition: stroke .18s; }
 .dfv-svg .dfv-strategy-branch { transition: stroke .18s; }
@@ -4849,6 +4937,37 @@ class DecisionFlowViz {
     .dfv-stage { min-height: 280px; }
     .dfv-list--two-col { grid-template-columns: 1fr; }
     .dfv-list--three-col { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * v1.60.39 GPU 总开关：尊重系统 prefers-reduced-motion: reduce
+ *
+ * 触发条件：
+ *   - macOS：系统偏好设置 > 辅助功能 > 显示器 > 减弱动态效果
+ *   - Windows：设置 > 轻松使用 > 显示 > 在 Windows 中显示动画
+ *   - iOS/Android：辅助功能 > 减少动态效果
+ *
+ * 选择 root 级 .dfv-host * + 显式枚举所有 infinite keyframes，避免漏网。
+ * 一次性 transition（spawn flash、shock）不在禁用范围——它们不会持续合成。
+ *
+ * 这是 GPU 高占用最后一道防线：即使前述结构优化已大幅降耗，对系统级减弱
+ * 动态效果有偏好的用户（含低端设备主动开启），仍能进一步获得零动画体验。
+ * ───────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .dfv-host .dfv-stage-aura,
+    .dfv-host .dfv-stage--high-stress::before,
+    .dfv-host .dfv-flow-nav.dfv-flow-nav--pulse,
+    .dfv-host .dfv-spark-dot,
+    .dfv-host .dfv-spark-fill,
+    .dfv-host .dfv-svg .dfv-node--idle .dfv-node-core,
+    .dfv-host .dfv-svg .dfv-node--idle .dfv-intent-core,
+    .dfv-host .dfv-svg .dfv-node--signal.dfv-node--active > circle.dfv-node-aura,
+    .dfv-host .dfv-svg .dfv-chosen-node-inject-badge,
+    .dfv-host .dfv-svg .dfv-chosen-node-dup-badge,
+    .dfv-host .dfv-summary-driver-badge,
+    .dfv-host .dfv-summary-arrow {
+        animation: none !important;
+    }
 }
 `;
         document.head.appendChild(style);

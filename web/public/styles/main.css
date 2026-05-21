@@ -1779,6 +1779,30 @@ body.game-rl-preview .block-dock {
     white-space: nowrap;
 }
 
+/* v1.60.41：无路可走鼓励语副标题。
+ *
+ * 旧版（v1.49 + v1.50.2）：独立 .float-no-moves toast 在死局触发后立即弹出，
+ * 2.4s 后消失，再 200ms 后 endGame 弹结算卡——玩家视觉上"先大字鼓励语，
+ * 后结算卡片"两次浮层，违反 v10.18 注释明确写的"取消独立浮层，直接进入
+ * 内嵌结算卡片，避免先弹中间提示再弹结算的双弹窗割裂感"设计意图。
+ *
+ * 新版：废除独立 toast，鼓励语作为结算卡内副标题与卡片入场同帧显示，
+ * 保留 v1.49 的"濒死安抚"语义但收敛为一次浮层动画。 */
+.game-over-label-extra {
+    margin: 4px 0 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #d35400;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    /* 与 .game-over-card 入场动画错峰 120ms：玩家先看到"游戏结束"标签，
+     * 再看到鼓励语缓入，形成"结果 → 安抚"的微叙事，但仍是一次连续浮层。 */
+    animation: gameOverCardIn 0.42s cubic-bezier(0.22, 1.0, 0.32, 1.0) 0.12s both;
+}
+.game-over-label-extra[hidden] {
+    display: none;
+}
+
 /* v10.18.6：新最佳时分数前的皇冠图标 */
 .new-best-crown {
     display: block;

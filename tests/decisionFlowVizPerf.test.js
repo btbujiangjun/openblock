@@ -24,7 +24,7 @@ describe('DFV v1.55.1 性能调度常量', () => {
         expect(DFV_FPS_ACTIVE).toBeLessThanOrEqual(30);
         expect(DFV_FPS_ACTIVE).toBeGreaterThanOrEqual(15);
         expect(DFV_FPS_IDLE).toBeLessThanOrEqual(10);
-        expect(DFV_FPS_IDLE).toBeGreaterThanOrEqual(2);
+        expect(DFV_FPS_IDLE).toBeGreaterThanOrEqual(1);
     });
 
     it('粒子上限 + trail 复制层数控制在硬上限内', () => {

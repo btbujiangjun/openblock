@@ -302,6 +302,10 @@
         <div class="game-over-card">
             <!-- 模式标签：endless=游戏结束 / level=关卡完成 / level-fail=关卡失败 -->
             <p class="game-over-label" id="over-label" data-i18n="game.over.endless">游戏结束</p>
+            <!-- v1.60.41：无路可走鼓励语副标题（仅 endless+noMovesLoss 模式可见）。
+                 旧版用独立 .float-no-moves toast 在结算卡前 2.4s 显示，造成"两次浮层"
+                 割裂感；现整合到结算卡内副标题，与卡片入场同帧显示。 -->
+            <p class="game-over-label-extra" id="over-label-extra" hidden></p>
             <div class="game-over-score" id="over-score">0</div>
             <div class="final-xp" id="over-xp" hidden></div>
             <!-- 关卡模式额外信息（endless 模式下隐藏） -->

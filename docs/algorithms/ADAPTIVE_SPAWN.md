@@ -1826,16 +1826,27 @@ if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
 
 ---
 
-### 10.7 形状池扩展（v1.60.0 → v1.60.1：独立库事件注入系统）
+### 10.7 形状池扩展（v1.60.0 → v1.60.44：独立库事件注入系统）
 
 #### 设计目标
 
-§10.6 论文实证「**形状库扩充**是 ★★ 强级杠杆」——OpenBlock 在 v1.60.0 之前从未动用，仅靠 `shapeWeights` profile 插值（★ 中级杠杆）。**v1.60.0** 首次以"形状库扩充"作为减压/加压双向手段，**v1.60.1** 将其重构为完整的"独立库事件注入系统"：
+§10.6 论文实证「**形状库扩充**是 ★★ 强级杠杆」——OpenBlock 在 v1.60.0 之前从未动用，仅靠 `shapeWeights` profile 插值（★ 中级杠杆）。**v1.60.0** 首次以"形状库扩充"作为减压/加压双向手段，**v1.60.1** 将其重构为完整的"独立库事件注入系统"，**v1.60.44** 进一步把"触发"从纯几何启发式升级为**阶段绑定 + 三类触发分级**：
 
-- **前期减压**：用 8 个小直线 + 3 格 L 角形状（`SPECIAL_RELIEF_SHAPES`），在"清屏准备 / 高填充 + 临消行"场景由 `_tryInjectSpecial` 显式注入，**配合而非替代**主出块路径
-- **后期加压**：用 4 个斜线散点形状（`SPECIAL_PRESSURE_SHAPES`），仅在 `pressure / sprint` 意图 + 低填充时注入，**主动制造稀疏挑战**而不绕过校验
-- **可控**：每局上限 = `max(totalClears × 10%, 3)`、间隔 ≥ 5 轮、relief/pressure 共享计数器
-- **可回放、可观测、可豁免空洞**：v1.60.1 全面契约化（详见下文 §架构 + §三大契约）
+- **减压阶段（`intent === 'relief'`）**：用 8 个小直线 + 3 格 L 角形状（`SPECIAL_RELIEF_SHAPES`），按三类触发分级注入，**与 intentResolver 单源对齐**：
+  - **清屏（最高优先级）**：`pcSetup >= 1`——盘面已具清盘准备期
+  - **完美卡入（中优先级）**：`scored.some(exactFit >= 0.999)`——shape 几何 100% 嵌入
+  - **消行（低优先级）**：`scored.some(multiClear >= 1) && chosen 自身 multiClear=0`——
+    主路径若已能消行，"低优"触发让位（避免双重消行铺垫的边际收益为零）
+  - **同色消行（彩蛋）**：`findNearFullMonoLines() > 0 && !chosenAlreadyHasMonoFlush`——
+    并入"消行"子触发，但**不受 chosen 压制**（×5 倍 iconBonus 不可被普通消行替代）
+
+- **强加压阶段（`intent ∈ {'pressure', 'sprint'}`）**：用 4 个斜线散点形状（`SPECIAL_PRESSURE_SHAPES`），承接单一触发：**制造空洞**——在 `fill < 0.45 + holes < 4` 的低填充期主动播种孤洞，**与 intent 强绑定**（无意图永不注入）
+
+- **v1.60.44 关键差异**：旧版 relief 仅看几何信号（`hasClearSetup ‖ highFillFillHoles ‖ monoFlush`），任意意图都可触发——导致 harvest/maintain 等中性意图下也会塞 1×2/l3-* "减压块"，与 chosen 主路径的消行候选语义冲突（v1.60.37 Bug A/B 起源）。新版要求 `isReliefPhase = true` 作为 hard gate，从根本上消除"意图—注入语义对掐"。
+
+- **可控**：每局上限 = `max(totalClears × 10%, 3)`、间隔 ≥ 5 轮、relief/pressure 各自子配额
+- **可回放、可观测、可豁免空洞**：v1.60.1 全面契约化（详见下文 §架构 + §三大契约）；
+  v1.60.44 新增 `reliefTrigger` audit 字段（pcSetup/exactFit/multiClear/monoFlush 四枚举），DFV / spawnDiagnostics 可按触发类型聚合统计
 
 #### 12 形状清单（独立库 specialShapeIds，全部 ≤ 3 格）
 
@@ -4367,34 +4378,66 @@ while blocks.length < 3:
 
 **功能**：在极端盘面条件下，用"减压/加压"特殊形状替换当前 triplet 中一个弱块。
 
+**v1.60.44 新版触发评估（阶段绑定 + 三类分级）**：
+
+```
+intent = hints?.spawnIntent
+isReliefPhase    = (intent === 'relief')                       ← hard gate
+isPressureIntent = (intent === 'pressure' || intent === 'sprint')
+
+# Relief 三类触发（仅在 isReliefPhase 下评估，按优先级）
+reliefTrigger =
+    'pcSetup'    if  pcSetup >= 1                               # 清屏（最强）
+    'exactFit'   elif scored.some(exactFit >= 0.999)            # 完美卡入
+    'monoFlush'  elif !chosenAlreadyHasMonoFlush                # 同色消行（彩蛋）
+                  && findNearFullMonoLines() > 0
+    'multiClear' elif scored.some(multiClear >= 1)              # 消行（低优先级）
+                  && !chosenHasMultiClear                       # ↑ chosen 自身无消行才激活
+    None         else
+reliefSignal = (reliefTrigger != null)
+
+# Pressure 单一触发：制造空洞
+pressureSignal = isPressureIntent
+              && fill < 0.45               # roomForHoles
+              && holesSignal < 4           # notAlreadyFullOfHoles
+```
+
 **8 道 gate（任一拒绝即跳过注入）**：
 
 | Gate | 条件 |
 |---|---|
-| G1 | 信号触发：`reliefSignal = pcSetup>=1 || fill>0.7+holes>5+gapFills || monoFlushSignal` |
+| G1 | **阶段绑定 + 信号触发**：`isReliefPhase + reliefTrigger ≠ null` ∨ `isPressureIntent + pressureSignal` |
 | G2 | 开局 warmup：`totalRounds < 5` → 不注入 |
 | G3 | fill 下限：relief 需 `fill >= 0.25`；pressure 需 `fill >= 0.10` |
 | G4 | 清屏候选保护：chosen 含 `pcPotential >= 2` → 不注入 relief |
 | G5 | 多步清屏保护：`pcSetup >= 1 && canTripletPerfectClear()` → 不注入 relief |
-| G6 | 间隔节流：`roundsSinceSpecial < 5` → 不注入 |
-| G7 | 全局上限：`specialShapeUsed >= max(totalClears × 10%, 3)` → 停止 |
-| G8 | 子配额：relief ≤ `totalClears × 7%`；pressure ≤ `totalClears × 5%` |
+| G6 | **兜底硬抑制**：`isRelief && reliefTrigger ≠ 'monoFlush' && chosen.multiClear≥1 计数 ≥ 2` → 不注入（pcSetup/exactFit trigger 下也覆盖 v1.60.37 R11 截图根因） |
+| G7 | 间隔节流：`roundsSinceSpecial < 5` → 不注入 |
+| G8 | 全局上限：`specialShapeUsed >= max(totalClears × 10%, 3)` → 停止；子配额：relief ≤ `totalClears × 7%`，pressure ≤ `totalClears × 5%` |
 
 **优先级矩阵**：
 
 ```
-sprint intent + pressure 信号    → 强制 pressure（玩家主动选难，relief 让位）
-pressure intent + 低 fill        → pressure 优先
-其他 + reliefSignal              → relief
-其他 + pressureSignal only       → pressure
+sprint/pressure intent + pressureSignal     → 强制 pressure（玩家主动选自虐）
+relief intent + reliefSignal (任一触发)      → relief
+非 'relief' 意图                              → 永不注入 relief（即使几何条件满足）
+非 'pressure'/'sprint' 意图                  → 永不注入 pressure
 ```
 
-**monoFlushSignal 触发 relief 路径**：
-- 条件：`monoFlushLines.length > 0 && !chosenAlreadyHasMonoFlush`
+> 旧版 v1.60.0–v1.60.43 的"几何驱动"分支（无 intent + 高填充 + holes>5 → relief）已废弃；
+> "裸 pressureSignal without intent → pressure" 兜底分支同样移除。
+
+**monoFlush 触发 relief 路径（v1.60.44 归入"消行(低优)"子触发但不受压制）**：
+- 条件：`monoFlushLines.length > 0 && !chosenAlreadyHasMonoFlush`（不再被 chosen 自身 multiClear 压制）
 - 候选提升：方向匹配的 `1x2`（横 empty=2 连续）/ `2x1`（竖 empty=2 连续）优先尝试
 - 注入后立即 `validateSpawnTriplet` 复校（失败则换候选/换槽/放弃）
+- 候选命中需通过 `bestMonoFlushPotential` 真模拟才标 `reason='special-monoFlush'`（v1.60.38）
 
 **智能槽位选择（replaceIdx）**：按 chosenMeta 重要性评分升序枚举，优先替换最弱 slot，保留高价值 slot（清屏/多消）。
+
+**v1.60.44 注入产物 audit 增强**：
+- `result.reliefTrigger`（顶级字段）— 触发类型枚举（pcSetup/exactFit/multiClear/monoFlush/null），pressure 注入时为 null
+- `result.spawnCtx.reliefTrigger` — 同步保留在 spawnCtx 内，便于 DFV / replay 重放
 
 ---
 
@@ -4470,7 +4513,7 @@ category 权重最高      → "XX权重XX%"
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  monoFlush 在 dock 中的全链路约束（v1.60.35 完整版）             │
+│  monoFlush 在 dock 中的全链路约束（v1.60.44 完整版）             │
 │                                                                 │
 │  信号层（always-on 识别）:                                       │
 │    monoFlushLines 始终计算，monoFlush 字段在 scored 中始终真实   │
@@ -4495,8 +4538,10 @@ category 权重最高      → "XX权重XX%"
 │    s2MonoFlushAllowed = count < MAX(1)                         │
 │    同上三字段守卫                                               │
 │                                                                 │
-│  L2 注入层:                                                     │
+│  L2 注入层（v1.60.44 阶段绑定）:                                │
+│    isReliefPhase=true (intent==='relief') = hard gate           │
 │    chosenAlreadyHasMonoFlush → monoFlushSignal=false → 不触发   │
+│    reliefTrigger='monoFlush' 时绕过 chosenHasMultiClear 压制    │
 │                                                                 │
 │  染色层:                                                        │
 │    monoFlushTargetCi==null → 不强制锁色                        │

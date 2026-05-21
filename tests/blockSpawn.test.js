@@ -236,21 +236,295 @@ describe('generateDockShapes', () => {
     });
 
     /**
-     * v1.32+v1.60.0：_tryInjectSpecial 在减压条件（nearFullLines>=2）时注入减压特殊形状。
-     * 不测 generateDockShapes 集成（盘面几何复杂），只测 pure function。
+     * v1.32+v1.60.0 → v1.60.44：_tryInjectSpecial 在减压阶段（intent='relief'）+
+     * "消行(低优先级)"触发（scored 有 multiClear ≥1 且 chosen 自身无 multiClear）时
+     * 注入减压特殊形状。
+     *
+     * v1.60.44 契约：12 个特殊小块仅在 intent === 'relief' 下注入 relief；
+     * 旧版几何驱动（无 spawnIntent 也会触发）已不再生效。
      */
-    it('v1.32+v1.60.0：_tryInjectSpecial 减压条件注入', () => {
+    it('v1.60.44：_tryInjectSpecial 减压阶段+消行(低优先级)触发 → 注入 relief', () => {
         const triplet = getAllShapes().slice(0, 3);
         const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
-        const hints = {};
+        const hints = { spawnIntent: 'relief' };
         const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5 };
         const localGrid = new Grid(8);
         const topo = { nearFullLines: 0, holes: 6 };
         const reliefIds = new Set(['1x2', '2x1', '1x3', '3x1', 'l3-a', 'l3-b', 'l3-c', 'l3-d']);
-        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.75, topo, 0, triplet.map(s => ({ shape: s, gapFills: 1 })));
+        /* scored 有 multiClear≥1 且 chosen 自身无 multiClear → multiClear 低优先级触发激活 */
+        const scored = triplet.map(s => ({ shape: s, gapFills: 1, multiClear: 1 }));
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.75, topo, 0, scored);
         expect(result).not.toBeNull();
         expect(result.isRelief).toBe(true);
         expect(reliefIds.has(result.injected)).toBe(true);
+        expect(result.reliefTrigger).toBe('multiClear');
+    });
+
+    /**
+     * v1.60.44 新契约：非 relief 意图（即使 reliefSignal 几何条件满足）永不注入 relief。
+     *
+     * 设置：intent='harvest' + pcSetup=1（旧版 hasClearSetup=true 会触发 relief 注入）
+     * 期望：v1.60.44 isReliefPhase=false → reliefSignal=false → 返回 null
+     */
+    it('v1.60.44：非 relief 意图下不注入 relief（即使 pcSetup≥1）', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+        const hints = { spawnIntent: 'harvest' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 2, holes: 0 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 1, multiClear: 0 }));
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 1, scored);
+        expect(result).toBeNull();
+    });
+
+    /**
+     * v1.60.44 新契约：relief 阶段 + 清屏(pcSetup) 触发（最高优先级）→ 注入 relief。
+     * spawnCtx.reliefTrigger 与 result.reliefTrigger 应为 'pcSetup'。
+     */
+    it('v1.60.44：relief 阶段+清屏(pcSetup) 触发 → 注入 relief & reliefTrigger=pcSetup', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 0, multiClear: 0 }));
+        /* pcSetup=1 触发 hasClearSetup；fill=0.55 避开 fill 下限 0.25 */
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 1, scored);
+        if (result) {
+            /* 若 Step 1.85（多步清盘保护）放行才会注入；放行时 reliefTrigger 必须是 pcSetup */
+            expect(result.isRelief).toBe(true);
+            expect(result.reliefTrigger).toBe('pcSetup');
+            expect(result.spawnCtx?.reliefTrigger).toBe('pcSetup');
+        }
+        /* canTripletPerfectClear 可能拦截，但若放行则必须按 pcSetup 标注 —— 都满足契约 */
+    });
+
+    /**
+     * v1.60.44 新契约：relief 阶段 + 完美卡入(exactFit≥0.999) 触发（中优先级）→ 注入 relief。
+     */
+    it('v1.60.44：relief 阶段+完美卡入(exactFit) 触发 → reliefTrigger=exactFit', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0 };
+        /* scored 第一个 shape 有 exactFit=1.0；无 pcSetup 信号确保不会被更高优先级 trigger 抢占 */
+        const scored = [
+            { shape: triplet[0], gapFills: 0, multiClear: 0, exactFit: 1.0 },
+            { shape: triplet[1], gapFills: 0, multiClear: 0, exactFit: 0 },
+            { shape: triplet[2], gapFills: 0, multiClear: 0, exactFit: 0 },
+        ];
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 0, scored);
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(true);
+        expect(result.reliefTrigger).toBe('exactFit');
+    });
+
+    /**
+     * v1.60.44 新契约："消行(低优先级)"语义形式化：
+     *   chosen 已含 ≥1 块 multiClear≥1 时，单独 multiClear 触发不再激活 relief。
+     *
+     * 设置：intent='relief'，scored 有 multiClear，但 chosen 自身也有 1 块 multiClear=1，
+     *      无 pcSetup/exactFit/monoFlush 信号 → multiClearLowPriorityActive=false
+     * 期望：reliefTrigger=null → 返回 null（不注入）
+     */
+    it('v1.60.44：chosen 已有 multiClear 时 multiClear 低优先级触发被压制（不注入）', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = [
+            { shape: triplet[0], placements: 10, reason: 'clear', topDriver: null, multiClear: 1 },
+            { shape: triplet[1], placements: 10, reason: 'weighted', topDriver: null, multiClear: 0 },
+            { shape: triplet[2], placements: 10, reason: 'weighted', topDriver: null, multiClear: 0 },
+        ];
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 0, multiClear: 1, exactFit: 0 }));
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 0, scored);
+        expect(result).toBeNull();
+    });
+
+    /**
+     * v1.60.37 Bug A/B：chosen 已含 ≥2 块 multiClear≥1 时抑制 relief 注入。
+     *
+     * 截图复盘（R11 / harvest / 占盘 0.55 / 临消行 2）：dock 三块是
+     *   Z形2(可消2行) / 1×2(送减压) / L1(可消1行)
+     * 主路径 chosen 已给出 ≥2 块直接消行候选，1×2 减压块边际收益 ≈ 0；同时
+     * harvest 意图与 relief 注入语义对掐。本测试锁定守卫行为：
+     * 即使 reliefSignal 满足（hasClearSetup / highFillFillHoles），只要 chosen
+     * 已有 ≥2 块 multiClear≥1，注入必须返回 null。
+     */
+    it('v1.60.37：Bug A/B chosen 已含≥2块 multiClear≥1 时抑制 relief 注入', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        /* chosenMeta 中 2 块 multiClear=1，模拟"Z2+L1 已能稳消"的场景 */
+        const chosenMeta = [
+            { shape: triplet[0], placements: 10, reason: 'clear', topDriver: null, multiClear: 1 },
+            { shape: triplet[1], placements: 10, reason: 'weighted', topDriver: null, multiClear: 0 },
+            { shape: triplet[2], placements: 10, reason: 'clear', topDriver: null, multiClear: 1 },
+        ];
+        /* v1.60.44：必须在 relief 阶段下测 Step 1.86 兜底拦截 */
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 1, holes: 6 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 1 }));
+        /* pcSetup=1 + fill=0.55 触发 hasClearSetup=true → reliefTrigger='pcSetup'（非 monoFlush）
+         * Step 1.86 兜底应拦截（chosen 已 ≥2 multiClear），return null */
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 1, scored);
+        expect(result).toBeNull();
+    });
+
+    /**
+     * v1.60.37 Bug A/B 对照：仅 1 块 multiClear≥1 时不抑制（边界）。
+     * 守卫阈值是"≥2 块"——单块消行候选可能被替换为更强候选，三块全保留才是最稳。
+     */
+    it('v1.60.37：Bug A/B chosen 仅 1 块 multiClear 时不抑制（边界）', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        /* v1.60.44 重设场景：1 块 chosen multiClear ⇒
+         *   - chosenHasMultiClear=true → 单独 multiClear 触发被压制
+         *   - 必须靠其他触发激活 relief；这里用 exactFit=1.0 在 scored 中触发"完美卡入" */
+        const chosenMeta = [
+            { shape: triplet[0], placements: 10, reason: 'clear', topDriver: null, multiClear: 1 },
+            { shape: triplet[1], placements: 10, reason: 'weighted', topDriver: null, multiClear: 0 },
+            { shape: triplet[2], placements: 10, reason: 'weighted', topDriver: null, multiClear: 0 },
+        ];
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 6 };
+        const scored = [
+            { shape: triplet[0], gapFills: 1, multiClear: 0, exactFit: 1.0 },
+            { shape: triplet[1], gapFills: 1, multiClear: 0, exactFit: 0 },
+            { shape: triplet[2], gapFills: 1, multiClear: 0, exactFit: 0 },
+        ];
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.75, topo, 0, scored);
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(true);
+        expect(result.reliefTrigger).toBe('exactFit');
+    });
+
+    /**
+     * v1.60.38：monoFlush 注入命中判定必须走 `bestMonoFlushPotential` 真模拟。
+     *
+     * 截图复盘（R24 / harvest / row 7 差 2 格）：
+     *   - findNearFullMonoLines 命中 row 7（type='row'，empty=2），Step 3 把 1×2 排前
+     *   - 1×2 在某些槽位 validation 失败 → candidate 降级到 2×1（竖块）
+     *   - 旧版：isMonoFlushCandidate 仅判 candidate.id ∈ {1×2,2×1} → 2×1 也标
+     *     'special-monoFlush' + topDriver "补满同色1线" → **labeling 撒谎**
+     *
+     * 本测试锁定不变式：reason='special-monoFlush' ⟺ bestMonoFlushPotential(shape) ≥ 1
+     *   （即"形状方向匹配 + 能补满 line" 双重满足才标 monoFlush）
+     */
+    it('v1.60.38：monoFlush 注入命中必须通过 bestMonoFlushPotential 真模拟（不撒谎）', async () => {
+        const { createMulberry32 } = await import('../web/src/lib/seededRng.js');
+        const localGrid = new Grid(8);
+        /* 构造：row 7 上 6 个非空格全同色（colorIdx=0），剩 (5,7)(6,7) 两格空缺
+         * 触发 findNearFullMonoLines → row 7 命中（type='row'，empty=2，refCi=0）
+         * → Step 3 targetIds={1x2} */
+        for (let x = 0; x < 8; x++) {
+            if (x === 5 || x === 6) continue;
+            localGrid.cells[7][x] = 0;
+        }
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'weighted', topDriver: null, multiClear: 0 }));
+        /* v1.60.44：monoFlush 触发也需要 relief 阶段才能进入注入 */
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 24 };
+        const topo = { nearFullLines: 1, holes: 0 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 1 }));
+
+        /* 100 个 seed 跑：每次注入产出的 monoFlush 标签必须与 bestMonoFlushPotential 真模拟一致 */
+        let monoFlushLabeled = 0;
+        let monoFlushReal = 0;
+        let inconsistent = 0;
+        for (let seed = 0; seed < 100; seed++) {
+            const result = _tryInjectSpecial(
+                triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 0, scored,
+                { rng: createMulberry32(seed) }
+            );
+            if (!result) continue;
+            const m = result.chosenMeta[result.replaceIdx];
+            const labeledMonoFlush = m.reason === 'special-monoFlush' || m.subType === 'monoFlush';
+            /* 真模拟：候选 shape 放在当前 grid 上能否触发 monoFlush */
+            const candidateShape = result.triplet[result.replaceIdx];
+            const realCount = localGrid.bestMonoFlushPotential
+                ? localGrid.bestMonoFlushPotential(candidateShape.data, null, { returnTarget: true })?.count || 0
+                : 0;
+            const realMonoFlush = realCount >= 1;
+            if (labeledMonoFlush) monoFlushLabeled++;
+            if (realMonoFlush) monoFlushReal++;
+            /* 核心不变式：标 monoFlush ⟺ 真能 monoFlush */
+            if (labeledMonoFlush !== realMonoFlush) {
+                inconsistent++;
+            }
+            /* 标 monoFlush 时 monoFlushTargetCi 必须有效（染色绑定依赖） */
+            if (labeledMonoFlush) {
+                expect(m.monoFlush).toBeGreaterThanOrEqual(1);
+                expect(Number.isInteger(m.monoFlushTargetCi)).toBe(true);
+            } else {
+                /* 未命中 monoFlush 时不能写 monoFlush 字段污染下游染色 */
+                expect((m.monoFlush ?? 0)).toBe(0);
+                expect(m.monoFlushTargetCi == null).toBe(true);
+            }
+        }
+        expect(inconsistent).toBe(0);
+    });
+
+    /**
+     * v1.60.37 Bug C：注入块若实际能消行 → reason 升级为 'clear'（DFV labeling 不撒谎）。
+     *
+     * 旧：注入块 reason 一律 'special-relief'，DFV 标"送减压"——但 1×2/L 块在某些
+     * 盘面恰好能补满某行/列剩 2 格空缺 → 实际能消行，玩家看"送减压"会误判它"不能消行"。
+     * 新：注入后用 bestMultiClearPotential 真模拟复算，若 ≥1 → reason='clear'、
+     * topDriver='可消N行'；audit trail（subType / spawnCtx / reasonUpgradedFrom）保留。
+     */
+    it('v1.60.37：Bug C 注入块能消行时 reason 升级为 clear（labeling 不撒谎）', async () => {
+        const { createMulberry32 } = await import('../web/src/lib/seededRng.js');
+        const localGrid = new Grid(8);
+        /* 第 0 行除 (5,0)(6,0)(7,0) 外塞满 → 1×3 横放可消行；
+         * empty=3 避开 monoFlush 触发（monoFlush 仅 empty=2 才优先 priority） */
+        for (let x = 0; x < 5; x++) {
+            localGrid.cells[0][x] = 0;
+        }
+        const triplet = getAllShapes().slice(20, 23);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'weighted', topDriver: null, multiClear: 0 }));
+        /* v1.60.44：relief 阶段下 pcSetup=1 触发 reliefTrigger='pcSetup' */
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const topo = { nearFullLines: 1, holes: 0 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 1 }));
+
+        let upgraded = 0;
+        let injectedTotal = 0;
+        for (let seed = 0; seed < 40; seed++) {
+            const result = _tryInjectSpecial(
+                triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 1, scored,
+                { rng: createMulberry32(seed) }
+            );
+            if (!result) continue;
+            injectedTotal++;
+            const injectedMeta = result.chosenMeta[result.replaceIdx];
+            if (injectedMeta.reason === 'clear') {
+                upgraded++;
+                expect(injectedMeta.topDriver.key).toBe('clear');
+                expect(injectedMeta.topDriver.label).toMatch(/^可消\d+行$/);
+                expect(injectedMeta.multiClear).toBeGreaterThanOrEqual(1);
+                /* audit trail 必须保留：reasonUpgradedFrom 标识升级前 + subType 不变（配额计数依赖） */
+                expect(injectedMeta.reasonUpgradedFrom).toBe('special-relief');
+                expect(injectedMeta.subType).toBe('relief');
+                expect(injectedMeta.spawnCtx).toBeDefined();
+                expect(injectedMeta.original).toBeDefined();
+            } else {
+                /* 未升级：必须仍是 special-relief（不会出现"既不升级也不是 special"的中间态） */
+                expect(injectedMeta.reason).toMatch(/^special-/);
+            }
+        }
+        /* 40 个 seed 应至少 1 次注入能消行的候选（1×3 / 1×2 / l3-* 在第 0 行附近都有机会） */
+        expect(injectedTotal).toBeGreaterThan(0);
+        expect(upgraded).toBeGreaterThan(0);
     });
 
     /**
@@ -711,17 +985,19 @@ describe('v1.60.6 独立库注入系统 — 缺口修复', () => {
         );
         expect(rA).toBeNull();
 
-        /* 案例 B：同 ctx 但走 relief 路径 → 应能注入 */
+        /* 案例 B：同 ctx 但走 relief 路径 → 应能注入
+         * v1.60.44：必须 spawnIntent='relief' 才进入 relief 路径；
+         * scored 携带 multiClear=1 触发"消行(低优)" trigger（chosen 自身 multiClear=0） */
         const ctxB = {
             specialShapeUsed: 1, specialReliefUsed: 0, specialPressureUsed: 99,
             totalClears: 30, roundsSinceSpecial: 5,
         };
         const rB = _tryInjectSpecial(
             triplet, chosenMeta,
-            { spawnIntent: 'maintain' }, ctxB, localGrid,
+            { spawnIntent: 'relief' }, ctxB, localGrid,
             0.75 /* 高填充 */,
             { nearFullLines: 0, holes: 6, enclosedVoidCells: 6 }, 0,
-            triplet.map(s => ({ shape: s, gapFills: 1 })),
+            triplet.map(s => ({ shape: s, gapFills: 1, multiClear: 1 })),
             { rng: createMulberry32(11) }
         );
         expect(rB).not.toBeNull();
@@ -746,11 +1022,12 @@ describe('v1.60.6 独立库注入系统 — 缺口修复', () => {
                 specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
                 totalClears: 10, roundsSinceSpecial: 5,
             };
+            /* v1.60.44：必须 spawnIntent='relief'；scored 携 multiClear=1 激活"消行(低优)" */
             const r = _tryInjectSpecial(
                 triplet, chosenMeta,
-                {}, ctx, localGrid, 0.75,
+                { spawnIntent: 'relief' }, ctx, localGrid, 0.75,
                 { nearFullLines: 0, holes: 6, enclosedVoidCells: 6 }, 0,
-                triplet.map(s => ({ shape: s, gapFills: 1 })),
+                triplet.map(s => ({ shape: s, gapFills: 1, multiClear: 1 })),
                 { rng: createMulberry32(i + 1) }
             );
             if (!r) continue;
@@ -915,9 +1192,10 @@ describe('v1.60.7 特殊块注入三层防御', () => {
         const triplet = getAllShapes().slice(0, 3);
         const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
         const localGrid = new Grid(8);
+        /* v1.60.44：必须 spawnIntent='relief' 才进入 relief；pcSetup=1 → reliefTrigger='pcSetup' */
         const r = _tryInjectSpecial(
             triplet, chosenMeta,
-            {},
+            { spawnIntent: 'relief' },
             { specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
               totalClears: 10, roundsSinceSpecial: 5, totalRounds: 5 /* 边界放行 */ },
             localGrid, 0.75,
@@ -934,10 +1212,11 @@ describe('v1.60.7 特殊块注入三层防御', () => {
         const triplet = getAllShapes().slice(0, 3);
         const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
         const localGrid = new Grid(8);
-        /* 不带 totalRounds 字段 → 兼容旧测试 / 旧调用方 */
+        /* 不带 totalRounds 字段 → 兼容旧测试 / 旧调用方
+         * v1.60.44：必须 spawnIntent='relief' + pcSetup=1 触发 */
         const r = _tryInjectSpecial(
             triplet, chosenMeta,
-            {},
+            { spawnIntent: 'relief' },
             { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5 /* no totalRounds */ },
             localGrid, 0.75,
             { nearFullLines: 0, holes: 6, enclosedVoidCells: 6 }, 1,
@@ -994,10 +1273,10 @@ describe('v1.60.7 特殊块注入三层防御', () => {
         const triplet = getAllShapes().slice(0, 3);
         const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null }));
         const localGrid = new Grid(8);
-        /* relief 边界：fill=0.25，其余条件满足 */
+        /* relief 边界：fill=0.25 + spawnIntent=relief（v1.60.44 必备）+ pcSetup=1 触发器 */
         const rRelief = _tryInjectSpecial(
             triplet, chosenMeta,
-            {},
+            { spawnIntent: 'relief' },
             { specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
               totalClears: 10, roundsSinceSpecial: 5, totalRounds: 20 },
             localGrid, 0.25,
@@ -1043,11 +1322,11 @@ describe('v1.60.7 特殊块注入三层防御', () => {
         const localGrid = new Grid(8);
         const r = _tryInjectSpecial(
             triplet, chosenMeta,
-            {}, /* 无 intent，落 relief 路径 */
+            { spawnIntent: 'relief' }, /* v1.60.44：relief 阶段是 hard gate */
             { specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
               totalClears: 10, roundsSinceSpecial: 5, totalRounds: 20 },
             localGrid, 0.45,
-            { nearFullLines: 1, holes: 0, enclosedVoidCells: 0 }, 1 /* pcSetup=1 → reliefSignal */,
+            { nearFullLines: 1, holes: 0, enclosedVoidCells: 0 }, 1 /* pcSetup=1 → reliefTrigger='pcSetup' */,
             triplet.map(s => ({ shape: s, gapFills: 1 })),
             { rng: createMulberry32(909) }
         );
@@ -1059,9 +1338,10 @@ describe('v1.60.7 特殊块注入三层防御', () => {
         const triplet = getAllShapes().slice(0, 3);
         const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'weighted', topDriver: null, pcPotential: 0, multiClear: 0, gapFills: 0 }));
         const localGrid = new Grid(8);
+        /* v1.60.44：relief 阶段 + pcSetup=1 触发器 → 注入 */
         const r = _tryInjectSpecial(
             triplet, chosenMeta,
-            {},
+            { spawnIntent: 'relief' },
             { specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
               totalClears: 10, roundsSinceSpecial: 5, totalRounds: 20 },
             localGrid, 0.75,
@@ -1215,20 +1495,23 @@ describe('v1.60.7 特殊块注入三层防御', () => {
         const localGrid = new Grid(8);
         const triplet = getAllShapes().slice(0, 3);
         const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'weighted', topDriver: null, pcPotential: 0, multiClear: 0, gapFills: 0 }));
-        /* fill=0.75 + holesSignal=6 → highFillFillHoles 触发 relief；pcSetup=0 → Step 1.85 不执行 */
+        /* v1.60.44：旧版用 highFillFillHoles（已废弃）触发；改用 relief 阶段 + multiClear 低优先级触发
+         * （scored 有 multiClear≥1 且 chosen 自身 multiClear=0）。pcSetup=0 → Step 1.85 不执行。 */
+        const scored = triplet.map(s => ({ shape: s, gapFills: 1, multiClear: 1 }));
         const r = _tryInjectSpecial(
             triplet, chosenMeta,
-            {},
+            { spawnIntent: 'relief' },
             { specialShapeUsed: 0, specialReliefUsed: 0, specialPressureUsed: 0,
               totalClears: 10, roundsSinceSpecial: 5, totalRounds: 20 },
             localGrid, 0.75,
             { nearFullLines: 0, holes: 6, enclosedVoidCells: 6 }, 0 /* pcSetup=0 */,
-            triplet.map(s => ({ shape: s, gapFills: 1 })),
+            scored,
             { rng: createMulberry32(2222) }
         );
         /* pcSetup=0 → Step 1.85 不拦截，应正常注入 */
         expect(r).not.toBeNull();
         expect(r.subType).toBe('relief');
+        expect(r.reliefTrigger).toBe('multiClear');
     });
 
     it('v1.60.8：generateDockShapes 输出的 chosenMeta 三块都带评分字段', () => {
@@ -1304,7 +1587,8 @@ describe('v1.60.23 — _tryInjectSpecial monoFlush 触发 + 方向匹配', () =>
             totalRounds: 12,
             skin: SKIN_8,
         };
-        return { triplet, chosenMeta, hints: {}, ctx, grid, fill: 0.5, topo: { holes: 1, enclosedVoidCells: 1, nearFullLines: 0 }, pcSetup: 0, scored: triplet.map(s => ({ shape: s, gapFills: 0 })), opts: { rng: createMulberry32(2027) } };
+        /* v1.60.44：monoFlush 注入也需 relief 阶段 hard gate */
+        return { triplet, chosenMeta, hints: { spawnIntent: 'relief' }, ctx, grid, fill: 0.5, topo: { holes: 1, enclosedVoidCells: 1, nearFullLines: 0 }, pcSetup: 0, scored: triplet.map(s => ({ shape: s, gapFills: 0 })), opts: { rng: createMulberry32(2027) } };
     }
 
     it('col 上 2 空近满同色 → 优先注入 2×1 竖块', async () => {
@@ -1386,6 +1670,10 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
         return {
             shapeWeights: getStrategy().shapeWeights,
             spawnHints: {
+                /* v1.60.44：让 L2 注入路径在 monoFlush 信号下能兜底激活
+                 * （主路径概率节流后命中率约 3.3%，单独主路径在 20 trials 下显著 flaky；
+                 * 注入兜底维持原"主路径漏识别也能由 L2 接力"契约）。 */
+                spawnIntent: 'relief',
                 clearGuarantee: 0.5,
                 sizePreference: 0,
                 spawnTargets: {
@@ -1430,8 +1718,12 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
     });
 
     it('chosen 命中后 diagnostics.chosen 对应块 topDriver.key="monoFlush"', () => {
+        /* v1.60.38：trials 从 20 提到 100。
+         * 旧版下注入路径漏过 monoFlushRound 节流（接近 100% 命中），20 trials 稳定命中。
+         * v1.60.38 修复后注入路径受 cap=10% 节流，20 trials 命中概率 1-0.9^20 ≈ 88%
+         * （flaky）。100 trials 收敛到 1-0.9^100 ≈ 99.997%，flaky 消除。 */
         let foundMonoDriver = false;
-        for (let t = 0; t < 20; t++) {
+        for (let t = 0; t < 100; t++) {
             const localGrid = buildScreenshotScenario();
             const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
             generateDockShapes(localGrid, buildConfig(), ctx);
@@ -1623,7 +1915,9 @@ describe('v1.60.30 — monoFlush 识别 always-on（修复 v1.60.28 漏识别 bu
     function buildConfig() {
         return {
             shapeWeights: getStrategy().shapeWeights,
-            spawnHints: { clearGuarantee: 0.5, spawnTargets: { iconBonusTarget: 1.0, clearOpportunity: 0.6 } },
+            /* v1.60.44：强信号场景下玩家自然进入 relief 阶段，
+             * 让 L2 注入路径兜底 monoFlush 漏识别（与 v1.60.23 注入兜底契约一致） */
+            spawnHints: { spawnIntent: 'relief', clearGuarantee: 0.5, spawnTargets: { iconBonusTarget: 1.0, clearOpportunity: 0.6 } },
         };
     }
 

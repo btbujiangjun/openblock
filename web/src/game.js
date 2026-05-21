@@ -232,6 +232,9 @@ export class Game {
         this._ambientFxRaf = null;
         this._popupToastQueue = Promise.resolve();
         this._lastPopupToastAt = 0;
+        /* 代际编号：每局递增，_enqueuePopupToast 内部校验，防止上一局排队的 toast
+         * 因 holdMs/gapMs 延迟跑进下一局的启动时间窗口（"结算卡关闭后还有小弹窗"）。 */
+        this._toastGeneration = 0;
         /** markDirty 合并到单帧一次 render（见 PERFORMANCE.md） */
         this._renderRaf = null;
         this._renderDirty = false;
@@ -962,13 +965,27 @@ export class Game {
         }
 
         const gapMs = 550;
+        /* 捕获当前代际；.then() 执行时若代际已变（新局 start()），静默丢弃该 toast。 */
+        const gen = this._toastGeneration ?? 0;
         this._popupToastQueue = this._popupToastQueue
             .catch(() => {})
             .then(async () => {
+                /* 代际校验（双重守卫）：
+                 * 1) 代际不符 → 跨局 toast，直接跳过
+                 * 2) game-over 正在展示 → 同样跳过（防止 gapMs 等待期间 game-over 激活） */
+                if ((this._toastGeneration ?? 0) !== gen) return;
+                if (typeof document !== 'undefined') {
+                    const gameOverEl = document.getElementById('game-over');
+                    if (gameOverEl?.classList.contains('active')) return;
+                }
+
                 const waitMs = Math.max(0, this._lastPopupToastAt + gapMs - Date.now());
                 if (waitMs > 0) {
                     await new Promise((resolve) => setTimeout(resolve, waitMs));
                 }
+
+                /* 等待期间再次校验（holdMs 可能很长，等完后 game-over / 新局已启动） */
+                if ((this._toastGeneration ?? 0) !== gen) return;
 
                 const el = createEl();
                 document.body.appendChild(el);
@@ -1042,6 +1059,11 @@ export class Game {
             this._bestScoreSanityFlagged = false;
             this.isGameOver = false;
             this._endGameInFlight = null;
+            /* 递增代际，使上一局排队中的所有 popup toast 因代际不匹配而静默跳过。
+             * 同时重置队列 Promise 和时间戳，避免新局首个 toast 等待上一局的 holdMs。 */
+            this._toastGeneration = (this._toastGeneration ?? 0) + 1;
+            this._popupToastQueue = Promise.resolve();
+            this._lastPopupToastAt = 0;
             document.body.classList.remove('game-over-active');
             // v10.18.6：清理游戏结束浮层中的皇冠图标
             const _crown = document.querySelector('.new-best-crown');
@@ -2591,7 +2613,8 @@ export class Game {
     checkGameOver() {
         if (this.isGameOver) return;
         if (this._spawnPending) return;
-        if (document.querySelector('.no-moves-overlay')) return;
+        /* v1.60.41 后 .no-moves-overlay 已移除，改用 _pendingNoMovesEnd 做重入守卫。 */
+        if (this._pendingNoMovesEnd) return;
         const remaining = this.dockBlocks.filter(b => !b.placed);
         if (remaining.length === 0) return;
         if (!this.grid.hasAnyMove(remaining)) {
@@ -2602,36 +2625,36 @@ export class Game {
     /**
      * v10.18：取消独立的「没可用空间」浮层，直接进入内嵌结算卡片，避免「先弹中间提示再弹结算」的双弹窗割裂感。
      * `revive.js` 仍然以装饰模式拦截本方法（在玩家未用完复活时优先弹复活面板），无影响。
+     *
+     * v1.60.41（用户反馈"结束时弹两次浮层"）：
+     *   - 旧 v1.49 + v1.50.2 实现违反了 v10.18 注释明确写的"取消独立浮层"意图——
+     *     在 endGame 前 2.6s 显示 .float-no-moves 大字 toast（"棋盘填满，再来一局！💪"
+     *     居中 clamp(22px, 4.8vw, 32px) z-index 1300，视觉上是独立浮层而非小提示），
+     *     2.4s 后消失，再 200ms 弹结算卡——玩家看到的就是"两次浮层"。
+     *   - 新版：废除独立 toast；鼓励语作为结算卡内 #over-label-extra 副标题
+     *     与卡片入场同帧呈现（仅 opts.noMovesLoss=true 时显示）。endGame 延迟从
+     *     2600ms 收紧到 600ms，仅保留"我刚刚下了最后一手"的最小心理过渡，
+     *     避免太突兀；鼓励语语义完全保留，但只看到一次浮层动画。
+     *   - i18n key `effect.noMovesEnd` 不变（被 endGame 内 over-label-extra 复用）。
      */
     showNoMovesWarning() {
         clearTimeout(this._noMovesTimer);
         this._noMovesTimer = null;
-        document.querySelectorAll('.no-moves-overlay').forEach((el) => el.remove());
+        /* 清除游戏内遗留的小浮层（thumbs-up-toast / float-near-miss 等），
+         * 防止它们在结算卡出现时仍然显示，造成"两次弹窗"的割裂感。 */
+        document.querySelectorAll(
+            '.no-moves-overlay, .thumbs-up-toast, .float-near-miss, .float-score'
+        ).forEach((el) => el.remove());
         if (this.isGameOver || this._endGameInFlight) return;
 
-        /* v1.49：game over 前的鼓励语
-         * - 旧版：判定条件 `nearMissCount > 0 || roundsSinceClear >= 3`，但 nearMissCount 字段从未在
-         *   _lastAdaptiveInsight 中被写入（死字段引用），实际只剩 roundsSinceClear>=3 起作用，
-         *   语义跟"差一点"无关——是濒死安抚，而非几何近失。
-         * - 新版：无条件触发"棋盘填满，再来一局！"安抚语；同时设置 _pendingNoMovesEnd 互斥锁，
-         *   抑制同一帧内 _triggerNearMissFeedback 的重复 toast；v1.50.2 起 toast hold 2400ms 略短于
-         *   endGame 延迟 2600ms，确保先看完安抚语再进 game over 弹窗。
-         * - i18n：effect.noMovesEnd（"棋盘填满，再来一局！" / "Board's full — try again!"）
-         */
+        /* _pendingNoMovesEnd 互斥锁仍保留：抑制同帧内 _triggerNearMissFeedback
+         * 的重复 toast；endGame 入口同步重置该标志。 */
         this._pendingNoMovesEnd = true;
-        const tipEl = document.createElement('div');
-        tipEl.className = 'float-score float-no-moves';
-        tipEl.innerHTML = `<span class="float-label">${t('effect.noMovesEnd')}</span><span class="float-pts">💪</span>`;
-        document.body.appendChild(tipEl);
-        this._anchorOnBoard(tipEl);
-        /* v1.50.2：toast hold 从 1100ms 提到 2400ms，与 .float-no-moves 2.4s 动画对齐 */
-        setTimeout(() => tipEl.remove(), 2400);
-
         this._noMovesTimer = setTimeout(() => {
             this._noMovesTimer = null;
             this._pendingNoMovesEnd = false;
             void this.endGame({ noMovesLoss: true });
-        }, 2600); /* v1.50.2：从 1200ms 拉到 2600ms，确保安抚语完整显示后再进 game over 弹窗 */
+        }, 600);
     }
 
     /**
@@ -2683,6 +2706,19 @@ export class Game {
         if (labelEl) {
             labelEl.textContent = mode === 'level' ? t('game.over.levelClear') :
                 mode === 'level-fail' ? t('game.over.levelFail') : t('game.over.endless');
+        }
+        /* v1.60.41：noMovesLoss 模式下显示"棋盘填满，再来一局！💪"鼓励语副标题。
+         * 取代旧版 showNoMovesWarning 内独立 .float-no-moves toast，把鼓励语与
+         * 结算卡作为一次浮层动画呈现，消除"两次浮层"割裂感。 */
+        const labelExtraEl = document.getElementById('over-label-extra');
+        if (labelExtraEl) {
+            if (opts.noMovesLoss && mode === 'endless') {
+                labelExtraEl.textContent = `${t('effect.noMovesEnd')} 💪`;
+                labelExtraEl.hidden = false;
+            } else {
+                labelExtraEl.textContent = '';
+                labelExtraEl.hidden = true;
+            }
         }
         // 关卡额外信息
         const levelInfoEl = document.getElementById('over-level-info');

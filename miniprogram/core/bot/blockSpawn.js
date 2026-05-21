@@ -1201,15 +1201,38 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
         ? topo.enclosedVoidCells
         : (topo?.holes ?? 0);
 
-    /* === Step 1：减压/加压条件评估（Issue 3 修复优先级） ===
+    /* === Step 1：减压/加压条件评估（v1.60.44 阶段绑定 + 三类触发分级） ===
      *
-     * v1.60.23 新增 monoFlush 触发：盘面有"近满同色 line"（与 clearScoring.monoNearFullLineColorWeights
-     * 同口径，empty ∈ [1,2] 且预填全同 icon）时，正常池里几乎找不到方向匹配的小竖/横块
-     * （因为 1×2 / 2×1 都在 specialShapeIds 独立池），导致 scoreShape 即使有 bestMonoFlushPotential
-     * 加权也命中不了——必须靠注入路径才能把"补缺竖/横块"塞进 chosen。
+     * **设计契约（用户 v1.60.44 诉求）**：
+     *   12 个特殊小块仅在对应"阶段"下生效：
+     *     - **Relief 减压阶段**（`intent === 'relief'`，priority 100，由 intentResolver 派生）
+     *       承接三类触发，按优先级排序：
+     *         (1) 清屏       — `pcSetup >= 1`         （最强信号：盘面接近 PC）
+     *         (2) 完美卡入   — `scored.exactFit >= 0.999` （shape 几何 100% 嵌入）
+     *         (3) 消行(低优) — `scored.multiClear >= 1` ，且 chosen 自身无 multiClear
+     *                          （低优先级：chosen 主路径已能消行时让位，避免双重铺垫）
+     *       monoFlush 是"同色消行"的特殊形态，归并入 (3) 子触发，但不受
+     *       "chosen 无 multiClear" 压制——它的 ×5 倍 iconBonus 价值不可替代。
      *
-     * monoFlush 走 relief 配额（同属"减压/给玩家爽点"语义）；
-     * 候选过滤优先方向/尺寸匹配（Step 3 排序时再细做）。 */
+     *     - **Pressure 强加压阶段**（`intent ∈ {'pressure', 'sprint'}`）
+     *       承接单一触发：**制造空洞**——diag-2/3 散点形状专为"低填充期播种孤洞"设计。
+     *       - `pressure`（priority 70）= challengeBoost>0 ∨ delightMode='challenge_payoff'+stress≥0.55
+     *       - `sprint`（priority 60）= stress ∈ [0.45, 0.55) 渐紧过渡带（玩家主动选自虐）
+     *
+     * **旧版差异**（v1.60.0 → v1.60.43）：
+     *   ❌ relief 不要求 `intent === 'relief'`，仅看几何信号（`hasClearSetup ‖
+     *      highFillFillHoles ‖ monoFlush`）—— 导致 harvest/maintain 等中性意图下也会
+     *      注入 1×2/l3-* "减压块"，与 chosen 主路径的消行候选语义冲突（v1.60.37 Bug A/B 起源）。
+     *   ❌ `highFillFillHoles`（fill>0.7+gapFills+holes>5）是"高填充补缝"的几何启发式，
+     *      但语义混杂——把"补缝（gapFills）"和"压力释放（fill>0.7）"绑在一起，难以独立调试。
+     *
+     * **新版做法**：
+     *   ✓ relief 增加 `isReliefPhase` 硬门（与 intentResolver 单源对齐）
+     *   ✓ 三类触发独立可观测（reliefTrigger 字段，DFV / spawnDiagnostics 消费）
+     *   ✓ 消行触发被 chosen 自身能力压制（"低优先级"语义形式化）
+     *   ✓ pressure 强加压阶段保留 sprint/pressure 双 intent（priority>=60），但
+     *      不再吸收"无 intent + roomForHoles"裸 pressure（无 intent 时永不注入）
+     */
     const skin = ctx?.skin ?? null;
     const monoFlushLines = (typeof grid.findNearFullMonoLines === 'function')
         ? grid.findNearFullMonoLines(skin)
@@ -1219,37 +1242,60 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
     const chosenAlreadyHasMonoFlush = (chosenMeta || []).some(m => (m?.monoFlush ?? 0) >= 1);
     const monoFlushSignal = !chosenAlreadyHasMonoFlush && monoFlushLines.length > 0;
 
-    const hasClearSetup = pcSetup >= 1;
-    const highFillFillHoles = fill > 0.7 && scored.some(s => s.gapFills > 0) && holesSignal > 5;
-    const reliefSignal = hasClearSetup || highFillFillHoles || monoFlushSignal;
+    /* v1.60.38：monoFlush 注入命中受 MONO_FLUSH_PICK_PROBABILITY 节流。
+     * `monoFlushRound=false` 时即使真模拟通过也降级为 'special-relief'（不标 monoFlush 字段）。 */
+    const allowMonoFlushLabel = opts ? opts.monoFlushRound !== false : true;
 
     const intent = hints?.spawnIntent;
+    const isReliefPhase = intent === 'relief';
     const isSprint = intent === 'sprint';
     const isPressureIntent = isSprint || intent === 'pressure';
+
+    /* v1.60.44 三类 relief 触发分级（仅在 isReliefPhase 下评估） */
+    const hasClearSetup = pcSetup >= 1;
+    const hasExactFitSetup = Array.isArray(scored)
+        && scored.some(s => (s?.exactFit ?? 0) >= 0.999);
+    /* 消行触发"低优先级"语义形式化：chosen 主路径若已能消行（≥1 块 multiClear≥1），
+     * 单独的消行触发不再激活 —— 让位给主路径的高价值消行候选 */
+    const chosenHasMultiClear = (chosenMeta || []).some(m => (m?.multiClear ?? 0) >= 1);
+    const hasMultiClearScored = Array.isArray(scored)
+        && scored.some(s => (s?.multiClear ?? 0) >= 1);
+    const multiClearLowPriorityActive = hasMultiClearScored && !chosenHasMultiClear;
+
+    /* 触发分类（用于 audit trail，DFV 可展开 "为什么注入" 因果链） */
+    let reliefTrigger = null;
+    if (isReliefPhase) {
+        if (hasClearSetup) reliefTrigger = 'pcSetup';                  /* 清屏（最强） */
+        else if (hasExactFitSetup) reliefTrigger = 'exactFit';          /* 完美卡入 */
+        else if (monoFlushSignal) reliefTrigger = 'monoFlush';          /* 同色消行（彩蛋） */
+        else if (multiClearLowPriorityActive) reliefTrigger = 'multiClear'; /* 消行（低优先级） */
+    }
+    const reliefSignal = reliefTrigger != null;
+
+    /* pressure 强加压阶段：单一触发 = "制造空洞"。
+     * roomForHoles 限制 fill<0.45（盘面足够空才有意义播种孤洞），
+     * notAlreadyFullOfHoles 限制 holesSignal<4（避免雪上加霜）。 */
     const roomForHoles = fill < 0.45;
     const notAlreadyFullOfHoles = holesSignal < 4;
     const pressureSignal = isPressureIntent && roomForHoles && notAlreadyFullOfHoles;
 
-    /* v1.60.1 优先级矩阵（替换原 `&& !isRelief` 抢占）：
+    /* v1.60.44 阶段绑定后的优先级矩阵（替换原 v1.60.1 几何驱动矩阵）：
      *
-     *   sprint intent          → 强制 pressure（玩家主动选自虐，relief 让位）
-     *   pressure intent        → 低 fill 时 pressure 优先；否则可以 relief
-     *   其他 intent + relief   → relief
-     *   仅 relief 信号          → relief
-     *   仅 pressure 信号        → pressure
+     *   sprint intent + pressureSignal     → 强制 pressure（玩家主动选自虐）
+     *   pressure intent + pressureSignal   → pressure
+     *   relief intent + reliefSignal       → relief
      *
-     * 实现：先确定 isRelief / isPressure 的最终二选一（mutual exclusion 仍保留，
-     * 因为 _tryInjectSpecial 一次只注入一个特殊形状） */
+     *   非 'relief' 意图永不触发 relief，非 'pressure'/'sprint' 意图永不触发 pressure。
+     *   两路径互斥（_tryInjectSpecial 每轮最多注入 1 块）。
+     *
+     * 注：删去旧版"裸 pressureSignal without intent → pressure"分支——按新契约，
+     * 无 intent 时永不进入特殊池（强加压必须有意图信号）。 */
     let isRelief = false;
     let isPressure = false;
-    if (isSprint && pressureSignal) {
+    if (isPressureIntent && pressureSignal) {
         isPressure = true;
-    } else if (isPressureIntent && pressureSignal) {
-        isPressure = true; // 低 fill + pressure intent：pressure 优先
-    } else if (reliefSignal) {
+    } else if (isReliefPhase && reliefSignal) {
         isRelief = true;
-    } else if (pressureSignal) {
-        isPressure = true;
     }
 
     if (!isRelief && !isPressure) return null;
@@ -1314,6 +1360,27 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
      * 即"探测失败时按可注入处理"——不阻塞主流程。 */
     if (isRelief && (pcSetup ?? 0) >= 1) {
         if (canTripletPerfectClear(grid, triplet, { budget: 8000 })) {
+            return null;
+        }
+    }
+
+    /* === Step 1.86：v1.60.37 → v1.60.44 chosen 已具强消行能力时兜底抑制 relief ===
+     *
+     * **v1.60.44 关系澄清**：
+     *   信号层（Step 1）已对 reliefTrigger='multiClear'（消行触发）做压制——chosen 有
+     *   ≥1 块 multiClear≥1 时该触发不激活。本 gate 是兜底的"硬抑制"，覆盖 pcSetup /
+     *   exactFit 两条 trigger 路径：chosen 已稳消 ≥2 行时，即使 pcSetup/exactFit 信号
+     *   激活，relief 注入的边际收益已被 chosen 的强消行能力压扁——special 是"事件注入"，
+     *   主路径已给出充足消行就不该再加配菜（v1.60.37 R11 截图根因）。
+     *
+     * 拦截条件（窄）：
+     *   - isRelief 且触发不是 monoFlush（同色消行的 ×5 倍 iconBonus 不可被普通消行替代）
+     *   - chosenMeta 中 multiClear>=1 的块数 ≥ 2（**两块**而非一块——
+     *     单块消行候选可能被替换为更强候选，三块全保留才是最稳）
+     */
+    if (isRelief && reliefTrigger !== 'monoFlush') {
+        const chosenMultiClearCount = chosenMeta.filter(m => (m?.multiClear ?? 0) >= 1).length;
+        if (chosenMultiClearCount >= 2) {
             return null;
         }
     }
@@ -1435,10 +1502,33 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
             const originalMeta = newMeta[replaceIdx];
 
             newTriplet[replaceIdx] = candidate;
-            /* v1.60.23：subType / topDriver 三态分支——monoFlush 与 relief / pressure 完全
-             * 区分，DFV DRIVER_SEMANTIC[monoFlush] 才能命中、HUB 同花顺解读才能正确联动。 */
-            const isMonoFlushCandidate = isRelief && monoFlushSignal
+            /* === v1.60.38 Bug 修复：monoFlush 命中判定从"看 id"改为"真模拟" ===
+             *
+             * **截图复盘**（R24 / harvest / fill=0.44 / row 7 差 2 格）：
+             * `findNearFullMonoLines` 命中 row 7（type='row'，empty=2），Step 3 候选
+             * 排序把 1×2 排前，但 1×2 在所有槽位 validateSpawnTriplet 失败（如 duplicate-id
+             * 等硬约束），candidate 降级到 **2×1（竖块）**。旧版 `isMonoFlushCandidate`
+             * 仅判 `candidate.id ∈ {1×2, 2×1}` → 2×1 也满足 → 标 'special-monoFlush' +
+             * topDriver "补满同色1线" → **labeling 撒谎**：2×1 是竖块，无法落在 row 7 的
+             * **横向**2 格空缺上，玩家以为放下能 ×5 倍奖励，实际放在任何列都不会触发。
+             *
+             * **新版严格定义**（与 scored 数组的 monoFlush 字段同口径）：
+             * 用 `grid.bestMonoFlushPotential(candidate.data, skin)` 真模拟枚举所有
+             * 合法 placement，判定"shape 放下后是否消行 + 全 line 同 icon"——
+             * **count >= 1 才算 monoFlush 命中**。同时返回 targetCi 透传给染色阶段
+             * （game.js:1613）锁定 shape 颜色 = line 同色，确保几何潜力真转化为实际同花。
+             *
+             * 不满足时降级 reason='special-relief'，topDriver=特殊减压，DFV 不撒谎。 */
+            const isMonoFlushSizeCandidate = isRelief && monoFlushSignal && allowMonoFlushLabel
                 && (candidate.id === '1x2' || candidate.id === '2x1');
+            let injMonoFlushCount = 0;
+            let injMonoFlushTargetCi = null;
+            if (isMonoFlushSizeCandidate && typeof grid.bestMonoFlushPotential === 'function') {
+                const res = grid.bestMonoFlushPotential(candidate.data, ctx?.skin || null, { returnTarget: true });
+                injMonoFlushCount = res?.count || 0;
+                injMonoFlushTargetCi = Number.isInteger(res?.targetCi) ? res.targetCi : null;
+            }
+            const isMonoFlushCandidate = injMonoFlushCount >= 1;
             newMeta[replaceIdx] = {
                 shape: candidate,
                 placements: countLegalPlacements(grid, candidate.data),
@@ -1446,8 +1536,14 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
                     ? 'special-monoFlush'
                     : (isRelief ? 'special-relief' : 'special-pressure'),
                 topDriver: isMonoFlushCandidate
-                    ? { key: 'monoFlush', label: `补满同色${monoFlushLines.filter(l => l.empty === 2).length}线` }
+                    ? { key: 'monoFlush', label: `补满同色${injMonoFlushCount}线` }
                     : { key: isRelief ? 'relief' : 'pressure', label: isRelief ? '特殊减压' : '特殊加压' },
+                /* v1.60.38：monoFlush 真命中才写 count + targetCi。
+                 *   - monoFlush: game.js 染色绑定 game.js:1613 触发条件之一
+                 *   - monoFlushTargetCi: 染色阶段强制 dockColors[i] = targetCi，
+                 *     确保 shape 颜色匹配 line 同色，几何潜力 → 实际 ×5 倍 iconBonus */
+                monoFlush: isMonoFlushCandidate ? injMonoFlushCount : 0,
+                monoFlushTargetCi: isMonoFlushCandidate ? injMonoFlushTargetCi : null,
                 /* Issue 7 / v1.60.6：audit trail —— DFV ⚡ badge 即从这些字段渲染：
                  *   original / originalMeta : 被替换的原 shape + 原决策摘要
                  *   injectedAt              : 槽位索引
@@ -1456,12 +1552,12 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
                 original: originalShape,
                 originalMeta: { reason: originalMeta?.reason, topDriver: originalMeta?.topDriver },
                 injectedAt: replaceIdx,
-                /* v1.60.23：subType 细分——若是 monoFlush 触发且当前 candidate 是方向匹配 shape，
-                 * 标 'monoFlush' 以区分常规 relief（让 DFV / analytics 能按子类聚合）。 */
+                /* v1.60.38：subType 细分严格走 `isMonoFlushCandidate`（真模拟通过），
+                 * 与 reason/topDriver/monoFlushTargetCi 三字段保持一致语义。
+                 * 旧版按 `candidate.id ∈ {1×2, 2×1}` 判定 → 与 reason 一起撒谎，
+                 * 导致 ctx.specialReliefUsed 误计为 monoFlush 子类。 */
                 subType: isRelief
-                    ? ((monoFlushSignal && (candidate.id === '1x2' || candidate.id === '2x1'))
-                        ? 'monoFlush'
-                        : 'relief')
+                    ? (isMonoFlushCandidate ? 'monoFlush' : 'relief')
                     : 'pressure',
                 /* v1.60.7：spawn 时上下文快照 —— 供 DFV / replay 审计"为什么这一刻能注入"。
                  * 记录注入决策那一刻的 fill / pcSetup / holesSignal / totalRounds，
@@ -1472,6 +1568,10 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
                     holesSignal,
                     totalRounds,
                     intent: intent ?? null,
+                    /* v1.60.44：reliefTrigger 记录"该轮 relief 注入是被哪个触发激活的"，
+                     * 取值范围 'pcSetup' | 'exactFit' | 'multiClear' | 'monoFlush' | null
+                     * （null 仅 pressure 注入），DFV/审计/分析可按触发类型聚合统计。 */
+                    reliefTrigger: isRelief ? reliefTrigger : null,
                     /* v1.60.23：monoFlush 触发时附带"近满同色 line 摘要"，
                      * DFV tooltip / 审计可追溯"为什么注入了 2×1 而不是其他"。 */
                     monoFlushLines: monoFlushSignal
@@ -1484,6 +1584,35 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
              * 试下一槽位 → 下一 candidate；全失败则放弃注入，返回原 triplet。 */
             const validation = validateSpawnTriplet(grid, newTriplet);
             if (validation?.ok) {
+                /* === Bug C 修复（v1.60.37）：注入后事后复算"块实际能消行"，
+                 * 避免 DFV labeling 与块真实能力背离 ===
+                 *
+                 * 旧：注入块 reason 一律 'special-relief'/'special-pressure'，
+                 *   DFV 标"送减压"——但 1×2/L 块在某些盘面恰好能补满某行/列剩 2 格
+                 *   空缺 → **实际能消行**，玩家看"送减压"会误判它"不能消行"，
+                 *   损失"先放它兑现 + 主路径块续 combo"的清晰规划心智。
+                 *
+                 * 新：用 bestMultiClearPotential 真模拟复算注入块在当前 grid 上的最优消行能力，
+                 *   若 ≥1 → reason 升级为 'clear'，topDriver 改"可消N行"，与主路径"送消行"
+                 *   块同语义。audit trail 字段（subType / spawnCtx / original / originalMeta /
+                 *   injectedAt）全保留——DFV ⚡ badge 仍能展开"该块来自注入" + 配额计数
+                 *   （ctx.specialReliefUsed 走 inj.subType）不受影响。
+                 *
+                 * 例外：monoFlush 注入块（isMonoFlushCandidate=true）保留独立 reason
+                 *   'special-monoFlush'——"补满同色线 → ×5 倍 iconBonus" 是独立爽点，
+                 *   不能被通用 'clear' 覆盖（DFV 紫粉色 monoFlush 徽章 / hub 同花顺解读
+                 *   都依赖此 reason）。 */
+                if (!isMonoFlushCandidate) {
+                    const injMc = bestMultiClearPotential(grid, candidate.data);
+                    if (injMc >= 1) {
+                        newMeta[replaceIdx].reason = 'clear';
+                        newMeta[replaceIdx].topDriver = { key: 'clear', label: `可消${injMc}行` };
+                        newMeta[replaceIdx].multiClear = injMc;
+                        newMeta[replaceIdx].reasonUpgradedFrom = isRelief
+                            ? 'special-relief'
+                            : 'special-pressure';
+                    }
+                }
                 return {
                     triplet: newTriplet,
                     chosenMeta: newMeta,
@@ -1492,6 +1621,9 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
                     replaceIdx,
                     subType: newMeta[replaceIdx].subType,
                     spawnCtx: newMeta[replaceIdx].spawnCtx,
+                    /* v1.60.44：导出 reliefTrigger 供 game.js / spawnDiagnostics 直读，
+                     * 避免下游再从 spawnCtx 里挖。pressure 注入时返回 null。 */
+                    reliefTrigger: isRelief ? reliefTrigger : null,
                 };
             }
         }
@@ -2732,7 +2864,8 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         /* v1.32+v1.60.0/v1.60.1：校验通过后，根据盘面几何注入特殊形状（已含 post-validate） */
         let specialInjected = false;
         {
-            const inj = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pcSetup, scored, { rng: ctx?.rng });
+            /* v1.60.38：透传 monoFlushRound，让注入路径也受 MONO_FLUSH_PICK_PROBABILITY 节流。 */
+            const inj = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pcSetup, scored, { rng: ctx?.rng, monoFlushRound });
             if (inj) {
                 for (let i = 0; i < triplet.length; i++) {
                     triplet[i] = inj.triplet[i];
