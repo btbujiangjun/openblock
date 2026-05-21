@@ -118,11 +118,21 @@
 
   <!-- 游戏结束遮罩 -->
   <view wx:if="{{gameOver}}" class="game-over-overlay" bindtap="onRestart">
-    <view class="game-over-card">
-      <text class="game-over-title">{{text.gameOver}}</text>
+    <view class="game-over-card {{isNewBest ? 'game-over-card--new-best' : ''}}">
+      <!-- v1.60.47：破 PB 时顶部 🏆 + "新纪录" 副标题；常规结束沿用 game-over-title -->
+      <block wx:if="{{isNewBest}}">
+        <text class="game-over-trophy">🏆</text>
+        <text class="game-over-title game-over-title--new-best">{{text.newRecord}}</text>
+      </block>
+      <text wx:else class="game-over-title">{{text.gameOver}}</text>
       <text class="game-over-score">{{scoreText}}</text>
       <text class="game-over-clears">{{clearsText}}</text>
-      <view class="game-over-btn">{{text.restart}}</view>
+      <!-- v1.60.47：iOS 微信小程序 <view> 直接包含文本时偶发渲染丢失（line-height
+        坍缩 + color 继承异常），改用 <button> 自带的"原生按钮"渲染保证文字始终可见。
+        size="mini" + plain="false"，外观由 wxss 完全接管（保持原绿色胶囊样式）。 -->
+      <button class="game-over-btn" type="primary" size="mini" hover-class="game-over-btn--hover" catchtap="onRestart">
+        <text class="game-over-btn-text">{{text.restart}}</text>
+      </button>
     </view>
   </view>
 

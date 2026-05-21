@@ -397,10 +397,39 @@
   gap: 24rpx;
   min-width: 400rpx;
 }
+/* v1.60.47：破 PB 卡片金色描边 + 内层光晕，与 web new-best-popup 同语义。 */
+.game-over-card--new-best {
+  border: 2rpx solid rgba(255, 209, 102, 0.85);
+  box-shadow:
+    0 0 0 4rpx rgba(255, 209, 102, 0.18),
+    0 24rpx 64rpx rgba(0, 0, 0, 0.42),
+    0 0 56rpx rgba(255, 209, 102, 0.34);
+}
+/* v1.60.47：🏆 顶冠图标——破 PB 时显示。
+ * font-size 大于 title，让玩家第一眼锁定"奖杯=新纪录"语义；
+ * drop-shadow 加金色辉光，无 emoji 渲染依赖（系统自带 trophy emoji 全平台覆盖）。 */
+.game-over-trophy {
+  font-size: 96rpx;
+  line-height: 1;
+  margin-bottom: -8rpx;
+  filter: drop-shadow(0 0 18rpx rgba(255, 209, 102, 0.65));
+  animation: trophy-pop 540ms cubic-bezier(.2, .7, .2, 1) both;
+}
+@keyframes trophy-pop {
+  0%   { transform: scale(0.35) rotate(-8deg); opacity: 0; }
+  60%  { transform: scale(1.15) rotate(4deg);  opacity: 1; }
+  100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
+}
 .game-over-title {
   font-size: 44rpx;
   font-weight: 700;
   color: var(--accent);
+}
+.game-over-title--new-best {
+  color: var(--gold);
+  text-shadow:
+    0 2rpx 0 rgba(120, 53, 15, 0.45),
+    0 0 24rpx rgba(255, 209, 102, 0.45);
 }
 .game-over-score {
   font-size: 64rpx;
@@ -416,12 +445,38 @@
   font-size: 32rpx;
   color: var(--text-secondary);
 }
+
+/* v1.60.47 重制：用 <button> 渲染重启按钮（修复 iOS 微信偶发文字消失）。
+ * 微信 <button> 自带最小尺寸 / hover 反馈 / 焦点态等原生行为，
+ * 这里清掉默认绿底 + 边框，再叠加自定义胶囊样式。
+ * 关键：button::after 默认有一层 1rpx 边框（微信内置），用 border:none 配
+ * `&::after { border: none; }` 一并去掉。 */
 .game-over-btn {
   margin-top: 24rpx;
   padding: 20rpx 64rpx;
-  background: var(--accent);
-  color: #fff;
-  border-radius: 48rpx;
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-radius: 48rpx !important;
   font-size: 32rpx;
   font-weight: 600;
+  line-height: 1.2;
+  min-height: 0;
+  /* 取消 button 默认描边/灰底过渡 */
+  border: none !important;
+}
+.game-over-btn::after {
+  border: none !important;
+}
+.game-over-btn--hover {
+  opacity: 0.86;
+  transform: scale(0.97);
+}
+.game-over-btn-text {
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  /* 双保险：显式声明 line-height 与 display 避免 iOS 视图嵌套时基线对齐异常 */
+  line-height: 1.2;
+  display: inline-block;
 }

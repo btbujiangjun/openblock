@@ -71,6 +71,8 @@ Page({
     levelTitle: '新手',
     streakText: '',
     streakVisible: false,
+    /* v1.60.47：本局是否破 PB——game-over 卡片顶部展示 🏆 + "新纪录" 副标题 */
+    isNewBest: false,
     floatScoreVisible: false,
     floatScoreText: '',
     floatScoreClass: '',
@@ -218,6 +220,8 @@ Page({
         /* v1.60.46：与 web ui.stat.ability 同 key 语义；i18n 缺该 key 时回退中文 */
         ability: t('ability') || '能力',
         gameOver: t('gameOver'),
+        /* v1.60.47：破 PB 副标题（与 web effect.newRecord 同语义） */
+        newRecord: t('newRecord') || '新纪录',
         restart: t('restart'),
         audioOn: t('audioOn'),
         audioOff: t('audioOff'),
@@ -682,7 +686,12 @@ Page({
   _onGameOver(info) {
     const bestKey = `openblock_best_${this._strategyId}`;
     const prev = Number(storage.getItem(bestKey) || 0) || 0;
-    const next = Math.max(prev, info.score || 0);
+    const score = Number(info.score) || 0;
+    const next = Math.max(prev, score);
+    /* v1.60.47：破 PB 判定——严格大于（等于不算）+ 至少 ≥ 50 分（避免 0 分误触发）。
+     * 数据依据：与 web Game._showNewBestCelebration 同口径（score > previousBest + EPS）。
+     * isNewBest 用于驱动 game-over 卡片顶部 🏆 + "新纪录" 副标题 + 金色描边光晕。 */
+    const isNewBest = score > prev && score >= 50;
     if (next > prev) {
       storage.setItem(bestKey, String(next));
     }
@@ -690,8 +699,9 @@ Page({
     this._bestScore = next;
     this.setData({
       bestScore: next,
-      scoreText: t('finalScore', { n: info.score || 0 }),
+      scoreText: t('finalScore', { n: score }),
       clearsText: t('finalClears', { n: info.clears || 0 }),
+      isNewBest,
     });
     /* v1.60.46：局末累加 progression XP + 刷新 HUD 等级 / 称号
      * （与 web Game.endGame 同步：xp = base*mul + firstOfDayBonus + streakBonus + runBonus）。
@@ -1088,6 +1098,8 @@ Page({
     this.setData({
       floatScoreVisible: false,
       scoreBurstClass: '',
+      /* v1.60.47：重开局清掉破 PB 标志，避免新局开局 game-over 卡片瞬间金边 */
+      isNewBest: false,
     });
     this._redraw();
     this._drawDockBlocks();

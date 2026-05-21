@@ -34,6 +34,8 @@ const MESSAGES = {
     finalScore: '得分：{n}',
     finalClears: '消行：{n}',
     restart: '再来一局',
+    /* v1.60.47：game-over 卡片破 PB 副标题，与 effectNewRecord 同语义但用于结算卡 */
+    newRecord: '新纪录！',
     effectPerfectClear: '清屏',
     effectMultiClear: '{n} 消',
     effectDoubleClear: '双消',
@@ -111,6 +113,8 @@ const MESSAGES = {
     finalScore: 'Score: {n}',
     finalClears: 'Clears: {n}',
     restart: 'Play Again',
+    /* v1.60.47：game-over 卡片破 PB 副标题 */
+    newRecord: 'New Record!',
     effectPerfectClear: 'Perfect Clear',
     effectMultiClear: '{n}x Clear',
     effectDoubleClear: 'Double Clear',
