@@ -35,6 +35,16 @@
   - [10.9.3 跨轮上下文类](#1093-跨轮上下文类来自-spawncontext-局内积累)
   - [10.9.4 局间历史类](#1094-局间历史类来自-localstoragedb)
   - [10.9.5 信号强度总表](#1095-信号强度总表stress-贡献量级排序)
+- [**10.10 第二层派生信号（语义 × 计算口径）**](#1010-第二层派生信号语义--计算口径)
+  - [10.10.1 玩家能力向量（AbilityVector）](#10101-玩家能力向量abilityvector)
+  - [10.10.2 盘面风险指标](#10102-盘面风险指标)
+  - [10.10.3 stress 各分量（stressBreakdown）](#10103-stress-各分量stressbreakdown)
+  - [10.10.4 综合 stress 与后置调制](#10104-综合-stress-与后置调制)
+  - [10.10.5 爽感偏置（delightTuning）](#10105-爽感偏置delighttuning)
+  - [10.10.6 节奏 / 弧线 / Combo 派生信号](#10106-节奏--弧线--combo-派生信号)
+  - [10.10.7 spawnHints 消行/尺寸/多样性信号](#10107-spawnhints-消行尺寸多样性信号)
+  - [10.10.8 spawnTargets 9 维软过滤目标](#10108-spawntargets-9-维软过滤目标)
+  - [10.10.9 spawnIntent 出块意图](#10109-spawnintent-出块意图)
 - [11. 后续迭代方向](#11-后续迭代方向)
 
 ---
@@ -4704,6 +4714,213 @@ category 权重最高      → "XX权重XX%"
                                          / multiClearBonus / rhythmPhase / …）
                                                     ↓
                                          generateDockShapes → 三块候选输出
+```
+
+---
+
+## 10.10 第二层派生信号（语义 × 计算口径）
+
+> **定义**：在 §10.9 所列 45 项原始信号之上，通过函数计算得出的中间量。
+> 这些派生信号是 stress / spawnHints / spawnTargets 的直接构建材料，
+> 本身不直接操作形状选择——最终通过 §10.8 流水线的乘子和约束层才落地。
+>
+> 棋盘固定 `8×8 = 64 格`，代码基准 v1.60.50。
+
+---
+
+### 10.10.1 玩家能力向量（AbilityVector）
+
+> 由 `buildPlayerAbilityVector(profile, ctx)` 计算，每次 spawn 前调用一次。
+> 输出 6 个维度，是 stress 调制的最重要中间量之一。
+
+| # | 字段 | 语义 | 计算公式 |
+|---|---|---|---|
+| L1 | `skillScore` | 综合技能水平 [0,1] | 当 `baseline.confidence ≥ 0.35`：`baseSkill × (1 − conf × 0.35) + baseline.skillScore × conf × 0.35`；否则 = `baseSkill`（即 profile.skillLevel） |
+| L2 | `controlScore` | 操控精准度 [0,1] | 5 维加权：`(1−missRate/0.3)×0.34 + (1−cognitiveLoad)×0.22 + (1−afkCount/3)×0.13 + (apm/18)×0.15 + reactionScore×0.16`；reactionScore 无数据时权重重分配 |
+| L3 | `clearEfficiency` | 消行效能 [0,1] | 5 维加权：`(clearRate/0.55)×0.40 + (comboRate/0.45)×0.18 + (avgLines/2.5)×0.14 + (multiClearRate/0.5)×0.18 + (perfectClearRate/0.15)×0.10` |
+| L4 | `boardPlanning` | 盘面规划能力 [0,1] | 4 维加权：`(1−holePenalty)×0.36 + (1−fillPenalty)×0.22 + mobilityScore×0.22 + nearClearScore×0.20`；fillPenalty 在 fill > 0.58 时线性增长 |
+| L5 | `riskLevel` | 当前死局风险 [0,1] | 7 维加权：`fill×0.26 + holePenalty×0.22 + (frustration/5)×0.14 + (roundsSinceClear/4)×0.10 + (1−controlScore)×0.10 + fillVelocity×0.10 + lockRisk×0.08`；有 baseline 时混入 `baseline.riskLevel × 0.25` |
+| L6 | `confidence` | 模型置信度 [0,1] | 4 维加权：`profile.confidence×0.55 + (lifetimePlacements/200)×0.25 + (gamePlacements/20)×0.10 + recencyDecay×0.10`；recencyDecay = `exp(−daysSinceActive / 14)`（14 天半衰期） |
+
+---
+
+### 10.10.2 盘面风险指标
+
+> 由 `deriveBoardRisk` / `deriveBoardDifficulty` 计算，用于 stress 减压修正和 spawnTargets。
+
+| # | 字段 | 语义 | 计算公式 |
+|---|---|---|---|
+| L7 | `holePressure` | 孔洞压力 [0,1] | `holes / holePressureMax`，holePressureMax 默认 8；满格孔洞时为 1.0 |
+| L8 | `boardRisk` | 综合盘面风险 [0,1] | `fillRisk×0.45 + holePressure×0.35 + abilityRiskLevel×0.20`；fillRisk = `max(0, (fill−0.45)/0.40)`（fill<0.45 时为 0） |
+| L9 | `boardDifficulty` | 盘面难度（含洞等价） [0,1] | `clamp(fill + holePressure × 0.80)`；比 boardRisk 更直接，用作 spawnTargets 的 spatialPressure 输入 |
+| L10 | `friendlyBoardRelief` | 友好盘面减压 ≤0 | 条件：holes=0 && nearFullLines≥2 && (multiClearCands≥2 ∨ pcSetup≥1) && rhythmPhase='payoff'；`intensity = clamp(0.4 + 0.6×(opportunity×0.7 + cleanBoard×0.3))`；relief ∈ [−0.12, −0.18] |
+
+---
+
+### 10.10.3 stress 各分量（stressBreakdown）
+
+> 以下各项求和得 rawStress（见 §10.10.4），均受 `signals.xxx.enabled/scale` 配置控制。
+
+| # | 分量名 | 语义 | 计算公式 |
+|---|---|---|---|
+| S1 | `scoreStress` | 得分驱动压力 | `getSpawnStressFromScore(score, {bestScore})`：按个人 PB 百分位在 milestones 曲线（0%→0, 50%→0.3, 100%→0.85）上线性插值；pct < 0.5 时 × decayFactor(0.4) 折扣 |
+| S2 | `runStreakStress` | 连战加压 | `min(runStreak, 6) × spawnStressBonusPerGame`（默认每局约 +0.013） |
+| S3 | `difficultyBias` | 难度档静态偏移 | easy=−0.22，normal=0，hard=+0.22；可被 `difficultyTuning.stressBias` 覆写 |
+| S4 | `skillAdjust` | 技能调节 | `(skillScore − 0.5) × skillAdjustScale(0.3) × confGate`；confGate = `0.4 + 0.6 × confidence` |
+| S5 | `flowAdjust` | 心流调节 | bored: `+flowBoredAdjust(0.08) × min(2, 1+flowDeviation)`；anxious: `−flowAnxiousAdjust(0.12) × min(2, 1+flowDev)` |
+| S6 | `reactionAdjust` | 反应时间微调 | 样本≥3 时：reactionMs < 350ms → `+maxAdjust(0.05)`；reactionMs > 4500ms → `−0.05`；nearMissAdjust 同向时让位为 0 |
+| S7 | `pacingAdjust` | 节奏张弛调节 | release=`−0.12`，tension=`+0.04`（pacing.enabled 时生效） |
+| S8 | `recoveryAdjust` | 恢复需求减压 | `needsRecovery ? −0.20 : 0` |
+| S9 | `frustrationRelief` | 挫败减压 | `frustrationLevel ≥ 4 ? −0.18 : 0` |
+| S10 | `comboAdjust` | Combo 奖励微加压 | `recentComboStreak ≥ 2 ? +0.05 : 0` |
+| S11 | `nearMissAdjust` | 近失效应减压 | `hadRecentNearMiss ? −0.10 : 0` |
+| S12 | `feedbackBias` | 闭环反馈偏移 | 直接取 `profile.feedbackBias` ∈ [−0.15, +0.15] |
+| S13 | `trendAdjust` | 技能趋势调节 | `trend × 0.08 × confidence`；正趋势轻微加压，退步轻微减压 |
+| S14 | `sessionArcAdjust` | 局内弧线调节 | warmup: −0.08；cooldown+momentum<−0.2: `−0.05 − min(0.4, |momentum|−0.2) × 0.375`（约 −0.05 ~ −0.20） |
+| S15 | `endSessionDistress` | 末段崩盘减压脉冲 | sessionPhase='late' && momentum ≤ −0.30：`−(0.05 + min(0.30, |momentum|−0.30) × 0.5)`；frustration≥4 再 −0.06；范围 [−0.25, 0] |
+| S16 | `holeReliefAdjust` | 空洞减压 | `holePressure × holeReliefStress(−0.16)`；最大减压 −0.16 |
+| S17 | `boardRiskReliefAdjust` | 综合盘面风险减压 | `boardRisk × boardRiskReliefStress(−0.10)` |
+| S18 | `abilityRiskAdjust` | 能力风险救济 | confidence≥0.25 && riskLevel≥0.62：`−0.08 × min(1, (riskLevel−0.62)/0.38)` |
+| S19 | `delightStressAdjust` | 爽感偏置减压 | `delight.stressAdjust`（见 §10.10.5） |
+| S20 | `friendlyBoardRelief` | 友好盘面减压 | 见 L10（≤0，条件触发） |
+| S21 | `bottleneckRelief` | 瓶颈低谷减压 | bottleneckTrough ≤ 2 时：`bottleneckReliefMax(−0.12) × min(1, 0.4 + 0.6×sev)`；与 friendlyBoardRelief / recovery 同向时 × 0.5 折扣 |
+| S22 | `motivationStressAdjust` | 动机意图调节 | challenge+高技能+低风险: +0.045；relaxation/competence: −0.045 |
+| S23 | `accessibilityStressAdjust` | 辅助功能负担减压 | accessibilityLoad > 0.2 时：`−0.08 × accessibilityLoad` |
+| S24 | `returningWarmupAdjust` | 回流热身减压 | `−0.10 × returningWarmupStrength` |
+
+---
+
+### 10.10.4 综合 stress 与后置调制
+
+| # | 字段 | 语义 | 计算口径 |
+|---|---|---|---|
+| L11 | `rawStress` | 未调制压力原值 | `Σ S1~S24`（排除 boardRisk / bottleneckTrough / bottleneckSamples 三项派生痕迹字段） |
+| L12 | `lifecycleCapAdjust` | 生命周期压力上限调制 | 查 (S阶段, M等级) → `getLifecycleStressCap(stage, band).cap`；若 rawStress > cap，则 `lifecycleCapAdjust = cap − rawStress`（使 stress 不超过上限 0.30~0.78） |
+| L13 | `stress`（最终） | 综合自适应压力 [0,1]（内部域 [−0.2, 1]）| `clamp(smoothStress(rawStress + lifecycleAdj + 其他后置 Adjust, ctx, smoothCfg), −0.2, 1.0)`；平滑：EMA α=0.35，maxStepUp=0.18，maxStepDown=0.28 |
+| L14 | `normalizedStress` | 外部展示压力 [0,1] | `(stress + STRESS_NORM_OFFSET) / STRESS_NORM_SCALE`，偏移 0.20，缩放 1.20；将内部 [−0.2, 1] 映射到 [0, 1] |
+
+---
+
+### 10.10.5 爽感偏置（delightTuning）
+
+> 由 `deriveDelightTuning(profile, ctx, fill, cfg)` 计算，输出 4 个字段同时影响 stress 分量和 spawnHints。
+
+| # | 字段 | 语义 | 计算公式 |
+|---|---|---|---|
+| L15 | `stressAdjust` | 爽感路径下的压力微调 | bored+skill>0.52: `+0.07 × min(1, highSkill+0.35)`；anxious/recovery: `−0.08 × max(0.4, recoveryNeed)` |
+| L16 | `multiClearBoost` | 多消兑现强度 [0,1] | 基础 0.22 + `highSkill×0.22 + posMomentum×0.16 + pressureOpportunity×0.30`；flow/release 加 +0.14；anxious/recovery 加 `+0.20×recoveryNeed` |
+| L17 | `perfectClearBoost` | 清屏兑现强度 [0,1] | pcSetup≥2→1.0；pcSetup=1→0.95；nearFullLines≥4+fill>0.45→0.65；nearFullLines≥2+fill>0.30→max(0.58)；nearFullLines≥1+fill≤0.42→max(0.45) |
+| L18 | `delightMode` | 爽感模式 | `'relief'`(anxious/recovery) / `'challenge_payoff'`(bored+skill>0.55) / `'flow_payoff'`(flow 或 momentum>0.35) / `'neutral'` |
+
+---
+
+### 10.10.6 节奏 / 弧线 / Combo 派生信号
+
+| # | 字段 | 语义 | 计算口径 |
+|---|---|---|---|
+| L19 | `sessionArc` | 局内弧线阶段 | `deriveSessionArc(totalRounds, sessionPhase)`：totalRounds≤3→`'warmup'`；sessionPhase='late'→`'cooldown'`；其他→`'peak'` |
+| L20 | `rhythmPhase` | 节奏相位 | `deriveRhythmPhase(profile, ctx, fill)`：pcSetup≥1+fill≥0.45→`'payoff'`；nearFullLines≥3→`'payoff'`；pacingPhase='release'+nearGeom→`'payoff'`；roundsSinceClear≥2+nearGeom→`'payoff'`；tension+roundsSinceClear=0+!nearGeom→`'setup'`；其他→`'neutral'` |
+| L21 | `comboChain` | Combo 链强度 [0,1] | `min(1, recentComboStreak×0.25 + (lastClearCount>0 ? 0.3 : 0))`；lastClear=0 且 streak=0 时为 0 |
+| L22 | `scoreMilestones` | 当前局有效里程碑节点列表 | `deriveScoreMilestones(bestScore, score)`：bestScore<500 返回 `[]`（不触发）；bestScore≥500 时取 `[50%, 75%, 90%] × bestScore`；已破 PB 时追加 `[110%, 125%]` 两档 |
+| L23 | `scoreStressFromScore` | 得分→压力映射值 | 见 S1；单独列出以强调这是 stress 主力分量，非 stress 本身 |
+
+---
+
+### 10.10.7 spawnHints 消行/尺寸/多样性信号
+
+> 以下字段是 `spawnHints` 的核心内容，由 `resolveAdaptiveStrategy` 派生，
+> 直接送入 `generateDockShapes` 的阶段 2（占位）和阶段 3（加权乘子）。
+
+| # | 字段 | 语义 | 计算口径 |
+|---|---|---|---|
+| L24 | `clearGuarantee` | 消行槽位保证数 {0,1,2,3} | 初始值 1；依次叠加：nearMiss→max(2)；frustration≥4→max(2)；needsRecovery→max(2)；roundsSinceClear≥2→max(2)；roundsSinceClear≥4→max(3)；holes≥2→max(2)；bottleneckTrough≤2→max(2)；comboChain>0.5→max(2)；winback/postPbRelease 各 +1（上限 3）；riskLevel≥0.62→max(2) |
+| L25 | `multiClearBonus` | 多消鼓励强度 [0,1] | `max(deriveMultiClearBonus(ctx, fill), delight.multiClearBoost)`；分段规则：pcSetup≥2→1.0；pcSetup=1→0.9；nearFullLines≥5→1.0；≥3→0.8；roundsSinceClear>3→0.7；fill>0.60→0.6；fill>0.45→0.4；其他→0.22；Android/微信底值≥0.15（v1.60.45） |
+| L26 | `multiLineTarget` | 多线兑现目标 {0,1,2} | `deriveMultiLineTarget(ctx, fill)`：pcSetup≥1→2；nearFullLines≥5→2；≥3→1；lastClear≥2+fill>0.35→1；fill>0.58+nearFullLines≥2→1；其他→0 |
+| L27 | `sizePreference` | 形状尺寸偏好 [−1,+1] | 初始 0；frustration≥4→−0.3；needsRecovery→−0.5；sessionPhase='late'+momentum<−0.3→min(−0.2)；roundsSinceClear≥4→min(−0.35)；holes≥2→min(−0.22)；bottleneck→min(−0.18)；riskLevel≥0.62→min(−0.22)；winback/postPbRelease 各 shift |
+| L28 | `diversityBoost` | 品类多样化强度 [0,1] | 初始 0；flowState='bored'→+0.15；riskLevel低+高手→max(0.12) |
+| L29 | `comboChain`（hint版）| Combo 链强度（同 L21，写入 hints） | 同 L21；写入 spawnHints 供阶段 3 乘子消费 |
+| L30 | `perfectClearBoost`（hint）| 清屏兑现强度（写入 hints） | 同 L17（delight.perfectClearBoost）；pcSetup/nearFullLines 实时更新 |
+| L31 | `iconBonusTarget` | 同花顺引导强度 [0,1] | 由 skin + monoFlushLines 计算；monoFlushLines 非空时 > 0，驱动染色偏置 × (1+iconBonusTarget×2.5) |
+| L32 | `rhythmPhase`（hint）| 节奏相位（写入 hints） | 同 L20；riskLevel≥0.62 时从 'setup' 提升为 'neutral' |
+| L33 | `orderRigor` / `orderMaxValidPerms` | 顺序刚性 | orderRigor [0,1] 为诊断展示强度；orderMaxValidPerms ∈ [1,6] = 6 种排列中允许的最大可解数（≤2 强制玩家按特定顺序落子）；两者均由 adaptiveSpawn stress 区间插值 |
+
+---
+
+### 10.10.8 spawnTargets 9 维软过滤目标
+
+> 由 `deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight)` 统一生成，
+> 写入 `spawnHints.spawnTargets`，在约束验证层（层 5）作为软过滤区间使用。
+
+| # | 字段 | 语义 | 计算公式 |
+|---|---|---|---|
+| L34 | `shapeComplexity` | 目标形状复杂度 [0,1] | `clamp(stress01×0.75 + boredHighSkill×0.25 − riskRelief×0.45)`；stress01=(stress+0.2)/1.2；高 stress 偏异形，高风险/低技能偏简单 |
+| L35 | `solutionSpacePressure` | 目标解法空间压力 [0,1] | `clamp(stress01×0.70 + shapeComplexity×0.25 − boardRisk×0.55 − recoveryNeed×0.35)`；解空间越窄玩家越需要精确规划 |
+| L36 | `clearOpportunity` | 目标消行机会强度 [0,1] | `clamp(recoveryNeed×0.55 + payoffOpportunity×0.45 + (release?0.12:0) − stress01×0.18)` |
+| L37 | `spatialPressure` | 目标空间压力 [0,1] | `clamp(stress01×0.65 + boardDifficulty×0.25 − boardRisk×0.50 − recoveryNeed×0.30)` |
+| L38 | `payoffIntensity` | 目标爽感兑现强度 [0,1] | `clamp(multiClearBoost×0.45 + payoffOpportunity×0.40 + max(0,momentum)×0.15)` |
+| L39 | `novelty` | 目标新鲜度 [0,1] | `clamp((bored?0.45:0) + stress01×0.25 + totalRounds/80 − recoveryNeed×0.20)` |
+| L40 | `targetSolutionRange` | 解法数量软区间 {min,max,label} | 由 solutionSpacePressure → solutionDifficulty 档位查表；控制"几种合法放法组合"的上下界 |
+| L41 | `targetHoleIncrement` | 最优放法新增空洞目标 | 由 stress 插值；高 stress 时允许更多新洞（加压），低 stress 时要求控洞（减压） |
+| L42 | `targetEndFillRatio` | 最优放法后盘面填充率目标 | 同上插值；控制每步"填充推进幅度" |
+
+---
+
+### 10.10.9 spawnIntent 出块意图
+
+> 由 `deriveSpawnIntent(inputs)` 计算，按优先级顺序匹配第一个满足的条件返回。
+> 这是 `generateDockShapes` 中所有分支选择和策略倾向的**最终整合信号**。
+
+| # | 意图值 | 触发条件 | 后续效果 |
+|---|---|---|---|
+| L43 | `'relief'` | playerDistress < −0.10 ∨ delightMode='relief' ∨ forceReliefIntent=true ∨ **delightStarved=true**（v1.60.45 新增） | clearGuarantee≥2，sizePreference→负，偏小且能消行的块 |
+| L44 | `'engage'` | afkEngageActive=true（玩家长时间停顿但状态尚可） | 投放中等尺寸、多消潜力块，唤醒注意力 |
+| L45 | `'harvest'` | nearFullLines≥2 ∨ (pcSetup≥1 ∧ fill≥0.45) | 消行机会窗口，偏好多消/清屏块，rhythmPhase→'payoff' |
+| L46 | `'pressure'` | challengeBoost>0 ∨ (delightMode='challenge_payoff' ∧ stress≥0.55) | 允许加压注入散点块，制造挑战 |
+| L47 | `'sprint'` | stress ∈ [0.45, 0.55) ∧ sprintEnabled | 过渡带：size略大，multiClearBonus抬高到floor |
+| L48 | `'flow'` | delightMode='flow_payoff' ∨ rhythmPhase='payoff' | 心流收获期：偏好能直接消行的中等块 |
+| L49 | `'maintain'` | 以上均不满足（默认中性） | 按 shapeWeights 正常加权抽样 |
+
+---
+
+**第二层信号流向总览**：
+
+```
+原始信号（§10.9）
+    │
+    ├─ buildPlayerAbilityVector()
+    │       → skillScore / controlScore / clearEfficiency
+    │         boardPlanning / riskLevel / confidence   [L1-L6]
+    │
+    ├─ deriveBoardRisk() / deriveBoardDifficulty()
+    │       → holePressure / boardRisk / boardDifficulty   [L7-L9]
+    │
+    ├─ deriveDelightTuning()
+    │       → stressAdjust / multiClearBoost
+    │         perfectClearBoost / delightMode   [L15-L18]
+    │
+    ├─ deriveSessionArc / deriveRhythmPhase / deriveComboChain
+    │       → sessionArc / rhythmPhase / comboChain   [L19-L21]
+    │
+    ├─ Σ stressBreakdown (S1-S24)
+    │       → rawStress → [lifecycleCap] → [smooth] → stress   [L11-L14]
+    │                                           │
+    │                                  interpolateProfileWeights(stress)
+    │                                           │
+    │                                      shapeWeights（品类基础权重）
+    │
+    ├─ spawnHints 各字段   [L24-L33]
+    │       clearGuarantee / multiClearBonus / multiLineTarget
+    │       sizePreference / diversityBoost / rhythmPhase / …
+    │
+    ├─ spawnTargets 9 维   [L34-L42]
+    │       shapeComplexity / solutionSpacePressure / clearOpportunity
+    │       spatialPressure / payoffIntensity / novelty / …
+    │
+    └─ spawnIntent   [L43-L49]
+            'relief' / 'harvest' / 'pressure' / 'flow' / …
+                         │
+                         ▼
+              generateDockShapes → 三块候选输出
 ```
 
 ---
