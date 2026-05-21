@@ -29,6 +29,12 @@
   - [10.8.9 阶段 7：输出与 DFV 标注](#1089-阶段-7输出与-dfv-标注)
   - [10.8.10 阶段 8：染色绑定](#10810-阶段-8染色绑定gamejs)
   - [10.8.11 单 dock monoFlush 不变式总览](#10811-单-dock-monoflush-不变式总览)
+- [**10.9 原始信号完整清单（语义 × 计算口径）**](#109-原始信号完整清单语义--计算口径)
+  - [10.9.1 盘面几何类](#1091-盘面几何类来自-gridcells-实时分析)
+  - [10.9.2 玩家状态类](#1092-玩家状态类来自-playerprofile-滑动窗口计算)
+  - [10.9.3 跨轮上下文类](#1093-跨轮上下文类来自-spawncontext-局内积累)
+  - [10.9.4 局间历史类](#1094-局间历史类来自-localstoragedb)
+  - [10.9.5 信号强度总表](#1095-信号强度总表stress-贡献量级排序)
 - [11. 后续迭代方向](#11-后续迭代方向)
 
 ---
@@ -4557,6 +4563,147 @@ category 权重最高      → "XX权重XX%"
 │                                                                 │
 │  结果：单 dock 最多出现 1 个 ★送同花，DFV 标签/副标题语义一致   │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 10.9 原始信号完整清单（语义 × 计算口径）
+
+> **基准**：代码版本 v1.60.50；棋盘固定 `gridWidth = 8`（`game_rules.json`），总格数 64。
+> 信号来源覆盖 `blockSpawn.js` / `adaptiveSpawn.js` / `playerProfile.js` /
+> `boardTopology.js` / `playerAbilityModel.js` 五大模块，共 **4 类来源、45 项**原始信息。
+>
+> **阅读建议**：本节描述算法的**输入侧**（流水线层 0-1 消费的全部原料）；
+> 每项信号如何影响 stress / spawnHints / 加权乘子，见 §5、§6、§10.8 对应章节。
+
+---
+
+### 10.9.1 盘面几何类（来自 `grid.cells[][]` 实时分析）
+
+> 每次 `generateDockShapes` 调用时由 `analyzeBoardTopology(grid)` + 专项函数一次性计算，
+> 开销 O(n²)，n=8（8×8=64 格）。
+
+| # | 字段 / 代码名 | 语义 | 计算口径 |
+|---|---|---|---|
+| 1 | `fill` | 棋盘填充率 [0,1] | `grid.getFillRatio()` = 已填格数 / 64 |
+| 2 | `occupied` | 已填格数 | `countOccupiedCells(grid)` = cells 中非 null 的数量（满盘最大 64） |
+| 3 | `holes` / `enclosedVoidCells` | 玩家口径孔洞数 | `analyzeBoardTopology()` → 4-连通空格分量 ≤ 5 的封闭空腔格总数；比传统"上方有块下方为空"口径更贴近视觉直觉（`boardTopology.js:258`） |
+| 4 | `nearFullLines` | 临满行/列数 | `detectNearClears(grid, {maxEmpty:2})` → 空格 ≤ 2 **且**这些空格均可被合法形状覆盖的行/列数；不可覆盖死格不计 |
+| 5 | `close1` | 差 1 格即满的行/列数 | `detectNearClears()` → empty === 1 的行/列数，nearFullLines 的子集 |
+| 6 | `close2` | 差 2 格即满的行/列数 | `detectNearClears()` → empty === 2 的行/列数，nearFullLines 的子集 |
+| 7 | `flatness` | 列高度平整度 [0,1] | `1 / (1 + variance)`，variance = 各列最高占格行号与均值的方差；1=完全平整，接近 0=落差极大 |
+| 8 | `maxColHeight` | 最高列高度 | `max(colHeights)`，colHeight[x] = 最顶部已占格行的"高度"（底部=1） |
+| 9 | `rowTransitions` / `colTransitions` | 行/列方向空实格边界数 | 扫描每行/列时空→实或实→空的切换次数；平整盘面低，复杂盘面高 |
+| 10 | `wells` | 井格数 | 空格且左右邻居均为实格或边界（单格凹槽），井多说明块难放入 |
+| 11 | `pcSetup` | 清屏准备强度 {0,1,2} | `analyzePerfectClearSetup(grid)` → 0=无/1=弱/2=强；判断若消除临满行后盘面能否清空；每轮 spawn 前及每次落子后实时重算（`adaptiveSpawn.js:216`） |
+| 12 | `monoFlushLines` | 近满同色行/列列表 | `grid.findNearFullMonoLines(skin)` → 空格 ≤ 5 且已填格**全为同一 icon/color** 的行/列对象数组；每项含 `{type, idx, empty, emptyCells, refCi}`；skin 缺失时退化为同 colorIdx 比较 |
+
+---
+
+### 10.9.2 玩家状态类（来自 `PlayerProfile` 滑动窗口计算）
+
+> 由 `playerProfile.js` 在每次落子（`recordPlace`）/ 出块（`recordSpawn`）时增量更新，
+> 不重新全量计算；技能等核心指标用 EMA（α ≈ 0.35）平滑。
+
+| # | 字段 / 代码名 | 语义 | 计算口径 |
+|---|---|---|---|
+| 13 | `skillLevel` | 实时技能水平 [0,1] | `smoothSkill` = EMA(rawSkill)；`rawSkill = 1 − (thinkMs/6000)^0.4 × (1 + missRate×0.6) × (1 − clearRate×0.5)`，三维复合（思考速度 × 失误率 × 消行率），取最近滑动窗口 N 步 |
+| 14 | `flowState` | 心流三态 | `'bored' / 'flow' / 'anxious'`；由 smoothSkill vs 当前盘面挑战强度对比判定：技能远超挑战→bored，两者匹配→flow，挑战远超技能→anxious |
+| 15 | `flowDeviation` | 心流偏离强度 ≥ 0 | 技能分值与"心流区"边界的差距，用于放大 flowAdjust 效果（bored 或 anxious 越严重，偏离值越大） |
+| 16 | `momentum` | 当前动量 [−1,1] | 最近 N 步中 `(cleared ? linesCleared : −1)` 的 EMA；正=连续消行，负=持续未消行 |
+| 17 | `pacingPhase` | 节奏相位 | `'release' / 'tension'`；release=刚完成一波多消/清屏，tension=持续搭建中 |
+| 18 | `frustrationLevel` | 挫败累积 [0, N] | `_consecutiveNonClears`：连续未消行步数；每次落子后更新（消行则清零，否则递增） |
+| 19 | `recentComboStreak` | 连续多消次数 | `_comboStreak`：连续 linesCleared ≥ 2 的次数；非多消时清零 |
+| 20 | `needsRecovery` | 是否需要恢复 | `frustrationLevel ≥ 5 || momentum ≤ −0.35`（近似，阈值来自配置），`true` 时强制提高消行保证并偏向小块 |
+| 21 | `hadRecentNearMiss` | 近期是否触发差一点效应 | 最近落子后，棋盘存在差 1~2 格即满的行/列，且同时 frustration 偏高或 anxious 心流；由 `nearMissPlaceFeedback.js` 判定写入 profile |
+| 22 | `feedbackBias` | 闭环反馈偏移 [−0.15, 0.15] | EMA 追踪"过去 N 步实际消行数 vs 期望消行数"的差值；出块过难时正（需加压感知），过易时负；`recordPlace` 每步更新（`playerProfile.js:263`） |
+| 23 | `trend` | 局间技能趋势 [−1,1] | `sessionHistory` 中 smoothSkill 的线性斜率；正=进步，负=退步；置信度 `conf` 门控后才生效 |
+| 24 | `sessionPhase` | 局内阶段 | `'early' / 'mid' / 'late'`：按局内步数分段 |
+| 25 | `isInOnboarding` | 是否在新手期 | `_totalLifetimePlacements < 20 && sessionHistory.length < 3`；新手期强制低 stress + 高消行保证 + 偏小块 |
+| 26 | `pickToPlaceMs` | 反应时间 (ms) | `recordPickup()` → `recordPlace()` 时长，即"握起候选块→落子"纯执行段，剔除等系统出块时间；样本 < 3 条时不参与 stress 计算（`playerProfile.js:239`） |
+| 27 | `roundsSinceLastDelight` | 距上次爽感轮数 | 每轮 spawn 后 +1；multiClear/pcClear/monoFlush/comboHigh 任一触发时清零；Android/微信 ≥ 5 轮、iOS/web ≥ 7 轮时视为"爽感饥渴"，强制 spawnIntent='relief'（`playerProfile.js:165`） |
+| 28 | `motivationIntent` | 中长期动机意图 | `'challenge' / 'relaxation' / 'competence' / 'balanced'`；由行为偏好信号（收藏/挑战/品质低等）归一化派生；社交公平模式强制 `'balanced'` |
+| 29 | `accessibilityLoad` | 辅助功能负担 [0,1] | qualityLow / reducedMotion 等偏好信号归一化累积；负载高时减压（`accessibilityStressAdjust`） |
+| 30 | `returningWarmupStrength` | 回流热身强度 [0,1] | 上次活跃距今天数映射；> 7 天未登录时非零，触发 clearGuarantee 提升 + stress 降低 |
+
+---
+
+### 10.9.3 跨轮上下文类（来自 `spawnContext`，由 `game.js` 局内积累）
+
+> `_spawnContext` 在每次 spawn 后由 `_commitSpawn` 写入最新盘面诊断，
+> 在每次落子后由 `_updateBottleneckTrough` 更新实时测量值。
+
+| # | 字段 / 代码名 | 语义 | 计算口径 |
+|---|---|---|---|
+| 31 | `roundsSinceClear` | 距上次消行的轮数 | 每轮出块后 +1，玩家消行后归零；≥ 2 轮强制 clearGuarantee ≥ 2，≥ 4 轮强制 ≥ 3 且偏小块 |
+| 32 | `lastClearCount` | 上轮消行数 | 上轮三块放完后实际触发的消行行数（0=未消行） |
+| 33 | `totalRounds` | 本局已出块轮数 | 每次出块后 +1；用于 sessionArc 判定和 novelty 计算（`totalRounds/80`） |
+| 34 | `totalClears` | 本局累计消行数 | 每次消行后累加；特殊块注入上限 = `max(totalClears × 10%, 3)` |
+| 35 | `recentCategories` | 最近 3 轮已出品类记录 | 每轮出块后追加本轮 3 块的 category，取最近 9 个值；用于 diversityBoost 品类惩罚 |
+| 36 | `scoreMilestone` | 是否触发分数里程碑 | `true/false`；本局得分经过个人 PB 的 50% / 75% / 90% 节点时触发，偏好 `gapFills > 0` 的块 ×1.3 |
+| 37 | `bestScore` | 历史最佳参考分 | 传入时为玩家 PB（或当局最高分）；用于 `getSpawnStressFromScore` 百分位映射 |
+| 38 | `bottleneckTrough` | 上周期最小落子数 | 上轮 dock 中未放置块的**最少合法落点数**（即最紧那一拍的 minPlacements）；≤ 2 触发 bottleneckRelief 减压（`adaptiveSpawn.js:1115`） |
+| 39 | `pcSetup`（ctx 回写） | 清屏准备度（跨轮缓存） | 上轮 spawn 诊断写入；每次玩家落子后实时重算覆盖，供 harvest / perfectClearBoost 判定 |
+| 40 | `nearFullLines`（ctx 回写） | 临满行/列数（跨轮缓存） | 上轮 spawn 诊断写入；每次落子后实时更新，供 spawnIntent / payoff 判定 |
+
+---
+
+### 10.9.4 局间历史类（来自 `localStorage` / db）
+
+| # | 字段 / 代码名 | 语义 | 计算口径 |
+|---|---|---|---|
+| 41 | `score`（当前局分） | 当前分数 | `game.score`；转化为 `scoreStress = getSpawnStressFromScore(score, {bestScore})`，按个人 PB 百分位分段映射：0% → stress ≈ 0，50% → 0.3，90% → 0.6，100% → 0.85 |
+| 42 | `runStreak` | 连战局数 | 同一 session 内不退出则累加；`runMods.fillDelta = min(0.12, streak × 0.04)`（初始填充增量），`runMods.stressBonus` 也随之提高 |
+| 43 | `baseStrategyId` | 难度档位 | `'easy' / 'normal' / 'hard'`；映射固定 `difficultyBias`（easy = −0.22，normal = 0，hard = +0.22），stress 的静态基线偏移 |
+| 44 | `daysSinceInstall` | 装机天数 | 首次启动时写入 `localStorage`；送入生命周期 S 阶段判定（S0新入场 / S1激活 / S2习惯 / S3稳定 / S4回流），影响 stress 上限 cap |
+| 45 | `daysSinceLastActive` | 距上次活跃天数 | 上次 session 结束时写入时间戳差值；> 7 天触发 `returningWarmupStrength > 0` 回流热身 |
+
+---
+
+### 10.9.5 信号强度总表（stress 贡献量级排序）
+
+> `stress = Σ stressBreakdown 各分量`，随后经生命周期 cap → EMA 平滑（α=0.35，maxStepUp=0.18）→ clamp(−0.2, 1.0)。
+> 负值 = 减压，正值 = 加压。
+
+| 等级 | 信号名 | stress 量级 | 来源字段 |
+|---|---|---|---|
+| **决定性** | `scoreStress` | 0 ~ +0.85 | `score` vs `bestScore` 百分位 |
+| **强** | `difficultyBias` | ±0.22 | `baseStrategyId` |
+| **强** | `skillAdjust` | ±0.15（置信度加权） | `skillLevel` |
+| **强** | `recoveryAdjust` | −0.20 | `needsRecovery` |
+| **强** | `frustrationRelief` | −0.18 | `frustrationLevel ≥ 4` |
+| **中强** | `flowAdjust` | ±0.08 ~ ±0.24 | `flowState` × `flowDeviation` |
+| **中强** | `endSessionDistress` | −0.05 ~ −0.25 | `sessionPhase='late' && momentum ≤ −0.30` |
+| **中** | `sessionArcAdjust` | −0.05 ~ −0.20 | `sessionArc × momentum` |
+| **中** | `holeReliefAdjust` | `−0.16 × holePressure` | `holes / holePressureMax(8)` |
+| **中** | `bottleneckRelief` | 0 ~ −0.12 | `bottleneckTrough ≤ 2` |
+| **中** | `friendlyBoardRelief` | 0 ~ −0.12 | 盘面通透 + payoff 机会 |
+| **弱** | `reactionAdjust` | ±0.05 | `pickToPlaceMs`（刻意弱于主信号） |
+| **弱** | `feedbackBias` | ±0.15 | 实际 vs 期望消行差值 EMA |
+| **弱** | `comboAdjust` | +0.05 | `recentComboStreak ≥ 2` |
+| **弱** | `nearMissAdjust` | −0.10 | `hadRecentNearMiss` |
+| **弱** | `trendAdjust` | ±0.08 × trend × conf | `sessionHistory` 线性斜率 |
+| **弱** | `runStreakStress` | 0 ~ +0.08 | `runStreak` |
+| **弱** | `motivationStressAdjust` | ±0.045 | `motivationIntent` |
+| **后置 cap** | 生命周期 S/M 矩阵 | 压 stress 上限 0.3~0.78 | `daysSinceInstall` × `totalSessions` |
+| **后置平滑** | EMA(α=0.35, maxStepUp=0.18) | 防单轮剧变 | 前轮 `prevAdaptiveStress` |
+
+---
+
+**信号流向**（精简版）：
+
+```
+盘面几何 ──┐
+玩家状态 ──┤→ stressBreakdown → Σ → cap → smooth → stress [0,1]
+跨轮上下文 ┤                                            ↓
+局间历史 ──┘                            interpolateProfileWeights(stress)
+                                                    ↓
+                                            shapeWeights（品类基础权重）
+                                                    ↓
+                                       spawnHints（clearGuarantee / sizePreference
+                                         / multiClearBonus / rhythmPhase / …）
+                                                    ↓
+                                         generateDockShapes → 三块候选输出
 ```
 
 ---
