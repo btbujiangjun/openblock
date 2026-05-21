@@ -232,6 +232,41 @@ describe('strategyEngine.shouldTriggerRule', () => {
             persona: { segment: 'whale' }, realtime: { frustration: 8 },
         })).toBe(true);
     });
+
+    /* v1.60.45 §9 — iOS 广告完播率分层（高完播 ≥ 0.80 → 加强 rewarded；
+     * 低完播 < 0.30 → 转 IAP 软营销）。数据依据：
+     * docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.4 */
+    it('v1.60.45 §9 — iOS 高完播玩家触发 ios_high_completer_more_rewarded', () => {
+        expect(shouldTriggerRule('ios_high_completer_more_rewarded', {
+            persona: { segment: 'dolphin' },
+            realtime: { platform: 'ios', adCompletionRateD7: 0.85 },
+        })).toBe(true);
+    });
+
+    it('v1.60.45 §9 — iOS 低完播玩家触发 ios_low_completer_iap_pivot', () => {
+        expect(shouldTriggerRule('ios_low_completer_iap_pivot', {
+            persona: { segment: 'dolphin' },
+            realtime: { platform: 'ios', adCompletionRateD7: 0.20 },
+        })).toBe(true);
+    });
+
+    it('v1.60.45 §9 — Android 玩家不触发 iOS 完播分层规则（隔离）', () => {
+        expect(shouldTriggerRule('ios_high_completer_more_rewarded', {
+            persona: { segment: 'dolphin' },
+            realtime: { platform: 'android', adCompletionRateD7: 0.85 },
+        })).toBe(false);
+        expect(shouldTriggerRule('ios_low_completer_iap_pivot', {
+            persona: { segment: 'dolphin' },
+            realtime: { platform: 'android', adCompletionRateD7: 0.20 },
+        })).toBe(false);
+    });
+
+    it('v1.60.45 §9 — iOS 完播率 0（缺数据）不触发低完播分层（边界）', () => {
+        expect(shouldTriggerRule('ios_low_completer_iap_pivot', {
+            persona: { segment: 'dolphin' },
+            realtime: { platform: 'ios', adCompletionRateD7: 0 },
+        })).toBe(false);
+    });
 });
 
 describe('strategyHelp', () => {

@@ -1174,3 +1174,52 @@ describe('resolveAdaptiveStrategy', () => {
         });
     });
 });
+
+/**
+ * v1.60.45 — multiClearBonus 按平台抬底（Android / 微信 0.15、iOS / web 0）。
+ *
+ * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.2 / §4.2 —
+ *   Android 多消 r(D7)=0.205（iOS 0.089 的 ×2.3），需要更激进的多消鼓励。
+ */
+describe('v1.60.45 — multiClearBonus 平台抬底', () => {
+    /* 用 vi.resetModules 给每个平台跑一个独立 module 副本，
+     * 让 platformMultiClearFloor 在文件顶层重新求值。 */
+    async function probePlatform(platform) {
+        const { vi } = await import('vitest');
+        vi.resetModules();
+        const { _setPlatformForTest } = await import('../web/src/config/platformProfile.js');
+        _setPlatformForTest(platform);
+        const { resolveAdaptiveStrategy: resolveFresh, resetAdaptiveMilestone: resetFresh } =
+            await import('../web/src/adaptiveSpawn.js');
+        const { PlayerProfile: PP } = await import('../web/src/playerProfile.js');
+        resetFresh();
+        /* 中性状态：smoothSkill=0.5（无 distress / 无 nearMiss），
+         * fill=0.3 / 无 nearFullLines → deriveMultiClearBonus 基础值接近 0；
+         * delight.multiClearBoost 也无信号——能干净观察 platformFloor 是否生效。 */
+        const p = new PP(15);
+        p._smoothSkill = 0.5;
+        const s = resolveFresh('normal', p, 50, 0, 0.30);
+        return s.spawnHints?.multiClearBonus ?? 0;
+    }
+
+    it('Android 档默认 multiClearBonus ≥ 0.15（即使中性场景）', async () => {
+        const v = await probePlatform('android');
+        expect(v).toBeGreaterThanOrEqual(0.15);
+    });
+
+    it('微信小程序档默认 multiClearBonus ≥ 0.15', async () => {
+        const v = await probePlatform('wechat');
+        expect(v).toBeGreaterThanOrEqual(0.15);
+    });
+
+    it('iOS / web 档与 Android 档差异：Android ≥ iOS（抬底不会反向）', async () => {
+        const ios = await probePlatform('ios');
+        const android = await probePlatform('android');
+        const web = await probePlatform('web');
+        /* 不强求 iOS < 0.15（中性场景下基础 derive 可能也 ≥0.15）；
+         * 只断言"Android 抬底后 ≥ iOS"——这是 §3 核心不变量。 */
+        expect(android).toBeGreaterThanOrEqual(ios);
+        expect(android).toBeGreaterThanOrEqual(web);
+        expect(android).toBeGreaterThanOrEqual(0.15);
+    });
+});

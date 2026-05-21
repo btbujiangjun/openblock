@@ -11,6 +11,8 @@
 - [商业化策略](./MONETIZATION.md) —— 架构、数据流、策略配置、`CommercialModelVector`、API 与运维边界
 - [商业化系统综合报告](./COMMERCIAL_STRATEGY_REVIEW.md) —— 模块拓扑、关键能力、KPI、演进方向
 - [玩家生命周期与成熟度运营蓝图](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) —— S0–S4 × M0–M4 双轴模型、KPI 字典、能力与运营接入点、推荐实验
+- [留存信号跨平台分析与策略优化](./RETENTION_SIGNALS_CROSS_PLATFORM.md) —— iOS × Android 双平台留存相关性 + 区分度矩阵；6 项跨平台关键发现 + 8 项 P0/P1/P2 落地方案 + 实施路线图
+- [留存优化快赢清单](./RETENTION_QUICK_WINS.md) —— 上述策略的**工程落地层**：精确到文件 / 函数 / 行号 / 改动前后代码 / 测试 / 护栏指标的 10 项具体优化点（总计 9 人日）
 - [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md) —— `/ops` 是否接数据库、指标 SQL 口径、复核与建议
 
 ### 配置与面板

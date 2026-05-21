@@ -12,8 +12,13 @@ const cjsCache = new Map();
 function resolveCjs(request, basedir = __dirname) {
   if (!request.startsWith('.')) return request;
   const base = path.resolve(basedir, request);
-  const candidates = [base, `${base}.js`, `${base}.json`, path.join(base, 'index.js')];
-  const match = candidates.find((p) => fs.existsSync(p));
+  /* v1.60.45：候选顺序前置 .js / .json，避免与同名目录冲突
+   * （例：require('./config') 与 ./config/ 目录共存时，旧版会先选目录导致 EISDIR）。 */
+  const candidates = [`${base}.js`, `${base}.json`, base, path.join(base, 'index.js')];
+  const match = candidates.find((p) => {
+      try { return fs.existsSync(p) && fs.statSync(p).isFile(); }
+      catch { return false; }
+  });
   if (!match) throw new Error(`Cannot resolve ${request} from ${basedir}`);
   return match;
 }

@@ -507,6 +507,90 @@ describe('§4.11 跨设备 PB 同步：新 key 已纳入 core section', () => {
     });
 });
 
+/* ════════════════════════════════════════════════════════════════════════ */
+/*  v1.60.45 §7 — PB 跨局保护链（notePbBreak / getNextChallenges）            */
+/* ════════════════════════════════════════════════════════════════════════ */
+
+describe('v1.60.45 §7 — PB 突破后跨局保护链', () => {
+    let mod;
+    beforeEach(async () => {
+        mod = await import('../web/src/bestScoreBuckets.js');
+        mod.__resetForTests();
+    });
+    afterEach(() => {
+        mod.__resetForTests();
+    });
+
+    it('notePbBreak 写入并能被 getLastPbBreak / daysSinceLastPbBreak 读取', () => {
+        mod.notePbBreak(2500, 'hard');
+        const rec = mod.getLastPbBreak();
+        expect(rec).toBeTruthy();
+        expect(rec.score).toBe(2500);
+        expect(rec.strategy).toBe('hard');
+        expect(typeof rec.ts).toBe('number');
+        const d = mod.daysSinceLastPbBreak();
+        expect(d).not.toBeNull();
+        expect(d).toBeGreaterThanOrEqual(0);
+        expect(d).toBeLessThan(1); // 刚写入
+    });
+
+    it('notePbBreak 入参非法（NaN / 负数）→ 不写入', () => {
+        mod.notePbBreak(NaN);
+        mod.notePbBreak(-100);
+        mod.notePbBreak(0);
+        expect(mod.getLastPbBreak()).toBeNull();
+        expect(mod.daysSinceLastPbBreak()).toBeNull();
+    });
+
+    it('notePbBreak 后续写入覆盖前次（只保留最近一次）', () => {
+        mod.notePbBreak(1000, 'normal');
+        mod.notePbBreak(2000, 'hard');
+        const rec = mod.getLastPbBreak();
+        expect(rec.score).toBe(2000);
+        expect(rec.strategy).toBe('hard');
+    });
+
+    it('未知 strategy 归一化为 normal', () => {
+        mod.notePbBreak(1000, 'extreme');
+        expect(mod.getLastPbBreak().strategy).toBe('normal');
+    });
+
+    it('getNextChallenges 返回 110% PB + 125% PB（无周期 PB 时只返回这两条）', () => {
+        mod.submitScoreToBucket('normal', 1000);
+        const ch = mod.getNextChallenges('normal');
+        expect(ch.length).toBeGreaterThanOrEqual(2);
+        const ids = ch.map(c => c.id);
+        expect(ids).toContain('pb_110');
+        expect(ids).toContain('pb_125');
+        const pb110 = ch.find(c => c.id === 'pb_110');
+        expect(pb110.target).toBe(1100);
+        const pb125 = ch.find(c => c.id === 'pb_125');
+        expect(pb125.target).toBe(1250);
+    });
+
+    it('getNextChallenges 含周期 PB 时优先列入（且 < pb 的才显示）', () => {
+        /* 先 submit period（在 ISO week 2026-W21 时间窗内）→ 再 submit normal PB */
+        const may21 = new Date('2026-05-21T12:00:00Z');
+        mod.submitPeriodBest(800, may21);  /* 周/月 PB = 800 */
+        mod.submitScoreToBucket('normal', 1500);
+        const ch = mod.getNextChallenges('normal', may21);
+        const ids = ch.map(c => c.id);
+        expect(ids).toContain('weekly_pb');
+        expect(ids).toContain('monthly_pb');
+        /* weekly < normal PB → 列入 */
+        expect(ch.find(c => c.id === 'weekly_pb').target).toBe(800);
+    });
+
+    it('getNextChallenges 在无 PB 时返回空数组（防御性）', () => {
+        const ch = mod.getNextChallenges('normal');
+        expect(ch).toEqual([]);
+    });
+
+    it('__TEST_KEYS 暴露 PB_BREAK_TS_KEY', () => {
+        expect(mod.__TEST_KEYS.PB_BREAK_TS_KEY).toBe('openblock_pb_break_ts_v1');
+    });
+});
+
 // ── §4.10 异常分守卫 ────────────────────────────────────────────────────
 
 describe('§4.10 异常分守卫：score > previousBest × 5 进入审核态', () => {

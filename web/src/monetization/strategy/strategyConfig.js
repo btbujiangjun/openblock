@@ -287,6 +287,39 @@ export const DEFAULT_STRATEGY_CONFIG = {
             why:    '轻度用户需要短期目标锚定',
             effect: 'D1 留存 +28%，积累付费转化积分',
         },
+
+        // ── v1.60.45 iOS 广告完播率分层（数据依据：留存信号跨平台分析 §4.4） ──
+        //
+        // iOS 广告完播 r(D7)=0.349 是数据集最强单一信号；按完播率分层让运营按
+        // "真实变现意愿"差异化触发。Android 不引入（广告 r 长期衰减至 0.216）。
+        //
+        // 这两条规则采用 when 函数判定（platform + adCompletionRateD7），不引入
+        // 新 segment——保持 whale/dolphin/minnow 三分体系不变，仅作为附加上层规则。
+        {
+            id: 'ios_high_completer_more_rewarded',
+            when: ({ realtime }) => realtime?.platform === 'ios'
+                && Number(realtime?.adCompletionRateD7 ?? 0) >= 0.80,
+            action: {
+                type: 'ads', format: 'rewarded',
+                trigger: 'high_completer_boost', frequencyBoost: 1.5,
+            },
+            priority: 'high',
+            why:    'iOS 高完播玩家（≥80%）—— 广告价值最高',
+            effect: 'IAA ARPDAU +20-30%（A/B 14d 验证）',
+        },
+        {
+            id: 'ios_low_completer_iap_pivot',
+            when: ({ realtime }) => realtime?.platform === 'ios'
+                && Number(realtime?.adCompletionRateD7 ?? 0) > 0
+                && Number(realtime?.adCompletionRateD7 ?? 0) < 0.30,
+            action: {
+                type: 'iap', product: 'starter_pack',
+                trigger: 'low_completer_softpitch',
+            },
+            priority: 'medium',
+            why:    'iOS 低完播玩家（<30%）—— 广告价值低，转 IAP 软营销',
+            effect: 'IAP 转化 +5-10%，广告退订率 −15%',
+        },
     ],
 };
 

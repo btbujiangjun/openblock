@@ -450,6 +450,12 @@ function _coreMetricsCard(core) {
     const act = core.activity || {};
     const rev = core.revenue || {};
     const q = core.quality || {};
+    /* v1.60.45：爽感覆盖率（七日内触发任一 multi_clear / perfect_clear /
+     * combo_high / mono_flush 的 DAU 占比；目标 ≥ 75%）。 */
+    const delight = core.delight || {};
+    const delightRate = delight.coverageRate ?? 0;
+    const delightThreshold = delight.threshold ?? 0.75;
+    const delightCls = delightRate < delightThreshold ? 'ops-metric-value--warn' : '';
     c.innerHTML += `<div class="ops-metric-grid">
       ${_metricCell('获客·新增用户', _fmtNum(acq.newUsers, 0))}
       ${_metricCell('获客·成本', _fmtMoney(acq.cost))}
@@ -469,6 +475,7 @@ function _coreMetricsCard(core) {
       ${_metricCell('质量·崩溃率', _fmtPct(q.crashRate), (q.crashRate || 0) > 0.01 ? 'ops-metric-value--bad' : '')}
       ${_metricCell('质量·卡顿率', _fmtPct(q.jankRate), (q.jankRate || 0) > 0.1 ? 'ops-metric-value--warn' : '')}
       ${_metricCell('质量·加载时长', _fmtNum(q.avgLoadMs, 1) + 'ms')}
+      ${_metricCell(`体验·爽感覆盖率(7d, 目标≥${_fmtPct(delightThreshold)})`, _fmtPct(delightRate), delightCls)}
     </div>`;
     return c;
 }

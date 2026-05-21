@@ -28,7 +28,23 @@
  * 若 featureFlags.revive === false，init 调用无效（仅输出 debug 日志）。
  */
 
-const REVIVE_LIMIT_DEFAULT = 1;   // 每局最多复活次数
+import { pickByPlatform } from './config/platformProfile.js';
+
+/* v1.60.45：复活次数按平台分发。
+ *
+ * **数据依据**（docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.1 / §4.3）：
+ *   - Android：触发复活 r(D7)=+0.173 单调正相关——复活越多越留存，提至 2 释放线性留存抓手
+ *   - iOS：r≈0 但区分度 42%（U 型非线性），盲目放宽可能落到拐点反向区，维持 1 保守
+ *   - 微信小程序：Android-like，同档提至 2
+ *
+ * 风险护栏：Android 广告 ARPDAU 不显著下降 ≥ 95% 置信（A/B 14d）。 */
+const REVIVE_LIMIT_DEFAULT = pickByPlatform({
+    android: 2,
+    wechat:  2,
+    ios:     1,
+    web:     1,
+    default: 1,
+});
 const REVIVE_CLEAR_CELLS   = 12;  // 复活时清除的格子数
 
 export class ReviveManager {
@@ -274,6 +290,21 @@ export class ReviveManager {
         // 重置游戏状态并继续
         game.isGameOver = false;
         game._endGameInFlight = null;
+
+        /* v1.60.45：复活后救济信号，连续 N 轮 spawn 走强 relief + clearGuarantee=3。
+         *
+         * **数据依据**（docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.1 / §4.3）：
+         *   复活成功 r ≈ 0 表明"复活后体验未传导到留存"——可能是复活后局面仍差
+         *   很快再死。下一轮强 relief 给玩家"喘息"机会，让 spawn 引擎优先派多消/小块/补缝。
+         *
+         * **TTL**：2 轮。spawnBlocks 入口消费时计数 −1，归零后清空标记。
+         *   2 轮足够让玩家放完 dock 三块并触发一次消行；过长会模糊"复活救济"边界。 */
+        game._postReviveBoost = {
+            forceReliefIntent: true,
+            clearGuarantee: 3,
+            ttlRounds: 2,
+            triggeredAt: Date.now(),
+        };
 
         // 短暂延迟后重新检查，让渲染刷新
         setTimeout(() => {

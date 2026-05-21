@@ -24,6 +24,8 @@
 
 const BEST_BY_STRATEGY_KEY = 'openblock_best_by_strategy_v1';
 const PERIOD_BEST_KEY = 'openblock_period_best_v1';
+/* v1.60.45：PB 突破时间戳 + 末次分数 —— 用于跨局保护链（次级目标 / 召回 push）。 */
+const PB_BREAK_TS_KEY = 'openblock_pb_break_ts_v1';
 
 /** 合法 strategy id（与 config.js 中 STRATEGIES 同源）。未知 id 走 'normal' 兜底。 */
 const KNOWN_STRATEGIES = new Set(['easy', 'normal', 'hard']);
@@ -171,6 +173,119 @@ export function submitPeriodBest(score, now = new Date()) {
     return { weeklyUpdated, monthlyUpdated, record };
 }
 
+/* ────────────────────────────────────────────────────────────────────── */
+/*  v1.60.45  PB 突破跨局保护链                                            */
+/* ────────────────────────────────────────────────────────────────────── */
+
+/**
+ * **设计背景**：留存信号跨平台分析数据揭示，**突破最高分次数 r(D7)=-0.126（iOS）/
+ * -0.094（Android），且随时间窗口拉长更负**。"达到高分"是爽感（r 强正），但
+ * "突破历史最好"触发"成就完结感"，反而导致流失。
+ *
+ * v1.56 / v1.60.37 已覆盖**同局**末段救济；本模块补齐**跨局保护**：
+ *   1. PB 触发后记录时间戳 + 分数（notePbBreak）
+ *   2. 下一局开始时基于 PB 派生次级目标（getNextChallenges），让"达到高分"持续
+ *      触发以稀释"绝对 PB"的终结效应
+ *   3. PB 后 1d / 3d 智能 push 召回（daysSinceLastPbBreak 提供窗口判定）
+ *
+ * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.4 / §4.1
+ */
+
+/**
+ * 记录最近一次 PB 突破事件（时间戳 + 突破分数 + 难度档）。
+ * 由 game.js 在 _showNewBestCelebration / endGame submitScoreToBucket 触发后调用。
+ *
+ * @param {number} score 突破分数
+ * @param {string} [strategy] 难度档（'easy' | 'normal' | 'hard'）
+ */
+export function notePbBreak(score, strategy = 'normal') {
+    const n = Number(score);
+    if (!Number.isFinite(n) || n <= 0) return;
+    _safeWriteJson(PB_BREAK_TS_KEY, {
+        ts: Date.now(),
+        score: n,
+        strategy: _normalizeStrategy(strategy),
+    });
+}
+
+/**
+ * 读最近一次 PB 突破记录。
+ * @returns {{ ts: number, score: number, strategy: string } | null}
+ */
+export function getLastPbBreak() {
+    return _safeReadJson(PB_BREAK_TS_KEY);
+}
+
+/**
+ * 距上次 PB 突破的天数（供 winback push / 跨局保护链时间窗判定）。
+ * @returns {number | null} null 表示从未突破
+ */
+export function daysSinceLastPbBreak() {
+    const rec = getLastPbBreak();
+    if (!rec || !rec.ts) return null;
+    return (Date.now() - rec.ts) / 86_400_000;
+}
+
+/**
+ * 基于当前难度 PB + 周期 PB 生成"次级目标"列表，避免玩家因"绝对 PB 已达成"
+ * 而产生终结感。
+ *
+ * 返回值已按难度顺序：从近到远（首项是最容易够到的挑战）。
+ *
+ * @param {string} [strategy] 难度档，默认 'normal'
+ * @param {Date} [now] 测试可注入时间
+ * @returns {Array<{ id: string, kind: string, target: number, label: string }>}
+ */
+export function getNextChallenges(strategy = 'normal', now = new Date()) {
+    const s = _normalizeStrategy(strategy);
+    const pb = getBestByStrategy(s);
+    const period = getPeriodBest(now);
+
+    const challenges = [];
+
+    /* 1. 110% PB —— 普惠次级目标 */
+    if (pb > 0) {
+        challenges.push({
+            id: 'pb_110',
+            kind: 'percent_pb',
+            target: Math.round(pb * 1.1),
+            label: `挑战 ${Math.round(pb * 1.1)} 分`,
+        });
+    }
+
+    /* 2. 周 PB —— 时间维度的"另一种 PB" */
+    if (period.weeklyBest > 0 && period.weeklyBest < pb) {
+        challenges.push({
+            id: 'weekly_pb',
+            kind: 'period',
+            target: period.weeklyBest,
+            label: `本周新高（当前 ${period.weeklyBest}）`,
+        });
+    }
+
+    /* 3. 月 PB */
+    if (period.monthlyBest > 0 && period.monthlyBest < pb) {
+        challenges.push({
+            id: 'monthly_pb',
+            kind: 'period',
+            target: period.monthlyBest,
+            label: `本月新高（当前 ${period.monthlyBest}）`,
+        });
+    }
+
+    /* 4. 125% PB —— 更远目标，留给挑战欲强的玩家 */
+    if (pb > 0) {
+        challenges.push({
+            id: 'pb_125',
+            kind: 'percent_pb',
+            target: Math.round(pb * 1.25),
+            label: `挑战 ${Math.round(pb * 1.25)} 分`,
+        });
+    }
+
+    return challenges;
+}
+
 /**
  * 测试辅助：清空所有持久化（不暴露到生产入口）。
  */
@@ -179,6 +294,7 @@ export function __resetForTests() {
     try {
         localStorage.removeItem(BEST_BY_STRATEGY_KEY);
         localStorage.removeItem(PERIOD_BEST_KEY);
+        localStorage.removeItem(PB_BREAK_TS_KEY);
     } catch { /* ignore */ }
 }
 
@@ -186,4 +302,5 @@ export function __resetForTests() {
 export const __TEST_KEYS = Object.freeze({
     BEST_BY_STRATEGY_KEY,
     PERIOD_BEST_KEY,
+    PB_BREAK_TS_KEY,
 });

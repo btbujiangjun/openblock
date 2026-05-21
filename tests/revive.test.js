@@ -161,3 +161,74 @@ describe('ReviveManager — 次数耗尽时回落原始 warning', () => {
         expect(game._noMovesCalled).toBe(true);
     });
 });
+
+/**
+ * v1.60.45 — REVIVE_LIMIT_DEFAULT 按平台分发（Android/微信 2，iOS/web 1）。
+ *
+ * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.1 / §4.3 —
+ *   Android 触发复活 r=+0.173 单调正相关；iOS r≈0 非线性需保守。
+ */
+describe('v1.60.45 — REVIVE_LIMIT_DEFAULT 平台化', () => {
+    async function defaultLimitForPlatform(platform) {
+        const { vi } = await import('vitest');
+        vi.resetModules();
+        const { _setPlatformForTest } = await import('../web/src/config/platformProfile.js');
+        _setPlatformForTest(platform);
+        const { ReviveManager: RM } = await import('../web/src/revive.js');
+        /* limit 不传 → 用 module 顶层的 REVIVE_LIMIT_DEFAULT */
+        const rm = new RM({ enabled: true });
+        return rm.limit;
+    }
+
+    it('Android 默认 limit = 2', async () => {
+        expect(await defaultLimitForPlatform('android')).toBe(2);
+    });
+
+    it('微信小程序默认 limit = 2', async () => {
+        expect(await defaultLimitForPlatform('wechat')).toBe(2);
+    });
+
+    it('iOS 默认 limit = 1（保守，避免 U 型反向区）', async () => {
+        expect(await defaultLimitForPlatform('ios')).toBe(1);
+    });
+
+    it('web 默认 limit = 1（与 iOS 同档）', async () => {
+        expect(await defaultLimitForPlatform('web')).toBe(1);
+    });
+
+    it('显式 opts.limit 覆盖平台默认（用户配置优先）', async () => {
+        const { vi } = await import('vitest');
+        vi.resetModules();
+        const { _setPlatformForTest } = await import('../web/src/config/platformProfile.js');
+        _setPlatformForTest('ios');
+        const { ReviveManager: RM } = await import('../web/src/revive.js');
+        const rm = new RM({ enabled: true, limit: 5 });
+        expect(rm.limit).toBe(5);
+    });
+});
+
+/**
+ * v1.60.45 — 复活成功后写入 game._postReviveBoost，提供 forceReliefIntent + clearGuarantee=3。
+ *
+ * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.1 复活成功 r ≈ 0
+ *   → 复活后局面仍差，需要 spawn 引擎给"喘息"。
+ */
+describe('v1.60.45 — _postReviveBoost 复活后强 relief 信号', () => {
+    it('_doRevive 后 game._postReviveBoost 包含 forceReliefIntent + ttlRounds=2', () => {
+        const rm = new ReviveManager({ enabled: true, limit: 1 });
+        const game = makeGame();
+        rm._game = game;
+        rm._originalShowNoMovesWarning = vi.fn();
+        rm._doRevive();
+        expect(game._postReviveBoost).toBeTruthy();
+        expect(game._postReviveBoost.forceReliefIntent).toBe(true);
+        expect(game._postReviveBoost.clearGuarantee).toBe(3);
+        expect(game._postReviveBoost.ttlRounds).toBe(2);
+        expect(typeof game._postReviveBoost.triggeredAt).toBe('number');
+    });
+
+    it('未复活时 game._postReviveBoost 应为 undefined（无副作用）', () => {
+        const game = makeGame();
+        expect(game._postReviveBoost).toBeUndefined();
+    });
+});

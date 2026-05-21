@@ -206,6 +206,18 @@ export const GAME_EVENTS = {
     DRAG_START: 'drag_start',
     /** 拖拽结束（放置成功或取消） */
     DRAG_END: 'drag_end',
+    /* v1.60.45 爽感事件 —— 用于服务端聚合"爽感覆盖率"看板指标
+     * （见 docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5
+     * 与 RETENTION_QUICK_WINS §8）。事件 id 与 server.py 的 SQL 谓词字面量
+     * 严格一致，禁止重命名；要扩展请同步 server.py / OPS 看板。 */
+    /** 多消（≥2 行）触发 */
+    MULTI_CLEAR: 'multi_clear',
+    /** 完美清屏触发 */
+    PERFECT_CLEAR: 'perfect_clear',
+    /** 高 Combo（≥4 连击）触发 */
+    COMBO_HIGH: 'combo_high',
+    /** 同花顺消除（×5 倍 iconBonus）触发 */
+    MONO_FLUSH: 'mono_flush',
 };
 
 export function getStrategy(id) {

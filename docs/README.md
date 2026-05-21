@@ -185,7 +185,7 @@ docs/
 | 主策划 / 策略设计师 | [OpenBlock 产品架构图](./architecture/PRODUCT_ARCHITECTURE_DIAGRAMS.md) → [最佳分追逐策略](./player/BEST_SCORE_CHASE_STRATEGY.md) → [体验设计基石](./player/EXPERIENCE_DESIGN_FOUNDATIONS.md) | [策略体验栈](./player/STRATEGY_EXPERIENCE_MODEL.md) → [实时策略系统](./player/REALTIME_STRATEGY.md) → [生命周期与成熟度蓝图](./operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) |
 | 算法工程师 | [算法架构图](./algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md) → [算法与模型手册](./algorithms/ALGORITHMS_HANDBOOK.md) → [四模型系统设计](./algorithms/MODEL_SYSTEMS_FOUR_MODELS.md) | [出块算法手册](./algorithms/ALGORITHMS_SPAWN.md) → [玩家画像算法](./algorithms/ALGORITHMS_PLAYER_MODEL.md) → [RL 手册](./algorithms/ALGORITHMS_RL.md) → [商业化模型架构设计](./algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md) |
 | 架构 / 平台工程师 | [架构总览](../ARCHITECTURE.md) → [技术总览](./engineering/PROJECT.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → [Android / iOS 客户端外壳](./platform/MOBILE_CLIENTS.md) → [微信小程序适配](./platform/WECHAT_MINIPROGRAM.md) → [四端同步契约](./platform/SYNC_CONTRACT.md) |
-| 运营 / 商业化 | [商业化系统全景](./operations/MONETIZATION.md) → [生命周期与成熟度蓝图](./operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [能力对照表](./operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) |
+| 运营 / 商业化 | [商业化系统全景](./operations/MONETIZATION.md) → [生命周期与成熟度蓝图](./operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) → [留存信号跨平台分析](./operations/RETENTION_SIGNALS_CROSS_PLATFORM.md) | [商业化算法](./algorithms/ALGORITHMS_MONETIZATION.md) → [训练面板](./operations/MONETIZATION_TRAINING_PANEL.md) → [能力对照表](./operations/COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) |
 | 测试 / QA | [测试指南](./engineering/TESTING.md) | [RL 数值稳定](./algorithms/RL_TRAINING_NUMERICAL_STABILITY.md) → [训练看板趋势](./algorithms/RL_TRAINING_DASHBOARD_TRENDS.md) |
 | 开源贡献者 | [README](../README.md) → [贡献指南](../CONTRIBUTING.md) | [二次开发指南](./engineering/DEV_GUIDE.md) → 本页"文档维护规范" |
 | AI 辅助开发 | [Cursor Skills 索引](./engineering/CURSOR_SKILLS.md) | [休闲游戏构建 Skill](./engineering/CASUAL_GAME_BUILD_SKILL.md) → [ARCHITECTURE](../ARCHITECTURE.md) → [TESTING](./engineering/TESTING.md) |
@@ -291,6 +291,8 @@ docs/
 | [商业化系统全景](./operations/MONETIZATION.md) | IAA / IAP、分群、触发、API、模块全景 |
 | [商业化系统综合报告](./operations/COMMERCIAL_STRATEGY_REVIEW.md) | 模块拓扑、关键能力、KPI 监控点 |
 | [生命周期与成熟度蓝图](./operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | 双轴（S0–S4 × M0–M4）、双分制成熟度、能力与运营接入点 |
+| [留存信号跨平台分析与策略优化](./operations/RETENTION_SIGNALS_CROSS_PLATFORM.md) | iOS × Android 双平台留存相关性（r × 区分度）数据 + 6 项关键发现 + 8 项 P0/P1/P2 落地方案与实施路线图 |
+| [留存优化快赢清单](./operations/RETENTION_QUICK_WINS.md) | 上述策略的工程落地层：精确到文件 / 函数 / 行号的 10 项具体改动（含改前 / 改后代码 / 测试 / 护栏） |
 | [运营看板指标审计](./operations/OPS_DASHBOARD_METRICS_AUDIT.md) | 运营看板指标接库、SQL 口径、截图复核 |
 | [商业化算法手册](./algorithms/ALGORITHMS_MONETIZATION.md) | 鲸鱼分、规则引擎、LTV、CPI 出价 |
 | [商业化模型架构设计](./algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md) | snapshot / 校准 / MTL / 漂移 / bandit / 决策包装 |

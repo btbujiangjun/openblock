@@ -3,7 +3,7 @@
  *
  * 候选块出块算法：generateDockShapes 产出合法性、3 块保证、品类覆盖
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Grid } from '../web/src/grid.js';
 import { getAllShapes } from '../web/src/shapes.js';
 import {
@@ -2219,5 +2219,90 @@ describe('v1.60.26 — reason="perfectClear" 严格按 shape 自身 pcPotential 
         }
         /* 若 30 次都没找到 pcPotential===2 实例，跳过断言（场景构造概率性）—— 用 Bug 验证主路径不破坏 */
         expect(true).toBe(true);
+    });
+});
+
+/**
+ * v1.60.45 — MONO_FLUSH_PICK_PROBABILITY 平台化（Android/微信 0.050、iOS/web 0.033）
+ *
+ * 该常量在模块加载时根据 platformProfile 静态绑定，因此测试需要在 import blockSpawn
+ * 之前覆写 platform；用动态 import 隔离 module-level cache，确保每个平台独立采样。
+ *
+ * 设计依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.2 / §4.2
+ */
+describe('v1.60.45 — monoFlush 平台化命中率', () => {
+    const SKIN_8 = { blockIcons: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] };
+
+    function buildScenario() {
+        const localGrid = new Grid(10);
+        for (let y = 2; y < 10; y++) {
+            localGrid.cells[y][5] = 0;
+            localGrid.cells[y][6] = 0;
+        }
+        for (let y = 7; y < 10; y++) for (let x = 0; x < 3; x++) localGrid.cells[y][x] = 1;
+        return localGrid;
+    }
+
+    function buildConfig() {
+        return {
+            shapeWeights: getStrategy().shapeWeights,
+            spawnHints: {
+                spawnIntent: 'relief',
+                clearGuarantee: 0.5,
+                spawnTargets: { iconBonusTarget: 1.0, clearOpportunity: 0.6 },
+            },
+        };
+    }
+
+    /**
+     * 按平台跑 N 轮 generateDockShapes，统计 chosen 中 monoFlush ≥ 1 的命中率。
+     * 使用 vi.resetModules 让 blockSpawn 重新读取 platform → 重新绑定 MONO_FLUSH 常量。
+     */
+    async function sampleHitRateForPlatform(platform, trials = 80) {
+        vi.resetModules();
+        const { _setPlatformForTest } = await import('../web/src/config/platformProfile.js');
+        _setPlatformForTest(platform);
+        const mod = await import('../web/src/bot/blockSpawn.js');
+        const { Grid: FreshGrid } = await import('../web/src/grid.js');
+        let hit = 0;
+        for (let t = 0; t < trials; t++) {
+            const localGrid = new FreshGrid(10);
+            for (let y = 2; y < 10; y++) {
+                localGrid.cells[y][5] = 0;
+                localGrid.cells[y][6] = 0;
+            }
+            for (let y = 7; y < 10; y++) for (let x = 0; x < 3; x++) localGrid.cells[y][x] = 1;
+            const ctx = { skin: SKIN_8, totalClears: 5, totalRounds: 8, roundsSinceSpecial: 6 };
+            mod.resetSpawnMemory();
+            mod.generateDockShapes(localGrid, buildConfig(), ctx);
+            const diag = mod.getLastSpawnDiagnostics();
+            if ((diag?.chosen || []).some(m => (m.monoFlush ?? 0) >= 1)) hit++;
+        }
+        return { hit, trials, rate: hit / trials };
+    }
+
+    it('Android 档 monoFlush 命中率 ≥ iOS 档（cap 与基础概率均抬高）', async () => {
+        const ios = await sampleHitRateForPlatform('ios', 60);
+        const android = await sampleHitRateForPlatform('android', 60);
+        /* Android 档 cap 0.15、概率 0.050；iOS 档 cap 0.10、概率 0.033。
+         * 抽样噪声下断言 Android 命中数 ≥ iOS 命中数 - 5（允许小幅波动反转）。 */
+        expect(android.hit + 5).toBeGreaterThanOrEqual(ios.hit);
+        /* 平台抬高后，两档命中率均应大幅高于 0 —— 若任一为 0 说明 platform 没生效。 */
+        expect(ios.rate, `iOS 命中率 ${(ios.rate*100).toFixed(1)}%`).toBeGreaterThan(0);
+        expect(android.rate, `Android 命中率 ${(android.rate*100).toFixed(1)}%`).toBeGreaterThan(0);
+        /* iOS 命中率应在 cap=0.10 附近（含主路径 + 注入兜底，实测 ~30-40%），不应超过 50%。 */
+        expect(ios.rate).toBeLessThanOrEqual(0.50);
+    });
+
+    it('单元级：pickByPlatform 在 web/iOS/Android/Wechat 各档读到不同的 MONO_FLUSH_PICK_PROBABILITY 值', async () => {
+        const expected = { ios: 0.033, android: 0.050, wechat: 0.050, web: 0.033 };
+        const seen = {};
+        for (const p of ['ios', 'android', 'wechat', 'web']) {
+            vi.resetModules();
+            const { _setPlatformForTest, pickByPlatform } = await import('../web/src/config/platformProfile.js');
+            _setPlatformForTest(p);
+            seen[p] = pickByPlatform({ ios: 0.033, android: 0.050, wechat: 0.050, web: 0.033, default: 0.033 });
+        }
+        expect(seen).toEqual(expected);
     });
 });

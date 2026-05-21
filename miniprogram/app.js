@@ -9,6 +9,12 @@ const { installLocalStorageShim } = require('./adapters/storageShim');
  * 持久化，避免在每个模块里手写 wx.*StorageSync 适配。 */
 installLocalStorageShim();
 
+/* v1.60.45：显式声明平台为微信小程序。
+ * 让 core/config/platformProfile.js getPlatform() 优先识别为 'wechat'，
+ * 而非 navigator.userAgent 兜底（小程序环境 UA 可能未定义或不可靠）。
+ * 留存策略按平台分发（monoFlush 概率 / 复活上限 / multiClearBonus 底值）依赖此识别。 */
+try { globalThis.__OPENBLOCK_PLATFORM__ = 'wechat'; } catch { /* ignore */ }
+
 App({
   globalData: {
     strategyId: 'normal',

@@ -1826,7 +1826,14 @@ if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
 
 ---
 
-### 10.7 形状池扩展（v1.60.0 → v1.60.44：独立库事件注入系统）
+### 10.7 形状池扩展（v1.60.0 → v1.60.45：独立库事件注入系统）
+
+> **v1.60.45 留存数据驱动的平台分化**：Android/微信小程序档 `MONO_FLUSH_PICK_PROBABILITY`
+> 由 0.033 → **0.050**（+50%）、cap 0.10 → **0.15**；`multiClearBonus` Android 抬底 **0.15**；
+> iOS / web 维持现状。数据依据见
+> [留存信号跨平台分析 §2.2 / §4.2](../operations/RETENTION_SIGNALS_CROSS_PLATFORM.md#22-爽感时刻android-r-全面碾压-ios)。
+> 落地实施清单：[留存优化快赢清单 §2 / §3](../operations/RETENTION_QUICK_WINS.md#2-mono_flush_pick_probability-平台化android-combo-爽感加强)。
+
 
 #### 设计目标
 

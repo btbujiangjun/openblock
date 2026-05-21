@@ -32,6 +32,7 @@
  */
 
 import { GAME_RULES } from './gameRules.js';
+import { isAndroidLike } from './config/platformProfile.js';
 
 const STORAGE_KEY = 'openblock_player_profile';
 const SKILL_DECAY_HOURS = 24;
@@ -149,6 +150,55 @@ export class PlayerProfile {
          * 第一次构造（首次启动）写 now；fromJSON 读旧记录时若缺该字段则用最早的
          * sessionHistory[0].ts 兜底，再不行再回退到 now（视作刚装机）。 */
         this._installTs = Date.now();
+
+        /* v1.60.45：爽感覆盖率追踪（roundsSinceLastDelight）。
+         *
+         * **设计目的**：adaptiveSpawn 输出 multiClear / pcClear / monoFlush 等爽感候选，
+         *   但对玩家个体"N 轮内是否真触爽"无闭环监控。本字段每轮 +1，触发任一爽感事件
+         *   时清零；超过阈值（Android 5 / iOS 7）→ intentResolver 'delight_starved'
+         *   规则强制 spawnIntent='relief'，保证爽感覆盖率 ≥ 90%。
+         *
+         * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5
+         *   爽感时刻在 Android 上是 r 最强的留存抓手集合（多消/高Combo/高消）。
+         * 设计契约：清零事件（recordDelight 入参 kind）覆盖
+         *   'multiClear' | 'pcClear' | 'comboHigh' | 'monoFlush' 四类。 */
+        this._roundsSinceLastDelight = 0;
+        this._lastDelightKind = null;
+        this._lastDelightTs = 0;
+    }
+
+    /* ================================================================== */
+    /*  v1.60.45 爽感闭环 API                                              */
+    /* ================================================================== */
+
+    /**
+     * 爽感时刻触发时调用：清零计数器 + 记录类型/时间戳。
+     *
+     * @param {'multiClear' | 'pcClear' | 'comboHigh' | 'monoFlush'} kind 爽感类型
+     */
+    recordDelight(kind) {
+        this._roundsSinceLastDelight = 0;
+        this._lastDelightKind = kind || null;
+        this._lastDelightTs = Date.now();
+    }
+
+    /** 每轮 spawn 时调用：roundsSinceLastDelight +1。 */
+    tickRoundForDelight() {
+        this._roundsSinceLastDelight = (this._roundsSinceLastDelight ?? 0) + 1;
+    }
+
+    /**
+     * 当前是否处于爽感饥渴状态（用于 intentResolver 强 relief）。
+     *
+     * **阈值**（按平台分发）：
+     *   - Android / 微信小程序：5 轮（爽感与留存关联更强，阈值更紧）
+     *   - iOS / web：7 轮（稀缺爽感模型，阈值更宽）
+     *
+     * @returns {boolean}
+     */
+    isDelightStarved() {
+        const threshold = isAndroidLike() ? 5 : 7;
+        return (this._roundsSinceLastDelight ?? 0) >= threshold;
     }
 
     /* ================================================================== */

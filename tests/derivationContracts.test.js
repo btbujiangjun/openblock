@@ -252,8 +252,11 @@ describe('v1.58 §2 intentResolver: 矩阵 + trace + overrides', () => {
         expect(text).toContain('engage');
     });
 
-    it('INTENT_IDS 与 stressMeter.SPAWN_INTENT_NARRATIVE 同源 7 项', () => {
-        const expected = ['relief', 'engage', 'harvest', 'pressure', 'sprint', 'flow', 'maintain'];
+    it('INTENT_IDS 与 stressMeter.SPAWN_INTENT_NARRATIVE 同源 8 项（v1.60.45 新增 delight_starved）', () => {
+        /* v1.60.45：新增 'delight_starved' 规则（spawnIntent 仍映射到 'relief'）。
+         * 其作为 rule id 出现在 trace，但 spawnIntent enum 仍是 7 项（unchanged）——
+         * 由 resolveIntent.spawnIntent 字段单独承接映射，保证下游 narrative 表无需扩 8 项。 */
+        const expected = ['relief', 'delight_starved', 'engage', 'harvest', 'pressure', 'sprint', 'flow', 'maintain'];
         expect(INTENT_IDS.slice().sort()).toEqual(expected.sort());
     });
 });

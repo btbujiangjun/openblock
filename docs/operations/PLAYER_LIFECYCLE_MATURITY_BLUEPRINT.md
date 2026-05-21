@@ -19,6 +19,7 @@
 | 增长护栏 | D1 留存 | ≥ 45% |
 | 习惯护栏 | D7 留存 | ≥ 20% |
 | 商业化护栏 | IAP + IAA 双轮 | IAA ARPDAU 不下滑且 IAP 转化率 ≥ 行业基准 |
+| **体验护栏（v1.60.45 新增）** | **爽感覆盖率（7d）** | **≥ 75%**（触发任一 multiClear / pcClear / monoFlush / comboHigh 的 DAU 占比；数据来源见 [跨平台分析 §4.5](./RETENTION_SIGNALS_CROSS_PLATFORM.md#45-p1-共性--爽感监控闭环roundssincelastdelight)） |
 
 护栏意味着：任何提升一个指标的实验，必须在另外三个指标上**不显著负向**（≤ 95%
 置信度负向变化）。

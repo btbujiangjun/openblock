@@ -3022,6 +3022,23 @@ def ops_dashboard():
         item_consumption_per_user = _safe_div(item_use, active_users, 4)
         achievement_completion_rate = _safe_div(ach_count, active_users, 4)
 
+        # ── v1.60.45：爽感覆盖率 ──
+        # 「爽感时刻」= 任一 multi_clear / perfect_clear / combo_high / mono_flush 事件。
+        # 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.2 / §4.5。
+        # 公式：触发过任一爽感的去重用户数 ÷ 同窗口总活跃去重用户数；目标 ≥ 75%。
+        # 用 IN 而非多次 LEFT JOIN，避免在大表上扫描多次；event_type 已有索引。
+        delight_user_row = db.execute(
+            """
+            SELECT COUNT(DISTINCT user_id) AS cnt FROM behaviors
+            WHERE timestamp >= ?
+              AND event_type IN ('multi_clear','perfect_clear','combo_high','mono_flush')
+            """,
+            (since_ts,),
+        ).fetchone()
+        delight_users = delight_user_row["cnt"] if delight_user_row else 0
+        delight_coverage_rate = _safe_div(delight_users, active_users, 4)
+        delight_coverage_threshold = 0.75
+
         # ── 玩家访问记录（近窗口） ──
         visit_sql = [
             """
@@ -3124,6 +3141,12 @@ def ops_dashboard():
                         "crashRate": crash_rate,
                         "jankRate": jank_rate,
                         "avgLoadMs": avg_load_ms,
+                    },
+                    # v1.60.45：爽感覆盖率 —— 与 RETENTION_QUICK_WINS §8 一一对应。
+                    "delight": {
+                        "coverageRate": delight_coverage_rate,
+                        "threshold": delight_coverage_threshold,
+                        "delightUsers": delight_users,
                     },
                 },
                 "businessMetrics": {

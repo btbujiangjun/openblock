@@ -80,7 +80,14 @@ import {
     getBestByStrategy,
     submitScoreToBucket,
     submitPeriodBest,
+    /* v1.60.45：PB 跨局保护链——突破时记录时间戳，下一局开始可派生次级目标。 */
+    notePbBreak,
 } from './bestScoreBuckets.js';
+/* v1.60.45 §10：Android / 微信小程序"每日高分挑战"任务系统；iOS / web 平台 noop。 */
+import {
+    noteHighScore as noteDailyChallengeHighScore,
+    computeHighScoreThreshold,
+} from './retention/dailyChallengePlaybook.js';
 import { LevelManager } from './level/levelManager.js';
 import { ClearRuleEngine, RowColRule } from './clearRules.js';
 import { notePopupShown } from './popupCoordinator.js';
@@ -1462,6 +1469,26 @@ export class Game {
      * @param {{ logSpawn?: boolean, checkGameOver?: boolean }} [opts] logSpawn 默认 true；开局重试时 false，由 start 末尾统一记一条 spawn
      */
     spawnBlocks(opts = {}) {
+        /* v1.60.45：复活后救济（_postReviveBoost）—— 注入到 ctx，让 adaptiveSpawn
+         * 内部 forceReliefIntent 路径接管，spawnIntent 强制 = 'relief'。
+         * 每次 spawn 消费一次（ttlRounds −1），归零后清空标记。 */
+        const reviveBoost = this._postReviveBoost;
+        let reviveBoostActive = false;
+        if (reviveBoost && (reviveBoost.ttlRounds | 0) > 0) {
+            reviveBoostActive = true;
+            this._spawnContext.forceReliefIntent = true;
+            this._spawnContext.minClearGuarantee = Math.max(
+                this._spawnContext.minClearGuarantee ?? 0,
+                reviveBoost.clearGuarantee ?? 3
+            );
+            reviveBoost.ttlRounds--;
+            if (reviveBoost.ttlRounds <= 0) this._postReviveBoost = null;
+        } else if (this._spawnContext.forceReliefIntent || this._spawnContext.minClearGuarantee) {
+            /* TTL 已耗 → 清旧标记，避免长尾污染下游 spawn */
+            this._spawnContext.forceReliefIntent = false;
+            this._spawnContext.minClearGuarantee = 0;
+        }
+
         const layered = resolveAdaptiveStrategy(
             this.strategy, this.playerProfile, this.score, this.runStreak,
             this.grid.getFillRatio(), {
@@ -1472,6 +1499,14 @@ export class Game {
                     .map((b) => ({ data: b.shape }))
             }
         );
+
+        /* v1.60.45：复活救济期 spawnHints.clearGuarantee 兜底（adaptiveSpawn 可能算出更低值） */
+        if (reviveBoostActive && layered?.spawnHints) {
+            layered.spawnHints.clearGuarantee = Math.max(
+                layered.spawnHints.clearGuarantee ?? 0,
+                this._spawnContext.minClearGuarantee ?? 0
+            );
+        }
         this._captureAdaptiveInsight(layered);
 
         /* v1.55.16：桥接 spawnHints.scoreMilestone → _spawnContext.scoreMilestone。
@@ -1608,6 +1643,9 @@ export class Game {
         this._spawnContext.scoreMilestone = false;
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
+        /* v1.60.45：每轮 spawn 计数 roundsSinceLastDelight +1。
+         * 超阈值时 next spawn 的 _intentInputs 携带 delightStarved=true → 触发强 relief。 */
+        this.playerProfile.tickRoundForDelight?.();
         /* v1.55.17：用 raw 域写入，保持 smoothStress 步长（maxStepUp/Down）单位一致 */
         this._spawnContext.prevAdaptiveStress = layered._adaptiveStressRaw;
         /* v1.30：新一波 dock 起始，重置上一周期的瓶颈低谷统计 */
@@ -2261,6 +2299,34 @@ export class Game {
                 this._spawnContext.lastClearCount = result.count;
                 this._spawnContext.roundsSinceClear = 0;
                 this.playClearEffect(result);
+
+                /* v1.60.45：爽感事件 → 清零 roundsSinceLastDelight + 打点到 behaviors 表
+                 * （server.py /api/ops/dashboard 聚合"爽感覆盖率"用）。
+                 *
+                 * 触发分类（与 docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5 一致）：
+                 *   - 完美清屏 → 'pcClear'（最强）
+                 *   - 多消 ≥ 2 → 'multiClear'
+                 *   - 单消若 monoFlush 命中 → 'monoFlush'（次级，由 bonusLines 判定）
+                 * Combo 高度（comboHigh ≥ 4）单独在 playClearEffect 触发，避免重复打标。 */
+                let delightKind = null;
+                let delightEvent = null;
+                if (result.perfectClear) {
+                    delightKind = 'pcClear';
+                    delightEvent = GAME_EVENTS.PERFECT_CLEAR;
+                } else if (result.count >= 2) {
+                    delightKind = 'multiClear';
+                    delightEvent = GAME_EVENTS.MULTI_CLEAR;
+                } else if ((result.bonusLines || []).some(b => b?.kind === 'monoFlush' || b?.iconBonus >= 5)) {
+                    delightKind = 'monoFlush';
+                    delightEvent = GAME_EVENTS.MONO_FLUSH;
+                }
+                if (delightKind) this.playerProfile.recordDelight?.(delightKind);
+                if (delightEvent) {
+                    this.logBehavior(delightEvent, {
+                        lines: result.count,
+                        perfectClear: !!result.perfectClear,
+                    });
+                }
             } else {
                 this._spawnContext.lastClearCount = 0;
                 this._clearStreak = 0;
@@ -2349,6 +2415,14 @@ export class Game {
 
         this.isAnimating = true;
         this._clearStreak++;
+
+        /* v1.60.45：comboHigh ≥ 4 → 爽感事件（'comboHigh' kind）+ 行为打点。
+         * 与 result.count / perfectClear 路径互补（前一处处理 pcClear / multiClear / monoFlush），
+         * 这里处理连续消行高度——单局任意 4+ 连击都触发清零。 */
+        if (this._clearStreak >= 4) {
+            this.playerProfile.recordDelight?.('comboHigh');
+            this.logBehavior(GAME_EVENTS.COMBO_HIGH, { combo: this._clearStreak });
+        }
 
         const bonusLines = result.bonusLines || [];
         const bonusCount = bonusLines.length;
@@ -2847,7 +2921,32 @@ export class Game {
                  * 不影响 normal PB；同时即便没破账号 PB 也可能破"周冠"。
                  * 写入失败（localStorage 不可用）被 bestScoreBuckets 模块吞掉。 */
                 try {
-                    submitScoreToBucket(this.strategy, this.score);
+                    const bucketResult = submitScoreToBucket(this.strategy, this.score);
+                    /* v1.60.45 §7：分桶 PB 真正突破 → 记录 PB 突破时间戳，供跨局保护链消费。 */
+                    if (bucketResult?.updated) {
+                        try { notePbBreak(this.score, this.strategy); } catch { /* ignore */ }
+                    }
+                    /* v1.60.45 §10：Android / 微信小程序"每日高分挑战"——
+                     * 本局得分 ≥ 个人 P50 中位数 × 0.95 → 触发 noteHighScore。
+                     * iOS / web 平台 isEnabled()=false → noop（稀缺爽感模型不引入频次激励）。 */
+                    try {
+                        const sessionScores = (this.playerProfile._sessionHistory || [])
+                            .map(s => Number(s?.score) || 0);
+                        const threshold = computeHighScoreThreshold(sessionScores);
+                        if (threshold > 0 && this.score >= threshold) {
+                            const dc = noteDailyChallengeHighScore();
+                            if (dc?.reward) {
+                                this.logBehavior?.('daily_challenge_reward', {
+                                    daily: true, reward: dc.reward,
+                                });
+                            }
+                            if (dc?.weeklyReward) {
+                                this.logBehavior?.('daily_challenge_reward', {
+                                    weekly: true, reward: dc.weeklyReward,
+                                });
+                            }
+                        }
+                    } catch { /* ignore */ }
                     const periodResult = submitPeriodBest(this.score);
                     if (periodResult.weeklyUpdated || periodResult.monthlyUpdated) {
                         try {

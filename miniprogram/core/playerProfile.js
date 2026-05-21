@@ -32,6 +32,7 @@
  */
 
 const { GAME_RULES } = require('./gameRules');
+const { isAndroidLike } = require('./config/platformProfile');
 
 const STORAGE_KEY = 'openblock_player_profile';
 const SKILL_DECAY_HOURS = 24;
@@ -149,6 +150,30 @@ class PlayerProfile {
          * 第一次构造（首次启动）写 now；fromJSON 读旧记录时若缺该字段则用最早的
          * sessionHistory[0].ts 兜底，再不行再回退到 now（视作刚装机）。 */
         this._installTs = Date.now();
+
+        /* v1.60.45：爽感覆盖率追踪——与 web/src/playerProfile.js 镜像。
+         * 详见 web 版同段注释 + docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5。 */
+        this._roundsSinceLastDelight = 0;
+        this._lastDelightKind = null;
+        this._lastDelightTs = 0;
+    }
+
+    /** v1.60.45：爽感事件触发，清零计数器 */
+    recordDelight(kind) {
+        this._roundsSinceLastDelight = 0;
+        this._lastDelightKind = kind || null;
+        this._lastDelightTs = Date.now();
+    }
+
+    /** v1.60.45：每轮 spawn 计数 +1 */
+    tickRoundForDelight() {
+        this._roundsSinceLastDelight = (this._roundsSinceLastDelight ?? 0) + 1;
+    }
+
+    /** v1.60.45：是否处于爽感饥渴状态（Android/微信 5 轮 / iOS 7 轮） */
+    isDelightStarved() {
+        const threshold = isAndroidLike() ? 5 : 7;
+        return (this._roundsSinceLastDelight ?? 0) >= threshold;
     }
 
     /* ================================================================== */

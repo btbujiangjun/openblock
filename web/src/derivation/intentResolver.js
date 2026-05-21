@@ -97,6 +97,31 @@ export const INTENT_RULES = [
         },
     },
     {
+        /* v1.60.45：爽感饥渴 → 强制 relief（rule id 是 'delight_starved'，
+         * spawnIntent 映射为 'relief'，让下游 adaptiveSpawn / blockSpawn 按 relief 出块）。
+         *
+         * **设计动机**（docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5）：
+         *   adaptiveSpawn 输出爽感候选，但对玩家"是否真触爽"无闭环监控。本规则补齐：
+         *   连续 N 轮（Android 5 / iOS 7）无 multiClear / pcClear / monoFlush 命中 →
+         *   playerProfile.isDelightStarved() === true → 强制 relief 让位多消/小块。
+         *
+         * **与 'relief' 主规则关系**：
+         *   - 'relief'         基于"挫败信号"（playerDistress / forceReliefIntent）
+         *   - 'delight_starved' 基于"长期无爽感"的运营观测
+         *   - 两者都映射到 spawnIntent='relief'，但 rule id 不同——trace 可区分归因
+         *
+         * priority=95 介于 relief(100) 与 engage(90) 之间：挫败信号优先于爽感饥渴；
+         * 爽感饥渴优先于 AFK 召回（爽感缺失比"暂时没操作"更重要）。 */
+        id: 'delight_starved',
+        priority: 95,
+        spawnIntent: 'relief',
+        guard: (s) => !!s.delightStarved,
+        reason: (s) => {
+            const n = Number(s.roundsSinceLastDelight) || 0;
+            return `delightStarved=true（连续 ${n} 轮无 multiClear/pcClear/monoFlush）`;
+        },
+    },
+    {
         id: 'engage',
         priority: 90,
         guard: (s) => !!s.afkEngageActive,
@@ -211,6 +236,11 @@ export function resolveIntent(inputs = {}) {
 
     return {
         intent: winner ? winner.id : 'maintain',
+        /* v1.60.45：spawnIntent 是下游 adaptiveSpawn / blockSpawn 真正消费的
+         * 意图字段。多数规则 spawnIntent = rule.id（默认行为不变）；少数规则
+         * （如 'delight_starved' → 'relief'）走映射后值，避免在下游每个消费方
+         * 都重复写 `intent === 'delight_starved' || intent === 'relief'`。 */
+        spawnIntent: winner ? (winner.spawnIntent ?? winner.id) : 'maintain',
         trace,
         overrides,
     };

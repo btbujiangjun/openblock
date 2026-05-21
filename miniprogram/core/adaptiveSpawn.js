@@ -36,6 +36,7 @@
 
 const { getStrategy } = require('./config');
 const { GAME_RULES } = require('./gameRules');
+const { pickByPlatform } = require('./config/platformProfile');
 const {
     getSpawnStressFromScore,
     getRunDifficultyModifiers,
@@ -253,6 +254,7 @@ function deriveSpawnIntent(inputs = {}) {
     const {
         playerDistress = 0,
         forceReliefIntent = false,
+        delightStarved = false,   // v1.60.45：与 web 版镜像
         afkEngageActive = false,
         challengeBoost = 0,
         delightMode = null,
@@ -274,6 +276,7 @@ function deriveSpawnIntent(inputs = {}) {
     const sprintMax = Number.isFinite(sprintCfg?.maxStress) ? sprintCfg.maxStress : 0.55;
 
     if (playerDistress < -0.10 || delightMode === 'relief' || forceReliefIntent) return 'relief';
+    if (delightStarved) return 'relief';   // v1.60.45：爽感饥渴 → 强 relief
     if (afkEngageActive) return 'engage';
     if (harvestable) return 'harvest';
     if (challengeBoost > 0 || (delightMode === 'challenge_payoff' && stress >= 0.55)) return 'pressure';
@@ -1718,6 +1721,20 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         delight.multiClearBoost
     );
 
+    /* v1.60.45：Android / 微信小程序档 multiClearBonus 抬底 0.15
+     * （详见 web/src/adaptiveSpawn.js 同段注释 + docs/operations/
+     *  RETENTION_SIGNALS_CROSS_PLATFORM.md §2.2 / §4.2）。 */
+    const platformMultiClearFloor = pickByPlatform({
+        ios:     0,
+        android: 0.15,
+        wechat:  0.15,
+        web:     0,
+        default: 0,
+    });
+    if (platformMultiClearFloor > 0) {
+        multiClearBonus = Math.max(multiClearBonus, platformMultiClearFloor);
+    }
+
     /* --- Layer 2: 节奏相位 + 多线目标 --- */
     let rhythmPhase = deriveRhythmPhase(profile, ctx, _boardFill ?? 0);
     let multiLineTarget = deriveMultiLineTarget(ctx, _boardFill ?? 0);
@@ -2255,6 +2272,11 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const _intentInputs = {
         playerDistress,
         forceReliefIntent,
+        /* v1.60.45：爽感饥渴（profile.isDelightStarved()）—— 与 web 版镜像。 */
+        delightStarved: typeof profile?.isDelightStarved === 'function'
+            ? profile.isDelightStarved()
+            : false,
+        roundsSinceLastDelight: profile?._roundsSinceLastDelight ?? 0,
         abovePb,                                   // v1.60.37：供 DFV lateCollapse chip 豁免诊断
         afkEngageActive,
         challengeBoost: stressBreakdown.challengeBoost ?? 0,
