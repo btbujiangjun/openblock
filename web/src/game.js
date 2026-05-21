@@ -838,6 +838,33 @@ export class Game {
             /* 再补一帧 rAF 二次重绘：覆盖任何在 flushRender 之后才完成的
              * DOM 布局变化（如 ResizeObserver / skin-transition overlay 淡出）。 */
             this.markDirty();
+
+            /* v1.60.50 根因修复（清缓存后切换皮肤 board 仍显旧皮肤）：
+             *
+             * 竞态链：skinTransition 的 apply()（写 localStorage + _emitAfterApply）
+             * 在用户点击 300ms 后才执行。_startAmbientFxLoop 的 tick 循环在此 300ms
+             * 内持续触发 markDirty()；每帧 render() 里 getActiveSkin() 读到的还是旧
+             * skin（localStorage 尚未更新），将 board 覆写成旧皮肤颜色/图标。
+             * 当 apply() 终于执行时，flushRender() 画对了，但 ambient tick 仍会在
+             * 极短的时间窗内再次 markDirty() 调起一帧旧皮肤 render，随后游戏进入
+             * 静止状态——board 就停在旧皮肤上了（dock 因 refreshDockSkin 同步重绘
+             * 在 apply() 之后所以正确）。
+             *
+             * 修复策略：在 apply() 完成后额外延迟两次重绘：
+             *   +350ms — skinTransition 覆层正在淡出（0.85→0 历时 300ms），此时补
+             *            markDirty 确保覆层淡出过程中用户能看到正确的 board。
+             *   +680ms — 覆层已完全消失（halfDelay 300ms + rAF + fade 300ms + buffer）；
+             *            做一次 flushRender 同步终态重绘，彻底覆盖任何残留的旧皮肤帧。
+             */
+            setTimeout(() => {
+                try { this.markDirty(); } catch { /* ignore */ }
+            }, 350);
+            setTimeout(() => {
+                try {
+                    this.renderer?.markBackgroundDirty?.();
+                    this.flushRender();
+                } catch { /* ignore */ }
+            }, 680);
         });
 
         document.addEventListener('mousemove', e => this.onMove(e));
