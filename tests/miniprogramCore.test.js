@@ -286,4 +286,86 @@ describe('miniprogram core parity', () => {
     r.addClearBurst([{ x: 0, y: 0, color: 0 }], 8, 30);
     expect(r.particles.length).toBeGreaterThan(lowCount);
   });
+
+  /**
+   * v1.60.46：spawn fallback 不应一次性给出 3 个 special 块。
+   *
+   * 用户截图复盘：iOS 小程序 dock 出现 1×2 + 2×1 + 1×3 三连 special——
+   * 与 §10.7 "12 个特殊小块仅由 _tryInjectSpecial 事件注入" 契约相违。
+   * 根因：旧版 _spawnDock fallback 使用 getAllShapes() 包含全部 40 个形状
+   * （含 12 special）。修正为 getRegularShapes() + isSpecialShapeId 双校验。
+   */
+  it('v1.60.46 — _spawnDock fallback 永不返回 special 形状（getRegularShapes 路径）', () => {
+    const { isSpecialShapeId } = requireCjs('../miniprogram/core/shapes.js');
+    /* 50 次随机初始化 → 校验每次 dock 三块均为 regular */
+    for (let trial = 0; trial < 50; trial++) {
+      const game = new GameController('normal');
+      expect(game.dock).toHaveLength(3);
+      for (const slot of game.dock) {
+        expect(isSpecialShapeId(slot.id), `trial ${trial} 出现 special: ${slot.id}`).toBe(false);
+      }
+    }
+  });
+
+  /**
+   * v1.60.46：progression（XP / 等级 / 称号）镜像 web。
+   * 验证 loadProgress → getLevelProgress → titleForLevel 全链路可用。
+   */
+  it('v1.60.46 — progression 镜像：getLevelFromTotalXp / titleForLevel 公式与 web 一致', () => {
+    const {
+      getLevelFromTotalXp,
+      getLevelProgress,
+      titleForLevel,
+    } = requireCjs('../miniprogram/core/progression.js');
+
+    /* 公式 Lv = 1 + floor(sqrt(xp / 100)) */
+    expect(getLevelFromTotalXp(0)).toBe(1);
+    expect(getLevelFromTotalXp(99)).toBe(1);
+    expect(getLevelFromTotalXp(100)).toBe(2);
+    expect(getLevelFromTotalXp(400)).toBe(3);
+    expect(getLevelFromTotalXp(900)).toBe(4);
+
+    const p = getLevelProgress(150);
+    expect(p.level).toBe(2);
+    expect(p.levelStartXp).toBe(100);
+    expect(p.nextLevelXp).toBe(400);
+    expect(p.frac).toBeCloseTo((150 - 100) / 300, 3);
+
+    /* 称号 6 档（与 web titleForLevel 完全一致） */
+    expect(titleForLevel(1)).toBe('新手');
+    expect(titleForLevel(5)).toBe('学徒');
+    expect(titleForLevel(10)).toBe('熟练');
+    expect(titleForLevel(20)).toBe('高手');
+    expect(titleForLevel(35)).toBe('大师');
+    expect(titleForLevel(50)).toBe('传奇');
+    expect(titleForLevel(99)).toBe('传奇');
+  });
+
+  /**
+   * v1.60.46：playerProfile 爽感闭环已镜像（v1.60.45 §5 web → miniprogram）。
+   * gameController 在 _spawnDock 后 tickRoundForDelight；在 multi/pcClear 等触发时 recordDelight。
+   */
+  it('v1.60.46 — gameController tickRoundForDelight 自动累加；isDelightStarved 阈值 5 / 7', () => {
+    const game = new GameController('normal');
+    const profile = game._profile;
+    /* GameController 构造 → reset → _initPlayableBoard → _spawnDock 会触发首次 tickRoundForDelight，
+     * 故 _roundsSinceLastDelight 已 ≥ 1。下方测试用显式 reset 验证累加 + 饥渴阈值。 */
+    expect(profile._roundsSinceLastDelight).toBeGreaterThanOrEqual(1);
+
+    const { _setPlatformForTest } = requireCjs('../miniprogram/core/config/platformProfile.js');
+    _setPlatformForTest('android');
+    try {
+      profile._roundsSinceLastDelight = 0;
+      for (let i = 0; i < 4; i++) profile.tickRoundForDelight();
+      expect(profile.isDelightStarved()).toBe(false);
+      profile.tickRoundForDelight();
+      expect(profile.isDelightStarved()).toBe(true);
+
+      profile.recordDelight('multiClear');
+      expect(profile._roundsSinceLastDelight).toBe(0);
+      expect(profile.isDelightStarved()).toBe(false);
+    } finally {
+      _setPlatformForTest(null);
+    }
+  });
 });

@@ -8,7 +8,7 @@
  */
 
 const { Grid } = require('../core/grid');
-const { getAllShapes, getShapeCategory } = require('../core/shapes');
+const { getAllShapes, getRegularShapes, getShapeCategory, isSpecialShapeId } = require('../core/shapes');
 const { getStrategy } = require('../core/config');
 const {
   computeClearScore,
@@ -103,13 +103,19 @@ class GameController {
   }
 
   _spawnDock({ ensureMove = false } = {}) {
-    const allShapes = getAllShapes();
     const layered = this._resolveSpawnStrategy();
     let shapes = generateDockShapes(this.grid, layered, this._spawnContext);
     const valid = validateSpawnTriplet(this.grid, shapes, { searchBudget: 14000 });
     if (!valid.ok || (ensureMove && !shapes.some((s) => this.grid.canPlaceAnywhere(s.data)))) {
-      const fallback = allShapes.filter((s) => this.grid.canPlaceAnywhere(s.data)).slice(0, 3);
-      shapes = fallback.length >= 3 ? fallback : allShapes.slice(0, 3);
+      /* v1.60.46：fallback 必须使用 getRegularShapes()——12 个 special 小块
+       * （1x2 / 2x1 / 1x3 / 3x1 / l3-a..d / diag-2a..3b）按 §10.7 契约仅由
+       * _tryInjectSpecial 事件注入产出；fallback 一次性可能给出 3 个 special
+       * 块违反契约（用户截图复盘：dock 出现 1×2 + 2×1 + 1×3 三连 special，
+       * 与玩家心智不符）。
+       * 同时校验 isSpecialShapeId 兜底——即便 getRegularShapes 实现漂移也守住。 */
+      const pool = getRegularShapes().filter((s) => !isSpecialShapeId(s.id));
+      const fallback = pool.filter((s) => this.grid.canPlaceAnywhere(s.data)).slice(0, 3);
+      shapes = fallback.length >= 3 ? fallback : pool.slice(0, 3);
     }
 
     const iconBonusTarget = Math.max(0, Math.min(1, layered.spawnHints?.iconBonusTarget ?? 0));
@@ -158,6 +164,12 @@ class GameController {
     this._commitSpawnContext(layered);
     if (this._profile && typeof this._profile.recordSpawn === 'function') {
       this._profile.recordSpawn();
+    }
+    /* v1.60.45：每轮 spawn 计数 roundsSinceLastDelight +1。
+     * 超阈值（Android/微信 5 轮 / iOS 7 轮）→ next spawn 的 _intentInputs
+     * 携带 delightStarved=true → adaptiveSpawn 强 relief，与 web 端镜像。 */
+    if (this._profile && typeof this._profile.tickRoundForDelight === 'function') {
+      this._profile.tickRoundForDelight();
     }
   }
 
@@ -282,6 +294,24 @@ class GameController {
       gain = clearScore;
       this.score += gain;
       vibrateShort();
+
+      /* v1.60.45：爽感事件 → 清零 roundsSinceLastDelight（与 web 端镜像，
+       * 数据依据 docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5）。
+       *   - 完美清屏 → 'pcClear'（最强）
+       *   - 多消 ≥ 2 → 'multiClear'
+       *   - 单消但 monoFlush 命中 → 'monoFlush'
+       *   - 高 Combo（≥ 4 连击）→ 'comboHigh' */
+      if (this._profile && typeof this._profile.recordDelight === 'function') {
+        let kind = null;
+        if (result.perfectClear) kind = 'pcClear';
+        else if (clears >= 2) kind = 'multiClear';
+        else if ((result.bonusLines || []).some((b) => b?.kind === 'monoFlush' || (b?.iconBonus || 0) >= 5)) {
+          kind = 'monoFlush';
+        }
+        if (kind) this._profile.recordDelight(kind);
+        if (this._maxCombo >= 4) this._profile.recordDelight('comboHigh');
+      }
+
       this.onLineClear({
         clears,
         gain,

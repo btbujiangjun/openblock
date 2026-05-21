@@ -1,15 +1,38 @@
 <!--
   Open Block 微信小程序 — 游戏页面
   Canvas 2D 绘制棋盘 + touch 事件驱动拖拽放置
-  顶栏与 web score-theme-row 对齐：四栏三行栅格（得分 / 步数 / 消行 / 最佳）
+  v1.60.46 顶栏对齐 web `.header header--title-only` + `.score-theme-row`：
+    - 第 1 行：app-wordmark 字标（Open Block 文字 LOGO）
+    - 第 2 行：能力（Lv.N + 称号）/ 得分 / 最佳 / 步数 / 消行 + 右上角快捷开关
 -->
 <view class="game-page" style="{{pageStyle}}" catchtouchmove="onDockTouchMove" catchtouchend="onDockTouchEnd">
 
+  <!-- v1.60.46：与 web index.html .header--title-only 一致——文字 LOGO 优先 -->
+  <view class="header header--title-only">
+    <text class="app-wordmark">Open Block</text>
+  </view>
+
   <view class="score-theme-row">
+    <!-- v1.60.46：能力（Lv.N + 称号）列；progression 共用 web localStorage key -->
+    <view class="stat-box header-level">
+      <text class="stat-label">{{text.ability}}</text>
+      <view class="header-level-val">
+        <text class="progression-level">Lv.{{level}}</text>
+        <text class="progression-title">{{levelTitle}}</text>
+      </view>
+      <text wx:if="{{streakVisible}}" class="stat-subline progression-streak">{{streakText}}</text>
+      <view wx:if="{{!streakVisible}}" class="stat-subline stat-subline--spacer"></view>
+    </view>
     <view class="stat-box">
       <text class="stat-label">{{text.score}}</text>
       <text class="stat-value stat-value--accent score-burst {{scoreBurstClass}}">{{score}}</text>
       <view class="stat-subline stat-subline--spacer"></view>
+    </view>
+    <view class="stat-box stat-box--best">
+      <text class="stat-label">{{text.best}}</text>
+      <text class="stat-value stat-value--accent">{{bestScore}}</text>
+      <text wx:if="{{bestGapVisible}}" class="stat-subline best-gap">{{bestGapText}}</text>
+      <view wx:if="{{!bestGapVisible}}" class="stat-subline stat-subline--spacer"></view>
     </view>
     <view class="stat-box">
       <text class="stat-label">{{text.steps}}</text>
@@ -20,12 +43,6 @@
       <text class="stat-label">{{text.clears}}</text>
       <text class="stat-value">{{totalClears}}</text>
       <view class="stat-subline stat-subline--spacer"></view>
-    </view>
-    <view class="stat-box stat-box--best">
-      <text class="stat-label">{{text.best}}</text>
-      <text class="stat-value stat-value--accent">{{bestScore}}</text>
-      <text wx:if="{{bestGapVisible}}" class="stat-subline best-gap">{{bestGapText}}</text>
-      <view wx:if="{{!bestGapVisible}}" class="stat-subline stat-subline--spacer"></view>
     </view>
     <view class="fx-toolbar">
       <view

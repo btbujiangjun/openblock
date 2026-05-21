@@ -14,6 +14,28 @@
     linear-gradient(180deg, #f7fbff 0%, #eef6f3 48%, #e8f0ff 100%);
 }
 
+/* --- v1.60.46 字标头：对齐 web .header--title-only --- */
+.header {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  padding: 10rpx 0 4rpx;
+  box-sizing: border-box;
+}
+
+.app-wordmark {
+  font-size: 36rpx;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: #233044;
+  text-shadow:
+    0 1rpx 0 rgba(255, 255, 255, 0.72),
+    0 0 24rpx rgba(90, 212, 135, 0.18);
+  /* 与 web 字标视觉相近：金色高光的轻描边 + 主题点亮感 */
+}
+
 /* --- 顶栏：与 web .score-theme-row 一致的三行栅格 + 胶囊条 --- */
 .score-theme-row {
   display: flex;
@@ -70,7 +92,10 @@
 }
 
 .score-theme-row .stat-value {
-  font-size: 40rpx;
+  /* v1.60.46：5 列布局后字号从 40 → 32，避免在窄屏上 4 位数得分溢出。
+   * 主得分 stat-value--accent 由 score-burst 动画临时放大到 1.2-1.3，
+   * 视觉强度保持不变。 */
+  font-size: 32rpx;
   font-weight: 900;
   color: #233044;
   font-variant-numeric: tabular-nums;
@@ -87,6 +112,42 @@
   text-shadow:
     0 1rpx 0 rgba(255, 255, 255, 0.22),
     0 0 20rpx rgba(90, 212, 135, 0.28);
+}
+
+/* --- v1.60.46 能力（Lv.N + 称号）列：对齐 web .header-level --- */
+.score-theme-row .header-level .header-level-val {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  row-gap: 2rpx;
+}
+
+.score-theme-row .header-level .progression-level {
+  font-size: 32rpx;
+  font-weight: 900;
+  color: #1c9b5f;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-shadow:
+    0 1rpx 0 rgba(255, 255, 255, 0.22),
+    0 0 18rpx rgba(90, 212, 135, 0.28);
+}
+
+.score-theme-row .header-level .progression-title {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: rgba(62, 76, 98, 0.86);
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+}
+
+.score-theme-row .header-level .progression-streak {
+  font-size: 18rpx;
+  color: #c47a2d;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 /* v1.46 HUD 分数 burst：得分时按 delta 分档 scale + 高亮脉冲，让玩家感知分数刚刚跳了。

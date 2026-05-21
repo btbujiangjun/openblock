@@ -15,6 +15,9 @@ const { getActiveSkin, setActiveSkinId } = require('../../core/skins');
 const { setLanguage, t } = require('../../core/i18n');
 const { createAudioFx } = require('../../utils/audioFx');
 const { createFeedbackToggles } = require('../../utils/feedbackToggles');
+/* v1.60.46：HUD 等级 + 称号 与 web 字标对齐——progression 共用同一
+ * localStorage key（'openblock_progression_v1'），跨端 / 跨设备同步天然一致。 */
+const { loadProgress, getLevelProgress, titleForLevel, applyGameEndProgression } = require('../../core/progression');
 
 /* v1.46 触屏速度感知曲线（与 web/src/config.js 对齐，参考桌面 OS pointer ballistics）：
  *   speed ≤ TOUCH_DRAG_SPEED_SLOW (px/ms) → TOUCH_DRAG_GAIN_MIN（1.05，对位精准不抢跑）
@@ -63,6 +66,11 @@ Page({
     bestScore: 0,
     bestGap: 0,
     bestGapVisible: false,
+    /* v1.60.46：HUD 等级/称号/连续日（与 web .header-level 同字段语义） */
+    level: 1,
+    levelTitle: '新手',
+    streakText: '',
+    streakVisible: false,
     floatScoreVisible: false,
     floatScoreText: '',
     floatScoreClass: '',
@@ -134,6 +142,8 @@ Page({
       bestScore: best,
       audioOn: audioPrefs.sound !== false,
     });
+    /* v1.60.46：onLoad 立即渲染 HUD 等级 / 称号，避免首屏一段时间显示默认 "Lv.1 新手" */
+    this._refreshProgressionHud();
   },
 
   _initToggles() {
@@ -205,12 +215,35 @@ Page({
         steps: t('steps'),
         clears: t('clears'),
         best: t('best'),
+        /* v1.60.46：与 web ui.stat.ability 同 key 语义；i18n 缺该 key 时回退中文 */
+        ability: t('ability') || '能力',
         gameOver: t('gameOver'),
         restart: t('restart'),
         audioOn: t('audioOn'),
         audioOff: t('audioOff'),
       },
     });
+  },
+
+  /**
+   * v1.60.46：刷新 HUD 等级 + 称号 + 连续日字段（与 web _updateProgressionHud 同步）。
+   * 读 progression.js 持久化 totalXp → 派生 level / title；
+   * dailyStreak ≥ 2 才显示"连战 N 天"副线（与 web 一致）。
+   */
+  _refreshProgressionHud() {
+    try {
+      const state = loadProgress();
+      const { level } = getLevelProgress(state.totalXp);
+      const title = titleForLevel(level, t);
+      const streak = Math.max(0, Number(state.dailyStreak) || 0);
+      const streakVisible = streak >= 2;
+      this.setData({
+        level,
+        levelTitle: title,
+        streakText: streakVisible ? `连战 ${streak} 天` : '',
+        streakVisible,
+      });
+    } catch { /* ignore: progression 缺失不阻断 HUD */ }
   },
 
   _dockViewData(dock, dragIdx = this.data.dragIdx) {
@@ -660,6 +693,18 @@ Page({
       scoreText: t('finalScore', { n: info.score || 0 }),
       clearsText: t('finalClears', { n: info.clears || 0 }),
     });
+    /* v1.60.46：局末累加 progression XP + 刷新 HUD 等级 / 称号
+     * （与 web Game.endGame 同步：xp = base*mul + firstOfDayBonus + streakBonus + runBonus）。
+     * 失败兜底：不阻断 game-over 流程，仅放弃本次更新。 */
+    try {
+      applyGameEndProgression({
+        score: info.score || 0,
+        gameStats: { clears: info.clears || 0, maxLinesCleared: info.maxCombo || 0 },
+        strategy: this._strategyId,
+        runStreak: 0,
+      });
+      this._refreshProgressionHud();
+    } catch { /* ignore */ }
   },
 
   _scheduleGameOverFeedback() {
