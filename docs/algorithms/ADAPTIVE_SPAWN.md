@@ -4613,28 +4613,43 @@ category 权重最高      → "XX权重XX%"
 ### 10.9.2 玩家状态类（来自 `PlayerProfile` 滑动窗口计算）
 
 > 由 `playerProfile.js` 在每次落子（`recordPlace`）/ 出块（`recordSpawn`）时增量更新，
-> 不重新全量计算；技能等核心指标用 EMA（α ≈ 0.35）平滑。
+> 不重新全量计算。默认滑动窗口 `_window = 15` 步（可配置），AFK 阈值 = 12000ms。
 
-| # | 字段 / 代码名 | 语义 | 计算口径 |
+**窗口基础指标**（`metricsForWindow(N)` 对最近 N 步聚合）：
+
+| 基础量 | 计算口径 |
+|---|---|
+| `thinkMs` | 最近 N 步中非 AFK 落子的 `(recordPlace 时刻 − 上次 recordPlace 时刻)` 均值；冷启动占位 3000ms |
+| `clearRate` | 非 AFK 落子中消行次数 / 非 AFK 落子总数；冷启动占位 0.30 |
+| `comboRate` | 消行步中 `linesCleared ≥ 2` 次数 / 消行步总数（多消占消行比） |
+| `missRate` | `recordMiss()` 次数 / (落子 + miss) 总数（非法放置率） |
+| `multiClearRate` | 消行步中 `lines ≥ 2` 次数 / 消行步总数（对 clearCount≥2 才计算，否则 0） |
+| `perfectClearRate` | 消行步中 `fill=0`（清屏）次数 / 消行步总数 |
+| `avgLines` | 消行步的 `linesCleared` 均值；无消行时为 0 |
+| `pickToPlaceMs` | 最近 N 步中有效 pickup 记录的均值（`recordPickup→recordPlace` 时长）；无记录时为 null |
+| `cognitiveLoad` | thinkMs 在 N 步内的方差 / `8_000_000`，clamp(0,1)；样本<3 时占位 0.30 |
+| `engagementAPM` | 最近 N 步落子数 / 时间跨度(min)；无法计算时占位 6 次/min |
+
+| # | 字段 / 代码名 | 语义 | 计算口径（精确） |
 |---|---|---|---|
-| 13 | `skillLevel` | 实时技能水平 [0,1] | `smoothSkill` = EMA(rawSkill)；`rawSkill = 1 − (thinkMs/6000)^0.4 × (1 + missRate×0.6) × (1 − clearRate×0.5)`，三维复合（思考速度 × 失误率 × 消行率），取最近滑动窗口 N 步 |
-| 14 | `flowState` | 心流三态 | `'bored' / 'flow' / 'anxious'`；由 smoothSkill vs 当前盘面挑战强度对比判定：技能远超挑战→bored，两者匹配→flow，挑战远超技能→anxious |
-| 15 | `flowDeviation` | 心流偏离强度 ≥ 0 | 技能分值与"心流区"边界的差距，用于放大 flowAdjust 效果（bored 或 anxious 越严重，偏离值越大） |
-| 16 | `momentum` | 当前动量 [−1,1] | 最近 N 步中 `(cleared ? linesCleared : −1)` 的 EMA；正=连续消行，负=持续未消行 |
-| 17 | `pacingPhase` | 节奏相位 | `'release' / 'tension'`；release=刚完成一波多消/清屏，tension=持续搭建中 |
-| 18 | `frustrationLevel` | 挫败累积 [0, N] | `_consecutiveNonClears`：连续未消行步数；每次落子后更新（消行则清零，否则递增） |
-| 19 | `recentComboStreak` | 连续多消次数 | `_comboStreak`：连续 linesCleared ≥ 2 的次数；非多消时清零 |
-| 20 | `needsRecovery` | 是否需要恢复 | `frustrationLevel ≥ 5 || momentum ≤ −0.35`（近似，阈值来自配置），`true` 时强制提高消行保证并偏向小块 |
-| 21 | `hadRecentNearMiss` | 近期是否触发差一点效应 | 最近落子后，棋盘存在差 1~2 格即满的行/列，且同时 frustration 偏高或 anxious 心流；由 `nearMissPlaceFeedback.js` 判定写入 profile |
-| 22 | `feedbackBias` | 闭环反馈偏移 [−0.15, 0.15] | EMA 追踪"过去 N 步实际消行数 vs 期望消行数"的差值；出块过难时正（需加压感知），过易时负；`recordPlace` 每步更新（`playerProfile.js:263`） |
-| 23 | `trend` | 局间技能趋势 [−1,1] | `sessionHistory` 中 smoothSkill 的线性斜率；正=进步，负=退步；置信度 `conf` 门控后才生效 |
-| 24 | `sessionPhase` | 局内阶段 | `'early' / 'mid' / 'late'`：按局内步数分段 |
-| 25 | `isInOnboarding` | 是否在新手期 | `_totalLifetimePlacements < 20 && sessionHistory.length < 3`；新手期强制低 stress + 高消行保证 + 偏小块 |
-| 26 | `pickToPlaceMs` | 反应时间 (ms) | `recordPickup()` → `recordPlace()` 时长，即"握起候选块→落子"纯执行段，剔除等系统出块时间；样本 < 3 条时不参与 stress 计算（`playerProfile.js:239`） |
-| 27 | `roundsSinceLastDelight` | 距上次爽感轮数 | 每轮 spawn 后 +1；multiClear/pcClear/monoFlush/comboHigh 任一触发时清零；Android/微信 ≥ 5 轮、iOS/web ≥ 7 轮时视为"爽感饥渴"，强制 spawnIntent='relief'（`playerProfile.js:165`） |
-| 28 | `motivationIntent` | 中长期动机意图 | `'challenge' / 'relaxation' / 'competence' / 'balanced'`；由行为偏好信号（收藏/挑战/品质低等）归一化派生；社交公平模式强制 `'balanced'` |
-| 29 | `accessibilityLoad` | 辅助功能负担 [0,1] | qualityLow / reducedMotion 等偏好信号归一化累积；负载高时减压（`accessibilityStressAdjust`） |
-| 30 | `returningWarmupStrength` | 回流热身强度 [0,1] | 上次活跃距今天数映射；> 7 天未登录时非零，触发 clearGuarantee 提升 + stress 降低 |
+| 13 | `skillLevel` (= `smoothSkill`) | 实时技能水平 [0,1] | `rawSkill = thinkScore×0.15 + clearScore×0.30 + comboScore×0.20 + missScore×0.20 + loadScore×0.15`；其中 `thinkScore=1−clamp((thinkMs−800)/12000)`，`clearScore=min(1, clearRate/0.55)`，`comboScore=min(1, comboRate/0.45)`，`missScore=1−min(1, missRate/0.3)`，`loadScore=1−cognitiveLoad`；`smoothSkill += α × (rawSkill − smoothSkill)`，前 5 步 α=0.35，之后 α=0.15 |
+| 14 | `flowDeviation` | 心流偏离强度 [0,2] | `boardPressure = avgFill×0.45 + (1−min(1,clearRate/0.4))×0.35 + cognitiveLoad×0.20`；`flowDeviation = |boardPressure / skillLevel − 1|`；样本 < 3 步时返回 0 |
+| 15 | `flowState` | 心流三态 | ① `momentum ≤ −0.35` → `'anxious'`（硬触发）；② 末段挣扎（最近 8 步 clearRate ≤ 0.15 或 missRate ≥ 0.40）→ `'anxious'`；③ `flowDeviation > 0.55 && boardPressure < skillLevel && momentum > −0.15` → `'bored'`；④ 其他 → `'flow'` |
+| 16 | `momentum` | 当前动量 [−1,1] | 取最近 12 步对半分两组（older / newer），各自计算 clearRate；`delta = newerCR − olderCR`；`raw = delta / 0.3`；`noiseDamping = clamp(1 − (olderCR×(1−olderCR)+newerCR×(1−newerCR))/2 × 2, 0.5, 1)`；`sampleConf = min(1, totalSamples/12)`；`momentum = clamp(raw,−1,1) × sampleConf × noiseDamping`；样本 < 6 时返回 0 |
+| 17 | `pacingPhase` | 节奏相位 | `release`：最近步含 linesCleared≥2 的消行 + 紧接着无消行 < 2 步；`tension`：当前步 roundsSinceClear=0（本局刚完成消行）；其他：无固定相位（由节奏模块动态推进） |
+| 18 | `frustrationLevel` | 挫败累积 {0,1,2,…} | `_consecutiveNonClears`：每次 `recordPlace` 时若 `cleared=false` 则 +1，若 `cleared=true` 则清零 |
+| 19 | `recentComboStreak` | 连续多消次数 | `_comboStreak`：每次 `recordPlace` 时若 `linesCleared≥2` 则 +1，否则清零 |
+| 20 | `needsRecovery` | 是否需要恢复 | `_recoveryCounter > 0`；触发：`boardFill > 0.82` 时设 `_recoveryCounter = 4`；每次 `recordPlace` 后 `_recoveryCounter` 递减 1（直至 0） |
+| 21 | `hadRecentNearMiss` | 近期差一点效应 | 由 `nearMissPlaceFeedback.js` 判定：最近落子后 `getMaxLineFill()≥0.875`（差 1 格满）且 `frustrationLevel≥4` 或 anxious 心流；`clearRate≥0.30`/正动量/顺畅心流任一即抑制；单局上限 1 次且间隔 ≥ 12 步 |
+| 22 | `feedbackBias` | 闭环反馈偏移 [−0.15, 0.15] | 每次 `recordSpawn` 重置 `feedbackClearsInWindow=0`，`feedbackStepsLeft=4(horizon)`；接下来 4 步内累计实际消行数；第 4 步后：`Δ = feedbackClearsInWindow − expected(1)`；`bias += Δ × 0.02(alpha)`；clamp(±0.15) |
+| 23 | `trend` | 局间技能趋势 [−1,1] | 对 sessionHistory（最多 30 局摘要）做指数加权线性回归（decay=0.9，近局权重大）；回归斜率即 trend；样本 < 3 局时为 0 |
+| 24 | `sessionPhase` | 局内阶段 | `_spawnCounter`（每次出块 +1）：`early`=spawnCounter≤3；`mid`=4~9；`late`≥10 |
+| 25 | `isInOnboarding` | 是否在新手期 | `_totalLifetimePlacements < 20 && sessionHistory.length < 3` |
+| 26 | `pickToPlaceMs` | 反应时间 (ms) | `recordPickup()` → `recordPlace()` 时长差值（≤60000ms 取实测，否则 null）；样本 < 3 条时不参与 stress 计算 |
+| 27 | `roundsSinceLastDelight` | 距上次爽感轮数 | 每轮 spawn 后 +1；multiClear/pcClear/monoFlush/comboHigh 任一触发时清零；Android/微信 ≥ 5 轮、iOS/web ≥ 7 轮 → `isDelightStarved=true` → `spawnIntent='relief'` |
+| 28 | `motivationIntent` | 中长期动机意图 | `'challenge'`：difficultyUp 信号累计多；`'relaxation'`：difficultyDown/qualityLow 累计多；`'competence'`：collection/achievement 信号多；`'balanced'`：无显著偏好或社交公平模式 |
+| 29 | `accessibilityLoad` | 辅助功能负担 [0,1] | `_preferenceSignals.qualityLow / reducedMotion` 等信号归一化累积，当前按"信号触发次数/阈值"线性映射 |
+| 30 | `returningWarmupStrength` | 回流热身强度 [0,1] | 读 `_daysSinceLastActive`：< 7 天→0；7~30 天线性插值 0~1；> 30 天→1 |
 
 ---
 
@@ -4733,14 +4748,14 @@ category 权重最高      → "XX权重XX%"
 > 由 `buildPlayerAbilityVector(profile, ctx)` 计算，每次 spawn 前调用一次。
 > 输出 6 个维度，是 stress 调制的最重要中间量之一。
 
-| # | 字段 | 语义 | 计算公式 |
+| # | 字段 | 语义 | 计算公式（精确） |
 |---|---|---|---|
-| L1 | `skillScore` | 综合技能水平 [0,1] | 当 `baseline.confidence ≥ 0.35`：`baseSkill × (1 − conf × 0.35) + baseline.skillScore × conf × 0.35`；否则 = `baseSkill`（即 profile.skillLevel） |
-| L2 | `controlScore` | 操控精准度 [0,1] | 5 维加权：`(1−missRate/0.3)×0.34 + (1−cognitiveLoad)×0.22 + (1−afkCount/3)×0.13 + (apm/18)×0.15 + reactionScore×0.16`；reactionScore 无数据时权重重分配 |
-| L3 | `clearEfficiency` | 消行效能 [0,1] | 5 维加权：`(clearRate/0.55)×0.40 + (comboRate/0.45)×0.18 + (avgLines/2.5)×0.14 + (multiClearRate/0.5)×0.18 + (perfectClearRate/0.15)×0.10` |
-| L4 | `boardPlanning` | 盘面规划能力 [0,1] | 4 维加权：`(1−holePenalty)×0.36 + (1−fillPenalty)×0.22 + mobilityScore×0.22 + nearClearScore×0.20`；fillPenalty 在 fill > 0.58 时线性增长 |
-| L5 | `riskLevel` | 当前死局风险 [0,1] | 7 维加权：`fill×0.26 + holePenalty×0.22 + (frustration/5)×0.14 + (roundsSinceClear/4)×0.10 + (1−controlScore)×0.10 + fillVelocity×0.10 + lockRisk×0.08`；有 baseline 时混入 `baseline.riskLevel × 0.25` |
-| L6 | `confidence` | 模型置信度 [0,1] | 4 维加权：`profile.confidence×0.55 + (lifetimePlacements/200)×0.25 + (gamePlacements/20)×0.10 + recencyDecay×0.10`；recencyDecay = `exp(−daysSinceActive / 14)`（14 天半衰期） |
+| L1 | `skillScore` | 综合技能水平 [0,1] | `baseSkill = profile.skillLevel`（即 smoothSkill，见 §10.9.2 #13）；当 `baseline.confidence ≥ 0.35`：`skillScore = baseSkill×(1−conf×0.35) + baseline.skillScore×conf×0.35`；否则 `skillScore = baseSkill` |
+| L2 | `controlScore` | 操控精准度 [0,1] | `reactionScore = hasData? 1−clamp((pickToPlaceMs−350)/(2200−350),0,1) : null`（minSamples=3）；`wMiss=0.34, wLoad=0.22, wAfk=0.13, wApm=0.15, wReact=0.16或0`；`controlScore = [(1−min(1,missRate/0.3))×wMiss + (1−cognitiveLoad)×wLoad + (1−min(1,afkCount/3))×wAfk + clamp(apm/18,0,1)×wApm + (reactionScore??0)×wReact] / ΣactiveWeights` |
+| L3 | `clearEfficiency` | 消行效能 [0,1] | `clamp( min(1,clearRate/0.55)×0.40 + min(1,comboRate/0.45)×0.18 + min(1,avgLines/2.5)×0.14 + min(1,multiClearRate/0.5)×0.18 + min(1,perfectClearRate/0.15)×0.10, 0, 1)` |
+| L4 | `boardPlanning` | 盘面规划能力 [0,1] | `holePenalty=min(1,holes/8)`；`fillPenalty=max(0,(fill−0.58)/0.36)`；`mobilityScore=mobility>0?min(1,mobility/200):0.55`；`nearClearScore=min(1,(close1+close2)/6)`；`clamp((1−holePenalty)×0.36 + (1−fillPenalty)×0.22 + mobilityScore×0.22 + nearClearScore×0.20,0,1)` |
+| L5 | `riskLevel` | 当前死局风险 [0,1] | `liveRisk=clamp(fill×0.26 + holePenalty×0.22 + min(1,frustration/5)×0.14 + min(1,roundsSinceClear/4)×0.10 + (1−controlScore)×0.10 + fillVelocityScore×0.10 + lockRiskScore×0.08,0,1)`；当 `baseline.confidence≥0.45`：`riskLevel=liveRisk×(1−0.25) + baseline.riskLevel×0.25`；否则 `riskLevel=liveRisk` |
+| L6 | `confidence` | 模型置信度 [0,1] | `recencyDecay=exp(−daysSinceActive/14)`（14 天半衰期，lastActiveTs 无记录时=1）；`clamp(profile.confidence×0.55 + min(1,lifetimePlacements/200)×0.25 + min(1,gamePlacements/20)×0.10 + recencyDecay×0.10,0,1)` |
 
 ---
 
