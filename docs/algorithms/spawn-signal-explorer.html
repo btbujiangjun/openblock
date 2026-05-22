@@ -462,7 +462,9 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
   overflow: hidden;
 }
 #graph-svg {
-  flex: 1; height: calc(100vh - 220px); min-height: 480px;
+  flex: 1; width: 100%;
+  height: calc(100vh - 220px); min-height: 480px;
+  display: block;
   background: radial-gradient(ellipse at center,
     rgba(56,139,253,0.04) 0%, rgba(13,17,23,0) 70%);
 }
@@ -1513,6 +1515,12 @@ function initTabs() {
       btn.classList.add('active');
       document.getElementById('view-'+tab).classList.add('active');
       currentTab = tab;
+      /* v1.61.19: 立即触发新 view 渲染（使用 rAF 等 layout 完成再测量元素） */
+      requestAnimationFrame(() => {
+        if (tab === 'graph') renderGraphView();
+        else if (tab === 'simulator') renderSimulatorView();
+        else if (tab === 'matrix') renderMatrixView();
+      });
     });
   });
 }
@@ -1824,9 +1832,11 @@ function renderGraphView() {
   });
 
   // 三列布局：L1 左 / L2 中 / L3 右
-  const W = svg.clientWidth || 1000;
-  const H = svg.clientHeight || 600;
+  // 用固定 viewBox（不依赖 clientWidth/Height — 在 tab 首次激活时元素可能尚未布局完成）
+  const W = 1000;
+  const H = 720;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
   const colX = { 1: W * 0.12, 2: W * 0.50, 3: W * 0.88 };
   const layerNodes = { 1: [], 2: [], 3: [] };
@@ -2111,18 +2121,8 @@ function renderMatrixView() {
   showCell('S2·M2');  // 默认显示典型 PB 主战场
 }
 
-// 扩展原 tab 切换：触发新 view 的渲染
-const _origTabSwitch = (function() {
-  const original = document.querySelectorAll('.tab-btn');
-  original.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      if (tab === 'graph') renderGraphView();
-      else if (tab === 'simulator') renderSimulatorView();
-      else if (tab === 'matrix') renderMatrixView();
-    });
-  });
-})();
+/* v1.61.19: tab 切换时的渲染派发已合并到 initTabs() 内（DOMContentLoaded 后注册），
+ * 这里不再重复注册监听器，避免双触发渲染逻辑。 */
 </script>
 </body>
 </html>
