@@ -17,11 +17,126 @@
         .app-side-left { display: flex !important; }
         #rl-panel      { display: flex !important; }
       }
-      /* 移动端把 #app 两侧 padding 重置（main.css 的 padding 基于侧栏布局计算） */
+      /* ════════════════════════════════════════════════════════════════════
+         移动端布局优化（v1.61.3）
+         核心策略：游戏区(.play-stack) 最大化；header/wordmark/score-theme/skill 全压缩；
+                 灵动岛(safe-area-inset-top) 完全避让；右上角加显眼退出按钮
+         ════════════════════════════════════════════════════════════════════ */
       @media (max-width: 1023px) {
-        #app { padding-left: max(8px, env(safe-area-inset-left, 0px)) !important;
-               padding-right: max(8px, env(safe-area-inset-right, 0px)) !important; }
-        html { --cell-px-width-reserve: 48px; --app-center-hpad: 0px; }
+        /* 1. #app 容器：safe-area 全方位避让，仅留必要边距 */
+        #app {
+          padding-top: max(env(safe-area-inset-top, 0px), 8px) !important;
+          padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px) !important;
+          padding-left: max(env(safe-area-inset-left, 0px), 6px) !important;
+          padding-right: max(env(safe-area-inset-right, 0px), 6px) !important;
+        }
+        html { --cell-px-width-reserve: 32px; --app-center-hpad: 0px;
+               --cell-px-height-reserve: 230px; --cell-px-max: 110px; }
+
+        /* 2. 顶部 wordmark：缩小为原 1/2，下移避开灵动岛 */
+        .header.header--title-only {
+          padding: 4px 0 2px !important;
+          margin-top: 0 !important;
+        }
+        .app-wordmark {
+          --wm-cell-w: 3.5px !important;
+          --wm-cell-h: 5px !important;
+          padding: 2px 4px !important;
+          transform: scale(1) !important;
+        }
+
+        /* 3. score-theme-row 紧凑化：缩小所有 stat-box */
+        .score-theme-row {
+          gap: 4px !important;
+          margin: 2px 0 !important;
+          padding: 0 !important;
+          flex-wrap: nowrap !important;
+        }
+        .score-theme-row .stat-box {
+          padding: 2px 6px !important;
+          min-width: 0 !important;
+          flex: 0 1 auto !important;
+        }
+        .score-theme-row .stat-label { font-size: 9px !important; line-height: 1.1 !important; }
+        .score-theme-row .stat-value { font-size: 18px !important; line-height: 1.1 !important; }
+        .score-theme-row .stat-subline--spacer,
+        .score-theme-row .best-gap,
+        .score-theme-row .progression-streak { display: none !important; }
+        .score-theme-row .progression-level { font-size: 13px !important; }
+        .score-theme-row .progression-title { font-size: 10px !important; }
+        /* 主题选择器紧凑 */
+        .score-theme-row .header-skin .skin-picker select { font-size: 11px !important; padding: 1px 4px !important; }
+
+        /* 4. 快捷开关按钮缩小 */
+        .score-theme-quick-cluster {
+          gap: 3px !important;
+          flex-shrink: 0 !important;
+        }
+        .feedback-toggle-btn, .in-game-menu-btn--toolbar {
+          width: 28px !important; height: 28px !important;
+          font-size: 14px !important;
+          padding: 0 !important;
+        }
+
+        /* 5. 移动端显眼退出按钮：右上角悬浮，比原 ☰ 更大更易触发 */
+        #mobile-exit-btn {
+          position: fixed !important;
+          top: calc(env(safe-area-inset-top, 0px) + 4px) !important;
+          right: max(env(safe-area-inset-right, 0px), 8px) !important;
+          width: 36px !important; height: 36px !important;
+          border-radius: 18px !important;
+          background: rgba(0, 0, 0, 0.55) !important;
+          backdrop-filter: blur(8px) !important;
+          -webkit-backdrop-filter: blur(8px) !important;
+          border: 1px solid rgba(255, 255, 255, 0.15) !important;
+          color: #fff !important;
+          font-size: 18px !important; line-height: 1 !important;
+          display: flex !important; align-items: center !important; justify-content: center !important;
+          cursor: pointer !important;
+          z-index: 250 !important;
+          padding: 0 !important;
+          transition: background 120ms !important;
+        }
+        #mobile-exit-btn:active { background: rgba(0,0,0,0.75) !important; transform: scale(0.92); }
+        /* 桌面端隐藏移动专属退出按钮（header 已有 ☰）*/
+
+        /* 6. play-stack 最大化（吃掉所有可用纵向空间） */
+        .play-stack {
+          padding: 4px 0 0 !important;
+          gap: 4px !important;
+          flex: 1 1 auto !important;
+        }
+        #game-wrapper {
+          flex: 1 1 auto !important;
+        }
+        #game-grid {
+          max-width: min(100vw - 16px, 100dvh - var(--cell-px-height-reserve, 230px)) !important;
+        }
+
+        /* 7. skill-bar 紧凑（按钮缩小，允许 wrap 自动分行） */
+        .skill-bar {
+          gap: 4px !important;
+          padding: 2px 4px !important;
+          flex-wrap: wrap !important;
+          justify-content: center !important;
+          row-gap: 3px !important;
+        }
+        .skill-btn {
+          width: 32px !important; height: 32px !important;
+          font-size: 16px !important;
+          border-radius: 8px !important;
+        }
+
+        /* 8. block-dock 紧凑 */
+        .block-dock {
+          padding: 6px 4px max(6px, env(safe-area-inset-bottom, 0px)) !important;
+          gap: 4px !important;
+          min-height: auto !important;
+        }
+      }
+      /* 桌面端隐藏移动专属退出按钮 */
+      @media (min-width: 1024px) {
+        #mobile-exit-btn { display: none !important; }
       }
 
       .screen {
@@ -113,6 +228,8 @@
     <link rel="apple-touch-icon" href="./assets/images/icon-192.png">
 </head>
 <body>
+    <!-- 移动端专属退出按钮（右上角悬浮，避开灵动岛）— 桌面端 CSS 隐藏 -->
+    <button type="button" id="mobile-exit-btn" aria-label="退出当前局" title="退出当前局返回菜单">✕</button>
     <div id="app">
         <!-- 仅字标 -->
         <div class="header header--title-only">
@@ -722,18 +839,26 @@
       })();
     </script>
 
-    <!-- iOS/Android 原生客户端：彻底从 DOM 移除两侧面板，避免 JS 初始化开销。
-         必须放在 body 末尾（确保 #app 已渲染），优先于模块脚本执行（defer 按文档顺序）。
-         检测逻辑与 head 内联脚本完全一致：读取已打好的 .native-client class。 -->
+    <!-- iOS/Android 原生客户端：从 DOM 移除两侧面板 + 绑定移动端退出按钮 -->
     <script>
       (function () {
-        if (!document.documentElement.classList.contains('native-client')) return;
-        /* 移除左侧玩家画像面板容器 */
-        var sideLeft = document.querySelector('.app-side-left');
-        if (sideLeft && sideLeft.parentNode) { sideLeft.parentNode.removeChild(sideLeft); }
-        /* 移除右侧 RL 训练面板 */
-        var rlPanel = document.getElementById('rl-panel');
-        if (rlPanel && rlPanel.parentNode) { rlPanel.parentNode.removeChild(rlPanel); }
+        var isNative = document.documentElement.classList.contains('native-client');
+        if (isNative) {
+          var sideLeft = document.querySelector('.app-side-left');
+          if (sideLeft && sideLeft.parentNode) { sideLeft.parentNode.removeChild(sideLeft); }
+          var rlPanel = document.getElementById('rl-panel');
+          if (rlPanel && rlPanel.parentNode) { rlPanel.parentNode.removeChild(rlPanel); }
+        }
+        /* 移动端退出按钮：代理触发 #in-game-menu-btn（菜单逻辑由 main.js 绑定） */
+        var exitBtn = document.getElementById('mobile-exit-btn');
+        if (exitBtn) {
+          exitBtn.addEventListener('click', function () {
+            var menuBtn = document.getElementById('in-game-menu-btn');
+            if (menuBtn) { menuBtn.click(); return; }
+            var menu = document.getElementById('menu');
+            if (menu) menu.classList.add('active');
+          });
+        }
       })();
     </script>
 </body>
