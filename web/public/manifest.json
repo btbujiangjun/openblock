@@ -1,35 +1,35 @@
 {
-  "name": "Block Blast",
-  "short_name": "BlockBlast",
-  "description": "Block Blast - 经典三消休闲游戏",
+  "name": "OpenBlock",
+  "short_name": "OpenBlock",
+  "description": "OpenBlock - 经典方块消除益智游戏",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#E8EEF1",
-  "theme_color": "#5B9BD5",
+  "background_color": "#0f1525",
+  "theme_color": "#0f1525",
   "icons": [
     {
-      "src": "/assets/images/icon-192.svg",
+      "src": "/assets/images/icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/images/icon-512.svg",
+      "src": "/assets/images/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/images/icon-192.svg",
+      "src": "/assets/images/icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/assets/images/icon-512.svg",
+      "src": "/assets/images/icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],
@@ -44,14 +44,14 @@
       "short_name": "新游戏",
       "description": "开始新游戏",
       "url": "/?action=new",
-      "icons": [{ "src": "/assets/images/icon-192.svg", "sizes": "96x96" }]
+      "icons": [{ "src": "/assets/images/icon-192.png", "sizes": "96x96" }]
     },
     {
       "name": "排行榜",
       "short_name": "排行榜",
       "description": "查看排行榜",
       "url": "/?action=leaderboard",
-      "icons": [{ "src": "/assets/images/icon-192.svg", "sizes": "96x96" }]
+      "icons": [{ "src": "/assets/images/icon-192.png", "sizes": "96x96" }]
     }
   ],
   "share_target": {
