@@ -85,6 +85,31 @@ export const SPRINT_MAX_DEFAULT = 0.55;
  */
 export const INTENT_RULES = [
     {
+        /* v1.61 pb_chase_pressure（priority 102，高于 relief=100）：
+         * 接近/超越 PB 且 B 类挑战条件满足时，出块意图强制转为 'pressure'，
+         * 通过增加难度激发玩家斗志，避免临 PB 段用减压块导致分数快速膨胀。
+         *
+         * 安全门（同 adaptiveSpawn.js pbChasePressureActive 计算逻辑）：
+         *   - !forceReliefIntent：临终救济（fill>0.82）/ 高挫败 / 复活救济不可被压制
+         *   - 仅在 pbChasePressureActive=true 时激活（已含 fill<0.72、非 onboarding 等门）
+         *
+         * 与 'pressure' 规则（priority=70）的区别：
+         *   - 'pressure' 由 challengeBoost>0 触发，但被 relief(100) 优先覆盖
+         *   - 'pb_chase_pressure' 优先级高于 relief，主动打断普通救济路径
+         *   - 两者 spawnIntent 均为 'pressure'，_tryInjectSpecial 路径一致（制造空洞）
+         *
+         * spawnIntent 显式声明为 'pressure'，与 intentResolver resolveIntent 返回机制
+         * `winner.spawnIntent ?? winner.id` 一致。 */
+        id: 'pb_chase_pressure',
+        priority: 102,
+        spawnIntent: 'pressure',
+        guard: (s) => !!s.pbChasePressureActive,
+        reason: (s) => {
+            const boost = Number(s.challengeBoost ?? 0).toFixed(2);
+            return `pbChasePressureActive=true（challengeBoost=${boost}，接近/超越 PB，加压激发斗志）`;
+        },
+    },
+    {
         id: 'relief',
         priority: 100,
         guard: (s) => Number(s.playerDistress) < -0.10

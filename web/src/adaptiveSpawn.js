@@ -255,6 +255,7 @@ export function deriveSpawnIntent(inputs = {}) {
         playerDistress = 0,
         forceReliefIntent = false,
         delightStarved = false,        // v1.60.45：爽感饥渴（playerProfile.isDelightStarved()）
+        pbChasePressureActive = false, // v1.61：接近/超越 PB 时加压优先级高于救济
         afkEngageActive = false,
         challengeBoost = 0,
         delightMode = null,
@@ -274,6 +275,12 @@ export function deriveSpawnIntent(inputs = {}) {
     const sprintEnabled = sprintCfg?.enabled !== false;
     const sprintMin = Number.isFinite(sprintCfg?.minStress) ? sprintCfg.minStress : 0.45;
     const sprintMax = Number.isFinite(sprintCfg?.maxStress) ? sprintCfg.maxStress : 0.55;
+
+    /* v1.61 pb_chase_pressure（priority 102）：
+     * 接近/超越 PB 且 B 类挑战条件满足时，加压优先级高于普通救济（playerDistress < -0.10）。
+     * 安全门：forceReliefIntent=true 时仍走 relief（临终救济 / 高挫败不可打断）。
+     * 与 intentResolver.js INTENT_RULES 'pb_chase_pressure' 规则 priority=102 同口径。 */
+    if (pbChasePressureActive) return 'pressure';
 
     if (playerDistress < -0.10 || delightMode === 'relief' || forceReliefIntent) return 'relief';
     /* v1.60.45：爽感饥渴 → 强 relief（priority 95，介于 relief 与 engage 之间）。
@@ -1385,6 +1392,25 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /* v1.55：把 bypass 原因写入 breakdown 供面板/单测；未来 DFV 可显示一句话解释。 */
     stressBreakdown.challengeBoostBypass = challengeBoostBypass;
 
+    /* v1.61：PB 追击压力激活 — 接近/超越 PB 时加压优先级高于普通救济信号，激发玩家斗志。
+     *
+     * 触发条件：
+     *   - isBClassChallenge=true（score >= bestScore×0.8、B 类段位、非瓶颈/挫败等 bypass 全通过）
+     *   - !forceReliefIntent（临终救济 / 高挫败 / 复活救济不可打断）
+     *   - _boardFill < 0.72（盘面非临满，避免玩家处于危险状态时仍被加压）
+     *   - !isInOnboarding（新手引导期不适用）
+     *
+     * 效果：`deriveSpawnIntent` 优先返回 'pressure'（priority 102，高于 relief=100），
+     * `_tryInjectSpecial` 随之触发"制造空洞"路径，而非减压小块。
+     *
+     * 设计动机：分数接近 PB 时玩家处于"决战状态"——若此时出减压块，玩家分数快速膨胀
+     * 但不感受到挑战，破 PB 的成就感被稀释；改为加压可激发斗志且防止 PB 过快膨胀。 */
+    const pbChasePressureActive = isBClassChallenge
+        && !forceReliefIntent
+        && (_boardFill ?? 0) < 0.72
+        && !profile?.isInOnboarding;
+    stressBreakdown.pbChasePressureActive = pbChasePressureActive;
+
     /* v1.56 §2.3：D3 决战段 pbExtremeChase 顺序刚性提升 ——
      * 当 pct ∈ [0.95, 1.0) 且未在释放窗口 / 救济期 / 瓶颈 / warmup 时，
      * 给 orderRigor 公式注入 modeBoost-like 的额外提升量（pbExtremeOrderBoost），
@@ -2298,6 +2324,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             : false,
         roundsSinceLastDelight: profile?._roundsSinceLastDelight ?? 0,
         abovePb,                                   // v1.60.37：供 DFV lateCollapse chip 豁免诊断
+        pbChasePressureActive,                     // v1.61：接近/超越 PB 时加压（priority 102）
         afkEngageActive,
         challengeBoost: stressBreakdown.challengeBoost ?? 0,
         delightMode: delight.mode,

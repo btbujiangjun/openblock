@@ -254,7 +254,8 @@ function deriveSpawnIntent(inputs = {}) {
     const {
         playerDistress = 0,
         forceReliefIntent = false,
-        delightStarved = false,   // v1.60.45：与 web 版镜像
+        delightStarved = false,        // v1.60.45：与 web 版镜像
+        pbChasePressureActive = false, // v1.61：接近/超越 PB 时加压（与 web 版镜像）
         afkEngageActive = false,
         challengeBoost = 0,
         delightMode = null,
@@ -274,6 +275,9 @@ function deriveSpawnIntent(inputs = {}) {
     const sprintEnabled = sprintCfg?.enabled !== false;
     const sprintMin = Number.isFinite(sprintCfg?.minStress) ? sprintCfg.minStress : 0.45;
     const sprintMax = Number.isFinite(sprintCfg?.maxStress) ? sprintCfg.maxStress : 0.55;
+
+    // v1.61：接近/超越 PB，加压优先级高于普通救济（与 web 版 priority=102 同口径）
+    if (pbChasePressureActive) return 'pressure';
 
     if (playerDistress < -0.10 || delightMode === 'relief' || forceReliefIntent) return 'relief';
     if (delightStarved) return 'relief';   // v1.60.45：爽感饥渴 → 强 relief
@@ -1379,6 +1383,20 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* v1.55：把 bypass 原因写入 breakdown 供面板/单测；未来 DFV 可显示一句话解释。 */
     stressBreakdown.challengeBoostBypass = challengeBoostBypass;
 
+    /* v1.61：PB 追击压力激活（与 web 版镜像） */
+    const pbChasePressureActive = isBClassChallenge
+        && !forceReliefIntent
+        && (_boardFill ?? 0) < 0.72
+        && !profile?.isInOnboarding;
+    stressBreakdown.pbChasePressureActive = pbChasePressureActive;
+
+    /* v1.61：PB 追击压力激活（与 web 版镜像） */
+    const pbChasePressureActive = isBClassChallenge
+        && !forceReliefIntent
+        && (_boardFill ?? 0) < 0.72
+        && !profile?.isInOnboarding;
+    stressBreakdown.pbChasePressureActive = pbChasePressureActive;
+
     /* v1.56 §2.3：D3 决战段 pbExtremeChase 顺序刚性提升 ——
      * 当 pct ∈ [0.95, 1.0) 且未在释放窗口 / 救济期 / 瓶颈 / warmup 时，
      * 给 orderRigor 公式注入 modeBoost-like 的额外提升量（pbExtremeOrderBoost），
@@ -2278,6 +2296,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             : false,
         roundsSinceLastDelight: profile?._roundsSinceLastDelight ?? 0,
         abovePb,                                   // v1.60.37：供 DFV lateCollapse chip 豁免诊断
+        pbChasePressureActive,                     // v1.61：接近/超越 PB 时加压（与 web 版镜像）
         afkEngageActive,
         challengeBoost: stressBreakdown.challengeBoost ?? 0,
         delightMode: delight.mode,
