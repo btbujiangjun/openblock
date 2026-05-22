@@ -20,14 +20,11 @@ import { buildCommercialFeatureSnapshot, featureSnapshotDigest } from './commerc
 import { calibratePropensityVector } from './calibration/propensityCalibrator.js';
 import { predictAllTasks } from './ml/multiTaskEncoder.js';
 import { recordSnapshotForDrift } from './quality/distributionDriftMonitor.js';
+import { clamp01 } from '../lib/math.js';
 
 const COMMERCIAL_MODEL_VERSION = 1;
 
-function clamp01(v) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(1, n));
-}
+/* v1.61.17: clamp01 已抽到 lib/math.js 单源 */
 
 function round(v, digits = 3) {
     const n = Number(v);

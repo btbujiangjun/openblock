@@ -42,14 +42,8 @@ function _api(path, options = {}) {
     });
 }
 
-function _getUserId() {
-    let userId = localStorage.getItem('bb_user_id');
-    if (!userId) {
-        userId = `u${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-        localStorage.setItem('bb_user_id', userId);
-    }
-    return userId;
-}
+/* v1.61.17: 走 lib/userId.js 单源 */
+import { getUserId as _getUserId } from './lib/userId.js';
 
 function _safeJson(key, fallback = {}) {
     try {

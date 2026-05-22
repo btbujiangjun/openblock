@@ -5,6 +5,7 @@
 import { getApiBaseUrl, isSqliteClientDatabase, ACHIEVEMENTS_BY_ID } from './config.js';
 import { getSessionAttributionSnapshot } from './channelAttribution.js';
 import { buildAbilityTrainingDataset } from './playerAbilityModel.js';
+import { getUserId } from './lib/userId.js';
 
 async function apiJson(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -37,12 +38,8 @@ export class Database {
     }
 
     getUserId() {
-        let userId = localStorage.getItem('bb_user_id');
-        if (!userId) {
-            userId = 'u' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('bb_user_id', userId);
-        }
-        return userId;
+        /* v1.61.17: 统一走 lib/userId.js（向后兼容已存在的 ID） */
+        return getUserId();
     }
 
     async init() {

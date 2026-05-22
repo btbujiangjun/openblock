@@ -1,6 +1,10 @@
 /**
- * FTUEManager - 新手引导系统
- * 
+ * FTUEManager - 多阶段新手引导系统
+ *
+ * ⚠️ DEPRECATED（v1.61.17）：本模块当前**无任何调用方**（main.js 走 ftue.js）。
+ * 与 ftue.js 共用同一 STORAGE_KEY 但 schema 不同，启用前必须先迁移 schema。
+ * 为避免误启用导致 ftue.js 数据被覆盖，本地 STORAGE_KEY 改为 _legacy 隔离。
+ *
  * 功能：
  * 1. 多阶段引导
  * 2. 引导进度保存
@@ -10,7 +14,8 @@
 import { getWallet } from '../skills/wallet.js';
 import { applyGameEndProgression } from '../progression.js';
 
-const STORAGE_KEY = 'openblock_ftue_v1';
+/* v1.61.17: 隔离 key 防止与生产 ftue.js 冲突；启用本模块前必须先迁移 */
+const STORAGE_KEY = 'openblock_ftue_manager_legacy_v1';
 
 /**
  * 引导步骤定义

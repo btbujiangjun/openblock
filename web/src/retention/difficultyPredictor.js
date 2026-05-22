@@ -11,6 +11,8 @@
  * - contextualFeatures: 连续失败次数、心流状态、挫败度
  */
 
+import { clamp01 } from '../lib/math.js';
+
 const MODEL_VERSION = '1.0.0';
 const FEATURE_WINDOW = 5;
 
@@ -55,9 +57,7 @@ let _featureBuffer = [];
 let _modelTrained = false;
 let _coefficients = null;
 
-function clamp01(v) {
-    return Math.max(0, Math.min(1, v));
-}
+/* v1.61.17: clamp01 已抽到 lib/math.js 单源（严格版含 NaN 防护，行为更安全） */
 
 function transformValue(value, transform) {
     switch (transform) {

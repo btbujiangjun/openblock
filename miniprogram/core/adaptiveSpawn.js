@@ -1383,16 +1383,13 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* v1.55：把 bypass 原因写入 breakdown 供面板/单测；未来 DFV 可显示一句话解释。 */
     stressBreakdown.challengeBoostBypass = challengeBoostBypass;
 
-    /* v1.61：PB 追击压力激活（与 web 版镜像） */
+    /* v1.61：PB 追击压力激活（与 web 版镜像）；v1.61.17 修复 TDZ 引用 + 删除重复块 */
+    const _pbcEndDistress = !(ctx.bestScore > 0 && score > ctx.bestScore)
+        && profile.sessionPhase === 'late' && profile.momentum <= -0.30;
+    const _pbcFrustCritical = (profile.frustrationLevel ?? 0) >= 5;
+    const _pbcRelief = _pbcEndDistress || _pbcFrustCritical || ctx.forceReliefIntent === true;
     const pbChasePressureActive = isBClassChallenge
-        && !forceReliefIntent
-        && (_boardFill ?? 0) < 0.72
-        && !profile?.isInOnboarding;
-    stressBreakdown.pbChasePressureActive = pbChasePressureActive;
-
-    /* v1.61：PB 追击压力激活（与 web 版镜像） */
-    const pbChasePressureActive = isBClassChallenge
-        && !forceReliefIntent
+        && !_pbcRelief
         && (_boardFill ?? 0) < 0.72
         && !profile?.isInOnboarding;
     stressBreakdown.pbChasePressureActive = pbChasePressureActive;

@@ -94,10 +94,8 @@ function _daysBetween(ymd1, ymd2) {
     return Math.floor((date2 - date1) / (1000 * 60 * 60 * 24));
 }
 
-function _norm(value, max) {
-    if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0;
-    return Math.max(0, Math.min(value / max, 1));
-}
+/* v1.61.17: _norm 已抽到 lib/math.js 单源 */
+import { norm as _norm } from '../lib/math.js';
 
 export function getPlayerMaturity() {
     if (_maturityCache) {

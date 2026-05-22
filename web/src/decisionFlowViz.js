@@ -1556,7 +1556,8 @@ class DecisionFlowViz {
             const [lo, hi] = s.range;
             const span = Math.max(1e-6, hi - lo);
             const W = 240, H = 18;
-            let d = '';
+            /* v1.61.17: 改 array.push + join，避免 60 帧循环里 O(N²) 字符串再分配 */
+            const parts = [];
             let lastValid = NaN;
             let lastX = -9, lastY = H / 2;
             let firstX = 0;
@@ -1567,11 +1568,12 @@ class DecisionFlowViz {
                 const x = (i / Math.max(1, len - 1)) * W;
                 const norm = _clamp((v - lo) / span, 0, 1);
                 const y = H - norm * H;
-                d += (d ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1);
+                parts.push((parts.length ? ' L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1));
                 lastValid = v;
                 lastX = x; lastY = y;
                 if (!firstSet) { firstX = x; firstSet = true; }
             }
+            const d = parts.join('');
             _setAttrIfChanged(ref.path, 'd', d);
             /* v1.59.8：fill area path——从最后一点向 baseline 拉 L 闭合，让"趋势带"半透明色填充 */
             if (ref.fill && d) {

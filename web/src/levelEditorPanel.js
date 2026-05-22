@@ -86,11 +86,44 @@ function buildLevelConfig() {
 // 网格渲染
 // -----------------------------------------------------------------------
 
+/* v1.61.17: 事件代理到 gridEl（3 个监听器解决全部 cell），
+ * 替代之前每个 cell 3 个监听器（64 cell × 3 = 192 个） */
+let _gridDelegated = false;
+
+function _resolveCell(target) {
+    const cell = target && target.closest ? target.closest('.le-cell[data-x][data-y]') : null;
+    if (!cell) return null;
+    return { cell, x: Number(cell.dataset.x), y: Number(cell.dataset.y) };
+}
+
 function renderGrid() {
     const gridEl = document.getElementById('le-grid');
     if (!gridEl) return;
     gridEl.innerHTML = '';
     gridEl.style.gridTemplateColumns = `repeat(${_size}, 1fr)`;
+
+    /* 事件代理一次注册，重渲染不重复绑定 */
+    if (!_gridDelegated) {
+        gridEl.addEventListener('mousedown', (e) => {
+            if (e.button === 2) return;
+            const hit = _resolveCell(e.target);
+            if (!hit) return;
+            e.preventDefault();
+            toggleCell(hit.x, hit.y);
+        });
+        gridEl.addEventListener('contextmenu', (e) => {
+            const hit = _resolveCell(e.target);
+            if (!hit) return;
+            e.preventDefault();
+            showColorPicker(hit.x, hit.y, hit.cell);
+        });
+        gridEl.addEventListener('mouseover', (e) => {
+            if (e.buttons !== 1) return;
+            const hit = _resolveCell(e.target);
+            if (hit) toggleCell(hit.x, hit.y, _selectedColor);
+        });
+        _gridDelegated = true;
+    }
 
     for (let y = 0; y < _size; y++) {
         for (let x = 0; x < _size; x++) {
@@ -101,20 +134,6 @@ function renderGrid() {
             const colorIdx = _cells[y][x];
             cell.style.background = CELL_COLORS[colorIdx] || CELL_COLORS[0];
             if (colorIdx > 0) cell.classList.add('le-cell--filled');
-
-            cell.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                if (e.button === 2) return;
-                toggleCell(x, y);
-            });
-            cell.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                showColorPicker(x, y, cell);
-            });
-            cell.addEventListener('mouseenter', (e) => {
-                if (e.buttons === 1) toggleCell(x, y, _selectedColor);
-            });
-
             gridEl.appendChild(cell);
         }
     }

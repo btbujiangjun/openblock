@@ -54,6 +54,7 @@ import { getActiveWinbackPreset } from './lifecycle/lifecycleOrchestrator.js';
 /* v1.50：lifecycleStressCapMap 抽到独立模块，与 playerInsightPanel /
  * 文档共用 single source of truth；本地不再保留副本，避免漂移。 */
 import { getLifecycleStressCap } from './lifecycle/lifecycleStressCapMap.js';
+import { clamp01 } from './lib/math.js';
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -412,9 +413,7 @@ function smoothStress(current, ctx, cfg, immediateRelief) {
     return Math.max(current, Math.max(smoothed, prev - maxStepDown));
 }
 
-function clamp01(v) {
-    return Math.max(0, Math.min(1, v));
-}
+/* v1.61.17: clamp01 已抽到 lib/math.js 单源（含 NaN 防护，性能差异可忽略） */
 
 function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg = {}, boardDifficulty = fill) {
     const stress01 = clamp01((stress + 0.2) / 1.2);
@@ -1392,21 +1391,23 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /* v1.55：把 bypass 原因写入 breakdown 供面板/单测；未来 DFV 可显示一句话解释。 */
     stressBreakdown.challengeBoostBypass = challengeBoostBypass;
 
-    /* v1.61：PB 追击压力激活 — 接近/超越 PB 时加压优先级高于普通救济信号，激发玩家斗志。
+    /* v1.61：PB 追击压力激活 — 接近/超越 PB 时加压优先级高于普通救济信号。
      *
      * 触发条件：
-     *   - isBClassChallenge=true（score >= bestScore×0.8、B 类段位、非瓶颈/挫败等 bypass 全通过）
-     *   - !forceReliefIntent（临终救济 / 高挫败 / 复活救济不可打断）
-     *   - _boardFill < 0.72（盘面非临满，避免玩家处于危险状态时仍被加压）
-     *   - !isInOnboarding（新手引导期不适用）
+     *   - isBClassChallenge=true（score>=best×0.8 且 challengeBoost bypass 全通过）
+     *   - !_pbcRelief（端到端的 relief 信号：endSessionDistress / frustrationCritical
+     *     / ctx.forceReliefIntent 三者任一 —— 与下方 line 2299 forceReliefIntent 同口径，
+     *     此处提前算一次避免 TDZ 引用）
+     *   - _boardFill < 0.72（非临满，玩家危险时不加压）
+     *   - !isInOnboarding（新手引导期豁免）
      *
-     * 效果：`deriveSpawnIntent` 优先返回 'pressure'（priority 102，高于 relief=100），
-     * `_tryInjectSpecial` 随之触发"制造空洞"路径，而非减压小块。
-     *
-     * 设计动机：分数接近 PB 时玩家处于"决战状态"——若此时出减压块，玩家分数快速膨胀
-     * 但不感受到挑战，破 PB 的成就感被稀释；改为加压可激发斗志且防止 PB 过快膨胀。 */
+     * v1.61.17 修复：旧版直接引用尚未声明的 forceReliefIntent → ReferenceError。 */
+    const _pbcEndDistress = !(ctx.bestScore > 0 && score > ctx.bestScore)
+        && profile.sessionPhase === 'late' && profile.momentum <= -0.30;
+    const _pbcFrustCritical = (profile.frustrationLevel ?? 0) >= 5;
+    const _pbcRelief = _pbcEndDistress || _pbcFrustCritical || ctx.forceReliefIntent === true;
     const pbChasePressureActive = isBClassChallenge
-        && !forceReliefIntent
+        && !_pbcRelief
         && (_boardFill ?? 0) < 0.72
         && !profile?.isInOnboarding;
     stressBreakdown.pbChasePressureActive = pbChasePressureActive;
