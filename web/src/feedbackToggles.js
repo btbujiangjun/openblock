@@ -80,12 +80,16 @@ export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
     const applySound = (enabled) => {
         const on = !!enabled;
         audioFx?.setEnabled?.(on);
+        /* v1.61.9：音效开关同时控制触觉反馈（消行震动等）。
+         * 之前 prefs.sound 和 prefs.haptic 是分开的两个开关，UI 上只暴露音效一个，
+         * 导致用户开音效时震动可能因为历史 haptic=false 不响应。统一控制更直观。 */
+        audioFx?.setHaptic?.(on);
         setButtonState(soundBtn, {
             enabled: on,
             onIcon: '🔊',
             offIcon: '🔇',
-            onLabel: '音效',
-            offLabel: '音效',
+            onLabel: '音效与振动',
+            offLabel: '音效与振动',
         });
     };
 

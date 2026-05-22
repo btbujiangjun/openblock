@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AVFoundation
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,7 +8,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // v1.61.9: 配置 AVAudioSession 为 .playback 类别，让游戏音效在静音开关打开时
+        // 也能正常播放（默认 WKWebView 走 .ambient 类别，被静音开关屏蔽）。
+        // .mixWithOthers 选项允许玩家同时听背景音乐（音乐 App + 游戏共存）。
+        do {
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback,
+                mode: .default,
+                options: [.mixWithOthers]
+            )
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("[AppDelegate] AVAudioSession setup failed: \(error)")
+        }
         return true
     }
 
