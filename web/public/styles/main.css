@@ -3691,28 +3691,39 @@ body.game-over-active .first-win-banner {
 
 /* ==================================================================== */
 /*  左侧画像面板收起态（.insight-collapsed 类挂在 <html>）             */
-/*    1. .app-side-left 由 clamp(120px,…,300px) 收到 36px 细栏         */
-/*    2. #app 左内边距同步收到 52px = 36 + 8 inset + 8 gap             */
-/*    3. --cell-px-width-reserve 由 332 降到 188                        */
-/*       → 横向上限抬高，盘面/候选自动放大                             */
-/*    4. 隐藏 #player-insight-panel 内容，露出 .insight-collapsed-strip */
+/*  与右侧 .rl-collapsed 完全对称：                                     */
+/*    1. #player-insight-panel 由 clamp(120px,…,300px) 收到 36px 细栏  */
+/*    2. .app-side-left 同步收到 36px（容器跟随 panel）                 */
+/*    3. #app 左内边距同步收到 52px                                      */
+/*    4. --cell-px-width-reserve 由 332 降到 188px，盘面自动放大        */
+/*    5. 隐藏 .insight-toolbar / details，仅留 .insight-collapsed-strip  */
+/*       （strip 在 panel 内部，保留 side-panel-base 的背景/圆角/阴影） */
 /*  展开态：.insight-collapsed-strip 隐藏，collapse-btn 显示在工具栏   */
 /* ==================================================================== */
 .insight-collapsed {
     --cell-px-width-reserve: 188px;
 }
 
+.insight-collapsed #player-insight-panel {
+    width: 36px !important;
+    max-width: 36px !important;
+    padding: 6px 4px;
+    overflow: hidden;
+}
+
 .insight-collapsed .app-side-left {
     width: 36px !important;
     max-width: 36px !important;
-    overflow: hidden;
 }
 
 .insight-collapsed #app {
     padding-left: max(10px, calc(var(--game-shell-inset) + 36px + var(--app-side-rail-gap)));
 }
 
-.insight-collapsed #player-insight-panel {
+/* 隐藏展开态内容，只露出细栏（对齐 .rl-collapsed 的 .rl-header-row / details 隐藏逻辑） */
+.insight-collapsed #player-insight-panel > .insight-toolbar,
+.insight-collapsed #player-insight-panel > .strategy-run-hint,
+.insight-collapsed #player-insight-panel > details.panel-section {
     display: none !important;
 }
 
@@ -3720,6 +3731,7 @@ body.game-over-active .first-win-banner {
     display: none !important;
 }
 
+/* 细栏布局（与 .rl-collapsed-strip 一致） */
 .insight-collapsed-strip {
     display: flex;
     flex-direction: column;
@@ -3743,6 +3755,7 @@ body.game-over-active .first-win-banner {
     white-space: nowrap;
 }
 
+/* 收起/展开按钮（与 .rl-collapse-btn / .rl-expand-btn 完全同款） */
 .insight-collapse-btn,
 .insight-expand-btn {
     background: transparent;
@@ -3768,7 +3781,7 @@ body.game-over-active .first-win-banner {
     transform: scale(0.94);
 }
 
-/* 展开态：收起按钮挂在 insight-toolbar-actions 末尾 */
+/* 展开态：收起按钮挂在 insight-toolbar-actions 末尾（与 rl-collapse-btn 同尺寸） */
 .insight-collapse-btn {
     width: 22px;
     height: 22px;
@@ -3776,7 +3789,7 @@ body.game-over-active .first-win-banner {
     margin-left: 4px;
 }
 
-/* 收起态：展开按钮作为细栏主交互入口 */
+/* 收起态：展开按钮作为细栏主交互入口（与 rl-expand-btn 同尺寸） */
 .insight-expand-btn {
     width: 28px;
     height: 28px;

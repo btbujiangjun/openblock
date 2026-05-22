@@ -338,14 +338,14 @@
     </div>
     <!-- 侧栏 emoji 与 web/src/uiIcons.js 对齐（静态 HTML 需与 JS 常量同步修改） -->
     <div class="app-side-left" aria-label="左侧工具栏">
-    <!-- 收起态细栏：insight-collapsed 时仅此可见，点击展开 -->
-    <div class="insight-collapsed-strip" aria-hidden="true">
-        <button type="button" class="insight-expand-btn" id="insight-expand-btn"
-                title="展开玩家画像面板"
-                aria-label="展开玩家画像面板">👤</button>
-        <span class="insight-collapsed-strip-label">玩家画像 · 展开 ›</span>
-    </div>
     <aside id="player-insight-panel" class="side-panel-base player-insight-panel" aria-label="玩家画像与自适应策略">
+        <!-- 收起态细栏：insight-collapsed 时仅此可见，点击 #insight-expand-btn 展开 -->
+        <div class="insight-collapsed-strip" aria-hidden="true">
+            <button type="button" class="insight-expand-btn" id="insight-expand-btn"
+                    title="展开玩家画像面板"
+                    aria-label="展开玩家画像面板">👤</button>
+            <span class="insight-collapsed-strip-label">玩家画像 · 展开 ›</span>
+        </div>
         <div class="insight-toolbar">
             <h3 class="player-insight-title"><span class="panel-head-icon" aria-hidden="true">👤</span>玩家画像</h3>
             <div class="insight-toolbar-actions">
