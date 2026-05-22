@@ -18,20 +18,32 @@
         #rl-panel      { display: flex !important; }
       }
       /* ════════════════════════════════════════════════════════════════════
-         移动端布局优化（v1.61.3）
-         核心策略：游戏区(.play-stack) 最大化；header/wordmark/score-theme/skill 全压缩；
-                 灵动岛(safe-area-inset-top) 完全避让；右上角加显眼退出按钮
+         移动端布局优化（v1.61.4）
+         核心策略：
+           - 棋盘按 8 列填满屏宽（解耦 cell-px 和 dock-cell-size）
+           - 棋盘和候选区之间零空隙（.play-stack gap=0 + skill-bar 紧贴）
+           - HUD 完全下移到灵动岛之下（safe-area + 额外 12px 缓冲）
+           - 右上角显眼退出按钮（带 12px backdrop-blur 玻璃感）
          ════════════════════════════════════════════════════════════════════ */
       @media (max-width: 1023px) {
-        /* 1. #app 容器：safe-area 全方位避让，仅留必要边距 */
+        /* 1. #app 容器：safe-area + 额外 12px 缓冲，灵动岛完全空出 */
         #app {
-          padding-top: max(env(safe-area-inset-top, 0px), 8px) !important;
+          padding-top: calc(max(env(safe-area-inset-top, 0px), 20px) + 12px) !important;
           padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px) !important;
-          padding-left: max(env(safe-area-inset-left, 0px), 6px) !important;
-          padding-right: max(env(safe-area-inset-right, 0px), 6px) !important;
+          padding-left: max(env(safe-area-inset-left, 0px), 4px) !important;
+          padding-right: max(env(safe-area-inset-right, 0px), 4px) !important;
         }
-        html { --cell-px-width-reserve: 32px; --app-center-hpad: 0px;
-               --cell-px-height-reserve: 230px; --cell-px-max: 110px; }
+        /* 关键修复：棋盘格按 8 列填满屏宽，候选区独立按 15 列缩小（不影响棋盘大小）。
+         * main.css 中 --dock-cell-size: var(--cell-px) 的强绑定被此处 !important 覆写。
+         * --cell-px-width-reserve 降到 8px → cell-px = (100vw-8)/15 不再约束（被下方 #game-grid 直接覆写）。 */
+        html {
+          --cell-px-width-reserve: 8px;
+          --cell-px-height-reserve: 240px;
+          --cell-px-max: 60px;
+          /* 候选区独立缩小：3 块 × 5 格 = 15 格，留 32px 内边距 */
+          --dock-cell-size: calc((100vw - 32px) / 15) !important;
+          --app-center-hpad: 0px;
+        }
 
         /* 2. 顶部 wordmark：缩小为原 1/2，下移避开灵动岛 */
         .header.header--title-only {
@@ -100,23 +112,36 @@
         #mobile-exit-btn:active { background: rgba(0,0,0,0.75) !important; transform: scale(0.92); }
         /* 桌面端隐藏移动专属退出按钮（header 已有 ☰）*/
 
-        /* 6. play-stack 最大化（吃掉所有可用纵向空间） */
+        /* 6. play-stack 零空隙：棋盘和候选区紧贴，避免大片空白紫色 */
         .play-stack {
-          padding: 4px 0 0 !important;
-          gap: 4px !important;
-          flex: 1 1 auto !important;
+          padding: 0 !important;
+          gap: 0 !important;
+          flex: 0 1 auto !important;  /* 不要 flex:1（会拉伸出多余空白），按内容贴紧 */
+          justify-content: flex-start !important;
         }
+        /* #game-wrapper / #game-grid: 棋盘按屏宽自适应（覆写桌面默认尺寸约束）。
+         * width = min(100vw - 8px, 8 × max-cell)，确保不超 60px × 8 = 480px。
+         * height 自适应：!important + width 计算，canvas aspect-ratio 1:1 保证正方形。 */
         #game-wrapper {
-          flex: 1 1 auto !important;
+          flex: 0 0 auto !important;
+          width: 100% !important;
+          display: flex !important;
+          justify-content: center !important;
+          padding: 0 !important;
+          margin: 0 !important;
         }
         #game-grid {
-          max-width: min(100vw - 16px, 100dvh - var(--cell-px-height-reserve, 230px)) !important;
+          width: min(calc(100vw - 8px), 480px) !important;
+          height: min(calc(100vw - 8px), 480px) !important;
+          max-width: none !important;
+          max-height: none !important;
         }
 
-        /* 7. skill-bar 紧凑（按钮缩小，允许 wrap 自动分行） */
+        /* 7. skill-bar 紧贴棋盘（margin: 0 强制无空隙），按钮缩小 + 自动 wrap */
         .skill-bar {
           gap: 4px !important;
-          padding: 2px 4px !important;
+          padding: 4px 4px !important;
+          margin: 0 !important;
           flex-wrap: wrap !important;
           justify-content: center !important;
           row-gap: 3px !important;
@@ -127,10 +152,11 @@
           border-radius: 8px !important;
         }
 
-        /* 8. block-dock 紧凑 */
+        /* 8. block-dock 紧贴 skill-bar */
         .block-dock {
           padding: 6px 4px max(6px, env(safe-area-inset-bottom, 0px)) !important;
           gap: 4px !important;
+          margin: 0 !important;
           min-height: auto !important;
         }
       }
