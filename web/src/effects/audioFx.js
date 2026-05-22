@@ -259,10 +259,14 @@ export class AudioFx {
                 } catch { /* ignore */ }
             }
         };
+        /* v1.61.8：多事件兜底解锁。部分浏览器 / WKWebView 只支持某一种事件，全部监听 */
         const opts = { once: true, passive: true };
         window.addEventListener('pointerdown', unlock, opts);
+        window.addEventListener('touchstart',  unlock, opts);  /* 加回，iOS Safari 优先触发 */
         window.addEventListener('touchend',    unlock, opts);
+        window.addEventListener('mousedown',   unlock, opts);
         window.addEventListener('keydown',     unlock, { once: true });
+        window.addEventListener('click',       unlock, opts);
 
         /* Capacitor App 从后台恢复时 AudioContext 可能变 suspended */
         if (typeof document !== 'undefined') {

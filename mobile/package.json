@@ -2,5 +2,8 @@
   "name": "openblock-mobile-shell",
   "private": true,
   "version": "1.0.0",
-  "description": "Capacitor shell for packaging OpenBlock Web into Android and iOS clients."
+  "description": "Capacitor shell for packaging OpenBlock Web into Android and iOS clients.",
+  "dependencies": {
+    "@capacitor/haptics": "^8.0.2"
+  }
 }
