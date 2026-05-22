@@ -502,17 +502,69 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
   stroke: #fff;
 }
 .graph-node text {
-  font: 600 10px var(--mono);
-  fill: var(--text-2);
   pointer-events: none;
   transition: fill 150ms;
 }
-.graph-node.active text, .graph-node:hover text {
-  fill: #fff;
+/* 第一行：中文语义标题 — 大字号、稍粗 */
+.graph-node .gnode-title {
+  font: 700 11px var(--font);
+  fill: var(--text);
 }
+/* 第二行：英文 name — 小字号等宽 */
+.graph-node .gnode-sub {
+  font: 500 9px var(--mono);
+  fill: var(--text-3);
+}
+.graph-node.active .gnode-title, .graph-node:hover .gnode-title { fill: #fff; }
+.graph-node.active .gnode-sub,   .graph-node:hover .gnode-sub   { fill: var(--text-2); }
 .graph-node.dimmed circle { opacity: 0.18; }
 .graph-node.dimmed text { opacity: 0.18; }
 .graph-link.dimmed { opacity: 0.04; }
+
+/* 🕸 HTML tooltip — 节点 hover 时跟随鼠标显示计算口径/逻辑 */
+.graph-tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: 340px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.96);
+  border: 1px solid var(--border-h);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.graph-tooltip.visible { opacity: 1; }
+.graph-tooltip-head {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 6px;
+}
+.graph-tooltip-title { font: 700 13px var(--font); color: #fff; }
+.graph-tooltip-name { font: 600 11px var(--mono); color: var(--text-2); margin-bottom: 8px; }
+.graph-tooltip-section { margin-top: 8px; }
+.graph-tooltip-label {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.6px;
+  text-transform: uppercase; color: var(--accent);
+  margin-bottom: 3px;
+}
+.graph-tooltip-formula {
+  font: 10px/1.7 var(--mono); color: #7ee787;
+  background: rgba(0,0,0,0.4);
+  padding: 6px 8px; border-radius: 5px;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 140px; overflow-y: auto;
+}
+.graph-tooltip-range { font: 10px var(--mono); color: #d2a679; }
+.graph-tooltip-hint {
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 10px; color: var(--text-3);
+}
 
 /* ════════════════════════════════════════════════
    🎛 Stress 模拟器
@@ -840,6 +892,7 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
       </div>
       <div id="graph-stage">
         <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="graph-tooltip" class="graph-tooltip" aria-hidden="true"></div>
         <div id="graph-detail">
           <div class="graph-detail-empty">悬停或点击节点查看详情</div>
         </div>
@@ -1879,8 +1932,25 @@ function renderGraphView() {
     edgeMap.set(`${e.from}->${e.to}`, path);
   });
 
-  // 绘节点
+  // 从 semantic 提取中文标题（首个标点前的短语）
+  function getZhTitle(s) {
+    const sem = (s.semantic || '').trim();
+    if (!sem) return s.name;
+    const m = sem.match(/^([^：，,。；;（(\s]+)/);
+    let title = m ? m[1].trim() : sem.slice(0, 10);
+    if (title.length > 12) title = title.slice(0, 11) + '…';
+    return title;
+  }
+  // 英文 name 简化（去括号 & 长度限制）
+  function getEnName(s) {
+    let n = s.name.split(/[（(]/)[0].trim();
+    if (n.length > 22) n = n.slice(0, 20) + '…';
+    return n;
+  }
+
+  // 绘节点（双行文字：上中文标题，下英文 name）
   const nodeEls = {};
+  const tooltip = document.getElementById('graph-tooltip');
   SIGNALS.forEach(s => {
     const p = positions[s.id];
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1895,19 +1965,84 @@ function renderGraphView() {
     c.setAttribute('stroke', getLayerColor(s.layer));
     g.appendChild(c);
 
-    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.textContent = s.name.split(/[（(]/)[0].slice(0, 18);
-    t.setAttribute('x', s.layer === 1 ? -10 : (s.layer === 3 ? 10 : 0));
-    t.setAttribute('y', s.layer === 2 ? -10 : 3);
-    t.setAttribute('text-anchor', s.layer === 1 ? 'end' : (s.layer === 3 ? 'start' : 'middle'));
-    g.appendChild(t);
+    // 文字布局：L1 节点在右、L3 节点在左、L2 节点在下方居中（避免覆盖中央节点）
+    const isL1 = s.layer === 1, isL3 = s.layer === 3;
+    const xOff = isL1 ? -12 : (isL3 ? 12 : 0);
+    const yBase = (isL1 || isL3) ? -2 : 18;  // L2 中间节点放下方
+    const anchor = isL1 ? 'end' : (isL3 ? 'start' : 'middle');
 
-    g.addEventListener('mouseenter', () => highlightNode(s.id));
-    g.addEventListener('mouseleave', () => clearHighlight());
+    // 第一行：中文语义标题
+    const tTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    tTitle.textContent = getZhTitle(s);
+    tTitle.setAttribute('class', 'gnode-title');
+    tTitle.setAttribute('x', xOff);
+    tTitle.setAttribute('y', yBase);
+    tTitle.setAttribute('text-anchor', anchor);
+    g.appendChild(tTitle);
+
+    // 第二行：英文 name（小字号等宽）
+    const tSub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    tSub.textContent = getEnName(s);
+    tSub.setAttribute('class', 'gnode-sub');
+    tSub.setAttribute('x', xOff);
+    tSub.setAttribute('y', yBase + 11);
+    tSub.setAttribute('text-anchor', anchor);
+    g.appendChild(tSub);
+
+    g.addEventListener('mouseenter', (e) => {
+      highlightNode(s.id);
+      showTooltip(s, e);
+    });
+    g.addEventListener('mousemove', (e) => moveTooltip(e));
+    g.addEventListener('mouseleave', () => {
+      clearHighlight();
+      hideTooltip();
+    });
     g.addEventListener('click', () => showGraphDetail(s));
     svg.appendChild(g);
     nodeEls[s.id] = g;
   });
+
+  // Tooltip：跟随鼠标显示 计算口径 + 范围 + 下游
+  function showTooltip(s, e) {
+    const cc = CAT_COLORS[s.cat] || '#888';
+    tooltip.innerHTML = `
+      <div class="graph-tooltip-head">
+        <span class="layer-badge" style="background:${getLayerColor(s.layer)};font-size:9px;padding:1px 5px;border-radius:3px;color:#fff;font-weight:700">L${s.layer}</span>
+        <span style="width:8px;height:8px;border-radius:50%;background:${cc};display:inline-block"></span>
+        <span style="font-size:10px;color:var(--text-3)">${esc(s.cat)}</span>
+      </div>
+      <div class="graph-tooltip-title">${esc(getZhTitle(s))}</div>
+      <div class="graph-tooltip-name">${esc(s.name)}</div>
+      <div class="graph-tooltip-section">
+        <div class="graph-tooltip-label">语义</div>
+        <div style="color:var(--text)">${esc(s.semantic)}</div>
+      </div>
+      <div class="graph-tooltip-section">
+        <div class="graph-tooltip-label">计算口径（代码事实）</div>
+        <pre class="graph-tooltip-formula">${esc(s.formula)}</pre>
+      </div>
+      <div class="graph-tooltip-section">
+        <div class="graph-tooltip-label">取值范围</div>
+        <div class="graph-tooltip-range">${esc(s.range)}</div>
+      </div>
+      <div class="graph-tooltip-hint">↓ 下游 ${s.consumers.length} 项 · 点击节点固定到右侧详情卡</div>
+    `;
+    tooltip.classList.add('visible');
+    moveTooltip(e);
+  }
+  function moveTooltip(e) {
+    // 鼠标右下方 14px 偏移；接近右/下边界时翻转避免溢出
+    const margin = 14;
+    const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let x = e.clientX + margin, y = e.clientY + margin;
+    if (x + w + 8 > vw) x = e.clientX - w - margin;
+    if (y + h + 8 > vh) y = e.clientY - h - margin;
+    tooltip.style.left = Math.max(8, x) + 'px';
+    tooltip.style.top  = Math.max(8, y) + 'px';
+  }
+  function hideTooltip() { tooltip.classList.remove('visible'); }
 
   function highlightNode(id) {
     const upstream = new Set(); const downstream = new Set();
