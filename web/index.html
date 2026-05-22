@@ -73,21 +73,21 @@
           min-width: 0 !important;
           flex: 0 1 auto !important;
         }
-        .score-theme-row .stat-label { font-size: 9px !important; line-height: 1.1 !important; }
-        .score-theme-row .stat-value { font-size: 17px !important; line-height: 1.1 !important; }
+        .score-theme-row .stat-label { font-size: 10px !important; line-height: 1.15 !important; }
+        .score-theme-row .stat-value { font-size: 22px !important; line-height: 1.15 !important; font-weight: 700 !important; }
         .score-theme-row .stat-subline--spacer,
         .score-theme-row .best-gap,
         .score-theme-row .progression-streak { display: none !important; }
-        .score-theme-row .progression-level { font-size: 12px !important; }
-        .score-theme-row .progression-title { font-size: 10px !important; }
+        .score-theme-row .progression-level { font-size: 14px !important; }
+        .score-theme-row .progression-title { font-size: 11px !important; }
         /* 主题选择器和 quick-cluster 强制换到第二行（用 flex-basis: 100% 触发换行） */
         .score-theme-row .header-skin {
           order: 10 !important;
           flex-basis: auto !important;
-          padding: 2px 6px !important;
+          padding: 3px 8px !important;
         }
         .score-theme-row .header-skin .skin-picker select {
-          font-size: 11px !important; padding: 1px 6px !important;
+          font-size: 14px !important; padding: 2px 8px !important; font-weight: 600 !important;
         }
         /* 强制换行分隔符：在 header-skin 前插入虚拟换行 */
         .score-theme-row::after {
@@ -131,18 +131,22 @@
         #mobile-exit-btn:active { background: rgba(0,0,0,0.75) !important; transform: scale(0.92); }
         /* 桌面端隐藏移动专属退出按钮（header 已有 ☰）*/
 
-        /* 6. #app 整体改为 space-between 布局，让游戏区自然下沉填满底部空白
-         *    header (top) → score-theme-row → [auto-grow gap] → play-stack (bottom)
-         *    上半部分是 HUD，下半部分是游戏区，中间用 margin-top:auto 顶到底部。 */
+        /* 6. #app 整体垂直居中：游戏区上下平衡，HUD 紧贴上方，dock 紧贴下方
+         *    布局：[ flex-grow 顶部空隙 ][ header+score-row+play-stack 紧贴整体 ][ flex-grow 底部空隙 ]
+         *    用 auto margin 实现 — header 之前一段、play-stack 之后一段，自动等分上下空白。 */
         #app {
           justify-content: flex-start !important;
         }
+        /* 顶部加 auto margin 把整个内容向下推到中间 */
+        .header.header--title-only { margin-top: auto !important; }
+        /* 游戏区底部加 auto margin 把内容向上推到中间，与顶部 margin-auto 形成上下平衡 */
         .play-stack {
           padding: 0 !important;
           gap: 0 !important;
           flex: 0 0 auto !important;
           justify-content: flex-start !important;
-          margin-top: auto !important;  /* 关键：把游戏区推到底部 */
+          margin-top: 4px !important;   /* 紧贴 HUD，仅留极小呼吸 */
+          margin-bottom: auto !important;  /* 底部 auto，与顶部对称 */
         }
         /* #game-wrapper / #game-grid: 棋盘按屏宽自适应（覆写桌面默认尺寸约束）。
          * width = min(100vw - 8px, 8 × max-cell)，确保不超 60px × 8 = 480px。
