@@ -51,9 +51,32 @@
          CSS 用 .rl-collapsed 通用选择器匹配；展开/收起按钮交互在 rlPanel.js 中绑定。
          键名 `openblock_rl_panel_collapsed_v1` 与 rlPanel.js 中的 LS_RL_COLLAPSED 严格一致。 -->
     <script>
-      /* 两侧栏默认收起：未记录过偏好（null）或明确记为 '1' 时均收起；
-         只有玩家主动展开并写入 '0' 后才保持展开态。 */
       (function () {
+        /* ── 原生客户端检测（iOS / Android WebView）──────────────────────────
+           Capacitor / 原生壳启动时应在加载页面前注入：
+             globalThis.__OPENBLOCK_PLATFORM__ = 'ios'  或  'android'
+           UA 作为兜底：MicroMessenger → wechat（不隐藏侧栏），iOS/Android → 隐藏。
+           class 打到 <html>，CSS 端用 .native-client 一次性隐藏两侧栏并调整布局。 */
+        (function detectNativeClient() {
+          try {
+            var p = (typeof globalThis !== 'undefined' && globalThis.__OPENBLOCK_PLATFORM__) || '';
+            p = String(p).toLowerCase();
+            if (p !== 'ios' && p !== 'android') {
+              var ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+              if (/MicroMessenger/i.test(ua)) { p = 'wechat'; }
+              else if (/iPad|iPhone|iPod/.test(ua)) { p = 'ios'; }
+              else if (/Android/i.test(ua)) { p = 'android'; }
+            }
+            if (p === 'ios' || p === 'android') {
+              document.documentElement.classList.add('native-client');
+            }
+          } catch (_) { /* 静默忽略 */ }
+        })();
+
+        /* ── 两侧栏默认收起（非原生客户端时才生效）────────────────────────
+           未记录过偏好（null）或明确记为 '1' 时均收起；
+           只有玩家主动展开并写入 '0' 后才保持展开态。
+           原生客户端已通过 .native-client 整体隐藏侧栏，无需读此状态。 */
         try {
           if (localStorage.getItem('openblock_rl_panel_collapsed_v1') !== '0') {
             document.documentElement.classList.add('rl-collapsed');

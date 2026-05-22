@@ -3799,6 +3799,31 @@ body.game-over-active .first-win-banner {
     justify-content: center;
 }
 
+/* ==================================================================== */
+/*  原生客户端布局（iOS / Android WebView）                             */
+/*  class .native-client 挂在 <html>，由 index.html head 内联脚本打入。 */
+/*                                                                       */
+/*  效果：                                                               */
+/*    1. 隐藏左侧 .app-side-left 和右侧 #rl-panel（含两侧细栏）         */
+/*    2. --cell-px-width-reserve 降到 64px（仅留安全区边距缓冲）         */
+/*       → 盘面 / 候选区横向自动占满全宽                                */
+/*    3. --app-center-hpad 归零，#app 两侧 padding 只保留安全区          */
+/*    4. 收起/展开切换按钮（insight-collapsed / rl-collapsed）无效化——  */
+/*       原生客户端不需要收起功能，整个侧栏直接不渲染                   */
+/*                                                                       */
+/*  注意：规则优先级高于 .rl-collapsed / .insight-collapsed，           */
+/*  即使 localStorage 中有收起记录，原生客户端也不会出现细栏。          */
+/* ==================================================================== */
+.native-client {
+    --cell-px-width-reserve: 64px;
+    --app-center-hpad: 0px;
+}
+
+.native-client .app-side-left,
+.native-client #rl-panel {
+    display: none !important;
+}
+
 .rl-panel-title {
     font-size: 9px;
     margin: 0;
