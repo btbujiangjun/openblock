@@ -3689,6 +3689,103 @@ body.game-over-active .first-win-banner {
     justify-content: center;
 }
 
+/* ==================================================================== */
+/*  左侧画像面板收起态（.insight-collapsed 类挂在 <html>）             */
+/*    1. .app-side-left 由 clamp(120px,…,300px) 收到 36px 细栏         */
+/*    2. #app 左内边距同步收到 52px = 36 + 8 inset + 8 gap             */
+/*    3. --cell-px-width-reserve 由 332 降到 188                        */
+/*       → 横向上限抬高，盘面/候选自动放大                             */
+/*    4. 隐藏 #player-insight-panel 内容，露出 .insight-collapsed-strip */
+/*  展开态：.insight-collapsed-strip 隐藏，collapse-btn 显示在工具栏   */
+/* ==================================================================== */
+.insight-collapsed {
+    --cell-px-width-reserve: 188px;
+}
+
+.insight-collapsed .app-side-left {
+    width: 36px !important;
+    max-width: 36px !important;
+    overflow: hidden;
+}
+
+.insight-collapsed #app {
+    padding-left: max(10px, calc(var(--game-shell-inset) + 36px + var(--app-side-rail-gap)));
+}
+
+.insight-collapsed #player-insight-panel {
+    display: none !important;
+}
+
+:root:not(.insight-collapsed) .insight-collapsed-strip {
+    display: none !important;
+}
+
+.insight-collapsed-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    height: 100%;
+    padding-top: 6px;
+    box-sizing: border-box;
+}
+
+.insight-collapsed-strip-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    color: var(--text-secondary, #5d7a96);
+    user-select: none;
+    margin-top: 2px;
+    white-space: nowrap;
+}
+
+.insight-collapse-btn,
+.insight-expand-btn {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 18%, transparent);
+    color: var(--text-secondary, #5d7a96);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0;
+    flex-shrink: 0;
+    transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.insight-collapse-btn:hover,
+.insight-expand-btn:hover {
+    background: color-mix(in srgb, var(--accent-color, #5b9bd5) 14%, transparent);
+    color: var(--accent-color, #4472c4);
+}
+
+.insight-collapse-btn:active,
+.insight-expand-btn:active {
+    transform: scale(0.94);
+}
+
+/* 展开态：收起按钮挂在 insight-toolbar-actions 末尾 */
+.insight-collapse-btn {
+    width: 22px;
+    height: 22px;
+    font-size: 13px;
+    margin-left: 4px;
+}
+
+/* 收起态：展开按钮作为细栏主交互入口 */
+.insight-expand-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .rl-panel-title {
     font-size: 9px;
     margin: 0;

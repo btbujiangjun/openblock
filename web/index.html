@@ -56,6 +56,9 @@
           if (localStorage.getItem('openblock_rl_panel_collapsed_v1') === '1') {
             document.documentElement.classList.add('rl-collapsed');
           }
+          if (localStorage.getItem('openblock_insight_panel_collapsed_v1') === '1') {
+            document.documentElement.classList.add('insight-collapsed');
+          }
         } catch (_) { /* localStorage 不可用时忽略，保持默认展开 */ }
       })();
     </script>
@@ -335,6 +338,13 @@
     </div>
     <!-- 侧栏 emoji 与 web/src/uiIcons.js 对齐（静态 HTML 需与 JS 常量同步修改） -->
     <div class="app-side-left" aria-label="左侧工具栏">
+    <!-- 收起态细栏：insight-collapsed 时仅此可见，点击展开 -->
+    <div class="insight-collapsed-strip" aria-hidden="true">
+        <button type="button" class="insight-expand-btn" id="insight-expand-btn"
+                title="展开玩家画像面板"
+                aria-label="展开玩家画像面板">👤</button>
+        <span class="insight-collapsed-strip-label">玩家画像 · 展开 ›</span>
+    </div>
     <aside id="player-insight-panel" class="side-panel-base player-insight-panel" aria-label="玩家画像与自适应策略">
         <div class="insight-toolbar">
             <h3 class="player-insight-title"><span class="panel-head-icon" aria-hidden="true">👤</span>玩家画像</h3>
@@ -344,6 +354,11 @@
                     <button type="button" class="strategy-btn active" data-level="normal">普通</button>
                     <button type="button" class="strategy-btn" data-level="hard">困难</button>
                 </div>
+                <!-- 收起按钮：把玩家画像面板压缩成细栏 -->
+                <button type="button" class="insight-collapse-btn" id="insight-collapse-btn"
+                        title="收起玩家画像面板，把空间让给游戏区"
+                        aria-label="收起玩家画像面板"
+                        aria-expanded="true">‹</button>
             </div>
         </div>
         <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>

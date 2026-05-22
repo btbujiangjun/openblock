@@ -2062,9 +2062,50 @@ export function updateInsightReplayFrame(idx) {
     }
 }
 
+/** 与 index.html head 内联脚本的键名严格一致。 */
+const LS_INSIGHT_COLLAPSED = 'openblock_insight_panel_collapsed_v1';
+
+/**
+ * 左侧玩家画像面板收起 / 展开控制（与 rlPanel.js 中 setRlPanelCollapsed 模式对称）。
+ *   - 收起：把 .insight-collapsed 类挂到 <html>，CSS 端把 .app-side-left 收到 36px 细栏，
+ *     --cell-px-width-reserve 切换，盘面/候选自动放大。
+ *   - 展开：移除类，恢复原侧栏宽度。
+ *   - 状态写入 localStorage[LS_INSIGHT_COLLAPSED]，下次刷新由 head inline 脚本提前打类。
+ *
+ * @param {boolean} collapsed
+ * @param {{ persist?: boolean }} [opts]
+ */
+export function setInsightPanelCollapsed(collapsed, { persist = true } = {}) {
+    const root = document.documentElement;
+    if (!root) return;
+    root.classList.toggle('insight-collapsed', collapsed);
+    if (persist) {
+        try {
+            localStorage.setItem(LS_INSIGHT_COLLAPSED, collapsed ? '1' : '0');
+        } catch { /* storage 满 / 隐私模式：忽略 */ }
+    }
+    const collapseBtn = document.getElementById('insight-collapse-btn');
+    const expandBtn = document.getElementById('insight-expand-btn');
+    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('resize'));
+    }
+}
+
 export function initPlayerInsightPanel(game) {
     game._playerInsightRefresh = () => _render(game);
     game.clearInsightHints = () => _clearHints(game);
+
+    /* 收起 / 展开按钮绑定 */
+    const collapseBtn = document.getElementById('insight-collapse-btn');
+    const expandBtn = document.getElementById('insight-expand-btn');
+    if (collapseBtn) {
+        collapseBtn.addEventListener('click', () => setInsightPanelCollapsed(true));
+    }
+    if (expandBtn) {
+        expandBtn.addEventListener('click', () => setInsightPanelCollapsed(false));
+    }
 
     const btnNew = document.getElementById('insight-new-game');
     const btnRestart = document.getElementById('insight-restart');
