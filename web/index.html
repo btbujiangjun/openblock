@@ -50,20 +50,22 @@
           --app-center-hpad: 0px;
         }
 
-        /* 2. wordmark 适度下移 + 紧凑（v1.61.12）：
-         *    logo 加 8px 上 margin（避开手机顶部信号区 + 上一页指示器）
-         *    像素恢复到 2.8/4px（之前 2.5/3.5 太小）*/
+        /* 2. wordmark 放大并凸显（v1.61.14）：
+         *    像素恢复到 4/5.5px，logo 高度约 39px，配光晕更醒目
+         *    保留 8px 上 margin 避开手机顶栏 */
         .header.header--title-only {
           padding: 0 !important;
-          margin: 8px 0 0 0 !important;
+          margin: 8px 0 4px 0 !important;
           flex-shrink: 0 !important;
         }
         .app-wordmark {
-          --wm-cell-w: 2.8px !important;
-          --wm-cell-h: 4px !important;
-          padding: 0 4px !important;
+          --wm-cell-w: 4px !important;
+          --wm-cell-h: 5.5px !important;
+          padding: 4px 8px !important;
           transform: scale(1) !important;
           line-height: 1 !important;
+          filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.3))
+                  drop-shadow(0 0 14px rgba(252, 211, 77, 0.15)) !important;
         }
 
         /* 3. score-theme-row 紧凑 4 层（解决 HUD 过松散问题，row-gap 收到 1px）：
@@ -128,17 +130,13 @@
           margin-right: 2px;
           text-shadow: none;
         }
-        /* 最佳（白色主体 + 金色光晕 + 连破徽章水平内联） */
+        /* 最佳（白色主体 + 金色光晕，pb-streak 作为右上角悬浮徽章不撑高） */
         .score-theme-row > .stat-box--best {
           order: 2 !important;
           background: rgba(30, 41, 59, 0.5) !important;
           border: 1px solid rgba(252, 211, 77, 0.5) !important;
           border-radius: 10px !important;
-          /* v1.61.13：改 flex-row 让 pb-streak-badge 水平内联（节省一行高度）*/
-          display: flex !important;
-          flex-direction: row !important;
-          align-items: center !important;
-          gap: 6px !important;
+          position: relative !important;  /* v1.61.14：作为 pb-streak 绝对定位锚点 */
         }
         .score-theme-row > .stat-box--best .stat-value {
           color: #fcd34d !important;
@@ -151,12 +149,21 @@
           margin-right: 2px;
           text-shadow: none;
         }
-        /* 连破徽章：v1.61.13 改为水平内联（取消默认的 margin-top: 2px 换行） */
+        /* v1.61.14：连破徽章改为绝对定位右上角，不影响最佳得分的居中原始布局 */
         .score-theme-row > .stat-box--best .pb-streak-badge {
-          margin-top: 0 !important;
-          font-size: 11px !important;
-          padding: 2px 7px !important;
-          flex-shrink: 0 !important;
+          position: absolute !important;
+          top: -8px !important;
+          right: -6px !important;
+          margin: 0 !important;
+          font-size: 9px !important;
+          padding: 1px 6px !important;
+          background: linear-gradient(135deg, #f97316, #dc2626) !important;
+          color: #fff !important;
+          border: 1px solid rgba(255,255,255,0.25) !important;
+          border-radius: 8px !important;
+          line-height: 1.2 !important;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.4) !important;
+          z-index: 2 !important;
         }
 
         /* 第一虚拟换行 */
@@ -226,8 +233,13 @@
           gap: 0 !important;
           flex: 0 0 auto !important;
           justify-content: flex-start !important;
-          margin-top: 4px !important;          /* 紧贴 HUD */
-          margin-bottom: 26vh !important;      /* v1.61.11: 18vh→26vh，候选池继续上移到 ~55% 屏高 */
+          margin-top: 4px !important;
+          margin-bottom: 26vh !important;
+          /* v1.61.14：去除 play-stack 卡片样式（边框/阴影/渐变背景），与 #app 背景融为一体 */
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
         }
         /* #game-wrapper / #game-grid: 棋盘按屏宽自适应（覆写桌面默认尺寸约束）。
          * width = min(100vw - 8px, 8 × max-cell)，确保不超 60px × 8 = 480px。
