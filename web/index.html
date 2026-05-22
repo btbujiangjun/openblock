@@ -58,82 +58,116 @@
           transform: scale(1) !important;
         }
 
-        /* 3. score-theme-row 重排为 4 层视觉主次（CSS order + flex-basis 强制换行）：
+        /* 3. score-theme-row 紧凑 4 层（解决 HUD 过松散问题，row-gap 收到 1px）：
          *     ┌─────────────────────┐
-         *     │ 得分 0  │ 最佳 640  │  Tier 2  (核心游戏信息，最大字号)
+         *     │ 得分 28  │ 最佳 640  │  Tier 2 — 大字号 + 强卡片背景 + 颜色区分
          *     ├─────────────────────┤
-         *     │ Lv.1 新手 │ 糖果甜心 │  Tier 3  (等级 + 皮肤)
+         *     │ Lv.1 新手│ 糖果甜心 │  Tier 3 — 等级 + 皮肤
          *     ├─────────────────────┤
-         *     │  ✨ 🖼 🔊 ☰        │  Tier 4  (功能键，最小)
-         *     └─────────────────────┘
-         *    DOM 顺序：Lv / 得分 / 最佳 / 主题 / 快捷开关
-         *    通过 order 重新排序：得分(1) | 最佳(2) | sep(5) | Lv(6) | 主题(7) | sep(10) | toggles(11) */
+         *     │ ✨ 🖼 🔊 ☰          │  Tier 4 — 功能键
+         *     └─────────────────────┘ */
         .score-theme-row {
-          gap: 6px !important;
-          margin: 2px 0 !important;
+          gap: 8px !important;
+          margin: 1px 0 !important;
           padding: 0 4px !important;
           display: flex !important;
           flex-wrap: wrap !important;
           justify-content: center !important;
           align-items: center !important;
-          row-gap: 4px !important;
+          row-gap: 2px !important;   /* 行间距收紧 */
         }
         .score-theme-row .stat-box {
-          padding: 2px 10px !important;
+          padding: 3px 12px !important;
           min-width: 0 !important;
           flex: 0 1 auto !important;
         }
         .score-theme-row .stat-label {
           font-size: 9px !important;
-          line-height: 1.1 !important;
-          opacity: 0.75 !important;
-          letter-spacing: 0.04em !important;
+          line-height: 1.05 !important;
+          opacity: 0.7 !important;
+          letter-spacing: 0.06em !important;
+          text-transform: uppercase !important;
+          margin-bottom: 1px !important;
         }
         .score-theme-row .stat-value {
-          font-size: 22px !important;
-          line-height: 1.15 !important;
-          font-weight: 700 !important;
+          font-size: 28px !important;
+          line-height: 1.05 !important;
+          font-weight: 800 !important;
+          font-variant-numeric: tabular-nums !important;  /* 等宽数字，跳动不抖 */
+          letter-spacing: -0.02em !important;
         }
         .score-theme-row .stat-subline--spacer,
         .score-theme-row .best-gap,
         .score-theme-row .progression-streak { display: none !important; }
-        .score-theme-row .progression-level { font-size: 14px !important; font-weight: 700 !important; }
+        .score-theme-row .progression-level { font-size: 15px !important; font-weight: 800 !important; }
         .score-theme-row .progression-title { font-size: 11px !important; opacity: 0.8 !important; }
 
-        /* === Tier 2: 得分 & 最佳（第一可见行） === */
-        /* DOM 中：第 2 个 .stat-box (得分) 和 .stat-box--best (最佳) */
-        .score-theme-row > .stat-box:nth-of-type(2) { order: 1 !important; }
-        .score-theme-row > .stat-box--best         { order: 2 !important; }
+        /* === Tier 2: 得分 & 最佳（强化卡片样式 + 配色区分）=== */
+        /* 得分（主色调，蓝青系，代表"当前进行中"） */
+        .score-theme-row > .stat-box:nth-of-type(2) {
+          order: 1 !important;
+          background: linear-gradient(135deg, rgba(59,130,246,0.18), rgba(34,211,238,0.12)) !important;
+          border: 1px solid rgba(59,130,246,0.35) !important;
+          border-radius: 10px !important;
+        }
+        .score-theme-row > .stat-box:nth-of-type(2) .stat-value {
+          color: #60a5fa !important;
+          text-shadow: 0 1px 8px rgba(96,165,250,0.5) !important;
+        }
+        .score-theme-row > .stat-box:nth-of-type(2) .stat-label {
+          color: #93c5fd !important;
+        }
+        /* 最佳（金色调，代表"成就"） */
+        .score-theme-row > .stat-box--best {
+          order: 2 !important;
+          background: linear-gradient(135deg, rgba(252,211,77,0.20), rgba(251,146,60,0.12)) !important;
+          border: 1px solid rgba(252,211,77,0.40) !important;
+          border-radius: 10px !important;
+        }
+        .score-theme-row > .stat-box--best .stat-value {
+          color: #fcd34d !important;
+          text-shadow: 0 1px 8px rgba(252,211,77,0.5) !important;
+        }
+        .score-theme-row > .stat-box--best .stat-value::before {
+          content: '🏆 ';
+          font-size: 16px;
+          vertical-align: middle;
+          margin-right: 2px;
+          text-shadow: none;
+        }
+        .score-theme-row > .stat-box--best .stat-label {
+          color: #fde68a !important;
+        }
 
-        /* 第一虚拟换行：在 Tier 2 后 */
+        /* 第一虚拟换行 */
         .score-theme-row::before {
           content: ''; flex-basis: 100%; height: 0; order: 5;
         }
 
-        /* === Tier 3: 等级 & 皮肤（第二可见行） === */
+        /* === Tier 3: 等级 & 皮肤 === */
         .score-theme-row .header-level { order: 6 !important; padding: 2px 10px !important; }
         .score-theme-row .header-skin  {
           order: 7 !important;
           padding: 3px 8px !important;
         }
         .score-theme-row .header-skin .skin-picker select {
-          font-size: 14px !important; padding: 2px 8px !important; font-weight: 600 !important;
+          font-size: 13px !important; padding: 1px 6px !important; font-weight: 600 !important;
         }
 
-        /* 第二虚拟换行：在 Tier 3 后 */
+        /* 第二虚拟换行 */
         .score-theme-row::after {
           content: ''; flex-basis: 100%; height: 0; order: 10;
         }
 
-        /* === Tier 4: 快捷开关（第三可见行，最小） === */
+        /* === Tier 4: 快捷开关 === */
         .score-theme-quick-cluster {
           gap: 6px !important;
           flex-shrink: 0 !important;
           order: 11 !important;
         }
         .feedback-toggle-btn, .in-game-menu-btn--toolbar {
-          width: 30px !important; height: 30px !important;
-          font-size: 14px !important;
+          width: 28px !important; height: 28px !important;
+          font-size: 13px !important;
           padding: 0 !important;
           opacity: 0.85 !important;
         }
@@ -160,22 +194,20 @@
         #mobile-exit-btn:active { background: rgba(0,0,0,0.75) !important; transform: scale(0.92); }
         /* 桌面端隐藏移动专属退出按钮（header 已有 ☰）*/
 
-        /* 6. #app 整体垂直居中：游戏区上下平衡，HUD 紧贴上方，dock 紧贴下方
-         *    布局：[ flex-grow 顶部空隙 ][ header+score-row+play-stack 紧贴整体 ][ flex-grow 底部空隙 ]
-         *    用 auto margin 实现 — header 之前一段、play-stack 之后一段，自动等分上下空白。 */
+        /* 6. #app 布局：HUD 紧贴顶部，游戏区上移，候选池落在拇指自然区 (~65% 屏高)
+         *    候选池不能太靠下 —— 单手持机时拇指自然弧线大约在屏幕 60-75% 区域
+         *    实现：HUD 不加 auto margin（紧贴顶部）；play-stack 底部加大 margin（往上提）*/
         #app {
           justify-content: flex-start !important;
         }
-        /* 顶部加 auto margin 把整个内容向下推到中间 */
-        .header.header--title-only { margin-top: auto !important; }
-        /* 游戏区底部加 auto margin 把内容向上推到中间，与顶部 margin-auto 形成上下平衡 */
+        .header.header--title-only { margin-top: 0 !important; }
         .play-stack {
           padding: 0 !important;
           gap: 0 !important;
           flex: 0 0 auto !important;
           justify-content: flex-start !important;
-          margin-top: 4px !important;   /* 紧贴 HUD，仅留极小呼吸 */
-          margin-bottom: auto !important;  /* 底部 auto，与顶部对称 */
+          margin-top: 6px !important;          /* 紧贴 HUD（不要 auto，避免 HUD-游戏区中间出现空隙）*/
+          margin-bottom: 18vh !important;      /* 关键：底部预留 18vh，把候选池上移到拇指舒适区 */
         }
         /* #game-wrapper / #game-grid: 棋盘按屏宽自适应（覆写桌面默认尺寸约束）。
          * width = min(100vw - 8px, 8 × max-cell)，确保不超 60px × 8 = 480px。
