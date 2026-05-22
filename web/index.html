@@ -45,47 +45,66 @@
           --app-center-hpad: 0px;
         }
 
-        /* 2. 顶部 wordmark：缩小为原 1/2，下移避开灵动岛 */
+        /* 2. 顶部 wordmark：缩小并压实，与下方 HUD 紧贴。
+         *    不再隐藏，但小到不与灵动岛冲突（确保 padding-top 把它彻底压到岛下）。 */
         .header.header--title-only {
-          padding: 4px 0 2px !important;
-          margin-top: 0 !important;
+          padding: 0 !important;
+          margin: 0 0 2px 0 !important;
         }
         .app-wordmark {
-          --wm-cell-w: 3.5px !important;
-          --wm-cell-h: 5px !important;
-          padding: 2px 4px !important;
+          --wm-cell-w: 3px !important;
+          --wm-cell-h: 4.5px !important;
+          padding: 0 4px !important;
           transform: scale(1) !important;
         }
 
-        /* 3. score-theme-row 紧凑化：缩小所有 stat-box */
+        /* 3. score-theme-row 改为 wrap 自动分行，第一行放 Lv/得分/最佳，第二行放主题+开关。
+         *    这样小屏不再因为单行挤不下而被截断显示「甜心」一小段。 */
         .score-theme-row {
-          gap: 4px !important;
+          gap: 6px !important;
           margin: 2px 0 !important;
-          padding: 0 !important;
-          flex-wrap: nowrap !important;
+          padding: 0 4px !important;
+          flex-wrap: wrap !important;
+          justify-content: center !important;
+          row-gap: 4px !important;
         }
         .score-theme-row .stat-box {
-          padding: 2px 6px !important;
+          padding: 2px 8px !important;
           min-width: 0 !important;
           flex: 0 1 auto !important;
         }
         .score-theme-row .stat-label { font-size: 9px !important; line-height: 1.1 !important; }
-        .score-theme-row .stat-value { font-size: 18px !important; line-height: 1.1 !important; }
+        .score-theme-row .stat-value { font-size: 17px !important; line-height: 1.1 !important; }
         .score-theme-row .stat-subline--spacer,
         .score-theme-row .best-gap,
         .score-theme-row .progression-streak { display: none !important; }
-        .score-theme-row .progression-level { font-size: 13px !important; }
+        .score-theme-row .progression-level { font-size: 12px !important; }
         .score-theme-row .progression-title { font-size: 10px !important; }
-        /* 主题选择器紧凑 */
-        .score-theme-row .header-skin .skin-picker select { font-size: 11px !important; padding: 1px 4px !important; }
+        /* 主题选择器和 quick-cluster 强制换到第二行（用 flex-basis: 100% 触发换行） */
+        .score-theme-row .header-skin {
+          order: 10 !important;
+          flex-basis: auto !important;
+          padding: 2px 6px !important;
+        }
+        .score-theme-row .header-skin .skin-picker select {
+          font-size: 11px !important; padding: 1px 6px !important;
+        }
+        /* 强制换行分隔符：在 header-skin 前插入虚拟换行 */
+        .score-theme-row::after {
+          content: '';
+          flex-basis: 100%;
+          height: 0;
+          order: 9;
+        }
 
-        /* 4. 快捷开关按钮缩小 */
+        /* 4. 快捷开关按钮缩小（第二行末尾） */
         .score-theme-quick-cluster {
-          gap: 3px !important;
+          gap: 4px !important;
           flex-shrink: 0 !important;
+          order: 11 !important;
         }
         .feedback-toggle-btn, .in-game-menu-btn--toolbar {
-          width: 28px !important; height: 28px !important;
+          width: 30px !important; height: 30px !important;
           font-size: 14px !important;
           padding: 0 !important;
         }
@@ -112,12 +131,18 @@
         #mobile-exit-btn:active { background: rgba(0,0,0,0.75) !important; transform: scale(0.92); }
         /* 桌面端隐藏移动专属退出按钮（header 已有 ☰）*/
 
-        /* 6. play-stack 零空隙：棋盘和候选区紧贴，避免大片空白紫色 */
+        /* 6. #app 整体改为 space-between 布局，让游戏区自然下沉填满底部空白
+         *    header (top) → score-theme-row → [auto-grow gap] → play-stack (bottom)
+         *    上半部分是 HUD，下半部分是游戏区，中间用 margin-top:auto 顶到底部。 */
+        #app {
+          justify-content: flex-start !important;
+        }
         .play-stack {
           padding: 0 !important;
           gap: 0 !important;
-          flex: 0 1 auto !important;  /* 不要 flex:1（会拉伸出多余空白），按内容贴紧 */
+          flex: 0 0 auto !important;
           justify-content: flex-start !important;
+          margin-top: auto !important;  /* 关键：把游戏区推到底部 */
         }
         /* #game-wrapper / #game-grid: 棋盘按屏宽自适应（覆写桌面默认尺寸约束）。
          * width = min(100vw - 8px, 8 × max-cell)，确保不超 60px × 8 = 480px。
