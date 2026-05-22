@@ -26,9 +26,9 @@
            - 右上角显眼退出按钮（带 12px backdrop-blur 玻璃感）
          ════════════════════════════════════════════════════════════════════ */
       @media (max-width: 1023px) {
-        /* 1. #app 容器：safe-area + 额外 12px 缓冲，灵动岛完全空出 */
+        /* 1. #app 容器：safe-area + 24px 强缓冲（彻底避开灵动岛/状态栏）*/
         #app {
-          padding-top: calc(max(env(safe-area-inset-top, 0px), 20px) + 12px) !important;
+          padding-top: calc(max(env(safe-area-inset-top, 0px), 28px) + 8px) !important;
           padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px) !important;
           padding-left: max(env(safe-area-inset-left, 0px), 4px) !important;
           padding-right: max(env(safe-area-inset-right, 0px), 4px) !important;
@@ -45,17 +45,20 @@
           --app-center-hpad: 0px;
         }
 
-        /* 2. 顶部 wordmark：缩小并压实，与下方 HUD 紧贴。
-         *    不再隐藏，但小到不与灵动岛冲突（确保 padding-top 把它彻底压到岛下）。 */
+        /* 2. wordmark 进一步收紧（v1.61.11）：
+         *    像素格再缩 → 整体 logo 高度约 24px，配合 #app padding-top 12vh 留足空间
+         *    彻底避免灵动岛 / 状态栏遮挡。 */
         .header.header--title-only {
           padding: 0 !important;
-          margin: 0 0 2px 0 !important;
+          margin: 0 0 1px 0 !important;
+          flex-shrink: 0 !important;
         }
         .app-wordmark {
-          --wm-cell-w: 3px !important;
-          --wm-cell-h: 4.5px !important;
+          --wm-cell-w: 2.5px !important;
+          --wm-cell-h: 3.5px !important;
           padding: 0 4px !important;
           transform: scale(1) !important;
+          line-height: 1 !important;
         }
 
         /* 3. score-theme-row 紧凑 4 层（解决 HUD 过松散问题，row-gap 收到 1px）：
@@ -206,8 +209,8 @@
           gap: 0 !important;
           flex: 0 0 auto !important;
           justify-content: flex-start !important;
-          margin-top: 6px !important;          /* 紧贴 HUD（不要 auto，避免 HUD-游戏区中间出现空隙）*/
-          margin-bottom: 18vh !important;      /* 关键：底部预留 18vh，把候选池上移到拇指舒适区 */
+          margin-top: 4px !important;          /* 紧贴 HUD */
+          margin-bottom: 26vh !important;      /* v1.61.11: 18vh→26vh，候选池继续上移到 ~55% 屏高 */
         }
         /* #game-wrapper / #game-grid: 棋盘按屏宽自适应（覆写桌面默认尺寸约束）。
          * width = min(100vw - 8px, 8 × max-cell)，确保不超 60px × 8 = 480px。

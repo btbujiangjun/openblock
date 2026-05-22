@@ -94,6 +94,13 @@ function _savePrefs(prefs) {
 export class AudioFx {
     constructor() {
         this.prefs = _loadPrefs();
+        /* v1.61.11：强制 prefs.haptic = prefs.sound。
+         * 旧用户 localStorage 里可能存了 sound:true / haptic:false 的不一致状态，
+         * 导致 "音效开着但消行没振动"。此处强制同步，与 v1.61.9 toggle 行为对齐。 */
+        if (this.prefs.haptic !== this.prefs.sound) {
+            this.prefs.haptic = this.prefs.sound;
+            _savePrefs(this.prefs);
+        }
         this.ctx = null;
         this.master = null;
         this._unlocked = false;
@@ -155,6 +162,12 @@ export class AudioFx {
     play(type, opts = {}) {
         if (!this.prefs.sound) return;
         if (!this._ensureCtx()) return;
+        /* v1.61.11：suspended 时同步触发 resume（无需等待用户交互再次到达）。
+         * iOS Safari 在切回前台 / 屏幕熄屏后 AudioContext 可能再次 suspend。 */
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume().catch(() => { /* ignore */ });
+            return;  /* 本次播放跳过，等下次 */
+        }
         const now = this.ctx.currentTime;
         if (!opts.force && now - this._lastPlayTs < 0.012) return;
         this._lastPlayTs = now;
@@ -235,38 +248,44 @@ export class AudioFx {
         }
     }
 
-    /** 监听首次用户交互后 resume AudioContext
-     * v1.61 移动端加强：
-     *   - touchend 也加入解锁事件（Capacitor WKWebView 对 pointerdown 有时不触发）
-     *   - resume 后再创建一个 0s 静默 buffer 播放，彻底解锁 iOS Safari/WKWebView 的音频挂起
-     *   - 监听 Capacitor 的 appStateChange 事件：App 从后台恢复时重新 resume AudioContext
-     */
+    /** v1.61.11：彻底重写 unlock 机制 — 持续兜底而非 once:true。
+     * 之前 once:true 解锁失败后无重试机会；新方案在每次用户交互时都检查
+     * AudioContext 状态，suspended 立刻 resume + 播放静默 buffer。 */
     _installAutoUnlock() {
         if (typeof window === 'undefined') return;
+
         const unlock = async () => {
-            if (this._unlocked) return;
-            this._unlocked = true;
-            this._ensureCtx();
-            if (this.ctx) {
+            if (!this._ensureCtx()) return;
+            const state = this.ctx.state;
+            if (state === 'running') {
+                this._unlocked = true;
+                return;
+            }
+            if (state === 'suspended' || state === 'interrupted') {
                 try {
                     await this.ctx.resume();
-                    /* iOS WKWebView 需要用 buffer 真正触发音频权限 */
                     const buf = this.ctx.createBuffer(1, 1, 22050);
                     const src = this.ctx.createBufferSource();
                     src.buffer = buf;
                     src.connect(this.ctx.destination);
                     src.start(0);
-                } catch { /* ignore */ }
+                    if (this.ctx.state === 'running') {
+                        this._unlocked = true;
+                    }
+                } catch (e) {
+                    console.warn('[audioFx] unlock failed:', e?.message || e);
+                }
             }
         };
-        /* v1.61.8：多事件兜底解锁。部分浏览器 / WKWebView 只支持某一种事件，全部监听 */
-        const opts = { once: true, passive: true };
+
+        /* 持续监听（不 once:true），每次交互都检查并尝试解锁 */
+        const opts = { passive: true };
         window.addEventListener('pointerdown', unlock, opts);
-        window.addEventListener('touchstart',  unlock, opts);  /* 加回，iOS Safari 优先触发 */
+        window.addEventListener('touchstart',  unlock, opts);
         window.addEventListener('touchend',    unlock, opts);
         window.addEventListener('mousedown',   unlock, opts);
-        window.addEventListener('keydown',     unlock, { once: true });
         window.addEventListener('click',       unlock, opts);
+        window.addEventListener('keydown',     unlock);
 
         /* Capacitor App 从后台恢复时 AudioContext 可能变 suspended */
         if (typeof document !== 'undefined') {
