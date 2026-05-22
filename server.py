@@ -4100,6 +4100,9 @@ _DOC_CATEGORIES = [
     {
         "name": "出块算法",
         "docs": [
+            # v1.61：交互式工具置顶，type=tool 标记供 docs.html 侧栏以新标签页打开
+            {"file": "algorithms/spawn-signal-explorer.html", "type": "tool",
+             "title": "出块信号透视仪（交互工具）"},
             "algorithms/SPAWN_ALGORITHM.md",
             "algorithms/ADAPTIVE_SPAWN.md",
             "algorithms/SPAWN_BLOCK_MODELING.md",
@@ -4256,10 +4259,27 @@ def docs_portal():
 def docs_list():
     """返回所有文档的分类列表及元信息。"""
 
-    def build_item(fname):
+    def build_item(entry):
+        # entry 可以是 str（路径）或 dict（含 type/title 的工具条目）
+        if isinstance(entry, dict):
+            fname = entry.get("file", "")
+            title = entry.get("title", fname)
+            item_type = entry.get("type", "doc")
+            path = _DOCS_DIR / fname
+            if not path.exists():
+                return None
+            return {"file": fname, "title": title, "type": item_type}
+        fname = entry
         path = _DOCS_DIR / fname
         if not path.exists():
             return None
+        # HTML 工具：从 <title> 提取标题
+        if fname.endswith(".html"):
+            text = path.read_text("utf-8", errors="replace")
+            import re as _re
+            m = _re.search(r"<title[^>]*>(.*?)</title>", text, _re.IGNORECASE | _re.DOTALL)
+            title = m.group(1).strip() if m else fname
+            return {"file": fname, "title": title, "type": "tool"}
         text = path.read_text("utf-8", errors="replace")
         # 从第一个 # 标题提取文档标题
         title = fname
@@ -4297,6 +4317,29 @@ def docs_list():
 
 
 _ROOT_DIR = Path(__file__).resolve().parent
+
+
+@app.route("/docs/tool/<path:filename>")
+def docs_tool(filename):
+    """直接服务 docs/ 下的 HTML 工具文件（如 spawn-signal-explorer.html）。
+
+    安全限制：
+      - 仅允许 .html 后缀
+      - 路径必须在 docs/ 目录内，禁止跳出
+    """
+    import re as _re
+
+    if ".." in filename or filename.startswith("/"):
+        return jsonify({"error": "invalid path"}), 400
+    if not _re.match(r"^[\w\-/]+\.html$", filename, _re.ASCII):
+        return jsonify({"error": "only .html tools allowed"}), 400
+
+    path = _resolve_under_docs(filename)
+    if path is None:
+        return jsonify({"error": "not found"}), 404
+
+    from flask import send_from_directory
+    return send_from_directory(str(path.parent), path.name)
 
 
 @app.route("/docs/raw/<path:filename>")

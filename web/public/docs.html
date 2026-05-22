@@ -186,6 +186,19 @@
       font-weight: 500;
     }
     .doc-link.hidden { display: none; }
+    /* 交互工具条目：与 type=tool 对应，新标签打开 */
+    .doc-link.doc-tool {
+      display: flex; align-items: center; justify-content: space-between; gap: 6px;
+      color: #3fb950; /* 绿色区分工具与文档 */
+    }
+    .doc-link.doc-tool:hover { color: #56d364; }
+    .doc-tool-badge {
+      flex-shrink: 0; font-size: 9px; font-weight: 700; letter-spacing: .04em;
+      padding: 1px 5px; border-radius: 3px;
+      background: rgba(63,185,80,0.15); color: #3fb950;
+      border: 1px solid rgba(63,185,80,0.3);
+      white-space: nowrap;
+    }
     .doc-subtitle {
       margin: 8px 14px 3px 24px;
       font-size: 10px;
@@ -1101,6 +1114,20 @@
     }
   }
 
+  // ─── 工具链接渲染（type=tool 新标签页打开，其余文档内嵌渲染） ───
+  function renderDocLink(d) {
+    if (d.type === 'tool') {
+      // 工具类型：用 /docs/tool/<file> 在新标签页打开
+      const href = `${API_BASE || ''}/docs/tool/${d.file}`;
+      return `<a class="doc-link doc-tool" href="${escAttr(href)}" target="_blank" rel="noopener" title="${escAttr(d.file)}">
+        <span style="flex:1">${d.title}</span>
+        <span class="doc-tool-badge">工具 ↗</span>
+      </a>`;
+    }
+    const active = d.file === _current ? ' active' : '';
+    return `<a class="doc-link${active}" data-file="${escAttr(d.file)}" title="${escAttr(d.file)}">${d.title}</a>`;
+  }
+
   // ─── 渲染侧边栏 ───
   function allDocs(cat) {
     if (Array.isArray(cat.groups) && cat.groups.length) {
@@ -1126,16 +1153,10 @@
           const groupItems = (group.docs || []).filter(d => docMatches(d, q));
           if (!groupItems.length) return;
           html += `<div class="doc-subtitle">${group.name}</div>`;
-          groupItems.forEach(d => {
-            const active = d.file === _current ? ' active' : '';
-            html += `<a class="doc-link${active}" data-file="${d.file}" title="${d.file}">${d.title}</a>`;
-          });
+          groupItems.forEach(d => { html += renderDocLink(d); });
         });
       } else {
-        items.forEach(d => {
-          const active = d.file === _current ? ' active' : '';
-          html += `<a class="doc-link${active}" data-file="${d.file}" title="${d.file}">${d.title}</a>`;
-        });
+        items.forEach(d => { html += renderDocLink(d); });
       }
     });
     $sidebar.innerHTML = html;
@@ -1152,11 +1173,20 @@
     let cardsHtml = '';
     _categories.forEach(cat => {
       allDocs(cat).forEach(d => {
-        cardsHtml += `
-          <div class="welcome-card" data-file="${d.file}">
-            <div class="cat">${cat.category}</div>
-            <div class="title">${d.title}</div>
-          </div>`;
+        if (d.type === 'tool') {
+          const href = `${API_BASE || ''}/docs/tool/${d.file}`;
+          cardsHtml += `
+            <a class="welcome-card" href="${escAttr(href)}" target="_blank" rel="noopener" style="text-decoration:none;display:block;border-color:rgba(63,185,80,0.35)">
+              <div class="cat" style="color:#3fb950">${cat.category} · 工具 ↗</div>
+              <div class="title">${d.title}</div>
+            </a>`;
+        } else {
+          cardsHtml += `
+            <div class="welcome-card" data-file="${d.file}">
+              <div class="cat">${cat.category}</div>
+              <div class="title">${d.title}</div>
+            </div>`;
+        }
       });
     });
     $main.innerHTML = `
