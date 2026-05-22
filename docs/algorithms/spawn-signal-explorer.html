@@ -452,7 +452,8 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
 /* ════════════════════════════════════════════════
    🕸 依赖图谱（network graph）
    ════════════════════════════════════════════════ */
-#view-graph { padding: 0 0 16px; display: flex; flex-direction: column; }
+#view-graph { padding: 0 0 16px; flex-direction: column; }
+#view-graph.active { display: flex; }   /* 仅 active 时显示，避免覆盖 .tab-view{display:none} */
 #view-graph > .view-title, #view-graph > .view-subtitle { padding: 18px 24px 8px; }
 #view-graph > .view-subtitle { padding-top: 0; }
 #graph-stage {
@@ -514,7 +515,8 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
 /* ════════════════════════════════════════════════
    🎛 Stress 模拟器
    ════════════════════════════════════════════════ */
-#view-simulator { padding: 0 0 16px; display: flex; flex-direction: column; }
+#view-simulator { padding: 0 0 16px; flex-direction: column; }
+#view-simulator.active { display: flex; }
 #view-simulator > .view-title, #view-simulator > .view-subtitle { padding: 18px 24px 8px; }
 #view-simulator > .view-subtitle { padding-top: 0; }
 #sim-stage {
@@ -606,7 +608,8 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
 /* ════════════════════════════════════════════════
    🔥 S×M 热力矩阵
    ════════════════════════════════════════════════ */
-#view-matrix { padding: 0 0 16px; display: flex; flex-direction: column; }
+#view-matrix { padding: 0 0 16px; flex-direction: column; }
+#view-matrix.active { display: flex; }
 #view-matrix > .view-title, #view-matrix > .view-subtitle { padding: 18px 24px 8px; }
 #view-matrix > .view-subtitle { padding-top: 0; }
 #matrix-stage {
