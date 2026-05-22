@@ -437,6 +437,262 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
 /* ─── Responsive ──────────────────────────────────────────────── */
+/* ─── Featured tab buttons (gradient highlight) ─── */
+.tab-btn--featured {
+  background: linear-gradient(135deg, rgba(56,139,253,0.12), rgba(188,140,255,0.08));
+  border-color: rgba(56,139,253,0.25);
+}
+.tab-btn--featured.active {
+  background: linear-gradient(135deg, rgba(56,139,253,0.25), rgba(188,140,255,0.18));
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(56,139,253,0.35);
+}
+
+/* ════════════════════════════════════════════════
+   🕸 依赖图谱（network graph）
+   ════════════════════════════════════════════════ */
+#view-graph { padding: 0 0 16px; display: flex; flex-direction: column; }
+#view-graph > .view-title, #view-graph > .view-subtitle { padding: 18px 24px 8px; }
+#view-graph > .view-subtitle { padding-top: 0; }
+#graph-stage {
+  flex: 1; display: flex; gap: 0;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+#graph-svg {
+  flex: 1; height: calc(100vh - 220px); min-height: 480px;
+  background: radial-gradient(ellipse at center,
+    rgba(56,139,253,0.04) 0%, rgba(13,17,23,0) 70%);
+}
+#graph-detail {
+  width: 320px; flex-shrink: 0; padding: 14px 16px;
+  border-left: 1px solid var(--border);
+  background: rgba(13,17,23,0.6);
+  overflow-y: auto; max-height: calc(100vh - 220px);
+}
+.graph-detail-empty { color: var(--text-3); font-size: 12px; text-align: center; padding: 32px 0; }
+
+/* SVG node + link styling */
+.graph-link {
+  stroke: rgba(255,255,255,0.08);
+  stroke-width: 1;
+  fill: none;
+  transition: stroke 200ms, stroke-width 200ms, opacity 200ms;
+}
+.graph-link.active {
+  stroke: var(--accent); stroke-width: 2; opacity: 1;
+  filter: drop-shadow(0 0 6px var(--accent));
+  animation: graph-link-flow 1.2s linear infinite;
+}
+@keyframes graph-link-flow {
+  from { stroke-dasharray: 4 4; stroke-dashoffset: 0; }
+  to   { stroke-dasharray: 4 4; stroke-dashoffset: -16; }
+}
+.graph-node circle {
+  stroke-width: 1.5; cursor: pointer;
+  transition: r 150ms, stroke 150ms;
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.4));
+}
+.graph-node:hover circle, .graph-node.active circle {
+  filter: drop-shadow(0 0 12px currentColor);
+  stroke: #fff;
+}
+.graph-node text {
+  font: 600 10px var(--mono);
+  fill: var(--text-2);
+  pointer-events: none;
+  transition: fill 150ms;
+}
+.graph-node.active text, .graph-node:hover text {
+  fill: #fff;
+}
+.graph-node.dimmed circle { opacity: 0.18; }
+.graph-node.dimmed text { opacity: 0.18; }
+.graph-link.dimmed { opacity: 0.04; }
+
+/* ════════════════════════════════════════════════
+   🎛 Stress 模拟器
+   ════════════════════════════════════════════════ */
+#view-simulator { padding: 0 0 16px; display: flex; flex-direction: column; }
+#view-simulator > .view-title, #view-simulator > .view-subtitle { padding: 18px 24px 8px; }
+#view-simulator > .view-subtitle { padding-top: 0; }
+#sim-stage {
+  flex: 1; display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 16px; padding: 16px 24px;
+  overflow-y: auto;
+}
+#sim-inputs { display: flex; flex-direction: column; gap: 12px; }
+.sim-input-group {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px;
+}
+.sim-group-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; color: var(--accent);
+  margin-bottom: 8px;
+}
+.sim-input { margin-bottom: 8px; }
+.sim-input:last-child { margin-bottom: 0; }
+.sim-input label { display: block; font-size: 10.5px; color: var(--text-2); margin-bottom: 3px; }
+.sim-input input[type=range] {
+  width: calc(100% - 50px); height: 4px; -webkit-appearance: none; appearance: none;
+  background: var(--border); border-radius: 2px; outline: none;
+  vertical-align: middle;
+}
+.sim-input input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+  box-shadow: 0 0 8px rgba(56,139,253,0.6);
+}
+.sim-value {
+  display: inline-block; width: 44px; text-align: right;
+  font-family: var(--mono); font-size: 11px; color: var(--accent);
+  margin-left: 6px; vertical-align: middle;
+}
+.sim-bool { margin-bottom: 5px; font-size: 11px; color: var(--text-2); }
+.sim-bool input { vertical-align: middle; margin-right: 6px; }
+
+#sim-outputs { display: flex; flex-direction: column; gap: 12px; }
+.sim-output-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sim-output-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sim-intent-card { border-color: rgba(252,211,77,0.35); background: linear-gradient(135deg,rgba(252,211,77,0.06),var(--card)); }
+.sim-output-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-3); }
+.sim-output-value {
+  font: 800 30px var(--mono); color: #fff; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 12px rgba(56,139,253,0.4);
+}
+.sim-output-value--small { font-size: 22px; }
+.sim-output-hint { font-size: 10px; color: var(--text-3); }
+.sim-stress-bar {
+  position: relative;
+  background: rgba(0,0,0,0.4); border-radius: 6px;
+  height: 16px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.sim-stress-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: linear-gradient(90deg,
+    #56d364 0%, #3fb950 20%, #d29922 50%, #f97316 75%, #f85149 100%);
+  border-radius: 5px;
+  transition: width 250ms cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 0 12px currentColor;
+}
+.sim-stress-fill--norm {
+  background: linear-gradient(90deg, #06b6d4 0%, #3b82f6 50%, #bc8cff 100%);
+}
+.sim-intent-badge {
+  display: inline-block; align-self: flex-start;
+  font: 700 22px var(--mono); color: #fcd34d;
+  padding: 6px 14px; border-radius: 8px;
+  background: rgba(252,211,77,0.12);
+  border: 1px solid rgba(252,211,77,0.35);
+  text-shadow: 0 0 8px rgba(252,211,77,0.5);
+  transition: all 250ms;
+}
+.sim-intent-badge[data-intent="relief"]   { color: #f97316; border-color: rgba(249,115,22,0.4); background: rgba(249,115,22,0.1); text-shadow: 0 0 8px rgba(249,115,22,0.5); }
+.sim-intent-badge[data-intent="pressure"] { color: #f85149; border-color: rgba(248,81,73,0.4); background: rgba(248,81,73,0.1); text-shadow: 0 0 8px rgba(248,81,73,0.5); }
+.sim-intent-badge[data-intent="harvest"]  { color: #56d364; border-color: rgba(86,211,100,0.4); background: rgba(86,211,100,0.1); text-shadow: 0 0 8px rgba(86,211,100,0.5); }
+.sim-intent-badge[data-intent="sprint"]   { color: #bc8cff; border-color: rgba(188,140,255,0.4); background: rgba(188,140,255,0.1); }
+.sim-intent-badge[data-intent="engage"]   { color: #06b6d4; border-color: rgba(6,182,212,0.4); background: rgba(6,182,212,0.1); }
+
+/* ════════════════════════════════════════════════
+   🔥 S×M 热力矩阵
+   ════════════════════════════════════════════════ */
+#view-matrix { padding: 0 0 16px; display: flex; flex-direction: column; }
+#view-matrix > .view-title, #view-matrix > .view-subtitle { padding: 18px 24px 8px; }
+#view-matrix > .view-subtitle { padding-top: 0; }
+#matrix-stage {
+  display: grid;
+  grid-template-columns: 70px 1fr 280px;
+  gap: 16px; padding: 16px 24px;
+  perspective: 1200px;
+}
+.matrix-axis-y { display: flex; flex-direction: column; padding-top: 56px; }
+.matrix-axis-label {
+  font-size: 10px; font-weight: 700; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+.matrix-tick {
+  flex: 1; display: flex; align-items: center; justify-content: flex-end;
+  font-size: 11px; color: var(--text-2); padding-right: 8px;
+}
+.matrix-main { display: flex; flex-direction: column; }
+.matrix-axis-x { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 8px; }
+.matrix-axis-x .matrix-tick {
+  justify-content: center; padding: 0;
+  font-size: 11px; line-height: 1.2; text-align: center;
+}
+.matrix-axis-x .matrix-axis-label { grid-column: 1 / -1; text-align: center; }
+
+.matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 64px);
+  gap: 8px;
+}
+.matrix-cell {
+  position: relative;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 200ms cubic-bezier(.4,0,.2,1), box-shadow 200ms;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transform-style: preserve-3d;
+}
+.matrix-cell:hover {
+  transform: translateZ(10px) scale(1.08);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6), 0 0 16px currentColor;
+  z-index: 5;
+}
+.matrix-cell.active {
+  transform: translateZ(14px) scale(1.12);
+  outline: 2px solid #fff;
+  z-index: 6;
+}
+.matrix-cell-cap {
+  font: 800 18px var(--mono); color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+.matrix-cell-adj {
+  font: 600 10px var(--mono);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+  opacity: 0.95;
+}
+.matrix-cell-adj.pos { color: #fff; }
+.matrix-cell-adj.neg { color: #fff; opacity: 0.85; }
+
+#matrix-detail {
+  padding: 14px 16px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; align-self: start;
+}
+.matrix-detail-empty { color: var(--text-3); font-size: 12px; text-align: center; padding: 32px 0; }
+.matrix-detail-header { font: 700 18px var(--font); color: #fff; margin-bottom: 6px; }
+.matrix-detail-meta { font-size: 11px; color: var(--text-2); margin-bottom: 12px; }
+.matrix-detail-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.matrix-detail-row .k { color: var(--text-3); }
+.matrix-detail-row .v { font-family: var(--mono); color: #fff; font-weight: 600; }
+
+.matrix-legend {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 24px 8px; font-size: 10px; color: var(--text-3);
+}
+.matrix-legend-bar {
+  height: 12px; width: 200px; border-radius: 6px;
+  background: linear-gradient(90deg, #3b82f6 0%, #d29922 50%, #f85149 100%);
+}
+.matrix-legend-tick { font-family: var(--mono); }
+
 @media (max-width: 900px) {
   #sidebar { display: none; }
   #detail-panel { width: 280px; }
@@ -467,6 +723,9 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
     <button class="tab-btn" data-tab="intent">Intent 优先级矩阵</button>
     <button class="tab-btn" data-tab="stress">Stress 分量全表</button>
     <button class="tab-btn" data-tab="flow">完整链路透视</button>
+    <button class="tab-btn tab-btn--featured" data-tab="graph">🕸 依赖图谱</button>
+    <button class="tab-btn tab-btn--featured" data-tab="simulator">🎛 Stress 模拟器</button>
+    <button class="tab-btn tab-btn--featured" data-tab="matrix">🔥 S×M 热力矩阵</button>
   </div>
 
   <!-- Body -->
@@ -564,6 +823,155 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
           <thead><tr><th>L1 原始（来源）</th><th>→</th><th>L2 派生</th><th>→</th><th>L3 影响</th></tr></thead>
           <tbody id="flow-tbody"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- ── Tab: 依赖图谱（Network Graph） ────────────────────── -->
+    <div id="view-graph" class="tab-view">
+      <div class="view-title">🕸 依赖图谱 — 信号节点 × 流向连线</div>
+      <div class="view-subtitle">
+        每个节点是一个信号，连线表示「上游 → 下游」依赖。<b>悬停节点</b>高亮整条依赖链；
+        <b>点击节点</b>在右侧详情卡片查看完整公式。颜色代表层次（蓝=L1 / 橙=L2 / 绿=L3）。
+      </div>
+      <div id="graph-stage">
+        <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="graph-detail">
+          <div class="graph-detail-empty">悬停或点击节点查看详情</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Stress 实时模拟器 ───────────────────────────── -->
+    <div id="view-simulator" class="tab-view">
+      <div class="view-title">🎛 Stress 实时模拟器</div>
+      <div class="view-subtitle">
+        拖动左侧滑块改变各 stress 分量，右侧实时计算 finalStress / normalizedStress /
+        spawnIntent / shapeWeights —— 直观感受出块算法决策机制。
+      </div>
+      <div id="sim-stage">
+        <!-- 左：输入 -->
+        <div id="sim-inputs">
+          <div class="sim-input-group">
+            <div class="sim-group-title">分数与画像</div>
+            <div class="sim-input" data-key="scoreStress"><label>scoreStress（分数压力）</label>
+              <input type="range" min="0" max="0.78" step="0.01" value="0.30">
+              <span class="sim-value">0.30</span>
+            </div>
+            <div class="sim-input" data-key="skillAdjust"><label>skillAdjust（技能调节）</label>
+              <input type="range" min="-0.15" max="0.15" step="0.01" value="0.00">
+              <span class="sim-value">0.00</span>
+            </div>
+            <div class="sim-input" data-key="flowAdjust"><label>flowAdjust（心流，bored=+0.08 anxious=-0.12）</label>
+              <input type="range" min="-0.24" max="0.16" step="0.01" value="0.00">
+              <span class="sim-value">0.00</span>
+            </div>
+            <div class="sim-input" data-key="challengeBoost"><label>challengeBoost（PB 追击加压）</label>
+              <input type="range" min="0" max="0.18" step="0.01" value="0">
+              <span class="sim-value">0.00</span>
+            </div>
+          </div>
+          <div class="sim-input-group">
+            <div class="sim-group-title">减压信号 (playerDistress 累加项)</div>
+            <div class="sim-input" data-key="recoveryAdjust"><label>recoveryAdjust（needsRecovery → -0.20）</label>
+              <input type="range" min="-0.20" max="0" step="0.01" value="0">
+              <span class="sim-value">0.00</span>
+            </div>
+            <div class="sim-input" data-key="frustrationRelief"><label>frustrationRelief（连续挫败 → -0.18）</label>
+              <input type="range" min="-0.18" max="0" step="0.01" value="0">
+              <span class="sim-value">0.00</span>
+            </div>
+            <div class="sim-input" data-key="nearMissAdjust"><label>nearMissAdjust（差一点效应 → -0.10）</label>
+              <input type="range" min="-0.10" max="0" step="0.01" value="0">
+              <span class="sim-value">0.00</span>
+            </div>
+            <div class="sim-input" data-key="endSessionDistress"><label>endSessionDistress（末段崩盘 → -0.25）</label>
+              <input type="range" min="-0.25" max="0" step="0.01" value="0">
+              <span class="sim-value">0.00</span>
+            </div>
+          </div>
+          <div class="sim-input-group">
+            <div class="sim-group-title">布尔信号</div>
+            <div class="sim-bool"><label><input type="checkbox" data-key="forceReliefIntent"> forceReliefIntent</label></div>
+            <div class="sim-bool"><label><input type="checkbox" data-key="delightStarved"> delightStarved（爽感饥渴）</label></div>
+            <div class="sim-bool"><label><input type="checkbox" data-key="pbChasePressureActive"> pbChasePressureActive（v1.61）</label></div>
+          </div>
+        </div>
+        <!-- 右：输出 -->
+        <div id="sim-outputs">
+          <div class="sim-output-row">
+            <div class="sim-output-card">
+              <div class="sim-output-label">finalStress（内部域）</div>
+              <div class="sim-stress-bar"><div class="sim-stress-fill" id="sim-stress-fill"></div></div>
+              <div class="sim-output-value" id="sim-final-stress">0.30</div>
+              <div class="sim-output-hint">范围 [-0.2, 1.0] · clamp 后输出</div>
+            </div>
+            <div class="sim-output-card">
+              <div class="sim-output-label">normalizedStress（对外展示）</div>
+              <div class="sim-stress-bar"><div class="sim-stress-fill sim-stress-fill--norm" id="sim-norm-fill"></div></div>
+              <div class="sim-output-value" id="sim-norm-stress">0.42</div>
+              <div class="sim-output-hint">(stress + 0.2) / 1.2 → [0, 1]</div>
+            </div>
+          </div>
+
+          <div class="sim-output-card sim-intent-card">
+            <div class="sim-output-label">spawnIntent（出块意图）</div>
+            <div class="sim-intent-badge" id="sim-intent">maintain</div>
+            <div class="sim-output-hint" id="sim-intent-reason">所有规则未触发 → fallback</div>
+          </div>
+
+          <div class="sim-output-row">
+            <div class="sim-output-card">
+              <div class="sim-output-label">playerDistress (7项和)</div>
+              <div class="sim-output-value sim-output-value--small" id="sim-distress">0.00</div>
+              <div class="sim-output-hint">&lt; -0.10 → 触发 relief</div>
+            </div>
+            <div class="sim-output-card">
+              <div class="sim-output-label">shapeWeights 档</div>
+              <div class="sim-output-value sim-output-value--small" id="sim-diff-tier">中性</div>
+              <div class="sim-output-hint">10 档 difficulty profile 插值</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab: S × M 热力矩阵 ──────────────────────────────── -->
+    <div id="view-matrix" class="tab-view">
+      <div class="view-title">🔥 生命周期 × 成熟度 热力矩阵</div>
+      <div class="view-subtitle">
+        5×5 = 25 格 stress cap × adjust 调制表（来自 <code>lifecycleStressCapMap.js</code>）。
+        <b>悬停查看详情</b>，颜色按 cap 强度（蓝=低/友好 → 金=中 → 红=高/挑战）。
+      </div>
+      <div id="matrix-stage">
+        <div class="matrix-axis-y">
+          <div class="matrix-axis-label">S 阶段</div>
+          <div class="matrix-tick">S0 新入场</div>
+          <div class="matrix-tick">S1 激活</div>
+          <div class="matrix-tick">S2 习惯</div>
+          <div class="matrix-tick">S3 稳定</div>
+          <div class="matrix-tick">S4 回流</div>
+        </div>
+        <div class="matrix-main">
+          <div class="matrix-axis-x">
+            <div class="matrix-axis-label">M 成熟度 →</div>
+            <div class="matrix-tick">M0<br>新手</div>
+            <div class="matrix-tick">M1<br>成长</div>
+            <div class="matrix-tick">M2<br>熟练</div>
+            <div class="matrix-tick">M3<br>资深</div>
+            <div class="matrix-tick">M4<br>核心</div>
+          </div>
+          <div class="matrix-grid" id="matrix-grid"></div>
+        </div>
+        <div id="matrix-detail">
+          <div class="matrix-detail-empty">悬停或点击单元格查看详情</div>
+        </div>
+      </div>
+      <div class="matrix-legend">
+        <span class="matrix-legend-label">cap 强度</span>
+        <div class="matrix-legend-bar"></div>
+        <span class="matrix-legend-tick" style="margin-left:8px">0.50</span>
+        <span class="matrix-legend-tick">0.70</span>
+        <span class="matrix-legend-tick">0.88</span>
       </div>
     </div>
 
@@ -1381,6 +1789,337 @@ function renderFlowView() {
     </tr>`;
   });
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🕸 依赖图谱
+// ════════════════════════════════════════════════════════════════════════════
+let _graphRendered = false;
+function renderGraphView() {
+  if (_graphRendered) return;
+  _graphRendered = true;
+  const svg = document.getElementById('graph-svg');
+  const detail = document.getElementById('graph-detail');
+
+  // 解析 consumers 字段建立有向边
+  const nodeById = {};
+  SIGNALS.forEach(s => { nodeById[s.id] = s; });
+
+  // 简单匹配：consumer 字符串里出现其他信号 name 或 id 即视为依赖
+  const allNames = SIGNALS.map(s => ({ id: s.id, name: s.name.split(/[\s/()（]/)[0] }));
+  const edges = [];
+  SIGNALS.forEach(s => {
+    (s.consumers || []).forEach(c => {
+      const lc = c.toLowerCase();
+      allNames.forEach(other => {
+        if (other.id === s.id) return;
+        const oname = other.name.toLowerCase();
+        if (oname.length >= 4 && lc.includes(oname)) {
+          edges.push({ from: s.id, to: other.id });
+        }
+      });
+    });
+  });
+
+  // 三列布局：L1 左 / L2 中 / L3 右
+  const W = svg.clientWidth || 1000;
+  const H = svg.clientHeight || 600;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  const colX = { 1: W * 0.12, 2: W * 0.50, 3: W * 0.88 };
+  const layerNodes = { 1: [], 2: [], 3: [] };
+  SIGNALS.forEach(s => layerNodes[s.layer].push(s));
+  const positions = {};
+  [1, 2, 3].forEach(l => {
+    const list = layerNodes[l];
+    const stepY = H / (list.length + 1);
+    list.forEach((s, i) => {
+      positions[s.id] = { x: colX[l], y: stepY * (i + 1) };
+    });
+  });
+
+  // 列标题
+  ['L1 原始信号', 'L2 派生信号', 'L3 管道'].forEach((t, i) => {
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.textContent = t;
+    text.setAttribute('x', colX[i + 1]);
+    text.setAttribute('y', 20);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('font', '700 12px var(--font)');
+    text.setAttribute('fill', LAYER_COLOR[i + 1]);
+    text.setAttribute('style', `font-weight:700;font-size:13px;letter-spacing:1px`);
+    svg.appendChild(text);
+  });
+
+  // 绘边（贝塞尔曲线）
+  const edgeMap = new Map();
+  edges.forEach((e, idx) => {
+    const a = positions[e.from], b = positions[e.to];
+    if (!a || !b) return;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const dx = (b.x - a.x) * 0.45;
+    const d = `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`;
+    path.setAttribute('d', d);
+    path.classList.add('graph-link');
+    path.dataset.from = e.from;
+    path.dataset.to = e.to;
+    svg.appendChild(path);
+    edgeMap.set(`${e.from}->${e.to}`, path);
+  });
+
+  // 绘节点
+  const nodeEls = {};
+  SIGNALS.forEach(s => {
+    const p = positions[s.id];
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.classList.add('graph-node');
+    g.dataset.id = s.id;
+    g.setAttribute('transform', `translate(${p.x},${p.y})`);
+    g.style.color = CAT_COLORS[s.cat] || '#888';
+
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('r', s.layer === 3 ? 9 : 6);
+    c.setAttribute('fill', CAT_COLORS[s.cat] || '#888');
+    c.setAttribute('stroke', LAYER_COLOR[s.layer]);
+    g.appendChild(c);
+
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.textContent = s.name.split(/[（(]/)[0].slice(0, 18);
+    t.setAttribute('x', s.layer === 1 ? -10 : (s.layer === 3 ? 10 : 0));
+    t.setAttribute('y', s.layer === 2 ? -10 : 3);
+    t.setAttribute('text-anchor', s.layer === 1 ? 'end' : (s.layer === 3 ? 'start' : 'middle'));
+    g.appendChild(t);
+
+    g.addEventListener('mouseenter', () => highlightNode(s.id));
+    g.addEventListener('mouseleave', () => clearHighlight());
+    g.addEventListener('click', () => showGraphDetail(s));
+    svg.appendChild(g);
+    nodeEls[s.id] = g;
+  });
+
+  function highlightNode(id) {
+    const upstream = new Set(); const downstream = new Set();
+    upstream.add(id);
+    edges.forEach(e => {
+      if (e.to === id) upstream.add(e.from);
+      if (e.from === id) downstream.add(e.to);
+    });
+    const active = new Set([...upstream, ...downstream]);
+    SIGNALS.forEach(s => {
+      const el = nodeEls[s.id];
+      el.classList.toggle('active', active.has(s.id));
+      el.classList.toggle('dimmed', !active.has(s.id));
+    });
+    edges.forEach(e => {
+      const link = edgeMap.get(`${e.from}->${e.to}`);
+      if (!link) return;
+      const on = e.from === id || e.to === id;
+      link.classList.toggle('active', on);
+      link.classList.toggle('dimmed', !on);
+    });
+  }
+  function clearHighlight() {
+    Object.values(nodeEls).forEach(el => el.classList.remove('active', 'dimmed'));
+    edgeMap.forEach(l => l.classList.remove('active', 'dimmed'));
+  }
+  function showGraphDetail(s) {
+    detail.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="layer-badge" style="background:${LAYER_COLOR[s.layer]}">L${s.layer}</span>
+        <span style="width:10px;height:10px;border-radius:50%;background:${CAT_COLORS[s.cat] || '#888'}"></span>
+        <span style="font-size:10px;color:var(--text-3)">${s.cat}</span>
+      </div>
+      <div style="font:700 15px var(--mono);color:#fff;margin-bottom:8px">${esc(s.name)}</div>
+      <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px">${esc(s.semantic)}</div>
+      <div style="font-size:10px;font-weight:600;color:var(--accent);margin-bottom:4px">公式</div>
+      <pre style="font:10.5px/1.6 var(--mono);color:#7ee787;background:rgba(0,0,0,0.4);padding:8px 10px;border-radius:6px;white-space:pre-wrap;margin-bottom:10px">${esc(s.formula)}</pre>
+      <div style="font-size:10px;font-weight:600;color:var(--accent);margin-bottom:4px">下游 (${s.consumers.length})</div>
+      ${s.consumers.map(c => `<div style="font:10px var(--mono);color:var(--text-2);padding:3px 6px;background:rgba(255,255,255,0.03);border-radius:4px;margin-bottom:2px">${esc(c)}</div>`).join('')}
+    `;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🎛 Stress 模拟器
+// ════════════════════════════════════════════════════════════════════════════
+let _simInited = false;
+function renderSimulatorView() {
+  if (_simInited) return;
+  _simInited = true;
+  const root = document.getElementById('sim-stage');
+  const inputs = root.querySelectorAll('.sim-input input[type=range]');
+  const bools = root.querySelectorAll('.sim-bool input[type=checkbox]');
+  const valSpans = root.querySelectorAll('.sim-input .sim-value');
+
+  function recompute() {
+    const state = {};
+    inputs.forEach((el, i) => {
+      const key = el.parentElement.dataset.key;
+      state[key] = parseFloat(el.value);
+      valSpans[i].textContent = parseFloat(el.value).toFixed(2);
+    });
+    bools.forEach(el => { state[el.dataset.key] = el.checked; });
+
+    // 模拟 rawStress 求和 + clamp 到 [-0.2, 1]
+    const sumKeys = ['scoreStress','skillAdjust','flowAdjust','challengeBoost',
+                     'recoveryAdjust','frustrationRelief','nearMissAdjust','endSessionDistress'];
+    let stress = sumKeys.reduce((s,k) => s + (state[k]||0), 0);
+    stress = Math.max(-0.2, Math.min(1, stress));
+    const norm = Math.max(0, Math.min(1, (stress + 0.2) / 1.2));
+
+    // playerDistress（7项减压聚合，scoreStress 不进）
+    const distress = (state.recoveryAdjust||0) + (state.frustrationRelief||0)
+                   + (state.nearMissAdjust||0) + (state.endSessionDistress||0);
+
+    // spawnIntent 派生（简化模拟）
+    let intent = 'maintain', reason = '默认 fallback';
+    if (state.pbChasePressureActive && !state.forceReliefIntent) {
+      intent = 'pressure'; reason = 'pb_chase_pressure (priority=102)';
+    } else if (distress < -0.10 || state.forceReliefIntent) {
+      intent = 'relief';
+      reason = state.forceReliefIntent
+        ? 'forceReliefIntent=true (priority=100)'
+        : `playerDistress=${distress.toFixed(2)} < -0.10`;
+    } else if (state.delightStarved) {
+      intent = 'relief'; reason = 'delight_starved (priority=95)';
+    } else if (state.challengeBoost > 0) {
+      intent = 'pressure'; reason = `challengeBoost=${state.challengeBoost.toFixed(2)} > 0`;
+    } else if (stress >= 0.45 && stress < 0.55) {
+      intent = 'sprint'; reason = `stress=${stress.toFixed(2)} ∈ [0.45, 0.55)`;
+    }
+
+    // 难度档（10 档插值）
+    const tier = norm < 0.20 ? '最易 (1档)'
+              : norm < 0.40 ? '简单 (3档)'
+              : norm < 0.60 ? '中性 (5档)'
+              : norm < 0.80 ? '困难 (7档)'
+              : '极限 (9-10档)';
+
+    document.getElementById('sim-stress-fill').style.width = (norm * 100) + '%';
+    document.getElementById('sim-norm-fill').style.width = (norm * 100) + '%';
+    document.getElementById('sim-final-stress').textContent = stress.toFixed(3);
+    document.getElementById('sim-norm-stress').textContent = norm.toFixed(3);
+    document.getElementById('sim-distress').textContent = distress.toFixed(3);
+    document.getElementById('sim-diff-tier').textContent = tier;
+    const badge = document.getElementById('sim-intent');
+    badge.textContent = intent;
+    badge.dataset.intent = intent;
+    document.getElementById('sim-intent-reason').textContent = reason;
+  }
+  inputs.forEach(el => el.addEventListener('input', recompute));
+  bools.forEach(el => el.addEventListener('change', recompute));
+  recompute();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🔥 S×M 热力矩阵
+// ════════════════════════════════════════════════════════════════════════════
+const LIFECYCLE_MAP = {
+  'S0·M0': { cap: 0.50, adj: -0.15, name: '新入场·新手', note: '最友好：强减压保护新手' },
+  'S0·M1': { cap: 0.55, adj: -0.12, name: '新入场·成长' },
+  'S0·M2': { cap: 0.58, adj: -0.10, name: '新入场·熟练' },
+  'S0·M3': { cap: 0.62, adj: -0.08, name: '新入场·资深' },
+  'S0·M4': { cap: 0.65, adj: -0.05, name: '新入场·核心' },
+  'S1·M0': { cap: 0.60, adj: -0.10, name: '激活·新手' },
+  'S1·M1': { cap: 0.65, adj: -0.05, name: '激活·成长' },
+  'S1·M2': { cap: 0.70, adj:  0.00, name: '激活·熟练' },
+  'S1·M3': { cap: 0.75, adj:  0.04, name: '激活·资深' },
+  'S1·M4': { cap: 0.78, adj:  0.06, name: '激活·核心' },
+  'S2·M0': { cap: 0.65, adj: -0.10, name: '习惯·新手' },
+  'S2·M1': { cap: 0.70, adj:  0.00, name: '习惯·成长' },
+  'S2·M2': { cap: 0.75, adj:  0.05, name: '习惯·熟练', note: 'PB 主战场基准' },
+  'S2·M3': { cap: 0.82, adj:  0.10, name: '习惯·资深' },
+  'S2·M4': { cap: 0.85, adj:  0.11, name: '习惯·核心' },
+  'S3·M0': { cap: 0.65, adj: -0.05, name: '稳定·新手' },
+  'S3·M1': { cap: 0.72, adj:  0.00, name: '稳定·成长' },
+  'S3·M2': { cap: 0.78, adj:  0.05, name: '稳定·熟练' },
+  'S3·M3': { cap: 0.85, adj:  0.10, name: '稳定·资深' },
+  'S3·M4': { cap: 0.88, adj:  0.12, name: '稳定·核心', note: '★ 全表最高：核心玩家最大挑战' },
+  'S4·M0': { cap: 0.55, adj: -0.15, name: '回流·新手', note: '强保护，找回手感' },
+  'S4·M1': { cap: 0.60, adj: -0.10, name: '回流·成长' },
+  'S4·M2': { cap: 0.70, adj:  0.00, name: '回流·熟练' },
+  'S4·M3': { cap: 0.75, adj:  0.05, name: '回流·资深' },
+  'S4·M4': { cap: 0.80, adj:  0.08, name: '回流·核心' },
+};
+let _matrixInited = false;
+function renderMatrixView() {
+  if (_matrixInited) return;
+  _matrixInited = true;
+  const grid = document.getElementById('matrix-grid');
+  const detail = document.getElementById('matrix-detail');
+
+  function capColor(cap) {
+    // [0.50, 0.88] → 0..1
+    const t = Math.max(0, Math.min(1, (cap - 0.50) / 0.38));
+    // 蓝(#3b82f6) → 金(#d29922) → 红(#f85149)
+    let r, g, b;
+    if (t < 0.5) {
+      const u = t / 0.5;
+      r = Math.round(59  + (210 - 59 ) * u);
+      g = Math.round(130 + (153 - 130) * u);
+      b = Math.round(246 + (34  - 246) * u);
+    } else {
+      const u = (t - 0.5) / 0.5;
+      r = Math.round(210 + (248 - 210) * u);
+      g = Math.round(153 + (81  - 153) * u);
+      b = Math.round(34  + (73  - 34 ) * u);
+    }
+    return `rgb(${r},${g},${b})`;
+  }
+
+  let active = null;
+  function showCell(key) {
+    active = key;
+    grid.querySelectorAll('.matrix-cell').forEach(el => el.classList.toggle('active', el.dataset.key === key));
+    const e = LIFECYCLE_MAP[key];
+    if (!e) return;
+    detail.innerHTML = `
+      <div class="matrix-detail-header">${esc(e.name)}</div>
+      <div class="matrix-detail-meta">${esc(key)} ${e.note ? '· ' + esc(e.note) : ''}</div>
+      <div class="matrix-detail-row"><span class="k">cap (stress 硬上限)</span><span class="v">${e.cap.toFixed(2)}</span></div>
+      <div class="matrix-detail-row"><span class="k">adjust (cap 后偏移)</span><span class="v" style="color:${e.adj>=0?'#f85149':'#56d364'}">${e.adj>=0?'+':''}${e.adj.toFixed(2)}</span></div>
+      <div class="matrix-detail-row"><span class="k">实际效果 (cap+adj)</span><span class="v">${(e.cap + e.adj).toFixed(2)}</span></div>
+      <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.3);border-radius:6px;font-size:11px;color:var(--text-2);line-height:1.6">
+        <b style="color:var(--accent)">作用机制</b><br>
+        ① 若 raw stress > <code style="font-family:var(--mono);color:#fcd34d">${e.cap.toFixed(2)}</code> → 截断为 <code style="font-family:var(--mono);color:#fcd34d">${e.cap.toFixed(2)}</code><br>
+        ② stress += <code style="font-family:var(--mono);color:${e.adj>=0?'#f85149':'#56d364'}">${e.adj>=0?'+':''}${e.adj.toFixed(2)}</code><br>
+        ③ clamp 到 [-0.2, 1.0]
+      </div>
+    `;
+  }
+
+  ['S0','S1','S2','S3','S4'].forEach(s => {
+    ['M0','M1','M2','M3','M4'].forEach(m => {
+      const key = `${s}·${m}`;
+      const e = LIFECYCLE_MAP[key];
+      const cell = document.createElement('div');
+      cell.className = 'matrix-cell';
+      cell.dataset.key = key;
+      cell.style.background = capColor(e.cap);
+      cell.style.color = capColor(e.cap);
+      cell.innerHTML = `
+        <div class="matrix-cell-cap">${e.cap.toFixed(2)}</div>
+        <div class="matrix-cell-adj ${e.adj >= 0 ? 'pos' : 'neg'}">${e.adj >= 0 ? '+' : ''}${e.adj.toFixed(2)}</div>
+      `;
+      cell.addEventListener('mouseenter', () => showCell(key));
+      cell.addEventListener('click', () => showCell(key));
+      grid.appendChild(cell);
+    });
+  });
+  showCell('S2·M2');  // 默认显示典型 PB 主战场
+}
+
+// 扩展原 tab 切换：触发新 view 的渲染
+const _origTabSwitch = (function() {
+  const original = document.querySelectorAll('.tab-btn');
+  original.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      if (tab === 'graph') renderGraphView();
+      else if (tab === 'simulator') renderSimulatorView();
+      else if (tab === 'matrix') renderMatrixView();
+    });
+  });
+})();
 </script>
 </body>
 </html>
