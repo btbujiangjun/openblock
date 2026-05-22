@@ -3,10 +3,11 @@
  * 完整离线支持 + 行为队列同步
  */
 
-/* v1.16：CACHE_NAME 升版（v2 → v3）—— activate 阶段会基于 CACHE_NAME 删除其它前缀
- * 不同的旧缓存，从而把历史 dev 环境误缓存进来的源码模块（/src/*.js）一次性清空。 */
-const CACHE_NAME = 'blockblast-v3';
-const RUNTIME_CACHE = 'blockblast-runtime-v3';
+/* v1.61：CACHE_NAME 升版（v3 → v4）—— 强制清空旧 CSS / JS 缓存，
+ * 让移动端 (pointer: coarse) 媒体查询规则和原生客户端 DOM 移除脚本立即生效。
+ * v1.16：曾从 v2 升级到 v3，把 dev 环境误缓存的 /src/*.js 清空。 */
+const CACHE_NAME = 'blockblast-v4';
+const RUNTIME_CACHE = 'blockblast-runtime-v4';
 const OFFLINE_QUEUE_NAME = 'blockblast-offline-queue';
 
 const PRECACHE_URLS = [
