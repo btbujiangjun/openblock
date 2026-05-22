@@ -11,5 +11,8 @@
   "server": {
     "androidScheme": "https",
     "iosScheme": "capacitor"
+  },
+  "plugins": {
+    "Haptics": {}
   }
 }

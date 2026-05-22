@@ -173,11 +173,18 @@ export class AudioFx {
         }
     }
 
-    /** 触发设备震动（有偏好开关 + 浏览器支持判断 + reduced motion 护栏） */
+    /** 触发设备震动/触觉反馈
+     * v1.61：通过 haptics.js 适配层，Capacitor 原生 App 使用 @capacitor/haptics
+     * 提供精准 iOS Taptic Engine 反馈；浏览器降级 navigator.vibrate；iOS 浏览器 no-op。
+     */
     vibrate(pattern) {
         if (!this.prefs.haptic || this._reducedMotion) return;
-        if (!_supportsVibrate()) return;
-        try { navigator.vibrate(pattern); } catch { /* ignore */ }
+        import('./haptics.js').then(({ vibrate }) => {
+            try { vibrate(pattern); } catch { /* ignore */ }
+        }).catch(() => {
+            /* 降级：直接调用 Web Vibration API */
+            if (_supportsVibrate()) try { navigator.vibrate(pattern); } catch { /* ignore */ }
+        });
     }
 
     _scheduleClearFeedback() {
@@ -228,23 +235,43 @@ export class AudioFx {
         }
     }
 
-    /** 监听首次用户交互后 resume AudioContext（Chrome autoplay 策略） */
+    /** 监听首次用户交互后 resume AudioContext
+     * v1.61 移动端加强：
+     *   - touchend 也加入解锁事件（Capacitor WKWebView 对 pointerdown 有时不触发）
+     *   - resume 后再创建一个 0s 静默 buffer 播放，彻底解锁 iOS Safari/WKWebView 的音频挂起
+     *   - 监听 Capacitor 的 appStateChange 事件：App 从后台恢复时重新 resume AudioContext
+     */
     _installAutoUnlock() {
         if (typeof window === 'undefined') return;
-        const unlock = () => {
+        const unlock = async () => {
             if (this._unlocked) return;
             this._unlocked = true;
             this._ensureCtx();
-            if (this.ctx && this.ctx.state === 'suspended') {
-                this.ctx.resume().catch(() => { /* ignore */ });
+            if (this.ctx) {
+                try {
+                    await this.ctx.resume();
+                    /* iOS WKWebView 需要用 buffer 真正触发音频权限 */
+                    const buf = this.ctx.createBuffer(1, 1, 22050);
+                    const src = this.ctx.createBufferSource();
+                    src.buffer = buf;
+                    src.connect(this.ctx.destination);
+                    src.start(0);
+                } catch { /* ignore */ }
             }
-            window.removeEventListener('pointerdown', unlock);
-            window.removeEventListener('keydown', unlock);
-            window.removeEventListener('touchstart', unlock);
         };
-        window.addEventListener('pointerdown', unlock, { once: true, passive: true });
+        const opts = { once: true, passive: true };
+        window.addEventListener('pointerdown', unlock, opts);
+        window.addEventListener('touchend',    unlock, opts);
         window.addEventListener('keydown',     unlock, { once: true });
-        window.addEventListener('touchstart',  unlock, { once: true, passive: true });
+
+        /* Capacitor App 从后台恢复时 AudioContext 可能变 suspended */
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch(() => { /* ignore */ });
+                }
+            });
+        }
     }
 
     /* ============================================================ */

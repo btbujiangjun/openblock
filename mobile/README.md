@@ -50,6 +50,21 @@ Do not rely on the Vite dev proxy in packaged Android/iOS apps. A phone cannot r
 - iOS: open `mobile/ios/App/App.xcodeproj` with Xcode after `npm run mobile:build`. The generated project uses Swift Package Manager for Capacitor packages.
 - If native build tooling rewrites local IDE files, keep generated build outputs out of commits and preserve source/project configuration only.
 
+## 声效与触觉反馈（v1.61）
+
+声效系统使用**纯 Web Audio API 合成**（oscillator + gain），无音频文件，随 Vite 构建自动打包进 `dist/`。
+
+触觉反馈适配层（`web/src/effects/haptics.js`）：
+
+| 平台 | 触觉实现 |
+|---|---|
+| iOS Capacitor | `@capacitor/haptics`（Taptic Engine 精准触觉）|
+| Android Capacitor | `@capacitor/haptics` 或 `navigator.vibrate` 降级 |
+| 浏览器 Android | `navigator.vibrate`（Web Vibration API）|
+| 浏览器 iOS | 无操作（Safari 不支持振动）|
+
+**首次构建后需运行 `npm run mobile:sync` 让 Capacitor 安装原生 Haptics 插件。**
+
 ## Four-Platform Sync
 
 - Web, Android, and iOS run the same `web/src` code after Vite builds it into `dist/`.
