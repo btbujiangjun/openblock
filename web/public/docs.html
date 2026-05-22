@@ -1115,17 +1115,17 @@
   }
 
   // ─── 工具链接渲染（type=tool 新标签页打开，其余文档内嵌渲染） ───
+  function _ea(s) { return String(s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c])); }
   function renderDocLink(d) {
     if (d.type === 'tool') {
-      // 工具类型：用 /docs/tool/<file> 在新标签页打开
-      const href = `${API_BASE || ''}/docs/tool/${d.file}`;
-      return `<a class="doc-link doc-tool" href="${escAttr(href)}" target="_blank" rel="noopener" title="${escAttr(d.file)}">
-        <span style="flex:1">${d.title}</span>
+      const href = (API_BASE || '') + '/docs/tool/' + d.file;
+      return `<a class="doc-link doc-tool" href="${_ea(href)}" target="_blank" rel="noopener" title="${_ea(d.file)}">
+        <span style="flex:1">${_ea(d.title)}</span>
         <span class="doc-tool-badge">工具 ↗</span>
       </a>`;
     }
     const active = d.file === _current ? ' active' : '';
-    return `<a class="doc-link${active}" data-file="${escAttr(d.file)}" title="${escAttr(d.file)}">${d.title}</a>`;
+    return `<a class="doc-link${active}" data-file="${_ea(d.file)}" title="${_ea(d.file)}">${d.title}</a>`;
   }
 
   // ─── 渲染侧边栏 ───
@@ -1174,17 +1174,17 @@
     _categories.forEach(cat => {
       allDocs(cat).forEach(d => {
         if (d.type === 'tool') {
-          const href = `${API_BASE || ''}/docs/tool/${d.file}`;
+          const href = (API_BASE || '') + '/docs/tool/' + d.file;
           cardsHtml += `
-            <a class="welcome-card" href="${escAttr(href)}" target="_blank" rel="noopener" style="text-decoration:none;display:block;border-color:rgba(63,185,80,0.35)">
-              <div class="cat" style="color:#3fb950">${cat.category} · 工具 ↗</div>
-              <div class="title">${d.title}</div>
+            <a class="welcome-card" href="${_ea(href)}" target="_blank" rel="noopener" style="text-decoration:none;display:block;border-color:rgba(63,185,80,0.35)">
+              <div class="cat" style="color:#3fb950">${_ea(cat.category)} · 工具 ↗</div>
+              <div class="title">${_ea(d.title)}</div>
             </a>`;
         } else {
           cardsHtml += `
-            <div class="welcome-card" data-file="${d.file}">
-              <div class="cat">${cat.category}</div>
-              <div class="title">${d.title}</div>
+            <div class="welcome-card" data-file="${_ea(d.file)}">
+              <div class="cat">${_ea(cat.category)}</div>
+              <div class="title">${_ea(d.title)}</div>
             </div>`;
         }
       });
