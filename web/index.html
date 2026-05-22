@@ -59,6 +59,7 @@
            class 打到 <html>，CSS 端用 .native-client 一次性隐藏两侧栏并调整布局。 */
         (function detectNativeClient() {
           try {
+            var isMobile = false;
             var p = (typeof globalThis !== 'undefined' && globalThis.__OPENBLOCK_PLATFORM__) || '';
             p = String(p).toLowerCase();
             if (p !== 'ios' && p !== 'android') {
@@ -67,7 +68,13 @@
               else if (/iPad|iPhone|iPod/.test(ua)) { p = 'ios'; }
               else if (/Android/i.test(ua)) { p = 'android'; }
             }
-            if (p === 'ios' || p === 'android') {
+            if (p === 'ios' || p === 'android') { isMobile = true; }
+            /* 兜底：触控设备（maxTouchPoints > 1）且非微信小程序 → 视为移动端 */
+            if (!isMobile && p !== 'wechat') {
+              var touchPoints = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0;
+              if (touchPoints > 1) { isMobile = true; }
+            }
+            if (isMobile) {
               document.documentElement.classList.add('native-client');
             }
           } catch (_) { /* 静默忽略 */ }

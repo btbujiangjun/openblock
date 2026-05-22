@@ -8660,8 +8660,11 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
    3. 通用关闭按钮样式
    =========================================================================== */
 
-/* ── 1. 面板隐藏（media 兜底，优先级低于 .native-client 显式规则）── */
-@media (max-width: 680px), (pointer: coarse) and (max-width: 900px) {
+/* ── 1. 面板隐藏（media 兜底，优先级低于 .native-client 显式规则）──
+ * (pointer: coarse) = 主触控设备是触摸屏（手机/平板），无论分辨率多宽均生效。
+ * 不依赖 max-width，避免大屏 Android 平板（视口 > 680px）漏网。
+ * 桌面触控屏（Surface 触控笔）亦命中，但开发者面板在桌面下无意义，可接受。 */
+@media (pointer: coarse) {
     .app-side-left,
     #rl-panel {
         display: none !important;
@@ -8670,9 +8673,11 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
         --cell-px-width-reserve: 64px;
         --app-center-hpad: 0px;
     }
-    /* 两侧栏收起/展开按钮在移动端也无意义 */
+    /* 两侧栏收起/展开按钮在触控设备上无意义，全部隐藏 */
     .insight-collapse-btn, .insight-expand-btn,
     .rl-collapse-btn, .rl-expand-btn { display: none !important; }
+    /* 兼容：移动端即使设置了收起/展开状态，也不显示细栏 */
+    .insight-collapsed-strip, .rl-collapsed-strip { display: none !important; }
 }
 
 /* ── 2. 弹窗通用卡片移动适配 ── */
