@@ -3,6 +3,7 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
+import { writeSpawnSignals, hydrateFromSpawnSignals } from './offlineStateCache.js';
 import { initScoreAnimator, animateScore, animateScoreOdometer, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry } from './adaptiveSpawn.js';
 /* v1.57：stress 感知化层（A 棋盘氛围光 + B 呼吸节奏 + C 震动幅度 + D 音频滤波）
@@ -1216,6 +1217,10 @@ export class Game {
                 console.warn('[lifecycle] onSessionStart failed:', e?.message || e);
             }
 
+            /* v1.61：离线降级 —— 若 SQLite hydrate 尚未完成（profile 字段为默认值），
+             * 用上次出块后写入 localStorage 的快照恢复关键信号，避免开局用零值画像出块。 */
+            try { hydrateFromSpawnSignals(this); } catch { /* 静默忽略，不影响主流程 */ }
+
             const baseStrategy = getStrategy(this.strategy);
             const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, {
                 ...this._spawnContext,
@@ -1591,6 +1596,9 @@ export class Game {
         }
 
         this._commitSpawn(generateDockShapes(this.grid, layered, this._spawnContext), layered, opts, 'rule');
+        /* v1.61：每回合出块后将关键信号快照写入 localStorage，作为 SQLite 的离线补充。
+         * 微任务延后执行，不阻塞出块主路径；writeSpawnSignals 内部已有 try/catch。 */
+        Promise.resolve().then(() => { try { writeSpawnSignals(this); } catch { /* ignore */ } });
         if (opts.checkGameOver !== false) {
             this.checkGameOver();
         }

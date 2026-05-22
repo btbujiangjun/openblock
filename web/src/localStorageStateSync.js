@@ -39,6 +39,12 @@ const CORE_KEYS = new Set([
     'openblock_period_best_v1',
     'openblock_strategy',
     'openblock_season_pass',
+    /* v1.61：补充遗漏的核心键 */
+    'openblock_player_maturity_v1',   // 成熟度画像（M0–M4 band，出块 stress cap 依赖）
+    'openblock_pb_break_ts_v1',       // PB 打破时间戳（dailyChallengePlaybook 依赖）
+    'openblock_pb_history_v1',        // PB 成长轨迹（pbGrowthTracker）
+    'openblock_spawn_signals_v1',     // 出块算法信号快照（offlineStateCache，离线降级）
+    'openblock_ftue_v1',              // 新手引导进度（ftue / ftueManager）
 ]);
 
 const MONETIZATION_KEYS = new Set([
@@ -76,6 +82,9 @@ const SOCIAL_KEYS = new Set([
     'openblock_personal_stats_v1',
     'openblock_registration_v1',
     'openblock_year_review_v1',
+    /* v1.61 补充 */
+    'openblock_daily_challenge_v1',   // 每日高分挑战进度（dailyChallengePlaybook）
+    'openblock_extreme_achievements_v1', // 极限成就
 ]);
 
 const PREFERENCES_KEYS = new Set([
@@ -96,6 +105,13 @@ const PREFERENCES_KEYS = new Set([
     'openblock_weekend_trial_v1',
     'openblock_personalization_prefs_v1',
     'openblock_stress_breakdown_open_v1',
+    /* v1.61 补充 */
+    'openblock_insight_panel_collapsed_v1', // 左侧画像面板收起态（跨设备同步 UI 偏好）
+    'ob_spawn_mode',                        // 出块模式选择（启发式/模型）
+    'openblock_daily_dish_v1',              // 每日菜单任务状态
+    'openblock_first_win_v1',               // 首胜加速状态
+    'openblock_seasonal_v1',                // 季节皮肤配置
+    'openblock_skin_first_seen_v1',         // 皮肤首次解锁标记
 ]);
 
 const EXPERIMENT_KEYS = new Set([
@@ -115,6 +131,9 @@ const EXPERIMENT_KEYS = new Set([
     'custom_strategies',
     'levelProgression',
     'rl_use_pytorch',
+    /* v1.61 补充 */
+    'openblock_channel_attr',           // 渠道归因
+    'openblock_maturity_milestones_v1', // 成熟度里程碑
 ]);
 
 let _timer = null;
@@ -379,17 +398,23 @@ async function _hydrateFromServer() {
     }
 }
 
+/**
+ * 初始化 localStorage ↔ SQLite 双向同步。
+ *
+ * v1.61 离线优先改造：
+ *   - 无论 isSqliteClientDatabase() 是否为 true，均初始化本地快照哈希与监控面板，
+ *     保证 localStorage 侧始终是完整的读写入口。
+ *   - 仅当 isSqliteClientDatabase() 为 true（Flask SQLite 服务可达）时才执行
+ *     hydrate（服务端 → 本地）和周期 push（本地 → 服务端）。
+ *   - 网络离线（navigator.onLine=false）时跳过 hydrate，恢复在线后自动触发 push。
+ */
 export async function initLocalStorageStateSync() {
-    if (typeof window === 'undefined' || !isSqliteClientDatabase()) return;
+    if (typeof window === 'undefined') return;
+
     _monitor.startedAt = Date.now();
-    await _hydrateFromServer();
-    await _pushChangedSections(true, 'init-full');
-    if (_timer) clearInterval(_timer);
-    _timer = setInterval(() => { void _pushChangedSections(false, 'interval'); }, 3000);
-    window.addEventListener('beforeunload', () => { void _pushChangedSections(true, 'beforeunload'); });
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') void _pushChangedSections(true, 'visibility-hidden');
-    });
+    _initLocalSnapshot(); // 始终做本地快照初始化，离线也能读出上次哈希
+
+    /* 暴露控制台接口（无论是否 SQLite，开发调试均可用） */
     window.__stateSyncMonitor = {
         show: () => showStateSyncMonitorPanel(),
         hide: () => hideStateSyncMonitorPanel(),
@@ -402,14 +427,40 @@ export async function initLocalStorageStateSync() {
         },
         snapshot: () => JSON.parse(JSON.stringify(_monitor)),
     };
-    // 开发时可在控制台输入：window.__stateSyncMonitor.show()
-    if (_monitorPanelAuto) {
-        showStateSyncMonitorPanel();
+    if (_monitorPanelAuto) showStateSyncMonitorPanel();
+
+    /* 非 SQLite 模式：仅维护本地快照，不做网络同步 */
+    if (!isSqliteClientDatabase()) return;
+
+    /* 在线时做 hydrate；离线时跳过，等 online 事件 */
+    if (navigator.onLine !== false) {
+        await _hydrateFromServer();
+        await _pushChangedSections(true, 'init-full');
     }
+
+    if (_timer) clearInterval(_timer);
+    _timer = setInterval(() => { void _pushChangedSections(false, 'interval'); }, 3000);
+
+    window.addEventListener('beforeunload', () => { void _pushChangedSections(true, 'beforeunload'); });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') void _pushChangedSections(true, 'visibility-hidden');
+    });
+    window.addEventListener('online', () => {
+        /* 从离线恢复后立即补推本地积累的变更 */
+        void _pushChangedSections(true, 'online-recovery');
+    });
     window.addEventListener('storage', () => {
-        // 跨标签页修改 localStorage 时，尽快触发一次强同步。
+        /* 跨标签页修改 localStorage 时，尽快触发一次强同步 */
         void _pushChangedSections(true, 'storage-event');
     });
+}
+
+/** 初始化本地快照哈希（不做网络请求），使监控面板在离线时也能显示正确数据 */
+function _initLocalSnapshot() {
+    const snap = _snapshotBySection();
+    for (const section of SECTIONS) {
+        _lastSectionSnapshotHash[section] = _stableHash(snap[section] || {});
+    }
 }
 
 export const __test_only__ = {
