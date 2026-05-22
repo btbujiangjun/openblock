@@ -102,6 +102,7 @@ function _showCard(tier, daysSilent) {
     el.className = 'welcome-back-pack';
     el.innerHTML = `
         <div class="wbp-card">
+            <button class="popup-close-btn" type="button" aria-label="关闭">×</button>
             <div class="wbp-head">
                 <h2>${tier.title}</h2>
                 <p>${tier.sub} · 已离开 ${daysSilent} 天</p>
@@ -118,16 +119,21 @@ function _showCard(tier, daysSilent) {
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('is-visible'));
 
+    const _dismiss = () => {
+        el.classList.remove('is-visible');
+        setTimeout(() => el.remove(), 320);
+        releasePrimaryPopup();
+    };
     el.querySelector('.wbp-claim').addEventListener('click', () => {
         _grant(tier);
         const self = _readSelf();
         self.lastClaimYmd = _ymd();
         if (!self.claimedTiers.includes(tier.id)) self.claimedTiers.push(tier.id);
         _writeSelf(self);
-        el.classList.remove('is-visible');
-        setTimeout(() => el.remove(), 320);
-        releasePrimaryPopup();
+        _dismiss();
     });
+    el.querySelector('.popup-close-btn').addEventListener('click', _dismiss);
+    el.addEventListener('click', (e) => { if (e.target === el) _dismiss(); });
 }
 
 function _grant(tier) {

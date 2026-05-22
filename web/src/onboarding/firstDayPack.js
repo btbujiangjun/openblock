@@ -58,6 +58,7 @@ function _showPackModal() {
     el.className = 'first-day-pack';
     el.innerHTML = `
         <div class="fdp-card">
+            <button class="popup-close-btn" type="button" aria-label="关闭">×</button>
             <div class="fdp-card__head">
                 <h2>欢迎来到 OpenBlock</h2>
                 <p>首日礼包已为你备好</p>
@@ -75,12 +76,15 @@ function _showPackModal() {
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('is-visible'));
 
-    el.querySelector('.fdp-claim').addEventListener('click', () => {
-        _grantPack();
+    const _dismiss = () => {
         el.classList.remove('is-visible');
         setTimeout(() => el.remove(), 320);
         releasePrimaryPopup();
-    });
+    };
+    el.querySelector('.fdp-claim').addEventListener('click', () => { _grantPack(); _dismiss(); });
+    el.querySelector('.popup-close-btn').addEventListener('click', _dismiss);
+    /* 点击遮罩关闭 */
+    el.addEventListener('click', (e) => { if (e.target === el) _dismiss(); });
 }
 
 function _grantPack() {

@@ -8652,4 +8652,94 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
 .adc-sens-verdict--bad { color: #ef4444; font-weight: 600; }
 .adc-sens-verdict--idle { color: var(--text-secondary, #64748b); font-style: italic; }
 
+/* ===========================================================================
+   移动端适配（宽度 ≤ 680px 或触屏设备）
+   ============================================================================
+   1. 隐藏两侧调试面板（native-client UA 检测的 CSS 兜底，确保移动浏览器也生效）
+   2. 弹窗/卡片：max-height + overflow + 定位修复（适应手机屏幕）
+   3. 通用关闭按钮样式
+   =========================================================================== */
+
+/* ── 1. 面板隐藏（media 兜底，优先级低于 .native-client 显式规则）── */
+@media (max-width: 680px), (pointer: coarse) and (max-width: 900px) {
+    .app-side-left,
+    #rl-panel {
+        display: none !important;
+    }
+    :root {
+        --cell-px-width-reserve: 64px;
+        --app-center-hpad: 0px;
+    }
+    /* 两侧栏收起/展开按钮在移动端也无意义 */
+    .insight-collapse-btn, .insight-expand-btn,
+    .rl-collapse-btn, .rl-expand-btn { display: none !important; }
+}
+
+/* ── 2. 弹窗通用卡片移动适配 ── */
+/* 所有弹窗遮罩：统一用 flex 居中，子卡片无需自己定位 */
+.first-day-pack,
+.welcome-back-pack,
+.checkin-panel,
+.chest-panel,
+.lucky-wheel-panel,
+.skin-lore-panel,
+.personal-dashboard,
+.year-review,
+.async-pk-dialog {
+    /* 确保遮罩层用 flex 居中，子卡片用 relative 定位 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* 避免 iOS 不计算底部安全区 */
+    padding: max(16px, env(safe-area-inset-top, 16px)) 16px
+             max(16px, env(safe-area-inset-bottom, 16px));
+    box-sizing: border-box;
+}
+
+/* 所有弹窗内卡片：修正定位方式 + 高度约束 */
+.fdp-card,
+.wbp-card,
+.checkin-card,
+.chest-card,
+.lucky-wheel-card,
+.skin-lore-card,
+.personal-dashboard-card,
+.year-review-card,
+.async-pk-card {
+    /* 移除 position:fixed + top/left transform，改为由 flex 父容器居中 */
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    transform: none !important;
+    /* 移动端高度约束 + 滚动 */
+    max-height: calc(100dvh - env(safe-area-inset-top, 16px) - env(safe-area-inset-bottom, 16px) - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* 宽度自适应 */
+    width: min(var(--popup-max-w, 420px), calc(100vw - 32px));
+    max-width: var(--popup-max-w, 420px);
+}
+
+/* ── 3. 通用弹窗关闭按钮 ── */
+.popup-close-btn {
+    position: absolute;
+    top: 12px; right: 12px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.10);
+    color: rgba(255, 255, 255, 0.70);
+    font-size: 18px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 120ms ease, color 120ms ease;
+    flex-shrink: 0;
+    z-index: 1;
+}
+.popup-close-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+}
+/* fdp-card 需要 relative 才能定位关闭按钮 */
+.fdp-card, .wbp-card { position: relative !important; }
 
