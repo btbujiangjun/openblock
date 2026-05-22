@@ -51,15 +51,17 @@
          CSS 用 .rl-collapsed 通用选择器匹配；展开/收起按钮交互在 rlPanel.js 中绑定。
          键名 `openblock_rl_panel_collapsed_v1` 与 rlPanel.js 中的 LS_RL_COLLAPSED 严格一致。 -->
     <script>
+      /* 两侧栏默认收起：未记录过偏好（null）或明确记为 '1' 时均收起；
+         只有玩家主动展开并写入 '0' 后才保持展开态。 */
       (function () {
         try {
-          if (localStorage.getItem('openblock_rl_panel_collapsed_v1') === '1') {
+          if (localStorage.getItem('openblock_rl_panel_collapsed_v1') !== '0') {
             document.documentElement.classList.add('rl-collapsed');
           }
-          if (localStorage.getItem('openblock_insight_panel_collapsed_v1') === '1') {
+          if (localStorage.getItem('openblock_insight_panel_collapsed_v1') !== '0') {
             document.documentElement.classList.add('insight-collapsed');
           }
-        } catch (_) { /* localStorage 不可用时忽略，保持默认展开 */ }
+        } catch (_) { /* localStorage 不可用时退化为收起（与默认一致） */ }
       })();
     </script>
     <!-- PWA Manifest -->
@@ -358,7 +360,7 @@
                 <button type="button" class="insight-collapse-btn" id="insight-collapse-btn"
                         title="收起玩家画像面板，把空间让给游戏区"
                         aria-label="收起玩家画像面板"
-                        aria-expanded="true">‹</button>
+                        aria-expanded="false">‹</button>
             </div>
         </div>
         <p class="strategy-run-hint" id="strategy-run-hint" hidden></p>
@@ -543,7 +545,7 @@
             <button type="button" class="rl-collapse-btn" id="rl-collapse-btn"
                     title="收起 RL 训练面板，把空间让给游戏区（盘面与候选区随之放大）"
                     aria-label="收起 RL 训练面板"
-                    aria-expanded="true">›</button>
+                    aria-expanded="false">›</button>
         </div>
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">📋</span>统计 &amp; 操作</summary>
