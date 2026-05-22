@@ -7,6 +7,23 @@
     <title>Open Block</title>
     <!-- 与 main.css 一致：全屏层不透明，避免透过菜单看到背后 HUD 发灰 -->
     <style>
+      /* ════════════════════════════════════════════════════════════════════
+         移动优先：默认隐藏两侧调试面板，仅在 ≥1024px 显式显示
+         ════════════════════════════════════════════════════════════════════
+         这是兜底机制——任何检测逻辑都可能失败，但 CSS @media 永远生效。
+         在 head 内联（高优先级），不被 SW 缓存的 main.css 覆盖。 */
+      .app-side-left, #rl-panel { display: none !important; }
+      @media (min-width: 1024px) {
+        .app-side-left { display: flex !important; }
+        #rl-panel      { display: flex !important; }
+      }
+      /* 移动端把 #app 两侧 padding 重置（main.css 的 padding 基于侧栏布局计算） */
+      @media (max-width: 1023px) {
+        #app { padding-left: max(8px, env(safe-area-inset-left, 0px)) !important;
+               padding-right: max(8px, env(safe-area-inset-right, 0px)) !important; }
+        html { --cell-px-width-reserve: 48px; --app-center-hpad: 0px; }
+      }
+
       .screen {
         position: fixed;
         inset: 0;
@@ -58,35 +75,16 @@
            UA 作为兜底：MicroMessenger → wechat（不隐藏侧栏），iOS/Android → 隐藏。
            class 打到 <html>，CSS 端用 .native-client 一次性隐藏两侧栏并调整布局。 */
         (function detectNativeClient() {
+          /* 移动/原生客户端检测：仅给 <html> 加 .native-client class（CSS 已通过
+             移动优先媒体查询兜底显示/隐藏，此 class 用于其他模块的运行时判断）。 */
           try {
-            /* ════════════════════════════════════════════════════════════════
-               核心判定：window.innerWidth < 1024px → 视为移动/窄屏，移除两侧面板
-               ════════════════════════════════════════════════════════════════
-               最简单可靠的检测——不依赖 UA / pointer: coarse / maxTouchPoints
-               （这些在不同浏览器/设备表现不一致），直接看视口能不能容纳两侧面板。
-               1024px 阈值：两侧 180px + 中央 600px + 边距 = 960px，留 64px 缓冲。
-               下游 .native-client 规则同步生效，无需再处理多种平台分支。
-               微信小程序不会进入此文件（小程序走 miniprogram/），无需排除。 */
             var vw = window.innerWidth || document.documentElement.clientWidth || 0;
             var p = (typeof globalThis !== 'undefined' && globalThis.__OPENBLOCK_PLATFORM__) || '';
             p = String(p).toLowerCase();
             var isNativeShell = (p === 'ios' || p === 'android');
             var isNarrow = vw > 0 && vw < 1024;
-
             if (isNativeShell || isNarrow) {
               document.documentElement.classList.add('native-client');
-              /* 立即注入内联样式，强制覆盖任何缓存 CSS（最高 specificity + !important） */
-              var s = document.createElement('style');
-              s.id = 'mobile-panel-killer';
-              s.textContent =
-                'html.native-client .app-side-left,' +
-                'html.native-client #rl-panel,' +
-                'html.native-client #player-insight-panel,' +
-                'html.native-client .insight-collapsed-strip,' +
-                'html.native-client .rl-collapsed-strip{display:none!important;visibility:hidden!important;width:0!important;max-width:0!important;overflow:hidden!important;}' +
-                'html.native-client #app{padding-left:max(8px,env(safe-area-inset-left,0px))!important;padding-right:max(8px,env(safe-area-inset-right,0px))!important;}' +
-                'html.native-client{--cell-px-width-reserve:48px;--app-center-hpad:0px;}';
-              document.head.appendChild(s);
             }
             window.__isNativeClient = (isNativeShell || isNarrow);
           } catch (_) { /* 静默忽略 */ }
