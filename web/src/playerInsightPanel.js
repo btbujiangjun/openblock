@@ -2094,6 +2094,9 @@ export function setInsightPanelCollapsed(collapsed, { persist = true } = {}) {
 }
 
 export function initPlayerInsightPanel(game) {
+    /* 原生客户端（iOS/Android）已从 DOM 移除面板节点，直接跳过初始化。
+     * _render() 内部也有 getElementById guard，这里做 fast-path 避免无谓 DOM 查询。 */
+    if (!document.getElementById('player-insight-panel')) return;
     game._playerInsightRefresh = () => _render(game);
     game.clearInsightHints = () => _clearHints(game);
 

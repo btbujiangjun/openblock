@@ -704,5 +704,20 @@
         });
       })();
     </script>
+
+    <!-- iOS/Android 原生客户端：彻底从 DOM 移除两侧面板，避免 JS 初始化开销。
+         必须放在 body 末尾（确保 #app 已渲染），优先于模块脚本执行（defer 按文档顺序）。
+         检测逻辑与 head 内联脚本完全一致：读取已打好的 .native-client class。 -->
+    <script>
+      (function () {
+        if (!document.documentElement.classList.contains('native-client')) return;
+        /* 移除左侧玩家画像面板容器 */
+        var sideLeft = document.querySelector('.app-side-left');
+        if (sideLeft && sideLeft.parentNode) { sideLeft.parentNode.removeChild(sideLeft); }
+        /* 移除右侧 RL 训练面板 */
+        var rlPanel = document.getElementById('rl-panel');
+        if (rlPanel && rlPanel.parentNode) { rlPanel.parentNode.removeChild(rlPanel); }
+      })();
+    </script>
 </body>
 </html>
