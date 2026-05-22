@@ -16,7 +16,10 @@ import { applyDom, t } from '../i18n/i18n.js';
 
 const KEY = 'openblock_daily_master_v1';
 
-function _ymd() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+function _ymd() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 /* FNV-1a 32 位 hash，用作日种子 */
 function _fnv1a(str) {

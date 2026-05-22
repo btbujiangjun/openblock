@@ -43,7 +43,10 @@ function _load() {
 }
 function _save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ } }
 
-function _ymd() { const d = new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+function _ymd() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function _isWheelDay(d = new Date()) {
     const dow = d.getDay();   // 0=Sun, 1=Mon, ..., 5=Fri

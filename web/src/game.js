@@ -1598,7 +1598,7 @@ export class Game {
         this._commitSpawn(generateDockShapes(this.grid, layered, this._spawnContext), layered, opts, 'rule');
         /* v1.61：每回合出块后将关键信号快照写入 localStorage，作为 SQLite 的离线补充。
          * 微任务延后执行，不阻塞出块主路径；writeSpawnSignals 内部已有 try/catch。 */
-        Promise.resolve().then(() => { try { writeSpawnSignals(this); } catch { /* ignore */ } });
+        Promise.resolve().then(() => writeSpawnSignals(this));
         if (opts.checkGameOver !== false) {
             this.checkGameOver();
         }

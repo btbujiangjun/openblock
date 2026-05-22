@@ -43,10 +43,7 @@ class RealTimeDashboard {
      * 启动轮询
      */
     _startPolling() {
-        // 立即获取一次数据
         this._fetchMetrics();
-        
-        // 定期刷新
         this._pollingTimer = setInterval(() => {
             this._fetchMetrics();
         }, DASHBOARD_CONFIG.refreshInterval);

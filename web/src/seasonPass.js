@@ -393,5 +393,4 @@ export function initSeasonPass(game) {
     return _instance;
 }
 
-function _getSeasonPass() { return _instance; }
 export function toggleSeasonPass() { _instance?.toggle(); }

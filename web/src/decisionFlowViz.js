@@ -916,7 +916,6 @@ class DecisionFlowViz {
         this._geom = new Map();
         this._smooth = new Map();
         this._stressBall = null;
-        this._stressPulseUntil = 0;
         this._intentEl = null;
         this._curIntent = null;
         this._edgeFlowPhase = 0;
@@ -2423,8 +2422,7 @@ class DecisionFlowViz {
     }
 
     _triggerSpawnPulse(insight) {
-        /* v1.60.43：_stressPulseUntil 仅保留为历史标记，renderTick 已不再读取它。
-         * ring 脉冲改由 CSS keyframe 驱动，在此一次性设置颜色 + class toggle。 */
+        /* ring 脉冲由 CSS keyframe 驱动，在此一次性设置颜色 + class toggle。 */
         if (this._stressRing) {
             const sm = this._smooth.get('stress') ?? 0;
             this._stressRing.setAttribute('stroke', heatColor(_clamp(sm, 0, 1)));

@@ -11,17 +11,12 @@ const _loadingPromises = new Map();
  * @returns {Promise<object>} 模块导出
  */
 export async function lazyLoadModule(modulePath) {
-    // 检查缓存
     if (_moduleCache.has(modulePath)) {
         return _moduleCache.get(modulePath);
     }
-    
-    // 检查正在加载中
     if (_loadingPromises.has(modulePath)) {
         return _loadingPromises.get(modulePath);
     }
-    
-    // 开始加载
     const loadPromise = import(modulePath).then(module => {
         _moduleCache.set(modulePath, module);
         _loadingPromises.delete(modulePath);
