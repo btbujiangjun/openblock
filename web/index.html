@@ -58,48 +58,76 @@
           transform: scale(1) !important;
         }
 
-        /* 3. score-theme-row 改为 wrap 自动分行，第一行放 Lv/得分/最佳，第二行放主题+开关。
-         *    这样小屏不再因为单行挤不下而被截断显示「甜心」一小段。 */
+        /* 3. score-theme-row 重排为 4 层视觉主次（CSS order + flex-basis 强制换行）：
+         *     ┌─────────────────────┐
+         *     │ 得分 0  │ 最佳 640  │  Tier 2  (核心游戏信息，最大字号)
+         *     ├─────────────────────┤
+         *     │ Lv.1 新手 │ 糖果甜心 │  Tier 3  (等级 + 皮肤)
+         *     ├─────────────────────┤
+         *     │  ✨ 🖼 🔊 ☰        │  Tier 4  (功能键，最小)
+         *     └─────────────────────┘
+         *    DOM 顺序：Lv / 得分 / 最佳 / 主题 / 快捷开关
+         *    通过 order 重新排序：得分(1) | 最佳(2) | sep(5) | Lv(6) | 主题(7) | sep(10) | toggles(11) */
         .score-theme-row {
           gap: 6px !important;
           margin: 2px 0 !important;
           padding: 0 4px !important;
+          display: flex !important;
           flex-wrap: wrap !important;
           justify-content: center !important;
+          align-items: center !important;
           row-gap: 4px !important;
         }
         .score-theme-row .stat-box {
-          padding: 2px 8px !important;
+          padding: 2px 10px !important;
           min-width: 0 !important;
           flex: 0 1 auto !important;
         }
-        .score-theme-row .stat-label { font-size: 10px !important; line-height: 1.15 !important; }
-        .score-theme-row .stat-value { font-size: 22px !important; line-height: 1.15 !important; font-weight: 700 !important; }
+        .score-theme-row .stat-label {
+          font-size: 9px !important;
+          line-height: 1.1 !important;
+          opacity: 0.75 !important;
+          letter-spacing: 0.04em !important;
+        }
+        .score-theme-row .stat-value {
+          font-size: 22px !important;
+          line-height: 1.15 !important;
+          font-weight: 700 !important;
+        }
         .score-theme-row .stat-subline--spacer,
         .score-theme-row .best-gap,
         .score-theme-row .progression-streak { display: none !important; }
-        .score-theme-row .progression-level { font-size: 14px !important; }
-        .score-theme-row .progression-title { font-size: 11px !important; }
-        /* 主题选择器和 quick-cluster 强制换到第二行（用 flex-basis: 100% 触发换行） */
-        .score-theme-row .header-skin {
-          order: 10 !important;
-          flex-basis: auto !important;
+        .score-theme-row .progression-level { font-size: 14px !important; font-weight: 700 !important; }
+        .score-theme-row .progression-title { font-size: 11px !important; opacity: 0.8 !important; }
+
+        /* === Tier 2: 得分 & 最佳（第一可见行） === */
+        /* DOM 中：第 2 个 .stat-box (得分) 和 .stat-box--best (最佳) */
+        .score-theme-row > .stat-box:nth-of-type(2) { order: 1 !important; }
+        .score-theme-row > .stat-box--best         { order: 2 !important; }
+
+        /* 第一虚拟换行：在 Tier 2 后 */
+        .score-theme-row::before {
+          content: ''; flex-basis: 100%; height: 0; order: 5;
+        }
+
+        /* === Tier 3: 等级 & 皮肤（第二可见行） === */
+        .score-theme-row .header-level { order: 6 !important; padding: 2px 10px !important; }
+        .score-theme-row .header-skin  {
+          order: 7 !important;
           padding: 3px 8px !important;
         }
         .score-theme-row .header-skin .skin-picker select {
           font-size: 14px !important; padding: 2px 8px !important; font-weight: 600 !important;
         }
-        /* 强制换行分隔符：在 header-skin 前插入虚拟换行 */
+
+        /* 第二虚拟换行：在 Tier 3 后 */
         .score-theme-row::after {
-          content: '';
-          flex-basis: 100%;
-          height: 0;
-          order: 9;
+          content: ''; flex-basis: 100%; height: 0; order: 10;
         }
 
-        /* 4. 快捷开关按钮缩小（第二行末尾） */
+        /* === Tier 4: 快捷开关（第三可见行，最小） === */
         .score-theme-quick-cluster {
-          gap: 4px !important;
+          gap: 6px !important;
           flex-shrink: 0 !important;
           order: 11 !important;
         }
@@ -107,6 +135,7 @@
           width: 30px !important; height: 30px !important;
           font-size: 14px !important;
           padding: 0 !important;
+          opacity: 0.85 !important;
         }
 
         /* 5. 移动端显眼退出按钮：右上角悬浮，比原 ☰ 更大更易触发 */
