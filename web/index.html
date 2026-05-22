@@ -59,39 +59,36 @@
            class 打到 <html>，CSS 端用 .native-client 一次性隐藏两侧栏并调整布局。 */
         (function detectNativeClient() {
           try {
-            var isMobile = false;
+            /* ════════════════════════════════════════════════════════════════
+               核心判定：window.innerWidth < 1024px → 视为移动/窄屏，移除两侧面板
+               ════════════════════════════════════════════════════════════════
+               最简单可靠的检测——不依赖 UA / pointer: coarse / maxTouchPoints
+               （这些在不同浏览器/设备表现不一致），直接看视口能不能容纳两侧面板。
+               1024px 阈值：两侧 180px + 中央 600px + 边距 = 960px，留 64px 缓冲。
+               下游 .native-client 规则同步生效，无需再处理多种平台分支。
+               微信小程序不会进入此文件（小程序走 miniprogram/），无需排除。 */
+            var vw = window.innerWidth || document.documentElement.clientWidth || 0;
             var p = (typeof globalThis !== 'undefined' && globalThis.__OPENBLOCK_PLATFORM__) || '';
             p = String(p).toLowerCase();
-            if (p !== 'ios' && p !== 'android') {
-              var ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-              if (/MicroMessenger/i.test(ua)) { p = 'wechat'; }
-              else if (/iPad|iPhone|iPod/.test(ua)) { p = 'ios'; }
-              else if (/Android/i.test(ua)) { p = 'android'; }
-            }
-            if (p === 'ios' || p === 'android') { isMobile = true; }
+            var isNativeShell = (p === 'ios' || p === 'android');
+            var isNarrow = vw > 0 && vw < 1024;
 
-            /* 兜底 1：触控设备（maxTouchPoints > 1）且非微信小程序 → 视为移动端 */
-            if (!isMobile && p !== 'wechat') {
-              var touchPoints = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0;
-              if (touchPoints > 1) { isMobile = true; }
-            }
-
-            /* 兜底 2：matchMedia 主指针为触控（最权威的检测，不依赖 UA / SW 缓存） */
-            if (!isMobile && p !== 'wechat' && typeof window.matchMedia === 'function') {
-              var isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
-              var isHoverNone = window.matchMedia('(hover: none)').matches;
-              if (isCoarsePointer || isHoverNone) { isMobile = true; }
-            }
-
-            if (isMobile) {
+            if (isNativeShell || isNarrow) {
               document.documentElement.classList.add('native-client');
-              /* 立即注入内联样式覆盖任何缓存 CSS，确保两侧面板第一帧就不显示 */
+              /* 立即注入内联样式，强制覆盖任何缓存 CSS（最高 specificity + !important） */
               var s = document.createElement('style');
               s.id = 'mobile-panel-killer';
-              s.textContent = '.app-side-left,#rl-panel{display:none!important}'
-                + ':root{--cell-px-width-reserve:64px;--app-center-hpad:0px}';
+              s.textContent =
+                'html.native-client .app-side-left,' +
+                'html.native-client #rl-panel,' +
+                'html.native-client #player-insight-panel,' +
+                'html.native-client .insight-collapsed-strip,' +
+                'html.native-client .rl-collapsed-strip{display:none!important;visibility:hidden!important;width:0!important;max-width:0!important;overflow:hidden!important;}' +
+                'html.native-client #app{padding-left:max(8px,env(safe-area-inset-left,0px))!important;padding-right:max(8px,env(safe-area-inset-right,0px))!important;}' +
+                'html.native-client{--cell-px-width-reserve:48px;--app-center-hpad:0px;}';
               document.head.appendChild(s);
             }
+            window.__isNativeClient = (isNativeShell || isNarrow);
           } catch (_) { /* 静默忽略 */ }
         })();
 

@@ -3,11 +3,12 @@
  * 完整离线支持 + 行为队列同步
  */
 
-/* v1.61：CACHE_NAME 升版（v3 → v4）—— 强制清空旧 CSS / JS 缓存，
- * 让移动端 (pointer: coarse) 媒体查询规则和原生客户端 DOM 移除脚本立即生效。
- * v1.16：曾从 v2 升级到 v3，把 dev 环境误缓存的 /src/*.js 清空。 */
-const CACHE_NAME = 'blockblast-v4';
-const RUNTIME_CACHE = 'blockblast-runtime-v4';
+/* v1.61.1：CACHE_NAME 再升版（v4 → v5）—— index.html 改 network-first
+ * 后强制刷新一次旧缓存；首次访问按 v5 重建。
+ * v1.61：v3 → v4，让 (pointer: coarse) 媒体查询规则立即生效。
+ * v1.16：v2 → v3，清空 dev 环境误缓存的 /src/*.js。 */
+const CACHE_NAME = 'blockblast-v5';
+const RUNTIME_CACHE = 'blockblast-runtime-v5';
 const OFFLINE_QUEUE_NAME = 'blockblast-offline-queue';
 
 const PRECACHE_URLS = [
