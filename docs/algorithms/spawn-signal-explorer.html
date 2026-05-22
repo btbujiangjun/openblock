@@ -234,8 +234,14 @@ body {
 
 .signal-card .card-body { flex: 1; min-width: 0; }
 .signal-card .card-name {
-  font-family: var(--mono); font-size: 11px; font-weight: 600;
-  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11.5px; font-weight: 700; color: var(--text);
+  line-height: 1.3; display: flex; align-items: baseline;
+  gap: 5px; flex-wrap: nowrap; min-width: 0; overflow: hidden;
+}
+.signal-card .card-name-en {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+  color: #79c0ff; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0; flex: 1;
 }
 .signal-card .card-semantic {
   font-size: 10px; color: var(--text-2); margin-top: 2px;
@@ -273,8 +279,13 @@ body {
 .detail-header { margin-bottom: 14px; }
 .detail-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 .detail-name {
-  font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--text);
-  word-break: break-all; line-height: 1.3;
+  font-size: 15px; font-weight: 700; color: var(--text);
+  line-height: 1.25; word-break: break-word;
+}
+.detail-name-en { margin-top: 1px; line-height: 1.2; }
+.detail-name-en code {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+  color: #79c0ff; word-break: break-all;
 }
 .detail-section { margin-bottom: 14px; }
 .detail-section-label {
@@ -353,7 +364,9 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
   font-size: 20px; font-weight: 800; text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.intent-id { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text); }
+.intent-cn { font-size: 12px; font-weight: 700; color: var(--text); line-height: 1.25; }
+.intent-id { line-height: 1.15; margin-top: 1px; }
+.intent-id code { font-family: var(--mono); font-size: 10px; font-weight: 500; color: #79c0ff; }
 .intent-result { font-family: var(--mono); font-size: 11px; }
 .intent-guard { font-family: var(--mono); font-size: 10px; color: #7ee787; white-space: pre-wrap; line-height: 1.6; }
 .intent-desc { font-size: 11px; color: var(--text-2); line-height: 1.55; }
@@ -406,7 +419,17 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
 }
 .flow-node:hover { border-color: var(--border-h); transform: translateY(-1px); }
 .flow-node-title { font-size: 11px; font-weight: 700; margin-bottom: 4px; color: var(--text); }
-.flow-node-body { font-size: 10px; color: var(--text-2); line-height: 1.5; }
+.flow-node-body {
+  font-size: 10px; color: var(--text-2); line-height: 1.45;
+  display: flex; flex-wrap: wrap; gap: 1px 8px;
+}
+.flow-chip {
+  display: inline-flex; align-items: baseline; gap: 3px;
+  white-space: nowrap; cursor: help;
+}
+.flow-chip:hover .flow-chip-cn { color: var(--accent); }
+.flow-chip-cn { font-size: 10px; font-weight: 500; color: var(--text); }
+.flow-chip-en { font-family: var(--mono); font-size: 9px; color: #79c0ff; background: transparent; padding: 0; }
 .flow-node-arrow {
   font-size: 10px; color: var(--text-3); font-family: var(--mono);
   text-align: center; margin: 4px 0;
@@ -460,14 +483,27 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
   flex: 1; display: flex; gap: 0;
   border-top: 1px solid var(--border);
   overflow: hidden;
+  min-height: 0;        /* 让 flex 子元素正确收缩，触发内部滚动 */
 }
-#graph-svg {
-  flex: 1; width: 100%;
-  height: calc(100vh - 220px); min-height: 480px;
-  display: block;
+/* 包装层 — 负责纵向滚动 */
+#graph-scroll {
+  flex: 1; min-width: 0;
+  overflow-y: auto; overflow-x: hidden;
   background: radial-gradient(ellipse at center,
     rgba(56,139,253,0.04) 0%, rgba(13,17,23,0) 70%);
 }
+#graph-svg {
+  display: block;
+  width: 100%;
+  /* height 由 JS 按节点数动态设置（每行 ≥ 30px） */
+}
+/* 自定义滚动条更柔和 */
+#graph-scroll::-webkit-scrollbar { width: 10px; }
+#graph-scroll::-webkit-scrollbar-track { background: rgba(13,17,23,0.4); }
+#graph-scroll::-webkit-scrollbar-thumb {
+  background: rgba(110,118,129,0.4); border-radius: 5px;
+}
+#graph-scroll::-webkit-scrollbar-thumb:hover { background: rgba(110,118,129,0.7); }
 #graph-detail {
   width: 320px; flex-shrink: 0; padding: 14px 16px;
   border-left: 1px solid var(--border);
@@ -505,14 +541,14 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
   pointer-events: none;
   transition: fill 150ms;
 }
-/* 第一行：中文语义标题 — 大字号、稍粗 */
+/* 第一行：中文语义标题 — 紧凑字号 */
 .graph-node .gnode-title {
-  font: 700 11px var(--font);
+  font: 600 10px var(--font);
   fill: var(--text);
 }
-/* 第二行：英文 name — 小字号等宽 */
+/* 第二行：英文 name — 更小等宽 */
 .graph-node .gnode-sub {
-  font: 500 9px var(--mono);
+  font: 500 8px var(--mono);
   fill: var(--text-3);
 }
 .graph-node.active .gnode-title, .graph-node:hover .gnode-title { fill: #fff; }
@@ -891,7 +927,9 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
         <b>点击节点</b>在右侧详情卡片查看完整公式。颜色代表层次（蓝=L1 / 橙=L2 / 绿=L3）。
       </div>
       <div id="graph-stage">
-        <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="graph-scroll">
+          <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
         <div id="graph-tooltip" class="graph-tooltip" aria-hidden="true"></div>
         <div id="graph-detail">
           <div class="graph-detail-empty">悬停或点击节点查看详情</div>
@@ -1076,22 +1114,24 @@ const SIGNALS = [
  source:'analyzeBoardTopology() → nearFullLines',
  consumers:['harvest guard(≥2触发)','clearGuarantee boost','friendlyBoardRelief(≥2触发)','hasClearSetup']},
 {id:'pcSetup',name:'pcSetup',layer:1,cat:'盘面几何',sign:'+',
- semantic:'清屏机会评分：0无机会 / 1接近清屏 / 2可立即清屏',
- formula:'analyzePerfectClearSetup(grid):\n  fill>0.45 && holes<3 && nearFull≥1 → 1\n  fill>0.60 && holes<2 && nearFull≥2 → 2',
+ semantic:'清屏机会评分（仿真）：0/1/2 表示不同接近清屏的程度',
+ formula:'analyzePerfectClearSetup(grid) 实际为仿真：\n  remaining=0 && empty≤11 → 2 (可立即清屏)\n  remaining≤4 && empty≤17 → 1 (接近清屏)\n  其余 → 0',
  range:'{0, 1, 2}',
- source:'boardTopology.js :: analyzePerfectClearSetup()',
+ source:'bot/blockSpawn.js:792-832 :: analyzePerfectClearSetup()',
  consumers:['pcSetupForIntent','hasClearSetup(L2注入)','clearGuarantee++','friendlyBoardRelief触发条件之一']},
 {id:'mobility',name:'mobility',layer:1,cat:'盘面几何',sign:'+',
- semantic:'dock 块合法落点总数，衡量玩家"可操作空间"',
- formula:'Σ validPlacements(dock_block_i) for i in [0,2]',
- range:'[0, 192]  典型 20–80',
- source:'blockSpawn.js :: computeCandidatePlacementMetric()',
+ semantic:'dock 块合法落点总数 ⚠ 实际：ctx.mobility 在 game.js 中未写入，adaptiveSpawn 读到的恒为 0',
+ formula:'设计语义：Σ validPlacements(dock_block_i)\n⚠ 当前 game.js:1182-1192 spawnContext 构造未注入 mobility 字段\n所以 adaptiveSpawn.js:960 读到 ctx.mobility = undefined → 0',
+ range:'设计 [0,192]；实际恒 0',
+ source:'adaptiveSpawn:960（读） · game.js:1182-1192（未写）',
+ note:'⚠ 死信号：AbilityVector.boardPlanning 中此项贡献恒 0',
  consumers:['AbilityVector.boardPlanning','bottleneckRelief gate','minMobility约束(L3每块≥5)']},
 {id:'close12',name:'close1 / close2',layer:1,cat:'盘面几何',sign:'+',
- semantic:'差1格/差2格近满行/列数，是 nearFullLines 的更精细梯度',
- formula:'close1 = rows/cols(filled=size-1)\nclose2 = rows/cols(filled=size-2)',
- range:'[0, 16]  closeLines=close1+close2',
- source:'analyzeBoardTopology() → close1/close2',
+ semantic:'差1格/差2格近满行/列数 ⚠ 实际：ctx.close1/close2 未写入，AbilityVector 此项恒 0',
+ formula:'设计：close1 = rows/cols(filled=size-1)\nclose2 = rows/cols(filled=size-2)\n⚠ adaptiveSpawn:958-959 读 ctx.close1/ctx.close2 但 game 未写入',
+ range:'设计 [0,16]；实际恒 0',
+ source:'adaptiveSpawn:958-959（读） · playerAbilityModel:214（消费）',
+ note:'⚠ 死信号：boardPlanning 中 closeLines×0.20 贡献恒 0',
  consumers:['AbilityVector.boardPlanning(closeLines×0.20)','clearGuarantee精细boost']},
 {id:'multiClearCands',name:'multiClearCandidates',layer:1,cat:'盘面几何',sign:'+',
  semantic:'dock 三块中能同时消≥2行/列的候选数（几何多消潜力）',
@@ -1109,15 +1149,15 @@ const SIGNALS = [
  consumers:['skillAdjust=(skill-0.5)×0.30×confGate','AbilityVector.skillScore base','delight_starved threshold']},
 {id:'flowState',name:'flowState',layer:1,cat:'玩家状态',sign:'?',
  semantic:'心流三态判定（Csíkszentmihályi）：挑战与技能的动态平衡',
- formula:'F(t)=|boardPressure/skillLevel-1|\nbored:   F<0.15 且 momentum≥-0.15\nanxious: F>0.30 || momentum<-0.35\nflow:    其余',
+ formula:'实际包含多路硬触发：\n  momentum ≤ -0.35 → anxious\n  struggleSignals ≥ 3 → anxious\n  _burstStruggleSignals 触发 → anxious\n  F(t)=|挑战/技能-1| 阈值兜底\n（playerProfile:691-758）',
  range:"'bored'|'flow'|'anxious'",
- source:'playerProfile.js :: get flowState()',
+ source:'playerProfile:691-758',
  consumers:['flowAdjust(bored+0.08 anxious-0.12)','pacingAdjust参考','DFV flow chip']},
 {id:'momentum',name:'momentum',layer:1,cat:'玩家状态',sign:'?',
- semantic:'近12步得分趋势（绝对值代表强度），是 sessionArc 和末段检测的关键',
- formula:'sign_weighted_sum(recent12_deltas)\n× confidence_scale(samples/12)\n样本<12时向0收缩',
- range:'[-1, 1]  典型|momentum|0.2–0.6',
- source:'playerProfile.js :: get momentum()',
+ semantic:'技能动量：滑动窗口前后半 clearRate 之差，反映近期上升/下行趋势',
+ formula:'实际：take recent window，分 前半/后半\n  momentum = (后半 clearRate - 前半 clearRate) × noiseDamping\n样本不足时向 0 收缩\n（playerProfile:590-610，非"加权和"公式）',
+ range:'[-1, 1]  典型 |momentum| 0.2–0.6',
+ source:'playerProfile:590-610',
  consumers:['flowAdjust','sessionArcAdjust','endSessionDistress(≤-0.30触发)','bottleneckRelief折半判定']},
 {id:'frustrationLevel',name:'frustrationLevel',layer:1,cat:'玩家状态',sign:'-',
  semantic:'挫败累积：连续无消行时指数上升，消行时×0.5衰减',
@@ -1132,22 +1172,22 @@ const SIGNALS = [
  source:'game.js :: _recordPickToPlace() → profile.metrics.pickToPlaceMs',
  consumers:['reactionAdjust(<350→+0.05 >4500→-0.05)','AbilityVector.controlScore(reactionScore×0.15)']},
 {id:'needsRecovery',name:'needsRecovery',layer:1,cat:'玩家状态',sign:'-',
- semantic:'临终救援标志：boardFill>0.82 时触发，防止死局，强制大幅减压',
- formula:'boardFill > 0.82 → true\n(endSessionDistressActive 的一部分)',
- range:'boolean',
- source:'playerProfile.js :: needsRecovery',
+ semantic:'临终救援标志：触发后维持 4 步递减窗口，平滑救济信号',
+ formula:'触发：boardFill>0.82 && !pcSetup && nearFull<2 && !cleared\n  → _recoveryCounter = 4\n每步 -1；>0 时 needsRecovery=true (可持续 4 步)',
+ range:'boolean (4 步窗口)',
+ source:'playerProfile:277-280,827-828',
  consumers:['recoveryAdjust(-0.20)','forceReliefIntent','challengeBoostBypass','bottleneckRelief折半']},
 {id:'hadNearMiss',name:'hadRecentNearMiss',layer:1,cat:'玩家状态',sign:'-',
- semantic:'差一点效应：上轮最大行填充≥0.875且体感差时激活，触发"再来一次"心理',
- formula:'Grid.getMaxLineFill()≥0.875\n&& (frust≥4 || anxious&&frust≥2)\n&& clearRate<0.30 && momentum≤0\n&& !cooldown(12步/30s)',
+ semantic:'差一点效应：上步未失误未消行且盘面填充偏高时激活，触发"再来一次"心理',
+ formula:'⚠ 实际 profile getter 公式（adaptiveSpawn 读取的）：\nlastStep && !miss && !cleared && fill > 0.6\n（playerProfile:819-823）\n\nUI 端独立判断（nearMissPlaceFeedback.js）：\nGrid.getMaxLineFill()≥0.875 && (frust≥4 || anxious&&frust≥2)\n&& clearRate<0.30 && momentum≤0 && !cooldown(12步/30s)',
  range:'boolean',
- source:'nearMissPlaceFeedback.js → profile.hadRecentNearMiss',
+ source:'playerProfile:819-823 (profile getter) · nearMissPlaceFeedback.js (UI toast)',
  consumers:['nearMissAdjust(adaptiveSpawn:996 → -0.10)','recoveryNeed复合(adaptiveSpawn:420,1527 || needsRecovery)','clearGuarantee专属抬升(adaptiveSpawn:1937,1964)','riskTolerance.nearMissBonus(playerAbilityModel:334 +0.18)','reactionAdjust让位(同向时=0)','adTrigger商业化判断(adTrigger:322)','personalization.hadNearMiss特征','strategyAdvisor 策略建议','playerInsightPanel 面板']},
 {id:'sessionPhase',name:'sessionPhase',layer:1,cat:'玩家状态',sign:'?',
- semantic:'会话阶段：warm(前)/active(中)/late(后)/cooldown，影响弧线减压',
- formula:'totalRounds<5 → warmup\nlate: totalRounds>median && momentum<-0.2\ncooldown: late && momentum<-0.35',
- range:"'warmup'|'active'|'late'|'cooldown'",
- source:'playerProfile.js :: sessionPhase',
+ semantic:'会话阶段：early(前)/peak(中)/late(后)，由耗时 + 落子计数判定',
+ formula:'实际三档：early/peak/late\n基于 sessionElapsedMs + spawnCounter 两个量\n详见 playerProfile:1087-1091',
+ range:"'early'|'peak'|'late'",
+ source:'playerProfile:1087-1091',
  consumers:['deriveSessionArc(adaptiveSpawn:702 → late→cooldown)','endSessionDistress(adaptiveSpawn:1029,2296 late&&≤-0.30触发)','forceReliefIntent上游(经endSessionDistressActive)','pbChasePressureActive门(adaptiveSpawn:1406 排除late+下行)','motivationIntent判断(playerProfile:893 late+下行→relaxation)','stressMeter lateCollapse chip(stressMeter:78)','DFV chip 末段崩盘判断(presentationReducer:121)','spawnIntent display rule(displayContracts:524,552)']},
 
 // ─ L1: 跨轮上下文 ───────────────────────────────────────────────────────
@@ -1178,11 +1218,119 @@ const SIGNALS = [
 
 // ─ L1: 局间历史 ─────────────────────────────────────────────────────────
 {id:'bestScore',name:'bestScore',layer:1,cat:'局间历史',sign:'?',
- semantic:'历史最佳分：所有PB追击计算的基准，也是scoreStress的分母',
- formula:'max(all game scores)\n持久化→localStorage(openblock_best_score)',
+ semantic:'历史最佳分：PB追击/scoreStress 计算基准。⚠ adaptiveSpawn 读的是局首快照，局内破 PB 不同步',
+ formula:'max(all game scores) 持久化→localStorage(openblock_best_score)\n⚠ adaptiveSpawn 读取的 ctx.bestScore = startGame() 时的快照\n（game.js:1169-1184） 所以本局内破 PB 后，scoreStress 不会变',
  range:'[0, ∞)  新玩家=0',
- source:'game.js :: game.bestScore',
+ source:'game.js:1169-1184（局首快照） · adaptiveSpawn:948（读 ctx.bestScore）',
  consumers:['scoreStress(pct=score/best)','pbDistanceClose(≥best×0.80)','pbChasePressureActive','pbOvershootBoost']},
+{id:'score',name:'score (当局)',layer:1,cat:'局内输入',sign:'?',
+ semantic:'当前局得分：resolveAdaptiveStrategy 第 3 入参，scoreStress/challengeBoost/PB 追击的核心',
+ formula:'当局累计得分（消行 + combo + 特殊奖励 etc.）',
+ range:'[0, ∞)',
+ source:'adaptiveSpawn:928,948',
+ consumers:['scoreStress','challengeBoost','pbChasePressureActive','pbOvershootBoost']},
+{id:'runStreak',name:'runStreak',layer:1,cat:'局内输入',sign:'+',
+ semantic:'连战局数：本会话连续开局次数（不重置时累加）',
+ formula:'每次 startGame 累加；长时空窗后重置',
+ range:'[0, ∞)  典型 1-6',
+ source:'adaptiveSpawn:928,949 (resolveAdaptiveStrategy 第 4 入参)',
+ consumers:['runStreakStress (×0.013/局，封顶 6 局)']},
+{id:'boardFill',name:'boardFill (grid.fillRatio)',layer:1,cat:'盘面几何',sign:'+',
+ semantic:'盘面填充率：grid.getFillRatio() 实时计算，非 spawnContext.fill',
+ formula:'_boardFill = grid.getFillRatio() = 已填格数 / 总格数',
+ range:'[0, 1]',
+ source:'grid.js:1060 · game.js:1551 · adaptiveSpawn:953 (第 5 入参)',
+ consumers:['occupancyDamping','holePressure','clearGuarantee 触发','pbChasePressureActive 判定 fill<0.72']},
+{id:'flowDeviation',name:'flowDeviation',layer:1,cat:'玩家状态',sign:'?',
+ semantic:'心流偏离度：F(t) 距离 1（最佳平衡点）的绝对偏离，flowAdjust 倍率',
+ formula:'profile.flowDeviation = |F(t) - 1| 或类似聚合',
+ range:'[0, ~2]',
+ source:'playerProfile · adaptiveSpawn:972-975',
+ consumers:['flowAdjust 倍率 min(2, 1+flowDeviation)']},
+{id:'pacingPhase',name:'pacingPhase',layer:1,cat:'玩家状态',sign:'?',
+ semantic:'节奏阶段：release(松弛) / neutral / tension(紧张)，控制阶段性张弛',
+ formula:'profile.pacingPhase 由近期负载/落子节奏计算',
+ range:"'release' | 'neutral' | 'tension'",
+ source:'playerProfile · adaptiveSpawn:434,506,980',
+ consumers:['pacingAdjust (release -0.12 / tension +0.04)','deriveRhythmPhase','delightTargets']},
+{id:'recentComboStreak',name:'recentComboStreak',layer:1,cat:'玩家状态',sign:'+',
+ semantic:'近期连消次数：≥2 触发奖励加压，与 lastClearCount 联动',
+ formula:'profile.recentComboStreak ≥ 2 → comboAdjust +0.05',
+ range:'[0, ∞)',
+ source:'playerProfile · adaptiveSpawn:461,988',
+ consumers:['comboAdjust','deriveDelightTuning']},
+{id:'feedbackBiasRaw',name:'profile.feedbackBias',layer:1,cat:'玩家状态',sign:'±',
+ semantic:'闭环反馈偏置：玩家个性化系统给出的微调（与 L2 feedbackBias 同名同值，仅取位）',
+ formula:'profile.feedbackBias（个性化反馈系统输出）',
+ range:'[-0.15, +0.15]',
+ source:'playerProfile · adaptiveSpawn:1001',
+ consumers:['feedbackBias (L2)']},
+{id:'trend',name:'trend',layer:1,cat:'玩家状态',sign:'±',
+ semantic:'技能/分数变化趋势：profile.trend × confidence → trendAdjust',
+ formula:'profile.trend（过去 N 局得分回归斜率/聚合）',
+ range:'[-1, +1]',
+ source:'playerProfile · adaptiveSpawn:1004-1006',
+ consumers:['trendAdjust (×0.08×conf)']},
+{id:'totalRounds',name:'totalRounds (ctx)',layer:1,cat:'跨轮上下文',sign:'+',
+ semantic:'局内回合数：ctx.totalRounds，驱动 sessionArc/novelty/_tryInjectSpecial 门槛',
+ formula:'ctx.totalRounds = game.spawnCounter / round 计数',
+ range:'[0, ∞)',
+ source:'game.js:1690 · adaptiveSpawn:437,1013',
+ consumers:['deriveSessionArc','novelty','_tryInjectSpecial 门槛 (>5 才允许)']},
+{id:'roundsSinceClear',name:'roundsSinceClear',layer:1,cat:'跨轮上下文',sign:'+',
+ semantic:'距上次消行的回合数：节奏 / clearGuarantee 触发的核心',
+ formula:'每轮 +1，发生消行后归零',
+ range:'[0, ∞)',
+ source:'game.js:2359-2391 · adaptiveSpawn:474,1806',
+ consumers:['rhythmPhase 推进','clearGuarantee 触发','multiLineTarget']},
+{id:'lastClearCount',name:'lastClearCount',layer:1,cat:'跨轮上下文',sign:'+',
+ semantic:'上轮消行数：与 recentComboStreak 联动判定 delight/multiLine',
+ formula:'ctx.lastClearCount = 上一步消行数',
+ range:'[0, 4]',
+ source:'adaptiveSpawn:460,545',
+ consumers:['deriveDelightTuning','multiLine 判定']},
+{id:'prevAdaptiveStress',name:'prevAdaptiveStress',layer:1,cat:'跨轮上下文',sign:'?',
+ semantic:'上一轮的 _adaptiveStress：smoothStress 的平滑锚点，避免抖动',
+ formula:'ctx.prevAdaptiveStress = game._lastAdaptiveStress',
+ range:'[0, 1]',
+ source:'game.js:1710 · adaptiveSpawn:404',
+ consumers:['smoothStress (EMA 平滑)']},
+{id:'pbGrowthFast',name:'pbGrowthFast',layer:1,cat:'跨轮上下文',sign:'+',
+ semantic:'近期 PB 快速增长标记：连续多局突破 PB 时，提升 challengeBoost 上限',
+ formula:'game.js:1185 计算（最近 N 局 PB 增长率超阈值）',
+ range:'boolean',
+ source:'game.js:1185 · adaptiveSpawn:1371,1966',
+ consumers:['challengeBoost cap +capDelta(0.03)','farFromPBBoost']},
+{id:'forceReliefIntent',name:'forceReliefIntent',layer:1,cat:'跨轮上下文',sign:'-',
+ semantic:'强制救济标志：游戏侧检测到崩盘风险，强制 relief/pbChasePressure 让位',
+ formula:'game.js:1536 综合 _recoveryCounter / playerDistress / 末段下行计算',
+ range:'boolean',
+ source:'game.js:1536 · adaptiveSpawn:1408,2302',
+ consumers:['relief intent gate','pbChasePressureActive 否决项']},
+{id:'warmupRemaining',name:'warmupRemaining',layer:1,cat:'跨轮上下文',sign:'-',
+ semantic:'跨局热身剩余回合：daysSinceLastActive≥7 时分配 N 轮热身保护',
+ formula:'ctx.warmupRemaining 每轮 -1；>0 时 warmupClearBoost 激活',
+ range:'[0, N]',
+ source:'game.js:1202 · adaptiveSpawn:2088',
+ consumers:['warmupClearBoost','clearGuarantee+1','returningWarmupAdjust']},
+{id:'bottleneckSamples',name:'bottleneckSamples',layer:1,cat:'跨轮上下文',sign:'-',
+ semantic:'瓶颈采样数：与 bottleneckTrough 联合门控 bottleneckRelief',
+ formula:'近 N 轮 dock 最低落点采样计数',
+ range:'[0, N]',
+ source:'game.js:469 · adaptiveSpawn:1122-1128',
+ consumers:['bottleneckRelief gate (samples>0 必要)']},
+{id:'isInOnboarding',name:'isInOnboarding',layer:1,cat:'局间历史',sign:'-',
+ semantic:'新手保护期：前几局或前几次 session 处于 onboarding 状态',
+ formula:'playerProfile:966-968 综合 totalSessions/totalRounds 等判定',
+ range:'boolean',
+ source:'playerProfile:966-968 · adaptiveSpawn:1295',
+ consumers:['onboardingStressOverride (stress≤-0.15)','pbChasePressureActive 否决项','多路 boost 门控']},
+{id:'delightStarved',name:'isDelightStarved()',layer:1,cat:'跨轮上下文',sign:'-',
+ semantic:'爽感饥渴判定：连续 N 轮无多消/清屏/同花顺 → 强制 relief',
+ formula:'profile.isDelightStarved()\nAndroid/Wechat: N=5轮  iOS/Web: N=7轮',
+ range:'boolean',
+ source:'playerProfile · adaptiveSpawn:2323-2324',
+ consumers:['delight_starved intent (priority=95)']},
 {id:'daysSinceInstall',name:'daysSinceInstall',layer:1,cat:'局间历史',sign:'?',
  semantic:'安装天数：S0–S4生命周期阶段的主要时间维度，与totalSessions AND门判定',
  formula:'(now - firstSessionTs) / 86400000',
@@ -1246,8 +1394,140 @@ const SIGNALS = [
  semantic:'得分驱动压力：按PB百分位映射，低于50%时×0.4折扣',
  formula:'getSpawnStressFromScore(score, {bestScore})\npct = score/bestScore\n  pct<0.5: baseStress×decayFactor(0.4)\n  pct≥0.5: baseStress\nmilestones曲线：0%→0, 50%→0.3, 100%→0.85',
  range:'[0, 0.78]  最大单项贡献',
- source:'difficulty.js :: getSpawnStressFromScore()',
+ source:'difficulty.js :: getSpawnStressFromScore() · adaptiveSpawn:1195',
  consumers:['stress Σ','stressBreakdown.scoreStress']},
+{id:'runStreakStress',name:'runStreakStress',layer:2,cat:'Stress分量·基础',sign:'+',
+ semantic:'连战加压：连续开局 runStreak 越多越加压（每局 ~+0.013，封顶 6 局）',
+ formula:'min(runStreak,6) × spawnStressBonusPerGame(0.013)\n来源 game_rules.runDifficulty 配置',
+ range:'[0, ~0.08]',
+ source:'difficulty.js :: getRunDifficultyModifiers() · adaptiveSpawn:1196',
+ consumers:['stress Σ']},
+{id:'difficultyBias',name:'difficultyBias',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'难度档静态偏移：玩家选择 easy/normal/hard 时的全局基线偏移',
+ formula:"easy=-0.22  normal=0  hard=+0.22\n可被 game_rules.difficultyTuning.<id>.stressBias 覆写",
+ range:'[-0.22, +0.22]',
+ source:'adaptiveSpawn:1059-1061,1197',
+ consumers:['stress Σ']},
+{id:'skillAdjust',name:'skillAdjust',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'技能调节：高手加压、新手减压；用 confidence 收窄避免低置信抖动',
+ formula:'(ability.skillScore - 0.5) × skillAdjustScale(0.30) × confGate\nconfGate = 0.4 + 0.6 × ability.confidence',
+ range:'[-0.15, +0.15]',
+ source:'adaptiveSpawn:969,1198',
+ consumers:['stress Σ']},
+{id:'flowAdjust',name:'flowAdjust',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'心流调节：⚠ bored 是正值（+0.08 → 加压）、anxious 是负值（-0.12 → 减压）',
+ formula:"bored: flowBoredAdjust(+0.08) × min(2, 1+flowDeviation)\nanxious: flowAnxiousAdjust(-0.12) × min(2, 1+flowDeviation)\nflow: 0",
+ range:'[-0.24, +0.16]（含 flowDeviation 倍率）',
+ source:'adaptiveSpawn:974-976,1199',
+ consumers:['stress Σ']},
+{id:'reactionAdjust',name:'reactionAdjust',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'反应时间微调：快速放置(<350ms)轻微加压、犹豫(>4500ms)轻微减压；nearMiss 同向时让位',
+ formula:'pickToPlaceMs < 350ms → +0.05  >4500ms → -0.05\n样本 <3 不启用；nearMissAdjust<-0.05 且本调整<0 时强制 0',
+ range:'[-0.05, +0.05]',
+ source:'adaptiveSpawn:1166-1191,1200',
+ consumers:['stress Σ']},
+{id:'pacingAdjust',name:'pacingAdjust',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'节奏张弛：release 阶段减压、tension 阶段加压',
+ formula:"pacingPhase = 'release' → releaseBonus(-0.12)\n            = 'tension' → tensionBonus(+0.04)",
+ range:'[-0.12, +0.04]',
+ source:'adaptiveSpawn:979-984,1201',
+ consumers:['stress Σ']},
+{id:'recoveryAdjust',name:'recoveryAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'恢复需求救济：needsRecovery=true 时强制大幅减压',
+ formula:'profile.needsRecovery ? -0.20 : 0\n配置：fz.recoveryAdjust',
+ range:'[-0.20, 0]',
+ source:'adaptiveSpawn:988,1202',
+ consumers:['stress Σ','playerDistress Σ → relief intent 触发器之一']},
+{id:'frustrationRelief',name:'frustrationRelief',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'连续无消行救济：frustrationLevel ≥ 4 时大幅减压',
+ formula:'frustrationLevel ≥ engagement.frustrationThreshold(4)\n  → engagement.frustrationRelief(-0.18) : 0',
+ range:'[-0.18, 0]',
+ source:'adaptiveSpawn:991-994,1203',
+ consumers:['stress Σ','playerDistress Σ → relief intent 触发器之一']},
+{id:'comboAdjust',name:'comboAdjust',layer:2,cat:'Stress分量·基础',sign:'+',
+ semantic:'连消奖励微加压：连消 ≥2 时奖励性提升挑战感',
+ formula:'recentComboStreak ≥ 2 → comboRewardAdjust(+0.05) : 0',
+ range:'[0, +0.05]',
+ source:'adaptiveSpawn:989,1204',
+ consumers:['stress Σ']},
+{id:'nearMissAdjust',name:'nearMissAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'近失效应减压：上轮 hadRecentNearMiss=true → 触发"再来一次"心理',
+ formula:'profile.hadRecentNearMiss → engagement.nearMissStressBonus(-0.10) : 0',
+ range:'[-0.10, 0]',
+ source:'adaptiveSpawn:997,1205',
+ consumers:['stress Σ','playerDistress Σ → relief intent 触发器之一','reactionAdjust 让位条件']},
+{id:'feedbackBias',name:'feedbackBias',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'闭环反馈偏移：玩家个性化系统给出的微调（profile.feedbackBias）',
+ formula:'直接取 profile.feedbackBias',
+ range:'[-0.15, +0.15]',
+ source:'adaptiveSpawn:1001,1206',
+ consumers:['stress Σ']},
+{id:'trendAdjust',name:'trendAdjust',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'技能趋势调节：profile.trend × 0.08 × confidence',
+ formula:'profile.trend × fz.trendAdjustScale(0.08) × ability.confidence',
+ range:'[-0.08, +0.08]',
+ source:'adaptiveSpawn:1004-1006,1207',
+ consumers:['stress Σ']},
+{id:'sessionArcAdjust',name:'sessionArcAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'局内弧线调节：warmup 减压、cooldown+下行 momentum 进一步减压',
+ formula:"sessionArc='warmup' → -0.08\nsessionArc='cooldown' && momentum<-0.2:\n  -0.05 - min(0.4, |momentum|-0.2) × 0.375  →  [-0.05, -0.20]",
+ range:'[-0.20, 0]',
+ source:'adaptiveSpawn:1014-1021,1208',
+ consumers:['stress Σ']},
+{id:'endSessionDistress',name:'endSessionDistress',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'末段崩盘救济：late + momentum≤-0.30 触发的独立减压脉冲，是 forceReliefIntent 关键上游',
+ formula:"sessionPhase='late' && momentum≤-0.30:\n  slope = min(0.30, |momentum|-0.30)\n  distress = -(0.05 + slope × 0.5)  最低 -0.25\n  frustrationLevel≥4 再 -0.06",
+ range:'[-0.25, 0]',
+ source:'adaptiveSpawn:1029-1035,1209',
+ consumers:['stress Σ','playerDistress Σ → relief intent','endSessionDistressActive → forceReliefIntent 关键上游']},
+{id:'holeReliefAdjust',name:'holeReliefAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'空洞救济：holePressure 越高减压越强',
+ formula:'holePressure × topo.holeReliefStress(-0.16)\nholePressure = holes / topoCfg.holePressureMax(8)',
+ range:'[-0.16, 0]',
+ source:'adaptiveSpawn:1054,1210',
+ consumers:['stress Σ','playerDistress Σ']},
+{id:'boardRiskReliefAdjust',name:'boardRiskReliefAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'综合盘面风险救济：boardRisk(fill+hole+ability.risk) 高时减压',
+ formula:'boardRisk × topo.boardRiskReliefStress(-0.10)\nboardRisk = fillRisk×0.45 + holePressure×0.35 + abilityRisk×0.20',
+ range:'[-0.10, 0]',
+ source:'adaptiveSpawn:1051-1053,1211',
+ consumers:['stress Σ','playerDistress Σ']},
+{id:'abilityRiskAdjust',name:'abilityRiskAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'能力风险救济：AbilityVector.riskLevel 高且置信足够时额外减压',
+ formula:'ability.confidence≥0.25 && ability.riskLevel≥0.62:\n  -0.08 × min(1, (riskLevel-0.62) / 0.38)',
+ range:'[-0.08, 0]',
+ source:'adaptiveSpawn:1044-1050,1212',
+ consumers:['stress Σ']},
+{id:'delightStressAdjust',name:'delightStressAdjust',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'爽感偏置：delightMode 触发时的 stress 微调（高潮加压、安抚减压）',
+ formula:'deriveDelightTuning(profile, ctx, fill, cfg).stressAdjust',
+ range:'[-0.10, +0.05]',
+ source:'adaptiveSpawn:1213',
+ consumers:['stress Σ']},
+{id:'bottleneckRelief',name:'bottleneckRelief',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'瓶颈低谷救济：dock 最低落点 ≤2 时减压（玩家被迫接受唯一解）',
+ formula:'hasBottleneckSignal (trough ≤ 2 && samples > 0 && !onboarding):\n  -0.12 × min(1, 0.4 + 0.6×sev)\nfriendlyBoardRelief<-0.10 → ×0.5\nrecovery/frustration → ×0.5',
+ range:'[-0.12, 0]（互抑后 max -0.06）',
+ source:'adaptiveSpawn:1121-1145,1215',
+ consumers:['stress Σ','playerDistress Σ','hasBottleneckSignal → challengeBoostBypass']},
+{id:'motivationStressAdjust',name:'motivationStressAdjust',layer:2,cat:'Stress分量·基础',sign:'±',
+ semantic:'动机意图微调：challenge + 高技能 + 低风险时 +0.045；relaxation/competence -0.045',
+ formula:"motivationIntent='challenge' && skill≥0.68 && riskLevel≤0.48:\n  +0.045\n='relaxation'|'competence' → -0.045",
+ range:'[-0.045, +0.045]',
+ source:'adaptiveSpawn:1086-1090,1216',
+ consumers:['stress Σ']},
+{id:'accessibilityStressAdjust',name:'accessibilityStressAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'辅助功能负担减压：accessibilityLoad > 0.2 时按比例减压',
+ formula:'accessibilityLoad > 0.2 → -0.08 × accessibilityLoad : 0',
+ range:'[-0.08, 0]',
+ source:'adaptiveSpawn:1091,1217',
+ consumers:['stress Σ']},
+{id:'returningWarmupAdjust',name:'returningWarmupAdjust',layer:2,cat:'Stress分量·基础',sign:'-',
+ semantic:'回流热身减压：returningWarmupStrength 大时给热身期减压',
+ formula:'returningWarmupStrength > 0:\n  -0.10 × returningWarmupStrength : 0',
+ range:'[-0.10, 0]',
+ source:'adaptiveSpawn:1092,1218',
+ consumers:['stress Σ']},
 {id:'friendlyBoardRelief',name:'friendlyBoardRelief',layer:2,cat:'Stress分量·基础',sign:'-',
  semantic:'友好盘面减压：盘面干净无孔+消行机会充沛+节奏payoff时减压',
  formula:'触发条件（全部满足）:\n  ① holes === 0            ← 零孔！\n  ② nearFullLines ≥ 2      ← 近满线多！\n  ③ multiClearCands≥2 || pcSetup≥1\n  ④ rhythmPhase === "payoff"\nopportunity=min(1,nearFull/4+multi/4+pc×0.3)\nintensity=clamp(0.4+0.6×(opp×0.7+cleanBoard×0.3))\nrelief = -0.12 + (-0.18-(-0.12))×intensity',
@@ -1255,13 +1535,74 @@ const SIGNALS = [
  source:'adaptiveSpawn.js :: deriveFriendlyBoardRelief()',
  note:'⚠ 只进 stress Σ，不在 playerDistress 中！challengeBoost同帧时互抑×0.42',
  consumers:['stress Σ(仅此)','challengeBoost×0.42互抑','bottleneckRelief折半判定']},
+{id:'lifecycleCapAdjust',name:'lifecycleCapAdjust + bandAdjust',layer:2,cat:'Stress分量·后置调制',sign:'±',
+ semantic:'S×M 矩阵双步调制：cap 硬上限截断 + adjust 整体偏移（在 rawStress 之后、smoothing 之前）',
+ formula:'getLifecycleStressCap(stage, band) → {cap, adjust}\nif stress>cap: stress=cap (lifecycleCapAdjust = cap-stress)\nstress += adjust (lifecycleBandAdjust)',
+ range:'cap∈[0.50,0.88]  adjust∈[-0.15,+0.12]',
+ source:'adaptiveSpawn:1268-1292',
+ consumers:['stress','stressBreakdown.lifecycleStage/Band/CapAdjust/BandAdjust']},
+{id:'onboardingOverride',name:'onboardingStressOverrideAdjust',layer:2,cat:'Stress分量·后置调制',sign:'-',
+ semantic:'新手保护硬覆写：isInOnboarding=true 强制 stress ≤ -0.15',
+ formula:'profile.isInOnboarding → stress = min(stress, firstSessionStressOverride ?? -0.15)',
+ range:'stress 截至 ≤ -0.15',
+ source:'adaptiveSpawn:1295-1300',
+ consumers:['stress','stressBreakdown.onboardingStressOverrideAdjust']},
+{id:'winbackStressCap',name:'winbackStressCap',layer:2,cat:'Stress分量·后置调制',sign:'-',
+ semantic:'回流保护包：daysSinceLastActive≥7 触发后前 3 局 stress 额外 cap=0.60',
+ formula:'getActiveWinbackPreset() 激活时 stress = min(stress, preset.stressCap=0.60)\n配合 spawnHints.clearGuarantee+1 + sizePreference 偏负',
+ range:'stress 截至 ≤ 0.60',
+ source:'adaptiveSpawn:1304-1318',
+ consumers:['stress','stressBreakdown.winbackStressCap','spawnHints (clearGuarantee/sizePreference 加成)']},
+{id:'challengeBoost',name:'challengeBoost',layer:2,cat:'Stress分量·后置调制',sign:'+',
+ semantic:'B 类高分挑战：score≥best×0.80 且 bypass 全通过时 stress 数值加压',
+ formula:'isBClassChallenge:\n  boost = min(baseCap=0.18, (score/best - 0.80) × 0.75)\n  friendlyBoardRelief<-0.09 时 boost ×= 0.42 (互抑)\n  stress = min(0.85, stress + boost)\npbGrowthFast=true 时 baseCap+capDelta(0.03)',
+ range:'[0, +0.18~0.21]',
+ source:'adaptiveSpawn:1371-1393',
+ consumers:['stress','pressure intent 触发','stressBreakdown.challengeBoost/Bypass']},
 {id:'pbChasePressure',name:'pbChasePressureActive',layer:2,cat:'Stress分量·后置调制',sign:'+',
  semantic:'PB追击压力激活（v1.61）：接近/超越PB时加压意图高于普通救济',
  formula:'isBClassChallenge(score≥best×0.80且bypass全通过)\n&& !forceReliefIntent\n&& fill < 0.72\n&& !isInOnboarding',
  range:'boolean',
- source:'adaptiveSpawn.js :: pbChasePressureActive (v1.61)',
+ source:'adaptiveSpawn:1407-1413 (v1.61)',
  note:'v1.61 新增：priority=102 覆盖 relief(100)，意图切为 pressure',
  consumers:["deriveSpawnIntent → 'pressure' (priority=102)","intentResolver pb_chase_pressure rule"]},
+{id:'pbExtremeOrderBoost',name:'pbExtremeOrderBoost',layer:2,cat:'Stress分量·后置调制',sign:'+',
+ semantic:'D3 决战段顺序刚性提升：pct∈[0.95,1.0) 时给 orderRigor 额外强化（非 stress 值变化）',
+ formula:'pct ∈ [0.95, 1.0) && bestScore≥minBestScoreForIntenseFeedback(200)\n&& !release/recovery/bottleneck/warmup\n→ 追加到 orderRigor 中间变量',
+ range:'orderRigor 加成',
+ source:'adaptiveSpawn:1398-1438',
+ consumers:['orderRigor → L3 orderMaxValidPerms','stressBreakdown.pbExtremeOrderBoost']},
+{id:'pbOvershootBoost',name:'pbOvershootBoost',layer:2,cat:'Stress分量·后置调制',sign:'+',
+ semantic:'D4 段超 PB 持续加压：score>bestScore 时按 log10 对数曲线加压防分数膨胀',
+ formula:'overshoot = score/bestScore - 1\nboost = maxBoost × log10(1+slope×overshoot)/log10(1+slope)\nstress = min(capStress=0.90, stress+boost)',
+ range:'[0, ~0.16]  pct=1.0→0  pct=1.25→0.08  pct=2.0→0.16',
+ source:'adaptiveSpawn:1460-1482',
+ consumers:['stress','stressBreakdown.pbOvershootBoost/Active','postPbReleaseActive bypass']},
+{id:'postPbStressAdj',name:'postPbReleaseStressAdjust',layer:2,cat:'Stress分量·后置调制',sign:'-',
+ semantic:'破 PB 释放窗口减压：postPbReleaseActive 时 stress 额外 -0.07',
+ formula:'ctx.postPbReleaseActive && stress > 0:\n  stress += postPbReleaseStressAdjust (默认 -0.07)',
+ range:'[-0.07, 0]',
+ source:'adaptiveSpawn:1582-1589',
+ consumers:['stress','stressBreakdown.postPbReleaseActive/StressAdjust']},
+{id:'occupancyDamping',name:'occupancyDamping',layer:2,cat:'Stress分量·后置调制',sign:'-',
+ semantic:'占用率衰减：高填充时压制 stress（D4 段 pbOvershootActive 豁免，避免消解加压）',
+ formula:'fill 超阈值时 damped = stress × (1 - dampRate)\noccupancyDamping = damped - stress\nD4 段 bypassOccupancyDamping → 跳过',
+ range:'[-0.15, 0]',
+ source:'adaptiveSpawn:1489-1523',
+ consumers:['stress','stressBreakdown.occupancyDamping/Bypassed']},
+{id:'playerDistress',name:'playerDistress (聚合)',layer:2,cat:'Stress分量·后置调制',sign:'-',
+ semantic:'玩家总痛苦度：7项减压分量的精确求和（friendlyBoardRelief 和 abilityRiskAdjust 不在内）',
+ formula:'playerDistress = recoveryAdjust + frustrationRelief\n+ nearMissAdjust + holeReliefAdjust\n+ boardRiskReliefAdjust + bottleneckRelief\n+ endSessionDistress\n< -0.10 → 触发 relief intent (priority=100)',
+ range:'[-1, 0]',
+ source:'adaptiveSpawn:2280-2287',
+ note:'⚠ friendlyBoardRelief 和 abilityRiskAdjust 不在聚合中，不触发 relief intent',
+ consumers:['deriveSpawnIntent relief guard','intentResolver relief rule']},
+{id:'normalizedStress',name:'normalizedStress (对外展示)',layer:2,cat:'Stress分量·后置调制',sign:'?',
+ semantic:'对外展示的 stress：将内部 [-0.2, 1.0] 映射到 [0, 1]',
+ formula:'clamp01((finalStress + 0.2) / 1.2)\n例: finalStress=-0.20 → 0.00  =0 → 0.167  =1.0 → 1.00',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:99-104 :: normalizeStress()',
+ consumers:['DFV stressBar','playerInsightPanel 显示','_lastAdaptiveInsight._adaptiveStress']},
 
 // ─ L2: 出块意图 ──────────────────────────────────────────────────────────
 {id:'i_pbchase',name:'pb_chase_pressure',layer:2,cat:'出块意图(IntentRules)',priority:102,sign:'+',
@@ -1278,8 +1619,13 @@ const SIGNALS = [
 {id:'i_delight',name:'delight_starved',layer:2,cat:'出块意图(IntentRules)',priority:95,sign:'-',
  semantic:'爽感饥渴：连续N轮无多消/清屏/同花顺 → 强制relief',
  formula:'guard: profile.isDelightStarved()\n  Android/Wechat: N=5轮\n  iOS/Web: N=7轮',
- range:"'relief'",source:'intentResolver.js',
+ range:"'relief'",source:'intentResolver.js:115',
  consumers:['spawnIntent=relief']},
+{id:'i_engage',name:'engage',layer:2,cat:'出块意图(IntentRules)',priority:90,sign:'?',
+ semantic:'AFK 召回：玩家长时停顿但状态尚可时，投放视觉刺激块吸引重新参与',
+ formula:'guard: afkEngageActive === true',
+ range:"'engage'",source:'intentResolver.js:150',
+ consumers:['spawnHints.engageBoost','spawnIntent=engage']},
 {id:'i_harvest',name:'harvest',layer:2,cat:'出块意图(IntentRules)',priority:80,sign:'+',
  semantic:'收割机会：盘面有现成消行/清屏机会时优先送配合块',
  formula:'guard: nearFullLines≥2 || (pcSetup≥1 && boardFill≥0.45)',
@@ -1295,6 +1641,11 @@ const SIGNALS = [
  formula:'guard: stress∈[sprintMin=0.45, sprintMax=0.55)',
  range:"'sprint'",source:'intentResolver.js',
  consumers:['sizePreference+0.10','multiClearBonus floor=0.40']},
+{id:'i_flow',name:'flow',layer:2,cat:'出块意图(IntentRules)',priority:50,sign:'+',
+ semantic:'心流释放：流动奖励窗口，偏向送爽感块（多消/清屏）',
+ formula:"guard: delightMode==='flow_payoff' || rhythmPhase==='payoff'",
+ range:"'flow'",source:'intentResolver.js:202',
+ consumers:['flowPayoffCap (stress 上限)','delightTuning 爽感释放']},
 {id:'i_maintain',name:'maintain',layer:2,cat:'出块意图(IntentRules)',priority:0,sign:'?',
  semantic:'中性维持：所有规则未触发时的默认fallback',
  formula:'guard: () => true',
@@ -1316,153 +1667,291 @@ const SIGNALS = [
  semantic:'顺序刚性：stress越高要求玩家越精确按顺序落置三块',
  formula:'0.35 + 0.65×stress²\n+ pbExtremeOrderBoost(D3段)\n+ pbOvershootOrderBoost(D4段)\norderMaxValidPerms = max(1, round((1-rigor)×8))',
  range:'[0.35, 1.0+]  perms∈[1,8]',
- source:'adaptiveSpawn.js :: orderRigor',
- consumers:['L3硬约束: 顺序可解性验证']},
+ source:'adaptiveSpawn:2410',
+ consumers:['L3硬约束: 顺序可解性验证 (orderMaxValidPerms)']},
+{id:'multiClearBonus',name:'multiClearBonus',layer:2,cat:'SpawnHints',sign:'+',
+ semantic:'多消奖励系数：sprint/pressure/PB追击时提升多消候选权重',
+ formula:'sprint floor=0.40 / pressure floor=0.30 / pbChase boost',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:2373',
+ consumers:['L3 augmentPool 多消乘子']},
+{id:'rhythmPhase',name:'rhythmPhase',layer:2,cat:'SpawnHints',sign:'?',
+ semantic:'节奏阶段（与 pacingPhase 不同）：build/payoff/cooldown，控制爽感波形',
+ formula:"deriveRhythmPhase(profile, ctx, hints) 综合 roundsSinceClear/lastClearCount/comboStreak",
+ range:"'build'|'payoff'|'cooldown'",
+ source:'adaptiveSpawn:2379',
+ consumers:['payoff 期偏向多消/清屏','flow intent 触发']},
+{id:'sessionArc',name:'sessionArc',layer:2,cat:'SpawnHints',sign:'?',
+ semantic:'局内弧线：warmup/middle/cooldown，驱动 sessionArcAdjust',
+ formula:'deriveSessionArc(totalRounds, momentum, sessionPhase)',
+ range:"'warmup'|'middle'|'cooldown'",
+ source:'adaptiveSpawn:2380',
+ consumers:['sessionArcAdjust']},
+{id:'comboChain',name:'comboChain',layer:2,cat:'SpawnHints',sign:'+',
+ semantic:'连击链：当前 combo 状态，传递给 L3 评分',
+ formula:'profile.recentComboStreak 的派生标记',
+ range:'[0, ∞)',
+ source:'adaptiveSpawn:2372',
+ consumers:['L3 augmentPool combo 乘子']},
+{id:'multiLineTarget',name:'multiLineTarget',layer:2,cat:'SpawnHints',sign:'+',
+ semantic:'多行目标：本轮期望的消行数（roundsSinceClear 高时触发）',
+ formula:'roundsSinceClear ≥ 阈值 → 提升 multiLineTarget',
+ range:'{0, 1, 2, 3}',
+ source:'adaptiveSpawn:2374',
+ consumers:['L3 augmentPool multiClear 倾向']},
+{id:'delightMode',name:'delightMode',layer:2,cat:'SpawnHints',sign:'?',
+ semantic:'爽感模式：normal / flow_payoff / chill，控制 delightStressAdjust 走向',
+ formula:'deriveDelightTuning(profile, ctx, fill, cfg).mode',
+ range:"'normal'|'flow_payoff'|'chill'",
+ source:'adaptiveSpawn:2378',
+ consumers:['flow intent 触发 (flow_payoff)','delightStressAdjust']},
+{id:'spawnIntent',name:'spawnIntent (输出)',layer:2,cat:'SpawnHints',sign:'?',
+ semantic:'最终意图：由 deriveSpawnIntent → IntentResolver 决策的 9 选 1',
+ formula:'IntentResolver.resolve(_intentInputs) → 9 个 intent 之一',
+ range:"9 个枚举值",
+ source:'adaptiveSpawn:2400',
+ consumers:['L3 _tryInjectSpecial 路径','game.js spawn 决策入参']},
+{id:'behaviorSegment',name:'behaviorSegment',layer:2,cat:'SpawnHints',sign:'?',
+ semantic:'行为分群：玩家被分到的细分群体（用于 spawn 微调与 A/B 测试）',
+ formula:'commercialBehaviorModel.predictSegment(profile)',
+ range:'多个枚举值',
+ source:'adaptiveSpawn:2402',
+ consumers:['personalizationApplied','下游 A/B 实验分流']},
+{id:'winbackProtectionActive',name:'winbackProtectionActive',layer:2,cat:'SpawnHints',sign:'-',
+ semantic:'回流保护激活标记：与 winbackStressCap 同步',
+ formula:'getActiveWinbackPreset() 激活时 true',
+ range:'boolean',
+ source:'adaptiveSpawn:2412',
+ consumers:['L3 spawn 决策 / 诊断标签']},
+{id:'farFromPBBoostActive',name:'farFromPBBoostActive',layer:2,cat:'SpawnHints',sign:'+',
+ semantic:'远 PB 加速标记：score 远低于 PB 时提升节奏让玩家快速接近',
+ formula:'pct < 0.5 && pbGrowthFast → true',
+ range:'boolean',
+ source:'adaptiveSpawn:2417',
+ consumers:['L3 augmentPool 节奏加成']},
+{id:'pbOvershootActive',name:'pbOvershootActive',layer:2,cat:'SpawnHints',sign:'+',
+ semantic:'破 PB 持续加压标记：score > bestScore 时 true，关联 pbOvershootBoost',
+ formula:'pct > 1.0 → true',
+ range:'boolean',
+ source:'adaptiveSpawn:2419',
+ consumers:['pbOvershootBoost','bypassOccupancyDamping']},
+{id:'spawnTargets',name:'spawnTargets (嵌套对象)',layer:2,cat:'SpawnTargets·容器',sign:'?',
+ semantic:'9+ 维 spawn 目标聚合容器，嵌于 spawnHints.spawnTargets',
+ formula:'deriveSpawnTargets(profile, ctx, stress, hints) → 6 维核心 + 多个上下文目标',
+ range:'对象',
+ source:'adaptiveSpawn:2371 (deriveSpawnTargets 实际返回 6 维)',
+ consumers:['L3 硬约束 9 维 min/max 检查']},
+{id:'st_shapeComplexity',name:'shapeComplexity',layer:2,cat:'SpawnTargets·6维',sign:'+',
+ semantic:'形状复杂度目标：决定 L3 偏向高/低复杂度形状',
+ formula:'综合 stress/skillLevel/sessionArc 计算',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:440',
+ consumers:['L3 augmentPool shapeComplexity 乘子','硬约束 min/max']},
+{id:'st_solutionSpacePressure',name:'solutionSpacePressure',layer:2,cat:'SpawnTargets·6维',sign:'+',
+ semantic:'解空间压力目标：stress 高时压缩解法密度（更刚性）',
+ formula:'与 stress 正相关',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:441',
+ consumers:['L3 augmentPool 解法密度','硬约束 min/max']},
+{id:'st_clearOpportunity',name:'clearOpportunity',layer:2,cat:'SpawnTargets·6维',sign:'+',
+ semantic:'消行机会目标：relief/payoff 时提升',
+ formula:'综合 sessionArc/rhythmPhase/intent 计算',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:442',
+ consumers:['L3 augmentPool multiClear 乘子','aScore gapFills 系数']},
+{id:'st_spatialPressure',name:'spatialPressure',layer:2,cat:'SpawnTargets·6维',sign:'+',
+ semantic:'空间压力目标：fill 高 / stress 高时提升（要求更紧凑）',
+ formula:'综合 fill/stress/holePressure 计算',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:443',
+ consumers:['L3 augmentPool spatial 乘子']},
+{id:'st_payoffIntensity',name:'payoffIntensity',layer:2,cat:'SpawnTargets·6维',sign:'+',
+ semantic:'爽感强度目标：delight/flow 期提升',
+ formula:'综合 delightMode/rhythmPhase 计算',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:444',
+ consumers:['L3 augmentPool delight 乘子']},
+{id:'st_novelty',name:'novelty',layer:2,cat:'SpawnTargets·6维',sign:'+',
+ semantic:'新颖度目标：连续相同品类时提升，避免审美疲劳',
+ formula:'综合 totalRounds / mem.categories tail 重复度',
+ range:'[0, 1]',
+ source:'adaptiveSpawn:445',
+ consumers:['L3 augmentPool novelty 乘子']},
 
 // ─ L3: Pipeline ──────────────────────────────────────────────────────────
-{id:'l3_scoring',name:'Stage 0: 形状评分 (scored[])',layer:3,cat:'形状评分',
- semantic:'对全量形状池评9维分，生成 scored[] 供后续所有阶段使用',
- formula:'9维评分:\n  gapFills:    减少封闭空洞\n  multiClear:  消行数(≥1)\n  exactFit:    100%嵌入(0or1)\n  pcPotential: 清屏(0/1/2)\n  monoFlush:   同花顺线数\n  holeReduce:  空洞减少量\n  solutionSpace: 解法密度\n  placements:  可落位数\n  category:    S/M/L品类',
- range:'scored[] 数组',source:'blockSpawn.js :: scoreShape()',
- consumers:['clearCandidates','Stage1/Stage2权重输入','_tryInjectSpecial scored参数']},
+{id:'l3_perceive',name:'Stage 0a: 盘面感知',layer:3,cat:'前置感知',
+ semantic:'入场即分析盘面拓扑，并通过 monoFlushRound 节流，决定本轮特殊预算',
+ formula:'analyzeBoardTopology(grid) → {fill,holes,nearFullLines,close1/2,...}\nanalyzePerfectClearSetup(grid) → pcSetup ∈ {0,1,2}\nfindNearFullMonoLines(grid) → 同花顺候选行\nmonoFlushRound 概率节流（默认 8 轮 1 次）',
+ range:'拓扑快照对象',source:'blockSpawn.js:1988-2072',
+ consumers:['Stage 0b 形状评分','Stage 4 注入特殊预算门']},
+{id:'l3_scoring',name:'Stage 0b: 形状评分 (scored[])',layer:3,cat:'形状评分',
+ semantic:'⚠ 无 scoreShape() 函数；对 getAllShapes() 内联评分，生成 scored[]',
+ formula:'getAllShapes().map(shape => {\n  _passesShapeGate(shape)  // 闸门过滤\n  countGapFills, bestMultiClearPotential, bestPerfectClearPotential,\n  bestExactFit, bestMonoFlushPotential, bestHoleReduction\n  _applyShapeBonusWeight(...) → 9 维评分对象\n})',
+ range:'scored[] 数组',source:'blockSpawn.js:2074-2152 (内联)',
+ consumers:['clearCandidates 排序','augmentPool 输入','_tryInjectSpecial scored 参数']},
 {id:'l3_aScore',name:'Stage 1a: aScore 排序',layer:3,cat:'形状选拔',
- semantic:'14维综合分，决定clearCandidates降序，谁优先进clearSeats',
- formula:'pcPotential×20 + monoFlush×12 + multiClear×8\n+ exactFit×4 + gapFills×1.5 + holeReduce×1\n+ solutionSpace×0.5 + placements×0.2 ...\nmonoFlush预算守卫: 全局≤1块',
- range:'aScore∈[0,∞)',source:'blockSpawn.js :: Stage1 clearCandidates sort',
- consumers:['clearCandidates降序','clearSeats优先选拔']},
-{id:'l3_weighted',name:'Stage 2: 33维加权补齐',layer:3,cat:'形状选拔',
- semantic:'33个权重乘子对候选池加权随机抽样，补齐到3块',
- formula:'M1:  minMobility    M2:pcPotential  M3:multiClear  M4:monoFlush\nM5-7: sizePreference(S/M/L)\nM8:  multiClearBonus\nM9-12: 规划/空洞/exactFit/消行\nM13-16: 品类/novelty/diversity\nM17-22: 节奏/弧线/Combo/连消/近满\nM23-28: PB追击/里程碑/破纪录\nM29-33: 个性化/可达性',
- range:'加权随机抽样',source:'blockSpawn.js :: Stage2 weighted pool',
- consumers:['chosen[]补齐','硬约束验证']},
-{id:'l3_constraint',name:'Stage 3: 17项硬约束验证',layer:3,cat:'约束验证',
- semantic:'验证3块组合合法性，失败则重抽（最多22次重试）',
- formula:'① minMobility: 每块≥5合法落点\n② 顺序可解性: 任意排列中≥1有效\n③ 解法数≤orderMaxValidPerms\n④ 空洞增量≤maxHoleAdd\n⑤-⑬ 9维目标区间检查\n⑭ farFromPB段约束\n⑮ 品类多样性\n⑯ size多样性\n⑰ orderRigor刚性验证',
- range:'通过→输出  失败→重抽  max 22次',source:'blockSpawn.js :: validateGroupConstraints()',
- consumers:['最终chosen[]','diagnostics.constraintRetries']},
-{id:'l3_inject',name:'Stage 4: 特殊注入 (_tryInjectSpecial)',layer:3,cat:'约束验证',
- semantic:'按意图替换一块弱候选为特殊形状，每轮最多注入1块',
- formula:'门槛: roundsSinceSpecial≥5 && totalRounds>5\nrelief(isReliefPhase):\n  pcSetup≥1 → 清屏救援块\n  exactFit → 完美卡入块\n  monoFlush(需monoFlushRound) → 同花顺块\n  multiClear(chosen无多消) → 消行块[低优]\npressure(isPressureIntent):\n  fill<0.45 && holes<4 → 制造空洞块',
- range:'替换0–1块',source:'blockSpawn.js :: _tryInjectSpecial() (v1.60.44重构)',
- consumers:['chosen[replaced]','reliefTrigger/pressureSignal diagnostics']},
-{id:'l3_output',name:'Stage 5: 最终输出',layer:3,cat:'输出',
- semantic:'Fisher-Yates洗牌 + chosenMeta诊断快照 → game.dockBlocks',
- formula:'Fisher-Yates shuffle(chosen[3])\nchosenMeta:[{id,source,reason,monoFlush,pcPotential,aScore,...}]\ndiagnostics:{constraintRetries,injected,reliefTrigger,...}\nofflineStateCache.writeSpawnSignals(game)',
- range:'3块有序候选',source:'blockSpawn.js :: generateDockShapes()输出段',
- consumers:['game.dockBlocks','DFV出块标注','offlineStateCache快照']},
+ semantic:'综合分排序 clearCandidates 降序，决定优先进 clearSeats 的候选',
+ formula:'aScore = pcPotential × (15 + pcb × 15)\n      + monoFlush  × (2 + icon × 1.5)\n      + multiClear × (...)\n      + gapFills   × (0.5 + clearOpp)\n      （非透视仪先前写的 ×20/×12/×8）',
+ range:'aScore∈[0,∞)',source:'blockSpawn.js:2273-2281',
+ consumers:['clearCandidates 降序','Stage 1b clearSeats 优先选拔']},
+{id:'l3_clearSeats',name:'Stage 1b: clearSeats 优先选拔',layer:3,cat:'形状选拔',
+ semantic:'按 clearGuarantee 槽位填充：先 perfectClear → monoFlush → multiClear → 随机',
+ formula:'seats = spawnHints.clearGuarantee\nfor ci in [0..seats):\n  ① 优先 perfectClear 候选\n  ② 其次 monoFlush（受预算限）\n  ③ 再 multiClear\n  ④ 兜底随机抽 clearCandidates',
+ range:'填 0–seats 块',source:'blockSpawn.js:2293-2395',
+ consumers:['chosen[ci]','剩余 slot 转入 Stage 2 加权抽样']},
+{id:'l3_weighted',name:'Stage 2: 加权补齐 (augmentPool)',layer:3,cat:'形状选拔',
+ semantic:'多维加权抽样：augmentPool() 内联乘子链 → pickWeighted(pool, rng) 随机抽取补齐到 3 块',
+ formula:'augmentPool(scored, hints/targets) 对每个 shape 计算多维乘子：\n  ADAPTIVE_SPAWN §10.8.5 记 14 维（minMobility/pcPotential/multiClear/monoFlush/\n  sizePreference S/M/L/multiClearBonus/规划/空洞/exactFit/品类/novelty/diversity）\n→ pickWeighted(pool, ctx?.rng) 加权随机抽样',
+ range:'随机抽样补齐',source:'blockSpawn.js:2398-2633',
+ consumers:['chosen[] 补齐','Stage 3 硬约束验证']},
+{id:'l3_fallback',name:'Stage 2b: Fallback 兜底',layer:3,cat:'形状选拔',
+ semantic:'加权抽样失败时的安全兜底链：_pickFallbackSafe → 默认 RegularShapes 池',
+ formula:'_pickFallbackSafe()\n  → pickShapeByCategoryWeights() (默认 getRegularShapes() 池，排除 12 special)\nattempt 内联：2674-2688\n22 次硬约束全失败后另有 scored 加权兜底：3035-3074',
+ range:'保证至少出 1 块',source:'blockSpawn.js:2674-2688,3035-3074',
+ consumers:['chosen[] 安全填充']},
+{id:'l3_constraint',name:'Stage 3: 硬约束验证 (~15 类约束)',layer:3,cat:'约束验证',
+ semantic:'⚠ 无 validateGroupConstraints()；attempt 内联 continue；min/max 展开约 28 个分支',
+ formula:'attempt 内联 continue 分支（约 15 类检查）：\n① minMobilityTarget (每块落点 ≥ 5)\n② tripletSequentiallySolvable (顺序可解性)\n③ evaluateTripletSolutions + 9 维 spawnTargets 软过滤 (各 min/max 共 ~18 个)\n④ orderMaxValidPerms (解法数上限)\n  ⚠ farFromPB/品类/size 实际仅在 augmentPool 软权重，约束循环里没有\nvalidateSpawnTriplet() 仅在 _tryInjectSpecial 注入后复校',
+ range:'通过→注入  失败→重抽  max 22次',source:'blockSpawn.js:2695-2937, validateSpawnTriplet:414-443,1615',
+ consumers:['最终 chosen[]','Stage 4 注入入口','diagnostics.constraintRetries']},
+{id:'l3_inject',name:'Stage 4: 特殊注入 (_tryInjectSpecial)',layer:3,cat:'注入优化',
+ semantic:'⚠ 在硬约束通过之后执行（Stage 3→4，非透视仪先前 4→3），按意图替换一块',
+ formula:'门槛: roundsSinceSpecial≥5 && totalRounds>5\nrelief(isReliefPhase):\n  pcSetup≥1 → 清屏救援块\n  exactFit → 完美卡入块\n  monoFlush(需monoFlushRound) → 同花顺块\n  multiClear(chosen无多消) → 消行块[低优]\npressure(isPressureIntent):\n  fill<0.45 && holes<4 → 制造空洞块\n注入后 validateSpawnTriplet 复校',
+ range:'替换 0–1 块',source:'blockSpawn.js:2939-2962 (v1.60.44 重构)',
+ consumers:['chosen[replaced]','Stage 5 duplicates 互斥','reliefTrigger/pressureSignal diagnostics']},
+{id:'l3_duplicates',name:'Stage 5: 双胞胎/三胞胎注入',layer:3,cat:'注入优化',
+ semantic:'_tryInjectDuplicates()：与 Stage 4 special 互斥，约束通过后、洗牌前执行',
+ formula:'_tryInjectDuplicates(chosen, hints, scored)\n→ duplicates: 重复同形状 2-3 次（独立特殊机会）\n互斥规则：Stage 4 已注入特殊 → 跳过',
+ range:'替换 0–2 块',source:'blockSpawn.js:2964-2980',
+ consumers:['chosen[duplicated]','diagnostics.duplicatesInjected']},
+{id:'l3_shuffle',name:'Stage 6: Fisher-Yates 洗牌',layer:3,cat:'输出',
+ semantic:'非约束阶段；打乱 chosen 顺序，同步 chosenMeta 索引',
+ formula:'fisherYatesInPlace(triplet, rng, sync chosenMeta)\n— 在 duplicates 注入之后、return 之前',
+ range:'3 块有序候选',source:'blockSpawn.js:2988-2990',
+ consumers:['Stage 7 输出','game.js 染色']},
+{id:'l3_output',name:'Stage 7: 形状输出 + 诊断',layer:3,cat:'输出',
+ semantic:'返回 shape triplet（不含颜色）；写诊断快照，染色在 game.js 完成',
+ formula:'return triplet → game.js::_commitSpawn\nchosenMeta:[{id,source,reason,monoFlush,pcPotential,aScore,...}]\n_lastDiagnostics 写入\nmem.categories.push（品类记忆）\nofflineStateCache.writeSpawnSignals(game)',
+ range:'3 块形状',source:'blockSpawn.js:2992-3032',
+ consumers:['game.dockBlocks (shape)','DFV出块标注','offlineStateCache快照']},
+{id:'l3_color',name:'Stage 8: 染色绑定（下游 game.js）',layer:3,cat:'输出',
+ semantic:'⚠ 透视仪完全缺失：blockSpawn 只出形状，染色在 game._commitSpawn',
+ formula:'game.js::_commitSpawn:\n  ① 读 monoFlushTargetCi → 锁色（同花顺需同色）\n  ② pickThreeDockColors(bonusBias) → 三色无放回\n  ③ 写入 game.dockBlocks[i].color',
+ range:'3 块带色',source:'game.js:1718-1761',
+ consumers:['game.dockBlocks (final)','renderer 渲染']},
 ];
 
 // ─── Intent data ─────────────────────────────────────────────────────────────
 const INTENTS = [
-  {id:'pb_chase_pressure',priority:102,result:"'pressure'",
+  {id:'pb_chase_pressure',cn:'PB追击加压',priority:102,result:"'pressure'",
    guard:"pbChasePressureActive === true",
    desc:'PB追击加压(v1.61)：score≥best×0.80且B类条件满足时强制pressure，阻断普通救济',
    cls:'pb-chase new-badge'},
-  {id:'relief',priority:100,result:"'relief'",
+  {id:'relief',cn:'挫败救济',priority:100,result:"'relief'",
    guard:"playerDistress<-0.10\n|| delightMode=='relief'\n|| forceReliefIntent",
    desc:'挫败救济：玩家总痛苦度超阈值或forceReliefIntent=true(临终/高挫败)',
    cls:'relief'},
-  {id:'delight_starved',priority:95,result:"'relief'",
+  {id:'delight_starved',cn:'爽感饥渴',priority:95,result:"'relief'",
    guard:"profile.isDelightStarved()\n  Android/Wechat: ≥5轮无爽感\n  iOS/Web: ≥7轮无爽感",
    desc:'爽感饥渴：长期无多消/清屏/同花顺，强制送爽',cls:''},
-  {id:'engage',priority:90,result:"'engage'",
+  {id:'engage',cn:'AFK召回',priority:90,result:"'engage'",
    guard:"afkEngageActive === true",
    desc:'AFK召回：玩家停顿过久但状态尚可，投放视觉刺激块',cls:''},
-  {id:'harvest',priority:80,result:"'harvest'",
+  {id:'harvest',cn:'收割机会',priority:80,result:"'harvest'",
    guard:"nearFullLines≥2\n|| (pcSetup≥1 && boardFill≥0.45)",
    desc:'收割机会：盘面有现成消行/清屏机会，优先送配合块',cls:'harvest'},
-  {id:'pressure',priority:70,result:"'pressure'",
+  {id:'pressure',cn:'B类挑战加压',priority:70,result:"'pressure'",
    guard:"challengeBoost>0\n|| (delightMode=='challenge_payoff'\n   && stress≥0.55)",
    desc:'B类挑战：score接近PB且bypass全通过时的低优加压',cls:''},
-  {id:'sprint',priority:60,result:"'sprint'",
+  {id:'sprint',cn:'渐紧过渡',priority:60,result:"'sprint'",
    guard:"stress∈[sprintMin=0.45, sprintMax=0.55)",
    desc:'渐紧过渡：中等压力区缓步提升难度',cls:''},
-  {id:'flow',priority:50,result:"'flow'",
+  {id:'flow',cn:'心流释放',priority:50,result:"'flow'",
    guard:"delightMode=='flow_payoff'\n|| rhythmPhase=='payoff'",
    desc:'心流释放：流动奖励窗口，偏向送爽感块',cls:''},
-  {id:'maintain',priority:0,result:"'maintain'",
+  {id:'maintain',cn:'中性维持',priority:0,result:"'maintain'",
    guard:"() => true  // fallback",
    desc:'中性维持：所有规则未触发的默认状态',cls:''},
 ];
 
 // ─── Stress tables ─────────────────────────────────────────────────────────
 const STRESS_BASE = [
-  {n:'S1','id':'scoreStress',sign:'+',range:'[0,0.78]',note:'',
+  {n:'S1','id':'scoreStress',cn:'得分驱动压力',sign:'+',range:'[0,0.78]',note:'',
    trigger:'pct=score/best; 曲线插值; pct<0.5时×0.4折扣'},
-  {n:'S2','id':'runStreakStress',sign:'+',range:'[0,0.10]',note:'',
+  {n:'S2','id':'runStreakStress',cn:'连战加压',sign:'+',range:'[0,0.10]',note:'',
    trigger:'min(runStreak,6) × spawnStressBonusPerGame'},
-  {n:'S3','id':'difficultyBias',sign:'±',range:'[-0.22,+0.22]',note:'',
+  {n:'S3','id':'difficultyBias',cn:'难度档静态偏移',sign:'±',range:'[-0.22,+0.22]',note:'',
    trigger:"easy=-0.22  normal=0  hard=+0.22"},
-  {n:'S4','id':'skillAdjust',sign:'±',range:'[-0.15,+0.15]',note:'',
+  {n:'S4','id':'skillAdjust',cn:'技能调节',sign:'±',range:'[-0.15,+0.15]',note:'',
    trigger:'(skillScore-0.5)×0.30×confGate  confGate=0.4+0.6×conf'},
-  {n:'S5','id':'flowAdjust',sign:'±',range:'[-0.24,+0.16]',note:'⚠注意符号：bored=+正值（加压）',
+  {n:'S5','id':'flowAdjust',cn:'心流调节',sign:'±',range:'[-0.24,+0.16]',note:'⚠注意符号：bored=+正值（加压）',
    trigger:'bored: +0.08×min(2,1+dev)  anxious: -0.12×min(2,1+dev)'},
-  {n:'S6','id':'reactionAdjust',sign:'±',range:'[-0.05,+0.05]',note:'弱信号，nearMiss同向时让位',
+  {n:'S6','id':'reactionAdjust',cn:'反应时微调',sign:'±',range:'[-0.05,+0.05]',note:'弱信号，nearMiss同向时让位',
    trigger:'<350ms→+0.05  >4500ms→-0.05  样本<3不启用'},
-  {n:'S7','id':'pacingAdjust',sign:'±',range:'[-0.12,+0.04]',note:'',
+  {n:'S7','id':'pacingAdjust',cn:'节奏张弛',sign:'±',range:'[-0.12,+0.04]',note:'',
    trigger:"release=-0.12  tension=+0.04"},
-  {n:'S8','id':'recoveryAdjust',sign:'-',range:'[-0.20,0]',note:'★进playerDistress',
+  {n:'S8','id':'recoveryAdjust',cn:'恢复救济',sign:'-',range:'[-0.20,0]',note:'★进playerDistress',
    trigger:'needsRecovery(fill>0.82) → -0.20'},
-  {n:'S9','id':'frustrationRelief',sign:'-',range:'[-0.18,0]',note:'★进playerDistress',
+  {n:'S9','id':'frustrationRelief',cn:'挫败救济',sign:'-',range:'[-0.18,0]',note:'★进playerDistress',
    trigger:'frustrationLevel≥4 → -0.18'},
-  {n:'S10','id':'comboAdjust',sign:'+',range:'[0,+0.05]',note:'',
+  {n:'S10','id':'comboAdjust',cn:'连消奖励加压',sign:'+',range:'[0,+0.05]',note:'',
    trigger:'recentComboStreak≥2 → +0.05'},
-  {n:'S11','id':'nearMissAdjust',sign:'-',range:'[-0.10,0]',note:'★进playerDistress',
+  {n:'S11','id':'nearMissAdjust',cn:'近失减压',sign:'-',range:'[-0.10,0]',note:'★进playerDistress',
    trigger:'hadRecentNearMiss → -0.10'},
-  {n:'S12','id':'feedbackBias',sign:'±',range:'[-0.15,+0.15]',note:'',
+  {n:'S12','id':'feedbackBias',cn:'闭环反馈偏移',sign:'±',range:'[-0.15,+0.15]',note:'',
    trigger:'直接取profile.feedbackBias'},
-  {n:'S13','id':'trendAdjust',sign:'±',range:'[-0.08,+0.08]',note:'',
+  {n:'S13','id':'trendAdjust',cn:'技能趋势调节',sign:'±',range:'[-0.08,+0.08]',note:'',
    trigger:'trend×0.08×confidence  正趋势加压'},
-  {n:'S14','id':'sessionArcAdjust',sign:'-',range:'[-0.20,0]',note:'',
+  {n:'S14','id':'sessionArcAdjust',cn:'局内弧线调节',sign:'-',range:'[-0.20,0]',note:'',
    trigger:"warmup:-0.08  cooldown+momentum<-0.2: -(0.05+excess×0.375)"},
-  {n:'S15','id':'endSessionDistress',sign:'-',range:'[-0.25,0]',note:'★进playerDistress',
+  {n:'S15','id':'endSessionDistress',cn:'末段崩盘救济',sign:'-',range:'[-0.25,0]',note:'★进playerDistress',
    trigger:"late&&momentum≤-0.30: -(0.05+slope×0.5)  frust≥4再-0.06"},
-  {n:'S16','id':'holeReliefAdjust',sign:'-',range:'[-0.16,0]',note:'★进playerDistress',
+  {n:'S16','id':'holeReliefAdjust',cn:'空洞救济',sign:'-',range:'[-0.16,0]',note:'★进playerDistress',
    trigger:'holePressure×-0.16  holePressure=holes/8'},
-  {n:'S17','id':'boardRiskReliefAdjust',sign:'-',range:'[-0.10,0]',note:'★进playerDistress',
+  {n:'S17','id':'boardRiskReliefAdjust',cn:'盘面风险救济',sign:'-',range:'[-0.10,0]',note:'★进playerDistress',
    trigger:'boardRisk×-0.10  boardRisk=fillRisk×0.45+holePressure×0.35+riskLevel×0.20'},
-  {n:'S18','id':'abilityRiskAdjust',sign:'-',range:'[-0.08,0]',note:'⚠不进playerDistress',
+  {n:'S18','id':'abilityRiskAdjust',cn:'能力风险救济',sign:'-',range:'[-0.08,0]',note:'⚠不进playerDistress',
    trigger:'conf≥0.25&&risk≥0.62: -0.08×min(1,(risk-0.62)/0.38)'},
-  {n:'S19','id':'delightStressAdjust',sign:'±',range:'[-0.08,+0.04]',note:'',
+  {n:'S19','id':'delightStressAdjust',cn:'爽感偏置',sign:'±',range:'[-0.08,+0.04]',note:'',
    trigger:"delight.stressAdjust  bored+skill>0.52:+0.07  anxious/recovery:-0.08"},
-  {n:'S20','id':'friendlyBoardRelief',sign:'-',range:'[-0.18,-0.12]或0',note:'⚠不进playerDistress！条件严苛',
+  {n:'S20','id':'friendlyBoardRelief',cn:'友好盘面减压',sign:'-',range:'[-0.18,-0.12]或0',note:'⚠不进playerDistress！条件严苛',
    trigger:'holes===0 && nearFull≥2 && (multiClear≥2||pcSetup≥1) && rhythmPhase=payoff'},
-  {n:'S21','id':'bottleneckRelief',sign:'-',range:'[-0.12,0]',note:'★进playerDistress  互抑后max-0.06',
+  {n:'S21','id':'bottleneckRelief',cn:'瓶颈低谷救济',sign:'-',range:'[-0.12,0]',note:'★进playerDistress  互抑后max-0.06',
    trigger:'trough≤2: -0.12×min(1,0.4+0.6×sev)  同向时×0.5折扣'},
-  {n:'S22','id':'motivationStressAdjust',sign:'±',range:'[-0.045,+0.045]',note:'',
+  {n:'S22','id':'motivationStressAdjust',cn:'动机意图微调',sign:'±',range:'[-0.045,+0.045]',note:'',
    trigger:"challenge+高技能+低风险:+0.045  relaxation/competence:-0.045"},
-  {n:'S23','id':'accessibilityStressAdjust',sign:'-',range:'[-0.08,0]',note:'',
+  {n:'S23','id':'accessibilityStressAdjust',cn:'辅助功能负担减压',sign:'-',range:'[-0.08,0]',note:'',
    trigger:'accessibilityLoad>0.2: -0.08×load'},
-  {n:'S24','id':'returningWarmupAdjust',sign:'-',range:'[-0.10,0]',note:'',
+  {n:'S24','id':'returningWarmupAdjust',cn:'回流热身减压',sign:'-',range:'[-0.10,0]',note:'',
    trigger:'-0.10×returningWarmupStrength'},
 ];
 
 const STRESS_POST = [
-  {n:'P1','id':'lifecycleCapAdjust+bandAdjust',
+  {n:'P1','id':'lifecycleCapAdjust+bandAdjust',cn:'生命周期×成熟度调制',
    desc:'S×M矩阵查表 → cap截断+adj偏移  S0·M0:cap=0.50,adj=-0.15 ~ S3·M4:cap=0.88,adj=+0.12',
    range:'cap[0.50,0.88] adj[-0.15,+0.12]'},
-  {n:'P2','id':'onboardingStressOverride',
+  {n:'P2','id':'onboardingStressOverride',cn:'新手保护硬覆写',
    desc:'isInOnboarding=true → stress=min(stress,-0.15)  新手硬覆写',
    range:'stress截至≤-0.15'},
-  {n:'P3','id':'winbackStressCap',
+  {n:'P3','id':'winbackStressCap',cn:'回流保护包',
    desc:'daysSinceLastActive≥7 → 前3局stress=min(stress,0.60)',
    range:'stress截至≤0.60'},
-  {n:'P4','id':'challengeBoost',
+  {n:'P4','id':'challengeBoost',cn:'B类高分挑战加压',
    desc:'score≥best×0.80且bypass全通过: boost=min(0.18,(score/best-0.80)×0.75)',
    range:'[0,+0.18]'},
-  {n:'P5','id':'pbChasePressureActive',
+  {n:'P5','id':'pbChasePressureActive',cn:'PB追击意图切换',
    desc:'v1.61 新增：触发priority=102的pressure intent，意图切换（非stress数值）',
    range:'boolean → spawnIntent'},
-  {n:'P6','id':'pbOvershootBoost',
+  {n:'P6','id':'pbOvershootBoost',cn:'破PB持续加压',
    desc:'score>bestScore(D4段): log10对数放大 stress=min(0.90,stress+boost)',
    range:'[0,~0.16]'},
-  {n:'P7','id':'occupancyDamping',
+  {n:'P7','id':'occupancyDamping',cn:'占用率衰减',
    desc:'高填充时压制stress防死局；D4段(pbOvershootActive)豁免避免消解',
    range:'[-0.15,0]'},
-  {n:'P8','id':'smoothing',
+  {n:'P8','id':'smoothing',cn:'EMA平滑',
    desc:'EMA平滑 α=0.35 maxStepUp=0.18 maxStepDown=0.28',
    range:'平滑后stress'},
-  {n:'P9','id':'normalizedStress(输出)',
+  {n:'P9','id':'normalizedStress(输出)',cn:'对外归一化展示',
    desc:'clamp01((finalStress+0.2)/1.2)  [-0.2,1]→[0,1]  DFV面板展示值',
    range:'[0,1]'},
 ];
@@ -1632,7 +2121,8 @@ function renderSignalList() {
       return s.name.toLowerCase().includes(searchQuery)
         || s.semantic.toLowerCase().includes(searchQuery)
         || s.formula.toLowerCase().includes(searchQuery)
-        || s.cat.toLowerCase().includes(searchQuery);
+        || s.cat.toLowerCase().includes(searchQuery)
+        || getZhTitle(s, 30).toLowerCase().includes(searchQuery);
     }
     return true;
   });
@@ -1674,7 +2164,9 @@ function renderSignalList() {
           ${getSignBadge(sig.sign)}
         </div>
         <div class="card-body">
-          <div class="card-name">${sig.name}</div>
+          <div class="card-name">${esc(getZhTitle(sig, 20))}
+            <code class="card-name-en">${esc(getEnName(sig, 36))}</code>
+          </div>
           <div class="card-semantic">${sig.semantic}</div>
         </div>
         ${sig.priority !== undefined ? `<span class="pri-badge" style="color:${getPriColor(sig.priority)};border-color:${getPriColor(sig.priority)}">P${sig.priority}</span>` : ''}`;
@@ -1721,7 +2213,8 @@ function showDetail(sig) {
         ${priHtml}
         ${sig.sign ? `<span class="sign-badge ${{'+':`sign-plus`,'-':'sign-minus','±':'sign-pm','?':'sign-q'}[sig.sign]||'sign-q'}">${sig.sign}</span>` : ''}
       </div>
-      <div class="detail-name">${sig.name}</div>
+      <div class="detail-name">${esc(getZhTitle(sig, 24))}</div>
+      <div class="detail-name-en"><code>${esc(getEnName(sig, 60))}</code></div>
     </div>
     <hr class="detail-hr">
 
@@ -1764,6 +2257,27 @@ function esc(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ─── 统一的「语义标题 + 英文标识」展示工具 ─────────────────────────────────────
+// getZhTitle: 从 semantic 文本第一个标点前截取中文短语；空则回退到 name
+//   只用中文/英文标点作为终止符，避免把"差 1-2 格"截成"差"
+function getZhTitle(s, maxLen = 14) {
+  const sem = (s && s.semantic || '').trim();
+  if (!sem) return (s && s.name) || '';
+  const m = sem.match(/^([^：。；;（(]+)/);    // 不再把空格/逗号当分隔
+  let title = (m ? m[1] : sem).trim();
+  // 优先在中文标点处截断，再 fallback 到 maxLen
+  const stopIdx = title.search(/[，,]/);
+  if (stopIdx >= 4) title = title.slice(0, stopIdx);
+  if (title.length > maxLen) title = title.slice(0, maxLen - 1) + '…';
+  return title;
+}
+// getEnName: 英文 name 去括号附注 & 长度限制
+function getEnName(s, maxLen = 30) {
+  let n = ((s && s.name) || '').split(/[（(]/)[0].trim();
+  if (n.length > maxLen) n = n.slice(0, maxLen - 2) + '…';
+  return n;
+}
+
 // ─── Intent grid ───────────────────────────────────────────────────────────────
 function renderIntentGrid() {
   const grid = document.getElementById('intent-grid');
@@ -1774,7 +2288,8 @@ function renderIntentGrid() {
     card.innerHTML = `
       <div class="intent-priority" style="color:${pc}">${intent.priority}</div>
       <div>
-        <div class="intent-id">${intent.id}</div>
+        <div class="intent-cn">${esc(intent.cn || intent.id)}</div>
+        <div class="intent-id"><code>${intent.id}</code></div>
       </div>
       <div class="intent-result" style="color:#7ee787">${intent.result}</div>
       <pre class="intent-guard">${esc(intent.guard)}</pre>
@@ -1798,7 +2313,10 @@ function renderStressTables() {
     const signColor = s.sign==='+'?'var(--green)':s.sign==='-'?'var(--red)':'var(--orange)';
     tbody.innerHTML += `<tr class="${noteClass}">
       <td style="color:var(--text-3);font-size:10px">${s.n}</td>
-      <td><code>${s.id}</code></td>
+      <td style="line-height:1.2;white-space:nowrap">
+        <div style="color:var(--text-1);font-size:11px;font-weight:600">${s.cn||''}</div>
+        <code style="font-size:9.5px;color:#79c0ff;font-family:var(--mono);background:transparent;padding:0">${s.id}</code>
+      </td>
       <td class="sign" style="color:${signColor}">${s.sign}</td>
       <td style="color:var(--text-2);font-size:10px;font-family:var(--mono)">${s.range}</td>
       <td style="font-size:10px;color:var(--text-2)">${s.trigger}</td>
@@ -1811,7 +2329,10 @@ function renderStressTables() {
   STRESS_POST.forEach(s => {
     tbody2.innerHTML += `<tr>
       <td style="color:var(--text-3);font-size:10px">${s.n}</td>
-      <td><code>${s.id}</code></td>
+      <td style="line-height:1.2;white-space:nowrap">
+        <div style="color:var(--text-1);font-size:11px;font-weight:600">${s.cn||''}</div>
+        <code style="font-size:9.5px;color:#79c0ff;font-family:var(--mono);background:transparent;padding:0">${s.id}</code>
+      </td>
       <td style="font-size:10px;color:var(--text-2)">${s.desc}</td>
       <td style="font-size:10px;color:var(--text-2);font-family:var(--mono)">${s.range}</td>
     </tr>`;
@@ -1832,7 +2353,11 @@ function renderFlowView() {
       node.className = 'flow-node';
       node.style.borderLeft = `3px solid ${CAT_COLORS[cat]||'#6e7681'}`;
       node.innerHTML = `<div class="flow-node-title">${cat}</div>
-        <div class="flow-node-body">${sigs.map(s=>`<code style="font-family:var(--mono);font-size:9px;color:#79c0ff">${s.name}</code>`).join(' · ')}</div>`;
+        <div class="flow-node-body">${sigs.map(s => `
+          <span class="flow-chip" title="${esc(s.semantic || '')}">
+            <span class="flow-chip-cn">${esc(getZhTitle(s, 10))}</span>
+            <code class="flow-chip-en">${esc(getEnName(s, 18))}</code>
+          </span>`).join('')}</div>`;
       colEl.appendChild(node);
     });
   }
@@ -1885,32 +2410,41 @@ function renderGraphView() {
   });
 
   // 三列布局：L1 左 / L2 中 / L3 右
-  // 用固定 viewBox（不依赖 clientWidth/Height — 在 tab 首次激活时元素可能尚未布局完成）
+  // 高度按最长列动态计算 — 每节点 ROW_H 行高（含双行文字）保证可读性；
+  // 总高超出可视区时由外层 #graph-scroll 提供纵向滚动。
   const W = 1000;
-  const H = 720;
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-
-  const colX = { 1: W * 0.12, 2: W * 0.50, 3: W * 0.88 };
+  const ROW_H = 26;            // 单节点垂直占位（双行字 ~20px + 6px 间距，紧凑）
+  const PADDING_TOP = 36;      // 顶部留给列标题
+  const PADDING_BOT = 24;
   const layerNodes = { 1: [], 2: [], 3: [] };
   SIGNALS.forEach(s => layerNodes[s.layer].push(s));
+  const maxRows = Math.max(layerNodes[1].length, layerNodes[2].length, layerNodes[3].length);
+  const H = PADDING_TOP + maxRows * ROW_H + PADDING_BOT;
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', H);                                  // 像素值，让外层 scroll 生效
+  svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');       // 顶部对齐避免缩放后偏移
+
+  const colX = { 1: W * 0.12, 2: W * 0.50, 3: W * 0.88 };
   const positions = {};
+  // 每列独立 stepY：短列稀疏分布、长列紧凑但 ≥ ROW_H
   [1, 2, 3].forEach(l => {
     const list = layerNodes[l];
-    const stepY = H / (list.length + 1);
+    const usable = H - PADDING_TOP - PADDING_BOT;
+    const stepY = list.length > 1 ? usable / (list.length - 1) : 0;
     list.forEach((s, i) => {
-      positions[s.id] = { x: colX[l], y: stepY * (i + 1) };
+      positions[s.id] = { x: colX[l], y: PADDING_TOP + stepY * i };
     });
   });
 
-  // 列标题
+  // 列标题（顶部 sticky 区域内，跟随滚动起始位置）
   ['L1 原始信号', 'L2 派生信号', 'L3 管道'].forEach((t, i) => {
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.textContent = t;
+    text.textContent = `${t} (${layerNodes[i + 1].length})`;
     text.setAttribute('x', colX[i + 1]);
-    text.setAttribute('y', 20);
+    text.setAttribute('y', 28);
     text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('font', '700 12px var(--font)');
     text.setAttribute('fill', getLayerColor(i + 1));
     text.setAttribute('style', `font-weight:700;font-size:13px;letter-spacing:1px`);
     svg.appendChild(text);
@@ -1932,23 +2466,7 @@ function renderGraphView() {
     edgeMap.set(`${e.from}->${e.to}`, path);
   });
 
-  // 从 semantic 提取中文标题（首个标点前的短语）
-  function getZhTitle(s) {
-    const sem = (s.semantic || '').trim();
-    if (!sem) return s.name;
-    const m = sem.match(/^([^：，,。；;（(\s]+)/);
-    let title = m ? m[1].trim() : sem.slice(0, 10);
-    if (title.length > 12) title = title.slice(0, 11) + '…';
-    return title;
-  }
-  // 英文 name 简化（去括号 & 长度限制）
-  function getEnName(s) {
-    let n = s.name.split(/[（(]/)[0].trim();
-    if (n.length > 22) n = n.slice(0, 20) + '…';
-    return n;
-  }
-
-  // 绘节点（双行文字：上中文标题，下英文 name）
+  // 绘节点（双行文字：上中文标题，下英文 name）— getZhTitle/getEnName 为全局工具
   const nodeEls = {};
   const tooltip = document.getElementById('graph-tooltip');
   SIGNALS.forEach(s => {
@@ -1960,20 +2478,28 @@ function renderGraphView() {
     g.style.color = CAT_COLORS[s.cat] || '#888';
 
     const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    c.setAttribute('r', s.layer === 3 ? 9 : 6);
+    c.setAttribute('r', s.layer === 3 ? 7 : 5);
     c.setAttribute('fill', CAT_COLORS[s.cat] || '#888');
     c.setAttribute('stroke', getLayerColor(s.layer));
     g.appendChild(c);
 
-    // 文字布局：L1 节点在右、L3 节点在左、L2 节点在下方居中（避免覆盖中央节点）
-    const isL1 = s.layer === 1, isL3 = s.layer === 3;
-    const xOff = isL1 ? -12 : (isL3 ? 12 : 0);
-    const yBase = (isL1 || isL3) ? -2 : 18;  // L2 中间节点放下方
-    const anchor = isL1 ? 'end' : (isL3 ? 'start' : 'middle');
+    // 文字布局：L1 文字在节点左侧、L3 文字在节点右侧；
+    // L2 节点很多（71+），文字放节点左右两侧交错（i 偶在左、奇在右）避免上下堆叠重叠
+    const isL1 = s.layer === 1, isL2 = s.layer === 2, isL3 = s.layer === 3;
+    let xOff, yBase, anchor;
+    if (isL1) {       xOff = -9;  yBase = -3; anchor = 'end';   }
+    else if (isL3) {  xOff = 9;   yBase = -3; anchor = 'start'; }
+    else {            // L2: 左右交错排列，绕开同列上下邻居
+      const idx = layerNodes[2].indexOf(s);
+      const leftSide = (idx % 2 === 0);
+      xOff = leftSide ? -9 : 9;
+      yBase = -3;
+      anchor = leftSide ? 'end' : 'start';
+    }
 
     // 第一行：中文语义标题
     const tTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    tTitle.textContent = getZhTitle(s);
+    tTitle.textContent = getZhTitle(s, 12);
     tTitle.setAttribute('class', 'gnode-title');
     tTitle.setAttribute('x', xOff);
     tTitle.setAttribute('y', yBase);
@@ -1982,10 +2508,10 @@ function renderGraphView() {
 
     // 第二行：英文 name（小字号等宽）
     const tSub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    tSub.textContent = getEnName(s);
+    tSub.textContent = getEnName(s, 22);
     tSub.setAttribute('class', 'gnode-sub');
     tSub.setAttribute('x', xOff);
-    tSub.setAttribute('y', yBase + 11);
+    tSub.setAttribute('y', yBase + 9);
     tSub.setAttribute('text-anchor', anchor);
     g.appendChild(tSub);
 
