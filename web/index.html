@@ -26,12 +26,17 @@
            - 右上角显眼退出按钮（带 12px backdrop-blur 玻璃感）
          ════════════════════════════════════════════════════════════════════ */
       @media (max-width: 1023px) {
-        /* 1. #app 容器：safe-area + 24px 强缓冲（彻底避开灵动岛/状态栏）*/
+        /* 1. #app 容器：safe-area + 24px 强缓冲，统一深色背景铺满整个视口 */
+        html, body {
+          background: #0f1525 !important;  /* 深海军蓝，与游戏区一致 */
+        }
         #app {
           padding-top: calc(max(env(safe-area-inset-top, 0px), 28px) + 8px) !important;
           padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px) !important;
           padding-left: max(env(safe-area-inset-left, 0px), 4px) !important;
           padding-right: max(env(safe-area-inset-right, 0px), 4px) !important;
+          background: #0f1525 !important;
+          min-height: 100dvh !important;
         }
         /* 关键修复：棋盘格按 8 列填满屏宽，候选区独立按 15 列缩小（不影响棋盘大小）。
          * main.css 中 --dock-cell-size: var(--cell-px) 的强绑定被此处 !important 覆写。
@@ -45,17 +50,17 @@
           --app-center-hpad: 0px;
         }
 
-        /* 2. wordmark 进一步收紧（v1.61.11）：
-         *    像素格再缩 → 整体 logo 高度约 24px，配合 #app padding-top 12vh 留足空间
-         *    彻底避免灵动岛 / 状态栏遮挡。 */
+        /* 2. wordmark 适度下移 + 紧凑（v1.61.12）：
+         *    logo 加 8px 上 margin（避开手机顶部信号区 + 上一页指示器）
+         *    像素恢复到 2.8/4px（之前 2.5/3.5 太小）*/
         .header.header--title-only {
           padding: 0 !important;
-          margin: 0 0 1px 0 !important;
+          margin: 8px 0 0 0 !important;
           flex-shrink: 0 !important;
         }
         .app-wordmark {
-          --wm-cell-w: 2.5px !important;
-          --wm-cell-h: 3.5px !important;
+          --wm-cell-w: 2.8px !important;
+          --wm-cell-h: 4px !important;
           padding: 0 4px !important;
           transform: scale(1) !important;
           line-height: 1 !important;
@@ -84,19 +89,18 @@
           min-width: 0 !important;
           flex: 0 1 auto !important;
         }
-        .score-theme-row .stat-label {
-          font-size: 9px !important;
-          line-height: 1.05 !important;
-          opacity: 0.7 !important;
-          letter-spacing: 0.06em !important;
-          text-transform: uppercase !important;
-          margin-bottom: 1px !important;
+        /* v1.61.12: 完全隐藏 stat-label（"能力" / "得分" / "最佳" / "主题"），
+         * 用 emoji 前缀 + 卡片颜色已能识别，节省一整行空间 */
+        .score-theme-row .stat-label,
+        .score-theme-row .header-level .stat-label,
+        .score-theme-row .header-skin .stat-label {
+          display: none !important;
         }
         .score-theme-row .stat-value {
-          font-size: 28px !important;
-          line-height: 1.05 !important;
+          font-size: 26px !important;
+          line-height: 1 !important;
           font-weight: 800 !important;
-          font-variant-numeric: tabular-nums !important;  /* 等宽数字，跳动不抖 */
+          font-variant-numeric: tabular-nums !important;
           letter-spacing: -0.02em !important;
         }
         .score-theme-row .stat-subline--spacer,
@@ -105,31 +109,35 @@
         .score-theme-row .progression-level { font-size: 15px !important; font-weight: 800 !important; }
         .score-theme-row .progression-title { font-size: 11px !important; opacity: 0.8 !important; }
 
-        /* === Tier 2: 得分 & 最佳（强化卡片样式 + 配色区分）=== */
-        /* 得分（主色调，蓝青系，代表"当前进行中"） */
+        /* === Tier 2: 得分 & 最佳 — 高对比配色 + emoji 前缀替代 label === */
+        /* 得分（白色主体 + 蓝色光晕，确保 0 也清晰可见） */
         .score-theme-row > .stat-box:nth-of-type(2) {
           order: 1 !important;
-          background: linear-gradient(135deg, rgba(59,130,246,0.18), rgba(34,211,238,0.12)) !important;
-          border: 1px solid rgba(59,130,246,0.35) !important;
+          background: rgba(30, 41, 59, 0.5) !important;
+          border: 1px solid rgba(96, 165, 250, 0.4) !important;
           border-radius: 10px !important;
         }
         .score-theme-row > .stat-box:nth-of-type(2) .stat-value {
-          color: #60a5fa !important;
-          text-shadow: 0 1px 8px rgba(96,165,250,0.5) !important;
+          color: #ffffff !important;
+          text-shadow: 0 0 12px rgba(96, 165, 250, 0.7) !important;
         }
-        .score-theme-row > .stat-box:nth-of-type(2) .stat-label {
-          color: #93c5fd !important;
+        .score-theme-row > .stat-box:nth-of-type(2) .stat-value::before {
+          content: '⭐ ';
+          font-size: 16px;
+          vertical-align: middle;
+          margin-right: 2px;
+          text-shadow: none;
         }
-        /* 最佳（金色调，代表"成就"） */
+        /* 最佳（白色主体 + 金色光晕） */
         .score-theme-row > .stat-box--best {
           order: 2 !important;
-          background: linear-gradient(135deg, rgba(252,211,77,0.20), rgba(251,146,60,0.12)) !important;
-          border: 1px solid rgba(252,211,77,0.40) !important;
+          background: rgba(30, 41, 59, 0.5) !important;
+          border: 1px solid rgba(252, 211, 77, 0.5) !important;
           border-radius: 10px !important;
         }
         .score-theme-row > .stat-box--best .stat-value {
           color: #fcd34d !important;
-          text-shadow: 0 1px 8px rgba(252,211,77,0.5) !important;
+          text-shadow: 0 0 12px rgba(252, 211, 77, 0.6) !important;
         }
         .score-theme-row > .stat-box--best .stat-value::before {
           content: '🏆 ';
@@ -137,9 +145,6 @@
           vertical-align: middle;
           margin-right: 2px;
           text-shadow: none;
-        }
-        .score-theme-row > .stat-box--best .stat-label {
-          color: #fde68a !important;
         }
 
         /* 第一虚拟换行 */
