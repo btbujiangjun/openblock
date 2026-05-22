@@ -214,6 +214,17 @@
       padding: 32px 40px 60px;
       max-width: 900px;
     }
+    /* v1.61.18: tool 模式（iframe 工具）解除宽度/留白限制，让工具占满主区 */
+    .main.main--tool {
+      max-width: none;
+      padding: 0;
+    }
+    .main.main--tool .breadcrumb {
+      padding: 14px 24px 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
 
     /* ─── 欢迎首页 ─── */
     .welcome {
@@ -1114,18 +1125,31 @@
     }
   }
 
-  // ─── 工具链接渲染（type=tool 新标签页打开，其余文档内嵌渲染） ───
+  // ─── 工具链接渲染（type=tool 嵌入框架内显示，与普通文档共享侧边栏导航） ───
   function _ea(s) { return String(s || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c])); }
   function renderDocLink(d) {
+    const active = d.file === _current ? ' active' : '';
     if (d.type === 'tool') {
-      const href = (API_BASE || '') + '/docs/tool/' + d.file;
-      return `<a class="doc-link doc-tool" href="${_ea(href)}" target="_blank" rel="noopener" title="${_ea(d.file)}">
+      /* tool 类型仍走 data-file → openDoc，由 openDoc 检测 type 渲染 iframe */
+      return `<a class="doc-link doc-tool${active}" data-file="${_ea(d.file)}" title="${_ea(d.file)}">
         <span style="flex:1">${_ea(d.title)}</span>
-        <span class="doc-tool-badge">工具 ↗</span>
+        <span class="doc-tool-badge">工具</span>
       </a>`;
     }
-    const active = d.file === _current ? ' active' : '';
     return `<a class="doc-link${active}" data-file="${_ea(d.file)}" title="${_ea(d.file)}">${d.title}</a>`;
+  }
+
+  /* 反查 doc 对象（含 type）以判断是否 tool */
+  function _findDocMeta(filename) {
+    for (const cat of (_categories || [])) {
+      const lists = [cat.docs || []];
+      for (const g of (cat.groups || [])) lists.push(g.docs || []);
+      for (const list of lists) {
+        const found = list.find(d => d && d.file === filename);
+        if (found) return found;
+      }
+    }
+    return null;
   }
 
   // ─── 渲染侧边栏 ───
@@ -1169,17 +1193,18 @@
   // ─── 渲染欢迎首页 ───
   function renderWelcome() {
     _current = null;
+    $main.classList.remove('main--tool');  /* 还原主区布局 */
     renderSidebar($search.value);
     let cardsHtml = '';
     _categories.forEach(cat => {
       allDocs(cat).forEach(d => {
         if (d.type === 'tool') {
-          const href = (API_BASE || '') + '/docs/tool/' + d.file;
+          /* v1.61.18: 工具卡片改走 openDoc 嵌入框架内显示，不再新窗口 */
           cardsHtml += `
-            <a class="welcome-card" href="${_ea(href)}" target="_blank" rel="noopener" style="text-decoration:none;display:block;border-color:rgba(63,185,80,0.35)">
-              <div class="cat" style="color:#3fb950">${_ea(cat.category)} · 工具 ↗</div>
+            <div class="welcome-card" data-file="${_ea(d.file)}" style="border-color:rgba(63,185,80,0.35)">
+              <div class="cat" style="color:#3fb950">${_ea(cat.category)} · 工具</div>
               <div class="title">${_ea(d.title)}</div>
-            </a>`;
+            </div>`;
         } else {
           cardsHtml += `
             <div class="welcome-card" data-file="${_ea(d.file)}">
@@ -1220,10 +1245,47 @@
     // 只在 hash 不同时更新，避免页内锚点触发多余的 hashchange
     if (location.hash !== '#' + filename) location.hash = filename;
     renderSidebar($search.value);
-    $main.innerHTML = `<div class="status-msg"><div class="spinner"></div><span>加载中…</span></div>`;
     $main.scrollTop = 0;
     window.scrollTo(0, 0);
 
+    /* v1.61.18: type=tool 文档（HTML 工具）→ 用 iframe 内嵌渲染，与文档共享侧栏导航 */
+    const meta = _findDocMeta(filename);
+    if (meta && meta.type === 'tool') {
+      $main.classList.add('main--tool');
+      let catName = '';
+      for (const cat of _categories) {
+        const groups = Array.isArray(cat.groups) ? cat.groups : [];
+        if (groups.length) {
+          const group = groups.find(g => (g.docs || []).some(d => d.file === filename));
+          if (group) { catName = `${cat.category} / ${group.name}`; break; }
+        } else if ((cat.docs || []).some(d => d.file === filename)) {
+          catName = cat.category;
+          break;
+        }
+      }
+      const toolUrl = (API_BASE || '') + '/docs/tool/' + filename;
+      $main.innerHTML = `
+        <nav class="breadcrumb">
+          <a id="bc-home">首页</a>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 4 10 8 6 12"/></svg>
+          <span>${_ea(catName)}</span>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 4 10 8 6 12"/></svg>
+          <span>${_ea(meta.title || filename)} <span style="color:#3fb950;font-size:11px;margin-left:4px">· 工具</span></span>
+          <span style="flex:1"></span>
+          <a href="${_ea(toolUrl)}" target="_blank" rel="noopener" style="font-size:12px;color:#3fb950;text-decoration:none">新窗口打开 ↗</a>
+        </nav>
+        <iframe src="${_ea(toolUrl)}" title="${_ea(meta.title || filename)}"
+                style="border:0;width:100%;height:calc(100vh - 80px);display:block;background:#0d1117"></iframe>`;
+      document.getElementById('bc-home').addEventListener('click', () => {
+        history.pushState('', document.title, location.pathname);
+        renderWelcome();
+      });
+      return;
+    }
+
+    /* 非 tool 文档：还原主区样式 */
+    $main.classList.remove('main--tool');
+    $main.innerHTML = `<div class="status-msg"><div class="spinner"></div><span>加载中…</span></div>`;
     try {
       const res = await fetch(`${API_BASE}/docs/raw/${encodeURIComponent(filename)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}（文档未找到）`);
