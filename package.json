@@ -29,7 +29,7 @@
     "release:check": "npm run release:check:web && npm run release:check:miniprogram && npm run release:check:mobile"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.3.1",
+    "@capacitor/android": "^8.3.4",
     "@capacitor/app": "^8.1.0",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
