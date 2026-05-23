@@ -1,7 +1,7 @@
 /**
  * Open Block - Entry Point
  * Initialize and start the game
- * 全局样式见 index.html 中的 ./styles/main.css（public 目录，不依赖本文件加载）
+ * 全局样式见 index.html 中的 /styles/main.css（public 目录，不依赖本文件加载）
  */
 import {
     initI18n,
@@ -164,6 +164,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindNativeExitButtons({ game, audioFx });
     initMonetization(game);
 
+    /* v1.55.11：开发者性能面板。
+     * 默认不挂载、不计时；通过 ?perf=1 或 Alt+P 启用，避免在普通玩家会话里付任何代价。
+     * 暴露 window.__perfOverlay = { open, close, toggle, snapshot, startProfile }。 */
+    try {
+        const { initPerfOverlay } = await import('./monitoring/perfOverlay.js');
+        const autoOpen = (() => {
+            try {
+                const url = new URL(window.location.href);
+                return url.searchParams.get('perf') === '1';
+            } catch { return false; }
+        })();
+        initPerfOverlay({ autoOpen });
+    } catch (e) {
+        console.warn('[main] perfOverlay load failed', e);
+    }
+
     /* v1.60.48：字体就绪后强制重绘 canvas + dock + wordmark。
      *
      * **背景**（用户反馈：清理浏览器缓存后方块不显示 emoji 图标）：
@@ -233,8 +249,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     /* v10.15: 皮肤环境粒子层（樱花/落叶/气泡/萤火虫/流星）
        根据当前皮肤激活预设；未匹配的皮肤零开销空跑。
-       v10.16: 流体背景（aurora 极光带 / koi 涟漪）通过同模块的预设扩展 */
-    const ambient = createAmbientParticles({ renderer: game.renderer });
+       v10.16: 流体背景（aurora 极光带 / koi 涟漪）通过同模块的预设扩展
+       v1.55.13: 离散粒子皮肤（sakura/forest/ocean/fairy/universe）改用 DOM transform，
+                 让 fxCanvas 在这些皮肤下可下沉合成层。流体型继续走 Canvas2D。 */
+    const ambientDomHost = (() => {
+        if (typeof document === 'undefined') return null;
+        const board = document.getElementById('game-wrapper');
+        if (!board) return null;
+        const host = document.createElement('div');
+        host.className = 'ambient-particles-host';
+        host.setAttribute('aria-hidden', 'true');
+        /* 几何/合成层属性全部走 CSS（main.css .ambient-particles-host）—
+         * 此处不再 inline 设置 cssText，避免和 CSS 双轨。 */
+        board.appendChild(host);
+        return host;
+    })();
+    const ambient = createAmbientParticles({ renderer: game.renderer, domHost: ambientDomHost });
     ambient.applySkin(getActiveSkin().id);
     game.renderer.setAmbientLayer(ambient);
     window.__feedbackToggles = initFeedbackToggles({ game, audioFx, ambient });

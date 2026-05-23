@@ -839,6 +839,20 @@ function syncGridCanvasCssVar(canvas) {
 const PARTICLE_MARGIN_RATIO_DEFAULT = 1.0;
 const FX_DPR_MAX = 1;
 
+function _isLowEndAndroidClient() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+    try {
+        const isAndroid = document.documentElement.classList.contains('android-client')
+            || /android/i.test(window.navigator?.userAgent || '');
+        if (!isAndroid) return false;
+        const cores = Number(navigator.hardwareConcurrency) || 0;
+        const mem = Number(navigator.deviceMemory) || 0;
+        return !mem || mem <= 4 || !cores || cores <= 4;
+    } catch {
+        return false;
+    }
+}
+
 export class Renderer {
     /**
      * @param {HTMLCanvasElement} canvas         盘面主画布（仅画盘面+方块+水印）
@@ -850,7 +864,7 @@ export class Renderer {
         this.ctx = canvas.getContext('2d');
         this.cellSize = CONFIG.CELL_SIZE;
         this.gridSize = CONFIG.GRID_SIZE;
-        this._qualityMode = 'high';
+        this._qualityMode = _isLowEndAndroidClient() ? 'low' : 'high';
         this.dpr = this._readDpr();
         this.fxDpr = this._readFxDpr();
         // 特效叠加层（粒子 + 闪光独立绘制，可溢出盘面）
@@ -1027,18 +1041,19 @@ export class Renderer {
         }
     }
 
+    /* v1.55.10 回滚：水印漂浮是 v1.49 设计语言（Catmull-Rom spline 浮萍轨迹），
+     * 静默禁用伤皮肤"活的世界观"叙事。仍走渲染器自身的画质/effects 开关：
+     *   - effectsEnabled=false → 跳过水印 motion（feedbackToggles 已接入）
+     *   - quality=low → main.css 已通过 :root.quality-low 关闭一系列动效
+     * 这里默认让水印漂浮可见（与 v10.x 行为一致）。 */
     hasBoardWatermarkMotion() {
-        const skin = getActiveSkin();
-        return Boolean(
-            this._qualityMode === 'high'
-            && this._effectsEnabled
-            && skin?.boardWatermark?.icons?.length
-            && !this._prefersReducedMotion()
-        );
+        if (!this._effectsEnabled) return false;
+        if (this._qualityMode === 'low') return false;
+        return true;
     }
 
     getBoardWatermarkFrameIntervalMs() {
-        return WATERMARK_DRIFT_FRAME_MS;
+        return Math.max(this._qualityMode === 'low' ? 240 : 120, WATERMARK_DRIFT_FRAME_MS);
     }
 
     /** 读取当前屏幕 DPR（取整防止非整数倍模糊） */
@@ -1326,7 +1341,7 @@ export class Renderer {
     getAmbientFrameIntervalMs() {
         const base = this._ambientLayer?.getFrameIntervalMs?.() ?? 1000;
         if (this._qualityMode === 'high') {
-            return Math.min(base, 33);
+            return base;
         }
         if (this._qualityMode === 'low') {
             return Math.max(base, 1000);
@@ -1352,9 +1367,58 @@ export class Renderer {
     renderAmbientFxFrame() {
         if (!this._effectsEnabled) return false;
         if (!this.hasAmbientMotion()) return false;
+        this._setFxCanvasVisible(true);
         this.clearFx();
         this.renderAmbient();
         return true;
+    }
+
+    /* ── v1.55.12 GPU 优化：fxCanvas 闲置时下沉合成层 ──────────────────────
+     *
+     * 背景：fxCanvas 是一个永久存在的 <canvas>，Chrome 把它单独 promote 为
+     * 合成层。即使透明无内容，layer 也会被 60Hz 持续合成。`renderEdgeFalloff()`
+     * 早已不进主渲染链路（v10.x，PERFORMANCE.md §1.5），意味着无环境粒子 +
+     * 无清行/连消特效时 fxCanvas 实际上是空的。
+     *
+     * 优化：把"是否有非空内容"反映到 CSS `display`：
+     *   - 有内容 → display:'' （正常显示）
+     *   - 无内容 → display:'none' （合成层被 Chrome 回收）
+     *
+     * 视觉无损：fxCanvas 透明时本来就看不到任何东西；display:none 只是从
+     * 合成器移除它。
+     *
+     * 适用场景：所有非 sakura/forest/ocean/fairy/universe/aurora/koi 的皮肤
+     * （即没有 ambient 预设的 30+ 个常规皮肤）。对启用 ambient 的皮肤无影响。
+     *
+     * 估算收益：单台 Mac retina + 普通皮肤 + 无连消，约减少 5-10% GPU 占用。
+     * （取决于浏览器、屏幕分辨率、其他 tab 状态）
+     */
+    _setFxCanvasVisible(visible) {
+        if (!this.fxCanvas) return;
+        const target = visible ? '' : 'none';
+        if (this.fxCanvas.style.display === target) return;
+        this.fxCanvas.style.display = target;
+    }
+
+    /** 判断 fxCanvas 当前是否有任何需要呈现的内容 */
+    _hasFxContent() {
+        if (!this._effectsEnabled) return false;
+        if (this.hasAmbientMotion()) return true;
+        if (this.particles && this.particles.length > 0) return true;
+        if (this.iconParticles && this.iconParticles.length > 0) return true;
+        if (this.clearCells && this.clearCells.length > 0) return true;
+        if (this._comboFlash > 0) return true;
+        if (this._bonusMatchFlash > 0) return true;
+        if (this._perfectFlash > 0) return true;
+        if (this._doubleWave > 0) return true;
+        if (this._iconGushLines && this._iconGushLines.length > 0) return true;
+        if (this._colorGushLines && this._colorGushLines.length > 0) return true;
+        return false;
+    }
+
+    /** 在 game.render() 末尾调用一次：根据当前 fxCanvas 内容决定是否显示。 */
+    syncFxCanvasVisibility() {
+        this._setFxCanvasVisible(this._hasFxContent());
     }
 
     /**

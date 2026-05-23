@@ -607,7 +607,31 @@ export class PlayerProfile {
         // v1.16：伯努利方差噪声衰减（见上方说明）
         const noise = (olderCR * (1 - olderCR) + newerCR * (1 - newerCR)) / 2;
         const noiseDamping = Math.max(0.5, Math.min(1, 1 - noise * 2));
-        return clamped * sampleConfidence * noiseDamping;
+        let base = clamped * sampleConfidence * noiseDamping;
+
+        /* v1.62.5（优化建议 #4）：frustration 高位时给 momentum 加负向脉冲。
+         *
+         * 起因：profileAudit 契约 frustration-vs-momentum 在 30%+ 局违规——玩家"卡了多步
+         * 没消行但 momentum 没下降"，违反"未消行步数↑ → 动量↓"业务约定。
+         * 根因：momentum 用 clearRate EMA 计算，frustration 用 no-clear 计数；两者算法
+         * 上完全独立，frustration 高时 momentum 可能因为"分数有微小增长"而不下降。
+         *
+         * 修复：在 momentum getter 结尾对 frustration ≥ 3 的场景加渐进式 penalty：
+         *   frust=3 → -0.05  /  frust=4 → -0.10  /  frust=5 → -0.15  /  frust≥7 → -0.20 封顶
+         *
+         * 设计取舍：
+         *   - 选择"penalty 加在 getter 末尾"而非"recordPlace 改 mutable state"：保持 getter
+         *     纯函数特性，避免引入新的内部状态字段；
+         *   - penalty 上限 -0.20：不让"卡顿"完全压死 momentum，给 base 取值空间；
+         *   - 阈值 ≥3（而非 ≥4）：与 game_rules.adaptiveSpawn.engagement.frustrationThreshold
+         *     默认 4 互相印证，提前 1 步开始衰减让信号更平滑。
+         */
+        const frust = this._consecutiveNonClears;
+        if (frust >= 3) {
+            const penalty = Math.min(0.20, (frust - 2) * 0.05);
+            base = Math.max(-1, base - penalty);
+        }
+        return base;
     }
 
     /**

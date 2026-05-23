@@ -316,6 +316,41 @@ body.block-drag-active #app {
     opacity: 0.72;
 }
 
+/* v1.55.13：DOM 环境粒子层主机 —— 离散粒子皮肤（sakura/forest/ocean/fairy/universe）
+ * 改用 transform 动画。
+ *
+ * 关键点：**只在容器上 will-change/transform 提层**（一个合成层），
+ * 子粒子不挂 will-change（否则 5 个粒子 = 5 个独立合成层，可能比单个 fxCanvas 更贵）。
+ *
+ * v1.55.15：合成层 gate by :has()
+ *   - 默认 host 不挂 transform/will-change（非环境粒子皮肤下零合成层成本）
+ *   - 只在 host 内确有 .ambient-particle 子元素时，才走合成层路径
+ *   `:has()` 在 Chrome 105+/Safari 15.4+ 全面支持，是声明式合成层 gate 的最干净写法。
+ */
+.ambient-particles-host {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 2;
+    contain: strict;
+}
+.ambient-particles-host:has(.ambient-particle) {
+    /* 只在真有粒子时承担一个合成层 */
+    transform: translateZ(0);
+    will-change: transform;
+}
+:root.quality-low .ambient-particles-host {
+    display: none;
+}
+.ambient-particle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    /* 故意不设 will-change：复用父容器合成层，避免 5 粒子 = 5 个新合成层 */
+}
+
 :root.quality-low .game-board-flow-bg {
     background-size: 140% 140%;
 }
@@ -1405,15 +1440,17 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
      * game-board-flow-bg (z-index:0) 同层；只用 outer box-shadow 不用 inset，
      * 保证不被 canvas 遮挡（outer shadow 全部位于 wrapper 外部 6px 区域）。 */
     z-index: 0;
+    /* v1.55.10 回滚：恢复完整三层光晕（14/30/60px）。视觉是设计语言的一部分，
+     * 不能因为图省 GPU 把氛围光阉割。GPU 优化改走"减少合成层数量 + 帧调度收敛"路径。 */
     box-shadow:
         0 0 14px var(--stress-ambience-glow, rgba(180, 220, 160, 0.16)),
         0 0 30px var(--stress-ambience-glow, rgba(180, 220, 160, 0.16)),
         0 0 60px var(--stress-ambience-glow-strong, rgba(180, 220, 160, 0.26));
     opacity: 0.85;
-    animation: stress-ambience-breath var(--stress-ambience-breath-ms, 3000ms) ease-in-out infinite;
+    animation: none;
     /* 颜色与呼吸节奏的过渡（避免 stress 突变带来的视觉跳跃）；
      * animation-duration 不在标准 transitionable 属性里，浏览器忽略即可（容错）。 */
-    transition: box-shadow 800ms ease-out;
+    transition: box-shadow 800ms ease-out, opacity 800ms ease-out;
 }
 
 @keyframes stress-ambience-breath {
@@ -2732,23 +2769,48 @@ body.game-over-active .first-win-banner {
     inset: -4px;
     border-radius: 50%;
     background: var(--sm-glow);
-    opacity: 0;
+    /* v1.55.10 GPU 静置优化：默认静态光晕；仅 data-level=hot/critical 时才呼吸。
+     * 旧版无条件 infinite animation 即使在低压、菜单态、后台标签页里也持续 60fps 合成，
+     * 是 DFV 关闭后仍有 ~30-60% GPU 占用的主要单点。 */
+    opacity: 0.20;
     pointer-events: none;
+    animation: none;
+}
+
+/* 高压状态（tense/intense）才让脉冲呼吸，配合 stressMeter.js 的 STRESS_LEVELS。
+ * 低于 0.708（≤ engaged）保持静态光晕，对 GPU 完全无成本。 */
+.stress-meter[data-level="tense"] .stress-meter__pulse,
+.stress-meter[data-level="intense"] .stress-meter__pulse {
     animation: stress-meter-breath var(--stress-breath-ms, 1800ms) ease-in-out infinite;
+    opacity: 0;
 }
 
 /* v1.55.3 GPU 合成优化：keyframe 内移除 transform: scale，改为 opacity-only。
  * opacity 是 composite-only 属性（只在合成层做），相比 transform 不再触发 layer
- * 重新栅格化。视觉略损（脉冲不再缩放只 fade），但 HUD 常驻动画从"持续 raster + compose"
- * 降为"只 compose"，与 docs/engineering/PERFORMANCE.md §1.1 "尽量不用 keyframe 内
- * transform/filter" 规约一致。 */
+ * 重新栅格化。 */
 @keyframes stress-meter-breath {
     0%, 100% { opacity: 0.0; }
     50%      { opacity: 0.55; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .stress-meter__pulse { animation: none; opacity: 0.25; }
+    .stress-meter__pulse,
+    .stress-meter[data-level="tense"] .stress-meter__pulse,
+    .stress-meter[data-level="intense"] .stress-meter__pulse {
+        animation: none;
+        opacity: 0.25;
+    }
+}
+
+/* 文档隐藏时全面暂停所有 CSS 动画——visibilityState=hidden 期间仍开着的合成层
+ * 是后台标签页 GPU 持续 ~20% 的常见原因。animation-play-state 是 composite-only
+ * 切换，恢复可见时浏览器从暂停点继续，对用户无感知。
+ *
+ * 注意：只暂停 animation，不动 transition——后者是状态切换驱动，无副作用。 */
+html[data-visibility="hidden"] *,
+html[data-visibility="hidden"] *::before,
+html[data-visibility="hidden"] *::after {
+    animation-play-state: paused !important;
 }
 
 .stress-meter__body {
@@ -5238,6 +5300,18 @@ body.doc-visibility-hidden #menu * {
     border-color: color-mix(in srgb, #ffffff 30%, rgba(37, 99, 235, 0.55));
 }
 
+.menu-card--menu-secondary.menu-card--spawn-eval {
+    background: linear-gradient(145deg, #5eead4 0%, #2563eb 52%, #6d28d9 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 26%, rgba(37, 99, 235, 0.5));
+    box-shadow:
+        0 4px 18px rgba(37, 99, 235, 0.38),
+        0 1px 0 rgba(255, 255, 255, 0.28) inset;
+}
+.menu-card--menu-secondary.menu-card--spawn-eval:hover {
+    background: linear-gradient(145deg, #99f6e4 0%, #3b82f6 52%, #7c3aed 100%);
+    border-color: color-mix(in srgb, #ffffff 34%, rgba(124, 58, 237, 0.55));
+}
+
 .menu-card--menu-secondary.menu-card--daily-master {
     background: linear-gradient(145deg, #fde047, #c2410c);
     border: 1px solid color-mix(in srgb, #ffffff 20%, rgba(194, 65, 12, 0.5));
@@ -5259,6 +5333,20 @@ body.doc-visibility-hidden #menu * {
     border-color: color-mix(in srgb, #ffffff 26%, rgba(22, 101, 52, 0.55));
 }
 
+/* 🩺 画像指标自评估：以"医疗体检"语义为基调（青绿 → 海蓝 → 深蓝），
+ * 与 spawn-eval 的绿青紫渐变形成明显区分，避免两个"工具"入口混淆。 */
+.menu-card--menu-secondary.menu-card--profile-audit {
+    background: linear-gradient(145deg, #34d399 0%, #14b8a6 45%, #1e40af 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 24%, rgba(20, 83, 167, 0.5));
+    box-shadow:
+        0 4px 18px rgba(20, 184, 166, 0.36),
+        0 1px 0 rgba(255, 255, 255, 0.26) inset;
+}
+.menu-card--menu-secondary.menu-card--profile-audit:hover {
+    background: linear-gradient(145deg, #6ee7b7 0%, #2dd4bf 45%, #2563eb 100%);
+    border-color: color-mix(in srgb, #ffffff 32%, rgba(37, 99, 235, 0.55));
+}
+
 .menu-card--menu-secondary.menu-card--native-exit {
     background: linear-gradient(145deg, #94a3b8, #334155 48%, #0f172a 100%);
     border: 1px solid color-mix(in srgb, #ffffff 18%, rgba(15, 23, 42, 0.5));
@@ -5271,6 +5359,8 @@ body.doc-visibility-hidden #menu * {
 
 .menu-card--menu-secondary.menu-card--personal .menu-card-icon,
 .menu-card--menu-secondary.menu-card--ops .menu-card-icon,
+.menu-card--menu-secondary.menu-card--spawn-eval .menu-card-icon,
+.menu-card--menu-secondary.menu-card--profile-audit .menu-card-icon,
 .menu-card--menu-secondary.menu-card--daily-master .menu-card-icon,
 .menu-card--menu-secondary.menu-card--db-debug .menu-card-icon,
 .menu-card--menu-secondary.menu-card--native-exit .menu-card-icon {

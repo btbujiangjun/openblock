@@ -150,8 +150,47 @@ function _signalScale(signalCfg, name) {
     return Number.isFinite(spec?.scale) ? spec.scale : 1;
 }
 
+/**
+ * 应用 signalCfg 的 scale 缩放 + 可选的"全局值域归一"clampAbs。
+ *
+ * v1.62.5（优化建议 #1）：增加 `signalCfg.__normalizeBudget` 全局上限选项。
+ *
+ *   game_rules.json:
+ *     "adaptiveSpawn": { "signalCfg": { "__normalizeBudget": 0.05 } }
+ *
+ *   作用：对所有 *Adjust 类分量统一加 |x| ≤ 0.05 钳制，让 pacingAdjust（默认 ±0.12）、
+ *   sessionArcAdjust 等强势分量不再压制 flowAdjust / reactionAdjust 等弱信号，
+ *   stress 真正变成"多源驱动"。
+ *
+ *   默认值 = null 即关闭：保持现有行为完全不变。开启需在 game_rules 显式配置。
+ *
+ *   不在 normalize 范围内的分量（属于"宏调"信号，本就该有更大幅度）：
+ *     - difficultyBias  ←  玩家选难度直接产生的基线偏移
+ *     - challengeBoost  ←  接近 PB 时的明确加压
+ *     - scoreStress / runStreakStress  ←  分数/连战的累积压力
+ *     - friendlyBoardRelief / recoveryAdjust / frustrationRelief
+ *       ←  救济类信号本就需要 -0.15 ~ -0.20 量级才能"压住"难度
+ */
+const _NORMALIZE_EXEMPT = new Set([
+    'difficultyBias', 'challengeBoost',
+    'scoreStress', 'runStreakStress', 'skillAdjust',
+    'friendlyBoardRelief', 'recoveryAdjust', 'frustrationRelief',
+    /* nearMissAdjust 是"差一点就消"的强反馈信号，设计上需要 ≤-0.10 才能让玩家感受到
+     * 救济（test 1175 期望 < -0.05），加入豁免保留原始幅度。 */
+    'nearMissAdjust',
+    'returningWarmupAdjust', 'lifecycleCapAdjust', 'lifecycleBandAdjust',
+    'onboardingStressOverrideAdjust', 'endSessionDistress',
+    'boardRiskReliefAdjust', 'delightStressAdjust', 'motivationStressAdjust',
+    'accessibilityStressAdjust', 'bottleneckRelief',
+]);
+
 function applySignal(signalCfg, name, value) {
-    return value * _signalScale(signalCfg, name);
+    const scaled = value * _signalScale(signalCfg, name);
+    const budget = Number(signalCfg?.__normalizeBudget);
+    if (Number.isFinite(budget) && budget > 0 && !_NORMALIZE_EXEMPT.has(name)) {
+        return Math.max(-budget, Math.min(budget, scaled));
+    }
+    return scaled;
 }
 
 function _bestMultiClearPotential(grid, shapeData) {
@@ -265,6 +304,9 @@ export function deriveSpawnIntent(inputs = {}) {
         sprintCfg = {},
         geometry = {},
         pcSetupMinFill = PC_SETUP_MIN_FILL,
+        /* v1.62.5（优化建议 #5）：滞回参数（opt-in） */
+        prevIntent = null,         // 上一帧的 spawnIntent
+        hysteresis = null,         // { enabled, sprintExpand, sprintShrink, reliefMargin }
     } = inputs;
 
     const nearFullForIntent = Number(geometry?.nearFullLines) || 0;
@@ -274,8 +316,39 @@ export function deriveSpawnIntent(inputs = {}) {
         || (pcSetupForIntent >= 1 && boardFillForIntent >= pcSetupMinFill);
 
     const sprintEnabled = sprintCfg?.enabled !== false;
-    const sprintMin = Number.isFinite(sprintCfg?.minStress) ? sprintCfg.minStress : 0.45;
-    const sprintMax = Number.isFinite(sprintCfg?.maxStress) ? sprintCfg.maxStress : 0.55;
+    let sprintMin = Number.isFinite(sprintCfg?.minStress) ? sprintCfg.minStress : 0.45;
+    let sprintMax = Number.isFinite(sprintCfg?.maxStress) ? sprintCfg.maxStress : 0.55;
+
+    /* v1.62.5（优化建议 #5）：spawnIntent 滞回（opt-in）。
+     *
+     * 背景：intent 切换频繁（INTENT_THRASHING / INTENT_FREQUENT）来自 stress 在 sprint 区间
+     * [0.45, 0.55) 边界震荡 + playerDistress 在 -0.10 边界震荡。
+     *
+     * 修复（opt-in，game_rules 配置）：
+     *   "adaptiveSpawn": { "spawnIntentCfg": {
+     *      "hysteresisEnabled": true,
+     *      "sprintExpand": 0.02,        // prevIntent=sprint 时把窗口扩到 [0.43, 0.57]
+     *      "sprintShrink": 0.02,        // prevIntent≠sprint 时窗口收缩到 [0.47, 0.53]
+     *      "reliefMargin": 0.02         // prevIntent=relief 时阈值从 -0.10 放宽到 -0.08
+     *   }}
+     *
+     * 默认关闭：保持现有硬阈值切换行为不变。
+     */
+    const hysteresisOn = hysteresis?.enabled === true;
+    if (hysteresisOn && sprintEnabled) {
+        const expand = Number.isFinite(hysteresis.sprintExpand) ? hysteresis.sprintExpand : 0.02;
+        const shrink = Number.isFinite(hysteresis.sprintShrink) ? hysteresis.sprintShrink : 0.02;
+        if (prevIntent === 'sprint') {
+            sprintMin -= expand;
+            sprintMax += expand;
+        } else {
+            sprintMin += shrink;
+            sprintMax -= shrink;
+        }
+    }
+    const effectiveDistressThreshold = (hysteresisOn && prevIntent === 'relief')
+        ? -0.10 + (Number.isFinite(hysteresis.reliefMargin) ? hysteresis.reliefMargin : 0.02)
+        : -0.10;
 
     /* v1.61 pb_chase_pressure（priority 102）：
      * 接近/超越 PB 且 B 类挑战条件满足时，加压优先级高于普通救济（playerDistress < -0.10）。
@@ -283,7 +356,7 @@ export function deriveSpawnIntent(inputs = {}) {
      * 与 intentResolver.js INTENT_RULES 'pb_chase_pressure' 规则 priority=102 同口径。 */
     if (pbChasePressureActive) return 'pressure';
 
-    if (playerDistress < -0.10 || delightMode === 'relief' || forceReliefIntent) return 'relief';
+    if (playerDistress < effectiveDistressThreshold || delightMode === 'relief' || forceReliefIntent) return 'relief';
     /* v1.60.45：爽感饥渴 → 强 relief（priority 95，介于 relief 与 engage 之间）。
      * 与 intentResolver INTENT_RULES 'delight_starved' 规则 spawnIntent='relief' 同口径。
      * 设计依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5。 */
@@ -414,6 +487,35 @@ function smoothStress(current, ctx, cfg, immediateRelief) {
 }
 
 /* v1.61.17: clamp01 已抽到 lib/math.js 单源（含 NaN 防护，性能差异可忽略） */
+
+function sigmoid01(x) {
+    return 1 / (1 + Math.exp(-x));
+}
+
+export function derivePbCurve(score = 0, bestScore = 0, releaseActive = false) {
+    const best = Number(bestScore) || 0;
+    if (best <= 0) {
+        return {
+            pbRatio: null,
+            pbTension: 0,
+            pbBrake: 0,
+            pbRelease: releaseActive ? 1 : 0,
+            pbPhase: 'unknown',
+        };
+    }
+    const ratio = Math.max(0, Number(score) || 0) / best;
+    const pbTension = clamp01(sigmoid01((ratio - 0.82) / 0.08));
+    const pbBrake = clamp01(sigmoid01((ratio - 1.05) / 0.06));
+    const pbRelease = releaseActive ? 1 : 0;
+    let pbPhase = 'warmup';
+    if (ratio >= 1.15) pbPhase = 'overshoot';
+    else if (ratio >= 1.05) pbPhase = 'brake';
+    else if (ratio >= 1.0) pbPhase = 'release';
+    else if (ratio >= 0.95) pbPhase = 'gate';
+    else if (ratio >= 0.8) pbPhase = 'tension';
+    else if (ratio >= 0.5) pbPhase = 'chase';
+    return { pbRatio: ratio, pbTension, pbBrake, pbRelease, pbPhase };
+}
 
 function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg = {}, boardDifficulty = fill) {
     const stress01 = clamp01((stress + 0.2) / 1.2);
@@ -1017,6 +1119,31 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     else if (sessionArc === 'cooldown' && profile.momentum < -0.2) {
         const momentumExcess = Math.min(0.4, Math.abs(profile.momentum) - 0.2);
         sessionArcAdjust = -0.05 - momentumExcess * 0.375; /* -0.05 ~ -0.20 */
+    }
+
+    /* v1.62.5（优化建议 #3）：session-arc 自适应模板（opt-in）。
+     *
+     * 背景：profileAudit 契约 session-arc-warm-to-cool 在 67%+ 局违规——sessionArc
+     * 全程为负，没有 "peak 正向" 段，违反"开头负 → 中段正 → 收官略负"半圆弧设计。
+     *
+     * 根因：现状 peak 段 sessionArcAdjust=0，没有"中段加压"的正向输出。
+     *
+     * 修复（opt-in）：通过 game_rules.json 显式开启：
+     *   "adaptiveSpawn": { "sessionArcCfg": { "peakBoostEnabled": true, "peakBoost": 0.05 } }
+     *
+     *   - peak 段（mid-session）+ momentum 在 [-0.2, 0.3] 区间 → 给 sessionArcAdjust += peakBoost
+     *   - momentum 强势正向（>0.3，已经进入兴奋期）→ 不再加 boost，避免叠加爽点
+     *   - momentum 强负向（<-0.2）→ 也不加 boost，避免在挣扎期反向加压
+     *
+     * 默认关闭：保持现有 sessionArc 行为完全不变。开启需走小流量 A/B 验证。
+     */
+    const sessionArcCfg = GAME_RULES.adaptiveSpawn?.sessionArcCfg ?? {};
+    if (sessionArcCfg.peakBoostEnabled === true && sessionArc === 'peak') {
+        const m = profile.momentum;
+        if (m >= -0.2 && m <= 0.3) {
+            const peakBoost = Number.isFinite(sessionArcCfg.peakBoost) ? sessionArcCfg.peakBoost : 0.05;
+            sessionArcAdjust += peakBoost;
+        }
     }
 
     /* v1.51 末段崩盘救济（endSessionDistress）—— 解决"前 5 分钟良好 + 最后 1 分钟崩盘"
@@ -1717,7 +1844,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     stressBreakdown.orderMaxValidPerms = orderMaxValidPerms;
     stressBreakdown.pbOvershootOrderBoost = pbOvershootOrderBoostApplied;
 
-    const spawnTargets = deriveSpawnTargets(
+    const pbCurve = derivePbCurve(score, ctx.bestScore, ctx.postPbReleaseActive === true);
+    stressBreakdown.pbRatio = pbCurve.pbRatio;
+    stressBreakdown.pbTension = pbCurve.pbTension;
+    stressBreakdown.pbBrake = pbCurve.pbBrake;
+    stressBreakdown.pbRelease = pbCurve.pbRelease;
+    stressBreakdown.pbPhase = pbCurve.pbPhase;
+
+    let spawnTargets = deriveSpawnTargets(
         stress,
         profile,
         ctx,
@@ -1727,6 +1861,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         cfg.spawnTargets ?? {},
         boardDifficulty
     );
+    spawnTargets = {
+        ...spawnTargets,
+        solutionSpacePressure: clamp01((spawnTargets.solutionSpacePressure ?? 0) + pbCurve.pbTension * 0.10 + pbCurve.pbBrake * 0.12 - pbCurve.pbRelease * 0.08),
+        clearOpportunity: clamp01((spawnTargets.clearOpportunity ?? 0) - pbCurve.pbBrake * 0.10 + pbCurve.pbRelease * 0.12),
+        spatialPressure: clamp01((spawnTargets.spatialPressure ?? 0) + pbCurve.pbTension * 0.12 + pbCurve.pbBrake * 0.16 - pbCurve.pbRelease * 0.10),
+        payoffIntensity: clamp01((spawnTargets.payoffIntensity ?? 0) - pbCurve.pbBrake * 0.16 + pbCurve.pbRelease * 0.12),
+        novelty: clamp01((spawnTargets.novelty ?? 0) + pbCurve.pbBrake * 0.05),
+    };
 
     /* ---------- 插值 shapeWeights ---------- */
     const shapeWeights = interpolateProfileWeights(cfg.profiles, stress);
@@ -2017,6 +2159,25 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         multiClearBonus = Math.min(multiClearBonus, mcbCap);
         sizePreference = Math.max(sizePreference, sizePreference + spShift);
         clearGuarantee = Math.max(0, clearGuarantee + cgShift);
+    }
+
+    /* v1.62：PB 双 S 曲线直接进入主规则轨 spawnHints。
+     * - PB 前张力：轻微提高 pressure / 顺序规划倾向（主要已进入 spawnTargets）
+     * - PB 后刹车：抑制 payoff、降低白送消行
+     * - 突破释放：短暂提高生存与奖励，避免"刚破纪录就被针对"
+     * 这里只做小幅连续调节，原有 pbOvershoot / farFromPB / postPbRelease 规则仍保留。 */
+    if (pbCurve.pbRelease > 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        multiClearBonus = Math.max(multiClearBonus, 0.35);
+        sizePreference = Math.min(sizePreference, -0.12);
+    }
+    /* 释放窗口期内（pbRelease > 0）不应用 brake：postPbReleaseActive 期望"刚破 PB 还能轻盈"，
+     * brake 段会反向把 clearGuarantee 拉回 1，与释放窗口语义冲突（见 §4.9 测试）。
+     * brake 仍作用于"超 PB 后释放窗口已耗尽 + 持续在超 PB 区"的情况。 */
+    if (pbCurve.pbBrake > 0.35 && !(pbCurve.pbRelease > 0)) {
+        multiClearBonus = Math.max(0, multiClearBonus * (1 - pbCurve.pbBrake * 0.22));
+        clearGuarantee = Math.max(0, clearGuarantee - (pbCurve.pbBrake > 0.75 ? 1 : 0));
+        sizePreference = Math.max(sizePreference, pbCurve.pbBrake * 0.10);
     }
 
     /* ================================================================ */
@@ -2310,9 +2471,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /* v1.57.1 P3：spawnIntent 'sprint' 中间档（详见 deriveSpawnIntent JSDoc）。
      * sprintCfg 不变量在此读取一次，供 deriveSpawnIntent 与下方 sprint hints 应用层共用。 */
     const _sprintCfg = cfg.sprintIntent ?? {};
-    /* v1.57.4：spawnIntent 判定抽至 deriveSpawnIntent 纯函数；同样的入参在 game.js
-     * 的 _refreshIntentSnapshot 会被复用，确保玩家每次放置后重判 intent 与本处口径完全一致。
-     * 决策侧不变量（_intentInputs）通过 layered 返回值传给 _captureAdaptiveInsight 缓存。 */
+    /* v1.62.5（优化建议 #5）：spawnIntent 滞回配置 + 上一帧 intent。
+     * prevSpawnIntent 由 game.js 通过 ctx 传入；未传时 hysteresis 在 deriveSpawnIntent 内 noop。 */
+    const _spawnIntentCfg = cfg.spawnIntentCfg ?? {};
     const _intentInputs = {
         playerDistress,
         forceReliefIntent,
@@ -2333,6 +2494,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         stress,
         sprintCfg: _sprintCfg,
         pcSetupMinFill: PC_SETUP_MIN_FILL,
+        prevIntent: ctx.prevSpawnIntent ?? null,   // v1.62.5
+        hysteresis: _spawnIntentCfg,                // v1.62.5
     };
     const spawnIntent = deriveSpawnIntent({
         ..._intentInputs,
@@ -2369,6 +2532,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             sizePreference: Math.max(-1, Math.min(1, sizePreference)),
             diversityBoost: Math.max(0, Math.min(1, diversityBoost)),
             spawnTargets,
+            pbCurve,
+            pbRatio: pbCurve.pbRatio,
+            pbTension: pbCurve.pbTension,
+            pbBrake: pbCurve.pbBrake,
+            pbRelease: pbCurve.pbRelease,
+            pbPhase: pbCurve.pbPhase,
             comboChain: Math.max(0, Math.min(1, comboChain)),
             multiClearBonus: Math.max(0, Math.min(1, multiClearBonus)),
             multiLineTarget: Math.max(0, Math.min(2, multiLineTarget)),
@@ -2477,6 +2646,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _boardDifficulty: boardDifficulty,
         _stressBreakdown: stressBreakdown,
         _spawnTargets: spawnTargets,
+        _pbCurve: pbCurve,
+        _pbRatio: pbCurve.pbRatio,
+        _pbTension: pbCurve.pbTension,
+        _pbBrake: pbCurve.pbBrake,
+        _pbRelease: pbCurve.pbRelease,
+        _pbPhase: pbCurve.pbPhase,
         _spawnIntent: spawnIntent,
         /* v1.57.4：决策侧不变量快照——供 game.js _refreshIntentSnapshot() 在玩家每次
          * 放置后用同一套规则、配合实时几何（snapshotInsightGeometry）重判 spawnIntent。

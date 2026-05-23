@@ -210,6 +210,18 @@
       "tensionBonus": 0.04,
       "releaseBonus": -0.12
     },
+    "sessionArcCfg": {
+      "comment": "v1.62.5 优化建议 #3：peak 段加压补全半圆弧。profileAudit 巡检显示 session-arc-warm-to-cool 67% 违规——sessionArc 全程为负、peak 段 sessionArcAdjust=0 没有正向输出。peakBoostEnabled=true + peakBoost=0.05 让 mid-session（momentum 在 [-0.2, 0.3] 区间）的中段获得轻微加压，形成『开头负→中段正→收官略负』的标准半圆弧。",
+      "peakBoostEnabled": true,
+      "peakBoost": 0.05
+    },
+    "spawnIntentCfg": {
+      "comment": "v1.62.5 优化建议 #5：spawnIntent 滞回（hysteresis）。profileAudit 巡检显示 INTENT_THRASHING / INTENT_FREQUENT 频繁触发，根因是 stress 在 sprint 区间 [0.45, 0.55) 边界震荡 + playerDistress 在 -0.10 边界震荡。hysteresisEnabled=true 后：prevIntent=sprint 时把 sprint 窗口扩展 ±sprintExpand；prevIntent≠sprint 时收缩 ±sprintShrink；prevIntent=relief 时把 distress 阈值放宽 reliefMargin，避免反复横跳。",
+      "hysteresisEnabled": true,
+      "sprintExpand": 0.02,
+      "sprintShrink": 0.02,
+      "reliefMargin": 0.02
+    },
     "engagement": {
       "comment": "参与度信号：首局保护、挫败回弹、差一点放大、新鲜感注入。",
       "firstSessionSpawns": 5,
@@ -251,7 +263,8 @@
       "biasClamp": 0.22
     },
     "signals": {
-      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。",
+      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。v1.62.5 优化建议 #1：__normalizeBudget 把所有非豁免 *Adjust 分量统一钳制到 ±N，防止 pacingAdjust 等强势分量长期主导（巡检显示 67% 局 pacingAdjust 单独占主导，自适应未充分介入）。豁免列表见 adaptiveSpawn.js _NORMALIZE_EXEMPT（difficultyBias / challengeBoost / 救济类信号本就需要更大幅度）。",
+      "__normalizeBudget": 0.05,
       "scoreStress": { "enabled": true, "scale": 1 },
       "runStreakStress": { "enabled": true, "scale": 1 },
       "difficultyBias": { "enabled": true, "scale": 1 },

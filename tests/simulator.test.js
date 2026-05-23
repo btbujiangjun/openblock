@@ -31,6 +31,12 @@ describe('OpenBlockSimulator', () => {
         it('steps starts at 0', () => {
             expect(sim.steps).toBe(0);
         });
+
+        it('uses adaptive Web-rule spawn context', () => {
+            expect(sim._lastAdaptiveInsight?.spawnHints).toBeTruthy();
+            expect(sim._spawnContext?.totalRounds).toBe(1);
+            expect(sim._lastAdaptiveInsight?.spawnSource).toBe('rule');
+        });
     });
 
     describe('getLegalActions', () => {

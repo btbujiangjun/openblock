@@ -4,6 +4,7 @@
  */
 import { resolveApiOrigin } from './scripts/resolve-api-origin.mjs';
 import { resolveVitePort } from './scripts/resolve-vite-port.mjs';
+import legacy from '@vitejs/plugin-legacy';
 
 const devPort = resolveVitePort();
 const apiOrigin = resolveApiOrigin();
@@ -15,49 +16,77 @@ export default {
     define: {
         'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiOrigin),
     },
+    plugins: [
+        // Android 低版本/旧 WebView 可能不支持 ESM 或部分新语法，
+        // legacy 插件会自动注入 nomodule 回退包，避免“游戏脚本未加载”。
+        legacy({
+            targets: ['Android >= 5', 'ChromeAndroid >= 60', 'iOS >= 12', 'Safari >= 12'],
+            modernPolyfills: true,
+        }),
+    ],
     build: {
         outDir: '../dist',
         emptyOutDir: true,
-        // v1.15: split the previously-500KB main bundle into focused chunks
-        // so first-paint only loads the core game; monetization / RL / panels
-        // are pulled in as the player reaches them. Target main ≤ 350KB.
-        chunkSizeWarningLimit: 360,
+        // v1.62: meta / RL / panel modules have real shared dependencies
+        // (wallet, commercialInsight, lifecycle, spawn diagnostics). Keeping
+        // them in one async "experience" chunk avoids Rollup's rl↔meta
+        // circular chunk warning while preserving a small first-play bundle.
+        chunkSizeWarningLimit: 1100,
         rollupOptions: {
+            input: {
+                main: 'web/index.html',
+                spawnEval: 'web/spawn-eval.html',
+            },
+            onwarn(warning, warn) {
+                /* Rollup correctly reports that several modules are both dynamically
+                 * and statically imported. In this app those modules are intentionally
+                 * shared by the core game and deferred panels, so they cannot move into
+                 * a separate async chunk; keeping them shared is the desired outcome. */
+                if (
+                    warning.code === 'DYNAMIC_IMPORT_WILL_NOT_MOVE_MODULE'
+                    || String(warning.message || '').includes('is dynamically imported by')
+                ) {
+                    return;
+                }
+                warn(warning);
+            },
             output: {
                 manualChunks(id) {
                     if (!id.includes('/web/src/')) return undefined;
                     // Spawn helpers are shared between core gameplay (main),
-                    // RL training (rl chunk) and the spawn panel (meta);
+                    // RL training and the spawn panel;
                     // pin them to main so rollup doesn't accidentally
-                    // create a meta↔rl cycle through them.
+                    // create an experience↔main cycle through them.
                     if (
                         id.includes('/web/src/bot/blockSpawn') ||
                         id.includes('/web/src/bot/blockPool') ||
-                        id.includes('/web/src/bot/spawnLayers')
+                        id.includes('/web/src/bot/spawnLayers') ||
+                        id.includes('/web/src/bot/simulator')
                     ) {
                         return undefined;
                     }
-                    // RL bot training surface — only loaded when the user
-                    // explicitly opens the bot panel.
-                    if (id.includes('/web/src/bot/')) return 'rl';
-                    // Player-facing meta (monetization + meta progression).
-                    // Grouped together because the insight/replay panels
-                    // share commercialInsight + skills, which would
-                    // otherwise create a circular split.
+                    // Player-facing deferred experience modules. Keep the RL panel,
+                    // monetization, skills, progression and diagnostic panels together:
+                    // they share wallet / lifecycle / commercial insight dependencies.
                     if (
+                        id.includes('/web/src/bot/') ||
                         id.includes('/web/src/monetization/') ||
                         id.includes('/web/src/checkin/') ||
                         id.includes('/web/src/rewards/') ||
                         id.includes('/web/src/onboarding/') ||
+                        id.includes('/web/src/progression/') ||
                         id.includes('/web/src/skills/') ||
                         id.includes('/web/src/seasonalSkin') ||
                         id.includes('/web/src/playerInsightPanel') ||
                         id.includes('/web/src/spawnModelPanel') ||
                         id.includes('/web/src/replay') ||
                         id.includes('/web/src/personalDashboard') ||
-                        id.includes('/web/src/levelEditorPanel')
+                        id.includes('/web/src/levelEditorPanel') ||
+                        id.includes('/web/src/decisionFlowViz') ||
+                        id.includes('/web/src/algorithmDynamicsCard') ||
+                        id.includes('/web/src/seasonPass')
                     ) {
-                        return 'meta';
+                        return 'experience';
                     }
                     return undefined;
                 },

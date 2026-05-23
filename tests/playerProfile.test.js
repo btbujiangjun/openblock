@@ -155,6 +155,66 @@ describe('PlayerProfile', () => {
         });
     });
 
+    describe('momentum frustration penalty (v1.62.5)', () => {
+        it('frustration < 3: 不加 penalty', () => {
+            // 6 步：3 cleared + 3 not，frustration 在每次 cleared 时归 0，最高 ≤ 2
+            for (let i = 0; i < 3; i++) p.recordPlace(true, 1, 0.3);
+            for (let i = 0; i < 3; i++) p.recordPlace(false, 0, 0.3);
+            const m1 = p.momentum;
+            expect(p.frustrationLevel).toBe(3);
+            // 再做一次 frustration < 3 的对照（清空再来）
+            const p2 = new PlayerProfile(8);
+            for (let i = 0; i < 3; i++) p2.recordPlace(true, 1, 0.3);
+            for (let i = 0; i < 2; i++) p2.recordPlace(false, 0, 0.3);
+            expect(p2.frustrationLevel).toBe(2);
+            // p2 没触发 penalty；p 触发了 -0.05 penalty
+            expect(m1).toBeLessThan(p2.momentum);
+        });
+
+        it('frustration ≥ 3 渐进 penalty：每多 1 步 -0.05、≥7 步封顶 -0.20', () => {
+            const _frustWithN = (n) => {
+                const pp = new PlayerProfile(20);
+                // 先 6 步 cleared 让 momentum 计算有 base
+                for (let i = 0; i < 6; i++) pp.recordPlace(true, 1, 0.3);
+                for (let i = 0; i < n; i++) pp.recordPlace(false, 0, 0.3);
+                return pp;
+            };
+            const m0 = _frustWithN(0).momentum;   // 无 penalty 基线
+            const m3 = _frustWithN(3).momentum;   // -0.05
+            const m4 = _frustWithN(4).momentum;   // -0.10
+            const m5 = _frustWithN(5).momentum;   // -0.15
+            const m7 = _frustWithN(7).momentum;   // -0.20
+            const m9 = _frustWithN(9).momentum;   // -0.20（封顶）
+            // 单调递减
+            expect(m3).toBeLessThan(m0);
+            expect(m4).toBeLessThan(m3);
+            expect(m5).toBeLessThan(m4);
+            expect(m7).toBeLessThan(m5);
+            // 封顶：m9 与 m7 相等（penalty 都是 -0.20）
+            expect(m9).toBeCloseTo(m7, 5);
+        });
+
+        it('momentum 下限仍是 -1（penalty 不能让其低于 -1）', () => {
+            const pp = new PlayerProfile(20);
+            // 先 cleared 让样本充足，然后 8 步未消 → penalty=-0.20
+            for (let i = 0; i < 6; i++) pp.recordPlace(true, 1, 0.3);
+            for (let i = 0; i < 8; i++) pp.recordPlace(false, 0, 0.3);
+            expect(pp.momentum).toBeGreaterThanOrEqual(-1);
+            expect(pp.momentum).toBeLessThan(0);
+        });
+
+        it('frustration 归零（消行）→ penalty 立即消失', () => {
+            const pp = new PlayerProfile(20);
+            for (let i = 0; i < 6; i++) pp.recordPlace(true, 1, 0.3);
+            for (let i = 0; i < 5; i++) pp.recordPlace(false, 0, 0.3);
+            const stuckM = pp.momentum;
+            pp.recordPlace(true, 1, 0.3);   // 消行 → frustration = 0
+            expect(pp.frustrationLevel).toBe(0);
+            // 没了 penalty，momentum 应当回升（虽然 newer half clearRate 也变了）
+            expect(pp.momentum).toBeGreaterThan(stuckM);
+        });
+    });
+
     describe('needsRecovery', () => {
         it('triggers at high board fill', () => {
             p.recordPlace(false, 0, 0.9);

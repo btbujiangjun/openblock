@@ -54,8 +54,9 @@
     —— S0–S4 × M0–M4 的 25 格 stress cap/adjust 调制矩阵、SkillScore 7 维计算公式、
     onboarding 硬覆写与 winback 保护包三条接入路径、完整影响链图解与典型示例
 - [出块三层架构](./SPAWN_ALGORITHM.md) —— 三层架构 + 5 阶段流水线 + 30+ 加权乘子 + 硬约束表
+- [出块评估与可视化工具](./SPAWN_EVALUATION.md) —— CLI + Web Worker 页面，批量评估公平性、奖励节奏、兜底率；对比 baseline / P1 组合评分 / P2 体验预算实验轨，并支持个性化、受控随机、惊喜预算、SQLite/本地方案保存与 DFV 展示口径说明
 - [解法数量难度](./SPAWN_SOLUTION_DIFFICULTY.md) —— 含 §13–§14 顺序刚性 `orderRigor`
-- [出块建模](./SPAWN_BLOCK_MODELING.md)
+- [出块建模](./SPAWN_BLOCK_MODELING.md) —— 规则引擎 + SpawnTransformer；含 PB 双 S 曲线、P2 体验预算、个性化与受控随机实验轨的建模口径
 - [候选块概率图鉴](./CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md)
 - [**出块算法架构图生成 Prompt**](./SPAWN_DIAGRAM_PROMPT.md) —— 喂给大模型即生成
   `generateDockShapes` 9 层流水线 PNG 架构图（事实包 + 视觉规范 + 自检清单）

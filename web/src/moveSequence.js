@@ -1,13 +1,30 @@
 /**
- * 对局落子序列（schema v1）：与后端 `move_sequences.frames` 一致，供持久化与确定性回放。
- * 可选字段 `ps`：玩家状态快照（见 PLAYER_STATE_SNAPSHOT_VERSION），旧记录无此字段仍可回放盘面。
+ * 对局落子序列：与后端 `move_sequences.frames` 一致，供持久化与确定性回放。
+ *
+ * 字段：
+ *   - `v`  schema 版本（见 `MOVE_SEQUENCE_SCHEMA`）
+ *   - `t`  帧类型 `init | spawn | place`
+ *   - `ts` v1.62+：相对 init 帧的毫秒偏移（init 帧固定为 0）。旧 v1 帧无该字段，
+ *          `getFrameElapsedMs` / `extractFrameTimestamps` 会自动 fallback。
+ *   - `ps` 玩家状态快照（见 `PLAYER_STATE_SNAPSHOT_VERSION`），旧记录无此字段仍可回放盘面。
+ *
+ * 选用「相对偏移」而非 wall-clock 时间戳的原因：
+ *   1. 隐私友好：不暴露玩家本地时间 / 时区。
+ *   2. JSON 体积小：单局百帧约 +600~1000 B。
+ *   3. 跨设备/时区可比：用于「操作节奏 / 时长 X 轴」语义稳定。
  */
 import { Grid } from './grid.js';
 import { computeClearScore } from './clearScoring.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { isSpecialShapeId } from './shapes.js';
 
-export const MOVE_SEQUENCE_SCHEMA = 1;
+/**
+ * Schema 版本：
+ *   v1（v1.61 及之前）：仅 `t / strategy|dock|i,x,y / ps?`，回放无时间轴。
+ *   v2（v1.62+）：新增 `ts`（init 帧 0，后续相对偏移 ms）。读端用
+ *                 `extractFrameTimestamps` 抽取；v1 旧帧返回 null fallback。
+ */
+export const MOVE_SEQUENCE_SCHEMA = 2;
 /** 玩家状态快照内部版本，便于日后扩展字段 */
 /**
  * 玩家状态快照版本：
@@ -103,20 +120,30 @@ function trendPhrase(t, upText, downText, flatText) {
 }
 
 /**
- * @param {string} strategy
- * @param {import('./grid.js').Grid} grid
- * @param {{ singleLine: number, multiLine: number, combo: number }} scoring
+ * 把可选 `ts`（v1.62+：相对 init 帧 ms 偏移）规范化后写入 frame。
+ * - init 帧默认 ts=0，避免调用方忘传导致整局没有时间基线
+ * - 其他帧未传 ts 时不写字段，保持与 v1 frame 字节级一致（向后兼容）
+ * - 负数/NaN/非有限值视为缺失，静默跳过（不写入错误时间戳）
  */
+function _normalizeFrameTs(rawTs, fallbackForInit = false) {
+    if (rawTs == null) return fallbackForInit ? 0 : undefined;
+    const n = Number(rawTs);
+    if (!Number.isFinite(n) || n < 0) return fallbackForInit ? 0 : undefined;
+    return n;
+}
+
 /**
  * @param {string} strategy
  * @param {import('./grid.js').Grid} grid
  * @param {{ singleLine: number, multiLine: number, combo: number }} scoring
  * @param {object} [playerState] 可选，本局开局时玩家状态快照 `ps`
+ * @param {{ ts?: number }} [opts]  v1.62+：`ts` 默认 0（init 帧总是时间原点）
  */
-export function buildInitFrame(strategy, grid, scoring, playerState) {
+export function buildInitFrame(strategy, grid, scoring, playerState, opts = {}) {
     const frame = {
         v: MOVE_SEQUENCE_SCHEMA,
         t: 'init',
+        ts: _normalizeFrameTs(opts.ts, /* fallbackForInit */ true),
         strategy,
         grid: grid.toJSON(),
         scoring: {
@@ -133,12 +160,10 @@ export function buildInitFrame(strategy, grid, scoring, playerState) {
 
 /**
  * @param {Array<{ id: string, shape: number[][], colorIdx: number, placed?: boolean }>} descriptors
- */
-/**
- * @param {Array<{ id: string, shape: number[][], colorIdx: number, placed?: boolean }>} descriptors
  * @param {object} [playerState] 可选，本轮出块后的玩家状态快照 `ps`
+ * @param {{ ts?: number }} [opts]  v1.62+：`ts` = 相对 init 帧 ms 偏移；缺失则不写
  */
-export function buildSpawnFrame(descriptors, playerState) {
+export function buildSpawnFrame(descriptors, playerState, opts = {}) {
     const frame = {
         v: MOVE_SEQUENCE_SCHEMA,
         t: 'spawn',
@@ -149,6 +174,8 @@ export function buildSpawnFrame(descriptors, playerState) {
             placed: Boolean(d.placed)
         }))
     };
+    const ts = _normalizeFrameTs(opts.ts);
+    if (ts !== undefined) frame.ts = ts;
     if (playerState && typeof playerState === 'object') {
         frame.ps = playerState;
     }
@@ -160,8 +187,9 @@ export function buildSpawnFrame(descriptors, playerState) {
  * @param {number} gx
  * @param {number} gy
  * @param {object} [playerState] 可选，本步落子后的玩家状态快照 `ps`
+ * @param {{ ts?: number }} [opts]  v1.62+：`ts` = 相对 init 帧 ms 偏移；缺失则不写
  */
-export function buildPlaceFrame(dockIndex, gx, gy, playerState) {
+export function buildPlaceFrame(dockIndex, gx, gy, playerState, opts = {}) {
     const frame = {
         v: MOVE_SEQUENCE_SCHEMA,
         t: 'place',
@@ -169,10 +197,83 @@ export function buildPlaceFrame(dockIndex, gx, gy, playerState) {
         x: gx,
         y: gy
     };
+    const ts = _normalizeFrameTs(opts.ts);
+    if (ts !== undefined) frame.ts = ts;
     if (playerState && typeof playerState === 'object') {
         frame.ps = playerState;
     }
     return frame;
+}
+
+/**
+ * 读取单帧的「相对 init 帧 ms 偏移」。
+ *
+ * 兼容性：
+ *   - v2 帧：优先读 `frame.ts`
+ *   - v1 旧帧：无 `ts` 字段 → 返回 null（调用方需 fallback 帧序号）
+ *   - 老的内嵌 `ps._recordedAt` wall-clock 时间戳：不在此处归一化（调用方自行换算）
+ *
+ * @param {object|null|undefined} frame
+ * @returns {number|null}
+ */
+export function getFrameElapsedMs(frame) {
+    if (!frame || typeof frame !== 'object') return null;
+    const t = Number(frame.ts);
+    return Number.isFinite(t) && t >= 0 ? t : null;
+}
+
+/**
+ * 把 frames 的每帧 ts 抽成「相对游戏开始的 ms 偏移」数组，供 modal/分析下游使用。
+ *
+ * 抽取优先级（v1.62 起统一口径）：
+ *   1. frame.ts（v2 schema 直接给）
+ *   2. frame.ps._recordedAt（实时面板写入的 wall-clock，需要减去 baseMs）
+ *   3. frame.ts wall-clock（旧实验性字段，少数路径写过；同样减 baseMs）
+ *   4. 全部失败 → 该位置返回 null（modal/X 轴自动 fallback 到帧序号）
+ *
+ * baseMs：依次尝试 init 帧 ts（=0 → baseMs 不参与）、`ps._recordedAt`、`frame.ts` 最小值。
+ *
+ * @param {Array<object>|null|undefined} frames
+ * @returns {{ startMs: number|null, frameTimestamps: Array<number|null> }}
+ */
+export function extractFrameTimestamps(frames) {
+    if (!Array.isArray(frames) || frames.length === 0) {
+        return { startMs: null, frameTimestamps: [] };
+    }
+
+    /* v2 优先：每帧 ts 都是合法的"相对偏移"（< 1e12 ≈ 31 年；wall-clock Date.now ≈ 1.7e12）。
+     * 启发式上界把"误把 wall-clock 写进 ts"的脏数据自动甄别到 wall-clock 后备路径，避免 X 轴
+     * 显示 5.4 万年这种灾难数字。 */
+    const REL_OFFSET_UPPER_BOUND = 1e12;
+    const allFinite = frames.every((f) => f && Number.isFinite(Number(f.ts)));
+    const allWithinRelBounds = allFinite && frames.every((f) => Number(f.ts) < REL_OFFSET_UPPER_BOUND);
+    const v2Direct = allFinite && allWithinRelBounds && frames[0]?.t === 'init';
+    if (v2Direct) {
+        // init 帧本身就是 0 偏移，整组直接复用，无需 baseMs
+        return {
+            startMs: 0,
+            frameTimestamps: frames.map((f) => Number(f.ts)),
+        };
+    }
+
+    // wall-clock 后备：从首个能读到的字段当 baseMs，其余帧相对它换算
+    let startMs = null;
+    for (const f of frames) {
+        const t = Number(f?.ps?._recordedAt ?? f?.ts);
+        if (Number.isFinite(t)) { startMs = t; break; }
+    }
+    const frameTimestamps = frames.map((f) => {
+        // 当本帧已是相对偏移（v2 风格 ts，且 startMs 为相对值）就直接用
+        const ftsRel = Number(f?.ts);
+        if (Number.isFinite(ftsRel) && ftsRel >= 0 && ftsRel < 1e12) {
+            // 启发式：< 1e12 视为"相对偏移 ms"（约 31 年）
+            return ftsRel;
+        }
+        const wall = Number(f?.ps?._recordedAt ?? f?.ts);
+        if (!Number.isFinite(wall) || startMs == null) return null;
+        return Math.max(0, wall - startMs);
+    });
+    return { startMs, frameTimestamps };
 }
 
 /**
@@ -899,7 +1000,7 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.pacingAdjust,
         fmt: 'f2',
-        tooltip: '节奏松紧（pacingAdjust）：搭建期(setup) 略加压、收获期(payoff) 略减压（让多消爽点更易触发），中性时为 0。⚠ 与右侧「节奏 收获/中性/搭建」pill（rhythmPhase 相位枚举）不同——那是"现在处于什么阶段"，本指标是"该阶段对 stress 的具体偏移量"。\n📈 看图：典型范围 -0.05 ~ +0.05，呈"短脉冲"式跳变；与右侧 rhythmPhase pill 切换同步——pill 切到「收获」此值通常变负、切到「搭建」通常变正。'
+        tooltip: '节奏松紧（pacingAdjust）：搭建期(setup) 略加压、收获期(payoff/release) 减压（让多消爽点更易触发），中性时为 0。⚠ 与右侧「节奏 收获/中性/搭建」pill（rhythmPhase 相位枚举）不同——那是"现在处于什么阶段"，本指标是"该阶段对 stress 的具体偏移量"。\n📈 看图：默认 release 期约 -0.12 / tension 期约 +0.04（typical 在 -0.20 ~ +0.10 之间，可配置）；与右侧 rhythmPhase pill 切换同步——pill 切到「收获」此值通常变负、切到「搭建」通常变正。'
     },
     {
         key: 'friendlyBoardRelief',

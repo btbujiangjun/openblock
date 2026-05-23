@@ -492,7 +492,7 @@
         display: block;
       }
     </style>
-    <link rel="stylesheet" href="./styles/main.css">
+    <link rel="stylesheet" href="/styles/main.css">
     <!-- v1.33: 提前应用 RL 面板收起态 — 在 main.css 加载后、body 渲染前打 class，
          避免「先展开再瞬间收起」的闪烁。class 挂到 <html> 而非 <body>（此时 body 尚未创建），
          CSS 用 .rl-collapsed 通用选择器匹配；展开/收起按钮交互在 rlPanel.js 中绑定。
@@ -692,6 +692,14 @@
                 <span class="menu-card-icon">📊</span>
                 <span class="menu-card-label" data-i18n="menu.ops">运营看板</span>
             </button>
+            <a href="/spawn-eval.html" target="_blank" class="menu-card menu-card--spawn-eval menu-card--menu-secondary">
+                <span class="menu-card-icon">🧪</span>
+                <span class="menu-card-label">出块评估 · 优化器</span>
+            </a>
+            <a href="/profile-audit.html" target="_blank" class="menu-card menu-card--profile-audit menu-card--menu-secondary">
+                <span class="menu-card-icon">🩺</span>
+                <span class="menu-card-label">画像指标自评估</span>
+            </a>
             <button type="button" class="menu-card menu-card--db-debug menu-card--menu-secondary" id="menu-db-debug-btn" hidden>
                 <span class="menu-card-icon">🗄</span>
                 <span class="menu-card-label" data-i18n="menu.dbDebug">数据库调试</span>

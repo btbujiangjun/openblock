@@ -333,7 +333,9 @@ function createCrossStarEl(opts = {}) {
  * @param {HTMLElement} h1
  */
 function mountInto(h1) {
-    h1.replaceChildren();
+    // Android 旧 WebView 可能不支持 Element.replaceChildren()。
+    // 字标在启动早期执行，若这里抛错会卡在 boot stage: dom-ready。
+    while (h1.firstChild) h1.removeChild(h1.firstChild);
     const root = document.createElement('div');
     root.className = 'app-wordmark-pixel app-wordmark-pixel--rainbow';
     const phrase = 'Open·Block';

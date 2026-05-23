@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenBlock 玩家画像指标自评估</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a; --panel: #111827; --panel-2: #1f2937;
+      --text: #e5e7eb; --muted: #9ca3af; --line: #374151;
+      --accent: #60a5fa; --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    main { width: min(1280px, calc(100vw - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 20px; }
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: 24px; }
+    h2 { font-size: 18px; margin-bottom: 12px; }
+    h3 { font-size: 15px; margin: 16px 0 10px; color: var(--accent); }
+    p { color: var(--muted); line-height: 1.6; margin: 4px 0; }
+    a { color: var(--accent); }
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; }
+
+    .help { background: rgba(17, 24, 39, 0.72); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 18px; }
+
+    .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+    .tab-btn { padding: 8px 18px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .tab-btn.active { color: var(--text); border-color: var(--accent); background: rgba(96, 165, 250, 0.1); }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; }
+    .toolbar label { display: inline-flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+    .toolbar select, .toolbar input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; min-width: 180px; }
+    .toolbar select { min-width: 320px; }
+    button { background: var(--accent); color: #0f172a; border: 0; border-radius: 6px; padding: 8px 18px; font-weight: 700; cursor: pointer; font-size: 13px; }
+    button:hover:not(:disabled) { filter: brightness(1.1); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
+    #audit-status { padding: 10px 14px; background: var(--panel-2); border-radius: 8px; font-size: 13px; color: var(--muted); min-height: 38px; margin-bottom: 16px; font-family: ui-monospace, monospace; }
+
+    /* 报告渲染 */
+    .audit-header { display: flex; gap: 24px; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 18px; align-items: center; }
+    .audit-score { text-align: center; min-width: 120px; padding: 8px 20px; border-right: 1px solid var(--line); }
+    .audit-score-num { font-size: 42px; font-weight: 800; color: var(--good); line-height: 1; }
+    .audit-score[data-score] .audit-score-num { color: var(--good); }
+    .audit-score[data-score]:where([data-score="0"], [data-score="1"], [data-score="2"], [data-score="3"], [data-score="4"], [data-score="5"], [data-score="6"], [data-score="7"], [data-score="8"], [data-score="9"]) .audit-score-num,
+    .audit-score[data-score^="1"] .audit-score-num,
+    .audit-score[data-score^="2"] .audit-score-num,
+    .audit-score[data-score^="3"] .audit-score-num,
+    .audit-score[data-score^="4"] .audit-score-num { color: var(--bad); }
+    .audit-score[data-score^="5"] .audit-score-num,
+    .audit-score[data-score^="6"] .audit-score-num { color: var(--warn); }
+    .audit-score-max { font-size: 18px; color: var(--muted); font-weight: 500; }
+    .audit-score-lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .audit-score-delta { font-size: 12px; margin-top: 4px; color: var(--muted); }
+    .audit-meta { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; }
+    .audit-meta b { color: var(--text); font-weight: 700; }
+
+    .audit-section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+
+    .audit-contract-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+    .audit-contract { padding: 10px 12px; background: var(--panel-2); border-radius: 8px; border-left: 3px solid var(--line); }
+    .audit-contract--pass { border-left-color: var(--good); }
+    .audit-contract--fail { border-left-color: var(--bad); }
+    .audit-contract-head { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+    .audit-contract-icon { font-weight: 700; }
+    .audit-contract--pass .audit-contract-icon { color: var(--good); }
+    .audit-contract--fail .audit-contract-icon { color: var(--bad); }
+    .audit-contract-desc { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .audit-contract-meta { font-size: 11px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+
+    .audit-tag { font-size: 10px; padding: 1px 6px; border-radius: 999px; margin-left: auto; }
+    .audit-tag--regress { background: rgba(248, 113, 113, 0.2); color: var(--bad); }
+    .audit-tag--improve { background: rgba(52, 211, 153, 0.2); color: var(--good); }
+
+    .audit-hints { list-style: none; padding: 0; margin: 0; }
+    .audit-hint { display: grid; grid-template-columns: auto auto auto 1fr; gap: 8px; align-items: baseline; padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; background: var(--panel-2); }
+    .audit-hint--error { border-left: 3px solid var(--bad); }
+    .audit-hint--warn { border-left: 3px solid var(--warn); }
+    .audit-hint--info { border-left: 3px solid var(--muted); }
+    .audit-hint-code { font-weight: 700; }
+    .audit-hint-target { font-size: 11px; color: var(--muted); }
+    .audit-hint-msg { font-size: 12px; color: var(--text); grid-column: 4; line-height: 1.5; }
+
+    .audit-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .audit-table th, .audit-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+    .audit-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+
+    /* === 优化建议 actions === */
+    .audit-actions-group { margin-bottom: 12px; }
+    .audit-actions-group-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; padding: 6px 10px; border-radius: 6px; }
+    .audit-actions-group--p1 .audit-actions-group-head { background: rgba(248, 113, 113, 0.12); border-left: 3px solid var(--bad); }
+    .audit-actions-group--p2 .audit-actions-group-head { background: rgba(251, 146, 60, 0.10); border-left: 3px solid #fb923c; }
+    .audit-actions-group--p3 .audit-actions-group-head { background: rgba(251, 191, 36, 0.08); border-left: 3px solid var(--warn); }
+    .audit-actions-group--p4 .audit-actions-group-head { background: rgba(52, 211, 153, 0.08); border-left: 3px solid var(--good); }
+    .audit-actions-group--p5 .audit-actions-group-head { background: rgba(148, 163, 184, 0.08); border-left: 3px solid var(--muted); }
+    .audit-actions-prio { font-weight: 800; font-size: 14px; }
+    .audit-actions-prio-desc { color: var(--muted); font-size: 12px; }
+
+    .audit-action { margin-bottom: 4px; background: var(--panel-2); border-radius: 6px; overflow: hidden; }
+    .audit-action-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 8px 12px; cursor: pointer; list-style: none; user-select: none; }
+    .audit-action-head::-webkit-details-marker { display: none; }
+    .audit-action-head::before { content: '▶'; color: var(--muted); margin-right: 4px; font-size: 10px; transition: transform 0.15s; }
+    .audit-action[open] .audit-action-head::before { transform: rotate(90deg); }
+    .audit-action-title { font-weight: 700; flex: 1; min-width: 0; }
+    .audit-action-meta { color: var(--muted); font-size: 11px; }
+    .audit-action-body { padding: 6px 12px 12px 28px; font-size: 13px; }
+    .audit-action-row { margin: 6px 0; }
+    .audit-action-row b { color: var(--accent); margin-right: 6px; font-size: 12px; }
+    .audit-action-row ul { margin: 4px 0; padding-left: 22px; }
+    .audit-action-row li { margin: 3px 0; line-height: 1.5; }
+    .audit-action-row code { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>🩺 玩家画像指标自评估</h1>
+        <p>从回放序列里检查"指标体系本身是否健康"——契约违规 / 冗余对 / stress 主导 / 自适应链路</p>
+      </div>
+      <div style="text-align:right">
+        <p style="margin:0">📖 <a href="/docs/algorithms/PROFILE_AUDIT.md">设计文档</a></p>
+        <p style="margin:0">🛠 CLI: <code>npm run profile:audit -- --frames ... --pretty</code></p>
+      </div>
+    </header>
+
+    <div class="help">
+      <p>三种模式：
+        <b>单局 audit</b> — 选一个 session 看健康分；
+        <b>对照分析</b> — 与 baseline session 比对，触发 REGRESSION_*/IMPROVEMENT_* hints；
+        <b>聚合视图</b> — 跨近 N 天看哪些契约最容易违规。</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="single">单局 Audit</button>
+      <button class="tab-btn" data-tab="compare">对照分析</button>
+      <button class="tab-btn" data-tab="aggregate">聚合视图（近 N 天）</button>
+    </div>
+
+    <div id="audit-status">等待操作…</div>
+
+    <!-- Tab 1: 单局 -->
+    <div id="tab-single">
+      <div class="toolbar">
+        <label>用户
+          <select id="audit-user-id" style="min-width:280px" title="切换其他用户查看其 session；admin 模式需 OPENBLOCK_DB_DEBUG=1，否则只能看自己"></select>
+        </label>
+        <label>Session
+          <select id="audit-session"><option>加载中…</option></select>
+        </label>
+        <button id="audit-run-btn">运行 Audit</button>
+        <button id="audit-upload-btn" class="ghost" disabled>上传到 SQLite</button>
+        <button id="audit-reload-sessions" class="ghost">刷新 session 列表</button>
+        <button id="audit-demo-btn" class="ghost" title="无真实回放时用合成 frames 跑一次，立刻看工具长什么样">载入演示数据</button>
+      </div>
+      <details class="audit-paste" style="margin-bottom:14px">
+        <summary style="cursor:pointer;color:var(--muted);padding:6px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px">📋 或粘贴 frames JSON（无需 server / sqlite）</summary>
+        <div style="margin-top:10px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px">
+          <p style="margin:0 0 8px">粘贴 <code>move_sequences.frames</code> 数组或 <code>{ frames: [...] }</code> 对象，点"从粘贴运行"即可（数据不离开浏览器，不写 SQLite）。</p>
+          <textarea id="audit-paste-input" rows="6" placeholder='[{"v":2,"t":"init","ts":0,...}, {"v":2,"t":"place","ts":1500,...}, ...]' style="width:100%;font-family:ui-monospace,monospace;font-size:12px;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px;box-sizing:border-box"></textarea>
+          <button id="audit-paste-run-btn" style="margin-top:8px">从粘贴运行</button>
+        </div>
+      </details>
+      <div id="audit-single"></div>
+    </div>
+
+    <!-- Tab 2: 对照 -->
+    <div id="tab-compare" hidden>
+      <div class="toolbar">
+        <label>Current (新版本)
+          <select id="audit-session-cmp"></select>
+        </label>
+        <label>Baseline (旧版本 / 参照)
+          <select id="audit-baseline-session"><option>加载中…</option></select>
+        </label>
+        <button id="audit-compare-btn">运行对照 Audit</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        💡 对照模式需至少 2 个已完成 session。用于灰度 release 卡口：发现 <code>REGRESSION_CONTRACT</code> / <code>HEALTH_SCORE_REGRESSION</code> 即建议阻断发布。
+      </p>
+      <div id="audit-compare-result"></div>
+    </div>
+
+    <!-- Tab 3: 聚合 -->
+    <div id="tab-aggregate" hidden>
+      <div class="toolbar">
+        <label>近 N 天
+          <input id="audit-days" type="number" min="1" max="90" value="7">
+        </label>
+        <button id="audit-aggregate-btn" class="ghost">刷新聚合</button>
+        <button id="audit-auto-btn" title="扫近 N 天未 audit 的 session，逐局跑 audit + 上传 + 输出优化建议清单">🤖 一键自动巡检</button>
+        <button id="audit-auto-force-btn" class="ghost" title="强制重跑所有 session（含已 audit 的）">↻ 强制重跑</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        💡 <b>一键自动巡检</b>：扫所有 session → audit → 上传 → 聚合 → 翻译为可执行的代码优化建议（按 P1→P5 排序，可展开看具体改哪个文件）
+      </p>
+      <div id="audit-actions"></div>
+      <div id="audit-aggregate"></div>
+    </div>
+  </main>
+
+  <script type="module">
+    // vite root = web/，使用相对路径（与 spawn-eval.html 一致）
+    import { initProfileAuditApp } from './src/profileAuditApp.js';
+    // 对照 tab 与单局 tab 共用同一个 #audit-session select，让 baseline tab 也复用
+    // 这里让 #audit-session-cmp 镜像 #audit-session 的内容
+    initProfileAuditApp();
+    const src = document.getElementById('audit-session');
+    const mirror = document.getElementById('audit-session-cmp');
+    const sync = () => { if (mirror && src) mirror.innerHTML = src.innerHTML; };
+    new MutationObserver(sync).observe(src, { childList: true });
+    sync();
+  </script>
+</body>
+</html>

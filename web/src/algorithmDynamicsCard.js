@@ -68,6 +68,106 @@ function _intentLabel(intent) {
     return SPAWN_INTENT_LABEL[intent] || intent || '—';
 }
 
+export function renderExperienceBudgetCard(insight) {
+    const budget = insight?.spawnDiagnostics?.layer2?.experienceBudget;
+    const diag = insight?.spawnDiagnostics || {};
+    if (!budget) {
+        return '';
+    }
+    const items = [
+        ['survival', '保活', '#22d3ee', 'survival 保活预算：越高越偏向首步自由度、可解性、低空洞。'],
+        ['payoff', '奖励', '#fcd34d', 'payoff 奖励预算：越高越偏向消行、多消、清屏、同花顺机会。'],
+        ['pressure', '压力', '#fb923c', 'pressure 压力预算：越高越偏向复杂形状、顺序刚性、空间压力。'],
+        ['novelty', '新鲜', '#a78bfa', 'novelty 新鲜预算：越高越偏向品类变化、避免重复、趣味变化。'],
+    ];
+    const rows = items.map(([key, label, color, tip]) => {
+        const v = Math.max(0, Math.min(1, Number(budget[key]) || 0));
+        return `<div class="adc-budget-cell" title="${_attr(`${tip}\n当前值 ${_fmt(v)}：${_budgetLevelText(v)}`)}">
+            <span class="adc-budget-label">${label}</span>
+            <span class="adc-budget-bar"><i style="width:${(v * 100).toFixed(1)}%;background:${color}"></i></span>
+            <b>${_fmt(v)}</b>
+        </div>`;
+    }).join('');
+    const meta = [
+        `模式 ${diag.experimentMode || 'rule'}`,
+        `扫 ${diag.evaluatedTriplets ?? 0}`,
+        `深评 ${diag.deepEvaluatedTriplets ?? 0}`,
+    ];
+    if (Number.isFinite(Number(budget.personalizationStrength))) meta.push(`个性 ${_fmt(budget.personalizationStrength)}`);
+    if (Number.isFinite(Number(budget.surpriseBudget))) meta.push(`惊喜 ${_fmt(budget.surpriseBudget)}`);
+    return `
+        <div class="adc-budget">
+            <div class="adc-budget-head" title="${_attr('P2 体验预算：把出块意图压缩为保活/奖励/压力/新鲜四个连续目标，候选三块按预算加权评分。')}">预算 <span>${meta.join(' · ')}</span></div>
+            ${rows}
+        </div>
+    `;
+}
+
+export function renderPbAndPersonalizationCard(insight, profile) {
+    if (!insight && !profile) return '';
+    const best = Number(insight?.bestScore ?? insight?.spawnContext?.bestScore ?? 0);
+    const score = Number(insight?.score ?? 0);
+    const ratio = best > 0 ? score / best : null;
+    const pre = ratio == null ? 0 : 1 / (1 + Math.exp(-((ratio - 0.82) / 0.08)));
+    const post = ratio == null ? 0 : 1 / (1 + Math.exp(-((ratio - 1.05) / 0.06)));
+    const release = insight?.spawnHints?.postPbReleaseActive ? 1 : 0;
+    const pref = _derivePreference(profile, insight);
+    const pbRows = [
+        ['张力', pre, '#fb923c', 'PB前张力：越接近个人最佳，压力按 S 曲线逐步上升。'],
+        ['刹车', post, '#ef4444', 'PB后刹车：突破个人最佳后，压力快速上扬以抑制分数膨胀。'],
+        ['释放', release, '#22d3ee', '突破释放：刚破 PB 后短暂降压，让玩家获得庆祝和延展空间。'],
+    ].map(([label, v, color, tip]) => _miniBar(label, v, color, tip)).join('');
+    const prefRows = [
+        ['直消', pref.clearSeeker, '#fcd34d', '直消偏好：玩家倾向直接消行和即时奖励。'],
+        ['连锁', pref.comboPlanner, '#f472b6', '连锁偏好：玩家倾向铺垫多消和连续消行。'],
+        ['生存', pref.survivalist, '#22d3ee', '生存偏好：玩家更需要稳态机动性和安全落点。'],
+        ['冒险', pref.riskTaker, '#fb923c', '冒险偏好：玩家能承受更高压力和复杂组合。'],
+        ['新鲜', pref.noveltyLover, '#a78bfa', '新鲜偏好：玩家更需要形状变化和低重复感。'],
+    ].map(([label, v, color, tip]) => _miniBar(label, v, color, tip)).join('');
+    const ratioText = ratio == null ? 'PB 未知' : `PB ${(ratio * 100).toFixed(1)}%`;
+    return `
+        <div class="adc-budget adc-pb-personal">
+            <div class="adc-budget-head" title="${_attr('PB 曲线：围绕个人最佳分控制压力。PB 前临近守门，PB 后防分数膨胀。')}">PB <span>${ratioText}</span></div>
+            ${pbRows}
+            <div class="adc-budget-head adc-budget-head--sub" title="${_attr('个性化偏好：根据玩家历史行为微调预算，只影响倾向，不绕过公平/可解性约束。')}">偏好 <span>预算微调</span></div>
+            ${prefRows}
+        </div>
+    `;
+}
+
+function _miniBar(label, value, color, tip = '') {
+    const v = Math.max(0, Math.min(1, Number(value) || 0));
+    return `<div class="adc-budget-cell" title="${_attr(`${tip}\n当前值 ${_fmt(v)}：${_budgetLevelText(v)}`)}">
+        <span class="adc-budget-label">${label}</span>
+        <span class="adc-budget-bar"><i style="width:${(v * 100).toFixed(1)}%;background:${color}"></i></span>
+        <b>${_fmt(v)}</b>
+    </div>`;
+}
+
+function _budgetLevelText(v) {
+    if (v >= 0.75) return '强烈主导当前决策';
+    if (v >= 0.45) return '中等影响当前决策';
+    if (v >= 0.18) return '轻微参与当前决策';
+    return '当前影响较弱';
+}
+
+function _derivePreference(profile = {}, insight = {}) {
+    const m = profile?.metrics || {};
+    const playstyle = profile?.playstyle || 'balanced';
+    const clearRate = Math.max(0, Math.min(1, Number(m.clearRate) || 0));
+    const comboRate = Math.max(0, Math.min(1, Number(m.comboRate) || 0));
+    const skill = Math.max(0, Math.min(1, Number(profile?.skillLevel) || 0.5));
+    const frust = Math.max(0, Math.min(1, (Number(profile?.frustrationLevel) || 0) / 5));
+    const rounds = Math.max(0, Math.min(1, Number(insight?.spawnDiagnostics?.layer3?.totalRounds || 0) / 80));
+    return {
+        clearSeeker: Math.max(0, Math.min(1, clearRate * 0.7 + (playstyle === 'multi_clear' ? 0.25 : 0.1))),
+        comboPlanner: Math.max(0, Math.min(1, comboRate * 0.7 + (playstyle === 'combo' ? 0.25 : 0.1))),
+        survivalist: Math.max(0, Math.min(1, frust * 0.45 + (1 - skill) * 0.25 + (playstyle === 'survival' ? 0.25 : 0.1))),
+        riskTaker: Math.max(0, Math.min(1, skill * 0.5 + (playstyle === 'perfect_hunter' ? 0.25 : 0.05))),
+        noveltyLover: Math.max(0, Math.min(1, rounds * 0.35 + (profile?.flowState === 'bored' ? 0.35 : 0.15))),
+    };
+}
+
 /**
  * 从 history 数组按 spawnRoundIndex 聚合，每轮取最后一个快照（spawn 决策时刻）。
  * 返回最近 N 轮（按时间倒序的最新 N 轮）。

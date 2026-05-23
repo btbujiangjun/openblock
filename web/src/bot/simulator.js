@@ -1,11 +1,24 @@
 /**
- * 与主游戏一致的无头对局，用于自博弈与策略训练（v5：含直接监督信号）
+ * 与 Web 规则轨实局一致的无头对局，用于自博弈、策略训练与出块评估。
+ *
+ * 出块链路保持同源：
+ * PlayerProfile + spawnContext → resolveAdaptiveStrategy → generateDockShapes。
  */
 import { Grid } from '../grid.js';
 import { getStrategy } from '../config.js';
-import { getAllShapes } from '../shapes.js';
+import { getAllShapes, getShapeCategory } from '../shapes.js';
 import { FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
-import { generateDockShapes } from './blockSpawn.js';
+import { derivePbCurve, resolveAdaptiveStrategy, resetAdaptiveMilestone } from '../adaptiveSpawn.js';
+import { PlayerProfile } from '../playerProfile.js';
+import {
+    generateDockShapes,
+    getLastSpawnDiagnostics,
+    SPECIAL_SHAPES
+} from './blockSpawn.js';
+import {
+    generateExperimentalDockShapes,
+    SPAWN_GENERATOR_BASELINE,
+} from './spawnExperiments.js';
 import {
     computeClearScore,
     detectBonusLines,
@@ -167,10 +180,15 @@ export function boardPotential(grid, dock) {
 export class OpenBlockSimulator {
     /**
      * @param {string} [strategyId]
-     * @param {{ winScoreThreshold?: number }} [options]
+     * @param {{ winScoreThreshold?: number, bestScore?: number, runStreak?: number, spawnGenerator?: string, maxEvaluatedTriplets?: number, modelConfig?: object }} [options]
      */
     constructor(strategyId = 'normal', options = {}) {
         this.strategyId = strategyId;
+        this.bestScore = Math.max(0, Number(options?.bestScore) || 0);
+        this.runStreak = Math.max(0, Number(options?.runStreak) || 0);
+        this.spawnGenerator = options?.spawnGenerator || SPAWN_GENERATOR_BASELINE;
+        this.maxEvaluatedTriplets = Number(options?.maxEvaluatedTriplets) || undefined;
+        this.modelConfig = options?.modelConfig || {};
         const w = options?.winScoreThreshold;
         this.winScoreThreshold = typeof w === 'number' && Number.isFinite(w)
             ? Math.max(1, Math.round(w))
@@ -179,11 +197,16 @@ export class OpenBlockSimulator {
     }
 
     reset() {
+        resetAdaptiveMilestone();
         const cfg = getStrategy(this.strategyId);
         this.strategyConfig = cfg;
         this.scoring = cfg.scoring;
         this.grid = new Grid(cfg.gridWidth || 8);
         this.grid.initBoard(cfg.fillRatio, cfg.shapeWeights);
+        this.playerProfile = new PlayerProfile();
+        this.playerProfile.recordNewGame();
+        this._spawnContext = this._createSpawnContext();
+        this._lastAdaptiveInsight = null;
         this.score = 0;
         this.totalClears = 0;
         this.steps = 0;
@@ -191,10 +214,149 @@ export class OpenBlockSimulator {
         this._spawnDock();
     }
 
+    _createSpawnContext() {
+        return {
+            lastClearCount: 0,
+            roundsSinceClear: 0,
+            recentCategories: [],
+            totalRounds: 0,
+            scoreMilestone: false,
+            bestScore: this.bestScore,
+            pbGrowthFast: false,
+            bottleneckTrough: Infinity,
+            bottleneckSolutionTrough: Infinity,
+            bottleneckSamples: 0,
+            specialShapeUsed: 0,
+            specialReliefUsed: 0,
+            specialPressureUsed: 0,
+            totalClears: 0,
+            roundsSinceSpecial: 0,
+            dupInjectUsed: 0,
+            roundsSinceDupInject: 0,
+        };
+    }
+
+    _remainingDockShapePool() {
+        return (this.dock || [])
+            .filter((b) => b && !b.placed && Array.isArray(b.shape))
+            .map((b) => ({ data: b.shape }));
+    }
+
+    _resolveLayeredStrategy() {
+        const layered = resolveAdaptiveStrategy(
+            this.strategyId,
+            this.playerProfile,
+            this.score,
+            this.runStreak,
+            this.grid.getFillRatio(),
+            {
+                ...this._spawnContext,
+                _gridRef: this.grid,
+                _dockShapePool: this._remainingDockShapePool(),
+            }
+        );
+        this._spawnContext.scoreMilestone = layered?.spawnHints?.scoreMilestone === true;
+        this._spawnContext.roundsSinceSpecial = (this._spawnContext.roundsSinceSpecial ?? 0) + 1;
+        this._spawnContext.roundsSinceDupInject = (this._spawnContext.roundsSinceDupInject ?? 0) + 1;
+        this._spawnContext.skin = _rlBonusSkin();
+        this._lastAdaptiveInsight = {
+            adaptiveEnabled: true,
+            score: this.score,
+            bestScore: this.bestScore,
+            fill: this.grid.getFillRatio(),
+            spawnHints: { ...(layered.spawnHints || {}) },
+            adaptiveStressRaw: layered._adaptiveStressRaw,
+        };
+        return layered;
+    }
+
+    _pickDockColors(layered, diagnostics = null) {
+        const iconBonusTarget = Math.max(0, Math.min(1, layered?.spawnHints?.iconBonusTarget ?? 0));
+        const bonusBias = monoNearFullLineColorWeights(this.grid, _rlBonusSkin())
+            .map((w) => w * (1 + iconBonusTarget * 2.5));
+        const diag = diagnostics || getLastSpawnDiagnostics();
+        const chosenMetas = diag?.chosen || [];
+        const dockColors = new Array(3).fill(null);
+        const lockedSlots = new Set();
+
+        for (let i = 0; i < 3; i++) {
+            const meta = chosenMetas[i];
+            if (meta && (meta.monoFlush ?? 0) >= 1 && Number.isInteger(meta.monoFlushTargetCi)) {
+                dockColors[i] = meta.monoFlushTargetCi;
+                lockedSlots.add(i);
+            }
+        }
+
+        const usedSet = new Set();
+        for (const slot of lockedSlots) usedSet.add(dockColors[slot]);
+        const primaryPicks = pickThreeDockColors(bonusBias).filter((c) => !usedSet.has(c));
+        const fallbackPool = [0, 1, 2, 3, 4, 5, 6, 7].filter((c) => !usedSet.has(c));
+        let primaryIdx = 0;
+
+        for (let i = 0; i < 3; i++) {
+            if (lockedSlots.has(i)) continue;
+            let color = primaryPicks[primaryIdx++];
+            if (color == null || usedSet.has(color)) {
+                color = fallbackPool.find((c) => !usedSet.has(c));
+            }
+            if (color == null) color = Math.floor(Math.random() * 8);
+            dockColors[i] = color;
+            usedSet.add(color);
+        }
+        return dockColors;
+    }
+
+    _commitSpawnContext(shapes, layered, diagnostics = null) {
+        this._spawnContext.totalRounds++;
+        if (shapes?.some((s) => SPECIAL_SHAPES.includes(s.id))) {
+            this._spawnContext.roundsSinceSpecial = 0;
+        }
+        this._spawnContext.scoreMilestone = false;
+        this.playerProfile.recordSpawn();
+        this.playerProfile.tickRoundForDelight?.();
+        this._spawnContext.prevAdaptiveStress = layered._adaptiveStressRaw;
+        this._spawnContext.bottleneckTrough = Infinity;
+        this._spawnContext.bottleneckSolutionTrough = Infinity;
+        this._spawnContext.bottleneckSamples = 0;
+
+        const diag = diagnostics || getLastSpawnDiagnostics();
+        this._spawnContext.nearFullLines = diag?.layer1?.nearFullLines ?? 0;
+        this._spawnContext.pcSetup = diag?.layer1?.pcSetup ?? 0;
+        this._spawnContext.holes = diag?.layer1?.holes ?? 0;
+        this._spawnContext.multiClearCandidates = diag?.layer1?.multiClearCandidates ?? 0;
+        this._spawnContext.perfectClearCandidates = diag?.layer1?.perfectClearCandidates ?? 0;
+        this._lastAdaptiveInsight = {
+            ...(this._lastAdaptiveInsight || {}),
+            spawnDiagnostics: diag,
+            spawnSource: 'rule',
+        };
+    }
+
     _spawnDock() {
-        const shapes = generateDockShapes(this.grid, this.strategyConfig);
-        const bias = monoNearFullLineColorWeights(this.grid, _rlBonusSkin());
-        const dockColors = pickThreeDockColors(bias);
+        const layered = this._resolveLayeredStrategy();
+        let shapes;
+        let diagnostics = null;
+        if (this.spawnGenerator === SPAWN_GENERATOR_BASELINE) {
+            shapes = generateDockShapes(this.grid, layered, this._spawnContext);
+            diagnostics = getLastSpawnDiagnostics();
+        } else {
+            const pbCurve = derivePbCurve(
+                this.score,
+                this.bestScore,
+                this._spawnContext.postPbReleaseActive === true
+            );
+            const generated = generateExperimentalDockShapes(this.grid, layered, this._spawnContext, {
+                mode: this.spawnGenerator,
+                maxEvaluatedTriplets: this.maxEvaluatedTriplets,
+                profile: this.playerProfile,
+                ...pbCurve,
+                ...this.modelConfig,
+            });
+            shapes = generated.shapes;
+            diagnostics = generated.diagnostics;
+        }
+        this._commitSpawnContext(shapes, layered, diagnostics);
+        const dockColors = this._pickDockColors(layered, diagnostics);
         this.dock = [];
         for (let i = 0; i < 3; i++) {
             const shape = shapes[i] || getAllShapes()[0];
@@ -215,6 +377,9 @@ export class OpenBlockSimulator {
             totalClears: this.totalClears,
             steps: this.steps,
             placements: this.placements,
+            spawnContext: clonePlain(this._spawnContext),
+            playerProfile: cloneProfile(this.playerProfile),
+            lastAdaptiveInsight: clonePlain(this._lastAdaptiveInsight),
         };
     }
 
@@ -228,6 +393,9 @@ export class OpenBlockSimulator {
         this.totalClears = s.totalClears;
         this.steps = s.steps;
         this.placements = s.placements;
+        this._spawnContext = clonePlain(s.spawnContext);
+        this.playerProfile = restoreProfile(s.playerProfile);
+        this._lastAdaptiveInsight = clonePlain(s.lastAdaptiveInsight);
     }
 
     /** @returns {{ blockIdx: number, gx: number, gy: number }[]} */
@@ -299,7 +467,13 @@ export class OpenBlockSimulator {
 
         const potBefore = _POT_ENABLED ? boardPotential(this.grid, this.dock) : 0;
         const prevScore = this.score;
-        this.grid.place(b.shape, b.colorIdx, gx, gy);
+        this.grid.place(
+            b.shape,
+            b.colorIdx,
+            gx,
+            gy,
+            { shapeId: b.id, isSpecial: SPECIAL_SHAPES.includes(b.id) }
+        );
         this.placements++;
         this.steps++;
 
@@ -315,11 +489,27 @@ export class OpenBlockSimulator {
             this.totalClears += clears;
             gain = computeClearScore(this.strategyId, result, this.scoring).clearScore;
             this.score += gain;
+            this._spawnContext.lastClearCount = result.count;
+            this._spawnContext.roundsSinceClear = 0;
+            if (result.perfectClear) {
+                this.playerProfile.recordDelight?.('pcClear');
+            } else if (result.count >= 2) {
+                this.playerProfile.recordDelight?.('multiClear');
+            } else if ((result.bonusLines || []).some((x) => x?.kind === 'monoFlush' || x?.iconBonus >= 5)) {
+                this.playerProfile.recordDelight?.('monoFlush');
+            }
+        } else {
+            this._spawnContext.lastClearCount = 0;
         }
         this._lastClears = clears;
+        this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
 
         b.placed = true;
         if (this.dock.every((x) => x.placed)) {
+            if (this._spawnContext.lastClearCount === 0) {
+                this._spawnContext.roundsSinceClear++;
+            }
+            this._rememberRecentCategories();
             this._spawnDock();
         }
 
@@ -333,4 +523,39 @@ export class OpenBlockSimulator {
         }
         return r;
     }
+
+    _rememberRecentCategories() {
+        const cats = this.dock.map((b) => getShapeCategory(b.id));
+        this._spawnContext.recentCategories = [
+            ...(this._spawnContext.recentCategories || []),
+            ...cats,
+        ].slice(-9);
+        this._spawnContext.totalClears = this.totalClears;
+    }
+}
+
+function clonePlain(value) {
+    if (value == null) return value;
+    if (typeof structuredClone === 'function') {
+        try {
+            return structuredClone(value);
+        } catch { /* fall through */ }
+    }
+    return JSON.parse(JSON.stringify(value));
+}
+
+function cloneProfile(profile) {
+    const data = {};
+    for (const key of Object.keys(profile || {})) {
+        data[key] = clonePlain(profile[key]);
+    }
+    return data;
+}
+
+function restoreProfile(snapshot) {
+    const profile = new PlayerProfile();
+    for (const [key, value] of Object.entries(snapshot || {})) {
+        profile[key] = clonePlain(value);
+    }
+    return profile;
 }

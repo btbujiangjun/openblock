@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenBlock 出块评估</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --line: #374151;
+      --accent: #60a5fa;
+      --good: #34d399;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 48px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: flex-end;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 18px;
+      margin-bottom: 20px;
+    }
+    h1, h2 { margin: 0; }
+    h1 { font-size: 24px; }
+    h2 { font-size: 18px; margin-bottom: 12px; }
+    p { color: var(--muted); line-height: 1.6; }
+    .help {
+      background: rgba(17, 24, 39, 0.72);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 18px;
+    }
+    .help-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .help-card {
+      background: rgba(31, 41, 55, 0.55);
+      border: 1px solid rgba(55, 65, 81, 0.8);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .help-card h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      color: var(--text);
+    }
+    .help-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 13px;
+    }
+    .hint-text {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 18px;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    input, select, button {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      color: var(--text);
+      min-height: 38px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    select[multiple] { min-height: 82px; }
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      color: #07111f;
+      font-weight: 700;
+      align-self: end;
+    }
+    button:disabled { opacity: 0.65; cursor: wait; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat, section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .stat strong {
+      display: block;
+      font-size: 24px;
+      margin-bottom: 4px;
+      color: var(--good);
+    }
+    .stat span, small { color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.9fr;
+      gap: 16px;
+      align-items: start;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 8px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th { color: var(--muted); font-weight: 600; }
+    .comparison {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 5px;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 0;
+    }
+    .comparison:first-child { padding-top: 0; }
+    .comparison:last-child { border-bottom: 0; padding-bottom: 0; }
+    .comparison span { color: var(--muted); }
+    .bars { display: grid; gap: 10px; }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 140px 1fr 58px;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+    .bar-track {
+      height: 12px;
+      background: var(--panel-2);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      background: var(--accent);
+    }
+    pre {
+      max-height: 360px;
+      overflow: auto;
+      background: #020617;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      color: #cbd5e1;
+    }
+    .raw { margin-top: 16px; }
+    .muted { color: var(--muted); margin: 0; }
+    .optimizer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .optimizer-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .inline-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .inline-actions input[type="checkbox"] { min-height: auto; }
+    .pb-card {
+      margin-bottom: 18px;
+    }
+    .pb-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .pb-metric {
+      background: rgba(31, 41, 55, 0.48);
+      border: 1px solid rgba(55, 65, 81, 0.8);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .pb-metric strong {
+      display: block;
+      font-size: 18px;
+      color: var(--good);
+      margin-bottom: 4px;
+    }
+    .pb-metric span { color: var(--muted); font-size: 12px; }
+    .pb-formula {
+      margin-top: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: #cbd5e1;
+      background: #020617;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    #insights h3 { font-size: 14px; margin: 12px 0 6px; }
+    #insights ul { margin: 0 0 0 18px; color: var(--muted); line-height: 1.6; }
+    @media (max-width: 900px) {
+      header, .grid, .optimizer { grid-template-columns: 1fr; display: grid; }
+      .controls, .summary, .help-grid { grid-template-columns: 1fr 1fr; }
+      .optimizer-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>OpenBlock 出块评估工具</h1>
+        <p>用模拟玩家批量跑局，对比 baseline / P1 / P2 出块策略，判断“是否公平、是否有爽点、是否会让分数膨胀”。</p>
+      </div>
+      <small id="timestamp">等待评估</small>
+    </header>
+
+    <section class="help">
+      <h2>这是什么？怎么读？</h2>
+      <p>
+        这个工具不是训练 AI 的按钮，而是一个“出块策略实验室”。它会用不同类型的 Bot 模拟玩家，
+        在相同难度下对比不同出块生成器，最后输出指标和改进建议。
+      </p>
+      <div class="help-grid">
+        <div class="help-card">
+          <h3>1. 先选实验范围</h3>
+          <ul>
+            <li>难度：`easy / normal / hard`。</li>
+            <li>生成器：`baseline` 是当前主策略，`triplet-p1` 是组合评分，`budget-p2` 是体验预算。</li>
+            <li>Bot：模拟不同水平/风格玩家。</li>
+          </ul>
+        </div>
+        <div class="help-card">
+          <h3>2. 再看核心指标</h3>
+          <ul>
+            <li>`死局率` 不能比 baseline 更高。</li>
+            <li>`消行间隔` 越低，爽点越密。</li>
+            <li>`首步自由` 越高，玩家容错越好。</li>
+          </ul>
+        </div>
+        <div class="help-card">
+          <h3>3. 最后看建议</h3>
+          <ul>
+            <li>报告会给推荐方案。</li>
+            <li>若 P2 奖励自主性更高且死局不升，值得继续放大样本。</li>
+            <li>若分数过高，要警惕 PB 膨胀。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="controls">
+      <label title="同一个种子会复现同一批随机选择，方便前后对比。">随机种子<input id="seed" type="number" value="20260523"></label>
+      <label title="每个 难度×生成器×Bot 组合要跑多少局。越大越可信，但越慢。">每组局数<input id="sessions" type="number" value="30" min="1" max="500"></label>
+      <label title="单局最多落多少步。强 Bot 可能很久不死，用它限制评估时间。">单局最大步数<input id="max-steps" type="number" value="240" min="20" max="1000"></label>
+      <label title="P1/P2 每次出块最多扫描多少组三块组合。越大越精细，但越慢。">P1/P2 组合上限<input id="max-triplets" type="number" value="80" min="12" max="240"></label>
+      <label title="PB 双 S 曲线评估用个人最佳分。nearPB / breakPB / overshoot 指标都以它为基准。">个人最佳<input id="best-score" type="number" value="1000" min="1"></label>
+      <label title="选择要评估的游戏难度，可多选。">难度<select id="strategies" multiple></select></label>
+      <label title="baseline=当前主出块；triplet-p1=组合级评分；budget-p2=体验预算模型。">生成器<select id="spawn-generators" multiple></select></label>
+      <label title="random=低规划玩家；clear-greedy=追求消行；survival=优先生存。">Bot 策略<select id="policies" multiple></select></label>
+      <button id="run-btn" type="button" title="按当前参数运行一次评估。">运行评估</button>
+    </div>
+
+    <section class="pb-card">
+      <h2>PB 双 S 曲线策略</h2>
+      <p>
+        评估工具会以“个人最佳”为基准计算压力：接近 PB 前压力按 S 曲线上升；突破 PB 后进入刹车曲线，抑制分数膨胀；刚破纪录可用释放窗口短暂降压。
+      </p>
+      <div class="pb-grid">
+        <div class="pb-metric" title="pbTension = sigmoid((score / bestScore - 0.82) / 0.08)。越接近 PB，越提高 pressure。">
+          <strong id="pb-tension-preview">0.00</strong>
+          <span>PB前张力</span>
+        </div>
+        <div class="pb-metric" title="pbBrake = sigmoid((score / bestScore - 1.05) / 0.06)。突破 PB 后快速提高刹车，降低 payoff。">
+          <strong id="pb-brake-preview">0.00</strong>
+          <span>PB后刹车</span>
+        </div>
+        <div class="pb-metric" title="pbRelease 表示刚破 PB 后的释放窗口。当前评估默认按 0 处理，可在真实对局上下文中由 postPbReleaseActive 触发。">
+          <strong id="pb-release-preview">0.00</strong>
+          <span>突破释放</span>
+        </div>
+      </div>
+      <div class="pb-formula" id="pb-formula-preview">
+        pbRatio = 0 / 1000 = 0.00 · 当前阶段 warmup
+      </div>
+    </section>
+
+    <div class="optimizer">
+      <section>
+        <h2>策略参数优化器</h2>
+        <p>这里定义“什么叫好”。权重越高，该目标越重要。自动寻优会按这些权重选择方案。</p>
+        <div class="optimizer-grid">
+          <label title="越高越重视降低无路可走。通常最重要。">死局权重<input id="w-no-move" type="number" value="0.35" step="0.01"></label>
+          <label title="越高越重视消行、多消等爽点收益。">奖励权重<input id="w-reward" type="number" value="0.25" step="0.01"></label>
+          <label title="越高越重视高手/生存 Bot 相比随机 Bot 的收益差距。">技能权重<input id="w-skill" type="number" value="0.20" step="0.01"></label>
+          <label title="越高越惩罚 fallback，避免主算法经常兜底。">兜底权重<input id="w-fallback" type="number" value="0.12" step="0.01"></label>
+          <label title="越高越重视奖励间隔不要过长。">节奏权重<input id="w-pacing" type="number" value="0.08" step="0.01"></label>
+          <label title="P2 会根据玩家偏好微调预算。建议 0.05~0.18。">个性化强度<input id="personalization-strength" type="number" value="0.10" step="0.01"></label>
+          <label title="在合法 Top 组合中加入受控随机。建议 0.03~0.08。">随机温度<input id="random-temperature" type="number" value="0.04" step="0.01"></label>
+          <label title="提高低频惊喜事件倾向，如同花、清屏铺垫、形状变化。">惊喜增长<input id="surprise-gain" type="number" value="0.08" step="0.01"></label>
+          <label title="惊喜预算的冷却轮次。越大越克制。">惊喜冷却<input id="surprise-cooldown" type="number" value="6" step="1"></label>
+        </div>
+        <div class="inline-actions">
+          <button id="auto-btn" type="button" title="自动尝试几组 baseline/P1/P2 参数，并按综合评分推荐当前最优。">自动寻优</button>
+        </div>
+        <pre id="optimizer-output"></pre>
+      </section>
+
+      <section>
+        <h2>SQLite 参数方案</h2>
+        <p>保存当前寻优参数；加载后会立即填充页面控件，并对下一次评估生效。</p>
+        <label>方案名<input id="config-name" value="出块优化方案"></label>
+        <label>已保存方案<select id="saved-configs"></select></label>
+        <div class="inline-actions">
+          <label><input id="activate-on-save" type="checkbox" checked> 保存后设为生效</label>
+          <button id="save-config-btn" type="button">保存到 SQLite</button>
+          <button id="load-config-btn" type="button">加载生效</button>
+        </div>
+        <p id="save-status"></p>
+      </section>
+    </div>
+
+    <div id="summary" class="summary"></div>
+
+    <div class="grid">
+      <section>
+        <h2>核心指标</h2>
+        <table>
+          <thead>
+            <tr>
+              <th title="游戏难度配置。">难度</th>
+              <th title="出块算法版本：baseline 当前主策略；triplet-p1 组合评分；budget-p2 体验预算。">生成器</th>
+              <th title="模拟玩家策略。">Bot</th>
+              <th title="平均分。过高可能代表 PB 膨胀风险。">均分</th>
+              <th title="平均落子数，越高代表局长更长。">步数</th>
+              <th title="平均消行数，衡量奖励兑现。">消行</th>
+              <th title="无路可走终局比例。不能高于 baseline。">死局率</th>
+              <th title="平均两次消行之间隔多少步。越低越爽，但过低可能喂牌。">消行间隔</th>
+              <th title="出块器进入 fallback 的比例。过高说明约束或候选策略过紧。">兜底率</th>
+              <th title="平均重抽/尝试次数。越高表示算法越挣扎。">尝试</th>
+              <th title="三块中最卡的一块有多少首步可放位置。越高容错越好。">首步自由</th>
+              <th title="达到 85% 个人最佳的局占比。越高说明玩家经常接近 PB。">近PB</th>
+              <th title="超过 115% 个人最佳的局占比。过高说明分数膨胀。">超PB</th>
+            </tr>
+          </thead>
+          <tbody id="result-body"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>公平与自主性</h2>
+        <div id="comparison-list"></div>
+      </section>
+
+      <section>
+        <h2>均分对比</h2>
+        <div id="bars" class="bars"></div>
+      </section>
+
+      <section>
+        <h2>报告解读与建议</h2>
+        <div id="insights"></div>
+      </section>
+
+      <section>
+        <h2>读数说明</h2>
+        <p>自然公平差 = 随机 bot 死局率 - 生存 bot 死局率。差值越高，说明出块更依赖玩家规划。</p>
+        <p>奖励自主性 = 贪心消行 bot 比随机 bot 多获得的消行数。差值越高，说明玩家选择对奖励兑现更有影响。</p>
+        <p>推荐优先判断：P2 死局率不升、奖励自主性提升、P90 分数不暴涨，才值得继续放大样本。</p>
+      </section>
+    </div>
+
+    <section class="raw">
+      <h2>JSON 报告</h2>
+      <pre id="raw-json"></pre>
+    </section>
+  </main>
+  <script type="module" src="./src/spawnEvalApp.js"></script>
+</body>
+</html>
+

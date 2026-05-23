@@ -37,3 +37,11 @@ services/_alembic_dev.sqlite
 # mermaid CLI 渲染中间产物（mmd/svg/png 工作目录，可由源 markdown 重新生成）
 tools/diagram-render/work/
 tools/diagram-render/algo-work/
+
+# 性能/压测/audit 临时输出（CI 与本地的临时归档）
+.cursor-stress-logs/
+logs/
+
+# Xcode 自动生成的 workspace 配置（每个开发者本地不同）
+mobile/ios/App/App.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+mobile/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/

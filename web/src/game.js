@@ -515,6 +515,12 @@ export class Game {
             boardRisk: layered._boardRisk ?? 0,
             stressBreakdown: layered._stressBreakdown ? { ...layered._stressBreakdown } : null,
             spawnTargets: layered._spawnTargets ? { ...layered._spawnTargets } : null,
+            pbCurve: layered._pbCurve ? { ...layered._pbCurve } : null,
+            pbRatio: layered._pbRatio ?? null,
+            pbTension: layered._pbTension ?? 0,
+            pbBrake: layered._pbBrake ?? 0,
+            pbRelease: layered._pbRelease ?? 0,
+            pbPhase: layered._pbPhase ?? 'unknown',
             sessionArc: layered._sessionArc,
             comboChain: layered._comboChain,
             rhythmPhase: layered._rhythmPhase,
@@ -905,12 +911,16 @@ export class Game {
         }
 
         if (typeof document !== 'undefined') {
-            document.addEventListener('visibilitychange', () => {
-                document.body.classList.toggle(
-                    'doc-visibility-hidden',
-                    document.visibilityState === 'hidden',
-                );
-            });
+            const syncVisibilityAttr = () => {
+                const hidden = document.visibilityState === 'hidden';
+                document.body.classList.toggle('doc-visibility-hidden', hidden);
+                /* v1.55.10：把 visibilityState 镜像到 <html data-visibility>，
+                 * 让 CSS 端可用 [data-visibility="hidden"] 全面停掉常驻动画，
+                 * 把后台标签页 GPU 占用降到接近 0。 */
+                document.documentElement?.setAttribute('data-visibility', hidden ? 'hidden' : 'visible');
+            };
+            syncVisibilityAttr();
+            document.addEventListener('visibilitychange', syncVisibilityAttr);
         }
     }
 
@@ -1563,7 +1573,13 @@ export class Game {
                 _gridRef: this.grid,
                 _dockShapePool: (this.dockBlocks || [])
                     .filter((b) => b && !b.placed && Array.isArray(b.shape))
-                    .map((b) => ({ data: b.shape }))
+                    .map((b) => ({ data: b.shape })),
+                /* v1.62.5（优化建议 #5）：把上一帧 spawnIntent 透传给 deriveSpawnIntent，
+                 * 启用 hysteresis（由 game_rules.adaptiveSpawn.spawnIntentCfg.hysteresisEnabled 控制）。
+                 * 没有上一帧时（首轮 spawn）= null，deriveSpawnIntent 内自动 noop。 */
+                prevSpawnIntent: this._lastAdaptiveInsight?.spawnHints?.spawnIntent
+                    ?? this._lastAdaptiveInsight?.spawnIntent
+                    ?? null,
             }
         );
 
@@ -3302,6 +3318,21 @@ export class Game {
         this.playerProfile.save();
     }
 
+    /**
+     * 计算"相对游戏开始的毫秒偏移"，作为 frame.ts。
+     *
+     * 时间基线：`gameStats.startTime`（this.start 中 Date.now() 设置；与本函数都用 Date.now，
+     * 不受系统挂钟跳变影响——若担心 NTP 校时引起的非单调，可后续切到 performance.now+epoch）。
+     *
+     * init 帧调用本函数时 `gameStats.startTime` 几乎与 Date.now() 相等，偏移近似 0；
+     * 但为了让回放工具读到"严格 0"作为时间原点，调用方对 init 帧仍传 `ts: 0`。
+     */
+    _frameTs() {
+        const start = Number(this.gameStats?.startTime);
+        if (!Number.isFinite(start)) return 0;
+        return Math.max(0, Date.now() - start);
+    }
+
     _captureInitFrame(strategyConfig) {
         if (!this.sessionId) {
             this.moveSequence = [];
@@ -3316,7 +3347,10 @@ export class Game {
             adaptiveInsight: null,
             spawnGeo: this._spawnGeoForSnapshot()
         });
-        this.moveSequence = [buildInitFrame(this.strategy, this.grid, strategyConfig.scoring, ps)];
+        /* v1.62：init 帧 ts 强制 0，作为整局时间原点 */
+        this.moveSequence = [
+            buildInitFrame(this.strategy, this.grid, strategyConfig.scoring, ps, { ts: 0 })
+        ];
         this._schedulePersistMoves();
     }
 
@@ -3333,7 +3367,7 @@ export class Game {
             adaptiveInsight: this._lastAdaptiveInsight,
             spawnGeo: this._spawnGeoForSnapshot()
         });
-        this.moveSequence.push(buildSpawnFrame(descriptors, ps));
+        this.moveSequence.push(buildSpawnFrame(descriptors, ps, { ts: this._frameTs() }));
         this._schedulePersistMoves();
     }
 
@@ -3362,7 +3396,7 @@ export class Game {
         });
         ps.linesCleared = c;
 
-        this.moveSequence.push(buildPlaceFrame(dockIndex, gx, gy, ps));
+        this.moveSequence.push(buildPlaceFrame(dockIndex, gx, gy, ps, { ts: this._frameTs() }));
         this._schedulePersistMoves();
     }
 
@@ -4143,5 +4177,9 @@ export class Game {
         this.renderer.renderPerfectFlash();
         this.renderer.renderParticles();
         this.renderer.renderIconParticles();
+        /* v1.55.12 GPU 优化：根据 fxCanvas 内容动态 display:none/'' ——
+         * 非环境粒子皮肤 + 静置时，fxCanvas 实际是空的；让 Chrome 回收合成层。
+         * 详见 renderer.js syncFxCanvasVisibility 头注释。 */
+        this.renderer.syncFxCanvasVisibility?.();
     }
 }

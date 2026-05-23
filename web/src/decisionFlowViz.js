@@ -52,6 +52,8 @@ import {
  *   §C 响应灵敏度（玩家信号 vs 算法响应 Pearson 粗估）
  * v1.59.6 删除 §A 意图时间线：信息密度低、占用右栏空间且切换次数已在出块意图段统计。 */
 import {
+    renderExperienceBudgetCard as _dfvRenderBudget,
+    renderPbAndPersonalizationCard as _dfvRenderPbPersonal,
     renderStressBreakdownStack as _dfvRenderStressStack,
     renderResponseSensitivityCard as _dfvRenderSens,
 } from './algorithmDynamicsCard.js';
@@ -63,6 +65,15 @@ import {
 function _ti(key, fallbackText) {
     const v = t(key);
     return (v && v !== key) ? v : fallbackText;
+}
+
+function _escapeAttr(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 const HOST_ID = 'decision-flow-viz';
@@ -217,6 +228,8 @@ const SPAWN_REASON_CN = {
     monoFlush:    '送同花',          /* v1.60.29：主路径同花顺彩蛋 */
     weighted:     '综合选',
     fallback:     '兜底块',
+    'triplet-p1':  '组合评',
+    'budget-p2':   '预算选',
     'special-relief':    '送减压',
     'special-pressure':  '送加压',
     'special-monoFlush': '送同花',   /* L2 注入路径，同义同色 */
@@ -233,6 +246,8 @@ const SPAWN_REASON_TIP = {
     monoFlush:    '送同花：本块可凑同花顺消除——放下后整行/列同 icon，触发 ×5 倍 iconBonus 大奖（特殊块·25%彩蛋节流）',
     weighted:     '综合选：5 hints + 6 targets + 4 schedule 多维加权抽选（主流路径）',
     fallback:     '兜底块：主路径 22 次重试都不满足存活约束，降级使用（少见）',
+    'triplet-p1':  '组合评：P1 实验轨，先筛三块组合，再按解法/机动性/消行潜力评分',
+    'budget-p2':   '预算选：P2 实验轨，按 survival/payoff/pressure/novelty 体验预算选择组合',
     'special-relief':    '送减压：reliefSignal 触发（清盘准备/高填补缝/有空洞），从独立池注入 1x2/1x3/L 块',
     'special-pressure':  '送加压：pressureSignal 触发（pressure/sprint 意图 + 低 fill + 少空洞），从独立池注入 diag-2/3 散点块',
     'special-monoFlush': '送同花：盘面有近满同色 line（empty≤2 且预填全同 icon），从独立池注入方向匹配的 1x2/2x1 → 补满即触发 ×5 倍 iconBonus',
@@ -246,6 +261,15 @@ const SPAWN_TARGET_CN = {
     spatialPressure:      '空间压力',
     payoffIntensity:      '兑现强度',
     novelty:              '新奇度',
+};
+
+const SPAWN_TARGET_SHORT_CN = {
+    shapeComplexity: '复杂',
+    solutionSpacePressure: '解空',
+    clearOpportunity: '消机',
+    spatialPressure: '空间',
+    payoffIntensity: '兑现',
+    novelty: '新奇',
 };
 
 /** v1.51.3：spawnHints 关键调度参数中文标签 */
@@ -264,6 +288,32 @@ const HINT_CN = {
     iconBonusTarget: '同色 bonus',
     motivationIntent:'动机',
     behaviorSegment: '行为分组',
+};
+
+const HINT_SHORT_CN = {
+    clearGuarantee: '保消',
+    sizePreference: '尺寸',
+    orderRigor: '刚性',
+    diversityBoost: '多样',
+    comboChain: '连击',
+    pacingPhase: '松紧',
+    rhythmPhase: '相位',
+    sessionArc: '弧线',
+    delightMode: '愉悦',
+    multiClearBonus: '多消',
+    perfectClearBoost: '清屏',
+    iconBonusTarget: '同色',
+    motivationIntent: '动机',
+    behaviorSegment: '分组',
+};
+
+const HINT_TIP = {
+    pacingPhase: '松紧期：玩家体验节奏的张弛状态，影响压力调节。',
+    rhythmPhase: '节奏相位：setup/payoff/neutral，决定当前更偏搭建还是兑现。',
+    sessionArc: '会话弧线：warmup/peak/cooldown，控制局内阶段感。',
+    delightMode: '愉悦模式：relief/flow/challenge 等爽感或救济倾向。',
+    motivationIntent: '动机意图：个性化层对当前玩家动机的归类。',
+    behaviorSegment: '行为分组：个性化层对玩家近期行为的分群。',
 };
 
 /** 压力驱动策略分量（基于 adaptiveSpawn spawnHints 实际字段） */
@@ -446,6 +496,7 @@ const SCHEDULE_PARAM_DRIVER_SIGNALS = {
  */
 const DRIVER_NODE_PATHS = {
     pcPotential: { strategy: [],                                 targets: [],                                                              schedule: ['perfectClearBoost'],                       intent: true },
+    clear:       { strategy: ['clearGuarantee'],                 targets: ['clearOpportunity'],                                            schedule: ['multiClearBonus'],                         intent: true },
     multiClear:  { strategy: [],                                 targets: [],                                                              schedule: ['multiClearBonus', 'multiLineTarget'],      intent: false },
     gapFills:    { strategy: ['clearGuarantee'],                 targets: ['clearOpportunity'],                                            schedule: [],                                          intent: false },
     holeReduce:  { strategy: ['clearGuarantee'],                 targets: ['spatialPressure'],                                             schedule: [],                                          intent: false },
@@ -453,6 +504,9 @@ const DRIVER_NODE_PATHS = {
     shapeWeight: { strategy: ['sizePreference'],                 targets: ['shapeComplexity'],                                             schedule: [],                                          intent: false },
     balanced:    { strategy: '*',                                targets: '*',                                                             schedule: '*',                                         intent: true },
     fallback:    { strategy: [],                                 targets: [],                                                              schedule: [],                                          intent: false },
+    'triplet-p1': { strategy: '*',                                targets: ['solutionSpacePressure', 'clearOpportunity', 'spatialPressure'], schedule: [],                                          intent: true },
+    'budget-p2':  { strategy: '*',                                targets: '*',                                                             schedule: ['multiClearBonus', 'perfectClearBoost'],   intent: true },
+    duplicate:    { strategy: ['diversityBoost'],                 targets: ['novelty'],                                                    schedule: [],                                          intent: false },
     /* v1.60.13：_tryInjectSpecial 注入路径的两个硬编码 driver key */
     relief:      { strategy: ['clearGuarantee', 'sizePreference'],         targets: ['clearOpportunity'],                                  schedule: ['multiClearBonus', 'iconBonusTarget'],      intent: true },
     pressure:    { strategy: ['sizePreference', 'diversityBoost'],         targets: ['spatialPressure', 'shapeComplexity', 'solutionSpacePressure'], schedule: ['multiLineTarget'],                 intent: true },
@@ -869,6 +923,11 @@ function _dfvFingerprint(insight, profile, live) {
             parts.push(`c${k}:${c?.id ?? ''}|${c?.reason ?? ''}`);
         }
         parts.push(`atk:${diag.attempt ?? 0}`);
+        const budget = diag.layer2?.experienceBudget;
+        if (budget) {
+            parts.push(`bud:${roundCoarse(budget.survival)}|${roundCoarse(budget.payoff)}|${roundCoarse(budget.pressure)}|${roundCoarse(budget.novelty)}|${roundCoarse(budget.personalizationStrength)}|${roundCoarse(budget.surpriseBudget)}`);
+            parts.push(`exp:${diag.experimentMode || ''}|${diag.evaluatedTriplets ?? 0}|${diag.deepEvaluatedTriplets ?? 0}`);
+        }
     }
     return parts.join('|');
 }
@@ -1245,10 +1304,11 @@ class DecisionFlowViz {
                             <div class="dfv-dynamics-host" id="dfv-dynamics-host"></div>
                         </div>
                         <div class="dfv-section dfv-section--intent">
-                            <div class="dfv-sec-title">${T.secIntent} <span class="dfv-sec-sub" id="dfv-intent-reason">${T.empty}</span></div>
                             <div class="dfv-intent-card">
+                                <span class="dfv-intent-title">${T.secIntent}</span>
                                 <span class="dfv-intent-pill" id="dfv-intent-pill">${T.empty}</span>
                                 <span class="dfv-intent-cn" id="dfv-intent-cn">${T.empty}</span>
+                                <span class="dfv-sec-sub dfv-intent-reason" id="dfv-intent-reason">${T.empty}</span>
                             </div>
                         </div>
                         <div class="dfv-section">
@@ -1265,11 +1325,11 @@ class DecisionFlowViz {
                         </div>
                         <div class="dfv-section">
                             <div class="dfv-sec-title">${T.secTargets} <span class="dfv-sec-sub">${T.secTargetsSub}</span></div>
-                            <ul class="dfv-list dfv-list--two-col" id="dfv-target-list"></ul>
+                            <ul class="dfv-list dfv-list--three-col dfv-list--targets" id="dfv-target-list"></ul>
                         </div>
                         <div class="dfv-section">
                             <div class="dfv-sec-title">${T.secHints} <span class="dfv-sec-sub">${T.secHintsSub}</span></div>
-                            <ul class="dfv-list dfv-list--two-col" id="dfv-hints-list"></ul>
+                            <ul class="dfv-list dfv-list--three-col dfv-list--hints" id="dfv-hints-list"></ul>
                         </div>
                     </div>
                 </div>
@@ -2417,9 +2477,11 @@ class DecisionFlowViz {
         if (!this._dynamicsHost) return;
         const history = Array.isArray(this._game?._insightLiveHistory)
             ? this._game._insightLiveHistory : [];
+        const pbHtml = _dfvRenderPbPersonal(insight, profile);
+        const budgetHtml = _dfvRenderBudget(insight);
         const stackHtml = _dfvRenderStressStack(insight);
         const sensHtml = _dfvRenderSens(history, 12);
-        this._dynamicsHost.innerHTML = `${stackHtml}${sensHtml}`;
+        this._dynamicsHost.innerHTML = `${pbHtml}${budgetHtml}${stackHtml}${sensHtml}`;
         void profile; // 当前模块未直接用 profile（保留签名以便后续扩展）
     }
 
@@ -3660,7 +3722,7 @@ class DecisionFlowViz {
                 return `<li><span class="dfv-li-key" title="${cat} · weight ${w}">${label}</span><span class="dfv-li-val">${prob}</span></li>`;
             }).join('');
 
-        /* —— spawnTargets top 6（v1.51.4：i18n + 2 列） —— */
+        /* —— spawnTargets top 6（v1.62：短标题 + 3 列 + hover 完整解释） —— */
         const tg = insight?.spawnTargets || {};
         const tEntries = Object.entries(tg)
             .filter(([, v]) => Number.isFinite(v) && Math.abs(v) > 0.005)
@@ -3669,8 +3731,12 @@ class DecisionFlowViz {
         els.target.innerHTML = tEntries.length === 0
             ? `<li class="dfv-list-empty">${emptyTxt}</li>`
             : tEntries.map(([k, v]) => {
-                const label = _ti(`dfv.target.${k}`, SPAWN_TARGET_CN[k] || k);
-                return `<li><span class="dfv-li-key" title="${k}">${label}</span><span class="dfv-li-val">${(+v).toFixed(2)}</span></li>`;
+                const fullLabel = _ti(`dfv.target.${k}`, SPAWN_TARGET_CN[k] || k);
+                const shortLabel = SPAWN_TARGET_SHORT_CN[k] || fullLabel.slice(0, 1);
+                const n = Number(v);
+                const level = n >= 0.75 ? '强主导' : n >= 0.45 ? '中影响' : n >= 0.18 ? '轻影响' : '弱影响';
+                const tip = `${fullLabel}（${k}）\n${TARGET_TIP[k] || ''}\n当前值 ${n.toFixed(2)}：${level}`;
+                return `<li title="${_escapeAttr(tip)}"><span class="dfv-li-key">${shortLabel}</span><span class="dfv-li-val">${n.toFixed(2)}</span></li>`;
             }).join('');
 
         /* —— spawnHints（关键调度参数；v1.51.4：i18n） —— */
@@ -3713,12 +3779,17 @@ class DecisionFlowViz {
         const hintItemsHtml = hintEntries.length === 0
             ? `<li class="dfv-list-empty">${emptyTxt}</li>`
             : hintEntries.map(([k, v]) => {
-                const label = _ti(`dfv.hint.${k}`, HINT_CN[k] || k);
+                const fullLabel = _ti(`dfv.hint.${k}`, HINT_CN[k] || k);
+                const label = HINT_SHORT_CN[k] || fullLabel.slice(0, 2);
                 let dispV;
                 if (typeof v === 'number') dispV = v.toFixed(2);
                 else if (HINT_VALUE_NS[k]) dispV = _ti(`dfv.val.${HINT_VALUE_NS[k]}.${v}`, String(v));
                 else dispV = String(v);
-                return `<li><span class="dfv-li-key" title="${k}">${label}</span><span class="dfv-li-val">${dispV}</span></li>`;
+                const valExplain = typeof v === 'number'
+                    ? (Math.abs(v) >= 0.75 ? '强影响' : Math.abs(v) >= 0.35 ? '中影响' : Math.abs(v) > 0 ? '轻影响' : '无影响')
+                    : `枚举值：${dispV}`;
+                const tip = `${fullLabel}（${k}）\n${HINT_TIP[k] || '调度提示：影响出块节奏、奖励、救济或个性化倾向。'}\n当前值 ${dispV}：${valExplain}`;
+                return `<li title="${_escapeAttr(tip)}"><span class="dfv-li-key">${label}</span><span class="dfv-li-val">${dispV}</span></li>`;
             }).join('');
         els.hints.innerHTML = anchorHtml + hintItemsHtml;
 
@@ -4146,6 +4217,44 @@ class DecisionFlowViz {
     text-transform: uppercase;
 }
 .dfv-dynamics-host .adc-muted { color: #64748b; font-size: 8.5px; }
+.dfv-dynamics-host .adc-budget {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 5px;
+    padding: 3px 5px 4px;
+    border: 1px solid rgba(125,211,252,0.14);
+    border-radius: 6px;
+    background: rgba(15,23,42,0.38);
+    margin-bottom: 3px;
+}
+.dfv-dynamics-host .adc-budget-head {
+    grid-column: 1 / -1;
+    display: flex; justify-content: space-between; gap: 4px;
+    font-size: 8.5px; color: #e2e8f0; font-weight: 700;
+}
+.dfv-dynamics-host .adc-budget-head--sub {
+    grid-column: 1 / -1;
+    margin-top: 3px;
+    color: #c4b5fd;
+}
+.dfv-dynamics-host .adc-budget-head span { color: #94a3b8; font-weight: 500; }
+.dfv-dynamics-host .adc-budget-cell {
+    display: grid;
+    grid-template-columns: 24px minmax(24px, 1fr) 22px;
+    gap: 2px;
+    align-items: center;
+    font-size: 7.8px; color: #cbd5e1;
+    min-width: 0;
+}
+.dfv-dynamics-host .adc-budget-label {
+    font-weight: 700;
+    color: #e2e8f0;
+    text-align: center;
+}
+.dfv-dynamics-host .adc-budget-bar {
+    height: 4px; background: rgba(148,163,184,0.18); border-radius: 999px; overflow: hidden;
+}
+.dfv-dynamics-host .adc-budget-bar i { display: block; height: 100%; border-radius: inherit; }
 .dfv-dynamics-host .adc-stack,
 .dfv-dynamics-host .adc-sens { font-size: 9px; gap: 2px; }
 .dfv-dynamics-host .adc-stack--empty,
@@ -4214,6 +4323,19 @@ class DecisionFlowViz {
 
 .dfv-intent-card {
     display: flex; align-items: center; gap: 6px; min-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.dfv-section--intent {
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+.dfv-intent-title {
+    color: #7dd3fc;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    flex: 0 0 auto;
 }
 .dfv-intent-pill {
     padding: 0 7px; border-radius: 999px;
@@ -4221,8 +4343,16 @@ class DecisionFlowViz {
     font-family: ui-monospace, 'SF Mono', monospace;
     font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
     line-height: 1.6;
+    flex: 0 0 auto;
 }
-.dfv-intent-cn { color: #cbd5e1; font-size: 10px; }
+.dfv-intent-cn { color: #cbd5e1; font-size: 10px; flex: 0 0 auto; }
+.dfv-intent-reason {
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    text-align: right;
+}
 
 /* —— 列表行：行高 16px / 字号 9px —— */
 .dfv-list {
@@ -4240,6 +4370,30 @@ class DecisionFlowViz {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0 4px;
+}
+.dfv-list--targets li {
+    grid-template-columns: 24px auto;
+    column-gap: 3px;
+}
+.dfv-list--targets .dfv-li-key {
+    text-align: center;
+    color: #93c5fd;
+    font-weight: 800;
+}
+.dfv-list--targets .dfv-li-val {
+    font-size: 8.5px;
+}
+.dfv-list--hints li {
+    grid-template-columns: 24px auto;
+    column-gap: 3px;
+}
+.dfv-list--hints .dfv-li-key {
+    text-align: center;
+    color: #67e8f9;
+    font-weight: 800;
+}
+.dfv-list--hints .dfv-li-val {
+    font-size: 8.5px;
 }
 .dfv-list li {
     display: grid;
@@ -4779,12 +4933,12 @@ class DecisionFlowViz {
 .dfv-svg.dfv-svg--driver-mode .dfv-schedule-node,
 .dfv-svg.dfv-svg--driver-mode .dfv-chosen-node {
     transition: opacity .12s ease;
-    opacity: 0.22;
+    opacity: 0.38;
 }
 .dfv-svg.dfv-svg--driver-mode .dfv-derive-link,
 .dfv-svg.dfv-svg--driver-mode .dfv-edge {
     transition: opacity .12s ease;
-    opacity: 0.10;
+    opacity: 0.24;
 }
 .dfv-svg.dfv-svg--driver-mode .dfv-driver-hl {
     opacity: 1 !important;

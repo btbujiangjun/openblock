@@ -7,6 +7,7 @@
 - [二次开发指南](./DEV_GUIDE.md)
 - [测试指南](./TESTING.md)
 - [前端性能优化](./PERFORMANCE.md)（rAF、chunk、可见性定时器、progress 缓存）
+- [性能基线与回归检测](./PERFORMANCE_BASELINE.md)（CPU 自动 + GPU 手动，`npm run perf:check`）
 - [策略定制指南](./STRATEGY_GUIDE.md)
 - [黄金事件字典](./GOLDEN_EVENTS.md)
 - [国际化 i18n](./I18N.md)

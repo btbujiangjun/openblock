@@ -1,4 +1,7 @@
 const VISUAL_STORAGE_KEY = 'openblock_visualfx_v1';
+/* v1.55.10 回滚：v2 迁移过激进，把不少用户主动想保留的 high 偏好抹掉了；
+ * 改回单 key v1，新默认沿用 high，把"降画质"的决定权交还用户（点 🖼 按钮）。
+ * 真正想常驻省 GPU 的用户只需切到 balanced/low 一次，偏好就持久保留。 */
 const QUALITY_STORAGE_KEY = 'openblock_quality_v1';
 const IOS_NATIVE_FEEDBACK_INIT_KEY = 'openblock_ios_native_feedback_init_v2';
 

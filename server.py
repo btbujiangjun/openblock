@@ -337,6 +337,34 @@ def _migrate_schema(cursor):
         except sqlite3.OperationalError:
             pass
 
+    # v1.62：玩家画像指标自评估报告（profileAudit 库产物，客户端跑完上报）
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS profile_audits (
+            session_id INTEGER PRIMARY KEY,
+            user_id TEXT,
+            schema INTEGER NOT NULL,
+            health_score INTEGER,
+            passed_contracts INTEGER,
+            failed_contracts INTEGER,
+            hint_errors INTEGER,
+            hint_warns INTEGER,
+            hint_infos INTEGER,
+            report TEXT NOT NULL,
+            updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_profile_audits_user_updated "
+        "ON profile_audits(user_id, updated_at DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_profile_audits_health "
+        "ON profile_audits(health_score)"
+    )
+
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS client_strategies (
@@ -509,6 +537,23 @@ def init_db():
                 payload TEXT NOT NULL,
                 updated_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS spawn_optimizer_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                is_active INTEGER DEFAULT 0,
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_spawn_optimizer_configs_user
+            ON spawn_optimizer_configs(user_id, updated_at DESC)
         """)
 
         cursor.execute("""
@@ -1481,6 +1526,447 @@ def get_move_sequence(session_id):
         return jsonify({"frames": None, "analysis": None})
 
 
+# ============================================================
+# v1.62 — 玩家画像指标自评估（profile audit）端点
+#
+# 设计取舍：
+#   - audit 计算逻辑唯一来源在 web/src/audit/profileAudit.js（JS 库），server.py
+#     不复刻；客户端跑完 audit 后 POST 上传，server.py 只做"存储 + 聚合"。
+#   - 这样 web/cli/server 共用同一份契约/hint 规则，规则演进无双源同步成本。
+#   - 端点：
+#       POST   /api/profile-audit/<session_id>    上传报告
+#       GET    /api/profile-audit/<session_id>    读取已缓存的报告
+#       DELETE /api/profile-audit/<session_id>    删除（调试/重测）
+#       GET    /api/profile-audit/recent          近 N 天聚合摘要（违规率排行 + 健康分分布）
+# ============================================================
+
+
+def _profile_audit_summary_from_report(report):
+    """从 audit report 抽出"健康分 / 契约通过/失败 / hint 分级" 写入索引列，便于
+    /recent 端点不解析 report TEXT 也能做聚合排序。"""
+    summary = report.get("summary") if isinstance(report, dict) else {}
+    summary = summary if isinstance(summary, dict) else {}
+    hints = report.get("hints") if isinstance(report, dict) else []
+    hints = hints if isinstance(hints, list) else []
+    hint_errors = sum(1 for h in hints if isinstance(h, dict) and h.get("severity") == "error")
+    hint_warns = sum(1 for h in hints if isinstance(h, dict) and h.get("severity") == "warn")
+    hint_infos = sum(1 for h in hints if isinstance(h, dict) and h.get("severity") == "info")
+    return {
+        "schema": int(report.get("schema") or 0) if isinstance(report, dict) else 0,
+        "health_score": int(report.get("healthScore") or 0) if isinstance(report, dict) else 0,
+        "passed_contracts": int(summary.get("passedContracts") or 0),
+        "failed_contracts": int(summary.get("failedContracts") or 0),
+        "hint_errors": hint_errors,
+        "hint_warns": hint_warns,
+        "hint_infos": hint_infos,
+    }
+
+
+@app.route("/api/profile-audit/<int:session_id>", methods=["POST"])
+def upload_profile_audit(session_id):
+    """客户端跑完 audit 后回传报告，server 端持久化。
+
+    Body JSON: { user_id?: string, report: {...auditProfile output...} }
+    """
+    payload = request.get_json(silent=True) or {}
+    report = payload.get("report")
+    if not isinstance(report, dict) or "schema" not in report:
+        return jsonify({"error": "invalid report payload (need {schema, ...})"}), 400
+    user_id = payload.get("user_id") or None
+
+    summary = _profile_audit_summary_from_report(report)
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO profile_audits (
+            session_id, user_id, schema, health_score,
+            passed_contracts, failed_contracts,
+            hint_errors, hint_warns, hint_infos,
+            report, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET
+            user_id = COALESCE(excluded.user_id, profile_audits.user_id),
+            schema = excluded.schema,
+            health_score = excluded.health_score,
+            passed_contracts = excluded.passed_contracts,
+            failed_contracts = excluded.failed_contracts,
+            hint_errors = excluded.hint_errors,
+            hint_warns = excluded.hint_warns,
+            hint_infos = excluded.hint_infos,
+            report = excluded.report,
+            updated_at = excluded.updated_at
+        """,
+        (
+            session_id,
+            user_id,
+            summary["schema"],
+            summary["health_score"],
+            summary["passed_contracts"],
+            summary["failed_contracts"],
+            summary["hint_errors"],
+            summary["hint_warns"],
+            summary["hint_infos"],
+            json.dumps(report, ensure_ascii=False),
+            int(time.time()),
+        ),
+    )
+    db.commit()
+    return jsonify({"success": True, "summary": summary})
+
+
+@app.route("/api/profile-audit/<int:session_id>", methods=["GET"])
+def get_profile_audit(session_id):
+    """读取已缓存的 audit 报告；不存在返回 {report: null}。"""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT report, updated_at FROM profile_audits WHERE session_id = ?",
+        (session_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"report": None})
+    try:
+        return jsonify(
+            {
+                "report": json.loads(row["report"] or "null"),
+                "updated_at": row["updated_at"],
+            }
+        )
+    except json.JSONDecodeError:
+        return jsonify({"report": None})
+
+
+@app.route("/api/profile-audit/<int:session_id>", methods=["DELETE"])
+def delete_profile_audit(session_id):
+    """删除缓存的 audit（调试时重新 POST 上传）。"""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM profile_audits WHERE session_id = ?", (session_id,))
+    db.commit()
+    return jsonify({"success": True, "deleted": cur.rowcount})
+
+
+@app.route("/api/profile-audit/users", methods=["GET"])
+def list_profile_audit_users():
+    """列出所有有 audit 候选数据的 user_id（含 session 数 + audit 数 + 最近活跃）。
+
+    用于 audit 页面 user 下拉填充。返回结构：
+      [{ userId, sessionCount, auditCount, lastActiveAt, latestHealthScore }]
+
+    权限：与 /sessions 端点同款门控
+      - 未开 OPENBLOCK_DB_DEBUG：返回 [] （前端会回退到"仅当前用户"）
+      - 已开 OPENBLOCK_DB_DEBUG：返回全库去重 user_id 列表
+
+    设计取舍：
+      - 默认锁死跨用户列表，避免普通玩家页面意外暴露其他用户 ID
+      - 排序：lastActiveAt 降序，最活跃用户排前面
+    """
+    if not _db_debug_enabled():
+        return jsonify([])
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT
+            s.user_id AS user_id,
+            COUNT(DISTINCT s.id) AS session_count,
+            MAX(s.start_time) AS last_active_at,
+            SUM(CASE WHEN pa.session_id IS NOT NULL THEN 1 ELSE 0 END) AS audit_count,
+            MAX(pa.health_score) AS latest_health_score
+        FROM sessions s
+        INNER JOIN move_sequences m ON m.session_id = s.id
+        LEFT JOIN profile_audits pa ON pa.session_id = s.id
+        WHERE s.user_id IS NOT NULL AND s.user_id != ''
+        GROUP BY s.user_id
+        ORDER BY last_active_at DESC
+        LIMIT 500
+        """
+    )
+    out = []
+    for row in cur.fetchall():
+        out.append({
+            "userId": row["user_id"],
+            "sessionCount": row["session_count"],
+            "auditCount": row["audit_count"] or 0,
+            "lastActiveAt": row["last_active_at"],
+            "latestHealthScore": row["latest_health_score"],
+        })
+    return jsonify(out)
+
+
+@app.route("/api/profile-audit/sessions", methods=["GET"])
+def list_profile_audit_candidates():
+    """列出可被 audit 的 session（轻量元数据，不含 frames）。
+
+    Query:
+      - user_id   指定用户；省略时进入 admin 模式（需 OPENBLOCK_DB_DEBUG=1）
+      - limit     默认 100，范围 1..500
+      - days      可选：仅看近 N 天的 session（按 start_time）
+
+    返回：
+      [{ session_id, user_id, strategy, score, start_time, end_time,
+         frame_count, place_steps, has_audit, audit_health_score, audit_updated_at }]
+
+    设计要点：
+      - 不返回 frames 字段（重数据），避免列表 payload 爆炸；前端拿到 session_id
+        后再去 /api/move-sequence/<id> 单独取 frames 跑 audit。
+      - has_audit 让 UI 一眼看出"还没跑过的"和"已上传的"，帮助跨局体检流程闭环。
+      - 跨用户列表受 OPENBLOCK_DB_DEBUG 门控，与现有 SQLite 调试端点同款防误曝光。
+    """
+    user_id = (request.args.get("user_id") or "").strip()
+    lim = max(1, min(500, request.args.get("limit", 100, type=int)))
+    days = request.args.get("days", type=int)
+    since = None
+    if days and days > 0:
+        since = int(time.time()) - days * 86400
+
+    if not user_id and not _db_debug_enabled():
+        return jsonify({
+            "error": "需要 user_id；省略 user_id 时进入跨用户 admin 视图，"
+                     "需在 server 启动前设置 OPENBLOCK_DB_DEBUG=1"
+        }), 403
+
+    db = get_db()
+    cur = db.cursor()
+    conds = ["m.user_id IS NOT NULL"]
+    params = []
+    if user_id:
+        conds.append("s.user_id = ?")
+        params.append(user_id)
+    if since is not None:
+        conds.append("s.start_time >= ?")
+        params.append(since)
+    where = " AND ".join(conds)
+
+    cur.execute(
+        f"""
+        SELECT
+            s.id AS session_id, s.user_id, s.strategy, s.score,
+            s.start_time, s.end_time, s.duration, s.status,
+            length(m.frames) AS frames_len,
+            m.frames AS frames_json,
+            pa.health_score AS audit_health_score,
+            pa.updated_at AS audit_updated_at,
+            pa.passed_contracts AS audit_passed,
+            pa.failed_contracts AS audit_failed
+        FROM sessions s
+        INNER JOIN move_sequences m ON m.session_id = s.id
+        LEFT JOIN profile_audits pa ON pa.session_id = s.id
+        WHERE {where}
+        ORDER BY s.start_time DESC
+        LIMIT ?
+        """,
+        params + [lim],
+    )
+
+    out = []
+    for row in cur.fetchall():
+        # 与 /api/replay-sessions / /api/replay 同口径：优先末帧 ps.score（终局真实分），
+        # sessions.score 在对局进行中只是粗略缓存，不能直接用。
+        # frames 不回吐到前端（避免列表 payload 爆炸），只用来算 displayScore。
+        display_score = row["score"]
+        place_steps = None
+        try:
+            frames = json.loads(row["frames_json"] or "[]")
+            if isinstance(frames, list):
+                display_score = _effective_list_score(frames, row["score"])
+                place_steps = countPlaceFramesInList(frames)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        out.append({
+            "sessionId": row["session_id"],
+            "userId": row["user_id"],
+            "strategy": row["strategy"],
+            "score": display_score,                 # 与回放列表同款"末帧真实分"
+            "rawSessionScore": row["score"],        # 原始 sessions.score 字段，调试可见
+            "placeSteps": place_steps,              # 真实落子步数（不计 init/spawn）
+            "startTime": row["start_time"],
+            "endTime": row["end_time"],
+            "duration": row["duration"],
+            "status": row["status"],
+            "framesByteLen": row["frames_len"],   # 粗略估算 frames 体积（KB 量级）
+            "hasAudit": row["audit_health_score"] is not None,
+            "auditHealthScore": row["audit_health_score"],
+            "auditUpdatedAt": row["audit_updated_at"],
+            "auditPassedContracts": row["audit_passed"],
+            "auditFailedContracts": row["audit_failed"],
+        })
+    return jsonify(out)
+
+
+def countPlaceFramesInList(frames):
+    """与 web/src/moveSequence.js countPlaceStepsInFrames 同款：只数 t=place 的成功落子。"""
+    if not isinstance(frames, list):
+        return 0
+    return sum(1 for f in frames if isinstance(f, dict) and f.get("t") == "place")
+
+
+@app.route("/api/profile-audit/recent", methods=["GET"])
+def list_recent_profile_audits():
+    """近 N 天 audit 聚合摘要。
+
+    Query:
+      - user_id   可选，按用户过滤
+      - days      默认 7，范围 1..90
+      - limit     最大返回 session 数（用于 hint/契约聚合时不爆内存），默认 200
+
+    返回结构：
+      {
+        sessionsCount, framesTotal,
+        healthScore: { count, min, max, mean, p10, p50, p90 } | null,
+        contractStats: [{ id, appeared, failed, violationRate }, ...],
+        hintCounts: [{ code, count, severity }, ...],
+        stressDominatorCounts: [{ key, count, share }, ...],
+        topRegressions: [{ id, ... }, ...],
+        sessions: [{ sessionId, healthScore, ... }, ...],
+      }
+    """
+    days = max(1, min(90, request.args.get("days", 7, type=int)))
+    lim = max(1, min(1000, request.args.get("limit", 200, type=int)))
+    user_id = request.args.get("user_id", "") or None
+    since = int(time.time()) - days * 86400
+
+    db = get_db()
+    cur = db.cursor()
+    if user_id:
+        cur.execute(
+            "SELECT session_id, user_id, health_score, passed_contracts, failed_contracts,"
+            "       hint_errors, hint_warns, hint_infos, report, updated_at"
+            "  FROM profile_audits WHERE user_id = ? AND updated_at >= ?"
+            "  ORDER BY updated_at DESC LIMIT ?",
+            (user_id, since, lim),
+        )
+    else:
+        cur.execute(
+            "SELECT session_id, user_id, health_score, passed_contracts, failed_contracts,"
+            "       hint_errors, hint_warns, hint_infos, report, updated_at"
+            "  FROM profile_audits WHERE updated_at >= ?"
+            "  ORDER BY updated_at DESC LIMIT ?",
+            (since, lim),
+        )
+    rows = cur.fetchall()
+
+    sessions = []
+    contract_stats = {}  # id -> {appeared, failed, desc}
+    hint_counts = {}     # code -> {count, severity}
+    dominator_counts = {}  # key -> count
+    health_scores = []
+    frames_total = 0
+    sev_order = {"error": 0, "warn": 1, "info": 2}
+
+    for row in rows:
+        try:
+            report = json.loads(row["report"] or "null")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(report, dict):
+            continue
+        sessions.append(
+            {
+                "sessionId": row["session_id"],
+                "userId": row["user_id"],
+                "healthScore": row["health_score"],
+                "passedContracts": row["passed_contracts"],
+                "failedContracts": row["failed_contracts"],
+                "hintErrors": row["hint_errors"],
+                "hintWarns": row["hint_warns"],
+                "hintInfos": row["hint_infos"],
+                "updatedAt": row["updated_at"],
+            }
+        )
+        try:
+            health_scores.append(int(row["health_score"]))
+        except (TypeError, ValueError):
+            pass
+        summary = report.get("summary") or {}
+        try:
+            frames_total += int(summary.get("totalFrames") or 0)
+        except (TypeError, ValueError):
+            pass
+        for c in report.get("contracts") or []:
+            if not isinstance(c, dict) or not c.get("id"):
+                continue
+            stat = contract_stats.setdefault(
+                c["id"], {"id": c["id"], "desc": c.get("desc", ""), "appeared": 0, "failed": 0}
+            )
+            stat["appeared"] += 1
+            if not c.get("passed"):
+                stat["failed"] += 1
+        for h in report.get("hints") or []:
+            if not isinstance(h, dict) or not h.get("code"):
+                continue
+            entry = hint_counts.setdefault(
+                h["code"], {"code": h["code"], "count": 0, "severity": "info"}
+            )
+            entry["count"] += 1
+            cur_sev = entry["severity"]
+            new_sev = h.get("severity", "info")
+            if sev_order.get(new_sev, 9) < sev_order.get(cur_sev, 9):
+                entry["severity"] = new_sev
+        linkages = report.get("linkages") or {}
+        dom = (linkages.get("stressDominator") or {}).get("key") if isinstance(linkages, dict) else None
+        if dom:
+            dominator_counts[dom] = dominator_counts.get(dom, 0) + 1
+
+    sessions_count = len(sessions)
+    contract_list = []
+    for stat in contract_stats.values():
+        stat["violationRate"] = stat["failed"] / stat["appeared"] if stat["appeared"] > 0 else 0
+        contract_list.append(stat)
+    contract_list.sort(key=lambda x: x["violationRate"], reverse=True)
+    top_regressions = [c for c in contract_list if c["violationRate"] >= 0.25 and c["appeared"] >= 3]
+
+    hint_list = sorted(
+        hint_counts.values(),
+        key=lambda x: (sev_order.get(x["severity"], 9), -x["count"]),
+    )
+    dominator_list = sorted(
+        [
+            {"key": k, "count": v, "share": (v / sessions_count) if sessions_count else 0}
+            for k, v in dominator_counts.items()
+        ],
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
+    if health_scores:
+        scores_sorted = sorted(health_scores)
+        def _quantile(arr, q):
+            t = max(0.0, min(1.0, q)) * (len(arr) - 1)
+            lo = int(t)
+            hi = lo + 1 if lo + 1 < len(arr) else lo
+            return arr[lo] * (hi - t) + arr[hi] * (t - lo)
+        health_score_stats = {
+            "count": len(scores_sorted),
+            "min": scores_sorted[0],
+            "max": scores_sorted[-1],
+            "mean": sum(scores_sorted) / len(scores_sorted),
+            "p10": _quantile(scores_sorted, 0.10),
+            "p50": _quantile(scores_sorted, 0.50),
+            "p90": _quantile(scores_sorted, 0.90),
+        }
+    else:
+        health_score_stats = None
+
+    return jsonify(
+        {
+            "sessionsCount": sessions_count,
+            "framesTotal": frames_total,
+            "since": since,
+            "days": days,
+            "healthScore": health_score_stats,
+            "contractStats": contract_list,
+            "hintCounts": hint_list,
+            "stressDominatorCounts": dominator_list,
+            "topRegressions": top_regressions,
+            "sessions": sessions,
+        }
+    )
+
+
 @app.route("/api/replay-sessions", methods=["GET"])
 def list_replay_sessions():
     """
@@ -2291,6 +2777,99 @@ def put_browser_rl_linear_agent():
     )
     db.commit()
     return jsonify({"success": True})
+
+
+@app.route("/api/spawn-optimizer/configs", methods=["GET"])
+def list_spawn_optimizer_configs():
+    user_id = request.args.get("user_id", "") or request.args.get("userId", "")
+    user_id = (user_id or "").strip()[:128]
+    if not user_id:
+        return jsonify({"items": []})
+    rows = get_db().execute(
+        """
+        SELECT id, user_id, name, payload, is_active, created_at, updated_at
+        FROM spawn_optimizer_configs
+        WHERE user_id = ?
+        ORDER BY is_active DESC, updated_at DESC
+        LIMIT 50
+        """,
+        (user_id,),
+    ).fetchall()
+    items = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload"] or "{}")
+        except Exception:
+            payload = {}
+        items.append({
+            "id": row["id"],
+            "user_id": row["user_id"],
+            "name": row["name"],
+            "payload": payload,
+            "is_active": bool(row["is_active"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        })
+    return jsonify({"items": items})
+
+
+@app.route("/api/spawn-optimizer/configs", methods=["PUT", "POST"])
+def put_spawn_optimizer_config():
+    data = request.get_json() or {}
+    user_id = (data.get("user_id") or data.get("userId") or "").strip()[:128]
+    name = (data.get("name") or "出块优化方案").strip()[:80]
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    is_active = 1 if data.get("is_active") is True else 0
+    cfg_id = data.get("id")
+    if not user_id:
+        return jsonify({"success": False, "error": "missing_user_id"}), 400
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    db = get_db()
+    cur = db.cursor()
+    if is_active:
+        cur.execute("UPDATE spawn_optimizer_configs SET is_active = 0 WHERE user_id = ?", (user_id,))
+    if cfg_id:
+        cur.execute(
+            """
+            UPDATE spawn_optimizer_configs
+            SET name = ?, payload = ?, is_active = ?, client_ip = ?, updated_at = strftime('%s', 'now')
+            WHERE id = ? AND user_id = ?
+            """,
+            (name, body, is_active, _client_ip(), int(cfg_id), user_id),
+        )
+        saved_id = int(cfg_id)
+    else:
+        cur.execute(
+            """
+            INSERT INTO spawn_optimizer_configs (user_id, name, payload, is_active, client_ip)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, name, body, is_active, _client_ip()),
+        )
+        saved_id = cur.lastrowid
+    db.commit()
+    return jsonify({"success": True, "id": saved_id})
+
+
+@app.route("/api/spawn-optimizer/configs/<int:config_id>/activate", methods=["POST"])
+def activate_spawn_optimizer_config(config_id):
+    data = request.get_json() or {}
+    user_id = (data.get("user_id") or data.get("userId") or "").strip()[:128]
+    if not user_id:
+        return jsonify({"success": False, "error": "missing_user_id"}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE spawn_optimizer_configs SET is_active = 0 WHERE user_id = ?", (user_id,))
+    cur.execute(
+        """
+        UPDATE spawn_optimizer_configs
+        SET is_active = 1, updated_at = strftime('%s', 'now')
+        WHERE id = ? AND user_id = ?
+        """,
+        (config_id, user_id),
+    )
+    db.commit()
+    return jsonify({"success": cur.rowcount > 0})
 
 
 @app.route("/api/client/stats", methods=["PUT"])
@@ -4024,6 +4603,7 @@ _DOC_CATEGORIES = [
             "engineering/DEV_GUIDE.md",
             "engineering/TESTING.md",
             "engineering/PERFORMANCE.md",
+            "engineering/PERFORMANCE_BASELINE.md",
             "engineering/I18N.md",
             "engineering/STRATEGY_GUIDE.md",
             "engineering/GOLDEN_EVENTS.md",
@@ -4049,6 +4629,7 @@ _DOC_CATEGORIES = [
             "product/CLEAR_SCORING.md",
             "product/CHEST_AND_WALLET.md",
             "product/EASTER_EGGS_AND_DELIGHT.md",
+            "architecture/PRODUCT_ARCHITECTURE_DIAGRAMS.md",
             "product/SKINS_CATALOG.md",
             "product/SKIN_ICON_SEMANTIC_POOL.md",
         ],
@@ -4061,6 +4642,7 @@ _DOC_CATEGORIES = [
             "player/EXPERIENCE_DESIGN_FOUNDATIONS.md",
             "player/STRATEGY_EXPERIENCE_MODEL.md",
             "player/REALTIME_STRATEGY.md",
+            "player/BEST_SCORE_CHASE_STRATEGY.md",
             "player/PANEL_PARAMETERS.md",
             "player/PLAYER_ABILITY_EVALUATION.md",
             "player/PLAYSTYLE_DETECTION.md",
@@ -4080,6 +4662,7 @@ _DOC_CATEGORIES = [
             "algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md",
             "algorithms/MODEL_SYSTEMS_FOUR_MODELS.md",
             "algorithms/MODEL_ENGINEERING_GUIDE.md",
+            "algorithms/DECISION_DERIVATION_ARCHITECTURE.md",
         ],
     },
     {
@@ -4103,7 +4686,10 @@ _DOC_CATEGORIES = [
             # v1.61：交互式工具置顶，type=tool 标记供 docs.html 侧栏以新标签页打开
             {"file": "algorithms/spawn-signal-explorer.html", "type": "tool",
              "title": "出块信号透视仪（交互工具）"},
+            {"file": "algorithms/spawn-evaluation-tool.html", "type": "tool",
+             "title": "OpenBlock 出块评估工具"},
             "algorithms/SPAWN_ALGORITHM.md",
+            "algorithms/SPAWN_EVALUATION.md",
             "algorithms/ADAPTIVE_SPAWN.md",
             "algorithms/SPAWN_BLOCK_MODELING.md",
             "algorithms/CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md",
@@ -4147,6 +4733,8 @@ _DOC_CATEGORIES = [
             "operations/MONETIZATION.md",
             "operations/COMMERCIAL_STRATEGY_REVIEW.md",
             "operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md",
+            "operations/RETENTION_QUICK_WINS.md",
+            "operations/RETENTION_SIGNALS_CROSS_PLATFORM.md",
             "operations/OPS_DASHBOARD_METRICS_AUDIT.md",
             "operations/MONETIZATION_CUSTOMIZATION.md",
             "operations/MONETIZATION_TRAINING_PANEL.md",
@@ -4317,6 +4905,45 @@ def docs_list():
 
 
 _ROOT_DIR = Path(__file__).resolve().parent
+_DIST_DIR = _ROOT_DIR / "dist"
+
+
+@app.route("/spawn-eval.html")
+def spawn_eval_page():
+    """出块评估工具页：文档中心工具入口和新窗口都走这里。"""
+    from flask import send_from_directory
+
+    page = _DIST_DIR / "spawn-eval.html"
+    if page.exists():
+        return send_from_directory(str(_DIST_DIR), "spawn-eval.html")
+    # 开发环境尚未 build 时给出明确提示，而不是 Werkzeug 404。
+    return (
+        "<h1>spawn-eval.html not built</h1>"
+        "<p>请先运行 <code>npm run build</code>，或在 Vite 开发服务中访问 "
+        "<a href='http://localhost:3000/spawn-eval.html'>http://localhost:3000/spawn-eval.html</a>。</p>",
+        404,
+    )
+
+
+@app.route("/assets/<path:filename>")
+def dist_assets(filename):
+    """服务 Vite dist/assets，用于 Flask 文档中心内嵌构建后的工具页。"""
+    import re
+    from flask import send_from_directory
+
+    if ".." in filename or filename.startswith("/") or "\\" in filename:
+        return jsonify({"error": "invalid filename"}), 400
+    if not re.match(r"^[\w\-/\.\@]+$", filename, re.ASCII):
+        return jsonify({"error": "invalid filename"}), 400
+    assets_dir = _DIST_DIR / "assets"
+    target = (assets_dir / filename).resolve()
+    try:
+        target.relative_to(assets_dir.resolve())
+    except ValueError:
+        return jsonify({"error": "invalid filename"}), 400
+    if not target.is_file():
+        return jsonify({"error": "not found"}), 404
+    return send_from_directory(str(assets_dir), filename)
 
 
 @app.route("/docs/tool/<path:filename>")

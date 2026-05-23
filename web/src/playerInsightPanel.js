@@ -9,7 +9,8 @@ import {
     collectSeriesFromSnapshots,
     getMetricFromPS,
     formatMetricValue,
-    REPLAY_METRICS
+    REPLAY_METRICS,
+    extractFrameTimestamps as _extractFramesTs
 } from './moveSequence.js';
 import {
     sparklineSvg,
@@ -74,18 +75,101 @@ const _METRIC_TOOLTIP_BY_KEY = Object.fromEntries(
 const _METRIC_DEF_BY_KEY = Object.fromEntries(REPLAY_METRICS.map((m) => [m.key, m]));
 
 /**
+ * 把 data.series 全集打包成 modal 副指标下拉可消费的 `allSeries` 结构：
+ *   { [key]: { metricKey, label, group, fmt, color, tooltip, points } }
+ *
+ * v1.61：modal 内部不再回访 REPLAY_METRICS / collectSeriesFromSnapshots，
+ * 完全靠这份 snapshot 自给自足——既减少耦合也方便测试桩造数据。
+ *
+ * @param {ReturnType<typeof collectSeriesFromSnapshots>} data
+ * @returns {Record<string, {metricKey:string,label:string,group:string,fmt:string,color:string,tooltip:string,points:Array<{idx:number,value:number}>}>}
+ */
+function _packAllSeriesForModal(data) {
+    const out = {};
+    if (!data?.series) return out;
+    for (const m of (data.metrics || [])) {
+        const s = data.series[m.key];
+        if (!s) continue;
+        const color = METRIC_GROUP_COLORS[m.group] || '#5b9bd5';
+        out[m.key] = {
+            metricKey: m.key,
+            label: m.label,
+            group: m.group,
+            fmt: m.fmt,
+            color,
+            tooltip: m.tooltip || '',
+            points: s.points || [],
+        };
+    }
+    return out;
+}
+
+/**
+ * 把 `_insightLiveHistory` 的每个 ps 包装成"伪 frame"传给统一工具函数。
+ *
+ * 历史快照里只有 `_recordedAt` wall-clock 时间戳（实时面板写入，非 frame.ts 相对偏移），
+ * 走 `moveSequence.extractFrameTimestamps` 的 wall-clock 后备路径即可——它会自动用首帧的
+ * `_recordedAt` 当 baseMs 算相对偏移；缺失时退到 fallbackStartMs（game.gameStats.startTime）。
+ *
+ * @param {object[]|null|undefined} snapshots
+ * @param {number|null|undefined} fallbackStartMs game.gameStats.startTime
+ * @returns {{ startMs:number|null, frameTimestamps:Array<number|null> }}
+ */
+function _extractLiveSnapshotTimestamps(snapshots, fallbackStartMs) {
+    if (!Array.isArray(snapshots) || snapshots.length === 0) {
+        return { startMs: null, frameTimestamps: [] };
+    }
+    // 包装为 { ps: snapshot }，复用统一工具函数的 wall-clock 后备路径
+    const pseudoFrames = snapshots.map((s) => ({ t: 'live', ps: s }));
+    const r = _extractFramesTs(pseudoFrames);
+    if (r.startMs != null) return r;
+
+    // 后备：snapshots 全无 _recordedAt → 用 gameStats.startTime 当 baseMs（≈ init 帧 wallclock）
+    const base = Number(fallbackStartMs);
+    if (!Number.isFinite(base)) {
+        return { startMs: null, frameTimestamps: snapshots.map(() => null) };
+    }
+    return {
+        startMs: base,
+        frameTimestamps: snapshots.map((s) => {
+            const t = Number(s?._recordedAt);
+            if (!Number.isFinite(t)) return null;
+            return Math.max(0, t - base);
+        }),
+    };
+}
+
+/**
  * 把 collectSeriesFromSnapshots(...) 的输出绑定到 .replay-series-cell 上：
  * 点击任一行 → openInsightMetricModal 展示放大曲线 + 物理含义 + 曲线分析。
  *
  * 同时为 cell 加上 cursor:zoom-in 视觉提示，与原有 [title] hover 文案不冲突
  * （hover 看简短解释；click 看详读浮层）。
  *
+ * v1.61 起额外把 `allSeries` / `frameTimestamps` 透传给 modal，使其能：
+ *   - 在头部用下拉切换"副指标"（双坐标对比）
+ *   - 把横轴从"帧序号"换成"游戏开始的时长"
+ *
  * @param {HTMLElement} elState  容纳 .replay-series-grid 的容器
  * @param {ReturnType<typeof collectSeriesFromSnapshots>} data
- * @param {{ cursorIdx?: number }} [opts]
+ * @param {{ cursorIdx?: number, frameTimestamps?: Array<number|null> }} [opts]
  */
 function _attachMetricCellClickToModal(elState, data, opts = {}) {
     if (!elState || !data) return;
+    const allSeries = _packAllSeriesForModal(data);
+    const frameTimestamps = Array.isArray(opts.frameTimestamps)
+        ? opts.frameTimestamps
+        : new Array(data.totalFrames || 0).fill(null);
+    /* v1.61 ++：副坐标下拉按类别分组（🎮 盘面 / 👤 玩家·能力 / ⚙️ 系统·决策 …），
+     * 复用 sparkline 网格同款 METRIC_LAYOUT_GROUPS 顺序与中文标题，保持"上方
+     * 网格分组 ↔ 下拉分组"心智一致。 */
+    const secondaryGroups = _groupMetricsForLayout(data.metrics || [])
+        .filter((g) => g.metrics.length > 0)
+        .map((g) => ({
+            group: g.group,
+            title: g.title,
+            keys: g.metrics.map((m) => m.key),
+        }));
     const cells = elState.querySelectorAll('.replay-series-cell[data-key]');
     cells.forEach((cell) => {
         const key = cell.getAttribute('data-key');
@@ -108,6 +192,9 @@ function _attachMetricCellClickToModal(elState, data, opts = {}) {
                 tooltip: m.tooltip || '',
                 data: { points: s.points || [], totalFrames: data.totalFrames || 0 },
                 cursorIdx: opts.cursorIdx,
+                allSeries,
+                secondaryGroups,
+                frameTimestamps,
             });
         };
         cell.addEventListener('click', open);
@@ -889,6 +976,11 @@ function _buildLiveSnapshotForSeries(game) {
         // 与 collectReplayMetricsSeries 共用同一访问器、共享冷启动语义。
         pv: 2,
         phase: 'live',
+        /* v1.61：每帧记录 wall-clock 时间戳（ms）。仅供「指标详读」浮层把
+         * 横坐标从"帧序号"换成"游戏开始的时长"使用——不写入回放/数据库，
+         * 也不参与任何 stress/skill 计算。`_` 前缀避免被 REPLAY_METRICS.extract
+         * 误当作指标值。 */
+        _recordedAt: (typeof Date !== 'undefined') ? Date.now() : 0,
         score: game.score,
         boardFill: selectLiveBoardFill(game),
         skill: p.skillLevel,
@@ -1075,8 +1167,10 @@ function _renderInsightStateSeries(game, elState) {
         line.setAttribute('x2', cx.toFixed(1));
     });
 
-    // 实时模式：把当前快照同时挂为可点击源（cursorIdx 传当前最后一帧）
-    _attachMetricCellClickToModal(elState, data, { cursorIdx: lastIdx });
+    /* 实时模式：把当前快照同时挂为可点击源（cursorIdx 传当前最后一帧）
+     * v1.61：附带"每帧距游戏开始的 ms 偏移"，让 modal 横坐标可切到时长。 */
+    const { frameTimestamps } = _extractLiveSnapshotTimestamps(hist, game?.gameStats?.startTime);
+    _attachMetricCellClickToModal(elState, data, { cursorIdx: lastIdx, frameTimestamps });
 }
 
 /**
@@ -2004,8 +2098,16 @@ export function enterInsightReplay(frames) {
         });
     }
 
-    // 回放模式：cell 点击同样进入详读浮层；初始 cursorIdx = 0（updateInsightReplayFrame 不改 modal）
-    _attachMetricCellClickToModal(elState, data, { cursorIdx: 0 });
+    /* 回放模式：cell 点击同样进入详读浮层；初始 cursorIdx = 0（updateInsightReplayFrame 不改 modal）
+     *
+     * v1.62：直接走 moveSequence.extractFrameTimestamps 统一口径——
+     * v2 frame.ts 优先 / ps._recordedAt wall-clock 后备 / 全无 → null fallback 帧序号。
+     */
+    const { frameTimestamps: replayTimestamps } = _extractFramesTs(frames);
+    _attachMetricCellClickToModal(elState, data, {
+        cursorIdx: 0,
+        frameTimestamps: replayTimestamps,
+    });
 }
 
 /**

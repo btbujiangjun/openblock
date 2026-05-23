@@ -77,6 +77,13 @@ class GameController {
       bottleneckTrough: Infinity,
       bottleneckSolutionTrough: Infinity,
       bottleneckSamples: 0,
+      specialShapeUsed: 0,
+      specialReliefUsed: 0,
+      specialPressureUsed: 0,
+      totalClears: 0,
+      roundsSinceSpecial: 0,
+      dupInjectUsed: 0,
+      roundsSinceDupInject: 0,
     };
     resetSpawnMemory();
     resetAdaptiveMilestone();
@@ -104,6 +111,13 @@ class GameController {
 
   _spawnDock({ ensureMove = false } = {}) {
     const layered = this._resolveSpawnStrategy();
+    /* 与 Web Game.spawnBlocks 对齐：adaptiveSpawn 产出 scoreMilestone 后，
+     * 在传入 generateDockShapes 前桥接到 spawnContext；special / duplicate
+     * 节流计数也在出块入口 +1，让 blockSpawn 的 gate 读到同一语义。 */
+    this._spawnContext.scoreMilestone = layered?.spawnHints?.scoreMilestone === true;
+    this._spawnContext.roundsSinceSpecial = (this._spawnContext.roundsSinceSpecial ?? 0) + 1;
+    this._spawnContext.roundsSinceDupInject = (this._spawnContext.roundsSinceDupInject ?? 0) + 1;
+    this._spawnContext.skin = this.skin;
     let shapes = generateDockShapes(this.grid, layered, this._spawnContext);
     const valid = validateSpawnTriplet(this.grid, shapes, { searchBudget: 14000 });
     if (!valid.ok || (ensureMove && !shapes.some((s) => this.grid.canPlaceAnywhere(s.data)))) {
@@ -190,7 +204,7 @@ class GameController {
 
     for (let i = 0; i < 3; i++) {
       const candidate = source[i];
-      const safe = candidate && Array.isArray(candidate.data) && !isSpecialShapeId(candidate.id)
+      const safe = candidate && Array.isArray(candidate.data)
         ? candidate
         : pickFallback();
       if (!safe) continue;
@@ -221,6 +235,12 @@ class GameController {
   }
 
   _commitSpawnContext(layered) {
+    this._spawnContext.totalRounds = (this._spawnContext.totalRounds || 0) + 1;
+    if (this.dock?.some((s) => isSpecialShapeId(s.id))) {
+      this._spawnContext.roundsSinceSpecial = 0;
+    }
+    this._spawnContext.scoreMilestone = false;
+    this._spawnContext.totalClears = this.totalClears;
     /* v1.55.17：prevAdaptiveStress 写入 raw 域，与 adaptiveSpawn.smoothStress 单位一致；
      * 详见 web/src/adaptiveSpawn.js 顶部 normalizeStress JSDoc。 */
     this._spawnContext.prevAdaptiveStress = layered?._adaptiveStressRaw ?? layered?._adaptiveStress;
@@ -270,8 +290,7 @@ class GameController {
       lastClearCount: clearCount,
       roundsSinceClear: clearCount > 0 ? 0 : (this._spawnContext.roundsSinceClear || 0) + 1,
       recentCategories: recent,
-      totalRounds: (this._spawnContext.totalRounds || 0) + 1,
-      scoreMilestone: this.score > 0 && this.score % 100 === 0,
+      totalClears: this.totalClears,
     };
     this._roundClearCount = 0;
   }
@@ -303,7 +322,13 @@ class GameController {
     const b = this.dock[blockIdx];
     if (!b || b.placed || !this.grid.canPlace(b.shape, gx, gy)) return null;
 
-    this.grid.place(b.shape, b.colorIdx, gx, gy);
+    this.grid.place(
+      b.shape,
+      b.colorIdx,
+      gx,
+      gy,
+      { shapeId: b.id, isSpecial: isSpecialShapeId(b.id) },
+    );
     this.steps++;
     b.placed = true;
 

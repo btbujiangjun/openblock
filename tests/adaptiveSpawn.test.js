@@ -409,8 +409,11 @@ describe('resolveAdaptiveStrategy', () => {
         for (let i = 0; i < 3; i++) p.recordPlace(true, 1, 0.30);
         for (let i = 0; i < 3; i++) p.recordPlace(false, 0, 0.30);
         const m = p.momentum;
-        // sampleConfidence = 6/12 = 0.5 → |momentum| ≤ 0.5
-        expect(Math.abs(m)).toBeLessThanOrEqual(0.5 + 1e-6);
+        // sampleConfidence = 6/12 = 0.5 → base |momentum| ≤ 0.5
+        // v1.62.5：frustration=3 → momentum 加 -0.05 penalty，所以新上限 = 0.5 + 0.05 = 0.55
+        // 测试初衷"不会抖到 ±1"仍满足（penalty 最多 -0.20，不会让 |m| 超 0.7）
+        expect(Math.abs(m)).toBeLessThanOrEqual(0.55 + 1e-6);
+        expect(Math.abs(m)).toBeLessThan(1);
     });
 
     /* ============================================================== */

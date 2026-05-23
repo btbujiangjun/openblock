@@ -75,6 +75,14 @@ describe('v1.60.13 — DRIVER_NODE_PATHS 不变式', () => {
         }
     });
 
+    it('P1/P2 与 duplicate / clear driver key 在 DRIVER_NODE_PATHS 中有显式条目', () => {
+        for (const key of ['triplet-p1', 'budget-p2', 'duplicate', 'clear']) {
+            expect(DRIVER_NODE_PATHS[key], `${key} 必须有显式 path，避免退化为 balanced`).toBeDefined();
+        }
+        expect(DRIVER_NODE_PATHS.duplicate.targets).toEqual(expect.arrayContaining(['novelty']));
+        expect(DRIVER_NODE_PATHS.clear.targets).toEqual(expect.arrayContaining(['clearOpportunity']));
+    });
+
     it('v1.60.15/v1.60.16：multiClear/gapFills 语义边界——label 严格反映真模拟 vs 加权差缺分', () => {
         /* 锁定 v1.60.15 driver key 切分 + v1.60.16 文案统一：
          *   "可消X行"（X=1/2/3...）只在 multiClear>=1 时出现（真模拟 previewClearOutcome）

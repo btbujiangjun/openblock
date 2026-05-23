@@ -2,6 +2,8 @@
 
 本文档记录已落地的性能策略与扩展点，**不改变模块边界**：核心玩法仍在 `game.js` / `renderer.js`，懒加载仅推迟非首屏面板的脚本下载。
 
+> **配套文档**：[性能基线与回归检测](./PERFORMANCE_BASELINE.md) —— 本文讲"怎么优化"，那篇讲"优化后怎么不被人无声打破"。CPU 基线 `npm run perf:check`、GPU 基线 `window.__perfOverlay.startProfile(10)`。
+
 ---
 
 ## 8. 脏区域追踪 (Dirty Rect Tracking)
@@ -185,6 +187,8 @@ const moduleStats = getModuleStats();
 - **`markDirty()`**：只置 `_renderDirty`，通过 **`requestAnimationFrame`** 在同一帧内最多执行一次 **`render()`**；无 `rAF` 的环境（极少数测试）退化为立即 `render()`。
 - **事件驱动重绘**：静置时不再用棋盘水印/环境粒子循环驱动 `markDirty()`；只有拖拽预览、消除动画、回放、皮肤切换、尺寸变化等真实状态变更才触发 `render()`。避免“游戏已开始但无输入”仍以约 30fps 重绘整张 canvas。
 - **环境动效专用循环**：星际宇宙流星、樱花、气泡等皮肤动效改为超低频（约 1～2fps，按皮肤类型自适应）只重绘 **`fxCanvas`**，不再重绘主棋盘 canvas / DOM。主菜单、标签页后台、拖拽预览、消除动画中会暂停，由对应的主渲染路径接管。
+- **v1.55.13 — 离散粒子皮肤改 DOM transform 动画**：sakura / forest / ocean / fairy / universe 等 5 款离散粒子皮肤的环境粒子从 Canvas2D 迁到 DOM (`<div class="ambient-particle">`)，每个粒子用 `transform: translate3d + rotate` 更新位置。浏览器合成器对 transform-only 动画极高效（compositor-only path，不触发 raster）；fxCanvas 在这些皮肤下 `hasActiveMotion()` 返回 false，结合 v1.55.12 fxCanvas 下沉合成层逻辑可被 Chrome 回收，**整张 fxCanvas 不再被 60Hz 持续合成**。流体型皮肤（aurora-band / ripple）继续走 Canvas2D（DOM 不适合渐变带）。`tests/ambientDom.test.js` 回归保护。
+- **v1.55.12 — fxCanvas 闲置合成层下沉**：根据 `particles / clearCells / flashes / ambient motion` 综合判断 fxCanvas 是否需要显示；不需要时 `display:none` 让 Chrome 回收合成层。`renderEdgeFalloff()` 早已废弃（见下文 §1.5），意味着无环境粒子 + 无清行/连消时 fxCanvas 实际是空的。`tests/fxCanvasIdleHide.test.js` 回归保护。
 - **特效层降载**：`fxCanvas` 使用独立低 DPR（不跟随 Retina 主棋盘 DPR），粒子溢出边距从 1.5 cell 降到 1 cell，并移除 CSS `mask-image`；边缘淡出改在 JS 绘制阶段按粒子位置计算，避免 Chrome 对频繁更新的 canvas 做额外 mask 合成。
 - **玻璃层降载**：游戏主卡、侧栏面板、RL 面板、回放面板、toast/HUD 等不再使用 `backdrop-filter`，减少动态 canvas 上方的实时背景模糊合成。
 - **盘面水印静态化**：水印不再按 `performance.now()` 漂移。事件驱动渲染下，时间型水印只会在落子/动画时跳动，影响判断；固定锚点更稳定，也避免恢复整盘持续重绘。

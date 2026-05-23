@@ -143,6 +143,35 @@ describe('miniprogram core parity', () => {
     expect(validateSpawnTriplet(game.grid, shapes).ok).toBe(true);
   });
 
+  it('mirrors Web spawnContext counters for special and duplicate gates', () => {
+    const game = new GameController('normal');
+    expect(game._spawnContext.totalRounds).toBeGreaterThanOrEqual(1);
+    expect(game._spawnContext).toMatchObject({
+      specialShapeUsed: expect.any(Number),
+      specialReliefUsed: expect.any(Number),
+      specialPressureUsed: expect.any(Number),
+      totalClears: expect.any(Number),
+      roundsSinceSpecial: expect.any(Number),
+      dupInjectUsed: expect.any(Number),
+      roundsSinceDupInject: expect.any(Number),
+    });
+
+    const beforeRounds = game._spawnContext.totalRounds;
+    const beforeDupGap = game._spawnContext.roundsSinceDupInject;
+    game._spawnDock();
+    expect(game._spawnContext.totalRounds).toBe(beforeRounds + 1);
+    expect(game._spawnContext.roundsSinceDupInject).toBeGreaterThanOrEqual(beforeDupGap);
+    expect(game._spawnContext.scoreMilestone).toBe(false);
+  });
+
+  it('does not use modulo score milestones in the miniprogram controller', () => {
+    const game = new GameController('normal', { bestScore: 1000 });
+    game.score = 100;
+    game._roundClearCount = 0;
+    game._advanceSpawnContext();
+    expect(game._spawnContext.scoreMilestone).toBe(false);
+  });
+
   it('uses the real synced PlayerProfile and persists it via localStorage between runs', () => {
     const { PlayerProfile } = requireCjs('../miniprogram/core/playerProfile.js');
     const store = new Map();

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "description": "GPU/渲染端基线快照。和 CPU 基线 (perf-baseline.json) 不同，这里依赖浏览器实测——没法在 CI 自动跑。每个 scenario 都是一次 `window.__perfOverlay.startProfile(10)` 的结果。何时更新见 docs/engineering/PERFORMANCE_BASELINE.md。",
+  "historicalReferences": {
+    "comment": "Mac Retina + Chrome + sakura 皮肤的 Chrome Helper GPU%（活动监视器读数）。供回归对照，不是 expectations。",
+    "v1.55.9_before_optimization": "~59%",
+    "v1.55.13_after_dom_ambient": "~34.8%"
+  },
+  "scenarios": {
+    "idle-no-dfv": {
+      "description": "基线场景 A：DFV 关闭、未拖动、未连消、面板默认布局。10s 静置录制。",
+      "expectations": {
+        "fpsWindow.p50Fps": ">= 55",
+        "fpsWindow.worstFps": ">= 20",
+        "longtask.countInWindow": "<= 8",
+        "longtask.maxMs": "<= 80",
+        "countersTotal.game.render": "<= 50 (10s 内整盘重绘 <= 50 帧 → ≤ 5fps active)"
+      },
+      "lastCapture": null,
+      "lastCaptureNotes": "尚未采集。在 Chrome/Safari 打开 http://localhost:3000，等 5s 后跑 window.__perfOverlay.open(); await window.__perfOverlay.startProfile(10); 把整段 JSON 粘到本字段。"
+    },
+    "idle-dfv-open": {
+      "description": "基线场景 B：DFV 已打开、未拖动、对局进行中。DFV 自身有 rAF 调度，更高 GPU 占用是预期的，但仍应 > 30fps。",
+      "expectations": {
+        "fpsWindow.p50Fps": ">= 45",
+        "fpsWindow.worstFps": ">= 15",
+        "longtask.countInWindow": "<= 15",
+        "countersTotal.game.render": "<= 80"
+      },
+      "lastCapture": null,
+      "lastCaptureNotes": "尚未采集。"
+    },
+    "active-drag-combo": {
+      "description": "基线场景 C：模拟连消活动期。打开 DFV，慢速拖几块连消，过程中开始录制。这是真实玩家最重的 GPU 负载窗口。",
+      "expectations": {
+        "fpsWindow.p50Fps": ">= 40",
+        "fpsWindow.worstFps": ">= 10",
+        "longtask.maxMs": "<= 120"
+      },
+      "lastCapture": null,
+      "lastCaptureNotes": "尚未采集。"
+    }
+  }
+}

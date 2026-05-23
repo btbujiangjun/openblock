@@ -25,6 +25,9 @@
  *   ambient.applySkin(skinId);      // 皮肤切换时切预设
  */
 
+/* v1.55.10 回滚：粒子是皮肤设计语言的一部分（樱花/落叶/萤火虫等），
+ * 不能因为图省 GPU 把它们默认关掉。保留单 key v1，新默认 enabled=true，
+ * 视觉降级权交还用户（点 ✨ 按钮）。GPU 优化通过帧率调度（getFrameIntervalMs）实现。 */
 const STORAGE_KEY = 'openblock_ambient_v1';
 const DEFAULT_PREFS = { enabled: true, density: 1.0 };
 
@@ -130,27 +133,84 @@ function _savePrefs(prefs) {
 
 function _rand(a, b) { return a + Math.random() * (b - a); }
 
+/* v1.55.13 GPU 优化：离散粒子皮肤（sakura / forest / ocean / fairy / universe）
+ * 改用 DOM transform 渲染，浏览器合成层处理 transform-only 动画极高效。
+ * 流体型（aurora-band / ripple）继续走 Canvas2D（DOM 不擅长渐变带）。
+ *
+ * 收益：fxCanvas 在这些皮肤下不再有内容 → hasActiveMotion=false →
+ *       syncFxCanvasVisibility 把 fxCanvas display 设为 none，
+ *       移除一个大尺寸合成层。 */
+const DOM_FRIENDLY_KINDS = new Set(['petal', 'leaf', 'bubble', 'firefly', 'meteor']);
+
 export class AmbientParticles {
-    constructor({ renderer }) {
+    constructor({ renderer, domHost = null } = {}) {
         this.renderer = renderer;
+        /* domHost 是一个绝对定位的 div，覆盖在 fxCanvas 区域；main.js 创建并传入。
+         * 不传时退化为纯 Canvas2D 模式（旧版行为），保持向后兼容。 */
+        this.domHost = domHost || null;
         this.prefs = _loadPrefs();
         this.preset = null;
         this.particles = [];
         this._lastTickTs = 0;
         this._reducedMotion = this._detectReducedMotion();
+        this._renderMode = 'canvas';
+        this._domEls = new Map();   // particle → HTMLElement
+        this._domTimer = 0;
+        this._lastTickW = 0;
+        this._lastTickH = 0;
     }
 
-    setEnabled(b) { this.prefs.enabled = !!b; _savePrefs(this.prefs); if (!b) this.particles = []; }
+    setEnabled(b) {
+        this.prefs.enabled = !!b;
+        _savePrefs(this.prefs);
+        if (!b) {
+            this.particles = [];
+            this._clearDomEls();
+            this._stopDomScheduler();
+        } else if (this._renderMode === 'dom' && this.preset) {
+            this._startDomScheduler();
+        }
+    }
     setDensity(d) {
         this.prefs.density = Math.max(0, Math.min(2, +d || 1));
         _savePrefs(this.prefs);
     }
     getPrefs() { return { ...this.prefs }; }
+    /** v1.55.13 调试：返回当前 ambient 运行状态，便于在 DevTools console 校验
+     * `window.__ambientParticles.getDebugInfo()`。 */
+    getDebugInfo() {
+        const fxCanvas = this.renderer?.fxCanvas;
+        const fxDisplay = fxCanvas?.style?.display;
+        return {
+            presetKind: this.preset?.kind || null,
+            renderMode: this._renderMode,
+            isRunning: this.isRunning(),
+            hasActiveMotion: this.hasActiveMotion(),
+            particles: this.particles.length,
+            domEls: this._domEls.size,
+            domHost: !!this.domHost,
+            domHostRect: this.domHost?.getBoundingClientRect?.() || null,
+            fxCanvasDisplay: fxDisplay === '' || fxDisplay == null ? 'visible' : fxDisplay,
+            domTimer: this._domTimer,
+            density: this.prefs.density,
+            enabled: this.prefs.enabled,
+            reducedMotion: this._reducedMotion,
+        };
+    }
+    /** 是否有"需要 fxCanvas 持续合成"的活跃运动。
+     * v1.55.13 起 DOM 模式返回 false，让 fxCanvas 在该模式下可下沉合成层。 */
     hasActiveMotion() {
+        if (!this.preset || !this.prefs.enabled || this._reducedMotion || this.prefs.density <= 0) {
+            return false;
+        }
+        return this._renderMode === 'canvas';
+    }
+    /** v1.55.13：暴露"环境是否在运行"（不区分模式），供 UI 状态判断 */
+    isRunning() {
         return Boolean(this.preset && this.prefs.enabled && !this._reducedMotion && this.prefs.density > 0);
     }
     getFrameIntervalMs() {
-        if (!this.hasActiveMotion()) return 1000;
+        if (!this.isRunning()) return 1000;
         if (this.preset.kind === 'aurora-band' || this.preset.kind === 'ripple') return 1000;
         if (this.preset.kind === 'meteor') return 500;
         return 700;
@@ -160,15 +220,165 @@ export class AmbientParticles {
     applySkin(skinId) {
         const next = PRESETS[skinId] || null;
         if (this.preset === next) return;
+        this._stopDomScheduler();
+        this._clearDomEls();
         this.preset = next;
-        this.particles = [];   // 清空旧粒子，避免视觉污染
+        this.particles = [];
+        if (!next) {
+            this._renderMode = 'canvas';
+            return;
+        }
+        const canDom = this.domHost
+            && DOM_FRIENDLY_KINDS.has(next.kind)
+            && typeof document !== 'undefined';
+        this._renderMode = canDom ? 'dom' : 'canvas';
+        if (this._renderMode === 'dom' && this.isRunning()) {
+            this._startDomScheduler();
+        }
+        /* v1.55.13：模式确定后立即同步 fxCanvas 可见性。
+         * 不等下一次 game.render() — 例如 boot 期 game.init 还没完，
+         * 但 ambient 已经 applySkin('sakura') 并切到 DOM 模式，此时 fxCanvas
+         * 应该立即 display:none，否则首次截屏 / 首屏 GPU 都还会算它一份。 */
+        this.renderer?.syncFxCanvasVisibility?.();
+    }
+
+    /* ── DOM mode scheduler ───────────────────────────────────────────── */
+    _startDomScheduler() {
+        if (this._domTimer || typeof window === 'undefined') return;
+        const tick = () => {
+            this._domTimer = 0;
+            if (!this.isRunning() || this._renderMode !== 'dom') return;
+            /* 后台 tab：暂缓，由 visibilitychange 唤醒（document 隐藏期间不更新 transform） */
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+                this._domTimer = window.setTimeout(tick, 1500);
+                return;
+            }
+            this._tickDom();
+            this._domTimer = window.setTimeout(tick, this.getFrameIntervalMs());
+        };
+        this._domTimer = window.setTimeout(tick, 200);
+    }
+
+    _stopDomScheduler() {
+        if (this._domTimer && typeof window !== 'undefined') {
+            window.clearTimeout(this._domTimer);
+            this._domTimer = 0;
+        }
+    }
+
+    _tickDom() {
+        if (!this.domHost || !this.preset) return;
+        const rect = this.domHost.getBoundingClientRect ? this.domHost.getBoundingClientRect() : null;
+        const lw = rect ? rect.width : (this._lastTickW || 480);
+        const lh = rect ? rect.height : (this._lastTickH || 480);
+        if (lw <= 0 || lh <= 0) return;
+        this._lastTickW = lw;
+        this._lastTickH = lh;
+        /* DOM 模式 m 不再用 fxCanvas paintMargin —— 用一个固定百分比，
+         * 让粒子可以微微飞出 host 边（host 有 overflow:hidden 兜底）。 */
+        const m = Math.max(12, Math.min(lw, lh) * 0.08);
+        const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        const dt = this._lastTickTs ? Math.min(48, now - this._lastTickTs) : 16;
+        this._lastTickTs = now;
+        const dtUnit = dt / 16;
+
+        const target = Math.round(this.preset.target * this.prefs.density);
+        while (this.particles.length < target) {
+            this._spawn(lw, lh, m);
+            this._mountDomEl(this.particles[this.particles.length - 1]);
+        }
+
+        const survivors = [];
+        for (let i = 0; i < this.particles.length; i++) {
+            const p = this.particles[i];
+            this._step(p, dtUnit);
+            if (this._inBounds(p, lw, lh, m)) {
+                survivors.push(p);
+                this._updateDomEl(p, lw, lh, m);
+            } else {
+                this._unmountDomEl(p);
+            }
+        }
+        this.particles = survivors;
+    }
+
+    _mountDomEl(p) {
+        if (!this.domHost || this._domEls.has(p) || typeof document === 'undefined') return;
+        const el = document.createElement('div');
+        el.className = `ambient-particle ambient-particle--${p.kind}`;
+        el.style.cssText = this._stylesForParticle(p);
+        this.domHost.appendChild(el);
+        this._domEls.set(p, el);
+    }
+
+    _updateDomEl(p, lw, lh, m) {
+        const el = this._domEls.get(p);
+        if (!el) return;
+        const opacity = p.alpha * this._edgeFade(p, lw, lh, m);
+        /* transform：DOM 合成器对此最友好；rotate 用 rad 转 deg。 */
+        const deg = (p.rot * 180) / Math.PI;
+        el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) rotate(${deg.toFixed(1)}deg)`;
+        el.style.opacity = String(opacity.toFixed(3));
+    }
+
+    _unmountDomEl(p) {
+        const el = this._domEls.get(p);
+        if (el?.parentNode) el.parentNode.removeChild(el);
+        this._domEls.delete(p);
+    }
+
+    _clearDomEls() {
+        for (const el of this._domEls.values()) {
+            if (el?.parentNode) el.parentNode.removeChild(el);
+        }
+        this._domEls.clear();
+    }
+
+    /** 为不同粒子类型生成 inline style；颜色/形状从 preset 推导。 */
+    _stylesForParticle(p) {
+        const preset = this.preset || {};
+        const w = Math.round(p.size * 2);
+        const h = p.kind === 'petal' || p.kind === 'leaf'
+            ? Math.round(p.size * 2 * 0.55)
+            : Math.round(p.size * 2);
+        /* v1.55.13：故意不设 will-change：5 个粒子共用父 host 的合成层，
+         * 避免每个粒子被 Chrome promote 成独立合成层。 */
+        const base =
+            `position:absolute;left:0;top:0;` +
+            `width:${w}px;height:${h}px;` +
+            `pointer-events:none;` +
+            `border-radius:50%;`;
+        if (p.kind === 'petal') {
+            return base + `background:${preset.color};`;
+        }
+        if (p.kind === 'leaf') {
+            const c = preset.color;
+            return base + `background:${c};box-shadow:inset 0 0 0 0.6px #5C2820;`;
+        }
+        if (p.kind === 'bubble') {
+            return base + `background:rgba(255,255,255,0.10);` +
+                `border:0.9px solid ${preset.color};border-radius:50%;`;
+        }
+        if (p.kind === 'firefly') {
+            const glow = preset.glow || '#FFFFB0';
+            return base + `background:radial-gradient(circle, ${glow} 0%, ${preset.color} 40%, transparent 100%);` +
+                `border-radius:50%;`;
+        }
+        if (p.kind === 'meteor') {
+            return base + `background:linear-gradient(to right, transparent 0%, ${preset.color} 100%);` +
+                `border-radius:50%;height:2px;`;
+        }
+        return base;
     }
 
     /**
      * 由 renderer.renderAmbient() 在每帧 fxCtx 渲染时调用。
      * 自管理粒子状态，不依赖 game 主循环。
+     *
+     * v1.55.13：DOM 模式下此方法变成 no-op（粒子由 _tickDom 自调度更新到 DOM）。
      */
     tickAndRender(fxCtx, ctxState) {
+        if (this._renderMode === 'dom') return;
         if (!fxCtx || !this.preset || !this.prefs.enabled || this._reducedMotion) return;
 
         const lw = ctxState.logicalW;
