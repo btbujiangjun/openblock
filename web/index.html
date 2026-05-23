@@ -518,11 +518,23 @@
             var isNarrow = vw > 0 && vw < 1024;
             if (isAndroid) {
               document.documentElement.classList.add('android-client');
-              // Android 低配优先：首屏即应用省电样式，避免等 JS 初始化后才降级。
-              document.documentElement.classList.add('quality-low');
             }
             if (isIOS) {
               document.documentElement.classList.add('ios-client');
+            }
+            var cores = Number(navigator.hardwareConcurrency) || 0;
+            var mem = Number(navigator.deviceMemory) || 0;
+            var reducedMotion = false;
+            try {
+              reducedMotion = window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            } catch (_) { /* ignore */ }
+            var lowEnd = (mem && mem <= 4) || (cores && cores <= 4) || (isAndroid && (!mem || !cores));
+            if (lowEnd || reducedMotion) {
+              // 首屏即应用省电样式，避免等主 JS 初始化后才降级。
+              document.documentElement.classList.add('quality-low');
+            } else if (isNativeShell || isNarrow) {
+              document.documentElement.classList.add('quality-balanced');
             }
             if (isNativeShell || isNarrow) {
               document.documentElement.classList.add('native-client');

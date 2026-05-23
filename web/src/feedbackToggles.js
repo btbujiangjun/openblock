@@ -6,6 +6,28 @@ const DEFAULT_VISUAL_PREFS = { enabled: true };
 const DEFAULT_QUALITY_PREFS = { mode: 'high' };
 const QUALITY_MODES = ['high', 'balanced', 'low'];
 
+function prefersReducedMotion() {
+    try {
+        return typeof window !== 'undefined'
+            && typeof window.matchMedia === 'function'
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+        return false;
+    }
+}
+
+function isNativeOrTouchClient() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+    try {
+        if (document.documentElement.classList.contains('native-client')) return true;
+        if (typeof window.__isNativeClient === 'boolean') return window.__isNativeClient;
+        return window.matchMedia?.('(pointer: coarse)')?.matches
+            || (window.innerWidth > 0 && window.innerWidth < 1024);
+    } catch {
+        return false;
+    }
+}
+
 function isAndroidClient() {
     if (typeof window === 'undefined' || typeof document === 'undefined') return false;
     try {
@@ -16,13 +38,20 @@ function isAndroidClient() {
     }
 }
 
-function isLowEndAndroidClient() {
-    if (!isAndroidClient()) return false;
+function isLowEndClient() {
     const nav = typeof navigator !== 'undefined' ? navigator : {};
     const cores = Number(nav.hardwareConcurrency) || 0;
     const mem = Number(nav.deviceMemory) || 0;
-    // deviceMemory 在部分 WebView 不暴露；未知时仍按保守低配策略处理。
-    return !mem || mem <= 4 || !cores || cores <= 4;
+    if (mem && mem <= 4) return true;
+    if (cores && cores <= 4) return true;
+    // Android WebView 上 deviceMemory 经常不暴露；未知时继续按保守低配策略处理。
+    return isAndroidClient() && (!mem || !cores);
+}
+
+function defaultQualityMode() {
+    if (isLowEndClient() || prefersReducedMotion()) return 'low';
+    if (isNativeOrTouchClient()) return 'balanced';
+    return DEFAULT_QUALITY_PREFS.mode;
 }
 
 function isIOSNativeClient() {
@@ -63,7 +92,7 @@ function normalizeIOSNativeFeedbackPrefs(visualPrefs, qualityPrefs, audioFx) {
 }
 
 function loadVisualPrefs() {
-    if (isLowEndAndroidClient()) return { enabled: false };
+    if (isLowEndClient() || prefersReducedMotion()) return { enabled: false };
     try {
         const raw = localStorage.getItem(VISUAL_STORAGE_KEY);
         if (!raw) {
@@ -84,13 +113,13 @@ function saveVisualPrefs(prefs) {
 }
 
 function loadQualityPrefs() {
-    if (isLowEndAndroidClient()) return { mode: 'low' };
+    if (isLowEndClient() || prefersReducedMotion()) return { mode: 'low' };
     try {
         const raw = localStorage.getItem(QUALITY_STORAGE_KEY);
-        const prefs = raw ? { ...DEFAULT_QUALITY_PREFS, ...JSON.parse(raw) } : { ...DEFAULT_QUALITY_PREFS };
-        return QUALITY_MODES.includes(prefs.mode) ? prefs : { ...DEFAULT_QUALITY_PREFS };
+        const prefs = raw ? { ...DEFAULT_QUALITY_PREFS, ...JSON.parse(raw) } : { mode: defaultQualityMode() };
+        return QUALITY_MODES.includes(prefs.mode) ? prefs : { mode: defaultQualityMode() };
     } catch {
-        return { ...DEFAULT_QUALITY_PREFS };
+        return { mode: defaultQualityMode() };
     }
 }
 

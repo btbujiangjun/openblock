@@ -14,6 +14,33 @@ const _mockLS = {
 
 vi.stubGlobal('localStorage', _mockLS);
 
+function setNavigatorHints({ cores, mem, ua = '' } = {}) {
+    Object.defineProperty(window.navigator, 'hardwareConcurrency', {
+        value: cores,
+        configurable: true,
+    });
+    Object.defineProperty(window.navigator, 'deviceMemory', {
+        value: mem,
+        configurable: true,
+    });
+    Object.defineProperty(window.navigator, 'userAgent', {
+        value: ua,
+        configurable: true,
+    });
+}
+
+function mockMatchMedia(matches = false) {
+    window.matchMedia = vi.fn((query) => ({
+        matches: query.includes('prefers-reduced-motion') ? matches : false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+    }));
+}
+
 function mountButtons() {
     document.body.innerHTML = `
         <button id="visual-effects-toggle"></button>
@@ -51,7 +78,11 @@ describe('feedbackToggles', () => {
         _mockLS.getItem.mockClear();
         _mockLS.setItem.mockClear();
         document.body.innerHTML = '';
-        document.documentElement.classList.remove('quality-high', 'quality-balanced', 'quality-low', 'ios-client', 'native-client');
+        document.documentElement.classList.remove('quality-high', 'quality-balanced', 'quality-low', 'ios-client', 'android-client', 'native-client');
+        window.__isNativeClient = false;
+        window.innerWidth = 1280;
+        setNavigatorHints({ cores: 8, mem: 8, ua: 'Mozilla/5.0' });
+        mockMatchMedia(false);
     });
 
     it('初始化时应用持久化的视觉特效偏好', () => {
@@ -123,5 +154,45 @@ describe('feedbackToggles', () => {
         expect(deps.game.renderer.setQualityMode).toHaveBeenLastCalledWith('low');
         expect(document.documentElement.classList.contains('quality-low')).toBe(true);
         expect(JSON.parse(_store.get('openblock_quality_v1'))).toEqual({ mode: 'low' });
+    });
+
+    it('低配 Android 默认关闭视觉特效并启用省电画质', () => {
+        document.documentElement.classList.add('android-client', 'native-client');
+        setNavigatorHints({ cores: 4, mem: 3, ua: 'Mozilla/5.0 Android' });
+        mountButtons();
+        const deps = makeDeps();
+
+        initFeedbackToggles(deps);
+
+        expect(deps.game.renderer.setEffectsEnabled).toHaveBeenCalledWith(false);
+        expect(deps.ambient.setEnabled).toHaveBeenCalledWith(false);
+        expect(deps.game.renderer.setQualityMode).toHaveBeenCalledWith('low');
+        expect(document.documentElement.classList.contains('quality-low')).toBe(true);
+    });
+
+    it('普通触屏设备无偏好时默认使用均衡画质', () => {
+        window.__isNativeClient = true;
+        document.documentElement.classList.add('native-client');
+        setNavigatorHints({ cores: 8, mem: 8, ua: 'Mozilla/5.0 Mobile' });
+        mountButtons();
+        const deps = makeDeps();
+
+        initFeedbackToggles(deps);
+
+        expect(deps.game.renderer.setEffectsEnabled).toHaveBeenCalledWith(true);
+        expect(deps.game.renderer.setQualityMode).toHaveBeenCalledWith('balanced');
+        expect(document.documentElement.classList.contains('quality-balanced')).toBe(true);
+    });
+
+    it('系统减少动态偏好默认关闭视觉特效并启用省电画质', () => {
+        mockMatchMedia(true);
+        mountButtons();
+        const deps = makeDeps();
+
+        initFeedbackToggles(deps);
+
+        expect(deps.game.renderer.setEffectsEnabled).toHaveBeenCalledWith(false);
+        expect(deps.ambient.setEnabled).toHaveBeenCalledWith(false);
+        expect(deps.game.renderer.setQualityMode).toHaveBeenCalledWith('low');
     });
 });

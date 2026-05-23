@@ -117,6 +117,7 @@ class GameController {
       const fallback = pool.filter((s) => this.grid.canPlaceAnywhere(s.data)).slice(0, 3);
       shapes = fallback.length >= 3 ? fallback : pool.slice(0, 3);
     }
+    shapes = this._sanitizeDockShapes(shapes);
 
     const iconBonusTarget = Math.max(0, Math.min(1, layered.spawnHints?.iconBonusTarget ?? 0));
     const colorBias = monoNearFullLineColorWeights(this.grid, this.skin)
@@ -171,6 +172,33 @@ class GameController {
     if (this._profile && typeof this._profile.tickRoundForDelight === 'function') {
       this._profile.tickRoundForDelight();
     }
+  }
+
+  _sanitizeDockShapes(shapes) {
+    const pool = getRegularShapes()
+      .filter((s) => s && Array.isArray(s.data) && !isSpecialShapeId(s.id));
+    if (pool.length === 0) return Array.isArray(shapes) ? shapes.slice(0, 3) : [];
+
+    const result = [];
+    const usedIds = new Set();
+    const source = Array.isArray(shapes) ? shapes : [];
+    const pickFallback = () => (
+      pool.find((s) => !usedIds.has(s.id) && this.grid.canPlaceAnywhere(s.data)) ||
+      pool.find((s) => !usedIds.has(s.id)) ||
+      pool[0]
+    );
+
+    for (let i = 0; i < 3; i++) {
+      const candidate = source[i];
+      const safe = candidate && Array.isArray(candidate.data) && !isSpecialShapeId(candidate.id)
+        ? candidate
+        : pickFallback();
+      if (!safe) continue;
+      result.push(safe);
+      usedIds.add(safe.id);
+    }
+
+    return result;
   }
 
   _resolveSpawnStrategy() {
