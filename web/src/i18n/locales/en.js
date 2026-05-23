@@ -34,6 +34,7 @@ export default {
     'menu.localeAria': 'Interface language',
     'menu.dailyMaster': 'Daily Master',
     'menu.dbDebug': 'DB debug',
+    'menu.exitApp': 'Exit app',
 
     'dbDebug.title': '🗄 SQLite debug',
     'dbDebug.tableLabel': 'Table',
@@ -255,7 +256,7 @@ export default {
     'skin.name.farm': '🐄 Farm Life',
     'skin.name.desert': '🐫 Desert Oasis',
 
-    'boot.fileProtocol': 'Game script did not load. Run npm run dev from the project root and open the local URL shown in the terminal; do not open the HTML via file://.',
+    'boot.fileProtocol': 'Game script did not load. For web debugging run npm run dev; for Android/iOS offline mode run npm run mobile:build and reinstall the latest app package.',
 
     // ============ Player Lifecycle & Maturity System ============
     // Maturity Levels

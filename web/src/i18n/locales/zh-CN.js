@@ -34,6 +34,7 @@ export default {
     'menu.localeAria': '界面语言',
     'menu.dailyMaster': '每日大师题',
     'menu.dbDebug': '数据库调试',
+    'menu.exitApp': '退出应用',
 
     'dbDebug.title': '🗄 SQLite 调试',
     'dbDebug.tableLabel': '表',
@@ -261,7 +262,7 @@ export default {
     'skin.name.farm': '🐄 田园农场',
     'skin.name.desert': '🐫 沙漠绿洲',
 
-    'boot.fileProtocol': '游戏脚本未加载。请在项目根目录执行 npm run dev，用浏览器打开终端里的本地地址；不要用 file:// 直接打开 HTML。',
+    'boot.fileProtocol': '游戏脚本未加载。Web 调试请执行 npm run dev；Android/iOS 离线模式请执行 npm run mobile:build 后重装最新安装包。',
 
     // ============ 玩家生命周期与成熟度系统 ============
     // 成熟度等级

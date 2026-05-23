@@ -1,14 +1,74 @@
 const VISUAL_STORAGE_KEY = 'openblock_visualfx_v1';
 const QUALITY_STORAGE_KEY = 'openblock_quality_v1';
+const IOS_NATIVE_FEEDBACK_INIT_KEY = 'openblock_ios_native_feedback_init_v2';
 
 const DEFAULT_VISUAL_PREFS = { enabled: true };
 const DEFAULT_QUALITY_PREFS = { mode: 'high' };
 const QUALITY_MODES = ['high', 'balanced', 'low'];
 
+function isAndroidClient() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+    try {
+        if (document.documentElement.classList.contains('android-client')) return true;
+        return /android/i.test(window.navigator?.userAgent || '');
+    } catch {
+        return false;
+    }
+}
+
+function isLowEndAndroidClient() {
+    if (!isAndroidClient()) return false;
+    const nav = typeof navigator !== 'undefined' ? navigator : {};
+    const cores = Number(nav.hardwareConcurrency) || 0;
+    const mem = Number(nav.deviceMemory) || 0;
+    // deviceMemory 在部分 WebView 不暴露；未知时仍按保守低配策略处理。
+    return !mem || mem <= 4 || !cores || cores <= 4;
+}
+
+function isIOSNativeClient() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+    try {
+        if (document.documentElement.classList.contains('ios-client')) return true;
+        const cap = window.Capacitor;
+        const isIOS = typeof cap?.getPlatform === 'function' && cap.getPlatform() === 'ios';
+        const isNative = typeof cap?.isNativePlatform === 'function'
+            ? cap.isNativePlatform()
+            : document.documentElement.classList.contains('native-client');
+        return Boolean(isIOS && isNative);
+    } catch {
+        return false;
+    }
+}
+
+function normalizeIOSNativeFeedbackPrefs(visualPrefs, qualityPrefs, audioFx) {
+    if (!isIOSNativeClient()) return { visualPrefs, qualityPrefs };
+    try {
+        if (localStorage.getItem(IOS_NATIVE_FEEDBACK_INIT_KEY) === '1') {
+            return { visualPrefs, qualityPrefs };
+        }
+        const nextVisual = { ...visualPrefs, enabled: true };
+        const nextQuality = { ...qualityPrefs, mode: 'high' };
+        saveVisualPrefs(nextVisual);
+        saveQualityPrefs(nextQuality);
+        audioFx?.setEnabled?.(true);
+        audioFx?.setHaptic?.(true);
+        localStorage.setItem(IOS_NATIVE_FEEDBACK_INIT_KEY, '1');
+        return { visualPrefs: nextVisual, qualityPrefs: nextQuality };
+    } catch {
+        return {
+            visualPrefs: { ...visualPrefs, enabled: true },
+            qualityPrefs: { ...qualityPrefs, mode: 'high' },
+        };
+    }
+}
+
 function loadVisualPrefs() {
+    if (isLowEndAndroidClient()) return { enabled: false };
     try {
         const raw = localStorage.getItem(VISUAL_STORAGE_KEY);
-        if (!raw) return { ...DEFAULT_VISUAL_PREFS };
+        if (!raw) {
+            return { ...DEFAULT_VISUAL_PREFS };
+        }
         return { ...DEFAULT_VISUAL_PREFS, ...JSON.parse(raw) };
     } catch {
         return { ...DEFAULT_VISUAL_PREFS };
@@ -24,6 +84,7 @@ function saveVisualPrefs(prefs) {
 }
 
 function loadQualityPrefs() {
+    if (isLowEndAndroidClient()) return { mode: 'low' };
     try {
         const raw = localStorage.getItem(QUALITY_STORAGE_KEY);
         const prefs = raw ? { ...DEFAULT_QUALITY_PREFS, ...JSON.parse(raw) } : { ...DEFAULT_QUALITY_PREFS };
@@ -56,8 +117,9 @@ export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
     const visualBtn = document.getElementById('visual-effects-toggle');
     const qualityBtn = document.getElementById('quality-toggle');
     const soundBtn = document.getElementById('sound-effects-toggle');
-    const visualPrefs = loadVisualPrefs();
-    const qualityPrefs = loadQualityPrefs();
+    const normalized = normalizeIOSNativeFeedbackPrefs(loadVisualPrefs(), loadQualityPrefs(), audioFx);
+    const visualPrefs = normalized.visualPrefs;
+    const qualityPrefs = normalized.qualityPrefs;
 
     const applyVisual = (enabled, { persist = true } = {}) => {
         const on = !!enabled;

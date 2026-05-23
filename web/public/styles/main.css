@@ -5259,10 +5259,21 @@ body.doc-visibility-hidden #menu * {
     border-color: color-mix(in srgb, #ffffff 26%, rgba(22, 101, 52, 0.55));
 }
 
+.menu-card--menu-secondary.menu-card--native-exit {
+    background: linear-gradient(145deg, #94a3b8, #334155 48%, #0f172a 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 18%, rgba(15, 23, 42, 0.5));
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.35), 0 1px 0 rgba(255, 255, 255, 0.22) inset;
+}
+.menu-card--menu-secondary.menu-card--native-exit:hover {
+    background: linear-gradient(145deg, #cbd5e1, #475569 48%, #1e293b 100%);
+    border-color: color-mix(in srgb, #ffffff 26%, rgba(30, 41, 59, 0.55));
+}
+
 .menu-card--menu-secondary.menu-card--personal .menu-card-icon,
 .menu-card--menu-secondary.menu-card--ops .menu-card-icon,
 .menu-card--menu-secondary.menu-card--daily-master .menu-card-icon,
-.menu-card--menu-secondary.menu-card--db-debug .menu-card-icon {
+.menu-card--menu-secondary.menu-card--db-debug .menu-card-icon,
+.menu-card--menu-secondary.menu-card--native-exit .menu-card-icon {
     opacity: 1;
     filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.22));
 }

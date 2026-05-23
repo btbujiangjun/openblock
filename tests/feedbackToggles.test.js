@@ -38,6 +38,7 @@ function makeDeps(sound = true) {
         audioFx: {
             _sound: sound,
             setEnabled: vi.fn(function setEnabled(enabled) { this._sound = !!enabled; }),
+            setHaptic: vi.fn(),
             getPrefs: vi.fn(function getPrefs() { return { sound: this._sound }; }),
             play: vi.fn(),
         },
@@ -50,7 +51,7 @@ describe('feedbackToggles', () => {
         _mockLS.getItem.mockClear();
         _mockLS.setItem.mockClear();
         document.body.innerHTML = '';
-        document.documentElement.classList.remove('quality-high', 'quality-balanced', 'quality-low');
+        document.documentElement.classList.remove('quality-high', 'quality-balanced', 'quality-low', 'ios-client', 'native-client');
     });
 
     it('初始化时应用持久化的视觉特效偏好', () => {
@@ -85,7 +86,26 @@ describe('feedbackToggles', () => {
         document.getElementById('sound-effects-toggle').click();
 
         expect(deps.audioFx.setEnabled).toHaveBeenLastCalledWith(false);
+        expect(deps.audioFx.setHaptic).toHaveBeenLastCalledWith(false);
         expect(document.getElementById('sound-effects-toggle').textContent).toBe('🔇');
+    });
+
+    it('iOS 原生端首次初始化会恢复视觉特效、音效和触感默认开启', () => {
+        _store.set('openblock_visualfx_v1', JSON.stringify({ enabled: false }));
+        _store.set('openblock_quality_v1', JSON.stringify({ mode: 'low' }));
+        document.documentElement.classList.add('ios-client', 'native-client');
+        mountButtons();
+        const deps = makeDeps(false);
+
+        initFeedbackToggles(deps);
+
+        expect(deps.game.renderer.setEffectsEnabled).toHaveBeenCalledWith(true);
+        expect(deps.game.renderer.setQualityMode).toHaveBeenCalledWith('high');
+        expect(deps.audioFx.setEnabled).toHaveBeenCalledWith(true);
+        expect(deps.audioFx.setHaptic).toHaveBeenCalledWith(true);
+        expect(JSON.parse(_store.get('openblock_visualfx_v1'))).toEqual({ enabled: true });
+        expect(JSON.parse(_store.get('openblock_quality_v1'))).toEqual({ mode: 'high' });
+        expect(_store.get('openblock_ios_native_feedback_init_v2')).toBe('1');
     });
 
     it('初始化并点击画质按钮会循环档位并持久化', () => {

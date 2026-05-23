@@ -29,13 +29,37 @@ let _loadAttempted = false;
 async function _getHaptics() {
     if (_loadAttempted) return _hapticsModule;
     _loadAttempted = true;
+    const globalPlugin = _getGlobalHapticsPlugin();
+    if (globalPlugin) {
+        _hapticsModule = globalPlugin;
+        return _hapticsModule;
+    }
     try {
         const mod = await import('@capacitor/haptics');
         _hapticsModule = mod;
     } catch {
         _hapticsModule = null;
     }
+    if (!_hapticsModule) {
+        _loadAttempted = false;
+    }
     return _hapticsModule;
+}
+
+function _getGlobalHapticsPlugin() {
+    try {
+        const haptics = typeof window !== 'undefined'
+            ? window.Capacitor?.Plugins?.Haptics
+            : null;
+        if (!haptics) return null;
+        return {
+            Haptics: haptics,
+            ImpactStyle: { Light: 'LIGHT', Medium: 'MEDIUM', Heavy: 'HEAVY' },
+            NotificationType: { Success: 'SUCCESS', Warning: 'WARNING', Error: 'ERROR' },
+        };
+    } catch {
+        return null;
+    }
 }
 
 /** 是否运行在 Capacitor 原生容器内 */
@@ -43,8 +67,11 @@ function _isNative() {
     return (
         typeof window !== 'undefined'
         && window.Capacitor
-        && typeof window.Capacitor.isNativePlatform === 'function'
-        && window.Capacitor.isNativePlatform()
+        && (
+            (typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform())
+            || (typeof window.Capacitor.getPlatform === 'function' && window.Capacitor.getPlatform() !== 'web')
+            || !!window.Capacitor?.Plugins?.Haptics
+        )
     );
 }
 
@@ -63,7 +90,7 @@ function _isIOS() {
  */
 export function vibrate(pattern) {
     if (_isNative()) {
-        _vibrateNative(pattern);
+        void _vibrateNative(pattern);
         return;
     }
     /* Android 浏览器 / Capacitor Android WebView（无原生容器时） */

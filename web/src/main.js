@@ -61,6 +61,7 @@ import { initSeasonalBorder } from './effects/seasonalBorder.js';
 import { initFeedbackToggles } from './feedbackToggles.js';
 import { initSkinLore } from './lore/skinLore.js';
 import { initBgm } from './effects/bgmStub.js';
+import { bindNativeExitButtons } from './nativeExit.js';
 import { initRotationStub } from './playmodes/rotationStub.js';
 import { initWeatherStub } from './seasonalSkin.weather.js';
 import { initCompanionStub } from './companion/companionStub.js';
@@ -86,15 +87,23 @@ import { initLocalStorageStateSync } from './localStorageStateSync.js';
 import { initVisitTracker } from './visitTracker.js';
 import { initCursorHelpTooltip } from './helpTooltip.js';
 
+window.__openblockBootStage = 'main-module-loaded';
+
 document.addEventListener('DOMContentLoaded', async () => {
+    window.__openblockBootStage = 'dom-ready';
     // 统一 cursor:help 提示等待时长：1.5 秒。
+    window.__openblockBootStage = 'cursor-help-init';
     initCursorHelpTooltip({ delayMs: 1500 });
 
+    window.__openblockBootStage = 'i18n-init';
     initI18n();
+    window.__openblockBootStage = 'i18n-apply-dom';
     applyDom(document.documentElement);
+    window.__openblockBootStage = 'i18n-apply-meta';
     applyMeta();
     const localeSel = document.getElementById('locale-select');
     if (localeSel) {
+        window.__openblockBootStage = 'locale-select-init';
         localeSel.innerHTML = AVAILABLE_LOCALES.map(
             ({ code, nativeName }) => `<option value="${code}">${nativeName}</option>`,
         ).join('');
@@ -115,14 +124,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     const bootErr = document.getElementById('boot-error');
+    const isNativeClient = () => {
+        try {
+            if (document.documentElement.classList.contains('native-client')) return true;
+            const cap = window.Capacitor;
+            if (!cap) return false;
+            if (typeof cap.isNativePlatform === 'function') return !!cap.isNativePlatform();
+            return typeof cap.getPlatform === 'function' ? cap.getPlatform() !== 'web' : false;
+        } catch {
+            return false;
+        }
+    };
     /* v10.15: 4.1 节日 emoji 覆盖必须在 applySkinToDocument 之前执行
        （applyAprilFoolsIfActive 修改 SKINS[*].blockIcons，让 renderer 后续读到的是 emoji） */
+    window.__openblockBootStage = 'seasonal-skin-preapply';
     applyAprilFoolsIfActive();
+    window.__openblockBootStage = 'skin-apply';
     applySkinToDocument(getActiveSkin());
+    window.__openblockBootStage = 'wordmark-mount';
     mountBlockWordmarks();
     /* v10.15: 程序化音效系统（首次用户交互后自动 unlock AudioContext）
        audioFx 暴露到 window.__audioFx，便于其他模块和控制台调用。 */
+    window.__openblockBootStage = 'audiofx-create';
     const audioFx = createAudioFx();
+    bindNativeExitButtons({ audioFx });
     /* v10.15: 皮肤切换转场（0.6s 主题色一闪 + 淡入淡出）
        通过装饰 setActiveSkinId 实现，对其他模块透明。 */
     installSkinTransition({ audio: audioFx });
@@ -132,8 +157,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSkinSoundPalettes({ audioFx });
     /* v10.16: 首次解锁庆祝（onSkinAfterApply 订阅，与 transition 动画并存） */
     initFirstUnlockCelebration({ audio: audioFx, currentSkinId: getActiveSkin().id });
+    window.__openblockBootStage = 'game-create';
     const game = new Game();
+    window.__openblockBootStage = 'game-created';
     window.openBlockGame = game;
+    bindNativeExitButtons({ game, audioFx });
     initMonetization(game);
 
     /* v1.60.48：字体就绪后强制重绘 canvas + dock + wordmark。
@@ -279,7 +307,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     void fetchRemoteConfig();
 
     try {
+        window.__openblockBootStage = 'game-init-start';
         await game.init();
+        window.__openblockBootStage = 'game-init-done';
         if (bootErr) {
             bootErr.hidden = true;
         }
@@ -327,16 +357,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         initLuckyWheel({ audio: audioFx });
 
         // 初始化完成后直接进入游戏，跳过菜单界面
+        window.__openblockBootStage = 'game-start-start';
         await game.start({ fromChain: false });
+        window.__openblockBootStage = 'game-start-done';
         console.log('Open Block initialized successfully');
     } catch (error) {
         console.error('Failed to initialize game:', error);
         if (bootErr) {
             bootErr.hidden = false;
+            const suffix = isNativeClient()
+                ? '。当前为离线模式，请在项目根目录执行 npm run mobile:build，并重新安装最新 APK。'
+                : '。请使用 npm run dev，勿用 file:// 打开。';
             bootErr.textContent =
                 '初始化失败：' +
                 (error instanceof Error ? error.message : String(error)) +
-                '。请使用 npm run dev，勿用 file:// 打开。';
+                suffix;
         }
     }
 });

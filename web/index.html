@@ -228,6 +228,17 @@
           padding: 0 !important;
           transition: background 120ms !important;
         }
+        /* iOS 圆角/灵动岛机型：不要贴屏幕物理边缘，按安全区再内缩一圈。
+           只命中 .ios-client，避免改动 Android 已验证的按钮位置。 */
+        html.ios-client #mobile-exit-btn {
+          top: calc(max(env(safe-area-inset-top, 0px), 24px) + 10px) !important;
+          right: calc(max(env(safe-area-inset-right, 0px), 12px) + 12px) !important;
+          width: 44px !important;
+          height: 44px !important;
+          border-radius: 22px !important;
+          z-index: 1400 !important;
+          touch-action: manipulation !important;
+        }
         #mobile-exit-btn:active { background: rgba(0,0,0,0.75) !important; transform: scale(0.92); }
         /* 桌面端隐藏移动专属退出按钮（header 已有 ☰）*/
 
@@ -298,6 +309,145 @@
           margin: 0 !important;
           min-height: auto !important;
         }
+
+        /* Android 专用：只覆盖 Android，不影响 iOS。
+         *
+         * 目标：
+         * 1) HUD 顶到屏幕最上方，去除顶部大白边；
+         * 2) 棋盘按横向铺满（100vw - 12px）；
+         * 3) 候选区按 3 等分完整显示在底部。
+         *
+         * 注意：这里刻意不用 min()/100dvh 的复杂组合，部分 Android WebView 对
+         * CSS Values 4 支持不稳定，会导致棋盘 / 候选区尺寸解析失败。
+         */
+        html.android-client,
+        html.android-client body {
+          background: #0f1525 !important;
+          min-height: 100vh !important;
+          height: auto !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+        }
+        html.android-client #app {
+          min-height: 100vh !important;
+          height: auto !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          padding-top: 0 !important;
+          padding-bottom: max(env(safe-area-inset-bottom, 0px), 4px) !important;
+          padding-left: 0 !important;
+          padding-right: 0 !important;
+          gap: 0 !important;
+          justify-content: flex-start !important;
+          background: #0f1525 !important;
+        }
+        html.android-client .header.header--title-only {
+          margin: 0 0 1px 0 !important;
+          padding: 0 !important;
+          min-height: 0 !important;
+        }
+        html.android-client .app-wordmark {
+          --wm-cell-w: 3px !important;
+          --wm-cell-h: 4px !important;
+          padding: 1px 6px !important;
+          transform: scale(0.86) !important;
+        }
+        html.android-client .score-theme-row {
+          margin: 0 !important;
+          padding: 0 2px !important;
+          gap: 4px !important;
+          row-gap: 1px !important;
+          align-content: flex-start !important;
+        }
+        html.android-client .score-theme-row .stat-box {
+          padding: 2px 8px !important;
+          border-radius: 8px !important;
+        }
+        html.android-client .score-theme-row .stat-value {
+          font-size: 21px !important;
+          line-height: 0.95 !important;
+        }
+        html.android-client .score-theme-row .stat-value::before {
+          font-size: 13px !important;
+          margin-right: 1px !important;
+        }
+        html.android-client .score-theme-row .progression-level {
+          font-size: 13px !important;
+        }
+        html.android-client .score-theme-row .progression-title,
+        html.android-client .score-theme-row .header-skin .skin-picker select {
+          font-size: 10px !important;
+        }
+        html.android-client .score-theme-quick-cluster {
+          gap: 3px !important;
+        }
+        html.android-client .feedback-toggle-btn,
+        html.android-client .in-game-menu-btn--toolbar {
+          width: 24px !important;
+          height: 24px !important;
+          font-size: 12px !important;
+        }
+        html.android-client .play-stack {
+          margin-top: 2px !important;
+          margin-bottom: 0 !important;
+          padding: 0 !important;
+          gap: 0 !important;
+          flex: 0 0 auto !important;
+          width: 100% !important;
+          overflow: visible !important;
+        }
+        html.android-client #game-wrapper {
+          margin: 2px 0 0 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          display: flex !important;
+          justify-content: center !important;
+        }
+        html.android-client {
+          --dock-cell-size: calc((100vw - 36px) / 15) !important;
+        }
+        html.android-client #game-grid {
+          display: block !important;
+          width: calc(100vw - 12px) !important;
+          height: calc(100vw - 12px) !important;
+          max-width: none !important;
+          max-height: none !important;
+          min-width: 0 !important;
+          min-height: 0 !important;
+          flex: 0 0 auto !important;
+        }
+        html.android-client .skill-bar {
+          padding: 2px 2px !important;
+          gap: 2px !important;
+          row-gap: 1px !important;
+          margin: 0 !important;
+        }
+        html.android-client .skill-btn {
+          width: 28px !important;
+          height: 28px !important;
+          font-size: 14px !important;
+          border-radius: 7px !important;
+        }
+        html.android-client .block-dock {
+          display: flex !important;
+          width: calc(100vw - 8px) !important;
+          max-width: calc(100vw - 8px) !important;
+          padding: 3px 2px max(4px, env(safe-area-inset-bottom, 0px)) !important;
+          gap: 2px !important;
+          margin: 0 auto !important;
+          min-height: calc((100vw - 36px) / 3 + 8px) !important;
+          flex-shrink: 0 !important;
+          overflow: visible !important;
+          justify-content: space-evenly !important;
+          align-items: center !important;
+        }
+        html.android-client .block-dock canvas {
+          display: block !important;
+          width: calc((100vw - 36px) / 3) !important;
+          height: calc((100vw - 36px) / 3) !important;
+          max-width: calc((100vw - 36px) / 3) !important;
+          max-height: calc((100vw - 36px) / 3) !important;
+        }
       }
       /* 桌面端隐藏移动专属退出按钮 */
       @media (min-width: 1024px) {
@@ -361,8 +511,19 @@
             var vw = window.innerWidth || document.documentElement.clientWidth || 0;
             var p = (typeof globalThis !== 'undefined' && globalThis.__OPENBLOCK_PLATFORM__) || '';
             p = String(p).toLowerCase();
-            var isNativeShell = (p === 'ios' || p === 'android');
+            var ua = (navigator.userAgent || '').toLowerCase();
+            var isAndroid = p === 'android' || ua.indexOf('android') >= 0;
+            var isIOS = p === 'ios' || /iphone|ipad|ipod/.test(ua);
+            var isNativeShell = (isIOS || isAndroid);
             var isNarrow = vw > 0 && vw < 1024;
+            if (isAndroid) {
+              document.documentElement.classList.add('android-client');
+              // Android 低配优先：首屏即应用省电样式，避免等 JS 初始化后才降级。
+              document.documentElement.classList.add('quality-low');
+            }
+            if (isIOS) {
+              document.documentElement.classList.add('ios-client');
+            }
             if (isNativeShell || isNarrow) {
               document.documentElement.classList.add('native-client');
             }
@@ -522,6 +683,10 @@
             <button type="button" class="menu-card menu-card--db-debug menu-card--menu-secondary" id="menu-db-debug-btn" hidden>
                 <span class="menu-card-icon">🗄</span>
                 <span class="menu-card-label" data-i18n="menu.dbDebug">数据库调试</span>
+            </button>
+            <button type="button" class="menu-card menu-card--native-exit menu-card--menu-secondary" id="native-exit-app-btn" hidden>
+                <span class="menu-card-icon">⏻</span>
+                <span class="menu-card-label" data-i18n="menu.exitApp">退出应用</span>
             </button>
         </div>
     </div>
@@ -935,15 +1100,33 @@
     <script type="module" src="./src/main.js"></script>
     <script>
       (function () {
+        function isNativeClient() {
+          try {
+            if (document.documentElement.classList.contains('native-client')) return true;
+            var cap = window.Capacitor;
+            if (!cap) return false;
+            if (typeof cap.isNativePlatform === 'function') return !!cap.isNativePlatform();
+            return typeof cap.getPlatform === 'function' ? cap.getPlatform() !== 'web' : false;
+          } catch (_) {
+            return false;
+          }
+        }
+        function getBootHintText() {
+          var stage = window.__openblockBootStage || 'html-loaded';
+          if (isNativeClient()) {
+            return '游戏启动未完成（阶段：' + stage + '）。若阶段停在 html-loaded，通常是 Android WebView 旧缓存或脚本兼容问题；请重装最新 APK，必要时清除应用数据。';
+          }
+          return '游戏脚本未加载。请在项目根目录执行 npm run dev，用浏览器打开终端里的本地地址；不要用 file:// 直接打开 HTML。';
+        }
         function hint() {
           if (window.openBlockGame) return;
           var el = document.getElementById('boot-error');
           if (!el || !el.hidden) return;
           el.hidden = false;
-          el.textContent = '游戏脚本未加载。请在项目根目录执行 npm run dev，用浏览器打开终端里的本地地址；不要用 file:// 直接打开 HTML。';
+          el.textContent = getBootHintText();
         }
         window.addEventListener('load', function () {
-          setTimeout(hint, 3500);
+          setTimeout(hint, 8000);
         });
       })();
     </script>
@@ -968,11 +1151,17 @@
           || location.port === '3000'
           || location.port === '5173';
 
-        if (isDev) {
+        var isNativeClient = document.documentElement.classList.contains('native-client')
+          || (window.Capacitor && (
+            (typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform())
+            || (typeof window.Capacitor.getPlatform === 'function' && window.Capacitor.getPlatform() !== 'web')
+          ));
+
+        if (isDev || isNativeClient) {
           navigator.serviceWorker.getRegistrations().then(function (regs) {
             regs.forEach(function (reg) {
               reg.unregister().then(function (ok) {
-                if (ok) console.log('[App] dev: unregistered stale SW', reg.scope);
+                if (ok) console.log('[App] unregistered stale SW', reg.scope);
               });
             });
           }).catch(function () { /* ignore */ });
@@ -1019,14 +1208,28 @@
           var rlPanel = document.getElementById('rl-panel');
           if (rlPanel && rlPanel.parentNode) { rlPanel.parentNode.removeChild(rlPanel); }
         }
-        /* 移动端退出按钮：代理触发 #in-game-menu-btn（菜单逻辑由 main.js 绑定） */
+        var appExitBtn = document.getElementById('native-exit-app-btn');
+        if (appExitBtn && isNative) {
+          appExitBtn.hidden = false;
+        }
+        /* 移动端退出按钮：main.js 会绑定可靠事件；这里仅保留启动早期兜底。 */
         var exitBtn = document.getElementById('mobile-exit-btn');
         if (exitBtn) {
-          exitBtn.addEventListener('click', function () {
-            var menuBtn = document.getElementById('in-game-menu-btn');
-            if (menuBtn) { menuBtn.click(); return; }
+          exitBtn.addEventListener('click', function (event) {
+            if (exitBtn.__openBlockNativeExitBound) return;
+            if (event && event.preventDefault) event.preventDefault();
+            var game = window.openBlockGame;
+            if (game && typeof game.showScreen === 'function') {
+              game.runStreak = 0;
+              if (typeof game._updateRunStreakHint === 'function') game._updateRunStreakHint();
+              game.showScreen('menu');
+              return;
+            }
             var menu = document.getElementById('menu');
-            if (menu) menu.classList.add('active');
+            if (menu) {
+              menu.classList.add('active');
+              document.body.classList.add('game-shell-hidden');
+            }
           });
         }
       })();

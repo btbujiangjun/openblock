@@ -72,6 +72,18 @@ function _supportsVibrate() {
     return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
 }
 
+function _isNativeIOSClient() {
+    try {
+        const cap = typeof window !== 'undefined' ? window.Capacitor : null;
+        if (typeof cap?.getPlatform === 'function' && cap.getPlatform() === 'ios') return true;
+        return typeof document !== 'undefined'
+            && document.documentElement.classList.contains('ios-client')
+            && document.documentElement.classList.contains('native-client');
+    } catch {
+        return false;
+    }
+}
+
 /** 读 / 写 偏好 */
 function _loadPrefs() {
     try {
@@ -94,6 +106,11 @@ function _savePrefs(prefs) {
 export class AudioFx {
     constructor() {
         this.prefs = _loadPrefs();
+        if (_isNativeIOSClient()) {
+            this.prefs.sound = true;
+            this.prefs.haptic = true;
+            _savePrefs(this.prefs);
+        }
         /* v1.61.11：强制 prefs.haptic = prefs.sound。
          * 旧用户 localStorage 里可能存了 sound:true / haptic:false 的不一致状态，
          * 导致 "音效开着但消行没振动"。此处强制同步，与 v1.61.9 toggle 行为对齐。 */
@@ -165,7 +182,11 @@ export class AudioFx {
         /* v1.61.11：suspended 时同步触发 resume（无需等待用户交互再次到达）。
          * iOS Safari 在切回前台 / 屏幕熄屏后 AudioContext 可能再次 suspend。 */
         if (this.ctx.state === 'suspended') {
-            this.ctx.resume().catch(() => { /* ignore */ });
+            this.ctx.resume().then(() => {
+                if (this.ctx?.state === 'running') {
+                    this.play(type, { ...opts, force: true });
+                }
+            }).catch(() => { /* ignore */ });
             return;  /* 本次播放跳过，等下次 */
         }
         const now = this.ctx.currentTime;
@@ -191,7 +212,8 @@ export class AudioFx {
      * 提供精准 iOS Taptic Engine 反馈；浏览器降级 navigator.vibrate；iOS 浏览器 no-op。
      */
     vibrate(pattern) {
-        if (!this.prefs.haptic || this._reducedMotion) return;
+        if (!this.prefs.haptic) return;
+        if (this._reducedMotion && !_isNativeIOSClient()) return;
         import('./haptics.js').then(({ vibrate }) => {
             try { vibrate(pattern); } catch { /* ignore */ }
         }).catch(() => {
@@ -258,17 +280,15 @@ export class AudioFx {
             if (!this._ensureCtx()) return;
             const state = this.ctx.state;
             if (state === 'running') {
+                this._primeOutput();
                 this._unlocked = true;
                 return;
             }
             if (state === 'suspended' || state === 'interrupted') {
                 try {
+                    this._primeOutput();
                     await this.ctx.resume();
-                    const buf = this.ctx.createBuffer(1, 1, 22050);
-                    const src = this.ctx.createBufferSource();
-                    src.buffer = buf;
-                    src.connect(this.ctx.destination);
-                    src.start(0);
+                    this._primeOutput();
                     if (this.ctx.state === 'running') {
                         this._unlocked = true;
                     }
@@ -294,6 +314,30 @@ export class AudioFx {
                     this.ctx.resume().catch(() => { /* ignore */ });
                 }
             });
+        }
+    }
+
+    _primeOutput() {
+        if (!this.ctx) return;
+        try {
+            const now = this.ctx.currentTime || 0;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.00001, now + 0.03);
+            osc.frequency.setValueAtTime(440, now);
+            osc.connect(gain);
+            gain.connect(this.master || this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.035);
+        } catch {
+            try {
+                const buf = this.ctx.createBuffer(1, 1, 22050);
+                const src = this.ctx.createBufferSource();
+                src.buffer = buf;
+                src.connect(this.master || this.ctx.destination);
+                src.start(0);
+            } catch { /* ignore */ }
         }
     }
 

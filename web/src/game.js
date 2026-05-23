@@ -4,7 +4,7 @@
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
 import { writeSpawnSignals, hydrateFromSpawnSignals } from './offlineStateCache.js';
-import { initScoreAnimator, animateScore, animateScoreOdometer, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
+import { initScoreAnimator, animateScoreOdometer, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry } from './adaptiveSpawn.js';
 /* v1.57：stress 感知化层（A 棋盘氛围光 + B 呼吸节奏 + C 震动幅度 + D 音频滤波）
  * pushStressAmbience 在 _captureAdaptiveInsight 末尾被调用，把 finalStress 渗透
@@ -1350,7 +1350,17 @@ export class Game {
             const slotCells = CONFIG.DOCK_PREVIEW_MAX_CELLS;
             const slotPx = slotCells * cell;
             const canvas = document.createElement('canvas');
-            const dockDpr = Math.round(window.devicePixelRatio || 1) || 1;
+            const isLowPowerDock = (() => {
+                try {
+                    return document.documentElement.classList.contains('android-client')
+                        || document.documentElement.classList.contains('quality-low');
+                } catch {
+                    return false;
+                }
+            })();
+            const dockDpr = isLowPowerDock
+                ? 1
+                : (Math.round(window.devicePixelRatio || 1) || 1);
             canvas.width  = slotPx * dockDpr;
             canvas.height = slotPx * dockDpr;
             // 不设置 inline width/height：由 CSS(.block-dock canvas) 控制显示尺寸
@@ -2622,8 +2632,55 @@ export class Game {
 
         const animStart = Date.now();
         let clearFlashEnded = false;
+        let finalized = false;
+        let finalizeTimer = null;
+
+        const finalizeClearEffect = () => {
+            if (finalized) return;
+            finalized = true;
+            if (finalizeTimer != null) {
+                clearTimeout(finalizeTimer);
+                finalizeTimer = null;
+            }
+
+            self.isAnimating = false;
+            self.renderer.clearParticles();
+            self.renderer.setClearCells([]);
+            self.markDirty();
+
+            self._markDockBlockPlaced(dockIndex);
+
+            /* v1.57.4：消行动画完成后再增量刷新一次 intent + 几何快照——
+             * checkLines 在动画前就已 apply 到 grid，理论上 _handlePlace 那次刷新
+             * 已覆盖；但 perfectClear / bonus 等会触发额外副作用，再走一次保险，
+             * 让 DFV / stressMeter 在动画结束→spawn 重抽之间的窗口也读到实时值。 */
+            self._refreshIntentSnapshot();
+
+            if (self.dockBlocks.every(b => b.placed)) {
+                self._levelManager?.recordRound();
+                self.spawnBlocks();
+            }
+
+            self.updateUI();
+
+            // 关卡目标检测（消除后）
+            if (self._levelManager) {
+                const objResult = self._levelManager.checkObjective(self);
+                if (objResult.achieved) {
+                    const levelResult = self._levelManager.getResult(self);
+                    self.endGame({ mode: 'level', levelResult });
+                    return;
+                }
+            }
+
+            self.checkGameOver();
+        };
+
+        // iOS WebView 偶发暂停/丢弃 rAF 尾帧；定时兜底保证候选池不会卡在全 placed 状态。
+        finalizeTimer = setTimeout(finalizeClearEffect, animDuration + 500);
 
         const animate = () => {
+            if (finalized) return;
             const elapsed = Date.now() - animStart;
             self.renderer.updateShake();
             self.renderer.updateParticles();
@@ -2637,37 +2694,7 @@ export class Game {
             if (elapsed < animDuration) {
                 requestAnimationFrame(animate);
             } else {
-                self.isAnimating = false;
-                self.renderer.clearParticles();
-                self.renderer.setClearCells([]);
-                self.markDirty();
-
-                self._markDockBlockPlaced(dockIndex);
-
-                /* v1.57.4：消行动画完成后再增量刷新一次 intent + 几何快照——
-                 * checkLines 在动画前就已 apply 到 grid，理论上 _handlePlace 那次刷新
-                 * 已覆盖；但 perfectClear / bonus 等会触发额外副作用，再走一次保险，
-                 * 让 DFV / stressMeter 在动画结束→spawn 重抽之间的窗口也读到实时值。 */
-                self._refreshIntentSnapshot();
-
-                if (self.dockBlocks.every(b => b.placed)) {
-                    self._levelManager?.recordRound();
-                    self.spawnBlocks();
-                }
-
-                self.updateUI();
-
-                // 关卡目标检测（消除后）
-                if (self._levelManager) {
-                    const objResult = self._levelManager.checkObjective(self);
-                    if (objResult.achieved) {
-                        const levelResult = self._levelManager.getResult(self);
-                        self.endGame({ mode: 'level', levelResult });
-                        return;
-                    }
-                }
-
-                self.checkGameOver();
+                finalizeClearEffect();
             }
         };
 

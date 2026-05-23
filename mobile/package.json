@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Capacitor shell for packaging OpenBlock Web into Android and iOS clients.",
   "dependencies": {
+    "@capacitor/app": "^8.1.0",
     "@capacitor/haptics": "^8.0.2"
   }
 }
