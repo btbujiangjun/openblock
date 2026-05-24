@@ -358,6 +358,29 @@ export function deriveSpawnIntent(inputs = {}) {
     // 校验 harvestEnterMin 仅作语义文档（实际 enter 由 boundary 配合）；避免 lint 未引用
     void harvestEnterMin;
 
+    /* v1.62.8（INTENT_THRASHING 80% → 目标 ≤30%）：dwell time（最小停留帧数）
+     *
+     * 背景：v1.62.7 加 hysteresis + harvest stickiness 后，违规率仍 80%。根因是
+     * 真实切换不止 sprint/harvest，还有 maintain↔flow↔engage↔harvest 多向跳变。
+     * 仅靠"边界扩展"无法抑制多状态间的小幅高频抖动。
+     *
+     * dwell time：进入某 intent 后，N 帧内不允许再切换（即使新条件满足），
+     * 强制系统"消化完"上一次决策再做下一次。
+     *
+     * 例外（不受 dwell 限制）：
+     *   - relief / pressure：紧急救济或加压，必须立即响应（设计上优先级最高）
+     *   - 第一帧（prevIntent=null）
+     *   - 切换目标本身就是 prevIntent（自洽，无开销）
+     *
+     * 配置：spawnIntentCfg.dwellFrames（默认 3，0 = 禁用）
+     *      spawnIntentCfg.dwellAge：上一帧 intent 已停留多少帧（由调用方传入）
+     */
+    const dwellFrames = hysteresisOn && Number.isFinite(hysteresis.dwellFrames)
+        ? Math.max(0, hysteresis.dwellFrames)
+        : (hysteresisOn ? 3 : 0);
+    const dwellAge = Number.isFinite(hysteresis?.dwellAge) ? hysteresis.dwellAge : 0;
+    const inDwell = dwellFrames > 0 && prevIntent && dwellAge < dwellFrames;
+
     /* v1.61 pb_chase_pressure（priority 102）：
      * 接近/超越 PB 且 B 类挑战条件满足时，加压优先级高于普通救济（playerDistress < -0.10）。
      * 安全门：forceReliefIntent=true 时仍走 relief（临终救济 / 高挫败不可打断）。
@@ -369,12 +392,22 @@ export function deriveSpawnIntent(inputs = {}) {
      * 与 intentResolver INTENT_RULES 'delight_starved' 规则 spawnIntent='relief' 同口径。
      * 设计依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5。 */
     if (delightStarved) return 'relief';
-    if (afkEngageActive) return 'engage';
-    if (harvestable) return 'harvest';
-    if (challengeBoost > 0 || (delightMode === 'challenge_payoff' && stress >= 0.55)) return 'pressure';
-    if (sprintEnabled && stress >= sprintMin && stress < sprintMax) return 'sprint';
-    if (delightMode === 'flow_payoff' || rhythmPhase === 'payoff') return 'flow';
-    return 'maintain';
+
+    /* 决策候选 intent（不含 relief/pressure 紧急路径，那些已在上面早退） */
+    let candidate;
+    if (afkEngageActive) candidate = 'engage';
+    else if (harvestable) candidate = 'harvest';
+    else if (challengeBoost > 0 || (delightMode === 'challenge_payoff' && stress >= 0.55)) candidate = 'pressure';
+    else if (sprintEnabled && stress >= sprintMin && stress < sprintMax) candidate = 'sprint';
+    else if (delightMode === 'flow_payoff' || rhythmPhase === 'payoff') candidate = 'flow';
+    else candidate = 'maintain';
+
+    /* v1.62.8：dwell time 后置应用 —— 紧急 intent (relief/pressure) 已早退，不受 dwell 限制。
+     * pressure 也允许立即切（challenge_boost 等通常代表玩家主动求战）。 */
+    if (inDwell && candidate !== prevIntent && candidate !== 'pressure') {
+        return prevIntent;
+    }
+    return candidate;
 }
 
 /**
@@ -1077,20 +1110,64 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const confGate = 0.4 + 0.6 * conf;
     const skillAdjust = (skill - 0.5) * (fz.skillAdjustScale ?? 0.3) * confGate;
 
-    /* ---------- 心流调节 ---------- */
+    /* ---------- 心流调节 ----------
+     * v1.62.8：软边界 —— flowAdjust 应当跟踪 flowDeviation 方向。
+     * 原行为：只在 flowState ∈ {bored, anxious} 时输出非零；neutral 时硬置 0。
+     * 巡检 (flowAdjust-tracks-flowDeviation 40% 违规) 显示 |r| < 0.2 ——
+     * flow 状态切到 neutral 时 flowAdjust 突然归零，与 flowDeviation 出现"断层"。
+     *
+     * 新行为（fz.softEdgeEnabled=true）：
+     *   - flow ∈ {bored, anxious}：原逻辑（保持兼容）
+     *   - flow === 'neutral' 但 |flowDev| ≥ softEdgeMin：线性外推
+     *     flowAdjust = sign(flowDev) * baseStep * (|flowDev| - softEdgeMin) / (softEdgeMax - softEdgeMin)
+     *
+     * baseStep 取 bored/anxious 强度的 50%，保证 neutral 区域贡献温和不抢戏。
+     */
     const flow = profile.flowState;
     const flowDev = profile.flowDeviation;
     let flowAdjust = 0;
     if (flow === 'bored') flowAdjust = (fz.flowBoredAdjust ?? 0.08) * Math.min(2, 1 + flowDev);
     else if (flow === 'anxious') flowAdjust = (fz.flowAnxiousAdjust ?? -0.12) * Math.min(2, 1 + flowDev);
+    else if (fz.softEdgeEnabled === true && Number.isFinite(flowDev)) {
+        const softMin = Number.isFinite(fz.softEdgeMin) ? fz.softEdgeMin : 0.05;
+        const softMax = Number.isFinite(fz.softEdgeMax) ? fz.softEdgeMax : 0.20;
+        const absDev = Math.abs(flowDev);
+        if (absDev >= softMin && softMax > softMin) {
+            const sign = flowDev >= 0 ? 1 : -1;
+            const strength = Math.min(1, (absDev - softMin) / (softMax - softMin));
+            const base = sign > 0 ? (fz.flowBoredAdjust ?? 0.08) : -(fz.flowAnxiousAdjust ?? -0.12);
+            flowAdjust = sign * Math.abs(base) * 0.5 * strength;
+        }
+    }
 
-    /* ---------- 节奏张弛 ---------- */
+    /* ---------- 节奏张弛 ----------
+     * v1.62.8：pacingAdjust deadzone + 软过渡（针对 STRESS_DOMINATOR pacingAdjust 50% 主导）
+     *
+     * 原行为：phase=release → -0.12 / phase=tension → +0.04，常驻非零，平均 |x| ≈ 0.08
+     * 经 __normalizeBudget=0.05 钳后仍是"几乎恒压源"，长期主导 stress 分量。
+     *
+     * 新行为（pacing.deadzoneEnabled=true）：
+     *   - phase=neutral → 0（原行为）
+     *   - phase=release/tension 但 ageInPhase < deadzoneFrames → 0（刚切相，先观察）
+     *   - 超出 deadzone 后正常输出
+     * 这让 pacingAdjust 平均 |x| 降到 ≈0.04，stress 多源驱动恢复。
+     *
+     * ageInPhase 由 profile.pacingPhaseAge 提供（playerProfile 已维护或回退 0）。
+     */
     let pacingAdjust = 0;
     if (pacing.enabled) {
         const phase = profile.pacingPhase;
-        pacingAdjust = phase === 'release'
-            ? (pacing.releaseBonus ?? -0.12)
-            : (pacing.tensionBonus ?? 0.04);
+        const ageInPhase = Number(profile.pacingPhaseAge) || 0;
+        const deadzoneOn = pacing.deadzoneEnabled === true;
+        const deadzoneFrames = Number.isFinite(pacing.deadzoneFrames) ? pacing.deadzoneFrames : 2;
+        const inDeadzone = deadzoneOn && phase !== 'neutral' && ageInPhase < deadzoneFrames;
+        if (!inDeadzone) {
+            pacingAdjust = phase === 'release'
+                ? (pacing.releaseBonus ?? -0.12)
+                : phase === 'tension'
+                    ? (pacing.tensionBonus ?? 0.04)
+                    : 0;
+        }
     }
 
     /* ---------- 恢复 / 挫败 / combo ---------- */
@@ -2503,7 +2580,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         sprintCfg: _sprintCfg,
         pcSetupMinFill: PC_SETUP_MIN_FILL,
         prevIntent: ctx.prevSpawnIntent ?? null,   // v1.62.5
-        hysteresis: _spawnIntentCfg,                // v1.62.5
+        /* v1.62.8：把 dwellAge 透传到 hysteresis 字段（避免新增第三个参数破坏 API） */
+        hysteresis: { ..._spawnIntentCfg, dwellAge: ctx.prevSpawnIntentAge ?? 0 },
     };
     const spawnIntent = deriveSpawnIntent({
         ..._intentInputs,

@@ -52,6 +52,8 @@ function parseArgs(argv) {
         else if (a === '--out')      { opts.out = n; i++; }
         else if (a === '--force')    { opts.force = true; }
         else if (a === '--skip-upload') { opts.skipUpload = true; }
+        else if (a === '--aggregate-only-fresh')   { opts.aggregateOnlyFresh = true; }
+        else if (a === '--aggregate-only-archive') { opts.aggregateOnlyArchive = true; }
         else if (a === '--pretty')   { opts.pretty = true; }
         else if (a === '--help' || a === '-h') { opts.help = true; }
     }
@@ -297,6 +299,8 @@ async function main() {
     let succeeded = 0;
     let failed = 0;
     let uploaded = 0;
+    /* v1.62.8：本轮新跑的 audit 报告（用于 dry-run 时直接聚合，不依赖 DB 持久化） */
+    const localReports = [];
     try {
         const mod = await server.ssrLoadModule('/web/src/audit/profileAudit.js');
 
@@ -308,6 +312,7 @@ async function main() {
                 if (!Array.isArray(frames) || frames.length === 0) continue;
                 const report = mod.auditProfile(frames);
                 succeeded++;
+                localReports.push({ sessionId: c.sessionId, userId: c.userId, report });
                 if (args.upload && !args.skipUpload) {
                     try {
                         await uploadReport(args.upload, c.sessionId, c.userId, report);
@@ -326,15 +331,39 @@ async function main() {
         }
         log(`✓ Audit 完成：成功 ${succeeded}，失败 ${failed}${uploaded ? `，上传 ${uploaded}` : ''}`);
 
-        /* 4) 拉所有已 audit 的报告（含历史 + 本轮新增）→ 聚合 */
-        log(`📊 拉取所有已 audit 报告做聚合...`);
-        let archivedReports = [];
-        try {
-            archivedReports = await loadAuditedReports(args.sqlite, args);
-        } catch (e) {
-            log(`  ⚠️ 拉取已 audit 失败：${e.message || e}（继续用本轮新跑的）`);
+        /* 4) 聚合策略 (v1.62.8)：
+         *    - 默认：合并 [本轮新跑] + [DB 历史] → session_id 去重（本轮优先）
+         *    - --aggregate-only-fresh：只用本轮新跑（不读 DB）
+         *    - --aggregate-only-archive：只用 DB 历史（旧行为）
+         *
+         * 之前 bug：永远只读 DB，--skip-upload 模式下新跑的报告白跑（聚合看不到 v1.62.8 数据）
+         */
+        let aggregateInputs;
+        if (args.aggregateOnlyArchive) {
+            log(`📊 仅聚合 DB 历史报告...`);
+            try { aggregateInputs = await loadAuditedReports(args.sqlite, args); }
+            catch (e) { log(`  ⚠️ 拉取已 audit 失败：${e.message || e}`); aggregateInputs = []; }
+        } else if (args.aggregateOnlyFresh) {
+            log(`📊 仅聚合本轮新跑报告 (${localReports.length} 局)...`);
+            aggregateInputs = localReports;
+        } else {
+            log(`📊 合并聚合：本轮 ${localReports.length} 局 + DB 历史...`);
+            let archivedReports = [];
+            try {
+                archivedReports = await loadAuditedReports(args.sqlite, args);
+            } catch (e) {
+                log(`  ⚠️ 拉取已 audit 失败：${e.message || e}（继续用本轮新跑的）`);
+            }
+            // session_id 去重，本轮优先（含 v1.62.8 最新规则）
+            const seen = new Set(localReports.map((r) => r.sessionId));
+            const merged = [...localReports];
+            for (const r of archivedReports) {
+                if (!seen.has(r.sessionId)) merged.push(r);
+            }
+            aggregateInputs = merged;
+            log(`  → 合并后 ${merged.length} 局参与聚合`);
         }
-        const aggregate = mod.aggregateAuditReports(archivedReports);
+        const aggregate = mod.aggregateAuditReports(aggregateInputs);
 
         /* 5) 翻译为可执行优化清单 */
         const actions = mod.summarizeOptimizationActions(aggregate);

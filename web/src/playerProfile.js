@@ -829,6 +829,22 @@ export class PlayerProfile {
     }
 
     /**
+     * v1.62.8：当前 pacing phase 内已经持续多少次 spawn（0-indexed）。
+     * 例：cycle=5、tensionPhases=3 → spawnCounter=0,1,2 → tension age 0,1,2；
+     *    spawnCounter=3,4 → release age 0,1。
+     * 供 adaptiveSpawn.pacingAdjust deadzone 使用（刚切相时不立即输出 ±0.12，
+     * 让 stress 主导分量更均衡）。
+     */
+    get pacingPhaseAge() {
+        const pacing = _cfg().pacing;
+        if (!pacing?.enabled) return 0;
+        const cycle = pacing.cycleLength ?? 5;
+        const tensionPhases = pacing.tensionPhases ?? 3;
+        const pos = this._spawnCounter % cycle;
+        return pos < tensionPhases ? pos : (pos - tensionPhases);
+    }
+
+    /**
      * 挫败等级：连续未消行步数。超过阈值时触发挫败救济
      * @returns {number}
      */

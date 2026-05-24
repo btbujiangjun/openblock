@@ -45,6 +45,7 @@
     "@capacitor/ios": "^8.3.1",
     "@eslint/js": "^9.15.0",
     "@vitejs/plugin-legacy": "^5.4.3",
+    "better-sqlite3": "^12.10.0",
     "eslint": "^9.15.0",
     "fast-check": "^3.23.2",
     "globals": "^15.12.0",

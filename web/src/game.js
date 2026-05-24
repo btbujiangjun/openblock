@@ -484,6 +484,17 @@ export class Game {
      */
     _captureAdaptiveInsight(layered) {
         const p = this.playerProfile;
+        /* v1.62.8：dwell time 维护 —— 在 capture 阶段（每次新一轮 spawn 决策完成后）
+         * 把当前 intent 与上一帧比较：相同则 age+1，不同则 age=0。
+         * 下次 spawn 决策时通过 ctx.prevSpawnIntent / prevSpawnIntentAge 传回 deriveSpawnIntent。 */
+        const newIntent = layered._spawnIntent ?? layered.spawnHints?.spawnIntent ?? null;
+        if (newIntent && this._lastSpawnIntent === newIntent) {
+            this._lastSpawnIntentAge = (this._lastSpawnIntentAge ?? 0) + 1;
+        } else {
+            this._lastSpawnIntentAge = 0;
+        }
+        this._lastSpawnIntent = newIntent;
+
         this._lastAdaptiveInsight = {
             adaptiveEnabled: Boolean(GAME_RULES.adaptiveSpawn?.enabled),
             score: this.score,
@@ -532,6 +543,7 @@ export class Game {
             fillRatio: layered.fillRatio,
             shapeWeightsTop: _topShapeWeightEntries(layered.shapeWeights, 5),
             spawnIntent: layered._spawnIntent ?? layered.spawnHints?.spawnIntent ?? null,
+            spawnIntentAge: this._lastSpawnIntentAge ?? 0,   // v1.62.8：dwell time 调试观测
             motivationIntent: layered._motivationIntent ?? layered.spawnHints?.motivationIntent ?? null,
             behaviorSegment: layered._behaviorSegment ?? layered.spawnHints?.behaviorSegment ?? null,
             personalizationApplied: layered._personalizationApplied === true,
@@ -1576,10 +1588,12 @@ export class Game {
                     .map((b) => ({ data: b.shape })),
                 /* v1.62.5（优化建议 #5）：把上一帧 spawnIntent 透传给 deriveSpawnIntent，
                  * 启用 hysteresis（由 game_rules.adaptiveSpawn.spawnIntentCfg.hysteresisEnabled 控制）。
-                 * 没有上一帧时（首轮 spawn）= null，deriveSpawnIntent 内自动 noop。 */
-                prevSpawnIntent: this._lastAdaptiveInsight?.spawnHints?.spawnIntent
-                    ?? this._lastAdaptiveInsight?.spawnIntent
-                    ?? null,
+                 * 没有上一帧时（首轮 spawn）= null，deriveSpawnIntent 内自动 noop。
+                 *
+                 * v1.62.8：追加 prevSpawnIntentAge（当前 intent 已停留多少帧），用于 dwell time。
+                 * 计数由 _bumpSpawnIntentAge() 在每次 spawn 后维护：相同则 +1，切换则重置 0。 */
+                prevSpawnIntent: this._lastSpawnIntent ?? null,
+                prevSpawnIntentAge: this._lastSpawnIntentAge ?? 0,
             }
         );
 

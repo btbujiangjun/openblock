@@ -62,9 +62,12 @@ export const PROFILE_AUDIT_SCHEMA = 1;
  *   v1.62.5 — 7 条画像优化全部启用（含 audit-only 部分）
  *   v1.62.6 — stress 求和契约改对比 rawStress（之前 stress vs Σ 物理错误）
  *   v1.62.7 — 加 11 个后置 Adjust 字段到 SKIP；spawn-intent harvest stickiness
- *   v1.62.8 — stress 求和契约改用 ALLOWLIST（彻底修复 100% 失败 bug：
- *             之前用 BLOCKLIST 漏排除 beforeClamp/afterClamp/afterSmoothing 等
- *             "stress 中间快照"字段，让 Σ ≫ rawStress）；正确 bump engineVersion 链路
+ *   v1.62.8 — stress 求和契约改用 ALLOWLIST（彻底修复 100% 失败 bug）；
+ *             正确 bump engineVersion 链路
+ *
+ * 注：v1.62.9 的 adaptive 端改动（dwellFrames / pacing deadzone / flow soft-edge）
+ *     不修改 audit 契约/hint 规则，故 engineVersion 保持 1.62.8（避免老报告误标过期）。
+ *     bumping 规则：仅当 audit 判定逻辑改动会让"老 frames 用新 engine 跑出不同结论"时才 bump。
  */
 export const PROFILE_AUDIT_ENGINE_VERSION = '1.62.8';
 
