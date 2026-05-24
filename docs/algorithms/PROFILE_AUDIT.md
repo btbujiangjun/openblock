@@ -197,13 +197,14 @@ audit 逻辑唯一来源在 `web/src/audit/profileAudit.js`（JS 库），server
 }
 ```
 
-当前 11 条契约：
+当前 12 条契约：
 
 | ID | 类型 | 描述 |
 |---|---|---|
 | `clearRate-vs-boardFill` | 反向 | 消行率↑ ↔ 板面↓ |
 | `frustration-vs-momentum` | 反向 | 未消行步数↑ ↔ 动量↓ |
-| `stress-equals-sum-breakdown` | 求和 | stress ≈ Σ stressBreakdown 全字段（v1.62.1 改为自动求和，无需硬编码） |
+| `stress-equals-sum-breakdown` | 求和 | **v1.62.6 修正**：对比 `rawStress vs Σ(stressBreakdown.*)`（之前 v1.62.1 错对比 `stress vs Σ`，但 `stress = clamp(rawStress)` 物理上不等于 Σ，导致真实数据残差 7+）|
+| `stress-is-clamped-rawStress` | 范围 | **v1.62.6 新增**：顶层 stress ≈ clamp(rawStress, 0, 1)，验证 normalize/clamp 链路 |
 | `flowAdjust-tracks-flowDeviation` | 相关 | flowAdjust 跟随 flowDeviation 方向（|r| ≥ 0.2） |
 | `feedbackBias-leads-stress` | 滞后 | feedbackBias[t] 与 stress[t+3] 同向相关（r ≥ 0.05） |
 | `score-monotone-increasing` | 单调 | score 累积量永不下降 |

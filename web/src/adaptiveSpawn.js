@@ -312,27 +312,23 @@ export function deriveSpawnIntent(inputs = {}) {
     const nearFullForIntent = Number(geometry?.nearFullLines) || 0;
     const pcSetupForIntent = Number(geometry?.pcSetup) || 0;
     const boardFillForIntent = Number(geometry?.boardFill) || 0;
-    const harvestable = nearFullForIntent >= 2
-        || (pcSetupForIntent >= 1 && boardFillForIntent >= pcSetupMinFill);
 
     const sprintEnabled = sprintCfg?.enabled !== false;
     let sprintMin = Number.isFinite(sprintCfg?.minStress) ? sprintCfg.minStress : 0.45;
     let sprintMax = Number.isFinite(sprintCfg?.maxStress) ? sprintCfg.maxStress : 0.55;
 
-    /* v1.62.5（优化建议 #5）：spawnIntent 滞回（opt-in）。
+    /* v1.62.5（优化建议 #5）+ v1.62.7：spawnIntent 滞回。
      *
-     * 背景：intent 切换频繁（INTENT_THRASHING / INTENT_FREQUENT）来自 stress 在 sprint 区间
-     * [0.45, 0.55) 边界震荡 + playerDistress 在 -0.10 边界震荡。
+     * 背景：INTENT_THRASHING 巡检显示真实切换 78% 局违规，且 hysteresis 0.05 仍不够。
+     * 真正根因不只是 sprint 边界，更主要是 `harvestable` 几何状态在 nearFullLines 1↔2
+     * 之间频繁切换 → harvest ↔ maintain/flow 频繁切。
      *
-     * 修复（opt-in，game_rules 配置）：
-     *   "adaptiveSpawn": { "spawnIntentCfg": {
-     *      "hysteresisEnabled": true,
-     *      "sprintExpand": 0.02,        // prevIntent=sprint 时把窗口扩到 [0.43, 0.57]
-     *      "sprintShrink": 0.02,        // prevIntent≠sprint 时窗口收缩到 [0.47, 0.53]
-     *      "reliefMargin": 0.02         // prevIntent=relief 时阈值从 -0.10 放宽到 -0.08
-     *   }}
-     *
-     * 默认关闭：保持现有硬阈值切换行为不变。
+     * v1.62.7 三处滞回：
+     *   1) sprintExpand/Shrink     ← v1.62.5 已有，控制 sprint 区间
+     *   2) reliefMargin            ← v1.62.5 已有，控制 playerDistress 阈值
+     *   3) harvestStickyMode       ← v1.62.7 新增，prevIntent=harvest 时降低保持阈值
+     *      ↓ 进入 harvest 需要 nearFullLines>=2 (原阈值)
+     *      ↓ 但 prev=harvest 时只要 >=1 就保持，避免 harvest↔其他来回切
      */
     const hysteresisOn = hysteresis?.enabled === true;
     if (hysteresisOn && sprintEnabled) {
@@ -349,6 +345,18 @@ export function deriveSpawnIntent(inputs = {}) {
     const effectiveDistressThreshold = (hysteresisOn && prevIntent === 'relief')
         ? -0.10 + (Number.isFinite(hysteresis.reliefMargin) ? hysteresis.reliefMargin : 0.02)
         : -0.10;
+
+    /* v1.62.7：harvestable 滞回 —— 进入门槛 strict（≥2），保持门槛 lenient（≥1）。
+     * 单独 stickyMode 可配（默认跟随 hysteresisEnabled）。 */
+    const harvestStickyMode = hysteresisOn && hysteresis.harvestStickyMode !== false;
+    const harvestEnterMin = 2;
+    const harvestKeepMin = harvestStickyMode && prevIntent === 'harvest' ? 1 : 2;
+    const harvestable = nearFullForIntent >= harvestKeepMin
+        || (pcSetupForIntent >= 1
+            && (boardFillForIntent >= pcSetupMinFill
+                || (harvestStickyMode && prevIntent === 'harvest')));
+    // 校验 harvestEnterMin 仅作语义文档（实际 enter 由 boundary 配合）；避免 lint 未引用
+    void harvestEnterMin;
 
     /* v1.61 pb_chase_pressure（priority 102）：
      * 接近/超越 PB 且 B 类挑战条件满足时，加压优先级高于普通救济（playerDistress < -0.10）。

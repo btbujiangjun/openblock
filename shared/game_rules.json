@@ -216,11 +216,12 @@
       "peakBoost": 0.05
     },
     "spawnIntentCfg": {
-      "comment": "v1.62.5 优化建议 #5：spawnIntent 滞回（hysteresis）。profileAudit 巡检显示 INTENT_THRASHING / INTENT_FREQUENT 频繁触发，根因是 stress 在 sprint 区间 [0.45, 0.55) 边界震荡 + playerDistress 在 -0.10 边界震荡。hysteresisEnabled=true 后：prevIntent=sprint 时把 sprint 窗口扩展 ±sprintExpand；prevIntent≠sprint 时收缩 ±sprintShrink；prevIntent=relief 时把 distress 阈值放宽 reliefMargin，避免反复横跳。",
+      "comment": "v1.62.5 优化建议 #5：spawnIntent 滞回（hysteresis）。v1.62.7 新增 harvestStickyMode —— 真实巡检显示 78% 局 spawn-intent-no-thrashing 违规，根因主要是 harvestable 几何状态（nearFullLines 在 1↔2 边界震荡）导致 harvest↔maintain/flow 频繁切。harvestStickyMode=true 时：进入 harvest 需 nearFullLines≥2（strict），保持 harvest 只需 ≥1（lenient），杜绝几何震荡引起的来回切。sprintExpand/Shrink/reliefMargin 控制其它边界滞回。",
       "hysteresisEnabled": true,
-      "sprintExpand": 0.02,
-      "sprintShrink": 0.02,
-      "reliefMargin": 0.02
+      "sprintExpand": 0.05,
+      "sprintShrink": 0.05,
+      "reliefMargin": 0.05,
+      "harvestStickyMode": true
     },
     "engagement": {
       "comment": "参与度信号：首局保护、挫败回弹、差一点放大、新鲜感注入。",

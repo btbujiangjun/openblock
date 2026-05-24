@@ -120,12 +120,19 @@ const DEFAULT_RANGE_BY_KEY = {
  * @returns {number[]} length = totalFrames；某帧无 stressBreakdown → NaN
  */
 const _STRESS_BREAKDOWN_SKIP = new Set([
+    /* 与 adaptiveSpawn._SUM_SKIP 一致 */
     'boardRisk', 'bottleneckTrough', 'bottleneckSamples',
-    /* v1.62.1：rawStress 是 adaptiveSpawn 中"后置调制前"的原始累计，
-     * 在 lifecycleCapAdjust / lifecycleBandAdjust / onboardingStressOverrideAdjust 等
-     * 后置 *Adjust 写入后会与 stress 不再相等；为了契约稳定，仍把 rawStress 排除，
-     * 让契约直接看 (rawStress + 全部后置 *Adjust) ≈ stress 的等价关系。 */
+    /* rawStress 是"Σ(其他非 SKIP 字段) 自己的快照"——不能再加进求和，否则双倍计数。 */
     'rawStress',
+    /* v1.62.7（关键修复）：以下 9 个字段是 adaptiveSpawn 在 rawStress 赋值"之后"才写入
+     * stressBreakdown 的"后置调制审计字段"——它们已经被反映在最终 stress 里，但**不参与
+     * rawStress 求和**。之前 v1.62.6 漏排除这些字段，导致 audit Σ = rawStress + 后置 adjust，
+     * 必然 ≠ rawStress，契约 100% 失败。 */
+    'lifecycleCapAdjust', 'lifecycleBandAdjust', 'lifecycleStressAdjust',
+    'onboardingStressOverrideAdjust', 'winbackStressCapAdjust',
+    'clampAdjust', 'smoothingAdjust', 'minStressFloorAdjust', 'flowPayoffCapAdjust',
+    /* 元信息（非数字字段） */
+    'lifecycleStage', 'lifecycleBand',
 ]);
 
 function _sumStressBreakdownPerFrame(frames) {
@@ -142,6 +149,28 @@ function _sumStressBreakdownPerFrame(frames) {
             if (Number.isFinite(n)) { s += n; any = true; }
         }
         if (any) out[i] = s;
+    }
+    return out;
+}
+
+/**
+ * 抽 rawStress 序列（v1.62.6）。
+ *
+ * 物理意义：`stressBreakdown.rawStress = Σ(stressBreakdown.* 非 SKIP)`，
+ * 即 adaptiveSpawn 后置 clamp/normalize 之前的累计 stress。
+ *
+ * 顶层 `stress` 是 `clamp(rawStress, 0, 1)`（且可能再被 normalizeStress 归一），
+ * 所以 `stress ≈ Σ` 在数学上**不成立**——之前 v1.62.1 契约对真实数据残差 7+ 完全无意义。
+ * v1.62.6 契约改为对比 `rawStress vs Σ`，物理正确，预期残差近 0。
+ *
+ * @returns {number[]} length = totalFrames；某帧无 rawStress → NaN
+ */
+function _rawStressPerFrame(frames) {
+    const totalFrames = Array.isArray(frames) ? frames.length : 0;
+    const out = new Array(totalFrames).fill(NaN);
+    for (let i = 0; i < totalFrames; i++) {
+        const v = Number(frames[i]?.ps?.adaptive?.stressBreakdown?.rawStress);
+        if (Number.isFinite(v)) out[i] = v;
     }
     return out;
 }
@@ -347,6 +376,10 @@ function _runSingleAudit(input, opts) {
     /* v1.62.1：把"全 stressBreakdown 字段按帧求和"作为特殊 series 注入 densified，
      * 供 stress-equals-sum-breakdown 契约直接对比，避免硬编码字段名导致的契约滞后。 */
     densified.__stressBreakdownTotal = _sumStressBreakdownPerFrame(allFrames);
+
+    /* v1.62.6：把 stressBreakdown.rawStress 单独抽出，供契约对比 rawStress vs Σ
+     * （而不是错误地对比顶层 stress vs Σ——stress = clamp(rawStress) 不是 = Σ）。 */
+    densified.__rawStressSeries = _rawStressPerFrame(allFrames);
 
     /* v1.62.3：把每帧 spawnIntent 字符串序列也挂为特殊 series，
      * 供 spawn-intent-no-thrashing 契约直接消费。 */

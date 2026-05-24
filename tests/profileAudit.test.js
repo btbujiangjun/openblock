@@ -194,6 +194,7 @@ describe('profileAuditContracts', () => {
             'clearRate-vs-boardFill',
             'frustration-vs-momentum',
             'stress-equals-sum-breakdown',
+            'stress-is-clamped-rawStress',    // v1.62.6 新增
             'flowAdjust-tracks-flowDeviation',
             'feedbackBias-leads-stress',
             'score-monotone-increasing',
@@ -237,33 +238,65 @@ describe('profileAuditContracts', () => {
         expect(r.evidence).toBeLessThan(0);
     });
 
-    it('stress-equals-sum-breakdown: __stressBreakdownTotal 一致 → 通过', () => {
+    it('stress-equals-sum-breakdown: rawStress 与 Σ 一致 → 通过（v1.62.6）', () => {
         const c = CONTRACTS.find((x) => x.id === 'stress-equals-sum-breakdown');
         const N = 10;
-        const stress = new Array(N).fill(0).map((_, i) => 0.22 + i * 0.01);
-        // v1.62.1：契约改读 series.__stressBreakdownTotal（由主入口自动注入）
-        const r = c.eval({ stress, __stressBreakdownTotal: stress.slice() });
+        // v1.62.6：契约改对比 __rawStressSeries vs __stressBreakdownTotal
+        // 真实 adaptiveSpawn 里 rawStress 是分量求和后的快照，两者应严格相等（浮点误差）
+        const sum = new Array(N).fill(0).map((_, i) => 0.22 + i * 0.01);
+        const r = c.eval({
+            stress: new Array(N).fill(0.5),
+            __rawStressSeries: sum.slice(),
+            __stressBreakdownTotal: sum.slice(),
+        });
         expect(r.passed).toBe(true);
         expect(r.evidence).toBeLessThan(0.01);
-        expect(r.reason).toMatch(/Σ\(stressBreakdown\.\*\)/);
+        expect(r.reason).toMatch(/rawStress vs Σ/);
     });
 
-    it('stress-equals-sum-breakdown: __stressBreakdownTotal 失配 → 不通过', () => {
+    it('stress-equals-sum-breakdown: rawStress 与 Σ 失配 → 不通过', () => {
         const c = CONTRACTS.find((x) => x.id === 'stress-equals-sum-breakdown');
-        const N = 10;
         const r = c.eval({
-            stress: new Array(N).fill(0.8),
-            __stressBreakdownTotal: new Array(N).fill(0.1),
+            stress: new Array(10).fill(0.5),
+            __rawStressSeries: new Array(10).fill(0.1),
+            __stressBreakdownTotal: new Array(10).fill(5.0),
         });
         expect(r.passed).toBe(false);
-        expect(r.evidence).toBeGreaterThan(0.5);
+        expect(r.evidence).toBeGreaterThan(1.0);
     });
 
-    it('stress-equals-sum-breakdown: 无 __stressBreakdownTotal → 跳过判定', () => {
+    it('stress-equals-sum-breakdown: 无 rawStress / Σ → 跳过判定', () => {
         const c = CONTRACTS.find((x) => x.id === 'stress-equals-sum-breakdown');
         const r = c.eval({ stress: new Array(10).fill(0.5) });
         expect(r.passed).toBe(true);
-        expect(r.reason).toMatch(/无 stressBreakdown/);
+        expect(r.reason).toMatch(/无 stressBreakdown.*rawStress/);
+    });
+
+    it('stress-is-clamped-rawStress: rawStress∈[0,1] 时 stress 应贴近 rawStress → 通过', () => {
+        const c = CONTRACTS.find((x) => x.id === 'stress-is-clamped-rawStress');
+        const raw = [0.1, 0.3, 0.5, 0.7, 0.9, 0.2, 0.4, 0.6, 0.8, 0.5];
+        const r = c.eval({ stress: raw.slice(), __rawStressSeries: raw.slice() });
+        expect(r.passed).toBe(true);
+        expect(r.evidence).toBeLessThan(0.05);
+    });
+
+    it('stress-is-clamped-rawStress: rawStress>1 时 stress=1 → 通过（clamp 行为）', () => {
+        const c = CONTRACTS.find((x) => x.id === 'stress-is-clamped-rawStress');
+        const raw = [1.5, 2.0, 1.2, 1.8, 5.0, 1.1, 1.3, 1.4, 1.6, 1.9];   // rawStress 远超 1
+        const stress = new Array(10).fill(1.0);                            // 顶层 stress 被 clamp 到 1
+        const r = c.eval({ stress, __rawStressSeries: raw });
+        expect(r.passed).toBe(true);
+        expect(r.evidence).toBeLessThan(0.30);
+    });
+
+    it('stress-is-clamped-rawStress: stress 越界 [0,1] → 不通过', () => {
+        const c = CONTRACTS.find((x) => x.id === 'stress-is-clamped-rawStress');
+        const r = c.eval({
+            stress: new Array(10).fill(1.5),    // 越界
+            __rawStressSeries: new Array(10).fill(0.5),
+        });
+        expect(r.passed).toBe(false);
+        expect(r.evidence).toBeGreaterThan(0.5);
     });
 
     /* ============================================================
@@ -416,17 +449,18 @@ describe('profileAuditContracts', () => {
         expect(r.reason).toMatch(/不足/);
     });
 
-    it('feedback-loop-effective: relief 切换后 clearRate 上升 ≥ 50% → 通过', () => {
+    it('feedback-loop-effective: relief 切换后 clearRate 上升 ≥ 50% → 通过（v1.62.6 窗口 10/阈值 0.02）', () => {
         const c = CONTRACTS.find((x) => x.id === 'feedback-loop-effective');
-        const intents = new Array(40).fill('flow');
-        const clears = new Array(40).fill(0);
-        // 在 idx 10, 20, 30 切到 relief，并让切换后 clearRate 显著上升
-        for (const i of [10, 20, 30]) {
+        const N = 80;
+        const intents = new Array(N).fill('flow');
+        const clears = new Array(N).fill(0);
+        // 在 idx 15, 35, 55 切到 relief，让切换后 10 帧 clearRate 显著上升
+        for (const i of [15, 35, 55]) {
             intents[i] = 'relief';
             intents[i + 1] = 'relief';
             intents[i + 2] = 'relief';
-            for (let j = i; j < i + 5; j++) clears[j] = 0.8;   // after
-            for (let j = i - 5; j < i; j++) clears[j] = 0.2;   // before
+            for (let j = i; j < i + 10; j++) clears[j] = 0.8;   // after window=10
+            for (let j = i - 10; j < i; j++) clears[j] = 0.2;   // before window=10
         }
         const r = c.eval({ clearRate: clears, __spawnIntentSeries: intents });
         expect(r.passed).toBe(true);
@@ -435,9 +469,10 @@ describe('profileAuditContracts', () => {
 
     it('feedback-loop-effective: relief 切换后 clearRate 不变 → 不通过', () => {
         const c = CONTRACTS.find((x) => x.id === 'feedback-loop-effective');
-        const intents = new Array(40).fill('flow');
-        const clears = new Array(40).fill(0.5);   // 始终 0.5，relief 无效
-        for (const i of [10, 20, 30]) {
+        const N = 80;
+        const intents = new Array(N).fill('flow');
+        const clears = new Array(N).fill(0.5);   // 始终 0.5，relief 无效
+        for (const i of [15, 35, 55]) {
             intents[i] = 'relief';
             intents[i + 1] = 'relief';
         }
@@ -733,9 +768,9 @@ describe('auditProfile — 端到端', () => {
         expect(report.engineVersion).toMatch(/^\d+\.\d+\.\d+/);
     });
 
-    it('stress-equals-sum-breakdown（端到端）: stressBreakdown 含 12+ 字段、stress=Σ 全字段 → 自动通过', () => {
+    it('stress-equals-sum-breakdown（端到端）: rawStress = Σ(全字段) → 自动通过（v1.62.6）', () => {
         const grid = new Grid(8);
-        // 模拟 adaptiveSpawn.js 真实持久化的 stressBreakdown：12+ 字段
+        // 模拟 adaptiveSpawn.js 真实持久化的 stressBreakdown：12+ 字段 + rawStress 快照
         const _withBigBreakdown = (i) => {
             const br = {
                 difficultyBias: 0.20,
@@ -745,7 +780,6 @@ describe('auditProfile — 端到端', () => {
                 friendlyBoardRelief: -0.02,
                 sessionArcAdjust: -0.04 + (i / 30) * 0.10,
                 challengeBoost: 0.03,
-                /* v1.62.1 关键：以下字段曾经被旧契约忽略，导致永远残差 → 修复后自动纳入 */
                 recoveryAdjust: i % 5 === 0 ? -0.20 : 0,
                 frustrationRelief: i % 7 === 0 ? -0.15 : 0,
                 nearMissAdjust: i % 4 === 0 ? -0.05 : 0,
@@ -756,7 +790,8 @@ describe('auditProfile — 端到端', () => {
                 endSessionDistress: 0,
             };
             const sumAll = Object.values(br).reduce((s, v) => s + v, 0);
-            return { br, stress: sumAll };
+            br.rawStress = sumAll;     // v1.62.6：模拟 adaptiveSpawn.js 真实写入
+            return { br, stress: Math.max(0, Math.min(1, sumAll)) };   // stress 被 clamp 到 [0,1]
         };
         const frames = [buildInitFrame('normal', grid, scoring, _buildSamplePs({ phase: 'init', score: 0 }), { ts: 0 })];
         for (let i = 0; i < 20; i++) {
@@ -774,8 +809,8 @@ describe('auditProfile — 端到端', () => {
         const report = auditProfile(frames);
         const c = report.contracts.find((x) => x.id === 'stress-equals-sum-breakdown');
         expect(c).toBeDefined();
-        expect(c.passed).toBe(true);     // 修复前会失败（残差≈0.13）；修复后通过
-        expect(c.evidence).toBeLessThan(0.05);
+        expect(c.passed).toBe(true);     // v1.62.6：rawStress 等于 Σ，残差应近 0
+        expect(c.evidence).toBeLessThan(0.01);
     });
 
     it('pacingAdjust ±0.12 (release 期默认值) 不再触发 OUT_OF_RANGE', () => {
