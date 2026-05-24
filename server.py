@@ -5603,13 +5603,9 @@ _DOC_CATEGORIES = [
         "docs": [
             # v1.61：交互式工具置顶，type=tool 标记供 docs.html 侧栏以 iframe 嵌入
             # - 信号透视仪是 docs/ 下的静态 HTML，走默认的 /docs/tool/<path> 路由
-            # - 出块评估工具是 Vite 多入口产物 /spawn-eval.html，用 url 字段直连，
-            #   避免再保留一份 0 秒 meta-refresh 的中转 HTML
+            # - v0.3.9: 单次评估工具已合并到「出块算法优化」看板内 (Step A 数据采样可单跑评估)
             {"file": "algorithms/spawn-signal-explorer.html", "type": "tool",
              "title": "出块信号透视仪（交互工具）"},
-            {"file": "algorithms/spawn-evaluation-tool.html", "type": "tool",
-             "url": "/spawn-eval.html",
-             "title": "OpenBlock 出块评估工具"},
             "algorithms/SPAWN_ALGORITHM.md",
             "algorithms/SPAWN_EVALUATION.md",
             "algorithms/ADAPTIVE_SPAWN.md",
@@ -5772,9 +5768,8 @@ def docs_list():
     def build_item(entry):
         # entry 可以是 str（路径）或 dict（含 type/title/url 的工具条目）
         # - 普通条目：必须存在于 docs/ 下，否则丢弃
-        # - 带 `url` 的工具条目：iframe 直接指向该 URL（如 /spawn-eval.html
-        #   这种 Vite 多入口构建产物），file 字段保留作为侧栏/hash 的稳定标识，
-        #   不再要求其落地到 docs/ 目录
+        # - 带 `url` 的工具条目：iframe 直接指向该 URL（用于多入口构建产物），
+        #   file 字段保留作为侧栏/hash 的稳定标识,不再要求其落地到 docs/ 目录
         if isinstance(entry, dict):
             fname = entry.get("file", "")
             title = entry.get("title", fname)
@@ -5866,23 +5861,6 @@ def spawn_tuning_bundle_static(filename):
         if target.is_file():
             return send_from_directory(str(base), filename)
     return jsonify({"error": "not found"}), 404
-
-
-@app.route("/spawn-eval.html")
-def spawn_eval_page():
-    """出块评估工具页：文档中心工具入口和新窗口都走这里。"""
-    from flask import send_from_directory
-
-    page = _DIST_DIR / "spawn-eval.html"
-    if page.exists():
-        return send_from_directory(str(_DIST_DIR), "spawn-eval.html")
-    # 开发环境尚未 build 时给出明确提示，而不是 Werkzeug 404。
-    return (
-        "<h1>spawn-eval.html not built</h1>"
-        "<p>请先运行 <code>npm run build</code>，或在 Vite 开发服务中访问 "
-        "<a href='http://localhost:3000/spawn-eval.html'>http://localhost:3000/spawn-eval.html</a>。</p>",
-        404,
-    )
 
 
 @app.route("/assets/<path:filename>")

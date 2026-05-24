@@ -92,9 +92,6 @@ function switchToTab(tabId) {
         refreshDataLibrary();
         refreshRunSelect('run-select');
         refreshRunSelect('metrics-run-select');
-    } else if (tabId === 'eval') {
-        // 单次评估: 加载继承面板的 run 列表
-        initEvalInheritPanel();
     }
 }
 
@@ -489,116 +486,6 @@ function triggerJsonDownload(filename, data) {
 //   - JSON 离线快照 → "同时导出 JSON" checkbox + launch-filename input
 //   - 旧函数 readSampleConfig / startSamplingTask / runSamplingWithWorkerPool /
 //     setLaunchMode / getLaunchMode / estimateSampleBudget 全部删除,见 git log。
-
-// ─────────────────────────────────────────────────────────────
-// ③ 单次评估: 继承面板 (从 ② 样本构建里某个 run 取配置, 通过 URL 注入 iframe)
-// ─────────────────────────────────────────────────────────────
-
-let _evalInheritInited = false;
-const _evalInheritCtxByRun = new Map();  // run_id → top-K policies
-
-function initEvalInheritPanel() {
-    if (!_evalInheritInited) {
-        _evalInheritInited = true;
-        $('btn-eval-inherit-apply')?.addEventListener('click', applyInheritToIframe);
-        $('btn-eval-inherit-reset')?.addEventListener('click', resetEvalIframe);
-        $('eval-inherit-run')?.addEventListener('change', onInheritRunChange);
-    }
-    refreshEvalInheritRuns();
-}
-
-async function refreshEvalInheritRuns() {
-    const sel = $('eval-inherit-run');
-    if (!sel) return;
-    try {
-        const data = await apiGet('/api/spawn-tuning/v2/torch/eligible-runs?min_samples=50');
-        const runs = data.runs || [];
-        if (runs.length === 0) {
-            sel.innerHTML = '<option value="">— 样本库为空, 先去 ② 样本构建采集 —</option>';
-            sel.disabled = true;
-            return;
-        }
-        sel.disabled = false;
-        sel.innerHTML = '<option value="">— 不继承, 用 iframe 默认配置 —</option>' +
-            runs.map((r) => {
-                const flag = r.has_been_trained ? '✓' : '○';
-                return `<option value="${r.run_id}">${flag} ${r.run_id} · ${r.sample_count}样本 · ${r.context_count >= 120 ? '全集' : r.context_count + ' ctx'}</option>`;
-            }).join('');
-    } catch (e) {
-        sel.innerHTML = `<option value="">加载失败: ${escapeHtml(e.message)}</option>`;
-    }
-}
-
-async function onInheritRunChange() {
-    const runId = Number($('eval-inherit-run')?.value);
-    const ctxSel = $('eval-inherit-ctx');
-    const applyBtn = $('btn-eval-inherit-apply');
-    if (!ctxSel || !applyBtn) return;
-    if (!runId) {
-        ctxSel.innerHTML = '<option value="">— 先选 run —</option>';
-        ctxSel.disabled = true;
-        applyBtn.disabled = true;
-        return;
-    }
-    ctxSel.innerHTML = '<option value="">— 加载 ctx 列表… —</option>';
-    ctxSel.disabled = true;
-    applyBtn.disabled = true;
-    try {
-        const q = new URLSearchParams({ w_fairness: '70', w_excitement: '45', w_anti_inflation: '60', limit: '120' });
-        // 用 /torch/runs/...top-policies (CLI DB),老 endpoint 查的是主 DB 看不到 CLI 跑的样本
-        const data = await apiGet(`/api/spawn-tuning/v2/torch/runs/${runId}/top-policies?${q}`);
-        const list = data.top_policies || data.policies || [];
-        if (list.length === 0) {
-            ctxSel.innerHTML = '<option value="">— 此 run 无可用 ctx —</option>';
-            return;
-        }
-        _evalInheritCtxByRun.set(runId, list);
-        ctxSel.innerHTML = list.slice(0, 50).map((p) => {
-            const comp = (p.composite || 0).toFixed(3);
-            return `<option value="${escapeHtml(p.context_key)}">${escapeHtml(p.context_key)} · comp=${comp}</option>`;
-        }).join('');
-        ctxSel.disabled = false;
-        applyBtn.disabled = false;
-        ctxSel.value = list[0].context_key;
-    } catch (e) {
-        ctxSel.innerHTML = `<option value="">加载失败: ${escapeHtml(e.message)}</option>`;
-    }
-}
-
-function applyInheritToIframe() {
-    const runId = Number($('eval-inherit-run')?.value);
-    const ctxKey = $('eval-inherit-ctx')?.value;
-    if (!runId || !ctxKey) { alert('请先选 run + context'); return; }
-    const list = _evalInheritCtxByRun.get(runId) || [];
-    const policy = list.find((p) => p.context_key === ctxKey);
-    if (!policy) { alert('未找到该 ctx 数据'); return; }
-    // ctx_key = difficulty:generator:bestScore_bin:lifecycle_stage
-    const [difficulty, generator, bestScoreBin] = ctxKey.split(':');
-    const autorun = $('eval-inherit-autorun')?.checked ? '1' : '0';
-
-    const params = new URLSearchParams({
-        strategies: difficulty,
-        spawnGenerators: generator,
-        bestScore: bestScoreBin,
-        sessions: '30',
-        seed: String((Date.now() % 100000000) >>> 0),
-        autorun,
-    });
-    const iframe = $('eval-iframe');
-    if (!iframe) return;
-    iframe.src = `/spawn-eval.html?${params.toString()}`;
-    const hint = $('eval-inherit-hint');
-    if (hint) {
-        hint.innerHTML = `<span style="color:var(--good)">✓ 已注入: ${escapeHtml(difficulty)} / ${escapeHtml(generator)} / PB=${bestScoreBin}${autorun === '1' ? ' · 自动跑评估' : ''}</span>`;
-    }
-}
-
-function resetEvalIframe() {
-    const iframe = $('eval-iframe');
-    if (iframe) iframe.src = '/spawn-eval.html';
-    const hint = $('eval-inherit-hint');
-    if (hint) hint.textContent = '已重置为默认配置';
-}
 
 // ─────────────────────────────────────────────────────────────
 // 样本构建 (Tab ②): 公共样本采集 + Run 库管理 + 详情分析

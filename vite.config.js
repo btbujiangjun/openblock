@@ -35,7 +35,6 @@ export default {
         rollupOptions: {
             input: {
                 main: 'web/index.html',
-                spawnEval: 'web/spawn-eval.html',
             },
             onwarn(warning, warn) {
                 /* Rollup correctly reports that several modules are both dynamically

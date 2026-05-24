@@ -234,24 +234,19 @@
     <!-- 场景导航卡片 -->
     <div class="scenario-nav">
       <div class="scenario-card s-quick" data-goto="history">
-        <h3>📚 样本构建</h3>
-        <p>3 种方式: LHS 撒点 / 固定 θ × 多 seed / 导入 JSON · Run 库统一管理 · 是其它所有 tab 的数据来源</p>
+        <h3>📚 样本构建 (数据起点)</h3>
+        <p>3 种方式: LHS 撒点 / 固定 θ × 多 seed / 导入 JSON · Run 库统一管理</p>
         <div class="scenario-tabs">→ ② 样本构建</div>
-      </div>
-      <div class="scenario-card s-quick" data-goto="eval">
-        <h3>🧪 快速验证</h3>
-        <p>跑一次评估看 13 列指标 · 可继承样本构建里某个 run 的配置复现 (5 分钟内)</p>
-        <div class="scenario-tabs">→ ③ 单次评估</div>
       </div>
       <div class="scenario-card s-bulk" data-goto="pipeline">
         <h3>🔬 完整寻参流水线</h3>
         <p>Step A 数据采样 → Step B 训 NN 代理 → Step C 找最优 θ → Step D 部署 + 烘焙离线包</p>
-        <div class="scenario-tabs">→ ④ 寻参流水线</div>
+        <div class="scenario-tabs">→ ③ 寻参流水线</div>
       </div>
       <div class="scenario-card s-ops" data-goto="deploy">
         <h3>🚀 上线与监控</h3>
         <p>tuned vs default 对照 → 真实玩家 24h 聚合 → 灰度切量诊断,出问题去 ① 概览一键回滚</p>
-        <div class="scenario-tabs">→ ⑤ 部署与监控</div>
+        <div class="scenario-tabs">→ ④ 部署与监控</div>
       </div>
     </div>
 
@@ -259,14 +254,25 @@
     <div class="tabs">
       <div class="tab active" data-tab="overview" title="生效策略 / 服务状态 / 离线 bundle 快照">① 概览</div>
       <div class="tab"        data-tab="history"  title="3 种构建方式 (LHS / 固定θ / 导入 JSON) · Run 库管理 · 详细分析,所有其它 tab 的样本来源">② 样本构建</div>
-      <div class="tab"        data-tab="eval"     title="跑一次评估看现状, 可继承样本构建里某个 run 的评估配置作复现">③ 单次评估</div>
-      <div class="tab"        data-tab="pipeline" title="完整工作流: 采样 → 训 NN → 找最优 θ → 部署">④ 寻参流水线</div>
-      <div class="tab"        data-tab="deploy"   title="部署前对照 + 上线后真实玩家指标 + 一键回滚">⑤ 部署与监控</div>
+      <div class="tab"        data-tab="pipeline" title="完整工作流: 采样 → 训 NN → 找最优 θ → 部署">③ 寻参流水线</div>
+      <div class="tab"        data-tab="deploy"   title="部署前对照 + 上线后真实玩家指标 + 一键回滚">④ 部署与监控</div>
     </div>
 
     <!-- Tab ① 概览 -->
     <div class="tab-content active" id="tab-overview">
       <p class="tab-hint"><b>🎯 这里看什么</b>: 当前生效策略 + 服务状态 + 离线 bundle 快照 · 出问题立即 ↩ 回滚</p>
+
+      <!-- 第一次进来的"我应该从哪开始"引导 -->
+      <section class="compact" style="background:linear-gradient(135deg, rgba(167,139,250,0.06), transparent); border-left:3px solid #a78bfa;">
+        <h2 style="font-size:13px;">🧭 工作流速查 (从左到右逐 Tab 推进)</h2>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:6px; font-size:11.5px; padding:4px 0 2px;">
+          <div><b style="color:var(--good)">② 样本构建</b><br><span style="color:var(--muted)">先采样,产出 run_id 进 SQLite</span></div>
+          <div><b style="color:var(--accent)">③ 寻参流水线</b><br><span style="color:var(--muted)">用 run 训 NN → 找 θ → 部署 → 烘焙离线包</span></div>
+          <div><b style="color:#f472b6">④ 部署与监控</b><br><span style="color:var(--muted)">tuned vs default 对照, 真实玩家指标</span></div>
+          <div><b style="color:var(--warn)">↩ 出问题</b><br><span style="color:var(--muted)">回 ① 概览点回滚按钮</span></div>
+        </div>
+      </section>
+
       <section class="compact">
         <h2>当前生效策略</h2>
         <div id="active-stats" class="stats-grid">
@@ -293,38 +299,6 @@
       </section>
     </div>
 
-    <!-- Tab ③ 单次评估 -->
-    <div class="tab-content" id="tab-eval">
-      <p class="tab-hint"><b>🎯 这里干什么</b>: 跑一次评估看现状 · 4 个候选自动选最优 (~5 分钟,纯诊断工具,不写线上策略) · 可继承样本构建里某个 run 复现</p>
-
-      <section class="compact" style="border-left:3px solid var(--good); background:rgba(52,211,153,0.04);">
-        <h2 style="font-size:13px;">⬇ 从样本构建继承评估配置 (可选)</h2>
-        <p class="muted-hint" style="padding:2px 0 6px;">选 ② 样本构建里某个 run,自动把它的 (难度/生成器/bot/sessions/seed/PB) 填到下方 spawn-eval iframe — 用于"复现某次采样的具体局面"或"用某 run 的代表配置看一次详细评估"。</p>
-        <div class="form-actions">
-          <label style="display:flex; flex-direction:column; gap:2px; font-size:10.5px; color:var(--muted); flex:1; max-width:380px;">
-            选 Run
-            <select id="eval-inherit-run" style="height:28px; font-size:12px; font-family:ui-monospace,monospace;">
-              <option value="">— 加载中… —</option>
-            </select>
-          </label>
-          <label title="选最优 θ 对应的 context (覆盖难度+生成器+PB档+生命周期 4 维)" style="display:flex; flex-direction:column; gap:2px; font-size:10.5px; color:var(--muted); flex:1; max-width:280px;">
-            从该 run 内选 Context (取 top-θ 的 ctx 排序)
-            <select id="eval-inherit-ctx" style="height:28px; font-size:12px; font-family:ui-monospace,monospace;" disabled>
-              <option value="">— 先选 run —</option>
-            </select>
-          </label>
-          <button id="btn-eval-inherit-apply" class="ghost" disabled>→ 应用到下方 iframe</button>
-          <label style="font-size:11px; color:var(--muted); display:flex; align-items:center; gap:4px;">
-            <input type="checkbox" id="eval-inherit-autorun"> 自动跑评估
-          </label>
-          <button id="btn-eval-inherit-reset" class="ghost" title="清空 URL 参数,iframe 重置回默认配置">↻ 重置</button>
-          <span id="eval-inherit-hint" class="muted-hint"></span>
-        </div>
-      </section>
-
-      <iframe id="eval-iframe" class="embed-iframe" src="/spawn-eval.html" title="单次评估 (嵌入)"></iframe>
-    </div>
-
     <!-- Tab ③ 寻参流水线 (id 沿用 tab-launch 不破坏 JS) -->
     <div class="tab-content" id="tab-launch">
       <p class="tab-hint" style="border-left-color:#a78bfa;">
@@ -340,7 +314,7 @@
         <div style="width:28px; height:28px; border-radius:50%; background:var(--accent); color:#0f172a; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px;">A</div>
         <h2 style="margin:0; color:var(--accent);">数据采样 — LHS 在 14 维 θ × 120 context 撒点</h2>
       </div>
-      <p class="muted-hint" style="margin:0 0 6px 38px; padding:0;">真跑 spawn-eval 评估,把 (context, θ, seed) 的 fairness/excitement/antiInflation 写进 SQLite</p>
+      <p class="muted-hint" style="margin:0 0 6px 38px; padding:0;">真跑底层评估器,把 (context, θ, seed) 的 fairness/excitement/antiInflation 写进 SQLite</p>
 
       <!-- 快速复用入口: 如果已有合适 run, 直接跳到 Step B 训 NN -->
       <section class="compact" style="border:1px dashed var(--line); background:rgba(96,165,250,0.04);">
@@ -361,7 +335,7 @@
       <section id="launch-section-tune" class="compact">
         <h2>A.1 LHS 寻参配置 (新跑一次,会产出新 run_id)</h2>
         <p class="muted-hint" style="padding:2px 0 6px;">
-          用 Latin Hypercube 在 14 维 θ 空间撒点,把 (context, θ, seed) 跑 spawn-eval 评估,把
+          用 Latin Hypercube 在 14 维 θ 空间撒点,把 (context, θ, seed) 跑底层评估器,把
           <code>fairness / excitement / antiInflation</code> 三个子分数写进 SQLite 给 Phase B 训 NN 代理用。
           可同时勾「导出 JSON」生成离线快照交付数据团队。
         </p>
@@ -632,10 +606,10 @@
     <!-- Tab ② 样本构建 (公共样本库 — 所有其它 tab 的数据来源) -->
     <div class="tab-content" id="tab-history">
       <p class="tab-hint" style="border-left-color:var(--good);"><b>🎯 这里干什么</b>:
-        所有跑评估、训 NN、对照分析的<b>数据起点</b>。
+        所有寻参、训 NN、对照分析的<b>数据起点</b>。
         <b>B.1</b> 采集新样本 (3 种构建方式) ·
         <b>B.2</b> Run 库管理 (浏览/标签/导入导出/删除) ·
-        <b>B.3</b> 选中 run 看详情 + 跨 run 最优 θ 排名 + 一键部署 / 跳到单次评估或流水线
+        <b>B.3</b> 选中 run 看详情 + 跨 run 最优 θ 排名 + 一键部署
       </p>
 
       <!-- ──── B.1 数据采集 (3 种构建方式) ──── -->
@@ -649,7 +623,7 @@
 
         <!-- 构建方式 1: LHS -->
         <div id="dc-build-lhs" class="dc-build-panel">
-          <p class="muted-hint" style="padding:2px 0 4px;">Latin Hypercube 在 14 维 θ 撒点, 跑 spawn-eval 评估写 SQLite。<a href="#" id="dc-jump-pipeline" style="color:var(--accent)">→ 跳到 ③ 流水线 Step A 配置</a> (那里是详细版,有权重滑块)</p>
+          <p class="muted-hint" style="padding:2px 0 4px;">Latin Hypercube 在 14 维 θ 撒点, 跑评估器写 SQLite。<a href="#" id="dc-jump-pipeline" style="color:var(--accent)">→ 跳到 ③ 流水线 Step A 配置</a> (那里是详细版,有权重滑块)</p>
           <div class="form-row">
             <label>Context 过滤<input id="dc-lhs-ctx" type="text" placeholder="*" value="*"></label>
             <label>每 ctx θ 数<input id="dc-lhs-thetas" type="number" min="2" max="200" value="10"></label>
