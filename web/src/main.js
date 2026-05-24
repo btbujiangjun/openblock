@@ -164,6 +164,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindNativeExitButtons({ game, audioFx });
     initMonetization(game);
 
+    /* v0.3.1: 寻参 θ 异步加载 (失败不阻塞游戏,自动 fallback 到 DEFAULT_THETA) */
+    import('./tuning/gameIntegration.js').then(({ initSpawnTuningHook }) => {
+        initSpawnTuningHook({ autoReload: true })
+            .then((r) => {
+                if (r.installed > 0) {
+                    console.info(`[spawn-tuning] loaded ${r.installed} policies`);
+                }
+            })
+            .catch(() => { /* silent fallback */ });
+    }).catch(() => { /* tuning module missing? 不致命 */ });
+
+    /* v0.3.3: 灰度上线监控 SDK (失败不阻塞,定时 flush 到 /api/spawn-tuning/v2/metrics/sample) */
+    import('./tuning/policyMetrics.js').then(({ initPolicyMetrics }) => {
+        initPolicyMetrics({ apiBaseUrl: '', enabled: true });
+    }).catch(() => { /* not critical */ });
+
     /* v1.55.11：开发者性能面板。
      * 默认不挂载、不计时；通过 ?perf=1 或 Alt+P 启用，避免在普通玩家会话里付任何代价。
      * 暴露 window.__perfOverlay = { open, close, toggle, snapshot, startProfile }。 */

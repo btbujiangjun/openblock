@@ -108,12 +108,17 @@ export default {
         strictPort: true,
         open: true,
         proxy: {
-            // 文档 API（/docs/list、/docs/raw/*、/docs/asset/*）→ Flask 后端
-            // 注意：/docs/asset/* 必须代理，否则 markdown 内嵌图片在 vite dev
-            //   下会被 SPA fallback 吃掉，浏览器把 HTML 当 image 解析 → 破图
+            // 文档 API（/docs/list、/docs/raw/*、/docs/asset/*、/docs/tool/*）→ Flask 后端
+            // 注意：
+            //   - /docs/asset/* 必须代理，否则 markdown 内嵌图片在 vite dev
+            //     下会被 SPA fallback 吃掉，浏览器把 HTML 当 image 解析 → 破图
+            //   - /docs/tool/* 必须代理，否则文档侧栏「交互工具」条目的
+            //     iframe URL（如 /docs/tool/algorithms/spawn-signal-explorer.html）
+            //     会被 SPA fallback 吐回 index.html，进而跳到「游戏主界面」
             '/docs/list':  { target: apiOrigin, changeOrigin: true },
             '/docs/raw':   { target: apiOrigin, changeOrigin: true },
             '/docs/asset': { target: apiOrigin, changeOrigin: true },
+            '/docs/tool':  { target: apiOrigin, changeOrigin: true },
             '/api':        { target: apiOrigin, changeOrigin: true },
         }
     }

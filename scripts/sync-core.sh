@@ -144,5 +144,32 @@ module.exports = { $exports_obj };"
   echo "  [OK] $f"
 done
 
+# --- v0.3.7: 同步寻参离线 bundle 给小程序 ----------------------------
+# Web/Android/iOS 用 web/public/spawn-tuning/policies.json (Vite 自动打包)
+# 小程序不能直接 require JSON, 这里转成 CJS 数据模块 miniprogram/core/tuning/spawnPolicies.js
+WEB_BUNDLE="$ROOT/web/public/spawn-tuning/policies.json"
+MP_TARGET="$ROOT/miniprogram/core/tuning/spawnPolicies.js"
+if [ -f "$WEB_BUNDLE" ]; then
+  mkdir -p "$(dirname "$MP_TARGET")"
+  node <<NODE
+const fs = require('fs');
+const data = JSON.parse(fs.readFileSync('$WEB_BUNDLE', 'utf8'));
+const body =
+  '/**\n' +
+  ' * 小程序运行时数据模块 — 出块寻参策略 (离线包)\n' +
+  ' * 自动生成于 sync-core.sh, 来源: web/public/spawn-tuning/policies.json\n' +
+  ' * run_id: ' + (data.run_id || data.runId || 'bundle') + '\n' +
+  ' * policies_count: ' + (data.policies ? data.policies.length : 0) + '\n' +
+  ' */\n' +
+  'module.exports = ' + JSON.stringify(data, null, 2) + ';\n';
+fs.writeFileSync('$MP_TARGET', body);
+console.log('  [OK] tuning/spawnPolicies.js (' + body.length + ' bytes, ' +
+  (data.policies ? data.policies.length : 0) + ' policies)');
+NODE
+else
+  echo "  [SKIP] tuning/spawnPolicies.js — web/public/spawn-tuning/policies.json 不存在"
+  echo "         (先在看板上点「📦 烘焙到离线包」生成,或跳过寻参离线打包)"
+fi
+
 echo ""
 echo "=== 同步完成。请手动检查 miniprogram/core/config.js 的 localStorage / import.meta.env 替换 ==="

@@ -20,6 +20,7 @@ export default {
             '/docs/list':  { target: apiOrigin, changeOrigin: true },
             '/docs/raw':   { target: apiOrigin, changeOrigin: true },
             '/docs/asset': { target: apiOrigin, changeOrigin: true },
+            '/docs/tool':  { target: apiOrigin, changeOrigin: true },
             '/api':        { target: apiOrigin, changeOrigin: true },
         },
     },

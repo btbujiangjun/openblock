@@ -257,6 +257,15 @@ function summarizeComparisons(rows) {
     });
 }
 
+/**
+ * 把一行评估指标按 5+1 项权重打分,得到综合 optimizerScore。
+ *
+ * 5 个底层权重 (向后兼容):
+ *   noMove / rewardAgency / skillLift / fallback / pacing
+ *
+ * 1 个新增权重 (v1.62.9+ 反膨胀目标):
+ *   antiInflation - 抑制分数膨胀 (overshootRate ≤ 5% 为目标),默认 0 保持向后兼容
+ */
 export function scoreEvaluationRow(row, weights = {}) {
     const w = {
         noMove: Number(weights.noMove ?? 0.35),
@@ -264,7 +273,9 @@ export function scoreEvaluationRow(row, weights = {}) {
         skillLift: Number(weights.skillLift ?? 0.20),
         fallback: Number(weights.fallback ?? 0.12),
         pacing: Number(weights.pacing ?? 0.08),
+        antiInflation: Number(weights.antiInflation ?? 0),
     };
+    const subs = computeGoalSubscores(row);
     const noMoveScore = 1 - Math.min(1, row.noMoveRate ?? 0);
     const fallbackScore = 1 - Math.min(1, (row.fallbackRate ?? 0) * 8);
     const pacingScore = 1 - Math.min(1, Math.max(0, (row.clearIntervalP90 ?? 0) - 5) / 10);
@@ -276,7 +287,57 @@ export function scoreEvaluationRow(row, weights = {}) {
         + skillProxy * w.skillLift
         + fallbackScore * w.fallback
         + pacingScore * w.pacing
+        + subs.antiInflation * w.antiInflation
     ).toFixed(4));
+}
+
+/**
+ * 把一行评估指标拆解为 3 个业务子分数 (0~1),用于在 UI 上对齐
+ * 「是否公平 / 是否有爽点 / 是否会让分数膨胀」这 3 个核心目标。
+ *
+ * 与 scoreEvaluationRow 的关系: scoreEvaluationRow 用 5+1 底层权重加权,
+ * 这里直接给出每个业务目标的 0~1 分,便于 UI 显示"哪个目标拖了后腿"。
+ */
+export function computeGoalSubscores(row) {
+    if (!row || typeof row !== 'object') {
+        return { fairness: 0, excitement: 0, antiInflation: 0 };
+    }
+    const noMoveScore = 1 - Math.min(1, row.noMoveRate ?? 0);
+    const skillProxy = Math.min(1, (row.firstMoveFreedomMean ?? 0) / 12);
+    const fallbackScore = 1 - Math.min(1, (row.fallbackRate ?? 0) * 8);
+    const fairness = (
+        noMoveScore * 0.55
+        + skillProxy * 0.25
+        + fallbackScore * 0.20
+    );
+
+    const clearsScore = Math.min(1, (row.clearsMean ?? 0) / 40);
+    const multiClearScore = Math.min(1, (row.multiClearRate ?? 0) * 2);
+    const pacingScore = 1 - Math.min(1, Math.max(0, (row.clearIntervalP90 ?? 0) - 5) / 10);
+    const excitement = (
+        clearsScore * 0.50
+        + multiClearScore * 0.30
+        + pacingScore * 0.20
+    );
+
+    // 抑制膨胀: overshootRate ≤ 5% 健康; > 35% 严重
+    const overshootScore = 1 - Math.min(1, (row.overshootRate ?? 0) * 4);
+    // breakPbRate 健康范围 8-15%, 偏离扣分
+    const breakRate = row.breakPbRate ?? 0;
+    let breakHealthScore;
+    if (breakRate >= 0.08 && breakRate <= 0.15) breakHealthScore = 1;
+    else if (breakRate < 0.08) breakHealthScore = Math.max(0, breakRate / 0.08);
+    else breakHealthScore = Math.max(0, 1 - (breakRate - 0.15) / 0.30);
+    const antiInflation = (
+        overshootScore * 0.70
+        + breakHealthScore * 0.30
+    );
+
+    return {
+        fairness: Number(fairness.toFixed(4)),
+        excitement: Number(excitement.toFixed(4)),
+        antiInflation: Number(antiInflation.toFixed(4)),
+    };
 }
 
 export function buildEvaluationInsights(report, weights = {}) {

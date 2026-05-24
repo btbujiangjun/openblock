@@ -1263,7 +1263,12 @@
           break;
         }
       }
-      const toolUrl = (API_BASE || '') + '/docs/tool/' + filename;
+      /* meta.url 走直连（如 /spawn-eval.html 这种 Vite 多入口构建产物），
+         没有 url 字段则回退到 /docs/tool/<path>，由 Flask 直接派发 docs/ 下的工具页。
+         直连 URL 保持相对路径 → 跟随当前 origin，避免 dev/prod 跨域抖动。 */
+      const toolUrl = meta.url
+        ? meta.url
+        : (API_BASE || '') + '/docs/tool/' + filename;
       $main.innerHTML = `
         <nav class="breadcrumb">
           <a id="bc-home">首页</a>

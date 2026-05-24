@@ -289,7 +289,6 @@ body.block-drag-active #app {
 }
 .dfv-head .dfv-head-icon svg {
     display: block;
-    vertical-align: middle;
 }
 
 /* DFV 关闭时 hover：用蓝紫渐变预览暗示"这是 DFV 入口，点开会变激活态"，
@@ -4102,10 +4101,8 @@ html[data-visibility="hidden"] *::after {
 /* RL 训练看板子元素（v1.13 起容器已合并到 .rl-panel；此处仅保留摘要/工具/曲线相关样式）
  * v1.14 进一步精简：原 .rl-dash-compact 单列 grid 包装层已从 HTML 移除，
  *   #rl-dash-summary 直接作为「看板摘要」details 的直接子元素，减少 DOM 层级；
- *   遗留选择器空规则保留为占位（避免历史样式被误覆盖）。 */
-.rl-dash-compact {
-    /* deprecated: 已无 DOM 命中；保留命名空间避免历史 CSS 链路覆盖 */
-}
+ *   v1.62.9：原 .rl-dash-compact {} 空规则已删除（lint: no empty rulesets）；
+ *   CSS 命名空间无须靠空规则占位——不存在的 class 自然不会被命中。 */
 
 /* v1.14：摘要外层 details (.panel-section) 已自带框，这里去掉自身的 background / border /
  *   border-radius，避免「框中框」的视觉重复层级；仅保留排版与字号。 */

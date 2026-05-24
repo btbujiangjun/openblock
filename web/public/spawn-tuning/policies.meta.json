@@ -1,0 +1,13 @@
+{
+  "run_id": null,
+  "generated_at": 1779633899,
+  "generated_at_iso": "2026-05-24T22:44:59",
+  "policies_count": 120,
+  "sha256": "b597aa02ba6249e6dd9b93bfb7c5a5528fc2aecb293f652225e287118c131692",
+  "weights": {
+    "fairness": 70.0,
+    "excitement": 45.0,
+    "antiInflation": 60.0
+  },
+  "source_file": "checkpoints/policies-job-1779632426586.json"
+}

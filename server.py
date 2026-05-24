@@ -556,6 +556,101 @@ def init_db():
             ON spawn_optimizer_configs(user_id, updated_at DESC)
         """)
 
+        # === Spawn Auto-Tuning v0.3 (新增) ===
+        # 见 docs/algorithms/SPAWN_AUTO_TUNING.md §7
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS spawn_tuning_runs (
+                run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                param_space_v INTEGER NOT NULL DEFAULT 1,
+                objective_weights_json TEXT NOT NULL,
+                budget INTEGER NOT NULL,
+                seeds_per_theta INTEGER DEFAULT 3,
+                started_at INTEGER NOT NULL,
+                completed_at INTEGER,
+                sample_count INTEGER DEFAULT 0,
+                surrogate_path TEXT,
+                note TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_spawn_tuning_runs_user
+            ON spawn_tuning_runs(user_id, started_at DESC)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS spawn_tuning_samples_v2 (
+                sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                context_key TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                generator TEXT NOT NULL,
+                bestScore_bin INTEGER NOT NULL,
+                lifecycle_stage TEXT NOT NULL,
+                theta_json TEXT NOT NULL,
+                seed INTEGER NOT NULL,
+                noMoveRate REAL, clearsMean REAL, multiClearRate REAL,
+                fallbackRate REAL, firstMoveFreedomMean REAL,
+                clearIntervalP90 REAL, nearPbRate REAL, breakPbRate REAL,
+                overshootRate REAL, scoreMean REAL, scoreP90 REAL,
+                evaluatedTripletsMean REAL,
+                fairness_score REAL, excitement_score REAL, antiInflation_score REAL,
+                eval_ms INTEGER, evaluated_at INTEGER, sample_phase TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_samples_v2_ctx
+            ON spawn_tuning_samples_v2(run_id, context_key)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS spawn_tuning_policies (
+                policy_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                context_key TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                generator TEXT NOT NULL,
+                bestScore_bin INTEGER NOT NULL,
+                lifecycle_stage TEXT NOT NULL,
+                theta_json TEXT NOT NULL,
+                expected_fairness REAL,
+                expected_excitement REAL,
+                expected_antiInflation REAL,
+                expected_composite REAL,
+                surrogate_uncertainty REAL,
+                n_validation_samples INTEGER,
+                is_active INTEGER DEFAULT 0,
+                deployed_at INTEGER,
+                deployment_signature TEXT,
+                notes TEXT,
+                UNIQUE(run_id, context_key)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_policies_active
+            ON spawn_tuning_policies(is_active, context_key)
+        """)
+
+        # === Spawn Tuning v0.3.3: 线上灰度指标采集 ===
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS spawn_tuning_field_metrics (
+                metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                context_key TEXT NOT NULL,
+                source TEXT NOT NULL,
+                theta_hash TEXT,
+                score INTEGER NOT NULL,
+                rounds INTEGER NOT NULL,
+                clears INTEGER NOT NULL,
+                noMove INTEGER NOT NULL DEFAULT 0,
+                client_ts INTEGER NOT NULL,
+                received_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_field_metrics_ctx
+            ON spawn_tuning_field_metrics(context_key, source, received_at DESC)
+        """)
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_checkin_bundle (
                 user_id TEXT PRIMARY KEY,
@@ -2877,6 +2972,817 @@ def activate_spawn_optimizer_config(config_id):
     return jsonify({"success": cur.rowcount > 0})
 
 
+# ====================================================================
+# Spawn Auto-Tuning v0.3 路由 (docs/algorithms/SPAWN_AUTO_TUNING.md §11)
+# ====================================================================
+
+import hashlib
+import hmac as _hmac
+import base64
+
+# HMAC secret 来自环境变量,启动时设定,不随代码部署
+_SPAWN_TUNING_SECRET = os.environ.get("SPAWN_TUNING_SECRET", "")
+
+
+def _canonical_json(obj):
+    """与 web/src/tuning/hmacVerify.js::canonicalize 字节级一致."""
+    if obj is None:
+        return "null"
+    if isinstance(obj, bool):
+        return "true" if obj else "false"
+    if isinstance(obj, (int, float)):
+        # JS JSON.stringify(1) => "1", JSON.stringify(1.0) => "1"
+        if isinstance(obj, float) and obj.is_integer():
+            return str(int(obj))
+        return json.dumps(obj)
+    if isinstance(obj, str):
+        return json.dumps(obj, ensure_ascii=False)
+    if isinstance(obj, list):
+        return "[" + ",".join(_canonical_json(x) for x in obj) + "]"
+    if isinstance(obj, dict):
+        items = sorted(obj.items(), key=lambda kv: kv[0])
+        return "{" + ",".join(json.dumps(k, ensure_ascii=False) + ":" + _canonical_json(v) for k, v in items) + "}"
+    raise TypeError(f"canonicalize: unsupported type {type(obj)}")
+
+
+def _sign_policy(policy_payload):
+    """计算 HMAC-SHA256 base64 签名.
+
+    payload = {run_id, context_key, theta, expected_composite}
+    """
+    if not _SPAWN_TUNING_SECRET:
+        # 无 secret 时仍生成"占位"签名以满足客户端 signature 非空校验
+        return base64.b64encode(hashlib.sha256(_canonical_json(policy_payload).encode("utf-8")).digest()).decode("ascii")
+    msg = _canonical_json(policy_payload).encode("utf-8")
+    sig = _hmac.new(_SPAWN_TUNING_SECRET.encode("utf-8"), msg, hashlib.sha256).digest()
+    return base64.b64encode(sig).decode("ascii")
+
+
+@app.route("/api/spawn-tuning/v2/runs", methods=["POST"])
+def create_spawn_tuning_run():
+    """创建寻参任务。"""
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+
+    name = data.get("name", "untitled")
+    budget = int(data.get("budget", 1000))
+    seeds_per_theta = int(data.get("seeds_per_theta", 3))
+    weights = data.get("objective_weights", {})
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        INSERT INTO spawn_tuning_runs
+            (user_id, name, status, param_space_v, objective_weights_json,
+             budget, seeds_per_theta, started_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            name,
+            "running",
+            int(data.get("param_space_v", 1)),
+            json.dumps(weights),
+            budget,
+            seeds_per_theta,
+            int(time.time()),
+        ),
+    )
+    db.commit()
+    return jsonify({
+        "run_id": cur.lastrowid,
+        "status": "running",
+        "started_at": int(time.time()),
+    })
+
+
+@app.route("/api/spawn-tuning/v2/runs/<int:run_id>", methods=["GET"])
+def get_spawn_tuning_run(run_id):
+    """获取寻参任务状态 + 最新样本统计。"""
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute(
+        "SELECT * FROM spawn_tuning_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "run not found"}), 404
+
+    sample_count = cur.execute(
+        "SELECT COUNT(*) as cnt FROM spawn_tuning_samples_v2 WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()["cnt"]
+
+    return jsonify({
+        "run_id": row["run_id"],
+        "user_id": row["user_id"],
+        "name": row["name"],
+        "status": row["status"],
+        "objective_weights": json.loads(row["objective_weights_json"]),
+        "budget": row["budget"],
+        "started_at": row["started_at"],
+        "completed_at": row["completed_at"],
+        "sample_count": sample_count,
+        "note": row["note"],
+    })
+
+
+@app.route("/api/spawn-tuning/v2/runs/<int:run_id>/samples", methods=["POST"])
+def bulk_insert_samples(run_id):
+    """批量写入样本 (CLI / Web 都通过这个统一入口)。
+
+    POST body: { samples: [ ... 样本数组 ... ] }
+    每个样本字段同 spawn_tuning_samples_v2 表 (除 sample_id / run_id)。
+    """
+    data = request.get_json() or {}
+    samples = data.get("samples", [])
+    if not isinstance(samples, list) or len(samples) == 0:
+        return jsonify({"error": "samples must be non-empty array"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+    # 校验 run_id 存在
+    if not cur.execute("SELECT 1 FROM spawn_tuning_runs WHERE run_id = ?", (run_id,)).fetchone():
+        return jsonify({"error": "run not found"}), 404
+
+    inserted = 0
+    fields = [
+        "context_key", "difficulty", "generator", "bestScore_bin", "lifecycle_stage",
+        "theta_json", "seed",
+        "noMoveRate", "clearsMean", "multiClearRate", "fallbackRate",
+        "firstMoveFreedomMean", "clearIntervalP90", "nearPbRate", "breakPbRate",
+        "overshootRate", "scoreMean", "scoreP90", "evaluatedTripletsMean",
+        "fairness_score", "excitement_score", "antiInflation_score",
+        "eval_ms", "evaluated_at", "sample_phase",
+    ]
+    placeholders = ",".join(["?"] * (len(fields) + 1))  # +1 for run_id
+    sql = f"INSERT INTO spawn_tuning_samples_v2 (run_id, {','.join(fields)}) VALUES ({placeholders})"
+
+    for s in samples:
+        try:
+            values = [run_id] + [s.get(f) for f in fields]
+            cur.execute(sql, values)
+            inserted += 1
+        except Exception:
+            continue
+
+    # 更新 sample_count
+    cur.execute(
+        "UPDATE spawn_tuning_runs SET sample_count = sample_count + ? WHERE run_id = ?",
+        (inserted, run_id),
+    )
+    db.commit()
+    return jsonify({"inserted": inserted, "received": len(samples)})
+
+
+@app.route("/api/spawn-tuning/v2/runs/<int:run_id>/finish", methods=["POST"])
+def finish_spawn_tuning_run(run_id):
+    """标记寻参任务完成。"""
+    data = request.get_json() or {}
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        """
+        UPDATE spawn_tuning_runs
+        SET status = ?, completed_at = ?, note = ?
+        WHERE run_id = ?
+        """,
+        (
+            data.get("status", "completed"),
+            int(time.time()),
+            data.get("note", ""),
+            run_id,
+        ),
+    )
+    db.commit()
+    return jsonify({"success": cur.rowcount > 0})
+
+
+@app.route("/api/spawn-tuning/v2/runs/<int:run_id>", methods=["DELETE"])
+def delete_spawn_tuning_run(run_id):
+    """删除一个 run 及其所有样本 (谨慎: 不可恢复)。
+
+    可选 query param: force=1 — 跳过"已训过 NN 不允许删"的保护
+    """
+    force = request.args.get("force") == "1"
+    db = get_db()
+    cur = db.cursor()
+
+    # 校验存在
+    cnt = cur.execute(
+        "SELECT COUNT(*) AS c FROM spawn_tuning_samples_v2 WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    sample_count = cnt["c"] if cnt else 0
+    if sample_count == 0:
+        # 可能元数据也没有 - 直接成功
+        cur.execute("DELETE FROM spawn_tuning_runs WHERE run_id = ?", (run_id,))
+        db.commit()
+        return jsonify({
+            "deleted_run": True,
+            "deleted_samples": 0,
+            "deleted_meta_only": cur.rowcount > 0,
+        })
+
+    # 如果有对应 policies 已被 deploy 过,默认拒绝 (除非 force)
+    if not force:
+        pol_cnt = cur.execute(
+            "SELECT COUNT(*) AS c FROM spawn_tuning_policies "
+            "WHERE run_id = ? AND is_active = 1",
+            (run_id,),
+        ).fetchone()
+        if pol_cnt and pol_cnt["c"] > 0:
+            return jsonify({
+                "error": (
+                    f"run_id={run_id} 有 {pol_cnt['c']} 个 active policy 在线上, "
+                    f"删除会导致灰度回滚到默认值。如确认请加 ?force=1"
+                ),
+                "active_policies": pol_cnt["c"],
+            }), 409
+
+    cur.execute("DELETE FROM spawn_tuning_samples_v2 WHERE run_id = ?", (run_id,))
+    deleted_samples = cur.rowcount
+    cur.execute("DELETE FROM spawn_tuning_policies WHERE run_id = ?", (run_id,))
+    deleted_policies = cur.rowcount
+    cur.execute("DELETE FROM spawn_tuning_runs WHERE run_id = ?", (run_id,))
+    deleted_meta = cur.rowcount
+    db.commit()
+    return jsonify({
+        "deleted_run": True,
+        "deleted_samples": deleted_samples,
+        "deleted_policies": deleted_policies,
+        "deleted_meta_only": deleted_meta > 0 and deleted_samples == 0,
+    })
+
+
+@app.route("/api/spawn-tuning/v2/runs/<int:run_id>/note", methods=["PATCH"])
+def patch_spawn_tuning_run_note(run_id):
+    """编辑 run 的 name / note 标签 (数据中心 UI 用)。
+
+    POST body: { name?: string, note?: string }
+    """
+    data = request.get_json() or {}
+    name = data.get("name")
+    note = data.get("note")
+    if name is None and note is None:
+        return jsonify({"error": "name or note required"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+
+    # 如果元数据行不存在,样本表存在 → 自动创建一个元数据行 (CLI 跑出来的 run 没有 meta)
+    meta_exists = cur.execute(
+        "SELECT 1 FROM spawn_tuning_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if not meta_exists:
+        sample_cnt = cur.execute(
+            "SELECT COUNT(*) AS c FROM spawn_tuning_samples_v2 WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if not sample_cnt or sample_cnt["c"] == 0:
+            return jsonify({"error": "run not found"}), 404
+        # 反查最早 evaluated_at 当 started_at
+        started_at_row = cur.execute(
+            "SELECT MIN(evaluated_at) AS t FROM spawn_tuning_samples_v2 WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        started_at = (started_at_row["t"] or int(time.time() * 1000)) // 1000
+        cur.execute(
+            "INSERT INTO spawn_tuning_runs "
+            "(run_id, user_id, name, status, objective_weights_json, budget, "
+            " sample_count, started_at, completed_at, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                run_id, "", name or "", "completed", "{}", sample_cnt["c"],
+                sample_cnt["c"], started_at, int(time.time()), note or "",
+            ),
+        )
+    else:
+        fields, values = [], []
+        if name is not None:
+            fields.append("name = ?")
+            values.append(name)
+        if note is not None:
+            fields.append("note = ?")
+            values.append(note)
+        values.append(run_id)
+        cur.execute(
+            f"UPDATE spawn_tuning_runs SET {', '.join(fields)} WHERE run_id = ?",
+            values,
+        )
+    db.commit()
+    return jsonify({"success": True, "run_id": run_id, "name": name, "note": note})
+
+
+@app.route("/api/spawn-tuning/v2/runs/<int:run_id>/export", methods=["GET"])
+def export_spawn_tuning_run(run_id):
+    """把整个 run (含全部样本) 导出为 JSON,可下载或导入到另一台机器。"""
+    db = get_db()
+    cur = db.cursor()
+    meta = cur.execute(
+        "SELECT * FROM spawn_tuning_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    samples = cur.execute(
+        "SELECT * FROM spawn_tuning_samples_v2 WHERE run_id = ? ORDER BY sample_id",
+        (run_id,),
+    ).fetchall()
+    if not samples and not meta:
+        return jsonify({"error": "run not found"}), 404
+    return jsonify({
+        "format": "openblock-spawn-tuning-run-v1",
+        "exported_at": int(time.time()),
+        "run_id": run_id,
+        "meta": dict(meta) if meta else None,
+        "samples_count": len(samples),
+        "samples": [dict(s) for s in samples],
+    })
+
+
+@app.route("/api/spawn-tuning/v2/runs/import", methods=["POST"])
+def import_spawn_tuning_run():
+    """从导出的 JSON 文件导入 run + 样本。
+
+    POST body: { format: 'openblock-spawn-tuning-run-v1', meta, samples, [run_id_override] }
+    新 run_id 默认 = 当前时间戳;可用 run_id_override 强制 (慎用,可能冲突)。
+    """
+    data = request.get_json(silent=True) or {}
+    if data.get("format") != "openblock-spawn-tuning-run-v1":
+        return jsonify({"error": "unsupported format"}), 400
+    samples = data.get("samples", [])
+    if not isinstance(samples, list) or len(samples) == 0:
+        return jsonify({"error": "no samples to import"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+
+    # 决定 new run_id
+    override = data.get("run_id_override")
+    if override:
+        try:
+            new_run_id = int(override)
+        except (TypeError, ValueError):
+            return jsonify({"error": "invalid run_id_override"}), 400
+        # 检查冲突
+        existing = cur.execute(
+            "SELECT COUNT(*) AS c FROM spawn_tuning_samples_v2 WHERE run_id = ?",
+            (new_run_id,),
+        ).fetchone()
+        if existing and existing["c"] > 0:
+            return jsonify({
+                "error": f"run_id={new_run_id} already has {existing['c']} samples",
+            }), 409
+    else:
+        new_run_id = int(time.time() * 1000)
+
+    # meta
+    meta_in = data.get("meta") or {}
+    cur.execute(
+        "INSERT OR REPLACE INTO spawn_tuning_runs "
+        "(run_id, user_id, name, status, objective_weights_json, budget, "
+        " sample_count, started_at, completed_at, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            new_run_id, meta_in.get("user_id", ""),
+            meta_in.get("name") or f"imported-{new_run_id}",
+            "completed", meta_in.get("objective_weights_json") or "{}",
+            int(meta_in.get("budget", len(samples))), len(samples),
+            int(time.time()), int(time.time()),
+            (meta_in.get("note") or "") + " [imported]",
+        ),
+    )
+
+    # samples
+    fields = [
+        "context_key", "difficulty", "generator", "bestScore_bin", "lifecycle_stage",
+        "theta_json", "seed",
+        "noMoveRate", "clearsMean", "multiClearRate", "fallbackRate",
+        "firstMoveFreedomMean", "clearIntervalP90", "nearPbRate", "breakPbRate",
+        "overshootRate", "scoreMean", "scoreP90", "evaluatedTripletsMean",
+        "fairness_score", "excitement_score", "antiInflation_score",
+        "eval_ms", "evaluated_at", "sample_phase",
+    ]
+    placeholders = ",".join(["?"] * (len(fields) + 1))
+    sql = f"INSERT INTO spawn_tuning_samples_v2 (run_id, {','.join(fields)}) VALUES ({placeholders})"
+    inserted = 0
+    for s in samples:
+        try:
+            values = [new_run_id] + [s.get(f) for f in fields]
+            cur.execute(sql, values)
+            inserted += 1
+        except Exception:
+            continue
+    db.commit()
+    return jsonify({
+        "ok": True,
+        "new_run_id": new_run_id,
+        "inserted_samples": inserted,
+        "received": len(samples),
+    })
+
+
+@app.route("/api/spawn-tuning/v2/policies/active", methods=["GET"])
+def get_active_policies():
+    """获取当前激活的 (context → θ) 映射表 (客户端启动时调用)。
+
+    返回 120 个 context 的最优 θ + rollout_pct + run_id 元数据。
+    客户端按 context 查表取参数。
+    """
+    db = get_db()
+    cur = db.cursor()
+    rows = cur.execute(
+        """
+        SELECT run_id, context_key, difficulty, generator, bestScore_bin, lifecycle_stage,
+               theta_json, expected_fairness, expected_excitement, expected_antiInflation,
+               expected_composite, deployment_signature, deployed_at
+        FROM spawn_tuning_policies
+        WHERE is_active = 1
+        """
+    ).fetchall()
+
+    # 从最新 run 的 note 字段提取 rollout_pct
+    rollout_pct = 100
+    run_id = None
+    if rows:
+        run_id = rows[0]["run_id"]
+        meta_row = cur.execute(
+            "SELECT note FROM spawn_tuning_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if meta_row and meta_row["note"]:
+            try:
+                meta = json.loads(meta_row["note"])
+                rollout_pct = int(meta.get("rollout_pct", 100))
+            except (ValueError, KeyError):
+                pass
+
+    return jsonify({
+        "policies": [
+            {
+                "context_key": r["context_key"],
+                "difficulty": r["difficulty"],
+                "generator": r["generator"],
+                "bestScore_bin": r["bestScore_bin"],
+                "lifecycle_stage": r["lifecycle_stage"],
+                "theta": json.loads(r["theta_json"]),
+                "expected_fairness": r["expected_fairness"],
+                "expected_excitement": r["expected_excitement"],
+                "expected_antiInflation": r["expected_antiInflation"],
+                "expected_composite": r["expected_composite"],
+                "signature": r["deployment_signature"],
+                "deployed_at": r["deployed_at"],
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+        "rollout_pct": rollout_pct,
+        "run_id": run_id,
+    })
+
+
+@app.route("/api/spawn-tuning/v2/runs", methods=["GET"])
+def list_spawn_tuning_runs():
+    """列出寻参任务 (dashboard 用)。
+
+    Query params:
+        user_id (optional) - 过滤
+        limit (default 50)
+        status (optional) - 'running' / 'completed' / 'aborted'
+    """
+    user_id = request.args.get("user_id", "")
+    limit = int(request.args.get("limit", 50))
+    status = request.args.get("status", "")
+
+    db = get_db()
+    cur = db.cursor()
+    sql = "SELECT * FROM spawn_tuning_runs WHERE 1=1"
+    params = []
+    if user_id:
+        sql += " AND user_id = ?"
+        params.append(user_id)
+    if status:
+        sql += " AND status = ?"
+        params.append(status)
+    sql += " ORDER BY started_at DESC LIMIT ?"
+    params.append(limit)
+
+    rows = cur.execute(sql, params).fetchall()
+    return jsonify({
+        "runs": [
+            {
+                "run_id": r["run_id"],
+                "user_id": r["user_id"],
+                "name": r["name"],
+                "status": r["status"],
+                "objective_weights": json.loads(r["objective_weights_json"]) if r["objective_weights_json"] else {},
+                "budget": r["budget"],
+                "sample_count": r["sample_count"],
+                "started_at": r["started_at"],
+                "completed_at": r["completed_at"],
+                "note": r["note"],
+            }
+            for r in rows
+        ],
+        "count": len(rows),
+    })
+
+
+@app.route("/api/spawn-tuning/v2/runs/<int:run_id>/top-policies", methods=["GET"])
+def get_top_policies_for_run(run_id):
+    """获取 run_id 内每 context 最优 θ (按 composite 排序,dashboard 用)。
+
+    根据 sample 表中已有的子分数,按当前权重重新加权排序。
+    """
+    weights = {
+        "fairness": float(request.args.get("w_fairness", 70)),
+        "excitement": float(request.args.get("w_excitement", 45)),
+        "antiInflation": float(request.args.get("w_anti_inflation", 60)),
+    }
+    limit = int(request.args.get("limit", 50))
+
+    # 生命周期乘子表 - 与 objective.js 一致
+    lifecycle_mult = {
+        "onboarding": (1.5, 1.2, 0.5),
+        "growth": (1.0, 1.0, 1.0),
+        "mature": (0.8, 0.9, 1.5),
+        "plateau": (0.7, 1.5, 0.8),
+    }
+
+    total_w = max(1e-9, weights["fairness"] + weights["excitement"] + weights["antiInflation"])
+    wf = weights["fairness"] / total_w
+    we = weights["excitement"] / total_w
+    wa = weights["antiInflation"] / total_w
+
+    db = get_db()
+    cur = db.cursor()
+    rows = cur.execute(
+        """
+        SELECT context_key, difficulty, generator, bestScore_bin, lifecycle_stage,
+               theta_json, fairness_score, excitement_score, antiInflation_score,
+               scoreMean, noMoveRate, overshootRate
+        FROM spawn_tuning_samples_v2
+        WHERE run_id = ?
+        """,
+        (run_id,),
+    ).fetchall()
+
+    # 按 context_key 分组,挑 composite 最高
+    best_by_ctx = {}
+    for r in rows:
+        life = r["lifecycle_stage"]
+        mf, me, ma = lifecycle_mult.get(life, (1.0, 1.0, 1.0))
+        num = wf * mf * (r["fairness_score"] or 0) + we * me * (r["excitement_score"] or 0) + wa * ma * (r["antiInflation_score"] or 0)
+        den = wf * mf + we * me + wa * ma
+        composite = num / den if den > 0 else 0
+
+        ctx_key = r["context_key"]
+        if ctx_key not in best_by_ctx or composite > best_by_ctx[ctx_key]["composite"]:
+            best_by_ctx[ctx_key] = {
+                "context_key": ctx_key,
+                "difficulty": r["difficulty"],
+                "generator": r["generator"],
+                "bestScore_bin": r["bestScore_bin"],
+                "lifecycle_stage": life,
+                "theta": json.loads(r["theta_json"]),
+                "fairness": r["fairness_score"],
+                "excitement": r["excitement_score"],
+                "antiInflation": r["antiInflation_score"],
+                "composite": composite,
+                "scoreMean": r["scoreMean"],
+                "noMoveRate": r["noMoveRate"],
+                "overshootRate": r["overshootRate"],
+            }
+
+    sorted_top = sorted(best_by_ctx.values(), key=lambda x: -x["composite"])[:limit]
+    return jsonify({
+        "run_id": run_id,
+        "weights": weights,
+        "context_count": len(best_by_ctx),
+        "top_policies": sorted_top,
+    })
+
+
+@app.route("/api/spawn-tuning/v2/policies/deploy", methods=["POST"])
+def deploy_policies():
+    """批量部署 (context → θ) 策略 (来自 Phase C 梯度上升的输出)。
+
+    POST body: { policies: [{context_key, theta, expected_*, ...}], rollout_pct: 100 }
+    会先把所有现有 active 策略下架,再激活传入的新策略。
+    Server 端自动算 HMAC 签名 (用 SPAWN_TUNING_SECRET 环境变量)。
+    """
+    data = request.get_json() or {}
+    policies = data.get("policies", [])
+    run_id = int(data.get("run_id", 0))
+    rollout_pct = int(data.get("rollout_pct", 100))
+
+    if not isinstance(policies, list) or len(policies) == 0:
+        return jsonify({"error": "policies must be non-empty array"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+
+    # 1. 下架所有现 active
+    cur.execute("UPDATE spawn_tuning_policies SET is_active = 0")
+
+    # 2. 写入新策略 (UPSERT) - 自动签名
+    deployed = 0
+    for p in policies:
+        try:
+            # 生成签名
+            signature = _sign_policy({
+                "run_id": run_id,
+                "context_key": p["context_key"],
+                "theta": p["theta"],
+                "expected_composite": p.get("expected_composite", 0),
+            })
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO spawn_tuning_policies
+                    (run_id, context_key, difficulty, generator, bestScore_bin,
+                     lifecycle_stage, theta_json,
+                     expected_fairness, expected_excitement, expected_antiInflation,
+                     expected_composite, surrogate_uncertainty, n_validation_samples,
+                     is_active, deployed_at, deployment_signature, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    p["context_key"],
+                    p["difficulty"],
+                    p["generator"],
+                    int(p["bestScore_bin"]),
+                    p["lifecycle_stage"],
+                    json.dumps(p["theta"]),
+                    p.get("expected_fairness"),
+                    p.get("expected_excitement"),
+                    p.get("expected_antiInflation"),
+                    p.get("expected_composite"),
+                    p.get("surrogate_uncertainty"),
+                    p.get("n_validation_samples"),
+                    int(time.time()),
+                    signature,
+                    p.get("notes", ""),
+                ),
+            )
+            deployed += 1
+        except Exception as e:
+            app.logger.warning(f"policy deploy failed for {p.get('context_key')}: {e}")
+            continue
+
+    # 记录灰度比例到一个全局元数据 row (复用 spawn_tuning_runs note 字段或单独表)
+    if run_id > 0:
+        cur.execute(
+            "UPDATE spawn_tuning_runs SET note = ? WHERE run_id = ?",
+            (json.dumps({"rollout_pct": rollout_pct, "deployed_count": deployed}), run_id),
+        )
+
+    db.commit()
+    return jsonify({
+        "deployed": deployed,
+        "received": len(policies),
+        "rollout_pct": rollout_pct,
+        "signed_with_secret": bool(_SPAWN_TUNING_SECRET),
+    })
+
+
+@app.route("/api/spawn-tuning/v2/auth/secret", methods=["GET"])
+def get_spawn_tuning_secret():
+    """下发 HMAC secret 给已认证客户端 (生产部署模式 B)。
+
+    安全约定:
+        - 此 endpoint 必须走 HTTPS (生产 nginx/ALB 强制)
+        - 默认需要 Authorization: Bearer <token>,token 验证不通过返回 401
+        - SPAWN_TUNING_AUTH_REQUIRED=0 时降级,任何请求都返回 secret (仅开发/测试)
+        - 未配 SPAWN_TUNING_SECRET 时返回 503
+
+    客户端拿到 secret 后:
+        - 缓存 1 小时
+        - 用其验 /v2/policies/active 返回的 signature
+    """
+    if not _SPAWN_TUNING_SECRET:
+        return jsonify({"error": "server secret not configured"}), 503
+
+    require_auth = os.environ.get("SPAWN_TUNING_AUTH_REQUIRED", "1") != "0"
+    if require_auth:
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Bearer token required"}), 401
+        token = auth_header[7:].strip()
+        # 简化版: 与服务端预设的 token 比对; 生产应该走 JWT/session 验证
+        expected_token = os.environ.get("SPAWN_TUNING_CLIENT_TOKEN", "")
+        if expected_token and token != expected_token:
+            return jsonify({"error": "invalid token"}), 403
+
+    return jsonify({
+        "secret": _SPAWN_TUNING_SECRET,
+        "ttl_ms": 3600000,
+        "issued_at": int(time.time()),
+    })
+
+
+@app.route("/api/spawn-tuning/v2/metrics/sample", methods=["POST"])
+def submit_field_metrics():
+    """接收客户端上报的局后指标 (灰度上线监控)。
+
+    POST body: { outcomes: [{ context_key, source, theta_hash, score, rounds, clears, noMove, ts }] }
+    """
+    data = request.get_json() or {}
+    outcomes = data.get("outcomes", [])
+    if not isinstance(outcomes, list) or len(outcomes) == 0:
+        return jsonify({"received": 0})
+
+    db = get_db()
+    cur = db.cursor()
+    inserted = 0
+    for o in outcomes:
+        try:
+            cur.execute(
+                """
+                INSERT INTO spawn_tuning_field_metrics
+                    (context_key, source, theta_hash, score, rounds, clears, noMove, client_ts)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    o.get("context_key") or "_none_",
+                    o.get("source", "unknown"),
+                    o.get("theta_hash"),
+                    int(o.get("score", 0)),
+                    int(o.get("rounds", 0)),
+                    int(o.get("clears", 0)),
+                    int(o.get("noMove", 0)),
+                    int(o.get("ts", time.time() * 1000)) // 1000,
+                ),
+            )
+            inserted += 1
+        except Exception:
+            continue
+    db.commit()
+    return jsonify({"received": len(outcomes), "inserted": inserted})
+
+
+@app.route("/api/spawn-tuning/v2/metrics/aggregate", methods=["GET"])
+def aggregate_field_metrics():
+    """按 (context_key, source) 聚合最近 N 小时的指标 (看板用)。
+
+    Query params:
+        hours (default 24)
+        context_key (optional, exact match)
+    """
+    hours = int(request.args.get("hours", 24))
+    context_filter = request.args.get("context_key", "")
+
+    cutoff = int(time.time()) - hours * 3600
+
+    db = get_db()
+    cur = db.cursor()
+
+    sql = """
+        SELECT context_key, source, theta_hash,
+               COUNT(*) as games,
+               AVG(score) as avg_score,
+               AVG(rounds) as avg_rounds,
+               AVG(clears) as avg_clears,
+               SUM(noMove) * 1.0 / COUNT(*) as noMove_rate
+        FROM spawn_tuning_field_metrics
+        WHERE received_at >= ?
+    """
+    params = [cutoff]
+    if context_filter:
+        sql += " AND context_key = ?"
+        params.append(context_filter)
+    sql += " GROUP BY context_key, source, theta_hash ORDER BY games DESC LIMIT 200"
+
+    rows = cur.execute(sql, params).fetchall()
+    return jsonify({
+        "hours": hours,
+        "context_filter": context_filter,
+        "aggregates": [
+            {
+                "context_key": r["context_key"],
+                "source": r["source"],
+                "theta_hash": r["theta_hash"],
+                "games": r["games"],
+                "avg_score": round(r["avg_score"] or 0, 1),
+                "avg_rounds": round(r["avg_rounds"] or 0, 1),
+                "avg_clears": round(r["avg_clears"] or 0, 1),
+                "noMove_rate": round(r["noMove_rate"] or 0, 4),
+            }
+            for r in rows
+        ],
+        "total_rows": len(rows),
+    })
+
+
+@app.route("/api/spawn-tuning/v2/policies/rollback", methods=["POST"])
+def rollback_policies():
+    """一键回滚 — 把所有 active 策略下架,客户端会自动 fallback 到 DEFAULT_THETA。"""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE spawn_tuning_policies SET is_active = 0")
+    rolled = cur.rowcount
+    db.commit()
+    return jsonify({"rolled_back_count": rolled})
+
+
 @app.route("/api/client/stats", methods=["PUT"])
 def put_client_stats():
     data = request.get_json() or {}
@@ -4011,6 +4917,13 @@ except Exception as _rl_ex:
     print("RL API (/api/rl/*) 未启用:", _rl_ex)
 
 try:
+    from spawn_tuning_backend import register_spawn_tuning_routes
+
+    register_spawn_tuning_routes(app)
+except Exception as _st_ex:
+    print("Spawn Tuning Torch API (/api/spawn-tuning/v2/torch/*) 未启用:", _st_ex)
+
+try:
     from monetization_backend import create_mon_blueprint, init_mon_db
 
     app.register_blueprint(create_mon_blueprint())
@@ -4688,10 +5601,14 @@ _DOC_CATEGORIES = [
     {
         "name": "出块算法",
         "docs": [
-            # v1.61：交互式工具置顶，type=tool 标记供 docs.html 侧栏以新标签页打开
+            # v1.61：交互式工具置顶，type=tool 标记供 docs.html 侧栏以 iframe 嵌入
+            # - 信号透视仪是 docs/ 下的静态 HTML，走默认的 /docs/tool/<path> 路由
+            # - 出块评估工具是 Vite 多入口产物 /spawn-eval.html，用 url 字段直连，
+            #   避免再保留一份 0 秒 meta-refresh 的中转 HTML
             {"file": "algorithms/spawn-signal-explorer.html", "type": "tool",
              "title": "出块信号透视仪（交互工具）"},
             {"file": "algorithms/spawn-evaluation-tool.html", "type": "tool",
+             "url": "/spawn-eval.html",
              "title": "OpenBlock 出块评估工具"},
             "algorithms/SPAWN_ALGORITHM.md",
             "algorithms/SPAWN_EVALUATION.md",
@@ -4853,11 +5770,18 @@ def docs_list():
     """返回所有文档的分类列表及元信息。"""
 
     def build_item(entry):
-        # entry 可以是 str（路径）或 dict（含 type/title 的工具条目）
+        # entry 可以是 str（路径）或 dict（含 type/title/url 的工具条目）
+        # - 普通条目：必须存在于 docs/ 下，否则丢弃
+        # - 带 `url` 的工具条目：iframe 直接指向该 URL（如 /spawn-eval.html
+        #   这种 Vite 多入口构建产物），file 字段保留作为侧栏/hash 的稳定标识，
+        #   不再要求其落地到 docs/ 目录
         if isinstance(entry, dict):
             fname = entry.get("file", "")
             title = entry.get("title", fname)
             item_type = entry.get("type", "doc")
+            url = entry.get("url")
+            if url:
+                return {"file": fname, "title": title, "type": item_type, "url": url}
             path = _DOCS_DIR / fname
             if not path.exists():
                 return None
@@ -4911,6 +5835,37 @@ def docs_list():
 
 _ROOT_DIR = Path(__file__).resolve().parent
 _DIST_DIR = _ROOT_DIR / "dist"
+
+
+@app.route("/spawn-tuning/<path:filename>")
+def spawn_tuning_bundle_static(filename):
+    """Serve 寻参离线 bundle (Vite 把 web/public/spawn-tuning/* 拷到 dist/spawn-tuning/*)。
+
+    客户端 (Web/Capacitor 包) 启动时 fetch('/spawn-tuning/policies.json') 立即生效;
+    Capacitor APK/IPA 通过 WKWebView 直接读 file:// 不经过本 server。
+    """
+    import re
+    from flask import send_from_directory
+
+    if ".." in filename or filename.startswith("/") or "\\" in filename:
+        return jsonify({"error": "invalid filename"}), 400
+    if not re.match(r"^[\w\-/\.]+$", filename, re.ASCII):
+        return jsonify({"error": "invalid filename"}), 400
+
+    # 优先 dist/spawn-tuning (生产);次选 web/public/spawn-tuning (dev 兜底)
+    candidates = [
+        _DIST_DIR / "spawn-tuning",
+        _WEB_PUBLIC_DIR / "spawn-tuning",
+    ]
+    for base in candidates:
+        target = (base / filename).resolve()
+        try:
+            target.relative_to(base.resolve())
+        except ValueError:
+            continue
+        if target.is_file():
+            return send_from_directory(str(base), filename)
+    return jsonify({"error": "not found"}), 404
 
 
 @app.route("/spawn-eval.html")
@@ -5091,3 +6046,5 @@ if __name__ == "__main__":
     _debug = os.environ.get("FLASK_DEBUG", "1") == "1"
     print(f"Open Block API — http://0.0.0.0:{_port}  (db: {DATABASE})")
     app.run(host="0.0.0.0", port=_port, debug=_debug)
+
+

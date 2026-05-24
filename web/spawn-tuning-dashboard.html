@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenBlock 出块算法优化</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a; --panel: #111827; --panel-2: #1f2937;
+      --text: #e5e7eb; --muted: #9ca3af; --line: #374151;
+      --accent: #60a5fa; --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    main { width: min(1280px, calc(100vw - 32px)); margin: 0 auto; padding: 24px 0 48px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end;
+      border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 16px; }
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 15px; margin-bottom: 8px; color: var(--accent); }
+    h3 { font-size: 13px; margin: 10px 0 5px; }
+    p { color: var(--muted); line-height: 1.5; margin: 3px 0; font-size: 12px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+      background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; }
+    button { background: var(--accent); color: #0f172a; border: 0; border-radius: 6px;
+      padding: 5px 12px; font-weight: 700; cursor: pointer; font-size: 12px; height: 30px; }
+    button:hover:not(:disabled) { filter: brightness(1.1); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    button.danger { background: var(--bad); color: #fff; }
+    select, input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+      border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 10px; }
+
+    /* === 紧凑表单组件 === */
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 6px 8px;
+      margin: 6px 0 4px;
+    }
+    .form-row label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 10.5px;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .form-row label input,
+    .form-row label select {
+      height: 28px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      width: 100%;
+      min-width: 0;
+      box-shadow: inset 0 1px 0 rgba(0,0,0,0.15);
+    }
+    .form-row label input:focus,
+    .form-row label select:focus {
+      outline: 0;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(96,165,250,0.18);
+    }
+    .form-actions {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      margin: 8px 0 2px;
+    }
+    .form-actions .muted-hint { padding: 0; font-size: 11px; }
+    .form-actions button { height: 28px; padding: 0 12px; font-size: 11.5px; }
+
+    /* 区段子标题: 比 h3 更克制,带左侧色条 */
+    .sub-h {
+      font-size: 11.5px; font-weight: 700; color: var(--text);
+      margin: 12px 0 4px; padding-left: 8px;
+      border-left: 2px solid var(--accent); letter-spacing: 0.02em;
+    }
+    .sub-h.muted { border-left-color: var(--muted); color: var(--muted); }
+
+    /* compact section 用更紧凑的卡片网格 */
+    section.compact .stats-grid {
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px; margin-bottom: 8px;
+    }
+    section.compact .stat-card { padding: 8px 12px; border-radius: 8px; }
+    section.compact .stat-value { font-size: 18px; }
+    section.compact .stat-label { font-size: 10px; }
+
+    /* === 场景导航 === */
+    .scenario-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px; margin-bottom: 16px; }
+    .scenario-card { background: linear-gradient(135deg, rgba(96,165,250,0.08), rgba(31,41,55,0.55));
+      border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+      cursor: pointer; transition: all 0.15s; }
+    .scenario-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .scenario-card h3 { font-size: 13px; margin-bottom: 4px; color: var(--text); }
+    .scenario-card p { font-size: 11px; color: var(--muted); margin: 0; }
+    .scenario-card .scenario-tabs { font-size: 10px; color: var(--accent); margin-top: 6px;
+      font-family: ui-monospace, monospace; }
+    .scenario-card.s-quick { border-left: 3px solid var(--good); }
+    .scenario-card.s-bulk  { border-left: 3px solid var(--accent); }
+    .scenario-card.s-ops   { border-left: 3px solid #f472b6; }
+
+    .tab-hint { font-size: 11px; color: var(--muted); margin: 6px 0 12px;
+      padding: 6px 10px; background: rgba(2,6,23,0.4); border-radius: 6px;
+      border-left: 2px solid var(--accent); }
+
+    /* iframe 嵌入页 */
+    .embed-iframe { width: 100%; height: calc(100vh - 200px); min-height: 600px;
+      border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+
+    /* === Tab 系统 === */
+    .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+    .tab {
+      padding: 10px 18px; cursor: pointer; color: var(--muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s; font-size: 13px;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* === 总览卡片 === */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px; margin-bottom: 10px;
+    }
+    .stat-card {
+      background: rgba(31, 41, 55, 0.55);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .stat-card.good { border-left-color: var(--good); }
+    .stat-card.warn { border-left-color: var(--warn); }
+    .stat-card.bad { border-left-color: var(--bad); }
+    .stat-value {
+      font-size: 21px; font-weight: 700;
+      font-family: ui-monospace, monospace;
+      color: var(--text); margin-bottom: 1px;
+    }
+    .stat-label { font-size: 10.5px; color: var(--muted); }
+
+    /* === 表格 === */
+    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table th, .table td { padding: 7px 10px; text-align: left;
+      border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .table th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
+    .table tr:hover td { background: rgba(96, 165, 250, 0.04); }
+    .composite { font-family: ui-monospace, monospace; color: var(--good); font-weight: 700; }
+    .composite.low { color: var(--warn); }
+    .composite.bad { color: var(--bad); }
+    .status { padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+    .status.running { background: rgba(96, 165, 250, 0.18); color: var(--accent); }
+    .status.completed { background: rgba(52, 211, 153, 0.18); color: var(--good); }
+    .status.aborted { background: rgba(248, 113, 113, 0.18); color: var(--bad); }
+
+    /* === Canvas === */
+    .chart-wrap { background: rgba(2, 6, 23, 0.55); border: 1px solid var(--line);
+      border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+    canvas { width: 100%; height: 220px; display: block; }
+
+    /* === 灰度状态条 === */
+    .rollout-bar { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+    .rollout-track { flex: 1; height: 14px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+    .rollout-fill { height: 100%; background: linear-gradient(90deg, var(--good), var(--accent));
+      transition: width 0.3s; }
+    .rollout-num { font-family: ui-monospace, monospace; font-weight: 700; min-width: 50px; }
+
+    /* === 部署对照 === */
+    .compare-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    }
+    .compare-card {
+      background: rgba(31, 41, 55, 0.55);
+      border: 1px solid var(--line);
+      border-radius: 10px; padding: 14px;
+    }
+    .compare-card.baseline { border-left: 3px solid var(--muted); }
+    .compare-card.tuned { border-left: 3px solid var(--good); }
+    .compare-metric {
+      display: flex; justify-content: space-between;
+      padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: 12px;
+    }
+    .compare-metric:last-child { border-bottom: 0; }
+    .compare-metric .delta { font-family: ui-monospace, monospace; font-weight: 700; }
+    .compare-metric .delta.up { color: var(--good); }
+    .compare-metric .delta.down { color: var(--bad); }
+
+    .muted-hint { color: var(--muted); font-style: italic; font-size: 12px; padding: 12px 0; }
+
+    /* === 数据中心: 构建方式切换 === */
+    .dc-build-btn { padding: 5px 12px; height: 28px; font-size: 11.5px; }
+    .dc-build-btn.dc-build-active {
+      background: var(--accent); color: #0f172a; border-color: var(--accent);
+    }
+    .dc-build-panel { padding: 8px 0 0; }
+    .dc-row-actions button { padding: 3px 8px; height: 22px; font-size: 10.5px; }
+    .dc-tag-edit {
+      background: transparent; border: 1px solid var(--line); border-radius: 4px;
+      color: var(--text); font-size: 11px; padding: 1px 6px; max-width: 200px;
+    }
+    .dc-tag-edit:hover, .dc-tag-edit:focus { border-color: var(--accent); outline: 0; }
+    @media (max-width: 700px) {
+      .compare-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>🧮 出块算法优化 (Spawn Algorithm Tuning)</h1>
+        <p>从「跑一次看效果」到「系统化上线」一站式 — 按使用场景组织功能,按需进入</p>
+      </div>
+      <div style="text-align:right; font-size:12px;">
+        <p>📖 <a href="/docs/algorithms/SPAWN_AUTO_TUNING.md">设计文档</a> · 📈 <a href="/docs/algorithms/SPAWN_EVALUATION.md">评估口径</a></p>
+        <p>🛠 CLI: <code>npm run spawn:eval</code> · <code>npm run spawn:tune</code></p>
+      </div>
+    </header>
+
+    <!-- 场景导航卡片 -->
+    <div class="scenario-nav">
+      <div class="scenario-card s-quick" data-goto="history">
+        <h3>📚 样本构建</h3>
+        <p>3 种方式: LHS 撒点 / 固定 θ × 多 seed / 导入 JSON · Run 库统一管理 · 是其它所有 tab 的数据来源</p>
+        <div class="scenario-tabs">→ ② 样本构建</div>
+      </div>
+      <div class="scenario-card s-quick" data-goto="eval">
+        <h3>🧪 快速验证</h3>
+        <p>跑一次评估看 13 列指标 · 可继承样本构建里某个 run 的配置复现 (5 分钟内)</p>
+        <div class="scenario-tabs">→ ③ 单次评估</div>
+      </div>
+      <div class="scenario-card s-bulk" data-goto="pipeline">
+        <h3>🔬 完整寻参流水线</h3>
+        <p>Step A 数据采样 → Step B 训 NN 代理 → Step C 找最优 θ → Step D 部署 + 烘焙离线包</p>
+        <div class="scenario-tabs">→ ④ 寻参流水线</div>
+      </div>
+      <div class="scenario-card s-ops" data-goto="deploy">
+        <h3>🚀 上线与监控</h3>
+        <p>tuned vs default 对照 → 真实玩家 24h 聚合 → 灰度切量诊断,出问题去 ① 概览一键回滚</p>
+        <div class="scenario-tabs">→ ⑤ 部署与监控</div>
+      </div>
+    </div>
+
+    <!-- Tab 切换 -->
+    <div class="tabs">
+      <div class="tab active" data-tab="overview" title="生效策略 / 服务状态 / 离线 bundle 快照">① 概览</div>
+      <div class="tab"        data-tab="history"  title="3 种构建方式 (LHS / 固定θ / 导入 JSON) · Run 库管理 · 详细分析,所有其它 tab 的样本来源">② 样本构建</div>
+      <div class="tab"        data-tab="eval"     title="跑一次评估看现状, 可继承样本构建里某个 run 的评估配置作复现">③ 单次评估</div>
+      <div class="tab"        data-tab="pipeline" title="完整工作流: 采样 → 训 NN → 找最优 θ → 部署">④ 寻参流水线</div>
+      <div class="tab"        data-tab="deploy"   title="部署前对照 + 上线后真实玩家指标 + 一键回滚">⑤ 部署与监控</div>
+    </div>
+
+    <!-- Tab ① 概览 -->
+    <div class="tab-content active" id="tab-overview">
+      <p class="tab-hint"><b>🎯 这里看什么</b>: 当前生效策略 + 服务状态 + 离线 bundle 快照 · 出问题立即 ↩ 回滚</p>
+      <section class="compact">
+        <h2>当前生效策略</h2>
+        <div id="active-stats" class="stats-grid">
+          <div class="muted-hint">加载中…</div>
+        </div>
+        <div class="rollout-bar">
+          <span style="font-size:12px;color:var(--muted)">灰度比例:</span>
+          <div class="rollout-track"><div id="rollout-fill" class="rollout-fill" style="width:0%"></div></div>
+          <span class="rollout-num"><span id="rollout-pct">-</span>%</span>
+          <button id="btn-rollback" class="danger">↩ 一键回滚</button>
+        </div>
+        <p id="active-run-info" class="muted-hint">未部署任何策略</p>
+      </section>
+
+      <section class="compact">
+        <h2>历史任务速览 (最近 10 个)</h2>
+        <p class="muted-hint" style="padding:2px 0 6px;">完整列表与详细分析见「⑤ 历史与回溯」tab</p>
+        <table class="table">
+          <thead>
+            <tr><th>Run ID</th><th>名称</th><th>状态</th><th>样本数</th><th>启动时间</th><th>耗时</th><th>操作</th></tr>
+          </thead>
+          <tbody id="runs-tbody"><tr><td colspan="7" class="muted-hint">加载中…</td></tr></tbody>
+        </table>
+      </section>
+    </div>
+
+    <!-- Tab ③ 单次评估 -->
+    <div class="tab-content" id="tab-eval">
+      <p class="tab-hint"><b>🎯 这里干什么</b>: 跑一次评估看现状 · 4 个候选自动选最优 (~5 分钟,纯诊断工具,不写线上策略) · 可继承样本构建里某个 run 复现</p>
+
+      <section class="compact" style="border-left:3px solid var(--good); background:rgba(52,211,153,0.04);">
+        <h2 style="font-size:13px;">⬇ 从样本构建继承评估配置 (可选)</h2>
+        <p class="muted-hint" style="padding:2px 0 6px;">选 ② 样本构建里某个 run,自动把它的 (难度/生成器/bot/sessions/seed/PB) 填到下方 spawn-eval iframe — 用于"复现某次采样的具体局面"或"用某 run 的代表配置看一次详细评估"。</p>
+        <div class="form-actions">
+          <label style="display:flex; flex-direction:column; gap:2px; font-size:10.5px; color:var(--muted); flex:1; max-width:380px;">
+            选 Run
+            <select id="eval-inherit-run" style="height:28px; font-size:12px; font-family:ui-monospace,monospace;">
+              <option value="">— 加载中… —</option>
+            </select>
+          </label>
+          <label title="选最优 θ 对应的 context (覆盖难度+生成器+PB档+生命周期 4 维)" style="display:flex; flex-direction:column; gap:2px; font-size:10.5px; color:var(--muted); flex:1; max-width:280px;">
+            从该 run 内选 Context (取 top-θ 的 ctx 排序)
+            <select id="eval-inherit-ctx" style="height:28px; font-size:12px; font-family:ui-monospace,monospace;" disabled>
+              <option value="">— 先选 run —</option>
+            </select>
+          </label>
+          <button id="btn-eval-inherit-apply" class="ghost" disabled>→ 应用到下方 iframe</button>
+          <label style="font-size:11px; color:var(--muted); display:flex; align-items:center; gap:4px;">
+            <input type="checkbox" id="eval-inherit-autorun"> 自动跑评估
+          </label>
+          <button id="btn-eval-inherit-reset" class="ghost" title="清空 URL 参数,iframe 重置回默认配置">↻ 重置</button>
+          <span id="eval-inherit-hint" class="muted-hint"></span>
+        </div>
+      </section>
+
+      <iframe id="eval-iframe" class="embed-iframe" src="/spawn-eval.html" title="单次评估 (嵌入)"></iframe>
+    </div>
+
+    <!-- Tab ③ 寻参流水线 (id 沿用 tab-launch 不破坏 JS) -->
+    <div class="tab-content" id="tab-launch">
+      <p class="tab-hint" style="border-left-color:#a78bfa;">
+        <b>🎯 完整工作流 (Step A → B → C → D)</b>:
+        <b>A</b> 在 14 维 θ 撒点跑评估 →
+        <b>B</b> 用样本训 NN 代理 →
+        <b>C</b> 在代理上找 120 ctx 最优 θ →
+        <b>D</b> 部署 + 烘焙到客户端离线包
+      </p>
+
+      <!-- ════════════════ Step A: 数据采样 (LHS 寻参) ════════════════ -->
+      <div style="display:flex; align-items:center; gap:10px; margin:4px 0 6px;">
+        <div style="width:28px; height:28px; border-radius:50%; background:var(--accent); color:#0f172a; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px;">A</div>
+        <h2 style="margin:0; color:var(--accent);">数据采样 — LHS 在 14 维 θ × 120 context 撒点</h2>
+      </div>
+      <p class="muted-hint" style="margin:0 0 6px 38px; padding:0;">真跑 spawn-eval 评估,把 (context, θ, seed) 的 fairness/excitement/antiInflation 写进 SQLite</p>
+
+      <!-- 快速复用入口: 如果已有合适 run, 直接跳到 Step B 训 NN -->
+      <section class="compact" style="border:1px dashed var(--line); background:rgba(96,165,250,0.04);">
+        <h2 style="font-size:13px;">A.0 快速复用 — 直接用已有数据跳到 Step B</h2>
+        <p class="muted-hint" style="padding:2px 0 6px;">不想重新采样?在数据中心 (⑤) 已有的 run 里挑一个,直接进 NN 训练。</p>
+        <div class="form-actions" style="margin:0;">
+          <label style="display:flex; flex-direction:column; gap:2px; font-size:10.5px; color:var(--muted); flex:1; max-width:380px;">
+            选 Run
+            <select id="step-a-reuse-run" style="height:28px; font-size:12px; font-family:ui-monospace,monospace;">
+              <option value="">— 切到 Step B 时会自动同步可用 run —</option>
+            </select>
+          </label>
+          <button id="btn-step-a-reuse" class="ghost">→ 用这个 run 跳到 Step B</button>
+          <a href="#" id="btn-step-a-data-center" style="font-size:11.5px;">→ 去 ⑤ 数据中心查看完整库</a>
+        </div>
+      </section>
+
+      <section id="launch-section-tune" class="compact">
+        <h2>A.1 LHS 寻参配置 (新跑一次,会产出新 run_id)</h2>
+        <p class="muted-hint" style="padding:2px 0 6px;">
+          用 Latin Hypercube 在 14 维 θ 空间撒点,把 (context, θ, seed) 跑 spawn-eval 评估,把
+          <code>fairness / excitement / antiInflation</code> 三个子分数写进 SQLite 给 Phase B 训 NN 代理用。
+          可同时勾「导出 JSON」生成离线快照交付数据团队。
+        </p>
+        <div class="form-row">
+          <label title="4 维 context 过滤 (难度:生成器:PB档:生命周期), * 表示全集枚举">
+            Context 过滤
+            <input id="launch-ctx-filter" type="text" placeholder="* 或 normal:budget-p2:1500:growth" value="normal:budget-p2:1500:growth">
+          </label>
+          <label title="每 context 内生成的唯一 θ 数">每 ctx θ 数<input id="launch-thetas" type="number" min="2" max="200" value="10"></label>
+          <label title="每 θ 重复评估的随机 seed (减噪)">每 θ Seed 数<input id="launch-seeds" type="number" min="1" max="10" value="3"></label>
+          <label title="同时跑的 worker 数 (建议 ≤ CPU 核数 / 2)">Workers<input id="launch-workers" type="number" min="1" max="16" value="4"></label>
+          <label title="单评估的 session 数 (越多越准但越慢)">Sessions / sample<input id="launch-sessions" type="number" min="5" max="100" value="30"></label>
+          <label title="单 session 最大步数">Max steps<input id="launch-maxsteps" type="number" min="30" max="500" value="120"></label>
+        </div>
+        <div class="form-row" style="grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));">
+          <label title="同时跑哪些 bot 策略;全选 = 跨技能聚合 (NN 训练推荐), 单选 = 看特定 bot 表现 (分析用)">
+            Bot 策略 (多选)
+            <select id="launch-policies" multiple size="3" style="height:auto; min-height:64px;">
+              <option value="random" selected>random</option>
+              <option value="clear-greedy" selected>clear-greedy</option>
+              <option value="survival" selected>survival</option>
+            </select>
+          </label>
+          <label title="勾选后,写完 SQLite 还会下载一份 JSON 离线快照">
+            <input type="checkbox" id="launch-export-json"> 同时导出 JSON 离线快照
+          </label>
+          <label title="JSON 文件名 (仅勾了导出时生效)" id="launch-filename-label">
+            JSON 文件名
+            <input id="launch-filename" type="text" placeholder="spawn-samples-2026xxxx.json" value="">
+          </label>
+        </div>
+      </section>
+
+      <section id="launch-section-weights" class="compact">
+        <h2>A.2 目标权重 (用于排名,不影响样本采集本身)</h2>
+        <div style="display:grid; gap:10px;">
+          <div style="background:rgba(31,41,55,0.55); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:10px; padding:10px 14px;">
+            <div style="display:flex; align-items:baseline; gap:10px;">
+              <span style="font-size:14px; font-weight:700; color:var(--accent);">⚖️ 公平</span>
+              <span style="font-size:12px; color:var(--muted); flex:1;">玩家不会无路可走 / 高手有发挥空间</span>
+              <span style="font-family:ui-monospace,monospace; font-weight:700;"><span id="launch-w-f-pct">70</span>%</span>
+            </div>
+            <input type="range" id="launch-w-f" min="0" max="100" step="5" value="70" style="width:100%; accent-color:var(--accent);">
+          </div>
+          <div style="background:rgba(31,41,55,0.55); border:1px solid var(--line); border-left:3px solid var(--good); border-radius:10px; padding:10px 14px;">
+            <div style="display:flex; align-items:baseline; gap:10px;">
+              <span style="font-size:14px; font-weight:700; color:var(--good);">🎉 爽点</span>
+              <span style="font-size:12px; color:var(--muted); flex:1;">消行频繁 / 多消密集 / 节奏不冷场</span>
+              <span style="font-family:ui-monospace,monospace; font-weight:700;"><span id="launch-w-e-pct">45</span>%</span>
+            </div>
+            <input type="range" id="launch-w-e" min="0" max="100" step="5" value="45" style="width:100%; accent-color:var(--good);">
+          </div>
+          <div style="background:rgba(31,41,55,0.55); border:1px solid var(--line); border-left:3px solid #fb923c; border-radius:10px; padding:10px 14px;">
+            <div style="display:flex; align-items:baseline; gap:10px;">
+              <span style="font-size:14px; font-weight:700; color:#fb923c;">🛑 抑制膨胀</span>
+              <span style="font-size:12px; color:var(--muted); flex:1;">不超 PB×1.15 / 破 PB 在健康区间</span>
+              <span style="font-family:ui-monospace,monospace; font-weight:700;"><span id="launch-w-a-pct">60</span>%</span>
+            </div>
+            <input type="range" id="launch-w-a" min="0" max="100" step="5" value="60" style="width:100%; accent-color:#fb923c;">
+          </div>
+        </div>
+      </section>
+
+      <section class="compact">
+        <h2>A.3 启动</h2>
+        <p id="launch-estimate" class="muted-hint" style="padding:2px 0;">配置完成后,点「估算预算」查看预计任务数与耗时</p>
+        <div class="form-actions" style="padding-top:8px; border-top:1px dashed var(--line);">
+          <button id="btn-launch-estimate" class="ghost">估算预算</button>
+          <button id="btn-launch-start">▶ 开始寻参</button>
+          <button id="btn-launch-cancel" class="danger" disabled>停止</button>
+        </div>
+      </section>
+
+      <section id="launch-progress-section" class="compact" hidden>
+        <h2>A.4 实时进度</h2>
+        <div style="padding:10px 12px; background:rgba(2,6,23,0.55); border:1px solid var(--line); border-radius:8px;">
+          <div style="height:10px; background:var(--panel-2); border-radius:999px; overflow:hidden; margin:4px 0 8px;">
+            <div id="launch-progress-bar" style="height:100%; background:linear-gradient(90deg, var(--accent), var(--good)); transition:width 0.3s; width:0%; border-radius:999px;"></div>
+          </div>
+          <div class="stats-grid" style="grid-template-columns:repeat(5, minmax(0,1fr)); margin-bottom:0;">
+            <div class="stat-card"><div class="stat-value" id="launch-ps-completed">0</div><div class="stat-label">已完成</div></div>
+            <div class="stat-card"><div class="stat-value" id="launch-ps-total">0</div><div class="stat-label">总数</div></div>
+            <div class="stat-card"><div class="stat-value" id="launch-ps-sps">0.0</div><div class="stat-label">samples/s</div></div>
+            <div class="stat-card"><div class="stat-value" id="launch-ps-eta">-</div><div class="stat-label">剩余</div></div>
+            <div class="stat-card"><div class="stat-value" id="launch-ps-failed">0</div><div class="stat-label">失败</div></div>
+          </div>
+        </div>
+        <div class="sub-h">3 子分数实时分布</div>
+        <div style="background:rgba(2,6,23,0.55); border:1px solid var(--line); border-radius:6px; padding:8px;">
+          <canvas id="launch-subscore-canvas" style="width:100%; height:180px; display:block;"></canvas>
+        </div>
+        <p class="muted-hint" style="padding:4px 0 0;">蓝 = fairness · 绿 = excitement · 橙 = antiInflation</p>
+      </section>
+
+      <section id="launch-results-section" class="compact" hidden>
+        <h2>A.5 Top θ 排行 (按 composite)</h2>
+        <table class="table">
+          <thead><tr><th>#</th><th>Context</th><th>composite</th><th>fairness</th><th>excitement</th><th>antiInflation</th><th>样本数</th></tr></thead>
+          <tbody id="launch-results-tbody"></tbody>
+        </table>
+      </section>
+
+      <!-- ════════════════ Step B + C: PyTorch 训练与寻优 ════════════════ -->
+      <div style="display:flex; align-items:center; gap:10px; margin:18px 0 6px;">
+        <div style="width:28px; height:28px; border-radius:50%; background:var(--good); color:#0f172a; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:14px;">B</div>
+        <h2 style="margin:0; color:var(--good);">训练 NN 代理 + 找最优 θ (PyTorch)</h2>
+      </div>
+      <p class="muted-hint" style="margin:0 0 6px 38px; padding:0;">
+        B 步训 9.7K 参数 MLP 学会 (ctx,θ)→3 子分数,1ms 推断一次;
+        C 步在代理上对 120 ctx 各跑梯度上升找最优 θ*,30 万次"试一把"约 8s 完成
+      </p>
+
+      <section id="torch-section" class="compact" style="border:1px solid rgba(96,165,250,0.35); background:linear-gradient(180deg, rgba(96,165,250,0.04), var(--panel));">
+        <h2>B.0 PyTorch 状态</h2>
+        <div id="torch-status-card" class="stats-grid">
+          <div class="stat-card"><div class="stat-value">…</div><div class="stat-label">PyTorch 状态</div></div>
+        </div>
+
+        <div class="sub-h">B.1 训练 NN 代理 (Phase B)</div>
+        <p class="muted-hint" style="padding:2px 0 4px;">训练数据来自 <code>spawn_tuning_samples_v2</code> 表 — 选哪个 run_id,就用那次 Phase A 采的样本训。下拉只列出样本 ≥100 可训的 run。</p>
+        <div class="form-row" style="grid-template-columns:minmax(220px, 2fr) repeat(auto-fit, minmax(110px, 1fr));">
+          <label>Run ID (Phase A 采的样本)
+            <select id="torch-train-run-id">
+              <option value="">— 加载中… —</option>
+            </select>
+          </label>
+          <label>Epochs<input id="torch-train-epochs" type="number" min="1" max="200" value="50"></label>
+          <label>Batch Size<input id="torch-train-batch" type="number" min="8" max="1024" value="256"></label>
+          <label>Learning Rate<input id="torch-train-lr" type="number" step="0.0001" min="0.00001" max="1" value="0.001"></label>
+          <label>Device
+            <select id="torch-train-device">
+              <option value="cpu" selected>cpu</option>
+              <option value="cuda">cuda</option>
+              <option value="mps">mps (Apple Silicon)</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button id="btn-torch-train">▶ 开始训练 (B)</button>
+          <button id="btn-torch-status" class="ghost">↻ 刷新状态</button>
+          <button id="btn-torch-runs-refresh" class="ghost" title="重新拉取 SQLite 里可训的 run 列表">↻ 刷新 Run 列表</button>
+          <span id="torch-train-hint" class="muted-hint"></span>
+        </div>
+
+        <div class="sub-h">C.1 找 120 contexts 最优 θ (Phase C 梯度上升)</div>
+        <div class="form-row">
+          <label>选 Checkpoint
+            <select id="torch-optimize-checkpoint"><option value="">— Phase B 跑完后选 —</option></select>
+          </label>
+          <label>权重 公平<input id="torch-w-f" type="number" min="0" max="100" value="70"></label>
+          <label>权重 爽点<input id="torch-w-e" type="number" min="0" max="100" value="45"></label>
+          <label>权重 抑制膨胀<input id="torch-w-a" type="number" min="0" max="100" value="60"></label>
+          <label>每 ctx 起点数<input id="torch-n-starts" type="number" min="2" max="20" value="8"></label>
+          <label>每起点步数<input id="torch-steps" type="number" min="50" max="1000" value="250"></label>
+        </div>
+        <div class="form-actions">
+          <button id="btn-torch-optimize">▶ Phase C 找最优 θ</button>
+          <button id="btn-torch-deploy" class="ghost" disabled>📦 部署 policies.json (Shadow)</button>
+        </div>
+
+        <div class="sub-h" style="margin-top:14px; padding-left:0; border-left:0;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="width:22px; height:22px; border-radius:50%; background:#f472b6; color:#0f172a; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:11px;">D</div>
+            <span style="color:#f472b6; font-size:13px;">部署 + 烘焙离线包 (Web / Android / iOS / 微信小程序)</span>
+          </div>
+        </div>
+        <p class="muted-hint" style="padding:2px 0 4px;">把当前激活策略烘焙到 <code>web/public/spawn-tuning/policies.json</code> + <code>miniprogram/core/tuning/spawnPolicies.js</code>;下次 <code>vite build</code> 后会自动随 APK/IPA/小程序包发布,实现无网络环境下也能用寻参策略。</p>
+        <div id="bundle-status" class="stats-grid" style="margin-bottom:6px;">
+          <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">检查中…</div></div>
+        </div>
+        <div class="form-actions">
+          <button id="btn-bundle-export">📦 烘焙到离线包 (四端)</button>
+          <button id="btn-bundle-export-file" class="ghost">从文件烘焙…</button>
+          <button id="btn-bundle-refresh" class="ghost">↻ 检查状态</button>
+          <span id="bundle-hint" class="muted-hint"></span>
+        </div>
+
+        <div class="sub-h muted">B / C 运行中的 Job</div>
+        <div id="torch-jobs-list">
+          <p class="muted-hint" style="padding:4px 0;">无运行中任务</p>
+        </div>
+
+        <div id="torch-job-log-section" hidden>
+          <div class="sub-h" style="display:flex; align-items:center; justify-content:space-between;">
+            <span id="torch-job-log-title">Job 日志</span>
+            <button id="btn-torch-job-cancel" class="danger" style="height:24px; padding:0 10px; font-size:11px;">取消任务</button>
+          </div>
+          <pre id="torch-job-log" style="max-height:240px; overflow:auto; background:#020617; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:11px; color:#cbd5e1; font-family:ui-monospace,monospace; margin:0;"></pre>
+        </div>
+
+        <div class="sub-h muted">Checkpoints / Policies 文件</div>
+        <div id="torch-checkpoints-list">
+          <p class="muted-hint" style="padding:4px 0;">加载中…</p>
+        </div>
+      </section>
+
+      <section class="compact">
+        <h2>运行日志 (Step A 流水线)</h2>
+        <div id="launch-log-panel" style="max-height:180px; overflow-y:auto; padding:8px 10px; background:#020617; border:1px solid var(--line); border-radius:6px; font-family:ui-monospace,monospace; font-size:11px; color:#cbd5e1;">
+          <div>等待启动…</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab ④ 部署与监控 (合并原 部署对照 + 线上效果) -->
+    <div class="tab-content" id="tab-deploy">
+      <p class="tab-hint"><b>🎯 这里干什么</b>:
+        <b>D.1</b> 部署前抽 context 跑 10 局 tuned vs default 验证 ·
+        <b>D.2</b> 上线后看真实玩家 24h 聚合指标 ·
+        <b>D.3</b> 灰度切量本机诊断 (出问题 ↩ 回到「① 概览」一键回滚)
+      </p>
+
+      <section class="compact">
+        <h2>D.1 当前部署 vs Default 对比 (部署前验证)</h2>
+        <p style="font-size:12px; padding:2px 0 6px;">把当前激活的某 context 策略与 default θ 在同一评估配置下跑 10 局,看 3 子分数差距</p>
+        <div style="display:flex; gap:10px; align-items:center; font-size:12px; margin-bottom:8px; flex-wrap:wrap;">
+          <select id="compare-ctx-select" style="min-width:260px"><option value="">选 context…</option></select>
+          <input type="number" id="compare-sessions" value="10" min="5" max="50" style="width:70px"> 局
+          <button id="btn-run-compare" class="ghost">▶ 跑对照</button>
+        </div>
+        <div class="compare-grid" id="compare-result" hidden>
+          <div class="compare-card baseline">
+            <h3 style="color:var(--muted)">Default θ</h3>
+            <div id="baseline-metrics"></div>
+          </div>
+          <div class="compare-card tuned">
+            <h3 style="color:var(--good)">Tuned θ</h3>
+            <div id="tuned-metrics"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="compact">
+        <h2>D.2 真实玩家上报指标 (上线后聚合)</h2>
+        <p style="font-size:12px; padding:2px 0 6px;">客户端 <code>policyMetrics.js</code> SDK 上报,按 <code>(context_key, source)</code> 聚合 · 死局率回退 5%+ 应立即去 ① 概览回滚</p>
+        <div style="display:flex; gap:10px; align-items:center; font-size:12px; margin-bottom:8px; flex-wrap:wrap;">
+          <label>窗口:
+            <select id="field-hours" style="margin-left:6px">
+              <option value="1">1h</option>
+              <option value="24" selected>24h</option>
+              <option value="168">7d</option>
+            </select>
+          </label>
+          <label>Context 过滤: <input type="text" id="field-ctx-filter" placeholder="* 或 normal:budget-p2:1500:growth" style="width:240px"></label>
+          <button id="btn-load-field" class="ghost">查询</button>
+          <button id="btn-flush-now" class="ghost">↑ 触发本机 flush</button>
+        </div>
+        <div id="field-stats" class="stats-grid"></div>
+        <table class="table">
+          <thead>
+            <tr><th>Context</th><th>Source</th><th>θ hash</th><th>局数</th><th>均分</th><th>均步数</th><th>均消行</th><th>死局率</th></tr>
+          </thead>
+          <tbody id="field-tbody"><tr><td colspan="8" class="muted-hint">尚未有数据;让玩家先玩几局,或点「↑ 触发本机 flush」</td></tr></tbody>
+        </table>
+      </section>
+
+      <section class="compact">
+        <h2>D.3 灰度切量诊断 (本浏览器,实时)</h2>
+        <p style="font-size:12px; padding:2px 0 6px;">本会话调用 <code>resolveSpawnTheta</code> 的统计 (实时累加)</p>
+        <div id="policy-stats" class="stats-grid"></div>
+        <div class="form-actions">
+          <button id="btn-refresh-stats" class="ghost">↻ 刷新</button>
+          <button id="btn-test-resolve" class="ghost">🧪 测试解析当前用户</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab ② 样本构建 (公共样本库 — 所有其它 tab 的数据来源) -->
+    <div class="tab-content" id="tab-history">
+      <p class="tab-hint" style="border-left-color:var(--good);"><b>🎯 这里干什么</b>:
+        所有跑评估、训 NN、对照分析的<b>数据起点</b>。
+        <b>B.1</b> 采集新样本 (3 种构建方式) ·
+        <b>B.2</b> Run 库管理 (浏览/标签/导入导出/删除) ·
+        <b>B.3</b> 选中 run 看详情 + 跨 run 最优 θ 排名 + 一键部署 / 跳到单次评估或流水线
+      </p>
+
+      <!-- ──── B.1 数据采集 (3 种构建方式) ──── -->
+      <section class="compact" style="border-left:3px solid var(--accent);">
+        <h2>B.1 采集新样本</h2>
+        <div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
+          <button class="ghost dc-build-btn dc-build-active" data-build="lhs">🔧 LHS 寻参 (变 θ)</button>
+          <button class="ghost dc-build-btn" data-build="fixed">📌 固定 θ × 多 seed</button>
+          <button class="ghost dc-build-btn" data-build="import">📥 从 JSON 导入</button>
+        </div>
+
+        <!-- 构建方式 1: LHS -->
+        <div id="dc-build-lhs" class="dc-build-panel">
+          <p class="muted-hint" style="padding:2px 0 4px;">Latin Hypercube 在 14 维 θ 撒点, 跑 spawn-eval 评估写 SQLite。<a href="#" id="dc-jump-pipeline" style="color:var(--accent)">→ 跳到 ③ 流水线 Step A 配置</a> (那里是详细版,有权重滑块)</p>
+          <div class="form-row">
+            <label>Context 过滤<input id="dc-lhs-ctx" type="text" placeholder="*" value="*"></label>
+            <label>每 ctx θ 数<input id="dc-lhs-thetas" type="number" min="2" max="200" value="10"></label>
+            <label>每 θ Seed 数<input id="dc-lhs-seeds" type="number" min="1" max="10" value="2"></label>
+            <label>Workers<input id="dc-lhs-workers" type="number" min="1" max="16" value="4"></label>
+            <label>Sessions<input id="dc-lhs-sessions" type="number" min="5" max="100" value="30"></label>
+          </div>
+          <div class="form-actions">
+            <button id="dc-btn-lhs-start">▶ 启动 LHS 采集</button>
+            <span id="dc-lhs-hint" class="muted-hint"></span>
+          </div>
+        </div>
+
+        <!-- 构建方式 2: 固定 θ × 多 seed -->
+        <div id="dc-build-fixed" class="dc-build-panel" hidden>
+          <p class="muted-hint" style="padding:2px 0 4px;">θ 固定 = baseline 默认值,变 Bot 策略 / 难度 / 生成器,生成对照基线样本 (不为训 NN, 给数据团队 / 回归测试)</p>
+          <div class="form-row" style="grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));">
+            <label>难度 (多选)
+              <select id="dc-fixed-strategies" multiple size="3" style="height:auto; min-height:64px;">
+                <option value="easy">easy</option>
+                <option value="normal" selected>normal</option>
+                <option value="hard">hard</option>
+              </select>
+            </label>
+            <label>生成算法 (多选)
+              <select id="dc-fixed-generators" multiple size="3" style="height:auto; min-height:64px;">
+                <option value="baseline" selected>baseline</option>
+                <option value="triplet-p1">triplet-p1</option>
+                <option value="budget-p2">budget-p2</option>
+              </select>
+            </label>
+            <label>Bot 策略 (多选)
+              <select id="dc-fixed-policies" multiple size="3" style="height:auto; min-height:64px;">
+                <option value="random" selected>random</option>
+                <option value="clear-greedy" selected>clear-greedy</option>
+                <option value="survival" selected>survival</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>样本数<input id="dc-fixed-count" type="number" min="1" max="500" value="20"></label>
+            <label>Sessions/样本<input id="dc-fixed-sessions" type="number" min="5" max="200" value="30"></label>
+            <label>PB<input id="dc-fixed-best-score" type="number" min="100" value="1000"></label>
+            <label>Workers<input id="dc-fixed-workers" type="number" min="1" max="16" value="4"></label>
+          </div>
+          <div class="form-actions">
+            <button id="dc-btn-fixed-start">▶ 启动固定 θ 采集</button>
+            <label style="font-size:11px; color:var(--muted); display:flex; align-items:center; gap:4px;">
+              <input type="checkbox" id="dc-fixed-also-json" checked> 同时下载 JSON
+            </label>
+            <span id="dc-fixed-hint" class="muted-hint"></span>
+          </div>
+        </div>
+
+        <!-- 构建方式 3: 从 JSON 导入 -->
+        <div id="dc-build-import" class="dc-build-panel" hidden>
+          <p class="muted-hint" style="padding:2px 0 4px;">从「E.2 导出 JSON」生成的文件,或从另一台机器拷过来的 run.json 导入到本机 SQLite</p>
+          <div class="form-row">
+            <label>选择文件 (.json)
+              <input id="dc-import-file" type="file" accept=".json,application/json">
+            </label>
+            <label>覆盖 Run ID (可选,留空自动新生成)
+              <input id="dc-import-override" type="number" placeholder="自动" min="1">
+            </label>
+          </div>
+          <div class="form-actions">
+            <button id="dc-btn-import-go">📥 导入</button>
+            <span id="dc-import-hint" class="muted-hint"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ──── B.2 Run 库 ──── -->
+      <section class="compact" style="border-left:3px solid var(--good);">
+        <h2>B.2 Run 库 (所有可训 + 已训过的数据集)</h2>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap; font-size:12px;">
+          <label>过滤:
+            <select id="dc-filter-status" style="margin-left:4px;">
+              <option value="all" selected>全部</option>
+              <option value="trained">已训过</option>
+              <option value="untrained">未训过</option>
+              <option value="full">120 ctx 全集</option>
+            </select>
+          </label>
+          <label>最少样本数: <input id="dc-filter-min-samples" type="number" value="50" min="0" style="width:80px"></label>
+          <button id="dc-btn-refresh-library" class="ghost">↻ 刷新</button>
+          <span style="color:var(--muted); font-size:11px;">共 <span id="dc-library-count">0</span> 个 run</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="table" id="dc-library-table">
+            <thead>
+              <tr>
+                <th>Run ID</th><th>标签</th><th>样本数</th><th>contexts</th><th>unique θ</th>
+                <th>NN 训过</th><th>时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="dc-library-tbody">
+              <tr><td colspan="8" class="muted-hint">加载中…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ──── B.3 选中 run 详情 ──── -->
+      <section class="compact" id="dc-detail-wrap" style="border-left:3px solid #f472b6;">
+        <h2>B.3 选中 Run 详细分析</h2>
+        <p class="muted-hint" style="padding:2px 0;">在 B.2 表格点「详情」即可在下方显示</p>
+
+        <div style="display:flex; gap:10px; align-items:center; font-size:12px; flex-wrap:wrap; margin-bottom:6px;">
+          Run ID:
+          <select id="run-select" style="min-width:240px"><option value="">在 B.2 表格点「详情」按钮…</option></select>
+          <button id="btn-refresh-run" class="ghost">↻ 刷新</button>
+        </div>
+        <div id="run-detail" style="margin-top:6px;"></div>
+
+        <section id="progress-chart-section" hidden style="background:transparent; border:0; padding:0; margin:8px 0 0;">
+          <div class="sub-h muted">样本子分数分布</div>
+          <div class="chart-wrap"><canvas id="subscore-chart"></canvas></div>
+          <p class="muted-hint" style="padding:2px 0;">蓝 = fairness · 绿 = excitement · 橙 = antiInflation</p>
+        </section>
+
+        <div class="sub-h" style="margin-top:14px;">每 context 最优 θ (按 composite, 可调权重重排)</div>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; font-size:12px; flex-wrap:wrap;">
+          Run ID:
+          <select id="metrics-run-select" style="min-width:220px"><option value="">选择…</option></select>
+          权重:
+          <input type="number" id="w-fairness" value="70" min="0" max="100" style="width:55px"> 公平
+          <input type="number" id="w-excitement" value="45" min="0" max="100" style="width:55px"> 爽点
+          <input type="number" id="w-antiInflation" value="60" min="0" max="100" style="width:55px"> 膨胀
+          <button id="btn-load-metrics" class="ghost">查询</button>
+        </div>
+        <div id="metrics-stats" class="stats-grid"></div>
+        <div style="overflow-x:auto;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>#</th><th>Context</th><th>composite</th>
+                <th>fairness</th><th>excitement</th><th>antiInflation</th>
+                <th>scoreMean</th><th>noMoveRate</th><th>overshoot</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="metrics-tbody"><tr><td colspan="10" class="muted-hint">选择 run 后加载</td></tr></tbody>
+          </table>
+        </div>
+
+        <section id="theta-detail-section" hidden style="background:transparent; border:0; padding:0; margin:12px 0 0;">
+          <div class="sub-h">选中 θ 的参数明细</div>
+          <div id="theta-pb-curve-host" style="margin-bottom:8px;"></div>
+          <pre id="theta-detail" style="background:#020617; border:1px solid var(--line); border-radius:6px; padding:10px; font-size:11px; color:#cbd5e1; font-family:ui-monospace,monospace; max-height:220px; overflow:auto; margin:0;"></pre>
+          <div class="form-actions">
+            <button id="btn-deploy-this" class="ghost">部署这一组 (Shadow)</button>
+            <button id="btn-deploy-100" class="ghost">部署 + 灰度 100%</button>
+          </div>
+        </section>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="./src/spawnTuningDashboard.js"></script>
+</body>
+</html>

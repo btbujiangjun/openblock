@@ -49,29 +49,71 @@
       padding: 16px;
       margin-bottom: 18px;
     }
+    .help-lead {
+      font-size: 13px; line-height: 1.7; margin: 4px 0 0;
+    }
+    .help-lead b { color: var(--text); }
+    .help-lead .help-quote {
+      display: inline-block; margin-top: 6px;
+      padding: 4px 10px; font-size: 13px;
+      background: rgba(96, 165, 250, 0.10);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      color: var(--text); font-style: italic;
+    }
     .help-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 12px;
-      margin-top: 12px;
+      margin-top: 14px;
     }
     .help-card {
       background: rgba(31, 41, 55, 0.55);
       border: 1px solid rgba(55, 65, 81, 0.8);
-      border-radius: 12px;
-      padding: 12px;
+      border-left: 3px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
     }
+    .help-card--value  { border-left-color: var(--accent); }
+    .help-card--bot    { border-left-color: #fb923c; }
+    .help-card--metric { border-left-color: var(--good); }
+    .help-card--when   { border-left-color: #a78bfa; }
     .help-card h3 {
-      margin: 0 0 6px;
-      font-size: 14px;
+      margin: 0 0 8px;
+      font-size: 13px;
       color: var(--text);
+      display: flex; align-items: baseline; gap: 4px;
+      letter-spacing: 0.2px;
     }
+    .help-card--value h3  { color: var(--accent); }
+    .help-card--bot h3    { color: #fb923c; }
+    .help-card--metric h3 { color: var(--good); }
+    .help-card--when h3   { color: #a78bfa; }
     .help-card ul {
       margin: 0;
       padding-left: 18px;
       color: var(--muted);
-      line-height: 1.55;
-      font-size: 13px;
+      line-height: 1.6;
+      font-size: 12.5px;
+    }
+    .help-card ul li { margin-bottom: 3px; }
+    .help-card ul li:last-child { margin-bottom: 0; }
+    .help-card ul li b { color: var(--text); }
+    .help-card ul li code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      background: var(--panel-2);
+      padding: 1px 4px; border-radius: 3px;
+    }
+    .help-footer {
+      margin-top: 14px; font-size: 12px;
+      color: var(--muted); line-height: 1.5;
+    }
+    .help-footer code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      background: var(--panel-2);
+      padding: 1px 6px; border-radius: 3px;
     }
     .hint-text {
       color: var(--muted);
@@ -134,10 +176,29 @@
     .stat span, small { color: var(--muted); }
     .grid {
       display: grid;
-      grid-template-columns: 1.35fr 0.9fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
       gap: 16px;
       align-items: start;
     }
+    .grid > .span-full { grid-column: 1 / -1; }
+    .grid > .span-rows-2 { grid-row: span 2; }
+    /* 报告解读专门加强视觉权重（用户最依赖的输出） */
+    .grid > section.insights-card {
+      background: linear-gradient(180deg, rgba(96, 165, 250, 0.04), var(--panel));
+      border-color: rgba(96, 165, 250, 0.3);
+      align-self: start;
+      position: sticky; top: 12px;
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+    }
+    .grid > section.insights-card::-webkit-scrollbar { width: 6px; }
+    .grid > section.insights-card::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+    .table-scroll {
+      width: 100%; overflow-x: auto;
+      border-radius: 8px;
+    }
+    .table-scroll::-webkit-scrollbar { height: 6px; }
+    .table-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -150,6 +211,45 @@
       white-space: nowrap;
     }
     th { color: var(--muted); font-weight: 600; }
+    /* 读数说明 - 紧凑折叠 */
+    .reading-fold {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 0; overflow: hidden;
+    }
+    .reading-fold > summary {
+      cursor: pointer; padding: 12px 18px;
+      font-size: 13px; font-weight: 600;
+      list-style: none; user-select: none;
+      color: var(--text);
+    }
+    .reading-fold > summary::-webkit-details-marker { display: none; }
+    .reading-fold > summary::before {
+      content: '▶'; color: var(--muted); margin-right: 8px;
+      font-size: 10px; transition: transform 0.15s;
+      display: inline-block;
+    }
+    .reading-fold[open] > summary::before { transform: rotate(90deg); }
+    .reading-fold > summary:hover { background: rgba(96, 165, 250, 0.04); }
+    .reading-fold-body {
+      padding: 4px 18px 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .reading-fold-body > .reading-item {
+      padding: 10px 12px;
+      background: var(--panel-2);
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+    }
+    .reading-fold-body > .reading-item:nth-child(2) { border-left-color: var(--good); }
+    .reading-fold-body > .reading-item:nth-child(3) { border-left-color: var(--warn); }
+    .reading-fold-body b { color: var(--accent); font-size: 13px; display: block; margin-bottom: 4px; }
+    .reading-fold-body > .reading-item:nth-child(2) b { color: var(--good); }
+    .reading-fold-body > .reading-item:nth-child(3) b { color: var(--warn); }
+    .reading-fold-body p { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
     .comparison {
       display: grid;
       grid-template-columns: 1fr;
@@ -201,6 +301,116 @@
       gap: 10px;
       margin-top: 10px;
     }
+    .optimizer-grid--p2 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .optimizer-sub {
+      font-size: 14px; color: var(--text);
+      margin: 18px 0 4px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--line);
+    }
+    .optimizer-hint {
+      font-size: 11px; color: var(--muted); margin-left: 12px;
+    }
+
+    /* === 3 个业务目标滑块 === */
+    .goal-sliders {
+      display: grid; gap: 10px;
+      margin-top: 12px;
+    }
+    .goal-row {
+      background: rgba(31, 41, 55, 0.55);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .goal-row--fairness       { border-left-color: var(--accent); }
+    .goal-row--excitement     { border-left-color: var(--good); }
+    .goal-row--anti-inflation { border-left-color: #fb923c; }
+    .goal-head {
+      display: flex; align-items: baseline; gap: 10px;
+      margin-bottom: 6px; flex-wrap: wrap;
+    }
+    .goal-name {
+      font-size: 14px; font-weight: 700; color: var(--text);
+      white-space: nowrap;
+    }
+    .goal-row--fairness       .goal-name { color: var(--accent); }
+    .goal-row--excitement     .goal-name { color: var(--good); }
+    .goal-row--anti-inflation .goal-name { color: #fb923c; }
+    .goal-desc {
+      font-size: 12px; color: var(--muted);
+      flex: 1; min-width: 0;
+    }
+    .goal-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 14px; font-weight: 700; color: var(--text);
+      white-space: nowrap; font-variant-numeric: tabular-nums;
+    }
+    .goal-range {
+      width: 100%; min-height: auto; padding: 0;
+      background: transparent; border: 0;
+    }
+    .goal-row--fairness       .goal-range { accent-color: var(--accent); }
+    .goal-row--excitement     .goal-range { accent-color: var(--good); }
+    .goal-row--anti-inflation .goal-range { accent-color: #fb923c; }
+    .goal-metrics {
+      font-size: 10px; color: var(--muted);
+      margin-top: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .goal-metrics code {
+      font-size: 10px; padding: 1px 4px;
+      background: var(--panel-2);
+      border-radius: 3px;
+    }
+
+    /* === 派生权重明细折叠 === */
+    .weight-detail {
+      margin-top: 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .weight-detail > summary {
+      cursor: pointer; padding: 8px 12px;
+      font-size: 12px; color: var(--muted);
+      list-style: none; user-select: none;
+    }
+    .weight-detail > summary::-webkit-details-marker { display: none; }
+    .weight-detail > summary::before {
+      content: '▶'; color: var(--muted); margin-right: 6px;
+      font-size: 10px; transition: transform 0.15s;
+      display: inline-block;
+    }
+    .weight-detail[open] > summary::before { transform: rotate(90deg); }
+    .weight-detail-body {
+      padding: 4px 14px 12px;
+      border-top: 1px solid var(--line);
+    }
+    .weight-detail-body > p {
+      font-size: 12px; color: var(--muted); margin: 6px 0;
+    }
+    .weight-detail-note {
+      font-style: italic; font-size: 11px !important;
+    }
+    .weight-detail-table {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 6px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .weight-detail-table div {
+      padding: 4px 8px;
+      background: var(--panel);
+      border-radius: 4px;
+      display: flex; justify-content: space-between;
+    }
+    .weight-detail-table div span:last-child {
+      color: var(--accent); font-weight: 600;
+    }
     .inline-actions {
       display: flex;
       gap: 10px;
@@ -222,15 +432,48 @@
       background: rgba(31, 41, 55, 0.48);
       border: 1px solid rgba(55, 65, 81, 0.8);
       border-radius: 10px;
-      padding: 10px;
+      padding: 10px 12px;
+    }
+    .pb-metric-row {
+      display: flex; align-items: center; gap: 8px;
+      flex-wrap: nowrap; margin-bottom: 4px;
     }
     .pb-metric strong {
-      display: block;
-      font-size: 18px;
-      color: var(--good);
-      margin-bottom: 4px;
+      font-size: 20px; color: var(--good);
+      line-height: 1; flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
     }
-    .pb-metric span { color: var(--muted); font-size: 12px; }
+    .pb-metric-badge {
+      display: inline-block;
+      font-size: 10px; padding: 2px 7px;
+      border-radius: 999px; font-weight: 700;
+      line-height: 1.5; white-space: nowrap;
+      letter-spacing: 0.5px; flex-shrink: 0;
+      transition: background 0.18s, color 0.18s;
+    }
+    .pb-metric-badge[data-state="idle"] { background: rgba(148, 163, 184, 0.16); color: var(--muted); }
+    .pb-metric-badge[data-state="warm-tension"] { background: rgba(96, 165, 250, 0.18); color: var(--accent); }
+    .pb-metric-badge[data-state="hot-tension"] { background: rgba(251, 191, 36, 0.22); color: var(--warn); }
+    .pb-metric-badge[data-state="warm-brake"] { background: rgba(251, 146, 60, 0.18); color: #fb923c; }
+    .pb-metric-badge[data-state="hot-brake"] { background: rgba(248, 113, 113, 0.22); color: #f87171; }
+    .pb-metric-badge[data-state="release"] { background: rgba(52, 211, 153, 0.22); color: var(--good); }
+    .pb-metric-mini {
+      margin-left: auto; line-height: 0;
+      flex-shrink: 0;
+    }
+    .pb-metric-mini svg {
+      display: block; width: 60px; height: 24px;
+    }
+    .pb-metric-mini--release {
+      width: 60px; height: 24px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .pb-mini-axis { stroke: var(--line); stroke-width: 0.5; opacity: 0.7; }
+    .pb-mini-curve { fill: none; stroke-width: 1.6; stroke-linecap: round; }
+    .pb-mini-dot { stroke: #0f172a; stroke-width: 1; }
+    .pb-metric-label { color: var(--muted); font-size: 12px; }
     .pb-formula {
       margin-top: 10px;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -239,19 +482,603 @@
       background: #020617;
       border: 1px solid var(--line);
       border-radius: 10px;
-      padding: 10px;
+      padding: 10px 12px;
+      line-height: 1.6;
     }
+    .pb-formula-sep { color: var(--line); margin: 0 6px; }
+    .pb-formula-phase b {
+      color: var(--accent);
+      padding: 0 4px;
+    }
+    .pb-formula-phase[data-phase="overshoot"] b { color: #f87171; }
+    .pb-formula-phase[data-phase="brake"] b { color: #fb923c; }
+    .pb-formula-phase[data-phase="release"] b { color: var(--good); }
+    .pb-formula-phase[data-phase="gate"] b,
+    .pb-formula-phase[data-phase="tension"] b { color: var(--warn); }
+    .pb-formula-meaning { color: var(--muted); }
     #insights h3 { font-size: 14px; margin: 12px 0 6px; }
     #insights ul { margin: 0 0 0 18px; color: var(--muted); line-height: 1.6; }
+
+    /* === 推荐方案的 3 子分数面板 === */
+    .goal-subscore-grid {
+      display: grid; gap: 6px;
+      margin: 6px 0 12px;
+      padding: 10px 12px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .goal-subscore-row {
+      display: grid;
+      grid-template-columns: 90px 1fr 38px 16px auto;
+      gap: 8px; align-items: center;
+    }
+    .goal-subscore-name {
+      font-weight: 600; white-space: nowrap;
+    }
+    .goal-subscore-track {
+      height: 8px; background: var(--panel);
+      border-radius: 999px; overflow: hidden;
+    }
+    .goal-subscore-fill {
+      height: 100%; border-radius: 999px;
+      transition: width 0.25s;
+    }
+    .goal-subscore-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 700; text-align: right;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .goal-subscore-status { text-align: center; }
+    .goal-subscore-weight {
+      font-size: 10px; color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* === PB 双 S 曲线图 === */
+    .pb-chart-wrap {
+      margin-top: 12px;
+      padding: 12px 14px 10px;
+      background: rgba(2, 6, 23, 0.55);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .pb-chart-head {
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: 14px; margin-bottom: 6px;
+    }
+    .pb-chart-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .pb-chart-legend {
+      display: flex; flex-wrap: wrap; gap: 14px;
+      font-size: 11px; color: var(--muted); margin-left: auto;
+    }
+    .pb-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+    .pb-legend-swatch {
+      display: inline-block; width: 18px; height: 3px;
+      border-radius: 2px;
+    }
+    .pb-legend-swatch--tension { background: var(--accent); }
+    .pb-legend-swatch--brake { background: #fb923c; }
+    .pb-legend-swatch--marker {
+      width: 2px; height: 12px; background: var(--text);
+    }
+    .pb-chart-host {
+      width: 100%; display: block;
+      min-height: 180px;
+    }
+    .pb-chart-host svg {
+      width: 100%; height: auto; display: block;
+      max-height: 260px;
+    }
+    .pb-chart-axis { stroke: var(--line); stroke-width: 1; }
+    .pb-chart-grid { stroke: var(--line); stroke-width: 0.5; stroke-dasharray: 2 3; opacity: 0.6; }
+    .pb-chart-tick { stroke: var(--muted); stroke-width: 1; }
+    .pb-chart-tick-label {
+      fill: var(--muted); font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .pb-chart-tick-label--major { fill: var(--text); font-weight: 600; }
+    .pb-chart-axis-title { fill: var(--muted); font-size: 10px; }
+    .pb-chart-band-label {
+      fill: var(--muted); font-size: 9px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: 0.5px;
+    }
+    .pb-chart-curve { fill: none; stroke-width: 2; stroke-linecap: round; }
+    .pb-chart-curve--tension { stroke: var(--accent); }
+    .pb-chart-curve--brake { stroke: #fb923c; }
+    .pb-chart-marker-line {
+      stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 4 3; opacity: 0.7;
+    }
+    .pb-chart-dot {
+      stroke: #0f172a; stroke-width: 1.5;
+    }
+    .pb-chart-dot--tension { fill: var(--accent); }
+    .pb-chart-dot--brake { fill: #fb923c; }
+    .pb-chart-marker-pill {
+      fill: rgba(15, 23, 42, 0.92);
+      stroke: var(--text); stroke-width: 1;
+    }
+    .pb-chart-marker-text {
+      fill: var(--text); font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .pb-chart-marker-text--phase { fill: var(--accent); font-weight: 700; }
+
+    /* === 评估行 marker (rug plot) === */
+    .pb-row-marker { cursor: help; }
+    .pb-row-marker circle { transition: r 0.15s, opacity 0.15s; opacity: 0.85; }
+    .pb-row-marker:hover circle { r: 5; opacity: 1; }
+
+    /* === PB 命中率横条（评估完成后填充） === */
+    .pb-rate-bars {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+    }
+    .pb-rate-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 8px; font-size: 11px; color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .pb-rate-head b { color: var(--text); font-weight: 600; font-size: 12px; }
+    .pb-rate-empty {
+      font-size: 11px; color: var(--muted); font-style: italic;
+      padding: 4px 0;
+    }
+    .pb-rate-row {
+      display: grid;
+      grid-template-columns: 64px 1fr 56px auto;
+      gap: 10px; align-items: center;
+      font-size: 12px; margin: 5px 0;
+    }
+    .pb-rate-label {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: nowrap;
+    }
+    .pb-rate-track {
+      position: relative;
+      height: 10px;
+      background: var(--panel-2);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .pb-rate-target {
+      position: absolute; top: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        45deg,
+        rgba(52, 211, 153, 0.10) 0,
+        rgba(52, 211, 153, 0.10) 4px,
+        rgba(52, 211, 153, 0.18) 4px,
+        rgba(52, 211, 153, 0.18) 8px
+      );
+      border-left: 1px solid rgba(52, 211, 153, 0.6);
+      border-right: 1px solid rgba(52, 211, 153, 0.6);
+      z-index: 0;
+    }
+    .pb-rate-fill {
+      position: relative; z-index: 1;
+      height: 100%; border-radius: 999px;
+      transition: width 0.25s, background 0.15s;
+    }
+    .pb-rate-row[data-status="ok"]     .pb-rate-fill { background: var(--good); }
+    .pb-rate-row[data-status="warn"]   .pb-rate-fill { background: var(--warn); }
+    .pb-rate-row[data-status="bad"]    .pb-rate-fill { background: #f87171; }
+    .pb-rate-row[data-status="severe"] .pb-rate-fill { background: #dc2626; }
+    .pb-rate-value {
+      text-align: right; font-weight: 700;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .pb-rate-health {
+      font-size: 10px; white-space: nowrap;
+      padding: 1px 7px; border-radius: 999px;
+      font-weight: 600;
+    }
+    .pb-rate-row[data-status="ok"]     .pb-rate-health { background: rgba(52, 211, 153, 0.20); color: var(--good); }
+    .pb-rate-row[data-status="warn"]   .pb-rate-health { background: rgba(251, 191, 36, 0.20); color: var(--warn); }
+    .pb-rate-row[data-status="bad"]    .pb-rate-health { background: rgba(248, 113, 113, 0.20); color: #f87171; }
+    .pb-rate-row[data-status="severe"] .pb-rate-health { background: rgba(220, 38, 38, 0.22); color: #ef4444; }
+
+    /* === 评估行图例（按生成器着色） === */
+    .pb-eval-legend {
+      display: flex; flex-wrap: wrap; gap: 12px;
+      margin-top: 10px; padding-top: 8px;
+      font-size: 11px; color: var(--muted);
+      border-top: 1px dashed var(--line);
+    }
+    .pb-eval-legend--empty { font-style: italic; }
+    .pb-eval-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+    .pb-eval-legend-dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .pb-eval-legend-dot--baseline   { background: var(--accent); }
+    .pb-eval-legend-dot--triplet-p1 { background: var(--good); }
+    .pb-eval-legend-dot--budget-p2  { background: #fb923c; }
+
+    @media (max-width: 700px) {
+      .pb-chart-head { gap: 6px; }
+      .pb-chart-legend { margin-left: 0; }
+      .pb-metric-mini { display: none; }
+      .pb-metric-row { flex-wrap: wrap; }
+      .pb-formula { font-size: 11px; }
+    }
+
+    /* === 自动寻优结果卡片（替代裸 JSON） === */
+    .auto-result { margin-top: 10px; }
+    .auto-result-empty { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+    .auto-list { display: grid; gap: 8px; }
+    .auto-card {
+      background: rgba(31, 41, 55, 0.55);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .auto-card--best {
+      border-left-color: var(--good);
+      background: linear-gradient(90deg, rgba(52, 211, 153, 0.10), rgba(31, 41, 55, 0.55) 60%);
+    }
+    .auto-card-head {
+      display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    .auto-rank {
+      font-weight: 700; font-size: 13px; color: var(--text);
+    }
+    .auto-card--best .auto-rank { color: var(--good); }
+    .auto-gen {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px; color: var(--accent);
+      padding: 1px 8px;
+      background: rgba(96, 165, 250, 0.10);
+      border-radius: 999px;
+    }
+    .auto-tag {
+      font-size: 10px; padding: 1px 6px; border-radius: 999px; margin-left: auto;
+      background: rgba(52, 211, 153, 0.20); color: var(--good);
+    }
+    .auto-chips {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;
+    }
+    .auto-chips:empty { display: none; }
+    .chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      padding: 1px 7px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      border-radius: 4px;
+    }
+    .auto-score-row {
+      display: grid; grid-template-columns: 1fr 72px;
+      gap: 10px; align-items: center;
+    }
+    .auto-score-track {
+      height: 8px; background: var(--panel-2);
+      border-radius: 999px; overflow: hidden;
+    }
+    .auto-score-fill {
+      height: 100%; background: var(--accent);
+      transition: width 0.2s;
+    }
+    .auto-card--best .auto-score-fill { background: var(--good); }
+    .auto-score-num {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px; color: var(--text); text-align: right;
+    }
+    .auto-raw {
+      margin-top: 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .auto-raw > summary {
+      cursor: pointer; padding: 6px 12px;
+      font-size: 12px; color: var(--muted);
+      list-style: none; user-select: none;
+    }
+    .auto-raw > summary::-webkit-details-marker { display: none; }
+    .auto-raw > summary::before {
+      content: '▶'; color: var(--muted); margin-right: 6px;
+      font-size: 9px; display: inline-block;
+      transition: transform 0.15s;
+    }
+    .auto-raw[open] > summary::before { transform: rotate(90deg); }
+    .auto-raw > pre {
+      max-height: 280px; margin: 0;
+      border: 0; border-top: 1px solid var(--line); border-radius: 0;
+      font-size: 11px;
+    }
+
+    /* === JSON 报告默认折叠 === */
+    .raw-fold {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 0;
+      overflow: hidden;
+      margin-top: 16px;
+    }
+    .raw-fold > summary {
+      cursor: pointer; padding: 14px 18px;
+      font-size: 14px; font-weight: 700;
+      list-style: none; user-select: none;
+    }
+    .raw-fold > summary::-webkit-details-marker { display: none; }
+    .raw-fold > summary::before {
+      content: '▶'; color: var(--accent); margin-right: 8px;
+      font-size: 11px; transition: transform 0.15s;
+      display: inline-block;
+    }
+    .raw-fold[open] > summary::before { transform: rotate(90deg); }
+    .raw-fold > summary:hover { background: rgba(96, 165, 250, 0.05); }
+    .raw-fold > .raw-fold-body { padding: 0 18px 18px; }
+    .raw-fold > .raw-fold-body > p {
+      margin: 0 0 10px; font-size: 12px; color: var(--muted);
+    }
+    .raw-fold pre { margin: 0; }
+
+    /* === 架构关系图（可交互） === */
+    .arch-fold {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      margin-bottom: 18px;
+      padding: 0;
+      overflow: hidden;
+    }
+    .arch-fold > summary {
+      cursor: pointer; padding: 14px 18px; font-size: 14px;
+      list-style: none; user-select: none;
+      background: linear-gradient(90deg, rgba(52, 211, 153, 0.08), transparent);
+    }
+    .arch-fold > summary::-webkit-details-marker { display: none; }
+    .arch-fold > summary::before {
+      content: '▶'; color: var(--good); margin-right: 8px;
+      font-size: 11px; transition: transform 0.15s; display: inline-block;
+    }
+    .arch-fold[open] > summary::before { transform: rotate(90deg); }
+    .arch-fold > summary:hover { background: linear-gradient(90deg, rgba(52, 211, 153, 0.14), transparent); }
+    .arch-fold-body { padding: 6px 18px 18px; }
+    .arch-fold-hint {
+      font-size: 12px; color: var(--muted);
+      margin: 0 0 10px;
+    }
+    .arch-diagram {
+      width: 100%; background: rgba(2, 6, 23, 0.55);
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 10px; overflow: hidden;
+    }
+    .arch-svg {
+      width: 100%; height: auto; display: block;
+      max-height: 640px;
+    }
+    .arch-container {
+      fill: rgba(96, 165, 250, 0.04);
+      stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 3;
+    }
+    .arch-container-label {
+      fill: var(--muted); font-size: 11px; font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .arch-node rect {
+      fill: rgba(31, 41, 55, 0.85); stroke: var(--line); stroke-width: 1;
+      transition: fill 0.15s, stroke 0.15s, stroke-width 0.15s;
+      cursor: pointer;
+    }
+    .arch-node text { pointer-events: none; user-select: none; }
+    .arch-node-title { fill: var(--text); font-size: 13px; font-weight: 700; }
+    .arch-node-sub { fill: var(--muted); font-size: 11px; }
+    .arch-node-tag {
+      fill: var(--muted); font-size: 10px;
+      font-style: italic;
+    }
+    /* 节点类型着色 */
+    .arch-node--input rect { stroke: var(--accent); }
+    .arch-node--input .arch-node-title { fill: var(--accent); }
+    .arch-node--config rect { stroke: #fb923c; }
+    .arch-node--config .arch-node-title { fill: #fb923c; }
+    .arch-node--engine rect { stroke: var(--good); }
+    .arch-node--engine .arch-node-title { fill: var(--good); }
+    .arch-node--viz rect { stroke: #a78bfa; }
+    .arch-node--viz .arch-node-title { fill: #a78bfa; }
+    .arch-node--data rect { stroke: var(--warn); stroke-width: 1.5; }
+    .arch-node--data .arch-node-title { fill: var(--warn); }
+    .arch-node--logic rect { stroke: #38bdf8; }
+    .arch-node--logic .arch-node-title { fill: #38bdf8; }
+    .arch-node--output rect { stroke: #f472b6; stroke-width: 1.5; }
+    .arch-node--output .arch-node-title { fill: #f472b6; }
+    /* 高亮态：被悬停 / 被关联 / 被选中（点击 pin） */
+    .arch-node.is-active rect {
+      fill: rgba(96, 165, 250, 0.20);
+      stroke: var(--accent); stroke-width: 2.5;
+      filter: drop-shadow(0 0 6px rgba(96, 165, 250, 0.6));
+    }
+    .arch-node.is-related rect {
+      stroke: var(--accent); stroke-width: 2;
+      stroke-dasharray: 5 3;
+    }
+    .arch-node.is-faded { opacity: 0.35; }
+    .arch-edge {
+      stroke: var(--muted); stroke-width: 1.4; fill: none;
+      opacity: 0.55; transition: stroke 0.15s, opacity 0.15s, stroke-width 0.15s;
+    }
+    .arch-edge.is-edge-active {
+      stroke: var(--accent); opacity: 1; stroke-width: 2.5;
+    }
+    .arch-edge-label {
+      fill: var(--muted); font-size: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      pointer-events: none;
+    }
+    .arch-edge.is-edge-active + .arch-edge-label,
+    .arch-edge-label.is-active { fill: var(--accent); font-weight: 600; }
+
+    .arch-detail {
+      margin-top: 12px; padding: 12px 14px;
+      background: var(--panel-2); border: 1px solid var(--line);
+      border-radius: 10px; font-size: 13px; line-height: 1.6;
+      min-height: 96px;
+    }
+    .arch-detail--idle { color: var(--muted); }
+    .arch-detail-title {
+      font-weight: 700; font-size: 14px; color: var(--text);
+      margin-bottom: 4px;
+    }
+    .arch-detail-role {
+      display: inline-block; font-size: 10px; padding: 1px 7px;
+      border-radius: 999px; font-weight: 600;
+      background: rgba(96, 165, 250, 0.18); color: var(--accent);
+      margin-left: 8px;
+    }
+    .arch-detail-body { color: var(--text); }
+    .arch-detail-related {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      margin-top: 8px; font-size: 11px; color: var(--muted);
+    }
+    .arch-chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 1px 8px; border: 1px solid var(--line);
+      border-radius: 4px; background: var(--panel);
+    }
+    .arch-legend {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin-top: 8px; font-size: 11px; color: var(--muted);
+    }
+    .arch-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+    .arch-legend-swatch {
+      display: inline-block; width: 10px; height: 10px;
+      border-radius: 2px; border: 1.5px solid currentColor;
+    }
+    .arch-legend-item.lg-input { color: var(--accent); }
+    .arch-legend-item.lg-config { color: #fb923c; }
+    .arch-legend-item.lg-engine { color: var(--good); }
+    .arch-legend-item.lg-viz { color: #a78bfa; }
+    .arch-legend-item.lg-data { color: var(--warn); }
+    .arch-legend-item.lg-logic { color: #38bdf8; }
+    .arch-legend-item.lg-output { color: #f472b6; }
+
+    @media (max-width: 700px) {
+      .arch-svg { max-height: 480px; }
+      .arch-detail { font-size: 12px; }
+    }
+
+    /* === 方法论折叠区（与 profile-audit 同款样式） === */
+    .methodology {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      margin-bottom: 18px;
+      padding: 0;
+      overflow: hidden;
+    }
+    .methodology > summary {
+      cursor: pointer;
+      padding: 14px 18px;
+      font-size: 14px;
+      list-style: none;
+      user-select: none;
+      background: linear-gradient(90deg, rgba(96, 165, 250, 0.08), transparent);
+    }
+    .methodology > summary::-webkit-details-marker { display: none; }
+    .methodology > summary::before {
+      content: '▶';
+      color: var(--accent);
+      margin-right: 8px;
+      font-size: 11px;
+      transition: transform 0.15s;
+      display: inline-block;
+    }
+    .methodology[open] > summary::before { transform: rotate(90deg); }
+    .methodology > summary:hover { background: linear-gradient(90deg, rgba(96, 165, 250, 0.14), transparent); }
+    .methodology-body {
+      padding: 4px 24px 20px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text);
+    }
+    .methodology-body h3 {
+      font-size: 15px;
+      color: var(--accent);
+      margin: 22px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px dashed var(--line);
+    }
+    .methodology-body h3:first-child { margin-top: 8px; }
+    .methodology-body p { margin: 6px 0; color: var(--text); }
+    .methodology-body code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    .methodology-body a { color: var(--accent); }
+    .method-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin: 8px 0 6px;
+      white-space: normal;
+    }
+    .method-table th, .method-table td {
+      padding: 6px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      white-space: normal;
+    }
+    .method-table th {
+      color: var(--muted);
+      font-weight: 600;
+      background: var(--panel-2);
+    }
+    .method-table td:first-child { white-space: nowrap; }
+    .method-list { margin: 6px 0 12px; padding-left: 22px; }
+    .method-list li { margin: 4px 0; color: var(--text); line-height: 1.6; }
+    .method-kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      padding: 1px 6px;
+      border: 1px solid var(--line);
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      color: var(--text);
+      background: var(--panel-2);
+    }
+
     @media (max-width: 900px) {
       header, .grid, .optimizer { grid-template-columns: 1fr; display: grid; }
-      .controls, .summary, .help-grid { grid-template-columns: 1fr 1fr; }
+      .controls, .summary { grid-template-columns: 1fr 1fr; }
+      .help-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
       .optimizer-grid { grid-template-columns: 1fr 1fr; }
+      .grid > .span-rows-2 { grid-row: auto; }
+      .grid > section.insights-card { position: static; }
+    }
+    @media (max-width: 560px) {
+      .help-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main>
+    <div id="integration-banner" style="background:linear-gradient(90deg, rgba(96,165,250,0.12), transparent); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:10px; padding:8px 14px; margin-bottom:14px; font-size:12px; color:var(--muted);">
+      💡 本页面已整合到「<a href="/spawn-tuning-dashboard.html" style="color:var(--accent)">🧮 出块算法优化</a>」的 ① 单次评估 tab — 在那里能一站式做寻参 / 部署 / 监控。本独立 URL 保留供快捷访问。
+      <a href="#" onclick="document.getElementById('integration-banner').remove();return false;" style="float:right; color:var(--muted)">×</a>
+    </div>
+    <script>
+      // 在 iframe 内嵌入时不显示 banner (避免双重提示)
+      try { if (window.top !== window.self) document.getElementById('integration-banner').remove(); } catch {}
+    </script>
     <header>
       <div>
         <h1>OpenBlock 出块评估工具</h1>
@@ -261,38 +1088,326 @@
     </header>
 
     <section class="help">
-      <h2>这是什么？怎么读？</h2>
-      <p>
-        这个工具不是训练 AI 的按钮，而是一个“出块策略实验室”。它会用不同类型的 Bot 模拟玩家，
-        在相同难度下对比不同出块生成器，最后输出指标和改进建议。
+      <h2>🩺 为什么用这工具？什么时候用？</h2>
+      <p class="help-lead">
+        它替你回答一个<b>无法靠"自己玩两局"判断的问题</b>——
+        <span class="help-quote">"我这次调参，到底是变好了还是变坏了？"</span><br>
+        用 3 种模拟玩家批量跑局，把"主观感受"换成 13 列硬数字。
+        <b>每次调参 / 每次发版前都该跑一次</b>——它是出块算法的「血常规检查」。
       </p>
       <div class="help-grid">
-        <div class="help-card">
-          <h3>1. 先选实验范围</h3>
+        <div class="help-card help-card--value">
+          <h3>🎯 它解决的唯一问题</h3>
           <ul>
-            <li>难度：`easy / normal / hard`。</li>
-            <li>生成器：`baseline` 是当前主策略，`triplet-p1` 是组合评分，`budget-p2` 是体验预算。</li>
-            <li>Bot：模拟不同水平/风格玩家。</li>
+            <li>把"我觉得 OK"换成 <b>13 列可对比数据</b></li>
+            <li>同一种子 = 同一份基线，<b>跨版本可复现</b></li>
+            <li>避免"上线才发现死局率从 5% 变 12%"的回滚</li>
+            <li>是<b>线上 A/B 测试的前置门槛</b>，不要直接拿真实玩家做实验</li>
           </ul>
         </div>
-        <div class="help-card">
-          <h3>2. 再看核心指标</h3>
+        <div class="help-card help-card--bot">
+          <h3>🤖 3 个 Bot = 3 个诊断视角</h3>
           <ul>
-            <li>`死局率` 不能比 baseline 更高。</li>
-            <li>`消行间隔` 越低，爽点越密。</li>
-            <li>`首步自由` 越高，玩家容错越好。</li>
+            <li><b>random</b>（瞎放）都活很久 → <b>喂牌</b>严重</li>
+            <li><b>greedy</b> 与 random 拉不开消行差 → <b>奖励不看玩家选择</b></li>
+            <li><b>survival</b>（会规划）和 random 死局接近 → <b>技巧无意义</b></li>
+            <li>三类 bot 不是替代真人，是<b>把"出块缺陷"维度化暴露</b></li>
           </ul>
         </div>
-        <div class="help-card">
-          <h3>3. 最后看建议</h3>
+        <div class="help-card help-card--metric">
+          <h3>📊 指标 → 决策映射</h3>
           <ul>
-            <li>报告会给推荐方案。</li>
-            <li>若 P2 奖励自主性更高且死局不升，值得继续放大样本。</li>
-            <li>若分数过高，要警惕 PB 膨胀。</li>
+            <li><b>死局率 ↑</b> → 公平性破坏，<b>必须修</b></li>
+            <li><b>奖励自主性 ↑</b> → 玩家选择更值钱，<b>好事</b></li>
+            <li><b>超 PB 率 ↑</b> → 分数膨胀，<b>刹车失效</b></li>
+            <li><b>兜底率 ↑</b> → 主算法挣扎，<b>扩 candidate</b></li>
+            <li><b>首步自由 ↓</b> → 容错差，<b>降几何严苛度</b></li>
+          </ul>
+        </div>
+        <div class="help-card help-card--when">
+          <h3>⏰ 什么时候该跑？</h3>
+          <ul>
+            <li><b>每次调参前后</b>：浏览器 30 局看趋势（&lt; 1 min）</li>
+            <li><b>每次合 PR</b>：CI 跑 200 局做 regression 检查</li>
+            <li><b>每次发版前</b>：CLI 500 局正式归档 JSON</li>
+            <li><b>玩家反馈难度</b>：跑工具先定性再决定怎么改</li>
+            <li><b>定期巡检</b>：每周跑一次基线，对照趋势</li>
           </ul>
         </div>
       </div>
+      <p class="help-footer">
+        💡 第一次用？直接点右上「<b>运行评估</b>」按钮看默认 30 局结果；
+        想看完整原理与操作流程，点开下方「📚 评估方法论」；
+        想看模块如何联动，点开「🗺️ 模块关系图」。
+        命令行批量请用 <code>npm run spawn:eval -- --sessions 500</code>。
+      </p>
     </section>
+
+    <!-- 模块关系图（可交互，可折叠） -->
+    <details class="arch-fold">
+      <summary>🗺️ <b>模块关系图</b>：评估 / S 曲线 / 优化器 / 指标如何联动（鼠标悬停或点击节点查看数据流）</summary>
+      <div class="arch-fold-body">
+        <p class="arch-fold-hint">
+          点击节点 = <b>钉住</b>（保持高亮）；再次点击或点击空白 = 取消。鼠标悬停 = 临时预览。
+          <span style="color:var(--accent)">蓝边 = 配置输入</span>，
+          <span style="color:#fb923c">橙边 = 参数</span>，
+          <span style="color:var(--good)">绿边 = 引擎</span>，
+          <span style="color:#a78bfa">紫边 = 可视化</span>，
+          <span style="color:var(--warn)">黄边 = 数据源</span>，
+          <span style="color:#38bdf8">青边 = 逻辑层</span>，
+          <span style="color:#f472b6">粉边 = 输出</span>。
+        </p>
+        <div class="arch-diagram">
+          <svg class="arch-svg" id="arch-svg" viewBox="0 0 1040 600" preserveAspectRatio="xMidYMid meet" role="img" aria-label="OpenBlock 出块评估工具模块关系图：评估输入、PB 双 S 曲线引擎、P2 generator、核心指标、均分对比、优化器与报告解读之间的数据流">
+            <defs>
+              <marker id="arch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 Z" fill="#9ca3af" />
+              </marker>
+              <marker id="arch-arrow-active" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 Z" fill="#60a5fa" />
+              </marker>
+            </defs>
+
+            <!-- 引擎容器（视觉分组，非交互节点） -->
+            <rect x="260" y="108" width="500" height="118" rx="14" class="arch-container" />
+            <text x="510" y="124" class="arch-container-label" text-anchor="middle">评估引擎 runSpawnEvaluation()</text>
+
+            <!-- 边（先画，让节点叠加在上面） -->
+            <path d="M510,80 L510,108" class="arch-edge" data-from="input" data-to="pbcurve" marker-end="url(#arch-arrow)" />
+            <path d="M230,170 C260,170 240,170 290,170" class="arch-edge" data-from="model" data-to="p2gen" marker-end="url(#arch-arrow)" />
+            <path d="M810,170 C780,170 800,170 730,170" class="arch-edge" data-from="pbpanel" data-to="pbcurve" marker-end="url(#arch-arrow)" />
+            <path d="M500,170 L520,170" class="arch-edge" data-from="pbcurve" data-to="p2gen" marker-end="url(#arch-arrow)" />
+            <path d="M510,226 L510,260" class="arch-edge" data-from="p2gen" data-to="metrics" marker-end="url(#arch-arrow)" />
+            <path d="M450,320 C390,320 280,360 200,420" class="arch-edge" data-from="metrics" data-to="bars" marker-end="url(#arch-arrow)" />
+            <path d="M510,320 L510,420" class="arch-edge" data-from="metrics" data-to="insights" marker-end="url(#arch-arrow)" />
+            <path d="M750,453 C720,453 700,453 660,453" class="arch-edge" data-from="weights" data-to="insights" marker-end="url(#arch-arrow)" />
+            <path d="M510,486 L510,520" class="arch-edge" data-from="insights" data-to="report" marker-end="url(#arch-arrow)" />
+
+            <!-- 边标签 -->
+            <text x="525" y="98" class="arch-edge-label" data-edge="input-pbcurve">触发评估</text>
+            <text x="245" y="160" class="arch-edge-label" data-edge="model-p2gen">modelConfig</text>
+            <text x="755" y="160" class="arch-edge-label" data-edge="pbpanel-pbcurve" text-anchor="end">同源函数</text>
+            <text x="510" y="166" class="arch-edge-label" data-edge="pbcurve-p2gen" text-anchor="middle">修改 spawnTargets</text>
+            <text x="525" y="248" class="arch-edge-label" data-edge="p2gen-metrics">report.rows[]</text>
+            <text x="280" y="378" class="arch-edge-label" data-edge="metrics-bars">scoreMean 列</text>
+            <text x="525" y="408" class="arch-edge-label" data-edge="metrics-insights">每行 13 列指标</text>
+            <text x="730" y="445" class="arch-edge-label" data-edge="weights-insights" text-anchor="end">5 权重</text>
+            <text x="525" y="508" class="arch-edge-label" data-edge="insights-report">最优 + 发现 + 建议</text>
+
+            <!-- ⓪ 评估输入 -->
+            <g class="arch-node arch-node--input" data-id="input" tabindex="0">
+              <rect x="370" y="24" width="280" height="56" rx="8" />
+              <text x="510" y="48" text-anchor="middle" class="arch-node-title">⓪ 评估输入</text>
+              <text x="510" y="68" text-anchor="middle" class="arch-node-sub">种子 / 局数 / 难度 / 个人最佳 / 生成器 / Bot</text>
+            </g>
+
+            <!-- ① 4 模型参数 -->
+            <g class="arch-node arch-node--config" data-id="model" tabindex="0">
+              <rect x="30" y="130" width="200" height="80" rx="8" />
+              <text x="130" y="154" text-anchor="middle" class="arch-node-title">① 4 个模型参数</text>
+              <text x="130" y="172" text-anchor="middle" class="arch-node-sub">个性化 / 温度 /</text>
+              <text x="130" y="188" text-anchor="middle" class="arch-node-sub">惊喜增长 / 冷却</text>
+              <text x="130" y="204" text-anchor="middle" class="arch-node-tag">事前 · 改 P2 行为</text>
+            </g>
+
+            <!-- ② derivePbCurve （引擎子节点） -->
+            <g class="arch-node arch-node--engine" data-id="pbcurve" tabindex="0">
+              <rect x="290" y="140" width="210" height="60" rx="8" />
+              <text x="395" y="166" text-anchor="middle" class="arch-node-title">derivePbCurve()</text>
+              <text x="395" y="184" text-anchor="middle" class="arch-node-sub">输出 张力 / 刹车 / 释放</text>
+            </g>
+
+            <!-- ② P2 generator -->
+            <g class="arch-node arch-node--engine" data-id="p2gen" tabindex="0">
+              <rect x="520" y="140" width="210" height="60" rx="8" />
+              <text x="625" y="166" text-anchor="middle" class="arch-node-title">P2 generator</text>
+              <text x="625" y="184" text-anchor="middle" class="arch-node-sub">budget-p2 出块决策</text>
+            </g>
+
+            <!-- ③ PB 双 S 曲线 panel -->
+            <g class="arch-node arch-node--viz" data-id="pbpanel" tabindex="0">
+              <rect x="810" y="130" width="200" height="80" rx="8" />
+              <text x="910" y="154" text-anchor="middle" class="arch-node-title">③ PB 双 S 曲线</text>
+              <text x="910" y="172" text-anchor="middle" class="arch-node-sub">徽章 + 迷你 + 主图</text>
+              <text x="910" y="190" text-anchor="middle" class="arch-node-sub">+ 试探滑块</text>
+              <text x="910" y="204" text-anchor="middle" class="arch-node-tag">可预演 / 可定位</text>
+            </g>
+
+            <!-- ④ 核心指标 -->
+            <g class="arch-node arch-node--data" data-id="metrics" tabindex="0">
+              <rect x="370" y="260" width="280" height="60" rx="8" />
+              <text x="510" y="286" text-anchor="middle" class="arch-node-title">④ 核心指标 rows[]</text>
+              <text x="510" y="304" text-anchor="middle" class="arch-node-sub">13 列原始指标 · 唯一真值源</text>
+            </g>
+
+            <!-- ⑤ 均分对比 -->
+            <g class="arch-node arch-node--viz" data-id="bars" tabindex="0">
+              <rect x="60" y="420" width="220" height="66" rx="8" />
+              <text x="170" y="446" text-anchor="middle" class="arch-node-title">⑤ 均分对比</text>
+              <text x="170" y="466" text-anchor="middle" class="arch-node-sub">scoreMean 柱状图</text>
+              <text x="170" y="480" text-anchor="middle" class="arch-node-tag">仅做可视化</text>
+            </g>
+
+            <!-- ⑥ buildInsights -->
+            <g class="arch-node arch-node--logic" data-id="insights" tabindex="0">
+              <rect x="360" y="420" width="300" height="66" rx="8" />
+              <text x="510" y="446" text-anchor="middle" class="arch-node-title">⑥ buildInsights()</text>
+              <text x="510" y="466" text-anchor="middle" class="arch-node-sub">指标 × 权重 → optimizerScore</text>
+              <text x="510" y="480" text-anchor="middle" class="arch-node-tag">指标 → 推荐 唯一翻译器</text>
+            </g>
+
+            <!-- ⑦ 5 权重 -->
+            <g class="arch-node arch-node--config" data-id="weights" tabindex="0">
+              <rect x="750" y="420" width="220" height="66" rx="8" />
+              <text x="860" y="446" text-anchor="middle" class="arch-node-title">⑦ 5 个权重</text>
+              <text x="860" y="466" text-anchor="middle" class="arch-node-sub">死局/奖励/技能/兜底/节奏</text>
+              <text x="860" y="480" text-anchor="middle" class="arch-node-tag">事后 · 改打分公式</text>
+            </g>
+
+            <!-- ⑧ 报告解读 -->
+            <g class="arch-node arch-node--output" data-id="report" tabindex="0">
+              <rect x="370" y="520" width="280" height="60" rx="8" />
+              <text x="510" y="546" text-anchor="middle" class="arch-node-title">⑧ 报告解读与建议</text>
+              <text x="510" y="566" text-anchor="middle" class="arch-node-sub">推荐 / 发现 / 改进 → 回到 ⓪ 闭环</text>
+            </g>
+          </svg>
+        </div>
+
+        <div id="arch-detail" class="arch-detail arch-detail--idle">
+          👆 鼠标悬停任意节点查看角色与数据流，点击钉住选择。
+        </div>
+
+        <div class="arch-legend">
+          <span class="arch-legend-item lg-input"><span class="arch-legend-swatch"></span>输入</span>
+          <span class="arch-legend-item lg-config"><span class="arch-legend-swatch"></span>配置参数</span>
+          <span class="arch-legend-item lg-engine"><span class="arch-legend-swatch"></span>引擎核心</span>
+          <span class="arch-legend-item lg-viz"><span class="arch-legend-swatch"></span>可视化</span>
+          <span class="arch-legend-item lg-data"><span class="arch-legend-swatch"></span>数据源</span>
+          <span class="arch-legend-item lg-logic"><span class="arch-legend-swatch"></span>逻辑层</span>
+          <span class="arch-legend-item lg-output"><span class="arch-legend-swatch"></span>输出</span>
+        </div>
+      </div>
+    </details>
+
+    <!-- 方法论说明（可折叠） -->
+    <details class="methodology">
+      <summary>📚 <b>评估方法论</b>：思路、Bot 分层、指标读法、PB 曲线、参数优化器与切主路径门槛（点开看完整文档）</summary>
+      <div class="methodology-body">
+
+        <h3>🎯 核心思路</h3>
+        <p>本工具回答一个问题：<b>「在不同 Bot 玩家手里，这套出块策略是否公平、有爽点、又不让分数膨胀？」</b></p>
+        <p>它<b>不是训练 AI 的按钮</b>，而是一个<b>出块策略实验室</b>：把"主观体感"翻译成可复现、可对比、可量化的指标基线。
+          走的链路与 Web 实局完全一致：<code>PlayerProfile → resolveAdaptiveStrategy → generateDockShapes → Grid.place → computeClearScore</code>，
+          所以评估出来的不是简化模型，而是真规则轨。</p>
+
+        <h3>🤖 Bot 三层诊断口径</h3>
+        <p>评估同时跑三种模拟玩家，用来拆解"出块质量"——不是替代真人，而是把每个维度独立暴露：</p>
+        <table class="method-table">
+          <thead><tr><th>Bot</th><th>策略</th><th>诊断信号</th></tr></thead>
+          <tbody>
+            <tr><td><code>random</code></td><td>随机合法落子，模拟低规划 / 误触玩家</td><td>它都能活很久 → 出块过度<b>喂牌</b>；它都频繁死局 → 公平性<b>过严</b></td></tr>
+            <tr><td><code>clear-greedy</code></td><td>看到能消行就消，模拟追求短期奖励</td><td>它和 random 拉不开消行差距 → 奖励兑现<b>不依赖玩家选择</b></td></tr>
+            <tr><td><code>survival</code></td><td>优先保留机动空间，模拟会规划玩家</td><td>它都频繁死局 → 出块<b>机动性不足</b>；它和 random 死局率接近 → <b>技巧无意义</b></td></tr>
+          </tbody>
+        </table>
+        <p>派生量是关键判据：<code>naturalFairnessGap = random.noMoveRate − survival.noMoveRate</code>、
+          <code>rewardAgencyGap = clearGreedy.clearsMean − random.clearsMean</code>、
+          <code>skillScoreLift = survival.scoreMean − random.scoreMean</code>。</p>
+
+        <h3>📊 核心指标怎么读</h3>
+        <table class="method-table">
+          <thead><tr><th>列</th><th>含义</th><th>怎么判好坏</th></tr></thead>
+          <tbody>
+            <tr><td><code>noMoveRate</code> 死局率</td><td>无路可走终局占比</td><td><b>硬约束</b>：必须 ≤ baseline，否则直接淘汰方案</td></tr>
+            <tr><td><code>clearIntervalMean/P90</code></td><td>两次消行之间的步数</td><td>越低越爽，但若 random bot 也极低 → 出块在喂牌</td></tr>
+            <tr><td><code>firstMoveFreedomMean</code></td><td>三块里最卡那块的可放位置数</td><td>越高容错越好；持续低值 + 高死局率 = 不公平</td></tr>
+            <tr><td><code>fallbackRate</code> 兜底率</td><td>出块器进入 fallback 的比例</td><td>持续上升 → 候选过滤<b>过严</b>，主算法在挣扎</td></tr>
+            <tr><td><code>attemptMean</code> 尝试数</td><td>平均重抽次数</td><td>同上，越高越说明算法吃力</td></tr>
+            <tr><td><code>nearPbRate / breakPbRate / overshootRate</code></td><td>≥85% / ≥100% / ≥115% 个人最佳的局占比</td><td>nearPb 高 + overshoot 低 = 健康；overshoot 高 → <b>PB 膨胀</b>，刹车失效</td></tr>
+            <tr><td><code>terminalFillMean / terminalHolesMean</code></td><td>失败时棋盘填充率 / 空洞数</td><td>区分"满板自然失败"和"低填充不公平失败"</td></tr>
+            <tr><td><code>budgetMean.{survival,payoff,pressure,novelty}</code></td><td>P2 四类预算占比</td><td>survival 过低 = 不保活；pressure 过高 = 强压玩家；novelty 过低 = 单调</td></tr>
+            <tr><td><code>evaluated / deepEvaluatedTripletsMean</code></td><td>P1/P2 平均扫描的三块组合数</td><td>越大越精细但越慢，移动端要权衡</td></tr>
+            <tr><td><code>optimizerScore</code></td><td>按右上权重计算的综合评分</td><td>权重 ≠ 真相，是<b>你定义的"好"</b>，方便横向选方案</td></tr>
+          </tbody>
+        </table>
+
+        <h3>📈 PB 双 S 曲线模型</h3>
+        <p>"个人最佳"是节奏锚点。围绕它构造三段曲线，让出块在不同阶段表现不同人格：</p>
+        <ul class="method-list">
+          <li><b>pbTension（PB 前张力）</b>：<code>sigmoid((score/best − 0.82) / 0.08)</code>。越接近 PB 越拉紧 pressure，让最后一段更紧张刺激。</li>
+          <li><b>pbBrake（PB 后刹车）</b>：<code>sigmoid((score/best − 1.05) / 0.06)</code>。突破 PB 后<b>主动降 payoff</b>，抑制分数膨胀。</li>
+          <li><b>pbRelease（突破释放）</b>：刚破 PB 后短暂降压窗口（评估默认 0；真实局由 <code>postPbReleaseActive</code> 触发）。给玩家"成就感停顿"。</li>
+        </ul>
+        <p>这三个值由 <code>adaptiveSpawn.derivePbCurve()</code> 输出，主轨与评估轨用<b>同一口径</b>，所以本页 PB 预览块和 DFV 看到的是同一条曲线。</p>
+
+        <h3>🧪 baseline / P1 / P2 三个生成器的差别</h3>
+        <table class="method-table">
+          <thead><tr><th>生成器</th><th>抽块粒度</th><th>评估维度</th><th>定位</th></tr></thead>
+          <tbody>
+            <tr><td><code>baseline</code></td><td>单块评分后拼接</td><td>adaptive stress + spawnHints + 多维过滤</td><td><b>线上主轨</b>，是所有方案的对照基线</td></tr>
+            <tr><td><code>triplet-p1</code></td><td>组合级（三块整体打分）</td><td>可解排列、首步存活率、解法数、终局填充、新空洞上下界、消行潜力、卡入、品类多样性</td><td>实验轨：让"三块作为一个整体"被优化</td></tr>
+            <tr><td><code>budget-p2</code></td><td>P1 + 体验预算 + 个性化</td><td>survival / payoff / pressure / novelty 四预算 + 偏好向量 + 受控温度 + 惊喜预算</td><td>实验轨：把"出什么块"翻译成"想给玩家什么体验"</td></tr>
+          </tbody>
+        </table>
+        <p>P1 / P2 <b>不进入线上主路径</b>，只在评估和 DFV 中可见。切主轨需先过下一节的硬门槛。</p>
+
+        <h3>🛠 参数优化器：权重就是你定义的"好"</h3>
+        <p>5 个目标权重决定 <code>optimizerScore</code> 长什么样——改一改就能看到方案排名重洗：</p>
+        <ul class="method-list">
+          <li><span class="method-kbd">死局权重</span> 越高 → 选择更不容易死的方案（默认 0.35，通常最重要）</li>
+          <li><span class="method-kbd">奖励权重</span> 越高 → 选择消行/多消/清屏更频的方案</li>
+          <li><span class="method-kbd">技能权重</span> 越高 → 选择 survival bot 比 random bot 拉得更开的方案（玩家技巧更值钱）</li>
+          <li><span class="method-kbd">兜底权重</span> 越高 → 惩罚 fallback 高的方案（避免主算法经常退避）</li>
+          <li><span class="method-kbd">节奏权重</span> 越高 → 选择消行间隔更稳定、不出现长冷场的方案</li>
+        </ul>
+        <p>P2 模型参数微调："个性化强度 0.05~0.18"、"随机温度 0.03~0.08"、"惊喜增长/冷却" 控制低频趣味事件密度。
+          自动寻优是浏览器内枚举（contextual bandit 的前置形态），不绕过可解性硬约束。</p>
+
+        <h3>🚦 切主路径门槛（P1/P2 → 线上）</h3>
+        <p>所有实验方案要进主轨，必须同时满足：</p>
+        <ol class="method-list">
+          <li><code>noMoveRate</code> 不高于 baseline，且 random bot 低填充失败<b>不增加</b></li>
+          <li><code>rewardAgencyGap</code> <b>高于</b> baseline——证明"玩家主动消行"真的更划算</li>
+          <li><code>fallbackRate</code> 不高于 baseline——主算法没有偷偷退避</li>
+          <li><code>stepsMean / scoreP90</code> 不出现明显 PB 膨胀</li>
+          <li><code>evaluatedTripletsMean</code> 在移动端可承受（必要时按设备档位下调 <code>--max-triplets</code>）</li>
+        </ol>
+        <p>建议先用 <code>npm run spawn:eval -- --sessions 500 --strategies easy,normal,hard</code> 全量跑一版再决策灰度。</p>
+
+        <h3>🔄 推荐工作流</h3>
+        <ol class="method-list">
+          <li><b>调参试探</b> → 改右上 5 个权重 + P2 模型参数 → 点「运行评估」（每组 30 局先看趋势）</li>
+          <li><b>方案排序</b> → 点「自动寻优」让浏览器枚举 baseline / P1 / P2 + 参数网格，输出综合评分前列方案</li>
+          <li><b>归档参数</b> → 命名后点「保存到 SQLite」（后端不可用会自动降级到 localStorage）；下次「加载生效」即刻填充控件</li>
+          <li><b>正式打分</b> → CLI <code>npm run spawn:eval -- --sessions 500 ...</code> 大样本归档 JSON，比浏览器 30 局更可信</li>
+          <li><b>对照分析</b> → 多次评估的 JSON 横向 diff，看死局率、奖励自主性、PB 膨胀是否真的改善</li>
+          <li><b>过门槛</b> → 满足上节 5 条硬门槛后，才走代码评审 → 灰度 → 切主路径</li>
+        </ol>
+
+        <h3>💡 怎么用这个工具做优化（套路）</h3>
+        <ul class="method-list">
+          <li><b>死局率偏高</b> → 调高死局权重，对比 P1 vs baseline；若 P1 也救不了，说明<b>盘面状态机本身</b>有问题，要回到 <code>spawnHints</code> 与 adaptive stress 检查</li>
+          <li><b>奖励自主性不足</b>（greedy ≈ random）→ 加大 P2 <code>payoff</code> 预算 + 提高奖励权重，验证 <code>rewardAgencyGap</code> 是否提升</li>
+          <li><b>PB 膨胀</b>（overshootRate 高）→ 检查 <code>pbBrake</code> 是否生效；P2 个性化强度过高也会失控，建议回到 0.10 基线</li>
+          <li><b>兜底率攀升</b> → 候选过滤过严，调宽 <code>--max-triplets</code> 或检查 <code>spawnExperiments.js</code> 中 Top-K 截断</li>
+          <li><b>消行间隔过长</b> → 提高 P2 <code>payoff</code> 预算 + <code>surpriseGain</code>，但要观察是否变成喂牌（random bot 消行也猛涨 = 失败）</li>
+          <li><b>评估太慢</b> → 降 <code>--sessions</code>、<code>--max-steps</code>、<code>--max-triplets</code> 先看趋势；CLI 跑 500 局再下结论</li>
+        </ul>
+
+        <h3>📖 深入阅读</h3>
+        <ul class="method-list">
+          <li>完整设计文档：<a href="/docs/algorithms/SPAWN_EVALUATION.md">/docs/algorithms/SPAWN_EVALUATION.md</a></li>
+          <li>评估核心：<code>web/src/bot/spawnEvaluation.js</code></li>
+          <li>P1/P2 实验生成器：<code>web/src/bot/spawnExperiments.js</code></li>
+          <li>PB 双 S 曲线：<code>adaptiveSpawn.derivePbCurve()</code></li>
+          <li>CLI 入口：<code>scripts/evaluate-spawn.mjs</code>（<code>npm run spawn:eval</code>）</li>
+          <li>SQLite 方案：<code>spawn_optimizer_configs</code> 表 / <code>/api/spawn-optimizer/configs</code></li>
+          <li>回归测试：<code>tests/spawnEvaluation.test.js</code></li>
+        </ul>
+        <p>这套循环的核心价值：<b>把"出块好不好"从 PM/策划主观体感，变成了可复现、可对比、可归档的指标基线</b>——
+          每次评估既在筛选方案，也在校准"我们对'好'的定义"本身。</p>
+      </div>
+    </details>
 
     <div class="controls">
       <label title="同一个种子会复现同一批随机选择，方便前后对比。">随机种子<input id="seed" type="number" value="20260523"></label>
@@ -313,18 +1428,56 @@
       </p>
       <div class="pb-grid">
         <div class="pb-metric" title="pbTension = sigmoid((score / bestScore - 0.82) / 0.08)。越接近 PB，越提高 pressure。">
-          <strong id="pb-tension-preview">0.00</strong>
-          <span>PB前张力</span>
+          <div class="pb-metric-row">
+            <strong id="pb-tension-preview">0.00</strong>
+            <span class="pb-metric-badge" id="pb-tension-badge" data-state="idle">未启动</span>
+            <div class="pb-metric-mini" id="pb-tension-mini" aria-hidden="true"></div>
+          </div>
+          <span class="pb-metric-label">PB前张力</span>
         </div>
         <div class="pb-metric" title="pbBrake = sigmoid((score / bestScore - 1.05) / 0.06)。突破 PB 后快速提高刹车，降低 payoff。">
-          <strong id="pb-brake-preview">0.00</strong>
-          <span>PB后刹车</span>
+          <div class="pb-metric-row">
+            <strong id="pb-brake-preview">0.00</strong>
+            <span class="pb-metric-badge" id="pb-brake-badge" data-state="idle">未触发</span>
+            <div class="pb-metric-mini" id="pb-brake-mini" aria-hidden="true"></div>
+          </div>
+          <span class="pb-metric-label">PB后刹车</span>
         </div>
         <div class="pb-metric" title="pbRelease 表示刚破 PB 后的释放窗口。当前评估默认按 0 处理，可在真实对局上下文中由 postPbReleaseActive 触发。">
-          <strong id="pb-release-preview">0.00</strong>
-          <span>突破释放</span>
+          <div class="pb-metric-row">
+            <strong id="pb-release-preview">0.00</strong>
+            <span class="pb-metric-badge" id="pb-release-badge" data-state="idle">已关闭</span>
+            <div class="pb-metric-mini pb-metric-mini--release" id="pb-release-mini" aria-hidden="true"></div>
+          </div>
+          <span class="pb-metric-label">突破释放</span>
         </div>
       </div>
+
+      <!-- 双 S 曲线可视化：X = pbRatio，Y = 压力 (0~1) -->
+      <div class="pb-chart-wrap">
+        <div class="pb-chart-head">
+          <span class="pb-chart-title">压力 vs PB率（双 S 曲线）</span>
+          <div class="pb-chart-legend">
+            <span class="pb-legend-item"><span class="pb-legend-swatch pb-legend-swatch--tension"></span>张力 pbTension</span>
+            <span class="pb-legend-item"><span class="pb-legend-swatch pb-legend-swatch--brake"></span>刹车 pbBrake</span>
+            <span class="pb-legend-item"><span class="pb-legend-swatch pb-legend-swatch--marker"></span>当前位置</span>
+          </div>
+        </div>
+        <div id="pb-chart-host" class="pb-chart-host" aria-label="PB 压力曲线图"></div>
+
+        <div id="pb-rate-bars" class="pb-rate-bars">
+          <div class="pb-rate-head">
+            <b>推荐方案的 PB 命中率</b>
+            <span>条纹绿带 = 健康范围</span>
+          </div>
+          <p class="pb-rate-empty">▶ 点「运行评估」后显示命中率与健康度评估。</p>
+        </div>
+
+        <div id="pb-eval-legend" class="pb-eval-legend pb-eval-legend--empty">
+          📍 评估完成后,曲线下方会按生成器着色显示每行的 ratio 落点
+        </div>
+      </div>
+
       <div class="pb-formula" id="pb-formula-preview">
         pbRatio = 0 / 1000 = 0.00 · 当前阶段 warmup
       </div>
@@ -333,22 +1486,62 @@
     <div class="optimizer">
       <section>
         <h2>策略参数优化器</h2>
-        <p>这里定义“什么叫好”。权重越高，该目标越重要。自动寻优会按这些权重选择方案。</p>
-        <div class="optimizer-grid">
-          <label title="越高越重视降低无路可走。通常最重要。">死局权重<input id="w-no-move" type="number" value="0.35" step="0.01"></label>
-          <label title="越高越重视消行、多消等爽点收益。">奖励权重<input id="w-reward" type="number" value="0.25" step="0.01"></label>
-          <label title="越高越重视高手/生存 Bot 相比随机 Bot 的收益差距。">技能权重<input id="w-skill" type="number" value="0.20" step="0.01"></label>
-          <label title="越高越惩罚 fallback，避免主算法经常兜底。">兜底权重<input id="w-fallback" type="number" value="0.12" step="0.01"></label>
-          <label title="越高越重视奖励间隔不要过长。">节奏权重<input id="w-pacing" type="number" value="0.08" step="0.01"></label>
-          <label title="P2 会根据玩家偏好微调预算。建议 0.05~0.18。">个性化强度<input id="personalization-strength" type="number" value="0.10" step="0.01"></label>
-          <label title="在合法 Top 组合中加入受控随机。建议 0.03~0.08。">随机温度<input id="random-temperature" type="number" value="0.04" step="0.01"></label>
-          <label title="提高低频惊喜事件倾向，如同花、清屏铺垫、形状变化。">惊喜增长<input id="surprise-gain" type="number" value="0.08" step="0.01"></label>
-          <label title="惊喜预算的冷却轮次。越大越克制。">惊喜冷却<input id="surprise-cooldown" type="number" value="6" step="1"></label>
+        <p>对齐页面顶部 3 个核心目标——「<b>公平 / 爽点 / 抑制膨胀</b>」。拖动滑块表达"哪个更重要"，<b>底层权重由代码自动派生</b>，不用懂技术指标。</p>
+
+        <div class="goal-sliders">
+          <div class="goal-row goal-row--fairness">
+            <div class="goal-head">
+              <span class="goal-name">⚖️ 公平</span>
+              <span class="goal-desc">玩家不会无路可走 / 高手有发挥空间 / 主算法不兜底</span>
+              <span class="goal-value"><span id="goal-fairness-pct">70</span>%</span>
+            </div>
+            <input type="range" id="goal-fairness" class="goal-range" min="0" max="100" step="5" value="70">
+            <div class="goal-metrics">看 <code>noMoveRate</code> · <code>firstMoveFreedomMean</code> · <code>fallbackRate</code></div>
+          </div>
+          <div class="goal-row goal-row--excitement">
+            <div class="goal-head">
+              <span class="goal-name">🎉 爽点</span>
+              <span class="goal-desc">消行频繁 / 多消密集 / 节奏不冷场</span>
+              <span class="goal-value"><span id="goal-excitement-pct">45</span>%</span>
+            </div>
+            <input type="range" id="goal-excitement" class="goal-range" min="0" max="100" step="5" value="45">
+            <div class="goal-metrics">看 <code>clearsMean</code> · <code>multiClearRate</code> · <code>clearIntervalP90</code></div>
+          </div>
+          <div class="goal-row goal-row--anti-inflation">
+            <div class="goal-head">
+              <span class="goal-name">🛑 抑制膨胀</span>
+              <span class="goal-desc">不超 PB×1.15 / 破 PB 在健康区间 / 分数曲线收敛</span>
+              <span class="goal-value"><span id="goal-anti-inflation-pct">60</span>%</span>
+            </div>
+            <input type="range" id="goal-anti-inflation" class="goal-range" min="0" max="100" step="5" value="60">
+            <div class="goal-metrics">看 <code>overshootRate</code> · <code>breakPbRate</code></div>
+          </div>
         </div>
+
+        <details class="weight-detail">
+          <summary>🔧 派生权重明细（高级用户，看代码实际用什么）</summary>
+          <div class="weight-detail-body">
+            <p>3 个目标权重归一化后，按内部映射派生 6 个底层权重传给 <code>scoreEvaluationRow()</code>：</p>
+            <div id="weight-detail-table" class="weight-detail-table">
+              <!-- 由 JS 注入 -->
+            </div>
+            <p class="weight-detail-note">注：当 3 个目标都为 0 时回退到旧默认值；底层映射在 <code>spawnEvalApp.js → deriveWeightsFromGoals()</code>。</p>
+          </div>
+        </details>
+
+        <h3 class="optimizer-sub">🎛 P2 算法行为微调（仅 budget-p2 生效）</h3>
+        <div class="optimizer-grid optimizer-grid--p2">
+          <label title="P2 会根据玩家偏好向量（清屏型 / 多消型 / 求生型 / 冒险型 / 求新型）微调四类预算。建议 0.05~0.18。">个性化强度<input id="personalization-strength" type="number" value="0.10" step="0.01"></label>
+          <label title="在合法 Top 组合中加入 softmax 受控随机。PB 前夕建议低，远离 PB 时可高。建议 0.03~0.08。">随机温度<input id="random-temperature" type="number" value="0.04" step="0.01"></label>
+          <label title="提高低频惊喜事件倾向，如同花、清屏铺垫、形状变化。建议 0.05~0.10。">惊喜增长<input id="surprise-gain" type="number" value="0.08" step="0.01"></label>
+          <label title="惊喜预算的冷却轮次。越大越克制。建议 4~10。">惊喜冷却<input id="surprise-cooldown" type="number" value="6" step="1"></label>
+        </div>
+
         <div class="inline-actions">
-          <button id="auto-btn" type="button" title="自动尝试几组 baseline/P1/P2 参数，并按综合评分推荐当前最优。">自动寻优</button>
+          <button id="auto-btn" type="button" title="按上述 3 个目标自动枚举 baseline / P1 / P2 候选方案，选综合分最高者。">🤖 自动寻优</button>
+          <span class="optimizer-hint">提示：调完滑块需要重新「运行评估」才能看到新推荐方案</span>
         </div>
-        <pre id="optimizer-output"></pre>
+        <div id="optimizer-output" class="auto-result"></div>
       </section>
 
       <section>
@@ -368,33 +1561,30 @@
     <div id="summary" class="summary"></div>
 
     <div class="grid">
-      <section>
+      <section class="span-full">
         <h2>核心指标</h2>
-        <table>
-          <thead>
-            <tr>
-              <th title="游戏难度配置。">难度</th>
-              <th title="出块算法版本：baseline 当前主策略；triplet-p1 组合评分；budget-p2 体验预算。">生成器</th>
-              <th title="模拟玩家策略。">Bot</th>
-              <th title="平均分。过高可能代表 PB 膨胀风险。">均分</th>
-              <th title="平均落子数，越高代表局长更长。">步数</th>
-              <th title="平均消行数，衡量奖励兑现。">消行</th>
-              <th title="无路可走终局比例。不能高于 baseline。">死局率</th>
-              <th title="平均两次消行之间隔多少步。越低越爽，但过低可能喂牌。">消行间隔</th>
-              <th title="出块器进入 fallback 的比例。过高说明约束或候选策略过紧。">兜底率</th>
-              <th title="平均重抽/尝试次数。越高表示算法越挣扎。">尝试</th>
-              <th title="三块中最卡的一块有多少首步可放位置。越高容错越好。">首步自由</th>
-              <th title="达到 85% 个人最佳的局占比。越高说明玩家经常接近 PB。">近PB</th>
-              <th title="超过 115% 个人最佳的局占比。过高说明分数膨胀。">超PB</th>
-            </tr>
-          </thead>
-          <tbody id="result-body"></tbody>
-        </table>
-      </section>
-
-      <section>
-        <h2>公平与自主性</h2>
-        <div id="comparison-list"></div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th title="游戏难度配置。">难度</th>
+                <th title="出块算法版本：baseline 当前主策略；triplet-p1 组合评分；budget-p2 体验预算。">生成器</th>
+                <th title="模拟玩家策略。">Bot</th>
+                <th title="平均分。过高可能代表 PB 膨胀风险。">均分</th>
+                <th title="平均落子数，越高代表局长更长。">步数</th>
+                <th title="平均消行数，衡量奖励兑现。">消行</th>
+                <th title="无路可走终局比例。不能高于 baseline。">死局率</th>
+                <th title="平均两次消行之间隔多少步。越低越爽，但过低可能喂牌。">消行间隔</th>
+                <th title="出块器进入 fallback 的比例。过高说明约束或候选策略过紧。">兜底率</th>
+                <th title="平均重抽/尝试次数。越高表示算法越挣扎。">尝试</th>
+                <th title="三块中最卡的一块有多少首步可放位置。越高容错越好。">首步自由</th>
+                <th title="达到 85% 个人最佳的局占比。越高说明玩家经常接近 PB。">近PB</th>
+                <th title="超过 115% 个人最佳的局占比。过高说明分数膨胀。">超PB</th>
+              </tr>
+            </thead>
+            <tbody id="result-body"></tbody>
+          </table>
+        </div>
       </section>
 
       <section>
@@ -402,23 +1592,42 @@
         <div id="bars" class="bars"></div>
       </section>
 
-      <section>
+      <section class="span-rows-2 insights-card">
         <h2>报告解读与建议</h2>
         <div id="insights"></div>
       </section>
 
       <section>
-        <h2>读数说明</h2>
-        <p>自然公平差 = 随机 bot 死局率 - 生存 bot 死局率。差值越高，说明出块更依赖玩家规划。</p>
-        <p>奖励自主性 = 贪心消行 bot 比随机 bot 多获得的消行数。差值越高，说明玩家选择对奖励兑现更有影响。</p>
-        <p>推荐优先判断：P2 死局率不升、奖励自主性提升、P90 分数不暴涨，才值得继续放大样本。</p>
+        <h2>公平与自主性</h2>
+        <div id="comparison-list"></div>
       </section>
+
+      <details class="reading-fold span-full">
+        <summary>📖 读数说明（自然公平差 · 奖励自主性 · 推荐优先判断）</summary>
+        <div class="reading-fold-body">
+          <div class="reading-item">
+            <b>自然公平差</b>
+            <p>= 随机 bot 死局率 − 生存 bot 死局率。差值越高，说明出块更依赖玩家规划。</p>
+          </div>
+          <div class="reading-item">
+            <b>奖励自主性</b>
+            <p>= 贪心消行 bot 比随机 bot 多获得的消行数。差值越高，说明玩家选择对奖励兑现更有影响。</p>
+          </div>
+          <div class="reading-item">
+            <b>推荐优先判断</b>
+            <p>P2 死局率不升、奖励自主性提升、P90 分数不暴涨，才值得继续放大样本。</p>
+          </div>
+        </div>
+      </details>
     </div>
 
-    <section class="raw">
-      <h2>JSON 报告</h2>
-      <pre id="raw-json"></pre>
-    </section>
+    <details class="raw-fold">
+      <summary>📦 原始 JSON 报告（点开查看，用于导出 / 调试 / Diff）</summary>
+      <div class="raw-fold-body">
+        <p>评估完成后写入完整 <code>report</code> 对象；可直接复制到本地做版本间 Diff。日常阅读建议看上面的指标表格和卡片。</p>
+        <pre id="raw-json"></pre>
+      </div>
+    </details>
   </main>
   <script type="module" src="./src/spawnEvalApp.js"></script>
 </body>

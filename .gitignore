@@ -42,6 +42,12 @@ tools/diagram-render/algo-work/
 .cursor-stress-logs/
 logs/
 
+# Spawn tuning: 训练 checkpoint 与 Phase C 临时 job 输出 (大文件,可重新训练)
+# 注: web/public/spawn-tuning/policies.json 是部署产物,要进 git
+#     miniprogram/core/tuning/spawnPolicies.js 同上 (与 gameRulesData.js 同等地位)
+checkpoints/
+rl_pytorch/spawn_tuning/__pycache__/
+
 # Xcode 自动生成的 workspace 配置（每个开发者本地不同）
 mobile/ios/App/App.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 mobile/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/

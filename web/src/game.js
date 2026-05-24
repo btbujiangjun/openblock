@@ -3,6 +3,8 @@
  * Full game logic with behavior tracking
  */
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
+// v0.3.1: 寻参 θ 注入钩子 — 完全可选,失败不影响主路径
+import { augmentSpawnContext as _augmentTuningCtx } from './tuning/gameIntegration.js';
 import { writeSpawnSignals, hydrateFromSpawnSignals } from './offlineStateCache.js';
 import { initScoreAnimator, animateScoreOdometer, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry } from './adaptiveSpawn.js';
@@ -1635,7 +1637,15 @@ export class Game {
             return;
         }
 
-        this._commitSpawn(generateDockShapes(this.grid, layered, this._spawnContext), layered, opts, 'rule');
+        // v0.3.1: 寻参钩子 — 注入 modelConfig (来自当前激活 policy), 失败回退到原 ctx
+        const _tunedCtx = _augmentTuningCtx(this._spawnContext, {
+            difficulty: this.strategy,
+            bestScore: this.playerProfile?.metrics?.bestScore || 0,
+            totalRounds: this.playerProfile?.metrics?.totalRounds || 0,
+            daysSincePb: this.playerProfile?.metrics?.daysSincePb || 0,
+            userId: this.playerProfile?.userId || '',
+        });
+        this._commitSpawn(generateDockShapes(this.grid, layered, _tunedCtx), layered, opts, 'rule');
         /* v1.61：每回合出块后将关键信号快照写入 localStorage，作为 SQLite 的离线补充。
          * 微任务延后执行，不阻塞出块主路径；writeSpawnSignals 内部已有 try/catch。 */
         Promise.resolve().then(() => writeSpawnSignals(this));
@@ -2885,6 +2895,18 @@ export class Game {
         try {
             window.__audioFx?.play?.('gameOver');
             window.__audioFx?.vibrate?.([35, 55, 25]);
+        } catch { /* ignore */ }
+
+        /* v0.3.3: 灰度上线监控 — 局后上报关键指标 (失败不影响游戏) */
+        try {
+            import('./tuning/policyMetrics.js').then(({ reportGameOutcome }) => {
+                reportGameOutcome({
+                    score: this.score || 0,
+                    totalRounds: this.totalRounds || 0,
+                    clears: this.totalClears || 0,
+                    noMove: opts.reason === 'no-moves' || opts.mode === 'level-fail',
+                });
+            }).catch(() => { /* not critical */ });
         } catch { /* ignore */ }
         // 内嵌结算（v10.18）：保留棋盘可见，给 body 加 .game-over-active 让 CSS 做柔化处理
         document.body.classList.add('game-over-active');
