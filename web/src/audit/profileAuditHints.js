@@ -24,6 +24,16 @@ export const DEFAULT_THRESHOLDS = {
     redundancy: { warn: 0.92, error: 0.97 },       // |Pearson r|
     stressDominator: { warn: 0.75, error: 0.90 },  // 单一 stress 分量贡献占比
     intentSwitches: { warn: 12, error: 30 },       // 一局内 spawnIntent 切换次数
+    /* v1.62.9：会话级"可审计性"门控 —— 太短或老 schema 的局，跳过 metric 级 coverage hints，
+     * 避免出现"50 个 metric 都 COVERAGE_TOO_LOW → 健康分硬归零"的工具自身故障。
+     *   minAuditableFrames：< N 帧的局视为 too-short，整局不参与个别 metric 评估
+     *   minAuditableMetrics：< N 个有效 metric（coverage>0.10）视为 schema unauditable
+     *   coverageHintCap：单局 COVERAGE 类 hint 最多生成 N 条（避免噪音爆炸）
+     */
+    minAuditableFrames: 20,
+    minAuditableMetrics: 5,
+    coverageHintCap: 5,           // v1.62.9：单局 COVERAGE 类 hint 上限（防爆炸）
+    coverageHintsDowngrade: true, // v1.62.9：单 metric coverage 失败 → warn（数据问题），保留 1 条 error 由 INSUFFICIENT_DATA 兜底
 };
 
 /**
@@ -36,18 +46,60 @@ export function buildHints(audit, opts = {}) {
     /** @type {ProfileAuditHint[]} */
     const hints = [];
 
+    /* v1.62.9：会话级可审计性预判。
+     * 全库 audit 暴露真问题：5000+ 局 frames 缺 metrics 字段 → 50 个 metrics 全 coverage=0
+     * → 50× COVERAGE_TOO_LOW (-12 分/条) → 健康分秒归零。这是工具自身故障不是数据故障。
+     *
+     * 修复：识别 too-short / unauditable 局，跳过 metric 级 coverage 评估，只输出一条全局
+     * "INSUFFICIENT_DATA" hint（warn，扣 4 分），健康分上限保留合理水平。
+     */
+    /* 只在 summary.totalFrames 明确提供时启用 unauditable 检测；
+     * 单 metric 单测场景不会被误归类为 unauditable（保持兼容）。 */
+    const hasSummary = audit.summary?.totalFrames != null;
+    const totalFrames = audit.summary?.totalFrames ?? 0;
+    const metricsObj = audit.metrics || {};
+    const metricKeys = Object.keys(metricsObj);
+    const auditableMetricCount = metricKeys.filter(
+        (k) => (metricsObj[k]?.coverage ?? 0) >= T.coverage.error
+    ).length;
+    const isTooShort = hasSummary && totalFrames > 0 && totalFrames < T.minAuditableFrames;
+    /* schema unauditable 只在 metric 总数充足时判断（avoid 单 metric 单测误触发） */
+    const isUnauditableSchema = hasSummary
+        && metricKeys.length >= T.minAuditableMetrics
+        && auditableMetricCount < T.minAuditableMetrics;
+    const skipPerMetricCoverage = isTooShort || isUnauditableSchema;
+
+    if (skipPerMetricCoverage) {
+        const reason = isTooShort
+            ? `本局仅 ${totalFrames} 帧，少于可审计下限 ${T.minAuditableFrames}（极短局）`
+            : `仅 ${auditableMetricCount}/${metricKeys.length} 个 metric 有有效采样（疑似旧 schema 或 ps 写入路径异常）`;
+        hints.push({
+            severity: 'warn',
+            code: 'INSUFFICIENT_DATA',
+            evidence: { totalFrames, auditableMetricCount, totalMetrics: metricKeys.length },
+            msg: `本局不适合做 metric 级 audit：${reason}。已跳过 COVERAGE 个别 hint，避免淹没真实问题。`,
+        });
+    }
+    let coverageHintsEmitted = 0;
+
     /* ===== A. 单指标质量 ===== */
     for (const [key, m] of Object.entries(audit.metrics || {})) {
         // 覆盖率
-        if (m.coverage != null) {
+        if (m.coverage != null && !skipPerMetricCoverage && coverageHintsEmitted < T.coverageHintCap) {
+            /* v1.62.9：coverageHintsDowngrade=true 时把单 metric COVERAGE_TOO_LOW 降到 warn。
+             * 理由：单个 metric coverage 低通常是"该 metric 累积窗口未满"或"该 PS 字段冷启动"，
+             *      属于数据问题而非业务逻辑 bug；error 应当留给 OUT_OF_RANGE / CONTRACT_VIOLATION。
+             * 这样单局 health 扣分从 -12/条 降到 -4/条，配合 cap=5，最多 -20 分而非 -96。
+             */
             if (m.coverage < T.coverage.error) {
                 hints.push({
-                    severity: 'error',
+                    severity: T.coverageHintsDowngrade ? 'warn' : 'error',
                     code: 'COVERAGE_TOO_LOW',
                     metrics: [key],
                     evidence: m.coverage,
                     msg: `「${key}」有效采样仅 ${(m.coverage * 100).toFixed(0)}%——指标几乎"瞎"，建议放宽冷启动门限或推迟 PS 写入时机`,
                 });
+                coverageHintsEmitted++;
             } else if (m.coverage < T.coverage.warn) {
                 hints.push({
                     severity: 'warn',
@@ -56,6 +108,7 @@ export function buildHints(audit, opts = {}) {
                     evidence: m.coverage,
                     msg: `「${key}」有效采样 ${(m.coverage * 100).toFixed(0)}%——离线统计与个性化模型应剔除冷启动段`,
                 });
+                coverageHintsEmitted++;
             }
         }
         // 越界
@@ -213,9 +266,16 @@ export function buildHints(audit, opts = {}) {
  *   - 每条 error 扣 12 分，每条 warn 扣 4 分，每条 info 扣 1 分
  *   - 下限 0，上限 100
  *
+ * v1.62.9：unauditable session（INSUFFICIENT_DATA 触发）直接返回 null，
+ *          表示"此局不适合用健康分判定"，避免工具自身故障污染聚合统计。
+ *          aggregateAuditReports 会跳过 healthScore == null 的局。
+ *
  * 这只是个粗合成指标，便于报告头一眼看出"今天的画像健康吗"；具体优化仍要看 hints 详情。
  */
 export function summarizeHealthScore(hints) {
+    if (Array.isArray(hints) && hints.some((h) => h.code === 'INSUFFICIENT_DATA')) {
+        return null;
+    }
     let score = 100;
     for (const h of hints) {
         if (h.severity === 'error') score -= 12;

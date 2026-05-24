@@ -516,14 +516,24 @@ describe('profileAuditContracts', () => {
  * 3) Hints
  * ============================================================ */
 describe('profileAuditHints', () => {
-    it('低覆盖率 → COVERAGE_TOO_LOW (error)', () => {
+    it('低覆盖率 → COVERAGE_TOO_LOW（v1.62.9 起降级为 warn）', () => {
+        /* v1.62.9：单 metric COVERAGE_TOO_LOW 严重度从 error → warn
+         * （数据问题不是逻辑 bug）。要 error 严重度的逻辑性问题用 OUT_OF_RANGE / CONTRACT_VIOLATION。
+         * 关闭 downgrade 用 buildHints(audit, { thresholds: { coverageHintsDowngrade: false } }) */
         const hints = buildHints({
             metrics: { clearRate: { coverage: 0.05, count: 5, stats: { stddev: 0.1 }, jitter: {} } },
         });
         const h = hints.find((x) => x.code === 'COVERAGE_TOO_LOW');
         expect(h).toBeDefined();
-        expect(h.severity).toBe('error');
+        expect(h.severity).toBe('warn');
         expect(h.metrics).toContain('clearRate');
+
+        // 关闭 downgrade 时仍走 error 路径（兼容老行为）
+        const hintsErr = buildHints({
+            metrics: { clearRate: { coverage: 0.05, count: 5, stats: { stddev: 0.1 }, jitter: {} } },
+        }, { thresholds: { coverageHintsDowngrade: false } });
+        const hErr = hintsErr.find((x) => x.code === 'COVERAGE_TOO_LOW');
+        expect(hErr.severity).toBe('error');
     });
 
     it('中等覆盖率 → COVERAGE_LOW (warn)', () => {
@@ -1016,10 +1026,12 @@ describe('auditProfile — 端到端', () => {
 
     it('aggregateAuditReports: 聚合多局，按违规率排序契约', () => {
         const grid = new Grid(8);
-        // 3 局都让 score 回退 → score-monotone 违规
+        /* 3 局都让 score 回退 → score-monotone 违规。
+         * v1.62.9：帧数必须 ≥ minAuditableFrames=20，否则被识别为 too-short 而 healthScore=null。 */
         const buildBadScore = () => {
             const frames = [buildInitFrame('normal', grid, scoring, _buildSamplePs({ phase: 'init', score: 0 }), { ts: 0 })];
-            const scores = [10, 20, 5, 30, 40]; // 回退
+            // 25 帧（远超 20 阈值），包含一次 score 回退触发 score-monotone 违规
+            const scores = [10, 20, 5, 30, 40, 55, 70, 85, 100, 120, 140, 160, 180, 200, 220, 245, 270, 295, 320, 345, 370, 400, 430, 460, 490];
             for (let i = 0; i < scores.length; i++) {
                 frames.push(buildPlaceFrame(0, 0, 0, _buildSamplePs({ score: scores[i] }), { ts: (i + 1) * 1000 }));
             }

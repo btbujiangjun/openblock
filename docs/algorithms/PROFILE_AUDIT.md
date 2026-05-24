@@ -3,6 +3,61 @@
 > 目标：把"画像指标的口径和算法是否健康"从主观体感变成可重复跑的可执行检查，
 > 让任何一局回放都能给出**结构化报告 + 优化建议**，与 SPAWN_EVALUATION 形成姊妹工具。
 
+## ⚡ v1.62.9 全库自闭环（最新）
+
+把"遍历 6258 局用户序列 → 自动化分析 → 启动代码优化"完整闭环跑通。一次跑下来的真实证据：
+
+| 指标 | v1.62.7（200 局抽样） | v1.62.8（926 局全库首跑）| **v1.62.9（926 局全库二跑）** | 改善 |
+|---|---|---|---|---|
+| 健康分中位数 | 60 | 0 ❗ | **60** | +60 ✓ |
+| 健康分 p10 | 41 | 0 | **34** | +34 |
+| 健康分 p90 | 71 | 67 | **78** | +7 |
+| METRIC_COVERAGE_SYSTEMIC | — | 746%（爆炸） | **242%**（cap=5 生效） | -68% |
+| HEALTH_SCORE_OVERALL_LOW | P2 | P1 | **消失** | ✓ |
+| stress-equals-sum-breakdown 100% | — | 已消失 | 已消失 | ✓（ALLOWLIST 持续生效） |
+| spawn-intent-no-thrashing | 83% | 29% | 29% | adaptive 改动需新对局生效 |
+| 总 actions 数 | 9 | 5 | **4** | -56% |
+| 新增 `UNAUDITABLE_SESSIONS_HIGH` | — | — | **28% (263/926)** | ✓ 准确暴露 schema 老化 |
+
+### 暴露的真相
+
+跑全库（vs 200 抽样）才能看到的工具自身故障：
+
+1. **大量老 session frames 缺 metrics 字段** → 50 个 metric coverage 全 0 → 50× COVERAGE_TOO_LOW × -12 分 → 健康分秒归零。这是工具自身故障不是数据故障。
+2. **极短局（< 20 帧）样本不足以做有效统计** → 应单独识别为 `unauditable` 而非评 0 分。
+3. **server.py limit=500 上限** → Web UI 一键巡检永远扫不到全库。
+4. **auto-audit-all `--skip-upload` dry-run 聚合 bug** → 本轮 200 局白跑，聚合的是 server 上的 10 局历史数据。
+
+### 落地的 4 项优化
+
+| 优化 | 文件 | 效果 |
+|---|---|---|
+| `INSUFFICIENT_DATA` 短路 + `healthScore=null` | `profileAuditHints.js` | unauditable 局不归零，单独统计 |
+| `coverageHintCap=5` + `coverageHintsDowngrade=true` | `profileAuditHints.js` | 单局 COVERAGE 类 hint 最多 5 条且 warn 级别（-4/条 vs -12/条），健康分中位数从 0 → 60 |
+| `aggregateAuditReports` 加 `unauditableCount` / `auditableCount` | `profileAudit.js` | 聚合视图区分"可分析的局" |
+| `UNAUDITABLE_SESSIONS_HIGH` action（P1/P2/P3 按占比） | `profileAudit.js` | 显式提示 schema 老化问题 |
+| server.py `limit` admin 模式 500 → 10000 | `server.py` | Web UI 真能扫全库 |
+| Web UI 一键巡检改批处理 + 进度条 + ETA | `profileAuditApp.js` | 全库扫描时 UI 不冻结 |
+| Web UI 聚合视图顶栏显示 `auditableCount / sessionsCount` banner | `profileAuditApp.js` | 用户一眼分清"能分析的"和"被排除的" |
+| `auto-audit-all` dry-run 支持本地聚合 | `auto-audit-all.mjs` | `--aggregate-only-fresh` 模式下，新跑的 N 局立刻能聚合 |
+
+### 全库巡检推荐流程
+
+```bash
+# 启动 server.py 时必须 export OPENBLOCK_DB_DEBUG=1
+OPENBLOCK_DB_DEBUG=1 python server.py
+
+# 方式 1：CLI（最快，绕开 HTTP）
+node scripts/auto-audit-all.mjs --sqlite openblock.db --days 0 --limit 10000 \
+    --force --skip-upload --aggregate-only-fresh --out audit-allusers.md --pretty
+
+# 方式 2：Web UI（推荐运营/产品用）
+# → /profile-audit.html → 用户下拉选"🌐 全库" → 点"🤖 一键自动巡检"
+# → 自动批处理（带进度 ETA）+ 上传 + 聚合 + 优化建议
+```
+
+---
+
 ## 1. 一句话概览
 
 ```

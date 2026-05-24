@@ -351,12 +351,23 @@ function renderAggregate(agg, mountId) {
            </div>`
         : '';
 
+    /* v1.62.9：不可 audit 占比 banner —— 老 schema 或太短的局会被排除在健康分外，
+     * 必须显式告诉用户"聚合视图代表了多少 auditable 数据"，避免误解。 */
+    const unauditableCount = Number(agg.unauditableCount) || 0;
+    const auditableCount = Number(agg.auditableCount) ?? (agg.sessionsCount - unauditableCount);
+    const unauditableBanner = unauditableCount > 0
+        ? `<div style="background:rgba(251,191,36,0.10);border:1px solid #fbbf24;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:var(--text)">
+              ℹ️ ${unauditableCount} 局因 schema 缺失或帧数过少被识别为<b>不可 audit</b>（已自动排除在健康分外），
+              真正参与聚合的有 <b>${auditableCount}</b> 局。
+           </div>`
+        : '';
+
     root.innerHTML = `
-        ${staleBanner}
+        ${staleBanner}${unauditableBanner}
         <div class="audit-header">
             <div class="audit-score">
-                <div class="audit-score-num">${agg.sessionsCount}</div>
-                <div class="audit-score-lbl">局聚合</div>
+                <div class="audit-score-num">${auditableCount}</div>
+                <div class="audit-score-lbl">局可分析${unauditableCount > 0 ? `<small style="opacity:.6">（共 ${agg.sessionsCount}）</small>` : ''}</div>
             </div>
             <div class="audit-meta">
                 <span><b>${agg.framesTotal}</b> 帧总数</span>
@@ -648,13 +659,19 @@ async function refreshAggregate() {
 async function runAutoAudit({ force = false } = {}) {
     const days = Number($('audit-days').value || 7);
     const uid = _currentTargetUserId();
-    setStatus(`🤖 一键巡检启动…扫近 ${days} 天 session 列表`);
+    /* v1.62.9：limit 跟随用户视图调整 ——
+     *   - 选某个具体 user：上限 500（单用户少有人玩超过 500 局/月）
+     *   - 选「🌐 全库」：上限 5000（admin 模式 server.py 已解除 500 上限到 10000）
+     * 注意 server.py 端权限：DB_DEBUG=1 时 500→10000；普通用户仍 500 兜底。 */
+    const limit = uid ? 500 : 5000;
+    const scopeLabel = uid ? `user=${uid.slice(0, 8)}…` : '🌐 全库所有用户';
+    setStatus(`🤖 一键巡检启动…扫近 ${days} 天 ${scopeLabel}（上限 ${limit} 局）`);
     try {
-        const qs = new URLSearchParams({ limit: '300', days: String(days) });
+        const qs = new URLSearchParams({ limit: String(limit), days: String(days) });
         if (uid) qs.set('user_id', uid);
         const candidates = await apiFetch(`/api/profile-audit/sessions?${qs}`);
         if (!Array.isArray(candidates) || candidates.length === 0) {
-            setStatus(`ℹ️ 近 ${days} 天没有 session 可以巡检`);
+            setStatus(`ℹ️ 近 ${days} 天 ${scopeLabel} 没有 session 可以巡检`);
             return;
         }
         /* 重跑策略：
@@ -674,16 +691,30 @@ async function runAutoAudit({ force = false } = {}) {
 
         let succeeded = 0;
         let failed = 0;
+        let unauditable = 0;
+        const startTs = Date.now();
+        const tick = pending.length > 50 ? 10 : 5;   // 进度刷新粒度
+        /* v1.62.9：批量场景（全库）通常 500-5000 局，给个 ETA 让用户知道还要多久。 */
         for (let i = 0; i < pending.length; i++) {
             const c = pending[i];
-            setStatus(`🔄 [${i + 1}/${pending.length}] #${c.sessionId} 拉 frames…`);
+            if (i === 0 || i === pending.length - 1 || (i + 1) % tick === 0) {
+                const done = i + 1;
+                const elapsed = (Date.now() - startTs) / 1000;
+                const eta = done > 0 && i < pending.length - 1
+                    ? Math.round(elapsed * (pending.length - done) / done)
+                    : 0;
+                setStatus(
+                    `🔄 巡检中 [${done}/${pending.length}] #${c.sessionId}`
+                    + ` · ✓${succeeded} ✗${failed} ⚠${unauditable}`
+                    + (eta > 0 ? ` · 预计还需 ${eta}s` : '')
+                );
+            }
             try {
                 const data = await apiFetch(`/api/move-sequence/${c.sessionId}`);
                 const frames = Array.isArray(data?.frames) ? data.frames : [];
                 if (frames.length === 0) { failed++; continue; }
-                setStatus(`🔄 [${i + 1}/${pending.length}] #${c.sessionId} audit 中（${frames.length} 帧）…`);
                 const { report } = await runInWorker('audit', { frames });
-                /* 上传到 SQLite */
+                if (report.healthScore === null) unauditable++;
                 await apiFetch(`/api/profile-audit/${c.sessionId}`, {
                     method: 'POST',
                     body: JSON.stringify({ user_id: c.userId || uid, report }),
@@ -691,8 +722,11 @@ async function runAutoAudit({ force = false } = {}) {
                 succeeded++;
             } catch (e) {
                 failed++;
-                /* 单条失败不阻断整体流程，只 log */
                 console.warn(`#${c.sessionId} audit 失败:`, e);
+            }
+            /* 每 20 条让浏览器主线程喘口气，避免长时间冻结 UI */
+            if ((i + 1) % 20 === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
             }
         }
 
@@ -708,9 +742,10 @@ async function runAutoAudit({ force = false } = {}) {
 
         const p1 = actions.filter((a) => a.priority === 1).length;
         const total = actions.length;
+        const elapsed = ((Date.now() - startTs) / 1000).toFixed(1);
         setStatus(
-            `✓ 巡检完成：新增 audit ${succeeded}，失败 ${failed}；聚合 ${agg.sessionsCount} 局；` +
-            `优化建议 ${total} 项${p1 > 0 ? `（其中 P1 高优先级 ${p1} 项 🔴）` : ''}`
+            `✓ 巡检完成（${elapsed}s）：新增 ${succeeded}（含 ⚠${unauditable} 不可 audit），失败 ${failed}；` +
+            `聚合 ${agg.sessionsCount} 局；优化建议 ${total} 项${p1 > 0 ? `（其中 P1 高优先级 ${p1} 项 🔴）` : ''}`
         );
     } catch (e) {
         setStatus(`巡检失败：${e.message || e}`);

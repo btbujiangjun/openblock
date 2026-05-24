@@ -798,6 +798,10 @@ export function aggregateAuditReports(reports) {
     const items = reports.map((r) => r?.report ? r : { sessionId: null, report: r });
     const sessionsCount = items.length;
     let framesTotal = 0;
+    /* v1.62.9：unauditable 局计数（healthScore=null，因 INSUFFICIENT_DATA 触发）。
+     * 全库 audit 暴露大量老 schema / 太短的局把健康分污染——这些应单独统计而非
+     * 直接当成"健康分 0 的烂局"。 */
+    let unauditableCount = 0;
 
     /** @type {Map<string, { id:string, desc:string, appeared:number, failed:number }>} */
     const contractStats = new Map();
@@ -818,7 +822,11 @@ export function aggregateAuditReports(reports) {
     for (const { report } of items) {
         if (!report) continue;
         framesTotal += Number(report.summary?.totalFrames) || 0;
-        if (Number.isFinite(report.healthScore)) healthScores.push(Number(report.healthScore));
+        if (Number.isFinite(report.healthScore)) {
+            healthScores.push(Number(report.healthScore));
+        } else if (report.healthScore === null) {
+            unauditableCount++;
+        }
 
         // v1.62.4：记录每份报告的 engineVersion，让 UI 能提示"这局是旧规则跑的，建议重跑"
         const ver = String(report.engineVersion || 'pre-1.62.4');
@@ -909,12 +917,18 @@ export function aggregateAuditReports(reports) {
         .sort((x, y) => y.count - x.count)
         .slice(0, 8);
 
+    const auditableCount = sessionsCount - unauditableCount;
+    const auditableRatio = sessionsCount > 0 ? auditableCount / sessionsCount : 1;
+
     return {
         schema: PROFILE_AUDIT_SCHEMA,
         engineVersion: PROFILE_AUDIT_ENGINE_VERSION,
         generatedAt: Date.now(),
         sessionsCount,
         framesTotal,
+        unauditableCount,     // v1.62.9：因 INSUFFICIENT_DATA 跳过健康分的局数
+        auditableCount,
+        auditableRatio,
         healthScore: healthScoreStats,
         contractStats: contractStatsList,
         hintCounts: hintCountsList,
@@ -983,6 +997,38 @@ export function summarizeOptimizationActions(aggregate) {
      * 当聚合数据里有 ≥1 局是用旧规则（engineVersion < current）跑出来的，
      * 说明 audit 工具升级后这些局没重跑 → 它们的"违规"可能是已经修复的假阳。
      * 提示用户在「🤖 一键自动巡检」点"强制重跑"刷新到最新规则。 */
+    /* === 0.5) 不可 audit 局占比高（v1.62.9）—— 在 STALE 之前提示
+     *
+     * 全库 audit 时，老 schema / 太短的 session 占比往往很高（频率比"代码 bug"高得多）。
+     * 它们贡献大量 INSUFFICIENT_DATA hint 但不该污染聚合统计——给用户一个明确的"清理候选"。 */
+    const unauditableCount = Number(aggregate.unauditableCount) || 0;
+    if (unauditableCount > 0 && sessionsCount > 0) {
+        const ratio = unauditableCount / sessionsCount;
+        if (ratio >= 0.10) {
+            const sev = ratio >= 0.50 ? 1 : ratio >= 0.25 ? 2 : 3;
+            actions.push({
+                priority: sev,
+                code: 'UNAUDITABLE_SESSIONS_HIGH',
+                category: 'meta',
+                title: `${unauditableCount}/${sessionsCount} 局（${(ratio * 100).toFixed(0)}%）不可 audit（schema 缺失 / 帧数过少）`,
+                evidence: `auditable=${aggregate.auditableCount}/${sessionsCount} · 这些局已自动从健康分统计中排除`,
+                affected: ['profileAudit.engine', 'moveSequence.schema'],
+                rootCauseHints: [
+                    '老对局（v1.42 之前）的 frames 不带 ps.metrics 写入 → 50 个 metric 覆盖率全 0',
+                    '极短局（< 20 帧）样本不足以做有效的相关性 / 趋势分析',
+                    '若占比仍升高：上线后某次重构可能把 ps 写入路径写漏了',
+                ],
+                suggestedActions: [
+                    '1. 优先做：把 audit 入口（CLI/Web 工具）加 "filter 太老的局" 默认 days≤30',
+                    '2. 数据迁移：对老局补写一个 metrics={} 占位，避免被反复扫到',
+                    '3. 监控：把 unauditableRatio 加进 Web UI 聚合视图顶栏（告警条件 > 30%）',
+                ],
+                effort: 'low',
+                expectedBenefit: '让聚合数据真实反映"可分析的局"，避免老数据淹没真实问题',
+            });
+        }
+    }
+
     const verStats = aggregate.engineVersionStats;
     if (verStats && verStats.mismatchCount > 0) {
         const verList = Object.entries(verStats.perVersion)

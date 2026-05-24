@@ -1717,7 +1717,7 @@ def list_profile_audit_candidates():
       - 跨用户列表受 OPENBLOCK_DB_DEBUG 门控，与现有 SQLite 调试端点同款防误曝光。
     """
     user_id = (request.args.get("user_id") or "").strip()
-    lim = max(1, min(500, request.args.get("limit", 100, type=int)))
+    raw_limit = request.args.get("limit", 100, type=int)
     days = request.args.get("days", type=int)
     since = None
     if days and days > 0:
@@ -1728,6 +1728,11 @@ def list_profile_audit_candidates():
             "error": "需要 user_id；省略 user_id 时进入跨用户 admin 视图，"
                      "需在 server 启动前设置 OPENBLOCK_DB_DEBUG=1"
         }), 403
+
+    # v1.62.9：admin 模式（DB_DEBUG=1）解除 limit 500 上限到 10000，让 Web UI 一键巡检
+    # 真正能扫"全库"。普通模式仍保留 500 上限避免单用户拉爆 payload。
+    max_limit = 10000 if _db_debug_enabled() else 500
+    lim = max(1, min(max_limit, raw_limit))
 
     db = get_db()
     cur = db.cursor()
