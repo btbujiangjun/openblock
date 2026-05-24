@@ -59,8 +59,14 @@ export const PROFILE_AUDIT_SCHEMA = 1;
  *   v1.62.3 — 新增 spawn-intent-no-thrashing 契约；
  *             session-arc-warm-to-cool 加长 session / 持续救济豁免
  *   v1.62.4 — 报告嵌入 engineVersion 元数据，便于检测过期报告
+ *   v1.62.5 — 7 条画像优化全部启用（含 audit-only 部分）
+ *   v1.62.6 — stress 求和契约改对比 rawStress（之前 stress vs Σ 物理错误）
+ *   v1.62.7 — 加 11 个后置 Adjust 字段到 SKIP；spawn-intent harvest stickiness
+ *   v1.62.8 — stress 求和契约改用 ALLOWLIST（彻底修复 100% 失败 bug：
+ *             之前用 BLOCKLIST 漏排除 beforeClamp/afterClamp/afterSmoothing 等
+ *             "stress 中间快照"字段，让 Σ ≫ rawStress）；正确 bump engineVersion 链路
  */
-export const PROFILE_AUDIT_ENGINE_VERSION = '1.62.4';
+export const PROFILE_AUDIT_ENGINE_VERSION = '1.62.8';
 
 /* ============================================================
  * 默认期望范围（用于"越界"判定）
@@ -119,21 +125,34 @@ const DEFAULT_RANGE_BY_KEY = {
  *
  * @returns {number[]} length = totalFrames；某帧无 stressBreakdown → NaN
  */
-const _STRESS_BREAKDOWN_SKIP = new Set([
-    /* 与 adaptiveSpawn._SUM_SKIP 一致 */
-    'boardRisk', 'bottleneckTrough', 'bottleneckSamples',
-    /* rawStress 是"Σ(其他非 SKIP 字段) 自己的快照"——不能再加进求和，否则双倍计数。 */
-    'rawStress',
-    /* v1.62.7（关键修复）：以下 9 个字段是 adaptiveSpawn 在 rawStress 赋值"之后"才写入
-     * stressBreakdown 的"后置调制审计字段"——它们已经被反映在最终 stress 里，但**不参与
-     * rawStress 求和**。之前 v1.62.6 漏排除这些字段，导致 audit Σ = rawStress + 后置 adjust，
-     * 必然 ≠ rawStress，契约 100% 失败。 */
-    'lifecycleCapAdjust', 'lifecycleBandAdjust', 'lifecycleStressAdjust',
-    'onboardingStressOverrideAdjust', 'winbackStressCapAdjust',
-    'clampAdjust', 'smoothingAdjust', 'minStressFloorAdjust', 'flowPayoffCapAdjust',
-    /* 元信息（非数字字段） */
-    'lifecycleStage', 'lifecycleBand',
-]);
+/**
+ * v1.62.8 重构：从 BLOCKLIST（SKIP 模式）改为 ALLOWLIST（显式列出 stress 分量）。
+ *
+ * 之前的 SKIP 模式致命问题：adaptiveSpawn 会写入 30+ 字段到 stressBreakdown（包括
+ * stress 中间快照 beforeClamp/afterClamp/afterSmoothing/afterOccupancy 等），
+ * 任何遗漏都让 audit Σ 错算成 stress 的几倍。
+ *
+ * ALLOWLIST 模式：只把已知"在 rawStress 求和时参与 reduce"的字段加进 Σ。
+ * 与 adaptiveSpawn line 1353-1356 真实 reduce 口径完全一致：
+ *
+ *     let stress = Object.entries(stressBreakdown)
+ *         .filter(([key, v]) => !_SUM_SKIP.has(key) && Number.isFinite(v))
+ *         .reduce((sum, [, value]) => sum + value, 0);
+ *     stressBreakdown.rawStress = stress;
+ *
+ * 这意味着：rawStress 赋值前 stressBreakdown 已有的所有 number 字段（除 SKIP 三项）
+ * 都参与求和。维护规则：在 adaptiveSpawn line 1364 之前出现的 number 字段名
+ * 都应当在本列表中。
+ */
+const _STRESS_BREAKDOWN_COMPONENT_KEYS = [
+    'scoreStress', 'runStreakStress', 'difficultyBias', 'skillAdjust',
+    'flowAdjust', 'reactionAdjust', 'pacingAdjust',
+    'recoveryAdjust', 'frustrationRelief', 'comboAdjust', 'nearMissAdjust',
+    'feedbackBias', 'trendAdjust', 'sessionArcAdjust', 'endSessionDistress',
+    'holeReliefAdjust', 'boardRiskReliefAdjust', 'abilityRiskAdjust',
+    'delightStressAdjust', 'friendlyBoardRelief', 'bottleneckRelief',
+    'motivationStressAdjust', 'accessibilityStressAdjust', 'returningWarmupAdjust',
+];
 
 function _sumStressBreakdownPerFrame(frames) {
     const totalFrames = Array.isArray(frames) ? frames.length : 0;
@@ -143,9 +162,8 @@ function _sumStressBreakdownPerFrame(frames) {
         if (!br || typeof br !== 'object') continue;
         let s = 0;
         let any = false;
-        for (const [k, v] of Object.entries(br)) {
-            if (_STRESS_BREAKDOWN_SKIP.has(k)) continue;
-            const n = Number(v);
+        for (const k of _STRESS_BREAKDOWN_COMPONENT_KEYS) {
+            const n = Number(br[k]);
             if (Number.isFinite(n)) { s += n; any = true; }
         }
         if (any) out[i] = s;

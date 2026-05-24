@@ -768,9 +768,12 @@ describe('auditProfile — 端到端', () => {
         expect(report.engineVersion).toMatch(/^\d+\.\d+\.\d+/);
     });
 
-    it('stress-equals-sum-breakdown（端到端）: rawStress = Σ(全字段) → 自动通过（v1.62.6）', () => {
+    it('stress-equals-sum-breakdown（端到端）: rawStress = Σ(全字段) → 自动通过（v1.62.8）', () => {
         const grid = new Grid(8);
-        // 模拟 adaptiveSpawn.js 真实持久化的 stressBreakdown：12+ 字段 + rawStress 快照
+        /* v1.62.8：用 ALLOWLIST 内的 stress 分量构造合成 stressBreakdown。
+         * lifecycleStressAdjust / challengeBoost 是"后置 adjust"，不参与 rawStress 求和。
+         * 故意混入 beforeClamp/afterClamp/lifecycleStage 等"诊断字段"，验证 ALLOWLIST
+         * 能正确忽略它们而不破坏求和。 */
         const _withBigBreakdown = (i) => {
             const br = {
                 difficultyBias: 0.20,
@@ -779,19 +782,26 @@ describe('auditProfile — 端到端', () => {
                 pacingAdjust: i % 2 === 0 ? -0.12 : 0.04,
                 friendlyBoardRelief: -0.02,
                 sessionArcAdjust: -0.04 + (i / 30) * 0.10,
-                challengeBoost: 0.03,
                 recoveryAdjust: i % 5 === 0 ? -0.20 : 0,
                 frustrationRelief: i % 7 === 0 ? -0.15 : 0,
                 nearMissAdjust: i % 4 === 0 ? -0.05 : 0,
                 boardRiskReliefAdjust: -0.01,
                 comboAdjust: i % 3 === 0 ? 0.05 : 0,
-                lifecycleStressAdjust: 0,
                 trendAdjust: 0,
                 endSessionDistress: 0,
             };
             const sumAll = Object.values(br).reduce((s, v) => s + v, 0);
-            br.rawStress = sumAll;     // v1.62.6：模拟 adaptiveSpawn.js 真实写入
-            return { br, stress: Math.max(0, Math.min(1, sumAll)) };   // stress 被 clamp 到 [0,1]
+            br.rawStress = sumAll;
+            // v1.62.8：模拟 adaptiveSpawn 之后写入的诊断字段（ALLOWLIST 应该忽略它们）
+            br.lifecycleCapAdjust = 0.05;
+            br.lifecycleBandAdjust = -0.02;
+            br.beforeClamp = sumAll;       // stress 中间快照 — 之前 BLOCKLIST 漏掉
+            br.afterClamp = Math.max(0, Math.min(1, sumAll));
+            br.afterSmoothing = br.afterClamp;
+            br.occupancyDamping = 0.85;
+            br.lifecycleStage = 'S2';      // 字符串
+            br.lifecycleBand = 'M1';
+            return { br, stress: br.afterClamp };
         };
         const frames = [buildInitFrame('normal', grid, scoring, _buildSamplePs({ phase: 'init', score: 0 }), { ts: 0 })];
         for (let i = 0; i < 20; i++) {

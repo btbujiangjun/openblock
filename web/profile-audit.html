@@ -112,6 +112,32 @@
     .audit-action-row ul { margin: 4px 0; padding-left: 22px; }
     .audit-action-row li { margin: 3px 0; line-height: 1.5; }
     .audit-action-row code { font-size: 11px; }
+
+    /* === 方法论折叠区 === */
+    .methodology { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 18px; padding: 0; overflow: hidden; }
+    .methodology > summary {
+        cursor: pointer; padding: 14px 18px; font-size: 14px;
+        list-style: none; user-select: none;
+        background: linear-gradient(90deg, rgba(96,165,250,0.08), transparent);
+    }
+    .methodology > summary::-webkit-details-marker { display: none; }
+    .methodology > summary::before { content: '▶'; color: var(--accent); margin-right: 8px; font-size: 11px; transition: transform 0.15s; display: inline-block; }
+    .methodology[open] > summary::before { transform: rotate(90deg); }
+    .methodology > summary:hover { background: linear-gradient(90deg, rgba(96,165,250,0.14), transparent); }
+    .methodology-body { padding: 4px 24px 20px; font-size: 13px; line-height: 1.7; color: var(--text); }
+    .methodology-body h3 {
+        font-size: 15px; color: var(--accent); margin: 22px 0 10px;
+        padding-bottom: 6px; border-bottom: 1px dashed var(--line);
+    }
+    .methodology-body h3:first-child { margin-top: 8px; }
+    .methodology-body p { margin: 6px 0; }
+    .methodology-body code { font-size: 11px; }
+    .audit-method-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0 6px; }
+    .audit-method-table th, .audit-method-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .audit-method-table th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
+    .audit-method-table td:first-child { white-space: nowrap; }
+    .audit-method-list { margin: 6px 0 12px; padding-left: 22px; }
+    .audit-method-list li { margin: 4px 0; }
   </style>
 </head>
 <body>
@@ -133,6 +159,86 @@
         <b>对照分析</b> — 与 baseline session 比对，触发 REGRESSION_*/IMPROVEMENT_* hints；
         <b>聚合视图</b> — 跨近 N 天看哪些契约最容易违规。</p>
     </div>
+
+    <!-- v1.62.8：方法论说明（可折叠） -->
+    <details class="methodology">
+      <summary>📚 <b>自评估方法论</b>：思路、契约设计、优化建议如何使用（点开看完整文档）</summary>
+      <div class="methodology-body">
+
+        <h3>🎯 核心思路</h3>
+        <p>本工具回答一个问题：<b>「我们的玩家画像指标体系本身可信吗？」</b></p>
+        <p>不同于 buildReplayAnalysis（评价玩家）或 SPAWN_EVALUATION（评价算法），本工具<b>评价指标</b>——
+          通过遍历真实回放序列，把"指标应该怎么关联"作为可执行规则，自动检查实际数据是否符合业务约定。</p>
+
+        <h3>🧪 四层评估框架</h3>
+        <table class="audit-method-table">
+          <thead><tr><th>层</th><th>关注</th><th>典型评估项</th><th>典型 hint code</th></tr></thead>
+          <tbody>
+            <tr><td><b>A 单指标质量</b></td><td>每个指标独立体检</td><td>覆盖率 / 越界 / 跳变 / 冷启动</td><td><code>COVERAGE_TOO_LOW</code> / <code>OUT_OF_RANGE</code> / <code>METRIC_JITTERY</code></td></tr>
+            <tr><td><b>B 指标对关系</b></td><td>识别冗余/共线性</td><td>Pearson / Spearman / 已知关系豁免</td><td><code>REDUNDANT_PAIR</code> / <code>REDUNDANT_METRIC_PAIRS</code></td></tr>
+            <tr><td><b>C 时序行为</b></td><td>趋势 / 周期性</td><td>趋势斜率 / 自相关 / 首末半段差</td><td>（喂给契约层）</td></tr>
+            <tr><td><b>D 自适应链路</b></td><td>spawn 决策的因果链</td><td>stress 主导分量 / intent 切换频率 / 闭环反馈滞后</td><td><code>STRESS_DOMINATOR_PERSISTENT</code> / <code>INTENT_THRASHING</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>📜 12 条「业务约定即代码」契约</h3>
+        <p>每条契约把"指标应该怎么关联"显式写成可执行规则。5 种类型：</p>
+        <ul class="audit-method-list">
+          <li><b>反向</b>：A↑ ↔ B↓（如 clearRate-vs-boardFill / frustration-vs-momentum）</li>
+          <li><b>求和</b>：stress = Σ stressBreakdown 全字段（rawStress-vs-Σ）</li>
+          <li><b>相关</b>：A 与 B 应当中度相关（flowAdjust-tracks-flowDeviation）</li>
+          <li><b>滞后</b>：A[t] 与 B[t+lag] 应同向相关（feedbackBias-leads-stress）</li>
+          <li><b>范围/单调/弧形/漂移</b>：score 单调不降 / boardFill∈[0,1] / sessionArc 半圆弧 / skill 单局 |Δ|&lt;0.4 等</li>
+        </ul>
+        <p>新增契约只需在 <code>web/src/audit/profileAuditContracts.js</code> 追加一项，不需要动主入口。</p>
+
+        <h3>🛠 优化建议 (Action) 体系</h3>
+        <p>跨局聚合后，<code>summarizeOptimizationActions</code> 把数据翻译为 5 个 category 的可执行 action：</p>
+        <table class="audit-method-table">
+          <thead><tr><th>category</th><th>触发条件</th><th>建议落到哪个文件</th></tr></thead>
+          <tbody>
+            <tr><td><code>contract</code></td><td>单条契约违规率 ≥25% 且 ≥3 局</td><td>各契约定制建议（如 stress 求和→adaptiveSpawn）</td></tr>
+            <tr><td><code>metric-coverage</code></td><td>覆盖率不足 / 冗余对</td><td>buildPlayerStateSnapshot / metricRelationships</td></tr>
+            <tr><td><code>metric-noise</code></td><td>多个指标抖动</td><td>UI 加 EMA 开关 / audit 加 _smoothBeforeStats</td></tr>
+            <tr><td><code>linkage</code></td><td>STRESS_SINGLE_DOMINATOR + INTENT_THRASHING 联动</td><td>adaptiveSpawn 加滞回 / 收敛分量值域</td></tr>
+            <tr><td><code>meta</code></td><td>健康分中位数 &lt; 60 / 旧版本 audit 残留</td><td>引导先处理 P1/P2 contract action</td></tr>
+          </tbody>
+        </table>
+        <p>action 按优先级排序（P1🔴 → P5ℹ️），每条都告诉你<b>"改哪个文件 / 做什么操作 / 预期收益"</b>。</p>
+
+        <h3>🔄 推荐工作流</h3>
+        <ol class="audit-method-list">
+          <li><b>遇到画像问题</b> → 点「🤖 一键自动巡检」（聚合 tab）一键扫库 + audit + 翻译 action</li>
+          <li><b>排查具体 session</b> → 单局 audit tab → 选 session 看健康分 + 契约 + hints</li>
+          <li><b>验证改动效果</b> → 对照分析 tab → current vs baseline，看哪些契约从 ❌ 转 ✓（IMPROVEMENT_CONTRACT）或反向（REGRESSION_CONTRACT）</li>
+          <li><b>跨日体检</b> → 聚合 tab → 看 contractStats 违规率排行、stress 主导分量分布</li>
+          <li><b>规则升级后</b> → 点「↻ 强制重跑」用最新契约刷新 SQLite 报告</li>
+        </ol>
+
+        <h3>🎓 如何用 audit 结果改进画像系统</h3>
+        <p>真实案例（v1.62.3~v1.62.7 落地的 7 条画像优化）：</p>
+        <ol class="audit-method-list">
+          <li><b>frustration-vs-momentum 33% 违规</b> → <code>playerProfile.momentum</code> getter 加 frustration 负向 penalty（已上线）</li>
+          <li><b>session-arc 67% 违规</b> → 长 session + 持续救济场景自动豁免（已上线）+ <code>sessionArcCfg.peakBoost=0.05</code> 补全半圆弧</li>
+          <li><b>stress 主导 pacingAdjust 67%</b> → <code>signals.__normalizeBudget=0.05</code> 钳制强势分量</li>
+          <li><b>INTENT_THRASHING 频繁</b> → <code>spawnIntentCfg.hysteresisEnabled</code> + sprint/relief/harvest 三重滞回</li>
+          <li><b>REDUNDANT_PAIR ×5</b> → <code>metricRelationships.js</code> 显式登记已知关系（skill↔historicalSkill），audit 自动豁免</li>
+          <li><b>stress-equals-sum-breakdown 100% 失败</b> → 发现 <code>_STRESS_BREAKDOWN_SKIP</code> 漏排除 9 个后置 Adjust 字段（v1.62.7 修复）</li>
+          <li><b>feedback-loop-effective 新契约</b> → 验证 spawn 决策→玩家响应的闭环是否真的工作</li>
+        </ol>
+        <p>这套循环的核心价值：<b>audit 工具不只是给画像打分，还反向暴露 audit 工具自己的 bug、契约设计错位、配置文档过严</b>——
+          每次跑 audit 既是评估画像，也是评估"评估系统"本身。</p>
+
+        <h3>📖 深入阅读</h3>
+        <ul class="audit-method-list">
+          <li>完整设计文档：<a href="/docs/algorithms/PROFILE_AUDIT.md">/docs/algorithms/PROFILE_AUDIT.md</a></li>
+          <li>核心库：<code>web/src/audit/profileAudit.js</code>（auditProfile / aggregateAuditReports / summarizeOptimizationActions）</li>
+          <li>契约列表：<code>web/src/audit/profileAuditContracts.js</code></li>
+          <li>已知关系表：<code>web/src/audit/metricRelationships.js</code></li>
+          <li>CLI 批量入口：<code>npm run profile:auto-audit -- --sqlite db --pretty --out report.md</code></li>
+        </ul>
+      </div>
+    </details>
 
     <div class="tabs">
       <button class="tab-btn active" data-tab="single">单局 Audit</button>
