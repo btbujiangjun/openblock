@@ -265,14 +265,19 @@
 </head>
 <body>
   <main>
+    <div style="background:linear-gradient(90deg, rgba(251,191,36,0.18), transparent); border:1px solid rgba(251,191,36,0.45); border-left:3px solid #fbbf24; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:13px;">
+      ⚠️ <b>这是 v1 旧看板 (legacy)</b> ·
+      已被 <b><a href="/spawn-tuning-v2-dashboard.html" style="color:#a78bfa">v2 工业化版</a></b> 取代 (8 PR 完整 / 195 tests / ResNet-MLP L4 / 20 维 d_curve / 异步训练 / 灰度切量 / 离线 bundle 四端发布)。
+      v1 仍可用作对照,但不再迭代,后续会归档。
+    </div>
     <header>
       <div>
-        <h1>🧮 出块算法优化 (Spawn Algorithm Tuning)</h1>
+        <h1>🧮 出块算法优化 (Spawn Algorithm Tuning) <span style="font-size:12px; color:#fbbf24; font-weight:normal;">v1 legacy</span></h1>
         <p>从「跑一次看效果」到「系统化上线」一站式 — 按使用场景组织功能,按需进入</p>
       </div>
       <div style="text-align:right; font-size:12px;">
-        <p>📖 <a href="/docs/algorithms/SPAWN_AUTO_TUNING.md">设计文档</a> · 📈 <a href="/docs/algorithms/SPAWN_EVALUATION.md">评估口径</a></p>
-        <p>🛠 CLI: <code>npm run spawn:eval</code> · <code>npm run spawn:tune</code></p>
+        <p>📖 <a href="/docs/algorithms/SPAWN_AUTO_TUNING.md">v1 文档</a> · 📈 <a href="/docs/algorithms/SPAWN_TUNING_V2.md">v2 文档</a></p>
+        <p>🛠 CLI: <code>npm run spawn:tune</code></p>
       </div>
     </header>
 
