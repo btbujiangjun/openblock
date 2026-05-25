@@ -206,6 +206,39 @@
     .dc-build-btn.dc-build-active {
       background: var(--accent); color: #0f172a; border-color: var(--accent);
     }
+
+    /* === 维度多选 chips === */
+    .dim-row {
+      display: flex; align-items: center; gap: 8px; margin: 4px 0;
+      flex-wrap: wrap; font-size: 11.5px;
+    }
+    .dim-label {
+      min-width: 88px; color: var(--muted); font-weight: 600;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .dim-label-en { color: rgba(156,163,175,0.5); font-weight: normal; font-size: 10px; }
+    .chip-group { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; flex: 1; min-width: 0; }
+    .chip {
+      padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px;
+      background: transparent; color: var(--muted); cursor: pointer;
+      font-size: 11px; user-select: none; transition: all 0.1s;
+      font-family: ui-monospace, monospace; height: 22px; line-height: 18px;
+    }
+    .chip:hover { border-color: var(--accent); color: var(--text); }
+    .chip.chip-on {
+      background: var(--accent); color: #0f172a;
+      border-color: var(--accent); font-weight: 700;
+    }
+    .chip-quick {
+      font-size: 10px; padding: 1px 7px; height: 20px;
+      color: var(--muted); background: transparent; border: 1px dashed var(--line);
+      border-radius: 4px; cursor: pointer; font-family: inherit;
+    }
+    .chip-quick:hover { color: var(--accent); border-color: var(--accent); }
+    .dim-count {
+      font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--accent);
+      font-weight: 700; min-width: 24px; text-align: right;
+    }
     .dc-build-panel { padding: 8px 0 0; }
     .dc-row-actions button { padding: 3px 8px; height: 22px; font-size: 10.5px; }
     .dc-tag-edit {
@@ -637,11 +670,73 @@
             <span id="dc-lhs-active-preset" style="color:var(--accent); font-family:ui-monospace,monospace; font-size:10.5px;"></span>
           </div>
 
+          <!-- 5 维度场景筛选 (chips 多选) -->
+          <div style="padding:8px 12px; background:rgba(2,6,23,0.35); border:1px solid var(--line); border-radius:8px; margin:4px 0;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
+              <span style="font-size:11.5px; font-weight:700; color:var(--text);">🎮 玩家场景 (勾选哪些组合要采样)</span>
+              <span class="muted-hint" style="padding:0; font-size:10.5px; font-style:normal;">
+                场景数 = <b id="dim-multiply" style="color:var(--accent); font-family:ui-monospace,monospace;">3 × 2 × 5 × 4 = 120</b>
+              </span>
+              <button id="btn-dim-reset-all" class="chip-quick" title="全部维度恢复全选">↺ 全选</button>
+            </div>
+
+            <div class="dim-row">
+              <span class="dim-label">游戏难度 <span class="dim-label-en">difficulty</span></span>
+              <div class="chip-group" data-dim="difficulty">
+                <button type="button" class="chip chip-on" data-val="easy">easy</button>
+                <button type="button" class="chip chip-on" data-val="normal">normal</button>
+                <button type="button" class="chip chip-on" data-val="hard">hard</button>
+              </div>
+              <span class="dim-count" data-count-for="difficulty">3</span>
+            </div>
+
+            <div class="dim-row">
+              <span class="dim-label">出块算法 <span class="dim-label-en">generator</span></span>
+              <div class="chip-group" data-dim="generator">
+                <button type="button" class="chip chip-on" data-val="triplet-p1" title="P1: 组合级评分">triplet-p1</button>
+                <button type="button" class="chip chip-on" data-val="budget-p2" title="P2: 体验预算模型">budget-p2</button>
+              </div>
+              <span class="dim-count" data-count-for="generator">2</span>
+            </div>
+
+            <div class="dim-row">
+              <span class="dim-label">个人最佳分 <span class="dim-label-en">bestScore</span></span>
+              <div class="chip-group" data-dim="bestScore">
+                <button type="button" class="chip chip-on" data-val="500" title="新手起步段">≤500</button>
+                <button type="button" class="chip chip-on" data-val="1500" title="入门段">~1500</button>
+                <button type="button" class="chip chip-on" data-val="4000" title="进阶段">~4000</button>
+                <button type="button" class="chip chip-on" data-val="10000" title="高手段">~10000</button>
+                <button type="button" class="chip chip-on" data-val="25000" title="顶尖段">≥25000</button>
+              </div>
+              <span class="dim-count" data-count-for="bestScore">5</span>
+            </div>
+
+            <div class="dim-row">
+              <span class="dim-label">生命周期 <span class="dim-label-en">lifecycle</span></span>
+              <div class="chip-group" data-dim="lifecycle">
+                <button type="button" class="chip chip-on" data-val="onboarding" title="< 50 局, 新人">onboarding 新人</button>
+                <button type="button" class="chip chip-on" data-val="growth" title="50-300 局, 成长">growth 成长</button>
+                <button type="button" class="chip chip-on" data-val="mature" title="≥ 300 局, 稳定">mature 成熟</button>
+                <button type="button" class="chip chip-on" data-val="plateau" title="≥ 30 天没破 PB, 瓶颈">plateau 平台</button>
+              </div>
+              <span class="dim-count" data-count-for="lifecycle">4</span>
+            </div>
+
+            <div class="dim-row" style="border-top:1px dashed var(--line); padding-top:6px; margin-top:6px;">
+              <span class="dim-label">Bot 模拟 <span class="dim-label-en">policy</span></span>
+              <div class="chip-group" data-dim="policy">
+                <button type="button" class="chip chip-on" data-val="random" title="随机放置, 模拟低规划玩家">random 随机</button>
+                <button type="button" class="chip chip-on" data-val="clear-greedy" title="贪婪消行, 模拟一般玩家">clear-greedy 贪婪</button>
+                <button type="button" class="chip chip-on" data-val="survival" title="生存优先, 模拟保守玩家">survival 保守</button>
+              </div>
+              <span class="dim-count" data-count-for="policy">3</span>
+            </div>
+
+            <!-- 隐藏字段, chips 同步过来供 startLhsFromDataCenter 读 -->
+            <input type="hidden" id="dc-lhs-ctx" value="*">
+          </div>
+
           <div class="form-row">
-            <label title="筛选哪些"玩家场景"参与采样 — 4 个维度组合:&#10;  难度: easy / normal / hard&#10;  生成器: triplet-p1 / budget-p2&#10;  个人最佳档 (PB): 500 / 1500 / 4000 / 10000 / 25000&#10;  生命周期: onboarding / growth / mature / plateau&#10;&#10;格式: 难度:生成器:PB档:生命周期&#10;* = 该位不限&#10;示例:&#10;  *                            = 全部 120 个场景&#10;  normal:*:*:*                 = 仅 normal 难度 (40 场景)&#10;  normal:budget-p2:1500:growth = 单一场景">
-              筛选场景 <span style="color:var(--muted); font-weight:normal;">(context)</span>
-              <input id="dc-lhs-ctx" type="text" placeholder="*" value="*">
-            </label>
             <label title="每个场景里要试多少组不同的算法参数&#10;调试: 5-10 · 训练推荐: 30-50 · 高精度: 60-100&#10;撒得越多神经网络学得越准, 但耗时线性增长">
               每场景参数组数 <span style="color:var(--muted); font-weight:normal;">(θ)</span>
               <input id="dc-lhs-thetas" type="number" min="2" max="200" value="30">

@@ -148,10 +148,19 @@ function matchLaunchContext(filter, ctx) {
     const parts = filter.split(':');
     while (parts.length < 4) parts.push('*');
     const [df, gf, bf, lf] = parts;
-    if (df !== '*' && df !== ctx.difficulty) return false;
-    if (gf !== '*' && gf !== ctx.generator) return false;
-    if (bf !== '*' && Number(bf) !== ctx.bestScore_bin) return false;
-    if (lf !== '*' && lf !== ctx.lifecycle_stage) return false;
+    // v0.3.11: 支持每段用逗号传多值, e.g. "easy,normal:*:1500,4000:*"
+    const tokenMatch = (token, value, isNumber = false) => {
+        if (!token || token === '*') return true;
+        if (token === '__EMPTY__') return false;  // 该维度无任何勾选 → 0 个匹配
+        const wanted = token.split(',').map((s) => s.trim()).filter(Boolean);
+        if (wanted.length === 0) return true;
+        const v = isNumber ? Number(value) : String(value);
+        return wanted.some((w) => (isNumber ? Number(w) === v : w === v));
+    };
+    if (!tokenMatch(df, ctx.difficulty)) return false;
+    if (!tokenMatch(gf, ctx.generator)) return false;
+    if (!tokenMatch(bf, ctx.bestScore_bin, true)) return false;
+    if (!tokenMatch(lf, ctx.lifecycle_stage)) return false;
     return true;
 }
 
@@ -470,9 +479,73 @@ function initDataCenterTab() {
     document.querySelectorAll('.lhs-preset').forEach((b) => {
         b.addEventListener('click', () => applyLhsPreset(b.dataset.preset, b));
     });
-    ['dc-lhs-ctx', 'dc-lhs-thetas', 'dc-lhs-seeds', 'dc-lhs-workers', 'dc-lhs-sessions'].forEach((id) => {
+    ['dc-lhs-thetas', 'dc-lhs-seeds', 'dc-lhs-workers', 'dc-lhs-sessions'].forEach((id) => {
         $(id)?.addEventListener('input', updateLhsEstimate);
     });
+
+    // 5 维 chips — 点击切换 + 同步到隐藏 ctx 字段
+    document.querySelectorAll('.chip-group .chip').forEach((c) => {
+        c.addEventListener('click', () => {
+            c.classList.toggle('chip-on');
+            syncChipsToCtxFilter();
+        });
+    });
+    $('btn-dim-reset-all')?.addEventListener('click', () => {
+        document.querySelectorAll('.chip-group .chip').forEach((c) => c.classList.add('chip-on'));
+        syncChipsToCtxFilter();
+    });
+    syncChipsToCtxFilter();
+}
+
+// chips 选中态 → 写到 hidden dc-lhs-ctx (逗号多值语法) → 同步 chip 数量 + 触发预估
+function readChipsSelection() {
+    const out = {};
+    document.querySelectorAll('.chip-group').forEach((g) => {
+        out[g.dataset.dim] = [...g.querySelectorAll('.chip.chip-on')].map((b) => b.dataset.val);
+    });
+    return out;
+}
+
+const ALL_DIM_VALUES = {
+    difficulty: ['easy', 'normal', 'hard'],
+    generator: ['triplet-p1', 'budget-p2'],
+    bestScore: ['500', '1500', '4000', '10000', '25000'],
+    lifecycle: ['onboarding', 'growth', 'mature', 'plateau'],
+    policy: ['random', 'clear-greedy', 'survival'],
+};
+
+function syncChipsToCtxFilter() {
+    const sel = readChipsSelection();
+    // 每维度 -> 字符串段:
+    //   全选 / 默认 → '*'
+    //   1+ 选 (非全) → 逗号拼接
+    //   0 选 → '__EMPTY__' (会让 matchLaunchContext 0 命中, 启动按钮禁用)
+    const segOf = (dim) => {
+        const got = sel[dim] || [];
+        const all = ALL_DIM_VALUES[dim];
+        if (got.length === all.length) return '*';
+        if (got.length === 0) return '__EMPTY__';
+        return got.join(',');
+    };
+    const ctxFilter = `${segOf('difficulty')}:${segOf('generator')}:${segOf('bestScore')}:${segOf('lifecycle')}`;
+    const ctxEl = $('dc-lhs-ctx');
+    if (ctxEl) ctxEl.value = ctxFilter;
+
+    // 更新每维度选中数
+    for (const dim of Object.keys(ALL_DIM_VALUES)) {
+        const c = document.querySelector(`[data-count-for="${dim}"]`);
+        if (c) {
+            c.textContent = `${(sel[dim] || []).length}/${ALL_DIM_VALUES[dim].length}`;
+        }
+    }
+    // 更新 "场景数 = a × b × c × d = N"
+    const counts = ['difficulty', 'generator', 'bestScore', 'lifecycle'].map((d) => (sel[d] || []).length);
+    const total = counts.reduce((a, b) => a * b, 1);
+    const elMul = $('dim-multiply');
+    if (elMul) {
+        elMul.textContent = `${counts.join(' × ')} = ${total}`;
+        elMul.style.color = total === 0 ? 'var(--bad)' : 'var(--accent)';
+    }
     updateLhsEstimate();
 }
 
@@ -622,14 +695,26 @@ const LHS_PRESETS = {
 function applyLhsPreset(presetKey, clickedBtn) {
     const p = LHS_PRESETS[presetKey];
     if (!p) return;
-    $('dc-lhs-ctx').value = p.ctx;
     $('dc-lhs-thetas').value = String(p.thetas);
     $('dc-lhs-seeds').value = String(p.seeds);
     $('dc-lhs-workers').value = String(p.workers);
     $('dc-lhs-sessions').value = String(p.sessions);
+    // 把预设 ctx 字符串还原成 chips 勾选状态 (默认全选→全 chip-on)
+    const parts = (p.ctx || '*').split(':');
+    while (parts.length < 4) parts.push('*');
+    const dimByIdx = ['difficulty', 'generator', 'bestScore', 'lifecycle'];
+    dimByIdx.forEach((dim, i) => {
+        const seg = parts[i];
+        const wanted = (seg === '*' || !seg) ? ALL_DIM_VALUES[dim] : seg.split(',').map((s) => s.trim());
+        document.querySelectorAll(`.chip-group[data-dim="${dim}"] .chip`).forEach((c) => {
+            c.classList.toggle('chip-on', wanted.includes(c.dataset.val));
+        });
+    });
+    // bot policies 预设默认全选
+    document.querySelectorAll(`.chip-group[data-dim="policy"] .chip`).forEach((c) => c.classList.add('chip-on'));
+    syncChipsToCtxFilter();
     document.querySelectorAll('.lhs-preset').forEach((b) => b.classList.toggle('dc-build-active', b === clickedBtn));
     $('dc-lhs-active-preset').textContent = `(已应用: ${p.label})`;
-    updateLhsEstimate();
 }
 
 function updateLhsEstimate() {
@@ -648,18 +733,21 @@ function updateLhsEstimate() {
     const totalMs = (total * perSampleMs) / Math.max(1, workers);
 
     const setText = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-    setText('dc-lhs-est-ctx',   `${ctxCount} ctx`);
-    setText('dc-lhs-est-theta', `${thetas} θ`);
-    setText('dc-lhs-est-seed',  `${seeds} seed`);
-    setText('dc-lhs-est-total', total > 0 ? `${total.toLocaleString()} 样本` : '— (ctx 命中 0)');
+    setText('dc-lhs-est-ctx',   `${ctxCount} 场景`);
+    setText('dc-lhs-est-theta', `${thetas} 参数组`);
+    setText('dc-lhs-est-seed',  `${seeds} 重复`);
+    setText('dc-lhs-est-total', total > 0 ? `${total.toLocaleString()} 样本` : '— (场景 0)');
     setText('dc-lhs-est-per',   `${(perSampleMs / 1000).toFixed(1)}s`);
     setText('dc-lhs-est-eta',   ctxCount > 0 ? fmtMs(totalMs) : '—');
 
     // 启动按钮的禁用状态
     const startBtn = $('dc-btn-lhs-start');
+    const botSelected = document.querySelectorAll('.chip-group[data-dim="policy"] .chip.chip-on').length;
     if (startBtn) {
-        startBtn.disabled = ctxCount === 0;
-        startBtn.title = ctxCount === 0 ? 'Context 过滤命中 0,无法启动' : '';
+        startBtn.disabled = ctxCount === 0 || botSelected === 0;
+        startBtn.title = ctxCount === 0
+            ? '至少每个场景维度选 1 个'
+            : (botSelected === 0 ? '至少勾选 1 个 Bot 模拟' : '');
     }
 }
 
@@ -698,27 +786,39 @@ async function measureLhsThroughput() {
 
 // 构建方式 1: 从数据中心快捷启动 LHS — 复用 ③ Step A 的执行函数
 async function startLhsFromDataCenter() {
-    // 大任务二次确认
     const ctxFilter = $('dc-lhs-ctx')?.value || '*';
     const thetas = Number($('dc-lhs-thetas')?.value || 10);
     const seeds  = Number($('dc-lhs-seeds')?.value  || 2);
+    const chips = readChipsSelection();
+    const policies = chips.policy || [];
+
+    if (policies.length === 0) {
+        alert('请至少勾选 1 个 Bot 模拟方法');
+        return;
+    }
     const ctxCount = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c)).length;
+    if (ctxCount === 0) {
+        alert('当前场景维度选中数为 0, 至少要每个维度选 1 个');
+        return;
+    }
     const total = ctxCount * thetas * seeds;
     if (total > 5000) {
         const eta = $('dc-lhs-est-eta')?.textContent || '未知';
         if (!confirm(`大任务: ${total.toLocaleString()} 样本 · 预计耗时 ${eta}\n确认启动?`)) return;
     }
-    if (ctxCount === 0) {
-        alert(`Context 过滤 "${ctxFilter}" 命中 0 个 ctx, 检查格式: 难度:生成器:PB档:生命周期`);
-        return;
-    }
-    // 把 dc-lhs-* 输入同步到 launch-* 输入,然后调 startLaunchTuning
+
+    // 把 dc-lhs-* + chips 同步到 launch-* 输入,然后调 startLaunchTuning
     const ctxEl = $('launch-ctx-filter');
     if (ctxEl) ctxEl.value = ctxFilter;
     if ($('launch-thetas')) $('launch-thetas').value = String(thetas);
     if ($('launch-seeds'))  $('launch-seeds').value  = String(seeds);
     if ($('launch-workers')) $('launch-workers').value = $('dc-lhs-workers')?.value || '4';
     if ($('launch-sessions')) $('launch-sessions').value = $('dc-lhs-sessions')?.value || '30';
+    // bot policies → 同步到 launch-policies <select multiple>
+    const polSel = $('launch-policies');
+    if (polSel) {
+        [...polSel.options].forEach((o) => { o.selected = policies.includes(o.value); });
+    }
     $('dc-lhs-hint').textContent = '已同步配置 → 启动中(切到 ③ 流水线看实时进度)…';
     switchToTab('pipeline');
     setTimeout(() => {
