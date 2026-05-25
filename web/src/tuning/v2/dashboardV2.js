@@ -852,6 +852,16 @@ async function submitJob() {
         return;
     }
     const modelType = $('job-model-type')?.value || 'resnet';
+    // v2.9.4: Transformer 对 LR 敏感, 用户填 > 5e-3 时前端给出警告
+    //   实测 job_16: transformer + lr=0.05 → epoch 1 退化解 (输出全平均 0.55) 锁死
+    let lrInput = Number($('job-lr').value) || 1e-3;
+    if (modelType === 'transformer' && lrInput > 5e-3) {
+        const ok = confirm(`Transformer 通常用 1e-4 ~ 1e-3, 你填的 ${lrInput} 容易导致训练崩溃 (退化解)。\n\n确认继续? (后端会自动 cap 到 5e-3)`);
+        if (!ok) {
+            $('job-hint').innerHTML = '<span style="color:var(--warn)">已取消, 建议把学习率改为 1e-3</span>';
+            return;
+        }
+    }
     const body = {
         name: $('job-name').value || `job-${Date.now()}`,
         sample_set_ids: setIds,
@@ -859,7 +869,7 @@ async function submitJob() {
         arch: {
             epochs: Number($('job-epochs').value) || 50,
             batch_size: Number($('job-batch').value) || 256,
-            lr: Number($('job-lr').value) || 1e-3,
+            lr: lrInput,
             device: $('job-device').value || 'cpu',
             model_type: modelType,   // 也写到 arch_json 备份, executor 读 jobs.model_type 或 fallback
         },
@@ -1250,7 +1260,7 @@ async function _loadAndRenderMetrics(jobId, meta) {
                 <th style="text-align:right; padding:3px 6px;">改进 △</th>` : ''}
               </tr></thead>
               <tbody style="font-family: ui-monospace, monospace;">
-                ${['train_loss', 'val_loss', 'val_curve_mae', 'val_anchor', 'val_monotonic', 'val_target_fit', 'val_endpoint', 'val_pb_distribution', 'val_balance', 'val_surprise', 'val_breaking']
+                ${['train_loss', 'val_loss', 'val_curve_mae', 'val_curve_var', 'val_anchor', 'val_monotonic', 'val_target_fit', 'val_endpoint', 'val_pb_distribution', 'val_balance', 'val_surprise', 'val_breaking']
                     .map((k) => {
                         const lastV = last[k];
                         const firstV = epochs[0][k];
@@ -1296,8 +1306,10 @@ const _METRIC_SUB_CHARTS = [
     { key: 'train_loss',          color: '#f87171', label: 'train_loss',          better: 'lower' },
     { key: 'val_loss',            color: '#60a5fa', label: 'val_loss',            better: 'lower' },
     { key: 'val_curve_mae',       color: '#34d399', label: 'val_curve_mae',       better: 'lower' },
+    // v2.9.4 — 退化解检测: 预测曲线 std, 越接近 0 越说明模型只输出水平线
+    { key: 'val_curve_var',       color: '#10b981', label: 'val_curve_var',       better: 'higher' },
     { key: 'val_anchor',          color: '#fbbf24', label: 'val_anchor',          better: 'lower' },
-    // v2.9 / v2.9.1 — 形状约束子图 (排在 anchor 后面, 业务相关性最高)
+    // v2.9 / v2.9.1 — 形状约束子图
     { key: 'val_monotonic',       color: '#facc15', label: 'val_monotonic',       better: 'lower' },
     { key: 'val_target_fit',      color: '#c084fc', label: 'val_target_fit',      better: 'lower' },
     { key: 'val_endpoint',        color: '#22d3ee', label: 'val_endpoint',        better: 'lower' },
@@ -1813,6 +1825,25 @@ function bindEvents() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { closeMetricsModal(); closePreviewModal(); }
     });
+
+    // v2.9.4: 切换 model_type 时自动调整 LR 默认值 (避免用户 transformer 用 lr=0.05 翻车)
+    const mtSel = $('job-model-type');
+    const lrInput = $('job-lr');
+    if (mtSel && lrInput) {
+        mtSel.addEventListener('change', () => {
+            const isTransformer = mtSel.value === 'transformer';
+            const current = Number(lrInput.value);
+            // 仅在用户没改过 (仍是 ResNet 默认 1e-3 或 5e-2 或 transformer 默认 1e-3) 时自动调
+            if (isTransformer && current > 5e-3) {
+                lrInput.value = '1e-3';
+                $('job-hint').innerHTML = '<span style="color:var(--muted)">Transformer 默认 lr 已切换到 1e-3 (Transformer 对 LR 敏感)</span>';
+            } else if (!isTransformer && current < 5e-3) {
+                // 从 transformer 切回 resnet, 把 1e-3 调回 5e-3 (resnet 默认值)
+                lrInput.value = '5e-3';
+                $('job-hint').innerHTML = '<span style="color:var(--muted)">ResNet 默认 lr 已切换到 5e-3</span>';
+            }
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {

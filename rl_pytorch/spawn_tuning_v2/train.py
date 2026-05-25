@@ -146,6 +146,7 @@ def _eval_one_epoch(
             "pb_distribution": 0.0, "anchor": 0.0,
             # v2.9 / v2.9.1
             "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0}
+    curve_var_sum = 0.0  # v2.9.4: per-sample 预测曲线方差, 用于退化检测
     p_reach_sums = {"reach_50": 0.0, "reach_80": 0.0, "reach_95": 0.0,
                     "reach_100": 0.0, "reach_120": 0.0, "reach_150": 0.0}
     curve_mae_sum = 0.0
@@ -181,13 +182,18 @@ def _eval_one_epoch(
         n_samples += batch["d_curve"].numel()
         n_batches += 1
 
-        # v2.5: P_reach 业务指标 (累加平均) — 让人看到"到达 r 比例"的真实预测
+        # v2.9.4: per-sample 预测曲线方差 → 检测退化解 (全水平输出 var ≈ 0)
+        # std(d_curve over 20 bins) 然后跨 batch mean
+        curve_var_sum += float(preds["curve"].std(dim=-1).mean().item())
+
+        # v2.5: P_reach 业务指标 (累加平均)
         reach = p_reach_metrics(preds["curve"])
         for k in p_reach_sums:
             p_reach_sums[k] += reach.get(k, 0.0)
 
     metrics = {k: v / max(1, n_batches) for k, v in sums.items()}
     metrics["curve_mae"] = curve_mae_sum / max(1, n_samples)
+    metrics["curve_var"] = curve_var_sum / max(1, n_batches)  # v2.9.4
     for k, v in p_reach_sums.items():
         metrics[k] = v / max(1, n_batches)
     return metrics
@@ -239,6 +245,12 @@ def train(
         model.load_state_dict(ck["model_state_dict"])
         print(f"[train_v2] 加载基础模型 {base_model_path} (增量训练, lr 自动 × 0.1)")
         lr = lr * 0.1
+
+    # v2.9.4: Transformer 对 LR 极敏感, cap 在 5e-3 (实测 job_16 用 lr=0.05 直接 ep 01
+    # 落入退化解 curve_var=0, 12 epoch 早停)。ResNet 可以扛 lr=0.05 但 Transformer 不行。
+    if model_type == "transformer" and lr > 5e-3:
+        print(f"[train_v2] warn: transformer 不适合 lr={lr} (易陷退化解), 自动 cap 到 5e-3")
+        lr = 5e-3
 
     # ─── 优化器 + LR 调度 (v2.9: 加 warmup) ───
     # warmup: 前 5 个 epoch 从 lr*0.01 线性升到 lr, 之后 cosine annealing 到 0
@@ -297,6 +309,8 @@ def train(
             "val_monotonic": val_m.get("monotonic", 0.0),
             "val_target_fit": val_m.get("target_fit", 0.0),
             "val_endpoint": val_m.get("endpoint", 0.0),
+            # v2.9.4 — 退化解检测指标
+            "val_curve_var": val_m.get("curve_var", 0.0),
             # v2.5: 业务级 P_reach 分布 (玩家到达 r=X 的累积概率)
             "reach_50":  val_m.get("reach_50",  0.0),
             "reach_80":  val_m.get("reach_80",  0.0),
@@ -312,14 +326,31 @@ def train(
         print(f"[train_v2] ep {epoch:02d} train={train_m['total']:.4f} val={val_m['total']:.4f} "
               f"mae={val_m['curve_mae']:.4f} balance={val_m['balance']:.4f} time={record['elapsed_s']:.1f}s")
 
-        if val_m["curve_mae"] < best_val:
-            best_val = val_m["curve_mae"]
-            best_metrics = {**val_m, "best_epoch": epoch}
+        # v2.9.4: 综合 EarlyStop 指标, 防止"退化解"陷阱
+        #   病例 (job_16, transformer, lr=0.05): ep 01 模型输出全平均 ≈ 0.55,
+        #   val_curve_mae=0.0698 偏低 (因为实测均值也在 0.55 附近), 锁定 trivial 解。
+        #   解法: composite = curve_mae + 0.5*anchor + 0.4*target_fit
+        #     - anchor: 关键 r 点偏离则惩罚 → 全平均输出 anchor 必然大
+        #     - target_fit: vs 校准 S 形 MSE → 全平均跟 S 形差距大
+        #   另加 curve_var 退化检测: 预测曲线 std < 0.02 时强制视为未改进
+        curve_var = val_m.get("curve_var", 0.0)
+        composite = (val_m["curve_mae"]
+                     + 0.5 * val_m.get("anchor", 0.0)
+                     + 0.4 * val_m.get("target_fit", 0.0))
+        # 退化解检测: 预测曲线方差过低 → 模型输出几乎水平线 → 拒绝当 best
+        is_degenerate = curve_var < 0.02
+        improved = (composite < best_val) and (not is_degenerate)
+
+        if improved:
+            best_val = composite
+            best_metrics = {**val_m, "best_epoch": epoch, "composite": composite}
             patience_left = early_stop_patience
-            # 保存最优 checkpoint
             _save_checkpoint(model, output_path, best_metrics, base_model_path, sample_set_ids)
         else:
             patience_left -= 1
+            if is_degenerate and epoch < 5:
+                # 早期退化解 — 提示用户 LR 可能过大, 但仍继续训练给机会逃出
+                print(f"[train_v2] warn: ep {epoch} curve_var={curve_var:.4f} < 0.02 (degenerate, likely LR too high)")
             if patience_left <= 0:
                 print(f"[train_v2] EarlyStopping at epoch {epoch} (no improvement in {early_stop_patience} epochs)")
                 break

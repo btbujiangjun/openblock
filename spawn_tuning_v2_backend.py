@@ -923,6 +923,8 @@ def register_v2_routes(app):
                                 "val_monotonic": float(d.get("val_monotonic", 0)),
                                 "val_target_fit": float(d.get("val_target_fit", 0)),
                                 "val_endpoint": float(d.get("val_endpoint", 0)),
+                                # v2.9.4: 退化解检测
+                                "val_curve_var": float(d.get("val_curve_var", 0)),
                                 # v2.5: 业务级 P_reach 指标 (玩家到达 r=X 累积概率)
                                 "reach_50":  float(d.get("reach_50",  0)),
                                 "reach_80":  float(d.get("reach_80",  0)),
