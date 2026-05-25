@@ -97,11 +97,15 @@ def _ensure_dirs():
 # ─────────── 单 job 执行 ───────────
 
 def _claim_one_job(db_path: str) -> Optional[dict]:
-    """从 queued 任务里挑一个, 原子地标 running。"""
-    conn = sqlite3.connect(db_path, isolation_level="EXCLUSIVE")
+    """从 queued 任务里挑一个, 原子地标 running。
+
+    v2.9.3: 用 IMMEDIATE 而非 EXCLUSIVE — IMMEDIATE 仅在写时排他,
+    EXCLUSIVE 连读都阻塞, 跟 backend Flask 请求容易死锁。
+    """
+    conn = sqlite3.connect(db_path, isolation_level="IMMEDIATE", timeout=10.0)
     conn.row_factory = sqlite3.Row
     try:
-        conn.execute("BEGIN EXCLUSIVE")
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT * FROM training_jobs WHERE status = 'queued' "
             "ORDER BY created_at ASC LIMIT 1"
@@ -156,16 +160,24 @@ def _build_train_cmd(job: dict, output_path: Path, log_path: Path, db_path: str)
 
 
 def _update_job_metrics(db_path: str, job_id: int, **updates):
+    """v2.9.3: 加 timeout=10s + 内部 try/except, 避免 db locked 把 worker_loop 抛出去
+    导致后续无限重试刷错日志。"""
     if not updates:
         return
     cols = ", ".join(f"{k} = ?" for k in updates)
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        f"UPDATE training_jobs SET {cols} WHERE job_id = ?",
-        list(updates.values()) + [job_id],
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(db_path, timeout=10.0)
+        try:
+            conn.execute(
+                f"UPDATE training_jobs SET {cols} WHERE job_id = ?",
+                list(updates.values()) + [job_id],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as e:
+        # db locked / busy → 仅打 warning, 下一轮轮询会再尝试
+        print(f"[job_executor] warn: _update_job_metrics({job_id}) skipped: {e}")
 
 
 def _parse_log_line(line: str) -> Optional[dict]:
@@ -374,11 +386,19 @@ _executor_stop = threading.Event()
 
 
 def _worker_loop(db_path: str):
-    """后台 worker 主循环。"""
+    """后台 worker 主循环。
+
+    v2.9.3: 错误退避 (exponential backoff) — db locked 等重复错误不再每 3 秒刷一次,
+    而是 3s → 6s → 12s → 24s → 60s (cap), 减少日志噪声。
+    """
     print(f"[job_executor] started, db={db_path}, poll={POLL_INTERVAL_S}s")
+    error_wait = POLL_INTERVAL_S
+    last_error_msg = ""
     while not _executor_stop.is_set():
         try:
             job = _claim_one_job(db_path)
+            error_wait = POLL_INTERVAL_S  # 成功 claim, 重置退避
+            last_error_msg = ""
             if job:
                 print(f"[job_executor] picked job_id={job['job_id']} name={job.get('name')}")
                 try:
@@ -394,8 +414,14 @@ def _worker_loop(db_path: str):
             else:
                 _executor_stop.wait(POLL_INTERVAL_S)
         except Exception as e:
-            print(f"[job_executor] loop error: {e}")
-            _executor_stop.wait(POLL_INTERVAL_S)
+            msg = str(e)
+            # 重复同样的错误只打第一次, 减少日志噪声
+            if msg != last_error_msg:
+                print(f"[job_executor] loop error: {msg} (backing off to {error_wait:.1f}s)")
+                last_error_msg = msg
+            _executor_stop.wait(error_wait)
+            # exponential backoff, cap 60s
+            error_wait = min(error_wait * 2, 60.0)
     print("[job_executor] stopped")
 
 

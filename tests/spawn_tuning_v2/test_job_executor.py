@@ -149,6 +149,33 @@ class TestUpdateMetrics:
         # 不应抛
         job_executor._update_job_metrics(db_path, jid)
 
+    def test_db_locked_does_not_raise(self, db_path, capsys):
+        """v2.9.3: db locked 时 _update_job_metrics 应只打 warning, 不抛异常,
+        不让 worker_loop 落入无限错误循环。"""
+        jid = _insert_job(db_path)
+        # 在外部连接上拿 EXCLUSIVE 写锁, 让 _update_job_metrics 必然超时
+        holder = sqlite3.connect(db_path, isolation_level=None)
+        holder.execute("BEGIN EXCLUSIVE")
+        try:
+            # 临时把 timeout 调到 0.5s 让测试快速完成 (默认 10s)
+            import unittest.mock
+            real_connect = sqlite3.connect
+
+            def fast_connect(p, **kw):
+                kw["timeout"] = 0.3
+                return real_connect(p, **kw)
+
+            with unittest.mock.patch.object(job_executor.sqlite3, "connect", fast_connect):
+                # 不应抛, 应静默返回 (只 print warning)
+                job_executor._update_job_metrics(
+                    db_path, jid, epochs_done=99, train_loss=0.0,
+                )
+            captured = capsys.readouterr()
+            assert "skipped" in captured.out or "locked" in captured.out.lower()
+        finally:
+            holder.execute("ROLLBACK")
+            holder.close()
+
 
 class TestBuildCmd:
     def test_basic_cmd(self, db_path):
