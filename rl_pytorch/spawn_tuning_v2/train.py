@@ -246,11 +246,11 @@ def train(
         print(f"[train_v2] 加载基础模型 {base_model_path} (增量训练, lr 自动 × 0.1)")
         lr = lr * 0.1
 
-    # v2.9.4: Transformer 对 LR 极敏感, cap 在 5e-3 (实测 job_16 用 lr=0.05 直接 ep 01
+    # v2.9.4: Transformer 对 LR 极敏感, cap 在 1e-3 (实测 job_16 用 lr=0.05 直接 ep 01
     # 落入退化解 curve_var=0, 12 epoch 早停)。ResNet 可以扛 lr=0.05 但 Transformer 不行。
-    if model_type == "transformer" and lr > 5e-3:
-        print(f"[train_v2] warn: transformer 不适合 lr={lr} (易陷退化解), 自动 cap 到 5e-3")
-        lr = 5e-3
+    if model_type == "transformer" and lr > 1e-3:
+        print(f"[train_v2] warn: transformer 不适合 lr={lr} (易陷退化解), 自动 cap 到 1e-3")
+        lr = 1e-3
 
     # ─── 优化器 + LR 调度 (v2.9: 加 warmup) ───
     # warmup: 前 5 个 epoch 从 lr*0.01 线性升到 lr, 之后 cosine annealing 到 0
@@ -351,12 +351,21 @@ def train(
             if is_degenerate and epoch < 5:
                 # 早期退化解 — 提示用户 LR 可能过大, 但仍继续训练给机会逃出
                 print(f"[train_v2] warn: ep {epoch} curve_var={curve_var:.4f} < 0.02 (degenerate, likely LR too high)")
-            if patience_left <= 0:
+            if patience_left <= 0 and best_val != float("inf"):
                 print(f"[train_v2] EarlyStopping at epoch {epoch} (no improvement in {early_stop_patience} epochs)")
                 break
 
     log_fp.close()
     total_time = time.time() - t_start
+    # v2.9.5: 退化解兜底 — 整个训练从未保存过 checkpoint 时强制保存最终 epoch
+    if best_val == float("inf"):
+        print(f"[train_v2] warn: 全程退化解, 强制保存最终 epoch")
+        final_metrics = {
+            **_eval_one_epoch(model, val_ds, weights, batch_size, device),
+            "best_epoch": epoch, "composite": None,
+        }
+        _save_checkpoint(model, output_path, final_metrics, base_model_path, sample_set_ids)
+        best_metrics = final_metrics
     print(f"[train_v2] ✓ 完成,耗时 {total_time:.1f}s  best_val_mae={best_val:.4f}")
 
     # 写 models 表 (可选)
@@ -455,6 +464,9 @@ def _to_jsonable(v):
     except Exception:
         pass
     if isinstance(v, (int, float, str, bool, list, dict, type(None))):
+        # v2.9.5: Infinity/NaN is not valid JSON → 转 None 避免前端 JSON.parse 崩溃
+        if isinstance(v, float) and (v != v or v == float("inf") or v == float("-inf")):
+            return None
         return v
     return str(v)
 

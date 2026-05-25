@@ -227,8 +227,8 @@ def build_default_model() -> SpawnTuningResNetMLP:
 #     - 其他 4 head: 用全局 mean pooling 后 Linear(64 → 1)
 # ═════════════════════════════════════════════════════════════════════
 
-DEFAULT_TRANSFORMER_DIM = 64
-DEFAULT_TRANSFORMER_LAYERS = 3
+DEFAULT_TRANSFORMER_DIM = 128
+DEFAULT_TRANSFORMER_LAYERS = 4
 DEFAULT_TRANSFORMER_HEADS = 4
 DEFAULT_TRANSFORMER_FFN = 128
 
@@ -257,7 +257,7 @@ class SpawnTuningTransformer(nn.Module):
         # 把 (ctx_emb + theta) 投影到 d_model
         self.condition_proj = nn.Linear(EMB_TOTAL + N_THETA, d_model)
         # 位置编码 (learnable, 20 维)
-        self.pos_emb = nn.Parameter(torch.randn(curve_bins, d_model) * 0.02)
+        self.pos_emb = nn.Parameter(torch.randn(curve_bins, d_model) * 0.01)
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model, nhead=n_heads,

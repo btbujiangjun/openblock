@@ -199,18 +199,92 @@ export function consumeOne(productId) {
     return true;
 }
 
-/** 存根购买 UI */
+/* ── 美化购买确认弹窗 ── */
+(function _injectIapModalStyle() {
+    if (document.getElementById('__openblock_iap_modal_style')) return;
+    const s = document.createElement('style');
+    s.id = '__openblock_iap_modal_style';
+    s.textContent = `
+    .iap-modal-backdrop {
+        position: fixed; inset:0; z-index: 99998;
+        background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(3px); animation: fadeIn .2s ease;
+    }
+    .iap-modal-box {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #334155; border-radius: 14px;
+        padding: 28px 30px 22px; max-width: 400px; width: 90%;
+        box-shadow: 0 24px 64px rgba(0,0,0,.55);
+        animation: modalSlide .25s cubic-bezier(.22,1,.36,1);
+    }
+    .iap-modal-box .modal-header {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 12px; font-size: 15px; font-weight: 600; color: #f1f5f9;
+    }
+    .iap-modal-box .modal-header .icon { font-size: 20px; }
+    .iap-modal-box .product-name { color: #e2e8f0; font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .iap-modal-box .product-desc { color: #94a3b8; font-size: 13px; margin-bottom: 8px; }
+    .iap-modal-box .product-price { color: #fbbf24; font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+    .iap-modal-box .tag { display:inline-block; background:#3b82f6; color:#fff; border-radius:4px; padding:2px 8px; font-size:11px; margin-left:8px; vertical-align:middle; }
+    .iap-modal-box .actions {
+        display: flex; gap: 10px; justify-content: flex-end;
+        border-top: 1px solid #1e293b; padding-top: 16px;
+    }
+    .iap-modal-box .actions button {
+        padding: 8px 22px; border-radius: 8px; font-size: 13px; font-weight: 500;
+        cursor: pointer; border: 1px solid transparent;
+        transition: all .18s; text-align: center; display: inline-flex;
+        align-items: center; justify-content: center; min-width: 80px; line-height: 1;
+    }
+    .iap-modal-box .actions .btn-cancel {
+        background: transparent; border-color: #334155; color: #94a3b8;
+    }
+    .iap-modal-box .actions .btn-cancel:hover {
+        background: #1e293b; border-color: #475569; color: #e2e8f0;
+    }
+    .iap-modal-box .actions .btn-buy {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        color: #fff; border: none; box-shadow: 0 2px 8px rgba(245,158,11,.3);
+    }
+    .iap-modal-box .actions .btn-buy:hover {
+        background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+        box-shadow: 0 4px 14px rgba(245,158,11,.4); transform: translateY(-1px);
+    }
+    @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes modalSlide { from { opacity: 0; transform: scale(.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    `;
+    document.head.appendChild(s);
+})();
+
+/** 存根购买 UI — 美化弹窗 */
 function _stubPurchase(product) {
     return new Promise((resolve) => {
         if (typeof window === 'undefined') {
             resolve({ success: true });
             return;
         }
-        const ok = window.confirm(
-            `[模拟购买]\n${product.name}\n${product.desc}\n价格：${product.price}\n\n确认购买？`
-        );
-        resolve({ success: ok });
+        const tagHtml = product.tag ? `<span class="tag">${product.tag}</span>` : '';
+        const backdrop = document.createElement('div');
+        backdrop.className = 'iap-modal-backdrop';
+        backdrop.innerHTML = `<div class="iap-modal-box">
+            <div class="modal-header"><span class="icon">🛒</span><span>模拟购买</span></div>
+            <div class="product-name">${_escapeHtml(product.name)}${tagHtml}</div>
+            <div class="product-desc">${_escapeHtml(product.desc)}</div>
+            <div class="product-price">${_escapeHtml(product.price)}</div>
+            <div class="actions">
+                <button class="btn-cancel" data-action="cancel">取消</button>
+                <button class="btn-buy" data-action="buy">确认购买</button>
+            </div>
+        </div>`;
+        document.body.appendChild(backdrop);
+        backdrop.querySelector('.btn-cancel').onclick = () => { backdrop.remove(); resolve({ success: false }); };
+        backdrop.querySelector('.btn-buy').onclick = () => { backdrop.remove(); resolve({ success: true }); };
+        backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { backdrop.remove(); resolve({ success: false }); } });
     });
+}
+
+function _escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /** 应用购买结果到本地状态 */

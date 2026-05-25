@@ -382,19 +382,19 @@ export function initReplayUI(game) {
             if (Number.isFinite(id)) ids.push(id);
         });
         if (ids.length === 0) return;
-        const ok = window.confirm(`确定删除选中的 ${ids.length} 条对局记录？此操作不可恢复。`);
+        const ok = await _showConfirmDialog(`确定删除选中的 ${ids.length} 条对局记录？此操作不可恢复。`);
         if (!ok) return;
         try {
             await game.db.deleteReplaySessions(ids);
             await openList();
         } catch (err) {
             console.error(err);
-            window.alert(err?.message || String(err));
+            _showAlert(err?.message || String(err), 'error');
         }
     });
 
     deleteZeroScoreBtn?.addEventListener('click', async () => {
-        const ok = window.confirm(
+        const ok = await _showConfirmDialog(
             '确定删除所有「展示得分为 0」的可回放对局？与列表中 0 分判定一致（优先帧内快照分）。此操作不可恢复。'
         );
         if (!ok) return;
@@ -402,10 +402,10 @@ export function initReplayUI(game) {
             const res = await game.db.deleteZeroScoreReplaySessions();
             const n = res?.count ?? res?.deleted?.length ?? 0;
             await openList();
-            window.alert(n > 0 ? `已删除 ${n} 条。` : '没有符合「得分为 0」的记录。');
+            _showAlert(n > 0 ? `已删除 ${n} 条。` : '没有符合「得分为 0」的记录。', 'success');
         } catch (err) {
             console.error(err);
-            window.alert(err?.message || String(err));
+            _showAlert(err?.message || String(err), 'error');
         }
     });
 
@@ -590,4 +590,100 @@ export function initReplayUI(game) {
             stopPlay();
         }
     });
+}
+
+/* ── 美化通知 / 确认弹窗 ── */
+(function _injectReplayModalStyle() {
+    if (document.getElementById('__openblock_replay_modal_style')) return;
+    const s = document.createElement('style');
+    s.id = '__openblock_replay_modal_style';
+    s.textContent = `
+    .replay-modal-backdrop {
+        position: fixed; inset:0; z-index: 99998;
+        background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(3px); animation: fadeIn .2s ease;
+    }
+    .replay-modal-box {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #334155; border-radius: 14px;
+        padding: 28px 30px 22px; max-width: 440px; width: 90%;
+        box-shadow: 0 24px 64px rgba(0,0,0,.55);
+        animation: modalSlide .25s cubic-bezier(.22,1,.36,1);
+    }
+    .replay-modal-box .modal-header {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 16px; font-size: 15px; font-weight: 600; color: #f1f5f9;
+    }
+    .replay-modal-box .modal-header .icon { font-size: 20px; }
+    .replay-modal-box .msg {
+        color: #cbd5e1; font-size: 13.5px; line-height: 1.6;
+        margin-bottom: 20px; white-space: pre-wrap;
+    }
+    .replay-modal-box .actions {
+        display: flex; gap: 10px; justify-content: flex-end;
+        border-top: 1px solid #1e293b; padding-top: 16px;
+    }
+    .replay-modal-box .actions button {
+        padding: 8px 22px; border-radius: 8px; font-size: 13px; font-weight: 500;
+        cursor: pointer; border: 1px solid transparent;
+        transition: all .18s; text-align: center; display: inline-flex;
+        align-items: center; justify-content: center; min-width: 80px;
+        line-height: 1; letter-spacing: .3px;
+    }
+    .replay-modal-box .actions .btn-cancel {
+        background: transparent; border-color: #334155; color: #94a3b8;
+    }
+    .replay-modal-box .actions .btn-cancel:hover {
+        background: #1e293b; border-color: #475569; color: #e2e8f0;
+    }
+    .replay-modal-box .actions .btn-confirm {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: #fff; border-color: #ef4444; box-shadow: 0 2px 8px rgba(239,68,68,.25);
+    }
+    .replay-modal-box .actions .btn-confirm:hover {
+        background: linear-gradient(135deg, #f87171 0%, #ef4446 100%);
+        box-shadow: 0 4px 14px rgba(239,68,68,.35); transform: translateY(-1px);
+    }
+    @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes modalSlide { from { opacity: 0; transform: scale(.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    `;
+    document.head.appendChild(s);
+})();
+
+function _showConfirmDialog(msg) {
+    return new Promise((resolve) => {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'replay-modal-backdrop';
+        backdrop.innerHTML = `<div class="replay-modal-box">
+            <div class="modal-header"><span class="icon">⚠</span><span>确认操作</span></div>
+            <div class="msg">${_escapeHtml(msg)}</div>
+            <div class="actions">
+                <button class="btn-cancel" data-action="cancel">取消</button>
+                <button class="btn-confirm" data-action="confirm">确认</button>
+            </div>
+        </div>`;
+        document.body.appendChild(backdrop);
+        backdrop.querySelector('.btn-cancel').onclick = () => { backdrop.remove(); resolve(false); };
+        backdrop.querySelector('.btn-confirm').onclick = () => { backdrop.remove(); resolve(true); };
+        backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { backdrop.remove(); resolve(false); } });
+    });
+}
+
+function _escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _showAlert(msg, type = 'info') {
+    const map = { success: '#22c55e', error: '#ef4444', warn: '#eab308', info: '#38bdf8' };
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+        position:'fixed', top:'80px', left:'50%', transform:'translateX(-50%)', zIndex:99999,
+        background:'#1e293b', border:`1px solid ${map[type] || map.info}`, borderRadius:'10px',
+        padding:'14px 28px', color:'#e2e8f0', fontSize:'14px', lineHeight:'1.4',
+        boxShadow:'0 8px 32px rgba(0,0,0,.45)', opacity:'0', transition:'opacity .3s ease',
+    });
+    el.textContent = msg;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.style.opacity = '1'));
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 350); }, 3000);
 }

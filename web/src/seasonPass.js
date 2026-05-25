@@ -307,7 +307,7 @@ export class SeasonPass {
             }
         } catch { /* ignore */ }
         // 未接入时给予提示
-        alert('付费功能即将上线，敬请期待！');
+        _showBanner('付费功能即将上线，敬请期待！');
     }
 
     /** 打开/关闭面板 */
@@ -394,3 +394,18 @@ export function initSeasonPass(game) {
 }
 
 export function toggleSeasonPass() { _instance?.toggle(); }
+
+/* ── 美化通知 ── */
+function _showBanner(msg) {
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+        position:'fixed', top:'80px', left:'50%', transform:'translateX(-50%)', zIndex:99999,
+        background:'#1e293b', border:'1px solid #38bdf8', borderRadius:'10px', padding:'14px 28px',
+        color:'#e2e8f0', fontSize:'14px', lineHeight:'1.4', boxShadow:'0 8px 32px rgba(0,0,0,.45)',
+        opacity:'0', transition:'opacity .3s ease',
+    });
+    el.textContent = msg;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.style.opacity = '1'));
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 350); }, 3000);
+}

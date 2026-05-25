@@ -16,6 +16,173 @@ import { getApiBaseUrl } from '../../config.js';
 const $ = (id) => document.getElementById(id);
 const API_BASE = getApiBaseUrl().replace(/\/+$/, '');
 
+// ─────────── 美化通知系统 ───────────
+
+/** 注入通知样式 */
+(function _injectToastStyle() {
+    if (document.getElementById('__openblock_toast_style')) return;
+    const s = document.createElement('style');
+    s.id = '__openblock_toast_style';
+    s.textContent = `
+    .openblock-toast {
+        position: fixed; top: 20px; right: 20px; z-index: 99999;
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 20px; border-radius: 10px;
+        font-size: 13px; line-height: 1.4; max-width: 420px;
+        background: #1e293b; border: 1px solid #334155;
+        box-shadow: 0 8px 32px rgba(0,0,0,.45);
+        transform: translateX(120%); opacity: 0;
+        transition: transform .32s cubic-bezier(.22,1,.36,1), opacity .26s;
+        pointer-events: auto;
+    }
+    .openblock-toast.show { transform: translateX(0); opacity: 1; }
+    .openblock-toast.success { border-left: 4px solid #22c55e; }
+    .openblock-toast.error  { border-left: 4px solid #ef4444; }
+    .openblock-toast.warn   { border-left: 4px solid #eab308; }
+    .openblock-toast.info   { border-left: 4px solid #38bdf8; }
+    .openblock-toast .icon { font-size: 18px; flex-shrink: 0; }
+    .openblock-toast .msg  { flex:1; color: #e2e8f0; word-break: break-word; }
+    .openblock-toast .close {
+        flex-shrink: 0; cursor: pointer; font-size: 16px; color: #64748b;
+        background: none; border: none; padding: 2px 4px; line-height: 1;
+    }
+    .openblock-toast .close:hover { color: #f1f5f9; }
+
+    .openblock-modal-backdrop {
+        position: fixed; inset:0; z-index: 99998;
+        background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(3px); animation: fadeIn .2s ease;
+    }
+    .openblock-modal-box {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #334155; border-radius: 14px;
+        padding: 28px 30px 22px; max-width: 480px; width: 90%;
+        box-shadow: 0 24px 64px rgba(0,0,0,.55);
+        animation: modalSlide .25s cubic-bezier(.22,1,.36,1);
+    }
+    .openblock-modal-box .modal-header {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 16px; font-size: 15px; font-weight: 600; color: #f1f5f9;
+    }
+    .openblock-modal-box .modal-header .icon { font-size: 20px; }
+    .openblock-modal-box .msg {
+        color: #cbd5e1; font-size: 13.5px; line-height: 1.6;
+        margin-bottom: 20px; white-space: pre-wrap;
+        padding-left: 2px;
+    }
+    .openblock-modal-box .msg .highlight { color: #f1f5f9; font-weight: 500; }
+    .openblock-modal-box .actions {
+        display: flex; gap: 10px; justify-content: flex-end;
+        border-top: 1px solid #1e293b; padding-top: 16px;
+    }
+    .openblock-modal-box .actions button {
+        padding: 8px 22px; border-radius: 8px; font-size: 13px; font-weight: 500;
+        cursor: pointer; border: 1px solid transparent;
+        transition: all .18s; text-align: center; display: inline-flex;
+        align-items: center; justify-content: center; min-width: 80px;
+        line-height: 1; letter-spacing: .3px;
+    }
+    .openblock-modal-box .actions .btn-cancel {
+        background: transparent; border-color: #334155; color: #94a3b8;
+    }
+    .openblock-modal-box .actions .btn-cancel:hover {
+        background: #1e293b; border-color: #475569; color: #e2e8f0;
+    }
+    .openblock-modal-box .actions .btn-confirm {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: #fff; border-color: #ef4444; box-shadow: 0 2px 8px rgba(239,68,68,.25);
+    }
+    .openblock-modal-box .actions .btn-confirm:hover {
+        background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+        box-shadow: 0 4px 14px rgba(239,68,68,.35); transform: translateY(-1px);
+    }
+    .openblock-modal-box .actions .btn-primary {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: #fff; border-color: #3b82f6; box-shadow: 0 2px 8px rgba(59,130,246,.25);
+    }
+    .openblock-modal-box .actions .btn-primary:hover {
+        background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+        box-shadow: 0 4px 14px rgba(59,130,246,.35); transform: translateY(-1px);
+    }
+    @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes modalSlide { from { opacity: 0; transform: scale(.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+    `;
+    document.head.appendChild(s);
+})();
+
+/** 显示浮动通知 (auto-dismiss 3.5s) */
+function showNotification(msg, type = 'info') {
+    const iconMap = { success: '✓', error: '✗', warn: '⚠', info: 'ℹ' };
+    const el = document.createElement('div');
+    el.className = `openblock-toast ${type}`;
+    el.innerHTML = `<span class="icon">${iconMap[type] || 'ℹ'}</span><span class="msg">${escapeHtml(msg)}</span><button class="close">×</button>`;
+    el.querySelector('.close').onclick = () => { el.classList.remove('show'); setTimeout(() => el.remove(), 350); };
+    document.body.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+    setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 350); }, 3500);
+}
+
+/** 美化确认弹窗 (返回 Promise<boolean>)
+ *  @param {string} msg - 消息正文
+ *  @param {object} [opts]
+ *  @param {string} [opts.title] - 标题, 默认 "⚠ 确认操作"
+ *  @param {string} [opts.confirmLabel] - 确认按钮文字, 默认 "确认"
+ *  @param {string} [opts.confirmType] - 'danger'|'primary', 默认 'danger'
+ */
+function showConfirmDialog(msg, opts = {}) {
+    const title = opts.title || '⚠ 确认操作';
+    const confirmLabel = opts.confirmLabel || '确认';
+    const confirmBtnClass = opts.confirmType === 'primary' ? 'btn-primary' : 'btn-confirm';
+    return new Promise((resolve) => {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'openblock-modal-backdrop';
+        const titleParts = title.match(/^(\S+)\s+(.*)/) || ['', '', title];
+        const iconChar = titleParts[1];
+        const titleText = titleParts[2];
+        backdrop.innerHTML = `<div class="openblock-modal-box">
+            <div class="modal-header"><span class="icon">${escapeHtml(iconChar)}</span><span>${escapeHtml(titleText)}</span></div>
+            <div class="msg">${escapeHtml(msg)}</div>
+            <div class="actions">
+                <button class="btn-cancel" data-action="cancel">取消</button>
+                <button class="${confirmBtnClass}" data-action="confirm">${escapeHtml(confirmLabel)}</button>
+            </div>
+        </div>`;
+        document.body.appendChild(backdrop);
+        backdrop.querySelector('.btn-cancel').onclick = () => { backdrop.remove(); resolve(false); };
+        backdrop.querySelector(`.${confirmBtnClass}`).onclick = () => { backdrop.remove(); resolve(true); };
+        backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { backdrop.remove(); resolve(false); } });
+    });
+}
+
+/** 美化输入弹窗 (返回 Promise<string|null>, null = 取消) */
+function showPromptDialog(msg, defaultValue = '') {
+    return new Promise((resolve) => {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'openblock-modal-backdrop';
+        backdrop.innerHTML = `<div class="openblock-modal-box">
+            <div class="modal-header"><span class="icon">✏</span><span>输入</span></div>
+            <div class="msg" style="margin-bottom:12px;">${escapeHtml(msg)}</div>
+            <input class="modal-input" type="number" value="${escapeHtml(defaultValue)}" min="1" max="9" autofocus
+                style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:18px;">
+            <div class="actions">
+                <button class="btn-cancel" data-action="cancel">取消</button>
+                <button class="btn-primary" data-action="confirm">确认</button>
+            </div>
+        </div>`;
+        const input = backdrop.querySelector('.modal-input');
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { backdrop.remove(); resolve(input.value); }
+            if (e.key === 'Escape') { backdrop.remove(); resolve(null); }
+        });
+        document.body.appendChild(backdrop);
+        setTimeout(() => input.focus(), 50);
+        input.select();
+        backdrop.querySelector('.btn-cancel').onclick = () => { backdrop.remove(); resolve(null); };
+        backdrop.querySelector('.btn-primary').onclick = () => { backdrop.remove(); resolve(input.value); };
+        backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { backdrop.remove(); resolve(null); } });
+    });
+}
+
 const ALL_DIM_VALUES = {
     difficulty: ['easy', 'normal', 'hard'],
     generator: ['triplet-p1', 'budget-p2'],
@@ -142,7 +309,7 @@ async function refreshOverview() {
 async function rollbackCurrent() {
     const modelId = $('btn-rollback').dataset.modelId;
     if (!modelId) return;
-    if (!confirm(`确认回滚当前 deployed 模型 #${modelId}? 自动激活上一版.`)) return;
+    if (!(await showConfirmDialog(`模型 #${modelId} 将回滚为上一版。`, { title: `↩ 回滚 deployed 模型`, confirmLabel: '确认回滚' }))) return;
     try {
         const r = await apiSend('POST', `/api/spawn-tuning-v2/models/${modelId}/rollback`);
         $('rollback-hint').innerHTML = `<span style="color:var(--good)">✓ 已回滚到模型 #${r.now_deployed || 'none'}</span>`;
@@ -224,19 +391,20 @@ function showChipsOnboardingHintIfNeeded() {
 
 function editChipWeight(chip) {
     const cur = Number(chip.dataset.weight || 1);
-    const val = prompt(`「${chip.dataset.val}」采样权重 (1-9, 默认 1, 越大该值越频繁出现):`, String(cur));
-    if (val === null) return;
-    const w = Math.max(1, Math.min(9, Math.round(Number(val) || 1)));
-    chip.dataset.weight = String(w);
-    chip.querySelector('.chip-weight-badge')?.remove();
-    if (w > 1) {
-        const b = document.createElement('span');
-        b.className = 'chip-weight-badge';
-        b.textContent = `×${w}`;
-        chip.appendChild(b);
-    }
-    if (w > 1) chip.classList.add('chip-on');
-    updateEstimate();
+    showPromptDialog(`「${chip.dataset.val}」采样权重 (1-9, 默认 1, 越大该值越频繁出现)`, String(cur)).then((val) => {
+        if (val === null) return;
+        const w = Math.max(1, Math.min(9, Math.round(Number(val) || 1)));
+        chip.dataset.weight = String(w);
+        chip.querySelector('.chip-weight-badge')?.remove();
+        if (w > 1) {
+            const b = document.createElement('span');
+            b.className = 'chip-weight-badge';
+            b.textContent = `×${w}`;
+            chip.appendChild(b);
+        }
+        if (w > 1) chip.classList.add('chip-on');
+        updateEstimate();
+    });
 }
 
 function readChipsSelection() {
@@ -356,7 +524,10 @@ async function startCollect() {
     const maxSteps = Math.max(30, Number($('cfg-max-steps').value) || 120);
     const setName = $('cfg-set-name').value.trim() || `v2-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '')}`;
     const total = contexts.length * nThetas * nSeeds;
-    if (total > 5000 && !confirm(`大任务: ${total} 样本, 确认启动?`)) return;
+    if (total > 5000) {
+        const ok = await showConfirmDialog(`${total} 样本的大任务, 预计耗时较长。确认启动?`, { title: `⚡ 大任务确认`, confirmLabel: `启动 (${total} 样本)` });
+        if (!ok) return;
+    }
 
     $('btn-start-collect').disabled = true;
     $('btn-cancel-collect').disabled = false;
@@ -480,7 +651,7 @@ async function refreshSampleSets() {
         });
         tbody.querySelectorAll('.btn-delete-set').forEach((b) => {
             b.addEventListener('click', async () => {
-                if (!confirm(`删除样本集 #${b.dataset.id}? 包含的样本也会一并删除.`)) return;
+                if (!(await showConfirmDialog(`样本集 #${b.dataset.id} 包含的样本也会一并删除。`, { title: `🗑 删除样本集 #${b.dataset.id}`, confirmLabel: '确认删除' }))) return;
                 await apiSend('DELETE', `/api/spawn-tuning-v2/sample-sets/${b.dataset.id}`);
                 refreshSampleSets();
             });
@@ -856,7 +1027,10 @@ async function submitJob() {
     //   实测 job_16: transformer + lr=0.05 → epoch 1 退化解 (输出全平均 0.55) 锁死
     let lrInput = Number($('job-lr').value) || 1e-3;
     if (modelType === 'transformer' && lrInput > 5e-3) {
-        const ok = confirm(`Transformer 通常用 1e-4 ~ 1e-3, 你填的 ${lrInput} 容易导致训练崩溃 (退化解)。\n\n确认继续? (后端会自动 cap 到 5e-3)`);
+        const ok = await showConfirmDialog(
+            `Transformer 通常用 1e-4 ~ 1e-3, 你填的 ${lrInput} 容易导致训练崩溃 (退化解)。\n\n确认继续? (后端会自动 cap 到 5e-3)`,
+            { title: `⚠ 学习率偏高`, confirmLabel: '继续提交', confirmType: 'primary' }
+        );
         if (!ok) {
             $('job-hint').innerHTML = '<span style="color:var(--warn)">已取消, 建议把学习率改为 1e-3</span>';
             return;
@@ -1000,15 +1174,22 @@ async function jumpToModel(modelId) {
 
 /** v2.8.4: 删除任务记录 + log 文件; running 时先 kill 子进程。 */
 async function deleteJob(jobId, jobName, status) {
+    let title, confirmLabel;
     let promptText;
     if (status === 'running') {
-        promptText = `⚠ 终止运行中训练 #${jobId} "${jobName}"?\n\n执行流程:\n  1. SIGTERM 训练子进程 (优雅停止 3 秒)\n  2. 超时未停 → SIGKILL 强杀\n  3. 删除 jobs 记录 + 日志文件\n  4. 已落盘的 checkpoint 不删 (如需在 C.3 模型库另删)\n\n此操作不可撤销, 已训的 epoch 数据将丢失。`;
+        title = `⏹ 终止运行中训练 #${jobId}`;
+        confirmLabel = '终止并删除';
+        promptText = `任务 "${jobName}"\n\n执行流程:\n  · SIGTERM 训练子进程 (优雅停止 3 秒)\n  · 超时未停 → SIGKILL 强杀\n  · 删除 jobs 记录 + 日志文件\n  · 已落盘的 checkpoint 不删 (如需在 C.3 模型库另删)\n\n此操作不可撤销, 已训的 epoch 数据将丢失。`;
     } else if (status === 'queued') {
-        promptText = `取消排队任务 #${jobId} "${jobName}"?\n\n• 取消任务: executor 不会再 pick 它\n• 删除 jobs 表记录`;
+        title = `⏹ 取消排队任务 #${jobId}`;
+        confirmLabel = '取消并删除';
+        promptText = `任务 "${jobName}"\n\n结果:\n  · 取消任务: executor 不会再 pick 它\n  · 删除 jobs 表记录`;
     } else {
-        promptText = `删除训练任务 #${jobId} "${jobName}"?\n\n将同时删除:\n• jobs 表记录\n• job 日志文件 (.log)\n\n注: 任务产出的 model 文件不会被删除 (请在 C.3 模型库另外删除)。此操作不可撤销。`;
+        title = `🗑 删除训练任务 #${jobId}`;
+        confirmLabel = '确认删除';
+        promptText = `任务 "${jobName}"\n\n将同时删除:\n  · jobs 表记录\n  · job 日志文件 (.log)\n\n注: 任务产出的 model 文件不会被删除 (请在 C.3 模型库另外删除)。此操作不可撤销。`;
     }
-    if (!confirm(promptText)) return;
+    if (!(await showConfirmDialog(promptText, { title, confirmLabel }))) return;
 
     try {
         const r = await apiSend('DELETE', `/api/spawn-tuning-v2/jobs/${jobId}`);
@@ -1024,11 +1205,11 @@ async function deleteJob(jobId, jobName, status) {
             else if (k.action === 'not_running') killPart = ' · ⚠ 子进程不在注册表 (可能 executor 已重启)';
             else killPart = ` · kill 失败: ${k.msg || k.action}`;
         }
-        alert(`✓ 任务 #${jobId} 已删除${killPart}${filesPart}`);
+        showNotification(`任务 #${jobId} 已删除${killPart}${filesPart}`, 'success');
         refreshJobs();
         refreshOverview();
     } catch (e) {
-        alert(`删除失败: ${e.message}`);
+        showNotification(`删除失败: ${e.message}`, 'error');
     }
 }
 
@@ -1537,14 +1718,14 @@ async function refreshModels() {
         `).join('');
         tbody.querySelectorAll('.btn-deploy').forEach((b) => {
             b.addEventListener('click', async () => {
-                if (!confirm(`部署模型 #${b.dataset.id}? 当前 deployed 会被 archived.`)) return;
+                if (!(await showConfirmDialog(`当前 deployed 模型会被 archived。`, { title: `🚀 部署模型 #${b.dataset.id}`, confirmLabel: '确认部署', confirmType: 'primary' }))) return;
                 await apiSend('POST', `/api/spawn-tuning-v2/models/${b.dataset.id}/deploy`);
                 refreshModels(); refreshOverview();
             });
         });
         tbody.querySelectorAll('.btn-rb').forEach((b) => {
             b.addEventListener('click', async () => {
-                if (!confirm(`回滚模型 #${b.dataset.id}?`)) return;
+                if (!(await showConfirmDialog(`模型 #${b.dataset.id} 将回滚为上一版 deployed 版本。`, { title: `↩ 回滚模型 #${b.dataset.id}`, confirmLabel: '确认回滚' }))) return;
                 await apiSend('POST', `/api/spawn-tuning-v2/models/${b.dataset.id}/rollback`);
                 refreshModels(); refreshOverview();
             });
@@ -1552,7 +1733,11 @@ async function refreshModels() {
         tbody.querySelectorAll('.btn-delete-model').forEach((b) => {
             b.addEventListener('click', async () => {
                 const id = b.dataset.id, name = b.dataset.name;
-                if (!confirm(`删除模型 #${id} "${name}"?\n\n将同时删除:\n• DB 记录\n• .pt 权重文件\n• .pt.log 训练日志\n\n此操作不可撤销, 已 deployed 的模型不允许删除。`)) return;
+                const confirmed = await showConfirmDialog(
+                    `模型 "${name}"\n\n将同时删除:\n  · DB 记录\n  · .pt 权重文件\n  · .pt.log 训练日志\n\n此操作不可撤销, 已 deployed 的模型不允许删除。`,
+                    { title: `🗑 删除模型 #${id}`, confirmLabel: '确认删除' }
+                );
+                if (!confirmed) return;
                 try {
                     const r = await apiSend('DELETE', `/api/spawn-tuning-v2/models/${id}`);
                     const filesPart = (r.deleted_files?.length || 0) > 0
@@ -1561,13 +1746,13 @@ async function refreshModels() {
                     const warnPart = (r.failed_files?.length || 0) > 0
                         ? ` · ⚠ ${r.failed_files.length} 个文件删除失败`
                         : '';
-                    alert(`✓ 模型 #${id} 已删除${filesPart}${warnPart}`);
+                    showNotification(`模型 #${id} 已删除${filesPart}${warnPart}`, 'success');
                     refreshModels();
                     refreshOverview();
                     refreshBaseModelOptions();
                     refreshBundleModelOptions();
                 } catch (e) {
-                    alert(`删除失败: ${e.message}`);
+                    showNotification(`删除失败: ${e.message}`, 'error');
                 }
             });
         });

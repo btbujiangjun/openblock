@@ -108,6 +108,16 @@ def register_v2_routes(app):
     ensure_schema()
     bp = Blueprint("spawn_tuning_v2", __name__)
 
+    # v2.9.5: 清洗 Infinity/NaN → None (非标准 JSON 会导致前端 JSON.parse 崩溃)
+    def _sanitize_metrics(m):
+        if isinstance(m, dict):
+            return {k: _sanitize_metrics(v) for k, v in m.items()}
+        if isinstance(m, float):
+            import math
+            if math.isnan(m) or math.isinf(m):
+                return None
+        return m
+
     # ─── 样本集 ───────────────────────────────────────────
 
     @bp.route("/api/spawn-tuning-v2/sample-sets", methods=["GET"])
@@ -543,7 +553,7 @@ def register_v2_routes(app):
         for r in rows:
             d = row_to_dict(r)
             try:
-                d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+                d["metrics"] = _sanitize_metrics(json.loads(d.get("metrics_json") or "{}"))
             except Exception:
                 d["metrics"] = {}
             out.append(d)
@@ -558,7 +568,7 @@ def register_v2_routes(app):
             return jsonify({"error": "not found"}), 404
         d = row_to_dict(row)
         try:
-            d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+            d["metrics"] = _sanitize_metrics(json.loads(d.get("metrics_json") or "{}"))
         except Exception:
             d["metrics"] = {}
         return jsonify(d)
@@ -1419,7 +1429,7 @@ def register_v2_routes(app):
             return jsonify({"deployed": None})
         d = row_to_dict(row)
         try:
-            d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+            d["metrics"] = _sanitize_metrics(json.loads(d.get("metrics_json") or "{}"))
         except Exception:
             d["metrics"] = {}
         return jsonify({"deployed": d})
