@@ -16,8 +16,6 @@ import {
     DEFAULT_THETA,
     installPolicies,
     uninstallPolicies,
-    resolveSpawnTheta,
-    getPolicyStats,
     loadPoliciesFromServer,
 } from './tuning/clientPolicy.js';
 import { flushNow as flushFieldMetrics, getMetricsStats as getFieldMetricsStats } from './tuning/policyMetrics.js';
@@ -137,8 +135,6 @@ function readLaunchConfig() {
         sessions: Math.max(5, Math.min(100, Number($('launch-sessions').value) || 30)),
         maxSteps: Math.max(30, Math.min(500, Number($('launch-maxsteps').value) || 120)),
         policies: policies.length > 0 ? policies : ['random', 'clear-greedy', 'survival'],
-        exportJson: Boolean($('launch-export-json')?.checked),
-        jsonFilename: ($('launch-filename')?.value || '').trim(),
         weights: {
             fairness: Number($('launch-w-f').value) || 70,
             excitement: Number($('launch-w-e').value) || 45,
@@ -429,30 +425,6 @@ async function startLaunchTuning() {
     drawLaunchSubscoresCanvas(result.store.all());
     renderLaunchResults(result.store, cfg.weights);
 
-    // 可选: 同时导出 JSON 离线快照 (代替原"数据采集"功能)
-    if (cfg.exportJson) {
-        const filename = cfg.jsonFilename || `spawn-samples-${runId}.json`;
-        const payload = {
-            generatedAt: new Date().toISOString(),
-            runId,
-            config: {
-                ctxFilter: cfg.ctxFilter,
-                thetasPerCtx: cfg.thetasPerCtx,
-                seedsPerTheta: cfg.seedsPerTheta,
-                sessions: cfg.sessions,
-                maxSteps: cfg.maxSteps,
-                policies: cfg.policies,
-                weights: cfg.weights,
-            },
-            completedCount: result.completed,
-            failedCount: result.failed,
-            durationMs: result.durationMs,
-            samples: result.store.all(),
-        };
-        triggerJsonDownload(filename, payload);
-        logLaunch(`📦 离线快照已下载: ${filename} (${(JSON.stringify(payload).length / 1024).toFixed(1)} KB)`, 'ok');
-    }
-
     $('btn-launch-start').disabled = false;
     $('btn-launch-cancel').disabled = true;
     _runListCache = null;  // 失效 run cache,让其他 tab 重新拉
@@ -467,25 +439,9 @@ function cancelLaunchTuning() {
     }
 }
 
-// ── 工具: 触发 JSON 文件下载 (供 LHS 寻参"同时导出 JSON 离线快照"选项使用)
-
-function triggerJsonDownload(filename, data) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-// 注: v0.3.8 删除了独立的"数据采样"模式 (与 LHS 寻参高度重叠)。
-//   - bot 多选 → launch-policies <select multiple>
-//   - JSON 离线快照 → "同时导出 JSON" checkbox + launch-filename input
-//   - 旧函数 readSampleConfig / startSamplingTask / runSamplingWithWorkerPool /
-//     setLaunchMode / getLaunchMode / estimateSampleBudget 全部删除,见 git log。
+// 注: v0.3.10 删除了"数据采样"模式 (与 LHS 寻参高度重叠)、固定 θ 采集、
+//   JSON 导入/导出 (数据团队场景)、灰度切量诊断 (本机调试)。
+//   只保留"训 NN"主干: LHS 采样 → Run 库管理 → 训 NN → 部署。
 
 // ─────────────────────────────────────────────────────────────
 // 样本构建 (Tab ②): 公共样本采集 + Run 库管理 + 详情分析
@@ -496,18 +452,6 @@ let _dataCenterInited = false;
 function initDataCenterTab() {
     if (_dataCenterInited) return;
     _dataCenterInited = true;
-
-    // 3 种构建方式切换
-    document.querySelectorAll('.dc-build-btn').forEach((b) => {
-        b.addEventListener('click', () => {
-            document.querySelectorAll('.dc-build-btn').forEach((x) => x.classList.toggle('dc-build-active', x === b));
-            const buildKey = b.dataset.build;
-            for (const k of ['lhs', 'fixed', 'import']) {
-                const panel = $(`dc-build-${k}`);
-                if (panel) panel.hidden = k !== buildKey;
-            }
-        });
-    });
 
     // 跳转到 ③ 流水线
     $('dc-jump-pipeline')?.addEventListener('click', (e) => {
@@ -520,14 +464,16 @@ function initDataCenterTab() {
     $('dc-filter-status')?.addEventListener('change', refreshDataLibrary);
     $('dc-filter-min-samples')?.addEventListener('change', refreshDataLibrary);
 
-    // 构建方式 1: LHS 快捷启动 — 直接复用 ③ 流水线的 startLaunchTuning,但读 dc-* 配置
+    // LHS 采集: 预设 / 实时预估 / 实测耗时 / 启动
     $('dc-btn-lhs-start')?.addEventListener('click', startLhsFromDataCenter);
-
-    // 构建方式 2: 固定 θ × 多 seed
-    $('dc-btn-fixed-start')?.addEventListener('click', startFixedSamplingFromDataCenter);
-
-    // 构建方式 3: 导入 JSON
-    $('dc-btn-import-go')?.addEventListener('click', importRunFromFile);
+    $('dc-btn-lhs-estimate')?.addEventListener('click', measureLhsThroughput);
+    document.querySelectorAll('.lhs-preset').forEach((b) => {
+        b.addEventListener('click', () => applyLhsPreset(b.dataset.preset, b));
+    });
+    ['dc-lhs-ctx', 'dc-lhs-thetas', 'dc-lhs-seeds', 'dc-lhs-workers', 'dc-lhs-sessions'].forEach((id) => {
+        $(id)?.addEventListener('input', updateLhsEstimate);
+    });
+    updateLhsEstimate();
 }
 
 async function refreshDataLibrary() {
@@ -580,7 +526,6 @@ async function refreshDataLibrary() {
                 <td class="dc-row-actions" style="white-space:nowrap;">
                   <button class="ghost" data-act="detail" data-run="${r.run_id}">详情</button>
                   <button class="ghost" data-act="train" data-run="${r.run_id}">训 NN</button>
-                  <button class="ghost" data-act="export" data-run="${r.run_id}">导出</button>
                   <button class="danger" data-act="delete" data-run="${r.run_id}">删</button>
                 </td>
               </tr>
@@ -647,15 +592,6 @@ async function handleLibraryAction(act, runId) {
                 $('torch-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }, 200);
-    } else if (act === 'export') {
-        try {
-            const r = await fetch(`${API_BASE}/api/spawn-tuning/v2/runs/${runId}/export`);
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const data = await r.json();
-            triggerJsonDownload(`spawn-tuning-run-${runId}.json`, data);
-        } catch (e) {
-            alert('导出失败: ' + e.message);
-        }
     } else if (act === 'delete') {
         if (!confirm(`确认删除 run_id=${runId} ?\n这会删除所有样本 + 关联 policies (不可恢复)`)) return;
         try {
@@ -673,13 +609,114 @@ async function handleLibraryAction(act, runId) {
     }
 }
 
+// LHS 单样本耗时基线 (ms/sample · 1 worker · 30 sessions) — 用户点"实测耗时"会刷新
+let _lhsMsPerSample = 1500;
+
+const LHS_PRESETS = {
+    smoke: { ctx: 'normal:budget-p2:1500:growth', thetas: 5,  seeds: 1, workers: 4, sessions: 10, label: '🔥 烟雾测试' },
+    debug: { ctx: 'normal:*:*:*',                  thetas: 10, seeds: 2, workers: 4, sessions: 30, label: '🐞 日常调试' },
+    prod:  { ctx: '*',                             thetas: 30, seeds: 2, workers: 4, sessions: 30, label: '🏭 生产训练' },
+    hi:    { ctx: '*',                             thetas: 50, seeds: 3, workers: 6, sessions: 60, label: '💎 高精度' },
+};
+
+function applyLhsPreset(presetKey, clickedBtn) {
+    const p = LHS_PRESETS[presetKey];
+    if (!p) return;
+    $('dc-lhs-ctx').value = p.ctx;
+    $('dc-lhs-thetas').value = String(p.thetas);
+    $('dc-lhs-seeds').value = String(p.seeds);
+    $('dc-lhs-workers').value = String(p.workers);
+    $('dc-lhs-sessions').value = String(p.sessions);
+    document.querySelectorAll('.lhs-preset').forEach((b) => b.classList.toggle('dc-build-active', b === clickedBtn));
+    $('dc-lhs-active-preset').textContent = `(已应用: ${p.label})`;
+    updateLhsEstimate();
+}
+
+function updateLhsEstimate() {
+    const ctxFilter = $('dc-lhs-ctx')?.value?.trim() || '*';
+    const thetas = Math.max(1, Number($('dc-lhs-thetas')?.value || 0));
+    const seeds = Math.max(1, Number($('dc-lhs-seeds')?.value || 0));
+    const workers = Math.max(1, Number($('dc-lhs-workers')?.value || 1));
+    const sessions = Math.max(1, Number($('dc-lhs-sessions')?.value || 0));
+
+    let ctxCount = 0;
+    try {
+        ctxCount = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c)).length;
+    } catch { ctxCount = 0; }
+    const total = ctxCount * thetas * seeds;
+    const perSampleMs = (sessions / 30) * _lhsMsPerSample;
+    const totalMs = (total * perSampleMs) / Math.max(1, workers);
+
+    const setText = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    setText('dc-lhs-est-ctx',   `${ctxCount} ctx`);
+    setText('dc-lhs-est-theta', `${thetas} θ`);
+    setText('dc-lhs-est-seed',  `${seeds} seed`);
+    setText('dc-lhs-est-total', total > 0 ? `${total.toLocaleString()} 样本` : '— (ctx 命中 0)');
+    setText('dc-lhs-est-per',   `${(perSampleMs / 1000).toFixed(1)}s`);
+    setText('dc-lhs-est-eta',   ctxCount > 0 ? fmtMs(totalMs) : '—');
+
+    // 启动按钮的禁用状态
+    const startBtn = $('dc-btn-lhs-start');
+    if (startBtn) {
+        startBtn.disabled = ctxCount === 0;
+        startBtn.title = ctxCount === 0 ? 'Context 过滤命中 0,无法启动' : '';
+    }
+}
+
+// 实测耗时: 用 1 worker 跑 5 个样本,得到真实的 ms/sample 校准 _lhsMsPerSample
+async function measureLhsThroughput() {
+    const btn = $('dc-btn-lhs-estimate');
+    const hint = $('dc-lhs-hint');
+    if (btn) btn.disabled = true;
+    if (hint) hint.textContent = '测速中 (跑 5 样本)…';
+    try {
+        const { runSpawnEvaluation } = await import('./bot/spawnEvaluation.js');
+        const sessions = Math.max(5, Number($('dc-lhs-sessions')?.value || 30));
+        const t0 = performance.now();
+        const N = 5;
+        for (let i = 0; i < N; i++) {
+            runSpawnEvaluation({
+                seed: Date.now() + i,
+                sessions, maxSteps: 120,
+                bestScore: 1000,
+                strategies: ['normal'],
+                policies: ['random', 'clear-greedy', 'survival'],
+                spawnGenerators: ['budget-p2'],
+            });
+        }
+        const ms = (performance.now() - t0) / N;
+        // 校准到 30 sessions 基线
+        _lhsMsPerSample = Math.round((30 / sessions) * ms);
+        if (hint) hint.innerHTML = `<span style="color:var(--good)">✓ 测得 ${(ms / 1000).toFixed(2)}s/样本 (sessions=${sessions}, 单线程) · 已校准预估</span>`;
+        updateLhsEstimate();
+    } catch (e) {
+        if (hint) hint.innerHTML = `<span style="color:var(--bad)">测速失败: ${escapeHtml(e.message)}</span>`;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 // 构建方式 1: 从数据中心快捷启动 LHS — 复用 ③ Step A 的执行函数
 async function startLhsFromDataCenter() {
+    // 大任务二次确认
+    const ctxFilter = $('dc-lhs-ctx')?.value || '*';
+    const thetas = Number($('dc-lhs-thetas')?.value || 10);
+    const seeds  = Number($('dc-lhs-seeds')?.value  || 2);
+    const ctxCount = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c)).length;
+    const total = ctxCount * thetas * seeds;
+    if (total > 5000) {
+        const eta = $('dc-lhs-est-eta')?.textContent || '未知';
+        if (!confirm(`大任务: ${total.toLocaleString()} 样本 · 预计耗时 ${eta}\n确认启动?`)) return;
+    }
+    if (ctxCount === 0) {
+        alert(`Context 过滤 "${ctxFilter}" 命中 0 个 ctx, 检查格式: 难度:生成器:PB档:生命周期`);
+        return;
+    }
     // 把 dc-lhs-* 输入同步到 launch-* 输入,然后调 startLaunchTuning
     const ctxEl = $('launch-ctx-filter');
-    if (ctxEl) ctxEl.value = $('dc-lhs-ctx')?.value || '*';
-    if ($('launch-thetas')) $('launch-thetas').value = $('dc-lhs-thetas')?.value || '10';
-    if ($('launch-seeds'))  $('launch-seeds').value  = $('dc-lhs-seeds')?.value  || '2';
+    if (ctxEl) ctxEl.value = ctxFilter;
+    if ($('launch-thetas')) $('launch-thetas').value = String(thetas);
+    if ($('launch-seeds'))  $('launch-seeds').value  = String(seeds);
     if ($('launch-workers')) $('launch-workers').value = $('dc-lhs-workers')?.value || '4';
     if ($('launch-sessions')) $('launch-sessions').value = $('dc-lhs-sessions')?.value || '30';
     $('dc-lhs-hint').textContent = '已同步配置 → 启动中(切到 ③ 流水线看实时进度)…';
@@ -691,89 +728,6 @@ async function startLhsFromDataCenter() {
     }, 200);
 }
 
-// 构建方式 2: 固定 θ × 多 seed 采集 (从原"数据采样"模式简化版)
-async function startFixedSamplingFromDataCenter() {
-    const cfg = {
-        strategies: [...($('dc-fixed-strategies')?.selectedOptions || [])].map((o) => o.value),
-        spawnGenerators: [...($('dc-fixed-generators')?.selectedOptions || [])].map((o) => o.value),
-        policies: [...($('dc-fixed-policies')?.selectedOptions || [])].map((o) => o.value),
-        sampleCount: Math.max(1, Number($('dc-fixed-count')?.value || 20)),
-        sessions: Math.max(5, Number($('dc-fixed-sessions')?.value || 30)),
-        bestScore: Math.max(100, Number($('dc-fixed-best-score')?.value || 1000)),
-        workers: Math.max(1, Number($('dc-fixed-workers')?.value || 4)),
-        alsoJson: $('dc-fixed-also-json')?.checked,
-    };
-    if (cfg.strategies.length === 0 || cfg.spawnGenerators.length === 0 || cfg.policies.length === 0) {
-        $('dc-fixed-hint').innerHTML = '<span style="color:var(--bad)">至少选 1 个难度/生成器/Bot</span>';
-        return;
-    }
-    const btn = $('dc-btn-fixed-start');
-    if (btn) btn.disabled = true;
-    $('dc-fixed-hint').textContent = `跑 ${cfg.sampleCount} 样本…`;
-
-    const runId = Date.now();
-    // 直接调底层 runSpawnEvaluation 同接口
-    const { runSpawnEvaluation } = await import('./bot/spawnEvaluation.js');
-    const samples = [];
-    let completed = 0, failed = 0;
-    for (let i = 0; i < cfg.sampleCount; i++) {
-        const seed = runId + i;
-        try {
-            const t0 = performance.now();
-            const report = runSpawnEvaluation({
-                seed, sessions: cfg.sessions, maxSteps: 120,
-                bestScore: cfg.bestScore,
-                strategies: cfg.strategies,
-                policies: cfg.policies,
-                spawnGenerators: cfg.spawnGenerators,
-            });
-            samples.push({ seed, evalMs: performance.now() - t0, ...report });
-            completed++;
-        } catch { failed++; }
-        if ((i + 1) % 5 === 0) {
-            $('dc-fixed-hint').textContent = `${i + 1} / ${cfg.sampleCount} 完成 (${failed} 失败)…`;
-            await new Promise((r) => setTimeout(r, 0));
-        }
-    }
-    $('dc-fixed-hint').innerHTML = `<span style="color:var(--good)">✓ 完成 ${completed} 样本</span>`;
-
-    if (cfg.alsoJson) {
-        triggerJsonDownload(`spawn-fixed-samples-${runId}.json`, {
-            generatedAt: new Date().toISOString(), runId, config: cfg,
-            completedCount: completed, failedCount: failed, samples,
-        });
-    }
-    // 提示用户: 这个固定采集模式生成的 samples 不进 SQLite (字段结构与 v2 不一致)
-    // 这是设计 — Phase B NN 训练用的是 LHS 撒点的样本
-    if (btn) btn.disabled = false;
-}
-
-// 构建方式 3: 从文件导入
-async function importRunFromFile() {
-    const file = $('dc-import-file')?.files?.[0];
-    if (!file) { $('dc-import-hint').innerHTML = '<span style="color:var(--bad)">先选文件</span>'; return; }
-    $('dc-import-hint').textContent = '读文件…';
-    try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        if (data.format !== 'openblock-spawn-tuning-run-v1') {
-            // 兼容旧"数据采样"导出格式: 只有 samples + config
-            $('dc-import-hint').innerHTML = '<span style="color:var(--warn)">非标准 run 导出格式 (期望 format=openblock-spawn-tuning-run-v1)</span>';
-            return;
-        }
-        const override = Number($('dc-import-override')?.value) || undefined;
-        $('dc-import-hint').textContent = '上传…';
-        const r = await apiPost('/api/spawn-tuning/v2/runs/import', {
-            ...data,
-            run_id_override: override,
-        });
-        $('dc-import-hint').innerHTML = `<span style="color:var(--good)">✓ 已导入 run_id=${r.new_run_id} (${r.inserted_samples} 样本)</span>`;
-        await refreshDataLibrary();
-        refreshTrainEligibleRuns().catch(() => {});
-    } catch (e) {
-        $('dc-import-hint').innerHTML = `<span style="color:var(--bad)">导入失败: ${escapeHtml(e.message)}</span>`;
-    }
-}
 
 // ── PyTorch Phase B/C 训练 (后端: spawn_tuning_backend.py) ────────
 
@@ -1097,25 +1051,13 @@ function initLaunchTab() {
             el.addEventListener('input', () => { pct.textContent = el.value; });
         }
     }
-    // 「导出 JSON」勾选时,把 filename 输入框启用;不勾时禁用 (避免误填)
-    const exportCb = $('launch-export-json');
-    const filenameInput = $('launch-filename');
-    const syncFilenameEnabled = () => {
-        if (!filenameInput) return;
-        filenameInput.disabled = !(exportCb && exportCb.checked);
-        if (filenameInput.disabled) filenameInput.style.opacity = '0.5';
-        else filenameInput.style.opacity = '';
-    };
-    if (exportCb) exportCb.addEventListener('change', syncFilenameEnabled);
-    syncFilenameEnabled();
-
     $('btn-launch-estimate')?.addEventListener('click', () => estimateLaunchBudget());
     $('btn-launch-start')?.addEventListener('click', () => {
         startLaunchTuning().catch((e) => logLaunch(`致命错误: ${e.message || e}`, 'error'));
     });
     $('btn-launch-cancel')?.addEventListener('click', cancelLaunchTuning);
     drawLaunchSubscoresCanvas([]);
-    logLaunch('就绪 — 选择模式后配置并启动', 'info');
+    logLaunch('就绪 — 配置后启动', 'info');
 
     // PyTorch Phase B/C 训练
     $('btn-torch-train')?.addEventListener('click', () => startTrainingJob().catch((e) => alert(e.message)));
@@ -1177,7 +1119,6 @@ async function refreshStepAReuseRuns() {
 }
 
 async function refreshFieldTab() {
-    refreshPolicyStats();
     await loadFieldMetrics();
 }
 
@@ -1541,38 +1482,6 @@ async function refreshDeployTab() {
         sel.innerHTML = '<option value="">选 context…</option>' +
             (data.policies || []).map((p) => `<option value="${p.context_key}">${escapeHtml(p.context_key)}</option>`).join('');
     } catch {}
-    refreshPolicyStats();
-}
-
-function refreshPolicyStats() {
-    const s = getPolicyStats();
-    $('policy-stats').innerHTML = `
-        <div class="stat-card ${s.loaded ? 'good' : ''}"><div class="stat-value">${s.loaded ? '已加载' : '空'}</div><div class="stat-label">状态</div></div>
-        <div class="stat-card"><div class="stat-value">${s.count}</div><div class="stat-label">Policies 数</div></div>
-        <div class="stat-card"><div class="stat-value">${s.rolloutPct}%</div><div class="stat-label">灰度比例</div></div>
-        <div class="stat-card good"><div class="stat-value">${s.hits}</div><div class="stat-label">精确命中</div></div>
-        <div class="stat-card"><div class="stat-value">${s.fuzzy}</div><div class="stat-label">Fuzzy 命中</div></div>
-        <div class="stat-card"><div class="stat-value">${s.coarse}</div><div class="stat-label">Coarse 命中</div></div>
-        <div class="stat-card bad"><div class="stat-value">${s.fallback + s.gateOut}</div><div class="stat-label">回退到 Default</div></div>
-    `;
-}
-
-function testResolve() {
-    // 用一组示例 context 测解析
-    const tests = [
-        { difficulty: 'normal', generator: 'budget-p2', bestScore: 1500, totalRounds: 100, daysSincePb: 1, userId: 'test-1' },
-        { difficulty: 'hard', generator: 'triplet-p1', bestScore: 10000, totalRounds: 500, daysSincePb: 10, userId: 'test-2' },
-        { difficulty: 'easy', generator: 'budget-p2', bestScore: 300, totalRounds: 5, daysSincePb: 0, userId: 'test-3' },
-    ];
-    let out = '';
-    for (const t of tests) {
-        const r = resolveSpawnTheta(t);
-        out += `\n用户 ${t.userId} (best=${t.bestScore}, rounds=${t.totalRounds}):\n`;
-        out += `  → source: ${r.source}, context: ${r.contextKey || '(default)'}\n`;
-        out += `  → theta.personalization: ${r.theta.personalizationStrength}, temperature: ${r.theta.temperature}\n`;
-    }
-    alert(out);
-    refreshPolicyStats();
 }
 
 async function runComparison() {
@@ -1678,8 +1587,6 @@ function bindEvents() {
     $('run-select')?.addEventListener('change', refreshRunDetail);
     $('btn-load-metrics')?.addEventListener('click', loadMetricsForRun);
     $('metrics-run-select')?.addEventListener('change', loadMetricsForRun);
-    $('btn-refresh-stats')?.addEventListener('click', refreshPolicyStats);
-    $('btn-test-resolve')?.addEventListener('click', testResolve);
     $('btn-run-compare')?.addEventListener('click', runComparison);
     $('btn-load-field')?.addEventListener('click', loadFieldMetrics);
     $('field-hours')?.addEventListener('change', loadFieldMetrics);

@@ -359,13 +359,6 @@
               <option value="survival" selected>survival</option>
             </select>
           </label>
-          <label title="勾选后,写完 SQLite 还会下载一份 JSON 离线快照">
-            <input type="checkbox" id="launch-export-json"> 同时导出 JSON 离线快照
-          </label>
-          <label title="JSON 文件名 (仅勾了导出时生效)" id="launch-filename-label">
-            JSON 文件名
-            <input id="launch-filename" type="text" placeholder="spawn-samples-2026xxxx.json" value="">
-          </label>
         </div>
       </section>
 
@@ -543,9 +536,8 @@
     <!-- Tab ④ 部署与监控 (合并原 部署对照 + 线上效果) -->
     <div class="tab-content" id="tab-deploy">
       <p class="tab-hint"><b>🎯 这里干什么</b>:
-        <b>D.1</b> 部署前抽 context 跑 10 局 tuned vs default 验证 ·
-        <b>D.2</b> 上线后看真实玩家 24h 聚合指标 ·
-        <b>D.3</b> 灰度切量本机诊断 (出问题 ↩ 回到「① 概览」一键回滚)
+        <b>D.1</b> 部署前抽 context 跑 tuned vs default 验证 ·
+        <b>D.2</b> 上线后看真实玩家 24h 聚合指标 (出问题 ↩ 回到「① 概览」一键回滚)
       </p>
 
       <section class="compact">
@@ -592,15 +584,6 @@
         </table>
       </section>
 
-      <section class="compact">
-        <h2>D.3 灰度切量诊断 (本浏览器,实时)</h2>
-        <p style="font-size:12px; padding:2px 0 6px;">本会话调用 <code>resolveSpawnTheta</code> 的统计 (实时累加)</p>
-        <div id="policy-stats" class="stats-grid"></div>
-        <div class="form-actions">
-          <button id="btn-refresh-stats" class="ghost">↻ 刷新</button>
-          <button id="btn-test-resolve" class="ghost">🧪 测试解析当前用户</button>
-        </div>
-      </section>
     </div>
 
     <!-- Tab ② 样本构建 (公共样本库 — 所有其它 tab 的数据来源) -->
@@ -612,88 +595,80 @@
         <b>B.3</b> 选中 run 看详情 + 跨 run 最优 θ 排名 + 一键部署
       </p>
 
-      <!-- ──── B.1 数据采集 (3 种构建方式) ──── -->
+      <!-- ──── B.1 数据采集 (LHS 寻参,给 NN 训练用) ──── -->
       <section class="compact" style="border-left:3px solid var(--accent);">
-        <h2>B.1 采集新样本</h2>
-        <div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
-          <button class="ghost dc-build-btn dc-build-active" data-build="lhs">🔧 LHS 寻参 (变 θ)</button>
-          <button class="ghost dc-build-btn" data-build="fixed">📌 固定 θ × 多 seed</button>
-          <button class="ghost dc-build-btn" data-build="import">📥 从 JSON 导入</button>
-        </div>
+        <h2>B.1 采集新样本 (LHS 寻参 — 给 NN 训练用)</h2>
 
         <!-- 构建方式 1: LHS -->
         <div id="dc-build-lhs" class="dc-build-panel">
-          <p class="muted-hint" style="padding:2px 0 4px;">Latin Hypercube 在 14 维 θ 撒点, 跑评估器写 SQLite。<a href="#" id="dc-jump-pipeline" style="color:var(--accent)">→ 跳到 ③ 流水线 Step A 配置</a> (那里是详细版,有权重滑块)</p>
-          <div class="form-row">
-            <label>Context 过滤<input id="dc-lhs-ctx" type="text" placeholder="*" value="*"></label>
-            <label>每 ctx θ 数<input id="dc-lhs-thetas" type="number" min="2" max="200" value="10"></label>
-            <label>每 θ Seed 数<input id="dc-lhs-seeds" type="number" min="1" max="10" value="2"></label>
-            <label>Workers<input id="dc-lhs-workers" type="number" min="1" max="16" value="4"></label>
-            <label>Sessions<input id="dc-lhs-sessions" type="number" min="5" max="100" value="30"></label>
+          <p class="muted-hint" style="padding:2px 0 4px;">
+            Latin Hypercube 在 14 维 θ 撒点, 跑评估器写 SQLite。
+            公式: <code>样本数 = ctx数 × θ数 × seed数</code>, 单样本 ≈ <code>sessions × 1.5s / workers</code>。
+            <a href="#" id="dc-jump-pipeline" style="color:var(--accent)">→ 流水线 Step A 详细版</a>
+          </p>
+
+          <!-- 一键预设 -->
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:4px 0 8px; font-size:11px;">
+            <span style="color:var(--muted);">🎯 预设:</span>
+            <button class="ghost lhs-preset" data-preset="smoke" title="单 ctx × 5 θ × 1 seed × 10 sessions ≈ 30 秒,验证流程能跑通">🔥 烟雾测试</button>
+            <button class="ghost lhs-preset" data-preset="debug" title="normal 难度全集 × 10 θ × 2 seed × 30 sessions ≈ 5-8 分钟,看趋势">🐞 日常调试</button>
+            <button class="ghost lhs-preset dc-build-active" data-preset="prod" title="120 ctx 全集 × 30 θ × 2 seed × 30 sessions ≈ 1-2 小时,生产级 NN 训练">🏭 生产训练</button>
+            <button class="ghost lhs-preset" data-preset="hi" title="120 ctx 全集 × 50 θ × 3 seed × 60 sessions ≈ 4-6 小时,val MAE 再降一档">💎 高精度</button>
+            <span id="dc-lhs-active-preset" style="color:var(--accent); font-family:ui-monospace,monospace; font-size:10.5px;"></span>
           </div>
+
+          <div class="form-row">
+            <label title="4 维过滤: 难度:生成器:PB档:生命周期 · * = 全部
+难度 ∈ {easy, normal, hard}
+生成器 ∈ {triplet-p1, budget-p2}
+PB档 ∈ {500, 1500, 4000, 10000, 25000}
+生命周期 ∈ {onboarding, growth, mature, plateau}
+示例: normal:budget-p2:1500:growth (单 ctx)">
+              Context 过滤
+              <input id="dc-lhs-ctx" type="text" placeholder="*" value="*">
+            </label>
+            <label title="每个 context 内 LHS 撒多少个不同的 θ
+调试 5-10 · 一般训练 30-50 · 高精度 60-100
+越大代理 NN 学得越准, 但耗时线性增加">
+              每 ctx θ 数
+              <input id="dc-lhs-thetas" type="number" min="2" max="200" value="30">
+            </label>
+            <label title="同一个 θ 跑几个 seed 减噪
+1=快但噪声 ±15% · 2=日常推荐 ±10% · 3=正式版 ±7% · 5+=学术精度">
+              每 θ Seed 数
+              <input id="dc-lhs-seeds" type="number" min="1" max="10" value="2">
+            </label>
+            <label title="并行 Web Worker 数 (≤ CPU 核数 / 2 最佳)
+Mac M1/M2/M3: 4 · Intel 4核: 2 · 16核PC: 6-8
+超过 CPU 核数会变慢 (线程切换开销)">
+              Workers
+              <input id="dc-lhs-workers" type="number" min="1" max="16" value="4">
+            </label>
+            <label title="单样本评估跑几局游戏 (单样本统计精度)
+10=粗糙 ±20% · 30=日常推荐 ±10% · 60=优秀 ±5%">
+              Sessions
+              <input id="dc-lhs-sessions" type="number" min="5" max="200" value="30">
+            </label>
+          </div>
+
+          <!-- 实时预估 -->
+          <div id="dc-lhs-estimate" style="margin:4px 0 4px; padding:6px 10px; background:rgba(2,6,23,0.45); border:1px solid var(--line); border-radius:6px; font-size:11.5px; color:var(--muted); font-family:ui-monospace,monospace;">
+            <span style="color:var(--text);">📊 预估:</span>
+            <span id="dc-lhs-est-ctx">— ctx</span> ×
+            <span id="dc-lhs-est-theta">— θ</span> ×
+            <span id="dc-lhs-est-seed">— seed</span> =
+            <span id="dc-lhs-est-total" style="color:var(--accent); font-weight:700;">— 样本</span>
+            · 单样本 ≈ <span id="dc-lhs-est-per">—</span>
+            · <b style="color:var(--good);">总耗时 ≈ <span id="dc-lhs-est-eta">—</span></b>
+          </div>
+
           <div class="form-actions">
             <button id="dc-btn-lhs-start">▶ 启动 LHS 采集</button>
+            <button id="dc-btn-lhs-estimate" class="ghost" title="点这个用真实 worker 跑 5 样本测速,得到更准的耗时预估">↻ 实测耗时</button>
             <span id="dc-lhs-hint" class="muted-hint"></span>
           </div>
         </div>
 
-        <!-- 构建方式 2: 固定 θ × 多 seed -->
-        <div id="dc-build-fixed" class="dc-build-panel" hidden>
-          <p class="muted-hint" style="padding:2px 0 4px;">θ 固定 = baseline 默认值,变 Bot 策略 / 难度 / 生成器,生成对照基线样本 (不为训 NN, 给数据团队 / 回归测试)</p>
-          <div class="form-row" style="grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));">
-            <label>难度 (多选)
-              <select id="dc-fixed-strategies" multiple size="3" style="height:auto; min-height:64px;">
-                <option value="easy">easy</option>
-                <option value="normal" selected>normal</option>
-                <option value="hard">hard</option>
-              </select>
-            </label>
-            <label>生成算法 (多选)
-              <select id="dc-fixed-generators" multiple size="3" style="height:auto; min-height:64px;">
-                <option value="baseline" selected>baseline</option>
-                <option value="triplet-p1">triplet-p1</option>
-                <option value="budget-p2">budget-p2</option>
-              </select>
-            </label>
-            <label>Bot 策略 (多选)
-              <select id="dc-fixed-policies" multiple size="3" style="height:auto; min-height:64px;">
-                <option value="random" selected>random</option>
-                <option value="clear-greedy" selected>clear-greedy</option>
-                <option value="survival" selected>survival</option>
-              </select>
-            </label>
-          </div>
-          <div class="form-row">
-            <label>样本数<input id="dc-fixed-count" type="number" min="1" max="500" value="20"></label>
-            <label>Sessions/样本<input id="dc-fixed-sessions" type="number" min="5" max="200" value="30"></label>
-            <label>PB<input id="dc-fixed-best-score" type="number" min="100" value="1000"></label>
-            <label>Workers<input id="dc-fixed-workers" type="number" min="1" max="16" value="4"></label>
-          </div>
-          <div class="form-actions">
-            <button id="dc-btn-fixed-start">▶ 启动固定 θ 采集</button>
-            <label style="font-size:11px; color:var(--muted); display:flex; align-items:center; gap:4px;">
-              <input type="checkbox" id="dc-fixed-also-json" checked> 同时下载 JSON
-            </label>
-            <span id="dc-fixed-hint" class="muted-hint"></span>
-          </div>
-        </div>
-
-        <!-- 构建方式 3: 从 JSON 导入 -->
-        <div id="dc-build-import" class="dc-build-panel" hidden>
-          <p class="muted-hint" style="padding:2px 0 4px;">从「E.2 导出 JSON」生成的文件,或从另一台机器拷过来的 run.json 导入到本机 SQLite</p>
-          <div class="form-row">
-            <label>选择文件 (.json)
-              <input id="dc-import-file" type="file" accept=".json,application/json">
-            </label>
-            <label>覆盖 Run ID (可选,留空自动新生成)
-              <input id="dc-import-override" type="number" placeholder="自动" min="1">
-            </label>
-          </div>
-          <div class="form-actions">
-            <button id="dc-btn-import-go">📥 导入</button>
-            <span id="dc-import-hint" class="muted-hint"></span>
-          </div>
-        </div>
       </section>
 
       <!-- ──── B.2 Run 库 ──── -->
