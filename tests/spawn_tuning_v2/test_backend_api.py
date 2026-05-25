@@ -696,3 +696,124 @@ class TestUtilityEndpoints:
         r = client.get("/api/spawn-tuning-v2/policies/active")
         assert r.status_code == 200
         assert r.get_json()["deployed"] is None
+
+
+# ─────────── predict-curve (v2.9.2 双架构修复) ───────────
+
+class TestPredictCurve:
+    """v2.9.2: predict_curve 端点必须按 arch.model_type 选模型构造,
+    transformer ckpt 不能再走 SpawnTuningResNetMLP() → load_state_dict 抛异常的死路。
+
+    回归覆盖: image-4c5e0c28 截图中的 "模型推断失败: HTTP 500" 根因。
+    """
+
+    def _save_real_ckpt(self, tmp_path, model_type: str):
+        """构造一个真实 ckpt + sidecar 文件用于 backend 加载。"""
+        import torch
+        from rl_pytorch.spawn_tuning_v2.model import (
+            SpawnTuningResNetMLP, SpawnTuningTransformer,
+        )
+        from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
+        m = SpawnTuningTransformer() if model_type == "transformer" else SpawnTuningResNetMLP()
+        out = tmp_path / f"{model_type}.pt"
+        _save_checkpoint(
+            model=m, path=str(out),
+            metrics={"val_curve_mae": 0.1},
+            base_model_path=None, sample_set_ids=[1],
+        )
+        return out
+
+    def _insert_model_row(self, client, weights_path: str, model_type: str) -> int:
+        """直接 SQLite INSERT 一个 models 记录, 跳过 jobs 流程。"""
+        import spawn_tuning_v2_backend as mod
+        db = mod.get_db()
+        cur = db.execute(
+            """INSERT INTO models (
+                name, version, model_type, weights_path, sha256, size_bytes,
+                metrics_json, status, created_at
+            ) VALUES (?, 'v0.0.1', ?, ?, '', 0, '{}', 'staging', strftime('%s','now'))""",
+            (f"test-{model_type}", model_type, weights_path),
+        )
+        db.commit()
+        mid = cur.lastrowid
+        db.close()
+        return mid
+
+    def _ctx(self):
+        return {
+            "difficulty": "normal",
+            "generator": "triplet-p1",
+            "bot_policy": "clear-greedy",
+            "pb_bin": 1500,
+            "lifecycle_stage": "growth",
+        }
+
+    def test_predict_resnet_model(self, client, tmp_path):
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, str(ckpt), "resnet")
+        r = client.post(
+            f"/api/spawn-tuning-v2/models/{mid}/predict-curve",
+            json={"contexts": [self._ctx()]},
+        )
+        assert r.status_code == 200, r.get_json()
+        data = r.get_json()
+        assert data["n_contexts"] == 1
+        assert len(data["curves"]) == 1
+        assert len(data["curves"][0]) == 20  # N_CURVE_BINS
+        for v in data["curves"][0]:
+            assert 0.0 <= v <= 1.0
+
+    def test_predict_transformer_model(self, client, tmp_path):
+        """v2.9.2 核心: transformer ckpt 推断不能再 500。"""
+        ckpt = self._save_real_ckpt(tmp_path, "transformer")
+        mid = self._insert_model_row(client, str(ckpt), "transformer")
+        r = client.post(
+            f"/api/spawn-tuning-v2/models/{mid}/predict-curve",
+            json={"contexts": [self._ctx()]},
+        )
+        assert r.status_code == 200, r.get_json()
+        data = r.get_json()
+        assert data["n_contexts"] == 1
+        assert len(data["curves"]) == 1
+        assert len(data["curves"][0]) == 20
+
+    def test_predict_multi_contexts(self, client, tmp_path):
+        ckpt = self._save_real_ckpt(tmp_path, "transformer")
+        mid = self._insert_model_row(client, str(ckpt), "transformer")
+        ctxs = [self._ctx() for _ in range(4)]
+        r = client.post(
+            f"/api/spawn-tuning-v2/models/{mid}/predict-curve",
+            json={"contexts": ctxs},
+        )
+        assert r.status_code == 200
+        assert r.get_json()["n_contexts"] == 4
+        assert len(r.get_json()["curves"]) == 4
+
+    def test_predict_missing_contexts(self, client, tmp_path):
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, str(ckpt), "resnet")
+        r = client.post(
+            f"/api/spawn-tuning-v2/models/{mid}/predict-curve",
+            json={},
+        )
+        assert r.status_code == 400
+        assert "contexts" in r.get_json()["error"]
+
+    def test_predict_invalid_context(self, client, tmp_path):
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, str(ckpt), "resnet")
+        bad = self._ctx()
+        bad["bot_policy"] = "non-existent-bot"
+        r = client.post(
+            f"/api/spawn-tuning-v2/models/{mid}/predict-curve",
+            json={"contexts": [bad]},
+        )
+        assert r.status_code == 400
+        assert "invalid context" in r.get_json()["error"]
+
+    def test_predict_model_not_found(self, client):
+        r = client.post(
+            "/api/spawn-tuning-v2/models/99999/predict-curve",
+            json={"contexts": [self._ctx()]},
+        )
+        assert r.status_code == 404

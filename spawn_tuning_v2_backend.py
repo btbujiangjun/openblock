@@ -647,7 +647,10 @@ def register_v2_routes(app):
         """
         try:
             import torch
-            from rl_pytorch.spawn_tuning_v2.model import SpawnTuningResNetMLP, N_THETA, N_CURVE_BINS
+            from rl_pytorch.spawn_tuning_v2.model import (
+                SpawnTuningResNetMLP, SpawnTuningTransformer,
+                N_THETA, N_CURVE_BINS,
+            )
             from rl_pytorch.spawn_tuning_v2.feature_io import (
                 DIFFICULTY_INDEX, GENERATOR_INDEX, BOT_INDEX, PB_BIN_INDEX, LIFECYCLE_INDEX,
             )
@@ -665,19 +668,32 @@ def register_v2_routes(app):
             return jsonify({"error": f"theta_norm must have length {N_THETA}"}), 400
 
         db = get_db()
-        row = db.execute("SELECT weights_path FROM models WHERE model_id = ?", (model_id,)).fetchone()
+        row = db.execute(
+            "SELECT weights_path, model_type FROM models WHERE model_id = ?",
+            (model_id,),
+        ).fetchone()
         db.close()
         if not row or not row["weights_path"]:
             return jsonify({"error": "model not found or has no weights_path"}), 404
 
         try:
             ck = torch.load(row["weights_path"], map_location="cpu", weights_only=False)
-            arch = ck.get("arch", {})
-            model = SpawnTuningResNetMLP(
-                hidden_dim=arch.get("hidden_dim", 128),
-                n_blocks=arch.get("n_blocks", 8),
-                curve_bins=arch.get("curve_bins", N_CURVE_BINS),
-            )
+            arch = ck.get("arch", {}) or {}
+            # v2.9.2: 按 arch.model_type 选模型类构造 — 修复 transformer 推断 500
+            #   优先级: arch.model_type (训练时记录) > models.model_type 列 > "resnet" 兜底
+            mt = (arch.get("model_type") or row["model_type"] or "resnet").lower()
+            if mt == "transformer":
+                model = SpawnTuningTransformer(
+                    d_model=arch.get("d_model", 64),
+                    n_layers=arch.get("n_layers", 3),
+                    curve_bins=arch.get("curve_bins", N_CURVE_BINS),
+                )
+            else:
+                model = SpawnTuningResNetMLP(
+                    hidden_dim=arch.get("hidden_dim", 128),
+                    n_blocks=arch.get("n_blocks", 8),
+                    curve_bins=arch.get("curve_bins", N_CURVE_BINS),
+                )
             model.load_state_dict(ck["model_state_dict"])
             model.eval()
         except Exception as e:
