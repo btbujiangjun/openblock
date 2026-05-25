@@ -391,9 +391,13 @@ function renderLaunchResults(store, weights) {
     $('launch-results-section').hidden = top.length === 0;
 }
 
-async function startLaunchTuning() {
+// v0.3.12: 可传入 prebuiltCtxs (例如 chips 加权展开后的 ctx 数组),
+//   否则按 cfg.ctxFilter 过滤 (与之前行为一致)
+async function startLaunchTuning(prebuiltCtxs = null) {
     const cfg = readLaunchConfig();
-    const ctxs = enumerateAllContexts().filter((c) => matchLaunchContext(cfg.ctxFilter, c));
+    const ctxs = prebuiltCtxs
+        ? prebuiltCtxs
+        : enumerateAllContexts().filter((c) => matchLaunchContext(cfg.ctxFilter, c));
     if (ctxs.length === 0) {
         logLaunch(`过滤器 "${cfg.ctxFilter}" 没匹配任何 context`, 'error');
         return;
@@ -483,17 +487,60 @@ function initDataCenterTab() {
         $(id)?.addEventListener('input', updateLhsEstimate);
     });
 
-    // 5 维 chips — 点击切换 + 同步到隐藏 ctx 字段
+    // 5 维 chips — 单击切换 / Alt+单击 / 右键 设权重
     document.querySelectorAll('.chip-group .chip').forEach((c) => {
-        c.addEventListener('click', () => {
+        c.addEventListener('click', (e) => {
+            if (e.altKey || e.shiftKey) { editChipWeight(c); return; }
             c.classList.toggle('chip-on');
             syncChipsToCtxFilter();
         });
+        c.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            editChipWeight(c);
+        });
     });
     $('btn-dim-reset-all')?.addEventListener('click', () => {
-        document.querySelectorAll('.chip-group .chip').forEach((c) => c.classList.add('chip-on'));
+        document.querySelectorAll('.chip-group .chip').forEach((c) => {
+            c.classList.add('chip-on');
+            c.dataset.weight = '1';
+            c.querySelector('.chip-weight-badge')?.remove();
+        });
         syncChipsToCtxFilter();
     });
+    $('btn-dim-reset-weights')?.addEventListener('click', () => {
+        document.querySelectorAll('.chip-group .chip').forEach((c) => {
+            c.dataset.weight = '1';
+            c.querySelector('.chip-weight-badge')?.remove();
+        });
+        syncChipsToCtxFilter();
+    });
+    syncChipsToCtxFilter();
+}
+
+// 编辑 chip 的采样权重 (1-9, 默认 1)
+function editChipWeight(chip) {
+    const cur = Number(chip.dataset.weight || 1);
+    const dimLabel = chip.parentElement?.dataset.dim || '';
+    const ans = prompt(
+        `为「${chip.dataset.val}」(${dimLabel}) 设置采样权重\n\n` +
+        `1 = 标准 (默认)\n` +
+        `2-3 = 多采样 (×2 ~ ×3 倍频率)\n` +
+        `4-9 = 重点强化\n\n` +
+        `输入 1-9 的整数:`,
+        String(cur),
+    );
+    if (ans === null) return;
+    const w = Math.max(1, Math.min(9, Math.round(Number(ans) || 1)));
+    chip.dataset.weight = String(w);
+    chip.querySelector('.chip-weight-badge')?.remove();
+    if (w > 1) {
+        const b = document.createElement('span');
+        b.className = 'chip-weight-badge';
+        b.textContent = `×${w}`;
+        chip.appendChild(b);
+    }
+    // 设权重时如果还没选中, 自动选上 (否则权重无效)
+    if (w > 1) chip.classList.add('chip-on');
     syncChipsToCtxFilter();
 }
 
@@ -503,6 +550,33 @@ function readChipsSelection() {
     document.querySelectorAll('.chip-group').forEach((g) => {
         out[g.dataset.dim] = [...g.querySelectorAll('.chip.chip-on')].map((b) => b.dataset.val);
     });
+    return out;
+}
+
+// 读 chips 的权重 {dim: {val: weight}} — 未勾选的 chip weight = 0
+function readChipWeights() {
+    const out = {};
+    document.querySelectorAll('.chip-group').forEach((g) => {
+        const dim = g.dataset.dim;
+        out[dim] = {};
+        g.querySelectorAll('.chip').forEach((c) => {
+            const w = c.classList.contains('chip-on') ? Number(c.dataset.weight || 1) : 0;
+            out[dim][c.dataset.val] = w;
+        });
+    });
+    return out;
+}
+
+// 把 ctxs 列表按 chip 权重展开 (高权重 ctx 出现多次, 实现加权采样)
+function expandWeightedCtxs(ctxs, weights) {
+    const out = [];
+    for (const c of ctxs) {
+        const w = (weights.difficulty?.[c.difficulty] || 0)
+                * (weights.generator?.[c.generator] || 0)
+                * (weights.bestScore?.[String(c.bestScore_bin)] || 0)
+                * (weights.lifecycle?.[c.lifecycle_stage] || 0);
+        for (let i = 0; i < w; i++) out.push(c);
+    }
     return out;
 }
 
@@ -546,6 +620,18 @@ function syncChipsToCtxFilter() {
         elMul.textContent = `${counts.join(' × ')} = ${total}`;
         elMul.style.color = total === 0 ? 'var(--bad)' : 'var(--accent)';
     }
+
+    // 更新 "加权后场景数" (chips 权重 ×1 时与原 total 相同;否则更大)
+    const weights = readChipWeights();
+    try {
+        const baseCtxs = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c));
+        const weighted = expandWeightedCtxs(baseCtxs, weights);
+        const elW = $('dim-weighted');
+        if (elW) {
+            elW.textContent = `${weighted.length}`;
+            elW.style.color = weighted.length > total ? 'var(--warn)' : 'var(--muted)';
+        }
+    } catch {}
     updateLhsEstimate();
 }
 
@@ -724,28 +810,32 @@ function updateLhsEstimate() {
     const workers = Math.max(1, Number($('dc-lhs-workers')?.value || 1));
     const sessions = Math.max(1, Number($('dc-lhs-sessions')?.value || 0));
 
-    let ctxCount = 0;
+    // 加权场景数 (含每 chip 的 weight 倍乘)
+    let weightedCtxCount = 0;
     try {
-        ctxCount = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c)).length;
-    } catch { ctxCount = 0; }
-    const total = ctxCount * thetas * seeds;
+        const base = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c));
+        const w = readChipWeights();
+        weightedCtxCount = expandWeightedCtxs(base, w).length;
+    } catch { weightedCtxCount = 0; }
+
+    const total = weightedCtxCount * thetas * seeds;
     const perSampleMs = (sessions / 30) * _lhsMsPerSample;
     const totalMs = (total * perSampleMs) / Math.max(1, workers);
 
     const setText = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-    setText('dc-lhs-est-ctx',   `${ctxCount} 场景`);
+    setText('dc-lhs-est-ctx',   `${weightedCtxCount} 场景(加权)`);
     setText('dc-lhs-est-theta', `${thetas} 参数组`);
     setText('dc-lhs-est-seed',  `${seeds} 重复`);
     setText('dc-lhs-est-total', total > 0 ? `${total.toLocaleString()} 样本` : '— (场景 0)');
     setText('dc-lhs-est-per',   `${(perSampleMs / 1000).toFixed(1)}s`);
-    setText('dc-lhs-est-eta',   ctxCount > 0 ? fmtMs(totalMs) : '—');
+    setText('dc-lhs-est-eta',   weightedCtxCount > 0 ? fmtMs(totalMs) : '—');
 
     // 启动按钮的禁用状态
     const startBtn = $('dc-btn-lhs-start');
     const botSelected = document.querySelectorAll('.chip-group[data-dim="policy"] .chip.chip-on').length;
     if (startBtn) {
-        startBtn.disabled = ctxCount === 0 || botSelected === 0;
-        startBtn.title = ctxCount === 0
+        startBtn.disabled = weightedCtxCount === 0 || botSelected === 0;
+        startBtn.title = weightedCtxCount === 0
             ? '至少每个场景维度选 1 个'
             : (botSelected === 0 ? '至少勾选 1 个 Bot 模拟' : '');
     }
@@ -796,33 +886,41 @@ async function startLhsFromDataCenter() {
         alert('请至少勾选 1 个 Bot 模拟方法');
         return;
     }
-    const ctxCount = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c)).length;
-    if (ctxCount === 0) {
+    // 计算加权 ctxs
+    const baseCtxs = enumerateAllContexts().filter((c) => matchLaunchContext(ctxFilter, c));
+    if (baseCtxs.length === 0) {
         alert('当前场景维度选中数为 0, 至少要每个维度选 1 个');
         return;
     }
-    const total = ctxCount * thetas * seeds;
+    const weightedCtxs = expandWeightedCtxs(baseCtxs, readChipWeights());
+    if (weightedCtxs.length === 0) {
+        alert('加权后场景数为 0 (chip 权重全是 0?), 请检查');
+        return;
+    }
+    const total = weightedCtxs.length * thetas * seeds;
     if (total > 5000) {
         const eta = $('dc-lhs-est-eta')?.textContent || '未知';
-        if (!confirm(`大任务: ${total.toLocaleString()} 样本 · 预计耗时 ${eta}\n确认启动?`)) return;
+        const dups = weightedCtxs.length - baseCtxs.length;
+        const weightedInfo = dups > 0 ? ` (含 ${dups} 个加权重复)` : '';
+        if (!confirm(`大任务: ${total.toLocaleString()} 样本${weightedInfo} · 预计耗时 ${eta}\n确认启动?`)) return;
     }
 
-    // 把 dc-lhs-* + chips 同步到 launch-* 输入,然后调 startLaunchTuning
+    // 同步基础字段到 launch tab (供日志显示等)
     const ctxEl = $('launch-ctx-filter');
     if (ctxEl) ctxEl.value = ctxFilter;
     if ($('launch-thetas')) $('launch-thetas').value = String(thetas);
     if ($('launch-seeds'))  $('launch-seeds').value  = String(seeds);
     if ($('launch-workers')) $('launch-workers').value = $('dc-lhs-workers')?.value || '4';
     if ($('launch-sessions')) $('launch-sessions').value = $('dc-lhs-sessions')?.value || '30';
-    // bot policies → 同步到 launch-policies <select multiple>
     const polSel = $('launch-policies');
     if (polSel) {
         [...polSel.options].forEach((o) => { o.selected = policies.includes(o.value); });
     }
-    $('dc-lhs-hint').textContent = '已同步配置 → 启动中(切到 ③ 流水线看实时进度)…';
+    $('dc-lhs-hint').textContent = `已同步 (${weightedCtxs.length} 加权场景) → 启动中, 切到 ③ 流水线看实时进度…`;
     switchToTab('pipeline');
     setTimeout(() => {
-        startLaunchTuning().then(() => {
+        // 传 prebuiltCtxs = 加权后的 ctxs (不再依赖 ctxFilter)
+        startLaunchTuning(weightedCtxs).then(() => {
             refreshDataLibrary().catch(() => {});
         }).catch((e) => alert('LHS 启动失败: ' + e.message));
     }, 200);
