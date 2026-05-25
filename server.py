@@ -4819,6 +4819,14 @@ except Exception as _st_ex:
     print("Spawn Tuning Torch API (/api/spawn-tuning/v2/torch/*) 未启用:", _st_ex)
 
 try:
+    # v2.0: 工业化重写, 与 v1 并存。详见 docs/algorithms/SPAWN_TUNING_V2.md
+    from spawn_tuning_v2_backend import register_v2_routes
+
+    register_v2_routes(app)
+except Exception as _v2_ex:
+    print("Spawn Tuning V2 API (/api/spawn-tuning-v2/*) 未启用:", _v2_ex)
+
+try:
     from monetization_backend import create_mon_blueprint, init_mon_db
 
     app.register_blueprint(create_mon_blueprint())

@@ -94,8 +94,70 @@ tests/tuning/v2/
 
 详细对照见设计文档 §8。
 
-## 下一步 (PR2-4)
+## PR2-4 状态
 
-- **PR2**: `optimize_theta.py` — Phase C 梯度上升在 360 contexts 上找最优 θ*
-- **PR3**: 看板重构 — ②/③/④/⑤ 4 个 tab + d_curve 可视化组件
-- **PR4**: 真实玩家 SDK + 灰度部署 + 一键回滚
+### ✅ PR2 — Phase C 寻参 (落地完成)
+- `optimize_theta.py` — 在 NN 上跑梯度上升, 360 contexts × N starts
+- CLI: `python -m rl_pytorch.spawn_tuning_v2.optimize_theta --checkpoint ... --output ...`
+- 9 个测试 (枚举/单 ctx/全集/MAE 聚合)
+
+### ✅ PR3 — 后端 API + 可视化骨架 (落地完成)
+- `spawn_tuning_v2_backend.py` — Flask blueprint, 19 个 endpoint
+  - sample_sets CRUD / samples 批量 / aggregate
+  - models 列表 / deploy / rollback
+  - jobs queue
+  - target-curve / active-policies
+- `web/src/tuning/v2/dCurveChart.js` — Canvas 业务图 (目标 vs 预测 vs 实测)
+- 18 个 backend API 端到端测试
+
+### ✅ PR4 — 真实玩家闭环 (落地完成)
+- `web/src/tuning/v2/policyMetricsV2.js` — 客户端 SDK
+  - 单步钩子 `recordStep`
+  - 局结束 `reportEpisode` (自动提取 d_curve)
+  - 60s 自动 flush, 失败保留 sessionStorage
+- 后端 `/field-metrics` POST + `/aggregate` GET
+- 与 Python `extractor.py` 跨语言一致 (相同公式, 已测试验证)
+- 12 个 JS 测试
+
+## 完整 CLI 串
+
+```bash
+# Step A: 采样 (PR1 工具)
+# 通过看板 UI 或独立脚本
+
+# Step B: 训练 NN
+python -m rl_pytorch.spawn_tuning_v2.train \
+    --db .cursor-stress-logs/spawn-tuning-v2.sqlite \
+    --sample-sets 1 \
+    --output checkpoints/v2/run_001.pt \
+    --epochs 50 --batch-size 256 --device mps
+
+# Step C: Phase C 寻参 (PR2)
+python -m rl_pytorch.spawn_tuning_v2.optimize_theta \
+    --checkpoint checkpoints/v2/run_001.pt \
+    --output checkpoints/v2/policies-001.json \
+    --n-starts 8 --steps 300 --device mps
+
+# Step D: 部署 (通过 API)
+curl -X POST http://localhost:5000/api/spawn-tuning-v2/models/1/deploy
+```
+
+## 集成到 server.py
+
+```python
+try:
+    from spawn_tuning_v2_backend import register_v2_routes
+    register_v2_routes(app)
+except Exception as e:
+    print("v2 backend 未启用:", e)
+```
+
+## 测试运行
+
+```bash
+# Python (114 tests)
+python3 -m pytest tests/spawn_tuning_v2/ -v
+
+# JS (30 tests)
+npx vitest run tests/tuning/v2/
+```
