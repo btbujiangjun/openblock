@@ -125,7 +125,7 @@ class TestSamplesBulk:
         return {
             "difficulty": "normal", "generator": "budget-p2", "bot_policy": "clear-greedy",
             "pb_bin": 1500, "lifecycle_stage": "growth",
-            "theta_json": {"pbTension_strength": 0.5},
+            "theta_json": {"personalizationStrength": 0.10, "temperature": 0.05},
             "d_curve_json": target_curve_vector(),
             "final_score": 1200, "survived_steps": 50,
             "clear_rate": 0.5, "noMove_step": -1, "pb_broke": False,
@@ -174,6 +174,163 @@ class TestSamplesBulk:
         assert data["buckets"][0]["n_samples"] == 3
         assert len(data["buckets"][0]["d_curve_avg"]) == 20
 
+    def test_preview_basic(self, client):
+        """/preview: 维度覆盖 + 标签摘要 + θ 直方 + 样本原型。"""
+        cr = client.post("/api/spawn-tuning-v2/sample-sets", json={"name": "pv"})
+        sid = cr.get_json()["set_id"]
+        # 混 5 条不同 ctx 的样本, 验证维度覆盖能区分
+        mix = [
+            {**self._make_sample(), "difficulty": "easy", "final_score": 800, "pb_broke": False},
+            {**self._make_sample(), "difficulty": "easy", "final_score": 900, "pb_broke": False},
+            {**self._make_sample(), "difficulty": "normal", "final_score": 1500, "pb_broke": True},
+            {**self._make_sample(), "difficulty": "hard", "final_score": 2000, "pb_broke": True},
+            {**self._make_sample(), "difficulty": "hard", "final_score": 1200, "noMove_step": 30},
+        ]
+        client.post(
+            f"/api/spawn-tuning-v2/sample-sets/{sid}/samples",
+            json={"samples": mix},
+        )
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/preview?limit=10")
+        assert r.status_code == 200
+        data = r.get_json()
+
+        # set 元数据
+        assert data["set"]["set_id"] == sid
+
+        # 维度覆盖 — easy 2, normal 1, hard 2
+        assert data["dim_coverage"]["difficulty"]["easy"] == 2
+        assert data["dim_coverage"]["difficulty"]["normal"] == 1
+        assert data["dim_coverage"]["difficulty"]["hard"] == 2
+
+        # 标签摘要
+        lbl = data["label_summary"]
+        assert lbl["n"] == 5
+        assert lbl["final_score"]["min"] == 800
+        assert lbl["final_score"]["max"] == 2000
+        assert lbl["final_score"]["mean"] == 1280.0  # (800+900+1500+2000+1200)/5
+        assert abs(lbl["pb_broke_rate"] - 0.4) < 1e-3  # 2/5
+        assert abs(lbl["noMove_rate"] - 0.2) < 1e-3   # 1/5
+
+        # θ 直方 — _make_sample 用同样 θ, 所以 mean=min=max
+        assert "personalizationStrength" in data["theta_summary"]
+        assert data["theta_summary"]["personalizationStrength"]["n"] == 5
+
+        # d_curve_avg 长度 20
+        assert data["d_curve_avg"] is not None
+        assert len(data["d_curve_avg"]) == 20
+
+        # 样本原型
+        assert len(data["samples"]) == 5
+        assert "theta" in data["samples"][0]
+        assert "final_score" in data["samples"][0]
+
+    def test_preview_empty_set(self, client):
+        """空 set 不应崩, 字段类型保持一致。"""
+        cr = client.post("/api/spawn-tuning-v2/sample-sets", json={"name": "empty"})
+        sid = cr.get_json()["set_id"]
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/preview")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["label_summary"]["n"] == 0
+        assert data["samples"] == []
+        assert data["d_curve_avg"] is None
+
+    def test_preview_not_found(self, client):
+        r = client.get("/api/spawn-tuning-v2/sample-sets/99999/preview")
+        assert r.status_code == 404
+
+    def test_preview_with_filter(self, client):
+        """/preview 支持按 5 维度筛选 — 测试 difficulty + bot_policy 联合筛选。"""
+        cr = client.post("/api/spawn-tuning-v2/sample-sets", json={"name": "pvf"})
+        sid = cr.get_json()["set_id"]
+        mix = [
+            {**self._make_sample(), "difficulty": "easy", "bot_policy": "random", "final_score": 800},
+            {**self._make_sample(), "difficulty": "easy", "bot_policy": "clear-greedy", "final_score": 900},
+            {**self._make_sample(), "difficulty": "normal", "bot_policy": "random", "final_score": 1500},
+            {**self._make_sample(), "difficulty": "hard", "bot_policy": "survival", "final_score": 2000},
+            {**self._make_sample(), "difficulty": "hard", "bot_policy": "random", "final_score": 2200},
+        ]
+        client.post(
+            f"/api/spawn-tuning-v2/sample-sets/{sid}/samples",
+            json={"samples": mix},
+        )
+
+        # 1) 无筛选 → 5 条
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/preview")
+        data = r.get_json()
+        assert data["n_filtered"] == 5
+        assert data["n_total"] == 5
+        assert data["filters"] == {}
+
+        # 2) 按 difficulty=easy → 2 条 (800 + 900)
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/preview?difficulty=easy")
+        data = r.get_json()
+        assert data["n_filtered"] == 2
+        assert data["n_total"] == 5
+        assert data["filters"] == {"difficulty": ["easy"]}
+        assert data["label_summary"]["final_score"]["mean"] == 850.0
+        assert data["label_summary"]["final_score"]["max"] == 900
+
+        # 3) 多值筛选: difficulty=easy,hard → 4 条 (800/900/2000/2200)
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/preview?difficulty=easy,hard")
+        data = r.get_json()
+        assert data["n_filtered"] == 4
+        assert sorted(data["filters"]["difficulty"]) == ["easy", "hard"]
+
+        # 4) 多维联合: difficulty=hard AND bot_policy=random → 1 条 (2200)
+        r = client.get(
+            f"/api/spawn-tuning-v2/sample-sets/{sid}/preview"
+            "?difficulty=hard&bot_policy=random"
+        )
+        data = r.get_json()
+        assert data["n_filtered"] == 1
+        assert data["label_summary"]["final_score"]["mean"] == 2200.0
+        assert data["samples"][0]["final_score"] == 2200
+
+        # 5) 全集分布 dim_coverage_all 不随筛选变化
+        assert data["dim_coverage_all"]["difficulty"] == {"easy": 2, "normal": 1, "hard": 2}
+        # 当前 view 分布 dim_coverage 仅含筛选后
+        assert data["dim_coverage"]["difficulty"] == {"hard": 1}
+
+        # 6) 不存在的值 → 0 条不抛错
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/preview?difficulty=nothing")
+        assert r.status_code == 200
+        assert r.get_json()["n_filtered"] == 0
+
+
+# ─────────── 系统能力检测 ───────────
+
+class TestSystemDevices:
+    """v2.7: device 自动检测 + 推荐 (cuda > mps > cpu)。"""
+
+    def test_devices_endpoint_basic(self, client):
+        r = client.get("/api/spawn-tuning-v2/system/devices")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert "devices" in data
+        assert "recommended" in data
+        # 3 个 device 都返回 (id 固定, 但 available 不同)
+        ids = [d["id"] for d in data["devices"]]
+        assert ids == ["cuda", "mps", "cpu"]
+        # cpu 永远 available
+        cpu_dev = next(d for d in data["devices"] if d["id"] == "cpu")
+        assert cpu_dev["available"] is True
+
+    def test_recommended_follows_priority(self, client):
+        """推荐优先级 cuda > mps > cpu, 实际值取决于运行机器。"""
+        data = client.get("/api/spawn-tuning-v2/system/devices").get_json()
+        rec = data["recommended"]
+        assert rec in ("cuda", "mps", "cpu")
+        # recommended 必须是 available 的 device
+        rec_dev = next(d for d in data["devices"] if d["id"] == rec)
+        assert rec_dev["available"] is True
+
+    def test_label_present(self, client):
+        """每个 device 都应有 label, 含可读说明。"""
+        data = client.get("/api/spawn-tuning-v2/system/devices").get_json()
+        for d in data["devices"]:
+            assert "label" in d and len(d["label"]) > 0
+
 
 # ─────────── 模型 + 部署 + 回滚 ───────────
 
@@ -203,6 +360,64 @@ class TestModelsLifecycle:
         g = client.get(f"/api/spawn-tuning-v2/models/{mid}").get_json()
         assert g["status"] == "deployed"
         assert g["deployed_at"] is not None
+
+    def test_delete_model_with_files(self, client, app, tmp_path):
+        """v2.8.2: 删除模型 — DB 记录 + .pt + .pt.log 都被删。"""
+        db_path = os.environ["SPAWN_TUNING_V2_DB"]
+        # 直接写一个含 weights_path 的 staging model
+        import sqlite3
+        import time
+        pt_file = tmp_path / "test_model.pt"
+        log_file = tmp_path / "test_model.pt.log"
+        pt_file.write_bytes(b"fake weights")
+        log_file.write_text('{"epoch":0,"train_loss":0.1}')
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO models (name, model_type, status, weights_path, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("del_test", "resnet", "staging", str(pt_file), int(time.time())),
+        )
+        mid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        conn.close()
+
+        # 调 DELETE
+        r = client.delete(f"/api/spawn-tuning-v2/models/{mid}")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["ok"] is True
+        assert data["deleted_model_id"] == mid
+        # 文件应被物理删除
+        assert not pt_file.exists()
+        assert not log_file.exists()
+        assert len(data["deleted_files"]) == 2
+        # DB 记录消失
+        g = client.get(f"/api/spawn-tuning-v2/models/{mid}")
+        assert g.status_code == 404
+
+    def test_delete_deployed_model_blocked(self, client, app):
+        """v2.8.2: deployed 模型受保护, 不允许删 (需先 rollback 或 force=1)。"""
+        db_path = os.environ["SPAWN_TUNING_V2_DB"]
+        mid = self._create_model(client, db_path)
+        client.post(f"/api/spawn-tuning-v2/models/{mid}/deploy")
+        r = client.delete(f"/api/spawn-tuning-v2/models/{mid}")
+        assert r.status_code == 409
+        assert "cannot delete" in r.get_json()["error"]
+        # force=1 应能强制删
+        r2 = client.delete(f"/api/spawn-tuning-v2/models/{mid}?force=1")
+        assert r2.status_code == 200
+
+    def test_delete_not_found(self, client):
+        r = client.delete("/api/spawn-tuning-v2/models/99999")
+        assert r.status_code == 404
+
+    def test_delete_no_weights_file_ok(self, client, app):
+        """模型没 weights_path 也不应崩 (deleted_files 空数组)。"""
+        db_path = os.environ["SPAWN_TUNING_V2_DB"]
+        mid = self._create_model(client, db_path)  # _create_model 不写 weights_path
+        r = client.delete(f"/api/spawn-tuning-v2/models/{mid}")
+        assert r.status_code == 200
+        assert r.get_json()["deleted_files"] == []
 
     def test_deploy_archives_previous(self, client, app):
         """新 deploy 应把旧 deployed 改成 archived。"""
@@ -271,6 +486,66 @@ class TestJobs:
         assert g["status"] == "running"
         assert g["epochs_done"] == 5
         assert g["train_loss"] == pytest.approx(0.08)
+
+    def test_delete_job_done(self, client, tmp_path):
+        """v2.8.3: 删除 done 任务 — DB 记录 + log 文件都被删。"""
+        cr = client.post("/api/spawn-tuning-v2/jobs", json={"sample_set_ids": [1]})
+        jid = cr.get_json()["job_id"]
+        # 写一个假 log 文件并 PATCH 进 job
+        log_file = tmp_path / f"job_{jid}.log"
+        log_file.write_text("[fake log]")
+        client.patch(f"/api/spawn-tuning-v2/jobs/{jid}",
+                     json={"status": "done", "log_path": str(log_file)})
+
+        r = client.delete(f"/api/spawn-tuning-v2/jobs/{jid}")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["ok"] is True
+        assert data["deleted_job_id"] == jid
+        # log 文件应被删除
+        assert not log_file.exists()
+        # DB 记录消失
+        g = client.get(f"/api/spawn-tuning-v2/jobs/{jid}")
+        assert g.status_code == 404
+
+    def test_delete_queued_job_ok(self, client):
+        """v2.8.4: queued 任务可直接删 (取消排队 — executor 不会再 pick)。"""
+        cr = client.post("/api/spawn-tuning-v2/jobs", json={"sample_set_ids": [1]})
+        jid = cr.get_json()["job_id"]
+        r = client.delete(f"/api/spawn-tuning-v2/jobs/{jid}")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["ok"] is True
+        assert data["prev_status"] == "queued"
+        # 无 running 进程 → kill_info 为 None (没触发 kill)
+        assert data["kill_info"] is None
+
+    def test_delete_running_job_attempts_kill(self, client):
+        """v2.8.4: running 任务删除时尝试 kill 子进程 (注册表里无该 job → not_running)。"""
+        cr = client.post("/api/spawn-tuning-v2/jobs", json={"sample_set_ids": [1]})
+        jid = cr.get_json()["job_id"]
+        client.patch(f"/api/spawn-tuning-v2/jobs/{jid}", json={"status": "running"})
+        r = client.delete(f"/api/spawn-tuning-v2/jobs/{jid}")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["prev_status"] == "running"
+        # 因为本测试中 executor 未真正启动 (subprocess), 注册表里没有该 job → kill_info 报 not_running
+        assert data["kill_info"] is not None
+        assert data["kill_info"]["action"] in ("not_running", "already_exited")
+
+    def test_delete_job_not_found(self, client):
+        r = client.delete("/api/spawn-tuning-v2/jobs/99999")
+        assert r.status_code == 404
+
+    def test_delete_failed_job_ok(self, client):
+        """failed 状态可以删 (无 log_path 也不应崩)。"""
+        cr = client.post("/api/spawn-tuning-v2/jobs", json={"sample_set_ids": [1]})
+        jid = cr.get_json()["job_id"]
+        client.patch(f"/api/spawn-tuning-v2/jobs/{jid}",
+                     json={"status": "failed", "error_message": "OOM"})
+        r = client.delete(f"/api/spawn-tuning-v2/jobs/{jid}")
+        assert r.status_code == 200
+        assert r.get_json()["deleted_files"] == []
 
 
 # ─────────── 真实玩家 field_metrics 上报 ───────────
@@ -346,14 +621,14 @@ class TestBundleExport:
                 {
                     "context_key": "easy:budget-p2:random:500:growth",
                     "context": {"difficulty": "easy"},
-                    "theta": {"pbTension_strength": 0.5},
+                    "theta": {"personalizationStrength": 0.10},
                     "predicted_curve": [0.2] * 20,
                     "expected": {"pb_broke": 0.1},
                 },
                 {
                     "context_key": "hard:budget-p2:survival:25000:plateau",
                     "context": {"difficulty": "hard"},
-                    "theta": {"pbTension_strength": 0.9},
+                    "theta": {"personalizationStrength": 0.15},
                     "predicted_curve": [0.5] * 20,
                     "expected": {"pb_broke": 0.4},
                 },
@@ -415,7 +690,7 @@ class TestUtilityEndpoints:
         # 单调性已验证, 这里检查首尾值
         assert data["curve"][0] < 0.3
         assert data["curve"][-1] > 0.85
-        assert data["metadata"]["version"] == "v2.0.0"
+        assert data["metadata"]["version"] == "v2.3.0"
 
     def test_active_policies_none(self, client):
         r = client.get("/api/spawn-tuning-v2/policies/active")

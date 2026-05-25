@@ -340,10 +340,13 @@ export class OpenBlockSimulator {
             shapes = generateDockShapes(this.grid, layered, this._spawnContext);
             diagnostics = getLastSpawnDiagnostics();
         } else {
+            // v2.2: 把 modelConfig 的 PB 曲线参数透传到 derivePbCurve, 让寻参 θ
+            //       真实驱动双 S 曲线的拐点/斜率。modelConfig 缺省时 fallback 默认值。
             const pbCurve = derivePbCurve(
                 this.score,
                 this.bestScore,
-                this._spawnContext.postPbReleaseActive === true
+                this._spawnContext.postPbReleaseActive === true,
+                this.modelConfig,
             );
             const generated = generateExperimentalDockShapes(this.grid, layered, this._spawnContext, {
                 mode: this.spawnGenerator,

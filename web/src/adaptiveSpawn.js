@@ -533,7 +533,38 @@ function sigmoid01(x) {
     return 1 / (1 + Math.exp(-x));
 }
 
-export function derivePbCurve(score = 0, bestScore = 0, releaseActive = false) {
+/**
+ * 默认 PB 双 S 曲线参数 — 与 v2.1 之前硬编码完全一致, 保持向后兼容。
+ * v2.2: 暴露为可覆盖的常量, 让 spawn-tuning v2 寻参可以把这些常数纳入 θ。
+ *
+ * 业务含义:
+ *   pbTensionCenter — 张力 sigmoid 拐点 (玩家接近 PB 多少比例时开始增加难度)
+ *   pbTensionWidth  — 张力 sigmoid 斜率宽度 (越小越陡, 即拐点附近变化越剧烈)
+ *   pbBrakeCenter   — 刹车 sigmoid 拐点 (超过 PB 多少倍后强力压制 payoff)
+ *   pbBrakeWidth    — 刹车 sigmoid 斜率宽度
+ */
+export const DEFAULT_PB_CURVE_PARAMS = Object.freeze({
+    pbTensionCenter: 0.82,
+    pbTensionWidth: 0.08,
+    pbBrakeCenter: 1.05,
+    pbBrakeWidth: 0.06,
+});
+
+/** 把 options 中的 PB 曲线参数 (可能浮点 / NaN) 整型化并填充默认值。 */
+function _resolvePbCurveParams(options) {
+    const numOrDefault = (v, d) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : d;
+    };
+    return {
+        tensionCenter: numOrDefault(options?.pbTensionCenter, DEFAULT_PB_CURVE_PARAMS.pbTensionCenter),
+        tensionWidth: numOrDefault(options?.pbTensionWidth, DEFAULT_PB_CURVE_PARAMS.pbTensionWidth),
+        brakeCenter: numOrDefault(options?.pbBrakeCenter, DEFAULT_PB_CURVE_PARAMS.pbBrakeCenter),
+        brakeWidth: numOrDefault(options?.pbBrakeWidth, DEFAULT_PB_CURVE_PARAMS.pbBrakeWidth),
+    };
+}
+
+export function derivePbCurve(score = 0, bestScore = 0, releaseActive = false, options = null) {
     const best = Number(bestScore) || 0;
     if (best <= 0) {
         return {
@@ -545,8 +576,9 @@ export function derivePbCurve(score = 0, bestScore = 0, releaseActive = false) {
         };
     }
     const ratio = Math.max(0, Number(score) || 0) / best;
-    const pbTension = clamp01(sigmoid01((ratio - 0.82) / 0.08));
-    const pbBrake = clamp01(sigmoid01((ratio - 1.05) / 0.06));
+    const p = _resolvePbCurveParams(options);
+    const pbTension = clamp01(sigmoid01((ratio - p.tensionCenter) / p.tensionWidth));
+    const pbBrake = clamp01(sigmoid01((ratio - p.brakeCenter) / p.brakeWidth));
     const pbRelease = releaseActive ? 1 : 0;
     let pbPhase = 'warmup';
     if (ratio >= 1.15) pbPhase = 'overshoot';

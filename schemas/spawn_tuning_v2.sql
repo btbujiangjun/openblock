@@ -86,8 +86,9 @@ CREATE TABLE IF NOT EXISTS models (
     model_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     name            TEXT NOT NULL,
     version         TEXT DEFAULT 'v0.0.1',   -- semver
+    -- v2.9: 加 'transformer' 支持 (SpawnTuningTransformer); 旧 'mlp'/'gbdt'/'linear' 保留兼容
     model_type      TEXT NOT NULL
-                    CHECK (model_type IN ('linear', 'gbdt', 'mlp', 'resnet')),
+                    CHECK (model_type IN ('linear', 'gbdt', 'mlp', 'resnet', 'transformer')),
     weights_path    TEXT,                     -- 文件系统路径
     sha256          TEXT,                     -- 64 字符 hex
     size_bytes      INTEGER,

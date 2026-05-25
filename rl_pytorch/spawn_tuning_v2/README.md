@@ -150,7 +150,7 @@ tests/tuning/v2/
   - `miniprogram/core/tuning/spawnPoliciesV2.js` (微信小程序 CJS)
 - `/policies/bundle/status` 查询当前 bundle 状态
 - server.py 加 `/spawn-tuning-v2/<path>` 静态路由
-- 看板 ③ 加「📦 烘焙到 bundle」按钮
+- 看板 ④ 加「📦 导出 Bundle (Export)」按钮
 
 ### ✅ PR7 — 灰度切量 + 4 层 fallback (落地完成)
 - `clientPolicyV2.js` — 完整客户端策略解析

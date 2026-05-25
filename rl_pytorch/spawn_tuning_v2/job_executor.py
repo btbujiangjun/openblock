@@ -41,6 +41,53 @@ TRAIN_MODULE = "rl_pytorch.spawn_tuning_v2.train"
 CHECKPOINTS_DIR = Path(os.environ.get("SPAWN_TUNING_V2_CHECKPOINTS", "checkpoints/v2"))
 LOGS_DIR = Path(os.environ.get("SPAWN_TUNING_V2_LOGS", ".cursor-stress-logs/spawn-tuning-v2-jobs"))
 
+# v2.8.4: 运行中 subprocess 注册表 — 让 backend DELETE endpoint 能 kill 进程
+# 键 = job_id, 值 = subprocess.Popen
+_RUNNING_PROCS: dict[int, "subprocess.Popen"] = {}
+_registry_lock = threading.Lock()
+
+
+def kill_job(job_id: int, timeout: float = 3.0) -> dict:
+    """SIGTERM 该 job 的训练子进程, 超时未停则 SIGKILL。
+
+    Returns:
+      {ok: bool, action: "sigterm"/"sigkill"/"not_running", exit_code: ...}
+    """
+    with _registry_lock:
+        proc = _RUNNING_PROCS.get(job_id)
+    if proc is None:
+        return {"ok": False, "action": "not_running", "msg": f"job {job_id} not in running registry"}
+    if proc.poll() is not None:
+        # 已自然结束
+        with _registry_lock:
+            _RUNNING_PROCS.pop(job_id, None)
+        return {"ok": True, "action": "already_exited", "exit_code": proc.returncode}
+
+    # SIGTERM
+    try:
+        proc.terminate()
+    except Exception as e:
+        return {"ok": False, "action": "sigterm_failed", "msg": str(e)}
+
+    # 等待 timeout 秒
+    try:
+        proc.wait(timeout=timeout)
+        with _registry_lock:
+            _RUNNING_PROCS.pop(job_id, None)
+        return {"ok": True, "action": "sigterm", "exit_code": proc.returncode}
+    except subprocess.TimeoutExpired:
+        pass
+
+    # 强 SIGKILL
+    try:
+        proc.kill()
+        proc.wait(timeout=2.0)
+        with _registry_lock:
+            _RUNNING_PROCS.pop(job_id, None)
+        return {"ok": True, "action": "sigkill", "exit_code": proc.returncode}
+    except Exception as e:
+        return {"ok": False, "action": "sigkill_failed", "msg": str(e)}
+
 
 def _ensure_dirs():
     CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -82,6 +129,8 @@ def _build_train_cmd(job: dict, output_path: Path, log_path: Path, db_path: str)
             sample_set_ids = json.loads(sample_set_ids)
         except Exception:
             sample_set_ids = []
+    # v2.9: model_type 从 jobs.model_type 列读 (job dict) 或 arch.model_type fallback
+    model_type = job.get("model_type") or arch.get("model_type") or "resnet"
     cmd = [
         TRAIN_PYTHON, "-u", "-m", TRAIN_MODULE,
         "--db", db_path,
@@ -91,6 +140,7 @@ def _build_train_cmd(job: dict, output_path: Path, log_path: Path, db_path: str)
         "--batch-size", str(arch.get("batch_size", 256)),
         "--lr", str(arch.get("lr", 1e-3)),
         "--device", arch.get("device", "cpu"),
+        "--model-type", str(model_type),
     ]
     if job.get("base_model_id"):
         # base_model_id → 查 weights_path
@@ -119,13 +169,23 @@ def _update_job_metrics(db_path: str, job_id: int, **updates):
 
 
 def _parse_log_line(line: str) -> Optional[dict]:
-    """解析 train.py 输出的 JSONL 行 (从 .log 文件)。"""
+    """解析 train.py 输出的 JSONL 行 (从 .log 文件)。
+
+    返回 None 的情况:
+      - 空行 / 非 JSON
+      - batch-level 行 (type=batch, 不更新 jobs 表的 epoch metrics)
+      - 缺少 epoch 字段
+    返回 epoch-end record dict 用于更新 jobs 表。
+    """
     line = line.strip()
     if not line or not line.startswith("{"):
         return None
     try:
         d = json.loads(line)
-        if "epoch" not in d:
+        # 跳过 batch-level 行 (它们只有 train_loss_batch, 不更新 epochs_done)
+        if d.get("type") == "batch":
+            return None
+        if "epoch" not in d or "train_loss" not in d:
             return None
         return d
     except Exception:
@@ -164,6 +224,10 @@ def _execute_job(job: dict, db_path: str):
         )
         return
 
+    # v2.8.4: 注册到全局 process registry, 让 backend DELETE endpoint 能 kill 它
+    with _registry_lock:
+        _RUNNING_PROCS[job_id] = proc
+
     # 监控 (轮询 jsonl + proc.poll)
     last_jsonl_size = 0
     while True:
@@ -197,6 +261,10 @@ def _execute_job(job: dict, db_path: str):
 
     log_fp.close()
 
+    # v2.8.4: 从 registry 移除 — 进程已结束 (正常 / 被 kill / 异常)
+    with _registry_lock:
+        _RUNNING_PROCS.pop(job_id, None)
+
     # 收尾
     completed_at = int(time.time())
     if rc == 0 and output_path.exists():
@@ -204,36 +272,56 @@ def _execute_job(job: dict, db_path: str):
         weights = output_path.read_bytes()
         sha = hashlib.sha256(weights).hexdigest()
 
-        # 读最佳 metrics (从 ckpt 内嵌)
-        try:
-            import torch  # 仅这里需要
-            ck = torch.load(output_path, map_location="cpu", weights_only=False)
-            metrics = ck.get("metrics", {})
-        except Exception:
-            metrics = {}
+        # v2.9.2: 优先读 sidecar JSON (train.py 写的 .pt.meta.json),
+        #         避免在 daemon thread 内 import torch + load mps ckpt 时死锁。
+        #         实测 job_16 卡在 torch.load 上, 持着 SQLite EXCLUSIVE 锁,
+        #         导致整个 backend 写操作 hang 数分钟。
+        metrics = _read_metrics_sidecar(output_path)
 
-        conn = sqlite3.connect(db_path)
-        cur = conn.execute(
-            """INSERT INTO models (
-                name, version, model_type, weights_path, sha256, size_bytes,
-                parent_model_id, train_job_id, metrics_json, status, tags, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'staging', ?, ?)""",
-            (
-                job_name, "v0.0.1", job.get("model_type", "resnet"),
-                str(output_path), sha, len(weights),
-                job.get("base_model_id"), job_id,
-                json.dumps(metrics), "", completed_at,
-            ),
-        )
-        model_id = cur.lastrowid
-        conn.execute(
-            "UPDATE training_jobs SET status='done', completed_at=?, output_model_id=? WHERE job_id=?",
-            (completed_at, model_id, job_id),
-        )
-        conn.commit()
-        conn.close()
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"[job_executor] ✓ done, model_id={model_id}\n")
+        try:
+            conn = sqlite3.connect(db_path, timeout=10.0)
+            try:
+                cur = conn.execute(
+                    """INSERT INTO models (
+                        name, version, model_type, weights_path, sha256, size_bytes,
+                        parent_model_id, train_job_id, metrics_json, status, tags, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'staging', ?, ?)""",
+                    (
+                        job_name, "v0.0.1", job.get("model_type", "resnet"),
+                        str(output_path), sha, len(weights),
+                        job.get("base_model_id"), job_id,
+                        json.dumps(metrics), "", completed_at,
+                    ),
+                )
+                model_id = cur.lastrowid
+                conn.execute(
+                    "UPDATE training_jobs SET status='done', completed_at=?, output_model_id=? WHERE job_id=?",
+                    (completed_at, model_id, job_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[job_executor] ✓ done, model_id={model_id}\n")
+        except sqlite3.IntegrityError as e:
+            # CHECK / FK 约束失败 — 让 job 进 failed 状态, 至少不卡 running
+            _update_job_metrics(
+                db_path, job_id,
+                status="failed",
+                error_message=f"models insert failed: {e}",
+                completed_at=completed_at,
+            )
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[job_executor] ✗ models insert failed: {e}\n")
+        except Exception as e:
+            _update_job_metrics(
+                db_path, job_id,
+                status="failed",
+                error_message=f"db write failed: {e}",
+                completed_at=completed_at,
+            )
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[job_executor] ✗ db write failed: {e}\n")
     else:
         _update_job_metrics(
             db_path, job_id,
@@ -243,6 +331,40 @@ def _execute_job(job: dict, db_path: str):
         )
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"[job_executor] ✗ failed, rc={rc}\n")
+
+
+def _read_metrics_sidecar(ckpt_path: Path) -> dict:
+    """v2.9.2: 从 .pt.meta.json sidecar 读 metrics, 不依赖 torch。
+
+    train.py _save_checkpoint 在写 .pt 时同步写 sidecar JSON;
+    如果 sidecar 不存在 (老 ckpt / 写失败), fallback 到从 .pt.log JSONL 末尾推算。
+    """
+    sidecar = ckpt_path.with_suffix(ckpt_path.suffix + ".meta.json")
+    if sidecar.exists():
+        try:
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
+            return dict(data.get("metrics") or {})
+        except Exception:
+            pass
+    # fallback: 扫 train JSONL 找最佳 val_curve_mae
+    jsonl = Path(str(ckpt_path) + ".log")
+    if jsonl.exists():
+        try:
+            best = None
+            with open(jsonl, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or '"type": "epoch"' not in line:
+                        continue
+                    d = json.loads(line)
+                    if best is None or d.get("val_curve_mae", 1e9) < best.get("val_curve_mae", 1e9):
+                        best = d
+            if best is not None:
+                best["best_epoch"] = best.get("epoch")
+                return {k: v for k, v in best.items() if k not in ("type", "step")}
+        except Exception:
+            pass
+    return {}
 
 
 # ─────────── 后台线程 ───────────

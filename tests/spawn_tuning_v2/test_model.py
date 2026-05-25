@@ -16,7 +16,9 @@ import pytest
 import torch
 
 from rl_pytorch.spawn_tuning_v2.model import (
-    SpawnTuningResNetMLP, build_default_model, ResBlock, ContextEmbedding,
+    SpawnTuningResNetMLP, SpawnTuningTransformer,
+    build_default_model, build_model,
+    ResBlock, ContextEmbedding,
     N_CURVE_BINS, N_THETA, EMB_TOTAL,
 )
 
@@ -153,3 +155,184 @@ class TestEncode:
             out_full = model(**batch)
             curve_manual = torch.sigmoid(model.head_curve(h))
         assert torch.allclose(curve_manual, out_full["curve"], atol=1e-6)
+
+
+class TestBuildModel:
+    """v2.9: build_model 工厂 — 支持 resnet / transformer。"""
+
+    def test_build_resnet(self):
+        m = build_model("resnet")
+        assert isinstance(m, SpawnTuningResNetMLP)
+
+    def test_build_resnet_aliases(self):
+        for alias in ["mlp", "resnet-mlp", "RESNET"]:
+            m = build_model(alias)
+            assert isinstance(m, SpawnTuningResNetMLP)
+
+    def test_build_transformer(self):
+        m = build_model("transformer")
+        assert isinstance(m, SpawnTuningTransformer)
+
+    def test_build_invalid_raises(self):
+        with pytest.raises(ValueError):
+            build_model("unknown_arch")
+
+
+class TestTransformer:
+    """v2.9: Transformer 模型 forward / 输出 shape。"""
+
+    def test_forward_shapes(self):
+        m = SpawnTuningTransformer()
+        m.eval()
+        batch = _make_batch(batch_size=4)
+        with torch.no_grad():
+            out = m(**batch)
+        assert out["curve"].shape == (4, N_CURVE_BINS)
+        for k in ["pb_broke", "noMove", "score", "survival"]:
+            assert out[k].shape == (4,)
+
+    def test_param_count_l4_range(self):
+        """Transformer 参数量 ~ 100-400K, 与 ResNet-MLP 同量级 (L4)。"""
+        m = SpawnTuningTransformer()
+        n = m.count_parameters()
+        assert 50_000 < n < 400_000, f"transformer param count {n} out of expected range"
+
+    def test_gradient_flow(self):
+        """所有可训练参数都接收梯度。"""
+        m = SpawnTuningTransformer()
+        m.train()
+        batch = _make_batch(batch_size=4)
+        out = m(**batch)
+        # 综合 loss (5 个 head 都参与)
+        loss = (out["curve"].sum() + out["pb_broke"].sum() + out["noMove"].sum()
+                + out["score"].sum() + out["survival"].sum())
+        loss.backward()
+        for name, p in m.named_parameters():
+            if p.requires_grad:
+                assert p.grad is not None, f"{name} has no gradient"
+
+
+class TestSaveCheckpoint:
+    """v2.9.1: _save_checkpoint 必须同时兼容 ResNet 和 Transformer。
+
+    回归覆盖: transformer 训练首次 fail 的根因 — _save_checkpoint 硬编码访问
+    model.hidden_dim (ResNet-MLP 特有), Transformer 无此属性 → AttributeError。
+    """
+
+    def _save_and_reload(self, model, tmp_path):
+        from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
+        out = tmp_path / "ckpt.pt"
+        _save_checkpoint(
+            model=model,
+            path=str(out),
+            metrics={"val_curve_mae": 0.1, "best_epoch": 1},
+            base_model_path=None,
+            sample_set_ids=[42],
+        )
+        assert out.exists()
+        ckpt = torch.load(str(out), weights_only=False)
+        return ckpt
+
+    def test_save_resnet_arch_recorded(self, tmp_path):
+        m = SpawnTuningResNetMLP()
+        ckpt = self._save_and_reload(m, tmp_path)
+        assert ckpt["arch"]["model_type"] == "resnet"
+        assert "hidden_dim" in ckpt["arch"]
+        assert "n_blocks" in ckpt["arch"]
+        assert ckpt["arch"]["curve_bins"] == N_CURVE_BINS
+
+    def test_save_transformer_arch_recorded(self, tmp_path):
+        """v2.9.1 修复点: Transformer 也能保存, arch 用 d_model / n_layers。"""
+        m = SpawnTuningTransformer()
+        ckpt = self._save_and_reload(m, tmp_path)
+        assert ckpt["arch"]["model_type"] == "transformer"
+        assert "d_model" in ckpt["arch"]
+        assert "n_layers" in ckpt["arch"]
+        assert ckpt["arch"]["curve_bins"] == N_CURVE_BINS
+        # 不应该出现 ResNet-MLP 字段
+        assert "hidden_dim" not in ckpt["arch"]
+        assert "n_blocks" not in ckpt["arch"]
+
+    def test_save_meta_version(self, tmp_path):
+        m = SpawnTuningResNetMLP()
+        ckpt = self._save_and_reload(m, tmp_path)
+        assert ckpt["meta"]["version"] == "v2.9.2"
+        assert ckpt["meta"]["param_count"] == m.count_parameters()
+        assert ckpt["meta"]["sample_set_ids"] == [42]
+
+    def test_state_dict_reloadable(self, tmp_path):
+        """v2.9.1: ckpt 保存的 state_dict 能完整恢复模型。"""
+        m1 = SpawnTuningTransformer()
+        ckpt = self._save_and_reload(m1, tmp_path)
+        m2 = SpawnTuningTransformer()
+        m2.load_state_dict(ckpt["model_state_dict"])
+        # 参数完全一致
+        for (n1, p1), (n2, p2) in zip(m1.named_parameters(), m2.named_parameters()):
+            assert n1 == n2
+            assert torch.allclose(p1, p2)
+
+    def test_sidecar_json_written(self, tmp_path):
+        """v2.9.2: 同时写 .meta.json sidecar, 让 job_executor 不依赖 torch.load。
+
+        回归覆盖: job_16 卡死根因 — job_executor 在 daemon thread 内调 torch.load
+        加载 mps ckpt 时 hang, 持着 SQLite 写锁导致整个 backend 卡死。
+        """
+        import json as _json
+        from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
+        out = tmp_path / "ckpt.pt"
+        m = SpawnTuningTransformer()
+        _save_checkpoint(
+            model=m, path=str(out),
+            metrics={"val_curve_mae": 0.1, "best_epoch": 3, "reach_100": 0.18},
+            base_model_path=None, sample_set_ids=[1, 2],
+        )
+        sidecar = tmp_path / "ckpt.pt.meta.json"
+        assert sidecar.exists()
+        data = _json.loads(sidecar.read_text())
+        # 三大部分齐全, 内容跟 ckpt 一致
+        assert data["arch"]["model_type"] == "transformer"
+        assert data["arch"]["d_model"] == 64
+        assert data["metrics"]["val_curve_mae"] == 0.1
+        assert data["metrics"]["best_epoch"] == 3
+        assert data["metrics"]["reach_100"] == 0.18
+        assert data["meta"]["version"] == "v2.9.2"
+        assert data["meta"]["sample_set_ids"] == [1, 2]
+
+    def test_read_metrics_sidecar_prefers_json(self, tmp_path):
+        """v2.9.2: _read_metrics_sidecar 优先读 sidecar JSON, 不需要 torch。"""
+        from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
+        from rl_pytorch.spawn_tuning_v2.job_executor import _read_metrics_sidecar
+        out = tmp_path / "ckpt.pt"
+        m = SpawnTuningResNetMLP()
+        _save_checkpoint(
+            model=m, path=str(out),
+            metrics={"val_curve_mae": 0.05, "anchor": 0.001},
+            base_model_path=None, sample_set_ids=[42],
+        )
+        metrics = _read_metrics_sidecar(out)
+        assert metrics["val_curve_mae"] == 0.05
+        assert metrics["anchor"] == 0.001
+
+    def test_read_metrics_sidecar_fallback_to_jsonl(self, tmp_path):
+        """v2.9.2: 无 sidecar 时 fallback 到 .pt.log JSONL 找最佳 epoch (兼容老 ckpt)。"""
+        import json as _json
+        from rl_pytorch.spawn_tuning_v2.job_executor import _read_metrics_sidecar
+        out = tmp_path / "old_ckpt.pt"
+        out.write_bytes(b"fake")  # 没真实 ckpt, 也没 sidecar
+        # 写一个 train.py 风格的 JSONL
+        jsonl = tmp_path / "old_ckpt.pt.log"
+        jsonl.write_text("\n".join([
+            _json.dumps({"type": "epoch", "epoch": 0, "val_curve_mae": 0.20}),
+            _json.dumps({"type": "epoch", "epoch": 1, "val_curve_mae": 0.10}),
+            _json.dumps({"type": "epoch", "epoch": 2, "val_curve_mae": 0.15}),
+        ]))
+        metrics = _read_metrics_sidecar(out)
+        assert metrics["val_curve_mae"] == 0.10  # 最佳
+        assert metrics["best_epoch"] == 1
+
+    def test_read_metrics_sidecar_empty_when_nothing(self, tmp_path):
+        """无 sidecar 无 JSONL → 返回空 dict (不抛异常, job_executor 仍能写 INSERT)。"""
+        from rl_pytorch.spawn_tuning_v2.job_executor import _read_metrics_sidecar
+        out = tmp_path / "missing.pt"
+        out.write_bytes(b"fake")
+        assert _read_metrics_sidecar(out) == {}

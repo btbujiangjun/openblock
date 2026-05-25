@@ -22,7 +22,7 @@ from rl_pytorch.spawn_tuning_v2.optimize_theta import (
     optimize_one_context, optimize_all_contexts,
     DIFFICULTY_VALUES, GENERATOR_VALUES, BOT_VALUES, PB_BIN_VALUES, LIFECYCLE_VALUES,
 )
-from rl_pytorch.spawn_tuning_v2.model import build_default_model
+from rl_pytorch.spawn_tuning_v2.model import build_default_model, N_THETA
 from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
 from rl_pytorch.spawn_tuning_v2.losses import LossWeights
 
@@ -71,13 +71,13 @@ class TestOptimizeOneContext:
             device=torch.device("cpu"), seed=42,
         )
         assert "theta_norm" in result
-        assert len(result["theta_norm"]) == 14
+        assert len(result["theta_norm"]) == N_THETA
         # theta_norm 应在 [0, 1] (clamp 后)
         for v in result["theta_norm"]:
             assert 0.0 <= v <= 1.0
 
         assert "theta" in result  # 去归一化后的字典
-        assert len(result["theta"]) == 14
+        assert len(result["theta"]) == N_THETA
         assert "predicted_curve" in result
         assert len(result["predicted_curve"]) == 20
         assert isinstance(result["shape_loss"], float)
@@ -141,7 +141,7 @@ class TestOptimizeAll:
         p0 = on_disk["policies"][0]
         assert "context_key" in p0
         assert "theta" in p0
-        assert len(p0["theta"]) == 14
+        assert len(p0["theta"]) == N_THETA
         assert "predicted_curve" in p0
         assert len(p0["predicted_curve"]) == 20
         assert "predicted_curve_mae_to_target" in p0

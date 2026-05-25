@@ -164,23 +164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindNativeExitButtons({ game, audioFx });
     initMonetization(game);
 
-    /* v0.3.1: 寻参 θ 异步加载 (失败不阻塞游戏,自动 fallback 到 DEFAULT_THETA) */
-    import('./tuning/gameIntegration.js').then(({ initSpawnTuningHook }) => {
-        initSpawnTuningHook({ autoReload: true })
-            .then((r) => {
-                if (r.installed > 0) {
-                    console.info(`[spawn-tuning] loaded ${r.installed} policies`);
-                }
-            })
-            .catch(() => { /* silent fallback */ });
-    }).catch(() => { /* tuning module missing? 不致命 */ });
-
-    /* v0.3.3: 灰度上线监控 SDK (失败不阻塞,定时 flush 到 /api/spawn-tuning/v2/metrics/sample) */
-    import('./tuning/policyMetrics.js').then(({ initPolicyMetrics }) => {
-        initPolicyMetrics({ apiBaseUrl: '', enabled: true });
-    }).catch(() => { /* not critical */ });
-
-    /* v2.0 (PR8): policyMetricsV2 + 启动时加载离线 bundle (灰度切量) */
+    /* v2.0: spawn-tuning v2 — d_curve 寻参 + 灰度切量 (失败不阻塞游戏, 自动 fallback DEFAULT) */
     import('./tuning/v2/policyMetricsV2.js').then(({ initPolicyMetricsV2 }) => {
         initPolicyMetricsV2({ apiBaseUrl: '', enabled: true });
     }).catch(() => { /* not critical */ });

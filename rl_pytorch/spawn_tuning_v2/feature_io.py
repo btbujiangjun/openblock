@@ -22,43 +22,40 @@ BOT_INDEX = {"random": 0, "clear-greedy": 1, "survival": 2}
 PB_BIN_INDEX = {500: 0, 1500: 1, 4000: 2, 10000: 3, 25000: 4}
 LIFECYCLE_INDEX = {"onboarding": 0, "growth": 1, "mature": 2, "plateau": 3}
 
-# θ 参数顺序 (14 维, 与 model.py 的 N_THETA 一致)
+# θ 参数顺序 (9 维, 与 model.py 的 N_THETA 一致)
+#
+# v2.2: 把 adaptiveSpawn.js 里 PB 双 S 曲线的 4 个硬编码常数提到 modelConfig
+#       (DEFAULT_PB_CURVE_PARAMS), 现在它们也是真实生效的 θ。
+# v2.1: 原 14 维收缩到 5 维 (剔除 9 个装饰性参数)。
+#
+# 所有 θ 必须满足: simulator/adaptiveSpawn/spawnExperiments 中至少有 1 处真实消费。
+#
 THETA_KEYS = [
-    # 组 A: PB 曲线核心 (5)
-    "pbTension_strength",
-    "pbBrake_slope",
-    "pbBrake_center",
-    "pbOvershoot_decay",
-    "pbSurprise_rate",
-    # 组 B: 个性化 (4)
-    "personalizationStrength",
-    "temperature",
-    "surpriseBudgetGain",
-    "surpriseCooldown",
-    # 组 C: 基础推理 (5)
-    "maxEvaluatedTriplets",
-    "tripletBaseTemp",
-    "floorBoost",
-    "cornerPenalty",
-    "lineBonusWeight",
+    # ─ 组 A: 个性化 + 选拔 (5 个, samplerV2 → simulator.modelConfig → spawnExperiments)
+    "personalizationStrength",   # 把 playerProfile 信号注入候选权重
+    "temperature",                # 候选选拔时的随机温度
+    "surpriseBudgetGain",         # 惊喜事件触发增益
+    "surpriseCooldown",           # 惊喜事件冷却轮数
+    "maxEvaluatedTriplets",       # 三块组合最大评估数 (推理预算)
+    # ─ 组 B: PB 双 S 曲线 (4 个, samplerV2 → simulator.modelConfig → derivePbCurve)
+    "pbTensionCenter",            # 张力 sigmoid 拐点 (玩家接近 PB 多少时开始增加难度)
+    "pbTensionWidth",             # 张力斜率宽度 (越小越陡)
+    "pbBrakeCenter",              # 刹车 sigmoid 拐点 (超 PB 多少倍后强力压制 payoff)
+    "pbBrakeWidth",               # 刹车斜率宽度
 ]
 
 # 各参数的 (min, max) 用于 min-max 归一化
+# 注: PB 曲线参数的默认 (中点) ≈ DEFAULT_PB_CURVE_PARAMS in adaptiveSpawn.js
 THETA_RANGES = {
-    "pbTension_strength": (0.1, 1.0),
-    "pbBrake_slope": (2.0, 8.0),
-    "pbBrake_center": (0.85, 0.98),
-    "pbOvershoot_decay": (0.1, 0.4),
-    "pbSurprise_rate": (0.02, 0.15),
     "personalizationStrength": (0.05, 0.18),
     "temperature": (0.03, 0.08),
     "surpriseBudgetGain": (0.05, 0.10),
     "surpriseCooldown": (4.0, 10.0),
     "maxEvaluatedTriplets": (32.0, 128.0),
-    "tripletBaseTemp": (0.5, 2.0),
-    "floorBoost": (0.0, 0.3),
-    "cornerPenalty": (0.0, 0.4),
-    "lineBonusWeight": (0.5, 2.0),
+    "pbTensionCenter": (0.70, 0.92),    # default 0.82
+    "pbTensionWidth":  (0.04, 0.15),    # default 0.08 (越小越陡)
+    "pbBrakeCenter":   (0.98, 1.15),    # default 1.05
+    "pbBrakeWidth":    (0.03, 0.12),    # default 0.06
 }
 
 
@@ -168,7 +165,7 @@ class SamplesDataset:
         pb_b = np.zeros(n, dtype=np.int64)
         life = np.zeros(n, dtype=np.int64)
         log_pb = np.zeros(n, dtype=np.float32)
-        theta = np.zeros((n, len(THETA_KEYS)), dtype=np.float32)
+        theta = np.zeros((n, len(THETA_KEYS)), dtype=np.float32)  # (n, N_THETA=5)
         d_curve = np.zeros((n, 20), dtype=np.float32)
         pb_broke = np.zeros(n, dtype=np.float32)
         noMove_norm = np.zeros(n, dtype=np.float32)

@@ -19,7 +19,7 @@
       {
         "context_key": "easy:budget-p2:random:1500:growth",
         "context_indices": {difficulty: 0, ...},
-        "theta": { "pbTension_strength": 0.42, ... },   # 14 个参数(去归一化)
+        "theta": { "personalizationStrength": 0.12, ... },   # 5 个参数(去归一化)
         "predicted_curve": [0.21, 0.23, ...],            # 20 维
         "predicted_curve_mae_to_target": 0.034,
         "expected": {"pb_broke": 0.12, "noMove": 0.08, ...}

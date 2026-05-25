@@ -1,12 +1,18 @@
 """
 ResNet-MLP 模型 (L4) — 用于学习 (ctx, θ) → d_curve(20) + 辅助标签(4) 的映射。
 
-架构 (~235K 参数):
-  Input (46)
+架构 (~325K 参数):
+  Input (41)
     └─ ctx_embedding (32):
        Embedding(difficulty, generator, bot_policy, pb_bin, lifecycle) → concat → 28
        + log10(pb_actual) z-score projected → 4
-    └─ θ_normalized (14)
+    └─ θ_normalized (9)  — 见 feature_io.THETA_KEYS
+
+设计取舍演进:
+  v2.0: 草案 14 维 (其中 9 维是装饰性参数, 游戏代码未读取)
+  v2.1: 收缩到 5 维, 只保留 simulator/adaptiveSpawn 真正消费的参数
+  v2.2: 把 adaptiveSpawn.js 里 PB 双 S 曲线 4 个硬编码常数提到 modelConfig
+        (DEFAULT_PB_CURVE_PARAMS), 把它们加回 θ → 9 维 全部真实生效
   ↓
   trunk_in: Linear(46→256) + LayerNorm + GELU
   ↓
@@ -41,7 +47,7 @@ N_GENERATOR = 2
 N_BOT_POLICY = 3
 N_PB_BIN = 5
 N_LIFECYCLE = 4
-N_THETA = 14
+N_THETA = 9  # v2.2: 5 个个性化/选拔 + 4 个 PB 曲线参数; 见 feature_io.THETA_KEYS
 N_CURVE_BINS = 20
 
 # Embedding 维度
@@ -126,7 +132,7 @@ class SpawnTuningResNetMLP(nn.Module):
         self.curve_bins = curve_bins
 
         self.ctx_emb = ContextEmbedding()
-        input_dim = EMB_TOTAL + N_THETA  # 32 + 14 = 46
+        input_dim = EMB_TOTAL + N_THETA  # 32 + 9 = 41
 
         # Trunk
         self.trunk_in = nn.Sequential(
@@ -174,7 +180,7 @@ class SpawnTuningResNetMLP(nn.Module):
     ) -> dict:
         """前向: 返回包含所有 head 输出的 dict。
 
-        所有输入形状: (B,) for 类别, (B,) for log_pb, (B, 14) for theta_norm。
+        所有输入形状: (B,) for 类别, (B,) for log_pb, (B, N_THETA) for theta_norm。
         """
         h = self.encode(
             difficulty_idx, generator_idx, bot_idx, pb_bin_idx, lifecycle_idx,
@@ -195,3 +201,135 @@ class SpawnTuningResNetMLP(nn.Module):
 def build_default_model() -> SpawnTuningResNetMLP:
     """构造默认配置的 ResNet-MLP (L4) 模型。"""
     return SpawnTuningResNetMLP()
+
+
+# ═════════════════════════════════════════════════════════════════════
+# v2.9 — Transformer 模型 (与 ResNet-MLP 并存)
+#
+# 设计依据:
+#   d_curve 的 20 个 bin 是 r 从 0 到 2.0 的**有序序列**。
+#   ResNet-MLP 把它当 20 个独立标量预测, 难以学到 bin 之间的递增关系。
+#   Transformer 用 self-attention 让 bin i 受 bin <i 影响, 天然适合序列建模。
+#
+# 架构:
+#   ctx(32) + theta(N_THETA=9) → Linear(64) → context_vec (B, 64)
+#   ↓ broadcast 到 20 个 bin
+#   + position_embedding (20, 64) [位置编码]
+#   ↓
+#   token_seq (B, 20, 64)
+#   ↓
+#   [TransformerEncoder × 3 层, head=4, dim_feedforward=128, dropout=0.1]
+#   ↓
+#   Linear(64 → 1) per position → d_curve (B, 20)
+#
+#   5 个 head (curve / pb_broke / noMove / score / survival):
+#     - curve head: 直接来自上面的 20 位置输出
+#     - 其他 4 head: 用全局 mean pooling 后 Linear(64 → 1)
+# ═════════════════════════════════════════════════════════════════════
+
+DEFAULT_TRANSFORMER_DIM = 64
+DEFAULT_TRANSFORMER_LAYERS = 3
+DEFAULT_TRANSFORMER_HEADS = 4
+DEFAULT_TRANSFORMER_FFN = 128
+
+
+class SpawnTuningTransformer(nn.Module):
+    """v2.9: Transformer-based 模型 — 把 d_curve 当 sequence 建模。
+
+    ~200K 参数 (比 ResNet-MLP 325K 更小, 但更适合序列任务)。
+    """
+
+    def __init__(
+        self,
+        d_model: int = DEFAULT_TRANSFORMER_DIM,
+        n_layers: int = DEFAULT_TRANSFORMER_LAYERS,
+        n_heads: int = DEFAULT_TRANSFORMER_HEADS,
+        ffn_dim: int = DEFAULT_TRANSFORMER_FFN,
+        dropout: float = DEFAULT_DROPOUT,
+        curve_bins: int = N_CURVE_BINS,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.n_layers = n_layers
+        self.curve_bins = curve_bins
+
+        self.ctx_emb = ContextEmbedding()
+        # 把 (ctx_emb + theta) 投影到 d_model
+        self.condition_proj = nn.Linear(EMB_TOTAL + N_THETA, d_model)
+        # 位置编码 (learnable, 20 维)
+        self.pos_emb = nn.Parameter(torch.randn(curve_bins, d_model) * 0.02)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=n_heads,
+            dim_feedforward=ffn_dim, dropout=dropout,
+            activation="gelu", batch_first=True, norm_first=True,
+        )
+        # v2.9.1: enable_nested_tensor=False 避免 norm_first=True 时的 UserWarning;
+        # 我们也不需要 nested tensor 优化 (输入是固定 20-bin 序列, 无 padding)
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=n_layers, enable_nested_tensor=False
+        )
+        self.out_norm = nn.LayerNorm(d_model)
+
+        # curve head (per-position)
+        self.head_curve = nn.Linear(d_model, 1)
+        # 4 个全局 head (mean pooling 后)
+        self.head_pb = nn.Linear(d_model, 1)
+        self.head_noMove = nn.Linear(d_model, 1)
+        self.head_score = nn.Linear(d_model, 1)
+        self.head_survival = nn.Linear(d_model, 1)
+
+    def encode(
+        self,
+        difficulty_idx, generator_idx, bot_idx, pb_bin_idx, lifecycle_idx,
+        log_pb, theta_norm,
+    ) -> torch.Tensor:
+        """编码到 (B, n_bins, d_model)。"""
+        ctx = self.ctx_emb(difficulty_idx, generator_idx, bot_idx, pb_bin_idx, lifecycle_idx, log_pb)
+        cond = torch.cat([ctx, theta_norm], dim=-1)   # (B, 32 + N_THETA)
+        cond = self.condition_proj(cond)               # (B, d_model)
+        # broadcast 到 20 个 bin + 加位置编码
+        tokens = cond.unsqueeze(1).expand(-1, self.curve_bins, -1)  # (B, 20, d_model)
+        tokens = tokens + self.pos_emb.unsqueeze(0)                 # (B, 20, d_model)
+        # Transformer encoder
+        out = self.encoder(tokens)                                  # (B, 20, d_model)
+        return self.out_norm(out)
+
+    def forward(
+        self,
+        difficulty_idx, generator_idx, bot_idx, pb_bin_idx, lifecycle_idx,
+        log_pb, theta_norm,
+    ) -> dict:
+        seq = self.encode(
+            difficulty_idx, generator_idx, bot_idx, pb_bin_idx, lifecycle_idx,
+            log_pb, theta_norm,
+        )  # (B, 20, d_model)
+        # curve: 每个 position 一个 sigmoid 标量
+        curve = torch.sigmoid(self.head_curve(seq).squeeze(-1))     # (B, 20)
+        # 4 个全局 head: mean pooling over positions
+        pooled = seq.mean(dim=1)                                     # (B, d_model)
+        return {
+            "curve": curve,
+            "pb_broke": torch.sigmoid(self.head_pb(pooled)).squeeze(-1),
+            "noMove": torch.sigmoid(self.head_noMove(pooled)).squeeze(-1),
+            "score": self.head_score(pooled).squeeze(-1),
+            "survival": torch.sigmoid(self.head_survival(pooled)).squeeze(-1),
+        }
+
+    def count_parameters(self) -> int:
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+def build_model(model_type: str = "resnet") -> nn.Module:
+    """v2.9 模型工厂 — 通过 model_type 字符串选择架构。
+
+    支持:
+      "resnet" / "mlp" / "resnet-mlp"  → SpawnTuningResNetMLP (L4, ~325K)
+      "transformer"                    → SpawnTuningTransformer (~200K)
+    """
+    mt = (model_type or "resnet").lower().strip()
+    if mt in ("resnet", "mlp", "resnet-mlp"):
+        return SpawnTuningResNetMLP()
+    if mt in ("transformer", "xformer", "tx"):
+        return SpawnTuningTransformer()
+    raise ValueError(f"unknown model_type: {model_type!r} (支持: resnet, transformer)")

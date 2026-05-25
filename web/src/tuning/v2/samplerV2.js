@@ -5,7 +5,7 @@
  *   "样本采样: 按 5 维分桶, 通过 bot 策略得到实际得分, 数据库持久化"
  *
  * 实现:
- *   1. 用底层 OpenBlockSimulator 跑独立 step loop (不依赖 v1 evaluator 的聚合)
+ *   1. 用底层 OpenBlockSimulator 跑独立 step loop (不依赖外部 evaluator 聚合)
  *   2. 每步采 StepInfo (score / fill_rate / action_freedom / no_move / clears)
  *   3. 局结束用 _extractDCurveSteps (与 Python extractor.py 一致) 得到 d_curve + 6 个辅助标签
  *   4. 批量 POST 到 /api/spawn-tuning-v2/sample-sets/<set_id>/samples
@@ -123,7 +123,7 @@ function _extractDCurveFromSteps(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R
 }
 
 
-// ─────────── Bot 策略 (与 v1 evaluator 等价的简化版) ───────────
+// ─────────── Bot 策略 (与 evaluator 等价的简化版) ───────────
 
 /**
  * 模拟一次 placement 在 grid 副本上的效果, 返回 (clears, fill).
@@ -187,31 +187,62 @@ function _createRng(seed) {
  * 跑一局, 提取 d_curve + 标签。
  * @param {object} args
  * @param {object} args.context        — { difficulty, generator, bot_policy, pb_bin, lifecycle_stage }
- * @param {object} args.theta          — 14 维 θ dict
+ * @param {object} args.theta          — 5 维 θ dict (与 Python feature_io.THETA_KEYS 一致)
  * @param {number} args.seed
  * @param {number} [args.maxSteps=240]
+ *
+ * @throws {Error} 当 context 不合法 / simulator 初始化失败 / 轨迹无法提取 d_curve 时
+ *                 抛出 (调用方在 collectSamplesV2 中 catch + 把第一个 error message 暴露给 UI)
  */
 export function runOneSampleV2(args) {
     const { context, theta, seed, maxSteps = 240 } = args;
-    const pb = context.pb_bin;
+    if (!context || typeof context !== 'object') {
+        throw new Error('context required');
+    }
+    const pb = Number(context.pb_bin);
+    if (!Number.isFinite(pb) || pb <= 0) {
+        throw new Error(`invalid pb_bin: ${context.pb_bin}`);
+    }
+    if (!['easy', 'normal', 'hard'].includes(context.difficulty)) {
+        throw new Error(`invalid difficulty: ${context.difficulty}`);
+    }
+    if (!['triplet-p1', 'budget-p2'].includes(context.generator)) {
+        throw new Error(`invalid generator: ${context.generator}`);
+    }
+    if (!['random', 'clear-greedy', 'survival'].includes(context.bot_policy)) {
+        throw new Error(`invalid bot_policy: ${context.bot_policy}`);
+    }
 
-    const sim = new OpenBlockSimulator(context.difficulty, {
-        spawnGenerator: context.generator,
-        maxEvaluatedTriplets: theta.maxEvaluatedTriplets || 80,
-        bestScore: pb,
-        modelConfig: {
-            personalizationStrength: theta.personalizationStrength,
-            temperature: theta.temperature,
-            surpriseBudgetGain: theta.surpriseBudgetGain,
-            surpriseCooldown: theta.surpriseCooldown,
-            // PB 曲线核心 5 个 (Phase 1: 部分参数底层 simulator 暂未消费, 留 ctx 占位)
-            pbTension_strength: theta.pbTension_strength,
-            pbBrake_slope: theta.pbBrake_slope,
-            pbBrake_center: theta.pbBrake_center,
-            pbOvershoot_decay: theta.pbOvershoot_decay,
-            pbSurprise_rate: theta.pbSurprise_rate,
-        },
-    });
+    // v2.1: 5 维 θ 全部都是 simulator/adaptiveSpawn 真实消费的参数;
+    // 训练样本 ⇄ Phase C 优化 ⇄ 客户端部署三处的 θ 维度严格对齐。
+    // v2.1 关键: LHS 抽样产出的是浮点数, 但 simulator 内部某些路径会用
+    // `cheapTop.length = maxEvaluatedTriplets` 直接设数组长度, 浮点数会
+    // 抛 RangeError("Failed to set 'length' property on 'Array'")。
+    // 这里把整数型 θ 统一在调用边界做归正, 避免下游每个消费点都防御一遍。
+    const maxTriplets = Math.max(8, Math.min(256,
+        Math.round(Number(theta.maxEvaluatedTriplets) || 80)
+    ));
+    let sim;
+    try {
+        sim = new OpenBlockSimulator(context.difficulty, {
+            spawnGenerator: context.generator,
+            maxEvaluatedTriplets: maxTriplets,
+            bestScore: pb,
+            modelConfig: {
+                personalizationStrength: Number(theta.personalizationStrength) || 0.10,
+                temperature: Number(theta.temperature) || 0.05,
+                surpriseBudgetGain: Number(theta.surpriseBudgetGain) || 0.07,
+                surpriseCooldown: Math.round(Number(theta.surpriseCooldown) || 6),
+                // v2.2: PB 曲线参数 — simulator → derivePbCurve(options) → 真实生效
+                pbTensionCenter: Number(theta.pbTensionCenter) || undefined,
+                pbTensionWidth: Number(theta.pbTensionWidth) || undefined,
+                pbBrakeCenter: Number(theta.pbBrakeCenter) || undefined,
+                pbBrakeWidth: Number(theta.pbBrakeWidth) || undefined,
+            },
+        });
+    } catch (e) {
+        throw new Error(`OpenBlockSimulator init failed: ${e?.message || e}`);
+    }
     const rng = _createRng(seed);
     const steps = [];
 
@@ -254,7 +285,9 @@ export function runOneSampleV2(args) {
     }
 
     const labels = _extractDCurveFromSteps(steps, pb);
-    if (!labels) return null;
+    if (!labels) {
+        throw new Error(`d_curve extract failed (steps=${steps.length}, pb=${pb})`);
+    }
 
     return {
         // context 5 维
@@ -308,55 +341,82 @@ export async function collectSamplesV2(args) {
 
     const baseUrl = (apiBaseUrl || '').replace(/\/+$/, '');
     const total = contexts.length * thetas.length * seedsPerTheta;
-    let completed = 0, failed = 0;
+    let generated = 0;   // 本地生成成功 (待 flush)
+    let written = 0;     // 已写入 DB
+    let failed = 0;
+    let firstError = '';
     let batch = [];
 
     async function flush() {
         if (batch.length === 0) return;
         const payload = { samples: batch };
+        const sentCount = batch.length;
         batch = [];
-        const r = await fetch(`${baseUrl}/api/spawn-tuning-v2/sample-sets/${setId}/samples`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        if (!r.ok) {
-            failed += payload.samples.length;
+        let r;
+        try {
+            r = await fetch(`${baseUrl}/api/spawn-tuning-v2/sample-sets/${setId}/samples`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+        } catch (e) {
+            failed += sentCount;
+            firstError = firstError || `flush network error: ${e?.message || e}`;
             return;
+        }
+        if (!r.ok) {
+            failed += sentCount;
+            let body = '';
+            try { body = (await r.text()).slice(0, 200); } catch { /* ignore */ }
+            firstError = firstError || `flush HTTP ${r.status}: ${body}`;
+            return;
+        }
+        try {
+            const j = await r.json();
+            const ins = Number(j.inserted) || 0;
+            const errs = Number(j.errors) || 0;
+            written += ins;
+            failed += errs;
+            if (errs > 0 && !firstError) firstError = `server insert errors: ${errs}/${sentCount}`;
+        } catch {
+            written += sentCount; // 兜底: 没 json 但 r.ok, 视为成功
         }
     }
 
     for (const ctx of contexts) {
         for (const theta of thetas) {
             for (let s = 0; s < seedsPerTheta; s++) {
-                const seed = (Date.now() & 0xFFFF_FFFF) ^ (completed * 7919);
+                const seed = (Date.now() & 0xFFFF_FFFF) ^ (generated * 7919);
                 try {
                     const t0 = performance.now();
                     const sample = runOneSampleV2({ context: ctx, theta, seed, maxSteps });
-                    if (sample) {
-                        sample.eval_ms = Math.round(performance.now() - t0);
-                        batch.push(sample);
-                        completed++;
-                    } else {
-                        failed++;
-                    }
+                    sample.eval_ms = Math.round(performance.now() - t0);
+                    batch.push(sample);
+                    generated++;
                 } catch (e) {
                     failed++;
+                    const msg = e?.message || String(e);
+                    if (!firstError) firstError = msg;
                     if (typeof console !== 'undefined') {
-                        console.warn('[samplerV2] error:', e);
+                        console.error('[samplerV2] error:', msg, e);
                     }
                 }
                 if (batch.length >= batchSize) {
                     await flush();
                 }
                 if (onProgress) {
-                    onProgress({ completed, failed, total, percent: (completed + failed) / total });
+                    onProgress({
+                        completed: written + batch.length, // 本地包含 in-flight batch 作为乐观估算
+                        failed, total,
+                        percent: (written + batch.length + failed) / total,
+                        firstError,
+                    });
                 }
             }
         }
     }
     await flush();
-    return { completed, failed, total };
+    return { completed: written, failed, total, firstError };
 }
 
 

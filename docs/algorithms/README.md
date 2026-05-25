@@ -55,6 +55,7 @@
     onboarding 硬覆写与 winback 保护包三条接入路径、完整影响链图解与典型示例
 - [出块三层架构](./SPAWN_ALGORITHM.md) —— 三层架构 + 5 阶段流水线 + 30+ 加权乘子 + 硬约束表
 - [出块评估与可视化工具](./SPAWN_EVALUATION.md) —— CLI + Web Worker 页面，批量评估公平性、奖励节奏、兜底率；对比 baseline / P1 组合评分 / P2 体验预算实验轨，并支持个性化、受控随机、惊喜预算、SQLite/本地方案保存与 DFV 展示口径说明
+- [出块算法优化 v2](./SPAWN_TUNING_V2.md) —— 工业化 L4 ResNet-MLP：5 维 context × 20 维 d_curve 目标 + 5 分量损失 + 增量训练 + 异步任务执行 + 离线 bundle 灰度部署，对应看板 `/spawn-tuning-v2-dashboard.html`
 - [解法数量难度](./SPAWN_SOLUTION_DIFFICULTY.md) —— 含 §13–§14 顺序刚性 `orderRigor`
 - [出块建模](./SPAWN_BLOCK_MODELING.md) —— 规则引擎 + SpawnTransformer；含 PB 双 S 曲线、P2 体验预算、个性化与受控随机实验轨的建模口径
 - [候选块概率图鉴](./CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md)

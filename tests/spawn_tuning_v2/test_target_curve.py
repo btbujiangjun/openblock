@@ -29,31 +29,35 @@ class TestTargetSCurve:
         assert target_S_curve(0.0) == pytest.approx(D_BASE, abs=1e-9)
 
     def test_segment_boundaries(self):
-        """4 段拐点处值应严格等于设计的边界值。"""
+        """v2.3: brake 段用端点重缩放 logistic, 4 段拐点严格连续。"""
         assert target_S_curve(SEG_GENTLE_END) == pytest.approx(D_GENTLE_END, abs=1e-9)
         assert target_S_curve(SEG_MID_END) == pytest.approx(D_MID_END, abs=1e-9)
-        # 刹车段终点 (r=1.0) 由 sigmoid 计算,接近但不严格等于 D_BRAKE_END
-        # sigmoid(0.03*40)=sigmoid(1.2)≈0.768, 所以 D(1.0) ≈ 0.50 + 0.768*0.40 ≈ 0.807
-        # 第 4 段起点 (r=1.0) 严格等于 D_BRAKE_END
-        # 这里检查跨段不要有跳变 > 0.1
+        # v2.3 brake 段端点重缩放 → r=SEG_BRAKE_END 严格 = D_BRAKE_END (从 brake 段一侧)
+        # 注: r=SEG_BRAKE_END 时会进入 overshoot 段, overshoot(r=SEG_BRAKE_END) = D_BRAKE_END
+        # brake 一侧应该用 r 略小于 SEG_BRAKE_END 测试
         eps = 1e-6
-        v_before = target_S_curve(SEG_BRAKE_END - eps)
-        v_after = target_S_curve(SEG_BRAKE_END + eps)
-        # 第 3 段终点 sigmoid(1.2)≈0.769 → D ≈ 0.807
-        # 第 4 段起点 = D_BRAKE_END = 0.90
-        # 容忍连续性误差 < 0.15
-        assert abs(v_after - v_before) < 0.15, f"discontinuity at r=1: {v_before} -> {v_after}"
+        v_brake_end = target_S_curve(SEG_BRAKE_END - eps)
+        v_overshoot_start = target_S_curve(SEG_BRAKE_END + eps)
+        # 两侧严格连续 — v2.3 重缩放后差 < 1e-3
+        assert abs(v_brake_end - D_BRAKE_END) < 1e-3
+        assert abs(v_overshoot_start - D_BRAKE_END) < 1e-3
+        assert abs(v_overshoot_start - v_brake_end) < 1e-3, \
+            f"discontinuity at r=SEG_BRAKE_END: {v_brake_end} -> {v_overshoot_start}"
 
     def test_origin_to_brake_monotonic(self):
-        """[0, 1.5] 区间应单调非降 (允许 1e-6 数值误差)。"""
-        rs = [i / 100 for i in range(0, 151)]
+        """[0, CURVE_R_MAX] 区间应单调非降 (允许 1e-6 数值误差)。"""
+        rs = [i / 100 for i in range(0, int(CURVE_R_MAX * 100) + 1)]
         ds = [target_S_curve(r) for r in rs]
         assert is_monotonic_non_decreasing(ds, tol=1e-4)
 
     def test_cap_at_high_r(self):
-        """r >> 1 时应趋近 D_CAP。"""
-        assert target_S_curve(2.0) == target_S_curve(CURVE_R_MAX)  # clip
+        """v2.3: r >> 1 时应非常接近 D_CAP (OVERSHOOT_DECAY=6 让 r=1.5 时 D>0.99)。"""
+        assert target_S_curve(3.0) == target_S_curve(CURVE_R_MAX)  # clip
         assert target_S_curve(CURVE_R_MAX) < D_CAP + 1e-9
+        # v2.3 新约束: r=1.5 时 D 应接近 1.0
+        assert target_S_curve(1.5) > 0.99
+        # r=2.0 (max) 时 D 应基本到 1.0
+        assert target_S_curve(2.0) > 0.999
 
     def test_negative_r_clipped(self):
         """负数 r 应被 clip 到 0。"""
@@ -84,11 +88,12 @@ class TestCurveVector:
     def test_first_and_last_values(self):
         """第 0 bin 应接近 D_BASE,最后 bin 应接近 D_CAP。"""
         v = target_curve_vector()
-        # 第 0 bin 中点 = 0.5/20 * 1.5 = 0.0375
+        # 第 0 bin 中点 = 0.5/20 * 2.0 = 0.05 (v2.3 r_max=2.0)
         assert v[0] >= D_BASE - 1e-9
         assert v[0] < D_GENTLE_END
-        # 最后 bin 中点 = 19.5/20 * 1.5 = 1.4625 → 在第 4 段
+        # 最后 bin 中点 = 19.5/20 * 2.0 = 1.95 → 在第 4 段, v2.3 时应接近 D_CAP
         assert v[-1] > D_BRAKE_END - 1e-9
+        assert v[-1] > 0.999  # v2.3: 最后 bin 极接近 1.0
 
 
 class TestRToBin:
@@ -102,8 +107,10 @@ class TestRToBin:
         assert r_to_bin(CURVE_R_MAX + 0.5) == CURVE_N_BINS - 1
 
     def test_mid_value(self):
-        # r=0.75, n_bins=20, r_max=1.5 → bin_width=0.075 → idx = int(0.75/0.075) = 10
-        assert r_to_bin(0.75) == 10
+        # v2.3: r=1.0, n_bins=20, r_max=2.0 → bin_width=0.1 → idx = int(1.0/0.1) = 10
+        assert r_to_bin(1.0) == 10
+        # r=0.5 → idx = 5
+        assert r_to_bin(0.5) == 5
 
     def test_negative_clipped(self):
         assert r_to_bin(-1.0) == 0

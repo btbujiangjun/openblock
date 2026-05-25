@@ -19,23 +19,22 @@
  * 防御性: 所有错误都 fallback default, 绝不让玩家因 server/网络故障玩到坏出块。
  */
 
-// ─────────── 默认 θ (与 baseline 一致, 当所有 fallback 失败时用) ───────────
-
+// ─────────── 默认 θ (9 维, 与 baseline 一致, 当所有 fallback 失败时用) ───────────
+//
+// v2.2: 与 Python feature_io.THETA_KEYS / samplerV2 严格一致;
+//       这里只暴露 simulator/adaptiveSpawn 真正消费的 9 维 (5 个个性化 + 4 个 PB 曲线)。
+//
 export const DEFAULT_THETA_V2 = Object.freeze({
-    pbTension_strength: 0.55,
-    pbBrake_slope: 5.0,
-    pbBrake_center: 0.95,
-    pbOvershoot_decay: 0.25,
-    pbSurprise_rate: 0.07,
     personalizationStrength: 0.10,
     temperature: 0.05,
     surpriseBudgetGain: 0.07,
     surpriseCooldown: 6,
     maxEvaluatedTriplets: 80,
-    tripletBaseTemp: 1.0,
-    floorBoost: 0.1,
-    cornerPenalty: 0.15,
-    lineBonusWeight: 1.0,
+    // v2.2: PB 曲线参数 (= adaptiveSpawn.DEFAULT_PB_CURVE_PARAMS)
+    pbTensionCenter: 0.82,
+    pbTensionWidth: 0.08,
+    pbBrakeCenter: 1.05,
+    pbBrakeWidth: 0.06,
 });
 
 

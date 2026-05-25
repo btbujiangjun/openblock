@@ -35,6 +35,9 @@
     button.danger { background: var(--bad); color: #fff; }
     select, input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
       border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+    select[multiple] { padding: 4px 6px; font-family: ui-monospace, monospace; font-size: 11.5px; }
+    select[multiple] option { padding: 3px 4px; }
+    select[multiple] option:checked { background: var(--accent); color: #0f172a; font-weight: 600; }
     section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
       padding: 12px 14px; margin-bottom: 10px; }
 
@@ -104,6 +107,26 @@
     .dim-count { font-family: ui-monospace, monospace; font-size: 10.5px;
       color: var(--accent); font-weight: 700; min-width: 36px; text-align: right; }
 
+    /* === Chip 加权引导 (P2) === */
+    @keyframes chipHintPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0.0); }
+      50%      { box-shadow: 0 0 0 4px rgba(251,191,36,0.45); }
+    }
+    .chip-onboard-pulse { animation: chipHintPulse 1.4s ease-in-out 3; }
+    .chip-hint-bubble {
+      position: absolute; background: var(--warn); color: #422006;
+      padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 700;
+      white-space: nowrap; z-index: 50;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .chip-hint-bubble::after {
+      content: ''; position: absolute; top: -6px; left: 18px;
+      border: 6px solid transparent; border-bottom-color: var(--warn); border-top: 0;
+    }
+    .chip-hint-close { background: transparent; border: 0; color: #422006;
+      cursor: pointer; padding: 0 0 0 6px; font-size: 12px; font-weight: 900;
+      height: auto; line-height: 1; }
+
     /* === sub-h === */
     .sub-h { font-size: 11.5px; font-weight: 700; color: var(--text);
       margin: 12px 0 4px; padding-left: 8px; border-left: 2px solid var(--accent); }
@@ -139,6 +162,86 @@
       border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px;
       color: var(--muted); font-family: ui-monospace,monospace; margin: 6px 0; }
     .estimate-box b { color: var(--accent); }
+
+    /* === 模态框 (训练曲线) === */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+      display: none; align-items: center; justify-content: center; z-index: 100; }
+    .modal-backdrop.show { display: flex; }
+    .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 18px; width: min(820px, 92vw); max-height: 88vh;
+      overflow-y: auto; overflow-x: hidden; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+    .modal-close { background: transparent; border: 0; color: var(--muted); cursor: pointer;
+      font-size: 18px; height: auto; padding: 0 6px; }
+    .modal-close:hover { color: var(--bad); }
+    .legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin: 4px 2px 8px; }
+    .legend-swatch { display: inline-block; width: 12px; height: 4px; vertical-align: middle;
+      margin-right: 4px; border-radius: 2px; }
+
+    /* === 训练曲线 sub-chart 卡片 (v2.8: 拆 8 个独立子图) === */
+    .metric-card { background: #020617; border: 1px solid var(--line); border-radius: 6px;
+      padding: 4px 6px 2px; position: relative; }
+    .metric-card-header { display: flex; align-items: baseline; gap: 8px;
+      font-size: 10.5px; font-family: ui-monospace,monospace; padding-bottom: 1px; }
+    .metric-card-title { color: var(--text); font-weight: 700; flex: 0 0 auto; }
+    .metric-card-value { color: var(--accent); margin-left: auto; font-weight: 700; }
+    .metric-card-best { color: var(--good); font-size: 9.5px; font-weight: 600; }
+    .metric-card canvas { display: block; width: 100%; height: 70px; }
+
+    /* === 样本集预览 (P2) === */
+    .pv-section { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+    .pv-section h3 { font-size: 12px; color: var(--accent); margin-bottom: 5px; }
+    .pv-dim-row { display: flex; gap: 6px; align-items: center; margin: 3px 0; font-size: 11px; }
+    .pv-dim-label { min-width: 88px; color: var(--muted); }
+    .pv-dim-bars { display: flex; gap: 2px; flex: 1; align-items: stretch;
+      background: rgba(2,6,23,0.45); border-radius: 4px; padding: 2px;
+      height: 20px; overflow: hidden; }
+    .pv-dim-bar { display: flex; align-items: center; justify-content: center;
+      padding: 0 6px; border-radius: 3px; font-family: ui-monospace, monospace;
+      font-size: 9.5px; font-weight: 700; color: #0f172a;
+      white-space: nowrap; overflow: hidden; transition: opacity 0.15s; }
+    .pv-dim-bar:hover { opacity: 0.8; }
+    .pv-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 6px; margin-top: 4px; }
+    .pv-stat-tile { padding: 5px 8px; background: rgba(2,6,23,0.4);
+      border: 1px solid var(--line); border-radius: 6px; }
+    .pv-stat-tile .v { font-size: 13px; font-weight: 700; font-family: ui-monospace, monospace; }
+    .pv-stat-tile .l { font-size: 10px; color: var(--muted); }
+    .pv-theta-tbl { width: 100%; border-collapse: collapse; font-size: 10.5px;
+      font-family: ui-monospace, monospace; }
+    .pv-theta-tbl th, .pv-theta-tbl td { padding: 3px 6px; border-bottom: 1px solid var(--line);
+      text-align: right; }
+    .pv-theta-tbl th { color: var(--muted); font-weight: 600; text-align: right; }
+    .pv-theta-tbl th:first-child, .pv-theta-tbl td:first-child { text-align: left; }
+    .pv-sample-tbl { width: 100%; border-collapse: collapse; font-size: 10.5px;
+      font-family: ui-monospace, monospace; }
+    .pv-sample-tbl th, .pv-sample-tbl td { padding: 3px 5px; border-bottom: 1px solid var(--line);
+      text-align: left; white-space: nowrap; }
+    .pv-sample-tbl th { color: var(--muted); font-weight: 600; background: var(--panel-2); position: sticky; top: 0; }
+    .pv-sample-wrap { max-height: 240px; overflow: auto; border: 1px solid var(--line);
+      border-radius: 6px; }
+    .pv-mini-curve { background: #020617; border: 1px solid var(--line); border-radius: 4px;
+      padding: 4px; margin-top: 4px; }
+
+    /* === 预览筛选 (5 维 chips) === */
+    .pv-filter { padding: 6px 8px; background: rgba(2,6,23,0.55);
+      border: 1px solid var(--line); border-radius: 6px; margin: 4px 0 8px; }
+    .pv-filter-summary { display: flex; align-items: center; gap: 10px;
+      font-size: 11px; margin-bottom: 4px; }
+    .pv-filter-summary b { color: var(--accent); font-family: ui-monospace, monospace; }
+    .pv-filter-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+    .pv-filter-label { min-width: 70px; color: var(--muted); font-size: 10.5px; font-weight: 600; }
+    .pv-chips { display: flex; gap: 3px; flex-wrap: wrap; flex: 1; }
+    .pv-chip { padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px;
+      background: transparent; color: var(--muted); cursor: pointer; font-size: 10.5px;
+      height: 20px; line-height: 16px; user-select: none; font-family: ui-monospace, monospace;
+      transition: all 0.1s; }
+    .pv-chip:hover { border-color: var(--accent); color: var(--text); }
+    .pv-chip.on { background: var(--accent); color: #0f172a; border-color: var(--accent);
+      font-weight: 700; }
+    .pv-chip.disabled { opacity: 0.35; cursor: not-allowed; }
+    .pv-filter-actions { display: flex; gap: 6px; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -149,7 +252,7 @@
         <p>S 型难度曲线 · ResNet-MLP L4 · 20 维 d_curve 标签 · 异步训练 · 灰度切量 · 离线 bundle 四端发布</p>
       </div>
       <div style="text-align:right; font-size:11px;">
-        <p><a href="/docs/algorithms/SPAWN_TUNING_V2.md">📖 设计文档</a> · <a href="/spawn-tuning-dashboard.html" style="color:var(--muted)">→ v1 legacy</a></p>
+        <p><a href="/docs/algorithms/SPAWN_TUNING_V2.md">📖 设计文档</a></p>
         <p style="color:var(--muted); margin-top:2px;">195 tests · 8 PR 完整落地</p>
       </div>
     </header>
@@ -166,7 +269,7 @@
     <!-- ════════════════ ① 概览 ════════════════ -->
     <div class="tab-content active" id="tab-overview">
       <div class="v2-banner">
-        <b>🆕 v2.0 工业化版</b> · 与 v1 完全独立 · 数据库 <code>.cursor-stress-logs/spawn-tuning-v2.sqlite</code> · API 前缀 <code>/api/spawn-tuning-v2/*</code>
+        <b>🏭 工业化版</b> · 数据库 <code>.cursor-stress-logs/spawn-tuning-v2.sqlite</code> · API 前缀 <code>/api/spawn-tuning-v2/*</code>
       </div>
 
       <section>
@@ -182,7 +285,7 @@
           </div>
           <div class="workflow-pill" style="border-left:3px solid var(--pink)">
             <b>④ 部署与监控</b>
-            <span class="muted">deploy 模型 → 烘焙 bundle → 真实玩家上报</span>
+            <span class="muted">deploy 模型 → 导出 bundle → 真实玩家上报</span>
           </div>
           <div class="workflow-pill" style="border-left:3px solid var(--purple)">
             <b>⑤ d_curve 分析</b>
@@ -220,19 +323,25 @@
           <span style="color:var(--muted);">🎯 预设:</span>
           <button class="ghost preset-btn" data-preset="smoke">🔥 烟雾 (~30 秒)</button>
           <button class="ghost preset-btn preset-active" data-preset="debug">🐞 调试 (~5 分)</button>
-          <button class="ghost preset-btn" data-preset="prod">🏭 生产 (~1 时)</button>
+          <button class="ghost preset-btn" data-preset="prod">🏭 生产 (~1 小时)</button>
           <span id="active-preset" style="color:var(--purple); font-family:ui-monospace,monospace; font-size:10.5px;"></span>
         </div>
 
         <!-- 5 维 chips -->
         <div style="padding:8px 12px; background:rgba(2,6,23,0.35); border:1px solid var(--line); border-radius:8px; margin:4px 0;">
-          <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px; position:relative;">
             <span style="font-size:11.5px; font-weight:700;">🎮 玩家场景 + Bot</span>
             <span class="muted-hint" style="padding:0; font-size:10.5px;">
               场景 = <b id="dim-count" style="color:var(--accent); font-family:monospace">120</b>
             </span>
             <button id="btn-dim-reset" class="ghost" style="font-size:10px; height:22px; padding:0 8px;">↺ 全选</button>
-            <span style="font-size:10px; color:var(--muted); margin-left:auto;">单击 = 选/不选 · 右键 = 设权重 (1-9)</span>
+            <span style="font-size:10px; color:var(--muted); margin-left:auto;">
+              单击 = 选/不选 ·
+              <span title="右键 或 Alt+单击 弹出权重输入框 (1-9)。权重越大该场景采样越频繁;典型用例:把生产期 mature×3、新人 onboarding×2、其他 ×1"
+                    style="text-decoration:underline dotted; cursor:help; color:var(--warn);">
+                右键 / Alt+单击 = 设权重 (1-9) ⓘ
+              </span>
+            </span>
           </div>
 
           <div class="dim-row">
@@ -336,19 +445,34 @@
         <h2>C.1 提交训练任务 <span style="font-weight:normal; font-size:11px; color:var(--muted);">— 异步执行器后台跑 train.py</span></h2>
         <div class="form-row">
           <label>任务名<input id="job-name" type="text" placeholder="auto"></label>
-          <label>样本集 IDs<input id="job-sets" type="text" placeholder="1,2,3"></label>
+          <label style="grid-column: span 2;">
+            训练样本集 <span style="color:var(--muted); font-size:10px;">(按住 Cmd/Ctrl 多选; 或从 ② 样本集 tab 点 "→ 训练" 跨 tab 选)</span>
+            <select id="job-sets" multiple size="4" style="height:auto; padding:4px 6px;"></select>
+          </label>
+          <label title="ResNet-MLP: L4 经典架构, 325K 参数; Transformer: 序列建模, 更适合 d_curve 单调结构, ~200K 参数 (v2.9 新加)">
+            网络架构
+            <select id="job-model-type">
+              <option value="resnet" selected>ResNet-MLP (默认)</option>
+              <option value="transformer">Transformer ⭐ (v2.9)</option>
+            </select>
+          </label>
           <label>Epochs<input id="job-epochs" type="number" value="50"></label>
           <label>Batch Size<input id="job-batch" type="number" value="256"></label>
           <label>Learning Rate<input id="job-lr" type="number" step="0.0001" value="0.001"></label>
-          <label>Device
+          <label title="鼠标悬停 option 看详情;不可用的硬件灰色 disabled">Device
             <select id="job-device">
-              <option value="cpu" selected>cpu</option>
-              <option value="cuda">cuda</option>
-              <option value="mps">mps</option>
+              <option value="cpu">…</option>
             </select>
           </label>
-          <label>增量基础模型 ID<input id="job-base" type="number" placeholder="可空"></label>
+          <label>增量基础模型
+            <select id="job-base">
+              <option value="">— 从头训练 —</option>
+            </select>
+          </label>
         </div>
+        <p class="muted-hint" style="margin-top:2px;">
+          选基础模型 = 增量训练 (在已有权重上 fine-tune, lr 自动 × 0.1, 避免灾难性遗忘); 留空 = 从头训练
+        </p>
         <div class="form-actions">
           <button id="btn-submit-job">▶ 提交训练任务</button>
           <button id="btn-refresh-jobs" class="ghost">↻ 刷新</button>
@@ -389,13 +513,22 @@
     <!-- ════════════════ ④ 部署与监控 ════════════════ -->
     <div class="tab-content" id="tab-deploy">
       <section>
-        <h2>D.1 离线 Bundle 烘焙 <span style="font-weight:normal; font-size:11px; color:var(--muted);">— 写 dist/ + 微信小程序模块</span></h2>
+        <h2>D.1 离线 Bundle 导出 (Export) <span style="font-weight:normal; font-size:11px; color:var(--muted);">— 写 dist/ + 微信小程序模块, 客户端打包时随包发布</span></h2>
         <div class="form-row">
-          <label>policies.json 路径<input id="bundle-src" type="text" placeholder="checkpoints/v2/policies-xxx.json"></label>
-          <label>灰度比例 (rollout_pct)<input id="bundle-rollout" type="number" min="0" max="100" value="100"></label>
+          <label>选模型 (自动取关联 policies.json)
+            <select id="bundle-model">
+              <option value="">— 选已训完模型 —</option>
+            </select>
+          </label>
+          <label>或手填路径 (可选, 优先生效)
+            <input id="bundle-src" type="text" placeholder="留空时取上面所选模型的兄弟 .policies.json">
+          </label>
+          <label>灰度比例 (rollout_pct)
+            <input id="bundle-rollout" type="number" min="0" max="100" value="100">
+          </label>
         </div>
         <div class="form-actions">
-          <button id="btn-export-bundle">📦 烘焙到客户端 bundle</button>
+          <button id="btn-export-bundle">📦 导出 Bundle (Web + 小程序)</button>
           <button id="btn-bundle-status" class="ghost">↻ 当前状态</button>
           <span id="bundle-hint" class="muted-hint"></span>
         </div>
@@ -435,10 +568,9 @@
           <label>分组维度 (可选,例 difficulty,bot_policy)
             <input id="curve-group-by" type="text" placeholder="留空 = 全集">
           </label>
-          <label>预测来源
-            <select id="curve-predict-src">
-              <option value="target" selected>目标 S 曲线 (占位)</option>
-              <option value="">无预测</option>
+          <label>模型推断 (用所选模型对实测 set 的均值 context 推断)
+            <select id="curve-predict-model">
+              <option value="">— 不推断 (只画目标 / 实测) —</option>
             </select>
           </label>
         </div>
@@ -455,6 +587,44 @@
       </section>
     </div>
   </main>
+
+  <!-- ════════════════ 模态框: 样本集数据预览 ════════════════ -->
+  <div class="modal-backdrop" id="preview-modal">
+    <div class="modal" style="width:min(960px, 95vw);">
+      <div class="modal-header">
+        <h2 id="preview-modal-title">样本集预览</h2>
+        <button class="modal-close" id="preview-modal-close">×</button>
+      </div>
+      <div id="preview-modal-body">
+        <p class="muted-hint">加载中…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ 模态框: 训练曲线 ════════════════ -->
+  <div class="modal-backdrop" id="metrics-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="metrics-modal-title">训练曲线 (per-epoch)</h2>
+        <button class="modal-close" id="metrics-modal-close">×</button>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; margin:4px 2px 6px; font-size:11px; color:var(--muted);">
+        <span><b style="color:var(--accent);">11 个独立指标</b> · 各自纵轴自动缩放</span>
+        <span style="margin-left:auto; font-style:italic;">🖱 悬停任一子图查看该 step 详情</span>
+      </div>
+      <div id="chart-container" style="position:relative;">
+        <div id="metrics-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+          <!-- 8 个 sub-chart, JS 动态填充 -->
+        </div>
+        <div id="metrics-tooltip" style="display:none; position:fixed; pointer-events:none;
+          background:rgba(15,23,42,0.96); border:1px solid var(--purple); border-radius:6px;
+          padding:6px 10px; font-size:11px; font-family:ui-monospace,monospace; color:var(--text);
+          box-shadow:0 4px 12px rgba(0,0,0,0.5); z-index:9999; white-space:nowrap;
+          max-width: 280px;"></div>
+      </div>
+      <div id="metrics-meta" class="muted-hint"></div>
+    </div>
+  </div>
 
   <script type="module" src="./src/tuning/v2/dashboardV2.js"></script>
 </body>

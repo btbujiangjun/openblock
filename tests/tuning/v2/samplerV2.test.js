@@ -127,20 +127,11 @@ describe('runOneSampleV2', () => {
         lifecycle_stage: 'growth',
     };
     const defaultTheta = {
-        pbTension_strength: 0.5,
-        pbBrake_slope: 5,
-        pbBrake_center: 0.95,
-        pbOvershoot_decay: 0.25,
-        pbSurprise_rate: 0.07,
         personalizationStrength: 0.1,
         temperature: 0.05,
         surpriseBudgetGain: 0.07,
         surpriseCooldown: 6,
         maxEvaluatedTriplets: 80,
-        tripletBaseTemp: 1.0,
-        floorBoost: 0.1,
-        cornerPenalty: 0.15,
-        lineBonusWeight: 1.0,
     };
 
     it('returns a valid v2 sample row', () => {
@@ -159,7 +150,7 @@ describe('runOneSampleV2', () => {
         expect(sample.lifecycle_stage).toBe('growth');
         // theta + labels
         const theta = JSON.parse(sample.theta_json);
-        expect(theta.pbTension_strength).toBe(0.5);
+        expect(theta.personalizationStrength).toBe(0.1);
         const dCurve = JSON.parse(sample.d_curve_json);
         expect(dCurve).toHaveLength(20);
         // 数值字段
@@ -192,6 +183,33 @@ describe('runOneSampleV2', () => {
         expect(JSON.parse(sR.d_curve_json)).toHaveLength(20);
         expect(JSON.parse(sG.d_curve_json)).toHaveLength(20);
     });
+
+    /* v2.1 回归: LHS 抽样产出的浮点数 θ 之前会在 simulator 内部
+     * `cheapTop.length = maxEvaluatedTriplets` 处抛
+     * `RangeError: Failed to set 'length' property on 'Array'`。
+     * 修复后 sampler 在调用边界 + spawnExperiments 内部双重 round, 确保不抛。 */
+    it('survives float θ.maxEvaluatedTriplets (regression: Invalid Array length)', () => {
+        const floatTheta = {
+            ...defaultTheta,
+            maxEvaluatedTriplets: 80.7,      // LHS 抽样常见: [32, 128] 之间浮点
+            surpriseCooldown: 7.4,           // 同样曾被怀疑
+        };
+        expect(() => runOneSampleV2({
+            context: defaultContext,
+            theta: floatTheta,
+            seed: 4242,
+            maxSteps: 30,
+        })).not.toThrow();
+    });
+
+    it('throws on truly invalid pb_bin', () => {
+        expect(() => runOneSampleV2({
+            context: { ...defaultContext, pb_bin: 0 },
+            theta: defaultTheta,
+            seed: 1,
+            maxSteps: 10,
+        })).toThrow(/pb_bin/);
+    });
 });
 
 
@@ -207,15 +225,16 @@ describe('collectSamplesV2', () => {
         pb_bin: 500, lifecycle_stage: 'growth',
     };
     const theta = {
-        pbTension_strength: 0.5, pbBrake_slope: 5, pbBrake_center: 0.95,
-        pbOvershoot_decay: 0.25, pbSurprise_rate: 0.07,
         personalizationStrength: 0.1, temperature: 0.05,
-        surpriseBudgetGain: 0.07, surpriseCooldown: 6,
-        maxEvaluatedTriplets: 80, tripletBaseTemp: 1.0,
-        floorBoost: 0.1, cornerPenalty: 0.15, lineBonusWeight: 1.0,
+        surpriseBudgetGain: 0.07, surpriseCooldown: 6, maxEvaluatedTriplets: 80,
     };
 
     it('uploads batched samples', async () => {
+        // mock: server 端逐条 echo 写入数
+        globalThis.fetch = vi.fn().mockImplementation((url, opts) => {
+            const body = JSON.parse(opts.body);
+            return Promise.resolve({ ok: true, json: async () => ({ inserted: body.samples.length, errors: 0 }) });
+        });
         const result = await collectSamplesV2({
             setId: 42,
             contexts: [ctx],
@@ -232,6 +251,40 @@ describe('collectSamplesV2', () => {
         // URL 含 set_id
         const url = fetch.mock.calls[0][0];
         expect(url).toContain('/sample-sets/42/samples');
+    });
+
+    it('surfaces server error via firstError on fetch failure', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: false, status: 500, text: async () => 'database locked',
+        });
+        const result = await collectSamplesV2({
+            setId: 99,
+            contexts: [ctx],
+            thetas: [theta],
+            seedsPerTheta: 1,
+            maxSteps: 15,
+            batchSize: 5,
+            apiBaseUrl: 'http://test',
+        });
+        // 服务端拒绝 → 0 completed, n failed
+        expect(result.completed).toBe(0);
+        expect(result.failed).toBe(1);
+        expect(result.firstError).toContain('500');
+    });
+
+    it('surfaces invalid context error via firstError', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ inserted: 0 }) });
+        const result = await collectSamplesV2({
+            setId: 7,
+            contexts: [{ ...ctx, difficulty: 'NOPE' }],   // 非法 difficulty
+            thetas: [theta],
+            seedsPerTheta: 2,
+            maxSteps: 10,
+            apiBaseUrl: 'http://test',
+        });
+        expect(result.completed).toBe(0);
+        expect(result.failed).toBe(2);
+        expect(result.firstError).toMatch(/difficulty/i);
     });
 
     it('reports progress', async () => {

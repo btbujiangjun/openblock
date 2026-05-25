@@ -109,11 +109,19 @@ class TestNormalize:
 
     def test_missing_key_filled(self):
         """缺失的 key 应填中点。"""
-        theta = {"pbTension_strength": 0.5}  # 缺其他 13 个
+        theta = {"personalizationStrength": 0.10}  # 缺其他 8 个 (v2.2 = 9 维)
         normed = normalize_theta(theta)
-        assert normed.shape == (14,)
-        # 第 0 维 (pbTension_strength=0.5) 归一化: (0.5-0.1)/(1.0-0.1) ≈ 0.444
-        assert abs(normed[0] - 0.4444) < 0.001
+        assert normed.shape == (len(THETA_KEYS),)
+        # 第 0 维 (personalizationStrength=0.10) 归一化: (0.10-0.05)/(0.18-0.05) ≈ 0.3846
+        assert abs(normed[0] - 0.3846) < 0.001
+
+    def test_v22_pb_curve_keys_present(self):
+        """v2.2 回归: 9 维 θ 必须含 4 个 PB 曲线参数。"""
+        assert "pbTensionCenter" in THETA_KEYS
+        assert "pbTensionWidth" in THETA_KEYS
+        assert "pbBrakeCenter" in THETA_KEYS
+        assert "pbBrakeWidth" in THETA_KEYS
+        assert len(THETA_KEYS) == 9
 
 
 # ─────────── SamplesDataset ───────────
@@ -131,7 +139,7 @@ class TestSamplesDataset:
 
         ds = SamplesDataset.from_sqlite(test_db, [set_id])
         assert len(ds) == 5
-        assert ds.theta_norm.shape == (5, 14)
+        assert ds.theta_norm.shape == (5, len(THETA_KEYS))
         assert ds.d_curve.shape == (5, 20)
 
     def test_empty_set_raises(self, test_db):

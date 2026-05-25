@@ -251,9 +251,10 @@ function cheapTripletScore(triplet, budget) {
 
 export function generateExperimentalDockShapes(grid, layered, ctx = {}, options = {}) {
     const mode = options.mode || SPAWN_GENERATOR_TRIPLET_P1;
+    // 整型化: 该值会被赋给 Array.length, 必须是非负整数 (否则 RangeError)
     const maxEvaluatedTriplets = Math.max(
         12,
-        Math.min(240, Number(options.maxEvaluatedTriplets) || DEFAULT_MAX_EVALUATED_TRIPLETS)
+        Math.min(240, Math.round(Number(options.maxEvaluatedTriplets) || DEFAULT_MAX_EVALUATED_TRIPLETS))
     );
     const fill = grid.getFillRatio();
     const budget = deriveExperienceBudget(layered, ctx, fill, mode, options);
@@ -273,7 +274,9 @@ export function generateExperimentalDockShapes(grid, layered, ctx = {}, options 
                 evaluated++;
                 if (cheapTop.length > maxEvaluatedTriplets) {
                     cheapTop.sort((a, b) => b.score - a.score);
-                    cheapTop.length = maxEvaluatedTriplets;
+                    // 防御: maxEvaluatedTriplets 必须是非负整数才能赋给 Array.length,
+                    // 否则浮点数会 throw RangeError ("Failed to set 'length' property")
+                    cheapTop.length = Math.max(0, Math.floor(maxEvaluatedTriplets));
                 }
             }
             if (evaluated >= maxEvaluatedTriplets) break;

@@ -16,7 +16,7 @@
  *   renderDCurveChart(canvas, { targetCurve, predictedCurve, observedCurve, options });
  */
 
-import { targetCurveVector, CURVE_N_BINS, CURVE_R_MAX } from './targetSCurve.js';
+import { targetCurveVector, targetCurveCalibratedVector, CURVE_N_BINS, CURVE_R_MAX } from './targetSCurve.js';
 
 // ─────────── 默认样式 ───────────
 
@@ -25,7 +25,8 @@ const DEFAULT_STYLE = {
     height: 280,
     padding: { top: 20, right: 16, bottom: 32, left: 36 },
     colors: {
-        target: '#3b82f6',       // blue-500
+        target: '#3b82f6',       // blue-500 — 业务 ideal
+        calibrated: '#a78bfa',   // purple-400 — v2.9 训练 target
         predicted: '#10b981',    // emerald-500
         observed: '#9ca3af',     // gray-400
         grid: 'rgba(148,163,184,0.18)',
@@ -37,6 +38,7 @@ const DEFAULT_STYLE = {
     showGrid: true,
     showLegend: true,
     showMetrics: true,
+    showCalibrated: true,        // v2.9: 默认展示校准 target
 };
 
 
@@ -76,7 +78,7 @@ function _findCriticalR(curve, criticalD = 0.5, rMax = CURVE_R_MAX) {
  * @param {HTMLCanvasElement} canvas
  * @param {object} data
  * @param {number[]} data.targetCurve - 目标 S 曲线 (可省略, 自动从 targetCurveVector())
- * @param {number[]} data.predictedCurve - 模型预测
+ * @param {number[]|null} [data.predictedCurve] - 模型预测; null/undefined 表示未推断, 不画该线 + 不显示图例
  * @param {number[]} [data.observedCurve] - 实测样本均值 (可选)
  * @param {object} [data.options] - 样式覆盖
  */
@@ -84,11 +86,10 @@ export function renderDCurveChart(canvas, data) {
     if (!canvas) throw new Error('canvas required');
     const opt = { ...DEFAULT_STYLE, ...(data.options || {}) };
     const target = data.targetCurve || targetCurveVector();
-    const pred = data.predictedCurve;
-    const obs = data.observedCurve;
-    if (!pred || pred.length !== target.length) {
-        throw new Error(`predictedCurve length mismatch: expected ${target.length}, got ${pred?.length}`);
-    }
+    const pred = (data.predictedCurve && data.predictedCurve.length === target.length)
+        ? data.predictedCurve : null;
+    const obs = (data.observedCurve && data.observedCurve.length === target.length)
+        ? data.observedCurve : null;
 
     // ─── 设置 canvas (HiDPI) ───
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
@@ -125,8 +126,9 @@ export function renderDCurveChart(canvas, data) {
             ctx.lineTo(W - right, y);
             ctx.stroke();
         }
-        // r=0.5, 0.95, 1.0 三条关键 vert
-        for (const rv of [0.5, 0.95, 1.0]) {
+        // 业务关键 r 拐点 (与 target_curve SEG_* 对应): 0.5 / 0.70 / 1.10
+        for (const rv of [0.5, 0.70, 1.10]) {
+            if (rv > CURVE_R_MAX) continue;
             const xi = (rv / CURVE_R_MAX) * N - 0.5;
             const x = xAt(xi);
             ctx.beginPath();
@@ -149,7 +151,7 @@ export function renderDCurveChart(canvas, data) {
     ctx.setLineDash([]);
 
     // ─── 实测曲线 (灰虚线, 先画在下层) ───
-    if (obs && obs.length === N) {
+    if (obs) {
         ctx.strokeStyle = opt.colors.observed;
         ctx.lineWidth = 1.5;
         ctx.setLineDash([3, 4]);
@@ -162,7 +164,22 @@ export function renderDCurveChart(canvas, data) {
         ctx.setLineDash([]);
     }
 
-    // ─── 目标曲线 (蓝粗) ───
+    // ─── 校准 target (紫细虚线) — v2.9 训练目标, 让用户看到"实际可达" ───
+    if (opt.showCalibrated) {
+        const calibrated = targetCurveCalibratedVector(N);
+        ctx.strokeStyle = opt.colors.calibrated;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+            const x = xAt(i), y = yAt(calibrated[i]);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // ─── 目标曲线 (蓝粗) — 业务 ideal ───
     ctx.strokeStyle = opt.colors.target;
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -172,15 +189,17 @@ export function renderDCurveChart(canvas, data) {
     }
     ctx.stroke();
 
-    // ─── 预测曲线 (绿实) ───
-    ctx.strokeStyle = opt.colors.predicted;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i < N; i++) {
-        const x = xAt(i), y = yAt(pred[i]);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    // ─── 预测曲线 (绿实) — 仅当 pred != null 时画, 避免与目标线重叠误导 ───
+    if (pred) {
+        ctx.strokeStyle = opt.colors.predicted;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+            const x = xAt(i), y = yAt(pred[i]);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
     }
-    ctx.stroke();
 
     // ─── 坐标轴 ───
     ctx.strokeStyle = opt.colors.axis;
@@ -201,7 +220,9 @@ export function renderDCurveChart(canvas, data) {
     }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    for (const rv of [0, 0.5, 1.0, 1.5]) {
+    // x 刻度: 0 / 0.5 / 1.0 / 1.5 / r_max — 自动按当前 CURVE_R_MAX 渲染
+    const xTicks = [0, 0.5, 1.0, 1.5, 2.0].filter((v) => v <= CURVE_R_MAX + 1e-9);
+    for (const rv of xTicks) {
         const xi = (rv / CURVE_R_MAX) * N - 0.5;
         ctx.fillText(rv.toFixed(1), xAt(xi), H - bottom + 4);
     }
@@ -235,18 +256,33 @@ export function renderDCurveChart(canvas, data) {
             ctx.fillText(label, legendX + 18, legendY);
             legendX += ctx.measureText(label).width + 32;
         };
-        drawLegend(opt.colors.target, '目标 S 曲线');
-        drawLegend(opt.colors.predicted, '模型预测');
+        drawLegend(opt.colors.target, '目标 (业务)');
+        if (opt.showCalibrated) drawLegend(opt.colors.calibrated, '训练 target (校准)', true);
+        if (pred) drawLegend(opt.colors.predicted, '模型预测');
         if (obs) drawLegend(opt.colors.observed, '实测均值', true);
     }
 
-    // ─── 指标 ───
+    // ─── 指标 ─── (无预测时改成显示实测 vs 目标)
     if (opt.showMetrics) {
-        const mae = _mae(pred, target);
-        const monotone = _isMonotonic(pred);
-        const critR = _findCriticalR(pred);
-        const critTargetR = _findCriticalR(target);
-        const critDelta = critR != null && critTargetR != null ? (critR - critTargetR) : null;
+        let mae = null;
+        let monotone = null;
+        let critDelta = null;
+        let maeLabel = 'MAE';
+        if (pred) {
+            mae = _mae(pred, target);
+            monotone = _isMonotonic(pred);
+            const critR = _findCriticalR(pred);
+            const critTargetR = _findCriticalR(target);
+            critDelta = critR != null && critTargetR != null ? (critR - critTargetR) : null;
+            maeLabel = '预测 MAE';
+        } else if (obs) {
+            mae = _mae(obs, target);
+            monotone = _isMonotonic(obs);
+            const critR = _findCriticalR(obs);
+            const critTargetR = _findCriticalR(target);
+            critDelta = critR != null && critTargetR != null ? (critR - critTargetR) : null;
+            maeLabel = '实测 MAE';
+        }
 
         ctx.fillStyle = opt.colors.text;
         ctx.font = '10.5px ui-monospace, monospace';
@@ -254,8 +290,8 @@ export function renderDCurveChart(canvas, data) {
         ctx.textBaseline = 'top';
 
         const lines = [
-            `MAE = ${mae != null ? mae.toFixed(4) : '—'}`,
-            `单调 = ${monotone ? '✓' : '✗'}`,
+            `${maeLabel} = ${mae != null ? mae.toFixed(4) : '—'}`,
+            `单调 = ${monotone == null ? '—' : (monotone ? '✓' : '✗')}`,
             critDelta != null ? `临界点 Δ = ${critDelta >= 0 ? '+' : ''}${critDelta.toFixed(3)}` : '临界点 —',
         ];
         lines.forEach((t, i) => {

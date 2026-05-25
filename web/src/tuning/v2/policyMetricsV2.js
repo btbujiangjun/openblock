@@ -1,9 +1,7 @@
 /**
  * Spawn Tuning v2 真实玩家指标 SDK。
  *
- * 与 v1 policyMetrics.js 的差异:
- *   v1: 上报 final_score / noMove / clears / rounds (4 个标量)
- *   v2: 上报完整 20 维 d_curve (从客户端单局轨迹提取)
+ * 上报完整 20 维 d_curve (从客户端单局轨迹提取),供服务端验证模型推荐 θ 在线上的效果。
  *
  * 流程:
  *   1. game.js 单步钩子调 recordStep(step) — 收集轨迹
