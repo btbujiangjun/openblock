@@ -627,6 +627,145 @@ def register_v2_routes(app):
         })
 
 
+    # ─── 离线 Bundle (PR6) ─────────────────────────────────
+
+    @bp.route("/api/spawn-tuning-v2/policies/bundle/export", methods=["POST"])
+    def export_bundle():
+        """从 policies-{model_id}.json 文件烘焙到客户端 bundle。
+
+        POST body: { source: <path>, include_miniprogram: true }
+
+        写出 3 个文件:
+          web/public/spawn-tuning-v2/policies.json         (Web/Android/iOS)
+          web/public/spawn-tuning-v2/policies.meta.json    (SHA-256 / model_id / 时间)
+          miniprogram/core/tuning/spawnPoliciesV2.js       (微信小程序 CJS)
+        """
+        import hashlib
+        data = request.get_json() or {}
+        src = data.get("source")
+        include_mp = bool(data.get("include_miniprogram", True))
+
+        if not src:
+            return jsonify({"error": "source path required"}), 400
+        src_path = Path(src)
+        if not src_path.exists():
+            return jsonify({"error": f"source file not found: {src}"}), 404
+
+        try:
+            content = json.loads(src_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            return jsonify({"error": f"parse failed: {e}"}), 400
+        if content.get("format") != "openblock-spawn-tuning-v2-policies":
+            return jsonify({"error": "unsupported format (expect v2-policies)"}), 400
+
+        policies = content.get("policies", [])
+        if not policies:
+            return jsonify({"error": "empty policies"}), 400
+
+        # 构造 bundle (与 client 期望结构一致)
+        bundle = {
+            "format": "openblock-spawn-tuning-v2-bundle",
+            "version": "2.0.0",
+            "n_contexts": len(policies),
+            "generated_at": now_unix(),
+            "model_sha256": content.get("model_sha256", ""),
+            "rollout_pct": int(data.get("rollout_pct", 100)),
+            "policies": [
+                {
+                    "context_key": p["context_key"],
+                    "context": p.get("context", {}),
+                    "theta": p.get("theta", {}),
+                    "predicted_curve": p.get("predicted_curve", []),
+                    "expected": p.get("expected", {}),
+                }
+                for p in policies
+            ],
+        }
+        bundle_json = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+        sha = hashlib.sha256(bundle_json.encode("utf-8")).hexdigest()
+
+        # 写文件
+        results = {"written": [], "errors": []}
+        bundle_dir = Path("web/public/spawn-tuning-v2")
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            (bundle_dir / "policies.json").write_text(bundle_json, encoding="utf-8")
+            results["written"].append(str(bundle_dir / "policies.json"))
+            meta = {
+                "version": "2.0.0",
+                "n_contexts": len(policies),
+                "generated_at": bundle["generated_at"],
+                "generated_at_iso": time.strftime(
+                    "%Y-%m-%dT%H:%M:%S", time.localtime(bundle["generated_at"])
+                ),
+                "model_sha256": content.get("model_sha256", ""),
+                "rollout_pct": bundle["rollout_pct"],
+                "sha256": sha,
+                "average_curve_mae": content.get("average_curve_mae"),
+            }
+            (bundle_dir / "policies.meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            )
+            results["written"].append(str(bundle_dir / "policies.meta.json"))
+        except Exception as e:
+            results["errors"].append(f"web bundle write failed: {e}")
+            return jsonify(results), 500
+
+        if include_mp:
+            try:
+                mp_dir = Path("miniprogram/core/tuning")
+                mp_dir.mkdir(parents=True, exist_ok=True)
+                mp_path = mp_dir / "spawnPoliciesV2.js"
+                mp_body = (
+                    "/**\n"
+                    " * 小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)\n"
+                    f" * 自动生成于: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f" * 模型 SHA-256: {content.get('model_sha256','')}\n"
+                    f" * 策略数: {len(policies)}\n"
+                    f" * 灰度比例: {bundle['rollout_pct']}%\n"
+                    " *\n"
+                    " * 来源: spawn_tuning_v2_backend.export_bundle()\n"
+                    " * 同步脚本: scripts/sync-core.sh (复制到小程序包)\n"
+                    " */\n"
+                    "module.exports = " + json.dumps(bundle, ensure_ascii=False, indent=2) + ";\n"
+                )
+                mp_path.write_text(mp_body, encoding="utf-8")
+                results["written"].append(str(mp_path))
+            except Exception as e:
+                results["errors"].append(f"miniprogram write failed: {e}")
+
+        return jsonify({
+            "ok": True,
+            "policies_count": len(policies),
+            "sha256": sha,
+            "bundle_size_bytes": len(bundle_json),
+            "generated_at": bundle["generated_at"],
+            **results,
+        })
+
+
+    @bp.route("/api/spawn-tuning-v2/policies/bundle/status", methods=["GET"])
+    def bundle_status():
+        """查询当前已烘焙 bundle 的元数据。"""
+        bundle_dir = Path("web/public/spawn-tuning-v2")
+        bundle_file = bundle_dir / "policies.json"
+        meta_file = bundle_dir / "policies.meta.json"
+        if not bundle_file.exists() or not meta_file.exists():
+            return jsonify({"exists": False, "bundle_dir": str(bundle_dir)})
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception:
+            meta = {}
+        return jsonify({
+            "exists": True,
+            "bundle_path": str(bundle_file),
+            "bundle_size_bytes": bundle_file.stat().st_size,
+            "modified_at": int(bundle_file.stat().st_mtime),
+            "meta": meta,
+        })
+
+
     @bp.route("/api/spawn-tuning-v2/policies/active", methods=["GET"])
     def active_policies():
         """返回当前 deployed 模型的元数据 (不返回 policies 内容本身;
@@ -646,3 +785,11 @@ def register_v2_routes(app):
     # ─── 注册 ────────────────────────────────────────────
 
     app.register_blueprint(bp)
+
+    # 启动后台 job 执行器 (可通过环境变量禁用, 例如测试时)
+    if os.environ.get("SPAWN_TUNING_V2_DISABLE_EXECUTOR") != "1":
+        try:
+            from rl_pytorch.spawn_tuning_v2.job_executor import start_job_executor
+            start_job_executor(DB_PATH)
+        except Exception as e:
+            print(f"[spawn_tuning_v2] job executor 未启动: {e}")

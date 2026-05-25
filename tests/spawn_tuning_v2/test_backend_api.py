@@ -19,6 +19,7 @@ def app():
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
     os.environ["SPAWN_TUNING_V2_DB"] = db_path
+    os.environ["SPAWN_TUNING_V2_DISABLE_EXECUTOR"] = "1"   # 测试时禁掉后台 worker
 
     # 强制 reimport (因为 module-level 读取 DB_PATH)
     import importlib
@@ -328,6 +329,78 @@ class TestFieldMetrics:
             "hours=24&context_key=hard:triplet-p1:survival:25000:plateau"
         )
         assert r.get_json()["n_episodes"] == 3
+
+
+# ─────────── PR6: 离线 Bundle Export ───────────
+
+class TestBundleExport:
+    def _make_policies_file(self, tmp_path):
+        """构造一个最简 policies-*.json (来自 optimize_theta.py 的输出格式)"""
+        p = tmp_path / "policies.json"
+        p.write_text(json.dumps({
+            "format": "openblock-spawn-tuning-v2-policies",
+            "version": "2.0.0",
+            "model_sha256": "x" * 64,
+            "n_contexts": 2,
+            "policies": [
+                {
+                    "context_key": "easy:budget-p2:random:500:growth",
+                    "context": {"difficulty": "easy"},
+                    "theta": {"pbTension_strength": 0.5},
+                    "predicted_curve": [0.2] * 20,
+                    "expected": {"pb_broke": 0.1},
+                },
+                {
+                    "context_key": "hard:budget-p2:survival:25000:plateau",
+                    "context": {"difficulty": "hard"},
+                    "theta": {"pbTension_strength": 0.9},
+                    "predicted_curve": [0.5] * 20,
+                    "expected": {"pb_broke": 0.4},
+                },
+            ],
+        }))
+        return p
+
+    def test_export_basic(self, client, tmp_path):
+        src = self._make_policies_file(tmp_path)
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/bundle/export",
+            json={"source": str(src), "rollout_pct": 50, "include_miniprogram": False},
+        )
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["ok"] is True
+        assert data["policies_count"] == 2
+        assert len(data["sha256"]) == 64
+        # 文件落地
+        assert any("web/public/spawn-tuning-v2/policies.json" in w for w in data["written"])
+        # 清理
+        from pathlib import Path
+        Path("web/public/spawn-tuning-v2/policies.json").unlink(missing_ok=True)
+        Path("web/public/spawn-tuning-v2/policies.meta.json").unlink(missing_ok=True)
+
+    def test_export_invalid_format(self, client, tmp_path):
+        bad = tmp_path / "bad.json"
+        bad.write_text('{"format": "wrong"}')
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/bundle/export",
+            json={"source": str(bad)},
+        )
+        assert r.status_code == 400
+        assert "unsupported format" in r.get_json()["error"]
+
+    def test_export_missing_source(self, client):
+        r = client.post("/api/spawn-tuning-v2/policies/bundle/export", json={})
+        assert r.status_code == 400
+
+    def test_bundle_status_no_bundle(self, client):
+        # 清理可能残留的 bundle
+        from pathlib import Path
+        Path("web/public/spawn-tuning-v2/policies.json").unlink(missing_ok=True)
+        Path("web/public/spawn-tuning-v2/policies.meta.json").unlink(missing_ok=True)
+        r = client.get("/api/spawn-tuning-v2/policies/bundle/status")
+        assert r.status_code == 200
+        assert r.get_json()["exists"] is False
 
 
 # ─────────── 工具 endpoint ───────────

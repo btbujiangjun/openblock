@@ -5755,6 +5755,32 @@ def spawn_tuning_v2_dashboard():
     )
 
 
+@app.route("/spawn-tuning-v2/<path:filename>")
+def spawn_tuning_v2_bundle_static(filename):
+    """v2 离线 bundle 静态路由 (policies.json / policies.meta.json)。"""
+    import re
+    from flask import send_from_directory
+
+    if ".." in filename or filename.startswith("/") or "\\" in filename:
+        return jsonify({"error": "invalid filename"}), 400
+    if not re.match(r"^[\w\-/\.]+$", filename, re.ASCII):
+        return jsonify({"error": "invalid filename"}), 400
+
+    candidates = [
+        _DIST_DIR / "spawn-tuning-v2",
+        _WEB_PUBLIC_DIR / "spawn-tuning-v2",
+    ]
+    for base in candidates:
+        target = (base / filename).resolve()
+        try:
+            target.relative_to(base.resolve())
+        except ValueError:
+            continue
+        if target.is_file():
+            return send_from_directory(str(base), filename)
+    return jsonify({"error": "not found"}), 404
+
+
 @app.route("/spawn-tuning/<path:filename>")
 def spawn_tuning_bundle_static(filename):
     """Serve 寻参离线 bundle (Vite 把 web/public/spawn-tuning/* 拷到 dist/spawn-tuning/*)。

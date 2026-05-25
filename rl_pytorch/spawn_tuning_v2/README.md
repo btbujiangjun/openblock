@@ -113,8 +113,9 @@ tests/tuning/v2/
 
 详细对照见设计文档 §8。
 
-## PR2-4 状态
+## PR 完成状态
 
+### ✅ PR1 — 核心算法 (target_curve / extractor / model / losses / train / feature_io)
 ### ✅ PR2 — Phase C 寻参 (落地完成)
 - `optimize_theta.py` — 在 NN 上跑梯度上升, 360 contexts × N starts
 - CLI: `python -m rl_pytorch.spawn_tuning_v2.optimize_theta --checkpoint ... --output ...`
@@ -129,7 +130,51 @@ tests/tuning/v2/
 - `web/src/tuning/v2/dCurveChart.js` — Canvas 业务图 (目标 vs 预测 vs 实测)
 - 18 个 backend API 端到端测试
 
-### ✅ PR4 — 真实玩家闭环 (落地完成)
+### ✅ PR4 — 真实玩家闭环 SDK + field-metrics 
+
+(以上 PR1-4 详细内容见前次 commit, README 历史版本)
+
+### ✅ PR5 — 异步训练 job 执行器 (落地完成)
+- `job_executor.py` — daemon thread 轮询 training_jobs 表
+- 原子 claim queued → running, subprocess.Popen 跑 train.py
+- 实时解析 JSONL 日志, 增量更新 jobs 表 6 项 metrics
+- 子进程结束 → 写 models 表, status=done
+- 看板 ③ 加「提交训练任务」按钮 → POST /jobs → 后台自动执行
+- 12 个测试 (claim/parse/update/build_cmd/lifecycle)
+
+### ✅ PR6 — 离线 Bundle 导出 (落地完成)
+- `/policies/bundle/export` endpoint — policies.json → 客户端 bundle
+- 写出 3 个文件:
+  - `web/public/spawn-tuning-v2/policies.json` (Web/Android/iOS)
+  - `web/public/spawn-tuning-v2/policies.meta.json` (SHA-256 / 时间)
+  - `miniprogram/core/tuning/spawnPoliciesV2.js` (微信小程序 CJS)
+- `/policies/bundle/status` 查询当前 bundle 状态
+- server.py 加 `/spawn-tuning-v2/<path>` 静态路由
+- 看板 ③ 加「📦 烘焙到 bundle」按钮
+
+### ✅ PR7 — 灰度切量 + 4 层 fallback (落地完成)
+- `clientPolicyV2.js` — 完整客户端策略解析
+  - `hashUserToBucket(userId)` → [0, 100)
+  - bucket < rollout_pct 才吃 v2 (否则 source='gate-out')
+  - 4 层 fallback: exact → fuzzy-lifecycle → coarse-gen → DEFAULT_THETA_V2
+  - `loadPoliciesFromBundleV2()` / `loadPoliciesFromServerV2()` / `initClientPolicyV2()`
+- 19 个测试 (hash/buildKey/install/4-layer/灰度抽样/bundle load)
+
+### ✅ PR8 — game.js 接入 (落地完成)
+- `main.js` 启动时调 `initPolicyMetricsV2` + `initClientPolicyV2`
+- `game.js` gameOver 钩子调 `reportEpisode` (自动提取 d_curve)
+- 与 v1 policyMetrics 并存, 互不干扰
+
+## 测试统计 (累计)
+- **Python**: 130 tests (target_curve 15 / extractor 19 / model 12 / losses 17 /
+                       feature_io 10 / cross_lang 9 / optimize_theta 9 /
+                       backend_api 27 / job_executor 12)
+- **JS**: 65 tests (targetSCurve 18 / policyMetricsV2 12 / samplerV2 16 / clientPolicyV2 19)
+- **总计**: 195 tests, 全部通过
+
+---
+
+[移除旧的 PR2-4 详细块, 内容已合并到上方]
 - `web/src/tuning/v2/policyMetricsV2.js` — 客户端 SDK
   - 单步钩子 `recordStep`
   - 局结束 `reportEpisode` (自动提取 d_curve)
@@ -137,6 +182,8 @@ tests/tuning/v2/
 - 后端 `/field-metrics` POST + `/aggregate` GET
 - 与 Python `extractor.py` 跨语言一致 (相同公式, 已测试验证)
 - 12 个 JS 测试
+
+(PR2-4 详细内容保留)
 
 ## 完整 CLI 串
 

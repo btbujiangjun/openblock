@@ -356,6 +356,68 @@ async function loadAndRenderCurve() {
 
 // ─────────── 启动 ───────────
 
+async function submitTrainJob() {
+    const ids = $('train-sets').value.split(',').map((s) => parseInt(s.trim())).filter((x) => Number.isInteger(x) && x > 0);
+    if (ids.length === 0) {
+        $('job-hint').innerHTML = '<span style="color:var(--bad)">需要至少 1 个样本集 ID</span>';
+        return;
+    }
+    const body = {
+        name: $('train-name').value || `job-${Date.now()}`,
+        sample_set_ids: ids,
+        arch: {
+            epochs: Number($('train-epochs').value) || 50,
+            batch_size: Number($('train-batch').value) || 256,
+            lr: Number($('train-lr').value) || 1e-3,
+            device: $('train-device').value || 'cpu',
+        },
+    };
+    const baseId = Number($('train-base').value);
+    if (baseId > 0) body.base_model_id = baseId;
+    try {
+        const r = await apiSend('POST', '/api/spawn-tuning-v2/jobs', body);
+        $('job-hint').innerHTML = `<span style="color:var(--good)">✓ 已提交 job #${r.job_id} (状态: queued, 后台执行器会自动跑)</span>`;
+        refreshJobs();
+    } catch (e) {
+        $('job-hint').innerHTML = `<span style="color:var(--bad)">失败: ${escapeHtml(e.message)}</span>`;
+    }
+}
+
+async function exportBundle() {
+    const src = $('bundle-src').value.trim();
+    if (!src) {
+        $('bundle-hint').innerHTML = '<span style="color:var(--bad)">需要 policies.json 路径</span>';
+        return;
+    }
+    const rolloutPct = Number($('bundle-rollout').value);
+    try {
+        const r = await apiSend('POST', '/api/spawn-tuning-v2/policies/bundle/export', {
+            source: src, rollout_pct: rolloutPct, include_miniprogram: true,
+        });
+        if (r.ok) {
+            $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ ${r.policies_count} policies · sha256=${r.sha256.slice(0,12)}… · ${(r.bundle_size_bytes/1024).toFixed(1)} KB</span>`;
+        } else {
+            $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(r.error || 'unknown')}</span>`;
+        }
+    } catch (e) {
+        $('bundle-hint').innerHTML = `<span style="color:var(--bad)">失败: ${escapeHtml(e.message)}</span>`;
+    }
+}
+
+async function showBundleStatus() {
+    try {
+        const r = await apiGet('/api/spawn-tuning-v2/policies/bundle/status');
+        if (!r.exists) {
+            $('bundle-hint').innerHTML = '<span class="muted-hint">无 bundle (未烘焙)</span>';
+            return;
+        }
+        const m = r.meta || {};
+        $('bundle-hint').innerHTML = `已烘焙: ${m.n_contexts} policies · rollout=${m.rollout_pct}% · sha=${(m.sha256 || '').slice(0,12)}… · ${fmtDate(r.modified_at)}`;
+    } catch (e) {
+        $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(e.message)}</span>`;
+    }
+}
+
 function bindEvents() {
     setupTabs();
     $('btn-create-set').addEventListener('click', createSampleSet);
@@ -364,6 +426,9 @@ function bindEvents() {
     $('btn-cancel-sampler').addEventListener('click', () => { _samplerCancel.cancelled = true; });
     $('btn-refresh-models').addEventListener('click', () => { refreshModels(); refreshJobs(); });
     $('btn-load-curve').addEventListener('click', loadAndRenderCurve);
+    $('btn-submit-job')?.addEventListener('click', submitTrainJob);
+    $('btn-export-bundle')?.addEventListener('click', exportBundle);
+    $('btn-bundle-status')?.addEventListener('click', showBundleStatus);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

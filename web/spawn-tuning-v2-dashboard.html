@@ -184,7 +184,45 @@
 
     <!-- Tab ③ 模型 -->
     <div class="tab-content" id="tab-models">
-      <p class="muted-hint">查看训出的模型, deploy / rollback。</p>
+      <p class="muted-hint">查看训出的模型, deploy / rollback / 烘焙离线 bundle。</p>
+
+      <section>
+        <h2>启动训练任务 (PR5: 异步执行器)</h2>
+        <div class="form-row">
+          <label>任务名<input id="train-name" type="text" placeholder="my-training"></label>
+          <label>样本集 IDs (逗号分隔)<input id="train-sets" type="text" placeholder="1,2"></label>
+          <label>Epochs<input id="train-epochs" type="number" value="50"></label>
+          <label>Batch<input id="train-batch" type="number" value="256"></label>
+          <label>LR<input id="train-lr" type="number" step="0.0001" value="0.001"></label>
+          <label>Device
+            <select id="train-device">
+              <option value="cpu" selected>cpu</option>
+              <option value="cuda">cuda</option>
+              <option value="mps">mps</option>
+            </select>
+          </label>
+          <label>Base Model ID (可选)<input id="train-base" type="number" placeholder="增量训练"></label>
+        </div>
+        <div class="form-actions">
+          <button id="btn-submit-job">▶ 提交训练任务</button>
+          <span id="job-hint" class="muted-hint"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2>离线 Bundle (PR6: 四端发布)</h2>
+        <p class="muted-hint" style="font-size:11px;">把 policies.json 烘焙到 web/public/spawn-tuning-v2/ + miniprogram/core/tuning/spawnPoliciesV2.js</p>
+        <div class="form-row">
+          <label>policies.json 路径<input id="bundle-src" type="text" placeholder="checkpoints/v2/policies-xxx.json"></label>
+          <label>灰度比例 (rollout_pct)<input id="bundle-rollout" type="number" min="0" max="100" value="100"></label>
+        </div>
+        <div class="form-actions">
+          <button id="btn-export-bundle">📦 烘焙到客户端 bundle</button>
+          <button id="btn-bundle-status" class="ghost">↻ 当前状态</button>
+          <span id="bundle-hint" class="muted-hint"></span>
+        </div>
+      </section>
+
       <section>
         <h2>模型列表</h2>
         <div class="form-actions">

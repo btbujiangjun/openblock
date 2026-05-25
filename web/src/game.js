@@ -5,6 +5,17 @@
 import { CONFIG, getStrategy, GAME_EVENTS, ACHIEVEMENTS_BY_ID } from './config.js';
 // v0.3.1: 寻参 θ 注入钩子 — 完全可选,失败不影响主路径
 import { augmentSpawnContext as _augmentTuningCtx } from './tuning/gameIntegration.js';
+
+/** v2 PB bin 映射: pb → 最近的 5 档之一 (与 v2 schema 一致) */
+function _v2_pbBin(pb) {
+    const BINS = [500, 1500, 4000, 10000, 25000];
+    let best = BINS[0], minDist = Infinity;
+    for (const b of BINS) {
+        const d = Math.abs(b - (Number(pb) || 0));
+        if (d < minDist) { minDist = d; best = b; }
+    }
+    return best;
+}
 import { writeSpawnSignals, hydrateFromSpawnSignals } from './offlineStateCache.js';
 import { initScoreAnimator, animateScoreOdometer, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry } from './adaptiveSpawn.js';
@@ -2906,6 +2917,23 @@ export class Game {
                     clears: this.totalClears || 0,
                     noMove: opts.reason === 'no-moves' || opts.mode === 'level-fail',
                 });
+            }).catch(() => { /* not critical */ });
+        } catch { /* ignore */ }
+
+        /* v2.0 (PR8): 上报 d_curve (从单步轨迹自动提取) */
+        try {
+            import('./tuning/v2/policyMetricsV2.js').then(({ reportEpisode }) => {
+                const playerProfile = this.playerProfile || {};
+                const pb = playerProfile.bestScore || playerProfile.personalBest || 1000;
+                // 简版 contextKey: 用当前场景的 5 维 (与 v2 schema 一致)
+                const ctx = [
+                    this.difficulty || 'normal',
+                    this.spawnGenerator || 'budget-p2',
+                    'random',  // bot_policy 在真人玩家场景无意义, 占位
+                    String(_v2_pbBin(pb)),
+                    playerProfile.lifecycleStage || 'growth',
+                ].join(':');
+                reportEpisode({ pb, contextKey: ctx });
             }).catch(() => { /* not critical */ });
         } catch { /* ignore */ }
         // 内嵌结算（v10.18）：保留棋盘可见，给 body 加 .game-over-active 让 CSS 做柔化处理

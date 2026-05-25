@@ -180,6 +180,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         initPolicyMetrics({ apiBaseUrl: '', enabled: true });
     }).catch(() => { /* not critical */ });
 
+    /* v2.0 (PR8): policyMetricsV2 + 启动时加载离线 bundle (灰度切量) */
+    import('./tuning/v2/policyMetricsV2.js').then(({ initPolicyMetricsV2 }) => {
+        initPolicyMetricsV2({ apiBaseUrl: '', enabled: true });
+    }).catch(() => { /* not critical */ });
+    import('./tuning/v2/clientPolicyV2.js').then(({ initClientPolicyV2 }) => {
+        initClientPolicyV2().then((r) => {
+            if (r.installed > 0) {
+                console.info(`[spawn-tuning-v2] loaded ${r.installed} policies (rollout=${r.rollout_pct}%)`);
+            }
+        }).catch(() => { /* not critical */ });
+    }).catch(() => { /* not critical */ });
+
     /* v1.55.11：开发者性能面板。
      * 默认不挂载、不计时；通过 ?perf=1 或 Alt+P 启用，避免在普通玩家会话里付任何代价。
      * 暴露 window.__perfOverlay = { open, close, toggle, snapshot, startProfile }。 */
