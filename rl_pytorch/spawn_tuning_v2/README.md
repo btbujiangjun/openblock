@@ -2,6 +2,25 @@
 
 > 设计文档: [`docs/algorithms/SPAWN_TUNING_V2.md`](../../docs/algorithms/SPAWN_TUNING_V2.md)
 
+## 原始需求对照表
+
+| 需求 (原文) | 实现状态 | 文件 |
+|---|---|---|
+| 业务目标 S 型难度曲线 | ✅ | `target_curve.py` 4 段函数 |
+| **特征设计**: 选择影响难度的特征 | ✅ | 14 维 θ 分 3 组 (`paramSpace`-like in feature_io.py) |
+| **样本采样**: 5 维分桶 (难度/算法/bot/PB/成熟度) | ✅ | schema + `samplerV2.js` (浏览器跑底层 simulator 真实轨迹) |
+| 通过 bot 策略实际跑分 | ✅ | `samplerV2.js` 用 `OpenBlockSimulator` |
+| 数据库持久化 | ✅ | `schemas/spawn_tuning_v2.sql` (5 张表) |
+| 样本管理 | ✅ 后端 + ✅ 前端 | backend 7 endpoint + `dashboardV2.js` Tab② |
+| **模型设计**: ResNet-MLP L4 | ✅ | `model.py` (~325K 参数) |
+| **模型训练** + 选择样本集 | ✅ | `train.py` CLI 支持多 sample_set_ids union |
+| 模型管理 | ✅ 后端 + ✅ 前端 | `models` 表 + `dashboardV2.js` Tab③ |
+| 增量训练 | ✅ | `train.py --base-model --rehearsal-ratio` |
+| 训练过程可视化 + metrics | ✅ JSONL 日志 + 看板 jobs 表 | log_path + `val_curve_mae` 等 6 项 |
+| **模型部署** + rollback | ✅ | `/models/<id>/deploy` + `/rollback` |
+
+## 模块清单
+
 ## 模块清单
 
 | 文件 | 行数 | 职责 |

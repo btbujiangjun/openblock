@@ -35,6 +35,7 @@ export default {
         rollupOptions: {
             input: {
                 main: 'web/index.html',
+                spawnTuningV2: 'web/spawn-tuning-v2-dashboard.html',
             },
             onwarn(warning, warn) {
                 /* Rollup correctly reports that several modules are both dynamically

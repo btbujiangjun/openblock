@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenBlock 出块算法优化 v2.0</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a; --panel: #111827; --panel-2: #1f2937;
+      --text: #e5e7eb; --muted: #9ca3af; --line: #374151;
+      --accent: #60a5fa; --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    main { width: min(1280px, calc(100vw - 32px)); margin: 0 auto; padding: 16px 0 48px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end;
+      border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 12px; }
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 14px; margin-bottom: 8px; color: var(--accent); }
+    h3 { font-size: 12px; margin: 8px 0 4px; }
+    p { color: var(--muted); line-height: 1.5; margin: 3px 0; font-size: 11.5px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+      background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; }
+    button { background: var(--accent); color: #0f172a; border: 0; border-radius: 6px;
+      padding: 5px 12px; font-weight: 700; cursor: pointer; font-size: 11.5px; height: 28px; }
+    button:hover:not(:disabled) { filter: brightness(1.1); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    button.danger { background: var(--bad); color: #fff; }
+    select, input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+      border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px; margin-bottom: 10px; }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+    .tab { padding: 8px 16px; cursor: pointer; color: var(--muted);
+      border-bottom: 2px solid transparent; font-size: 12.5px; transition: all 0.15s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    .table th, .table td { padding: 6px 8px; text-align: left;
+      border-bottom: 1px solid var(--line); white-space: nowrap; }
+    .table th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
+    .table tr:hover td { background: rgba(96, 165, 250, 0.04); }
+
+    .stat-card { background: rgba(31,41,55,0.55); border: 1px solid var(--line);
+      border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 12px; }
+    .stat-value { font-size: 18px; font-weight: 700; font-family: ui-monospace,monospace; }
+    .stat-label { font-size: 10px; color: var(--muted); }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px; margin-bottom: 10px; }
+    .stat-card.good { border-left-color: var(--good); }
+    .stat-card.warn { border-left-color: var(--warn); }
+    .stat-card.bad { border-left-color: var(--bad); }
+
+    .muted-hint { color: var(--muted); font-style: italic; font-size: 11px; padding: 6px 0; }
+    .status { padding: 1px 6px; border-radius: 999px; font-size: 9.5px; font-weight: 700; }
+    .status.collecting { background: rgba(96,165,250,0.18); color: var(--accent); }
+    .status.completed { background: rgba(52,211,153,0.18); color: var(--good); }
+    .status.archived { background: rgba(156,163,175,0.18); color: var(--muted); }
+    .status.queued { background: rgba(251,191,36,0.18); color: var(--warn); }
+    .status.running { background: rgba(96,165,250,0.25); color: var(--accent); }
+    .status.done { background: rgba(52,211,153,0.18); color: var(--good); }
+    .status.failed { background: rgba(248,113,113,0.18); color: var(--bad); }
+    .status.staging { background: rgba(251,191,36,0.18); color: var(--warn); }
+    .status.deployed { background: rgba(52,211,153,0.22); color: var(--good); }
+    .status.rollbacked { background: rgba(248,113,113,0.18); color: var(--bad); }
+
+    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 6px 8px; margin: 6px 0; }
+    .form-row label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px;
+      color: var(--muted); }
+    .form-row input, .form-row select { height: 28px; font-size: 12px;
+      font-family: ui-monospace, monospace; width: 100%; }
+    .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      margin: 8px 0 2px; }
+
+    .v2-banner { background: linear-gradient(90deg, rgba(167,139,250,0.16), transparent);
+      border: 1px solid rgba(167,139,250,0.4); border-left: 3px solid #a78bfa;
+      border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 11.5px;
+      color: var(--muted); }
+    .v2-banner b { color: #c4b5fd; }
+
+    #chart-container { background: #020617; border: 1px solid var(--line);
+      border-radius: 8px; padding: 8px; margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>🧮 出块算法优化 v2.0 <span style="font-size:11px; color:var(--muted); font-weight:normal;">— d_curve 工业化</span></h1>
+        <p>从单局轨迹提取 20 维难度曲线 → ResNet-MLP 拟合 → 找每场景最优 θ</p>
+      </div>
+      <div style="text-align:right; font-size:11px;">
+        <p><a href="/docs/algorithms/SPAWN_TUNING_V2.md" style="color:var(--accent)">📖 设计文档</a> · <a href="/spawn-tuning-dashboard.html" style="color:var(--muted)">→ v1 看板</a></p>
+      </div>
+    </header>
+
+    <div class="v2-banner">
+      <b>🆕 v2 与 v1 并存</b>:
+      v2 使用独立的 SQLite 数据库 (<code>.cursor-stress-logs/spawn-tuning-v2.sqlite</code>) 和 API 前缀 <code>/api/spawn-tuning-v2/*</code>。
+      端到端工作流: <b>① 概览</b> → <b>② 样本集</b>(采集) → <b>③ 训练</b>(在 CLI 跑 <code>train.py</code>) → 部署 → 监控。
+    </div>
+
+    <!-- Tab 切换 -->
+    <div class="tabs">
+      <div class="tab active" data-tab="overview">① 概览</div>
+      <div class="tab"        data-tab="samples">② 样本集</div>
+      <div class="tab"        data-tab="models">③ 模型与部署</div>
+      <div class="tab"        data-tab="curve">④ d_curve 可视化</div>
+    </div>
+
+    <!-- Tab ① 概览 -->
+    <div class="tab-content active" id="tab-overview">
+      <p class="muted-hint">显示当前生效模型 + 资源状态 + 工作流速查。</p>
+      <section>
+        <h2>当前生效模型</h2>
+        <div id="active-model" class="stats-grid">
+          <div class="muted-hint">加载中…</div>
+        </div>
+      </section>
+      <section>
+        <h2>工作流速查</h2>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:6px; font-size:11.5px;">
+          <div><b style="color:var(--good)">② 样本集</b><br><span style="color:var(--muted)">采集 d_curve 标签数据</span></div>
+          <div><b style="color:var(--accent)">③ 模型与部署</b><br><span style="color:var(--muted)">看 models / jobs / deploy</span></div>
+          <div><b style="color:#f472b6">CLI 训练</b><br><span style="color:var(--muted)">python -m rl_pytorch.spawn_tuning_v2.train ...</span></div>
+          <div><b style="color:#a78bfa">④ d_curve 图</b><br><span style="color:var(--muted)">目标 vs 预测 vs 实测</span></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab ② 样本集 -->
+    <div class="tab-content" id="tab-samples">
+      <p class="muted-hint">v2 sample_sets — 通过 LHS 采集 d_curve, 用作 Phase B 训练数据。</p>
+      <section>
+        <h2>新建样本集</h2>
+        <div class="form-row">
+          <label>名称<input id="new-set-name" type="text" placeholder="v2-test-001" value=""></label>
+          <label>描述<input id="new-set-desc" type="text" placeholder="日常调试"></label>
+          <label>标签<input id="new-set-tags" type="text" placeholder="v2,test"></label>
+        </div>
+        <div class="form-actions">
+          <button id="btn-create-set">+ 创建</button>
+          <button id="btn-refresh-sets" class="ghost">↻ 刷新</button>
+          <span id="create-hint" class="muted-hint"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2>样本集列表</h2>
+        <table class="table" id="sets-table">
+          <thead><tr><th>ID</th><th>名称</th><th>样本数</th><th>状态</th><th>标签</th><th>创建时间</th><th>操作</th></tr></thead>
+          <tbody><tr><td colspan="7" class="muted-hint">加载中…</td></tr></tbody>
+        </table>
+      </section>
+
+      <section id="sampler-section" hidden>
+        <h2>启动采样 → 写入 <span id="sampler-set-name"></span></h2>
+        <p class="muted-hint">用底层 simulator 跑真实 step loop, 提取 d_curve, 批量上传到所选样本集。</p>
+        <div class="form-row">
+          <label>难度(多选,逗号分隔)<input id="samp-difficulty" type="text" value="normal"></label>
+          <label>生成器<input id="samp-generator" type="text" value="budget-p2"></label>
+          <label>Bot 策略<input id="samp-bot" type="text" value="clear-greedy"></label>
+          <label>PB 档<input id="samp-pb" type="text" value="1500"></label>
+          <label>生命周期<input id="samp-lifecycle" type="text" value="growth"></label>
+          <label>θ 数 (LHS 撒点)<input id="samp-thetas" type="number" min="2" max="50" value="5"></label>
+          <label>每 θ Seeds<input id="samp-seeds" type="number" min="1" max="5" value="2"></label>
+          <label>Max Steps<input id="samp-max-steps" type="number" min="20" max="500" value="120"></label>
+        </div>
+        <div class="form-actions">
+          <button id="btn-start-sampler">▶ 开始采样</button>
+          <button id="btn-cancel-sampler" class="danger" disabled>停止</button>
+          <span id="samp-progress" class="muted-hint"></span>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tab ③ 模型 -->
+    <div class="tab-content" id="tab-models">
+      <p class="muted-hint">查看训出的模型, deploy / rollback。</p>
+      <section>
+        <h2>模型列表</h2>
+        <div class="form-actions">
+          <button id="btn-refresh-models" class="ghost">↻ 刷新</button>
+        </div>
+        <table class="table" id="models-table">
+          <thead><tr><th>ID</th><th>名称</th><th>版本</th><th>类型</th><th>val_curve_mae</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+          <tbody><tr><td colspan="8" class="muted-hint">加载中…</td></tr></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>训练任务列表</h2>
+        <table class="table" id="jobs-table">
+          <thead><tr><th>ID</th><th>名称</th><th>状态</th><th>样本集</th><th>val_curve_mae</th><th>创建时间</th></tr></thead>
+          <tbody><tr><td colspan="6" class="muted-hint">加载中…</td></tr></tbody>
+        </table>
+      </section>
+    </div>
+
+    <!-- Tab ④ d_curve 可视化 -->
+    <div class="tab-content" id="tab-curve">
+      <p class="muted-hint">目标 S 曲线 vs 模型预测 vs 实测样本均值 (业务直观对照图)。</p>
+
+      <section>
+        <h2>实测样本均值 (从 sample_set 聚合)</h2>
+        <div class="form-row">
+          <label>选样本集
+            <select id="curve-set-select"><option value="">— 选择 —</option></select>
+          </label>
+          <label>分组维度 (可选, 例: difficulty,bot_policy)
+            <input id="curve-group-by" type="text" placeholder="留空 = 全集聚合">
+          </label>
+        </div>
+        <div class="form-actions">
+          <button id="btn-load-curve">📊 加载并绘制</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>对照图</h2>
+        <div id="chart-container">
+          <canvas id="d-curve-canvas"></canvas>
+        </div>
+        <div id="curve-meta" class="muted-hint"></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="./src/tuning/v2/dashboardV2.js"></script>
+</body>
+</html>

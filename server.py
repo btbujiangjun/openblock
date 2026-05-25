@@ -5735,6 +5735,26 @@ _ROOT_DIR = Path(__file__).resolve().parent
 _DIST_DIR = _ROOT_DIR / "dist"
 
 
+@app.route("/spawn-tuning-v2-dashboard.html")
+def spawn_tuning_v2_dashboard():
+    """v2 看板页面 (与 v1 并存, 独立 URL)。"""
+    from flask import send_from_directory
+
+    # 优先 dist (生产),次选源 (开发)
+    src_path = Path(__file__).resolve().parent / "web" / "spawn-tuning-v2-dashboard.html"
+    dist_path = _DIST_DIR / "spawn-tuning-v2-dashboard.html"
+    if dist_path.exists():
+        return send_from_directory(str(_DIST_DIR), "spawn-tuning-v2-dashboard.html")
+    if src_path.exists():
+        return send_from_directory(str(src_path.parent), "spawn-tuning-v2-dashboard.html")
+    return (
+        "<h1>v2 dashboard not built</h1>"
+        "<p>请先 <code>npm run build</code>, 或访问 Vite dev:"
+        " <a href='http://localhost:3000/spawn-tuning-v2-dashboard.html'>http://localhost:3000/spawn-tuning-v2-dashboard.html</a></p>",
+        404,
+    )
+
+
 @app.route("/spawn-tuning/<path:filename>")
 def spawn_tuning_bundle_static(filename):
     """Serve 寻参离线 bundle (Vite 把 web/public/spawn-tuning/* 拷到 dist/spawn-tuning/*)。
