@@ -2351,16 +2351,44 @@ async function refreshBundleStatus() {
     const host = $('bundle-status-cards');
     try {
         const r = await apiGet('/api/spawn-tuning-v2/policies/bundle/status');
+        const cons = r.consistency || {};
+
         if (!r.exists) {
-            host.innerHTML = '<div class="stat-card warn"><div class="stat-value">未导出</div><div class="stat-label">点击上方按钮生成</div></div>';
+            // v2.10.10: 区分「真未部署」 vs 「DB 已部署但 bundle 缺失」
+            // 后者是状态分裂（用户已在概览看到「当前生效模型 #N」却又显示「未导出」），
+            // 需要明确告知玩家"重新点 D.1 即可恢复一致"。
+            if (cons.state === 'deployed-but-no-bundle') {
+                host.innerHTML = `
+                    <div class="stat-card bad">
+                        <div class="stat-value">⚠ 不一致</div>
+                        <div class="stat-label">DB 已部署 model #${cons.deployed_model_id} · bundle 缺失</div>
+                    </div>
+                    <div class="stat-card warn" style="grid-column: span 3" title="${escapeHtml(cons.hint)}">
+                        <div class="stat-value" style="font-size:13px; line-height:1.4">${escapeHtml(cons.hint)}</div>
+                    </div>
+                `;
+            } else {
+                host.innerHTML = '<div class="stat-card warn"><div class="stat-value">未导出</div><div class="stat-label">点击上方按钮生成</div></div>';
+            }
             return;
         }
+
         const m = r.meta || {};
+        // v2.10.10: bundle 存在时也检查与 DB 的一致性
+        const consBadge = cons.state === 'in-sync'
+            ? `<div class="stat-card good"><div class="stat-value">✓ 同步</div><div class="stat-label">model #${cons.deployed_model_id}</div></div>`
+            : cons.state === 'bundle-but-not-deployed'
+                ? `<div class="stat-card warn" title="${escapeHtml(cons.hint)}"><div class="stat-value">⚠ 待部署</div><div class="stat-label">bundle 存在但 DB 无 deployed</div></div>`
+                : cons.state === 'mismatch'
+                    ? `<div class="stat-card bad" title="${escapeHtml(cons.hint)}"><div class="stat-value">⚠ 错位</div><div class="stat-label">bundle #${cons.bundle_model_id} ≠ DB #${cons.deployed_model_id}</div></div>`
+                    : '';
+
         host.innerHTML = `
             <div class="stat-card good"><div class="stat-value">${m.n_contexts || 0}</div><div class="stat-label">contexts</div></div>
             <div class="stat-card"><div class="stat-value">${(r.bundle_size_bytes/1024).toFixed(1)} KB</div><div class="stat-label">大小</div></div>
             <div class="stat-card ${m.rollout_pct === 100 ? 'good' : 'warn'}"><div class="stat-value">${m.rollout_pct || 0}%</div><div class="stat-label">灰度比例</div></div>
             <div class="stat-card purple"><div class="stat-value">${fmtDate(r.modified_at)}</div><div class="stat-label">导出时间</div></div>
+            ${consBadge}
         `;
     } catch (e) {
         host.innerHTML = `<div class="stat-card bad"><div class="stat-value">!</div><div class="stat-label">${escapeHtml(e.message)}</div></div>`;

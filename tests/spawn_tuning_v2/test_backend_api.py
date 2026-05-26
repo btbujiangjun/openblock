@@ -1016,6 +1016,87 @@ class TestBuildAndExport:
         r2 = client.get("/api/spawn-tuning-v2/policies/active")
         assert r2.get_json()["deployed"] is None
 
+    def test_bundle_status_consistency_no_deployment(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """v2.10.10: bundle 文件不存在 + DB 无 deployed → state='no-deployment'。"""
+        monkeypatch.chdir(tmp_path)
+        r = client.get("/api/spawn-tuning-v2/policies/bundle/status")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["exists"] is False
+        assert body["consistency"]["state"] == "no-deployment"
+
+    def test_bundle_status_consistency_in_sync_after_export(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """v2.10.10: D.1 export 后 bundle_model_id == deployed_model_id → state='in-sync'。"""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 100},
+        )
+        r = client.get("/api/spawn-tuning-v2/policies/bundle/status")
+        body = r.get_json()
+        assert body["exists"] is True
+        cons = body["consistency"]
+        assert cons["state"] == "in-sync"
+        assert cons["bundle_model_id"] == mid
+        assert cons["deployed_model_id"] == mid
+
+    def test_bundle_status_consistency_deployed_but_no_bundle(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """v2.10.10: bundle 文件被删但 DB 仍 deployed → state='deployed-but-no-bundle' + hint。
+
+        这正是用户截图场景（"未导出"卡片 vs "当前生效模型 #22"卡片分裂）。
+        """
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 100},
+        )
+        # 模拟"bundle 被外部清理"：删除 bundle 文件，但不动 DB
+        import shutil
+        bundle_dir = tmp_path / "web/public/spawn-tuning-v2"
+        if bundle_dir.exists():
+            shutil.rmtree(bundle_dir)
+
+        r = client.get("/api/spawn-tuning-v2/policies/bundle/status")
+        body = r.get_json()
+        assert body["exists"] is False
+        cons = body["consistency"]
+        assert cons["state"] == "deployed-but-no-bundle"
+        assert cons["deployed_model_id"] == mid
+        assert cons["bundle_model_id"] is None
+        assert "已部署" in cons["hint"] and "缺失" in cons["hint"]
+
+    def test_bundle_status_consistency_bundle_but_not_deployed(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """v2.10.10: bundle 存在但 DB 无 deployed（rollback 后未清盘）→ state='bundle-but-not-deployed'。"""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 100},
+        )
+        # rollback：把 deployed 改 rollbacked，但 bundle 文件保留
+        client.post(f"/api/spawn-tuning-v2/models/{mid}/rollback")
+
+        r = client.get("/api/spawn-tuning-v2/policies/bundle/status")
+        body = r.get_json()
+        assert body["exists"] is True
+        cons = body["consistency"]
+        assert cons["state"] == "bundle-but-not-deployed"
+        assert cons["bundle_model_id"] == mid
+        assert cons["deployed_model_id"] is None
+
     def test_build_and_export_archives_previous_deployed(
         self, client, tmp_path, monkeypatch,
     ):

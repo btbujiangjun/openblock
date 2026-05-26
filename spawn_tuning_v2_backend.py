@@ -1941,23 +1941,82 @@ def register_v2_routes(app):
 
     @bp.route("/api/spawn-tuning-v2/policies/bundle/status", methods=["GET"])
     def bundle_status():
-        """查询当前已导出 bundle 的元数据。"""
+        """查询当前已导出 bundle 的元数据 + 与 DB 部署状态的一致性诊断。
+
+        v2.10.10 新增 ``consistency`` 字段，揭示「bundle 文件存在性」与
+        「models.status='deployed' 记录」之间的三种状态组合，让 dashboard
+        能给出明确诊断而不是显示分裂的「未导出 + 当前生效 #N」。
+
+        consistency.state ∈ {
+            'in-sync'                : bundle 文件 == DB deployed 模型 ID
+            'no-deployment'          : 都没有（首次或全清）
+            'deployed-but-no-bundle' : DB 有 deployed 但 bundle 文件缺失 ← 状态不一致
+            'bundle-but-not-deployed': bundle 文件存在但 DB 无 deployed（手动 rollback 后未清盘）
+            'mismatch'               : bundle 中 model_id != DB deployed 模型（罕见）
+        }
+        """
         bundle_dir = Path("web/public/spawn-tuning-v2")
         bundle_file = bundle_dir / "policies.json"
         meta_file = bundle_dir / "policies.meta.json"
-        if not bundle_file.exists() or not meta_file.exists():
-            return jsonify({"exists": False, "bundle_dir": str(bundle_dir)})
-        try:
-            meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except Exception:
-            meta = {}
-        return jsonify({
-            "exists": True,
-            "bundle_path": str(bundle_file),
-            "bundle_size_bytes": bundle_file.stat().st_size,
-            "modified_at": int(bundle_file.stat().st_mtime),
-            "meta": meta,
-        })
+
+        bundle_exists = bundle_file.exists() and meta_file.exists()
+        meta = {}
+        if bundle_exists:
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            except Exception:
+                meta = {}
+
+        # 查 DB deployed model
+        db = get_db()
+        deployed_row = db.execute(
+            "SELECT model_id, name FROM models WHERE status='deployed' LIMIT 1",
+        ).fetchone()
+        db.close()
+        deployed_id = deployed_row["model_id"] if deployed_row else None
+        bundle_model_id = meta.get("model_id") if isinstance(meta, dict) else None
+
+        if not bundle_exists and not deployed_id:
+            state, hint = "no-deployment", "未部署任何模型，点击上方按钮训练 + 导出"
+        elif bundle_exists and deployed_id and bundle_model_id == deployed_id:
+            state, hint = "in-sync", ""
+        elif not bundle_exists and deployed_id:
+            state, hint = (
+                "deployed-but-no-bundle",
+                f"⚠ DB 中 model #{deployed_id} 已部署，但 bundle 文件缺失。"
+                f"点击 D.1 重新导出 Bundle 即可恢复一致（auto_deploy=True 不会改 DB 状态）。",
+            )
+        elif bundle_exists and not deployed_id:
+            state, hint = (
+                "bundle-but-not-deployed",
+                f"⚠ Bundle 文件指向 model #{bundle_model_id}，但 DB 中无 deployed 模型"
+                f"（可能 rollback 后未清盘）。可重新点 D.1 让 auto_deploy 把 DB 同步过来。",
+            )
+        else:  # bundle_exists and deployed_id and mismatch
+            state, hint = (
+                "mismatch",
+                f"⚠ Bundle 文件是 model #{bundle_model_id}，但 DB 中 deployed 是 model #{deployed_id}。"
+                f"请重新点 D.1 用 #{deployed_id} 导出，或部署 #{bundle_model_id} 让两者匹配。",
+            )
+
+        resp = {
+            "exists": bundle_exists,
+            "bundle_dir": str(bundle_dir),
+            "consistency": {
+                "state": state,
+                "hint": hint,
+                "bundle_model_id": bundle_model_id,
+                "deployed_model_id": deployed_id,
+            },
+        }
+        if bundle_exists:
+            resp.update({
+                "bundle_path": str(bundle_file),
+                "bundle_size_bytes": bundle_file.stat().st_size,
+                "modified_at": int(bundle_file.stat().st_mtime),
+                "meta": meta,
+            })
+        return jsonify(resp)
 
 
     @bp.route("/api/spawn-tuning-v2/policies/active", methods=["GET"])
