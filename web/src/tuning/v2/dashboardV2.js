@@ -911,6 +911,62 @@ function closeQualityModal() {
     $('quality-modal').classList.remove('show');
 }
 
+// ─────────── G15 v2.10.19: 业务命题评分模态 (复用 compare-modal) ───────────
+
+async function showBizScorecardModal(modelId, modelName) {
+    const modal = $('compare-modal');
+    const body = $('compare-modal-body');
+    modal.classList.add('show');
+    body.innerHTML = '<p class="muted-hint">⏳ 推断 360 ctx 计算业务命题达成度…</p>';
+    try {
+        const r = await apiGet(`/api/spawn-tuning-v2/models/${modelId}/biz-scorecard`);
+        const gradeColor = { A: '#34d399', B: '#60a5fa', C: '#fbbf24', D: '#f87171' }[r.grade] || '#9ca3af';
+        const dims = r.dimensions || {};
+        const dimCard = (key, label, emoji) => {
+            const d = dims[key] || {};
+            const s = d.score || 0;
+            const cls = s >= 70 ? 'good' : s >= 55 ? 'warn' : 'bad';
+            return `<div class="stat-card ${cls}" style="position:relative;">
+                <div style="font-size:11px; color:var(--muted); margin-bottom:2px;">${emoji} ${label}</div>
+                <div style="font-size:24px; font-weight:bold;">${s.toFixed(1)}</div>
+                <div style="font-size:10px; color:var(--muted);">${d.metric || ''} = ${d.raw}</div>
+            </div>`;
+        };
+        const hints = (r.hints || []).map((h) =>
+            `<li style="padding:3px 0; font-size:11.5px;">${h.startsWith('✓') ? '<span style="color:var(--good)">' + escapeHtml(h) + '</span>' : '<span style="color:var(--warn)">' + escapeHtml(h) + '</span>'}</li>`,
+        ).join('');
+        body.innerHTML = `
+          <div style="padding: 8px 4px;">
+            <div style="display:flex; align-items:center; gap:16px; margin-bottom:12px;">
+              <div style="font-size:60px; font-weight:bold; color:${gradeColor};">${r.grade}</div>
+              <div>
+                <div style="font-size:13px; color:var(--muted);">业务命题综合达成度</div>
+                <div style="font-size:36px; font-weight:bold; color:${gradeColor};">${r.overall_score} <span style="font-size:14px; opacity:0.6;">/ 100</span></div>
+                <div style="font-size:11px; color:var(--muted);">model #${modelId} ${escapeHtml(modelName)} · 评估了 ${r.n_contexts_evaluated} 个 ctx</div>
+              </div>
+            </div>
+            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0;">
+              ${dimCard('balance', '平衡', '⚖')}
+              ${dimCard('tension', '爽点', '⚡')}
+              ${dimCard('fairness', '公平', '⚓')}
+              ${dimCard('surprise', '惊喜', '🎁')}
+            </div>
+            <div style="margin-top: 12px; padding: 8px; background: rgba(96,165,250,0.06); border-radius: 4px;">
+              <div style="font-size:12px; font-weight:600; margin-bottom:4px;">💡 改进建议</div>
+              <ul style="margin: 0; padding-left: 20px; line-height: 1.6;">${hints}</ul>
+            </div>
+            <div style="margin-top: 8px; font-size: 10.5px; color: var(--muted); line-height: 1.5;">
+              <b>业务命题来源</b> (用户原诉求 2026-05-25 16:08): "判断是否公平、是否有爽点、是否会让分数膨胀"<br>
+              <b>评分权重</b>: 平衡 40% · 爽点 30% · 公平 20% · 惊喜 10%
+            </div>
+          </div>
+        `;
+    } catch (e) {
+        body.innerHTML = `<p style="color:var(--bad)">${escapeHtml(e.message)}</p>`;
+    }
+}
+
+
 // ─────────── G2 v2.10.8: 模型对比模态 ───────────
 
 async function showCompareModal() {
@@ -943,9 +999,52 @@ async function showCompareModal() {
           <div style="max-height:200px; overflow-y:auto; border:1px solid rgba(255,255,255,0.08); padding:4px;">
             ${checkboxes}
           </div>
+          <!-- G16 v2.10.19: ctx 选择 (5 维) -->
+          <div style="margin: 10px 0 4px; padding: 6px 8px; background: rgba(96,165,250,0.06); border-radius: 4px;">
+            <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">推断场景 (5 维 ctx)</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; font-size:11px;">
+              <label style="display:flex; flex-direction:column; gap:2px;">难度
+                <select id="cmp-difficulty" style="height:24px; font-size:11px;">
+                  <option value="easy">easy</option>
+                  <option value="normal" selected>normal</option>
+                  <option value="hard">hard</option>
+                </select>
+              </label>
+              <label style="display:flex; flex-direction:column; gap:2px;">生成器
+                <select id="cmp-generator" style="height:24px; font-size:11px;">
+                  <option value="triplet-p1" selected>triplet-p1</option>
+                  <option value="budget-p2">budget-p2</option>
+                </select>
+              </label>
+              <label style="display:flex; flex-direction:column; gap:2px;">Bot
+                <select id="cmp-bot" style="height:24px; font-size:11px;">
+                  <option value="random">random</option>
+                  <option value="clear-greedy" selected>clear-greedy</option>
+                  <option value="survival">survival</option>
+                </select>
+              </label>
+              <label style="display:flex; flex-direction:column; gap:2px;">PB 档
+                <select id="cmp-pb" style="height:24px; font-size:11px;">
+                  <option value="500">500</option>
+                  <option value="1500">1500</option>
+                  <option value="4000" selected>4000</option>
+                  <option value="10000">10000</option>
+                  <option value="25000">25000</option>
+                </select>
+              </label>
+              <label style="display:flex; flex-direction:column; gap:2px;">生命周期
+                <select id="cmp-lifecycle" style="height:24px; font-size:11px;">
+                  <option value="onboarding">onboarding</option>
+                  <option value="growth">growth</option>
+                  <option value="mature" selected>mature</option>
+                  <option value="plateau">plateau</option>
+                </select>
+              </label>
+            </div>
+          </div>
           <div style="margin:8px 0;">
             <button id="compare-go" class="primary">▶ 对比</button>
-            <span style="margin-left:8px; font-size:11px; color:var(--muted);">用 default ctx (normal/triplet-p1/clear-greedy/4000/mature) 推断</span>
+            <span style="margin-left:8px; font-size:11px; color:var(--muted);">不同 ctx 下模型表现可能差异显著</span>
           </div>
           <div id="compare-result"></div>
         `;
@@ -968,9 +1067,13 @@ async function runCompare() {
     }
     result.innerHTML = '<p class="muted-hint">⏳ 对每个模型推断 d_curve…</p>';
 
+    // v2.10.19 G16: 用户可选 ctx (5 维), 默认 default ctx
     const ctx = {
-        difficulty: 'normal', generator: 'triplet-p1', bot_policy: 'clear-greedy',
-        pb_bin: 4000, lifecycle_stage: 'mature',
+        difficulty: $('cmp-difficulty')?.value || 'normal',
+        generator: $('cmp-generator')?.value || 'triplet-p1',
+        bot_policy: $('cmp-bot')?.value || 'clear-greedy',
+        pb_bin: Number($('cmp-pb')?.value) || 4000,
+        lifecycle_stage: $('cmp-lifecycle')?.value || 'mature',
     };
     const curves = [];
     for (const mid of checked) {
@@ -1524,6 +1627,28 @@ async function submitJob() {
         body.arch.d_model = dModel;
         body.arch.n_layers = nLayers;
     }
+    // G17 v2.10.19: LossWeights 专家模式 (默认全部跟 v2.10.6 一致, 只在用户改过时才提交)
+    const lwIds = {
+        shape: 'lw-shape', balance: 'lw-balance', surprise: 'lw-surprise',
+        breaking: 'lw-breaking', smooth: 'lw-smooth', aux: 'lw-aux',
+        pb_distribution: 'lw-pb-dist', anchor: 'lw-anchor',
+        monotonic: 'lw-monotonic', target_fit: 'lw-target-fit', endpoint: 'lw-endpoint',
+    };
+    const lwDefaults = {
+        shape: 2.0, balance: 0.15, surprise: 0.3, breaking: 0.5, smooth: 0.04,
+        aux: 0.2, pb_distribution: 0.0, anchor: 3.0,
+        monotonic: 2.5, target_fit: 1.8, endpoint: 1.5,
+    };
+    const lwOverrides = {};
+    for (const [k, id] of Object.entries(lwIds)) {
+        const v = Number($(id)?.value);
+        if (Number.isFinite(v) && Math.abs(v - lwDefaults[k]) > 1e-9) {
+            lwOverrides[k] = v;
+        }
+    }
+    if (Object.keys(lwOverrides).length > 0) {
+        body.loss_weights = lwOverrides;
+    }
     const baseId = Number($('job-base').value);
     if (baseId > 0) body.base_model_id = baseId;
     try {
@@ -2018,11 +2143,28 @@ async function _loadAndRenderMetrics(jobId, meta) {
             </table>
         ` : '';
 
+        // G18 v2.10.19: 训练 ETA 估算 (仅 running 时显示)
+        // 用最近 3 epoch 平均耗时 (避免 ep=0 warmup 异常) × 剩余 epoch
+        let etaLine = null;
+        if (data.status === 'running' && epochs.length >= 2 && epochs.length < (data.total_epochs || 50)) {
+            const recent = epochs.slice(-3);
+            const recentAvg = recent.reduce((s, e) => s + (e.elapsed_s || 0), 0) / recent.length;
+            const totalEpochs = data.total_epochs || 50;
+            const remainingEpochs = Math.max(0, totalEpochs - epochs.length);
+            const etaSec = recentAvg * remainingEpochs;
+            if (etaSec > 0) {
+                const etaStr = etaSec < 60 ? `${etaSec.toFixed(0)}s`
+                    : etaSec < 3600 ? `${(etaSec / 60).toFixed(1)}min`
+                    : `${(etaSec / 3600).toFixed(1)}h`;
+                etaLine = `ETA ≈ <b style="color:var(--accent)">${etaStr}</b> <span style="color:var(--muted)">(剩 ${remainingEpochs} epoch × ${recentAvg.toFixed(1)}s)</span>`;
+            }
+        }
         const lines = [
             epochs.length > 0 ? `共 <b>${epochs.length}</b> epoch` : null,
             (data.batches && data.batches.length > 0) ? `<b>${data.batches.length}</b> 个 batch 采样点` : null,
             best ? `最佳: ep=${best.epoch} val_curve_mae=<b style="color:var(--good)">${fmtNumber(best.val_curve_mae)}</b>` : null,
             totalSec > 0 ? `总耗时 ≈ ${fmtNumber(totalSec, 1)}s` : null,
+            etaLine,
         ].filter(Boolean).join(' · ');
 
         meta.innerHTML = lines + tablePart;
@@ -2346,6 +2488,7 @@ async function refreshModels() {
               <td><span class="status ${m.status}">${m.status}</span></td>
               <td>${fmtDate(m.created_at)}</td>
               <td>
+                <button class="ghost btn-biz-scorecard" data-id="${m.model_id}" data-name="${escapeHtml(m.name)}" title="G15: 业务命题达成度评分 (公平/爽点/平衡/惊喜)">🎯 评分</button>
                 ${m.status === 'staging' || m.status === 'archived' || m.status === 'rollbacked'
                     ? `<button class="ghost btn-deploy" data-id="${m.model_id}">部署</button>` : ''}
                 ${m.status === 'deployed' ? `<button class="danger btn-rb" data-id="${m.model_id}">回滚</button>` : ''}
@@ -2360,6 +2503,10 @@ async function refreshModels() {
                 await apiSend('POST', `/api/spawn-tuning-v2/models/${b.dataset.id}/deploy`);
                 refreshModels(); refreshOverview();
             });
+        });
+        // G15 v2.10.19: 业务评分弹窗
+        tbody.querySelectorAll('.btn-biz-scorecard').forEach((b) => {
+            b.addEventListener('click', () => showBizScorecardModal(b.dataset.id, b.dataset.name));
         });
         tbody.querySelectorAll('.btn-rb').forEach((b) => {
             b.addEventListener('click', async () => {
@@ -2614,10 +2761,50 @@ async function refreshBundleStatus() {
 async function loadFieldMetrics() {
     const hours = Number($('field-hours').value) || 24;
     const ctx = $('field-ctx').value.trim();
+    const groupBy = $('field-groupby')?.value || '';
     const host = $('field-stats');
+    const groupsHost = $('field-groups');
+    if (groupsHost) groupsHost.innerHTML = '';
     try {
-        const url = `/api/spawn-tuning-v2/field-metrics/aggregate?hours=${hours}${ctx ? `&context_key=${encodeURIComponent(ctx)}` : ''}`;
-        const r = await apiGet(url);
+        const params = new URLSearchParams({ hours: String(hours) });
+        if (ctx) params.set('context_key', ctx);
+        if (groupBy) params.set('group_by', groupBy);
+        const r = await apiGet(`/api/spawn-tuning-v2/field-metrics/aggregate?${params}`);
+        // G19 v2.10.19: 渲染分组表
+        if (groupBy && r.groups && groupsHost) {
+            const entries = Object.entries(r.groups).sort();
+            if (entries.length === 0) {
+                groupsHost.innerHTML = `<p class="muted-hint">按 ${escapeHtml(groupBy)} 无数据</p>`;
+            } else {
+                const rows = entries.map(([key, g]) => {
+                    const cellCls = (val, lo, hi) => (val < lo || val > hi) ? 'style="color:var(--bad);"' : '';
+                    return `
+                      <tr>
+                        <td style="padding:3px 8px;"><code>${escapeHtml(key)}</code></td>
+                        <td style="padding:3px 8px; text-align:right;">${g.n_episodes}</td>
+                        <td style="padding:3px 8px; text-align:right;" ${cellCls(g.pb_broke_rate, 0.05, 0.35)}>${(g.pb_broke_rate*100).toFixed(1)}%</td>
+                        <td style="padding:3px 8px; text-align:right;" ${cellCls(g.noMove_rate, 0, 0.30)}>${(g.noMove_rate*100).toFixed(1)}%</td>
+                        <td style="padding:3px 8px; text-align:right;">${Math.round(g.mean_score)}</td>
+                        <td style="padding:3px 8px; text-align:right;">${g.mean_curve_mae > 0 ? g.mean_curve_mae.toFixed(3) : '-'}</td>
+                      </tr>
+                    `;
+                }).join('');
+                groupsHost.innerHTML = `
+                  <div style="font-size:11px; color:var(--muted); margin: 6px 0 2px;">📊 按 <b>${escapeHtml(groupBy)}</b> 拆解 (${entries.length} 组)</div>
+                  <table style="width:100%; font-size:11px; border-collapse:collapse;">
+                    <thead><tr style="color:var(--muted);">
+                      <th style="text-align:left; padding:3px 8px;">${escapeHtml(groupBy)}</th>
+                      <th style="text-align:right; padding:3px 8px;">episodes</th>
+                      <th style="text-align:right; padding:3px 8px;">破 PB 率</th>
+                      <th style="text-align:right; padding:3px 8px;">死局率</th>
+                      <th style="text-align:right; padding:3px 8px;">均分</th>
+                      <th style="text-align:right; padding:3px 8px;">curve_mae</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                  </table>
+                `;
+            }
+        }
         if (r.n_episodes === 0) {
             host.innerHTML = '<div class="stat-card muted"><div class="stat-value">0</div><div class="stat-label">无玩家数据 (等 v2 模型上线后回流)</div></div>';
             return;

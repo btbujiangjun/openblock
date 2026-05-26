@@ -517,6 +517,24 @@
         <p class="muted-hint" style="margin-top:2px;">
           选基础模型 = 增量训练 (在已有权重上 fine-tune, lr 自动 × 0.1, 避免灾难性遗忘); 留空 = 从头训练
         </p>
+        <!-- G17 v2.10.19: 专家模式 — LossWeights 11 项可调 (默认折叠) -->
+        <details style="margin: 6px 0; padding: 4px 0; border-top: 1px dashed rgba(255,255,255,0.08);">
+          <summary style="cursor:pointer; font-size:11px; color:var(--muted);">▸ 专家模式: Loss 权重调节 (11 项)</summary>
+          <div class="form-row" style="margin-top:6px;">
+            <label class="narrow" title="d_curve 形态 MSE">shape<input id="lw-shape" type="text" value="2.0"></label>
+            <label class="narrow" title="跨 PB bin 方差">balance<input id="lw-balance" type="text" value="0.15"></label>
+            <label class="narrow" title="surprise 频率 ~7%">surprise<input id="lw-surprise" type="text" value="0.3"></label>
+            <label class="narrow" title="破 PB 单调 hinge">breaking<input id="lw-breaking" type="text" value="0.5"></label>
+            <label class="narrow" title="对 θ 平滑度">smooth<input id="lw-smooth" type="text" value="0.04"></label>
+            <label class="narrow" title="辅助 head">aux<input id="lw-aux" type="text" value="0.2"></label>
+            <label class="narrow" title="PB 累积到达 (默认 0)">pb_dist<input id="lw-pb-dist" type="text" value="0.0"></label>
+            <label class="narrow" title="7 锚点 hinge">anchor<input id="lw-anchor" type="text" value="3.0"></label>
+            <label class="narrow" title="软单调 v2.9.1">monotonic<input id="lw-monotonic" type="text" value="2.5"></label>
+            <label class="narrow" title="calibrated S 拟合">target_fit<input id="lw-target-fit" type="text" value="1.8"></label>
+            <label class="narrow" title="头尾锚定 v2.9.1">endpoint<input id="lw-endpoint" type="text" value="1.5"></label>
+          </div>
+          <p class="muted-hint" style="margin: 2px 0; font-size: 10.5px;">默认值 = v2.10.6 优化版, 一般不需要调。改这些可能让模型不收敛, 仅专家使用。</p>
+        </details>
         <div class="form-actions">
           <button id="btn-submit-job">▶ 提交训练任务</button>
           <button id="btn-refresh-jobs" class="ghost">↻ 刷新</button>
@@ -592,11 +610,22 @@
             </select>
           </label>
           <label>Context 筛选 (可选)<input id="field-ctx" type="text" placeholder="例: hard:budget-p2:random:25000:plateau"></label>
+          <label class="narrow" title="按某维度拆解, 看不同场景下指标差异 (G19)">分组维度
+            <select id="field-groupby">
+              <option value="">— 不分组 —</option>
+              <option value="difficulty">按难度</option>
+              <option value="generator">按生成器</option>
+              <option value="bot_policy">按 bot 策略</option>
+              <option value="pb_bin">按 PB 档</option>
+              <option value="lifecycle_stage">按生命周期</option>
+            </select>
+          </label>
         </div>
         <div class="form-actions">
           <button id="btn-load-field">📈 查询</button>
         </div>
         <div id="field-stats" class="stats-grid"></div>
+        <div id="field-groups" style="margin-top:8px;"></div>
       </section>
     </div>
 

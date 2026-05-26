@@ -520,6 +520,8 @@ def main():
     p.add_argument("--n-layers", type=int, default=None, help="Transformer encoder 层数 (默认 3)")
     p.add_argument("--hidden-dim", type=int, default=None, help="ResNet hidden dim (默认 128)")
     p.add_argument("--n-blocks", type=int, default=None, help="ResNet block 层数 (默认 8)")
+    # G17 v2.10.19: LossWeights JSON 覆盖 (e.g. '{"shape":2.5,"anchor":4.0}')
+    p.add_argument("--loss-weights", default=None, help="JSON LossWeights override")
     args = p.parse_args()
 
     sample_set_ids = [int(x) for x in args.sample_sets.split(",")]
@@ -534,11 +536,27 @@ def main():
         if args.hidden_dim is not None: model_kwargs["hidden_dim"] = args.hidden_dim
         if args.n_blocks is not None:   model_kwargs["n_blocks"] = args.n_blocks
 
+    # G17 v2.10.19: 解析 LossWeights JSON 覆盖
+    custom_weights = None
+    if args.loss_weights:
+        try:
+            overrides = json.loads(args.loss_weights)
+            if isinstance(overrides, dict) and overrides:
+                base = LossWeights()
+                for k, v in overrides.items():
+                    if hasattr(base, k) and isinstance(v, (int, float)):
+                        setattr(base, k, float(v))
+                custom_weights = base
+                print(f"[train_v2] LossWeights 覆盖: {overrides}")
+        except Exception as e:
+            print(f"[train_v2] warn: --loss-weights 解析失败 ({e}), 用默认权重")
+
     train(
         db_path=args.db,
         sample_set_ids=sample_set_ids,
         model_type=args.model_type,
         model_kwargs=model_kwargs or None,
+        weights=custom_weights,
         output_path=args.output,
         base_model_path=args.base_model,
         rehearsal_set_ids=rehearsal_ids,

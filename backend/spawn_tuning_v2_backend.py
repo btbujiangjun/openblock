@@ -1166,7 +1166,7 @@ def register_v2_routes(app):
         from pathlib import Path
         db = get_db()
         row = db.execute(
-            "SELECT job_id, status, output_model_id, log_path FROM training_jobs WHERE job_id = ?",
+            "SELECT job_id, status, output_model_id, log_path, arch_json FROM training_jobs WHERE job_id = ?",
             (job_id,),
         ).fetchone()
         if not row:
@@ -1268,9 +1268,17 @@ def register_v2_routes(app):
             except IOError:
                 continue
 
+        # G18 v2.10.19: 暴露 total_epochs 让前端算 ETA
+        total_epochs = 50  # default
+        try:
+            arch = json.loads(row["arch_json"] or "{}")
+            total_epochs = int(arch.get("epochs", 50))
+        except Exception:
+            pass
         return jsonify({
             "job_id": job_id,
             "status": row["status"],
+            "total_epochs": total_epochs,
             "n_epochs": len(epochs),
             "n_batches": len(batches),
             "epochs": epochs,
@@ -1536,6 +1544,151 @@ def register_v2_routes(app):
         return jsonify({"inserted": inserted, "received": len(eps)})
 
 
+    @bp.route("/api/spawn-tuning-v2/models/<int:model_id>/biz-scorecard", methods=["GET"])
+    def biz_scorecard(model_id):
+        """G15 v2.10.19: 业务命题达成度仪表盘 — 把模型表现折成 4 项业务命题评分.
+
+        业务命题 (用户原诉求, 2026-05-25 16:08 / 11:32):
+          1. 公平: 不同 ctx 间模型预测均匀 → 用 cross-ctx variance 算
+          2. 爽点: 接近 PB 时确实加压 → 用 d_pb_base 在 r=0.85-1.0 的梯度算
+          3. 平衡: 整体形态贴合 calibrated S → 用 val_calibrated_mae
+          4. 惊喜: 模型不退化 (输出有形态变化) → 用 val_curve_var
+
+        返回:
+          overall_score (0-100, 4 项加权平均)
+          dimensions: { fairness, tension, balance, surprise } 各 0-100
+          grade: 'A' (≥85) / 'B' (≥70) / 'C' (≥55) / 'D' (<55)
+          hints: 改进建议列表
+        """
+        try:
+            import torch
+            from rl_pytorch.spawn_tuning_v2.model import (
+                SpawnParamTunerResNet, SpawnParamTunerTransformer,
+                N_THETA, N_CURVE_BINS,
+            )
+            from rl_pytorch.spawn_tuning_v2.optimize_theta import enumerate_all_contexts, context_to_indices
+            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
+        except Exception as e:
+            return jsonify({"error": f"torch/model unavailable: {e}"}), 503
+
+        db = get_db()
+        row = db.execute(
+            "SELECT weights_path, model_type, metrics_json FROM models WHERE model_id = ?",
+            (model_id,),
+        ).fetchone()
+        db.close()
+        if not row or not row["weights_path"]:
+            return jsonify({"error": "model not found"}), 404
+
+        # 加载模型 + 360 ctx 推断 (复用 build-and-export 同样逻辑, 已 PAVA 项目内)
+        try:
+            ck = torch.load(row["weights_path"], map_location="cpu", weights_only=False)
+            arch = ck.get("arch", {}) or {}
+            mt = (arch.get("model_type") or row["model_type"] or "resnet").lower()
+            if mt == "transformer":
+                model = SpawnParamTunerTransformer(
+                    d_model=arch.get("d_model", 128),
+                    n_layers=arch.get("n_layers", 3),
+                    curve_bins=arch.get("curve_bins", N_CURVE_BINS),
+                )
+            else:
+                model = SpawnParamTunerResNet(
+                    hidden_dim=arch.get("hidden_dim", 128),
+                    n_blocks=arch.get("n_blocks", 8),
+                    curve_bins=arch.get("curve_bins", N_CURVE_BINS),
+                )
+            model.load_state_dict(ck["model_state_dict"])
+            model.eval()
+        except Exception as e:
+            return jsonify({"error": f"load model failed: {e}"}), 500
+
+        ctxs = enumerate_all_contexts()
+        idx_lists = [context_to_indices(c) for c in ctxs]
+        target = target_curve_calibrated_vector()
+        with torch.no_grad():
+            preds = model(
+                difficulty_idx=torch.tensor([i["difficulty_idx"] for i in idx_lists], dtype=torch.long),
+                generator_idx=torch.tensor([i["generator_idx"] for i in idx_lists], dtype=torch.long),
+                bot_idx=torch.tensor([i["bot_idx"] for i in idx_lists], dtype=torch.long),
+                pb_bin_idx=torch.tensor([i["pb_bin_idx"] for i in idx_lists], dtype=torch.long),
+                lifecycle_idx=torch.tensor([i["lifecycle_idx"] for i in idx_lists], dtype=torch.long),
+                log_pb=torch.tensor([i["log_pb"] for i in idx_lists], dtype=torch.float32),
+                theta_norm=torch.full((len(ctxs), N_THETA), 0.5, dtype=torch.float32),
+            )
+            # cast 到 Python list (避免 numpy float32 JSON 不可序列化)
+            curves = preds["curve"].cpu().numpy().tolist()  # (360, 20)
+
+        # ── 1. 平衡 (balance) — 整体贴合 calibrated S 形 ──
+        # MAE vs calibrated, mae ≤ 0.05 = 100 分 / mae ≥ 0.20 = 0 分
+        import math
+        per_ctx_mae = [
+            sum(abs(c[i] - target[i]) for i in range(20)) / 20
+            for c in curves
+        ]
+        mean_mae = sum(per_ctx_mae) / len(per_ctx_mae)
+        balance_score = max(0.0, min(100.0, 100 * (0.20 - mean_mae) / 0.15))
+
+        # ── 2. 爽点 (tension) — 接近 PB 区 (r=0.85-1.0) 加压充分 ──
+        # bin r=0.85 对应 idx 8 (r_max=2.0, 20 bins), bin r=1.0 对应 idx 9
+        # 加压 = curves[:, 9] - curves[:, 4] (中段 → PB 边缘的差)
+        # 期望 ≥ 0.20 = 100 分, ≤ 0 = 0 分
+        tension_diffs = [c[9] - c[4] for c in curves]
+        mean_tension = sum(tension_diffs) / len(tension_diffs)
+        tension_score = max(0.0, min(100.0, 100 * mean_tension / 0.20))
+
+        # ── 3. 公平 (fairness) — 跨 ctx 预测一致, 不同场景差异不应过大 ──
+        # 用 per-ctx mae 的标准差衡量, std ≤ 0.02 = 100 分 / std ≥ 0.10 = 0 分
+        mae_mean = sum(per_ctx_mae) / len(per_ctx_mae)
+        mae_std = math.sqrt(sum((m - mae_mean) ** 2 for m in per_ctx_mae) / len(per_ctx_mae))
+        fairness_score = max(0.0, min(100.0, 100 * (0.10 - mae_std) / 0.08))
+
+        # ── 4. 惊喜 (surprise) — 模型不退化, 各 ctx 预测形态有变化 ──
+        # 用 curve_var (跨 bin std 跨 ctx mean), 越大越好
+        # var ≥ 0.15 = 100 分 / var ≤ 0.05 = 0 分
+        curve_vars = [
+            math.sqrt(sum((c[i] - sum(c)/len(c)) ** 2 for i in range(20)) / 20)
+            for c in curves
+        ]
+        mean_var = sum(curve_vars) / len(curve_vars)
+        surprise_score = max(0.0, min(100.0, 100 * (mean_var - 0.05) / 0.10))
+
+        # 综合分: 加权 (balance 40% + tension 30% + fairness 20% + surprise 10%)
+        overall = (
+            0.40 * balance_score + 0.30 * tension_score
+            + 0.20 * fairness_score + 0.10 * surprise_score
+        )
+        if overall >= 85: grade = "A"
+        elif overall >= 70: grade = "B"
+        elif overall >= 55: grade = "C"
+        else: grade = "D"
+
+        # 改进建议
+        hints = []
+        if balance_score < 60:
+            hints.append(f"平衡分 {balance_score:.0f}/100 偏低 (mae={mean_mae:.3f}) — 训练数据 d_curve 跟 calibrated 差距大, 检查 algo_version 或重训")
+        if tension_score < 60:
+            hints.append(f"爽点分 {tension_score:.0f}/100 偏低 (r=0.85-1.0 加压 {mean_tension:.3f}, 期望 ≥0.2) — 模型未学到 PB 命题, 拉大 anchor loss weight")
+        if fairness_score < 60:
+            hints.append(f"公平分 {fairness_score:.0f}/100 偏低 (mae 标准差 {mae_std:.3f}) — 不同 ctx 间表现差异大, 增加 balance loss weight")
+        if surprise_score < 60:
+            hints.append(f"惊喜分 {surprise_score:.0f}/100 偏低 (curve_var {mean_var:.3f}) — 模型趋向退化解, 检查 lr/data quality")
+        if not hints:
+            hints.append("✓ 业务命题全部达成, 模型可部署")
+
+        return jsonify({
+            "model_id": model_id,
+            "overall_score": round(overall, 1),
+            "grade": grade,
+            "dimensions": {
+                "balance":  {"score": round(balance_score, 1),  "raw": round(mean_mae, 4),   "metric": "mean_calibrated_mae"},
+                "tension":  {"score": round(tension_score, 1),  "raw": round(mean_tension, 4), "metric": "d_curve[r=1.0] - d_curve[r=0.5]"},
+                "fairness": {"score": round(fairness_score, 1), "raw": round(mae_std, 4),    "metric": "std(per_ctx_mae)"},
+                "surprise": {"score": round(surprise_score, 1), "raw": round(mean_var, 4),   "metric": "mean(per_ctx_curve_std)"},
+            },
+            "n_contexts_evaluated": len(ctxs),
+            "hints": hints,
+        })
+
     @bp.route("/api/spawn-tuning-v2/policies/validate-e2e", methods=["POST"])
     def validate_deployed_e2e():
         """G7 v2.10.9: e2e 验证 — 部署 bundle vs 真实样本集 d_curve 差异。
@@ -1657,7 +1810,12 @@ def register_v2_routes(app):
     def aggregate_field_metrics():
         """聚合真实玩家 d_curve, 用于 ⑤ 监控 tab。
 
-        Query: hours (default 24), context_key (筛选, 可选), model_id (筛选, 可选)
+        Query:
+          hours (default 24)
+          context_key (筛选, 可选)
+          model_id (筛选, 可选)
+          group_by (v2.10.19 G19): difficulty / generator / bot_policy / pb_bin / lifecycle_stage
+                                   按该维度返回 {value: {pb_broke_rate, noMove_rate, n_episodes, ...}}
         """
         try:
             hours = max(1, min(720, int(request.args.get("hours", 24))))
@@ -1665,6 +1823,9 @@ def register_v2_routes(app):
             hours = 24
         ctx = request.args.get("context_key")
         model_id = request.args.get("model_id")
+        group_by = request.args.get("group_by")
+        if group_by and group_by not in ("difficulty", "generator", "bot_policy", "pb_bin", "lifecycle_stage"):
+            return jsonify({"error": f"group_by must be one of difficulty/generator/bot_policy/pb_bin/lifecycle_stage"}), 400
 
         cutoff = now_unix() - hours * 3600
         db = get_db()
@@ -1711,7 +1872,7 @@ def register_v2_routes(app):
                 curve_mae_sum += float(cmae)
                 curve_mae_count += 1
 
-        return jsonify({
+        result = {
             "hours": hours,
             "n_episodes": n,
             "d_curve_avg": [v / n for v in d_sum],
@@ -1719,7 +1880,44 @@ def register_v2_routes(app):
             "noMove_rate": noMove_sum / n,
             "mean_score": score_sum / n,
             "mean_curve_mae": curve_mae_sum / curve_mae_count if curve_mae_count > 0 else 0,
-        })
+        }
+
+        # G19 v2.10.19: 按维度拆解
+        if group_by:
+            # 注: field_metrics 表存的是 context_key (e.g. "normal:triplet-p1:clear-greedy:4000:mature"),
+            # 解析出对应位置的值再分组
+            DIM_POS = {
+                "difficulty": 0, "generator": 1, "bot_policy": 2, "pb_bin": 3, "lifecycle_stage": 4,
+            }
+            pos = DIM_POS[group_by]
+            groups: dict = {}
+            for r in rows:
+                ck = r["context_key"] or ""
+                parts = ck.split(":")
+                if len(parts) <= pos:
+                    continue
+                key = parts[pos]
+                g = groups.setdefault(key, {"n": 0, "pb_broke": 0, "noMove": 0, "score": 0, "curve_mae_sum": 0.0, "curve_mae_count": 0})
+                g["n"] += 1
+                g["pb_broke"] += int(r["pb_broke"] or 0)
+                g["noMove"] += 1 if (r["noMove_step"] or -1) >= 0 else 0
+                g["score"] += int(r["final_score"] or 0)
+                cm = r["curve_mae"] if "curve_mae" in r.keys() else None
+                if cm is not None and cm >= 0:
+                    g["curve_mae_sum"] += float(cm)
+                    g["curve_mae_count"] += 1
+            result["group_by"] = group_by
+            result["groups"] = {
+                k: {
+                    "n_episodes": g["n"],
+                    "pb_broke_rate": g["pb_broke"] / max(1, g["n"]),
+                    "noMove_rate": g["noMove"] / max(1, g["n"]),
+                    "mean_score": g["score"] / max(1, g["n"]),
+                    "mean_curve_mae": g["curve_mae_sum"] / max(1, g["curve_mae_count"]) if g["curve_mae_count"] > 0 else 0,
+                }
+                for k, g in groups.items()
+            }
+        return jsonify(result)
 
 
     # ─── 离线 Bundle (PR6) ─────────────────────────────────

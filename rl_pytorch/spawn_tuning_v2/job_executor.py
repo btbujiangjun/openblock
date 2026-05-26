@@ -153,6 +153,14 @@ def _build_train_cmd(job: dict, output_path: Path, log_path: Path, db_path: str)
     else:
         if "hidden_dim" in arch: cmd.extend(["--hidden-dim", str(arch["hidden_dim"])])
         if "n_blocks" in arch:   cmd.extend(["--n-blocks", str(arch["n_blocks"])])
+    # G17 v2.10.19: LossWeights 透传 (--loss-weights '{"shape":2.5,"anchor":4.0}')
+    lw = job.get("loss_weights") or "{}"
+    if isinstance(lw, dict):
+        lw_json = json.dumps(lw)
+    else:
+        lw_json = str(lw)
+    if lw_json and lw_json != "{}" and lw_json != "null":
+        cmd.extend(["--loss-weights", lw_json])
     if job.get("base_model_id"):
         # base_model_id → 查 weights_path
         conn = sqlite3.connect(db_path)

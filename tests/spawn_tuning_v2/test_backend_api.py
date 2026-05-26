@@ -1184,6 +1184,94 @@ class TestBuildAndExport:
         assert ra.get_json()["status"] == "archived"
 
 
+# ─────────── 业务评分 / 多 ctx 对比 / group_by (v2.10.19) ───────────
+
+class TestBizScorecard:
+    """G15: 业务命题达成度评分 - 4 维度 (balance/tension/fairness/surprise) + 总分."""
+
+    def _setup_model(self, client, tmp_path, model_type="resnet"):
+        from rl_pytorch.spawn_tuning_v2.model import SpawnParamTunerResNet, SpawnParamTunerTransformer
+        from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
+        m = SpawnParamTunerTransformer() if model_type == "transformer" else SpawnParamTunerResNet()
+        out = tmp_path / f"{model_type}_biz.pt"
+        _save_checkpoint(
+            model=m, path=str(out),
+            metrics={"val_curve_mae": 0.1},
+            base_model_path=None, sample_set_ids=[1],
+        )
+        from backend import spawn_tuning_v2_backend as mod
+        db = mod.get_db()
+        cur = db.execute(
+            """INSERT INTO models (
+                name, version, model_type, weights_path, sha256, size_bytes,
+                metrics_json, status, created_at
+            ) VALUES (?, 'v0.0.1', ?, ?, '', 1024, '{}', 'staging', strftime('%s','now'))""",
+            (f"test-{model_type}", model_type, str(out)),
+        )
+        db.commit()
+        mid = cur.lastrowid
+        db.close()
+        return mid
+
+    def test_biz_scorecard_resnet(self, client, tmp_path):
+        mid = self._setup_model(client, tmp_path, "resnet")
+        r = client.get(f"/api/spawn-tuning-v2/models/{mid}/biz-scorecard")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert "overall_score" in d
+        assert d["grade"] in ("A", "B", "C", "D")
+        # 四维必有
+        for k in ("balance", "tension", "fairness", "surprise"):
+            assert k in d["dimensions"]
+            assert 0 <= d["dimensions"][k]["score"] <= 100
+        assert d["n_contexts_evaluated"] == 360
+        assert isinstance(d["hints"], list) and len(d["hints"]) > 0
+
+    def test_biz_scorecard_transformer(self, client, tmp_path):
+        mid = self._setup_model(client, tmp_path, "transformer")
+        r = client.get(f"/api/spawn-tuning-v2/models/{mid}/biz-scorecard")
+        assert r.status_code == 200
+
+    def test_biz_scorecard_model_not_found(self, client):
+        r = client.get("/api/spawn-tuning-v2/models/99999/biz-scorecard")
+        assert r.status_code == 404
+
+    def test_biz_scorecard_score_in_range(self, client, tmp_path):
+        """所有维度评分应在 [0, 100], 总分跟权重一致."""
+        mid = self._setup_model(client, tmp_path, "resnet")
+        r = client.get(f"/api/spawn-tuning-v2/models/{mid}/biz-scorecard")
+        d = r.get_json()
+        # 总分 = 0.4*balance + 0.3*tension + 0.2*fairness + 0.1*surprise
+        expected = (
+            0.40 * d["dimensions"]["balance"]["score"]
+            + 0.30 * d["dimensions"]["tension"]["score"]
+            + 0.20 * d["dimensions"]["fairness"]["score"]
+            + 0.10 * d["dimensions"]["surprise"]["score"]
+        )
+        assert abs(d["overall_score"] - expected) < 0.5
+
+
+class TestFieldMetricsGroupBy:
+    """G19: field-metrics 按 ctx 维度拆解."""
+
+    def test_group_by_invalid_dim(self, client):
+        r = client.get("/api/spawn-tuning-v2/field-metrics/aggregate?group_by=invalid")
+        assert r.status_code == 400
+        assert "group_by" in r.get_json()["error"]
+
+    def test_group_by_no_data(self, client):
+        """无数据时返回 n_episodes=0, 不报错."""
+        r = client.get("/api/spawn-tuning-v2/field-metrics/aggregate?group_by=difficulty")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["n_episodes"] == 0
+
+    def test_group_by_valid_dims(self, client):
+        for dim in ["difficulty", "generator", "bot_policy", "pb_bin", "lifecycle_stage"]:
+            r = client.get(f"/api/spawn-tuning-v2/field-metrics/aggregate?group_by={dim}")
+            assert r.status_code == 200
+
+
 # ─────────── jobs 创建架构兼容检查 (v2.10.10) ───────────
 
 class TestJobArchCheck:

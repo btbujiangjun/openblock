@@ -593,6 +593,77 @@ tests/tuning/v2/
 
 ---
 
+## 9c. v2.10.19 业务命题量化 + 多维分析 (G15-G19)
+
+### G15 业务命题达成度仪表盘
+
+整合用户原始诉求 "判断是否公平、是否有爽点、是否会让分数膨胀" (2026-05-25 16:08)
++ "核心指标和均分对比" (2026-05-24 14:47), 提供一站式综合评分。
+
+**4 维度评分** (各 0-100, 加权综合分):
+
+| 维度 | 业务命题 | 计算方式 | 权重 |
+|---|---|---|---|
+| **平衡** | 整体形态贴合 calibrated S | `mean(|pred - calibrated|)` over 360 ctx | 40% |
+| **爽点** | 接近 PB 时确实加压 | `d_curve[r=1.0] - d_curve[r=0.5]` (期望 ≥ 0.2) | 30% |
+| **公平** | 跨 ctx 预测均匀 | `std(per_ctx_mae)` (期望 ≤ 0.02) | 20% |
+| **惊喜** | 不退化, 形态丰富 | `mean(per_ctx_curve_std)` (期望 ≥ 0.15) | 10% |
+
+**评级**:
+- **A** (≥85): 业务命题完美达成, 可部署
+- **B** (≥70): 主要命题达成, 个别维度有改进空间
+- **C** (≥55): 部分命题达成, 需重训
+- **D** (<55): 大量问题, 检查数据 algo_version
+
+**API**: `GET /api/spawn-tuning-v2/models/<id>/biz-scorecard`
+**UI**: 模型库行末尾 "🎯 评分" 按钮
+
+**实测 model #22 (Transformer, default v2.10.6 训练)**:
+```
+Grade = B (73.6 / 100)
+  平衡: 59 (mae=0.112 - 数据 algo_version 旧)
+  爽点: 73 (r=1.0 vs r=0.5 差 0.146)
+  公平: 99 (std 0.021, 优)
+  惊喜: 82 (var 0.132)
+Hint: 平衡分偏低 — 检查数据 algo_version 或重训
+```
+
+### G16 多 ctx 模型对比
+
+模型对比 modal 加 5 维 ctx 选择 (默认 normal/triplet-p1/clear-greedy/4000/mature),
+可切换查看不同场景下模型表现差异。
+
+### G17 LossWeights UI (专家模式)
+
+训练表单加可折叠 "▸ 专家模式" 区域, 暴露 11 项 loss 权重:
+shape / balance / surprise / breaking / smooth / aux / pb_distribution / anchor /
+monotonic / target_fit / endpoint
+
+仅在用户改过默认值时才提交到 backend (避免污染)。CLI 同步:
+```bash
+python -m rl_pytorch.spawn_tuning_v2.train ... \
+    --loss-weights '{"shape": 2.5, "anchor": 4.0}'
+```
+
+### G18 训练 ETA
+
+训练曲线 modal 在 running 状态时显示 ETA:
+```
+共 8 epoch · 504 batch · 最佳: ep=6 mae=0.0763 · ETA ≈ 3.2min (剩 22 epoch × 8.7s)
+```
+
+公式: 最近 3 epoch 平均耗时 × 剩余 epoch (避免 ep=0 warmup 异常)。
+
+### G19 field-metrics 按 ctx 拆解
+
+`GET /api/spawn-tuning-v2/field-metrics/aggregate?group_by={dim}` 支持按
+difficulty / generator / bot_policy / pb_bin / lifecycle_stage 5 维拆解, 看不同场景
+线上 metric 差异 (n_episodes / pb_broke_rate / noMove_rate / mean_score / mean_curve_mae)。
+
+UI: ④ 部署 tab 下 D.2 真实玩家指标 加 "分组维度" 下拉, 选中后表格展开。
+
+---
+
 ## 9b. v2.10.18 客户端闭环验证 (G11-G14)
 
 ### 业务闭环完整性 (端到端 verified)
