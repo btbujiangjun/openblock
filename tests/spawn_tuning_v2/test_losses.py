@@ -472,17 +472,17 @@ class TestComputeTotal:
         assert breakdown.total.item() < 0.5
 
     def test_loss_weights_dict(self):
-        """v2.9.1: 收紧锯齿 (monotonic↑, smooth↑, +endpoint), pb_dist 仍关。"""
+        """v2.10.2: target_fit 1.0 → 1.8 (强化 calibrated 拟合)。"""
         w = LossWeights()
         d = w.to_dict()
         assert d["shape"] == 2.0
         assert d["balance"] == 0.15
-        assert d["smooth"] == 0.04           # v2.9.1: 0.01 → 0.04
+        assert d["smooth"] == 0.04
         assert d["pb_distribution"] == 0.0
         assert d["anchor"] == 3.0
-        assert d["monotonic"] == 2.5         # v2.9.1: 1.5 → 2.5
-        assert d["target_fit"] == 1.0
-        assert d["endpoint"] == 1.5          # v2.9.1 新
+        assert d["monotonic"] == 2.5
+        assert d["target_fit"] == 1.8        # v2.10.2: 1.0 → 1.8
+        assert d["endpoint"] == 1.5
         assert d["aux"] == 0.2
         assert sum(d.values()) > 0
 

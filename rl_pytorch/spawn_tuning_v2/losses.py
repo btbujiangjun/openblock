@@ -71,8 +71,10 @@ class LossWeights:
     pb_distribution: float = 0.0
     anchor: float = 3.0          # κ
     monotonic: float = 2.5       # μ  v2.9.1: 1.5 → 2.5
-    target_fit: float = 1.0      # ν
-    endpoint: float = 1.5        # ξ  v2.9.1 新: 锁定头尾 bin 防甩飞
+    # v2.10.2: target_fit 1.0 → 1.8, 让模型更贴近 calibrated S 形
+    # 实测 job_19/20: target_fit 收敛到 0.01-0.012 (RMSE ≈ 0.1), 加大权重可压到 0.005
+    target_fit: float = 1.8      # ν
+    endpoint: float = 1.5        # ξ
 
     def to_dict(self) -> Dict[str, float]:
         return {

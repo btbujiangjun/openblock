@@ -147,11 +147,18 @@ def _eval_one_epoch(
             # v2.9 / v2.9.1
             "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0}
     curve_var_sum = 0.0  # v2.9.4: per-sample 预测曲线方差, 用于退化检测
+    calibrated_mae_sum = 0.0  # v2.10.2: 预测 vs 校准 target MAE (不受 state_offset 噪声干扰)
     p_reach_sums = {"reach_50": 0.0, "reach_80": 0.0, "reach_95": 0.0,
                     "reach_100": 0.0, "reach_120": 0.0, "reach_150": 0.0}
     curve_mae_sum = 0.0
     n_batches = 0
     n_samples = 0
+
+    # v2.10.2: 预计算 calibrated target tensor (业务命题 S 形, 不含 state_offset 噪声)
+    from .target_curve import target_curve_calibrated_vector
+    calibrated_target = torch.tensor(
+        target_curve_calibrated_vector(), dtype=torch.float32, device=device,
+    )  # shape (20,)
 
     for batch_np in val_ds.iter_batches(batch_size=batch_size, shuffle=False):
         batch = _to_torch_batch(batch_np, device)
@@ -183,8 +190,11 @@ def _eval_one_epoch(
         n_batches += 1
 
         # v2.9.4: per-sample 预测曲线方差 → 检测退化解 (全水平输出 var ≈ 0)
-        # std(d_curve over 20 bins) 然后跨 batch mean
         curve_var_sum += float(preds["curve"].std(dim=-1).mean().item())
+
+        # v2.10.2: 预测 vs calibrated target MAE (业务真实拟合度, 不受 state_offset 噪声干扰)
+        cal_diff = (preds["curve"] - calibrated_target.unsqueeze(0)).abs()
+        calibrated_mae_sum += float(cal_diff.mean().item())
 
         # v2.5: P_reach 业务指标 (累加平均)
         reach = p_reach_metrics(preds["curve"])
@@ -194,6 +204,7 @@ def _eval_one_epoch(
     metrics = {k: v / max(1, n_batches) for k, v in sums.items()}
     metrics["curve_mae"] = curve_mae_sum / max(1, n_samples)
     metrics["curve_var"] = curve_var_sum / max(1, n_batches)  # v2.9.4
+    metrics["calibrated_mae"] = calibrated_mae_sum / max(1, n_batches)  # v2.10.2
     for k, v in p_reach_sums.items():
         metrics[k] = v / max(1, n_batches)
     return metrics
@@ -215,7 +226,9 @@ def train(
     weights: Optional[LossWeights] = None,
     device_str: str = "cpu",
     val_ratio: float = 0.1,
-    early_stop_patience: int = 10,
+    # v2.10.2: patience 10 → 15, 实测 job_19/20 ResNet best ep=8 后 10 个 epoch 没改进就停了,
+    # 但 composite 实际只是平台震荡, 拉长后还能再降 0.01-0.02
+    early_stop_patience: int = 15,
     seed: int = 42,
     write_db_record: bool = False,
     model_type: str = "resnet",   # v2.9: "resnet" / "transformer"
@@ -311,6 +324,8 @@ def train(
             "val_endpoint": val_m.get("endpoint", 0.0),
             # v2.9.4 — 退化解检测指标
             "val_curve_var": val_m.get("curve_var", 0.0),
+            # v2.10.2 — 预测 vs calibrated target MAE (业务真实拟合度)
+            "val_calibrated_mae": val_m.get("calibrated_mae", 0.0),
             # v2.5: 业务级 P_reach 分布 (玩家到达 r=X 的累积概率)
             "reach_50":  val_m.get("reach_50",  0.0),
             "reach_80":  val_m.get("reach_80",  0.0),

@@ -1476,7 +1476,7 @@ async function _loadAndRenderMetrics(jobId, meta) {
                 <th style="text-align:right; padding:3px 6px;">改进 △</th>` : ''}
               </tr></thead>
               <tbody style="font-family: ui-monospace, monospace;">
-                ${['train_loss', 'val_loss', 'val_curve_mae', 'val_curve_var', 'val_anchor', 'val_monotonic', 'val_target_fit', 'val_endpoint', 'val_pb_distribution', 'val_balance', 'val_surprise', 'val_breaking']
+                ${['train_loss', 'val_loss', 'val_curve_mae', 'val_calibrated_mae', 'val_curve_var', 'val_anchor', 'val_monotonic', 'val_target_fit', 'val_endpoint', 'val_pb_distribution', 'val_balance', 'val_surprise', 'val_breaking']
                     .map((k) => {
                         const lastV = last[k];
                         const firstV = epochs[0][k];
@@ -1522,6 +1522,8 @@ const _METRIC_SUB_CHARTS = [
     { key: 'train_loss',          color: '#f87171', label: 'train_loss',          better: 'lower' },
     { key: 'val_loss',            color: '#60a5fa', label: 'val_loss',            better: 'lower' },
     { key: 'val_curve_mae',       color: '#34d399', label: 'val_curve_mae',       better: 'lower' },
+    // v2.10.2 — 预测 vs calibrated target MAE (业务真实拟合度, 不受 state_offset 噪声干扰)
+    { key: 'val_calibrated_mae',  color: '#a3e635', label: 'val_calibrated_mae',  better: 'lower' },
     // v2.9.4 — 退化解检测: 预测曲线 std, 越接近 0 越说明模型只输出水平线
     { key: 'val_curve_var',       color: '#10b981', label: 'val_curve_var',       better: 'higher' },
     { key: 'val_anchor',          color: '#fbbf24', label: 'val_anchor',          better: 'lower' },

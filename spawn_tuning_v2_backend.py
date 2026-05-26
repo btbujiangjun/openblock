@@ -949,6 +949,8 @@ def register_v2_routes(app):
                                 "val_endpoint": float(d.get("val_endpoint", 0)),
                                 # v2.9.4: 退化解检测
                                 "val_curve_var": float(d.get("val_curve_var", 0)),
+                                # v2.10.2: 预测 vs calibrated target MAE
+                                "val_calibrated_mae": float(d.get("val_calibrated_mae", 0)),
                                 # v2.5: 业务级 P_reach 指标 (玩家到达 r=X 累积概率)
                                 "reach_50":  float(d.get("reach_50",  0)),
                                 "reach_80":  float(d.get("reach_80",  0)),
