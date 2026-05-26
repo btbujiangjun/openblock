@@ -607,13 +607,13 @@ async function refreshSampleSets() {
             tbody.innerHTML = '<tr><td colspan="7" class="muted-hint">无样本集 — 在上方配置 chips + 启动采集</td></tr>';
             return;
         }
-        // v2.10: algo_version 徽章 — 'v2.9' = 老数据 (d_curve 平坦), 'v2.10' = PB-aware (S 形)
+        // v2.10.1: algo_version 徽章 — v2.9 老数据 ⚠, v2.10.x 都是 OK
         tbody.innerHTML = data.sample_sets.map((s) => {
             const av = s.algo_version || 'v2.10';
             const avBadge = av === 'v2.9'
                 ? '<span style="background:#7f1d1d; color:#fecaca; padding:1px 5px; border-radius:3px; font-size:10px;" title="老算法采样, d_curve 几乎水平, 不建议训练">⚠ v2.9</span>'
-                : av === 'v2.10'
-                ? '<span style="background:#064e3b; color:#a7f3d0; padding:1px 5px; border-radius:3px; font-size:10px;" title="PB-aware d_step, d_curve 有 S 形">✓ v2.10</span>'
+                : av.startsWith('v2.10')
+                ? `<span style="background:#064e3b; color:#a7f3d0; padding:1px 5px; border-radius:3px; font-size:10px;" title="PB-aware d_step, d_curve 有 S 形">✓ ${av}</span>`
                 : '';
             return `
             <tr>
@@ -1016,12 +1016,13 @@ async function refreshTrainingSampleSetOptions() {
         sel.innerHTML = sets.map((s) => {
             const sel_attr = prevSelected.has(String(s.set_id)) ? ' selected' : '';
             const statusBadge = s.status === 'completed' ? '✓' : '⏳';
-            // v2.10: 算法版本标签 — 让用户看到 [v2.9] 老数据 (会得到水平预测) vs [v2.10] 新数据
+            // v2.10.1: 算法版本标签 — v2.9 老数据 ⚠, v2.10.x 都是 OK
             const av = s.algo_version || 'v2.10';
-            const avTag = av === 'v2.9' ? ' [⚠v2.9 旧] ' : av === 'v2.10' ? ' [v2.10] ' : ' ';
+            const isV29 = av === 'v2.9';
+            const avTag = isV29 ? ' [⚠v2.9 旧] ' : ` [${av}] `;
             return `<option value="${s.set_id}"${sel_attr}>${statusBadge} #${s.set_id}${avTag}${escapeHtml(s.name)} (${s.sample_count || 0} 样本)</option>`;
         }).join('');
-        // v2.10: 顶部 banner 提醒 — 若全是 v2.9 老数据, 给出明确指引
+        // v2.10.1: 仅 v2.9 才算"老数据", v2.10/v2.10.1 都 OK
         const allV29 = sets.length > 0 && sets.every((s) => (s.algo_version || 'v2.10') === 'v2.9');
         const hint = $('job-hint');
         if (allV29 && hint && !hint.dataset.dismissedV29) {
