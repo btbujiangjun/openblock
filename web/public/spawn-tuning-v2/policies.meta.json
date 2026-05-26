@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "n_contexts": 360,
+  "generated_at": 1779794743,
+  "generated_at_iso": "2026-05-26T19:25:43",
+  "model_id": 22,
+  "model_sha256": "9cd86a070f9df41b31ec7e70d613ab305962f819ff445f1168a6aa35ffe77266",
+  "rollout_pct": 100,
+  "sha256": "f39cdb4259e37d29335ef1b43db2c5dd2a0037715248562012095c265389b4ae",
+  "average_curve_mae": 0.11150431944444443,
+  "build_mode": "model-inference-default-theta"
+}
