@@ -32,7 +32,7 @@
  */
 
 import { summarizeContributors } from './stressMeter.js';
-import { getShapeById } from './shapes.js';
+import { getShapeById, getShapeCategory } from './shapes.js';
 import { t } from './i18n/i18n.js';
 /* v1.58 §rewire：派生层 SSOT 接入。Chip override 状态从硬编码 (intent==='relief')
  * 改走表驱动 isSignalOverridden，新增 intent/signal 无需再改 DFV 渲染代码。
@@ -233,6 +233,10 @@ const SPAWN_REASON_CN = {
     'special-relief':    '送减压',
     'special-pressure':  '送加压',
     'special-monoFlush': '送同花',   /* L2 注入路径，同义同色 */
+    /* v1.62 兜底降级标签：spawnDiagnostics.chosen 缺失（首轮 / 帧间空窗 / panel
+     * 打开早于首次出块）时，DFV 从 game.dockBlocks 重建简化 chosen，
+     * 用 'pending' reason 表示「当前 dock，但无算法解释」。 */
+    pending:      '当前块',
 };
 
 /**
@@ -242,6 +246,7 @@ const SPAWN_REASON_CN = {
  */
 const SPAWN_REASON_TIP = {
     clear:        '送消行：本块放下后能直接消 1+ 行（消行候选优先路径）',
+    pending:      '当前块（兜底显示）：spawnDiagnostics.chosen 尚未就绪（首轮 / panel 打开早于首次出块），DFV 暂用 game.dockBlocks 重建显示——id 与 category 真实，但无 reason / topDriver 等算法解释；下次出块决策完成后会自动切换到完整诊断',
     perfectClear: '送清屏：本块能促成全盘清空（perfectClear 候选优先路径，特殊块·100%优先）',
     monoFlush:    '送同花：本块可凑同花顺消除——放下后整行/列同 icon，触发 ×5 倍 iconBonus 大奖（特殊块·25%彩蛋节流）',
     weighted:     '综合选：5 hints + 6 targets + 4 schedule 多维加权抽选（主流路径）',
@@ -2914,7 +2919,30 @@ class DecisionFlowViz {
     _renderChosenShapes(insight) {
         if (!this._chosenShapeEls?.length) return;
         const diag = insight?.spawnDiagnostics || {};
-        const chosen = Array.isArray(diag.chosen) ? diag.chosen : [];
+        let chosen = Array.isArray(diag.chosen) ? diag.chosen : [];
+
+        /* v1.62 降级兜底：spawnDiagnostics.chosen 缺失时从 game.dockBlocks 重建。
+         * 触发场景：① panel 在首次出块前打开（_lastDiagnostics 还是 null）；
+         *           ② _captureAdaptiveInsight 与 _commitSpawn 间的几毫秒帧间空窗；
+         *           ③ spawn 流程异常但 dock 已渲染（理论不该发生但容错）。
+         *
+         * 用户反馈"决策数据流降级太狠，默认无数据输出"——根因是 chosen=[] 时
+         * 3 个圆圈直接显示 "—" 占位，玩家明明能在 dock 看到 3 块却感觉 DFV"瞎了"。
+         * 此处兜底：至少把当前 dock 的 id + category 投到节点上，reason='pending'
+         * 让节点用 SHAPE_CATEGORY_COLOR 上色 + mini grid 显示形状，
+         * 体感与 dock 视觉一致；缺失的 topDriver/audit 字段下次完整 spawn 后自动填上。 */
+        if (chosen.length === 0) {
+            const dockBlocks = Array.isArray(this._game?.dockBlocks) ? this._game.dockBlocks : [];
+            if (dockBlocks.length > 0) {
+                chosen = dockBlocks.slice(0, 3).map(b => ({
+                    id: b?.id,
+                    category: b?.id ? getShapeCategory(b.id) : undefined,
+                    reason: 'pending',
+                    topDriver: null,
+                }));
+            }
+        }
+
         const attempt = Number.isFinite(diag.attempt) ? diag.attempt : 0;
         const attemptNorm = _clamp(1 - attempt / 22, 0, 1);
         /* v1.59.21 方案 C：缓存 attemptNorm + insight，供 hover 反向高亮模式 mouseleave 后恢复 */
