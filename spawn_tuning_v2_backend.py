@@ -1669,6 +1669,17 @@ def register_v2_routes(app):
             return jsonify({"error": f"failed to write policies.json: {e}"}), 500
 
         # 4) 复用 export_bundle 写 web/public + miniprogram
+        # 注意：bundle.theta 必须写成「dict」形式（按 THETA_KEYS 反归一化），
+        # 而非 normalized [0,1] 数组——客户端 clientPolicyV2.resolveThetaV2
+        # 用 `{ ...DEFAULT_THETA_V2, ...p.theta }` spread 模式覆盖默认值；
+        # 若 p.theta 是数组，spread 后只会得到 {0: ..., 1: ...} 键，无法覆盖 DEFAULT_THETA_V2 的字段名，
+        # 导致灰度部署不生效（badge 显示「规则」而非「寻参」）。
+        try:
+            from rl_pytorch.spawn_tuning_v2.feature_io import (
+                denormalize_theta as _denorm,
+            )
+        except Exception:
+            _denorm = None
         bundle = {
             "format": "openblock-spawn-tuning-v2-bundle",
             "version": "2.0.0",
@@ -1681,7 +1692,7 @@ def register_v2_routes(app):
                 {
                     "context_key": p["context_key"],
                     "context": p["context"],
-                    "theta": p["theta_norm"],
+                    "theta": (_denorm(p["theta_norm"]) if _denorm else p["theta_norm"]),
                     "predicted_curve": p["predicted_curve"],
                     "expected": p["expected"],
                 }

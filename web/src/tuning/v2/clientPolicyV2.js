@@ -49,6 +49,51 @@ let _generatedAt = 0;
 let _loadedFrom = '';          // 'bundle' / 'server' / 'none'
 let _stats = { hits: 0, fuzzy: 0, coarse: 0, gateOut: 0, fallback: 0 };
 
+// 与 rl_pytorch/spawn_tuning_v2/feature_io.THETA_KEYS 严格同序；
+// 用于兼容老 bundle（theta 字段是 normalized [0,1] 数组而非 dict）。
+const THETA_KEYS_ORDER = [
+    'personalizationStrength',
+    'temperature',
+    'surpriseBudgetGain',
+    'surpriseCooldown',
+    'maxEvaluatedTriplets',
+    'pbTensionCenter',
+    'pbTensionWidth',
+    'pbBrakeCenter',
+    'pbBrakeWidth',
+];
+// 反归一化范围，必须与 feature_io.THETA_RANGES 严格一致。
+const THETA_RANGES = Object.freeze({
+    personalizationStrength: [0.05, 0.18],
+    temperature: [0.03, 0.08],
+    surpriseBudgetGain: [0.05, 0.10],
+    surpriseCooldown: [4, 10],
+    maxEvaluatedTriplets: [32, 128],
+    pbTensionCenter: [0.70, 0.92],
+    pbTensionWidth: [0.04, 0.15],
+    pbBrakeCenter: [0.98, 1.15],
+    pbBrakeWidth: [0.03, 0.12],
+});
+
+/**
+ * 兼容老 bundle：把 normalized [0,1] 数组反归一化为 dict。
+ * 新 bundle 直接是 dict 时原样返回。
+ */
+function _normalizeThetaShape(theta) {
+    if (!theta) return null;
+    if (Array.isArray(theta)) {
+        const out = {};
+        for (let i = 0; i < THETA_KEYS_ORDER.length; i++) {
+            const k = THETA_KEYS_ORDER[i];
+            const [lo, hi] = THETA_RANGES[k];
+            const norm = Number.isFinite(theta[i]) ? theta[i] : 0.5;
+            out[k] = norm * (hi - lo) + lo;
+        }
+        return out;
+    }
+    return theta;
+}
+
 
 // ─────────── Public API ───────────
 
@@ -71,20 +116,30 @@ export function installPoliciesV2(bundle) {
 
     for (const p of bundle.policies) {
         if (!p?.context_key || !p?.theta) continue;
-        _policiesByCtx.set(p.context_key, p);
+        // 兼容老 bundle 的 normalized 数组：反归一化为 dict 后存储。
+        // 新 bundle 已经是 dict，原样保留。
+        const normalized = { ...p, theta: _normalizeThetaShape(p.theta) };
+        _policiesByCtx.set(p.context_key, normalized);
         const parts = p.context_key.split(':');
         if (parts.length >= 4) {
             const fuzzy = `${parts[0]}:${parts[1]}:${parts[2]}:${parts[3]}:*`;
-            if (!_fuzzyIndex.has(fuzzy)) _fuzzyIndex.set(fuzzy, p);
+            if (!_fuzzyIndex.has(fuzzy)) _fuzzyIndex.set(fuzzy, normalized);
             const coarse = `${parts[0]}:${parts[1]}:*:*:*`;
-            if (!_coarseIndex.has(coarse)) _coarseIndex.set(coarse, p);
+            if (!_coarseIndex.has(coarse)) _coarseIndex.set(coarse, normalized);
         }
     }
-    return {
+    const result = {
         installed: _policiesByCtx.size,
         rollout_pct: _rolloutPct,
         model_sha: _modelSha,
     };
+    // 异步加载完成事件：spawnModelPanel 等 UI 订阅以即时刷新「规则/寻参」badge。
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        try {
+            window.dispatchEvent(new CustomEvent('openblock:spawn-param-tuner-installed', { detail: result }));
+        } catch { /* ignore CustomEvent unavailable */ }
+    }
+    return result;
 }
 
 

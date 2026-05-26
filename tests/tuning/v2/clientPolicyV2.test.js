@@ -264,3 +264,100 @@ describe('initClientPolicyV2', () => {
         expect(r.source).toBe('inline');
     });
 });
+
+
+// ─────────── 兼容老 bundle: theta 是 normalized 数组而非 dict ───────────
+
+describe('theta shape 兼容性（老 bundle 是 9 元素 normalized 数组）', () => {
+    it('数组 [0.5×9] 应按 THETA_KEYS 顺序反归一化为 dict 并覆盖 DEFAULT', () => {
+        // 0.5 normalized = 各 ranges 的中点
+        installPoliciesV2({
+            policies: [{
+                context_key: 'easy:budget-p2:random:500:growth',
+                theta: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+                predicted_curve: Array(20).fill(0.5),
+            }],
+            rollout_pct: 100,
+        });
+        const r = resolveThetaV2({
+            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            pb_bin: 500, lifecycle_stage: 'growth',
+        });
+        expect(r.source).toBe('exact');
+        // 验证关键 θ 字段被覆盖（不再是 DEFAULT_THETA_V2 的值）
+        expect(r.theta.pbTensionCenter).toBeCloseTo(0.81, 2);  // (0.70+0.92)/2 = 0.81
+        expect(r.theta.pbBrakeCenter).toBeCloseTo(1.065, 2);   // (0.98+1.15)/2 = 1.065
+        expect(r.theta.temperature).toBeCloseTo(0.055, 3);     // (0.03+0.08)/2 = 0.055
+        // 验证返回的 theta 不含 0/1/2... 等数字下标键（数组 spread 残留）
+        expect(r.theta[0]).toBeUndefined();
+        expect(r.theta[8]).toBeUndefined();
+    });
+
+    it('数组 [1×9] 边界 normalized=1 应映射到 ranges 上界', () => {
+        installPoliciesV2({
+            policies: [{
+                context_key: 'easy:budget-p2:random:500:growth',
+                theta: [1, 1, 1, 1, 1, 1, 1, 1, 1],
+                predicted_curve: Array(20).fill(0.5),
+            }],
+            rollout_pct: 100,
+        });
+        const r = resolveThetaV2({
+            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            pb_bin: 500, lifecycle_stage: 'growth',
+        });
+        expect(r.theta.pbTensionCenter).toBeCloseTo(0.92, 3);
+        expect(r.theta.pbBrakeWidth).toBeCloseTo(0.12, 3);
+    });
+
+    it('dict 形式 theta 应原样保留，不被误反归一化', () => {
+        installPoliciesV2({
+            policies: [{
+                context_key: 'easy:budget-p2:random:500:growth',
+                theta: { pbTensionCenter: 0.85, temperature: 0.04 },
+                predicted_curve: Array(20).fill(0.5),
+            }],
+            rollout_pct: 100,
+        });
+        const r = resolveThetaV2({
+            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            pb_bin: 500, lifecycle_stage: 'growth',
+        });
+        expect(r.theta.pbTensionCenter).toBeCloseTo(0.85);
+        expect(r.theta.temperature).toBeCloseTo(0.04);
+        // 未提供的字段 fallback 到 DEFAULT_THETA_V2
+        expect(r.theta.pbBrakeCenter).toBeCloseTo(DEFAULT_THETA_V2.pbBrakeCenter);
+    });
+});
+
+
+// ─────────── install 完成事件（spawnModelPanel badge 同步用）───────────
+
+describe('installPoliciesV2 异步通知', () => {
+    it('install 成功后 dispatch openblock:spawn-param-tuner-installed 事件', () => {
+        const listener = vi.fn();
+        globalThis.window = globalThis.window || {};
+        const handler = (e) => listener(e.detail);
+        if (typeof window.addEventListener === 'function') {
+            window.addEventListener('openblock:spawn-param-tuner-installed', handler);
+        }
+        try {
+            installPoliciesV2({
+                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                rollout_pct: 100,
+                model_sha256: 'sha-test',
+            });
+            if (typeof window.addEventListener === 'function') {
+                expect(listener).toHaveBeenCalledOnce();
+                const detail = listener.mock.calls[0][0];
+                expect(detail.installed).toBe(1);
+                expect(detail.rollout_pct).toBe(100);
+                expect(detail.model_sha).toBe('sha-test');
+            }
+        } finally {
+            if (typeof window.removeEventListener === 'function') {
+                window.removeEventListener('openblock:spawn-param-tuner-installed', handler);
+            }
+        }
+    });
+});

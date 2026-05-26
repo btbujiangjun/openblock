@@ -153,9 +153,13 @@ export function initSpawnModelPanel(game) {
         if (r.value === currentMode) r.checked = true;
     });
 
-    // 初始化时立即刷新一次 θ 来源 badge（policies.json 可能此时还没加载完，
-    // 加载完后由 _refreshLayerParams 周期性同步覆盖）。
+    // 初始化时立即刷新一次 θ 来源 badge（policies.json 可能此时还没加载完）。
     _refreshPolicySourceBadge();
+    // 订阅 SpawnParamTuner 异步 install 完成事件，立即翻牌为「寻参」。
+    // 详见 web/src/tuning/v2/clientPolicyV2.js · installPoliciesV2 末尾的 dispatch。
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('openblock:spawn-param-tuner-installed', _refreshPolicySourceBadge);
+    }
 
     radios.forEach((r) => {
         r.addEventListener('change', () => {
