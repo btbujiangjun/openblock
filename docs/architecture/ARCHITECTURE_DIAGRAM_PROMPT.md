@@ -69,8 +69,8 @@ docs/           分层文档中心
 tests/          88 测试文件 / 1306 用例
 ```
 
-后端入口三件套：`server.py`（核心 Flask）、`monetization_backend.py`
-（Blueprint `/api/mon/*`）、`rl_backend.py`（可选 `/api/rl/*`）。
+后端入口三件套：`server.py`（核心 Flask）、`backend/monetization_backend.py`
+（Blueprint `/api/mon/*`）、`backend/rl_backend.py`（可选 `/api/rl/*`）。
 
 ## 2.2 前端五层架构（Layer 1 → Layer 5，自底向上）
 
@@ -161,7 +161,7 @@ game.spawnBlocks()
 | 浏览器端（实时） | `web/src/bot/linearAgent.js + trainer.js + simulator.js` | 线性 REINFORCE + 价值基线 |
 | Python 端（离线） | `rl_pytorch/{train,model,features,simulator}.py` 或 `rl_mlx/` | 残差 MLP + DockBoardAttention + GAE + 直接监督头 + 课程学习 |
 
-通过 Flask `rl_backend.py`（`/api/rl/*`）暴露给浏览器；
+通过 Flask `backend/rl_backend.py`（`/api/rl/*`）暴露给浏览器；
 共享数据源：`shared/game_rules.json` + `shared/shapes.json`。
 
 ## 2.7 后端路由分组
@@ -171,13 +171,13 @@ game.spawnBlocks()
 `/api/move-sequence` `/api/client/*` `/api/export` `/api/health`
 `/api/spawn-model/v3/*` `/docs`
 
-`monetization_backend.py`（Blueprint）：`/api/mon/user-profile/<userId>`
+`backend/monetization_backend.py`（Blueprint）：`/api/mon/user-profile/<userId>`
 `/api/mon/aggregate` `/api/mon/model/config` `/api/mon/strategy/log`
 
-`rl_backend.py`：`/api/rl/status` `/api/rl/select_action`
+`backend/rl_backend.py`：`/api/rl/status` `/api/rl/select_action`
 `/api/rl/train_episode` `/api/rl/save` `/api/rl/load` `/api/rl/training_log`
 
-`enterprise_extensions.py`：`/api/enterprise/remote-config`
+`backend/enterprise_extensions.py`：`/api/enterprise/remote-config`
 `/api/payment/verify` `/api/enterprise/ad-impression`
 `/api/enterprise/experiments` `/api/enterprise/live-ops` `/api/compliance/*`
 
@@ -263,8 +263,8 @@ game.spawnBlocks()
 
 ## 图 5：后端路由 + 数据持久化图
 
-- 三个 Flask 入口：`server.py` / `monetization_backend.py` / `rl_backend.py`
-  + `enterprise_extensions.py`
+- 三个 Flask 入口：`server.py` / `backend/monetization_backend.py` / `backend/rl_backend.py`
+  + `backend/enterprise_extensions.py`
 - 每个入口下列出 §2.7 的代表性路由（不必全列，按分组聚合）
 - 路由 → SQLite 表的写读关系（§2.8）
 - 微服务（user / game / analytics / monitoring + nginx + Postgres + Redis）

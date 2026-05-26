@@ -110,7 +110,7 @@ sessionTimeNorm= min(1, avg_session_sec / 600)
 默认权重：w0=0.40, w1=0.30, w2=0.30
 ```
 
-代码：`monetization_backend.py` `_compute_user_profile`：
+代码：`backend/monetization_backend.py` `_compute_user_profile`：
 
 ```python
 best_score_norm  = min(1.0, best_score / 2000.0)
@@ -801,7 +801,7 @@ $$
 
 ### 12.5 活跃度
 
-来源：`monetization_backend.py` `_compute_user_profile`。
+来源：`backend/monetization_backend.py` `_compute_user_profile`。
 
 ```
 activityScore = 0.6 · min(1, recent_7d_games / 7) + 0.4 · (recent_7d_games > 0 ? 1 : 0)

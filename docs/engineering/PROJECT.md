@@ -29,8 +29,8 @@
 - **特征**：`features.py` 与 `web/src/bot/features.js` 对齐；状态 ψ 为棋盘统计/颜色摘要 + 棋盘占用（maxGridWidth²）+ 待选块形状掩码（dockSlots×dockMaskSide²），动作特征含放置位置、消行、多消、同 icon/同色 bonus 和清屏潜力；维度见 `shared/game_rules.json` 的 `featureEncoding`。
 - **模型**：`model.py` 为策略/价值**残差 MLP**（Pre-LN + GELU）；split 双塔对 φ(s,a) 打分、shared 主干对 ψ(s) 与动作嵌入融合；对 ψ(s) 输出 V(s)。CLI/`RL_*` 默认隐层 **256**、深度 **4**、`--arch shared`（旧 checkpoint 可能为 384/双塔，以 meta 为准）；**旧 checkpoint（22 维 φ）与新版不兼容，须重训**。
 - **设备**：`python -m rl_pytorch.train --device auto|mps|cuda|cpu`。`auto` 在 **macOS 上优先 MPS**，其他系统为 CUDA → MPS → CPU。Flask `RL_DEVICE` 与 `rl_pytorch/device.py` 逻辑一致；可选 `PYTORCH_ENABLE_MPS_FALLBACK=1`。**MPS 吞吐**：`apply_throughput_tuning`（`set_float32_matmul_precision('high')`）与 `adam_for_training`（优先 `foreach=True`）在 `train.py` 与 `rl_backend` 初始化时启用；`RL_MPS_SYNC=1` 仅用于多线程/调试，默认关闭以利吞吐（见 `.env.example`）。
-- **训练**：REINFORCE + 价值基线（`smooth_l1`）；`train.py` 默认 GAE；checkpoint 含 `model`/`optimizer`/`episodes`。浏览器与 `rl_backend` 可用 **`RL_RETURN_SCALE`**（默认 `0.032`）缩放蒙特卡洛回报以稳定价值头、减弱 Lv 尖峰；**`RL_ENTROPY_DECAY_EPISODES` / `RL_ENTROPY_COEF_MIN`** 对熵系数做线性衰减。详见 `rl_backend.py` 文件头与 `.env.example`。
-- **浏览器对接**：Flask `rl_backend.py` 提供 `/api/rl/status`、`/api/rl/select_action`、`/api/rl/train_episode`、`/api/rl/save`、`/api/rl/load`、**`/api/rl/training_log`**（查询 `training.jsonl` 最近条目）。默认 **`RL_AUTOLOAD=1`**：若 `RL_CHECKPOINT_SAVE`（默认 `rl_checkpoints/bb_policy.pt`）已存在则**自动热加载**；`RL_SAVE_EVERY`（默认每 **100** 局）定期写回同路径，减少 I/O；**`RL_TRAINING_LOG`**（默认 `rl_checkpoints/training.jsonl`）追加 JSONL：服务启动、每局训练损失、每次 checkpoint。
+- **训练**：REINFORCE + 价值基线（`smooth_l1`）；`train.py` 默认 GAE；checkpoint 含 `model`/`optimizer`/`episodes`。浏览器与 `rl_backend` 可用 **`RL_RETURN_SCALE`**（默认 `0.032`）缩放蒙特卡洛回报以稳定价值头、减弱 Lv 尖峰；**`RL_ENTROPY_DECAY_EPISODES` / `RL_ENTROPY_COEF_MIN`** 对熵系数做线性衰减。详见 `backend/rl_backend.py` 文件头与 `.env.example`。
+- **浏览器对接**：Flask `backend/rl_backend.py` 提供 `/api/rl/status`、`/api/rl/select_action`、`/api/rl/train_episode`、`/api/rl/save`、`/api/rl/load`、**`/api/rl/training_log`**（查询 `training.jsonl` 最近条目）。默认 **`RL_AUTOLOAD=1`**：若 `RL_CHECKPOINT_SAVE`（默认 `rl_checkpoints/bb_policy.pt`）已存在则**自动热加载**；`RL_SAVE_EVERY`（默认每 **100** 局）定期写回同路径，减少 I/O；**`RL_TRAINING_LOG`**（默认 `rl_checkpoints/training.jsonl`）追加 JSONL：服务启动、每局训练损失、每次 checkpoint。
 
 ## 行为与后端契约
 
@@ -69,7 +69,7 @@
 | `commercialInsight.js` | 将商业策略区块注入玩家画像面板 `#player-insight-panel` |
 | `monPanel.js` | 右下角「商业化训练面板」浮层（总览/画像/模型配置/Flag 开关） |
 
-**后端**：`monetization_backend.py`（Flask Blueprint）提供 `/api/mon/*` 路由：  
+**后端**：`backend/monetization_backend.py`（Flask Blueprint）提供 `/api/mon/*` 路由：  
 `GET /api/mon/user-profile/<userId>`、`GET /api/mon/aggregate`、  
 `GET|PUT /api/mon/model/config`、`POST /api/mon/strategy/log`。
 

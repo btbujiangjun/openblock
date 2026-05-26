@@ -436,7 +436,7 @@ flowchart LR
 ```
 
 **解读**：
-- **算法家族**：主路径 **PPO + GAE**（`rl_pytorch/train.py` + `rl_backend.py`）；MLX 路径 **REINFORCE + value baseline**；DQN/SAC **未采用**；MCTS / AlphaZero **可选**。
+- **算法家族**：主路径 **PPO + GAE**（`rl_pytorch/train.py` + `backend/rl_backend.py`）；MLX 路径 **REINFORCE + value baseline**；DQN/SAC **未采用**；MCTS / AlphaZero **可选**。
 - **主干 ≠ Transformer**：Gameplay RL 用 `ConvSharedPolicyValueNet`（CNN + DockBoardAttention + DockPointEncoder）；TransformerEncoder **仅** SpawnV3 用，两者完全解耦。
 - **多任务头**：5 个辅助头与 policy/value 共享主干，做联合监督，提升样本利用率。
 - **探索**：softmax 温度 + Dirichlet 噪声（**非** ε-greedy）。

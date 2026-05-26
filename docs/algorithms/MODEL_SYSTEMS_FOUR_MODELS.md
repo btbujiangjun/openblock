@@ -1132,7 +1132,7 @@ RL 模型主要用于：
 
 ### PyTorch RL
 
-- `rl_backend.py`
+- `backend/rl_backend.py`
 - `rl_pytorch/model.py`
 - `rl_pytorch/train.py`
 - `rl_pytorch/features.py`

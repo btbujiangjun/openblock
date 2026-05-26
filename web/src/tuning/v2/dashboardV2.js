@@ -1314,22 +1314,22 @@ function recommendTrainingParams(allSets) {
         hint = '大数据集 (≥ 100K), 用大 batch 加快训练';
     }
     if (modelType === 'transformer') {
-        lr = 1e-3;  // Transformer 对 LR 敏感
-        hint += ' · Transformer 用 lr=1e-3 (避免退化解)';
+        lr = 0.001;  // Transformer 对 LR 敏感
+        hint += ' · Transformer 用 lr=0.001 (避免退化解)';
     } else {
-        lr = 5e-3;
-        hint += ' · ResNet 用 lr=5e-3';
+        lr = 0.005;
+        hint += ' · ResNet 用 lr=0.005';
     }
 
     // 应用 (仅当用户没手动改过时, 通过 dataset.dirty 标记跟踪)
     const fields = [
         ['job-epochs', epochs], ['job-batch', batchSize], ['job-lr', lr],
     ];
-    // patience 通过 backend 默认 15 控制; UI 暂无字段
     fields.forEach(([id, val]) => {
         const el = $(id);
         if (el && !el.dataset.userDirty) {
-            el.value = val;
+            // v2.10.13: LR 等数值统一显示普通小数 (避免 0.001 被某些浏览器显示为 1e-3)
+            el.value = (id === 'job-lr') ? String(val) : val;
             // 第一次设置后, 监听 input 标记 dirty
             if (!el.dataset.g3Bound) {
                 el.addEventListener('input', () => { el.dataset.userDirty = '1'; });
@@ -2645,12 +2645,13 @@ function bindEvents() {
         mtSel.addEventListener('change', () => {
             const isTransformer = mtSel.value === 'transformer';
             const current = Number(lrInput.value);
+            // v2.10.13: 不用科学计数法 (用户不熟悉, 显示 0.001 / 0.005)
             if (isTransformer && current > 5e-3) {
-                lrInput.value = '1e-3';
-                $('job-hint').innerHTML = '<span style="color:var(--muted)">Transformer 默认 lr 已切换到 1e-3 (Transformer 对 LR 敏感)</span>';
+                lrInput.value = '0.001';
+                $('job-hint').innerHTML = '<span style="color:var(--muted)">Transformer 默认 lr 已切换到 0.001 (Transformer 对 LR 敏感)</span>';
             } else if (!isTransformer && current < 5e-3) {
-                lrInput.value = '5e-3';
-                $('job-hint').innerHTML = '<span style="color:var(--muted)">ResNet 默认 lr 已切换到 5e-3</span>';
+                lrInput.value = '0.005';
+                $('job-hint').innerHTML = '<span style="color:var(--muted)">ResNet 默认 lr 已切换到 0.005</span>';
             }
             // G10 v2.10.10: 显示/隐藏 .tx-only 标签 (grid auto-fit 自动重排)
             document.querySelectorAll('.tx-only').forEach((el) => {

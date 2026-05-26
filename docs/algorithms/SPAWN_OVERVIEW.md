@@ -77,7 +77,7 @@
 | `spawnHints` | L1 规则版软目标 | L1 内部 | 字典 | 见 `SPAWN_ALGORITHM.md §2.5.2` |
 | `spawnTargets` | stress 投影多轴目标 | L1 内部 | 6 | 见 `ADAPTIVE_SPAWN.md` |
 | `Policies bundle` | 部署包 | L2 → L1 | 360 条 | `web/public/spawn-tuning-v2/policies.json`（URL 保留 v2 历史路径） |
-| `field_metrics` | 真实玩家上报闭环 | L2 反馈 | 表 | `spawn_tuning_v2_backend.py · field_metrics 表` |
+| `field_metrics` | 真实玩家上报闭环 | L2 反馈 | 表 | `backend/spawn_tuning_v2_backend.py · field_metrics 表` |
 
 > ⚠️ **历史名称**（仅在 git log / 老文档归档中可能见到，仓库代码已彻底清除）：
 > `SpawnTransformerV3` / `SpawnTransformerV3.1`（→ `SpawnPolicyNet`）、`SpawnTuningResNetMLP`（→ `SpawnParamTunerResNet`）、`SpawnTuningTransformer`（→ `SpawnParamTunerTransformer`）、`getSpawnMode`（→ `getSpawnPolicyMode`）、`SPAWN_GENERATOR_*`（→ `SPAWN_POLICY_RULES*`）、`DEFAULT_PB_CURVE_PARAMS`（→ `DEFAULT_SPAWN_PARAMS_PB_CURVE`）。  

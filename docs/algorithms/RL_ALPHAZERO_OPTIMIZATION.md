@@ -168,7 +168,7 @@ buffer 未满 → 返回 {buffered: true}，不做梯度更新
 buffer 满（默认 32 局）→ 执行批量 PPO（3 epochs）→ 返回 loss
 ```
 
-**实现**（`rl_backend.py`）：
+**实现**（`backend/rl_backend.py`）：
 - `_convert_episode_for_ppo()`：将 Flask 数据转为 `train.py` 格式，包括计算 `old_log_prob`
 - `_flush_replay_buffer()`：调用 `train.py` 的 `_reevaluate_and_update` 做真正的 PPO 更新
 - 新端点 `/api/rl/flush_buffer`：手动触发 buffer 刷新
@@ -548,7 +548,7 @@ RL_EVAL_GATE_HARD=1 python -m rl_pytorch.train
 | 文件 | 变更类型 | 主要内容 |
 |------|----------|----------|
 | `shared/game_rules.json` | 参数调整 | outcome_mix, 课程, 势函数, 奖惩信号 |
-| `rl_backend.py` | 重大改进 | replay buffer, batch PPO, eval_values, flush_buffer |
+| `backend/rl_backend.py` | 重大改进 | replay buffer, batch PPO, eval_values, flush_buffer |
 | `rl_pytorch/train.py` | 重大改进 | 1-step lookahead (\_lookahead\_q\_values), Dirichlet 默认开启 |
 | `rl_pytorch/simulator.py` | 功能增强 | save_state/restore_state |
 | `web/src/bot/simulator.js` | 功能增强 | saveState/restoreState |

@@ -42,7 +42,7 @@
 | `ad_interstitial_shown` | 插屏展示 |
 | `iap_purchase` | 内购成功（客户端上报补充） |
 
-服务端广告占位表：`ad_impressions`（见 `enterprise_extensions.py`、`ENTERPRISE_EXTENSIONS.md`）。
+服务端广告占位表：`ad_impressions`（见 `backend/enterprise_extensions.py`、`ENTERPRISE_EXTENSIONS.md`）。
 
 ## 生命周期 / 成熟度事件（v1.1）
 

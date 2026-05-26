@@ -86,13 +86,18 @@
       color: var(--muted); }
     .form-row input, .form-row select { height: 28px; font-size: 12px;
       font-family: ui-monospace, monospace; width: 100%; box-sizing: border-box; }
-    /* v2.10.11: 收窄数字 / 紧凑下拉, 让 transformer 11 个参数能一行容纳 */
-    .form-row label.narrow { max-width: 100px; }
+    /* v2.10.13: 进一步收窄数字 / 紧凑下拉, 让 transformer 11 个参数能一行容纳 */
+    .form-row label.narrow { max-width: 80px; }
     .form-row label.narrow input,
     .form-row label.narrow select { font-size: 11px; padding: 0 4px; }
     .form-row input[type="number"] {
-      /* 浏览器原生 number 输入更紧凑 (含 spin button) */
       min-width: 0;
+      /* 隐藏 Chrome/Safari 的 spinner 按钮, 进一步省空间 */
+      -moz-appearance: textfield;
+    }
+    .form-row input[type="number"]::-webkit-outer-spin-button,
+    .form-row input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none; margin: 0;
     }
     .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
       margin: 8px 0 2px; }
@@ -478,7 +483,10 @@
           </label>
           <label class="narrow">Epochs<input id="job-epochs" type="number" value="50"></label>
           <label class="narrow">Batch Size<input id="job-batch" type="number" value="256"></label>
-          <label class="narrow">Learning Rate<input id="job-lr" type="number" step="0.0001" value="0.001"></label>
+          <!-- v2.10.13: type=text 避免浏览器把 0.001/0.005 显示成 1e-3/5e-3 (科学计数法);
+               提交时 JS 用 Number() 解析, 仍支持 0.001 / 1e-3 等多种格式输入 -->
+          <label class="narrow">Learning Rate<input id="job-lr" type="text" inputmode="decimal"
+                 pattern="[0-9.eE+\-]+" value="0.001" placeholder="0.001"></label>
           <label class="narrow" title="鼠标悬停 option 看详情;不可用的硬件灰色 disabled">Device
             <select id="job-device">
               <option value="cpu">…</option>

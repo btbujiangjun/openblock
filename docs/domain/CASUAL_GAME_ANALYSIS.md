@@ -108,7 +108,7 @@ P(t) 的代理变量即上文的 **skillLevel**。
 
 | 方法论 | 描述 | 在本项目中的对应 |
 |--------|------|------------------|
-| **玩家分群（Segmentation）** | Bartle 四类型或 K-Means 聚类 | ✅ 已实现 Whale/Dolphin/Minnow 三级分群（`monetization_backend.py`，基于最高分×0.4 + 总局数×0.3 + 时长×0.3） |
+| **玩家分群（Segmentation）** | Bartle 四类型或 K-Means 聚类 | ✅ 已实现 Whale/Dolphin/Minnow 三级分群（`backend/monetization_backend.py`，基于最高分×0.4 + 总局数×0.3 + 时长×0.3） |
 | **自我决定论（SDT）** | 自主性、胜任感、归属感 | 出块策略让玩家保持「胜任感」，difficulty选择提供「自主性」 |
 | **协同过滤** | 基于相似玩家推荐关卡/道具 | 本项目为单人、无关卡系统，暂无需求 |
 | **实时个性化参数** | 基于实时画像动态调参 | 正是 `adaptiveSpawn` 做的事 |
@@ -230,7 +230,7 @@ P(t) 的代理变量即上文的 **skillLevel**。
 
 | # | 改进项 |
 |---|--------|
-| 8 | 显式玩家分群（已实现：Whale/Dolphin/Minnow，基于 whale_score 加权计算，见 `monetization_backend.py`） |
+| 8 | 显式玩家分群（已实现：Whale/Dolphin/Minnow，基于 whale_score 加权计算，见 `backend/monetization_backend.py`） |
 | 9 | A/B 分桶框架 + 留存/时长指标自动回收 |
 | 10 | RL 模型增加 attention on dock slots |
 

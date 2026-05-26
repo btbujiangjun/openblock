@@ -29,9 +29,9 @@
 
 | 位置 | 改动 |
 |------|------|
-| `rl_backend.py` | `RL_RETURNS_CLIP`（默认 ±512）裁剪单局 MC 回报，再算 `value_loss`。 |
-| `rl_backend.py` | 单局 **`_rl_train_episode_inner`**：若 POST 步含 **`q_teacher`**，叠加 **Q 蒸馏**；`training.jsonl` 可记录 **`loss_q_distill`、`q_distill_coef`、`teacher_q_coverage`**（与批量 flush 字段对齐）。 |
-| `rl_backend.py` | `_loss_scalar_for_log`：写入 `training.jsonl` 与 API 的 `loss_policy` / `loss_value` 做 **有限性检查** 与 **`RL_LOG_LOSS_CLIP`（默认 1e6）** 幅值上限。 |
+| `backend/rl_backend.py` | `RL_RETURNS_CLIP`（默认 ±512）裁剪单局 MC 回报，再算 `value_loss`。 |
+| `backend/rl_backend.py` | 单局 **`_rl_train_episode_inner`**：若 POST 步含 **`q_teacher`**，叠加 **Q 蒸馏**；`training.jsonl` 可记录 **`loss_q_distill`、`q_distill_coef`、`teacher_q_coverage`**（与批量 flush 字段对齐）。 |
+| `backend/rl_backend.py` | `_loss_scalar_for_log`：写入 `training.jsonl` 与 API 的 `loss_policy` / `loss_value` 做 **有限性检查** 与 **`RL_LOG_LOSS_CLIP`（默认 1e6）** 幅值上限。 |
 | `rl_pytorch/train.py` | `RL_VALUE_TARGET_CLIP`（默认 512）裁剪批量路径上用于价值损失的回报目标。 |
 | `rl_pytorch/train.py` | `RL_GAE_DELTA_CLIP`（默认 80）裁剪 GAE 的 \(\delta_t\)，抑制优势沿时间爆炸。 |
 | `web/src/bot/rlTrainingCharts.js` | 绘制 Lπ/Lv 曲线时对 **超过阈值的异常点** 置为 `NaN`，避免旧日志污染纵轴（仅显示层）。 |

@@ -49,9 +49,9 @@ EPISODES=20000 ./scripts/train_full_mcts.sh   # 短跑 20k 试验
 
 ### 1.4 服务端：`q_teacher` → `q_vals` 与单局日志
 
-- **`_convert_episode_for_ppo`**（`rl_backend.py`）：若某步含 **`q_teacher`** 且长度与 `phi` 行数一致，写入该步 **`q_vals`**，供 `_reevaluate_and_update` 与离线一致的 Q 蒸馏逻辑使用。
-- **`RL_BATCH_SIZE=1`**（`rl_backend.py` → **`_rl_train_episode_inner`**）：步上含 **`q_teacher`** 时同样计算 Q 蒸馏项；`training.jsonl` 的 **`train_episode`** 事件可含 **`loss_q_distill`、`q_distill_coef`、`teacher_q_coverage`**，与批量 flush 日志字段对齐。
-- **模块头注释**：`rl_backend.py` 顶部环境变量说明中含 **`q_teacher`** 语义摘要。
+- **`_convert_episode_for_ppo`**（`backend/rl_backend.py`）：若某步含 **`q_teacher`** 且长度与 `phi` 行数一致，写入该步 **`q_vals`**，供 `_reevaluate_and_update` 与离线一致的 Q 蒸馏逻辑使用。
+- **`RL_BATCH_SIZE=1`**（`backend/rl_backend.py` → **`_rl_train_episode_inner`**）：步上含 **`q_teacher`** 时同样计算 Q 蒸馏项；`training.jsonl` 的 **`train_episode`** 事件可含 **`loss_q_distill`、`q_distill_coef`、`teacher_q_coverage`**，与批量 flush 日志字段对齐。
+- **模块头注释**：`backend/rl_backend.py` 顶部环境变量说明中含 **`q_teacher`** 语义摘要。
 
 ## 2. 在线批量 PPO 与 search replay（已实现）
 

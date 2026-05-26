@@ -1,7 +1,7 @@
 # 商业化模型训练面板：设计 · 原理 · 策略 · 内容 · 工程
 
 > 配套文档：[`MONETIZATION.md`](./MONETIZATION.md)（商业化权威入口） · [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md)（策略定制）
-> 实现：`web/src/monetization/monPanel.js` + `monetization_backend.py`
+> 实现：`web/src/monetization/monPanel.js` + `backend/monetization_backend.py`
 > 策略层：`web/src/monetization/strategy/` (config / engine / help)
 > 当前定位：本文只维护 MonPanel 的界面、字段、调试和扩展说明；系统全景、模型公式、API 与上线边界以 `MONETIZATION.md` 为准。
 
@@ -185,7 +185,7 @@ whale_score = w0 · best_score_norm
 
 **默认权重** $\vec{w} = (0.4, 0.3, 0.3)$，满足 $\sum w_i = 1$，因此 $whale\_score \in [0, 1]$。
 
-源码：[`monetization_backend.py` § `_compute_user_profile`](#) L211-L219；[`strategyConfig.js` § `signalNorms`](#) L76-L82。
+源码：[`backend/monetization_backend.py` § `_compute_user_profile`](#) L211-L219；[`strategyConfig.js` § `signalNorms`](#) L76-L82。
 
 ### 4.3 分群分类函数
 
@@ -772,7 +772,7 @@ whale_default_monthly         142    24     16.9%   -0.8pp ⚠
 
 用于发现异常：**`no_clear` / `place` 比例陡升 = 难度过高**。
 
-源码：[`monPanel.js` § `_renderOverview`](#) L384-L432；[`monetization_backend.py` § `mon_aggregate`](#) L419-L486。
+源码：[`monPanel.js` § `_renderOverview`](#) L384-L432；[`backend/monetization_backend.py` § `mon_aggregate`](#) L419-L486。
 
 ---
 
@@ -949,7 +949,7 @@ resetFlags()
 
 **步骤 1：后端聚合**
 ```python
-# monetization_backend.py § mon_aggregate
+# backend/monetization_backend.py § mon_aggregate
 churn_7d = db.execute(
    "SELECT COUNT(*) FROM user_stats WHERE last_active < ?",
    (seven_ago,)
@@ -1040,7 +1040,7 @@ await _renderFunnel(_panel);
 **思路**：后端新加 `/api/mon/config/stream`（SSE 端点），运营 PUT 后广播变更：
 
 ```python
-# monetization_backend.py
+# backend/monetization_backend.py
 clients = []  # active SSE clients
 
 @bp.route('/api/mon/config/stream')
@@ -1189,7 +1189,7 @@ sqlite3 openblock.db "SELECT strategy, COUNT(*), SUM(converted) FROM mon_strateg
 | `GET` | `/api/mon/leaderboard/daily` | 每日榜列表 | （非面板） |
 | `POST` | `/api/mon/strategy/log` | 策略曝光/转化日志 | （非面板，由 adTrigger 等调用） |
 
-源码：[`monetization_backend.py` § `create_mon_blueprint`](#) L330-L532。
+源码：[`backend/monetization_backend.py` § `create_mon_blueprint`](#) L330-L532。
 
 ### 17.4 SQLite Schema（与面板相关 4 表）
 
@@ -1226,10 +1226,10 @@ behaviors                   -- 行为事件流（event_type）
 | Tab 3 模型配置渲染 + 保存 | `monPanel.js:487-587` |
 | Tab 4 功能开关渲染 | `monPanel.js:589-615` |
 | `openMonPanel` / `refreshMonPanel` 公开 API | `monPanel.js:643-660` |
-| 鲸鱼分计算与分群 | `monetization_backend.py:149-270` |
-| 默认模型配置 | `monetization_backend.py:96-128` |
-| 后端聚合 KPI | `monetization_backend.py:419-486` |
-| 后端模型配置 GET/PUT | `monetization_backend.py:490-511` |
+| 鲸鱼分计算与分群 | `backend/monetization_backend.py:149-270` |
+| 默认模型配置 | `backend/monetization_backend.py:96-128` |
+| 后端聚合 KPI | `backend/monetization_backend.py:419-486` |
+| 后端模型配置 GET/PUT | `backend/monetization_backend.py:490-511` |
 | 策略配置 L1（默认值与公开 API） | `strategy/strategyConfig.js` 全文 |
 | 策略引擎 L2（evaluate / buildWhyLines） | `strategy/strategyEngine.js` 全文 |
 | Help 文案 L3 | `strategy/strategyHelp.js` 全文 |

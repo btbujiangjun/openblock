@@ -1,6 +1,6 @@
 # 商业化策略完整文档
 
-> 当前状态：以 `web/src/monetization/`、`monetization_backend.py`、`strategyConfig.js`、`commercialModel.js` 和 SQLite schema 为事实来源。
+> 当前状态：以 `web/src/monetization/`、`backend/monetization_backend.py`、`strategyConfig.js`、`commercialModel.js` 和 SQLite schema 为事实来源。
 > 早期商业化研究与个性化方案已归档到 `docs/archive/`；本文只描述当前实现、配置入口、API 和扩展边界。
 
 ---
@@ -439,7 +439,7 @@ Hay Day 上线 Season Pass 后月收入提升 **56%**（行业参考数据）。
 
 ## 6. 后端 API 参考
 
-所有路由挂载在 `monetization_backend.py` Blueprint 下，前缀 `/api/mon/`：
+所有路由挂载在 `backend/monetization_backend.py` Blueprint 下，前缀 `/api/mon/`：
 
 ### 6.1 健康检查
 
@@ -565,7 +565,7 @@ Body: {
 | `user_stats` | `best_score, total_games, total_clears, total_misses` | 分群维度：最高分、技能 |
 | `scores` | `user_id, score, strategy, timestamp` | 排行榜基础 |
 
-### 7.2 商业化扩展表（monetization_backend.py 建立）
+### 7.2 商业化扩展表（backend/monetization_backend.py 建立）
 
 ```sql
 -- 每日排行榜得分

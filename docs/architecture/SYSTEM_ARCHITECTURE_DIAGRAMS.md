@@ -600,7 +600,7 @@ flowchart LR
       browserTrainer["trainer"]:::rlBro
       simulator["simulator"]:::rlBro
     end
-    rlBackendNode["rl_backend.py<br/>/api/rl/{select_action, train, save, load, log}"]:::rlSvc
+    rlBackendNode["backend/rl_backend.py<br/>/api/rl/{select_action, train, save, load, log}"]:::rlSvc
     subgraph RLP["Python 端（离线）"]
       direction TB
       rlPytorch["rl_pytorch/<br/>残差 MLP + DockBoardAttention<br/>GAE + 监督头 + 课程"]:::rlPy
@@ -637,7 +637,7 @@ flowchart LR
 
 **解读**：双轨出块共享 `buildSpawnModelContext` 上下文，生成式失败时自动降级
 到启发式轨道，所有出块结果统一过 `validateSpawnTriplet` 五层护栏；RL 双轨中
-浏览器线性 agent 与 PyTorch/MLX 离线训练通过 `rl_backend.py` 解耦；
+浏览器线性 agent 与 PyTorch/MLX 离线训练通过 `backend/rl_backend.py` 解耦；
 `shared/game_rules.json + shapes.json` 是出块和 RL 共四套实现的**单一数据源
 **，确保前端实时玩法、训练环境、模型推理三者特征对齐。
 

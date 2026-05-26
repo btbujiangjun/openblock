@@ -115,7 +115,7 @@
 | **适配器模式** | `setAdProvider` / `setIapProvider`；默认 Stub，上线替换 SDK |
 | **服务端校验占位** | 订单幂等、收据验证接口预留，不信任纯前端 |
 
-**OpenBlock 对照**：`web/src/monetization/`、`docs/operations/MONETIZATION.md`、`enterprise_extensions.py`、`docs/integrations/ADS_IAP_SETUP.md`。
+**OpenBlock 对照**：`web/src/monetization/`、`docs/operations/MONETIZATION.md`、`backend/enterprise_extensions.py`、`docs/integrations/ADS_IAP_SETUP.md`。
 
 ---
 
@@ -160,7 +160,7 @@
 | **模型图与损失** | 网络结构、优化目标、损失项用 Markdown 兼容格式写清，避免依赖特定渲染器 |
 | **失败回退** | 模型输出非法、重复、不可放、超时或低机动性时回退规则轨 |
 
-**OpenBlock 对照**：`rl_pytorch/`、`rl_backend.py`、`docs/algorithms/RL_PYTORCH_SERVICE.md`、`docs/algorithms/MODEL_SYSTEMS_FOUR_MODELS.md`、`web/src/bot/`。
+**OpenBlock 对照**：`rl_pytorch/`、`backend/rl_backend.py`、`docs/algorithms/RL_PYTORCH_SERVICE.md`、`docs/algorithms/MODEL_SYSTEMS_FOUR_MODELS.md`、`web/src/bot/`。
 
 ---
 

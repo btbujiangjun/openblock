@@ -1,6 +1,6 @@
 # SQLite 数据库模式说明
 
-> 版本：1.2 | 事实来源：`server.py`（`init_db` / `_migrate_schema`）、`monetization_backend.py`（`mon_*`）  
+> 版本：1.2 | 事实来源：`server.py`（`init_db` / `_migrate_schema`）、`backend/monetization_backend.py`（`mon_*`）  
 > v1.2 变更：`move_sequences.frames` schema 升级到 v2，新增 `ts` 字段（见 §3.4）。  
 > 前端读写：`web/src/database.js` → Flask `/api/*`
 
@@ -50,7 +50,7 @@
 | **ab_events** | A/B 实验上报：`experiment`、`bucket`、`event`、`meta` |
 | **season_pass** | 赛季通行证进度：`progress` / `completed` JSON、`points`、`premium` 等 |
 
-### 2.4 商业化（`monetization_backend.py`，前缀 `mon_`）
+### 2.4 商业化（`backend/monetization_backend.py`，前缀 `mon_`）
 
 仅在商业化 Blueprint 成功挂载且执行过 `init_mon_db()` 后出现；与核心表**同一数据库文件**。
 
@@ -497,7 +497,7 @@
 
 ### 4.12 商业化表 `mon_*`
 
-字段定义以 `monetization_backend.py` · `_ensure_schema` 为准；运营侧说明亦可对照 `docs/operations/MONETIZATION.md` 等。
+字段定义以 `backend/monetization_backend.py` · `_ensure_schema` 为准；运营侧说明亦可对照 `docs/operations/MONETIZATION.md` 等。
 
 ### 4.13 企业扩展表（`enterprise_extensions.migrate_enterprise_schema`）
 
@@ -560,7 +560,7 @@ scores：按 user_id 流水，与 sessions 弱关联（通过上报时机）
 |----|------|
 | **首页「数据库调试」** | 需 Flask 运行；默认启用 `/api/db-debug/*`（生产公网请设 `OPENBLOCK_DB_DEBUG=0` 关闭） |
 | **健康检查** | `GET /api/health` |
-| **实现入口** | `server.py`：`init_db`、`get_db`、`/api/*`；`monetization_backend.py`：`init_mon_db`、`_ensure_schema` |
+| **实现入口** | `server.py`：`init_db`、`get_db`、`/api/*`；`backend/monetization_backend.py`：`init_mon_db`、`_ensure_schema` |
 
 ---
 
@@ -569,7 +569,7 @@ scores：按 user_id 流水，与 sessions 弱关联（通过上报时机）
 | 文件 | 内容 |
 |------|------|
 | `server.py` | 主 schema、迁移、REST API |
-| `monetization_backend.py` | `mon_*` 表与 `/api/mon/*` |
+| `backend/monetization_backend.py` | `mon_*` 表与 `/api/mon/*` |
 | `web/src/database.js` | 浏览器侧 SQLite API 封装 |
 | `web/src/game.js` | 会话结束、behaviors、saveReplay、move sequence flush |
 | `web/src/moveSequence.js` | `frames` schema 与复盘分析结构 |

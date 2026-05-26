@@ -27,7 +27,7 @@
 | 1 | 真实激励视频 SDK | 🔌 外部依赖 | `web/src/monetization/adAdapter.js` · `setAdProvider` | 须 AdMob 等账号与 SDK 脚本 |
 | 2 | 真实插屏 SDK | 🔌 外部依赖 | 同上 | 同上 |
 | 3 | 广告聚合 Mediation | 🔌 外部依赖 | `docs/integrations/ADS_IAP_SETUP.md` | 瀑布在广告平台配置，非本仓库代码 |
-| 4 | 广告收益与展示埋点 | ⚠️ 部分实现 | `adAdapter.js` → `POST /api/enterprise/ad-impression`、`enterprise_extensions.py` · `ad_impressions` | 已落库占位字段；**无真实 eCPM 回传解析**，收益须接入平台 API |
+| 4 | 广告收益与展示埋点 | ⚠️ 部分实现 | `adAdapter.js` → `POST /api/enterprise/ad-impression`、`backend/enterprise_extensions.py` · `ad_impressions` | 已落库占位字段；**无真实 eCPM 回传解析**，收益须接入平台 API |
 | 5 | Stripe Web IAP | 🔌 外部依赖 | `iapAdapter.js` · `setIapProvider`、`ADS_IAP_SETUP.md` | 须 Stripe 商户与前端 Checkout |
 | 6 | 微信支付 | 🔌 外部依赖 | `docs/platform/WECHAT_MINIPROGRAM.md`、`ADS_IAP_SETUP.md` | 须微信商户与类目审核 |
 | 7 | 支付宝 JSAPI | 🔌 外部依赖 | `ADS_IAP_SETUP.md` | 须支付宝开放平台应用 |
@@ -60,14 +60,14 @@
 | 34 | 埋点质量监控 | ⛔ 未实现 | — | 无丢失率/延迟告警 |
 | 35 | Deep Link | 🔌 外部依赖 | — | 依赖域名、Universal Links、宿主 App |
 | 36 | Creative 维度报表 | ⚠️ 部分实现 | `attribution.utm_content` | 数据可进会话；**无创意维度聚合 UI/API** |
-| 37 | Cohort LTV | ⛔ 未实现 | `monetization_backend.py`、画像 API | 无「cohort × 流水」专用接口 |
+| 37 | Cohort LTV | ⛔ 未实现 | `backend/monetization_backend.py`、画像 API | 无「cohort × 流水」专用接口 |
 | 38 | CI 流水线 | ✅ 已实现 | `.github/workflows/ci.yml` | lint / test / build / Python import |
 | 39 | 分环境配置 | ⚠️ 部分实现 | `.env`、`OPENBLOCK_*` | 依赖部署实践；**无 env 模板清单文档集中维护**（分散在各集成文档） |
 | 40 | 制品与版本号 | ⚠️ 部分实现 | `package.json` · `version` | **无发布 changelog 门禁或与 Git tag 联动脚本** |
 | 41 | 灰度发布 | 📋 仅文档 | Remote Config、实验桶 | 无网关级百分比放量组件 |
 | 42 | DB 备份 Runbook | 📋 仅文档 | `docs/operations/COMPLIANCE_AND_SOPS.md` | 无自动备份脚本 |
 | 43 | 水平扩展预案 | 📋 仅文档 | `SQLITE_SCHEMA.md`、架构文档 | 迁移方案未脚本化 |
-| 44 | 速率限制 | ⚠️ 部分实现 | `OPENBLOCK_RATE_LIMIT_PER_MIN`、`enterprise_extensions.py` | **进程内存计数**；多实例**不共享** |
+| 44 | 速率限制 | ⚠️ 部分实现 | `OPENBLOCK_RATE_LIMIT_PER_MIN`、`backend/enterprise_extensions.py` | **进程内存计数**；多实例**不共享** |
 | 45 | 隐私同意横幅 | ⛔ 未实现 | `POST /api/compliance/consent` | API 有；**无 UI 横幅/CMP** |
 | 46 | 导出/删除用户数据 | ⚠️ 部分实现 | `GET /api/compliance/export-user`、`POST /api/compliance/delete-user` | 需 Ops Token；**删除范围未覆盖 achievements/move_sequences 等全部表**（见实现代码） |
 | 47 | 未成年人策略 | 📋 仅文档 | `COMPLIANCE_AND_SOPS.md` | 无年龄门/限额代码 |
@@ -83,7 +83,7 @@
 | 57 | 埋点契约统一 | ⚠️ 部分实现 | `GOLDEN_EVENTS.md`、`SYNC_CONTRACT.md` | 契约文档；**小程序/多端自动化对齐测试缺失** |
 | 58 | 小程序商业化对齐 | 📋 仅文档 | `miniprogram/`、`SYNC_CONTRACT.md` | 双端代码并行；未统一 SDK 封装 |
 | 59 | 小程序合规清单 | 📋 仅文档 | `docs/platform/WECHAT_RELEASE.md` | 非可执行代码 |
-| 60 | 文档与代码对齐 | ⚠️ 部分实现 | 本文档、`COMMERCIAL_OPERATIONS.md` | 持续维护项；以 `enterprise_extensions.py` 与 `server.py` 为准 |
+| 60 | 文档与代码对齐 | ⚠️ 部分实现 | 本文档、`COMMERCIAL_OPERATIONS.md` | 持续维护项；以 `backend/enterprise_extensions.py` 与 `server.py` 为准 |
 | 61 | 运营 SOP | 📋 仅文档 | `COMPLIANCE_AND_SOPS.md` | 流程文本；无工单系统集成 |
 
 ---

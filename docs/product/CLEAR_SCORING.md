@@ -152,15 +152,15 @@ export function computeClearScore(strategyId, result) {
 
 | 层级 | 内容 | 主要存储位置 |
 |------|------|----------------|
-| **可调参数** | 分群权重、阈值、`adTrigger` / `iapTrigger` / `taskWeights` 等 JSON | SQLite 表 **`mon_model_config`**（`id='default'`，字段 `config`），经 `GET/PUT /api/mon/model/config` 读写；默认种子见 `monetization_backend.py` 初始化 |
+| **可调参数** | 分群权重、阈值、`adTrigger` / `iapTrigger` / `taskWeights` 等 JSON | SQLite 表 **`mon_model_config`**（`id='default'`，字段 `config`），经 `GET/PUT /api/mon/model/config` 读写；默认种子见 `backend/monetization_backend.py` 初始化 |
 | **用户画像与推荐结果** | 分群、`strategy.actions` 等 | 后端按 `user_stats` / `sessions` / `behaviors` 计算；**缓存**在浏览器 `localStorage['openblock_mon_persona_v1']`（`web/src/monetization/personalization.js`）；分群快照表 **`mon_user_segments`** |
-| **规则引擎（硬编码）** | `_build_strategy` 里按 whale/dolphin/minnow 拼 action 列表 | **`monetization_backend.py`** 源码 |
+| **规则引擎（硬编码）** | `_build_strategy` 里按 whale/dolphin/minnow 拼 action 列表 | **`backend/monetization_backend.py`** 源码 |
 | **曝光日志** | 策略展示/转化 | SQLite 表 **`mon_strategy_log`**，`POST /api/mon/strategy/log` |
 | **前端频控与开关** | 广告冷却、体验分、功能开关等 | 多个 **`localStorage`** 键（如 `openblock_ad_freq_v1`、`openblock_mon_flags_v1` 等，见 `web/src/monetization/adTrigger.js`、`featureFlags.js`） |
 
 表结构片段：
 
-```67:91:monetization_backend.py
+```67:91:backend/monetization_backend.py
         CREATE TABLE IF NOT EXISTS mon_user_segments (
             user_id          TEXT    PRIMARY KEY,
             segment          TEXT    DEFAULT 'minnow',

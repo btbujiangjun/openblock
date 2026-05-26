@@ -241,7 +241,7 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 - 配置：`shared/game_rules.json` → `adaptiveSpawn` / `playerAbilityModel`
 
 ### D. 商业化推断
-- 分群：`monetization_backend.py` → `_compute_user_profile()`
+- 分群：`backend/monetization_backend.py` → `_compute_user_profile()`
 - 模型化决策：`web/src/monetization/commercialModel.js` → `buildCommercialModelVector()`
 - 规则引擎：`web/src/monetization/strategy/strategyEngine.js`
 - 配置：`web/src/monetization/strategy/strategyConfig.js` → `commercialModel`
@@ -252,7 +252,7 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 - 网络：`rl_pytorch/model.py` → `ConvSharedPolicyValueNet`
 - 特征：`rl_pytorch/features.py` + `web/src/bot/features.js`
 - 模拟器：`rl_pytorch/simulator.py` + `web/src/bot/simulator.js`
-- HTTP 推理：`rl_backend.py` → `/api/rl/*`
+- HTTP 推理：`backend/rl_backend.py` → `/api/rl/*`
 - 浏览器自博弈：`web/src/bot/trainer.js`
 
 ---

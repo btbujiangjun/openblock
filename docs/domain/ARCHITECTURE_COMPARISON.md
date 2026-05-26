@@ -77,7 +77,7 @@
 │  │                                                                     │
 │  └── 数据层                                                           │
 │      ├── 行为收集   database.js（前端 batch）→ server.py              │
-│      ├── 行为分析   monetization_backend.py / rl_backend.py           │
+│      ├── 行为分析   backend/monetization_backend.py / backend/rl_backend.py           │
 │      └── 回放系统   moveSequence.js + replayUI.js                    │
 │                                                                       │
 │  多平台：Web（Vite）+ 微信小程序（miniprogram/core 同步）            │

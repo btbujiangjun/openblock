@@ -131,7 +131,7 @@
 ## 2.3 Gameplay RL 训练栈（与出块 Transformer 解耦）
 
 **算法家族（实际代码）**
-- 主路径：**PPO + GAE**（`rl_pytorch/train.py` + `rl_backend.py`）
+- 主路径：**PPO + GAE**（`rl_pytorch/train.py` + `backend/rl_backend.py`）
 - MLX 路径：**REINFORCE + 价值基线**（`rl_mlx/train.py`）
 - DQN / SAC：**未作为主编排实现**（手册写明不采用 DQN）
 - Self-play：Python 自博弈 + 可选浏览器 replay buffer
@@ -275,7 +275,7 @@
 
 ## 2.8 后端辅助算法
 
-- `monetization_backend.py`：`_compute_user_profile` 计算 whale_score（
+- `backend/monetization_backend.py`：`_compute_user_profile` 计算 whale_score（
   whale≥`0.60`、dolphin≥`0.30`）
 - `services/monitoring/anomaly.py`：滑动窗口 z-score，默认 `threshold=3.0`
 

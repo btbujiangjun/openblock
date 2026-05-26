@@ -130,7 +130,7 @@ OpenBlock RL 有**两条平行训练路径**，同一份模型：
 │         ↓                                       │
 │   checkpoint: rl_pytorch/openblock_rl.pt        │
 │         ↓                                       │
-│   rl_backend.py /api/rl/* ← HTTP 推理服务       │
+│   backend/rl_backend.py /api/rl/* ← HTTP 推理服务       │
 │                                                 │
 └─────────────────────────────────────────────────┘
 ```
@@ -147,7 +147,7 @@ OpenBlock RL 有**两条平行训练路径**，同一份模型：
 | `rl_pytorch/mcts.py` | 轻量 MCTS（可选） |
 | `rl_pytorch/eval_gate.py` | 评估门控（可选） |
 | `rl_pytorch/spawn_predictor.py` | dock 生成预测（可选） |
-| `rl_backend.py` | Flask `/api/rl/*` 推理与 replay buffer |
+| `backend/rl_backend.py` | Flask `/api/rl/*` 推理与 replay buffer |
 | `web/src/bot/trainer.js` | 浏览器自博弈与 lookahead |
 | `web/src/bot/pytorchBackend.js` | HTTP 调用 RL API |
 | `web/src/bot/gameEnvironment.js` | 浏览器 RL 环境包装 |
@@ -1232,7 +1232,7 @@ Latency: ~5-50ms（CPU）/ ~2-10ms（MPS/CUDA）
 
 ### 14.3 模型加载
 
-`rl_backend.py` 启动时：
+`backend/rl_backend.py` 启动时：
 
 ```python
 def _ensure_initialized():

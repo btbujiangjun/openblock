@@ -718,7 +718,7 @@ rankedActions + whyLines
 
 | 模型/模块 | 训练或配置入口 | 推理/消费入口 | 测试入口 |
 |-----------|----------------|---------------|----------|
-| RL Bot | `rl_pytorch/train.py`、`shared/game_rules.json → rlRewardShaping` | `rl_backend.py → /api/rl/*`、`web/src/bot/pytorchBackend.js` | `tests/features.test.js`、`tests/simulator.test.js` |
+| RL Bot | `rl_pytorch/train.py`、`shared/game_rules.json → rlRewardShaping` | `backend/rl_backend.py → /api/rl/*`、`web/src/bot/pytorchBackend.js` | `tests/features.test.js`、`tests/simulator.test.js` |
 | Spawn 规则轨 | `shared/game_rules.json → adaptiveSpawn / strategies` | `web/src/bot/blockSpawn.js`、`web/src/adaptiveSpawn.js` | `tests/blockSpawn.test.js`、`tests/adaptiveSpawn.test.js` |
 | SpawnTransformer | `rl_pytorch/spawn_model/`、`models/spawn_transformer_v3.pt` | `web/src/spawnModel.js`、`server.py → /api/spawn-model/v3/*` | `tests/spawnModel.test.js`、`python -m rl_pytorch.spawn_model.test_v3` |
 | PlayerProfile | `shared/game_rules.json → adaptiveSpawn` | `web/src/playerProfile.js`、`web/src/playerInsightPanel.js` | `tests/playerProfile.test.js` |

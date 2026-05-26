@@ -555,7 +555,7 @@ export const IAP_PRODUCTS = [
 
 ### 分群算法
 
-后端 `monetization_backend.py` 中的 `_compute_user_profile` 计算 `whale_score`：
+后端 `backend/monetization_backend.py` 中的 `_compute_user_profile` 计算 `whale_score`：
 
 ```python
 whale_score = (
@@ -593,7 +593,7 @@ else:
 
 ### 自定义分群维度
 
-在 `monetization_backend.py` 的 `_compute_user_profile` 中添加新维度：
+在 `backend/monetization_backend.py` 的 `_compute_user_profile` 中添加新维度：
 
 ```python
 # 例：加入近7日活跃天数维度

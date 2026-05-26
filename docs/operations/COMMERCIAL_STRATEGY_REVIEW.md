@@ -70,7 +70,7 @@
 |--------|------|------|
 | 行为统计 | `personalization.updateRealtimeSignals` | `frustration`, `hadNearMiss`, `flowState`, `momentum`, `sessionPhase` |
 | 能力评估 | `playerAbilityModel.buildAbilityVector` | 5 维 ability：`confidence`, `planning`, `skill`, `risk`, `clearEff` |
-| 长期画像 | `playerProfile` + `monetization_backend.py` | `whaleScore`, `segment3 ∈ {whale, dolphin, minnow}`, `segment5 ∈ {A..E}` |
+| 长期画像 | `playerProfile` + `backend/monetization_backend.py` | `whaleScore`, `segment3 ∈ {whale, dolphin, minnow}`, `segment5 ∈ {A..E}` |
 | 生命周期 | `lifecycle/lifecycleSignals.js` | `stage ∈ {S0..S4}`, `band ∈ {bottom, middle, top}`, `unifiedRisk` |
 | 广告体验 | `adTrigger.getAdGuardrailState` | `inFlow`, `experienceScore`, `ltvShielded` |
 
