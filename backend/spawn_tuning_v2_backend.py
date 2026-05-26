@@ -32,7 +32,7 @@ API 前缀: /api/spawn-tuning-v2/*
     GET    /target-curve                    返回目标 S 曲线 (20 维)
 
 注册方式 (server.py):
-    from spawn_tuning_v2_backend import register_v2_routes
+    from backend.spawn_tuning_v2_backend import register_v2_routes
     register_v2_routes(app)
 """
 from __future__ import annotations

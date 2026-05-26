@@ -24,7 +24,7 @@ def app():
 
     # 强制 reimport (因为 module-level 读取 DB_PATH)
     import importlib
-    import spawn_tuning_v2_backend as mod
+    from backend import spawn_tuning_v2_backend as mod
     importlib.reload(mod)
 
     flask_app = Flask(__name__)
@@ -726,7 +726,7 @@ class TestPredictCurve:
 
     def _insert_model_row(self, client, weights_path: str, model_type: str) -> int:
         """直接 SQLite INSERT 一个 models 记录, 跳过 jobs 流程。"""
-        import spawn_tuning_v2_backend as mod
+        from backend import spawn_tuning_v2_backend as mod
         db = mod.get_db()
         cur = db.execute(
             """INSERT INTO models (
@@ -843,7 +843,7 @@ class TestBuildAndExport:
         return out
 
     def _insert_model_row(self, client, weights_path, model_type="resnet"):
-        import spawn_tuning_v2_backend as mod
+        from backend import spawn_tuning_v2_backend as mod
         db = mod.get_db()
         cur = db.execute(
             """INSERT INTO models (
@@ -1136,7 +1136,7 @@ class TestJobArchCheck:
     """v2.10.10: 增量训练 base_model 跟 model_type 必须匹配 (fail-fast)。"""
 
     def _insert_model(self, client, model_type):
-        import spawn_tuning_v2_backend as mod
+        from backend import spawn_tuning_v2_backend as mod
         db = mod.get_db()
         cur = db.execute(
             """INSERT INTO models (

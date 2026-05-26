@@ -65,7 +65,7 @@ OpenBlock is an open-source block-puzzle game (inspired by 1010!/Block Blast) bu
 │                     Backend (Flask + SQLite)                     │
 │  /api/session  /api/behavior  /api/score  /api/stats            │
 │  /api/mon/*    /api/rl/*      /api/spawn-model/*  /docs/*       │
-│  monetization_backend.py  rl_backend.py  server.py              │
+│  server.py  backend/{monetization_backend,rl_backend,...}.py   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

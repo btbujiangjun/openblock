@@ -80,12 +80,20 @@
     .status.failed, .status.rollbacked { background: rgba(248,113,113,0.18); color: var(--bad); }
 
     /* === Form === */
-    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
       gap: 6px 8px; margin: 6px 0; }
     .form-row label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px;
       color: var(--muted); }
     .form-row input, .form-row select { height: 28px; font-size: 12px;
-      font-family: ui-monospace, monospace; width: 100%; }
+      font-family: ui-monospace, monospace; width: 100%; box-sizing: border-box; }
+    /* v2.10.11: 收窄数字 / 紧凑下拉, 让 transformer 11 个参数能一行容纳 */
+    .form-row label.narrow { max-width: 100px; }
+    .form-row label.narrow input,
+    .form-row label.narrow select { font-size: 11px; padding: 0 4px; }
+    .form-row input[type="number"] {
+      /* 浏览器原生 number 输入更紧凑 (含 spin button) */
+      min-width: 0;
+    }
     .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
       margin: 8px 0 2px; }
 
@@ -394,9 +402,9 @@
         </div>
 
         <div class="form-row">
-          <label>每场景 θ 数<input id="cfg-thetas" type="number" min="2" max="100" value="5"></label>
-          <label>每 θ Seeds<input id="cfg-seeds" type="number" min="1" max="5" value="2"></label>
-          <label>Max Steps<input id="cfg-max-steps" type="number" min="30" max="500" value="120"></label>
+          <label class="narrow">每场景 θ 数<input id="cfg-thetas" type="number" min="2" max="100" value="5"></label>
+          <label class="narrow">每 θ Seeds<input id="cfg-seeds" type="number" min="1" max="5" value="2"></label>
+          <label class="narrow">Max Steps<input id="cfg-max-steps" type="number" min="30" max="500" value="120"></label>
           <label>样本集名<input id="cfg-set-name" type="text" placeholder="auto"></label>
         </div>
         <div class="form-row">
@@ -461,17 +469,17 @@
               <option value="transformer">Transformer ⭐ (v2.9)</option>
             </select>
           </label>
-          <!-- G10 v2.10.10: Transformer 超参跟其他参数同行 (grid auto-fit 自动布局) -->
-          <label class="tx-only" style="display:none;" title="Transformer hidden dim — 默认 128, 大数据集可调到 256+">
+          <!-- G10 v2.10.10/11: Transformer 超参跟其他参数同行 + 收窄数字 (grid auto-fit) -->
+          <label class="narrow tx-only" style="display:none;" title="Transformer hidden dim — 默认 128, 大数据集可调到 256+">
             d_model<input id="job-tx-dmodel" type="number" min="32" max="512" step="32" value="128">
           </label>
-          <label class="tx-only" style="display:none;" title="Transformer encoder 层数 — 默认 3, 复杂任务可调到 6">
+          <label class="narrow tx-only" style="display:none;" title="Transformer encoder 层数 — 默认 3, 复杂任务可调到 6">
             n_layers<input id="job-tx-nlayers" type="number" min="1" max="12" value="3">
           </label>
-          <label>Epochs<input id="job-epochs" type="number" value="50"></label>
-          <label>Batch Size<input id="job-batch" type="number" value="256"></label>
-          <label>Learning Rate<input id="job-lr" type="number" step="0.0001" value="0.001"></label>
-          <label title="鼠标悬停 option 看详情;不可用的硬件灰色 disabled">Device
+          <label class="narrow">Epochs<input id="job-epochs" type="number" value="50"></label>
+          <label class="narrow">Batch Size<input id="job-batch" type="number" value="256"></label>
+          <label class="narrow">Learning Rate<input id="job-lr" type="number" step="0.0001" value="0.001"></label>
+          <label class="narrow" title="鼠标悬停 option 看详情;不可用的硬件灰色 disabled">Device
             <select id="job-device">
               <option value="cpu">…</option>
             </select>
@@ -537,7 +545,7 @@
           <label>或手填路径 (可选, 优先生效)
             <input id="bundle-src" type="text" placeholder="留空时取上面所选模型的兄弟 .policies.json">
           </label>
-          <label>灰度比例 (rollout_pct)
+          <label class="narrow">灰度比例 (rollout_pct)
             <input id="bundle-rollout" type="number" min="0" max="100" value="100">
           </label>
         </div>

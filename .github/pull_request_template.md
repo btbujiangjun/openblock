@@ -32,7 +32,7 @@
 
 ## Operational impact
 - [ ] No infra change
-- [ ] Schema / migration change (note in `enterprise_extensions.py` or DB notes)
+- [ ] Schema / migration change (note in `backend/enterprise_extensions.py` or DB notes)
 - [ ] Public API change (note in CHANGELOG)
 - [ ] Container / compose change (note in `docs/operations/DEPLOYMENT.md`)
 

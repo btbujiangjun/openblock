@@ -79,7 +79,7 @@
                               ↕ REST API (Flask)
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Backend Layer                                                       │
-│  server.py (核心路由)  monetization_backend.py  rl_backend.py      │
+│  server.py (核心路由) + backend/{monetization,rl,spawn_tuning_v2}_backend.py │
 │  SQLite: sessions / behaviors / scores / move_sequences /           │
 │          mon_user_segments / mon_model_config / mon_strategy_log    │
 └──────────────────────────────────────────────────────────────────────┘
@@ -359,7 +359,7 @@ server.py (核心)
   /api/spawn-model/v3/*  出块生成式：status / predict / train / reload / personalize
   /docs           文档门户（HTML + API）
 
-enterprise_extensions.py（挂载于同一 Flask app）
+backend/enterprise_extensions.py（挂载于同一 Flask app）
   /api/enterprise/remote-config   远程配置
   /api/payment/verify             IAP 占位入库（幂等）
   /api/enterprise/ad-impression   广告曝光占位
@@ -368,13 +368,13 @@ enterprise_extensions.py（挂载于同一 Flask app）
   /api/compliance/*               同意 / 导出 / 删除用户
   详见 docs/integrations/ENTERPRISE_EXTENSIONS.md
 
-monetization_backend.py (Blueprint: /api/mon/*)
+backend/monetization_backend.py (Blueprint: /api/mon/*)
   /user-profile/<userId>  用户商业画像
   /aggregate              全局聚合指标
   /model/config           模型配置 GET/PUT
   /strategy/log           策略曝光/转化日志
 
-rl_backend.py (可选: /api/rl/*)
+backend/rl_backend.py (可选: /api/rl/*)
   /status  /select_action  /train_episode  /save  /load
   /training_log  /eval_values
 ```

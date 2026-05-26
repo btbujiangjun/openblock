@@ -12,7 +12,10 @@
 
 # ---------- Backend / services ----------
 /server.py                       @openblock/backend
-/enterprise_extensions.py        @openblock/backend @openblock/monetization
+/backend/                        @openblock/backend
+/backend/enterprise_extensions.py @openblock/backend @openblock/monetization
+/backend/monetization_backend.py @openblock/backend @openblock/monetization
+/backend/rl_backend.py           @openblock/backend @openblock/rl-team
 /services/                       @openblock/backend
 /services/security/              @openblock/security @openblock/backend
 /services/Dockerfile.*           @openblock/security @openblock/devops

@@ -212,7 +212,7 @@ curl -X POST http://localhost:5000/api/spawn-tuning-v2/models/1/deploy
 
 ```python
 try:
-    from spawn_tuning_v2_backend import register_v2_routes
+    from backend.spawn_tuning_v2_backend import register_v2_routes
     register_v2_routes(app)
 except Exception as e:
     print("v2 backend 未启用:", e)

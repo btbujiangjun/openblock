@@ -90,7 +90,7 @@ else:
         max_age=600,
     )
 
-import enterprise_extensions  # noqa: E402  — 企业扩展路由与迁移（支付占位、远程配置、合规）
+from backend import enterprise_extensions  # noqa: E402  — 企业扩展路由与迁移（支付占位、远程配置、合规）
 
 
 def _configure_sqlite_connection(db):
@@ -4004,7 +4004,7 @@ def export_data():
 
 
 try:
-    from rl_backend import register_rl_routes
+    from backend.rl_backend import register_rl_routes
 
     register_rl_routes(app)
 except Exception as _rl_ex:
@@ -4012,14 +4012,14 @@ except Exception as _rl_ex:
 
 try:
     # Spawn Tuning v2 (industrial): docs/algorithms/SPAWN_TUNING_V2.md
-    from spawn_tuning_v2_backend import register_v2_routes
+    from backend.spawn_tuning_v2_backend import register_v2_routes
 
     register_v2_routes(app)
 except Exception as _v2_ex:
     print("Spawn Tuning V2 API (/api/spawn-tuning-v2/*) 未启用:", _v2_ex)
 
 try:
-    from monetization_backend import create_mon_blueprint, init_mon_db
+    from backend.monetization_backend import create_mon_blueprint, init_mon_db
 
     app.register_blueprint(create_mon_blueprint())
     with app.app_context():
