@@ -99,6 +99,16 @@
     .form-row input[type="number"]::-webkit-inner-spin-button {
       -webkit-appearance: none; margin: 0;
     }
+    /* v2.10.14: checkbox label 横向布局 (跟其他 label 不同, 不需要顶部标题) */
+    .form-row label.checkbox-inline {
+      flex-direction: row; align-items: center; gap: 4px;
+      font-size: 11px; color: var(--text);
+      min-width: 0; cursor: pointer;
+      padding-top: 12px; /* 跟其他 label 的 input 顶部对齐 */
+    }
+    .form-row label.checkbox-inline input[type="checkbox"] {
+      width: 14px; height: 14px; cursor: pointer; flex-shrink: 0;
+    }
     .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
       margin: 8px 0 2px; }
 
@@ -314,6 +324,7 @@
         </div>
         <div class="form-actions">
           <button id="btn-rollback" class="danger" disabled>↩ 一键回滚到上一版</button>
+          <button id="btn-remove-deploy" class="danger" disabled title="物理删除 bundle 文件并把当前 deployed 模型置为 rollbacked — 游戏端立即回到规则版 (HandTuned θ)">⊘ 移除模型部署 (回到规则版)</button>
           <span id="rollback-hint" class="muted-hint"></span>
         </div>
       </section>
@@ -406,15 +417,15 @@
           </div>
         </div>
 
+        <!-- v2.10.14: 把 lookahead 复选框跟其他参数挤一行, 节省一行高度 -->
         <div class="form-row">
           <label class="narrow">每场景 θ 数<input id="cfg-thetas" type="number" min="2" max="100" value="5"></label>
           <label class="narrow">每 θ Seeds<input id="cfg-seeds" type="number" min="1" max="5" value="2"></label>
           <label class="narrow">Max Steps<input id="cfg-max-steps" type="number" min="30" max="500" value="120"></label>
           <label>样本集名<input id="cfg-set-name" type="text" placeholder="auto"></label>
-        </div>
-        <div class="form-row">
-          <label style="flex:1;" title="G8 v2.10.9: 在 clear-greedy/survival 上叠加 1-step lookahead, 让 bot 更强, 提高高 r 区 (破 PB) 数据覆盖。预期 final_r 提升 30%, 但采样速度略慢">
-            <input type="checkbox" id="cfg-lookahead" style="margin-right:6px;"> 启用 lookahead 强化 (G8) — 让 bot 更激进追分,提高 r&gt;1 区数据覆盖
+          <label class="checkbox-inline" title="G8: 在 clear-greedy/survival 上叠加 1-step lookahead, 让 bot 更激进, 提高 r&gt;1 区数据覆盖 (采样略慢)">
+            <input type="checkbox" id="cfg-lookahead"> Lookahead 强化
+            <span style="color:var(--muted); font-size:9.5px;">(G8)</span>
           </label>
         </div>
 

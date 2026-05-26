@@ -143,12 +143,29 @@ export function installPoliciesV2(bundle) {
 }
 
 
-/** 卸载 (回滚到 DEFAULT_THETA_V2)。 */
+/** 卸载 (回滚到 DEFAULT_THETA_V2)。
+ *
+ * 复用 ``openblock:spawn-param-tuner-installed`` 事件（detail.installed=0）通知 UI
+ * 重绘 badge —— spawnModelPanel.js 的 ``_refreshPolicySourceBadge`` 已按
+ * ``stats.loaded && stats.count > 0`` 判断，卸载后会自动翻回「规则」，无需新增 listener。
+ */
 export function uninstallPoliciesV2() {
+    const wasLoaded = _policiesByCtx !== null;
     _policiesByCtx = null;
     _fuzzyIndex = null;
     _coarseIndex = null;
     _rolloutPct = 100;
+    _modelSha = '';
+    _generatedAt = 0;
+    _loadedFrom = '';
+    if (!wasLoaded) return;
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        try {
+            window.dispatchEvent(new CustomEvent('openblock:spawn-param-tuner-installed', {
+                detail: { installed: 0, rollout_pct: 100, model_sha: '', uninstalled: true },
+            }));
+        } catch { /* ignore CustomEvent unavailable */ }
+    }
 }
 
 
@@ -280,8 +297,15 @@ export async function initClientPolicyV2(opts = {}) {
 let _bundleUpdateChannel = null;
 
 /**
- * 订阅 dashboard 的 bundle 更新广播，自动 re-fetch + install。
+ * 订阅 dashboard 的 bundle 更新 / 移除广播，自动 install / uninstall。
  * 多次调用幂等（重复 init 不会创建多个 channel）。
+ *
+ * 支持两种消息（均由 dashboardV2.js 在用户操作完成后 postMessage）：
+ *   { type: 'bundle-updated' } — D.1 导出 bundle 后，re-fetch + install
+ *   { type: 'bundle-removed' } — ① 移除部署 / rollback 到无 deployed 后，uninstall
+ *
+ * 设计取舍：bundle-removed 不再 fetch policies.json（文件已被后端删除，fetch 必然 404
+ * 且会触发 SW 缓存读取）；直接走 uninstallPoliciesV2 让内存状态与 DB 一致。
  */
 function _subscribeBundleUpdates(bundleUrl) {
     if (_bundleUpdateChannel) return;
@@ -289,12 +313,18 @@ function _subscribeBundleUpdates(bundleUrl) {
     try {
         const ch = new BroadcastChannel('openblock:spawn-param-tuner');
         ch.addEventListener('message', async (e) => {
-            if (e?.data?.type !== 'bundle-updated') return;
-            try {
-                await loadPoliciesFromBundleV2(bundleUrl);
-                // installPoliciesV2 内部已 dispatch openblock:spawn-param-tuner-installed
-                // → spawnModelPanel.js 的 listener 自动刷新 badge 为「寻参」。
-            } catch { /* ignore — 下次主动刷新仍能恢复 */ }
+            const type = e?.data?.type;
+            if (type === 'bundle-updated') {
+                try {
+                    await loadPoliciesFromBundleV2(bundleUrl);
+                    // installPoliciesV2 内部已 dispatch openblock:spawn-param-tuner-installed
+                    // → spawnModelPanel.js 的 listener 自动刷新 badge 为「寻参」。
+                } catch { /* ignore — 下次主动刷新仍能恢复 */ }
+            } else if (type === 'bundle-removed') {
+                // uninstallPoliciesV2 内部也 dispatch 同一事件（detail.uninstalled=true）
+                // → spawnModelPanel.js 的 listener 自动把 badge 翻回「规则」。
+                uninstallPoliciesV2();
+            }
         });
         _bundleUpdateChannel = ch;
     } catch { /* ignore */ }

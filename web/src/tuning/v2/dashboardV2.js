@@ -258,11 +258,13 @@ function setupTabs() {
 async function refreshOverview() {
     // 当前 deployed 模型
     const modelHost = $('active-model-cards');
+    const removeBtn = $('btn-remove-deploy');
     try {
         const data = await apiGet('/api/spawn-tuning-v2/policies/active');
         if (!data.deployed) {
             modelHost.innerHTML = '<div class="stat-card warn"><div class="stat-value">无</div><div class="stat-label">当前未部署模型</div></div>';
             $('btn-rollback').disabled = true;
+            if (removeBtn) removeBtn.disabled = true;
         } else {
             const m = data.deployed;
             const mae = m.metrics?.val_curve_mae;
@@ -274,6 +276,10 @@ async function refreshOverview() {
             `;
             $('btn-rollback').disabled = false;
             $('btn-rollback').dataset.modelId = m.model_id;
+            if (removeBtn) {
+                removeBtn.disabled = false;
+                removeBtn.dataset.modelId = m.model_id;
+            }
         }
     } catch (e) {
         modelHost.innerHTML = `<div class="stat-card bad"><div class="stat-value">!</div><div class="stat-label">${escapeHtml(e.message)}</div></div>`;
@@ -306,16 +312,118 @@ async function refreshOverview() {
     }
 }
 
+/** 跨 tab 广播 — 让同 origin 的游戏页即时翻 badge，无需手工硬刷。 */
+function _broadcastSpawnParamTuner(payload) {
+    try {
+        if (typeof BroadcastChannel !== 'function') return;
+        const ch = new BroadcastChannel('openblock:spawn-param-tuner');
+        ch.postMessage(payload);
+        ch.close();
+    } catch { /* 跨 tab 通知失败不影响主流程 */ }
+}
+
+/**
+ * rollback 后同步 bundle 状态 — 修复「DB 已 rollback 但 bundle 文件仍挂在
+ * web/public/spawn-tuning-v2/policies.json，游戏页 badge 还显示寻参」的状态分裂。
+ *
+ * 策略：
+ *   - 若 rollback 后无任何 deployed model → 调 bundle/remove 物理删 bundle 并广播
+ *     bundle-removed（游戏页 uninstallPoliciesV2 → badge 翻回规则）。
+ *   - 若还有 prev deployed → 提示用户重新点 D.1 导出 bundle（bundle 仍指向旧 model，
+ *     直接 fetch 会安装错版本；这里不自动删，避免静默丢失部署）。
+ */
+async function _syncBundleAfterRollback() {
+    let activeData;
+    try {
+        activeData = await apiGet('/api/spawn-tuning-v2/policies/active');
+    } catch { return null; }
+
+    if (activeData?.deployed) {
+        return {
+            kind: 'has-prev-deployed',
+            modelId: activeData.deployed.model_id,
+            name: activeData.deployed.name,
+        };
+    }
+
+    // 无 deployed → 清 bundle + 广播 uninstall
+    try {
+        const r = await apiSend('POST', '/api/spawn-tuning-v2/policies/bundle/remove', {
+            include_miniprogram: true,
+            include_dist: true,
+            rollback_db: false, // 已 rollback 过，不再重复
+        });
+        _broadcastSpawnParamTuner({ type: 'bundle-removed', reason: 'rollback-no-deployed' });
+        return { kind: 'cleared', removed: r?.removed || [] };
+    } catch (e) {
+        return { kind: 'clear-failed', error: e?.message || String(e) };
+    }
+}
+
 async function rollbackCurrent() {
     const modelId = $('btn-rollback').dataset.modelId;
     if (!modelId) return;
     if (!(await showConfirmDialog(`模型 #${modelId} 将回滚为上一版。`, { title: `↩ 回滚 deployed 模型`, confirmLabel: '确认回滚' }))) return;
     try {
         const r = await apiSend('POST', `/api/spawn-tuning-v2/models/${modelId}/rollback`);
-        $('rollback-hint').innerHTML = `<span style="color:var(--good)">✓ 已回滚到模型 #${r.now_deployed || 'none'}</span>`;
+        const sync = await _syncBundleAfterRollback();
+        let suffix = '';
+        if (sync?.kind === 'cleared') {
+            suffix = ` · 已清 bundle (${sync.removed.length} 文件) · 游戏页已通知卸载`;
+        } else if (sync?.kind === 'has-prev-deployed') {
+            suffix = ` · ⚠ bundle 仍指向旧版，请到 ④ 部署 D.1 用 #${sync.modelId} 重新导出`;
+        } else if (sync?.kind === 'clear-failed') {
+            suffix = ` · ⚠ bundle 清理失败: ${sync.error}`;
+        }
+        $('rollback-hint').innerHTML = `<span style="color:var(--good)">✓ 已回滚到模型 #${r.now_deployed || 'none'}${suffix}</span>`;
         refreshOverview();
+        refreshBundleStatus();
     } catch (e) {
         $('rollback-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(e.message)}</span>`;
+    }
+}
+
+async function removeDeployment() {
+    const btn = $('btn-remove-deploy');
+    const modelId = btn?.dataset.modelId;
+    if (!modelId) return;
+    const ok = await showConfirmDialog(
+        [
+            `当前部署模型 #${modelId} 将被「卸载」：`,
+            '',
+            '  · 物理删除 web/public/spawn-tuning-v2/policies.json + meta.json',
+            '  · 同步删除 dist/spawn-tuning-v2/* 镜像（如存在）',
+            '  · 同步删除 miniprogram/core/tuning/spawnPoliciesV2.js',
+            `  · DB 中 model #${modelId} 置为 rollbacked`,
+            '',
+            '游戏端会通过 BroadcastChannel 即时收到通知，badge 自动翻回「规则」',
+            '（同 origin 的游戏页无需刷新；跨 origin 的需手工硬刷一次）。',
+            '',
+            '⚠ 此操作不会删除 .pt 权重文件，模型仍可在 ③ 训练 → 模型库 重新部署。',
+        ].join('\n'),
+        { title: `⊘ 移除模型部署 (回到规则版)`, confirmLabel: '确认卸载' },
+    );
+    if (!ok) return;
+    try {
+        const r = await apiSend('POST', '/api/spawn-tuning-v2/policies/bundle/remove', {
+            include_miniprogram: true,
+            include_dist: true,
+            rollback_db: true,
+        });
+        _broadcastSpawnParamTuner({
+            type: 'bundle-removed',
+            reason: 'manual-remove',
+            rolled_back_model_id: r?.rolled_back_model_id ?? null,
+        });
+        const errPart = (r?.errors?.length || 0) > 0
+            ? ` · ⚠ ${r.errors.length} 个文件删除失败`
+            : '';
+        $('rollback-hint').innerHTML = `<span style="color:var(--good)">✓ 已卸载部署 · 移除 ${r?.removed?.length || 0} 个文件${errPart} · 游戏页已通知</span>`;
+        refreshOverview();
+        refreshBundleStatus();
+        refreshModels?.();
+    } catch (e) {
+        $('rollback-hint').innerHTML = `<span style="color:var(--bad)">卸载失败: ${escapeHtml(e.message)}</span>`;
     }
 }
 
@@ -2242,8 +2350,19 @@ async function refreshModels() {
         tbody.querySelectorAll('.btn-rb').forEach((b) => {
             b.addEventListener('click', async () => {
                 if (!(await showConfirmDialog(`模型 #${b.dataset.id} 将回滚为上一版 deployed 版本。`, { title: `↩ 回滚模型 #${b.dataset.id}`, confirmLabel: '确认回滚' }))) return;
-                await apiSend('POST', `/api/spawn-tuning-v2/models/${b.dataset.id}/rollback`);
-                refreshModels(); refreshOverview();
+                try {
+                    await apiSend('POST', `/api/spawn-tuning-v2/models/${b.dataset.id}/rollback`);
+                    // v2.10.11: 列表内 rollback 也走同步逻辑（清 bundle + 广播），避免和概览页 rollbackCurrent 行为分裂。
+                    const sync = await _syncBundleAfterRollback();
+                    if (sync?.kind === 'cleared') {
+                        showNotification?.(`模型 #${b.dataset.id} 已回滚 · bundle 已清 · 游戏页已通知卸载`, 'success');
+                    } else if (sync?.kind === 'has-prev-deployed') {
+                        showNotification?.(`已回滚 · ⚠ bundle 仍指向旧版，请到 ④ 部署 D.1 用 #${sync.modelId} 重新导出`, 'warning');
+                    }
+                } catch (e) {
+                    showNotification?.(`回滚失败: ${e.message}`, 'error');
+                }
+                refreshModels(); refreshOverview(); refreshBundleStatus();
             });
         });
         tbody.querySelectorAll('.btn-delete-model').forEach((b) => {
@@ -2394,20 +2513,14 @@ async function exportBundle() {
              * 收到后自动 re-fetch policies.json + install，badge 实时翻为「寻参」，
              * 调参员无需手工刷新游戏页。
              * 兼容 fallback：旧浏览器无 BroadcastChannel 时静默忽略（游戏页下次刷新仍能拉到新 bundle）。 */
-            try {
-                if (typeof BroadcastChannel === 'function') {
-                    const ch = new BroadcastChannel('openblock:spawn-param-tuner');
-                    ch.postMessage({
-                        type: 'bundle-updated',
-                        model_id: r.model_id,
-                        sha256: r.sha256,
-                        generated_at: r.generated_at,
-                        rollout_pct: r.rollout_pct,
-                        deployed: r.deploy?.deployed === true,
-                    });
-                    ch.close();
-                }
-            } catch { /* 跨 tab 通知失败不影响主流程 */ }
+            _broadcastSpawnParamTuner({
+                type: 'bundle-updated',
+                model_id: r.model_id,
+                sha256: r.sha256,
+                generated_at: r.generated_at,
+                rollout_pct: r.rollout_pct,
+                deployed: r.deploy?.deployed === true,
+            });
         } else {
             $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(r.error)}</span>`;
         }
@@ -2598,6 +2711,7 @@ function bindEvents() {
     setupTabs();
     setupChips();
     $('btn-rollback').addEventListener('click', rollbackCurrent);
+    $('btn-remove-deploy')?.addEventListener('click', removeDeployment);
     $('btn-start-collect').addEventListener('click', startCollect);
     $('btn-cancel-collect').addEventListener('click', () => { _samplerCancel.cancelled = true; });
     $('btn-refresh-sets').addEventListener('click', refreshSampleSets);

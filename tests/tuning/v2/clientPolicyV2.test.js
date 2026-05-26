@@ -376,6 +376,46 @@ describe('installPoliciesV2 异步通知', () => {
             }
         }
     });
+
+    it('uninstall 已安装的 bundle 后 dispatch 同名事件（uninstalled=true）让 badge 翻回规则', () => {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+        installPoliciesV2({
+            policies: [makePolicy('easy:budget-p2:random:500:growth')],
+            rollout_pct: 100,
+            model_sha256: 'sha-old',
+        });
+
+        const listener = vi.fn();
+        const handler = (e) => listener(e.detail);
+        window.addEventListener('openblock:spawn-param-tuner-installed', handler);
+        try {
+            uninstallPoliciesV2();
+            expect(listener).toHaveBeenCalledOnce();
+            const detail = listener.mock.calls[0][0];
+            expect(detail.installed).toBe(0);
+            expect(detail.uninstalled).toBe(true);
+            expect(detail.model_sha).toBe('');
+            expect(getStatsV2().loaded).toBe(false);
+            expect(getStatsV2().count).toBe(0);
+        } finally {
+            window.removeEventListener('openblock:spawn-param-tuner-installed', handler);
+        }
+    });
+
+    it('uninstall 未安装状态时不重复 dispatch（避免无谓的 badge 刷新）', () => {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+        uninstallPoliciesV2(); // 保险起见再清一次
+
+        const listener = vi.fn();
+        const handler = () => listener();
+        window.addEventListener('openblock:spawn-param-tuner-installed', handler);
+        try {
+            uninstallPoliciesV2();
+            expect(listener).not.toHaveBeenCalled();
+        } finally {
+            window.removeEventListener('openblock:spawn-param-tuner-installed', handler);
+        }
+    });
 });
 
 
@@ -475,7 +515,7 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
         dashboardCh.close();
     });
 
-    it('忽略非 bundle-updated 消息', async () => {
+    it('忽略非 bundle-updated / bundle-removed 消息', async () => {
         setupMockBroadcastChannel();
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
@@ -496,6 +536,85 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
 
         // 仍只有 init 时的 1 次 fetch
         expect(fetchMock).toHaveBeenCalledTimes(1);
+        // 安装状态未变
+        expect(getStatsV2().loaded).toBe(true);
+        expect(getStatsV2().count).toBe(1);
+        ch.close();
+    });
+
+    it('收到 bundle-removed 消息 → 触发 uninstall（不再 fetch，直接清内存）', async () => {
+        setupMockBroadcastChannel();
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                format: 'openblock-spawn-tuning-v2-bundle',
+                policies: [
+                    makePolicy('easy:budget-p2:random:500:growth'),
+                    makePolicy('hard:triplet-p1:survival:25000:mature'),
+                ],
+                rollout_pct: 100,
+            }),
+        });
+        globalThis.fetch = fetchMock;
+
+        await initClientPolicyV2();
+        expect(getStatsV2().loaded).toBe(true);
+        expect(getStatsV2().count).toBe(2);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // dashboard 一端：广播 bundle-removed（来自后端 bundle/remove 成功 或 rollback 后无 deployed）
+        const dashboardCh = new BroadcastChannel('openblock:spawn-param-tuner');
+        dashboardCh.postMessage({ type: 'bundle-removed', reason: 'manual-remove' });
+        await new Promise(r => setTimeout(r, 10));
+
+        // 关键断言：内存已清空 + 没有发起 fetch（policies.json 已被后端删除，fetch 会 404）
+        expect(getStatsV2().loaded).toBe(false);
+        expect(getStatsV2().count).toBe(0);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // 此时 resolveThetaV2 应回退 DEFAULT_THETA_V2（'no-policies' 来源）
+        const r = (await import('../../../web/src/tuning/v2/clientPolicyV2.js')).resolveThetaV2({});
+        expect(r.source).toBe('no-policies');
+        dashboardCh.close();
+    });
+
+    it('bundle-removed 之后再 bundle-updated 能正常重装（卸载不影响后续订阅）', async () => {
+        setupMockBroadcastChannel();
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    format: 'openblock-spawn-tuning-v2-bundle',
+                    policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                    rollout_pct: 100,
+                }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    format: 'openblock-spawn-tuning-v2-bundle',
+                    policies: [
+                        makePolicy('easy:budget-p2:random:500:growth'),
+                        makePolicy('hard:triplet-p1:survival:25000:mature'),
+                        makePolicy('normal:triplet-p1:clear-greedy:1500:growth'),
+                    ],
+                    rollout_pct: 100,
+                }),
+            });
+        globalThis.fetch = fetchMock;
+
+        await initClientPolicyV2();
+        expect(getStatsV2().count).toBe(1);
+
+        const ch = new BroadcastChannel('openblock:spawn-param-tuner');
+        ch.postMessage({ type: 'bundle-removed' });
+        await new Promise(r => setTimeout(r, 10));
+        expect(getStatsV2().loaded).toBe(false);
+
+        ch.postMessage({ type: 'bundle-updated' });
+        await new Promise(r => setTimeout(r, 10));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(getStatsV2().count).toBe(3);
         ch.close();
     });
 

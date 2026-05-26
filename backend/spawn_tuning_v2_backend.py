@@ -1993,6 +1993,73 @@ def register_v2_routes(app):
         })
 
 
+    @bp.route("/api/spawn-tuning-v2/policies/bundle/remove", methods=["POST"])
+    def remove_bundle():
+        """物理移除已部署的 v2 离线 bundle，让游戏端回到规则版 (HandTuned θ)。
+
+        与 ``rollback`` 不同：rollback 仅改 DB 的 ``models.status``，而 bundle 文件
+        仍然挂在 ``web/public/spawn-tuning-v2/policies.json``，因此前端只要刷新还会
+        重新加载旧 bundle，导致「dashboard 显示无 deployed」与「游戏页 badge 仍显示
+        寻参」状态分裂。本 API 是「卸载部署」的唯一权威入口。
+
+        POST body (全部可选):
+          include_miniprogram (default true)  — 同时移除 miniprogram/core/tuning/spawnPoliciesV2.js
+          include_dist        (default true)  — 同时移除 dist/spawn-tuning-v2/* 镜像
+          rollback_db         (default true)  — 同时把当前 deployed model 置为 'rollbacked'
+
+        客户端在拿到 ok=true 后应通过 BroadcastChannel('openblock:spawn-param-tuner')
+        广播 ``{type: 'bundle-removed'}``，让同 origin 的游戏页即时 uninstallPoliciesV2。
+        """
+        data = request.get_json(silent=True) or {}
+        include_mp = bool(data.get("include_miniprogram", True))
+        include_dist = bool(data.get("include_dist", True))
+        rollback_db = bool(data.get("rollback_db", True))
+
+        removed: list[str] = []
+        errors: list[str] = []
+        candidates: list[Path] = [
+            Path("web/public/spawn-tuning-v2/policies.json"),
+            Path("web/public/spawn-tuning-v2/policies.meta.json"),
+        ]
+        if include_dist:
+            candidates.extend([
+                Path("dist/spawn-tuning-v2/policies.json"),
+                Path("dist/spawn-tuning-v2/policies.meta.json"),
+            ])
+        if include_mp:
+            candidates.append(Path("miniprogram/core/tuning/spawnPoliciesV2.js"))
+
+        for p in candidates:
+            try:
+                if p.exists():
+                    p.unlink()
+                    removed.append(str(p))
+            except Exception as e:
+                errors.append(f"{p}: {e}")
+
+        rolled_back_model_id: int | None = None
+        if rollback_db:
+            db = get_db()
+            row = db.execute(
+                "SELECT model_id FROM models WHERE status='deployed' LIMIT 1",
+            ).fetchone()
+            if row:
+                rolled_back_model_id = int(row["model_id"])
+                db.execute(
+                    "UPDATE models SET status = 'rollbacked' WHERE model_id = ?",
+                    (rolled_back_model_id,),
+                )
+                db.commit()
+            db.close()
+
+        return jsonify({
+            "ok": True,
+            "removed": removed,
+            "errors": errors,
+            "rolled_back_model_id": rolled_back_model_id,
+        })
+
+
     @bp.route("/api/spawn-tuning-v2/policies/bundle/status", methods=["GET"])
     def bundle_status():
         """查询当前已导出 bundle 的元数据 + 与 DB 部署状态的一致性诊断。
