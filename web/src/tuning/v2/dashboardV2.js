@@ -607,10 +607,18 @@ async function refreshSampleSets() {
             tbody.innerHTML = '<tr><td colspan="7" class="muted-hint">无样本集 — 在上方配置 chips + 启动采集</td></tr>';
             return;
         }
-        tbody.innerHTML = data.sample_sets.map((s) => `
+        // v2.10: algo_version 徽章 — 'v2.9' = 老数据 (d_curve 平坦), 'v2.10' = PB-aware (S 形)
+        tbody.innerHTML = data.sample_sets.map((s) => {
+            const av = s.algo_version || 'v2.10';
+            const avBadge = av === 'v2.9'
+                ? '<span style="background:#7f1d1d; color:#fecaca; padding:1px 5px; border-radius:3px; font-size:10px;" title="老算法采样, d_curve 几乎水平, 不建议训练">⚠ v2.9</span>'
+                : av === 'v2.10'
+                ? '<span style="background:#064e3b; color:#a7f3d0; padding:1px 5px; border-radius:3px; font-size:10px;" title="PB-aware d_step, d_curve 有 S 形">✓ v2.10</span>'
+                : '';
+            return `
             <tr>
               <td><code>#${s.set_id}</code></td>
-              <td>${escapeHtml(s.name)}</td>
+              <td>${escapeHtml(s.name)} ${avBadge}</td>
               <td>${s.sample_count || 0}</td>
               <td><span class="status ${s.status}">${s.status}</span></td>
               <td style="font-size:10.5px; color:var(--muted)">${escapeHtml(s.tags || '-')}</td>
@@ -622,7 +630,7 @@ async function refreshSampleSets() {
                 <button class="danger btn-delete-set" data-id="${s.set_id}">删除</button>
               </td>
             </tr>
-        `).join('');
+        `; }).join('');
         tbody.querySelectorAll('.btn-preview-set').forEach((b) => {
             b.addEventListener('click', () => showSetPreview(b.dataset.id, b.dataset.name));
         });

@@ -17,34 +17,46 @@ const { stepDifficulty, extractDCurveFromSteps, createRng } = _internal;
 
 // ─────────── 单步难度公式 ───────────
 
-describe('stepDifficulty (与 Python extractor.py 一致)', () => {
+describe('stepDifficulty v2.10 PB-aware (与 Python extractor.py 一致)', () => {
     it('noMove returns 1.0', () => {
-        expect(stepDifficulty({ noMove: true, fillRate: 0.5, actionFreedom: 0.5 }, [])).toBe(1.0);
+        expect(stepDifficulty({ noMove: true, fillRate: 0.5, actionFreedom: 0.5 }, [], 0.5)).toBe(1.0);
     });
 
-    it('basic formula matches Python', () => {
-        // 与 Python test_extractor.py::test_basic_formula_no_trend 相同输入
+    it('ratio=0 returns ~0.40 (S 形底部)', () => {
+        // state_d=0.5 → state_offset=0
+        // d_pb_base(0) = 0.40 + 0.45*sigmoid(-0.85/0.18) ≈ 0.402
         const d = stepDifficulty({
-            stepIdx: 0, score: 100, fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
-        }, []);
-        // 0.3*0.5 + 0.5*0.5 + 0.2*0.5 = 0.5
-        expect(d).toBeCloseTo(0.5, 6);
+            fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
+        }, [], 0.0);
+        expect(d).toBeCloseTo(0.402, 2);
     });
 
-    it('high fill = high difficulty', () => {
+    it('ratio=2.0 returns ~0.85 (S 形顶部)', () => {
         const d = stepDifficulty({
-            fillRate: 0.95, actionFreedom: 0.1, noMove: false, clears: 0,
-        }, []);
-        // = 0.3*0.95 + 0.5*0.9 + 0.2*0.5 = 0.835
-        expect(d).toBeCloseTo(0.835, 6);
+            fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
+        }, [], 2.0);
+        expect(d).toBeCloseTo(0.849, 2);
     });
 
-    it('surprise damping × 0.5', () => {
-        const d = stepDifficulty({
-            fillRate: 0.5, actionFreedom: 0.3, noMove: false, clears: 4,
-        }, []);
-        // base = 0.6 → surprise × 0.5 → 0.30
-        expect(d).toBeCloseTo(0.30, 6);
+    it('ratio monotonic — 接近 PB 加压', () => {
+        const ctx = { fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0 };
+        const ratios = [0, 0.5, 0.85, 1.0, 1.5, 2.0];
+        const ds = ratios.map(r => stepDifficulty(ctx, [], r));
+        // 严格非降
+        for (let i = 1; i < ds.length; i++) {
+            expect(ds[i]).toBeGreaterThanOrEqual(ds[i-1] - 1e-9);
+        }
+        // 跨度 ≥ 0.4
+        expect(ds[ds.length-1] - ds[0]).toBeGreaterThan(0.4);
+    });
+
+    it('state_offset 影响 ≈ 0.30 max', () => {
+        const ratio = 0.5;
+        const dLow = stepDifficulty({ fillRate: 0.0, actionFreedom: 1.0, noMove: false, clears: 0 }, [], ratio);
+        const dHigh = stepDifficulty({ fillRate: 1.0, actionFreedom: 0.0, noMove: false, clears: 0 }, [], ratio);
+        // (1.0 - 0.1) * 0.30 ≈ 0.27
+        expect(dHigh - dLow).toBeGreaterThan(0.20);
+        expect(dHigh - dLow).toBeLessThan(0.35);
     });
 });
 

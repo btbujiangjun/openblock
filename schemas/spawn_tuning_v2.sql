@@ -71,7 +71,11 @@ CREATE TABLE IF NOT EXISTS samples (
     -- ── 元信息 ──
     seed            INTEGER,
     eval_ms         INTEGER,
-    evaluated_at    INTEGER NOT NULL
+    evaluated_at    INTEGER NOT NULL,
+    -- v2.10: 标识 d_step 算法版本 (兼容老 v2.9 平坦数据)
+    --   'v2.9'   = 老公式, d_step = state_d 跟 r 无关, d_curve 平坦
+    --   'v2.10'  = PB-aware, d_step = d_pb_base(r) + state_offset, d_curve 有 S 形
+    algo_version    TEXT NOT NULL DEFAULT 'v2.10'
 );
 
 CREATE INDEX IF NOT EXISTS idx_samples_set      ON samples(set_id);

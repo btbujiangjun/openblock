@@ -69,14 +69,18 @@ describe('extractDCurveJS', () => {
     });
 
     it('surprise damping at clears >= 3', () => {
+        // v2.10: surprise 衰减只作用在 state_d 部分, 不衰减 PB 基础
+        //   state_d_raw  = 0.3*0.5 + 0.5*0.7 + 0.2*0.5 = 0.60
+        //   state_d_damp = 0.60 * 0.50 = 0.30 (surprise × 0.5)
+        //   d_pb_base(0.3) = 0.40 + 0.45 * sigmoid(-3.056) ≈ 0.4203
+        //   offset = (0.30 - 0.50) * 0.30 = -0.060
+        //   d_step ≈ 0.4203 - 0.060 = 0.3603
         const steps = [
             { stepIdx: 0, score: 30, fillRate: 0.5, actionFreedom: 0.3, noMove: false, clears: 4 },
         ];
         const labels = extractDCurveJS(steps, 100);
-        // base = 0.3*0.5 + 0.5*0.7 + 0.2*0.5 = 0.6, surprise damping × 0.5 → 0.3
-        // 该值进 bin 0 (r=0.3)
-        const bin = Math.floor(0.3 / (1.5 / 20));  // = 4
-        expect(labels.d_curve[bin]).toBeCloseTo(0.3, 5);
+        const bin = Math.floor(0.3 / (2.0 / 20));  // CURVE_R_MAX=2.0
+        expect(labels.d_curve[bin]).toBeCloseTo(0.360, 2);
         expect(labels.surprise_count).toBe(1);
     });
 

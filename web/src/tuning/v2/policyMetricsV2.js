@@ -30,6 +30,12 @@ const TREND_WEIGHT = 0.20;
 const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
+// v2.10: PB-aware d_step (跨语言: samplerV2.js / extractor.py 同步)
+const PB_AWARE_D_BASE = 0.40;
+const PB_AWARE_D_PEAK = 0.85;
+const PB_AWARE_CENTER = 0.85;
+const PB_AWARE_WIDTH  = 0.18;
+const PB_AWARE_STATE_WEIGHT = 0.30;
 
 
 // ─────────── 模块状态 ───────────
@@ -49,7 +55,7 @@ let _stats = { steps_recorded: 0, episodes_reported: 0, flushed_batches: 0, flus
 
 // ─────────── d_curve 提取 (与 Python 一致) ───────────
 
-function _stepDifficulty(step, recentFills) {
+function _stepDifficulty(step, recentFills, ratio = 0) {
     if (step.noMove) return 1.0;
     let trendNorm = 0.5;
     if (recentFills.length > 0) {
@@ -57,14 +63,18 @@ function _stepDifficulty(step, recentFills) {
         const trend = step.fillRate - avg;
         trendNorm = Math.max(0, Math.min(1, 0.5 + trend));
     }
-    let base = FILL_RATE_WEIGHT * step.fillRate
+    let stateD = FILL_RATE_WEIGHT * step.fillRate
              + ACTION_FREEDOM_WEIGHT * (1 - step.actionFreedom)
              + TREND_WEIGHT * trendNorm;
-    base = Math.max(0, Math.min(1, base));
+    stateD = Math.max(0, Math.min(1, stateD));
     if ((step.clears || 0) >= SURPRISE_MIN_CLEARS) {
-        base *= SURPRISE_DAMPING;
+        stateD *= SURPRISE_DAMPING;
     }
-    return base;
+    // v2.10: PB-aware
+    const sig = 1 / (1 + Math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH));
+    const dPbBase = PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig;
+    const stateOffset = (stateD - 0.5) * PB_AWARE_STATE_WEIGHT;
+    return Math.max(0, Math.min(1, dPbBase + stateOffset));
 }
 
 
@@ -83,7 +93,8 @@ function _extractDCurve(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
     for (const st of steps) {
         const r = Math.min(rMax - 1e-9, st.score / pb);
         const bidx = rToBin(r, nBins, rMax);
-        const d = _stepDifficulty(st, recentFills);
+        // v2.10: 传 r 给 _stepDifficulty 让其编码 PB 命题
+        const d = _stepDifficulty(st, recentFills, r);
         binSums[bidx] += d;
         binCounts[bidx] += 1;
 

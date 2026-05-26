@@ -43,9 +43,28 @@ const TREND_WINDOW = 5;
 const GRID_TOTAL_CELLS = 64;
 
 
-// ─────────── 单步难度 (与 policyMetricsV2 / Python 一致) ───────────
+// ─────────── 单步难度 (v2.10: PB-aware, 跨语言 Python extractor.py 同步) ───────────
+//
+// 病例 (job_13/14/16, 5000 样本验证): 老公式 d 跟 r=score/PB 完全无关,
+//   d_curve 跨度仅 0.474→0.679 (Δ=0.20), 业务期望 0.20→1.00 (Δ=0.80) 是 4×。
+//   模型再怎么训, 学到的都是训练 label 的形态, 永远 < ideal target。
+//
+// v2.10 修复: d_step 显式编码 PB 命题
+//   d_pb_base(ratio): 基础 S 形 (业务命题 "接近 PB 加压、超 PB 持续加压"),
+//                     范围 [D_BASE, D_PEAK] = [0.40, 0.85]
+//   state_d (老公式): 棋盘状态难度 [0, 1] 作为扰动 (±0.15)
+//
+// 跨 ctx 差异由 state_d 携带 (hard 难度棋盘更紧、normal 居中),
+// 因此模型仍能学到 ctx → state_offset 模式。
 
-function _stepDifficulty(step, recentFills) {
+// v2.10 常量
+const PB_AWARE_D_BASE = 0.40;       // r=0 时的基础难度
+const PB_AWARE_D_PEAK = 0.85;       // r→∞ 时的渐近难度
+const PB_AWARE_CENTER = 0.85;       // S 形拐点 (在 PB 附近开始加压)
+const PB_AWARE_WIDTH  = 0.18;       // 拐点过渡宽度
+const PB_AWARE_STATE_WEIGHT = 0.30; // state_d 偏移幅度 (±0.15)
+
+function _stepDifficulty(step, recentFills, ratio = 0) {
     if (step.noMove) return 1.0;
     let trendNorm = 0.5;
     if (recentFills.length > 0) {
@@ -53,14 +72,20 @@ function _stepDifficulty(step, recentFills) {
         const trend = step.fillRate - avg;
         trendNorm = Math.max(0, Math.min(1, 0.5 + trend));
     }
-    let base = FILL_RATE_WEIGHT * step.fillRate
+    // state_d: 棋盘状态难度 (老 v2.9 公式)
+    let stateD = FILL_RATE_WEIGHT * step.fillRate
         + ACTION_FREEDOM_WEIGHT * (1 - step.actionFreedom)
         + TREND_WEIGHT * trendNorm;
-    base = Math.max(0, Math.min(1, base));
+    stateD = Math.max(0, Math.min(1, stateD));
     if ((step.clears || 0) >= SURPRISE_MIN_CLEARS) {
-        base *= SURPRISE_DAMPING;
+        stateD *= SURPRISE_DAMPING;
     }
-    return base;
+    // d_pb_base: PB 命题的 S 形基础 (v2.10 核心)
+    const sig = 1 / (1 + Math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH));
+    const dPbBase = PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig;
+    // 组合: PB 基础 + state 偏移
+    const stateOffset = (stateD - 0.5) * PB_AWARE_STATE_WEIGHT;
+    return Math.max(0, Math.min(1, dPbBase + stateOffset));
 }
 
 
@@ -75,7 +100,8 @@ function _extractDCurveFromSteps(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R
     for (const st of steps) {
         const r = Math.min(rMax - 1e-9, st.score / pb);
         const bidx = rToBin(r, nBins, rMax);
-        const d = _stepDifficulty(st, recentFills);
+        // v2.10: 把 r 传给 _stepDifficulty 让其编码 PB 命题
+        const d = _stepDifficulty(st, recentFills, r);
         binSums[bidx] += d;
         binCounts[bidx] += 1;
         recentFills.push(st.fillRate);
@@ -310,6 +336,7 @@ export function runOneSampleV2(args) {
         seed,
         eval_ms: 0,           // sampler 自己也算耗时,由调用方填
         evaluated_at: Date.now(),
+        algo_version: 'v2.10',   // v2.10: PB-aware d_step
     };
 }
 

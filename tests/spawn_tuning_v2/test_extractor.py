@@ -29,42 +29,63 @@ def make_step(idx, score, fill, freedom, no_move=False, clears=0):
 
 
 class TestStepDifficulty:
+    """v2.10: d_step = d_pb_base(ratio) + 0.30 * (state_d - 0.5), clipped [0,1].
+       d_pb_base = 0.40 + 0.45 * sigmoid((ratio - 0.85) / 0.18)
+    """
+
     def test_no_move_returns_1(self):
         st = make_step(0, 100, fill=0.5, freedom=0.3, no_move=True)
-        assert st.step_difficulty([]) == 1.0
+        assert st.step_difficulty([], ratio=0.5) == 1.0
 
-    def test_basic_formula_no_trend(self):
+    def test_ratio_zero_low_base(self):
+        """ratio=0 时 d_pb_base ≈ 0.40 (S 形底部)。"""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
-        # trend_norm = 0.5 (没历史 fills, 中性)
-        # = 0.3*0.5 + 0.5*(1-0.5) + 0.2*0.5 = 0.15 + 0.25 + 0.10 = 0.50
-        assert st.step_difficulty([]) == pytest.approx(0.50, abs=1e-6)
+        # state_d=0.5 → state_offset=0
+        # d_pb_base(0) = 0.40 + 0.45 * sigmoid(-0.85/0.18) ≈ 0.402
+        d = st.step_difficulty([], ratio=0.0)
+        assert d == pytest.approx(0.402, abs=0.005)
 
-    def test_high_fill_high_difficulty(self):
-        st = make_step(0, 100, fill=0.95, freedom=0.1)
-        d = st.step_difficulty([])
-        # = 0.3*0.95 + 0.5*0.9 + 0.2*0.5 = 0.285 + 0.45 + 0.1 = 0.835
-        assert d > 0.80
+    def test_ratio_peak_high_base(self):
+        """ratio>>1 时 d_pb_base ≈ 0.85 (S 形顶部)。"""
+        st = make_step(0, 100, fill=0.5, freedom=0.5)
+        d = st.step_difficulty([], ratio=2.0)
+        # d_pb_base(2.0) = 0.40 + 0.45 * sigmoid(1.15/0.18) ≈ 0.849
+        assert d == pytest.approx(0.849, abs=0.005)
 
-    def test_low_fill_low_difficulty(self):
-        st = make_step(0, 100, fill=0.1, freedom=0.95)
-        d = st.step_difficulty([])
-        # = 0.3*0.1 + 0.5*0.05 + 0.2*0.5 = 0.03 + 0.025 + 0.1 = 0.155
-        assert d < 0.20
+    def test_ratio_monotonic(self):
+        """同 state, ratio 越大 d 越大 (业务命题 '接近 PB 加压')。"""
+        st = make_step(0, 100, fill=0.5, freedom=0.5)
+        ds = [st.step_difficulty([], ratio=r) for r in [0.0, 0.5, 0.85, 1.0, 1.5, 2.0]]
+        for i in range(1, len(ds)):
+            assert ds[i] >= ds[i-1] - 1e-9, f"non-monotonic at i={i}: {ds}"
+        # 跨度应明显 (≥ 0.4)
+        assert ds[-1] - ds[0] > 0.4
 
-    def test_surprise_damping(self):
-        """≥ 3 行消行触发惊喜降难。"""
-        st = make_step(0, 100, fill=0.5, freedom=0.3, clears=4)
-        d = st.step_difficulty([])
-        # base = 0.3*0.5 + 0.5*0.7 + 0.2*0.5 = 0.15 + 0.35 + 0.1 = 0.60
-        # surprise damping × 0.5 → 0.30
-        assert d == pytest.approx(0.30, abs=1e-6)
+    def test_state_offset_magnitude(self):
+        """同 ratio, state_d=1.0 比 state_d=0 高 ≈ 0.30 (state_weight)。"""
+        st_low = make_step(0, 100, fill=0.0, freedom=1.0)  # state_d ≈ 0.1
+        st_high = make_step(0, 100, fill=1.0, freedom=0.0) # state_d ≈ 1.0
+        d_low = st_low.step_difficulty([], ratio=0.5)
+        d_high = st_high.step_difficulty([], ratio=0.5)
+        # diff ≈ (1.0 - 0.1) * 0.30 ≈ 0.27
+        assert 0.20 < (d_high - d_low) < 0.35
+
+    def test_surprise_damping_on_state(self):
+        """≥3 行消行只衰减 state_d, 不影响 PB 基础。"""
+        st_no_clear = make_step(0, 100, fill=0.5, freedom=0.5, clears=0)
+        st_surprise = make_step(0, 100, fill=0.5, freedom=0.5, clears=4)
+        d_no = st_no_clear.step_difficulty([], ratio=0.5)
+        d_su = st_surprise.step_difficulty([], ratio=0.5)
+        # state_d 从 0.5 → 0.25, offset 从 0 → -0.075
+        # 但 d_pb_base 不变, 所以 d_no ≈ d_su 但 d_su 略低
+        assert d_su < d_no
+        assert (d_no - d_su) < 0.10
 
     def test_trend_upward(self):
-        """填充率上升趋势会让 trend_norm > 0.5,提高难度。"""
+        """填充率上升趋势会让 state_d 升高 → d 升高。"""
         st = make_step(0, 100, fill=0.6, freedom=0.5)
-        d_no_trend = st.step_difficulty([])
-        d_upward = st.step_difficulty([0.3, 0.4, 0.45])  # 历史均值 0.383, 当前 0.6
-        # trend = 0.6 - 0.383 = +0.217, trend_norm ≈ 0.717
+        d_no_trend = st.step_difficulty([], ratio=0.5)
+        d_upward = st.step_difficulty([0.3, 0.4, 0.45], ratio=0.5)
         assert d_upward > d_no_trend
 
 
@@ -164,6 +185,28 @@ class TestExtractDCurve:
         labels = extract_d_curve(steps, pb=100)
         # 至少 3 个 bin 有数据
         assert labels.n_bins_filled >= 3
+
+    def test_v210_d_curve_has_s_shape(self):
+        """v2.10 关键: 即使棋盘状态恒定, d_curve 也应有 S 形 (因为 d_pb_base 随 r 升)。
+
+        修复前 (v2.9): 状态恒定 → 所有 bin d_step 一样 → d_curve 几乎水平。
+        修复后 (v2.10): 状态恒定 → d_pb_base 随 ratio 升 → d_curve 有明显 S 形。
+        """
+        # 20 步均匀分布 r=0.05→1.95, 棋盘状态完全恒定 (state_d=0.5)
+        steps = [
+            make_step(i, int((i + 0.5) * 0.1 * 100), fill=0.5, freedom=0.5)
+            for i in range(20)
+        ]
+        labels = extract_d_curve(steps, pb=100)
+        c = labels.d_curve
+        # 头几 bin (低 r) 应比尾几 bin (高 r) 低显著差距
+        head = sum(c[:3]) / 3
+        tail = sum(c[-3:]) / 3
+        assert tail - head > 0.30, f"v2.10 应有 S 形跨度 > 0.3, got head={head:.3f} tail={tail:.3f}"
+        # 大致单调
+        diffs = [c[i+1] - c[i] for i in range(len(c) - 1)]
+        n_rises = sum(1 for d in diffs if d >= -0.01)
+        assert n_rises >= 15, f"大部分 bin 应递增, got {n_rises}/19"
 
 
 class TestAggregate:

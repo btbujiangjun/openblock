@@ -147,9 +147,21 @@ def register_v2_routes(app):
 
         rows = db.execute(sql, params).fetchall()
         total = db.execute("SELECT COUNT(*) FROM sample_sets").fetchone()[0]
+        # v2.10: 每个 sample_set 报告其样本主导算法版本 (供 UI 区分老 v2.9 vs 新 v2.10)
+        sets = []
+        for r in rows:
+            d = row_to_dict(r)
+            sid = d["set_id"]
+            algo_row = db.execute(
+                "SELECT algo_version, COUNT(*) AS n FROM samples WHERE set_id = ? "
+                "GROUP BY algo_version ORDER BY n DESC LIMIT 1",
+                (sid,),
+            ).fetchone()
+            d["algo_version"] = algo_row["algo_version"] if algo_row else None
+            sets.append(d)
         db.close()
         return jsonify({
-            "sample_sets": [row_to_dict(r) for r in rows],
+            "sample_sets": sets,
             "count": len(rows),
             "total": total,
             "limit": limit,
@@ -250,6 +262,7 @@ def register_v2_routes(app):
             "theta_json", "d_curve_json", "final_score", "survived_steps",
             "clear_rate", "noMove_step", "pb_broke", "surprise_count",
             "seed", "eval_ms", "evaluated_at",
+            "algo_version",   # v2.10
         ]
         placeholders = ",".join(["?"] * len(fields))
         sql = f"INSERT INTO samples ({','.join(fields)}) VALUES ({placeholders})"
@@ -269,6 +282,7 @@ def register_v2_routes(app):
                     int(bool(s.get("pb_broke", False))), s.get("surprise_count", 0),
                     s.get("seed"), s.get("eval_ms"),
                     s.get("evaluated_at", int(time.time() * 1000)),
+                    s.get("algo_version", "v2.10"),   # 默认 v2.10
                 )
                 db.execute(sql, row)
                 inserted += 1

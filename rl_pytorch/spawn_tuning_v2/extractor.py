@@ -6,13 +6,17 @@ d_curve 标签提取 — 从单局游戏轨迹生成 20 维难度向量。
   - d_curve: 长度 20 的 float 数组, 每 bin 对应 r ∈ [0, 1.5] 区间的平均单步难度
   - 辅助标签: final_score, survived_steps, clear_rate, noMove_step, pb_broke, surprise_count
 
-单步难度信号定义 (无 noMove 时):
-  D_step = clip(0.3 * fill_rate           # 盘面填充率 (越高越难)
-              + 0.5 * (1 - action_freedom) # 可放置位置占比的反 (越少越难)
-              + 0.2 * trend,               # 短期填充率上升趋势
-              0, 1)
-  noMove 步: D_step = 1.0 (硬死局)
-  Surprise 步 (clears >= 3): D_step *= 0.5 (惊喜降难)
+v2.10: PB-aware d_step (与 web/src/tuning/v2/samplerV2.js 跨语言一致)
+  老公式 (v2.9) 跟 r=score/PB 完全无关 → d_curve 几乎水平 (跨度仅 0.20)。
+  模型再怎么训, 永远学不到 S 形 (因为训练 label 没 S 形)。
+
+  v2.10 修复: d_step 显式编码 PB 命题
+    state_d = 0.3*fill_rate + 0.5*(1-action_freedom) + 0.2*trend   # 棋盘状态
+    d_pb_base(ratio) = 0.40 + 0.45 * sigmoid((ratio - 0.85) / 0.18) # S 形基础
+    d_step = clip(d_pb_base + 0.30 * (state_d - 0.5), 0, 1)
+
+  noMove 步: D_step = 1.0 (硬死局, 仍优先)
+  Surprise 步 (clears >= 3): state_d *= 0.5 (惊喜降难, 仅作用于 state 部分)
 """
 from __future__ import annotations
 import math
@@ -29,6 +33,13 @@ SURPRISE_DAMPING = 0.50            # 惊喜步的难度乘子
 SURPRISE_MIN_CLEARS = 3            # ≥ 3 行触发惊喜
 TREND_WINDOW = 5                   # 短期填充率趋势窗口
 
+# v2.10: PB-aware d_step 常量 (跨语言: samplerV2.js 同步)
+PB_AWARE_D_BASE = 0.40       # r=0 时的基础难度
+PB_AWARE_D_PEAK = 0.85       # r→∞ 时的渐近难度
+PB_AWARE_CENTER = 0.85       # S 形拐点 (在 PB 附近开始加压)
+PB_AWARE_WIDTH = 0.18        # 拐点过渡宽度
+PB_AWARE_STATE_WEIGHT = 0.30 # state_d 偏移幅度 (±0.15)
+
 
 @dataclass
 class StepInfo:
@@ -40,24 +51,35 @@ class StepInfo:
     no_move: bool                  # 是否硬死局
     clears: int = 0                # 该步消行数
 
-    def step_difficulty(self, prev_fills: Sequence[float]) -> float:
-        """计算单步难度信号 D_step ∈ [0, 1]。"""
+    def step_difficulty(self, prev_fills: Sequence[float], ratio: float = 0.0) -> float:
+        """计算单步难度信号 D_step ∈ [0, 1]。
+
+        v2.10: 引入 PB 命题 (ratio = score/PB)
+          d_pb_base(ratio): 基础 S 形, 范围 [0.40, 0.85]
+          state_d:          老公式产出 [0, 1]
+          d_step = clip(d_pb_base + 0.30*(state_d - 0.5), 0, 1)
+        """
         if self.no_move:
             return 1.0
-        # 短期填充率上升趋势 (与最近 TREND_WINDOW 步均值比较)
+        # state_d (老公式): 棋盘状态难度
         if prev_fills:
             trend = self.fill_rate - (sum(prev_fills) / len(prev_fills))
         else:
             trend = 0.0
-        trend_norm = max(0.0, min(1.0, 0.5 + trend))  # 中心化到 [0, 1]
-
-        base = (FILL_RATE_WEIGHT * self.fill_rate
-                + ACTION_FREEDOM_WEIGHT * (1.0 - self.action_freedom)
-                + TREND_WEIGHT * trend_norm)
-        d = max(0.0, min(1.0, base))
+        trend_norm = max(0.0, min(1.0, 0.5 + trend))
+        state_d = (FILL_RATE_WEIGHT * self.fill_rate
+                   + ACTION_FREEDOM_WEIGHT * (1.0 - self.action_freedom)
+                   + TREND_WEIGHT * trend_norm)
+        state_d = max(0.0, min(1.0, state_d))
         if self.clears >= SURPRISE_MIN_CLEARS:
-            d *= SURPRISE_DAMPING
-        return d
+            state_d *= SURPRISE_DAMPING
+
+        # v2.10: PB 命题的 S 形基础
+        sig = 1.0 / (1.0 + math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH))
+        d_pb_base = PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig
+        # 组合: PB 基础 + state 偏移
+        state_offset = (state_d - 0.5) * PB_AWARE_STATE_WEIGHT
+        return max(0.0, min(1.0, d_pb_base + state_offset))
 
 
 @dataclass
@@ -124,7 +146,8 @@ def extract_d_curve(
             r = r_max - 1e-9  # 防 r=r_max 时 r_to_bin 溢出
         bidx = r_to_bin(r, n_bins=n_bins, r_max=r_max)
 
-        d = st.step_difficulty(recent_fills)
+        # v2.10: 传 ratio 让 step_difficulty 编码 PB 命题
+        d = st.step_difficulty(recent_fills, ratio=r)
         bin_sums[bidx] += d
         bin_counts[bidx] += 1
 
