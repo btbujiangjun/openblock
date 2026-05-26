@@ -35,8 +35,29 @@ function _refreshPolicySourceBadge() {
     el.textContent = tunerActive ? '寻参' : '规则';
     el.className = tunerActive ? 'spawn-policy-source-badge tuner' : 'spawn-policy-source-badge';
     el.title = tunerActive
-        ? `θ 来源：寻参版（SpawnParamTuner · ${stats.count} 条策略 / rollout ${stats.rollout_pct}%）`
-        : 'θ 来源：规则版（HandTuned 默认 / policies.json 未加载或灰度未命中）';
+        ? [
+            '🤖 寻参版 = L2 · SpawnParamTuner 模型已生效',
+            '',
+            '本模型不直接产 3 块，而是给启发式（L1 · SpawnPolicyRules）的 9 维 θ',
+            '参数寻优，让启发式按你所在场景自动选最佳 θ：',
+            `  · 已加载策略：${stats.count} 条`,
+            `  · 灰度比例：rollout ${stats.rollout_pct}%`,
+            `  · 模型 SHA：${(stats.model_sha || '').slice(0, 8)}…`,
+            '  · 场景维度：difficulty × generator × bot × PB × lifecycle',
+            '',
+            '⤳ 切换到「生成式」时，仅其中 4 个 PB 曲线参数会被 SpawnPolicyNet',
+            '   的 target_difficulty 公式消费；其余 5 个个性化/选拔参数仅作用于规则轨。',
+        ].join('\n')
+        : [
+            '📐 规则版 = HandTuned 默认参数',
+            '',
+            'L2 · SpawnParamTuner 模型当前未生效（policies.json 未加载 / 灰度未命中 /',
+            '加载失败），启发式（L1 · SpawnPolicyRules）使用 shared/game_rules.json',
+            '与 DEFAULT_SPAWN_PARAMS_PB_CURVE 的默认 9 维 θ 跑全场景。',
+            '',
+            '⤳ 要切换到「寻参」：在 spawn-tuning-v2 看板点 D.1 导出 Bundle，',
+            '   重新加载游戏页后 badge 会自动翻为「寻参」。',
+        ].join('\n');
 }
 
 let _pollTimer = null;
@@ -211,11 +232,15 @@ export function initSpawnModelPanel(game) {
                 if (res?.success && badge) {
                     badge.textContent = res.baseAvailable ? 'V3 已重载' : 'V3 未训练';
                     badge.className = res.baseAvailable ? 'spawn-model-status available' : 'spawn-model-status';
+                    badge.title = res.baseAvailable
+                        ? '🔁 L1 · SpawnPolicyNet 已从磁盘热重载最新权重（无需刷新页面即可在「生成式」模式生效）。'
+                        : '⚠️ 磁盘上无 SpawnPolicyNet 权重文件，请先「开始训练」。';
                 }
             } catch {
                 if (badge) {
                     badge.textContent = '加载失败';
                     badge.className = 'spawn-model-status';
+                    badge.title = '❌ L1 · SpawnPolicyNet 权重重载失败（服务端异常或权重文件损坏），可重试或重新训练。';
                 }
             }
         });
@@ -240,6 +265,15 @@ export function initSpawnModelPanel(game) {
             if (badge) {
                 badge.textContent = '服务不可用';
                 badge.className = 'spawn-model-status';
+                badge.title = [
+                    '🔌 模型训练 / 推理后端 (Flask) 不可达',
+                    '',
+                    'L1 · SpawnPolicyNet 的训练与推理依赖 server.py（/api/spawn-model/*）。',
+                    '当前后端无响应——可能未启动、网络阻塞或 CORS 失败。',
+                    '',
+                    '⤳ 不影响「启发式」运行；「生成式」在此状态下也会自动回退到启发式。',
+                    '⤳ 启动后端：python server.py 或 npm run server',
+                ].join('\n');
             }
         }
     }
@@ -250,6 +284,15 @@ export function initSpawnModelPanel(game) {
         if (st.trainingRunning) {
             badge.textContent = `训练中 ${st.progress ?? 0}%`;
             badge.className = 'spawn-model-status training';
+            badge.title = [
+                '⏳ L1 · SpawnPolicyNet 正在训练',
+                '',
+                '神经版出块决策模型（Transformer V3.1）正在用 SQLite 历史对局训练：',
+                `  · 进度：${st.progress ?? 0}%`,
+                st.message ? `  · 阶段：${st.message}` : '',
+                '',
+                '训练完成后会自动 reload，「V3 可用」徽章会亮起，可在「生成式」模式启用。',
+            ].filter(Boolean).join('\n');
             if (btnStart) btnStart.disabled = true;
             if (btnStop) btnStop.disabled = false;
             if (progressWrap) progressWrap.hidden = false;
@@ -259,6 +302,22 @@ export function initSpawnModelPanel(game) {
             const personalizedCount = Array.isArray(st.personalizedUsers) ? st.personalizedUsers.length : 0;
             badge.textContent = personalizedCount > 0 ? `V3 可用 / 个性化 ${personalizedCount}` : 'V3 可用';
             badge.className = 'spawn-model-status available';
+            badge.title = [
+                '✨ V3 可用 = L1 · SpawnPolicyNet 模型已加载',
+                '',
+                '神经版出块决策模型（Transformer V3.1, ~317K 参数）已准备就绪。',
+                '切换到「生成式」时，下一轮起本模型按盘面 + 56 维行为上下文 + 历史 3 轮',
+                '条件分布 P(s₁,s₂,s₃|…) 直接产 3 块；前端护栏失败或服务不可用时自动',
+                '回退到启发式（SpawnPolicyRules）。',
+                '',
+                personalizedCount > 0
+                    ? `  · 已为 ${personalizedCount} 位玩家训练 LoRA 个性化权重`
+                    : '  · 当前所有玩家使用通用权重（可在训练面板按玩家训练 LoRA）',
+                '',
+                '⤳ 与「启发式」的「寻参/规则」badge 完全独立：',
+                '   前者决定「谁产 3 块」（L1 决策模型），',
+                '   后者决定「启发式吃哪套 θ」（L2 参数寻优器）。',
+            ].join('\n');
             if (btnStart) btnStart.disabled = false;
             if (btnStop) btnStop.disabled = true;
             if (st.phase === 'done') {
@@ -269,6 +328,16 @@ export function initSpawnModelPanel(game) {
         } else {
             badge.textContent = 'V3 未训练';
             badge.className = 'spawn-model-status';
+            badge.title = [
+                '⚪ V3 未训练 = L1 · SpawnPolicyNet 模型不可用',
+                '',
+                '神经版出块决策模型（Transformer V3.1）尚未训练或权重缺失，',
+                '「生成式」radio 会半透明禁用。',
+                '',
+                '⤳ 点「开始训练」用 SQLite 历史对局训练；训练完成后切换到「生成式」即可启用。',
+                '⤳ 与「启发式」当前的 θ 来源 badge 无关——即使 V3 未训练，',
+                '   启发式仍可正常运行（用规则版或寻参版 θ）。',
+            ].join('\n');
             if (btnStart) btnStart.disabled = false;
             if (btnStop) btnStop.disabled = true;
         }

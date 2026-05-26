@@ -914,12 +914,28 @@
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块算法</summary>
             <div class="spawn-mode-switch">
-                <label class="spawn-mode-label" title="启发式三层出块（SpawnPolicyRules）；badge 显示当前 9 维 θ 来源——「规则」= HandTuned 默认值；「寻参」= SpawnParamTuner 部署的 policies.json 已生效。">
+                <label class="spawn-mode-label" title="📖 启发式 = L1 · SpawnPolicyRules（规则版出块决策）
+启发式规则 + 加权乘子 + 硬约束拒绝采样，直接产 3 块。不依赖神经网络。
+
+右侧 badge 显示当前 9 维 θ 来源（来自 L2 · SpawnParamTuner 模型）：
+  · 「规则」= HandTuned 默认值（policies.json 未加载或灰度未命中）
+  · 「寻参」= SpawnParamTuner 已部署，按场景挑最优 θ
+
+⤳ 与「生成式」互斥：同时只有一个会真正产 3 块。">
                     <span class="spawn-option-icon" aria-hidden="true">📖</span>
                     <input type="radio" name="spawn-mode" value="rule" checked /> 启发式
                     <span class="spawn-policy-source-badge" id="spawn-policy-source-badge" title="θ 来源：规则版（HandTuned 默认 / policies.json 未加载或灰度未命中）">规则</span>
                 </label>
-                <label class="spawn-mode-label" title="使用已训练的 SpawnPolicyNet 根据盘面、能力、拓扑与局内弧线推荐三连块；前端护栏失败或服务不可用时自动回退启发式。">
+                <label class="spawn-mode-label" title="✨ 生成式 = L1 · SpawnPolicyNet（神经版出块决策）
+Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, history)，直接产 3 块。
+
+右侧「V3 可用」badge 显示模型权重状态：
+  · 「V3 可用」= 推理服务已加载权重，可启用本模式
+  · 「V3 未训练」= 权重缺失，需先在「模型训练」面板训练
+  · 「训练中 NN%」= 后端正在用 SQLite 历史对局训练
+
+⤳ 推理失败或前端护栏不通过时自动回退到启发式（SpawnPolicyRules）。
+⤳ 与「启发式」互斥；与 SpawnParamTuner（L2）正交：本模型仅消费其中 4 个 PB 曲线参数。">
                     <span class="spawn-option-icon" aria-hidden="true">✨</span>
                     <input type="radio" name="spawn-mode" value="model-v3" /> 生成式
                 </label>
