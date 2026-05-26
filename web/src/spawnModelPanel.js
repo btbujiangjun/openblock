@@ -153,13 +153,19 @@ export function initSpawnModelPanel(game) {
         if (r.value === currentMode) r.checked = true;
     });
 
-    // 初始化时立即刷新一次 θ 来源 badge（policies.json 可能此时还没加载完）。
+    // 初始化时立即刷新一次 θ 来源 badge。
     _refreshPolicySourceBadge();
-    // 订阅 SpawnParamTuner 异步 install 完成事件，立即翻牌为「寻参」。
+    // spawnModelPanel 是延迟加载模块（initDeferredPanels 异步），install 事件
+    // 可能在本面板挂载之前已 dispatch，listener 会漏掉。所以同时用两种机制：
+    //   (1) 订阅 install 事件——install 晚于本面板时即时刷新；
+    //   (2) 延迟轮询兜底——install 早于本面板时由轮询补上。
     // 详见 web/src/tuning/v2/clientPolicyV2.js · installPoliciesV2 末尾的 dispatch。
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('openblock:spawn-param-tuner-installed', _refreshPolicySourceBadge);
     }
+    // 兜底：bundle fetch 通常 < 1s，500ms / 2000ms 两次轮询基本覆盖所有时序。
+    setTimeout(_refreshPolicySourceBadge, 500);
+    setTimeout(_refreshPolicySourceBadge, 2000);
 
     radios.forEach((r) => {
         r.addEventListener('change', () => {

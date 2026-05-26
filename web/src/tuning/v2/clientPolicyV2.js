@@ -209,10 +209,16 @@ export function resolveThetaV2(playerCtx = {}) {
 }
 
 
-/** 加载离线 bundle (Web/Android/iOS 走 fetch)。 */
+/** 加载离线 bundle (Web/Android/iOS 走 fetch)。
+ *
+ * cache 策略说明：用 'no-cache' 而非 'force-cache'——后者会让浏览器在不发请求的情况下
+ * 直接返回旧 bundle，导致后端重新部署 policies.json 后客户端继续吃老数据，
+ * 表现为「dashboard 已显示 100% rollout 但启发式 badge 仍显示规则」的状态不一致。
+ * 'no-cache' 强制 revalidate（带 If-None-Match，命中走 304，开销很小）。
+ */
 export async function loadPoliciesFromBundleV2(url = '/spawn-tuning-v2/policies.json') {
     try {
-        const r = await fetch(url, { cache: 'force-cache' });
+        const r = await fetch(url, { cache: 'no-cache' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const bundle = await r.json();
         if (bundle?.format !== 'openblock-spawn-tuning-v2-bundle') {

@@ -230,6 +230,22 @@ describe('loadPoliciesFromBundleV2', () => {
         expect(getStatsV2().rollout_pct).toBe(80);
     });
 
+    it('fetch 使用 cache:no-cache (避免 dashboard 重新部署后客户端吃浏览器旧缓存)', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                format: 'openblock-spawn-tuning-v2-bundle',
+                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                rollout_pct: 100,
+            }),
+        });
+        globalThis.fetch = fetchMock;
+        await loadPoliciesFromBundleV2();
+        expect(fetchMock).toHaveBeenCalledOnce();
+        const [, init] = fetchMock.mock.calls[0];
+        expect(init?.cache).toBe('no-cache');
+    });
+
     it('fetch fails → installed=0 + error', async () => {
         globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
         const r = await loadPoliciesFromBundleV2();
