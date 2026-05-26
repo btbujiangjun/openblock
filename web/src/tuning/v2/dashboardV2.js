@@ -1603,18 +1603,46 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
         ctx.scale(dpr, dpr);
         ctx.clearRect(0, 0, cssW, cssH);
 
-        // 计算该 metric 的 y 范围 (含 batches 仅对 train_loss 有意义)
+        // v2.10.3: 智能 Y 轴范围 — 反应细微变化
+        //   1. 不强制 yMin=0 (否则 [0.058, 0.066] 被压成 10% 空间)
+        //   2. 首 epoch 异常剔除 (initial loss 常巨大, 把后续平台压扁)
+        //   3. 业务指标都 ≥0, yBot 不为负 (避免浪费下方空间)
+        //   4. 数据全等时画水平线 (避免 yRange=0 NaN)
         const vals = epochs.map((e) => e[m.key]).filter(Number.isFinite);
         const extraBatchVals = (m.key === 'train_loss')
             ? batches.map((b) => b.train_loss_batch).filter(Number.isFinite)
             : [];
         const allVals = [...vals, ...extraBatchVals];
-        const yMax = Math.max(1e-9, ...allVals);
-        const yMin = Math.min(0, ...allVals);
-        const yRange = Math.max(1e-9, yMax - yMin);
-        // y 上加 10% 余量
-        const yTop = yMax + yRange * 0.10;
-        const yBot = yMin - yRange * 0.05;
+        let yMin, yMax;
+        if (allVals.length === 0) {
+            yMin = 0; yMax = 1;
+        } else {
+            yMin = Math.min(...allVals);
+            yMax = Math.max(...allVals);
+            // 首 epoch 异常剔除: 若首值 > 后续 max 的 2× 且 epoch > 3, 用剩余决定 scale
+            if (vals.length > 3 && vals[0] > 0) {
+                const restVals = [...vals.slice(1), ...extraBatchVals];
+                if (restVals.length > 0) {
+                    const restMax = Math.max(...restVals);
+                    const restMin = Math.min(...restVals);
+                    if (vals[0] > restMax * 2 && vals[0] > 0.001) {
+                        // 用剩余决定 scale, 首 epoch 仍画出但会被 clip
+                        yMin = restMin;
+                        yMax = restMax;
+                    }
+                }
+            }
+        }
+        // 数据全相等 → 微调 yRange 避免除零
+        if (yMax - yMin < 1e-9) {
+            const center = yMax;
+            yMax = center + Math.max(1e-4, Math.abs(center) * 0.05);
+            yMin = Math.max(0, center - Math.max(1e-4, Math.abs(center) * 0.05));
+        }
+        const yRange = yMax - yMin;
+        const yTop = yMax + yRange * 0.12;   // 上方 12% padding
+        // 业务指标都 ≥ 0 → yBot 永不为负 (节省下方空间)
+        const yBot = Math.max(0, yMin - yRange * 0.10);
 
         const PAD = { l: 38, r: 6, t: 4, b: 14 };
         const cw = cssW - PAD.l - PAD.r;
@@ -1638,6 +1666,12 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
             const v = yTop - (yTop - yBot) * (i / 2);
             ctx.fillText(_fmtYTick(v), PAD.l - 3, PAD.t + (ch * i) / 2);
         }
+
+        // v2.10.3: 用 clip 区域防止首 epoch 大值画出边界
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(PAD.l, PAD.t, cw, ch);
+        ctx.clip();
 
         // 仅在 train_loss 子图叠加 batch 级细线
         if (m.key === 'train_loss' && batches.length > 0) {
@@ -1691,6 +1725,23 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
                 ctx.arc(xAt(best.step), yAt(best.val_curve_mae), 4.5, 0, Math.PI * 2);
                 ctx.stroke();
             }
+        }
+        ctx.restore();  // 恢复 clip
+
+        // v2.10.3: 若首 epoch 被 clip (out-of-range), 在顶部画一个"↑"指示器
+        const firstVal = vals[0];
+        if (Number.isFinite(firstVal) && firstVal > yTop * 1.05 && vals.length > 1) {
+            const x = xAt(epochs[0].step);
+            ctx.fillStyle = m.color;
+            ctx.font = 'bold 10px ui-monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText('↑', x, PAD.t + 1);
+            // tooltip 提示首 epoch 实际值 (右上角)
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '8.5px ui-monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(`首ep=${firstVal.toFixed(3)}`, PAD.l + cw - 2, PAD.t + 1);
         }
 
         // 更新顶部当前值显示
