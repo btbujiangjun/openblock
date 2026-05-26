@@ -350,6 +350,24 @@ class TestModelsLifecycle:
         conn.close()
         return mid
 
+    def test_list_models_pagination(self, client):
+        """v2.10.12: list_models 支持 offset / total."""
+        db_path = os.environ["SPAWN_TUNING_V2_DB"]
+        for _ in range(4):
+            self._create_model(client, db_path)
+        r1 = client.get("/api/spawn-tuning-v2/models?limit=2&offset=0")
+        d1 = r1.get_json()
+        assert d1["total"] >= 4
+        assert d1["count"] == 2
+        assert d1["limit"] == 2
+        assert d1["offset"] == 0
+        r2 = client.get("/api/spawn-tuning-v2/models?limit=2&offset=2")
+        d2 = r2.get_json()
+        assert d2["count"] == 2
+        ids1 = {m["model_id"] for m in d1["models"]}
+        ids2 = {m["model_id"] for m in d2["models"]}
+        assert ids1.isdisjoint(ids2)
+
     def test_deploy_model(self, client, app):
         # 用 API 创建 (通过 jobs 间接) ... 简化: 直接 SQL
         db_path = os.environ["SPAWN_TUNING_V2_DB"]
@@ -456,6 +474,42 @@ class TestModelsLifecycle:
 # ─────────── 训练任务 ───────────
 
 class TestJobs:
+    def test_list_jobs_pagination(self, client):
+        """v2.10.12: list_jobs 支持 offset / total 分页。"""
+        # 创建 5 个 job
+        for i in range(5):
+            client.post(
+                "/api/spawn-tuning-v2/jobs",
+                json={"name": f"j{i}", "sample_set_ids": [1], "model_type": "resnet"},
+            )
+        # 第 1 页, 每页 2 个
+        r1 = client.get("/api/spawn-tuning-v2/jobs?limit=2&offset=0")
+        d1 = r1.get_json()
+        assert d1["total"] >= 5
+        assert d1["count"] == 2
+        assert d1["limit"] == 2
+        assert d1["offset"] == 0
+        # 第 2 页
+        r2 = client.get("/api/spawn-tuning-v2/jobs?limit=2&offset=2")
+        d2 = r2.get_json()
+        assert d2["count"] == 2
+        assert d2["offset"] == 2
+        # 第 2 页跟第 1 页 job_id 不同
+        ids1 = {j["job_id"] for j in d1["jobs"]}
+        ids2 = {j["job_id"] for j in d2["jobs"]}
+        assert ids1.isdisjoint(ids2)
+
+    def test_list_jobs_invalid_limit(self, client):
+        r = client.get("/api/spawn-tuning-v2/jobs?limit=abc")
+        assert r.status_code == 400
+
+    def test_list_jobs_offset_negative_clamped(self, client):
+        """offset < 0 应被 clamp 到 0, 不报错."""
+        r = client.get("/api/spawn-tuning-v2/jobs?offset=-5")
+        # max(0, -5) = 0 → 不报错
+        assert r.status_code == 200
+        assert r.get_json()["offset"] == 0
+
     def test_create_job(self, client):
         r = client.post(
             "/api/spawn-tuning-v2/jobs",

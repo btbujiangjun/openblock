@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Response, jsonify, request
 
-_REPO_ROOT = Path(__file__).resolve().parent
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def migrate_enterprise_schema(cursor: sqlite3.Cursor) -> None:

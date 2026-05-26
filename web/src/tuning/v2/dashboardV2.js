@@ -1567,16 +1567,73 @@ async function deleteJob(jobId, jobName, status) {
     }
 }
 
+// v2.10.12: 分页状态
+const _jobsPg = { page: 1, pageSize: 20 };
+const _modelsPg = { page: 1, pageSize: 20 };
+
 async function refreshJobs() {
     try {
-        const data = await apiGet('/api/spawn-tuning-v2/jobs?limit=30');
+        const offset = (_jobsPg.page - 1) * _jobsPg.pageSize;
+        const data = await apiGet(`/api/spawn-tuning-v2/jobs?limit=${_jobsPg.pageSize}&offset=${offset}`);
         _renderJobsRows(data.jobs || []);
-        // 如果当前有 queued/running, 自动启动轮询 (例如刷新页面后仍能看到进度)
+        _renderPagination('jobs-table', _jobsPg, data.total || 0, refreshJobs);
+        // 自动轮询: 只看当前页是否有 queued/running (其他页不打扰)
         const active = (data.jobs || []).filter((j) => j.status === 'queued' || j.status === 'running').length;
         if (active > 0) startJobsAutoRefresh();
     } catch (e) {
         $('jobs-table').querySelector('tbody').innerHTML = `<tr><td colspan="9" class="muted-hint">${escapeHtml(e.message)}</td></tr>`;
     }
+}
+
+/**
+ * v2.10.12: 通用分页器渲染 (插入到 table 容器外面, 复用)
+ * @param {string} tableId table 元素 id
+ * @param {{page:number, pageSize:number}} state 分页状态
+ * @param {number} total 后端返回总数
+ * @param {() => Promise<void>} refresh 翻页后触发的刷新函数
+ */
+function _renderPagination(tableId, state, total, refresh) {
+    const table = $(tableId);
+    if (!table) return;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    // 复用或创建 footer
+    const parent = table.parentElement;
+    let footer = parent.querySelector(`.${tableId}-pagination`);
+    if (!footer) {
+        footer = document.createElement('div');
+        footer.className = `${tableId}-pagination`;
+        footer.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 4px; font-size:11px; color:var(--muted); justify-content:flex-end;';
+        parent.appendChild(footer);
+    }
+    // 保护: 当前页超过总页数时回到最后一页
+    if (state.page > totalPages) {
+        state.page = totalPages;
+    }
+    const fromN = total === 0 ? 0 : (state.page - 1) * state.pageSize + 1;
+    const toN = Math.min(state.page * state.pageSize, total);
+    footer.innerHTML = `
+      <span>共 <b style="color:var(--accent)">${total}</b> 条 · 显示 ${fromN}-${toN}</span>
+      <span style="flex:1;"></span>
+      <label style="display:flex; align-items:center; gap:4px;">每页
+        <select class="pg-size" style="height:22px; font-size:11px;">
+          ${[10, 20, 50, 100].map((n) => `<option value="${n}"${n === state.pageSize ? ' selected' : ''}>${n}</option>`).join('')}
+        </select>
+      </label>
+      <button class="ghost pg-first" ${state.page <= 1 ? 'disabled' : ''} title="第一页">«</button>
+      <button class="ghost pg-prev"  ${state.page <= 1 ? 'disabled' : ''} title="上一页">‹</button>
+      <span style="min-width:60px; text-align:center;">页 <b>${state.page}</b> / ${totalPages}</span>
+      <button class="ghost pg-next" ${state.page >= totalPages ? 'disabled' : ''} title="下一页">›</button>
+      <button class="ghost pg-last" ${state.page >= totalPages ? 'disabled' : ''} title="末页">»</button>
+    `;
+    footer.querySelector('.pg-first').addEventListener('click', () => { state.page = 1; refresh(); });
+    footer.querySelector('.pg-prev').addEventListener('click', () => { state.page = Math.max(1, state.page - 1); refresh(); });
+    footer.querySelector('.pg-next').addEventListener('click', () => { state.page = Math.min(totalPages, state.page + 1); refresh(); });
+    footer.querySelector('.pg-last').addEventListener('click', () => { state.page = totalPages; refresh(); });
+    footer.querySelector('.pg-size').addEventListener('change', (e) => {
+        state.pageSize = Number(e.target.value) || 20;
+        state.page = 1;   // 改 size 后回首页
+        refresh();
+    });
 }
 
 // ─────────── 训练曲线模态框 ───────────
@@ -2149,7 +2206,9 @@ function _fmtYTick(v) {
 async function refreshModels() {
     const tbody = $('models-table').querySelector('tbody');
     try {
-        const data = await apiGet('/api/spawn-tuning-v2/models?limit=30');
+        const offset = (_modelsPg.page - 1) * _modelsPg.pageSize;
+        const data = await apiGet(`/api/spawn-tuning-v2/models?limit=${_modelsPg.pageSize}&offset=${offset}`);
+        _renderPagination('models-table', _modelsPg, data.total || 0, refreshModels);
         if (!data.models?.length) {
             tbody.innerHTML = '<tr><td colspan="9" class="muted-hint">无模型</td></tr>';
             return;

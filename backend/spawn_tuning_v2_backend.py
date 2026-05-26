@@ -49,7 +49,7 @@ from flask import Blueprint, current_app, jsonify, request
 # ─────────── 配置 ───────────
 
 DB_PATH = os.environ.get("SPAWN_TUNING_V2_DB", ".cursor-stress-logs/spawn-tuning-v2.sqlite")
-SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "spawn_tuning_v2.sql"
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "spawn_tuning_v2.sql"
 
 # field_metrics 表 (v2 真实玩家上报) — 不在主 schema.sql 里, 因为它由 PR4 引入
 _FIELD_METRICS_DDL = """
@@ -701,16 +701,29 @@ def register_v2_routes(app):
 
     @bp.route("/api/spawn-tuning-v2/models", methods=["GET"])
     def list_models():
+        """v2.10.12: 加 offset / total 分页支持."""
         status = request.args.get("status")
-        limit = int(request.args.get("limit", 50))
+        try:
+            limit = max(1, min(500, int(request.args.get("limit", 50))))
+            offset = max(0, int(request.args.get("offset", 0)))
+        except ValueError:
+            return jsonify({"error": "invalid limit/offset"}), 400
         db = get_db()
+        # 总数 (用于前端分页器)
+        count_sql = "SELECT COUNT(*) FROM models WHERE 1=1"
+        count_params = []
+        if status:
+            count_sql += " AND status = ?"
+            count_params.append(status)
+        total = db.execute(count_sql, count_params).fetchone()[0]
+        # 实际数据
         sql = "SELECT * FROM models WHERE 1=1"
         params = []
         if status:
             sql += " AND status = ?"
             params.append(status)
-        sql += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
+        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         rows = db.execute(sql, params).fetchall()
         db.close()
         out = []
@@ -721,7 +734,13 @@ def register_v2_routes(app):
             except Exception:
                 d["metrics"] = {}
             out.append(d)
-        return jsonify({"models": out, "count": len(out)})
+        return jsonify({
+            "models": out,
+            "count": len(out),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        })
 
     @bp.route("/api/spawn-tuning-v2/models/<int:model_id>", methods=["GET"])
     def get_model(model_id):
@@ -954,19 +973,36 @@ def register_v2_routes(app):
 
     @bp.route("/api/spawn-tuning-v2/jobs", methods=["GET"])
     def list_jobs():
+        """v2.10.12: 加 offset / total 分页支持."""
         status = request.args.get("status")
-        limit = int(request.args.get("limit", 50))
+        try:
+            limit = max(1, min(500, int(request.args.get("limit", 50))))
+            offset = max(0, int(request.args.get("offset", 0)))
+        except ValueError:
+            return jsonify({"error": "invalid limit/offset"}), 400
         db = get_db()
+        count_sql = "SELECT COUNT(*) FROM training_jobs WHERE 1=1"
+        count_params = []
+        if status:
+            count_sql += " AND status = ?"
+            count_params.append(status)
+        total = db.execute(count_sql, count_params).fetchone()[0]
         sql = "SELECT * FROM training_jobs WHERE 1=1"
         params = []
         if status:
             sql += " AND status = ?"
             params.append(status)
-        sql += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
+        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         rows = db.execute(sql, params).fetchall()
         db.close()
-        return jsonify({"jobs": [row_to_dict(r) for r in rows], "count": len(rows)})
+        return jsonify({
+            "jobs": [row_to_dict(r) for r in rows],
+            "count": len(rows),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        })
 
     @bp.route("/api/spawn-tuning-v2/jobs", methods=["POST"])
     def create_job():

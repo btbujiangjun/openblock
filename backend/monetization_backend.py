@@ -33,7 +33,7 @@ from flask import Blueprint, jsonify, request, g
 
 def _db_path() -> Path:
     import os
-    default = Path(__file__).resolve().parent / 'openblock.db'
+    default = Path(__file__).resolve().parent.parent / 'openblock.db'
     return Path(os.environ.get('OPENBLOCK_DB_PATH', str(default)))
 
 
