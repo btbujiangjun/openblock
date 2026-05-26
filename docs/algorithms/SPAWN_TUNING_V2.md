@@ -584,3 +584,42 @@ tests/tuning/v2/
   targetSCurve.test.js
   dCurveExtractor.test.js
 ```
+
+---
+
+## 10. v3 路线 / 当前已知 gap (v2.10.8 末)
+
+经过 v2.0 → v2.10.8 八轮演进, 当前实现已达到**工业化收尾状态**:
+- 234 Py + 70 JS 测试通过
+- 完整端到端 (采样 → 训练 → 部署 → 客户端集成)
+- 数据物理上限内业务命题完美达成 (`val_calibrated_mae ≈ 0.025-0.045`)
+
+剩余 gap 按可执行性分类:
+
+### 🟢 可在 v2 框架内完成 (v2.10.8 已实现)
+
+| ID | 名称 | 实现 |
+|---|---|---|
+| **G1** | 数据质量分析视图 | `GET /sample-sets/<id>/quality` + UI 模态 |
+| **G2** | 模型对比工具 | `⚖ 对比模型` 按钮 + SVG 叠加 + metric 表 |
+| **G3** | 训练参数智能推荐 | 选样本/模型类型后自动填表 |
+| **G4** | 增量训练流程引导 | 选 base_model 时 wizard 提示 |
+| **G5** | A/B 对比报告 (框架) | `GET /field-metrics/ab-compare`,等真实流量 |
+| **G6** | 端到端用户手册 | `docs/algorithms/SPAWN_TUNING_V2_USER_GUIDE.md` |
+| **G9** | 数据生命周期管理 | `python -m rl_pytorch.spawn_tuning_v2.cleanup` CLI |
+
+### 🔴 不具备执行条件 (留待 v3 或外部依赖)
+
+| ID | 名称 | 缺失原因 |
+|---|---|---|
+| **G7** | 业务命题客户端 e2e 验证 | 需要**真实线上流量** + 多周 A/B 测试期。当前是开发环境, 没有真实玩家访问 deployed 模型, 无法量化"接近 PB 时玩家停留时间是否变长"。框架 (`field_metrics_v2` 表 + `policyMetricsV2.reportEpisode`) 已就绪, 等真实流量自然填充。 |
+| **G8** | RL bot 替代规则 bot | 这是**跨课题工作** (PPO/DQN agent 训练几小时-几天), 与"出块算法寻参"是平行的两个项目。当前 random/clear-greedy/survival 三种规则 bot 已能覆盖业务场景, RL bot 是 marginal improvement, 投入产出比低。建议作为独立 RFC。 |
+| **G10** | Transformer 大数据集优化 (d_model/n_layers UI) | 当前数据规模 (~72K) ResNet 性价比明显高于 Transformer (5× 慢, 收益 < 0.001 mae)。要让 Transformer 发挥优势需要数据规模 ≥ 1M 样本 + GPU 集群, 当前条件不具备。架构本身已支持 (`SpawnTuningTransformer` + `build_model` 工厂), 后续若数据扩 10× 再考虑暴露超参 UI。 |
+
+### 物理上限说明
+
+`val_curve_mae` 当前 0.059, 接近理论下界 0.075 (因 d_curve label 含 ±0.15 state_offset 噪声).
+`val_calibrated_mae` 当前 0.025-0.045, 业务命题 (S 形难度) 在数据可达范围内已完美达成.
+
+要把 `predicted MAE vs ideal` 从 0.121 压到 < 0.05, 必须改变数据本身 — 需要 G8 (RL bot) 让数据有 noMove (D=1.0) 样本, 否则模型预测物理上无法触及 ideal 顶部 1.0.
+

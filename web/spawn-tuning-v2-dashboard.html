@@ -497,6 +497,7 @@
         <h2>C.3 模型库 (版本树)</h2>
         <div class="form-actions">
           <button id="btn-refresh-models" class="ghost">↻ 刷新</button>
+          <button id="btn-compare-models" class="ghost">⚖ 对比模型</button>
         </div>
         <div style="overflow-x:auto;">
           <table class="table" id="models-table">
@@ -596,6 +597,32 @@
         <button class="modal-close" id="preview-modal-close">×</button>
       </div>
       <div id="preview-modal-body">
+        <p class="muted-hint">加载中…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ 模态框: 数据质量分析 (G1 v2.10.8) ════════════════ -->
+  <div class="modal-backdrop" id="quality-modal">
+    <div class="modal" style="width:min(900px, 95vw);">
+      <div class="modal-header">
+        <h2 id="quality-modal-title">数据质量分析</h2>
+        <button class="modal-close" id="quality-modal-close">×</button>
+      </div>
+      <div id="quality-modal-body">
+        <p class="muted-hint">加载中…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ 模态框: 模型对比 (G2 v2.10.8) ════════════════ -->
+  <div class="modal-backdrop" id="compare-modal">
+    <div class="modal" style="width:min(1100px, 95vw);">
+      <div class="modal-header">
+        <h2>模型对比</h2>
+        <button class="modal-close" id="compare-modal-close">×</button>
+      </div>
+      <div id="compare-modal-body">
         <p class="muted-hint">加载中…</p>
       </div>
     </div>

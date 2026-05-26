@@ -500,6 +500,156 @@ def register_v2_routes(app):
             "sample_limit": limit,
         })
 
+    @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/quality", methods=["GET"])
+    def sample_set_quality(set_id):
+        """v2.10.8 G1: 数据质量分析视图 — 让用户知道数据决定的模型上限。
+
+        返回:
+          r_distribution:  final_score/pb 分布 (10 bin), 反映 bot 表现
+          d_curve_stats:   平均 d_curve + 各 bin std, 反映数据 S 形质量
+          bot_performance: avg_final_r, pb_break_rate, median_survived_steps
+          quality_score:   0-1 综合分 (跨度/单调性/分布广度加权)
+          warnings:        发现的数据问题列表
+        """
+        db = get_db()
+        meta = db.execute(
+            "SELECT * FROM sample_sets WHERE set_id = ?", (set_id,),
+        ).fetchone()
+        if not meta:
+            db.close()
+            return jsonify({"error": "sample_set not found"}), 404
+
+        # 限制 5000 行采样 (大数据集避免阻塞)
+        rows = db.execute(
+            "SELECT pb_bin, final_score, survived_steps, pb_broke, "
+            "       clear_rate, noMove_step, d_curve_json "
+            "FROM samples WHERE set_id = ? LIMIT 5000",
+            (set_id,),
+        ).fetchall()
+        db.close()
+
+        if not rows:
+            return jsonify({"set_id": set_id, "error": "empty sample set"}), 200
+
+        # ─── r = final_score / pb 分布 ───
+        ratios = [r["final_score"] / max(1, r["pb_bin"]) for r in rows]
+        ratios_sorted = sorted(ratios)
+        median_r = ratios_sorted[len(ratios_sorted) // 2]
+        mean_r = sum(ratios) / len(ratios)
+        max_r = ratios_sorted[-1]
+        # 10 个 bin (0-0.2, 0.2-0.4, ..., 1.8-2.0)
+        bin_edges = [i * 0.2 for i in range(11)]
+        bin_counts = [0] * 10
+        for r in ratios:
+            b = min(9, int(r * 5))
+            bin_counts[b] += 1
+        # 关键比例
+        ratio_low = sum(1 for r in ratios if r < 0.2) / len(ratios)
+        ratio_above_pb = sum(1 for r in ratios if r >= 1.0) / len(ratios)
+
+        # ─── d_curve 平均 + std ───
+        import json as _json
+        n_bins = 20
+        col_sums = [0.0] * n_bins
+        col_sq = [0.0] * n_bins
+        n_curves = 0
+        for r in rows:
+            try:
+                c = _json.loads(r["d_curve_json"])
+                if len(c) != n_bins:
+                    continue
+                for i, v in enumerate(c):
+                    col_sums[i] += v
+                    col_sq[i] += v * v
+                n_curves += 1
+            except Exception:
+                continue
+        if n_curves == 0:
+            return jsonify({"set_id": set_id, "error": "no valid d_curve"}), 200
+        avg_curve = [col_sums[i] / n_curves for i in range(n_bins)]
+        std_curve = [
+            max(0.0, (col_sq[i] / n_curves - avg_curve[i] ** 2)) ** 0.5
+            for i in range(n_bins)
+        ]
+        spread = avg_curve[-1] - avg_curve[0]
+        # 跟 calibrated S 形比 (业务期望)
+        try:
+            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
+            calibrated = target_curve_calibrated_vector()
+            calibrated_mae = sum(abs(a - c) for a, c in zip(avg_curve, calibrated)) / n_bins
+        except Exception:
+            calibrated_mae = None
+        # 单调性 (相邻倒退 bin 数)
+        n_decreasing = sum(1 for i in range(n_bins - 1) if avg_curve[i + 1] < avg_curve[i] - 0.005)
+
+        # ─── bot 表现 ───
+        pb_broke_rate = sum(1 for r in rows if r["pb_broke"]) / len(rows)
+        survived = sorted(r["survived_steps"] or 0 for r in rows)
+        median_survived = survived[len(survived) // 2]
+        avg_clear_rate = sum(r["clear_rate"] or 0 for r in rows) / len(rows)
+        no_move_rate = sum(1 for r in rows if (r["noMove_step"] or -1) >= 0) / len(rows)
+
+        # ─── 综合质量评分 (0-1) ───
+        score_spread = min(1.0, spread / 0.45)            # 0.45 = 理想跨度
+        score_distribution = min(1.0, ratio_above_pb / 0.15)  # 15% 破 PB 是健康指标
+        score_monotonic = 1.0 - n_decreasing / max(1, n_bins - 1)
+        quality_score = round(0.4 * score_spread + 0.3 * score_distribution + 0.3 * score_monotonic, 2)
+
+        # ─── 警告 ───
+        warnings_list = []
+        if ratio_low > 0.40:
+            warnings_list.append(
+                f"低 r 区样本占比 {ratio_low*100:.1f}% 偏高 (>40%), bot 偏弱 → 高 r bin 数据稀疏需先验填充"
+            )
+        if spread < 0.30:
+            warnings_list.append(
+                f"d_curve 跨度仅 {spread:.3f} (业务期望 ≥ 0.45) → 模型最多学到这个跨度, 预测 MAE vs ideal 下界 ≈ {0.50 - spread / 2:.3f}"
+            )
+        if pb_broke_rate < 0.05:
+            warnings_list.append(
+                f"破 PB 率仅 {pb_broke_rate*100:.1f}% (健康 10-20%) → 数据缺少 r>1 区域信号"
+            )
+        if no_move_rate < 0.01:
+            warnings_list.append(
+                "no_move 率 ≈ 0 → 数据没有 D=1.0 样本, 模型预测无法到达 ideal 顶部"
+            )
+        if n_decreasing > 3:
+            warnings_list.append(
+                f"d_curve 在 {n_decreasing} 个 bin 处倒退 → 形态不健康, 检查 d_step 算法"
+            )
+
+        return jsonify({
+            "set_id": set_id,
+            "name": meta["name"] if "name" in meta.keys() else None,
+            "n_samples_total": meta["sample_count"] if "sample_count" in meta.keys() else len(rows),
+            "n_samples_analyzed": len(rows),
+            "r_distribution": {
+                "bin_edges": bin_edges,
+                "counts": bin_counts,
+                "median_r": round(median_r, 4),
+                "mean_r": round(mean_r, 4),
+                "max_r": round(max_r, 4),
+                "ratio_low_pct": round(ratio_low * 100, 1),    # < 0.2
+                "ratio_above_pb_pct": round(ratio_above_pb * 100, 1),   # ≥ 1.0
+            },
+            "d_curve_stats": {
+                "avg": [round(v, 4) for v in avg_curve],
+                "std": [round(v, 4) for v in std_curve],
+                "spread": round(spread, 4),
+                "spread_vs_calibrated": round(0.62 - spread, 4),  # gap to v2.10.6 calibrated 跨度
+                "calibrated_mae": round(calibrated_mae, 4) if calibrated_mae is not None else None,
+                "n_decreasing_bins": n_decreasing,
+            },
+            "bot_performance": {
+                "pb_break_rate": round(pb_broke_rate, 4),
+                "median_survived_steps": median_survived,
+                "avg_clear_rate": round(avg_clear_rate, 4),
+                "no_move_rate": round(no_move_rate, 4),
+            },
+            "quality_score": quality_score,
+            "warnings": warnings_list,
+        })
+
     @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/aggregate", methods=["GET"])
     def aggregate_curves(set_id):
         """按 5 维场景聚合 d_curve (avg)。可选 group_by 参数。"""
@@ -1233,6 +1383,94 @@ def register_v2_routes(app):
         db.close()
         return jsonify({"inserted": inserted, "received": len(eps)})
 
+
+    @bp.route("/api/spawn-tuning-v2/field-metrics/ab-compare", methods=["GET"])
+    def ab_compare_models():
+        """G5 v2.10.8: A/B 对比 staging vs deployed 模型的线上效果。
+
+        Query: hours (default 168 = 7 天)
+        Return:
+          deployed: { model_id, n_episodes, avg_curve_mae, pb_break_rate, avg_score, surprise_rate }
+          staging:  [{ model_id, ...同上 }, ...] (按 model_id 分组)
+          status:   "ready" (有数据) / "no-deployed" / "no-staging" / "no-data"
+
+        当前 (v2.10.8): field_metrics_v2 表已实现, 但需要客户端真实玩家数据上报后
+        才有可对比内容。若表为空, 返回 status="no-data" 让前端显示占位。
+        """
+        try:
+            hours = max(1, min(720, int(request.args.get("hours", 168))))
+        except ValueError:
+            hours = 168
+
+        cutoff = now_unix() - hours * 3600
+        db = get_db()
+        # 确保表存在 (干净环境)
+        try:
+            db.executescript(_FIELD_METRICS_DDL)
+        except sqlite3.OperationalError:
+            pass
+
+        # 找 deployed model
+        deployed_row = db.execute(
+            "SELECT model_id, name FROM models WHERE status = 'deployed' LIMIT 1",
+        ).fetchone()
+        # 找最近活跃 staging models (status='staging' 且最近 N 天有训练)
+        staging_rows = db.execute(
+            "SELECT model_id, name FROM models WHERE status = 'staging' "
+            "AND created_at >= ? ORDER BY created_at DESC LIMIT 10",
+            (cutoff,),
+        ).fetchall()
+
+        # 检查表是否有任何数据
+        any_data = db.execute(
+            "SELECT 1 FROM field_metrics WHERE received_at >= ? LIMIT 1", (cutoff,),
+        ).fetchone()
+        if not any_data:
+            db.close()
+            return jsonify({
+                "status": "no-data",
+                "message": f"过去 {hours} 小时内没有真实玩家上报数据",
+                "deployed": dict(deployed_row) if deployed_row else None,
+                "staging_candidates": [dict(r) for r in staging_rows],
+                "next_step": "需客户端集成 policyMetricsV2.reportEpisode() 跑起来",
+            })
+
+        # 聚合每个 model 的 metric
+        def _agg_model(mid):
+            r = db.execute(
+                "SELECT COUNT(*) AS n, "
+                "       AVG(curve_mae) AS avg_curve_mae, "
+                "       AVG(CASE WHEN pb_broke THEN 1.0 ELSE 0.0 END) AS pb_break_rate, "
+                "       AVG(final_score) AS avg_score, "
+                "       AVG(surprise_count) AS avg_surprise "
+                "FROM field_metrics WHERE received_at >= ? AND model_id = ?",
+                (cutoff, mid),
+            ).fetchone()
+            if not r or r["n"] == 0:
+                return None
+            return {
+                "model_id": mid,
+                "n_episodes": r["n"],
+                "avg_curve_mae": round(r["avg_curve_mae"] or 0, 4),
+                "pb_break_rate": round(r["pb_break_rate"] or 0, 4),
+                "avg_score": round(r["avg_score"] or 0, 1),
+                "avg_surprise": round(r["avg_surprise"] or 0, 2),
+            }
+
+        deployed_metrics = _agg_model(deployed_row["model_id"]) if deployed_row else None
+        staging_metrics = []
+        for r in staging_rows:
+            m = _agg_model(r["model_id"])
+            if m:
+                m["name"] = r["name"]
+                staging_metrics.append(m)
+        db.close()
+        return jsonify({
+            "status": "ready" if (deployed_metrics or staging_metrics) else "no-data",
+            "hours": hours,
+            "deployed": {**(deployed_metrics or {}), "name": deployed_row["name"]} if deployed_metrics and deployed_row else None,
+            "staging": staging_metrics,
+        })
 
     @bp.route("/api/spawn-tuning-v2/field-metrics/aggregate", methods=["GET"])
     def aggregate_field_metrics():

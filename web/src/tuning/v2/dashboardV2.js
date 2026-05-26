@@ -625,6 +625,7 @@ async function refreshSampleSets() {
               <td>${fmtDate(s.created_at)}</td>
               <td>
                 <button class="ghost btn-preview-set" data-id="${s.set_id}" data-name="${escapeHtml(s.name)}">🔍 预览</button>
+                <button class="ghost btn-quality-set" data-id="${s.set_id}" data-name="${escapeHtml(s.name)}">🧪 质量</button>
                 <button class="ghost btn-train-from" data-id="${s.set_id}">→ 训练</button>
                 <button class="ghost btn-analyze-from" data-id="${s.set_id}">📊 分析</button>
                 <button class="danger btn-delete-set" data-id="${s.set_id}">删除</button>
@@ -633,6 +634,9 @@ async function refreshSampleSets() {
         `; }).join('');
         tbody.querySelectorAll('.btn-preview-set').forEach((b) => {
             b.addEventListener('click', () => showSetPreview(b.dataset.id, b.dataset.name));
+        });
+        tbody.querySelectorAll('.btn-quality-set').forEach((b) => {
+            b.addEventListener('click', () => showQualityModal(b.dataset.id, b.dataset.name));
         });
         tbody.querySelectorAll('.btn-train-from').forEach((b) => {
             b.addEventListener('click', async () => {
@@ -758,6 +762,246 @@ function _bindPreviewFilterEvents() {
 
 function closePreviewModal() {
     $('preview-modal').classList.remove('show');
+}
+
+// ─────────── G1 v2.10.8: 数据质量分析模态 ───────────
+
+async function showQualityModal(setId, setName) {
+    const modal = $('quality-modal');
+    const body = $('quality-modal-body');
+    $('quality-modal-title').textContent = `数据质量分析 — #${setId} ${setName}`;
+    body.innerHTML = '<p class="muted-hint">加载中…</p>';
+    modal.classList.add('show');
+    try {
+        const d = await apiGet(`/api/spawn-tuning-v2/sample-sets/${setId}/quality`);
+        body.innerHTML = renderQualityBody(d);
+    } catch (e) {
+        body.innerHTML = `<p style="color:var(--bad)">${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function closeQualityModal() {
+    $('quality-modal').classList.remove('show');
+}
+
+// ─────────── G2 v2.10.8: 模型对比模态 ───────────
+
+async function showCompareModal() {
+    const modal = $('compare-modal');
+    const body = $('compare-modal-body');
+    modal.classList.add('show');
+    body.innerHTML = '<p class="muted-hint">加载模型列表…</p>';
+    try {
+        const data = await apiGet('/api/spawn-tuning-v2/models?limit=200');
+        const models = (data.models || []).filter((m) => m.weights_path);
+        if (models.length < 2) {
+            body.innerHTML = '<p class="muted-hint">需要至少 2 个有权重的模型才能对比。</p>';
+            return;
+        }
+        const opts = models.map((m) => {
+            const mae = m.metrics_json ? (() => {
+                try { return JSON.parse(m.metrics_json).val_curve_mae; } catch { return null; }
+            })() : null;
+            return { id: m.model_id, label: `#${m.model_id} ${m.name} (${m.model_type}) ${mae != null ? `· mae=${mae.toFixed(4)}` : ''}` };
+        });
+        const checkboxes = opts.map((o) =>
+            `<label style="display:block; padding:3px 6px; font-size:11.5px; cursor:pointer; line-height:1.5;">
+              <input type="checkbox" value="${o.id}" class="compare-checkbox"> ${escapeHtml(o.label)}
+            </label>`,
+        ).join('');
+        body.innerHTML = `
+          <div style="margin-bottom:8px; font-size:11.5px; color:var(--muted);">
+            选择 ≥ 2 个模型对比 (metric + d_curve 形态)
+          </div>
+          <div style="max-height:200px; overflow-y:auto; border:1px solid rgba(255,255,255,0.08); padding:4px;">
+            ${checkboxes}
+          </div>
+          <div style="margin:8px 0;">
+            <button id="compare-go" class="primary">▶ 对比</button>
+            <span style="margin-left:8px; font-size:11px; color:var(--muted);">用 default ctx (normal/triplet-p1/clear-greedy/4000/mature) 推断</span>
+          </div>
+          <div id="compare-result"></div>
+        `;
+        $('compare-go').addEventListener('click', runCompare);
+    } catch (e) {
+        body.innerHTML = `<p style="color:var(--bad)">${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function closeCompareModal() {
+    $('compare-modal').classList.remove('show');
+}
+
+async function runCompare() {
+    const checked = [...document.querySelectorAll('.compare-checkbox:checked')].map((c) => Number(c.value));
+    const result = $('compare-result');
+    if (checked.length < 2) {
+        result.innerHTML = '<p style="color:var(--warn)">请至少选 2 个</p>';
+        return;
+    }
+    result.innerHTML = '<p class="muted-hint">⏳ 对每个模型推断 d_curve…</p>';
+
+    const ctx = {
+        difficulty: 'normal', generator: 'triplet-p1', bot_policy: 'clear-greedy',
+        pb_bin: 4000, lifecycle_stage: 'mature',
+    };
+    const curves = [];
+    for (const mid of checked) {
+        try {
+            const [modelInfo, predRes] = await Promise.all([
+                apiGet(`/api/spawn-tuning-v2/models/${mid}`),
+                apiSend('POST', `/api/spawn-tuning-v2/models/${mid}/predict-curve`, { contexts: [ctx] }),
+            ]);
+            const mae = modelInfo.metrics_json ? (() => {
+                try { return JSON.parse(modelInfo.metrics_json); } catch { return {}; }
+            })() : {};
+            curves.push({
+                model_id: mid,
+                name: modelInfo.name || `#${mid}`,
+                model_type: modelInfo.model_type,
+                curve: predRes.curves[0],
+                metrics: mae,
+            });
+        } catch (e) {
+            curves.push({ model_id: mid, error: e.message });
+        }
+    }
+
+    // 表格 + 叠加曲线
+    const validCurves = curves.filter((c) => c.curve);
+    const colors = ['#34d399', '#60a5fa', '#fbbf24', '#f472b6', '#a78bfa', '#fb923c', '#22d3ee'];
+    const legend = validCurves.map((c, i) =>
+        `<span style="color:${colors[i % colors.length]}; margin-right:12px;">● ${c.name}</span>`,
+    ).join('');
+    // 简单 ASCII-art canvas: 用 SVG
+    const W = 600, H = 200, PAD = { l: 40, r: 10, t: 10, b: 25 };
+    const cw = W - PAD.l - PAD.r, ch = H - PAD.t - PAD.b;
+    const n = 20;
+    const xAt = (i) => PAD.l + (cw * i) / (n - 1);
+    const yAt = (v) => PAD.t + ch - ch * v;  // y ∈ [0, 1]
+    const polyLines = validCurves.map((c, i) => {
+        const pts = c.curve.map((v, j) => `${xAt(j)},${yAt(v)}`).join(' ');
+        return `<polyline points="${pts}" fill="none" stroke="${colors[i % colors.length]}" stroke-width="1.8" />`;
+    }).join('');
+    const yTicks = [0, 0.25, 0.5, 0.75, 1.0].map((y) =>
+        `<line x1="${PAD.l}" y1="${yAt(y)}" x2="${PAD.l + cw}" y2="${yAt(y)}" stroke="rgba(255,255,255,0.08)"/>
+         <text x="${PAD.l - 4}" y="${yAt(y) + 3}" fill="#9ca3af" font-size="9" text-anchor="end" font-family="ui-monospace">${y.toFixed(2)}</text>`,
+    ).join('');
+    const xTicks = [0, 5, 10, 15, 19].map((i) =>
+        `<text x="${xAt(i)}" y="${PAD.t + ch + 14}" fill="#9ca3af" font-size="9" text-anchor="middle" font-family="ui-monospace">r=${((i + 0.5) * 0.1).toFixed(1)}</text>`,
+    ).join('');
+    // metric 对比表
+    const metricKeys = ['val_curve_mae', 'val_calibrated_mae', 'val_curve_var', 'val_anchor', 'val_target_fit'];
+    const rows = validCurves.map((c) => {
+        const m = c.metrics;
+        const cells = metricKeys.map((k) => `<td style="padding:3px 8px; text-align:right; font-family:ui-monospace;">${m[k] != null ? Number(m[k]).toFixed(4) : '-'}</td>`).join('');
+        return `<tr><td style="padding:3px 8px;">#${c.model_id} ${escapeHtml(c.name)} <span style="color:var(--muted)">(${c.model_type})</span></td>${cells}</tr>`;
+    }).join('');
+
+    result.innerHTML = `
+      <div style="margin:8px 0;">${legend}</div>
+      <svg width="${W}" height="${H}" style="background:rgba(0,0,0,0.2); border-radius:4px;">
+        ${yTicks}${xTicks}${polyLines}
+      </svg>
+      <table style="width:100%; font-size:11px; margin-top:10px; border-collapse:collapse;">
+        <thead><tr style="color:var(--muted);">
+          <th style="text-align:left; padding:3px 8px;">模型</th>
+          ${metricKeys.map((k) => `<th style="text-align:right; padding:3px 8px;">${k}</th>`).join('')}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+}
+
+function renderQualityBody(d) {
+    if (d.error) return `<p style="color:var(--warn)">${escapeHtml(d.error)}</p>`;
+    const q = d.quality_score || 0;
+    const qColor = q > 0.7 ? 'var(--good)' : q > 0.4 ? 'var(--warn)' : 'var(--bad)';
+    const qLabel = q > 0.7 ? '✓ 优' : q > 0.4 ? '⚠ 中' : '✗ 差';
+    const rd = d.r_distribution || {};
+    const ds = d.d_curve_stats || {};
+    const bp = d.bot_performance || {};
+    // r 分布条形图
+    const maxCnt = Math.max(...(rd.counts || [1]), 1);
+    const rBars = (rd.counts || []).map((c, i) => {
+        const lo = (i * 0.2).toFixed(1);
+        const hi = ((i + 1) * 0.2).toFixed(1);
+        const w = Math.round((c / maxCnt) * 100);
+        const isBelowPb = i < 5;
+        const color = isBelowPb ? '#60a5fa' : '#34d399';
+        return `<div style="display:flex; align-items:center; font-size:11px; gap:6px; padding:2px 0;">
+          <span style="width:80px; color:var(--muted); font-family:ui-monospace;">[${lo},${hi})</span>
+          <div style="flex:1; background:rgba(255,255,255,0.04); height:14px; position:relative;">
+            <div style="width:${w}%; height:100%; background:${color};"></div>
+          </div>
+          <span style="width:60px; text-align:right; font-family:ui-monospace;">${c}</span>
+        </div>`;
+    }).join('');
+    // d_curve 平均/std mini 表
+    const dRows = (ds.avg || []).map((v, i) => {
+        const r = ((i + 0.5) * 0.1).toFixed(2);
+        const std = (ds.std || [])[i] || 0;
+        return `<tr>
+          <td style="padding:1px 6px; color:var(--muted); font-family:ui-monospace;">r=${r}</td>
+          <td style="padding:1px 6px; font-family:ui-monospace;">${v.toFixed(3)}</td>
+          <td style="padding:1px 6px; font-family:ui-monospace; color:var(--muted);">±${std.toFixed(3)}</td>
+        </tr>`;
+    }).join('');
+    const warns = (d.warnings || []).map((w) =>
+        `<li style="color:var(--warn); margin:3px 0;">⚠ ${escapeHtml(w)}</li>`,
+    ).join('');
+    return `
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:6px 4px;">
+        <div>
+          <div style="font-size:13px; font-weight:600; margin-bottom:6px;">综合评分</div>
+          <div style="font-size:36px; color:${qColor}; font-weight:bold;">${q} <span style="font-size:13px;">${qLabel}</span></div>
+          <div style="font-size:11px; color:var(--muted); margin-top:4px;">分析了 ${d.n_samples_analyzed}/${d.n_samples_total} 个样本</div>
+        </div>
+        <div>
+          <div style="font-size:13px; font-weight:600; margin-bottom:6px;">Bot 表现</div>
+          <div style="font-size:11.5px; font-family:ui-monospace; line-height:1.6;">
+            破 PB 率: <b>${(bp.pb_break_rate * 100).toFixed(1)}%</b> <span style="color:var(--muted);">(健康 10-20%)</span><br>
+            中位生存步数: <b>${bp.median_survived_steps}</b><br>
+            平均消行率: <b>${bp.avg_clear_rate.toFixed(3)}</b><br>
+            no_move 率: <b>${(bp.no_move_rate * 100).toFixed(1)}%</b> <span style="color:var(--muted);">(决定 D=1.0 数据可达性)</span>
+          </div>
+        </div>
+      </div>
+
+      <hr style="border-color: rgba(255,255,255,0.08); margin: 10px 0;">
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+        <div>
+          <div style="font-size:13px; font-weight:600; margin-bottom:6px;">r = score/PB 分布</div>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">中位 r=${rd.median_r} · 平均 r=${rd.mean_r} · 最大 r=${rd.max_r}</div>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">r&lt;0.2 占 <b>${rd.ratio_low_pct}%</b> · r≥1.0 (破 PB) 占 <b style="color:var(--good)">${rd.ratio_above_pb_pct}%</b></div>
+          ${rBars}
+        </div>
+        <div>
+          <div style="font-size:13px; font-weight:600; margin-bottom:6px;">d_curve 形态</div>
+          <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">
+            跨度: <b style="color:${ds.spread > 0.4 ? 'var(--good)' : 'var(--warn)'}">${ds.spread}</b>
+            ${ds.spread_vs_calibrated > 0 ? ` <span style="color:var(--muted);">(距 calibrated 跨度 0.62 差 ${ds.spread_vs_calibrated})</span>` : ''}
+            <br>vs 校准 target MAE: <b>${ds.calibrated_mae ?? '-'}</b> <span style="color:var(--muted);">(越低越接近业务期望)</span><br>
+            倒退 bin 数: <b style="color:${ds.n_decreasing_bins > 3 ? 'var(--warn)' : 'var(--good)'}">${ds.n_decreasing_bins}</b> / 19
+          </div>
+          <div style="max-height: 280px; overflow-y: auto;">
+            <table style="width:100%; font-size:11px;">
+              <thead><tr style="color:var(--muted);">
+                <th style="text-align:left; padding:1px 6px;">bin</th>
+                <th style="text-align:right; padding:1px 6px;">avg d</th>
+                <th style="text-align:right; padding:1px 6px;">std</th>
+              </tr></thead>
+              <tbody>${dRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      ${warns ? `<hr style="border-color: rgba(255,255,255,0.08); margin: 10px 0;">
+      <div style="font-size:13px; font-weight:600; margin-bottom:4px;">⚠ 数据质量警告</div>
+      <ul style="margin: 4px 0; padding-left: 20px; font-size:11px; line-height:1.5;">${warns}</ul>` : ''}
+    `;
 }
 
 function renderSetPreviewBody(data) {
@@ -1028,7 +1272,70 @@ async function refreshTrainingSampleSetOptions() {
         if (allV29 && hint && !hint.dataset.dismissedV29) {
             hint.innerHTML = '<span style="color:var(--warn)">⚠ 当前所有样本集都是 v2.9 旧算法 (d_curve 平坦, 模型学不出 S 形)。请到 ② 样本构建 重新采集 (新数据自动标 v2.10)。</span>';
         }
+        // G3 v2.10.8: 选择 sample 或 model_type 变化时自动推荐参数
+        sel.addEventListener('change', () => recommendTrainingParams(sets));
+        const mtSel = $('job-model-type');
+        if (mtSel && !mtSel.dataset.g3Bound) {
+            mtSel.addEventListener('change', () => recommendTrainingParams(sets));
+            mtSel.dataset.g3Bound = '1';
+        }
     } catch { /* server 挂时保留旧 options */ }
+}
+
+// G3 v2.10.8: 智能推荐训练参数
+function recommendTrainingParams(allSets) {
+    const sel = $('job-sets');
+    const setIds = [...sel.selectedOptions].map((o) => parseInt(o.value, 10)).filter(Number.isFinite);
+    if (setIds.length === 0) return;
+    const selectedSets = (allSets || []).filter((s) => setIds.includes(s.set_id));
+    const totalSamples = selectedSets.reduce((sum, s) => sum + (s.sample_count || 0), 0);
+    const modelType = $('job-model-type')?.value || 'resnet';
+
+    // 根据样本量推荐 (经验法则)
+    let epochs, batchSize, lr, patience, hint;
+    if (totalSamples === 0) return;
+    if (totalSamples < 5000) {
+        // 小数据: 小 batch, 多 epoch
+        epochs = 50; batchSize = 64; patience = 15;
+        hint = '小数据集 (< 5K), 用小 batch + 多 epoch 让模型充分学习';
+    } else if (totalSamples < 30000) {
+        epochs = 40; batchSize = 128; patience = 12;
+        hint = '中等数据集, 平衡 batch 跟 epoch';
+    } else if (totalSamples < 100000) {
+        epochs = 30; batchSize = 256; patience = 10;
+        hint = '中大数据集, 标准参数';
+    } else {
+        epochs = 25; batchSize = 512; patience = 8;
+        hint = '大数据集 (≥ 100K), 用大 batch 加快训练';
+    }
+    if (modelType === 'transformer') {
+        lr = 1e-3;  // Transformer 对 LR 敏感
+        hint += ' · Transformer 用 lr=1e-3 (避免退化解)';
+    } else {
+        lr = 5e-3;
+        hint += ' · ResNet 用 lr=5e-3';
+    }
+
+    // 应用 (仅当用户没手动改过时, 通过 dataset.dirty 标记跟踪)
+    const fields = [
+        ['job-epochs', epochs], ['job-batch', batchSize], ['job-lr', lr],
+    ];
+    // patience 通过 backend 默认 15 控制; UI 暂无字段
+    fields.forEach(([id, val]) => {
+        const el = $(id);
+        if (el && !el.dataset.userDirty) {
+            el.value = val;
+            // 第一次设置后, 监听 input 标记 dirty
+            if (!el.dataset.g3Bound) {
+                el.addEventListener('input', () => { el.dataset.userDirty = '1'; });
+                el.dataset.g3Bound = '1';
+            }
+        }
+    });
+    const h = $('job-hint');
+    if (h) {
+        h.innerHTML = `<span style="color:var(--muted); font-size:11px;">💡 已根据 ${totalSamples} 样本 + ${modelType} 推荐参数 — ${hint}</span>`;
+    }
 }
 
 async function submitJob() {
@@ -1902,6 +2209,36 @@ async function refreshModels() {
 
 // ─────────── ③ 训练 — 下拉数据源 ───────────
 
+// G4 v2.10.8: 增量训练 wizard
+function bindIncrementalWizard() {
+    const baseSel = $('job-base');
+    if (!baseSel || baseSel.dataset.g4Bound) return;
+    baseSel.dataset.g4Bound = '1';
+    baseSel.addEventListener('change', () => {
+        const hint = $('job-hint');
+        if (!hint) return;
+        if (baseSel.value) {
+            const opt = baseSel.options[baseSel.selectedIndex];
+            const lrEl = $('job-lr');
+            const currentLr = Number(lrEl?.value) || 1e-3;
+            const effectiveLr = (currentLr * 0.1).toExponential(2);
+            const epochsEl = $('job-epochs');
+            // 增量训练通常 epoch 较少
+            if (epochsEl && !epochsEl.dataset.userDirty) {
+                epochsEl.value = '20';
+            }
+            hint.innerHTML = `<span style="color:var(--accent); font-size:11px;">
+                🔗 增量训练已启用 — 基础模型 ${escapeHtml(opt.text)}<br>
+                • 后端会自动 LR × 0.1 → 实际 lr = ${effectiveLr} (避免灾难性遗忘)<br>
+                • 建议 epochs 20-30 即可 (已自动调到 20, 你可继续修改)<br>
+                • 训练完毕新模型 parent_model_id = ${baseSel.value} (版本树可追溯)
+            </span>`;
+        } else {
+            hint.innerHTML = '<span style="color:var(--muted); font-size:11px;">从头训练模式</span>';
+        }
+    });
+}
+
 async function refreshBaseModelOptions() {
     const sel = $('job-base');
     if (!sel) return;
@@ -2141,6 +2478,8 @@ function bindEvents() {
     $('btn-submit-job').addEventListener('click', submitJob);
     $('btn-refresh-jobs').addEventListener('click', refreshJobs);
     $('btn-refresh-models').addEventListener('click', refreshModels);
+    $('btn-compare-models')?.addEventListener('click', showCompareModal);
+    bindIncrementalWizard();   // G4: 增量训练 wizard
     $('btn-export-bundle').addEventListener('click', exportBundle);
     $('btn-bundle-status').addEventListener('click', refreshBundleStatus);
     $('btn-load-field').addEventListener('click', loadFieldMetrics);
@@ -2155,8 +2494,21 @@ function bindEvents() {
     $('preview-modal').addEventListener('click', (e) => {
         if (e.target.id === 'preview-modal') closePreviewModal();
     });
+    // G1 v2.10.8: 数据质量模态
+    $('quality-modal-close')?.addEventListener('click', closeQualityModal);
+    $('quality-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'quality-modal') closeQualityModal();
+    });
+    // G2 v2.10.8: 模型对比模态
+    $('compare-modal-close')?.addEventListener('click', closeCompareModal);
+    $('compare-modal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'compare-modal') closeCompareModal();
+    });
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { closeMetricsModal(); closePreviewModal(); }
+        if (e.key === 'Escape') {
+            closeMetricsModal(); closePreviewModal();
+            closeQualityModal(); closeCompareModal();
+        }
     });
 
     // v2.9.4: 切换 model_type 时自动调整 LR 默认值 (避免用户 transformer 用 lr=0.05 翻车)
