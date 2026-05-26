@@ -1588,10 +1588,33 @@ export class Game {
             this._spawnContext.minClearGuarantee = 0;
         }
 
+        // v2.10.18 (G11): 构造 SpawnParamTuner v2 client context (供 adaptiveSpawn 内 resolveThetaV2)
+        // 5 维 ctx + userId; 维度值跟 v2 sample 同源 (rl_pytorch/spawn_tuning_v2/feature_io.py)
+        const _difficulty = (this.strategy === 'hard' || this.strategy === 'normal') ? this.strategy : 'easy';
+        const _generator = (this.strategy === 'hard') ? 'budget-p2' : 'triplet-p1';
+        const _bestScore = Number(this.playerProfile?.personalBest || this.playerProfile?.bestScore || 0);
+        // pb_bin: 5 档 (500, 1500, 4000, 10000, 25000) — 取最近 (≤) bin
+        const _pbBin = _bestScore < 500 ? 500
+            : _bestScore < 1500 ? 1500
+                : _bestScore < 4000 ? 4000
+                    : _bestScore < 10000 ? 10000 : 25000;
+        const _totalRounds = Number(this.playerProfile?.totalRounds || 0);
+        const _lifecycle = _totalRounds < 5 ? 'onboarding'
+            : _totalRounds < 30 ? 'growth'
+                : _totalRounds < 100 ? 'mature' : 'plateau';
+        const _tuningCtx = {
+            difficulty: _difficulty,
+            generator: _generator,
+            bot_policy: 'clear-greedy',   // 真实玩家 ≈ clear-greedy (业务普遍策略)
+            pb_bin: _pbBin,
+            lifecycle_stage: _lifecycle,
+            userId: this.playerProfile?.userId || '',
+        };
         const layered = resolveAdaptiveStrategy(
             this.strategy, this.playerProfile, this.score, this.runStreak,
             this.grid.getFillRatio(), {
                 ...this._spawnContext,
+                tuningV2Context: _tuningCtx,   // ★ 关键: adaptiveSpawn 用它 resolve theta
                 _gridRef: this.grid,
                 _dockShapePool: (this.dockBlocks || [])
                     .filter((b) => b && !b.placed && Array.isArray(b.shape))

@@ -2622,12 +2622,39 @@ async function loadFieldMetrics() {
             host.innerHTML = '<div class="stat-card muted"><div class="stat-value">0</div><div class="stat-label">无玩家数据 (等 v2 模型上线后回流)</div></div>';
             return;
         }
+        // v2.10.18 (G14): 健康度告警 — 业务关键指标超阈值自动飘红
+        //   破 PB 率: 健康区间 10-25% (太低 → 玩家不知有挑战; 太高 → 模型过弱)
+        //   死局率: > 30% 表示出块算法过激, 玩家挫败
+        //   curve_mae: > 0.15 表示部署模型跟实际差距大 (模型不准)
+        const pbRate = r.pb_broke_rate || 0;
+        const noMoveRate = r.noMove_rate || 0;
+        const curveMae = r.mean_curve_mae || 0;
+        const alerts = [];
+        let pbCls = '', noMoveCls = '', maeCls = '';
+        if (pbRate < 0.05) { pbCls = 'bad'; alerts.push(`破 PB 率仅 ${(pbRate*100).toFixed(1)}% (健康 10-25%) — 模型可能过弱`); }
+        else if (pbRate > 0.35) { pbCls = 'warn'; alerts.push(`破 PB 率高达 ${(pbRate*100).toFixed(1)}% — 模型可能过弱, 玩家觉无挑战`); }
+        else { pbCls = 'good'; }
+        if (noMoveRate > 0.30) { noMoveCls = 'bad'; alerts.push(`死局率 ${(noMoveRate*100).toFixed(1)}% (> 30%) — 出块算法过激, 玩家挫败`); }
+        else if (noMoveRate > 0.15) { noMoveCls = 'warn'; }
+        if (curveMae > 0.20) { maeCls = 'bad'; alerts.push(`线上 d_curve MAE ${curveMae.toFixed(3)} (> 0.20) — 部署模型跟实际差距大, 建议增量训练`); }
+        else if (curveMae > 0.12) { maeCls = 'warn'; }
+        else if (curveMae > 0) { maeCls = 'good'; }
+        // 主卡片
         host.innerHTML = `
             <div class="stat-card good"><div class="stat-value">${r.n_episodes}</div><div class="stat-label">episodes (${hours}h)</div></div>
-            <div class="stat-card"><div class="stat-value">${(r.pb_broke_rate * 100).toFixed(1)}%</div><div class="stat-label">破 PB 率</div></div>
-            <div class="stat-card ${r.noMove_rate > 0.3 ? 'bad' : ''}"><div class="stat-value">${(r.noMove_rate * 100).toFixed(1)}%</div><div class="stat-label">死局率</div></div>
-            <div class="stat-card purple"><div class="stat-value">${Math.round(r.mean_score)}</div><div class="stat-label">均分</div></div>
+            <div class="stat-card ${pbCls}"><div class="stat-value">${(pbRate * 100).toFixed(1)}%</div><div class="stat-label">破 PB 率 <span style="opacity:0.6">健康 10-25%</span></div></div>
+            <div class="stat-card ${noMoveCls}"><div class="stat-value">${(noMoveRate * 100).toFixed(1)}%</div><div class="stat-label">死局率 <span style="opacity:0.6">≤ 15%</span></div></div>
+            <div class="stat-card ${maeCls}"><div class="stat-value">${curveMae > 0 ? curveMae.toFixed(3) : '-'}</div><div class="stat-label">线上 curve_mae <span style="opacity:0.6">&lt; 0.12</span></div></div>
+            <div class="stat-card purple"><div class="stat-value">${Math.round(r.mean_score || 0)}</div><div class="stat-label">均分</div></div>
         `;
+        // 告警 banner
+        if (alerts.length > 0) {
+            const banner = `<div style="grid-column: span 5; padding: 8px 10px; background: rgba(248,113,113,0.10); border-left: 3px solid var(--bad); font-size: 11.5px; line-height: 1.6; margin-top: 6px;">
+                <b style="color: var(--bad);">⚠ ${alerts.length} 项指标异常</b>
+                <ul style="margin: 4px 0 0 18px; padding: 0;">${alerts.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+            </div>`;
+            host.insertAdjacentHTML('beforeend', banner);
+        }
     } catch (e) {
         host.innerHTML = `<div class="stat-card bad"><div class="stat-value">!</div><div class="stat-label">${escapeHtml(e.message)}</div></div>`;
     }

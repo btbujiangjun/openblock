@@ -1982,7 +1982,25 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     stressBreakdown.orderMaxValidPerms = orderMaxValidPerms;
     stressBreakdown.pbOvershootOrderBoost = pbOvershootOrderBoostApplied;
 
-    const pbCurve = derivePbCurve(score, ctx.bestScore, ctx.postPbReleaseActive === true);
+    // v2.10.18 (G11): 把 SpawnParamTuner 部署的 theta 注入 derivePbCurve
+    //   - 部署 bundle 后 clientPolicyV2 加载 360 ctx policies, 每个 ctx 对应一组 theta
+    //   - 这里按 player ctx (难度/生成器/bot/pb档/生命周期/userId) resolve theta
+    //   - 失败时 resolveThetaV2 自己 fallback 到 DEFAULT_THETA_V2, 跟原行为一致
+    //   - 灰度门控 (rollout_pct) 也内嵌在 resolveThetaV2 (用 userId 哈希)
+    let _tuningTheta = null, _tuningSource = 'skipped';
+    if (ctx.tuningV2Context) {
+        try {
+            // 动态 import 避免循环 (adaptiveSpawn 是底层, clientPolicyV2 是上层)
+            const mod = (typeof window !== 'undefined') ? window.__openblockClientPolicyV2 : null;
+            if (mod && typeof mod.resolveThetaV2 === 'function') {
+                const r = mod.resolveThetaV2(ctx.tuningV2Context);
+                _tuningTheta = r.theta;
+                _tuningSource = r.source;
+            }
+        } catch { /* not critical, 继续 fallback DEFAULT */ }
+    }
+    if (stressBreakdown) stressBreakdown.tuningV2Source = _tuningSource;
+    const pbCurve = derivePbCurve(score, ctx.bestScore, ctx.postPbReleaseActive === true, _tuningTheta);
     stressBreakdown.pbRatio = pbCurve.pbRatio;
     stressBreakdown.pbTension = pbCurve.pbTension;
     stressBreakdown.pbBrake = pbCurve.pbBrake;

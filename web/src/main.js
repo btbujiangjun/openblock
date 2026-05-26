@@ -168,10 +168,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     import('./tuning/v2/policyMetricsV2.js').then(({ initPolicyMetricsV2 }) => {
         initPolicyMetricsV2({ apiBaseUrl: '', enabled: true });
     }).catch(() => { /* not critical */ });
-    import('./tuning/v2/clientPolicyV2.js').then(({ initClientPolicyV2 }) => {
-        initClientPolicyV2().then((r) => {
+    import('./tuning/v2/clientPolicyV2.js').then((mod) => {
+        // v2.10.18 (G11): 暴露到 window 让 adaptiveSpawn 能 resolve theta (避免循环 import)
+        if (typeof window !== 'undefined') {
+            window.__openblockClientPolicyV2 = mod;
+        }
+        mod.initClientPolicyV2().then((r) => {
             if (r.installed > 0) {
-                console.info(`[spawn-tuning-v2] loaded ${r.installed} policies (rollout=${r.rollout_pct}%)`);
+                console.info(`[spawn-tuning-v2] loaded ${r.installed} policies (rollout=${r.rollout_pct ?? 100}%)`);
             }
         }).catch(() => { /* not critical */ });
     }).catch(() => { /* not critical */ });

@@ -593,6 +593,72 @@ tests/tuning/v2/
 
 ---
 
+## 9b. v2.10.18 客户端闭环验证 (G11-G14)
+
+### 业务闭环完整性 (端到端 verified)
+
+```
+[① 样本采集]
+  浏览器 OpenBlockSimulator + bot → samplerV2.js d_curve 提取 (v2.10 PB-aware)
+  ↓ POST /sample-sets/<id>/samples
+[② SQLite (sample_sets + samples)]
+  algo_version v2.10.x 隔离, repair_dcurves.py 离线修复 fillna 污染
+  ↓ 训练任务
+[③ PyTorch 训练]
+  ResNet-MLP (326K) / Transformer (105K-407K)
+  11 项 loss (含 v2.9.1 monotonic / target_fit / endpoint)
+  composite EarlyStop + 退化检测 + curve_var monitor
+  ↓ ckpt + .meta.json sidecar
+[④ 模型部署 (build-and-export)]
+  360 ctx × default_theta → predicted_curve (PAVA 单调投影 v2.10.7)
+  写 web/public + miniprogram bundle
+  ↓ HTTP /spawn-tuning-v2/policies.json
+[⑤ 客户端运行时] (v2.10.18 修复关键 gap!)
+  main.js initClientPolicyV2 → 加载 360 ctx policies
+  game.js 构造 tuningV2Context (5 维 + userId)
+  adaptiveSpawn.js 调 resolveThetaV2 → exact/fuzzy/coarse/gate-out fallback
+  derivePbCurve(score, best, release, theta) 接收 θ
+  → 真正影响 pbTension/pbBrake spawn 决策
+  ↓ 玩家游戏 episode 结束
+[⑥ 真实玩家上报 (policyMetricsV2.reportEpisode)]
+  field_metrics_v2 表自然填充
+  ↓ /field-metrics/aggregate (含 v2.10.18 curve_mae)
+[⑦ Dashboard 监控告警]
+  破 PB 率 / 死局率 / 线上 curve_mae 自动阈值检测
+  超阈值 → 红色 banner 提示 (G14)
+```
+
+### v2.10.18 修复的关键 gap
+
+| Gap | 现状 | 修复 |
+|---|---|---|
+| **G11**: `resolveThetaV2` 已实现但无人调用 | 模型部署后客户端不生效, 永远 fallback DEFAULT | adaptiveSpawn.js 在 derivePbCurve 前 resolve theta; game.js 构造 tuningV2Context |
+| **G12**: 三处 d_curve 算法常量可能漂移 | 跨语言无自动测试, 改一处忘改另两处 → 训练/上报数据公式割裂 | `test_cross_lang_dcurve.py` 文本级 grep 同源校验 8 用例 |
+| **G13**: bundle fetch 失败容错 | 已有 try/catch, 但用户看不到 fallback 发生 | resolveThetaV2 stats 暴露到 dashboard (后续 PR) |
+| **G14**: 线上 metrics 异常无告警 | 用户必须人工盯数据 | dashboard 5 项指标自动阈值 (破 PB 5-35%, 死局 ≤ 30%, mae ≤ 0.20), 红色 banner |
+
+### 客户端 → 模型 数据契约 (5 维 + 9 θ)
+
+```javascript
+// game.js (玩家上下文 → 5 维 ctx)
+const tuningV2Ctx = {
+    difficulty: 'normal',          // easy / normal / hard (按 game.strategy)
+    generator: 'triplet-p1',       // budget-p2 在 hard 模式
+    bot_policy: 'clear-greedy',    // 真实玩家近似 clear-greedy
+    pb_bin: 4000,                  // 500 / 1500 / 4000 / 10000 / 25000 (按 personalBest)
+    lifecycle_stage: 'mature',     // onboarding / growth / mature / plateau (按 totalRounds)
+    userId: 'xxx',                 // 灰度门控用
+};
+// adaptiveSpawn.js
+const { theta } = window.__openblockClientPolicyV2.resolveThetaV2(tuningV2Ctx);
+// theta = { pbTensionCenter, pbTensionWidth, pbBrakeCenter, pbBrakeWidth,
+//           personalizationStrength, temperature, ... } (9 维)
+derivePbCurve(score, bestScore, releaseActive, theta);
+// → 影响 spawnTargets.solutionSpacePressure / clearOpportunity / payoffIntensity
+```
+
+---
+
 ## 10. v3 路线 / 当前已知 gap (v2.10.8 末)
 
 经过 v2.0 → v2.10.8 八轮演进, 当前实现已达到**工业化收尾状态**:

@@ -1686,7 +1686,7 @@ def register_v2_routes(app):
             return jsonify({
                 "hours": hours, "n_episodes": 0,
                 "d_curve_avg": None, "pb_broke_rate": 0,
-                "noMove_rate": 0, "mean_score": 0,
+                "noMove_rate": 0, "mean_score": 0, "mean_curve_mae": 0,
             })
 
         # 聚合
@@ -1695,6 +1695,8 @@ def register_v2_routes(app):
         pb_broke_sum = 0
         noMove_sum = 0
         score_sum = 0
+        curve_mae_sum = 0.0
+        curve_mae_count = 0
         for r in rows:
             curve = json.loads(r["d_curve_json"])
             if len(curve) == 20:
@@ -1703,6 +1705,11 @@ def register_v2_routes(app):
             pb_broke_sum += int(r["pb_broke"] or 0)
             noMove_sum += 1 if (r["noMove_step"] or -1) >= 0 else 0
             score_sum += int(r["final_score"] or 0)
+            # v2.10.18 (G14): 客户端可能上报 curve_mae 字段 (vs 部署模型 predicted_curve)
+            cmae = r["curve_mae"] if "curve_mae" in r.keys() else None
+            if cmae is not None and cmae >= 0:
+                curve_mae_sum += float(cmae)
+                curve_mae_count += 1
 
         return jsonify({
             "hours": hours,
@@ -1711,6 +1718,7 @@ def register_v2_routes(app):
             "pb_broke_rate": pb_broke_sum / n,
             "noMove_rate": noMove_sum / n,
             "mean_score": score_sum / n,
+            "mean_curve_mae": curve_mae_sum / curve_mae_count if curve_mae_count > 0 else 0,
         })
 
 
