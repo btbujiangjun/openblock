@@ -1297,6 +1297,210 @@ def register_v2_routes(app):
 
     # ─── 离线 Bundle (PR6) ─────────────────────────────────
 
+    @bp.route("/api/spawn-tuning-v2/policies/build-and-export", methods=["POST"])
+    def build_and_export_bundle():
+        """v2.10.4: 一键构建 policies.json + 导出 bundle (前端 UI 默认路径)。
+
+        旧版需要先 CLI 跑 optimize_theta 生成 policies.json, 再 POST export_bundle。
+        前端不暴露第 1 步 → 用户点导出按钮永远 HTTP 404。
+
+        本端点合并两步:
+          1) 加载 model_id 的 ckpt
+          2) 对 360 个 context 跑模型推断 (default theta_norm=0.5)
+          3) 构造 policies.json (写到 ckpt 同目录, 命名 <basename>.policies.json)
+          4) 复用 export_bundle 逻辑写 web/public + miniprogram bundle
+
+        body: { model_id, rollout_pct (1-100), include_miniprogram (default true) }
+        """
+        import hashlib
+        try:
+            import torch
+            from rl_pytorch.spawn_tuning_v2.model import (
+                SpawnTuningResNetMLP, SpawnTuningTransformer,
+                N_THETA, N_CURVE_BINS,
+            )
+            from rl_pytorch.spawn_tuning_v2.optimize_theta import enumerate_all_contexts, context_to_indices
+            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
+        except Exception as e:
+            return jsonify({"error": f"torch/model not available: {e}"}), 503
+
+        data = request.get_json() or {}
+        model_id = data.get("model_id")
+        if not model_id:
+            return jsonify({"error": "model_id required"}), 400
+        rollout_pct = max(1, min(100, int(data.get("rollout_pct", 100))))
+        include_mp = bool(data.get("include_miniprogram", True))
+
+        db = get_db()
+        row = db.execute(
+            "SELECT weights_path, model_type, sha256, name FROM models WHERE model_id = ?",
+            (model_id,),
+        ).fetchone()
+        db.close()
+        if not row or not row["weights_path"]:
+            return jsonify({"error": "model not found or has no weights_path"}), 404
+        weights_path = row["weights_path"]
+        if not Path(weights_path).exists():
+            return jsonify({"error": f"weights file missing on disk: {weights_path}"}), 404
+
+        # 1) 加载模型 (跟 predict_curve 同样的双架构兼容)
+        try:
+            ck = torch.load(weights_path, map_location="cpu", weights_only=False)
+            arch = ck.get("arch", {}) or {}
+            mt = (arch.get("model_type") or row["model_type"] or "resnet").lower()
+            if mt == "transformer":
+                model = SpawnTuningTransformer(
+                    d_model=arch.get("d_model", 128),
+                    n_layers=arch.get("n_layers", 3),
+                    curve_bins=arch.get("curve_bins", N_CURVE_BINS),
+                )
+            else:
+                model = SpawnTuningResNetMLP(
+                    hidden_dim=arch.get("hidden_dim", 128),
+                    n_blocks=arch.get("n_blocks", 8),
+                    curve_bins=arch.get("curve_bins", N_CURVE_BINS),
+                )
+            model.load_state_dict(ck["model_state_dict"])
+            model.eval()
+        except Exception as e:
+            return jsonify({"error": f"load model failed: {e}"}), 500
+
+        # 2) 枚举 360 context 批量推断 (default theta_norm = 0.5)
+        ctxs = enumerate_all_contexts()
+        target = target_curve_calibrated_vector()
+        # 批量 forward (单次)
+        idx_lists = [context_to_indices(c) for c in ctxs]
+        with torch.no_grad():
+            preds = model(
+                difficulty_idx=torch.tensor([i["difficulty_idx"] for i in idx_lists], dtype=torch.long),
+                generator_idx=torch.tensor([i["generator_idx"] for i in idx_lists], dtype=torch.long),
+                bot_idx=torch.tensor([i["bot_idx"] for i in idx_lists], dtype=torch.long),
+                pb_bin_idx=torch.tensor([i["pb_bin_idx"] for i in idx_lists], dtype=torch.long),
+                lifecycle_idx=torch.tensor([i["lifecycle_idx"] for i in idx_lists], dtype=torch.long),
+                log_pb=torch.tensor([i["log_pb"] for i in idx_lists], dtype=torch.float32),
+                theta_norm=torch.full((len(ctxs), N_THETA), 0.5, dtype=torch.float32),
+            )
+            curves = preds["curve"].cpu().numpy().tolist()
+
+        # 3) 构造 policies (无优化, 用 default theta)
+        policies = []
+        for ctx, curve in zip(ctxs, curves):
+            mae = sum(abs(c - t) for c, t in zip(curve, target)) / len(target)
+            policies.append({
+                "context_key": ctx["context_key"],
+                "context": {k: ctx[k] for k in ["difficulty", "generator", "bot_policy", "pb_bin", "lifecycle_stage"]},
+                "theta_norm": [0.5] * N_THETA,   # default
+                "predicted_curve": curve,
+                "predicted_curve_mae_to_target": round(mae, 6),
+                "expected": {"calibrated_mae": round(mae, 6)},
+            })
+
+        avg_mae = sum(p["predicted_curve_mae_to_target"] for p in policies) / max(1, len(policies))
+
+        # 写 policies.json sidecar (方便下次直接用 source 路径)
+        policies_path = Path(weights_path).with_suffix(".policies.json")
+        policies_doc = {
+            "format": "openblock-spawn-tuning-v2-policies",
+            "version": "2.0.0",
+            "model_id": int(model_id),
+            "model_checkpoint": weights_path,
+            "model_sha256": row["sha256"] or "",
+            "n_contexts": len(policies),
+            "average_curve_mae": avg_mae,
+            "build_mode": "model-inference-default-theta",
+            "generated_at": now_unix(),
+            "policies": policies,
+        }
+        try:
+            policies_path.write_text(
+                json.dumps(policies_doc, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+        except Exception as e:
+            return jsonify({"error": f"failed to write policies.json: {e}"}), 500
+
+        # 4) 复用 export_bundle 写 web/public + miniprogram
+        bundle = {
+            "format": "openblock-spawn-tuning-v2-bundle",
+            "version": "2.0.0",
+            "n_contexts": len(policies),
+            "generated_at": now_unix(),
+            "model_id": int(model_id),
+            "model_sha256": row["sha256"] or "",
+            "rollout_pct": rollout_pct,
+            "policies": [
+                {
+                    "context_key": p["context_key"],
+                    "context": p["context"],
+                    "theta": p["theta_norm"],
+                    "predicted_curve": p["predicted_curve"],
+                    "expected": p["expected"],
+                }
+                for p in policies
+            ],
+        }
+        bundle_json = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+        sha = hashlib.sha256(bundle_json.encode("utf-8")).hexdigest()
+        bundle_dir = Path("web/public/spawn-tuning-v2")
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        results = {"written": [str(policies_path)]}
+        try:
+            (bundle_dir / "policies.json").write_text(bundle_json, encoding="utf-8")
+            results["written"].append(str(bundle_dir / "policies.json"))
+            meta = {
+                "version": "2.0.0",
+                "n_contexts": len(policies),
+                "generated_at": bundle["generated_at"],
+                "generated_at_iso": time.strftime(
+                    "%Y-%m-%dT%H:%M:%S", time.localtime(bundle["generated_at"])
+                ),
+                "model_id": int(model_id),
+                "model_sha256": row["sha256"] or "",
+                "rollout_pct": rollout_pct,
+                "sha256": sha,
+                "average_curve_mae": avg_mae,
+                "build_mode": "model-inference-default-theta",
+            }
+            (bundle_dir / "policies.meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            )
+            results["written"].append(str(bundle_dir / "policies.meta.json"))
+        except Exception as e:
+            return jsonify({"error": f"bundle write failed: {e}", **results}), 500
+
+        if include_mp:
+            try:
+                mp_dir = Path("miniprogram/core/tuning")
+                mp_dir.mkdir(parents=True, exist_ok=True)
+                mp_path = mp_dir / "spawnPoliciesV2.js"
+                mp_body = (
+                    "/**\n"
+                    " * 小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)\n"
+                    f" * 自动生成于: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f" * 模型 ID: {model_id} · SHA-256: {row['sha256'] or ''}\n"
+                    f" * 策略数: {len(policies)} · 灰度: {rollout_pct}%\n"
+                    f" * 构建模式: model-inference (default theta=0.5)\n"
+                    f" * 平均 calibrated MAE: {avg_mae:.4f}\n"
+                    " */\n"
+                    "module.exports = " + json.dumps(bundle, ensure_ascii=False, indent=2) + ";\n"
+                )
+                mp_path.write_text(mp_body, encoding="utf-8")
+                results["written"].append(str(mp_path))
+            except Exception as e:
+                results.setdefault("errors", []).append(f"miniprogram write failed: {e}")
+
+        return jsonify({
+            "ok": True,
+            "model_id": int(model_id),
+            "policies_count": len(policies),
+            "average_curve_mae": round(avg_mae, 4),
+            "bundle_size_bytes": len(bundle_json),
+            "sha256": sha,
+            "generated_at": bundle["generated_at"],
+            "policies_source": str(policies_path),
+            "rollout_pct": rollout_pct,
+            **results,
+        })
+
     @bp.route("/api/spawn-tuning-v2/policies/bundle/export", methods=["POST"])
     def export_bundle():
         """从 policies-{model_id}.json 文件导出 (export) 到客户端 bundle。

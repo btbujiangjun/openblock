@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 import pytest
 from flask import Flask
@@ -817,3 +818,110 @@ class TestPredictCurve:
             json={"contexts": [self._ctx()]},
         )
         assert r.status_code == 404
+
+
+# ─────────── build-and-export (v2.10.4 一键导出) ───────────
+
+class TestBuildAndExport:
+    """v2.10.4: 一键构建 policies.json + 导出 bundle。
+
+    回归覆盖: image-a077e1b3 截图 HTTP 404 根因 —
+    老 export_bundle 要求 source 文件先存在, 前端没暴露生成 policies.json
+    的步骤 → 用户点导出按钮永远 404。
+    """
+
+    def _save_real_ckpt(self, tmp_path, model_type="resnet"):
+        from rl_pytorch.spawn_tuning_v2.model import SpawnTuningResNetMLP, SpawnTuningTransformer
+        from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
+        m = SpawnTuningTransformer() if model_type == "transformer" else SpawnTuningResNetMLP()
+        out = tmp_path / f"{model_type}_test.pt"
+        _save_checkpoint(
+            model=m, path=str(out),
+            metrics={"val_curve_mae": 0.1},
+            base_model_path=None, sample_set_ids=[1],
+        )
+        return out
+
+    def _insert_model_row(self, client, weights_path, model_type="resnet"):
+        import spawn_tuning_v2_backend as mod
+        db = mod.get_db()
+        cur = db.execute(
+            """INSERT INTO models (
+                name, version, model_type, weights_path, sha256, size_bytes,
+                metrics_json, status, created_at
+            ) VALUES (?, 'v0.0.1', ?, ?, 'abc123', 1024, '{}', 'staging', strftime('%s','now'))""",
+            (f"test-{model_type}", model_type, str(weights_path)),
+        )
+        db.commit()
+        mid = cur.lastrowid
+        db.close()
+        return mid
+
+    def test_build_and_export_resnet(self, client, tmp_path, monkeypatch):
+        """ResNet 模型一键导出 — 360 policies, web/miniprogram bundle 都写出。"""
+        # 切换工作目录避免污染真实 web/public
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 50, "include_miniprogram": True},
+        )
+        assert r.status_code == 200, r.get_json()
+        d = r.get_json()
+        assert d["ok"] is True
+        assert d["policies_count"] == 360  # 3 difficulty × 2 generator × 3 bot × 5 pb × 4 lifecycle
+        assert d["rollout_pct"] == 50
+        assert d["bundle_size_bytes"] > 1000
+        # 三类文件都写了
+        written = d["written"]
+        assert any(p.endswith(".policies.json") for p in written)
+        assert any("policies.json" in p and "spawn-tuning-v2" in p for p in written)
+        assert any(p.endswith("spawnPoliciesV2.js") for p in written)
+        # 文件确实在硬盘上
+        for p in written:
+            assert Path(p).exists(), f"missing: {p}"
+
+    def test_build_and_export_transformer(self, client, tmp_path, monkeypatch):
+        """Transformer 也能正常推断 + 导出 (双架构兼容)。"""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "transformer")
+        mid = self._insert_model_row(client, ckpt, "transformer")
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 100},
+        )
+        assert r.status_code == 200, r.get_json()
+        assert r.get_json()["policies_count"] == 360
+
+    def test_build_and_export_model_not_found(self, client, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": 99999, "rollout_pct": 10},
+        )
+        assert r.status_code == 404
+
+    def test_build_and_export_skip_miniprogram(self, client, tmp_path, monkeypatch):
+        """include_miniprogram=false 时不写 miniprogram 文件。"""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 10, "include_miniprogram": False},
+        )
+        assert r.status_code == 200
+        written = r.get_json()["written"]
+        # 不应有 miniprogram 文件
+        assert not any("spawnPoliciesV2.js" in p for p in written)
+        # web bundle 必须有
+        assert any("policies.json" in p and "spawn-tuning-v2" in p for p in written)
+
+    def test_build_and_export_missing_model_id(self, client):
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={},
+        )
+        assert r.status_code == 400
+        assert "model_id" in r.get_json()["error"]

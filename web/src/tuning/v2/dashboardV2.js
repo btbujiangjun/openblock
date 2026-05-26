@@ -1888,29 +1888,32 @@ async function refreshBundleModelOptions() {
 }
 
 async function exportBundle() {
-    let src = $('bundle-src').value.trim();
-    if (!src) {
-        const modelSel = $('bundle-model');
-        const modelId = modelSel?.value;
-        if (modelId) {
-            const opt = modelSel.options[modelSel.selectedIndex];
-            const weights = opt?.dataset?.weights || '';
-            if (weights) {
-                // v2 默认约定: policies.json 与 weights.pt 同目录, 命名 policies-job-<job_id>.json 或 <basename>.policies.json
-                // 先尝试: 同 basename 替换扩展名为 .policies.json
-                if (weights.endsWith('.pt')) src = weights.slice(0, -3) + '.policies.json';
-                else src = weights + '.policies.json';
-            }
-        }
-    }
-    if (!src) { $('bundle-hint').innerHTML = '<span style="color:var(--bad)">需要 policies.json 路径 或 选模型</span>'; return; }
+    // v2.10.4: 默认走"一键构建+导出"路径 (后端直接对 360 ctx 推断, 不需先 CLI 跑 optimize_theta)
+    //   - 用户填了 path → 走老的 export_bundle (兼容已存在 policies.json 的场景)
+    //   - 用户只选模型 → 走 build-and-export (后端从 ckpt 推断 → 生成 policies.json + bundle)
+    const customSrc = $('bundle-src').value.trim();
     const rolloutPct = Number($('bundle-rollout').value);
+    const modelSel = $('bundle-model');
+    const modelId = modelSel?.value;
+    $('bundle-hint').innerHTML = '<span style="color:var(--muted)">⏳ 推断 360 个 context 并写 bundle…</span>';
     try {
-        const r = await apiSend('POST', '/api/spawn-tuning-v2/policies/bundle/export', {
-            source: src, rollout_pct: rolloutPct, include_miniprogram: true,
-        });
+        let r;
+        if (customSrc) {
+            r = await apiSend('POST', '/api/spawn-tuning-v2/policies/bundle/export', {
+                source: customSrc, rollout_pct: rolloutPct, include_miniprogram: true,
+            });
+        } else {
+            if (!modelId) {
+                $('bundle-hint').innerHTML = '<span style="color:var(--bad)">需要选模型 (或填 policies.json 路径)</span>';
+                return;
+            }
+            r = await apiSend('POST', '/api/spawn-tuning-v2/policies/build-and-export', {
+                model_id: Number(modelId), rollout_pct: rolloutPct, include_miniprogram: true,
+            });
+        }
         if (r.ok) {
-            $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ ${r.policies_count} policies · ${(r.bundle_size_bytes/1024).toFixed(1)} KB · sha256=${r.sha256.slice(0,12)}…</span>`;
+            const maeStr = r.average_curve_mae != null ? ` · avg MAE ${r.average_curve_mae.toFixed(4)}` : '';
+            $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ ${r.policies_count} policies · ${(r.bundle_size_bytes/1024).toFixed(1)} KB${maeStr} · sha256=${r.sha256.slice(0,12)}…</span>`;
             refreshBundleStatus();
         } else {
             $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(r.error)}</span>`;
