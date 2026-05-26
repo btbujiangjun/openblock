@@ -2351,7 +2351,7 @@ export class Game {
             // 接入后能让"我已经放下了"这件事在听感/触觉上得到确认，区分于纯视觉的方块出现）
             try { window.__audioFx?.play?.('place'); } catch { /* ignore */ }
             try { window.__audioFx?.vibrate?.([8]); } catch { /* ignore */ }
-            this.renderer?.setShake?.(2.5, 90);
+            // shake removed: 盘面固定
         } else {
             // 失败：ghost 在原位"抖动+淡出"，并配 tick 音 + 较强触感作为负反馈
             // —— 让玩家立刻明白"刚刚那个位置不行"，而不是疑惑"游戏出 bug 了"
@@ -2650,31 +2650,7 @@ export class Game {
             }
         }
 
-        if (perfectClear) {
-            this.renderer.triggerPerfectFlash();
-            this.renderer.setShake(
-                Math.round(24 * farBoost),
-                bonusCount > 0 ? Math.max(bonusShakeMs, 1150) : 1150
-            );
-        } else if (isCombo) {
-            this.renderer.triggerComboFlash(result.count);
-            this.renderer.setShake(
-                Math.round((bonusCount > 0 ? 15 : 11) * farBoost),
-                bonusCount > 0 ? bonusShakeMs : 520
-            );
-        } else if (isDouble) {
-            const waveRows = [...new Set(result.cells.map(c => c.y))];
-            this.renderer.triggerDoubleWave(waveRows);
-            this.renderer.setShake(
-                Math.round((bonusCount > 0 ? 13 : 8) * farBoost),
-                bonusCount > 0 ? bonusShakeMs : 400
-            );
-        } else if (_isSingleLineMinimal) {
-            // §4.2：D3 段单线（无 bonus / 无 perfect）特效全部弱化
-            this.renderer.setShake(2, 140);
-        } else {
-            this.renderer.setShake(bonusCount > 0 ? 11 : 5, bonusCount > 0 ? bonusShakeMs : 280);
-        }
+        // shake removed: 盘面固定不动, 仅 HUD 得分动效
 
         let effectType = '';
         if (perfectClear) effectType = 'perfect';
@@ -3643,11 +3619,11 @@ export class Game {
         if (isFirst) {
             this.renderer.triggerBonusMatchFlash(isHard ? 4 : 3);
             this.renderer.triggerPerfectFlash();
-            this.renderer.setShake(Math.round(18 * hardScale), Math.round(900 * hardScale));
+            // shake removed: 盘面固定
         } else {
             /* v1.55.11 后不可达；保留以备灰度恢复。 */
             this.renderer.triggerBonusMatchFlash(isHard ? 2 : 1);
-            this.renderer.setShake(Math.round(9 * hardScale), Math.round(450 * hardScale));
+            // shake removed: 盘面固定
         }
 
         const el = document.createElement('div');

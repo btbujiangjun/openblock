@@ -148,18 +148,18 @@ export class EffectLayer {
         switch (type) {
             case 'perfect':
                 r.triggerPerfectFlash?.();
-                r.setShake?.(16, 720);
+                r.setShake?.(10, 600);
                 break;
             case 'combo':
                 r.triggerComboFlash?.(count);
-                r.setShake?.(11, 520);
+                r.setShake?.(5, 350);
                 break;
             case 'multi':
                 r.triggerDoubleWave?.(cells.map(c => c.y).filter((v, i, a) => a.indexOf(v) === i));
-                r.setShake?.(8, 400);
+                r.setShake?.(3, 280);
                 break;
             default:
-                r.setShake?.(5, 280);
+                r.setShake?.(2, 200);
                 break;
         }
     }
@@ -170,9 +170,9 @@ export class EffectLayer {
      */
     _onCombo({ streak = 0 } = {}) {
         if (!this._renderer || streak < 2) return;
-        // combo 强度随 streak 递增，上限 20
-        const intensity = Math.min(streak * 3, 20);
-        this._renderer.setShake?.(intensity, 300 + streak * 50);
+        // combo 强度随 streak 递增，上限 12
+        const intensity = Math.min(streak * 1.5, 12);
+        this._renderer.setShake?.(intensity, 300 + streak * 40);
     }
 
     /**
@@ -182,7 +182,7 @@ export class EffectLayer {
     _onPlace({ x: _x, y: _y } = {}) {
         if (!this._renderer || this._reducedMotion) return;
         // 极小震动，给予触觉感
-        this._renderer.setShake?.(2, 80);
+        this._renderer.setShake?.(1, 60);
     }
 
     /**
@@ -195,7 +195,7 @@ export class EffectLayer {
         if (typeof this._renderer.setClearCells === 'function') {
             this._renderer.setClearCells(clearedCells);
         }
-        this._renderer.setShake?.(4, 300);
+        this._renderer.setShake?.(2, 200);
     }
 
     /**
@@ -205,7 +205,7 @@ export class EffectLayer {
     _onLevelWin({ stars = 1 } = {}) {
         if (!this._renderer || this._reducedMotion) return;
         this._renderer.triggerPerfectFlash?.();
-        this._renderer.setShake?.(stars * 6, stars * 300);
+        this._renderer.setShake?.(stars * 3, stars * 200);
     }
 
     // ------------------------------------------------------------------

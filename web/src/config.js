@@ -105,8 +105,8 @@ export function getApiBaseUrl() {
     if (fromEnv && String(fromEnv).trim()) {
         return String(fromEnv).replace(/\/+$/, '');
     }
-    /* 浏览器不能稳定访问 0.0.0.0；与服务监听 0.0.0.0 时客户端应连 127.0.0.1 */
-    return 'http://127.0.0.1:5000';
+    /* 兜底: 同源 (Flask 同时服务前端 + API, 或 Vite dev proxy) */
+    return '';
 }
 
 /** 为 `true` 时向 Flask 后端同步会话与行为（需可访问的 API） */

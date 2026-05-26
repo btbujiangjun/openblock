@@ -2042,11 +2042,8 @@ export class Renderer {
         ec.globalAlpha = 1;
     }
 
-    setShake(intensity, duration) {
-        if (!this._effectsEnabled && (intensity || duration)) return;
-        this.shakeIntensity = intensity;
-        this.shakeDuration = duration;
-        this.shakeStart = Date.now();
+    setShake(_intensity, _duration) {
+        // shake disabled: 盘面固定不动
     }
 
     updateShake() {
