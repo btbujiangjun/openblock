@@ -1,4 +1,4 @@
-"""SpawnTransformerV3 + 配套模块 单元自检。
+"""SpawnPolicyNet + 配套模块 单元自检。
 
 运行：
   python -m rl_pytorch.spawn_model.test_v3
@@ -52,10 +52,10 @@ def test_feasibility():
 
 
 def test_v3_forward_and_sample():
-    from .model_v3 import SpawnTransformerV3, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX
+    from .model_v3 import SpawnPolicyNet, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX
     from .dataset import BEHAVIOR_CONTEXT_DIM, NUM_SHAPES
 
-    model = SpawnTransformerV3()
+    model = SpawnPolicyNet()
     model.eval()
 
     B = 2
@@ -111,9 +111,9 @@ def test_lora_inject_and_save_load():
         load_lora_state_dict,
         count_lora_params,
     )
-    from .model_v3 import SpawnTransformerV3
+    from .model_v3 import SpawnPolicyNet
 
-    model = SpawnTransformerV3()
+    model = SpawnPolicyNet()
     base_params = sum(p.numel() for p in model.parameters())
 
     n_replaced = inject_lora_into_model(model, r=4, alpha=8)

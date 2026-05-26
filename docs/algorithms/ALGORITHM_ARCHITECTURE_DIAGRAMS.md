@@ -213,7 +213,7 @@ flowchart LR
   subgraph G["🅱️ 生成式轨道 · model-v3"]
     direction TB
     g1["buildSpawnModelContext<br/>topology + ability + ctx24 + bhv56"]
-    g2["POST /api/spawn-model/v3/predict<br/>SpawnTransformerV3 + LoRA"]
+    g2["POST /api/spawn-model/v3/predict<br/>SpawnPolicyNet + LoRA"]
     g3["返回 3 形状 ID + feasibility 分"]
     g1 --> g2 --> g3
   end
@@ -254,7 +254,7 @@ flowchart LR
 
 ---
 
-## 图 2：SpawnTransformerV3 网络与推理流
+## 图 2：SpawnPolicyNet 网络与推理流
 
 > **回答的问题**：V3 的网络结构是什么？输入特征怎么组织？解码怎么保证可行性？
 > 怎么按用户做个性化（LoRA）？

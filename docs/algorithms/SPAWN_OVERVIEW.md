@@ -30,7 +30,7 @@
 │  契约：(ctx₅, θ₉)  →  d_curve₂₀                                 │
 │                                                                 │
 │    ├── HandTuned            ◆ 当前权威                          │
-│    │     game_rules.json + DEFAULT_PB_CURVE_PARAMS 硬编码常数    │
+│    │     game_rules.json + DEFAULT_SPAWN_PARAMS_PB_CURVE 硬编码常数    │
 │    │                                                            │
 │    └── SpawnParamTuner      ◇ 工业化寻参                        │
 │          ResNet-MLP 拟合 (ctx, θ) → d_curve + 梯度上升搜 θ*      │
@@ -47,9 +47,9 @@
 | 角色 | 层 | 输入契约 | 输出契约 | 当前文件入口 | 详细文档 |
 |---|---|---|---|---|---|
 | **`SpawnPolicyRules`** | L1 | `grid + strategyConfig + spawnContext` | `{shape_id × 3} + _spawnDiagnostics` | `web/src/bot/blockSpawn.js · generateDockShapes()` | [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) |
-| **`SpawnPolicyNet`** | L1 | `board(64) + behaviorContext(56) + history(3×3) + target_difficulty` | `{shape_id × 3}`（top-k 采样） | `rl_pytorch/spawn_model/model_v3.py · SpawnTransformerV3` | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3 |
-| **`HandTuned`** | L2 | — | θ ∈ `game_rules.json + DEFAULT_PB_CURVE_PARAMS` | `web/src/adaptiveSpawn.js` + `shared/game_rules.json` | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) |
-| **`SpawnParamTuner`** | L2 | `(ctx₅, θ₉)` | `d_curve₂₀ + 4 辅助 head` → 反求 θ* | `rl_pytorch/spawn_tuning_v2/model.py · SpawnTuningResNetMLP` | [`SPAWN_TUNING_V2.md`](./SPAWN_TUNING_V2.md) |
+| **`SpawnPolicyNet`** | L1 | `board(64) + behaviorContext(56) + history(3×3) + target_difficulty` | `{shape_id × 3}`（top-k 采样） | `rl_pytorch/spawn_model/model_v3.py · SpawnPolicyNet` | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3 |
+| **`HandTuned`** | L2 | — | θ ∈ `game_rules.json + DEFAULT_SPAWN_PARAMS_PB_CURVE` | `web/src/adaptiveSpawn.js` + `shared/game_rules.json` | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) |
+| **`SpawnParamTuner`** | L2 | `(ctx₅, θ₉)` | `d_curve₂₀ + 4 辅助 head` → 反求 θ* | `rl_pytorch/spawn_tuning_v2/model.py · SpawnParamTunerResNet` | [`SPAWN_TUNING_V2.md`](./SPAWN_TUNING_V2.md) |
 
 ---
 
@@ -59,7 +59,6 @@
 |---|---|
 | 「`SpawnParamTuner` 是 `SpawnPolicyNet` 的下一代」 | 二者在不同层，**职责正交**：一个产 θ，一个产 3 块 |
 | 「`SpawnPolicyNet` 替代了 `SpawnPolicyRules`」 | 二者同层互斥；`SpawnPolicyNet` 上线必须以 `SpawnPolicyRules` 为回退兜底 |
-| 「V3.1 / V2 是同一项目的两代版本」 | 是两个**独立项目**的内部版本号，分别属于 L1 / L2，**无继承关系** |
 | 「调好 `SpawnParamTuner` 就能取代调 `game_rules.json`」 | `SpawnParamTuner` 只搜 9 维 θ；其余规则参数仍需 `HandTuned` 维护 |
 | 「`SpawnParamTuner` 输出 θ 只对规则版生效」 | 实际上：`pbTension/pbBrake` 4 个 θ 同时被 `SpawnPolicyRules` 和 `SpawnPolicyNet` 的 `target_difficulty` 公式消费 |
 | 「`SpawnPolicyNet` 推理失败会怎样？」 | 自动回退到 `SpawnPolicyRules`，玩家无感（见 `web/src/game.js · _spawnBlocksWithModel`） |
@@ -80,7 +79,9 @@
 | `Policies bundle` | 部署包 | L2 → L1 | 360 条 | `web/public/spawn-tuning-v2/policies.json`（URL 保留 v2 历史路径） |
 | `field_metrics` | 真实玩家上报闭环 | L2 反馈 | 表 | `spawn_tuning_v2_backend.py · field_metrics 表` |
 
-> ⚠️ **废弃术语**（不再在新代码 / 文档中使用）：`Spawn Generator`、`SpawnTransformer`、`Spawn Tuning`、`Spawn Model`（裸名）。这些词义穿透多层，已被上表角色名替代。
+> ⚠️ **历史名称**（仅在 git log / 老文档归档中可能见到，仓库代码已彻底清除）：
+> `SpawnTransformerV3` / `SpawnTransformerV3.1`（→ `SpawnPolicyNet`）、`SpawnTuningResNetMLP`（→ `SpawnParamTunerResNet`）、`SpawnTuningTransformer`（→ `SpawnParamTunerTransformer`）、`getSpawnMode`（→ `getSpawnPolicyMode`）、`SPAWN_GENERATOR_*`（→ `SPAWN_POLICY_RULES*`）、`DEFAULT_PB_CURVE_PARAMS`（→ `DEFAULT_SPAWN_PARAMS_PB_CURVE`）。  
+> ⚠️ **保留旧名**（不属于产品命名空间，仍在使用）：`SpawnTransformerV2`（spawn_model 包内部历史 V2 实现，仅供旧 checkpoint 兼容）、`SPAWN_MODE_RULE` / `SPAWN_MODE_MODEL_V3`（localStorage 模式字符串常量，与 `SPAWN_POLICY_RULES` 命名空间不冲突）。
 
 ---
 
@@ -113,7 +114,7 @@ L1 与 L2 通过 θ 通信。`SpawnParamTuner` 输出 θ\*，`SpawnPolicyRules` 
 |---|---|---|---|
 | `SpawnPolicyRules` | `HandTuned` | 默认 | 零模型依赖 |
 | `SpawnPolicyRules` | `SpawnParamTuner` | `policies.json` 加载成功 | 当前线上灰度形态 |
-| `SpawnPolicyNet` | `HandTuned` | `getSpawnMode() === 'model-v3'` | `target_difficulty` 用默认 0.5 / 手动覆盖 |
+| `SpawnPolicyNet` | `HandTuned` | `getSpawnPolicyMode() === 'model-v3'` | `target_difficulty` 用默认 0.5 / 手动覆盖 |
 | `SpawnPolicyNet` | `SpawnParamTuner` | 同时启用 | 仅 PB 曲线 4 参数生效；其余 5 参数不被 Net 消费 |
 | 任意 L1 失败 | — | 异常 / 推理超时 | 永远回退到 `SpawnPolicyRules + HandTuned` 默认兜底 |
 
@@ -123,10 +124,11 @@ L1 与 L2 通过 θ 通信。`SpawnParamTuner` 输出 θ\*，`SpawnPolicyRules` 
 
 | 场景 | 用 | 不用 |
 |---|---|---|
-| 新建类 / 常量前缀 | `SpawnPolicy*` / `SpawnParam*` | `SpawnTransformer*` / `SpawnTuning*` |
+| 新建类 / 常量前缀 | `SpawnPolicy*` / `SpawnParam*` | `SpawnTransformer*` / `SpawnTuning*` / `Spawn Generator*` |
 | 新建文档标题 | 含角色名（如 `SpawnPolicyNet`） | 仅写「出块模型」「Spawn Model」 |
-| 提及版本 | 写在内部字段（`__version__`） | 写在产品命名 / 公共 API |
+| 提及版本 | 写在内部字段（`__version__`） / `'v3.1'` 字符串 | 写在产品命名 / 公共 API |
 | 跨文档引用 | 链接 `SPAWN_OVERVIEW.md` | 散落各处自由定义 |
+| 命名 alias | 严格禁止（仓库**零 alias 政策**） | `NewName = OldName` 风格的兼容 alias |
 
 ---
 
@@ -146,3 +148,4 @@ L1 与 L2 通过 θ 通信。`SpawnParamTuner` 输出 θ\*，`SpawnPolicyRules` 
 | 日期 | 改动 |
 |---|---|
 | 2026-05-26 | 初版：建立 L1/L2 双层叙事，定义 `SpawnPolicyRules / SpawnPolicyNet / HandTuned / SpawnParamTuner` 四角色与命名规范 |
+| 2026-05-26 | PR-4 彻底统一：物理重命名所有 class / 函数 / 常量为角色名（`SpawnTransformerV3 → SpawnPolicyNet` 等），删除全部 alias 与 shim，确立**零 alias 政策** |

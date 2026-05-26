@@ -16,7 +16,7 @@ import pytest
 import torch
 
 from rl_pytorch.spawn_tuning_v2.model import (
-    SpawnTuningResNetMLP, SpawnTuningTransformer,
+    SpawnParamTunerResNet, SpawnParamTunerTransformer,
     build_default_model, build_model,
     ResBlock, ContextEmbedding,
     N_CURVE_BINS, N_THETA, EMB_TOTAL,
@@ -124,7 +124,7 @@ class TestForward:
 class TestCustomArch:
     def test_smaller_model(self):
         """L3 配置 (4 块 × 96): 更小"""
-        m = SpawnTuningResNetMLP(hidden_dim=96, n_blocks=4)
+        m = SpawnParamTunerResNet(hidden_dim=96, n_blocks=4)
         n = m.count_parameters()
         assert n < 200_000, f"small model {n} params too large"
         # 仍能 forward
@@ -134,7 +134,7 @@ class TestCustomArch:
 
     def test_invalid_n_blocks_zero(self):
         """0 块仍能构造 (退化到 trunk_in + heads),不应崩"""
-        m = SpawnTuningResNetMLP(n_blocks=0)
+        m = SpawnParamTunerResNet(n_blocks=0)
         batch = _make_batch(4)
         out = m(**batch)
         assert out["curve"].shape == (4, N_CURVE_BINS)
@@ -162,16 +162,16 @@ class TestBuildModel:
 
     def test_build_resnet(self):
         m = build_model("resnet")
-        assert isinstance(m, SpawnTuningResNetMLP)
+        assert isinstance(m, SpawnParamTunerResNet)
 
     def test_build_resnet_aliases(self):
         for alias in ["mlp", "resnet-mlp", "RESNET"]:
             m = build_model(alias)
-            assert isinstance(m, SpawnTuningResNetMLP)
+            assert isinstance(m, SpawnParamTunerResNet)
 
     def test_build_transformer(self):
         m = build_model("transformer")
-        assert isinstance(m, SpawnTuningTransformer)
+        assert isinstance(m, SpawnParamTunerTransformer)
 
     def test_build_invalid_raises(self):
         with pytest.raises(ValueError):
@@ -182,7 +182,7 @@ class TestTransformer:
     """v2.9: Transformer 模型 forward / 输出 shape。"""
 
     def test_forward_shapes(self):
-        m = SpawnTuningTransformer()
+        m = SpawnParamTunerTransformer()
         m.eval()
         batch = _make_batch(batch_size=4)
         with torch.no_grad():
@@ -193,13 +193,13 @@ class TestTransformer:
 
     def test_param_count_l4_range(self):
         """Transformer 参数量 ~ 100K-500K, 与 ResNet-MLP 同量级 (L4)。"""
-        m = SpawnTuningTransformer()
+        m = SpawnParamTunerTransformer()
         n = m.count_parameters()
         assert 50_000 < n < 500_000, f"transformer param count {n} out of expected range"
 
     def test_gradient_flow(self):
         """所有可训练参数都接收梯度。"""
-        m = SpawnTuningTransformer()
+        m = SpawnParamTunerTransformer()
         m.train()
         batch = _make_batch(batch_size=4)
         out = m(**batch)
@@ -234,7 +234,7 @@ class TestSaveCheckpoint:
         return ckpt
 
     def test_save_resnet_arch_recorded(self, tmp_path):
-        m = SpawnTuningResNetMLP()
+        m = SpawnParamTunerResNet()
         ckpt = self._save_and_reload(m, tmp_path)
         assert ckpt["arch"]["model_type"] == "resnet"
         assert "hidden_dim" in ckpt["arch"]
@@ -243,7 +243,7 @@ class TestSaveCheckpoint:
 
     def test_save_transformer_arch_recorded(self, tmp_path):
         """v2.9.1 修复点: Transformer 也能保存, arch 用 d_model / n_layers。"""
-        m = SpawnTuningTransformer()
+        m = SpawnParamTunerTransformer()
         ckpt = self._save_and_reload(m, tmp_path)
         assert ckpt["arch"]["model_type"] == "transformer"
         assert "d_model" in ckpt["arch"]
@@ -254,7 +254,7 @@ class TestSaveCheckpoint:
         assert "n_blocks" not in ckpt["arch"]
 
     def test_save_meta_version(self, tmp_path):
-        m = SpawnTuningResNetMLP()
+        m = SpawnParamTunerResNet()
         ckpt = self._save_and_reload(m, tmp_path)
         assert ckpt["meta"]["version"] == "v2.9.2"
         assert ckpt["meta"]["param_count"] == m.count_parameters()
@@ -262,9 +262,9 @@ class TestSaveCheckpoint:
 
     def test_state_dict_reloadable(self, tmp_path):
         """v2.9.1: ckpt 保存的 state_dict 能完整恢复模型。"""
-        m1 = SpawnTuningTransformer()
+        m1 = SpawnParamTunerTransformer()
         ckpt = self._save_and_reload(m1, tmp_path)
-        m2 = SpawnTuningTransformer()
+        m2 = SpawnParamTunerTransformer()
         m2.load_state_dict(ckpt["model_state_dict"])
         # 参数完全一致
         for (n1, p1), (n2, p2) in zip(m1.named_parameters(), m2.named_parameters()):
@@ -280,7 +280,7 @@ class TestSaveCheckpoint:
         import json as _json
         from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
         out = tmp_path / "ckpt.pt"
-        m = SpawnTuningTransformer()
+        m = SpawnParamTunerTransformer()
         _save_checkpoint(
             model=m, path=str(out),
             metrics={"val_curve_mae": 0.1, "best_epoch": 3, "reach_100": 0.18},
@@ -303,7 +303,7 @@ class TestSaveCheckpoint:
         from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
         from rl_pytorch.spawn_tuning_v2.job_executor import _read_metrics_sidecar
         out = tmp_path / "ckpt.pt"
-        m = SpawnTuningResNetMLP()
+        m = SpawnParamTunerResNet()
         _save_checkpoint(
             model=m, path=str(out),
             metrics={"val_curve_mae": 0.05, "anchor": 0.001},

@@ -57,7 +57,7 @@ vi.mock('../web/src/spawnModel.js', async () => {
     return {
         ...actual,
         // 强制走 rule 路径，避免 spawnBlocks 走入模型异步分支
-        getSpawnMode: vi.fn(() => actual.SPAWN_MODE_RULE),
+        getSpawnPolicyMode: vi.fn(() => actual.SPAWN_MODE_RULE),
     };
 });
 

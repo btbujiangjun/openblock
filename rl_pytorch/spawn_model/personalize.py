@@ -30,7 +30,7 @@
 
 推理时
 ------
-  base = SpawnTransformerV3()
+  base = SpawnPolicyNet()
   base.load_state_dict(torch.load('models/spawn_transformer_v3.pt')['model_state_dict'])
   inject_lora_into_model(base, r=4, alpha=8)
   load_lora_state_dict(base, torch.load('models/lora_alice.pt')['lora'])
@@ -63,7 +63,7 @@ from .lora import (
     lora_state_dict,
     count_lora_params,
 )
-from .model_v3 import SpawnTransformerV3
+from .model_v3 import SpawnPolicyNet
 from .train import compute_target_difficulty
 from .train_v3 import _infer_playstyle_from_context
 
@@ -120,7 +120,7 @@ def fine_tune(args):
 
     device = resolve_training_device(args.device)
 
-    model = SpawnTransformerV3().to(device)
+    model = SpawnPolicyNet().to(device)
     state = torch.load(base_path, map_location=device, weights_only=False)
     model_sd = state.get('model_state_dict') or state
     model.load_state_dict(model_sd, strict=False)

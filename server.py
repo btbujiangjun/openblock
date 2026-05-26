@@ -4243,14 +4243,14 @@ def _load_spawn_v3_model(user_id: str | None = None):
 
     try:
         import torch
-        from rl_pytorch.spawn_model.model_v3 import SpawnTransformerV3
+        from rl_pytorch.spawn_model.model_v3 import SpawnPolicyNet
 
         if _spawn_v3_cache is None:
             checkpoint = torch.load(
                 _SPAWN_V3_MODEL_PATH, map_location="cpu", weights_only=False
             )
             cfg = checkpoint.get("config", {}) or {}
-            model = SpawnTransformerV3(
+            model = SpawnPolicyNet(
                 d_model=cfg.get("d_model", 128),
                 nhead=cfg.get("nhead", 4),
                 num_layers=cfg.get("num_layers", 2),
@@ -4281,7 +4281,7 @@ def _load_spawn_v3_model(user_id: str | None = None):
             return cached[0]
 
         import copy
-        from rl_pytorch.spawn_model.model_v3 import SpawnTransformerV3
+        from rl_pytorch.spawn_model.model_v3 import SpawnPolicyNet
 
         personalized = copy.deepcopy(_spawn_v3_cache)
         cfg_l = torch.load(lora_path, map_location="cpu", weights_only=False)

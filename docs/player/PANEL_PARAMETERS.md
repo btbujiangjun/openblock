@@ -486,7 +486,7 @@ afkCount = 窗口内 thinkMs ≥ 15000ms 的放置操作数
 
 本节分两类口径：`压力 / F(t) / 闭环 / 目标保消 / 尺寸 / 多样 / shapeWeights / V3 元信息 / 回退原因` 是「上一轮出块」决策瞬间由 `game.js` → `_captureAdaptiveInsight` 和 `_commitSpawn` 捕获的快照；`占用 / 空洞 / 平整 / 近满 / 多消候选 / 清屏候选` 按当前棋盘实时重算，用来与上方能力指标对齐。
 
-出块模式顶栏与侧栏单选保持一致：`启发式` 表示使用 `adaptiveSpawn + blockSpawn`；`生成式` 表示请求 SpawnTransformerV3，但仍会先生成启发式轨兜底与诊断。V3 成功时显示 `modelVersion / personalized / feasibleCount`；V3 输出非法、服务不可用或护栏失败时显示 `fallbackReason`，实际 dock 使用启发式轨。
+出块模式顶栏与侧栏单选保持一致：`启发式` 表示使用 `adaptiveSpawn + blockSpawn`；`生成式` 表示请求 SpawnPolicyNet，但仍会先生成启发式轨兜底与诊断。V3 成功时显示 `modelVersion / personalized / feasibleCount`；V3 输出非法、服务不可用或护栏失败时显示 `fallbackReason`，实际 dock 使用启发式轨。
 
 ### 4.0 界面文案对照（优化后）
 

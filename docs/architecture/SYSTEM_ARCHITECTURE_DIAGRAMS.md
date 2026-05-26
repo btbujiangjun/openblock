@@ -586,7 +586,7 @@ flowchart LR
     end
     subgraph TG["轨道 2 生成式"]
       direction TB
-      v3["spawnModel<br/>POST /api/spawn-model/v3/predict<br/>SpawnTransformerV3 + LoRA"]:::gen
+      v3["spawnModel<br/>POST /api/spawn-model/v3/predict<br/>SpawnPolicyNet + LoRA"]:::gen
     end
     guard["🛡️ validateSpawnTriplet<br/>唯一性 / 可放性 / 机动性 / 序贯 / orderRigor"]:::gate
     commit["_commitSpawn<br/>记录 source · V3 meta · fallback"]:::gate

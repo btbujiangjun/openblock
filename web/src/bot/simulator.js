@@ -17,7 +17,7 @@ import {
 } from './blockSpawn.js';
 import {
     generateExperimentalDockShapes,
-    SPAWN_GENERATOR_BASELINE,
+    SPAWN_POLICY_RULES,
 } from './spawnExperiments.js';
 import {
     computeClearScore,
@@ -186,7 +186,7 @@ export class OpenBlockSimulator {
         this.strategyId = strategyId;
         this.bestScore = Math.max(0, Number(options?.bestScore) || 0);
         this.runStreak = Math.max(0, Number(options?.runStreak) || 0);
-        this.spawnGenerator = options?.spawnGenerator || SPAWN_GENERATOR_BASELINE;
+        this.spawnGenerator = options?.spawnGenerator || SPAWN_POLICY_RULES;
         this.maxEvaluatedTriplets = Number(options?.maxEvaluatedTriplets) || undefined;
         this.modelConfig = options?.modelConfig || {};
         const w = options?.winScoreThreshold;
@@ -336,7 +336,7 @@ export class OpenBlockSimulator {
         const layered = this._resolveLayeredStrategy();
         let shapes;
         let diagnostics = null;
-        if (this.spawnGenerator === SPAWN_GENERATOR_BASELINE) {
+        if (this.spawnGenerator === SPAWN_POLICY_RULES) {
             shapes = generateDockShapes(this.grid, layered, this._spawnContext);
             diagnostics = getLastSpawnDiagnostics();
         } else {

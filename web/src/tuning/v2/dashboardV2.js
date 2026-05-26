@@ -490,7 +490,7 @@ const THETA_RANGES_V2 = {
     surpriseBudgetGain: [0.05, 0.10],
     surpriseCooldown: [4, 10],
     maxEvaluatedTriplets: [32, 128],
-    // v2.2: PB 双 S 曲线参数 (与 DEFAULT_PB_CURVE_PARAMS 对齐, 默认值取中点)
+    // v2.2: PB 双 S 曲线参数 (与 DEFAULT_SPAWN_PARAMS_PB_CURVE 对齐, 默认值取中点)
     pbTensionCenter: [0.70, 0.92],
     pbTensionWidth:  [0.04, 0.15],
     pbBrakeCenter:   [0.98, 1.15],

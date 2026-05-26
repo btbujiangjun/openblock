@@ -28,7 +28,7 @@ LoRA（Low-Rank Adaptation）提供了一个折中方案：
 
 使用模式
 --------
-    base = SpawnTransformerV3(...)
+    base = SpawnPolicyNet(...)
     base.load_state_dict(...)           # 全局 trunk
     inject_lora_into_model(base, r=4, alpha=8)
     freeze_non_lora(base)

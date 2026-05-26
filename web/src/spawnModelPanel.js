@@ -6,8 +6,8 @@
  */
 
 import {
-    getSpawnMode,
-    setSpawnMode,
+    getSpawnPolicyMode,
+    setSpawnPolicyMode,
     getModelStatus,
     getV3Status,
     startV3Training,
@@ -83,7 +83,7 @@ function _refreshLayerParams(game) {
     const psRaw = profile?.playstyle ?? 'balanced';
     _set('sl-playstyle', playstyleMap[psRaw] ?? psRaw);
     const meta = game._lastAdaptiveInsight?.spawnModelMeta;
-    const source = game._lastAdaptiveInsight?.spawnSource ?? getSpawnMode();
+    const source = game._lastAdaptiveInsight?.spawnSource ?? getSpawnPolicyMode();
     if (meta) {
         const parts = [
             meta.modelVersion || 'v3',
@@ -125,7 +125,7 @@ export function initSpawnModelPanel(game) {
 
     if (!radios.length || !badge) return;
 
-    const currentMode = getSpawnMode();
+    const currentMode = getSpawnPolicyMode();
     radios.forEach((r) => {
         if (r.value === currentMode) r.checked = true;
     });
@@ -133,7 +133,7 @@ export function initSpawnModelPanel(game) {
     radios.forEach((r) => {
         r.addEventListener('change', () => {
             if (r.checked) {
-                setSpawnMode(r.value);
+                setSpawnPolicyMode(r.value);
                 _refreshBadge();
             game._playerInsightRefresh?.();
             game._spawnModelLayerRefresh?.();

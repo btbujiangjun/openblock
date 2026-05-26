@@ -25,7 +25,7 @@ LIFECYCLE_INDEX = {"onboarding": 0, "growth": 1, "mature": 2, "plateau": 3}
 # θ 参数顺序 (9 维, 与 model.py 的 N_THETA 一致)
 #
 # v2.2: 把 adaptiveSpawn.js 里 PB 双 S 曲线的 4 个硬编码常数提到 modelConfig
-#       (DEFAULT_PB_CURVE_PARAMS), 现在它们也是真实生效的 θ。
+#       (DEFAULT_SPAWN_PARAMS_PB_CURVE in adaptiveSpawn.js), 现在它们也是真实生效的 θ。
 # v2.1: 原 14 维收缩到 5 维 (剔除 9 个装饰性参数)。
 #
 # 所有 θ 必须满足: simulator/adaptiveSpawn/spawnExperiments 中至少有 1 处真实消费。
@@ -45,7 +45,7 @@ THETA_KEYS = [
 ]
 
 # 各参数的 (min, max) 用于 min-max 归一化
-# 注: PB 曲线参数的默认 (中点) ≈ DEFAULT_PB_CURVE_PARAMS in adaptiveSpawn.js
+# 注: PB 曲线参数的默认 (中点) ≈ DEFAULT_SPAWN_PARAMS_PB_CURVE in adaptiveSpawn.js
 THETA_RANGES = {
     "personalizationStrength": (0.05, 0.18),
     "temperature": (0.03, 0.08),

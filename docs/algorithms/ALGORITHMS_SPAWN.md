@@ -1,7 +1,7 @@
 # 出块算法：算法工程师手册
 
 > 本文是 OpenBlock **出块子系统**的算法侧统一手册。
-> 范围：启发式与 SpawnTransformerV3.1 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
+> 范围：启发式与 SpawnPolicyNet 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
 > 与现有文档的关系：本文是 `SPAWN_ALGORITHM.md`（工程分层）/ `ADAPTIVE_SPAWN.md`（信号矩阵）/ `SPAWN_BLOCK_MODELING.md`（设计 rationale）的**算法 + 模型工程深化**——补充 ML 路径的网络结构、训练流程、与 RL 的接口。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
@@ -88,13 +88,13 @@ $$
 | 路线 | 核心思想 | 优势 | 代价 |
 |------|---------|------|------|
 | **轨道一：启发式** | 手工特征 + 多层启发式 + 硬约束过滤 | 解释性强 / 可保证公平 / 零延迟 / 可兜底 | 规则复杂 / 风格难极致拟合 |
-| **轨道二：生成式（SpawnTransformerV3）** | 学习 $P(s_1, s_2, s_3 \mid \text{ctx})$，带 feasibility、playstyle 与 LoRA 个性化 | 拟合真实玩家序列体验 / 支持个性化 | 需服务端模型 / 需前端护栏和回退 |
+| **轨道二：生成式（SpawnPolicyNet）** | 学习 $P(s_1, s_2, s_3 \mid \text{ctx})$，带 feasibility、playstyle 与 LoRA 个性化 | 拟合真实玩家序列体验 / 支持个性化 | 需服务端模型 / 需前端护栏和回退 |
 
 两条轨道共享 `buildSpawnModelContext()` 生成的上下文：难度模式、`AbilityVector`、`PlayerProfile` 实时状态、盘面拓扑、局内节奏、局间弧线、近期出块历史和规则轨 `spawnHints`。规则轨直接消费 `spawnHints`；生成式轨把同一份上下文编码为 V3 的 `board/context/history/playstyle/targetDifficulty` 请求，避免 V2 旧 24 维向量与 V3 请求各自拼字段造成口径漂移。
 
 ### 2.2 切换逻辑
 
-`web/src/game.js` 根据 `getSpawnMode()` 在 `rule` 与 `model-v3` 间切换；历史值 `model` 会被 `spawnModel.js` 自动兼容为 `model-v3`：
+`web/src/game.js` 根据 `getSpawnPolicyMode()` 在 `rule` 与 `model-v3` 间切换；历史值 `model` 会被 `spawnModel.js` 自动兼容为 `model-v3`：
 
 ```js
 function spawnNextBlocks() {
@@ -976,7 +976,7 @@ $$
 
 ## 11. 演进、开放问题与 V3 落地（v3 已实装）
 
-> 自 2026-04-27 起，下面表中的 4 个 v3 候选改进与 3 个开放研究点已**全部完成第一版实装**——汇总在 `SpawnTransformerV3` + `feasibility` + `lora` + `shape_proposer` 四组模块；本节给出**深化设计 + 算法方案 + 实现路径**。
+> 自 2026-04-27 起，下面表中的 4 个 v3 候选改进与 3 个开放研究点已**全部完成第一版实装**——汇总在 `SpawnPolicyNet` + `feasibility` + `lora` + `shape_proposer` 四组模块；本节给出**深化设计 + 算法方案 + 实现路径**。
 
 ### 11.1 已识别的设计权衡（保留）
 
@@ -999,7 +999,7 @@ $$
 P(s_0, s_1, s_2 \mid \text{ctx}) = P(s_0 \mid \text{ctx}) \cdot P(s_1 \mid \text{ctx}, s_0) \cdot P(s_2 \mid \text{ctx}, s_0, s_1)
 $$
 
-实现要点（`rl_pytorch/spawn_model/model_v3.py:SpawnTransformerV3`）：
+实现要点（`rl_pytorch/spawn_model/model_v3.py:SpawnPolicyNet`）：
 
 - `head_0: Linear(d_model → 28)`
 - `head_1: Linear(d_model + d_model → 28)`，输入拼接 `[CLS_out, embed(s_0) + slot_pos[0]]`
@@ -1164,7 +1164,7 @@ W' = W (frozen) + (α/r) · B · A,    A ∈ ℝ^(r×in),  B ∈ ℝ^(out×r),  
 参数量对比（实测）：
 
 ```
-SpawnTransformerV3.1 trunk: ~317K params
+SpawnPolicyNet trunk: ~317K params
 LoRA (r=4, 5 个头部 Linear): 5,568 params (~1.8%)
 → 100 名玩家全部存档 ≈ 550K params，比一份完整模型还小
 ```
@@ -1316,5 +1316,5 @@ $$
 
 ---
 
-> 最后更新：2026-05-10 · 启发式轨新增用户行为奖励概率目标（清屏 / 同 icon / 多消），§11 已升级为 SpawnTransformerV3.1 行为上下文 schema
+> 最后更新：2026-05-10 · 启发式轨新增用户行为奖励概率目标（清屏 / 同 icon / 多消），§11 已升级为 SpawnPolicyNet 行为上下文 schema
 > 维护：算法工程团队

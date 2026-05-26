@@ -12,7 +12,7 @@ ResNet-MLP 模型 (L4) — 用于学习 (ctx, θ) → d_curve(20) + 辅助标签
   v2.0: 草案 14 维 (其中 9 维是装饰性参数, 游戏代码未读取)
   v2.1: 收缩到 5 维, 只保留 simulator/adaptiveSpawn 真正消费的参数
   v2.2: 把 adaptiveSpawn.js 里 PB 双 S 曲线 4 个硬编码常数提到 modelConfig
-        (DEFAULT_PB_CURVE_PARAMS), 把它们加回 θ → 9 维 全部真实生效
+        (DEFAULT_SPAWN_PARAMS_PB_CURVE), 把它们加回 θ → 9 维 全部真实生效
   ↓
   trunk_in: Linear(46→256) + LayerNorm + GELU
   ↓
@@ -115,7 +115,7 @@ class ContextEmbedding(nn.Module):
         ], dim=-1)  # (B, 32)
 
 
-class SpawnTuningResNetMLP(nn.Module):
+class SpawnParamTunerResNet(nn.Module):
     """L4 主模型: ResNet-MLP (8 个残差块, hidden=256)"""
 
     def __init__(
@@ -198,9 +198,9 @@ class SpawnTuningResNetMLP(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-def build_default_model() -> SpawnTuningResNetMLP:
+def build_default_model() -> SpawnParamTunerResNet:
     """构造默认配置的 ResNet-MLP (L4) 模型。"""
-    return SpawnTuningResNetMLP()
+    return SpawnParamTunerResNet()
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -233,7 +233,7 @@ DEFAULT_TRANSFORMER_HEADS = 4
 DEFAULT_TRANSFORMER_FFN = 128
 
 
-class SpawnTuningTransformer(nn.Module):
+class SpawnParamTunerTransformer(nn.Module):
     """v2.9: Transformer-based 模型 — 把 d_curve 当 sequence 建模。
 
     ~200K 参数 (比 ResNet-MLP 325K 更小, 但更适合序列任务)。
@@ -324,12 +324,12 @@ def build_model(model_type: str = "resnet") -> nn.Module:
     """v2.9 模型工厂 — 通过 model_type 字符串选择架构。
 
     支持:
-      "resnet" / "mlp" / "resnet-mlp"  → SpawnTuningResNetMLP (L4, ~325K)
-      "transformer"                    → SpawnTuningTransformer (~200K)
+      "resnet" / "mlp" / "resnet-mlp"  → SpawnParamTunerResNet (L4, ~325K)
+      "transformer"                    → SpawnParamTunerTransformer (~200K)
     """
     mt = (model_type or "resnet").lower().strip()
     if mt in ("resnet", "mlp", "resnet-mlp"):
-        return SpawnTuningResNetMLP()
+        return SpawnParamTunerResNet()
     if mt in ("transformer", "xformer", "tx"):
-        return SpawnTuningTransformer()
+        return SpawnParamTunerTransformer()
     raise ValueError(f"unknown model_type: {model_type!r} (支持: resnet, transformer)")

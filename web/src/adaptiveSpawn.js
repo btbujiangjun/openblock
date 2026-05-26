@@ -543,23 +543,21 @@ function sigmoid01(x) {
  *   pbBrakeCenter   — 刹车 sigmoid 拐点 (超过 PB 多少倍后强力压制 payoff)
  *   pbBrakeWidth    — 刹车 sigmoid 斜率宽度
  */
-export const DEFAULT_PB_CURVE_PARAMS = Object.freeze({
+/* ──────────────────────────────────────────────────────────────────
+ * DEFAULT_SPAWN_PARAMS_PB_CURVE — SpawnParam θ 中「组 B: PB 双 S 曲线 (4 维)」的默认值。
+ * 当 SpawnParamTuner 未部署 / policies.json 加载失败时 derivePbCurve 自动 fallback 到这里。
+ *
+ * SPAWN_PARAM_KEYS — L1 (SpawnPolicyRules) 与 L2 (SpawnParamTuner) 之间的 9 维 θ 数据契约
+ * （与 rl_pytorch/spawn_tuning_v2/feature_io.THETA_KEYS 同源）。
+ *
+ * 详见 docs/algorithms/SPAWN_OVERVIEW.md §5。
+ * ────────────────────────────────────────────────────────────────── */
+export const DEFAULT_SPAWN_PARAMS_PB_CURVE = Object.freeze({
     pbTensionCenter: 0.82,
     pbTensionWidth: 0.08,
     pbBrakeCenter: 1.05,
     pbBrakeWidth: 0.06,
 });
-
-/* ──────────────────────────────────────────────────────────────────
- * SpawnParam 角色化 alias（详见 docs/algorithms/SPAWN_OVERVIEW.md）
- *
- * DEFAULT_PB_CURVE_PARAMS 是 SpawnParam θ 中「组 B: PB 双 S 曲线 (4 维)」的默认值，
- * 当 SpawnParamTuner 未部署 / policies.json 加载失败时 derivePbCurve 自动 fallback 到这里。
- *
- * SPAWN_PARAM_KEYS 与 rl_pytorch/spawn_tuning_v2/feature_io.THETA_KEYS 同源（9 维），
- * 是 L1 (SpawnPolicyRules) 与 L2 (SpawnParamTuner) 之间的数据契约。
- * ────────────────────────────────────────────────────────────────── */
-export const DEFAULT_SPAWN_PARAMS_PB_CURVE = DEFAULT_PB_CURVE_PARAMS;
 
 export const SPAWN_PARAM_KEYS = Object.freeze([
     'personalizationStrength',
@@ -580,10 +578,10 @@ function _resolvePbCurveParams(options) {
         return Number.isFinite(n) && n > 0 ? n : d;
     };
     return {
-        tensionCenter: numOrDefault(options?.pbTensionCenter, DEFAULT_PB_CURVE_PARAMS.pbTensionCenter),
-        tensionWidth: numOrDefault(options?.pbTensionWidth, DEFAULT_PB_CURVE_PARAMS.pbTensionWidth),
-        brakeCenter: numOrDefault(options?.pbBrakeCenter, DEFAULT_PB_CURVE_PARAMS.pbBrakeCenter),
-        brakeWidth: numOrDefault(options?.pbBrakeWidth, DEFAULT_PB_CURVE_PARAMS.pbBrakeWidth),
+        tensionCenter: numOrDefault(options?.pbTensionCenter, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbTensionCenter),
+        tensionWidth: numOrDefault(options?.pbTensionWidth, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbTensionWidth),
+        brakeCenter: numOrDefault(options?.pbBrakeCenter, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbBrakeCenter),
+        brakeWidth: numOrDefault(options?.pbBrakeWidth, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbBrakeWidth),
     };
 }
 

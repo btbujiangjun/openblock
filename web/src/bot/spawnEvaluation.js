@@ -6,12 +6,12 @@
  */
 import { OpenBlockSimulator, boardPotential } from './simulator.js';
 import { getLastSpawnDiagnostics, resetSpawnMemory } from './blockSpawn.js';
-import { SPAWN_GENERATOR_BASELINE, SPAWN_GENERATOR_MODES } from './spawnExperiments.js';
+import { SPAWN_POLICY_RULES, SPAWN_POLICY_RULES_MODES } from './spawnExperiments.js';
 import { analyzeBoardTopology } from '../boardTopology.js';
 
 export const SPAWN_EVAL_POLICIES = ['random', 'clear-greedy', 'survival'];
 export const SPAWN_EVAL_STRATEGIES = ['easy', 'normal', 'hard'];
-export const SPAWN_EVAL_GENERATORS = SPAWN_GENERATOR_MODES;
+export const SPAWN_EVAL_GENERATORS = SPAWN_POLICY_RULES_MODES;
 
 const DEFAULT_OPTIONS = {
     seed: 20260523,
@@ -27,7 +27,7 @@ const DEFAULT_OPTIONS = {
     },
     policies: SPAWN_EVAL_POLICIES,
     strategies: ['normal'],
-    spawnGenerators: [SPAWN_GENERATOR_BASELINE],
+    spawnGenerators: [SPAWN_POLICY_RULES],
 };
 
 function createRng(seed) {

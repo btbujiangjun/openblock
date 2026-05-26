@@ -703,7 +703,7 @@ class TestUtilityEndpoints:
 
 class TestPredictCurve:
     """v2.9.2: predict_curve 端点必须按 arch.model_type 选模型构造,
-    transformer ckpt 不能再走 SpawnTuningResNetMLP() → load_state_dict 抛异常的死路。
+    transformer ckpt 不能再走 SpawnParamTunerResNet() → load_state_dict 抛异常的死路。
 
     回归覆盖: image-4c5e0c28 截图中的 "模型推断失败: HTTP 500" 根因。
     """
@@ -712,10 +712,10 @@ class TestPredictCurve:
         """构造一个真实 ckpt + sidecar 文件用于 backend 加载。"""
         import torch
         from rl_pytorch.spawn_tuning_v2.model import (
-            SpawnTuningResNetMLP, SpawnTuningTransformer,
+            SpawnParamTunerResNet, SpawnParamTunerTransformer,
         )
         from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
-        m = SpawnTuningTransformer() if model_type == "transformer" else SpawnTuningResNetMLP()
+        m = SpawnParamTunerTransformer() if model_type == "transformer" else SpawnParamTunerResNet()
         out = tmp_path / f"{model_type}.pt"
         _save_checkpoint(
             model=m, path=str(out),
@@ -831,9 +831,9 @@ class TestBuildAndExport:
     """
 
     def _save_real_ckpt(self, tmp_path, model_type="resnet"):
-        from rl_pytorch.spawn_tuning_v2.model import SpawnTuningResNetMLP, SpawnTuningTransformer
+        from rl_pytorch.spawn_tuning_v2.model import SpawnParamTunerResNet, SpawnParamTunerTransformer
         from rl_pytorch.spawn_tuning_v2.train import _save_checkpoint
-        m = SpawnTuningTransformer() if model_type == "transformer" else SpawnTuningResNetMLP()
+        m = SpawnParamTunerTransformer() if model_type == "transformer" else SpawnParamTunerResNet()
         out = tmp_path / f"{model_type}_test.pt"
         _save_checkpoint(
             model=m, path=str(out),

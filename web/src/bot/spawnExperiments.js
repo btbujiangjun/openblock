@@ -1,12 +1,12 @@
 /**
  * SpawnPolicyRules P1/P2 出块实验轨（角色：L1 · SpawnPolicyRules 的扩展生成器）。
+ * 详见 docs/algorithms/SPAWN_OVERVIEW.md。
  *
- * 命名规范（统一术语，详见 docs/algorithms/SPAWN_OVERVIEW.md）
- *   - 产品命名：SpawnPolicyRules / SpawnPolicyRulesP1 / SpawnPolicyRulesP2
- *   - 旧常量 SPAWN_GENERATOR_* 是历史值，保留作为字符串契约兼容（持久化 / DB / 评估输出依赖）
- *   - 新代码请用 SPAWN_POLICY_RULES / SPAWN_POLICY_RULES_P1 / SPAWN_POLICY_RULES_P2 alias
+ * 常量 SPAWN_POLICY_RULES / SPAWN_POLICY_RULES_P1 / SPAWN_POLICY_RULES_P2 的字符串值
+ * 'baseline' / 'triplet-p1' / 'budget-p2' 是 DB / 评估输出契约，永久保留。
  *
- * 这些生成器只用于离线评估和可视化对比，不替换线上 generateDockShapes 主路径（=SpawnPolicyRules baseline）。
+ * 这些 P1/P2 生成器只用于离线评估和可视化对比，不替换线上 generateDockShapes 主路径
+ * （= SpawnPolicyRules baseline）。
  */
 import { getAllShapes, getShapeCategory, isSpecialShapeId } from '../shapes.js';
 import {
@@ -14,24 +14,14 @@ import {
     validateSpawnTriplet,
 } from './blockSpawn.js';
 
-export const SPAWN_GENERATOR_BASELINE = 'baseline';
-export const SPAWN_GENERATOR_TRIPLET_P1 = 'triplet-p1';
-export const SPAWN_GENERATOR_BUDGET_P2 = 'budget-p2';
-export const SPAWN_GENERATOR_MODES = [
-    SPAWN_GENERATOR_BASELINE,
-    SPAWN_GENERATOR_TRIPLET_P1,
-    SPAWN_GENERATOR_BUDGET_P2,
+export const SPAWN_POLICY_RULES = 'baseline';
+export const SPAWN_POLICY_RULES_P1 = 'triplet-p1';
+export const SPAWN_POLICY_RULES_P2 = 'budget-p2';
+export const SPAWN_POLICY_RULES_MODES = [
+    SPAWN_POLICY_RULES,
+    SPAWN_POLICY_RULES_P1,
+    SPAWN_POLICY_RULES_P2,
 ];
-
-/* ──────────────────────────────────────────────────────────────────
- * SpawnPolicy 角色化 alias（详见 docs/algorithms/SPAWN_OVERVIEW.md）
- * 字符串值与 SPAWN_GENERATOR_* 完全一致，仅命名前缀升级。
- * 'baseline' / 'triplet-p1' / 'budget-p2' 三个字符串契约不可改（DB / 评估输出依赖）。
- * ────────────────────────────────────────────────────────────────── */
-export const SPAWN_POLICY_RULES = SPAWN_GENERATOR_BASELINE;
-export const SPAWN_POLICY_RULES_P1 = SPAWN_GENERATOR_TRIPLET_P1;
-export const SPAWN_POLICY_RULES_P2 = SPAWN_GENERATOR_BUDGET_P2;
-export const SPAWN_POLICY_RULES_MODES = SPAWN_GENERATOR_MODES;
 
 export const DEFAULT_MAX_EVALUATED_TRIPLETS = 80;
 const MAX_DEEP_EVALUATED_TRIPLETS = 8;
@@ -109,12 +99,12 @@ function bestClearPotential(grid, shapeData) {
     return best;
 }
 
-export function deriveExperienceBudget(layered = {}, ctx = {}, fill = 0, mode = SPAWN_GENERATOR_TRIPLET_P1, options = {}) {
+export function deriveExperienceBudget(layered = {}, ctx = {}, fill = 0, mode = SPAWN_POLICY_RULES_P1, options = {}) {
     const hints = layered.spawnHints || {};
     const targets = hints.spawnTargets || {};
     const stress01 = clamp01(((layered._adaptiveStressRaw ?? 0) + 0.2) / 1.2);
     const recovery = hints.delightMode === 'relief' || (ctx.roundsSinceClear ?? 0) >= 3 || fill >= 0.62;
-    const p2 = mode === SPAWN_GENERATOR_BUDGET_P2;
+    const p2 = mode === SPAWN_POLICY_RULES_P2;
 
     const personalizationStrength = clamp01(options.personalizationStrength ?? 0);
     const preference = normalizePreferenceVector(options.preference || derivePreferenceVector(options.profile, ctx));
@@ -238,7 +228,7 @@ function scoreTriplet(grid, triplet, budget, mode) {
         + Math.max(0, 6 - (metrics.validPerms || 6)) * 0.35;
     const noveltyScore = diversity * 2 + meanComplexity;
 
-    const modeBoost = mode === SPAWN_GENERATOR_BUDGET_P2 ? 1.2 : 1;
+    const modeBoost = mode === SPAWN_POLICY_RULES_P2 ? 1.2 : 1;
     const score =
         budget.survival * survivalScore * modeBoost
         + budget.payoff * payoffScore * modeBoost
@@ -265,7 +255,7 @@ function cheapTripletScore(triplet, budget) {
 }
 
 export function generateExperimentalDockShapes(grid, layered, ctx = {}, options = {}) {
-    const mode = options.mode || SPAWN_GENERATOR_TRIPLET_P1;
+    const mode = options.mode || SPAWN_POLICY_RULES_P1;
     // 整型化: 该值会被赋给 Array.length, 必须是非负整数 (否则 RangeError)
     const maxEvaluatedTriplets = Math.max(
         12,
@@ -359,7 +349,7 @@ function buildDiagnostics(mode, budget, best, shapes, evaluated, deepEvaluated, 
         id: shape.id,
         category: getShapeCategory(shape.id),
         reason: mode,
-        topDriver: { key: mode, label: mode === SPAWN_GENERATOR_BUDGET_P2 ? '体验预算' : '组合评分' },
+        topDriver: { key: mode, label: mode === SPAWN_POLICY_RULES_P2 ? '体验预算' : '组合评分' },
         pcPotential: 0,
         multiClear: 0,
         gapFills: 0,

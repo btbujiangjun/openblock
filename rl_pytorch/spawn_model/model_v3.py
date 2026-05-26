@@ -1,5 +1,5 @@
 """
-SpawnTransformerV3 — 联合分布 + 风格化 + 可解性 + 个性化骨架。
+SpawnPolicyNet — 联合分布 + 风格化 + 可解性 + 个性化骨架。
 
 相对 V2 的 5 大升级
 -------------------
@@ -77,7 +77,7 @@ SPAWN_INTENT_VOCAB = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'mainta
 NUM_SPAWN_INTENTS = len(SPAWN_INTENT_VOCAB)
 
 
-class SpawnTransformerV3(nn.Module):
+class SpawnPolicyNet(nn.Module):
     """V3：联合 + 风格 + 可解性"""
 
     def __init__(

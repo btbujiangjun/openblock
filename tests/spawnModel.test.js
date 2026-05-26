@@ -8,10 +8,10 @@ import { validateSpawnTriplet } from '../web/src/bot/blockSpawn.js';
 import {
     buildSpawnModelContext,
     computeSpawnTargetDifficulty,
-    getSpawnMode,
-    normalizeSpawnMode,
+    getSpawnPolicyMode,
+    normalizeSpawnPolicyMode,
     predictShapesV3,
-    setSpawnMode,
+    setSpawnPolicyMode,
     shapeIdsToHistoryRow,
     SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM,
     SPAWN_MODEL_CONTEXT_DIM,
@@ -57,16 +57,16 @@ describe('spawnModel mode and V3 context', () => {
     });
 
     it('normalizes legacy model mode to model-v3', () => {
-        expect(normalizeSpawnMode('model')).toBe(SPAWN_MODE_MODEL_V3);
-        expect(normalizeSpawnMode('model-v3')).toBe(SPAWN_MODE_MODEL_V3);
-        expect(normalizeSpawnMode('unknown')).toBe(SPAWN_MODE_RULE);
+        expect(normalizeSpawnPolicyMode('model')).toBe(SPAWN_MODE_MODEL_V3);
+        expect(normalizeSpawnPolicyMode('model-v3')).toBe(SPAWN_MODE_MODEL_V3);
+        expect(normalizeSpawnPolicyMode('unknown')).toBe(SPAWN_MODE_RULE);
     });
 
     it('stores model-v3 as the selected generative mode', () => {
-        setSpawnMode('model');
-        expect(getSpawnMode()).toBe(SPAWN_MODE_MODEL_V3);
-        setSpawnMode('rule');
-        expect(getSpawnMode()).toBe(SPAWN_MODE_RULE);
+        setSpawnPolicyMode('model');
+        expect(getSpawnPolicyMode()).toBe(SPAWN_MODE_MODEL_V3);
+        setSpawnPolicyMode('rule');
+        expect(getSpawnPolicyMode()).toBe(SPAWN_MODE_RULE);
     });
 
     it('builds a shared context with board, ability, topology, playstyle and target difficulty', () => {

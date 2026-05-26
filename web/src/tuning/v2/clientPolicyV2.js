@@ -30,7 +30,7 @@ export const DEFAULT_THETA_V2 = Object.freeze({
     surpriseBudgetGain: 0.07,
     surpriseCooldown: 6,
     maxEvaluatedTriplets: 80,
-    // v2.2: PB 曲线参数 (= adaptiveSpawn.DEFAULT_PB_CURVE_PARAMS)
+    // v2.2: PB 曲线参数 (= adaptiveSpawn.DEFAULT_SPAWN_PARAMS_PB_CURVE)
     pbTensionCenter: 0.82,
     pbTensionWidth: 0.08,
     pbBrakeCenter: 1.05,

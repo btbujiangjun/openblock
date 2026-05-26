@@ -110,7 +110,7 @@
   `SURVIVE_SEARCH_BUDGET=14000`、`CRITICAL_FILL=0.68`、`PC_SETUP_MIN_FILL=0.45`
 - 输出：3 个 shape + `_spawnDiagnostics`
 
-**生成式轨道（model-v3 / SpawnTransformerV3）**
+**生成式轨道（model-v3 / SpawnPolicyNet）**
 - 路由：`POST /api/spawn-model/v3/predict`（`server.py`）
 - 模型：`rl_pytorch/spawn_model/model_v3.py`，`nn.TransformerEncoder` 主干 +
   自回归 joint + feasibility head + playstyle embedding + LoRA-ready
@@ -340,11 +340,11 @@
 - 上半启发式轨：12 信号 → `adaptiveStress` → 10 档 profile + spawnHints →
   `generateDockShapes`（两阶段抽样 + 机动性 + 序贯可解 DFS）
 - 下半生成式轨：`buildSpawnModelContext`（24 维 + 56 维 + history）→
-  `/api/spawn-model/v3/predict`（SpawnTransformerV3 + LoRA） →
+  `/api/spawn-model/v3/predict`（SpawnPolicyNet + LoRA） →
   `validateSpawnTriplet` → V3 失败 → `rule-fallback`
 - 中央：`localStorage:ob_spawn_mode` 硬切换；统一护栏
 
-## 图 2：SpawnTransformerV3 网络与推理流
+## 图 2：SpawnPolicyNet 网络与推理流
 
 - 输入层：board / context24 / behavior56 / history × 3 / playstyle / userId
 - 主干：`nn.TransformerEncoder` + 自回归 joint head + feasibility head +

@@ -1,5 +1,5 @@
 """
-SpawnTransformerV3 训练脚本 — 联合 + 风格 + 可解性。
+SpawnPolicyNet 训练脚本 — 联合 + 风格 + 可解性。
 
 用法:
   python -m rl_pytorch.spawn_model.train_v3 --db openblock.db --epochs 50 --lr 3e-4
@@ -51,7 +51,7 @@ from .dataset import (
     load_training_data,
 )
 from .feasibility import build_feasibility_mask
-from .model_v3 import SpawnTransformerV3, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX, NUM_SPAWN_INTENTS
+from .model_v3 import SpawnPolicyNet, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX, NUM_SPAWN_INTENTS
 from .train import (
     _default_dataloader_workers,
     compute_anti_inflate_loss,
@@ -215,7 +215,7 @@ def train(args):
         num_workers=dl_workers, persistent_workers=dl_workers > 0, pin_memory=pin_mem,
     )
 
-    model = SpawnTransformerV3(
+    model = SpawnPolicyNet(
         d_model=args.d_model,
         nhead=args.nhead,
         num_layers=args.num_layers,
@@ -223,7 +223,7 @@ def train(args):
         dropout=args.dropout,
     ).to(device)
 
-    print(f'SpawnTransformerV3: {model.count_params():,} params, device={device}')
+    print(f'SpawnPolicyNet: {model.count_params():,} params, device={device}')
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
@@ -419,7 +419,7 @@ def train(args):
 
 def main():
     default_db = str(Path(__file__).resolve().parent.parent.parent / 'openblock.db')
-    p = argparse.ArgumentParser(description='Train SpawnTransformerV3')
+    p = argparse.ArgumentParser(description='Train SpawnPolicyNet')
     p.add_argument('--db', type=str, default=default_db)
     p.add_argument('--epochs', type=int, default=50)
     p.add_argument('--batch-size', type=int, default=64)

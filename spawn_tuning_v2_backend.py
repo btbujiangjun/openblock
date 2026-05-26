@@ -822,7 +822,7 @@ def register_v2_routes(app):
         try:
             import torch
             from rl_pytorch.spawn_tuning_v2.model import (
-                SpawnTuningResNetMLP, SpawnTuningTransformer,
+                SpawnParamTunerResNet, SpawnParamTunerTransformer,
                 N_THETA, N_CURVE_BINS,
             )
             from rl_pytorch.spawn_tuning_v2.feature_io import (
@@ -857,13 +857,13 @@ def register_v2_routes(app):
             #   优先级: arch.model_type (训练时记录) > models.model_type 列 > "resnet" 兜底
             mt = (arch.get("model_type") or row["model_type"] or "resnet").lower()
             if mt == "transformer":
-                model = SpawnTuningTransformer(
+                model = SpawnParamTunerTransformer(
                     d_model=arch.get("d_model", 64),
                     n_layers=arch.get("n_layers", 3),
                     curve_bins=arch.get("curve_bins", N_CURVE_BINS),
                 )
             else:
-                model = SpawnTuningResNetMLP(
+                model = SpawnParamTunerResNet(
                     hidden_dim=arch.get("hidden_dim", 128),
                     n_blocks=arch.get("n_blocks", 8),
                     curve_bins=arch.get("curve_bins", N_CURVE_BINS),
@@ -1554,7 +1554,7 @@ def register_v2_routes(app):
         try:
             import torch
             from rl_pytorch.spawn_tuning_v2.model import (
-                SpawnTuningResNetMLP, SpawnTuningTransformer,
+                SpawnParamTunerResNet, SpawnParamTunerTransformer,
                 N_THETA, N_CURVE_BINS,
             )
             from rl_pytorch.spawn_tuning_v2.optimize_theta import enumerate_all_contexts, context_to_indices
@@ -1588,13 +1588,13 @@ def register_v2_routes(app):
             arch = ck.get("arch", {}) or {}
             mt = (arch.get("model_type") or row["model_type"] or "resnet").lower()
             if mt == "transformer":
-                model = SpawnTuningTransformer(
+                model = SpawnParamTunerTransformer(
                     d_model=arch.get("d_model", 128),
                     n_layers=arch.get("n_layers", 3),
                     curve_bins=arch.get("curve_bins", N_CURVE_BINS),
                 )
             else:
-                model = SpawnTuningResNetMLP(
+                model = SpawnParamTunerResNet(
                     hidden_dim=arch.get("hidden_dim", 128),
                     n_blocks=arch.get("n_blocks", 8),
                     curve_bins=arch.get("curve_bins", N_CURVE_BINS),

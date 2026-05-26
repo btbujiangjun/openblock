@@ -31,7 +31,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from .model import build_default_model, build_model, SpawnTuningResNetMLP
+from .model import build_default_model, build_model, SpawnParamTunerResNet
 from .losses import LossWeights, compute_total_loss
 from .feature_io import SamplesDataset, save_model_record
 from .target_curve import target_curve_vector, CURVE_N_BINS
@@ -51,7 +51,7 @@ def _to_torch_batch(batch_np: Dict[str, np.ndarray], device: torch.device) -> Di
 
 
 def _train_one_epoch(
-    model: SpawnTuningResNetMLP,
+    model: SpawnParamTunerResNet,
     train_ds: SamplesDataset,
     optimizer: torch.optim.Optimizer,
     weights: LossWeights,
@@ -133,7 +133,7 @@ def _train_one_epoch(
 
 @torch.no_grad()
 def _eval_one_epoch(
-    model: SpawnTuningResNetMLP,
+    model: SpawnParamTunerResNet,
     val_ds: SamplesDataset,
     weights: LossWeights,
     batch_size: int,

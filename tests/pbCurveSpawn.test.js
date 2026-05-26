@@ -19,7 +19,7 @@ describe('PB 双 S 曲线出块接入', () => {
         // 拐点左移 → 800/1000=0.8 应当显著高于默认
         expect(customTension).toBeGreaterThan(defaultTension);
 
-        /* v2.2: 非法 / 缺省 options 走 DEFAULT_PB_CURVE_PARAMS (跟无 options 等价) */
+        /* v2.2: 非法 / 缺省 options 走 DEFAULT_SPAWN_PARAMS_PB_CURVE (跟无 options 等价) */
         const opt1 = derivePbCurve(900, 1000, false, { pbTensionCenter: NaN });
         const opt2 = derivePbCurve(900, 1000, false);
         expect(opt1.pbTension).toBe(opt2.pbTension);

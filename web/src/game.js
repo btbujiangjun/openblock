@@ -68,7 +68,7 @@ import {
 import { SPECIAL_SHAPES } from './bot/blockSpawn.js';
 import {
     buildSpawnModelContext,
-    getSpawnMode,
+    getSpawnPolicyMode,
     predictShapesV3,
     shapeIdsToHistoryRow,
     SPAWN_MODE_MODEL_V3
@@ -1639,7 +1639,7 @@ export class Game {
          * 局首 0 → 自然要求至少 11 轮后才可能首次注入（与 MIN_ROUND_GAP=10 契约一致）。 */
         this._spawnContext.roundsSinceDupInject = (this._spawnContext.roundsSinceDupInject ?? 0) + 1;
 
-        const mode = getSpawnMode();
+        const mode = getSpawnPolicyMode();
         if (mode === SPAWN_MODE_MODEL_V3) {
             this._spawnBlocksWithModel(layered, opts);
             return;

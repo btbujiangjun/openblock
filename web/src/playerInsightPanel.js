@@ -22,7 +22,7 @@ import { openInsightMetricModal } from './insightMetricModal.js';
 /* v1.58 §rewire：SSOT 接入。所有"实时盘面占用率"读取改走 selectors，
  * 避免多处 cache 不同步导致的 v1.57.5 §A 类双显 bug 再次出现。 */
 import { selectLiveBoardFill } from './derivation/selectors.js';
-import { getSpawnMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
+import { getSpawnPolicyMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { renderStressMeter, summarizeContributors } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
 import { analyzeBoardTopology, countUnfillableCells } from './boardTopology.js';
@@ -882,12 +882,12 @@ function _hintsExplain(h) {
 
 /** 顶栏与 flow/R49 同行：当前出块算法（与侧栏单选项联动） */
 function _spawnModePrimaryChipHtml() {
-    const mode = getSpawnMode();
+    const mode = getSpawnPolicyMode();
     const primary =
         mode === SPAWN_MODE_MODEL_V3
             ? {
                   text: `${UI_ICONS.generativeRecommend} 生成式`,
-                  title: '侧栏已选「生成式」：下轮起块将请求 SpawnTransformerV3，并通过前端护栏校验；不可用或未通过则自动回退启发式。',
+                  title: '侧栏已选「生成式」：下轮起块将请求 SpawnPolicyNet，并通过前端护栏校验；不可用或未通过则自动回退启发式。',
               }
             : {
                   text: `${UI_ICONS.ruleAlgorithm} 启发式`,

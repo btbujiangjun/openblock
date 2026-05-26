@@ -7,7 +7,7 @@
 
 > **定位**：通过大规模数据采样 + 深度学习模型拟合，自动找到让玩家"接近 PB 但难以超越、偶有惊喜"的算法参数。
 > **范围**：业务目标量化 → 特征/标签设计 → 样本采集 → ResNet-MLP 模型 → 增量训练 → 灰度部署 → 真实玩家监控。
-> **角色映射**：本文标题历史名「出块算法寻参系统 v2.0」= `SpawnParamTuner`（v2.x 是其内部 schema / 实现迭代号，不参与产品命名）；DB schema 名 `spawn_tuning_v2.sql` 与 bundle URL `web/public/spawn-tuning-v2/` 因外部缓存依赖保留历史路径。  
+> **历史路径**：包目录 `rl_pytorch/spawn_tuning_v2/`、DB schema `spawn_tuning_v2.sql`、env var `SPAWN_TUNING_V2_DB`、bundle URL `web/public/spawn-tuning-v2/` 中的 `_v2` / `-v2-` 是 schema 迭代号，因 DB 数据与客户端缓存依赖保留不动；产品命名一律使用 `SpawnParamTuner`。
 > **与 v1 的关系**：完全重写，v1 代码作为对照保留，迁移完成后归档。
 
 ---
@@ -57,7 +57,7 @@ L = α·L_shape + β·L_balance + γ·L_surprise + δ·L_breaking + ε·L_smooth
 ### 1.1 算法参数 θ (9 维)
 
 > **演进**: v2.0 草案 14 维 (9 个装饰参数) → v2.1 收缩到 5 维 (真实生效) → **v2.2 = 9 维**
-> (把 `adaptiveSpawn.js · derivePbCurve` 的 4 个硬编码常数提到 `DEFAULT_PB_CURVE_PARAMS`,
+> (把 `adaptiveSpawn.js · derivePbCurve` 的 4 个硬编码常数提到 `DEFAULT_SPAWN_PARAMS_PB_CURVE`,
 >  让 PB 双 S 曲线的拐点 / 斜率也成为可寻参的 θ)。
 > 任何后续新增 θ 都必须先在 simulator/adaptiveSpawn/spawnExperiments 接入,
 > 否则训练学到的是噪声。
@@ -81,7 +81,7 @@ L = α·L_shape + β·L_balance + γ·L_surprise + δ·L_breaking + ε·L_smooth
 | `pbBrakeCenter` | [0.98, 1.15] | 1.05 | 刹车 sigmoid 拐点 — 越小, 超 PB 后更快抑制 |
 | `pbBrakeWidth` | [0.03, 0.12] | 0.06 | 刹车斜率宽度 |
 
-> 默认值 = `web/src/adaptiveSpawn.js · DEFAULT_PB_CURVE_PARAMS`,
+> 默认值 = `web/src/adaptiveSpawn.js · DEFAULT_SPAWN_PARAMS_PB_CURVE`,
 > 当 modelConfig 没传 / 传 NaN 时 `derivePbCurve` 自动 fallback 这 4 个默认值,
 > 保证现役玩家不会因为新参数化而体感变化。
 | `lineBonusWeight` | [0.5, 2.0] | 1.0 |
@@ -620,7 +620,7 @@ tests/tuning/v2/
 |---|---|---|
 | **G7** | 业务命题客户端 e2e 验证 | 需要**真实线上流量** + 多周 A/B 测试期。当前是开发环境, 没有真实玩家访问 deployed 模型, 无法量化"接近 PB 时玩家停留时间是否变长"。框架 (`field_metrics_v2` 表 + `policyMetricsV2.reportEpisode`) 已就绪, 等真实流量自然填充。 |
 | **G8** | RL bot 替代规则 bot | 这是**跨课题工作** (PPO/DQN agent 训练几小时-几天), 与"出块算法寻参"是平行的两个项目。当前 random/clear-greedy/survival 三种规则 bot 已能覆盖业务场景, RL bot 是 marginal improvement, 投入产出比低。建议作为独立 RFC。 |
-| **G10** | Transformer 大数据集优化 (d_model/n_layers UI) | 当前数据规模 (~72K) ResNet 性价比明显高于 Transformer (5× 慢, 收益 < 0.001 mae)。要让 Transformer 发挥优势需要数据规模 ≥ 1M 样本 + GPU 集群, 当前条件不具备。架构本身已支持 (`SpawnTuningTransformer` + `build_model` 工厂), 后续若数据扩 10× 再考虑暴露超参 UI。 |
+| **G10** | Transformer 大数据集优化 (d_model/n_layers UI) | 当前数据规模 (~72K) ResNet 性价比明显高于 Transformer (5× 慢, 收益 < 0.001 mae)。要让 Transformer 发挥优势需要数据规模 ≥ 1M 样本 + GPU 集群, 当前条件不具备。架构本身已支持 (`SpawnParamTunerTransformer` + `build_model` 工厂), 后续若数据扩 10× 再考虑暴露超参 UI。 |
 
 ### 物理上限说明
 

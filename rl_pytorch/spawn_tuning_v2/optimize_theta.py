@@ -5,7 +5,7 @@
   以"shape loss + 业务约束"作为优化目标,每个 context 独立跑梯度上升。
 
 输入:
-  - 训好的 SpawnTuningResNetMLP checkpoint
+  - 训好的 SpawnParamTunerResNet checkpoint
   - context 枚举 (360 个) + 权重 (LossWeights)
   - 每 context 起点数 (n_starts), 每起点步数 (steps)
 
@@ -49,7 +49,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from .model import SpawnTuningResNetMLP, N_THETA, N_CURVE_BINS, build_default_model
+from .model import SpawnParamTunerResNet, N_THETA, N_CURVE_BINS, build_default_model
 from .feature_io import (
     DIFFICULTY_INDEX, GENERATOR_INDEX, BOT_INDEX, PB_BIN_INDEX, LIFECYCLE_INDEX,
     THETA_KEYS, denormalize_theta,
@@ -99,7 +99,7 @@ def context_to_indices(ctx: Dict) -> Dict[str, int]:
 # ─────────── 单 context 优化 ───────────
 
 def optimize_one_context(
-    model: SpawnTuningResNetMLP,
+    model: SpawnParamTunerResNet,
     ctx: Dict,
     target_curve: torch.Tensor,        # (n_bins,)
     n_starts: int = 8,
@@ -221,7 +221,7 @@ def optimize_all_contexts(
     # 加载模型
     ck = torch.load(checkpoint_path, map_location=device, weights_only=False)
     arch = ck.get("arch", {})
-    model = SpawnTuningResNetMLP(
+    model = SpawnParamTunerResNet(
         hidden_dim=arch.get("hidden_dim", 128),
         n_blocks=arch.get("n_blocks", 8),
         curve_bins=arch.get("curve_bins", N_CURVE_BINS),

@@ -94,7 +94,7 @@ tests/          88 测试文件 / 1306 用例
 **Spawn Engine**（`web/src/`）
 - `adaptiveSpawn.js`：12 信号融合 → stress → 10 档 profile + spawnHints
 - `bot/blockSpawn.js`：执行层，生成三连块（含 solvability / 机动性 / 序贯可解 / orderRigor 校验）
-- `spawnModel.js`：可选 ML 推理（SpawnTransformerV3 + LoRA + feasibility + playstyle）
+- `spawnModel.js`：可选 ML 推理（SpawnPolicyNet + LoRA + feasibility + playstyle）
 - `difficulty.js`：score → stress 基础映射
 
 **Monetization Framework**（`web/src/monetization/`）
@@ -150,7 +150,7 @@ tests/          88 测试文件 / 1306 用例
 game.spawnBlocks()
   └── spawnModel.buildSpawnModelContext()
        ├── 轨道 1：启发式 = adaptiveSpawn → blockSpawn.generateDockShapes
-       ├── 轨道 2：生成式 = spawnModel → /api/spawn-model/v3/predict (SpawnTransformerV3)
+       ├── 轨道 2：生成式 = spawnModel → /api/spawn-model/v3/predict (SpawnPolicyNet)
        └── 统一护栏 validateSpawnTriplet → V3 失败时 fallback 到规则轨
 ```
 
