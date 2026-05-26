@@ -1467,13 +1467,35 @@ async function _loadAndRenderMetrics(jobId, meta) {
             : null;
         const totalSec = epochs.reduce((s, e) => s + (e.elapsed_s || 0), 0);
         // 表格 — 6 个核心 metric 的最新 / 首 / 改进
+        // v2.10.5: 摘要表也加状态 badge — 让用户理解每个低值的含义
+        const getStatus = (k, lastV, firstV) => {
+            if (!Number.isFinite(lastV) || !Number.isFinite(firstV)) return '';
+            if (k === 'val_pb_distribution') return '<span title="display only — weight=0, 不进训练 loss" style="color:#9ca3af">🚫 仅展示</span>';
+            if (k === 'val_curve_var') {
+                return lastV > 0.1
+                    ? '<span title="预测曲线有形态, 健康" style="color:#34d399">✓ 健康</span>'
+                    : '<span title="预测曲线接近水平, 可能退化" style="color:#f87171">⚠ 退化</span>';
+            }
+            const delta = lastV - firstV;
+            if (firstV < 0.005 && Math.abs(delta) < 0.001) {
+                return '<span title="数据本身就满足该约束 — loss 充当 safety net" style="color:#9ca3af">🔒 数据满足</span>';
+            }
+            if (lastV < firstV * 0.5 && firstV > 0.005) {
+                return '<span title="模型已学到该约束 (loss 显著下降)" style="color:#34d399">✓ 学到</span>';
+            }
+            if (lastV > firstV * 1.5 && firstV > 0.001) {
+                return '<span title="loss 反而上升, 可能退化" style="color:#f87171">⚠ 退化</span>';
+            }
+            return '<span title="loss 平台期" style="color:var(--muted)">— 平台</span>';
+        };
         const tablePart = epochs.length > 0 ? `
             <table style="width:100%; font-size:11px; margin-top:6px; border-collapse:collapse;">
               <thead><tr style="color:var(--muted);">
                 <th style="text-align:left; padding:3px 6px;">指标</th>
                 <th style="text-align:right; padding:3px 6px;">最新 (ep=${last.epoch ?? '-'})</th>
                 ${epochs.length > 1 ? `<th style="text-align:right; padding:3px 6px;">首 epoch</th>
-                <th style="text-align:right; padding:3px 6px;">改进 △</th>` : ''}
+                <th style="text-align:right; padding:3px 6px;">改进 △</th>
+                <th style="text-align:left; padding:3px 6px;">状态</th>` : ''}
               </tr></thead>
               <tbody style="font-family: ui-monospace, monospace;">
                 ${['train_loss', 'val_loss', 'val_curve_mae', 'val_calibrated_mae', 'val_curve_var', 'val_anchor', 'val_monotonic', 'val_target_fit', 'val_endpoint', 'val_pb_distribution', 'val_balance', 'val_surprise', 'val_breaking']
@@ -1484,12 +1506,14 @@ async function _loadAndRenderMetrics(jobId, meta) {
                         const deltaStr = delta == null ? '-' :
                             (delta < 0 ? `<span style="color:var(--good)">${delta.toFixed(4)} ↓</span>`
                                        : `<span style="color:var(--warn)">+${delta.toFixed(4)} ↑</span>`);
+                        const status = getStatus(k, lastV, firstV);
                         return `<tr>
                             <td style="padding:2px 6px;">${k}</td>
                             <td style="padding:2px 6px; text-align:right;">${fmtNumber(lastV, 4)}</td>
                             ${epochs.length > 1 ? `
                             <td style="padding:2px 6px; text-align:right; color:var(--muted);">${fmtNumber(firstV, 4)}</td>
-                            <td style="padding:2px 6px; text-align:right;">${deltaStr}</td>` : ''}
+                            <td style="padding:2px 6px; text-align:right;">${deltaStr}</td>
+                            <td style="padding:2px 6px; font-size:10.5px;">${status}</td>` : ''}
                         </tr>`;
                     }).join('')}
               </tbody>
@@ -1759,7 +1783,33 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
                 const arrow = delta < 0 ? '↓' : '↑';
                 deltaStr = ` <span style="color:${cls}; font-size:9px;">${delta >= 0 ? '+' : ''}${delta.toFixed(4)} ${arrow}</span>`;
             }
-            valEl.innerHTML = valStr + deltaStr;
+            // v2.10.5: loss 健康状态 badge — 让用户一眼看出"为什么这么低"
+            //   ✓ 学到了:  首值 ≥ 0.005 且现在 < 首 50% (显著下降)
+            //   🔒 数据满足: 首值 < 0.005 (从一开始就很低 → 数据天然满足约束)
+            //   🔥 训练中:  最近 3 个 epoch 仍在变化 ≥ 5%
+            //   ⚠ 退化:    现在 > 首值 × 1.5 (loss 反而升)
+            //   — :         上述都不适用 (变化幅度小但非平凡)
+            let badge = '';
+            if (m.better === 'lower' && epochs.length >= 3 && Number.isFinite(firstV) && Number.isFinite(lastV)) {
+                const recent = epochs.slice(-3).map((e) => e[m.key]).filter(Number.isFinite);
+                const recentRange = recent.length > 1 ? Math.max(...recent) - Math.min(...recent) : 0;
+                if (firstV < 0.005 && Math.abs(delta) < 0.001) {
+                    badge = ` <span style="color:#9ca3af; font-size:9px;" title="该约束数据本身就满足 (例如修复后 d_curve 已单调 → val_monotonic 全程 0); loss 充当 safety net, 退化时才会激活">🔒</span>`;
+                } else if (lastV < firstV * 0.5 && firstV > 0.005) {
+                    badge = ` <span style="color:#34d399; font-size:9px;" title="模型已学到该约束 (loss 显著下降)">✓</span>`;
+                } else if (recentRange / Math.max(1e-6, Math.abs(lastV)) > 0.05) {
+                    badge = ` <span style="color:#fbbf24; font-size:9px;" title="loss 仍在变化, 训练中">🔥</span>`;
+                } else if (lastV > firstV * 1.5 && firstV > 0.001) {
+                    badge = ` <span style="color:#f87171; font-size:9px;" title="loss 反而上升, 可能退化">⚠</span>`;
+                }
+            } else if (m.key === 'val_curve_var' && Number.isFinite(lastV)) {
+                badge = lastV > 0.1
+                    ? ` <span style="color:#34d399; font-size:9px;" title="预测曲线有形态, 健康">✓</span>`
+                    : ` <span style="color:#f87171; font-size:9px;" title="预测曲线接近水平, 可能退化">⚠</span>`;
+            } else if (m.key === 'val_pb_distribution') {
+                badge = ` <span style="color:#9ca3af; font-size:9px;" title="display only — weight=0 不进训练 (公式天然饱和)">🚫</span>`;
+            }
+            valEl.innerHTML = valStr + deltaStr + badge;
         }
 
         subChartIndexes.push({ key: m.key, color: m.color, label: m.label, canvas, xAt, yAt, PAD, cw, ch, cssW, cssH });
