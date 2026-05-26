@@ -1016,8 +1016,17 @@ async function refreshTrainingSampleSetOptions() {
         sel.innerHTML = sets.map((s) => {
             const sel_attr = prevSelected.has(String(s.set_id)) ? ' selected' : '';
             const statusBadge = s.status === 'completed' ? '✓' : '⏳';
-            return `<option value="${s.set_id}"${sel_attr}>${statusBadge} #${s.set_id} ${escapeHtml(s.name)} (${s.sample_count || 0} 样本)</option>`;
+            // v2.10: 算法版本标签 — 让用户看到 [v2.9] 老数据 (会得到水平预测) vs [v2.10] 新数据
+            const av = s.algo_version || 'v2.10';
+            const avTag = av === 'v2.9' ? ' [⚠v2.9 旧] ' : av === 'v2.10' ? ' [v2.10] ' : ' ';
+            return `<option value="${s.set_id}"${sel_attr}>${statusBadge} #${s.set_id}${avTag}${escapeHtml(s.name)} (${s.sample_count || 0} 样本)</option>`;
         }).join('');
+        // v2.10: 顶部 banner 提醒 — 若全是 v2.9 老数据, 给出明确指引
+        const allV29 = sets.length > 0 && sets.every((s) => (s.algo_version || 'v2.10') === 'v2.9');
+        const hint = $('job-hint');
+        if (allV29 && hint && !hint.dataset.dismissedV29) {
+            hint.innerHTML = '<span style="color:var(--warn)">⚠ 当前所有样本集都是 v2.9 旧算法 (d_curve 平坦, 模型学不出 S 形)。请到 ② 样本构建 重新采集 (新数据自动标 v2.10)。</span>';
+        }
     } catch { /* server 挂时保留旧 options */ }
 }
 
@@ -1031,6 +1040,23 @@ async function submitJob() {
         return;
     }
     const modelType = $('job-model-type')?.value || 'resnet';
+    // v2.10: 检测 v2.9 老数据集 (d_curve 平坦, 训出模型必然水平线)
+    try {
+        const data = await apiGet('/api/spawn-tuning-v2/sample-sets?limit=200');
+        const selected = (data.sample_sets || []).filter((s) => setIds.includes(s.set_id));
+        const v29Sets = selected.filter((s) => (s.algo_version || 'v2.10') === 'v2.9');
+        if (v29Sets.length > 0) {
+            const names = v29Sets.map(s => `#${s.set_id} ${s.name}`).join(', ');
+            const ok = await showConfirmDialog(
+                `你选了 ${v29Sets.length} 个 v2.9 旧算法样本集:\n  ${names}\n\nv2.9 数据的 d_curve 几乎水平 (跨度仅 0.20 vs 业务期望 0.80),\n模型训出来必然是水平预测线, 学不到 S 形。\n\n建议先到 ② 样本构建 重新采集 (新数据自动标 v2.10)。`,
+                { title: '⚠ 旧算法数据', confirmLabel: '仍要训练', confirmType: 'warn' }
+            );
+            if (!ok) {
+                $('job-hint').innerHTML = '<span style="color:var(--warn)">已取消 — 请到 ② 样本构建 用相同 chips 重新采集 (新数据自动标 v2.10)</span>';
+                return;
+            }
+        }
+    } catch { /* server 挂时跳过此检查 */ }
     // v2.9.4: Transformer 对 LR 敏感, 用户填 > 5e-3 时前端给出警告
     //   实测 job_16: transformer + lr=0.05 → epoch 1 退化解 (输出全平均 0.55) 锁死
     let lrInput = Number($('job-lr').value) || 1e-3;
