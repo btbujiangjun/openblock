@@ -53,7 +53,7 @@ def test_feasibility():
 
 def test_v3_forward_and_sample():
     from .model_v3 import SpawnTransformerV3, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX
-    from .dataset import BEHAVIOR_CONTEXT_DIM
+    from .dataset import BEHAVIOR_CONTEXT_DIM, NUM_SHAPES
 
     model = SpawnTransformerV3()
     model.eval()
@@ -74,8 +74,9 @@ def test_v3_forward_and_sample():
 
     assert isinstance(out, dict)
     l0, l1, l2 = out['logits']
-    assert l0.shape == (B, 28) and l1.shape == (B, 28) and l2.shape == (B, 28)
-    assert out['feas_logits'].shape == (B, 28)
+    # v1.60.0 形状池扩展：NUM_SHAPES 28 → 40，断言改为动态读取避免再次失效。
+    assert l0.shape == (B, NUM_SHAPES) and l1.shape == (B, NUM_SHAPES) and l2.shape == (B, NUM_SHAPES)
+    assert out['feas_logits'].shape == (B, NUM_SHAPES)
     assert out['style_logits'].shape == (B, NUM_PLAYSTYLES)
     assert out['intent_logits'].shape == (B, 7)  # v1.57.1：6 → 7（加 sprint）
     assert out['div_logits'].shape == (B, 3, 7)
@@ -89,7 +90,7 @@ def test_v3_forward_and_sample():
     assert len(triplet) == 3
     assert len(set(triplet)) == 3, f"不应有重复 shape: {triplet}"
 
-    fmask = np.zeros(28, dtype=np.float32)
+    fmask = np.zeros(NUM_SHAPES, dtype=np.float32)
     keep = [0, 1, 2, 3, 4]
     for i in keep:
         fmask[i] = 1.0
@@ -181,9 +182,10 @@ def test_train_v3_helpers():
         _infer_playstyle_from_context,
         _infer_intent_from_behavior_context,
     )
-    from .dataset import BEHAVIOR_CONTEXT_DIM
+    from .dataset import BEHAVIOR_CONTEXT_DIM, NUM_SHAPES
 
-    B, S = 2, 28
+    # v1.60.0 形状池扩展：S 改为动态读取 NUM_SHAPES（28 → 40）。
+    B, S = 2, NUM_SHAPES
     logits = (torch.randn(B, S), torch.randn(B, S), torch.randn(B, S))
     feas_mask = torch.zeros(B, S)
     feas_mask[:, :10] = 1.0

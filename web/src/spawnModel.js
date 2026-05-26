@@ -1,5 +1,10 @@
 /**
- * SpawnTransformer 前端客户端
+ * SpawnPolicyNet 前端客户端（角色：L1 · SpawnPolicyNet，神经版出块决策）
+ *
+ * 命名规范（统一术语，详见 docs/algorithms/SPAWN_OVERVIEW.md）
+ *   - 产品命名：SpawnPolicyNet（出块策略·神经版）
+ *   - 推荐 API：getSpawnPolicyMode / setSpawnPolicyMode（当前 getSpawnMode / setSpawnMode 的语义同 alias）
+ *   - 内部模式字符串 'rule' / 'model-v3' 是历史值，保留作为持久化键值兼容
  *
  * 提供：
  *   - 训练状态轮询
@@ -7,7 +12,8 @@
  *   - 推理请求（给定盘面返回推荐形状）
  *   - 出块模式管理（rule / model-v3）
  *
- * 增量设计：不影响现有 generateDockShapes 流程，仅在 mode='model-v3' 时替代出块来源。
+ * 增量设计：不影响现有 generateDockShapes（= SpawnPolicyRules）流程，
+ * 仅在 mode='model-v3'（= 启用 SpawnPolicyNet）时替代出块来源；推理失败自动回退到 SpawnPolicyRules。
  */
 
 import { getApiBaseUrl } from './config.js';
@@ -99,6 +105,29 @@ export function getSpawnMode() {
 export function setSpawnMode(mode) {
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(SPAWN_MODE_KEY, normalizeSpawnMode(mode));
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * SpawnPolicy 角色化 alias（详见 docs/algorithms/SPAWN_OVERVIEW.md）
+ * 语义映射：
+ *   'rule'      = SpawnPolicyRules (L1·规则版)
+ *   'model-v3'  = SpawnPolicyNet   (L1·神经版)
+ *
+ * 模式字符串 'rule' / 'model-v3' 是 localStorage 持久化契约，永久保留；
+ * 比较时直接复用旧常量 SPAWN_MODE_RULE / SPAWN_MODE_MODEL_V3，
+ * 避免与 SPAWN_POLICY_RULES (= 'baseline' generator 名) 命名空间冲突。
+ * ────────────────────────────────────────────────────────────────── */
+
+/** SpawnPolicy 角色化读取器（推荐新代码使用）。
+ *  @returns {'rule'|'model-v3'} */
+export function getSpawnPolicyMode() {
+    return getSpawnMode();
+}
+
+/** SpawnPolicy 角色化写入器（推荐新代码使用）。
+ *  @param {'rule'|'model'|'model-v3'} mode */
+export function setSpawnPolicyMode(mode) {
+    setSpawnMode(mode);
 }
 
 /* ================================================================== */

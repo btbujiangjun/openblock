@@ -1,7 +1,12 @@
 /**
- * P1/P2 出块实验轨。
+ * SpawnPolicyRules P1/P2 出块实验轨（角色：L1 · SpawnPolicyRules 的扩展生成器）。
  *
- * 这些生成器只用于离线评估和可视化对比，不替换线上 generateDockShapes 主路径。
+ * 命名规范（统一术语，详见 docs/algorithms/SPAWN_OVERVIEW.md）
+ *   - 产品命名：SpawnPolicyRules / SpawnPolicyRulesP1 / SpawnPolicyRulesP2
+ *   - 旧常量 SPAWN_GENERATOR_* 是历史值，保留作为字符串契约兼容（持久化 / DB / 评估输出依赖）
+ *   - 新代码请用 SPAWN_POLICY_RULES / SPAWN_POLICY_RULES_P1 / SPAWN_POLICY_RULES_P2 alias
+ *
+ * 这些生成器只用于离线评估和可视化对比，不替换线上 generateDockShapes 主路径（=SpawnPolicyRules baseline）。
  */
 import { getAllShapes, getShapeCategory, isSpecialShapeId } from '../shapes.js';
 import {
@@ -17,6 +22,16 @@ export const SPAWN_GENERATOR_MODES = [
     SPAWN_GENERATOR_TRIPLET_P1,
     SPAWN_GENERATOR_BUDGET_P2,
 ];
+
+/* ──────────────────────────────────────────────────────────────────
+ * SpawnPolicy 角色化 alias（详见 docs/algorithms/SPAWN_OVERVIEW.md）
+ * 字符串值与 SPAWN_GENERATOR_* 完全一致，仅命名前缀升级。
+ * 'baseline' / 'triplet-p1' / 'budget-p2' 三个字符串契约不可改（DB / 评估输出依赖）。
+ * ────────────────────────────────────────────────────────────────── */
+export const SPAWN_POLICY_RULES = SPAWN_GENERATOR_BASELINE;
+export const SPAWN_POLICY_RULES_P1 = SPAWN_GENERATOR_TRIPLET_P1;
+export const SPAWN_POLICY_RULES_P2 = SPAWN_GENERATOR_BUDGET_P2;
+export const SPAWN_POLICY_RULES_MODES = SPAWN_GENERATOR_MODES;
 
 export const DEFAULT_MAX_EVALUATED_TRIPLETS = 80;
 const MAX_DEEP_EVALUATED_TRIPLETS = 8;

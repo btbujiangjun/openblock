@@ -550,6 +550,29 @@ export const DEFAULT_PB_CURVE_PARAMS = Object.freeze({
     pbBrakeWidth: 0.06,
 });
 
+/* ──────────────────────────────────────────────────────────────────
+ * SpawnParam 角色化 alias（详见 docs/algorithms/SPAWN_OVERVIEW.md）
+ *
+ * DEFAULT_PB_CURVE_PARAMS 是 SpawnParam θ 中「组 B: PB 双 S 曲线 (4 维)」的默认值，
+ * 当 SpawnParamTuner 未部署 / policies.json 加载失败时 derivePbCurve 自动 fallback 到这里。
+ *
+ * SPAWN_PARAM_KEYS 与 rl_pytorch/spawn_tuning_v2/feature_io.THETA_KEYS 同源（9 维），
+ * 是 L1 (SpawnPolicyRules) 与 L2 (SpawnParamTuner) 之间的数据契约。
+ * ────────────────────────────────────────────────────────────────── */
+export const DEFAULT_SPAWN_PARAMS_PB_CURVE = DEFAULT_PB_CURVE_PARAMS;
+
+export const SPAWN_PARAM_KEYS = Object.freeze([
+    'personalizationStrength',
+    'temperature',
+    'surpriseBudgetGain',
+    'surpriseCooldown',
+    'maxEvaluatedTriplets',
+    'pbTensionCenter',
+    'pbTensionWidth',
+    'pbBrakeCenter',
+    'pbBrakeWidth',
+]);
+
 /** 把 options 中的 PB 曲线参数 (可能浮点 / NaN) 整型化并填充默认值。 */
 function _resolvePbCurveParams(options) {
     const numOrDefault = (v, d) => {
