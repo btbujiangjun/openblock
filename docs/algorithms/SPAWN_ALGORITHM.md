@@ -1,7 +1,12 @@
 # 出块算法：三层架构
 
-> 版本: v3.4 | 更新: 2026-05-02  
-> 建模思路、优化目标、特征与网络结构的形式化说明见 `docs/SPAWN_BLOCK_MODELING.md`。
+> 📍 **本文档定位**：`L1 · SpawnPolicyRules`（出块策略·规则版）  
+> 📐 **职责轴**：用启发式规则 + 加权乘子 + 硬约束直接产 3 块，**不涉及**参数寻优  
+> ⚠️ **不是**：`SpawnPolicyNet`（神经版出块决策，详见 [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3）的前身/后续；也**不是** `SpawnParamTuner`（参数寻优器，详见 [`SPAWN_TUNING_V2.md`](./SPAWN_TUNING_V2.md)）  
+> 🗺️ 双层总览与角色定义：[`SPAWN_OVERVIEW.md`](./SPAWN_OVERVIEW.md)
+
+> 内部版本: v3.4 | 更新: 2026-05-02  
+> 建模思路、优化目标、特征与网络结构的形式化说明见 [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md)。
 
 ## 1. 概述
 

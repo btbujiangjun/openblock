@@ -1,28 +1,32 @@
-# 四模型系统设计：启发式出块、生成式出块、PyTorch RL 与浏览器 RL
+# OpenBlock 模型系统设计
 
 > **定位**：面向算法工程师、玩法工程师和测试角色的系统设计文档。  
-> **范围**：梳理 OpenBlock 当前四类核心模型：启发式出块算法、生成式出块模型、PyTorch RL 落子模型、浏览器 RL 模型。  
+> **范围**：梳理 OpenBlock 当前核心模型 —— `SpawnPolicyRules`（启发式出块）、`SpawnPolicyNet`（神经版出块）、`SpawnParamTuner`（出块参数寻优）、PyTorch RL 落子模型、浏览器 RL 模型。  
+> **文件名说明**：本文件历史名为 `MODEL_SYSTEMS_FOUR_MODELS.md`（彼时仅覆盖四类模型），现已扩展为含 `SpawnParamTuner` 的更全梳理；文件名因外部引用较多暂不重命名。  
 > **写作口径**：参考程序化内容生成（PCG）、Transformer、PPO/GAE、REINFORCE、LoRA 等学术路线，但以本仓库代码事实为准。  
-> **维护要求**：改 `shared/game_rules.json`、`web/src/bot/features.js`、`rl_pytorch/features.py`、`rl_pytorch/model.py`、`rl_pytorch/spawn_model/*`、`web/src/adaptiveSpawn.js`、`web/src/bot/blockSpawn.js` 时同步核对本文。
+> **维护要求**：改 `shared/game_rules.json`、`web/src/bot/features.js`、`rl_pytorch/features.py`、`rl_pytorch/model.py`、`rl_pytorch/spawn_model/*`、`rl_pytorch/spawn_tuning_v2/*`、`web/src/adaptiveSpawn.js`、`web/src/bot/blockSpawn.js` 时同步核对本文。  
+> **命名规范**：出块相关角色统一使用 `SpawnPolicy*` / `SpawnParam*` 前缀（详见 [`SPAWN_OVERVIEW.md`](./SPAWN_OVERVIEW.md)）；裸名 `SpawnTransformer` / `Spawn Tuning` / `Spawn Generator` 已弃用。
 
 ---
 
 ## 1. 总览
 
-OpenBlock 的“模型”不是单一神经网络，而是四条职责边界明确的决策链路：
+OpenBlock 的"模型"不是单一神经网络，而是五条职责边界明确的决策链路（出块相关三条沿 L1/L2 双层组织）：
 
-| 模型 | 解决的问题 | 算法类型 | 线上职责 | 是否学习参数 |
-|------|------------|----------|----------|--------------|
-| 启发式出块算法 | 下一轮给玩家哪 3 个候选块 | 多信号规则模型 + 加权抽样 + 硬约束拒绝采样 | 真人默认出块路径 | 否 |
-| 生成式出块模型 | 从历史样本学习三连块条件分布 | Transformer 自回归生成 + 多任务监督 + LoRA 个性化 | 可选 `model-v3` 出块路径，失败回退规则轨 | 是 |
-| PyTorch RL 算法模型 | 给定棋盘和候选块，选择怎么落子 | PPO / GAE / 策略价值网络 / 辅助监督 / 搜索蒸馏 | Bot 推理、服务端训练、评估 | 是 |
-| 浏览器 RL 模型 | 浏览器内轻量自博弈与演示训练 | 线性 softmax policy + value baseline + REINFORCE | 训练面板、本地演示、远端 RL 客户端 | 是 |
+| 模型 | 层 | 解决的问题 | 算法类型 | 线上职责 | 是否学习参数 |
+|------|----|------------|----------|----------|--------------|
+| **`SpawnPolicyRules`** | L1 | 下一轮给玩家哪 3 个候选块（规则版） | 多信号规则模型 + 加权抽样 + 硬约束拒绝采样 | 真人默认出块路径 | 否 |
+| **`SpawnPolicyNet`** | L1 | 下一轮给玩家哪 3 个候选块（神经版） | Transformer 自回归生成 + 多任务监督 + LoRA 个性化 | 可选出块路径，失败自动回退 `SpawnPolicyRules` | 是 |
+| **`SpawnParamTuner`** | L2 | 给 `SpawnPolicyRules` 挑 9 维 θ | ResNet-MLP 拟合 `(ctx, θ) → d_curve` + Phase C 梯度上升搜 θ* | 离线训练 + 灰度部署 `policies.json` | 是 |
+| PyTorch RL 落子模型 | — | 给定棋盘和候选块，选择怎么落子 | PPO / GAE / 策略价值网络 / 辅助监督 / 搜索蒸馏 | Bot 推理、服务端训练、评估 | 是 |
+| 浏览器 RL 模型 | — | 浏览器内轻量自博弈与演示训练 | 线性 softmax policy + value baseline + REINFORCE | 训练面板、本地演示、远端 RL 客户端 | 是 |
 
 关键边界：
 
-- 出块模型回答 **“给什么块”**；RL 模型回答 **“已有这些块时怎么放”**。
-- 真人主链路默认走 `game.js → adaptiveSpawn.js → blockSpawn.js`；RL 不直接改真人出块。
-- 生成式出块只替代“候选块来源”，不替代 `validateSpawnTriplet`、序贯可解、机动性和规则回退。
+- **L1 出块模型**回答 **"给什么块"**；**L2 参数模型**回答 **"L1 的 θ 取什么"**；**RL 模型**回答 **"已有这些块时怎么放"**——三个轴正交。
+- 真人主链路默认走 `game.js → adaptiveSpawn.js → blockSpawn.js`（= `SpawnPolicyRules`）；RL 不直接改真人出块。
+- `SpawnPolicyNet` 只替代"候选块来源"，不替代 `validateSpawnTriplet`、序贯可解、机动性和规则回退。
+- `SpawnParamTuner` 输出的 θ\* 通过 `policies.json` 注入 `SpawnPolicyRules`；其中 4 个 PB 曲线参数同时被 `SpawnPolicyNet` 的 `target_difficulty` 公式消费。
 - RL 特征只读当前可见棋盘和 dock，不读 `spawnHints`、adaptive 内部权重或未来块。
 
 ---

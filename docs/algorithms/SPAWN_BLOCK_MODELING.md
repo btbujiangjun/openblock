@@ -1,11 +1,17 @@
-# 出块建模：规则引擎与 SpawnTransformer
+# 出块建模：SpawnPolicyRules 与 SpawnPolicyNet 双轨
 
-> 版本：1.4 | 更新：2026-05-23  
-> 本文在实现细节之上，给出**可复用的设计 rationale**，并与 [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md)、[`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) 互补：后两者偏「模块说明与配置」，本文偏「问题形式化 + ML 侧数学结构」。
+> 📍 **本文档定位**：`L1 · SpawnPolicy` 双轨建模 rationale（`SpawnPolicyRules` 与 `SpawnPolicyNet`）  
+> 📐 **职责轴**：仅覆盖「谁产 3 块」这一层；**不涉及**参数寻优（θ 寻参属于 `L2 · SpawnParamTuner`）  
+> ⚠️ **不是**：`SpawnParamTuner`（详见 [`SPAWN_TUNING_V2.md`](./SPAWN_TUNING_V2.md)）的前身或子模块；二者沿不同层独立演进  
+> 🗺️ 双层总览与角色定义：[`SPAWN_OVERVIEW.md`](./SPAWN_OVERVIEW.md)
+
+> 内部版本：1.4 | 更新：2026-05-23  
+> 本文在实现细节之上，给出**可复用的设计 rationale**，并与 [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md)、[`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) 互补：后两者偏「模块说明与配置」，本文偏「问题形式化 + ML 侧数学结构」。  
+> **角色映射**：本文 §2「规则引擎」= `SpawnPolicyRules`；§3「SpawnTransformerV3.1」= `SpawnPolicyNet`（V3.1 是其内部权重版本号，不参与产品命名）。
 
 ---
 
-## 1. 总览：双轨出块
+## 1. 总览：L1 双轨出块
 
 Open Block 的每轮出块要产出 **三个不重复形状**（dock triplet）。系统提供两条可切换路径：
 

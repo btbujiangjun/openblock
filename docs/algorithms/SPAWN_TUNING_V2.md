@@ -1,7 +1,13 @@
-# OpenBlock 出块算法寻参系统 v2.0 — 工业化版
+# SpawnParamTuner：出块算法参数寻优器
+
+> 📍 **本文档定位**：`L2 · SpawnParamTuner`（出块参数·寻优器）  
+> 📐 **职责轴**：给 `L1 · SpawnPolicyRules` 挑 9 维 θ；**不替换**出块决策本身，**不直接产 3 块**  
+> ⚠️ **不是**：`SpawnPolicyNet`（详见 [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3）的前身、后续或替代品；二者层级正交、独立演进  
+> 🗺️ 双层总览与角色定义：[`SPAWN_OVERVIEW.md`](./SPAWN_OVERVIEW.md)
 
 > **定位**：通过大规模数据采样 + 深度学习模型拟合，自动找到让玩家"接近 PB 但难以超越、偶有惊喜"的算法参数。
 > **范围**：业务目标量化 → 特征/标签设计 → 样本采集 → ResNet-MLP 模型 → 增量训练 → 灰度部署 → 真实玩家监控。
+> **角色映射**：本文标题历史名「出块算法寻参系统 v2.0」= `SpawnParamTuner`（v2.x 是其内部 schema / 实现迭代号，不参与产品命名）；DB schema 名 `spawn_tuning_v2.sql` 与 bundle URL `web/public/spawn-tuning-v2/` 因外部缓存依赖保留历史路径。  
 > **与 v1 的关系**：完全重写，v1 代码作为对照保留，迁移完成后归档。
 
 ---
