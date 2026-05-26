@@ -43,7 +43,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 
 
 # ─────────── 配置 ───────────
@@ -649,6 +649,104 @@ def register_v2_routes(app):
             "quality_score": quality_score,
             "warnings": warnings_list,
         })
+
+    @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/download", methods=["GET"])
+    def download_sample_set(set_id):
+        """v2.10.16: 下载样本集 — 流式 JSONL (避免大集内存爆)。
+
+        Query:
+          format: 'jsonl' (default, 流式, 每行一个 sample) / 'json' (单一对象, 含 meta)
+          gzip:   '1' 启用 gzip 压缩 (减小 70%+ 体积)
+          limit:  整数, 仅前 N 条 (调试)
+
+        Response: download as attachment, filename 含 set_id + set name + 时间戳
+        """
+        fmt = request.args.get("format", "jsonl").lower()
+        if fmt not in ("jsonl", "json"):
+            return jsonify({"error": "format must be 'jsonl' or 'json'"}), 400
+        try:
+            limit = int(request.args.get("limit", 0))
+        except ValueError:
+            return jsonify({"error": "invalid limit"}), 400
+        use_gzip = request.args.get("gzip") == "1"
+
+        db = get_db()
+        meta = db.execute("SELECT * FROM sample_sets WHERE set_id = ?", (set_id,)).fetchone()
+        if not meta:
+            db.close()
+            return jsonify({"error": "sample_set not found"}), 404
+        meta_d = row_to_dict(meta)
+        # 安全文件名 (去除特殊字符)
+        safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in (meta["name"] or "sample-set"))
+        ext = "json" if fmt == "json" else "jsonl"
+        ext_full = ext + (".gz" if use_gzip else "")
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"sample-set-{set_id}-{safe_name}-{ts}.{ext_full}"
+
+        # 流式 generator (不一次加载全部 samples 到内存)
+        sql = "SELECT * FROM samples WHERE set_id = ? ORDER BY sample_id"
+        params = [set_id]
+        if limit > 0:
+            sql += " LIMIT ?"
+            params.append(limit)
+        cursor = db.execute(sql, params)
+
+        def _row_to_json(row):
+            d = row_to_dict(row)
+            # d_curve_json / theta_json 是字符串, 保持原状 (用户解析时再 json.loads)
+            return json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+
+        def gen_jsonl():
+            try:
+                # JSONL 模式: 第 1 行是 meta header (type=meta), 后续每行 sample (type=sample)
+                yield json.dumps({"type": "meta", "set": meta_d, "format_version": "v2.10.16"}, ensure_ascii=False) + "\n"
+                for row in cursor:
+                    yield _row_to_json(row) + "\n"
+            finally:
+                db.close()
+
+        def gen_json():
+            try:
+                # JSON 模式: 单个对象, samples 数组流式拼接 (兼容标准 JSON 解析)
+                yield '{"format_version":"v2.10.16","set":'
+                yield json.dumps(meta_d, ensure_ascii=False, separators=(",", ":"))
+                yield ',"samples":['
+                first = True
+                for row in cursor:
+                    if first:
+                        yield _row_to_json(row); first = False
+                    else:
+                        yield "," + _row_to_json(row)
+                yield "]}"
+            finally:
+                db.close()
+
+        raw_gen = gen_jsonl() if fmt == "jsonl" else gen_json()
+
+        if use_gzip:
+            import gzip
+            import io
+
+            def gen_gz():
+                buf = io.BytesIO()
+                gz = gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=6)
+                for chunk in raw_gen:
+                    gz.write(chunk.encode("utf-8"))
+                    if buf.tell() > 64 * 1024:  # 每 64KB flush
+                        gz.flush()
+                        yield buf.getvalue()
+                        buf.seek(0); buf.truncate()
+                gz.close()
+                yield buf.getvalue()
+
+            resp = Response(gen_gz(), mimetype="application/gzip")
+        else:
+            mime = "application/json" if fmt == "json" else "application/x-ndjson"
+            resp = Response(raw_gen, mimetype=mime)
+
+        resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        # 不需要 X-Content-Type-Options 类的额外头 (Flask 默认会加 Connection: close)
+        return resp
 
     @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/aggregate", methods=["GET"])
     def aggregate_curves(set_id):

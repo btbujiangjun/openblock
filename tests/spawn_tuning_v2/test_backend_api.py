@@ -1248,3 +1248,77 @@ class TestJobArchCheck:
             json={"sample_set_ids": [1], "model_type": "resnet", "base_model_id": 99999},
         )
         assert r.status_code == 404
+
+
+# ─────────── 样本集下载 (v2.10.16) ───────────
+
+class TestSampleSetDownload:
+    """v2.10.16: GET /sample-sets/<id>/download — JSONL / JSON, 可选 gzip."""
+
+    def _setup_set_with_samples(self, client, n_samples=5):
+        # 创建样本集
+        r = client.post("/api/spawn-tuning-v2/sample-sets", json={"name": "dl-test"})
+        set_id = r.get_json()["set_id"]
+        # 注入样本
+        samples = [{
+            "difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            "pb_bin": 4000, "lifecycle_stage": "mature",
+            "theta_json": json.dumps({"pbTensionCenter": 0.5}),
+            "d_curve_json": json.dumps([0.4] * 20),
+            "final_score": 2000, "pb_broke": False, "survived_steps": 50,
+        } for _ in range(n_samples)]
+        client.post(f"/api/spawn-tuning-v2/sample-sets/{set_id}/samples", json={"samples": samples})
+        return set_id
+
+    def test_download_jsonl_basic(self, client):
+        set_id = self._setup_set_with_samples(client, n_samples=3)
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{set_id}/download?format=jsonl")
+        assert r.status_code == 200
+        assert "attachment" in r.headers["Content-Disposition"]
+        assert "application/x-ndjson" in r.content_type
+        lines = r.data.decode("utf-8").strip().split("\n")
+        # 第 1 行 = meta, 后续 = sample
+        assert len(lines) == 4   # 1 meta + 3 samples
+        first = json.loads(lines[0])
+        assert first["type"] == "meta"
+        assert first["set"]["set_id"] == set_id
+        # 第 2 行 = sample
+        s0 = json.loads(lines[1])
+        assert s0["difficulty"] == "normal"
+        assert s0["pb_bin"] == 4000
+
+    def test_download_json_basic(self, client):
+        set_id = self._setup_set_with_samples(client, n_samples=2)
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{set_id}/download?format=json")
+        assert r.status_code == 200
+        d = json.loads(r.data.decode("utf-8"))
+        assert d["set"]["set_id"] == set_id
+        assert len(d["samples"]) == 2
+        assert d["samples"][0]["difficulty"] == "normal"
+
+    def test_download_gzip(self, client):
+        set_id = self._setup_set_with_samples(client, n_samples=10)
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{set_id}/download?format=jsonl&gzip=1")
+        assert r.status_code == 200
+        assert "application/gzip" in r.content_type
+        # gzip 解压后应是 11 行 (1 meta + 10 samples)
+        import gzip
+        text = gzip.decompress(r.data).decode("utf-8")
+        lines = text.strip().split("\n")
+        assert len(lines) == 11
+
+    def test_download_with_limit(self, client):
+        set_id = self._setup_set_with_samples(client, n_samples=10)
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{set_id}/download?format=jsonl&limit=3")
+        assert r.status_code == 200
+        lines = r.data.decode("utf-8").strip().split("\n")
+        assert len(lines) == 4   # 1 meta + 3 samples
+
+    def test_download_not_found(self, client):
+        r = client.get("/api/spawn-tuning-v2/sample-sets/99999/download")
+        assert r.status_code == 404
+
+    def test_download_invalid_format(self, client):
+        set_id = self._setup_set_with_samples(client, n_samples=1)
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{set_id}/download?format=xml")
+        assert r.status_code == 400

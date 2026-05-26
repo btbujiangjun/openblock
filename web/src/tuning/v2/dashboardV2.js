@@ -739,6 +739,7 @@ async function refreshSampleSets() {
               <td>
                 <button class="ghost btn-preview-set" data-id="${s.set_id}" data-name="${escapeHtml(s.name)}">🔍 预览</button>
                 <button class="ghost btn-quality-set" data-id="${s.set_id}" data-name="${escapeHtml(s.name)}">🧪 质量</button>
+                <button class="ghost btn-download-set" data-id="${s.set_id}" data-name="${escapeHtml(s.name)}" title="下载 JSONL.gz (流式, 体积压缩 ~70%)">⬇ 下载</button>
                 <button class="ghost btn-train-from" data-id="${s.set_id}">→ 训练</button>
                 <button class="ghost btn-analyze-from" data-id="${s.set_id}">📊 分析</button>
                 <button class="danger btn-delete-set" data-id="${s.set_id}">删除</button>
@@ -750,6 +751,19 @@ async function refreshSampleSets() {
         });
         tbody.querySelectorAll('.btn-quality-set').forEach((b) => {
             b.addEventListener('click', () => showQualityModal(b.dataset.id, b.dataset.name));
+        });
+        // v2.10.16: 下载样本集 (JSONL.gz 流式)
+        tbody.querySelectorAll('.btn-download-set').forEach((b) => {
+            b.addEventListener('click', () => {
+                const url = `${API_BASE}/api/spawn-tuning-v2/sample-sets/${b.dataset.id}/download?format=jsonl&gzip=1`;
+                // 用临时 <a> 触发浏览器下载 (而非 fetch — 流式响应直接走浏览器流)
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            });
         });
         tbody.querySelectorAll('.btn-train-from').forEach((b) => {
             b.addEventListener('click', async () => {
