@@ -1384,6 +1384,35 @@ def register_v2_routes(app):
         return jsonify({"inserted": inserted, "received": len(eps)})
 
 
+    @bp.route("/api/spawn-tuning-v2/policies/validate-e2e", methods=["POST"])
+    def validate_deployed_e2e():
+        """G7 v2.10.9: e2e 验证 — 部署 bundle vs 真实样本集 d_curve 差异。
+
+        Body: { set_id: <int>, bundle_path: <optional, default 当前部署> }
+        Return: validate_e2e.validate() 的结果
+        """
+        try:
+            from rl_pytorch.spawn_tuning_v2.validate_e2e import validate
+        except Exception as e:
+            return jsonify({"error": f"validate_e2e module not available: {e}"}), 503
+
+        data = request.get_json() or {}
+        set_id = data.get("set_id")
+        if not set_id:
+            return jsonify({"error": "set_id required"}), 400
+        bundle_path = data.get("bundle_path") or "web/public/spawn-tuning-v2/policies.json"
+        min_samples = int(data.get("min_samples", 5))
+        if not Path(bundle_path).exists():
+            return jsonify({"error": f"bundle not found: {bundle_path}. 先在 ⑤ 部署 tab 导出 bundle"}), 404
+
+        try:
+            result = validate(DB_PATH, bundle_path, int(set_id), min_samples)
+            return jsonify(result)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": f"validation failed: {e}"}), 500
+
     @bp.route("/api/spawn-tuning-v2/field-metrics/ab-compare", methods=["GET"])
     def ab_compare_models():
         """G5 v2.10.8: A/B 对比 staging vs deployed 模型的线上效果。
@@ -1548,7 +1577,10 @@ def register_v2_routes(app):
           3) 构造 policies.json (写到 ckpt 同目录, 命名 <basename>.policies.json)
           4) 复用 export_bundle 逻辑写 web/public + miniprogram bundle
 
-        body: { model_id, rollout_pct (1-100), include_miniprogram (default true) }
+        body: { model_id, rollout_pct (1-100), include_miniprogram (default true),
+                auto_deploy (default true) — 写盘成功后是否自动把目标 model_id 标记
+                为 deployed（并 archive 旧 deployed），让 ① 概览的「当前生效模型」、
+                /policies/active API 与客户端 badge 三方同步 }
         """
         import hashlib
         try:
@@ -1569,6 +1601,7 @@ def register_v2_routes(app):
             return jsonify({"error": "model_id required"}), 400
         rollout_pct = max(1, min(100, int(data.get("rollout_pct", 100))))
         include_mp = bool(data.get("include_miniprogram", True))
+        auto_deploy = bool(data.get("auto_deploy", True))
 
         db = get_db()
         row = db.execute(
@@ -1749,6 +1782,28 @@ def register_v2_routes(app):
             except Exception as e:
                 results.setdefault("errors", []).append(f"miniprogram write failed: {e}")
 
+        # v2.10.9: bundle 写盘成功 → 自动 mark deployed，让 ① 概览「当前生效模型」、
+        # /policies/active API 与客户端「寻参」badge 三方同步。
+        # 用户视角"D.1 导出 = 上线生效"——若仅写 bundle 文件而不改 models.status，
+        # dashboard 仍显示"无 / 当前未部署模型"，造成状态分裂。
+        # 可通过 body.auto_deploy=false 显式跳过（如需先 shadow 测试再手动 deploy）。
+        deploy_info = {"auto_deploy": auto_deploy, "deployed": False}
+        if auto_deploy:
+            try:
+                db = get_db()
+                # 先把旧 deployed 改 archived（与 /models/<id>/deploy 同语义）
+                db.execute("UPDATE models SET status = 'archived' WHERE status = 'deployed'")
+                db.execute(
+                    "UPDATE models SET status = 'deployed', deployed_at = ? WHERE model_id = ?",
+                    (now_unix(), model_id),
+                )
+                db.commit()
+                db.close()
+                deploy_info["deployed"] = True
+                deploy_info["deployed_at"] = now_unix()
+            except Exception as e:
+                deploy_info["error"] = f"auto deploy failed: {e}"
+
         return jsonify({
             "ok": True,
             "model_id": int(model_id),
@@ -1763,6 +1818,8 @@ def register_v2_routes(app):
             "monotonic_projection_applied": apply_monotonic,
             "monotonic_violations_fixed": total_violations,
             "max_raw_violation": round(max_raw_violation, 4),
+            # v2.10.9: 自动 deploy 结果
+            "deploy": deploy_info,
             **results,
         })
 

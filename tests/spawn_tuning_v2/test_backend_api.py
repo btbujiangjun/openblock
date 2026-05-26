@@ -958,3 +958,91 @@ class TestBuildAndExport:
         )
         assert r.status_code == 200
         assert r.get_json()["monotonic_projection_applied"] is False
+
+    def test_build_and_export_auto_deploys_and_active_api_returns_it(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """v2.10.9: D.1 导出 bundle 默认 auto_deploy=True →
+        models.status='deployed' → /policies/active 立即返回该 model。
+
+        修复"状态不同步：模型已部署，但 dashboard 显示无部署"用户截图问题。
+        """
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+
+        # 导出前：active = None
+        r0 = client.get("/api/spawn-tuning-v2/policies/active")
+        assert r0.get_json()["deployed"] is None
+
+        # 导出 (默认 auto_deploy=True)
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 100},
+        )
+        assert r.status_code == 200
+        deploy = r.get_json()["deploy"]
+        assert deploy["auto_deploy"] is True
+        assert deploy["deployed"] is True
+        assert "deployed_at" in deploy
+
+        # 导出后：active 立即返回该 model
+        r2 = client.get("/api/spawn-tuning-v2/policies/active")
+        active = r2.get_json()["deployed"]
+        assert active is not None, "/policies/active 应在 build-and-export 后立即返回 deployed model"
+        assert active["model_id"] == mid
+        assert active["status"] == "deployed"
+
+    def test_build_and_export_with_auto_deploy_false_keeps_status(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """v2.10.9: 显式 auto_deploy=False 时 bundle 写盘但 status 不变 → /active 仍为 None
+        (用于先 shadow 验证后再手动 deploy 的高级流程)。
+        """
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 100, "auto_deploy": False},
+        )
+        assert r.status_code == 200
+        deploy = r.get_json()["deploy"]
+        assert deploy["auto_deploy"] is False
+        assert deploy["deployed"] is False
+
+        # /active 仍返回 None
+        r2 = client.get("/api/spawn-tuning-v2/policies/active")
+        assert r2.get_json()["deployed"] is None
+
+    def test_build_and_export_archives_previous_deployed(
+        self, client, tmp_path, monkeypatch,
+    ):
+        """v2.10.9: 部署新 model 时旧 deployed model 应被自动 archive
+        (与 /models/<id>/deploy 同语义，确保单 deployed 不变)。
+        """
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid_a = self._insert_model_row(client, ckpt, "resnet")
+        mid_b = self._insert_model_row(client, ckpt, "resnet")
+
+        # 先 deploy A
+        client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid_a, "rollout_pct": 100},
+        )
+        # 再 deploy B（触发 auto_deploy）
+        client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid_b, "rollout_pct": 100},
+        )
+
+        # active 应是 B，A 被 archive
+        r = client.get("/api/spawn-tuning-v2/policies/active")
+        active = r.get_json()["deployed"]
+        assert active["model_id"] == mid_b
+
+        # 直接查 A 的 status
+        ra = client.get(f"/api/spawn-tuning-v2/models/{mid_a}")
+        assert ra.get_json()["status"] == "archived"
