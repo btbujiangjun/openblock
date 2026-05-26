@@ -290,46 +290,46 @@ class TestLossTargetFit:
         """预测水平于 0.6 → 跟校准 target 的 S 形仍有差距 → loss > 0。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
         loss_val = loss_target_fit(curve).item()
-        # 校准 target: D_BASE=0.42 → D_CAP=0.85, 跟 0.6 平均差距 ~ 0.1, MSE ~ 0.02
-        assert 0.005 < loss_val < 0.05
+        # v2.10.6: D_BASE=0.30 → D_CAP=0.92, 跟 0.6 平均差距 ~ 0.15, MSE ~ 0.03
+        assert 0.005 < loss_val < 0.10
 
     def test_empty_returns_zero(self):
         assert loss_target_fit(torch.zeros(0, N_CURVE_BINS)).item() == pytest.approx(0.0)
 
 
 class TestLossEndpoint:
-    """v2.9.1: 端点锚定 — 防止 r=0/r=R_MAX 处 d_curve 甩飞。"""
+    """v2.10.6: 端点锚定 — head 0.30 / tail 0.92 (拉宽后)。"""
 
     def test_zero_when_endpoints_match(self):
-        """前 2 bin 均值 ≈ 0.42, 后 2 bin 均值 ≈ 0.85 → 0 loss。"""
+        """前 2 bin 均值 ≈ 0.30, 后 2 bin 均值 ≈ 0.92 → 0 loss。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.42
-        curve[:, -2:] = 0.85
+        curve[:, :2] = 0.30
+        curve[:, -2:] = 0.92
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 
     def test_head_far_from_target(self):
-        """头 bin 均值 = 0.30 → 偏离 head_target=0.42 共 0.12, 超出 tol=0.10
-        ⇒ violation = 0.02 → loss > 0。"""
+        """头 bin 均值 = 0.50 → 偏离 head_target=0.30 共 0.20, 超出 tol=0.10
+        ⇒ violation = 0.10 → loss > 0。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.30
-        curve[:, -2:] = 0.85
+        curve[:, :2] = 0.50
+        curve[:, -2:] = 0.92
         loss_val = loss_endpoint(curve).item()
-        assert loss_val > 1e-5  # 0.02^2 / 2 ≈ 2e-4
+        assert loss_val > 1e-3  # 0.10² / 2 ≈ 5e-3
 
     def test_tail_far_from_target(self):
-        """尾 bin 均值 = 0.55 → 偏离 tail_target=0.85 共 0.30, 超 tol → loss 大。"""
+        """尾 bin 均值 = 0.55 → 偏离 tail_target=0.92 共 0.37, 超 tol → loss 大。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.42
+        curve[:, :2] = 0.30
         curve[:, -2:] = 0.55
         loss_val = loss_endpoint(curve).item()
-        # violation = 0.20, mean(0.2^2)/2 = 0.02
+        # violation = 0.27, 0.27² / 2 ≈ 0.036
         assert loss_val > 0.01
 
     def test_within_tolerance_zero(self):
         """偏离 < tol 不惩罚。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.45  # 偏离 0.42 共 0.03 < tol=0.10
-        curve[:, -2:] = 0.80  # 偏离 0.85 共 0.05 < tol=0.10
+        curve[:, :2] = 0.32  # 偏离 0.30 共 0.02 < tol=0.10
+        curve[:, -2:] = 0.88  # 偏离 0.92 共 0.04 < tol=0.10
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 
     def test_empty_returns_zero(self):

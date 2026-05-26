@@ -34,9 +34,13 @@ SURPRISE_MIN_CLEARS = 3            # ≥ 3 行触发惊喜
 TREND_WINDOW = 5                   # 短期填充率趋势窗口
 
 # v2.10: PB-aware d_step 常量 (跨语言: samplerV2.js 同步)
-PB_AWARE_D_BASE = 0.40       # r=0 时的基础难度
-PB_AWARE_D_PEAK = 0.85       # r→∞ 时的渐近难度
-PB_AWARE_CENTER = 0.85       # S 形拐点 (在 PB 附近开始加压)
+# v2.10.6: 拉宽端点, 让模型预测有更大跨度 (更接近业务 ideal)
+#   病例: model #20 预测跨度 0.35→0.75, 离 ideal 0.20→1.00 差距大 (MAE=0.215)
+#   分析: 老 (0.40, 0.85) 跨度仅 0.45, 模型怎么拟合都到不了 ideal
+#   v2.10.6: PB_AWARE 跨度 0.45 → 0.65, calibrated 跟随 (0.43 → 0.60)
+PB_AWARE_D_BASE = 0.30       # 0.40 → 0.30 (起点更低, 接近 ideal 0.20)
+PB_AWARE_D_PEAK = 0.92       # 0.85 → 0.92 (末段更高, 接近 ideal 1.00)
+PB_AWARE_CENTER = 0.85       # S 形拐点 (在 PB 附近开始加压, 不变)
 PB_AWARE_WIDTH = 0.18        # 拐点过渡宽度
 PB_AWARE_STATE_WEIGHT = 0.30 # state_d 偏移幅度 (±0.15)
 

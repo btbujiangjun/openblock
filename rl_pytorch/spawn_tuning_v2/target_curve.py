@@ -94,21 +94,17 @@ def target_S_curve(r: float) -> float:
 
 
 # ─────────── v2.9: 校准 target (用于训练) ───────────
-# 业务命题完全保留 (S 形, "接近 PB 加压"), 但拐点幅度温和:
-#   D_BASE        0.20 → 0.42   (匹配 bot 实测 r≈0 区域均值 0.45)
-#   D_GENTLE_END  0.30 → 0.48
-#   D_MID_END     0.50 → 0.55
-#   D_BRAKE_END   0.92 → 0.75   (接近 PB 后高难, 但不那么"满载")
-#   D_CAP         1.00 → 0.85   (超 PB 后渐近 0.85, 而不是 1.0)
-# 这让 target 与 bot baseline 的差距从 0.28 → ~0.08, 模型可学到
-#
+# v2.10.6: 拉宽端点, 跟 PB_AWARE 同步 (跨度 0.43 → 0.62)
+#   病例: model #20 预测 MAE vs ideal=0.215, 因 calibrated 端点太保守
+#   分析: 老 (0.42, 0.85) 跨度 0.43, 距 ideal (0.20, 1.00) 差距大
+#   v2.10.6: D_BASE 0.42 → 0.30 / D_CAP 0.85 → 0.92, 让 calibrated 接近 ideal
 # 业务 ideal target (D_BASE=0.20...) 仍保留, 用于 UI 展示 + 最终验收
 
-D_BASE_CAL = 0.42
-D_GENTLE_END_CAL = 0.48
-D_MID_END_CAL = 0.55
-D_BRAKE_END_CAL = 0.75
-D_CAP_CAL = 0.85
+D_BASE_CAL = 0.30        # v2.10.6: 0.42 → 0.30
+D_GENTLE_END_CAL = 0.38  # 同步下调
+D_MID_END_CAL = 0.50     # 同步下调
+D_BRAKE_END_CAL = 0.82   # v2.10.6: 0.75 → 0.82
+D_CAP_CAL = 0.92         # v2.10.6: 0.85 → 0.92
 
 
 def target_S_curve_calibrated(r: float) -> float:

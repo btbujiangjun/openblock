@@ -22,20 +22,20 @@ describe('stepDifficulty v2.10 PB-aware (与 Python extractor.py 一致)', () =>
         expect(stepDifficulty({ noMove: true, fillRate: 0.5, actionFreedom: 0.5 }, [], 0.5)).toBe(1.0);
     });
 
-    it('ratio=0 returns ~0.40 (S 形底部)', () => {
+    it('ratio=0 returns ~0.30 (S 形底部, v2.10.6)', () => {
         // state_d=0.5 → state_offset=0
-        // d_pb_base(0) = 0.40 + 0.45*sigmoid(-0.85/0.18) ≈ 0.402
+        // d_pb_base(0) = 0.30 + 0.62*sigmoid(-0.85/0.18) ≈ 0.303
         const d = stepDifficulty({
             fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
         }, [], 0.0);
-        expect(d).toBeCloseTo(0.402, 2);
+        expect(d).toBeCloseTo(0.303, 2);
     });
 
-    it('ratio=2.0 returns ~0.85 (S 形顶部)', () => {
+    it('ratio=2.0 returns ~0.92 (S 形顶部, v2.10.6)', () => {
         const d = stepDifficulty({
             fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
         }, [], 2.0);
-        expect(d).toBeCloseTo(0.849, 2);
+        expect(d).toBeCloseTo(0.918, 2);
     });
 
     it('ratio monotonic — 接近 PB 加压', () => {

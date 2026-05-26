@@ -31,8 +31,9 @@ const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
 // v2.10: PB-aware d_step (跨语言: samplerV2.js / extractor.py 同步)
-const PB_AWARE_D_BASE = 0.40;
-const PB_AWARE_D_PEAK = 0.85;
+// v2.10.6: 拉宽端点
+const PB_AWARE_D_BASE = 0.30;
+const PB_AWARE_D_PEAK = 0.92;
 const PB_AWARE_CENTER = 0.85;
 const PB_AWARE_WIDTH  = 0.18;
 const PB_AWARE_STATE_WEIGHT = 0.30;

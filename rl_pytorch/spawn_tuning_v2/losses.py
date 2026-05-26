@@ -430,8 +430,8 @@ def _get_calibrated_target(n_bins: int, device) -> torch.Tensor:
 
 def loss_endpoint(
     curve_pred: torch.Tensor,
-    head_target: float = 0.42,   # D_BASE_CAL — r ≈ 0 时的 D
-    tail_target: float = 0.85,   # D_CAP_CAL  — r ≈ R_MAX 时的 D
+    head_target: float = 0.30,   # D_BASE_CAL — r ≈ 0 时的 D (v2.10.6: 0.42 → 0.30)
+    tail_target: float = 0.92,   # D_CAP_CAL  — r ≈ R_MAX 时的 D (v2.10.6: 0.85 → 0.92)
     head_tol: float = 0.10,      # 允许 ±0.10 浮动
     tail_tol: float = 0.10,
     n_head_bins: int = 2,

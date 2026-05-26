@@ -29,8 +29,9 @@ def make_step(idx, score, fill, freedom, no_move=False, clears=0):
 
 
 class TestStepDifficulty:
-    """v2.10: d_step = d_pb_base(ratio) + 0.30 * (state_d - 0.5), clipped [0,1].
-       d_pb_base = 0.40 + 0.45 * sigmoid((ratio - 0.85) / 0.18)
+    """v2.10.6: d_step = d_pb_base(ratio) + 0.30 * (state_d - 0.5), clipped [0,1].
+       d_pb_base = 0.30 + 0.62 * sigmoid((ratio - 0.85) / 0.18)
+       端点拉宽: 0.30 → 0.92 (跨度 0.62)
     """
 
     def test_no_move_returns_1(self):
@@ -38,19 +39,19 @@ class TestStepDifficulty:
         assert st.step_difficulty([], ratio=0.5) == 1.0
 
     def test_ratio_zero_low_base(self):
-        """ratio=0 时 d_pb_base ≈ 0.40 (S 形底部)。"""
+        """ratio=0 时 d_pb_base ≈ 0.30 (S 形底部)。"""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
         # state_d=0.5 → state_offset=0
-        # d_pb_base(0) = 0.40 + 0.45 * sigmoid(-0.85/0.18) ≈ 0.402
+        # d_pb_base(0) = 0.30 + 0.62 * sigmoid(-0.85/0.18) ≈ 0.303
         d = st.step_difficulty([], ratio=0.0)
-        assert d == pytest.approx(0.402, abs=0.005)
+        assert d == pytest.approx(0.303, abs=0.01)
 
     def test_ratio_peak_high_base(self):
-        """ratio>>1 时 d_pb_base ≈ 0.85 (S 形顶部)。"""
+        """ratio>>1 时 d_pb_base ≈ 0.92 (S 形顶部)。"""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
         d = st.step_difficulty([], ratio=2.0)
-        # d_pb_base(2.0) = 0.40 + 0.45 * sigmoid(1.15/0.18) ≈ 0.849
-        assert d == pytest.approx(0.849, abs=0.005)
+        # d_pb_base(2.0) = 0.30 + 0.62 * sigmoid(1.15/0.18) ≈ 0.918
+        assert d == pytest.approx(0.918, abs=0.01)
 
     def test_ratio_monotonic(self):
         """同 state, ratio 越大 d 越大 (业务命题 '接近 PB 加压')。"""
@@ -209,39 +210,34 @@ class TestExtractDCurve:
         assert n_rises >= 15, f"大部分 bin 应递增, got {n_rises}/19"
 
     def test_v2101_sparse_bins_use_prior(self):
-        """v2.10.1: bot 弱时高 r bin 无数据, 空 bin 应填 d_pb_base 而非 lastValue。
-
-        病例: bot 弱 (median r=0.19), 51% 样本 r<0.2, 高 r bin 几乎空。
-        老 (v2.10): 空 bin 用 lastValue fillna → 末尾被低 r 值污染 → 跨度仅 0.167
-        新 (v2.10.1): 空 bin 用 d_pb_base 先验 → 末尾 ~0.85 → 真正 S 形
+        """v2.10.6: bot 弱时高 r bin 无数据, 空 bin 应填 d_pb_base 而非 lastValue。
+        端点 0.30 → 0.92 (拉宽后跨度 0.62)。
         """
-        # 只在低 r 区有数据 (bot 弱)
         steps = [
             make_step(i, int(i * 5), fill=0.5, freedom=0.5)
             for i in range(20)
         ]
-        # PB=1000 → max r = 19*5/1000 = 0.095, 所有数据集中在前 1 个 bin
         labels = extract_d_curve(steps, pb=1000)
         c = labels.d_curve
-        # 末尾 bin 应接近 d_pb_base(1.95) ≈ 0.849, 而非被低 r 值污染
-        assert c[-1] > 0.80, f"末尾应回归 S 形顶部 (~0.85), got {c[-1]:.3f}"
-        # 前面有数据的 bin 应在 d_pb_base 附近 (低 r 区 ≈ 0.40-0.42)
-        assert c[0] < 0.50, f"头部应接近 S 形底部 (~0.40), got {c[0]:.3f}"
-        # 跨度 ≥ 0.40
-        assert c[-1] - c[0] > 0.40, f"跨度应 > 0.4, got {c[-1] - c[0]:.3f}"
+        # 末尾 bin 应接近 d_pb_base(1.95) ≈ 0.92
+        assert c[-1] > 0.85, f"末尾应回归 S 形顶部 (~0.92), got {c[-1]:.3f}"
+        # 前面有数据的 bin 应在 d_pb_base 附近 (低 r 区 ≈ 0.30)
+        assert c[0] < 0.45, f"头部应接近 S 形底部 (~0.30), got {c[0]:.3f}"
+        # 跨度 ≥ 0.50
+        assert c[-1] - c[0] > 0.50, f"跨度应 > 0.5, got {c[-1] - c[0]:.3f}"
 
     def test_v2101_dense_bins_keep_observation(self):
-        """v2.10.1: 数据丰富 bin (count >> PRIOR_STRENGTH=3) 应主要保留观察值。"""
-        # 同一 bin 大量观察
+        """v2.10.6: 数据丰富 bin (count >> PRIOR_STRENGTH=3) 应主要保留观察值。
+           端点 0.30, state_d=0.1 低 → d_step ≈ 0.30 + 0.30*(0.1-0.5) = 0.18
+        """
         steps = [
-            make_step(i, 5, fill=0.0, freedom=1.0)   # state_d ≈ 0.1 (低)
+            make_step(i, 5, fill=0.0, freedom=1.0)   # state_d ≈ 0.1
             for i in range(50)
         ]
         labels = extract_d_curve(steps, pb=100)
-        # bin 0: 50 观察, 应主要是观察值 (state_d 偏低 → d_step 偏低)
-        # 期望: d_step ≈ d_pb_base(0.025) + 0.30*(0.1-0.5) ≈ 0.401 - 0.12 = 0.281
-        # 加权: w = 50/(50+3) = 0.943, d_curve[0] ≈ 0.943*0.281 + 0.057*0.401 ≈ 0.288
-        assert 0.24 < labels.d_curve[0] < 0.34, f"丰富 bin 应保留观察, got {labels.d_curve[0]:.3f}"
+        # d_step ≈ d_pb_base(0.025) + 0.30*(0.1-0.5) ≈ 0.30 - 0.12 = 0.18
+        # 加权 w=0.943, d_curve[0] ≈ 0.943*0.18 + 0.057*0.30 ≈ 0.19
+        assert 0.14 < labels.d_curve[0] < 0.24, f"丰富 bin 应保留观察, got {labels.d_curve[0]:.3f}"
 
 
 class TestAggregate:

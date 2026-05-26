@@ -57,9 +57,9 @@ const GRID_TOTAL_CELLS = 64;
 // 跨 ctx 差异由 state_d 携带 (hard 难度棋盘更紧、normal 居中),
 // 因此模型仍能学到 ctx → state_offset 模式。
 
-// v2.10 常量
-const PB_AWARE_D_BASE = 0.40;       // r=0 时的基础难度
-const PB_AWARE_D_PEAK = 0.85;       // r→∞ 时的渐近难度
+// v2.10 常量 (v2.10.6: 拉宽端点 → 跨度 0.45 → 0.62, 更接近 ideal)
+const PB_AWARE_D_BASE = 0.30;       // 0.40 → 0.30
+const PB_AWARE_D_PEAK = 0.92;       // 0.85 → 0.92
 const PB_AWARE_CENTER = 0.85;       // S 形拐点 (在 PB 附近开始加压)
 const PB_AWARE_WIDTH  = 0.18;       // 拐点过渡宽度
 const PB_AWARE_STATE_WEIGHT = 0.30; // state_d 偏移幅度 (±0.15)
