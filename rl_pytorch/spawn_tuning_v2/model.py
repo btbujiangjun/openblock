@@ -320,16 +320,22 @@ class SpawnParamTunerTransformer(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
-def build_model(model_type: str = "resnet") -> nn.Module:
+def build_model(model_type: str = "resnet", **kwargs) -> nn.Module:
     """v2.9 模型工厂 — 通过 model_type 字符串选择架构。
 
     支持:
-      "resnet" / "mlp" / "resnet-mlp"  → SpawnParamTunerResNet (L4, ~325K)
-      "transformer"                    → SpawnParamTunerTransformer (~200K)
+      "resnet" / "mlp" / "resnet-mlp"  → SpawnParamTunerResNet (L4)
+      "transformer"                    → SpawnParamTunerTransformer
+
+    v2.10.9 G10: kwargs 透传给具体类构造函数:
+      resnet:      hidden_dim, n_blocks
+      transformer: d_model, n_layers, n_heads, ffn_dim
     """
     mt = (model_type or "resnet").lower().strip()
     if mt in ("resnet", "mlp", "resnet-mlp"):
-        return SpawnParamTunerResNet()
+        rn_kwargs = {k: v for k, v in kwargs.items() if k in ("hidden_dim", "n_blocks", "curve_bins", "dropout")}
+        return SpawnParamTunerResNet(**rn_kwargs)
     if mt in ("transformer", "xformer", "tx"):
-        return SpawnParamTunerTransformer()
+        tx_kwargs = {k: v for k, v in kwargs.items() if k in ("d_model", "n_layers", "n_heads", "ffn_dim", "curve_bins", "dropout")}
+        return SpawnParamTunerTransformer(**tx_kwargs)
     raise ValueError(f"unknown model_type: {model_type!r} (支持: resnet, transformer)")

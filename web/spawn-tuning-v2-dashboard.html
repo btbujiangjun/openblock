@@ -399,6 +399,11 @@
           <label>Max Steps<input id="cfg-max-steps" type="number" min="30" max="500" value="120"></label>
           <label>样本集名<input id="cfg-set-name" type="text" placeholder="auto"></label>
         </div>
+        <div class="form-row">
+          <label style="flex:1;" title="G8 v2.10.9: 在 clear-greedy/survival 上叠加 1-step lookahead, 让 bot 更强, 提高高 r 区 (破 PB) 数据覆盖。预期 final_r 提升 30%, 但采样速度略慢">
+            <input type="checkbox" id="cfg-lookahead" style="margin-right:6px;"> 启用 lookahead 强化 (G8) — 让 bot 更激进追分,提高 r&gt;1 区数据覆盖
+          </label>
+        </div>
 
         <div class="estimate-box">
           📊 <span id="est-ctx">120 场景</span> × <span id="est-theta">5 θ</span> × <span id="est-seed">2 seed</span>
@@ -468,6 +473,15 @@
             <select id="job-base">
               <option value="">— 从头训练 —</option>
             </select>
+          </label>
+        </div>
+        <!-- G10 v2.10.9: Transformer 超参 (仅当 model_type=transformer 时显示) -->
+        <div class="form-row" id="job-transformer-opts" style="display:none;">
+          <label title="Transformer hidden dim — 默认 128, 大数据集可调到 256+">d_model
+            <input id="job-tx-dmodel" type="number" min="32" max="512" step="32" value="128">
+          </label>
+          <label title="Transformer encoder 层数 — 默认 3, 复杂任务可调到 6">n_layers
+            <input id="job-tx-nlayers" type="number" min="1" max="12" value="3">
           </label>
         </div>
         <p class="muted-hint" style="margin-top:2px;">

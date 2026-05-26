@@ -146,6 +146,13 @@ def _build_train_cmd(job: dict, output_path: Path, log_path: Path, db_path: str)
         "--device", arch.get("device", "cpu"),
         "--model-type", str(model_type),
     ]
+    # G10 v2.10.9: 模型超参透传
+    if model_type == "transformer":
+        if "d_model" in arch:  cmd.extend(["--d-model", str(arch["d_model"])])
+        if "n_layers" in arch: cmd.extend(["--n-layers", str(arch["n_layers"])])
+    else:
+        if "hidden_dim" in arch: cmd.extend(["--hidden-dim", str(arch["hidden_dim"])])
+        if "n_blocks" in arch:   cmd.extend(["--n-blocks", str(arch["n_blocks"])])
     if job.get("base_model_id"):
         # base_model_id → 查 weights_path
         conn = sqlite3.connect(db_path)

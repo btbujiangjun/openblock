@@ -260,6 +260,11 @@ export async function loadPoliciesFromServerV2(apiBaseUrl = '') {
  *   apiBaseUrl? — server fetch 基址
  */
 export async function initClientPolicyV2(opts = {}) {
+    // v2.10.10: 订阅跨 tab BroadcastChannel — dashboard D.1 导出 bundle 后
+    // 立即重新 fetch + install，让游戏页 badge 实时翻为「寻参」，无需手工刷新。
+    // 兼容 fallback：旧浏览器无 BroadcastChannel 时跳过（用户刷新页面仍能拉到新 bundle）。
+    _subscribeBundleUpdates(opts.bundleUrl);
+
     // 1. 小程序场景: 直接 install 传入的 bundleData
     if (opts.bundleData) {
         return { ...installPoliciesV2(opts.bundleData), source: 'inline' };
@@ -270,6 +275,37 @@ export async function initClientPolicyV2(opts = {}) {
     }
     // 3. 无 fetch (Node 老版) — 跳过
     return { installed: 0, source: 'none' };
+}
+
+let _bundleUpdateChannel = null;
+
+/**
+ * 订阅 dashboard 的 bundle 更新广播，自动 re-fetch + install。
+ * 多次调用幂等（重复 init 不会创建多个 channel）。
+ */
+function _subscribeBundleUpdates(bundleUrl) {
+    if (_bundleUpdateChannel) return;
+    if (typeof BroadcastChannel !== 'function') return;
+    try {
+        const ch = new BroadcastChannel('openblock:spawn-param-tuner');
+        ch.addEventListener('message', async (e) => {
+            if (e?.data?.type !== 'bundle-updated') return;
+            try {
+                await loadPoliciesFromBundleV2(bundleUrl);
+                // installPoliciesV2 内部已 dispatch openblock:spawn-param-tuner-installed
+                // → spawnModelPanel.js 的 listener 自动刷新 badge 为「寻参」。
+            } catch { /* ignore — 下次主动刷新仍能恢复 */ }
+        });
+        _bundleUpdateChannel = ch;
+    } catch { /* ignore */ }
+}
+
+/** 仅供测试使用：拆除 BroadcastChannel 订阅。 */
+export function _uninstallBundleUpdateChannelForTest() {
+    if (_bundleUpdateChannel) {
+        try { _bundleUpdateChannel.close(); } catch { /* ignore */ }
+        _bundleUpdateChannel = null;
+    }
 }
 
 

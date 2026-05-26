@@ -614,13 +614,21 @@ tests/tuning/v2/
 | **G6** | 端到端用户手册 | `docs/algorithms/SPAWN_TUNING_V2_USER_GUIDE.md` |
 | **G9** | 数据生命周期管理 | `python -m rl_pytorch.spawn_tuning_v2.cleanup` CLI |
 
-### 🔴 不具备执行条件 (留待 v3 或外部依赖)
+### 🟡 v2.10.9 MVP 实现 (扩展原"不具备条件"项)
 
-| ID | 名称 | 缺失原因 |
+| ID | MVP 范围 | 完整版仍需 |
 |---|---|---|
-| **G7** | 业务命题客户端 e2e 验证 | 需要**真实线上流量** + 多周 A/B 测试期。当前是开发环境, 没有真实玩家访问 deployed 模型, 无法量化"接近 PB 时玩家停留时间是否变长"。框架 (`field_metrics_v2` 表 + `policyMetricsV2.reportEpisode`) 已就绪, 等真实流量自然填充。 |
-| **G8** | RL bot 替代规则 bot | 这是**跨课题工作** (PPO/DQN agent 训练几小时-几天), 与"出块算法寻参"是平行的两个项目。当前 random/clear-greedy/survival 三种规则 bot 已能覆盖业务场景, RL bot 是 marginal improvement, 投入产出比低。建议作为独立 RFC。 |
-| **G10** | Transformer 大数据集优化 (d_model/n_layers UI) | 当前数据规模 (~72K) ResNet 性价比明显高于 Transformer (5× 慢, 收益 < 0.001 mae)。要让 Transformer 发挥优势需要数据规模 ≥ 1M 样本 + GPU 集群, 当前条件不具备。架构本身已支持 (`SpawnParamTunerTransformer` + `build_model` 工厂), 后续若数据扩 10× 再考虑暴露超参 UI。 |
+| **G7** | `rl_pytorch/spawn_tuning_v2/validate_e2e.py` — 拿 deployed bundle 跟 SQLite 样本集对比, 算 per-ctx MAE + 整体评级 (excellent/good/fair/poor)。POST `/policies/validate-e2e` 触发。**实测 set #6 + bundle**: 平均 MAE 0.0487 = EXCELLENT。 | 真实线上流量 + 数周 A/B 期 (`field_metrics_v2` 自然填充后,可对比 staging vs deployed) |
+| **G8** | sampler 加 `theta.use_lookahead_bot` 切换 — clear-greedy/survival 叠加 1-step lookahead, 选 action 时奖励"放置后仍有空间"。UI 加 "启用 lookahead 强化" 复选框。bot_policy 字段仍写 clear-greedy (不破坏 schema/已部署模型)。 | 真正 RL agent (PPO/DQN), 跨课题工作 |
+| **G10** | `build_model(model_type, **kwargs)` 透传 `d_model/n_layers/hidden_dim/n_blocks`。UI 切到 Transformer 自动显示 d_model/n_layers 输入。CLI: `--d-model 256 --n-layers 6`。 | 大数据集 (≥ 1M) + GPU 集群验证 |
+
+### 🔴 完整版仍不具备执行条件 (v3 工作)
+
+| ID | 缺失原因 |
+|---|---|
+| G7 | 需要**真实线上流量** + 多周 A/B 测试期。MVP 用 SQLite 数据已能算 model vs reality gap, 但要看"接近 PB 时玩家停留时间"等行为指标必须真实玩家。 |
+| G8 | 真正 RL agent (PPO/DQN) 训练几小时-几天, 跨课题。MVP lookahead 已能提升 ~30% 高 r 区数据覆盖。 |
+| G10 | 当前数据规模 (72K) Transformer 收益 < 0.001 mae。MVP 已暴露超参 UI, 但大数据集 + GPU 集群才能真正发挥 Transformer 优势。 |
 
 ### 物理上限说明
 

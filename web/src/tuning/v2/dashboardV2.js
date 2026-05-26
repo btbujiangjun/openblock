@@ -509,6 +509,11 @@ function _lhsThetas(n) {
         }
         segs.forEach((v, i) => { out[i][k] = lo + v * (hi - lo); });
     }
+    // G8 v2.10.9: 把 UI lookahead 开关注入每个 theta (sampler 据此选择 bot 算法)
+    const useLookahead = !!$('cfg-lookahead')?.checked;
+    if (useLookahead) {
+        out.forEach((t) => { t.use_lookahead_bot = true; });
+    }
     return out;
 }
 
@@ -1390,6 +1395,13 @@ async function submitJob() {
             model_type: modelType,   // 也写到 arch_json 备份, executor 读 jobs.model_type 或 fallback
         },
     };
+    // G10 v2.10.9: Transformer 超参写入 arch_json
+    if (modelType === 'transformer') {
+        const dModel = parseInt($('job-tx-dmodel')?.value || '128', 10);
+        const nLayers = parseInt($('job-tx-nlayers')?.value || '3', 10);
+        body.arch.d_model = dModel;
+        body.arch.n_layers = nLayers;
+    }
     const baseId = Number($('job-base').value);
     if (baseId > 0) body.base_model_id = baseId;
     try {
@@ -2309,6 +2321,24 @@ async function exportBundle() {
             }
             $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ ${r.policies_count} policies · ${(r.bundle_size_bytes/1024).toFixed(1)} KB${maeStr}${monoStr} · sha256=${r.sha256.slice(0,12)}…</span>`;
             refreshBundleStatus();
+            /* v2.10.10: 跨 tab 广播 bundle 更新事件 — 让同 origin 的游戏页（index.html）
+             * 收到后自动 re-fetch policies.json + install，badge 实时翻为「寻参」，
+             * 调参员无需手工刷新游戏页。
+             * 兼容 fallback：旧浏览器无 BroadcastChannel 时静默忽略（游戏页下次刷新仍能拉到新 bundle）。 */
+            try {
+                if (typeof BroadcastChannel === 'function') {
+                    const ch = new BroadcastChannel('openblock:spawn-param-tuner');
+                    ch.postMessage({
+                        type: 'bundle-updated',
+                        model_id: r.model_id,
+                        sha256: r.sha256,
+                        generated_at: r.generated_at,
+                        rollout_pct: r.rollout_pct,
+                        deployed: r.deploy?.deployed === true,
+                    });
+                    ch.close();
+                }
+            } catch { /* 跨 tab 通知失败不影响主流程 */ }
         } else {
             $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(r.error)}</span>`;
         }
@@ -2518,16 +2548,20 @@ function bindEvents() {
         mtSel.addEventListener('change', () => {
             const isTransformer = mtSel.value === 'transformer';
             const current = Number(lrInput.value);
-            // 仅在用户没改过 (仍是 ResNet 默认 1e-3 或 5e-2 或 transformer 默认 1e-3) 时自动调
             if (isTransformer && current > 5e-3) {
                 lrInput.value = '1e-3';
                 $('job-hint').innerHTML = '<span style="color:var(--muted)">Transformer 默认 lr 已切换到 1e-3 (Transformer 对 LR 敏感)</span>';
             } else if (!isTransformer && current < 5e-3) {
-                // 从 transformer 切回 resnet, 把 1e-3 调回 5e-3 (resnet 默认值)
                 lrInput.value = '5e-3';
                 $('job-hint').innerHTML = '<span style="color:var(--muted)">ResNet 默认 lr 已切换到 5e-3</span>';
             }
+            // G10 v2.10.9: 显示/隐藏 Transformer 超参
+            const txOpts = $('job-transformer-opts');
+            if (txOpts) txOpts.style.display = isTransformer ? '' : 'none';
         });
+        // 页面初次加载时根据当前值同步
+        const txOpts = $('job-transformer-opts');
+        if (txOpts) txOpts.style.display = mtSel.value === 'transformer' ? '' : 'none';
     }
 }
 

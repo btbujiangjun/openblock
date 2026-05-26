@@ -1,6 +1,6 @@
 /**
  * 小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)
- * 自动生成于: 2026-05-26 19:25:43
+ * 自动生成于: 2026-05-26 19:48:42
  * 模型 ID: 22 · SHA-256: 9cd86a070f9df41b31ec7e70d613ab305962f819ff445f1168a6aa35ffe77266
  * 策略数: 360 · 灰度: 100%
  * 构建模式: model-inference (default theta=0.5)
@@ -10,7 +10,7 @@ module.exports = {
   "format": "openblock-spawn-tuning-v2-bundle",
   "version": "2.0.0",
   "n_contexts": 360,
-  "generated_at": 1779794743,
+  "generated_at": 1779796122,
   "model_id": 22,
   "model_sha256": "9cd86a070f9df41b31ec7e70d613ab305962f819ff445f1168a6aa35ffe77266",
   "rollout_pct": 100,

@@ -172,7 +172,7 @@ function _previewAction(sim, action) {
     return { clears, fill: gridCopy.getFillRatio() };
 }
 
-function _selectAction(sim, policy, rng) {
+function _selectAction(sim, policy, rng, opts = {}) {
     const legal = sim.getLegalActions();
     if (legal.length === 0) return null;
 
@@ -180,18 +180,30 @@ function _selectAction(sim, policy, rng) {
         return legal[Math.floor(rng() * legal.length)];
     }
 
-    // clear-greedy: 优先选消行, 其次选填充低
-    // survival:    优先选合法 action 数最多, 拖延死局
+    // G8 v2.10.9: lookahead 增强 — 在 clear-greedy/survival 上加 1-step lookahead
+    //   不改 BOT_INDEX (保留向后兼容), 通过 opts.lookahead=true 切换
+    //   语义仍是 clear-greedy/survival, 但选 action 时多看 1 步避免死局
+    //   预期效果: bot 更强 → 高 r bin 数据更丰富 → 模型上限提升
+    const useLookahead = !!opts.lookahead;
+
     let best = legal[0], bestScore = -Infinity;
     for (const action of legal) {
         const ev = _previewAction(sim, action);
         let score;
         if (policy === 'clear-greedy') {
-            score = ev.clears * 100 - ev.fill * 2;
+            // 加重消行 + 大消行奖励 (lookahead 模式更激进)
+            score = ev.clears * (useLookahead ? 200 : 100) - ev.fill * 2;
+            if (useLookahead && ev.clears >= 3) score += 50;  // surprise bonus
         } else if (policy === 'survival') {
             score = (ev.clears > 0 ? 50 : 0) - ev.fill * 3;
         } else {
             score = 0;
+        }
+        // G8 lookahead 核心: 估计放置后剩余 dock 是否还能放
+        // (用 actionFreedom 近似 — fill 越低剩余空间越多)
+        if (useLookahead) {
+            const survivalProxy = 1.0 - ev.fill;
+            score += survivalProxy * 30;
         }
         score += rng() * 1e-6;  // 平手随机
         if (score > bestScore) { bestScore = score; best = action; }
@@ -286,7 +298,7 @@ export function runOneSampleV2(args) {
             });
             break;
         }
-        const action = _selectAction(sim, context.bot_policy, rng);
+        const action = _selectAction(sim, context.bot_policy, rng, { lookahead: !!theta?.use_lookahead_bot });
         if (!action) {
             steps.push({
                 stepIdx, score: sim.score,

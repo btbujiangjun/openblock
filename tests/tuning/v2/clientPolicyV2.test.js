@@ -377,3 +377,132 @@ describe('installPoliciesV2 异步通知', () => {
         }
     });
 });
+
+
+// ─────────── BroadcastChannel：跨 tab bundle 更新通知 ───────────
+
+describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
+    const { initClientPolicyV2, _uninstallBundleUpdateChannelForTest } = await import(
+        '../../../web/src/tuning/v2/clientPolicyV2.js'
+    );
+
+    /** mock BroadcastChannel：单进程内多 channel 实例共享 listeners，模拟跨 tab 广播。 */
+    function setupMockBroadcastChannel() {
+        const listenersByName = new Map();
+        class MockBC {
+            constructor(name) {
+                this.name = name;
+                this._listeners = [];
+                if (!listenersByName.has(name)) listenersByName.set(name, []);
+                listenersByName.get(name).push(this);
+            }
+            addEventListener(_type, cb) { this._listeners.push(cb); }
+            removeEventListener(_type, cb) {
+                this._listeners = this._listeners.filter(l => l !== cb);
+            }
+            postMessage(data) {
+                // 广播给同名所有实例（除自己）
+                const peers = listenersByName.get(this.name) || [];
+                for (const p of peers) {
+                    if (p === this) continue;
+                    for (const cb of p._listeners) cb({ data });
+                }
+            }
+            close() {
+                const arr = listenersByName.get(this.name);
+                if (arr) listenersByName.set(this.name, arr.filter(b => b !== this));
+            }
+        }
+        globalThis.BroadcastChannel = MockBC;
+        return { listenersByName };
+    }
+
+    beforeEach(() => {
+        _uninstallBundleUpdateChannelForTest();
+    });
+
+    it('init 后 channel 收到 bundle-updated 消息 → 自动 re-fetch + install', async () => {
+        const ctx = setupMockBroadcastChannel();
+        // 初次 fetch 返回旧 bundle (rollout=10)
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    format: 'openblock-spawn-tuning-v2-bundle',
+                    policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                    rollout_pct: 10,
+                }),
+            })
+            // 广播触发的 re-fetch 返回新 bundle (rollout=100)
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    format: 'openblock-spawn-tuning-v2-bundle',
+                    policies: [
+                        makePolicy('easy:budget-p2:random:500:growth'),
+                        makePolicy('hard:triplet-p1:survival:25000:mature'),
+                    ],
+                    rollout_pct: 100,
+                }),
+            });
+        globalThis.fetch = fetchMock;
+
+        await initClientPolicyV2();
+        expect(getStatsV2().rollout_pct).toBe(10);
+        expect(getStatsV2().count).toBe(1);
+
+        // dashboard 一端：广播 bundle-updated
+        const dashboardCh = new BroadcastChannel('openblock:spawn-param-tuner');
+        dashboardCh.postMessage({
+            type: 'bundle-updated',
+            model_id: 22,
+            sha256: 'newsha',
+        });
+
+        // 等待 async re-install 完成
+        await new Promise(r => setTimeout(r, 10));
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(getStatsV2().rollout_pct).toBe(100);
+        expect(getStatsV2().count).toBe(2);
+        dashboardCh.close();
+    });
+
+    it('忽略非 bundle-updated 消息', async () => {
+        setupMockBroadcastChannel();
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                format: 'openblock-spawn-tuning-v2-bundle',
+                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                rollout_pct: 50,
+            }),
+        });
+        globalThis.fetch = fetchMock;
+        await initClientPolicyV2();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        const ch = new BroadcastChannel('openblock:spawn-param-tuner');
+        ch.postMessage({ type: 'unrelated' });
+        ch.postMessage({});
+        await new Promise(r => setTimeout(r, 10));
+
+        // 仍只有 init 时的 1 次 fetch
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        ch.close();
+    });
+
+    it('BroadcastChannel 不可用时（旧浏览器）init 仍能正常工作', async () => {
+        delete globalThis.BroadcastChannel;
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                format: 'openblock-spawn-tuning-v2-bundle',
+                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                rollout_pct: 100,
+            }),
+        });
+        const r = await initClientPolicyV2();
+        expect(r.installed).toBe(1);
+    });
+});

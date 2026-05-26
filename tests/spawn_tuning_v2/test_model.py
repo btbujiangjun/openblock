@@ -177,6 +177,25 @@ class TestBuildModel:
         with pytest.raises(ValueError):
             build_model("unknown_arch")
 
+    def test_build_resnet_with_kwargs(self):
+        """G10 v2.10.9: build_model 透传 hidden_dim / n_blocks 到 ResNet。"""
+        m = build_model("resnet", hidden_dim=64, n_blocks=4)
+        assert m.hidden_dim == 64
+        assert m.n_blocks == 4
+
+    def test_build_transformer_with_kwargs(self):
+        """G10 v2.10.9: build_model 透传 d_model / n_layers 到 Transformer。"""
+        m = build_model("transformer", d_model=64, n_layers=2)
+        assert m.d_model == 64
+        assert m.n_layers == 2
+
+    def test_build_model_filters_unknown_kwargs(self):
+        """G10: 不相关 kwarg 应被过滤而非报错 (避免前后端 schema 漂移)。"""
+        m = build_model("resnet", d_model=64, n_layers=2)  # 这俩对 resnet 无效
+        assert isinstance(m, SpawnParamTunerResNet)
+        m2 = build_model("transformer", hidden_dim=64, n_blocks=4)  # 这俩对 transformer 无效
+        assert isinstance(m2, SpawnParamTunerTransformer)
+
 
 class TestTransformer:
     """v2.9: Transformer 模型 forward / 输出 shape。"""

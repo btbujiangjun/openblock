@@ -232,6 +232,7 @@ def train(
     seed: int = 42,
     write_db_record: bool = False,
     model_type: str = "resnet",   # v2.9: "resnet" / "transformer"
+    model_kwargs: Optional[Dict] = None,   # v2.10.9 G10: 透传到 build_model(d_model, n_layers, ...)
 ) -> Dict[str, float]:
     """主训练函数。
 
@@ -250,8 +251,8 @@ def train(
     train_ds, val_ds = ds.train_val_split(val_ratio=val_ratio, seed=seed)
     print(f"[train_v2] 共 {len(ds)} 样本 → train={len(train_ds)}, val={len(val_ds)}")
 
-    # ─── 模型 (v2.9: 支持 resnet / transformer) ───
-    model = build_model(model_type).to(device)
+    # ─── 模型 (v2.9: 支持 resnet / transformer; v2.10.9 G10: 超参可调) ───
+    model = build_model(model_type, **(model_kwargs or {})).to(device)
     print(f"[train_v2] {model_type} 模型参数量: {model.count_parameters():,}")
     if base_model_path:
         ck = torch.load(base_model_path, map_location=device)
@@ -506,15 +507,30 @@ def main():
     p.add_argument("--write-db-record", action="store_true")
     p.add_argument("--model-type", default="resnet",
                    help="网络架构: resnet (默认, ResNet-MLP) / transformer (v2.9)")
+    # G10 v2.10.9: 模型超参 (仅当 --model-type=transformer 时生效)
+    p.add_argument("--d-model", type=int, default=None, help="Transformer hidden dim (默认 128)")
+    p.add_argument("--n-layers", type=int, default=None, help="Transformer encoder 层数 (默认 3)")
+    p.add_argument("--hidden-dim", type=int, default=None, help="ResNet hidden dim (默认 128)")
+    p.add_argument("--n-blocks", type=int, default=None, help="ResNet block 层数 (默认 8)")
     args = p.parse_args()
 
     sample_set_ids = [int(x) for x in args.sample_sets.split(",")]
     rehearsal_ids = [int(x) for x in args.rehearsal_sets.split(",")] if args.rehearsal_sets else None
 
+    # G10: 构造 model_kwargs 透传到 build_model
+    model_kwargs = {}
+    if args.model_type == "transformer":
+        if args.d_model is not None:  model_kwargs["d_model"] = args.d_model
+        if args.n_layers is not None: model_kwargs["n_layers"] = args.n_layers
+    else:
+        if args.hidden_dim is not None: model_kwargs["hidden_dim"] = args.hidden_dim
+        if args.n_blocks is not None:   model_kwargs["n_blocks"] = args.n_blocks
+
     train(
         db_path=args.db,
         sample_set_ids=sample_set_ids,
         model_type=args.model_type,
+        model_kwargs=model_kwargs or None,
         output_path=args.output,
         base_model_path=args.base_model,
         rehearsal_set_ids=rehearsal_ids,
