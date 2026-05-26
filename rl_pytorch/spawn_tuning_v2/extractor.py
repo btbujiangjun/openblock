@@ -40,6 +40,21 @@ PB_AWARE_CENTER = 0.85       # S 形拐点 (在 PB 附近开始加压)
 PB_AWARE_WIDTH = 0.18        # 拐点过渡宽度
 PB_AWARE_STATE_WEIGHT = 0.30 # state_d 偏移幅度 (±0.15)
 
+# v2.10.1: 贝叶斯先验平滑 (跨语言: samplerV2.js 同步)
+#   病例: bot 太弱, 51% 样本 final_r < 0.2, 高 r bin (r>1) 几乎无数据。
+#   老的 lastValue 填充会把空 bin 都填成低 r 的值, 让 d_curve 末尾被压低,
+#   导致跨度 0.167 (业务期望 0.45)。
+#   修法: 空 bin 用业务理论 d_pb_base(bin_center) 填; 稀疏 bin (<MIN_OBS)
+#   用观察 + 先验的加权平均, 让数据丰富区保留 ctx 信息, 稀疏区回归 S 形先验。
+PB_AWARE_PRIOR_STRENGTH = 3  # 需要 ≥3 观察才完全覆盖先验
+PB_AWARE_MIN_OBS = 1         # bin 至少有 1 观察才用观察, 否则纯先验
+
+
+def pb_aware_d_pb_base(ratio: float) -> float:
+    """v2.10: 业务 S 形基础难度 ∈ [0.40, 0.85]。"""
+    sig = 1.0 / (1.0 + math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH))
+    return PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig
+
 
 @dataclass
 class StepInfo:
@@ -162,27 +177,22 @@ def extract_d_curve(
         if st.no_move and noMove_step < 0:
             noMove_step = st.step_idx
 
-    # 转 bin 均值 (空 bin 用线性插值填充, 末尾用最后一个非空值)
+    # v2.10.1: 贝叶斯先验平滑
+    #   有数据 bin: 观察 + 先验加权平均 (n / (n + PRIOR_STRENGTH))
+    #   空 bin:     纯 d_pb_base(bin_center) 先验 (不再 fillna 上个值)
     d_curve = [0.0] * n_bins
-    last_value = 0.0
     n_filled = 0
     for i in range(n_bins):
-        if bin_counts[i] > 0:
-            d_curve[i] = bin_sums[i] / bin_counts[i]
-            last_value = d_curve[i]
+        # bin 中心 r (考虑 r_max 范围, e.g. n_bins=20 r_max=2.0 → bin_i 中心 = (i+0.5)*0.1)
+        r_center = (i + 0.5) * (r_max / n_bins)
+        d_prior = pb_aware_d_pb_base(r_center)
+        if bin_counts[i] >= PB_AWARE_MIN_OBS:
+            obs = bin_sums[i] / bin_counts[i]
+            w = bin_counts[i] / (bin_counts[i] + PB_AWARE_PRIOR_STRENGTH)
+            d_curve[i] = w * obs + (1.0 - w) * d_prior
             n_filled += 1
         else:
-            d_curve[i] = last_value  # 后续插值
-
-    # 反向填空 bin (开头如果是空)
-    if n_filled > 0:
-        for i in range(n_bins):
-            if bin_counts[i] > 0:
-                # 用第一个非空 bin 反填前面
-                for j in range(i):
-                    if bin_counts[j] == 0:
-                        d_curve[j] = d_curve[i]
-                break
+            d_curve[i] = d_prior
 
     return EpisodeLabels(
         d_curve=d_curve,

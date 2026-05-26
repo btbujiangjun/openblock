@@ -208,6 +208,41 @@ class TestExtractDCurve:
         n_rises = sum(1 for d in diffs if d >= -0.01)
         assert n_rises >= 15, f"大部分 bin 应递增, got {n_rises}/19"
 
+    def test_v2101_sparse_bins_use_prior(self):
+        """v2.10.1: bot 弱时高 r bin 无数据, 空 bin 应填 d_pb_base 而非 lastValue。
+
+        病例: bot 弱 (median r=0.19), 51% 样本 r<0.2, 高 r bin 几乎空。
+        老 (v2.10): 空 bin 用 lastValue fillna → 末尾被低 r 值污染 → 跨度仅 0.167
+        新 (v2.10.1): 空 bin 用 d_pb_base 先验 → 末尾 ~0.85 → 真正 S 形
+        """
+        # 只在低 r 区有数据 (bot 弱)
+        steps = [
+            make_step(i, int(i * 5), fill=0.5, freedom=0.5)
+            for i in range(20)
+        ]
+        # PB=1000 → max r = 19*5/1000 = 0.095, 所有数据集中在前 1 个 bin
+        labels = extract_d_curve(steps, pb=1000)
+        c = labels.d_curve
+        # 末尾 bin 应接近 d_pb_base(1.95) ≈ 0.849, 而非被低 r 值污染
+        assert c[-1] > 0.80, f"末尾应回归 S 形顶部 (~0.85), got {c[-1]:.3f}"
+        # 前面有数据的 bin 应在 d_pb_base 附近 (低 r 区 ≈ 0.40-0.42)
+        assert c[0] < 0.50, f"头部应接近 S 形底部 (~0.40), got {c[0]:.3f}"
+        # 跨度 ≥ 0.40
+        assert c[-1] - c[0] > 0.40, f"跨度应 > 0.4, got {c[-1] - c[0]:.3f}"
+
+    def test_v2101_dense_bins_keep_observation(self):
+        """v2.10.1: 数据丰富 bin (count >> PRIOR_STRENGTH=3) 应主要保留观察值。"""
+        # 同一 bin 大量观察
+        steps = [
+            make_step(i, 5, fill=0.0, freedom=1.0)   # state_d ≈ 0.1 (低)
+            for i in range(50)
+        ]
+        labels = extract_d_curve(steps, pb=100)
+        # bin 0: 50 观察, 应主要是观察值 (state_d 偏低 → d_step 偏低)
+        # 期望: d_step ≈ d_pb_base(0.025) + 0.30*(0.1-0.5) ≈ 0.401 - 0.12 = 0.281
+        # 加权: w = 50/(50+3) = 0.943, d_curve[0] ≈ 0.943*0.281 + 0.057*0.401 ≈ 0.288
+        assert 0.24 < labels.d_curve[0] < 0.34, f"丰富 bin 应保留观察, got {labels.d_curve[0]:.3f}"
+
 
 class TestAggregate:
     def test_aggregate_simple(self):

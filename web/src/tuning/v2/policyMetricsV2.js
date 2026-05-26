@@ -36,6 +36,14 @@ const PB_AWARE_D_PEAK = 0.85;
 const PB_AWARE_CENTER = 0.85;
 const PB_AWARE_WIDTH  = 0.18;
 const PB_AWARE_STATE_WEIGHT = 0.30;
+// v2.10.1: 贝叶斯先验平滑
+const PB_AWARE_PRIOR_STRENGTH = 3;
+const PB_AWARE_MIN_OBS = 1;
+
+function _pbAwareDPbBase(ratio) {
+    const sig = 1 / (1 + Math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH));
+    return PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig;
+}
 
 
 // ─────────── 模块状态 ───────────
@@ -107,28 +115,19 @@ function _extractDCurve(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
         finalScore = st.score;
     }
 
-    // bin 均值 + 空 bin 线性填充
+    // v2.10.1: 贝叶斯先验平滑 (跨语言: samplerV2.js / extractor.py 同步)
     const dCurve = new Array(nBins).fill(0);
-    let lastValue = 0;
     let nFilled = 0;
     for (let i = 0; i < nBins; i++) {
-        if (binCounts[i] > 0) {
-            dCurve[i] = binSums[i] / binCounts[i];
-            lastValue = dCurve[i];
+        const rCenter = (i + 0.5) * (rMax / nBins);
+        const dPrior = _pbAwareDPbBase(rCenter);
+        if (binCounts[i] >= PB_AWARE_MIN_OBS) {
+            const obs = binSums[i] / binCounts[i];
+            const w = binCounts[i] / (binCounts[i] + PB_AWARE_PRIOR_STRENGTH);
+            dCurve[i] = w * obs + (1 - w) * dPrior;
             nFilled++;
         } else {
-            dCurve[i] = lastValue;
-        }
-    }
-    // 反向填首部空 bin
-    if (nFilled > 0) {
-        for (let i = 0; i < nBins; i++) {
-            if (binCounts[i] > 0) {
-                for (let j = 0; j < i; j++) {
-                    if (binCounts[j] === 0) dCurve[j] = dCurve[i];
-                }
-                break;
-            }
+            dCurve[i] = dPrior;
         }
     }
 
