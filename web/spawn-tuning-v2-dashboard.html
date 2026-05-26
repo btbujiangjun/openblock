@@ -79,17 +79,20 @@
     .status.staging { background: rgba(167,139,250,0.2); color: var(--purple); }
     .status.failed, .status.rollbacked { background: rgba(248,113,113,0.18); color: var(--bad); }
 
-    /* === Form === */
-    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-      gap: 6px 8px; margin: 6px 0; }
+    /* === Form (v2.10.15: 改 grid → flex, 默认居左对齐, 不再 stretch) === */
+    .form-row { display: flex; flex-wrap: wrap; align-items: flex-end;
+      gap: 6px 8px; margin: 6px 0; justify-content: flex-start; }
     .form-row label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px;
-      color: var(--muted); }
+      color: var(--muted); flex: 0 0 130px; }
     .form-row input, .form-row select { height: 28px; font-size: 12px;
       font-family: ui-monospace, monospace; width: 100%; box-sizing: border-box; }
-    /* v2.10.13: 进一步收窄数字 / 紧凑下拉, 让 transformer 11 个参数能一行容纳 */
-    .form-row label.narrow { max-width: 80px; }
+    /* narrow: 数字 / 紧凑下拉 80px 固定 */
+    .form-row label.narrow { flex: 0 0 80px; }
     .form-row label.narrow input,
     .form-row label.narrow select { font-size: 11px; padding: 0 4px; }
+    /* multi-select / 长文本 200px (兼容旧 inline-style "grid-column: span 2") */
+    .form-row label[style*="span 2"] { flex: 0 0 260px; }
+    .form-row label[style*="span 2"] select[multiple] { height: auto; min-height: 80px; }
     .form-row input[type="number"] {
       min-width: 0;
       /* 隐藏 Chrome/Safari 的 spinner 按钮, 进一步省空间 */
@@ -99,11 +102,12 @@
     .form-row input[type="number"]::-webkit-inner-spin-button {
       -webkit-appearance: none; margin: 0;
     }
-    /* v2.10.14: checkbox label 横向布局 (跟其他 label 不同, 不需要顶部标题) */
+    /* v2.10.14: checkbox label 横向布局 */
     .form-row label.checkbox-inline {
       flex-direction: row; align-items: center; gap: 4px;
       font-size: 11px; color: var(--text);
-      min-width: 0; cursor: pointer;
+      flex: 0 0 auto;  /* 按内容宽度 */
+      cursor: pointer;
       padding-top: 12px; /* 跟其他 label 的 input 顶部对齐 */
     }
     .form-row label.checkbox-inline input[type="checkbox"] {
