@@ -19,6 +19,25 @@ import { getLastSpawnDiagnostics } from './bot/blockSpawn.js';
 import { skipWhenDocumentHidden } from './lib/pageVisibility.js';
 import { getAllShapes } from './shapes.js';
 import { analyzeBoardTopology } from './boardTopology.js';
+import { getStatsV2 as getSpawnParamTunerStats } from './tuning/v2/clientPolicyV2.js';
+
+/**
+ * 刷新启发式 θ 来源 badge（详见 SPAWN_OVERVIEW.md §6 切换矩阵）：
+ *   - 'rule'   = HandTuned       默认 θ / policies.json 未加载 / 灰度未命中
+ *   - 'tuner'  = SpawnParamTuner policies.json 已加载且解析命中
+ */
+function _refreshPolicySourceBadge() {
+    const el = document.getElementById('spawn-policy-source-badge');
+    if (!el) return;
+    let stats = null;
+    try { stats = getSpawnParamTunerStats(); } catch { /* not loaded yet */ }
+    const tunerActive = !!(stats?.loaded && stats?.count > 0);
+    el.textContent = tunerActive ? '寻参' : '规则';
+    el.className = tunerActive ? 'spawn-policy-source-badge tuner' : 'spawn-policy-source-badge';
+    el.title = tunerActive
+        ? `θ 来源：寻参版（SpawnParamTuner · ${stats.count} 条策略 / rollout ${stats.rollout_pct}%）`
+        : 'θ 来源：规则版（HandTuned 默认 / policies.json 未加载或灰度未命中）';
+}
 
 let _pollTimer = null;
 let _layerRefreshTimer = null;
@@ -103,6 +122,10 @@ function _refreshLayerParams(game) {
     _set('sl-rsc',      diag?.layer3?.roundsSinceClear ?? ctx.roundsSinceClear ?? 0);
     _set('sl-div',      hints.diversityBoost != null
         ? hints.diversityBoost.toFixed(2) : '0.00');
+
+    // ── 启发式 θ 来源 badge ────────────────────────────────────────────────
+    // policies.json 异步加载完成后才有 stats，跟随主刷新节奏同步更新最稳。
+    _refreshPolicySourceBadge();
 }
 
 function _set(id, val) {
@@ -129,6 +152,10 @@ export function initSpawnModelPanel(game) {
     radios.forEach((r) => {
         if (r.value === currentMode) r.checked = true;
     });
+
+    // 初始化时立即刷新一次 θ 来源 badge（policies.json 可能此时还没加载完，
+    // 加载完后由 _refreshLayerParams 周期性同步覆盖）。
+    _refreshPolicySourceBadge();
 
     radios.forEach((r) => {
         r.addEventListener('change', () => {

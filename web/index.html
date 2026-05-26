@@ -914,11 +914,12 @@
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块算法</summary>
             <div class="spawn-mode-switch">
-                <label class="spawn-mode-label" title="使用启发式三层出块（拓扑感知、自适应体验、局间弧线）；不依赖神经网络。">
+                <label class="spawn-mode-label" title="启发式三层出块（SpawnPolicyRules）；badge 显示当前 9 维 θ 来源——「规则」= HandTuned 默认值；「寻参」= SpawnParamTuner 部署的 policies.json 已生效。">
                     <span class="spawn-option-icon" aria-hidden="true">📖</span>
                     <input type="radio" name="spawn-mode" value="rule" checked /> 启发式
+                    <span class="spawn-policy-source-badge" id="spawn-policy-source-badge" title="θ 来源：规则版（HandTuned 默认 / policies.json 未加载或灰度未命中）">规则</span>
                 </label>
-                <label class="spawn-mode-label" title="使用已训练的 SpawnTransformerV3 根据盘面、能力、拓扑与局内弧线推荐三连块；前端护栏失败或服务不可用时自动回退启发式。">
+                <label class="spawn-mode-label" title="使用已训练的 SpawnPolicyNet 根据盘面、能力、拓扑与局内弧线推荐三连块；前端护栏失败或服务不可用时自动回退启发式。">
                     <span class="spawn-option-icon" aria-hidden="true">✨</span>
                     <input type="radio" name="spawn-mode" value="model-v3" /> 生成式
                 </label>

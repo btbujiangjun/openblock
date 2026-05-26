@@ -6298,6 +6298,23 @@ body.doc-visibility-hidden #menu * {
     color: #92400e;
 }
 
+/* 启发式 θ 来源 badge：「规则」(HandTuned) / 「寻参」(SpawnParamTuner) — 详见 SPAWN_OVERVIEW.md §6 */
+.spawn-policy-source-badge {
+    font-size: 7.5px;
+    padding: 1px 5px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text-primary, #000) 8%, transparent);
+    color: var(--text-secondary, #64748b);
+    white-space: nowrap;
+    font-weight: 500;
+    margin-left: 2px;
+}
+
+.spawn-policy-source-badge.tuner {
+    background: color-mix(in srgb, #6366f1 15%, transparent);
+    color: #3730a3;
+}
+
 .spawn-train-controls {
     display: flex;
     flex-direction: column;
