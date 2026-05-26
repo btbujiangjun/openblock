@@ -2189,11 +2189,21 @@ def register_v2_routes(app):
         # 查 DB deployed model
         db = get_db()
         deployed_row = db.execute(
-            "SELECT model_id, name FROM models WHERE status='deployed' LIMIT 1",
+            "SELECT model_id, name, model_type, version, train_job_id FROM models "
+            "WHERE status='deployed' LIMIT 1",
         ).fetchone()
-        db.close()
         deployed_id = deployed_row["model_id"] if deployed_row else None
         bundle_model_id = meta.get("model_id") if isinstance(meta, dict) else None
+        # v2.10.17: 同时拿 train job 名字 (供 UI 显示 "job-xxx")
+        deployed_job_name = None
+        if deployed_row and deployed_row["train_job_id"]:
+            j = db.execute(
+                "SELECT name FROM training_jobs WHERE job_id = ?",
+                (deployed_row["train_job_id"],),
+            ).fetchone()
+            if j:
+                deployed_job_name = j["name"]
+        db.close()
 
         if not bundle_exists and not deployed_id:
             state, hint = "no-deployment", "未部署任何模型，点击上方按钮训练 + 导出"
@@ -2218,6 +2228,17 @@ def register_v2_routes(app):
                 f"请重新点 D.1 用 #{deployed_id} 导出，或部署 #{bundle_model_id} 让两者匹配。",
             )
 
+        # v2.10.17: 把 deployed model 详细信息暴露给 UI
+        deployed_info = None
+        if deployed_row:
+            deployed_info = {
+                "model_id": deployed_row["model_id"],
+                "name": deployed_row["name"],
+                "model_type": deployed_row["model_type"],
+                "version": deployed_row["version"],
+                "train_job_id": deployed_row["train_job_id"],
+                "train_job_name": deployed_job_name,
+            }
         resp = {
             "exists": bundle_exists,
             "bundle_dir": str(bundle_dir),
@@ -2227,6 +2248,7 @@ def register_v2_routes(app):
                 "bundle_model_id": bundle_model_id,
                 "deployed_model_id": deployed_id,
             },
+            "deployed_model": deployed_info,
         }
         if bundle_exists:
             resp.update({
