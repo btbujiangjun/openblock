@@ -1963,7 +1963,14 @@ async function exportBundle() {
         }
         if (r.ok) {
             const maeStr = r.average_curve_mae != null ? ` · avg MAE ${r.average_curve_mae.toFixed(4)}` : '';
-            $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ ${r.policies_count} policies · ${(r.bundle_size_bytes/1024).toFixed(1)} KB${maeStr} · sha256=${r.sha256.slice(0,12)}…</span>`;
+            // v2.10.7: 单调修正信息
+            let monoStr = '';
+            if (r.monotonic_projection_applied) {
+                monoStr = r.monotonic_violations_fixed > 0
+                    ? ` · 修正 ${r.monotonic_violations_fixed} 单调违规 (最大 Δ=${r.max_raw_violation.toFixed(3)})`
+                    : ' · 单调✓';
+            }
+            $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ ${r.policies_count} policies · ${(r.bundle_size_bytes/1024).toFixed(1)} KB${maeStr}${monoStr} · sha256=${r.sha256.slice(0,12)}…</span>`;
             refreshBundleStatus();
         } else {
             $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(r.error)}</span>`;

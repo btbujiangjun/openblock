@@ -1321,6 +1321,7 @@ def register_v2_routes(app):
             )
             from rl_pytorch.spawn_tuning_v2.optimize_theta import enumerate_all_contexts, context_to_indices
             from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
+            from rl_pytorch.spawn_tuning_v2.policy_utils import monotonic_project_curve, max_monotonic_violation
         except Exception as e:
             return jsonify({"error": f"torch/model not available: {e}"}), 503
 
@@ -1383,8 +1384,19 @@ def register_v2_routes(app):
             curves = preds["curve"].cpu().numpy().tolist()
 
         # 3) 构造 policies (无优化, 用 default theta)
+        # v2.10.7: 强制单调非降 + clip [0,1] - 保证客户端策略 "S 形难度严格递增"
+        apply_monotonic = bool(data.get("monotonic_projection", True))   # 默认开
         policies = []
-        for ctx, curve in zip(ctxs, curves):
+        total_violations = 0
+        max_raw_violation = 0.0
+        for ctx, raw_curve in zip(ctxs, curves):
+            if apply_monotonic:
+                # 记录原始最大单调违规, 给用户看
+                max_raw_violation = max(max_raw_violation, max_monotonic_violation(raw_curve))
+                curve, n_viol = monotonic_project_curve(raw_curve, clip_min=0.0, clip_max=1.0)
+                total_violations += n_viol
+            else:
+                curve = raw_curve
             mae = sum(abs(c - t) for c, t in zip(curve, target)) / len(target)
             policies.append({
                 "context_key": ctx["context_key"],
@@ -1498,6 +1510,10 @@ def register_v2_routes(app):
             "generated_at": bundle["generated_at"],
             "policies_source": str(policies_path),
             "rollout_pct": rollout_pct,
+            # v2.10.7: 单调投影统计
+            "monotonic_projection_applied": apply_monotonic,
+            "monotonic_violations_fixed": total_violations,
+            "max_raw_violation": round(max_raw_violation, 4),
             **results,
         })
 

@@ -925,3 +925,36 @@ class TestBuildAndExport:
         )
         assert r.status_code == 400
         assert "model_id" in r.get_json()["error"]
+
+    def test_build_and_export_monotonic_projection(self, client, tmp_path, monkeypatch):
+        """v2.10.7: 默认应用 PAVA 单调投影 — bundle 中所有 predicted_curve 严格单调。"""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 10},
+        )
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["monotonic_projection_applied"] is True
+        # 读 bundle, 验证每个 curve 都单调
+        bundle_path = tmp_path / "web/public/spawn-tuning-v2/policies.json"
+        bundle = json.loads(bundle_path.read_text())
+        for p in bundle["policies"]:
+            curve = p["predicted_curve"]
+            for i in range(1, len(curve)):
+                assert curve[i] >= curve[i-1] - 1e-9, \
+                    f"non-monotonic at bin {i} in {p['context_key']}: {curve}"
+
+    def test_build_and_export_skip_monotonic(self, client, tmp_path, monkeypatch):
+        """monotonic_projection=false 时不强制单调 (允许原始预测)。"""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 10, "monotonic_projection": False},
+        )
+        assert r.status_code == 200
+        assert r.get_json()["monotonic_projection_applied"] is False
