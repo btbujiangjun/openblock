@@ -926,6 +926,7 @@ class TestBuildAndExport:
         assert r.status_code == 400
         assert "model_id" in r.get_json()["error"]
 
+
     def test_build_and_export_monotonic_projection(self, client, tmp_path, monkeypatch):
         """v2.10.7: 默认应用 PAVA 单调投影 — bundle 中所有 predicted_curve 严格单调。"""
         monkeypatch.chdir(tmp_path)
@@ -1127,3 +1128,69 @@ class TestBuildAndExport:
         # 直接查 A 的 status
         ra = client.get(f"/api/spawn-tuning-v2/models/{mid_a}")
         assert ra.get_json()["status"] == "archived"
+
+
+# ─────────── jobs 创建架构兼容检查 (v2.10.10) ───────────
+
+class TestJobArchCheck:
+    """v2.10.10: 增量训练 base_model 跟 model_type 必须匹配 (fail-fast)。"""
+
+    def _insert_model(self, client, model_type):
+        import spawn_tuning_v2_backend as mod
+        db = mod.get_db()
+        cur = db.execute(
+            """INSERT INTO models (
+                name, version, model_type, weights_path, sha256, size_bytes,
+                metrics_json, status, created_at
+            ) VALUES (?, 'v0.0.1', ?, '/tmp/fake.pt', 'abc', 1024, '{}', 'staging', strftime('%s','now'))""",
+            (f"test-{model_type}", model_type),
+        )
+        db.commit()
+        mid = cur.lastrowid
+        db.close()
+        return mid
+
+    def test_same_arch_ok(self, client):
+        """ResNet base_model + resnet model_type → 201 OK."""
+        mid = self._insert_model(client, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/jobs",
+            json={"sample_set_ids": [1], "model_type": "resnet", "base_model_id": mid},
+        )
+        assert r.status_code == 201
+
+    def test_transformer_to_resnet_rejected(self, client):
+        """Transformer base_model + resnet model_type → 400 拒绝."""
+        mid = self._insert_model(client, "transformer")
+        r = client.post(
+            "/api/spawn-tuning-v2/jobs",
+            json={"sample_set_ids": [1], "model_type": "resnet", "base_model_id": mid},
+        )
+        assert r.status_code == 400
+        err = r.get_json()["error"]
+        assert "transformer" in err.lower()
+        assert "resnet" in err.lower()
+
+    def test_resnet_to_transformer_rejected(self, client):
+        """ResNet base_model + transformer model_type → 400."""
+        mid = self._insert_model(client, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/jobs",
+            json={"sample_set_ids": [1], "model_type": "transformer", "base_model_id": mid},
+        )
+        assert r.status_code == 400
+
+    def test_no_base_model_no_check(self, client):
+        """没选 base_model 时不做架构检查 (从头训练任何架构都行)。"""
+        r = client.post(
+            "/api/spawn-tuning-v2/jobs",
+            json={"sample_set_ids": [1], "model_type": "transformer"},
+        )
+        assert r.status_code == 201
+
+    def test_unknown_base_model_404(self, client):
+        r = client.post(
+            "/api/spawn-tuning-v2/jobs",
+            json={"sample_set_ids": [1], "model_type": "resnet", "base_model_id": 99999},
+        )
+        assert r.status_code == 404

@@ -256,8 +256,16 @@ def train(
     print(f"[train_v2] {model_type} 模型参数量: {model.count_parameters():,}")
     if base_model_path:
         ck = torch.load(base_model_path, map_location=device)
+        # v2.10.10: 架构兼容检查 — 异架构 state_dict 完全不匹配 → 提前报错而非诡异的 KeyError
+        base_arch = (ck.get("arch") or {}).get("model_type")
+        if base_arch and base_arch != model_type:
+            raise ValueError(
+                f"base_model 架构 ({base_arch}) 跟当前 model_type ({model_type}) 不匹配 — "
+                f"Transformer ckpt 不能加载到 ResNet, 反之亦然。"
+                f"\n→ 请选相同架构的基础模型, 或 model_type 改为 {base_arch}"
+            )
         model.load_state_dict(ck["model_state_dict"])
-        print(f"[train_v2] 加载基础模型 {base_model_path} (增量训练, lr 自动 × 0.1)")
+        print(f"[train_v2] 加载基础模型 {base_model_path} ({base_arch or '未知'} → {model_type}, 增量训练 lr × 0.1)")
         lr = lr * 0.1
 
     # v2.9.4: Transformer 对 LR 极敏感, cap 在 1e-3 (实测 job_16 用 lr=0.05 直接 ep 01

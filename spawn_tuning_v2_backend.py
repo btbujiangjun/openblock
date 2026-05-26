@@ -973,6 +973,24 @@ def register_v2_routes(app):
         data = request.get_json() or {}
         if not data.get("sample_set_ids"):
             return jsonify({"error": "sample_set_ids required"}), 400
+        # v2.10.10: 增量训练架构兼容检查 (fail-fast, 不到 train.py 才报错)
+        model_type = data.get("model_type", "resnet")
+        base_model_id = data.get("base_model_id")
+        if base_model_id:
+            db_check = get_db()
+            base = db_check.execute(
+                "SELECT model_type FROM models WHERE model_id = ?", (base_model_id,),
+            ).fetchone()
+            db_check.close()
+            if not base:
+                return jsonify({"error": f"base_model_id={base_model_id} not found"}), 404
+            base_mt = base["model_type"] or "resnet"
+            if base_mt != model_type:
+                return jsonify({
+                    "error": f"架构不匹配: base_model #{base_model_id} 是 {base_mt}, "
+                             f"当前选了 {model_type}。增量训练只能加载同架构 ckpt。"
+                             f"\n→ 改 model_type={base_mt} 或选其他 base_model"
+                }), 400
         db = get_db()
         cur = db.execute(
             """INSERT INTO training_jobs

@@ -2255,16 +2255,26 @@ async function refreshBaseModelOptions() {
     const sel = $('job-base');
     if (!sel) return;
     const prev = sel.value;
+    // v2.10.10: 增量训练只能加载相同架构的 ckpt (异架构 state_dict 完全不兼容)
+    const currentMt = $('job-model-type')?.value || 'resnet';
     try {
         const data = await apiGet('/api/spawn-tuning-v2/models?limit=100');
+        const usableStatus = (m) =>
+            m.status === 'deployed' || m.status === 'staging' || m.status === 'archived';
+        const sameArch = (m) => (m.model_type || 'resnet') === currentMt;
+        const filtered = (data.models || []).filter((m) => usableStatus(m) && sameArch(m));
         sel.innerHTML = '<option value="">— 从头训练 —</option>' +
-            (data.models || [])
-                .filter((m) => m.status === 'deployed' || m.status === 'staging' || m.status === 'archived')
-                .map((m) => {
-                    const mae = m.metrics?.val_curve_mae;
-                    return `<option value="${m.model_id}">#${m.model_id} ${escapeHtml(m.name)} · ${escapeHtml(m.status)}${mae ? ` · mae=${fmtNumber(mae)}` : ''}</option>`;
-                }).join('');
-        if (prev) sel.value = prev;
+            filtered.map((m) => {
+                const mae = m.metrics?.val_curve_mae;
+                return `<option value="${m.model_id}">#${m.model_id} ${escapeHtml(m.name)} (${escapeHtml(m.model_type || 'resnet')}) · ${escapeHtml(m.status)}${mae ? ` · mae=${fmtNumber(mae)}` : ''}</option>`;
+            }).join('');
+        // 老 prev 若架构不同会自动失效, 回到 "从头训练"
+        if (prev && filtered.some((m) => String(m.model_id) === prev)) sel.value = prev;
+        // 显示同架构可选数量
+        const total = (data.models || []).filter(usableStatus).length;
+        if (filtered.length < total) {
+            sel.title = `仅显示 ${currentMt} 架构 (${filtered.length}/${total}); 切换网络架构可看其他模型`;
+        }
     } catch { /* 没模型 / 服务挂了, 保留默认占位 */ }
 }
 
@@ -2583,13 +2593,18 @@ function bindEvents() {
                 lrInput.value = '5e-3';
                 $('job-hint').innerHTML = '<span style="color:var(--muted)">ResNet 默认 lr 已切换到 5e-3</span>';
             }
-            // G10 v2.10.9: 显示/隐藏 Transformer 超参
-            const txOpts = $('job-transformer-opts');
-            if (txOpts) txOpts.style.display = isTransformer ? '' : 'none';
+            // G10 v2.10.10: 显示/隐藏 .tx-only 标签 (grid auto-fit 自动重排)
+            document.querySelectorAll('.tx-only').forEach((el) => {
+                el.style.display = isTransformer ? '' : 'none';
+            });
+            // v2.10.10: 切换架构后重过滤 base_model 列表 (异架构 ckpt 不能加载)
+            refreshBaseModelOptions();
         });
         // 页面初次加载时根据当前值同步
-        const txOpts = $('job-transformer-opts');
-        if (txOpts) txOpts.style.display = mtSel.value === 'transformer' ? '' : 'none';
+        const initIsTransformer = mtSel.value === 'transformer';
+        document.querySelectorAll('.tx-only').forEach((el) => {
+            el.style.display = initIsTransformer ? '' : 'none';
+        });
     }
 }
 

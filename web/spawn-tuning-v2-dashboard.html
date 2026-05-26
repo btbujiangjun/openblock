@@ -461,6 +461,13 @@
               <option value="transformer">Transformer ⭐ (v2.9)</option>
             </select>
           </label>
+          <!-- G10 v2.10.10: Transformer 超参跟其他参数同行 (grid auto-fit 自动布局) -->
+          <label class="tx-only" style="display:none;" title="Transformer hidden dim — 默认 128, 大数据集可调到 256+">
+            d_model<input id="job-tx-dmodel" type="number" min="32" max="512" step="32" value="128">
+          </label>
+          <label class="tx-only" style="display:none;" title="Transformer encoder 层数 — 默认 3, 复杂任务可调到 6">
+            n_layers<input id="job-tx-nlayers" type="number" min="1" max="12" value="3">
+          </label>
           <label>Epochs<input id="job-epochs" type="number" value="50"></label>
           <label>Batch Size<input id="job-batch" type="number" value="256"></label>
           <label>Learning Rate<input id="job-lr" type="number" step="0.0001" value="0.001"></label>
@@ -469,19 +476,11 @@
               <option value="cpu">…</option>
             </select>
           </label>
-          <label>增量基础模型
+          <label title="增量训练只能选相同网络架构的模型 (Transformer ckpt 不能加载到 ResNet)">
+            增量基础模型
             <select id="job-base">
               <option value="">— 从头训练 —</option>
             </select>
-          </label>
-        </div>
-        <!-- G10 v2.10.9: Transformer 超参 (仅当 model_type=transformer 时显示) -->
-        <div class="form-row" id="job-transformer-opts" style="display:none;">
-          <label title="Transformer hidden dim — 默认 128, 大数据集可调到 256+">d_model
-            <input id="job-tx-dmodel" type="number" min="32" max="512" step="32" value="128">
-          </label>
-          <label title="Transformer encoder 层数 — 默认 3, 复杂任务可调到 6">n_layers
-            <input id="job-tx-nlayers" type="number" min="1" max="12" value="3">
           </label>
         </div>
         <p class="muted-hint" style="margin-top:2px;">
