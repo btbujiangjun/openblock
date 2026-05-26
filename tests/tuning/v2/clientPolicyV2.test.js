@@ -1,7 +1,7 @@
 /**
  * clientPolicyV2 测试 — 灰度切量 + 4 层 fallback。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
     DEFAULT_THETA_V2, installPoliciesV2, uninstallPoliciesV2,
     resolveThetaV2, loadPoliciesFromBundleV2, initClientPolicyV2,
@@ -417,8 +417,15 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
         return { listenersByName };
     }
 
+    const _origBroadcastChannel = globalThis.BroadcastChannel;
     beforeEach(() => {
         _uninstallBundleUpdateChannelForTest();
+    });
+    afterEach(() => {
+        _uninstallBundleUpdateChannelForTest();
+        // 还原 globalThis.BroadcastChannel，避免污染其他测试文件。
+        if (_origBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+        else globalThis.BroadcastChannel = _origBroadcastChannel;
     });
 
     it('init 后 channel 收到 bundle-updated 消息 → 自动 re-fetch + install', async () => {
