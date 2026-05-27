@@ -350,17 +350,23 @@ def train(
         print(f"[train_v2] ep {epoch:02d} train={train_m['total']:.4f} val={val_m['total']:.4f} "
               f"mae={val_m['curve_mae']:.4f} balance={val_m['balance']:.4f} time={record['elapsed_s']:.1f}s")
 
-        # v2.9.4: 综合 EarlyStop 指标, 防止"退化解"陷阱
-        #   病例 (job_16, transformer, lr=0.05): ep 01 模型输出全平均 ≈ 0.55,
-        #   val_curve_mae=0.0698 偏低 (因为实测均值也在 0.55 附近), 锁定 trivial 解。
-        #   解法: composite = curve_mae + 0.5*anchor + 0.4*target_fit
-        #     - anchor: 关键 r 点偏离则惩罚 → 全平均输出 anchor 必然大
-        #     - target_fit: vs 校准 S 形 MSE → 全平均跟 S 形差距大
+        # v2.9.4 → v2.10.20: 综合 EarlyStop 指标, 加入业务真实拟合度 calibrated_mae
+        #
+        # 病史:
+        #   - v2.9.4 原 composite = curve_mae + 0.5*anchor + 0.4*target_fit
+        #   - 实测 (model #22, 15 epoch): ep=4 best curve_mae=0.0675 后 10 epoch 不动,
+        #     但 calibrated_mae 仍在缓慢下降; best 仅靠 curve_mae 选, 错过 calibrated 更优解
+        #
+        # v2.10.20 修复:
+        #   composite = curve_mae + 0.5*anchor + 0.4*target_fit + 0.6*calibrated_mae
+        #   calibrated_mae 直接反映"业务命题 (S 形难度) 拟合度", 比 curve_mae (含噪声 label)
+        #   更接近用户真实关心的目标
         #   另加 curve_var 退化检测: 预测曲线 std < 0.02 时强制视为未改进
         curve_var = val_m.get("curve_var", 0.0)
         composite = (val_m["curve_mae"]
                      + 0.5 * val_m.get("anchor", 0.0)
-                     + 0.4 * val_m.get("target_fit", 0.0))
+                     + 0.4 * val_m.get("target_fit", 0.0)
+                     + 0.6 * val_m.get("calibrated_mae", 0.0))
         # 退化解检测: 预测曲线方差过低 → 模型输出几乎水平线 → 拒绝当 best
         is_degenerate = curve_var < 0.02
         improved = (composite < best_val) and (not is_degenerate)
@@ -373,11 +379,18 @@ def train(
         else:
             patience_left -= 1
             if is_degenerate and epoch < 5:
-                # 早期退化解 — 提示用户 LR 可能过大, 但仍继续训练给机会逃出
                 print(f"[train_v2] warn: ep {epoch} curve_var={curve_var:.4f} < 0.02 (degenerate, likely LR too high)")
+            # v2.10.20: 自适应 patience — 当 best 出现得很早 (<= 5), 多给 50% 等待时间
+            # 让 calibrated_mae plateau 突破机会
+            best_ep = best_metrics.get("best_epoch", -1) if best_metrics else -1
+            adaptive_patience = early_stop_patience
+            if best_ep >= 0 and best_ep <= 5:
+                adaptive_patience = int(early_stop_patience * 1.5)
             if patience_left <= 0 and best_val != float("inf"):
-                print(f"[train_v2] EarlyStopping at epoch {epoch} (no improvement in {early_stop_patience} epochs)")
-                break
+                # 用 adaptive_patience 给晚到 plateau 突破的机会 (best_ep <=5 时 +50%)
+                if (early_stop_patience - patience_left) >= adaptive_patience:
+                    print(f"[train_v2] EarlyStopping at epoch {epoch} (best_ep={best_ep}, patience={adaptive_patience})")
+                    break
 
     log_fp.close()
     total_time = time.time() - t_start

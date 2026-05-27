@@ -58,6 +58,16 @@ function _isMonotonic(c, tol = 1e-4) {
     return true;
 }
 
+/** v2.10.20: 计算最大局部倒退幅度 (max(c[i-1] - c[i])), 用于诊断 "单调 = ✗" 严重度 */
+function _maxMonotonicDrop(c) {
+    let maxDrop = 0;
+    for (let i = 1; i < c.length; i++) {
+        const drop = c[i - 1] - c[i];
+        if (drop > maxDrop) maxDrop = drop;
+    }
+    return maxDrop;
+}
+
 function _findCriticalR(curve, criticalD = 0.5, rMax = CURVE_R_MAX) {
     // 曲线第一次穿过 D=criticalD 的 r 位置
     for (let i = 1; i < curve.length; i++) {
@@ -289,10 +299,14 @@ export function renderDCurveChart(canvas, data) {
         ctx.textAlign = 'right';
         ctx.textBaseline = 'top';
 
+        // v2.10.20: 明确"单调"跟"临界点 Δ"的含义, 加倒退幅度诊断
+        const maxDrop = monotone === false ? _maxMonotonicDrop(predictedCurve) : 0;
         const lines = [
             `${maeLabel} = ${mae != null ? mae.toFixed(4) : '—'}`,
-            `单调 = ${monotone == null ? '—' : (monotone ? '✓' : '✗')}`,
-            critDelta != null ? `临界点 Δ = ${critDelta >= 0 ? '+' : ''}${critDelta.toFixed(3)}` : '临界点 —',
+            monotone == null ? '单调 —'
+                : monotone ? '单调 ✓'
+                : `单调 ✗ (max 倒退 ${maxDrop.toFixed(3)})`,
+            critDelta != null ? `D=0.5 偏移 Δr = ${critDelta >= 0 ? '+' : ''}${critDelta.toFixed(3)}` : 'D=0.5 偏移 —',
         ];
         lines.forEach((t, i) => {
             ctx.fillText(t, W - right - 4, top + 4 + i * 13);
