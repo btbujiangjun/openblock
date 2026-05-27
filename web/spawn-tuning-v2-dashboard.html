@@ -367,6 +367,7 @@
           <button class="ghost preset-btn" data-preset="smoke">🔥 烟雾 (~30 秒)</button>
           <button class="ghost preset-btn preset-active" data-preset="debug">🐞 调试 (~5 分)</button>
           <button class="ghost preset-btn" data-preset="prod">🏭 生产 (~1 小时)</button>
+          <button class="ghost preset-btn" data-preset="hq" title="P1 v2.10.39 — 一键应用最佳配置: Lookahead 2-step + 关闭 PB 10k/25k + 8 θ × 3 seed. 真实观察率从 24% 提到 60%+, avg r 从 0.5 → 0.75+">🎯 高质量 v2.10.39 (~30 分)</button>
           <span id="active-preset" style="color:var(--purple); font-family:ui-monospace,monospace; font-size:10.5px;"></span>
         </div>
 
@@ -568,7 +569,7 @@
         <details style="margin: 6px 0; padding: 4px 0; border-top: 1px dashed rgba(255,255,255,0.08);">
           <summary style="cursor:pointer; font-size:11px; color:var(--muted);">▸ 专家模式: Loss 权重调节 (11 项)</summary>
           <div class="form-row" style="margin-top:6px;">
-            <label class="narrow" title="d_curve 形态 MSE">shape<input id="lw-shape" type="text" value="2.0"></label>
+            <label class="narrow" title="d_curve 形态 MSE (v2.10.39 P2: 2.0→3.0, 加大实测拟合)">shape<input id="lw-shape" type="text" value="3.0"></label>
             <label class="narrow" title="跨 PB bin 方差">balance<input id="lw-balance" type="text" value="0.15"></label>
             <label class="narrow" title="surprise 频率 ~7%">surprise<input id="lw-surprise" type="text" value="0.3"></label>
             <label class="narrow" title="破 PB 单调 hinge">breaking<input id="lw-breaking" type="text" value="0.5"></label>
@@ -577,10 +578,10 @@
             <label class="narrow" title="PB 累积到达 (默认 0)">pb_dist<input id="lw-pb-dist" type="text" value="0.0"></label>
             <label class="narrow" title="7 锚点 hinge">anchor<input id="lw-anchor" type="text" value="3.0"></label>
             <label class="narrow" title="软单调 v2.9.1">monotonic<input id="lw-monotonic" type="text" value="2.5"></label>
-            <label class="narrow" title="calibrated S 拟合">target_fit<input id="lw-target-fit" type="text" value="1.8"></label>
-            <label class="narrow" title="头尾锚定 v2.9.1">endpoint<input id="lw-endpoint" type="text" value="1.5"></label>
+            <label class="narrow" title="calibrated S 拟合 (v2.10.39 P2: 1.8→0.5, 削弱 calibrated 引力)">target_fit<input id="lw-target-fit" type="text" value="0.5"></label>
+            <label class="narrow" title="头尾锚到 ideal (0.20, 1.00) v2.10.39 P2: 1.5→2.5, 加宽跨度">endpoint<input id="lw-endpoint" type="text" value="2.5"></label>
           </div>
-          <p class="muted-hint" style="margin: 2px 0; font-size: 10.5px;">默认值 = v2.10.6 优化版, 一般不需要调。改这些可能让模型不收敛, 仅专家使用。</p>
+          <p class="muted-hint" style="margin: 2px 0; font-size: 10.5px;">默认值 = v2.10.39 优化版 (shape↑/target_fit↓/endpoint↑ 锚 ideal, 拉跨度从 0.62 → 0.75+)。改这些可能让模型不收敛, 仅专家使用。</p>
         </details>
         <div class="form-actions">
           <button id="btn-submit-job">▶ 提交训练任务</button>

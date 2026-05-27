@@ -61,23 +61,22 @@ class LossWeights:
       ζ  aux            0.2 不变
       η  pb_distribution 0.6 → 1.2 (业务约束加权)
     """
-    shape: float = 2.0           # α
+    # v2.10.39 (P2): 重新平衡, 让 model 学到更宽跨度 (从 calibrated ~0.62 拉向 ideal ~0.80)
+    #   病例 job #30: predicted 跨度 0.62 ≈ calibrated, 距 ideal target 跨度 0.80 仍差 22%
+    #   根因: shape (sample 拟合) vs target_fit (calibrated S 锚) 权重比 ~1:1, 让 model 落在中点
+    #   修复: shape ↑ (sample 是真信号), target_fit ↓ (calibrated 只是弱约束), endpoint ↑ + 锚 ideal
+    shape: float = 3.0           # α  2.0 → 3.0 (加大对实测 sample 的拟合)
     balance: float = 0.15        # β
     surprise: float = 0.3        # γ
     breaking: float = 0.5        # δ
-    # v2.9.1: smooth 0.01 → 0.04 — 让 d_curve 对 θ 微小变化平滑响应, 减少锯齿
     smooth: float = 0.04         # ε
     aux: float = 0.2             # ζ
     pb_distribution: float = 0.0
     anchor: float = 3.0          # κ
-    monotonic: float = 2.5       # μ  v2.9.1: 1.5 → 2.5
-    # v2.10.2: target_fit 1.0 → 1.8, 让模型更贴近 calibrated S 形
-    # 实测 job_19/20: target_fit 收敛到 0.01-0.012 (RMSE ≈ 0.1), 加大权重可压到 0.005
-    target_fit: float = 1.8      # ν
-    endpoint: float = 1.5        # ξ
-    # v2.10.32 (P2.2): r_value multi-task — bot 实际触达的 r = score/PB
-    #   推理时可作为 r > r_max 区域的 mask 信号 (model 自知"该 ctx 下 r>这个值是 prior")
-    #   默认权重 0.5 (辅助任务, 不抢主 curve head)
+    monotonic: float = 2.5       # μ
+    target_fit: float = 0.5      # ν  1.8 → 0.5 (削弱 calibrated 引力, 让 sample 驱动形态)
+    endpoint: float = 2.5        # ξ  1.5 → 2.5 (强制端点贴近 ideal, 配合下面 ideal 锚点)
+    # v2.10.32 (P2.2): r_value multi-task
     r_value: float = 0.5
 
     def to_dict(self) -> Dict[str, float]:
@@ -452,24 +451,25 @@ def _get_calibrated_target(n_bins: int, device) -> torch.Tensor:
 
 def loss_endpoint(
     curve_pred: torch.Tensor,
-    head_target: float = 0.30,   # D_BASE_CAL — r ≈ 0 时的 D (v2.10.6: 0.42 → 0.30)
-    tail_target: float = 0.92,   # D_CAP_CAL  — r ≈ R_MAX 时的 D (v2.10.6: 0.85 → 0.92)
-    head_tol: float = 0.10,      # 允许 ±0.10 浮动
-    tail_tol: float = 0.10,
+    # v2.10.39 (P2): 锚点从 calibrated (0.30, 0.92) 改成 ideal (0.20, 1.00)
+    # 配合 target_fit 权重 1.8→0.5, 让 model 学到 ideal 跨度 0.80 而非 calibrated 0.62
+    # tol 加宽到 0.12 给 model 跟样本数据妥协的自由度
+    head_target: float = 0.20,   # D_BASE (ideal) — r ≈ 0 时业务期望
+    tail_target: float = 1.00,   # D_CAP (ideal)  — r = R_MAX 时业务期望
+    head_tol: float = 0.12,      # 允许 ±0.12 浮动 (老 0.10)
+    tail_tol: float = 0.12,
     n_head_bins: int = 2,
     n_tail_bins: int = 2,
 ) -> torch.Tensor:
-    """v2.9.1 — 端点锚定: 防止 d_curve 头尾甩飞导致锯齿。
+    """v2.9.1 / v2.10.39 — 端点锚定到 ideal target.
 
     问题:
       job_13 截图中 r=0.25 处预测 D≈0.30 (远低于校准 target 0.46),
       r=1.55 处尖刺到 0.78 (远高于 r=1.45 邻居 0.65)。
-      这是 anchor 在单点强 hinge + 邻居无约束的 side effect。
-
     解法:
-      对最前 n_head_bins 个 bin (r ∈ [0, 0.2]) 整体均值钉在 head_target ± head_tol;
-      对最后 n_tail_bins 个 bin (r ∈ [1.8, 2.0]) 整体均值钉在 tail_target ± tail_tol。
-      用 hinge 不硬等于, 给模型自由度。
+      最前 2 bin 均值钉到 head_target ± head_tol;
+      最后 2 bin 均值钉到 tail_target ± tail_tol。
+      v2.10.39: 锚到 ideal (0.20, 1.00) 而非 calibrated (0.30, 0.92), 拉宽跨度。
     """
     if curve_pred.size(0) == 0 or curve_pred.size(1) < n_head_bins + n_tail_bins:
         return torch.tensor(0.0, device=curve_pred.device)

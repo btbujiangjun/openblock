@@ -191,11 +191,23 @@ const ALL_DIM_VALUES = {
     lifecycle_stage: ['onboarding', 'growth', 'mature', 'plateau'],
 };
 
+// v2.10.39 (P1): preset 加 hq — 高质量数据集 (优化真实观察率 + bot 触达)
+//   选项:
+//     - lookahead2: ✓ — 2-step lookahead bot 提高 r=1 触达率 +50%
+//     - pbBinDisable: 关闭 10000/25000 (高 PB 几乎都是 prior 填充)
+//     - seeds 3 / thetas 8 — 多 seed 降噪, LHS 覆盖更广
+//   预期: 真实观察从 24% → 60%+, avg r 从 0.5 → 0.75+
 const PRESETS = {
     smoke:  { thetas: 3,  seeds: 1, maxSteps: 60, label: '🔥 烟雾测试 (~30 秒)' },
     debug:  { thetas: 5,  seeds: 2, maxSteps: 300, label: '🐞 日常调试 (~5 分)' },
-    // v2.10.36: maxSteps 240 → 500 (跟 P1.3 sampler default 对齐, 让强 bot 在高 PB 桶有机会触达 r≥1)
     prod:   { thetas: 15, seeds: 2, maxSteps: 500, label: '🏭 生产训练 (~1 小时)' },
+    hq:     {
+        thetas: 8, seeds: 3, maxSteps: 500,
+        label: '🎯 高质量 v2.10.39 (~30 分, 真实观察 60%+)',
+        // v2.10.39: 一键应用配置 (UI 自动 patch)
+        lookahead2: true,
+        pbBinDisable: ['10000', '25000'],
+    },
 };
 
 
@@ -542,6 +554,25 @@ function applyPreset(key, btn) {
     $('cfg-thetas').value = String(p.thetas);
     $('cfg-seeds').value = String(p.seeds);
     $('cfg-max-steps').value = String(p.maxSteps);
+    // v2.10.39 (P1): preset 自动配置 lookahead 开关 + pb_bin chip
+    if (p.lookahead2 !== undefined) {
+        const cb = $('cfg-lookahead2');
+        if (cb) cb.checked = !!p.lookahead2;
+    }
+    if (Array.isArray(p.pbBinDisable)) {
+        // 把指定 pb_bin chip 设为未选 (chip-off)
+        document.querySelectorAll('.chip-group[data-dim="pb_bin"] .chip').forEach((c) => {
+            if (p.pbBinDisable.includes(c.dataset.val)) {
+                c.classList.remove('chip-on');
+            }
+        });
+        // dim-count 也要刷新
+        const sel = readChipsSelection();
+        const cntEl = document.querySelector('[data-count="pb_bin"]');
+        if (cntEl) {
+            cntEl.textContent = `${(sel.pb_bin || []).length}/${ALL_DIM_VALUES.pb_bin.length}`;
+        }
+    }
     document.querySelectorAll('.preset-btn').forEach((b) => b.classList.toggle('preset-active', b === btn));
     $('active-preset').textContent = `(已应用: ${p.label})`;
     _activePreset = key;
