@@ -4233,12 +4233,19 @@ def spawn_model_predict():
 _SPAWN_V3_MODEL_PATH = os.path.join(_MODELS_DIR, "spawn_transformer_v3.pt")
 _spawn_v3_cache = None
 _spawn_v3_lora_cache = {}  # user_id → (model_with_lora, ckpt_mtime)
+# v2.10.40: V3 加载失败状态缓存 — 避免 generative sampler 每次 predict 都重试 + 日志 spam
+#   病例: SpawnPolicyNet ckpt shape_embed (29→41), heads (28→40) 跟 v1.60.0 后 shape pool 不匹配
+#   修复: 首次失败后缓存错误信息, 后续直接返回 None (sampler 自动 fallback baseline)
+_spawn_v3_load_failed = None   # None=未尝试; str=错误信息(失败过); False=之前成功过
 
 
 def _load_spawn_v3_model(user_id: str | None = None):
     """加载 V3 基模型；若 user_id 指定且对应 LoRA 存在，则注入并加载 adapter。"""
-    global _spawn_v3_cache
+    global _spawn_v3_cache, _spawn_v3_load_failed
     if not os.path.exists(_SPAWN_V3_MODEL_PATH):
+        return None
+    # v2.10.40: 之前加载失败过 → 直接返回 None, 不再重试
+    if _spawn_v3_load_failed:
         return None
 
     try:
@@ -4259,9 +4266,20 @@ def _load_spawn_v3_model(user_id: str | None = None):
                 num_playstyles=cfg.get("num_playstyles", 5),
             )
             sd = checkpoint.get("model_state_dict") or checkpoint
-            model.load_state_dict(sd, strict=False)
+            # v2.10.40: 显式过滤 shape mismatch 的 keys (strict=False 不处理 shape, 老 ckpt
+            #   shape_embed/head_*/board_proj/intent_head 跟 v1.60.0 后扩展的 shape pool 不匹配)
+            cur_sd = model.state_dict()
+            filtered_sd = {
+                k: v for k, v in sd.items()
+                if k in cur_sd and cur_sd[k].shape == v.shape
+            }
+            skipped = [k for k in sd.keys() if k in cur_sd and cur_sd[k].shape != sd[k].shape]
+            if skipped:
+                print(f"[spawn-v3] ckpt 跟当前 shape pool 不匹配, 跳过 {len(skipped)} 个键 (e.g. {skipped[:3]}). 需重训 V3 才能在 model-v3 模式下生效.")
+            model.load_state_dict(filtered_sd, strict=False)
             model.eval()
             _spawn_v3_cache = model
+            _spawn_v3_load_failed = False
 
         if not user_id:
             return _spawn_v3_cache
@@ -4297,7 +4315,10 @@ def _load_spawn_v3_model(user_id: str | None = None):
         _spawn_v3_lora_cache[user_id] = (personalized, mtime)
         return personalized
     except Exception as e:
-        print(f"[spawn-v3] 加载失败: {e}")
+        # v2.10.40: 第一次失败后标记, 后续不再 print 同样错误
+        if not _spawn_v3_load_failed:
+            print(f"[spawn-v3] 加载失败 (后续静默 fallback): {e}")
+        _spawn_v3_load_failed = str(e)
         return None
 
 
@@ -4323,9 +4344,10 @@ def spawn_v3_status():
 def spawn_v3_reload():
     """清理 V3 模型缓存，使下一次推理从磁盘重新加载最新权重。"""
     try:
-        global _spawn_v3_cache, _spawn_v3_lora_cache
+        global _spawn_v3_cache, _spawn_v3_lora_cache, _spawn_v3_load_failed
         _spawn_v3_cache = None
         _spawn_v3_lora_cache = {}
+        _spawn_v3_load_failed = None   # v2.10.40: 重置失败状态, 允许 reload 重试
         base_available = os.path.exists(_SPAWN_V3_MODEL_PATH)
         return jsonify(
             {

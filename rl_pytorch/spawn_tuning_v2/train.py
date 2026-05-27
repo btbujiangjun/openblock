@@ -234,9 +234,8 @@ def train(
     weights: Optional[LossWeights] = None,
     device_str: str = "cpu",
     val_ratio: float = 0.1,
-    # v2.10.2: patience 10 → 15, 实测 job_19/20 ResNet best ep=8 后 10 个 epoch 没改进就停了,
-    # 但 composite 实际只是平台震荡, 拉长后还能再降 0.01-0.02
-    early_stop_patience: int = 15,
+    # composite 易平台震荡, 实测 best ep 通常 < 15 → patience 8 足够 + 节省 ~40% 算力
+    early_stop_patience: int = 8,
     seed: int = 42,
     write_db_record: bool = False,
     model_type: str = "resnet",   # v2.9: "resnet" / "transformer"

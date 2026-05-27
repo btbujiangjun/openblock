@@ -28,7 +28,7 @@
  */
 
 import { OpenBlockSimulator } from '../../bot/simulator.js';
-import { CURVE_N_BINS, CURVE_R_MAX, rToBin } from './targetSCurve.js';
+import { CURVE_N_BINS, CURVE_R_MAX, rToBin, targetSCurve } from './targetSCurve.js';
 // v2.10.35: generative — 调 SpawnPolicyNet V3 拿 dock (async HTTP, 失败 fallback 规则)
 import { predictShapesV3 } from '../../spawnModel.js';
 // v2.10.36: rl-bot — 调 PyTorch RL 服务选 action (HTTP, 失败 fallback clear-greedy)
@@ -62,19 +62,22 @@ const GRID_TOTAL_CELLS = 64;
 // 跨 ctx 差异由 state_d 携带 (hard 难度棋盘更紧、normal 居中),
 // 因此模型仍能学到 ctx → state_offset 模式。
 
-// v2.10 常量 (v2.10.6: 拉宽端点 → 跨度 0.45 → 0.62, 更接近 ideal)
-const PB_AWARE_D_BASE = 0.30;       // 0.40 → 0.30
-const PB_AWARE_D_PEAK = 0.92;       // 0.85 → 0.92
-const PB_AWARE_CENTER = 0.85;       // S 形拐点 (在 PB 附近开始加压)
-const PB_AWARE_WIDTH  = 0.18;       // 拐点过渡宽度
-const PB_AWARE_STATE_WEIGHT = 0.30; // state_d 偏移幅度 (±0.15)
-// v2.10.1: 贝叶斯先验平滑 (跨语言: extractor.py 同步)
-const PB_AWARE_PRIOR_STRENGTH = 3;  // 需要 ≥3 观察才完全覆盖先验
-const PB_AWARE_MIN_OBS = 1;         // bin 至少 1 观察才用观察, 否则纯先验
+// PB-aware 常量 (跨语言: extractor.py + policyMetricsV2.js 严格同步)
+// v2.12 起 d_pb_base 直接复用 targetSCurve (ideal 4 段分段),
+//   sample 形态 ≈ ideal target, model 学到的就是 ideal.
+// 以下 4 个常量供跨语言一致性测试镜像 + 文档说明用, 不再参与计算.
+const PB_AWARE_D_BASE = 0.20;       // = D_BASE (ideal)
+const PB_AWARE_D_PEAK = 1.00;       // = D_CAP (ideal)
+const PB_AWARE_CENTER = 0.85;       // legacy 单段 sigmoid 拐点
+const PB_AWARE_WIDTH  = 0.18;       // legacy 单段 sigmoid 宽度
+const PB_AWARE_STATE_WEIGHT = 0.20; // state_offset ±0.10
+// 贝叶斯先验平滑
+const PB_AWARE_PRIOR_STRENGTH = 3;
+const PB_AWARE_MIN_OBS = 1;
 
 function _pbAwareDPbBase(ratio) {
-    const sig = 1 / (1 + Math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH));
-    return PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig;
+    // v2.12: 直接复用 ideal target (4 段分段 — gentle/mid/brake/overshoot)
+    return targetSCurve(ratio);
 }
 
 function _stepDifficulty(step, recentFills, ratio = 0) {
@@ -93,10 +96,9 @@ function _stepDifficulty(step, recentFills, ratio = 0) {
     if ((step.clears || 0) >= SURPRISE_MIN_CLEARS) {
         stateD *= SURPRISE_DAMPING;
     }
-    // d_pb_base: PB 命题的 S 形基础 (v2.10 核心)
-    const sig = 1 / (1 + Math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH));
-    const dPbBase = PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig;
-    // 组合: PB 基础 + state 偏移
+    // d_pb_base: 直接复用 ideal target_S_curve (v2.12)
+    const dPbBase = targetSCurve(ratio);
+    // 组合: ideal target + state 偏移 (ctx 差异)
     const stateOffset = (stateD - 0.5) * PB_AWARE_STATE_WEIGHT;
     return Math.max(0, Math.min(1, dPbBase + stateOffset));
 }
@@ -578,7 +580,7 @@ export async function runOneSampleV2(args) {
         seed,
         eval_ms: 0,
         evaluated_at: Date.now(),
-        algo_version: 'v2.10',
+        algo_version: 'v2.12',   // d_pb_base = ideal target_S_curve
     };
 }
 

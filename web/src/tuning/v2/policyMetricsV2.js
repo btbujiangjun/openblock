@@ -15,7 +15,7 @@
  * 跨语言一致性: d_curve 提取算法与 Python extractor.py 严格对应。
  */
 
-import { rToBin, CURVE_N_BINS, CURVE_R_MAX } from './targetSCurve.js';
+import { rToBin, CURVE_N_BINS, CURVE_R_MAX, targetSCurve } from './targetSCurve.js';
 
 // ─────────── 配置 ───────────
 
@@ -30,20 +30,21 @@ const TREND_WEIGHT = 0.20;
 const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
-// v2.10: PB-aware d_step (跨语言: samplerV2.js / extractor.py 同步)
-// v2.10.6: 拉宽端点
-const PB_AWARE_D_BASE = 0.30;
-const PB_AWARE_D_PEAK = 0.92;
-const PB_AWARE_CENTER = 0.85;
-const PB_AWARE_WIDTH  = 0.18;
-const PB_AWARE_STATE_WEIGHT = 0.30;
-// v2.10.1: 贝叶斯先验平滑
+// PB-aware d_step (跨语言: samplerV2.js / extractor.py 严格同步)
+// v2.12 起 d_pb_base 直接复用 targetSCurve (ideal 4 段分段)
+// 以下 4 个常量供跨语言一致性测试镜像, 不再参与计算
+const PB_AWARE_D_BASE = 0.20;       // = D_BASE (ideal)
+const PB_AWARE_D_PEAK = 1.00;       // = D_CAP (ideal)
+const PB_AWARE_CENTER = 0.85;       // legacy
+const PB_AWARE_WIDTH  = 0.18;       // legacy
+const PB_AWARE_STATE_WEIGHT = 0.20; // state_offset ±0.10
+// 贝叶斯先验平滑
 const PB_AWARE_PRIOR_STRENGTH = 3;
 const PB_AWARE_MIN_OBS = 1;
 
 function _pbAwareDPbBase(ratio) {
-    const sig = 1 / (1 + Math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH));
-    return PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig;
+    // v2.12: 直接复用 ideal target_S_curve
+    return targetSCurve(ratio);
 }
 
 
@@ -79,9 +80,8 @@ function _stepDifficulty(step, recentFills, ratio = 0) {
     if ((step.clears || 0) >= SURPRISE_MIN_CLEARS) {
         stateD *= SURPRISE_DAMPING;
     }
-    // v2.10: PB-aware
-    const sig = 1 / (1 + Math.exp(-(ratio - PB_AWARE_CENTER) / PB_AWARE_WIDTH));
-    const dPbBase = PB_AWARE_D_BASE + (PB_AWARE_D_PEAK - PB_AWARE_D_BASE) * sig;
+    // v2.12: 直接复用 ideal target_S_curve
+    const dPbBase = targetSCurve(ratio);
     const stateOffset = (stateD - 0.5) * PB_AWARE_STATE_WEIGHT;
     return Math.max(0, Math.min(1, dPbBase + stateOffset));
 }

@@ -29,9 +29,8 @@ def make_step(idx, score, fill, freedom, no_move=False, clears=0):
 
 
 class TestStepDifficulty:
-    """v2.10.6: d_step = d_pb_base(ratio) + 0.30 * (state_d - 0.5), clipped [0,1].
-       d_pb_base = 0.30 + 0.62 * sigmoid((ratio - 0.85) / 0.18)
-       端点拉宽: 0.30 → 0.92 (跨度 0.62)
+    """v2.12: d_pb_base = target_S_curve (4 段分段, [0.20, 1.00]).
+       d_step = target_S_curve(r) + 0.20 * (state_d - 0.5), clipped [0,1].
     """
 
     def test_no_move_returns_1(self):
@@ -39,37 +38,42 @@ class TestStepDifficulty:
         assert st.step_difficulty([], ratio=0.5) == 1.0
 
     def test_ratio_zero_low_base(self):
-        """ratio=0 时 d_pb_base ≈ 0.30 (S 形底部)。"""
+        """ratio=0 时 d_pb_base = target_S_curve(0) = D_BASE = 0.20."""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
         # state_d=0.5 → state_offset=0
-        # d_pb_base(0) = 0.30 + 0.62 * sigmoid(-0.85/0.18) ≈ 0.303
         d = st.step_difficulty([], ratio=0.0)
-        assert d == pytest.approx(0.303, abs=0.01)
+        assert d == pytest.approx(0.20, abs=0.01)
 
     def test_ratio_peak_high_base(self):
-        """ratio>>1 时 d_pb_base ≈ 0.92 (S 形顶部)。"""
+        """ratio = R_MAX 时 d_pb_base ≈ D_CAP = 1.00."""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
         d = st.step_difficulty([], ratio=2.0)
-        # d_pb_base(2.0) = 0.30 + 0.62 * sigmoid(1.15/0.18) ≈ 0.918
-        assert d == pytest.approx(0.918, abs=0.01)
+        assert d == pytest.approx(1.00, abs=0.01)
 
     def test_ratio_monotonic(self):
-        """同 state, ratio 越大 d 越大 (业务命题 '接近 PB 加压')。"""
+        """target_S_curve 非降, 加 state=0.5 (offset=0) 仍非降."""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
         ds = [st.step_difficulty([], ratio=r) for r in [0.0, 0.5, 0.85, 1.0, 1.5, 2.0]]
         for i in range(1, len(ds)):
             assert ds[i] >= ds[i-1] - 1e-9, f"non-monotonic at i={i}: {ds}"
-        # 跨度应明显 (≥ 0.4)
-        assert ds[-1] - ds[0] > 0.4
+        # ideal 跨度 0.80
+        assert ds[-1] - ds[0] > 0.7
 
     def test_state_offset_magnitude(self):
-        """同 ratio, state_d=1.0 比 state_d=0 高 ≈ 0.30 (state_weight)。"""
+        """state_d=1.0 比 state_d=0 高 ≈ 0.20 (state_weight)."""
         st_low = make_step(0, 100, fill=0.0, freedom=1.0)  # state_d ≈ 0.1
         st_high = make_step(0, 100, fill=1.0, freedom=0.0) # state_d ≈ 1.0
         d_low = st_low.step_difficulty([], ratio=0.5)
         d_high = st_high.step_difficulty([], ratio=0.5)
-        # diff ≈ (1.0 - 0.1) * 0.30 ≈ 0.27
-        assert 0.20 < (d_high - d_low) < 0.35
+        # diff ≈ (1.0 - 0.1) * 0.20 ≈ 0.18
+        assert 0.14 < (d_high - d_low) < 0.24
+
+    def test_mid_segment_matches_target(self):
+        """v2.12 关键: 中段 d_pb_base 跟 ideal target 一致 (state=0.5 无偏移)."""
+        st = make_step(0, 100, fill=0.5, freedom=0.5)
+        # r=0.7 应该 ≈ ideal D_MID_END = 0.50
+        d = st.step_difficulty([], ratio=0.7)
+        assert d == pytest.approx(0.50, abs=0.02)
 
     def test_surprise_damping_on_state(self):
         """≥3 行消行只衰减 state_d, 不影响 PB 基础。"""
@@ -203,15 +207,15 @@ class TestExtractDCurve:
         # 头几 bin (低 r) 应比尾几 bin (高 r) 低显著差距
         head = sum(c[:3]) / 3
         tail = sum(c[-3:]) / 3
-        assert tail - head > 0.30, f"v2.10 应有 S 形跨度 > 0.3, got head={head:.3f} tail={tail:.3f}"
+        assert tail - head > 0.30, f"应有 S 形跨度 > 0.3, got head={head:.3f} tail={tail:.3f}"
         # 大致单调
         diffs = [c[i+1] - c[i] for i in range(len(c) - 1)]
         n_rises = sum(1 for d in diffs if d >= -0.01)
         assert n_rises >= 15, f"大部分 bin 应递增, got {n_rises}/19"
 
-    def test_v2101_sparse_bins_use_prior(self):
-        """v2.10.6: bot 弱时高 r bin 无数据, 空 bin 应填 d_pb_base 而非 lastValue。
-        端点 0.30 → 0.92 (拉宽后跨度 0.62)。
+    def test_sparse_bins_use_prior(self):
+        """v2.12: 空 bin 用 ideal target_S_curve 填充, 不是 lastValue.
+        ideal 端点 [0.20, 1.00] 跨度 0.80.
         """
         steps = [
             make_step(i, int(i * 5), fill=0.5, freedom=0.5)
@@ -219,25 +223,23 @@ class TestExtractDCurve:
         ]
         labels = extract_d_curve(steps, pb=1000)
         c = labels.d_curve
-        # 末尾 bin 应接近 d_pb_base(1.95) ≈ 0.92
-        assert c[-1] > 0.85, f"末尾应回归 S 形顶部 (~0.92), got {c[-1]:.3f}"
-        # 前面有数据的 bin 应在 d_pb_base 附近 (低 r 区 ≈ 0.30)
-        assert c[0] < 0.45, f"头部应接近 S 形底部 (~0.30), got {c[0]:.3f}"
-        # 跨度 ≥ 0.50
-        assert c[-1] - c[0] > 0.50, f"跨度应 > 0.5, got {c[-1] - c[0]:.3f}"
+        # 末尾 bin 应接近 target_S_curve(1.95) ≈ 1.00 (overshoot 段渐近)
+        assert c[-1] > 0.95, f"末尾应回归 ideal 顶部 (~1.00), got {c[-1]:.3f}"
+        # 前面有数据的 bin 应接近 ideal (低 r 区 ≈ 0.20)
+        assert c[0] < 0.35, f"头部应接近 ideal 底部 (~0.20), got {c[0]:.3f}"
+        # 跨度 ≥ 0.65 (接近 ideal 0.80)
+        assert c[-1] - c[0] > 0.65, f"跨度应 > 0.65, got {c[-1] - c[0]:.3f}"
 
-    def test_v2101_dense_bins_keep_observation(self):
-        """v2.10.6: 数据丰富 bin (count >> PRIOR_STRENGTH=3) 应主要保留观察值。
-           端点 0.30, state_d=0.1 低 → d_step ≈ 0.30 + 0.30*(0.1-0.5) = 0.18
-        """
+    def test_dense_bins_keep_observation(self):
+        """数据丰富 bin (count >> PRIOR_STRENGTH=3) 应主要保留观察值."""
         steps = [
             make_step(i, 5, fill=0.0, freedom=1.0)   # state_d ≈ 0.1
             for i in range(50)
         ]
         labels = extract_d_curve(steps, pb=100)
-        # d_step ≈ d_pb_base(0.025) + 0.30*(0.1-0.5) ≈ 0.30 - 0.12 = 0.18
-        # 加权 w=0.943, d_curve[0] ≈ 0.943*0.18 + 0.057*0.30 ≈ 0.19
-        assert 0.14 < labels.d_curve[0] < 0.24, f"丰富 bin 应保留观察, got {labels.d_curve[0]:.3f}"
+        # d_step ≈ target_S_curve(0.025) + 0.20*(0.1-0.5) ≈ 0.21 - 0.08 = 0.13
+        # 加权 w=0.943, d_curve[0] ≈ 0.943*0.13 + 0.057*0.21 ≈ 0.135
+        assert 0.08 < labels.d_curve[0] < 0.20, f"丰富 bin 应保留观察, got {labels.d_curve[0]:.3f}"
 
 
 class TestAggregate:

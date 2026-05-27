@@ -71,7 +71,7 @@ class TestConstantsAcrossLanguages:
         return consts
 
     def test_pb_aware_endpoints_match(self, js_consts):
-        """端点 (d_pb_base 底/顶) 三处一致 — v2.10.6 (0.30, 0.92)."""
+        """端点 (d_pb_base 底/顶) 三处一致 — v2.12 复用 ideal (0.20, 1.00)."""
         for fname, cs in js_consts.items():
             assert abs(cs["PB_AWARE_D_BASE"] - PB_AWARE_D_BASE) < 1e-9, \
                 f"{fname} PB_AWARE_D_BASE={cs['PB_AWARE_D_BASE']} vs python {PB_AWARE_D_BASE}"
@@ -109,12 +109,12 @@ class TestConstantsAcrossLanguages:
 # ─────────── 数学公式正确性 (Python 端) ───────────
 
 class TestDPbBaseFormula:
-    """v2.10.6 d_pb_base 数学正确性 (端点 + 单调)."""
+    """v2.12: d_pb_base = target_S_curve (4 段分段). 端点 [0.20, 1.00]."""
 
     def test_endpoints(self):
-        # r=0 → ~0.30, r=2 → ~0.92 (v2.10.6 端点)
-        assert abs(pb_aware_d_pb_base(0.0) - 0.303) < 0.01
-        assert abs(pb_aware_d_pb_base(2.0) - 0.918) < 0.01
+        # r=0 → D_BASE=0.20, r=R_MAX → D_CAP=1.00
+        assert abs(pb_aware_d_pb_base(0.0) - 0.20) < 0.01
+        assert abs(pb_aware_d_pb_base(2.0) - 1.00) < 0.01
 
     def test_monotonic(self):
         """全程严格非降 (业务命题: 接近 PB 加压)."""
@@ -124,8 +124,8 @@ class TestDPbBaseFormula:
             assert v >= prev - 1e-9, f"非单调 r={r}: {prev} → {v}"
             prev = v
 
-    def test_sigmoid_pivot_at_center(self):
-        """sigmoid 中点 (r ≈ PB_AWARE_CENTER) 时, d_pb_base ≈ (D_BASE + D_PEAK)/2."""
-        mid_d = pb_aware_d_pb_base(PB_AWARE_CENTER)
-        expected = (PB_AWARE_D_BASE + PB_AWARE_D_PEAK) / 2
-        assert abs(mid_d - expected) < 0.01, f"sigmoid 中点 {mid_d} ≠ {expected}"
+    def test_matches_target_S_curve(self):
+        """v2.12: d_pb_base 必须 = target_S_curve."""
+        from rl_pytorch.spawn_tuning_v2.target_curve import target_S_curve
+        for r in [0.0, 0.3, 0.5, 0.7, 0.85, 1.0, 1.1, 1.5, 2.0]:
+            assert pb_aware_d_pb_base(r) == pytest.approx(target_S_curve(r), abs=1e-9)

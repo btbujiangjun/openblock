@@ -74,8 +74,8 @@ class LossWeights:
     pb_distribution: float = 0.0
     anchor: float = 3.0          # κ
     monotonic: float = 2.5       # μ
-    target_fit: float = 0.5      # ν  1.8 → 0.5 (削弱 calibrated 引力, 让 sample 驱动形态)
-    endpoint: float = 2.5        # ξ  1.5 → 2.5 (强制端点贴近 ideal, 配合下面 ideal 锚点)
+    target_fit: float = 0.5      # ν  削弱 calibrated 引力, 让 sample + endpoint 驱动形态
+    endpoint: float = 4.0        # ξ  加大端点 hinge — 强制 model 端点贴 ideal (0.20, 1.00)
     # v2.10.32 (P2.2): r_value multi-task
     r_value: float = 0.5
 
@@ -451,13 +451,12 @@ def _get_calibrated_target(n_bins: int, device) -> torch.Tensor:
 
 def loss_endpoint(
     curve_pred: torch.Tensor,
-    # v2.10.39 (P2): 锚点从 calibrated (0.30, 0.92) 改成 ideal (0.20, 1.00)
-    # 配合 target_fit 权重 1.8→0.5, 让 model 学到 ideal 跨度 0.80 而非 calibrated 0.62
-    # tol 加宽到 0.12 给 model 跟样本数据妥协的自由度
+    # 锚到 ideal (0.20, 1.00). 配合 sampler PB_AWARE 端点拉宽到 (0.22, 0.96),
+    # tol 收紧到 0.06 — model 不再有"calibrated 也行"的妥协余地
     head_target: float = 0.20,   # D_BASE (ideal) — r ≈ 0 时业务期望
     tail_target: float = 1.00,   # D_CAP (ideal)  — r = R_MAX 时业务期望
-    head_tol: float = 0.12,      # 允许 ±0.12 浮动 (老 0.10)
-    tail_tol: float = 0.12,
+    head_tol: float = 0.06,
+    tail_tol: float = 0.06,
     n_head_bins: int = 2,
     n_tail_bins: int = 2,
 ) -> torch.Tensor:

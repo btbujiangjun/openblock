@@ -339,7 +339,7 @@ def register_v2_routes(app):
                     int(bool(s.get("pb_broke", False))), s.get("surprise_count", 0),
                     s.get("seed"), s.get("eval_ms"),
                     s.get("evaluated_at", int(time.time() * 1000)),
-                    s.get("algo_version", "v2.10"),
+                    s.get("algo_version", "v2.12"),   # d_pb_base = ideal target_S_curve
                     s.get("n_bins_filled"),
                     _bc_json,
                 )

@@ -332,8 +332,8 @@ class TestLossTargetFit:
 
 
 class TestLossEndpoint:
-    """v2.10.39 (P2): 端点锚定 — head 0.20 / tail 1.00 (ideal target, 跨度 0.80)。
-    老 v2.10.6 用 calibrated (0.30, 0.92) 跨度 0.62; v2.10.39 改 ideal 拉宽 model 输出。
+    """端点锚定 — head 0.20 / tail 1.00 (ideal target), tol ±0.06 (收紧后)
+    强制 model 端点贴 ideal, 不能逃到 calibrated (0.30, 0.92).
     """
 
     def test_zero_when_endpoints_match(self):
@@ -344,12 +344,12 @@ class TestLossEndpoint:
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 
     def test_head_far_from_target(self):
-        """头 bin 均值 = 0.50 → 偏离 head_target=0.20 共 0.30, 超 tol=0.12 → loss > 0。"""
+        """头 bin 均值 = 0.50 → 偏离 head_target=0.20 共 0.30, 超 tol=0.06 → loss > 0。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
         curve[:, :2] = 0.50
         curve[:, -2:] = 1.00
         loss_val = loss_endpoint(curve).item()
-        assert loss_val > 1e-3  # violation = 0.18, 0.18² / 2 ≈ 0.016
+        assert loss_val > 1e-3  # violation = 0.24, 0.24² / 2 ≈ 0.029
 
     def test_tail_far_from_target(self):
         """尾 bin 均值 = 0.55 → 偏离 tail_target=1.00 共 0.45, 超 tol → loss 大。"""
@@ -357,14 +357,14 @@ class TestLossEndpoint:
         curve[:, :2] = 0.20
         curve[:, -2:] = 0.55
         loss_val = loss_endpoint(curve).item()
-        # violation = 0.33, 0.33² / 2 ≈ 0.054
+        # violation = 0.39, 0.39² / 2 ≈ 0.076
         assert loss_val > 0.01
 
     def test_within_tolerance_zero(self):
-        """偏离 < tol=0.12 不惩罚。"""
+        """偏离 < tol=0.06 不惩罚。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.30  # 偏离 0.20 共 0.10 < tol=0.12
-        curve[:, -2:] = 0.90  # 偏离 1.00 共 0.10 < tol=0.12
+        curve[:, :2] = 0.25  # 偏离 0.20 共 0.05 < tol=0.06
+        curve[:, -2:] = 0.95  # 偏离 1.00 共 0.05 < tol=0.06
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 
     def test_empty_returns_zero(self):
@@ -504,7 +504,9 @@ class TestComputeTotal:
         pb_bin = torch.tensor([0, 1, 2, 3])
         breakdown = compute_total_loss(preds, tgts, pb_bin)
         assert breakdown.shape.item() == pytest.approx(0.0, abs=1e-6)
-        assert breakdown.total.item() < 0.5
+        # curve = 0.5 (恒定) 在 endpoint hinge (head=0.20, tail=1.00, tol=0.06) 下违规, total 不会 ~0
+        # 主要验证 shape 完美时其他 loss 仍受控 (<1.0)
+        assert breakdown.total.item() < 1.0
 
     def test_loss_weights_dict(self):
         """v2.10.39 (P2): 重新平衡 — shape ↑, target_fit ↓, endpoint ↑ (锚 ideal)
@@ -517,8 +519,8 @@ class TestComputeTotal:
         assert d["pb_distribution"] == 0.0
         assert d["anchor"] == 3.0
         assert d["monotonic"] == 2.5
-        assert d["target_fit"] == 0.5        # v2.10.39: 1.8 → 0.5
-        assert d["endpoint"] == 2.5          # v2.10.39: 1.5 → 2.5
+        assert d["target_fit"] == 0.5
+        assert d["endpoint"] == 4.0          # A+B: 2.5 → 4.0 (加大端点 hinge)
         assert d["aux"] == 0.2
         assert sum(d.values()) > 0
 

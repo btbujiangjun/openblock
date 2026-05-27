@@ -22,41 +22,47 @@ describe('stepDifficulty v2.10 PB-aware (与 Python extractor.py 一致)', () =>
         expect(stepDifficulty({ noMove: true, fillRate: 0.5, actionFreedom: 0.5 }, [], 0.5)).toBe(1.0);
     });
 
-    it('ratio=0 returns ~0.30 (S 形底部, v2.10.6)', () => {
-        // state_d=0.5 → state_offset=0
-        // d_pb_base(0) = 0.30 + 0.62*sigmoid(-0.85/0.18) ≈ 0.303
+    it('ratio=0 returns ~0.20 (ideal D_BASE, v2.12)', () => {
+        // d_pb_base(0) = target_S_curve(0) = D_BASE = 0.20
         const d = stepDifficulty({
             fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
         }, [], 0.0);
-        expect(d).toBeCloseTo(0.303, 2);
+        expect(d).toBeCloseTo(0.20, 2);
     });
 
-    it('ratio=2.0 returns ~0.92 (S 形顶部, v2.10.6)', () => {
+    it('ratio=2.0 returns ~1.00 (ideal D_CAP, v2.12)', () => {
         const d = stepDifficulty({
             fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
         }, [], 2.0);
-        expect(d).toBeCloseTo(0.918, 2);
+        expect(d).toBeCloseTo(1.00, 2);
     });
 
     it('ratio monotonic — 接近 PB 加压', () => {
         const ctx = { fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0 };
         const ratios = [0, 0.5, 0.85, 1.0, 1.5, 2.0];
         const ds = ratios.map(r => stepDifficulty(ctx, [], r));
-        // 严格非降
         for (let i = 1; i < ds.length; i++) {
             expect(ds[i]).toBeGreaterThanOrEqual(ds[i-1] - 1e-9);
         }
-        // 跨度 ≥ 0.4
-        expect(ds[ds.length-1] - ds[0]).toBeGreaterThan(0.4);
+        // 跨度 ≥ 0.7 (跟 ideal 0.80 接近)
+        expect(ds[ds.length-1] - ds[0]).toBeGreaterThan(0.7);
     });
 
-    it('state_offset 影响 ≈ 0.30 max', () => {
+    it('state_offset 影响 ≈ 0.20 max', () => {
         const ratio = 0.5;
         const dLow = stepDifficulty({ fillRate: 0.0, actionFreedom: 1.0, noMove: false, clears: 0 }, [], ratio);
         const dHigh = stepDifficulty({ fillRate: 1.0, actionFreedom: 0.0, noMove: false, clears: 0 }, [], ratio);
-        // (1.0 - 0.1) * 0.30 ≈ 0.27
-        expect(dHigh - dLow).toBeGreaterThan(0.20);
-        expect(dHigh - dLow).toBeLessThan(0.35);
+        // (1.0 - 0.1) * 0.20 ≈ 0.18
+        expect(dHigh - dLow).toBeGreaterThan(0.14);
+        expect(dHigh - dLow).toBeLessThan(0.24);
+    });
+
+    it('mid segment matches ideal target (v2.12 核心)', () => {
+        // r=0.7 ideal D_MID_END=0.50, state_d=0.5 → offset=0
+        const d = stepDifficulty({
+            fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
+        }, [], 0.7);
+        expect(d).toBeCloseTo(0.50, 1);
     });
 });
 

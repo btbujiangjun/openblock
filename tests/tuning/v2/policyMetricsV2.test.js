@@ -69,19 +69,19 @@ describe('extractDCurveJS', () => {
     });
 
     it('surprise damping at clears >= 3', () => {
-        // v2.10.6: 端点 0.30/0.92, 单 step + 贝叶斯先验加权 (w=1/4=0.25)
-        //   state_d_damp = 0.30 (surprise × 0.5)
-        //   d_pb_base(0.3) = 0.30 + 0.62*sigmoid(-3.056) ≈ 0.328
-        //   state_offset = (0.30 - 0.50) * 0.30 = -0.060
-        //   d_step = 0.328 - 0.060 = 0.268
-        //   bin 3 center = 0.35, d_prior(0.35) ≈ 0.335
-        //   w*obs + (1-w)*prior = 0.25 * 0.268 + 0.75 * 0.335 ≈ 0.32
+        // v2.12: d_pb_base = target_S_curve, state_weight=0.20
+        //   r=0.3 在 gentle 段 (k=0.2), target_S_curve(0.3) = 0.20 + 0.2*0.3 = 0.26
+        //   surprise damping: state_d *= 0.5 → state_d_damp ≈ 0.30
+        //   state_offset = (0.30 - 0.50) * 0.20 = -0.040
+        //   d_step = 0.26 - 0.040 = 0.22
+        //   bin 3 center = 0.35, d_prior(0.35) = 0.20 + 0.2*0.35 = 0.27
+        //   w*obs + (1-w)*prior = 0.25 * 0.22 + 0.75 * 0.27 ≈ 0.26
         const steps = [
             { stepIdx: 0, score: 30, fillRate: 0.5, actionFreedom: 0.3, noMove: false, clears: 4 },
         ];
         const labels = extractDCurveJS(steps, 100);
-        const bin = Math.floor(0.3 / (2.0 / 20));  // CURVE_R_MAX=2.0
-        expect(labels.d_curve[bin]).toBeCloseTo(0.32, 1);
+        const bin = Math.floor(0.3 / (2.0 / 20));
+        expect(labels.d_curve[bin]).toBeCloseTo(0.26, 1);
         expect(labels.surprise_count).toBe(1);
     });
 
