@@ -639,8 +639,14 @@
           <label>选样本集 (实测数据)
             <select id="curve-set"><option value="">— 不加载实测 —</option></select>
           </label>
-          <label>分组维度 (可选,例 difficulty,bot_policy)
-            <input id="curve-group-by" type="text" placeholder="留空 = 全集">
+          <label class="narrow" title="按某维度分组聚合 d_curve (多选)">分组维度
+            <select id="curve-group-by" multiple size="3" style="height:auto; min-height:60px; font-size:11px;">
+              <option value="difficulty">difficulty (难度)</option>
+              <option value="generator">generator (生成器)</option>
+              <option value="bot_policy">bot_policy (Bot)</option>
+              <option value="pb_bin">pb_bin (PB 档)</option>
+              <option value="lifecycle_stage">lifecycle (生命周期)</option>
+            </select>
           </label>
           <label>模型推断 (用所选模型对实测 set 的均值 context 推断)
             <select id="curve-predict-model">

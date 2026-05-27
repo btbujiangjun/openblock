@@ -2086,7 +2086,13 @@ async function _loadAndRenderMetrics(jobId, meta) {
         const epochs = data.epochs || [];
         const last = epochs[epochs.length - 1] || (data.batches[data.batches.length - 1] || {});
         const best = epochs.length > 0
-            ? epochs.reduce((b, e) => (e.val_curve_mae < (b?.val_curve_mae ?? Infinity) ? e : b), null)
+            // v2.10.22: 跟 train.py composite 一致 (curve_mae + 0.5*anchor + 0.4*target_fit + 0.6*calibrated_mae)
+            // 否则 dashboard 显示 best=ep4 但实际保存的 ckpt 是 composite best ep=N, 用户困惑
+            ? epochs.reduce((b, e) => {
+                const ec = _composite(e);
+                const bc = b ? _composite(b) : Infinity;
+                return ec < bc ? e : b;
+            }, null)
             : null;
         const totalSec = epochs.reduce((s, e) => s + (e.elapsed_s || 0), 0);
         // 表格 — 6 个核心 metric 的最新 / 首 / 改进
@@ -2182,6 +2188,19 @@ function closeMetricsModal() {
 
 // v2.8: 训练曲线拆成 8 个独立 sub-chart, 每个指标自带纵轴范围
 //       grid 布局, 同步 step 横轴, 避免量纲差异导致小指标看不清
+/**
+ * v2.10.22: 计算 composite — 跟 rl_pytorch/spawn_tuning_v2/train.py 公式完全一致
+ *   composite = curve_mae + 0.5*anchor + 0.4*target_fit + 0.6*calibrated_mae
+ * 用于前端 best 选择, 保证跟 backend 保存的 ckpt 一致。
+ */
+function _composite(e) {
+    const m = (e?.val_curve_mae) ?? Infinity;
+    const a = (e?.val_anchor) ?? 0;
+    const t = (e?.val_target_fit) ?? 0;
+    const c = (e?.val_calibrated_mae) ?? 0;
+    return m + 0.5 * a + 0.4 * t + 0.6 * c;
+}
+
 const _METRIC_SUB_CHARTS = [
     // v2.10.21: train_loss 是 batch 级 (每 4 batch 1 点, 一个 epoch 数十点), 其他都是 epoch 级
     { key: 'train_loss',          color: '#f87171', label: 'train_loss · batch',  better: 'lower' },
@@ -2245,7 +2264,8 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
 
     // 找全局最佳 epoch (按 val_curve_mae) — 主推荐
     const bestIdx = epochs.length > 0
-        ? epochs.reduce((bi, e, i) => (e.val_curve_mae < epochs[bi].val_curve_mae ? i : bi), 0)
+        // v2.10.22: 跟 train.py composite 一致, 显示真正的 best (含 calibrated_mae 维度)
+        ? epochs.reduce((bi, e, i) => (_composite(e) < _composite(epochs[bi]) ? i : bi), 0)
         : -1;
 
     const subChartIndexes = [];
@@ -2880,7 +2900,14 @@ async function refreshCurveSetSelector() {
 
 async function renderCurve() {
     const setId = $('curve-set').value;
-    const groupBy = $('curve-group-by').value.trim();
+    // v2.10.22: 改下拉 multi-select, 兼容老 text input
+    const groupSel = $('curve-group-by');
+    let groupBy = '';
+    if (groupSel?.tagName === 'SELECT') {
+        groupBy = [...groupSel.selectedOptions].map((o) => o.value).join(',');
+    } else if (groupSel) {
+        groupBy = groupSel.value.trim();
+    }
     const modelId = $('curve-predict-model')?.value || '';
     const meta = $('curve-meta');
     meta.textContent = '加载中…';

@@ -300,7 +300,8 @@ export function renderDCurveChart(canvas, data) {
         ctx.textBaseline = 'top';
 
         // v2.10.20: 明确"单调"跟"临界点 Δ"的含义, 加倒退幅度诊断
-        const maxDrop = monotone === false ? _maxMonotonicDrop(predictedCurve) : 0;
+        // v2.10.22 修 bug: 用作用域内变量 pred (不是不存在的 predictedCurve)
+        const maxDrop = (monotone === false && pred) ? _maxMonotonicDrop(pred) : 0;
         const lines = [
             `${maeLabel} = ${mae != null ? mae.toFixed(4) : '—'}`,
             monotone == null ? '单调 —'
