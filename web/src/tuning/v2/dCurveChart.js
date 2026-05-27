@@ -23,7 +23,8 @@ import { targetCurveVector, targetCurveCalibratedVector, CURVE_N_BINS, CURVE_R_M
 const DEFAULT_STYLE = {
     width: 600,
     height: 280,
-    padding: { top: 20, right: 16, bottom: 32, left: 36 },
+    // v2.10.26: top 20 → 32 给图例换行留空间 (分组维度多时一行容不下)
+    padding: { top: 32, right: 16, bottom: 32, left: 36 },
     colors: {
         target: '#3b82f6',       // blue-500 — 业务 ideal
         calibrated: '#a78bfa',   // purple-400 — v2.9 训练 target
@@ -267,11 +268,24 @@ export function renderDCurveChart(canvas, data) {
     ctx.fillText('难度 D', 0, 0);
     ctx.restore();
 
-    // ─── 图例 ───
+    // ─── 图例 (v2.10.26: 自动换行 + 留出右上指标空间) ───
     if (opt.showLegend) {
-        const legendY = top + 6;
+        // 给右上指标预留 230px (avg "预测 MAE = X.XXXX" + "单调 ✗ (max 倒退 X.XXX)" + "D=0.5 偏移 Δr = X.XXX")
+        const metricsReserveW = opt.showMetrics ? 230 : 8;
+        const maxLegendX = W - right - metricsReserveW;
+        let legendY = top - 22;   // chart 顶部上方 (padding.top 留了 32)
         let legendX = left + 8;
+        const lineH = 13;
         const drawLegend = (color, label, dashed = false) => {
+            ctx.font = '11px ui-monospace, monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            const textW = ctx.measureText(label).width;
+            // v2.10.26: 当前行装不下 → 换行 (但只允许 1 次额外换行, 避免 chart 区被压缩)
+            if (legendX + 18 + textW > maxLegendX && legendX > left + 8) {
+                legendX = left + 8;
+                legendY += lineH;
+            }
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             if (dashed) ctx.setLineDash([3, 4]);
@@ -281,17 +295,14 @@ export function renderDCurveChart(canvas, data) {
             ctx.stroke();
             ctx.setLineDash([]);
             ctx.fillStyle = opt.colors.text;
-            ctx.font = '11px ui-monospace, monospace';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
             ctx.fillText(label, legendX + 18, legendY);
-            legendX += ctx.measureText(label).width + 32;
+            legendX += 18 + textW + 14;
         };
         drawLegend(opt.colors.target, '目标 (业务)');
         if (opt.showCalibrated) drawLegend(opt.colors.calibrated, '训练 target (校准)', true);
         if (pred) drawLegend(opt.colors.predicted, '模型预测');
         if (obs) drawLegend(opt.colors.observed, '实测均值', true);
-        // v2.10.25: 分组对比图例 (最多前 8 组, 紧凑显示)
+        // v2.10.25/26: 分组对比图例 (最多前 8 组)
         if (extras.length > 0) {
             const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
             extras.slice(0, 8).forEach((e, idx) => {
@@ -338,8 +349,10 @@ export function renderDCurveChart(canvas, data) {
                 : `单调 ✗ (max 倒退 ${maxDrop.toFixed(3)})`,
             critDelta != null ? `D=0.5 偏移 Δr = ${critDelta >= 0 ? '+' : ''}${critDelta.toFixed(3)}` : 'D=0.5 偏移 —',
         ];
+        // v2.10.26: 指标位置 — 跟图例同 Y 区域 (上方 padding 留出来), 靠右
+        // 之前在 top+4+i*13 会跟图例重叠
         lines.forEach((t, i) => {
-            ctx.fillText(t, W - right - 4, top + 4 + i * 13);
+            ctx.fillText(t, W - right - 4, top - 22 + i * 13);
         });
     }
 

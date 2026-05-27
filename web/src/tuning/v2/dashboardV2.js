@@ -2959,12 +2959,13 @@ async function renderCurve() {
         }
 
         const canvas = $('d-curve-canvas');
+        // v2.10.26: 自适应容器宽度 (chart 默认 600px 在 stretch container 里失真)
+        const container = canvas.parentElement;
+        const containerW = container ? container.clientWidth : 600;
         renderDCurveChart(canvas, {
             targetCurve: target,
-            // 未选模型时传 null, chart 不画预测线 + 图例自动收起, 避免与目标线视觉重叠
             predictedCurve: predicted,
             observedCurve: observed,
-            // v2.10.24: 多分组对比线 (传给 chart 画浅色多线)
             extraCurves: groupBuckets ? groupBuckets.slice(0, 8).map((b, i) => {
                 const keyParts = groupDims.map((d) => `${d}=${b[d]}`).join('·');
                 return {
@@ -2973,6 +2974,10 @@ async function renderCurve() {
                     nSamples: b.n_samples,
                 };
             }) : null,
+            options: {
+                width: Math.max(600, Math.min(1400, containerW)),
+                height: 320,
+            },
         });
 
         const lines = [];
