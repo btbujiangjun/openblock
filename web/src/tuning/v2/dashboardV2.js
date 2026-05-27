@@ -2183,7 +2183,8 @@ function closeMetricsModal() {
 // v2.8: 训练曲线拆成 8 个独立 sub-chart, 每个指标自带纵轴范围
 //       grid 布局, 同步 step 横轴, 避免量纲差异导致小指标看不清
 const _METRIC_SUB_CHARTS = [
-    { key: 'train_loss',          color: '#f87171', label: 'train_loss',          better: 'lower' },
+    // v2.10.21: train_loss 是 batch 级 (每 4 batch 1 点, 一个 epoch 数十点), 其他都是 epoch 级
+    { key: 'train_loss',          color: '#f87171', label: 'train_loss · batch',  better: 'lower' },
     { key: 'val_loss',            color: '#60a5fa', label: 'val_loss',            better: 'lower' },
     { key: 'val_curve_mae',       color: '#34d399', label: 'val_curve_mae',       better: 'lower' },
     // v2.10.2 — 预测 vs calibrated target MAE (业务真实拟合度, 不受 state_offset 噪声干扰)
