@@ -164,11 +164,11 @@ export function renderDCurveChart(canvas, data) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // v2.10.24: 分组对比线 (浅色细线, 画在最底层)
+    // v2.10.24/25: 分组对比线 (彩色细线, 画在最底层但保证可见性)
     if (extras.length > 0) {
         const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
-        ctx.lineWidth = 1.0;
-        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 1.4;       // v2.10.25: 1.0 → 1.4 (更显眼)
+        ctx.globalAlpha = 0.85;    // v2.10.25: 0.55 → 0.85 (避免被黑底吃光)
         extras.slice(0, 8).forEach((e, idx) => {
             ctx.strokeStyle = palette[idx % palette.length];
             ctx.beginPath();
@@ -291,6 +291,14 @@ export function renderDCurveChart(canvas, data) {
         if (opt.showCalibrated) drawLegend(opt.colors.calibrated, '训练 target (校准)', true);
         if (pred) drawLegend(opt.colors.predicted, '模型预测');
         if (obs) drawLegend(opt.colors.observed, '实测均值', true);
+        // v2.10.25: 分组对比图例 (最多前 8 组, 紧凑显示)
+        if (extras.length > 0) {
+            const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
+            extras.slice(0, 8).forEach((e, idx) => {
+                const labelShort = e.label.length > 20 ? e.label.slice(0, 18) + '…' : e.label;
+                drawLegend(palette[idx % palette.length], labelShort);
+            });
+        }
     }
 
     // ─── 指标 ─── (无预测时改成显示实测 vs 目标)
@@ -334,6 +342,82 @@ export function renderDCurveChart(canvas, data) {
             ctx.fillText(t, W - right - 4, top + 4 + i * 13);
         });
     }
+
+    // v2.10.25: 绑定 hover 显示 r 位置各曲线值
+    _bindHover(canvas, {
+        N, rMax: CURVE_R_MAX, left, right, top, bottom, W, H,
+        target, pred, obs, extras,
+        showCalibrated: opt.showCalibrated,
+        colors: opt.colors,
+    });
+}
+
+/** v2.10.25: 鼠标 hover 在 chart 上时, 显示当前 r 位置各曲线值 (tooltip + 竖线) */
+function _bindHover(canvas, info) {
+    // 复用 dataset 上的 tooltip div (避免每次 render 重建)
+    let tooltip = canvas._dcurveTooltip;
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.style.cssText = `
+            position: absolute; pointer-events: none; z-index: 100;
+            background: rgba(15, 23, 42, 0.96); border: 1px solid rgba(96, 165, 250, 0.3);
+            border-radius: 4px; padding: 6px 8px; font-size: 11px;
+            font-family: ui-monospace, monospace; color: #e5e7eb;
+            white-space: nowrap; display: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        `;
+        document.body.appendChild(tooltip);
+        canvas._dcurveTooltip = tooltip;
+
+        canvas.addEventListener('mousemove', (e) => {
+            const lastInfo = canvas._dcurveInfo;
+            if (!lastInfo) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const cssW = rect.width;
+            const { left: pl, right: pr, top: pt, bottom: pb, N, rMax, target, pred, obs, extras, showCalibrated, colors } = lastInfo;
+            const chartLeft = pl, chartRight = cssW - pr;
+            if (x < chartLeft || x > chartRight || y < pt || y > rect.height - pb) {
+                tooltip.style.display = 'none';
+                return;
+            }
+            // 反推 bin (近邻整数)
+            const t = (x - chartLeft) / (chartRight - chartLeft);
+            const bin = Math.max(0, Math.min(N - 1, Math.round(t * (N - 1))));
+            const r = (bin + 0.5) * (rMax / N);
+            const fmt = (v) => v == null ? '-' : v.toFixed(3);
+            let lines = [`<b>r = ${r.toFixed(2)}</b> (bin ${bin})`];
+            lines.push(`<span style="color:${colors.target}">●</span> 目标 = ${fmt(target?.[bin])}`);
+            if (showCalibrated) {
+                // 重新计算 calibrated 这点 (没存)
+                lines.push(`<span style="color:${colors.calibrated}">●</span> 校准 (估)`);
+            }
+            if (pred) lines.push(`<span style="color:${colors.predicted}">●</span> 预测 = ${fmt(pred[bin])}`);
+            if (obs) lines.push(`<span style="color:${colors.observed}">●</span> 实测 = ${fmt(obs[bin])}`);
+            // 分组对比
+            if (extras && extras.length > 0) {
+                const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
+                extras.slice(0, 8).forEach((ex, idx) => {
+                    const labelShort = ex.label.length > 24 ? ex.label.slice(0, 22) + '…' : ex.label;
+                    lines.push(`<span style="color:${palette[idx % palette.length]}">●</span> ${labelShort} = ${fmt(ex.curve[bin])}`);
+                });
+            }
+            tooltip.innerHTML = lines.join('<br>');
+            tooltip.style.display = 'block';
+            // 定位 tooltip (避免超出视窗)
+            const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+            const winW = window.innerWidth, winH = window.innerHeight;
+            let tx = e.clientX + 12, ty = e.clientY + 12;
+            if (tx + tw > winW - 8) tx = e.clientX - tw - 12;
+            if (ty + th > winH - 8) ty = e.clientY - th - 12;
+            tooltip.style.left = tx + 'px';
+            tooltip.style.top = ty + 'px';
+        });
+        canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    }
+    // 每次 render 更新 info (供 mousemove 读)
+    canvas._dcurveInfo = info;
 }
 
 
