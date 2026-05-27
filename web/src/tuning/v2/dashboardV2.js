@@ -2916,25 +2916,59 @@ async function renderCurve() {
         const targetResp = await apiGet('/api/spawn-tuning-v2/target-curve');
         const target = targetResp.curve;
 
+        const groupSource = $('curve-group-source')?.value || 'observed';   // v2.10.27
+
         let observed = null;
         let nSamples = 0;
         let observedCtx = null;
         let groupBuckets = null;   // v2.10.24: 多分组数据 (供 multi-line 渲染)
         let groupDims = [];        // 分组维度名 (e.g. ['difficulty', 'bot_policy'])
+        let groupSourceUsed = groupSource;  // 实际使用的数据源 (可能 fallback)
         if (setId) {
             const url = `/api/spawn-tuning-v2/sample-sets/${setId}/aggregate${groupBy ? `?group_by=${encodeURIComponent(groupBy)}` : ''}`;
             const data = await apiGet(url);
             if (data.buckets?.length > 0) {
-                // 主线: 第一个 bucket 作为"实测均值" (兼容老逻辑)
+                // 主线: 第一个 bucket 作为"实测均值"
                 observed = data.buckets[0].d_curve_avg;
                 nSamples = data.buckets[0].n_samples;
                 observedCtx = data.buckets[0].context || data.buckets[0].sample_ctx;
-                // v2.10.24: 多 bucket 时保留全部 (在 meta 显示对比表 + 画虚线)
+                // 多 bucket 时保留全部
                 if (data.buckets.length > 1 && Array.isArray(data.groups) && data.groups.length > 0) {
                     groupBuckets = data.buckets;
                     groupDims = data.groups;
                 }
             }
+        }
+
+        // v2.10.27: groupSource='predicted' — 用模型对每个分组 ctx 推断, 替换 groupBuckets
+        if (groupSource === 'predicted' && modelId && groupBuckets && groupDims.length > 0) {
+            try {
+                // 对每个 bucket 构造完整 ctx (其他维度用 default mature/middle), 调 predict-curve
+                const ctxList = groupBuckets.map((b) => ({
+                    difficulty: b.difficulty || 'normal',
+                    generator: b.generator || 'triplet-p1',
+                    bot_policy: b.bot_policy || 'clear-greedy',
+                    pb_bin: b.pb_bin || 4000,
+                    lifecycle_stage: b.lifecycle_stage || 'mature',
+                }));
+                const predRes = await apiSend('POST', `/api/spawn-tuning-v2/models/${modelId}/predict-curve`, {
+                    contexts: ctxList,
+                });
+                if (predRes.curves?.length === groupBuckets.length) {
+                    // 把 predicted d_curve 覆盖到 buckets[i].d_curve_avg (但保留 n_samples 信息)
+                    groupBuckets = groupBuckets.map((b, i) => ({
+                        ...b,
+                        d_curve_avg: predRes.curves[i],
+                        n_samples_observed: b.n_samples,   // 保留原 sample 数 (供 meta 表)
+                    }));
+                    groupSourceUsed = 'predicted';
+                }
+            } catch (e) {
+                groupSourceUsed = 'observed-fallback';
+                console.warn('[curve] predicted group fallback to observed:', e.message);
+            }
+        } else if (groupSource === 'predicted' && (!modelId || !groupBuckets)) {
+            groupSourceUsed = !modelId ? 'observed-no-model' : 'observed-no-groups';
         }
 
         // 模型预测: 用所选模型对一个有代表性的 context 推断 (优先实测 set 的 ctx, 否则用默认中位 ctx)
@@ -3012,9 +3046,17 @@ async function renderCurve() {
                 </tr>`;
             }).join('');
             const truncatedNote = groupBuckets.length > 12 ? `<p style="color:var(--muted); font-size:10.5px;">… 还有 ${groupBuckets.length - 12} 组未显示</p>` : '';
+            // v2.10.27: 显示数据源 + fallback 提示
+            const srcBadge = groupSourceUsed === 'predicted'
+                ? '<span style="color:var(--accent)">[模型预测]</span>'
+                : groupSourceUsed === 'observed-no-model'
+                    ? '<span style="color:var(--warn)" title="未选模型, fallback 实测">[实测 · 未选模型]</span>'
+                    : groupSourceUsed === 'observed-fallback'
+                        ? '<span style="color:var(--warn)" title="模型推断失败, fallback 实测">[实测 · 模型推断失败]</span>'
+                        : '<span style="color:var(--muted)">[实测]</span>';
             groupTable = `
               <div style="margin-top:8px;">
-                <div style="font-size:11px; color:var(--muted); margin-bottom:2px;">📊 按 [${groupDims.join(', ')}] 分组对比 (${groupBuckets.length} 组, chart 中画前 8 组浅色线)</div>
+                <div style="font-size:11px; color:var(--muted); margin-bottom:2px;">📊 按 [${groupDims.join(', ')}] 分组对比 (${groupBuckets.length} 组, chart 中画前 8 组浅色线) ${srcBadge}</div>
                 <table style="width:100%; font-size:11px; border-collapse:collapse;">
                   <thead><tr style="color:var(--muted);">
                     <th style="text-align:left; padding:2px 8px;">分组</th>

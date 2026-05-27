@@ -649,7 +649,14 @@
               <option value="lifecycle_stage">lifecycle (生命周期)</option>
             </select>
           </label>
-          <label style="flex: 0 0 280px;">模型推断 (用所选模型对实测 set 的均值 context 推断)
+          <!-- v2.10.27: 分组数据源 (实测 / 模型预测) -->
+          <label style="flex: 0 0 180px;" title="实测=samples 表均值; 模型预测=对每个维度值用所选模型推断">分组数据源
+            <select id="curve-group-source" style="font-size:11px;">
+              <option value="observed" selected>实测样本均值</option>
+              <option value="predicted">模型预测 (需选模型)</option>
+            </select>
+          </label>
+          <label style="flex: 0 0 280px;">模型推断 (主线: 该模型对 default ctx 推断)
             <select id="curve-predict-model">
               <option value="">— 不推断 (只画目标 / 实测) —</option>
             </select>
