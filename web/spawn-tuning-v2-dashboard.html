@@ -635,11 +635,12 @@
         <h2>📊 d_curve 三线对照 <span style="font-weight:normal; font-size:11px; color:var(--muted);">目标 S 曲线 vs 模型预测 vs 实测均值</span></h2>
         <p class="muted-hint">业务直观图: r = score/PB ∈ [0, 1.5], 难度 D ∈ [0, 1]</p>
 
+        <!-- v2.10.23: 三个下拉加宽 (default 130px 太窄, 文字被截断) -->
         <div class="form-row">
-          <label>选样本集 (实测数据)
+          <label style="flex: 0 0 240px;">选样本集 (实测数据)
             <select id="curve-set"><option value="">— 不加载实测 —</option></select>
           </label>
-          <label class="narrow" title="按某维度分组聚合 d_curve (多选)">分组维度
+          <label style="flex: 0 0 200px;" title="按某维度分组聚合 d_curve (Cmd/Ctrl 多选)">分组维度
             <select id="curve-group-by" multiple size="3" style="height:auto; min-height:60px; font-size:11px;">
               <option value="difficulty">difficulty (难度)</option>
               <option value="generator">generator (生成器)</option>
@@ -648,7 +649,7 @@
               <option value="lifecycle_stage">lifecycle (生命周期)</option>
             </select>
           </label>
-          <label>模型推断 (用所选模型对实测 set 的均值 context 推断)
+          <label style="flex: 0 0 280px;">模型推断 (用所选模型对实测 set 的均值 context 推断)
             <select id="curve-predict-model">
               <option value="">— 不推断 (只画目标 / 实测) —</option>
             </select>
