@@ -48,9 +48,11 @@ CREATE TABLE IF NOT EXISTS samples (
     difficulty      TEXT NOT NULL
                     CHECK (difficulty IN ('easy', 'normal', 'hard')),
     generator       TEXT NOT NULL
-                    CHECK (generator IN ('triplet-p1', 'budget-p2')),
+                    -- v2.10.34/35: heuristic-rule (启发式·规则版); generative (生成式 ML 模型, sampler 通过 HTTP 调 SpawnPolicyNet)
+                    CHECK (generator IN ('triplet-p1', 'budget-p2', 'heuristic-rule', 'generative')),
     bot_policy      TEXT NOT NULL
-                    CHECK (bot_policy IN ('random', 'clear-greedy', 'survival')),
+                    -- v2.10.34: 加 rl-bot (UI 占位, 暂不实际采样)
+                    CHECK (bot_policy IN ('random', 'clear-greedy', 'survival', 'rl-bot')),
     pb_bin          INTEGER NOT NULL
                     CHECK (pb_bin IN (500, 1500, 4000, 10000, 25000)),
     lifecycle_stage TEXT NOT NULL
@@ -75,7 +77,14 @@ CREATE TABLE IF NOT EXISTS samples (
     -- v2.10: 标识 d_step 算法版本 (兼容老 v2.9 平坦数据)
     --   'v2.9'   = 老公式, d_step = state_d 跟 r 无关, d_curve 平坦
     --   'v2.10'  = PB-aware, d_step = d_pb_base(r) + state_offset, d_curve 有 S 形
-    algo_version    TEXT NOT NULL DEFAULT 'v2.10'
+    algo_version    TEXT NOT NULL DEFAULT 'v2.10',
+    -- v2.10.32 (P0.1): n_bins_filled = d_curve 中真实观察 bin 数 (0~20)
+    --   nbins - n_bins_filled = 被 _pbAwareDPbBase 先验填充的 bin 数
+    --   高 PB 桶通常只有 2~5 bin 真实观察, 其余靠先验
+    -- v2.10.32 (P0.2): bin_counts_json = 每 bin 真实观察样本数 (20D JSON array)
+    --   用于训练时 confidence 加权 loss (避免 model 学 prior fabricated 数据)
+    n_bins_filled   INTEGER,
+    bin_counts_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_samples_set      ON samples(set_id);

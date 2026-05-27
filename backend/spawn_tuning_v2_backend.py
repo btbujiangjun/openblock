@@ -90,7 +90,58 @@ def ensure_schema():
     if SCHEMA_PATH.exists():
         conn.executescript(SCHEMA_PATH.read_text())
     conn.executescript(_FIELD_METRICS_DDL)
+    # v2.10.32 (P0): 历史 DB 没有 n_bins_filled / bin_counts_json 列, 启动时补
+    _existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(samples)").fetchall()}
+    if "n_bins_filled" not in _existing_cols:
+        conn.execute("ALTER TABLE samples ADD COLUMN n_bins_filled INTEGER")
+    if "bin_counts_json" not in _existing_cols:
+        conn.execute("ALTER TABLE samples ADD COLUMN bin_counts_json TEXT")
+    # v2.10.37: 检测 samples CHECK 约束是否过时 (v2.10.34/35 加了 heuristic-rule / generative / rl-bot)
+    #   SQLite 不支持 ALTER TABLE 改 CHECK, 必须重建表
+    _migrate_samples_check_constraints(conn)
+    conn.commit()
     conn.close()
+
+
+def _migrate_samples_check_constraints(conn):
+    """v2.10.37: 如果 samples 表 CHECK 不含新 enum 值, 重建表 (保留所有数据)."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='samples'").fetchone()
+    if not row or not row[0]:
+        return
+    table_sql = row[0]
+    # 检测是否包含 v2.10.34/35 新加的 enum (任何一个缺失就需要 migrate)
+    required_tokens = ["'heuristic-rule'", "'generative'", "'rl-bot'"]
+    if all(tok in table_sql for tok in required_tokens):
+        return   # CHECK 已是最新
+    print("[ensure_schema] v2.10.37 migrate: 重建 samples 表 (扩展 CHECK 允许 heuristic-rule/generative/rl-bot) ...")
+    # 用 schema.sql 完整定义重建. 但 schema.sql 里 CREATE TABLE IF NOT EXISTS 不会重建,
+    # 所以这里手动 DROP 老表 + 用 schema.sql 重建 + 把老数据 copy 回来.
+    conn.execute("BEGIN")
+    try:
+        # 1. snapshot 老数据到 temp 表
+        conn.execute("CREATE TABLE samples_backup AS SELECT * FROM samples")
+        # 2. 老表 DROP — 注意外键: sample_sets 不引用 samples (sample_count 是 denormalized), 安全 DROP
+        conn.execute("DROP TABLE samples")
+        # 3. 用 schema.sql 重建 (跳过其他表, 只取 samples 段). 简单做法: 重跑整个 schema.sql,
+        #    其他表用 CREATE TABLE IF NOT EXISTS 不会被破坏
+        if SCHEMA_PATH.exists():
+            conn.executescript(SCHEMA_PATH.read_text())
+        # 4. 把老数据塞回 (CHECK 现在更宽, 老 enum 全部仍有效)
+        old_cols_row = conn.execute("PRAGMA table_info(samples_backup)").fetchall()
+        old_cols = [r[1] for r in old_cols_row]
+        new_cols_row = conn.execute("PRAGMA table_info(samples)").fetchall()
+        new_cols = {r[1] for r in new_cols_row}
+        # 只 copy 同时存在于 old 和 new 的列
+        common = [c for c in old_cols if c in new_cols]
+        col_list = ", ".join(common)
+        conn.execute(f"INSERT INTO samples ({col_list}) SELECT {col_list} FROM samples_backup")
+        conn.execute("DROP TABLE samples_backup")
+        conn.execute("COMMIT")
+        print("[ensure_schema] v2.10.37 migrate: 完成, samples CHECK 已更新")
+    except Exception as e:
+        conn.execute("ROLLBACK")
+        print(f"[ensure_schema] v2.10.37 migrate 失败, 回滚: {e}")
+        raise
 
 
 def row_to_dict(row) -> dict:
@@ -263,6 +314,8 @@ def register_v2_routes(app):
             "clear_rate", "noMove_step", "pb_broke", "surprise_count",
             "seed", "eval_ms", "evaluated_at",
             "algo_version",   # v2.10
+            # v2.10.32 (P0): bin 真实观察数据透明化
+            "n_bins_filled", "bin_counts_json",
         ]
         placeholders = ",".join(["?"] * len(fields))
         sql = f"INSERT INTO samples ({','.join(fields)}) VALUES ({placeholders})"
@@ -271,6 +324,10 @@ def register_v2_routes(app):
         errors = 0
         for s in samples:
             try:
+                _bc = s.get("bin_counts")
+                _bc_json = json.dumps(_bc) if isinstance(_bc, list) else (
+                    _bc if isinstance(_bc, str) else None
+                )
                 row = (
                     set_id,
                     s["difficulty"], s["generator"], s["bot_policy"],
@@ -282,12 +339,17 @@ def register_v2_routes(app):
                     int(bool(s.get("pb_broke", False))), s.get("surprise_count", 0),
                     s.get("seed"), s.get("eval_ms"),
                     s.get("evaluated_at", int(time.time() * 1000)),
-                    s.get("algo_version", "v2.10"),   # 默认 v2.10
+                    s.get("algo_version", "v2.10"),
+                    s.get("n_bins_filled"),
+                    _bc_json,
                 )
                 db.execute(sql, row)
                 inserted += 1
-            except (KeyError, ValueError, sqlite3.IntegrityError):
+            except (KeyError, ValueError, sqlite3.IntegrityError) as _err:
                 errors += 1
+                # v2.10.37: 暴露第一条具体错误信息 (sqlite CHECK 失败/类型不匹配/etc), 帮助 user 定位
+                if errors <= 3:  # 只记前 3 条避免日志爆炸
+                    print(f"[samples insert error #{errors}] {type(_err).__name__}: {_err} | sample ctx={s.get('difficulty')}/{s.get('generator')}/{s.get('bot_policy')}/{s.get('pb_bin')}/{s.get('lifecycle_stage')}")
                 continue
 
         # 更新 sample_count
@@ -297,7 +359,13 @@ def register_v2_routes(app):
         )
         db.commit()
         db.close()
-        return jsonify({"inserted": inserted, "errors": errors, "received": len(samples)})
+        # v2.10.37: 返回 first_error 给 UI, 不只是数字
+        return jsonify({
+            "inserted": inserted,
+            "errors": errors,
+            "received": len(samples),
+            "first_error": None if errors == 0 else f"see server log for sqlite errors (first {min(errors, 3)} printed)",
+        })
 
     @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/preview", methods=["GET"])
     def preview_sample_set(set_id):
@@ -377,7 +445,11 @@ def register_v2_routes(app):
               AVG(clear_rate)        AS clear_rate_mean,
               SUM(pb_broke)          AS pb_broke_count,
               SUM(CASE WHEN noMove_step >= 0 THEN 1 ELSE 0 END) AS noMove_count,
-              AVG(surprise_count)    AS surprise_mean
+              AVG(surprise_count)    AS surprise_mean,
+              AVG(n_bins_filled)     AS bins_filled_mean,
+              MIN(n_bins_filled)     AS bins_filled_min,
+              MAX(n_bins_filled)     AS bins_filled_max,
+              AVG(final_score * 1.0 / pb_bin)  AS r_mean
             FROM samples WHERE {where_sql}
             """,
             where_args_t,
@@ -413,6 +485,15 @@ def register_v2_routes(app):
             "pb_broke_rate": round((label_row["pb_broke_count"] or 0) / max(1, n_samples), 4),
             "noMove_rate": round((label_row["noMove_count"] or 0) / max(1, n_samples), 4),
             "surprise_mean": round(label_row["surprise_mean"] or 0, 2),
+            # v2.10.32 (P0.1): 真实观察 bin 数透明化
+            #   高 PB 桶 (e.g. pb=25000) bot 打不到, n_bins_filled 通常很低,
+            #   d_curve 在 r>1 段大部分是 _pbAwareDPbBase 先验填充,
+            #   user 看到 bins_filled_mean << 20 时就知道该子集后段不真实。
+            "bins_filled_mean": round(label_row["bins_filled_mean"] or 0, 1),
+            "bins_filled_min": label_row["bins_filled_min"] or 0,
+            "bins_filled_max": label_row["bins_filled_max"] or 0,
+            # avg(score/pb): 反映 bot 实际触达的 r 区间
+            "r_mean": round(label_row["r_mean"] or 0, 3),
         }
 
         # 3) θ 9 维直方 (扫筛选后的 theta_json, 计算 min/mean/max)
@@ -468,7 +549,8 @@ def register_v2_routes(app):
             f"""
             SELECT sample_id, difficulty, generator, bot_policy, pb_bin, lifecycle_stage,
                    theta_json, final_score, survived_steps, clear_rate, noMove_step,
-                   pb_broke, surprise_count, seed, eval_ms, evaluated_at
+                   pb_broke, surprise_count, seed, eval_ms, evaluated_at,
+                   n_bins_filled
             FROM samples WHERE {where_sql}
             ORDER BY sample_id DESC LIMIT ?
             """,
@@ -760,36 +842,54 @@ def register_v2_routes(app):
             db.close()
             return jsonify({"error": "sample_set not found"}), 404
 
+        # v2.10.32 (P0.1): 同时拿 n_bins_filled 透明化
         if groups:
             group_cols = ", ".join(groups)
             rows = db.execute(
-                f"SELECT {group_cols}, d_curve_json FROM samples WHERE set_id = ?",
+                f"SELECT {group_cols}, d_curve_json, n_bins_filled, final_score, pb_bin "
+                f"FROM samples WHERE set_id = ?",
                 (set_id,),
             ).fetchall()
         else:
             rows = db.execute(
-                "SELECT d_curve_json FROM samples WHERE set_id = ?", (set_id,)
+                "SELECT d_curve_json, n_bins_filled, final_score, pb_bin FROM samples WHERE set_id = ?",
+                (set_id,),
             ).fetchall()
         db.close()
 
         # 按分组聚合
         from collections import defaultdict
-        bucket = defaultdict(list)
+        bucket = defaultdict(lambda: {"curves": [], "filled": [], "rs": []})
         for r in rows:
-            curve = json.loads(r["d_curve_json"])
+            try:
+                curve = json.loads(r["d_curve_json"])
+            except (TypeError, ValueError):
+                continue
             if len(curve) != 20:
                 continue
-            if groups:
-                key = tuple(r[g] for g in groups)
-            else:
-                key = ()
-            bucket[key].append(curve)
+            key = tuple(r[g] for g in groups) if groups else ()
+            bucket[key]["curves"].append(curve)
+            if r["n_bins_filled"] is not None:
+                bucket[key]["filled"].append(int(r["n_bins_filled"]))
+            pb = r["pb_bin"]
+            score = r["final_score"]
+            if pb and pb > 0 and score is not None:
+                bucket[key]["rs"].append(score / pb)
 
         results = []
-        for key, curves in bucket.items():
+        for key, data in bucket.items():
+            curves = data["curves"]
             arr = [[c[i] for c in curves] for i in range(20)]
             avg = [sum(col) / len(col) for col in arr]
-            entry = {"d_curve_avg": avg, "n_samples": len(curves)}
+            filled = data["filled"]
+            rs = data["rs"]
+            entry = {
+                "d_curve_avg": avg,
+                "n_samples": len(curves),
+                # v2.10.32 (P0.1): 真实观察比例 — UI 显示告知 user 后段是 prior 填充
+                "bins_filled_mean": round(sum(filled) / len(filled), 1) if filled else None,
+                "r_mean": round(sum(rs) / len(rs), 3) if rs else None,
+            }
             for i, g in enumerate(groups):
                 entry[g] = key[i]
             results.append(entry)
@@ -985,7 +1085,12 @@ def register_v2_routes(app):
                     n_blocks=arch.get("n_blocks", 8),
                     curve_bins=arch.get("curve_bins", N_CURVE_BINS),
                 )
-            model.load_state_dict(ck["model_state_dict"])
+            # v2.10.33 (P2.2 兼容): strict=False 让老 ckpt (无 head_r) 也能加载
+            # v2.10.34: + load_state_dict_compat — embedding 维度变了 (N_GEN/BOT 扩) 也能加载
+            from rl_pytorch.spawn_tuning_v2.model import load_state_dict_compat
+            missing, unexpected = load_state_dict_compat(model, ck["model_state_dict"])
+            if missing or unexpected:
+                print(f"[load-model #{model_id}] warn — missing: {missing[:3]} unexpected: {unexpected[:3]}")
             model.eval()
         except Exception as e:
             return jsonify({"error": f"load model failed: {e}"}), 500
@@ -1003,24 +1108,40 @@ def register_v2_routes(app):
             except (KeyError, ValueError, TypeError) as e:
                 return jsonify({"error": f"invalid context {c}: {e}"}), 400
 
-        with torch.no_grad():
-            theta_t = torch.tensor([theta_norm] * len(contexts), dtype=torch.float32)
-            preds = model(
-                difficulty_idx=torch.tensor(diffs, dtype=torch.long),
-                generator_idx=torch.tensor(gens, dtype=torch.long),
-                bot_idx=torch.tensor(bots, dtype=torch.long),
-                pb_bin_idx=torch.tensor(pbs, dtype=torch.long),
-                lifecycle_idx=torch.tensor(lifes, dtype=torch.long),
-                log_pb=torch.tensor(log_pbs, dtype=torch.float32),
-                theta_norm=theta_t,
-            )
-            curves = preds["curve"].cpu().numpy().tolist()
+        # v2.10.32 (P2.3): 可选 MC Dropout uncertainty (body.uncertainty=true)
+        want_uncertainty = bool(body.get("uncertainty"))
+        n_mc_samples = max(5, min(100, int(body.get("n_mc_samples", 30))))
 
-        return jsonify({
+        theta_t = torch.tensor([theta_norm] * len(contexts), dtype=torch.float32)
+        kwargs = dict(
+            difficulty_idx=torch.tensor(diffs, dtype=torch.long),
+            generator_idx=torch.tensor(gens, dtype=torch.long),
+            bot_idx=torch.tensor(bots, dtype=torch.long),
+            pb_bin_idx=torch.tensor(pbs, dtype=torch.long),
+            lifecycle_idx=torch.tensor(lifes, dtype=torch.long),
+            log_pb=torch.tensor(log_pbs, dtype=torch.float32),
+            theta_norm=theta_t,
+        )
+
+        resp = {
             "model_id": model_id,
             "n_contexts": len(contexts),
-            "curves": curves,
-        })
+        }
+        if want_uncertainty and hasattr(model, "predict_with_uncertainty"):
+            mc = model.predict_with_uncertainty(n_samples=n_mc_samples, **kwargs)
+            resp["curves"] = mc["curve_mean"].cpu().numpy().tolist()
+            resp["curves_std"] = mc["curve_std"].cpu().numpy().tolist()
+            resp["r_pred"] = mc["r_mean"].cpu().numpy().tolist() if "r_mean" in mc else None
+            resp["r_std"] = mc["r_std"].cpu().numpy().tolist() if "r_std" in mc else None
+            resp["mc_samples"] = mc["n_samples"]
+        else:
+            with torch.no_grad():
+                preds = model(**kwargs)
+                resp["curves"] = preds["curve"].cpu().numpy().tolist()
+                # v2.10.32 (P2.2): 暴露 r_value head (model 实际触达 r 估计)
+                if "r_value" in preds:
+                    resp["r_pred"] = preds["r_value"].cpu().numpy().tolist()
+        return jsonify(resp)
 
     @bp.route("/api/spawn-tuning-v2/models/<int:model_id>/deploy", methods=["POST"])
     def deploy_model(model_id):
@@ -1597,7 +1718,12 @@ def register_v2_routes(app):
                     n_blocks=arch.get("n_blocks", 8),
                     curve_bins=arch.get("curve_bins", N_CURVE_BINS),
                 )
-            model.load_state_dict(ck["model_state_dict"])
+            # v2.10.33 (P2.2 兼容): strict=False 让老 ckpt (无 head_r) 也能加载
+            # v2.10.34: + load_state_dict_compat — embedding 维度变了 (N_GEN/BOT 扩) 也能加载
+            from rl_pytorch.spawn_tuning_v2.model import load_state_dict_compat
+            missing, unexpected = load_state_dict_compat(model, ck["model_state_dict"])
+            if missing or unexpected:
+                print(f"[load-model #{model_id}] warn — missing: {missing[:3]} unexpected: {unexpected[:3]}")
             model.eval()
         except Exception as e:
             return jsonify({"error": f"load model failed: {e}"}), 500
@@ -1990,7 +2116,12 @@ def register_v2_routes(app):
                     n_blocks=arch.get("n_blocks", 8),
                     curve_bins=arch.get("curve_bins", N_CURVE_BINS),
                 )
-            model.load_state_dict(ck["model_state_dict"])
+            # v2.10.33 (P2.2 兼容): strict=False 让老 ckpt (无 head_r) 也能加载
+            # v2.10.34: + load_state_dict_compat — embedding 维度变了 (N_GEN/BOT 扩) 也能加载
+            from rl_pytorch.spawn_tuning_v2.model import load_state_dict_compat
+            missing, unexpected = load_state_dict_compat(model, ck["model_state_dict"])
+            if missing or unexpected:
+                print(f"[load-model #{model_id}] warn — missing: {missing[:3]} unexpected: {unexpected[:3]}")
             model.eval()
         except Exception as e:
             return jsonify({"error": f"load model failed: {e}"}), 500

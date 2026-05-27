@@ -71,11 +71,15 @@ export function targetSCurve(r) {
 
 // ─────────── v2.9: 校准 target (用于训练) ───────────
 // 与 Python target_curve.D_BASE_CAL 等严格对应
-export const D_BASE_CAL = 0.42;
-export const D_GENTLE_END_CAL = 0.48;
-export const D_MID_END_CAL = 0.55;
-export const D_BRAKE_END_CAL = 0.75;
-export const D_CAP_CAL = 0.85;
+// v2.10.6 (Python) / v2.10.31 (JS 同步): 拉宽端点 — 老值 (0.42, 0.85, 跨度 0.43) 让 calibrated 距 ideal 太远,
+//   model #20 在老 calibrated 上拟合后 vs ideal MAE = 0.215。
+//   新值 (0.30, 0.92, 跨度 0.62) 让 calibrated 显著接近 ideal,model 学得更宽。
+//   ⚠ 修改任何常数必须同时更新 rl_pytorch/spawn_tuning_v2/target_curve.py + 跑 tests/spawn_tuning_v2/test_cross_lang_consistency.py
+export const D_BASE_CAL = 0.30;        // v2.10.31 sync: 0.42 → 0.30
+export const D_GENTLE_END_CAL = 0.38;  // 0.48 → 0.38
+export const D_MID_END_CAL = 0.50;     // 0.55 → 0.50
+export const D_BRAKE_END_CAL = 0.82;   // 0.75 → 0.82
+export const D_CAP_CAL = 0.92;         // 0.85 → 0.92
 
 /** v2.9: 校准版 target — 温和 S 形, 与 bot 数据 baseline 接近。 */
 export function targetSCurveCalibrated(r) {

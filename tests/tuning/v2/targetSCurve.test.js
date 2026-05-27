@@ -10,6 +10,9 @@ import {
     CURVE_N_BINS, CURVE_R_MAX,
     SEG_GENTLE_END, SEG_MID_END, SEG_BRAKE_END,
     D_BASE, D_GENTLE_END, D_MID_END, D_BRAKE_END, D_CAP,
+    // v2.10.31: calibrated 端点常数 + 函数 (跨语言一致性)
+    targetSCurveCalibrated, targetCurveCalibratedVector,
+    D_BASE_CAL, D_GENTLE_END_CAL, D_MID_END_CAL, D_BRAKE_END_CAL, D_CAP_CAL,
 } from '../../../web/src/tuning/v2/targetSCurve.js';
 
 describe('targetSCurve', () => {
@@ -84,6 +87,47 @@ describe('targetCurveVector', () => {
         expect(v[0]).toBeCloseTo(0.21, 4);
         expect(v[5]).toBeCloseTo(0.35, 3);
         expect(v[19]).toBeGreaterThan(0.999);
+    });
+});
+
+describe('targetSCurveCalibrated (v2.10.31 — 与 Python target_curve.py 严格一致)', () => {
+    it('端点常数与 Python target_curve.D_BASE_CAL 等对齐', () => {
+        // ⚠ 任何修改必须同步 rl_pytorch/spawn_tuning_v2/target_curve.py
+        expect(D_BASE_CAL).toBe(0.30);
+        expect(D_GENTLE_END_CAL).toBe(0.38);
+        expect(D_MID_END_CAL).toBe(0.50);
+        expect(D_BRAKE_END_CAL).toBe(0.82);
+        expect(D_CAP_CAL).toBe(0.92);
+    });
+
+    it('origin returns D_BASE_CAL', () => {
+        expect(targetSCurveCalibrated(0)).toBeCloseTo(D_BASE_CAL, 9);
+    });
+
+    it('segment boundaries match calibrated constants', () => {
+        expect(targetSCurveCalibrated(SEG_GENTLE_END)).toBeCloseTo(D_GENTLE_END_CAL, 9);
+        expect(targetSCurveCalibrated(SEG_MID_END)).toBeCloseTo(D_MID_END_CAL, 9);
+    });
+
+    it('monotonic non-decreasing on [0, r_max]', () => {
+        const n = Math.round(CURVE_R_MAX * 100) + 1;
+        const rs = Array.from({ length: n }, (_, i) => i / 100);
+        const ds = rs.map(targetSCurveCalibrated);
+        expect(isMonotonicNonDecreasing(ds, 1e-4)).toBe(true);
+    });
+
+    it('r=r_max 接近 D_CAP_CAL', () => {
+        expect(targetSCurveCalibrated(CURVE_R_MAX)).toBeGreaterThan(D_CAP_CAL - 1e-3);
+        expect(targetSCurveCalibrated(CURVE_R_MAX)).toBeLessThan(D_CAP_CAL + 1e-9);
+    });
+
+    it('vector length 20', () => {
+        expect(targetCurveCalibratedVector()).toHaveLength(CURVE_N_BINS);
+    });
+
+    it('跨度 D_CAP_CAL - D_BASE_CAL = 0.62 (v2.10.6 拉宽后)', () => {
+        // v2.9 (老) 跨度 = 0.43; v2.10.6 (新) = 0.62
+        expect(D_CAP_CAL - D_BASE_CAL).toBeCloseTo(0.62, 6);
     });
 });
 

@@ -41,6 +41,40 @@ class TestLossShape:
         # MSE = 0.25
         assert loss_shape(pred, target).item() == pytest.approx(0.25)
 
+    # v2.10.32 (P0.2): confidence-weighted loss 测试
+    def test_confidence_weighted_zero_counts_fallback(self):
+        """bin_counts 全 0 → 退化为 v2.7 普通 weighted MSE (老样本兼容)."""
+        target = torch.tensor([[0.0] * 20])
+        pred = torch.tensor([[0.5] * 20])
+        bin_counts = torch.zeros((1, 20))
+        loss_with_zero = loss_shape(pred, target, bin_counts=bin_counts).item()
+        loss_without = loss_shape(pred, target).item()
+        assert loss_with_zero == pytest.approx(loss_without, abs=1e-6)
+
+    def test_confidence_weighted_high_obs_full_weight(self):
+        """bin_counts 全 >> prior_strength → conf ≈ 1, loss 接近无 confidence 版本."""
+        target = torch.tensor([[0.0] * 20])
+        pred = torch.tensor([[0.5] * 20])
+        bin_counts = torch.full((1, 20), 100.0)   # 100 >> 3, conf ≈ 100/103 ≈ 0.97
+        loss_high = loss_shape(pred, target, bin_counts=bin_counts).item()
+        loss_baseline = loss_shape(pred, target).item()
+        # 几乎相等 (~3% 偏差因 conf ≠ 1)
+        assert loss_high == pytest.approx(loss_baseline, rel=0.05)
+
+    def test_confidence_weighted_partial_bins_zero(self):
+        """部分 bin 是 prior (bin_counts=0), 部分有观察 (bin_counts=10).
+        总 loss 应该只受有观察 bin 的预测误差影响."""
+        target = torch.tensor([[0.0] * 20])
+        pred = torch.tensor([[0.5] * 10 + [10.0] * 10])  # 后 10 bin 偏离很大
+        # 但后 10 bin 都没观察 (conf=0) → loss 不该被它们影响
+        bin_counts = torch.tensor([[10.0] * 10 + [0.0] * 10])
+        loss_partial = loss_shape(pred, target, bin_counts=bin_counts).item()
+        # 假如全是真实观察, 后 10 bin 偏离巨大, loss 会爆炸 (>> 1)
+        # 实际只看前 10 bin (误差 0.5), MSE ≈ 0.25
+        assert loss_partial < 1.0   # 远小于 "全观察" 的 loss
+        # 同时 loss > 0 (前 10 bin 有误差)
+        assert loss_partial > 0.05
+
 
 class TestLossBalance:
     def test_single_bin_zero(self):

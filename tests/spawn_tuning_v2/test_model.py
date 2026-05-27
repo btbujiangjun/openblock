@@ -95,15 +95,84 @@ class TestForward:
         assert (out["pb_broke"] <= 1).all()
 
     def test_gradient_flow(self, model):
-        """所有参数都应能拿到梯度 (loss 须覆盖所有 5 个 head)。"""
+        """所有参数都应能拿到梯度 (loss 须覆盖所有 head, v2.10.32 加 r_value)。"""
         batch = _make_batch(batch_size=4)
         out = model(**batch)
+        # v2.10.32 (P2.2): 加 r_value head
         loss = (out["curve"].mean() + out["pb_broke"].mean() + out["noMove"].mean()
-                + out["score"].mean() + out["survival"].mean())
+                + out["score"].mean() + out["survival"].mean()
+                + out["r_value"].mean())
         loss.backward()
         for name, p in model.named_parameters():
             assert p.grad is not None, f"{name} got no gradient"
             assert torch.isfinite(p.grad).all(), f"{name} grad has NaN/Inf"
+
+    # v2.10.32 (P2.2 + P2.3): r_value head + MC Dropout uncertainty
+    def test_r_value_output_range(self, model):
+        """r_value 输出 ∈ [0, 2.0] (CURVE_R_MAX)."""
+        batch = _make_batch(batch_size=8)
+        model.eval()
+        with torch.no_grad():
+            out = model(**batch)
+        assert "r_value" in out
+        assert out["r_value"].shape == (8,)
+        assert (out["r_value"] >= 0).all()
+        assert (out["r_value"] <= 2.0 + 1e-5).all()
+
+    def test_predict_with_uncertainty(self, model):
+        """MC Dropout 30 次采样应给出非零 std (随机性确实生效)."""
+        batch = _make_batch(batch_size=4)
+        mc = model.predict_with_uncertainty(n_samples=20, **batch)
+        assert "curve_mean" in mc
+        assert "curve_std" in mc
+        assert mc["curve_mean"].shape == (4, 20)
+        assert mc["curve_std"].shape == (4, 20)
+        # MC Dropout 应该至少在某些 bin 有非零 std
+        assert mc["curve_std"].max().item() > 1e-4, "MC dropout 没真正生效 — std 全 0"
+        assert mc["n_samples"] == 20
+
+    # v2.10.34: ckpt embedding 维度兼容 (老 N_GEN=2 → 新 N_GEN=4)
+    def test_load_state_dict_compat_emb_expansion(self, model):
+        """老 ckpt emb_gen.weight shape (2, D) 加载到新 model (N_GEN=4) 应自动 pad."""
+        from rl_pytorch.spawn_tuning_v2.model import load_state_dict_compat
+        # 构造一个"老 ckpt" — 改掉 emb_gen.weight 的 shape
+        sd = model.state_dict()
+        emb_key = "ctx_emb.emb_gen.weight"
+        full_w = sd[emb_key]
+        new_dim, d = full_w.shape
+        assert new_dim == 4, "前提: 当前 model N_GEN=4"
+        # 模拟老 ckpt (N_GEN=2) — 取前 2 行作为老权重
+        old_w = torch.randn(2, d)
+        sd_compat = dict(sd)
+        sd_compat[emb_key] = old_w
+        # 也替换 emb_bot (N_BOT 老 3 → 新 4)
+        emb_bot_key = "ctx_emb.emb_bot.weight"
+        bot_w_full = sd[emb_bot_key]
+        assert bot_w_full.shape[0] == 4, "前提: 当前 model N_BOT=4"
+        old_bot = torch.randn(3, d)
+        sd_compat[emb_bot_key] = old_bot
+        # 加载
+        from rl_pytorch.spawn_tuning_v2.model import SpawnParamTunerResNet
+        new_model = SpawnParamTunerResNet()
+        missing, unexpected = load_state_dict_compat(new_model, sd_compat)
+        # 验证: 前 2 行严格等于老权重
+        loaded_gen = new_model.state_dict()[emb_key]
+        assert torch.allclose(loaded_gen[:2], old_w), "前 2 行应复制老 ckpt"
+        # 后 2 行不应该是 0 (来自当前 model 的随机初始化)
+        # 前 3 行 bot 也应该等老
+        loaded_bot = new_model.state_dict()[emb_bot_key]
+        assert torch.allclose(loaded_bot[:3], old_bot), "前 3 行 bot 应复制老 ckpt"
+
+    def test_uncertainty_does_not_alter_eval_state(self, model):
+        """predict_with_uncertainty 调用后应恢复 eval 模式 (不影响后续推理)."""
+        model.eval()
+        batch = _make_batch(batch_size=2)
+        _ = model.predict_with_uncertainty(n_samples=5, **batch)
+        # Dropout layer 应该都回到 eval 模式
+        import torch.nn as nn_local
+        for m in model.modules():
+            if isinstance(m, nn_local.Dropout):
+                assert m.training is False, "Dropout 残留 training=True"
 
     def test_batch_size_1(self, model):
         """单样本 batch 也要能跑 (训练初期常见)。"""
@@ -217,14 +286,14 @@ class TestTransformer:
         assert 50_000 < n < 500_000, f"transformer param count {n} out of expected range"
 
     def test_gradient_flow(self):
-        """所有可训练参数都接收梯度。"""
+        """所有可训练参数都接收梯度 (v2.10.32 加 r_value head)。"""
         m = SpawnParamTunerTransformer()
         m.train()
         batch = _make_batch(batch_size=4)
         out = m(**batch)
-        # 综合 loss (5 个 head 都参与)
         loss = (out["curve"].sum() + out["pb_broke"].sum() + out["noMove"].sum()
-                + out["score"].sum() + out["survival"].sum())
+                + out["score"].sum() + out["survival"].sum()
+                + out["r_value"].sum())
         loss.backward()
         for name, p in m.named_parameters():
             if p.requires_grad:

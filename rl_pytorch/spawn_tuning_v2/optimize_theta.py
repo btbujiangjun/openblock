@@ -59,19 +59,26 @@ from .losses import LossWeights, loss_shape, loss_breaking, loss_surprise
 
 
 # ─────────── Context 枚举 ───────────
-
+# v2.10.34/35: GENERATOR_INDEX 加 heuristic-rule (sim 原生) + generative (V3 HTTP);
+#   BOT_INDEX 加 rl-bot (UI 占位, 暂未实采).
+#   360 ctx 枚举只用"已被 sampler 真实采样"的子集 — 占位类别不参与 bundle 部署.
 DIFFICULTY_VALUES = list(DIFFICULTY_INDEX.keys())
 GENERATOR_VALUES = list(GENERATOR_INDEX.keys())
 BOT_VALUES = list(BOT_INDEX.keys())
 PB_BIN_VALUES = list(PB_BIN_INDEX.keys())
 LIFECYCLE_VALUES = list(LIFECYCLE_INDEX.keys())
 
+# v2.10.34: 部署/枚举用的"稳定子集" — 排除占位类别, 保持 360 ctx 跨版本兼容
+#   heuristic-rule 已可采样, 但暂未加入部署枚举 (保持 360 ctx 兼容老 bundle); 后续启用可加
+DEPLOYABLE_GENERATORS = ["triplet-p1", "budget-p2"]
+DEPLOYABLE_BOTS = ["random", "clear-greedy", "survival"]   # rl-bot 后续启用后可加
+
 
 def enumerate_all_contexts() -> List[Dict]:
-    """枚举全部 3×2×3×5×4 = 360 个 context。"""
+    """枚举全部 3×2×3×5×4 = 360 个可部署 context (v2.10.34: 排除占位类别)。"""
     out = []
     for d, g, b, p, l in itertools.product(
-        DIFFICULTY_VALUES, GENERATOR_VALUES, BOT_VALUES, PB_BIN_VALUES, LIFECYCLE_VALUES,
+        DIFFICULTY_VALUES, DEPLOYABLE_GENERATORS, DEPLOYABLE_BOTS, PB_BIN_VALUES, LIFECYCLE_VALUES,
     ):
         out.append({
             "difficulty": d,
@@ -226,7 +233,12 @@ def optimize_all_contexts(
         n_blocks=arch.get("n_blocks", 8),
         curve_bins=arch.get("curve_bins", N_CURVE_BINS),
     ).to(device)
-    model.load_state_dict(ck["model_state_dict"])
+    # v2.10.33 (P2.2 兼容): strict=False 让老 ckpt (无 head_r) 也能 bundle 部署
+    # v2.10.34: + load_state_dict_compat 处理 emb 维度扩展
+    from .model import load_state_dict_compat
+    missing, unexpected = load_state_dict_compat(model, ck["model_state_dict"])
+    if missing or unexpected:
+        print(f"[optimize_theta] ckpt warn — missing: {missing[:3]} unexpected: {unexpected[:3]}")
 
     # 文件 sha256 (供 policy 元数据)
     bin_bytes = Path(checkpoint_path).read_bytes()

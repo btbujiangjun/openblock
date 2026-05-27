@@ -192,9 +192,10 @@ const ALL_DIM_VALUES = {
 };
 
 const PRESETS = {
-    smoke:  { thetas: 3,  seeds: 1, maxSteps: 30, label: '🔥 烟雾测试 (~30 秒)' },
-    debug:  { thetas: 5,  seeds: 2, maxSteps: 120, label: '🐞 日常调试 (~5 分)' },
-    prod:   { thetas: 15, seeds: 2, maxSteps: 240, label: '🏭 生产训练 (~1 小时)' },
+    smoke:  { thetas: 3,  seeds: 1, maxSteps: 60, label: '🔥 烟雾测试 (~30 秒)' },
+    debug:  { thetas: 5,  seeds: 2, maxSteps: 300, label: '🐞 日常调试 (~5 分)' },
+    // v2.10.36: maxSteps 240 → 500 (跟 P1.3 sampler default 对齐, 让强 bot 在高 PB 桶有机会触达 r≥1)
+    prod:   { thetas: 15, seeds: 2, maxSteps: 500, label: '🏭 生产训练 (~1 小时)' },
 };
 
 
@@ -440,17 +441,25 @@ function setupChips() {
     document.querySelectorAll('.chip-group .chip').forEach((c) => {
         c.dataset.weight = '1';
         c.addEventListener('click', (e) => {
+            // v2.10.34: disabled chip 不响应点击 (UI 占位 generator/bot)
+            if (c.classList.contains('chip-disabled') || c.hasAttribute('disabled')) {
+                e.preventDefault();
+                return;
+            }
             if (e.altKey || e.shiftKey) { editChipWeight(c); return; }
             c.classList.toggle('chip-on');
             updateEstimate();
         });
         c.addEventListener('contextmenu', (e) => {
             e.preventDefault();
+            if (c.classList.contains('chip-disabled')) return;
             editChipWeight(c);
         });
     });
     $('btn-dim-reset').addEventListener('click', () => {
         document.querySelectorAll('.chip-group .chip').forEach((c) => {
+            // v2.10.34: reset 也跳过 disabled chip (保持禁用态)
+            if (c.classList.contains('chip-disabled')) return;
             c.classList.add('chip-on');
             c.dataset.weight = '1';
             c.querySelector('.chip-weight-badge')?.remove();
@@ -617,10 +626,22 @@ function _lhsThetas(n) {
         }
         segs.forEach((v, i) => { out[i][k] = lo + v * (hi - lo); });
     }
-    // G8 v2.10.9: 把 UI lookahead 开关注入每个 theta (sampler 据此选择 bot 算法)
+    // G8 v2.10.9: 1-step lookahead 开关
+    // v2.10.32 (P1.2): 2-step lookahead 开关 (强 bot, 适合高 PB 档采样)
+    // v2.10.33 (P2.1): MCTS rollout 开关 (最强 bot, 慢)
     const useLookahead = !!$('cfg-lookahead')?.checked;
-    if (useLookahead) {
-        out.forEach((t) => { t.use_lookahead_bot = true; });
+    const useLookahead2 = !!$('cfg-lookahead2')?.checked;
+    const useMCTS = !!$('cfg-mcts')?.checked;
+    if (useLookahead || useLookahead2 || useMCTS) {
+        out.forEach((t) => {
+            t.use_lookahead_bot = useLookahead || useLookahead2 || useMCTS;
+            if (useLookahead2) t.use_lookahead2_bot = true;
+            if (useMCTS) {
+                t.use_mcts_bot = true;
+                t.mcts_rollouts = 30;
+                t.mcts_rollout_steps = 30;
+            }
+        });
     }
     return out;
 }
@@ -651,7 +672,8 @@ async function startCollect() {
     try {
         const smokeTheta = _lhsThetas(1)[0];
         const smokeMaxSteps = Math.min(40, maxSteps);
-        runOneSampleV2({ context: contexts[0], theta: smokeTheta, seed: 1, maxSteps: smokeMaxSteps });
+        // v2.10.35: runOneSampleV2 改 async (generative 需 await V3); smoke test 也要 await
+        await runOneSampleV2({ context: contexts[0], theta: smokeTheta, seed: 1, maxSteps: smokeMaxSteps });
     } catch (e) {
         $('collect-hint').innerHTML = `<span style="color:var(--bad)">✗ smoke test 失败, 已取消任务: ${escapeHtml(e.message)}<br><span style="font-size:10.5px;">→ 打开浏览器 Console 查看完整堆栈; 修复后再试</span></span>`;
         $('btn-start-collect').disabled = false;
@@ -1153,10 +1175,13 @@ function renderQualityBody(d) {
     const bp = d.bot_performance || {};
     // r 分布条形图
     const maxCnt = Math.max(...(rd.counts || [1]), 1);
+    const totalCnt = (rd.counts || []).reduce((s, c) => s + c, 0) || 1;
     const rBars = (rd.counts || []).map((c, i) => {
         const lo = (i * 0.2).toFixed(1);
         const hi = ((i + 1) * 0.2).toFixed(1);
         const w = Math.round((c / maxCnt) * 100);
+        // v2.10.37: 百分比 (相对总样本数, 不是 maxCnt)
+        const pct = ((c / totalCnt) * 100).toFixed(1);
         const isBelowPb = i < 5;
         const color = isBelowPb ? '#60a5fa' : '#34d399';
         return `<div style="display:flex; align-items:center; font-size:11px; gap:6px; padding:2px 0;">
@@ -1164,7 +1189,8 @@ function renderQualityBody(d) {
           <div style="flex:1; background:rgba(255,255,255,0.04); height:14px; position:relative;">
             <div style="width:${w}%; height:100%; background:${color};"></div>
           </div>
-          <span style="width:60px; text-align:right; font-family:ui-monospace;">${c}</span>
+          <span style="width:48px; text-align:right; font-family:ui-monospace;">${c}</span>
+          <span style="width:48px; text-align:right; font-family:ui-monospace; color:var(--muted);">${pct}%</span>
         </div>`;
     }).join('');
     // d_curve 平均/std mini 表
@@ -1295,10 +1321,20 @@ function renderSetPreviewBody(data) {
     }).join('');
 
     /* === 标签摘要卡片 === */
+    // v2.10.32 (P0.1): 加入 bins_filled / r_mean 透明化卡片
+    const bfMean = lbl.bins_filled_mean ?? null;
+    const bfPct = bfMean != null ? (bfMean / 20 * 100) : null;
+    const bfColor = bfPct == null ? 'var(--text)'
+        : bfPct < 40 ? 'var(--bad)' : bfPct < 70 ? 'var(--warn)' : 'var(--good)';
+    const rMean = lbl.r_mean ?? null;
+    const rColor = rMean == null ? 'var(--text)'
+        : rMean < 0.3 ? 'var(--bad)' : rMean < 0.7 ? 'var(--warn)' : 'var(--good)';
     const tiles = `
         <div class="pv-stat-tile"><div class="v">${(lbl.n || 0).toLocaleString()}</div><div class="l">总样本数</div></div>
         <div class="pv-stat-tile"><div class="v">${fs.mean || '-'}</div><div class="l">final_score 均值</div></div>
         <div class="pv-stat-tile"><div class="v">${fs.p50 ?? '-'}<span style="font-size:9px; color:var(--muted)"> / ${fs.p90 ?? '-'}</span></div><div class="l">分数 p50 / p90</div></div>
+        <div class="pv-stat-tile" title="bot 实际打到的 score/PB 均值. 越接近 1 说明 bot 能力越覆盖 PB 区, d_curve 越真实."><div class="v" style="color:${rColor}">${rMean != null ? rMean.toFixed(3) : '-'}</div><div class="l">avg r (score/PB)</div></div>
+        <div class="pv-stat-tile" title="20 bin 中真实观察的 bin 数. 其余靠 _pbAwareDPbBase 先验填充. 高 PB 桶通常很低."><div class="v" style="color:${bfColor}">${bfMean != null ? bfMean.toFixed(1) : '-'}<span style="font-size:9px; color:var(--muted)">/20</span></div><div class="l">真实观察 bin</div></div>
         <div class="pv-stat-tile"><div class="v" style="color:${(lbl.pb_broke_rate || 0) > 0.3 ? 'var(--good)' : 'var(--text)'}">${((lbl.pb_broke_rate || 0) * 100).toFixed(1)}%</div><div class="l">破 PB 率</div></div>
         <div class="pv-stat-tile"><div class="v" style="color:${(lbl.noMove_rate || 0) > 0.5 ? 'var(--bad)' : 'var(--text)'}">${((lbl.noMove_rate || 0) * 100).toFixed(1)}%</div><div class="l">死局率</div></div>
         <div class="pv-stat-tile"><div class="v">${lbl.survived_steps_mean ?? '-'}</div><div class="l">平均步数</div></div>
@@ -2900,11 +2936,15 @@ async function refreshCurveSetSelector() {
 
 async function renderCurve() {
     const setId = $('curve-set').value;
-    // v2.10.22: 改下拉 multi-select, 兼容老 text input
+    // v2.10.22 / v2.10.33: 单选 dropdown (容忍 multi-select 旧版 + text input)
     const groupSel = $('curve-group-by');
     let groupBy = '';
     if (groupSel?.tagName === 'SELECT') {
-        groupBy = [...groupSel.selectedOptions].map((o) => o.value).join(',');
+        if (groupSel.multiple) {
+            groupBy = [...groupSel.selectedOptions].map((o) => o.value).join(',');
+        } else {
+            groupBy = (groupSel.value || '').trim();
+        }
     } else if (groupSel) {
         groupBy = groupSel.value.trim();
     }
@@ -2916,66 +2956,159 @@ async function renderCurve() {
         const targetResp = await apiGet('/api/spawn-tuning-v2/target-curve');
         const target = targetResp.curve;
 
-        const groupSource = $('curve-group-source')?.value || 'observed';   // v2.10.27
-
+        // v2.10.30: 简化 — 默认分组线 = 模型预测, 未选模型时 fallback 实测
         let observed = null;
         let nSamples = 0;
-        let observedCtx = null;
         let groupBuckets = null;   // v2.10.24: 多分组数据 (供 multi-line 渲染)
         let groupDims = [];        // 分组维度名 (e.g. ['difficulty', 'bot_policy'])
-        let groupSourceUsed = groupSource;  // 实际使用的数据源 (可能 fallback)
-        if (setId) {
-            const url = `/api/spawn-tuning-v2/sample-sets/${setId}/aggregate${groupBy ? `?group_by=${encodeURIComponent(groupBy)}` : ''}`;
-            const data = await apiGet(url);
-            if (data.buckets?.length > 0) {
-                // 主线: 第一个 bucket 作为"实测均值"
-                observed = data.buckets[0].d_curve_avg;
-                nSamples = data.buckets[0].n_samples;
-                observedCtx = data.buckets[0].context || data.buckets[0].sample_ctx;
-                // 多 bucket 时保留全部
-                if (data.buckets.length > 1 && Array.isArray(data.groups) && data.groups.length > 0) {
-                    groupBuckets = data.buckets;
-                    groupDims = data.groups;
-                }
-            }
-        }
-
-        // v2.10.27: groupSource='predicted' — 用模型对每个分组 ctx 推断, 替换 groupBuckets
-        if (groupSource === 'predicted' && modelId && groupBuckets && groupDims.length > 0) {
-            try {
-                // 对每个 bucket 构造完整 ctx (其他维度用 default mature/middle), 调 predict-curve
-                const ctxList = groupBuckets.map((b) => ({
-                    difficulty: b.difficulty || 'normal',
-                    generator: b.generator || 'triplet-p1',
-                    bot_policy: b.bot_policy || 'clear-greedy',
-                    pb_bin: b.pb_bin || 4000,
-                    lifecycle_stage: b.lifecycle_stage || 'mature',
-                }));
-                const predRes = await apiSend('POST', `/api/spawn-tuning-v2/models/${modelId}/predict-curve`, {
-                    contexts: ctxList,
-                });
-                if (predRes.curves?.length === groupBuckets.length) {
-                    // 把 predicted d_curve 覆盖到 buckets[i].d_curve_avg (但保留 n_samples 信息)
-                    groupBuckets = groupBuckets.map((b, i) => ({
-                        ...b,
-                        d_curve_avg: predRes.curves[i],
-                        n_samples_observed: b.n_samples,   // 保留原 sample 数 (供 meta 表)
-                    }));
-                    groupSourceUsed = 'predicted';
-                }
-            } catch (e) {
-                groupSourceUsed = 'observed-fallback';
-                console.warn('[curve] predicted group fallback to observed:', e.message);
-            }
-        } else if (groupSource === 'predicted' && (!modelId || !groupBuckets)) {
-            groupSourceUsed = !modelId ? 'observed-no-model' : 'observed-no-groups';
-        }
-
-        // 模型预测: 用所选模型对一个有代表性的 context 推断 (优先实测 set 的 ctx, 否则用默认中位 ctx)
+        let groupSourceUsed = 'predicted';  // 实际使用的数据源 (model 不可用时降级 observed)
+        let nCtxUnique = 0;        // v2.10.29: 整 set unique ctx 数量
         let predicted = null;
         let predictNote = '';
-        if (modelId) {
-            const ctx = observedCtx || {
+        // v2.10.33 (P2.3 UI): per-ctx std buckets (在 if(setId) 内填充, 外部聚合 → predictedStd)
+        let predStdBuckets = null;
+
+        // v2.10.29: 重构 — 一次 5 维全分聚合 + 全 ctx 批量预测, 让两条主线在同 ctx 集合上对照
+        //
+        // observed 主线 = 整 set 实测均值 (跨所有 ctx 加权平均)
+        // predicted 主线 = 整 set 模型预测均值 (跨同一 ctx 集合, 每 ctx predict 后按 n_samples 加权)
+        // groupBuckets = 前端按 user-selected groupBy 维度再次聚合 unique-ctx buckets (含 obs + pred)
+        if (setId) {
+            const allDims = 'difficulty,generator,bot_policy,pb_bin,lifecycle_stage';
+            const uniqueUrl = `/api/spawn-tuning-v2/sample-sets/${setId}/aggregate?group_by=${allDims}`;
+            const unique = await apiGet(uniqueUrl);
+            const uniqueBuckets = (unique.buckets || []).filter((b) => Array.isArray(b.d_curve_avg) && b.d_curve_avg.length === 20);
+            const totalN = uniqueBuckets.reduce((s, b) => s + (b.n_samples || 0), 0);
+            nCtxUnique = uniqueBuckets.length;
+
+            // 加权平均 helper
+            const weightedAvg = (items) => {
+                if (!items.length) return null;
+                const total = items.reduce((s, it) => s + it.n, 0);
+                if (total <= 0) return null;
+                const out = new Array(20).fill(0);
+                items.forEach((it) => {
+                    for (let i = 0; i < 20; i++) out[i] += it.curve[i] * it.n;
+                });
+                return out.map((v) => v / total);
+            };
+
+            // 1) observed 主线 = 整 set 加权均值
+            if (totalN > 0) {
+                observed = weightedAvg(uniqueBuckets.map((b) => ({ curve: b.d_curve_avg, n: b.n_samples })));
+                nSamples = totalN;
+            }
+            // v2.10.32 (P0.1): 整 set 加权平均的 n_bins_filled (真实观察 bin 数)
+            const bfTotal = uniqueBuckets.reduce((s, b) => {
+                return (b.bins_filled_mean != null) ? s + b.bins_filled_mean * b.n_samples : s;
+            }, 0);
+            const bfWeightSum = uniqueBuckets.reduce((s, b) => {
+                return (b.bins_filled_mean != null) ? s + b.n_samples : s;
+            }, 0);
+            window._lastBinsFilledAvg = bfWeightSum > 0 ? (bfTotal / bfWeightSum) : null;
+            const rTotal = uniqueBuckets.reduce((s, b) => {
+                return (b.r_mean != null) ? s + b.r_mean * b.n_samples : s;
+            }, 0);
+            window._lastRMean = bfWeightSum > 0 ? (rTotal / bfWeightSum) : null;
+
+            // 2) predicted 主线 = 批量预测所有 unique ctx, 按 n_samples 加权
+            // v2.10.33 (P2.3 UI): 可选 MC Dropout 不确定性 (UI checkbox 切换)
+            let predBuckets = null;
+            // predStdBuckets 已在外层声明 (供 chart 渲染聚合用), 这里只赋值
+            const wantUncertainty = !!$('curve-uncertainty')?.checked;
+            if (modelId && uniqueBuckets.length > 0) {
+                const ctxList = uniqueBuckets.map((b) => ({
+                    difficulty: b.difficulty,
+                    generator: b.generator,
+                    bot_policy: b.bot_policy,
+                    pb_bin: b.pb_bin,
+                    lifecycle_stage: b.lifecycle_stage,
+                }));
+                try {
+                    const r = await apiSend('POST', `/api/spawn-tuning-v2/models/${modelId}/predict-curve`, {
+                        contexts: ctxList,
+                        uncertainty: wantUncertainty,
+                        n_mc_samples: 30,
+                    });
+                    if (r.curves?.length === uniqueBuckets.length) {
+                        predBuckets = uniqueBuckets.map((b, i) => ({
+                            curve: r.curves[i],
+                            n: b.n_samples,
+                        }));
+                        predicted = weightedAvg(predBuckets);
+                        predictNote = `模型预测 = 样本集 ${uniqueBuckets.length} 个 ctx 加权均值 (n_total = ${totalN})`;
+                        // v2.10.33: 不确定性带 — 把 per-ctx std 用 std-of-mean 公式聚合
+                        //   总均值的 std ≠ 平均 std (受 sample size 影响), 但近似 std/sqrt(K)
+                        //   为简单起见, 用 RMS (sqrt(weighted_mean(std^2))) 作为整 set std
+                        if (wantUncertainty && r.curves_std?.length === uniqueBuckets.length) {
+                            predStdBuckets = uniqueBuckets.map((b, i) => ({
+                                std: r.curves_std[i],
+                                n: b.n_samples,
+                            }));
+                            predictNote += ` · MC Dropout ${r.mc_samples || 30} 次`;
+                        }
+                    }
+                } catch (e) {
+                    predictNote = `<span style="color:var(--bad)">模型推断失败: ${escapeHtml(e.message)}</span>`;
+                }
+            }
+
+            // 3) groupBuckets — 按 user 选的 groupBy 维度二次聚合 uniqueBuckets
+            const groups = groupBy.split(',').map((s) => s.trim()).filter(Boolean);
+            if (groups.length > 0 && uniqueBuckets.length > 0) {
+                groupDims = groups;
+                const map = new Map();
+                uniqueBuckets.forEach((b, i) => {
+                    const key = groups.map((g) => b[g]).join('|');
+                    let bucket = map.get(key);
+                    if (!bucket) {
+                        bucket = {
+                            keyObj: Object.fromEntries(groups.map((g) => [g, b[g]])),
+                            obsItems: [],
+                            predItems: [],
+                            // v2.10.32 (P0.1): 加权累加 bins_filled / r
+                            bfWeighted: 0,
+                            bfWeightSum: 0,
+                            rWeighted: 0,
+                            rWeightSum: 0,
+                            nTotal: 0,
+                        };
+                        map.set(key, bucket);
+                    }
+                    bucket.obsItems.push({ curve: b.d_curve_avg, n: b.n_samples });
+                    if (predBuckets) bucket.predItems.push(predBuckets[i]);
+                    bucket.nTotal += b.n_samples;
+                    if (b.bins_filled_mean != null) {
+                        bucket.bfWeighted += b.bins_filled_mean * b.n_samples;
+                        bucket.bfWeightSum += b.n_samples;
+                    }
+                    if (b.r_mean != null) {
+                        bucket.rWeighted += b.r_mean * b.n_samples;
+                        bucket.rWeightSum += b.n_samples;
+                    }
+                });
+                groupBuckets = [...map.values()].map((g) => {
+                    const obsAvg = weightedAvg(g.obsItems);
+                    const predAvg = g.predItems.length ? weightedAvg(g.predItems) : null;
+                    const useCurve = predAvg || obsAvg;
+                    return {
+                        ...g.keyObj,
+                        d_curve_avg: useCurve,
+                        n_samples: g.nTotal,
+                        bins_filled_mean: g.bfWeightSum > 0 ? g.bfWeighted / g.bfWeightSum : null,
+                        r_mean: g.rWeightSum > 0 ? g.rWeighted / g.rWeightSum : null,
+                    };
+                });
+
+                if (!modelId) groupSourceUsed = 'observed-no-model';
+                else if (!predBuckets) groupSourceUsed = 'observed-fallback';
+                else groupSourceUsed = 'predicted';
+            }
+        }
+
+        // v2.10.29-fix: 未选 set 但选了 model — 单 ctx 兜底预测 (不画实测线)
+        if (!setId && modelId && !predicted) {
+            const ctx = {
                 difficulty: 'normal', generator: 'budget-p2', bot_policy: 'clear-greedy',
                 pb_bin: 4000, lifecycle_stage: 'mature',
             };
@@ -2985,7 +3118,7 @@ async function renderCurve() {
                 });
                 if (r.curves?.length > 0) {
                     predicted = r.curves[0];
-                    predictNote = `预测 ctx = ${ctx.difficulty}:${ctx.generator}:${ctx.bot_policy}:${ctx.pb_bin}:${ctx.lifecycle_stage}`;
+                    predictNote = `<span style="color:var(--warn)">⚠ 未选样本集 — 预测 ctx = ${ctx.difficulty}:${ctx.generator}:${ctx.bot_policy}:${ctx.pb_bin}:${ctx.lifecycle_stage} (单点, 不代表全 ctx 均值)</span>`;
                 }
             } catch (e) {
                 predictNote = `<span style="color:var(--bad)">模型推断失败: ${escapeHtml(e.message)}</span>`;
@@ -2993,12 +3126,25 @@ async function renderCurve() {
         }
 
         const canvas = $('d-curve-canvas');
-        // v2.10.26: 自适应容器宽度 (chart 默认 600px 在 stretch container 里失真)
         const container = canvas.parentElement;
         const containerW = container ? container.clientWidth : 600;
+        // v2.10.33 (P2.3 UI): 聚合 per-ctx std → 整 set predicted_std (RMS by n_samples)
+        //   公式: std_total[i] = sqrt(Σ_k (n_k/N) · std_k[i]^2)
+        let predictedStd = null;
+        if (predStdBuckets && predStdBuckets.length > 0) {
+            const totalN_std = predStdBuckets.reduce((s, b) => s + b.n, 0);
+            if (totalN_std > 0) {
+                predictedStd = new Array(20).fill(0);
+                predStdBuckets.forEach((b) => {
+                    for (let i = 0; i < 20; i++) predictedStd[i] += (b.std[i] ** 2) * b.n;
+                });
+                predictedStd = predictedStd.map((v) => Math.sqrt(v / totalN_std));
+            }
+        }
         renderDCurveChart(canvas, {
             targetCurve: target,
             predictedCurve: predicted,
+            predictedStd,
             observedCurve: observed,
             extraCurves: groupBuckets ? groupBuckets.slice(0, 8).map((b, i) => {
                 const keyParts = groupDims.map((d) => `${d}=${b[d]}`).join('·');
@@ -3020,10 +3166,37 @@ async function renderCurve() {
             lines.push(`实测 vs 目标 MAE = ${fmtNumber(m.mae, 4)}`);
             lines.push(`实测单调 = ${m.monotonic ? '✓' : '✗'}`);
             lines.push(`n_samples = ${nSamples}`);
+            if (nCtxUnique > 0) lines.push(`n_ctx = ${nCtxUnique}`);
+            // v2.10.32 (P0.1): 透明化 bin 真实观察比例
+            const bfAvg = window._lastBinsFilledAvg;
+            if (bfAvg != null) {
+                const pct = Math.round((bfAvg / 20) * 100);
+                const tone = pct < 40 ? 'var(--bad)' : pct < 70 ? 'var(--warn)' : 'var(--ok)';
+                lines.push(`<span style="color:${tone}" title="20 个 bin 中平均有 ${bfAvg.toFixed(1)} 个是真实观察, 其余靠 _pbAwareDPbBase 先验填充">真实观察 = ${bfAvg.toFixed(1)}/20 (${pct}%)</span>`);
+            }
+            const rMean = window._lastRMean;
+            if (rMean != null) {
+                const tone = rMean < 0.3 ? 'var(--bad)' : rMean < 0.7 ? 'var(--warn)' : 'var(--ok)';
+                lines.push(`<span style="color:${tone}" title="bot 实际达到的 score/PB 均值. < 0.3 说明 bot 远打不到 PB, 大部分 d_curve 区间是先验">avg r = ${rMean.toFixed(3)}</span>`);
+            }
         }
         if (predicted) {
             const pm = computeChartMetrics(predicted, target);
+            // v2.10.29: 两线在同 ctx 集合上对照 → predicted vs observed MAE 直接有意义
+            const pomae = observed
+                ? observed.reduce((s, v, i) => s + Math.abs(v - predicted[i]), 0) / 20
+                : null;
             lines.push(`预测 vs 目标 MAE = ${fmtNumber(pm.mae, 4)}`);
+            if (pomae != null) lines.push(`<b>预测 vs 实测 MAE = ${fmtNumber(pomae, 4)}</b>`);
+            // v2.10.33 (P2.3 UI): 不确定性指标 — std 均值 + 最大 (找 model 最没把握的 bin)
+            if (predictedStd) {
+                const avgStd = predictedStd.reduce((a, b) => a + b, 0) / predictedStd.length;
+                const maxStd = Math.max(...predictedStd);
+                const maxBin = predictedStd.indexOf(maxStd);
+                const rAtMax = (maxBin + 0.5) * (2.0 / predictedStd.length);
+                const tone = maxStd < 0.05 ? 'var(--ok)' : maxStd < 0.10 ? 'var(--warn)' : 'var(--bad)';
+                lines.push(`<span style="color:${tone}" title="MC Dropout 估计的 epistemic uncertainty. max 出现的 bin 是 model 最没把握的区域 (通常对应低 n_bins_filled 的 r)">不确定性 avg σ = ${fmtNumber(avgStd, 4)} · max σ = ${fmtNumber(maxStd, 4)} @ r≈${rAtMax.toFixed(2)}</span>`);
+            }
             if (predictNote) lines.push(predictNote);
         } else if (modelId && predictNote) {
             lines.push(predictNote);
@@ -3037,23 +3210,28 @@ async function renderCurve() {
                 const m = computeChartMetrics(b.d_curve_avg, target);
                 const span = b.d_curve_avg[b.d_curve_avg.length - 1] - b.d_curve_avg[0];
                 const keyParts = groupDims.map((d) => `${escapeHtml(d)}=<b>${escapeHtml(String(b[d]))}</b>`).join(' · ');
+                // v2.10.32 (P0.1): 该桶真实观察 bin 数 + bot 达到的 r 均值
+                //   注: groupBuckets 是前端二次聚合的 (来自 uniqueBuckets), 不带 bins_filled_mean 字段
+                //   需要在前端聚合时把 bins_filled_mean 也加权
+                const bfMean = b.bins_filled_mean != null ? b.bins_filled_mean.toFixed(1) : '—';
+                const rAvg = b.r_mean != null ? b.r_mean.toFixed(2) : '—';
                 return `<tr>
                     <td style="padding:2px 8px;">${keyParts}</td>
                     <td style="padding:2px 8px; text-align:right;">${b.n_samples}</td>
                     <td style="padding:2px 8px; text-align:right;">${fmtNumber(m.mae, 4)}</td>
                     <td style="padding:2px 8px; text-align:right;">${fmtNumber(span, 3)}</td>
                     <td style="padding:2px 8px;">${m.monotonic ? '✓' : '✗'}</td>
+                    <td style="padding:2px 8px; text-align:right;" title="该子集 bot 实际打到的 score/PB 均值">${rAvg}</td>
+                    <td style="padding:2px 8px; text-align:right;" title="20 bin 中真实观察的 bin 数 (其余靠先验填充)">${bfMean}</td>
                 </tr>`;
             }).join('');
             const truncatedNote = groupBuckets.length > 12 ? `<p style="color:var(--muted); font-size:10.5px;">… 还有 ${groupBuckets.length - 12} 组未显示</p>` : '';
-            // v2.10.27: 显示数据源 + fallback 提示
+            // v2.10.30: badge 简化 — 默认 model, 未选/失败时 fallback observed
             const srcBadge = groupSourceUsed === 'predicted'
                 ? '<span style="color:var(--accent)">[模型预测]</span>'
                 : groupSourceUsed === 'observed-no-model'
-                    ? '<span style="color:var(--warn)" title="未选模型, fallback 实测">[实测 · 未选模型]</span>'
-                    : groupSourceUsed === 'observed-fallback'
-                        ? '<span style="color:var(--warn)" title="模型推断失败, fallback 实测">[实测 · 模型推断失败]</span>'
-                        : '<span style="color:var(--muted)">[实测]</span>';
+                    ? '<span style="color:var(--warn)" title="未选模型, 分组线已 fallback 实测">[实测 · fallback]</span>'
+                    : '<span style="color:var(--warn)" title="模型推断失败, 分组线已 fallback 实测">[实测 · 推断失败]</span>';
             groupTable = `
               <div style="margin-top:8px;">
                 <div style="font-size:11px; color:var(--muted); margin-bottom:2px;">📊 按 [${groupDims.join(', ')}] 分组对比 (${groupBuckets.length} 组, chart 中画前 8 组浅色线) ${srcBadge}</div>
@@ -3064,6 +3242,8 @@ async function renderCurve() {
                     <th style="text-align:right; padding:2px 8px;">vs 目标 MAE</th>
                     <th style="text-align:right; padding:2px 8px;">跨度</th>
                     <th style="text-align:left; padding:2px 8px;">单调</th>
+                    <th style="text-align:right; padding:2px 8px;" title="bot 实际触达的 score/PB 均值">avg r</th>
+                    <th style="text-align:right; padding:2px 8px;" title="20 bin 中真实观察的 bin 数">真实 bin</th>
                   </tr></thead>
                   <tbody>${rows}</tbody>
                 </table>

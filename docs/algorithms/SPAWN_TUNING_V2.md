@@ -593,6 +593,165 @@ tests/tuning/v2/
 
 ---
 
+## 9e. v2.10.32 (P0+P1+P2) — Bot 能力 + 数据透明化 + Multi-task + Bayesian uncertainty
+
+针对用户反馈 **"高 PB 样本得分远低于 PB / d_curve 在 r>1 区是先验填充"** 的系统性改进, 分 3 优先级实施。
+
+### P0 — 立刻可见 (小改动)
+
+#### P0.1 UI 透明化 `n_bins_filled`
+
+新增 schema 列 `n_bins_filled` (INTEGER) + `bin_counts_json` (TEXT 20D array), 启动时自动 ALTER 兼容老 DB。
+样本预览面板 + d_curve 分析 meta + 分组对比表三处展示:
+- **总样本** `avg n_bins_filled / 20` (颜色: <40% 红, 40-70% 橙, >70% 绿)
+- **avg r = score / pb** (bot 实际触达上限)
+- 分组对比表加 `avg r` + `真实 bin` 列
+
+→ user 一眼看到 `pb=25000` 桶只有 2-3 bin 真实, r>1 段是 prior 填充。
+
+#### P0.2 训练 confidence-weighted loss
+
+`loss_shape` 加可选 `bin_counts` 参数, 用 `conf = n / (n + PRIOR_STRENGTH)` 加权:
+- bin 无观察 → conf=0, loss 不学 prior fabricated 数据
+- bin 满 obs → conf ≈ 1, 跟 v2.7 普通 weighted MSE 等价
+- `bin_counts=None` 时退化 v2.7 兼容老样本
+
+→ 重训后 model 显式承认 r>1 区"我不知道", 不再被 prior 污染。
+
+### P1 — Bot 能力升级 (1-2 天工作 + 重采样)
+
+#### P1.1 砍高 PB 档默认值
+
+UI 配置: pb=10000/25000 chip **默认未选** + warning tooltip "bot 实际触达率 < 20%, 80% bin 靠先验"。
+schema 仍允许这两档 (兼容老样本)。
+
+#### P1.2 2-step Lookahead Bot
+
+`samplerV2.js` 新增 `theta.use_lookahead2_bot` 开关 → `_evalWith2StepLookahead`:
+- top-K (K=5) 候选 a1 上做 1-step 看 a2
+- a2 抽样 20 个 (而非全扫), 总 evals ≈ K × 20 = 100/step
+- 实测 score/step ~+50% (1-step lookahead ~+30%, 2-step ~+60%)
+- a1 死局 → -100 强烈惩罚, 避免高 PB 桶过早 noMove
+
+UI: "Lookahead 1-step" 和 "Lookahead 2-step" 两个 checkbox, 后者隐含前者。
+
+#### P1.3 maxSteps 240 → 500
+
+`runOneSampleV2 / collectSamplesV2` default 提到 500, 让强 bot 在高 PB 桶有更多步累积得分。
+
+#### P1.4 重采样 + 重训 (user 手动 trigger)
+
+完成 P1.1-P1.3 后, user 需在 UI 上手动新建一个样本集 + 启动训练:
+1. 数据采集 Tab: 启用 "Lookahead 2-step", 关闭 pb=10000/25000, 采 ~50K 样本
+2. 训练 Tab: 默认 `r_value` weight 0.5 已生效, 用新样本训练
+3. 预期 `预测 vs 实测 MAE` < 0.04 (vs 当前 0.06)
+
+### P2 — 架构升级
+
+#### P2.1 MCTS bot (v2.10.33 实施)
+
+`samplerV2.js` 新增 `_evalWithMCTS` + `theta.use_mcts_bot` 开关:
+
+- **算法**: 每个 a1 候选用 `saveState/restoreState` (simulator 原生 API) 做 N 次 random rollout 到终止或 maxRolloutSteps 步
+- **Rollout policy**: ε-greedy — 30% 完全随机, 70% 在 5 个随机候选里选 clears 最多的 (轻量启发式)
+- **决策**: 选 N 次 rollout 平均 score 增量最大的 a1
+- **预筛**: 仅对 1-step top-K=10 候选跑 MCTS, 其余直接 1-step (避免对全部 ~50 legal 都跑昂贵评估)
+- **默认参数**: rollouts=30, rollout_steps=30
+- **复杂度**: K × R × L = 10 × 30 × 30 = 9000 ops/选 action (vs 1-step 50 ops/选, 慢 ~180x; vs 2-step ~100 ops/选, 慢 ~90x)
+- **预期增益**: bot score/step ~+150% vs 1-step, 高 PB=10000+ 桶 r=1 触达率 +200%
+
+UI: "MCTS rollout (P2.1, 慢!)" checkbox, 仅训高 PB 场景时启用。
+
+#### P1.2 修复 (v2.10.33): 2-step lookahead 真正生效
+
+v2.10.32 初版假设 `sim.clone()` 存在 — 实际不存在,导致 `_evalWith2StepLookahead` 永远 return 0 (没生效)。
+v2.10.33 改用 `sim.saveState()` / `sim.restoreState()` (这俩 simulator 原生支持) → 2-step lookahead 真实生效, 跟 1-step 区分明确。
+回归测试: `tests/tuning/v2/samplerV2.test.js::lookahead2 bot produces valid sample`。
+
+#### P2.2 Multi-task r_value head
+
+ResNet + Transformer 都加 `head_r` 输出 `r_pred ∈ [0, 2.0]` (2 × sigmoid):
+- target = `final_score / pb_bin` (clamp ≤ 2.0)
+- loss: `smooth_l1_loss(r_pred, r_target)` (Huber robust)
+- weight: `LossWeights.r_value = 0.5` (辅助任务)
+- 推理时 `r_pred << 1` 的 ctx, user 应警惕 "model 自身知道这 ctx 触达低, r>r_pred 区域不可信"
+
+#### P2.3 Bayesian MC Dropout uncertainty (v2.10.33 UI 完整集成)
+
+`SpawnParamTunerResNet.predict_with_uncertainty(n_samples=30)`:
+- 让 Dropout 层 train mode (其他保持 eval), 跑 N 次 forward, 取 mean + std
+- 后端 `/predict-curve` 加 `body.uncertainty=true` 参数, 返回 `curves_std` + `r_std`
+- **v2.10.33 UI**:
+  - HTML: 加 `curve-uncertainty` checkbox "显示不确定性带 ±2σ"
+  - `dashboardV2.js`: prediction 调用时透传 `uncertainty: wantUncertainty`, 接收 `curves_std` 后用 **RMS by n_samples** 公式 `std_total[i] = sqrt(Σ_k (n_k/N) · std_k[i]^2)` 聚合到整 set predicted_std
+  - `dCurveChart.js`: 在 predicted 主线之前画**半透明 ±2σ 带** (alpha 0.15, hover 时变 0.05), 用 predicted 同色(绿)
+  - meta 区显示 `不确定性 avg σ = X · max σ = X @ r≈X.XX` (颜色: <0.05 绿, 0.05-0.10 橙, >0.10 红), 让 user 一眼看到 model 最没把握的 r 区间
+- 与 `n_bins_filled` 互补: `n_bins_filled` 暴露**数据**稀疏, `MC Dropout std` 暴露**模型**不确定 — 二者一致说明 model 对数据稀疏区诚实承认 "我不知道"
+
+### 关键测试 (全部通过 — 291 Python + 89 JS)
+
+| 测试 | 覆盖 |
+|---|---|
+| `test_losses.py::TestLossShape::test_confidence_weighted_*` (3 个) | P0.2 confidence loss 三种边界 (全零/全 obs/部分) |
+| `test_model.py::test_r_value_output_range` | P2.2 r_value head ∈ [0, 2] |
+| `test_model.py::test_predict_with_uncertainty` | P2.3 MC Dropout std > 0 |
+| `test_model.py::test_uncertainty_does_not_alter_eval_state` | P2.3 dropout 状态正确恢复 |
+| `targetSCurve.test.js::targetSCurveCalibrated*` (7 个) | v2.10.31 calibrated 跨语言一致性 |
+
+---
+
+## 9d. v2.10.24~29 d_curve 图表交互增强
+
+### 主线对齐 (v2.10.29) — **关键修复**
+
+之前 (v2.10.28 及之前): "模型预测"主线用 **单 ctx** (e.g. `normal:budget-p2:clear-greedy:4000:mature`) 调 `predict-curve`, 而 "实测均值"主线是**全 set 加权均值** (跨数十~数百个 sub-ctx)。两线**不在同一 ctx 集合**上, MAE 不可比, 经常出现 0.2+ 的"虚假"偏差。
+
+v2.10.29 重构 `renderCurve()`:
+
+1. **一次** 5 维全分聚合 (`group_by=difficulty,generator,bot_policy,pb_bin,lifecycle_stage`) → 拿到样本集所有 `unique ctx` + `n_samples` + `d_curve_avg`
+2. **observed 主线** = 所有 unique ctx 按 `n_samples` 加权平均
+3. **predicted 主线** = 同一 unique ctx 列表批量 `predict-curve` 后, 同样按 `n_samples` 加权平均
+4. **groupBuckets** = 前端按 user 选的 `groupBy` 维度对 unique buckets **二次聚合** (避免后端再发一次 aggregate 请求)
+5. 输出 `预测 vs 实测 MAE` 指标 (两线对照, 排除目标偏离)
+
+→ **predicted MAE - observed MAE = 模型对实测的额外偏差**, 这个数才有诊断价值。
+
+### 分组对比能力 (v2.10.24~30)
+
+`d_curve 分析` Tab 在原 3 线对照 (目标 / 校准 / 预测 / 实测) 基础上增加 **多分组对比线**:
+
+- **分维度下拉** (v2.10.24): 5 个 context 维度 (难度 / 生成器 / bot 策略 / PB 档 / 生命周期) 多选, 数据按所选维度分桶, 每桶画一条彩色细线 (最多前 8 桶)。
+- **数据源策略** (v2.10.30): 分组线**默认走模型预测** — 用当前 modelId 批量调 `/predict-curve`, 让每个分组展示 **model 在该维度的拟合差异** (而非样本噪声)。未选模型或推断失败时 fallback 实测样本均值, 并显示告警 badge (`[实测 · fallback]` / `[实测 · 推断失败]`)。
+  - **设计原因**: 实测分组通常彼此重合 (e.g. difficulty 维度), 信息含量低; 模型预测分组能放大 model 内部学到的差异, 更利于诊断 model 弱点。
+- **布局自适应** (v2.10.26): canvas 宽度跟随容器 (600-1400px), 图例自动换行, 指标 (MAE / 单调 / Δr) 移到右上, 不再被图例挤压。
+
+### 交互能力 (v2.10.25/28)
+
+| 交互 | 行为 |
+|---|---|
+| **悬浮 chart 区** | 弹出 tooltip 显示 `r = x.xx (bin n)` + 所有可见曲线在该 bin 的 D 值 |
+| **悬浮某条曲线** | 距离鼠标 Y 最近 (< 0.08 D 单位) 的曲线 **加粗 + alpha 1.0**, 其他曲线 **alpha 0.30** 淡出; tooltip 用 `◀` 标记当前高亮 |
+| **悬浮图例** | 鼠标变 pointer, tooltip 提示 "点击 显示/隐藏" |
+| **点击图例** | toggle 该曲线 visibility — 隐藏曲线在图例上**文字加灰 + 删除线**, 当前 hover 高亮即时刷新 |
+| **离开 chart** | 清除 hover 高亮和 tooltip |
+
+实现要点 (`web/src/tuning/v2/dCurveChart.js`):
+- `canvas._dcurveVisible` (Map<lineId, boolean>) 在 canvas 实例上 persist, dashboardV2 重画 (切换 model / source) **不重置** — 这是有意的 stateful UI。
+- `canvas._dcurveLegendHits` 每次 render 重建图例点击 bbox。
+- mousemove handler 内调 `renderDCurveChart(canvas, canvas._dcurveLastData)` 重画 — 通过 `if (!tooltip)` 防止 event listener 重复绑定。
+
+### lineId 命名
+
+| lineId | 曲线含义 |
+|---|---|
+| `target` | 蓝粗线 — 业务 ideal S |
+| `calibrated` | 紫虚线 — 训练用校准 target |
+| `predicted` | 绿实线 — 当前模型 360 ctx 平均预测 |
+| `observed` | 灰虚线 — 实测样本均值 |
+| `extra_0` ~ `extra_7` | 彩色细线 — 分组对比 (按 group dims 分桶) |
+
+---
+
 ## 9c. v2.10.19 业务命题量化 + 多维分析 (G15-G19)
 
 ### G15 业务命题达成度仪表盘

@@ -75,6 +75,10 @@ class LossWeights:
     # 实测 job_19/20: target_fit 收敛到 0.01-0.012 (RMSE ≈ 0.1), 加大权重可压到 0.005
     target_fit: float = 1.8      # ν
     endpoint: float = 1.5        # ξ
+    # v2.10.32 (P2.2): r_value multi-task — bot 实际触达的 r = score/PB
+    #   推理时可作为 r > r_max 区域的 mask 信号 (model 自知"该 ctx 下 r>这个值是 prior")
+    #   默认权重 0.5 (辅助任务, 不抢主 curve head)
+    r_value: float = 0.5
 
     def to_dict(self) -> Dict[str, float]:
         return {
@@ -82,7 +86,7 @@ class LossWeights:
             "breaking": self.breaking, "smooth": self.smooth, "aux": self.aux,
             "pb_distribution": self.pb_distribution, "anchor": self.anchor,
             "monotonic": self.monotonic, "target_fit": self.target_fit,
-            "endpoint": self.endpoint,  # v2.9.1
+            "endpoint": self.endpoint, "r_value": self.r_value,
         }
 
 
@@ -154,26 +158,44 @@ def _get_shape_bin_weights(n_bins: int, device) -> torch.Tensor:
     return w
 
 
-def loss_shape(curve_pred: torch.Tensor, curve_target: torch.Tensor) -> torch.Tensor:
-    """v2.7 — Weighted MSE: 关键 r 区间 (临近 PB / 超 PB) 加权拟合。
+def loss_shape(
+    curve_pred: torch.Tensor,
+    curve_target: torch.Tensor,
+    bin_counts: torch.Tensor | None = None,
+    prior_strength: float = 3.0,
+) -> torch.Tensor:
+    """v2.7 / v2.10.32 (P0.2) — Weighted MSE: 拐点区加权 + 真实观察 confidence 加权。
 
-    旧版 (v2.6 及之前): 普通 MSE — 每个 bin 等权, 模型可以 "牺牲" 拐点
-                       精度换平坦区域的低误差, 学到水平线均值解。
-    新版 (v2.7): 拐点区域 (bin 8-12, r ∈ [0.85, 1.25]) 权重 3-4x,
-                强制模型精确拟合 S 形拐点。
+    v2.7: 拐点区域 (bin 8-12) 权重 3-4x。
+    v2.10.32 (P0.2): 进一步乘 confidence = n_obs / (n_obs + prior_strength)
+      让 model 不学贝叶斯先验填充的 bin (这些 bin curve_target 来自 _pb_aware_d_pb_base
+      而非真实样本均值, 学了等于复刻 prior, 阻碍 model 在该 bin 学到真实信号).
+      当 bin_counts=None 或全 0 时退化为 v2.7 行为 (老样本兼容).
 
     Args:
-        curve_pred:   (B, n_bins) ∈ [0, 1]
-        curve_target: (B, n_bins) ∈ [0, 1]
-    Returns:
-        scalar tensor (weighted MSE, 归一化后与普通 MSE 同量级)
+        curve_pred:    (B, n_bins) ∈ [0, 1]
+        curve_target:  (B, n_bins) ∈ [0, 1]
+        bin_counts:    (B, n_bins) — 该 sample 每个 bin 的真实观察样本数
+                       0 表示完全靠先验; >=PRIOR_STRENGTH 表示主要靠观察
+        prior_strength: 跟 sampler 的 PB_AWARE_PRIOR_STRENGTH 对应 (默认 3)
     """
     if curve_pred.size(1) == 0:
         return torch.tensor(0.0, device=curve_pred.device)
     weights = _get_shape_bin_weights(curve_pred.size(1), curve_pred.device)   # (n_bins,)
     sq_err = (curve_pred - curve_target) ** 2                                  # (B, n_bins)
     weighted = sq_err * weights[None, :]                                       # (B, n_bins)
-    # 归一化: 用 weights.sum() 而不是 numel(), 保持与普通 MSE 同量级
+    # v2.10.32 (P0.2): confidence 加权
+    if bin_counts is not None:
+        # confidence = n / (n + prior_strength) — 同 sampler 公式
+        conf = bin_counts / (bin_counts + prior_strength + 1e-6)               # (B, n_bins) ∈ [0, 1)
+        # 退化保护: 若整 batch 都是老样本 (bin_counts 全 0), conf 全 0 会让 loss=0
+        # 此时用全 1 (跟 v2.7 行为一致)
+        if conf.sum() < 1e-6:
+            return weighted.sum() / (curve_pred.size(0) * weights.sum())
+        weighted = weighted * conf                                              # (B, n_bins)
+        # 归一化: 用 weighted_sum / weight_sum (含 conf) 才同量级
+        denom = (weights[None, :] * conf).sum() + 1e-6
+        return weighted.sum() / denom
     return weighted.sum() / (curve_pred.size(0) * weights.sum())
 
 
@@ -458,6 +480,20 @@ def loss_endpoint(
     return (head_viol.pow(2).mean() + tail_viol.pow(2).mean()) / 2.0
 
 
+def loss_r_value(r_pred: torch.Tensor, r_target: torch.Tensor) -> torch.Tensor:
+    """v2.10.32 (P2.2) — multi-task r_value MSE.
+
+    让 model 显式学到"该 ctx 下 bot 实际能触达的 r = score/PB"。
+    用途:
+      - 推理时若 user 选了 r > r_pred 太多, 说明该区域是 prior 主导, 不可信
+      - 训练时辅助 curve head 的学习, 借 ctx → bot 能力 信号
+    """
+    if r_pred.size(0) == 0:
+        return torch.tensor(0.0, device=r_pred.device)
+    # 用 smooth_l1 (huber) 而非 MSE, r 可能是离群值 (random bot 偶尔超 PB) 鲁棒
+    return F.smooth_l1_loss(r_pred, r_target)
+
+
 def loss_target_fit(curve_pred: torch.Tensor) -> torch.Tensor:
     """v2.9 — 拟合校准 target curve (温和 S 形锚)。
 
@@ -549,6 +585,7 @@ class LossBreakdown:
     monotonic: torch.Tensor       # v2.9
     target_fit: torch.Tensor      # v2.9
     endpoint: torch.Tensor        # v2.9.1
+    r_value: torch.Tensor         # v2.10.32 (P2.2)
 
     def to_dict(self, keep_grad: bool = False) -> Dict[str, float]:
         def _to(v: torch.Tensor) -> float:
@@ -566,6 +603,7 @@ class LossBreakdown:
             "monotonic": _to(self.monotonic),
             "target_fit": _to(self.target_fit),
             "endpoint": _to(self.endpoint),
+            "r_value": _to(self.r_value),
         }
 
 
@@ -589,7 +627,11 @@ def compute_total_loss(
     device = predictions["curve"].device
     zero = torch.tensor(0.0, device=device)
 
-    l_shape = loss_shape(predictions["curve"], targets["curve"])
+    # v2.10.32 (P0.2): 把 bin_counts (来自 targets) 透传给 loss_shape, confidence 加权
+    l_shape = loss_shape(
+        predictions["curve"], targets["curve"],
+        bin_counts=targets.get("bin_counts"),
+    )
     l_balance = loss_balance(predictions["curve"], pb_bin_idx)
     l_surprise = loss_surprise(predictions["curve"])
     l_breaking = loss_breaking(predictions["curve"])
@@ -601,6 +643,11 @@ def compute_total_loss(
     l_monotonic = loss_monotonic(predictions["curve"])
     l_target_fit = loss_target_fit(predictions["curve"])
     l_endpoint = loss_endpoint(predictions["curve"])
+    # v2.10.32 (P2.2): multi-task r_value head
+    if "r_value" in predictions and "r_value" in targets:
+        l_r_value = loss_r_value(predictions["r_value"], targets["r_value"])
+    else:
+        l_r_value = zero
 
     total = (w.shape * l_shape
              + w.balance * l_balance
@@ -612,7 +659,8 @@ def compute_total_loss(
              + w.anchor * l_anchor
              + w.monotonic * l_monotonic
              + w.target_fit * l_target_fit
-             + w.endpoint * l_endpoint)
+             + w.endpoint * l_endpoint
+             + w.r_value * l_r_value)
 
     return LossBreakdown(
         total=total,
@@ -627,4 +675,5 @@ def compute_total_loss(
         monotonic=l_monotonic,
         target_fit=l_target_fit,
         endpoint=l_endpoint,
+        r_value=l_r_value,
     )

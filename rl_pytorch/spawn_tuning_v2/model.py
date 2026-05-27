@@ -30,6 +30,7 @@ ResNet-MLP 模型 (L4) — 用于学习 (ctx, θ) → d_curve(20) + 辅助标签
 参数量校验请见 tests/spawn_tuning_v2/test_model.py::test_param_count
 """
 from __future__ import annotations
+from typing import Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -43,8 +44,10 @@ DEFAULT_HEAD_HIDDEN = 64
 
 # 5 维 context 取值数 (与 schema CHECK 一致)
 N_DIFFICULTY = 3
-N_GENERATOR = 2
-N_BOT_POLICY = 3
+# v2.10.34: 扩展类别数 — generator 2→4 (加 baseline, model-v3); bot 3→4 (加 rl-bot)
+# 老 ckpt (N_GEN=2, N_BOT=3) 加载: 由 _load_state_dict_compat 把老 row 复制到新 emb 前 N 行
+N_GENERATOR = 4
+N_BOT_POLICY = 4
 N_PB_BIN = 5
 N_LIFECYCLE = 4
 N_THETA = 9  # v2.2: 5 个个性化/选拔 + 4 个 PB 曲线参数; 见 feature_io.THETA_KEYS
@@ -151,6 +154,10 @@ class SpawnParamTunerResNet(nn.Module):
         self.head_noMove = self._build_head(hidden_dim, head_hidden, 1)
         self.head_score = self._build_head(hidden_dim, head_hidden, 1)
         self.head_survival = self._build_head(hidden_dim, head_hidden, 1)
+        # v2.10.32 (P2.2): r-head — 该 ctx 下 bot 实际能达到的 score/PB
+        #   作用: 让 model 显式学到"PB 高时 r 触达上限低", 推理时可用作 r > r_max 区域 mask
+        #   输出 (B,) ∈ [0, 2.0] (CURVE_R_MAX)
+        self.head_r = self._build_head(hidden_dim, head_hidden, 1)
 
     @staticmethod
     def _build_head(in_dim: int, h_dim: int, out_dim: int) -> nn.Sequential:
@@ -192,10 +199,97 @@ class SpawnParamTunerResNet(nn.Module):
             "noMove": torch.sigmoid(self.head_noMove(h)).squeeze(-1),   # (B,)
             "score": self.head_score(h).squeeze(-1),                    # (B,) linear (log_score)
             "survival": torch.sigmoid(self.head_survival(h)).squeeze(-1),  # (B,)
+            # v2.10.32 (P2.2): r_pred ∈ [0, 2.0] (CURVE_R_MAX). 2.0 * sigmoid 钳制
+            "r_value": (2.0 * torch.sigmoid(self.head_r(h))).squeeze(-1),  # (B,)
         }
 
     def count_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+    @torch.no_grad()
+    def predict_with_uncertainty(self, n_samples: int = 30, **forward_kwargs) -> Dict[str, torch.Tensor]:
+        """v2.10.32 (P2.3) — MC Dropout uncertainty 估计.
+
+        训练 dropout 默认 p=0.10, inference 时若不 model.eval() 而是 model.train(),
+        每次 forward 会随机 dropout 不同子网 → N 次预测的均值 / 方差就是 Bayesian uncertainty。
+
+        Args:
+            n_samples: MC 采样次数 (默认 30, 标准做法)
+            **forward_kwargs: 跟 forward() 一样的输入 (difficulty_idx, ...)
+
+        Returns:
+            dict 含 "curve_mean" / "curve_std" / "r_mean" / "r_std"
+            其中 std 大的 bin / ctx 表示 model 自身不确定, 应在 UI 上用置信带显示
+        """
+        # 启用 dropout (forward 期间) 但不算梯度
+        was_training = self.training
+        # 只让 dropout 层在 training 模式 (其他 LayerNorm 等保持 eval 行为)
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.train(True)
+        try:
+            curve_samples = []
+            r_samples = []
+            for _ in range(n_samples):
+                out = self.forward(**forward_kwargs)
+                curve_samples.append(out["curve"])
+                r_samples.append(out["r_value"])
+            curve_stack = torch.stack(curve_samples, dim=0)   # (n_samples, B, 20)
+            r_stack = torch.stack(r_samples, dim=0)            # (n_samples, B)
+            return {
+                "curve_mean": curve_stack.mean(dim=0),
+                "curve_std": curve_stack.std(dim=0),
+                "r_mean": r_stack.mean(dim=0),
+                "r_std": r_stack.std(dim=0),
+                "n_samples": n_samples,
+            }
+        finally:
+            if not was_training:
+                # 恢复 eval 模式
+                for m in self.modules():
+                    if isinstance(m, nn.Dropout):
+                        m.train(False)
+
+
+def load_state_dict_compat(model: nn.Module, state_dict: Dict[str, torch.Tensor]) -> tuple[list, list]:
+    """v2.10.34 — embedding 维度兼容加载.
+
+    场景: 老 ckpt emb_gen.weight shape (2, D), 当前 model 期望 (4, D)
+    → strict=True 会 RuntimeError; strict=False 会丢失整个 emb 学到的权重
+    → 此函数把老 row 复制到新 emb 前 N_OLD 行, 后续 row 保持随机初始化 (新类别)
+
+    覆盖 keys: emb_diff/emb_gen/emb_bot/emb_pb/emb_life 的 weight
+
+    Returns: (missing_keys, unexpected_keys) — 跟 load_state_dict 一样
+    """
+    compat_sd = dict(state_dict)
+    emb_keys = [
+        "ctx_emb.emb_diff.weight", "ctx_emb.emb_gen.weight", "ctx_emb.emb_bot.weight",
+        "ctx_emb.emb_pb.weight", "ctx_emb.emb_life.weight",
+    ]
+    for key in emb_keys:
+        if key not in compat_sd:
+            continue
+        old_w = compat_sd[key]
+        # 找当前 model 对应 param
+        cur_param = model.state_dict().get(key)
+        if cur_param is None:
+            continue
+        if old_w.shape == cur_param.shape:
+            continue   # 形状一致直接用
+        if old_w.dim() != 2 or cur_param.dim() != 2 or old_w.shape[1] != cur_param.shape[1]:
+            # 不仅 row 数变, dim 也变 — 不安全, skip
+            del compat_sd[key]
+            continue
+        # row 数 N_OLD < N_NEW: pad 后面新行用当前 model 的 random init
+        if old_w.shape[0] < cur_param.shape[0]:
+            new_w = cur_param.clone()
+            new_w[:old_w.shape[0]] = old_w
+            compat_sd[key] = new_w
+        elif old_w.shape[0] > cur_param.shape[0]:
+            # 老 ckpt 有更多类别 (理论不应该) — 截断
+            compat_sd[key] = old_w[:cur_param.shape[0]]
+    return model.load_state_dict(compat_sd, strict=False)
 
 
 def build_default_model() -> SpawnParamTunerResNet:
@@ -278,6 +372,8 @@ class SpawnParamTunerTransformer(nn.Module):
         self.head_noMove = nn.Linear(d_model, 1)
         self.head_score = nn.Linear(d_model, 1)
         self.head_survival = nn.Linear(d_model, 1)
+        # v2.10.32 (P2.2): r-head — bot 实际能达到的 r = score/PB
+        self.head_r = nn.Linear(d_model, 1)
 
     def encode(
         self,
@@ -314,6 +410,8 @@ class SpawnParamTunerTransformer(nn.Module):
             "noMove": torch.sigmoid(self.head_noMove(pooled)).squeeze(-1),
             "score": self.head_score(pooled).squeeze(-1),
             "survival": torch.sigmoid(self.head_survival(pooled)).squeeze(-1),
+            # v2.10.32 (P2.2): r_pred ∈ [0, 2.0]
+            "r_value": (2.0 * torch.sigmoid(self.head_r(pooled))).squeeze(-1),
         }
 
     def count_parameters(self) -> int:

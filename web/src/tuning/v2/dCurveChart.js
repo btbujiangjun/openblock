@@ -101,10 +101,22 @@ export function renderDCurveChart(canvas, data) {
         ? data.predictedCurve : null;
     const obs = (data.observedCurve && data.observedCurve.length === target.length)
         ? data.observedCurve : null;
+    // v2.10.33 (P2.3 UI): 模型预测不确定性 ±2σ 带 (MC Dropout 估计)
+    const predStd = (data.predictedStd && data.predictedStd.length === target.length)
+        ? data.predictedStd : null;
     // v2.10.24: 多分组对比线 (浅色画在背景)
     const extras = Array.isArray(data.extraCurves)
         ? data.extraCurves.filter((e) => Array.isArray(e?.curve) && e.curve.length === target.length)
         : [];
+
+    // v2.10.28: 缓存最后一次 render 的 data + opts (供图例 click toggle 重新 render)
+    canvas._dcurveLastData = data;
+    if (!canvas._dcurveVisible) canvas._dcurveVisible = {};   // {lineId: false} 表示隐藏
+    if (!canvas._dcurveLegendHits) canvas._dcurveLegendHits = [];   // 图例点击区域
+    const visible = canvas._dcurveVisible;
+    const isVisible = (id) => visible[id] !== false;   // 默认 true
+    // v2.10.28: hover 高亮的曲线 id (鼠标在 chart 内, 距离最近的曲线 id)
+    const hoverLine = canvas._dcurveHoverLine || null;
 
     // ─── 设置 canvas (HiDPI) ───
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
@@ -165,13 +177,16 @@ export function renderDCurveChart(canvas, data) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // v2.10.24/25: 分组对比线 (彩色细线, 画在最底层但保证可见性)
+    // v2.10.24/25/28: 分组对比线 (彩色细线, 画在最底层; 支持 visibility + hover 高亮)
     if (extras.length > 0) {
         const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
-        ctx.lineWidth = 1.4;       // v2.10.25: 1.0 → 1.4 (更显眼)
-        ctx.globalAlpha = 0.85;    // v2.10.25: 0.55 → 0.85 (避免被黑底吃光)
         extras.slice(0, 8).forEach((e, idx) => {
+            const lineId = `extra_${idx}`;
+            if (!isVisible(lineId)) return;
+            const isHover = hoverLine === lineId;
             ctx.strokeStyle = palette[idx % palette.length];
+            ctx.lineWidth = isHover ? 2.5 : 1.4;
+            ctx.globalAlpha = hoverLine && !isHover ? 0.25 : 0.85;
             ctx.beginPath();
             for (let i = 0; i < N; i++) {
                 const x = xAt(i), y = yAt(e.curve[i]);
@@ -182,56 +197,54 @@ export function renderDCurveChart(canvas, data) {
         ctx.globalAlpha = 1.0;
     }
 
-    // ─── 实测曲线 (灰虚线, 先画在下层) ───
-    if (obs) {
-        ctx.strokeStyle = opt.colors.observed;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([3, 4]);
+    // v2.10.28: 4 条主线统一支持 visibility + hover 高亮
+    const drawMainLine = (id, curve, color, dashed, baseLW) => {
+        if (!isVisible(id) || !curve) return;
+        const isHover = hoverLine === id;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = isHover ? baseLW + 1.5 : baseLW;
+        ctx.globalAlpha = hoverLine && !isHover ? 0.30 : 1.0;
+        if (dashed) ctx.setLineDash(dashed);
         ctx.beginPath();
         for (let i = 0; i < N; i++) {
-            const x = xAt(i), y = yAt(obs[i]);
+            const x = xAt(i), y = yAt(curve[i]);
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         ctx.stroke();
         ctx.setLineDash([]);
+        ctx.globalAlpha = 1.0;
+    };
+    // v2.10.33 (P2.3 UI): 模型预测 ±2σ 置信带 — MC Dropout 估计的 epistemic uncertainty
+    //   高 std bin: model "自知没把握", UI 上自动用半透明带宽暴露这点
+    if (pred && predStd && isVisible('predicted')) {
+        const sigmaK = 2.0;   // ±2σ ≈ 95% 置信区间
+        ctx.fillStyle = opt.colors.predicted;
+        ctx.globalAlpha = hoverLine && hoverLine !== 'predicted' ? 0.05 : 0.15;
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+            const upper = Math.max(0, Math.min(1, pred[i] + sigmaK * predStd[i]));
+            const x = xAt(i), y = yAt(upper);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        for (let i = N - 1; i >= 0; i--) {
+            const lower = Math.max(0, Math.min(1, pred[i] - sigmaK * predStd[i]));
+            ctx.lineTo(xAt(i), yAt(lower));
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
     }
-
-    // ─── 校准 target (紫细虚线) — v2.9 训练目标, 让用户看到"实际可达" ───
+    // ─── 实测曲线 (灰虚线, 下层; v2.10.29 加粗到 2.5 避免被分组线遮挡) ───
+    if (obs) drawMainLine('observed', obs, opt.colors.observed, [5, 4], 2.5);
+    // ─── 校准 target (紫细虚线) ───
     if (opt.showCalibrated) {
         const calibrated = targetCurveCalibratedVector(N);
-        ctx.strokeStyle = opt.colors.calibrated;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        for (let i = 0; i < N; i++) {
-            const x = xAt(i), y = yAt(calibrated[i]);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        ctx.setLineDash([]);
+        drawMainLine('calibrated', calibrated, opt.colors.calibrated, [6, 4], 1.5);
     }
-
-    // ─── 目标曲线 (蓝粗) — 业务 ideal ───
-    ctx.strokeStyle = opt.colors.target;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    for (let i = 0; i < N; i++) {
-        const x = xAt(i), y = yAt(target[i]);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-
-    // ─── 预测曲线 (绿实) — 仅当 pred != null 时画, 避免与目标线重叠误导 ───
-    if (pred) {
-        ctx.strokeStyle = opt.colors.predicted;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (let i = 0; i < N; i++) {
-            const x = xAt(i), y = yAt(pred[i]);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-    }
+    // ─── 目标曲线 (蓝粗) ───
+    drawMainLine('target', target, opt.colors.target, null, 3);
+    // ─── 预测曲线 (绿实) ───
+    if (pred) drawMainLine('predicted', pred, opt.colors.predicted, null, 2);
 
     // ─── 坐标轴 ───
     ctx.strokeStyle = opt.colors.axis;
@@ -268,24 +281,27 @@ export function renderDCurveChart(canvas, data) {
     ctx.fillText('难度 D', 0, 0);
     ctx.restore();
 
-    // ─── 图例 (v2.10.26: 自动换行 + 留出右上指标空间) ───
+    // ─── 图例 (v2.10.26: 自动换行 + 留出右上指标空间; v2.10.28: 可点击 toggle) ───
+    canvas._dcurveLegendHits = [];   // 重置点击区域 (每次 render)
     if (opt.showLegend) {
-        // 给右上指标预留 230px (avg "预测 MAE = X.XXXX" + "单调 ✗ (max 倒退 X.XXX)" + "D=0.5 偏移 Δr = X.XXX")
         const metricsReserveW = opt.showMetrics ? 230 : 8;
         const maxLegendX = W - right - metricsReserveW;
-        let legendY = top - 22;   // chart 顶部上方 (padding.top 留了 32)
+        let legendY = top - 22;
         let legendX = left + 8;
         const lineH = 13;
-        const drawLegend = (color, label, dashed = false) => {
+        const drawLegend = (lineId, color, label, dashed = false) => {
             ctx.font = '11px ui-monospace, monospace';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             const textW = ctx.measureText(label).width;
-            // v2.10.26: 当前行装不下 → 换行 (但只允许 1 次额外换行, 避免 chart 区被压缩)
-            if (legendX + 18 + textW > maxLegendX && legendX > left + 8) {
+            const itemW = 18 + textW + 14;
+            if (legendX + itemW - 14 > maxLegendX && legendX > left + 8) {
                 legendX = left + 8;
                 legendY += lineH;
             }
+            const hidden = !isVisible(lineId);
+            // v2.10.28: 隐藏的图例文字变灰 + 减淡线段
+            ctx.globalAlpha = hidden ? 0.35 : 1.0;
             ctx.strokeStyle = color;
             ctx.lineWidth = 2;
             if (dashed) ctx.setLineDash([3, 4]);
@@ -296,18 +312,31 @@ export function renderDCurveChart(canvas, data) {
             ctx.setLineDash([]);
             ctx.fillStyle = opt.colors.text;
             ctx.fillText(label, legendX + 18, legendY);
-            legendX += 18 + textW + 14;
+            // 隐藏时画删除线
+            if (hidden) {
+                ctx.strokeStyle = opt.colors.text;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(legendX + 18, legendY);
+                ctx.lineTo(legendX + 18 + textW, legendY);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1.0;
+            // 记录点击区域 (bbox + lineId)
+            canvas._dcurveLegendHits.push({
+                lineId, x: legendX, y: legendY - 6, w: itemW, h: 12,
+            });
+            legendX += itemW;
         };
-        drawLegend(opt.colors.target, '目标 (业务)');
-        if (opt.showCalibrated) drawLegend(opt.colors.calibrated, '训练 target (校准)', true);
-        if (pred) drawLegend(opt.colors.predicted, '模型预测');
-        if (obs) drawLegend(opt.colors.observed, '实测均值', true);
-        // v2.10.25/26: 分组对比图例 (最多前 8 组)
+        drawLegend('target', opt.colors.target, '目标 (业务)');
+        if (opt.showCalibrated) drawLegend('calibrated', opt.colors.calibrated, '训练 target (校准)', true);
+        if (pred) drawLegend('predicted', opt.colors.predicted, '模型预测');
+        if (obs) drawLegend('observed', opt.colors.observed, '实测均值', true);
         if (extras.length > 0) {
             const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
             extras.slice(0, 8).forEach((e, idx) => {
                 const labelShort = e.label.length > 20 ? e.label.slice(0, 18) + '…' : e.label;
-                drawLegend(palette[idx % palette.length], labelShort);
+                drawLegend(`extra_${idx}`, palette[idx % palette.length], labelShort);
             });
         }
     }
@@ -365,14 +394,18 @@ export function renderDCurveChart(canvas, data) {
     });
 }
 
-/** v2.10.25: 鼠标 hover 在 chart 上时, 显示当前 r 位置各曲线值 (tooltip + 竖线) */
+/**
+ * v2.10.25/28: 鼠标交互
+ *   - mousemove on chart: tooltip 显示各曲线 D 值 + 高亮鼠标 Y 最近的曲线
+ *   - mousemove on legend: 鼠标变 pointer 提示可点击
+ *   - click on legend: toggle 该曲线 visibility, 重新 render
+ */
 function _bindHover(canvas, info) {
-    // 复用 dataset 上的 tooltip div (避免每次 render 重建)
     let tooltip = canvas._dcurveTooltip;
     if (!tooltip) {
         tooltip = document.createElement('div');
         tooltip.style.cssText = `
-            position: absolute; pointer-events: none; z-index: 100;
+            position: fixed; pointer-events: none; z-index: 100;
             background: rgba(15, 23, 42, 0.96); border: 1px solid rgba(96, 165, 250, 0.3);
             border-radius: 4px; padding: 6px 8px; font-size: 11px;
             font-family: ui-monospace, monospace; color: #e5e7eb;
@@ -382,43 +415,99 @@ function _bindHover(canvas, info) {
         document.body.appendChild(tooltip);
         canvas._dcurveTooltip = tooltip;
 
+        const _hitLegend = (cssX, cssY) => {
+            const hits = canvas._dcurveLegendHits || [];
+            for (const h of hits) {
+                if (cssX >= h.x && cssX <= h.x + h.w && cssY >= h.y && cssY <= h.y + h.h) return h.lineId;
+            }
+            return null;
+        };
+
         canvas.addEventListener('mousemove', (e) => {
             const lastInfo = canvas._dcurveInfo;
             if (!lastInfo) return;
             const rect = canvas.getBoundingClientRect();
+            const cssW = rect.width, cssH = rect.height;
+            // 用 CSS 坐标 (canvas 内部坐标系跟 CSS 一致 — 我们用 dpr scale)
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
-            const cssW = rect.width;
-            const { left: pl, right: pr, top: pt, bottom: pb, N, rMax, target, pred, obs, extras, showCalibrated, colors } = lastInfo;
-            const chartLeft = pl, chartRight = cssW - pr;
-            if (x < chartLeft || x > chartRight || y < pt || y > rect.height - pb) {
-                tooltip.style.display = 'none';
+            // v2.10.28: 命中图例 → pointer cursor + tooltip 提示
+            const legendHit = _hitLegend(x, y);
+            if (legendHit) {
+                canvas.style.cursor = 'pointer';
+                const visible = canvas._dcurveVisible || {};
+                tooltip.innerHTML = `点击 ${visible[legendHit] === false ? '<b style="color:#34d399">显示</b>' : '<b style="color:#f87171">隐藏</b>'} 该曲线`;
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.clientX + 12) + 'px';
+                tooltip.style.top = (e.clientY + 12) + 'px';
+                // 清 hover 高亮
+                if (canvas._dcurveHoverLine != null) {
+                    canvas._dcurveHoverLine = null;
+                    renderDCurveChart(canvas, canvas._dcurveLastData);
+                }
                 return;
             }
-            // 反推 bin (近邻整数)
+            canvas.style.cursor = 'default';
+
+            const { left: pl, right: pr, top: pt, bottom: pb, N, rMax, target, pred, obs, extras, showCalibrated, colors } = lastInfo;
+            const chartLeft = pl, chartRight = cssW - pr, chartTop = pt, chartBottom = cssH - pb;
+            if (x < chartLeft || x > chartRight || y < chartTop || y > chartBottom) {
+                tooltip.style.display = 'none';
+                // 清 hover 高亮
+                if (canvas._dcurveHoverLine != null) {
+                    canvas._dcurveHoverLine = null;
+                    renderDCurveChart(canvas, canvas._dcurveLastData);
+                }
+                return;
+            }
+            // 反推 bin
             const t = (x - chartLeft) / (chartRight - chartLeft);
             const bin = Math.max(0, Math.min(N - 1, Math.round(t * (N - 1))));
             const r = (bin + 0.5) * (rMax / N);
-            const fmt = (v) => v == null ? '-' : v.toFixed(3);
-            let lines = [`<b>r = ${r.toFixed(2)}</b> (bin ${bin})`];
-            lines.push(`<span style="color:${colors.target}">●</span> 目标 = ${fmt(target?.[bin])}`);
-            if (showCalibrated) {
-                // 重新计算 calibrated 这点 (没存)
-                lines.push(`<span style="color:${colors.calibrated}">●</span> 校准 (估)`);
+
+            // v2.10.28: 找鼠标 Y 最近的曲线 (Y 值差最小, 且该曲线 visible)
+            const dVal = 1 - (y - chartTop) / (chartBottom - chartTop);   // CSS Y → D 值反推
+            const visible = canvas._dcurveVisible || {};
+            const isV = (id) => visible[id] !== false;
+            const candidates = [];
+            if (isV('target')) candidates.push({ id: 'target', v: target[bin] });
+            if (showCalibrated && isV('calibrated')) {
+                // 不存 calibrated, 估略 (主要给图例高亮, 不画的话也无所谓)
             }
-            if (pred) lines.push(`<span style="color:${colors.predicted}">●</span> 预测 = ${fmt(pred[bin])}`);
-            if (obs) lines.push(`<span style="color:${colors.observed}">●</span> 实测 = ${fmt(obs[bin])}`);
-            // 分组对比
+            if (pred && isV('predicted')) candidates.push({ id: 'predicted', v: pred[bin] });
+            if (obs && isV('observed')) candidates.push({ id: 'observed', v: obs[bin] });
+            (extras || []).forEach((ex, idx) => {
+                if (isV(`extra_${idx}`)) candidates.push({ id: `extra_${idx}`, v: ex.curve[bin] });
+            });
+            let nearest = null, nearestDist = Infinity;
+            candidates.forEach((c) => {
+                const d = Math.abs(c.v - dVal);
+                if (d < nearestDist) { nearestDist = d; nearest = c.id; }
+            });
+            // 距离 > 0.08 (D 单位) 时不高亮 (鼠标不算"贴近")
+            const newHover = nearestDist < 0.08 ? nearest : null;
+            if (newHover !== canvas._dcurveHoverLine) {
+                canvas._dcurveHoverLine = newHover;
+                renderDCurveChart(canvas, canvas._dcurveLastData);
+            }
+
+            // tooltip 内容
+            const fmt = (v) => v == null ? '-' : v.toFixed(3);
+            const lines = [`<b>r = ${r.toFixed(2)}</b> (bin ${bin})`];
+            const mark = (id) => id === newHover ? ' <b>◀</b>' : '';
+            if (isV('target')) lines.push(`<span style="color:${colors.target}">●</span> 目标 = ${fmt(target[bin])}${mark('target')}`);
+            if (pred && isV('predicted')) lines.push(`<span style="color:${colors.predicted}">●</span> 预测 = ${fmt(pred[bin])}${mark('predicted')}`);
+            if (obs && isV('observed')) lines.push(`<span style="color:${colors.observed}">●</span> 实测 = ${fmt(obs[bin])}${mark('observed')}`);
             if (extras && extras.length > 0) {
                 const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
                 extras.slice(0, 8).forEach((ex, idx) => {
+                    if (!isV(`extra_${idx}`)) return;
                     const labelShort = ex.label.length > 24 ? ex.label.slice(0, 22) + '…' : ex.label;
-                    lines.push(`<span style="color:${palette[idx % palette.length]}">●</span> ${labelShort} = ${fmt(ex.curve[bin])}`);
+                    lines.push(`<span style="color:${palette[idx % palette.length]}">●</span> ${labelShort} = ${fmt(ex.curve[bin])}${mark(`extra_${idx}`)}`);
                 });
             }
             tooltip.innerHTML = lines.join('<br>');
             tooltip.style.display = 'block';
-            // 定位 tooltip (避免超出视窗)
             const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
             const winW = window.innerWidth, winH = window.innerHeight;
             let tx = e.clientX + 12, ty = e.clientY + 12;
@@ -427,9 +516,29 @@ function _bindHover(canvas, info) {
             tooltip.style.left = tx + 'px';
             tooltip.style.top = ty + 'px';
         });
-        canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+        canvas.addEventListener('mouseleave', () => {
+            tooltip.style.display = 'none';
+            canvas.style.cursor = 'default';
+            if (canvas._dcurveHoverLine != null) {
+                canvas._dcurveHoverLine = null;
+                renderDCurveChart(canvas, canvas._dcurveLastData);
+            }
+        });
+
+        // v2.10.28: 图例点击 toggle
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const id = _hitLegend(x, y);
+            if (!id) return;
+            const visible = canvas._dcurveVisible || (canvas._dcurveVisible = {});
+            // toggle: undefined (默认 true) / true → false; false → true
+            visible[id] = (visible[id] === false);
+            renderDCurveChart(canvas, canvas._dcurveLastData);
+        });
     }
-    // 每次 render 更新 info (供 mousemove 读)
     canvas._dcurveInfo = info;
 }
 

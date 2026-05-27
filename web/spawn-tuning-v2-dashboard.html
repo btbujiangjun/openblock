@@ -90,6 +90,10 @@
     .form-row label.narrow { flex: 0 0 80px; }
     .form-row label.narrow input,
     .form-row label.narrow select { font-size: 11px; padding: 0 4px; }
+    /* v2.10.37: medium — 单行标签 (e.g. "每场景采样 θ 数") 比 narrow 宽, 避免换行 */
+    .form-row label.medium { flex: 0 0 140px; }
+    .form-row label.medium input,
+    .form-row label.medium select { font-size: 11px; padding: 0 4px; }
     /* multi-select / 长文本 200px (兼容旧 inline-style "grid-column: span 2") */
     .form-row label[style*="span 2"] { flex: 0 0 260px; }
     .form-row label[style*="span 2"] select[multiple] { height: auto; min-height: 80px; }
@@ -128,6 +132,17 @@
     .chip:hover { border-color: var(--accent); color: var(--text); }
     .chip.chip-on { background: var(--accent); color: #0f172a;
       border-color: var(--accent); font-weight: 700; }
+    /* v2.10.34: 占位 chip — 视觉禁用 */
+    .chip.chip-disabled { opacity: 0.45; cursor: not-allowed; border-style: dashed; }
+    .chip.chip-disabled:hover { border-color: var(--line); color: var(--muted); }
+    /* v2.10.36: chip 副标 (英文 id / 备注) — 自适配 chip-on 深色背景, 默认背景柔和灰 */
+    .chip .chip-aux { margin-left: 4px; padding: 0 5px; font-size: 9.5px;
+      font-weight: 500; opacity: 0.62; letter-spacing: 0.2px;
+      background: rgba(148, 163, 184, 0.14); border-radius: 6px;
+      vertical-align: middle; }
+    .chip.chip-on .chip-aux { background: rgba(15, 23, 42, 0.14); color: #0f172a;
+      opacity: 0.70; }
+    .chip.chip-disabled .chip-aux { opacity: 0.55; }
     .chip-weight-badge { position: absolute; top: -7px; right: -4px; background: var(--warn);
       color: #422006; font-weight: 800; font-size: 9px; padding: 0 4px; height: 14px;
       line-height: 14px; border-radius: 999px; box-shadow: 0 0 0 2px var(--panel); }
@@ -382,32 +397,47 @@
             <span class="dim-count" data-count="difficulty">3/3</span>
           </div>
           <div class="dim-row">
-            <span class="dim-label">出块算法</span>
+            <span class="dim-label" title="出块算法: 启发式由规则评分候选 → 选最佳 (triplet-p1=P1 组合评分, budget-p2=P2 预算约束, heuristic-rule=基础规则); 生成式 (generative) 直接由 SpawnPolicyNet 模型推断 3 块">出块算法</span>
             <div class="chip-group" data-dim="generator">
-              <button class="chip chip-on" data-val="triplet-p1">triplet-p1</button>
-              <button class="chip chip-on" data-val="budget-p2">budget-p2</button>
+              <button class="chip chip-on" data-val="triplet-p1" title="启发式·P1 — triplet 组合评分">启发式·P1
+                <span class="chip-aux">triplet-p1</span>
+              </button>
+              <button class="chip chip-on" data-val="budget-p2" title="启发式·P2 — 预算约束 4 类">启发式·P2
+                <span class="chip-aux">budget-p2</span>
+              </button>
+              <button class="chip" data-val="heuristic-rule" title="启发式·规则版 — sim 原生 SPAWN_POLICY_RULES, 不做 triplet 组合优化">启发式·规则
+                <span class="chip-aux">heuristic-rule</span>
+              </button>
+              <button class="chip" data-val="generative" title="生成式 — sampler 通过 HTTP 调 /api/spawn-model/v3/predict (SpawnPolicyNet) 拿 dock. 比启发式慢 ~10-50x. 失败自动 fallback baseline">生成式
+                <span class="chip-aux">generative · HTTP</span>
+              </button>
             </div>
-            <span class="dim-count" data-count="generator">2/2</span>
+            <span class="dim-count" data-count="generator">2/4</span>
           </div>
           <div class="dim-row">
             <span class="dim-label">Bot 模拟</span>
             <div class="chip-group" data-dim="bot_policy">
-              <button class="chip chip-on" data-val="random">random</button>
-              <button class="chip chip-on" data-val="clear-greedy">clear-greedy</button>
-              <button class="chip chip-on" data-val="survival">survival</button>
+              <button class="chip chip-on" data-val="random" title="完全随机 placement (基线)">random</button>
+              <button class="chip chip-on" data-val="clear-greedy" title="贪心 maximize 消行">clear-greedy</button>
+              <button class="chip chip-on" data-val="survival" title="保守 minimize fill">survival</button>
+              <button class="chip" data-val="rl-bot" title="RL 机器人 — sampler 通过 HTTP 调后端 /api/spawn-model/best-placement 拿 action. 失败自动 fallback clear-greedy">rl-bot
+                <span class="chip-aux">RL · HTTP</span>
+              </button>
             </div>
-            <span class="dim-count" data-count="bot_policy">3/3</span>
+            <span class="dim-count" data-count="bot_policy">3/4</span>
           </div>
           <div class="dim-row">
-            <span class="dim-label">个人最佳分</span>
+            <span class="dim-label" title="v2.10.32 (P1.1): bot 在 maxSteps 内打不到 10000/25000, 这两档 d_curve 80%+ 是 _pbAwareDPbBase 先验填充, 默认关闭. 需要训高 PB 玩家场景才打开.">
+              个人最佳分 <span style="color:var(--muted); font-size:9px;">⚠ 10k+ 多是先验</span>
+            </span>
             <div class="chip-group" data-dim="pb_bin">
               <button class="chip chip-on" data-val="500">≤500</button>
               <button class="chip chip-on" data-val="1500">~1500</button>
               <button class="chip chip-on" data-val="4000">~4000</button>
-              <button class="chip chip-on" data-val="10000">~10000</button>
-              <button class="chip chip-on" data-val="25000">≥25000</button>
+              <button class="chip" data-val="10000" title="bot 实际触达率 < 20%, 80% bin 靠先验">~10000</button>
+              <button class="chip" data-val="25000" title="bot 实际触达率 < 5%, 95% bin 靠先验">≥25000</button>
             </div>
-            <span class="dim-count" data-count="pb_bin">5/5</span>
+            <span class="dim-count" data-count="pb_bin">3/5</span>
           </div>
           <div class="dim-row">
             <span class="dim-label">生命周期</span>
@@ -423,13 +453,30 @@
 
         <!-- v2.10.14: 把 lookahead 复选框跟其他参数挤一行, 节省一行高度 -->
         <div class="form-row">
-          <label class="narrow">每场景 θ 数<input id="cfg-thetas" type="number" min="2" max="100" value="5"></label>
-          <label class="narrow">每 θ Seeds<input id="cfg-seeds" type="number" min="1" max="5" value="2"></label>
-          <label class="narrow">Max Steps<input id="cfg-max-steps" type="number" min="30" max="500" value="120"></label>
+          <label class="medium" title="每个场景 (5 维 ctx 组合) LHS 抽样多少组 θ — θ 是出块算法参数 (e.g. PB 张力中心 / 拐点宽度 等 ~9 维) 在搜索空间内均匀采样">
+            每场景采样 θ 数
+            <input id="cfg-thetas" type="number" min="2" max="100" value="5">
+          </label>
+          <label class="medium" title="每组 (ctx, θ) 跑多少局 — 不同 seed 给不同初始盘面, 多局平均后样本更稳, 耗时正比">
+            每组重复局数
+            <input id="cfg-seeds" type="number" min="1" max="5" value="2">
+          </label>
+          <label class="medium" title="单局最大步数上限. v2.10.32 (P1.3) 默认 240→500, 让强 bot 在高 PB 桶有机会触达 r≥1; 死局会提前 break">
+            单局步数上限
+            <input id="cfg-max-steps" type="number" min="30" max="1000" value="500">
+          </label>
           <label>样本集名<input id="cfg-set-name" type="text" placeholder="auto"></label>
-          <label class="checkbox-inline" title="G8: 在 clear-greedy/survival 上叠加 1-step lookahead, 让 bot 更激进, 提高 r&gt;1 区数据覆盖 (采样略慢)">
-            <input type="checkbox" id="cfg-lookahead"> Lookahead 强化
+          <label class="checkbox-inline" title="G8: 1-step lookahead, bot 更激进 (~+30% score/step). 采样略慢.">
+            <input type="checkbox" id="cfg-lookahead"> Lookahead 1-step
             <span style="color:var(--muted); font-size:9.5px;">(G8)</span>
+          </label>
+          <label class="checkbox-inline" title="P1.2 v2.10.32: 2-step lookahead, top-K + 抽样剪枝 (~+60% score/step). 采样慢 ~5x. 高 PB 档推荐.">
+            <input type="checkbox" id="cfg-lookahead2"> Lookahead 2-step
+            <span style="color:var(--muted); font-size:9.5px;">(P1.2)</span>
+          </label>
+          <label class="checkbox-inline" title="P2.1 v2.10.33: MCTS rollout — 最强 bot (~+150% score/step), 但极慢 (~50-100x). 仅用于训 PB=10000+ 高分场景.">
+            <input type="checkbox" id="cfg-mcts"> MCTS rollout
+            <span style="color:var(--muted); font-size:9.5px;">(P2.1, 慢!)</span>
           </label>
         </div>
 
@@ -475,18 +522,18 @@
     <!-- ════════════════ ③ 模型训练 ════════════════ -->
     <div class="tab-content" id="tab-training">
       <section>
-        <h2>C.1 提交训练任务 <span style="font-weight:normal; font-size:11px; color:var(--muted);">— 异步执行器后台跑 train.py</span></h2>
-        <div class="form-row">
+        <h2>C.1 提交训练任务 <span style="font-weight:normal; font-size:11px; color:var(--muted);">— 异步模型训练</span></h2>
+        <div class="form-row" style="align-items: flex-start;">
           <label>任务名<input id="job-name" type="text" placeholder="auto"></label>
-          <label style="grid-column: span 2;">
-            训练样本集 <span style="color:var(--muted); font-size:10px;">(按住 Cmd/Ctrl 多选; 或从 ② 样本集 tab 点 "→ 训练" 跨 tab 选)</span>
+          <label style="grid-column: span 2;" title="按住 Cmd/Ctrl 多选; 或从 ② 样本集 tab 点 → 训练 跨 tab 选">
+            训练样本集
             <select id="job-sets" multiple size="4" style="height:auto; padding:4px 6px;"></select>
           </label>
           <label title="ResNet-MLP: L4 经典架构, 325K 参数; Transformer: 序列建模, 更适合 d_curve 单调结构, ~200K 参数 (v2.9 新加)">
             网络架构
             <select id="job-model-type">
-              <option value="resnet" selected>ResNet-MLP (默认)</option>
-              <option value="transformer">Transformer ⭐ (v2.9)</option>
+              <option value="resnet" selected>ResNet-MLP</option>
+              <option value="transformer">Transformer</option>
             </select>
           </label>
           <!-- G10 v2.10.10/11: Transformer 超参跟其他参数同行 + 收窄数字 (grid auto-fit) -->
@@ -633,15 +680,16 @@
     <div class="tab-content" id="tab-analysis">
       <section>
         <h2>📊 d_curve 三线对照 <span style="font-weight:normal; font-size:11px; color:var(--muted);">目标 S 曲线 vs 模型预测 vs 实测均值</span></h2>
-        <p class="muted-hint">业务直观图: r = score/PB ∈ [0, 1.5], 难度 D ∈ [0, 1]</p>
+        <p class="muted-hint">业务直观图: r = score/PB ∈ [0, 1.5], 难度 D ∈ [0, 1] · <b>v2.10.30</b>: 主线 (实测/模型预测) 与分组线在同 ctx 集合上加权聚合, 分组线默认走<b>模型预测</b>展示 model 在该维度的差异</p>
 
         <!-- v2.10.23: 三个下拉加宽 (default 130px 太窄, 文字被截断) -->
         <div class="form-row">
           <label style="flex: 0 0 240px;">选样本集 (实测数据)
             <select id="curve-set"><option value="">— 不加载实测 —</option></select>
           </label>
-          <label style="flex: 0 0 200px;" title="按某维度分组聚合 d_curve (Cmd/Ctrl 多选)">分组维度
-            <select id="curve-group-by" multiple size="3" style="height:auto; min-height:60px; font-size:11px;">
+          <label style="flex: 0 0 240px;" title="按某维度分组对比. 分组线 = 该分组内所有 ctx 的模型预测加权均值, 未选模型时 fallback 实测样本均值">分组维度
+            <select id="curve-group-by" style="font-size:11px;">
+              <option value="">— 不分组 —</option>
               <option value="difficulty">difficulty (难度)</option>
               <option value="generator">generator (生成器)</option>
               <option value="bot_policy">bot_policy (Bot)</option>
@@ -649,17 +697,15 @@
               <option value="lifecycle_stage">lifecycle (生命周期)</option>
             </select>
           </label>
-          <!-- v2.10.27: 分组数据源 (实测 / 模型预测) -->
-          <label style="flex: 0 0 180px;" title="实测=samples 表均值; 模型预测=对每个维度值用所选模型推断">分组数据源
-            <select id="curve-group-source" style="font-size:11px;">
-              <option value="observed" selected>实测样本均值</option>
-              <option value="predicted">模型预测 (需选模型)</option>
-            </select>
-          </label>
-          <label style="flex: 0 0 280px;">模型推断 (主线: 该模型对 default ctx 推断)
+          <label style="flex: 0 0 320px;" title="主线 = 该模型对样本集所有 unique ctx 批量预测后按 n_samples 加权平均, 跟实测均值同尺度">模型推断 (主线: 全 ctx 加权预测均值)
             <select id="curve-predict-model">
               <option value="">— 不推断 (只画目标 / 实测) —</option>
             </select>
+          </label>
+          <!-- v2.10.33 (P2.3 UI): MC Dropout 不确定性带 -->
+          <label class="checkbox-inline" title="P2.3 v2.10.33: MC Dropout 30 次采样, chart 上画 ±2σ 半透明带 (绿色). 高方差 bin 暗示 model 自身没把握, 通常出现在 r > avg_r 的稀疏区. 推断慢 ~10x.">
+            <input type="checkbox" id="curve-uncertainty"> 显示不确定性带 ±2σ
+            <span style="color:var(--muted); font-size:9.5px;">(P2.3)</span>
           </label>
         </div>
 

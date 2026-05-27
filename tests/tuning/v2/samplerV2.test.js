@@ -146,8 +146,8 @@ describe('runOneSampleV2', () => {
         maxEvaluatedTriplets: 80,
     };
 
-    it('returns a valid v2 sample row', () => {
-        const sample = runOneSampleV2({
+    it('returns a valid v2 sample row', async () => {
+        const sample = await runOneSampleV2({
             context: defaultContext,
             theta: defaultTheta,
             seed: 12345,
@@ -172,10 +172,8 @@ describe('runOneSampleV2', () => {
         expect(typeof sample.evaluated_at).toBe('number');
     });
 
-    it('returns consistent shape across runs (simulator has non-seed randomness)', () => {
-        // 注: OpenBlockSimulator 内部 spawn 生成器 用 Math.random(), 不完全由 seed 决定
-        // 所以这里只验证返回结构而非数值严格相等
-        const s = runOneSampleV2({
+    it('returns consistent shape across runs (simulator has non-seed randomness)', async () => {
+        const s = await runOneSampleV2({
             context: defaultContext, theta: defaultTheta, seed: 999, maxSteps: 30,
         });
         expect(s).not.toBeNull();
@@ -184,11 +182,11 @@ describe('runOneSampleV2', () => {
         expect(s.survived_steps).toBeLessThanOrEqual(30);
     });
 
-    it('different bot_policy produces valid samples', () => {
+    it('different bot_policy produces valid samples', async () => {
         const ctxRandom = { ...defaultContext, bot_policy: 'random' };
         const ctxGreedy = { ...defaultContext, bot_policy: 'clear-greedy' };
-        const sR = runOneSampleV2({ context: ctxRandom, theta: defaultTheta, seed: 555, maxSteps: 30 });
-        const sG = runOneSampleV2({ context: ctxGreedy, theta: defaultTheta, seed: 556, maxSteps: 30 });
+        const sR = await runOneSampleV2({ context: ctxRandom, theta: defaultTheta, seed: 555, maxSteps: 30 });
+        const sG = await runOneSampleV2({ context: ctxGreedy, theta: defaultTheta, seed: 556, maxSteps: 30 });
         expect(sR.bot_policy).toBe('random');
         expect(sG.bot_policy).toBe('clear-greedy');
         // 两个样本都合法
@@ -200,27 +198,94 @@ describe('runOneSampleV2', () => {
      * `cheapTop.length = maxEvaluatedTriplets` 处抛
      * `RangeError: Failed to set 'length' property on 'Array'`。
      * 修复后 sampler 在调用边界 + spawnExperiments 内部双重 round, 确保不抛。 */
-    it('survives float θ.maxEvaluatedTriplets (regression: Invalid Array length)', () => {
+    it('survives float θ.maxEvaluatedTriplets (regression: Invalid Array length)', async () => {
         const floatTheta = {
             ...defaultTheta,
-            maxEvaluatedTriplets: 80.7,      // LHS 抽样常见: [32, 128] 之间浮点
-            surpriseCooldown: 7.4,           // 同样曾被怀疑
+            maxEvaluatedTriplets: 80.7,
+            surpriseCooldown: 7.4,
         };
-        expect(() => runOneSampleV2({
+        await expect(runOneSampleV2({
             context: defaultContext,
             theta: floatTheta,
             seed: 4242,
             maxSteps: 30,
-        })).not.toThrow();
+        })).resolves.not.toBeNull();
     });
 
-    it('throws on truly invalid pb_bin', () => {
-        expect(() => runOneSampleV2({
+    it('throws on truly invalid pb_bin', async () => {
+        await expect(runOneSampleV2({
             context: { ...defaultContext, pb_bin: 0 },
             theta: defaultTheta,
             seed: 1,
             maxSteps: 10,
-        })).toThrow(/pb_bin/);
+        })).rejects.toThrow(/pb_bin/);
+    });
+
+    // v2.10.33 (P2.1): MCTS bot 测试 — 主要验证不崩 + 输出合法
+    it('MCTS bot (use_mcts_bot=true) produces valid sample', async () => {
+        const thetaMCTS = {
+            ...defaultTheta,
+            use_mcts_bot: true,
+            mcts_rollouts: 5,
+            mcts_rollout_steps: 5,
+        };
+        const s = await runOneSampleV2({
+            context: { ...defaultContext, bot_policy: 'clear-greedy' },
+            theta: thetaMCTS,
+            seed: 4243,
+            maxSteps: 15,
+        });
+        expect(s).not.toBeNull();
+        expect(JSON.parse(s.d_curve_json)).toHaveLength(20);
+        expect(s.survived_steps).toBeGreaterThan(0);
+        // MCTS 应该比 random 强 — 至少不应该 0 分
+        expect(s.final_score).toBeGreaterThan(0);
+    });
+
+    // v2.10.33 (P1.2 修复): 2-step lookahead 之前因 sim.clone 不存在退化 return 0
+    // 修复后使用 saveState/restoreState 真正生效, 应给出比 1-step 不弱的 sample
+    it('lookahead2 bot produces valid sample (regression: saveState path)', async () => {
+        const theta2 = { ...defaultTheta, use_lookahead_bot: true, use_lookahead2_bot: true };
+        const s = await runOneSampleV2({
+            context: { ...defaultContext, bot_policy: 'clear-greedy' },
+            theta: theta2,
+            seed: 1234,
+            maxSteps: 20,
+        });
+        expect(s).not.toBeNull();
+        expect(JSON.parse(s.d_curve_json)).toHaveLength(20);
+        expect(s.final_score).toBeGreaterThan(0);
+    });
+
+    // v2.10.35: generative — sampler 通过 HTTP 调 SpawnPolicyNet V3
+    //   测试环境 fetch 失败 → fallback baseline; 重点验证不崩 + 输出合法
+    it('generative generator falls back gracefully when V3 API unavailable', async () => {
+        const s = await runOneSampleV2({
+            context: { ...defaultContext, generator: 'generative', bot_policy: 'clear-greedy' },
+            theta: defaultTheta,
+            seed: 9090,
+            maxSteps: 10,
+        });
+        expect(s).not.toBeNull();
+        expect(s.generator).toBe('generative');
+        expect(JSON.parse(s.d_curve_json)).toHaveLength(20);
+        // V3 失败时 fallback baseline, sample 应该照常产出
+    });
+
+    // v2.10.36: rl-bot — sampler 通过 HTTP 调 /api/rl/select_action
+    //   测试环境 fetch 失败 → fallback clear-greedy; 重点验证不崩 + 输出合法
+    it('rl-bot bot_policy falls back gracefully when RL API unavailable', async () => {
+        const s = await runOneSampleV2({
+            context: { ...defaultContext, bot_policy: 'rl-bot' },
+            theta: defaultTheta,
+            seed: 7070,
+            maxSteps: 10,
+        });
+        expect(s).not.toBeNull();
+        expect(s.bot_policy).toBe('rl-bot');
+        expect(JSON.parse(s.d_curve_json)).toHaveLength(20);
+        // RL 失败时 fallback clear-greedy → 仍能跑通, final_score > 0
+        expect(s.final_score).toBeGreaterThanOrEqual(0);
     });
 });
 

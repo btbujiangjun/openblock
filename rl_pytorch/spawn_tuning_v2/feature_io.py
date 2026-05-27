@@ -17,8 +17,11 @@ import numpy as np
 # ─────────── 索引映射 (必须与 schema CHECK 一致) ───────────
 
 DIFFICULTY_INDEX = {"easy": 0, "normal": 1, "hard": 2}
-GENERATOR_INDEX = {"triplet-p1": 0, "budget-p2": 1}
-BOT_INDEX = {"random": 0, "clear-greedy": 1, "survival": 2}
+# v2.10.34/35: heuristic-rule (启发式·规则版, sim 用 SPAWN_POLICY_RULES='baseline');
+#              generative (生成式 ML, sampler 调 /api/spawn-model/v3/predict 拿 dock).
+# 加 rl-bot (UI 占位, 暂不实采)
+GENERATOR_INDEX = {"triplet-p1": 0, "budget-p2": 1, "heuristic-rule": 2, "generative": 3}
+BOT_INDEX = {"random": 0, "clear-greedy": 1, "survival": 2, "rl-bot": 3}
 PB_BIN_INDEX = {500: 0, 1500: 1, 4000: 2, 10000: 3, 25000: 4}
 LIFECYCLE_INDEX = {"onboarding": 0, "growth": 1, "mature": 2, "plateau": 3}
 
@@ -105,6 +108,10 @@ class SamplesDataset:
         noMove_norm: np.ndarray,
         log_score: np.ndarray,
         survival: np.ndarray,
+        # v2.10.32 (P0.2): 逐 bin 真实观察数 (n, 20). 全 0 表示老样本 (无此数据), 训练时退化为均匀 weight=1
+        bin_counts: np.ndarray | None = None,
+        # v2.10.32 (P2.2): score/pb 比值 — multi-task 模型用作辅助 label
+        r_value: np.ndarray | None = None,
     ):
         self.difficulty_idx = difficulty_idx
         self.generator_idx = generator_idx
@@ -118,6 +125,10 @@ class SamplesDataset:
         self.noMove_norm = noMove_norm
         self.log_score = log_score
         self.survival = survival
+        # bin_counts 默认全 0 (退化), 长度 n×20
+        n = difficulty_idx.shape[0]
+        self.bin_counts = bin_counts if bin_counts is not None else np.zeros((n, 20), dtype=np.float32)
+        self.r_value = r_value if r_value is not None else np.zeros(n, dtype=np.float32)
 
     def __len__(self) -> int:
         return self.difficulty_idx.shape[0]
@@ -143,11 +154,13 @@ class SamplesDataset:
         conn = sqlite3.connect(str(db_path))
         conn.row_factory = sqlite3.Row
         placeholders = ",".join("?" * len(set_ids))
+        # v2.10.32 (P0.2): 加载 bin_counts_json + n_bins_filled (P2.2: final_score/pb_bin)
         rows = conn.execute(
             f"""
             SELECT difficulty, generator, bot_policy, pb_bin, lifecycle_stage,
                    theta_json, d_curve_json,
-                   final_score, survived_steps, clear_rate, noMove_step, pb_broke
+                   final_score, survived_steps, clear_rate, noMove_step, pb_broke,
+                   bin_counts_json, n_bins_filled
             FROM samples
             WHERE set_id IN ({placeholders})
             """,
@@ -171,6 +184,8 @@ class SamplesDataset:
         noMove_norm = np.zeros(n, dtype=np.float32)
         log_score = np.zeros(n, dtype=np.float32)
         survival = np.zeros(n, dtype=np.float32)
+        bin_counts = np.zeros((n, 20), dtype=np.float32)   # v2.10.32 (P0.2)
+        r_value = np.zeros(n, dtype=np.float32)            # v2.10.32 (P2.2): score/pb
 
         for i, r in enumerate(rows):
             diff[i] = DIFFICULTY_INDEX[r["difficulty"]]
@@ -182,18 +197,32 @@ class SamplesDataset:
             theta[i] = normalize_theta(json.loads(r["theta_json"]))
             curve = json.loads(r["d_curve_json"])
             if len(curve) != 20:
-                # 容错: 长度不对则填充/截断
                 curve = (list(curve) + [curve[-1] if curve else 0.5] * 20)[:20]
             d_curve[i] = np.array(curve, dtype=np.float32)
             pb_broke[i] = float(r["pb_broke"] or 0)
-            # noMove_step ∈ [-1, max_steps]; -1=未死局 → 1.0 (满步存活), 否则归一化
             n_step = r["noMove_step"]
             if n_step is None or n_step < 0:
-                noMove_norm[i] = 1.0  # 未死局
+                noMove_norm[i] = 1.0
             else:
                 noMove_norm[i] = min(1.0, float(n_step) / max_survived_steps)
             log_score[i] = math.log10(max(1.0, float(r["final_score"] or 1.0)))
             survival[i] = 1.0 if (r["noMove_step"] is None or r["noMove_step"] < 0) else 0.0
+            # v2.10.32 (P0.2): bin_counts_json 字段可能不存在 (老样本) 或为 None
+            try:
+                bc_json = r["bin_counts_json"]
+            except (KeyError, IndexError):
+                bc_json = None
+            if bc_json:
+                try:
+                    bc_list = json.loads(bc_json)
+                    if len(bc_list) == 20:
+                        bin_counts[i] = np.array(bc_list, dtype=np.float32)
+                except (ValueError, TypeError):
+                    pass
+            # v2.10.32 (P2.2): r = final_score / pb_bin, 用于 multi-task 辅助 head
+            pb_val = float(r["pb_bin"]) if r["pb_bin"] else 1.0
+            fs = float(r["final_score"] or 0.0)
+            r_value[i] = min(2.0, fs / pb_val) if pb_val > 0 else 0.0
 
         # log_pb z-score (用样本内统计)
         if log_pb.std() > 1e-9:
@@ -212,6 +241,8 @@ class SamplesDataset:
             noMove_norm=noMove_norm,
             log_score=log_score,
             survival=survival,
+            bin_counts=bin_counts,
+            r_value=r_value,
         )
 
     def train_val_split(
@@ -240,6 +271,8 @@ class SamplesDataset:
             noMove_norm=self.noMove_norm[idx],
             log_score=self.log_score[idx],
             survival=self.survival[idx],
+            bin_counts=self.bin_counts[idx],
+            r_value=self.r_value[idx],
         )
 
     def iter_batches(self, batch_size: int = 256, shuffle: bool = True, seed: int = 0):
@@ -265,6 +298,9 @@ class SamplesDataset:
                 "noMove": self.noMove_norm[idx],
                 "score": self.log_score[idx],
                 "survival": self.survival[idx],
+                # v2.10.32 (P0.2 + P2.2): 透明化 bin 真实观察数 + score/pb
+                "bin_counts": self.bin_counts[idx],
+                "r_value": self.r_value[idx],
             }
 
 

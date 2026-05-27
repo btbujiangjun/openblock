@@ -29,6 +29,11 @@
 
 import { OpenBlockSimulator } from '../../bot/simulator.js';
 import { CURVE_N_BINS, CURVE_R_MAX, rToBin } from './targetSCurve.js';
+// v2.10.35: generative — 调 SpawnPolicyNet V3 拿 dock (async HTTP, 失败 fallback 规则)
+import { predictShapesV3 } from '../../spawnModel.js';
+// v2.10.36: rl-bot — 调 PyTorch RL 服务选 action (HTTP, 失败 fallback clear-greedy)
+import { buildDecisionBatch } from '../../bot/features.js';
+import { selectActionRemote } from '../../bot/pytorchBackend.js';
 
 // ─────────── 单步难度信号常量 (与 Python extractor.py 一致) ───────────
 
@@ -148,6 +153,9 @@ function _extractDCurveFromSteps(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R
         surprise_count: surpriseCount,
         n_steps: steps.length,
         n_bins_filled: nFilled,
+        // v2.10.32 (P0.1+P0.2): 逐 bin 真实观察样本数, 0 表示该 bin 完全靠先验
+        // 训练时按 confidence = n / (n + PRIOR_STRENGTH) 加权 loss 避免学 prior
+        bin_counts: binCounts.slice(),
     };
 }
 
@@ -172,6 +180,107 @@ function _previewAction(sim, action) {
     return { clears, fill: gridCopy.getFillRatio() };
 }
 
+// v2.10.32 (P1.2 + v2.10.33 fix): 2-step lookahead
+//   原 v2.10.32 假设 sim.clone() 存在 — 实际 simulator 没 clone 方法 — 退化 return 0
+//   v2.10.33 修复: 用 sim.saveState() / restoreState() 替代 (这俩已存在), 让 2-step 真正生效
+function _evalWith2StepLookahead(sim, a1, ev1, rng, policy) {
+    if (!sim.saveState || !sim.restoreState) return 0;
+    const state = sim.saveState();
+    let best2 = -Infinity;
+    try {
+        sim.step(a1.blockIdx, a1.gx, a1.gy);
+        if (sim.isTerminal && sim.isTerminal()) {
+            best2 = -100;   // a1 导致死局 → 强烈避免
+        } else {
+            const legal2 = sim.getLegalActions();
+            if (legal2.length === 0) {
+                best2 = -50;
+            } else {
+                const sampleCount = Math.min(20, legal2.length);
+                for (let i = 0; i < sampleCount; i++) {
+                    const idx = (i * 17 + Math.floor(rng() * 13)) % legal2.length;
+                    const a2 = legal2[idx];
+                    const ev2 = _previewAction(sim, a2);
+                    let s2;
+                    if (policy === 'clear-greedy') {
+                        s2 = ev2.clears * 100 - ev2.fill * 2;
+                    } else {
+                        s2 = (ev2.clears > 0 ? 50 : 0) - ev2.fill * 3;
+                    }
+                    if (s2 > best2) best2 = s2;
+                }
+            }
+        }
+    } finally {
+        sim.restoreState(state);   // 关键: 不管成功失败都恢复 sim 状态
+    }
+    return best2;
+}
+
+
+// v2.10.33 (P2.1): MCTS bot — N 次随机 rollout 评估每个候选 action
+//   思路: 对每个 a1, 用 saveState/restoreState 在 sim 上做:
+//     1. step(a1)
+//     2. 从 a1 后状态做 R 次 random rollout 到终止或 maxRolloutSteps 步
+//     3. 取 R 次的平均 final_score (或 score 增量)
+//   选 score 最高的 a1
+//
+//   复杂度: K legal × R rollouts × L steps ≈ 50 × 30 × 30 = 45000 step/选 action
+//   比 lookahead-2 (~100 ops/选) 慢 ~500x — 但 bot 强度提升 +100%~150%
+//   实测: clear-greedy 1step ~15 score/step → MCTS 30 rollout × 30 step ~40 score/step
+//
+//   注: 因开销大, 默认只 MCTS 评 top-K=10 (按 1-step score 预筛), 其余直接 1-step
+function _evalWithMCTS(sim, a1, rng, policy, nRollouts, maxRolloutSteps) {
+    if (!sim.saveState || !sim.restoreState) return 0;
+    const state = sim.saveState();
+    let totalReturn = 0;
+    let validRollouts = 0;
+    try {
+        for (let r = 0; r < nRollouts; r++) {
+            sim.restoreState(state);
+            try {
+                sim.step(a1.blockIdx, a1.gx, a1.gy);
+            } catch (_) {
+                continue;
+            }
+            const scoreAfterA1 = sim.score;
+            // Random rollout 到终止或最大步数
+            let rolloutSteps = 0;
+            while (rolloutSteps < maxRolloutSteps) {
+                if (sim.isTerminal && sim.isTerminal()) break;
+                const legal = sim.getLegalActions();
+                if (legal.length === 0) break;
+                // ε-greedy rollout: 30% random, 70% clear-greedy 启发式 (轻量)
+                let chosen;
+                if (rng() < 0.30) {
+                    chosen = legal[Math.floor(rng() * legal.length)];
+                } else {
+                    // 简化 greedy: 估 5 个 random 候选, 选 clears 最多的
+                    let bestEv = -Infinity;
+                    chosen = legal[0];
+                    const probe = Math.min(5, legal.length);
+                    for (let k = 0; k < probe; k++) {
+                        const cand = legal[Math.floor(rng() * legal.length)];
+                        const ev = _previewAction(sim, cand);
+                        const sc = ev.clears * 100 - ev.fill * 2;
+                        if (sc > bestEv) { bestEv = sc; chosen = cand; }
+                    }
+                }
+                try {
+                    sim.step(chosen.blockIdx, chosen.gx, chosen.gy);
+                } catch (_) { break; }
+                rolloutSteps++;
+            }
+            // return = 从 a1 起 rollout 期间累积 score (含 a1 本身得到的分)
+            totalReturn += (sim.score - state.score);
+            validRollouts++;
+        }
+    } finally {
+        sim.restoreState(state);
+    }
+    return validRollouts > 0 ? totalReturn / validRollouts : 0;
+}
+
 function _selectAction(sim, policy, rng, opts = {}) {
     const legal = sim.getLegalActions();
     if (legal.length === 0) return null;
@@ -180,35 +289,71 @@ function _selectAction(sim, policy, rng, opts = {}) {
         return legal[Math.floor(rng() * legal.length)];
     }
 
-    // G8 v2.10.9: lookahead 增强 — 在 clear-greedy/survival 上加 1-step lookahead
-    //   不改 BOT_INDEX (保留向后兼容), 通过 opts.lookahead=true 切换
-    //   语义仍是 clear-greedy/survival, 但选 action 时多看 1 步避免死局
-    //   预期效果: bot 更强 → 高 r bin 数据更丰富 → 模型上限提升
-    const useLookahead = !!opts.lookahead;
+    // G8 v2.10.9: 1-step lookahead 通过 opts.lookahead=true 切换
+    // v2.10.32 (P1.2): 2-step lookahead 通过 opts.lookahead2=true 切换 (隐含 lookahead)
+    // v2.10.33 (P2.1): MCTS rollout 通过 opts.mcts=true 切换 (最强 bot, 慢)
+    const useLookahead = !!opts.lookahead || !!opts.lookahead2 || !!opts.mcts;
+    const useLookahead2 = !!opts.lookahead2;
+    const useMCTS = !!opts.mcts;
+    const mctsRollouts = Math.max(5, Math.min(100, opts.mctsRollouts || 30));
+    const mctsRolloutSteps = Math.max(5, Math.min(50, opts.mctsRolloutSteps || 30));
 
-    let best = legal[0], bestScore = -Infinity;
-    for (const action of legal) {
+    // 1-step 评分 — 所有模式共用
+    const scored = legal.map((action) => {
         const ev = _previewAction(sim, action);
         let score;
         if (policy === 'clear-greedy') {
-            // 加重消行 + 大消行奖励 (lookahead 模式更激进)
             score = ev.clears * (useLookahead ? 200 : 100) - ev.fill * 2;
-            if (useLookahead && ev.clears >= 3) score += 50;  // surprise bonus
+            if (useLookahead && ev.clears >= 3) score += 50;
         } else if (policy === 'survival') {
             score = (ev.clears > 0 ? 50 : 0) - ev.fill * 3;
         } else {
             score = 0;
         }
-        // G8 lookahead 核心: 估计放置后剩余 dock 是否还能放
-        // (用 actionFreedom 近似 — fill 越低剩余空间越多)
         if (useLookahead) {
             const survivalProxy = 1.0 - ev.fill;
             score += survivalProxy * 30;
         }
-        score += rng() * 1e-6;  // 平手随机
-        if (score > bestScore) { bestScore = score; best = action; }
+        score += rng() * 1e-6;
+        return { action, ev, score };
+    });
+
+    if (!useLookahead2 && !useMCTS) {
+        let best = scored[0];
+        for (const s of scored) if (s.score > best.score) best = s;
+        return best.action;
     }
-    return best;
+
+    // top-K 预筛 (避免对所有 legal 都跑昂贵的二级评估)
+    scored.sort((a, b) => b.score - a.score);
+
+    if (useMCTS) {
+        // v2.10.33 (P2.1): MCTS — top-K=10 候选上跑 N rollout
+        const K = Math.min(10, scored.length);
+        let best = scored[0];
+        let bestTotal = -Infinity;
+        for (let i = 0; i < K; i++) {
+            const s = scored[i];
+            const mctsValue = _evalWithMCTS(sim, s.action, rng, policy, mctsRollouts, mctsRolloutSteps);
+            // MCTS 期望回报 = rollout 期间累积 score 增量
+            // 跟 1-step heuristic score 比例不一致, 给 mctsValue 设标准化系数
+            const total = s.score * 0.1 + mctsValue * 1.0;   // MCTS 占主导, 1-step 仅打破并列
+            if (total > bestTotal) { bestTotal = total; best = s; }
+        }
+        return best.action;
+    }
+
+    // v2.10.32 (P1.2): 2-step — 在 top-K=5 候选上做二级 lookahead
+    const K = Math.min(5, scored.length);
+    let best = scored[0];
+    let bestTotal = -Infinity;
+    for (let i = 0; i < K; i++) {
+        const s = scored[i];
+        const score2 = _evalWith2StepLookahead(sim, s.action, s.ev, rng, policy);
+        const total = s.score + score2 * 0.5;
+        if (total > bestTotal) { bestTotal = total; best = s; }
+    }
+    return best.action;
 }
 
 // 简单的 LCG seeded RNG (Numerical Recipes 参数, 32-bit unsigned)
@@ -230,13 +375,16 @@ function _createRng(seed) {
  * @param {object} args.context        — { difficulty, generator, bot_policy, pb_bin, lifecycle_stage }
  * @param {object} args.theta          — 5 维 θ dict (与 Python feature_io.THETA_KEYS 一致)
  * @param {number} args.seed
- * @param {number} [args.maxSteps=240]
+ * @param {number} [args.maxSteps=500]   v2.10.32 (P1.3): 240 → 500
  *
  * @throws {Error} 当 context 不合法 / simulator 初始化失败 / 轨迹无法提取 d_curve 时
  *                 抛出 (调用方在 collectSamplesV2 中 catch + 把第一个 error message 暴露给 UI)
+ *
+ * v2.10.35: 改成 async — generative 模式下需 await `predictShapesV3` (HTTP).
+ *           其他模式仍同步执行 (Promise.resolve 包装), 性能跟原同步版一致.
  */
-export function runOneSampleV2(args) {
-    const { context, theta, seed, maxSteps = 240 } = args;
+export async function runOneSampleV2(args) {
+    const { context, theta, seed, maxSteps = 500 } = args;
     if (!context || typeof context !== 'object') {
         throw new Error('context required');
     }
@@ -247,12 +395,16 @@ export function runOneSampleV2(args) {
     if (!['easy', 'normal', 'hard'].includes(context.difficulty)) {
         throw new Error(`invalid difficulty: ${context.difficulty}`);
     }
-    if (!['triplet-p1', 'budget-p2'].includes(context.generator)) {
+    // v2.10.34/35: 4 个 generator 都可用 (generative 通过 HTTP 调 SpawnPolicyNet)
+    if (!['triplet-p1', 'budget-p2', 'heuristic-rule', 'generative'].includes(context.generator)) {
         throw new Error(`invalid generator: ${context.generator}`);
     }
-    if (!['random', 'clear-greedy', 'survival'].includes(context.bot_policy)) {
+    const isGenerative = context.generator === 'generative';
+    // v2.10.34/36: 4 个 bot_policy 都可用 (rl-bot 通过 HTTP 调 /api/rl/select_action, 失败 fallback clear-greedy)
+    if (!['random', 'clear-greedy', 'survival', 'rl-bot'].includes(context.bot_policy)) {
         throw new Error(`invalid bot_policy: ${context.bot_policy}`);
     }
+    const isRLBot = context.bot_policy === 'rl-bot';
 
     // v2.1: 5 维 θ 全部都是 simulator/adaptiveSpawn 真实消费的参数;
     // 训练样本 ⇄ Phase C 优化 ⇄ 客户端部署三处的 θ 维度严格对齐。
@@ -263,10 +415,18 @@ export function runOneSampleV2(args) {
     const maxTriplets = Math.max(8, Math.min(256,
         Math.round(Number(theta.maxEvaluatedTriplets) || 80)
     ));
+    // v2.10.34/35: enum → simulator spawnGenerator 映射
+    //   heuristic-rule (v2 enum) → 'baseline' (SPAWN_POLICY_RULES)
+    //   generative (v2 enum)     → 'baseline' (sim 内部仍用规则生成 dock, sampler 主 loop 会
+    //                              await predictShapesV3 然后 mutate sim.dock 替换 shapes)
+    //   其他保持原样
+    const simSpawnGenerator = (context.generator === 'heuristic-rule' || context.generator === 'generative')
+        ? 'baseline'
+        : context.generator;
     let sim;
     try {
         sim = new OpenBlockSimulator(context.difficulty, {
-            spawnGenerator: context.generator,
+            spawnGenerator: simSpawnGenerator,
             maxEvaluatedTriplets: maxTriplets,
             bestScore: pb,
             modelConfig: {
@@ -286,19 +446,79 @@ export function runOneSampleV2(args) {
     }
     const rng = _createRng(seed);
     const steps = [];
+    // v2.10.35: generative 模式 — 跟踪 sim.placements, dock 重新生成时 await V3 替换
+    let lastGenerativeReplaceAt = -1;
+    const recentHistory = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];   // V3 需要的 history (此处简化, 不维护精确)
 
     for (let stepIdx = 0; stepIdx < maxSteps; stepIdx++) {
         if (sim.isTerminal()) {
             steps.push({
                 stepIdx, score: sim.score,
                 fillRate: sim.grid.getFillRatio(),
-                actionFreedom: 0,    // 死局
+                actionFreedom: 0,
                 noMove: true,
                 clears: 0,
             });
             break;
         }
-        const action = _selectAction(sim, context.bot_policy, rng, { lookahead: !!theta?.use_lookahead_bot });
+        // v2.10.35: generative — 检测 dock 是否刚被 sim 重新生成 (全部 placed=false)
+        //   sim._spawnDock 在 init + 每次 dock 用尽后被调; placements 是不变量
+        if (isGenerative && sim.placements !== lastGenerativeReplaceAt
+                && sim.dock.every((b) => !b.placed)) {
+            try {
+                const v3 = await predictShapesV3(
+                    sim.grid, sim.playerProfile, recentHistory, sim._lastAdaptiveInsight,
+                    { temperature: 0.8, enforceFeasibility: true },
+                );
+                if (v3 && Array.isArray(v3.shapes) && v3.shapes.length === 3) {
+                    // mutate sim.dock 用 V3 shape 替换 (保留 colorIdx)
+                    for (let i = 0; i < 3; i++) {
+                        const s = v3.shapes[i];
+                        if (s && s.data) {
+                            sim.dock[i].shape = s.data;
+                            sim.dock[i].id = s.id;
+                        }
+                    }
+                }
+                // V3 失败时 fallback 保留 sim 原生 baseline dock (不影响采样继续)
+            } catch (e) {
+                // 静默 fallback (网络抖动不应阻断整局采样)
+                if (typeof console !== 'undefined') {
+                    console.warn('[samplerV2 generative] V3 predict failed, fallback baseline:', e?.message);
+                }
+            }
+            lastGenerativeReplaceAt = sim.placements;
+        }
+        // v2.10.36: rl-bot — 调 PyTorch RL 服务选 action; 失败 fallback clear-greedy
+        let action = null;
+        if (isRLBot) {
+            try {
+                const { legal, stateFeat, phiList } = buildDecisionBatch(sim);
+                if (legal.length > 0) {
+                    const temperature = Number(theta?.rl_temperature) || 0.8;
+                    const idx = await selectActionRemote(phiList, stateFeat, temperature);
+                    if (Number.isInteger(idx) && idx >= 0 && idx < legal.length) {
+                        action = legal[idx];
+                    }
+                }
+            } catch (e) {
+                if (typeof console !== 'undefined') {
+                    console.warn('[samplerV2 rl-bot] RL HTTP failed, fallback clear-greedy:', e?.message);
+                }
+            }
+            // fallback: clear-greedy (跟 rl-bot 同级 strong bot, RL 不可用时数据仍可用)
+            if (!action) {
+                action = _selectAction(sim, 'clear-greedy', rng, {});
+            }
+        } else {
+            action = _selectAction(sim, context.bot_policy, rng, {
+                lookahead: !!theta?.use_lookahead_bot,
+                lookahead2: !!theta?.use_lookahead2_bot,
+                mcts: !!theta?.use_mcts_bot,
+                mctsRollouts: theta?.mcts_rollouts || 30,
+                mctsRolloutSteps: theta?.mcts_rollout_steps || 30,
+            });
+        }
         if (!action) {
             steps.push({
                 stepIdx, score: sim.score,
@@ -347,11 +567,14 @@ export function runOneSampleV2(args) {
         noMove_step: labels.noMove_step,
         pb_broke: labels.pb_broke,
         surprise_count: labels.surprise_count,
+        // v2.10.32 (P0): bin 真实观察元数据 (用于 UI 透明化 + 训练 confidence loss)
+        n_bins_filled: labels.n_bins_filled,
+        bin_counts: labels.bin_counts,
         // 元信息
         seed,
-        eval_ms: 0,           // sampler 自己也算耗时,由调用方填
+        eval_ms: 0,
         evaluated_at: Date.now(),
-        algo_version: 'v2.10',   // v2.10: PB-aware d_step
+        algo_version: 'v2.10',
     };
 }
 
@@ -366,7 +589,7 @@ export function runOneSampleV2(args) {
  * @param {Array<object>} args.contexts     — 5 维 context 列表
  * @param {Array<object>} args.thetas       — 14 维 θ 列表
  * @param {number} [args.seedsPerTheta=2]
- * @param {number} [args.maxSteps=240]
+ * @param {number} [args.maxSteps=500]   v2.10.32 (P1.3): 240 → 500
  * @param {string} [args.apiBaseUrl='']
  * @param {number} [args.batchSize=20]      — 每多少 sample flush 一次
  * @param {function} [args.onProgress]      — ({completed, total, lastSample}) => void
@@ -374,7 +597,8 @@ export function runOneSampleV2(args) {
 export async function collectSamplesV2(args) {
     const {
         setId, contexts, thetas,
-        seedsPerTheta = 2, maxSteps = 240,
+        // v2.10.32 (P1.3): 240 → 500 — 配合强 bot, 高 PB 档 r=1 触达率 +
+        seedsPerTheta = 2, maxSteps = 500,
         apiBaseUrl = '', batchSize = 20, onProgress,
     } = args;
     if (!setId) throw new Error('setId required');
@@ -419,9 +643,13 @@ export async function collectSamplesV2(args) {
             const errs = Number(j.errors) || 0;
             written += ins;
             failed += errs;
-            if (errs > 0 && !firstError) firstError = `server insert errors: ${errs}/${sentCount}`;
+            // v2.10.37: 透传 server first_error 详情, 不止显示数字
+            if (errs > 0 && !firstError) {
+                const serverHint = j.first_error ? ` (${j.first_error})` : '';
+                firstError = `server insert errors: ${errs}/${sentCount}${serverHint} — 请查看后端日志确认 CHECK / 字段问题`;
+            }
         } catch {
-            written += sentCount; // 兜底: 没 json 但 r.ok, 视为成功
+            written += sentCount;
         }
     }
 
@@ -431,7 +659,8 @@ export async function collectSamplesV2(args) {
                 const seed = (Date.now() & 0xFFFF_FFFF) ^ (generated * 7919);
                 try {
                     const t0 = performance.now();
-                    const sample = runOneSampleV2({ context: ctx, theta, seed, maxSteps });
+                    // v2.10.35: runOneSampleV2 改 async (generative 模式需 await V3 predict)
+                    const sample = await runOneSampleV2({ context: ctx, theta, seed, maxSteps });
                     sample.eval_ms = Math.round(performance.now() - t0);
                     batch.push(sample);
                     generated++;

@@ -72,8 +72,9 @@ def _train_one_epoch(
     sums = {"total": 0.0, "shape": 0.0, "balance": 0.0, "surprise": 0.0,
             "breaking": 0.0, "smooth": 0.0, "aux": 0.0,
             "pb_distribution": 0.0, "anchor": 0.0,
-            # v2.9 / v2.9.1
-            "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0}
+            # v2.9 / v2.9.1 / v2.10.32 (P2.2)
+            "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0,
+            "r_value": 0.0}
     n_batches = 0
     global_step = global_step_start
 
@@ -98,6 +99,10 @@ def _train_one_epoch(
             "noMove": batch["noMove"],
             "score": batch["score"],
             "survival": batch["survival"],
+            # v2.10.32 (P0.2): 透明化 bin 真实观察数 → loss_shape 用作 confidence
+            "bin_counts": batch.get("bin_counts"),
+            # v2.10.32 (P2.2): multi-task r_value (score/pb 实际触达)
+            "r_value": batch.get("r_value"),
         }
 
         breakdown = compute_total_loss(
@@ -144,8 +149,9 @@ def _eval_one_epoch(
     sums = {"total": 0.0, "shape": 0.0, "balance": 0.0, "surprise": 0.0,
             "breaking": 0.0, "smooth": 0.0, "aux": 0.0,
             "pb_distribution": 0.0, "anchor": 0.0,
-            # v2.9 / v2.9.1
-            "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0}
+            # v2.9 / v2.9.1 / v2.10.32 (P2.2)
+            "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0,
+            "r_value": 0.0}
     curve_var_sum = 0.0  # v2.9.4: per-sample 预测曲线方差, 用于退化检测
     calibrated_mae_sum = 0.0  # v2.10.2: 预测 vs 校准 target MAE (不受 state_offset 噪声干扰)
     p_reach_sums = {"reach_50": 0.0, "reach_80": 0.0, "reach_95": 0.0,
@@ -177,6 +183,8 @@ def _eval_one_epoch(
             "noMove": batch["noMove"],
             "score": batch["score"],
             "survival": batch["survival"],
+            "bin_counts": batch.get("bin_counts"),
+            "r_value": batch.get("r_value"),
         }
         breakdown = compute_total_loss(preds, targets, batch["pb_bin_idx"], weights=weights)
         d = breakdown.to_dict()
@@ -256,7 +264,7 @@ def train(
     print(f"[train_v2] {model_type} 模型参数量: {model.count_parameters():,}")
     if base_model_path:
         ck = torch.load(base_model_path, map_location=device)
-        # v2.10.10: 架构兼容检查 — 异架构 state_dict 完全不匹配 → 提前报错而非诡异的 KeyError
+        # v2.10.10: 架构兼容检查
         base_arch = (ck.get("arch") or {}).get("model_type")
         if base_arch and base_arch != model_type:
             raise ValueError(
@@ -264,7 +272,12 @@ def train(
                 f"Transformer ckpt 不能加载到 ResNet, 反之亦然。"
                 f"\n→ 请选相同架构的基础模型, 或 model_type 改为 {base_arch}"
             )
-        model.load_state_dict(ck["model_state_dict"])
+        # v2.10.33 (P2.2 兼容): strict=False — 老 ckpt 没有 head_r.* 参数
+        # v2.10.34 (兼容): + load_state_dict_compat 处理 emb_gen/bot 维度扩展 (老 (2/3, D) → 新 (4/4, D))
+        from .model import load_state_dict_compat
+        missing, unexpected = load_state_dict_compat(model, ck["model_state_dict"])
+        if missing or unexpected:
+            print(f"[train_v2] ckpt 加载 warn — missing keys: {missing[:5]}; unexpected: {unexpected[:5]}")
         print(f"[train_v2] 加载基础模型 {base_model_path} ({base_arch or '未知'} → {model_type}, 增量训练 lr × 0.1)")
         lr = lr * 0.1
 
