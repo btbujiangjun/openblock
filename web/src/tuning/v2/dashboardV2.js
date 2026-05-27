@@ -2919,13 +2919,21 @@ async function renderCurve() {
         let observed = null;
         let nSamples = 0;
         let observedCtx = null;
+        let groupBuckets = null;   // v2.10.24: 多分组数据 (供 multi-line 渲染)
+        let groupDims = [];        // 分组维度名 (e.g. ['difficulty', 'bot_policy'])
         if (setId) {
             const url = `/api/spawn-tuning-v2/sample-sets/${setId}/aggregate${groupBy ? `?group_by=${encodeURIComponent(groupBy)}` : ''}`;
             const data = await apiGet(url);
             if (data.buckets?.length > 0) {
+                // 主线: 第一个 bucket 作为"实测均值" (兼容老逻辑)
                 observed = data.buckets[0].d_curve_avg;
                 nSamples = data.buckets[0].n_samples;
                 observedCtx = data.buckets[0].context || data.buckets[0].sample_ctx;
+                // v2.10.24: 多 bucket 时保留全部 (在 meta 显示对比表 + 画虚线)
+                if (data.buckets.length > 1 && Array.isArray(data.groups) && data.groups.length > 0) {
+                    groupBuckets = data.buckets;
+                    groupDims = data.groups;
+                }
             }
         }
 
@@ -2956,6 +2964,15 @@ async function renderCurve() {
             // 未选模型时传 null, chart 不画预测线 + 图例自动收起, 避免与目标线视觉重叠
             predictedCurve: predicted,
             observedCurve: observed,
+            // v2.10.24: 多分组对比线 (传给 chart 画浅色多线)
+            extraCurves: groupBuckets ? groupBuckets.slice(0, 8).map((b, i) => {
+                const keyParts = groupDims.map((d) => `${d}=${b[d]}`).join('·');
+                return {
+                    curve: b.d_curve_avg,
+                    label: keyParts,
+                    nSamples: b.n_samples,
+                };
+            }) : null,
         });
 
         const lines = [];
@@ -2974,7 +2991,40 @@ async function renderCurve() {
         } else if (!modelId) {
             lines.push('<span style="color:var(--muted)">未选模型 — 只显示目标 + 实测 (不画预测线)</span>');
         }
-        meta.innerHTML = lines.join(' · ');
+        // v2.10.24: 多分组对比表
+        let groupTable = '';
+        if (groupBuckets && groupBuckets.length > 1) {
+            const rows = groupBuckets.slice(0, 12).map((b) => {
+                const m = computeChartMetrics(b.d_curve_avg, target);
+                const span = b.d_curve_avg[b.d_curve_avg.length - 1] - b.d_curve_avg[0];
+                const keyParts = groupDims.map((d) => `${escapeHtml(d)}=<b>${escapeHtml(String(b[d]))}</b>`).join(' · ');
+                return `<tr>
+                    <td style="padding:2px 8px;">${keyParts}</td>
+                    <td style="padding:2px 8px; text-align:right;">${b.n_samples}</td>
+                    <td style="padding:2px 8px; text-align:right;">${fmtNumber(m.mae, 4)}</td>
+                    <td style="padding:2px 8px; text-align:right;">${fmtNumber(span, 3)}</td>
+                    <td style="padding:2px 8px;">${m.monotonic ? '✓' : '✗'}</td>
+                </tr>`;
+            }).join('');
+            const truncatedNote = groupBuckets.length > 12 ? `<p style="color:var(--muted); font-size:10.5px;">… 还有 ${groupBuckets.length - 12} 组未显示</p>` : '';
+            groupTable = `
+              <div style="margin-top:8px;">
+                <div style="font-size:11px; color:var(--muted); margin-bottom:2px;">📊 按 [${groupDims.join(', ')}] 分组对比 (${groupBuckets.length} 组, chart 中画前 8 组浅色线)</div>
+                <table style="width:100%; font-size:11px; border-collapse:collapse;">
+                  <thead><tr style="color:var(--muted);">
+                    <th style="text-align:left; padding:2px 8px;">分组</th>
+                    <th style="text-align:right; padding:2px 8px;">n_samples</th>
+                    <th style="text-align:right; padding:2px 8px;">vs 目标 MAE</th>
+                    <th style="text-align:right; padding:2px 8px;">跨度</th>
+                    <th style="text-align:left; padding:2px 8px;">单调</th>
+                  </tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+                ${truncatedNote}
+              </div>
+            `;
+        }
+        meta.innerHTML = lines.join(' · ') + groupTable;
     } catch (e) {
         meta.innerHTML = `<span style="color:var(--bad)">${escapeHtml(e.message)}</span>`;
     }

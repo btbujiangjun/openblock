@@ -100,6 +100,10 @@ export function renderDCurveChart(canvas, data) {
         ? data.predictedCurve : null;
     const obs = (data.observedCurve && data.observedCurve.length === target.length)
         ? data.observedCurve : null;
+    // v2.10.24: 多分组对比线 (浅色画在背景)
+    const extras = Array.isArray(data.extraCurves)
+        ? data.extraCurves.filter((e) => Array.isArray(e?.curve) && e.curve.length === target.length)
+        : [];
 
     // ─── 设置 canvas (HiDPI) ───
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
@@ -159,6 +163,23 @@ export function renderDCurveChart(canvas, data) {
     ctx.lineTo(W - right, y50);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // v2.10.24: 分组对比线 (浅色细线, 画在最底层)
+    if (extras.length > 0) {
+        const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
+        ctx.lineWidth = 1.0;
+        ctx.globalAlpha = 0.55;
+        extras.slice(0, 8).forEach((e, idx) => {
+            ctx.strokeStyle = palette[idx % palette.length];
+            ctx.beginPath();
+            for (let i = 0; i < N; i++) {
+                const x = xAt(i), y = yAt(e.curve[i]);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        });
+        ctx.globalAlpha = 1.0;
+    }
 
     // ─── 实测曲线 (灰虚线, 先画在下层) ───
     if (obs) {
