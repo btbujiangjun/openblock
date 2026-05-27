@@ -451,6 +451,10 @@ export async function runOneSampleV2(args) {
     const recentHistory = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];   // V3 需要的 history (此处简化, 不维护精确)
 
     for (let stepIdx = 0; stepIdx < maxSteps; stepIdx++) {
+        // v2.10.38: 每 100 step yield 主线程 (单 sample 长 / MCTS 慢时避免 paint 阻塞)
+        if (stepIdx > 0 && stepIdx % 100 === 0) {
+            await new Promise((r) => setTimeout(r, 0));
+        }
         if (sim.isTerminal()) {
             steps.push({
                 stepIdx, score: sim.score,
@@ -653,13 +657,40 @@ export async function collectSamplesV2(args) {
         }
     }
 
+    // v2.10.38: 主 loop 让出主线程 + onProgress 节流
+    //   病例 (Chrome Helper 100% CPU + 页面无响应): sampler 同步跑 7680 sample,
+    //   每个 sample 30-300ms (含 bot 决策 + sim.step), 主线程被独占, paint/input 完全阻塞.
+    //   修复:
+    //     1. 每 PROGRESS_YIELD_EVERY 个 sample setTimeout(0) → 让浏览器 paint/响应 click
+    //     2. onProgress 节流: 200ms 间隔 + sample 数节流 (每 50 / 200 个) 二选一最近触发
+    const PROGRESS_YIELD_EVERY = 8;     // 每 8 sample 让一次主线程
+    const PROGRESS_THROTTLE_MS = 200;   // onProgress 至少间隔 200ms
+    let lastProgressAt = 0;
+    let sampleSinceLastProgress = 0;
+
+    const _maybeReportProgress = (force = false) => {
+        if (!onProgress) return;
+        const now = performance.now();
+        const shouldReport = force
+            || (now - lastProgressAt >= PROGRESS_THROTTLE_MS)
+            || (sampleSinceLastProgress >= 50);
+        if (!shouldReport) return;
+        onProgress({
+            completed: written + batch.length,
+            failed, total,
+            percent: (written + batch.length + failed) / total,
+            firstError,
+        });
+        lastProgressAt = now;
+        sampleSinceLastProgress = 0;
+    };
+
     for (const ctx of contexts) {
         for (const theta of thetas) {
             for (let s = 0; s < seedsPerTheta; s++) {
                 const seed = (Date.now() & 0xFFFF_FFFF) ^ (generated * 7919);
                 try {
                     const t0 = performance.now();
-                    // v2.10.35: runOneSampleV2 改 async (generative 模式需 await V3 predict)
                     const sample = await runOneSampleV2({ context: ctx, theta, seed, maxSteps });
                     sample.eval_ms = Math.round(performance.now() - t0);
                     batch.push(sample);
@@ -672,20 +703,19 @@ export async function collectSamplesV2(args) {
                         console.error('[samplerV2] error:', msg, e);
                     }
                 }
+                sampleSinceLastProgress++;
                 if (batch.length >= batchSize) {
                     await flush();
                 }
-                if (onProgress) {
-                    onProgress({
-                        completed: written + batch.length, // 本地包含 in-flight batch 作为乐观估算
-                        failed, total,
-                        percent: (written + batch.length + failed) / total,
-                        firstError,
-                    });
+                _maybeReportProgress();
+                // v2.10.38: 每 N 个 sample yield 主线程 (避免 100% CPU + 页面无响应)
+                if (generated % PROGRESS_YIELD_EVERY === 0) {
+                    await new Promise((r) => setTimeout(r, 0));
                 }
             }
         }
     }
+    _maybeReportProgress(true);   // 收尾必报一次 (在 flush 前: completed=written+batch, percent 反映生成全量)
     await flush();
     return { completed: written, failed, total, firstError };
 }

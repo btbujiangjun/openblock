@@ -702,10 +702,9 @@
               <option value="">— 不推断 (只画目标 / 实测) —</option>
             </select>
           </label>
-          <!-- v2.10.33 (P2.3 UI): MC Dropout 不确定性带 -->
-          <label class="checkbox-inline" title="P2.3 v2.10.33: MC Dropout 30 次采样, chart 上画 ±2σ 半透明带 (绿色). 高方差 bin 暗示 model 自身没把握, 通常出现在 r > avg_r 的稀疏区. 推断慢 ~10x.">
+          <!-- v2.10.33/38: MC Dropout 不确定性带 -->
+          <label class="checkbox-inline" title="MC Dropout 30 次采样, chart 上画 ±2σ 半透明带 (绿色). 高方差 bin 暗示 model 自身没把握, 通常出现在 r > avg_r 的稀疏区. 推断慢 ~10x. 注: σ 太小时 (model 很自信) 仍画到最小视觉宽度 0.8%, 真实 σ 见 meta 区数值.">
             <input type="checkbox" id="curve-uncertainty"> 显示不确定性带 ±2σ
-            <span style="color:var(--muted); font-size:9.5px;">(P2.3)</span>
           </label>
         </div>
 

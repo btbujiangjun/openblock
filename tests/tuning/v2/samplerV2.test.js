@@ -365,6 +365,7 @@ describe('collectSamplesV2', () => {
     });
 
     it('reports progress', async () => {
+        // v2.10.38: 节流后 N 个 sample 内可能只触发少量 onProgress, 但最后必报一次
         const progressLog = [];
         await collectSamplesV2({
             setId: 1,
@@ -374,7 +375,7 @@ describe('collectSamplesV2', () => {
             maxSteps: 20,
             onProgress: (p) => progressLog.push(p),
         });
-        expect(progressLog.length).toBe(3);
+        expect(progressLog.length).toBeGreaterThanOrEqual(1);
         expect(progressLog[progressLog.length - 1].percent).toBeCloseTo(1.0, 5);
     });
 

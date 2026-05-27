@@ -214,20 +214,25 @@ export function renderDCurveChart(canvas, data) {
         ctx.setLineDash([]);
         ctx.globalAlpha = 1.0;
     };
-    // v2.10.33 (P2.3 UI): 模型预测 ±2σ 置信带 — MC Dropout 估计的 epistemic uncertainty
+    // v2.10.33/38 (P2.3 UI): 模型预测 ±2σ 置信带 — MC Dropout 估计的 epistemic uncertainty
     //   高 std bin: model "自知没把握", UI 上自动用半透明带宽暴露这点
+    //   v2.10.38 视觉保底: σ 可能 < 0.001 (model 自信), 真实 2σ < 1 像素看不见,
+    //   render 时用 max(2σ, 0.008) 保证至少 ~0.8% 视觉宽度, meta 区显示真实数值
     if (pred && predStd && isVisible('predicted')) {
-        const sigmaK = 2.0;   // ±2σ ≈ 95% 置信区间
+        const sigmaK = 2.0;
+        const MIN_VISUAL_HALF_WIDTH = 0.008;   // D 轴单位, ≥ 0.8% 可视
         ctx.fillStyle = opt.colors.predicted;
-        ctx.globalAlpha = hoverLine && hoverLine !== 'predicted' ? 0.05 : 0.15;
+        ctx.globalAlpha = hoverLine && hoverLine !== 'predicted' ? 0.10 : 0.25;
         ctx.beginPath();
         for (let i = 0; i < N; i++) {
-            const upper = Math.max(0, Math.min(1, pred[i] + sigmaK * predStd[i]));
+            const halfW = Math.max(sigmaK * predStd[i], MIN_VISUAL_HALF_WIDTH);
+            const upper = Math.max(0, Math.min(1, pred[i] + halfW));
             const x = xAt(i), y = yAt(upper);
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         for (let i = N - 1; i >= 0; i--) {
-            const lower = Math.max(0, Math.min(1, pred[i] - sigmaK * predStd[i]));
+            const halfW = Math.max(sigmaK * predStd[i], MIN_VISUAL_HALF_WIDTH);
+            const lower = Math.max(0, Math.min(1, pred[i] - halfW));
             ctx.lineTo(xAt(i), yAt(lower));
         }
         ctx.closePath();

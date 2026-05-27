@@ -586,8 +586,11 @@ function updateEstimate() {
     $('dim-count').style.color = ctxCount === 0 ? 'var(--bad)' : 'var(--accent)';
 
     const total = ctxCount * nThetas * nSeeds;
-    // 估算: 每样本 ≈ maxSteps × 0.012s (浏览器 worker 单线程)
-    const etaSec = total * maxSteps * 0.012;
+    // v2.10.38: ETA 估算 — 大多数 sample 因死局/noMove 提前 break (~30-50% maxSteps),
+    //   step 内开销 = budget-p2 bot 评分 ~5ms (而非 12ms 保守值)
+    //   公式: total × maxSteps × 0.40 (实际触达率) × 0.006s/step
+    //   实测 budget-p2 + clear-greedy 平均 sample ~30-60ms (maxSteps=240 时)
+    const etaSec = total * maxSteps * 0.40 * 0.006;
     $('est-ctx').textContent = `${ctxCount} 场景`;
     $('est-theta').textContent = `${nThetas} θ`;
     $('est-seed').textContent = `${nSeeds} seed`;
