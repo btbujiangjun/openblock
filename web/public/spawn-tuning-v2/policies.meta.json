@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "n_contexts": 360,
+  "generated_at": 1779992623,
+  "generated_at_iso": "2026-05-29T02:23:43",
+  "model_id": 52,
+  "model_sha256": "f8df80da3df7f83e10e492d364c51111ee269f04d21d1433a45e681e96f683fa",
+  "rollout_pct": 100,
+  "sha256": "1308bdca820e7a6c19d59c1666161757cfa9f47f0bdfde8a176c1b1b32933ce0",
+  "average_curve_mae": 0.031544919444444444,
+  "build_mode": "model-joint-trained-theta"
+}

@@ -299,7 +299,7 @@
     <header>
       <div>
         <h1>🧮 出块算法优化 <span style="font-size:12px; color:var(--purple); font-weight:normal;">SpawnParamTuner</span></h1>
-        <p>S 型难度曲线 · ResNet-MLP L4 · 20 维 d_curve 标签 · 异步训练 · 灰度切量 · 离线 bundle 四端发布</p>
+        <p>S 型难度曲线 · ResNet-MLP/Transformer · 异步训练 · 灰度切量 · 离线 bundle 四端发布</p>
       </div>
       <div style="text-align:right; font-size:11px;">
         <p><a href="/docs/algorithms/SPAWN_TUNING_V2.md">📖 设计文档</a></p>
@@ -469,25 +469,23 @@
             <input id="cfg-max-steps" type="number" min="30" max="1000" value="500">
           </label>
           <label>样本集名<input id="cfg-set-name" type="text" placeholder="auto"></label>
-          <label title="θ 来源 — 决定本次采集每个 ctx 用哪些 θ 跑启发式&#10;&#10;• LHS 全空间探索: 9 维 θ 空间均匀抽样 ── 首次训练用 (i=0)&#10;• 默认 θ (0.5): 所有 θ 取中点, 生成 baseline 样本集 (用于 G3 撬动对照)&#10;• 围绕 deployed θ* 抖动: 读当前部署 bundle 的 best θ, ±10% 噪声 ── 闭环迭代精化 (i≥1)&#10;• 70% 抖动 + 30% LHS: 探索/利用混合 ── 防止陷入局部解&#10;&#10;闭环操作流程:&#10;1. 首次: LHS → 训练 → 部署 (勾「优化 θ」)&#10;2. baseline 对照: 默认 θ → 采样 → 此 set 在 Tab⑤ baseline dropdown 中选&#10;3. 第 2+ 轮: 围绕 deployed θ* 抖动 → 训练 → 部署&#10;4. 重复直到 val_ideal_mae 不再下降"><span>θ 来源 <span style="color:#60a5fa; font-size:9px; cursor:help;">[?]</span></span>
+          <label title="θ 来源 — 决定本次采集每个 ctx 用哪些 θ 跑启发式. 27 维 θ (A:5 个性化 + B:4 PB + C:8 augmentPool + D:5 targets + E:5 PB 段) 通过 simulator.modelConfig 注入 adaptiveSpawn / blockSpawn 真实生效, 跟 game.js 部署链路完全等价.&#10;&#10;• LHS 全空间探索: 27 维 θ 空间均匀拉丁超立方抽样 — 首次训练. 不读 deployed bundle, 跟当前部署模型完全独立.&#10;• 默认 θ (0.5): 27 维全取中点 (= 历史硬编码默认值), 跑 baseline 样本集 — 用于 Tab④ 「⚡ θ 撬动」MAE 对照.&#10;• 围绕 deployed θ* 抖动: 从 /policies.json 读当前部署 bundle 每 ctx 的 best θ*, 各维 ±10% range 抖动 — 闭环迭代精化.&#10;• 70% 抖动 + 30% LHS: 探索/利用混合, 防止陷入局部解.&#10;&#10;闭环操作:&#10;  i=0 (冷启动): LHS → 训 model_0 → auto-deploy&#10;  i=1 baseline 对照: 默认 θ → 采样 (此 set 在 Tab④ baseline dropdown 选用)&#10;  i≥1 精化: 围绕 deployed θ* 抖动 → 训 model_i → auto-deploy&#10;  直到 val_ideal_mae 不再下降"><span>θ 来源 <span style="color:#60a5fa; font-size:9px; cursor:help;">[?]</span></span>
             <select id="cfg-theta-source">
-              <option value="lhs" selected>LHS · 全空间探索 (首训)</option>
-              <option value="default">默认 θ (中点 0.5, baseline)</option>
-              <option value="bundle-perturb">围绕 deployed θ* 抖动 (迭代精化)</option>
-              <option value="bundle-mix">70% 抖动 + 30% LHS (混合)</option>
+              <option value="lhs" selected>LHS · 全空间探索 (首训, 独立于部署模型)</option>
+              <option value="default">默认 θ · 全维中点 (baseline 对照)</option>
+              <option value="bundle-perturb">围绕已部署 θ* 抖动 ±10% (迭代精化)</option>
+              <option value="bundle-mix">70% 抖动 + 30% LHS (探索 × 利用)</option>
             </select>
           </label>
           <label class="checkbox-inline" title="G8: 1-step lookahead, bot 更激进 (~+30% score/step). 采样略慢.">
             <input type="checkbox" id="cfg-lookahead"> Lookahead 1-step
-            <span style="color:var(--muted); font-size:9.5px;">(G8)</span>
           </label>
           <label class="checkbox-inline" title="P1.2 v2.10.32: 2-step lookahead, top-K + 抽样剪枝 (~+60% score/step). 采样慢 ~5x. 高 PB 档推荐.">
             <input type="checkbox" id="cfg-lookahead2"> Lookahead 2-step
-            <span style="color:var(--muted); font-size:9.5px;">(P1.2)</span>
           </label>
           <label class="checkbox-inline" title="P2.1 v2.10.33: MCTS rollout — 最强 bot (~+150% score/step), 但极慢 (~50-100x). 仅用于训 PB=10000+ 高分场景.">
-            <input type="checkbox" id="cfg-mcts"> MCTS rollout
-            <span style="color:var(--muted); font-size:9.5px;">(P2.1, 慢!)</span>
+            <input type="checkbox" id="cfg-mcts"> MCTS
+            <span style="color:var(--muted); font-size:9.5px;">(慢)</span>
           </label>
         </div>
 
