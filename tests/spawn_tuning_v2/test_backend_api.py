@@ -124,7 +124,7 @@ class TestSamplesBulk:
     def _make_sample(self):
         from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
         return {
-            "difficulty": "normal", "generator": "budget-p2", "bot_policy": "clear-greedy",
+            "difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
             "pb_bin": 1500, "lifecycle_stage": "growth",
             "theta_json": {"personalizationStrength": 0.10, "temperature": 0.05},
             "d_curve_json": target_curve_vector(),
@@ -174,6 +174,82 @@ class TestSamplesBulk:
         assert len(data["buckets"]) == 1
         assert data["buckets"][0]["n_samples"] == 3
         assert len(data["buckets"][0]["d_curve_avg"]) == 20
+
+    def test_scatter_schema_v3022(self, client):
+        """v3.0.22: /scatter 返回固定 4 元组 [r, d_obs, d_pred_or_null, dim_key] + schema 字段."""
+        cr = client.post("/api/spawn-tuning-v2/sample-sets", json={"name": "scatter"})
+        sid = cr.get_json()["set_id"]
+        # 准备 bin_counts_json 让 sample 真实可被打点 (final_bin 需有真实观察)
+        from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
+        sample = {
+            "difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
+            "pb_bin": 1500, "lifecycle_stage": "growth",
+            "theta_json": {"personalizationStrength": 0.10, "temperature": 0.05},
+            "d_curve_json": target_curve_vector(),
+            "bin_counts": [1] * 20,   # 每 bin 都有真实观察 ⇒ final_bin 不被过滤
+            "final_score": 1200, "survived_steps": 50,
+            "clear_rate": 0.5, "noMove_step": -1, "pb_broke": False,
+            "surprise_count": 2, "seed": 42,
+        }
+        client.post(
+            f"/api/spawn-tuning-v2/sample-sets/{sid}/samples",
+            json={"samples": [sample, sample, sample]},
+        )
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/scatter")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["schema"] == "v3.0.22"
+        assert data["with_prediction"] is False
+        assert len(data["points"]) == 3
+        for p in data["points"]:
+            # v3.0.22 固定 4 元组: [r, d_obs, d_pred_or_null, dim_key]
+            assert len(p) == 4
+            assert isinstance(p[0], (int, float))   # r
+            assert isinstance(p[1], (int, float))   # d_obs
+            assert p[2] is None                       # d_pred = null (无 model_id)
+            assert isinstance(p[3], str) and p[3].count("|") == 4   # dim_key
+            # dim_key 格式校验
+            parts = p[3].split("|")
+            assert parts[0] == "normal"
+            assert parts[1] == "rule"
+            assert parts[2] == "clear-greedy"
+            assert parts[3] == "1500"
+            assert parts[4] == "growth"
+
+    def test_scatter_dim_filter(self, client):
+        """v3.0.22: /scatter 支持 difficulty / generator 等维度筛选."""
+        cr = client.post("/api/spawn-tuning-v2/sample-sets", json={"name": "scatter_filter"})
+        sid = cr.get_json()["set_id"]
+        from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
+        base = {
+            "generator": "rule", "bot_policy": "clear-greedy",
+            "pb_bin": 1500, "lifecycle_stage": "growth",
+            "theta_json": {"personalizationStrength": 0.10},
+            "d_curve_json": target_curve_vector(),
+            "bin_counts": [1] * 20,
+            "final_score": 1200, "survived_steps": 50,
+            "clear_rate": 0.5, "noMove_step": -1, "pb_broke": False,
+            "surprise_count": 2, "seed": 42,
+        }
+        mix = [
+            {**base, "difficulty": "easy"},
+            {**base, "difficulty": "normal"},
+            {**base, "difficulty": "hard"},
+            {**base, "difficulty": "hard"},
+        ]
+        client.post(
+            f"/api/spawn-tuning-v2/sample-sets/{sid}/samples",
+            json={"samples": mix},
+        )
+        # 全量
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/scatter")
+        assert len(r.get_json()["points"]) == 4
+        # 仅 hard
+        r = client.get(f"/api/spawn-tuning-v2/sample-sets/{sid}/scatter?difficulty=hard")
+        data = r.get_json()
+        assert len(data["points"]) == 2
+        for p in data["points"]:
+            assert p[3].split("|")[0] == "hard"
 
     def test_preview_basic(self, client):
         """/preview: 维度覆盖 + 标签摘要 + θ 直方 + 样本原型。"""
@@ -606,7 +682,7 @@ class TestJobs:
 # ─────────── 真实玩家 field_metrics 上报 ───────────
 
 class TestFieldMetrics:
-    def _make_episode(self, ctx_key="normal:budget-p2:clear-greedy:1500:growth", pb=1500):
+    def _make_episode(self, ctx_key="normal:rule:clear-greedy:1500:growth", pb=1500):
         return {
             "context_key": ctx_key, "pb": pb,
             "model_id": "v2-001", "theta_hash": "abc123",
@@ -651,12 +727,12 @@ class TestFieldMetrics:
 
     def test_aggregate_filter_by_context(self, client):
         # 写 5 个 ctx1, 3 个 ctx2
-        eps1 = [self._make_episode("easy:budget-p2:random:500:growth") for _ in range(5)]
-        eps2 = [self._make_episode("hard:triplet-p1:survival:25000:plateau") for _ in range(3)]
+        eps1 = [self._make_episode("easy:rule:random:500:growth") for _ in range(5)]
+        eps2 = [self._make_episode("hard:rule:survival:25000:plateau") for _ in range(3)]
         client.post("/api/spawn-tuning-v2/field-metrics", json={"episodes": eps1 + eps2})
         r = client.get(
             "/api/spawn-tuning-v2/field-metrics/aggregate?"
-            "hours=24&context_key=hard:triplet-p1:survival:25000:plateau"
+            "hours=24&context_key=hard:rule:survival:25000:plateau"
         )
         assert r.get_json()["n_episodes"] == 3
 
@@ -674,14 +750,14 @@ class TestBundleExport:
             "n_contexts": 2,
             "policies": [
                 {
-                    "context_key": "easy:budget-p2:random:500:growth",
+                    "context_key": "easy:rule:random:500:growth",
                     "context": {"difficulty": "easy"},
                     "theta": {"personalizationStrength": 0.10},
                     "predicted_curve": [0.2] * 20,
                     "expected": {"pb_broke": 0.1},
                 },
                 {
-                    "context_key": "hard:budget-p2:survival:25000:plateau",
+                    "context_key": "hard:rule:survival:25000:plateau",
                     "context": {"difficulty": "hard"},
                     "theta": {"personalizationStrength": 0.15},
                     "predicted_curve": [0.5] * 20,
@@ -797,7 +873,7 @@ class TestPredictCurve:
     def _ctx(self):
         return {
             "difficulty": "normal",
-            "generator": "triplet-p1",
+            "generator": "rule",
             "bot_policy": "clear-greedy",
             "pb_bin": 1500,
             "lifecycle_stage": "growth",
@@ -935,6 +1011,60 @@ class TestBuildAndExport:
         # 文件确实在硬盘上
         for p in written:
             assert Path(p).exists(), f"missing: {p}"
+
+    def test_build_and_export_optimize_theta_writes_best_theta(self, client, tmp_path, monkeypatch):
+        """v3.0.6 (G1): optimize_theta=true 时, bundle 每个 policy 的 theta_norm 不是默认 0.5,
+        而是 surrogate 寻参得到的 best θ*; build_mode 标记为 model-inference-best-theta."""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={
+                "model_id": mid,
+                "rollout_pct": 50,
+                "include_miniprogram": False,
+                "optimize_theta": True,
+                # 用最小配置保证测试不超时 (1 starts × 20 steps, 360 ctx ≈ 2-5s)
+                "opt_n_starts": 1,
+                "opt_steps": 20,
+            },
+        )
+        assert r.status_code == 200, r.get_json()
+        d = r.get_json()
+        assert d["ok"] is True
+        # 读 policies.json sidecar 检查 theta_norm 不是全 0.5
+        policies_path = next(Path(p) for p in d["written"] if p.endswith(".policies.json"))
+        doc = json.loads(policies_path.read_text(encoding="utf-8"))
+        # v3.0.11: 新 ckpt 含 theta_optim 表 → 走联合寻参快速路径; 老 ckpt fallback surrogate
+        assert doc["build_mode"] in ("model-joint-trained-theta", "model-inference-best-theta")
+        # build_mode = joint-trained 时, theta_norm 是 sigmoid(0) = 0.5 的初始值 (因 fixture model 未训过)
+        # build_mode = best-theta (surrogate) 时, Adam 会让 θ 偏离 0.5. 两种情况都能 pass.
+        if doc["build_mode"] == "model-inference-best-theta":
+            n_non_default = sum(
+                1 for p in doc["policies"]
+                if any(abs(t - 0.5) > 0.01 for t in p["theta_norm"])
+            )
+            assert n_non_default > 0, "surrogate 模式应至少有 1 个 policy 的 θ 偏离默认 0.5"
+
+    def test_build_and_export_default_uses_default_theta(self, client, tmp_path, monkeypatch):
+        """v3.0.6 (G1): 不传 optimize_theta 时默认为 False (兼容老 caller),
+        bundle 的 theta_norm 全部 = 0.5, build_mode = model-inference-default-theta."""
+        monkeypatch.chdir(tmp_path)
+        ckpt = self._save_real_ckpt(tmp_path, "resnet")
+        mid = self._insert_model_row(client, ckpt, "resnet")
+        r = client.post(
+            "/api/spawn-tuning-v2/policies/build-and-export",
+            json={"model_id": mid, "rollout_pct": 50, "include_miniprogram": False},
+        )
+        assert r.status_code == 200, r.get_json()
+        d = r.get_json()
+        policies_path = next(Path(p) for p in d["written"] if p.endswith(".policies.json"))
+        doc = json.loads(policies_path.read_text(encoding="utf-8"))
+        assert doc["build_mode"] == "model-inference-default-theta"
+        from rl_pytorch.spawn_tuning_v2.model import N_THETA
+        for p in doc["policies"]:
+            assert p["theta_norm"] == [0.5] * N_THETA
 
     def test_build_and_export_transformer(self, client, tmp_path, monkeypatch):
         """Transformer 也能正常推断 + 导出 (双架构兼容)。"""
@@ -1349,7 +1479,7 @@ class TestSampleSetDownload:
         set_id = r.get_json()["set_id"]
         # 注入样本
         samples = [{
-            "difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            "difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
             "pb_bin": 4000, "lifecycle_stage": "mature",
             "theta_json": json.dumps({"pbTensionCenter": 0.5}),
             "d_curve_json": json.dumps([0.4] * 20),

@@ -12,6 +12,7 @@
 import { collectSamplesV2, runOneSampleV2 } from './samplerV2.js';
 import { renderDCurveChart, computeChartMetrics } from './dCurveChart.js';
 import { getApiBaseUrl } from '../../config.js';
+import { THETA_RANGES as THETA_RANGES_V2 } from './clientPolicyV2.js';
 
 const $ = (id) => document.getElementById(id);
 const API_BASE = getApiBaseUrl().replace(/\/+$/, '');
@@ -183,30 +184,33 @@ function showPromptDialog(msg, defaultValue = '') {
     });
 }
 
+// v3.0.8: generator 与 game.js getSpawnPolicyMode() 严格 1:1 对齐 (无 alias)
+//   - rule       = 启发式 (game.js _commitSpawn 走规则路径)
+//   - generative = 生成式 (game.js _spawnBlocksWithModel 调 SpawnPolicyNet)
 const ALL_DIM_VALUES = {
     difficulty: ['easy', 'normal', 'hard'],
-    generator: ['triplet-p1', 'budget-p2'],
+    generator: ['rule', 'generative'],
     bot_policy: ['random', 'clear-greedy', 'survival'],
     pb_bin: ['500', '1500', '4000', '10000', '25000'],
     lifecycle_stage: ['onboarding', 'growth', 'mature', 'plateau'],
 };
 
-// v2.10.39 (P1): preset 加 hq — 高质量数据集 (优化真实观察率 + bot 触达)
-//   选项:
-//     - lookahead2: ✓ — 2-step lookahead bot 提高 r=1 触达率 +50%
-//     - pbBinDisable: 关闭 10000/25000 (高 PB 几乎都是 prior 填充)
-//     - seeds 3 / thetas 8 — 多 seed 降噪, LHS 覆盖更广
-//   预期: 真实观察从 24% → 60%+, avg r 从 0.5 → 0.75+
+// v3.0.5: hq preset 关闭 MCTS 默认勾选 —
+//   MCTS rollout 在浏览器单线程下单 action ≈ 9000 sim.step, maxSteps=800 时
+//   单 sample 60-120s, 1700+ samples = 30+ 小时, 实际几乎不可用.
+//   改用 lookahead-2 作为 hq 默认 bot (强度约 MCTS 75%, 速度提升 ~10x).
+//   MCTS checkbox 仍保留, 高级用户需要时可手动勾选 + 同时降低 ctx/θ/maxSteps.
 const PRESETS = {
     smoke:  { thetas: 3,  seeds: 1, maxSteps: 60, label: '🔥 烟雾测试 (~30 秒)' },
     debug:  { thetas: 5,  seeds: 2, maxSteps: 300, label: '🐞 日常调试 (~5 分)' },
     prod:   { thetas: 15, seeds: 2, maxSteps: 500, label: '🏭 生产训练 (~1 小时)' },
     hq:     {
         thetas: 8, seeds: 3, maxSteps: 500,
-        label: '🎯 高质量 v2.10.39 (~30 分, 真实观察 60%+)',
-        // v2.10.39: 一键应用配置 (UI 自动 patch)
+        label: '🎯 高质量 v3.0.5 (~1.5 小时, lookahead-2)',
         lookahead2: true,
+        mcts: false,                         // v3.0.5: 浏览器跑 MCTS 不实用, 改用 lookahead-2
         pbBinDisable: ['10000', '25000'],
+        botDisable: ['random'],
     },
 };
 
@@ -554,19 +558,35 @@ function applyPreset(key, btn) {
     $('cfg-thetas').value = String(p.thetas);
     $('cfg-seeds').value = String(p.seeds);
     $('cfg-max-steps').value = String(p.maxSteps);
-    // v2.10.39 (P1): preset 自动配置 lookahead 开关 + pb_bin chip
+    // preset 自动配置开关 + chip
     if (p.lookahead2 !== undefined) {
         const cb = $('cfg-lookahead2');
         if (cb) cb.checked = !!p.lookahead2;
     }
+    // v3.0.1: mcts 开关
+    if (p.mcts !== undefined) {
+        const cb = $('cfg-mcts');
+        if (cb) cb.checked = !!p.mcts;
+    }
+    // v3.0.1: bot chip 禁用 (e.g. 关 random)
+    if (Array.isArray(p.botDisable)) {
+        document.querySelectorAll('.chip-group[data-dim="bot_policy"] .chip').forEach((c) => {
+            if (p.botDisable.includes(c.dataset.val)) {
+                c.classList.remove('chip-on');
+            }
+        });
+        const sel = readChipsSelection();
+        const cntEl = document.querySelector('[data-count="bot_policy"]');
+        if (cntEl) {
+            cntEl.textContent = `${(sel.bot_policy || []).length}/${ALL_DIM_VALUES.bot_policy.length}`;
+        }
+    }
     if (Array.isArray(p.pbBinDisable)) {
-        // 把指定 pb_bin chip 设为未选 (chip-off)
         document.querySelectorAll('.chip-group[data-dim="pb_bin"] .chip').forEach((c) => {
             if (p.pbBinDisable.includes(c.dataset.val)) {
                 c.classList.remove('chip-on');
             }
         });
-        // dim-count 也要刷新
         const sel = readChipsSelection();
         const cntEl = document.querySelector('[data-count="pb_bin"]');
         if (cntEl) {
@@ -633,20 +653,26 @@ function updateEstimate() {
     $('btn-start-collect').disabled = ctxCount === 0;
 }
 
-// v2.2: 9 维 θ 与 Python feature_io.THETA_KEYS / THETA_RANGES 严格一致;
-// 任何修改都需要双端同步, 否则训练样本与模型预测会错位。
-const THETA_RANGES_V2 = {
-    personalizationStrength: [0.05, 0.18],
-    temperature: [0.03, 0.08],
-    surpriseBudgetGain: [0.05, 0.10],
-    surpriseCooldown: [4, 10],
-    maxEvaluatedTriplets: [32, 128],
-    // v2.2: PB 双 S 曲线参数 (与 DEFAULT_SPAWN_PARAMS_PB_CURVE 对齐, 默认值取中点)
-    pbTensionCenter: [0.70, 0.92],
-    pbTensionWidth:  [0.04, 0.15],
-    pbBrakeCenter:   [0.98, 1.15],
-    pbBrakeWidth:    [0.03, 0.12],
-};
+// θ 范围 (27 维) 从 clientPolicyV2 单源 import — 跟 Python feature_io.THETA_RANGES 严格同步.
+
+function _attachBotFlags(t) {
+    // G8 v2.10.9: 1-step lookahead 开关
+    // v2.10.32 (P1.2): 2-step lookahead 开关 (强 bot, 适合高 PB 档采样)
+    // v2.10.33 (P2.1): MCTS rollout 开关 (最强 bot, 慢)
+    const useLookahead = !!$('cfg-lookahead')?.checked;
+    const useLookahead2 = !!$('cfg-lookahead2')?.checked;
+    const useMCTS = !!$('cfg-mcts')?.checked;
+    if (useLookahead || useLookahead2 || useMCTS) {
+        t.use_lookahead_bot = true;
+        if (useLookahead2) t.use_lookahead2_bot = true;
+        if (useMCTS) {
+            t.use_mcts_bot = true;
+            t.mcts_rollouts = 30;
+            t.mcts_rollout_steps = 30;
+        }
+    }
+    return t;
+}
 
 function _lhsThetas(n) {
     const keys = Object.keys(THETA_RANGES_V2);
@@ -660,24 +686,103 @@ function _lhsThetas(n) {
         }
         segs.forEach((v, i) => { out[i][k] = lo + v * (hi - lo); });
     }
-    // G8 v2.10.9: 1-step lookahead 开关
-    // v2.10.32 (P1.2): 2-step lookahead 开关 (强 bot, 适合高 PB 档采样)
-    // v2.10.33 (P2.1): MCTS rollout 开关 (最强 bot, 慢)
-    const useLookahead = !!$('cfg-lookahead')?.checked;
-    const useLookahead2 = !!$('cfg-lookahead2')?.checked;
-    const useMCTS = !!$('cfg-mcts')?.checked;
-    if (useLookahead || useLookahead2 || useMCTS) {
-        out.forEach((t) => {
-            t.use_lookahead_bot = useLookahead || useLookahead2 || useMCTS;
-            if (useLookahead2) t.use_lookahead2_bot = true;
-            if (useMCTS) {
-                t.use_mcts_bot = true;
-                t.mcts_rollouts = 30;
-                t.mcts_rollout_steps = 30;
-            }
-        });
-    }
+    out.forEach(_attachBotFlags);
     return out;
+}
+
+// v3.0.6 (G2 闭环): θ 来源策略 — 从 deployed bundle 读 best θ* 抖动采样
+//   - 'bundle-perturb': 围绕 ctx 对应 θ* ±10% 抖动, 让模型在 best 邻域学得更精细
+//   - 'bundle-mix':     70% 抖动 + 30% LHS, 探索/利用混合
+//   首次调用时 fetch 一次 deployed bundle, 缓存到 _deployedBundleCache.
+let _deployedBundleCache = null;   // { ctxKey: theta_dict, ... }
+
+async function _loadDeployedBundle() {
+    if (_deployedBundleCache != null) return _deployedBundleCache;
+    try {
+        const r = await fetch(`${API_BASE}/spawn-tuning-v2/policies.json`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        const map = {};
+        for (const p of (j.policies || [])) {
+            if (p.context_key && p.theta) map[p.context_key] = p.theta;
+        }
+        _deployedBundleCache = map;
+        return map;
+    } catch (e) {
+        console.warn('[θ source] 加载 deployed bundle 失败, 回退 LHS:', e?.message);
+        _deployedBundleCache = {};
+        return _deployedBundleCache;
+    }
+}
+
+/** 给 ctx 在其 θ* 附近抖动产生 n 个 θ (±jitter * range). */
+function _perturbThetas(baseTheta, n, jitter = 0.10) {
+    const keys = Object.keys(THETA_RANGES_V2);
+    const out = Array.from({ length: n }, () => ({}));
+    for (const k of keys) {
+        const [lo, hi] = THETA_RANGES_V2[k];
+        const range = hi - lo;
+        // baseTheta 是 denormalized 真值字典, 直接用; 缺失 key 时取中点
+        const base = (baseTheta && Number.isFinite(Number(baseTheta[k])))
+            ? Number(baseTheta[k])
+            : (lo + hi) / 2;
+        for (let i = 0; i < n; i++) {
+            // ±jitter*range 均匀抖动, clip 到 [lo, hi]
+            const noise = (Math.random() * 2 - 1) * jitter * range;
+            out[i][k] = Math.min(hi, Math.max(lo, base + noise));
+        }
+    }
+    out.forEach(_attachBotFlags);
+    return out;
+}
+
+/** v3.0.9: 生成 N 份 default θ (所有维度取范围中点 0.5 → denormalized). 用于 baseline 样本集. */
+function _defaultThetas(n) {
+    const keys = Object.keys(THETA_RANGES_V2);
+    const out = Array.from({ length: n }, () => ({}));
+    for (const k of keys) {
+        const [lo, hi] = THETA_RANGES_V2[k];
+        const mid = (lo + hi) / 2;
+        for (let i = 0; i < n; i++) out[i][k] = mid;
+    }
+    out.forEach(_attachBotFlags);
+    return out;
+}
+
+/** 根据 UI 选择的 θ 来源, 返回 ctx -> thetas[] 的工厂函数 (或 thetas 数组). */
+async function _buildThetasFactory(nThetas) {
+    const source = $('cfg-theta-source')?.value || 'lhs';
+    if (source === 'lhs') {
+        return _lhsThetas(nThetas);   // 静态数组, 全 ctx 共用 (老行为)
+    }
+    if (source === 'default') {
+        // v3.0.9: 所有 θ 取中点, 生成 baseline 样本集 (用于 G3 撬动对照)
+        return _defaultThetas(nThetas);
+    }
+    const bundle = await _loadDeployedBundle();
+    const hasAnyBundle = Object.keys(bundle).length > 0;
+    if (!hasAnyBundle) {
+        console.warn('[θ source] deployed bundle 为空, 回退 LHS');
+        return _lhsThetas(nThetas);
+    }
+    return (ctx) => {
+        const key = ctx.context_key
+            || `${ctx.difficulty}:${ctx.generator}:${ctx.bot_policy}:${ctx.pb_bin}:${ctx.lifecycle_stage}`;
+        const baseTheta = bundle[key];
+        if (!baseTheta) {
+            // 该 ctx 不在 bundle 内, 回退 LHS
+            return _lhsThetas(nThetas);
+        }
+        if (source === 'bundle-perturb') {
+            return _perturbThetas(baseTheta, nThetas, 0.10);
+        }
+        // bundle-mix: 70% perturb + 30% LHS
+        const nPerturb = Math.max(1, Math.round(nThetas * 0.7));
+        const nLhs = Math.max(0, nThetas - nPerturb);
+        const out = _perturbThetas(baseTheta, nPerturb, 0.10);
+        if (nLhs > 0) out.push(..._lhsThetas(nLhs));
+        return out;
+    };
 }
 
 async function startCollect() {
@@ -702,12 +807,20 @@ async function startCollect() {
     _samplerCancel = { cancelled: false };
 
     // 0. Smoke test — 跑 1 个 sample 验证 simulator 能正常工作 (避免创建 set 后 N 个全失败)
+    // v3.0.5: 强制用 clear-greedy bot + 30 step + 临时 context (bot_policy=clear-greedy),
+    //         否则 MCTS / lookahead2 smoke test 单局可耗时 20s+ 让用户以为卡住。
+    //         smoke 本意只是验证 simulator/context/θ 不抛异常, 不需要真实 bot.
     $('collect-hint').innerHTML = '<span style="color:var(--muted)">🔧 smoke test (1 sample)…</span>';
     try {
         const smokeTheta = _lhsThetas(1)[0];
-        const smokeMaxSteps = Math.min(40, maxSteps);
+        // 剥掉重型 bot flag, 避免 smoke 阶段跑 MCTS / lookahead2
+        delete smokeTheta.use_mcts_bot;
+        delete smokeTheta.use_lookahead2_bot;
+        delete smokeTheta.use_lookahead_bot;
+        const smokeCtx = { ...contexts[0], bot_policy: 'clear-greedy' };
+        const smokeMaxSteps = Math.min(30, maxSteps);
         // v2.10.35: runOneSampleV2 改 async (generative 需 await V3); smoke test 也要 await
-        await runOneSampleV2({ context: contexts[0], theta: smokeTheta, seed: 1, maxSteps: smokeMaxSteps });
+        await runOneSampleV2({ context: smokeCtx, theta: smokeTheta, seed: 1, maxSteps: smokeMaxSteps });
     } catch (e) {
         $('collect-hint').innerHTML = `<span style="color:var(--bad)">✗ smoke test 失败, 已取消任务: ${escapeHtml(e.message)}<br><span style="font-size:10.5px;">→ 打开浏览器 Console 查看完整堆栈; 修复后再试</span></span>`;
         $('btn-start-collect').disabled = false;
@@ -734,17 +847,25 @@ async function startCollect() {
     }
 
     // 2. 采集
-    const thetas = _lhsThetas(nThetas);
+    // v3.0.6 (G2): θ 来源支持 LHS / bundle-perturb / bundle-mix (闭环迭代)
+    const thetasOrFactory = await _buildThetasFactory(nThetas);
     try {
         const result = await collectSamplesV2({
-            setId, contexts, thetas, seedsPerTheta: nSeeds, maxSteps,
+            setId, contexts, thetas: thetasOrFactory, nThetas, seedsPerTheta: nSeeds, maxSteps,
             apiBaseUrl: API_BASE, batchSize: 10,
             onProgress: (p) => {
                 if (_samplerCancel.cancelled) return;
                 const errPart = p.firstError
                     ? ` · <span style="color:var(--bad)" title="${escapeHtml(p.firstError)}">⚠ ${escapeHtml(p.firstError.slice(0, 60))}${p.firstError.length > 60 ? '…' : ''}</span>`
                     : '';
-                $('collect-hint').innerHTML = `set #${setId} · 进度 ${p.completed}/${p.total} (${Math.round(p.percent * 100)}%)${p.failed ? ` · ${p.failed} 失败` : ''}${errPart}`;
+                // v3.0.5: 重型 bot 单 sample 60-120s, 显示当前进行中样本的耗时, 避免看着像"卡住"
+                let inFlightPart = '';
+                if (p.inFlight && p.inFlight.elapsedMs > 1500) {
+                    const sec = (p.inFlight.elapsedMs / 1000).toFixed(1);
+                    const color = p.inFlight.elapsedMs > 30000 ? 'var(--warn)' : 'var(--muted)';
+                    inFlightPart = ` · <span style="color:${color}">⏳ #${p.inFlight.idx} 已耗 ${sec}s</span>`;
+                }
+                $('collect-hint').innerHTML = `set #${setId} · 进度 ${p.completed}/${p.total} (${Math.round(p.percent * 100)}%)${p.failed ? ` · ${p.failed} 失败` : ''}${inFlightPart}${errPart}`;
             },
         });
         if (result.failed > 0 && result.completed === 0) {
@@ -1177,7 +1298,7 @@ async function runCompare() {
         `<text x="${xAt(i)}" y="${PAD.t + ch + 14}" fill="#9ca3af" font-size="9" text-anchor="middle" font-family="ui-monospace">r=${((i + 0.5) * 0.1).toFixed(1)}</text>`,
     ).join('');
     // metric 对比表
-    const metricKeys = ['val_curve_mae', 'val_calibrated_mae', 'val_curve_var', 'val_anchor', 'val_target_fit'];
+    const metricKeys = ['val_ideal_mae', 'val_curve_mae', 'val_curve_var', 'val_anchor', 'val_target_fit'];
     const rows = validCurves.map((c) => {
         const m = c.metrics;
         const cells = metricKeys.map((k) => `<td style="padding:3px 8px; text-align:right; font-family:ui-monospace;">${m[k] != null ? Number(m[k]).toFixed(4) : '-'}</td>`).join('');
@@ -1271,8 +1392,8 @@ function renderQualityBody(d) {
           <div style="font-size:13px; font-weight:600; margin-bottom:6px;">d_curve 形态</div>
           <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">
             跨度: <b style="color:${ds.spread > 0.4 ? 'var(--good)' : 'var(--warn)'}">${ds.spread}</b>
-            ${ds.spread_vs_calibrated > 0 ? ` <span style="color:var(--muted);">(距 calibrated 跨度 0.62 差 ${ds.spread_vs_calibrated})</span>` : ''}
-            <br>vs 校准 target MAE: <b>${ds.calibrated_mae ?? '-'}</b> <span style="color:var(--muted);">(越低越接近业务期望)</span><br>
+            ${ds.spread_vs_ideal > 0 ? ` <span style="color:var(--muted);">(距 ideal 跨度 0.80 差 ${ds.spread_vs_ideal})</span>` : ''}
+            <br>vs ★ ideal target MAE: <b>${ds.ideal_mae ?? '-'}</b> <span style="color:var(--muted);">(越低越接近业务期望)</span><br>
             倒退 bin 数: <b style="color:${ds.n_decreasing_bins > 3 ? 'var(--warn)' : 'var(--good)'}">${ds.n_decreasing_bins}</b> / 19
           </div>
           <div style="max-height: 280px; overflow-y: auto;">
@@ -1723,11 +1844,67 @@ async function submitJob() {
     if (baseId > 0) body.base_model_id = baseId;
     try {
         const r = await apiSend('POST', '/api/spawn-tuning-v2/jobs', body);
-        $('job-hint').innerHTML = `<span style="color:var(--good)">✓ 已提交 #${r.job_id} (queued → running 自动轮询中…)</span>`;
+        // v3.0.9 (G4): 训练完后自动 build-and-export bundle (含 optimize_theta)
+        const autoExport = !!$('job-auto-export')?.checked;
+        if (autoExport && r.job_id) {
+            _autoExportPendingJobs.add(r.job_id);
+        }
+        const exportNote = autoExport ? ' · ⚡ 训完自动部署' : '';
+        $('job-hint').innerHTML = `<span style="color:var(--good)">✓ 已提交 #${r.job_id}${exportNote} (queued → running 自动轮询中…)</span>`;
         refreshJobs();
         startJobsAutoRefresh();   // 启动自动轮询
     } catch (e) {
         $('job-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(e.message)}</span>`;
+    }
+}
+
+// v3.0.9 (G4 一键闭环): 待 auto-export 的 jobs (轮询发现 completed 时自动调 build-and-export)
+const _autoExportPendingJobs = new Set();
+const _autoExportInFlight = new Set();   // 防重入
+
+async function _maybeAutoExport(job) {
+    if (!job || !job.job_id || _autoExportInFlight.has(job.job_id)) return;
+    if (!_autoExportPendingJobs.has(job.job_id)) return;
+    // v3.0.21: backend job_executor 实际写 status='done' (历史命名), 兼容 'completed' 防回归
+    //   bug 修复: v3.0.9 起这里写 === 'completed' 永远不匹配 → auto-deploy 静默失效
+    const isFinished = job.status === 'done' || job.status === 'completed';
+    // v3.0.24 修复: schema 字段叫 output_model_id, 之前误用 job.model_id (永远 undefined) → 自动部署一直没生效
+    //   兼容 fallback model_id, 防止历史/外部 API 改名 (如未来重命名同步前端)
+    const finalModelId = job.output_model_id || job.model_id;
+    if (!isFinished || !finalModelId) return;
+    _autoExportInFlight.add(job.job_id);
+    _autoExportPendingJobs.delete(job.job_id);
+    try {
+        $('job-hint').innerHTML = `<span style="color:var(--muted)">⏳ #${job.job_id} 完成, 自动导出 bundle (含 θ 寻参, ~1-90s)…</span>`;
+        const r = await apiSend('POST', '/api/spawn-tuning-v2/policies/build-and-export', {
+            model_id: Number(finalModelId),
+            rollout_pct: 100,
+            include_miniprogram: true,
+            optimize_theta: true,
+        });
+        if (r.ok) {
+            $('job-hint').innerHTML = `<span style="color:var(--good)">✓ #${job.job_id} 训练+部署完成 (avg MAE ${r.average_curve_mae?.toFixed(4) ?? '?'})</span>`;
+            refreshOverview();
+            // v3.0.25: auto-deploy 路径之前漏发 bundle-updated 广播 → 游戏页 badge 不刷新, 用户得手动 reload
+            //   现在跟手动 exportBundle 一样, 走完成功路径就广播 + 刷新各处显示
+            try { refreshBundleStatus(); } catch { /* ignore */ }
+            try { refreshModels(); } catch { /* ignore */ }
+            _broadcastSpawnParamTuner({
+                type: 'bundle-updated',
+                model_id: r.model_id,
+                sha256: r.sha256,
+                generated_at: r.generated_at,
+                rollout_pct: r.rollout_pct,
+                deployed: r.deploy?.deployed === true,
+                source: 'auto-deploy',
+            });
+        } else {
+            $('job-hint').innerHTML = `<span style="color:var(--bad)">⚠ #${job.job_id} 训完成功但 export 失败: ${escapeHtml(r.error || 'unknown')}</span>`;
+        }
+    } catch (e) {
+        $('job-hint').innerHTML = `<span style="color:var(--bad)">⚠ #${job.job_id} 自动 export 失败: ${escapeHtml(e.message)}</span>`;
+    } finally {
+        _autoExportInFlight.delete(job.job_id);
     }
 }
 
@@ -1741,16 +1918,26 @@ function startJobsAutoRefresh() {
     if (_jobsPollTimer) return;  // 已在跑
     _jobsPollIdleTicks = 0;
     _jobsPollTimer = setInterval(async () => {
-        // 只有 training tab 可见时才轮询, 切到其他 tab 暂停 (节流)
+        // v3.0.24: 切 tab 后仍需处理 auto-deploy 待办 (否则 user 一切走就丢了部署触发)
+        //   仅当无 pending 且 training tab 不可见时, 才暂停 (省 CPU)
         const trainingTab = document.querySelector('.tab[data-tab="training"]');
-        if (!trainingTab?.classList.contains('active')) return;
+        const hasPending = _autoExportPendingJobs.size > 0;
+        if (!trainingTab?.classList.contains('active') && !hasPending) return;
         try {
             const data = await apiGet('/api/spawn-tuning-v2/jobs?limit=30');
             const jobs = data.jobs || [];
             const active = jobs.filter((j) => j.status === 'queued' || j.status === 'running').length;
-            // 复用 refreshJobs 的渲染逻辑 (不另写一份, 拿 data 直接重渲染)
             _renderJobsRows(jobs);
-            if (active === 0) {
+            // v3.0.9 (G4): 检查 auto-export 待办 — 训练完成且未导出过的 job
+            // v3.0.21 修复: backend 实际写 status='done' (历史命名), 之前错写 'completed' → 静默失效
+            for (const j of jobs) {
+                const finished = j.status === 'done' || j.status === 'completed';
+                if (_autoExportPendingJobs.has(j.job_id) && finished) {
+                    _maybeAutoExport(j);   // 内部防重入, 不 await
+                }
+            }
+            // v3.0.24: pending Set 非空时不计 idle, 避免 build-and-export 还没触发就停轮询
+            if (active === 0 && _autoExportPendingJobs.size === 0 && _autoExportInFlight.size === 0) {
                 _jobsPollIdleTicks += 1;
                 if (_jobsPollIdleTicks >= 3) {
                     stopJobsAutoRefresh();
@@ -1759,9 +1946,15 @@ function startJobsAutoRefresh() {
                     refreshOverview();
                     $('job-hint').innerHTML = `<span style="color:var(--good)">✓ 当前无运行中任务, 自动轮询已停止</span>`;
                 }
-            } else {
+            } else if (active > 0) {
                 _jobsPollIdleTicks = 0;
                 $('job-hint').innerHTML = `<span style="color:var(--accent)">⏳ ${active} 个任务运行中, 每 2s 自动刷新…</span>`;
+            } else {
+                // active=0 但仍有 pending 或 in-flight → 显示明确状态, 别误导 user
+                _jobsPollIdleTicks = 0;
+                const pendingN = _autoExportPendingJobs.size;
+                const flightN = _autoExportInFlight.size;
+                $('job-hint').innerHTML = `<span style="color:var(--accent)">⏳ 自动部署中 (pending=${pendingN}, in-flight=${flightN})…</span>`;
             }
         } catch { /* 网络抖动忽略, 下次再试 */ }
     }, 2000);
@@ -2156,7 +2349,7 @@ async function _loadAndRenderMetrics(jobId, meta) {
         const epochs = data.epochs || [];
         const last = epochs[epochs.length - 1] || (data.batches[data.batches.length - 1] || {});
         const best = epochs.length > 0
-            // v2.10.22: 跟 train.py composite 一致 (curve_mae + 0.5*anchor + 0.4*target_fit + 0.6*calibrated_mae)
+            // v3.0.4: 跟 train.py composite 一致 (ideal_mae + 0.3*endpoint + 0.2*anchor)
             // 否则 dashboard 显示 best=ep4 但实际保存的 ckpt 是 composite best ep=N, 用户困惑
             ? epochs.reduce((b, e) => {
                 const ec = _composite(e);
@@ -2183,6 +2376,9 @@ async function _loadAndRenderMetrics(jobId, meta) {
                 return '<span title="模型已学到该约束 (loss 显著下降)" style="color:#34d399">✓ 学到</span>';
             }
             if (lastV > firstV * 1.5 && firstV > 0.001) {
+                if (_METRICS_EXPECTED_RISE_WITH_IDEAL.includes(k) && _idealMaeImproved(epochs)) {
+                    return `<span title="${_EXPECTED_RISE_TITLE}" style="color:#60a5fa">↗ 预期</span>`;
+                }
                 return '<span title="loss 反而上升, 可能退化" style="color:#f87171">⚠ 退化</span>';
             }
             return '<span title="loss 平台期" style="color:var(--muted)">— 平台</span>';
@@ -2197,14 +2393,18 @@ async function _loadAndRenderMetrics(jobId, meta) {
                 <th style="text-align:left; padding:3px 6px;">状态</th>` : ''}
               </tr></thead>
               <tbody style="font-family: ui-monospace, monospace;">
-                ${['train_loss', 'val_loss', 'val_curve_mae', 'val_calibrated_mae', 'val_curve_var', 'val_anchor', 'val_monotonic', 'val_target_fit', 'val_endpoint', 'val_pb_distribution', 'val_balance', 'val_surprise', 'val_breaking']
+                ${['train_loss', 'val_loss', 'val_ideal_mae', 'val_curve_mae', 'val_curve_var', 'val_anchor', 'val_monotonic', 'val_target_fit', 'val_endpoint', 'val_pb_distribution', 'val_balance', 'val_surprise', 'val_breaking', 'val_deploy']
                     .map((k) => {
                         const lastV = last[k];
                         const firstV = epochs[0][k];
                         const delta = (Number.isFinite(lastV) && Number.isFinite(firstV)) ? (lastV - firstV) : null;
+                        const expectedRise = delta != null && delta > 0
+                            && _METRICS_EXPECTED_RISE_WITH_IDEAL.includes(k)
+                            && _idealMaeImproved(epochs);
                         const deltaStr = delta == null ? '-' :
                             (delta < 0 ? `<span style="color:var(--good)">${delta.toFixed(4)} ↓</span>`
-                                       : `<span style="color:var(--warn)">+${delta.toFixed(4)} ↑</span>`);
+                                : expectedRise ? `<span style="color:#60a5fa" title="${_EXPECTED_RISE_TITLE}">+${delta.toFixed(4)} ↑</span>`
+                                : `<span style="color:var(--warn)">+${delta.toFixed(4)} ↑</span>`);
                         const status = getStatus(k, lastV, firstV);
                         return `<tr>
                             <td style="padding:2px 6px;">${k}</td>
@@ -2259,25 +2459,39 @@ function closeMetricsModal() {
 // v2.8: 训练曲线拆成 8 个独立 sub-chart, 每个指标自带纵轴范围
 //       grid 布局, 同步 step 横轴, 避免量纲差异导致小指标看不清
 /**
- * v2.10.22: 计算 composite — 跟 rl_pytorch/spawn_tuning_v2/train.py 公式完全一致
- *   composite = curve_mae + 0.5*anchor + 0.4*target_fit + 0.6*calibrated_mae
+ * v3.0.4: composite 跟 train.py 一致 — ideal_mae 主导 + endpoint + anchor 辅助
+ *   composite = ideal_mae + 0.3*endpoint + 0.2*anchor
  * 用于前端 best 选择, 保证跟 backend 保存的 ckpt 一致。
  */
 function _composite(e) {
-    const m = (e?.val_curve_mae) ?? Infinity;
-    const a = (e?.val_anchor) ?? 0;
-    const t = (e?.val_target_fit) ?? 0;
-    const c = (e?.val_calibrated_mae) ?? 0;
-    return m + 0.5 * a + 0.4 * t + 0.6 * c;
+    const im = (e?.val_ideal_mae) ?? Infinity;
+    const ep = (e?.val_endpoint) ?? 0;
+    const a  = (e?.val_anchor) ?? 0;
+    return im + 0.3 * ep + 0.2 * a;
 }
+
+/** v3.0.4: ideal_mae 相对首 epoch 是否显著改善 (末值 < 首值 50% 且首值 > 0.01). */
+function _idealMaeImproved(epochs) {
+    if (!epochs?.length) return false;
+    const first = epochs[0]?.val_ideal_mae;
+    const last = epochs[epochs.length - 1]?.val_ideal_mae;
+    if (!Number.isFinite(first) || !Number.isFinite(last)) return false;
+    return first > 0.01 && last < first * 0.5;
+}
+
+/** 朝 ideal 训练时上升属预期副作用 (勿标退化). */
+const _METRICS_EXPECTED_RISE_WITH_IDEAL = ['val_curve_mae', 'val_surprise'];
+
+const _EXPECTED_RISE_TITLE = 'v3.0: 模型朝 ★ ideal 拉远 sample/次要约束；ideal_mae 已显著下降 → 预期副作用，非退化';
 
 const _METRIC_SUB_CHARTS = [
     // v2.10.21: train_loss 是 batch 级 (每 4 batch 1 点, 一个 epoch 数十点), 其他都是 epoch 级
     { key: 'train_loss',          color: '#f87171', label: 'train_loss · batch',  better: 'lower' },
     { key: 'val_loss',            color: '#60a5fa', label: 'val_loss',            better: 'lower' },
-    { key: 'val_curve_mae',       color: '#34d399', label: 'val_curve_mae',       better: 'lower' },
-    // v2.10.2 — 预测 vs calibrated target MAE (业务真实拟合度, 不受 state_offset 噪声干扰)
-    { key: 'val_calibrated_mae',  color: '#a3e635', label: 'val_calibrated_mae',  better: 'lower' },
+    // v3.0.2 — ★ 业务核心: 预测 vs ideal target_S_curve MAE (model 跟 S 曲线的距离)
+    { key: 'val_ideal_mae',       color: '#facc15', label: 'val_ideal_mae ★',     better: 'lower' },
+    { key: 'val_curve_mae',       color: '#34d399', label: 'val_curve_mae · sample', better: 'lower',
+      title: '预测 vs 样本 d_curve；朝 ideal 训练时上升常见，看 val_ideal_mae ★' },
     // v2.9.4 — 退化解检测: 预测曲线 std, 越接近 0 越说明模型只输出水平线
     { key: 'val_curve_var',       color: '#10b981', label: 'val_curve_var',       better: 'higher' },
     { key: 'val_anchor',          color: '#fbbf24', label: 'val_anchor',          better: 'lower' },
@@ -2289,6 +2503,10 @@ const _METRIC_SUB_CHARTS = [
     { key: 'val_balance',         color: '#a78bfa', label: 'val_balance',         better: 'lower' },
     { key: 'val_surprise',        color: '#06b6d4', label: 'val_surprise',        better: 'lower' },
     { key: 'val_breaking',        color: '#fb923c', label: 'val_breaking',        better: 'lower' },
+    // v3.0.11 (G6 联合寻参): trainable theta_optim 表 vs ideal 的 MSE — 直接反映"部署后 model 跟 ideal 距离"
+    //   收敛后越小越好; 等价于 val_ideal_mae 但用 best θ* 而非 sample θ
+    { key: 'val_deploy',          color: '#f0abfc', label: 'val_deploy ⚡',       better: 'lower',
+      title: 'v3.0.11 联合寻参: model 用 trainable theta_optim 表对 360 ctx forward 算 vs ideal 的 MSE. 收敛后 = 部署后 model 跟 ideal 的距离, 越小越好.' },
 ];
 
 // hover 索引: 每个 sub-chart 的 step→x 映射 + epochs 引用 (供 tooltip 用)
@@ -2324,7 +2542,7 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
         grid.innerHTML = _METRIC_SUB_CHARTS.map((m) => `
             <div class="metric-card" data-key="${m.key}">
               <div class="metric-card-header">
-                <span class="metric-card-title" style="color:${m.color};">${m.label}</span>
+                <span class="metric-card-title" style="color:${m.color};"${m.title ? ` title="${m.title}"` : ''}>${m.label}</span>
                 <span class="metric-card-value">—</span>
               </div>
               <canvas></canvas>
@@ -2334,7 +2552,7 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
 
     // 找全局最佳 epoch (按 val_curve_mae) — 主推荐
     const bestIdx = epochs.length > 0
-        // v2.10.22: 跟 train.py composite 一致, 显示真正的 best (含 calibrated_mae 维度)
+        // v3.0.4: 跟 train.py composite 一致, 显示真正的 best (ideal_mae 主导)
         ? epochs.reduce((bi, e, i) => (_composite(e) < _composite(epochs[bi]) ? i : bi), 0)
         : -1;
 
@@ -2509,17 +2727,22 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
             const valStr = Number.isFinite(lastV) ? lastV.toFixed(4) : '—';
             let deltaStr = '';
             if (delta != null && Math.abs(delta) >= 1e-5) {
+                const expectedRise = m.better === 'lower' && delta > 0
+                    && _METRICS_EXPECTED_RISE_WITH_IDEAL.includes(m.key)
+                    && _idealMaeImproved(epochs);
                 const cls = (m.better === 'lower' && delta < 0) || (m.better === 'higher' && delta > 0)
-                    ? 'var(--good)' : 'var(--warn)';
+                    ? 'var(--good)'
+                    : expectedRise ? '#60a5fa' : 'var(--warn)';
                 const arrow = delta < 0 ? '↓' : '↑';
-                deltaStr = ` <span style="color:${cls}; font-size:9px;">${delta >= 0 ? '+' : ''}${delta.toFixed(4)} ${arrow}</span>`;
+                const deltaTitle = expectedRise ? ` title="${_EXPECTED_RISE_TITLE}"` : '';
+                deltaStr = ` <span style="color:${cls}; font-size:9px;"${deltaTitle}>${delta >= 0 ? '+' : ''}${delta.toFixed(4)} ${arrow}</span>`;
             }
             // v2.10.5: loss 健康状态 badge — 让用户一眼看出"为什么这么低"
             //   ✓ 学到了:  首值 ≥ 0.005 且现在 < 首 50% (显著下降)
             //   🔒 数据满足: 首值 < 0.005 (从一开始就很低 → 数据天然满足约束)
             //   🔥 训练中:  最近 3 个 epoch 仍在变化 ≥ 5%
+            //   ↗ 预期:    val_curve_mae/surprise 升但 ideal_mae 已显著降 (v3.0.4)
             //   ⚠ 退化:    现在 > 首值 × 1.5 (loss 反而升)
-            //   — :         上述都不适用 (变化幅度小但非平凡)
             let badge = '';
             if (m.better === 'lower' && epochs.length >= 3 && Number.isFinite(firstV) && Number.isFinite(lastV)) {
                 const recent = epochs.slice(-3).map((e) => e[m.key]).filter(Number.isFinite);
@@ -2531,7 +2754,11 @@ function renderMetricsChart(_unusedCanvas, epochs, batches = []) {
                 } else if (recentRange / Math.max(1e-6, Math.abs(lastV)) > 0.05) {
                     badge = ` <span style="color:#fbbf24; font-size:9px;" title="loss 仍在变化, 训练中">🔥</span>`;
                 } else if (lastV > firstV * 1.5 && firstV > 0.001) {
-                    badge = ` <span style="color:#f87171; font-size:9px;" title="loss 反而上升, 可能退化">⚠</span>`;
+                    if (_METRICS_EXPECTED_RISE_WITH_IDEAL.includes(m.key) && _idealMaeImproved(epochs)) {
+                        badge = ` <span style="color:#60a5fa; font-size:9px;" title="${_EXPECTED_RISE_TITLE}">↗</span>`;
+                    } else {
+                        badge = ` <span style="color:#f87171; font-size:9px;" title="loss 反而上升, 可能退化">⚠</span>`;
+                    }
                 }
             } else if (m.key === 'val_curve_var' && Number.isFinite(lastV)) {
                 badge = lastV > 0.1
@@ -2734,7 +2961,21 @@ async function exportBundle() {
     const rolloutPct = Number($('bundle-rollout').value);
     const modelSel = $('bundle-model');
     const modelId = modelSel?.value;
-    $('bundle-hint').innerHTML = '<span style="color:var(--muted)">⏳ 推断 360 个 context 并写 bundle…</span>';
+    // v3.0.10: 部署 = 让模型寻参的 θ 生效 (唯一含义).
+    //   60-90s 耗时是天然成本: 客户端 (移动端/小程序) 不能跑 PyTorch, 服务端必须
+    //   预先把"每个场景该用什么 θ"算出来, 写成 KB 级 JSON 让客户端查表.
+    const optimizeTheta = true;
+    // 显示已耗时计数, 避免用户感觉"无反馈"
+    const _deployT0 = performance.now();
+    // v3.0.11: ckpt 含 theta_optim 时部署 < 1s; 老 ckpt fallback surrogate 90-180s
+    const _deployTimer = setInterval(() => {
+        const sec = Math.floor((performance.now() - _deployT0) / 1000);
+        const color = sec > 120 ? 'var(--warn)' : (sec > 60 ? 'var(--accent)' : 'var(--muted)');
+        const note = sec > 60 ? ' · 老 ckpt 走 surrogate fallback' : '';
+        $('bundle-hint').innerHTML = `<span style="color:${color}">⏳ 部署中… ${sec}s${note}</span>`;
+    }, 1000);
+    const _stopTimer = () => { clearInterval(_deployTimer); };
+    $('bundle-hint').innerHTML = '<span style="color:var(--muted)">⏳ 部署中…</span>';
     try {
         let r;
         if (customSrc) {
@@ -2743,14 +2984,18 @@ async function exportBundle() {
             });
         } else {
             if (!modelId) {
+                _stopTimer();
                 $('bundle-hint').innerHTML = '<span style="color:var(--bad)">需要选模型 (或填 policies.json 路径)</span>';
                 return;
             }
             r = await apiSend('POST', '/api/spawn-tuning-v2/policies/build-and-export', {
                 model_id: Number(modelId), rollout_pct: rolloutPct, include_miniprogram: true,
+                optimize_theta: optimizeTheta,
             });
         }
+        _stopTimer();
         if (r.ok) {
+            const sec = Math.floor((performance.now() - _deployT0) / 1000);
             const maeStr = r.average_curve_mae != null ? ` · avg MAE ${r.average_curve_mae.toFixed(4)}` : '';
             // v2.10.7: 单调修正信息
             let monoStr = '';
@@ -2759,7 +3004,7 @@ async function exportBundle() {
                     ? ` · 修正 ${r.monotonic_violations_fixed} 单调违规 (最大 Δ=${r.max_raw_violation.toFixed(3)})`
                     : ' · 单调✓';
             }
-            $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ ${r.policies_count} policies · ${(r.bundle_size_bytes/1024).toFixed(1)} KB${maeStr}${monoStr} · sha256=${r.sha256.slice(0,12)}…</span>`;
+            $('bundle-hint').innerHTML = `<span style="color:var(--good)">✓ 已部署 (${sec}s)${maeStr} · ${r.policies_count} 个场景的 θ${monoStr}</span>`;
             refreshBundleStatus();
             /* v2.10.10: 跨 tab 广播 bundle 更新事件 — 让同 origin 的游戏页（index.html）
              * 收到后自动 re-fetch policies.json + install，badge 实时翻为「寻参」，
@@ -2777,7 +3022,8 @@ async function exportBundle() {
             $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(r.error)}</span>`;
         }
     } catch (e) {
-        $('bundle-hint').innerHTML = `<span style="color:var(--bad)">${escapeHtml(e.message)}</span>`;
+        _stopTimer();
+        $('bundle-hint').innerHTML = `<span style="color:var(--bad)">部署失败: ${escapeHtml(e.message)}</span>`;
     }
 }
 
@@ -2944,17 +3190,24 @@ async function loadFieldMetrics() {
 async function refreshCurveSetSelector() {
     const setSel = $('curve-set');
     const modelSel = $('curve-predict-model');
+    // v3.0.9 (G3): baseline 对照 sample set 选择器
+    const baselineSel = $('curve-baseline-set');
     if (!setSel) return;
     const prevSet = setSel.value;
+    const prevBaseline = baselineSel?.value;
     const prevModel = modelSel?.value;
     try {
         const [sets, models] = await Promise.all([
             apiGet('/api/spawn-tuning-v2/sample-sets?limit=100'),
             modelSel ? apiGet('/api/spawn-tuning-v2/models?limit=100') : Promise.resolve({ models: [] }),
         ]);
-        setSel.innerHTML = '<option value="">— 不加载实测 —</option>' +
-            (sets.sample_sets || []).map((s) => `<option value="${s.set_id}">#${s.set_id} ${escapeHtml(s.name)} (${s.sample_count || 0})</option>`).join('');
+        const setOptions = (sets.sample_sets || []).map((s) => `<option value="${s.set_id}">#${s.set_id} ${escapeHtml(s.name)} (${s.sample_count || 0})</option>`).join('');
+        setSel.innerHTML = '<option value="">— 不加载实测 —</option>' + setOptions;
         if (prevSet) setSel.value = prevSet;
+        if (baselineSel) {
+            baselineSel.innerHTML = '<option value="">— 不对照 —</option>' + setOptions;
+            if (prevBaseline) baselineSel.value = prevBaseline;
+        }
         if (modelSel) {
             modelSel.innerHTML = '<option value="">— 不推断 (只画目标 / 实测) —</option>' +
                 (models.models || [])
@@ -2968,8 +3221,66 @@ async function refreshCurveSetSelector() {
     }
 }
 
+// v3.0.14 (D): 散点缓存 — 避免每次重绘都重新拉. key = setId, value = points 数组
+let _scatterPointsCache = null;
+const _scatterCacheBySetId = new Map();
+
+// v3.0.21: predictedStd 缓存 — checkbox 直接生效 + 避免反复勾选重发慢 MC Dropout 请求.
+//   key = `${modelId}|${setId}|${thetaHash}`, value = predStdBuckets 数组
+//   第一次勾选: MC Dropout 慢请求 → 拿到 std → 缓存
+//   再次勾选: cache hit, 跳过 API 直接复用
+//   反勾选: 不需要 std, 但 cache 保留, 再勾还快
+const _predStdCacheByKey = new Map();
+
+async function _loadScatter(setId, modelId) {
+    if (!setId) return null;
+    // v3.0.16: cache key 含 modelId, 切换模型重新拉
+    const cacheKey = `${setId}|${modelId || ''}`;
+    if (_scatterCacheBySetId.has(cacheKey)) return _scatterCacheBySetId.get(cacheKey);
+    try {
+        // v3.0.16: 严格逐 sample 1 点 — 实测 + (可选) 预测
+        let url = `/api/spawn-tuning-v2/sample-sets/${setId}/scatter?limit_samples=0`;
+        if (modelId) url += `&model_id=${modelId}`;
+        const r = await apiGet(url);
+        const pts = Array.isArray(r.points) ? r.points : [];
+        _scatterCacheBySetId.set(cacheKey, pts);
+        return pts;
+    } catch (_) {
+        return null;
+    }
+}
+
+// v3.0.9 (G3): 加载一个 sample set 的全 ctx 加权实测均值 (用于 baseline 对照线)
+async function _loadObservedAvg(setId) {
+    if (!setId) return null;
+    try {
+        const allDims = 'difficulty,generator,bot_policy,pb_bin,lifecycle_stage';
+        const r = await apiGet(`/api/spawn-tuning-v2/sample-sets/${setId}/aggregate?group_by=${allDims}`);
+        const buckets = (r.buckets || []).filter((b) => Array.isArray(b.d_curve_avg) && b.d_curve_avg.length === 20);
+        const totalN = buckets.reduce((s, b) => s + (b.n_samples || 0), 0);
+        if (totalN === 0) return null;
+        const avg = new Array(20).fill(0);
+        for (const b of buckets) {
+            for (let i = 0; i < 20; i++) avg[i] += (b.d_curve_avg[i] || 0) * (b.n_samples || 0);
+        }
+        return { curve: avg.map((v) => v / totalN), n: totalN, nCtx: buckets.length };
+    } catch (_) {
+        return null;
+    }
+}
+
 async function renderCurve() {
     const setId = $('curve-set').value;
+    // v3.0.9 (G3): baseline 对照样本集 (可选)
+    const baselineSetId = $('curve-baseline-set')?.value || '';
+    // v3.0.14 (D): 是否显示散点
+    const wantScatter = !!$('curve-scatter')?.checked;
+    // v3.0.17 (严格逐 sample 打点): 默认必拉散点, 不再 toggle
+    _scatterPointsCache = null;
+    if (setId) {
+        const _modelId = $('curve-predict-model')?.value || '';
+        _scatterPointsCache = await _loadScatter(setId, _modelId);
+    }
     // v2.10.22 / v2.10.33: 单选 dropdown (容忍 multi-select 旧版 + text input)
     const groupSel = $('curve-group-by');
     let groupBy = '';
@@ -3007,11 +3318,13 @@ async function renderCurve() {
         // observed 主线 = 整 set 实测均值 (跨所有 ctx 加权平均)
         // predicted 主线 = 整 set 模型预测均值 (跨同一 ctx 集合, 每 ctx predict 后按 n_samples 加权)
         // groupBuckets = 前端按 user-selected groupBy 维度再次聚合 unique-ctx buckets (含 obs + pred)
+        // v3.0.14: uniqueBuckets 提升到外层作用域, 供 observedFillRatio 计算用
+        let uniqueBuckets = [];
         if (setId) {
             const allDims = 'difficulty,generator,bot_policy,pb_bin,lifecycle_stage';
             const uniqueUrl = `/api/spawn-tuning-v2/sample-sets/${setId}/aggregate?group_by=${allDims}`;
             const unique = await apiGet(uniqueUrl);
-            const uniqueBuckets = (unique.buckets || []).filter((b) => Array.isArray(b.d_curve_avg) && b.d_curve_avg.length === 20);
+            uniqueBuckets = (unique.buckets || []).filter((b) => Array.isArray(b.d_curve_avg) && b.d_curve_avg.length === 20);
             const totalN = uniqueBuckets.reduce((s, b) => s + (b.n_samples || 0), 0);
             nCtxUnique = uniqueBuckets.length;
 
@@ -3058,33 +3371,57 @@ async function renderCurve() {
                     pb_bin: b.pb_bin,
                     lifecycle_stage: b.lifecycle_stage,
                 }));
-                try {
-                    const r = await apiSend('POST', `/api/spawn-tuning-v2/models/${modelId}/predict-curve`, {
-                        contexts: ctxList,
-                        uncertainty: wantUncertainty,
-                        n_mc_samples: 30,
-                    });
-                    if (r.curves?.length === uniqueBuckets.length) {
-                        predBuckets = uniqueBuckets.map((b, i) => ({
-                            curve: r.curves[i],
+            // v3.0.12: 用每 ctx 实际 sample 的平均 θ 来推断 — 跟"实测均值"输入对齐,
+            //   两条线就能真正用于评估 "model 跟实测启发式" 的距离 (而非 θ=0.5 常数测试).
+            const thetaPerCtx = uniqueBuckets.map((b) => b.theta_norm_avg);
+            const hasAllTheta = thetaPerCtx.every((t) => Array.isArray(t) && t.length === 9);
+
+            // v3.0.21: predStd cache key — 同 (model, set, theta, ctxList) 已算过 std 就复用
+            //   注: ctxList 顺序固定 (uniqueBuckets order), thetaPerCtx 跟 sample 一致 → 哈希到 key
+            const _predCacheKey = `${modelId}|${setId}|${hasAllTheta ? JSON.stringify(thetaPerCtx) : 'default0.5'}`;
+            const _cachedStd = _predStdCacheByKey.get(_predCacheKey);
+            const _stdCacheHit = !!_cachedStd && wantUncertainty;
+            // 反勾选 → 不传 uncertainty 参数; 勾选但 cache hit → 也不传 (省 10x 推断成本)
+            const _needFetchStd = wantUncertainty && !_stdCacheHit;
+
+            try {
+                const r = await apiSend('POST', `/api/spawn-tuning-v2/models/${modelId}/predict-curve`, {
+                    contexts: ctxList,
+                    // 当所有 ctx 都有 theta_norm_avg 时, 用 per-ctx θ; 否则 fallback default θ=0.5
+                    theta_norm_per_ctx: hasAllTheta ? thetaPerCtx : undefined,
+                    uncertainty: _needFetchStd,
+                    n_mc_samples: 30,
+                });
+                if (r.curves?.length === uniqueBuckets.length) {
+                    predBuckets = uniqueBuckets.map((b, i) => ({
+                        curve: r.curves[i],
+                        n: b.n_samples,
+                    }));
+                    predicted = weightedAvg(predBuckets);
+                    const thetaNote = hasAllTheta
+                        ? `(per-ctx θ from sample set)`
+                        : `(θ = default 0.5)`;
+                    predictNote = `模型预测 = ${uniqueBuckets.length} ctx 加权均值, ${thetaNote}, n_total = ${totalN}`;
+                    // v2.10.33: 不确定性带 — 把 per-ctx std 用 std-of-mean 公式聚合
+                    //   总均值的 std ≠ 平均 std (受 sample size 影响), 但近似 std/sqrt(K)
+                    //   为简单起见, 用 RMS (sqrt(weighted_mean(std^2))) 作为整 set std
+                    if (_needFetchStd && r.curves_std?.length === uniqueBuckets.length) {
+                        predStdBuckets = uniqueBuckets.map((b, i) => ({
+                            std: r.curves_std[i],
                             n: b.n_samples,
                         }));
-                        predicted = weightedAvg(predBuckets);
-                        predictNote = `模型预测 = 样本集 ${uniqueBuckets.length} 个 ctx 加权均值 (n_total = ${totalN})`;
-                        // v2.10.33: 不确定性带 — 把 per-ctx std 用 std-of-mean 公式聚合
-                        //   总均值的 std ≠ 平均 std (受 sample size 影响), 但近似 std/sqrt(K)
-                        //   为简单起见, 用 RMS (sqrt(weighted_mean(std^2))) 作为整 set std
-                        if (wantUncertainty && r.curves_std?.length === uniqueBuckets.length) {
-                            predStdBuckets = uniqueBuckets.map((b, i) => ({
-                                std: r.curves_std[i],
-                                n: b.n_samples,
-                            }));
-                            predictNote += ` · MC Dropout ${r.mc_samples || 30} 次`;
-                        }
+                        // v3.0.21: 写入缓存 — 反勾再勾就不用重发慢请求
+                        _predStdCacheByKey.set(_predCacheKey, predStdBuckets);
+                        predictNote += ` · MC Dropout ${r.mc_samples || 30} 次`;
+                    } else if (_stdCacheHit) {
+                        // v3.0.21: cache hit, 复用上次算好的 std
+                        predStdBuckets = _cachedStd;
+                        predictNote += ` · MC Dropout (cached)`;
                     }
-                } catch (e) {
-                    predictNote = `<span style="color:var(--bad)">模型推断失败: ${escapeHtml(e.message)}</span>`;
                 }
+            } catch (e) {
+                predictNote = `<span style="color:var(--bad)">模型推断失败: ${escapeHtml(e.message)}</span>`;
+            }
             }
 
             // 3) groupBuckets — 按 user 选的 groupBy 维度二次聚合 uniqueBuckets
@@ -3121,29 +3458,37 @@ async function renderCurve() {
                         bucket.rWeightSum += b.n_samples;
                     }
                 });
-                groupBuckets = [...map.values()].map((g) => {
+                // v3.0.13: 每分组输出"预测 + 实测"两条线, 同色配对 (实线=pred, 虚线=obs)
+                //   让用户直观看到 model 对每个分组的拟合质量, 而不是只看 model 自己的分组差异.
+                groupBuckets = [...map.values()].flatMap((g) => {
                     const obsAvg = weightedAvg(g.obsItems);
                     const predAvg = g.predItems.length ? weightedAvg(g.predItems) : null;
-                    const useCurve = predAvg || obsAvg;
-                    return {
+                    const meta = {
                         ...g.keyObj,
-                        d_curve_avg: useCurve,
                         n_samples: g.nTotal,
                         bins_filled_mean: g.bfWeightSum > 0 ? g.bfWeighted / g.bfWeightSum : null,
                         r_mean: g.rWeightSum > 0 ? g.rWeighted / g.rWeightSum : null,
                     };
+                    const out = [];
+                    if (predAvg) {
+                        out.push({ ...meta, d_curve_avg: predAvg, __isObserved: false });
+                    }
+                    if (obsAvg) {
+                        out.push({ ...meta, d_curve_avg: obsAvg, __isObserved: true });
+                    }
+                    return out;
                 });
 
                 if (!modelId) groupSourceUsed = 'observed-no-model';
                 else if (!predBuckets) groupSourceUsed = 'observed-fallback';
-                else groupSourceUsed = 'predicted';
+                else groupSourceUsed = 'predicted+observed';
             }
         }
 
         // v2.10.29-fix: 未选 set 但选了 model — 单 ctx 兜底预测 (不画实测线)
         if (!setId && modelId && !predicted) {
             const ctx = {
-                difficulty: 'normal', generator: 'budget-p2', bot_policy: 'clear-greedy',
+                difficulty: 'normal', generator: 'rule', bot_policy: 'clear-greedy',
                 pb_bin: 4000, lifecycle_stage: 'mature',
             };
             try {
@@ -3175,29 +3520,119 @@ async function renderCurve() {
                 predictedStd = predictedStd.map((v) => Math.sqrt(v / totalN_std));
             }
         }
+        // v3.0.18: baseline 也按逐 sample 处理 — 调 /scatter 拿原始点 (橙色散点)
+        //   计算 MAE 用每条 sample 的 (r, d_obs) 跟 ideal_S(r) 比, 更"原始"
+        let baselineScatterPoints = null;
+        let baselineNote = '';
+        if (baselineSetId && baselineSetId !== setId) {
+            baselineScatterPoints = await _loadScatter(baselineSetId, '');   // 不传 model_id, 只要实测
+            if (baselineScatterPoints && baselineScatterPoints.length > 0) {
+                // 逐 sample 算 MAE vs ideal(r) — 而非 mean curve MAE
+                const idealAtR = (r) => {
+                    // bin index = floor(r / 0.1), 取 target[bin]
+                    const bi = Math.min(19, Math.max(0, Math.floor(r / 0.1)));
+                    return target[bi];
+                };
+                let blMaeSum = 0;
+                for (const p of baselineScatterPoints) {
+                    blMaeSum += Math.abs(p[1] - idealAtR(p[0]));
+                }
+                const baselineMaeVsIdeal = blMaeSum / baselineScatterPoints.length;
+                // 主样本集也逐 sample 算 (用已加载的 _scatterPointsCache)
+                let bestMaeVsIdeal = null;
+                if (_scatterPointsCache && _scatterPointsCache.length > 0) {
+                    let m = 0;
+                    for (const p of _scatterPointsCache) {
+                        m += Math.abs(p[1] - idealAtR(p[0]));
+                    }
+                    bestMaeVsIdeal = m / _scatterPointsCache.length;
+                }
+                const liftMae = (bestMaeVsIdeal != null) ? (baselineMaeVsIdeal - bestMaeVsIdeal) : null;
+                const liftPct = (liftMae != null && baselineMaeVsIdeal > 0) ? (liftMae / baselineMaeVsIdeal * 100) : null;
+                baselineNote = `<span style="color:var(--muted);"> · baseline(set #${baselineSetId}) ${baselineScatterPoints.length} 点 MAE=<b>${baselineMaeVsIdeal.toFixed(4)}</b></span>`;
+                if (liftMae != null) {
+                    const sign = liftMae >= 0 ? '+' : '';
+                    const color = liftMae > 0.005 ? 'var(--good)' : (liftMae < -0.005 ? 'var(--bad)' : 'var(--muted)');
+                    baselineNote += ` <span style="color:${color}; font-weight:600;">⚡ θ 撬动 = ${sign}${liftMae.toFixed(4)} (${sign}${liftPct?.toFixed(1)}%)</span>`;
+                }
+            }
+        }
+        // v3.0.22: 分维度散点 — 跟整 set 预测/实测一样 "逐 sample 打点", 不再画 mean 折线 extras
+        //   后端 scatter 接口 schema v3.0.22 起返回 [r, d_obs, d_pred_or_null, dim_key], 前端按 group_by 维度切分
+        //   每组 obs 点 (轻浅同色) + pred 点 (深色同色) → 用户能看"该组 model 预测 vs 实测"
+        const _DIM_ORDER_SCATTER = ['difficulty', 'generator', 'bot_policy', 'pb_bin', 'lifecycle_stage'];
+        let _groupScatterPoints = null;
+        if (groupDims.length > 0 && _scatterPointsCache && _scatterPointsCache.length > 0) {
+            const sample = _scatterPointsCache[0];
+            const hasDimKey = Array.isArray(sample) && sample.length >= 4 && typeof sample[3] === 'string';
+            if (hasDimKey) {
+                const dimIdxs = groupDims.map((d) => _DIM_ORDER_SCATTER.indexOf(d)).filter((i) => i >= 0);
+                if (dimIdxs.length > 0) {
+                    const groupMap = new Map();
+                    for (const p of _scatterPointsCache) {
+                        const parts = (p[3] || '').split('|');
+                        const key = dimIdxs.map((i) => parts[i] ?? '?').join('·');
+                        let bucket = groupMap.get(key);
+                        if (!bucket) {
+                            bucket = { key, points: [] };
+                            groupMap.set(key, bucket);
+                        }
+                        bucket.points.push(p);
+                    }
+                    // 按 key 字典序稳定排序, 让相同 group_by 选择每次颜色一致
+                    _groupScatterPoints = [...groupMap.values()].sort((a, b) => a.key.localeCompare(b.key));
+                }
+            }
+        }
+        // 兼容: 老逻辑的 extras (mean 折线) 在 group 散点存在时禁用; 仅未启用 group 时保留 (无 group 时也无 extras)
+        const _extras = [];
+        // v3.0.14 (A): 聚合 bin_real_ratio — 整 set 维度的"每 bin 真实占比"
+        //   公式: ratio_total[i] = Σ_ctx (n_ctx * ratio_ctx[i]) / Σ_ctx n_ctx
+        //   chart 渲染 observed 时, ratio < 0.3 的 bin 走虚线 (告知 user 此处是 lastValue 填充)
+        let observedFillRatio = null;
+        if (setId && uniqueBuckets.length > 0) {
+            const totalN_fill = uniqueBuckets.reduce((s, b) => s + (b.n_samples || 0), 0);
+            if (totalN_fill > 0) {
+                observedFillRatio = new Array(20).fill(0);
+                uniqueBuckets.forEach((b) => {
+                    const ratios = Array.isArray(b.bin_real_ratio) ? b.bin_real_ratio : null;
+                    const w = b.n_samples || 0;
+                    if (ratios && ratios.length === 20) {
+                        for (let i = 0; i < 20; i++) {
+                            observedFillRatio[i] += ratios[i] * w;
+                        }
+                    }
+                });
+                observedFillRatio = observedFillRatio.map((v) => v / totalN_fill);
+            }
+        }
         renderDCurveChart(canvas, {
             targetCurve: target,
             predictedCurve: predicted,
             predictedStd,
             observedCurve: observed,
-            extraCurves: groupBuckets ? groupBuckets.slice(0, 8).map((b, i) => {
-                const keyParts = groupDims.map((d) => `${d}=${b[d]}`).join('·');
-                return {
-                    curve: b.d_curve_avg,
-                    label: keyParts,
-                    nSamples: b.n_samples,
-                };
-            }) : null,
+            // v3.0.14 (A): chart 用此 mask 区分真实/填充段
+            observedFillRatio,
+            // v3.0.14 (D): 散点数据 (来自 _scatterPoints 状态)
+            scatterPoints: _scatterPointsCache,
+            // v3.0.18: baseline 散点 (橙色)
+            baselineScatterPoints,
+            // v3.0.22: 分维度散点 — 每组 obs (浅同色) + pred (深同色), 替代以前的 mean 折线 extras
+            groupScatterPoints: _groupScatterPoints,
+            extraCurves: _extras.length > 0 ? _extras : null,
             options: {
                 width: Math.max(600, Math.min(1400, containerW)),
                 height: 320,
+                // v3.0.17: 强制散点模式 — 不再画 mean 折线 (聚合假象), 只画 ideal target + 逐 sample 散点
+                scatterMode: true,
             },
         });
 
         const lines = [];
         if (observed) {
             const m = computeChartMetrics(observed, target);
-            lines.push(`实测 vs 目标 MAE = ${fmtNumber(m.mae, 4)}`);
+            // v3.0.1 业务标签: 实测 vs target MAE = 真实算法物理 gap (越大 = 算法离 ideal 越远 = 寻参价值越高)
+            lines.push(`<span title="真实启发式算法跑出来的 d_curve 跟 ideal 的差距. 这是 model + θ 优化器要缩小的 gap.">实测 vs 目标 MAE = <b>${fmtNumber(m.mae, 4)}</b> <span style="color:var(--muted)">[算法物理 gap]</span></span>`);
             lines.push(`实测单调 = ${m.monotonic ? '✓' : '✗'}`);
             lines.push(`n_samples = ${nSamples}`);
             if (nCtxUnique > 0) lines.push(`n_ctx = ${nCtxUnique}`);
@@ -3220,8 +3655,16 @@ async function renderCurve() {
             const pomae = observed
                 ? observed.reduce((s, v, i) => s + Math.abs(v - predicted[i]), 0) / 20
                 : null;
-            lines.push(`预测 vs 目标 MAE = ${fmtNumber(pm.mae, 4)}`);
-            if (pomae != null) lines.push(`<b>预测 vs 实测 MAE = ${fmtNumber(pomae, 4)}</b>`);
+            // v3.0.1 业务标签
+            lines.push(`<span title="model 输出跟 ideal 的差距. 应 < 实测 vs 目标 MAE, 差值 = model 缩小的 gap.">预测 vs 目标 MAE = <b>${fmtNumber(pm.mae, 4)}</b> <span style="color:var(--muted)">[model 缩小后 gap]</span></span>`);
+            if (pomae != null) lines.push(`<span title="model 输出跟 sample 的偏离. 越大说明 model 越向 ideal 靠拢而不是简单复刻 sample (这是 v3.0 寻参架构期望).">预测 vs 实测 MAE = <b>${fmtNumber(pomae, 4)}</b> <span style="color:var(--muted)">[model 朝 ideal 拉力]</span></span>`);
+            // v3.0.1: 寻参价值 = sample 跟 ideal 的 gap - model 缩小后的 gap
+            if (observed) {
+                const obsToTarget = (computeChartMetrics(observed, target)).mae;
+                const value = obsToTarget - pm.mae;
+                const tone = value > 0.05 ? 'var(--ok)' : value > 0.01 ? 'var(--warn)' : 'var(--bad)';
+                lines.push(`<span style="color:${tone}" title="寻参价值 = 算法物理 gap - model 缩小后 gap. 越大说明 model + θ 优化器能改善的空间越大. > 0.05 良好.">★ 寻参价值 = <b>${fmtNumber(value, 4)}</b></span>`);
+            }
             // v2.10.33 (P2.3 UI): 不确定性指标 — std 均值 + 最大 (找 model 最没把握的 bin)
             if (predictedStd) {
                 const avgStd = predictedStd.reduce((a, b) => a + b, 0) / predictedStd.length;
@@ -3285,7 +3728,7 @@ async function renderCurve() {
               </div>
             `;
         }
-        meta.innerHTML = lines.join(' · ') + groupTable;
+        meta.innerHTML = lines.join(' · ') + baselineNote + groupTable;
     } catch (e) {
         meta.innerHTML = `<span style="color:var(--bad)">${escapeHtml(e.message)}</span>`;
     }
@@ -3312,6 +3755,17 @@ function bindEvents() {
     $('btn-bundle-status').addEventListener('click', refreshBundleStatus);
     $('btn-load-field').addEventListener('click', loadFieldMetrics);
     $('btn-render-curve').addEventListener('click', renderCurve);
+    // v3.0.21: ±2σ 勾选/反勾直接生效 (不必再点"绘制对照图"按钮)
+    //   勾选: 首次 MC Dropout 慢请求 → 拿 std 入缓存; 再勾 cache 命中 → 秒回
+    //   反勾: 跳过 uncertainty 参数, 普通 predict 即时重渲
+    //   未首次 render (无 modelId/setId) → renderCurve 内部自动 noop, 不会出错
+    $('curve-uncertainty')?.addEventListener('change', () => {
+        // 仅当 chart 已渲染过 (canvas 有数据) 才触发重渲, 避免空 chart 误触发请求
+        const canvas = $('d-curve-canvas');
+        if (canvas && canvas._dcurveLastData) {
+            renderCurve();
+        }
+    });
     $('job-device')?.addEventListener('change', () => { _deviceUserSelected = true; });
     $('metrics-modal-close').addEventListener('click', closeMetricsModal);
     $('metrics-modal').addEventListener('click', (e) => {

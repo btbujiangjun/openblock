@@ -34,16 +34,30 @@ function _refreshPolicySourceBadge() {
     const tunerActive = !!(stats?.loaded && stats?.count > 0);
     el.textContent = tunerActive ? '寻参' : '规则';
     el.className = tunerActive ? 'spawn-policy-source-badge tuner' : 'spawn-policy-source-badge';
+
+    // v3.0.26: 展开 policies.meta.json 完整模型信息 (hover 即时看到当前生效模型详情)
+    //   meta 字段: model_id / model_sha256 / generated_at_iso / n_contexts /
+    //              average_curve_mae / build_mode / version / rollout_pct
+    const m = stats?.meta || null;
+    const modelLines = tunerActive
+        ? [
+            `  · 模型 ID：#${m?.model_id ?? '?'}${m?.build_mode === 'model-joint-trained-theta' ? '  · 联合训练 θ (v3.0.11+)' : ''}`,
+            `  · 已加载策略：${stats.count} 条${m?.n_contexts != null ? ` / 全量 ${m.n_contexts}` : ''}`,
+            `  · 灰度比例：rollout ${stats.rollout_pct}%`,
+            `  · 模型 SHA：${(stats.model_sha || '').slice(0, 8)}…`,
+            ...(m?.average_curve_mae != null ? [`  · 平均 d_curve MAE：${m.average_curve_mae.toFixed(4)}（越小越贴 ideal）`] : []),
+            ...(m?.generated_at_iso ? [`  · 部署时间：${m.generated_at_iso}`] : []),
+            ...(m?.version ? [`  · Bundle 版本：${m.version}`] : []),
+            '  · 场景维度：difficulty × generator × bot × PB × lifecycle',
+        ]
+        : [];
     el.title = tunerActive
         ? [
             '🤖 寻参版 = L2 · SpawnParamTuner 模型已生效',
             '',
             '本模型不直接产 3 块，而是给启发式（L1 · SpawnPolicyRules）的 9 维 θ',
             '参数寻优，让启发式按你所在场景自动选最佳 θ：',
-            `  · 已加载策略：${stats.count} 条`,
-            `  · 灰度比例：rollout ${stats.rollout_pct}%`,
-            `  · 模型 SHA：${(stats.model_sha || '').slice(0, 8)}…`,
-            '  · 场景维度：difficulty × generator × bot × PB × lifecycle',
+            ...modelLines,
             '',
             '— 模型架构（ResNet-MLP, L4 量级 ~325K 参数）—',
             '  输入 41 维 = ctx_embedding(32) ⊕ θ_normalized(9)',
@@ -216,6 +230,8 @@ export function initSpawnModelPanel(game) {
     // 详见 web/src/tuning/v2/clientPolicyV2.js · installPoliciesV2 末尾的 dispatch。
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
         window.addEventListener('openblock:spawn-param-tuner-installed', _refreshPolicySourceBadge);
+        // v3.0.26: meta-updated 事件 — meta.json 拉到/变化时刷新 tooltip 完整模型信息
+        window.addEventListener('openblock:spawn-param-tuner-meta-updated', _refreshPolicySourceBadge);
     }
     // 兜底：bundle fetch 通常 < 1s，500ms / 2000ms 两次轮询基本覆盖所有时序。
     setTimeout(_refreshPolicySourceBadge, 500);

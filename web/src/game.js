@@ -2902,9 +2902,11 @@ export class Game {
                 const playerProfile = this.playerProfile || {};
                 const pb = playerProfile.bestScore || playerProfile.personalBest || 1000;
                 // 简版 contextKey: 用当前场景的 5 维 (与 v2 schema 一致)
+                // v3.0.8: generator 与 getSpawnPolicyMode() 1:1 对齐 — 'rule' / 'generative'
+                const _v2_gen = getSpawnPolicyMode() === SPAWN_MODE_MODEL_V3 ? 'generative' : 'rule';
                 const ctx = [
                     this.difficulty || 'normal',
-                    this.spawnGenerator || 'budget-p2',
+                    _v2_gen,
                     'random',  // bot_policy 在真人玩家场景无意义, 占位
                     String(_v2_pbBin(pb)),
                     playerProfile.lifecycleStage || 'growth',

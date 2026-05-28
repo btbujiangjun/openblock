@@ -30,21 +30,22 @@ const TREND_WEIGHT = 0.20;
 const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
-// PB-aware d_step (跨语言: samplerV2.js / extractor.py 严格同步)
-// v2.12 起 d_pb_base 直接复用 targetSCurve (ideal 4 段分段)
-// 以下 4 个常量供跨语言一致性测试镜像, 不再参与计算
-const PB_AWARE_D_BASE = 0.20;       // = D_BASE (ideal)
-const PB_AWARE_D_PEAK = 1.00;       // = D_CAP (ideal)
-const PB_AWARE_CENTER = 0.85;       // legacy
-const PB_AWARE_WIDTH  = 0.18;       // legacy
-const PB_AWARE_STATE_WEIGHT = 0.20; // state_offset ±0.10
-// 贝叶斯先验平滑
+// PB-aware d_step legacy 常量 (跨语言镜像, 不参与 v3.x 计算)
+const PB_AWARE_D_BASE = 0.20;
+const PB_AWARE_D_PEAK = 1.00;
+const PB_AWARE_CENTER = 0.85;
+const PB_AWARE_WIDTH  = 0.18;
+const PB_AWARE_STATE_WEIGHT = 0.20;
 const PB_AWARE_PRIOR_STRENGTH = 3;
 const PB_AWARE_MIN_OBS = 1;
 
+// v3.1 (G5 物理侧 θ 接入): θ 通过 PB-aware sigmoid 影响 d_step
+const PB_AWARE_BLEND = 0.40;
+const PB_AWARE_TENSION_CENTER_DEFAULT = 0.82;
+const PB_AWARE_TENSION_WIDTH_DEFAULT = 0.08;
+
 function _pbAwareDPbBase(ratio) {
-    // v2.12: 直接复用 ideal target_S_curve
-    return targetSCurve(ratio);
+    return targetSCurve(ratio);   // legacy, 不再参与计算
 }
 
 
@@ -65,7 +66,12 @@ let _stats = { steps_recorded: 0, episodes_reported: 0, flushed_batches: 0, flus
 
 // ─────────── d_curve 提取 (与 Python 一致) ───────────
 
-function _stepDifficulty(step, recentFills, ratio = 0) {
+function _stepDifficulty(
+    step, recentFills, ratio = 0,
+    thetaPbTensionCenter = PB_AWARE_TENSION_CENTER_DEFAULT,
+    thetaPbTensionWidth = PB_AWARE_TENSION_WIDTH_DEFAULT,
+) {
+    // v3.1 (G5): d_step = (1-BLEND)*state_d + BLEND*pb_aware_lift(r, θ_center, θ_width)
     if (step.noMove) return 1.0;
     let trendNorm = 0.5;
     if (recentFills.length > 0) {
@@ -80,15 +86,28 @@ function _stepDifficulty(step, recentFills, ratio = 0) {
     if ((step.clears || 0) >= SURPRISE_MIN_CLEARS) {
         stateD *= SURPRISE_DAMPING;
     }
-    // v2.12: 直接复用 ideal target_S_curve
-    const dPbBase = targetSCurve(ratio);
-    const stateOffset = (stateD - 0.5) * PB_AWARE_STATE_WEIGHT;
-    return Math.max(0, Math.min(1, dPbBase + stateOffset));
+    // v3.1 (G5): PB-aware lift 项 — θ 控制的物理调制
+    if (PB_AWARE_BLEND > 0 && thetaPbTensionWidth > 1e-6) {
+        const x = (ratio - thetaPbTensionCenter) / thetaPbTensionWidth;
+        const pbLift = 1.0 / (1.0 + Math.exp(-x));
+        const dStep = (1.0 - PB_AWARE_BLEND) * stateD + PB_AWARE_BLEND * pbLift;
+        return Math.max(0, Math.min(1, dStep));
+    }
+    return stateD;
 }
 
 
-function _extractDCurve(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
+function _extractDCurve(
+    steps, pb,
+    nBins = CURVE_N_BINS, rMax = CURVE_R_MAX,
+    theta = null,
+) {
     if (!steps || steps.length === 0 || !pb || pb <= 0) return null;
+    // v3.1 (G5): 真实玩家上报时 θ 来自 resolveThetaV2 (bundle 内 best θ*)
+    const thetaCenter = (theta && Number.isFinite(theta.pbTensionCenter))
+        ? theta.pbTensionCenter : PB_AWARE_TENSION_CENTER_DEFAULT;
+    const thetaWidth = (theta && Number.isFinite(theta.pbTensionWidth))
+        ? theta.pbTensionWidth : PB_AWARE_TENSION_WIDTH_DEFAULT;
 
     const binSums = new Array(nBins).fill(0);
     const binCounts = new Array(nBins).fill(0);
@@ -102,8 +121,8 @@ function _extractDCurve(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
     for (const st of steps) {
         const r = Math.min(rMax - 1e-9, st.score / pb);
         const bidx = rToBin(r, nBins, rMax);
-        // v2.10: 传 r 给 _stepDifficulty 让其编码 PB 命题
-        const d = _stepDifficulty(st, recentFills, r);
+        // v3.1 (G5): 传 θ 让 _stepDifficulty PB-aware
+        const d = _stepDifficulty(st, recentFills, r, thetaCenter, thetaWidth);
         binSums[bidx] += d;
         binCounts[bidx] += 1;
 
@@ -116,19 +135,17 @@ function _extractDCurve(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
         finalScore = st.score;
     }
 
-    // v2.10.1: 贝叶斯先验平滑 (跨语言: samplerV2.js / extractor.py 同步)
+    // v3.0: 空 bin 用 lastValue 填充 (跨语言: samplerV2.js / extractor.py 同步)
     const dCurve = new Array(nBins).fill(0);
     let nFilled = 0;
+    let lastValue = 0.5;
     for (let i = 0; i < nBins; i++) {
-        const rCenter = (i + 0.5) * (rMax / nBins);
-        const dPrior = _pbAwareDPbBase(rCenter);
         if (binCounts[i] >= PB_AWARE_MIN_OBS) {
-            const obs = binSums[i] / binCounts[i];
-            const w = binCounts[i] / (binCounts[i] + PB_AWARE_PRIOR_STRENGTH);
-            dCurve[i] = w * obs + (1 - w) * dPrior;
+            dCurve[i] = binSums[i] / binCounts[i];
+            lastValue = dCurve[i];
             nFilled++;
         } else {
-            dCurve[i] = dPrior;
+            dCurve[i] = lastValue;
         }
     }
 

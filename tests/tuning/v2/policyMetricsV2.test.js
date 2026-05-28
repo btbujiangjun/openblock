@@ -68,20 +68,18 @@ describe('extractDCurveJS', () => {
         expect(labels.noMove_step).toBe(1);
     });
 
-    it('surprise damping at clears >= 3', () => {
-        // v2.12: d_pb_base = target_S_curve, state_weight=0.20
-        //   r=0.3 在 gentle 段 (k=0.2), target_S_curve(0.3) = 0.20 + 0.2*0.3 = 0.26
-        //   surprise damping: state_d *= 0.5 → state_d_damp ≈ 0.30
-        //   state_offset = (0.30 - 0.50) * 0.20 = -0.040
-        //   d_step = 0.26 - 0.040 = 0.22
-        //   bin 3 center = 0.35, d_prior(0.35) = 0.20 + 0.2*0.35 = 0.27
-        //   w*obs + (1-w)*prior = 0.25 * 0.22 + 0.75 * 0.27 ≈ 0.26
+    it('v3.1: surprise damping at clears >= 3 (state_d *= 0.5, then PB-aware lift)', () => {
+        // v3.1: d_step = 0.6*state_d_after_surprise + 0.4*pb_lift(r, 0.82, 0.08)
+        //   state_d = 0.30*0.5 + 0.50*0.7 + 0.20*0.5 = 0.60
+        //   surprise damping × 0.5 → state_d' = 0.30
+        //   r = 30/100 = 0.30 → lift = sigmoid((0.3 - 0.82) / 0.08) = sigmoid(-6.5) ≈ 0.0015
+        //   d_step = 0.6*0.30 + 0.4*0.0015 ≈ 0.18
         const steps = [
             { stepIdx: 0, score: 30, fillRate: 0.5, actionFreedom: 0.3, noMove: false, clears: 4 },
         ];
         const labels = extractDCurveJS(steps, 100);
         const bin = Math.floor(0.3 / (2.0 / 20));
-        expect(labels.d_curve[bin]).toBeCloseTo(0.26, 1);
+        expect(labels.d_curve[bin]).toBeCloseTo(0.18, 1);
         expect(labels.surprise_count).toBe(1);
     });
 
@@ -125,7 +123,7 @@ describe('SDK flow', () => {
         for (let i = 0; i < 5; i++) {
             recordStep({ stepIdx: i, score: i * 20, fillRate: 0.3 + i * 0.05, actionFreedom: 0.7, noMove: false });
         }
-        reportEpisode({ pb: 100, contextKey: 'easy:budget-p2:random:500:growth' });
+        reportEpisode({ pb: 100, contextKey: 'easy:rule:random:500:growth' });
         const s = getStats();
         expect(s.episodes_reported).toBe(1);
         expect(s.buffer_size).toBe(1);

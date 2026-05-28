@@ -95,7 +95,11 @@ class TestForward:
         assert (out["pb_broke"] <= 1).all()
 
     def test_gradient_flow(self, model):
-        """所有参数都应能拿到梯度 (loss 须覆盖所有 head, v2.10.32 加 r_value)。"""
+        """所有参数都应能拿到梯度 (loss 须覆盖所有 head, v2.10.32 加 r_value).
+
+        v3.0.11: theta_optim_raw 是联合寻参专用参数, 只在 loss_deploy 里 backprop,
+        基础 head loss 不会摸到它 — 跳过这个 param.
+        """
         batch = _make_batch(batch_size=4)
         out = model(**batch)
         # v2.10.32 (P2.2): 加 r_value head
@@ -104,6 +108,8 @@ class TestForward:
                 + out["r_value"].mean())
         loss.backward()
         for name, p in model.named_parameters():
+            if "theta_optim_raw" in name:
+                continue   # v3.0.11: 联合寻参专用, 只在 loss_deploy 里 backprop
             assert p.grad is not None, f"{name} got no gradient"
             assert torch.isfinite(p.grad).all(), f"{name} grad has NaN/Inf"
 
@@ -131,21 +137,21 @@ class TestForward:
         assert mc["curve_std"].max().item() > 1e-4, "MC dropout 没真正生效 — std 全 0"
         assert mc["n_samples"] == 20
 
-    # v2.10.34: ckpt embedding 维度兼容 (老 N_GEN=2 → 新 N_GEN=4)
+    # v3.0.8: ckpt embedding 维度兼容 (老 N_GEN=4 → 新 N_GEN=2 缩减; 老 N_BOT=3 → 新 N_BOT=4 扩展)
     def test_load_state_dict_compat_emb_expansion(self, model):
-        """老 ckpt emb_gen.weight shape (2, D) 加载到新 model (N_GEN=4) 应自动 pad."""
+        """老 ckpt N_GEN=4 加载到 N_GEN=2 model 应只复制前 N 行;
+        老 ckpt N_BOT=3 加载到 N_BOT=4 model 应自动 pad."""
         from rl_pytorch.spawn_tuning_v2.model import load_state_dict_compat
-        # 构造一个"老 ckpt" — 改掉 emb_gen.weight 的 shape
         sd = model.state_dict()
         emb_key = "ctx_emb.emb_gen.weight"
         full_w = sd[emb_key]
         new_dim, d = full_w.shape
-        assert new_dim == 4, "前提: 当前 model N_GEN=4"
-        # 模拟老 ckpt (N_GEN=2) — 取前 2 行作为老权重
-        old_w = torch.randn(2, d)
+        assert new_dim == 2, "前提: v3.0.8 model N_GEN=2"
+        # 模拟老 ckpt N_GEN=4 — 比新 model 多, 加载时应丢弃后 2 行
+        old_gen = torch.randn(4, d)
         sd_compat = dict(sd)
-        sd_compat[emb_key] = old_w
-        # 也替换 emb_bot (N_BOT 老 3 → 新 4)
+        sd_compat[emb_key] = old_gen
+        # 也模拟老 ckpt N_BOT=3 → 新 4 (扩展)
         emb_bot_key = "ctx_emb.emb_bot.weight"
         bot_w_full = sd[emb_bot_key]
         assert bot_w_full.shape[0] == 4, "前提: 当前 model N_BOT=4"
@@ -155,10 +161,10 @@ class TestForward:
         from rl_pytorch.spawn_tuning_v2.model import SpawnParamTunerResNet
         new_model = SpawnParamTunerResNet()
         missing, unexpected = load_state_dict_compat(new_model, sd_compat)
-        # 验证: 前 2 行严格等于老权重
+        # 验证: gen emb 取老权重的前 2 行
         loaded_gen = new_model.state_dict()[emb_key]
-        assert torch.allclose(loaded_gen[:2], old_w), "前 2 行应复制老 ckpt"
-        # 后 2 行不应该是 0 (来自当前 model 的随机初始化)
+        assert loaded_gen.shape == (2, d), f"N_GEN 应为 2, 实际 {loaded_gen.shape}"
+        assert torch.allclose(loaded_gen, old_gen[:2]), "N_GEN 缩减: 应复制老 ckpt 前 2 行"
         # 前 3 行 bot 也应该等老
         loaded_bot = new_model.state_dict()[emb_bot_key]
         assert torch.allclose(loaded_bot[:3], old_bot), "前 3 行 bot 应复制老 ckpt"
@@ -286,7 +292,7 @@ class TestTransformer:
         assert 50_000 < n < 500_000, f"transformer param count {n} out of expected range"
 
     def test_gradient_flow(self):
-        """所有可训练参数都接收梯度 (v2.10.32 加 r_value head)。"""
+        """所有可训练参数都接收梯度 (v2.10.32 加 r_value head; v3.0.11 跳过 theta_optim_raw)."""
         m = SpawnParamTunerTransformer()
         m.train()
         batch = _make_batch(batch_size=4)
@@ -296,6 +302,8 @@ class TestTransformer:
                 + out["r_value"].sum())
         loss.backward()
         for name, p in m.named_parameters():
+            if "theta_optim_raw" in name:
+                continue   # v3.0.11: 联合寻参专用, 只在 loss_deploy 里 backprop
             if p.requires_grad:
                 assert p.grad is not None, f"{name} has no gradient"
 

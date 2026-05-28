@@ -625,8 +625,14 @@ function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg 
     const boredHighSkill = profile.flowState === 'bored' ? Math.max(0, skill - 0.5) * 1.4 : 0;
     const riskRelief = Math.max(boardRisk, recoveryNeed);
 
-    const shapeComplexity = clamp01(stress01 * 0.75 + boredHighSkill * 0.25 - riskRelief * 0.45);
-    const solutionSpacePressure = clamp01(stress01 * 0.7 + shapeComplexity * 0.25 - boardRisk * 0.55 - recoveryNeed * 0.35);
+    // θ-D: deriveSpawnTargets 翻译矩阵 (5 维)
+    const mc = ctx.modelConfig || {};
+    const kComplexity   = Number.isFinite(mc.complexityFromStress) ? mc.complexityFromStress : 0.75;
+    const kRiskRelief   = Number.isFinite(mc.complexityRiskRelief) ? mc.complexityRiskRelief : -0.45;
+    const kSolution     = Number.isFinite(mc.solutionFromStress)   ? mc.solutionFromStress   : 0.7;
+
+    const shapeComplexity = clamp01(stress01 * kComplexity + boredHighSkill * 0.25 + riskRelief * kRiskRelief);
+    const solutionSpacePressure = clamp01(stress01 * kSolution + shapeComplexity * 0.25 - boardRisk * 0.55 - recoveryNeed * 0.35);
     const clearOpportunity = clamp01(recoveryNeed * 0.55 + payoffOpportunity * 0.45 + (profile.pacingPhase === 'release' ? 0.12 : 0) - stress01 * 0.18);
     const spatialPressure = clamp01(stress01 * 0.65 + (boardDifficulty ?? fill ?? 0) * 0.25 - boardRisk * 0.5 - recoveryNeed * 0.3);
     const payoffIntensity = clamp01((delight.multiClearBoost ?? 0) * 0.45 + payoffOpportunity * 0.4 + Math.max(0, profile.momentum ?? 0) * 0.15);
@@ -1638,10 +1644,15 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         ? Math.max(0, Math.min(0.20, _growthThrottleCfg.challengeBoostCapDelta))
         : 0;
     const _challengeBoostCfg = (cfg.pbChase?.challengeBoost) ?? {};
-    const _challengeBaseCap = Number.isFinite(_challengeBoostCfg.baseCap) ? _challengeBoostCfg.baseCap : 0.18;
+    // θ-E: challengeBoost cap + slope (modelConfig 优先, 否则 cfg.pbChase.*, 否则硬默认)
+    const _mc = ctx.modelConfig || {};
+    const _challengeBaseCap = Number.isFinite(_mc.challengeBoostCap)
+        ? _mc.challengeBoostCap
+        : (Number.isFinite(_challengeBoostCfg.baseCap) ? _challengeBoostCfg.baseCap : 0.18);
+    const _challengeSlope = Number.isFinite(_mc.challengeBoostSlope) ? _mc.challengeBoostSlope : 0.75;
     if (isBClassChallenge) {
         const _challengeCap = _challengeBaseCap + _growthCapDelta;
-        let challengeBoost = Math.min(_challengeCap, (score / ctx.bestScore - 0.8) * 0.75);
+        let challengeBoost = Math.min(_challengeCap, (score / ctx.bestScore - 0.8) * _challengeSlope);
         /* v1.29：友好盘面救济与 B 类挑战加压同帧显著时互抑，减轻 stress 锯齿抖动 */
         const fbr = stressBreakdown.friendlyBoardRelief ?? 0;
         if (Number.isFinite(fbr) && fbr < -0.09 && challengeBoost > 0) {
@@ -1729,7 +1740,10 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         && _commonOrderGates
         && score > ctx.bestScore) {
         const overshoot = (score / ctx.bestScore) - 1.0;
-        const maxBoost = Number.isFinite(_overshootCfg.maxBoost) ? _overshootCfg.maxBoost : 0.16;
+        // θ-E: pbOvershootMax (modelConfig 优先)
+        const maxBoost = Number.isFinite(_mc.pbOvershootMax)
+            ? _mc.pbOvershootMax
+            : (Number.isFinite(_overshootCfg.maxBoost) ? _overshootCfg.maxBoost : 0.16);
         const slope = Number.isFinite(_overshootCfg.slope) ? _overshootCfg.slope : 5.0;
         const capStress = Number.isFinite(_overshootCfg.capStress) ? _overshootCfg.capStress : 0.90;
         pbOvershootBoost = Math.min(maxBoost, maxBoost * Math.log10(1 + slope * overshoot) / Math.log10(1 + slope));
@@ -1845,8 +1859,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
      * 与 occupancyDamping 互补：occupancyDamping 看"盘面空"，本信号看"刚破 PB"。 */
     let postPbReleaseStressAdjust = 0;
     if (ctx.postPbReleaseActive === true && stress > 0) {
-        const RELEASE_FACTOR = 0.7;
-        const scaled = stress * RELEASE_FACTOR;
+        // θ-E: releaseFactor (modelConfig 优先, 否则默认 0.7)
+        const _releaseFactor = Number.isFinite(ctx.modelConfig?.releaseFactor) ? ctx.modelConfig.releaseFactor : 0.7;
+        const scaled = stress * _releaseFactor;
         postPbReleaseStressAdjust = scaled - stress;
         stress = scaled;
     }
@@ -2017,13 +2032,18 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         cfg.spawnTargets ?? {},
         boardDifficulty
     );
+    // θ-D: PB 曲线对 spawnTargets 的调制力度 (5 类各自的 tension/brake 系数)
+    const _mcTarget = ctx.modelConfig || {};
+    const kPbT = Number.isFinite(_mcTarget.pbTensionTargetWeight) ? _mcTarget.pbTensionTargetWeight : 0.10;
+    const kPbB = Number.isFinite(_mcTarget.pbBrakeTargetWeight)   ? _mcTarget.pbBrakeTargetWeight   : 0.10;
     spawnTargets = {
         ...spawnTargets,
-        solutionSpacePressure: clamp01((spawnTargets.solutionSpacePressure ?? 0) + pbCurve.pbTension * 0.10 + pbCurve.pbBrake * 0.12 - pbCurve.pbRelease * 0.08),
-        clearOpportunity: clamp01((spawnTargets.clearOpportunity ?? 0) - pbCurve.pbBrake * 0.10 + pbCurve.pbRelease * 0.12),
-        spatialPressure: clamp01((spawnTargets.spatialPressure ?? 0) + pbCurve.pbTension * 0.12 + pbCurve.pbBrake * 0.16 - pbCurve.pbRelease * 0.10),
-        payoffIntensity: clamp01((spawnTargets.payoffIntensity ?? 0) - pbCurve.pbBrake * 0.16 + pbCurve.pbRelease * 0.12),
-        novelty: clamp01((spawnTargets.novelty ?? 0) + pbCurve.pbBrake * 0.05),
+        // 基线: tension*0.10, brake*0.12, release*0.08 → 替换为 θ 控制
+        solutionSpacePressure: clamp01((spawnTargets.solutionSpacePressure ?? 0) + pbCurve.pbTension * kPbT      + pbCurve.pbBrake * (kPbB + 0.02) - pbCurve.pbRelease * 0.08),
+        clearOpportunity:      clamp01((spawnTargets.clearOpportunity ?? 0)      - pbCurve.pbBrake * kPbB        + pbCurve.pbRelease * 0.12),
+        spatialPressure:       clamp01((spawnTargets.spatialPressure ?? 0)       + pbCurve.pbTension * (kPbT + 0.02) + pbCurve.pbBrake * (kPbB + 0.06) - pbCurve.pbRelease * 0.10),
+        payoffIntensity:       clamp01((spawnTargets.payoffIntensity ?? 0)       - pbCurve.pbBrake * (kPbB + 0.06) + pbCurve.pbRelease * 0.12),
+        novelty:               clamp01((spawnTargets.novelty ?? 0)               + pbCurve.pbBrake * 0.05),
     };
 
     /* ---------- 插值 shapeWeights ---------- */
@@ -2269,7 +2289,10 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         } else {
             farFromPBBoostActive = true;
             const cgBoost = Math.max(0, Math.min(2, Number(farCfg.clearGuaranteeBoost) || 1));
-            let mcbFloor = Math.max(0, Math.min(1, Number(farCfg.multiClearBonusFloor) || 0.45));
+            // θ-E: farFromPBBoost (modelConfig 优先) - 控制 multiClearBonus floor 总强度
+            const _farTheta = Number.isFinite(ctx.modelConfig?.farFromPBBoost) ? ctx.modelConfig.farFromPBBoost : null;
+            const _mcbFloorRaw = _farTheta !== null ? _farTheta : (Number(farCfg.multiClearBonusFloor) || 0.45);
+            let mcbFloor = Math.max(0, Math.min(1, _mcbFloorRaw));
             let iconFloor = Math.max(0, Math.min(1, Number(farCfg.iconBonusTargetFloor) || 0.30));
             let sizeShift = Number(farCfg.sizePreferenceShift) || -0.12;
             /* v1.56.4 §5.α.8 远段分级：pct<extremeThreshold（默认 0.15）为"极远档"，

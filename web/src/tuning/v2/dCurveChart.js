@@ -16,7 +16,7 @@
  *   renderDCurveChart(canvas, { targetCurve, predictedCurve, observedCurve, options });
  */
 
-import { targetCurveVector, targetCurveCalibratedVector, CURVE_N_BINS, CURVE_R_MAX } from './targetSCurve.js';
+import { targetCurveVector, CURVE_N_BINS, CURVE_R_MAX } from './targetSCurve.js';
 
 // ─────────── 默认样式 ───────────
 
@@ -27,7 +27,6 @@ const DEFAULT_STYLE = {
     padding: { top: 32, right: 16, bottom: 32, left: 36 },
     colors: {
         target: '#3b82f6',       // blue-500 — 业务 ideal
-        calibrated: '#a78bfa',   // purple-400 — v2.9 训练 target
         predicted: '#10b981',    // emerald-500
         observed: '#9ca3af',     // gray-400
         grid: 'rgba(148,163,184,0.18)',
@@ -39,7 +38,6 @@ const DEFAULT_STYLE = {
     showGrid: true,
     showLegend: true,
     showMetrics: true,
-    showCalibrated: true,        // v2.9: 默认展示校准 target
 };
 
 
@@ -108,6 +106,18 @@ export function renderDCurveChart(canvas, data) {
     const extras = Array.isArray(data.extraCurves)
         ? data.extraCurves.filter((e) => Array.isArray(e?.curve) && e.curve.length === target.length)
         : [];
+    // v3.0.14 (A): 每 bin 真实观察占比 [0,1] — < 0.3 视为"填充段" (lastValue), 渲染虚淡线
+    const obsFillRatio = (Array.isArray(data.observedFillRatio) && data.observedFillRatio.length === target.length)
+        ? data.observedFillRatio : null;
+    // v3.0.17 (严格逐 sample 打点): scatterMode=true 时只画 target + 散点 (移除 mean 折线/marker)
+    const scatterMode = !!opt.scatterMode;
+    const scatterPoints = Array.isArray(data.scatterPoints) ? data.scatterPoints : null;
+    // v3.0.18: baseline 散点 (橙色, 每条 baseline sample 一个点 [r, d_obs])
+    const baselineScatterPoints = Array.isArray(data.baselineScatterPoints) ? data.baselineScatterPoints : null;
+    // v3.0.22: 分维度散点 — { key, points: [[r,d_obs,d_pred,dim_key], ...] } 数组
+    //   存在时, 整 set 灰/绿散点不画 (避免视觉重叠); 每组同色 obs 浅+pred 深
+    const groupScatterPoints = Array.isArray(data.groupScatterPoints) ? data.groupScatterPoints : null;
+    const hasGroupScatter = !!(groupScatterPoints && groupScatterPoints.length > 0);
 
     // v2.10.28: 缓存最后一次 render 的 data + opts (供图例 click toggle 重新 render)
     canvas._dcurveLastData = data;
@@ -177,22 +187,38 @@ export function renderDCurveChart(canvas, data) {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // v2.10.24/25/28: 分组对比线 (彩色细线, 画在最底层; 支持 visibility + hover 高亮)
+    // v3.0.13: 分组对比线扩展到 16 条 (8 分组 × 2 线: pred 实线 + obs 虚线 同色配对)
+    //   颜色按 __pairIndex 算 — 计算"非 baseline 项"配对索引, baseline 不参与配对
     if (extras.length > 0) {
         const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
-        extras.slice(0, 8).forEach((e, idx) => {
+        // 给每个 extra 计算 pairIdx (相邻同组 pred/obs 共享同一 palette 索引)
+        let nonBaselinePos = 0;
+        extras.slice(0, 16).forEach((e, idx) => {
             const lineId = `extra_${idx}`;
             if (!isVisible(lineId)) return;
             const isHover = hoverLine === lineId;
-            ctx.strokeStyle = palette[idx % palette.length];
+            let color;
+            if (e.__isBaseline) {
+                color = '#fb923c';   // baseline 固定橙色
+            } else {
+                // 同组 pred/obs 配对: pred 是偶数位 obs 是奇数位 → pair = floor(pos / 2)
+                const pairIdx = Math.floor(nonBaselinePos / 2);
+                color = palette[pairIdx % palette.length];
+                nonBaselinePos++;
+            }
+            ctx.strokeStyle = color;
             ctx.lineWidth = isHover ? 2.5 : 1.4;
             ctx.globalAlpha = hoverLine && !isHover ? 0.25 : 0.85;
+            // v3.0.13: __isObserved → 虚线; baseline 也是虚线
+            const useDashed = !!e.__isObserved || !!e.__isBaseline;
+            if (useDashed) ctx.setLineDash([5, 4]);
             ctx.beginPath();
             for (let i = 0; i < N; i++) {
                 const x = xAt(i), y = yAt(e.curve[i]);
                 if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             }
             ctx.stroke();
+            if (useDashed) ctx.setLineDash([]);
         });
         ctx.globalAlpha = 1.0;
     }
@@ -218,38 +244,218 @@ export function renderDCurveChart(canvas, data) {
     //   高 std bin: model "自知没把握", UI 上自动用半透明带宽暴露这点
     //   v2.10.38 视觉保底: σ 可能 < 0.001 (model 自信), 真实 2σ < 1 像素看不见,
     //   render 时用 max(2σ, 0.008) 保证至少 ~0.8% 视觉宽度, meta 区显示真实数值
+    //
+    // v3.0.20 修复 scatterMode 下 ±2σ 失效:
+    //   原因: scatterMode 不画 pred mean 折线 + 半透明 fill (alpha 0.25) 被密集 scatter 覆盖
+    //   方案: fill 之外加上下虚线 stroke (alpha 0.65), 让带子能从散点云中凸出来
     if (pred && predStd && isVisible('predicted')) {
         const sigmaK = 2.0;
         const MIN_VISUAL_HALF_WIDTH = 0.008;   // D 轴单位, ≥ 0.8% 可视
-        ctx.fillStyle = opt.colors.predicted;
-        ctx.globalAlpha = hoverLine && hoverLine !== 'predicted' ? 0.10 : 0.25;
-        ctx.beginPath();
+        // 预计算上下边界路径
+        const upperXY = new Array(N);
+        const lowerXY = new Array(N);
         for (let i = 0; i < N; i++) {
             const halfW = Math.max(sigmaK * predStd[i], MIN_VISUAL_HALF_WIDTH);
             const upper = Math.max(0, Math.min(1, pred[i] + halfW));
-            const x = xAt(i), y = yAt(upper);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            const lower = Math.max(0, Math.min(1, pred[i] - halfW));
+            upperXY[i] = [xAt(i), yAt(upper)];
+            lowerXY[i] = [xAt(i), yAt(lower)];
+        }
+        // 1) 半透明填充 polygon
+        ctx.fillStyle = opt.colors.predicted;
+        ctx.globalAlpha = hoverLine && hoverLine !== 'predicted' ? 0.10 : 0.20;
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+            if (i === 0) ctx.moveTo(upperXY[i][0], upperXY[i][1]);
+            else ctx.lineTo(upperXY[i][0], upperXY[i][1]);
         }
         for (let i = N - 1; i >= 0; i--) {
-            const halfW = Math.max(sigmaK * predStd[i], MIN_VISUAL_HALF_WIDTH);
-            const lower = Math.max(0, Math.min(1, pred[i] - halfW));
-            ctx.lineTo(xAt(i), yAt(lower));
+            ctx.lineTo(lowerXY[i][0], lowerXY[i][1]);
         }
         ctx.closePath();
         ctx.fill();
+        // 2) 上下边界虚线 stroke — 让 σ 带从散点云中凸显
+        ctx.strokeStyle = opt.colors.predicted;
+        ctx.lineWidth = 1.4;
+        ctx.globalAlpha = hoverLine && hoverLine !== 'predicted' ? 0.25 : 0.70;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+            if (i === 0) ctx.moveTo(upperXY[i][0], upperXY[i][1]);
+            else ctx.lineTo(upperXY[i][0], upperXY[i][1]);
+        }
+        ctx.stroke();
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) {
+            if (i === 0) ctx.moveTo(lowerXY[i][0], lowerXY[i][1]);
+            else ctx.lineTo(lowerXY[i][0], lowerXY[i][1]);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
         ctx.globalAlpha = 1.0;
     }
-    // ─── 实测曲线 (灰虚线, 下层; v2.10.29 加粗到 2.5 避免被分组线遮挡) ───
-    if (obs) drawMainLine('observed', obs, opt.colors.observed, [5, 4], 2.5);
-    // ─── 校准 target (紫细虚线) ───
-    if (opt.showCalibrated) {
-        const calibrated = targetCurveCalibratedVector(N);
-        drawMainLine('calibrated', calibrated, opt.colors.calibrated, [6, 4], 1.5);
+    // ─── 实测曲线 (v3.0.14 mean 折线; v3.0.17 scatterMode 下不画) ───
+    if (!scatterMode && obs && isVisible('observed')) {
+        const isHover = hoverLine === 'observed';
+        const baseAlpha = hoverLine && !isHover ? 0.30 : 1.0;
+        ctx.strokeStyle = opt.colors.observed;
+        if (obsFillRatio) {
+            // 分段绘制: 相邻两点都 fill_ratio >= 0.3 → 实段; 否则虚 + 半透明
+            for (let i = 0; i < N - 1; i++) {
+                const rL = obsFillRatio[i];
+                const rR = obsFillRatio[i + 1];
+                const real = rL >= 0.3 && rR >= 0.3;
+                ctx.lineWidth = isHover ? 3.5 : 2.5;
+                ctx.globalAlpha = real ? baseAlpha : baseAlpha * 0.35;
+                ctx.setLineDash(real ? [5, 4] : [2, 5]);   // 真实段大虚线 / 填充段细密虚线
+                ctx.beginPath();
+                ctx.moveTo(xAt(i), yAt(obs[i]));
+                ctx.lineTo(xAt(i + 1), yAt(obs[i + 1]));
+                ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1.0;
+        } else {
+            // 老路径 (无 obsFillRatio 数据时, 全段同一虚线)
+            drawMainLine('observed', obs, opt.colors.observed, [5, 4], 2.5);
+        }
     }
-    // ─── 目标曲线 (蓝粗) ───
+    // ─── v3.0.18: baseline 散点 (橙色) — 画在最底层 ───
+    if (baselineScatterPoints && baselineScatterPoints.length > 0 && isVisible('baseline')) {
+        const N_b = baselineScatterPoints.length;
+        const alpha = Math.max(0.20, Math.min(0.55, 150 / N_b));
+        const radius = N_b > 5000 ? 1.4 : (N_b > 2000 ? 2.0 : 2.8);
+        ctx.fillStyle = '#fb923c';   // orange-400
+        ctx.globalAlpha = alpha;
+        for (const p of baselineScatterPoints) {
+            const r = p[0], d = p[1];
+            if (!Number.isFinite(r) || !Number.isFinite(d)) continue;
+            const x = left + (r / CURVE_R_MAX) * (W - left - right);
+            const y = yAt(Math.max(0, Math.min(1, d)));
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+    }
+
+    // ─── v3.0.16 (严格逐 sample 打点): 实测点 (灰) + 预测点 (绿) ───
+    //   每条 sample 产生 1 个 [r, d_obs] 或 [r, d_obs, d_pred] (有 model_id 时)
+    //   点位置: r=final_score/pb, d=sample.d_curve[final_bin] (真实 bin 才算)
+    //   v3.0.22: 有分维度散点 (hasGroupScatter) 时, 整 set 灰/绿散点不画 (避免视觉重叠 + 信息冗余)
+    if (!hasGroupScatter && scatterPoints && scatterPoints.length > 0) {
+        const N_pt = scatterPoints.length;
+        // 自适应 alpha + radius: 点 < 500 时清晰显示, > 5000 时密度展示
+        const alpha = Math.max(0.20, Math.min(0.75, 200 / N_pt));
+        const radius = N_pt > 5000 ? 1.4 : (N_pt > 2000 ? 2.0 : 2.8);
+        const drawPoint = (color, x, y) => {
+            ctx.fillStyle = color;
+            ctx.globalAlpha = alpha;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        };
+        for (const p of scatterPoints) {
+            const r = p[0];
+            const dObs = p[1];
+            const x = left + (r / CURVE_R_MAX) * (W - left - right);
+            // 实测点 (灰)
+            if (Number.isFinite(dObs) && isVisible('observed')) {
+                drawPoint(opt.colors.observed, x, yAt(Math.max(0, Math.min(1, dObs))));
+            }
+            // 预测点 (绿) — 只在 3 元组时画
+            const dPred = p.length >= 3 ? p[2] : null;
+            if (Number.isFinite(dPred) && isVisible('predicted')) {
+                drawPoint(opt.colors.predicted, x, yAt(Math.max(0, Math.min(1, dPred))));
+            }
+        }
+        ctx.globalAlpha = 1.0;
+    }
+
+    // ─── v3.0.22 / v3.0.23: 分维度散点 — 每组 实测/预测 两类, 颜色不同 ───
+    //   v3.0.23 调整: 改"同色浅深"为"两类两色":
+    //     - obs 用 LIGHT_PALETTE[gIdx] (浅色调)
+    //     - pred 用 DARK_PALETTE[gIdx] (深色调, 同色系)
+    //   图例分别画 "easy 实测" / "easy 预测", 各一个图例项 (toggle 独立)
+    if (hasGroupScatter) {
+        // 8 组色对 (light obs / dark pred), 同列同色系, 视觉对应明显
+        const LIGHT_PALETTE = ['#fde68a', '#fbcfe8', '#ddd6fe', '#a5f3fc', '#fed7aa', '#a7f3d0', '#fecaca', '#bfdbfe'];
+        const DARK_PALETTE  = ['#d97706', '#be185d', '#5b21b6', '#0e7490', '#c2410c', '#15803d', '#b91c1c', '#1d4ed8'];
+        const totalPts = groupScatterPoints.reduce((s, g) => s + g.points.length, 0);
+        const alphaBase = Math.max(0.20, Math.min(0.75, 200 / Math.max(1, totalPts)));
+        const radius = totalPts > 5000 ? 1.4 : (totalPts > 2000 ? 2.0 : 2.6);
+        groupScatterPoints.slice(0, LIGHT_PALETTE.length).forEach((g, gIdx) => {
+            const obsId = `group_${gIdx}_obs`;
+            const predId = `group_${gIdx}_pred`;
+            const obsShow = isVisible(obsId);
+            const predShow = isVisible(predId);
+            const obsHover = hoverLine === obsId;
+            const predHover = hoverLine === predId;
+            const obsDim = hoverLine && !obsHover ? 0.20 : 1.0;
+            const predDim = hoverLine && !predHover ? 0.20 : 1.0;
+            const obsColor = LIGHT_PALETTE[gIdx % LIGHT_PALETTE.length];
+            const predColor = DARK_PALETTE[gIdx % DARK_PALETTE.length];
+            for (const p of g.points) {
+                const r = p[0];
+                const dObs = p[1];
+                const dPred = p.length >= 3 ? p[2] : null;
+                const x = left + (r / CURVE_R_MAX) * (W - left - right);
+                if (obsShow && Number.isFinite(dObs)) {
+                    ctx.fillStyle = obsColor;
+                    ctx.globalAlpha = alphaBase * obsDim;
+                    ctx.beginPath();
+                    ctx.arc(x, yAt(Math.max(0, Math.min(1, dObs))), radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                if (predShow && Number.isFinite(dPred)) {
+                    ctx.fillStyle = predColor;
+                    ctx.globalAlpha = alphaBase * predDim;
+                    ctx.beginPath();
+                    ctx.arc(x, yAt(Math.max(0, Math.min(1, dPred))), radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        });
+        ctx.globalAlpha = 1.0;
+    }
+    // ─── 目标曲线 (蓝粗) — scatterMode 下也保留, 作为参照 ───
     drawMainLine('target', target, opt.colors.target, null, 3);
-    // ─── 预测曲线 (绿实) ───
-    if (pred) drawMainLine('predicted', pred, opt.colors.predicted, null, 2);
+    // ─── 预测 mean 折线 ───
+    //   - 非 scatterMode: 常规绘制
+    //   - scatterMode 默认不画 (避免聚合假象)
+    //   - v3.0.20: scatterMode 但用户勾选了 ±2σ (predStd 存在) 时, mean 是带子的中线锚点, 必须画
+    const shouldDrawPredMean = pred && (!scatterMode || !!predStd);
+    if (shouldDrawPredMean) drawMainLine('predicted', pred, opt.colors.predicted, null, 2);
+
+    // ─── v3.0.15: 20 bin 中心 marker (v3.0.17 scatterMode 下不画) ───
+    if (!scatterMode) {
+        //   预测点 (绿实心圆) + 实测点 (灰实心圆 / 填充段空心)
+        const drawMarkers = (curve, color, lineId, fillRatio) => {
+            if (!curve || !isVisible(lineId)) return;
+            const isHover = hoverLine === lineId;
+            const baseAlpha = hoverLine && !isHover ? 0.30 : 1.0;
+            ctx.fillStyle = color;
+            ctx.strokeStyle = color;
+            for (let i = 0; i < N; i++) {
+                const x = xAt(i), y = yAt(curve[i]);
+                const real = fillRatio ? (fillRatio[i] >= 0.3) : true;
+                ctx.globalAlpha = real ? baseAlpha : baseAlpha * 0.4;
+                if (real) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+                    ctx.lineWidth = 1.2;
+                    ctx.stroke();
+                }
+            }
+            ctx.globalAlpha = 1.0;
+        };
+        if (pred) drawMarkers(pred, opt.colors.predicted, 'predicted', null);
+        if (obs) drawMarkers(obs, opt.colors.observed, 'observed', obsFillRatio);
+    }
 
     // ─── 坐标轴 ───
     ctx.strokeStyle = opt.colors.axis;
@@ -333,15 +539,42 @@ export function renderDCurveChart(canvas, data) {
             });
             legendX += itemW;
         };
-        drawLegend('target', opt.colors.target, '目标 (业务)');
-        if (opt.showCalibrated) drawLegend('calibrated', opt.colors.calibrated, '训练 target (校准)', true);
-        if (pred) drawLegend('predicted', opt.colors.predicted, '模型预测');
-        if (obs) drawLegend('observed', opt.colors.observed, '实测均值', true);
+        drawLegend('target', opt.colors.target, '目标');
+        // v3.0.23: 分维度散点存在时, 全局"预测/实测"图例不画 — 避免跟"easy 实测/easy 预测"重复语义
+        //   chart 上整 set 散点本身也因 hasGroupScatter 不画 (在散点渲染处), 图例隐藏保持一致
+        if (!hasGroupScatter) {
+            if (pred) drawLegend('predicted', opt.colors.predicted, '预测');
+            if (obs) drawLegend('observed', opt.colors.observed, '实测', !scatterMode);
+        }
+        if (baselineScatterPoints && baselineScatterPoints.length > 0) {
+            drawLegend('baseline', '#fb923c', 'baseline');
+        }
         if (extras.length > 0) {
             const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
-            extras.slice(0, 8).forEach((e, idx) => {
-                const labelShort = e.label.length > 20 ? e.label.slice(0, 18) + '…' : e.label;
-                drawLegend(`extra_${idx}`, palette[idx % palette.length], labelShort);
+            // v3.0.13: 同 pred 主线一样, 用 __pairIndex 配对 + 虚线区分 obs
+            let nonBaselinePos = 0;
+            extras.slice(0, 16).forEach((e, idx) => {
+                const labelShort = e.label.length > 24 ? e.label.slice(0, 22) + '…' : e.label;
+                let color;
+                if (e.__isBaseline) {
+                    color = '#fb923c';
+                } else {
+                    color = palette[Math.floor(nonBaselinePos / 2) % palette.length];
+                    nonBaselinePos++;
+                }
+                drawLegend(`extra_${idx}`, color, labelShort, !!e.__isObserved || !!e.__isBaseline);
+            });
+        }
+        // v3.0.22 / v3.0.23: 分维度散点图例 — 每组拆"实测/预测"两项, 颜色不同
+        if (hasGroupScatter) {
+            const LIGHT_PALETTE = ['#fde68a', '#fbcfe8', '#ddd6fe', '#a5f3fc', '#fed7aa', '#a7f3d0', '#fecaca', '#bfdbfe'];
+            const DARK_PALETTE  = ['#d97706', '#be185d', '#5b21b6', '#0e7490', '#c2410c', '#15803d', '#b91c1c', '#1d4ed8'];
+            groupScatterPoints.slice(0, LIGHT_PALETTE.length).forEach((g, gIdx) => {
+                const obsColor = LIGHT_PALETTE[gIdx % LIGHT_PALETTE.length];
+                const predColor = DARK_PALETTE[gIdx % DARK_PALETTE.length];
+                const keyShort = g.key.length > 20 ? g.key.slice(0, 18) + '…' : g.key;
+                drawLegend(`group_${gIdx}_obs`, obsColor, `${keyShort} 实测 (${g.points.length})`);
+                drawLegend(`group_${gIdx}_pred`, predColor, `${keyShort} 预测`);
             });
         }
     }
@@ -394,7 +627,6 @@ export function renderDCurveChart(canvas, data) {
     _bindHover(canvas, {
         N, rMax: CURVE_R_MAX, left, right, top, bottom, W, H,
         target, pred, obs, extras,
-        showCalibrated: opt.showCalibrated,
         colors: opt.colors,
     });
 }
@@ -454,7 +686,7 @@ function _bindHover(canvas, info) {
             }
             canvas.style.cursor = 'default';
 
-            const { left: pl, right: pr, top: pt, bottom: pb, N, rMax, target, pred, obs, extras, showCalibrated, colors } = lastInfo;
+            const { left: pl, right: pr, top: pt, bottom: pb, N, rMax, target, pred, obs, extras, colors } = lastInfo;
             const chartLeft = pl, chartRight = cssW - pr, chartTop = pt, chartBottom = cssH - pb;
             if (x < chartLeft || x > chartRight || y < chartTop || y > chartBottom) {
                 tooltip.style.display = 'none';
@@ -476,9 +708,6 @@ function _bindHover(canvas, info) {
             const isV = (id) => visible[id] !== false;
             const candidates = [];
             if (isV('target')) candidates.push({ id: 'target', v: target[bin] });
-            if (showCalibrated && isV('calibrated')) {
-                // 不存 calibrated, 估略 (主要给图例高亮, 不画的话也无所谓)
-            }
             if (pred && isV('predicted')) candidates.push({ id: 'predicted', v: pred[bin] });
             if (obs && isV('observed')) candidates.push({ id: 'observed', v: obs[bin] });
             (extras || []).forEach((ex, idx) => {
@@ -505,10 +734,18 @@ function _bindHover(canvas, info) {
             if (obs && isV('observed')) lines.push(`<span style="color:${colors.observed}">●</span> 实测 = ${fmt(obs[bin])}${mark('observed')}`);
             if (extras && extras.length > 0) {
                 const palette = ['#fbbf24', '#f472b6', '#a78bfa', '#22d3ee', '#fb923c', '#34d399', '#f87171', '#60a5fa'];
-                extras.slice(0, 8).forEach((ex, idx) => {
-                    if (!isV(`extra_${idx}`)) return;
+                let nonBaselinePos = 0;
+                extras.slice(0, 16).forEach((ex, idx) => {
+                    if (!isV(`extra_${idx}`)) { if (!ex.__isBaseline) nonBaselinePos++; return; }
                     const labelShort = ex.label.length > 24 ? ex.label.slice(0, 22) + '…' : ex.label;
-                    lines.push(`<span style="color:${palette[idx % palette.length]}">●</span> ${labelShort} = ${fmt(ex.curve[bin])}${mark(`extra_${idx}`)}`);
+                    let color;
+                    if (ex.__isBaseline) {
+                        color = '#fb923c';
+                    } else {
+                        color = palette[Math.floor(nonBaselinePos / 2) % palette.length];
+                        nonBaselinePos++;
+                    }
+                    lines.push(`<span style="color:${color}">●</span> ${labelShort} = ${fmt(ex.curve[bin])}${mark(`extra_${idx}`)}`);
                 });
             }
             tooltip.innerHTML = lines.join('<br>');

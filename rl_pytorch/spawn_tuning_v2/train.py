@@ -43,7 +43,7 @@ def _to_torch_batch(batch_np: Dict[str, np.ndarray], device: torch.device) -> Di
     """numpy batch → torch tensors。"""
     out = {}
     for k, v in batch_np.items():
-        if k.endswith("_idx"):
+        if k.endswith("_idx") or k == "ctx_id":
             out[k] = torch.from_numpy(v).long().to(device)
         else:
             out[k] = torch.from_numpy(v).float().to(device)
@@ -62,6 +62,9 @@ def _train_one_epoch(
     log_fp=None,         # JSONL 写入句柄 — 每 batch_log_interval 写一行 batch-level loss
     global_step_start: int = 0,
     batch_log_interval: int = 4,
+    # v3.0.11 (G6 联合寻参): 预计算的 deploy ctx indices + ideal target, 让 compute_total_loss 算 loss_deploy
+    deploy_ctx_indices: Optional[Dict[str, torch.Tensor]] = None,
+    target_ideal: Optional[torch.Tensor] = None,
 ) -> Tuple[Dict[str, float], int]:
     """训练一个 epoch。
 
@@ -72,9 +75,9 @@ def _train_one_epoch(
     sums = {"total": 0.0, "shape": 0.0, "balance": 0.0, "surprise": 0.0,
             "breaking": 0.0, "smooth": 0.0, "aux": 0.0,
             "pb_distribution": 0.0, "anchor": 0.0,
-            # v2.9 / v2.9.1 / v2.10.32 (P2.2)
+            # v2.9 / v2.9.1 / v2.10.32 (P2.2) / v3.0.11 (G6) / v3.0.19
             "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0,
-            "r_value": 0.0}
+            "r_value": 0.0, "deploy": 0.0, "theta_diversity": 0.0}
     n_batches = 0
     global_step = global_step_start
 
@@ -103,12 +106,18 @@ def _train_one_epoch(
             "bin_counts": batch.get("bin_counts"),
             # v2.10.32 (P2.2): multi-task r_value (score/pb 实际触达)
             "r_value": batch.get("r_value"),
+            # v3.0.19: same-ctx group id, 用于 loss_theta_diversity 防"绿点线段化"
+            "ctx_id": batch.get("ctx_id"),
         }
 
         breakdown = compute_total_loss(
             preds, targets, batch["pb_bin_idx"],
             theta_norm=batch["theta_norm"],
             weights=weights,
+            # v3.0.11 (G6): 联合寻参 — 把 model + 全 deploy ctx 传进去, 算 loss_deploy
+            model=model,
+            deploy_ctx_indices=deploy_ctx_indices,
+            target_ideal=target_ideal,
         )
 
         optimizer.zero_grad()
@@ -149,22 +158,34 @@ def _eval_one_epoch(
     sums = {"total": 0.0, "shape": 0.0, "balance": 0.0, "surprise": 0.0,
             "breaking": 0.0, "smooth": 0.0, "aux": 0.0,
             "pb_distribution": 0.0, "anchor": 0.0,
-            # v2.9 / v2.9.1 / v2.10.32 (P2.2)
+            # v2.9 / v2.9.1 / v2.10.32 (P2.2) / v3.0.11 (G6) / v3.0.19
             "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0,
-            "r_value": 0.0}
+            "r_value": 0.0, "deploy": 0.0, "theta_diversity": 0.0}
     curve_var_sum = 0.0  # v2.9.4: per-sample 预测曲线方差, 用于退化检测
-    calibrated_mae_sum = 0.0  # v2.10.2: 预测 vs 校准 target MAE (不受 state_offset 噪声干扰)
+    ideal_mae_sum = 0.0       # v3.0.2: 预测 vs ideal target_S_curve MAE (业务核心指标!)
     p_reach_sums = {"reach_50": 0.0, "reach_80": 0.0, "reach_95": 0.0,
                     "reach_100": 0.0, "reach_120": 0.0, "reach_150": 0.0}
     curve_mae_sum = 0.0
     n_batches = 0
     n_samples = 0
 
-    # v2.10.2: 预计算 calibrated target tensor (业务命题 S 形, 不含 state_offset 噪声)
-    from .target_curve import target_curve_calibrated_vector
-    calibrated_target = torch.tensor(
-        target_curve_calibrated_vector(), dtype=torch.float32, device=device,
-    )  # shape (20,)
+    # 预计算 ideal target tensor (v3.0.4: calibrated 已彻底移除)
+    from .target_curve import target_curve_vector
+    ideal_target = torch.tensor(
+        target_curve_vector(), dtype=torch.float32, device=device,
+    )
+    # v3.0.11 (G6): 预计算 deploy ctx indices (用于 _eval 阶段算 loss_deploy)
+    from .optimize_theta import enumerate_all_contexts, context_to_indices
+    _all_ctxs = enumerate_all_contexts()
+    _idx_lists = [context_to_indices(c) for c in _all_ctxs]
+    deploy_ctx_indices_eval = {
+        "difficulty_idx": torch.tensor([i["difficulty_idx"] for i in _idx_lists], dtype=torch.long, device=device),
+        "generator_idx":  torch.tensor([i["generator_idx"]  for i in _idx_lists], dtype=torch.long, device=device),
+        "bot_idx":        torch.tensor([i["bot_idx"]        for i in _idx_lists], dtype=torch.long, device=device),
+        "pb_bin_idx":     torch.tensor([i["pb_bin_idx"]     for i in _idx_lists], dtype=torch.long, device=device),
+        "lifecycle_idx":  torch.tensor([i["lifecycle_idx"]  for i in _idx_lists], dtype=torch.long, device=device),
+        "log_pb":         torch.tensor([i["log_pb"]         for i in _idx_lists], dtype=torch.float32, device=device),
+    }
 
     for batch_np in val_ds.iter_batches(batch_size=batch_size, shuffle=False):
         batch = _to_torch_batch(batch_np, device)
@@ -185,8 +206,14 @@ def _eval_one_epoch(
             "survival": batch["survival"],
             "bin_counts": batch.get("bin_counts"),
             "r_value": batch.get("r_value"),
+            # v3.0.19: same-ctx group id, eval 也算 theta_diversity 看模型是否真的用 θ
+            "ctx_id": batch.get("ctx_id"),
         }
-        breakdown = compute_total_loss(preds, targets, batch["pb_bin_idx"], weights=weights)
+        breakdown = compute_total_loss(
+            preds, targets, batch["pb_bin_idx"], weights=weights,
+            # v3.0.11 (G6): 让 eval 阶段也算 deploy loss, 监控 best θ* 收敛
+            model=model, deploy_ctx_indices=deploy_ctx_indices_eval, target_ideal=ideal_target,
+        )
         d = breakdown.to_dict()
         for k in sums:
             sums[k] += d.get(k, 0.0)
@@ -200,9 +227,9 @@ def _eval_one_epoch(
         # v2.9.4: per-sample 预测曲线方差 → 检测退化解 (全水平输出 var ≈ 0)
         curve_var_sum += float(preds["curve"].std(dim=-1).mean().item())
 
-        # v2.10.2: 预测 vs calibrated target MAE (业务真实拟合度, 不受 state_offset 噪声干扰)
-        cal_diff = (preds["curve"] - calibrated_target.unsqueeze(0)).abs()
-        calibrated_mae_sum += float(cal_diff.mean().item())
+        # v3.0.2: 预测 vs ideal target_S_curve MAE — 业务核心验收指标
+        ideal_diff = (preds["curve"] - ideal_target.unsqueeze(0)).abs()
+        ideal_mae_sum += float(ideal_diff.mean().item())
 
         # v2.5: P_reach 业务指标 (累加平均)
         reach = p_reach_metrics(preds["curve"])
@@ -211,8 +238,8 @@ def _eval_one_epoch(
 
     metrics = {k: v / max(1, n_batches) for k, v in sums.items()}
     metrics["curve_mae"] = curve_mae_sum / max(1, n_samples)
-    metrics["curve_var"] = curve_var_sum / max(1, n_batches)  # v2.9.4
-    metrics["calibrated_mae"] = calibrated_mae_sum / max(1, n_batches)  # v2.10.2
+    metrics["curve_var"] = curve_var_sum / max(1, n_batches)
+    metrics["ideal_mae"] = ideal_mae_sum / max(1, n_batches)   # v3.0.2: model vs ideal
     for k, v in p_reach_sums.items():
         metrics[k] = v / max(1, n_batches)
     return metrics
@@ -234,8 +261,8 @@ def train(
     weights: Optional[LossWeights] = None,
     device_str: str = "cpu",
     val_ratio: float = 0.1,
-    # composite 易平台震荡, 实测 best ep 通常 < 15 → patience 8 足够 + 节省 ~40% 算力
-    early_stop_patience: int = 8,
+    # v3.0.2: monitor 改用 ideal_mae 主指标, 平台震荡少 → patience 5 足够
+    early_stop_patience: int = 5,
     seed: int = 42,
     write_db_record: bool = False,
     model_type: str = "resnet",   # v2.9: "resnet" / "transformer"
@@ -309,6 +336,22 @@ def train(
     log_path = str(output_path) + ".log"
     log_fp = open(log_path, "w", encoding="utf-8", buffering=1)
 
+    # ─── v3.0.11 (G6 联合寻参): 预计算 deploy ctx 的 batch 索引 + ideal target ───
+    # 这里 batch 一次性算好 360 ctx 的 5 维索引, 训练每 step 复用 (无 IO 开销)
+    from .optimize_theta import enumerate_all_contexts, context_to_indices
+    _all_ctxs = enumerate_all_contexts()
+    _idx_lists = [context_to_indices(c) for c in _all_ctxs]
+    deploy_ctx_indices = {
+        "difficulty_idx": torch.tensor([i["difficulty_idx"] for i in _idx_lists], dtype=torch.long, device=device),
+        "generator_idx":  torch.tensor([i["generator_idx"]  for i in _idx_lists], dtype=torch.long, device=device),
+        "bot_idx":        torch.tensor([i["bot_idx"]        for i in _idx_lists], dtype=torch.long, device=device),
+        "pb_bin_idx":     torch.tensor([i["pb_bin_idx"]     for i in _idx_lists], dtype=torch.long, device=device),
+        "lifecycle_idx":  torch.tensor([i["lifecycle_idx"]  for i in _idx_lists], dtype=torch.long, device=device),
+        "log_pb":         torch.tensor([i["log_pb"]         for i in _idx_lists], dtype=torch.float32, device=device),
+    }
+    target_ideal = torch.tensor(target_curve_vector(), dtype=torch.float32, device=device)
+    print(f"[train_v2] G6 联合寻参: 准备 {len(_all_ctxs)} ctx batch indices + ideal target")
+
     # ─── 训练循环 ───
     best_val = float("inf")
     best_metrics: Dict[str, float] = {}
@@ -323,6 +366,8 @@ def train(
             log_fp=log_fp,
             global_step_start=global_step,
             batch_log_interval=4,  # 每 4 个 batch 写一行 → 13 batch/epoch ≈ 3 个点
+            deploy_ctx_indices=deploy_ctx_indices,
+            target_ideal=target_ideal,
         )
         val_m = _eval_one_epoch(model, val_ds, weights, batch_size, device)
         scheduler.step()
@@ -345,8 +390,10 @@ def train(
             "val_endpoint": val_m.get("endpoint", 0.0),
             # v2.9.4 — 退化解检测指标
             "val_curve_var": val_m.get("curve_var", 0.0),
-            # v2.10.2 — 预测 vs calibrated target MAE (业务真实拟合度)
-            "val_calibrated_mae": val_m.get("calibrated_mae", 0.0),
+            # v3.0.2 — ★ 预测 vs ideal target_S_curve MAE (业务核心验收, v3.0.4 起为唯一 target MAE)
+            "val_ideal_mae": val_m.get("ideal_mae", 0.0),
+            # v3.0.11 (G6 联合寻参): trainable theta_optim 表 vs ideal 的 MSE; 0 = 完美收敛
+            "val_deploy": val_m.get("deploy", 0.0),
             # v2.5: 业务级 P_reach 分布 (玩家到达 r=X 的累积概率)
             "reach_50":  val_m.get("reach_50",  0.0),
             "reach_80":  val_m.get("reach_80",  0.0),
@@ -362,23 +409,15 @@ def train(
         print(f"[train_v2] ep {epoch:02d} train={train_m['total']:.4f} val={val_m['total']:.4f} "
               f"mae={val_m['curve_mae']:.4f} balance={val_m['balance']:.4f} time={record['elapsed_s']:.1f}s")
 
-        # v2.9.4 → v2.10.20: 综合 EarlyStop 指标, 加入业务真实拟合度 calibrated_mae
-        #
-        # 病史:
-        #   - v2.9.4 原 composite = curve_mae + 0.5*anchor + 0.4*target_fit
-        #   - 实测 (model #22, 15 epoch): ep=4 best curve_mae=0.0675 后 10 epoch 不动,
-        #     但 calibrated_mae 仍在缓慢下降; best 仅靠 curve_mae 选, 错过 calibrated 更优解
-        #
-        # v2.10.20 修复:
-        #   composite = curve_mae + 0.5*anchor + 0.4*target_fit + 0.6*calibrated_mae
-        #   calibrated_mae 直接反映"业务命题 (S 形难度) 拟合度", 比 curve_mae (含噪声 label)
-        #   更接近用户真实关心的目标
-        #   另加 curve_var 退化检测: 预测曲线 std < 0.02 时强制视为未改进
+        # v3.0.2 / v3.0.4 / v3.0.12: EarlyStop 监控 ideal_mae + sample-vs-model 距离
+        #   v3.0.12: 加 val_curve_mae 项 (model 跟 sample 的距离), 避免 model 太"乐观" — 防止
+        #            model 完美贴 ideal 但实际启发式跑不出来 (Gap 2 修复).
+        #   composite = ideal_mae + 0.3*curve_mae + 0.2*endpoint + 0.1*anchor
         curve_var = val_m.get("curve_var", 0.0)
-        composite = (val_m["curve_mae"]
-                     + 0.5 * val_m.get("anchor", 0.0)
-                     + 0.4 * val_m.get("target_fit", 0.0)
-                     + 0.6 * val_m.get("calibrated_mae", 0.0))
+        composite = (val_m.get("ideal_mae", 0.0)
+                     + 0.3 * val_m.get("curve_mae", 0.0)
+                     + 0.2 * val_m.get("endpoint", 0.0)
+                     + 0.1 * val_m.get("anchor", 0.0))
         # 退化解检测: 预测曲线方差过低 → 模型输出几乎水平线 → 拒绝当 best
         is_degenerate = curve_var < 0.02
         improved = (composite < best_val) and (not is_degenerate)
@@ -393,7 +432,7 @@ def train(
             if is_degenerate and epoch < 5:
                 print(f"[train_v2] warn: ep {epoch} curve_var={curve_var:.4f} < 0.02 (degenerate, likely LR too high)")
             # v2.10.20: 自适应 patience — 当 best 出现得很早 (<= 5), 多给 50% 等待时间
-            # 让 calibrated_mae plateau 突破机会
+            # 让 ideal_mae plateau 突破机会
             best_ep = best_metrics.get("best_epoch", -1) if best_metrics else -1
             adaptive_patience = early_stop_patience
             if best_ep >= 0 and best_ep <= 5:

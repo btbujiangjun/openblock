@@ -20,6 +20,7 @@ from rl_pytorch.spawn_tuning_v2.losses import (
     loss_pb_distribution, loss_anchor, p_reach_metrics,
     loss_monotonic, loss_target_fit,
     loss_endpoint,  # v2.9.1
+    loss_theta_diversity,   # v3.0.19
     compute_total_loss,
     TARGET_SURPRISE_RATE, SURPRISE_RATE_THRESHOLD,
     TARGET_REACH_PROBABILITIES, PB_DIST_GAMMA, ANCHOR_CONSTRAINTS,
@@ -129,7 +130,7 @@ class TestLossSurprise:
 class TestLossPbDistribution:
     """v2.4: 得分-PB 关系 — 累积到达概率拟合到业务期望分布。"""
 
-    def test_calibrated_curve_low_loss(self):
+    def test_target_aligned_curve_low_loss(self):
         """构造一条接近业务目标分布的 d_curve, loss 应较小。
 
         计算逻辑 (gamma=2):
@@ -151,7 +152,7 @@ class TestLossPbDistribution:
         ]] * 2, dtype=torch.float32)
         loss_val = loss_pb_distribution(curve).item()
         # 接近业务目标的 d_curve → loss 应明显小于极端情况 (0.05 以下足够好)
-        assert loss_val < 0.05, f"calibrated curve should give low loss, got {loss_val}"
+        assert loss_val < 0.05, f"target-aligned curve should give low loss, got {loss_val}"
 
     def test_too_easy_curve_high_loss(self):
         """全部 d=0.001 (几乎无难度) → P_reach 处处接近 1, 远超 target (尤其 r=1.5 target 1%) → loss 高。"""
@@ -186,37 +187,55 @@ class TestLossAnchor:
     """v2.6: 关键 r 点 hinge 约束。"""
 
     def test_satisfied_constraints_zero_loss(self):
-        """构造一条满足全部 v2.7 anchor 约束的曲线 → loss = 0。
+        """构造一条满足全部 v3.0.3 (22 r 点) anchor 约束的曲线 → loss = 0.
 
-        ANCHOR_CONSTRAINTS (v2.7):
-          r=0.20 D ≤ 0.32 (bin 2)   r=0.95 D ≥ 0.55 (bin 9)
-          r=0.30 D ≤ 0.38 (bin 3)   r=1.00 D ≥ 0.65 (bin 10)
-          r=0.50 D ≤ 0.48 (bin 5)   r=1.20 D ≥ 0.75 (bin 12)
-                                    r=1.50 D ≥ 0.85 (bin 15)
+        中段双向 (ideal ± 0.03):
+          r=0.40 D ∈ [0.25, 0.31] (bin 4)
+          r=0.50 D ∈ [0.27, 0.33] (bin 5)
+          r=0.60 D ∈ [0.37, 0.43] (bin 6)
+          r=0.70 D ∈ [0.47, 0.53] (bin 7)
+        高 r 收紧到 ideal - 0.02:
+          r=1.00 D ≥ 0.78 (bin 10)
+          r=1.20 D ≥ 0.92 (bin 12)
+          r=1.50 D ≥ 0.97 (bin 15)
+          r=1.80 D ≥ 0.98 (bin 18)
         """
         curve = torch.tensor([[
-            0.20, 0.25, 0.30, 0.35, 0.40,  # bin 0-4   (r=0.2 D=0.30 ≤ 0.32 ✓, r=0.3 D=0.35 ≤ 0.38 ✓)
-            0.45, 0.50, 0.55, 0.60, 0.65,  # bin 5-9   (r=0.5 D=0.45 ≤ 0.48 ✓, r=0.95 D=0.65 ≥ 0.55 ✓)
-            0.72, 0.78, 0.82, 0.85, 0.88,  # bin 10-14 (r=1.0 D=0.72 ≥ 0.65 ✓, r=1.2 D=0.82 ≥ 0.75 ✓)
-            0.92, 0.95, 0.97, 0.98, 0.99,  # bin 15-19 (r=1.5 D=0.92 ≥ 0.85 ✓)
+            0.21,  # bin 0  (r=0.05) ∈ [0.18, 0.24] ✓
+            0.23,  # bin 1  (r=0.15) ∈ [0.20, 0.28] ✓
+            0.25,  # bin 2  (r=0.25, r=0.20 upper=0.28 ✓)
+            0.27,  # bin 3  (r=0.35, r=0.30 upper=0.32 ✓)
+            0.28,  # bin 4  (r=0.45, r=0.40 ∈ [0.25, 0.31] ✓)
+            0.30,  # bin 5  (r=0.55, r=0.50 ∈ [0.27, 0.33] ✓)
+            0.40,  # bin 6  (r=0.65, r=0.60 ∈ [0.37, 0.43] ✓)
+            0.50,  # bin 7  (r=0.75, r=0.70 ∈ [0.47, 0.53] ✓)
+            0.65,  # bin 8  (r=0.85)
+            0.78,  # bin 9  (r=0.95, lower=0.55 ✓)
+            0.80,  # bin 10 (r=1.05, r=1.00 lower=0.78 ✓)
+            0.85,  # bin 11
+            0.93,  # bin 12 (r=1.25, r=1.20 lower=0.92 ✓)
+            0.95,  # bin 13
+            0.96,  # bin 14
+            0.98,  # bin 15 (r=1.55, r=1.50 lower=0.97 ✓)
+            0.99,  # bin 16
+            0.99,  # bin 17
+            0.99,  # bin 18 (r=1.85, r=1.80 lower=0.98 ✓)
+            1.00,  # bin 19
         ]] * 2, dtype=torch.float32)
         loss_val = loss_anchor(curve).item()
         assert loss_val == pytest.approx(0.0, abs=1e-9)
 
     def test_flat_curve_high_loss(self):
-        """水平于 0.5 → 同时违反多个约束 → loss 显著 (v2.7 per-sample 实现)。"""
+        """水平于 0.5 → 同时违反多个 v3.0.3 约束 → loss 显著。"""
         curve = torch.full((4, N_CURVE_BINS), 0.5)
         loss_val = loss_anchor(curve).item()
-        # 违规:
-        #   r=0.20 D=0.5 vs upper 0.32 → 0.18² = 0.0324
-        #   r=0.30 D=0.5 vs upper 0.38 → 0.12² = 0.0144
-        #   r=0.50 D=0.5 vs upper 0.48 → 0.02² = 0.0004
-        #   r=0.95 D=0.5 vs lower 0.55 → 0.05² = 0.0025
-        #   r=1.00 D=0.5 vs lower 0.65 → 0.15² = 0.0225
-        #   r=1.20 D=0.5 vs lower 0.75 → 0.25² = 0.0625
-        #   r=1.50 D=0.5 vs lower 0.85 → 0.35² = 0.1225
-        # 均值 ≈ 0.0510
-        assert loss_val > 0.03
+        # 主要违规 (v3.0.3):
+        #   低 r: r=0.05/0.15 双向, 上界违 0.5 → 0.24, 差 0.26
+        #   中段 lower: r=0.40 (lower 0.25 ✓), r=0.50 (lower 0.27 ✓) — 不违
+        #   中段 upper: r=0.40 (upper 0.31, D=0.5) → 0.19²=0.0361 ✓
+        #   高 r: r=1.00 lower 0.78 → 0.28²=0.0784 ✗
+        # 总 loss 远高于 v3.0.2
+        assert loss_val > 0.05
 
     def test_flat_at_06_still_high(self):
         """水平于 0.6 → 仍违反多个约束 (v2.7 per-sample 信号变强)。"""
@@ -311,60 +330,54 @@ class TestLossMonotonic:
 
 
 class TestLossTargetFit:
-    """v2.9: 校准 target 拟合 — 让模型学到温和 S 形 (而非全集均值)。"""
+    """v3.0.4: loss_target_fit 拟合 ★ ideal target_S_curve (唯一 target, 跨度 0.80)."""
 
-    def test_zero_when_matches_calibrated(self):
-        """预测 == 校准 target → loss = 0。"""
-        from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
-        target = torch.tensor(target_curve_calibrated_vector(), dtype=torch.float32)
+    def test_zero_when_matches_ideal(self):
+        """预测 == ★ ideal target → loss = 0。"""
+        from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
+        target = torch.tensor(target_curve_vector(), dtype=torch.float32)
         curve = target.unsqueeze(0).expand(4, -1).contiguous()
         assert loss_target_fit(curve).item() == pytest.approx(0.0, abs=1e-9)
 
     def test_flat_curve_high_loss(self):
-        """预测水平于 0.6 → 跟校准 target 的 S 形仍有差距 → loss > 0。"""
+        """预测水平于 0.6 → 跟 ideal 的 S 形 (跨度 0.20→1.00) 有差距 → loss > 0。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
         loss_val = loss_target_fit(curve).item()
-        # v2.10.6: D_BASE=0.30 → D_CAP=0.92, 跟 0.6 平均差距 ~ 0.15, MSE ~ 0.03
-        assert 0.005 < loss_val < 0.10
+        assert 0.005 < loss_val < 0.20
 
     def test_empty_returns_zero(self):
         assert loss_target_fit(torch.zeros(0, N_CURVE_BINS)).item() == pytest.approx(0.0)
 
 
 class TestLossEndpoint:
-    """端点锚定 — head 0.20 / tail 1.00 (ideal target), tol ±0.06 (收紧后)
-    强制 model 端点贴 ideal, 不能逃到 calibrated (0.30, 0.92).
-    """
+    """v3.0.1: 端点锚到 ideal (0.20, 1.00), tol ±0.03 (再严)."""
 
     def test_zero_when_endpoints_match(self):
-        """前 2 bin 均值 ≈ 0.20, 后 2 bin 均值 ≈ 1.00 → 0 loss。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
         curve[:, :2] = 0.20
         curve[:, -2:] = 1.00
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 
     def test_head_far_from_target(self):
-        """头 bin 均值 = 0.50 → 偏离 head_target=0.20 共 0.30, 超 tol=0.06 → loss > 0。"""
+        """头 bin 均值 = 0.50, 偏离 0.30, 超 tol=0.03 → loss > 0."""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
         curve[:, :2] = 0.50
         curve[:, -2:] = 1.00
         loss_val = loss_endpoint(curve).item()
-        assert loss_val > 1e-3  # violation = 0.24, 0.24² / 2 ≈ 0.029
+        assert loss_val > 1e-3
 
     def test_tail_far_from_target(self):
-        """尾 bin 均值 = 0.55 → 偏离 tail_target=1.00 共 0.45, 超 tol → loss 大。"""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
         curve[:, :2] = 0.20
         curve[:, -2:] = 0.55
         loss_val = loss_endpoint(curve).item()
-        # violation = 0.39, 0.39² / 2 ≈ 0.076
         assert loss_val > 0.01
 
     def test_within_tolerance_zero(self):
-        """偏离 < tol=0.06 不惩罚。"""
+        """偏离 < tol=0.03 不惩罚."""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.25  # 偏离 0.20 共 0.05 < tol=0.06
-        curve[:, -2:] = 0.95  # 偏离 1.00 共 0.05 < tol=0.06
+        curve[:, :2] = 0.22  # 偏离 0.20 共 0.02 < tol=0.03
+        curve[:, -2:] = 0.98  # 偏离 1.00 共 0.02 < tol=0.03
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 
     def test_empty_returns_zero(self):
@@ -504,25 +517,74 @@ class TestComputeTotal:
         pb_bin = torch.tensor([0, 1, 2, 3])
         breakdown = compute_total_loss(preds, tgts, pb_bin)
         assert breakdown.shape.item() == pytest.approx(0.0, abs=1e-6)
-        # curve = 0.5 (恒定) 在 endpoint hinge (head=0.20, tail=1.00, tol=0.06) 下违规, total 不会 ~0
-        # 主要验证 shape 完美时其他 loss 仍受控 (<1.0)
-        assert breakdown.total.item() < 1.0
+        # curve=0.5 (恒定) 在 v3.0.2 加严的 endpoint (tol 0.025) + 14 r 点 anchor + weight 升级下,
+        # total 会很大. 主要验证 shape=0 时其他 loss 仍能计算
+        assert breakdown.total.item() < 5.0
 
     def test_loss_weights_dict(self):
-        """v2.10.39 (P2): 重新平衡 — shape ↑, target_fit ↓, endpoint ↑ (锚 ideal)
-        让 model 学到 ideal 跨度 0.80 而非 calibrated 0.62。"""
+        """v3.0.19: 再次激进平衡 — 移除 ideal 拉力, 加 theta_diversity 防"绿点线段化"."""
         w = LossWeights()
         d = w.to_dict()
-        assert d["shape"] == 3.0             # v2.10.39: 2.0 → 3.0
+        assert d["shape"] == 5.0             # v3.0.13: 1.0 → 5.0 (sample 主导, 保留)
         assert d["balance"] == 0.15
         assert d["smooth"] == 0.04
         assert d["pb_distribution"] == 0.0
-        assert d["anchor"] == 3.0
-        assert d["monotonic"] == 2.5
-        assert d["target_fit"] == 0.5
-        assert d["endpoint"] == 4.0          # A+B: 2.5 → 4.0 (加大端点 hinge)
+        assert d["anchor"] == 1.0            # v3.0.19: 3.0 → 1.0
+        assert d["monotonic"] == 1.0         # v3.0.19: 2.5 → 1.0
+        assert d["target_fit"] == 0.0        # v3.0.19: 0.5 → 0.0 (完全移除 ideal 拉)
+        assert d["endpoint"] == 1.0          # v3.0.19: 2.0 → 1.0
         assert d["aux"] == 0.2
+        assert d["deploy"] == 1.0            # v3.0.19: 2.0 → 1.0
+        assert d["theta_diversity"] == 1.0   # v3.0.19 新增
         assert sum(d.values()) > 0
+
+    def test_v3011_loss_deploy_uses_theta_optim(self):
+        """v3.0.11 (G6): compute_total_loss 接 model + deploy_ctx_indices 时, deploy loss 应非零 且 backprop 能更新 theta_optim_raw."""
+        import torch as _torch
+        from rl_pytorch.spawn_tuning_v2.model import build_default_model
+        from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
+        from rl_pytorch.spawn_tuning_v2.optimize_theta import enumerate_all_contexts, context_to_indices
+        model = build_default_model()
+        model.train()
+        ctxs = enumerate_all_contexts()
+        idx_lists = [context_to_indices(c) for c in ctxs]
+        deploy_ctx = {
+            "difficulty_idx": _torch.tensor([i["difficulty_idx"] for i in idx_lists], dtype=_torch.long),
+            "generator_idx": _torch.tensor([i["generator_idx"] for i in idx_lists], dtype=_torch.long),
+            "bot_idx": _torch.tensor([i["bot_idx"] for i in idx_lists], dtype=_torch.long),
+            "pb_bin_idx": _torch.tensor([i["pb_bin_idx"] for i in idx_lists], dtype=_torch.long),
+            "lifecycle_idx": _torch.tensor([i["lifecycle_idx"] for i in idx_lists], dtype=_torch.long),
+            "log_pb": _torch.tensor([i["log_pb"] for i in idx_lists], dtype=_torch.float32),
+        }
+        target = _torch.tensor(target_curve_vector(), dtype=_torch.float32)
+        # 用 dummy batch (≥1 sample) 触发 compute_total_loss 完整路径
+        b = 2
+        preds = {
+            "curve": _torch.rand(b, N_CURVE_BINS),
+            "pb_broke": _torch.rand(b),
+            "noMove": _torch.rand(b),
+            "score": _torch.rand(b),
+            "survival": _torch.rand(b),
+            "r_value": _torch.rand(b),
+        }
+        tgts = {
+            "curve": _torch.rand(b, N_CURVE_BINS),
+            "pb_broke": _torch.tensor([0., 1.]),
+            "noMove": _torch.tensor([0., 0.]),
+            "score": _torch.rand(b),
+            "survival": _torch.rand(b),
+            "r_value": _torch.rand(b),
+        }
+        bd = compute_total_loss(
+            preds, tgts, _torch.tensor([0, 1]),
+            model=model, deploy_ctx_indices=deploy_ctx, target_ideal=target,
+        )
+        assert bd.deploy.item() > 0, "deploy loss 应非零 (theta_optim_raw 初始 0 → sigmoid 0.5, model 未训 → curve ≠ ideal)"
+        bd.total.backward()
+        assert model.theta_optim_raw.grad is not None
+        assert _torch.isfinite(model.theta_optim_raw.grad).all()
+        # 至少一些 ctx 的 θ 维度有非零梯度
+        assert (model.theta_optim_raw.grad.abs() > 0).any()
 
     def test_breakdown_to_dict(self):
         b = 4
@@ -532,9 +594,53 @@ class TestComputeTotal:
         bd = compute_total_loss(preds, tgts, torch.tensor([0, 1, 2, 3]))
         d = bd.to_dict()
         for k in ["total", "shape", "balance", "surprise", "breaking", "smooth", "aux",
-                  "pb_distribution", "anchor", "monotonic", "target_fit", "endpoint"]:
+                  "pb_distribution", "anchor", "monotonic", "target_fit", "endpoint",
+                  "theta_diversity"]:  # v3.0.19
             assert k in d
             assert isinstance(d[k], float)
+
+    def test_v3019_loss_theta_diversity_basic(self):
+        """v3.0.19: same-ctx model 输出全相同 ⇒ var=0 ⇒ 受罚; 输出有合理跨度 ⇒ loss=0."""
+        n_bins = 20
+        # case 1: 4 个 sample 同 ctx, model 输出完全一致 → var=0 → loss>0
+        curves_same = torch.full((4, n_bins), 0.5)
+        ctx_ids = torch.tensor([0, 0, 0, 0], dtype=torch.long)
+        loss = loss_theta_diversity(curves_same, ctx_ids, target_var=0.005)
+        assert loss.item() > 0, "全相同输出应被惩罚"
+
+        # case 2: 4 个 sample 同 ctx, model 输出有跨度 (var > target) → loss=0
+        curves_diverse = torch.zeros(4, n_bins)
+        curves_diverse[0, :] = 0.2
+        curves_diverse[1, :] = 0.4
+        curves_diverse[2, :] = 0.6
+        curves_diverse[3, :] = 0.8
+        loss = loss_theta_diversity(curves_diverse, ctx_ids, target_var=0.005)
+        assert loss.item() == 0, f"足够多样的输出 (var~0.05) 应不受惩罚, 实得 {loss.item()}"
+
+        # case 3: batch 内每个 ctx 只 1 个 sample → 无 group, loss=0
+        ctx_ids_unique = torch.tensor([0, 1, 2, 3], dtype=torch.long)
+        loss = loss_theta_diversity(curves_same, ctx_ids_unique, target_var=0.005)
+        assert loss.item() == 0, "无 same-ctx group, loss 应为 0"
+
+    def test_v3019_total_loss_with_ctx_id(self):
+        """v3.0.19: targets 含 ctx_id 时 compute_total_loss 把 theta_diversity 计入 total."""
+        b = 6
+        # 模拟同 ctx 不同 θ 的 batch (6 个 sample 都同 ctx)
+        curve_pred = torch.full((b, N_CURVE_BINS), 0.5)
+        curve_real = torch.full((b, N_CURVE_BINS), 0.4)
+        preds = {"curve": curve_pred.clone(), "pb_broke": torch.tensor([0.5] * b)}
+        tgts = {
+            "curve": curve_real,
+            "pb_broke": torch.tensor([0.5] * b),
+            "ctx_id": torch.zeros(b, dtype=torch.long),   # 全部 same-ctx
+        }
+        bd = compute_total_loss(preds, tgts, torch.tensor([0, 1, 2, 3, 0, 1]))
+        # model 输出全 0.5 → var=0 → theta_diversity 非零
+        assert bd.theta_diversity.item() > 0
+        # total 应包含这部分
+        w = LossWeights()
+        # 只验证 theta_diversity 项 > 0, 不强等 (total 还含其它项)
+        assert bd.total.item() > 0
 
     def test_v24_pb_distribution_in_weights(self):
         """v2.4 引入 pb_distribution; v2.8.1 关闭 (公式天然饱和无 gradient)。"""

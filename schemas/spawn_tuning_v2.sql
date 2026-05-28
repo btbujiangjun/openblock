@@ -48,8 +48,10 @@ CREATE TABLE IF NOT EXISTS samples (
     difficulty      TEXT NOT NULL
                     CHECK (difficulty IN ('easy', 'normal', 'hard')),
     generator       TEXT NOT NULL
-                    -- v2.10.34/35: heuristic-rule (启发式·规则版); generative (生成式 ML 模型, sampler 通过 HTTP 调 SpawnPolicyNet)
-                    CHECK (generator IN ('triplet-p1', 'budget-p2', 'heuristic-rule', 'generative')),
+                    -- v3.0.8: 与游戏页面 getSpawnPolicyMode() 严格 1:1, 无 alias / 无历史枚举
+                    --   'rule'       — 启发式 (game.js _commitSpawn 走规则路径)
+                    --   'generative' — 生成式 (game.js _spawnBlocksWithModel 调 SpawnPolicyNet)
+                    CHECK (generator IN ('rule', 'generative')),
     bot_policy      TEXT NOT NULL
                     -- v2.10.34: 加 rl-bot (UI 占位, 暂不实际采样)
                     CHECK (bot_policy IN ('random', 'clear-greedy', 'survival', 'rl-bot')),

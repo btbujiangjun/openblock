@@ -61,23 +61,47 @@ class LossWeights:
       ζ  aux            0.2 不变
       η  pb_distribution 0.6 → 1.2 (业务约束加权)
     """
-    # v2.10.39 (P2): 重新平衡, 让 model 学到更宽跨度 (从 calibrated ~0.62 拉向 ideal ~0.80)
-    #   病例 job #30: predicted 跨度 0.62 ≈ calibrated, 距 ideal target 跨度 0.80 仍差 22%
-    #   根因: shape (sample 拟合) vs target_fit (calibrated S 锚) 权重比 ~1:1, 让 model 落在中点
-    #   修复: shape ↑ (sample 是真信号), target_fit ↓ (calibrated 只是弱约束), endpoint ↑ + 锚 ideal
-    shape: float = 3.0           # α  2.0 → 3.0 (加大对实测 sample 的拟合)
+    # v3.0.13: 大幅平衡 — 朝 ideal 总合力 34→10, 朝 sample 力 1→5, 比例 34:1 → 2:1
+    #   v3.0.12 (34:1) 让 model 学到"输出 ≈ ideal_S 的近似常数函数", 无视 ctx/θ 差异.
+    #   后果: predict-curve 永远贴 ideal, 寻参 θ* 信号弱, 实测撬动~0%.
+    #
+    # v3.0.13 调整: 让 sample 真正参与训练, model 学到 (ctx, θ) → real_curve 的映射:
+    #   shape:       1.0 → 5.0  (sample 主导)
+    #   target_fit:  2.5 → 0.5  (ideal 仅作弱锚)
+    #   anchor:     15.0 → 3.0  (仅保 0.05/0.15/1.50 等少数关键 r 点)
+    #   endpoint:   12.0 → 2.0  (端点不再死锁, 只是 hint)
+    #   monotonic / deploy / 其他 不变
+    # 预期收益:
+    #   model 预测 vs ideal MAE 从 0.008 升到 0.05-0.10 (不再"完美")
+    #   model 预测 vs 实测 MAE 从 0.25 降到 0.05-0.10 (真实拟合)
+    #   寻参 θ* 信号从弱变强, 实测撬动 +10-20%
+    # v3.0.19: "绿点线段化"诊断 — 同 ctx 不同 θ 的 model 输出几乎相同 ⇒ θ 输入被忽略
+    #   根因: v3.0.13 之后 ideal 拉力 (target_fit+anchor+endpoint+deploy=7.5) 仍 ≥ shape 5,
+    #         model 学到 "无视 θ, 输出 ≈ ctx-条件 ideal 近似" 的近似常数函数.
+    #   v3.0.19 调整:
+    #     target_fit:   0.5 → 0.0  (ideal 移除, 完全交给 anchor+endpoint 弱约束)
+    #     anchor:       3.0 → 1.0  (仅保业务红线)
+    #     endpoint:     2.0 → 1.0  (端点 hint)
+    #     monotonic:    2.5 → 1.0  (允许 plateau)
+    #     deploy:       2.0 → 1.0  (寻参信号保留但弱)
+    #     + theta_diversity 1.0: 强制 same-ctx batch 内 model 输出有最低方差, 防常数化
+    #   合力: ideal 方向 ~3, sample 方向 5, diversity 1, 比例 3:5:1 ⇒ model 必须真的用 θ.
+    shape: float = 5.0           # α  v3.0.13: 1.0 → 5.0 (sample 主导)
     balance: float = 0.15        # β
     surprise: float = 0.3        # γ
     breaking: float = 0.5        # δ
     smooth: float = 0.04         # ε
     aux: float = 0.2             # ζ
     pb_distribution: float = 0.0
-    anchor: float = 3.0          # κ
-    monotonic: float = 2.5       # μ
-    target_fit: float = 0.5      # ν  削弱 calibrated 引力, 让 sample + endpoint 驱动形态
-    endpoint: float = 4.0        # ξ  加大端点 hinge — 强制 model 端点贴 ideal (0.20, 1.00)
-    # v2.10.32 (P2.2): r_value multi-task
+    anchor: float = 1.0          # κ  v3.0.19: 3.0 → 1.0
+    monotonic: float = 1.0       # μ  v3.0.19: 2.5 → 1.0
+    target_fit: float = 0.0      # ν  v3.0.19: 0.5 → 0.0 (移除 ideal 拉力)
+    endpoint: float = 1.0        # ξ  v3.0.19: 2.0 → 1.0
     r_value: float = 0.5
+    # v3.0.11 (G6 联合寻参): trainable theta_optim 表的部署 loss
+    deploy: float = 1.0          # v3.0.19: 2.0 → 1.0
+    # v3.0.19 新增: same-ctx batch 内 model 输出方差最低惩罚, 防"绿点线段化"
+    theta_diversity: float = 1.0
 
     def to_dict(self) -> Dict[str, float]:
         return {
@@ -85,7 +109,8 @@ class LossWeights:
             "breaking": self.breaking, "smooth": self.smooth, "aux": self.aux,
             "pb_distribution": self.pb_distribution, "anchor": self.anchor,
             "monotonic": self.monotonic, "target_fit": self.target_fit,
-            "endpoint": self.endpoint, "r_value": self.r_value,
+            "endpoint": self.endpoint, "r_value": self.r_value, "deploy": self.deploy,
+            "theta_diversity": self.theta_diversity,
         }
 
 
@@ -124,14 +149,25 @@ PB_DIST_GAMMA = 2.0  # 旧版兼容 (loss_pb_distribution 仍支持但不推荐)
 # v2.7 更新: 增加中段 r 点 (0.5, 1.2) 给模型更连续的 gradient 信号, 避免锯齿;
 #           r=1.0 lower 0.70 → 0.65 (稍微让步, 适配 bot 数据 baseline)
 ANCHOR_CONSTRAINTS = [
-    # (r, "upper" / "lower", target_value)
-    (0.20, "upper", 0.32),   # r=0.20: 极远 PB, D 必须 ≤ 0.32
-    (0.30, "upper", 0.38),   # r=0.30: 远 PB, D 必须 ≤ 0.38
-    (0.50, "upper", 0.48),   # r=0.50: 半程, D 必须 ≤ 0.48 (中段过渡)
-    (0.95, "lower", 0.55),   # r=0.95: 临近 PB, D 必须 ≥ 0.55 (有挑战)
-    (1.00, "lower", 0.65),   # r=1.00: 破 PB 临界, D 必须 ≥ 0.65 (适配数据 baseline)
-    (1.20, "lower", 0.75),   # r=1.20: 超 PB 20%, D 必须 ≥ 0.75 (持续加压)
-    (1.50, "lower", 0.85),   # r=1.50: 超 PB 50%, D 必须 ≥ 0.85
+    # v3.0.3: 22 个 r 点, 中段加 lower 形成双向夹紧, 高 r 收紧到 ideal-0.02
+    # ─── 低 r 双向 (玩家初期, 业务关键) ───
+    (0.05, "lower", 0.18), (0.05, "upper", 0.24),     # ideal 0.21
+    (0.15, "lower", 0.20), (0.15, "upper", 0.28),     # ideal 0.23
+    # ─── 远 PB 上界 (单向, 防止 model 过高) ───
+    (0.20, "upper", 0.28),                            # ideal 0.24
+    (0.30, "upper", 0.32),                            # ideal 0.27
+    # ─── 中段双向 (v3.0.3 新增 lower, 在 ideal ± 0.03 范围夹紧) ───
+    (0.40, "lower", 0.25), (0.40, "upper", 0.31),    # ideal 0.28
+    (0.50, "lower", 0.27), (0.50, "upper", 0.33),    # ideal 0.30
+    (0.60, "lower", 0.37), (0.60, "upper", 0.43),    # ideal 0.40
+    (0.70, "lower", 0.47), (0.70, "upper", 0.53),    # ideal 0.50
+    # ─── 临近 PB ───
+    (0.95, "lower", 0.55),
+    # ─── 破/超 PB 下界 (v3.0.3 全部收紧到 ideal - 0.02) ───
+    (1.00, "lower", 0.78),                            # 老 0.70 → 0.78, ideal 0.80
+    (1.20, "lower", 0.92),                            # 老 0.85 → 0.92, ideal 0.94
+    (1.50, "lower", 0.97),                            # 老 0.92 → 0.97, ideal 0.99
+    (1.80, "lower", 0.98),                            # 老 0.96 → 0.98, ideal 1.00
 ]
 
 
@@ -148,9 +184,26 @@ ANCHOR_CONSTRAINTS = [
 _SHAPE_BIN_WEIGHTS_DEFAULT: Optional[torch.Tensor] = None  # 懒初始化, 与 device 解耦
 
 def _get_shape_bin_weights(n_bins: int, device) -> torch.Tensor:
-    """返回 weighted MSE 用的 bin 权重 (1D tensor, len=n_bins)。"""
+    """返回 weighted MSE 用的 bin 权重 (1D tensor, len=n_bins).
+
+    v3.0.1: shape 在低 r 段权重削弱 (让 anchor + endpoint 主导拉向 ideal),
+    sample 在低 r 平均 ~0.55 而 ideal 在 0.20-0.30, shape 加权拉 sample 反而把 model 推高.
+    保留拐点段加权 (S 形结构精度).
+
+      - 低 r 段 (bin 0-3): 权重 0.5 (削弱, 让 anchor 主导)
+      - 中段 (bin 4-6, 13-14, 16-19): 默认 1.0
+      - 拐点段 (bin 7-12): 权重 2.0-4.0 (S 形拐点精度)
+      - 高超 PB (bin 15): 1.5
+    """
     w = torch.ones(n_bins, device=device)
-    overrides = {7: 2.0, 8: 3.0, 9: 4.0, 10: 4.0, 11: 3.0, 12: 2.5, 15: 2.0}
+    overrides = {
+        # v3.0.1: 低 r 段削弱 shape (让 anchor + endpoint + target_fit 拉向 ideal)
+        0: 0.5, 1: 0.5, 2: 0.7, 3: 0.7,
+        # 拐点 (S 形精度)
+        7: 2.0, 8: 3.0, 9: 4.0, 10: 4.0, 11: 3.0, 12: 2.0,
+        # 高超 PB
+        15: 1.5,
+    }
     for i, val in overrides.items():
         if i < n_bins:
             w[i] = val
@@ -318,7 +371,7 @@ def loss_pb_distribution(
     bin_width = r_max / n_bins
     losses = []
     for r_val, target_p in targets.items():
-        bin_idx = max(0, min(n_bins - 1, int(r_val / bin_width)))
+        bin_idx = max(0, min(n_bins - 1, int(r_val / bin_width + 1e-9)))
         observed_p = p_reach[:, bin_idx].mean()
         losses.append((observed_p - target_p) ** 2)
     if not losses:
@@ -363,7 +416,7 @@ def loss_anchor(
     bin_width = r_max / n_bins
     losses = []
     for r_val, kind, target in cs:
-        bin_idx = max(0, min(n_bins - 1, int(r_val / bin_width)))
+        bin_idx = max(0, min(n_bins - 1, int(r_val / bin_width + 1e-9)))
         # v2.7 修复 bug: per-sample 计算 hinge, 然后 mean over batch
         # 旧版 (v2.6) 先 batch-mean 再 hinge — 当 batch 内一半样本超界另一半欠界时
         # 平均后可能"刚好满足", 完全丢失 gradient 信号
@@ -407,7 +460,7 @@ def p_reach_metrics(
         out = {}
         for r_val, key in [(0.50, "reach_50"), (0.80, "reach_80"), (0.95, "reach_95"),
                            (1.00, "reach_100"), (1.20, "reach_120"), (1.50, "reach_150")]:
-            bin_idx = max(0, min(n_bins - 1, int(r_val / bin_width)))
+            bin_idx = max(0, min(n_bins - 1, int(r_val / bin_width + 1e-9)))
             out[key] = float(p_reach[:, bin_idx].mean().item())
         return out
 
@@ -434,29 +487,27 @@ def loss_monotonic(curve_pred: torch.Tensor, tol: float = 0.02) -> torch.Tensor:
     return violation.pow(2).mean()
 
 
-# v2.9: 校准 target curve (用于 loss_target_fit) — 与 target_curve.target_curve_calibrated 同步
-# 缓存避免每次 forward 重算 (按 device 缓存)
-_CALIBRATED_TARGET_CACHE: Dict[str, torch.Tensor] = {}
+# v3.0.4: ideal target curve 缓存 (按 device 缓存, 避免每次 forward 重算)
+_IDEAL_TARGET_CACHE: Dict[str, torch.Tensor] = {}
 
 
-def _get_calibrated_target(n_bins: int, device) -> torch.Tensor:
-    """从 target_curve.target_curve_calibrated_vector() 取校准 d_curve, 缓存。"""
+def _get_ideal_target(n_bins: int, device) -> torch.Tensor:
+    """v3.0.4: 唯一 target — ideal target_S_curve 向量 (业务期望). loss_target_fit 用它."""
     key = f"{n_bins}_{device}"
-    if key not in _CALIBRATED_TARGET_CACHE:
-        from .target_curve import target_curve_calibrated_vector
-        vec = target_curve_calibrated_vector(n_bins=n_bins)
-        _CALIBRATED_TARGET_CACHE[key] = torch.tensor(vec, dtype=torch.float32, device=device)
-    return _CALIBRATED_TARGET_CACHE[key]
+    if key not in _IDEAL_TARGET_CACHE:
+        from .target_curve import target_curve_vector
+        vec = target_curve_vector(n_bins=n_bins)
+        _IDEAL_TARGET_CACHE[key] = torch.tensor(vec, dtype=torch.float32, device=device)
+    return _IDEAL_TARGET_CACHE[key]
 
 
 def loss_endpoint(
     curve_pred: torch.Tensor,
-    # 锚到 ideal (0.20, 1.00). 配合 sampler PB_AWARE 端点拉宽到 (0.22, 0.96),
-    # tol 收紧到 0.06 — model 不再有"calibrated 也行"的妥协余地
-    head_target: float = 0.20,   # D_BASE (ideal) — r ≈ 0 时业务期望
-    tail_target: float = 1.00,   # D_CAP (ideal)  — r = R_MAX 时业务期望
-    head_tol: float = 0.06,
-    tail_tol: float = 0.06,
+    # v3.0.2: tol 0.025 + weight 12.0 — 端点死锁在 ideal ±0.025
+    head_target: float = 0.20,
+    tail_target: float = 1.00,
+    head_tol: float = 0.025,
+    tail_tol: float = 0.025,
     n_head_bins: int = 2,
     n_tail_bins: int = 2,
 ) -> torch.Tensor:
@@ -494,21 +545,15 @@ def loss_r_value(r_pred: torch.Tensor, r_target: torch.Tensor) -> torch.Tensor:
 
 
 def loss_target_fit(curve_pred: torch.Tensor) -> torch.Tensor:
-    """v2.9 — 拟合校准 target curve (温和 S 形锚)。
+    """v3.0.4 — 拟合 ★ ideal target_S_curve (业务 S 形, 跨度 0.80).
 
     与 loss_shape 互补:
-      L_shape:      跟 sample 的实测 d_curve 做 MSE (跟随数据)
-      L_target_fit: 跟固定的 calibrated target 做 MSE (引导 S 形)
-    两项加权后, 模型在"实测分布"与"业务 S 形"之间妥协, 落在中间。
-
-    Args:
-        curve_pred: (B, n_bins) ∈ [0, 1]
-    Returns:
-        scalar tensor
+      L_shape:      跟 sample 的实测 d_curve 做 MSE (跟随真实算法)
+      L_target_fit: 跟固定的 ideal target 做 MSE (引导 S 形, ★ 主导拉力)
     """
     if curve_pred.size(0) == 0 or curve_pred.size(1) == 0:
         return torch.tensor(0.0, device=curve_pred.device)
-    target = _get_calibrated_target(curve_pred.size(1), curve_pred.device)   # (n_bins,)
+    target = _get_ideal_target(curve_pred.size(1), curve_pred.device)   # ★ ideal (跨度 0.80)
     # broadcast 比较: (B, n_bins) vs (1, n_bins)
     sq_err = (curve_pred - target.unsqueeze(0)) ** 2
     return sq_err.mean()
@@ -585,6 +630,8 @@ class LossBreakdown:
     target_fit: torch.Tensor      # v2.9
     endpoint: torch.Tensor        # v2.9.1
     r_value: torch.Tensor         # v2.10.32 (P2.2)
+    deploy: torch.Tensor          # v3.0.11 (G6 联合寻参)
+    theta_diversity: torch.Tensor # v3.0.19 (same-ctx 方差最低惩罚)
 
     def to_dict(self, keep_grad: bool = False) -> Dict[str, float]:
         def _to(v: torch.Tensor) -> float:
@@ -603,7 +650,87 @@ class LossBreakdown:
             "target_fit": _to(self.target_fit),
             "endpoint": _to(self.endpoint),
             "r_value": _to(self.r_value),
+            "deploy": _to(self.deploy),
+            "theta_diversity": _to(self.theta_diversity),
         }
+
+
+def loss_theta_diversity(
+    model_curves: torch.Tensor,
+    ctx_ids: torch.Tensor,
+    target_var: float = 0.005,
+) -> torch.Tensor:
+    """v3.0.19: 同 ctx 不同 θ 的 model 输出方差必须 ≥ target_var, 防止"绿点线段化".
+
+    问题: 同一 ctx 下 batch 内有多条 sample (不同 θ), 但 model.forward(ctx, θ) 输出几乎相同
+        ⇒ θ 输入被忽略 ⇒ 寻参 θ* 无意义 ⇒ 部署不撬动启发式行为
+    解药: 显式惩罚 "同 ctx 同 batch 内 model 输出方差 < target_var" 的情况
+        — 不限制方差上限 (鼓励 model 探索 θ 多样性)
+        — 只在 var 太小时反向梯度, 推 model 用 θ 区分输出
+
+    Args:
+        model_curves: (B, n_bins) batch model.forward 输出
+        ctx_ids:      (B,) 每条 sample 的 ctx hash (相同 ctx 同 id)
+        target_var:   期望最小方差 (across same-ctx samples per bin), 0.005 → 平均跨度 ~0.07
+
+    Returns: scalar loss
+        same-ctx-group 内 ReLU(target_var - actual_var)^2, 跨 group 平均
+    """
+    if model_curves.size(0) == 0 or ctx_ids.size(0) != model_curves.size(0):
+        return torch.tensor(0.0, device=model_curves.device)
+    # batch 内每个 ctx group
+    unique_ids, counts = torch.unique(ctx_ids, return_counts=True)
+    mask_multi = counts >= 2
+    if not mask_multi.any():
+        return torch.tensor(0.0, device=model_curves.device)
+
+    losses = []
+    for cid in unique_ids[mask_multi]:
+        rows_mask = (ctx_ids == cid)
+        same_ctx_curves = model_curves[rows_mask]   # (k, n_bins), k ≥ 2
+        # 每 bin 的方差 (across k samples)
+        var_per_bin = same_ctx_curves.var(dim=0, unbiased=False)   # (n_bins,)
+        mean_var = var_per_bin.mean()
+        # 只惩罚太小 (常数化), 不限制太大
+        violation = F.relu(target_var - mean_var)
+        losses.append(violation.pow(2))
+    return torch.stack(losses).mean()
+
+
+def loss_deploy(
+    model: "nn.Module",
+    deploy_ctx_indices: Optional[Dict[str, torch.Tensor]] = None,
+    target_ideal: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """v3.0.11 (G6 联合寻参): trainable theta_optim 表的 ideal MSE loss.
+
+    每个 batch step 末尾追加: 用 model.theta_optim() 对所有 deploy ctx forward, 算跟 ideal_S 的 MSE.
+    backward 同时更新 model 权重和 theta_optim_raw, 训练结束 theta_optim 即为 best θ*.
+
+    Args:
+        model: 已实现 .theta_optim() 方法的 SpawnParamTuner (Resnet/Transformer 都行)
+        deploy_ctx_indices: 预计算的 (N_CTX, ...) tensor dict, 含 difficulty_idx/generator_idx/bot_idx/pb_bin_idx/lifecycle_idx/log_pb
+        target_ideal: (n_bins,) ideal target_S_curve tensor
+
+    Returns: scalar loss
+    """
+    if deploy_ctx_indices is None or target_ideal is None:
+        return torch.tensor(0.0)
+    if not hasattr(model, "theta_optim"):
+        return torch.tensor(0.0, device=target_ideal.device)
+    theta = model.theta_optim()   # (N_CTX, 9) ∈ [0,1] sigmoid
+    preds = model(
+        difficulty_idx=deploy_ctx_indices["difficulty_idx"],
+        generator_idx=deploy_ctx_indices["generator_idx"],
+        bot_idx=deploy_ctx_indices["bot_idx"],
+        pb_bin_idx=deploy_ctx_indices["pb_bin_idx"],
+        lifecycle_idx=deploy_ctx_indices["lifecycle_idx"],
+        log_pb=deploy_ctx_indices["log_pb"],
+        theta_norm=theta,
+    )
+    curve = preds["curve"]   # (N_CTX, n_bins)
+    target = target_ideal.unsqueeze(0).expand_as(curve)
+    return F.mse_loss(curve, target)
 
 
 def compute_total_loss(
@@ -612,6 +739,10 @@ def compute_total_loss(
     pb_bin_idx: torch.Tensor,
     theta_norm: Optional[torch.Tensor] = None,
     weights: Optional[LossWeights] = None,
+    # v3.0.11 (G6): 联合寻参 loss 所需的"全 deploy ctx batch" 上下文; None 时 deploy loss = 0
+    model: Optional["nn.Module"] = None,
+    deploy_ctx_indices: Optional[Dict[str, torch.Tensor]] = None,
+    target_ideal: Optional[torch.Tensor] = None,
 ) -> LossBreakdown:
     """计算综合 loss 并返回拆解。
 
@@ -648,6 +779,19 @@ def compute_total_loss(
     else:
         l_r_value = zero
 
+    # v3.0.11 (G6): 联合寻参 loss — 当 model + deploy_ctx 都提供时算
+    if model is not None and deploy_ctx_indices is not None and target_ideal is not None:
+        l_deploy = loss_deploy(model, deploy_ctx_indices, target_ideal)
+    else:
+        l_deploy = zero
+
+    # v3.0.19: same-ctx batch 内 model 输出方差最低惩罚, 防"绿点线段化"
+    ctx_ids = targets.get("ctx_id")
+    if ctx_ids is not None:
+        l_theta_div = loss_theta_diversity(predictions["curve"], ctx_ids)
+    else:
+        l_theta_div = zero
+
     total = (w.shape * l_shape
              + w.balance * l_balance
              + w.surprise * l_surprise
@@ -659,7 +803,9 @@ def compute_total_loss(
              + w.monotonic * l_monotonic
              + w.target_fit * l_target_fit
              + w.endpoint * l_endpoint
-             + w.r_value * l_r_value)
+             + w.r_value * l_r_value
+             + w.deploy * l_deploy
+             + w.theta_diversity * l_theta_div)
 
     return LossBreakdown(
         total=total,
@@ -675,4 +821,6 @@ def compute_total_loss(
         target_fit=l_target_fit,
         endpoint=l_endpoint,
         r_value=l_r_value,
+        deploy=l_deploy,
+        theta_diversity=l_theta_div,
     )

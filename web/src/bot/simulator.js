@@ -243,6 +243,9 @@ export class OpenBlockSimulator {
     }
 
     _resolveLayeredStrategy() {
+        // 把 modelConfig (寻参 θ) 注入 spawn ctx, 让 rule 路径的 deriveSpawnTargets /
+        // augmentPool 等下游消费点能读到当前 θ.
+        this._spawnContext.modelConfig = this.modelConfig;
         const layered = resolveAdaptiveStrategy(
             this.strategyId,
             this.playerProfile,
@@ -253,6 +256,7 @@ export class OpenBlockSimulator {
                 ...this._spawnContext,
                 _gridRef: this.grid,
                 _dockShapePool: this._remainingDockShapePool(),
+                modelConfig: this.modelConfig,
             }
         );
         this._spawnContext.scoreMilestone = layered?.spawnHints?.scoreMilestone === true;

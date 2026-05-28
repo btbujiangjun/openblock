@@ -64,7 +64,7 @@ def _insert_sample(conn, set_id, **overrides):
     import time
     defaults = {
         "set_id": set_id,
-        "difficulty": "normal", "generator": "budget-p2", "bot_policy": "clear-greedy",
+        "difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
         "pb_bin": 1500, "lifecycle_stage": "growth",
         "theta_json": json.dumps(_default_theta()),
         "d_curve_json": json.dumps(target_curve_vector()),
@@ -115,13 +115,25 @@ class TestNormalize:
         # 第 0 维 (personalizationStrength=0.10) 归一化: (0.10-0.05)/(0.18-0.05) ≈ 0.3846
         assert abs(normed[0] - 0.3846) < 0.001
 
-    def test_v22_pb_curve_keys_present(self):
-        """v2.2 回归: 9 维 θ 必须含 4 个 PB 曲线参数。"""
-        assert "pbTensionCenter" in THETA_KEYS
-        assert "pbTensionWidth" in THETA_KEYS
-        assert "pbBrakeCenter" in THETA_KEYS
-        assert "pbBrakeWidth" in THETA_KEYS
-        assert len(THETA_KEYS) == 9
+    def test_theta_keys_27_dims(self):
+        """θ 共 27 维 = 5 (A 选拔) + 4 (B PB) + 8 (C augmentPool) + 5 (D targets) + 5 (E PB 段)."""
+        assert len(THETA_KEYS) == 27
+        # B PB 曲线
+        for k in ("pbTensionCenter", "pbTensionWidth", "pbBrakeCenter", "pbBrakeWidth"):
+            assert k in THETA_KEYS
+        # C augmentPool
+        for k in ("perfectClearWeight", "multiClearBaseFactor", "nearFullFactor",
+                  "exactFitBonus", "monoFlushBoost", "payoffWeight",
+                  "sizePreferenceGain", "diversityPenalty"):
+            assert k in THETA_KEYS
+        # D targets 翻译
+        for k in ("complexityFromStress", "complexityRiskRelief", "solutionFromStress",
+                  "pbTensionTargetWeight", "pbBrakeTargetWeight"):
+            assert k in THETA_KEYS
+        # E PB 段
+        for k in ("challengeBoostSlope", "challengeBoostCap", "pbOvershootMax",
+                  "releaseFactor", "farFromPBBoost"):
+            assert k in THETA_KEYS
 
 
 # ─────────── SamplesDataset ───────────
@@ -141,6 +153,25 @@ class TestSamplesDataset:
         assert len(ds) == 5
         assert ds.theta_norm.shape == (5, len(THETA_KEYS))
         assert ds.d_curve.shape == (5, 20)
+
+    def test_v308_only_new_enum_accepted(self, test_db):
+        """v3.0.8: GENERATOR 严格 1:1 — 只接受 'rule' / 'generative', 老 enum 直接被 CHECK 拒绝."""
+        conn = sqlite3.connect(test_db)
+        conn.execute("INSERT INTO sample_sets (name, status, created_at) VALUES ('strict', 'completed', strftime('%s','now'))")
+        set_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        # 新 enum 全部接受
+        _insert_sample(conn, set_id, seed=0, generator="rule")
+        _insert_sample(conn, set_id, seed=1, generator="generative")
+        # 老 enum 应被 CHECK 拒绝
+        for old_g in ["triplet-p1", "budget-p2", "heuristic-rule", "model-v3"]:
+            with pytest.raises(sqlite3.IntegrityError):
+                _insert_sample(conn, set_id, seed=99, generator=old_g)
+        conn.commit()
+
+        ds = SamplesDataset.from_sqlite(test_db, [set_id])
+        assert len(ds) == 2
+        assert list(ds.generator_idx) == [0, 1]   # rule=0, generative=1
+        conn.close()
 
     def test_empty_set_raises(self, test_db):
         with pytest.raises(ValueError):

@@ -1,32 +1,72 @@
 #!/usr/bin/env bash
-# 一键拉代码、装依赖、杀端口、后台启动 Flask + Vite。端口从 .env 读取（PORT / VITE_PORT）。
-# Linux / macOS 通用：优先用 lsof 查 LISTEN 并杀进程（mac 无可靠 fuser -k tcp）；
-# 若无 lsof 则回退到 Linux 常见用法 fuser。
+# 一键重启 OpenBlock 后端 (Flask) + 前端 (Vite)
 #
 # 用法:
-#   bash scripts/restart-openblock.sh
-# 可选环境变量:
-#   OPENBLOCK_VENV  Python venv 路径，默认 /root/.venv（不存在则跳过 activate）
+#   bash scripts/restart-openblock.sh              # 快速重启（杀端口 → 后台启动）
+#   bash scripts/restart-openblock.sh --full       # git pull + npm install + 重启（服务器部署）
+#   bash scripts/restart-openblock.sh --install    # 仅 npm install + 重启
+#   npm run restart                              # 同上（快速）
+#
+# 环境变量:
+#   OPENBLOCK_VENV   额外 Python venv 路径（优先用仓库内 .venv / venv）
+#   SKIP_PULL=1      等同默认快速模式
+#   SKIP_INSTALL=1   跳过 npm install
+#
+# 日志: logs/server.log  logs/dev.log
+# PID:  logs/server.pid  logs/dev.pid
+
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-VENV="${OPENBLOCK_VENV:-/root/.venv}"
-if [[ -f "${VENV}/bin/activate" ]]; then
-  # shellcheck source=/dev/null
-  source "${VENV}/bin/activate"
-fi
+MODE="quick"
+for arg in "$@"; do
+  case "$arg" in
+    --full)    MODE="full" ;;
+    --install) MODE="install" ;;
+    --quick)   MODE="quick" ;;
+    -h|--help)
+      sed -n '2,14p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "未知参数: $arg（可用 --quick | --full | --install | -h）" >&2
+      exit 1
+      ;;
+  esac
+done
 
-git pull
-npm install
+# ── Python venv（本地优先 .venv）──
+_activate_venv() {
+  local d
+  for d in "${REPO_ROOT}/.venv" "${REPO_ROOT}/venv" "${OPENBLOCK_VENV:-}"; do
+    [[ -n "$d" && -f "${d}/bin/activate" ]] || continue
+    # shellcheck source=/dev/null
+    source "${d}/bin/activate"
+    echo "Python: ${d}/bin/python ($(python3 --version 2>/dev/null || true))"
+    return 0
+  done
+  echo "Python: $(command -v python3) ($(python3 --version 2>/dev/null || true))"
+}
+
+_activate_venv
+
+if [[ "$MODE" == "full" ]]; then
+  echo "==> git pull"
+  git pull
+  echo "==> npm install"
+  npm install
+elif [[ "$MODE" == "install" ]]; then
+  echo "==> npm install"
+  npm install
+fi
 
 mkdir -p logs
 
 _has_lsof() { command -v lsof >/dev/null 2>&1; }
 _has_fuser() { command -v fuser >/dev/null 2>&1; }
 
-# 返回占用 port 的 LISTEN 进程 PID（每行一个）；无则空
 _listen_pids() {
   local port=$1
   shift
@@ -38,7 +78,6 @@ _listen_pids() {
   fi
 }
 
-# 端口上无 LISTEN 则返回 0（空闲）
 _port_is_free() {
   local port=$1
   shift
@@ -58,15 +97,14 @@ _port_is_free() {
   fi
 }
 
-# 用 lsof 找到监听进程：先 TERM 再 KILL（与 Linux fuser -k 效果接近）
 _kill_listeners_lsof() {
   local port=$1
   shift
   local runner=("$@")
-  local pids
+  local pids sig
 
   _kill_round() {
-    local sig=$1
+    sig=$1
     pids=$(_listen_pids "$port" "${runner[@]+"${runner[@]}"}")
     [[ -z "${pids//[$' \t\n']}" ]] && return 0
     while IFS= read -r pid; do
@@ -95,7 +133,6 @@ _kill_listeners_fuser() {
   fi
 }
 
-# 反复清理直到端口空闲（应对 Flask debug 子进程等）
 _clear_port() {
   local port=$1
   shift
@@ -123,30 +160,22 @@ _clear_port() {
   if _port_is_free "$port" "${runner[@]+"${runner[@]}"}"; then
     return 0
   fi
-  echo "error: 端口 ${port} 仍被占用，已放弃启动。请检查:" >&2
-  if _has_lsof; then
-    if [[ ${#runner[@]} -gt 0 ]]; then
-      echo "  sudo lsof -nP -iTCP:${port} -sTCP:LISTEN" >&2
-    else
-      echo "  lsof -nP -iTCP:${port} -sTCP:LISTEN" >&2
-    fi
-  else
-    echo "  fuser -v ${port}/tcp" >&2
-  fi
+  echo "error: 端口 ${port} 仍被占用" >&2
+  _has_lsof && lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
   exit 1
 }
 
-# 从 .env 读取端口（与 vite.config.js / server.py 同源）
 _read_env_var() {
-  local key=$1 default=$2
-  local val
-  val=$(grep -E "^\s*${key}\s*=" "${REPO_ROOT}/.env" 2>/dev/null | head -1 | sed 's/^[^=]*=\s*//' | tr -d '[:space:]')
+  local key=$1 default=$2 val
+  val=$(grep -E "^\s*${key}\s*=" "${REPO_ROOT}/.env" 2>/dev/null | head -1 | sed 's/^[^=]*=\s*//' | tr -d '[:space:]"')
   echo "${val:-$default}"
 }
 
+API_HOST=$(_read_env_var API_HOST 127.0.0.1)
 API_PORT=$(_read_env_var PORT 5000)
-DEV_PORT=$(_read_env_var VITE_PORT 80)
+DEV_PORT=$(_read_env_var VITE_PORT 3000)
 
+echo "==> 释放端口 API:${API_PORT}  DEV:${DEV_PORT}"
 _clear_port "${API_PORT}"
 if [[ "${DEV_PORT}" -lt 1024 ]]; then
   _clear_port "${DEV_PORT}" sudo
@@ -154,20 +183,62 @@ else
   _clear_port "${DEV_PORT}"
 fi
 
-echo "启动 server:${API_PORT}（日志: logs/server.log）…"
+# 停掉上次记录的 PID（若进程仍存活）
+_stop_pid_file() {
+  local f=$1
+  [[ -f "$f" ]] || return 0
+  local pid
+  pid=$(tr -d '[:space:]' <"$f" 2>/dev/null || true)
+  [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
+  rm -f "$f"
+}
+_stop_pid_file logs/server.pid
+_stop_pid_file logs/dev.pid
+sleep 0.2
+
+echo "==> 启动 Flask 后端 :${API_PORT} → logs/server.log"
 nohup npm run server > ./logs/server.log 2>&1 &
 SERVER_PID=$!
+echo "$SERVER_PID" > logs/server.pid
 disown "${SERVER_PID}" 2>/dev/null || true
 
-echo "启动 dev:${DEV_PORT}（日志: logs/dev.log）…"
+echo "==> 启动 Vite 前端 :${DEV_PORT} → logs/dev.log"
 if [[ "${DEV_PORT}" -lt 1024 ]]; then
   sudo -E env PATH="$PATH" nohup npm run dev:sudo > ./logs/dev.log 2>&1 &
 else
   nohup npm run dev > ./logs/dev.log 2>&1 &
 fi
 DEV_PID=$!
+echo "$DEV_PID" > logs/dev.pid
 disown "${DEV_PID}" 2>/dev/null || true
 
-echo "已后台启动: server pid=${SERVER_PID}(:${API_PORT}), dev pid=${DEV_PID}(:${DEV_PORT})"
-echo "tail -f logs/server.log   # Flask :${API_PORT}"
-echo "tail -f logs/dev.log      # Vite  :${DEV_PORT}"
+# 等待后端打印就绪（最多 25s）
+echo -n "==> 等待后端就绪"
+_ready=0
+for _ in $(seq 1 50); do
+  if grep -q "Open Block API" logs/server.log 2>/dev/null; then
+    _ready=1
+    break
+  fi
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo ""
+    echo "error: 后端进程已退出，请查看 logs/server.log" >&2
+    tail -n 30 logs/server.log >&2 || true
+    exit 1
+  fi
+  echo -n "."
+  sleep 0.5
+done
+echo ""
+
+if [[ "$_ready" -eq 0 ]]; then
+  echo "warn: 25s 内未在日志中看到「Open Block API」，可能仍在加载，请 tail -f logs/server.log"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  已重启  server pid=${SERVER_PID}  →  http://${API_HOST}:${API_PORT}"
+echo "          dev    pid=${DEV_PID}    →  http://127.0.0.1:${DEV_PORT}"
+echo "  Spawn 调参看板: http://127.0.0.1:${DEV_PORT}/spawn-tuning-v2-dashboard.html"
+echo "  日志: tail -f logs/server.log | tail -f logs/dev.log"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

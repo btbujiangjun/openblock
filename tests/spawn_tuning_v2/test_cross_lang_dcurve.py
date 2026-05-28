@@ -109,7 +109,9 @@ class TestConstantsAcrossLanguages:
 # ─────────── 数学公式正确性 (Python 端) ───────────
 
 class TestDPbBaseFormula:
-    """v2.12: d_pb_base = target_S_curve (4 段分段). 端点 [0.20, 1.00]."""
+    """v3.0: pb_aware_d_pb_base 是 legacy 函数 (不再参与 d_step 计算),
+    仍返回 target_S_curve 用于跨语言一致性测试.
+    """
 
     def test_endpoints(self):
         # r=0 → D_BASE=0.20, r=R_MAX → D_CAP=1.00

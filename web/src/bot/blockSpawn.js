@@ -1926,6 +1926,16 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const divBoost = hints.diversityBoost ?? 0;
     const comboChain = hints.comboChain ?? 0;
     const multiClearBonus = hints.multiClearBonus ?? 0;
+    // θ-C: augmentPool 乘性加权 (8 维), modelConfig 优先, 否则用历史默认值
+    const _mc = ctx.modelConfig || {};
+    const _thetaPCW = Number.isFinite(_mc.perfectClearWeight)   ? _mc.perfectClearWeight   : 25.0;
+    const _thetaMCBase = Number.isFinite(_mc.multiClearBaseFactor) ? _mc.multiClearBaseFactor : 0.6;
+    const _thetaNFF = Number.isFinite(_mc.nearFullFactor)       ? _mc.nearFullFactor       : 2.0;
+    const _thetaEFB = Number.isFinite(_mc.exactFitBonus)        ? _mc.exactFitBonus        : 1.5;
+    const _thetaMFB = Number.isFinite(_mc.monoFlushBoost)       ? _mc.monoFlushBoost       : 0.4;
+    const _thetaPW = Number.isFinite(_mc.payoffWeight)          ? _mc.payoffWeight         : 1.7;
+    const _thetaSPG = Number.isFinite(_mc.sizePreferenceGain)   ? _mc.sizePreferenceGain   : 1.5;
+    const _thetaDP = Number.isFinite(_mc.diversityPenalty)      ? _mc.diversityPenalty     : 1.0;
     /* v1.56 §2.5 + v1.56.4 §5.α.8：PB 距离段在形状层的差异化
      *   - farFromPBBoostActive（D0 边缘段，0.15 ≤ pct < 0.30）：多消潜力大块 ×1.15
      *   - farExtremeBoostActive（D0 极远段，pct < 0.15）：多消潜力大块 ×1.30（叠加）
@@ -2424,15 +2434,14 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                  *   pcPotential===2 直接清屏：18+14 → 25+20（峰值 32→45 倍）
                  *   pcSetup>=1 准备期 gap 填充：pcSetup*3+pcb*2 → pcSetup*5+pcb*4（峰值 ~9→~15 倍）*/
                 if (s.pcPotential === 2) {
-                    w *= 25.0 + perfectClearBoost * 20.0;
+                    w *= _thetaPCW + perfectClearBoost * 20.0;   // θ-C: perfectClearWeight
                 } else if (pcSetup >= 1 && s.gapFills > 0) {
                     w *= 1 + pcSetup * 5.0 + perfectClearBoost * 4.0;
                 }
 
                 /* Layer 1: 多消潜力 — 指数级强化（mc=2 → ×2.0，mc=3 → ×2.7）*/
                 if (s.multiClear >= 1) {
-                    // 基础倍率 0.6 + multiClearBonus 最高追加 0.6
-                    const mcBase = 0.6 + multiClearBonus * 0.6 + delightBoost * 0.45 + payoffTarget * 0.35;
+                    const mcBase = _thetaMCBase + multiClearBonus * 0.6 + delightBoost * 0.45 + payoffTarget * 0.35;
                     w *= 1 + s.multiClear * mcBase;
                 }
                 /* v10.33：multiLineTarget 显式偏好「同时多线」兑现（与 multiClearBonus 互补） */
@@ -2449,7 +2458,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
                 /* Layer 1: 临消行机会放大 — 有可消行时消行块价值与临消行数正相关 */
                 if (nearFullFactor > 0 && s.gapFills > 0) {
-                    w *= 1 + nearFullFactor * (2.0 + clearOpportunityTarget);
+                    w *= 1 + nearFullFactor * (_thetaNFF + clearOpportunityTarget);   // θ-C: nearFullFactor
                 }
                 // 清屏窗口期（nearFullLines≥5）：多消块额外加持
                 if (topo.nearFullLines >= 5 && s.multiClear >= 2) {
@@ -2466,7 +2475,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                  * 仅在 exactFit ≥ 0.5 时触发，避免空盘场景所有 shape 都被 ×1.x 平移；
                  * 系数 0.75 让"接近完美"的 shape 显著抬头但不至于覆盖 multiClear>=2 的硬 payoff。 */
                 if (s.exactFit >= 0.5) {
-                    w *= 1 + (s.exactFit - 0.5) * 1.5;
+                    w *= 1 + (s.exactFit - 0.5) * _thetaEFB;   // θ-C: exactFitBonus
                 }
                 /* v1.60.20：完美卡入额外强化（exactFit ≥ 0.999） —— 用户反馈"优先适配完美卡入"。
                  * 在 v1.60.18 基础 ×1.75 之上再 ×1.4 → 总 ×2.45，与 multiClear>=2 的硬 payoff
@@ -2496,7 +2505,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                      * 此策略保留"识别 always-on" 同时控制 chosen 命中频率 ≈ 25-30%。
                      * 性能：_alreadyHasMono 已在 augmentPool 顶部提前计算，直接引用。 */
                     if (!_alreadyHasMono) {
-                        let monoBoost = 1 + s.monoFlush * (0.4 + iconBonusTarget * 0.6);
+                        let monoBoost = 1 + s.monoFlush * (_thetaMFB + iconBonusTarget * 0.6);   // θ-C: monoFlushBoost
                         if (s.shape.id === '1x2' || s.shape.id === '2x1') {
                             monoBoost *= 1.5;
                         }
@@ -2530,8 +2539,8 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
 
                 /* Layer 2: 节奏相位 */
                 if (rhythmPhase === 'payoff') {
-                    if (s.gapFills > 0) w *= 1.7;      // 原 1.3 → 更强的 payoff 推送
-                    if (s.multiClear >= 2) w *= 1.4;    // 原 1.2 → 多消双重加持
+                    if (s.gapFills > 0) w *= _thetaPW;          // θ-C: payoffWeight
+                    if (s.multiClear >= 2) w *= 1.4;
                     if (delightBoost > 0.35 && s.multiClear >= 1) w *= 1 + delightBoost * 0.55;
                 } else if (rhythmPhase === 'setup') {
                     if (cells >= 4 && cells <= 6 && s.gapFills === 0) w *= 1.2 + spatialPressureTarget * 0.25;
@@ -2540,12 +2549,12 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     w *= 1.18 + delightBoost * 0.35;
                 }
 
-                /* sizePreference */
+                /* sizePreference (θ-C: sizePreferenceGain) */
                 if (sizePref < -0.01) {
-                    if (cells <= 4) w *= 1 + Math.abs(sizePref) * 1.5;
+                    if (cells <= 4) w *= 1 + Math.abs(sizePref) * _thetaSPG;
                     else if (cells >= 8) w *= 1 - Math.abs(sizePref) * 0.5;
                 } else if (sizePref > 0.01) {
-                    if (cells >= 6) w *= 1 + sizePref * 1.2;
+                    if (cells >= 6) w *= 1 + sizePref * (_thetaSPG * 0.8);
                     else if (cells <= 3) w *= 1 - sizePref * 0.4;
                 } else if (wantSmall) {
                     if (cells <= 4) w *= 1.65;
@@ -2559,12 +2568,12 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     if (cells >= 8) w *= 0.82;
                 }
 
-                /* Layer 2: 品类多样性（同轮 + 跨轮记忆） */
+                /* Layer 2: 品类多样性（同轮 + 跨轮记忆）— θ-C: diversityPenalty 控制惩罚强度 */
                 const catPenalty = usedCategories[s.category] || 0;
                 const memPenalty = catFreq[s.category] || 0;
                 const effectiveDiversity = Math.max(divBoost, noveltyTarget * 0.55);
                 if (effectiveDiversity > 0 && catPenalty > 0) {
-                    w *= Math.max(0.2, 1 - effectiveDiversity * catPenalty);
+                    w *= Math.max(0.2, 1 - effectiveDiversity * catPenalty * _thetaDP);
                 }
                 if (memPenalty > 2) {
                     w *= Math.max(0.4, 1 - (memPenalty - 2) * (0.12 + noveltyTarget * 0.08));

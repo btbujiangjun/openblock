@@ -35,6 +35,14 @@ import { predictShapesV3 } from '../../spawnModel.js';
 import { buildDecisionBatch } from '../../bot/features.js';
 import { selectActionRemote } from '../../bot/pytorchBackend.js';
 
+// v3.0.8: generator 与 game.js getSpawnPolicyMode() 严格 1:1 (无 alias / 无历史枚举)
+//   'rule'       — 启发式: sampler 内部 simulator.spawnGenerator='budget-p2' (game.js rule 模式 default)
+//                  并把 θ 注入 modelConfig, 跟 game.js 通过 resolveThetaV2 拿 θ 后调
+//                  derivePbCurve/adaptiveSpawn 的链路 1:1 对齐.
+//   'generative' — 生成式: sampler 主 loop 通过 HTTP 调 predictShapesV3 (SpawnPolicyNet),
+//                  与 game.js _spawnBlocksWithModel 同一接口.
+export const VALID_GENERATORS_SAMPLER = ['rule', 'generative'];
+
 // ─────────── 单步难度信号常量 (与 Python extractor.py 一致) ───────────
 
 const FILL_RATE_WEIGHT = 0.30;
@@ -63,24 +71,39 @@ const GRID_TOTAL_CELLS = 64;
 // 因此模型仍能学到 ctx → state_offset 模式。
 
 // PB-aware 常量 (跨语言: extractor.py + policyMetricsV2.js 严格同步)
-// v2.12 起 d_pb_base 直接复用 targetSCurve (ideal 4 段分段),
-//   sample 形态 ≈ ideal target, model 学到的就是 ideal.
-// 以下 4 个常量供跨语言一致性测试镜像 + 文档说明用, 不再参与计算.
-const PB_AWARE_D_BASE = 0.20;       // = D_BASE (ideal)
-const PB_AWARE_D_PEAK = 1.00;       // = D_CAP (ideal)
-const PB_AWARE_CENTER = 0.85;       // legacy 单段 sigmoid 拐点
-const PB_AWARE_WIDTH  = 0.18;       // legacy 单段 sigmoid 宽度
-const PB_AWARE_STATE_WEIGHT = 0.20; // state_offset ±0.10
+// v2.12 起 d_pb_base 直接复用 targetSCurve (legacy, 不参与 v3.x 计算).
+const PB_AWARE_D_BASE = 0.20;       // legacy
+const PB_AWARE_D_PEAK = 1.00;       // legacy
+const PB_AWARE_CENTER = 0.85;       // legacy
+const PB_AWARE_WIDTH  = 0.18;       // legacy
+const PB_AWARE_STATE_WEIGHT = 0.20; // legacy
 // 贝叶斯先验平滑
 const PB_AWARE_PRIOR_STRENGTH = 3;
 const PB_AWARE_MIN_OBS = 1;
 
+// v3.1 (G5 物理侧 θ 接入): θ 通过 PB-aware sigmoid 影响 d_step
+//   d_step = (1-BLEND)*state_d + BLEND*sigmoid((r - θ_center) / θ_width)
+//   BLEND=0.40 → 物理 60% + PB-aware 40%, 启发式实测 d_curve 自然有 r 依赖
+const PB_AWARE_BLEND = 0.40;
+const PB_AWARE_TENSION_CENTER_DEFAULT = 0.82;
+const PB_AWARE_TENSION_WIDTH_DEFAULT = 0.08;
+
 function _pbAwareDPbBase(ratio) {
-    // v2.12: 直接复用 ideal target (4 段分段 — gentle/mid/brake/overshoot)
+    // v3.0: legacy 函数 — 已不参与 d_step 计算 (sample 回归真实状态).
+    //   保留供跨语言一致性测试. 调用方应改用 state_d.
     return targetSCurve(ratio);
 }
 
-function _stepDifficulty(step, recentFills, ratio = 0) {
+function _stepDifficulty(
+    step,
+    recentFills,
+    ratio = 0,
+    thetaPbTensionCenter = PB_AWARE_TENSION_CENTER_DEFAULT,
+    thetaPbTensionWidth = PB_AWARE_TENSION_WIDTH_DEFAULT,
+) {
+    // v3.1 (G5): d_step = (1-BLEND)*state_d + BLEND*pb_aware_lift(r, θ_center, θ_width)
+    //   θ 让 d_step 物理上感知 PB → 启发式实测 d_curve 自然有 S 形 r 依赖.
+    //   不同 θ 让同一棋盘状态对应不同 d_step → ctx/θ 信号强 → 寻参更有效.
     if (step.noMove) return 1.0;
     let trendNorm = 0.5;
     if (recentFills.length > 0) {
@@ -88,7 +111,6 @@ function _stepDifficulty(step, recentFills, ratio = 0) {
         const trend = step.fillRate - avg;
         trendNorm = Math.max(0, Math.min(1, 0.5 + trend));
     }
-    // state_d: 棋盘状态难度 (老 v2.9 公式)
     let stateD = FILL_RATE_WEIGHT * step.fillRate
         + ACTION_FREEDOM_WEIGHT * (1 - step.actionFreedom)
         + TREND_WEIGHT * trendNorm;
@@ -96,17 +118,29 @@ function _stepDifficulty(step, recentFills, ratio = 0) {
     if ((step.clears || 0) >= SURPRISE_MIN_CLEARS) {
         stateD *= SURPRISE_DAMPING;
     }
-    // d_pb_base: 直接复用 ideal target_S_curve (v2.12)
-    const dPbBase = targetSCurve(ratio);
-    // 组合: ideal target + state 偏移 (ctx 差异)
-    const stateOffset = (stateD - 0.5) * PB_AWARE_STATE_WEIGHT;
-    return Math.max(0, Math.min(1, dPbBase + stateOffset));
+    // v3.1 (G5): PB-aware lift 项 — θ 控制的物理调制
+    if (PB_AWARE_BLEND > 0 && thetaPbTensionWidth > 1e-6) {
+        const x = (ratio - thetaPbTensionCenter) / thetaPbTensionWidth;
+        const pbLift = 1.0 / (1.0 + Math.exp(-x));   // ∈ (0, 1)
+        const dStep = (1.0 - PB_AWARE_BLEND) * stateD + PB_AWARE_BLEND * pbLift;
+        return Math.max(0, Math.min(1, dStep));
+    }
+    return stateD;
 }
 
 
-/** 从单局轨迹提取 d_curve + 标签 (与 policyMetricsV2._extractDCurve / Python 严格一致) */
-function _extractDCurveFromSteps(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
+/** 从单局轨迹提取 d_curve + 标签 (与 policyMetricsV2._extractDCurve / Python 严格一致)
+ *  v3.1 (G5): 接收 theta 让 PB-aware d_step 用 θ 控制的 sigmoid 而非默认值 */
+function _extractDCurveFromSteps(
+    steps, pb,
+    nBins = CURVE_N_BINS, rMax = CURVE_R_MAX,
+    theta = null,
+) {
     if (!steps || steps.length === 0 || !pb || pb <= 0) return null;
+    const thetaCenter = (theta && Number.isFinite(theta.pbTensionCenter))
+        ? theta.pbTensionCenter : PB_AWARE_TENSION_CENTER_DEFAULT;
+    const thetaWidth = (theta && Number.isFinite(theta.pbTensionWidth))
+        ? theta.pbTensionWidth : PB_AWARE_TENSION_WIDTH_DEFAULT;
     const binSums = new Array(nBins).fill(0);
     const binCounts = new Array(nBins).fill(0);
     const recentFills = [];
@@ -115,8 +149,8 @@ function _extractDCurveFromSteps(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R
     for (const st of steps) {
         const r = Math.min(rMax - 1e-9, st.score / pb);
         const bidx = rToBin(r, nBins, rMax);
-        // v2.10: 把 r 传给 _stepDifficulty 让其编码 PB 命题
-        const d = _stepDifficulty(st, recentFills, r);
+        // v3.1 (G5): 把 θ 传给 _stepDifficulty 用 PB-aware sigmoid 调制
+        const d = _stepDifficulty(st, recentFills, r, thetaCenter, thetaWidth);
         binSums[bidx] += d;
         binCounts[bidx] += 1;
         recentFills.push(st.fillRate);
@@ -127,21 +161,19 @@ function _extractDCurveFromSteps(steps, pb, nBins = CURVE_N_BINS, rMax = CURVE_R
         finalScore = st.score;
     }
 
-    // v2.10.1: 贝叶斯先验平滑 (跨语言: extractor.py 同步)
-    //   bot 弱时高 r bin 几乎无数据, 老 lastValue 填充会污染末尾
-    //   → 现在: 空 bin 用 d_pb_base 先验, 稀疏 bin 用加权平均
+    // v3.0: 空 bin 用 lastValue 填充 (前一个有数据 bin 的值, 防止 d_curve 断裂)
+    //   注意: bin_counts[i] = 0 时, 训练 L_shape confidence-weighted 会 mask 该 bin
+    //         所以填什么不影响训练, 仅用于 chart 显示连续性
     const dCurve = new Array(nBins).fill(0);
     let nFilled = 0;
+    let lastValue = 0.5;   // 兜底初值
     for (let i = 0; i < nBins; i++) {
-        const rCenter = (i + 0.5) * (rMax / nBins);
-        const dPrior = _pbAwareDPbBase(rCenter);
         if (binCounts[i] >= PB_AWARE_MIN_OBS) {
-            const obs = binSums[i] / binCounts[i];
-            const w = binCounts[i] / (binCounts[i] + PB_AWARE_PRIOR_STRENGTH);
-            dCurve[i] = w * obs + (1 - w) * dPrior;
+            dCurve[i] = binSums[i] / binCounts[i];
+            lastValue = dCurve[i];
             nFilled++;
         } else {
-            dCurve[i] = dPrior;
+            dCurve[i] = lastValue;
         }
     }
 
@@ -232,13 +264,21 @@ function _evalWith2StepLookahead(sim, a1, ev1, rng, policy) {
 //   实测: clear-greedy 1step ~15 score/step → MCTS 30 rollout × 30 step ~40 score/step
 //
 //   注: 因开销大, 默认只 MCTS 评 top-K=10 (按 1-step score 预筛), 其余直接 1-step
-function _evalWithMCTS(sim, a1, rng, policy, nRollouts, maxRolloutSteps) {
+// v2.10.38 → v3.0.5: MCTS 改为 async, 每 MCTS_YIELD_EVERY_ROLLOUT 让一次主线程
+// 避免 "页面无响应": 单 action 在 top-K=10 × 30 rollout × 30 step ≈ 9000 sim.step
+// 同步跑会独占主线程 5-10s; 现在每 5 rollout (≈1500 step) yield 一次, 浏览器仍可响应
+const MCTS_YIELD_EVERY_ROLLOUT = 5;
+
+async function _evalWithMCTS(sim, a1, rng, policy, nRollouts, maxRolloutSteps) {
     if (!sim.saveState || !sim.restoreState) return 0;
     const state = sim.saveState();
     let totalReturn = 0;
     let validRollouts = 0;
     try {
         for (let r = 0; r < nRollouts; r++) {
+            if (r > 0 && r % MCTS_YIELD_EVERY_ROLLOUT === 0) {
+                await new Promise((res) => setTimeout(res, 0));
+            }
             sim.restoreState(state);
             try {
                 sim.step(a1.blockIdx, a1.gx, a1.gy);
@@ -283,7 +323,7 @@ function _evalWithMCTS(sim, a1, rng, policy, nRollouts, maxRolloutSteps) {
     return validRollouts > 0 ? totalReturn / validRollouts : 0;
 }
 
-function _selectAction(sim, policy, rng, opts = {}) {
+async function _selectAction(sim, policy, rng, opts = {}) {
     const legal = sim.getLegalActions();
     if (legal.length === 0) return null;
 
@@ -336,7 +376,7 @@ function _selectAction(sim, policy, rng, opts = {}) {
         let bestTotal = -Infinity;
         for (let i = 0; i < K; i++) {
             const s = scored[i];
-            const mctsValue = _evalWithMCTS(sim, s.action, rng, policy, mctsRollouts, mctsRolloutSteps);
+            const mctsValue = await _evalWithMCTS(sim, s.action, rng, policy, mctsRollouts, mctsRolloutSteps);
             // MCTS 期望回报 = rollout 期间累积 score 增量
             // 跟 1-step heuristic score 比例不一致, 给 mctsValue 设标准化系数
             const total = s.score * 0.1 + mctsValue * 1.0;   // MCTS 占主导, 1-step 仅打破并列
@@ -397,9 +437,9 @@ export async function runOneSampleV2(args) {
     if (!['easy', 'normal', 'hard'].includes(context.difficulty)) {
         throw new Error(`invalid difficulty: ${context.difficulty}`);
     }
-    // v2.10.34/35: 4 个 generator 都可用 (generative 通过 HTTP 调 SpawnPolicyNet)
-    if (!['triplet-p1', 'budget-p2', 'heuristic-rule', 'generative'].includes(context.generator)) {
-        throw new Error(`invalid generator: ${context.generator}`);
+    // v3.0.8: generator 与 game.js getSpawnPolicyMode() 严格 1:1
+    if (!VALID_GENERATORS_SAMPLER.includes(context.generator)) {
+        throw new Error(`invalid generator: ${context.generator} (期望 rule / generative)`);
     }
     const isGenerative = context.generator === 'generative';
     // v2.10.34/36: 4 个 bot_policy 都可用 (rl-bot 通过 HTTP 调 /api/rl/select_action, 失败 fallback clear-greedy)
@@ -417,31 +457,31 @@ export async function runOneSampleV2(args) {
     const maxTriplets = Math.max(8, Math.min(256,
         Math.round(Number(theta.maxEvaluatedTriplets) || 80)
     ));
-    // v2.10.34/35: enum → simulator spawnGenerator 映射
-    //   heuristic-rule (v2 enum) → 'baseline' (SPAWN_POLICY_RULES)
-    //   generative (v2 enum)     → 'baseline' (sim 内部仍用规则生成 dock, sampler 主 loop 会
-    //                              await predictShapesV3 然后 mutate sim.dock 替换 shapes)
-    //   其他保持原样
-    const simSpawnGenerator = (context.generator === 'heuristic-rule' || context.generator === 'generative')
-        ? 'baseline'
-        : context.generator;
+    // v3.0.8: generator → simulator.spawnGenerator 映射 (与 game.js 严格 1:1)
+    //   'rule'       → 'baseline' (即 SPAWN_POLICY_RULES) — simulator._spawnDock 走
+    //                  `generateDockShapes(grid, layered, spawnContext)`, 跟 game.js
+    //                  `_commitSpawn(generateDockShapes(...), 'rule')` 是同一函数同一参数.
+    //                  θ 通过 modelConfig 注入, 等价于 game.js 通过 resolveThetaV2 → derivePbCurve.
+    //                  注: 老版本 v3.0.7 用 'budget-p2' 是错的 (那条路径走 generateExperimentalDockShapes,
+    //                      游戏页面 rule 模式不会调到, 等价于"采集跑实验算法 ≠ 部署跑规则算法").
+    //   'generative' → 'baseline' (sim 启动占位, 主 loop 调 predictShapesV3 mutate dock,
+    //                  跟 game.js `_spawnBlocksWithModel` 同一 SpawnPolicyNet 接口)
+    const simSpawnGenerator = 'baseline';
+    // 把 θ 全部 27 维透传给 simulator → simulator 注入 ctx.modelConfig → 各 derive*/augmentPool 消费.
+    // 跟 game.js 通过 resolveThetaV2 → derivePbCurve / generateDockShapes 完全等价.
+    const modelConfig = {};
+    for (const [k, v] of Object.entries(theta || {})) {
+        if (k === 'use_mcts_bot' || k === 'use_lookahead2_bot') continue;   // 非 θ, sampler 内部用
+        const n = Number(v);
+        if (Number.isFinite(n)) modelConfig[k] = (k === 'surpriseCooldown') ? Math.round(n) : n;
+    }
     let sim;
     try {
         sim = new OpenBlockSimulator(context.difficulty, {
             spawnGenerator: simSpawnGenerator,
-            maxEvaluatedTriplets: maxTriplets,
+            maxEvaluatedTriplets: Number(theta?.maxEvaluatedTriplets) || maxTriplets,
             bestScore: pb,
-            modelConfig: {
-                personalizationStrength: Number(theta.personalizationStrength) || 0.10,
-                temperature: Number(theta.temperature) || 0.05,
-                surpriseBudgetGain: Number(theta.surpriseBudgetGain) || 0.07,
-                surpriseCooldown: Math.round(Number(theta.surpriseCooldown) || 6),
-                // v2.2: PB 曲线参数 — simulator → derivePbCurve(options) → 真实生效
-                pbTensionCenter: Number(theta.pbTensionCenter) || undefined,
-                pbTensionWidth: Number(theta.pbTensionWidth) || undefined,
-                pbBrakeCenter: Number(theta.pbBrakeCenter) || undefined,
-                pbBrakeWidth: Number(theta.pbBrakeWidth) || undefined,
-            },
+            modelConfig,
         });
     } catch (e) {
         throw new Error(`OpenBlockSimulator init failed: ${e?.message || e}`);
@@ -452,9 +492,12 @@ export async function runOneSampleV2(args) {
     let lastGenerativeReplaceAt = -1;
     const recentHistory = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];   // V3 需要的 history (此处简化, 不维护精确)
 
+    // v3.0.5: MCTS / lookahead2 单 step 极贵 (MCTS ≈ 9000 sim.step / action),
+    //         必须每 step 都 yield, 否则单 sample 长达分钟级 → "页面无响应"
+    const useHeavyBot = !!(theta?.use_mcts_bot || theta?.use_lookahead2_bot);
+    const STEP_YIELD_EVERY = useHeavyBot ? 1 : 100;
     for (let stepIdx = 0; stepIdx < maxSteps; stepIdx++) {
-        // v2.10.38: 每 100 step yield 主线程 (单 sample 长 / MCTS 慢时避免 paint 阻塞)
-        if (stepIdx > 0 && stepIdx % 100 === 0) {
+        if (stepIdx > 0 && stepIdx % STEP_YIELD_EVERY === 0) {
             await new Promise((r) => setTimeout(r, 0));
         }
         if (sim.isTerminal()) {
@@ -514,10 +557,10 @@ export async function runOneSampleV2(args) {
             }
             // fallback: clear-greedy (跟 rl-bot 同级 strong bot, RL 不可用时数据仍可用)
             if (!action) {
-                action = _selectAction(sim, 'clear-greedy', rng, {});
+                action = await _selectAction(sim, 'clear-greedy', rng, {});
             }
         } else {
-            action = _selectAction(sim, context.bot_policy, rng, {
+            action = await _selectAction(sim, context.bot_policy, rng, {
                 lookahead: !!theta?.use_lookahead_bot,
                 lookahead2: !!theta?.use_lookahead2_bot,
                 mcts: !!theta?.use_mcts_bot,
@@ -551,7 +594,8 @@ export async function runOneSampleV2(args) {
         });
     }
 
-    const labels = _extractDCurveFromSteps(steps, pb);
+    // v3.1 (G5): 传 θ 让 d_step PB-aware sigmoid 用 θ.pbTensionCenter/Width
+    const labels = _extractDCurveFromSteps(steps, pb, CURVE_N_BINS, CURVE_R_MAX, theta);
     if (!labels) {
         throw new Error(`d_curve extract failed (steps=${steps.length}, pb=${pb})`);
     }
@@ -580,7 +624,7 @@ export async function runOneSampleV2(args) {
         seed,
         eval_ms: 0,
         evaluated_at: Date.now(),
-        algo_version: 'v2.12',   // d_pb_base = ideal target_S_curve
+        algo_version: 'v3.1',    // v3.1 (G5): d_step = (1-BLEND)*state_d + BLEND*pb_aware_lift(r, θ)
     };
 }
 
@@ -606,13 +650,25 @@ export async function collectSamplesV2(args) {
         // v2.10.32 (P1.3): 240 → 500 — 配合强 bot, 高 PB 档 r=1 触达率 +
         seedsPerTheta = 2, maxSteps = 500,
         apiBaseUrl = '', batchSize = 20, onProgress,
+        // v3.0.6 (G2): nThetas 当 thetas 是 function 时由调用方指定每 ctx 抽几个 θ
+        nThetas,
     } = args;
     if (!setId) throw new Error('setId required');
     if (!Array.isArray(contexts) || contexts.length === 0) throw new Error('contexts required');
-    if (!Array.isArray(thetas) || thetas.length === 0) throw new Error('thetas required');
+    // v3.0.6 (G2): thetas 支持两种形态
+    //   - Array<theta>: 全 ctx 共用 (LHS 模式)
+    //   - (ctx) => Array<theta>: per-ctx 生成 (bundle / bundle-perturb 模式)
+    const isThetasFn = typeof thetas === 'function';
+    if (!isThetasFn && (!Array.isArray(thetas) || thetas.length === 0)) {
+        throw new Error('thetas required (array or function)');
+    }
+    if (isThetasFn && !(nThetas > 0)) {
+        throw new Error('nThetas required when thetas is a function');
+    }
 
     const baseUrl = (apiBaseUrl || '').replace(/\/+$/, '');
-    const total = contexts.length * thetas.length * seedsPerTheta;
+    const thetasPerCtx = isThetasFn ? nThetas : thetas.length;
+    const total = contexts.length * thetasPerCtx * seedsPerTheta;
     let generated = 0;   // 本地生成成功 (待 flush)
     let written = 0;     // 已写入 DB
     let failed = 0;
@@ -670,6 +726,11 @@ export async function collectSamplesV2(args) {
     let lastProgressAt = 0;
     let sampleSinceLastProgress = 0;
 
+    // v3.0.5: 重型 bot (MCTS/lookahead2) 单 sample 可达 60-120s, 期间 onProgress 不会触发,
+    //         UI 看着像 "卡住"; 增加 inFlight 心跳, 让 UI 知道正在跑哪个 sample 以及单 sample 已耗时.
+    let inFlightStartedAt = 0;
+    let inFlightIdx = 0;
+
     const _maybeReportProgress = (force = false) => {
         if (!onProgress) return;
         const now = performance.now();
@@ -682,15 +743,30 @@ export async function collectSamplesV2(args) {
             failed, total,
             percent: (written + batch.length + failed) / total,
             firstError,
+            // v3.0.5: 心跳信息（即便没有新 sample 完成）
+            inFlight: inFlightStartedAt > 0 ? {
+                idx: inFlightIdx,
+                elapsedMs: Math.round(now - inFlightStartedAt),
+            } : null,
         });
         lastProgressAt = now;
         sampleSinceLastProgress = 0;
     };
 
     for (const ctx of contexts) {
-        for (const theta of thetas) {
+        // v3.0.6 (G2): per-ctx 生成 thetas, 用于 bundle / bundle-perturb 等闭环策略
+        const ctxThetas = isThetasFn ? thetas(ctx) : thetas;
+        if (!Array.isArray(ctxThetas) || ctxThetas.length === 0) {
+            failed += thetasPerCtx * seedsPerTheta;
+            firstError = firstError || `thetas factory returned empty for ctx ${ctx.context_key || JSON.stringify(ctx)}`;
+            continue;
+        }
+        for (const theta of ctxThetas) {
             for (let s = 0; s < seedsPerTheta; s++) {
                 const seed = (Date.now() & 0xFFFF_FFFF) ^ (generated * 7919);
+                inFlightIdx = generated + failed + 1;
+                inFlightStartedAt = performance.now();
+                _maybeReportProgress(true);   // 单 sample 开始即报心跳
                 try {
                     const t0 = performance.now();
                     const sample = await runOneSampleV2({ context: ctx, theta, seed, maxSteps });

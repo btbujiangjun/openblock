@@ -29,62 +29,73 @@ def make_step(idx, score, fill, freedom, no_move=False, clears=0):
 
 
 class TestStepDifficulty:
-    """v2.12: d_pb_base = target_S_curve (4 段分段, [0.20, 1.00]).
-       d_step = target_S_curve(r) + 0.20 * (state_d - 0.5), clipped [0,1].
+    """v3.1 (G5): d_step = (1-BLEND)*state_d + BLEND*pb_aware_lift(r, θ_center, θ_width).
+       BLEND=0.40, default θ_center=0.82, θ_width=0.08.
+       state_d = 0.30*fillRate + 0.50*(1-action_freedom) + 0.20*trend_norm.
+       pb_aware_lift = sigmoid((r - θ_center) / θ_width) ∈ (0, 1).
     """
 
     def test_no_move_returns_1(self):
         st = make_step(0, 100, fill=0.5, freedom=0.3, no_move=True)
         assert st.step_difficulty([], ratio=0.5) == 1.0
 
-    def test_ratio_zero_low_base(self):
-        """ratio=0 时 d_pb_base = target_S_curve(0) = D_BASE = 0.20."""
+    def test_v31_d_step_depends_on_ratio(self):
+        """v3.1 (G5): d_step 显式依赖 ratio — PB-aware lift 项让 r 影响 d_step."""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
-        # state_d=0.5 → state_offset=0
+        d_low = st.step_difficulty([], ratio=0.0)    # r << center → lift ≈ 0
+        d_high = st.step_difficulty([], ratio=2.0)   # r >> center → lift ≈ 1
+        assert d_high > d_low + 0.30, "v3.1 PB-aware lift 应让 r 高时 d_step 显著升高"
+
+    def test_v31_state_d_neutral_low_ratio(self):
+        """state_d=0.5, r=0 (远小 center=0.82) → d_step ≈ 0.6*0.5 + 0.4*0 ≈ 0.30."""
+        st = make_step(0, 100, fill=0.5, freedom=0.5)
         d = st.step_difficulty([], ratio=0.0)
-        assert d == pytest.approx(0.20, abs=0.01)
+        # lift(r=0, c=0.82, w=0.08) ≈ sigmoid(-10.25) ≈ 0
+        # d = 0.6 * 0.5 + 0.4 * 0 = 0.30
+        assert d == pytest.approx(0.30, abs=0.02)
 
-    def test_ratio_peak_high_base(self):
-        """ratio = R_MAX 时 d_pb_base ≈ D_CAP = 1.00."""
+    def test_v31_state_d_neutral_high_ratio(self):
+        """state_d=0.5, r=1.5 (远大 center=0.82) → d_step ≈ 0.6*0.5 + 0.4*1 = 0.70."""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
+        d = st.step_difficulty([], ratio=1.5)
+        # lift(r=1.5, c=0.82, w=0.08) ≈ sigmoid(8.5) ≈ 1
+        assert d == pytest.approx(0.70, abs=0.02)
+
+    def test_v31_state_d_high_pressure_high_ratio(self):
+        """棋盘满 (state_d=0.90) + r=2.0 → d_step ≈ 0.6*0.90 + 0.4*1 = 0.94."""
+        st = make_step(0, 100, fill=1.0, freedom=0.0)
         d = st.step_difficulty([], ratio=2.0)
-        assert d == pytest.approx(1.00, abs=0.01)
+        assert d == pytest.approx(0.94, abs=0.03)
 
-    def test_ratio_monotonic(self):
-        """target_S_curve 非降, 加 state=0.5 (offset=0) 仍非降."""
+    def test_v31_state_d_low_pressure_low_ratio(self):
+        """棋盘空 (state_d=0.10) + r=0 → d_step ≈ 0.6*0.10 + 0.4*0 = 0.06."""
+        st = make_step(0, 100, fill=0.0, freedom=1.0)
+        d = st.step_difficulty([], ratio=0.0)
+        assert d == pytest.approx(0.06, abs=0.02)
+
+    def test_v31_theta_overrides_default(self):
+        """θ_center / θ_width 显式传入应能改变 lift 形状."""
         st = make_step(0, 100, fill=0.5, freedom=0.5)
-        ds = [st.step_difficulty([], ratio=r) for r in [0.0, 0.5, 0.85, 1.0, 1.5, 2.0]]
-        for i in range(1, len(ds)):
-            assert ds[i] >= ds[i-1] - 1e-9, f"non-monotonic at i={i}: {ds}"
-        # ideal 跨度 0.80
-        assert ds[-1] - ds[0] > 0.7
-
-    def test_state_offset_magnitude(self):
-        """state_d=1.0 比 state_d=0 高 ≈ 0.20 (state_weight)."""
-        st_low = make_step(0, 100, fill=0.0, freedom=1.0)  # state_d ≈ 0.1
-        st_high = make_step(0, 100, fill=1.0, freedom=0.0) # state_d ≈ 1.0
-        d_low = st_low.step_difficulty([], ratio=0.5)
-        d_high = st_high.step_difficulty([], ratio=0.5)
-        # diff ≈ (1.0 - 0.1) * 0.20 ≈ 0.18
-        assert 0.14 < (d_high - d_low) < 0.24
-
-    def test_mid_segment_matches_target(self):
-        """v2.12 关键: 中段 d_pb_base 跟 ideal target 一致 (state=0.5 无偏移)."""
-        st = make_step(0, 100, fill=0.5, freedom=0.5)
-        # r=0.7 应该 ≈ ideal D_MID_END = 0.50
-        d = st.step_difficulty([], ratio=0.7)
-        assert d == pytest.approx(0.50, abs=0.02)
+        # 用 default θ (center=0.82, width=0.08): r=0.5 远小 center, lift ~ 0
+        d_default = st.step_difficulty([], ratio=0.5)
+        # 移 center 到 0.30 (PB 张力提前激活), r=0.5 大于 center → lift ~ 1
+        d_early = st.step_difficulty(
+            [], ratio=0.5,
+            theta_pb_tension_center=0.30, theta_pb_tension_width=0.08,
+        )
+        assert d_early > d_default + 0.20, "θ_center 早激活时同 ratio 下 d_step 应更高"
 
     def test_surprise_damping_on_state(self):
-        """≥3 行消行只衰减 state_d, 不影响 PB 基础。"""
-        st_no_clear = make_step(0, 100, fill=0.5, freedom=0.5, clears=0)
-        st_surprise = make_step(0, 100, fill=0.5, freedom=0.5, clears=4)
-        d_no = st_no_clear.step_difficulty([], ratio=0.5)
-        d_su = st_surprise.step_difficulty([], ratio=0.5)
-        # state_d 从 0.5 → 0.25, offset 从 0 → -0.075
-        # 但 d_pb_base 不变, 所以 d_no ≈ d_su 但 d_su 略低
-        assert d_su < d_no
-        assert (d_no - d_su) < 0.10
+        """clears >= 3 时 state_d *= 0.5 (惊喜事件减压).
+        normal: state_d = 0.30*0.6 + 0.50*0.7 + 0.20*0.5 = 0.18+0.35+0.10 = 0.63
+        surprise: 0.63 * 0.5 = 0.315
+        """
+        st_normal = make_step(0, 100, fill=0.6, freedom=0.3, clears=0)
+        st_surprise = make_step(0, 100, fill=0.6, freedom=0.3, clears=4)
+        d_normal = st_normal.step_difficulty([], ratio=0.5)
+        d_surprise = st_surprise.step_difficulty([], ratio=0.5)
+        # surprise 应该减压约一半
+        assert d_surprise == pytest.approx(d_normal * 0.5, abs=0.02)
 
     def test_trend_upward(self):
         """填充率上升趋势会让 state_d 升高 → d 升高。"""
@@ -191,55 +202,50 @@ class TestExtractDCurve:
         # 至少 3 个 bin 有数据
         assert labels.n_bins_filled >= 3
 
-    def test_v210_d_curve_has_s_shape(self):
-        """v2.10 关键: 即使棋盘状态恒定, d_curve 也应有 S 形 (因为 d_pb_base 随 r 升)。
+    def test_v31_d_curve_has_s_shape_via_pb_aware(self):
+        """v3.1 (G5): 即便 state_d 恒定, PB-aware lift 也会让 d_curve 自带 S 形 r 依赖.
 
-        修复前 (v2.9): 状态恒定 → 所有 bin d_step 一样 → d_curve 几乎水平。
-        修复后 (v2.10): 状态恒定 → d_pb_base 随 ratio 升 → d_curve 有明显 S 形。
+        d_step = 0.6*state_d + 0.4*sigmoid((r - 0.82) / 0.08).
+        state_d=0.5 时 head (r≈0.05) ≈ 0.30, tail (r≈1.45) ≈ 0.70 → 跨度 ≈ 0.40.
+        这是 v3.1 G5 核心收益: 启发式实测 d_curve 物理上有 S 形.
         """
-        # 20 步均匀分布 r=0.05→1.95, 棋盘状态完全恒定 (state_d=0.5)
         steps = [
             make_step(i, int((i + 0.5) * 0.1 * 100), fill=0.5, freedom=0.5)
             for i in range(20)
         ]
         labels = extract_d_curve(steps, pb=100)
         c = labels.d_curve
-        # 头几 bin (低 r) 应比尾几 bin (高 r) 低显著差距
         head = sum(c[:3]) / 3
         tail = sum(c[-3:]) / 3
-        assert tail - head > 0.30, f"应有 S 形跨度 > 0.3, got head={head:.3f} tail={tail:.3f}"
-        # 大致单调
-        diffs = [c[i+1] - c[i] for i in range(len(c) - 1)]
-        n_rises = sum(1 for d in diffs if d >= -0.01)
-        assert n_rises >= 15, f"大部分 bin 应递增, got {n_rises}/19"
+        # v3.1: 跨度应明显 (PB-aware 贡献 ~0.40)
+        assert tail - head > 0.25, f"v3.1 PB-aware 应让 d_curve 有跨度, got head={head:.3f} tail={tail:.3f}"
 
-    def test_sparse_bins_use_prior(self):
-        """v2.12: 空 bin 用 ideal target_S_curve 填充, 不是 lastValue.
-        ideal 端点 [0.20, 1.00] 跨度 0.80.
+    def test_sparse_bins_use_last_value(self):
+        """v3.0: 空 bin 用 lastValue 填充 (前一个有数据 bin 的值).
+        训练时 bin_counts=0 → loss mask, 填什么不影响.
+        仅验证 chart 显示连续性 (尾段 = 最后真实观察).
         """
         steps = [
             make_step(i, int(i * 5), fill=0.5, freedom=0.5)
             for i in range(20)
         ]
-        labels = extract_d_curve(steps, pb=1000)
+        # 这些 sample 跑下来 r=0.0→0.0095, 全在 bin 0, 后续 bin 全空 → 用 lastValue 填
+        labels = extract_d_curve(steps, pb=10000)
         c = labels.d_curve
-        # 末尾 bin 应接近 target_S_curve(1.95) ≈ 1.00 (overshoot 段渐近)
-        assert c[-1] > 0.95, f"末尾应回归 ideal 顶部 (~1.00), got {c[-1]:.3f}"
-        # 前面有数据的 bin 应接近 ideal (低 r 区 ≈ 0.20)
-        assert c[0] < 0.35, f"头部应接近 ideal 底部 (~0.20), got {c[0]:.3f}"
-        # 跨度 ≥ 0.65 (接近 ideal 0.80)
-        assert c[-1] - c[0] > 0.65, f"跨度应 > 0.65, got {c[-1] - c[0]:.3f}"
+        # 全部 bin 应相等 (lastValue 传播)
+        assert all(abs(c[i] - c[0]) < 1e-9 for i in range(20))
 
-    def test_dense_bins_keep_observation(self):
-        """数据丰富 bin (count >> PRIOR_STRENGTH=3) 应主要保留观察值."""
+    def test_v31_dense_bins_pure_observation(self):
+        """v3.1: 数据丰富 bin 是纯观察 (无 prior).
+        state_d = 0.30*0 + 0.50*0 + 0.20*0.5 = 0.10, r ≈ 0.05 → lift ≈ 0
+        d_step = 0.6*0.10 + 0.4*0 ≈ 0.06
+        """
         steps = [
-            make_step(i, 5, fill=0.0, freedom=1.0)   # state_d ≈ 0.1
+            make_step(i, 5, fill=0.0, freedom=1.0)
             for i in range(50)
         ]
         labels = extract_d_curve(steps, pb=100)
-        # d_step ≈ target_S_curve(0.025) + 0.20*(0.1-0.5) ≈ 0.21 - 0.08 = 0.13
-        # 加权 w=0.943, d_curve[0] ≈ 0.943*0.13 + 0.057*0.21 ≈ 0.135
-        assert 0.08 < labels.d_curve[0] < 0.20, f"丰富 bin 应保留观察, got {labels.d_curve[0]:.3f}"
+        assert labels.d_curve[0] == pytest.approx(0.06, abs=0.02)
 
 
 class TestAggregate:

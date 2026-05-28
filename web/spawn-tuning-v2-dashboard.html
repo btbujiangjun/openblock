@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenBlock 出块算法优化 (Spawn Algorithm Tuning) v2</title>
+  <title>OpenBlock 出块算法优化 (Spawn Algorithm Tuning)</title>
   <style>
     :root {
       color-scheme: dark;
@@ -106,16 +106,24 @@
     .form-row input[type="number"]::-webkit-inner-spin-button {
       -webkit-appearance: none; margin: 0;
     }
-    /* v2.10.14: checkbox label 横向布局 */
-    .form-row label.checkbox-inline {
+    /* v2.10.14 / v3.0.21: checkbox label 横向布局 — 全局生效, 不限于 .form-row 内
+       (之前的 .form-row label.checkbox-inline 选择器导致 .form-actions 内的同名 label
+        完全不被样式覆盖, 显示为浏览器默认大字号 → 风格不统一) */
+    label.checkbox-inline {
+      display: inline-flex;
       flex-direction: row; align-items: center; gap: 4px;
       font-size: 11px; color: var(--text);
-      flex: 0 0 auto;  /* 按内容宽度 */
       cursor: pointer;
-      padding-top: 12px; /* 跟其他 label 的 input 顶部对齐 */
+      white-space: nowrap;
     }
-    .form-row label.checkbox-inline input[type="checkbox"] {
+    label.checkbox-inline input[type="checkbox"] {
       width: 14px; height: 14px; cursor: pointer; flex-shrink: 0;
+      margin: 0;  /* 抹掉浏览器默认 margin, 让 gap 控制间距 */
+    }
+    /* form-row 列内的 checkbox-inline 需要顶部 padding, 跟其他 label 内 input 对齐 */
+    .form-row label.checkbox-inline {
+      flex: 0 0 auto;
+      padding-top: 12px;
     }
     .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
       margin: 8px 0 2px; }
@@ -290,7 +298,7 @@
   <main>
     <header>
       <div>
-        <h1>🧮 出块算法优化 <span style="font-size:12px; color:var(--purple); font-weight:normal;">v2.0 工业化</span></h1>
+        <h1>🧮 出块算法优化 <span style="font-size:12px; color:var(--purple); font-weight:normal;">SpawnParamTuner</span></h1>
         <p>S 型难度曲线 · ResNet-MLP L4 · 20 维 d_curve 标签 · 异步训练 · 灰度切量 · 离线 bundle 四端发布</p>
       </div>
       <div style="text-align:right; font-size:11px;">
@@ -367,7 +375,7 @@
           <button class="ghost preset-btn" data-preset="smoke">🔥 烟雾 (~30 秒)</button>
           <button class="ghost preset-btn preset-active" data-preset="debug">🐞 调试 (~5 分)</button>
           <button class="ghost preset-btn" data-preset="prod">🏭 生产 (~1 小时)</button>
-          <button class="ghost preset-btn" data-preset="hq" title="P1 v2.10.39 — 一键应用最佳配置: Lookahead 2-step + 关闭 PB 10k/25k + 8 θ × 3 seed. 真实观察率从 24% 提到 60%+, avg r 从 0.5 → 0.75+">🎯 高质量 v2.10.39 (~30 分)</button>
+          <button class="ghost preset-btn" data-preset="hq" title="v3.0.1 一键应用最佳配置: MCTS bot + Lookahead2 + 关闭 random + 关闭 PB 10k/25k + 8 θ × 3 seed + maxSteps 800. avg r 0.85+, 真实观察 65%+">🎯 高质量 v3.0.1 (~45 分)</button>
           <span id="active-preset" style="color:var(--purple); font-family:ui-monospace,monospace; font-size:10.5px;"></span>
         </div>
 
@@ -398,22 +406,16 @@
             <span class="dim-count" data-count="difficulty">3/3</span>
           </div>
           <div class="dim-row">
-            <span class="dim-label" title="出块算法: 启发式由规则评分候选 → 选最佳 (triplet-p1=P1 组合评分, budget-p2=P2 预算约束, heuristic-rule=基础规则); 生成式 (generative) 直接由 SpawnPolicyNet 模型推断 3 块">出块算法</span>
+            <span class="dim-label" title="v3.0.8: 与游戏页面 getSpawnPolicyMode() 严格 1:1&#10;• 启发式 (rule) — game.js _commitSpawn 走规则路径 + θ 调 PB 曲线&#10;• 生成式 (generative) — game.js _spawnBlocksWithModel 调 SpawnPolicyNet">出块算法</span>
             <div class="chip-group" data-dim="generator">
-              <button class="chip chip-on" data-val="triplet-p1" title="启发式·P1 — triplet 组合评分">启发式·P1
-                <span class="chip-aux">triplet-p1</span>
+              <button class="chip chip-on" data-val="rule" title="启发式 — 游戏页面 rule 模式. 部署 bundle 后 θ* 自动注入, 寻参主路径.">启发式
+                <span class="chip-aux">寻参</span>
               </button>
-              <button class="chip chip-on" data-val="budget-p2" title="启发式·P2 — 预算约束 4 类">启发式·P2
-                <span class="chip-aux">budget-p2</span>
-              </button>
-              <button class="chip" data-val="heuristic-rule" title="启发式·规则版 — sim 原生 SPAWN_POLICY_RULES, 不做 triplet 组合优化">启发式·规则
-                <span class="chip-aux">heuristic-rule</span>
-              </button>
-              <button class="chip" data-val="generative" title="生成式 — sampler 通过 HTTP 调 /api/spawn-model/v3/predict (SpawnPolicyNet) 拿 dock. 比启发式慢 ~10-50x. 失败自动 fallback baseline">生成式
-                <span class="chip-aux">generative · HTTP</span>
+              <button class="chip" data-val="generative" title="生成式 — 游戏页面 generative 模式 (调 SpawnPolicyNet, HTTP). 比启发式慢, 仅模型可用时勾选">生成式
+                <span class="chip-aux">V3 · HTTP</span>
               </button>
             </div>
-            <span class="dim-count" data-count="generator">2/4</span>
+            <span class="dim-count" data-count="generator">1/2</span>
           </div>
           <div class="dim-row">
             <span class="dim-label">Bot 模拟</span>
@@ -467,6 +469,14 @@
             <input id="cfg-max-steps" type="number" min="30" max="1000" value="500">
           </label>
           <label>样本集名<input id="cfg-set-name" type="text" placeholder="auto"></label>
+          <label title="θ 来源 — 决定本次采集每个 ctx 用哪些 θ 跑启发式&#10;&#10;• LHS 全空间探索: 9 维 θ 空间均匀抽样 ── 首次训练用 (i=0)&#10;• 默认 θ (0.5): 所有 θ 取中点, 生成 baseline 样本集 (用于 G3 撬动对照)&#10;• 围绕 deployed θ* 抖动: 读当前部署 bundle 的 best θ, ±10% 噪声 ── 闭环迭代精化 (i≥1)&#10;• 70% 抖动 + 30% LHS: 探索/利用混合 ── 防止陷入局部解&#10;&#10;闭环操作流程:&#10;1. 首次: LHS → 训练 → 部署 (勾「优化 θ」)&#10;2. baseline 对照: 默认 θ → 采样 → 此 set 在 Tab⑤ baseline dropdown 中选&#10;3. 第 2+ 轮: 围绕 deployed θ* 抖动 → 训练 → 部署&#10;4. 重复直到 val_ideal_mae 不再下降"><span>θ 来源 <span style="color:#60a5fa; font-size:9px; cursor:help;">[?]</span></span>
+            <select id="cfg-theta-source">
+              <option value="lhs" selected>LHS · 全空间探索 (首训)</option>
+              <option value="default">默认 θ (中点 0.5, baseline)</option>
+              <option value="bundle-perturb">围绕 deployed θ* 抖动 (迭代精化)</option>
+              <option value="bundle-mix">70% 抖动 + 30% LHS (混合)</option>
+            </select>
+          </label>
           <label class="checkbox-inline" title="G8: 1-step lookahead, bot 更激进 (~+30% score/step). 采样略慢.">
             <input type="checkbox" id="cfg-lookahead"> Lookahead 1-step
             <span style="color:var(--muted); font-size:9.5px;">(G8)</span>
@@ -569,22 +579,25 @@
         <details style="margin: 6px 0; padding: 4px 0; border-top: 1px dashed rgba(255,255,255,0.08);">
           <summary style="cursor:pointer; font-size:11px; color:var(--muted);">▸ 专家模式: Loss 权重调节 (11 项)</summary>
           <div class="form-row" style="margin-top:6px;">
-            <label class="narrow" title="d_curve 形态 MSE (v2.10.39 P2: 2.0→3.0, 加大实测拟合)">shape<input id="lw-shape" type="text" value="3.0"></label>
+            <label class="narrow" title="d_curve 形态 MSE — v3.0.13: 1.0→5.0 让 sample 主导, model 真学 (ctx,θ)→curve 映射">shape<input id="lw-shape" type="text" value="5.0"></label>
             <label class="narrow" title="跨 PB bin 方差">balance<input id="lw-balance" type="text" value="0.15"></label>
             <label class="narrow" title="surprise 频率 ~7%">surprise<input id="lw-surprise" type="text" value="0.3"></label>
             <label class="narrow" title="破 PB 单调 hinge">breaking<input id="lw-breaking" type="text" value="0.5"></label>
             <label class="narrow" title="对 θ 平滑度">smooth<input id="lw-smooth" type="text" value="0.04"></label>
             <label class="narrow" title="辅助 head">aux<input id="lw-aux" type="text" value="0.2"></label>
             <label class="narrow" title="PB 累积到达 (默认 0)">pb_dist<input id="lw-pb-dist" type="text" value="0.0"></label>
-            <label class="narrow" title="7 锚点 hinge">anchor<input id="lw-anchor" type="text" value="3.0"></label>
+            <label class="narrow" title="22 r 点 hinge — v3.0.13: 15.0→3.0 (仅保关键锚, 中段放开让 model 学 ctx 分布)">anchor<input id="lw-anchor" type="text" value="3.0"></label>
             <label class="narrow" title="软单调 v2.9.1">monotonic<input id="lw-monotonic" type="text" value="2.5"></label>
-            <label class="narrow" title="calibrated S 拟合 (v2.10.39 P2: 1.8→0.5, 削弱 calibrated 引力)">target_fit<input id="lw-target-fit" type="text" value="0.5"></label>
-            <label class="narrow" title="头尾锚到 ideal (0.20, 1.00), tol ±0.06. 加大权重让 model 端点贴 ideal 而非 calibrated">endpoint<input id="lw-endpoint" type="text" value="4.0"></label>
+            <label class="narrow" title="★ ideal target_S_curve 弱锚 — v3.0.13: 2.5→0.5 仅作 hint, 让 sample 主导">target_fit<input id="lw-target-fit" type="text" value="0.5"></label>
+            <label class="narrow" title="头尾端点 hint — v3.0.13: 12.0→2.0 不再死锁, 让 model 更自由">endpoint<input id="lw-endpoint" type="text" value="2.0"></label>
           </div>
-          <p class="muted-hint" style="margin: 2px 0; font-size: 10.5px;">默认值 = v2.10.39 优化版 (shape↑/target_fit↓/endpoint↑ 锚 ideal, 拉跨度从 0.62 → 0.75+)。改这些可能让模型不收敛, 仅专家使用。</p>
+          <p class="muted-hint" style="margin: 2px 0; font-size: 10.5px;">默认值 = v3.0.13 (shape 5.0 主导 / target_fit 0.5 弱锚 / endpoint 2.0 / anchor 3.0; 朝 ideal 合力:朝 sample 力 = 2:1, 让 model 真学 ctx/θ 分布). 仅专家使用。</p>
         </details>
         <div class="form-actions">
           <button id="btn-submit-job">▶ 提交训练任务</button>
+          <label class="checkbox-inline" title="训练完成后自动 build-and-export bundle. v3.0.11 起 ckpt 含训练时联合优化的 best θ* 表, 部署仅需秒级. 省去手动切 Tab ⑤ 操作.">
+            <input type="checkbox" id="job-auto-export" checked> 自动部署
+          </label>
           <button id="btn-refresh-jobs" class="ghost">↻ 刷新</button>
           <span id="job-hint" class="muted-hint"></span>
         </div>
@@ -624,22 +637,33 @@
     <!-- ════════════════ ④ 部署与监控 ════════════════ -->
     <div class="tab-content" id="tab-deploy">
       <section>
-        <h2>D.1 离线 Bundle 导出 (Export) <span style="font-weight:normal; font-size:11px; color:var(--muted);">— 写 dist/ + 微信小程序模块, 客户端打包时随包发布</span></h2>
+        <h2>D.1 部署 <span style="font-weight:normal; font-size:11px; color:var(--muted);">— 让模型寻参的最优 θ 在 Web + 小程序生效</span></h2>
+        <details style="background:rgba(96,165,250,0.06); border:1px solid rgba(96,165,250,0.25); border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:12px;">
+          <summary style="cursor:pointer; color:#60a5fa; font-weight:600;">💡 闭环迭代流程 (推荐做法 / 点开查看)</summary>
+          <ol style="margin:8px 0 0 16px; color:var(--text); line-height:1.7;">
+            <li><b>采样</b> (Tab ②) — θ 来源选「LHS · 全空间探索」(首训) 或「围绕 deployed θ* 抖动」(后续迭代)</li>
+            <li><b>baseline 样本</b> (Tab ②, 可选) — θ 来源选「默认 θ (0.5)」单独跑一个 set, 用作 G3 撬动对照 (跟部署无关)</li>
+            <li><b>训练</b> (Tab ③) — 关注 <code>val_ideal_mae</code>; 勾「自动部署」可省下一步</li>
+            <li><b>部署</b> (本面板) — 选模型 + 灰度% → 部署. v3.0.11 起新模型在训练时已联合 backprop best θ\* 表, 部署直接读表写 bundle (秒级). 老模型 fallback 90-180s surrogate.</li>
+            <li><b>验证撬动</b> (Tab ⑤ d_curve 对照) — 主样本集 = 本轮 (best θ\* 跑出); baseline dropdown 选步骤 2 的 set, meta 区显示 <code>⚡ θ 撬动 = +X.XX</code></li>
+            <li><b>下一轮</b> — 回 Tab ②, θ 来源切「围绕 deployed θ* 抖动」, 重复 3-5 直到 <code>val_ideal_mae</code> 不再下降</li>
+          </ol>
+        </details>
         <div class="form-row">
-          <label>选模型 (自动取关联 policies.json)
+          <label title="选已训完模型, 自动取兄弟 policies.json">模型
             <select id="bundle-model">
-              <option value="">— 选已训完模型 —</option>
+              <option value="">—</option>
             </select>
           </label>
-          <label>或手填路径 (可选, 优先生效)
-            <input id="bundle-src" type="text" placeholder="留空时取上面所选模型的兄弟 .policies.json">
+          <label title="可选 · 手填 policies.json 路径, 优先于模型选择">路径
+            <input id="bundle-src" type="text" placeholder="(可选)">
           </label>
-          <label class="narrow">灰度比例 (rollout_pct)
+          <label class="narrow" title="灰度比例 rollout_pct (0-100). 100=全量 / 50=半量 / 10=10% 玩家命中. 控制本次部署的渐进生效">灰度%
             <input id="bundle-rollout" type="number" min="0" max="100" value="100">
           </label>
         </div>
         <div class="form-actions">
-          <button id="btn-export-bundle">📦 导出 Bundle (Web + 小程序)</button>
+          <button id="btn-export-bundle">🚀 部署</button>
           <button id="btn-bundle-status" class="ghost">↻ 当前状态</button>
           <span id="bundle-hint" class="muted-hint"></span>
         </div>
@@ -680,13 +704,16 @@
     <!-- ════════════════ ⑤ d_curve 分析 ════════════════ -->
     <div class="tab-content" id="tab-analysis">
       <section>
-        <h2>📊 d_curve 三线对照 <span style="font-weight:normal; font-size:11px; color:var(--muted);">目标 S 曲线 vs 模型预测 vs 实测均值</span></h2>
-        <p class="muted-hint">业务直观图: r = score/PB ∈ [0, 1.5], 难度 D ∈ [0, 1] · <b>v2.10.30</b>: 主线 (实测/模型预测) 与分组线在同 ctx 集合上加权聚合, 分组线默认走<b>模型预测</b>展示 model 在该维度的差异</p>
+        <h2>📊 d_curve 对照 <span style="font-weight:normal; font-size:11px; color:var(--muted);">目标 S 曲线 vs 模型预测 vs 实测均值 (v3.0.9: 可选 baseline 对照, 看 θ 撬动幅度)</span></h2>
+        <p class="muted-hint">业务直观图: r = score/PB ∈ [0, 1.5], 难度 D ∈ [0, 1] · 主线 = 该样本集实测均值; <b>baseline 副线</b> = 用 default θ 跑的对照样本集, 用来量化"θ 寻参撬动了多少实测 MAE"</p>
 
         <!-- v2.10.23: 三个下拉加宽 (default 130px 太窄, 文字被截断) -->
         <div class="form-row">
           <label style="flex: 0 0 240px;">选样本集 (实测数据)
             <select id="curve-set"><option value="">— 不加载实测 —</option></select>
+          </label>
+          <label style="flex: 0 0 240px;" title="v3.0.9 (G3): baseline 对照样本集 — 用 default θ (≈ 0.5) 跑的样本集. 选定后在 chart 上以橙色虚线显示该样本集实测均值, meta 区显示「baseline vs best 撬动 MAE」">baseline 对照 (可选)
+            <select id="curve-baseline-set"><option value="">— 不对照 —</option></select>
           </label>
           <label style="flex: 0 0 240px;" title="按某维度分组对比. 分组线 = 该分组内所有 ctx 的模型预测加权均值, 未选模型时 fallback 实测样本均值">分组维度
             <select id="curve-group-by" style="font-size:11px;">
@@ -703,8 +730,8 @@
               <option value="">— 不推断 (只画目标 / 实测) —</option>
             </select>
           </label>
-          <!-- v2.10.33/38: MC Dropout 不确定性带 -->
-          <label class="checkbox-inline" title="MC Dropout 30 次采样, chart 上画 ±2σ 半透明带 (绿色). 高方差 bin 暗示 model 自身没把握, 通常出现在 r > avg_r 的稀疏区. 推断慢 ~10x. 注: σ 太小时 (model 很自信) 仍画到最小视觉宽度 0.8%, 真实 σ 见 meta 区数值.">
+          <!-- v2.10.33/38: MC Dropout 不确定性带; v3.0.21: 勾选/反勾直接生效 -->
+          <label class="checkbox-inline" title="MC Dropout 30 次采样, chart 上画 ±2σ 半透明带 (绿色) + 上下虚线边界. 高方差 bin = model 自知没把握 (通常 r > avg_r 稀疏区).&#10;v3.0.21: 切换即时生效 — 首次勾选慢 ~10x (MC Dropout 30 次推断), 再勾命中缓存秒回; 反勾普通 predict 即时. σ 太小时按最小视觉 0.8% 渲染, 真实数值见 meta 区.">
             <input type="checkbox" id="curve-uncertainty"> 显示不确定性带 ±2σ
           </label>
         </div>

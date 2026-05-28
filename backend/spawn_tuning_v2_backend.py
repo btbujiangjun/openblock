@@ -99,48 +99,105 @@ def ensure_schema():
     # v2.10.37: 检测 samples CHECK 约束是否过时 (v2.10.34/35 加了 heuristic-rule / generative / rl-bot)
     #   SQLite 不支持 ALTER TABLE 改 CHECK, 必须重建表
     _migrate_samples_check_constraints(conn)
+    # θ 维度变化时 purge 老样本 (旧 θ 只有 9 维, 跟新 27 维 不兼容)
+    _purge_legacy_theta_samples(conn)
     conn.commit()
     conn.close()
 
 
+def _purge_legacy_theta_samples(conn):
+    """检查首条 samples.theta_json key 数, 若 < 当前 THETA_KEYS 数则全部 purge.
+
+    避免:
+      - 老 θ (9 维) 跟新 θ (27 维) 混训
+      - 模型读到缺字段的 theta_dict 时静默 fallback 中点, 导致 ctx → θ 映射失真
+    清空 samples 表 + 重置 sample_sets.sample_count.
+    """
+    try:
+        from rl_pytorch.spawn_tuning_v2.feature_io import THETA_KEYS
+    except Exception:
+        return
+    expected = len(THETA_KEYS)
+    row = conn.execute(
+        "SELECT theta_json FROM samples WHERE theta_json IS NOT NULL LIMIT 1"
+    ).fetchone()
+    if not row:
+        return   # 空表, 无需操作
+    try:
+        theta = json.loads(row[0])
+        actual = len(theta) if isinstance(theta, dict) else 0
+    except (ValueError, TypeError):
+        actual = 0
+    if actual >= expected:
+        return
+    n = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
+    print(f"[ensure_schema] θ 维度从 {actual} 升级到 {expected}, 清空 {n} 条老样本 ...")
+    conn.execute("DELETE FROM samples")
+    conn.execute("UPDATE sample_sets SET sample_count = 0")
+    conn.commit()
+
+
 def _migrate_samples_check_constraints(conn):
-    """v2.10.37: 如果 samples 表 CHECK 不含新 enum 值, 重建表 (保留所有数据)."""
+    """v3.0.8: GENERATOR 与游戏页面 1:1 严格对齐 ('rule' / 'generative').
+
+    迁移逻辑:
+      1. 检测 samples CHECK 约束: 若不是 ['rule', 'generative'] 唯二, 需要重建
+      2. **删除** 所有 generator NOT IN ('rule', 'generative') 的老样本
+         (旧枚举 triplet-p1 / budget-p2 / heuristic-rule / model-v3 / generative-* 全部 purge)
+      3. 用新 schema 重建 samples 表 (CHECK 收紧)
+    """
     row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='samples'").fetchone()
     if not row or not row[0]:
         return
     table_sql = row[0]
-    # 检测是否包含 v2.10.34/35 新加的 enum (任何一个缺失就需要 migrate)
-    required_tokens = ["'heuristic-rule'", "'generative'", "'rl-bot'"]
-    if all(tok in table_sql for tok in required_tokens):
-        return   # CHECK 已是最新
-    print("[ensure_schema] v2.10.37 migrate: 重建 samples 表 (扩展 CHECK 允许 heuristic-rule/generative/rl-bot) ...")
+    # v3.0.8 严格 CHECK: 仅含 'rule' / 'generative', 且 token 总数恰好 2 个
+    forbidden_old_tokens = [
+        "'triplet-p1'", "'budget-p2'", "'heuristic-rule'", "'model-v3'",
+    ]
+    has_strict_check = (
+        "'rule'" in table_sql
+        and "'generative'" in table_sql
+        and not any(tok in table_sql for tok in forbidden_old_tokens)
+    )
+    if has_strict_check:
+        return   # CHECK 已是 v3.0.8 严格枚举
+    print("[ensure_schema] v3.0.8 migrate: 收紧 samples CHECK 为 (rule / generative), 删除老 generator 样本 ...")
     # 用 schema.sql 完整定义重建. 但 schema.sql 里 CREATE TABLE IF NOT EXISTS 不会重建,
     # 所以这里手动 DROP 老表 + 用 schema.sql 重建 + 把老数据 copy 回来.
     conn.execute("BEGIN")
     try:
-        # 1. snapshot 老数据到 temp 表
+        # 1. snapshot 老数据到 temp 表 (含老 generator 的样本)
         conn.execute("CREATE TABLE samples_backup AS SELECT * FROM samples")
-        # 2. 老表 DROP — 注意外键: sample_sets 不引用 samples (sample_count 是 denormalized), 安全 DROP
+        purged = conn.execute(
+            "SELECT COUNT(*) FROM samples_backup WHERE generator NOT IN ('rule', 'generative')"
+        ).fetchone()[0]
+        # 2. 老表 DROP
         conn.execute("DROP TABLE samples")
-        # 3. 用 schema.sql 重建 (跳过其他表, 只取 samples 段). 简单做法: 重跑整个 schema.sql,
-        #    其他表用 CREATE TABLE IF NOT EXISTS 不会被破坏
+        # 3. 用 schema.sql 重建 (新 CHECK 严格)
         if SCHEMA_PATH.exists():
             conn.executescript(SCHEMA_PATH.read_text())
-        # 4. 把老数据塞回 (CHECK 现在更宽, 老 enum 全部仍有效)
+        # 4. 只 copy 符合新 CHECK 的样本 (即 generator IN ('rule', 'generative')) 回来
         old_cols_row = conn.execute("PRAGMA table_info(samples_backup)").fetchall()
         old_cols = [r[1] for r in old_cols_row]
         new_cols_row = conn.execute("PRAGMA table_info(samples)").fetchall()
         new_cols = {r[1] for r in new_cols_row}
-        # 只 copy 同时存在于 old 和 new 的列
         common = [c for c in old_cols if c in new_cols]
         col_list = ", ".join(common)
-        conn.execute(f"INSERT INTO samples ({col_list}) SELECT {col_list} FROM samples_backup")
+        conn.execute(
+            f"INSERT INTO samples ({col_list}) SELECT {col_list} FROM samples_backup "
+            f"WHERE generator IN ('rule', 'generative')"
+        )
         conn.execute("DROP TABLE samples_backup")
+        # 5. 同步 sample_sets.sample_count (老 set 的 count 含已 purge 的样本, 需重算)
+        conn.execute(
+            "UPDATE sample_sets SET sample_count = "
+            "(SELECT COUNT(*) FROM samples WHERE samples.set_id = sample_sets.set_id)"
+        )
         conn.execute("COMMIT")
-        print("[ensure_schema] v2.10.37 migrate: 完成, samples CHECK 已更新")
+        print(f"[ensure_schema] v3.0.8 migrate: 完成, 已 purge {purged} 条老 generator 样本; samples CHECK 收紧为 (rule / generative)")
     except Exception as e:
         conn.execute("ROLLBACK")
-        print(f"[ensure_schema] v2.10.37 migrate 失败, 回滚: {e}")
+        print(f"[ensure_schema] v3.0.8 migrate 失败, 回滚: {e}")
         raise
 
 
@@ -339,7 +396,7 @@ def register_v2_routes(app):
                     int(bool(s.get("pb_broke", False))), s.get("surprise_count", 0),
                     s.get("seed"), s.get("eval_ms"),
                     s.get("evaluated_at", int(time.time() * 1000)),
-                    s.get("algo_version", "v2.12"),   # d_pb_base = ideal target_S_curve
+                    s.get("algo_version", "v3.1"),    # v3.1 (G5): PB-aware d_step + θ 物理调制
                     s.get("n_bins_filled"),
                     _bc_json,
                 )
@@ -654,13 +711,13 @@ def register_v2_routes(app):
             for i in range(n_bins)
         ]
         spread = avg_curve[-1] - avg_curve[0]
-        # 跟 calibrated S 形比 (业务期望)
+        # 跟 ★ ideal S 形比 (业务期望, v3.0.4 移除 calibrated 之后唯一参考)
         try:
-            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
-            calibrated = target_curve_calibrated_vector()
-            calibrated_mae = sum(abs(a - c) for a, c in zip(avg_curve, calibrated)) / n_bins
+            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
+            ideal = target_curve_vector()
+            ideal_mae = sum(abs(a - c) for a, c in zip(avg_curve, ideal)) / n_bins
         except Exception:
-            calibrated_mae = None
+            ideal_mae = None
         # 单调性 (相邻倒退 bin 数)
         n_decreasing = sum(1 for i in range(n_bins - 1) if avg_curve[i + 1] < avg_curve[i] - 0.005)
 
@@ -718,8 +775,8 @@ def register_v2_routes(app):
                 "avg": [round(v, 4) for v in avg_curve],
                 "std": [round(v, 4) for v in std_curve],
                 "spread": round(spread, 4),
-                "spread_vs_calibrated": round(0.62 - spread, 4),  # gap to v2.10.6 calibrated 跨度
-                "calibrated_mae": round(calibrated_mae, 4) if calibrated_mae is not None else None,
+                "spread_vs_ideal": round(0.80 - spread, 4),  # gap to ideal S 跨度
+                "ideal_mae": round(ideal_mae, 4) if ideal_mae is not None else None,
                 "n_decreasing_bins": n_decreasing,
             },
             "bot_performance": {
@@ -830,6 +887,215 @@ def register_v2_routes(app):
         # 不需要 X-Content-Type-Options 类的额外头 (Flask 默认会加 Connection: close)
         return resp
 
+    @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/scatter", methods=["GET"])
+    def sample_set_scatter(set_id):
+        """v3.0.16 (严格): 逐 sample 打点 — 每条 sample 1 个实测点 + (可选) 1 个预测点.
+
+        每个 sample 产生:
+          - r = final_score / pb (该 sample 跑完时的 r)
+          - d_observed = sample.d_curve[final_bin]    (真实 bin 才算, 填充段跳过)
+          - d_predicted = model(ctx, theta).curve[final_bin]   (model_id 提供时)
+
+        Returns: { points: [[r, d_obs, d_pred_or_null, dim_key], ...] }
+          v3.0.22: 固定 4 元组, d_pred 缺失时为 null. dim_key = "diff|gen|bot|pb|life",
+              供前端按 group_by 维度分组散点 (替代以前的 group mean 折线).
+
+        Query:
+          model_id: optional — 提供时增加 d_predicted 列 (用 sample 的真实 ctx+θ 推断)
+          difficulty/generator/bot_policy/pb_bin/lifecycle_stage: optional filter
+          limit_samples: 0=全量 (上限 100k), N=最多 N (防 OOM)
+        """
+        # 全量默认, 0 = 不限制. 上限 100k 防 OOM.
+        try:
+            raw_limit = int(request.args.get("limit_samples", 0))
+        except ValueError:
+            return jsonify({"error": "invalid limit_samples"}), 400
+        limit_samples = 100000 if raw_limit <= 0 else max(1, min(100000, raw_limit))
+        model_id_arg = request.args.get("model_id")
+
+        # 可选维度筛选
+        where_parts = ["set_id = ?"]
+        params: list = [set_id]
+        for dim in ("difficulty", "generator", "bot_policy", "lifecycle_stage"):
+            v = request.args.get(dim)
+            if v:
+                where_parts.append(f"{dim} = ?")
+                params.append(v)
+        pb_v = request.args.get("pb_bin")
+        if pb_v:
+            try:
+                where_parts.append("pb_bin = ?")
+                params.append(int(pb_v))
+            except ValueError:
+                pass
+
+        where_sql = " AND ".join(where_parts)
+        db = get_db()
+        if not db.execute("SELECT 1 FROM sample_sets WHERE set_id = ?", (set_id,)).fetchone():
+            db.close()
+            return jsonify({"error": "sample_set not found"}), 404
+        rows = db.execute(
+            f"SELECT sample_id, difficulty, generator, bot_policy, pb_bin, lifecycle_stage, "
+            f"final_score, d_curve_json, bin_counts_json, theta_json "
+            f"FROM samples WHERE {where_sql} LIMIT ?",
+            (*params, limit_samples),
+        ).fetchall()
+        db.close()
+
+        import math
+        try:
+            from rl_pytorch.spawn_tuning_v2.target_curve import CURVE_N_BINS, CURVE_R_MAX
+            from rl_pytorch.spawn_tuning_v2.feature_io import (
+                DIFFICULTY_INDEX, GENERATOR_INDEX, BOT_INDEX, PB_BIN_INDEX, LIFECYCLE_INDEX,
+                normalize_theta,
+            )
+        except Exception:
+            return jsonify({"error": "spawn_tuning_v2 module unavailable"}), 503
+        bin_width = CURVE_R_MAX / CURVE_N_BINS
+
+        # ─── 第 1 步: 收集每 sample 的实测点 (final_r, final_bin, d_observed) ───
+        # 同时记录 ctx 索引 + theta_norm (用于后续 batch predict)
+        sample_entries = []   # [{r_final, final_bin, d_obs, ctx_idx_dict, theta_norm}]
+        for r in rows:
+            pb = r["pb_bin"]
+            score = r["final_score"]
+            if not pb or pb <= 0 or score is None:
+                continue
+            r_final = min(CURVE_R_MAX - 1e-9, score / pb)
+            final_bin = int(r_final / bin_width)
+            try:
+                curve = json.loads(r["d_curve_json"])
+                bc = json.loads(r["bin_counts_json"]) if r["bin_counts_json"] else None
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(curve, list) or len(curve) != CURVE_N_BINS:
+                continue
+            # 只取真实观察 bin (bin_counts[final_bin] > 0); 否则该 sample 跳过 (填充段不算)
+            if not bc or len(bc) != CURVE_N_BINS or (bc[final_bin] or 0) == 0:
+                continue
+            d_obs = curve[final_bin]
+            # v3.0.22: dim_key = "diff|gen|bot|pb|life" 供前端按 group_by 维度散点分组
+            #   (pb_bin 是 int, 转 str 才能拼接; lifecycle_stage 可能为 None → "?")
+            dim_key = "|".join([
+                str(r["difficulty"] or "?"),
+                str(r["generator"] or "?"),
+                str(r["bot_policy"] or "?"),
+                str(r["pb_bin"] or "?"),
+                str(r["lifecycle_stage"] or "?"),
+            ])
+            entry = {
+                "r": round(r_final, 4), "d_obs": round(d_obs, 4),
+                "final_bin": final_bin, "dim_key": dim_key,
+            }
+            if model_id_arg:
+                try:
+                    entry["ctx_idx"] = {
+                        "difficulty_idx": DIFFICULTY_INDEX[r["difficulty"]],
+                        "generator_idx": GENERATOR_INDEX[r["generator"]],
+                        "bot_idx": BOT_INDEX[r["bot_policy"]],
+                        "pb_bin_idx": PB_BIN_INDEX[int(r["pb_bin"])],
+                        "lifecycle_idx": LIFECYCLE_INDEX[r["lifecycle_stage"]],
+                        "log_pb": math.log10(max(1.0, float(r["pb_bin"]))),
+                    }
+                    if r["theta_json"]:
+                        theta_dict = json.loads(r["theta_json"])
+                        entry["theta_norm"] = normalize_theta(theta_dict).tolist()
+                except (KeyError, ValueError, TypeError):
+                    pass
+            sample_entries.append(entry)
+
+        # ─── 第 2 步: 若提供 model_id, batch forward 拿每 sample 的 d_predicted ───
+        if model_id_arg and sample_entries:
+            try:
+                model_id = int(model_id_arg)
+            except ValueError:
+                model_id = None
+            if model_id:
+                # 加载 model (同 predict-curve 路径)
+                try:
+                    import torch
+                    from rl_pytorch.spawn_tuning_v2.model import (
+                        SpawnParamTunerResNet, SpawnParamTunerTransformer,
+                        N_THETA, N_CURVE_BINS as _NCB, load_state_dict_compat,
+                    )
+                except Exception as e:
+                    return jsonify({"error": f"torch unavailable: {e}"}), 503
+                db = get_db()
+                row = db.execute(
+                    "SELECT weights_path, model_type FROM models WHERE model_id = ?",
+                    (model_id,),
+                ).fetchone()
+                db.close()
+                if row and row["weights_path"] and Path(row["weights_path"]).exists():
+                    try:
+                        ck = torch.load(row["weights_path"], map_location="cpu", weights_only=False)
+                        arch = ck.get("arch", {}) or {}
+                        mt = (arch.get("model_type") or row["model_type"] or "resnet").lower()
+                        if mt == "transformer":
+                            model = SpawnParamTunerTransformer(
+                                d_model=arch.get("d_model", 64),
+                                n_layers=arch.get("n_layers", 3),
+                                curve_bins=arch.get("curve_bins", _NCB),
+                            )
+                        else:
+                            model = SpawnParamTunerResNet(
+                                hidden_dim=arch.get("hidden_dim", 128),
+                                n_blocks=arch.get("n_blocks", 8),
+                                curve_bins=arch.get("curve_bins", _NCB),
+                            )
+                        load_state_dict_compat(model, ck["model_state_dict"])
+                        model.eval()
+
+                        # 过滤出有 ctx_idx 的 entries 做 batch forward
+                        predictable = [e for e in sample_entries if "ctx_idx" in e]
+                        if predictable:
+                            N = len(predictable)
+                            diff_t = torch.tensor([e["ctx_idx"]["difficulty_idx"] for e in predictable], dtype=torch.long)
+                            gen_t = torch.tensor([e["ctx_idx"]["generator_idx"] for e in predictable], dtype=torch.long)
+                            bot_t = torch.tensor([e["ctx_idx"]["bot_idx"] for e in predictable], dtype=torch.long)
+                            pb_t = torch.tensor([e["ctx_idx"]["pb_bin_idx"] for e in predictable], dtype=torch.long)
+                            life_t = torch.tensor([e["ctx_idx"]["lifecycle_idx"] for e in predictable], dtype=torch.long)
+                            log_pb_t = torch.tensor([e["ctx_idx"]["log_pb"] for e in predictable], dtype=torch.float32)
+                            # theta: 缺失的用 0.5 中点 fallback
+                            theta_list = [
+                                e.get("theta_norm") if isinstance(e.get("theta_norm"), list) and len(e["theta_norm"]) == N_THETA
+                                else [0.5] * N_THETA
+                                for e in predictable
+                            ]
+                            theta_t = torch.tensor(theta_list, dtype=torch.float32)
+                            with torch.no_grad():
+                                preds = model(
+                                    difficulty_idx=diff_t, generator_idx=gen_t, bot_idx=bot_t,
+                                    pb_bin_idx=pb_t, lifecycle_idx=life_t, log_pb=log_pb_t,
+                                    theta_norm=theta_t,
+                                )
+                                curves = preds["curve"].cpu().numpy()
+                            for i, e in enumerate(predictable):
+                                e["d_pred"] = round(float(curves[i][e["final_bin"]]), 4)
+                    except Exception as e:
+                        # model 加载/推断失败 — 静默, 只返回实测点
+                        pass
+
+        # ─── 第 3 步: 输出 points 数组 ───
+        # v3.0.22: 固定 4 元组 [r, d_obs, d_pred_or_null, dim_key], 简化前端处理
+        #   dim_key = "diff|gen|bot|pb|life", 让前端按 group_by 维度分组散点
+        points = []
+        for e in sample_entries:
+            d_pred = e.get("d_pred")
+            points.append([e["r"], e["d_obs"], d_pred, e["dim_key"]])
+
+        return jsonify({
+            "set_id": set_id,
+            "n_samples_used": len(rows),
+            "n_points": len(points),
+            "r_max": CURVE_R_MAX,
+            "with_prediction": bool(model_id_arg),
+            # v3.0.22: schema 标识, 客户端可据此识别是否带 dim_key
+            "schema": "v3.0.22",
+            "points": points,
+        })
+
+
     @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/aggregate", methods=["GET"])
     def aggregate_curves(set_id):
         """按 5 维场景聚合 d_curve (avg)。可选 group_by 参数。"""
@@ -843,23 +1109,33 @@ def register_v2_routes(app):
             return jsonify({"error": "sample_set not found"}), 404
 
         # v2.10.32 (P0.1): 同时拿 n_bins_filled 透明化
+        # v3.0.12: 同时拿 theta_json 用于"模型预测" 的实时推理 (用 sample 的真实 θ 而非 0.5)
+        # v3.0.14 (A): 拿 bin_counts_json 算每个 bin 的真实观察数, 区分 mean 是真实统计还是 lastValue 填充
         if groups:
             group_cols = ", ".join(groups)
             rows = db.execute(
-                f"SELECT {group_cols}, d_curve_json, n_bins_filled, final_score, pb_bin "
+                f"SELECT {group_cols}, d_curve_json, n_bins_filled, final_score, pb_bin, theta_json, bin_counts_json "
                 f"FROM samples WHERE set_id = ?",
                 (set_id,),
             ).fetchall()
         else:
             rows = db.execute(
-                "SELECT d_curve_json, n_bins_filled, final_score, pb_bin FROM samples WHERE set_id = ?",
+                "SELECT d_curve_json, n_bins_filled, final_score, pb_bin, theta_json, bin_counts_json FROM samples WHERE set_id = ?",
                 (set_id,),
             ).fetchall()
         db.close()
 
+        # 拿 THETA_KEYS 用于解析 + 排序
+        try:
+            from rl_pytorch.spawn_tuning_v2.feature_io import THETA_KEYS, THETA_RANGES, normalize_theta
+            theta_keys = list(THETA_KEYS)
+        except Exception:
+            theta_keys = []
+            normalize_theta = None
+
         # 按分组聚合
         from collections import defaultdict
-        bucket = defaultdict(lambda: {"curves": [], "filled": [], "rs": []})
+        bucket = defaultdict(lambda: {"curves": [], "filled": [], "rs": [], "thetas_norm": [], "bin_counts_sum": [0] * 20})
         for r in rows:
             try:
                 curve = json.loads(r["d_curve_json"])
@@ -875,6 +1151,23 @@ def register_v2_routes(app):
             score = r["final_score"]
             if pb and pb > 0 and score is not None:
                 bucket[key]["rs"].append(score / pb)
+            # v3.0.12: θ normalized 用于"模型预测"实时推理
+            if normalize_theta is not None and r["theta_json"]:
+                try:
+                    theta_dict = json.loads(r["theta_json"])
+                    theta_norm = normalize_theta(theta_dict).tolist()
+                    bucket[key]["thetas_norm"].append(theta_norm)
+                except (TypeError, ValueError, KeyError):
+                    pass
+            # v3.0.14 (A): 累加 bin_counts → 算每 bin 真实观察数
+            if r["bin_counts_json"]:
+                try:
+                    bc = json.loads(r["bin_counts_json"])
+                    if isinstance(bc, list) and len(bc) == 20:
+                        for i, c in enumerate(bc):
+                            bucket[key]["bin_counts_sum"][i] += int(c or 0)
+                except (TypeError, ValueError):
+                    pass
 
         results = []
         for key, data in bucket.items():
@@ -883,12 +1176,26 @@ def register_v2_routes(app):
             avg = [sum(col) / len(col) for col in arr]
             filled = data["filled"]
             rs = data["rs"]
+            thetas = data["thetas_norm"]
+            # v3.0.14 (A): 真实观察占比 = 该 bin 真实观察数 / 总 sample 数
+            #   1.0 = 所有 sample 都在该 bin 有真实数据
+            #   0.0 = 所有 sample 在该 bin 都是 lastValue 填充 (mean 是假的)
+            bcs = data["bin_counts_sum"]
+            n_total = len(curves)
+            bin_real_ratio = [round(c / max(1, n_total), 4) for c in bcs] if n_total else [0.0] * 20
             entry = {
                 "d_curve_avg": avg,
-                "n_samples": len(curves),
+                "n_samples": n_total,
                 # v2.10.32 (P0.1): 真实观察比例 — UI 显示告知 user 后段是 prior 填充
                 "bins_filled_mean": round(sum(filled) / len(filled), 1) if filled else None,
                 "r_mean": round(sum(rs) / len(rs), 3) if rs else None,
+                # v3.0.12: per-ctx 平均 θ_norm — 供"模型预测"实时推理用 (与实测对齐)
+                "theta_norm_avg": (
+                    [round(sum(col) / len(col), 6) for col in [[t[i] for t in thetas] for i in range(len(thetas[0]))]]
+                    if thetas else None
+                ),
+                # v3.0.14 (A): 每 bin 真实观察占比 (0~1), chart 渲染时用作"真实/填充"视觉区分
+                "bin_real_ratio": bin_real_ratio,
             }
             for i, g in enumerate(groups):
                 entry[g] = key[i]
@@ -1032,7 +1339,11 @@ def register_v2_routes(app):
 
         body: {
           contexts: [{difficulty, generator, bot_policy, pb_bin, lifecycle_stage}, ...],
-          theta_norm: [0.5, 0.5, 0.5, 0.5, 0.5]   # (N_THETA,) 缺省 = 全 0.5 (即 ranges 中点)
+          theta_norm: [9 floats]                    # 单 θ, 全 ctx 共用 (老 mode)
+          # OR
+          theta_norm_per_ctx: [[9 floats], ...]    # v3.0.12: 每 ctx 用不同 θ
+                                                    # 长度需 == len(contexts)
+                                                    # 跟"实测均值"对齐评估时用
         }
         return: { curves: [[20 floats], ...], n_contexts: ... }
         """
@@ -1052,11 +1363,19 @@ def register_v2_routes(app):
         contexts = body.get("contexts") or []
         if not contexts:
             return jsonify({"error": "contexts required"}), 400
+        # v3.0.12: 优先用 per-ctx θ (来自 sample set aggregate.theta_norm_avg), 否则 fallback 单 θ
+        theta_norm_per_ctx = body.get("theta_norm_per_ctx")
         theta_norm = body.get("theta_norm")
-        if theta_norm is None:
-            theta_norm = [0.5] * N_THETA
-        if len(theta_norm) != N_THETA:
-            return jsonify({"error": f"theta_norm must have length {N_THETA}"}), 400
+        if theta_norm_per_ctx is not None:
+            if len(theta_norm_per_ctx) != len(contexts):
+                return jsonify({"error": "theta_norm_per_ctx length must match contexts"}), 400
+            if any((t is None or len(t) != N_THETA) for t in theta_norm_per_ctx):
+                return jsonify({"error": f"each theta_norm_per_ctx[i] must have length {N_THETA}"}), 400
+        else:
+            if theta_norm is None:
+                theta_norm = [0.5] * N_THETA
+            if len(theta_norm) != N_THETA:
+                return jsonify({"error": f"theta_norm must have length {N_THETA}"}), 400
 
         db = get_db()
         row = db.execute(
@@ -1112,7 +1431,11 @@ def register_v2_routes(app):
         want_uncertainty = bool(body.get("uncertainty"))
         n_mc_samples = max(5, min(100, int(body.get("n_mc_samples", 30))))
 
-        theta_t = torch.tensor([theta_norm] * len(contexts), dtype=torch.float32)
+        # v3.0.12: 优先 per-ctx θ
+        if theta_norm_per_ctx is not None:
+            theta_t = torch.tensor(theta_norm_per_ctx, dtype=torch.float32)
+        else:
+            theta_t = torch.tensor([theta_norm] * len(contexts), dtype=torch.float32)
         kwargs = dict(
             difficulty_idx=torch.tensor(diffs, dtype=torch.long),
             generator_idx=torch.tensor(gens, dtype=torch.long),
@@ -1372,8 +1695,8 @@ def register_v2_routes(app):
                                 "val_endpoint": float(d.get("val_endpoint", 0)),
                                 # v2.9.4: 退化解检测
                                 "val_curve_var": float(d.get("val_curve_var", 0)),
-                                # v2.10.2: 预测 vs calibrated target MAE
-                                "val_calibrated_mae": float(d.get("val_calibrated_mae", 0)),
+                                # v3.0.2 / v3.0.4: 预测 vs ★ ideal target_S_curve MAE
+                                "val_ideal_mae": float(d.get("val_ideal_mae", 0)),
                                 # v2.5: 业务级 P_reach 指标 (玩家到达 r=X 累积概率)
                                 "reach_50":  float(d.get("reach_50",  0)),
                                 "reach_80":  float(d.get("reach_80",  0)),
@@ -1672,7 +1995,7 @@ def register_v2_routes(app):
         业务命题 (用户原诉求, 2026-05-25 16:08 / 11:32):
           1. 公平: 不同 ctx 间模型预测均匀 → 用 cross-ctx variance 算
           2. 爽点: 接近 PB 时确实加压 → 用 d_pb_base 在 r=0.85-1.0 的梯度算
-          3. 平衡: 整体形态贴合 calibrated S → 用 val_calibrated_mae
+          3. 平衡: 整体形态贴合 ★ ideal S → 用 val_ideal_mae (v3.0.4 起)
           4. 惊喜: 模型不退化 (输出有形态变化) → 用 val_curve_var
 
         返回:
@@ -1688,7 +2011,7 @@ def register_v2_routes(app):
                 N_THETA, N_CURVE_BINS,
             )
             from rl_pytorch.spawn_tuning_v2.optimize_theta import enumerate_all_contexts, context_to_indices
-            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
+            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
         except Exception as e:
             return jsonify({"error": f"torch/model unavailable: {e}"}), 503
 
@@ -1730,7 +2053,7 @@ def register_v2_routes(app):
 
         ctxs = enumerate_all_contexts()
         idx_lists = [context_to_indices(c) for c in ctxs]
-        target = target_curve_calibrated_vector()
+        target = target_curve_vector()   # v3.0.4: ★ ideal target
         with torch.no_grad():
             preds = model(
                 difficulty_idx=torch.tensor([i["difficulty_idx"] for i in idx_lists], dtype=torch.long),
@@ -1744,8 +2067,8 @@ def register_v2_routes(app):
             # cast 到 Python list (避免 numpy float32 JSON 不可序列化)
             curves = preds["curve"].cpu().numpy().tolist()  # (360, 20)
 
-        # ── 1. 平衡 (balance) — 整体贴合 calibrated S 形 ──
-        # MAE vs calibrated, mae ≤ 0.05 = 100 分 / mae ≥ 0.20 = 0 分
+        # ── 1. 平衡 (balance) — 整体贴合 ★ ideal S 形 (v3.0.4) ──
+        # MAE vs ideal, mae ≤ 0.05 = 100 分 / mae ≥ 0.20 = 0 分
         import math
         per_ctx_mae = [
             sum(abs(c[i] - target[i]) for i in range(20)) / 20
@@ -1791,7 +2114,7 @@ def register_v2_routes(app):
         # 改进建议
         hints = []
         if balance_score < 60:
-            hints.append(f"平衡分 {balance_score:.0f}/100 偏低 (mae={mean_mae:.3f}) — 训练数据 d_curve 跟 calibrated 差距大, 检查 algo_version 或重训")
+            hints.append(f"平衡分 {balance_score:.0f}/100 偏低 (mae={mean_mae:.3f}) — 训练数据 d_curve 跟 ideal 差距大, 检查 algo_version 或重训")
         if tension_score < 60:
             hints.append(f"爽点分 {tension_score:.0f}/100 偏低 (r=0.85-1.0 加压 {mean_tension:.3f}, 期望 ≥0.2) — 模型未学到 PB 命题, 拉大 anchor loss weight")
         if fairness_score < 60:
@@ -1806,7 +2129,7 @@ def register_v2_routes(app):
             "overall_score": round(overall, 1),
             "grade": grade,
             "dimensions": {
-                "balance":  {"score": round(balance_score, 1),  "raw": round(mean_mae, 4),   "metric": "mean_calibrated_mae"},
+                "balance":  {"score": round(balance_score, 1),  "raw": round(mean_mae, 4),   "metric": "mean_ideal_mae"},
                 "tension":  {"score": round(tension_score, 1),  "raw": round(mean_tension, 4), "metric": "d_curve[r=1.0] - d_curve[r=0.5]"},
                 "fairness": {"score": round(fairness_score, 1), "raw": round(mae_std, 4),    "metric": "std(per_ctx_mae)"},
                 "surprise": {"score": round(surprise_score, 1), "raw": round(mean_var, 4),   "metric": "mean(per_ctx_curve_std)"},
@@ -2073,8 +2396,11 @@ def register_v2_routes(app):
                 SpawnParamTunerResNet, SpawnParamTunerTransformer,
                 N_THETA, N_CURVE_BINS,
             )
-            from rl_pytorch.spawn_tuning_v2.optimize_theta import enumerate_all_contexts, context_to_indices
-            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_calibrated_vector
+            from rl_pytorch.spawn_tuning_v2.optimize_theta import (
+                enumerate_all_contexts, context_to_indices,
+                optimize_one_context,
+            )
+            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
             from rl_pytorch.spawn_tuning_v2.policy_utils import monotonic_project_curve, max_monotonic_violation
         except Exception as e:
             return jsonify({"error": f"torch/model not available: {e}"}), 503
@@ -2086,6 +2412,16 @@ def register_v2_routes(app):
         rollout_pct = max(1, min(100, int(data.get("rollout_pct", 100))))
         include_mp = bool(data.get("include_miniprogram", True))
         auto_deploy = bool(data.get("auto_deploy", True))
+        # v3.0.6 (G1) / v3.0.10: 启用 θ 寻参 (Surrogate Optimization)
+        #   API 默认 False (兼容老 caller / 单测), UI 通过部署按钮主动传 True
+        #   - True: 每 ctx 跑 Adam 在 model 上找 argmin ‖curve(ctx,θ) − ideal‖
+        #           bundle 写最优 θ*, build_mode = "model-inference-best-theta"
+        #   - False: 兼容旧行为, theta_norm=0.5, build_mode = "model-inference-default-theta"
+        # v3.0.10: 默认 n_starts=4 / steps=150 (≈ 90-150s 总耗时, 单 ctx ≈ 0.3-0.4s)
+        #   老默认 8/300 实测 ~5-7 分钟, 严重慢于 UI 预期 60-90s. 实测 4/150 vs 8/300 MAE 差异 < 0.005, 可接受
+        optimize_theta_flag = bool(data.get("optimize_theta", False))
+        opt_n_starts = max(1, min(32, int(data.get("opt_n_starts", 4))))
+        opt_steps = max(20, min(2000, int(data.get("opt_steps", 150))))
 
         db = get_db()
         row = db.execute(
@@ -2126,30 +2462,78 @@ def register_v2_routes(app):
         except Exception as e:
             return jsonify({"error": f"load model failed: {e}"}), 500
 
-        # 2) 枚举 360 context 批量推断 (default theta_norm = 0.5)
+        # 2) 枚举 360 context, 决定 θ 来源
         ctxs = enumerate_all_contexts()
-        target = target_curve_calibrated_vector()
-        # 批量 forward (单次)
+        target = target_curve_vector()   # v3.0.4: ★ ideal target
+        target_t = torch.tensor(target, dtype=torch.float32)
         idx_lists = [context_to_indices(c) for c in ctxs]
-        with torch.no_grad():
-            preds = model(
-                difficulty_idx=torch.tensor([i["difficulty_idx"] for i in idx_lists], dtype=torch.long),
-                generator_idx=torch.tensor([i["generator_idx"] for i in idx_lists], dtype=torch.long),
-                bot_idx=torch.tensor([i["bot_idx"] for i in idx_lists], dtype=torch.long),
-                pb_bin_idx=torch.tensor([i["pb_bin_idx"] for i in idx_lists], dtype=torch.long),
-                lifecycle_idx=torch.tensor([i["lifecycle_idx"] for i in idx_lists], dtype=torch.long),
-                log_pb=torch.tensor([i["log_pb"] for i in idx_lists], dtype=torch.float32),
-                theta_norm=torch.full((len(ctxs), N_THETA), 0.5, dtype=torch.float32),
-            )
-            curves = preds["curve"].cpu().numpy().tolist()
 
-        # 3) 构造 policies (无优化, 用 default theta)
+        if optimize_theta_flag:
+            # v3.0.11 (G6 联合寻参): 优先读 ckpt 内训练时 backprop 出来的 theta_optim 表 (< 1s)
+            # Fallback (老 ckpt 无 theta_optim): 跑 surrogate optimize_one_context (~90-180s)
+            theta_optim_param = None
+            if hasattr(model, "theta_optim_raw") and isinstance(model.theta_optim_raw, torch.nn.Parameter):
+                # 检查表的 ctx 数对得上 (防止 ckpt 是别的 enumerate_all_contexts 版本)
+                if model.theta_optim_raw.shape[0] == len(ctxs):
+                    theta_optim_param = model.theta_optim()   # sigmoid → [0,1]
+            if theta_optim_param is not None:
+                t_opt = time.time()
+                with torch.no_grad():
+                    preds = model(
+                        difficulty_idx=torch.tensor([i["difficulty_idx"] for i in idx_lists], dtype=torch.long),
+                        generator_idx=torch.tensor([i["generator_idx"] for i in idx_lists], dtype=torch.long),
+                        bot_idx=torch.tensor([i["bot_idx"] for i in idx_lists], dtype=torch.long),
+                        pb_bin_idx=torch.tensor([i["pb_bin_idx"] for i in idx_lists], dtype=torch.long),
+                        lifecycle_idx=torch.tensor([i["lifecycle_idx"] for i in idx_lists], dtype=torch.long),
+                        log_pb=torch.tensor([i["log_pb"] for i in idx_lists], dtype=torch.float32),
+                        theta_norm=theta_optim_param,
+                    )
+                    curves = preds["curve"].cpu().numpy().tolist()
+                best_theta_norm = theta_optim_param.detach().cpu().numpy().tolist()
+                build_mode = "model-joint-trained-theta"
+                print(f"[build-and-export] 读 ckpt theta_optim 表 (v3.0.11 联合寻参), 耗时 {time.time()-t_opt:.2f}s")
+            else:
+                # v3.0.6 (G1) fallback: 老 ckpt 无 theta_optim, 跑 surrogate
+                print(f"[build-and-export] ckpt 无 theta_optim, fallback surrogate · {len(ctxs)} ctx × {opt_n_starts} starts × {opt_steps} steps")
+                t_opt = time.time()
+                opt_results = []
+                for i, ctx in enumerate(ctxs):
+                    r = optimize_one_context(
+                        model=model, ctx=ctx, target_curve=target_t,
+                        n_starts=opt_n_starts, steps=opt_steps, lr=0.05,
+                        seed=42 + i * 13,
+                    )
+                    opt_results.append(r)
+                    if (i + 1) % 60 == 0:
+                        avg = sum(x["predicted_curve_mae_to_target"] for x in opt_results) / len(opt_results)
+                        print(f"  [{i+1}/{len(ctxs)}] avg_mae={avg:.4f}")
+                print(f"[build-and-export] surrogate 完成, 耗时 {time.time()-t_opt:.1f}s")
+                best_theta_norm = [r["theta_norm"] for r in opt_results]
+                curves = [r["predicted_curve"] for r in opt_results]
+                build_mode = "model-inference-best-theta"
+        else:
+            # 兼容旧行为: default theta_norm = 0.5
+            with torch.no_grad():
+                preds = model(
+                    difficulty_idx=torch.tensor([i["difficulty_idx"] for i in idx_lists], dtype=torch.long),
+                    generator_idx=torch.tensor([i["generator_idx"] for i in idx_lists], dtype=torch.long),
+                    bot_idx=torch.tensor([i["bot_idx"] for i in idx_lists], dtype=torch.long),
+                    pb_bin_idx=torch.tensor([i["pb_bin_idx"] for i in idx_lists], dtype=torch.long),
+                    lifecycle_idx=torch.tensor([i["lifecycle_idx"] for i in idx_lists], dtype=torch.long),
+                    log_pb=torch.tensor([i["log_pb"] for i in idx_lists], dtype=torch.float32),
+                    theta_norm=torch.full((len(ctxs), N_THETA), 0.5, dtype=torch.float32),
+                )
+                curves = preds["curve"].cpu().numpy().tolist()
+            best_theta_norm = [[0.5] * N_THETA] * len(ctxs)
+            build_mode = "model-inference-default-theta"
+
+        # 3) 构造 policies
         # v2.10.7: 强制单调非降 + clip [0,1] - 保证客户端策略 "S 形难度严格递增"
         apply_monotonic = bool(data.get("monotonic_projection", True))   # 默认开
         policies = []
         total_violations = 0
         max_raw_violation = 0.0
-        for ctx, raw_curve in zip(ctxs, curves):
+        for ctx, raw_curve, theta_n in zip(ctxs, curves, best_theta_norm):
             if apply_monotonic:
                 # 记录原始最大单调违规, 给用户看
                 max_raw_violation = max(max_raw_violation, max_monotonic_violation(raw_curve))
@@ -2161,10 +2545,10 @@ def register_v2_routes(app):
             policies.append({
                 "context_key": ctx["context_key"],
                 "context": {k: ctx[k] for k in ["difficulty", "generator", "bot_policy", "pb_bin", "lifecycle_stage"]},
-                "theta_norm": [0.5] * N_THETA,   # default
+                "theta_norm": list(theta_n),
                 "predicted_curve": curve,
                 "predicted_curve_mae_to_target": round(mae, 6),
-                "expected": {"calibrated_mae": round(mae, 6)},
+                "expected": {"ideal_mae": round(mae, 6)},
             })
 
         avg_mae = sum(p["predicted_curve_mae_to_target"] for p in policies) / max(1, len(policies))
@@ -2179,7 +2563,7 @@ def register_v2_routes(app):
             "model_sha256": row["sha256"] or "",
             "n_contexts": len(policies),
             "average_curve_mae": avg_mae,
-            "build_mode": "model-inference-default-theta",
+            "build_mode": build_mode,
             "generated_at": now_unix(),
             "policies": policies,
         }
@@ -2241,7 +2625,7 @@ def register_v2_routes(app):
                 "rollout_pct": rollout_pct,
                 "sha256": sha,
                 "average_curve_mae": avg_mae,
-                "build_mode": "model-inference-default-theta",
+                "build_mode": build_mode,
             }
             (bundle_dir / "policies.meta.json").write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
@@ -2261,8 +2645,8 @@ def register_v2_routes(app):
                     f" * 自动生成于: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
                     f" * 模型 ID: {model_id} · SHA-256: {row['sha256'] or ''}\n"
                     f" * 策略数: {len(policies)} · 灰度: {rollout_pct}%\n"
-                    f" * 构建模式: model-inference (default theta=0.5)\n"
-                    f" * 平均 calibrated MAE: {avg_mae:.4f}\n"
+                    f" * 构建模式: {build_mode}\n"
+                    f" * 平均 ideal MAE: {avg_mae:.4f}\n"
                     " */\n"
                     "module.exports = " + json.dumps(bundle, ensure_ascii=False, indent=2) + ";\n"
                 )

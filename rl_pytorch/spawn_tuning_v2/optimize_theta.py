@@ -59,18 +59,16 @@ from .losses import LossWeights, loss_shape, loss_breaking, loss_surprise
 
 
 # ─────────── Context 枚举 ───────────
-# v2.10.34/35: GENERATOR_INDEX 加 heuristic-rule (sim 原生) + generative (V3 HTTP);
-#   BOT_INDEX 加 rl-bot (UI 占位, 暂未实采).
-#   360 ctx 枚举只用"已被 sampler 真实采样"的子集 — 占位类别不参与 bundle 部署.
+# v3.0.8: GENERATOR 与 game.js getSpawnPolicyMode() 严格 1:1 — 仅 rule / generative (2 个).
+#   360 ctx = 3 difficulty × 2 generator × 3 bot × 5 pb × 4 lifecycle.
 DIFFICULTY_VALUES = list(DIFFICULTY_INDEX.keys())
 GENERATOR_VALUES = list(GENERATOR_INDEX.keys())
 BOT_VALUES = list(BOT_INDEX.keys())
 PB_BIN_VALUES = list(PB_BIN_INDEX.keys())
 LIFECYCLE_VALUES = list(LIFECYCLE_INDEX.keys())
 
-# v2.10.34: 部署/枚举用的"稳定子集" — 排除占位类别, 保持 360 ctx 跨版本兼容
-#   heuristic-rule 已可采样, 但暂未加入部署枚举 (保持 360 ctx 兼容老 bundle); 后续启用可加
-DEPLOYABLE_GENERATORS = ["triplet-p1", "budget-p2"]
+# v3.0.8: 部署/枚举 = 全部 GENERATOR_VALUES (rule / generative, 已与游戏页面 1:1)
+DEPLOYABLE_GENERATORS = list(GENERATOR_INDEX.keys())   # ['rule', 'generative']
 DEPLOYABLE_BOTS = ["random", "clear-greedy", "survival"]   # rl-bot 后续启用后可加
 
 

@@ -17,52 +17,59 @@ const { stepDifficulty, extractDCurveFromSteps, createRng } = _internal;
 
 // ─────────── 单步难度公式 ───────────
 
-describe('stepDifficulty v2.10 PB-aware (与 Python extractor.py 一致)', () => {
+describe('stepDifficulty v3.1 (G5: PB-aware d_step 物理调制, 与 Python extractor.py 一致)', () => {
+    // v3.1: d_step = 0.6*state_d + 0.4*sigmoid((r - 0.82) / 0.08)
     it('noMove returns 1.0', () => {
         expect(stepDifficulty({ noMove: true, fillRate: 0.5, actionFreedom: 0.5 }, [], 0.5)).toBe(1.0);
     });
 
-    it('ratio=0 returns ~0.20 (ideal D_BASE, v2.12)', () => {
-        // d_pb_base(0) = target_S_curve(0) = D_BASE = 0.20
+    it('v3.1: d_step 显式依赖 ratio (PB-aware lift 项)', () => {
+        const ctx = { fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0 };
+        const d0 = stepDifficulty(ctx, [], 0.0);
+        const d2 = stepDifficulty(ctx, [], 2.0);
+        // r=0 远小 center=0.82 → lift~0; r=2 远大 → lift~1
+        expect(d2 - d0).toBeGreaterThan(0.30);
+    });
+
+    it('v3.1: state_d=0.5 + r=0 → d ≈ 0.30 (0.6*0.5 + 0.4*0)', () => {
         const d = stepDifficulty({
             fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
         }, [], 0.0);
-        expect(d).toBeCloseTo(0.20, 2);
+        expect(d).toBeCloseTo(0.30, 1);
     });
 
-    it('ratio=2.0 returns ~1.00 (ideal D_CAP, v2.12)', () => {
+    it('v3.1: state_d=0.5 + r=1.5 → d ≈ 0.70 (0.6*0.5 + 0.4*1)', () => {
         const d = stepDifficulty({
             fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
+        }, [], 1.5);
+        expect(d).toBeCloseTo(0.70, 1);
+    });
+
+    it('v3.1: 高压 (fill=1, freedom=0) + r=2 → d ≈ 0.94 (0.6*0.9 + 0.4*1)', () => {
+        const d = stepDifficulty({
+            fillRate: 1.0, actionFreedom: 0.0, noMove: false, clears: 0,
         }, [], 2.0);
-        expect(d).toBeCloseTo(1.00, 2);
+        expect(d).toBeCloseTo(0.94, 1);
     });
 
-    it('ratio monotonic — 接近 PB 加压', () => {
-        const ctx = { fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0 };
-        const ratios = [0, 0.5, 0.85, 1.0, 1.5, 2.0];
-        const ds = ratios.map(r => stepDifficulty(ctx, [], r));
-        for (let i = 1; i < ds.length; i++) {
-            expect(ds[i]).toBeGreaterThanOrEqual(ds[i-1] - 1e-9);
-        }
-        // 跨度 ≥ 0.7 (跟 ideal 0.80 接近)
-        expect(ds[ds.length-1] - ds[0]).toBeGreaterThan(0.7);
-    });
-
-    it('state_offset 影响 ≈ 0.20 max', () => {
-        const ratio = 0.5;
-        const dLow = stepDifficulty({ fillRate: 0.0, actionFreedom: 1.0, noMove: false, clears: 0 }, [], ratio);
-        const dHigh = stepDifficulty({ fillRate: 1.0, actionFreedom: 0.0, noMove: false, clears: 0 }, [], ratio);
-        // (1.0 - 0.1) * 0.20 ≈ 0.18
-        expect(dHigh - dLow).toBeGreaterThan(0.14);
-        expect(dHigh - dLow).toBeLessThan(0.24);
-    });
-
-    it('mid segment matches ideal target (v2.12 核心)', () => {
-        // r=0.7 ideal D_MID_END=0.50, state_d=0.5 → offset=0
+    it('v3.1: 低压 (fill=0, freedom=1) + r=0 → d ≈ 0.06 (0.6*0.1 + 0.4*0)', () => {
         const d = stepDifficulty({
-            fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0,
-        }, [], 0.7);
-        expect(d).toBeCloseTo(0.50, 1);
+            fillRate: 0.0, actionFreedom: 1.0, noMove: false, clears: 0,
+        }, [], 0.0);
+        expect(d).toBeCloseTo(0.06, 1);
+    });
+
+    it('v3.1: θ 自定义 (center=0.30) → r=0.5 时 lift 已 ~1', () => {
+        const ctx = { fillRate: 0.5, actionFreedom: 0.5, noMove: false, clears: 0 };
+        const dDefault = stepDifficulty(ctx, [], 0.5);   // default center=0.82
+        const dEarly = stepDifficulty(ctx, [], 0.5, 0.30, 0.08);   // center 提前到 0.30
+        expect(dEarly - dDefault).toBeGreaterThan(0.20);
+    });
+
+    it('v3.1: surprise damping (clears>=3) 减压 state_d ~50% (lift 不受影响)', () => {
+        const dNormal = stepDifficulty({ fillRate: 0.6, actionFreedom: 0.3, noMove: false, clears: 0 }, [], 0.5);
+        const dSurprise = stepDifficulty({ fillRate: 0.6, actionFreedom: 0.3, noMove: false, clears: 4 }, [], 0.5);
+        expect(dSurprise).toBeLessThan(dNormal * 0.6);
     });
 });
 
@@ -139,7 +146,7 @@ describe('createRng', () => {
 describe('runOneSampleV2', () => {
     const defaultContext = {
         difficulty: 'normal',
-        generator: 'budget-p2',
+        generator: 'rule',
         bot_policy: 'random',
         pb_bin: 1500,
         lifecycle_stage: 'growth',
@@ -162,7 +169,7 @@ describe('runOneSampleV2', () => {
         expect(sample).not.toBeNull();
         // context 5 维
         expect(sample.difficulty).toBe('normal');
-        expect(sample.generator).toBe('budget-p2');
+        expect(sample.generator).toBe('rule');
         expect(sample.bot_policy).toBe('random');
         expect(sample.pb_bin).toBe(1500);
         expect(sample.lifecycle_stage).toBe('growth');
@@ -304,7 +311,7 @@ describe('collectSamplesV2', () => {
     });
 
     const ctx = {
-        difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+        difficulty: 'easy', generator: 'rule', bot_policy: 'random',
         pb_bin: 500, lifecycle_stage: 'growth',
     };
     const theta = {
@@ -390,4 +397,204 @@ describe('collectSamplesV2', () => {
             setId: 0, contexts: [ctx], thetas: [theta],
         })).rejects.toThrow();
     });
+
+    // ─── v3.0.6 (G2 闭环): thetas 支持 (ctx) => theta[] 工厂函数 ───
+    it('v3.0.6: thetas factory function — per-ctx 动态生成 θ', async () => {
+        globalThis.fetch = vi.fn().mockImplementation((url, opts) => {
+            const body = JSON.parse(opts.body);
+            return Promise.resolve({ ok: true, json: async () => ({ inserted: body.samples.length, errors: 0 }) });
+        });
+        const ctxA = { ...ctx, difficulty: 'easy' };
+        const ctxB = { ...ctx, difficulty: 'normal' };
+        const seenCtx = [];
+        const factory = (c) => {
+            seenCtx.push(c.difficulty);
+            return [theta, theta];   // 每 ctx 2 个 θ
+        };
+        const result = await collectSamplesV2({
+            setId: 100,
+            contexts: [ctxA, ctxB],
+            thetas: factory,
+            nThetas: 2,
+            seedsPerTheta: 1,
+            maxSteps: 15,
+            batchSize: 5,
+            apiBaseUrl: 'http://test',
+        });
+        // 2 ctx × 2 θ × 1 seed = 4
+        expect(result.completed + result.failed).toBe(4);
+        expect(seenCtx).toEqual(['easy', 'normal']);
+    });
+
+    it('v3.0.6: throws when thetas is function but nThetas missing', async () => {
+        await expect(collectSamplesV2({
+            setId: 1, contexts: [ctx], thetas: () => [theta],
+        })).rejects.toThrow(/nThetas/);
+    });
+
+    it('v3.0.8: 新 generator enum (rule / generative) 校验通过', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ inserted: 1, errors: 0 }) });
+        for (const g of ['rule', 'generative']) {
+            const r = await collectSamplesV2({
+                setId: 200,
+                contexts: [{ ...ctx, generator: g }],
+                thetas: [theta],
+                seedsPerTheta: 1,
+                maxSteps: 10,
+                apiBaseUrl: 'http://test',
+            });
+            expect(r.firstError || '').not.toMatch(/invalid generator/);
+        }
+    });
+
+    it('v3.0.8: 老 generator enum (budget-p2 / triplet-p1 / heuristic-rule / model-v3) 应被严格拒绝', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ inserted: 0 }) });
+        // 注: 这里故意写明老 enum 字符串, 验证它们被拒绝
+        for (const old_g of ['budget-p2', 'triplet-p1', 'heuristic-rule', 'model-v3']) {
+            const r = await collectSamplesV2({
+                setId: 201,
+                contexts: [{ ...ctx, generator: old_g }],
+                thetas: [theta],
+                seedsPerTheta: 1,
+                maxSteps: 10,
+                apiBaseUrl: 'http://test',
+            });
+            expect(r.firstError).toMatch(/invalid generator/);
+        }
+    });
+
+    it('v3.0.8: 完全非法 generator 也报错', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ inserted: 0 }) });
+        const result = await collectSamplesV2({
+            setId: 202,
+            contexts: [{ ...ctx, generator: 'NOPE' }],
+            thetas: [theta],
+            seedsPerTheta: 1,
+            maxSteps: 10,
+            apiBaseUrl: 'http://test',
+        });
+        expect(result.firstError).toMatch(/invalid generator/);
+    });
+
+    it('v3.0.6: thetas factory returns empty → ctx 整体标记失败', async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ inserted: 0 }) });
+        const result = await collectSamplesV2({
+            setId: 1,
+            contexts: [ctx],
+            thetas: () => [],   // 工厂返回空
+            nThetas: 3,
+            seedsPerTheta: 2,
+            maxSteps: 10,
+            apiBaseUrl: 'http://test',
+        });
+        // 整 ctx 跳过, failed = 3 × 2 = 6
+        expect(result.completed).toBe(0);
+        expect(result.failed).toBe(6);
+        expect(result.firstError).toMatch(/empty/i);
+    });
+});
+
+
+// ─────────── 27 维 θ 端到端: 新引入参数确实撬动 d_curve ───────────
+
+describe('27-dim θ end-to-end: 新 18 维 (C/D/E) 真实作用于 simulator', () => {
+    const baseContext = {
+        difficulty: 'normal', generator: 'rule', bot_policy: 'clear-greedy',
+        pb_bin: 1500, lifecycle_stage: 'growth',
+    };
+    // 全 27 维都给值, 默认值 (= 历史硬编码)
+    const defaultsAll = {
+        // A
+        personalizationStrength: 0.10, temperature: 0.05,
+        surpriseBudgetGain: 0.07, surpriseCooldown: 6, maxEvaluatedTriplets: 80,
+        // B
+        pbTensionCenter: 0.82, pbTensionWidth: 0.08,
+        pbBrakeCenter: 1.05, pbBrakeWidth: 0.06,
+        // C augmentPool
+        perfectClearWeight: 25.0, multiClearBaseFactor: 0.6, nearFullFactor: 2.0,
+        exactFitBonus: 1.5, monoFlushBoost: 0.4, payoffWeight: 1.7,
+        sizePreferenceGain: 1.5, diversityPenalty: 1.0,
+        // D
+        complexityFromStress: 0.75, complexityRiskRelief: -0.45,
+        solutionFromStress: 0.7, pbTensionTargetWeight: 0.10, pbBrakeTargetWeight: 0.10,
+        // E
+        challengeBoostSlope: 0.75, challengeBoostCap: 0.18, pbOvershootMax: 0.16,
+        releaseFactor: 0.7, farFromPBBoost: 0.45,
+    };
+
+    /** 同 seed 同 ctx 跑两份样本, 验证 θ 差异确实让 d_curve 不同. */
+    async function runPair(thetaA, thetaB, seed = 7777, maxSteps = 40) {
+        const sA = await runOneSampleV2({ context: baseContext, theta: thetaA, seed, maxSteps });
+        const sB = await runOneSampleV2({ context: baseContext, theta: thetaB, seed, maxSteps });
+        return {
+            curveA: JSON.parse(sA.d_curve_json),
+            curveB: JSON.parse(sB.d_curve_json),
+            scoreA: sA.final_score,
+            scoreB: sB.final_score,
+        };
+    }
+
+    /** L1 距离 (跨 bin 平均绝对差) - 越大说明 θ 撬动越明显. */
+    function l1(a, b) {
+        let s = 0;
+        const n = Math.min(a.length, b.length);
+        for (let i = 0; i < n; i++) s += Math.abs((a[i] || 0) - (b[i] || 0));
+        return s / n;
+    }
+
+    it('C 组 (augmentPool): perfectClearWeight 15 vs 40 → d_curve 不同', async () => {
+        const lo = { ...defaultsAll, perfectClearWeight: 15.0 };
+        const hi = { ...defaultsAll, perfectClearWeight: 40.0 };
+        const { curveA, curveB } = await runPair(lo, hi);
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
+    }, 20000);
+
+    it('C 组 (augmentPool): payoffWeight 1.2 vs 2.0 → d_curve 不同', async () => {
+        const lo = { ...defaultsAll, payoffWeight: 1.2 };
+        const hi = { ...defaultsAll, payoffWeight: 2.0 };
+        const { curveA, curveB } = await runPair(lo, hi, 8888);
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
+    }, 20000);
+
+    it('D 组 (targets 翻译): complexityFromStress 0.5 vs 1.0 → d_curve 不同', async () => {
+        const lo = { ...defaultsAll, complexityFromStress: 0.5 };
+        const hi = { ...defaultsAll, complexityFromStress: 1.0 };
+        const { curveA, curveB } = await runPair(lo, hi, 9999);
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
+    }, 20000);
+
+    it('E 组 (PB 段细节): challengeBoostCap 0.12 vs 0.25 → d_curve 不同', async () => {
+        const lo = { ...defaultsAll, challengeBoostCap: 0.12 };
+        const hi = { ...defaultsAll, challengeBoostCap: 0.25 };
+        const { curveA, curveB } = await runPair(lo, hi, 12345);
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
+    }, 20000);
+
+    it('全 27 维"两极端"对比 (lo=全部 min / hi=全部 max) → d_curve 差异显著', async () => {
+        // 取 THETA_RANGES 的 (lo, hi) 两端
+        const { DEFAULT_THETA_V2 } = await import('../../../web/src/tuning/v2/clientPolicyV2.js');
+        // lo: 每个 θ 取 (默认值 × 0.6); hi: × 1.4. 大于 0 的近似两极, 负值的反向.
+        const lo = { ...defaultsAll };
+        const hi = { ...defaultsAll };
+        for (const k of Object.keys(DEFAULT_THETA_V2)) {
+            const d = DEFAULT_THETA_V2[k];
+            if (k === 'surpriseCooldown') { lo[k] = 4; hi[k] = 10; continue; }
+            if (k === 'maxEvaluatedTriplets') { lo[k] = 32; hi[k] = 128; continue; }
+            if (d < 0) { lo[k] = d * 1.4; hi[k] = d * 0.6; }
+            else        { lo[k] = d * 0.6; hi[k] = d * 1.4; }
+        }
+        const { curveA, curveB } = await runPair(lo, hi, 31415);
+        // 两极端应该让 d_curve 差异远大于 noise 阈值 0.01
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.015);
+    }, 30000);
+
+    it('samplerV2 透传全部 27 维 θ 到 simulator.modelConfig (回归: v3.0.26 之前只传 9 维)', async () => {
+        // 验证 sampler 把所有 27 维 θ 都注入 modelConfig — 通过 single-step "改一个 D 组 θ → 输出变化"
+        // 旧 bug: samplerV2 只透传 9 维, 改 D 组 θ 时 simulator 看不到 → curve 完全相同.
+        const lo = { ...defaultsAll, complexityRiskRelief: -0.7, solutionFromStress: 0.5 };
+        const hi = { ...defaultsAll, complexityRiskRelief: -0.2, solutionFromStress: 1.0 };
+        const { curveA, curveB } = await runPair(lo, hi, 17171);
+        // 如果 sampler 没透传, curveA === curveB (l1=0). 透传后必须 > 0.
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.001);
+    }, 20000);
 });

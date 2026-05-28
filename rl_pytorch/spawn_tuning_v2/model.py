@@ -44,13 +44,14 @@ DEFAULT_HEAD_HIDDEN = 64
 
 # 5 维 context 取值数 (与 schema CHECK 一致)
 N_DIFFICULTY = 3
-# v2.10.34: 扩展类别数 — generator 2→4 (加 baseline, model-v3); bot 3→4 (加 rl-bot)
-# 老 ckpt (N_GEN=2, N_BOT=3) 加载: 由 _load_state_dict_compat 把老 row 复制到新 emb 前 N 行
-N_GENERATOR = 4
+# v3.0.8: GENERATOR 类别数 = 2 (rule / generative, 与 game.js getSpawnPolicyMode() 严格 1:1).
+# 老 ckpt 加载: load_state_dict_compat 自动处理 embedding 维度变化 (老 N_GEN=4 → 新 N_GEN=2,
+#   只复制前 2 行, 后 2 行 (老 heuristic-rule/model-v3 embedding) 丢弃, 不影响 rule/generative 的权重).
+N_GENERATOR = 2
 N_BOT_POLICY = 4
 N_PB_BIN = 5
 N_LIFECYCLE = 4
-N_THETA = 9  # v2.2: 5 个个性化/选拔 + 4 个 PB 曲线参数; 见 feature_io.THETA_KEYS
+N_THETA = 27  # 5 (个性化/选拔) + 4 (PB 曲线) + 8 (augmentPool) + 5 (target 翻译) + 5 (PB 段细节); 见 feature_io.THETA_KEYS
 N_CURVE_BINS = 20
 
 # Embedding 维度
@@ -135,7 +136,7 @@ class SpawnParamTunerResNet(nn.Module):
         self.curve_bins = curve_bins
 
         self.ctx_emb = ContextEmbedding()
-        input_dim = EMB_TOTAL + N_THETA  # 32 + 9 = 41
+        input_dim = EMB_TOTAL + N_THETA  # 32 + 27 = 59
 
         # Trunk
         self.trunk_in = nn.Sequential(
@@ -158,6 +159,18 @@ class SpawnParamTunerResNet(nn.Module):
         #   作用: 让 model 显式学到"PB 高时 r 触达上限低", 推理时可用作 r > r_max 区域 mask
         #   输出 (B,) ∈ [0, 2.0] (CURVE_R_MAX)
         self.head_r = self._build_head(hidden_dim, head_hidden, 1)
+
+        # v3.0.11 (G6 联合寻参): 360 ctx 的 θ_optim 表, 跟 model 权重一起 backprop.
+        #   训练时 loss_deploy 用这个表 forward → 拉向 ideal_S; 训练完直接读出来写 bundle.
+        #   存的是 raw (无 clamp) tensor, forward 时 sigmoid 映射到 [0,1] 保证合法 θ_norm.
+        #   初始化 logit(0.5) = 0 → 对应 θ_norm = 0.5 (中点).
+        from .optimize_theta import enumerate_all_contexts as _enum
+        self.n_deploy_ctx = len(_enum())   # 通常 = 360
+        self.theta_optim_raw = nn.Parameter(torch.zeros(self.n_deploy_ctx, N_THETA))
+
+    def theta_optim(self) -> torch.Tensor:
+        """v3.0.11: 把 raw param sigmoid 到 [0,1] 作为合法 θ_norm. 训练 / 部署都用这个."""
+        return torch.sigmoid(self.theta_optim_raw)
 
     @staticmethod
     def _build_head(in_dim: int, h_dim: int, out_dim: int) -> nn.Sequential:
@@ -306,7 +319,7 @@ def build_default_model() -> SpawnParamTunerResNet:
 #   Transformer 用 self-attention 让 bin i 受 bin <i 影响, 天然适合序列建模。
 #
 # 架构:
-#   ctx(32) + theta(N_THETA=9) → Linear(64) → context_vec (B, 64)
+#   ctx(32) + theta(N_THETA=27) → Linear(64) → context_vec (B, 64)
 #   ↓ broadcast 到 20 个 bin
 #   + position_embedding (20, 64) [位置编码]
 #   ↓
@@ -374,6 +387,14 @@ class SpawnParamTunerTransformer(nn.Module):
         self.head_survival = nn.Linear(d_model, 1)
         # v2.10.32 (P2.2): r-head — bot 实际能达到的 r = score/PB
         self.head_r = nn.Linear(d_model, 1)
+
+        # v3.0.11 (G6 联合寻参): 跟 ResNet 同样的 theta_optim 表
+        from .optimize_theta import enumerate_all_contexts as _enum
+        self.n_deploy_ctx = len(_enum())
+        self.theta_optim_raw = nn.Parameter(torch.zeros(self.n_deploy_ctx, N_THETA))
+
+    def theta_optim(self) -> torch.Tensor:
+        return torch.sigmoid(self.theta_optim_raw)
 
     def encode(
         self,

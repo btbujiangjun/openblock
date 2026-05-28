@@ -1,6 +1,6 @@
-# Spawn Tuning v2 — 用户手册
+# SpawnParamTuner — 用户手册
 
-> v2.10.8 · 出块算法寻参系统操作指南
+> 出块算法寻参系统操作指南
 >
 > 本文档面向**第一次使用本系统的工程师**,演示从 0 到部署上线的完整流程。
 > 算法原理见 [SPAWN_TUNING_V2.md](./SPAWN_TUNING_V2.md)。
@@ -49,7 +49,7 @@ open http://localhost:5173/spawn-tuning-v2-dashboard.html
 ### Step 1 — 采集样本 (Tab ②)
 
 1. **新建样本集**:点 "新建样本集",填名字 (e.g. `prod-baseline`)
-2. **配置 chips**:5 维各选一些值 (例:`difficulty=normal/hard, generator=triplet-p1, bot_policy=clear-greedy, pb_bin=1500/4000, lifecycle_stage=growth/mature`)
+2. **配置 chips**:5 维各选一些值 (例:`difficulty=normal/hard, generator=rule, bot_policy=clear-greedy, pb_bin=1500/4000, lifecycle_stage=growth/mature`)。v3.0.8 起 generator 只有 2 个值:`rule`(启发式,游戏页面 default) / `generative`(SpawnPolicyNet 生成式),与 `getSpawnPolicyMode()` 严格 1:1 对齐
 3. **加权** (可选):右键 chip → 设权重 1-9 (默认 5),控制该选项在采样中占比
 4. **样本数量**:建议 5000 起步 (调参)、72000 (生产)
 5. **点 "开始采集"**:浏览器跑 OpenBlockSimulator,每秒处理 ~50 局
@@ -83,7 +83,8 @@ open http://localhost:5173/spawn-tuning-v2-dashboard.html
    - 适合"已有 deployed 模型,小幅修正参数"场景
 6. **点 "▶ 提交训练任务"**:job_executor 自动开始
 7. **观察训练曲线**:点 "曲线" 弹出 13 sub-charts
-   - 关注 `val_curve_mae`(噪声地板 ~0.075)和 `val_calibrated_mae`(业务真实拟合,目标 < 0.05)
+   - ★ 关注 `val_ideal_mae`(★ 业务核心 — model vs ideal target,目标 < 0.05)
+   - 关注 `val_curve_mae`(model vs sample,噪声地板 ~0.075,做参照)
    - 关注 `val_curve_var`(健康 > 0.1,< 0.05 说明退化)
    - 状态 badge:✓ 学到 / 🔒 数据满足 / 🔥 训练中 / ⚠ 退化 / 🚫 仅展示
 
@@ -92,31 +93,67 @@ open http://localhost:5173/spawn-tuning-v2-dashboard.html
 训练完几个模型后,点 "⚖ 对比模型":
 1. 勾选 ≥ 2 个模型
 2. 点 "▶ 对比"
-3. 系统对每个模型在 `default ctx (normal/triplet-p1/clear-greedy/4000/mature)` 推断 d_curve
-4. SVG 叠加图 + metric 对比表(val_curve_mae / val_calibrated_mae / val_curve_var / val_anchor / val_target_fit)
+3. 系统对每个模型在 `default ctx (normal/rule/clear-greedy/4000/mature)` 推断 d_curve
+4. SVG 叠加图 + metric 对比表(val_ideal_mae / val_curve_mae / val_curve_var / val_anchor / val_target_fit)
 
 挑选标准:
-- `val_calibrated_mae` 最低 → 业务拟合最好
+- ★ `val_ideal_mae` 最低 → 业务拟合最好(model 跟 ideal target 距离最近)
 - `val_curve_var > 0.1` → 不是退化解
 - d_curve 形态严格单调 + 跨度合理
 
 ### Step 4 — 部署 Bundle (Tab ⑤)
 
+**v3.0.9 起推荐路径**:在 Tab ③ 提交训练任务时,**勾选「训完自动部署」⚡ 一键闭环** checkbox(默认勾选)。训完后端会自动调 `build-and-export?optimize_theta=true`,把每个 ctx 的 best θ\* 直接写入 bundle 完成部署,**无需手动来 Tab ⑤**。
+
+如果不勾,或想手动控制:
+
 1. **选模型**:dropdown 选 staging 模型
 2. **灰度比例**:1-100,先 10 然后逐渐上调
-3. **点 "📦 导出 Bundle (Web + 小程序)"**
-4. 系统会:
-   - 对 360 个 ctx (3×2×3×5×4) 推断 d_curve
+3. **★ 勾选「优化 θ 寻参」**(默认勾选)— 对每个 ctx 跑 surrogate Adam 优化找 best θ\*,而非默认 0.5
+4. **点 "📦 导出 Bundle (Web + 小程序)"**
+5. 系统会:
+   - 加载 model checkpoint
+   - 若勾选「优化 θ 寻参」:对 360 ctx × 8 starts × 300 steps 跑 `optimize_theta`(约 60-90s)
+     - **未勾选**:全部用 `[0.5]*9`(快但闭环断裂,模型学到的 θ 映射被丢弃)
    - **PAVA 单调投影** 保证客户端策略严格 S 形 (v2.10.7)
    - 写出 4 个文件:
-     - `web/public/spawn-tuning-v2/policies.json`
+     - `web/public/spawn-tuning-v2/policies.json`(含 `build_mode` 字段标识)
      - `web/public/spawn-tuning-v2/policies.meta.json`
      - `miniprogram/core/tuning/spawnPoliciesV2.js`
      - `checkpoints/v2/<job>.policies.json` (sidecar)
-5. **客户端自动拉取**:web 页面下次加载时 fetch 新 bundle
-6. **部署到生产**:`bash scripts/sync-core.sh` 同步小程序包
+6. **客户端自动拉取**:web 页面下次加载时 fetch 新 bundle
+7. **部署到生产**:`bash scripts/sync-core.sh` 同步小程序包
 
-### Step 5 — 监控 (Tab ⑤ 下方)
+> 看 `policies.meta.json` 的 `build_mode`:`model-inference-best-theta`(已寻参)/ `model-inference-default-theta`(没寻参,旧逻辑)。
+
+### Step 5 — 闭环迭代精化 (v3.0.6 / 简化操作见 v3.0.9)
+
+部署完一轮 best θ\* bundle 后,**回到 Tab ② 重新采集**,把 θ 来源从「LHS · 全空间探索 (首训)」**切到「围绕 deployed θ\* 抖动 (迭代精化)」**:
+
+```
+迭代 i (i ≥ 1):
+  1. Tab ② 采集 (θ 来源 = 围绕 deployed θ* 抖动)  ← 在 best 邻域加密
+     ⇒ 新 set #N+1
+  2. Tab ③ 训练新模型 model_{i+1}                 ← model 在 best 邻域更精细
+  3. Tab ⑤ 导出 bundle (勾选优化 θ 寻参)           ← 找到更优 θ_{i+1}*
+  4. 用 default θ vs best θ 跑 baseline 对比, 看实测 MAE 撬动了多少
+  5. 若 MAE 仍在下降 → 进入迭代 i+1; 否则停止
+```
+
+**预期收敛轨迹(实测 d_curve vs ideal MAE)**:
+
+| 迭代 | θ 来源 | 实测 MAE | 撬动 |
+|------|--------|----------|------|
+| 0 | LHS + default θ 部署 | 0.27 | baseline |
+| 1 | LHS + best θ\* 部署(G1) | 0.22-0.24 | **-15%** |
+| 2 | bundle-perturb 采集 + best θ\*(G1+G2) | 0.20-0.22 | -7% |
+| 3+ | 同上 | 收敛 ~0.18 | -5%/轮 |
+
+**v3.0.9 (G3) 直接量化撬动幅度**:Tab ⑤ d_curve 对照图新增「baseline 对照」dropdown,选一个 default θ 跑的 sample set 后,chart 显示橙色虚线 = baseline 实测,主线 = best θ\* 实测,meta 区显示 `⚡ θ 撬动 = +0.05 (+18%)`,直观看到本轮迭代的实际收益。
+
+收敛阈值的物理极限大约在 **0.18 附近**(θ 只能撬动 spawn 决策,改不动 fillRate 物理)。要再突破需要把 θ 接入 simulator.spawn(见 `SPAWN_TUNING_V2.md §12.5`)。
+
+### Step 6 — 监控 (Tab ⑤ 下方)
 
 实际生产中会有真实玩家上报 `field_metrics_v2` 数据。如:
 - A/B 对比:`GET /api/spawn-tuning-v2/field-metrics/ab-compare?hours=168`
@@ -147,7 +184,7 @@ Transformer 对 LR 极敏感:
 不是 bug,是**理论下界**。
 - 训练 label 含 ±0.15 的 `state_offset` 噪声 (棋盘状态扰动)
 - mae 下界 ≈ 0.075
-- 真正业务指标是 `val_calibrated_mae`,目标 < 0.05
+- 真正业务指标是 ★ `val_ideal_mae`(model 跟 ideal target 的 MAE),目标 < 0.05
 
 ### Q4. 部署 bundle 404?
 
@@ -196,7 +233,7 @@ python -m rl_pytorch.spawn_tuning_v2.optimize_theta \
 |---|---|
 | v2.10 | d_step 加 PB 命题 (`PB_AWARE_*`) — 跟 r 关联 |
 | v2.10.1 | 贝叶斯先验平滑空 bin (替代 fillna) + 离线 repair |
-| v2.10.2 | 新加 `val_calibrated_mae`(业务真实拟合度) |
+| v2.10.2 | 新加 `val_calibrated_mae`(已于 v3.0.4 移除,被 `val_ideal_mae` 替代) |
 | v2.10.3 | 训练曲线智能 Y 轴 (反应细微变化) |
 | v2.10.4 | 一键 build-and-export(修部署 404)|
 | v2.10.5 | 训练指标状态 badge(✓ 学到 / 🔒 数据满足 / ⚠ 退化) |

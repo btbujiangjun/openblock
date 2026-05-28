@@ -67,17 +67,17 @@ class TestLoadBundle:
 class TestAggregateSamples:
     def test_groups_by_ctx(self, tmp_path):
         db = _make_db_with_set(tmp_path, samples=[
-            {"difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            {"difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
              "pb_bin": 4000, "lifecycle_stage": "mature", "d_curve": [0.3] * 20},
-            {"difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            {"difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
              "pb_bin": 4000, "lifecycle_stage": "mature", "d_curve": [0.5] * 20},
-            {"difficulty": "hard", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            {"difficulty": "hard", "generator": "rule", "bot_policy": "clear-greedy",
              "pb_bin": 4000, "lifecycle_stage": "mature", "d_curve": [0.7] * 20},
         ])
         result = aggregate_sample_set_curves(db, set_id=1)
         # 两个 ctx (normal vs hard)
         assert len(result) == 2
-        normal_key = "normal:triplet-p1:clear-greedy:4000:mature"
+        normal_key = "normal:rule:clear-greedy:4000:mature"
         assert result[normal_key]["n"] == 2
         # 平均: (0.3 + 0.5) / 2 = 0.4
         assert all(abs(v - 0.4) < 1e-9 for v in result[normal_key]["mean"])
@@ -90,10 +90,10 @@ class TestAggregateSamples:
 class TestValidate:
     def test_match_and_grade(self, tmp_path):
         """模型预测 [0.3]*20, 数据实测 [0.35]*20 → mae=0.05 → excellent."""
-        ctx_key = "normal:triplet-p1:clear-greedy:4000:mature"
+        ctx_key = "normal:rule:clear-greedy:4000:mature"
         # 准备数据 (10 个 sample, mean 0.35)
         samples = [
-            {"difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            {"difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
              "pb_bin": 4000, "lifecycle_stage": "mature", "d_curve": [0.35] * 20}
             for _ in range(10)
         ]
@@ -102,7 +102,7 @@ class TestValidate:
         bundle = _make_bundle(tmp_path, [{
             "context_key": ctx_key,
             "context": {
-                "difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+                "difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
                 "pb_bin": 4000, "lifecycle_stage": "mature",
             },
             "predicted_curve": [0.30] * 20,
@@ -117,15 +117,15 @@ class TestValidate:
     def test_skip_few_samples(self, tmp_path):
         """min_samples=5 时, 只 2 sample 的 ctx 应被跳过。"""
         samples = [
-            {"difficulty": "easy", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            {"difficulty": "easy", "generator": "rule", "bot_policy": "clear-greedy",
              "pb_bin": 500, "lifecycle_stage": "onboarding", "d_curve": [0.4] * 20}
             for _ in range(2)
         ]
         db = _make_db_with_set(tmp_path, samples=samples)
         bundle = _make_bundle(tmp_path, [{
-            "context_key": "easy:triplet-p1:clear-greedy:500:onboarding",
+            "context_key": "easy:rule:clear-greedy:500:onboarding",
             "context": {
-                "difficulty": "easy", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+                "difficulty": "easy", "generator": "rule", "bot_policy": "clear-greedy",
                 "pb_bin": 500, "lifecycle_stage": "onboarding",
             },
             "predicted_curve": [0.40] * 20,
@@ -136,9 +136,9 @@ class TestValidate:
 
     def test_grade_thresholds(self, tmp_path):
         """mae 0.15 → fair grade."""
-        ctx_key = "normal:triplet-p1:clear-greedy:4000:mature"
+        ctx_key = "normal:rule:clear-greedy:4000:mature"
         samples = [
-            {"difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+            {"difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
              "pb_bin": 4000, "lifecycle_stage": "mature", "d_curve": [0.45] * 20}
             for _ in range(10)
         ]
@@ -146,7 +146,7 @@ class TestValidate:
         bundle = _make_bundle(tmp_path, [{
             "context_key": ctx_key,
             "context": {
-                "difficulty": "normal", "generator": "triplet-p1", "bot_policy": "clear-greedy",
+                "difficulty": "normal", "generator": "rule", "bot_policy": "clear-greedy",
                 "pb_bin": 4000, "lifecycle_stage": "mature",
             },
             "predicted_curve": [0.30] * 20,  # 跟 0.45 差 0.15

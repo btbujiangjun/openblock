@@ -57,15 +57,23 @@ describe('hashUserToBucket', () => {
 // ─────────── buildContextKeyV2 ───────────
 
 describe('buildContextKeyV2', () => {
-    it('5 部分 colon-joined', () => {
+    // v3.0.8: generator 与 game.js getSpawnPolicyMode() 严格 1:1 (无 alias)
+    it('rule 模式', () => {
         expect(buildContextKeyV2({
-            difficulty: 'hard', generator: 'budget-p2', bot_policy: 'survival',
+            difficulty: 'hard', generator: 'rule', bot_policy: 'survival',
             pb_bin: 4000, lifecycle_stage: 'mature',
-        })).toBe('hard:budget-p2:survival:4000:mature');
+        })).toBe('hard:rule:survival:4000:mature');
     });
 
-    it('缺失字段用默认值', () => {
-        expect(buildContextKeyV2({})).toBe('normal:budget-p2:clear-greedy:1500:growth');
+    it('generative 模式', () => {
+        expect(buildContextKeyV2({
+            difficulty: 'hard', generator: 'generative', bot_policy: 'clear-greedy',
+            pb_bin: 4000, lifecycle_stage: 'mature',
+        })).toBe('hard:generative:clear-greedy:4000:mature');
+    });
+
+    it('缺失字段用默认值 (generator → rule)', () => {
+        expect(buildContextKeyV2({})).toBe('normal:rule:clear-greedy:1500:growth');
     });
 });
 
@@ -82,12 +90,12 @@ describe('install + resolve (4-layer fallback)', () => {
     it('exact match', () => {
         installPoliciesV2({
             policies: [
-                makePolicy('easy:budget-p2:random:500:growth', { temperature: 0.99 }),
+                makePolicy('easy:rule:random:500:growth', { temperature: 0.99 }),
             ],
             rollout_pct: 100,
         });
         const r = resolveThetaV2({
-            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            difficulty: 'easy', generator: 'rule', bot_policy: 'random',
             pb_bin: 500, lifecycle_stage: 'growth',
         });
         expect(r.source).toBe('exact');
@@ -97,12 +105,12 @@ describe('install + resolve (4-layer fallback)', () => {
     it('fuzzy lifecycle fallback', () => {
         installPoliciesV2({
             policies: [
-                makePolicy('easy:budget-p2:random:500:growth'),
+                makePolicy('easy:rule:random:500:growth'),
             ],
             rollout_pct: 100,
         });
         const r = resolveThetaV2({
-            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            difficulty: 'easy', generator: 'rule', bot_policy: 'random',
             pb_bin: 500, lifecycle_stage: 'plateau',  // 不同 lifecycle
         });
         expect(r.source).toBe('fuzzy-lifecycle');
@@ -111,12 +119,12 @@ describe('install + resolve (4-layer fallback)', () => {
     it('coarse fallback (仅 difficulty+generator)', () => {
         installPoliciesV2({
             policies: [
-                makePolicy('hard:budget-p2:random:500:growth'),
+                makePolicy('hard:rule:random:500:growth'),
             ],
             rollout_pct: 100,
         });
         const r = resolveThetaV2({
-            difficulty: 'hard', generator: 'budget-p2',
+            difficulty: 'hard', generator: 'rule',
             bot_policy: 'survival',  // 不同 bot
             pb_bin: 25000,           // 不同 pb_bin
             lifecycle_stage: 'plateau',
@@ -126,11 +134,11 @@ describe('install + resolve (4-layer fallback)', () => {
 
     it('fully fallback when no match', () => {
         installPoliciesV2({
-            policies: [makePolicy('easy:budget-p2:random:500:growth')],
+            policies: [makePolicy('easy:rule:random:500:growth')],
             rollout_pct: 100,
         });
         const r = resolveThetaV2({
-            difficulty: 'hard', generator: 'triplet-p1',
+            difficulty: 'hard', generator: 'rule',
             bot_policy: 'survival', pb_bin: 25000, lifecycle_stage: 'plateau',
         });
         expect(r.source).toBe('fallback');
@@ -144,13 +152,13 @@ describe('install + resolve (4-layer fallback)', () => {
 describe('灰度切量', () => {
     it('rollout_pct=100 → 全部走 v2', () => {
         installPoliciesV2({
-            policies: [makePolicy('easy:budget-p2:random:500:growth')],
+            policies: [makePolicy('easy:rule:random:500:growth')],
             rollout_pct: 100,
         });
         let hits = 0;
         for (let i = 0; i < 100; i++) {
             const r = resolveThetaV2({
-                difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+                difficulty: 'easy', generator: 'rule', bot_policy: 'random',
                 pb_bin: 500, lifecycle_stage: 'growth', userId: `u-${i}`,
             });
             if (r.source === 'exact') hits++;
@@ -160,13 +168,13 @@ describe('灰度切量', () => {
 
     it('rollout_pct=0 → 全部 gate-out', () => {
         installPoliciesV2({
-            policies: [makePolicy('easy:budget-p2:random:500:growth')],
+            policies: [makePolicy('easy:rule:random:500:growth')],
             rollout_pct: 0,
         });
         let gateOut = 0;
         for (let i = 0; i < 100; i++) {
             const r = resolveThetaV2({
-                difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+                difficulty: 'easy', generator: 'rule', bot_policy: 'random',
                 pb_bin: 500, lifecycle_stage: 'growth', userId: `u-${i}`,
             });
             if (r.source === 'gate-out') gateOut++;
@@ -176,13 +184,13 @@ describe('灰度切量', () => {
 
     it('rollout_pct=50 → 大致一半吃 v2', () => {
         installPoliciesV2({
-            policies: [makePolicy('easy:budget-p2:random:500:growth')],
+            policies: [makePolicy('easy:rule:random:500:growth')],
             rollout_pct: 50,
         });
         let hits = 0;
         for (let i = 0; i < 200; i++) {
             const r = resolveThetaV2({
-                difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+                difficulty: 'easy', generator: 'rule', bot_policy: 'random',
                 pb_bin: 500, lifecycle_stage: 'growth', userId: `u-${i}`,
             });
             if (r.source === 'exact') hits++;
@@ -194,15 +202,15 @@ describe('灰度切量', () => {
 
     it('same user → 灰度结果稳定', () => {
         installPoliciesV2({
-            policies: [makePolicy('easy:budget-p2:random:500:growth')],
+            policies: [makePolicy('easy:rule:random:500:growth')],
             rollout_pct: 30,
         });
         const r1 = resolveThetaV2({
-            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            difficulty: 'easy', generator: 'rule', bot_policy: 'random',
             pb_bin: 500, lifecycle_stage: 'growth', userId: 'stable-user',
         });
         const r2 = resolveThetaV2({
-            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            difficulty: 'easy', generator: 'rule', bot_policy: 'random',
             pb_bin: 500, lifecycle_stage: 'growth', userId: 'stable-user',
         });
         expect(r1.source).toBe(r2.source);
@@ -218,7 +226,7 @@ describe('loadPoliciesFromBundleV2', () => {
             ok: true,
             json: async () => ({
                 format: 'openblock-spawn-tuning-v2-bundle',
-                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                policies: [makePolicy('easy:rule:random:500:growth')],
                 rollout_pct: 80,
                 model_sha256: 'abc123',
                 generated_at: 1234567890,
@@ -235,7 +243,7 @@ describe('loadPoliciesFromBundleV2', () => {
             ok: true,
             json: async () => ({
                 format: 'openblock-spawn-tuning-v2-bundle',
-                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                policies: [makePolicy('easy:rule:random:500:growth')],
                 rollout_pct: 100,
             }),
         });
@@ -272,7 +280,7 @@ describe('initClientPolicyV2', () => {
         const r = await initClientPolicyV2({
             bundleData: {
                 format: 'openblock-spawn-tuning-v2-bundle',
-                policies: [makePolicy('hard:triplet-p1:survival:25000:mature')],
+                policies: [makePolicy('hard:rule:survival:25000:mature')],
                 rollout_pct: 100,
             },
         });
@@ -289,14 +297,14 @@ describe('theta shape 兼容性（老 bundle 是 9 元素 normalized 数组）',
         // 0.5 normalized = 各 ranges 的中点
         installPoliciesV2({
             policies: [{
-                context_key: 'easy:budget-p2:random:500:growth',
+                context_key: 'easy:rule:random:500:growth',
                 theta: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
                 predicted_curve: Array(20).fill(0.5),
             }],
             rollout_pct: 100,
         });
         const r = resolveThetaV2({
-            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            difficulty: 'easy', generator: 'rule', bot_policy: 'random',
             pb_bin: 500, lifecycle_stage: 'growth',
         });
         expect(r.source).toBe('exact');
@@ -312,14 +320,14 @@ describe('theta shape 兼容性（老 bundle 是 9 元素 normalized 数组）',
     it('数组 [1×9] 边界 normalized=1 应映射到 ranges 上界', () => {
         installPoliciesV2({
             policies: [{
-                context_key: 'easy:budget-p2:random:500:growth',
+                context_key: 'easy:rule:random:500:growth',
                 theta: [1, 1, 1, 1, 1, 1, 1, 1, 1],
                 predicted_curve: Array(20).fill(0.5),
             }],
             rollout_pct: 100,
         });
         const r = resolveThetaV2({
-            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            difficulty: 'easy', generator: 'rule', bot_policy: 'random',
             pb_bin: 500, lifecycle_stage: 'growth',
         });
         expect(r.theta.pbTensionCenter).toBeCloseTo(0.92, 3);
@@ -329,14 +337,14 @@ describe('theta shape 兼容性（老 bundle 是 9 元素 normalized 数组）',
     it('dict 形式 theta 应原样保留，不被误反归一化', () => {
         installPoliciesV2({
             policies: [{
-                context_key: 'easy:budget-p2:random:500:growth',
+                context_key: 'easy:rule:random:500:growth',
                 theta: { pbTensionCenter: 0.85, temperature: 0.04 },
                 predicted_curve: Array(20).fill(0.5),
             }],
             rollout_pct: 100,
         });
         const r = resolveThetaV2({
-            difficulty: 'easy', generator: 'budget-p2', bot_policy: 'random',
+            difficulty: 'easy', generator: 'rule', bot_policy: 'random',
             pb_bin: 500, lifecycle_stage: 'growth',
         });
         expect(r.theta.pbTensionCenter).toBeCloseTo(0.85);
@@ -359,7 +367,7 @@ describe('installPoliciesV2 异步通知', () => {
         }
         try {
             installPoliciesV2({
-                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                policies: [makePolicy('easy:rule:random:500:growth')],
                 rollout_pct: 100,
                 model_sha256: 'sha-test',
             });
@@ -380,7 +388,7 @@ describe('installPoliciesV2 异步通知', () => {
     it('uninstall 已安装的 bundle 后 dispatch 同名事件（uninstalled=true）让 badge 翻回规则', () => {
         if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
         installPoliciesV2({
-            policies: [makePolicy('easy:budget-p2:random:500:growth')],
+            policies: [makePolicy('easy:rule:random:500:growth')],
             rollout_pct: 100,
             model_sha256: 'sha-old',
         });
@@ -476,7 +484,7 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
                 ok: true,
                 json: async () => ({
                     format: 'openblock-spawn-tuning-v2-bundle',
-                    policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                    policies: [makePolicy('easy:rule:random:500:growth')],
                     rollout_pct: 10,
                 }),
             })
@@ -486,8 +494,8 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
                 json: async () => ({
                     format: 'openblock-spawn-tuning-v2-bundle',
                     policies: [
-                        makePolicy('easy:budget-p2:random:500:growth'),
-                        makePolicy('hard:triplet-p1:survival:25000:mature'),
+                        makePolicy('easy:rule:random:500:growth'),
+                        makePolicy('hard:rule:survival:25000:mature'),
                     ],
                     rollout_pct: 100,
                 }),
@@ -521,7 +529,7 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
             ok: true,
             json: async () => ({
                 format: 'openblock-spawn-tuning-v2-bundle',
-                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                policies: [makePolicy('easy:rule:random:500:growth')],
                 rollout_pct: 50,
             }),
         });
@@ -549,8 +557,8 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
             json: async () => ({
                 format: 'openblock-spawn-tuning-v2-bundle',
                 policies: [
-                    makePolicy('easy:budget-p2:random:500:growth'),
-                    makePolicy('hard:triplet-p1:survival:25000:mature'),
+                    makePolicy('easy:rule:random:500:growth'),
+                    makePolicy('hard:rule:survival:25000:mature'),
                 ],
                 rollout_pct: 100,
             }),
@@ -585,7 +593,7 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
                 ok: true,
                 json: async () => ({
                     format: 'openblock-spawn-tuning-v2-bundle',
-                    policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                    policies: [makePolicy('easy:rule:random:500:growth')],
                     rollout_pct: 100,
                 }),
             })
@@ -594,9 +602,9 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
                 json: async () => ({
                     format: 'openblock-spawn-tuning-v2-bundle',
                     policies: [
-                        makePolicy('easy:budget-p2:random:500:growth'),
-                        makePolicy('hard:triplet-p1:survival:25000:mature'),
-                        makePolicy('normal:triplet-p1:clear-greedy:1500:growth'),
+                        makePolicy('easy:rule:random:500:growth'),
+                        makePolicy('hard:rule:survival:25000:mature'),
+                        makePolicy('normal:rule:clear-greedy:1500:growth'),
                     ],
                     rollout_pct: 100,
                 }),
@@ -624,7 +632,7 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
             ok: true,
             json: async () => ({
                 format: 'openblock-spawn-tuning-v2-bundle',
-                policies: [makePolicy('easy:budget-p2:random:500:growth')],
+                policies: [makePolicy('easy:rule:random:500:growth')],
                 rollout_pct: 100,
             }),
         });

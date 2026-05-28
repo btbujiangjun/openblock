@@ -93,56 +93,6 @@ def target_S_curve(r: float) -> float:
     return D_BRAKE_END + extra * (1.0 - math.exp(-OVERSHOOT_DECAY * (r - SEG_BRAKE_END)))
 
 
-# ─────────── v2.9: 校准 target (用于训练) ───────────
-# v2.10.6: 拉宽端点, 跟 PB_AWARE 同步 (跨度 0.43 → 0.62)
-#   病例: model #20 预测 MAE vs ideal=0.215, 因 calibrated 端点太保守
-#   分析: 老 (0.42, 0.85) 跨度 0.43, 距 ideal (0.20, 1.00) 差距大
-#   v2.10.6: D_BASE 0.42 → 0.30 / D_CAP 0.85 → 0.92, 让 calibrated 接近 ideal
-# 业务 ideal target (D_BASE=0.20...) 仍保留, 用于 UI 展示 + 最终验收
-
-D_BASE_CAL = 0.30        # v2.10.6: 0.42 → 0.30
-D_GENTLE_END_CAL = 0.38  # 同步下调
-D_MID_END_CAL = 0.50     # 同步下调
-D_BRAKE_END_CAL = 0.82   # v2.10.6: 0.75 → 0.82
-D_CAP_CAL = 0.92         # v2.10.6: 0.85 → 0.92
-
-
-def target_S_curve_calibrated(r: float) -> float:
-    """v2.9 校准版 target — 温和 S 形, 与 bot 数据 baseline 接近。
-
-    与 target_S_curve 同结构 (4 段分段 + 重缩放 logistic), 但 D 振幅缩小,
-    让模型在 bot 数据训练下可达。
-
-    用途:
-      - 训练 loss (loss_target_fit) 使用此版本
-      - UI d_curve 三线对照可同时显示 ideal + calibrated (业务对比)
-    """
-    r = max(0.0, min(CURVE_R_MAX, float(r)))
-
-    if r < SEG_GENTLE_END:
-        slope = (D_GENTLE_END_CAL - D_BASE_CAL) / SEG_GENTLE_END
-        return D_BASE_CAL + slope * r
-
-    if r < SEG_MID_END:
-        slope = (D_MID_END_CAL - D_GENTLE_END_CAL) / (SEG_MID_END - SEG_GENTLE_END)
-        return D_GENTLE_END_CAL + slope * (r - SEG_GENTLE_END)
-
-    if r < SEG_BRAKE_END:
-        s = _brake_smooth(r)  # 复用 ideal 的 sigmoid 形状
-        return D_MID_END_CAL + s * (D_BRAKE_END_CAL - D_MID_END_CAL)
-
-    extra = D_CAP_CAL - D_BRAKE_END_CAL
-    return D_BRAKE_END_CAL + extra * (1.0 - math.exp(-OVERSHOOT_DECAY * (r - SEG_BRAKE_END)))
-
-
-def target_curve_calibrated_vector(n_bins: int = CURVE_N_BINS, r_max: float = CURVE_R_MAX) -> List[float]:
-    """v2.9: 返回校准 target 的 20 维离散向量。"""
-    if n_bins <= 0:
-        raise ValueError("n_bins must be positive")
-    width = r_max / n_bins
-    return [target_S_curve_calibrated((i + 0.5) * width) for i in range(n_bins)]
-
-
 def target_curve_vector(n_bins: int = CURVE_N_BINS, r_max: float = CURVE_R_MAX) -> List[float]:
     """返回 d_curve 离散化后的 20 维目标向量。
 
