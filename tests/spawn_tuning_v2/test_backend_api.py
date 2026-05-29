@@ -19,7 +19,14 @@ def app():
     """构造独立 Flask app + 临时 SQLite。"""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
+    # 行为样本集 (list 注入) 读主库 OPENBLOCK_DB_PATH — 隔离到独立空库, 让 v2 测试确定性,
+    # 不受仓库 openblock.db 是否已回填行为样本影响。fact-eval 读 v2 samples 表, 与此无关。
+    with tempfile.NamedTemporaryFile(suffix=".main.db", delete=False) as f2:
+        main_db_path = f2.name
+    os.unlink(main_db_path)
+    _prev_main = os.environ.get("OPENBLOCK_DB_PATH")
     os.environ["SPAWN_TUNING_V2_DB"] = db_path
+    os.environ["OPENBLOCK_DB_PATH"] = main_db_path
     os.environ["SPAWN_TUNING_V2_DISABLE_EXECUTOR"] = "1"   # 测试时禁掉后台 worker
 
     # 强制 reimport (因为 module-level 读取 DB_PATH)
@@ -33,10 +40,15 @@ def app():
 
     yield flask_app
 
-    try:
-        os.unlink(db_path)
-    except OSError:
-        pass
+    if _prev_main is None:
+        os.environ.pop("OPENBLOCK_DB_PATH", None)
+    else:
+        os.environ["OPENBLOCK_DB_PATH"] = _prev_main
+    for _p in (db_path, main_db_path):
+        try:
+            os.unlink(_p)
+        except OSError:
+            pass
 
 
 @pytest.fixture
@@ -1540,3 +1552,193 @@ class TestSampleSetDownload:
         set_id = self._setup_set_with_samples(client, n_samples=1)
         r = client.get(f"/api/spawn-tuning-v2/sample-sets/{set_id}/download?format=xml")
         assert r.status_code == 400
+
+
+# ─────────── 用户行为样本集 (跨库注入 B.2 样本集库) ───────────
+
+# ─────────── 任务日志 (C.2 队列展开行) ───────────
+
+class TestJobLog:
+    """GET /jobs/<id>/log — 抽取关键问题行 + 日志尾部, 供队列展开行展示。"""
+
+    def test_log_not_found(self, client):
+        r = client.get("/api/spawn-tuning-v2/jobs/99999/log")
+        assert r.status_code == 404
+
+    def test_log_no_file(self, client):
+        # 新建 job, 未写日志 → exists=False, key_lines 空
+        r = client.post(
+            "/api/spawn-tuning-v2/jobs",
+            json={"sample_set_ids": [1], "model_type": "resnet"},
+        )
+        job_id = r.get_json()["job_id"]
+        r = client.get(f"/api/spawn-tuning-v2/jobs/{job_id}/log")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["exists"] is False
+        assert d["key_lines"] == []
+
+    def test_log_key_lines_extracted(self, client, tmp_path):
+        r = client.post(
+            "/api/spawn-tuning-v2/jobs",
+            json={"sample_set_ids": [1], "model_type": "resnet"},
+        )
+        job_id = r.get_json()["job_id"]
+        # 写一个含 traceback 的日志文件, 并把 log_path 挂到 job
+        log_file = tmp_path / f"job_{job_id}.log"
+        log_file.write_text(
+            "[train_v2] device=mps sets=[1]\n"
+            "epoch 1 loss=0.5\n"
+            "Traceback (most recent call last):\n"
+            '  File "train.py", line 284, in train\n'
+            "    raise ValueError(\"no samples found in sets [1]\")\n"
+            "ValueError: no samples found in sets [1]\n"
+            "[job_executor] failed, rc=1\n",
+            encoding="utf-8",
+        )
+        client.patch(
+            f"/api/spawn-tuning-v2/jobs/{job_id}",
+            json={"log_path": str(log_file), "error_message": "subprocess exit code 1"},
+        )
+        r = client.get(f"/api/spawn-tuning-v2/jobs/{job_id}/log")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["exists"] is True
+        assert d["error_message"] == "subprocess exit code 1"
+        texts = " ".join(k["text"] for k in d["key_lines"])
+        assert "Traceback" in texts
+        assert "ValueError: no samples found" in texts
+        assert "no samples found" in d["tail"]
+
+
+# ─────────── 真实行为导入 (玩家对局 → v2 寻参样本) ───────────
+
+def _seed_behavior_sessions(n_sessions=3, n_place=6):
+    """在隔离主库 (OPENBLOCK_DB_PATH) 建 spawn_dataset_samples 并塞几局。"""
+    import sqlite3
+    main_db = os.environ["OPENBLOCK_DB_PATH"]
+    conn = sqlite3.connect(main_db)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS spawn_dataset_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL UNIQUE, user_id TEXT NOT NULL,
+            score INTEGER, pb_baseline INTEGER, game_over_reason TEXT,
+            sample_count INTEGER DEFAULT 0, payload TEXT NOT NULL,
+            schema_version INTEGER DEFAULT 1,
+            packed_at INTEGER DEFAULT (strftime('%s','now')),
+            updated_at INTEGER DEFAULT (strftime('%s','now')))"""
+    )
+    grid = {"cells": [[None] * 8 for _ in range(8)]}
+    for sid in range(1, n_sessions + 1):
+        frames = [
+            {"t": "init", "grid": grid},
+            {"t": "spawn", "dock": [{"id": "1x2"}, {"id": "2x2"}, {"id": "t-up"}],
+             "ps": {"score": 0, "boardFill": 0.0, "bestScore": 2000,
+                    "provenance": {"spawnSource": "rule"},
+                    "adaptive": {"stressBreakdown": {
+                        "pbCurveParams": {"pbTensionCenter": 0.8, "pbTensionWidth": 0.07},
+                        "lifecycleStage": "S1"}}}},
+        ]
+        for i in range(n_place):
+            frames.append({"t": "place", "gridAfter": grid,
+                           "ps": {"score": 100 * (i + 1), "boardFill": 0.1 * (i + 1),
+                                  "linesCleared": 0}})
+        payload = json.dumps({"frames": frames})
+        conn.execute(
+            "INSERT OR IGNORE INTO spawn_dataset_samples (session_id, user_id, score, pb_baseline, "
+            "game_over_reason, sample_count, payload, packed_at) VALUES (?,?,?,?,?,?,?,?)",
+            (sid, f"u{sid}", 100 * n_place, 2000, "jam", n_place, payload, 1000 + sid),
+        )
+    conn.commit()
+    conn.close()
+
+
+class TestImportBehavior:
+    def test_import_no_main_table(self, client):
+        # 主库无 spawn_dataset_samples → 400 友好提示
+        r = client.post("/api/spawn-tuning-v2/import-behavior", json={})
+        assert r.status_code == 400
+        assert "spawn_dataset_samples" in r.get_json()["error"]
+
+    def test_import_creates_trainable_set(self, client):
+        _seed_behavior_sessions(n_sessions=3, n_place=6)
+        r = client.post("/api/spawn-tuning-v2/import-behavior", json={})
+        assert r.status_code == 200, r.get_json()
+        d = r.get_json()
+        assert d["ok"] is True
+        assert d["scanned"] == 3
+        assert d["inserted"] == 3
+        assert d["total"] == 3
+        set_id = d["set_id"]
+
+        # 出现在样本集列表里 (普通集, 非 behavior kind)
+        lst = client.get("/api/spawn-tuning-v2/sample-sets?limit=100").get_json()
+        match = [s for s in lst["sample_sets"] if s["set_id"] == set_id]
+        assert match, "imported set not in list"
+        assert match[0].get("kind") != "behavior"
+        assert "real" in (match[0].get("tags") or "")
+        assert match[0]["sample_count"] == 3
+
+        # 样本字段可被训练加载器读取 (preview 不报错)
+        pv = client.get(f"/api/spawn-tuning-v2/sample-sets/{set_id}/preview").get_json()
+        assert pv.get("kind") != "behavior"
+
+    def test_import_incremental_dedup(self, client):
+        # 首次同步 2 局
+        _seed_behavior_sessions(n_sessions=2, n_place=5)
+        r1 = client.post("/api/spawn-tuning-v2/import-behavior", json={}).get_json()
+        assert r1["inserted"] == 2 and r1["total"] == 2
+        # 再次同步 (无新增) → 全部 already, 不翻倍
+        r2 = client.post("/api/spawn-tuning-v2/import-behavior", json={}).get_json()
+        assert r2["set_id"] == r1["set_id"]
+        assert r2["inserted"] == 0
+        assert r2["already"] == 2
+        assert r2["total"] == 2
+        # 新增 1 局 (session_id=3) → 增量只入库新的那条
+        _seed_behavior_sessions(n_sessions=3, n_place=5)
+        r3 = client.post("/api/spawn-tuning-v2/import-behavior", json={}).get_json()
+        assert r3["inserted"] == 1
+        assert r3["already"] == 2
+        assert r3["total"] == 3
+
+    def test_import_quality_gate_filters_invalid(self, client):
+        # 2 局正常 (6 步) + 1 局废局 (1 步, n_bins_filled 低) → 质量门滤掉废局
+        _seed_behavior_sessions(n_sessions=2, n_place=6)
+        import sqlite3
+        conn = sqlite3.connect(os.environ["OPENBLOCK_DB_PATH"])
+        bad = json.dumps({"frames": [
+            {"t": "init", "grid": {"cells": [[None] * 8 for _ in range(8)]}},
+            {"t": "spawn", "dock": [{"id": "1x2"}], "ps": {"score": 0, "boardFill": 0.0, "bestScore": 2000}},
+            {"t": "place", "gridAfter": {"cells": [[None] * 8 for _ in range(8)]},
+             "ps": {"score": 0, "boardFill": 0.0, "linesCleared": 0}},
+        ]})
+        conn.execute(
+            "INSERT OR IGNORE INTO spawn_dataset_samples (session_id, user_id, score, pb_baseline, "
+            "game_over_reason, sample_count, payload, packed_at) VALUES (?,?,?,?,?,?,?,?)",
+            (99, "ubad", 0, 2000, "jam", 1, bad, 999),
+        )
+        conn.commit()
+        conn.close()
+        r = client.post("/api/spawn-tuning-v2/import-behavior", json={}).get_json()
+        assert r["scanned"] == 3
+        assert r["inserted"] == 2       # 2 局正常入库
+        assert r["invalid"] >= 1        # 废局被质量门挡下
+        assert r["total"] == 2
+
+    def test_import_quality_gate_can_disable(self, client):
+        _seed_behavior_sessions(n_sessions=1, n_place=1)  # 1 步, 默认会被滤
+        r_on = client.post("/api/spawn-tuning-v2/import-behavior", json={}).get_json()
+        assert r_on["total"] == 0 and r_on["invalid"] >= 1
+        # 关闭质量门 (阈值全 0) → 入库
+        r_off = client.post("/api/spawn-tuning-v2/import-behavior",
+                            json={"min_steps": 0, "min_bins": 0, "min_score": 0}).get_json()
+        assert r_off["total"] >= 1
+
+    def test_import_rebuild_resets(self, client):
+        _seed_behavior_sessions(n_sessions=2, n_place=5)
+        r1 = client.post("/api/spawn-tuning-v2/import-behavior", json={}).get_json()
+        r2 = client.post("/api/spawn-tuning-v2/import-behavior", json={"rebuild": True}).get_json()
+        assert r1["set_id"] == r2["set_id"]
+        assert r2["inserted"] == 2  # rebuild 清空后重新全量
+        got = client.get(f"/api/spawn-tuning-v2/sample-sets/{r2['set_id']}").get_json()
+        assert got["actual_sample_count"] == 2

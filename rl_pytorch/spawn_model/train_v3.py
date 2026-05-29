@@ -51,6 +51,7 @@ from .dataset import (
     load_training_data,
 )
 from .feasibility import build_feasibility_mask
+from .drift import build_drift_reference, check_against_reference
 from .model_v3 import SpawnPolicyNet, NUM_PLAYSTYLES, PLAYSTYLE_TO_IDX, NUM_SPAWN_INTENTS
 from .train import (
     _default_dataloader_workers,
@@ -193,6 +194,28 @@ def train(args):
 
     _write_status({'phase': 'loading', 'progress': 0,
                    'message': f'V3 加载到 {len(samples)} 个样本'})
+
+    # v1.61.0：θ-regime 分布 + 漂移参考画像（baked-in，供服务期对照）。
+    import collections
+    ref_ctx = np.stack([s['behavior_context'] for s in samples])
+    drift_reference = build_drift_reference(ref_ctx)
+    regimes = collections.Counter(int(s.get('theta_regime', 0)) for s in samples)
+    print(f'[V3] θ-regime 数={len(regimes)}，Top: {regimes.most_common(3)}')
+    if len(regimes) > 1:
+        print('[V3] ⚠ 训练数据跨多个 θ-regime —— 显式 θ 条件（behaviorContext[57:60]）正是为此设计；'
+              '若服务期 θ 再变，用 drift_check 对照本 ckpt 的 drift_reference。')
+    # 与上一版 ckpt 的参考画像对照（非致命，仅提示非平稳程度）。
+    if model_path.exists():
+        try:
+            prev = torch.load(str(model_path), map_location='cpu', weights_only=False)
+            prev_ref = prev.get('drift_reference')
+            if prev_ref:
+                rep = check_against_reference(prev_ref, ref_ctx)
+                st = rep['spawn_targets']
+                print(f"[V3] 与上一版 ckpt 训练分布漂移：spawnTargets max PSI={st['max']:.3f}"
+                      f"（{st['argmax']}，{st['level']}）")
+        except Exception as e:  # noqa: BLE001
+            print(f'[V3] 跳过与旧 ckpt 的漂移对照：{e}')
 
     dataset = SpawnDataset(samples)
     val_size = max(1, int(len(dataset) * 0.1))
@@ -404,6 +427,9 @@ def train(args):
                 'val_acc': avg_acc,
                 'num_shapes': NUM_SHAPES,
                 'num_categories': NUM_CATEGORIES,
+                # v1.61.0：漂移参考画像 + θ-regime 分布，供 drift_check 服务期门禁。
+                'drift_reference': drift_reference,
+                'theta_regimes': dict(regimes),
             }, str(model_path))
 
     _write_status({

@@ -376,6 +376,7 @@
           <button class="ghost preset-btn preset-active" data-preset="debug">🐞 调试 (~5 分)</button>
           <button class="ghost preset-btn" data-preset="prod">🏭 生产 (~1 小时)</button>
           <button class="ghost preset-btn" data-preset="hq" title="v3.0.1 一键应用最佳配置: MCTS bot + Lookahead2 + 关闭 random + 关闭 PB 10k/25k + 8 θ × 3 seed + maxSteps 800. avg r 0.85+, 真实观察 65%+">🎯 高质量 v3.0.1 (~45 分)</button>
+          <button class="ghost preset-btn" data-preset="coverage" title="v1.62.0 覆盖优先: lookahead-2 + 关闭 random + 仅采可达 PB(500/1500) + 12 θ × 5 seed + maxSteps 800. 目标=把 S 曲线高分段(接近 PB)采到真实观测, 扩大 fact-eval 的验证范围并降低覆盖告警">📊 覆盖优先 (~1 小时)</button>
           <span id="active-preset" style="color:var(--purple); font-family:ui-monospace,monospace; font-size:10.5px;"></span>
         </div>
 
@@ -506,6 +507,8 @@
         <h2>B.2 样本集库</h2>
         <div class="form-actions">
           <button id="btn-refresh-sets" class="ghost">↻ 刷新</button>
+          <button id="btn-import-behavior" class="ghost" title="把主库玩家真实对局增量整理成 v2 寻参样本(5维ctx+θ+20维d_curve),生成「用户行为样本集 (寻参可训)」,与构造样本无差别地参与训练/评估。打开面板时自动同步,此处手动触发增量同步。">👤→📊 同步用户行为样本</button>
+          <span id="import-behavior-hint" style="font-size:11px; color:var(--muted);"></span>
           <label style="font-size:11px;">
             筛选状态:
             <select id="filter-status" style="margin-left:4px;">

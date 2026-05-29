@@ -160,7 +160,15 @@ export class Game {
         // v10.12: 特效叠加层 — 粒子/闪光独立绘制，可溢出盘面增强立体感。
         // 当 #game-grid-fx 不存在时（如旧 HTML / 测试环境），Renderer 自动退回为单画布行为。
         this.fxCanvas = document.getElementById('game-grid-fx');
-        this.renderer = new Renderer(this.canvas, { fxCanvas: this.fxCanvas });
+        /* v1.60.47 GPU：盘面静态背景层（L0）+ 漂移水印层（L1）独立 canvas，让静止盘面
+         * 不再每帧整块重传 GPU（详见 renderer.renderBackground）。任一缺失即回退单画布。 */
+        this.bgCanvas = document.getElementById('game-grid-bg');
+        this.wmCanvas = document.getElementById('game-grid-wm');
+        this.renderer = new Renderer(this.canvas, {
+            fxCanvas: this.fxCanvas,
+            bgCanvas: this.bgCanvas,
+            wmCanvas: this.wmCanvas,
+        });
         /* canvas 物理像素重置（resize / setQualityMode 改 DPR）会清空 canvas 内容。
          * high 画质有 watermark idle 动画掩盖该空帧；balanced/low 没有任何驱动，
          * 切 RL 面板等触发 resize 后盘面会停留在空白上。registry 一个 markDirty 回调
@@ -441,7 +449,75 @@ export class Game {
             holesCoverable: topo.holes,
             flatness: Number.isFinite(topo.flatness) ? topo.flatness : null,
             firstMoveFreedom,
-            solutionCount
+            solutionCount,
+            /* v1.63（出块数据集补全）：近消行拓扑三件套 —— dataset.py 的 behaviorContext[28-30]
+             * 此前一直读到 0（snapshot 未写）。nearFullLines/close1/close2 直接取自同一份 topo，
+             * 零额外算力；nearClear 还进难度回归目标，必须落库。maxColHeight 作为危险度辅助列。 */
+            nearFullLines: Number.isFinite(topo.nearFullLines) ? topo.nearFullLines : null,
+            close1: Number.isFinite(topo.close1) ? topo.close1 : null,
+            close2: Number.isFinite(topo.close2) ? topo.close2 : null,
+            maxColHeight: Number.isFinite(topo.maxColHeight) ? topo.maxColHeight : null
+        };
+    }
+
+    /**
+     * v1.63（pv=3）：逐 spawn 策略来源（provenance）。
+     *
+     * 把"由谁、用什么参数产出这一手三块"显式化，是离线做反事实 / 分组对比的前提：
+     *   - `spawnSource`：'rule' / 'model-v3' / 'rule-fallback'
+     *   - `modelVersion` / `fallbackReason`：模型轨元数据（来自 spawnModelMeta）
+     *   - `thetaSource`：θ 解析来源（no-policies / gate-out / exact / fuzzy-lifecycle / coarse-gen…）
+     *   - `policyBundleSha` / `policyBundleVersion` / `rolloutPct`：L2 SpawnParamTuner bundle 标识
+     *     （等价于"实验臂 / 配置版本"，用于把样本按部署版本分组）
+     * 失败保护：clientPolicyV2 未加载 / 读取异常 → 对应字段 null，不阻塞出块。
+     * @param {string} source
+     * @returns {object}
+     * @private
+     */
+    _buildSpawnProvenance(source) {
+        const insight = this._lastAdaptiveInsight || {};
+        const meta = insight.spawnModelMeta || null;
+        const thetaSource = insight.stressBreakdown?.tuningV2Source ?? null;
+        let bundleSha = null;
+        let bundleVersion = null;
+        let rolloutPct = null;
+        try {
+            const mod = (typeof window !== 'undefined') ? window.__openblockClientPolicyV2 : null;
+            if (mod && typeof mod.getStatsV2 === 'function') {
+                const stats = mod.getStatsV2();
+                bundleSha = stats?.model_sha ?? stats?.meta?.model_sha256 ?? null;
+                bundleVersion = stats?.meta?.version ?? null;
+                rolloutPct = Number.isFinite(Number(stats?.rollout_pct)) ? Number(stats.rollout_pct) : null;
+            }
+        } catch { /* not critical */ }
+        return {
+            spawnSource: source || 'rule',
+            modelVersion: meta?.modelVersion ?? null,
+            fallbackReason: meta?.fallbackReason ?? null,
+            thetaSource,
+            policyBundleSha: bundleSha,
+            policyBundleVersion: bundleVersion,
+            rolloutPct
+        };
+    }
+
+    /**
+     * v1.63（pv=3）：spawn 帧级拒绝采样元数据。
+     * attempt=规则轨重试次数；solutionRejects=各类被否计数；fallback=是否走兜底路径。
+     * 供"什么组合在什么盘面被判不可行"的学习与运维 fallback 频率监控。
+     * @returns {object|null}
+     * @private
+     */
+    _spawnMetaForFrame() {
+        const diag = getLastSpawnDiagnostics();
+        if (!diag || typeof diag !== 'object') return null;
+        const attempt = Number.isFinite(Number(diag.attempt)) ? Number(diag.attempt) : 0;
+        const rejects = diag.solutionRejects && typeof diag.solutionRejects === 'object'
+            ? { ...diag.solutionRejects } : null;
+        return {
+            attempt,
+            fallback: diag.chosen?.[0]?.reason === 'fallback',
+            solutionRejects: rejects
         };
     }
 
@@ -695,7 +771,13 @@ export class Game {
                 this.renderer.renderAmbientFxFrame();
             }
             if (this._shouldDrawBoardWatermarkMotionFrame()) {
-                this.markDirty();
+                /* v1.60.47 GPU：有独立水印层时只重绘那一小层（主画布保持静态不重传）；
+                 * 无独立层（旧 HTML / 测试）回退整盘 markDirty，行为与历史一致。 */
+                if (this.renderer.hasSeparateWatermarkLayer?.()) {
+                    this.renderer.renderBoardWatermarkMotionFrame();
+                } else {
+                    this.markDirty();
+                }
             }
         };
 
@@ -1420,7 +1502,9 @@ export class Game {
             const blk = block;
             const startDrag = (e) => {
                 e.preventDefault();
-                if (this.rlPreviewLocked || this.replayPlaybackLocked || blk.placed || this.isAnimating || this.isGameOver) {
+                /* v1.61：不再因 this.isAnimating 阻塞——消行视觉特效期间盘面状态已结算，
+                 * 允许玩家立即抓取候选区剩余块继续放置，保住连续消行的爽感。 */
+                if (this.rlPreviewLocked || this.replayPlaybackLocked || blk.placed || this.isGameOver) {
                     return;
                 }
                 const touch = e.touches ? e.touches[0] : e;
@@ -1833,20 +1917,41 @@ export class Game {
             }
         }
 
+        /* v1.63（pv=3）：逐块形状级特征 —— chosen 顺序可能与最终 shapes（已 Fisher–Yates 打乱）
+         * 不一致，故按 id 建队列匹配（双胞胎注入时同 id 多条，逐一消费）。 */
+        const featQueueById = new Map();
+        for (const m of chosenMetas) {
+            if (!m || m.id == null) continue;
+            const key = String(m.id);
+            if (!featQueueById.has(key)) featQueueById.set(key, []);
+            featQueueById.get(key).push(m);
+        }
         const descriptors = [];
         for (let i = 0; i < 3; i++) {
             const shape = shapes[i];
+            const q = featQueueById.get(String(shape.id));
+            const feat = q && q.length ? q.shift() : null;
             descriptors.push({
                 id: shape.id,
                 shape: shape.data,
                 colorIdx: dockColors[i],
-                placed: false
+                placed: false,
+                feat: feat ? {
+                    placements: feat.placements,
+                    gapFills: feat.gapFills,
+                    multiClear: feat.multiClear,
+                    pcPotential: feat.pcPotential,
+                    exactFit: feat.exactFit,
+                    monoFlush: feat.monoFlush,
+                    topDriver: feat.topDriver?.key ?? null
+                } : undefined
             });
         }
 
         this._lastAdaptiveInsight = this._lastAdaptiveInsight || {};
         this._lastAdaptiveInsight.spawnSource = source || 'rule';
         this._lastAdaptiveInsight.spawnDiagnostics = getLastSpawnDiagnostics();
+        this._lastAdaptiveInsight.provenance = this._buildSpawnProvenance(source);
 
         this._pushSpawnToSequence(descriptors);
 
@@ -2212,7 +2317,7 @@ export class Game {
     }
 
     onMove(e) {
-        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
+        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock) {
             return;
         }
         e.preventDefault();
@@ -2223,7 +2328,7 @@ export class Game {
     }
 
     _applyDragMoveFrame(clientX, clientY) {
-        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
+        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock) {
             return;
         }
         this.updateGhostPosition(clientX, clientY);
@@ -2290,7 +2395,7 @@ export class Game {
     }
 
     onEnd() {
-        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock || this.isAnimating) {
+        if (this.rlPreviewLocked || this.replayPlaybackLocked || !this.drag || !this.dragBlock) {
             return;
         }
 
@@ -2547,6 +2652,9 @@ export class Game {
         const dockIndex = this.drag.index;
 
         this.isAnimating = true;
+        /* v1.61：代际令牌——动画期间若再次消行（玩家在火花未散时继续放块），会 bump 代际，
+         * 让旧的视觉 loop 末尾跳过清理，避免提前抹掉新一轮高亮/粒子或把 isAnimating 误置回 false。 */
+        const fxGen = (this._clearFxGen = (this._clearFxGen || 0) + 1);
         this._clearStreak++;
 
         /* v1.60.45：comboHigh ≥ 4 → 爽感事件（'comboHigh' kind）+ 行为打点。
@@ -2669,57 +2777,69 @@ export class Game {
             this._showStreakBadge(this._clearStreak);
         }
 
+        /* === 逻辑结算：放块当帧立即执行（不再等动画播完）===
+         * v1.61（用户反馈："消行动效期间无法放置新块，影响爽感"）：
+         *   grid 在本次动画前（_handlePlace 里的 checkLines / _clearEngine.apply）就已结算，
+         *   score 也已在上方同步累加——动画其实是纯视觉。原实现把"标记落子块 / 刷新快照 /
+         *   候选区重抽 / 目标·结束判定"全部塞进动画收尾回调，导致整段动画（单消 500ms、
+         *   完美清屏 1050ms+）内 isAnimating 锁死、候选区剩余块无法继续放置。
+         *   现在把这些逻辑全部提前到这里同步完成，玩家在火花尚未消散时即可继续操作；
+         *   isAnimating 仅作为"视觉特效进行中"标记，不再阻塞放块输入。 */
+        self._markDockBlockPlaced(dockIndex);
+
+        /* v1.57.4：增量刷新一次 intent + 几何快照——checkLines 在放块帧就已 apply 到 grid，
+         * 理论上 _handlePlace 那次刷新已覆盖；但 perfectClear / bonus 等会触发额外副作用，
+         * 再走一次保险，让 DFV / stressMeter 读到实时值。 */
+        self._refreshIntentSnapshot();
+
+        if (self.dockBlocks.every(b => b.placed)) {
+            self._levelManager?.recordRound();
+            self.spawnBlocks();
+        }
+
+        self.updateUI();
+
+        let _levelEnded = false;
+        // 关卡目标检测（消除后）
+        if (self._levelManager) {
+            const objResult = self._levelManager.checkObjective(self);
+            if (objResult.achieved) {
+                const levelResult = self._levelManager.getResult(self);
+                self.endGame({ mode: 'level', levelResult });
+                _levelEnded = true;
+            }
+        }
+        if (!_levelEnded) {
+            self.checkGameOver();
+        }
+
+        /* === 纯视觉动画：非阻塞 overlay ，结束时只复位特效态 === */
         const animStart = Date.now();
         let clearFlashEnded = false;
-        let finalized = false;
-        let finalizeTimer = null;
+        let fxDone = false;
+        let fxTimer = null;
 
-        const finalizeClearEffect = () => {
-            if (finalized) return;
-            finalized = true;
-            if (finalizeTimer != null) {
-                clearTimeout(finalizeTimer);
-                finalizeTimer = null;
+        const finishClearFx = () => {
+            if (fxDone) return;
+            fxDone = true;
+            if (fxTimer != null) {
+                clearTimeout(fxTimer);
+                fxTimer = null;
             }
-
+            /* 动画期间若已发生更新的消行，则代际不匹配——交由新一轮 loop 收尾，
+             * 这里不再清理粒子，也不把 isAnimating 误置回 false。 */
+            if (self._clearFxGen !== fxGen) return;
             self.isAnimating = false;
             self.renderer.clearParticles();
             self.renderer.setClearCells([]);
             self.markDirty();
-
-            self._markDockBlockPlaced(dockIndex);
-
-            /* v1.57.4：消行动画完成后再增量刷新一次 intent + 几何快照——
-             * checkLines 在动画前就已 apply 到 grid，理论上 _handlePlace 那次刷新
-             * 已覆盖；但 perfectClear / bonus 等会触发额外副作用，再走一次保险，
-             * 让 DFV / stressMeter 在动画结束→spawn 重抽之间的窗口也读到实时值。 */
-            self._refreshIntentSnapshot();
-
-            if (self.dockBlocks.every(b => b.placed)) {
-                self._levelManager?.recordRound();
-                self.spawnBlocks();
-            }
-
-            self.updateUI();
-
-            // 关卡目标检测（消除后）
-            if (self._levelManager) {
-                const objResult = self._levelManager.checkObjective(self);
-                if (objResult.achieved) {
-                    const levelResult = self._levelManager.getResult(self);
-                    self.endGame({ mode: 'level', levelResult });
-                    return;
-                }
-            }
-
-            self.checkGameOver();
         };
 
-        // iOS WebView 偶发暂停/丢弃 rAF 尾帧；定时兜底保证候选池不会卡在全 placed 状态。
-        finalizeTimer = setTimeout(finalizeClearEffect, animDuration + 500);
+        // iOS WebView 偶发暂停/丢弃 rAF 尾帧；定时兜底保证粒子/动画态最终复位。
+        fxTimer = setTimeout(finishClearFx, animDuration + 500);
 
         const animate = () => {
-            if (finalized) return;
+            if (fxDone || self._clearFxGen !== fxGen) return;
             const elapsed = Date.now() - animStart;
             self.renderer.updateShake();
             self.renderer.updateParticles();
@@ -2733,7 +2853,7 @@ export class Game {
             if (elapsed < animDuration) {
                 requestAnimationFrame(animate);
             } else {
-                finalizeClearEffect();
+                finishClearFx();
             }
         };
 
@@ -2891,6 +3011,25 @@ export class Game {
             } catch { /* ignore */ }
         }
         this.isGameOver = true;
+        /* v1.63（pv=3，出块数据集补全）：终局 / 死亡信号 —— 区分"被怼死"和"主动结束"，
+         * 是保命 / 可解性优化与公平性回归的关键标签。一并落库死亡盘面 + 那组放不下的 dock，
+         * 供"死局成因"复盘。写入 gameStats，随 updateSession 持久化到 sessions.game_stats，
+         * 并由 server.py 抽到 sessions.game_over_reason 列供 SQL 直查。 */
+        try {
+            const reason = opts.noMovesLoss ? 'jam'
+                : opts.mode === 'level' ? 'level_clear'
+                    : opts.mode === 'level-fail' ? 'level_fail'
+                        : (opts.reason || 'normal');
+            const deadDock = (this.dockBlocks || [])
+                .filter((b) => b && !b.placed)
+                .map((b) => ({ id: b.id, shape: b.shape }));
+            this.gameStats.gameOverReason = reason;
+            this.gameStats.finalBoard = (reason === 'jam' && this.grid?.toJSON) ? this.grid.toJSON() : null;
+            this.gameStats.deadDock = reason === 'jam' ? deadDock : null;
+            /* v1.63（需求1）：本局 PB 基线（run-start bestScore）—— 作为采样侧 PB 波动的"指定数值"中心，
+             * 也给 server `_extract_pb_baseline` 一个权威来源（兼容 pv<3 无 ps.bestScore 的旧端）。 */
+            this.gameStats.pbBaseline = Number(this._bestScoreAtRunStart) || 0;
+        } catch { /* 标签非关键，失败不阻塞结算 */ }
         try {
             window.__audioFx?.play?.('gameOver');
             window.__audioFx?.vibrate?.([35, 55, 25]);
@@ -3386,6 +3525,7 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             phase: 'init',
+            bestScore: this._bestScoreAtRunStart,
             adaptiveInsight: null,
             spawnGeo: this._spawnGeoForSnapshot()
         });
@@ -3406,10 +3546,14 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             phase: 'spawn',
+            bestScore: this._bestScoreAtRunStart,
             adaptiveInsight: this._lastAdaptiveInsight,
             spawnGeo: this._spawnGeoForSnapshot()
         });
-        this.moveSequence.push(buildSpawnFrame(descriptors, ps, { ts: this._frameTs() }));
+        this.moveSequence.push(buildSpawnFrame(descriptors, ps, {
+            ts: this._frameTs(),
+            spawnMeta: this._spawnMetaForFrame()
+        }));
         this._schedulePersistMoves();
     }
 
@@ -3433,6 +3577,7 @@ export class Game {
             runStreak: this.runStreak,
             strategyId: this.strategy,
             phase: 'place',
+            bestScore: this._bestScoreAtRunStart,
             adaptiveInsight: this._lastAdaptiveInsight,
             spawnGeo: this._spawnGeoForSnapshot()
         });

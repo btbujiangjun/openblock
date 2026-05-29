@@ -2015,6 +2015,20 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         } catch { /* not critical, 继续 fallback DEFAULT */ }
     }
     if (stressBreakdown) stressBreakdown.tuningV2Source = _tuningSource;
+    /* v1.61.0：把"本帧实际生效的 4 个 PB 曲线 θ"显式落到 stressBreakdown.pbCurveParams。
+     * 用途：(1) 运行时供 SpawnPolicyNet 的 behaviorContext[57-60] 作为显式条件输入；
+     *       (2) 经 buildPlayerStateSnapshot 写入 ps.adaptive.stressBreakdown → 训练样本可读
+     *           → 把 L2→L1-Net 的"隐式耦合"转成"显式条件"，消除换 θ 不重训导致的分布漂移。
+     * 未部署 SpawnParamTuner 时取 DEFAULT_SPAWN_PARAMS_PB_CURVE（与历史 HandTuned 数据同域）。*/
+    const _pbN = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+    if (stressBreakdown) {
+        stressBreakdown.pbCurveParams = {
+            pbTensionCenter: _pbN(_tuningTheta?.pbTensionCenter, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbTensionCenter),
+            pbTensionWidth: _pbN(_tuningTheta?.pbTensionWidth, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbTensionWidth),
+            pbBrakeCenter: _pbN(_tuningTheta?.pbBrakeCenter, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbBrakeCenter),
+            pbBrakeWidth: _pbN(_tuningTheta?.pbBrakeWidth, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbBrakeWidth),
+        };
+    }
     const pbCurve = derivePbCurve(score, ctx.bestScore, ctx.postPbReleaseActive === true, _tuningTheta);
     stressBreakdown.pbRatio = pbCurve.pbRatio;
     stressBreakdown.pbTension = pbCurve.pbTension;
@@ -2747,6 +2761,13 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             targetEndDangerColumns,
             targetVisualClutter,
             spawnIntent,
+            /* v1.60.46（P1）：relief 救济紧迫度——供 blockSpawn._tryInjectSpecial 选 fill 地板。
+             *   true（紧迫）= forceReliefIntent（末段崩盘 / 高挫败 / 复活）或深度 distress
+             *                 → relief 注入维持 0.25 低地板，盘面偏空也兜底响应；
+             *   false（温和）= delightStarved / 轻度 distress 等机会型救济
+             *                 → 抬到 0.35 高地板，避免 near-empty 盘面送减压块的违和。
+             * 阈值 -0.22 ≈ 2× 基础 relief 触发线（-0.10），代表"明显深陷"而非刚过线。 */
+            reliefUrgent: forceReliefIntent || Number(playerDistress) < -0.22,
             motivationIntent,
             behaviorSegment,
             personalizationApplied: personalizationEnabled,

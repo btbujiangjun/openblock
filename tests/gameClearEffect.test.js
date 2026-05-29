@@ -1,7 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * 消行动画收尾：iOS WebView 偶发丢弃 rAF 尾帧时，也必须释放动画锁并刷新候选池。
+ * 消行动效（v1.61 重构）：
+ *   - 逻辑结算（候选区重抽 / 刷新快照 / 结束判定）在放块当帧立即完成，不再等动画播完，
+ *     以便玩家在火花未散时即可继续放置——消除"动效期间无法放块"的爽感损耗。
+ *   - 视觉特效作为非阻塞 overlay；isAnimating 仅标记特效进行中，结束（含 iOS 丢弃 rAF
+ *     尾帧时的定时兜底）后复位。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Game } from '../web/src/game.js';
@@ -64,7 +68,27 @@ describe('Game playClearEffect fallback', () => {
         vi.unstubAllGlobals();
     });
 
-    it('rAF 尾帧未执行时，定时兜底会刷新下一轮候选块', () => {
+    it('逻辑结算（重抽/刷新/结束判定）在放块当帧立即完成，不等动画', () => {
+        vi.useFakeTimers();
+        vi.stubGlobal('requestAnimationFrame', vi.fn());
+
+        const game = makeClearEffectGame();
+        Game.prototype.playClearEffect.call(game, {
+            count: 1,
+            cells: [{ x: 0, y: 0 }],
+            bonusLines: [],
+            perfectClear: false,
+        });
+
+        // 视觉特效仍在进行
+        expect(game.isAnimating).toBe(true);
+        // 但逻辑结算已立即完成，玩家可继续操作
+        expect(game._refreshIntentSnapshot).toHaveBeenCalledOnce();
+        expect(game.spawnBlocks).toHaveBeenCalledOnce();
+        expect(game.checkGameOver).toHaveBeenCalledOnce();
+    });
+
+    it('rAF 尾帧未执行时，定时兜底会复位特效态', () => {
         vi.useFakeTimers();
         vi.stubGlobal('requestAnimationFrame', vi.fn());
 
@@ -77,13 +101,11 @@ describe('Game playClearEffect fallback', () => {
         });
 
         expect(game.isAnimating).toBe(true);
-        expect(game.spawnBlocks).not.toHaveBeenCalled();
+        expect(game.renderer.clearParticles).not.toHaveBeenCalled();
 
         vi.advanceTimersByTime(1000);
 
         expect(game.isAnimating).toBe(false);
-        expect(game._refreshIntentSnapshot).toHaveBeenCalledOnce();
-        expect(game.spawnBlocks).toHaveBeenCalledOnce();
-        expect(game.checkGameOver).toHaveBeenCalledOnce();
+        expect(game.renderer.clearParticles).toHaveBeenCalledOnce();
     });
 });

@@ -115,6 +115,15 @@ export function initReplayUI(game) {
     const deleteSelectedBtn = document.getElementById('replay-delete-selected');
     const deleteZeroScoreBtn = document.getElementById('replay-delete-zero-score');
     const playerStateEl = document.getElementById('replay-player-state');
+    const userFilterWrap = document.getElementById('replay-user-filter-wrap');
+    const userFilterSel = document.getElementById('replay-user-filter');
+
+    /* 用户筛选：'__all_users__' = admin 全库；其余 = 具体 user_id（含"自己"）。
+     * 仅在 OPENBLOCK_DB_DEBUG=1（listReplayUsers 返回非空）时显示下拉，
+     * 否则维持"仅自己"私域行为。 */
+    const ALL_USERS_SENTINEL = '__all_users__';
+    let _usersPopulated = false;
+    let _adminMode = false;   // 下拉可用（DB_DEBUG 开）
 
     if (!menuReplayBtn || !listScreen || !viewScreen || !slider) {
         return;
@@ -260,6 +269,80 @@ export function initReplayUI(game) {
         }
     }
 
+    /** 当前选择要加载哪个用户：返回 '' = admin 全库，否则具体 user_id。 */
+    function _targetUserId() {
+        if (!_adminMode || !userFilterSel) return undefined;   // 私域：用 db 默认（自己）
+        const v = (userFilterSel.value || '').trim();
+        if (v === ALL_USERS_SENTINEL) return '';               // 全库
+        return v || undefined;
+    }
+
+    /** 当前是否处于"全库聚合"视图（影响是否展示每行用户、禁用按用户删 0 分）。 */
+    function _isAllUsersView() {
+        return _adminMode && userFilterSel && userFilterSel.value === ALL_USERS_SENTINEL;
+    }
+
+    function _shortId(id) {
+        const s = String(id || '');
+        return s.length > 18 ? s.slice(0, 16) + '…' : s;
+    }
+
+    /**
+     * 填充用户筛选下拉（仅首次）。
+     *   - listReplayUsers 返回非空 → DB_DEBUG 开，进入 admin 模式：
+     *       置顶"🌐 所有用户" + "👤 自己" + 其他用户（按活跃度）
+     *   - 返回空 → 私域模式：隐藏下拉，维持"仅自己"
+     */
+    async function populateUserFilter() {
+        if (_usersPopulated || !userFilterSel) return;
+        let users = [];
+        try {
+            users = await game.db.listReplayUsers();
+        } catch {
+            users = [];
+        }
+        const myId = game.db.currentUserId || '';
+        if (!Array.isArray(users) || users.length === 0) {
+            // 私域模式：不显示下拉
+            _adminMode = false;
+            if (userFilterWrap) userFilterWrap.hidden = true;
+            _usersPopulated = true;
+            return;
+        }
+        _adminMode = true;
+        if (userFilterWrap) userFilterWrap.hidden = false;
+
+        const ordered = [];
+        const seen = new Set();
+        const me = users.find((u) => u.userId === myId);
+        if (myId) {
+            ordered.push(me || { userId: myId, sessionCount: 0 });
+            seen.add(myId);
+        }
+        for (const u of users) {
+            if (!seen.has(u.userId)) { ordered.push(u); seen.add(u.userId); }
+        }
+        const fmt = (u) => {
+            const tag = u.userId === myId ? '👤 自己 · ' : '';
+            const sess = u.sessionCount > 0 ? ` · ${u.sessionCount} 局` : '';
+            return `${tag}${_shortId(u.userId)}${sess}`;
+        };
+        const opts = [
+            `<option value="${ALL_USERS_SENTINEL}">🌐 所有用户（${users.length}）</option>`,
+            ...ordered.map((u) =>
+                `<option value="${_html(u.userId)}"${u.userId === myId ? ' selected' : ''}>${_html(fmt(u))}</option>`
+            ),
+        ];
+        userFilterSel.innerHTML = opts.join('');
+        // 默认选中"自己"（保持原有默认行为）；若无 myId 则退到全库
+        if (myId && seen.has(myId)) {
+            userFilterSel.value = myId;
+        } else {
+            userFilterSel.value = ALL_USERS_SENTINEL;
+        }
+        _usersPopulated = true;
+    }
+
     /** 后端不可用时逐条拉 move_sequence（较慢，易漏） */
     async function loadReplayRowsLegacy() {
         const sessions = await game.db.getSessionsByUser(120);
@@ -290,10 +373,19 @@ export function initReplayUI(game) {
             selectAllCb.checked = false;
             selectAllCb.indeterminate = false;
         }
+        await populateUserFilter();
+        const allUsersView = _isAllUsersView();
+        if (deleteZeroScoreBtn) {
+            // "删除得分为0" 是按单一用户作用的；全库聚合视图下禁用避免歧义
+            deleteZeroScoreBtn.disabled = allUsersView;
+            deleteZeroScoreBtn.title = allUsersView
+                ? '全库视图下不可用——请先在上方选择具体用户再删其 0 分对局'
+                : '删除列表中展示为 0 分的对局记录';
+        }
         try {
             let rows = [];
             try {
-                rows = await game.db.listReplaySessions(80);
+                rows = await game.db.listReplaySessions(80, _targetUserId());
             } catch {
                 rows = await loadReplayRowsLegacy();
             }
@@ -322,12 +414,17 @@ export function initReplayUI(game) {
                         derived != null ? derived : s.score != null && s.score !== '' ? s.score : '—';
                     const placeSteps = countPlaceStepsInFrames(frames);
                     const stepsText = `${placeSteps} 帧`;
+                    const rowUserId = s.userId ?? s.user_id ?? '';
+                    const userTag = allUsersView && rowUserId
+                        ? `<span class="replay-item-user" title="${_attrTitle(rowUserId)}">👤 ${_html(_shortId(rowUserId))}</span>`
+                        : '';
                     li.innerHTML = `
                         <label class="replay-item-check">
-                            <input type="checkbox" class="replay-select-cb" data-session-id="${sid}" aria-label="选择本条回放" />
+                            <input type="checkbox" class="replay-select-cb" data-session-id="${sid}" data-user-id="${_attrTitle(rowUserId)}" aria-label="选择本条回放" />
                         </label>
                         <div class="replay-item-main" role="button" tabindex="0" aria-label="打开回放">
                             <span class="replay-item-meta">${t.toLocaleString()}</span>
+                            ${userTag}
                             <span class="replay-item-steps" title="帧数按成功落子统计；开局盘面与每轮出块只用于回放重建，不计入帧数">${stepsText}</span>
                             <span class="replay-item-score">${score} 分</span>
                         </div>`;
@@ -376,17 +473,32 @@ export function initReplayUI(game) {
     });
 
     deleteSelectedBtn?.addEventListener('click', async () => {
-        const ids = [];
+        /* 按行所属 user 分组：单用户视图整组同一 user；全库视图可能跨用户，
+         * 分组后逐用户调用，确保服务端 user_id 归属校验通过。空 user_id（私域）→ 用默认。 */
+        const groups = new Map();
+        let total = 0;
         sessionListEl.querySelectorAll('.replay-select-cb:checked').forEach((cb) => {
             const id = Number(cb.getAttribute('data-session-id'));
-            if (Number.isFinite(id)) ids.push(id);
+            if (!Number.isFinite(id)) return;
+            const uid = cb.getAttribute('data-user-id') || '';
+            if (!groups.has(uid)) groups.set(uid, []);
+            groups.get(uid).push(id);
+            total += 1;
         });
-        if (ids.length === 0) return;
-        const ok = await _showConfirmDialog(`确定删除选中的 ${ids.length} 条对局记录？此操作不可恢复。`);
+        if (total === 0) return;
+        const crossUser = groups.size > 1;
+        const ok = await _showConfirmDialog(
+            `确定删除选中的 ${total} 条对局记录${crossUser ? `（涉及 ${groups.size} 个用户）` : ''}？此操作不可恢复。`
+        );
         if (!ok) return;
         try {
-            await game.db.deleteReplaySessions(ids);
+            let deleted = 0;
+            for (const [uid, ids] of groups) {
+                const res = await game.db.deleteReplaySessions(ids, uid || undefined);
+                deleted += res?.count ?? ids.length;
+            }
             await openList();
+            if (crossUser) _showAlert(`已删除 ${deleted} 条（跨 ${groups.size} 用户）。`, 'success');
         } catch (err) {
             console.error(err);
             _showAlert(err?.message || String(err), 'error');
@@ -399,7 +511,7 @@ export function initReplayUI(game) {
         );
         if (!ok) return;
         try {
-            const res = await game.db.deleteZeroScoreReplaySessions();
+            const res = await game.db.deleteZeroScoreReplaySessions(_targetUserId());
             const n = res?.count ?? res?.deleted?.length ?? 0;
             await openList();
             _showAlert(n > 0 ? `已删除 ${n} 条。` : '没有符合「得分为 0」的记录。', 'success');
@@ -519,6 +631,8 @@ export function initReplayUI(game) {
     });
 
     pauseBtn?.addEventListener('click', () => stopPlay());
+
+    userFilterSel?.addEventListener('change', () => void openList());
 
     menuReplayBtn.addEventListener('click', () => void openList());
     listBack?.addEventListener('click', () => {

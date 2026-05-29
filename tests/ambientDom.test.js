@@ -141,6 +141,39 @@ describe('AmbientParticles DOM mode', () => {
         expect(transform1).not.toBe(transform2);
     });
 
+    it('_isDomAnimationDormant：默认可见且菜单未开 → false', () => {
+        const host = makeHost();
+        const a = new AmbientParticles({ renderer: null, domHost: host });
+        a.applySkin('sakura');
+        document.body.classList.remove('game-shell-hidden');
+        expect(a._isDomAnimationDormant()).toBe(false);
+    });
+
+    it('_isDomAnimationDormant：主菜单遮盖棋盘（game-shell-hidden）→ true（粒子背后不可见，暂停省 GPU）', () => {
+        const host = makeHost();
+        const a = new AmbientParticles({ renderer: null, domHost: host });
+        a.applySkin('sakura');
+        document.body.classList.add('game-shell-hidden');
+        expect(a._isDomAnimationDormant()).toBe(true);
+        document.body.classList.remove('game-shell-hidden');
+    });
+
+    it('_auroraBandGradient：同 lh+preset 命中缓存，不重复 createLinearGradient；lh 变则重建', () => {
+        const a = new AmbientParticles({ renderer: null });
+        a.applySkin('aurora');
+        let made = 0;
+        const ctx = { createLinearGradient: () => { made++; return { addColorStop() {} }; } };
+        const cols = ['#111111', '#222222', '#333333'];
+        a._auroraBandGradient(ctx, 0, 480, cols);
+        a._auroraBandGradient(ctx, 1, 480, cols);
+        expect(made).toBe(2);              // 首次：两条带各建一次
+        a._auroraBandGradient(ctx, 0, 480, cols);
+        a._auroraBandGradient(ctx, 1, 480, cols);
+        expect(made).toBe(2);              // 缓存命中：无新建
+        a._auroraBandGradient(ctx, 0, 600, cols);
+        expect(made).toBe(4);              // lh 变 → 整组重建
+    });
+
     it('reduced-motion=true → DOM 模式不启动 scheduler（isRunning=false）', () => {
         window.matchMedia = vi.fn(() => ({ matches: true, media: '', addEventListener() {}, removeEventListener() {} }));
         const host = makeHost();

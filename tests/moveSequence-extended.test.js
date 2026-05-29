@@ -40,7 +40,7 @@ describe('buildPlayerStateSnapshot', () => {
         };
         const ps = buildPlayerStateSnapshot(profile, ctx);
         expect(ps.pv).toBe(PLAYER_STATE_SNAPSHOT_VERSION);
-        expect(ps.pv).toBe(2);
+        expect(ps.pv).toBe(3);
         expect(ps.phase).toBe('spawn');
         expect(ps.score).toBe(100);
         expect(typeof ps.skill).toBe('number');
@@ -58,6 +58,43 @@ describe('buildPlayerStateSnapshot', () => {
         const ps = buildPlayerStateSnapshot(profile, ctx);
         expect(ps.adaptive).toBeDefined();
         expect(ps.adaptive.stress).toBe(0.3);
+    });
+
+    // v1.63 / pv=3：PB 相对进度基线
+    it('写入 bestScore 并推导 pbRatio=score/bestScore（best<=0 时 pbRatio=null）', () => {
+        const profile = new PlayerProfile(10);
+        const base = { boardFill: 0, runStreak: 0, strategyId: 'normal', phase: 'spawn', adaptiveInsight: null };
+        const ps = buildPlayerStateSnapshot(profile, { ...base, score: 300, bestScore: 1000 });
+        expect(ps.bestScore).toBe(1000);
+        expect(ps.pbRatio).toBeCloseTo(0.3, 6);
+        // 首局 best=0 → bestScore=null、pbRatio=null（避免除零）
+        const ps0 = buildPlayerStateSnapshot(profile, { ...base, score: 300, bestScore: 0 });
+        expect(ps0.bestScore).toBeNull();
+        expect(ps0.pbRatio).toBeNull();
+    });
+
+    // v1.63 / pv=3：近消行拓扑落库（dataset behaviorContext[28-30] 此前恒 0）
+    it('spawnGeo 写入 nearFullLines/close1/close2/maxColHeight', () => {
+        const profile = new PlayerProfile(10);
+        const ps = buildPlayerStateSnapshot(profile, {
+            score: 0, boardFill: 0.2, runStreak: 0, strategyId: 'normal', phase: 'spawn',
+            adaptiveInsight: null,
+            spawnGeo: { holes: 1, nearFullLines: 3, close1: 2, close2: 1, maxColHeight: 5 }
+        });
+        expect(ps.spawnGeo.nearFullLines).toBe(3);
+        expect(ps.spawnGeo.close1).toBe(2);
+        expect(ps.spawnGeo.close2).toBe(1);
+        expect(ps.spawnGeo.maxColHeight).toBe(5);
+    });
+
+    // v1.63 / pv=3：逐 spawn 策略来源（provenance）
+    it('当 adaptiveInsight.provenance 存在时拷贝到快照', () => {
+        const profile = new PlayerProfile(10);
+        const ps = buildPlayerStateSnapshot(profile, {
+            score: 0, boardFill: 0, runStreak: 0, strategyId: 'normal', phase: 'spawn',
+            adaptiveInsight: { stress: 0.1, provenance: { spawnSource: 'model-v3', fallbackReason: null } }
+        });
+        expect(ps.provenance).toEqual({ spawnSource: 'model-v3', fallbackReason: null });
     });
 
     // v1.13 / pv=2 冷启动隔离
@@ -308,6 +345,25 @@ describe('MOVE_SEQUENCE_SCHEMA v2 / frame.ts', () => {
         const place = buildPlaceFrame(0, 1, 2, ps, { ts: 9999 });
         expect(place.ts).toBe(9999);
         expect(place.ps).toEqual(ps);
+    });
+
+    // v1.63 / pv=3：spawn 帧逐块 feat + 帧级 spawnMeta
+    it('buildSpawnFrame 写入逐块 feat 与帧级 spawnMeta', () => {
+        const spawn = buildSpawnFrame(
+            [{ id: '1x4', shape: [[1, 1, 1, 1]], colorIdx: 0, feat: { placements: 12, gapFills: 1, multiClear: 2, pcPotential: 0, exactFit: 1, monoFlush: 0, topDriver: 'clear' } }],
+            undefined,
+            { ts: 100, spawnMeta: { attempt: 2, fallback: false, solutionRejects: { tooFew: 1 } } }
+        );
+        expect(spawn.dock[0].feat).toEqual({
+            placements: 12, gapFills: 1, multiClear: 2, pcPotential: 0, exactFit: 1, monoFlush: 0, topDriver: 'clear'
+        });
+        expect(spawn.spawnMeta).toEqual({ attempt: 2, fallback: false, solutionRejects: { tooFew: 1 } });
+    });
+
+    it('buildSpawnFrame 无 feat / spawnMeta 时保持旧结构（向后兼容）', () => {
+        const spawn = buildSpawnFrame([{ id: '1x1', shape: [[1]], colorIdx: 0 }]);
+        expect('feat' in spawn.dock[0]).toBe(false);
+        expect('spawnMeta' in spawn).toBe(false);
     });
 });
 

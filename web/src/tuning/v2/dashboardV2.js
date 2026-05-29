@@ -212,6 +212,18 @@ const PRESETS = {
         pbBinDisable: ['10000', '25000'],
         botDisable: ['random'],
     },
+    // v1.62.0 覆盖优先：实测显示 bot 仅在 pb_bin=500/1500 能接近 PB（r≥0.8），
+    //   4000+ 完全够不着（r_max 0.57）；random bot r≥0.8 仅 2.7%。
+    //   该 preset 把采样集中到"够得着的高分段"+强 bot+更多 seed 填满高 r bin，
+    //   让 S 曲线爬升段有真实观测——这是通过 fact-eval 门禁的前提。
+    coverage: {
+        thetas: 12, seeds: 5, maxSteps: 800,
+        label: '📊 覆盖优先 v1.62.0 (高分段, ~1 小时)',
+        lookahead2: true,
+        mcts: false,
+        pbBinDisable: ['4000', '10000', '25000'],
+        botDisable: ['random'],
+    },
 };
 
 
@@ -900,9 +912,12 @@ async function refreshSampleSets() {
         // v2.10.1: algo_version 徽章 — v2.9 老数据 ⚠, v2.10.x 都是 OK
         tbody.innerHTML = data.sample_sets.map((s) => {
             const av = s.algo_version || 'v2.10';
-            const avBadge = av === 'v2.9'
+            const isReal = av === 'real-v1' || (s.tags || '').includes('real');
+            const avBadge = isReal
+                ? '<span style="background:#1e3a5f; color:#93c5fd; padding:1px 5px; border-radius:3px; font-size:10px;" title="玩家真实对局整理成的 v2 寻参样本(behavior_import), 与构造样本同 schema 一起训练/评估">👤 真实</span>'
+                : av === 'v2.9'
                 ? '<span style="background:#7f1d1d; color:#fecaca; padding:1px 5px; border-radius:3px; font-size:10px;" title="老算法采样, d_curve 几乎水平, 不建议训练">⚠ v2.9</span>'
-                : av.startsWith('v2.10')
+                : av.startsWith('v2.10') || av.startsWith('v3')
                 ? `<span style="background:#064e3b; color:#a7f3d0; padding:1px 5px; border-radius:3px; font-size:10px;" title="PB-aware d_step, d_curve 有 S 形">✓ ${av}</span>`
                 : '';
             return `
@@ -924,7 +939,7 @@ async function refreshSampleSets() {
             </tr>
         `; }).join('');
         tbody.querySelectorAll('.btn-preview-set').forEach((b) => {
-            b.addEventListener('click', () => showSetPreview(b.dataset.id, b.dataset.name));
+            b.addEventListener('click', () => showSetPreview(b.dataset.id, b.dataset.name, b.dataset.kind));
         });
         tbody.querySelectorAll('.btn-quality-set').forEach((b) => {
             b.addEventListener('click', () => showQualityModal(b.dataset.id, b.dataset.name));
@@ -978,6 +993,35 @@ async function refreshSampleSets() {
 }
 
 
+// 把主库玩家真实对局整理成 v2 寻参样本集 (behavior_import, 增量同步), 与构造样本无差别参训
+async function syncBehaviorSamples({ silent = false } = {}) {
+    const btn = $('btn-import-behavior');
+    const hint = $('import-behavior-hint');
+    if (btn) btn.disabled = true;
+    if (hint && !silent) { hint.style.color = 'var(--muted)'; hint.textContent = '同步中…(回放盘面算 d_curve, 首次局数多时稍候)'; }
+    try {
+        // 增量: rebuild=false, 只转换新增对局(已导入按 session_id 跳过)
+        const r = await apiSend('POST', '/api/spawn-tuning-v2/import-behavior', { rebuild: false });
+        if (hint) {
+            hint.style.color = 'var(--good)';
+            hint.textContent = `✓ 用户行为样本集 #${r.set_id}: 共 ${r.total} 条`
+                + (r.inserted ? ` (本次新增 ${r.inserted})` : '(已最新)')
+                + (r.invalid ? ` · 滤除无效 ${r.invalid}` : '')
+                + (r.cleaned ? ` · 清理旧无效 ${r.cleaned}` : '')
+                + (r.errors ? ` · ${r.errors} 错` : '');
+        }
+        await refreshSampleSets();
+        await refreshTrainingSampleSetOptions();
+        return r;
+    } catch (e) {
+        if (hint && !silent) { hint.style.color = 'var(--bad)'; hint.textContent = `同步失败: ${e.message}`; }
+        return null;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+
 // ─────────── ② 样本集 — 数据预览模态 ───────────
 
 const DIM_COLORS = {
@@ -999,12 +1043,14 @@ const DIM_LABEL_ZH = {
 const _previewState = {
     setId: null,
     setName: '',
+    kind: null,    // 'behavior' = 用户行为样本集 (走专属预览), 否则 d_curve 寻参集
     filters: {},   // { difficulty: [...], generator: [...], ... }; 空对象 = 全集
 };
 
-async function showSetPreview(setId, setName) {
+async function showSetPreview(setId, setName, kind) {
     _previewState.setId = setId;
     _previewState.setName = setName;
+    _previewState.kind = kind || null;
     _previewState.filters = {};  // 每次打开重置筛选
     const modal = $('preview-modal');
     $('preview-modal-title').textContent = `🔍 样本集 #${setId} ${setName} — 数据预览`;
@@ -1684,7 +1730,8 @@ async function refreshTrainingSampleSetOptions() {
             // v2.10.1: 算法版本标签 — v2.9 老数据 ⚠, v2.10.x 都是 OK
             const av = s.algo_version || 'v2.10';
             const isV29 = av === 'v2.9';
-            const avTag = isV29 ? ' [⚠v2.9 旧] ' : ` [${av}] `;
+            const isReal = av === 'real-v1' || (s.tags || '').includes('real');
+            const avTag = isReal ? ' [👤真实] ' : isV29 ? ' [⚠v2.9 旧] ' : ` [${av}] `;
             return `<option value="${s.set_id}"${sel_attr}>${statusBadge} #${s.set_id}${avTag}${escapeHtml(s.name)} (${s.sample_count || 0} 样本)</option>`;
         }).join('');
         // v2.10.1: 仅 v2.9 才算"老数据", v2.10/v2.10.1 都 OK
@@ -1995,6 +2042,7 @@ function _renderJobsRows(jobs) {
               <td>${j.epochs_done || 0}</td>
               <td>${fmtDate(j.created_at)}</td>
               <td>
+                <button class="ghost btn-job-log ${j.status === 'failed' ? 'danger' : ''}" data-id="${j.job_id}" title="展开本行查看关键问题日志 (错误/进度根因)">${j.status === 'failed' ? '⚠ 日志' : '📄 日志'}</button>
                 <button class="ghost btn-job-metrics" data-id="${j.job_id}" data-name="${escapeHtml(j.name || '-')}">📊 曲线</button>
                 ${j.output_model_id ? `<button class="ghost btn-view-model" data-id="${j.output_model_id}" title="跳转到模型库并高亮 model #${j.output_model_id}">→ 模型 #${j.output_model_id}</button>` : ''}
                 <button class="danger btn-delete-job" data-id="${j.job_id}" data-name="${escapeHtml(j.name || '-')}" data-status="${j.status}" title="${deleteTitle}">${deleteLabel}</button>
@@ -2002,6 +2050,9 @@ function _renderJobsRows(jobs) {
             </tr>
         `;
     }).join('');
+    tbody.querySelectorAll('.btn-job-log').forEach((b) => {
+        b.addEventListener('click', () => toggleJobLog(b.dataset.id, b));
+    });
     tbody.querySelectorAll('.btn-job-metrics').forEach((b) => {
         b.addEventListener('click', () => showJobMetrics(b.dataset.id, b.dataset.name));
     });
@@ -2011,6 +2062,85 @@ function _renderJobsRows(jobs) {
     tbody.querySelectorAll('.btn-delete-job').forEach((b) => {
         b.addEventListener('click', () => deleteJob(b.dataset.id, b.dataset.name, b.dataset.status));
     });
+}
+
+/** C.2: 展开/收起当前任务行, 内联展示关键问题日志 (错误根因 + 日志尾部)。 */
+async function toggleJobLog(jobId, btnEl) {
+    const tr = btnEl.closest('tr');
+    if (!tr) return;
+    const next = tr.nextElementSibling;
+    // 再次点击 → 收起
+    if (next && next.classList.contains('job-log-row') && next.dataset.jobId === String(jobId)) {
+        next.remove();
+        btnEl.classList.remove('active');
+        return;
+    }
+    // 先移除其他已展开的日志行 (一次只展开一个)
+    $('jobs-table').querySelectorAll('tr.job-log-row').forEach((r) => r.remove());
+    $('jobs-table').querySelectorAll('.btn-job-log.active').forEach((b) => b.classList.remove('active'));
+
+    const detail = document.createElement('tr');
+    detail.className = 'job-log-row';
+    detail.dataset.jobId = String(jobId);
+    detail.innerHTML = '<td colspan="9" style="background:rgba(2,6,23,0.55); padding:10px 14px;">'
+        + '<div class="job-log-box muted-hint">加载日志中…</div></td>';
+    tr.after(detail);
+    btnEl.classList.add('active');
+
+    try {
+        const d = await apiGet(`/api/spawn-tuning-v2/jobs/${jobId}/log`);
+        detail.querySelector('.job-log-box').innerHTML = renderJobLog(d);
+        detail.querySelector('.btn-job-log-close')?.addEventListener('click', () => {
+            detail.remove();
+            btnEl.classList.remove('active');
+        });
+    } catch (e) {
+        detail.querySelector('.job-log-box').innerHTML =
+            `<span style="color:var(--bad)">日志加载失败: ${escapeHtml(e.message)}</span>`;
+    }
+}
+
+/** 渲染关键问题日志: 错误摘要 + 关键行高亮 + 可折叠完整尾部。 */
+function renderJobLog(d) {
+    const mono = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; line-height:1.5;';
+    const errBanner = d.error_message
+        ? `<div style="margin-bottom:8px; padding:6px 10px; border-left:3px solid var(--bad);
+              background:rgba(127,29,29,0.25); border-radius:3px; ${mono} color:#fecaca;">
+             <b>error_message:</b> ${escapeHtml(d.error_message)}
+           </div>`
+        : '';
+
+    let keyBlock;
+    if (d.key_lines && d.key_lines.length) {
+        const rows = d.key_lines.map((k) => {
+            if (k.n === -1) {
+                return `<div style="color:var(--muted); ${mono}">${escapeHtml(k.text)}</div>`;
+            }
+            return `<div style="${mono} color:#fca5a5; white-space:pre-wrap;">`
+                + `<span style="color:var(--muted)">${String(k.n).padStart(4)} │ </span>${escapeHtml(k.text)}</div>`;
+        }).join('');
+        keyBlock = `<div style="font-size:12px; font-weight:600; margin:4px 0;">🔑 关键问题行 (${d.key_lines.length})</div>
+            <div style="background:#0b0f1a; border:1px solid #1f2937; border-radius:4px; padding:8px 10px; overflow-x:auto;">${rows}</div>`;
+    } else if (d.exists) {
+        keyBlock = '<div class="muted-hint">未匹配到错误关键词 (任务可能正常运行 / 已完成)。见下方完整日志尾部。</div>';
+    } else {
+        keyBlock = '<div class="muted-hint">未找到日志文件 (可能任务太早被清理, 或尚未开始写日志)。</div>';
+    }
+
+    const tailBlock = d.tail
+        ? `<details style="margin-top:8px;">
+             <summary style="cursor:pointer; font-size:12px; color:var(--accent);">📜 完整日志尾部 (共 ${d.lines_total} 行)</summary>
+             <pre style="${mono} white-space:pre-wrap; background:#0b0f1a; border:1px solid #1f2937;
+                  border-radius:4px; padding:8px 10px; margin-top:6px; max-height:320px; overflow:auto;">${escapeHtml(d.tail)}</pre>
+           </details>`
+        : '';
+
+    const pathLine = d.log_path
+        ? `<div style="font-size:10.5px; color:var(--muted); margin-top:6px;">log: <code>${escapeHtml(d.log_path)}</code>
+             <button class="ghost btn-job-log-close" style="float:right; padding:1px 8px;">收起 ✕</button></div>`
+        : '<div style="margin-top:6px;"><button class="ghost btn-job-log-close" style="float:right; padding:1px 8px;">收起 ✕</button></div>';
+
+    return errBanner + keyBlock + tailBlock + pathLine;
 }
 
 /** 跳转到 C.3 模型库 + 滚动到 + 高亮目标 model 行 1.5 秒。 */
@@ -3201,7 +3331,8 @@ async function refreshCurveSetSelector() {
             apiGet('/api/spawn-tuning-v2/sample-sets?limit=100'),
             modelSel ? apiGet('/api/spawn-tuning-v2/models?limit=100') : Promise.resolve({ models: [] }),
         ]);
-        const setOptions = (sets.sample_sets || []).map((s) => `<option value="${s.set_id}">#${s.set_id} ${escapeHtml(s.name)} (${s.sample_count || 0})</option>`).join('');
+        const setOptions = (sets.sample_sets || [])
+            .map((s) => `<option value="${s.set_id}">#${s.set_id} ${escapeHtml(s.name)} (${s.sample_count || 0})</option>`).join('');
         setSel.innerHTML = '<option value="">— 不加载实测 —</option>' + setOptions;
         if (prevSet) setSel.value = prevSet;
         if (baselineSel) {
@@ -3267,6 +3398,111 @@ async function _loadObservedAvg(setId) {
     } catch (_) {
         return null;
     }
+}
+
+// ─────────── 事实门禁（以目标 S 曲线为准，判定「预估是否比实测更逼近目标」） ───────────
+// v1.62.0: 阈值与后端 rl_pytorch/spawn_tuning_v2/fact_eval.py 的 DEFAULT_THRESHOLDS 对齐。
+//   口径：只在「真实观察到的 bin」上，比较预估口径误差 E_pred 与实测口径误差 E_meas
+//        （都用到目标 S 的距离）；E_pred < E_meas（提升量 Δ>0）= 提升。
+//   注：无数据 bin 外推的担忧由覆盖率门直接兜底；预测-实测偏离 R 仅作诊断，不阻断。
+const FACT_EVAL_THRESHOLDS = {
+    realBinRatio: 0.3,       // 单 bin 真实占比 ≥ 此值才算"有实测"（与 chart 虚线阈值一致）
+    minObservedBins: 4,      // 真实 bin 不足 → indeterminate（无法判定，不误伤冷启动）
+    minCoverage: 0.50,       // 实测主导 bin / 20
+    minHighCoverage: 0.30,   // 高分段(bin≥10) 实测 bin / 10（S 曲线爬升段必须有实测）
+    minImprovement: 0.0,     // 提升量 Δ=E_meas−E_pred 下限（≥0 不更差，>0 严格提升）
+};
+
+/**
+ * 在「真实观察 bin」上比较预估口径与实测口径到目标的距离，返回三态判定。
+ * @returns {{state:'pass'|'fail'|'na', reasons:string[], metrics:object}|null}
+ */
+function _factEvalVerdict({ observed, predicted, target, observedFillRatio }) {
+    if (!observed || !target) return null;
+    const N = target.length;
+    const ratio = Array.isArray(observedFillRatio) && observedFillRatio.length === N
+        ? observedFillRatio : null;
+    const obsIdx = [];
+    if (ratio) {
+        for (let i = 0; i < N; i++) {
+            if (ratio[i] >= FACT_EVAL_THRESHOLDS.realBinRatio) obsIdx.push(i);
+        }
+    }
+    const highStart = Math.floor(N / 2);
+    const highReal = obsIdx.filter((i) => i >= highStart).length;
+    const coverage = obsIdx.length / N;
+    const highCoverage = highReal / (N - highStart);
+    const maeOn = (a, b, idxs) => (idxs.length
+        ? idxs.reduce((s, i) => s + Math.abs(a[i] - b[i]), 0) / idxs.length : NaN);
+    // 实测口径误差 / 预估口径误差：同一批观测 bin，可比。
+    const measuredMae = maeOn(observed, target, obsIdx);
+    const predMaeObs = predicted ? maeOn(predicted, target, obsIdx) : NaN;
+    // 预测-实测偏离 R：预估 vs 实测，仅观测 bin；表示模型相对现状的改动幅度。
+    const calibResidual = predicted ? maeOn(predicted, observed, obsIdx) : NaN;
+    // 提升量 Δ = E_meas − E_pred：>0 预估更逼近目标 = 提升。
+    const improvement = (measuredMae === measuredMae && predMaeObs === predMaeObs)
+        ? measuredMae - predMaeObs : NaN;
+    // 诊断量：预估 vs 目标全 bin（含外推，不可比，不参与判定）。
+    const predMaeAll = predicted
+        ? predicted.reduce((s, v, i) => s + Math.abs(v - target[i]), 0) / N : NaN;
+    const metrics = {
+        coverage, highCoverage, measuredMae, predMaeObs, calibResidual,
+        improvement, predMaeAll, observedBins: obsIdx.length, hasRatio: !!ratio,
+    };
+
+    // 武装下限：无逐 bin 真实占比 / 真实 bin 太少 → 无法判定（不能拿先验冒充实测）
+    if (!ratio || obsIdx.length < FACT_EVAL_THRESHOLDS.minObservedBins) {
+        return {
+            state: 'na',
+            reasons: [!ratio
+                ? '缺少逐 bin 真实占比，无法区分实测与先验填充'
+                : `实测主导 bin 仅 ${obsIdx.length} 个（< ${FACT_EVAL_THRESHOLDS.minObservedBins}），样本不足以判定`],
+            metrics,
+        };
+    }
+    // 覆盖率/高分段：仅告警(caveat)，标注提升被验证到的 r 区间，不参与"是否提升"判定。
+    const caveats = [];
+    if (coverage < FACT_EVAL_THRESHOLDS.minCoverage) {
+        caveats.push(`实测覆盖 ${(coverage * 100).toFixed(0)}% < ${FACT_EVAL_THRESHOLDS.minCoverage * 100}%：提升结论仅覆盖已观测的 r 区间`);
+    }
+    if (highCoverage < FACT_EVAL_THRESHOLDS.minHighCoverage) {
+        caveats.push(`高分段覆盖 ${(highCoverage * 100).toFixed(0)}% < ${FACT_EVAL_THRESHOLDS.minHighCoverage * 100}%：接近 PB 的高 r 段尚无实测，未参与验证`);
+    }
+    // 唯一判定：提升量 Δ = |实测−S| − |预估−S| ≥ 阈值 → 提升。
+    const fails = [];
+    if (improvement === improvement && improvement < FACT_EVAL_THRESHOLDS.minImprovement) {
+        fails.push(`提升量 Δ=${improvement >= 0 ? '+' : ''}${improvement.toFixed(4)} < ${FACT_EVAL_THRESHOLDS.minImprovement} —— 预估未比实测更逼近目标 S，效果未提升/下降`);
+    }
+    return { state: fails.length ? 'fail' : 'pass', reasons: fails, caveats, metrics };
+}
+
+/** 把门禁结论渲染成横幅 HTML，置于对照图指标区顶部。 */
+function _renderFactVerdictBanner(v) {
+    if (!v) return '';
+    const cfg = {
+        pass: { bg: 'rgba(52,211,153,0.12)', bd: 'var(--ok, #34d399)', icon: '✅', title: '效果提升：以目标 S 为准，预估口径比实测口径更逼近目标' },
+        fail: { bg: 'rgba(248,113,113,0.14)', bd: 'var(--bad, #f87171)', icon: '⛔', title: '未提升：以目标 S 为准，预估未比实测更逼近目标' },
+        na: { bg: 'rgba(251,191,36,0.12)', bd: 'var(--warn, #fbbf24)', icon: '⚠️', title: '无法判定：实测支撑不足' },
+    }[v.state];
+    const m = v.metrics;
+    const fp = (x) => (x === x ? `${(x * 100).toFixed(0)}%` : '—');
+    const fm = (x) => (x === x ? x.toFixed(4) : '—');
+    const fd = (x) => (x === x ? `${x >= 0 ? '+' : ''}${x.toFixed(4)}` : '—');
+    const detail = (v.state === 'fail' || v.state === 'pass')
+        ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">`
+            + `提升量 Δ = |实测−S| − |预估−S| = ${fm(m.measuredMae)} − ${fm(m.predMaeObs)} = <b>${fd(m.improvement)}</b>（>0=预估更逼近目标） · `
+            + `<span style="opacity:.7">覆盖 ${fp(m.coverage)} · 高分段 ${fp(m.highCoverage)}（验证范围，非判定项） · 预测-实测偏离 ${fm(m.calibResidual)}（改动幅度，诊断） · 预估vs目标(全bin) ${fm(m.predMaeAll)}（含外推）</span></div>`
+        : '';
+    const reasons = v.reasons.length
+        ? `<div style="font-size:11.5px; margin-top:3px;">${v.reasons.map((r) => `• ${escapeHtml(r)}`).join('<br>')}</div>`
+        : '';
+    const caveats = (v.caveats && v.caveats.length)
+        ? `<div style="font-size:11px; color:var(--warn, #fbbf24); margin-top:3px;">${v.caveats.map((c) => `⚠ ${escapeHtml(c)}`).join('<br>')}</div>`
+        : '';
+    return `<div style="margin:0 0 10px; padding:9px 12px; border-radius:10px; background:${cfg.bg}; border:1px solid ${cfg.bd};">`
+        + `<div style="font-weight:700; font-size:13px;">${cfg.icon} ${escapeHtml(cfg.title)}</div>`
+        + reasons + caveats + detail
+        + `</div>`;
 }
 
 async function renderCurve() {
@@ -3628,12 +3864,21 @@ async function renderCurve() {
             },
         });
 
+        // v3.0.23: 底部汇总与横幅统一口径。主结论只用真实观测 bin 上的
+        // Δ = |实测-S| - |预估-S|；全 20 bin 指标仅作含先验诊断。
+        const verdict = _factEvalVerdict({ observed, predicted, target, observedFillRatio });
+        const vm = verdict?.metrics || {};
+        const hasMetric = (v) => v === v && v != null;
+        const signed = (v) => `${v >= 0 ? '+' : ''}${fmtNumber(v, 4)}`;
         const lines = [];
         if (observed) {
-            const m = computeChartMetrics(observed, target);
-            // v3.0.1 业务标签: 实测 vs target MAE = 真实算法物理 gap (越大 = 算法离 ideal 越远 = 寻参价值越高)
-            lines.push(`<span title="真实启发式算法跑出来的 d_curve 跟 ideal 的差距. 这是 model + θ 优化器要缩小的 gap.">实测 vs 目标 MAE = <b>${fmtNumber(m.mae, 4)}</b> <span style="color:var(--muted)">[算法物理 gap]</span></span>`);
-            lines.push(`实测单调 = ${m.monotonic ? '✓' : '✗'}`);
+            const mFull = computeChartMetrics(observed, target);
+            if (hasMetric(vm.measuredMae)) {
+                lines.push(`<span title="判定口径: 仅在真实观测 bin 上计算 |实测−目标S|, 与预估口径同 bin 可比。">E_meas = |实测−S| <b>${fmtNumber(vm.measuredMae, 4)}</b> <span style="color:var(--muted)">[观测bin]</span></span>`);
+            } else {
+                lines.push(`<span title="全 20 bin 诊断值, 含先验填充 bin, 不作为提升判定。">E_meas = |实测−S| <b>${fmtNumber(mFull.mae, 4)}</b> <span style="color:var(--muted)">[全bin诊断]</span></span>`);
+            }
+            lines.push(`实测单调(全bin) = ${mFull.monotonic ? '✓' : '✗'}`);
             lines.push(`n_samples = ${nSamples}`);
             if (nCtxUnique > 0) lines.push(`n_ctx = ${nCtxUnique}`);
             // v2.10.32 (P0.1): 透明化 bin 真实观察比例
@@ -3650,20 +3895,29 @@ async function renderCurve() {
             }
         }
         if (predicted) {
-            const pm = computeChartMetrics(predicted, target);
+            const pmFull = computeChartMetrics(predicted, target);
             // v2.10.29: 两线在同 ctx 集合上对照 → predicted vs observed MAE 直接有意义
-            const pomae = observed
+            const pomaeFull = observed
                 ? observed.reduce((s, v, i) => s + Math.abs(v - predicted[i]), 0) / 20
                 : null;
-            // v3.0.1 业务标签
-            lines.push(`<span title="model 输出跟 ideal 的差距. 应 < 实测 vs 目标 MAE, 差值 = model 缩小的 gap.">预测 vs 目标 MAE = <b>${fmtNumber(pm.mae, 4)}</b> <span style="color:var(--muted)">[model 缩小后 gap]</span></span>`);
-            if (pomae != null) lines.push(`<span title="model 输出跟 sample 的偏离. 越大说明 model 越向 ideal 靠拢而不是简单复刻 sample (这是 v3.0 寻参架构期望).">预测 vs 实测 MAE = <b>${fmtNumber(pomae, 4)}</b> <span style="color:var(--muted)">[model 朝 ideal 拉力]</span></span>`);
-            // v3.0.1: 寻参价值 = sample 跟 ideal 的 gap - model 缩小后的 gap
-            if (observed) {
-                const obsToTarget = (computeChartMetrics(observed, target)).mae;
-                const value = obsToTarget - pm.mae;
-                const tone = value > 0.05 ? 'var(--ok)' : value > 0.01 ? 'var(--warn)' : 'var(--bad)';
-                lines.push(`<span style="color:${tone}" title="寻参价值 = 算法物理 gap - model 缩小后 gap. 越大说明 model + θ 优化器能改善的空间越大. > 0.05 良好.">★ 寻参价值 = <b>${fmtNumber(value, 4)}</b></span>`);
+            if (hasMetric(vm.predMaeObs)) {
+                lines.push(`<span title="判定口径: 仅在真实观测 bin 上计算 |预估−目标S|, 与 E_meas 同 bin 可比。">E_pred = |预估−S| <b>${fmtNumber(vm.predMaeObs, 4)}</b> <span style="color:var(--muted)">[观测bin]</span></span>`);
+            } else {
+                lines.push(`<span title="全 20 bin 诊断值, 含无真实观测 bin 上的模型外推, 不作为提升判定。">E_pred = |预估−S| <b>${fmtNumber(pmFull.mae, 4)}</b> <span style="color:var(--muted)">[全bin诊断]</span></span>`);
+            }
+            if (observed && hasMetric(vm.improvement)) {
+                const tone = vm.improvement > 0.05 ? 'var(--ok)' : vm.improvement >= 0 ? 'var(--warn)' : 'var(--bad)';
+                lines.push(`<span style="color:${tone}" title="唯一提升判定: Δ = |实测−S| − |预估−S|。Δ>0 表示预估比实测更逼近目标S;覆盖不足只作告警,不翻转该结论。">★ Δ = E_meas − E_pred = <b>${signed(vm.improvement)}</b></span>`);
+            }
+            if (observed && hasMetric(vm.calibResidual)) {
+                lines.push(`<span title="诊断量: R = |预估−实测|, 表示模型相对现状的改动幅度;默认不参与提升判定。">R = |预估−实测| <b>${fmtNumber(vm.calibResidual, 4)}</b> <span style="color:var(--muted)">[改动幅度]</span></span>`);
+            } else if (pomaeFull != null) {
+                lines.push(`<span title="全 20 bin 诊断值, 含先验/外推 bin, 不参与提升判定。">R = |预估−实测| <b>${fmtNumber(pomaeFull, 4)}</b> <span style="color:var(--muted)">[全bin诊断]</span></span>`);
+            }
+            if (observed && hasMetric(vm.improvement)) {
+                const obsFull = computeChartMetrics(observed, target);
+                const fullDelta = obsFull.mae - pmFull.mae;
+                lines.push(`<span style="color:var(--muted)" title="全 20 bin 含先验填充/模型外推, 只用于观察, 不参与提升判定。">全bin诊断: E_meas ${fmtNumber(obsFull.mae, 4)} · E_pred ${fmtNumber(pmFull.mae, 4)} · Δ ${signed(fullDelta)}</span>`);
             }
             // v2.10.33 (P2.3 UI): 不确定性指标 — std 均值 + 最大 (找 model 最没把握的 bin)
             if (predictedStd) {
@@ -3728,7 +3982,8 @@ async function renderCurve() {
               </div>
             `;
         }
-        meta.innerHTML = lines.join(' · ') + baselineNote + groupTable;
+        // v1.62.0: 以目标 S 为准 —— 在指标区顶部给出"预估是否比实测更逼近目标"的三态判定
+        meta.innerHTML = _renderFactVerdictBanner(verdict) + lines.join(' · ') + baselineNote + groupTable;
     } catch (e) {
         meta.innerHTML = `<span style="color:var(--bad)">${escapeHtml(e.message)}</span>`;
     }
@@ -3745,6 +4000,7 @@ function bindEvents() {
     $('btn-start-collect').addEventListener('click', startCollect);
     $('btn-cancel-collect').addEventListener('click', () => { _samplerCancel.cancelled = true; });
     $('btn-refresh-sets').addEventListener('click', refreshSampleSets);
+    $('btn-import-behavior')?.addEventListener('click', () => syncBehaviorSamples());
     $('filter-status').addEventListener('change', refreshSampleSets);
     $('btn-submit-job').addEventListener('click', submitJob);
     $('btn-refresh-jobs').addEventListener('click', refreshJobs);
@@ -3826,4 +4082,7 @@ function bindEvents() {
 document.addEventListener('DOMContentLoaded', () => {
     bindEvents();
     refreshOverview();
+    // 自动从用户行为增量同步「用户行为样本集 (寻参可训)」, 让它直接出现在 B.2 与训练选择器。
+    // 后台执行(不阻塞 UI); 增量按 session_id 去重, 首次后很快。
+    syncBehaviorSamples({ silent: true });
 });

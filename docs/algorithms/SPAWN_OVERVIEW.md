@@ -20,7 +20,7 @@
 │    │     web/src/bot/blockSpawn.js · adaptiveSpawn.js            │
 │    │                                                             │
 │    └── SpawnPolicyNet       ◇ 可切换分支，失败自动回退 Rules       │
-│          Transformer 学条件分布 P(s₁,s₂,s₃ | board, ctx₅₆, hist)  │
+│          Transformer 学条件分布 P(s₁,s₂,s₃ | board, ctx₆₁, hist)  │
 │          rl_pytorch/spawn_model/ · web/src/spawnModel.js         │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ 消费 9 维 θ
@@ -47,7 +47,7 @@
 | 角色 | 层 | 输入契约 | 输出契约 | 当前文件入口 | 详细文档 |
 |---|---|---|---|---|---|
 | **`SpawnPolicyRules`** | L1 | `grid + strategyConfig + spawnContext` | `{shape_id × 3} + _spawnDiagnostics` | `web/src/bot/blockSpawn.js · generateDockShapes()` | [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) |
-| **`SpawnPolicyNet`** | L1 | `board(64) + behaviorContext(56) + history(3×3) + target_difficulty` | `{shape_id × 3}`（top-k 采样） | `rl_pytorch/spawn_model/model_v3.py · SpawnPolicyNet` | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3 |
+| **`SpawnPolicyNet`** | L1 | `board(64) + behaviorContext(61) + history(3×3) + target_difficulty` | `{shape_id × 3}`（top-k 采样） | `rl_pytorch/spawn_model/model_v3.py · SpawnPolicyNet` | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3 |
 | **`HandTuned`** | L2 | — | θ ∈ `game_rules.json + DEFAULT_SPAWN_PARAMS_PB_CURVE` | `web/src/adaptiveSpawn.js` + `shared/game_rules.json` | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) |
 | **`SpawnParamTuner`** | L2 | `(ctx₅, θ₉)` | `d_curve₂₀ + 4 辅助 head` → 反求 θ* | `rl_pytorch/spawn_tuning_v2/model.py · SpawnParamTunerResNet` | [`SPAWN_TUNING_V2.md`](./SPAWN_TUNING_V2.md) |
 
@@ -60,7 +60,7 @@
 | 「`SpawnParamTuner` 是 `SpawnPolicyNet` 的下一代」 | 二者在不同层，**职责正交**：一个产 θ，一个产 3 块 |
 | 「`SpawnPolicyNet` 替代了 `SpawnPolicyRules`」 | 二者同层互斥；`SpawnPolicyNet` 上线必须以 `SpawnPolicyRules` 为回退兜底 |
 | 「调好 `SpawnParamTuner` 就能取代调 `game_rules.json`」 | `SpawnParamTuner` 只搜 9 维 θ；其余规则参数仍需 `HandTuned` 维护 |
-| 「`SpawnParamTuner` 输出 θ 只对规则版生效」 | 实际上：`pbTension/pbBrake` 4 个 θ 同时被 `SpawnPolicyRules` 和 `SpawnPolicyNet` 的 `target_difficulty` 公式消费 |
+| 「`SpawnParamTuner` 输出 θ 只对规则版生效」 | 实际上：B 组 4 个 PB 曲线 θ 经 `derivePbCurve → spawnTargets` 调制，而 `spawnTargets` 又是 `SpawnPolicyNet` 的 `behaviorContext[39–43]` 输入段，故 Net 也间接被这 4 个 θ 影响（A 组 5 个 θ 只进规则实验轨，不进 Net）。注意：耦合通道是 **`spawnTargets / behaviorContext`**，而非 `target_difficulty`——后者吃的 `stress` 在 `derivePbCurve` 之前已算定，不携带 θ。**v1.61.0** 起这 4 个 θ 还作为 `behaviorContext[57–60]` 的**显式条件输入**，使 Net 可对 θ 泛化（治本防分布漂移），并由 `spawn_model/drift.py` 做 PSI 漂移门禁兜底 |
 | 「`SpawnPolicyNet` 推理失败会怎样？」 | 自动回退到 `SpawnPolicyRules`，玩家无感（见 `web/src/game.js · _spawnBlocksWithModel`） |
 
 ---
@@ -73,7 +73,7 @@
 | `SpawnParam` (θ) | 出块参数 | L1 输入 / L2 输出 | 9 | `{personalizationStrength: 0.10, temperature: 0.05, pbTensionCenter: 0.82, ...}` |
 | `d_curve` | 难度曲线 | L2 标签 | 20 | 把 `r = score/PB ∈ [0, 2.0]` 等分 20 段的单步难度均值 |
 | `context_key` | L2 场景维度 | L2 输入 | 5 | `easy:budget-p2:survival:1500:growth` 形式（共 360 个场景） |
-| `behaviorContext` | L1 神经版输入 | L1 输入 | 56 | 见 `SPAWN_BLOCK_MODELING.md §3.3` |
+| `behaviorContext` | L1 神经版输入 | L1 输入 | 61 | 见 `SPAWN_BLOCK_MODELING.md §3.3`（v1.61.0 含 4 维 PB θ 显式条件） |
 | `spawnHints` | L1 规则版软目标 | L1 内部 | 字典 | 见 `SPAWN_ALGORITHM.md §2.5.2` |
 | `spawnTargets` | stress 投影多轴目标 | L1 内部 | 6 | 见 `ADAPTIVE_SPAWN.md` |
 | `Policies bundle` | 部署包 | L2 → L1 | 360 条 | `web/public/spawn-tuning-v2/policies.json`（URL 保留 v2 历史路径） |
@@ -115,7 +115,7 @@ L1 与 L2 通过 θ 通信。`SpawnParamTuner` 输出 θ\*，`SpawnPolicyRules` 
 | `SpawnPolicyRules` | `HandTuned` | 默认 | 零模型依赖 |
 | `SpawnPolicyRules` | `SpawnParamTuner` | `policies.json` 加载成功 | 当前线上灰度形态 |
 | `SpawnPolicyNet` | `HandTuned` | `getSpawnPolicyMode() === 'model-v3'` | `target_difficulty` 用默认 0.5 / 手动覆盖 |
-| `SpawnPolicyNet` | `SpawnParamTuner` | 同时启用 | 仅 PB 曲线 4 参数生效；其余 5 参数不被 Net 消费 |
+| `SpawnPolicyNet` | `SpawnParamTuner` | 同时启用 | 仅 B 组 PB 曲线 4 参数经 `spawnTargets → behaviorContext[39–43]` 间接生效；A 组 5 参数不被 Net 消费 |
 | 任意 L1 失败 | — | 异常 / 推理超时 | 永远回退到 `SpawnPolicyRules + HandTuned` 默认兜底 |
 
 ---
@@ -147,5 +147,6 @@ L1 与 L2 通过 θ 通信。`SpawnParamTuner` 输出 θ\*，`SpawnPolicyRules` 
 
 | 日期 | 改动 |
 |---|---|
+| 2026-05-29 | v1.61.0：behaviorContext 56→61（含 4 维 PB θ 显式条件，把 L2→L1-Net 隐式耦合转显式）；澄清耦合通道为 `spawnTargets/behaviorContext`（非 `target_difficulty`）；新增 `drift.py` PSI 漂移门禁 |
 | 2026-05-26 | 初版：建立 L1/L2 双层叙事，定义 `SpawnPolicyRules / SpawnPolicyNet / HandTuned / SpawnParamTuner` 四角色与命名规范 |
 | 2026-05-26 | PR-4 彻底统一：物理重命名所有 class / 函数 / 常量为角色名（`SpawnTransformerV3 → SpawnPolicyNet` 等），删除全部 alias 与 shim，确立**零 alias 政策** |

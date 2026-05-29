@@ -167,3 +167,38 @@ describe('DFV 暂停状态（_isPaused）', () => {
         expect(dfv._isPaused()).toBe(false);
     });
 });
+
+describe('DFV v1.60.47 idle 静置冻结 CSS infinite 动画（_setResting）', () => {
+    function fakeHost() {
+        const classes = new Set();
+        return {
+            classList: {
+                toggle: (c, on) => { if (on) classes.add(c); else classes.delete(c); },
+                contains: (c) => classes.has(c),
+            },
+            _classes: classes,
+        };
+    }
+
+    it('_setResting(true) 给 host 加 .dfv-host--resting；(false) 移除；幂等去重', () => {
+        const dfv = createInstance();
+        const host = fakeHost();
+        dfv._host = host;
+        expect(dfv._resting).toBe(false);
+
+        dfv._setResting(true);
+        expect(dfv._resting).toBe(true);
+        expect(host.classList.contains('dfv-host--resting')).toBe(true);
+
+        dfv._setResting(false);
+        expect(dfv._resting).toBe(false);
+        expect(host.classList.contains('dfv-host--resting')).toBe(false);
+    });
+
+    it('_host 为 null 时 _setResting 不抛错，仅更新状态位', () => {
+        const dfv = createInstance();
+        dfv._host = null;
+        expect(() => dfv._setResting(true)).not.toThrow();
+        expect(dfv._resting).toBe(true);
+    });
+});

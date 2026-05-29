@@ -134,6 +134,52 @@ export function animateValueOnElement(element, to, opts = {}) {
 /* === HUD 实时滚动（v1.46 入口） ============================================== */
 
 /**
+ * v1.61 抗抖动：把分数元素的 min-width 预留到「目标值文本宽度」，并在一局内单调递增。
+ *
+ * 原理：滚动过程中 textContent 逐帧变化（位数 / 千分位逗号增减），元素作为居中 flex 行的
+ *   flex item，宽度一变整行就重新居中 → 整屏左右抖。预留 ≥ 目标宽度后，滚动中间值（幅度
+ *   均 ≤ 目标）不会让元素回缩，行布局全程稳定。
+ *
+ * 实现：临时清零 min-width 并写入目标文本，同步读一次 getBoundingClientRect 测真实宽度
+ *   （同帧内只触发 layout、不触发 paint，无闪烁），随后恢复原文本；只在测得宽度更大时
+ *   更新预留（单调递增，避免分数合法增长跨位时再次抖动）。jsdom 等无真实排版环境测得
+ *   宽度为 0 时直接跳过，不影响单测。
+ *
+ * @param {HTMLElement} element
+ * @param {string} finalText  目标值的展示文本（含千分位）
+ */
+function _reserveScoreWidth(element, finalText) {
+    if (!element || typeof element.getBoundingClientRect !== 'function') return;
+    const prevText = element.textContent;
+    const prevInlineMin = element.style.minWidth;
+    element.style.minWidth = '0px';
+    element.textContent = finalText;
+    const measured = element.getBoundingClientRect().width;
+    element.textContent = prevText;
+    if (!(measured > 0)) {
+        element.style.minWidth = prevInlineMin;
+        return;
+    }
+    const reserved = Number(element._reservedScoreW) || 0;
+    if (measured > reserved) {
+        element._reservedScoreW = measured;
+        element.style.minWidth = `${Math.ceil(measured)}px`;
+    } else {
+        element.style.minWidth = prevInlineMin || `${Math.ceil(reserved)}px`;
+    }
+}
+
+/**
+ * 复位分数元素的宽度预留（重开局 / 回放瞬移到 0 时调用，避免上一局高分把卡片永久撑宽）。
+ * @param {HTMLElement|null} element
+ */
+export function resetScoreWidthReservation(element) {
+    if (!element) return;
+    element._reservedScoreW = 0;
+    element.style.minWidth = '';
+}
+
+/**
  * 决定 delta 触发什么强化档位。null = 不强化（delta=0 / 减分 / 极小波动）。
  * @param {number} delta
  * @returns {'small'|'medium'|'large'|null}
@@ -182,6 +228,13 @@ export function animateHudScoreChange(element, newValue, oldValue) {
 
     const tier = hudBurstTier(delta);
 
+    /* v1.61（用户反馈："多消特效+分数动效，偶发屏幕抖动"）：
+     * #score 是居中换行 HUD flex 行里的一个 flex item，其宽度随数字位数 / 千分位逗号
+     * 逐帧变化；多消 delta 大、跨千位时逗号与位数突变，整行卡片会随之反复重新居中，
+     * 表现为"整屏左右抖动"。这里在滚动开始前预留 min-width 到目标值宽度（单调递增），
+     * 滚动中间值幅度都 ≤ 目标 → 元素宽度不再回缩 → 行布局稳定不抖。 */
+    _reserveScoreWidth(element, _formatNumber(target));
+
     if (_prefersReducedMotion()) {
         element.textContent = _formatNumber(target);
         if (tier) _applyHudBurst(element, tier);
@@ -218,6 +271,8 @@ export function syncHudScoreElement(element, score, lastDisplayedScore) {
     if (!element) return 'no-element';
     const targetText = String(score);
     if (lastDisplayedScore == null) {
+        // 重开局首帧：清掉上一局累积的宽度预留，让卡片回到自然宽度。
+        resetScoreWidthReservation(element);
         element.textContent = targetText;
         return 'init';
     }

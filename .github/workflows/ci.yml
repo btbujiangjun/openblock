@@ -73,6 +73,38 @@ jobs:
       - name: Import server + enterprise_extensions
         run: python3 -c "import enterprise_extensions; import server; print('ok')"
 
+  spawn-model-gate:
+    name: SpawnPolicyNet (drift + θ schema gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install numpy + CPU torch
+        # CPU-only wheel keeps the install light; the spawn_model package
+        # __init__ imports model_v3 (torch), so torch is required even for
+        # the otherwise numpy-only drift logic checks.
+        run: |
+          pip install numpy
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Drift + explicit-θ logic self-check
+        # Validates PSI math, PB-θ normalization, BEHAVIOR_CONTEXT_DIM=61,
+        # theta_regime stability, drift_reference build/check, and the
+        # constant-column no-false-alarm guard.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m rl_pytorch.spawn_model.test_drift
+      - name: SpawnPolicyNet schema/forward self-check
+        # Guards the 61-dim behaviorContext contract end-to-end (board_proj
+        # = 64 + 61 = 125), AR decode heads, LoRA round-trip, and train
+        # helpers. The web<->python dim parity is covered by vitest.
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m rl_pytorch.spawn_model.test_v3
+
   python-services:
     name: Python services (pytest, pip-audit)
     runs-on: ubuntu-latest

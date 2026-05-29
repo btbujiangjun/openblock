@@ -101,11 +101,23 @@ export class Database {
     /**
      * 可回放对局：带 frames，按开局时间倒序（服务端已排序）。
      * 每项为会话 API 字段 + frames；与 GET /api/replay-sessions 一致。
+     *
+     * @param {number} [limit=80]
+     * @param {string} [userId=this.userId] 指定用户；传空串 '' = admin 全库（需 OPENBLOCK_DB_DEBUG=1）
      */
-    async listReplaySessions(limit = 80) {
+    async listReplaySessions(limit = 80, userId = this.userId) {
         const rows = await apiJson(
-            `/api/replay-sessions?user_id=${encodeURIComponent(this.userId)}&limit=${limit}`
+            `/api/replay-sessions?user_id=${encodeURIComponent(userId ?? '')}&limit=${limit}`
         );
+        return Array.isArray(rows) ? rows : [];
+    }
+
+    /**
+     * 可回放对局的用户列表（含 session/audit 计数），用于回放列表的用户筛选下拉。
+     * 复用 /api/profile-audit/users：未开 OPENBLOCK_DB_DEBUG 时服务端返回 []（私域模式）。
+     */
+    async listReplayUsers() {
+        const rows = await apiJson('/api/profile-audit/users');
         return Array.isArray(rows) ? rows : [];
     }
 
@@ -122,22 +134,27 @@ export class Database {
      * 删除对局及关联 move_sequences / behaviors / replays（须为本用户 session id）。
      * @param {number[]} sessionIds
      */
-    async deleteReplaySessions(sessionIds) {
+    async deleteReplaySessions(sessionIds, userId = this.userId) {
         if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
             return { success: true, deleted: [], count: 0 };
         }
         return apiJson('/api/replay-sessions/delete', {
             method: 'POST',
-            body: JSON.stringify({ user_id: this.userId, session_ids: sessionIds })
+            body: JSON.stringify({ user_id: userId, session_ids: sessionIds })
         });
     }
 
     /** 删除展示得分为 0 的可回放对局（与列表分数判定一致，服务端筛选）。 */
-    async deleteZeroScoreReplaySessions() {
+    async deleteZeroScoreReplaySessions(userId = this.userId) {
         return apiJson('/api/replay-sessions/delete-zero-score', {
             method: 'POST',
-            body: JSON.stringify({ user_id: this.userId })
+            body: JSON.stringify({ user_id: userId })
         });
+    }
+
+    /** 当前登录用户 ID（供回放筛选默认值/分组用）。 */
+    get currentUserId() {
+        return this.userId;
     }
 
     async saveBehavior(behavior) {

@@ -209,6 +209,26 @@ def now_unix() -> int:
     return int(time.time())
 
 
+# ─────────── 主库 (openblock.db) 访问 ───────────
+# import-behavior 把主库 spawn_dataset_samples (真实对局, append-only/WORM 原始档)
+# 转换成 v2 寻参样本写入普通 sample_set; 主库只读。
+
+
+def _main_db_path() -> str:
+    """主库路径解析, 与 server.py 一致 (OPENBLOCK_DB_PATH > BLOCKBLAST_DB_PATH > 默认)。"""
+    return (
+        os.environ.get("OPENBLOCK_DB_PATH")
+        or os.environ.get("BLOCKBLAST_DB_PATH")
+        or str(Path(__file__).resolve().parent.parent / "openblock.db")
+    )
+
+
+def _main_db_conn():
+    conn = sqlite3.connect(_main_db_path())
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 # ─────────── Blueprint ───────────
 
 def register_v2_routes(app):
@@ -268,6 +288,7 @@ def register_v2_routes(app):
             d["algo_version"] = algo_row["algo_version"] if algo_row else None
             sets.append(d)
         db.close()
+
         return jsonify({
             "sample_sets": sets,
             "count": len(rows),
@@ -422,6 +443,175 @@ def register_v2_routes(app):
             "errors": errors,
             "received": len(samples),
             "first_error": None if errors == 0 else f"see server log for sqlite errors (first {min(errors, 3)} printed)",
+        })
+
+    @bp.route("/api/spawn-tuning-v2/import-behavior", methods=["POST"])
+    def import_behavior_samples():
+        """把主库玩家真实对局(spawn_dataset_samples)整理成 v2 寻参样本, 写入一个普通
+        sample_set(tag=real,field,behavior), 之后与构造样本无差别地参与训练/评估。
+
+        增量同步: 每条样本把来源 session_id 存进 samples.seed, 重复 sync 只转换
+        新增的对局(已导入的 session_id 直接跳过), 首次后很快 → 可被前端自动调用。
+
+        body(可选):
+          name        样本集名(默认 '用户行为样本集 (寻参)')
+          bot_policy  真人占位 policy(默认 'clear-greedy')
+          difficulty  缺省难度(默认 'normal')
+          limit       仅扫描最近 N 局(默认全部)
+          rebuild     true=清空该集后全量重建(默认 false, 增量同步)
+        """
+        from rl_pytorch.spawn_tuning_v2.behavior_import import (
+            session_to_v2_sample, is_valid_real_sample, REAL_QUALITY_DEFAULTS,
+        )
+
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "用户行为样本集 (寻参可训)").strip()
+        bot_policy = data.get("bot_policy") or "clear-greedy"
+        difficulty = data.get("difficulty") or "normal"
+        limit = data.get("limit")
+        rebuild = bool(data.get("rebuild", False))
+        # 「无效数据」质量门 (导入过滤 + 已入库清理); 传 min_steps=0&min_bins=0&min_score=0 可关闭
+        q_steps = int(data.get("min_steps", REAL_QUALITY_DEFAULTS["min_steps"]))
+        q_bins = int(data.get("min_bins", REAL_QUALITY_DEFAULTS["min_bins"]))
+        q_score = int(data.get("min_score", REAL_QUALITY_DEFAULTS["min_score"]))
+
+        # 1) 读主库真实对局(先于建集, 避免出错时残留空集)
+        try:
+            mconn = _main_db_conn()
+        except Exception as e:
+            return jsonify({"error": f"main db open failed: {e}"}), 500
+        try:
+            sql = ("SELECT session_id, user_id, score, pb_baseline, game_over_reason, payload "
+                   "FROM spawn_dataset_samples ORDER BY packed_at DESC")
+            if isinstance(limit, int) and limit > 0:
+                sql += f" LIMIT {int(limit)}"
+            rows = mconn.execute(sql).fetchall()
+        except sqlite3.OperationalError:
+            return jsonify({"error": "主库无 spawn_dataset_samples — 先打 /api/spawn-dataset/sync 回填"}), 400
+        finally:
+            try:
+                mconn.close()
+            except Exception:
+                pass
+
+        if not rows:
+            return jsonify({"error": "无可导入的真实对局"}), 400
+
+        # 2) 找/建样本集(按 name 复用)
+        db = get_db()
+        existing = db.execute(
+            "SELECT set_id FROM sample_sets WHERE name = ? ORDER BY set_id LIMIT 1", (name,),
+        ).fetchone()
+        if existing:
+            set_id = existing["set_id"]
+            if rebuild:
+                db.execute("DELETE FROM samples WHERE set_id = ?", (set_id,))
+                db.execute("UPDATE sample_sets SET sample_count = 0 WHERE set_id = ?", (set_id,))
+        else:
+            cur = db.execute(
+                "INSERT INTO sample_sets (name, description, config_json, status, tags, created_at) "
+                "VALUES (?, ?, ?, 'collecting', 'real,field,behavior', ?)",
+                (name, "玩家真实对局整理成的 v2 寻参样本(behavior_import, 增量同步)",
+                 json.dumps({"source": "spawn_dataset_samples", "bot_policy": bot_policy}),
+                 now_unix()),
+            )
+            set_id = cur.lastrowid
+
+        # 清理已入库的「无效数据」(质量门收紧 / 旧数据): 删掉低于阈值的样本。
+        # #37 是普通可变集(非 WORM), 可删; 删后其 session_id 退出 done_ids,
+        # 下次同步重转时仍会被质量门挡住 → 不会被重新拉回。
+        _cnt_before = db.execute(
+            "SELECT COUNT(*) FROM samples WHERE set_id = ?", (set_id,)).fetchone()[0]
+        db.execute(
+            "DELETE FROM samples WHERE set_id = ? AND "
+            "(survived_steps < ? OR n_bins_filled < ? OR final_score < ?)",
+            (set_id, q_steps, q_bins, q_score),
+        )
+        cleaned = _cnt_before - db.execute(
+            "SELECT COUNT(*) FROM samples WHERE set_id = ?", (set_id,)).fetchone()[0]
+
+        # 已导入的 session_id(存在 samples.seed)→ 增量去重
+        done_ids = set()
+        if not rebuild:
+            for row in db.execute(
+                "SELECT seed FROM samples WHERE set_id = ? AND seed IS NOT NULL", (set_id,),
+            ):
+                done_ids.add(row["seed"])
+
+        # 3) 转换 + 增量插入(seed=session_id)
+        fields = [
+            "set_id", "difficulty", "generator", "bot_policy", "pb_bin", "lifecycle_stage",
+            "theta_json", "d_curve_json", "final_score", "survived_steps",
+            "clear_rate", "noMove_step", "pb_broke", "surprise_count",
+            "seed", "evaluated_at", "algo_version", "n_bins_filled", "bin_counts_json",
+        ]
+        sql_ins = f"INSERT INTO samples ({','.join(fields)}) VALUES ({','.join(['?'] * len(fields))})"
+        inserted = 0
+        errors = 0
+        skipped = 0
+        already = 0
+        invalid = 0
+        now_ms = int(time.time() * 1000)
+        for r in rows:
+            sid = r["session_id"]
+            if sid in done_ids:
+                already += 1
+                continue
+            try:
+                parsed = json.loads(r["payload"]) if r["payload"] else None
+            except (ValueError, TypeError):
+                parsed = None
+            # payload 形如 {"frames": [...]}(server.py sync); 兼容裸 frames 数组
+            frames = parsed.get("frames") if isinstance(parsed, dict) else parsed
+            if not frames:
+                skipped += 1
+                continue
+            meta = {
+                "pb_baseline": r["pb_baseline"], "score": r["score"],
+                "game_over_reason": r["game_over_reason"],
+                "bot_policy": bot_policy, "difficulty": difficulty,
+            }
+            try:
+                s = session_to_v2_sample(frames, meta)
+            except Exception:
+                s = None
+            if s is None:
+                skipped += 1
+                continue
+            # 「无效数据」质量门: 废局/无难度信号的不入库(自动同步下一致跳过, 不会复活)
+            if not is_valid_real_sample(s, q_steps, q_bins, q_score):
+                invalid += 1
+                continue
+            try:
+                db.execute(sql_ins, (
+                    set_id, s["difficulty"], s["generator"], s["bot_policy"],
+                    int(s["pb_bin"]), s["lifecycle_stage"],
+                    s["theta_json"], s["d_curve_json"], s.get("final_score"),
+                    s.get("survived_steps"), s.get("clear_rate"), s.get("noMove_step", -1),
+                    int(bool(s.get("pb_broke", False))), s.get("surprise_count", 0),
+                    sid, now_ms, s.get("algo_version", "real-v1"),
+                    s.get("n_bins_filled"), json.dumps(s.get("bin_counts")),
+                ))
+                inserted += 1
+            except (sqlite3.IntegrityError, ValueError, KeyError) as e:
+                errors += 1
+                if errors <= 3:
+                    print(f"[import-behavior insert error #{errors}] {type(e).__name__}: {e}")
+
+        db.execute(
+            "UPDATE sample_sets SET sample_count = "
+            "(SELECT COUNT(*) FROM samples WHERE samples.set_id = ?) WHERE set_id = ?",
+            (set_id, set_id),
+        )
+        total = db.execute("SELECT COUNT(*) FROM samples WHERE set_id = ?", (set_id,)).fetchone()[0]
+        db.commit()
+        db.close()
+        return jsonify({
+            "ok": True, "set_id": set_id, "name": name,
+            "scanned": len(rows), "inserted": inserted, "already": already,
+            "invalid": invalid, "cleaned": cleaned,
+            "errors": errors, "skipped": skipped, "total": total,
+            "quality": {"min_steps": q_steps, "min_bins": q_bins, "min_score": q_score},
         })
 
     @bp.route("/api/spawn-tuning-v2/sample-sets/<int:set_id>/preview", methods=["GET"])
@@ -1599,6 +1789,97 @@ def register_v2_routes(app):
             return jsonify({"error": "not found"}), 404
         return jsonify(row_to_dict(row))
 
+    @bp.route("/api/spawn-tuning-v2/jobs/<int:job_id>/log", methods=["GET"])
+    def get_job_log(job_id):
+        """任务关键日志 — 供 C.2 队列展开行展示失败/进度的根因。
+
+        返回:
+          status / error_message: jobs 表字段
+          key_lines:  从日志里抽取的"关键问题"行 (Traceback / Error / raise / ✗ failed / rc= ...)
+          tail:       日志尾部最多 tail_lines 行 (默认 120, 上限 500)
+          exists / log_path / lines_total: 元信息
+        """
+        from pathlib import Path
+        try:
+            tail_lines = max(1, min(500, int(request.args.get("tail", 120))))
+        except ValueError:
+            tail_lines = 120
+
+        db = get_db()
+        row = db.execute(
+            "SELECT job_id, status, error_message, output_model_id, log_path "
+            "FROM training_jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+        if not row:
+            db.close()
+            return jsonify({"error": "not found"}), 404
+        weights_path = None
+        if row["output_model_id"]:
+            m = db.execute(
+                "SELECT weights_path FROM models WHERE model_id = ?",
+                (row["output_model_id"],),
+            ).fetchone()
+            if m:
+                weights_path = m["weights_path"]
+        db.close()
+
+        # 候选日志路径 (同 metrics-history 优先级): <weights>.log → CHECKPOINTS_DIR glob → jobs.log_path
+        candidates = []
+        if weights_path:
+            candidates.append(Path(weights_path + ".log"))
+        else:
+            try:
+                from rl_pytorch.spawn_tuning_v2.job_executor import CHECKPOINTS_DIR
+            except Exception:
+                CHECKPOINTS_DIR = Path(os.environ.get("SPAWN_TUNING_V2_CHECKPOINTS", "checkpoints/v2"))
+            try:
+                matches = sorted(
+                    CHECKPOINTS_DIR.glob(f"job_{job_id}_*.pt.log"),
+                    key=lambda p: p.stat().st_mtime, reverse=True,
+                )
+                if matches:
+                    candidates.append(matches[0])
+            except OSError:
+                pass
+        if row["log_path"]:
+            candidates.append(Path(row["log_path"]))
+
+        log_file = next((p for p in candidates if p.exists()), None)
+        lines = []
+        if log_file:
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.read().splitlines()
+            except OSError:
+                lines = []
+
+        # "关键问题"抽取 — 命中错误/失败相关关键词的行 (大小写不敏感)
+        KEY_PAT = (
+            "traceback", "error", "exception", "raise ", "✗ failed",
+            "rc=", "no samples", "valueerror", "runtimeerror", "assert",
+            "cuda", "out of memory", "oom", "failed", "fatal",
+        )
+        key_lines = []
+        for i, ln in enumerate(lines):
+            low = ln.lower()
+            if any(k in low for k in KEY_PAT):
+                key_lines.append({"n": i + 1, "text": ln})
+        # 限制关键行数量, 保留首尾 (根因通常在 Traceback 末行)
+        if len(key_lines) > 40:
+            key_lines = key_lines[:8] + [{"n": -1, "text": "… (省略 %d 行) …" % (len(key_lines) - 28)}] + key_lines[-20:]
+
+        return jsonify({
+            "job_id": job_id,
+            "status": row["status"],
+            "error_message": row["error_message"],
+            "log_path": str(log_file) if log_file else (row["log_path"] or None),
+            "exists": log_file is not None,
+            "lines_total": len(lines),
+            "key_lines": key_lines,
+            "tail": "\n".join(lines[-tail_lines:]),
+        })
+
     @bp.route("/api/spawn-tuning-v2/jobs/<int:job_id>/metrics-history", methods=["GET"])
     def get_job_metrics_history(job_id):
         """读 train.py 写的 JSONL 训练日志, 返回 per-epoch metrics 数组。
@@ -2607,6 +2888,39 @@ def register_v2_routes(app):
         }
         bundle_json = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
         sha = hashlib.sha256(bundle_json.encode("utf-8")).hexdigest()
+
+        # v1.62.0 事实门禁：以目标 S 曲线为准，判定「预估口径是否比实测口径更逼近目标」。
+        #   覆盖率 / 高分段覆盖 / 提升量 Δ 任一不达标 → 默认拒绝写盘+部署。
+        #   require_fact_eval=false 仅用于明确的 shadow 试验（不部署也可显式跳过）。
+        require_fact_eval = bool(data.get("require_fact_eval", True))
+        fact_report = None
+        try:
+            from rl_pytorch.spawn_tuning_v2.fact_eval import (
+                evaluate_policies, aggregate_metrics, gate, coverage_caveats, DEFAULT_THRESHOLDS,
+            )
+            thresholds = {**DEFAULT_THRESHOLDS, **(data.get("fact_eval_thresholds") or {})}
+            per_ctx = evaluate_policies(DB_PATH, bundle["policies"])
+            metrics = aggregate_metrics(per_ctx)
+            passed, fails = gate(metrics, thresholds)
+            # 覆盖率仅为告警（标注提升被验证到的 r 区间），不影响 passed。
+            fact_report = {"passed": passed, "fails": fails,
+                           "caveats": coverage_caveats(metrics, thresholds),
+                           "metrics": {k: (round(v, 4) if isinstance(v, float) else v)
+                                       for k, v in metrics.items()}}
+        except Exception as e:
+            # 评估自身出错 → indeterminate（不静默通过，也不误伤无样本环境）。
+            fact_report = {"passed": None, "error": str(e)}
+
+        # 仅在"有充分实测且明确不达标"(passed is False) 时拦截；
+        # indeterminate(None，实测不足) 放行但回报，避免冷启动环境无法部署。
+        if require_fact_eval and (fact_report or {}).get("passed") is False:
+            return jsonify({
+                "error": "fact-eval 门禁未通过 — 以目标 S 为准，预估口径未比实测更逼近目标（提升量 Δ≤0），拒绝部署",
+                "fact_eval": fact_report,
+                "hint": "Δ≤0 说明预估未比实测更逼近目标，需调参/重训；覆盖不足只是告警（不阻断），"
+                        "但建议补足高分段采样以扩大验证范围。亦可显式传 require_fact_eval=false 仅做 shadow（不部署）。",
+            }), 422
+
         bundle_dir = Path("web/public/spawn-tuning-v2")
         bundle_dir.mkdir(parents=True, exist_ok=True)
         results = {"written": [str(policies_path)]}
@@ -2693,6 +3007,8 @@ def register_v2_routes(app):
             "max_raw_violation": round(max_raw_violation, 4),
             # v2.10.9: 自动 deploy 结果
             "deploy": deploy_info,
+            # v1.62.0: 事实门禁报告（覆盖/实测口径误差/预估口径误差/提升量 Δ；R 为诊断）
+            "fact_eval": fact_report,
             **results,
         })
 

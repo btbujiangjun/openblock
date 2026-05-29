@@ -13,6 +13,12 @@ import {
     resetSpawnMemory,
     _estimateTopDriver,
     _tryInjectSpecial,
+    _reliefGapShapeIds,
+    _pressureHoleForcing,
+    RELIEF_FILL_FLOOR_URGENT,
+    RELIEF_FILL_FLOOR_MILD,
+    RELIEF_HOLE_FILL_MIN,
+    SPECIAL_PRESSURE_SHAPES,
 } from '../web/src/bot/blockSpawn.js';
 import { getStrategy } from '../web/src/config.js';
 
@@ -2304,5 +2310,195 @@ describe('v1.60.45 — monoFlush 平台化命中率', () => {
             seen[p] = pickByPlatform({ ios: 0.033, android: 0.050, wechat: 0.050, web: 0.033, default: 0.033 });
         }
         expect(seen).toEqual(expected);
+    });
+});
+
+/**
+ * v1.60.46 优化（P1）：relief 注入 fill 地板按救济紧迫度分级。
+ *   - reliefUrgent === false（温和救济）→ 高地板 RELIEF_FILL_FLOOR_MILD（0.35）
+ *   - reliefUrgent === true（紧迫救济）→ 低地板 RELIEF_FILL_FLOOR_URGENT（0.25）
+ *   - reliefUrgent === undefined（旧调用方）→ 向后兼容低地板（0.25）
+ * 用 exactFit 触发（确定性，不依赖 canTripletPerfectClear）+ 0.30 fill（落在两地板之间）。
+ */
+describe('v1.60.46 P1：relief fill 地板按救济紧迫度分级', () => {
+    beforeEach(() => resetSpawnMemory());
+
+    function setupExactFitRelief(reliefUrgent) {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+        const hints = { spawnIntent: 'relief' };
+        if (reliefUrgent !== undefined) hints.reliefUrgent = reliefUrgent;
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0 };
+        const scored = [
+            { shape: triplet[0], gapFills: 0, multiClear: 0, exactFit: 1.0 },
+            { shape: triplet[1], gapFills: 0, multiClear: 0, exactFit: 0 },
+            { shape: triplet[2], gapFills: 0, multiClear: 0, exactFit: 0 },
+        ];
+        const FILL_BETWEEN = (RELIEF_FILL_FLOOR_URGENT + RELIEF_FILL_FLOOR_MILD) / 2; /* 0.30 */
+        return _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, FILL_BETWEEN, topo, 0, scored);
+    }
+
+    it('地板常量：MILD(0.35) > URGENT(0.25)', () => {
+        expect(RELIEF_FILL_FLOOR_MILD).toBeGreaterThan(RELIEF_FILL_FLOOR_URGENT);
+    });
+
+    it('reliefUrgent=false（温和救济）+ fill=0.30 < 0.35 → 不注入', () => {
+        expect(setupExactFitRelief(false)).toBeNull();
+    });
+
+    it('reliefUrgent=true（紧迫救济）+ fill=0.30 ≥ 0.25 → 正常注入', () => {
+        const result = setupExactFitRelief(true);
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(true);
+        expect(result.reliefTrigger).toBe('exactFit');
+    });
+
+    it('reliefUrgent 未声明（旧调用方）→ 向后兼容低地板，fill=0.30 仍注入', () => {
+        const result = setupExactFitRelief(undefined);
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(true);
+    });
+});
+
+/**
+ * v1.60.46 优化（P2）：_reliefGapShapeIds —— 把近满连续行/列缺口映射到能补上它的小块。
+ *   row 连续 k 空 → 横块（2→1x2 / 3→1x3）；col 连续 k 空 → 竖块（2→2x1 / 3→3x1）。
+ */
+describe('v1.60.46 P2：_reliefGapShapeIds 缺口朝向匹配', () => {
+    it('空盘（每行/列 8 空 > 3）→ 无近满缺口，返回 []', () => {
+        expect(_reliefGapShapeIds(new Grid(8))).toEqual([]);
+    });
+
+    it('满盘（每行/列 0 空）→ 返回 []', () => {
+        const g = new Grid(8);
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) g.cells[y][x] = 0;
+        expect(_reliefGapShapeIds(g)).toEqual([]);
+    });
+
+    it('近满行（连续 3 空）→ 偏好横块 1x3', () => {
+        const g = new Grid(8);
+        /* row 0：x=0,1,2 空，x=3..7 填；其余行全空（empty=8 跳过） */
+        for (let x = 3; x < 8; x++) g.cells[0][x] = 1;
+        const ids = _reliefGapShapeIds(g);
+        expect(ids).toContain('1x3');
+        expect(ids).not.toContain('3x1');
+    });
+
+    it('近满列（连续 2 空）→ 偏好竖块 2x1', () => {
+        const g = new Grid(8);
+        /* col 0：y=0,1 空，y=2..7 填；其余列全空（empty=8 跳过） */
+        for (let y = 2; y < 8; y++) g.cells[y][0] = 1;
+        const ids = _reliefGapShapeIds(g);
+        expect(ids).toContain('2x1');
+        expect(ids).not.toContain('1x2');
+    });
+
+    it('行内 2 空但不连续 → 不算可补缺口（[]）', () => {
+        const g = new Grid(8);
+        /* row 0：x=0 与 x=7 空（不连续），x=1..6 填；其余行全空 */
+        for (let x = 1; x < 7; x++) g.cells[0][x] = 1;
+        expect(_reliefGapShapeIds(g)).toEqual([]);
+    });
+
+    it('缺口按 empty 升序排序（越接近清行越优先）：列差 2 → 2x1 排在行差 3 → 1x3 之前', () => {
+        /* 满盘后精确"挖"两个互不交叉的缺口：
+         *   row 0：挖 x=0,1,2（3 连续空）→ 1x3（empty=3）
+         *   col 5：挖 y=8,9（2 连续空）→ 2x1（empty=2），且 row0.x5 仍为填，互不污染
+         * 旁路行/列（如 row8/9、col0/1/2）只剩 1 空（empty=1 < 2）被跳过。 */
+        const g = new Grid(10);
+        for (let y = 0; y < 10; y++) for (let x = 0; x < 10; x++) g.cells[y][x] = 0;
+        g.cells[0][0] = null; g.cells[0][1] = null; g.cells[0][2] = null;
+        g.cells[8][5] = null; g.cells[9][5] = null;
+        expect(_reliefGapShapeIds(g)).toEqual(['2x1', '1x3']);
+    });
+});
+
+/**
+ * v1.60.47 特殊块契约 A：减压·填补空洞——盘面 enclosedVoidCells ≥ RELIEF_HOLE_FILL_MIN
+ * 且无更高优先级清行机会时，relief 注入以 reliefTrigger='holeFill' 触发。
+ */
+describe('v1.60.47 契约A：减压·填补空洞 holeFill 触发', () => {
+    beforeEach(() => resetSpawnMemory());
+
+    function setupHoleFill(holesSignal) {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        /* 无 pcSetup(=0) / exactFit(=0) / multiClear(=0) / monoFlush(空盘无近满同色)；仅空洞信号 */
+        const topo = { nearFullLines: 0, holes: holesSignal, enclosedVoidCells: holesSignal };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 0, multiClear: 0, exactFit: 0 }));
+        return _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 0, scored);
+    }
+
+    it('RELIEF_HOLE_FILL_MIN 默认 = 2', () => {
+        expect(RELIEF_HOLE_FILL_MIN).toBe(2);
+    });
+
+    it('holes≥2 且无清行机会 → reliefTrigger=holeFill 注入', () => {
+        const result = setupHoleFill(2);
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(true);
+        expect(result.reliefTrigger).toBe('holeFill');
+        expect(result.spawnCtx?.reliefTrigger).toBe('holeFill');
+    });
+
+    it('holes=1 < 阈值 且无其他触发 → 不注入', () => {
+        expect(setupHoleFill(1)).toBeNull();
+    });
+
+    it('holeFill 优先级最低：同时有 pcSetup 时按 pcSetup 标注', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+        const hints = { spawnIntent: 'relief' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 3, enclosedVoidCells: 3 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 0, multiClear: 0, exactFit: 0 }));
+        /* pcSetup=1 → 应抢占 holeFill */
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.55, topo, 1, scored);
+        if (result) expect(result.reliefTrigger).toBe('pcSetup');
+    });
+});
+
+/**
+ * v1.60.47 特殊块契约 B：加压·制造空洞——_pressureHoleForcing 度量"玩家最优放置下
+ * 仍被迫造的洞数"，加压候选据此降序主动选最难块。
+ */
+describe('v1.60.47 契约B：加压·制造空洞主动选择', () => {
+    beforeEach(() => resetSpawnMemory());
+
+    const diag2a = getAllShapes().find(s => s.id === 'diag-2a');
+
+    it('空盘：diag 可零造洞放置 → 强制造洞下限 = 0', () => {
+        expect(_pressureHoleForcing(new Grid(8), diag2a.data)).toBe(0);
+    });
+
+    it('满盘仅留 2x2 空腔：diag-2a 唯一落点把内角封死成 1 个孤格 → 下限 = 1', () => {
+        const g = new Grid(8);
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) g.cells[y][x] = 0;
+        /* 仅 (0,0)(0,1)(1,0)(1,1) 留空；diag-2a 填对角后，内部角 (1,1) 4-邻全填 → 孤格+1
+         * （角 (0,0) 靠边界，isolatedHoles 口径不计边界，故净增 1） */
+        g.cells[0][0] = null; g.cells[0][1] = null; g.cells[1][0] = null; g.cells[1][1] = null;
+        expect(_pressureHoleForcing(g, diag2a.data)).toBe(1);
+    });
+
+    it('加压注入：稀疏盘面优先选更难放的大斜块（diag-3 over diag-2）', () => {
+        const triplet = getAllShapes().slice(0, 3);
+        const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+        const hints = { spawnIntent: 'pressure' };
+        const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+        const localGrid = new Grid(8);
+        const topo = { nearFullLines: 0, holes: 0, enclosedVoidCells: 0 };
+        const scored = triplet.map(s => ({ shape: s, gapFills: 0, multiClear: 0, exactFit: 0 }));
+        /* fill=0.30 < 0.45 满足 pressureSignal；空盘 forceScore 全 0 → tie-break 落点少者优先 */
+        const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.30, topo, 0, scored);
+        expect(result).not.toBeNull();
+        expect(result.isRelief).toBe(false);
+        expect(SPECIAL_PRESSURE_SHAPES).toContain(result.injected);
+        expect(result.injected.startsWith('diag-3')).toBe(true);
     });
 });

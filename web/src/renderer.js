@@ -838,6 +838,12 @@ function syncGridCanvasCssVar(canvas) {
  */
 const PARTICLE_MARGIN_RATIO_DEFAULT = 1.0;
 const FX_DPR_MAX = 1;
+/* v1.60.47 GPU：漂移水印独立层（#game-grid-wm）的 DPR 上限。
+ * 水印是大而柔和的半透明 emoji，并非主棋盘那种需要锐利边缘的内容；按物理 DPR
+ * （retina 上常为 2~3）开画布纯属浪费像素填充与 GPU 纹理上传。限到 1.5 后高 DPR
+ * 屏上水印层像素量降到 ~1/4（dpr3）/ ~56%（dpr2），柔和水印肉眼无差。
+ * 与 fxCanvas 的 FX_DPR_MAX / DFV 的 DFV_CANVAS_DPR_MAX 同一策略。 */
+const WM_DPR_MAX = 1.5;
 
 function _isLowEndAndroidClient() {
     if (typeof window === 'undefined' || typeof document === 'undefined') return false;
@@ -855,9 +861,11 @@ function _isLowEndAndroidClient() {
 
 export class Renderer {
     /**
-     * @param {HTMLCanvasElement} canvas         盘面主画布（仅画盘面+方块+水印）
-     * @param {{ fxCanvas?: HTMLCanvasElement, particleMarginRatio?: number }} [opts]
+     * @param {HTMLCanvasElement} canvas         盘面主画布（网格线 + 方块 + 落子特效）
+     * @param {{ fxCanvas?: HTMLCanvasElement, bgCanvas?: HTMLCanvasElement, wmCanvas?: HTMLCanvasElement, particleMarginRatio?: number }} [opts]
      *        fxCanvas: 可选的特效叠加层；未提供时退化为旧行为（粒子画在主 canvas，会被 game-wrapper overflow:hidden 裁剪）
+     *        bgCanvas/wmCanvas: 可选的盘面静态背景层（L0）与漂移水印层（L1）；二者俱全时启用
+     *          三层拆分（详见 renderBackground 头注释），缺任一即回退到"全部画在主 canvas"的旧行为。
      */
     constructor(canvas, opts = {}) {
         this.canvas = canvas;
@@ -870,6 +878,14 @@ export class Renderer {
         // 特效叠加层（粒子 + 闪光独立绘制，可溢出盘面）
         this.fxCanvas = opts.fxCanvas || null;
         this.fxCtx = this.fxCanvas ? this.fxCanvas.getContext('2d') : null;
+        /* v1.60.47 GPU：盘面静态背景层（L0）+ 漂移水印层（L1）独立 DOM canvas。
+         * 详见 renderBackground / renderBoardWatermarkMotionFrame。二者均存在才启用三层路径。 */
+        this.bgCanvas = opts.bgCanvas || null;
+        this.bgCtx = this.bgCanvas ? this.bgCanvas.getContext('2d') : null;
+        this.wmCanvas = opts.wmCanvas || null;
+        this.wmCtx = this.wmCanvas ? this.wmCanvas.getContext('2d') : null;
+        this.wmDpr = this._readWmDpr();
+        this._boardBgKey = ''; // L0 背景层签名（皮肤/尺寸/dpr/画质），未变则跳过重画
         this.particleMarginRatio = (opts.particleMarginRatio ?? PARTICLE_MARGIN_RATIO_DEFAULT);
         this._paintMargin = 0; // fx 画布的粒子溢出像素余量（CSS px）
         // 初始按逻辑尺寸设置（layout 完成前 CSS 尺寸未知）
@@ -921,6 +937,28 @@ export class Renderer {
         /** 同色/同 icon 整行整列消除：紫金光晕全屏脉冲 0~1 */
         this._bonusMatchFlash = 0;
         this._effectsEnabled = true;
+        /* v1.60.46 性能：静态盘面层缓存。
+         * renderGrid 每帧把所有已落子格用 paintBlockCell 重画（每格 3-5 个 createLinearGradient/
+         * RadialGradient + 多条 roundRect 路径）。但盘面内容在拖拽 / 抖动 / 粒子动画期间并不变化，
+         * 仅 preview 块与特效层在动。把已落子格离屏渲染一次、按签名缓存、整图 1:1 blit，可在不改变
+         * 任何像素的前提下消除拖拽 / 动画帧里成百上千次的渐变分配与路径填充（CPU/GPU 双降）。
+         * 离屏画布为物理像素（logical×dpr），blit 时 1:1 映射 → 无缩放、无模糊。抖动 shakeOffset
+         * 在 blit 时平移施加，故缓存内容不含抖动偏移。 */
+        this._gridLayer = null;
+        this._gridLayerCtx = null;
+        this._gridLayerKey = '';
+        /* v1.60.46 性能：静态背景层缓存（外框 + 空格底色 + 凹陷边 = watermark 之下层；网格线 = 之上层）。
+         * 背景几何只随皮肤 / 尺寸 / dpr / 画质变化，逐帧重画 64+ fillRect 与网格线纯属浪费。
+         * watermark 因会漂移单独处理（见 _watermarkGlyphCache），故拆成 under/over 两层保持原叠放次序。 */
+        this._bgUnderLayer = null;
+        this._bgUnderCtx = null;
+        this._bgOverLayer = null;
+        this._bgOverCtx = null;
+        this._bgLayerKey = '';
+        /* watermark emoji 字形精灵缓存：key=`${icon}|${szPx}|${dpr}` → 离屏 canvas。
+         * 漂移水印每帧 fillText 渲染 emoji（光栅化开销大且是 idle 循环主要耗电点），
+         * 改为一次性栅格化字形、之后每帧 drawImage 到漂移坐标，CPU/GPU 双降且不改观感。 */
+        this._watermarkGlyphCache = new Map();
         /** 物理像素重置（_applyCanvasSize / _onCanvasResize / setQualityMode）后触发的回调。
          *  Canvas 规范：写入 canvas.width/height 会清空内容；只有 high 画质有 watermark
          *  动画循环掩盖该空帧，balanced/low 静止状态下盘面会停留在空白上。
@@ -979,7 +1017,7 @@ export class Renderer {
         if (desiredDpr <= oldDpr) {
             off.width = this.canvas.width;
             off.height = this.canvas.height;
-            try { off.getContext('2d').drawImage(this.canvas, 0, 0); } catch { return null; }
+            try { this._compositeBoardInto(off.getContext('2d'), off.width, off.height); } catch { return null; }
             return off;
         }
 
@@ -989,7 +1027,7 @@ export class Renderer {
             redrawFn();
             off.width = this.canvas.width;
             off.height = this.canvas.height;
-            off.getContext('2d').drawImage(this.canvas, 0, 0);
+            this._compositeBoardInto(off.getContext('2d'), off.width, off.height);
         } catch {
             /* 失败时回退到尽力而为：返回 null，caller 用屏幕版本兜底 */
             this.dpr = oldDpr;
@@ -1004,6 +1042,17 @@ export class Renderer {
             }
         }
         return off;
+    }
+
+    /**
+     * v1.60.47：把盘面三层（bg L0 → 水印 L1 → 主画布 L2）按目标尺寸合成到给定 ctx。
+     * 三层拆分后单截主画布会丢背景与水印，海报快照需在此处合成。各层物理像素不同
+     * （L1 受限 wmDpr），统一缩放到 (w,h) 对齐。无独立层时退化为仅主画布（与旧行为一致）。
+     */
+    _compositeBoardInto(octx, w, h) {
+        if (this.bgCanvas && this.bgCtx) octx.drawImage(this.bgCanvas, 0, 0, w, h);
+        if (this.wmCanvas && this.wmCtx) octx.drawImage(this.wmCanvas, 0, 0, w, h);
+        octx.drawImage(this.canvas, 0, 0, w, h);
     }
 
     setEffectsEnabled(enabled) {
@@ -1049,6 +1098,13 @@ export class Renderer {
     hasBoardWatermarkMotion() {
         if (!this._effectsEnabled) return false;
         if (this._qualityMode === 'low') return false;
+        /* v1.60.47：皮肤无水印 icons 时无漂移可言——旧版无条件 true 会让 idle 循环对
+         * 纯净皮肤也每帧 clear 水印层（或旧的整盘 markDirty），白白产生 GPU 纹理更新。
+         * 按当前皮肤是否真有水印门控，纯净皮肤静置时盘面彻底零重绘。 */
+        try {
+            const wm = getActiveSkin()?.boardWatermark;
+            if (!wm?.icons?.length) return false;
+        } catch { /* getActiveSkin 不可用时保持默认可见（容错） */ }
         return true;
     }
 
@@ -1074,6 +1130,15 @@ export class Renderer {
         return Math.min(this.dpr || 1, FX_DPR_MAX);
     }
 
+    _readWmDpr() {
+        return Math.min(this.dpr || 1, WM_DPR_MAX);
+    }
+
+    /** 三层拆分是否可用（bg L0 + wm L1 两块 DOM canvas 均已注入）。 */
+    _hasBoardLayers() {
+        return Boolean(this.bgCtx && this.wmCtx);
+    }
+
     /**
      * 将主盘面 canvas 物理像素设为 logicalW × dpr，并同步设置 fxCanvas 的扩展物理像素。
      * canvas.width 赋值会重置 context 变换，必须重新 scale。
@@ -1086,6 +1151,7 @@ export class Renderer {
         this.canvas.height = Math.round(lh * this.dpr);
         this.ctx.scale(this.dpr, this.dpr);
         this._applyFxCanvasSize();
+        this._applyBoardLayerSizes();
         /* canvas.width 写入会清空 canvas 内容；通知 game 层补一帧，避免
          * balanced/low 画质下静止盘面停留在空白上（无 idle 动画驱动重绘）。 */
         this._emitCanvasReset();
@@ -1118,6 +1184,42 @@ export class Renderer {
     }
 
     /**
+     * v1.60.47：同步盘面静态背景层（L0/bgCanvas）与漂移水印层（L1/wmCanvas）的物理像素与 CSS 几何。
+     *
+     * 两层均为绝对定位、1:1 覆盖主画布 #game-grid：CSS 尺寸/偏移直接镜像主画布的
+     * offsetWidth/Height/Left/Top（与 fxCanvas 同口径，但无外扩 margin），物理像素分别按
+     * 各自 DPR 缩放——L0 用主 DPR（背景细线需锐度），L1 用受限的 wmDpr（柔和水印省 GPU）。
+     *
+     * canvas.width 写入会清空内容并失效 L0 缓存键，故这里复位 _boardBgKey，下一帧 renderBackground 重画。
+     */
+    _applyBoardLayerSizes() {
+        if (!this._hasBoardLayers()) return;
+        this.wmDpr = this._readWmDpr();
+        const main = this.canvas;
+        const cssW = main.offsetWidth || this.logicalW;
+        const cssH = main.offsetHeight || this.logicalH;
+        const left = main.offsetLeft || 0;
+        const top = main.offsetTop || 0;
+        /* 仅在物理像素真变化时才写 canvas.width（写入即清空内容）；纯位置/CSS 尺寸变化
+         * （如面板收放挪动盘面）只更新 style，避免无谓清层导致背景闪空。 */
+        const apply = (cv, layerDpr) => {
+            const pw = Math.max(1, Math.round(this.logicalW * layerDpr));
+            const ph = Math.max(1, Math.round(this.logicalH * layerDpr));
+            let resized = false;
+            if (cv.width !== pw) { cv.width = pw; resized = true; }
+            if (cv.height !== ph) { cv.height = ph; resized = true; }
+            cv.style.width = `${cssW}px`;
+            cv.style.height = `${cssH}px`;
+            cv.style.left = `${left}px`;
+            cv.style.top = `${top}px`;
+            return resized;
+        };
+        const r1 = apply(this.bgCanvas, this.dpr);
+        const r2 = apply(this.wmCanvas, this.wmDpr);
+        if (r1 || r2) this._boardBgKey = ''; // 尺寸变化 → 失效 L0 缓存，下一帧 render 重画
+    }
+
+    /**
      * ResizeObserver 回调：当 canvas 的 CSS 显示尺寸改变时，
      * 将 canvas 物理像素精确对齐到 cssWidth × DPR，
      * 从根本上消除因 CSS 缩放导致的模糊/毛边。
@@ -1133,8 +1235,9 @@ export class Renderer {
         const targetW = Math.round(cssW * this.dpr);
         const targetH = Math.round(cssH * this.dpr);
         if (this.canvas.width === targetW && this.canvas.height === targetH) {
-            // 主 canvas 物理尺寸已对齐，但 fxCanvas 仍可能漂移（DPR 切换或首帧），强制同步
+            // 主 canvas 物理尺寸已对齐，但 fx/bg/wm 层仍可能漂移（DPR 切换、面板收放移动盘面、首帧），强制同步
             this._applyFxCanvasSize();
+            this._applyBoardLayerSizes();
             return;
         }
         // cellSize 随 CSS 尺寸动态调整，保持 gridSize × cellSize = cssW
@@ -1252,9 +1355,10 @@ export class Renderer {
      *
      * 任一 hd* 字段缺失时回退到对应基础字段；hdAnchors 缺失时回退到 5 锚点默认布局。
      */
-    _renderBoardWatermark(skin) {
+    _renderBoardWatermark(skin, targetCtx = this.ctx, dpr = this.dpr) {
         const wm = skin.boardWatermark;
         if (!wm?.icons?.length) return;
+        const ctx = targetCtx;
         const W = this.logicalW;
         const H = this.logicalH;
 
@@ -1269,18 +1373,67 @@ export class Renderer {
             : DEFAULT_WATERMARK_ANCHOR_RATIOS;
 
         const sz = Math.round(Math.min(W, H) * scale);
-        this.ctx.save();
-        this.ctx.globalAlpha = opacity;
-        this.ctx.font = `${Math.round(sz * 0.88)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
+        const fontPx = Math.round(sz * 0.88);
+        ctx.save();
+        ctx.globalAlpha = opacity;
 
         const basePts = anchorRatios.map(([rx, ry]) => [W * rx, H * ry]);
         const pts = this._watermarkPointsForFrame(skin, basePts, W, H);
+        /* v1.60.46 性能：emoji 字形一次性栅格化到精灵，漂移帧只做 drawImage（避免逐帧光栅化）。
+         * v1.60.47：精灵分辨率按目标层 dpr 栅格化（独立水印层用受限 wmDpr）。 */
+        let fellBack = false;
         pts.forEach(([bx, by], i) => {
-            this.ctx.fillText(icons[i % icons.length], bx, by);
+            const icon = icons[i % icons.length];
+            const glyph = this._getWatermarkGlyph(icon, fontPx, dpr);
+            if (glyph) {
+                const box = glyph._cssBox;
+                ctx.drawImage(glyph, bx - box / 2, by - box / 2, box, box);
+            } else {
+                if (!fellBack) {
+                    ctx.font = `${fontPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    fellBack = true;
+                }
+                ctx.fillText(icon, bx, by);
+            }
         });
-        this.ctx.restore();
+        ctx.restore();
+    }
+
+    /**
+     * v1.60.46：返回 watermark emoji 的字形精灵（离屏 canvas，附 `_cssBox` 为其 CSS 边长）。
+     * 无 document 时返回 null，调用方回退 fillText。
+     * @param {string} icon
+     * @param {number} fontPx
+     * @param {number} [dpr] 精灵栅格化分辨率（独立水印层传受限 wmDpr；默认主 dpr）
+     * @returns {HTMLCanvasElement|null}
+     */
+    _getWatermarkGlyph(icon, fontPx, dpr = this.dpr || 1) {
+        if (typeof document === 'undefined') return null;
+        dpr = dpr || 1;
+        const key = `${icon}|${fontPx}|${dpr}`;
+        const cached = this._watermarkGlyphCache.get(key);
+        if (cached) return cached;
+        const box = Math.max(1, Math.ceil(fontPx * 1.35));
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(box * dpr));
+        cv.height = cv.width;
+        cv._cssBox = box;
+        const cx = cv.getContext('2d');
+        if (!cx) return null;
+        cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cx.textAlign = 'center';
+        cx.textBaseline = 'middle';
+        cx.font = `${fontPx}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`;
+        cx.fillText(icon, box / 2, box / 2);
+        this._watermarkGlyphCache.set(key, cv);
+        /* 皮肤反复切换时限制缓存规模，避免无界增长。 */
+        if (this._watermarkGlyphCache.size > 64) {
+            const oldest = this._watermarkGlyphCache.keys().next().value;
+            this._watermarkGlyphCache.delete(oldest);
+        }
+        return cv;
     }
 
     /** 启动 ResizeObserver 持续监听 canvas CSS 尺寸变化 */
@@ -1340,11 +1493,14 @@ export class Renderer {
 
     getAmbientFrameIntervalMs() {
         const base = this._ambientLayer?.getFrameIntervalMs?.() ?? 1000;
-        if (this._qualityMode === 'high') {
-            return base;
+        /* v1.60.47 GPU：按画质分档降低环境特效（含 aurora/koi 流体）的 idle 重绘频率。
+         * high（默认 / 桌面）保持原观感不动；balanced ×1.5、low ×2 降频——流体漂移极慢
+         * （aurora t = now/4200），0.5–0.67fps 几乎无感，却把弱设备的合成/重绘负担显著降下来。 */
+        if (this._qualityMode === 'balanced') {
+            return Math.round(base * 1.5);
         }
         if (this._qualityMode === 'low') {
-            return Math.max(base, 1000);
+            return Math.max(Math.round(base * 2), 1000);
         }
         return base;
     }
@@ -1507,82 +1663,205 @@ export class Renderer {
         ec.restore();
     }
 
+    /**
+     * v1.60.47 GPU 重构：盘面背景拆成三层独立 canvas，斩断"静止盘面每帧整块 retina 主画布
+     * 重栅格化 + 纹理重传"这一 GPU 进程持续高占用的根因。
+     *
+     * 叠放次序（与单画布时代像素级一致）：bg-under(L0) < 水印(L1) < 网格线(L2 主画布) < 方块…
+     *   - L0 `bgCanvas`：外框 + 空格底色 + 凹陷边。只随皮肤/尺寸/dpr/画质变化，缓存键命中即跳过 → 静止时零重画零重传。
+     *   - L1 `wmCanvas`：仅漂移水印，限 DPR（WM_DPR_MAX）。idle 时由 renderBoardWatermarkMotionFrame 单独重绘这一小层，
+     *     不再触发整盘 render；只有这块受限尺寸的小纹理被重传 → GPU 大降。
+     *   - L2 主画布：网格线（之上层）+ 方块 + preview + 落子特效。静止时完全静态，不重传。
+     *
+     * shake 仅作用于 L2（网格线/方块/特效随抖动平移）；L0/L1 是柔和静态/漂移底层，不参与抖动
+     * （省去抖动期间重画两层的成本，faint 背景不抖在观感上无差）。
+     *
+     * 三层 DOM canvas 缺任一时（旧 HTML / 测试环境）回退到"全部画在主 canvas"的离屏缓存旧路径。
+     */
     renderBackground() {
         const skin = getActiveSkin();
+
+        if (this._hasBoardLayers()) {
+            this._refreshBoardBgLayer(skin);   // L0：仅签名变化时重画
+            this._refreshWatermarkLayer(skin); // L1：本帧漂移位置重画到独立层
+            // L2 主画布：只画网格线（之上层），随 shake 平移
+            this.ctx.save();
+            this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+            this._paintBackgroundOver(this.ctx, skin);
+            this.ctx.restore();
+            return;
+        }
+
+        /* ── 回退：单画布（无独立层 / 测试环境）。watermark 仍在 under/over 之间逐帧绘制（漂移）。 ── */
+        this.ctx.save();
+        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+        const layers = this._getBackgroundLayers(skin);
+        if (layers) {
+            if (layers.under) this.ctx.drawImage(layers.under, 0, 0, this.logicalW, this.logicalH);
+            this._renderBoardWatermark(skin);
+            if (layers.over) this.ctx.drawImage(layers.over, 0, 0, this.logicalW, this.logicalH);
+            this.ctx.restore();
+            return;
+        }
+
+        this._paintBackgroundUnder(this.ctx, skin);
+        this._renderBoardWatermark(skin);
+        this._paintBackgroundOver(this.ctx, skin);
+        this.ctx.restore();
+    }
+
+    /** v1.60.47：把背景静态层（bg-under）画进 L0/bgCanvas；签名（皮肤/尺寸/dpr/画质）未变则跳过。 */
+    _refreshBoardBgLayer(skin) {
+        const dpr = this.dpr || 1;
+        const key = `${skin.id ?? skin.name ?? '?'}|${this.gridSize}|${this.cellSize.toFixed(3)}|${dpr}|${this._qualityMode}`;
+        if (key === this._boardBgKey) return;
+        const cx = this.bgCtx;
+        cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cx.clearRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
+        this._paintBackgroundUnder(cx, skin);
+        this._boardBgKey = key;
+    }
+
+    /** v1.60.47：把漂移水印画进 L1/wmCanvas（限 wmDpr）；每帧调用（位置随时间漂移）。 */
+    _refreshWatermarkLayer(skin) {
+        const cx = this.wmCtx;
+        const dpr = this.wmDpr || 1;
+        cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cx.clearRect(0, 0, this.logicalW, this.logicalH);
+        this._renderBoardWatermark(skin, cx, dpr);
+    }
+
+    /** 三层路径是否启用（供 game 层决定 idle 水印走 renderBoardWatermarkMotionFrame 还是 markDirty）。 */
+    hasSeparateWatermarkLayer() {
+        return this._hasBoardLayers();
+    }
+
+    /**
+     * v1.60.47：idle 循环专用——只重绘漂移水印独立层（L1），不触发整盘 render。
+     * 这是"静止盘面 GPU 持续高占用"的核心修复点：主画布（L2）保持静态不重传，
+     * 仅这块限 DPR 的小水印纹理随漂移更新。无独立层 / 无水印 motion 时返回 false（调用方回退 markDirty）。
+     * @returns {boolean} 是否已重绘水印层
+     */
+    renderBoardWatermarkMotionFrame() {
+        if (!this._hasBoardLayers()) return false;
+        if (!this.hasBoardWatermarkMotion()) return false;
+        this._refreshWatermarkLayer(getActiveSkin());
+        return true;
+    }
+
+    /** v1.60.46：绘制 watermark 之下的背景静态层（外框 + 空格底色 + 凹陷边）到指定 ctx。 */
+    _paintBackgroundUnder(ctx, skin) {
         const g = skin.gridGap ?? 1;
         const lightBoard = skin.uiDark === false;
         const highQualityBackdrop = this._qualityMode === 'high';
         const outerA = lightBoard ? 0.93 : highQualityBackdrop ? 0.78 : 0.86;
         const cellA = lightBoard ? 0.84 : highQualityBackdrop ? 0.54 : 0.70;
-        this.ctx.save();
-        this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
-        this.ctx.fillStyle = hexToRgba(skin.gridOuter, outerA);
-        this.ctx.fillRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
+        ctx.fillStyle = hexToRgba(skin.gridOuter, outerA);
+        ctx.fillRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
 
-        const cs = this.cellSize - 2 * g; // 单格可见尺寸
-        this.ctx.fillStyle = hexToRgba(skin.gridCell, cellA);
+        const cs = this.cellSize - 2 * g;
+        ctx.fillStyle = hexToRgba(skin.gridCell, cellA);
         for (let y = 0; y < this.gridSize; y++) {
             for (let x = 0; x < this.gridSize; x++) {
-                const px = x * this.cellSize + g;
-                const py = y * this.cellSize + g;
-                this.ctx.fillRect(px, py, cs, cs);
+                ctx.fillRect(x * this.cellSize + g, y * this.cellSize + g, cs, cs);
             }
         }
 
-        // 空格凹陷效果（与 pixel8 凸起方块配合，增强视觉深度）
         if (skin.cellStyle === 'sunken' && cs > 4) {
             const ew = Math.max(1, Math.round(cs * 0.11));
             for (let y = 0; y < this.gridSize; y++) {
                 for (let x = 0; x < this.gridSize; x++) {
                     const px = x * this.cellSize + g;
                     const py = y * this.cellSize + g;
-                    // 顶/左：暗边（凹陷阴影）
-                    this.ctx.fillStyle = 'rgba(0,0,0,0.32)';
-                    this.ctx.fillRect(px, py, cs, ew);
-                    this.ctx.fillRect(px, py + ew, ew, cs - ew);
-                    // 底/右：亮边（凹陷反光）
-                    this.ctx.fillStyle = 'rgba(255,255,255,0.07)';
-                    this.ctx.fillRect(px, py + cs - ew, cs, ew);
-                    this.ctx.fillRect(px + cs - ew, py + ew, ew, cs - ew * 2);
+                    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+                    ctx.fillRect(px, py, cs, ew);
+                    ctx.fillRect(px, py + ew, ew, cs - ew);
+                    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+                    ctx.fillRect(px, py + cs - ew, cs, ew);
+                    ctx.fillRect(px + cs - ew, py + ew, ew, cs - ew * 2);
                 }
             }
         }
+    }
 
-        // 盘面水印：在空格色之上、网格线之下叠加主题 emoji（离屏缓存，仅皮肤/尺寸变化时重建）
-        this._renderBoardWatermark(skin);
-
-        if (skin.gridLine !== false) {
-            const w = this.gridSize * this.cellSize;
-            let lineStyle = skin.gridLine;
-            if (!lineStyle) {
-                lineStyle = skin.uiDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.16)';
-            }
-            this.ctx.strokeStyle = lineStyle;
-            this.ctx.lineWidth = 1;
-            this.ctx.lineCap = 'butt';
-            for (let i = 1; i < this.gridSize; i++) {
-                const p = i * this.cellSize + 0.5;
-                this.ctx.beginPath();
-                this.ctx.moveTo(p, 0);
-                this.ctx.lineTo(p, w);
-                this.ctx.stroke();
-            }
-            for (let j = 1; j < this.gridSize; j++) {
-                const p = j * this.cellSize + 0.5;
-                this.ctx.beginPath();
-                this.ctx.moveTo(0, p);
-                this.ctx.lineTo(w, p);
-                this.ctx.stroke();
-            }
+    /** v1.60.46：绘制 watermark 之上的背景静态层（网格线）到指定 ctx。 */
+    _paintBackgroundOver(ctx, skin) {
+        if (skin.gridLine === false) return;
+        const w = this.gridSize * this.cellSize;
+        let lineStyle = skin.gridLine;
+        if (!lineStyle) {
+            lineStyle = skin.uiDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.16)';
         }
+        ctx.strokeStyle = lineStyle;
+        ctx.lineWidth = 1;
+        ctx.lineCap = 'butt';
+        for (let i = 1; i < this.gridSize; i++) {
+            const p = i * this.cellSize + 0.5;
+            ctx.beginPath();
+            ctx.moveTo(p, 0);
+            ctx.lineTo(p, w);
+            ctx.stroke();
+        }
+        for (let j = 1; j < this.gridSize; j++) {
+            const p = j * this.cellSize + 0.5;
+            ctx.beginPath();
+            ctx.moveTo(0, p);
+            ctx.lineTo(w, p);
+            ctx.stroke();
+        }
+    }
 
-        this.ctx.restore();
+    /**
+     * v1.60.46：返回背景静态层缓存 { under, over }（离屏 canvas），签名未变时复用。
+     * 返回 null 表示无法离屏渲染，调用方回退直绘。
+     * @param {object} skin
+     */
+    _getBackgroundLayers(skin) {
+        if (typeof document === 'undefined') return null;
+        const dpr = this.dpr || 1;
+        const key = `${skin.id ?? skin.name ?? '?'}|${this.gridSize}|${this.cellSize.toFixed(3)}|${dpr}|${this._qualityMode}`;
+        if (key === this._bgLayerKey && this._bgUnderLayer) {
+            return { under: this._bgUnderLayer, over: this._bgOverLayer };
+        }
+        const pw = Math.max(1, Math.round(this.logicalW * dpr));
+        const ph = Math.max(1, Math.round(this.logicalH * dpr));
+        if (!this._bgUnderLayer) {
+            this._bgUnderLayer = document.createElement('canvas');
+            this._bgUnderCtx = this._bgUnderLayer.getContext('2d');
+            this._bgOverLayer = document.createElement('canvas');
+            this._bgOverCtx = this._bgOverLayer.getContext('2d');
+        }
+        const uctx = this._bgUnderCtx;
+        const octx = this._bgOverCtx;
+        if (!uctx || !octx) return null;
+        for (const [cv, cx] of [[this._bgUnderLayer, uctx], [this._bgOverLayer, octx]]) {
+            if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+            cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            cx.clearRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
+        }
+        this._paintBackgroundUnder(uctx, skin);
+        this._paintBackgroundOver(octx, skin);
+        this._bgLayerKey = key;
+        return { under: this._bgUnderLayer, over: this._bgOverLayer };
     }
 
     renderGrid(grid) {
         const skin = getActiveSkin();
         const palette = getBlockColors();
+
+        /* v1.60.46 性能：尝试走静态盘面层缓存（详见 constructor 注释）。
+         * 离屏渲染依赖 document.createElement，缺失时（极少数测试环境）回退逐格直绘。 */
+        const layer = this._getGridLayer(grid, skin, palette);
+        if (layer) {
+            this.ctx.save();
+            this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
+            /* 离屏为物理像素（logicalW×dpr）；主 ctx 已 scale(dpr)，按逻辑尺寸 1:1 blit。 */
+            this.ctx.drawImage(layer, 0, 0, this.logicalW, this.logicalH);
+            this.ctx.restore();
+            return;
+        }
+
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
 
@@ -1598,6 +1877,67 @@ export class Renderer {
         }
 
         this.ctx.restore();
+    }
+
+    /**
+     * v1.60.46：返回当前盘面的静态缓存层（离屏 canvas），内容未变时复用、变化时重渲染。
+     * 返回 null 表示无法离屏渲染（如无 document），调用方回退逐格直绘。
+     *
+     * 缓存键涵盖一切影响落子格外观的输入：gridSize / cellSize / dpr / 皮肤 id / 每格颜色索引。
+     * 任一变化即重建离屏内容；其余帧（拖拽 / 抖动 / 动画）零渲染，只做一次 drawImage。
+     *
+     * @param {object} grid
+     * @param {object} skin
+     * @param {string[]} palette
+     * @returns {HTMLCanvasElement|null}
+     */
+    _getGridLayer(grid, skin, palette) {
+        if (typeof document === 'undefined') return null;
+        const n = this.gridSize;
+        const dpr = this.dpr || 1;
+        const cells = grid.cells;
+
+        /* 低成本签名：皮肤 id + 几何 + 每格颜色索引（null→'.'）。
+         * 颜色索引 0-7 单字符，直接拼接无歧义；64 格字符串每帧分配极小（远低于绘制成本）。 */
+        let cellSig = '';
+        for (let y = 0; y < n; y++) {
+            const row = cells[y];
+            for (let x = 0; x < n; x++) {
+                const v = row[x];
+                cellSig += (v == null) ? '.' : (v < 36 ? v.toString(36) : `(${v})`);
+            }
+        }
+        const key = `${skin.id ?? skin.name ?? '?'}|${n}|${this.cellSize.toFixed(3)}|${dpr}|${cellSig}`;
+        if (key === this._gridLayerKey && this._gridLayer) return this._gridLayer;
+
+        const pw = Math.max(1, Math.round(this.logicalW * dpr));
+        const ph = Math.max(1, Math.round(this.logicalH * dpr));
+        let off = this._gridLayer;
+        if (!off) {
+            off = document.createElement('canvas');
+            this._gridLayer = off;
+            this._gridLayerCtx = off.getContext('2d');
+        }
+        if (off.width !== pw || off.height !== ph) {
+            off.width = pw;
+            off.height = ph;
+        }
+        const octx = this._gridLayerCtx;
+        if (!octx) return null;
+        octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        octx.clearRect(0, 0, this.logicalW, this.logicalH);
+        const s = this.cellSize;
+        for (let y = 0; y < n; y++) {
+            const row = cells[y];
+            for (let x = 0; x < n; x++) {
+                const idx = row[x];
+                if (idx == null) continue;
+                const c = palette[idx];
+                if (c) paintBlockCell(octx, x * s, y * s, s, c, skin);
+            }
+        }
+        this._gridLayerKey = key;
+        return off;
     }
 
     renderPreview(x, y, block) {

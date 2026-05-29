@@ -5,6 +5,17 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+/* v1.60.47：web↔小程序 出块特殊块契约 parity —— 直接引 web ESM 源做对照基准。 */
+import {
+  _tryInjectSpecial as webInject,
+  _reliefGapShapeIds as webGap,
+  _pressureHoleForcing as webForce,
+  RELIEF_FILL_FLOOR_MILD as WEB_RELIEF_FILL_FLOOR_MILD,
+  RELIEF_HOLE_FILL_MIN as WEB_RELIEF_HOLE_FILL_MIN,
+} from '../web/src/bot/blockSpawn.js';
+import { Grid as WebGrid } from '../web/src/grid.js';
+import { getAllShapes as webGetAllShapes } from '../web/src/shapes.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nodeRequire = createRequire(import.meta.url);
 const cjsCache = new Map();
@@ -56,7 +67,13 @@ const {
   generateDockShapes,
   resetSpawnMemory,
   validateSpawnTriplet,
+  _tryInjectSpecial: mpInject,
+  _reliefGapShapeIds: mpGap,
+  _pressureHoleForcing: mpForce,
+  RELIEF_FILL_FLOOR_MILD: MP_RELIEF_FILL_FLOOR_MILD,
+  RELIEF_HOLE_FILL_MIN: MP_RELIEF_HOLE_FILL_MIN,
 } = requireCjs('../miniprogram/core/bot/blockSpawn.js');
+const { getAllShapes: mpGetAllShapes } = requireCjs('../miniprogram/core/shapes.js');
 
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
@@ -411,5 +428,89 @@ describe('miniprogram core parity', () => {
     } finally {
       _setPlatformForTest(null);
     }
+  });
+});
+
+/**
+ * v1.60.47：web↔小程序 特殊块契约 parity（P1 fill 地板 / P2 缺口匹配 / 契约A holeFill /
+ * 契约B 加压造洞）。两端跑同一组场景，断言行为一致——防止 CJS 镜像与 web 源再次漂移。
+ */
+describe('web↔miniprogram 特殊块契约 parity', () => {
+  /** 用指定 Grid 类构造"满盘仅留 2x2 空腔（左上角）"的盘面 */
+  function cavityGrid(GridClass) {
+    const g = new GridClass(8);
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) g.cells[y][x] = 0;
+    g.cells[0][0] = null; g.cells[0][1] = null; g.cells[1][0] = null; g.cells[1][1] = null;
+    return g;
+  }
+
+  /** 用指定 Grid 类构造"行连续3空 + 列连续2空"互不交叉缺口盘面 */
+  function gapGrid(GridClass) {
+    const g = new GridClass(10);
+    for (let y = 0; y < 10; y++) for (let x = 0; x < 10; x++) g.cells[y][x] = 0;
+    g.cells[0][0] = null; g.cells[0][1] = null; g.cells[0][2] = null;
+    g.cells[8][5] = null; g.cells[9][5] = null;
+    return g;
+  }
+
+  it('常量同口径：RELIEF_FILL_FLOOR_MILD / RELIEF_HOLE_FILL_MIN 两端相等', () => {
+    expect(MP_RELIEF_FILL_FLOOR_MILD).toBe(WEB_RELIEF_FILL_FLOOR_MILD);
+    expect(MP_RELIEF_HOLE_FILL_MIN).toBe(WEB_RELIEF_HOLE_FILL_MIN);
+  });
+
+  it('P2 _reliefGapShapeIds：两端对同一盘面返回相同朝向偏好序列', () => {
+    const web = webGap(gapGrid(WebGrid));
+    const mp = mpGap(gapGrid(Grid));
+    expect(mp).toEqual(web);
+    expect(web).toEqual(['2x1', '1x3']);
+  });
+
+  it('契约B _pressureHoleForcing：两端对 2x2 空腔/空盘给出相同造洞下限', () => {
+    const diagWeb = webGetAllShapes().find(s => s.id === 'diag-2a');
+    const diagMp = mpGetAllShapes().find(s => s.id === 'diag-2a');
+    expect(mpForce(cavityGrid(Grid), diagMp.data)).toBe(webForce(cavityGrid(WebGrid), diagWeb.data));
+    expect(webForce(cavityGrid(WebGrid), diagWeb.data)).toBe(1);
+    expect(mpForce(new Grid(8), diagMp.data)).toBe(webForce(new WebGrid(8), diagWeb.data));
+    expect(webForce(new WebGrid(8), diagWeb.data)).toBe(0);
+  });
+
+  it('P1 fill 地板：reliefUrgent=false + fill=0.30 两端均不注入', () => {
+    const mk = (GridClass, getAllShapes) => {
+      const triplet = getAllShapes().slice(0, 3);
+      const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+      const hints = { spawnIntent: 'relief', reliefUrgent: false };
+      const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+      const scored = [
+        { shape: triplet[0], gapFills: 0, multiClear: 0, exactFit: 1.0 },
+        { shape: triplet[1], gapFills: 0, multiClear: 0, exactFit: 0 },
+        { shape: triplet[2], gapFills: 0, multiClear: 0, exactFit: 0 },
+      ];
+      const topo = { nearFullLines: 0, holes: 0, enclosedVoidCells: 0 };
+      return { triplet, chosenMeta, hints, ctx, scored, topo };
+    };
+    const w = mk(WebGrid, webGetAllShapes);
+    const m = mk(Grid, mpGetAllShapes);
+    const webRes = webInject(w.triplet, w.chosenMeta, w.hints, w.ctx, new WebGrid(8), 0.30, w.topo, 0, w.scored);
+    const mpRes = mpInject(m.triplet, m.chosenMeta, m.hints, m.ctx, new Grid(8), 0.30, m.topo, 0, m.scored);
+    expect(webRes).toBeNull();
+    expect(mpRes).toBeNull();
+  });
+
+  it('契约A holeFill：holes≥2 无清行机会，两端均以 reliefTrigger=holeFill 注入', () => {
+    const mk = (getAllShapes) => {
+      const triplet = getAllShapes().slice(0, 3);
+      const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+      const hints = { spawnIntent: 'relief' };
+      const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11 };
+      const scored = triplet.map(s => ({ shape: s, gapFills: 0, multiClear: 0, exactFit: 0 }));
+      const topo = { nearFullLines: 0, holes: 2, enclosedVoidCells: 2 };
+      return { triplet, chosenMeta, hints, ctx, scored, topo };
+    };
+    const w = mk(webGetAllShapes);
+    const m = mk(mpGetAllShapes);
+    const webRes = webInject(w.triplet, w.chosenMeta, w.hints, w.ctx, new WebGrid(8), 0.55, w.topo, 0, w.scored);
+    const mpRes = mpInject(m.triplet, m.chosenMeta, m.hints, m.ctx, new Grid(8), 0.55, m.topo, 0, m.scored);
+    expect(webRes?.reliefTrigger).toBe('holeFill');
+    expect(mpRes?.reliefTrigger).toBe('holeFill');
   });
 });

@@ -2366,6 +2366,13 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             targetEndDangerColumns,
             targetVisualClutter,
             spawnIntent,
+            /* v1.60.46（P1）：relief 救济紧迫度——供 blockSpawn._tryInjectSpecial 选 fill 地板。
+             *   true（紧迫）= forceReliefIntent（末段崩盘 / 高挫败）或深度 distress
+             *                 → relief 注入维持 0.25 低地板，盘面偏空也兜底响应；
+             *   false（温和）= delightStarved / 轻度 distress 等机会型救济
+             *                 → 抬到 0.35 高地板，避免 near-empty 盘面送减压块的违和。
+             * 阈值 -0.22 ≈ 2× 基础 relief 触发线（-0.10）。与 web 端同口径。 */
+            reliefUrgent: forceReliefIntent || Number(playerDistress) < -0.22,
             motivationIntent,
             behaviorSegment,
             personalizationApplied: personalizationEnabled,

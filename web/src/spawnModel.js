@@ -23,7 +23,32 @@ export const SPAWN_MODE_MODEL_V3 = 'model-v3';
 const _SPAWN_MODES = [SPAWN_MODE_RULE, SPAWN_MODE_MODEL_V3];
 export const SPAWN_MODEL_V3_VERSION = 'v3.1-behavior';
 export const SPAWN_MODEL_CONTEXT_DIM = 24;
-export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 56;
+/* v1.57.1：56 → 57，spawnIntent one-hot 6 → 7 维（新增 'sprint'）。
+ * v1.61.0：57 → 61，尾部追加 4 维归一化 PB 曲线 θ 显式条件（见 SPAWN_PB_THETA_RANGES）。
+ * 必须与 rl_pytorch/spawn_model/dataset.py `BEHAVIOR_CONTEXT_DIM` 保持一致，
+ * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+61=125）不符。 */
+export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 61;
+
+/* v1.61.0：4 维 PB 曲线 θ 的归一化区间与默认值（必须与 dataset.py `_PB_THETA_RANGES` 严格一致）。
+ * 顺序固定：pbTensionCenter / pbTensionWidth / pbBrakeCenter / pbBrakeWidth。
+ * 把 L2 SpawnParamTuner → L1 SpawnPolicyNet 的隐式耦合转成显式条件输入。 */
+export const SPAWN_PB_THETA_RANGES = Object.freeze({
+    pbTensionCenter: [0.70, 0.92],
+    pbTensionWidth: [0.04, 0.15],
+    pbBrakeCenter: [0.98, 1.15],
+    pbBrakeWidth: [0.03, 0.12],
+});
+const _PB_THETA_KEYS = ['pbTensionCenter', 'pbTensionWidth', 'pbBrakeCenter', 'pbBrakeWidth'];
+const _PB_THETA_DEFAULTS = { pbTensionCenter: 0.82, pbTensionWidth: 0.08, pbBrakeCenter: 1.05, pbBrakeWidth: 0.06 };
+
+function _normPbTheta(params) {
+    const p = (params && typeof params === 'object') ? params : {};
+    return _PB_THETA_KEYS.map((k) => {
+        const [lo, hi] = SPAWN_PB_THETA_RANGES[k];
+        const v = _finiteNumber(p[k], _PB_THETA_DEFAULTS[k]);
+        return _clamp01((v - lo) / (hi - lo));
+    });
+}
 
 /* v1.60.0 形状池扩展（28 → 40）：
  *   - lines +4：超小直线（1x2/2x1/1x3/3x1）—— 前期减压
@@ -141,7 +166,11 @@ async function _reloadModel() {
 const _FLOW_MAP = { bored: -1, flow: 0, anxious: 1 };
 const _PACING_MAP = { early: 0, tension: 0.5, release: 1 };
 const _SESSION_MAP = { warmup: 0, peak: 0.5, cooldown: 1 };
-const _SPAWN_INTENTS = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain'];
+/* v1.57.1：spawnIntent one-hot 6 → 7 维，新增 'sprint' 中间档（stress ∈ [0.45, 0.55) 渐紧过渡带）。
+ * 顺序必须与 rl_pytorch/spawn_model/dataset.py `_SPAWN_INTENTS` 严格一致（sprint 追加在末尾，
+ * idx 0~5 与旧版保持兼容；未知 intent 回退 'maintain'）。 */
+export const SPAWN_INTENT_VOCAB = ['relief', 'engage', 'harvest', 'pressure', 'flow', 'maintain', 'sprint'];
+const _SPAWN_INTENTS = SPAWN_INTENT_VOCAB;
 const _HOLE_PRESSURE_MAX = 8;
 
 function _gridToBoard(grid) {
@@ -260,11 +289,13 @@ function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability
         _clamp01((_finiteNumber(hints.sizePreference, 0) + 1) / 2),
         _clamp01(_finiteNumber(hints.multiClearBonus, 0)),
         _clamp01(_finiteNumber(hints.orderRigor, 0)),
-        // [48-53] spawnIntent one-hot
+        // [48-54] spawnIntent one-hot（v1.57.1：6 → 7 维，含 sprint）
         ..._spawnIntentOneHot(hints.spawnIntent ?? a.spawnIntent),
-        // [54-55] 额外策略上下文
+        // [55-56] 额外策略上下文
         _scaleUnit(hints.multiLineTarget, 2),
         _SESSION_MAP[sessionArc] ?? 0.5,
+        // [57-60] PB 曲线 θ（v1.61.0 显式条件，归一化；缺省 → 默认域）
+        ..._normPbTheta(stressBreakdown.pbCurveParams),
     ].slice(0, SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM);
 }
 

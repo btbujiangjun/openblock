@@ -69,6 +69,29 @@ export const SPECIAL_SHAPE_WEIGHTS = {
     'diag-3a': 1, 'diag-3b': 1,
 };
 
+/* v1.60.46 优化（P1）：relief 注入 fill 下限按"救济紧迫度"分级。
+ *
+ * 背景（截图复盘 R11，fill=0.27）：旧版 relief 注入只有一道 `fill >= 0.25` 平地板。
+ * 但 relief 触发分两类来源：
+ *   - **紧迫救济**（hints.reliefUrgent=true）：forceReliefIntent（末段崩盘 / 高挫败 /
+ *     复活救济）或深度 distress —— 玩家是真在崩，即便盘面偏空也该给易放小块兜住，
+ *     下限维持 0.25（保持响应）。
+ *   - **温和救济**（hints.reliefUrgent=false）：delightStarved（长期无爽感）/ 轻度 distress
+ *     —— 这是"机会型救济"，near-empty 盘面送减压块观感违和（"我没难住怎么送简单块"）。
+ *     下限抬到 0.35，要求盘面有实质内容、减压块落点才有意义。
+ *
+ * 向后兼容：hints.reliefUrgent === undefined（旧调用方 / 单测）按旧行为走 0.25 地板，
+ * 仅当 adaptiveSpawn 显式给出 reliefUrgent=false 时才抬高，避免破坏既有契约。 */
+export const RELIEF_FILL_FLOOR_URGENT = 0.25;
+export const RELIEF_FILL_FLOOR_MILD = 0.35;
+
+/* v1.60.47（特殊块契约 A）：减压"填补空洞"触发阈值。
+ * 契约：减压/救济阶段特殊块用于 消除 / 同花清除 / **填补空洞**。前三类已由
+ * pcSetup / exactFit / monoFlush / multiClear 覆盖；本阈值补齐"填补空洞"——
+ * 盘面 enclosedVoidCells ≥ 2 且无更高优先级清行机会时，注入能减洞的灵活小块。
+ * 取 2（而非 1）：单个小空腔常随后续自然填平，≥2 才值得动用稀有特殊块介入。 */
+export const RELIEF_HOLE_FILL_MIN = 2;
+
 /**
  * v1.60.6 缺口 #3 修复 — 季节/活动覆写。
  *
@@ -1223,6 +1246,94 @@ function _applyShapeBonusWeight(baseWeight, _shapeId, _hints, _gapFills) {
  * @param {{ rng?: () => number }} [opts]  v1.60.1：RNG 注入，daily/replay 用
  * @returns {null | { triplet: Array, chosenMeta: Array, isRelief: boolean, injected: string, replaceIdx: number }}
  */
+/**
+ * v1.60.46 优化（P2）：扫描盘面"近满且连续可补的行/列缺口"，返回按"距清行最近"
+ * 排序的偏好 relief 形状 id 序列。
+ *
+ * 背景：旧版只有 monoFlush 触发会做朝向匹配（row→1x2 / col→2x1）；pcSetup / exactFit /
+ * multiClear 触发下注入块纯按权重抽，常出现"横行差 3 格却注入竖向 3x1"这类朝向不符——
+ * 减压块虽好放却补不上当前的消行机会（事后复算 injMc=0、标签停在"送减压"）。
+ *
+ * 本函数把缺口几何映射到能真正补上它的小块：
+ *   - row 上连续 k 空 → 横块（k=2 → '1x2'，k=3 → '1x3'）
+ *   - col 上连续 k 空 → 竖块（k=2 → '2x1'，k=3 → '3x1'）
+ * empty=1 的行/列任何块占 1 格都能补，无需偏置（留给主路径 / 权重）。
+ * 缺口按 empty 升序（越接近清行越优先）。返回 id 去重后的有序数组。
+ *
+ * @param {{ size: number, cells: Array<Array<number|null>> }} grid
+ * @returns {string[]} 偏好形状 id（按优先级），无匹配缺口时返回 []
+ */
+export function _reliefGapShapeIds(grid) {
+    const n = grid.size;
+    const cells = grid.cells;
+    const gaps = [];
+
+    const scanLine = (coords, type) => {
+        const empty = coords.length;
+        if (empty < 2 || empty > 3) return; /* empty=1 无需偏置；>3 不算"近满" */
+        const contiguous = coords.every((v, i) => i === 0 || v === coords[i - 1] + 1);
+        if (!contiguous) return;
+        const id = type === 'row'
+            ? (empty === 2 ? '1x2' : '1x3')
+            : (empty === 2 ? '2x1' : '3x1');
+        gaps.push({ empty, id });
+    };
+
+    for (let y = 0; y < n; y++) {
+        const xs = [];
+        for (let x = 0; x < n; x++) if (cells[y][x] === null) xs.push(x);
+        scanLine(xs, 'row');
+    }
+    for (let x = 0; x < n; x++) {
+        const ys = [];
+        for (let y = 0; y < n; y++) if (cells[y][x] === null) ys.push(y);
+        scanLine(ys, 'col');
+    }
+
+    if (gaps.length === 0) return [];
+    gaps.sort((a, b) => a.empty - b.empty);
+    const ordered = [];
+    for (const g of gaps) if (!ordered.includes(g.id)) ordered.push(g.id);
+    return ordered;
+}
+
+/**
+ * v1.60.47 优化（特殊块契约 B）：度量加压斜块"强制造洞"的能力。
+ *
+ * 契约：加压阶段特殊块用于"制造空洞 / 增加难度"。旧版仅靠加压池（diag）天然难铺被动
+ * 造洞，且权重反而偏向更易放的 diag-2——与"增加难度"相悖。本函数给加压侧补上"主动选择"：
+ *
+ * 返回该形状在**所有合法落点中、玩家最优放置（造洞最少）下仍被迫新增的孤格数**
+ * （minimax 下限）。值越大 = 无论玩家怎么放都至少卡死这么多格 = 加压越强。
+ * 与 bestHoleReduction 同构（clone→place→checkLines→analyzeBoardTopology），仅
+ *   1) 用 isolatedHoles（4-邻全填的卡死孤格，玩家心智口径）而非 coverable holes
+ *      —— 后者在含 special 池下对单孤格常判 0，无法刻画"造洞"；
+ *   2) "取最大减洞"改为"取最小增格"。
+ *
+ * @param {object} grid
+ * @param {number[][]} shapeData
+ * @returns {number} 强制新增孤格数下限（≥0）
+ */
+export function _pressureHoleForcing(grid, shapeData) {
+    const n = grid.size;
+    const baseIso = analyzeBoardTopology(grid).isolatedHoles ?? 0;
+    let floor = Infinity;
+    let budget = 30;
+    for (let y = 0; y < n && budget > 0; y++) {
+        for (let x = 0; x < n && budget > 0; x++) {
+            if (!grid.canPlace(shapeData, x, y)) continue;
+            budget--;
+            const g = grid.clone();
+            g.place(shapeData, 0, x, y);
+            g.checkLines();
+            const inc = (analyzeBoardTopology(g).isolatedHoles ?? 0) - baseIso;
+            if (inc < floor) floor = inc;
+            if (floor <= 0) return 0; /* 玩家已能零造洞放置，无需继续 */
+        }
+    }
+    return floor === Infinity ? 0 : Math.max(0, floor);
+}
+
 export function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pcSetup, scored, opts) {
     const rng = typeof opts?.rng === 'function' ? opts.rng : defaultRng;
 
@@ -1301,6 +1412,9 @@ export function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, t
         else if (hasExactFitSetup) reliefTrigger = 'exactFit';          /* 完美卡入 */
         else if (monoFlushSignal) reliefTrigger = 'monoFlush';          /* 同色消行（彩蛋） */
         else if (multiClearLowPriorityActive) reliefTrigger = 'multiClear'; /* 消行（低优先级） */
+        /* v1.60.47（契约 A）：填补空洞——无上述清行机会、但盘面已有 ≥2 空洞时，
+         * 注入能减洞的灵活小块（最低优先级，让位给一切"能直接消行/同花"的机会）。 */
+        else if (holesSignal >= RELIEF_HOLE_FILL_MIN) reliefTrigger = 'holeFill';
     }
     const reliefSignal = reliefTrigger != null;
 
@@ -1356,7 +1470,12 @@ export function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, t
      * §10.7 special 的核心使命是回应**真实场景**，空盘不构成场景。
      *
      * 兼容性：fill 是 number（generateDockShapes 强制 grid.getFillRatio()），无空保护需要。 */
-    if (isRelief && fill < 0.25) return null;
+    /* v1.60.46（P1）：relief 下限按救济紧迫度分级（详见 RELIEF_FILL_FLOOR_* 注释）。
+     * reliefUrgent===false（温和/机会型救济）→ 0.35；其余（紧迫 / 旧调用方未声明）→ 0.25。 */
+    const reliefFillFloor = (hints?.reliefUrgent === false)
+        ? RELIEF_FILL_FLOOR_MILD
+        : RELIEF_FILL_FLOOR_URGENT;
+    if (isRelief && fill < reliefFillFloor) return null;
     if (isPressure && fill < 0.10) return null;
 
     /* === Step 1.8：v1.60.8 清盘候选保护（前置门） ===
@@ -1496,6 +1615,59 @@ export function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, t
             const rest = candidateOrder.filter(s => !targetIds.has(s.id));
             candidateOrder = [...priority, ...rest];
         }
+    }
+
+    /* v1.60.46（P2）：非 monoFlush 的 relief 触发也按缺口朝向偏置候选。
+     *
+     * pcSetup / exactFit / multiClear 触发时，优先尝试能补上"近满连续行/列"的横/竖块，
+     * 让减压块真正对得上盘面的消行机会，而非纯按权重抽到朝向不符的块——后者会落得
+     * 事后复算 injMc=0、标签停在"送减压"，玩家拿到一块补不上当前缺口的小块。
+     *
+     * 优先级提升 ≠ 强制选定：Step 5 槽位复校失败时仍降级到权重表其余候选，行为安全退化。
+     * 与 monoFlush 分支互斥（monoFlushSignal 已自带更精确的同色朝向匹配）。 */
+    if (isRelief && !monoFlushSignal) {
+        if (reliefTrigger === 'holeFill') {
+            /* v1.60.47（契约 A）：填补空洞触发——按"放下能减掉多少已有空洞"降序排候选，
+             * 让减压块真正用于"填补空洞"而非随机小块。bestHoleReduction 与主路径同口径。 */
+            const baseHoles = topo?.holes ?? 0;
+            const reduceScore = new Map(
+                candidateOrder.map(s => [s.id, bestHoleReduction(grid, s.data, baseHoles)])
+            );
+            candidateOrder = candidateOrder.slice()
+                .sort((a, b) => (reduceScore.get(b.id) ?? 0) - (reduceScore.get(a.id) ?? 0));
+        } else {
+            /* P2：清行类触发（pcSetup/exactFit/multiClear）按近满行/列缺口朝向偏置候选。 */
+            const gapIds = _reliefGapShapeIds(grid);
+            if (gapIds.length > 0) {
+                const gapSet = new Set(gapIds);
+                const priority = gapIds
+                    .map(id => candidateOrder.find(s => s.id === id))
+                    .filter(Boolean);
+                const rest = candidateOrder.filter(s => !gapSet.has(s.id));
+                candidateOrder = [...priority, ...rest];
+            }
+        }
+    }
+
+    /* v1.60.47（契约 B）：加压"制造空洞 / 增加难度"——主动选择。
+     *
+     * 旧版加压只按 SPECIAL_SHAPE_WEIGHTS 加权随机抽斜块（权重还偏向更易放的 diag-2），
+     * 与"增加难度"相悖。这里按 _pressureHoleForcing（玩家最优放置下仍被迫造的洞数）降序，
+     * 让加压块尽量挑"无论怎么放都强制造洞"的朝向；再以"合法落点更少（更难放）→ 更大块"
+     * 为 tie-break。优先级提升 ≠ 强制选定：Step 5 槽位复校失败仍降级到其余候选。 */
+    if (isPressure) {
+        const cellCount = (data) => data.reduce((sum, row) => sum + row.reduce((a, v) => a + (v ? 1 : 0), 0), 0);
+        const forceScore = new Map(
+            candidateOrder.map(s => [s.id, _pressureHoleForcing(grid, s.data)])
+        );
+        candidateOrder = candidateOrder.slice().sort((a, b) => {
+            const d = (forceScore.get(b.id) ?? 0) - (forceScore.get(a.id) ?? 0);
+            if (d !== 0) return d;
+            const pa = countLegalPlacements(grid, a.data);
+            const pb = countLegalPlacements(grid, b.data);
+            if (pa !== pb) return pa - pb;
+            return cellCount(b.data) - cellCount(a.data);
+        });
     }
 
     /* === Step 4：智能 replaceIdx（Issue 6 + v1.60.8 槽保护增强） ===

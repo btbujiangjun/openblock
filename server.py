@@ -277,6 +277,9 @@ def _migrate_schema(cursor):
             ("score", "INTEGER DEFAULT 0"),
             ("attribution", "TEXT DEFAULT '{}'"),
             ("client_ip", "TEXT"),
+            # v1.63（出块数据集补全）：终局/死亡原因从 game_stats.gameOverReason 抽到独立列，
+            # 供"被怼死(jam) vs 主动结束"分组的 SQL 直查（保命/可解性优化与公平性回归）。
+            ("game_over_reason", "TEXT"),
         ):
             if col_name not in sess_cols:
                 try:
@@ -336,6 +339,49 @@ def _migrate_schema(cursor):
             cursor.execute("ALTER TABLE move_sequences ADD COLUMN analysis TEXT")
         except sqlite3.OperationalError:
             pass
+
+    # v1.63（出块算法优化 · 需求2）：行为序列打包成「特定样本集」——
+    #   - 自动同步：会话写 move-sequence / 结算时由 `_sync_session_to_dataset` 幂等 UPSERT；
+    #   - 不支持删除：BEFORE DELETE 触发器 RAISE(ABORT) 强制 WORM（append-only），
+    #     且故意不被 /api/replay-sessions 删除、/api/user/data 擦除等路径触及 →
+    #     即使原始 session / move_sequences 被删，样本集仍完整保留（训练资产去耦）。
+    #   - payload 存 frames 的独立副本（去耦删除）；pb_baseline 供需求1 的 PB 采样口径。
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS spawn_dataset_samples (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL UNIQUE,
+            user_id TEXT NOT NULL,
+            score INTEGER,
+            pb_baseline INTEGER,
+            game_over_reason TEXT,
+            sample_count INTEGER DEFAULT 0,
+            payload TEXT NOT NULL,
+            schema_version INTEGER DEFAULT 1,
+            packed_at INTEGER DEFAULT (strftime('%s', 'now')),
+            updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_spawn_dataset_user_packed "
+        "ON spawn_dataset_samples(user_id, packed_at DESC)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_spawn_dataset_reason "
+        "ON spawn_dataset_samples(game_over_reason)"
+    )
+    # WORM 守卫：禁止 DELETE（append-only 样本集）。UPSERT（INSERT/UPDATE）仍允许，
+    # 让进行中的会话在结算时把元数据/帧补全到最终态。
+    cursor.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_spawn_dataset_no_delete
+        BEFORE DELETE ON spawn_dataset_samples
+        BEGIN
+            SELECT RAISE(ABORT, 'spawn_dataset_samples is append-only (WORM): deletion not allowed');
+        END
+        """
+    )
 
     # v1.62：玩家画像指标自评估报告（profileAudit 库产物，客户端跑完上报）
     cursor.execute(
@@ -435,6 +481,7 @@ def init_db():
                 game_stats TEXT,
                 attribution TEXT DEFAULT '{}',
                 client_ip TEXT,
+                game_over_reason TEXT,
                 created_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
         """)
@@ -801,6 +848,10 @@ def patch_session(session_id):
         u["duration"] = max(0, int(data["duration"]))
     if data.get("gameStats") is not None:
         u["game_stats"] = json.dumps(data["gameStats"], ensure_ascii=False)
+        # v1.63：把 gameStats.gameOverReason 抽到独立列（jam / level_clear / level_fail / normal）。
+        gor = data["gameStats"].get("gameOverReason") if isinstance(data["gameStats"], dict) else None
+        if isinstance(gor, str) and gor:
+            u["game_over_reason"] = gor
     if data.get("strategyConfig") is not None:
         u["strategy_config"] = json.dumps(data["strategyConfig"], ensure_ascii=False)
     if data.get("attribution") is not None:
@@ -809,7 +860,7 @@ def patch_session(session_id):
         u["client_ip"] = client_ip
     cur.execute(
         """
-        UPDATE sessions SET score = ?, status = ?, end_time = ?, duration = ?, game_stats = ?, strategy_config = ?, attribution = ?, client_ip = ?
+        UPDATE sessions SET score = ?, status = ?, end_time = ?, duration = ?, game_stats = ?, strategy_config = ?, attribution = ?, client_ip = ?, game_over_reason = ?
         WHERE id = ?
         """,
         (
@@ -828,6 +879,10 @@ def patch_session(session_id):
             u.get(
                 "client_ip",
                 row["client_ip"] if "client_ip" in row.keys() else client_ip,
+            ),
+            u.get(
+                "game_over_reason",
+                row["game_over_reason"] if "game_over_reason" in row.keys() else None,
             ),
             session_id,
         ),
@@ -858,6 +913,11 @@ def patch_session(session_id):
         lc_payload = _extract_lifecycle_payload(data["gameStats"])
         if lc_payload:
             _upsert_user_lifecycle(cur, row["user_id"], lc_payload)
+
+    # v1.63（需求2）：会话结算（含本次 PATCH 把 game_over_reason / 终态帧补齐）后，
+    # 把最终态行为序列同步进 append-only 样本集（幂等，读 move_sequences 帧）。
+    if u.get("status") == "completed":
+        _sync_session_to_dataset(cur, session_id)
 
     db.commit()
     cur.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
@@ -920,6 +980,9 @@ def end_session(session_id):
         """,
             (row["user_id"], score, row["strategy"], client_ip),
         )
+
+        # v1.63（需求2）：会话结束 → 同步打包进 append-only 样本集（幂等）。
+        _sync_session_to_dataset(cursor, session_id)
 
         db.commit()
 
@@ -1460,6 +1523,104 @@ def _effective_list_score(frames, session_score):
     return None
 
 
+# ============================================================
+# v1.63（出块算法优化 · 需求2）：行为序列 → append-only 样本集打包同步
+# ============================================================
+_DATASET_MIN_SPAWN_SAMPLES = 1
+
+
+def _extract_pb_baseline(frames):
+    """从 frames 抽取本局 PB 基线（run-start bestScore，需求1 的"指定数值"中心）。
+
+    pv>=3 的 init/spawn/place 帧 `ps.bestScore` 即本局开局 PB；取首个 >0 的值。
+    旧 pv<3 帧无该字段 → None（采样侧回退到 session score 作中心）。
+    """
+    if not isinstance(frames, list):
+        return None
+    for f in frames:
+        if not isinstance(f, dict):
+            continue
+        ps = f.get("ps")
+        if isinstance(ps, dict):
+            bs = ps.get("bestScore")
+            if isinstance(bs, (int, float)) and bs > 0:
+                return int(bs)
+    return None
+
+
+def _count_spawn_samples(frames):
+    """可用样本数 = dock≥3 的 spawn 帧数（与 dataset.py 抽样口径一致）。"""
+    if not isinstance(frames, list):
+        return 0
+    n = 0
+    for f in frames:
+        if isinstance(f, dict) and f.get("t") == "spawn":
+            dock = f.get("dock")
+            if isinstance(dock, list) and len(dock) >= 3:
+                n += 1
+    return n
+
+
+def _sync_session_to_dataset(cur, session_id, frames=None, user_id=None,
+                             score=None, game_over_reason=None):
+    """把一局行为序列幂等打包进 append-only 样本集 `spawn_dataset_samples`（需求2）。
+
+    - 自动同步：由 put_move_sequence / patch_session(完成) / end_session(完成) 调用。
+    - 幂等：UNIQUE(session_id) + UPSERT，进行中会话随帧增长收敛到最终态。
+    - 去耦删除：payload 存 frames 独立副本，原始 session/move_sequences 删除后样本集仍在。
+    返回 sample_count（成功）或 None（跳过 / 表未迁移）。
+    """
+    try:
+        if frames is None:
+            cur.execute("SELECT frames FROM move_sequences WHERE session_id = ?", (session_id,))
+            r = cur.fetchone()
+            if not r or not r["frames"]:
+                return None
+            try:
+                frames = json.loads(r["frames"])
+            except (json.JSONDecodeError, TypeError):
+                return None
+        if not isinstance(frames, list):
+            return None
+        sample_count = _count_spawn_samples(frames)
+        if sample_count < _DATASET_MIN_SPAWN_SAMPLES:
+            return None
+
+        cur.execute("SELECT user_id, score, game_over_reason FROM sessions WHERE id = ?", (session_id,))
+        srow = cur.fetchone()
+        if srow:
+            user_id = user_id or srow["user_id"]
+            if score is None:
+                score = srow["score"]
+            if game_over_reason is None and "game_over_reason" in srow.keys():
+                game_over_reason = srow["game_over_reason"]
+
+        pb_baseline = _extract_pb_baseline(frames)
+        payload = json.dumps({"frames": frames}, ensure_ascii=False)
+        now = int(time.time())
+        cur.execute(
+            """
+            INSERT INTO spawn_dataset_samples
+                (session_id, user_id, score, pb_baseline, game_over_reason,
+                 sample_count, payload, schema_version, packed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                score = excluded.score,
+                pb_baseline = COALESCE(excluded.pb_baseline, spawn_dataset_samples.pb_baseline),
+                game_over_reason = COALESCE(excluded.game_over_reason, spawn_dataset_samples.game_over_reason),
+                sample_count = excluded.sample_count,
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            """,
+            (session_id, user_id or "", score, pb_baseline, game_over_reason,
+             sample_count, payload, now, now),
+        )
+        return sample_count
+    except sqlite3.OperationalError:
+        return None
+
+
 @app.route("/api/move-sequence/<int:session_id>", methods=["PUT"])
 def put_move_sequence(session_id):
     data = request.get_json() or {}
@@ -1497,6 +1658,8 @@ def put_move_sequence(session_id):
             int(time.time()),
         ),
     )
+    # v1.63（需求2）：自动同步打包进 append-only 样本集（同事务，幂等 UPSERT）。
+    _sync_session_to_dataset(cur, session_id, frames=frames, user_id=user_id)
     db.commit()
     return jsonify({"success": True})
 
@@ -1524,6 +1687,62 @@ def get_move_sequence(session_id):
         )
     except json.JSONDecodeError:
         return jsonify({"frames": None, "analysis": None})
+
+
+@app.route("/api/spawn-dataset/sync", methods=["POST"])
+def spawn_dataset_sync():
+    """需求2：回填同步 —— 把所有有 move_sequences 的会话幂等打包进 append-only 样本集。
+
+    用于一次性导入历史对局，或补齐自动同步钩子上线前的存量。仅打包，绝不删除。
+    可选 body：{ "limit": N }（默认全部）。
+    """
+    data = request.get_json(silent=True) or {}
+    limit = data.get("limit")
+    db = get_db()
+    cur = db.cursor()
+    sql = "SELECT m.session_id FROM move_sequences m"
+    params = ()
+    if isinstance(limit, int) and limit > 0:
+        sql += " ORDER BY m.updated_at DESC LIMIT ?"
+        params = (limit,)
+    cur.execute(sql, params)
+    ids = [r["session_id"] for r in cur.fetchall()]
+    packed = 0
+    samples = 0
+    for sid in ids:
+        n = _sync_session_to_dataset(cur, sid)
+        if n is not None:
+            packed += 1
+            samples += n
+    db.commit()
+    return jsonify({"success": True, "scanned": len(ids), "packed": packed, "spawn_samples": samples})
+
+
+@app.route("/api/spawn-dataset/stats", methods=["GET"])
+def spawn_dataset_stats():
+    """需求2：append-only 样本集概览（局数 / 累计 spawn 样本 / 按终局原因分组）。"""
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute(
+            "SELECT COUNT(*) AS sessions, COALESCE(SUM(sample_count),0) AS spawn_samples, "
+            "COALESCE(SUM(CASE WHEN pb_baseline > 0 THEN 1 ELSE 0 END),0) AS with_pb "
+            "FROM spawn_dataset_samples"
+        )
+        agg = dict(cur.fetchone())
+        cur.execute(
+            "SELECT COALESCE(game_over_reason,'unknown') AS reason, COUNT(*) AS n "
+            "FROM spawn_dataset_samples GROUP BY reason ORDER BY n DESC"
+        )
+        by_reason = {r["reason"]: r["n"] for r in cur.fetchall()}
+    except sqlite3.OperationalError:
+        return jsonify({"sessions": 0, "spawn_samples": 0, "with_pb": 0, "by_reason": {}})
+    return jsonify({
+        "sessions": agg["sessions"],
+        "spawn_samples": agg["spawn_samples"],
+        "with_pb": agg["with_pb"],
+        "by_reason": by_reason,
+    })
 
 
 # ============================================================
@@ -1980,23 +2199,40 @@ def list_replay_sessions():
     """
     user_id = request.args.get("user_id", "")
     lim = max(1, min(200, request.args.get("limit", 80, type=int)))
-    if not user_id:
+    # admin 全库模式：user_id 省略/为空时，仅在 OPENBLOCK_DB_DEBUG=1 下返回所有用户的
+    # 可回放对局（与 /api/profile-audit/users、/sessions 同款门控，防止普通页面误曝光）。
+    admin_all = not user_id
+    if admin_all and not _db_debug_enabled():
         return jsonify([])
     db = get_db()
     cur = db.cursor()
-    cur.execute(
-        """
-        SELECT s.id, s.user_id, s.strategy, s.strategy_config, s.score, s.start_time,
-               s.end_time, s.duration, s.status, s.game_stats,
-               m.frames AS move_frames, m.analysis AS move_analysis
-        FROM sessions s
-        INNER JOIN move_sequences m ON m.session_id = s.id AND m.user_id = s.user_id
-        WHERE s.user_id = ?
-        ORDER BY s.start_time DESC
-        LIMIT ?
-        """,
-        (user_id, lim * 4),
-    )
+    if admin_all:
+        cur.execute(
+            """
+            SELECT s.id, s.user_id, s.strategy, s.strategy_config, s.score, s.start_time,
+                   s.end_time, s.duration, s.status, s.game_stats,
+                   m.frames AS move_frames, m.analysis AS move_analysis
+            FROM sessions s
+            INNER JOIN move_sequences m ON m.session_id = s.id AND m.user_id = s.user_id
+            ORDER BY s.start_time DESC
+            LIMIT ?
+            """,
+            (lim * 4,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT s.id, s.user_id, s.strategy, s.strategy_config, s.score, s.start_time,
+                   s.end_time, s.duration, s.status, s.game_stats,
+                   m.frames AS move_frames, m.analysis AS move_analysis
+            FROM sessions s
+            INNER JOIN move_sequences m ON m.session_id = s.id AND m.user_id = s.user_id
+            WHERE s.user_id = ?
+            ORDER BY s.start_time DESC
+            LIMIT ?
+            """,
+            (user_id, lim * 4),
+        )
     out = []
     for row in cur.fetchall():
         rd = {
@@ -4367,7 +4603,7 @@ def spawn_v3_predict():
     body:
       board: 8×8 0/1 矩阵（必填）
       context: 24 维旧基础向量（可选，便于日志/兼容）
-      behaviorContext: 56 维行为特征向量（可选，缺失补零）
+      behaviorContext: 61 维行为特征向量（v1.57.1：7 维 spawnIntent one-hot；v1.61.0：尾部 4 维归一化 PB 曲线 θ 显式条件；可选，缺失补零、超长截断）
       history: 3×3 shape ID 矩阵（可选）
       playstyle: 'balanced'/'perfect_hunter'/... 或 null
       targetDifficulty: 0~1（可选）

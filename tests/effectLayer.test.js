@@ -44,25 +44,25 @@ describe('EffectLayer — clear 事件', () => {
 
     it('单行消除：调用 setShake（轻）', () => {
         layer.emit('clear', { cells: [], count: 1, type: 'single' });
-        expect(r.setShake).toHaveBeenCalledWith(5, 280);
+        expect(r.setShake).toHaveBeenCalledWith(2, 200);
     });
 
     it('multi 消除：triggerDoubleWave', () => {
         layer.emit('clear', { cells: [{ x: 0, y: 1 }, { x: 1, y: 1 }], count: 2, type: 'multi' });
         expect(r.triggerDoubleWave).toHaveBeenCalled();
-        expect(r.setShake).toHaveBeenCalledWith(8, 400);
+        expect(r.setShake).toHaveBeenCalledWith(3, 280);
     });
 
     it('combo：triggerComboFlash', () => {
         layer.emit('clear', { cells: [], count: 3, type: 'combo' });
         expect(r.triggerComboFlash).toHaveBeenCalledWith(3);
-        expect(r.setShake).toHaveBeenCalledWith(11, 520);
+        expect(r.setShake).toHaveBeenCalledWith(5, 350);
     });
 
     it('perfect：triggerPerfectFlash + 强震', () => {
         layer.emit('clear', { cells: [], count: 2, type: 'perfect' });
         expect(r.triggerPerfectFlash).toHaveBeenCalled();
-        expect(r.setShake).toHaveBeenCalledWith(16, 720);
+        expect(r.setShake).toHaveBeenCalledWith(10, 600);
     });
 
     it('setClearCells 始终被调用', () => {
@@ -109,7 +109,7 @@ describe('EffectLayer — revive / level_win', () => {
         const cells = [{ x: 1, y: 1, color: 2 }];
         layer.emit('revive', { clearedCells: cells });
         expect(r.setClearCells).toHaveBeenCalledWith(cells);
-        expect(r.setShake).toHaveBeenCalledWith(4, 300);
+        expect(r.setShake).toHaveBeenCalledWith(2, 200);
     });
 
     it('level_win (3 星)：triggerPerfectFlash', () => {
@@ -117,6 +117,6 @@ describe('EffectLayer — revive / level_win', () => {
         const layer = new EffectLayer(r);
         layer.emit('level_win', { stars: 3 });
         expect(r.triggerPerfectFlash).toHaveBeenCalled();
-        expect(r.setShake).toHaveBeenCalledWith(18, 900);
+        expect(r.setShake).toHaveBeenCalledWith(9, 600); // stars*3, stars*200（d04b509 起抖动幅度减半）
     });
 });

@@ -69,6 +69,16 @@ const SPECIAL_SHAPE_WEIGHTS = {
     'diag-3a': 1, 'diag-3b': 1,
 };
 
+/* v1.60.46 优化（P1）：relief 注入 fill 下限按"救济紧迫度"分级（与 web 端同口径）。
+ *   - 紧迫救济（hints.reliefUrgent=true / undefined 旧调用方）→ 0.25（保持响应）；
+ *   - 温和救济（hints.reliefUrgent=false）→ 0.35（要求盘面有实质内容，落点才有意义）。 */
+const RELIEF_FILL_FLOOR_URGENT = 0.25;
+const RELIEF_FILL_FLOOR_MILD = 0.35;
+
+/* v1.60.47（特殊块契约 A）：减压"填补空洞"触发阈值——enclosedVoidCells ≥ 2 且无更高
+ * 优先级清行机会时，注入能减洞的灵活小块。与 web 端同口径。 */
+const RELIEF_HOLE_FILL_MIN = 2;
+
 /**
  * v1.60.6 缺口 #3 修复 — 季节/活动覆写。
  *
@@ -1209,6 +1219,79 @@ function _applyShapeBonusWeight(baseWeight, _shapeId, _hints, _gapFills) {
  * @param {{ rng?: () => number }} [opts]  v1.60.1：RNG 注入，daily/replay 用
  * @returns {null | { triplet: Array, chosenMeta: Array, isRelief: boolean, injected: string, replaceIdx: number }}
  */
+/**
+ * v1.60.46 优化（P2）：扫描盘面"近满且连续可补的行/列缺口"，返回按"距清行最近"
+ * 排序的偏好 relief 形状 id 序列（与 web 端同口径）。
+ *   - row 上连续 k 空 → 横块（k=2 → '1x2'，k=3 → '1x3'）
+ *   - col 上连续 k 空 → 竖块（k=2 → '2x1'，k=3 → '3x1'）
+ * empty=1 无需偏置；缺口按 empty 升序（越接近清行越优先）。
+ *
+ * @param {{ size: number, cells: Array<Array<number|null>> }} grid
+ * @returns {string[]}
+ */
+function _reliefGapShapeIds(grid) {
+    const n = grid.size;
+    const cells = grid.cells;
+    const gaps = [];
+
+    const scanLine = (coords, type) => {
+        const empty = coords.length;
+        if (empty < 2 || empty > 3) return;
+        const contiguous = coords.every((v, i) => i === 0 || v === coords[i - 1] + 1);
+        if (!contiguous) return;
+        const id = type === 'row'
+            ? (empty === 2 ? '1x2' : '1x3')
+            : (empty === 2 ? '2x1' : '3x1');
+        gaps.push({ empty, id });
+    };
+
+    for (let y = 0; y < n; y++) {
+        const xs = [];
+        for (let x = 0; x < n; x++) if (cells[y][x] === null) xs.push(x);
+        scanLine(xs, 'row');
+    }
+    for (let x = 0; x < n; x++) {
+        const ys = [];
+        for (let y = 0; y < n; y++) if (cells[y][x] === null) ys.push(y);
+        scanLine(ys, 'col');
+    }
+
+    if (gaps.length === 0) return [];
+    gaps.sort((a, b) => a.empty - b.empty);
+    const ordered = [];
+    for (const g of gaps) if (!ordered.includes(g.id)) ordered.push(g.id);
+    return ordered;
+}
+
+/**
+ * v1.60.47 优化（特殊块契约 B）：度量加压斜块"强制造洞"能力（与 web 端同口径）。
+ * 返回该形状在所有合法落点中、玩家最优放置（造洞最少）下仍被迫新增的孤格数下限
+ * （isolatedHoles 口径，4-邻全填的卡死孤格）。值越大 = 加压越强。
+ *
+ * @param {object} grid
+ * @param {number[][]} shapeData
+ * @returns {number}
+ */
+function _pressureHoleForcing(grid, shapeData) {
+    const n = grid.size;
+    const baseIso = analyzeBoardTopology(grid).isolatedHoles ?? 0;
+    let floor = Infinity;
+    let budget = 30;
+    for (let y = 0; y < n && budget > 0; y++) {
+        for (let x = 0; x < n && budget > 0; x++) {
+            if (!grid.canPlace(shapeData, x, y)) continue;
+            budget--;
+            const g = grid.clone();
+            g.place(shapeData, 0, x, y);
+            g.checkLines();
+            const inc = (analyzeBoardTopology(g).isolatedHoles ?? 0) - baseIso;
+            if (inc < floor) floor = inc;
+            if (floor <= 0) return 0;
+        }
+    }
+    return floor === Infinity ? 0 : Math.max(0, floor);
+}
+
 function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pcSetup, scored, opts) {
     const rng = typeof opts?.rng === 'function' ? opts.rng : defaultRng;
 
@@ -1287,6 +1370,9 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
         else if (hasExactFitSetup) reliefTrigger = 'exactFit';          /* 完美卡入 */
         else if (monoFlushSignal) reliefTrigger = 'monoFlush';          /* 同色消行（彩蛋） */
         else if (multiClearLowPriorityActive) reliefTrigger = 'multiClear'; /* 消行（低优先级） */
+        /* v1.60.47（契约 A）：填补空洞——无上述清行机会、但盘面已有 ≥2 空洞时，
+         * 注入能减洞的灵活小块（最低优先级）。与 web 端同口径。 */
+        else if (holesSignal >= RELIEF_HOLE_FILL_MIN) reliefTrigger = 'holeFill';
     }
     const reliefSignal = reliefTrigger != null;
 
@@ -1342,7 +1428,12 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
      * §10.7 special 的核心使命是回应**真实场景**，空盘不构成场景。
      *
      * 兼容性：fill 是 number（generateDockShapes 强制 grid.getFillRatio()），无空保护需要。 */
-    if (isRelief && fill < 0.25) return null;
+    /* v1.60.46（P1）：relief 下限按救济紧迫度分级（与 web 端同口径）。
+     * reliefUrgent===false（温和救济）→ 0.35；其余（紧迫 / 旧调用方未声明）→ 0.25。 */
+    const reliefFillFloor = (hints?.reliefUrgent === false)
+        ? RELIEF_FILL_FLOOR_MILD
+        : RELIEF_FILL_FLOOR_URGENT;
+    if (isRelief && fill < reliefFillFloor) return null;
     if (isPressure && fill < 0.10) return null;
 
     /* === Step 1.8：v1.60.8 清盘候选保护（前置门） ===
@@ -1482,6 +1573,47 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
             const rest = candidateOrder.filter(s => !targetIds.has(s.id));
             candidateOrder = [...priority, ...rest];
         }
+    }
+
+    /* v1.60.46（P2）/ v1.60.47（契约 A）：非 monoFlush 的 relief 候选偏置（与 web 端同口径）。
+     *   - holeFill 触发 → 按 bestHoleReduction 降序（真正用于"填补空洞"）；
+     *   - 其余清行类触发 → 按近满行/列缺口朝向偏置横/竖块。 */
+    if (isRelief && !monoFlushSignal) {
+        if (reliefTrigger === 'holeFill') {
+            const baseHoles = topo?.holes ?? 0;
+            const reduceScore = new Map(
+                candidateOrder.map(s => [s.id, bestHoleReduction(grid, s.data, baseHoles)])
+            );
+            candidateOrder = candidateOrder.slice()
+                .sort((a, b) => (reduceScore.get(b.id) ?? 0) - (reduceScore.get(a.id) ?? 0));
+        } else {
+            const gapIds = _reliefGapShapeIds(grid);
+            if (gapIds.length > 0) {
+                const gapSet = new Set(gapIds);
+                const priority = gapIds
+                    .map(id => candidateOrder.find(s => s.id === id))
+                    .filter(Boolean);
+                const rest = candidateOrder.filter(s => !gapSet.has(s.id));
+                candidateOrder = [...priority, ...rest];
+            }
+        }
+    }
+
+    /* v1.60.47（契约 B）：加压"制造空洞 / 增加难度"主动选择（与 web 端同口径）。
+     * 按 _pressureHoleForcing 降序 →（平手）合法落点更少（更难放）→ 更大块。 */
+    if (isPressure) {
+        const cellCount = (data) => data.reduce((sum, row) => sum + row.reduce((a, v) => a + (v ? 1 : 0), 0), 0);
+        const forceScore = new Map(
+            candidateOrder.map(s => [s.id, _pressureHoleForcing(grid, s.data)])
+        );
+        candidateOrder = candidateOrder.slice().sort((a, b) => {
+            const d = (forceScore.get(b.id) ?? 0) - (forceScore.get(a.id) ?? 0);
+            if (d !== 0) return d;
+            const pa = countLegalPlacements(grid, a.data);
+            const pb = countLegalPlacements(grid, b.data);
+            if (pa !== pb) return pa - pb;
+            return cellCount(b.data) - cellCount(a.data);
+        });
     }
 
     /* === Step 4：智能 replaceIdx（Issue 6 + v1.60.8 槽保护增强） ===
@@ -3056,4 +3188,4 @@ function generateDockShapesLayered(grid, config, spawnHints = {}, spawnContext =
     return rawResult; // 当前退化为原函数；三层逻辑在 spawnLayers.js 可独立验证
 }
 
-module.exports = { _estimateTopDriver, _resolveSpecialPools, _sanitizeShapeArr, _tryInjectDuplicates, _tryInjectSpecial, analyzePerfectClearSetup, canTripletPerfectClear, computeCandidatePlacementMetric, DUP_INJECT_CONFIG, evaluateTripletSolutions, generateDockShapes, generateDockShapesLayered, getLastSpawnDiagnostics, hasSpecialShape, resetSpawnMemory, SPECIAL_PRESSURE_SHAPES, SPECIAL_RELIEF_SHAPES, SPECIAL_SHAPE_WEIGHTS, SPECIAL_SHAPES, validateSpawnTriplet };
+module.exports = { _estimateTopDriver, _pressureHoleForcing, _reliefGapShapeIds, _resolveSpecialPools, _sanitizeShapeArr, _tryInjectDuplicates, _tryInjectSpecial, analyzePerfectClearSetup, canTripletPerfectClear, computeCandidatePlacementMetric, DUP_INJECT_CONFIG, evaluateTripletSolutions, generateDockShapes, generateDockShapesLayered, getLastSpawnDiagnostics, hasSpecialShape, RELIEF_FILL_FLOOR_MILD, RELIEF_FILL_FLOOR_URGENT, RELIEF_HOLE_FILL_MIN, resetSpawnMemory, SPECIAL_PRESSURE_SHAPES, SPECIAL_RELIEF_SHAPES, SPECIAL_SHAPE_WEIGHTS, SPECIAL_SHAPES, validateSpawnTriplet };

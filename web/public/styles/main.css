@@ -1513,6 +1513,24 @@ body.game-rl-preview .block-dock {
     box-shadow: none;
 }
 
+/* v1.60.47 GPU：盘面静态背景层（L0/#game-grid-bg）+ 漂移水印层（L1/#game-grid-wm）。
+ * 绝对定位 1:1 覆盖 #game-grid（width/height/left/top 由 Renderer._applyBoardLayerSizes
+ * 在每次 resize 时写入实际像素值）；z-index:0 + DOM 顺序（flow-bg < bg < wm < #game-grid）
+ * 决定叠放。border-radius 跟随 #game-grid（默认 0，移动端 8px 见 index.html 内联覆盖），
+ * 让 L0 的背景填充在圆角处不溢出主画布边框。pointer-events:none 不影响拖拽。 */
+#game-grid-bg,
+#game-grid-wm {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    background: transparent;
+    border-radius: 0;
+}
+
 /* v10.12: 特效叠加层 — 绝对定位覆盖盘面，并以 negative inset 向四周外扩 1.5×cell
  * 让粒子/闪光可飞溅到盘面外。pointer-events:none 透明传透至盘面，不影响拖拽。
  * width/height/left/top 由 Renderer._applyFxCanvasSize() 在每次 resize 时设置实际像素值，
@@ -5600,6 +5618,41 @@ body.doc-visibility-hidden #menu * {
     font-weight: 500;
 }
 
+/* 用户筛选下拉（仅 OPENBLOCK_DB_DEBUG=1 时显示） */
+/* 必须显式声明 [hidden] → display:none：作者样式表的 .class 规则会盖过 UA 的
+ * [hidden]{display:none}，否则私域模式下下拉会"显示但选项为空"。 */
+.replay-user-filter-wrap[hidden] {
+    display: none;
+}
+.replay-user-filter-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    color: var(--text-secondary, #64748b);
+    font-size: 12px;
+}
+.replay-user-filter-wrap select {
+    max-width: 168px;
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1e293b) 12%, transparent);
+    background: var(--stat-surface, #fff);
+    color: var(--text-primary, #2c3e50);
+}
+
+/* 全库视图下每行的用户标签 */
+.replay-item-user {
+    flex-shrink: 0;
+    padding: 1px 7px;
+    border-radius: 8px;
+    font-size: 11px;
+    color: var(--accent-color, #5b9bd5);
+    background: color-mix(in srgb, var(--accent-color, #5b9bd5) 12%, transparent);
+    white-space: nowrap;
+}
+
 .replay-selected-count {
     color: var(--text-secondary, #64748b);
     flex: 1;
@@ -6563,7 +6616,11 @@ body.doc-visibility-hidden #menu * {
 }
 .best-gap--close {
     color: var(--accent-color, #5B9BD5);
-    animation: best-gap-pulse 1.2s ease-in-out infinite;
+    /* v1.60.47 GPU：原 infinite 脉冲会在对局 idle 时让该 HUD 文案永久占用一个
+     * 合成层做 60fps 重合成。改为有限 3 次脉冲后静置——首次进入"接近 PB"时仍以
+     * 脉冲抓注意力，之后只保留色彩指示（opacity 复位为 1），idle 不再持续耗 GPU。
+     * 重新进入 D3（class 移除后再加）会再次脉冲。 */
+    animation: best-gap-pulse 1.2s ease-in-out 3;
 }
 /* v1.56 §3.1：D2 冲刺区文案 — 比 close 弱、比 neutral 强，琥珀色提示"冲刺感"。
  * 与 §2.3 pbExtremeChase 加难叙事同口径（HUD 文案"冲刺区！"+ 算法加 orderRigor）。 */
@@ -6690,12 +6747,15 @@ body.doc-visibility-hidden #menu * {
     inset: 0;
     border-radius: inherit;
     box-shadow: 0 0 12px rgba(251, 146, 60, .70);
-    opacity: 0;
+    /* v1.60.47 GPU：原 infinite 闪烁让 HARD 徽章 idle 时永久占用合成层。
+     * 改为有限 3 次闪烁后落到静态微光（opacity .22），既保留"HARD"的辉光辨识，
+     * 又不再 60fps 永久重合成。 */
+    opacity: 0.22;
     pointer-events: none;
-    animation: hardBadgeFlicker 2.6s ease-in-out infinite;
+    animation: hardBadgeFlicker 2.6s ease-in-out 3;
 }
 @keyframes hardBadgeFlicker {
-    0%, 100% { opacity: 0.0; }
+    0%, 100% { opacity: 0.22; }
     50%      { opacity: 0.7; }
 }
 

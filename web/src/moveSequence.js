@@ -35,8 +35,15 @@ export const MOVE_SEQUENCE_SCHEMA = 2;
  *      comboRate/missRate/cognitiveLoad）。回放与实时面板共用同一份 REPLAY_METRICS.extract
  *      访问器，null 自动被 sparkline / `num()` 跳过或显「—」。旧版 ps.pv=1 仍可读，但 sparkline
  *      会保留早期那些占位点（已记录的对局无法回填）。
+ *   3（v1.63+，出块算法优化数据集补全）：面向「出块算法优化」训练集补齐 4 类字段——
+ *      (a) `bestScore` / `pbRatio`：PB 相对进度基线，让 pbRatio=score/bestScore 可离线重建；
+ *      (b) `spawnGeo.nearFullLines/close1/close2/maxColHeight`：近消行拓扑（dataset 此前恒 0）；
+ *      (c) `provenance`：逐 spawn 策略来源（spawnSource / 模型版本 / fallbackReason / θ 来源 /
+ *          policy bundle sha&version），用于反事实分组对比；
+ *      (d) spawn 帧 dock 内逐块 `feat`（形状级特征）+ 帧级 `spawnMeta`（拒绝采样 attempt / rejects）。
+ *      全部为新增字段，旧 pv<3 读端按 null / 缺省自然兼容，无需回填。
  */
-export const PLAYER_STATE_SNAPSHOT_VERSION = 2;
+export const PLAYER_STATE_SNAPSHOT_VERSION = 3;
 /**
  * 至少多少次成功落子才写入 SQLite。
  * 注意：内部 frames 仍含 init / spawn / place，用于确定性回放；
@@ -159,23 +166,56 @@ export function buildInitFrame(strategy, grid, scoring, playerState, opts = {}) 
 }
 
 /**
- * @param {Array<{ id: string, shape: number[][], colorIdx: number, placed?: boolean }>} descriptors
+ * 规范化逐块形状级特征（v1.63 / pv=3）。来源 `blockSpawn` 诊断 `chosen[i]`，
+ * 落库后离线训练无需重算规则侧特征，也可作监督 / 对照信号。仅保留可 JSON 化的数值字段。
+ * @param {object|null|undefined} feat
+ * @returns {object|undefined}
+ */
+function _normalizeDockFeat(feat) {
+    if (!feat || typeof feat !== 'object') return undefined;
+    const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    return {
+        placements: n(feat.placements),
+        gapFills: n(feat.gapFills),
+        multiClear: n(feat.multiClear),
+        pcPotential: n(feat.pcPotential),
+        exactFit: n(feat.exactFit),
+        monoFlush: n(feat.monoFlush),
+        topDriver: typeof feat.topDriver === 'string' ? feat.topDriver : (feat.topDriver?.key ?? null)
+    };
+}
+
+/**
+ * @param {Array<{ id: string, shape: number[][], colorIdx: number, placed?: boolean, feat?: object }>} descriptors
  * @param {object} [playerState] 可选，本轮出块后的玩家状态快照 `ps`
- * @param {{ ts?: number }} [opts]  v1.62+：`ts` = 相对 init 帧 ms 偏移；缺失则不写
+ * @param {{ ts?: number, spawnMeta?: object }} [opts]  v1.62+：`ts` = 相对 init 帧 ms 偏移；缺失则不写。
+ *        v1.63+：`spawnMeta` = 帧级拒绝采样元数据（attempt / solutionRejects），缺失则不写。
  */
 export function buildSpawnFrame(descriptors, playerState, opts = {}) {
     const frame = {
         v: MOVE_SEQUENCE_SCHEMA,
         t: 'spawn',
-        dock: descriptors.map((d) => ({
-            id: d.id,
-            shape: d.shape.map((row) => [...row]),
-            colorIdx: d.colorIdx,
-            placed: Boolean(d.placed)
-        }))
+        dock: descriptors.map((d) => {
+            const cell = {
+                id: d.id,
+                shape: d.shape.map((row) => [...row]),
+                colorIdx: d.colorIdx,
+                placed: Boolean(d.placed)
+            };
+            /* v1.63（pv=3）：逐块形状级特征（规则轨已算出，落库省离线重算 + 作对照）。
+             * 旧帧无 feat，回放/读端按缺省跳过。 */
+            const feat = _normalizeDockFeat(d.feat);
+            if (feat) cell.feat = feat;
+            return cell;
+        })
     };
     const ts = _normalizeFrameTs(opts.ts);
     if (ts !== undefined) frame.ts = ts;
+    /* v1.63（pv=3）：帧级拒绝采样元数据 —— attempt（重试次数）/ solutionRejects（各类被否计数）/
+     * fallback（是否走兜底路径）。供"什么组合在什么盘面被判不可行"的学习与运维监控。 */
+    if (opts.spawnMeta && typeof opts.spawnMeta === 'object') {
+        frame.spawnMeta = opts.spawnMeta;
+    }
     if (playerState && typeof playerState === 'object') {
         frame.ps = playerState;
     }
@@ -306,10 +346,20 @@ export function buildPlayerStateSnapshot(profile, ctx) {
     const cognitiveLoadHasData = !!profile.cognitiveLoadHasData;
     const coldStart = samples === 0;
     /** @type {Record<string, unknown>} */
+    /* v1.63（pv=3）：PB 相对进度基线 —— PB 双 S 曲线依赖 pbRatio = score / bestScore，
+     * 但旧快照只存 score，离线无法重建 pbRatio/pbTension/pbBrake 作为特征或标签。
+     * bestScore 取本局开局 PB 快照（_bestScoreAtRunStart），与 adaptiveSpawn challengeBoost
+     * / derivePbCurve 读取的 ctx.bestScore 同源；best<=0（首局）时 pbRatio=null（避免除零）。 */
+    const _bestScore = Number(ctx.bestScore);
+    const bestScore = Number.isFinite(_bestScore) && _bestScore > 0 ? _bestScore : null;
+    const _scoreNum = Number(ctx.score);
+    const pbRatio = bestScore != null && Number.isFinite(_scoreNum) ? _scoreNum / bestScore : null;
     const slim = {
         pv: PLAYER_STATE_SNAPSHOT_VERSION,
         phase: ctx.phase,
         score: ctx.score,
+        bestScore,
+        pbRatio,
         boardFill: ctx.boardFill,
         runStreak: ctx.runStreak,
         strategyId: ctx.strategyId,
@@ -356,22 +406,21 @@ export function buildPlayerStateSnapshot(profile, ctx) {
     };
     const geo = ctx.spawnGeo;
     if (geo && typeof geo === 'object') {
+        const _geoNum = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
         slim.spawnGeo = {
-            holes: geo.holes != null && Number.isFinite(Number(geo.holes)) ? Number(geo.holes) : null,
+            holes: _geoNum(geo.holes),
             /* v1.46：把表面"平整"与首手"瓶颈块自由度"也写入快照，
              * 让回放与服务端持久化都能曲线化展示这两个原本只在 pill 区显示的几何指标。 */
-            flatness:
-                geo.flatness != null && Number.isFinite(Number(geo.flatness))
-                    ? Number(geo.flatness)
-                    : null,
-            firstMoveFreedom:
-                geo.firstMoveFreedom != null && Number.isFinite(Number(geo.firstMoveFreedom))
-                    ? Number(geo.firstMoveFreedom)
-                    : null,
-            solutionCount:
-                geo.solutionCount != null && Number.isFinite(Number(geo.solutionCount))
-                    ? Number(geo.solutionCount)
-                    : null
+            flatness: _geoNum(geo.flatness),
+            firstMoveFreedom: _geoNum(geo.firstMoveFreedom),
+            solutionCount: _geoNum(geo.solutionCount),
+            /* v1.63（pv=3）：近消行拓扑落库 —— dataset.py behaviorContext[28-30] 此前恒 0。
+             * nearFullLines=差1~2格即满的行列数；close1/close2=差1格/差2格的行列数（可覆盖性已校验）；
+             * maxColHeight=最高列，危险度辅助。旧 pv<3 无此字段，读端 _geoNum→null 自动跳过。 */
+            nearFullLines: _geoNum(geo.nearFullLines),
+            close1: _geoNum(geo.close1),
+            close2: _geoNum(geo.close2),
+            maxColHeight: _geoNum(geo.maxColHeight)
         };
     }
     if (a && typeof a === 'object') {
@@ -410,6 +459,12 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             spawnTargets: a.spawnTargets && typeof a.spawnTargets === 'object'
                 ? { ...a.spawnTargets } : null
         };
+    }
+    /* v1.63（pv=3）：逐 spawn 策略来源（provenance）—— 把"由谁、用什么参数产出这一手三块"
+     * 显式落库，是做反事实 / 分组对比（规则 vs 模型、不同 θ bundle、灰度臂）的前提。
+     * 数据由 game.js `_commitSpawn` 合成到 `_lastAdaptiveInsight.provenance`。仅 spawn 帧有意义。 */
+    if (a && typeof a.provenance === 'object' && a.provenance) {
+        slim.provenance = { ...a.provenance };
     }
     return slim;
 }

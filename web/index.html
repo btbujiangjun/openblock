@@ -273,6 +273,11 @@
           padding: 0 !important;
           margin: 8px 0 0 0 !important;  /* v1.61.15：与上方 HUD/quick-toggles 留 8px 视觉间隔 */
         }
+        /* v1.60.47：L0/L1 圆角跟随 #game-grid，背景填充在圆角处不溢出主画布边框 */
+        #game-grid-bg, #game-grid-wm {
+          border-radius: 8px !important;
+          overflow: hidden;
+        }
         #game-grid {
           width: min(calc(100vw - 8px), 480px) !important;
           height: min(calc(100vw - 8px), 480px) !important;
@@ -629,6 +634,12 @@
         <div class="play-stack" data-i18n-aria-label="ui.aria.playArea" aria-label="游戏区">
             <div id="game-wrapper">
                 <div class="game-board-flow-bg" aria-hidden="true"></div>
+                <!-- v1.60.47 GPU：盘面静态背景层（L0，外框+空格底色+凹陷边）与漂移水印层（L1）
+                     从主画布中拆出为独立 canvas，使静止盘面无需逐帧整块重传 GPU 纹理。
+                     叠放：flow-bg < bg(L0) < wm(L1) < #game-grid(L2) < fx。
+                     缺这两块时 Renderer 自动回退到"全部画在主 canvas"的旧行为。 -->
+                <canvas id="game-grid-bg" aria-hidden="true"></canvas>
+                <canvas id="game-grid-wm" aria-hidden="true"></canvas>
                 <canvas id="game-grid" width="336" height="336" data-i18n-aria-label="ui.aria.gameGrid" aria-label="游戏网格"></canvas>
                 <!-- v10.12: 特效叠加层 — 粒子/闪光/涟漪独立绘制，CSS 上以 negative inset
                      覆盖盘面外扩区，让爆炸特效可飞溅到盘面外（更具立体感）。
@@ -802,6 +813,10 @@
         <h2>对局回放</h2>
         <p class="replay-hint">按时间顺序记录开局盘面、每轮待选块与成功落子；列表帧数只统计成功落子，序列经后端写入 SQLite（需运行 Flask）。</p>
         <div class="replay-list-toolbar" id="replay-list-toolbar" hidden>
+            <label class="replay-user-filter-wrap" id="replay-user-filter-wrap" hidden>
+                <span>用户</span>
+                <select id="replay-user-filter" aria-label="按用户筛选对局回放"></select>
+            </label>
             <label class="replay-select-all-wrap">
                 <input type="checkbox" id="replay-select-all" aria-label="全选" />
                 <span>全选</span>

@@ -248,8 +248,10 @@ export class AmbientParticles {
         const tick = () => {
             this._domTimer = 0;
             if (!this.isRunning() || this._renderMode !== 'dom') return;
-            /* 后台 tab：暂缓，由 visibilitychange 唤醒（document 隐藏期间不更新 transform） */
-            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            /* 后台 tab / 主菜单遮盖棋盘：暂缓更新 transform/opacity（粒子此时不可见），
+             * 降频轮询等待唤醒。与画布模式 ambient 经 game._shouldDrawIdleDynamicFrame()
+             * 的菜单门控对齐——避免 sakura/forest 等 DOM 粒子在菜单背后空转白耗 GPU。 */
+            if (this._isDomAnimationDormant()) {
                 this._domTimer = window.setTimeout(tick, 1500);
                 return;
             }
@@ -257,6 +259,19 @@ export class AmbientParticles {
             this._domTimer = window.setTimeout(tick, this.getFrameIntervalMs());
         };
         this._domTimer = window.setTimeout(tick, 200);
+    }
+
+    /**
+     * v1.60.47：DOM 粒子是否应"休眠"（暂停 transform/opacity 更新）。
+     * 满足任一即休眠：后台 tab（不可见）/ 主菜单遮盖游戏壳（棋盘被覆盖，粒子不可见）。
+     * 注：game-over 浮层保留棋盘可见（见 game.updateShellVisibility），故不休眠，落叶等照常飘。
+     * @returns {boolean}
+     */
+    _isDomAnimationDormant() {
+        if (typeof document === 'undefined') return false;
+        if (document.visibilityState === 'hidden') return true;
+        if (document.body?.classList?.contains('game-shell-hidden')) return true;
+        return false;
     }
 
     _stopDomScheduler() {
@@ -600,16 +615,40 @@ export class AmbientParticles {
             }
             ctx.closePath();
 
-            const grad = ctx.createLinearGradient(0, baseY - amp, 0, baseY + thickness + amp);
-            grad.addColorStop(0, colors[band] + '00');
-            grad.addColorStop(0.35, colors[band] + '66');
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
+            /* v1.60.47 GPU：渐变只依赖几何(lh)+颜色，与相位 t 无关——缓存避免
+             * active play 每主帧（可达 60fps）重复 createLinearGradient 的分配/GC。 */
+            ctx.fillStyle = this._auroraBandGradient(ctx, band, lh, colors);
             ctx.globalAlpha = preset.alphaRange[0] + (preset.alphaRange[1] - preset.alphaRange[0]) * (0.5 + 0.5 * Math.sin(t + band));
             ctx.fill();
         }
         void m;
         ctx.restore();
+    }
+
+    /**
+     * v1.60.47：极光带渐变缓存。渐变仅由画布高度 lh 与当前 preset 颜色决定（与相位无关），
+     * 按 (lh + preset) 命中缓存，未命中时重建两条带的渐变。preset 引用变化（换肤）或 lh 变化
+     * （resize）会自动失效重建。
+     * @returns {CanvasGradient}
+     */
+    _auroraBandGradient(ctx, band, lh, colors) {
+        const cache = this._auroraGradCache;
+        if (cache && cache.lh === lh && cache.preset === this.preset && cache.grads[band]) {
+            return cache.grads[band];
+        }
+        const grads = [];
+        for (let b = 0; b < 2; b++) {
+            const baseY = lh * (0.18 + b * 0.13);
+            const amp = lh * 0.035 + b * 3;
+            const thickness = lh * (0.075 + b * 0.018);
+            const g = ctx.createLinearGradient(0, baseY - amp, 0, baseY + thickness + amp);
+            g.addColorStop(0, colors[b] + '00');
+            g.addColorStop(0.35, colors[b] + '66');
+            g.addColorStop(1, 'rgba(0,0,0,0)');
+            grads.push(g);
+        }
+        this._auroraGradCache = { lh, preset: this.preset, grads };
+        return grads[band];
     }
 
     _drawRipple(ctx, lw, lh, m) {

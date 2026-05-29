@@ -253,7 +253,7 @@ describe('runOneSampleV2', () => {
         expect(s.survived_steps).toBeGreaterThan(0);
         // MCTS 应该比 random 强 — 至少不应该 0 分
         expect(s.final_score).toBeGreaterThan(0);
-    });
+    }, 20000); // MCTS 真实 rollout 较重，隔离 ~3s，全量并行 CPU 争用下会超默认 5s → 显式放宽（同 C/D/E 组惯例）
 
     // v2.10.33 (P1.2 修复): 2-step lookahead 之前因 sim.clone 不存在退化 return 0
     // 修复后使用 saveState/restoreState 真正生效, 应给出比 1-step 不弱的 sample
@@ -268,7 +268,7 @@ describe('runOneSampleV2', () => {
         expect(s).not.toBeNull();
         expect(JSON.parse(s.d_curve_json)).toHaveLength(20);
         expect(s.final_score).toBeGreaterThan(0);
-    });
+    }, 20000); // 2-step lookahead 真实 saveState/restore 较重，同上放宽超时防并行 flaky
 
     // v2.10.35: generative — sampler 通过 HTTP 调 SpawnPolicyNet V3
     //   测试环境 fetch 失败 → fallback baseline; 重点验证不崩 + 输出合法

@@ -14,6 +14,7 @@ import {
     animateHudScoreChange,
     animateValueOnElement,
     syncHudScoreElement,
+    resetScoreWidthReservation,
     _selectHighScoreCheerType,
 } from '../web/src/scoreAnimator.js';
 
@@ -139,6 +140,82 @@ describe('animateHudScoreChange (DOM 副作用)', () => {
         expect(el.classList.contains('score-burst--small')).toBe(true);
         const floats = document.querySelectorAll('.score-float-delta');
         expect(floats[0].textContent).toBe('+8');
+    });
+});
+
+/* ============================================================================
+ * v1.61 抗抖动：滚动期间预留 #score 宽度，避免位数 / 千分位逗号逐帧变化导致
+ *   居中 HUD 行反复重新居中（"多消特效+分数动效，偶发屏幕抖动"）。
+ * ========================================================================== */
+describe('v1.61 分数滚动宽度预留（抗 HUD 抖动）', () => {
+    let el;
+    beforeEach(() => {
+        el = document.createElement('div');
+        el.id = 'score';
+        document.body.appendChild(el);
+        document.querySelectorAll('.score-float-delta').forEach((n) => n.remove());
+        document.querySelectorAll('#score').forEach((n) => { if (n !== el) n.remove(); });
+        // 用"宽度 ∝ 当前文本字符数"的桩，模拟真实排版下数字越长越宽。
+        el.getBoundingClientRect = () => ({
+            left: 100, top: 50, height: 30, right: 160, bottom: 80, x: 100, y: 50,
+            width: (el.textContent || '').length * 12,
+        });
+    });
+
+    // 与 _formatNumber 同口径推导期望宽度（千分位受运行环境 locale 影响，故动态计算）。
+    const expectPx = (n) => `${Math.floor(n).toLocaleString().length * 12}px`;
+
+    it('滚动开始时按目标值宽度预留 min-width（中间值不再回缩）', () => {
+        el.textContent = '90';
+        animateHudScoreChange(el, 1280, 90);
+        expect(el.style.minWidth).toBe(expectPx(1280));
+    });
+
+    it('预留单调递增：分数继续增长时取更大宽度', () => {
+        el.textContent = '0';
+        animateHudScoreChange(el, 1280, 0);
+        expect(el.style.minWidth).toBe(expectPx(1280));
+        animateHudScoreChange(el, 1500000, 1280);
+        expect(el.style.minWidth).toBe(expectPx(1500000));
+    });
+
+    it('预留不回缩：后续较小目标仍保持已有的更大预留', () => {
+        el.textContent = '0';
+        animateHudScoreChange(el, 1500000, 0);
+        const wide = expectPx(1500000);
+        expect(el.style.minWidth).toBe(wide);
+        // 位数相同的小幅增长不会改变预留宽度
+        animateHudScoreChange(el, 1500050, 1500000);
+        expect(el.style.minWidth).toBe(wide);
+    });
+
+    it('重开局（init 分支）复位宽度预留，避免上一局高分永久撑宽', () => {
+        el.textContent = '0';
+        animateHudScoreChange(el, 1280, 0);
+        expect(el.style.minWidth).toBe(expectPx(1280));
+        // 新一局首帧：lastDisplayedScore == null → init → 复位
+        const branch = syncHudScoreElement(el, 0, null);
+        expect(branch).toBe('init');
+        expect(el.style.minWidth).toBe('');
+        expect(el._reservedScoreW).toBe(0);
+    });
+
+    it('resetScoreWidthReservation 显式复位（防御性）', () => {
+        el.textContent = '0';
+        animateHudScoreChange(el, 999, 0);
+        expect(el.style.minWidth).not.toBe('');
+        resetScoreWidthReservation(el);
+        expect(el.style.minWidth).toBe('');
+        expect(el._reservedScoreW).toBe(0);
+    });
+
+    it('无真实排版（getBoundingClientRect 宽度为 0）时不设 min-width，不影响逻辑', () => {
+        el.getBoundingClientRect = () => ({
+            left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0,
+        });
+        el.textContent = '0';
+        animateHudScoreChange(el, 500, 0);
+        expect(el.style.minWidth).toBe('');
     });
 });
 
