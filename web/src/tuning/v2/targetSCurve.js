@@ -14,21 +14,24 @@
 //
 // v2.3: r_max 1.5→2.0; brake 段拓宽 + 端点重缩放 logistic; overshoot decay 加陡
 //       目的: ① 视觉平滑 ② 让 r=1.5 时 D 接近 1.0
+// v2.4: 低 r 阶段整体下移, 中段端点小幅下调, 保持早期更轻且整体单调平滑
+// v2.5: 参考红线形态: 低 r 长平台 + 延后启动 + 接近 PB 前后快速上冲
+// v2.6: 红线约束 r=1 时 D≈0.9, 且 r=1 两侧斜率陡峭
 
 export const CURVE_N_BINS = 20;
 export const CURVE_R_MAX = 2.0;
 
-export const SEG_GENTLE_END = 0.5;
-export const SEG_MID_END = 0.70;
-export const SEG_BRAKE_END = 1.10;
+export const SEG_GENTLE_END = 0.45;
+export const SEG_MID_END = 0.65;
+export const SEG_BRAKE_END = 1.15;
 
-export const D_BASE = 0.20;
-export const D_GENTLE_END = 0.30;
-export const D_MID_END = 0.50;
-export const D_BRAKE_END = 0.92;
+export const D_BASE = 0.10;
+export const D_GENTLE_END = 0.11;
+export const D_MID_END = 0.18;
+export const D_BRAKE_END = 0.98;
 export const D_CAP = 1.00;
 
-export const BRAKE_SIGMOID_K = 6.0;
+export const BRAKE_SIGMOID_K = 10.5;
 export const OVERSHOOT_DECAY = 6.0;
 
 
@@ -113,7 +116,7 @@ export function isMonotonicNonDecreasing(curve, tol = 1e-6) {
  */
 export function getTargetMetadata() {
     return {
-        version: 'v2.3.0',
+        version: 'v2.6.0',
         n_bins: CURVE_N_BINS,
         r_max: CURVE_R_MAX,
         segments: [

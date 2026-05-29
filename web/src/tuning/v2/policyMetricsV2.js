@@ -31,7 +31,7 @@ const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
 // PB-aware d_step legacy 常量 (跨语言镜像, 不参与 v3.x 计算)
-const PB_AWARE_D_BASE = 0.20;
+const PB_AWARE_D_BASE = 0.10;
 const PB_AWARE_D_PEAK = 1.00;
 const PB_AWARE_CENTER = 0.85;
 const PB_AWARE_WIDTH  = 0.18;

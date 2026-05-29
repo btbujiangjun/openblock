@@ -1438,7 +1438,7 @@ function renderQualityBody(d) {
           <div style="font-size:13px; font-weight:600; margin-bottom:6px;">d_curve 形态</div>
           <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">
             跨度: <b style="color:${ds.spread > 0.4 ? 'var(--good)' : 'var(--warn)'}">${ds.spread}</b>
-            ${ds.spread_vs_ideal > 0 ? ` <span style="color:var(--muted);">(距 ideal 跨度 0.80 差 ${ds.spread_vs_ideal})</span>` : ''}
+            ${ds.spread_vs_ideal > 0 ? ` <span style="color:var(--muted);">(距 ideal 跨度 0.90 差 ${ds.spread_vs_ideal})</span>` : ''}
             <br>vs ★ ideal target MAE: <b>${ds.ideal_mae ?? '-'}</b> <span style="color:var(--muted);">(越低越接近业务期望)</span><br>
             倒退 bin 数: <b style="color:${ds.n_decreasing_bins > 3 ? 'var(--warn)' : 'var(--good)'}">${ds.n_decreasing_bins}</b> / 19
           </div>
@@ -1824,7 +1824,7 @@ async function submitJob() {
         if (v29Sets.length > 0) {
             const names = v29Sets.map(s => `#${s.set_id} ${s.name}`).join(', ');
             const ok = await showConfirmDialog(
-                `你选了 ${v29Sets.length} 个 v2.9 旧算法样本集:\n  ${names}\n\nv2.9 数据的 d_curve 几乎水平 (跨度仅 0.20 vs 业务期望 0.80),\n模型训出来必然是水平预测线, 学不到 S 形。\n\n建议先到 ② 样本构建 重新采集 (新数据自动标 v2.10)。`,
+                `你选了 ${v29Sets.length} 个 v2.9 旧算法样本集:\n  ${names}\n\nv2.9 数据的 d_curve 几乎水平 (跨度仅 0.20 vs 当前业务期望 0.90),\n模型训出来必然是水平预测线, 学不到 S 形。\n\n建议先到 ② 样本构建 重新采集 (新数据自动标 v2.10)。`,
                 { title: '⚠ 旧算法数据', confirmLabel: '仍要训练', confirmType: 'warn' }
             );
             if (!ok) {

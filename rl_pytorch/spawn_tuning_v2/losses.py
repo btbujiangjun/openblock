@@ -151,23 +151,23 @@ PB_DIST_GAMMA = 2.0  # 旧版兼容 (loss_pb_distribution 仍支持但不推荐)
 ANCHOR_CONSTRAINTS = [
     # v3.0.3: 22 个 r 点, 中段加 lower 形成双向夹紧, 高 r 收紧到 ideal-0.02
     # ─── 低 r 双向 (玩家初期, 业务关键) ───
-    (0.05, "lower", 0.18), (0.05, "upper", 0.24),     # ideal 0.21
-    (0.15, "lower", 0.20), (0.15, "upper", 0.28),     # ideal 0.23
+    (0.05, "lower", 0.08), (0.05, "upper", 0.13),     # v2.5 ideal 0.10
+    (0.15, "lower", 0.08), (0.15, "upper", 0.14),     # v2.5 ideal 0.10
     # ─── 远 PB 上界 (单向, 防止 model 过高) ───
-    (0.20, "upper", 0.28),                            # ideal 0.24
-    (0.30, "upper", 0.32),                            # ideal 0.27
+    (0.20, "upper", 0.14),                            # v2.5 ideal 0.10
+    (0.30, "upper", 0.15),                            # v2.5 ideal 0.11
     # ─── 中段双向 (v3.0.3 新增 lower, 在 ideal ± 0.03 范围夹紧) ───
-    (0.40, "lower", 0.25), (0.40, "upper", 0.31),    # ideal 0.28
-    (0.50, "lower", 0.27), (0.50, "upper", 0.33),    # ideal 0.30
-    (0.60, "lower", 0.37), (0.60, "upper", 0.43),    # ideal 0.40
-    (0.70, "lower", 0.47), (0.70, "upper", 0.53),    # ideal 0.50
+    (0.40, "lower", 0.08), (0.40, "upper", 0.14),    # v2.5 ideal 0.11
+    (0.50, "lower", 0.10), (0.50, "upper", 0.16),    # v2.5 ideal 0.13
+    (0.60, "lower", 0.13), (0.60, "upper", 0.20),    # v2.6 ideal 0.16
+    (0.70, "lower", 0.16), (0.70, "upper", 0.23),    # v2.6 ideal 0.19
     # ─── 临近 PB ───
-    (0.95, "lower", 0.55),
-    # ─── 破/超 PB 下界 (v3.0.3 全部收紧到 ideal - 0.02) ───
-    (1.00, "lower", 0.78),                            # 老 0.70 → 0.78, ideal 0.80
-    (1.20, "lower", 0.92),                            # 老 0.85 → 0.92, ideal 0.94
-    (1.50, "lower", 0.97),                            # 老 0.92 → 0.97, ideal 0.99
-    (1.80, "lower", 0.98),                            # 老 0.96 → 0.98, ideal 1.00
+    (0.95, "lower", 0.72),                            # v2.6 ideal 0.77
+    # ─── 破/超 PB 下界 (v2.6: r=1≈0.9, PB 两侧陡峭) ───
+    (1.00, "lower", 0.86),                            # v2.6 ideal 0.90
+    (1.20, "lower", 0.94),                            # v2.6 ideal 0.99
+    (1.50, "lower", 0.98),                            # v2.5 ideal 0.99
+    (1.80, "lower", 0.99),                            # v2.5 ideal 1.00
 ]
 
 
@@ -187,7 +187,7 @@ def _get_shape_bin_weights(n_bins: int, device) -> torch.Tensor:
     """返回 weighted MSE 用的 bin 权重 (1D tensor, len=n_bins).
 
     v3.0.1: shape 在低 r 段权重削弱 (让 anchor + endpoint 主导拉向 ideal),
-    sample 在低 r 平均 ~0.55 而 ideal 在 0.20-0.30, shape 加权拉 sample 反而把 model 推高.
+    sample 在低 r 平均 ~0.55 而 ideal 在 0.10-0.11 平台, shape 加权拉 sample 反而把 model 推高.
     保留拐点段加权 (S 形结构精度).
 
       - 低 r 段 (bin 0-3): 权重 0.5 (削弱, 让 anchor 主导)
@@ -503,8 +503,8 @@ def _get_ideal_target(n_bins: int, device) -> torch.Tensor:
 
 def loss_endpoint(
     curve_pred: torch.Tensor,
-    # v3.0.2: tol 0.025 + weight 12.0 — 端点死锁在 ideal ±0.025
-    head_target: float = 0.20,
+    # v3.0.25: 参考红线后, 前 2 个 bin 的 target 均值约 0.102 (0.101/0.103)
+    head_target: float = 0.102,
     tail_target: float = 1.00,
     head_tol: float = 0.025,
     tail_tol: float = 0.025,
@@ -519,7 +519,7 @@ def loss_endpoint(
     解法:
       最前 2 bin 均值钉到 head_target ± head_tol;
       最后 2 bin 均值钉到 tail_target ± tail_tol。
-      v2.10.39: 锚到 ideal (0.20, 1.00) 而非 calibrated (0.30, 0.92), 拉宽跨度。
+      v3.0.25: 参考红线后锚到 head≈0.102 / tail=1.00。
     """
     if curve_pred.size(0) == 0 or curve_pred.size(1) < n_head_bins + n_tail_bins:
         return torch.tensor(0.0, device=curve_pred.device)
@@ -545,7 +545,7 @@ def loss_r_value(r_pred: torch.Tensor, r_target: torch.Tensor) -> torch.Tensor:
 
 
 def loss_target_fit(curve_pred: torch.Tensor) -> torch.Tensor:
-    """v3.0.4 — 拟合 ★ ideal target_S_curve (业务 S 形, 跨度 0.80).
+    """v3.0.4 — 拟合 ★ ideal target_S_curve (业务 S 形, 当前跨度 0.90).
 
     与 loss_shape 互补:
       L_shape:      跟 sample 的实测 d_curve 做 MSE (跟随真实算法)
@@ -553,7 +553,7 @@ def loss_target_fit(curve_pred: torch.Tensor) -> torch.Tensor:
     """
     if curve_pred.size(0) == 0 or curve_pred.size(1) == 0:
         return torch.tensor(0.0, device=curve_pred.device)
-    target = _get_ideal_target(curve_pred.size(1), curve_pred.device)   # ★ ideal (跨度 0.80)
+    target = _get_ideal_target(curve_pred.size(1), curve_pred.device)   # ★ ideal (当前跨度 0.90)
     # broadcast 比较: (B, n_bins) vs (1, n_bins)
     sq_err = (curve_pred - target.unsqueeze(0)) ** 2
     return sq_err.mean()

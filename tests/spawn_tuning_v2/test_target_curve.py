@@ -88,9 +88,11 @@ class TestCurveVector:
     def test_first_and_last_values(self):
         """第 0 bin 应接近 D_BASE,最后 bin 应接近 D_CAP。"""
         v = target_curve_vector()
-        # 第 0 bin 中点 = 0.5/20 * 2.0 = 0.05 (v2.3 r_max=2.0)
+        # 第 0 bin 中点 = 0.5/20 * 2.0 = 0.05 (v2.4 r_max=2.0)
         assert v[0] >= D_BASE - 1e-9
         assert v[0] < D_GENTLE_END
+        assert v[0] == pytest.approx(0.1011111111, abs=1e-9)
+        assert v[5] == pytest.approx(0.145, abs=1e-9)
         # 最后 bin 中点 = 19.5/20 * 2.0 = 1.95 → 在第 4 段, v2.3 时应接近 D_CAP
         assert v[-1] > D_BRAKE_END - 1e-9
         assert v[-1] > 0.999  # v2.3: 最后 bin 极接近 1.0
@@ -119,7 +121,7 @@ class TestRToBin:
 class TestMetadata:
     def test_metadata_structure(self):
         meta = get_target_metadata()
-        assert "version" in meta
+        assert meta["version"] == "v2.6.0"
         assert "n_bins" in meta
         assert "r_max" in meta
         assert "segments" in meta

@@ -189,31 +189,31 @@ class TestLossAnchor:
     def test_satisfied_constraints_zero_loss(self):
         """构造一条满足全部 v3.0.3 (22 r 点) anchor 约束的曲线 → loss = 0.
 
-        中段双向 (ideal ± 0.03):
-          r=0.40 D ∈ [0.25, 0.31] (bin 4)
-          r=0.50 D ∈ [0.27, 0.33] (bin 5)
-          r=0.60 D ∈ [0.37, 0.43] (bin 6)
-          r=0.70 D ∈ [0.47, 0.53] (bin 7)
+        中段双向 (v3.0.26 参考红线后 ideal ± 0.03):
+          r=0.40 D ∈ [0.08, 0.14] (bin 4)
+          r=0.50 D ∈ [0.10, 0.16] (bin 5)
+          r=0.60 D ∈ [0.13, 0.20] (bin 6)
+          r=0.70 D ∈ [0.16, 0.23] (bin 7)
         高 r 收紧到 ideal - 0.02:
-          r=1.00 D ≥ 0.78 (bin 10)
-          r=1.20 D ≥ 0.92 (bin 12)
+          r=1.00 D ≥ 0.86 (bin 10)
+          r=1.20 D ≥ 0.94 (bin 12)
           r=1.50 D ≥ 0.97 (bin 15)
           r=1.80 D ≥ 0.98 (bin 18)
         """
         curve = torch.tensor([[
-            0.21,  # bin 0  (r=0.05) ∈ [0.18, 0.24] ✓
-            0.23,  # bin 1  (r=0.15) ∈ [0.20, 0.28] ✓
-            0.25,  # bin 2  (r=0.25, r=0.20 upper=0.28 ✓)
-            0.27,  # bin 3  (r=0.35, r=0.30 upper=0.32 ✓)
-            0.28,  # bin 4  (r=0.45, r=0.40 ∈ [0.25, 0.31] ✓)
-            0.30,  # bin 5  (r=0.55, r=0.50 ∈ [0.27, 0.33] ✓)
-            0.40,  # bin 6  (r=0.65, r=0.60 ∈ [0.37, 0.43] ✓)
-            0.50,  # bin 7  (r=0.75, r=0.70 ∈ [0.47, 0.53] ✓)
+            0.10,  # bin 0  (r=0.05) ∈ [0.08, 0.13] ✓
+            0.10,  # bin 1  (r=0.15) ∈ [0.08, 0.14] ✓
+            0.11,  # bin 2  (r=0.25, r=0.20 upper=0.14 ✓)
+            0.11,  # bin 3  (r=0.35, r=0.30 upper=0.15 ✓)
+            0.11,  # bin 4  (r=0.45, r=0.40 ∈ [0.08, 0.14] ✓)
+            0.13,  # bin 5  (r=0.55, r=0.50 ∈ [0.10, 0.16] ✓)
+            0.16,  # bin 6  (r=0.65, r=0.60 ∈ [0.13, 0.20] ✓)
+            0.19,  # bin 7  (r=0.75, r=0.70 ∈ [0.16, 0.23] ✓)
             0.65,  # bin 8  (r=0.85)
-            0.78,  # bin 9  (r=0.95, lower=0.55 ✓)
-            0.80,  # bin 10 (r=1.05, r=1.00 lower=0.78 ✓)
-            0.85,  # bin 11
-            0.93,  # bin 12 (r=1.25, r=1.20 lower=0.92 ✓)
+            0.78,  # bin 9  (r=0.95, lower=0.72 ✓)
+            0.90,  # bin 10 (r=1.05, r=1.00 lower=0.86 ✓)
+            0.95,  # bin 11
+            0.97,  # bin 12 (r=1.25, r=1.20 lower=0.94 ✓)
             0.95,  # bin 13
             0.96,  # bin 14
             0.98,  # bin 15 (r=1.55, r=1.50 lower=0.97 ✓)
@@ -330,7 +330,7 @@ class TestLossMonotonic:
 
 
 class TestLossTargetFit:
-    """v3.0.4: loss_target_fit 拟合 ★ ideal target_S_curve (唯一 target, 跨度 0.80)."""
+    """v3.0.4: loss_target_fit 拟合 ★ ideal target_S_curve (唯一 target, 当前跨度 0.90)."""
 
     def test_zero_when_matches_ideal(self):
         """预测 == ★ ideal target → loss = 0。"""
@@ -350,16 +350,16 @@ class TestLossTargetFit:
 
 
 class TestLossEndpoint:
-    """v3.0.1: 端点锚到 ideal (0.20, 1.00), tol ±0.03 (再严)."""
+    """v3.0.25: 端点锚到红线参考后的 ideal (head≈0.102, tail=1.00)."""
 
     def test_zero_when_endpoints_match(self):
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.20
+        curve[:, :2] = 0.102
         curve[:, -2:] = 1.00
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 
     def test_head_far_from_target(self):
-        """头 bin 均值 = 0.50, 偏离 0.30, 超 tol=0.03 → loss > 0."""
+        """头 bin 均值 = 0.50, 偏离目标 0.16, 超 tol → loss > 0."""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
         curve[:, :2] = 0.50
         curve[:, -2:] = 1.00
@@ -368,15 +368,15 @@ class TestLossEndpoint:
 
     def test_tail_far_from_target(self):
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.20
+        curve[:, :2] = 0.102
         curve[:, -2:] = 0.55
         loss_val = loss_endpoint(curve).item()
         assert loss_val > 0.01
 
     def test_within_tolerance_zero(self):
-        """偏离 < tol=0.03 不惩罚."""
+        """偏离 < tol 不惩罚."""
         curve = torch.full((4, N_CURVE_BINS), 0.6)
-        curve[:, :2] = 0.22  # 偏离 0.20 共 0.02 < tol=0.03
+        curve[:, :2] = 0.122  # 偏离 0.102 共 0.02 < tol
         curve[:, -2:] = 0.98  # 偏离 1.00 共 0.02 < tol=0.03
         assert loss_endpoint(curve).item() == pytest.approx(0.0, abs=1e-6)
 

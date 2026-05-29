@@ -71,7 +71,7 @@ class TestConstantsAcrossLanguages:
         return consts
 
     def test_pb_aware_endpoints_match(self, js_consts):
-        """端点 (d_pb_base 底/顶) 三处一致 — v2.12 复用 ideal (0.20, 1.00)."""
+        """端点 (d_pb_base 底/顶) 三处一致 — v2.12+ 复用 ideal (当前 0.10, 1.00)."""
         for fname, cs in js_consts.items():
             assert abs(cs["PB_AWARE_D_BASE"] - PB_AWARE_D_BASE) < 1e-9, \
                 f"{fname} PB_AWARE_D_BASE={cs['PB_AWARE_D_BASE']} vs python {PB_AWARE_D_BASE}"
@@ -114,8 +114,8 @@ class TestDPbBaseFormula:
     """
 
     def test_endpoints(self):
-        # r=0 → D_BASE=0.20, r=R_MAX → D_CAP=1.00
-        assert abs(pb_aware_d_pb_base(0.0) - 0.20) < 0.01
+        # r=0 → D_BASE=0.10, r=R_MAX → D_CAP=1.00
+        assert abs(pb_aware_d_pb_base(0.0) - 0.10) < 0.01
         assert abs(pb_aware_d_pb_base(2.0) - 1.00) < 0.01
 
     def test_monotonic(self):

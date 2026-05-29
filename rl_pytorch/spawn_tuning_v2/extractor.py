@@ -58,7 +58,7 @@ PB_AWARE_TENSION_WIDTH_DEFAULT = 0.08
 # v2.12 起 d_pb_base 直接复用 target_S_curve (ideal 4 段分段函数),
 #   sample 形态 ≈ ideal target, model 学到的就是 ideal.
 # 以下 4 个常量仅供跨语言一致性测试断言镜像 + 文档说明用, 不再参与计算.
-PB_AWARE_D_BASE = 0.20       # = D_BASE   (ideal)
+PB_AWARE_D_BASE = 0.10       # = D_BASE   (ideal)
 PB_AWARE_D_PEAK = 1.00       # = D_CAP    (ideal)
 PB_AWARE_CENTER = 0.85       # legacy 单段 sigmoid 拐点 (新公式用 4 段分段不再依赖)
 PB_AWARE_WIDTH = 0.18        # legacy 单段 sigmoid 宽度

@@ -903,10 +903,12 @@ def register_v2_routes(app):
         spread = avg_curve[-1] - avg_curve[0]
         # 跟 ★ ideal S 形比 (业务期望, v3.0.4 移除 calibrated 之后唯一参考)
         try:
-            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector
+            from rl_pytorch.spawn_tuning_v2.target_curve import target_curve_vector, D_BASE, D_CAP
             ideal = target_curve_vector()
+            ideal_spread = D_CAP - D_BASE
             ideal_mae = sum(abs(a - c) for a, c in zip(avg_curve, ideal)) / n_bins
         except Exception:
+            ideal_spread = 0.90
             ideal_mae = None
         # 单调性 (相邻倒退 bin 数)
         n_decreasing = sum(1 for i in range(n_bins - 1) if avg_curve[i + 1] < avg_curve[i] - 0.005)
@@ -965,7 +967,7 @@ def register_v2_routes(app):
                 "avg": [round(v, 4) for v in avg_curve],
                 "std": [round(v, 4) for v in std_curve],
                 "spread": round(spread, 4),
-                "spread_vs_ideal": round(0.80 - spread, 4),  # gap to ideal S 跨度
+                "spread_vs_ideal": round(ideal_spread - spread, 4),  # gap to ideal S 跨度
                 "ideal_mae": round(ideal_mae, 4) if ideal_mae is not None else None,
                 "n_decreasing_bins": n_decreasing,
             },

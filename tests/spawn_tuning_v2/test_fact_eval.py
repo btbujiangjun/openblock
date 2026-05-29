@@ -160,7 +160,7 @@ def test_evaluate_policies_low_coverage_is_caveat(tmp_path):
     key = "normal:rule:random:4000:growth"
     # 只有低分段(前5 bin)有数据且偏离目标；高分段全 nan(无数据)；预估贴合目标
     curve = np.full(N_BINS, np.nan)
-    curve[:5] = 0.5  # 实测平 0.5，目标前5≈0.21-0.29 → 偏离
+    curve[:5] = 0.5  # 实测平 0.5，目标前5≈0.10-0.11 → 偏离
     _seed_samples(db, {key: curve}, n_per_bin=30)
     policies = [{"context_key": key, "predicted_curve": list(target)}]
     per_ctx = evaluate_policies(db, policies, min_bin_samples=5)

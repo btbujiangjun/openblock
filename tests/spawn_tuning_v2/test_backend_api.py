@@ -833,7 +833,7 @@ class TestUtilityEndpoints:
         # 单调性已验证, 这里检查首尾值
         assert data["curve"][0] < 0.3
         assert data["curve"][-1] > 0.85
-        assert data["metadata"]["version"] == "v2.3.0"
+        assert data["metadata"]["version"] == "v2.6.0"
 
     def test_active_policies_none(self, client):
         r = client.get("/api/spawn-tuning-v2/policies/active")

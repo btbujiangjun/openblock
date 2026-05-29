@@ -23,8 +23,8 @@ describe('targetSCurve', () => {
     });
 
     it('brake segment continuity (重缩放 logistic sigmoid)', () => {
-        // v2.3: brake 段 [0.80, 1.05), 重缩放后端点严格 0/1
-        // 端点对齐: r=0.80 → D=0.50, r=1.05 → D=0.92
+        // v2.6: brake 段 [0.65, 1.15), 重缩放后端点严格 0/1
+        // 端点对齐: r=0.65 → D=0.18, r=1.15 → D=0.98
         const eps = 1e-6;
         expect(targetSCurve(SEG_MID_END)).toBeCloseTo(D_MID_END, 6);
         expect(targetSCurve(SEG_BRAKE_END - eps)).toBeCloseTo(D_BRAKE_END, 3);
@@ -75,14 +75,15 @@ describe('targetCurveVector', () => {
         expect(isMonotonicNonDecreasing(targetCurveVector(), 1e-4)).toBe(true);
     });
 
-    it('matches Python reference at key bins (v2.3, r_max=2.0)', () => {
-        // v2.3: bin_width = 2.0/20 = 0.1
-        // bin 0 中点 r=0.05: gentle 段 D = 0.20 + 0.2*0.05 = 0.21
-        // bin 5 中点 r=0.55: mid 段 slope=1.0 → D = 0.30 + 1.0*0.05 = 0.35
+    it('matches Python reference at key bins (v2.6, r_max=2.0)', () => {
+        // v2.6: bin_width = 2.0/20 = 0.1
+        // bin 0 中点 r=0.05: low plateau D ≈ 0.1011
+        // bin 5 中点 r=0.55: gentle lift D ≈ 0.145
         // bin 19 (last) 中点 r=1.95: overshoot 段, 应 > 0.999
         const v = targetCurveVector();
-        expect(v[0]).toBeCloseTo(0.21, 4);
-        expect(v[5]).toBeCloseTo(0.35, 3);
+        expect(v[0]).toBeCloseTo(0.1011, 4);
+        expect(v[5]).toBeCloseTo(0.145, 4);
+        expect(targetSCurve(1.0)).toBeCloseTo(0.896, 3);
         expect(v[19]).toBeGreaterThan(0.999);
     });
 });
@@ -112,7 +113,7 @@ describe('rToBin', () => {
 describe('getTargetMetadata', () => {
     it('has expected structure', () => {
         const m = getTargetMetadata();
-        expect(m.version).toBe('v2.3.0');
+        expect(m.version).toBe('v2.6.0');
         expect(m.n_bins).toBe(20);
         expect(m.r_max).toBe(2.0);
         expect(m.segments).toHaveLength(4);

@@ -59,7 +59,7 @@ const GRID_TOTAL_CELLS = 64;
 // ─────────── 单步难度 (v2.10: PB-aware, 跨语言 Python extractor.py 同步) ───────────
 //
 // 病例 (job_13/14/16, 5000 样本验证): 老公式 d 跟 r=score/PB 完全无关,
-//   d_curve 跨度仅 0.474→0.679 (Δ=0.20), 业务期望 0.20→1.00 (Δ=0.80) 是 4×。
+//   d_curve 跨度仅 0.474→0.679 (Δ=0.20), 当前业务期望 0.10→1.00 (Δ=0.90) 是 4×+。
 //   模型再怎么训, 学到的都是训练 label 的形态, 永远 < ideal target。
 //
 // v2.10 修复: d_step 显式编码 PB 命题
@@ -72,7 +72,7 @@ const GRID_TOTAL_CELLS = 64;
 
 // PB-aware 常量 (跨语言: extractor.py + policyMetricsV2.js 严格同步)
 // v2.12 起 d_pb_base 直接复用 targetSCurve (legacy, 不参与 v3.x 计算).
-const PB_AWARE_D_BASE = 0.20;       // legacy
+const PB_AWARE_D_BASE = 0.10;       // legacy
 const PB_AWARE_D_PEAK = 1.00;       // legacy
 const PB_AWARE_CENTER = 0.85;       // legacy
 const PB_AWARE_WIDTH  = 0.18;       // legacy
