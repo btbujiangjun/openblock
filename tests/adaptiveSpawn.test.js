@@ -1151,14 +1151,21 @@ describe('resolveAdaptiveStrategy', () => {
             expect(s._stressBreakdown.reactionAdjust).toBe(0);
         });
 
-        it('反应过快 (< fastMs=350) → +stress 微调', () => {
-            const s = resolveAdaptiveStrategy('normal', withReaction(150, 6), 100, 0, 0.4);
+        it('反应过快 (< fastMs=900，约本地分布 p5) → +stress 微调', () => {
+            const s = resolveAdaptiveStrategy('normal', withReaction(700, 6), 100, 0, 0.4);
             expect(s._stressBreakdown.reactionAdjust).toBeGreaterThan(0);
             expect(s._stressBreakdown.reactionAdjust).toBeLessThanOrEqual(0.05);
         });
 
-        it('反应过慢 (> slowMs=4500) → -stress 微调', () => {
-            const s = resolveAdaptiveStrategy('normal', withReaction(7000, 6), 100, 0, 0.4);
+        it('极端快/慢反应进入饱和区，接近 ±maxAdjust', () => {
+            const fast = resolveAdaptiveStrategy('normal', withReaction(400, 6), 100, 0, 0.4);
+            const slow = resolveAdaptiveStrategy('normal', withReaction(3400, 6), 100, 0, 0.4);
+            expect(fast._stressBreakdown.reactionAdjust).toBeGreaterThanOrEqual(0.049);
+            expect(slow._stressBreakdown.reactionAdjust).toBeLessThanOrEqual(-0.049);
+        });
+
+        it('反应过慢 (> slowMs=2200，约本地分布 p95) → -stress 微调', () => {
+            const s = resolveAdaptiveStrategy('normal', withReaction(2600, 6), 100, 0, 0.4);
             expect(s._stressBreakdown.reactionAdjust).toBeLessThan(0);
             expect(s._stressBreakdown.reactionAdjust).toBeGreaterThanOrEqual(-0.05);
         });
@@ -1169,11 +1176,73 @@ describe('resolveAdaptiveStrategy', () => {
         });
 
         it('reactionAdjust 与 nearMissAdjust 显著同向时让位（弱信号让强信号）', () => {
-            const p = withReaction(7000, 6);
+            const p = withReaction(2600, 6);
             Object.defineProperty(p, 'hadRecentNearMiss', { value: true, configurable: true });
             const s = resolveAdaptiveStrategy('normal', p, 100, 0, 0.4);
             expect(s._stressBreakdown.nearMissAdjust).toBeLessThan(-0.05);
             expect(s._stressBreakdown.reactionAdjust).toBe(0);
+        });
+    });
+
+    describe('历史实时状态复合救济', () => {
+        function withRealtimeState({
+            clearRate = 0.3,
+            cognitiveLoad = 0.3,
+            frustration = 0,
+            flowState = 'flow',
+            feedbackBias = 0,
+            smoothSkill = 0.62
+        } = {}) {
+            const p = makeProfile({ smoothSkill, lifetimeGames: 8, lifetimePlacements: 160, spawnCounter: 10 });
+            const realMetrics = p.metrics;
+            Object.defineProperty(p, 'metrics', {
+                get() {
+                    return { ...realMetrics, clearRate, activeSamples: 12, samples: 12 };
+                },
+                configurable: true
+            });
+            Object.defineProperty(p, 'cognitiveLoad', { value: cognitiveLoad, configurable: true });
+            Object.defineProperty(p, 'frustrationLevel', { value: frustration, configurable: true });
+            Object.defineProperty(p, 'flowState', { value: flowState, configurable: true });
+            Object.defineProperty(p, 'feedbackBias', { value: feedbackBias, configurable: true });
+            return p;
+        }
+
+        it('低消行 + 中高板面提前触发 preFrustrationRelief 与保消', () => {
+            const p = withRealtimeState({ clearRate: 0.1, frustration: 2 });
+            const s = resolveAdaptiveStrategy('normal', p, 120, 0, 0.55, { totalRounds: 8 });
+            expect(s._stressBreakdown.preFrustrationRelief).toBeLessThan(0);
+            expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(2);
+            expect(s.spawnHints.sizePreference).toBeLessThanOrEqual(-0.18);
+        });
+
+        it('高板面 + 挫败合流触发 boardFrustrationRelief', () => {
+            const p = withRealtimeState({ clearRate: 0.2, frustration: 3 });
+            const s = resolveAdaptiveStrategy('normal', p, 120, 0, 0.66, { totalRounds: 8 });
+            expect(s._stressBreakdown.boardFrustrationRelief).toBeLessThan(0);
+            expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(2);
+            expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.55);
+        });
+
+        it('anxious + 高认知负荷降低决策复杂度并禁用 challengeBoost/orderRigor', () => {
+            const p = withRealtimeState({ flowState: 'anxious', cognitiveLoad: 0.95, smoothSkill: 0.82 });
+            const s = resolveAdaptiveStrategy('hard', p, 180, 0, 0.62, {
+                bestScore: 200,
+                totalRounds: 12,
+                nearFullLines: 2
+            });
+            expect(s._stressBreakdown.decisionLoadRelief).toBeLessThan(0);
+            expect(s._stressBreakdown.challengeBoostBypass).toBe('decision_load');
+            expect(s.spawnHints.orderRigor).toBe(0);
+            expect(s.spawnHints.spawnTargets.shapeComplexity).toBeLessThan(0.6);
+            expect(s.spawnHints.clearGuarantee).toBeGreaterThanOrEqual(2);
+        });
+
+        it('困境中削弱长期偏正 feedbackBias', () => {
+            const p = withRealtimeState({ clearRate: 0.1, frustration: 2, feedbackBias: 0.2 });
+            const s = resolveAdaptiveStrategy('normal', p, 120, 0, 0.55, { totalRounds: 8 });
+            expect(s._stressBreakdown.feedbackBias).toBeGreaterThan(0);
+            expect(s._stressBreakdown.feedbackBiasDampingAdjust).toBeLessThan(0);
         });
     });
 });

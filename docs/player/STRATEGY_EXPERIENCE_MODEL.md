@@ -192,9 +192,11 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 2. 下一次 `recordPlace/Miss` 写入该 move 的 `pickToPlaceMs`；
 3. `metrics.pickToPlaceMs / reactionSamples` 通过 `buildPlayerStateSnapshot` 进入回放与决策快照；
 4. `resolveAdaptiveStrategy` 在 `reactionSamples ≥ minSamples` 时把它折成 `reactionAdjust`：
-   - `< fastMs`（默认 350ms）反射式快放 → +stress（最多 +0.05），倾向 bored 加压；
-   - `> slowMs`（默认 4500ms）拖动犹豫 → −stress（最多 −0.05），倾向 anxious 减压；
+   - `< fastMs`（默认 900ms）快端尾部 → +stress（最多 +0.05），倾向 bored 加压；
+   - `> slowMs`（默认 2200ms）慢端尾部 → −stress（最多 −0.05），倾向 anxious 减压；
    - 中段（健康区）零作用；与 `nearMissAdjust` 显著同向时让位（弱信号让强信号）。
+
+阈值按本地回放有效 reaction 样本分布校准：`n=4260`，p5≈929ms、p50≈1447ms、p95≈2140ms。旧口径 `<350ms` / `>4500ms` 在该分布上触发率均为 0%，无法作为有效的 stress 反馈信号。
 5. 配置位：`shared/game_rules.json → adaptiveSpawn.reactionAdjust`。
 
 **叙事-体感对齐两条窄守卫**

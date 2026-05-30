@@ -243,6 +243,9 @@ smoothSkill += α × (rawSkill - smoothSkill)
 | `frustrationLevel` | int | 连续未消行步数 | ≥ 4 → 挫败救济 |
 | `hadRecentNearMiss` | bool | 上步 fill>0.6 且未消行 | true → 降压 + clearGuarantee=2 |
 | `needsRecovery` | bool | fill > 0.82 时激活，持续 4 步 | true → 降压 + 偏小块 |
+| `preFrustrationRelief` | adjust | `clearRate < 0.25` 且 `boardFill >= 0.45`，尚未进入强挫败 | 提前降压 + `clearGuarantee>=2` + 偏小块 |
+| `boardFrustrationRelief` | adjust | `boardFill >= 0.58` 且 `frustrationLevel >= 3` | 处理高板面×挫败合流，强化保消/多消 |
+| `decisionLoadRelief` | adjust | `flowState=anxious` 且 `cognitiveLoad >= 0.60` | 降低形状复杂度、解空间压力和顺序刚性 |
 | `isInOnboarding` | bool | 新玩家 + 前 5 轮 spawn | true → stress 钳制到 -0.15 |
 | `sessionPhase` | enum | 经过时间 + spawnCounter | early/peak/late 影响策略微调 |
 
@@ -1117,10 +1120,13 @@ rawStress ──┐
 | scoreStress | + | 0~0.78 | 分数越高 | 传统递进难度 |
 | skillAdjust | ± | ±0.15 | 技能偏离中位 | 个性化适配 |
 | flowAdjust | ± | -0.12~+0.08 | 心流偏移 | Csíkszentmihályi |
-| reactionAdjust | ± | ±0.05 | `pickToPlaceMs` < `fastMs` (默认 350ms) → 反射式快放 +stress；> `slowMs` (4500ms) → 拖动犹豫 -stress；`reactionSamples ≥ minSamples`（默认 3）才启用；与 `nearMissAdjust` 同向时让位 | 反应/操作熟练度的早期信号 |
+| reactionAdjust | ± | ±0.05 | `pickToPlaceMs` < `fastMs` (默认 900ms) → 快端尾部 +stress，`fastFullMs` (默认 500ms) 饱和；> `slowMs` (默认 2200ms) → 慢端尾部 -stress，`slowFullMs` (默认 3200ms) 饱和；`reactionSamples ≥ minSamples`（默认 3）才启用；与 `nearMissAdjust` 同向时让位。阈值来自本地有效 reaction 样本分布：p5≈929ms、p50≈1447ms、p95≈2140ms，旧 350/4500 在样本中触发率为 0% | 反应/操作熟练度的早期信号 |
 | pacingAdjust | ± | -0.12~+0.04 | 周期相位 | 张弛有度 |
 | recoveryAdjust | - | -0.2 | fill > 82% | 防止不公平死局 |
 | frustrationRelief | - | -0.18 | ≥ 4 步未消行 | 流失预防 |
+| preFrustrationRelief | - | 0 ~ −0.06 | `clearRate < 0.25` 且 `boardFill >= 0.45`，尚未进入强挫败 | 低消行前置救济 |
+| boardFrustrationRelief | - | 0 ~ −0.12 | `boardFill >= 0.58` 且 `frustrationLevel >= 3` | 高板面×挫败复合救济 |
+| decisionLoadRelief | - | 0 ~ −0.07 | anxious + `cognitiveLoad >= 0.60` | 认知减负，降低复杂度/顺序约束 |
 | nearMissAdjust | - | -0.1 | 高填充+未消行 | 差一点效应 |
 | boardRiskReliefAdjust | - | 约 -0.1 | 填充、空洞、能力风险综合偏高 | 避免多处风险重复加压 |
 | comboReward | + | +0.05 | combo ≥ 2 | 正反馈 |
@@ -4799,13 +4805,15 @@ category 权重最高 → "XX权重XX%"
 | S3 | `difficultyBias` | 难度档静态偏移 | easy=−0.22，normal=0，hard=+0.22；可被 `difficultyTuning.stressBias` 覆写 |
 | S4 | `skillAdjust` | 技能调节 | `(skillScore − 0.5) × skillAdjustScale(0.3) × confGate`；confGate = `0.4 + 0.6 × confidence` |
 | S5 | `flowAdjust` | 心流调节 | bored: `+flowBoredAdjust(0.08) × min(2, 1+flowDeviation)`；anxious: `−flowAnxiousAdjust(0.12) × min(2, 1+flowDev)` |
-| S6 | `reactionAdjust` | 反应时间微调 | 样本≥3 时：reactionMs < 350ms → `+maxAdjust(0.05)`；reactionMs > 4500ms → `−0.05`；nearMissAdjust 同向时让位为 0 |
+| S6 | `reactionAdjust` | 反应时间微调 | 样本≥3 时：reactionMs < 900ms → 正向微调，500ms 饱和到 `+maxAdjust(0.05)`；reactionMs > 2200ms → 负向微调，3200ms 饱和到 `−0.05`；nearMissAdjust 同向时让位为 0 |
 | S7 | `pacingAdjust` | 节奏张弛调节 | release=`−0.12`，tension=`+0.04`（pacing.enabled 时生效） |
 | S8 | `recoveryAdjust` | 恢复需求减压 | `needsRecovery ? −0.20 : 0` |
 | S9 | `frustrationRelief` | 挫败减压 | `frustrationLevel ≥ 4 ? −0.18 : 0` |
 | S10 | `comboAdjust` | Combo 奖励微加压 | `recentComboStreak ≥ 2 ? +0.05 : 0` |
 | S11 | `nearMissAdjust` | 近失效应减压 | `hadRecentNearMiss ? −0.10 : 0` |
 | S12 | `feedbackBias` | 闭环反馈偏移 | 直接取 `profile.feedbackBias` ∈ [−0.15, +0.15] |
+| S12b | `feedbackBiasDampingAdjust` | 困境去偏 | 当 `feedbackBias>0` 且命中低消行/高板面挫败/认知负荷/高挫败困境时，按强度抵消一部分正向反馈，上限 −0.08 |
+| S12c | `preFrustrationRelief` / `boardFrustrationRelief` / `decisionLoadRelief` | 历史实时状态复合救济 | 低消行前置救济、高板面×挫败复合救济、anxious×高认知负荷减负；详见 [`REALTIME_STATE_HISTORY_ANALYSIS.md`](./REALTIME_STATE_HISTORY_ANALYSIS.md) |
 | S13 | `trendAdjust` | 技能趋势调节 | `trend × 0.08 × confidence`；正趋势轻微加压，退步轻微减压 |
 | S14 | `sessionArcAdjust` | 局内弧线调节 | warmup: −0.08；cooldown+momentum<−0.2: `−0.05 − min(0.4, |momentum|−0.2) × 0.375`（约 −0.05 ~ −0.20） |
 | S15 | `endSessionDistress` | 末段崩盘减压脉冲 | sessionPhase='late' && momentum ≤ −0.30：`−(0.05 + min(0.30, |momentum|−0.30) × 0.5)`；frustration≥4 再 −0.06；范围 [−0.25, 0] |

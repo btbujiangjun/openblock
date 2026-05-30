@@ -549,12 +549,21 @@ module.exports = {
       "comboRewardAdjust": 0.05
     },
     "reactionAdjust": {
-      "comment": "v1.46『反应』指标 → stress 微调：startDrag→落子的纯执行段（pickToPlaceMs）落入快/慢区间时，对 stress 施加 ±maxAdjust 的轻微偏移；中段（slow~fast 之间）零作用。仅当 reactionSamples ≥ minSamples 时启用，避免冷启动单点噪声；钳值刻意比 flowAdjust 小一个量级，作为现有信号的一个轻量补充而非主导项。",
+      "comment": "v1.46『反应』指标 → stress 微调：startDrag→落子的纯执行段（pickToPlaceMs）落入快/慢尾部区间时，对 stress 施加 ±maxAdjust 的轻微偏移；中段（fast~slow 之间）零作用。阈值按本地回放有效样本分布校准：p5≈929ms、p50≈1447ms、p95≈2140ms，因此 fastMs=900、slowMs=2200；fastFullMs/slowFullMs 定义饱和区，让极端快/慢反应能真正接近 ±maxAdjust。仅当 reactionSamples ≥ minSamples 时启用，避免冷启动单点噪声；钳值刻意比 flowAdjust 小一个量级，作为现有信号的一个轻量补充而非主导项。",
       "enabled": true,
       "minSamples": 3,
-      "fastMs": 350,
-      "slowMs": 4500,
+      "fastMs": 900,
+      "fastFullMs": 500,
+      "slowMs": 2200,
+      "slowFullMs": 3200,
       "maxAdjust": 0.05
+    },
+    "realtimeStateTuning": {
+      "comment": "基于历史实时状态序列的复合早期救济：低消行+中高板面提前防挫败，高板面+挫败处理死局感合流，anxious+高认知负荷降低决策复杂度；同时在困境中削弱长期偏正的 feedbackBias。",
+      "preFrustrationRelief": { "enabled": true, "clearRateMax": 0.25, "boardFillMin": 0.45, "maxRelief": 0.06 },
+      "boardFrustrationRelief": { "enabled": true, "boardFillMin": 0.58, "frustrationMin": 3, "maxRelief": 0.12 },
+      "decisionLoadRelief": { "enabled": true, "cognitiveLoadMin": 0.60, "maxRelief": 0.07 },
+      "feedbackBiasDamping": { "enabled": true, "factor": 0.5, "maxDamping": 0.08 }
     },
     "solutionDifficulty": {
       "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.1 P1：在 0.35→0.6 之间补 '渐紧' 一档（minStress=0.5, max=64），让中段 stress 也有可感知难度差，消除 0.55 跨阈值前的'无感区'。v1.57.2：新增 holeIncrement.ranges——在解空间宽度之外引入'空洞强迫度'第二维度（详见 holeIncrement.comment）。",

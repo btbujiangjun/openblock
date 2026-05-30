@@ -992,6 +992,66 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* ---------- 闭环反馈偏移 ---------- */
     const feedbackBias = profile.feedbackBias ?? 0;
 
+    /* ---------- 历史实时状态优化：低消行 / 高板面挫败 / 认知负荷前置救济 ----------
+     * 与 web 端同源：基于历史回放中 low-clear→frustration、high-fill→frustration、
+     * anxious→cognitiveLoad 的强共现关系，把复合早期信号接入 stress 和 spawnHints。 */
+    const rtCfg = cfg.realtimeStateTuning ?? {};
+    const clearRate = Number(profile.metrics?.clearRate);
+    const cognitiveLoadRaw = Number(profile.cognitiveLoad);
+    const cognitiveLoad = Number.isFinite(cognitiveLoadRaw) ? clamp01(cognitiveLoadRaw) : null;
+    const boardFillNow = clamp01(Number(_boardFill ?? 0) || 0);
+    const frustNow = Math.max(0, Number(profile.frustrationLevel ?? 0) || 0);
+
+    const preCfg = rtCfg.preFrustrationRelief ?? {};
+    const preClearRateMax = Number.isFinite(preCfg.clearRateMax) ? preCfg.clearRateMax : 0.25;
+    const preFillMin = Number.isFinite(preCfg.boardFillMin) ? preCfg.boardFillMin : 0.45;
+    const preMaxRelief = Math.max(0, Number(preCfg.maxRelief ?? 0.06));
+    let preFrustrationRelief = 0;
+    if (preCfg.enabled !== false
+        && Number.isFinite(clearRate)
+        && clearRate < preClearRateMax
+        && boardFillNow >= preFillMin
+        && frustNow < frustThreshold) {
+        const lowClear = clamp01((preClearRateMax - clearRate) / Math.max(0.001, preClearRateMax));
+        const fillPressure = clamp01((boardFillNow - preFillMin) / Math.max(0.001, 0.72 - preFillMin));
+        preFrustrationRelief = -preMaxRelief * clamp01(0.55 * lowClear + 0.45 * fillPressure);
+    }
+
+    const bfCfg = rtCfg.boardFrustrationRelief ?? {};
+    const bfFillMin = Number.isFinite(bfCfg.boardFillMin) ? bfCfg.boardFillMin : 0.58;
+    const bfFrustMin = Number.isFinite(bfCfg.frustrationMin) ? bfCfg.frustrationMin : 3;
+    const bfMaxRelief = Math.max(0, Number(bfCfg.maxRelief ?? 0.12));
+    let boardFrustrationRelief = 0;
+    if (bfCfg.enabled !== false && boardFillNow >= bfFillMin && frustNow >= bfFrustMin) {
+        const fillPressure = clamp01((boardFillNow - bfFillMin) / Math.max(0.001, 0.78 - bfFillMin));
+        const frustPressure = clamp01((frustNow - bfFrustMin + 1) / Math.max(1, frustThreshold - bfFrustMin + 2));
+        boardFrustrationRelief = -bfMaxRelief * clamp01(0.45 * fillPressure + 0.55 * frustPressure);
+    }
+
+    const dlCfg = rtCfg.decisionLoadRelief ?? {};
+    const dlLoadMin = Number.isFinite(dlCfg.cognitiveLoadMin) ? dlCfg.cognitiveLoadMin : 0.60;
+    const dlMaxRelief = Math.max(0, Number(dlCfg.maxRelief ?? 0.07));
+    const decisionLoadReliefActive = dlCfg.enabled !== false
+        && flow === 'anxious'
+        && cognitiveLoad != null
+        && cognitiveLoad >= dlLoadMin;
+    const decisionLoadRelief = decisionLoadReliefActive
+        ? -dlMaxRelief * clamp01((cognitiveLoad - dlLoadMin) / Math.max(0.001, 1 - dlLoadMin))
+        : 0;
+
+    const fbCfg = rtCfg.feedbackBiasDamping ?? {};
+    const feedbackDistress = Math.max(
+        preFrustrationRelief < 0 ? Math.min(1, Math.abs(preFrustrationRelief) / Math.max(0.001, preMaxRelief)) : 0,
+        boardFrustrationRelief < 0 ? Math.min(1, Math.abs(boardFrustrationRelief) / Math.max(0.001, bfMaxRelief)) : 0,
+        decisionLoadRelief < 0 ? Math.min(1, Math.abs(decisionLoadRelief) / Math.max(0.001, dlMaxRelief)) : 0,
+        frustNow >= 3 ? Math.min(1, frustNow / Math.max(1, frustThreshold + 2)) : 0
+    );
+    const fbDampingFactor = Math.max(0, Math.min(1, Number(fbCfg.factor ?? 0.5)));
+    const fbDampingCap = Math.max(0, Number(fbCfg.maxDamping ?? 0.08));
+    const feedbackBiasDampingAdjust = fbCfg.enabled === false || feedbackBias <= 0 || feedbackDistress <= 0
+        ? 0
+        : -Math.min(fbDampingCap, feedbackBias * fbDampingFactor * feedbackDistress);
+
     /* ---------- 长周期趋势 ---------- */
     const trend = profile.trend ?? 0;
     const trendScale = fz.trendAdjustScale ?? 0.08;
@@ -1142,9 +1202,12 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
      * 「玩家本人此刻的认知 / 操作负担」。
      *
      * 调控规则：
-     *   - reactionMs < fastMs（默认 350ms）持续 → 反射式快放，倾向 bored，+stress（最多 +maxAdjust）
-     *   - reactionMs > slowMs（默认 4500ms）持续 → 拖动中犹豫，倾向 anxious，−stress（最多 −maxAdjust）
+     *   - reactionMs < fastMs（默认 900ms）持续 → 反射式快放，倾向 bored，+stress（最多 +maxAdjust）
+     *   - reactionMs > slowMs（默认 2200ms）持续 → 拖动中犹豫，倾向 anxious，−stress（最多 −maxAdjust）
      *   - 中段（fastMs~slowMs）= 健康，0
+     *
+     * 阈值依据：本地回放有效 reaction 样本（n=4260）p5≈929ms、p50≈1447ms、p95≈2140ms。
+     * 旧阈值 350/4500 在该分布上触发率均为 0%，无法承担反馈职责。
      *
      * 钳值 maxAdjust 默认 0.05，刻意小于 flowAdjust(±0.12)、recoveryAdjust(−0.2) 等主信号
      * 一个量级——它是对 thinkMs/missRate 等已有信号的"轻量补充"，不应主导 stress。
@@ -1159,8 +1222,10 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const reactionMs = Number(profile.metrics?.pickToPlaceMs);
     const reactionSamples = Math.max(0, Number(profile.metrics?.reactionSamples ?? 0) || 0);
     const reactionMinSamples = Math.max(1, Number(reactionCfg.minSamples ?? 3));
-    const reactionFastMs = Math.max(50, Number(reactionCfg.fastMs ?? 350));
-    const reactionSlowMs = Math.max(reactionFastMs + 100, Number(reactionCfg.slowMs ?? 4500));
+    const reactionFastMs = Math.max(50, Number(reactionCfg.fastMs ?? 900));
+    const reactionSlowMs = Math.max(reactionFastMs + 100, Number(reactionCfg.slowMs ?? 2200));
+    const reactionFastFullMs = Math.max(50, Math.min(reactionFastMs - 1, Number(reactionCfg.fastFullMs ?? 500)));
+    const reactionSlowFullMs = Math.max(reactionSlowMs + 1, Number(reactionCfg.slowFullMs ?? 3200));
     const reactionMaxAdjust = Math.max(0, Number(reactionCfg.maxAdjust ?? 0.05));
     let reactionAdjust = 0;
     if (
@@ -1169,10 +1234,10 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         && reactionSamples >= reactionMinSamples
     ) {
         if (reactionMs < reactionFastMs) {
-            const intensity = Math.min(1, (reactionFastMs - reactionMs) / reactionFastMs);
+            const intensity = Math.min(1, (reactionFastMs - reactionMs) / Math.max(1, reactionFastMs - reactionFastFullMs));
             reactionAdjust = +reactionMaxAdjust * intensity;
         } else if (reactionMs > reactionSlowMs) {
-            const overshoot = Math.min(1, (reactionMs - reactionSlowMs) / reactionSlowMs);
+            const overshoot = Math.min(1, (reactionMs - reactionSlowMs) / Math.max(1, reactionSlowFullMs - reactionSlowMs));
             reactionAdjust = -reactionMaxAdjust * overshoot;
         }
         /* 与 nearMissAdjust 显著同向时让位（弱信号让弱给强） */
@@ -1192,9 +1257,13 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         pacingAdjust: applySignal(signalCfg, 'pacingAdjust', pacingAdjust),
         recoveryAdjust: applySignal(signalCfg, 'recoveryAdjust', recoveryAdjust),
         frustrationRelief: applySignal(signalCfg, 'frustrationRelief', frustRelief),
+        preFrustrationRelief: applySignal(signalCfg, 'preFrustrationRelief', preFrustrationRelief),
+        boardFrustrationRelief: applySignal(signalCfg, 'boardFrustrationRelief', boardFrustrationRelief),
+        decisionLoadRelief: applySignal(signalCfg, 'decisionLoadRelief', decisionLoadRelief),
         comboAdjust: applySignal(signalCfg, 'comboAdjust', comboAdjust),
         nearMissAdjust: applySignal(signalCfg, 'nearMissAdjust', nearMissAdjust),
         feedbackBias: applySignal(signalCfg, 'feedbackBias', feedbackBias),
+        feedbackBiasDampingAdjust: applySignal(signalCfg, 'feedbackBiasDampingAdjust', feedbackBiasDampingAdjust),
         trendAdjust: applySignal(signalCfg, 'trendAdjust', trendAdjust),
         sessionArcAdjust: applySignal(signalCfg, 'sessionArcAdjust', sessionArcAdjust),
         endSessionDistress: applySignal(signalCfg, 'endSessionDistress', endSessionDistress),
@@ -1343,6 +1412,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     } else if (Number.isFinite(profile.frustrationLevel)
         && profile.frustrationLevel >= frustThreshold) {
         challengeBoostBypass = 'frustration';
+    } else if (decisionLoadReliefActive) {
+        challengeBoostBypass = 'decision_load';
     } else if (sessionArc === 'warmup') {
         challengeBoostBypass = 'warmup';
     } else if (ctx.postPbReleaseActive === true) {
@@ -1636,6 +1707,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             || inOnboarding
             || profile.needsRecovery === true
             || hasBottleneckSignal
+            || decisionLoadReliefActive
             || motivationIntent === 'relaxation'
             || motivationIntent === 'competence'
             || accessibilityLoad >= 0.45
@@ -1699,7 +1771,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     stressBreakdown.orderMaxValidPerms = orderMaxValidPerms;
     stressBreakdown.pbOvershootOrderBoost = pbOvershootOrderBoostApplied;
 
-    const spawnTargets = deriveSpawnTargets(
+    let spawnTargets = deriveSpawnTargets(
         stress,
         profile,
         ctx,
@@ -1709,6 +1781,17 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         cfg.spawnTargets ?? {},
         boardDifficulty
     );
+    if (decisionLoadReliefActive) {
+        const loadRelief = Math.min(1, Math.abs(decisionLoadRelief) / Math.max(0.001, dlMaxRelief));
+        spawnTargets = {
+            ...spawnTargets,
+            shapeComplexity: clamp01((spawnTargets.shapeComplexity ?? 0) - 0.18 * loadRelief),
+            solutionSpacePressure: clamp01((spawnTargets.solutionSpacePressure ?? 0) - 0.22 * loadRelief),
+            spatialPressure: clamp01((spawnTargets.spatialPressure ?? 0) - 0.18 * loadRelief),
+            clearOpportunity: clamp01((spawnTargets.clearOpportunity ?? 0) + 0.18 * loadRelief),
+            novelty: clamp01((spawnTargets.novelty ?? 0) - 0.08 * loadRelief),
+        };
+    }
 
     /* ---------- 插值 shapeWeights ---------- */
     const shapeWeights = interpolateProfileWeights(cfg.profiles, stress);
@@ -1753,6 +1836,9 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* --- Layer 2: 节奏相位 + 多线目标 --- */
     let rhythmPhase = deriveRhythmPhase(profile, ctx, _boardFill ?? 0);
     let multiLineTarget = deriveMultiLineTarget(ctx, _boardFill ?? 0);
+    const realtimeStateReliefActive = preFrustrationRelief < 0
+        || boardFrustrationRelief < 0
+        || decisionLoadReliefActive;
 
     /* --- 原有条件逻辑 --- */
     if (profile.hadRecentNearMiss) {
@@ -1837,6 +1923,25 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         diversityBoost = Math.max(diversityBoost, 0.12);
         multiClearBonus = Math.max(multiClearBonus, 0.5);
         if (rhythmPhase === 'neutral' && (ctx.nearFullLines ?? 0) >= 1) rhythmPhase = 'payoff';
+    }
+
+    if (preFrustrationRelief < 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.18);
+        multiClearBonus = Math.max(multiClearBonus, 0.42);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    if (boardFrustrationRelief < 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.28);
+        multiClearBonus = Math.max(multiClearBonus, 0.55);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    if (decisionLoadReliefActive) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.22);
+        diversityBoost = Math.max(diversityBoost, 0.08);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
     }
 
     /* --- 拓扑机会：临消线/清屏准备对规则轨和生成式上下文保持同一口径 --- */
@@ -2141,6 +2246,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         && !inOnboarding
         && !profile.needsRecovery
         && profile.frustrationLevel < frustThreshold
+        && !realtimeStateReliefActive
         && (ctx.roundsSinceClear ?? 0) < 2
         && wr <= 0
     ) {
@@ -2191,7 +2297,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         // 远征段开局通常恰好命中 _mcCands<1 && _nfLines<2 && !_realPcSetup 的空盘特征，
         // 此处兜底会撤回上方 farFromPBBoost 的 multiClearBonus floor=0.45 注入，故同等豁免。
         if (_mcCands < 1 && _nfLines < 2 && !_realPcSetup && !_isWarmup && !afkEngageActive
-            && !farFromPBBoostActive) {
+            && !farFromPBBoostActive && !realtimeStateReliefActive) {
             multiClearBonus = Math.min(multiClearBonus, 0.4);
             multiLineTarget = 0;
         }
@@ -2254,6 +2360,9 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
      */
     const playerDistress = (stressBreakdown.recoveryAdjust ?? 0)
         + (stressBreakdown.frustrationRelief ?? 0)
+        + (stressBreakdown.preFrustrationRelief ?? 0)
+        + (stressBreakdown.boardFrustrationRelief ?? 0)
+        + (stressBreakdown.decisionLoadRelief ?? 0)
         + (stressBreakdown.nearMissAdjust ?? 0)
         + (stressBreakdown.holeReliefAdjust ?? 0)
         + (stressBreakdown.boardRiskReliefAdjust ?? 0)

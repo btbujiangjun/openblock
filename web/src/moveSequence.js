@@ -1044,7 +1044,7 @@ export const REPLAY_METRICS = [
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.reactionAdjust,
         fmt: 'f2',
-        tooltip: '反应触发的 stress 微调（v1.46）：依据「反应」(pickToPlaceMs) 落点对 stress 施加 ±0.05 偏移——\n• < 350ms（反射式快放，倾向 bored）→ +stress；\n• > 4500ms（拖动犹豫，倾向 anxious）→ −stress；\n• 中段（健康区）→ 0；\n• `reactionSamples` < 3 时强制 0（避免冷启动噪声）；\n• 与 nearMissAdjust 显著同向时让位（弱信号让强信号）。\n📈 看图：与「反应」(pickToPlaceMs) 配对查看——反应曲线进入极端区间，本曲线才会偏离 0；本指标长期 0 = 玩家反应处于健康区间。'
+        tooltip: '反应触发的 stress 微调（v1.46）：依据「反应」(pickToPlaceMs) 落点对 stress 施加 ±0.05 偏移——\n• < 900ms（本地分布快端尾部，500ms 饱和）→ +stress；\n• > 2200ms（本地分布慢端尾部，3200ms 饱和）→ −stress；\n• 中段（健康区）→ 0；\n• `reactionSamples` < 3 时强制 0（避免冷启动噪声）；\n• 与 nearMissAdjust 显著同向时让位（弱信号让强信号）。\n📈 看图：与「反应」(pickToPlaceMs) 配对查看——反应曲线进入分布尾部，本曲线才会偏离 0；本指标长期 0 = 玩家反应处于健康区间。'
     },
     {
         key: 'pacingAdjust',
