@@ -1,13 +1,12 @@
-# 彩蛋与惊喜系统（v10.15 — v10.16 Delight & Easter Eggs）
+# 彩蛋与惊喜系统
 
-> 路线图入口：本文档为开源可读版本；内部 Canvas 不随仓库发布。
-> 上下文：见 [`SKINS_CATALOG.md`](./SKINS_CATALOG.md)（v10.15 章节）与 [`CASUAL_GAME_ANALYSIS.md`](../domain/CASUAL_GAME_ANALYSIS.md)（"惊喜与情绪曲线"小节）。
+> 上下文：见 [`SKINS_CATALOG.md`](./SKINS_CATALOG.md) 与 [`CASUAL_GAME_ANALYSIS.md`](../domain/CASUAL_GAME_ANALYSIS.md)（"惊喜与情绪曲线"小节）。
 
 休闲游戏的核心壁垒是「积累的惊喜」。本系统把 36 款皮肤的视觉资产和游戏的反馈管线进一步盘活，在不改动核心玩法的前提下，让玩家**第一次玩**就感觉「这游戏有灵魂」、**长期玩**有理由回来。
 
 ---
 
-## 1. 总览：S1 + S2 sprint 已实装的 9 项 P0
+## 1. 总览
 
 | 编号 | 模块 | 文件 | 体感 | 工时 |
 |------|------|------|------|------|
@@ -51,7 +50,7 @@
   renderer.clear()
   renderer.renderBackground()
   renderer.renderEdgeFalloff()
-  renderer.renderAmbient()      ← v10.15 新增 1 行（环境粒子）
+  renderer.renderAmbient()      （环境粒子）
   renderer.renderGrid(grid)
   …
 ```
@@ -145,7 +144,7 @@ t=600ms  overlay 复位，transition 清除
 
 #### 关键设计
 
-- **复用 fxCanvas**：在 v10.12 引入的特效画布（`#game-grid-fx`）上绘制，享受 v10.14 的 4 边羽化 mask（粒子飞出盘面会自然消散，不会撞硬边界）。
+- **复用 fxCanvas**：在特效画布（`#game-grid-fx`）上绘制，享受 4 边羽化 mask（粒子飞出盘面会自然消散，不会撞硬边界）。
 - **生命周期**：粒子飞出 fxCanvas 边界（含 paintMargin）即销毁，以恒定流量补充新粒子保持密度。
 - **皮肤切换响应**：`game.js` 在皮肤切换处调用 `window.__ambientParticles.applySkin(newSkinId)`，立即清空旧粒子并加载新预设（避免视觉污染）。
 - **用户偏好**：`window.__ambientParticles.setEnabled(false)` 全局关闭；`setDensity(0.5)` 减半密度（性能档）。
@@ -153,7 +152,7 @@ t=600ms  overlay 复位，transition 清除
 #### 接入 renderer
 
 ```js
-// renderer.js 新增（v10.15）
+// renderer.js
 setAmbientLayer(layer) { this._ambientLayer = layer; }
 renderAmbient() {
     if (!this._ambientLayer || !this.fxCtx) return;
@@ -165,7 +164,7 @@ renderAmbient() {
     });
 }
 
-// game.js render() 内（v10.15 新增 1 行）
+// game.js render() 内
 this.renderer.renderAmbient();
 ```
 
@@ -269,7 +268,7 @@ game.cheat.about()      // 致谢
 | `#seasonal-toast` | 节日推荐条幅 | `body` 直接子节点；顶部居中；`z-index: 9100` | opacity=0 + transform |
 | `#easter-egg-toast` | Konami / 里程碑飘字 | `body` 直接子节点；屏幕中心；`z-index: 9200` | opacity=0 + scale(0.86) |
 
-CSS 在 `web/public/styles/main.css` 末尾「v10.15 P0 彩蛋系统 UI」章节（行 3900+）。
+CSS 在 `web/public/styles/main.css` 末尾的彩蛋系统 UI 章节。
 所有元素均尊重 `prefers-reduced-motion`（无障碍：禁用过渡）。
 
 ---
@@ -318,22 +317,11 @@ CSS 在 `web/public/styles/main.css` 末尾「v10.15 P0 彩蛋系统 UI」章节
 | 主线程开销 | 环境粒子 ≤ 14 粒 × 简单 fillRect → < 0.5ms / 帧 |
 | 内存 | 单例 ~3KB（粒子数组）+ AudioContext ~12KB |
 | 包体 | 5 个新模块 ~28KB（gzip ~9KB） |
-| 兼容 | 不支持 Web Audio 浏览器 → 静默降级；不支持 `navigator.vibrate` → 静默降级；不支持 CSS mask → fxCanvas 仍可见但边界不羽化（v10.14 既有降级）|
+| 兼容 | 不支持 Web Audio 浏览器 → 静默降级；不支持 `navigator.vibrate` → 静默降级；不支持 CSS mask → fxCanvas 仍可见但边界不羽化 |
 
 ---
 
-## 8. 修订记录
-
-| 版本 | 日期 | 内容 |
-|------|------|------|
-| v10.15 | 2026-04-28 | 首发：S1 + S2 sprint 9 项 P0 全部实装 |
-| v10.16 | 2026-04-29 | S3-S6 剩余 24 项全量实装（道具 / 签到 / 宝箱 / 海报 / 转盘 / 图鉴 / 大工程骨架），详见 §9 |
-
----
-
-## 9. v10.16 — S3 - S6 sprint 24 项实装明细
-
-> v10.15 完成 S1+S2 共 11 项 P0；**v10.16 一次性实装剩余 24 项**（含 6 项 P0 + 11 项 P1 + 7 项 P2 骨架）。
+## 8. 道具与运营系统
 
 ### 9.1 新建模块清单（19 个文件 / ~3500 LoC）
 
@@ -419,9 +407,7 @@ setActiveSkinId(id)
 - **角色养成**（`companionStub.js`）：需 36 款 × 5 等级 = 180 张立绘资产
 - **里程碑相册**（`replayAlbumStub.js` 同模块）：UI 待扩展（图鉴式 grid）
 
-### 9.5 v10.16.1 — 4 个道具的功能修复（用户反馈：撤销时候选块全部消失）
-
-> **背景**：v10.16 首版 4 个道具（hint / undo / bomb / rainbow）实装后用户实测发现 ↩ 撤销后候选区方块全部消失，且其余 3 件道具也存在隐患。本次冲刺把所有 4 个道具的实现按 **game.js 真实内部接口** 对齐，并补 65 个单元测试。
+### 8.1 4 个道具的功能修复
 
 #### 9.5.1 修复清单
 
@@ -468,7 +454,7 @@ Lint        0 errors / 0 new warnings on web/src/skills/* + tests/skills*.test.j
 
 > 注：tests/moveSequence.test.js 中 `Identifier 'describe' has already been declared` 是 pre-existing parsing error，与本次改动无关。
 
-#### 9.5.5 4 个道具的最终行为契约（v10.16.1 起）
+#### 8.1.5 4 个道具的最终行为契约
 
 | 道具 | 触发 | 扣费时机 | 取消 |
 |------|------|----------|------|
@@ -479,7 +465,7 @@ Lint        0 errors / 0 new warnings on web/src/skills/* + tests/skills*.test.j
 
 bomb 和 rainbow 通过 `aimManager.enterAim(id)` 互斥（同时只能一个瞄准）；按 ESC 立即退出当前瞄准。
 
-#### 9.5.6 v10.16.2 — 道具 toast 视觉重构（用户反馈：道具提示样式不友好）
+#### 8.2 道具 toast 视觉重构
 
 > **问题**：用户在深色皮肤实测发现「已撤销最近一步」 toast 是白色胶囊覆盖在棋盘正中央，**遮挡盘面 + 与黑色盘面对比刺眼 + 文字与背景对比度不够**。原因是 `easter-egg-toast` 一个 id 同时承担了「道具操作反馈」（高频）和「Konami / 首解皮肤庆贺」（罕见）两种 UX 等级，统一用「中心大字」样式，对高频反馈过重。
 
@@ -497,7 +483,7 @@ bomb 和 rainbow 通过 `aimManager.enterAim(id)` 互斥（同时只能一个瞄
 - **5 个庆贺场景显式标 celebrate**：`easterEggs.js`（Konami）/ `firstUnlockCelebration.js`（首解）/ `extremeAchievements.js`（成就）/ `loginStreak.js`（连登）/ `rewards/seasonChest.js`（赛季宝箱），每个加 2 行（`el.dataset.tier = 'celebrate'` + 隐藏时 `delete el.dataset.tier`）
 - **零侵入**：保持 `easter-egg-toast` id 与 `_showToast(msg)` 接口不变，未改 13 个调用方的函数签名
 
-#### 9.5.7 v10.16.3 — 皮肤剧情图鉴海报卡重构（用户反馈：主题选择界面不美观）
+#### 8.3 皮肤剧情图鉴海报卡重构
 
 > **问题**：用户实测皮肤图鉴弹窗（点 📖 按钮唤起）发现 4 个视觉问题：① 卡片背景与盘面融为一体，弹窗存在感弱；② 描述正文 14px 且平淡，缺乏艺术化呈现；③ 上一款 / 下一款用纯文字胶囊按钮，无方向感；④ "使用此皮肤"白底黑字按钮与深色卡片冲突。
 
@@ -507,7 +493,7 @@ bomb 和 rainbow 通过 `aimManager.enterAim(id)` 互斥（同时只能一个瞄
 
 **重构（5 项）**：
 
-| 元素 | v10.16.2 | v10.16.3 |
+| 元素 | 旧版 | 新版 |
 |------|----------|----------|
 | 卡片背景 | `style="background:${skin.cssBg}"` 直接用盘面色 | 统一深色玻璃 + **主题色 hero 顶条**（径向 + 线性渐变光斑），跨皮肤一致质感；通过 inline `--accent-color` 让每款皮肤的图鉴卡有独特调性 |
 | 边框 / 阴影 | `box-shadow: 0 22px 48px` 仅外阴影 | 加 `0 0 0 1px var(--accent-color) inset` 主题色细边光晕 + 外发散 `0 0 48px var(--accent-color) 18%`，与盘面强对比 |
@@ -525,17 +511,17 @@ bomb 和 rainbow 通过 `aimManager.enterAim(id)` 互斥（同时只能一个瞄
 - `web/public/styles/main.css`：`.lore-card` 系列 ~140 行重写
 - `web/src/lore/skinLore.js`：HTML 模板调整 + `_installKeyboardNav` + 字符串 escape + 当前激活态切换 + 不再 inline `skin.cssBg`
 
-#### 9.5.8 v10.16.4 — 图鉴卡古诗集卷轴风格（用户反馈：缺乏艺术感 / 描述要古诗布局 / 应用按钮跟翻页同行）
+#### 8.4 图鉴卡古诗集卷轴风格
 
-> **问题（v10.16.3 实测后）**：① 整体灰蓝调单一，缺艺术感；② 描述文字虽改为 italic 但仍是西式段落；③ 主按钮独占一行显得"工具感"，希望紧凑同行。
+> **问题**：① 整体灰蓝调单一，缺艺术感；② 描述文字虽改为 italic 但仍是西式段落；③ 主按钮独占一行显得"工具感"，希望紧凑同行。
 
 **根因**：
-- 主题色字段 99% 皮肤定义在 `cssVars['--accent-color']` 而非 `skin.accent`，v10.16.3 的 fallback 链 `skin.accent || skin.gridLine` 几乎都落到 `gridLine`（深灰），所以 lava 这种橙红色皮肤的卡片渲染成灰蓝
+- 主题色字段 99% 皮肤定义在 `cssVars['--accent-color']` 而非 `skin.accent`，fallback 链 `skin.accent || skin.gridLine` 几乎都落到 `gridLine`（深灰），所以 lava 这种橙红色皮肤的卡片渲染成灰蓝
 - 西式 italic 段落 + `border-left` 引用线对中文古典皮肤（古风 / 国潮）适配差
 
 **重构 5 项**：
 
-| 元素 | v10.16.3 | v10.16.4 |
+| 元素 | 旧版 | 新版 |
 |------|----------|----------|
 | 主题色 fallback | `skin.accent \|\| skin.gridLine \|\| '#38bdf8'` | **`skin.cssVars['--accent-color']`** 优先（lava → 熔岩橙 / sunset → 暮色橙 / aurora → 极光紫等真正生效） |
 | 章节标识 | `lore-icon-row` 8 个 emoji 占一整行 | 替换为 **诗签分割线** `——卷 7 / 36——`：两侧主题色渐变细线 + 中间衬线小字（带主题色阴影） |
@@ -580,7 +566,7 @@ function _formatPoem(story) {
 - `web/src/lore/skinLore.js`：新增 `_formatPoem()` + 修正 accent fallback 链 + 模板调整
 - `web/public/styles/main.css`：新增 `.lore-poem-line` / `.lore-poem-pause` / `.lore-card__divider` / `.lore-divider-mark`，footer 改为 flex 同行布局
 
-#### 9.5.9 v10.16.5 — 图鉴卡背景水印 + 文案修正（用户反馈）
+#### 8.5 图鉴卡背景水印 + 文案修正
 
 > **3 项请求**：① 把皮肤典型 icons 也放置到图鉴卡中；② 设置与主题相关的背景图（参考盘面背景）；③「卷 1/36」表述不准确，改为「主题 1 / 36」。
 
@@ -627,11 +613,11 @@ const WATERMARK_PRESETS = [
 
 ---
 
-## 9.5.10 v10.16.6（2026-04-29 补充）：图鉴 icon 阵列 + 高度稳定 + hint 改瞄准模式
+## 8.10 图鉴 icon 阵列 + 高度稳定 + hint 改瞄准模式
 
 ### 一、图鉴卡新增「主题 icon 阵列」（divider 与正文之间）
 
-用户反馈："1) 将主题的icon列表显示出来"。v10.16.4 把固定 24px icon 行去掉换成隐式 watermark 后，对方块图标的视觉传达减弱（用户不再能直接确认该皮肤涵盖哪 8 种 colorIdx 的具体 emoji）。
+用户反馈："1) 将主题的icon列表显示出来"。固定 24px icon 行去掉换成隐式 watermark 后，对方块图标的视觉传达减弱（用户不再能直接确认该皮肤涵盖哪 8 种 colorIdx 的具体 emoji）。
 
 修复策略 — **保留水印 + 显式 chip 阵列双重露出**：
 
@@ -675,14 +661,14 @@ const WATERMARK_PRESETS = [
 
 用户反馈："3) 作为道具，长按候选后自动触发道具使用，不太合理，优化触发道具使用逻辑"。
 
-#### 旧实现（v10.16.1）
+#### 旧实现
 
 dock 块上长按 ≥ 380ms（带 8px 容忍）→ 自动扣 1 hintToken + 显示推荐位置。问题：
 1. 与其他三件道具（bomb / rainbow / undo）的「按按钮 → 选目标」流程不一致，玩家学习成本高
 2. 长按容易被误触（手指停留稍久即扣费）
 3. 长按交互无视觉前置反馈（按下时不知道松手会扣费）
 
-#### 新实现（v10.16.6）— 与 bomb / rainbow 完全统一
+#### 新实现 — 与 bomb / rainbow 完全统一
 
 ```
 点击 🎯 按钮 → enterAim('hint-quick')           ← aimManager 互斥 + ESC 取消
@@ -755,7 +741,7 @@ function _installAimListener() {
 | `web/src/lore/skinLore.js` | 新增 `iconRow` HTML 片段（divider 之后插入 `.lore-card__icons` × 8 chip） |
 | `web/src/skills/hintEconomy.js` | 重写：去掉长按，改 `_installAimListener` capture 截获 dock mousedown/touchstart；按钮 onClick 改 `_toggleAim`；保留所有 `__*ForTest` 导出 |
 | `web/public/styles/main.css` | `.lore-card__icons` 样式；`.lore-card__body` min-height + flex；`.skill-aim-hint-quick` 选择器 + `@keyframes hint-aim-pulse` |
-| `tests/skillsHintEconomy.test.js` | 新增 4 例 v10.16.6 瞄准模式测试，import `aimManager` |
+| `tests/skillsHintEconomy.test.js` | 新增 4 例瞄准模式测试，import `aimManager` |
 
 ### 验收
 
@@ -767,7 +753,7 @@ function _installAimListener() {
 
 ---
 
-## 9.5.11 v10.17.1（2026-04-29 补充）：成就 toast 艺术化 + 同 icon 爆炸减量
+## 8.11 成就 toast 艺术化 + 同 icon 爆炸减量
 
 > 用户反馈：
 > 1）"用户成就达成样式太朴实，采用冲击力更强、图案化、艺术化的样式"
@@ -786,9 +772,9 @@ function _installAimListener() {
 
 **升级前**：单层深色背景 + 1px 主题色 inset 边框 + scale(0.86→1) 入场，"中心大字 + 微弱光晕"，所有皮肤统一表现。
 
-**v10.17.1 升级**：
+**升级**：
 
-| 元素 | 升级前 | v10.17.1 |
+| 元素 | 升级前 | 升级后 |
 |---|---|---|
 | 入场动画 | scale 0.86→1 线性 | scale 0.78→1 + rotate(-1°→0°)，弹性曲线 `cubic-bezier(0.18,0.89,0.32,1.4)` |
 | 背景 | 单色 `rgba(18,18,28,.92)` | 三层叠加：中心暖光斑径向渐变 + 底部主题色微晕 + 玻璃底色，加 `backdrop-filter: blur(14px) saturate(160%)` |
@@ -881,7 +867,7 @@ function _installAimListener() {
 
 **调整**：emoji 粒子整体降 40%，色块粒子（`addBonusLineBurst` 144 个）保留。
 
-| 函数 | 旧值 | v10.17.1 | 降幅 |
+| 函数 | 旧值 | 新值 | 降幅 |
 |---|---|---|---|
 | `beginBonusIconGush` 首帧 emoji 爆炸 | 60 | **36** | -40% |
 | `_tickIconGushSpawn` 在屏 emoji cap | 560 | **320** | -43% |
@@ -913,7 +899,7 @@ function _installAimListener() {
 
 ---
 
-## 9.5.12 v10.17.2（2026-05-02 补充）：玩家落子后点赞策略收紧
+## 8.12 玩家落子后点赞策略收紧
 
 > 用户反馈："分析玩家方块后的点赞策略，当前存在方块后死局仍然点赞的不当策略。只有在复杂盘面情况下，且玩家放置为妙局的情况才给点赞表情。"
 
@@ -962,13 +948,13 @@ function _installAimListener() {
 - [ ] 进入游戏 → 弹 7 日签到（首次进入）
 - [ ] 签到第 7 天 → 自动获得 24h 限定皮肤试穿券
 - [ ] 道具栏新增 4 个按钮：🎯 提示 / ↩ 撤销 / 💣 炸弹 / 🌈 彩虹
-- [ ] 点击 🎯 → 进入瞄准模式 → 点击 dock 候选块 → 高亮该块最佳落点（v10.16.6 改造）
+- [ ] 点击 🎯 → 进入瞄准模式 → 点击 dock 候选块 → 高亮该块最佳落点
 - [ ] 点击 ↩ → 还原最近一步（消耗 1 undoToken）
 - [ ] 点击 💣 进入瞄准模式 → 棋盘点击清除 3×3（ESC / 棋盘外点击取消）
 - [ ] 点击 🌈 进入瞄准模式 → 棋盘点击该行 → 行内非空 ≥ 3 时染主色 + 填空 → bonus 同色行清除（ESC 取消）
 - [ ] 同时只能有一个道具处于瞄准状态（bomb 与 rainbow 互斥）
-- [ ] 撤销后候选区方块不消失、形状颜色与撤销前一致（v10.16.1 修复）
-- [ ] 4 件道具触发流程一致（按按钮 → 视觉提示 → 选目标 / 立即生效，v10.16.6 统一）
+- [ ] 撤销后候选区方块不消失、形状颜色与撤销前一致
+- [ ] 4 件道具触发流程一致（按按钮 → 视觉提示 → 选目标 / 立即生效）
 - [ ] 局末（5% 概率 / 12 局保底）→ 弹宝箱
 - [ ] 周一 / 周五首次进入 → 顶部条幅提示「今日免费转盘」
 - [ ] 累积 1000 XP → 弹普通赛季宝箱
@@ -980,7 +966,7 @@ function _installAimListener() {
 - [ ] 皮肤选择面板旁新增 📖 按钮 → 打开剧情图鉴
 - [ ] 控制台 `__wallet.getBalance('hintToken')` 返回数值
 - [ ] 控制台 `__bgm.isImplemented()` 返回 false（骨架占位）
-- [ ] `npm test` 全过（v10.17 起 557/557 / v10.17.1 起仍 557/557）+ `npm run lint` 0 新错
+- [ ] `npm test` 全过 + `npm run lint` 0 新错
 - [ ] 触发任意 celebrate（如 `__wowMoments.fire('first-perfect')`）→ 中央卡片入场带摇摆 + icon 心跳 + 标题金色渐变 + 12 道光线缓慢自转
 - [ ] 同 icon 整行清除 → emoji 粒子飞翔感保留但不再"满屏雪花"，色块爆炸不变
 - [ ] 复杂盘面妙手非消行且不会造成死局 → 弹 👍；落子后死局 → 不弹 👍

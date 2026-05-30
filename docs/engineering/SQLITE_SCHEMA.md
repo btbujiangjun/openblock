@@ -1,7 +1,6 @@
 # SQLite 数据库模式说明
 
-> 版本：1.2 | 事实来源：`server.py`（`init_db` / `_migrate_schema`）、`backend/monetization_backend.py`（`mon_*`）  
-> v1.2 变更：`move_sequences.frames` schema 升级到 v2，新增 `ts` 字段（见 §3.4）。  
+> 事实来源：`server.py`（`init_db` / `_migrate_schema`）、`backend/monetization_backend.py`（`mon_*`）  
 > 前端读写：`web/src/database.js` → Flask `/api/*`
 
 本文描述仓库默认持久化使用的 **单文件 SQLite** 库：表结构、用途、主要 HTTP 入口及表间关系。**第 3 章**补充各字段**内容格式、业务含义与 JSON 示例**；**第 4 章**为核心表**列级速查**，便于直连 SQLite 排障或与前端结构对照。
@@ -156,26 +155,26 @@
 | `spawn` | 新一轮候选块 | `ts`（相对 init 帧的毫秒偏移）, `dock`: `[{ id, shape, colorIdx, placed }]`，可选 `ps` |
 | `place` | 一步落子 | `ts`（相对 init 帧的毫秒偏移）, `i`（dock 下标）, `x`, `y`（棋盘格坐标），可选 `ps`（含 `linesCleared` 等） |
 
-**`ts`（v1.62+ / schema v2 新增）**：相对 init 帧的毫秒偏移，`init` 帧总是 `0`；其余帧由 `Date.now() - gameStats.startTime` 计算。
+**`ts`（schema v2 新增）**：相对 init 帧的毫秒偏移，`init` 帧总是 `0`；其余帧由 `Date.now() - gameStats.startTime` 计算。
 - 选用「相对偏移」而非 wall-clock 时间戳：隐私友好（不暴露玩家本地时间）、JSON 体积小（一局百帧约 +600~1000 B）、跨设备/时区可比。
-- 读取统一走 `extractFrameTimestamps(frames)` 工具，返回 `{ startMs, frameTimestamps }`；v1 旧 frames 无 `ts` 时自动 fallback：先看 `ps._recordedAt`（实时面板 wall-clock），再看 `frame.ts` 大数值（误写的 wall-clock），最终 `null` → 调用方退到帧序号 X 轴。
+- 读取统一走 `extractFrameTimestamps(frames)` 工具，返回 `{ startMs, frameTimestamps }`；v1 schema 旧 frames 无 `ts` 时自动 fallback：先看 `ps._recordedAt`（实时面板 wall-clock），再看 `frame.ts` 大数值（误写的 wall-clock），最终 `null` → 调用方退到帧序号 X 轴。
 - 启发式上界：单个 `ts` ≥ `1e12`（≈ 31 年）视为 wall-clock 误用，自动降级到 wall-clock 后备路径，避免 X 轴显示 "5.4 万年" 这种灾难数字。
 
 **`ps`（玩家状态快照）**：`buildPlayerStateSnapshot` 产物，至少含 `pv`（版本）、`phase`、`score`、`boardFill`、`strategyId`、画像字段（`skill`、`flowState`…）及 `metrics`（`thinkMs`、`clearRate` 等）；若存在自适应快照则有 `adaptive` 子对象。
 
-**`v` schema 版本演进：**
+**`v` schema 版本：**
 
-| `v` | 版本 | 关键变更 |
-|---|---|---|
-| 1 | v1.61 及之前 | 无 `ts` 字段；回放无时间轴，「指标详读」浮层只能用帧序号作为 X 轴。 |
-| 2 | v1.62+ | 新增 `ts`（init=0，后续帧相对偏移 ms）。「指标详读」浮层、复盘分析与离线 ETL 可统一按"游戏开始的时长"对齐观察。旧 v1 frames 仍可正常回放（`extractFrameTimestamps` 自动降级）。 |
+| `v` | 关键变更 |
+|---|---|
+| 1 | 无 `ts` 字段；回放无时间轴，「指标详读」浮层只能用帧序号作为 X 轴。 |
+| 2 | 新增 `ts`（init=0，后续帧相对偏移 ms）。「指标详读」浮层、复盘分析与离线 ETL 可统一按"游戏开始的时长"对齐观察。旧 v1 frames 仍可正常回放（`extractFrameTimestamps` 自动降级）。 |
 
-**`pv` 版本演进：**
+**`pv` 版本：**
 
-| `pv` | 版本 | 关键变更 |
-|---|---|---|
-| 1 | v1.12 及之前 | `metrics.{thinkMs,clearRate,comboRate,missRate}` 直接写 `PlayerProfile.metrics` 的占位值（3000 / 0.3 / 0.1 / 0.1）。回放无法区分「真实测量」与「冷启动兜底」。 |
-| 2 | v1.13+ | 新增顶层 `coldStart`、`cognitiveLoadHasData` 与 `metrics.{samples,activeSamples}`；`samples=0` 时 `metrics.{thinkMs,clearRate,comboRate,missRate}` 与 `cognitiveLoad` 全部置 `null`，避免离线管线把占位值当真实测量统计。 |
+| `pv` | 关键变更 |
+|---|---|
+| 1 | `metrics.{thinkMs,clearRate,comboRate,missRate}` 直接写 `PlayerProfile.metrics` 的占位值（3000 / 0.3 / 0.1 / 0.1）。回放无法区分「真实测量」与「冷启动兜底」。 |
+| 2 | 新增顶层 `coldStart`、`cognitiveLoadHasData` 与 `metrics.{samples,activeSamples}`；`samples=0` 时 `metrics.{thinkMs,clearRate,comboRate,missRate}` 与 `cognitiveLoad` 全部置 `null`，避免离线管线把占位值当真实测量统计。 |
 
 > 旧 `pv=1` 对局仍可直接回放；`formatPlayerStateForReplay` 与 `buildReplayAnalysis` 会按 `(thinkMs===3000 && clearRate===0.3)` 启发式补回冷启动标识。
 
@@ -244,7 +243,7 @@
 }
 ```
 
-> **`coldFrames` / `coldFramesRatio` / `firstWarmFrameIdx`（v1.13+）**：标记本局中处于「冷启动占位」状态的帧数与比例。pv≥2 直读 `ps.coldStart`；pv=1 老对局按 `(thinkMs===3000 && clearRate===0.3)` 启发式回填。  
+> **`coldFrames` / `coldFramesRatio` / `firstWarmFrameIdx`**：标记本局中处于「冷启动占位」状态的帧数与比例。pv≥2 直读 `ps.coldStart`；pv=1 老对局按 `(thinkMs===3000 && clearRate===0.3)` 启发式回填。  
 > 离线管线建议在做分群均值/分布对比时**过滤** `idx < firstWarmFrameIdx` 的帧；当 `coldFramesRatio > 0.25` 时 `tags` 会自动加上「冷启动样本偏多」并在 `recommendations` 给出过滤建议。
 
 ### 3.6 `skill_wallets.payload`

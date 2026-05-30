@@ -421,26 +421,22 @@ RL_EVAL_GATE_HARD=1 python -m rl_pytorch.train
 - `rr` 在 warmup 后开始出现；若长期为正但 avg100 不涨，说明策略吸收相对奖励不足，可提高 `RL_Q_DISTILL_COEF` 或降低 `RL_RANKED_TARGET`。
 - 400-500 分平台期应先表现为 `p70/p90` 抬升，再带动 `avg100`。
 
-### 5.4.6 v9.2：深度分析后的落地修正
+### 5.4.6 颜色与 payoff 可观测性增强
 
-这轮改造针对“指标变好但 400-500 分不突破”的更深层风险：
+- **颜色与 payoff 可观测性**：`stateScalarDim` 扩到 42，含 19 维颜色摘要（8 维棋盘颜色占比、8 维同色线潜力、3 维 dock 颜色）；动作特征加入多消、同 icon / 同色 bonus 与清屏潜力。`stateDim=181`、`actionDim=15`、`phiDim=196`。
+- **EvalGate 语义收紧**：candidate/baseline 使用同一批 seed，门控改为逐局配对分数比较，要求 `paired_score_win_rate >= winRatio` 且平均分差非负。
+- **PPO 行为分布对齐**：轨迹中的 `old_log_prob` 记录真实采样分布（含 `lookahead_mix` / teacher 与 Dirichlet 扰动）下的动作 log-prob。
+- **EvalGate 与课程门槛对齐**：门控评估使用与当前训练轮次一致的课程阈值。
+- **Outcome value 高分段保真**：outcome target 使用 `log1p(score)/log1p(threshold)`，`maxValue=3.0` 放宽上限。
+- **序贯 feasibility**：辅助头目标使用有预算 DFS 判断"是否存在顺序能把剩余 dock 全部放完"。
+- **teacher 稳定性**：3-ply beam 第三层不再把 `r3_arr` 塞进 `STATE_FEATURE_DIM` 首行；batched MCTS 复用树根时校验 `n_legal`；Zobrist 热启动使用真实 `grid_np` 入参。
 
-- **颜色与 payoff 可观测性**：`stateScalarDim` 从 23 扩到 42，新增 19 维颜色摘要（8 维棋盘颜色占比、8 维同色线潜力、3 维 dock 颜色）；动作特征加入多消、同 icon / 同色 bonus 与清屏潜力。该变更使 `stateDim=181`、`actionDim=15`、`phiDim=196`，旧 checkpoint 必须重训。
-- **EvalGate 语义收紧**：candidate/baseline 继续使用同一批 seed，但门控改为逐局配对分数比较，要求 `paired_score_win_rate >= winRatio`（严格赢率）且平均分差非负，避免旧公式 `candidate_win_rate >= baseline_win_rate * 0.55` 过松以及平局误晋级。
-- **PPO 行为分布对齐**：轨迹中的 `old_log_prob` 改为记录真实采样分布（含 `lookahead_mix` / teacher 与 Dirichlet 扰动）下的动作 log-prob，避免用原始 policy logits 导致 importance ratio 偏差。
-- **EvalGate 与课程门槛对齐**：门控评估不再固定使用全局 `WIN_SCORE_THRESHOLD`，改为与当前训练轮次一致的课程阈值，减少“训练目标与晋级目标错位”。
-- **Outcome value 高分段保真**：默认 outcome target 从线性 `score/threshold` 改为 `log1p(score)/log1p(threshold)`，并用 `maxValue=3.0` 放宽上限，减少 400-500 分段过早 clip。
-- **序贯 feasibility**：辅助头目标改为有预算 DFS 判断“是否存在顺序能把剩余 dock 全部放完”，替代“每块单独至少有一个位置”的弱判定。
-- **teacher 稳定性**：3-ply beam 第三层不再把 `r3_arr` 塞进 `STATE_FEATURE_DIM` 首行，避免合法动作数与状态维度耦合；batched MCTS 复用树根时校验 `n_legal`；Zobrist 热启动改用真实 `grid_np` 入参，避免缓存命中路径失效。
-
-### 5.4.7 v9.3：面向提分的 teacher 吸收与样本效率优化
-
-这轮改造针对“搜索 teacher 已经变强，但策略头是否稳定吸收”的问题：
+### 5.4.7 Teacher 吸收与样本效率优化
 
 - **蒸馏退火**：`qDistillation.coef` 与 `visitPiDistillation.coef` 支持按 episode 线性退火。训练早期强制模仿 beam/MCTS，后期降低蒸馏权重，让 PPO、ranked reward 与真实 outcome 有更大话语权。
 - **Teacher Q 归一化**：Q 蒸馏前对每个状态的合法动作 Q 做 `zscore`（也可用 `RL_Q_DISTILL_NORM=rank|none`），并用 `minStd` 防止近似平局时把微小噪声放大成过尖 target。
-- **困难样本 replay**：新增 `searchReplay`，缓存高分未通关、尾局 feasibility 低、低清除收益的 self-play 局，后续 batch 抽样重放。v9.3.1 起 replay 样本不参与 PPO policy ratio，只参与 value / auxiliary / Q distillation / visit_pi distillation，避免旧轨迹的 off-policy log-prob 污染策略梯度。v9.3.2 起 replay value 使用纯 outcome target，不复用旧 GAE/ranked reward。
-- **Teacher metrics**：训练日志新增 `tq=覆盖率/std/margin/H` 与 `tv=覆盖率/H`，分别观测 Q teacher 与 visit_pi teacher 的覆盖率、尺度、top1-top2 差距和归一化熵，用于判断 teacher 是过尖、过平还是覆盖不足。
+- **困难样本 replay**：`searchReplay` 缓存高分未通关、尾局 feasibility 低、低清除收益的 self-play 局，后续 batch 抽样重放。replay 样本不参与 PPO policy ratio，只参与 value / auxiliary / Q distillation / visit_pi distillation；replay value 使用纯 outcome target。
+- **Teacher metrics**：训练日志有 `tq=覆盖率/std/margin/H` 与 `tv=覆盖率/H`，分别观测 Q teacher 与 visit_pi teacher 的覆盖率、尺度、top1-top2 差距和归一化熵。
 - **MCTS 风险自适应预算**：`lightMCTS.riskAdaptive=true` 时，棋盘填充率高、合法动作少、序贯解数量少的局面会提高 `numSimulations`，普通局面维持低预算。
 - **EvalGate 多 seed 组汇总**：`evalGate.rounds=2` 默认开启，候选/基线在多组配对 seed 上汇总判定，降低一次 seed 集合偶然偏好造成的误晋级或误拒绝。
 

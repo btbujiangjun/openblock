@@ -1,4 +1,4 @@
-# 方块 emoji 全量池：利用情况与表意匹配说明（v10.33）
+# 方块 emoji 全量池：利用情况与表意匹配说明
 
 > 代码事实源：`web/src/skins.js`  
 > 硬约束：**27 款带 `blockIcons` × 8 = 216 枚 emoji，跨皮肤全局互斥**（与 §5 校验脚本一致）。
@@ -86,10 +86,4 @@ console.log(Object.keys(SKINS).length, 'skins,', used.size, 'icons, dup=', dup);
 # 期望：dup=0；icon 总数 216
 ```
 
----
 
-## 6. 变更记录
-
-| 版本 | 说明 |
-|------|------|
-| v10.33 | 文档建立；`vehicles` 🚥→🚗、`bubbly` 🦩→🦦 🌿→🏖️；`skinLore.bubbly` 同步 |

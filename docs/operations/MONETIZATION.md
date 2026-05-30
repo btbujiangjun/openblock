@@ -1,7 +1,7 @@
 # 商业化策略完整文档
 
 > 当前状态：以 `web/src/monetization/`、`backend/monetization_backend.py`、`strategyConfig.js`、`commercialModel.js` 和 SQLite schema 为事实来源。
-> 早期商业化研究与个性化方案已归档到 `docs/archive/`；本文只描述当前实现、配置入口、API 和扩展边界。
+> 本文只描述当前实现、配置入口、API 和扩展边界。
 
 ---
 
@@ -416,7 +416,7 @@ Hay Day 上线 Season Pass 后月收入提升 **56%**（行业参考数据）。
 
 非侵入式挂载到 `#player-insight-panel`：
 
-1. 在面板末尾追加 `<details id="insight-commercial">` 可折叠区块（**v1.14 起默认 `open`**，配合左栏 `overflow-y:auto` 让画像更易填满 vfill）
+1. 在面板末尾追加 `<details id="insight-commercial">` 可折叠区块（**默认 `open`**，配合左栏 `overflow-y:auto` 让画像更易填满 vfill）
 2. 链式 patch `game._playerInsightRefresh`，随画像刷新同步更新
 3. 订阅 `spawn_blocks` / `no_clear` / `game_over` 实时刷新
 
@@ -771,7 +771,7 @@ resetFlags();                    // 清除所有 localStorage 覆盖，恢复默
 
 ## 12. 当前实现状态
 
-本文只维护当前代码事实，不再保留阶段式实施路线图。早期 OPT 编号、商业化路径研究和个性化方案演进见 `docs/archive/`。
+本文只维护当前代码事实，不再保留阶段式实施路线图。
 
 | 能力 | 当前实现 | 配置/替换入口 |
 |------|----------|---------------|
@@ -839,7 +839,6 @@ resetFlags();                    // 清除所有 localStorage 覆盖，恢复默
 |------|------|
 | [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) | 商业化分层架构 + 三种定制粒度 + cursor:help 字段速查 |
 | [`MONETIZATION_TRAINING_PANEL.md`](./MONETIZATION_TRAINING_PANEL.md) | **训练面板 5 维全方位**：设计哲学 / 鲸鱼分原理 / 策略矩阵商业解读 / 调参 PlayBook / A/B 实验 / 4 Tab 详解 / 扩展 |
-| [`MONETIZATION_OPTIMIZATION.md`](../archive/MONETIZATION_OPTIMIZATION.md) | v1：行业调研与优化清单（原始研究） |
-| [`MONETIZATION_PERSONALIZATION.md`](../archive/MONETIZATION_PERSONALIZATION.md) | v2：个性化引擎技术设计（详细 API 规范） |
+
 | [`SPAWN_BLOCK_MODELING.md`](../algorithms/SPAWN_BLOCK_MODELING.md) | 出块算法（留存核心引擎，商业化底层支撑） |
 | [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | 对局消行计分（与商业化分账无关）；文末附「商业化策略存储」索引 |

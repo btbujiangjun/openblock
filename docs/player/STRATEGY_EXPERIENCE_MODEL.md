@@ -148,7 +148,7 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 
 **互斥与合并**：`harvestNow = (rhythmPhase === 'payoff' || spawnIntent === 'harvest')` 用于压制与「当下兑现」冲突的搭建类卡片。
 
-**v1.29 输出后处理**：`generateStrategyTips` 排序后调用 `applyTipCategoryDiversity` —— 若前 3 条**全是** `survival`，且存在后续条目中 `priority` 达阈值的非 survival，则用其替换三者中**最弱**一条（不替换 `priority ≥ 0.94` 的救急档），减轻「面板只剩保命卡」的单调感。
+**输出后处理**：`generateStrategyTips` 排序后调用 `applyTipCategoryDiversity` —— 若前 3 条**全是** `survival`，且存在后续条目中 `priority` 达阈值的非 survival，则用其替换三者中**最弱**一条（不替换 `priority ≥ 0.94` 的救急档），减轻「面板只剩保命卡」的单调感。
 
 ---
 
@@ -161,7 +161,7 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 3. **救济快、加压慢**：压力平滑对减压可短路，避免「该救时救不到」。  
 4. **占用率衰减**：低填充时衰减正向压力，减轻「空盘高压」违和感（OpenBlock：`occupancyDamping`）；阻尼所乘的占用比例可绑定**缓降锚点**而非瞬时裸填充率（见下）。
 
-**已落实的缓解（v1.29）**
+**已落实的缓解**
 
 | 风险 | 处理 | 代码入口 |
 |------|------|----------|
@@ -170,19 +170,14 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 | 消行后瞬时低占用导致 `occupancyDamping` 与 stress 锯齿 | `_occupancyFillAnchor` 跨 spawn **缓降**写入 `stressBreakdown` 与返回值，由 `game` 写回 `_spawnContext` | `adaptiveSpawn.js` + `game.js` `_captureAdaptiveInsight` |
 | 顾问 top3 全为 survival | `applyTipCategoryDiversity` 按阈值**替换最弱一条** | `web/src/strategyAdvisor.js` |
 
-**v1.30 新增：动态被困识别（`bottleneckRelief`）**
+**动态被困识别（`bottleneckRelief`）**
 
-| 问题 | v1.30 升级 | 代码入口 |
-|------|------------|----------|
-| `firstMoveFreedom`/`solutionCount` 由 strategyAdvisor 实时计算用于「瓶颈块」卡片，但**未反馈到自适应出块**——上一波三块在玩家手中跌到只剩 1~2 个落子（"被困高压"），下一波 spawn 完全不知情、不会减压 | 引入 `_updateBottleneckTrough()`：每次 `recordPlace` 后用 `getCandidatePlacementSolutionSnapshot()` 更新 `_spawnContext.bottleneckTrough`（dock 周期最低点）；下一次 `resolveAdaptiveStrategy` 把 trough ≤ `topologyDifficulty.bottleneckTroughThreshold` 转换为 `stressBreakdown.bottleneckRelief`（最高 -0.12）+ 自动抬高 `clearGuarantee/sizePreference` + 进入 `playerDistress` 派生 `spawnIntent='relief'` | `web/src/game.js` (`_updateBottleneckTrough`/`_resetBottleneckTrough`) + `web/src/adaptiveSpawn.js` + `shared/game_rules.json → adaptiveSpawn.topologyDifficulty.bottleneck*` + `signals.bottleneckRelief` |
+| 问题 | 机制 | 代码入口 |
+|------|------|----------|
+| `firstMoveFreedom`/`solutionCount` 由 strategyAdvisor 实时计算用于「瓶颈块」卡片，但**未反馈到自适应出块**——上一波三块在玩家手中跌到只剩 1~2 个落子（"被困高压"） | 引入 `_updateBottleneckTrough()`：每次 `recordPlace` 后用 `getCandidatePlacementSolutionSnapshot()` 更新 `_spawnContext.bottleneckTrough`；下一次 `resolveAdaptiveStrategy` 把 trough ≤ `topologyDifficulty.bottleneckTroughThreshold` 转换为 `stressBreakdown.bottleneckRelief`（最高 -0.12）+ 自动抬高 `clearGuarantee/sizePreference` + 进入 `playerDistress` 派生 `spawnIntent='relief'` | `web/src/game.js` (`_updateBottleneckTrough`/`_resetBottleneckTrough`) + `web/src/adaptiveSpawn.js` + `shared/game_rules.json → adaptiveSpawn.topologyDifficulty.bottleneck*` |
 | 与 `friendlyBoardRelief` / `frustrationRelief` / `recoveryAdjust` 栈叠形成「双重救济」 | 任一同向触发时 bottleneckRelief × 0.5；onboarding 内置零 | `adaptiveSpawn.js` |
-| 派生痕迹回溯 | `bottleneckTrough/bottleneckSamples` 写入 `stressBreakdown` 与 `_lastAdaptiveInsight`；`stressMeter.summarizeContributors` skip 列表与新 `SIGNAL_LABELS.bottleneckRelief` 同步 | `adaptiveSpawn.js` + `stressMeter.js` |
 
-**v1.46 新增：思考-反应双轨度量（`pickToPlaceMs` / `reactionAdjust`）**
-
-> 老的 `thinkMs`（上一动作 → 落子）含**等系统出新块、看新一波、选块、拖动**全过程，
-> 当系统侧延迟（如成熟度浮层、连消庆祝）变化时会污染"决策耗时"信号；
-> 升级后引入纯执行段 `pickToPlaceMs` 作为"反应"通道，与"思考"双轨呈现。
+**思考-反应双轨度量（`pickToPlaceMs` / `reactionAdjust`）**
 
 | 维度 | thinkMs（思考） | pickToPlaceMs（反应） |
 |------|----------------|----------------------|
@@ -190,7 +185,7 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 | 含等系统侧延迟 | 是（出新块 / 浮层 / 庆祝） | 否（剔除观察 / 选块 / 等待） |
 | 反映 | 决策耗时（含规划） | 操作执行 / 临场犹豫 |
 | 在面板 | sparkline `thinkMs`（浅蓝） | sparkline `pickToPlaceMs`（紫蓝），点击放大可见详细分析 |
-| 入压 | `cognitiveLoad`（基于方差）→ `_computeRawSkill` | `stressBreakdown.reactionAdjust`（±0.05，详见下） |
+| 入压 | `cognitiveLoad`（基于方差）→ `_computeRawSkill` | `stressBreakdown.reactionAdjust`（±0.05） |
 
 入口与反馈链：
 1. `Game.startDrag` → `PlayerProfile.recordPickup()` 打时间戳；
@@ -202,27 +197,22 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
    - 中段（健康区）零作用；与 `nearMissAdjust` 显著同向时让位（弱信号让强信号）。
 5. 配置位：`shared/game_rules.json → adaptiveSpawn.reactionAdjust`。
 
-**v1.31 新增：叙事-体感对齐两条窄守卫**
+**叙事-体感对齐两条窄守卫**
 
-> 本次升级**不动数值**，只在 `stressMeter.buildStoryLine` 决策树插入两条窄条件分支，把"算法判断正确但叙事文案与玩家所见盘面错位"的两类截图复现 case 修掉。压力数值、`spawnIntent`、`spawnHints` 计算口径完全保持，UX 影响仅在叙事一行。
+| 问题 | 机制 | 代码入口 |
+|------|------|----------|
+| **冲分高压与空盘叙事冲突**：`scoreStress + feedbackBias + challengeBoost` 在玩家逼近个人最佳时把 stress 推到 `intense`，但盘面其实仍很空 | 新增 `SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL` + `shouldUseScorePushHighStress(level, intent, geometry, fillThreshold=0.30)`：`intent ∈ {flow, harvest}` ∧ `level.id ∈ {tense, intense}` ∧ `geometry.boardFill < 0.30` ∧ `geometry.holes === 0` 时**抢占**高压守卫，叙事切到「**冲分仪式感**」 | `web/src/stressMeter.js` (`shouldUseScorePushHighStress` / `SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL` / `buildStoryLine` 优先级 #2) |
+| **harvest 一律说"密集"措辞过誉**：触发门槛只是 `nearFullLines >= 2` | 新增 `HARVEST_NARRATIVE_BY_DENSITY` + `classifyHarvestDensity` 三档：`dense / visible / edge`；只在低-中压档启用 | `web/src/stressMeter.js` (`classifyHarvestDensity` / `HARVEST_NARRATIVE_BY_DENSITY` / `buildStoryLine` 优先级 #4b) |
 
-| 问题 | v1.31 升级 | 代码入口 |
-|------|------------|----------|
-| **冲分高压与空盘叙事冲突**：`scoreStress + feedbackBias + challengeBoost` 在玩家逼近个人最佳时把 stress 推到 `intense`，但盘面其实仍很空（fill=20%、holes=0、解法 44）；旧 `FLOW_HIGH_STRESS_NARRATIVE_BY_LEVEL.intense`「**保活/确保可落位**」与玩家所见严重错位（截图 1 复现） | 新增 `SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL` + 触发判定函数 `shouldUseScorePushHighStress(level, intent, geometry, fillThreshold=0.30)`：`intent ∈ {flow, harvest}` ∧ `level.id ∈ {tense, intense}` ∧ `geometry.boardFill < 0.30` ∧ `geometry.holes === 0` 时**抢占** §C / §D 高压守卫，叙事切到「**冲分仪式感**」（"冲击新高，节奏紧绷；盘面仍开阔，稳住关键落点把分数稳稳推上去"）；`boardRisk ≥ 0.6` 仍最高优先 | `web/src/stressMeter.js` (`shouldUseScorePushHighStress` / `SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL` / `buildStoryLine` 优先级 #2) |
-| **harvest 一律说"密集"措辞过誉**：`harvest` 触发门槛只是 `nearFullLines >= 2`（最低档），`nfl=2/mcc=2-3` 时盘面只是底部两行较紧贴，旧 `SPAWN_INTENT_NARRATIVE.harvest`「识别到**密集**消行机会」语义偏强（截图 2 复现） | 新增 `HARVEST_NARRATIVE_BY_DENSITY` + `classifyHarvestDensity({nearFullLines, multiClearCandidates})` 三档：`dense (nfl≥3 ∨ mcc≥3) / visible (nfl≥2，最常见，"清晰可见") / edge (nfl<2，pcSetup-only，"首个窗口")`；只在低-中压档（`level.id ∉ {engaged, tense, intense}`）启用，高压档仍由 §D `HARVEST_HIGH_STRESS_NARRATIVE_BY_LEVEL` 接管 | `web/src/stressMeter.js` (`classifyHarvestDensity` / `HARVEST_NARRATIVE_BY_DENSITY` / `buildStoryLine` 优先级 #4b) |
-| **几何上下文从哪来**：`buildStoryLine` 历史签名只接 `level/breakdown/spawnTargets/spawnHints` | `renderStressMeter` 从 `insight.spawnDiagnostics.layer1` 读取 `fill / holes / nearFullLines / multiClearCandidates`，组装 `geometry` 透传到 `buildStoryLine`（第 5 个可选参数）；`geometry === undefined` 时**完全回退到 v1.30 决策树**，老回放叙事不变 | `web/src/stressMeter.js` (`renderStressMeter` 内 `_layer1` → `geometry` + `buildStoryLine(..., geometry)`) |
-| **优先级稳定性**：score-push 与 harvest 高压守卫在同一帧可同时成立（`harvest + intense + 友好盘面`） | 决策树固定：`boardRisk≥0.6` > **score-push 守卫** > FLOW/HARVEST 高压守卫 > harvest 密度分级 > SPAWN_INTENT_NARRATIVE > 旧回放 fallback > `level.vibe`；以 `tests/stressMeter.test.js` 9 条 v1.31 用例锁住 | `tests/stressMeter.test.js` (v1.31 score-push + harvest density 两个 describe) |
+**顺序刚性 (orderRigor) — 高难度算法升级**
 
-**v1.32 新增：顺序刚性 (orderRigor) — 高难度算法升级**
+消费 `evaluateTripletSolutions().validPerms`，把"顺序自由度"作为**第二个**软过滤维度引入。当玩家**高压且具承受力**时，要求三连块**必须按特定顺序**才能放下，把单局难度天花板从"操作精度"延伸到"前瞻规划"。
 
-> 本次升级**消费一个早已存在但未使用的指标**（`evaluateTripletSolutions().validPerms`），把"顺序自由度"作为**第二个**软过滤维度引入，与既有"解空间体量"（v9 `solutionCount`）正交。当玩家**高压且具承受力**时，要求三连块**必须按特定顺序**才能放下（默认 `validPerms ≤ 2`，即 6 种排列里仅 2 种全可解），把单局难度天花板从"操作精度"延伸到"前瞻规划"。
-
-| 问题 | v1.32 升级 | 代码入口 |
-|------|------------|----------|
-| **空间难度触顶后无第二级**：传统加压（更大块、更碎形状、`spatialPressure` 推高）在 `boardPressure / skillLevel ≈ 1` 时已经满档，再加只会让玩家挫败；但 `validPerms` 维度（"6 种排列里有几种可解"）从未被消费 | 派生 `orderRigor ∈ [0,1]` = `clamp01((stress − 0.55) × 1.6 + max(0, skill − 0.5) × 0.20 + difficultyTuning.orderRigorBoost)`；映射到 `orderMaxValidPerms ∈ [4, 2]`；blockSpawn 在前 ~55% attempt 拒绝 `validPerms > N` 的 triplet | `web/src/adaptiveSpawn.js`（派生）+ `web/src/bot/blockSpawn.js`（消费）+ `shared/game_rules.json → topologyDifficulty.orderRigor*` + `difficultyTuning.hard.orderRigorBoost = 0.30` |
-| **新手 / 救场 / 被困 不应被刁难** | **五重 bypass**：(1) `inOnboarding` (2) `profile.needsRecovery` (3) `hasBottleneckSignal`（v1.30） (4) `holes > 3` (5) `boardFill < 0.5`；任一成立 `orderRigor=0`、`maxValidPerms=6` | `adaptiveSpawn.js` 内部 bypass 短路 |
-| **过严配置导致 dock 候选稀缺时死循环** | 仅在前 `MAX_SPAWN_ATTEMPTS × 0.55` 次尝试内硬过滤；之后接受任意 `validPerms`；`truncated=true`（DFS 不可信）按通过处理 | `blockSpawn.js` orderEarly 守卫 + diagnostics `solutionRejects.orderTooLoose` 计数 |
-| **诊断与叙事曝光** | `_orderRigor` / `_orderMaxValidPerms` 顶层暴露；`SIGNAL_LABELS.orderRigor` 加入 stressMeter（面板可读 tooltip）；`summarizeContributors` skip 列表更新避免被误读为 stress 分量 | `stressMeter.js` (`SIGNAL_LABELS` + `summarizeContributors`) + `tests/adaptiveSpawn.test.js` 7 用例 + `tests/blockSpawn.test.js` 3 用例 |
+| 问题 | 机制 | 代码入口 |
+|------|------|----------|
+| **空间难度触顶后无第二级**：`validPerms` 维度（"6 种排列里有几种可解"）从未被消费 | 派生 `orderRigor ∈ [0,1]` = `clamp01((stress − 0.55) × 1.6 + max(0, skill − 0.5) × 0.20 + difficultyTuning.orderRigorBoost)`；映射到 `orderMaxValidPerms ∈ [4, 2]`；blockSpawn 在前 ~55% attempt 拒绝 `validPerms > N` 的 triplet | `web/src/adaptiveSpawn.js`（派生）+ `web/src/bot/blockSpawn.js`（消费）+ `shared/game_rules.json → topologyDifficulty.orderRigor*` |
+| **新手 / 救场 / 被困 不应被刁难** | **五重 bypass**：(1) `inOnboarding` (2) `profile.needsRecovery` (3) `hasBottleneckSignal` (4) `holes > 3` (5) `boardFill < 0.5`；任一成立 `orderRigor=0`、`maxValidPerms=6` | `adaptiveSpawn.js` 内部 bypass 短路 |
+| **过严配置导致 dock 候选稀缺时死循环** | 仅在前 `MAX_SPAWN_ATTEMPTS × 0.55` 次尝试内硬过滤；之后接受任意 `validPerms`；`truncated=true` 按通过处理 | `blockSpawn.js` orderEarly 守卫 + diagnostics `solutionRejects.orderTooLoose` 计数 |
 
 **与 5 轴体验结构的对应**（详见 [EXPERIENCE_DESIGN_FOUNDATIONS.md](./EXPERIENCE_DESIGN_FOUNDATIONS.md) §C）：
 
@@ -236,7 +226,6 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 - `stress` 与 `spawnIntent` 仍可能正交，需靠档位 + 叙事分工（体感 vs 系统动作）。  
 - `spawnLayers.js` 仍未接入主出块路径。  
 - 高 stress 形状权重仍依赖 L3 校验与几何兜底。
-- v1.32 `orderRigor` 仅在数据层面工作；面板 Pill（"顺序刚性 R / 序贯上限 ≤N"）与 stressMeter 一句话叙事的"🧩 强制顺序"标签建议作为下个迭代项。
 
 ---
 
@@ -257,4 +246,4 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 
 ---
 
-*文档版本：1.3（v1.30 动态被困识别 + v1.31 叙事-体感对齐两条窄守卫 + v1.32 顺序刚性高难度算法）· 与实现对齐以仓库主分支为准。*
+*与实现对齐以仓库主分支为准。*

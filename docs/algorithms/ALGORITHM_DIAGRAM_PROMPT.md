@@ -443,7 +443,7 @@
    LinUCB / survival / drift / adInsertionRL 必须用虚线或 `flag:` 显式
    标注 opt-in。
 3. **不要画反向依赖**：商业化 / lifecycle 不得反向调用 game.js / grid.js。
-4. **不要把已归档的算法**（`docs/archive/` 下任何 RL 历史版本、
+4. **不要把已归档的算法**（任何已归档的 RL 历史版本、
    PaymentPredictionModel 的 random 占位作为"实际特征"）画成主链路。
 5. **不要混淆 SpawnV3 与 Gameplay RL**：两者是不同模型 + 不同路由 + 不同
    主干（V3 用 TransformerEncoder，RL 用 CNN+DockAttention）。

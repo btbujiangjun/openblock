@@ -4859,153 +4859,101 @@ _DOCS_DIR = Path(__file__).resolve().parent / "docs"
 _WEB_PUBLIC_DIR = Path(__file__).resolve().parent / "web" / "public"
 
 _DOC_CATEGORIES = [
-    # 与 docs/ 目录结构一致（子目录 + 相对路径），供 /docs/list 与 docs.html 侧栏使用。
-    # 维护规约：
-    #   1. 新增 docs/<sub>/<NAME>.md 时必须同步在此追加一行；CI 可用 scripts/check-docs-registered.* 检测漏注册。
-    #   2. 子目录 README.md（如 docs/player/README.md）作为索引页，不进侧栏 —— 用户已能从分类标题进入。
-    #   3. 同一文档允许出现在多个分类（如 ALGORITHMS_RL 同时在「算法与模型」与「强化学习」），便于跨入口发现。
-    #   4. 顺序原则：方法论 → 系统/算法 → 工程/运维 → 集成/平台 → 归档。
+    # 角色驱动的文档分类体系
+    # 1. 按目标受众分组，便于各角色快速定位
+    # 2. 不包含归档/过渡性内容（已移除）
+    # 3. 同一文档只出现在最相关的分类中
     {"name": "文档中心", "docs": ["README.md"]},
     {
-        "name": "工程与扩展",
-        "docs": [
-            "engineering/PROJECT.md",
-            "engineering/SQLITE_SCHEMA.md",
-            "engineering/DEV_GUIDE.md",
-            "engineering/TESTING.md",
-            "engineering/PERFORMANCE.md",
-            "engineering/PERFORMANCE_BASELINE.md",
-            "engineering/I18N.md",
-            "engineering/STRATEGY_GUIDE.md",
-            "engineering/GOLDEN_EVENTS.md",
-            "engineering/CANVAS_ARTIFACTS.md",
-            "engineering/CASUAL_GAME_BUILD_SKILL.md",
-            "engineering/CURSOR_SKILLS.md",
-        ],
-    },
-    {
-        "name": "领域与竞品",
-        "docs": [
-            "domain/DOMAIN_KNOWLEDGE.md",
-            "domain/CASUAL_GAME_ANALYSIS.md",
-            "domain/GLOBAL_CASUAL_GAME_RESEARCH.md",
-            "domain/COMPETITOR_USER_ANALYSIS.md",
-            "domain/ARCHITECTURE_COMPARISON.md",
-        ],
-    },
-    {
-        "name": "玩法与产品",
-        "docs": [
-            "product/DIFFICULTY_MODES.md",
-            "product/CLEAR_SCORING.md",
-            "product/CHEST_AND_WALLET.md",
-            "product/EASTER_EGGS_AND_DELIGHT.md",
-            "architecture/PRODUCT_ARCHITECTURE_DIAGRAMS.md",
-            "product/SKINS_CATALOG.md",
-            "product/SKIN_ICON_SEMANTIC_POOL.md",
-        ],
-    },
-    {
-        # 顺序：顶层方法论 → 系统结构 → 操作手册 → 玩家面板 → 评估 → 风格识别。
-        # 新读者可从顶部 EXPERIENCE_DESIGN_FOUNDATIONS 入门，再向下展开到具体指标与面板。
-        "name": "玩家系统",
+        "name": "面向管理者 / 新成员",
         "docs": [
             "player/EXPERIENCE_DESIGN_FOUNDATIONS.md",
-            "player/STRATEGY_EXPERIENCE_MODEL.md",
-            "player/REALTIME_STRATEGY.md",
-            "player/BEST_SCORE_CHASE_STRATEGY.md",
-            "player/PANEL_PARAMETERS.md",
-            "player/PLAYER_ABILITY_EVALUATION.md",
-            "player/PLAYSTYLE_DETECTION.md",
+            "domain/GLOBAL_CASUAL_GAME_RESEARCH.md",
+            "domain/CASUAL_GAME_ANALYSIS.md",
+            "domain/COMPETITOR_USER_ANALYSIS.md",
+            "domain/ARCHITECTURE_COMPARISON.md",
+            "architecture/PRODUCT_ARCHITECTURE_DIAGRAMS.md",
+            "architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md",
         ],
     },
     {
-        "name": "算法与模型",
+        "name": "面向游戏策划",
         "docs": [
-            "algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md",
-            "algorithms/ALGORITHM_DIAGRAM_PROMPT.md",
-            "algorithms/SPAWN_DIAGRAM_PROMPT.md",
+            "player/BEST_SCORE_CHASE_STRATEGY.md",
+            "player/STRATEGY_EXPERIENCE_MODEL.md",
+            "product/DIFFICULTY_MODES.md",
+            "product/CLEAR_SCORING.md",
+            "player/REALTIME_STRATEGY.md",
+            "player/PLAYSTYLE_DETECTION.md",
+            "product/SKINS_CATALOG.md",
+            "product/SKIN_ICON_SEMANTIC_POOL.md",
+            "product/CHEST_AND_WALLET.md",
+            "product/EASTER_EGGS_AND_DELIGHT.md",
+        ],
+    },
+    {
+        "name": "面向算法工程师",
+        "docs": [
             "algorithms/ALGORITHMS_HANDBOOK.md",
             "algorithms/ALGORITHMS_SPAWN.md",
+            "algorithms/ADAPTIVE_SPAWN.md",
+            "algorithms/SPAWN_ALGORITHM.md",
+            "algorithms/SPAWN_EVALUATION.md",
+            "algorithms/SPAWN_TUNING_V2.md",
+            "algorithms/SPAWN_BLOCK_MODELING.md",
+            "algorithms/CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md",
+            "algorithms/SPAWN_SOLUTION_DIFFICULTY.md",
             "algorithms/ALGORITHMS_PLAYER_MODEL.md",
             "algorithms/ALGORITHMS_RL.md",
+            "algorithms/RL_README.md",
+            "algorithms/RL_AND_GAMEPLAY.md",
+            "algorithms/RL_PYTORCH_SERVICE.md",
+            "algorithms/RL_TRAINING_DASHBOARD_FLOW.md",
+            "algorithms/RL_TRAINING_DASHBOARD_TRENDS.md",
+            "algorithms/RL_TRAINING_NUMERICAL_STABILITY.md",
+            "algorithms/RL_ANALYSIS.md",
+            "algorithms/RL_SELF_PLAY_LITERATURE_COMPARISON.md",
+            "algorithms/RL_ALPHAZERO_OPTIMIZATION.md",
             "algorithms/ALGORITHMS_MONETIZATION.md",
             "algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md",
             "algorithms/MODEL_SYSTEMS_FOUR_MODELS.md",
             "algorithms/MODEL_ENGINEERING_GUIDE.md",
             "algorithms/DECISION_DERIVATION_ARCHITECTURE.md",
-        ],
-    },
-    {
-        # 架构契约：跨模块的事件总线、数据-策略分层、单向依赖约束、系统/算法
-        # 架构图集与可复用生成 prompt。算法和商业化文档落地的设计基线，单独成
-        # 栏便于架构 / SRE / 算法工程师索引；图集允许跨栏出现（也保留在「算法
-        # 与模型」），从不同入口进入用户都能找到同一份事实。
-        "name": "架构契约",
-        "docs": [
-            "architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md",
-            "algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md",
-            "architecture/MONETIZATION_EVENT_BUS_CONTRACT.md",
-            "architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md",
-            "architecture/ARCHITECTURE_DIAGRAM_PROMPT.md",
-            "algorithms/ALGORITHM_DIAGRAM_PROMPT.md",
-        ],
-    },
-    {
-        "name": "出块算法",
-        "docs": [
-            # v1.61: 交互式工具置顶, type=tool 标记供 docs.html 侧栏以 iframe 嵌入
-            # 信号透视仪是 docs/ 下的静态 HTML, 走默认的 /docs/tool/<path> 路由
             {"file": "algorithms/spawn-signal-explorer.html", "type": "tool",
              "title": "出块信号透视仪（交互工具）"},
-            "algorithms/SPAWN_ALGORITHM.md",
-            "algorithms/SPAWN_EVALUATION.md",
-            "algorithms/SPAWN_TUNING_V2.md",
-            "algorithms/ADAPTIVE_SPAWN.md",
-            "algorithms/SPAWN_BLOCK_MODELING.md",
-            "algorithms/CANDIDATE_BLOCKS_PROBABILITY_ATLAS.md",
-            "algorithms/SPAWN_SOLUTION_DIFFICULTY.md",
-            "algorithms/SPAWN_DIAGRAM_PROMPT.md",
         ],
     },
     {
-        "name": "强化学习",
-        "groups": [
-            {
-                "name": "总览与契约",
-                "docs": [
-                    "algorithms/RL_README.md",
-                    "algorithms/ALGORITHMS_RL.md",
-                    "algorithms/RL_AND_GAMEPLAY.md",
-                    "algorithms/RL_PYTORCH_SERVICE.md",
-                ],
-            },
-            {
-                "name": "训练观测与排障",
-                "docs": [
-                    "algorithms/RL_TRAINING_DASHBOARD_FLOW.md",
-                    "algorithms/RL_TRAINING_DASHBOARD_TRENDS.md",
-                    "algorithms/RL_TRAINING_NUMERICAL_STABILITY.md",
-                ],
-            },
-            {
-                "name": "研究与文献对比",
-                "docs": [
-                    "algorithms/RL_ANALYSIS.md",
-                    "algorithms/RL_SELF_PLAY_LITERATURE_COMPARISON.md",
-                    "algorithms/RL_ALPHAZERO_OPTIMIZATION.md",
-                ],
-            },
+        "name": "面向开发工程师",
+        "docs": [
+            "engineering/PROJECT.md",
+            "engineering/DEV_GUIDE.md",
+            "engineering/TESTING.md",
+            "engineering/SQLITE_SCHEMA.md",
+            "engineering/GOLDEN_EVENTS.md",
+            "engineering/PERFORMANCE.md",
+            "engineering/PERFORMANCE_BASELINE.md",
+            "engineering/I18N.md",
+            "engineering/STRATEGY_GUIDE.md",
+            "engineering/CANVAS_ARTIFACTS.md",
+            "engineering/CASUAL_GAME_BUILD_SKILL.md",
+            "engineering/CURSOR_SKILLS.md",
+            "platform/MOBILE_CLIENTS.md",
+            "platform/WECHAT_MINIPROGRAM.md",
+            "platform/WECHAT_RELEASE.md",
+            "platform/SYNC_CONTRACT.md",
+            "integrations/ADS_IAP_SETUP.md",
+            "integrations/ENTERPRISE_EXTENSIONS.md",
         ],
     },
     {
-        "name": "商业化与运营",
+        "name": "面向商业化 / 运营",
         "docs": [
             "operations/MONETIZATION.md",
-            "operations/COMMERCIAL_STRATEGY_REVIEW.md",
             "operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md",
-            "operations/RETENTION_QUICK_WINS.md",
+            "operations/COMMERCIAL_STRATEGY_REVIEW.md",
             "operations/RETENTION_SIGNALS_CROSS_PLATFORM.md",
+            "operations/RETENTION_QUICK_WINS.md",
             "operations/OPS_DASHBOARD_METRICS_AUDIT.md",
             "operations/MONETIZATION_CUSTOMIZATION.md",
             "operations/MONETIZATION_TRAINING_PANEL.md",
@@ -5016,9 +4964,7 @@ _DOC_CATEGORIES = [
         ],
     },
     {
-        # 新增分类：把基础设施 / 部署 / 安全 / 可观测性从「商业化与运营」拆出，
-        # 让 ops/SRE/平台工程师有专属入口，避免与商业化文档混在一栏。
-        "name": "运维与部署",
+        "name": "面向运维 / SRE",
         "docs": [
             "operations/DEPLOYMENT.md",
             "operations/K8S_DEPLOYMENT.md",
@@ -5027,36 +4973,17 @@ _DOC_CATEGORIES = [
         ],
     },
     {
-        "name": "外部集成",
+        "name": "参考",
         "docs": [
-            "integrations/ADS_IAP_SETUP.md",
-            "integrations/ENTERPRISE_EXTENSIONS.md",
-        ],
-    },
-    {
-        "name": "平台扩展",
-        "docs": [
-            "platform/MOBILE_CLIENTS.md",
-            "platform/WECHAT_MINIPROGRAM.md",
-            "platform/WECHAT_RELEASE.md",
-            "platform/SYNC_CONTRACT.md",
-        ],
-    },
-    {
-        # 归档区域：sprint 路线图、早期分析、被吸收的设计稿。
-        # 用于追溯演进背景，不作为当前实现事实来源；与活动文档冲突时以活动文档为准。
-        "name": "归档",
-        "docs": [
-            "archive/MONETIZATION_OPTIMIZATION.md",
-            "archive/MONETIZATION_PERSONALIZATION.md",
-            "archive/algorithms/RL_V9_1_DEEP_ANALYSIS.md",
-            "archive/algorithms/RL_V9_3_SCORE_BREAKTHROUGH_ANALYSIS.md",
-            "archive/algorithms/RL_SELF_PLAY_ROADMAP.md",
-            "archive/algorithms/RL_TRAINING_OPTIMIZATION.md",
-            "archive/algorithms/RL_BROWSER_OPTIMIZATION.md",
-            "archive/product/EASTER_EGGS_ROADMAP.md",
-            "archive/product/PLAYER_RETENTION_ROADMAP.md",
-            "archive/product/RETENTION_ROADMAP_V10_17.md",
+            "architecture/MONETIZATION_EVENT_BUS_CONTRACT.md",
+            "architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md",
+            "domain/DOMAIN_KNOWLEDGE.md",
+            "algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md",
+            "algorithms/ALGORITHM_DIAGRAM_PROMPT.md",
+            "algorithms/SPAWN_DIAGRAM_PROMPT.md",
+            "architecture/ARCHITECTURE_DIAGRAM_PROMPT.md",
+            "player/PANEL_PARAMETERS.md",
+            "player/PLAYER_ABILITY_EVALUATION.md",
         ],
     },
 ]

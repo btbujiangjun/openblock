@@ -1,6 +1,5 @@
 # 消行计分规则 · Clear Scoring
 
-> 最后更新：2026-04-30（RL / 小程序模拟器出块与计分已对齐主局）  
 > 以代码为准：`web/src/clearScoring.js` 的 `computeClearScore`（由 `game.js` 透传导出）与 `miniprogram/core/bonusScoring.js` 对齐。
 
 ---
@@ -102,7 +101,7 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 4. 出块颜色与 bonus 对齐（v10.17+）
+## 4. 出块颜色与 bonus 对齐
 
 为减少“分数规则和出块体感不一致”的感受，在**不改形状可解性约束**的前提下对 dock 三色做软引导：
 
@@ -142,7 +141,7 @@ export function computeClearScore(strategyId, result) {
 - **格子上的 bonus 原始字段**：`Grid.checkLines()` 仍会构造 `bonus_lines`（Python / JS）；计分时以 `detectBonusLines` 合并结果为准的情况见主局 `game.js`。纯同色盘面下与 `checkLines` 同色判定一致。  
 - **回放重算** `web/src/moveSequence.js` 的 `replayStateAt`：仍受帧内是否含皮肤 icon 信息约束。  
   - **回放限制**：序列帧通常不含 `blockIcons`，重算未必能识别「同 icon、不同 `colorIdx`」的 bonus；与仅依赖颜色的对局分支一致。  
-- **`scoring.multiLine` / `scoring.combo`**：仍存在于 `shared/game_rules.json` 与历史 `init` 帧里，便于旧数据兼容；**消行得分仅读取 `singleLine` 作为 `baseUnit`**。
+- **消行得分仅读取 `scoring.singleLine` 作为 `baseUnit`**。
 
 ---
 

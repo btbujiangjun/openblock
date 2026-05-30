@@ -19,7 +19,7 @@
 | 增长护栏 | D1 留存 | ≥ 45% |
 | 习惯护栏 | D7 留存 | ≥ 20% |
 | 商业化护栏 | IAP + IAA 双轮 | IAA ARPDAU 不下滑且 IAP 转化率 ≥ 行业基准 |
-| **体验护栏（v1.60.45 新增）** | **爽感覆盖率（7d）** | **≥ 75%**（触发任一 multiClear / pcClear / monoFlush / comboHigh 的 DAU 占比；数据来源见 [跨平台分析 §4.5](./RETENTION_SIGNALS_CROSS_PLATFORM.md#45-p1-共性--爽感监控闭环roundssincelastdelight)） |
+| **体验护栏** | **爽感覆盖率（7d）** | **≥ 75%**（触发任一 multiClear / pcClear / monoFlush / comboHigh 的 DAU 占比；数据来源见 [跨平台分析 §4.5](./RETENTION_SIGNALS_CROSS_PLATFORM.md#45-p1-共性--爽感监控闭环roundssincelastdelight)） |
 
 护栏意味着：任何提升一个指标的实验，必须在另外三个指标上**不显著负向**（≤ 95%
 置信度负向变化）。
@@ -133,7 +133,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 |------|------|--------|
 | 首手瓶颈中位数 | `P50(firstMoveFreedom)` 7 天窗口 | `web/src/game.js` + `bot/blockSpawn.js` |
 | 策略执行率 | 建议动作触发后 3 步内兑现率 | `web/src/strategyAdvisor.*` + replay |
-| 压力恢复时间 | norm `stress > 0.708` → 回落 `< 0.542` 步数（v1.55.17 起；等价 raw `> 0.65 → < 0.45`） | `web/src/adaptiveSpawn.js` + `stressMeter.js` |
+| 压力恢复时间 | norm `stress > 0.708` → 回落 `< 0.542` 步数（等价 raw `> 0.65 → < 0.45`） | `web/src/adaptiveSpawn.js` + `stressMeter.js` |
 | 容错依赖比 | `(undo + hint) / 总局数` | `web/src/skills/*` + `analyticsTracker` |
 | 操作效率 | 每局 `clears / placements` | `analyticsTracker.GAME_END` |
 | 价值成熟度 | IAA 倾向 + IAP 倾向 + 付费深度 | `monetization/adAdapter.js` + `iapAdapter.js` |
@@ -257,7 +257,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ## 8. S/M 标签 → 出块难度调制
 
-> **全仓唯一接线点（Single Source of Truth）**：v1.50.x 起，调制矩阵抽到独立模块
+> **全仓唯一接线点（Single Source of Truth）**：调制矩阵抽到独立模块
 > `web/src/lifecycle/lifecycleStressCapMap.js`，导出 `LIFECYCLE_STRESS_CAP_MAP`、
 > `LIFECYCLE_STAGE_LABEL`、`LIFECYCLE_BAND_LABEL`、`LIFECYCLE_*_COLOR`、
 > `getLifecycleStressCap()`、`describeLifecycleStressCap()`。
@@ -272,7 +272,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 >
 > 其余早期实现已废止：
 >
-> - **`web/src/retention/difficultyAdapter.js`**（v1 残留）：曾定义平行的 `MATURITY_DIFFICULTY_ADJUST = { L1:-15, L2:-5, L3:0, L4:+5 }`，但全仓**没有任何生产代码**调用它到 spawn 路径，仅自测引用。**v1.50.x 已删除**，文档残链统一指向本节。
+> - **`web/src/retention/difficultyAdapter.js`**：曾定义平行的 `MATURITY_DIFFICULTY_ADJUST = { L1:-15, L2:-5, L3:0, L4:+5 }`，但全仓**没有任何生产代码**调用它到 spawn 路径，仅自测引用。已删除，文档残链统一指向本节。
 > - 任何复现 `'S0·M0': { cap: 0.50 }` 字面值的局部代码都属于反模式，应改为 `import { LIFECYCLE_STRESS_CAP_MAP } from 'lifecycle/lifecycleStressCapMap.js'`。
 >
 > ⚠️ **两个 SkillScore 不要混淆**——M-band 阈值用的是 `retention/playerMaturity.calculateSkillScore`（跨局画像、按天 EMA、不含付费/广告）；不是 `playerAbilityModel.buildPlayerAbilityVector` 输出的 `AbilityVector.skillScore`（局内 5 维 EMA、每帧刷新、直接进 `skillAdjust`）。两个文件 docstring 顶部都有警示表。

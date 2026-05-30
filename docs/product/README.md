@@ -17,7 +17,6 @@
 - [宝箱与钱包](./CHEST_AND_WALLET.md) —— 宝箱节奏、钱包账本与 IAP 触点
 - [彩蛋与惊喜系统](./EASTER_EGGS_AND_DELIGHT.md) —— 彩蛋触发、稀有度、运营接口
 
-历史 sprint 路线图（早期留存路线、彩蛋早期方案、留存 v10.17 节奏）已收敛到
-[`../archive/product/`](../archive/product/)，仅作背景参考。
+
 
 适合产品、玩法策划、视觉设计、运营和测试角色使用。

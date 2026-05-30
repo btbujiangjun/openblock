@@ -247,6 +247,12 @@
     .welcome-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(59,130,246,.12); }
     .welcome-card .cat { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); margin-bottom: 6px; }
     .welcome-card .title { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.4; }
+    .welcome-section { margin-top: 28px; }
+    .welcome-section-title {
+      font-size: 14px; font-weight: 600; color: var(--text);
+      margin-bottom: 10px; padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
 
     /* ─── Markdown 内容渲染 ─── */
     .md-body {
@@ -1214,15 +1220,48 @@
         }
       });
     });
+    // Build role-based section headings for the welcome page
+    const roleSections = {
+      '面向管理者 / 新成员': '👤 管理者·决策者',
+      '面向游戏策划': '🎮 游戏策划·产品经理',
+      '面向算法工程师': '🧠 算法·AI 工程师',
+      '面向开发工程师': '⚙️ 开发工程师',
+      '面向商业化 / 运营': '💰 商业化·运营',
+      '面向运维 / SRE': '🔧 运维·SRE',
+      '参考': '📚 参考',
+    };
+    const roleHtml = _categories.map(cat => {
+      const label = roleSections[cat.category] || cat.category;
+      const docs = allDocs(cat).filter(d => d.type !== 'tool');
+      const tools = allDocs(cat).filter(d => d.type === 'tool');
+      const items = docs.map(d =>
+        `<div class="welcome-card" data-file="${_ea(d.file)}">
+          <div class="cat">${_ea(cat.category)}</div>
+          <div class="title">${_ea(d.title)}</div>
+        </div>`
+      ).join('');
+      const toolItems = tools.map(d =>
+        `<div class="welcome-card" data-file="${_ea(d.file)}" style="border-color:rgba(63,185,80,0.35)">
+          <div class="cat" style="color:#3fb950">${_ea(cat.category)} · 工具</div>
+          <div class="title">${_ea(d.title)}</div>
+        </div>`
+      ).join('');
+      if (!items && !toolItems) return '';
+      return `<div class="welcome-section">
+        <h2 class="welcome-section-title">${label}</h2>
+        <div class="welcome-grid">${items}${toolItems}</div>
+      </div>`;
+    }).join('');
+
     $main.innerHTML = `
       <div class="welcome">
         <h1>📚 OpenBlock 文档中心</h1>
-        <p>收录全部设计文档、研究报告与技术规范，点击卡片或左侧导航查阅任意文档。</p>
+        <p style="max-width:600px;line-height:1.8">面向开源协作的统一入口：先理解项目愿景，再按角色进入对应的方法论、架构契约与工程文档。</p>
         <div style="margin:12px 0 20px;display:flex;gap:10px;flex-wrap:wrap">
-          <a href="/ops" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:linear-gradient(135deg,#1a1d27,#22263a);color:#5B9BD5;border:1px solid rgba(91,155,213,.3);border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">📊 运营看板</a>
-          <a href="/" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:linear-gradient(135deg,#22263a,#2a2f45);color:#94a3b8;border:1px solid rgba(148,163,184,.2);border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">🎮 返回游戏</a>
+          <a href="/" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:linear-gradient(135deg,#1a1d27,#22263a);color:#5B9BD5;border:1px solid rgba(91,155,213,.3);border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">🎮 返回游戏</a>
+          <a href="/ops" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:linear-gradient(135deg,#22263a,#2a2f45);color:#94a3b8;border:1px solid rgba(148,163,184,.2);border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;transition:opacity .15s" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">📊 运营看板</a>
         </div>
-        <div class="welcome-grid">${cardsHtml}</div>
+        ${roleHtml}
       </div>`;
     $main.querySelectorAll('.welcome-card').forEach(el => {
       el.addEventListener('click', () => openDoc(el.dataset.file));

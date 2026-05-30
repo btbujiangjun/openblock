@@ -14,7 +14,7 @@
 
 - **挂载**：`main.js` 调用 `initEndGameChest({ game })`，包装 `game.endGame`。
 - **触发概率**：基础 5%；本局 `score ≥ 800` 时 +5%；连续 12 局未触发则本局 **100% 保底**。
-- **发放顺序（v10.18+）**：命中后先将 `{ tier, reward }` 写入 `pendingChest`，**弹出浮层**；用户点击 **「领取到钱包」** 或点击遮罩关闭时，才执行 `_grantReward` 入账，并清除 `pendingChest`。
+- **发放顺序**：命中后先将 `{ tier, reward }` 写入 `pendingChest`，**弹出浮层**；用户点击 **「领取到钱包」** 或点击遮罩关闭时，才执行 `_grantReward` 入账，并清除 `pendingChest`。
 - **自动兑现**：任意后续局结算时会先尝试兑现上一局未操作的 `pendingChest`（避免关页/未点导致丢奖励）。
 - **冷启动页**：`initEndGameChest` 末尾会调用一次兑现，处理刷新前未确认的待领。
 - **与结算卡叠层**：若 `#game-over.active`，则通过 `MutationObserver` 延迟到结算卡关闭后再弹层（见文件内注释）。
@@ -44,6 +44,5 @@
 
 ## 相关文档
 
-- [留存路线图（归档）](../archive/product/RETENTION_ROADMAP_V10_17.md)（宝箱在留存中的定位）
 - [玩家生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（当前权威留存模型）
 - [彩蛋与惊喜](./EASTER_EGGS_AND_DELIGHT.md)（体验节奏交叉参考）

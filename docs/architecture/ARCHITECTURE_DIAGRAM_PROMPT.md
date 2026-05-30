@@ -295,8 +295,8 @@ game.spawnBlocks()
 1. **不要发明** §2 列表之外的模块名、文件名、表名、路由名。
 2. **不要画反向依赖**（如 `MonetizationBus → game.js` 直接调用、
    `monetization → grid.js`）。
-3. **不要把已归档的模块**（`docs/archive/` 下任何内容、`v9.x` RL 历史模型）
-   画进当前架构。
+3. **不要把已归档的模块**（任何已归档的历史内容、`v9.x` RL 历史模型）
+    画进当前架构。
 4. **不要混淆 web 和 miniprogram**：小程序不含 RL / v3 spawn model / 运营看板。
 5. **不要写中间态**："Phase 1-4 实施中 / v1.49.x 待发布"等 sprint 语言禁止
    出现在图标签里。

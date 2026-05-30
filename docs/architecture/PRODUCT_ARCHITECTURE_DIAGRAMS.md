@@ -78,7 +78,7 @@
 
 **单元测试**：`tests/bestScoreChaseStrategy.test.js`（50 个用例覆盖 §4.1–§4.13）+ `tests/gameBestScore.test.js`。
 
-**文档锚点**：[最佳分追逐策略](../player/BEST_SCORE_CHASE_STRATEGY.md) §4 改进项 13 项已全部交付（v1.55）。
+**文档锚点**：[最佳分追逐策略](../player/BEST_SCORE_CHASE_STRATEGY.md) §4 改进项 13 项已全部交付）。
 
 ---
 
@@ -97,7 +97,7 @@
 **跨轴互抑**：高风险抑制冲分加压、收获期避免高压叙事冲突。文档锚点 [体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md) Part C / C.2 + [实时策略系统](../player/REALTIME_STRATEGY.md) §3.7。代码示例：
 
 - `web/src/adaptiveSpawn.js` 内 `challengeBoost` × `friendlyBoardRelief`、`reactionAdjust` × `nearMissAdjust`、`bottleneckRelief` × `challengeBoost` 折扣等。
-- v1.55 新增 `postPbReleaseStressAdjust`：破 PB 后 3 个 spawn 内 stress × 0.7（**raw 域系数**；对外 stress 口径见 [自适应出块 §3.5](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径v15517)）+ clearGuarantee+1，破纪录与情感释放轴不与下一轮挑战加压冲突。
+- 新增 `postPbReleaseStressAdjust`：破 PB 后 3 个 spawn 内 stress × 0.7（**raw 域系数**；对外 stress 口径见 [自适应出块 §3.5](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径v15517)）+ clearGuarantee+1，破纪录与情感释放轴不与下一轮挑战加压冲突。
 
 ---
 
@@ -107,7 +107,7 @@
 
 | 事实 | 代码入口 |
 |---|---|
-| 25 格压力上限映射 | `web/src/lifecycle/lifecycleStressCapMap.js` `LIFECYCLE_STRESS_CAP_MAP`（v1.55 已补齐全部 25 格） |
+| 25 格压力上限映射 | `web/src/lifecycle/lifecycleStressCapMap.js` `LIFECYCLE_STRESS_CAP_MAP` |
 | 生命周期 S0–S4 派生 | `web/src/retention/playerLifecycleDashboard.js` `getPlayerLifecycleStage` + `web/src/lifecycle/lifecycleSignals.js` `mapStageToStageCode` |
 | 成熟度 M0–M4 派生 | `web/src/retention/playerMaturity.js` `getMaturityBand`（阈值 ≥90/80/60/40） |
 | 编排器写回 | `web/src/lifecycle/lifecycleOrchestrator.js` `updateMaturity` + session 钩子 |
@@ -128,7 +128,7 @@
 > 1. **行内单调**：同 stage 内 M0→M4 cap 与 adjust 单调递增，"成长有奖励"；
 > 2. **列内分层**：S0 / S4 弱保护（cap ≤ 0.65 / 0.80）、S2 / S3 强承受（cap 可达 0.88），反映生命周期价值曲线；
 > 3. **S0 行整体钳制 cap ≤ 0.65**：即便高 M-band 玩家在 onboarding 期也不应被压制；
-> 4. **新格线性插值**：v1.55 补齐的 8 格在相邻已知格之间插值，不破坏原有梯度。
+> 4. **新格线性插值**：补齐的 8 格在相邻已知格之间插值，不破坏原有梯度。
 
 **单元测试**：`tests/bestScoreChaseStrategy.test.js` §4.1（覆盖 25 格非 null + 行内单调 + 行内 cap ≤ 0.88）+ `tests/challengeDesignOptimization.test.js`。
 
@@ -187,7 +187,7 @@
 
 | 能力 | 代码入口 |
 |---|---|
-| **策略卡** | `web/src/strategyAdvisor.js` `buildStrategyTipsFromInsight`（读 `spawnHints` / `scoreMilestone` / `sessionArc` / `comboChain` / `lifecycle` / `pbContext`）；v1.55 新增 `pbChase` 类别，根据 `currentScore / bestScore` 比与 `postPbReleaseActive` 在 D3.close / D3.victory / D4 间切档 |
+| **策略卡** | `web/src/strategyAdvisor.js` `buildStrategyTipsFromInsight`（读 `spawnHints` / `scoreMilestone` / `sessionArc` / `comboChain` / `lifecycle` / `pbContext`）；新增 `pbChase` 类别，根据 `currentScore / bestScore` 比与 `postPbReleaseActive` 在 D3.close / D3.victory / D4 间切档 |
 | **拓扑洞察** | `web/src/boardTopology.js` `analyzeBoardTopology`：空洞 / 近满线 / 角落孤岛识别（**注**：仓库内无 `topologyInsight.js`，逻辑由 `boardTopology.js` 承载） |
 | **瓶颈识别** | `web/src/game.js` `_updateBottleneckTrough` / `_resetBottleneckTrough`：写入 `_spawnContext.bottleneckTrough` / `bottleneckSamples`，供 `adaptiveSpawn.js` `bottleneckRelief` 消费 |
 | **多消机会** | 目标侧：`web/src/adaptiveSpawn.js` `deriveSpawnTargets` 含 `clearOpportunity`；bot 加权：`web/src/bot/blockSpawn.js` + `web/src/bot/spawnLayers.js` |
@@ -202,7 +202,7 @@
 | 动机 | 代码入口 |
 |---|---|
 | **最佳分追赶** | §0 已展开（`bestScoreBuckets.js` + `_maybeCelebrateNewBest`） |
-| **分数里程碑（含 v1.55 二度里程碑）** | `web/src/adaptiveSpawn.js` `deriveScoreMilestones(bestScore, currentScore)` / `checkScoreMilestone`；破 PB 后动态注入 `bestScore × 1.10` 与 `bestScore × 1.25` 两档 |
+| **分数里程碑（含 二度里程碑）** | `web/src/adaptiveSpawn.js` `deriveScoreMilestones(bestScore, currentScore)` / `checkScoreMilestone`；破 PB 后动态注入 `bestScore × 1.10` 与 `bestScore × 1.25` 两档 |
 | **成熟度里程碑** | `web/src/retention/maturityMilestones.js`（与分数里程碑分列，按 SkillScore 触发） |
 | **挑战段位** | `web/src/playerProfile.js` `segment5`（按 SkillScore + lifecycle 分段） |
 | **赛季阶梯** | `web/src/monetization/seasonPass.js` + `web/src/seasonPass.js` + `web/src/daily/seasonPassEntry.js` |
@@ -221,7 +221,7 @@
 |---|---|
 | **多消 / 完美清台** | `web/src/game.js` `playClearEffect` / `showFloatScore`（combo / perfect / scoreMilestone）+ `web/src/clearScoring.js` `PERFECT_CLEAR_MULT` |
 | **近失提示** | `web/src/nearMissPlaceFeedback.js` `shouldShowNearMissPlaceFeedback` + `web/src/grid.js` `getBlockedEdgeCellsNearMissForPlacementForFeedback` |
-| **新纪录庆祝** | `web/src/game.js` `_maybeCelebrateNewBest`（v1.55.11：单局只 1 次完整烟花 + "🏆 刷新最佳！"，后续刷新只静默更新 `bestScore`；Hard 模式 hardScale × 1.3） |
+| **新纪录庆祝** | `web/src/game.js` `_maybeCelebrateNewBest`：单局只 1 次完整烟花 + "🏆 刷新最佳！"，后续刷新只静默更新 `bestScore`；Hard 模式 hardScale × 1.3） |
 | **破纪录释放窗口** | `web/src/game.js` `_startPostPbReleaseWindow` + `_commitSpawn` 计数 + `web/src/adaptiveSpawn.js` `postPbReleaseStressAdjust` |
 | **震动** | `web/src/effects/audioFx.js` `play` / `vibrate` / `setHaptic`（**注**：仓库内无 `hapticBus.js`，震动由 `audioFx.js` 承载） |
 | **粒子 / 特效** | `web/src/renderer.js` + `web/src/optimizedParticles.js`，由 `game.js` `renderer.addParticles` 调用 |
@@ -336,7 +336,7 @@ OpenBlock 在产品层面与行业默认做法不同的 4 处具体选择：
 - **非默认选择**：所有外围系统的奖励、任务、签到，最终都要回到「让我离 PB 更近一步」这一根叙事弦上；不允许独立成为玩法目标。
 - **代价**：任务 / 签到 / 通行证的设计师需要先想清楚"它如何指向 PB"，初期沟通成本上升。
 - **回报**：玩家在 5 分钟试玩、客服投诉、应用商店评分等场景下，都能用同一句话描述"我在玩什么"；产品迭代不会因多支线撕扯。
-- **验证**：每一条 i18n toast 在 PR 评审时被要求显式回答"它和 PB 主线有何关系"；与之无关的玩法点放进 `archive/` 而非主线。
+- **验证**：每一条 i18n toast 在 PR 评审时被要求显式回答"它和 PB 主线有何关系"；与之无关的玩法点不应进入主线。
 
 **②「难度按 25 格映射」而非"单一全局曲线"**
 
@@ -379,7 +379,7 @@ OpenBlock 在产品层面与行业默认做法不同的 4 处具体选择：
 
 - [系统架构图（业务架构 + 全栈分层 + 6 子图）](./SYSTEM_ARCHITECTURE_DIAGRAMS.md)：本图的"系统对偶"——产品架构看"玩家旅程"，系统架构看"代码与部署形态"。
 - [算法架构图（设计参考 + 紧凑概念图 + 8 子图）](../algorithms/ALGORITHM_ARCHITECTURE_DIAGRAMS.md)：本图的"算法对偶"——产品架构看"5 层游戏化结构"，算法架构看"信号 → 决策 → 训练 6 层工序"。
-- [最佳分追逐策略](../player/BEST_SCORE_CHASE_STRATEGY.md)：本图核心主线 §0 的**主策划契约**，13 项改进项（§4.1–§4.13）已在 v1.55 全部交付。
+- [最佳分追逐策略](../player/BEST_SCORE_CHASE_STRATEGY.md)：本图核心主线 §0 的**主策划契约**，13 项改进项（§4.1–§4.13）已在 全部交付。
 - [生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)：本图 §2 的**双轴契约**，25 格压力上限映射 + 6 项北极星指标的权威定义。
 - [体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md)：本图 §1 体验五轴的**心理学根据 + 跨轴互抑表**。
 - [实时策略系统](../player/REALTIME_STRATEGY.md)：本图 §4–§5 的**指标字典 + L1–L4 管线 + 策略卡生成**。

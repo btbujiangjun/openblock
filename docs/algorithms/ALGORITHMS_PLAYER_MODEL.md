@@ -378,7 +378,7 @@ $$
 if step_count < 5:
     return 'flow'  # 步数太少，默认 flow
 
-# v1.18：复合挣扎前置 —— 在 F(t) 早返回之前先看 4 个弱挣扎信号
+# 复合挣扎前置 —— 在 F(t) 早返回之前先看 4 个弱挣扎信号
 struggleSignals =
     (missRate > 0.10 ? 1 : 0) +
     (thinkMs > thinkTimeStruggleMs (3500) ? 1 : 0) +
@@ -407,7 +407,7 @@ if F(t) > 0.5 && clearRate > 0.5:
 return 'flow'  # 默认
 ```
 
-> **v1.18 设计动机**：旧版要求 `F(t) ≥ 0.25` 才进入方向判定，会漏掉
+> **设计动机**：旧版要求 `F(t) ≥ 0.25` 才进入方向判定，会漏掉
 > "板面 58% + 思考 4 秒 + 失误 13% + 消行率 25%"这种**单一阈值都没踩穿、
 > 但多个弱信号同时成立**的挣扎场景。F(t) 的分母是 skillLevel，玩家自己技能也
 > 不算高时（boardPressure ≈ 0.4 / skill ≈ 0.5 → F(t) ≈ 0.2）会被早返回吞掉，
@@ -423,7 +423,7 @@ return 'flow'  # 默认
 | `missRateWorry` | 0.28 | anxious 触发 |
 | `thinkTimeLowMs` | 1200 | bored 触发 |
 | `thinkTimeHighMs` | 10000 | anxious 触发 |
-| `thinkTimeStruggleMs` | 3500 | v1.18 复合挣扎单信号阈值 |
+| `thinkTimeStruggleMs` | 3500 | 复合挣扎单信号阈值 |
 | `thinkTimeVarianceHigh` | 8e6 | cognitiveLoad 归一 |
 
 > ⚠️ JSON 中的 `clearRateIdeal` / `clearRateTolerance` 在当前 `flowState` 实现中**未使用**——心流判定全在 `playerProfile.js` 写死。如果你认为应该读 JSON，可以考虑重构。
@@ -522,19 +522,18 @@ $$
 默认值 0.3 是"中性"——避免冷启动时误判为高负荷。
 ```
 
-> **v1.13：UI 层冷启动隔离 + 回放对齐**
+> **UI 层冷启动隔离 + 回放对齐**
 >
 > 0.3 是给 stress 主路径的兜底，不应直接呈现在玩家面板上（否则首屏会出现「负荷 30%」误导）。
 > 新增 getter `cognitiveLoadHasData = (placed.length ≥ 3)`，UI 在为 false 时把
 > 「负荷」字段渲染为「—」。同样地，`metrics` getter 现在带 `samples / activeSamples`
 > 字段供 UI 区分占位与真实测量。
 >
-> **回放数据同步**：`buildPlayerStateSnapshot` bump 至 `pv=2`，写入 `coldStart` /
+> **回放数据同步**：`buildPlayerStateSnapshot` 写入 `coldStart` /
 > `cognitiveLoadHasData` / `metrics.{samples,activeSamples}`，并把冷启动帧的 metrics
 > 与 cognitiveLoad 直接置 `null`；`buildReplayAnalysis` 暴露 `coldFrames` /
 > `coldFramesRatio` / `firstWarmFrameIdx` 供离线管线过滤。详见
-> `docs/engineering/STRATEGY_GUIDE.md` 的「冷启动占位值与 UI 展示约定」与
-> `docs/engineering/SQLITE_SCHEMA.md` 的 `pv` 演进表。
+> `docs/engineering/STRATEGY_GUIDE.md` 的「冷启动占位值与 UI 展示约定」。
 
 ### 7.2 momentum
 
@@ -545,7 +544,7 @@ $$
 其中
 - CR = clearRate（仅统计 `!miss`，自然排除 AFK）；
 - `sampleConfidence = clamp((|olderPlaced| + |newerPlaced|) / 12, 0, 1)`；
-- v1.16：`noiseDamping = clamp(1 - (\text{Var}_\text{older} + \text{Var}_\text{newer}), 0.5, 1)`，
+- `noiseDamping = clamp(1 - (\text{Var}_\text{older} + \text{Var}_\text{newer}), 0.5, 1)`，
   其中 $\text{Var}_h = CR_h(1 - CR_h)$ 是伯努利方差。
 
 > **关键：完全基于「消行率」而非「分数增量」**——分数随玩家累计线性增长，
@@ -555,16 +554,16 @@ $$
 
 clearRate 典型 0~0.5。差异 0.3 已是"明显的"——即从 30% 涨到 60%（或反之），就把 momentum 拉到上下限。
 
-#### v1.13：样本置信度缩放
+#### 样本置信度缩放
 
-旧实现仅要求每半区 ≥2 个 placement，6 个样本即可触发，clearRate 一次抖动就能把 momentum 推到 ±1，与玩家直觉脱节（典型案例：clearRate=0.4、心流稳定，但 momentum=−1.0）。修订后：
+旧实现仅要求每半区 ≥2 个 placement，6 个样本即可触发，clearRate 一次抖动就能把 momentum 推到 ±1（典型案例：clearRate=0.4、心流稳定，但 momentum=−1.0）。修订后：
 
 1. **最小样本**：每半区要求 ≥3 个 placement（minSamplesPerHalf=3），不足时直接返回 0。
 2. **样本置信度**：将钳制后的 momentum 再 ×`sampleConfidence`，6 样本时仅 0.5、12 样本时 1.0；窗口写满（默认 15）时行为与旧版本一致。
 
 预期效果：早期局内 momentum 趋于平稳，长会话末期才允许出现 ±1 的强信号；既保留疲劳分支语义，又消除对小样本噪声的过度反应。
 
-#### v1.16：噪声衰减（伯努利方差）
+#### 噪声衰减（伯努利方差）
 
 样本置信度只考虑「样本数量」，但当某半区的消行/未消行接近五五开时，一次随机翻转
 就能把 momentum 推到极端。新增噪声衰减 `noiseDamping`：
@@ -626,9 +625,9 @@ pacingPhase = (sessionPhase === 'early' || sessionPhase === 'peak')
               : 'release'
 ```
 
-> **v1.17 — UI 标签解耦**：v1.16 之前 `playerInsightPanel` 把 `pacingPhase` 文案
+> **UI 标签解耦**：`playerInsightPanel` 把 `pacingPhase` 文案
 > 写为「节奏相位」，与 `spawnHints.rhythmPhase`（setup/payoff/neutral）的紧凑 pill
-> 「节奏 收获」同名异义。v1.17 起 `pacingPhase` 在 UI 上统一称 **「Session 张弛」**
+> 「节奏 收获」同名异义。`pacingPhase` 在 UI 上统一称 **「Session 张弛」**
 > （`Session 张弛：紧张期/松弛期`），`spawnHints.rhythmPhase` 保留 **「节奏相位」**
 > 称谓。代码字段名不变，仅展示文案区分。
 
@@ -1121,12 +1120,12 @@ $$
 ### 14.7 动量
 
 $$
-\text{momentum} = \text{clamp}\left(\frac{\text{CR}_\text{后} - \text{CR}_\text{前}}{0.3}, -1, 1\right) \cdot \min\!\left(1, \frac{n_\text{older} + n_\text{newer}}{12}\right) \cdot \underbrace{\max\!\left(0.5, 1 - \big(\text{Var}_\text{older} + \text{Var}_\text{newer}\big)\right)}_{\text{v1.16 noiseDamping}}
+\text{momentum} = \text{clamp}\left(\frac{\text{CR}_\text{后} - \text{CR}_\text{前}}{0.3}, -1, 1\right) \cdot \min\!\left(1, \frac{n_\text{older} + n_\text{newer}}{12}\right) \cdot \underbrace{\max\!\left(0.5, 1 - \big(\text{Var}_\text{older} + \text{Var}_\text{newer}\big)\right)}_{\text{noiseDamping}}
 $$
 
 其中 $\text{Var}_h = CR_h (1 - CR_h)$ 是伯努利方差；`noiseDamping ∈ [0.5, 1]`。
 
-其中 $n_\text{older}$ / $n_\text{newer}$ 为前/后半区的有效 placement 数（v1.13 起每半区要求 ≥3 才参与计算）。
+其中 $n_\text{older}$ / $n_\text{newer}$ 为前/后半区的有效 placement 数（每半区要求 ≥3 才参与计算）。
 
 ### 14.8 认知负荷
 

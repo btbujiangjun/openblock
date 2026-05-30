@@ -1244,7 +1244,7 @@ behaviors                   -- 行为事件流（event_type）
 |------|------|
 | [`MONETIZATION.md`](./MONETIZATION.md) | 系统全景；本文档详细化第 10 章「商业化模型训练面板」 |
 | [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) | 三种定制粒度；本文档对应粒度 A（运营调参） |
-| [`MONETIZATION_PERSONALIZATION.md`](../archive/MONETIZATION_PERSONALIZATION.md) | v2 个性化设计原稿 |
+
 | [`STRATEGY_GUIDE.md`](../engineering/STRATEGY_GUIDE.md) | 策略文件结构与项目级定制 |
 
 ---

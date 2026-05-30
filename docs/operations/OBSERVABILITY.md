@@ -1,5 +1,4 @@
-# Observability (v1.15)
-
+# Observability
 OpenBlock services emit **structured logs**, **Prometheus metrics**,
 and **OpenTelemetry traces** by default. None of them require code
 changes from feature owners — the helpers in `services/common/` wire
@@ -29,7 +28,7 @@ These cover the four golden signals; SLOs are derived from
 
 `GET /metrics` returns the standard Prometheus exposition format. The
 endpoint is unauthenticated; restrict access at the gateway / network
-layer (the v1.15 `services/nginx.conf` already locks `/metrics` to
+layer (the  `services/nginx.conf` already locks `/metrics` to
 internal CIDRs).
 
 ### Multi-process gunicorn
@@ -163,7 +162,4 @@ open http://localhost:8001/docs   # Swagger UI
 
 ## 6. Roadmap
 
-- v1.16: PrometheusRule yaml + Grafana dashboards in
   `docs/operations/dashboards/`.
-- v1.16: Sentry SDK auto-init when `SENTRY_DSN` is set.
-- v1.16: OpenTelemetry log instrumentation (logs → traces correlation).

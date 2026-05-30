@@ -74,8 +74,6 @@
 - [自博弈文献对照与 OpenBlock 适配](./RL_SELF_PLAY_LITERATURE_COMPARISON.md)
 - [RL 复杂度与瓶颈研究](./RL_ANALYSIS.md)
 
-历史 sprint 分析（v9.x 平台期诊断、训练优化清单、浏览器优化、自博弈路线图）已收敛
-到 [`../archive/algorithms/`](../archive/algorithms/)，保留作演进背景，不作为当前
-事实入口。
+
 
 适合算法工程师、研究型贡献者和需要评估模型行为的测试角色。

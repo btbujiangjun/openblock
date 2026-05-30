@@ -4,9 +4,9 @@
 >
 > **使用方式**：按 § 序号领取任务；每个 § 是一个独立 PR，可平行实施。
 >
-> **代码基准**：v1.60.44（提交 `7c5913d`）
+> **代码基准**：��提交 `7c5913d`）
 >
-> **实施状态**：✅ §1–§10 已全部完成（v1.60.45，2129 个回归测试通过）。本文保留作为
+> **实施状态**：✅ §1–§10 已全部完成，2129 个回归测试通过）。本文保留作为
 > 设计依据 + 验证清单——线上数据回流后按 §6 验证方法回写 A/B 结果。
 
 ---
@@ -156,14 +156,14 @@ const MONO_FLUSH_PICK_PROBABILITY = 0.033;
 import { pickByPlatform } from '../config/platformProfile.js';
 
 /**
- * v1.60.45：按平台分发 monoFlush 命中概率。
+ * ��按平台分发 monoFlush 命中概率。
  *
  * 数据依据（docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.2）：
  *   Android 爽感时刻 r 平均比 iOS 高 1.5-2.3 倍，monoFlush 作为视觉爽感
  *   彩蛋应在 Android 抬高，iOS 维持稀缺。
  */
 const MONO_FLUSH_PICK_PROBABILITY = pickByPlatform({
-    ios:     0.033,  // 维持 v1.60.34 稀缺彩蛋设定
+    ios:     0.033,
     android: 0.050,  // +50%，与 r 倍数差异对齐
     wechat:  0.050,  // 与 Android 同档
     web:     0.040,  // 折中
@@ -173,9 +173,9 @@ const MONO_FLUSH_PICK_PROBABILITY = pickByPlatform({
 
 **配套测试更新**（`tests/blockSpawn.test.js`）：
 
-- 新增分组 `v1.60.45 — MONO_FLUSH_PICK_PROBABILITY 平台化`
+- 新增分组 ` — MONO_FLUSH_PICK_PROBABILITY 平台化`
 - 4 个测试：iOS / Android / WeChat / web 各跑 100 次 strong scenario，验证命中率落在 [基础值 ±2%] 区间
-- 已有 monoFlush 命中率测试（v1.60.30 等）保持原阈值（默认走 web/iOS 档）
+- 已有 monoFlush 命中率测试保持原阈值（默认走 web/iOS 档）
 
 **护栏**：
 - 全部既有 monoFlush 测试不动改前后差异（默认平台档 = 0.033，不变）
@@ -207,7 +207,7 @@ let multiClearBonus = Math.max(
     deriveMultiClearBonus(ctx, _boardFill ?? 0),
     delight.multiClearBoost
 );
-/* v1.60.45：Android 多消 r=0.205（iOS 0.089）→ 抬高底值确保多消时刻可达。
+/* ��Android 多消 r=0.205（iOS 0.089）→ 抬高底值确保多消时刻可达。
  * 数据依据 docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §2.2 / §4.2。
  * 仅抬底，不上限（避免无限叠加）。 */
 const platformFloor = pickByPlatform({
@@ -244,7 +244,7 @@ const REVIVE_CLEAR_CELLS   = 12;  // 复活时清除的格子数
 ```javascript
 import { pickByPlatform } from './config/platformProfile.js';
 
-/* v1.60.45：复活次数按平台分发。
+/* ��复活次数按平台分发。
  *
  * Android（r=+0.173 单调正相关）：放宽至 2，每局最多 2 次复活；
  * iOS（r≈0 非线性 U 型）：维持 1，避免反向劣化（数据：docs/operations/
@@ -275,7 +275,7 @@ const REVIVE_CLEAR_CELLS   = 12;
 **插入位置**（line ~115，`_consecutiveNonClears = 0` 之后）：
 
 ```javascript
-/* v1.60.45：爽感覆盖率追踪。
+/* ��爽感覆盖率追踪。
  *
  * roundsSinceLastDelight：自上次"爽感时刻"（multiClear≥2 / pcClear /
  * comboHigh≥4 / monoFlush 命中）以来的轮数。超过阈值（Android 5 / iOS 7）
@@ -322,7 +322,7 @@ isDelightStarved() {
     /* ... 现有 ... */
 },
 {
-    /* v1.60.45：爽感饥渴 → 强制 relief。
+    /* ��爽感饥渴 → 强制 relief。
      * 与"playerDistress 主动救济"语义不同：前者基于挫败信号，
      * 后者基于"长期无爽感"的运营观测——同档优先级（介于 relief 与 engage 之间），
      * 一旦触发同样走 relief 分支让 adaptiveSpawn 偏好多消/小块。 */
@@ -372,7 +372,7 @@ isDelightStarved() {
 _performRevive(method) {
     // ... 现有清除 12 格逻辑 ...
 
-    /* v1.60.45：复活成功 → 标记下一局 spawn 走强 relief。
+    /* ��复活成功 → 标记下一局 spawn 走强 relief。
      * 数据依据：复活成功 r≈0 表明"复活后体验未传导到留存"，可能是
      * 复活后局面仍差很快再死。下一轮强 relief 给玩家"喘息"机会。 */
     if (this._game) {
@@ -390,7 +390,6 @@ _performRevive(method) {
 **插入**：
 
 ```javascript
-/* v1.60.45：复活后救济（TTL 2 轮） */
 if (this._postReviveBoost && this._postReviveBoost.ttlRounds > 0) {
     spawnHints.forceReliefIntent = true;
     spawnHints.clearGuarantee = Math.max(spawnHints.clearGuarantee ?? 1, this._postReviveBoost.clearGuarantee);
@@ -405,7 +404,7 @@ if (this._postReviveBoost && this._postReviveBoost.ttlRounds > 0) {
 
 ## §7. PB 突破后次级目标卡片（同局保护 → 跨局保护）
 
-**问题**：v1.56 + v1.60.37 只覆盖**同局**末段救济；数据显示 PB 后 D3-D15 流失加剧（iOS r=-0.126 → -0.128）。
+**问题**： 只覆盖**同局**末段救济；数据显示 PB 后 D3-D15 流失加剧（iOS r=-0.126 → -0.128）。
 
 ### 7.1 bestScoreBuckets 扩展
 
@@ -417,7 +416,7 @@ if (this._postReviveBoost && this._postReviveBoost.ttlRounds > 0) {
 const PB_BREAK_TS_KEY = 'openblock_pb_break_ts_v1';
 
 /**
- * v1.60.45：记录最近一次 PB 突破时间戳，供跨局保护链 / D3-D7 push 召回判定。
+ * ��记录最近一次 PB 突破时间戳，供跨局保护链 / D3-D7 push 召回判定。
  * @param {number} score 突破分数
  */
 export function notePbBreak(score) {
@@ -438,7 +437,7 @@ export function daysSinceLastPbBreak() {
 }
 
 /**
- * v1.60.45：基于当前 PB + 玩家历史生成"次级目标"列表，供 UI 展示。
+ * ��基于当前 PB + 玩家历史生成"次级目标"列表，供 UI 展示。
  * 避免玩家因"我已破 PB 了"产生终结感——给出"还有挑战"叙事。
  *
  * @param {number} currentPb 当前难度档 PB
@@ -464,7 +463,7 @@ export function getNextChallenges(currentPb) {
 ```javascript
 if (newPb) {
     recordBestByStrategy(this.currentStrategy, this.score);
-    notePbBreak(this.score);  // v1.60.45
+    notePbBreak(this.score);
     // 下一局开局展示次级目标
     this._showNextChallengesOnNextStart = true;
 }
@@ -498,7 +497,7 @@ start() {
 **新增字段**：
 
 ```python
-# v1.60.45：爽感覆盖率 — 7 日内触发任一爽感时刻的 DAU 占比
+# ��爽感覆盖率 — 7 日内触发任一爽感时刻的 DAU 占比
 delight_cur = conn.execute("""
     SELECT COUNT(DISTINCT user_id) AS delight_users,
            (SELECT COUNT(DISTINCT user_id) FROM behaviors WHERE ts > ?) AS total_users
@@ -536,7 +535,7 @@ result['coreMetrics']['delightCoverageThreshold'] = 0.75  # 目标线
 **改动文件**：`web/src/game.js`（消行处理 / Combo 处理）
 
 ```javascript
-// v1.60.45：爽感事件打点（与 playerProfile.recordDelight 同步）
+
 if (lines >= 2) analytics.track('multi_clear', { lines });
 if (isPerfectClear) analytics.track('perfect_clear');
 if (comboCount >= 4) analytics.track('combo_high', { comboCount });
@@ -559,7 +558,7 @@ if (monoFlushHit) analytics.track('mono_flush');
 segments: {
     // ... 现有 whale / dolphin / minnow / churn_risk ...
 
-    /* v1.60.45：iOS 广告完播率分层（仅 iOS 生效，Android 走默认）。
+    /* ��iOS 广告完播率分层（仅 iOS 生效，Android 走默认）。
      * 数据依据：iOS 广告完播 r=0.349（最强单一信号），D15 仍 0.310。
      * 完播率分层让运营按"真实变现意愿"差异化触发。 */
     ios_ad_completer_high: {
@@ -582,7 +581,6 @@ segments: {
 rules: [
     // ... 现有 ...
 
-    /* v1.60.45：iOS 高完播玩家——更多激励广告暴露 */
     {
         id: 'ios_high_completer_more_rewarded',
         segments: ['ios_ad_completer_high'],
@@ -591,7 +589,6 @@ rules: [
         why: 'iOS 高完播玩家广告价值高，频次抬升 50% 不影响留存',
         effect: 'IAA ARPDAU +20-30%',
     },
-    /* v1.60.45：iOS 低完播玩家——减少打扰，转 IAP 软营销 */
     {
         id: 'ios_low_completer_iap_pivot',
         segments: ['ios_ad_completer_low'],
@@ -617,7 +614,7 @@ rules: [
 
 ```javascript
 /**
- * dailyChallengePlaybook.js — v1.60.45 Android 每日高分挑战。
+ * dailyChallengePlaybook.js — Android 每日高分挑战。
  *
  * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.7
  *   Android 达到高分 r=0.276 强正、区分度 21% 弱 → 普遍可达频次激励特征。
@@ -751,7 +748,7 @@ Week 3（数据回流 + 平台精细化）
 | Android 广告分层 | 广告 r 长期衰减至 0.216，分层投入边际收益低 |
 | iOS 每日高分挑战 | iOS 稀缺爽感模型，频次任务会稀释爽感价值 |
 | Android PRS 复合评分 | 6 个强信号已能单独驱动运营，先看 §3/§4/§7/§10 效果再评估 |
-| 基础指标改造（绝对次数→比率） | 打点 schema 改造大，归入 v1.62 季度 |
+| 基础指标改造（绝对次数→比率） | 打点 schema 改造大 |
 
 ---
 
@@ -778,5 +775,5 @@ Week 3（数据回流 + 平台精细化）
 | 上游 | 关系 |
 |---|---|
 | [留存信号跨平台分析](./RETENTION_SIGNALS_CROSS_PLATFORM.md) | 提供数据洞察与策略层方案；本文是其工程落地清单 |
-| [自适应出块 §10.7](../algorithms/ADAPTIVE_SPAWN.md#107-形状池扩展v1600--v16044独立库事件注入系统) | v1.60.44 三类触发分级；§2/§3 在此基础上做平台分发 |
+| [自适应出块 §10.7](../algorithms/ADAPTIVE_SPAWN.md#107-形状池扩展v1600--v16044独立库事件注入系统) | 三类触发分级；§2/§3 在此基础上做平台分发 |
 | [生命周期蓝图](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | §0 北极星与护栏；新增"爽感覆盖率"为次级 KPI |

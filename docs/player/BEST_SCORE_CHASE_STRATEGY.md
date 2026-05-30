@@ -5,170 +5,6 @@
 > **不是**：本文不是计分规则手册（详见 `docs/product/CLEAR_SCORING.md`），不是难度模式说明（详见 `docs/product/DIFFICULTY_MODES.md`），不是自适应出块算法手册（详见 `docs/algorithms/ADAPTIVE_SPAWN.md`）；本文聚焦"**最佳分这条主线**"在不同玩家身上**应该如何呈现、如何调控**。  
 > **维护**：改动 `getSpawnStressFromScore` / `deriveScoreMilestones` / `LIFECYCLE_STRESS_CAP_MAP` / `_maybeCelebrateNewBest` / `best.gap.*` 文案 / `dynamicDifficulty` / `runDifficulty` 配置时，必须同步更新本文的"当前事实"对应小节与改进项编号。
 >
-> **v1.55 落地状态（2026-05-16）**：§4.1 / §4.2 / §4.3 / §4.4 / §4.5 / §4.6 / §4.7 / §4.8 / §4.9 / §4.10 / §4.11 / §4.12 / §4.13 全部完成代码落地与单测覆盖（共 50 个新增单测，文件 `tests/bestScoreChaseStrategy.test.js`；全量 1407 个测试通过）。`§5` 季度规划改为"已交付"快照；§6 验证清单的对应条目都可勾选。
->
-> **v1.55.10 修订（2026-05-16，用户反馈驱动）**：
-> 1. **PB 双源 / 跨局泄漏 / 可疑 PB 皇冠** 5 个风险点全部修复（见 §4 末"v1.55.10 修复"）。
-> 2. **局内 score milestone toast 大幅克制**：MIN_BEST=500 门槛 + [0.50, 0.75, 0.90] 三档 + base/post-PB 各 1 次（每局最多 2 次激励）；文案从"分数突破 490!"改为**"已达最佳 50%"** 百分比格式。
-> 3. **新增「追平最佳」轻量特效**：score === bestScore 且 best ≥ 500 时触发一次绿色 toast，与"金色破 PB"形成"追平→突破"的两段叙事。
-> 4. 测试 1429 个全通过、lint 0 errors。
->
-> **v1.55.11 收敛（2026-05-16，用户反馈驱动）**：
-> 1. **撤销「追平最佳」特效**（`_maybeCelebrateTiePersonalBest` 改为 no-op）；
-> 2. **撤销「已达最佳 N%」milestone toast 渲染**（adaptiveSpawn 的 `scoreMilestoneHit` 数据流保留给 DFV / 分析侧）；
-> 3. **「刷新最佳」单局只触发一次**（CELEBRATIONS_PER_RUN_CAP 3 → 1），二度 / 三度纪录只静默更新 `bestScore`；
-> 4. **「刷新最佳」文案统一加 🏆 前缀 + 感叹号**（19 个 i18n 语言全覆盖），zh-CN 由"新纪录"改为"🏆 刷新最佳！"。
-> 5. 测试 1428 个全通过、lint 0 errors。详见 §5.y。
->
-> **stress 域口径（v1.55.17）**：本文 §4 / §4.9 等小节中的 `stress < 0.7`、`min(0.85, stress + …)`、`stress × 0.7` 等公式均为**算法内部 raw 域 `[-0.2, 1]`**，与源码一致便于维护时直接对照；面板 / DFV / 玩家可见的 stress 是经 `(raw + 0.2) / 1.2` 归一化后的 norm 域 `[0, 1]`（raw `0.7` ≈ norm `0.75`、raw `0.85` ≈ norm `0.875`）。详见 [自适应出块 §3.5](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径v15517) 的完整对照表与例外说明。
->
-> **v1.56.7 HUD 三数自洽修复（2026-05-18，用户反馈驱动）**：
-> 1. **updateUI 顺序 bug**：`_maybeCelebrateNewBest()` 从 `updateUI` 末尾移到开头，修复 "得分 210 / 最佳 140 / 已超 190" 三数错乱（"最佳" DOM 慢一帧）。
-> 2. **gap=0 隐藏 HUD**：D4 进入条件从 `gap <= 0` 收紧为 `gap < 0`；追平基线那一帧由 PB 烟花独立反馈，不再显示 "已超 0 分" / "本局 +0"。
-> 3. **文案明确化**：`已超 N 分` → `本局 +N`（zh-CN）/ `+N pts` → `Run +N`（en），让玩家能从 `score - "本局 +N"` 自洽推断开局基线。
-> 4. 1552 个测试全通过、lint 0 errors。详见 §5.α.10。
->
-> **v1.57 stress 感知化层（2026-05-18，用户反馈驱动："stress 指标不太能体现到玩家感受上来"）**：
-> 1. **诊断**：算法精算的 stress 经 5 个渠道传导，其中 **音效/震动/视觉氛围/主 HUD/节奏** 全部断层，唯一生效的是出块差异化（但玩家说不清"为什么块变难了"）。stressMeter 在 insightPanel 内，多数玩家从不打开。结果：策略隐性原则被错误执行成"策略隐形"。
-> 2. **修复**：新增 `web/src/stressAmbience.js` 模块，把 finalStress (norm) 通过 4 个独立渠道渗透到玩家感官：
->    - **A 棋盘氛围光**：`#game-wrapper::before` outer box-shadow 颜色随 stress 6 档变化（冷青/薄荷/暖绿/琥珀/橙红/暗红）
->    - **B 呼吸节奏**：`--stress-ambience-breath-ms` 驱动外缘 opacity 呼吸（低 stress 4.2s 缓慢 / 高 stress 1.5s 急促）
->    - **C 震动幅度**：装饰 `renderer.setShake` 让 intensity × `[0.85, 1.30]` 倍率（高压震动更强）
->    - **D 音频低通滤波**：BiquadFilter 插入 audioFx.master → destination，cutoff 随 stress 调节（高压闷感）
-> 3. **策略隐性保持**：所有反馈都是"氛围"不是"信息"，不写任何数字 / 标签到主 HUD（契约测试验证 export 列表不含 render/show/label/text 类）。
-> 4. 1595 个测试全通过（+43 个 stressAmbience 用例）、lint 0 errors。详见 §5.α.11。
->
-> **v1.57.1 stress → 出块算法精算细化（2026-05-18，用户追问驱动："stress 反应到出块算法上，如何体现"）**：
-> 1. **诊断**：stress 在算法层的 5 条传导路径（profile 插值 / spawnTargets 投影 / targetSolutionRange / orderRigor / spawnIntent）中 **后三条存在台阶感或断档**——stress=0.55 跨阈值"突然变难"，0.35~0.60 区间无难度差，D4 段顺序刚性弱。
-> 2. **修复 4 项算法增强**：
->    - **P0** `orderRigor` 改用 softplus ramp（`stressTerm = softplus((stress-0.55)/0.08) * 0.08 * 1.6`），消除 0.55 跨阈值台阶感
->    - **P1** `solutionDifficulty.ranges` 新增 '渐紧' 档（minStress=0.5, max=64），让 0.5~0.6 区间也有可感知软上限
->    - **P2** D4 段 + stress ≥ 0.85 时 orderRigor 注入额外 +0.25 强锁死（`pbChase.overshoot.orderBoostInD4HighStress`），把 maxValidPerms 真正压到 tight=2
->    - **P3** `spawnIntent` 新增 'sprint' 中间档（stress ∈ [0.45, 0.55)），平滑 maintain → pressure 过渡，避免 hints 套装一脚跨进 pressure
-> 3. **面板/i18n 同步**：`stressMeter.SPAWN_INTENT_NARRATIVE` / `decisionFlowViz.SPAWN_INTENT_COLOR+DESC` / `playerInsightPanel.SPAWN_INTENT_LABEL` / `intent_lexicon.json` / `dfv.intent.sprint+dfv.reason.sprint` 全链路同步新增 sprint。
-> 4. **策略隐性保持**：sprint 文案"节奏渐紧，逐步收束"中性陈述；中文标签"渐紧"在 insightPanel 才可见；主 HUD 不暴露。
-> 5. 1614 个测试全通过（+19 个 P0–P3 用例）、lint 0 errors。详见 §5.α.12。
->
-> **v1.57.1 多端同步（2026-05-18，用户驱动："策略从 web 主端同步到其他三端"）**：
-> 1. **mobile**（Capacitor iOS/Android shell）：`webDir: "../dist"` 直接复用 web 构建产物，**零改动自动同步**。
-> 2. **miniprogram**（微信小程序）：P0/P1/P3 完整同步；P2 在 `gameRulesData.js` 补 `pbChase.overshoot.orderBoostInD4HighStress=0.25 / orderHighStressMin=0.85` 配置占位（D4 算法链路本身未移植，因小程序简化版整体缺 pbOvershoot/pbExtremeOrderBoost 等前置依赖）。
-> 3. **rl_pytorch / spawn_model**（行为克隆 V3 模型）：`SPAWN_INTENT_VOCAB` 末尾加 'sprint'（6→7 维），`BEHAVIOR_CONTEXT_DIM` 56→57，`intent_slice` 切片 `[48:54]→[48:55]`，`test_v3.py` 断言 `(B, 6)→(B, 7)`。否则新数据中的 `'sprint'` 会被 dataset 静默映射成 `'maintain'`，破坏行为克隆对齐。**vocab 末尾追加保证 idx 0~5 与旧版兼容**；`BEHAVIOR_CONTEXT_DIM` 变化导致旧 checkpoint 需重训（input shape 不匹配，预期破坏）。
-> 4. **rl_pytorch / policy 主线**（PPO/MCTS，`STATE_FEATURE_DIM=181`）：不消费 spawnIntent，**零改动**。
-> 5. **rl_pytorch / game_rules.py**：不主动读取 `adaptiveSpawn` / `topologyDifficulty` / `pbChase` / `sprintIntent` 节点，**零改动**。
-> 6. 多端验证：web 1614 / miniprogram node check / rl_pytorch spawn_model 5/5 / rl_pytorch 全量 76/76 全部通过。详见 §5.α.12 "多端同步策略" 小节。
->
-> **v1.57.2 stress → 出块算法的"新空洞强迫度"第二维度（2026-05-18，用户驱动："targetSolutionRange 在三连可解性基础上，增加可解带来的新空洞数，多则难少则简"）**：
-> 1. **诊断**：`targetSolutionRange` 单维度（解空间宽度，叶子数 ≤max / ≥min）只能控制"有多少种放法"，无法控制"放法的脏度"。同样 32 解的两组三块，一组每个解都干净（minHoleIncrement=0），另一组每个解都至少带 2 个孤立空洞，对玩家的难度感是完全不同的——但旧算法对它们一视同仁。
-> 2. **修复**：
->    - **DFS 叶子追踪 isolated holes delta**：`evaluateTripletSolutions` 在每个完整解叶子用"孤立空格"口径（四面非空围住、必须 1×1 才能填的"漏洞"，O(n²×4)≈256 ops）计算 `new_holes = isolated_holes(after) − isolated_holes(before)`，取 6 种排列所有解中 min 作为 `minHoleIncrement`（候选"最干净放置路径"的新空洞数）
->    - **`solutionDifficulty.holeIncrement.ranges`** 按 stress 选 `{ minIncrement, maxIncrement }` 软过滤档位：低 stress 段 `max=0/1` 强约束（必有干净解，玩家放心放）；高 stress 段 `min≥1/2` 强约束（玩家被迫接受至少 N 个新空洞，"无论怎么放都会脏"的潜意识压力）
->    - **blockSpawn earlyAttempt 软过滤**：与 `targetSolutionRange` 并列在 attempt < 60% 时硬过滤，宽松失败时 fallback（diagnostics 新增 `solutionRejects.holeTooMany` / `holeTooClean`）
->    - **adaptiveSpawn 派生**：`spawnHints.targetHoleIncrement` 与 `targetSolutionRange` 同源使用 `solutionStress`（保证两轴对 stress 单调一致）
-> 3. **口径选择**：不用 Tetris-style stacking（OpenBlock 无重力，"被上方堵住"语义不成立）；不用 `countUnfillableCells`（O(shapes × n²) 太重）；选"孤立空格" = 玩家心智里的"漏洞"。
-> 4. **策略隐性保持**：玩家从未看到"空洞 [min, max]" 数字或档位标签；只能从出块体感里**感觉**到"今天怎么放都干净"或"今天每组三块都得吞个洞"。仅 playerInsightPanel 开发者视图展示 `空洞 标签[min, max]` pill。
-> 5. **多端同步**：web/miniprogram 主端同步落地；mobile 零改动；rl_pytorch 模型不消费 `targetHoleIncrement`（zero impact）。
-> 6. 15 个新测试全通过（hole 追踪 + ranges 契约 + adaptive 派生 + blockSpawn 过滤 + 双轴共存）。详见 §5.α.13。
->
-> **v1.57.3 stress → 出块算法的 9 维难度投射（2026-05-18，用户驱动："完整实现 9 个改进项，使得不同 stress 下体感差异更为显著；修复重复显示"）**：
-> 1. **诊断**：v1.57.2 双轴（解空间宽度 × 空洞强迫度）在中段 stress（0.4~0.6）体感差异依然偏弱——双轴的过滤约束在该带不锐利，玩家从 D1（跟随）跳到 D2（临近）的"压迫感"切换不显著。
-> 2. **修复（9 维 stress→算法 投射）**：在 v1.57.2 双轴基础上再引入 9 个 O(n²) 廉价度量，对每个维度独立给定 stress→ranges 映射、独立软过滤分支、独立 diagnostic pill：
->    - **① `targetMaxHoleIncrement`** — 最差解空洞数（专注度税上界："随便放也能干净 vs 必须专心"）
->    - **⑨ `targetHoleIncrementGap`** — max-min 差距（"专心则过、走神则崩"成为常态）
->    - **② `targetEndFillRatio`** — 终末填充率（空间窒息感）
->    - **③ `targetNearFullDelta`** — 近满 delta（消行节律；D4 段消耗消行机会，防 PB 通过近满膨胀）
->    - **④ `targetFirstMoveSurvivorRatio`** — 第一步存活率（试错代价）
->    - **⑤ `targetSolutionDiversity`** — 解多样性 CV（拒绝"看似宽松但解都一样"的陷阱）
->    - **⑥ `targetEndFlatness`** — 终末平整度（凹凸审美焦虑）
->    - **⑦ `targetEndDangerColumns`** — 危险列数（爆顶预警）
->    - **⑧ `targetVisualClutter`** — 视觉杂乱 delta（颜色边界审美）
-> 3. **DFS 内代价**：~6 个 O(n²) 调用 × 64 叶子 ≈ 25k ops/triplet，相比 leafCap 自身 DFS 入栈代价完全可忽略；base 度量在评估开始一次性计算，DFS 内只算 delta/绝对值。
-> 4. **策略仍然隐性**：9 维全部只在诊断面板展示数字/标签；主 HUD 只有出块本身。玩家从看不到任何"系统进入 X 模式"，靠 9 个独立潜意识压力源累积成"今天怎么感觉哪里都不对"的整体压力感。
-> 5. **多端同步**：web 主端 + miniprogram 完整 9 维同步；mobile 自动同步；rl_pytorch 配置已暴露、模型层下次 retrain 自然吸收。
-> 6. **修复重复显示**：用户截图显示 `#best-score` 主 HUD 已展示 "最佳 2200"，但 `best-gap` 元素同时显示 "历史最佳 2200"，两处完全等价造成视觉重复，违反"主 HUD = 绝对锚点 / best-gap = 相对差距"分工。修复后 D0 段也走 `best.gap.neutral` 显示"差 N 分"，差异通过 CSS 默认色 + 算法 `farFromPBBoost` 体现。`best.gap.far` 文案降级为 deprecated 保留 key 以备 i18n 平台灰度回滚。
-> 7. 18 个新测试全通过（A 9 字段返回 + B 9 套 ranges 契约 + miniprogram 同源 + C 9 个 spawnHints 派生 + D 18 reject 计数 + E 9 layer1 透传）。详见 §5.α.14。
->
-> **v1.57.4 spawnIntent 决策快照增量刷新（2026-05-18，用户驱动："DFV 与压力面板都提示『密集消行机会』但盘面只占 25%，与盘面完全不符"）**：
-> 1. **诊断**：`_lastAdaptiveInsight.spawnIntent` 与 `_lastAdaptiveInsight.spawnDiagnostics.layer1` 是 `spawnBlocks()` 的"决策快照"，而 `spawnBlocks` 只在 dock 三块全部消化后触发。玩家在 dock 周期内的放置 / 消行不会刷新它们——DFV reason "盘面具备消行机会" + stressMeter buildStoryLine "识别到密集消行机会" 全部读这两个字段，因此都会与玩家实时盘面错位，最严重可滞后 3 次放置。次发缺陷：`_mergeLiveGeometrySignals` 只刷新 `nearFullLines` 和 `multiClearCandidates`，`pcSetup` 留在旧快照——让 17% 散布盘面消行后仍可能命中 `pcSetup ≥ 1 && fill ≥ 0.45` 的 harvest 分支。
-> 2. **修复方案**（用户决策：方案 C 深修——抽出纯函数 + 增量刷新）：
->    - **抽 `deriveSpawnIntent({playerDistress, forceReliefIntent, afkEngageActive, challengeBoost, delightMode, rhythmPhase, stress, sprintCfg, geometry, pcSetupMinFill})` 纯函数**：让 `resolveAdaptiveStrategy` 与 game 层 `_refreshIntentSnapshot` 共用同一套优先级（relief→engage→harvest→pressure→sprint→flow→maintain），杜绝两处口径漂移。
->    - **抽 `snapshotInsightGeometry(grid, dockShapePool)` 函数**：返回 `{ fill, holes, nearFullLines, multiClearCandidates, pcSetup }` 5 字段，~3 倍 O(n²) 总成本，远低于每帧渲染开销。
->    - **`_mergeLiveGeometrySignals` 补 pcSetup 实时重算**：消除次发缺陷。
->    - **`resolveAdaptiveStrategy` 返回 `_intentInputs`（含 9 个决策侧不变量）**：spawn 时一次计算并经 `_captureAdaptiveInsight` 落到 `_lastAdaptiveInsight._intentInputs`，供 game 层在玩家每次放置后用同一套规则 + 实时几何重判 intent。
->    - **`game.js` 新增 `_refreshIntentSnapshot()`**：在两处调用——(a) `_handlePlace` 内 `grid.place` 之后、`_refreshPlayerInsightPanel` 之前；(b) `playClearEffect.animate` 末尾、`spawnBlocks()` 之前。仅刷新 `spawnIntent` / `spawnHints.spawnIntent` / `spawnDiagnostics.layer1.{fill,holes,nearFullLines,multiClearCandidates,pcSetup}`；不动 `sizePreference / clearGuarantee / target* 9 维 / stressBreakdown` 等"上次决策时的偏好快照"——这些描述"已经出在 dock 里的块是按什么策略生成的"，刷新等于撒谎"这批块是按新意图生成的"。
-> 3. **策略隐性原则保持**：本修复只让玩家"以为一直对的东西"真的对得起盘面，没有引入任何"系统在偷偷做什么"的暴露文案。
-> 4. **多端同步**：web/miniprogram `deriveSpawnIntent` + `snapshotInsightGeometry` + `_mergeLiveGeometrySignals.pcSetup` 同步落地；mobile 复用 web 构建；rl_pytorch 仅消费 spawnIntent one-hot 不重新派生，无需同步。miniprogram 当前无 DFV / stressMeter 展示层订阅 insight，仅做配置与函数同步，不接入 `_refreshIntentSnapshot`。
-> 5. 28 个新测试全通过（A deriveSpawnIntent 7 分支优先级 + B snapshotInsightGeometry 几何正确性 + C `_mergeLiveGeometrySignals` pcSetup 补漏 + D 集成 harvest 快照→消行→重判切换 + E `_intentInputs` 契约）。详见 §5.α.15 与 `docs/algorithms/ADAPTIVE_SPAWN.md` §3.5 "v1.57.4 决策快照增量刷新"。
->
-> **v1.57.5 决策快照展示层一致性治理（2026-05-18，用户驱动："文案表达一致性 → 全部修复"）**：
-> 1. **诊断**：v1.57.4 已经把决策层做到玩家每次放置后增量刷新，但截图复盘发现展示侧还有 6 项一致性缺陷：(A) DFV 左侧"占盘 0.40" vs 底部"占盘 0.69" 同帧两值；(F) 同上"消行率"双显；(B) spawnIntent=relief 时文案一律"盘面通透又是兑现窗口..."，但实际盘面 fill=0.69 不通透；(D) AFK chip 高亮但实际被 relief 优先级覆盖；(E) 调香提示同时高亮 6+ 项 chip 无层级；(G) stress=0.15 (😊) + boardFill=0.69 视觉反差。
-> 2. **修复方案**（用户决策："全部修复"，6 项一次到位）：
->    - **(A/F)** `_dfvFingerprint(insight, profile, { boardFill, clearRate })` 把实时几何按 0.01 量化纳入去抖指纹——旧实现只看决策侧字段，节点被去抖跳过、sparkline 实时刷新，两处脱节。同时让 `_refreshIntentSnapshot` 同步刷新 `insight.boardFill` 顶层字段，让所有读 insight 顶层 boardFill 的展示侧与 grid 真实 fill 一致。
->    - **(B)** 新增 `RELIEF_NARRATIVE_BY_REASON` + `classifyReliefReason(breakdown, fill)`：按 endgame / friendly / hole / boardRisk / bottleneck / frustration / default 七档分级；**friendly 档加 fill < 0.5 守卫**——避免"通透"在密集盘面撒谎。`SPAWN_INTENT_NARRATIVE.relief` 默认文案从"盘面通透又是兑现窗口..."收窄为中性"正在投放更友好的组合，悄悄给你减压"。
->    - **(D)** DFV decision flags 计算 `overriddenAfkEngage = (intent === 'relief') && afkEngage`，被覆盖的 chip 加 `.dfv-flag--overridden`：CSS 半透明 + 删除线 + title 提示"信号已激活，但本帧被更高优先级意图（relief）覆盖"。物理保留 chip 不隐藏，玩家仍能看到"系统检测到 AFK 信号"的诊断信息。
->    - **(E)** 在 hints 列表顶部插入"主导意图锚"高亮行（与 SPAWN_INTENT_COLOR 同源色），title 写明"下方各 chip 是当前主导意图下的多维状态描述"——避免玩家把投射 chip 误解为 N 个独立决定。
->    - **(G)** `getStressDisplay` 新增 crowded 变体：`stress < 0.333 (calm/easy)` + `boardFill ≥ 0.65` → 😅 + "（盘面吃紧）" + "盘面较密..." vibe。优先级矩阵：挣扎中（lateCollapse / frustCritical）> crowded > 救济中。
-> 3. **策略隐性原则保持**：本次全部是"让玩家看到的东西真正对得起盘面"的展示层治理，没有引入任何"系统在偷偷做什么"的暴露文案；情绪反馈反差守卫（G）甚至承认"系统在减压但盘面其实紧"的真实矛盾——而不是单纯按 stress 笑脸。
-> 4. **多端同步**：v1.57.5 全部是 web UI 层修复（DFV / stressMeter / chip），算法层未动；miniprogram 无 DFV / stressMeter / playerInsightPanel，无 UI 镜像需要；mobile 复用 web 构建。
-> 5. 32 个新测试 + 2 条 v1.23/v1.24 旧测试更新到新分级行为，共 139 条相关测试全过（A/F DFV 指纹 + B 七档 relief 分类与 buildStoryLine 路径 + G 紧盘面笑脸守卫 + D AFK overridden 判定）。详见 §5.α.16 与 `docs/algorithms/ADAPTIVE_SPAWN.md` §3.5 "v1.57.5 决策快照展示层一致性治理"。
->
-> **v1.58 决策派生层架构治理（2026-05-18，用户驱动："采用彻底的修复方案，从长远解决问题"）**：
-> 1. **诊断**：v1.57.5 用 6 个单点修复止住了具体 bug，但**根因没解决**——"同一指标有 N 个 cache、UI 各拿各的"这套散点架构下，新增 intent / 新增信号 / 新增文案变体仍会再次撒谎，必须靠用户截图反馈才能修。这是典型的"散弹枪手术 + 特性嫉妒"代码味道。
-> 2. **彻底方案**（架构级）：新建 `web/src/derivation/` 派生层，把"算法 → UI"之间的转换全部收口，UI 只读一个 PresentationModel：
->    - **`selectors.js`（SSOT）**：8 个 `selectXxx(game)` 函数封装 `game.grid` / `_lastAdaptiveInsight` / `playerProfile` 全部读取。UI 禁止直接读 cached 字段——下次新增 cache 不会再让 UI 双显。
->    - **`intentResolver.js`（表驱动 + Trace）**：把 7 条 intent 优先级规则从 if-else 抽成 `INTENT_RULES` 表 + `resolveIntent()` 返回 `{intent, trace, overrides}`。`isSignalOverridden('afkEngage', resolved)` 替代 v1.57.5 §D 散落的硬编码——新增 intent / signal 不用再改 DFV 渲染。
->    - **`displayContracts.js`（DSL + 自动校验）**：27 条 narrative + emoji contract，每条声明 `requires`（前置条件谓词 DSL）+ `fallback`（降级目标）；运行时自动选择 + 自动降级。新增文案守卫只写 contract，不再写 if-else。修复了旧 `evalPredicate` 复合谓词 `{ gte: 0.125, lt: 0.333 }` 只看第一个操作符的 bug。
->    - **`presentationReducer.js`（中间层）**：`reducePresentation(game)` → 唯一 PresentationModel，含 `liveGeometry / intent / narrative / emoji / chips`（含自动派生的 `overridden` 标记） + 完整 trace。
-> 3. **性质测试基础设施（fast-check）**：10 条不变式 × 1500 次随机扫描 = **15000 次状态验证**，自动捕获 v1.57.5 类似的"我没想到这种状态组合"。已在调试期捕获 2 个真实 bug：复合谓词漏算 + 浮点边界 0.6499... 导致的 emoji 跳变。
-> 4. **UI 接入示范**：DFV chip override 硬编码 → `isSignalOverridden`；playerInsightPanel 4 处 `game.grid.getFillRatio()` → `selectLiveBoardFill(game)`，杜绝 v1.57.5 §A 类双显复发。
-> 5. **测试矩阵**：
->    - 单元 63 用例（selectors 13 + resolver 15 + contracts 27 + reducer 8）
->    - 性质 10 不变式 × 1500 次 = 15000 扫描
->    - 既有 1707 测试 **0 回归**
->    - **总计 1780 个测试全过，lint 0 errors**
-> 6. **多端同步**：v1.58 是 web 派生层 + 接入；miniprogram 无 DFV/stressMeter/playerInsightPanel UI，算法层 `deriveSpawnIntent` 也未动，**无镜像需要**。
-> 7. **后续渐进迁移路线**（v1.58.x P0-P2 共 5 项）：stressMeter `buildStoryLine` / `getStressDisplay` 完全走 contract DSL；DFV 全 chip 接入 `reducePresentation`；加 lint 规则禁止 UI 直读 cached 字段；`deriveSpawnIntent` 内部委托 `resolveIntent` 实现单源化。详见 [`docs/algorithms/DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6 与 §5.α.17。
->
-> **v1.58.1 节奏承诺-几何兑现一致性治理（2026-05-18，用户截图驱动："盘面 fill=0.30 / 0 nearFullLines / 0 multiClearCandidates 时仍显示 '准备享受多消快感'"）**：
-> 1. **诊断**：v1.58 派生层 `flow.payoff` contract 守卫只检查算法节奏（`rhythmPhase='payoff'`），**完全没有几何守卫**——`rhythmPhase=payoff` 只代表算法层进入收获节奏，但**当前 dock + 盘面是否真有可兑现路径**是另一回事。这是 v1.57.5 §B"盘面通透撒谎"在 flow 链上的**同构 bug**，v1.58 没覆盖到。
-> 2. **彻底修复**（架构对称）：
->    - **`selectors.js` 派生 `geometry.harvestReady = (nearFullLines>=1) || (mcc>=1) || (pcSetup>=1)`**——表达"当前盘面确实存在可兑现路径"，与算法层"节奏 payoff"解耦。
->    - **`displayContracts.js` 拆 `flow.payoff` 为 ready/waiting 两档**：`flow.payoff.ready` 加 `geometry.harvestReady=true` 守卫，保留"准备享受多消快感"；`flow.payoff.waiting` 不通过守卫时降级到"心流稳定，节奏已锁定收获期，dock 在等下一波兑现窗口——先稳住手"，与同 panel 下方"实时策略-待兑现"文案语义对齐。
->    - **同步补 `relief.friendly` 的 `harvestReady` 守卫**（语义含"享受多消"，与 I12 跨 contract 不变式对齐）。
-> 3. **新增 3 条性质不变式锁定同类问题**：
->    - **I11**：`flow.payoff.ready` 命中时 `geometry.harvestReady` 必为 true
->    - **I12**：任何含"享受多消/收获期"字样的 narrative 命中时，`nearFullLines+multiClearCandidates+pcSetup >= 1`（**跨 contract** 不变式，未来新增同类文案自动受保护）
->    - **I12b**：任何含"享受多消"字样的 narrative 命中时，`geometry.harvestReady` 必为 true
->    - 每条 1500 次随机扫描 / 0 反例
-> 4. **测试矩阵**：单元 +5（4 新 + 1 旧测试更新）/ 性质 +3，总计 1785 测试 0 回归 / lint 0 errors。
-> 5. **架构启示**：v1.58 派生层的真正价值在 v1.58.1 体现——**整次根因治理只改 2 个文件 + 加 3 不变式**（~30 行新代码 + 3 测试），就让整个"节奏类承诺"得到结构性保护。如果是 v1.58 之前的散点架构，同一类 bug 在 `harvest.*` / 其它 spawnHints 链路上还会陆续爆 N 次。详见 [`docs/algorithms/DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.1 v1.58.1 治理记录。
->
-> **v1.58.2 算法信号-盘面几何反差治理（2026-05-18，用户截图驱动："盘面 fill=0.31 / 通透 / forceReliefIntent=true 时仍显示 😣 挣扎中 + '本局接近收尾'"）**：
-> 1. **诊断**：v1.58.1 派生层 `struggling.*` / `relief.endgame` 三档守卫**只看算法侧信号**（sessionPhase / momentum / frustration / endSessionDistress），没有任何盘面几何确证。算法侧 forceReliefIntent 触发，但玩家视觉看到通透盘面——是 v1.57.5 §G crowded 守卫的**镜像问题**（"盘面紧但 stress 低"的反向）。
-> 2. **彻底修复**：
->    - **`struggling.lateCollapse` / `struggling.frustCritical` 加 `boardFill>=0.45` 守卫**，盘面通透时 fall through 到新增的 `concerned.softRescue.{late,frust}` 中间档（emoji 😟 "稍专注（系统已减压）"）——既承认算法在减压，又不撒谎"挣扎"。
->    - **`relief.endgame` 加 `boardFill>=0.45` 守卫**，盘面通透时 fall through 到新增的 `relief.endgame.soft`（"临近收尾，盘面仍从容，继续稳住即可"）。
-> 3. **新增 4 条性质**：I7 升级（lateCollapse + boardFill>=0.46 必 struggling）/ I13（struggling emoji 必 boardFill>=0.45）/ I13b（concerned emoji 必算法侧信号触发）/ I14（"本局接近收尾" 文案必 boardFill>=0.45）。
-> 4. **测试矩阵**：单元 +5（含 endgame 两档分枝）/ 性质 +3 + I7 升级 = 1796 测试 0 回归。详见 [`DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.2。
->
-> **v1.58.3 DFV chip 自描述化 + 跨维度信号冲突可视化（2026-05-18，用户截图驱动："DFV 强制救济亮但其它 chip 全暗 + bored 心流 vs relief 意图自相矛盾"）**：
-> 1. **诊断**：（a）v1.58 chip 表的 `lateCollapse` chip on 函数错写为 `endSessionDistress<-0.05`（v1.57.5 §D 简化），与 stressMeter / adaptiveSpawn 实际定义 `sessionPhase=late && momentum<=-0.30` 不一致——典型"两文件用不同口径表达同一概念"漂移；（b）chip 表只 8 条，无法暴露 forceReliefIntent 的真实触发源；（c）chip 无 reason 字段，hover 没数值；（d）playerProfile.flowState 与 adaptiveSpawn.spawnIntent 本就独立可对掐，但 v1.58 之前假装一致。
-> 2. **彻底修复**：
->    - 修正 `lateCollapse` on 函数与 stressMeter / adaptiveSpawn 严格同源
->    - CHIP_DEFS 加 4 个**信号诊断 chip**（`endSessionStress` / `lifecycleLateAccel` / `playerDistressFloor` / `delightModeRelief`）暴露所有压力链路独立信号
->    - 全 chip 加 `reason(ctx)` 函数，高亮时 title 自动写"触发源：<具体数值>"
->    - reducer 派生 `conflicts` 数组（`flowVsIntent` / `pressureVsForce`），DFV 渲染到 chip 区下方 amber 提示"⚠ 本帧识别到 N 处跨维度信号冲突"
->    - 抽出公共 API（`deriveChipsFromCtx` / `buildChipCtxFromInsight` / `deriveConflicts`），DFV 与 reducer 共享 chip 派生路径，避免漂移
-> 3. **新增 3 条性质**：I15（forceRelief 亮必 lateCollapse 或 frustCritical 亮，chip 表与算法层 adaptiveSpawn.js:2235 同源锁定）/ I16（chip on=true 必 title 非空）/ I17（bored+relief 必 conflicts 含 flowVsIntent）。
-> 4. **测试矩阵**：单元 +6（4 新 chip + reason + 2 conflicts）/ 性质 +3 = 1798 测试 0 回归。详见 [`DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.3。
->
-> **v1.58.4 全系统自查残留修补（2026-05-18，系统性 grep + 人工审视）**：
-> 1. **诊断**：v1.58.3 完成后做了一次系统自查，发现 6 处潜在"算法信号缺几何守卫"或"跨维度冲突未可视化"点——E1: `relief.hole` 在 holes=0 时撒谎"盘面空洞偏多"；E2: `relief.boardRisk` 在通透盘面撒谎"盘面压力较高"；E3: `harvest.default` 兜底文案撒谎"识别到密集消行机会"；E4/E5: `flow.intense` / `flow.tense` 在通透盘面撒谎"高压区"；E6: stress 高但 boardFill 低时无冲突可视化。还顺带修了 `flow.payoff.waiting` 文案含"收获期"字样与 I12 措辞冲突的问题。
-> 2. **彻底修复**：全部加几何守卫 + 新增 `flow.intense.soft` / `flow.tense.soft` 软降级文案 + 改写 `harvest.default` 文案 + 新增 `stressVsBoardFill` conflict。
-> 3. **新增 4 条性质**：I18（"盘面空洞偏多" 必 holes>=1）/ I19（"盘面压力较高" 必 boardFill>=0.45）/ I20（"进入高压区" 必 boardFill>=0.45）/ I21（harvest.default 不含"密集/已识别"）。
-> 4. **自查产出附录**：4 处审视但本轮决定不改（`relief.bottleneck` / `relief.frustration` / `engage.default` / `pressure.default` 都是行为/动量信号陈述，无几何对应，文案是事实陈述）。
-> 5. **测试矩阵**：单元 +11（4 新 contract 测试 + 5 自查 E 系列断言 + 2 conflict 测试）/ 性质 +4 = **1809 测试 0 回归**，lint 0 errors。详见 [`DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md) §6.4。
-> 6. **架构启示**：v1.58.4 是派生层落地后第一次"系统性自查"——`grep "盘面|压力|高压" displayContracts.js` 在 30 秒内列出所有有"几何承诺"嫌疑的文案，再人工对 contract.requires 逐条检查是否有对应几何守卫。这种"由产物驱动反向审视守卫"的工作流在 v1.58 之前完全无法做（散点架构里没有"全量 contract 表"这种产物）。性质 I18–I21 把审视结果固化为不变式，避免下次同类回归。
-
 ---
 
 ## 0. 一句话主张（One-liner Pitch）
@@ -197,10 +33,10 @@
 | 取舍 | 选择 | 代价 | 回报 |
 |------|------|------|------|
 | **PB 是不是唯一终局目标** | 是（无尽模式默认）；关卡模式/赛季有独立目标但不取代 PB 作为长线驱动力。 | 缺少"通关感"的玩家偏好可能转向竞品。 | 不需要做"内容生产 treadmill"也能维持长期留存。 |
-| **PB 是否影响难度** | **是**，scoreStress 直接由 `score / max(bestScore, floor)` 派生（v1.13）。 | 老玩家比新玩家的同分数表现更难（必要预期）。 | 老玩家不会"开局 0 分被 6 个里程碑连击"，也不会"过末档后压力锁死最高"。 |
+| **PB 是否影响难度** | **是**，scoreStress 直接由 `score / max(bestScore, floor)` 派生。 | 老玩家比新玩家的同分数表现更难（必要预期）。 | 老玩家不会"开局 0 分被 6 个里程碑连击"，也不会"过末档后压力锁死最高"。 |
 | **PB 临近时是否额外加压** | **是**（"B 类挑战加压"），但**有上限**与**心流互抑**。 | 部分玩家会觉得"越接近 PB 越难"，需要叙事配合解释。 | 把"差一点"的临场感放大；同时防止破纪录后体验断崖。 |
 | **PB 庆祝的强度** | 全屏震屏 + 双闪光 + 浮层弹幕；但**一局一次**。 | 重复刷新 PB 的玩家只能拿到首次的烟花。 | 保持稀有性，避免成为 spam。 |
-| **PB 是否区分难度档** | v1.55 起客户端层按难度分桶（`bestScoreBuckets.js`），HUD 显示当前难度的 PB；后端 `db.getBestScore()` 仍为全难度（保留容灾合并空间）。 | 服务器侧仍是全难度合并值，跨设备同步走 `localStorageStateSync` 同步分桶字段。 | Easy / Normal / Hard 各自独立 PB；详见 §4.4。 |
+| **PB 是否区分难度档** | 客户端层按难度分桶（`bestScoreBuckets.js`），HUD 显示当前难度的 PB；后端 `db.getBestScore()` 仍为全难度（保留容灾合并空间）。 | 服务器侧仍是全难度合并值，跨设备同步走 `localStorageStateSync` 同步分桶字段。 | Easy / Normal / Hard 各自独立 PB；详见 §4.4。 |
 
 ### 1.3 与既有体验模型的关系
 
@@ -209,7 +45,7 @@
 - **挑战-能力轴（C）**：PB 接近度是高承受力玩家的天然挑战源；为承受力不足的玩家（新手 / 回流 / 高挫败）按 `LIFECYCLE_STRESS_CAP_MAP` 软封顶。
 - **节奏-报偿轴（R）**：分数里程碑（绝对/相对双制）按"上一次 PB × {0.25, 0.5, 0.75, 1.0, 1.25}"切节奏，让接近 PB 的最后一段更有冲刺感。
 - **情感-共鸣轴（E）**：`best.gap.victory`（"即将刷新最佳！冲刺！"）与新纪录烟花做情感锚定；`best.gap.far` 给"继续努力~"做长尾陪伴。
-- **认知-学习轴（K）**：score-push 守卫（v1.31）把 intense 档"保活"叙事改成"冲分仪式感"，避免空盘高压违和。
+- **认知-学习轴（K）**：score-push 守卫把 intense 档"保活"叙事改成"冲分仪式感"，避免空盘高压违和。
 - **掌控-心流轴（F）**：占用率衰减（occupancyDamping）防止 scoreStress 在低占用时单独把 stress 推到高压。
 
 ---
@@ -236,7 +72,7 @@
 | **M0** | 新手 | 0–39 | PB 自身就是奖励；不要叠加 B 类挑战加压。 |
 | **M1** | 成长 | 40–59 | 里程碑节奏感最重要；按相对档位 [0.25..1.25] 拉满。 |
 | **M2** | 熟练 | 60–79 | PB ±10% 是"心流可冲刺区"；建议保留 challengeBoost。 |
-| **M3** | 资深 | 80–89 | 接受 orderRigor（顺序刚性，v1.32）+ challengeBoost 上限 0.15。 |
+| **M3** | 资深 | 80–89 | 接受 orderRigor（顺序刚性）+ challengeBoost 上限 0.15。 |
 | **M4** | 核心 | ≥ 90 | 接受 stress cap=0.88、orderRigor 满档；新 PB 之间间隔应控制在数局内，避免"高原期"。 |
 
 ### 2.3 维度 3：PB 距离档 D（本文新引入的策划口径）
@@ -292,7 +128,7 @@
 
 **已知边界**：`bestScore` 当前不区分难度档（Easy/Normal/Hard 共用同一字段）；改进项 §4.4 提议分桶。
 
-### 3.2 scoreStress：个人百分位映射（v1.13）
+### 3.2 scoreStress：个人百分位映射
 
 **入口**：`web/src/difficulty.js → getSpawnStressFromScore(score, { bestScore })`，由 `adaptiveSpawn.resolveAdaptiveStrategy` 调用。
 
@@ -317,7 +153,7 @@ if pct < percentileDecayThreshold=0.5  →  stress *= percentileDecayFactor=0.4
 
 **配置位**：`shared/game_rules.json → dynamicDifficulty.{milestones, spawnStress, scoreFloor, percentileDecayThreshold, percentileDecayFactor, percentileMaxOver}`。
 
-### 3.3 分数里程碑：绝对/相对双制（v1.49）
+### 3.3 分数里程碑：绝对/相对双制
 
 **入口**：`web/src/adaptiveSpawn.js → deriveScoreMilestones(bestScore)`。
 
@@ -345,19 +181,19 @@ if pct < percentileDecayThreshold=0.5  →  stress *= percentileDecayFactor=0.4
 
 ```
 challengeBoost = min(0.15, (score / bestScore − 0.8) × 0.75)
-if friendlyBoardRelief < −0.09  →  challengeBoost *= 0.42   // v1.29 互抑
+if friendlyBoardRelief < −0.09  →  challengeBoost *= 0.42   // 互抑
 stress = min(0.85, stress + challengeBoost)
 ```
 
 **策略语义**：
 
 - 0.8 是"明确接近"的阈值；0.15 上限保证不会越过 `tense → intense` 一档以上。
-- 与 friendlyBoardRelief（友好盘面救济，v1.13）互抑：盘面 holes=0 且 nearFullLines≥2 且 payoff 期时 friendlyBoardRelief 介入；如果同帧两者都强，challengeBoost ×0.42 让位，避免"既要救济又要加压"的锯齿。
+- 与 friendlyBoardRelief（友好盘面救济）互抑：盘面 holes=0 且 nearFullLines≥2 且 payoff 期时 friendlyBoardRelief 介入；如果同帧两者都强，challengeBoost ×0.42 让位，避免"既要救济又要加压"的锯齿。
 - 不进入 D4 突破段（pct > 1）后不再加压：让玩家感受到"破纪录瞬间反而轻盈"。
 
 ### 3.5 生命周期 × 成熟度 stress cap
 
-**入口**：`web/src/lifecycle/lifecycleStressCapMap.js → LIFECYCLE_STRESS_CAP_MAP`（v1.50 抽出，详见 [生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)）。
+**入口**：`web/src/lifecycle/lifecycleStressCapMap.js → LIFECYCLE_STRESS_CAP_MAP`（详见 [生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)）。
 
 **应用顺序**（`adaptiveSpawn.js`）：
 
@@ -383,7 +219,7 @@ stress = min(0.85, stress + challengeBoost)
 | **新手保护**（首局 5 spawn 内） | `profile.isInOnboarding === true` | stress 强制 `≤ firstSessionStressOverride = −0.15`；不展示 best.gap；不触发 challengeBoost。 |
 | **Winback 保护**（≥7 天未活跃） | `getActiveWinbackPreset()` 返回 preset | stress cap 强制 `≤ 0.60`；clearGuarantee +1；保留 3 局保护期。 |
 | **挫败救济** | `profile.needsRecovery === true` 或 `frustrationLevel ≥ 5` | 救场期间禁用 `minStressFloor` / 禁用 orderRigor；建议同步禁用 challengeBoost（改进项 §4.2）。 |
-| **被困救济**（v1.30 bottleneckRelief） | `firstMoveFreedom ≤ 阈值` | 同上；目前仍可与 challengeBoost 同帧（改进项 §4.2）。 |
+| **被困救济**（bottleneckRelief） | `firstMoveFreedom ≤ 阈值` | 同上；目前仍可与 challengeBoost 同帧（改进项 §4.2）。 |
 
 ### 3.7 叙事与 UI
 
@@ -398,7 +234,7 @@ stress = min(0.85, stress + challengeBoost)
 
 **已知缺口**：`best.gap.far` 文案存在但无触发路径；改进项 §4.3。
 
-#### 3.7.2 Score-push 高压守卫（v1.31）
+#### 3.7.2 Score-push 高压守卫
 
 `intent ∈ {flow, harvest}` 且 `level ∈ {tense, intense}` 且 `boardFill < 0.30` 且 `holes === 0` → 改用 `SCORE_PUSH_HIGH_STRESS_NARRATIVE_BY_LEVEL` 叙事："冲击新高，节奏紧绷；盘面仍开阔，稳住关键落点把分数稳稳推上去"。
 
@@ -452,7 +288,7 @@ Onboarding/Winback Bypass ───┘                       ├─► Occupancy
 > 每个改进项都标注：触发的原因（"现实问题 / 玩家体验差距"）、改进方向、估计代价、风险。  
 > **本文只做规划，不在本次提交修改代码**。后续拆 PR 时按编号引用。
 
-### 4.1 LIFECYCLE_STRESS_CAP_MAP 死键与跨格补全（P0）　✅ v1.55 已落地
+### 4.1 LIFECYCLE_STRESS_CAP_MAP 死键与跨格补全（P0）
 
 **问题**：调制表当前缺 `S0·M1+`、`S2·M4`、`S3·M0` 等组合（约 8 个 `S·M` 死键）。`getLifecycleStressCap` 返回 null 时下游静默跳过 cap/adjust，**raw stress 直通**——若此时 challengeBoost / scoreStress 同时活跃，会让中等画像玩家偶发拿到与表外预期不符的高 stress。
 
@@ -464,7 +300,7 @@ Onboarding/Winback Bypass ───┘                       ├─► Occupancy
 
 **风险**：补的新格会改变线上分布；已让既有契约测试 `tests/challengeDesignOptimization.test.js` P1-1 反映新事实（S3·M0 现 cap=0.65）。
 
-### 4.2 救济期与 challengeBoost 互斥（P0）　✅ v1.55 已落地
+### 4.2 救济期与 challengeBoost 互斥（P0）
 
 **问题**：当前 `isBClassChallenge` 仅看 `segment5/sessionTrend` 与 PB 距离，**没有把 `profile.needsRecovery` / `hasBottleneckSignal` / `frustrationLevel ≥ frustThreshold` 排除**。极端 case：玩家被困（firstMoveFreedom=1）+ 接近 PB → bottleneckRelief −0.12 与 challengeBoost +0.15 同帧抵消，玩家感受到"加压被悄悄消掉"，PB 临场感被稀释。
 
@@ -490,7 +326,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.2 + §4.5 isBClassChallenge bypass` 7 条，逐项覆盖 8 种 bypass + 字段存在性。
 
-### 4.3 `best.gap.far` 触发挂接 + D0 远征陪伴叙事（P1）　✅ v1.55 已落地
+### 4.3 `best.gap.far` 触发挂接 + D0 远征陪伴叙事（P1）
 
 **问题**：i18n 19 个语言包都备好了 `best.gap.far`（"继续努力~"），但 `updateUI` 中 `ratio` 只走 victory/close/neutral 三档，**远征区（D0）无任何陪伴文案**。
 
@@ -503,7 +339,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.3 best.gap.far 远征陪伴文案（主 + alt1 + alt2）` 4 条覆盖文案存在 + {{best}} 占位 + zh-CN/en 平价。
 
-### 4.4 PB 按难度档分桶（P1）　✅ v1.55 已落地（客户端层）
+### 4.4 PB 按难度档分桶（P1）
 
 **问题**：当前 `db.saveScore(score, strategy)` 写入了 strategy 字段但 `db.getBestScore()` 仅返回**全难度**最高分。
 
@@ -517,7 +353,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.4 + §4.7 bestScoreBuckets` 8 条覆盖 submit / get / 跨 strategy 隔离 / 未知 strategy fallback。
 
-### 4.5 D × P 显式 gate（P1）　✅ v1.55 已落地（best.gap warmup + challengeBoost warmup bypass）
+### 4.5 D × P 显式 gate（P1）
 
 **问题**：当前 `best.gap` 与 `challengeBoost` 在 P0（warmup）阶段也会触发，开局头三个落子玩家就被告知"差 500 分"。
 
@@ -529,7 +365,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：与 §4.2 合并为 `§4.2 + §4.5` 套件，warmup 段（totalRounds ≤ 3）必返回 `challengeBoostBypass='warmup'`。
 
-### 4.6 D3 决战段 + D4 突破段的"二度里程碑"（P1）　✅ v1.55 已落地
+### 4.6 D3 决战段 + D4 突破段的"二度里程碑"（P1）
 
 **问题**：当前相对里程碑 `[0.25, 0.5, 0.75, 1.0, 1.25] × bestScore` 在玩家**破纪录后**就只剩一个 1.25× 节点。
 
@@ -542,7 +378,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.6 二度里程碑` 5 条覆盖未破/+10%/+25%/新手 bestScore=0/effect 文案。
 
-### 4.7 季度 / 周期 PB（P2）　✅ v1.55 已落地（基础）
+### 4.7 季度 / 周期 PB（P2）
 
 **改进**（已落地）：
 
@@ -555,7 +391,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.7` 4 条覆盖周/月 key 派生 + 跨窗口重置 + localStorage key 命名。
 
-### 4.8 PB 距离感的"反向引导"——给 D3/D4 玩家发出可见的策略卡（P2）　✅ v1.55 已落地
+### 4.8 PB 距离感的"反向引导"——给 D3/D4 玩家发出可见的策略卡（P2）
 
 **改进**（已落地）：
 
@@ -569,7 +405,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.8 strategyAdvisor pbChase 策略卡` 5 条覆盖 D4 / D3.victory / D3.close / D0–D2 不出 / pbContext 缺失兜底。
 
-### 4.9 破纪录后"释放窗口"（P2）　✅ v1.55 已落地
+### 4.9 破纪录后"释放窗口"（P2）
 
 **改进**（已落地）：
 
@@ -582,7 +418,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.9 postPbReleaseWindow` 4 条覆盖 active=true 时 stress 衰减 + challengeBoost bypass + clearGuarantee≥2 + active=false 时不衰减。
 
-### 4.10 PB 失效守卫与异常分阈值（P2）　✅ v1.55 已落地
+### 4.10 PB 失效守卫与异常分阈值（P2）
 
 **改进**（已落地异常分守卫）：
 
@@ -593,19 +429,19 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.10 异常分守卫` 4 条覆盖配置存在性 + 触发判定 + minBase 新手保护 + 阈值边界。
 
-### 4.11 跨设备 PB 同步与"账号合并"策划口径（P3）　✅ v1.55 已落地（核心字段）
+### 4.11 跨设备 PB 同步与"账号合并"策划口径（P3）
 
 **改进**（已落地基础）：
 
 1. ✅ `web/src/localStorageStateSync.js` `CORE_KEYS` 已加入 `openblock_best_by_strategy_v1` 与 `openblock_period_best_v1`：
    - 走 core section（5 秒一推、跨设备 hydrate）；
    - 合并策略沿用现有 `_mergeRemoteIntoLocal`：远端只补齐本地缺项，本地已有值优先；分桶字段是 JSON 字符串，合并粒度是整个对象（如需更细粒度的 max(local, remote) per bucket 可后续拆分）。
-2. ⏳ 全账号 `openblock_best_score` 字段已在 v1.50 加入 CORE_KEYS（早于本次），跨设备 hydrate 已生效。
+2. ⏳ 全账号 `openblock_best_score` 字段已加入 CORE_KEYS，跨设备 hydrate 已生效。
 3. ⏳ 账号合并 / 赛季重置等运营动作待 §5 Q+3 与运营单独评审。
 
 **单测**：`§4.11 跨设备 PB 同步` 2 条，确认 `_sectionForKey('openblock_best_by_strategy_v1')==='core'` + `_sectionForKey('openblock_period_best_v1')==='core'`。
 
-### 4.12 数据反馈环：把 PB 行为写入 `MonetizationBus` 与 `lifecycleSignals`（P2）　✅ v1.55 已落地（事件部分）
+### 4.12 数据反馈环：把 PB 行为写入 `MonetizationBus` 与 `lifecycleSignals`（P2）
 
 **改进**（已落地）：
 
@@ -624,7 +460,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.12 PB 事件总线` 4 条覆盖 `_emitPersonalBestEvent` payload 字段 + `_maybeEmitNearPersonalBest` pct 阈值 + 每局只一次 + bestScore=0 兜底。
 
-### 4.13 高难度模式（Hard）与 PB 主线的衔接（P3）　✅ v1.55 已落地
+### 4.13 高难度模式（Hard）与 PB 主线的衔接（P3）
 
 **改进**（已落地）：
 
@@ -636,1165 +472,33 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.13 Hard 模式 PB UI` 2 条覆盖 hardScale=1.3 / normalScale=1.0 计算精度。
 
----
-
-## 5. 落地交付快照（v1.55 一次性集成 PR）
-
-> 原计划分四个季度递进的 13 项改进在 v1.55 单次 PR 内全部落地（代码、单测、文档同步）。下表保留为"事实快照"，便于后续策划/算法判断"哪些项已实装、哪些项还需观察 + 后续 PR 增强"。
-
-| 季度（原计划） | 项目 | 实际交付 | 后续观察 / 后续 PR 关注点 |
-|------|------|----------|---------------------------|
-| Q+0 | §4.1 | ✅ 25 格全覆盖 + 4 测试 | 监控 S3·M0 cap=0.65 上线后 stress 分布是否符合预期 |
-| Q+0 | §4.2 | ✅ 8 段优先级 bypass + 字段持久化 | DFV 可见 bypass 原因；监控 challengeBoost 触发率变化 |
-| Q+0 | §4.5 | ✅ warmup 段 best.gap 隐藏 + bypass | 仅做 warmup；cooldown 段 runStreakHint 抑制留待后续 |
-| Q+1 | §4.3 | ✅ ratio>0.50 触发 + 3 文案池 | i18n 17 语言走 zh-CN fallback；需要时再全量翻译 |
-| Q+1 | §4.6 | ✅ +10%/+25% 二度档 + newRecord.second 弱版 UI | 单局上限 3 次；监控连刷 PB 玩家的留局率 |
-| Q+1 | §4.8 | ✅ pbChase 三段策略卡 + pbContext 注入 | 监控 D3/D4 策略卡曝光与玩家继续游玩的相关性 |
-| Q+1 | §4.9 | ✅ 3 spawn 释放窗口 + clearGuarantee+1 + cooldown | 监控 PB 后 5 spawn 留存率（KPI §7） |
-| Q+2 | §4.4 | ✅ 客户端层 bucket cache + HUD strategy badge | 后端 schema 改动留待大型迁移 PR（与 leaderboards 联动） |
-| Q+2 | §4.12 | ✅ new_personal_best / near_personal_best / suspicious_pb / period_best 4 事件 | 订阅方（personalShop / shareCard / dailyTasks）接入待商业化 PR |
-| Q+2 | §4.7 | ✅ weeklyBest / monthlyBest ISO 周 + 自然月 + period_best 事件 | HUD 切换 "本周 PB / 历史 PB" UI 留待后续 PR |
-| Q+2 | §4.10 | ✅ 异常分守卫 + lifecycle:suspicious_pb | 回流玩家 bestScore 折扣留待与 winback 联合调优 |
-| Q+3 | §4.11 | ✅ openblock_best_by_strategy_v1 / openblock_period_best_v1 已纳入 core | 账号合并 / 赛季重置策略待运营评审 |
-| Q+3 | §4.13 | ✅ HUD strategy badge + hardScale=1.3 烟花强度 | 后续可加 hard PB 专属皮肤 / 词条 |
-
----
-
-### 5.x v1.55.10 修复（用户反馈 → 5 风险 + milestone 文案与频次 + 追平特效）
-
-> 2026-05-16 用户反馈两点：
->   (a) "得分等于最佳分时应该出现特效，多次修复均未生效"——核心诉求是 `score === bestScore` 这个独特心理时刻应有反馈；
->   (b) "局内特效只出现一次"——三档 milestone 连弹审美疲劳；
->   (c) "局内激励语莫名其妙，玩家不能理解什么意思"——"分数突破 490!" 文案对玩家无意义；
->   (d) "总分很低时容易达成最佳，给激励特效不符合认知"——新手 best=0/50 触发 toast 削弱"挑战 PB"叙事；
-> 同时本轮顺带修复了前次代码审计发现的 **PB 5 处风险点**。所有改动覆盖单测（1429 个全通过）。
-
-| 风险 / 需求 | 修复 | 代码 / 测试 |
-|------|------|------|
-| **R3 跨局状态泄漏** | `start()` 复位 `_newBestCelebrationCount` / `_nearPbEmittedThisRun` / `_postPbReleaseUsed` / `_tiedBestCelebratedThisRun` / `_bestScoreSanityFlagged` | `web/src/game.js` start() v1.55.10 注释段 |
-| **R4 可疑 PB 仍显示皇冠** | `endGame` 结算页皇冠 `isNewBest` 判定增加 `&& !this._bestScoreSanityFlagged` 守卫 | `web/src/game.js` over-score 皇冠分支 |
-| **R1 init 早于 hydrate** | 新增 `game.refreshBestScoreFromBucket()`，main.js 在 `await initLocalStorageStateSync()` 之后调用一次；分桶 PB ≤ 总账号 PB 时采用 | `web/src/game.js` + `web/src/main.js` |
-| **R5 socialLeaderboard 双源** | `getMyBestScore()` 改为 max(分桶 PB, legacy key)；endGame 破账号 PB 时也写入 `openblock_best_score` 保留 hydrate 兼容 | `web/src/monetization/socialLeaderboard.js` + `web/src/game.js` |
-| **R2 双源（db getBestScore MAX 全表）** | 标注为后续清理项（不在本轮变更范围） | `docs/player/BEST_SCORE_CHASE_STRATEGY.md` 待办项 |
-| **(d) MIN_BEST 门槛** | `MIN_BEST_FOR_MILESTONE_TOAST = 500`：bestScore < 500 时 `deriveScoreMilestones` 返回空表 → 任何分数都不出 milestone toast | `web/src/adaptiveSpawn.js` + `tests/bestScoreChaseStrategy.test.js` "bestScore < 500 时不触发任何里程碑" |
-| **(b) 局内一次（分段）** | `_milestoneToastBaseFiredThisRun` / `_milestoneToastPostPbFiredThisRun` 两个 gate；base 段（≤ PB）+ post-PB 段（> PB）各 1 次，单局最多 2 次激励 | `web/src/adaptiveSpawn.js` `checkScoreMilestone` |
-| **(c) 百分比文案** | i18n 新增 `effect.scoreMilestonePct = '已达最佳 {{pct}}%'`；game.js 渲染时计算 `pct = round(score / baseBest * 100)`；旧 `effect.scoreMilestone` 保留作为 bestScore 缺失时的兜底 | `web/src/game.js` showFloatScore + `web/src/i18n/locales/{zh-CN,en}.js` |
-| **档位克制** | `SCORE_MILESTONES_REL` 从 `[0.25, 0.5, 0.75, 1.0, 1.25]` 改为 `[0.50, 0.75, 0.90]`（1.0 与"追平"撞车、1.25 与"破 PB"撞车都已去除） | `web/src/adaptiveSpawn.js` |
-| **(a) 追平最佳特效** | 新增 `_maybeCelebrateTiePersonalBest()`：score === bestScore 且 best ≥ 500 且本局首次且未破 PB 时触发绿色 `.float-tie-best` toast；i18n `effect.tieBest = '🏁 追平最佳！'` | `web/src/game.js` + `web/public/styles/main.css` + `tests/gameBestScore.test.js` 6 个新测 |
-
-**三态颜色叙事**（v1.55.10 起）：
-
-| 时刻 | 特效 | 颜色 | 频次 | 持续 |
-|------|------|------|------|------|
-| 分数到达 PB 的 50% / 75% / 90% | `.float-milestone` "已达最佳 X%" | 蓝色 | base 段每局 1 次 | 2.8s |
-| score === bestScore | `.float-tie-best` "🏁 追平最佳！" | 绿色 | 每局 1 次 | 1.8s |
-| score > bestScore（首次） | `.float-new-best` "刷新最佳！" + 烟花 + 震屏 | 金色 | 每局 ≤ 3 次 | 2.3s |
-| 已破 PB 后到 110% / 125% | `.float-milestone` "已达最佳 110%" 等 | 蓝色 | post-PB 段每局 1 次 | 2.8s |
-
-> 工程契约：所有 milestone 触发要求 bestScore ≥ 500；追平特效要求 bestScore ≥ 500；这避免了"新手 best=0 跨过 50 就出激励"的违和感。低 best 玩家（< 500）的"分数情绪反馈"完全由 PB 庆祝 / 追平 / near-PB 推送接管（更聚焦"真正的努力时刻"）。
-
-### 5.y v1.55.11 收敛（撤销中间态特效 + 单局一次 + 🏆 前缀）
-
-> 2026-05-16 第二次用户反馈，明确"中间态特效（追平、百分比 milestone）干扰主线情绪"，要求收敛到**只有"刷新最佳"一种激励事件**，且**单局只发生一次**。本节是上一节 §5.x（v1.55.10 三态叙事）的**直接收敛**——回到"单事件 + 单出现 + 强符号"的极简模型。
-
-**改动清单**：
-
-| 项 | 变更 | 代码位置 |
-|----|------|---------|
-| **PB 庆祝次数** | `CELEBRATIONS_PER_RUN_CAP` 从 `3` 改为 `1`；二度 / 三度纪录代码分支保留为不可达 fallback，便于灰度恢复 | `web/src/game.js` `_maybeCelebrateNewBest` |
-| **PB 文案前缀** | 19 语言 `effect.newRecord` 统一在文本前加 `🏆 ` + 句末感叹号；zh-CN 从"新纪录"改为"🏆 刷新最佳！" | `web/src/i18n/locales/*.js` |
-| **milestone toast 渲染** | `playClearEffect`（消行回调）不再调 `showFloatScore('scoreMilestone')`；`showFloatScore` 的 `isScoreMilestone` 分支变为防御性 early `return`；`adaptiveSpawn` 的 `_lastAdaptiveInsight.scoreMilestoneHit` 仍如旧 reset，保留数据流给 DFV 与分析 | `web/src/game.js` |
-| **追平特效** | `updateUI` 不再调用 `_maybeCelebrateTiePersonalBest`；方法本体改为 `return false`，单测仍验证"始终 false + 无 DOM 副作用"契约 | `web/src/game.js` |
-| **CSS** | 删除 `.float-tie-best` 规则（绿色 tie-best 样式不再需要） | `web/public/styles/main.css` |
-| **i18n** | `effect.scoreMilestone` / `effect.scoreMilestonePct` / `effect.tieBest` 标注 `@deprecated`，保留 key 以便 i18n 平台回滚 | `web/src/i18n/locales/{zh-CN,en}.js` |
-| **测试** | `tests/gameBestScore.test.js` 追平特效从 6 个"验证触发"改为 4 个"始终 false" + 1 个"无 DOM 副作用"（共 5 个）；其他 milestone 测试不变（只断言 `_scoreMilestoneHit` 数据流） | `tests/gameBestScore.test.js` |
-
-**收敛后的单一情绪事件**：
-
-| 时刻 | 特效 | 颜色 | 频次 | 持续 |
-|------|------|------|------|------|
-| score > bestScore 的第一次 | `.new-best-popup` "🏆 刷新最佳！" + 完整烟花 + 震屏 + post-PB release 窗口 | 金色 | **每局 1 次** | 2.3s |
-| 同局内后续刷新 PB | 静默更新 `this.bestScore`，无任何 UI | — | 不限次但不显示 | — |
-| score === bestScore | 无 | — | — | — |
-| score 跨过 50%/75%/90% 等档位 | 无 UI；`_lastAdaptiveInsight.scoreMilestoneHit` 仍在 DFV 可见 | — | — | — |
-
-> **设计意图**：把"挑战自己 PB"压缩为唯一的爆点事件。中间态的"半程""冲刺"由 HUD 的 `best.gap.*` 文案与背景压力曲线（adaptiveSpawn）承担——这是**持续叙事**；而"🏆 刷新最佳！"作为**唯一爆点**，确保稀有性 → 珍贵 → 情绪冲击最大化。
-
----
-
-### 5.z 基于 SGAZ 实证的规则层调控（未来方向，v1.55.17）
-
-> **外部锚点**：Wang C-J. et al., *Evaluating Game Difficulty in Tetris Block Puzzle*, arXiv:2603.18994。论文用 SGAZ 在 8×8 Tetris Block Puzzle 上实证：**候选块数 `h` > 形状库 > `shapeWeights` > 预览数 `p`** 是难度调控的杠杆强度排序（详见 [ADAPTIVE_SPAWN §10.6](../algorithms/ADAPTIVE_SPAWN.md#106-外部实证基线sgaz--tetris-block-puzzlev15517) 与 [SPAWN_ALGORITHM §2.6](../algorithms/SPAWN_ALGORITHM.md#26-难度调控杠杆层级基于-sgaz-实证--v15517)）。
-
-#### 当前 PB 策略的"难度天花板"诊断
-
-§4 落地的 13 个改进项（`LIFECYCLE_STRESS_CAP_MAP`、`challengeBoost`、`postPbReleaseStressAdjust`、`best.gap` 文案、二度里程碑、释放窗口…）**全部聚焦在 `shapeWeights` 调控这一中等强度杠杆上**。论文实证：当 OpenBlock 默认配置 `dock=3, p=0, 标准 tetromino` = 论文 classic `h=3, p=0` baseline 时，强 AI（SGAZ）训练奖励已达 6544/6750（97%）、收敛仅需 61 iter——**意味着我们当前的 stress 调控空间整体处于"强 AI 已摸顶"的难度边界内**。
-
-这给"挑战自我"主线留下一个**未被探索的难度提升通道**：当玩家 PB ≥ 某门槛（如 D4 突破段 + S3·M4）时，可以通过**规则层**（而非 stress 数值）制造真正的"难超越自己"质感。
-
-#### 路线图（按工作量与价值排序）
-
-| 优先级 | 行动 | 论文支撑 | OpenBlock 改动面 | 预估工作量 | 风险 |
-|---|---|---|---|---|---|
-| **P3** | **实质性 `h=1` 警报兜底**：在 `bottleneckRelief` 旁挂"dock 三块持续 N 轮全不可放 → 强制保消" | `h=1` 让 SGAZ 几乎不可玩；论文证明实质性单候选是难度悬崖 | `web/src/adaptiveSpawn.js` + 单测 | 2~3 小时 | 中 |
-| **P3** | **preview 字段试点**：给 S0·M0 / S4 玩家加 1 格 preview UI（弱杠杆即弱影响） | `p` 是弱杠杆，"主观感受好 + 实际胜率影响小" → 适合作为新手 / 回流保护 | spawnHints 增 `previewSlots` 字段 + UI 1 格 + 形状库预生成 | 4~6 小时 | 中（UI 改动） |
-| **P4** | **PB 冲刺段 `dock=2` 极限模式**：D3 决战段 / D4 突破段且 `stress norm ≥ 0.83` 时，临时给 1 个 spawn 改 dock=2 | `h=3→h=2` 收敛+162%；这是论文最强难度杠杆 | spawnHints 增 `dockOverride` + 三连块约束改造（`targetSolutionRange` 需适配） | 1~2 天 | **高**（架构变动，需先验证二连块场景下的解空间公式） |
-| **P5** | **pentomino 解锁挑战形状**：D4 突破段 + S3·M4 临时把 1~2 个候选位换成 T-pentomino，作为"PB 冲刺时的真正挑战" | T-pentomino 是论文实证最强加难形状 | 形状库 / spawnHints / 模型 / UI / 美术全栈 | 3~5 天 | 高 |
-| **P5** | **SGAZ 难度回归 CI**：基于 MiniZero 或自研轻量 SGAZ，给每次 `game_rules.json` 修改跑 baseline 训练对比 | 论文方法论本身 | `tools/eval_rule_difficulty.py` + CI 集成 | 1~2 周 | 高（基础设施） |
-
-#### 与"挑战自我而不轻易超越"主张的契合度
-
-| 路线图项 | 主线契合点 |
-|---|---|
-| 实质性 `h=1` 警报 | "**不轻易超越**" 不等于 "**让玩家卡死**"——防御性兜底，避免运气性悬崖 |
-| preview 试点（S0/S4） | "**挑战自我**" 的前提是先让玩家**回到游戏中**——新手 / 回流期降低规则压力 |
-| PB 冲刺 `dock=2` | "**挑战自我**" 的核心—— 在距离 PB 最近的 5% 区间制造**真实的难超越质感**，与 §4.4 `challengeBoost` 形成"数值压 + 规则压"双重曲线 |
-| pentomino 解锁 | 给 D4 突破段玩家**真正的难度新维度**，避免 stress 已封顶（norm 1.0）但形状池仍是常规 tetromino 的"挑战感失真" |
-| SGAZ CI | 把 §3.5 lifecycle cap、§4 改进项的"经验设置"逐步替换为**实证锚定**，避免凭直觉调 25 格 cap |
-
-#### 落地前的硬约束（先验证后实施）
-
-1. **`dock=2` / pentomino 必须通过 `tripletSequentiallySolvable` 改造**：当前可解性校验假设 dock=3，若临时变 dock=2 / 加入 5 格形状，需先证明"二连块或含 pentomino 时仍能保证 fail-recoverable"。
-2. **任何规则层调控必须可被玩家感知**：dock 变化 / preview 出现 / pentomino 解锁，都应有**显式 UI 提示**（如顶部条 "极限挑战！候选块 3→2"），否则会被玩家归因为"卡顿/bug"而非"主动加难"。
-3. **规则层调控不进入 `stress` 求和**：作为 `spawnHints` 的旁路通道，避免破坏 17 个 stress 分量的语义稳定性。
-
-> **本节仅为设计原则录入**，**不引入任何代码改动**；具体实施需要单独 PR 提案，并通过实证（SGAZ 短训练 / 玩家测试）验证后再落地。
-
----
-
-### 5.α v1.56 PB 段差异化升级（Q+0 + Q+1，11 项一次性集成）
-
-> **背景**：v1.55 的 13 项改进项让"挑战自我"主线在 `shapeWeights` 层做到了较精细的差异化（25 格 cap、challengeBoost bypass、postPbRelease 释放窗口、二度里程碑…），但产品评审复盘指出三个仍待补齐的体验缺口：
->
-> 1. **D0 远征段（pct &lt; 0.5）开局畏难**：从 0 出发追千分以上的 PB 时，开局的 `challengeBoost` 和"差 N 分"文案构成"压力先于奖励"的体感，远征段流失率偏高。
-> 2. **D1/D2 文案不分档**：旧版 `best.gap` 在 `ratio > 0.05` 一律走 `best.gap.neutral` "差 N 分"，缺少"靠近"与"冲刺"两种情绪密度的区分。
-> 3. **D3 决战段缺乏"质感加难"**：靠近 PB 95~100% 时，`challengeBoost` 只是把 stress 数值往上推，玩家感受到的是"系统在跟我作对"而非"我面对的是真正难的局面"。
-> 4. **D4 突破段失锚**：破 PB 后 HUD 的 best.gap 直接 hidden，玩家失去"我现在已经超了多少"的实时锚点，二度激励链路断开。
-> 5. **PB 持续突破缺乏荣誉感**：连续多次刷新 PB 没有"成就感复利"机制。
->
-> v1.56 把上一节"未来方向"中**不依赖 SGAZ 实证**的高 ROI 项目合并成 11 项一次性集成（Q+0 6 项 + Q+1 5 项），定位为**"在不动 stress 求和、不动 dock=3 规则的前提下，把 PB 距离段差异化做到极致"**。本节为完整代码事实清单。
-
-#### §5.α.1 改进项落地表（11 项）
-
-| 编号 | 类别 | 改进项 | 触发条件 | 实现位置 | 验证测试 |
-|------|------|--------|----------|----------|----------|
-| §2.1 | 算法 | `farFromPBBoost` 远征送爽 | `pct &lt; 0.30` ∧ 无救济/瓶颈/warmup/postPbRelease/pbGrowthFast/nearMiss | `web/src/adaptiveSpawn.js` + `shared/game_rules.json adaptiveSpawn.engagement.farFromPBBoost` | bestScoreChaseStrategy §2.1 (5 case) |
-| §2.3 | 算法 | D3 `pbExtremeOrderBoost` 顺序刚性 | `0.95 ≤ pct &lt; 1.0` ∧ 无 postPbRelease/recovery/bottleneck/warmup/onboarding | `web/src/adaptiveSpawn.js`（orderRigor 公式注入 `+0.20`） | bestScoreChaseStrategy §2.3 (3 case) |
-| §2.4 | 算法 | `pbGrowthFast` 节流 | 最近 5 次 PB 几何平均增长率 ≥ 10% | `web/src/pbGrowthTracker.js` + `game.js start()` 透传到 `_spawnContext.pbGrowthFast` | bestScoreChaseStrategy §2.4 pbGrowthTracker (7 case) |
-| §2.5 | 算法 | 远征段多消潜力倾斜 | `spawnHints.farFromPBBoostActive === true` ∧ 候选 `s.multiClear ≥ 2` | `web/src/bot/blockSpawn.js`（权重 ×1.15） | 集成在 §2.1 farFromPBBoost case |
-| §3.1 | 文案 | D1/D2 best-gap 细分 | `0.05 &lt; ratio ≤ 0.20` → chase；`0.20 &lt; ratio ≤ 0.50` → follow | `web/src/game.js updateUI()` + `i18n/locales/{zh-CN,en}.js` | bestScoreChaseStrategy §3.1 i18n (8 case) |
-| §3.2 | 文案 | D4 突破段 HUD「已超 N 分」 | `gap ≤ 0` ∧ `bestScore &gt; 0` 三档（toNext10 / toNext25 / legend） | 同 §3.1 + CSS `.best-gap--over` | bestScoreChaseStrategy §3.2 i18n (3 case) |
-| §3.4 | 文案 | 终局差一口气 banner | `endGame` 时未破 PB ∧ `pct ≥ 0.85` 两档（D2/D3） | `web/src/game.js endGame()` + CSS `.near-miss-banner` | bestScoreChaseStrategy §3.4 i18n (2 case) |
-| §4.1 | 特效 | D0 多消特效振幅 ×1.3 | `pct &lt; 0.5` ∧ 多消/perfect/bonusLines | `web/src/game.js playClearEffect()` | 视觉手测 + 集成在 §2.1 case |
-| §4.2 | 特效 | D3 单线特效克制 | `0.95 ≤ pct &lt; 1.0` ∧ 未破 PB ∧ count=1 ∧ 无 perfect ∧ 无 bonusLines | 同 §4.1（fallthrough 走 minimal shake） | 视觉手测 |
-| §4.3 | 叙事 | stressMeter PB 联动 | `spawnHints.farFromPBBoostActive === true` 或 `breakdown.pbExtremeOrderBoost &gt; 0` | `web/src/stressMeter.js buildStoryLine()` 抢占 score-push 守卫之前 | bestScoreChaseStrategy §4.3 (3 case) |
-| §4.4 | 叙事 | 连续突破徽章 `pb-streak-badge` | 7 天内 ≥ 2 次入栈 PB（`computePbStreakCount() ≥ 2`） | `web/src/game.js _updateProgressionHud()` + `web/index.html` + CSS `.pb-streak-badge` | bestScoreChaseStrategy §2.4 streak (3 case) |
-
-#### §5.α.2 配置新增（`shared/game_rules.json`）
-
-```json
-"engagement": {
-  "farFromPBBoost": {
-    "enabled": true,
-    "pctThreshold": 0.30,
-    "clearGuaranteeBoost": 1,
-    "multiClearBonusFloor": 0.45,
-    "iconBonusTargetFloor": 0.30,
-    "sizePreferenceShift": -0.12
-  }
-}
-```
-
-**调参指引**：
-
-- `pctThreshold` 默认 0.30（D0 段定义）。运营若发现 PB 通胀过快，可降到 0.25 收缩远征段范围。
-- `multiClearBonusFloor` 与 `iconBonusTargetFloor` 是 `Math.max` floor，不是 setter——如果上游几何（pcSetup / nearFullLines）已经把这两个值推得更高，本配置不会回退。
-- 关闭整段送爽：`"enabled": false`；breakdown 仍会写 `farFromPBBoostBypass="config_disabled"`，便于 DFV 排查。
-
-#### §5.α.3 spawnHints / stressBreakdown 新增字段
-
-| 字段 | 类型 | 写入端 | 消费端 | 含义 |
-|------|------|--------|--------|------|
-| `spawnHints.farFromPBBoostActive` | `boolean` | adaptiveSpawn §2.1 | blockSpawn §2.5、stressMeter §4.3、DFV | 远征送爽是否激活（与下方 bypass 互补） |
-| `stressBreakdown.farFromPBBoostBypass` | `string \| null` | adaptiveSpawn §2.1 | DFV / 单测 | 未触发原因：`config_disabled` / `no_best_score` / `pct_above_threshold` / `warmup` / `recovery` / `near_miss` / `pb_growth_throttled` / `post_pb_release` |
-| `stressBreakdown.pbExtremeOrderBoost` | `number` | adaptiveSpawn §2.3 | stressMeter §4.3、DFV | D3 决战段 orderRigor 额外提升量（仅触发时存在，0.20） |
-| `ctx.pbGrowthFast` | `boolean` | game.js start() → pbGrowthTracker | adaptiveSpawn §2.1 | 跨局 PB 增长率是否过快（阈值 0.10 / 局） |
-
-#### §5.α.4 设计取舍
-
-**取舍 1：D0 段送爽是"主动加好处"而非"减少难度"。**
-
-旧版思路（v1.55）"D0 段不加 challengeBoost"是被动的——只是不加压。v1.56 主动注入 `clearGuarantee+1 / multiClearBonus≥0.45 / iconBonusTarget≥0.30 / sizePreference≤-0.12`，配合 §2.5 形状层 ×1.15 倾斜与 §4.1 特效 ×1.3，让玩家在远征段开局能切实感受到"系统在帮我开局"。
-
-**取舍 2：D3 段加难走"规则刚性"而非"数值加压"。**
-
-v1.55 的 `challengeBoost` 在 D3 段最多再加 `+0.15` stress（已被 cap 0.85 限制）。v1.56 的 `pbExtremeOrderBoost=0.20` 走 orderRigor 路径，让 6 种排列里允许的可解数从 4 收紧到 2，把"必须按特定顺序摆放"变成 D3 段的核心质感——与 §4.2 单线特效克制配合，把"破 PB 烟花"的对比度推到最高。
-
-**取舍 3：`pbGrowthFast` 是节流不是封禁。**
-
-最近 5 次 PB 几何平均增长率 ≥ 10% 时，仅让远征送爽（§2.1）跳过；challengeBoost、orderRigor、postPbRelease 等其他机制全部正常运行。这避免了"PB 涨太快 → 反过来惩罚玩家"的认知冲突——只是收回主动送爽的额外糖，并不主动加码难度。
-
-**取舍 4：「7 天内连续突破」 vs 「绝对次数」。**
-
-`pb-streak-badge` 用"最近 7 天内连续 N 次入栈 PB"而非"历史总 PB 次数"。设计原因：
-
-- 7 天窗口让回归玩家有"重启 streak"的可能性，避免老玩家几个月不上线后 streak 永久挂着
-- 累计次数会被 §2.4 `pbGrowthFast` 节流机制冲淡（节流期间 PB 暂停增长）
-- 与产品 `weeklyBest` / `monthlyBest` 一致的"近期高光"叙事
-
-#### §5.α.5 文档关联
-
-- 算法详解 → [docs/algorithms/ADAPTIVE_SPAWN.md §13.3 farFromPBBoost / pbExtremeOrderBoost / farFromPBBoostBypass](../algorithms/ADAPTIVE_SPAWN.md)
-- 出块算法侧 → [docs/algorithms/SPAWN_ALGORITHM.md §2.5 远征段多消潜力倾斜](../algorithms/SPAWN_ALGORITHM.md)
-- 测试位置 → `tests/bestScoreChaseStrategy.test.js` v1.56 §5.α 段（共 22 个新测试用例）
-
-#### §5.α.9 D4 段加压链路 4 处冲突完整修复（v1.56.6）
-
-> **背景**：v1.56.4 §5.α.8 在算法**逻辑层**新增了 pbOvershootBoost / D4 spawnHints 收紧 / D4 pbExtremeOrderBoost 延续，但端到端 stress 链路审计发现**4 处机制反向消解了 D4 加压**，stress 维度的"超 PB 越来越难"实际未生效。本节是对完整链路的收口。
-
-##### 系统性诊断：D4 加压被消解的 4 处冲突
-
-| # | 冲突源 | 旧机制行为 | 净效果 | 优先级 |
-|---|--------|------------|--------|--------|
-| C2 | `occupancyDamping` | 玩家破 PB 通常伴随 perfect clear / 多消大消 → fill 骤降 → stress×0.4~0.5 | **加压被狠狠撤销** | 🔴 P0 |
-| C3 | `flowPayoffCap` | 玩家破 PB 时常处 flow + payoff 状态 → stress ≤ 0.79 | 加压被 cap 截断 | 🔴 P0 |
-| C4 | `smoothStress maxStepUp=0.18` | 限制单 spawn 上扬幅度 | "突然变难"被平滑掉 | 🟡 P1 |
-| C1 | `scoreStress percentileMaxOver=0.2` | 限制 projected≤lastMilestone×1.2，pct>1.2 时 scoreStress 完全不再升高 | D4 内部无 stress 递增 | 🟡 P1 |
-
-**修复前实测**：D4 段（pct=1.5 + 低 fill + flow + payoff）finalStress ≈ 0.50，与 D2 段（pct=0.85）finalStress ≈ 0.40 几乎相同——"超 PB 加压"在 stress 维度完全无感。
-
-##### 完整修复方案（4 处冲突 + 2 处配置化）
-
-###### P0-C2：`occupancyDamping` D4 段豁免
-
-```js
-const _ohActiveBypassOcc = pbOvershootActive && cfg.pbChase.overshoot.bypassOccupancyDamping !== false;
-if (stress > 0 && !_ohActiveBypassOcc) {
-  // 原有 damping 公式
-}
-stressBreakdown.occupancyDampingBypassed = _ohActiveBypassOcc;
-```
-
-→ D4 段 pbOvershootBoost / challengeBoost 的加压不再被 ×0.5 消解。
-
-###### P0-C3：`flowPayoffCap` D4 段豁免
-
-```js
-if (... && !pbOvershootActive) {
-  stress = Math.min(stress, flowPayoffCap);
-}
-```
-
-→ D4 段即使在 flow + payoff 状态下也保留完整加压。
-
-###### P1-C4：`smoothStress.maxStepUp` D4 段动态提升
-
-```js
-const _smoothingCfg = pbOvershootActive
-  ? { ...cfg.stressSmoothing, maxStepUp: cfg.pbChase.overshoot.smoothMaxStepUp }  // 0.25
-  : cfg.stressSmoothing;  // 0.18
-```
-
-→ D4 段允许单 spawn 上扬 0.25（旧 0.18），"突然变难"在 1 个 spawn 内完成传达。
-
-###### P1-C1：`scoreStress.percentileMaxOver` 0.2 → 0.5
-
-```json
-"dynamicDifficulty": { "percentileMaxOver": 0.5 }
-```
-
-→ D4 段（pct ∈ (1.0, 1.5]）scoreStress 仍能继续递增，与 pbOvershootBoost 协同形成"超 PB 越来越难"完整曲线。
-
-###### P2：`challengeBoost.baseCap` 0.15 → 0.18（配置化）
-
-```json
-"pbChase": { "challengeBoost": { "baseCap": 0.18 } }
-```
-
-→ D3 段（pct=0.95）加压增量从 17% 提到 ~20%，"决战感"在 stress 维度更可感。
-
-###### P2：`postPbReleaseWindow.spawns` 3 → 5（配置化）
-
-```json
-"pbChase": { "postPbReleaseWindow": { "spawns": 5, "stressReleaseFactor": 0.7 } }
-```
-
-→ 破纪录爽感窗口从 3 spawn（约 5~10s）扩到 5 spawn（约 10~20s），与玩家心理时长对齐。
-
-##### 修复前后效果对比
-
-| 场景 | pct | fill | flow+payoff | 修复前 finalStress | 修复后 finalStress | 增量 |
-|------|-----|------|-------------|---------------------|---------------------|------|
-| D2 临近 | 0.85 | 0.10 | 否 | ≈ 0.40 | ≈ 0.40 | 0（D2 不受影响） |
-| D2 临近 | 0.85 | 0.40 | 否 | ≈ 0.66 | ≈ 0.66 | 0 |
-| **D4 超 PB** | **1.50** | **0.10** | **是** | **≈ 0.50** 🔴 | **≈ 0.85** ✅ | **+0.35** |
-| **D4 超 PB** | **1.20** | **0.20** | **是** | **≈ 0.45** 🔴 | **≈ 0.75** ✅ | **+0.30** |
-| D3 决战 | 0.97 | 0.40 | 否 | ≈ 0.68 | ≈ 0.71 | +0.03（P2 cap 提升） |
-
-→ D4 段净加压**从无效到显著生效**，与 D2 段形成明显落差（0.10+），玩家可感"超 PB 后越来越紧"。
-
-##### 实现挂点
-
-| 文件 | 改动 |
-|------|------|
-| `shared/game_rules.json` | `dynamicDifficulty.percentileMaxOver` 0.2→0.5；`adaptiveSpawn.pbChase.overshoot.{bypassOccupancyDamping,bypassFlowPayoffCap,smoothMaxStepUp}`；`adaptiveSpawn.pbChase.challengeBoost.baseCap=0.18`；`adaptiveSpawn.pbChase.postPbReleaseWindow={spawns:5,...}` |
-| `web/src/adaptiveSpawn.js` | 3 处插入豁免（occupancyDamping / smoothStress 动态 maxStepUp / flowPayoffCap）+ challengeBoost cap 配置化；breakdown 增 `occupancyDampingBypassed` / `flowPayoffCapBypassed` / `smoothingDynamicMaxStepUp` |
-| `web/src/game.js` | `_emitPersonalBestEvent` postPbReleaseRemaining 从 GAME_RULES 读取 |
-| `tests/bestScoreChaseStrategy.test.js` | +8 用例（4 处冲突豁免 + 端到端 D4 vs D2 落差断言 + 2 处配置化） |
-
-##### 同源 bypass 链一致性
-
-所有 v1.56.6 修复严格遵循同源 bypass 约束：
-- `pbOvershootActive` 在 v1.56.4 §5.α.8 已经被 5 路 bypass 守卫（低 PB / postPbRelease / recovery / bottleneck / warmup / onboarding）
-- 因此 P0/P1 三处豁免（occupancyDamping / flowPayoffCap / smoothMaxStepUp）**继承** pbOvershootActive 的全部 bypass，不会在新手 / 救济期 / 释放窗口期内被误触发
-
-##### 不修复项（设计取舍）
-
-- **远 PB 段 farFromPBBoost 不动 stress**：farFromPBBoost 仅改 spawnHints / 形状层，不动 stress 是有意为之——D0 段 stress 已经被 scoreStress×0.4 充分削减（净 stress ~0.03~0.10），叠加额外减压会过度饱和、抑制其他必要信号（如 boardRisk 高时仍需保留警示）。
-
-#### §5.α.10 三数关系自洽修复（v1.56.7）
-
-> **背景**：v1.56.5 修复了 "已超 0 分"（破 PB 后 over 永远归零）的 bug，把 best-gap 的 over 基线切换到 `_bestScoreAtRunStart`。但用户随后又反馈截图 "得分 210 / 最佳 140 / 已超 190" —— 三个数字关系仍然对不上（用户标记"逻辑错误"）。本节是对 HUD 三数关系的最终对齐。
-
-##### 根因分解
-
-| Bug | 位置 | 后果 |
-|------|------|------|
-| **updateUI 调用顺序错乱** | `_maybeCelebrateNewBest()` 在 `updateUI` 末尾调用（line 3518），而 `document.getElementById('best').textContent = this.bestScore` 在开头执行（line 3404） | "最佳" DOM 永远比内存 `bestScore` 慢一帧——玩家破 PB 后看到 "得分 210 / 最佳 140" 的瞬间错位 |
-| **静默分支不刷新 DOM** | `_maybeCelebrateNewBest` 在 `celebrations ≥ CELEBRATIONS_PER_RUN_CAP` 静默分支直接 `return false`，不调用 `updateUI()` | 加重时序错乱，破 PB 后连续 score 增长时 DOM "最佳" 持续滞后 |
-| **gap=0 走 over 分支** | `else { const over = score - pbBaseline; ... }`（`gap <= 0` 都进 over 分支） | 玩家追平开局基线那一帧显示 "已超 0 分"（即截图所示） |
-| **文案歧义** | `'best.over.neutral': '已超 {{over}} 分'` | 没说明"超谁"——玩家看到 "得分 210 / 最佳 210 / 已超 190" 无法将 190 与 UI 上任何可见数字对齐 |
-
-##### 修复方案
-
-1. **updateUI 顺序调整**：把 `_maybeCelebrateNewBest()` 从 line 3518 移到 line 3399 之前，确保 `bestScore` 在 DOM 写入之前已经同步到 `score`。
-   - 内部安全：庆祝分支嵌套调用 `updateUI` 时，由于 `_newBestCelebrated=true` 且 `celebrations≥1`，必然走静默分支立即 return，无递归风险。
-2. **gap=0 隐藏 best-gap**：把 D4 进入条件从 `gap <= 0` 收紧为 `gap < 0`；`gap === 0` 时 `msg` 保持 undefined，末尾 `if (msg) ... else { gapEl.hidden = true; }` 自然隐藏 HUD。
-   - 追平基线那一帧由 `_maybeCelebrateNewBest` 触发的 PB 烟花独自承担反馈（更强、更明确）。
-3. **文案明确化**：
-   - zh-CN：`已超 {{over}} 分` → `本局 +{{over}}`（"本局" 明确暗示"相比本局开局的 PB"）
-   - en：`+{{over}} pts` → `Run +{{over}}`
-   - 玩家心算 `score - "本局 +N"` 即可推断开局基线，三数关系自洽。
-
-##### 修复后三数关系
-
-| 场景 | score | bestScore（实时） | best-gap | 三数关系 |
-|------|-------|------|----------|----------|
-| 开局未破 PB | 80 | 200 | `差 120 分` | `80 + 120 = 200` ✓ |
-| 追平开局基线 | 200 | 200 | （隐藏） | 由 PB 烟花反馈，无文字 |
-| 破 PB（修复后） | 210 | 210 | `本局 +190` | `210 - 190 = 20`（开局基线）✓ |
-| 破 PB（修复前 bug） | 210 | 140 | `已超 190 分` | ❌ 三数无任何代数关系 |
-
-##### 配套测试
-
-| 测试文件 | 覆盖场景 |
-|---------|----------|
-| `tests/gameBestScore.test.js`（+3） | updateUI 内 `_maybeCelebrateNewBest` 调用时 DOM 仍是上一帧值（顺序契约）；用户截图复刻；gap=0 时 HUD 隐藏 |
-| `tests/bestScoreChaseStrategy.test.js`（更新） | `score===baseline` 返回 `{visible:false, mode:'tie'}` 而非 `over:0`；用户截图复刻 `score=210/baseline=20→over=190` |
-
-##### 不修复项（设计取舍）
-
-- **deprecated over 文案池**（`best.over.toNext10` / `toNext25` / `legend`）保留 "已超 N 分" 不改：这些 key 自 v1.56.3 起已不被生产代码消费，只供 i18n 平台灰度回滚。改文案反而会让回滚路径与新文案不一致。
-
-#### §5.α.11 stress 感知化层：4 档反馈渠道（v1.57）
-
-> **背景**：用户反馈 "stress 指标不太能体现到玩家感受上来"。系统审计发现 v1.55~v1.56 的所有 stress 精算（lifecycle cap / occupancyDamping / smoothStress / flowPayoffCap / challengeBoost / pbOvershootBoost 等十几条机制）唯一对玩家产生可观察效果的渠道是 **出块差异化**，而其他 4 个本可承载 stress 感知的渠道全部断层。本节是对玩家感知通道的系统补全。
-
-##### 系统性诊断：v1.56.7 stress → 玩家感知的 5 个渠道
-
-| 渠道 | 现状 | 与 stress 的耦合度 |
-|------|------|----------------------|
-| 主战场 HUD 显示 | ❌ 无 | stressMeter 在 insightPanel 内（多数玩家从不打开） |
-| 视觉氛围（棋盘边框/背景） | ❌ 无 | `main.css` 无 `--stress-*` 系列变量驱动主棋盘 |
-| 音效 / BGM | ❌ 无 | `playClearEffect` / setShake 只看 bonusCount，与 stress 完全无关 |
-| 震动幅度 | ❌ 无 | `renderer.setShake` 由 perfectClear / combo / hard 决定，stress 不参与 |
-| 出块差异化 | ✅ 唯一生效 | `shapeWeights` / `spawnTargets` / `orderRigor` 都读 raw stress |
-
-**症结**：v1.56.3 策略隐性原则"算法调整通过游戏体验感知不直白告诉玩家"，被错误执行成了"策略隐形"（除了出块外，玩家几乎察觉不到任何 stress 变化）。
-
-##### 4 档反馈渠道（stressAmbience.js）
-
-| 档位 | 渠道 | 技术实现 | 玩家体感 |
-|------|------|----------|----------|
-| **A** | 棋盘氛围光 | `#game-wrapper::before` outer box-shadow，颜色由 `--stress-ambience-glow` CSS 变量驱动 | 棋盘外缘冷青→暖绿→琥珀→橙红→暗红 6 档色相变化（潜意识级别） |
-| **B** | 呼吸节奏 | `--stress-ambience-breath-ms` 驱动 `stress-ambience-breath` keyframe 周期 | 外缘呼吸：低 stress 4.2s 缓慢（"安稳"暗示）/ 高 stress 1.5s 急促（"紧张"暗示） |
-| **C** | 消行震动幅度 | 装饰器包 `renderer.setShake`，intensity × `_stressShakeMultiplier` (`[0.85, 1.30]`) | 高压消行震感更强（释放感）/ 低压消行轻柔（不打扰）|
-| **D** | 音频低通滤波 | BiquadFilter 插入 `audioFx.master → destination`，cutoff 随 stress 调节（`[4000, 14000] Hz`） | 高压时 BGM/音效"闷"（高频被削）/ 低压时明亮（完整高频） |
-
-##### 6 档氛围映射（与 `stressMeter.STRESS_LEVELS` 同步）
-
-| stress norm | band | glow 主色 | breathMs | shakeMult | audioCutoff |
-|-------------|------|-----------|----------|-----------|-------------|
-| < 0.125 | calm | 冷青 (120, 200, 230) | 4200ms | 0.85 | 14000 Hz |
-| 0.125~0.333 | easy | 薄荷绿 (160, 220, 200) | 3600ms | 0.92 | 12000 Hz |
-| 0.333~0.542 | flow | 暖绿 (180, 220, 160) | 3000ms | 1.00 | 10000 Hz |
-| 0.542~0.708 | engaged | 琥珀 (230, 200, 140) | 2400ms | 1.10 | 7500 Hz |
-| 0.708~0.833 | tense | 橙红 (230, 160, 120) | 1900ms | 1.20 | 5500 Hz |
-| ≥ 0.833 | intense | 暗红 (220, 100, 100) | 1500ms | 1.30 | 4000 Hz |
-
-##### 严格遵守的护栏
-
-- **策略隐性**：stressAmbience.js 不导出任何 `render*` / `show*` / `*Label` / `*Text` 函数（契约测试验证）；不写 `textContent` / `innerHTML`；不修改 stressMeter 在 insightPanel 内的现有渲染。
-- **shakeMult ∈ [0.85, 1.30]**：超过 ±40% 会被玩家反馈"震动忽强忽弱很烦"。
-- **audioCutoff ≥ 800 Hz**：低于此值会让 BGM/音效完全失真；setStressAmbienceCutoff 内部钳制到 `[800, 20000]`。
-- **CSS 过渡 800ms ease-out**：stress 突变时颜色/呼吸节奏平滑过渡，避免视觉跳跃。
-- **`prefers-reduced-motion`**：关闭呼吸动画（保留静态光环）。
-- **`:root.quality-low`**：低端设备完全关闭氛围光（与 game-board-flow-bg 同口径）。
-
-##### 接入路径
-
-| 文件 | 改动 |
-|------|------|
-| `web/src/stressAmbience.js`（新增） | 6 档配置 + `getStressAmbience` / `applyStressToDOM` / `attachStressShakeMultiplier` / `attachStressAudioFilter` / `pushStressAmbience` |
-| `web/src/game.js` | import + `_captureAdaptiveInsight` 末尾调用 `pushStressAmbience({stressNorm, rootEl, renderer, audioFx})` |
-| `web/src/main.js` | 启动期 `attachStressShakeMultiplier(game.renderer)` + `attachStressAudioFilter(audioFx)` 一次性绑定装饰器 |
-| `web/public/styles/main.css` | `#game-wrapper::before` 氛围光 + `@keyframes stress-ambience-breath` + 降级路径 |
-| `tests/stressAmbience.test.js`（新增） | 6 档单调性 / 阈值同步 / 安全护栏 / 幂等 / 策略隐性契约共 43 个用例 |
-
-##### 不做项（设计取舍）
-
-- **不在主 HUD 显示 stress 数字**：违反 v1.56.3 策略隐性原则，被用户已明确否决。
-- **不联动落子音音调**：每次落子都有音色变化会被玩家感知为"游戏不稳定"，反而扰乱体验。落子音保持稳定，只通过 BGM/消行音的低通滤波渗透 stress。
-- **不在 hard 模式特别加强 stress 氛围**：hard 模式的 cap 已通过 `LIFECYCLE_STRESS_CAP_MAP` 在算法层加权，氛围层只忠实呈现 finalStress，不二次放大。
-
-#### §5.α.12 stress → 出块算法的精算细化：4 项算法增强（v1.57.1）
-
-> **背景**：v1.57 §5.α.11 把 stress 的"玩家感知断层"修复在了感官层（氛围光 / 呼吸 / 震动 / 音频）。但用户进一步追问 "stress 反应到出块算法上，如何体现"——审计发现 stress 在算法层的 5 条传导路径中，**有 4 处存在台阶感、断档或锁死不彻底**。本节是对算法精算的精细收口。
-
-##### 系统性诊断：stress → 出块算法的 5 条传导路径与缺陷
-
-| 传导路径 | 现状 | 缺陷 |
-|---------|------|------|
-| **A. profile 插值** | `interpolateProfileWeights(profiles, stress)` 在 10 档 profile 间连续插值 shapeWeights | ✅ 已平滑（无缺陷） |
-| **B. spawnTargets 投影** | `deriveSpawnTargets(stress)` 投影到 6 轴目标 | ✅ 已平滑（无缺陷） |
-| **C. targetSolutionRange 软过滤** | `solutionDifficulty.ranges` 按 stress 选区间，标准档 (0.35) → 紧张档 (0.6) 之间没有过渡 | ❌ 0.35~0.60 的 0.25 跨度内 `max=null`，玩家在 stress=0.5 与 stress=0.4 感受不到难度差 |
-| **D. orderRigor 顺序刚性** | `stressTerm = max(0, stress - 0.55) * 1.6` 硬阈值 | ❌ stress=0.55 跨越点"突然变难"台阶感；D4 段顺序刚性弱（仅 0.08） |
-| **E. spawnIntent 离散意图** | 6 档枚举（relief/engage/harvest/pressure/flow/maintain），0.55 处一脚跨进 pressure | ❌ maintain → pressure 缺过渡，hints 套装翻盘 |
-
-##### 4 项算法增强（P0–P3）
-
-| 编号 | 改进 | 实现位置 | 配置 |
-|------|------|----------|------|
-| **P0** | orderRigor 改用 softplus ramp，消除 0.55 跨阈值台阶感 | `web/src/adaptiveSpawn.js` orderRigor 块 | `topologyDifficulty.orderRigorStressSmoothness=0.08` |
-| **P1** | `solutionDifficulty.ranges` 新增 '渐紧' 档（minStress=0.5, max=64），让 0.5~0.6 区间也有软上限 | `shared/game_rules.json` | `adaptiveSpawn.solutionDifficulty.ranges` 第 4 档 |
-| **P2** | D4 段（pbOvershootActive=true）+ stress ≥ 0.85 时给 orderRigor 注入额外 +0.25，把 maxValidPerms 真正压到 tight=2 | `web/src/adaptiveSpawn.js` orderRigor 块 | `pbChase.overshoot.orderBoostInD4HighStress=0.25` / `orderHighStressMin=0.85` |
-| **P3** | `spawnIntent` 新增 'sprint' 中间档（stress ∈ [0.45, 0.55)），平滑 maintain → pressure 过渡；sprint hints：sizePreference +0.10, multiClearBonus ≥ 0.40 | `web/src/adaptiveSpawn.js` spawnIntent 块 | `adaptiveSpawn.sprintIntent.enabled=true / minStress=0.45 / maxStress=0.55` |
-
-##### P0 softplus 数学性质
-
-旧公式 `stressTerm = max(0, stress - threshold) * orderScale`（threshold=0.55, orderScale=1.6）在 threshold 处一阶不连续；新公式 `stressTerm = softplus((stress - threshold) / smoothness) * smoothness * orderScale`（smoothness=0.08）在 threshold 处一阶可导。
-
-| stress | 旧公式 stressTerm | 新公式 stressTerm | 差异 |
-|--------|-----------------|-----------------|------|
-| 0.40 | 0 | 0.018 | 阈值以下也有轻微输出，去硬零 |
-| 0.55 | 0 | 0.089 | 阈值正点已有 0.089 而非 0 |
-| 0.70 | 0.240 | 0.258 | 接近 |
-| 0.85 | 0.480 | 0.484 | 几乎一致 |
-
-设计原则：threshold ± 2×smoothness 范围内平滑过渡，远离 threshold 时与旧公式渐近一致——既消除台阶感又不破坏高 stress 段的强约束。
-
-##### P2 D4 段强锁死的双重 boost 设计
-
-- **弱档**：`orderBoostInD4=0.08`——只要 pbOvershootActive 触发（D4 段任意 stress），都给 0.08 弱顺序约束（已存在 v1.56.4）。
-- **强档**：`orderBoostInD4HighStress=0.25`——pbOvershootActive=true **且** stress ≥ 0.85 时**叠加**额外 0.25 boost，让 orderRigor 总和 ≥ 0.55，触发 `maxValidPerms=Math.round(4 - 2 * orderRigor) ≤ 2` 的强约束。
-
-互补意义：D4 段 + 普通 stress（如玩家刚破 PB 不久）走弱档；D4 段 + 高 stress（玩家已大幅超过 PB 且盘面紧）走强档，**避免对刚破 PB 的玩家立即上"顺序刚性"，但对持续超 PB 的玩家逐步加码**。
-
-##### P3 spawnIntent 优先级
-
-```
-relief > engage > harvest > pressure > sprint > flow > maintain
-```
-
-- sprint 优先级 **低于 pressure**（challengeBoost > 0 时仍走 pressure 不被 sprint 吞掉）
-- sprint 优先级 **高于 flow / maintain**（避免 stress=0.5 落入"看起来比较轻松"的误导叙事）
-- sprint 触发条件：`stress ∈ [sprintMin, sprintMax)` 且无前置主导意图
-
-##### 落地清单
-
-| 文件 | 改动 |
-|------|------|
-| `shared/game_rules.json` | `topologyDifficulty.orderRigorStressSmoothness=0.08`（P0）；`solutionDifficulty.ranges` 加第 4 档（P1）；`pbChase.overshoot.orderBoostInD4HighStress=0.25 + orderHighStressMin=0.85`（P2）；`adaptiveSpawn.sprintIntent` 块（P3） |
-| `shared/intent_lexicon.json` | sprint 词条（label_zh/label_en/in_game_narrative_zh/in_game_narrative_en/out_of_game_push_zh/out_of_game_push_en/out_of_game_task_zh/out_of_game_task_en/tone/preferred_stages/preferred_bands） |
-| `web/src/adaptiveSpawn.js` | P0 softplus 公式；P2 pbOvershootOrderBoost 累加；P3 sprint 分支 + hints 应用层 |
-| `miniprogram/core/adaptiveSpawn.js` + `miniprogram/core/gameRulesData.js` | P0/P1/P3 同步（P2 跳过，因小程序无 pbOvershoot 系列依赖） |
-| `web/src/stressMeter.js` | `SPAWN_INTENT_NARRATIVE.sprint` 中性化文案；`SIGNAL_LABELS.pbOvershootOrderBoost` tooltip；`summarizeContributors` skip 集合加 `pbOvershootOrderBoost` |
-| `web/src/decisionFlowViz.js` | `SPAWN_INTENT_COLOR.sprint='#0ea5e9'` / `SPAWN_INTENT_DESC.sprint='渐紧过渡'` / `dfv.reason.sprint` 触发原因 |
-| `web/src/playerInsightPanel.js` | `SPAWN_INTENT_LABEL.sprint='渐紧'`；`SPAWN_TOOLTIP.spawnIntent` 更新加 sprint 说明 |
-| `web/src/i18n/locales/{zh-CN,en}.js` | `dfv.intent.sprint` / `dfv.reason.sprint` 新增 |
-| `tests/adaptiveSpawnV1571.test.js`（新增） | P0 平滑性 / P1 区间 / P2 锁死 / P3 sprint 跳转共 19 个用例 |
-
-##### 严格遵守的边界
-
-- **策略隐性原则不破**：sprint 文案"节奏渐紧，逐步收束"是中性陈述，不暴露"算法在过渡"这种术语；中文标签"渐紧"在 insightPanel（玩家主动打开）才可见，主 HUD 不暴露。
-- **P2 bypass 链与现有 orderRigor 一致**：onboarding/recovery/bottleneck/holes>3/boardFill<0.5/inOnboarding 全部直接跳过——避免新手或挫败期玩家被"顺序刚性"双重打击。
-- **P3 sprint 不与 challengeBoost 冲突**：challengeBoost > 0 时 spawnIntent 仍走 pressure（优先级链保证）；sprint 仅在 stress ∈ [0.45, 0.55) 且其他主导意图均未命中时填补过渡。
-- **P0 数学性质保证渐近一致**：高 stress（≥ 0.80）时 softplus 输出与旧公式偏差 < 0.5%，保证 D3/D4 段强约束效果不变。
-
-##### 与 §5.α.11 stress 感知化层的协同
-
-| stress 区间 | §5.α.11 感官反馈（玩家显性感知） | §5.α.12 算法精算（玩家潜意识感知） |
-|------------|------------------------------|--------------------------------|
-| [0.45, 0.55) 渐紧过渡 | 氛围光从 flow（绿）转 engaged（暖琥珀）；呼吸节奏从 3.0s 加快到 2.4s | spawnIntent='sprint'；hints 中等偏紧（sizePref +0.10, multiClearBonus ≥ 0.40）；targetSolutionRange max=64 |
-| [0.55, 0.85) 高压区 | 氛围光转 tense（橙红）；呼吸节奏 1.9s；震动 ×1.20；音频低通 5.5kHz | orderRigor 通过 softplus 平滑上升；spawnIntent 走 pressure；targetSolutionRange max=32 |
-| ≥ 0.85 极限区 + D4 | 氛围光 intense（深红）；呼吸节奏 1.5s；震动 ×1.30；音频低通 4.0kHz | orderRigor + pbOvershootOrderBoost=0.25 → maxValidPerms=2（顺序锁死）；targetSolutionRange max=12 |
-
-##### 验证
-
-```
-npx vitest run tests/adaptiveSpawnV1571.test.js
-# Test Files  1 passed (1)
-#      Tests  19 passed (19)
-```
-
-##### 多端同步策略（v1.57.1 关键产出）
-
-> 本节是 v1.57.1 真正落地的"全端一致性收口"——4 个 P 级改进在 web 主端落地后，需要把策略同步到其他三个端（mobile / miniprogram / rl_pytorch）。各端按"现实依赖关系"采取不同同步策略，避免破坏现有约束。
-
-| 端 | 集成方式 | v1.57.1 同步状态 | 改动文件 |
-|------|---------|----------------|---------|
-| **mobile**（iOS / Android） | Capacitor 包装，`capacitor.config.json` 的 `webDir: "../dist"` 指向 web 构建产物 | **零改动自动同步**——`npm run build` 时 web 端改动自动进入 dist | （无） |
-| **miniprogram**（微信小程序） | 简化平行实现，仅含 stress 主链与 spawnIntent 6 档，**无** pbChase/D4/pbOvershoot 链路 | P0/P1/P3 完整同步；P2 配置占位（D4 链路本身未移植，待后续专项 PR） | `miniprogram/core/adaptiveSpawn.js`（P0 softplus + P3 sprint）；`miniprogram/core/gameRulesData.js`（P0/P1/P3 配置 + pbChase 顶层占位） |
-| **rl_pytorch / spawn_model**（行为克隆模型） | 通过 SQLite `move_sequences.frames.ps.adaptive.spawnHints.spawnIntent` 提取标签 | **必须同步**——否则新数据中的 `'sprint'` 会被 dataset 静默映射成 `'maintain'`，破坏行为克隆对齐 | `rl_pytorch/spawn_model/dataset.py`（`BEHAVIOR_CONTEXT_DIM 56→57` + `_SPAWN_INTENTS` 加 sprint）；`model_v3.py`（`SPAWN_INTENT_VOCAB` 加 sprint）；`train_v3.py`（`intent_slice` 切片 `[48:54]→[48:55]`）；`test_v3.py`（断言 `(B, 6)→(B, 7)`） |
-| **rl_pytorch / policy 主线**（PPO/MCTS） | `STATE_FEATURE_DIM=181` 棋盘+dock+标量编码，**不消费** spawnIntent | **零改动**——sprint 引入不影响 policy 模型输入维 | （无） |
-| **rl_pytorch / game_rules.py** | 不主动读取 `adaptiveSpawn` / `topologyDifficulty` / `pbChase` / `sprintIntent` 节点 | **零改动**——RL env 与 web 自适应出块本就不在同一路径对齐 | （无） |
-
-##### rl_pytorch spawn_model 向后兼容性
-
-- **vocab 末尾追加 sprint**（而非中间插入）：idx 0~5 与旧版完全一致，旧 checkpoint 若加载后用于推理，仍能输出旧 6 种 intent；仅新增的 sprint（idx=6）永远输出为 0。
-- **`BEHAVIOR_CONTEXT_DIM` 56→57** 不可避免地让 `board_proj.in_features` 从 `64+56=120` 变为 `64+57=121`，旧 checkpoint 加载会 shape mismatch 失败 — **这是预期破坏**，需重训。dataset.py 文件头注释已明确标记升级路径。
-- **旧数据（无 sprint 标签）的样本**：`_intent_one_hot` 内 `_SPAWN_INTENTS.index('sprint')` 永远不会被命中（旧日志没这个值），样本的 sprint one-hot 维度恒为 0，对训练目标无干扰。
-
-##### 多端验证清单
-
-| 验证项 | 命令 | 结果 |
-|--------|------|------|
-| web 主端 1614 单测 | `npx vitest run` | ✅ 1614 passed |
-| miniprogram JSON 语法 | `node --check miniprogram/core/gameRulesData.js` | ✅ OK |
-| miniprogram 算法语法 | `node --check miniprogram/core/adaptiveSpawn.js` | ✅ OK |
-| rl_pytorch spawn_model | `pytest rl_pytorch/spawn_model/test_v3.py -v` | ✅ 5 passed |
-| rl_pytorch 全量 | `pytest rl_pytorch/ -x` | ✅ 76 passed |
-
-#### §5.α.13 stress → 出块算法的双轴：解空间宽度 × 空洞强迫度（v1.57.2）
-
-> **背景**：v1.57.1 §5.α.12 通过 P0–P3 把 stress 在算法层的传导从 5 条路径里的"硬阈值/无差异区"逐项打通后，仍存在一个语义缺口：
-> `targetSolutionRange` 只回答"有几种放法"，不回答"放法的脏度"——同样 32 解的两组三块，一组每个解都干净（minHoleIncrement=0），另一组每个解至少带 2 个孤立空洞，对玩家的难度感是完全不同的。但旧算法对它们一视同仁。
-
-##### v1.57.2 诊断与修复
-
-| 维度 | 旧版（v1.57.1） | 新版（v1.57.2） |
-|------|---------------|----------------|
-| 解空间宽度 | `targetSolutionRange.{min, max}` 约束解叶子数 | 同上 ✓ |
-| 空洞强迫度 | **无**——同等解数下，干净解和脏解被等价对待 | **`targetHoleIncrement.{min, max}`** 约束所有解中"最干净路径"的新空洞数 |
-| 玩家感受 | "解数多寡"（认知压力） | + "无论怎么放都得吞洞"（潜意识压力） |
-
-##### 算法实现：DFS 叶子 isolated-hole delta 追踪
-
-```
-function dfsCountSolutions(grid, orderedShapes, depth, accum, budget):
-    if depth >= 3:                              # 叶子
-        accum.count++
-        after = countIsolatedHoles(grid)        # O(n²×4)=256 ops
-        delta = max(0, after - accum.baseHoles) # 消行净降 → 0（不视为优势）
-        accum.minHoleIncrement = min(accum.minHoleIncrement, delta)
-        accum.holeSum += delta
-        return
-    ...
-```
-
-`evaluateTripletSolutions` 返回值新增 2 个字段：
-
-| 字段 | 物理含义 |
-|------|---------|
-| `minHoleIncrement` | 6 种排列所有解中"最干净放置路径"的新空洞数；候选这一组三块**最优情况下**会增加多少个 1×1 漏洞 |
-| `meanHoleIncrement` | 6 种排列所有解的新空洞数均值；候选**随便放**的预期脏度 |
-
-##### 为什么选"孤立空格"作为 hole 口径
-
-| 候选口径 | 性能 | OpenBlock 语义匹配度 | 选用 |
-|---------|------|--------------------|------|
-| Tetris stacking（被上方占用堵住的空格）| O(n²) 廉价 | ✗ OpenBlock 无重力，"被上方堵住"在物理上不是难题（任何形状仍可落到那里）| 否 |
-| `countUnfillableCells`（任何形状都无法覆盖的空格）| O(shapes × n² × shape_size) ≈ 16k ops | ✓ 严谨 | 否——DFS 内每叶子 16k×64 leaves = 1M ops/triplet，spawn attempt × 22 = 22M ops/spawn 太重 |
-| **孤立空格（四面非空围住）** | O(n²×4) ≈ 256 ops | ✓ 玩家心智里的"漏洞"——必须用 1×1 才能填 | **是** |
-
-##### 配置：`shared/game_rules.json` → `adaptiveSpawn.solutionDifficulty.holeIncrement.ranges`
-
-| stress 区间 | label | minIncrement | maxIncrement | 设计意图 |
-|------------|------|-------------|-------------|---------|
-| [-1.0, 0.35) | 干净 | null | **0** | 强制必有 0 新空洞解（最宽松，玩家放心放） |
-| [0.35, 0.5) | 宽容 | null | **1** | 允许至多 1 个新空洞解 |
-| [0.5, 0.6) | 渐紧 | null | **2** | 允许至多 2 个新空洞解（与 P1 '渐紧' 档对齐） |
-| [0.6, 0.8) | 紧张 | **1** | null | **至少 1 个新空洞**——玩家必须吞洞 |
-| [0.8, 1.0] | 极限 | **2** | null | **至少 2 个新空洞**——D4 段强迫接受脏盘 |
-
-设计要点：
-- **低 stress 用 `max` 约束、高 stress 用 `min` 约束**：两端语义不同方向。低 stress 是"上限保护"（避免太脏），高 stress 是"下限强迫"（避免太干净）
-- **0.35 / 0.5 / 0.6 / 0.8 与 P1 `ranges` 的档位对齐**：保证两个维度同源同步切档，避免玩家感受到"解空间紧了但空洞没变"的错位
-- **null 表示不限制**：维持单边约束，避免双边都设置后过滤太严导致 spawn 反复失败
-
-##### blockSpawn 软过滤：与 `targetSolutionRange` 并列
-
-```javascript
-if (earlyAttempt && targetHoleIncrement && !solutionMetrics.truncated) {
-    const minInc = solutionMetrics.minHoleIncrement;
-    if (Number.isFinite(minInc)) {
-        if (targetHoleIncrement.max != null && minInc > targetHoleIncrement.max) {
-            diagnostics.solutionRejects.holeTooMany++;  // 候选"必然带太多新空洞"
-            continue;
-        }
-        if (targetHoleIncrement.min != null && minInc < targetHoleIncrement.min) {
-            diagnostics.solutionRejects.holeTooClean++; // 候选"放哪都干净"，不够难
-            continue;
-        }
-    }
-}
-```
-
-- **`earlyAttempt` 窗口**：与 `targetSolutionRange` 同窗口（attempt < 60% × MAX_SPAWN_ATTEMPTS）。宽松阶段 fallback，保证 spawn 不死锁
-- **`truncated=true` 跳过**：DFS 不完整时 min 可能未达全集，按通过处理（与 v9 同口径）
-- **`minHoleIncrement === Infinity` 跳过**：无任何完整解，理论上 `tripletSequentiallySolvable` 已先剔除
-
-##### 与 P1（解空间宽度）的双轴矩阵
-
-| stress | targetSolutionRange | targetHoleIncrement | 玩家体感 |
-|--------|-------------------|---------------------|---------|
-| 0.0 | 解 ≥ 4（"舒适"）| 新空洞 ≤ 0（"干净"）| 多种放法 + 都干净 = 完全放心 |
-| 0.4 | 解 ≥ 2（"标准"）| 新空洞 ≤ 1（"宽容"）| 还有得选 + 可能吞 1 个洞 |
-| 0.55 | 解 ≤ 64（"渐紧"）| 新空洞 ≤ 2（"渐紧"）| 解数开始受限 + 接受 2 洞 |
-| 0.7 | 解 ≤ 32（"紧张"）| 新空洞 ≥ 1（"紧张"）| 解数明显少 + **必须**吞 1 洞 |
-| 0.9 | 解 ≤ 12（"极限"）| 新空洞 ≥ 2（"极限"）| 解数极少 + **必须**吞 2 洞 |
-
-两轴对玩家是**独立可感的两个难度信号**：宽度变化体感是"我没几种选了"（认知收窄），强迫度变化体感是"今天怎么放都得带漏洞"（结构焦虑）。同时收窄时玩家体感是"被卡死"，单独高 stress 时玩家仍有部分操作空间。
-
-##### 策略隐性原则的延续
-
-- **玩家从未看到 "minHoleIncrement"**：HUD / 标语 / 推送都不显示数字或档位
-- **playerInsightPanel 才暴露 pill**：仅开发者诊断视图（`空洞 标签[min, max]`），与 P1 解法区间 pill 并列
-- **叙事文案 `_explainSpawnHints`**：开发者视图里说"空洞上限「干净」：候选三块的最干净放置路径新增空洞 ≤0，保证总能找到清爽放法"；玩家从未看到
-- **整个 v1.57.2 的"产品观感"**：玩家只能从出块体感中**潜移默化**地察觉到"今天放哪都不脏"或"今天每组都得带洞"
-
-##### 多端同步策略（v1.57.2）
-
-| 端 | 集成方式 | v1.57.2 同步状态 | 改动文件 |
-|------|---------|----------------|---------|
-| **web 主端** | 原生实现 | 全部落地 | `web/src/bot/blockSpawn.js`（`countIsolatedHoles` + DFS hole delta + 软过滤）；`web/src/adaptiveSpawn.js`（`deriveTargetHoleIncrement` + spawnHints + 顶层暴露）；`web/src/playerInsightPanel.js`（tooltip + diagnostics pill + 叙事文案）；`shared/game_rules.json`（`holeIncrement.ranges`） |
-| **mobile**（iOS / Android） | Capacitor `webDir: "../dist"` | **零改动自动同步** | （无） |
-| **miniprogram**（微信小程序） | 简化平行实现 | **完整同步**（D4 链路本不在此端，但 hole 过滤是独立维度，可直接复用） | `miniprogram/core/bot/blockSpawn.js`（同 web）；`miniprogram/core/adaptiveSpawn.js`（`deriveTargetHoleIncrement`）；`miniprogram/core/gameRulesData.js`（`holeIncrement.ranges`） |
-| **rl_pytorch / spawn_model** | 不消费 `targetHoleIncrement` 标签（只消费 `spawnIntent`）| **零改动**——hole 维度不进入行为克隆样本 | （无） |
-| **rl_pytorch / policy 主线** | 不消费 `targetHoleIncrement` | **零改动** | （无） |
-| **rl_pytorch / game_rules.py** | 不读取 `holeIncrement` 子节 | **零改动** | （无） |
-
-##### 与 §5.α.11 / §5.α.12 的协同链路
-
-| 玩家体验感 | §5.α.11 感官（显性）| §5.α.12 算法（潜意识）| §5.α.13 算法（潜意识）|
-|----------|------------------|-------------------|-------------------|
-| 心流期（stress 0.2~0.45）| 氛围光绿、呼吸缓慢 | spawnIntent='maintain'；解空间宽 | **必有干净解（max=0）** |
-| 渐紧期（0.45~0.55）| 氛围光暖琥珀、呼吸 2.4s | spawnIntent='sprint'；max=64 | **允许 ≤2 新空洞（"渐紧"）** |
-| 高压期（0.55~0.85）| 氛围光橙红、震动 ×1.20 | spawnIntent='pressure'；max=32 | **强迫 ≥1 新空洞（"紧张"）** |
-| 极限期（≥0.85，D4）| 氛围光深红、音频 4kHz | orderRigor+0.25 → maxValidPerms=2 | **强迫 ≥2 新空洞（"极限"）** |
-
-三层协同让 stress 在玩家身上具象化为三种独立可感的维度：
-1. **§5.α.11**：环境氛围（视觉/听觉/触觉）
-2. **§5.α.12**：解法约束（解数 + 顺序刚性）
-3. **§5.α.13**：盘面脏度（无论怎么放都得吞洞）
-
-##### 验证
-
-```
-npx vitest run tests/holeIncrementFilter.test.js
-# Test Files  1 passed (1)
-#      Tests  15 passed (15)
-```
-
-15 个测试覆盖：
-- evaluateTripletSolutions 返回 `minHoleIncrement` / `meanHoleIncrement` 字段
-- 空盘面 / 必带空洞场景的 min 值正确性
-- `holeIncrement.ranges` 配置契约（5 档完整、minStress 单调、低 stress max / 高 stress min 二分）
-- adaptiveSpawn 派生 `targetHoleIncrement` 单调性 + activationFill 守卫
-- blockSpawn `solutionRejects.holeTooMany` / `holeTooClean` 计数器存在性 + diagnostics 透传
-- 与 `targetSolutionRange` 双轴共存
-
-#### §5.α.14 stress → 出块算法的 9 维难度投射（v1.57.3）
-
-> **背景**：v1.57.2 完成"解空间宽度 × 空洞强迫度"双轴后，体感差异在中段 stress（0.4~0.6）依然偏弱——双轴的过滤约束在该带不锐利。用户指令："完整实现 9 个改进项，使得不同 stress 下体感差异更为显著"。本节是把 stress 投射从 2 轴扩展到 **11 轴**（旧 2 轴 + 新 9 轴）的体系化收口。
-
-##### 9 维度全景
-
-每个维度都对应一个**独立可感的玩家心智轴**——不重叠、不互相替代：
-
-| # | 维度 (`spawnHints.target*`) | 玩家心智轴 | 体感（高 stress 时） | DFS 内代价 |
-|---|---|---|---|---|
-| ① | `targetMaxHoleIncrement` | **专注度税上界** | "随便放也能干净" → 候选被拒，必须专心放 | O(n²×4)/叶子 |
-| ② | `targetEndFillRatio` | **空间窒息感** | 放完后盘面更满 → 决策窗口收窄 | O(n²)/叶子 |
-| ③ | `targetNearFullDelta` | **消行节律** | 消耗近满线 → 防止 PB 通过近满膨胀 | O(n²×2)/叶子 |
-| ④ | `targetFirstMoveSurvivorRatio` | **试错代价** | 第一手必须想清楚 → 错放即崩 | DFS root 标记 |
-| ⑤ | `targetSolutionDiversity` | **解多样性陷阱** | 拒绝"看起来宽松但解都一样"的虚假宽松 | 零成本（perPermCounts 已有）|
-| ⑥ | `targetEndFlatness` | **凹凸审美焦虑** | 盘面更乱 → 审美压力 | O(n²)/叶子 |
-| ⑦ | `targetEndDangerColumns` | **爆顶预警** | 持续"眼看就要顶死"的紧迫感 | O(n²)/叶子 |
-| ⑧ | `targetVisualClutter` | **颜色边界审美** | 鼓励花花绿绿候选 → 视觉负担上升 | O(n²×2)/叶子 |
-| ⑨ | `targetHoleIncrementGap` | **专注度税差距 (max-min)** | "专心则过、走神则崩"成为常态 | 零成本（max-min 派生）|
-
-总 DFS 叶子代价：~6 个 O(n²) 调用 × 64 叶子 ≈ 25k ops/triplet，相比 leafCap 自身 DFS 入栈代价完全可忽略。
-
-##### 设计原则
-
-**1. 单边强约束、单边宽松。** 每个维度的 `ranges` 在不同 stress 段只约束**一侧**（min 或 max），避免双边过严导致 spawn 失败率飙升：
-
-- 低 stress 段：`max` 强约束（保护玩家，"不至于太脏/太满/太花"）；
-- 高 stress 段：`min` 强约束（强迫玩家面对压力源，"必须脏/满/花"）。
-
-**2. 维度独立、不重叠。** ①⑨ 都和"空洞"相关但语义独立：
-- `targetHoleIncrement.min` (v1.57.2)：**最优解**的脏度下限（"最干净放法也至少 N 个洞"）；
-- `targetMaxHoleIncrement.min` (v1.57.3 ①)：**最差解**的脏度下限（"最脏放法也至少 N 个洞"）；
-- `targetHoleIncrementGap.min` (v1.57.3 ⑨)：max-min 差距（"专心放 vs 闭眼放，差距至少 N"）。
-
-三者组合可以**精确刻画**："必带洞但专心能少带" vs "怎么放都得脏" vs "干净有路但陷阱密布"。
-
-**3. 廉价度量优先。** 选取的 9 个度量都是 O(n²) 量级，DFS 叶子调用累计仍可忽略。**不采用**：
-- `boardTopology.countUnfillableCells`：O(shapes×n²) 太重；
-- 真正的 lookahead spawning：O(shapes³) 不可行；
-- 颜色饱和度 / 视觉熵 / 心率预测等需要外部模型的指标：跨工程线、风险高。
-
-**4. 策略仍然隐性。** 9 个维度全部只在**诊断面板**（`playerInsightPanel`）展示数值；主 HUD 只有出块本身。玩家从看不到任何数字/标签，靠 9 个独立潜意识压力源累积成"今天怎么感觉哪里都不对"的整体压力感。
-
-##### 配置位置
-
-| 文件 | 配置块 | 状态 |
-|---|---|---|
-| `shared/game_rules.json` | `adaptiveSpawn.solutionDifficulty.{maxHoleIncrement, holeIncrementGap, endFillRatio, nearFullDelta, firstMoveSurvivor, solutionDiversity, endFlatness, endDangerColumns, visualClutter}` | 9 套子节，每套含 `enabled` + `ranges[]` |
-| `miniprogram/core/gameRulesData.js` | 同上 | 与 web 同源 |
-| `web/src/adaptiveSpawn.js` | 9 个 `deriveTarget*` 函数（通用化为 `_deriveRangeByStress`）| 共享 `solutionStress` 派生 |
-| `miniprogram/core/adaptiveSpawn.js` | 同上 | 同源 |
-| `web/src/bot/blockSpawn.js` | `evaluateTripletSolutions` 返回 9 字段 + `generateDockShapes` 9 软过滤分支 + `solutionRejects` 18 计数器 | 已落地 |
-| `miniprogram/core/bot/blockSpawn.js` | 同上 | 同源 |
-| `web/src/playerInsightPanel.js` | 9 个 `SPAWN_TOOLTIP` 条目 + 9 个 diagnostic pill + 叙事文案 | 已落地 |
-
-##### 体感差异样例（同一 PB 下不同 stress 走位）
-
-| stress | ① maxHole | ② fillRatio | ③ nearFull Δ | ④ survivor | ⑦ dangerCol | 玩家观感 |
-|---|---|---|---|---|---|---|
-| 0.2（D0 远 PB）| `[—,4]` 宽松 | `[—,0.45]` 通透 | `[0.5,—]` 送消 | `[0.6,—]` 放心 | `[—,2]` 安全 | "今天送清屏，多消很多" |
-| 0.5（D1 跟随）| 宽松 | `[—,0.60]` 适中 | 中性 | 中性 | 中性 | "节奏平稳，正常打" |
-| 0.7（D2 临近）| `[1,—]` 陷阱 | `[0.50,—]` 压迫 | `[—,0.5]` 保守 | `[—,0.7]` 代价 | 中性 | "感觉哪里都得想想" |
-| 0.85（D3 极临）| `[2,—]` 高陷阱 | `[0.65,—]` 窒息 | `[—,-0.5]` 消耗 | `[—,0.5]` 高代价 | `[1,—]` 预警 | "怎么放都不对，喘不上气" |
-| 0.95（D4 已破）| 高陷阱 | 窒息 | 消耗 | 高代价 | `[2,—]` 临界 | "PB 之后越来越逼"|
-
-注意 9 维并非同时活跃——`solutionDifficulty.activationFill = 0.45` 守卫决定整体启用阈值；各维度的 `ranges` 在不同 stress 段独立选档。
-
-##### 多端同步状态（v1.57.3）
-
-| 端 | 集成方式 | v1.57.3 同步状态 | 改动文件 |
-|---|---|---|---|
-| Web 主端 | 完整 9 维 | ✅ 已落地 | `blockSpawn.js` / `adaptiveSpawn.js` / `playerInsightPanel.js` |
-| Mobile (Capacitor) | 复用 web bundle | ✅ 自动同步 | — |
-| Miniprogram | 完整 9 维（与 web 同源代码逻辑）| ✅ 已落地 | `core/bot/blockSpawn.js` / `core/adaptiveSpawn.js` / `core/gameRulesData.js` |
-| RL PyTorch | `spawn_model` 不直接消费 spawnHints；ranges 进入 `game_rules.py` mirror 待 RL retrain | ⏸ 配置已暴露、模型层下次 retrain 自然吸收 | — |
-
-##### 四层协同（升级版）
-
-v1.57.3 之后，stress 在玩家身上具象化为 **4 个独立可感的维度**：
-1. **§5.α.11**：环境氛围（视觉/听觉/触觉）—— 显性感官
-2. **§5.α.12**：解法约束（解数 + 顺序刚性）—— 潜意识算法（v9/v1.32）
-3. **§5.α.13**：盘面脏度（无论怎么放都得吞洞）—— 潜意识算法（v1.57.2 双轴）
-4. **§5.α.14**：9 维难度投射（专注度税/空间窒息/消行节律/试错代价/解多样性/凹凸/爆顶/视觉乱/差距）—— 潜意识算法（v1.57.3 多轴）
-
-##### 验证
-
-```
-npx vitest run tests/spawnDimensionalStress.test.js
-# Test Files  1 passed (1)
-#      Tests  18 passed (18)
-```
-
-18 个测试覆盖：
-- A. evaluateTripletSolutions 返回 9 字段且合理（数值/类型/缺省路径）
-- B. game_rules.json 9 套子节契约 + miniprogram 同源
-- C. adaptiveSpawn 派生 9 个 `_target*` 顶层字段 + `activationFill` 守卫
-- D. blockSpawn `solutionRejects` 含 18 个新计数器（9 维 × min/max 2 侧）
-- E. blockSpawn `layer1` 透传 9 个 target 字段
-
-#### §5.α.15 spawnIntent 决策快照增量刷新（v1.57.4）
-
-> **背景**：v1.57.3 完成 9 维 stress→算法 投射后，用户截图反馈："DFV 说『盘面具备消行机会』、压力面板说『识别到密集消行机会』，但盘面只占 25%、近满数为 0——完全不符。" 经传导路径审计，根因不在 9 维投射本身，而在所有"基于 `_lastAdaptiveInsight` 的展示文案"共享一个被忽视的快照滞后问题。
-
-##### 同源 bug 全景
-
-| 渲染入口 | 数据源 | 滞后窗口 |
-|---|---|---|
-| DFV reason "盘面具备消行机会" | `insight.spawnHints?.spawnIntent` | 最多 3 次放置 |
-| stressMeter buildStoryLine "识别到密集消行机会..." | `insight.spawnHints?.spawnIntent` + `insight.spawnDiagnostics?.layer1.{nearFullLines, multiClearCandidates}` | 最多 3 次放置（intent + geometry 同步过期）|
-| DFV intent 中央六边形节点 | 同上 | 最多 3 次放置 |
-| stressMeter intent narrative（兜底 SPAWN_INTENT_NARRATIVE）| 同上 | 最多 3 次放置 |
-| playerInsightPanel "近满 N" pill | `liveTopology = analyzeBoardTopology(game.grid)` | ✅ 实时 |
-
-只有 `playerInsightPanel` 自带实时 topology，所有其它展示都读 `_lastAdaptiveInsight`——而 insight 是 `spawnBlocks()` 时的快照，`spawnBlocks` 只在 dock 三块全部消化后触发。玩家在 dock 周期内的放置 / 消行不会刷新它，因此 DFV 与 stressMeter 在最坏情况下会与肉眼盘面错位 3 次放置周期。
-
-##### 修复架构（用户决策：方案 C 深修）
-
-| 步骤 | 改动 | 文件 | 行数 |
-|---|---|---|---|
-| ① 抽 `deriveSpawnIntent` 纯函数 | 把 `resolveAdaptiveStrategy` 内的 in-line spawnIntent 判定块迁出；returns relief/engage/harvest/pressure/sprint/flow/maintain | `web/src/adaptiveSpawn.js` | +60 |
-| ② 抽 `snapshotInsightGeometry(grid, dockPool)` | 返回 `{ fill, holes, nearFullLines, multiClearCandidates, pcSetup }` 实时几何 5 字段 | `web/src/adaptiveSpawn.js` | +30 |
-| ③ 补 `_mergeLiveGeometrySignals.pcSetup` 漏算 | 次发缺陷修复——pcSetup 也要实时重算 | `web/src/adaptiveSpawn.js` | +10 |
-| ④ `resolveAdaptiveStrategy` 返回 `_intentInputs` | 决策侧不变量缓存（9 字段），供 game 层增量重判复用 | `web/src/adaptiveSpawn.js` | +20 |
-| ⑤ `_captureAdaptiveInsight` 落 `_intentInputs` | game 层缓存入口 | `web/src/game.js` | +5 |
-| ⑥ game.js 新增 `_refreshIntentSnapshot()` | 用 deriveSpawnIntent + snapshotInsightGeometry 增量重判 | `web/src/game.js` | +50 |
-| ⑦ 在 `_handlePlace` 与 `playClearEffect.animate` 末尾调用 ⑥ | 两个时机：玩家放置 + 消行动画结束 | `web/src/game.js` | +6 |
-| ⑧ miniprogram 同步 ①②③④ | `analyzePerfectClearSetup` 加 export；`module.exports` 加 deriveSpawnIntent + snapshotInsightGeometry | `miniprogram/core/adaptiveSpawn.js` + `miniprogram/core/bot/blockSpawn.js` | +110 |
-
-##### 刷新边界（关键设计约束）
-
-| 字段 | 是否刷新 | 原因 |
-|---|---|---|
-| `spawnIntent` / `spawnHints.spawnIntent` | ✅ 增量重判 | DFV / stressMeter 直接读的"对外口径"，必须与玩家盘面同步 |
-| `spawnDiagnostics.layer1.{fill, holes, nearFullLines, multiClearCandidates, pcSetup}` | ✅ 实时快照 | stressMeter buildStoryLine geometry 入参 + DFV 几何 chip 读取源 |
-| `spawnHints.{sizePreference, clearGuarantee, targetSolutionRange, targetHoleIncrement, target* 9 维}` | ❌ 不刷新 | 描述【已经出在 dock 里的三块】是按什么策略生成的——玩家放置不改变它，刷新等于撒谎"这批块是按新意图生成的" |
-| `stress` / `stressBreakdown` / `pacingPhase` / `delightMode` / `sessionArc` | ❌ 不刷新 | spawn 决策时刻的"心情"快照，需要在下一次 `spawnBlocks()` 时整体重算（避免心情维度的回灌 noise）|
-
-##### 决策侧不变量 vs 几何敏感量
-
-`deriveSpawnIntent` 的入参分为两类，按时序边界严格分离：
-
-- **决策侧不变量（来自 `_intentInputs`）**：`playerDistress / forceReliefIntent / afkEngageActive / challengeBoost / delightMode / rhythmPhase / stress / sprintCfg / pcSetupMinFill`——在 dock 周期内不变，由 spawn 时一次计算并缓存
-- **几何敏感量（来自 `snapshotInsightGeometry`）**：`geometry.{nearFullLines, pcSetup, boardFill}`——玩家每次放置后实时刷新
-
-这套分离让"决策意图"与"几何反映"解耦，增量重判只重算 harvestable 子条件，性能开销 ~5 µs/次（28 测试中已验证）。
-
-##### 策略隐性原则保持
-
-本修复**只**让玩家"以为一直对的东西"真的对得起盘面，**没有引入任何"系统在偷偷做什么"的暴露文案**。玩家继续靠出块体感 + HUD 颜色感知系统状态，DFV / stressMeter 文案恢复"我说什么，盘面就是什么"的诚实契约。
-
-##### 测试覆盖（`tests/spawnIntentSnapshot.test.js` 28 用例）
-
-- **A. deriveSpawnIntent 7 分支优先级**（18 用例）：relief→engage→harvest→pressure→sprint→flow→maintain 各分支独立断言 + sprint 区间端点 + 完整优先级链
-- **B. snapshotInsightGeometry 几何正确性**（5 用例）：空盘 / 近满×1 / 近满×2 / null 保护 / 与 `analyzePerfectClearSetup` 口径一致
-- **C. `_mergeLiveGeometrySignals` pcSetup 补漏**（1 用例）：spawn 时 ctx.pcSetup 必须来自实时 grid 重算
-- **D. 集成回归**（2 用例）：harvest 快照 + 玩家消行 → 重判应切换；maintain 快照 + 玩家堆出近满 → 重判应升级 harvest
-- **E. `_intentInputs` 契约**（2 用例）：`resolveAdaptiveStrategy` 返回 `_intentInputs` 含 deriveSpawnIntent 全部决策侧字段；用相同 geometry 重判结果与 `layered._spawnIntent` 一致
-
-##### 多端同步
-
-| 端 | deriveSpawnIntent | snapshotInsightGeometry | pcSetup 实时重算 | _refreshIntentSnapshot |
-|---|---|---|---|---|
-| Web | ✅ | ✅ | ✅ | ✅（`web/src/game.js`）|
-| 微信小程序 | ✅（mp 缺 v1.51 forceReliefIntent，保持改前同行为）| ✅ | ✅ | N/A（mp 暂无 DFV / stressMeter 展示层订阅 insight）|
-| Capacitor 移动端 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 |
-| RL PyTorch | 仅消费 `spawnIntent` 作为 one-hot 训练特征，不重新派生 | — | — | — |
-
-#### §5.α.16 决策快照展示层一致性治理：6 项 UI 同源 bug 修复（v1.57.5）
-
-> **背景**：v1.57.4 已经把决策层做到玩家每次放置后增量刷新，但截图复盘发现展示侧还有 6 项一致性缺陷分布在 DFV / stressMeter / chip 三处。这些 bug 的根因都是"渲染管线某个环节漏了实时几何 / 文案没考虑真实条件 / 视觉降级缺失"，不是算法错——属于展示层补完。
-
-##### 6 项 bug 全景
-
-| # | 严重度 | 现象 | 截图证据 | 影响半径 |
-|---|--------|------|----------|----------|
-| A | P0 | DFV 左侧"占盘 0.40" vs 底部 sparkline"占盘 0.69" 同帧两值 | 用户上传截图清楚显示同一面板两个不同数 | DFV 信号节点的可信度坍塌 |
-| F | P0 | DFV 左侧"消行率 —" vs 底部"消行率 0.31" 同帧两值 | 同上 | 同上 |
-| B | P0 | spawnIntent=relief 时一律返回"盘面通透又是兑现窗口..."，但盘面 fill=0.69 不通透 | 同上 | stressMeter 主叙事撒谎 |
-| D | P1 | spawnIntent=relief 时"AFK 介入" chip 仍高亮 | 同上 | 玩家混淆"系统在 AFK 介入 vs relief 救济" |
-| E | P1 | DFV 调香提示同时高亮 6+ 项 chip 无层级 | "策展紧 / 节奏档位 / 兑现 / 会话强结 / 慢节奏感 / 心流·兑现" 6 chip 同时亮 | 玩家把多维投射误解为 N 个并列决定打架 |
-| G | P2 | stress=0.15 (😊 笑脸) + boardFill=0.69 (密集盘面) | 同上 | 情绪 emoji 与盘面视觉反差 |
-
-##### 修复架构
-
-| # | 改动 | 文件 | 关键行 |
-|---|------|------|--------|
-| A/F | `_dfvFingerprint(insight, profile, { boardFill, clearRate })` 第三个入参把实时几何按 0.01 量化纳入指纹；`_refreshIntentSnapshot` 同步刷新 `insight.boardFill` 顶层字段 | `web/src/decisionFlowViz.js` + `web/src/game.js` | +30 |
-| B | `RELIEF_NARRATIVE_BY_REASON` 七档分级 + `classifyReliefReason(breakdown, fill)` 主导原因分类 + friendly 档 fill < 0.5 守卫 | `web/src/stressMeter.js` | +80 |
-| D | DFV chips 计算 `overriddenAfkEngage` + `.dfv-flag--overridden` CSS（半透明 + 删除线 + tooltip） | `web/src/decisionFlowViz.js` | +30 |
-| E | hints 列表顶部插入"主导意图锚"高亮行 + `.dfv-li-anchor` CSS（intent 色板） | `web/src/decisionFlowViz.js` | +35 |
-| G | `getStressDisplay` 新增 crowded 变体（`stress < 0.333 + boardFill ≥ 0.65` → 😅 + "盘面吃紧"）；`renderStressMeter` 把 `boardFill` 喂入 distress 入参 | `web/src/stressMeter.js` | +30 |
-
-##### 关键设计原则
-
-1. **同源治理优先于打补丁**（A/F）：DFV 节点 / sparkline / playerInsightPanel 三处展示同一指标必须从同一个 `liveBoardFill` 源头出发，去抖指纹也要把实时几何维度纳入——而不是给某一处加单点 hack
-2. **文案与几何对齐**（B）：任何含"盘面 X"几何描述的叙事都必须有 fill 守卫；数学正确但情绪信号撒谎是更隐蔽、更伤害信任的 bug
-3. **视觉降级 vs 物理隐藏**（D）：被覆盖的 chip 不应直接隐藏——玩家会丢失"系统检测到了什么信号"的诊断信息；半透明 + 删除线表达"激活但未生效"是更诚实的做法
-4. **锚点 vs 平铺**（E）：多维度 chip 列表必须有主导维度锚，避免玩家把投射当成并列决定；颜色随 intent 变化让锚点与决策同源
-5. **情绪反馈反差守卫**（G）：低 stress + 高 fill 是"系统在减压但盘面其实紧"的**真实矛盾**——emoji 必须承认这个反差（😅）而不是单纯按 stress 笑脸（😊）
-
-##### 策略隐性原则保持
-
-本次全部是"让玩家看到的东西真正对得起盘面"的展示层治理，没有引入任何"系统在偷偷做什么"的暴露文案。情绪反馈反差守卫（G）甚至承认"系统在减压但盘面其实紧"的真实矛盾——而不是单纯按 stress 笑脸。
-
-##### 测试覆盖（`tests/insightConsistency_v1575.test.js` 32 用例 + 2 条 v1.23/v1.24 旧测试更新）
-
-- **§A/F**（4 用例）：DFV 指纹对 `liveBoardFill` / `liveClearRate` 敏感，0.01 级抖动量化稳定，向后兼容（缺省 live 参数不破坏旧调用方）
-- **§B**（15 用例）：`classifyReliefReason` 七档分类全覆盖 + friendly 守卫 fill≥0.5 降级 + endSessionDistress 优先级 + 空 breakdown 兜底；`buildStoryLine` 在 intent=relief 路径走分级文案；`SPAWN_INTENT_NARRATIVE.relief` 默认文案已收窄为中性减压语义
-- **§G**（9 用例）：紧盘面 crowded 变体；优先级（挣扎中 > crowded > 救济中）；calm/easy 两档都覆盖；未传 boardFill 向后兼容
-- **§D**（4 用例）：AFK chip overridden 判定纯逻辑契约
-
-`tests/stressMeter.test.js` 两条 v1.23 / v1.24 旧测试更新到 v1.57.5 reason 分级新行为：原来期望 "盘面通透又是兑现窗口..." 的固定文案，现在按 reason 分级返回 frustration / default 等对应文案。139 条相关测试全过。
-
-##### 多端同步
-
-| 端 | DFV 指纹 / chip 渲染 | RELIEF 分级文案 | 紧盘面 emoji 守卫 |
-|---|---|---|---|
-| Web | ✅ | ✅ | ✅ |
-| 微信小程序 | N/A（无 DFV）| N/A（无 stressMeter）| N/A（无 stressMeter）|
-| Capacitor 移动端 | 复用 web 构建 | 复用 web 构建 | 复用 web 构建 |
-| RL PyTorch | N/A（仅消费 `spawnIntent`）| N/A | N/A |
-
-#### §5.α.8 三原则下的算法完整闭环：D4 持续加压 + D0 分级减压 + PB 增长率反向加压（v1.56.4）
-
-> **背景**：v1.56.3 §5.α.7 确立"策略隐性"原则后，对**算法层是否真正贯彻三大原则**做了系统性诊断，发现 3 处关键缺口与原则严重不符。本节是对算法层的完整收口。
-
-##### 系统性诊断：v1.56.3 算法在三大原则下的缺口
-
-| 缺口 | 位置 | 与哪条原则冲突 |
-|------|------|----------------|
-| **D4 段无持续加压** | `challengeBoost` 公式 `Math.min(0.15, (pct-0.8)·0.75)` 在 pct ≥ 1.0 时直接饱和到 0.15，pct=1.5 与 pct=1.0 加压量完全相同 | **"超 PB 高强度加压防分数膨胀，避免透支生命周期"完全做不到** |
-| **D4 段 spawnHints 无收紧** | farFromPBBoost / pbExtremeOrderBoost 之外没有针对 `score > best` 的形态调整 | 玩家破 PB 后出块体感与 D1 段无差异 |
-| **pbExtremeOrderBoost D4 不触发** | `score < ctx.bestScore` 硬条件 | 破 PB 后顺序约束立即消失，与"持续防膨胀"矛盾 |
-| **farFromPBBoost 不分极远档** | pct < 0.30 一档处理，pct=0.05 与 pct=0.29 同强度 | 真正"畏难期"未得到差异化送爽 |
-| **pbGrowthFast 只 bypass 不加压** | 当前仅触发 `farFromPBBoostBypass='pb_growth_throttled'` | 从"被动节流"应升级为"主动制动" |
-
-##### 三层完整闭环
-
-###### 1) D4 段：`pbOvershootBoost` 对数加压（stress 维度）
-
-```
-pbOvershootBoost = maxBoost · log10(1 + slope·overshoot) / log10(1 + slope)
-其中 overshoot = score/best - 1.0
-```
-
-| pct = score / best | overshoot | pbOvershootBoost（默认 maxBoost=0.16, slope=5.0） |
-|---|---|---|
-| 1.00 | 0.00 | 0.000（临界，不触发） |
-| 1.10 | 0.10 | ~0.040 |
-| 1.25 | 0.25 | ~0.082 |
-| 1.50 | 0.50 | ~0.117 |
-| 2.00 | 1.00 | ~0.160（接近 cap） |
-
-- **对数曲线** 保证"超得越多越难，但边际递减"，避免线性失控；
-- 与 `challengeBoost` 共享 cap，stress 调到 `capStress=0.90`（高于普通 0.85）；
-- 同源 bypass：低 PB 守卫 / postPbRelease / recovery / bottleneck / warmup / onboarding。
-
-###### 2) D4 段：`pbExtremeOrderBoost` 延续 + `spawnHints` 收紧（形态维度）
-
-| 维度 | D3（pct ∈ [0.95, 1)）| D4（pct > 1.0） |
-|------|--------------------|------------------|
-| stress | challengeBoost cap=0.15 + pbExtremeOrderBoost=0.20 | challengeBoost（饱和 0.15）+ **pbOvershootBoost 0~0.16** + **pbExtremeOrderBoost 0.08（D4 弱版）** |
-| multiClearBonus | 不约束 | **上限 0.18**（抑制多消继续刷分） |
-| sizePreference | 不调整 | **+0.12**（更密集大块） |
-| clearGuarantee | 不调整 | **-1**（减少白送一块易消行） |
-| 多消形状权重 | x1.0 | **x0.78**（blockSpawn 层） |
-| 大块形状权重（cellCount ≥ 4） | x1.0 | **x1.20**（blockSpawn 层） |
-
-效果：玩家在 D4 段的体感是「多消变难、出现更多 4 格+ 大块、需要更精细的安排」，连续可感地传达"超 PB 后越来越紧"。
-
-###### 3) D0 段：`farRamp` 分级减压
-
-| 子档 | 触发条件 | multiClearBonus floor | iconBonusTarget floor | sizePreference shift | 形状层权重 |
-|------|---------|------------------------|------------------------|---------------------|-------------|
-| 极远档（D0-α） | pct < 0.15 | **0.55**（v1.56 原 0.45） | **0.40**（原 0.30） | **-0.18**（原 -0.12） | 多消大块 x1.15 x1.13 ≈ x1.30 |
-| 边缘档（D0-β） | 0.15 ≤ pct < 0.30 | 0.45 | 0.30 | -0.12 | 多消大块 x1.15 |
-
-> **设计意图**：用户原则"离 PB 较远时减压，让玩家有信心进入挑战 PB 模式"。pct=0.05（极远，畏难最强）与 pct=0.29（边缘，即将进 D1）的玩家心态完全不同——极远段需要更强"敢挑战"的兑现信号，边缘段则不应继续大幅送爽（避免 PB 加速膨胀）。
-
-###### 4) `pbGrowthFast` 反向加压：从被动节流到主动制动
-
-| 状态 | v1.56 旧行为 | v1.56.4 新行为 |
-|------|---------------|-----------------|
-| `pbGrowthFast=false` | farFromPBBoost 正常激活 / challengeBoost cap=0.15 | 同左 |
-| `pbGrowthFast=true` | farFromPBBoost bypass='pb_growth_throttled'（停送爽，不加压） | farFromPBBoost bypass 不变 **+ challengeBoost cap 临时上调到 0.20** |
-
-> 触发条件：`pbGrowthTracker` 检测到 7 天内 PB 连续 ≥ 10% 增长。此时玩家正在"快速变强"，单纯停送爽不足以遏制膨胀，需要在 D2/D3 段提前进入更强加压区，让 PB 增长曲线平缓。
-
-##### 三大原则 → 算法机制映射
-
-| 原则 | 算法机制 | 体感传递通道 |
-|------|---------|---------------|
-| **远 PB 减压（让玩家敢挑战）** | farFromPBBoost（D0-β）+ farRamp.extreme（D0-α）+ 远征特效 ×1.3 | "我得分变顺了，奖励兑现更亮" |
-| **近 PB 加压（挑战 PB 决战感）** | challengeBoost（D2/D3）+ pbExtremeOrderBoost（D3 强）+ 单线特效弱化 + best-gap--close/--chase 红橙提示 | "突然变难，每一步都更紧" |
-| **超 PB 加压（防分数膨胀）** | **pbOvershootBoost（D4 对数）+ pbExtremeOrderBoost（D4 弱）+ D4 spawnHints 收紧 + 多消权重抑制/大块鼓励** | "超 PB 后越来越紧，多消变难、大块变多" |
-| **PB 增长率反向加压** | **pbGrowthThrottle**（challengeBoost cap 0.15→0.20） | "刚连续刷过 PB，再追时手感更紧" |
-
-##### 实现挂点
-
-| 文件 | 改动 |
-|------|------|
-| `shared/game_rules.json` | `adaptiveSpawn.pbChase.overshoot / farRamp / pbGrowthThrottle` 三组配置 + 完整 comment |
-| `web/src/adaptiveSpawn.js` | 4 处插入：challengeBoost cap 动态化 / pbOvershootBoost 对数加压 / pbExtremeOrderBoost D4 延续 / farRamp 极远档 / D4 spawnHints 收紧 / 新 flag 暴露 |
-| `web/src/bot/blockSpawn.js` | 消费 `farExtremeBoostActive` / `pbOvershootActive`：多消权重 × 1.13 / × 0.78 + 大块权重 × 1.20 |
-| `web/src/stressMeter.js` | SIGNAL_LABELS 新增 `farExtremeBoostActive` / `pbOvershootBoost` / `pbOvershootActive` / `challengeBoostGrowthCapBonus` 4 个中性标签 |
-| `tests/bestScoreChaseStrategy.test.js` | +13 个用例（8 个 D4 对数曲线 + spawnHints / 2 个 D0 极远档 / 2 个 pbGrowthFast 加压 + 1 个 pbExtremeOrder D4） |
-
-##### 单测覆盖矩阵
-
-| 测试组 | 用例数 |
-|--------|--------|
-| D4 pbOvershootBoost：pct=1.0/1.25/1.5/2.0 临界与曲线 | 4 |
-| D4 单调性（pct=1.1<1.3<1.7） | 1 |
-| D4 与低 PB 守卫 / postPbRelease bypass | 2 |
-| D4 spawnHints 收紧 + pbExtremeOrderBoost 延续 | 2 |
-| D0 极远档 / 边缘档分级 | 2 |
-| pbGrowthFast 反向加压（false / true） | 2 |
-
-#### §5.α.7 策略隐性原则：远 PB 减压 / 近 PB 加压 / 超 PB 加压在算法层暗中执行（v1.56.3）
-
-> **核心原则**：「远 PB 减压让玩家敢挑战 / 近 PB 加压制造决战感 / 超 PB 高强度加压防止分数膨胀」是**游戏背后的策略**，应通过**算法层、出块体感、HUD 视觉变化**让玩家感知，**不应在 UI 文字层直白告诉玩家"系统在为你做什么"**。
-
-##### 反例（v1.56.0 ~ v1.56.2 早期实现违反此原则的位置）
-
-| 位置 | 暴露策略意图的文案 | 问题 |
-|------|---------------------|------|
-| `best.gap.chase` | "冲刺区！还差 {{gap}} 分" | "冲刺区" 暗示系统进入了某种模式 |
-| `best.gap.victory` | "即将刷新最佳！冲刺！" | 命令式煽情，与"系统在悄悄加难"的实际行为冲突 |
-| `best.gap.close` | "接近了！💪" | 教练式鸡血，与事实陈述风格不一致 |
-| `best.over.legend` | "🏆 超越 +{{overPct}}% · 封神时刻" | 系统在偷偷加难，玩家被狂吹，文/行为割裂 |
-| `best.over.toNext25` | "突破 +10%！再追 {{next}}" | 与上同理 |
-| `endGame.nearMiss.D3` | "差 {{gap}} 分 · 这把差点就刷了" | 系统的全知评价，破坏玩家自主感 |
-| `endGame.nearMiss.D2` | "差 {{gap}} 分 · 状态不错，再来一把" | 教练式评价 |
-| `stressMeter.PB_DISTANCE_NARRATIVE.farBoostActive` | "远征段送爽中：候选块更易消、更易触发同色奖励。" | **极其直白**——直接告诉玩家"系统在送爽" |
-| `stressMeter.PB_DISTANCE_NARRATIVE.pbExtremeChase` | "冲刺区！系统已切到顺序约束模式 — 摆放先后比"哪块好放"更重要。" | **极其直白**——工程描述泄露给玩家 |
-| `SIGNAL_LABELS.pbExtremeOrderBoost.label` | "D3 决战刚性" | 调试面板可能被玩家看到，暴露内部段位 |
-| `SIGNAL_LABELS.farFromPBBoostActive.label` | "远征送爽" | 同上 |
-| `pbStreak.badge` | "🏆 {{n}} 连破" | "🏆" 与 effect.newRecord 重复打鸡血 |
-
-##### 三层重构
-
-**1. 文字层（i18n）**——所有 best-gap / best.over / endGame.nearMiss 文案统一为「事实陈述」：
-
-| Key | v1.56.3 zh-CN | v1.56.3 en |
-|-----|----------------|------------|
-| `best.gap` / `best.gap.neutral` | "差 {{gap}} 分" | "{{gap}} pts short" |
-| `best.gap.far`（D0 远段锚点） | "历史最佳 {{best}}" | "Best {{best}}" |
-| `best.over.neutral` | "已超 {{over}} 分" | "+{{over}} pts" |
-| `endGame.nearMiss`（合并 D2/D3） | "差 {{gap}} 分" | "{{gap}} pts short" |
-| `pbStreak.badge` | "连破 {{n}} 次" | "{{n}}× PB" |
-
-五档（D0~D4）的差异化只通过 **CSS 样式** + **算法机制**体现，文字保持中性。
-
-旧 key（victory / close / chase / follow / toNext10 / toNext25 / legend / nearMiss.D3 / nearMiss.D2）全部 `@deprecated`，内容降级为同样的事实陈述，但保留 key 以兼容 i18n 平台灰度回滚。
-
-**2. 视觉层（CSS / extraClass）**——情绪密度差异只通过样式传达：
-
-| 段 | extraClass | 视觉表达 |
-|----|------------|----------|
-| D3（pct ≥ 0.95） | `best-gap--close` | 红色高亮 → 紧张感 |
-| D2（0.80 ≤ pct < 0.95） | `best-gap--chase` | 橙色 → 冲刺感 |
-| D1（0.50 ≤ pct < 0.80） | （无） | 默认色 → 中性跟随 |
-| D0（pct < 0.50） | （无） | 默认色 → 远征锚点 |
-| D4（gap ≤ 0） | `best-gap--over` | 金色 → 突破感 |
-| D2/D3 终局 banner | `near-miss-banner` / `near-miss-banner--D3` | banner 样式区分紧张度 |
-
-**3. 算法层（出块 / 特效）**——策略静默执行，玩家通过体感感知：
-
-| 段 | 算法机制 | 玩家体感 |
-|----|---------|---------|
-| D0 远段 | `farFromPBBoost`（multiClearBonus / iconBonusTarget / clearGuarantee 上调）+ blockSpawn 多消权重 ×1.15 | "我得分更顺了" |
-| D2/D3 临近段 | `challengeBoost` 数值加压（v1.55 §4.2，cap 0.15） | "突然变难一点" |
-| D3 决战段 | `pbExtremeOrderBoost`（orderRigor +0.20，顺序约束加强） | "感觉每一步都更紧" |
-| D0 远段特效 | `playClearEffect` 振幅 ×1.3（多消 / perfect / bonusLines） | "庆祝感更强" |
-| D3 决战特效 | 单线消行弱化（仅底色动画 + 微弱 shake） | "单线没那么爽了" |
-| D4 超 PB | challengeBoost 继续加压 + 出块更紧 | "超出后越来越难继续刷" |
-
-##### 同步动作
-
-| 文件 | 改动 |
-|------|------|
-| `web/src/i18n/locales/{zh-CN,en}.js` | 13 个 key 降级为事实陈述（保留 key 兼容回滚） + 新增 `endGame.nearMiss` 合并 D2/D3 |
-| `web/src/stressMeter.js` | 移除 `buildStoryLine §4.3` 抢占块；`PB_DISTANCE_NARRATIVE` 内容中性化；`SIGNAL_LABELS.pbExtremeOrderBoost.label="PB 临近调整"` / `farFromPBBoostActive.label="PB 远段倾斜"` |
-| `web/src/game.js updateUI` | 五档分支合并文案到 `best.gap.neutral` / `best.gap.far` / `best.over.neutral`，extraClass 逻辑保留 |
-| `web/src/game.js endGame` | D2/D3 banner 文案合并到 `endGame.nearMiss`，banner 样式继续区分 |
-| `tests/bestScoreChaseStrategy.test.js` | 新增 §5.α.7 反向断言（13 个用例）：所有文案不含"冲刺/封神/送爽/系统已切/模式/教练评价"等暴露词 |
-
-**算法行为零变化**——`farFromPBBoost` / `pbExtremeOrderBoost` / `challengeBoost` / `playClearEffect` 振幅调制 / nearMiss banner 触发条件全部保留，仅文字和叙事层"去策略暴露"。
-
-##### 单测覆盖
-
-`tests/bestScoreChaseStrategy.test.js` v1.56.3 §5.α.7 段：
-
-| 测试组 | 用例数 |
-|--------|--------|
-| i18n 文案 key 存在性（包含 @deprecated 历史索引） | 12 |
-| zh-CN / en 反向断言：不含"冲刺区/封神/送爽/Sprint zone/Legend mode/..."等 13 个暴露词 | 14 |
-| `endGame.nearMiss` 事实陈述格式断言（含 {{gap}} 占位符、无煽情符号） | 2 |
-| `stressMeter` PB 距离段不再抢占叙事 + `PB_DISTANCE_NARRATIVE` 内容中性化 + `SIGNAL_LABELS` 标签中性化 | 5 |
-
-#### §5.α.6 认知一致性守卫：低 PB 时所有激烈文案降级（v1.56.2）
-
-> **核心原则**：激励的激烈程度必须与"实际达成的不平凡程度"成正比。`bestScore=80` 时显示"差 5 分就到最佳！冲刺！"或破 PB 后写"🏆 封神时刻"会与玩家实际水平形成**喜剧反差**——5 分对低水位玩家不算"差点"，"封神"对 100 分的成绩也是夸张。
-
-**统一阈值（运营可调）**：
-
-```json
-"adaptiveSpawn": {
-  "pbChase": {
-    "minBestScoreForIntenseFeedback": 200
-  }
-}
-```
-
-200 分对应：玩家完成 ~3-4 次多消组合 + 几次单线消行 = 已掌握基本玩法。低于此阈值时，**算法 + UI + 特效**三层同时降级或 bypass。
-
-**作用范围（4 个 UI 触点 + 2 个算法机制 + 1 个特效层）**：
-
-| 触发面 | 低 PB 行为 | 高 PB 行为（默认） |
-|--------|-----------|---------------------|
-| `best-gap` HUD（D0~D4） | 统一走 `best.gap.neutral` "差 N 分" / `best.over.neutral` "已超 N 分" | 5 档分层（victory / close / chase / follow / far）+ over 三档（toNext10 / toNext25 / legend） |
-| `endGame` nearMiss banner | 不展示 | `pct ≥ 0.85` 时展示 D2/D3 banner |
-| `pb-streak-badge` 连续突破徽章 | 不展示 | 7 天内 ≥ 2 次入栈 PB 时展示 "🏆 N 连破" |
-| `playClearEffect` 远征 ×1.3 振幅放大 | 关闭（保持原始振幅） | D0 段（pct &lt; 0.5）多消 / perfect / bonusLines 振幅 ×1.3 |
-| `adaptiveSpawn farFromPBBoost` | `bypass='low_best_score'` | 5 路 bypass 检查正常 |
-| `adaptiveSpawn pbExtremeOrderBoost` | 不触发（直接跳过 orderRigor 注入） | `pct ∈ [0.95, 1)` 时注入 +0.20 |
-
-**不受影响的部分**（设计取舍）：
-
-- ✅ **PB 烟花本身不降级**：新手第一次破 PB 的仪式感（`_maybeCelebrateNewBest` 的 `triggerBonusMatchFlash / triggerPerfectFlash`）与 best 数值无关——这正是低水位玩家继续玩下去的核心激励，绝不能阉割。
-- ✅ **`challengeBoost`（v1.55 §4.2）不变**：该机制本身已经 cap 在 0.15 内，且 `score / bestScore ≥ 0.8` 触发，低 best 时的"过度加压"风险已经被原有 5 路 bypass 覆盖。
-- ✅ **`postPbReleaseStressAdjust`（v1.55 §4.9）不变**：破 PB 后 3 个 spawn 内 stress×0.7 是奖励性减压，对新手同样有意义。
-
-**单测覆盖**：`tests/bestScoreChaseStrategy.test.js` v1.56.2 §5.α.6 段（共 12 个用例）：
-
-| 测试 | 用例数 |
-|------|--------|
-| 算法 bypass：`farFromPBBoost(best=80)` / `pbExtremeOrderBoost(best=150)` / 阈值边界 200 / 199 / challengeBoost 不被影响 | 5 |
-| `Game._isLowBestForIntenseCopy` 判定：best=0 / 199 / 200 / 5000 / NaN | 5 |
-| i18n 中性文案存在性 + 反向断言（不含 "封神 / Legend"） | 2 |
-
----
 
 ## 6. 验证清单（用于评审 / QA）
 
-> 任何涉及 PB 主线的改动 PR，须自检以下清单。括号内是 v1.55 落地后的状态。
+> 任何涉及 PB 主线的改动 PR，须自检以下清单。
 
 - [x] `getSpawnStressFromScore(score=0, { bestScore })` 输出为 0（不论 bestScore 多少）。
 - [x] `bestScore = 0` 时 `scoreStress` 走旧绝对档位，行为与首次开局玩家一致。
 - [x] `pct < 0.5` 时 stress 必然被 `×0.4` 衰减（远征陪伴）。
 - [x] `pct > 1.02` 时 stress 不再继续上升（突破段不加压）。
 - [x] `_bestScoreAtRunStart` 在本局开始时被快照，本局新刷的 PB 不会让 challengeBoost / new-best 触发陷入循环。
-- [x] `_newBestCelebrated` + `_newBestCelebrationCount` 单局上限 **1 次**（v1.55.11 由 3 收敛回 1；2+ 次起静默更新——见 §5.y）。
-- [x] `S·M` 调制表 25 格全覆盖（§4.1 已落地：`tests/bestScoreChaseStrategy.test.js`）。
-- [x] 救济期 / 瓶颈 / 挫败 / warmup / postPbRelease 时 challengeBoost = 0；具体 bypass 原因见 `stressBreakdown.challengeBoostBypass`（§4.2 已落地）。
-- [x] `best.gap.far` 文案在 D0 段（ratio > 0.50）被触发，且按 placements % 3 轮换 3 条 alt 文案（§4.3 已落地）。
-- [x] Hard 模式 `bestScore` 不再被 Easy 模式覆盖（§4.4 已落地：客户端层 `bestScoreBuckets.js` bucket cache）。
+- [x] `_newBestCelebrated` + `_newBestCelebrationCount` 单局上限 **1 次**（2+ 次起静默更新）。
+- [x] `S·M` 调制表 25 格全覆盖。
+- [x] 救济期 / 瓶颈 / 挫败 / warmup / postPbRelease 时 challengeBoost = 0；具体 bypass 原因见 `stressBreakdown.challengeBoostBypass`。
+- [x] `best.gap.far` 文案在 D0 段（ratio > 0.50）被触发，且按 placements % 3 轮换 3 条 alt 文案。
+- [x] Hard 模式 `bestScore` 不再被 Easy 模式覆盖（客户端层 `bestScoreBuckets.js` bucket cache）。
 - [x] DFV 面板能完整显示当前 stress 的 `lifecycleCapAdjust / lifecycleBandAdjust / challengeBoost / postPbReleaseStressAdjust / challengeBoostBypass` 五段贡献。
-- [x] 破 PB 后 3 spawn 内 stress×0.7 + clearGuarantee+1（§4.9 已落地）。
-- [x] 破 PB 自动 emit `lifecycle:new_personal_best`；D3 段（pct ≥ 0.95）首次自动 emit `lifecycle:near_personal_best`（§4.12 已落地）。
-- [x] 单局得分 > previousBest × 5（默认）进入审核态：内存更新但不写后端 PB；emit `lifecycle:suspicious_pb`（§4.10 已落地）。
-- [x] `openblock_best_by_strategy_v1` / `openblock_period_best_v1` 已纳入 `localStorageStateSync` core section（§4.11 已落地）。
-- [x] hard 模式破 PB 时 setShake / bonusMatchFlash 强度 ×1.3（§4.13 已落地）。
+- [x] 破 PB 后 3 spawn 内 stress×0.7 + clearGuarantee+1。
+- [x] 破 PB 自动 emit `lifecycle:new_personal_best`；D3 段（pct ≥ 0.95）首次自动 emit `lifecycle:near_personal_best`。
+- [x] 单局得分 > previousBest × 5（默认）进入审核态：内存更新但不写后端 PB；emit `lifecycle:suspicious_pb`。
+- [x] `openblock_best_by_strategy_v1` / `openblock_period_best_v1` 已纳入 `localStorageStateSync` core section。
+- [x] hard 模式破 PB 时 setShake / bonusMatchFlash 强度 ×1.3。
 - [x] `tests/adaptiveSpawn.test.js` 76 个测试全绿。
 - [x] `tests/nearMissAndMilestone.test.js` `best.gap.*` / scoreMilestone 套件全绿。
-- [x] `tests/challengeDesignOptimization.test.js` 25 个测试全绿（P1-1 已根据 §4.1 新事实调整为 "S3 cap 依实际 band 而定"）。
+- [x] `tests/challengeDesignOptimization.test.js` 25 个测试全绿。
 - [x] `tests/bestScoreChaseStrategy.test.js` 50 个测试全绿，覆盖本文档 13 个改进项。
 - [x] 全量 `npm test`：93 文件 / 1407 测试全部通过。
 - [x] `npm run lint`：0 errors（22 pre-existing warnings 与本次改动无关）。
-- [x] **v1.55.10**：start() 复位 5 个跨局 PB 状态、可疑 PB 不显示结算页皇冠（§5.x R3/R4）。
-- [x] **v1.55.10**：`refreshBestScoreFromBucket()` 在 hydrate 之后调用，跨设备首次加载分桶 PB 正确（§5.x R1）。
-- [x] **v1.55.10**：socialLeaderboard 的"我的最佳"以分桶 PB 为权威源，legacy `openblock_best_score` 仅作 hydrate 兼容（§5.x R5）。
-- [x] **v1.55.10**：bestScore < 500 时任何分数都不触发 milestone toast；base / post-PB 段各 1 次（§5.x b/d）。
-- [x] **v1.55.10**：milestone toast 文案为"已达最佳 X%"百分比格式，玩家直观可读（§5.x c）。
-- [x] **v1.55.10**：score === bestScore（且 best ≥ 500、本局首次、未破 PB）触发 `.float-tie-best` 绿色追平特效（§5.x a）—— v1.55.11 已撤销。
-- [x] **v1.55.10**：全量测试 1429 / 1429 通过 —— v1.55.11 收敛后为 1428 / 1428。
-- [x] **v1.55.11**：`CELEBRATIONS_PER_RUN_CAP = 1`，PB 庆祝单局只放一次烟花（§5.y）。
-- [x] **v1.55.11**：19 语言 `effect.newRecord` 统一加 `🏆 ` 前缀 + 感叹号；zh-CN 为"🏆 刷新最佳！"，en 为"🏆 New Record!"（§5.y）。
-- [x] **v1.55.11**：`showFloatScore('scoreMilestone')` 不再被调用且分支早返回；任何输入都不产生 `.float-milestone` DOM（§5.y）。
-- [x] **v1.55.11**：`_maybeCelebrateTiePersonalBest` 始终返回 false 且无 DOM 副作用；契约由 `tests/gameBestScore.test.js` 锁定（§5.y）。
-- [x] **v1.55.11**：全量测试 1428 / 1428 通过、lint 0 errors。
 
 ---
 
@@ -1809,107 +513,17 @@ pbOvershootBoost = maxBoost · log10(1 + slope·overshoot) / log10(1 + slope)
 | **PB 异常分占比** | 全玩家 | ≤ 0.1% | 触发 §4.10 审核态的频次 |
 | **near-PB lifecycle 事件转化** | 商业化 | 推送转化率 ≥ 均值的 1.5× | 验证 §4.12 价值 |
 
----
-
-#### §5.α.17 决策派生层架构治理：彻底解决"散弹枪手术"代码味道（v1.58）
-
-> **背景**：v1.57.5 用 6 个单点修复止住了具体 bug，但**根因没解决**——"同一指标有 N 个 cache，UI 各拿各的"这套散点架构下，新增 intent / 新增信号 / 新增文案变体仍会再次撒谎，必须靠用户截图反馈才能修。这是典型的 **"散弹枪手术（Shotgun Surgery）+ 特性嫉妒（Feature Envy）"** 代码味道。
->
-> 本次 v1.58 不再做单点止血，而是建立 **决策派生层（Decision Derivation Layer）** 作为算法 → UI 之间的唯一桥梁，让 UI 永远只读一个 PresentationModel，杜绝 v1.57.5 类问题的下一轮复发。
-
-##### 架构分层
-
-```
-算法层（adaptiveSpawn.js）  →  derivation/  →  UI 层（DFV / stressMeter / playerInsightPanel）
-                                  ↑                ↑
-                                SSOT + Trace        只读 PresentationModel
-                                + Contract DSL
-                                + Reducer
-```
-
-##### 4 个派生层子模块
-
-| 文件                                       | 行数（约）  | 职责                                                                                  | 解决的 v1.57.5 痛点              |
-| ---------------------------------------- | ------ | ----------------------------------------------------------------------------------- | --------------------------- |
-| `web/src/derivation/selectors.js`        | 230  | SSOT。所有实时几何 / insight / playerProfile 读取必须走 `selectXxx(game)`                       | A/F 占盘 + 消行率双显              |
-| `web/src/derivation/intentResolver.js`   | 240  | 表驱动 `INTENT_RULES` 优先级矩阵；返回 `{intent, trace, overrides}` 三元组                       | D AFK 高亮但被覆盖（消除硬编码）          |
-| `web/src/derivation/displayContracts.js` | 440  | 27 条 narrative + emoji contract；DSL 自动校验 + 自动降级链                                    | B 盘面通透撒谎；G 笑脸 vs 紧盘面（结构化守卫） |
-| `web/src/derivation/presentationReducer.js` | 230  | `reducePresentation(game)` → 唯一 PresentationModel（chip overridden 自动派生 + trace 全程附带） | E 多 chip 无层级（中心化拼装）         |
-
-##### 性质测试基础设施（v1.58 新引入 fast-check）
-
-10 条不变式 × 1500 次随机扫描 = **15000 次状态验证**：
-
-| 不变式  | 锁定的产品意图                                                              |
-| ---- | ---------------------------------------------------------------------- |
-| I1   | `resolveIntent` 与 `deriveSpawnIntent` 行为完全等价（算法等价性）                    |
-| I4   | "盘面通透/可消行机会" 字样永远不在 `boardFill >= 0.5` 时出现                            |
-| I5   | "密集消行机会" 字样永远不在 `nearFullLines < 3` 时出现                                |
-| I6   | emoji 😌 / 🙂 永远不在 `boardFill >= 0.66` 时出现（必须切到 crowded 或 struggling） |
-| I7   | `lateCollapse` / `frustCritical` 触发时永远是 struggling face                |
-| I8   | `afkEngage` chip 在 `intent=relief` 且 `on=true` 时 `overridden` 必为 true   |
-| I10  | `boardRisk >= 0.6` 时 narrative 永远是"保活/紧张"类                            |
-
-**调试期捕获 2 个真实 bug**：
-
-1. 旧 `evalPredicate` 复合谓词 `{ gte: 0.125, lt: 0.333 }` 只看第一个操作符（'lt'），让 0.10 被误判通过 `gte` 守卫——已修。
-2. 浮点边界 `0.6499999...` 让 `gte: 0.65` crowded 守卫失效——给 I6 不变式留 1% 容差（产品意图本就是"明显紧"）。
-
-##### UI 接入（v1.58 第一阶段）
-
-- **DFV chip override**：v1.57.5 §D 硬编码 `(intent === 'relief') && afkEngage` → `isSignalOverridden('afkEngage', resolveIntent(...))`。新增 intent / signal 无需再改 DFV 渲染。
-- **playerInsightPanel boardFill 读取**：4 处 `game.grid.getFillRatio()` → `selectLiveBoardFill(game)`，杜绝 v1.57.5 §A 类双显复发。
-
-##### v1.58.x 渐进迁移路线（建议）
-
-| 优先级 | 接入点                                                                  | 收益                                  |
-| --- | -------------------------------------------------------------------- | ----------------------------------- |
-| P0  | stressMeter `buildStoryLine` 走 `selectNarrative`                   | 删除 `RELIEF_NARRATIVE_BY_REASON` 散表 |
-| P0  | stressMeter `getStressDisplay` 走 `selectEmoji`                     | 删除 4 个 if-else 变体分支                |
-| P1  | DFV chip on 字段走 `reducePresentation().chips`                       | 删除 8 个硬编码 chip 渲染分支                |
-| P1  | DFV `_intentInputs` 缺失分支走 `reducePresentation`                     | 老回放降级路径统一                          |
-| P2  | sparkline / 历史快照消费 `selectInsightWithLiveGeometry`                  | 历史数据上报口径统一                          |
-
-##### 测试矩阵（v1.58 完成态）
-
-| 类别                | 文件                                              | 用例数    | 范围                                            |
-| ----------------- | ----------------------------------------------- | ------ | --------------------------------------------- |
-| 单元 - selectors    | `derivationContracts.test.js §1`                | 13     | SSOT + 降级 + 字段口径                              |
-| 单元 - resolver     | `derivationContracts.test.js §2`                | 15     | 矩阵 + trace + 同源等价                             |
-| 单元 - contracts    | `derivationContracts.test.js §3`                | 27     | DSL + 完整性 + 优先级                               |
-| 单元 - reducer      | `derivationContracts.test.js §4`                | 8      | 端到端 + 降级                                      |
-| 性质 - 不变式 | `properties/derivationInvariants.test.js`       | 10     | 15000 次随机状态扫描                                 |
-| 集成 - 旧测试         | 既有 v1.57.5 测试栈                                  | 1707   | **0 回归**                                      |
-| **总计**            |                                                 | **1780** | **+73 新增 / 0 回归 / lint 0 errors**             |
-
-##### 与 v1.57.5 的对比
-
-| 维度           | v1.57.5（散点修复）                                                                | v1.58（架构治理）                                                       |
-| ------------ | -------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| **修复方式**     | 6 个 bug → 6 处单点改                                                            | 1 个根因 → 4 模块 + 73 测试                                             |
-| **未来 bug 拦截** | 必须靠用户截图反馈                                                                  | 性质测试 15000 次扫描自动捕获                                              |
-| **新增 intent 成本** | 改 4 处（deriveSpawnIntent + DFV chip + narrative + emoji）                       | 改 1 处（INTENT_RULES + 加 contract）                                |
-| **新增文案守卫成本** | 写硬编码 if + 加单测                                                              | 写 contract `requires`，自动校验 + 自动降级                                |
-| **决策不可追溯**   | 看 spawnIntent 字段反推                                                          | `formatIntentTrace` 一行字符串                                       |
-
-详细架构文档参见 [`docs/algorithms/DECISION_DERIVATION_ARCHITECTURE.md`](../algorithms/DECISION_DERIVATION_ARCHITECTURE.md)（含全部 API、契约表清单、UI 接入示范、严禁后续违反规则）。
-
----
-
 ## 8. 文档关联
 
 - 上游方法论：[体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md)（5 轴体验结构）
 - 系统通用模型：[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)（L1–L4 通用分层）
 - 同层实时管线：[实时策略系统](./REALTIME_STRATEGY.md)（指标字典、L4 卡片生成）
 - 算法事实：[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（多信号 stress 融合 / `spawnHints` 派生）
-- 出块机制：[出块算法：三层架构 §2.5 策略 → 出块翻译机制](../algorithms/SPAWN_ALGORITHM.md#25-策略--出块翻译机制v15516)（`spawnHints` 如何变成具体 3 个块：5 阶段流水线 + 30+ 加权乘子 + 硬约束 + 场景跑步）
+- 出块机制：[出块算法：三层架构 §2.5 策略 → 出块翻译机制](../algorithms/SPAWN_ALGORITHM.md#25-策略--出块翻译机制)（`spawnHints` 如何变成具体 3 个块：5 阶段流水线 + 30+ 加权乘子 + 硬约束 + 场景跑步）
 - 跨局画像：[生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（S0–S4 × M0–M4）
 - 计分规则：[消行计分](../product/CLEAR_SCORING.md)（如何把"消行"转成 score）
 - 难度档：[难度模式](../product/DIFFICULTY_MODES.md)（Easy/Normal/Hard 与自适应协作）
 - 行业实证：[休闲游戏品类分析](../domain/CASUAL_GAME_ANALYSIS.md) §10、[领域知识](../domain/DOMAIN_KNOWLEDGE.md)
 
----
-
-*文档版本：1.58.4（2026-05-18 v1.58.4 全系统自查残留修补 — relief.hole/boardRisk 几何守卫 + harvest.default 文案改写 + flow.intense/tense 加守卫 + stressVsBoardFill 冲突 + flow.payoff.waiting 文案去"收获期" + I18/I19/I20/I21 性质 + 1809 测试 0 回归；2026-05-18 v1.58.3 DFV chip 自描述化 — CHIP_DEFS 加 reason 函数 + 4 个信号诊断 chip + flowVsIntent/pressureVsForce conflicts + I15/I16/I17 + 1798 测试 0 回归；2026-05-18 v1.58.2 算法信号-盘面几何反差治理 — struggling/relief.endgame 加 boardFill>=0.45 守卫 + concerned 中间档 + endgame.soft 降级 + I7 升级/I13/I13b/I14 + 1796 测试 0 回归；2026-05-18 v1.58.1 节奏承诺-几何兑现一致性治理 — flow.payoff 拆 ready/waiting + harvestReady 派生 + I11/I12/I12b 性质 + 1785 测试 0 回归；2026-05-18 v1.58 决策派生层架构治理 — derivation/ 4 模块 + fast-check 性质测试基础设施 + DFV/playerInsightPanel SSOT 接入；前版 1.57.5 决策快照展示层一致性治理 — 6 项 UI 同源 bug 修复；前版 1.55.11 收敛 — 撤销追平 + 撤销 milestone toast + PB 庆祝单局 1 次 + 19 语言文案加 🏆 前缀）。*
 *以仓库主分支为事实来源。*
 *维护者：策划组 + 体验算法组联合维护；改动需走 PR 评审并同步更新 §4 改进项编号与 §6 验证清单。*

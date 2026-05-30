@@ -26,22 +26,22 @@
 
 这不改变 RL 训练环境契约：Python/MLX 训练仍使用固定策略与共享 `game_rules.json` / `shapes.json`，不读取真人网页的 `spawnHints`、V3 推理结果或玩家画像。Python/MLX 出块继续保留主局已同步的清屏候选优先级，使训练环境对清屏机会的偏置与规则轨保持一致。
 
-### v1.16：spawnIntent 单一口径
+### spawnIntent 单一口径
 
 - 网页端 `adaptiveSpawn` 输出 `spawnHints.spawnIntent ∈ { relief, engage, pressure, flow, harvest, maintain }`，并通过 `_lastAdaptiveInsight.spawnIntent` 暴露给所有展示层。
 - **拟人化叙事 / 商业化策略 / 回放标签**都从 spawnIntent 派生，不再在各自模块里做"信号解读"。
 - **几何近满 → spawnIntent**：`boardTopology.detectNearClears()` 是「近完整行/列」检测的单一来源，被 `analyzeBoardTopology`（panel / stress 信号）与 `bot/blockSpawn.analyzePerfectClearSetup`（pcSetup）共享，避免同盘面下两侧给出不同近满计数。
 - **占用率衰减**：低占用盘面（`fill < 0.5`）的正向 stress 按 `clamp(fill/0.5, 0.4, 1.0)` 衰减后再 smoothing，杜绝 fill=0.39 时 stress=0.89 的伪高压。
 
-### v1.17：harvest / payoff 几何兜底 + 词义解耦（一致性补丁）
+### harvest / payoff 几何兜底 + 词义解耦
 
-v1.16 把出块意图统一到 `spawnIntent`，但 `pcSetup ≥ 1` 在低占用盘面是噪声候选，旧逻辑会让 17% 散布盘面也呈现"意图 = 兑现 / 节奏 = 收获 / 出块偏长条 / 文案 = 密集消行机会"——而盘面其实没有任何近满行。本补丁把"是否处于 harvest 窗口"统一收紧到几何条件：
+`spawnIntent` 统一为 6 值枚举，但 `pcSetup ≥ 1` 在低占用盘面是噪声候选。`spawnIntent='harvest'` 以及 `rhythmPhase='payoff'` 的触发统一收紧到几何条件：
 
-- 模块常量 `PC_SETUP_MIN_FILL = 0.45` + helper `canPromoteToPayoff = nearFullLines ≥ 1 || multiClearCands ≥ 1 || (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)`。
-- `spawnIntent='harvest'` 收紧为 `nearFullLines ≥ 2 || (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)`。
-- `deriveRhythmPhase` 与所有"基于玩家状态升 payoff"的分支（`pcSetup` 主路径、`delight.mode='challenge_payoff'/'flow_payoff'`、`playstyle='multi_clear'`、`afkEngage`）都通过 `canPromoteToPayoff` 兜底。
-- `clearGuarantee = 3` 在 `multiClearCandidates < 2 && nearFullLines < 2` 时回钳到 `2`，避免 UI pill「目标保消 3」成为空头支票。
-- UI 词义解耦：`PlayerProfile.pacingPhase`（tension/release）的展示文案改名为 **「Session 张弛」**；`spawnHints.rhythmPhase`（setup/payoff/neutral）继续称 **「节奏相位」**，杜绝同名异义。
+- 模块常量 `PC_SETUP_MIN_FILL = 0.45` + 条件 `canPromoteToPayoff = nearFullLines ≥ 1 || multiClearCands ≥ 1 || (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)`。
+- `spawnIntent='harvest'` 要求 `nearFullLines ≥ 2 || (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)`。
+- `deriveRhythmPhase` 与所有升 payoff 的分支（`pcSetup` 主路径、`delight.mode='challenge_payoff'/'flow_payoff'`、`playstyle='multi_clear'`、`afkEngage`）都通过 `canPromoteToPayoff` 兜底。
+- `clearGuarantee = 3` 在 `multiClearCandidates < 2 && nearFullLines < 2` 时回钳到 `2`。
+- UI 词义解耦：`PlayerProfile.pacingPhase`（tension/release）的展示文案为 **「Session 张弛」**；`spawnHints.rhythmPhase`（setup/payoff/neutral）称 **「节奏相位」**。
 - `strategyAdvisor` 互斥：`rhythmPhase==='payoff'` 或 `spawnIntent==='harvest'` 或 `fill < 0.18` 时不再追加「提升挑战 → 3 行+」卡。
 
 完整设计文档见 **[`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md)** 与 **[`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md)**。

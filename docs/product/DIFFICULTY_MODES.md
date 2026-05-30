@@ -21,7 +21,7 @@ OpenBlock 提供三档基础难度：**简单（easy）**、**普通（normal）
 
 | 维度 | 是否受难度影响 | 备注 |
 |------|:------------:|------|
-| 消行计分 | ❌ | 三档统一：以 `scoring.singleLine` 为 **baseUnit**，默认 20，按 [消行计分规则](./CLEAR_SCORING.md) 计算；`multiLine` / `combo` 仍保留在 JSON 中兼容旧存档，但 **消行得分与 RL/回放重算均不再使用这两项** |
+| 消行计分 | ❌ | 三档统一：以 `scoring.singleLine` 为 **baseUnit**，默认 20，按 [消行计分规则](./CLEAR_SCORING.md) 计算 |
 | 初始棋盘填充率 | ✅ | easy 0% → normal 18% → hard 32% |
 | 出块形状权重 | ✅ | 通过 `difficultyTuning.stressBias` 偏移自适应 stress 基线 |
 | 出块保底 / 块大小 / 多消倾向 | ✅ | `difficultyTuning` 直接调节 `spawnHints.clearGuarantee / sizePreference / multiClearBonus` |
@@ -211,7 +211,7 @@ targetDifficulty =
   )
 ```
 
-其中 `boardDifficulty` 让 holes 正向增加目标难度，`boardRisk` 仍负责抵消危险盘面的过度挑战。这样规则出块与模型出块对“空洞越多越难”的理解一致，不会出现规则轨保活、模型轨却按低难度或相反方向学习的错位。V3.1 旧权重不兼容，模型不可用或输出非法时仍回退规则出块。
+其中 `boardDifficulty` 让 holes 正向增加目标难度，`boardRisk` 仍负责抵消危险盘面的过度挑战。这样规则出块与模型出块对“空洞越多越难”的理解一致，不会出现规则轨保活、模型轨却按低难度或相反方向学习的错位。模型不可用或输出非法时回退到规则出块。
 
 ### 4.5 10 档 Profile 与 stress 的对应关系
 
@@ -233,26 +233,20 @@ stress  0.85 → 极限考验（intense）
 
 ---
 
-## 5. 发现的问题与修复
+## 5. 设计决策与实现细节
 
-### 5.1 难度不持久化（已修复）
+### 5.1 难度持久化
 
-**问题**：`this.strategy` 仅存于内存，刷新页面后回退到默认 `normal`，HTML 按钮也恢复默认选中状态。
-
-**修复**：
+难度选择通过 `localStorage` 持久化：
 - 切换时写入 `localStorage.setItem('openblock_strategy', level)`
 - 构造时读取 `localStorage.getItem('openblock_strategy') || 'normal'`
 - `bindEvents` 中恢复按钮 `active` 状态与内存一致
 
 **文件**：`web/src/game.js`
 
-### 5.2 自适应模式下 shapeWeights 不区分难度（已修复）
+### 5.2 自适应模式下 shapeWeights 区分难度
 
-**问题**：当 `adaptiveSpawn.enabled = true`（默认）时，`shapeWeights` 完全由 10 档 profile 插值决定，所选难度对块型分布 **无影响** —— 用户选「简单」或「困难」，在自适应系统中出块感受一样。
-
-**原因**：`resolveAdaptiveStrategy` 的 `stress` 计算公式中没有包含用户所选难度的贡献项。
-
-**修复**：在综合 stress 计算中增加 `difficultyTuning.stressBias` 项：
+当 `adaptiveSpawn.enabled = true`（默认）时，`shapeWeights` 由 10 档 profile 插值决定，同时通过 `difficultyTuning.stressBias` 在综合 stress 中引入难度偏移：
 ```javascript
 const difficultyTuning = cfg.difficultyTuning?.[baseStrategyId] || {};
 const difficultyBias = difficultyTuning.stressBias ?? 0;
@@ -262,57 +256,44 @@ let stress = scoreStress + runMods.stressBonus + difficultyBias + skillAdjust + 
 
 **文件**：`web/src/adaptiveSpawn.js`
 
-### 5.3 难度体感差异被自适应保底稀释（已修复）
+### 5.3 难度体感差异化
 
-**问题**：虽然 stress 已有难度偏移，但 `generateDockShapes()` 后续会优先考虑消行、保活、多消、合法落点和节奏 payoff。类别权重只是基础值，实际体感容易被这些更强的兜底倍率盖过。
-
-**修复**：
-- `shared/game_rules.json` 新增 `adaptiveSpawn.difficultyTuning`，让三档难度直接调节 `clearGuarantee / sizePreference / multiClearBonus`。
-- 困难模式只在普通状态下降低 `clearGuarantee`；新手保护、救场、挫败恢复、跨局热身仍保持公平性。
-- 普通/困难初始填充率从 `0.20/0.25` 拉开到 `0.18/0.32`，减少开局体感重叠。
+`generateDockShapes()` 优先考虑消行、保活、多消、合法落点和节奏 payoff。三档难度通过 `adaptiveSpawn.difficultyTuning` 直接调节 `clearGuarantee / sizePreference / multiClearBonus`。困难模式只在普通状态下降低 `clearGuarantee`；新手保护、救场、挫败恢复、跨局热身仍保持公平性。初始填充率：简单 0%、普通 0.18%、困难 0.32%。
 
 **文件**：`shared/game_rules.json`、`web/src/adaptiveSpawn.js`
 
-### 5.4 解法数量难度过滤读取路径错误（已修复）
+### 5.4 解法数量难度过滤读取路径
 
-**问题**：配置位于 `adaptiveSpawn.solutionDifficulty`，但 `blockSpawn.js` 读取的是旧顶层 `GAME_RULES.solutionDifficulty`，导致解空间过滤没有参与真实出块。
-
-**修复**：`blockSpawn.js` 改为优先读取 `GAME_RULES.adaptiveSpawn.solutionDifficulty`，并保留旧顶层路径兜底。
+`blockSpawn.js` 优先读取 `GAME_RULES.adaptiveSpawn.solutionDifficulty`，并保留旧顶层路径兜底。
 
 **文件**：`web/src/bot/blockSpawn.js`
 
-### 5.5 空洞口径与难度/RL 目标不一致（已修复）
+### 5.5 空洞口径统一
 
-**问题**：前端出块、策略面板、RL 特征、模拟器和小程序镜像曾混用不同空洞口径，部分位置仍使用列高口径，导致面板、难度反馈和 RL 监督目标不一致。
-
-**修复**：
-- Web 新增 `boardTopology.js` 统一 `countUnfillableCells()`。
+前端出块、策略面板、RL 特征、模拟器和小程序使用统一的空洞口径：
+- Web 通过 `boardTopology.js` 的 `countUnfillableCells()` 统一计算。
 - PyTorch `fast_board_features()`、`board_potential()`、`holes_after` 和 `hole_aux_loss` 统一使用不可覆盖空格。
-- 动作特征 `holesRisk` 改为“模拟放置并消行后的不可覆盖空洞数”，不再用放置块下方空格估算。
+- 动作特征 `holesRisk` 为"模拟放置并消行后的不可覆盖空洞数"。
 - 小程序 bot/模拟器同步同口径。
 
 **文件**：`web/src/boardTopology.js`、`rl_pytorch/fast_grid.py`、`rl_pytorch/features.py`、`miniprogram/core/boardTopology.js`
 
-### 5.6 策略解释面板未显示难度信息（已修复）
+### 5.6 策略解释面板显示难度信息
 
-**问题**：策略解释面板中的 stress 说明未标明当前选择的难度模式。
-
-**修复**：在 insight 中传递 `difficultyBias` 字段，策略解释面板展示如：
+insight 中传递 `difficultyBias` 字段，策略解释面板展示如：
 ```
 综合压力 stress=0.25（简单模式 难度偏移-0.22；含分数、连战、心流、节奏等信号）
 ```
 
 **文件**：`web/src/playerInsightPanel.js`、`web/src/game.js`
 
-### 5.7 空洞只被当作减压信号（已修复）
+### 5.7 空洞双通路处理
 
-**问题**：空洞原本主要通过 `holeReliefAdjust`、`boardRiskReliefAdjust` 进入救济链路，能正确触发保消、偏小块和降压，但没有在运行中难度评估里表达“同样填充率下，空洞越多越难”。这会让 `spatialPressure` 和模型 `targetDifficulty` 仍偏向裸 `fillRatio`，低估结构性坏盘。
+空洞同时参与两个通路：
+- **难度评估**：`boardDifficulty = clamp(fill + holePressure × holeFillEquivalent)`，默认 `holeFillEquivalent=0.8`。
+- **保活响应**：`boardRisk`、`holeReliefAdjust`、`clearGuarantee`、`sizePreference` 用于在危险盘面降低不公平压力。
 
-**修复**：
-- 新增 `boardDifficulty = clamp(fill + holePressure × holeFillEquivalent)`，默认 `holeFillEquivalent=0.8`。
-- `adaptiveSpawn.deriveSpawnTargets()` 的 `spatialPressure` 改为消费 `boardDifficulty`。
-- `spawnModel.computeSpawnTargetDifficulty()` 改为使用 `boardDifficulty`，holes 正向增加目标难度；`boardRisk` 继续作为保活抵消项。
-- 增加测试，验证同填充率下 holes 更多时 `boardDifficulty` / `targetDifficulty` 更高。
+`adaptiveSpawn.deriveSpawnTargets()` 的 `spatialPressure` 消费 `boardDifficulty`。`spawnModel.computeSpawnTargetDifficulty()` 使用 `boardDifficulty`，holes 正向增加目标难度；`boardRisk` 继续作为保活抵消项。
 
 **文件**：`shared/game_rules.json`、`web/src/adaptiveSpawn.js`、`web/src/spawnModel.js`、`tests/adaptiveSpawn.test.js`、`tests/spawnModel.test.js`
 

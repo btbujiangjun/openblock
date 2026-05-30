@@ -41,7 +41,7 @@ OpenBlock 的"放置 + 消行"是一个**有约束的离散 MDP**：
 | 维度 | 数值 | 影响 |
 |------|------|------|
 | 原始局面（离散直觉） | **棋盘 8×8**：观测中 **64 维为占用 0/1**，仅二元抽象时 **$\sim 2^{64}$**；若「空 + 8 色」则 **$\sim 9^{64}$**（详见 `RL_ANALYSIS.md` §2.1）。**Dock**：`shared/shapes.json` **28** 种块型，三块形状身份量级 **$\mathcal{O}(28^3)$**（粗略；未乘 **$8^3$** 颜色，也未单独计放置进度）。 | 巨大但稀疏 |
-| 观测编码（实现事实来源） | **`featureEncoding.stateDim = 181`**：42 维标量（含颜色摘要）+ 64 棋盘占用 + **75** dock 空间掩码（**3×5×5**）；策略输入 **$\psi\in\mathbb{R}^{181}$**（§3），与 **$2^{64}\!\times\!28^3$** 笛卡尔积**不等价**。 | 固定维度、可微近似；旧文档若写 162 维指 v9.2 前编码 |
+| 观测编码（实现事实来源） | **`featureEncoding.stateDim = 181`**：42 维标量（含颜色摘要）+ 64 棋盘占用 + **75** dock 空间掩码（**3×5×5**）；策略输入 **$\psi\in\mathbb{R}^{181}$**（§3），与 **$2^{64}\!\times\!28^3$** 笛卡尔积**不等价**。 | 固定维度、可微近似 |
 | 单步合法动作数 | 0~120（典型 30~80） | 维度可变 |
 | 单局长度 | 平均 ~30 步，最长 ~120 步 | 短轨迹 |
 | 终局奖励稀疏度 | 高（许多步都不消行） | 信用分配难 |
@@ -183,8 +183,6 @@ _reevaluate_and_update
 - **visit_pi distillation** 在启用 MCTS 时直接模仿访问分布，比 Q 代理更接近 AlphaZero 的策略目标。
 - **EvalGate** 用配对 seed 做候选/基线贪心评估，减少出块随机性造成的误判。
 
-v9.1 修正了 teacher 质量相关的三个细节：
-
 - `beam2/beam3` 的剩余块判断改为读取 dock 槽位的 `placed` 字段，只在真正还有 2/3 个未放置块时展开多层 beam。
 - `Ranked Reward` 的目标分位从 p50 逐步爬坡到 p70，早期保留探索，平台期提高晋级标准。
 - batched MCTS 展开 priors 统一使用 `forward_policy_logits(phi)`，与非批量 MCTS 保持同一套 action-feature API。
@@ -192,9 +190,6 @@ v9.1 修正了 teacher 质量相关的三个细节：
 - EvalGate 评估门槛改为与当前课程阈值对齐，并以配对严格赢率（非不输率）+ 分差双条件判定晋级，降低平局误判。
 - EvalGate 新增规则开关：`RL_EVAL_GATE_RULE=win|nonloss`，默认 `win`（严格赢率）。
 - Zobrist 热启动改为传入真实 numpy 网格状态，避免缓存命中路径被类型不匹配静默绕过。
-
-v9.3 继续增强 teacher 吸收与样本效率：
-
 - `qDistillation` 和 `visitPiDistillation` 支持 `annealEndCoef` / `annealEpisodes` 线性退火，前期强模仿、后期降低 teacher 偏差。
 - Q 蒸馏默认对每个状态做 `zscore` 归一化，且用 `minStd` 限制近似平局动作的噪声放大。
 - `searchReplay` 缓存高分未通关、尾局 feasibility 差的困难局，训练时抽样重放，日志显示 `replay=N`。replay 样本只参与 value / aux / distillation，不参与 PPO policy ratio；其 value target 使用纯 outcome，避免旧 GAE/ranked reward 污染。
@@ -282,9 +277,7 @@ shared/game_rules.json featureEncoding.stateDim = 181
        checkpoint 失效（width 不变也失效，因 input layer 维度不同）
 ```
 
-v9.2 将 state 从 162 扩展到 181，主要是补上颜色可观测性：同色整线 bonus 是重要得分来源，单纯 occupancy 无法区分“能拿 bonus 的满线”和“普通满线”。该变更要求旧 checkpoint 全部重训。
-
-**改维度 ≡ 重训**。这是项目"算法 vs 数据"契约的最严格条款。
+state 从 162 扩展到 181，主要是补上颜色可观测性：同色整线 bonus 是重要得分来源，单纯 occupancy 无法区分“能拿 bonus 的满线”和“普通满线”。
 
 ---
 
@@ -788,14 +781,14 @@ def _mix_dirichlet_and_sample(logits, T, ε, α):
 - 早期 $V$ 不准 → $A$ 不准 → 训练发散
 - 但终局得分 (outcome) 是**精确**的真值
 
-### 10.2 v9.2 的混合方案
+### 10.2 混合方案
 
 ```python
 outcome = clip(log1p(final_score) / log1p(win_threshold), 0, 3)
 return_target = (1 - mix) · GAE_return + mix · outcome
 ```
 
-`mix = 0.5` 默认（`outcomeValueMix.mix`）。所有时刻共享同一 outcome 终局信号。v9.2 改用 log 目标，是为了避免 400-500 分在 `score / threshold` 表达下过早贴近 clip 上限，导致价值头难以区分更高分局。
+`mix = 0.5` 默认（`outcomeValueMix.mix`）。所有时刻共享同一 outcome 终局信号。改用 log 目标，是为了避免 400-500 分在 `score / threshold` 表达下过早贴近 clip 上限，导致价值头难以区分更高分局。
 
 ### 10.3 直观
 
@@ -1282,7 +1275,7 @@ useBackend=false → trainer.js 用 LinearAgent
 
 - **代码**：`web/src/bot/linearAgent.js`（`W·φ` 策略、`Vw·ψ` 价值）、`web/src/bot/trainer.js`（`runSelfPlayEpisode`、`trainSelfPlay`、`reinforceUpdate`）。
 - **超参与温度**：`shared/game_rules.json` → **`browserRlTraining`**（`gamma`、`policyLr`、`valueLr`、`entropyCoef`、`maxGradNorm`、`temperatureLocal`、`temperatureBackend`）。前端通过 `resolveBrowserRlTrainingConfig()` 读取；**PyTorch 在线训练**路径每局采样温度使用 `temperatureBackend`。
-- **算法要点**：回报 Welford 标准化 + 批内优势标准化 + 裁剪；策略更新为 **REINFORCE + 基线**，并叠加 **熵 bonus**：`ΔW ∝ lr · (A · ∇logπ(a) + β · ∇_W H)`，β=`entropyCoef`（详见 [`RL_BROWSER_OPTIMIZATION.md`](../archive/algorithms/RL_BROWSER_OPTIMIZATION.md) §3.2 / §5，已归档）。
+- **算法要点**：回报 Welford 标准化 + 批内优势标准化 + 裁剪；策略更新为 **REINFORCE + 基线**，并叠加 **熵 bonus**：`ΔW ∝ lr · (A · ∇logπ(a) + β · ∇_W H)`，β=`entropyCoef`。
 
 ### 15.3 关键差异
 
@@ -1419,7 +1412,7 @@ def _safe_aux(t):
 | **v7** | + 评估门控 / spawn predictor / MCTS 完整 | 路线图 |
 
 详见各分册：
-- v5：[`RL_TRAINING_OPTIMIZATION.md`](../archive/algorithms/RL_TRAINING_OPTIMIZATION.md)（已归档）
+
 - v6/v7：[`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md)
 
 ---
@@ -1543,10 +1536,7 @@ def _safe_aux(t):
 | [`ALGORITHMS_HANDBOOK.md`](./ALGORITHMS_HANDBOOK.md) | 总索引 |
 | [`RL_AND_GAMEPLAY.md`](./RL_AND_GAMEPLAY.md) | 系统分层与单一数据源 |
 | [`RL_ANALYSIS.md`](./RL_ANALYSIS.md) | 早期评估与改进建议 |
-| [`RL_TRAINING_OPTIMIZATION.md`](../archive/algorithms/RL_TRAINING_OPTIMIZATION.md) | v4 → v5 重构记录（已归档） |
-| [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) | 数值稳定专章 |
-| [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) | v6/v7 路线图（Q 蒸馏 / search） |
-| [`RL_BROWSER_OPTIMIZATION.md`](../archive/algorithms/RL_BROWSER_OPTIMIZATION.md) | 浏览器 LinearAgent 调优（已归档） |
+
 | [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) | 训练看板数据流 |
 | [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | 训练曲线判读 |
 

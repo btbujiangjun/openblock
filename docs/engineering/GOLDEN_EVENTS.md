@@ -1,16 +1,6 @@
-# 黄金事件字典（版本化约定）
+# 黄金事件字典
 
-> 与 `web/src/config.js` · `GAME_EVENTS`、商业化 `MonetizationBus`、后端 `behaviors.event_type` 对齐。  
-> 变更事件名或 `event_data` 形状时，应更新本文件主版本号并在 PR 中注明迁移。
-
-## 版本
-
-| 版本 | 日期 | 说明 |
-|------|------|------|
-| 1.0 | 2026-05-02 | 首版：玩法事件 + 埋点字段约定 |
-| 1.1 | 2026-05-12 | 新增生命周期 / 成熟度类事件（蓝图 P0-4 + P1-4 + P2-1 + P2-3） |
-| 1.2 | 2026-05-13 | `PlayerStateSnapshot.metrics` 新增 `pickToPlaceMs` / `reactionSamples`；`stressBreakdown` 新增 `reactionAdjust`（v1.46『反应』指标） |
-| 1.3 | 2026-05-13 | `PlayerStateSnapshot.spawnGeo` 新增 `flatness` / `firstMoveFreedom`（v1.46 几何指标曲线化）；live 路径 `_buildLiveSnapshotForSeries` 与之对齐，修复"反应/平整/首手"在实时面板显示为「—」的问题 |
+> 与 `web/src/config.js` · `GAME_EVENTS`、商业化 `MonetizationBus`、后端 `behaviors.event_type` 对齐。
 
 ## 玩法事件（MonetizationBus / game）
 
@@ -44,7 +34,7 @@
 
 服务端广告占位表：`ad_impressions`（见 `backend/enterprise_extensions.py`、`ENTERPRISE_EXTENSIONS.md`）。
 
-## 生命周期 / 成熟度事件（v1.1）
+## 生命周期 / 成熟度事件
 
 > 由 [玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) §4.1 P0-4、§4.2 P1-4、§4.3 P2-1/P2-3 引入。
 > 全部声明在 `web/src/monetization/analyticsTracker.js` 的 `ANALYTICS_EVENTS`，category 统一为 `lifecycle`。
@@ -76,7 +66,7 @@
 | 字段 | 含义 | 取值 / 单位 | 备注 |
 |------|------|------------|------|
 | `thinkMs` | 思考时长（上一动作 → 当前落子，含等系统出新块、看新一波、选块、拖动） | ms | activeSamples=0 时为 null |
-| `pickToPlaceMs` | **反应时长（v1.46）**：startDrag → 落子的纯执行段 | ms | reactionSamples=0 时为 null（冷启动 / 教程脚本无 pickup 路径） |
+| `pickToPlaceMs` | **反应时长**：startDrag → 落子的纯执行段 | ms | reactionSamples=0 时为 null（冷启动 / 教程脚本无 pickup 路径） |
 | `reactionSamples` | 当前窗口内含 pickup 链路的有效样本数 | int ≥ 0 | <`adaptiveSpawn.reactionAdjust.minSamples` 时 reactionAdjust=0 |
 | `clearRate` | 窗口消行率 | 0~1 | activeSamples=0 时为 null |
 | `comboRate` | 窗口连消率 | 0~1 | 同上 |
@@ -84,7 +74,7 @@
 | `afkCount` | 窗口内被识别为 AFK 的样本数 | int ≥ 0 |  |
 | `samples` / `activeSamples` | 总样本 / 非 AFK 样本 | int ≥ 0 |  |
 
-## stressBreakdown 新增信号（v1.46）
+## stressBreakdown 新增信号
 
 > 由 `web/src/adaptiveSpawn.js → resolveAdaptiveStrategy` 计算，挂在 `_stressBreakdown` 与 `playerState.adaptive.stressBreakdown`。
 
@@ -94,7 +84,7 @@
 
 可调参数：`shared/game_rules.json → adaptiveSpawn.reactionAdjust`（`enabled / minSamples / fastMs / slowMs / maxAdjust`）。
 
-## PlayerStateSnapshot.spawnGeo（v1.46 扩展）
+## PlayerStateSnapshot.spawnGeo 扩展
 
 > 由 `web/src/game.js → _spawnGeoForSnapshot()` 写入；live 路径 `_buildLiveSnapshotForSeries`
 > 与之结构一致；随 `move_sequences.frames` 一并入 SQLite，回放可重建。

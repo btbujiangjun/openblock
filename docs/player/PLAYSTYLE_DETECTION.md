@@ -156,7 +156,7 @@ metrics.clearRate < 0.25  ──► playstyle='survival' ─►     │
 
 ## 历史记录
 
-`recordSessionEnd` 在每局结束时将 `playstyle`、`multiClearRate`、`perfectClearRate` 写入 `SessionSummary`，保留最近 30 局。可用于未来实现跨局趋势分析（如"连续 3 局为 perfect_hunter 时进一步强化"）。
+`recordSessionEnd` 在每局结束时将 `playstyle`、`multiClearRate`、`perfectClearRate` 写入 `SessionSummary`，保留最近 30 局。可用于跨局趋势分析。
 
 ---
 
