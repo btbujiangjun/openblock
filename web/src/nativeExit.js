@@ -81,3 +81,83 @@ function _currentGame() {
 function _audioFx() {
     return typeof window !== 'undefined' ? window.__audioFx : null;
 }
+
+let _backPressCount = 0;
+let _backPressTimer = null;
+
+export function initBackButtonHandler({ game = _currentGame() } = {}) {
+    if (typeof window === 'undefined') return;
+
+    const _onBack = () => {
+        const menu = document.getElementById('menu');
+        const isMenuActive = menu?.classList.contains('active');
+        const g = game || _currentGame();
+        const inGame = g && typeof g.showScreen === 'function';
+
+        if (isMenuActive) {
+            _backPressCount++;
+            if (_backPressCount === 1) {
+                _showExitToast();
+                _backPressTimer = setTimeout(() => {
+                    _backPressCount = 0;
+                    _backPressTimer = null;
+                }, 2000);
+            } else if (_backPressCount >= 2) {
+                _clearBackPressTimer();
+                _backPressCount = 0;
+                void exitNativeApp({ game: g, fallbackToMenu: false });
+            }
+        } else if (inGame) {
+            returnToMainMenu(g);
+        }
+    };
+
+    const capApp = window.Capacitor?.Plugins?.App;
+    if (capApp?.addListener) {
+        capApp.addListener('backButton', _onBack);
+        return;
+    }
+
+    import('@capacitor/app').then(({ App }) => {
+        App?.addListener?.('backButton', _onBack);
+    }).catch(() => {});
+}
+
+function _clearBackPressTimer() {
+    if (_backPressTimer) {
+        clearTimeout(_backPressTimer);
+        _backPressTimer = null;
+    }
+}
+
+function _showExitToast() {
+    if (typeof document === 'undefined') return;
+    const existing = document.getElementById('exit-back-toast');
+    if (existing) existing.remove();
+
+    const html = document.documentElement;
+    const isZh = html?.getAttribute('lang')?.startsWith('zh');
+    const text = isZh ? '再按一次退出应用' : 'Press back again to exit';
+
+    const el = document.createElement('div');
+    el.id = 'exit-back-toast';
+    el.textContent = text;
+    Object.assign(el.style, {
+        position: 'fixed',
+        bottom: '120px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(0,0,0,0.8)',
+        color: '#fff',
+        padding: '10px 20px',
+        borderRadius: '8px',
+        fontSize: '14px',
+        zIndex: '9999',
+        textAlign: 'center',
+        pointerEvents: 'none',
+        transition: 'opacity 0.25s',
+    });
+    document.body.appendChild(el);
+    requestAnimationFrame(() => { el.style.opacity = '0'; });
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 1800);
+}

@@ -106,8 +106,8 @@ export class PushNotificationManager {
         try {
             const n = new Notification('Open Block', {
                 body,
-                icon: '/favicon.ico',
-                badge: '/favicon.ico',
+                icon: '/assets/images/icon-192.png',
+                badge: '/assets/images/icon-192.png',
                 tag: 'openblock-recall',
                 renotify: false,
             });

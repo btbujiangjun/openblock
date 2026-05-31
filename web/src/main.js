@@ -61,7 +61,7 @@ import { initSeasonalBorder } from './effects/seasonalBorder.js';
 import { initFeedbackToggles } from './feedbackToggles.js';
 import { initSkinLore } from './lore/skinLore.js';
 import { initBgm } from './effects/bgmStub.js';
-import { bindNativeExitButtons } from './nativeExit.js';
+import { bindNativeExitButtons, initBackButtonHandler } from './nativeExit.js';
 import { initRotationStub } from './playmodes/rotationStub.js';
 import { initWeatherStub } from './seasonalSkin.weather.js';
 import { initCompanionStub } from './companion/companionStub.js';
@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.__openblockBootStage = 'game-created';
     window.openBlockGame = game;
     bindNativeExitButtons({ game, audioFx });
+    initBackButtonHandler({ game });
     initMonetization(game);
 
     /* v2.0: spawn-tuning v2 — d_curve 寻参 + 灰度切量 (失败不阻塞游戏, 自动 fallback DEFAULT) */

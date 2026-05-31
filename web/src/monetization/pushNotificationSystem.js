@@ -394,8 +394,8 @@ class PushNotificationSystem {
         try {
             const notification = new Notification(content.title, {
                 body: content.body,
-                icon: `/assets/images/icon-192.svg`,
-                badge: `/assets/images/icon-192.svg`,
+                icon: `/assets/images/icon-192.png`,
+                badge: `/assets/images/icon-192.png`,
                 tag: content.icon,
                 requireInteraction: false
             });

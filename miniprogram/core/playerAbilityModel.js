@@ -18,6 +18,7 @@
  */
 const { analyzeBoardTopology } = require('./boardTopology');
 const { GAME_RULES } = require('./gameRules');
+let _softDeps_math = {}; try { _softDeps_math = require('./lib/math'); } catch (_e) { /* miniprogram 不分发 lib/ 子目录，软依赖回退空骨架 */ } const { clamp01 } = _softDeps_math;
 /* v1.48 (2026-05) — `getPlayerAbilityModel` facade 适配器依赖。
  * 静态 import 不引入循环依赖（personalization / ltvPredictor / MonetizationBus
  * 均不 import 本文件）；任何模块加载失败都被适配器内部的 try/catch 软化为空骨架。 */
@@ -53,11 +54,7 @@ const PLAYSTYLE_LABEL = {
     balanced: '均衡',
 };
 
-function clamp01(v) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(1, n));
-}
+/* v1.61.17: clamp01 / norm 已抽到 lib/math.js 单源管理 */
 
 function round(v, digits = 3) {
     const n = Number(v);
