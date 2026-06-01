@@ -15,6 +15,16 @@ installLocalStorageShim();
  * 留存策略按平台分发（monoFlush 概率 / 复活上限 / multiClearBonus 底值）依赖此识别。 */
 try { globalThis.__OPENBLOCK_PLATFORM__ = 'wechat'; } catch { /* ignore */ }
 
+/* v2：出块寻参离线 bundle — 与 Web clientPolicyV2 同源，供 adaptiveSpawn resolveThetaV2 */
+try {
+  const clientPolicyV2 = require('./core/tuning/v2/clientPolicyV2');
+  const bundleData = require('./core/tuning/v2/spawnPoliciesV2');
+  globalThis.__openblockClientPolicyV2 = clientPolicyV2;
+  clientPolicyV2.initClientPolicyV2({ bundleData, pollMetaUrl: false });
+} catch (e) {
+  console.warn('[spawn-tuning-v2] init failed (fallback DEFAULT theta)', e);
+}
+
 App({
   globalData: {
     strategyId: 'normal',

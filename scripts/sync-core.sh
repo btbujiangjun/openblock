@@ -19,6 +19,7 @@ echo "=== sync-core: $SRC → $DST ==="
 
 mkdir -p "$DST/bot"
 mkdir -p "$DST/lib"
+mkdir -p "$DST/tuning/v2"
 
 # 小程序包不直接携带 JSON，避免开发工具把 JSON 解析成 .json.js 或提示未上传。
 # 共享数据以 CommonJS 数据模块形式进入运行时。
@@ -44,6 +45,7 @@ NODE
 # 要同步的纯逻辑文件列表
 FILES=(
   "lib/seededRng.js"
+  "lib/math.js"
   "grid.js"
   "shapes.js"
   "gameRules.js"
@@ -53,6 +55,7 @@ FILES=(
   "adaptiveSpawn.js"
   "playerProfile.js"
   "bot/blockSpawn.js"
+  "tuning/v2/clientPolicyV2.js"
 )
 
 for f in "${FILES[@]}"; do
@@ -115,6 +118,9 @@ module.exports = { $exports_obj };"
   if [[ "$f" == bot/* || "$f" == lib/* ]]; then
     content=$(echo "$content" | sed "s|require('../../shared/|require('../|g")
     content=$(echo "$content" | sed "s|require('../shared/|require('../|g")
+  elif [[ "$f" == tuning/v2/* ]]; then
+    content=$(echo "$content" | sed "s|require('../../shared/|require('../../|g")
+    content=$(echo "$content" | sed "s|require('../shared/|require('../../|g")
   else
     content=$(echo "$content" | sed "s|require('../shared/|require('./|g")
     content=$(echo "$content" | sed "s|require('../../shared/|require('./|g")
@@ -145,31 +151,7 @@ module.exports = { $exports_obj };"
 done
 
 # --- Spawn tuning v2: 同步寻参离线 bundle 给小程序 ----------------------
-# Web/Android/iOS 用 web/public/spawn-tuning-v2/policies.json (Vite 自动打包)
-# 小程序不能直接 require JSON, 这里转成 CJS 数据模块 miniprogram/core/tuning/v2/spawnPoliciesV2.js
-WEB_BUNDLE_V2="$ROOT/web/public/spawn-tuning-v2/policies.json"
-MP_TARGET_V2="$ROOT/miniprogram/core/tuning/v2/spawnPoliciesV2.js"
-if [ -f "$WEB_BUNDLE_V2" ]; then
-  mkdir -p "$(dirname "$MP_TARGET_V2")"
-  node <<NODE
-const fs = require('fs');
-const data = JSON.parse(fs.readFileSync('$WEB_BUNDLE_V2', 'utf8'));
-const body =
-  '/**\n' +
-  ' * 小程序运行时数据模块 — 出块寻参策略 v2 (离线包)\n' +
-  ' * 自动生成于 sync-core.sh, 来源: web/public/spawn-tuning-v2/policies.json\n' +
-  ' * model_id: ' + (data.model_id || 'bundle') + '\n' +
-  ' * policies_count: ' + (data.policies ? data.policies.length : 0) + '\n' +
-  ' */\n' +
-  'module.exports = ' + JSON.stringify(data, null, 2) + ';\n';
-fs.writeFileSync('$MP_TARGET_V2', body);
-console.log('  [OK] tuning/v2/spawnPoliciesV2.js (' + body.length + ' bytes, ' +
-  (data.policies ? data.policies.length : 0) + ' policies)');
-NODE
-else
-  echo "  [SKIP] tuning/v2/spawnPoliciesV2.js — web/public/spawn-tuning-v2/policies.json 不存在"
-  echo "         (先在 v2 看板上点「📦 导出离线 bundle」生成,或跳过寻参离线打包)"
-fi
+node "$ROOT/scripts/sync-spawn-bundle.mjs"
 
 echo ""
 echo "=== 同步完成。请手动检查 miniprogram/core/config.js 的 localStorage / import.meta.env 替换 ==="

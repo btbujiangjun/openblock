@@ -185,6 +185,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).catch(() => { /* not critical */ });
     import('./tuning/v2/clientPolicyV2.js').then((mod) => {
         // v2.10.18 (G11): 暴露到 window 让 adaptiveSpawn 能 resolve theta (避免循环 import)
+        if (typeof globalThis !== 'undefined') {
+            globalThis.__openblockClientPolicyV2 = mod;
+        }
         if (typeof window !== 'undefined') {
             window.__openblockClientPolicyV2 = mod;
         }

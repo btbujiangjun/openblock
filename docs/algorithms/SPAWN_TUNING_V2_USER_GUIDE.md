@@ -119,7 +119,7 @@ open http://localhost:5173/spawn-tuning-v2-dashboard.html
    - 写出 4 个文件:
      - `web/public/spawn-tuning-v2/policies.json`(含 `build_mode` 字段标识)
      - `web/public/spawn-tuning-v2/policies.meta.json`
-     - `miniprogram/core/tuning/spawnPoliciesV2.js`
+     - `miniprogram/core/tuning/v2/spawnPoliciesV2.js`
      - `checkpoints/v2/<job>.policies.json` (sidecar)
 6. **客户端自动拉取**:web 页面下次加载时 fetch 新 bundle
 7. **部署到生产**:`bash scripts/sync-core.sh` 同步小程序包

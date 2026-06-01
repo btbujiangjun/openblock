@@ -43,7 +43,10 @@ tools/diagram-render/algo-work/
 logs/
 
 # Spawn tuning v2: 训练 checkpoint (大文件,可重新训练)
-# 注: web/public/spawn-tuning-v2/ 与 miniprogram/core/tuning/v2/ 离线 bundle 是部署产物, 要进 git
+# 离线 bundle 纳入版本管理（Web 权威 JSON + 小程序 CJS 镜像）:
+#   web/public/spawn-tuning-v2/policies.json
+#   web/public/spawn-tuning-v2/policies.meta.json
+#   miniprogram/core/tuning/v2/spawnPoliciesV2.js  (npm run sync:spawn-bundle 生成)
 checkpoints/
 rl_pytorch/spawn_tuning_v2/__pycache__/
 

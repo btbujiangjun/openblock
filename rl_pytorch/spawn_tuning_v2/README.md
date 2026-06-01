@@ -147,7 +147,7 @@ tests/tuning/v2/
 - 写出 3 个文件:
   - `web/public/spawn-tuning-v2/policies.json` (Web/Android/iOS)
   - `web/public/spawn-tuning-v2/policies.meta.json` (SHA-256 / 时间)
-  - `miniprogram/core/tuning/spawnPoliciesV2.js` (微信小程序 CJS)
+  - `miniprogram/core/tuning/v2/spawnPoliciesV2.js` (微信小程序 CJS，`npm run sync:spawn-bundle`)
 - `/policies/bundle/status` 查询当前 bundle 状态
 - server.py 加 `/spawn-tuning-v2/<path>` 静态路由
 - 看板 ④ 加「📦 导出 Bundle (Export)」按钮

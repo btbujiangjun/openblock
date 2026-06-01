@@ -3,7 +3,7 @@
  *
  * PR6 (离线 bundle):
  *   启动时优先 fetch /spawn-tuning-v2/policies.json (Web/Android/iOS bundle)
- *   微信小程序由打包时 require miniprogram/core/tuning/v2/spawnPoliciesV2.js
+ *   微信小程序由打包时 require miniprogram/core/tuning/spawnPoliciesV2.js
  *
  * PR7 (灰度切量):
  *   bundle 含 rollout_pct ∈ [0, 100]
@@ -24,7 +24,7 @@
 // v2.2: 与 Python feature_io.THETA_KEYS / samplerV2 严格一致;
 //       这里只暴露 simulator/adaptiveSpawn 真正消费的 9 维 (5 个个性化 + 4 个 PB 曲线)。
 //
-export const DEFAULT_THETA_V2 = Object.freeze({
+const DEFAULT_THETA_V2 = Object.freeze({
     // A. 候选选拔 / 个性化
     personalizationStrength: 0.10,
     temperature: 0.05,
@@ -94,7 +94,7 @@ const THETA_KEYS_ORDER = [
     'releaseFactor', 'farFromPBBoost',
 ];
 // 反归一化范围,必须与 feature_io.THETA_RANGES 严格一致。
-export const THETA_RANGES = Object.freeze({
+const THETA_RANGES = Object.freeze({
     // A
     personalizationStrength: [0.05, 0.18],
     temperature: [0.03, 0.08],
@@ -155,7 +155,7 @@ function _normalizeThetaShape(theta) {
  * 把策略数组装到内存。
  * @param {object} bundle - { policies: [...], rollout_pct, model_sha256, generated_at }
  */
-export function installPoliciesV2(bundle) {
+function installPoliciesV2(bundle) {
     if (!bundle || !Array.isArray(bundle.policies)) {
         _policiesByCtx = null;
         return { installed: 0 };
@@ -202,7 +202,7 @@ export function installPoliciesV2(bundle) {
  * 重绘 badge —— spawnModelPanel.js 的 ``_refreshPolicySourceBadge`` 已按
  * ``stats.loaded && stats.count > 0`` 判断，卸载后会自动翻回「规则」，无需新增 listener。
  */
-export function uninstallPoliciesV2() {
+function uninstallPoliciesV2() {
     const wasLoaded = _policiesByCtx !== null;
     _policiesByCtx = null;
     _fuzzyIndex = null;
@@ -231,7 +231,7 @@ export function uninstallPoliciesV2() {
  * @returns {{ theta: object, source: string, contextKey: string|null }}
  *   source ∈ 'exact' / 'fuzzy-lifecycle' / 'coarse-gen' / 'gate-out' / 'no-policies' / 'fallback'
  */
-export function resolveThetaV2(playerCtx = {}) {
+function resolveThetaV2(playerCtx = {}) {
     // 0. 没装策略 → default
     if (!_policiesByCtx) {
         _stats.fallback++;
@@ -400,7 +400,7 @@ function _startMetaPolling(bundleUrl, metaUrl, intervalMs) {
 }
 
 /** 仅供测试使用: 拆除 meta polling. */
-export function _uninstallMetaPollingForTest() {
+function _uninstallMetaPollingForTest() {
     if (_metaPollTimer) {
         clearInterval(_metaPollTimer);
         _metaPollTimer = null;
@@ -446,7 +446,7 @@ function _subscribeBundleUpdates(bundleUrl) {
 }
 
 /** 仅供测试使用：拆除 BroadcastChannel 订阅。 */
-export function _uninstallBundleUpdateChannelForTest() {
+function _uninstallBundleUpdateChannelForTest() {
     if (_bundleUpdateChannel) {
         try { _bundleUpdateChannel.close(); } catch { /* ignore */ }
         _bundleUpdateChannel = null;
@@ -457,7 +457,7 @@ export function _uninstallBundleUpdateChannelForTest() {
 // ─────────── 工具 ───────────
 
 /** 用户 ID hash 到 [0, 100) 的 bucket。同一用户每次结果一致。 */
-export function hashUserToBucket(userId) {
+function hashUserToBucket(userId) {
     if (!userId) return 50; // 匿名用户落中段
     let h = 5381;
     for (let i = 0; i < userId.length; i++) {
@@ -469,7 +469,7 @@ export function hashUserToBucket(userId) {
 
 
 /** 把 5 维 context → "d:g:b:pb:l" key (与 server 端一致, v3.0.8 起 g ∈ {rule, generative})。 */
-export function buildContextKeyV2(ctx) {
+function buildContextKeyV2(ctx) {
     return [
         ctx.difficulty || 'normal',
         ctx.generator || 'rule',
@@ -488,7 +488,7 @@ function clampInt(v, lo, hi) {
 
 
 /** 获取统计 (用于 dashboard / 调试)。 */
-export function getStatsV2() {
+function getStatsV2() {
     return {
         loaded: _policiesByCtx !== null,
         count: _policiesByCtx?.size ?? 0,
@@ -503,3 +503,5 @@ export function getStatsV2() {
         ..._stats,
     };
 }
+
+module.exports = { _uninstallBundleUpdateChannelForTest, _uninstallMetaPollingForTest, buildContextKeyV2, DEFAULT_THETA_V2, getStatsV2, hashUserToBucket, installPoliciesV2, resolveThetaV2, THETA_RANGES, uninstallPoliciesV2 };

@@ -47,6 +47,8 @@ class GameController {
 
     this._maxCombo = 0;
     this._missCount = 0;
+    this._lastSpawnIntent = null;
+    this._lastSpawnIntentAge = 0;
 
     this.reset();
   }
@@ -64,6 +66,8 @@ class GameController {
     this._roundClearCount = 0;
     this._maxCombo = 0;
     this._missCount = 0;
+    this._lastSpawnIntent = null;
+    this._lastSpawnIntentAge = 0;
     if (this._profile && typeof this._profile.recordNewGame === 'function') {
       this._profile.recordNewGame();
     }
@@ -111,6 +115,7 @@ class GameController {
 
   _spawnDock({ ensureMove = false } = {}) {
     const layered = this._resolveSpawnStrategy();
+    this._captureSpawnIntent(layered);
     /* 与 Web Game.spawnBlocks 对齐：adaptiveSpawn 产出 scoreMilestone 后，
      * 在传入 generateDockShapes 前桥接到 spawnContext；special / duplicate
      * 节流计数也在出块入口 +1，让 blockSpawn 的 gate 读到同一语义。 */
@@ -217,6 +222,28 @@ class GameController {
 
   _resolveSpawnStrategy() {
     const fill = this.grid?.getFillRatio?.() || 0;
+    const _difficulty = (this.strategyId === 'hard' || this.strategyId === 'normal') ? this.strategyId : 'easy';
+    const _generator = (this.strategyId === 'hard') ? 'budget-p2' : 'triplet-p1';
+    const _bestScore = Math.max(
+      this._bestScore,
+      Number(this._profile?.personalBest || this._profile?.bestScore || 0),
+    );
+    const _pbBin = _bestScore < 500 ? 500
+      : _bestScore < 1500 ? 1500
+        : _bestScore < 4000 ? 4000
+          : _bestScore < 10000 ? 10000 : 25000;
+    const _totalRounds = Number(this._profile?.totalRounds || this._spawnContext?.totalRounds || 0);
+    const _lifecycle = _totalRounds < 5 ? 'onboarding'
+      : _totalRounds < 30 ? 'growth'
+        : _totalRounds < 100 ? 'mature' : 'plateau';
+    const _tuningCtx = {
+      difficulty: _difficulty,
+      generator: _generator,
+      bot_policy: 'clear-greedy',
+      pb_bin: _pbBin,
+      lifecycle_stage: _lifecycle,
+      userId: this._profile?.userId || '',
+    };
     return resolveAdaptiveStrategy(
       this.strategyId,
       this._profile,
@@ -226,12 +253,26 @@ class GameController {
       {
         ...(this._spawnContext || {}),
         bestScore: this._bestScore,
+        tuningV2Context: _tuningCtx,
+        prevSpawnIntent: this._lastSpawnIntent ?? null,
+        prevSpawnIntentAge: this._lastSpawnIntentAge ?? 0,
         _gridRef: this.grid,
         _dockShapePool: (this.dock || [])
           .filter((b) => b && !b.placed && Array.isArray(b.shape))
           .map((b) => ({ data: b.shape })),
       },
     );
+  }
+
+  /** 与 web Game._captureAdaptiveInsight 的 spawnIntent dwell 维护对齐 */
+  _captureSpawnIntent(layered) {
+    const newIntent = layered?._spawnIntent ?? layered?.spawnHints?.spawnIntent ?? null;
+    if (newIntent && this._lastSpawnIntent === newIntent) {
+      this._lastSpawnIntentAge = (this._lastSpawnIntentAge ?? 0) + 1;
+    } else {
+      this._lastSpawnIntentAge = 0;
+    }
+    this._lastSpawnIntent = newIntent;
   }
 
   _commitSpawnContext(layered) {
