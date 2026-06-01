@@ -696,34 +696,86 @@ export class Game {
     }
 
     async init() {
+        let serverPb = 0;
         try {
             await this.db.init();
             const { hydrateWalletFromApi } = await import('./skills/wallet.js');
             await hydrateWalletFromApi(this.db.userId);
-            this.bestScore = await this.db.getBestScore();
-            this._bestScoreAtRunStart = this.bestScore || 0;
-            /* v1.55 §4.4：读当前难度档对应的分桶 PB；优先展示分桶 PB（更精确，
-             * 反映"在此难度下的个人最佳"）；服务器全账号 PB 仍作为 fallback。
-             * 分桶 PB 若高于服务器 PB，沿用服务器值不覆盖（避免本地客户端外挂）。 */
-            const bucketPb = getBestByStrategy(this.strategy);
-            this._bestScoreByStrategy = bucketPb;
-            if (bucketPb > 0 && bucketPb <= this.bestScore) {
-                /* 分桶 PB 是合法子集（≤ 总 PB），用它作为本难度档 HUD 展示。 */
-                this.bestScore = bucketPb;
-                this._bestScoreAtRunStart = bucketPb;
-            }
+            serverPb = Number(await this.db.getBestScore()) || 0;
             const stats = await this.db.getStats();
             this.playerProfile.ingestHistoricalStats(stats);
         } catch (err) {
-            console.error('SQLite API 初始化失败:', err);
-            this.bestScore = 0;
-            this._bestScoreAtRunStart = 0;
+            /* v1.61.14 离线优先 PB：服务端不可达（安卓 / iOS 原生离线、网络异常）时
+             * 不再把 bestScore 清零——改由 _resolveBestScore 用本地分桶 / legacy PB 兜底，
+             * 保证 PB 追击压力（百分位映射 / challengeBoost / pbChase）在离线下照常生效。 */
+            console.error('SQLite API 初始化失败（离线降级，使用本地 PB）:', err);
+            serverPb = 0;
         }
+        this._resolveBestScore(serverPb);
         this.bindEvents();
         this.updateShellVisibility();
         this.updateUI();
         this.render();
         this._startAmbientFxLoop();
+    }
+
+    /**
+     * 离线优先的 PB 解析（v1.61.14，安卓 / iOS / web 通用）。
+     *
+     * - 服务端 PB 可用（>0）：账号 PB 为基准；分桶 PB（按当前难度）是其合法子集时用于
+     *   HUD 展示；若本地 PB（离线期间刷新但尚未同步）领先服务端，则采用本地并回推同步。
+     * - 服务端不可用（=0，离线 / 网络异常）：使用本地分桶 PB（legacy 全账号 key 兜底），
+     *   不再清零。
+     *
+     * 下游：difficulty.getSpawnStressFromScore 百分位映射 + adaptiveSpawn challengeBoost /
+     * pbChase 均通过 _spawnContext.bestScore（start() 时取 this.bestScore 快照）消费，
+     * 因此此处把 this.bestScore 解析正确即可让离线难度随接近 PB 加压。
+     *
+     * 反作弊：异常单局高分仍由 endGame 的 SANITY 守卫（previousBest × multiplier）拦截，
+     * 不写入本地 / 服务端 PB；这里信任的本地分桶值来自正常对局结算。
+     *
+     * @param {number} serverPb 服务端账号 PB（离线 / 失败时传 0）
+     */
+    _resolveBestScore(serverPb) {
+        const sPb = Math.max(0, Number(serverPb) || 0);
+        const bucketPb = Math.max(0, Number(getBestByStrategy(this.strategy)) || 0);
+        let legacyPb = 0;
+        try {
+            if (typeof localStorage !== 'undefined') {
+                legacyPb = parseInt(localStorage.getItem('openblock_best_score') || '0', 10) || 0;
+            }
+        } catch { /* ignore privacy mode */ }
+        const localPb = Math.max(bucketPb, legacyPb);
+        this._bestScoreByStrategy = bucketPb;
+
+        let resolved;
+        if (sPb > 0) {
+            if (localPb > sPb) {
+                /* 本地领先服务端（离线刷新尚未同步）→ 采用本地并回推服务端 */
+                resolved = localPb;
+                this._syncBestScoreToServer(localPb);
+            } else if (bucketPb > 0 && bucketPb <= sPb) {
+                /* 分桶 PB 是账号 PB 的合法子集 → 按当前难度展示 */
+                resolved = bucketPb;
+            } else {
+                resolved = sPb;
+            }
+        } else {
+            /* 离线 / 服务端不可用 → 本地 PB 兜底（核心修复点） */
+            resolved = localPb;
+        }
+        this.bestScore = resolved;
+        this._bestScoreAtRunStart = resolved || 0;
+    }
+
+    /** 把本地 PB 回推服务端（best-effort：离线 / 失败静默，不阻塞主流程）。 */
+    _syncBestScoreToServer(score) {
+        const s = Math.max(0, Number(score) || 0);
+        if (s <= 0) return;
+        try {
+            if (!this.db || this.db._ready !== true || typeof this.db.saveScore !== 'function') return;
+            Promise.resolve(this.db.saveScore(s, this.strategy)).catch(() => { /* ignore */ });
+        } catch { /* ignore */ }
     }
 
     /**
@@ -742,12 +794,14 @@ export class Game {
         try {
             const bucketPb = getBestByStrategy(this.strategy);
             if (!Number.isFinite(bucketPb) || bucketPb <= 0) return false;
-            /* 仅在分桶 PB ≤ 总账号 PB 且与当前内存值不同时才采用。
+            /* v1.61.14 离线优先：只要分桶 PB 高于当前内存 PB 就采用（含 hydrate 把远端
+             * 分桶值写入 localStorage 后的对齐、以及离线期间本地刷新的 PB）。
+             * 不再要求"≤ 账号 PB"——旧的"服务端为唯一上限"护栏会在离线（账号 PB=0）时
+             * 丢弃本地 PB。异常高分仍由 endGame 的 SANITY 守卫拦截。
              * 注意：_bestScoreAtRunStart 已被 init() / start() 写入；这里同步更新它，
              * 让本局接下来的"新纪录判定基线"也对齐到分桶 PB。 */
-            const accountPb = Math.max(Number(this.bestScore) || 0, Number(this._bestScoreByStrategy) || 0);
-            if (bucketPb > accountPb) return false;
-            if (bucketPb === this.bestScore) return false;
+            const cur = Number(this.bestScore) || 0;
+            if (bucketPb <= cur) return false;
             this._bestScoreByStrategy = bucketPb;
             this.bestScore = bucketPb;
             if (!this.isGameOver && this.score === 0) {
@@ -1509,17 +1563,21 @@ export class Game {
                 }
                 const touch = e.touches ? e.touches[0] : e;
                 const inputType = e.pointerType === 'touch' || e.touches ? 'touch' : 'mouse';
-                if (e.pointerId != null && canvas.setPointerCapture) {
-                    try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+                /* v1.61.15：在整个候选槽（.dock-block）上捕获指针，而不仅是 canvas，
+                 * 配合下方把监听挂到 div + CSS 留白，扩大可点击/起拖热区——此前只有
+                 * 点中绘制出的方块本身才能激活拖放，槽位留白与块间空隙都点不动。 */
+                const captureEl = e.currentTarget || div;
+                if (e.pointerId != null && captureEl?.setPointerCapture) {
+                    try { captureEl.setPointerCapture(e.pointerId); } catch { /* ignore */ }
                 }
                 this.startDrag(idx, touch.clientX, touch.clientY, inputType);
             };
 
             if (typeof window !== 'undefined' && window.PointerEvent) {
-                canvas.addEventListener('pointerdown', startDrag);
+                div.addEventListener('pointerdown', startDrag);
             } else {
-                canvas.addEventListener('mousedown', startDrag);
-                canvas.addEventListener('touchstart', startDrag, { passive: false });
+                div.addEventListener('mousedown', startDrag);
+                div.addEventListener('touchstart', startDrag, { passive: false });
             }
             div.appendChild(canvas);
             dock.appendChild(div);
@@ -1675,7 +1733,13 @@ export class Game {
         // v2.10.18 (G11): 构造 SpawnParamTuner v2 client context (供 adaptiveSpawn 内 resolveThetaV2)
         // 5 维 ctx + userId; 维度值跟 v2 sample 同源 (rl_pytorch/spawn_tuning_v2/feature_io.py)
         const _difficulty = (this.strategy === 'hard' || this.strategy === 'normal') ? this.strategy : 'easy';
-        const _generator = (this.strategy === 'hard') ? 'budget-p2' : 'triplet-p1';
+        /* v3.0.8 修复（出块寻参 θ 在移动端/web 从未命中的根因）：
+         * generator 维度必须与 getSpawnPolicyMode() 严格 1:1（'rule' / 'generative'），与采样口径
+         * （samplerV2.VALID_GENERATORS_SAMPLER）、局后上报口径（endGame reportEpisode, 见 _v2_gen）、
+         * 以及 bundle 的 context_key 完全对齐。此前误用按难度切的 'triplet-p1' / 'budget-p2'（那是
+         * 启发式内部形状变体，与 v2 generator 维度无关），导致 resolveThetaV2 的 exact/fuzzy/coarse
+         * 三层查表全部 miss → 100% 回落 DEFAULT_THETA_V2，部署的 360 条寻参 θ 实际从未生效。 */
+        const _generator = getSpawnPolicyMode() === SPAWN_MODE_MODEL_V3 ? 'generative' : 'rule';
         const _bestScore = Number(this.playerProfile?.personalBest || this.playerProfile?.bestScore || 0);
         // pb_bin: 5 档 (500, 1500, 4000, 10000, 25000) — 取最近 (≤) bin
         const _pbBin = _bestScore < 500 ? 500
@@ -1694,6 +1758,26 @@ export class Game {
             lifecycle_stage: _lifecycle,
             userId: this.playerProfile?.userId || '',
         };
+        /* v3.0.8 修复 #2：把命中的寻参 θ 落到 _spawnContext.modelConfig，让 C/D/E 共 ~19 维真正生效：
+         *   C 组 augmentPool 乘性加权（blockSpawn.js 读 ctx.modelConfig）
+         *   D 组 deriveSpawnTargets 翻译矩阵 + E 组 PB 段弯折（adaptiveSpawn.js 读 ctx.modelConfig）
+         * 此前生产路径从不写 modelConfig，仅 derivePbCurve 的 4 维 PB 曲线（B 组）经 _tuningTheta 接通。
+         * resolveAdaptiveStrategy 收到 { ...this._spawnContext } → D/E 可见；generateDockShapes 收到
+         * this._spawnContext → C 可见。
+         * 仅在「真实命中策略」(exact / fuzzy-lifecycle / coarse-gen) 时注入；未命中显式清为 null，
+         * 让各 consumer 沿用历史硬默认，避免 fallback 多数局相对 baseline 产生行为漂移。 */
+        try {
+            const _pol = (typeof window !== 'undefined') ? window.__openblockClientPolicyV2 : null;
+            const _r = _pol && typeof _pol.resolveThetaV2 === 'function'
+                ? _pol.resolveThetaV2(_tuningCtx)
+                : null;
+            const _hit = _r && (_r.source === 'exact' || _r.source === 'fuzzy-lifecycle' || _r.source === 'coarse-gen');
+            this._spawnContext.modelConfig = _hit ? _r.theta : null;
+            this._lastTuningV2Source = _r ? _r.source : 'skipped';
+        } catch {
+            this._spawnContext.modelConfig = null;
+            this._lastTuningV2Source = 'skipped';
+        }
         const layered = resolveAdaptiveStrategy(
             this.strategy, this.playerProfile, this.score, this.runStreak,
             this.grid.getFillRatio(), {
@@ -2115,18 +2199,36 @@ export class Game {
     }
 
     /**
-     * 拖拽虚拟指针：鼠标按"速度感知"动态增益（慢速 1:1 精准、快速放大省力，
-     * 类似桌面操作系统的 pointer ballistics）；触屏使用固定轻量增益并把幽灵
-     * 块抬到手指上方，避免手指压住候选块中心。
+     * 拖拽虚拟指针，两套互斥手感：
+     *   - 触摸（安卓 / iOS / 任意触屏）：1:1 直接跟手（相对抓取点缩放，track 默认 1.0），
+     *     并把幽灵块抬到手指上方避免遮挡。不套用指针加速——见下方 isTouch 分支注释。
+     *   - 鼠标：保留"速度感知"动态增益（慢速 1:1 精准、快速放大省力，类似桌面 OS 的
+     *     pointer ballistics），因为鼠标是相对定位设备且有可视光标参考。
      *
-     * 关键不变量：ghost = 鼠标位置 + _extraOffset，_extraOffset 单调累加而不重算。
-     * 即"已经被加速的部分"不会因后续慢速回调而被退回，避免 ghost 在屏幕上跳跃。
-     *
+     * 鼠标关键不变量：ghost = 鼠标位置 + _extraOffset，_extraOffset 单调累加而不重算，
+     * 即"已经被加速的部分"不会因后续慢速回调被退回，避免 ghost 在屏幕上跳跃。
      * 鼠标增益曲线（仅基于瞬时帧间速度）：
      *   speed ≤ SLOW  → DRAG_MOUSE_GAIN_MIN（1.0）  → 本帧增量按原值累加（_extraOffset 不增）
      *   speed ≥ FAST  → DRAG_MOUSE_GAIN（1.32）     → 本帧增量额外贡献 32% 到 _extraOffset
      *   中间段在二者之间线性插值
      */
+    /** 是否安卓客户端（含鸿蒙自带 WebView）。注意：拖拽手感已不再依赖此探测——所有触摸
+     * 统一走 1:1；此方法仍用于音频滤波 / 触感 / dock DPR 等其它安卓特化路径。 */
+    _isAndroidClient() {
+        try {
+            if (typeof document !== 'undefined'
+                && document.documentElement.classList.contains('android-client')) {
+                return true;
+            }
+            const cap = typeof window !== 'undefined' ? window.Capacitor : null;
+            if (typeof cap?.getPlatform === 'function' && cap.getPlatform() === 'android') return true;
+            const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+            return /android|harmony|huawei/i.test(ua);
+        } catch {
+            return false;
+        }
+    }
+
     _applyDragPointerGain(x, y) {
         if (!this.drag) {
             return { x, y };
@@ -2136,6 +2238,32 @@ export class Game {
         if (!this.drag._extraOffset) {
             this.drag._extraOffset = { x: 0, y: 0 };
         }
+
+        /* 触摸是绝对定位的「直接操控」，必须 1:1 跟手——指针加速（pointer ballistics）是
+         * 「相对定位设备」（鼠标 / 触控板）才有的概念，套到触摸上会让幽灵块随采样噪声放大、
+         * 漂在手指前方且忽远忽近，表现为「拖动过于敏感 / 乱飘 / 几乎无法操作」，在安卓 / 鸿蒙
+         * 高 DPR WebView 上尤其严重。
+         *
+         * 因此：所有触摸输入（安卓 / iOS / 任意触屏，不依赖平台探测）一律走「相对抓取点缩放」
+         * 的稳定跟手——幽灵块相对起手点的位移 = 手指位移 × track（默认 1.0 即标准休闲游戏的
+         * 1:1 直接跟手）。不做逐帧速度增益累加，因此不随距离漂移、轨迹完全可预测；配合下游
+         * 网格吸附（ghostAimOnGrid / naiveAnchorFromAim），亚格级手抖不会改变落点。
+         * 仅鼠标保留速度感知 ballistics（见下方）。 */
+        if (isTouch) {
+            this.drag._lastPointer = {
+                x, y,
+                t: (typeof performance !== 'undefined' ? performance.now() : Date.now()),
+            };
+            const trackRaw = Number(CONFIG.DRAG_TOUCH_TRACK_GAIN);
+            const track = Number.isFinite(trackRaw) && trackRaw > 0 ? trackRaw : 1;
+            const sx = Number.isFinite(this.drag.startX) ? this.drag.startX : x;
+            const sy = Number.isFinite(this.drag.startY) ? this.drag.startY : y;
+            return {
+                x: sx + (x - sx) * track + this.drag._extraOffset.x,
+                y: sy + (y - sy) * track + this.drag._extraOffset.y - this._touchDragLiftPx(),
+            };
+        }
+
         const last = this.drag._lastPointer;
         const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -3133,7 +3261,14 @@ export class Game {
                     console.warn('[lifecycle] onSessionEnd failed:', e?.message || e);
                 }
 
-                await this.saveSession();
+                /* v1.61.14 离线优先：会话落库走服务端，离线必失败。这里 fail-soft，
+                 * 避免抛错跳过后面「本地分桶 PB 持久化」(submitScoreToBucket) ——
+                 * 否则离线时 PB 永远写不进 localStorage，难度也就无从随接近 PB 加压。 */
+                try {
+                    await this.saveSession();
+                } catch (e) {
+                    console.warn('[endGame] saveSession 失败（离线降级，不阻塞本地 PB 持久化）:', e?.message || e);
+                }
 
                 const persistedBestBase = this._bestScoreAtRunStart ?? this.bestScore;
                 if (this.score > persistedBestBase) {
@@ -3179,7 +3314,14 @@ export class Game {
                             { previousBest: persistedBestBase, claimedBest: this.score });
                     } else {
                         this.bestScore = this.score;
-                        await this.db.saveScore(this.score, this.strategy);
+                        /* v1.61.14 离线优先：服务端提交 best-effort——离线失败也不影响
+                         * 内存 PB 抬升与下方 legacy / 分桶 PB 的本地持久化；下次联网时
+                         * init() 的 _resolveBestScore 会把本地领先值回推服务端同步。 */
+                        try {
+                            await this.db.saveScore(this.score, this.strategy);
+                        } catch (e) {
+                            console.warn('[endGame] saveScore 失败（离线降级，本地 PB 仍保留）:', e?.message || e);
+                        }
                         /* v1.55.10 修复 PB 风险 5（双源同步）：破全账号 PB 时同步更新
                          * legacy `openblock_best_score`，保证：
                          *   1) socialLeaderboard.getMyBestScore 的兜底分支可用；

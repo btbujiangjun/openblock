@@ -100,14 +100,41 @@ export function vibrate(pattern) {
     /* iOS 浏览器：无操作 */
 }
 
+/** 是否安卓平台（Capacitor 原生 / 鸿蒙自带 WebView / Android 浏览器） */
+function _isAndroidPlatform() {
+    try {
+        const cap = typeof window !== 'undefined' ? window.Capacitor : null;
+        if (typeof cap?.getPlatform === 'function') {
+            const p = cap.getPlatform();
+            if (p === 'android') return true;
+            if (p === 'ios') return false;
+        }
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+        return /android|harmony|huawei/i.test(ua);
+    } catch {
+        return false;
+    }
+}
+
 /** 原生 Capacitor 振动（带 ImpactStyle 最优映射） */
 async function _vibrateNative(pattern) {
     const mod = await _getHaptics();
     if (!mod) return;
     const { Haptics, ImpactStyle } = mod;
+    const arr = Array.isArray(pattern) ? pattern : [pattern];
     try {
+        /* 安卓/鸿蒙（v1.61.13）：复合 pattern 不再逐段多次 impact。安卓振动马达较粗，
+         * 连续多次 impact 会形成高频连续抖动，体感像"震屏"。统一收敛为单次 impact，
+         * 强度取 pattern 中最强段，既保留"放置/消行/清屏"的轻重区分，又消除高频抖动。 */
+        if (_isAndroidPlatform()) {
+            const peak = arr.reduce((m, v, i) => (i % 2 === 0 ? Math.max(m, Number(v) || 0) : m), 0);
+            const style = peak >= 40 ? ImpactStyle.Heavy
+                : peak >= 20 ? ImpactStyle.Medium
+                : ImpactStyle.Light;
+            await Haptics.impact({ style });
+            return;
+        }
         /* 单次短振动 → Impact；多步模式 → vibrate（Android only native）或多次 Impact */
-        const arr = Array.isArray(pattern) ? pattern : [pattern];
         const firstMs = arr[0] ?? 10;
         if (arr.length <= 1 || arr.every((v, i) => i % 2 === 0 && v <= 30)) {
             /* 短振动：用 Impact（iOS 有精确触觉马达反馈） */

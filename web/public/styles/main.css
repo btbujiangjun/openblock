@@ -1623,6 +1623,11 @@ body.game-rl-preview .block-dock {
     min-width: 0;
     cursor: grab;
     transition: opacity 0.15s ease;
+    /* v1.61.15：起拖热区扩大到整个候选槽（含块四周留白），不再只有方块本身可点。
+     * box-sizing:border-box 下 padding 吃进自身尺寸，canvas(max-width:100%) 同步微缩，
+     * 既给到容错点击边距又不撑破窄屏布局。touch-action:none 让槽内留白处起拖也不滚动。 */
+    padding: 6px;
+    touch-action: none;
 }
 
 /* 候选 canvas 内部按 CELL_SIZE=38px 绘制 5×5 格 = 190px 逻辑尺寸；
