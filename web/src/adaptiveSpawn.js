@@ -2089,9 +2089,7 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (ctx.tuningV2Context) {
         try {
             // 动态 import 避免循环 (adaptiveSpawn 是底层, clientPolicyV2 是上层)
-            const mod = (typeof globalThis !== 'undefined' && globalThis.__openblockClientPolicyV2)
-                || (typeof window !== 'undefined' && window.__openblockClientPolicyV2)
-                || null;
+            const mod = (typeof window !== 'undefined') ? window.__openblockClientPolicyV2 : null;
             if (mod && typeof mod.resolveThetaV2 === 'function') {
                 const r = mod.resolveThetaV2(ctx.tuningV2Context);
                 _tuningTheta = r.theta;

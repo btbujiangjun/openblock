@@ -1559,6 +1559,11 @@ export class Renderer {
     /** 判断 fxCanvas 当前是否有任何需要呈现的内容 */
     _hasFxContent() {
         if (!this._effectsEnabled) return false;
+        /* 外挂渲染钩子（如 hintEconomy 的最佳落点高亮）在 fxCanvas 上绘制，
+         * 但它们的状态不在 renderer 内部。这里读一个外部可设的标志，避免
+         * 常规皮肤（无环境粒子）静置时 fxCanvas 被 display:none 下沉，导致
+         * 高亮画了却看不见。 */
+        if (this._externalFxActive) return true;
         if (this.hasAmbientMotion()) return true;
         if (this.particles && this.particles.length > 0) return true;
         if (this.iconParticles && this.iconParticles.length > 0) return true;

@@ -1501,19 +1501,6 @@ export class Game {
             const idx = i;
             const blk = block;
             const startDrag = (e) => {
-                /* v10.16.7：hint 瞄准模式下，把点击交给 hintEconomy 处理，
-                 * 不启动拖拽（避免候选块因 pointerdown 进入 drag 抢走 hint）。 */
-                if (typeof window !== 'undefined' && window.__hintEconomy?.isHintAiming?.()) {
-                    e.preventDefault();
-                    if (typeof e.stopPropagation === 'function') e.stopPropagation();
-                    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-                    try {
-                        window.__hintEconomy.consumeHintAimAt(idx);
-                    } catch (err) {
-                        console.warn('[hint] consumeHintAimAt failed', err);
-                    }
-                    return;
-                }
                 e.preventDefault();
                 /* v1.61：不再因 this.isAnimating 阻塞——消行视觉特效期间盘面状态已结算，
                  * 允许玩家立即抓取候选区剩余块继续放置，保住连续消行的爽感。 */

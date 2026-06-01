@@ -321,28 +321,12 @@ module.exports = {
       }
     ],
     "pacing": {
-      "comment": "节奏张弛：每 cycleLength 轮出块为一个周期，前 tensionPhases 轮略加压，后面轮次释放。参考音乐副歌-间奏结构。v1.62.8：加 deadzoneEnabled=true + deadzoneFrames=2 —— pacing 刚切相的前 2 帧 pacingAdjust=0（让玩家先感受新节奏再叠加 ±0.12），把 pacingAdjust 平均绝对值从 ≈0.08 降到 ≈0.04，stress 主导分量从『50% 局是 pacingAdjust』下降。",
+      "comment": "节奏张弛：每 cycleLength 轮出块为一个周期，前 tensionPhases 轮略加压，后面轮次释放。参考音乐副歌-间奏结构，避免单调递增的难度导致倦怠。",
       "enabled": true,
       "cycleLength": 5,
       "tensionPhases": 3,
       "tensionBonus": 0.04,
-      "releaseBonus": -0.12,
-      "deadzoneEnabled": true,
-      "deadzoneFrames": 2
-    },
-    "sessionArcCfg": {
-      "comment": "v1.62.5 优化建议 #3：peak 段加压补全半圆弧。profileAudit 巡检显示 session-arc-warm-to-cool 67% 违规——sessionArc 全程为负、peak 段 sessionArcAdjust=0 没有正向输出。peakBoostEnabled=true + peakBoost=0.05 让 mid-session（momentum 在 [-0.2, 0.3] 区间）的中段获得轻微加压，形成『开头负→中段正→收官略负』的标准半圆弧。",
-      "peakBoostEnabled": true,
-      "peakBoost": 0.05
-    },
-    "spawnIntentCfg": {
-      "comment": "v1.62.5 优化建议 #5：spawnIntent 滞回。v1.62.7 加 harvestStickyMode 后违规率仍 80%。v1.62.8 加 dwellFrames（最小停留帧数）—— 真实根因是多状态间小幅高频抖动（maintain↔flow↔engage↔harvest），仅靠边界扩展无法抑制。dwellFrames=3 表示进入某 intent 后 3 帧内不允许再切（relief/pressure 紧急路径除外）；强制系统消化完上次决策。预期把违规率从 80% 降到 ≤30%。可调 0 禁用、5+ 更激进。",
-      "hysteresisEnabled": true,
-      "sprintExpand": 0.05,
-      "sprintShrink": 0.05,
-      "reliefMargin": 0.05,
-      "harvestStickyMode": true,
-      "dwellFrames": 3
+      "releaseBonus": -0.12
     },
     "engagement": {
       "comment": "参与度信号：首局保护、挫败回弹、差一点放大、新鲜感注入。",
@@ -385,8 +369,7 @@ module.exports = {
       "biasClamp": 0.22
     },
     "signals": {
-      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。v1.62.5 优化建议 #1：__normalizeBudget 把所有非豁免 *Adjust 分量统一钳制到 ±N，防止 pacingAdjust 等强势分量长期主导（巡检显示 67% 局 pacingAdjust 单独占主导，自适应未充分介入）。豁免列表见 adaptiveSpawn.js _NORMALIZE_EXEMPT（difficultyBias / challengeBoost / 救济类信号本就需要更大幅度）。",
-      "__normalizeBudget": 0.05,
+      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。",
       "scoreStress": {
         "enabled": true,
         "scale": 1
@@ -563,11 +546,7 @@ module.exports = {
       "flowBoredAdjust": 0.08,
       "flowAnxiousAdjust": -0.12,
       "recoveryAdjust": -0.2,
-      "comboRewardAdjust": 0.05,
-      "flowSoftEdge_comment": "v1.62.8：flowAdjust 软边界。原行为只在 flow ∈ {bored, anxious} 时输出，neutral 区域硬置 0，与 flowDeviation 出现断层 → flowAdjust-tracks-flowDeviation 巡检 40% 违规。softEdgeEnabled=true 时，neutral 状态下 |flowDeviation| ≥ softEdgeMin 仍按 0.5× baseStep 线性外推，让 flowAdjust 连续跟踪 flowDeviation 方向。",
-      "softEdgeEnabled": true,
-      "softEdgeMin": 0.05,
-      "softEdgeMax": 0.2
+      "comboRewardAdjust": 0.05
     },
     "reactionAdjust": {
       "comment": "v1.46『反应』指标 → stress 微调：startDrag→落子的纯执行段（pickToPlaceMs）落入快/慢尾部区间时，对 stress 施加 ±maxAdjust 的轻微偏移；中段（fast~slow 之间）零作用。阈值按本地回放有效样本分布校准：p5≈929ms、p50≈1447ms、p95≈2140ms，因此 fastMs=900、slowMs=2200；fastFullMs/slowFullMs 定义饱和区，让极端快/慢反应能真正接近 ±maxAdjust。仅当 reactionSamples ≥ minSamples 时启用，避免冷启动单点噪声；钳值刻意比 flowAdjust 小一个量级，作为现有信号的一个轻量补充而非主导项。",
@@ -581,28 +560,10 @@ module.exports = {
     },
     "realtimeStateTuning": {
       "comment": "基于历史实时状态序列的复合早期救济：低消行+中高板面提前防挫败，高板面+挫败处理死局感合流，anxious+高认知负荷降低决策复杂度；同时在困境中削弱长期偏正的 feedbackBias。",
-      "preFrustrationRelief": {
-        "enabled": true,
-        "clearRateMax": 0.25,
-        "boardFillMin": 0.45,
-        "maxRelief": 0.06
-      },
-      "boardFrustrationRelief": {
-        "enabled": true,
-        "boardFillMin": 0.58,
-        "frustrationMin": 3,
-        "maxRelief": 0.12
-      },
-      "decisionLoadRelief": {
-        "enabled": true,
-        "cognitiveLoadMin": 0.6,
-        "maxRelief": 0.07
-      },
-      "feedbackBiasDamping": {
-        "enabled": true,
-        "factor": 0.5,
-        "maxDamping": 0.08
-      }
+      "preFrustrationRelief": { "enabled": true, "clearRateMax": 0.25, "boardFillMin": 0.45, "maxRelief": 0.06 },
+      "boardFrustrationRelief": { "enabled": true, "boardFillMin": 0.58, "frustrationMin": 3, "maxRelief": 0.12 },
+      "decisionLoadRelief": { "enabled": true, "cognitiveLoadMin": 0.60, "maxRelief": 0.07 },
+      "feedbackBiasDamping": { "enabled": true, "factor": 0.5, "maxDamping": 0.08 }
     },
     "solutionDifficulty": {
       "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.1 P1：在 0.35→0.6 之间补 '渐紧' 一档（minStress=0.5, max=64），让中段 stress 也有可感知难度差，消除 0.55 跨阈值前的'无感区'。v1.57.2：新增 holeIncrement.ranges——在解空间宽度之外引入'空洞强迫度'第二维度（详见 holeIncrement.comment）。",

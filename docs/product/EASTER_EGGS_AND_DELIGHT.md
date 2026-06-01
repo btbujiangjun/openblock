@@ -730,6 +730,17 @@ function _installAimListener() {
 - 长按 mousedown / touchstart / move / up / cancel 的 5 类事件回调移除
 - `MutationObserver` 仅保留用于「拖拽真正启动时清除 hint 高亮」的少量逻辑（不再用于隐藏长按 timer）
 
+#### v10.16.7 渲染回归修复（高亮在常规皮肤上不显示）
+
+**症状**：瞄准模式下点击候选块后「没有显示提示，候选区失焦」。
+
+**根因**：hint 高亮通过 hook `renderer.renderAmbient` 画在 fxCanvas 上。但 v1.55.12 的 GPU 优化会在 `render()` 末尾调用 `syncFxCanvasVisibility()` → `_hasFxContent()`；该判定**不认识 hint 高亮**，在没有环境粒子的 30+ 常规皮肤上返回 `false`，于是 fxCanvas 被 `display:none` 下沉合成层——高亮画了却看不见。同时单次 `markDirty` 后盘面静止，脉动动画不跑、TTL 不再被检查。`exitAim` 移除候选区脉动光晕即用户感知的「失焦」。
+
+**修复**：
+- `renderer._hasFxContent()` 增加 `if (this._externalFxActive) return true;`，让外挂渲染钩子可声明「fxCanvas 有内容」。
+- `hintEconomy` 在高亮激活期间：① 置 `renderer._externalFxActive = true` 保持 fxCanvas 可见；② 自驱动一个 rAF 循环每帧 `markDirty`，维持脉动动画并检查 4.5s TTL；③ 过期 / 拖拽开始时统一经 `_hideHint()` 收口（取消 rAF + 复位标志 + 末帧清除）。
+- `_drawHintOverlay` 不再在 render 过程中改状态，TTL 收口到循环。
+
 #### 测试新增（4 例）
 
 `tests/skillsHintEconomy.test.js`（→ 12 例）：

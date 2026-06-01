@@ -32,35 +32,12 @@ import { enterAim, exitAim, isAiming } from './aimManager.js';
 
 const SKILL_ID = 'hint-quick';
 
-/* v10.16.7：暴露给 game.js startDrag 直接探测的"是否处于 hint 瞄准模式 + 触发"接口。
- *
- * 为什么不再只依赖 dock 上的 capture 监听？
- *   - `game.js` 在支持 PointerEvent 的浏览器/触屏上把 startDrag 注册成
- *     **dock-block 子元素 canvas 的 `pointerdown` listener**。
- *   - 现实中事件传播顺序受到 PointerCapture / passive listener / Capacitor
- *     WebView 等因素干扰，dock 上的 capture pointerdown 偶发性"晚于" canvas
- *     上的 pointerdown 直接触发，导致 startDrag 抢先执行，候选区随即进入
- *     拖拽态（canvas 透明度 0.3，body.block-drag-active），外观上像"失焦"。
- *   - 把判定逻辑下沉到 startDrag 入口，是釜底抽薪的写法：startDrag 看到
- *     正在 hint 瞄准就转交给 hintEconomy 处理，不再启动拖拽。
- */
-export function isHintAiming() {
-    return isAiming(SKILL_ID);
-}
-
-export function consumeHintAimAt(blockIdx) {
-    if (!isAiming(SKILL_ID)) return false;
-    _triggerHint(blockIdx);
-    exitAim(SKILL_ID);
-    refreshSkillBar();
-    return true;
-}
-
 let _game = null;
 let _audio = null;
 let _hintActive = null;     // { gx, gy, shape, color, ttl }
 let _lastHintRenderHook = null;
 let _aimListenerInstalled = false;
+let _hintRaf = null;        // 高亮期间自驱动的 rAF，维持脉动动画 + TTL 检查
 
 export function initHintEconomy({ game, audio = null } = {}) {
     if (!game) return;
@@ -69,12 +46,6 @@ export function initHintEconomy({ game, audio = null } = {}) {
 
     _installAimListener();
     _installRendererHook(game);
-
-    /* v10.16.7：暴露到 window，供 game.js 的 startDrag 探测瞄准状态并截留点击。
-     * 避免 game.js 反向 import hintEconomy 造成循环依赖。 */
-    if (typeof window !== 'undefined') {
-        window.__hintEconomy = { isHintAiming, consumeHintAimAt };
-    }
 
     registerSkill({
         id: SKILL_ID,
@@ -195,14 +166,42 @@ function _triggerHint(blockIdx) {
     };
     _audio?.play?.('tick');
     refreshSkillBar();
+    _startHintLoop();
+}
+
+/**
+ * 高亮期间自驱动一个 rAF 循环：
+ *  - 维持 fxCanvas 可见（renderer._externalFxActive 标志）
+ *  - 每帧 markDirty 让 render() 重跑，hint 脉动动画才会动、TTL 才会被检查
+ *  - 盘面本身静止时也不会卡住高亮（不依赖环境粒子/拖拽等其它重绘驱动）
+ */
+function _startHintLoop() {
+    if (!_game) return;
+    if (_game.renderer) _game.renderer._externalFxActive = true;
     _game.markDirty?.();
+    if (_hintRaf != null || typeof requestAnimationFrame !== 'function') return;
+    const tick = () => {
+        _hintRaf = null;
+        if (!_hintActive) return;
+        if (performance.now() > _hintActive.ttl) {
+            _hideHint();
+            return;
+        }
+        _game?.markDirty?.();
+        _hintRaf = requestAnimationFrame(tick);
+    };
+    _hintRaf = requestAnimationFrame(tick);
 }
 
 function _hideHint() {
-    if (_hintActive) {
-        _hintActive = null;
-        _game?.markDirty?.();
+    if (_hintRaf != null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(_hintRaf);
     }
+    _hintRaf = null;
+    const had = !!_hintActive;
+    _hintActive = null;
+    if (_game?.renderer) _game.renderer._externalFxActive = false;
+    if (had) _game?.markDirty?.();
 }
 
 /* -----------------------------------------------------------
@@ -231,10 +230,9 @@ function _installRendererHook(game) {
 
 function _drawHintOverlay(r) {
     if (!_hintActive || !r.fxCtx) return;
-    if (performance.now() > _hintActive.ttl) {
-        _hintActive = null;
-        return;
-    }
+    /* TTL 到期的清理交给 _startHintLoop 的 rAF（统一收口标志位 / 循环），
+     * 这里仅在过期时跳过绘制，避免在 render() 过程中改状态引发副作用。 */
+    if (performance.now() > _hintActive.ttl) return;
     const cs = r.cellSize;
     const ctx = r.fxCtx;
     ctx.save();
@@ -264,6 +262,10 @@ function _drawHintOverlay(r) {
 export function __triggerHintForTest(blockIdx) { _triggerHint(blockIdx); }
 export function __getHintForTest() { return _hintActive; }
 export function __resetForTest() {
+    if (_hintRaf != null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(_hintRaf);
+    }
+    _hintRaf = null;
     _game = null;
     _audio = null;
     _hintActive = null;

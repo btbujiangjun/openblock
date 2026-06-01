@@ -82,21 +82,6 @@ def get_db():
     return db
 
 
-MP_SPAWN_BUNDLE_V2 = Path("miniprogram/core/tuning/v2/spawnPoliciesV2.js")
-MP_SPAWN_BUNDLE_LEGACY = Path("miniprogram/core/tuning/spawnPoliciesV2.js")
-
-
-def write_miniprogram_spawn_bundle_v2(bundle: dict, header_lines: List[str]) -> Path:
-    """Write CJS spawn bundle for WeChat miniprogram (canonical v2 path)."""
-    MP_SPAWN_BUNDLE_V2.parent.mkdir(parents=True, exist_ok=True)
-    header = "/**\n" + "\n".join(f" * {line}" for line in header_lines) + "\n */\n"
-    body = header + "module.exports = " + json.dumps(bundle, ensure_ascii=False, indent=2) + ";\n"
-    MP_SPAWN_BUNDLE_V2.write_text(body, encoding="utf-8")
-    if MP_SPAWN_BUNDLE_LEGACY.exists():
-        MP_SPAWN_BUNDLE_LEGACY.unlink()
-    return MP_SPAWN_BUNDLE_V2
-
-
 def ensure_schema():
     """启动时确保 schema 存在 (幂等)。"""
     db_dir = Path(DB_PATH).parent
@@ -2967,18 +2952,21 @@ def register_v2_routes(app):
 
         if include_mp:
             try:
-                mp_path = write_miniprogram_spawn_bundle_v2(
-                    bundle,
-                    [
-                        "小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)",
-                        f"自动生成于: {time.strftime('%Y-%m-%d %H:%M:%S')}",
-                        f"模型 ID: {model_id} · SHA-256: {row['sha256'] or ''}",
-                        f"策略数: {len(policies)} · 灰度: {rollout_pct}%",
-                        f"构建模式: {build_mode}",
-                        f"平均 ideal MAE: {avg_mae:.4f}",
-                        "来源: spawn_tuning_v2_backend.build_and_export()",
-                    ],
+                mp_dir = Path("miniprogram/core/tuning")
+                mp_dir.mkdir(parents=True, exist_ok=True)
+                mp_path = mp_dir / "spawnPoliciesV2.js"
+                mp_body = (
+                    "/**\n"
+                    " * 小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)\n"
+                    f" * 自动生成于: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f" * 模型 ID: {model_id} · SHA-256: {row['sha256'] or ''}\n"
+                    f" * 策略数: {len(policies)} · 灰度: {rollout_pct}%\n"
+                    f" * 构建模式: {build_mode}\n"
+                    f" * 平均 ideal MAE: {avg_mae:.4f}\n"
+                    " */\n"
+                    "module.exports = " + json.dumps(bundle, ensure_ascii=False, indent=2) + ";\n"
                 )
+                mp_path.write_text(mp_body, encoding="utf-8")
                 results["written"].append(str(mp_path))
             except Exception as e:
                 results.setdefault("errors", []).append(f"miniprogram write failed: {e}")
@@ -3035,7 +3023,7 @@ def register_v2_routes(app):
         写出 3 个文件:
           web/public/spawn-tuning-v2/policies.json         (Web/Android/iOS)
           web/public/spawn-tuning-v2/policies.meta.json    (SHA-256 / model_id / 时间)
-          miniprogram/core/tuning/v2/spawnPoliciesV2.js       (微信小程序 CJS)
+          miniprogram/core/tuning/spawnPoliciesV2.js       (微信小程序 CJS)
         """
         import hashlib
         data = request.get_json() or {}
@@ -3111,18 +3099,23 @@ def register_v2_routes(app):
 
         if include_mp:
             try:
-                mp_path = write_miniprogram_spawn_bundle_v2(
-                    bundle,
-                    [
-                        "小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)",
-                        f"自动生成于: {time.strftime('%Y-%m-%d %H:%M:%S')}",
-                        f"模型 SHA-256: {content.get('model_sha256', '')}",
-                        f"策略数: {len(policies)}",
-                        f"灰度比例: {bundle['rollout_pct']}%",
-                        "来源: spawn_tuning_v2_backend.export_bundle()",
-                        "同步脚本: scripts/sync-spawn-bundle.mjs",
-                    ],
+                mp_dir = Path("miniprogram/core/tuning")
+                mp_dir.mkdir(parents=True, exist_ok=True)
+                mp_path = mp_dir / "spawnPoliciesV2.js"
+                mp_body = (
+                    "/**\n"
+                    " * 小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)\n"
+                    f" * 自动生成于: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f" * 模型 SHA-256: {content.get('model_sha256','')}\n"
+                    f" * 策略数: {len(policies)}\n"
+                    f" * 灰度比例: {bundle['rollout_pct']}%\n"
+                    " *\n"
+                    " * 来源: spawn_tuning_v2_backend.export_bundle()\n"
+                    " * 同步脚本: scripts/sync-core.sh (复制到小程序包)\n"
+                    " */\n"
+                    "module.exports = " + json.dumps(bundle, ensure_ascii=False, indent=2) + ";\n"
                 )
+                mp_path.write_text(mp_body, encoding="utf-8")
                 results["written"].append(str(mp_path))
             except Exception as e:
                 results["errors"].append(f"miniprogram write failed: {e}")
@@ -3147,7 +3140,7 @@ def register_v2_routes(app):
         寻参」状态分裂。本 API 是「卸载部署」的唯一权威入口。
 
         POST body (全部可选):
-          include_miniprogram (default true)  — 同时移除 miniprogram/core/tuning/v2/spawnPoliciesV2.js
+          include_miniprogram (default true)  — 同时移除 miniprogram/core/tuning/spawnPoliciesV2.js
           include_dist        (default true)  — 同时移除 dist/spawn-tuning-v2/* 镜像
           rollback_db         (default true)  — 同时把当前 deployed model 置为 'rollbacked'
 
@@ -3171,8 +3164,7 @@ def register_v2_routes(app):
                 Path("dist/spawn-tuning-v2/policies.meta.json"),
             ])
         if include_mp:
-            candidates.append(MP_SPAWN_BUNDLE_V2)
-            candidates.append(MP_SPAWN_BUNDLE_LEGACY)
+            candidates.append(Path("miniprogram/core/tuning/spawnPoliciesV2.js"))
 
         for p in candidates:
             try:

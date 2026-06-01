@@ -157,6 +157,17 @@ describe('hintEconomy — _hintActive 状态', () => {
         hint.__triggerHintForTest(0);
         expect(game.markDirty).toHaveBeenCalled();
     });
+
+    it('hint 激活期间强制 renderer._externalFxActive=true（修复常规皮肤 fxCanvas 被 display:none 隐藏导致高亮看不见）', async () => {
+        const { hint } = await freshHint();
+        const game = makeGame();
+        hint.__initForTest(game);
+
+        expect(game.renderer._externalFxActive).toBeFalsy();
+        hint.__triggerHintForTest(0);
+        // 触发成功后必须把 fxCanvas 标记为"有外挂内容"，否则 syncFxCanvasVisibility 会隐藏它
+        expect(game.renderer._externalFxActive).toBe(true);
+    });
 });
 
 /* -----------------------------------------------------------
@@ -242,27 +253,6 @@ describe('hintEconomy — v10.16.6 按钮触发瞄准模式', () => {
         const before = wallet.getBalance('hintToken');
         b0.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
 
-        expect(wallet.getBalance('hintToken')).toBe(before - 1);
-        expect(hint.__getHintForTest()).not.toBeNull();
-        expect(aim.isAiming('hint-quick')).toBe(false);
-    });
-
-    it('initHintEconomy 把 isHintAiming / consumeHintAimAt 暴露到 window.__hintEconomy（供 game.js startDrag 直接探测）', async () => {
-        const { hint, wallet } = await freshHint();
-        const game = makeGame();
-
-        hint.initHintEconomy({ game });
-
-        expect(typeof window.__hintEconomy?.isHintAiming).toBe('function');
-        expect(typeof window.__hintEconomy?.consumeHintAimAt).toBe('function');
-
-        expect(window.__hintEconomy.isHintAiming()).toBe(false);
-        aim.enterAim('hint-quick');
-        expect(window.__hintEconomy.isHintAiming()).toBe(true);
-
-        const before = wallet.getBalance('hintToken');
-        const consumed = window.__hintEconomy.consumeHintAimAt(0);
-        expect(consumed).toBe(true);
         expect(wallet.getBalance('hintToken')).toBe(before - 1);
         expect(hint.__getHintForTest()).not.toBeNull();
         expect(aim.isAiming('hint-quick')).toBe(false);

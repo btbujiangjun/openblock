@@ -422,7 +422,7 @@ async function removeDeployment() {
             '',
             '  · 物理删除 web/public/spawn-tuning-v2/policies.json + meta.json',
             '  · 同步删除 dist/spawn-tuning-v2/* 镜像（如存在）',
-            '  · 同步删除 miniprogram/core/tuning/v2/spawnPoliciesV2.js',
+            '  · 同步删除 miniprogram/core/tuning/spawnPoliciesV2.js',
             `  · DB 中 model #${modelId} 置为 rollbacked`,
             '',
             '游戏端会通过 BroadcastChannel 即时收到通知，badge 自动翻回「规则」',
