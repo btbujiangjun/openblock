@@ -14,6 +14,8 @@ import {
     t,
 } from './i18n/i18n.js';
 import { Game } from './game.js';
+import { reconcileUserId } from './lib/userId.js';
+import { getApiBaseUrl, isSqliteClientDatabase } from './config.js';
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';
 import { applySkinToDocument, getActiveSkin } from './skins.js';
@@ -157,6 +159,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSkinSoundPalettes({ audioFx });
     /* v10.16: 首次解锁庆祝（onSkinAfterApply 订阅，与 transition 动画并存） */
     initFirstUnlockCelebration({ audio: audioFx, currentSkinId: getActiveSkin().id });
+    /* v1.63：开局前先对齐匿名身份——把 localStorage / cookie / IndexedDB / 服务端
+     * 指纹映射统一到同一个 canonical user_id，避免清理存储后被当成新用户。
+     * best-effort + 超时保护：服务端不可达 / 超时也不会阻塞开局。 */
+    window.__openblockBootStage = 'identity-reconcile';
+    try {
+        await reconcileUserId({
+            apiBaseUrl: getApiBaseUrl(),
+            serverEnabled: isSqliteClientDatabase(),
+            timeoutMs: 1500,
+        });
+    } catch { /* 身份对齐失败 → getUserId() 仍返回本地 id，不影响开局 */ }
+
     window.__openblockBootStage = 'game-create';
     const game = new Game();
     window.__openblockBootStage = 'game-created';

@@ -30,6 +30,7 @@
 ## 运维与部署
 
 - [部署指南](./DEPLOYMENT.md) —— Docker Compose、env 凭据、健康检查、备份恢复 Runbook
+- [百万 DAU 架构设计](./SCALE_1M_DAU.md) —— 容量测算、目标拓扑、P0/P1/P2 改造项、灰度路线与压测门槛
 - [Kubernetes 部署](./K8S_DEPLOYMENT.md) —— `k8s/base/` manifest、Helm chart 骨架、HPA
 - [可观测性](./OBSERVABILITY.md) —— Prometheus `/metrics` + OpenTelemetry 自动埋点接入
 - [安全加固](./SECURITY_HARDENING.md) —— Argon2id、Fernet、JWT 旋转、RateLimit Redis 后端

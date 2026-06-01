@@ -689,6 +689,24 @@ def init_db():
             ON user_state_dropped_keys_log(dropped_key)
         """)
 
+        # v1.63: 身份恢复映射表。匿名 user_id 易因清理 localStorage / 隐私模式 /
+        # 无头浏览器而丢失；这里用稳定设备指纹做"软恢复"——清理后客户端带指纹回连，
+        # 服务端把它映射回历史 user_id，避免每次清理都新建用户、污染 DAU 与留存。
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS identity_map (
+                user_id TEXT PRIMARY KEY,
+                fingerprint TEXT,
+                first_seen INTEGER DEFAULT (strftime('%s', 'now')),
+                last_seen INTEGER DEFAULT (strftime('%s', 'now')),
+                resolve_count INTEGER DEFAULT 0,
+                client_ip TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_identity_fingerprint_seen
+            ON identity_map(fingerprint, last_seen DESC)
+        """)
+
         _migrate_behaviors_columns(cursor)
         _migrate_schema(cursor)
 
@@ -3298,6 +3316,98 @@ def put_client_strategy():
 def health():
     """Health check endpoint"""
     return jsonify({"status": "ok", "timestamp": int(time.time())})
+
+
+# 指纹至少要有这么多字符才参与"软恢复"，避免空 / 垃圾指纹把不同用户错并到一起。
+_IDENTITY_MIN_FP_LEN = 8
+
+
+def _sanitize_identity_token(value, max_len: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    v = value.strip()
+    if not v or len(v) > max_len:
+        return v[:max_len] if v else ""
+    return v
+
+
+def _gen_anon_user_id() -> str:
+    """与前端 lib/userId.js 同构：`u<ms>_<rand>`。"""
+    return f"u{int(time.time() * 1000)}_{uuid.uuid4().hex[:9]}"
+
+
+@app.route("/api/identity/resolve", methods=["POST"])
+def identity_resolve():
+    """把（candidate_id + 设备指纹）解析成稳定 canonical user_id。
+
+    规则（保守合并，宁可多建也不错并活跃用户）：
+      1. candidate_id 已在 identity_map 中 → 它就是 canonical，直接返回（绝不改绑）。
+      2. candidate_id 未知：若指纹命中历史用户 → 返回历史 id（清理后软恢复）；
+         否则把 candidate_id 登记为新用户。
+      3. 无 candidate_id：指纹命中则返回历史 id，否则服务端生成新 id。
+
+    隐私 / 正确性权衡：指纹熵有限，同机多真人可能被并到一起；对匿名休闲游戏可接受，
+    且只在指纹长度 >= _IDENTITY_MIN_FP_LEN 时才做恢复。需要强隔离请上账号体系。
+    """
+    data = request.get_json(silent=True) or {}
+    candidate = _sanitize_identity_token(
+        data.get("candidate_id") or data.get("candidateId") or "", 64
+    )
+    fingerprint = _sanitize_identity_token(
+        data.get("fingerprint") or data.get("fp") or "", 128
+    )
+    fp_usable = len(fingerprint) >= _IDENTITY_MIN_FP_LEN
+    now = int(time.time())
+    client_ip = _client_ip()
+
+    db = get_db()
+    cur = db.cursor()
+
+    def _touch(uid: str, recovered: bool):
+        cur.execute(
+            """
+            INSERT INTO identity_map (user_id, fingerprint, first_seen, last_seen, resolve_count, client_ip)
+            VALUES (?, ?, ?, ?, 1, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                last_seen = excluded.last_seen,
+                resolve_count = identity_map.resolve_count + 1,
+                client_ip = excluded.client_ip,
+                fingerprint = COALESCE(NULLIF(identity_map.fingerprint, ''), excluded.fingerprint)
+            """,
+            (uid, fingerprint if fp_usable else None, now, now, client_ip),
+        )
+        db.commit()
+        return jsonify(
+            {"success": True, "user_id": uid, "userId": uid, "recovered": recovered}
+        )
+
+    # 1. candidate 已知 → 直接认它，绝不改绑
+    if candidate:
+        row = cur.execute(
+            "SELECT user_id FROM identity_map WHERE user_id = ?", (candidate,)
+        ).fetchone()
+        if row is not None:
+            return _touch(candidate, recovered=False)
+
+    # 2/3. 指纹软恢复
+    if fp_usable:
+        hit = cur.execute(
+            """
+            SELECT user_id FROM identity_map
+            WHERE fingerprint = ?
+            ORDER BY last_seen DESC
+            LIMIT 1
+            """,
+            (fingerprint,),
+        ).fetchone()
+        if hit is not None:
+            recovered_id = hit["user_id"]
+            # candidate 是全新的（步骤 1 未命中）→ 用历史 id 覆盖，实现跨清理恢复
+            return _touch(recovered_id, recovered=(recovered_id != candidate))
+
+    # 未命中：登记 candidate 或服务端新建
+    new_id = candidate or _gen_anon_user_id()
+    return _touch(new_id, recovered=False)
 
 
 def _db_debug_enabled() -> bool:
