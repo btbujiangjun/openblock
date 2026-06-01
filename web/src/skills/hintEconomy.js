@@ -32,6 +32,30 @@ import { enterAim, exitAim, isAiming } from './aimManager.js';
 
 const SKILL_ID = 'hint-quick';
 
+/* v10.16.7：暴露给 game.js startDrag 直接探测的"是否处于 hint 瞄准模式 + 触发"接口。
+ *
+ * 为什么不再只依赖 dock 上的 capture 监听？
+ *   - `game.js` 在支持 PointerEvent 的浏览器/触屏上把 startDrag 注册成
+ *     **dock-block 子元素 canvas 的 `pointerdown` listener**。
+ *   - 现实中事件传播顺序受到 PointerCapture / passive listener / Capacitor
+ *     WebView 等因素干扰，dock 上的 capture pointerdown 偶发性"晚于" canvas
+ *     上的 pointerdown 直接触发，导致 startDrag 抢先执行，候选区随即进入
+ *     拖拽态（canvas 透明度 0.3，body.block-drag-active），外观上像"失焦"。
+ *   - 把判定逻辑下沉到 startDrag 入口，是釜底抽薪的写法：startDrag 看到
+ *     正在 hint 瞄准就转交给 hintEconomy 处理，不再启动拖拽。
+ */
+export function isHintAiming() {
+    return isAiming(SKILL_ID);
+}
+
+export function consumeHintAimAt(blockIdx) {
+    if (!isAiming(SKILL_ID)) return false;
+    _triggerHint(blockIdx);
+    exitAim(SKILL_ID);
+    refreshSkillBar();
+    return true;
+}
+
 let _game = null;
 let _audio = null;
 let _hintActive = null;     // { gx, gy, shape, color, ttl }
@@ -45,6 +69,12 @@ export function initHintEconomy({ game, audio = null } = {}) {
 
     _installAimListener();
     _installRendererHook(game);
+
+    /* v10.16.7：暴露到 window，供 game.js 的 startDrag 探测瞄准状态并截留点击。
+     * 避免 game.js 反向 import hintEconomy 造成循环依赖。 */
+    if (typeof window !== 'undefined') {
+        window.__hintEconomy = { isHintAiming, consumeHintAimAt };
+    }
 
     registerSkill({
         id: SKILL_ID,
@@ -83,8 +113,16 @@ function _toggleAim() {
 }
 
 /**
- * 监听 dock 内 mousedown / touchstart：
- * 仅在 hint 瞄准状态下截获事件触发 _triggerHint，并阻止冒泡到原拖拽流程
+ * 监听 dock 内 pointerdown / mousedown / touchstart：
+ * 仅在 hint 瞄准状态下截获事件触发 _triggerHint，并阻止冒泡到原拖拽流程。
+ *
+ * 重要：game.js 中候选块 canvas 在支持 PointerEvent 时用 pointerdown 启动拖拽，
+ * 因此 hint 必须同样在 capture 阶段截获 pointerdown，否则 pointerdown 已经触发
+ * startDrag，紧接着的 block-drag-active 又会立刻把 _hintActive 隐藏，体验上
+ * 表现为「瞄准模式下点击候选块没反应」。
+ *
+ * 同时保留 mousedown / touchstart 监听以兼容老浏览器（无 PointerEvent 时
+ * game.js 回退到这两类事件）以及测试环境（jsdom 默认不派发 pointerdown）。
  */
 function _installAimListener() {
     if (_aimListenerInstalled) return;
@@ -100,10 +138,14 @@ function _installAimListener() {
         if (Number.isNaN(idx)) return;
         e.preventDefault();
         e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') {
+            e.stopImmediatePropagation();
+        }
         _triggerHint(idx);
         exitAim(SKILL_ID);
         refreshSkillBar();
     };
+    dock.addEventListener('pointerdown', handler, { capture: true });
     dock.addEventListener('mousedown', handler, { capture: true });
     dock.addEventListener('touchstart', handler, { capture: true, passive: false });
 }

@@ -227,6 +227,47 @@ describe('hintEconomy — v10.16.6 按钮触发瞄准模式', () => {
         expect(aim.isAiming('hint-quick')).toBe(true);
     });
 
+    it('瞄准状态下 dock 块 pointerdown 也被截获（修复 PointerEvent 浏览器下 dock 拖拽抢先触发）', async () => {
+        const { hint, wallet } = await freshHint();
+        const game = makeGame();
+        const dock = document.getElementById('dock');
+        const b0 = document.createElement('div');
+        b0.className = 'dock-block';
+        b0.dataset.index = '0';
+        dock.appendChild(b0);
+
+        hint.initHintEconomy({ game });
+        aim.enterAim('hint-quick');
+
+        const before = wallet.getBalance('hintToken');
+        b0.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+
+        expect(wallet.getBalance('hintToken')).toBe(before - 1);
+        expect(hint.__getHintForTest()).not.toBeNull();
+        expect(aim.isAiming('hint-quick')).toBe(false);
+    });
+
+    it('initHintEconomy 把 isHintAiming / consumeHintAimAt 暴露到 window.__hintEconomy（供 game.js startDrag 直接探测）', async () => {
+        const { hint, wallet } = await freshHint();
+        const game = makeGame();
+
+        hint.initHintEconomy({ game });
+
+        expect(typeof window.__hintEconomy?.isHintAiming).toBe('function');
+        expect(typeof window.__hintEconomy?.consumeHintAimAt).toBe('function');
+
+        expect(window.__hintEconomy.isHintAiming()).toBe(false);
+        aim.enterAim('hint-quick');
+        expect(window.__hintEconomy.isHintAiming()).toBe(true);
+
+        const before = wallet.getBalance('hintToken');
+        const consumed = window.__hintEconomy.consumeHintAimAt(0);
+        expect(consumed).toBe(true);
+        expect(wallet.getBalance('hintToken')).toBe(before - 1);
+        expect(hint.__getHintForTest()).not.toBeNull();
+        expect(aim.isAiming('hint-quick')).toBe(false);
+    });
+
     it('未进入瞄准时点击 dock 块 → 不被 hintEconomy 截获 → 走原拖拽流程（不扣费）', async () => {
         const { hint, wallet } = await freshHint();
         const game = makeGame();
