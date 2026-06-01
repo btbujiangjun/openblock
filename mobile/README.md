@@ -30,7 +30,11 @@ npm run mobile:sync    # sync existing dist into Android/iOS
 npm run mobile:copy    # copy Web assets without native dependency update
 npm run mobile:android # open Android Studio project
 npm run mobile:ios     # open Xcode project
+npm run mobile:apk:debug   # Web 同步 + Debug APK（测试安装）
+npm run mobile:apk:release # Web 同步 + Release APK（需 signing/keystore.properties）
 ```
+
+Release 签名说明见 `mobile/android/signing/README.md`（密钥文件不提交 git）。
 
 ## API Configuration
 

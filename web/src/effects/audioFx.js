@@ -189,7 +189,11 @@ export class AudioFx {
             }).catch(() => { /* ignore */ });
             return;  /* 本次播放跳过，等下次 */
         }
-        const now = this.ctx.currentTime;
+        /* v1.61.12：调度前瞻 (lookahead)。鸿蒙 2.0 等旧版 Android WebView 的
+         * 音频线程在「正好等于 currentTime」处调度 AudioParam 事件时容易丢帧/错位，
+         * 起音瞬间漏出杂声。统一把所有音色排到 20ms 之后，保证事件永远落在未来，
+         * 听感上不可察觉，但能消除这类「滋滋/咔哒」起音杂音。 */
+        const now = this.ctx.currentTime + 0.02;
         if (!opts.force && now - this._lastPlayTs < 0.012) return;
         this._lastPlayTs = now;
 
@@ -263,7 +267,28 @@ export class AudioFx {
             this.ctx = new Ctx();
             this.master = this.ctx.createGain();
             this.master.gain.value = this.prefs.volume;
-            this.master.connect(this.ctx.destination);
+            /* v1.61.12：主输出串联限幅压缩器，防止多声部叠加（clear/bonus/perfect
+             * 会同时触发数十个 oscillator + 白噪声）在弱 DAC（如鸿蒙 2.0 旧版
+             * WebView）上削顶产生破音。失败时降级为 master 直连 destination。
+             * 暴露 this._limiter 供 stressAmbience 的滤波器串到压缩器之前。 */
+            this._limiter = null;
+            try {
+                const comp = this.ctx.createDynamicsCompressor?.();
+                if (comp) {
+                    const t = this.ctx.currentTime;
+                    comp.threshold.setValueAtTime?.(-8, t);
+                    comp.knee.setValueAtTime?.(18, t);
+                    comp.ratio.setValueAtTime?.(12, t);
+                    comp.attack.setValueAtTime?.(0.002, t);
+                    comp.release.setValueAtTime?.(0.16, t);
+                    this.master.connect(comp);
+                    comp.connect(this.ctx.destination);
+                    this._limiter = comp;
+                }
+            } catch { this._limiter = null; }
+            if (!this._limiter) {
+                this.master.connect(this.ctx.destination);
+            }
             return true;
         } catch {
             return false;
@@ -346,8 +371,14 @@ export class AudioFx {
     /* ============================================================ */
 
     _envelope(g, now, attack, decay, peak = 1, sustain = 0) {
-        g.gain.cancelScheduledValues(now);
-        g.gain.setValueAtTime(0, now);
+        /* v1.61.12：GainNode.gain 默认值是 1.0。若不在 oscillator 出声前就把增益
+         * 显式归零，弱 WebView（鸿蒙 2.0 等）会在 setValueAtTime(0, now) 生效前
+         * 漏出一帧满幅信号 → 起音「咔哒/滋」爆音。这里在「当前时间」立即归零，
+         * 抵消默认 1.0，再在 now（前瞻点）起音，确保起音绝对干净。 */
+        const c = this.ctx?.currentTime ?? now;
+        g.gain.cancelScheduledValues(c);
+        g.gain.setValueAtTime(0, c);
+        if (now > c) g.gain.setValueAtTime(0, now);
         g.gain.linearRampToValueAtTime(peak, now + attack);
         g.gain.linearRampToValueAtTime(sustain, now + attack + decay);
     }

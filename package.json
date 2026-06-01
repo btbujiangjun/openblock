@@ -28,6 +28,8 @@
     "mobile:copy": "cd mobile && ../node_modules/.bin/cap copy",
     "mobile:android": "cd mobile && ../node_modules/.bin/cap open android",
     "mobile:ios": "cd mobile && ../node_modules/.bin/cap open ios",
+    "mobile:apk:debug": "node scripts/android-apk.mjs debug",
+    "mobile:apk:release": "node scripts/android-apk.mjs release",
     "restart": "bash scripts/restart-openblock.sh",
     "restart:full": "bash scripts/restart-openblock.sh --full",
     "stop": "bash scripts/stop-openblock.sh",

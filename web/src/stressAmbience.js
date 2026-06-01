@@ -48,6 +48,25 @@ const NEUTRAL_STRESS = 0.4375;
 const DEFAULT_BAND = STRESS_AMBIENCE_BANDS[2]; // flow
 
 /**
+ * 是否为 Android WebView 客户端（含鸿蒙系统自带的旧版 WebView）。
+ * 用于在这类不稳定的 Web Audio 实现上跳过常驻 BiquadFilter（避免「滋滋」杂音）。
+ */
+function _isAndroidWebViewClient() {
+    try {
+        if (typeof document !== 'undefined'
+            && document.documentElement.classList.contains('android-client')) {
+            return true;
+        }
+        const cap = typeof window !== 'undefined' ? window.Capacitor : null;
+        if (typeof cap?.getPlatform === 'function' && cap.getPlatform() === 'android') return true;
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+        return /android|harmony|huawei/i.test(ua);
+    } catch {
+        return false;
+    }
+}
+
+/**
  * 把 stress (norm) 映射到 6 档氛围之一；超界按首/末档兜底。
  * @param {number} stressNorm  [0,1] norm 域 stress
  * @returns {object} STRESS_AMBIENCE_BANDS 中一项
@@ -131,6 +150,12 @@ export function attachStressAudioFilter(audioFx) {
     audioFx._ensureCtx = () => {
         const ok = origEnsureCtx();
         if (!ok || !audioFx.ctx || !audioFx.master || audioFx.__stressFilter) return ok;
+        /* v1.61.12：Android WebView（含鸿蒙 2.0 旧内核）跳过常驻低通 BiquadFilter。
+         * 这类旧 WebView 的 biquad 实现不稳定，串在主输出上会自激/振铃，把所有
+         * 音频（连开关音效的纯正弦 tick）都染成持续「滋滋」杂音并糊掉正常音色。
+         * D 档「压力闷感」只是潜意识氛围线索，关掉它对玩法无影响；A/B/C 三档
+         * （氛围光 / 呼吸节奏 / 震动幅度）在 Android 上仍正常工作。 */
+        if (_isAndroidWebViewClient()) return ok;
         try {
             const filter = audioFx.ctx.createBiquadFilter();
             filter.type = 'lowpass';
@@ -138,7 +163,8 @@ export function attachStressAudioFilter(audioFx) {
             filter.Q.setValueAtTime(0.7, audioFx.ctx.currentTime);
             audioFx.master.disconnect();
             audioFx.master.connect(filter);
-            filter.connect(audioFx.ctx.destination);
+            /* 串到限幅器之前（若存在），避免绕过 v1.61.12 的削顶保护 */
+            filter.connect(audioFx._limiter || audioFx.ctx.destination);
             audioFx.__stressFilter = filter;
         } catch { /* ignore: filter 失败时音频降级为无 stress 着色 */ }
         return ok;
