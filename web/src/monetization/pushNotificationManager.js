@@ -211,8 +211,8 @@ class PushNotificationManager {
                 data.title || config.title,
                 {
                     body: data.body || config.body,
-                    icon: `/assets/images/icon-192.png`,
-                    badge: `/assets/images/icon-192.png`,
+                    icon: `/assets/images/icon-192.svg`,
+                    badge: `/assets/images/icon-192.svg`,
                     tag: typeId,
                     requireInteraction: false,
                     ...data.options

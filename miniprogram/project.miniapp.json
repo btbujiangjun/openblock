@@ -19,10 +19,10 @@
       "xweb": false
     },
     "icons": {
-      "hdpi": "assets/icons/android/hdpi.png",
-      "xhdpi": "assets/icons/android/xhdpi.png",
-      "xxhdpi": "assets/icons/android/xxhdpi.png",
-      "xxxhdpi": "assets/icons/android/xxxhdpi.png"
+      "hdpi": "",
+      "xhdpi": "",
+      "xxhdpi": "",
+      "xxxhdpi": ""
     },
     "splashscreen": {
       "hdpi": "",
@@ -47,15 +47,15 @@
     },
     "enableVConsole": "open",
     "icons": {
-      "mainIcon120": "assets/icons/ios/mainIcon120.png",
-      "mainIcon180": "assets/icons/ios/mainIcon180.png",
-      "spotlightIcon80": "assets/icons/ios/spotlightIcon80.png",
-      "spotlightIcon120": "assets/icons/ios/spotlightIcon120.png",
-      "settingsIcon58": "assets/icons/ios/settingsIcon58.png",
-      "settingsIcon87": "assets/icons/ios/settingsIcon87.png",
-      "notificationIcon40": "assets/icons/ios/notificationIcon40.png",
-      "notificationIcon60": "assets/icons/ios/notificationIcon60.png",
-      "appStore1024": "assets/icons/ios/appStore1024.png"
+      "mainIcon120": "",
+      "mainIcon180": "",
+      "spotlightIcon80": "",
+      "spotlightIcon120": "",
+      "settingsIcon58": "",
+      "settingsIcon87": "",
+      "notificationIcon40": "",
+      "notificationIcon60": "",
+      "appStore1024": ""
     },
     "splashScreen": {
       "customImage": ""
