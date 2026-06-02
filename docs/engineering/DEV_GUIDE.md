@@ -27,7 +27,7 @@
 ### 基础安装
 
 ```bash
-git clone https://github.com/your-org/openblock.git
+git clone https://github.com/btbujiangjun/openblock.git
 cd openblock
 
 # 前端

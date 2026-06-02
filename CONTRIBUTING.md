@@ -43,7 +43,7 @@
 
 ```bash
 # 1. Fork 仓库，克隆到本地
-git clone https://github.com/YOUR_NAME/openblock.git
+git clone https://github.com/btbujiangjun/openblock.git
 cd openblock
 
 # 2. 创建功能分支（基于 main）
