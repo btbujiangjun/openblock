@@ -40,8 +40,8 @@ export function sendNotification(title, options = {}) {
     if (Notification.permission !== 'granted') return;
     try {
         new Notification(title, {
-            icon: '/favicon.ico',
-            badge: '/favicon.ico',
+            icon: '/favicon.png',
+            badge: '/favicon.png',
             ...options,
         });
     } catch (e) {

@@ -2,6 +2,18 @@
 
 `mobile/` contains the Capacitor shell for packaging the existing Web game into Android and iOS clients. The native projects do not fork gameplay code: they load the Vite build output from `dist/`.
 
+## App Icon
+
+Canonical source: `docs/architecture/assets/icon.png`.
+
+Regenerate all platform icons (Web PWA, Android mipmap, iOS AppIcon, WeChat mini-app multi-end) with:
+
+```bash
+npm run sync:app-icon
+```
+
+`npm run build` / `mobile:build` also runs this via `prebuild`.
+
 ## Directory Layout
 
 | Path | Purpose |
