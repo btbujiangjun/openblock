@@ -768,6 +768,24 @@ export class Game {
         this._bestScoreAtRunStart = resolved || 0;
     }
 
+    /**
+     * 本局 PB 对比基线（开局快照，局内不变）。
+     * 用于 best-gap、结算「差 N 分」banner、near_miss 等——禁止用实时 this.bestScore
+     * 作 fallback（局末可能已被抬到 score；或 hydrate 抬高 best 但未同步 runStart）。
+     *
+     * @returns {number}
+     */
+    _getRunPbBaseline() {
+        const runStart = Number(this._bestScoreAtRunStart);
+        if (Number.isFinite(runStart) && runStart > 0) return runStart;
+        /* 仅开局准备态（score===0）允许用内存 bestScore 兜底——init 竞态时尚未写入 runStart */
+        if ((Number(this.score) || 0) === 0) {
+            const mem = Number(this.bestScore);
+            if (Number.isFinite(mem) && mem > 0) return mem;
+        }
+        return 0;
+    }
+
     /** 把本地 PB 回推服务端（best-effort：离线 / 失败静默，不阻塞主流程）。 */
     _syncBestScoreToServer(score) {
         const s = Math.max(0, Number(score) || 0);
@@ -1271,7 +1289,10 @@ export class Game {
             this.score = 0;
             // 重开局：清理上一局滚动基线，避免新局首次 updateUI() 出现"老分数→0"的反向动画
             this._lastDisplayedScore = null;
-            this._bestScoreAtRunStart = this.bestScore || 0;
+            /* v1.61.17：离线快照须在写入 _bestScoreAtRunStart 之前合并——否则 hydrate 抬高
+             * bestScore 后基线仍为旧值，HUD「最佳」与结算「差 N 分」/ best-gap 会不一致（iOS 离线常见）。 */
+            try { hydrateFromSpawnSignals(this); } catch { /* 静默忽略，不影响主流程 */ }
+            this._bestScoreAtRunStart = Number(this.bestScore) || 0;
             this._newBestCelebrated = false;
             /* v1.55.10 修复跨局状态泄漏：同标签页连续多局（不刷新页面）时，
              * 这些计数器原本只递增/置 true，导致：
@@ -1349,7 +1370,7 @@ export class Game {
             } catch { /* localStorage 异常时按"非快速"处理 */ }
             this._spawnContext = {
                 lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
-                bestScore: this.bestScore ?? 0,
+                bestScore: this._getRunPbBaseline(),
                 pbGrowthFast: _pbGrowthFastSnapshot,
                 bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0,
             /* v1.60.6 缺口 #1：拆 relief / pressure 子配额计数器（与 game 构造同步） */
@@ -1384,10 +1405,6 @@ export class Game {
             try { onSessionStart(this.playerProfile, { tracker: this.analyticsTracker || null }); } catch (e) {
                 console.warn('[lifecycle] onSessionStart failed:', e?.message || e);
             }
-
-            /* v1.61：离线降级 —— 若 SQLite hydrate 尚未完成（profile 字段为默认值），
-             * 用上次出块后写入 localStorage 的快照恢复关键信号，避免开局用零值画像出块。 */
-            try { hydrateFromSpawnSignals(this); } catch { /* 静默忽略，不影响主流程 */ }
 
             const baseStrategy = getStrategy(this.strategy);
             const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, {
@@ -1563,21 +1580,22 @@ export class Game {
                 }
                 const touch = e.touches ? e.touches[0] : e;
                 const inputType = e.pointerType === 'touch' || e.touches ? 'touch' : 'mouse';
-                /* v1.61.15：在整个候选槽（.dock-block）上捕获指针，而不仅是 canvas，
-                 * 配合下方把监听挂到 div + CSS 留白，扩大可点击/起拖热区——此前只有
-                 * 点中绘制出的方块本身才能激活拖放，槽位留白与块间空隙都点不动。 */
-                const captureEl = e.currentTarget || div;
-                if (e.pointerId != null && captureEl?.setPointerCapture) {
-                    try { captureEl.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+                /* v1.61.16：起拖热区收紧为 shape 实体格——5×5 预览槽内空白、槽位 padding、
+                 * 块间空隙均不触发，减少误触拖放。 */
+                if (!this._dockPointerHitsBlockShape(canvas, touch.clientX, touch.clientY, blk)) {
+                    return;
+                }
+                if (e.pointerId != null && canvas.setPointerCapture) {
+                    try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
                 }
                 this.startDrag(idx, touch.clientX, touch.clientY, inputType);
             };
 
             if (typeof window !== 'undefined' && window.PointerEvent) {
-                div.addEventListener('pointerdown', startDrag);
+                canvas.addEventListener('pointerdown', startDrag);
             } else {
-                div.addEventListener('mousedown', startDrag);
-                div.addEventListener('touchstart', startDrag, { passive: false });
+                canvas.addEventListener('mousedown', startDrag);
+                canvas.addEventListener('touchstart', startDrag, { passive: false });
             }
             div.appendChild(canvas);
             dock.appendChild(div);
@@ -2123,6 +2141,30 @@ export class Game {
     _resetGhostDomStyles() {
         this.ghostCanvas.style.width = '';
         this.ghostCanvas.style.height = '';
+    }
+
+    /**
+     * 指针是否落在候选块 shape 的实体格上（不含 5×5 预览槽内留白）。
+     * @param {HTMLCanvasElement} canvas
+     * @param {number} clientX
+     * @param {number} clientY
+     * @param {{ shape: number[][], width: number, height: number }} block
+     */
+    _dockPointerHitsBlockShape(canvas, clientX, clientY, block) {
+        if (!canvas || !block?.shape?.length) return false;
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return false;
+        const cell = this._getDockCellPx();
+        const slotPx = CONFIG.DOCK_PREVIEW_MAX_CELLS * cell;
+        const ox = (slotPx - block.width * cell) / 2;
+        const oy = (slotPx - block.height * cell) / 2;
+        const lx = (clientX - rect.left) * (slotPx / rect.width);
+        const ly = (clientY - rect.top) * (slotPx / rect.height);
+        if (lx < ox || ly < oy) return false;
+        const gx = Math.floor((lx - ox) / cell);
+        const gy = Math.floor((ly - oy) / cell);
+        if (gx < 0 || gy < 0 || gy >= block.height || gx >= block.width) return false;
+        return !!block.shape[gy][gx];
     }
 
     startDrag(index, x, y, inputType = 'mouse') {
@@ -3156,7 +3198,7 @@ export class Game {
             this.gameStats.deadDock = reason === 'jam' ? deadDock : null;
             /* v1.63（需求1）：本局 PB 基线（run-start bestScore）—— 作为采样侧 PB 波动的"指定数值"中心，
              * 也给 server `_extract_pb_baseline` 一个权威来源（兼容 pv<3 无 ps.bestScore 的旧端）。 */
-            this.gameStats.pbBaseline = Number(this._bestScoreAtRunStart) || 0;
+            this.gameStats.pbBaseline = this._getRunPbBaseline();
         } catch { /* 标签非关键，失败不阻塞结算 */ }
         try {
             window.__audioFx?.play?.('gameOver');
@@ -3270,7 +3312,7 @@ export class Game {
                     console.warn('[endGame] saveSession 失败（离线降级，不阻塞本地 PB 持久化）:', e?.message || e);
                 }
 
-                const persistedBestBase = this._bestScoreAtRunStart ?? this.bestScore;
+                const persistedBestBase = this._getRunPbBaseline();
                 if (this.score > persistedBestBase) {
                     /* v1.55 §4.10 异常分守卫：单局分数 > previousBest × SANITY_MULTIPLIER 时
                      * 视为可疑（自动外挂 / 时钟偏移 / 数据回放注入等）。
@@ -3449,7 +3491,7 @@ export class Game {
             } finally {
                 const overScore = document.getElementById('over-score');
                 if (overScore) {
-                    const persistedBestBase = this._bestScoreAtRunStart ?? this.bestScore;
+                    const persistedBestBase = this._getRunPbBaseline();
                     /* v1.55.10 修复：可疑 PB（_bestScoreSanityFlagged=true）已被软隔离，
                      * 没有写入后端持久化；结算页若仍显示皇冠会形成"UI 像新纪录但下次启动该分不存在"
                      * 的不一致。这里增加 sanity flag 守卫，可疑 PB 不显示皇冠。 */
@@ -3473,7 +3515,7 @@ export class Game {
                          * 不算"差点"，而是常规波动）。 */
                         const pctOfBest = this.score / persistedBestBase;
                         if (pctOfBest >= 0.85 && pctOfBest < 1.0) {
-                            const nmGap = persistedBestBase - this.score;
+                            const nmGap = Math.max(0, persistedBestBase - this.score);
                             /* v1.56.3 §5.α.7：D3/D2 文案统一为事实陈述"差 N 分"，
                              * 不再区分"这把差点就刷了 / 状态不错，再来一把"等教练式措辞。
                              * 紧张度差异通过 banner 样式（near-miss-banner--D3 红色高亮 vs
@@ -3982,7 +4024,7 @@ export class Game {
      */
     _maybeEmitNearPersonalBest() {
         if (this._nearPbEmittedThisRun) return;
-        const best = Number(this._bestScoreAtRunStart ?? this.bestScore);
+        const best = this._getRunPbBaseline();
         if (!Number.isFinite(best) || best <= 0) return;
         const pct = this.score / best;
         if (!(pct >= 0.95)) return;
@@ -4281,7 +4323,7 @@ export class Game {
              * 同时增加守卫：_bestScoreAtRunStart === 0（玩家首次玩，无历史 PB）不显示
              * best-gap HUD —— 避免出现"已超 380 分"（基线为 0，超越 0 无意义）的认知错位。
              * 玩家结算时通过 endGame 皇冠 + PB 烟花得到"首次破 PB"的仪式感。 */
-            const pbBaseline = Number(this._bestScoreAtRunStart) || 0;
+            const pbBaseline = this._getRunPbBaseline();
             const gap = pbBaseline - this.score;
             /* v1.55（BEST_SCORE_CHASE_STRATEGY §4.5）warmup gate：
              * 本局前 3 个出块属于 warmup 段（与 adaptiveSpawn.deriveSessionArc 同口径），

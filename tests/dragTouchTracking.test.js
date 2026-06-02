@@ -61,3 +61,38 @@ describe('_applyDragPointerGain — 触摸 1:1 直接跟手', () => {
         expect(p.x).toBeCloseTo(500, 5);
     });
 });
+
+describe('_dockPointerHitsBlockShape — 起拖热区仅 shape 实体格', () => {
+    const cell = CONFIG.CELL_SIZE;
+    const slotPx = CONFIG.DOCK_PREVIEW_MAX_CELLS * cell;
+    const block = {
+        width: 2,
+        height: 2,
+        shape: [
+            [1, 1],
+            [1, 0],
+        ],
+    };
+    const ox = (slotPx - block.width * cell) / 2;
+    const oy = (slotPx - block.height * cell) / 2;
+    const canvas = {
+        getBoundingClientRect: () => ({ left: 100, top: 200, width: slotPx, height: slotPx }),
+    };
+    const gameStub = { _getDockCellPx: () => cell };
+
+    it('点在实体格内 → true', () => {
+        const cx = 100 + ox + cell * 0.5;
+        const cy = 200 + oy + cell * 0.5;
+        expect(Game.prototype._dockPointerHitsBlockShape.call(gameStub, canvas, cx, cy, block)).toBe(true);
+    });
+
+    it('点在 5×5 槽留白（shape 外）→ false', () => {
+        expect(Game.prototype._dockPointerHitsBlockShape.call(gameStub, canvas, 110, 210, block)).toBe(false);
+    });
+
+    it('点在 shape 内空格（L 形缺口）→ false', () => {
+        const cx = 100 + ox + cell * 1.5;
+        const cy = 200 + oy + cell * 1.5;
+        expect(Game.prototype._dockPointerHitsBlockShape.call(gameStub, canvas, cx, cy, block)).toBe(false);
+    });
+});

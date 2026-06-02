@@ -131,6 +131,13 @@ export function hydrateFromSpawnSignals(game) {
         /* bestScore：以快照与当前内存的较大值为准（防回滚） */
         if (typeof snap.bestScore === 'number' && snap.bestScore > (game.bestScore ?? 0)) {
             game.bestScore = snap.bestScore;
+            /* v1.61.17：准备态同步抬高开局 PB 基线，避免 HUD 最佳已更新但「差 N 分」仍按旧基线算 */
+            if ((Number(game.score) || 0) === 0) {
+                game._bestScoreAtRunStart = snap.bestScore;
+                if (game._spawnContext && typeof game._spawnContext === 'object') {
+                    game._spawnContext.bestScore = snap.bestScore;
+                }
+            }
         }
 
         if (profile) {

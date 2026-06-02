@@ -128,6 +128,9 @@ describe('v1.56.7 updateUI 顺序：_maybeCelebrateNewBest 必须在 best DOM �
             _levelMode: 'endless',
             gameStats: { placements: 10 },
             _isLowBestForIntenseCopy: () => false,
+            _getRunPbBaseline() {
+                return Game.prototype._getRunPbBaseline.call(this);
+            },
             _updateProgressionHud: vi.fn(),
             _maybeEmitNearPersonalBest: vi.fn(),
             _maybeCelebrateNewBest: function () {
@@ -157,6 +160,9 @@ describe('v1.56.7 updateUI 顺序：_maybeCelebrateNewBest 必须在 best DOM �
             _levelMode: 'endless',
             gameStats: { placements: 10 },
             _isLowBestForIntenseCopy: () => false,
+            _getRunPbBaseline() {
+                return Game.prototype._getRunPbBaseline.call(this);
+            },
             _updateProgressionHud: vi.fn(),
             _maybeEmitNearPersonalBest: vi.fn(),
             _maybeCelebrateNewBest: function () {
@@ -171,6 +177,24 @@ describe('v1.56.7 updateUI 顺序：_maybeCelebrateNewBest 必须在 best DOM �
         expect(gapText).toContain('190');
     });
 
+    it('v1.61.17：局内不用实时 bestScore 作 PB 基线（避免结算「差 N 分」与 HUD 最佳错位）', () => {
+        const game = {
+            score: 400,
+            bestScore: 430,
+            _bestScoreAtRunStart: 380,
+            strategy: 'normal',
+            _levelMode: 'endless',
+            gameStats: { placements: 10 },
+            _isLowBestForIntenseCopy: () => false,
+            _updateProgressionHud: vi.fn(),
+            _maybeEmitNearPersonalBest: vi.fn(),
+            _maybeCelebrateNewBest: vi.fn(),
+        };
+        expect(Game.prototype._getRunPbBaseline.call(game)).toBe(380);
+        const gap = Game.prototype._getRunPbBaseline.call(game) - game.score;
+        expect(gap).toBe(-20);
+    });
+
     it('追平开局基线（score === baseline）→ best-gap 隐藏（不显示"本局 +0"）', () => {
         const game = {
             score: 300,
@@ -183,6 +207,9 @@ describe('v1.56.7 updateUI 顺序：_maybeCelebrateNewBest 必须在 best DOM �
             _levelMode: 'endless',
             gameStats: { placements: 10 },
             _isLowBestForIntenseCopy: () => false,
+            _getRunPbBaseline() {
+                return Game.prototype._getRunPbBaseline.call(this);
+            },
             _updateProgressionHud: vi.fn(),
             _maybeEmitNearPersonalBest: vi.fn(),
             _maybeCelebrateNewBest: vi.fn()
