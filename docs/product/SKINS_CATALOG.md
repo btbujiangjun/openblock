@@ -862,5 +862,64 @@ A：不行。`scripts/sync-miniprogram-skins.cjs` 是单向同步，小程序皮
 
 ---
 
+## 9. 方块 emoji 全量池：利用情况与表意匹配
+
+> 代码事实源：`web/src/skins.js`  
+> 硬约束：**27 款带 `blockIcons` × 8 = 216 枚 emoji，跨皮肤全局互斥**。
+
+### 9.1 全量利用情况
+
+| 指标 | 值 |
+|------|-----|
+| 带 icon 皮肤数 | 27 |
+| 方块 emoji 总数 | **216**（利用率 100%，无闲置槽位） |
+| 无 icon 皮肤 | 8（纯配色阶梯 / 深色浅色叙事） |
+
+每一枚 emoji **恰好出现一次**，因此所谓「全局重新匹配」在工程上等价于：**在 216 枚之间做重 partition**，不能凭空「多加一枚」而不替换掉另一枚。
+
+### 9.2 主题 ↔ icon 表意：评价维度
+
+| 维度 | 含义 |
+|------|------|
+| **直示性** | 玩家不看注释能否联想到皮肤名 |
+| **叙事自洽** | 8 格是否同一画面（同一活动 / 同一地理 / 同一文化符号系统） |
+| **独占合法性** | 麻将牌面 / 扑克花色等 **必须与玩法符号同源**，不可为了「更好看」换成通用 emoji |
+
+据此：
+- **麻将 `mahjong`、扑克 `boardgame`**：直示性封顶；**禁止**与别的皮肤互换牌字符。
+- **球类 `sports`、乐器 `music`、料理 `food`/甜点 `candy`**：已与品类强绑定，**优先不动**。
+- **弱表意高风险区**：水族乐园类、跨地理交通工具、抽象主题下线后的科技感由 `neonCity` 霓虹承接。
+
+### 9.3 已落地的语义加固
+
+在 **不破坏 216 互斥** 前提下，对表意偏离最大的两处做了替换：
+
+- **`vehicles`（极速引擎）**：🚥 红绿灯 → 🚗 轿车（路面机动车，直示性更好）；`blockColors` 第 7 色改为通勤蓝灰系。
+- **`bubbly`（元气泡泡）**：🦩 火烈鸟 → 🦦 水獭，🌿 草本 → 🏖️ 沙滩（强化浅海度假叙事）。
+
+### 9.4 保冻结皮肤
+
+以下皮肤 **8 格与主题已高度同构**，全局重排收益极低：`ocean`、`forest`、`farm`、`desert`、`pirate`、`industrial`、`demon`、`fairy`、`pets`、`toon`、`beast`、`jurassic`、`universe`、`aurora`、`koi`、`greece`、`mahjong`、`boardgame`、`sports`、`music`、`food`、`candy`、`pixel8`、`forbidden` 等。
+
+### 9.5 校验命令
+
+```bash
+node -e "
+const { SKINS } = require('./web/src/skins.js');
+const used = new Map(); let dup = 0;
+for (const [id,s] of Object.entries(SKINS)) {
+  if (!s.blockIcons) continue;
+  for (const ic of s.blockIcons) {
+    if (used.has(ic)) { console.log('DUP', ic, used.get(ic), id); dup++; }
+    else used.set(ic, id);
+  }
+}
+console.log(Object.keys(SKINS).length, 'skins,', used.size, 'icons, dup=', dup);
+"
+# 期望：dup=0；icon 总数 216
+```
+
+---
+
 > 文档维护人：算法 / UI / 皮肤组
 > 更新建议：每次新增 / 修改 / 删除皮肤后，**同步更新本文档 §1 总览、§4 详解、§5.1 矩阵、§6.3 历史**。

@@ -7,7 +7,7 @@
 > 算法层扩展模块的接入方式。
 >
 > 不在范围：业务规则配置、A/B 实验流程、运营 SOP（请见
-> [`../operations/COMMERCIAL_STRATEGY_REVIEW.md`](../operations/COMMERCIAL_STRATEGY_REVIEW.md)
+> [`../operations/MONETIZATION.md §15`](../operations/MONETIZATION.md#15-商业化系统综合报告附录)
 > 与 [`../operations/MONETIZATION.md`](../operations/MONETIZATION.md)）。
 
 ## 1. 模型本质
@@ -367,4 +367,4 @@ fallback 到默认参数并 `console.warn`。
 | [`../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md`](../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md) | MonetizationBus 事件契约 |
 | [`../architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md`](../architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md) | 数据→信号→策略分层 |
 | [`../operations/MONETIZATION.md`](../operations/MONETIZATION.md) | 商业化系统全景与 API |
-| [`../operations/COMMERCIAL_STRATEGY_REVIEW.md`](../operations/COMMERCIAL_STRATEGY_REVIEW.md) | 商业化系统能力总览 |
+| [`../operations/MONETIZATION.md §15`](../operations/MONETIZATION.md#15-商业化系统综合报告附录) | 商业化系统能力总览 |

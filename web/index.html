@@ -560,6 +560,20 @@
             document.documentElement.classList.add('insight-collapsed');
           }
         } catch (_) { /* localStorage 不可用时退化为收起（与默认一致） */ }
+
+        /* 首屏即屏蔽右键/长按菜单（主模块加载前）——与 browserChromeGuards.js 规则一致 */
+        (function installEarlyContextMenuGuard() {
+          function allowChrome(el) {
+            if (!el || !el.closest) return false;
+            return !!el.closest(
+              'input, textarea, select, [contenteditable="true"], [data-allow-browser-chrome]'
+            );
+          }
+          document.addEventListener('contextmenu', function (e) {
+            if (allowChrome(e.target)) return;
+            e.preventDefault();
+          }, true);
+        })();
       })();
     </script>
     <!-- PWA Manifest -->

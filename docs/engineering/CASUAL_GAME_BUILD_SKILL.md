@@ -130,7 +130,7 @@
 | **策略可观测性** | 面板展示曲线优先，重复文本指标去重；每个指标能追溯到计算逻辑 |
 | **样本质量** | 训练/分析样本记录 schema 版本、维度、来源和权重 |
 
-**OpenBlock 对照**：`docs/engineering/GOLDEN_EVENTS.md`、`docs/engineering/SQLITE_SCHEMA.md`、`web/src/database.js`、`docs/operations/COMPLIANCE_AND_SOPS.md`。
+**OpenBlock 对照**：`docs/engineering/GOLDEN_EVENTS.md`、`docs/engineering/SQLITE_SCHEMA.md`、`web/src/database.js`、`docs/operations/DEPLOYMENT.md §8`。
 
 ---
 

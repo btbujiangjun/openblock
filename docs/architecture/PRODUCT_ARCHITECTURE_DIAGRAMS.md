@@ -350,7 +350,7 @@ OpenBlock 在产品层面与行业默认做法不同的 4 处具体选择：
 - **非默认选择**：`featureFlags.js` 默认关闭广告 / IAP / Push；任务 / 排行榜 / 皮肤 / 通行证 / 分享默认开启但走"成就 / 自我表达"路径。
 - **代价**：要为"商业化关闭"与"商业化开启"两种产品形态各跑一遍 QA。
 - **回报**：开发者可以用同一份代码上线"纯体验 demo"与"完整商业化版本"；面对监管收紧（如 GDPR / 国内未成年人保护）的策略响应延迟从月级降到分钟级。
-- **验证**：`tests/monetization*.test.js` 多个套件覆盖 flag on/off 两种路径；`docs/operations/COMPLIANCE_AND_SOPS.md` 提供合规 SOP。
+- **验证**：`tests/monetization*.test.js` 多个套件覆盖 flag on/off 两种路径；`docs/operations/DEPLOYMENT.md §8` 提供合规 SOP。
 
 **④「北极星指标支撑"追逐 PB 而不轻易超越 PB"」而非"破纪录率最大化"**
 

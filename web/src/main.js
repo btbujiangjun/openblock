@@ -88,10 +88,12 @@ import { hydrateCheckinFromServer } from './checkin/checkinSync.js';
 import { initLocalStorageStateSync } from './localStorageStateSync.js';
 import { initVisitTracker } from './visitTracker.js';
 import { initCursorHelpTooltip } from './helpTooltip.js';
+import { installBrowserChromeGuards } from './browserChromeGuards.js';
 
 window.__openblockBootStage = 'main-module-loaded';
 
 document.addEventListener('DOMContentLoaded', async () => {
+    installBrowserChromeGuards();
     window.__openblockBootStage = 'dom-ready';
     // 统一 cursor:help 提示等待时长：1.5 秒。
     window.__openblockBootStage = 'cursor-help-init';

@@ -990,6 +990,6 @@ allowRewarded     = !suppressAll
 | [`../operations/MONETIZATION.md`](../operations/MONETIZATION.md) | 商业化系统全景与 API |
 | [`../operations/MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | MonPanel 字段、界面与调试 |
 | [`../operations/MONETIZATION_CUSTOMIZATION.md`](../operations/MONETIZATION_CUSTOMIZATION.md) | 策略定制指南 |
-| [`../operations/COMMERCIAL_STRATEGY_REVIEW.md`](../operations/COMMERCIAL_STRATEGY_REVIEW.md) | 商业化系统能力总览 |
+| [`../operations/MONETIZATION.md §15`](../operations/MONETIZATION.md#15-商业化系统综合报告附录) | 商业化系统能力总览 |
 | [`../operations/COMMERCIAL_OPERATIONS.md`](../operations/COMMERCIAL_OPERATIONS.md) | 运营视角参考分析 |
 | [`../domain/COMPETITOR_USER_ANALYSIS.md`](../domain/COMPETITOR_USER_ANALYSIS.md) | 竞品分群数据来源 |

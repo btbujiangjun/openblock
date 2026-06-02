@@ -1,6 +1,6 @@
 # 彩蛋与惊喜系统
 
-> 上下文：见 [`SKINS_CATALOG.md`](./SKINS_CATALOG.md) 与 [`CASUAL_GAME_ANALYSIS.md`](../domain/CASUAL_GAME_ANALYSIS.md)（"惊喜与情绪曲线"小节）。
+> 上下文：见 [`SKINS_CATALOG.md`](./SKINS_CATALOG.md) 与 [`DOMAIN_KNOWLEDGE.md §13`](../domain/DOMAIN_KNOWLEDGE.md#13-休闲游戏品类分析与系统研究附录)（"惊喜与情绪曲线"小节）。
 
 休闲游戏的核心壁垒是「积累的惊喜」。本系统把 36 款皮肤的视觉资产和游戏的反馈管线进一步盘活，在不改动核心玩法的前提下，让玩家**第一次玩**就感觉「这游戏有灵魂」、**长期玩**有理由回来。
 

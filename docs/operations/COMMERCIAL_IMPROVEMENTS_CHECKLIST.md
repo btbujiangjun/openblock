@@ -32,7 +32,7 @@
 | 6 | 微信支付 | 🔌 外部依赖 | `docs/platform/WECHAT_MINIPROGRAM.md`、`ADS_IAP_SETUP.md` | 须微信商户与类目审核 |
 | 7 | 支付宝 JSAPI | 🔌 外部依赖 | `ADS_IAP_SETUP.md` | 须支付宝开放平台应用 |
 | 8 | 服务端支付校验/幂等 | ⚠️ 部分实现 | `POST /api/payment/verify`、`iap_orders` | **幂等与入库已实现**；**非** Stripe/微信/Apple **密码学收据校验**（生产须扩展 Webhook/verify） |
-| 9 | 订单对账与退款策略 | ⛔ 未实现 | — | 无专用对账任务/Webhook 路由；仅 `COMPLIANCE_AND_SOPS.md` 文字 |
+| 9 | 订单对账与退款策略 | ⛔ 未实现 | — | 无专用对账任务/Webhook 路由；仅 `DEPLOYMENT.md §8` 文字 |
 | 10 | 「移除广告」服务端确权 | ⛔ 未实现 | `iapAdapter.js`、本地 `localStorage` | 权益仍以客户端为准；无服务端令牌校验链路 |
 | 11 | 订阅周期管理 | ⚠️ 部分实现 | `iap_orders.expires_at`、`iapAdapter.js` · `_syncPurchaseToServer` | 写入过期时间；**无周期扣款/续订 webhook** |
 | 12 | 地区化定价 | 📋 仅文档 | `iapAdapter.js` · `PRODUCTS` | 单一静态目录；无 Geo/IP SKU 映射 API |
@@ -65,18 +65,18 @@
 | 39 | 分环境配置 | ⚠️ 部分实现 | `.env`、`OPENBLOCK_*` | 依赖部署实践；**无 env 模板清单文档集中维护**（分散在各集成文档） |
 | 40 | 制品与版本号 | ⚠️ 部分实现 | `package.json` · `version` | **无发布 changelog 门禁或与 Git tag 联动脚本** |
 | 41 | 灰度发布 | 📋 仅文档 | Remote Config、实验桶 | 无网关级百分比放量组件 |
-| 42 | DB 备份 Runbook | 📋 仅文档 | `docs/operations/COMPLIANCE_AND_SOPS.md` | 无自动备份脚本 |
+| 42 | DB 备份 Runbook | 📋 仅文档 | `docs/operations/DEPLOYMENT.md §8` | 无自动备份脚本 |
 | 43 | 水平扩展预案 | 📋 仅文档 | `SQLITE_SCHEMA.md`、架构文档 | 迁移方案未脚本化 |
 | 44 | 速率限制 | ⚠️ 部分实现 | `OPENBLOCK_RATE_LIMIT_PER_MIN`、`backend/enterprise_extensions.py` | **进程内存计数**；多实例**不共享** |
 | 45 | 隐私同意横幅 | ⛔ 未实现 | `POST /api/compliance/consent` | API 有；**无 UI 横幅/CMP** |
 | 46 | 导出/删除用户数据 | ⚠️ 部分实现 | `GET /api/compliance/export-user`、`POST /api/compliance/delete-user` | 需 Ops Token；**删除范围未覆盖 achievements/move_sequences 等全部表**（见实现代码） |
-| 47 | 未成年人策略 | 📋 仅文档 | `COMPLIANCE_AND_SOPS.md` | 无年龄门/限额代码 |
+| 47 | 未成年人策略 | 📋 仅文档 | `DEPLOYMENT.md §8` | 无年龄门/限额代码 |
 | 48 | 服务端权威分数 | ⛔ 未实现 | `POST /api/score`、`leaderboard` | 仍以客户端上报为主；无回放重算分数 |
 | 49 | 行为上报鉴权 | ⛔ 未实现 | `POST /api/behavior` | 无默认 Token/签名校验 |
-| 50 | 日志脱敏 | 📋 仅文档 | `COMPLIANCE_AND_SOPS.md` | 应用日志未统一掩码中间件 |
+| 50 | 日志脱敏 | 📋 仅文档 | `DEPLOYMENT.md §8` | 应用日志未统一掩码中间件 |
 | 51 | 策略版本注册表 | ✅ 已实现 | `shared/strategy_registry.json`、`GET /api/enterprise/strategy-registry`、`OPENBLOCK_ACTIVE_STRATEGY_VERSION` | 标注用；**不自动切换 RL 权重文件** |
 | 52 | 影子流量 | ⛔ 未实现 | — | 无镜像流量或双写对比 |
-| 53 | 一键回滚 | 📋 仅文档 | `COMPLIANCE_AND_SOPS.md` | 无自动化回滚按钮/脚本 |
+| 53 | 一键回滚 | 📋 仅文档 | `DEPLOYMENT.md §8` | 无自动化回滚按钮/脚本 |
 | 54 | RL 离线评估门禁 | ✅ 已实现 | `npm run rl:eval`、`docs/engineering/TESTING.md` | **非 CI 强制门禁**（workflow 未默认执行 rl:eval） |
 | 55 | 训练记录与复现 | ⚠️ 部分实现 | `RL_*` 文档、`training.jsonl`（若启用） | 依赖环境与 env；无中心化实验 registry |
 | 56 | 共享规则包 | ⚠️ 部分实现 | `shared/game_rules.json`、`docs/platform/SYNC_CONTRACT.md` | Web 权威源；**小程序未 CI 校验 hash 同步** |
@@ -84,7 +84,7 @@
 | 58 | 小程序商业化对齐 | 📋 仅文档 | `miniprogram/`、`SYNC_CONTRACT.md` | 双端代码并行；未统一 SDK 封装 |
 | 59 | 小程序合规清单 | 📋 仅文档 | `docs/platform/WECHAT_RELEASE.md` | 非可执行代码 |
 | 60 | 文档与代码对齐 | ⚠️ 部分实现 | 本文档、`COMMERCIAL_OPERATIONS.md` | 持续维护项；以 `backend/enterprise_extensions.py` 与 `server.py` 为准 |
-| 61 | 运营 SOP | 📋 仅文档 | `COMPLIANCE_AND_SOPS.md` | 流程文本；无工单系统集成 |
+| 61 | 运营 SOP | 📋 仅文档 | `DEPLOYMENT.md §8` | 流程文本；无工单系统集成 |
 
 ---
 

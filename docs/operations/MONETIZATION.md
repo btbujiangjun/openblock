@@ -842,3 +842,101 @@ resetFlags();                    // 清除所有 localStorage 覆盖，恢复默
 
 | [`SPAWN_BLOCK_MODELING.md`](../algorithms/SPAWN_BLOCK_MODELING.md) | 出块算法（留存核心引擎，商业化底层支撑） |
 | [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | 对局消行计分（与商业化分账无关）；文末附「商业化策略存储」索引 |
+
+---
+
+## 15. 商业化系统综合报告（附录）
+
+> 本文作为架构与能力综述附录，快速勾勒模块拓扑、关键能力、漏斗 KPI 与演进方向。
+
+### 15.1 模块拓扑
+
+```
+                    ┌──────────────────────┐
+                    │   PlayerProfile      │ (源数据)
+                    │   metrics / lifecyclePayload │
+                    └──────────┬───────────┘
+                               │
+                ┌──────────────┴──────────────────────┐
+                │   playerAbilityModel.buildAbilityVector │
+                └──────────────┬──────────────────────┘
+                               │
+        ┌──────────────────────┼──────────────────────┐
+        │                      │                      │
+┌───────▼─────────┐   ┌────────▼──────────┐   ┌───────▼────────┐
+│ adaptiveSpawn   │   │ commercialModel   │   │ adTrigger      │
+│  - stress       │   │  - payerScore     │   │  - rewarded    │
+│  - lifecycle    │   │  - churnRisk      │   │  - interstitial│
+│  - winback cap  │   │  - propensities   │   │  - guardrails  │
+└─────────────────┘   └────────┬──────────┘   └───────┬────────┘
+                               │                      │
+                ┌──────────────┴──────────────────────┘
+                │
+        ┌───────▼───────────┐         ┌──────────────────────┐
+        │ paymentManager    │◄────────│ lifecycleOrchestrator│
+        │  - LIMITED_OFFERS │  events │  - onSessionStart/End│
+        │  - dynamicPricing │         │  - emit lifecycle:*  │
+        └───────┬───────────┘         └──────────┬───────────┘
+                │                                │
+        ┌───────▼───────────┐         ┌──────────▼───────────┐
+        │ iapAdapter        │         │ MonetizationBus      │ (订阅)
+        │  - emit purchase  │────────►│  - offerToast        │
+        │  - VIP / funnel   │         │  - lifecycleOutreach │
+        └───────────────────┘         │  - analyticsTracker  │
+                                      │  - actionOutcomeMatrix│
+                                      └──────────────────────┘
+```
+
+### 15.2 信号体系
+
+| 信号源 | 模块 | 输出 |
+|--------|------|------|
+| 行为统计 | `personalization.updateRealtimeSignals` | `frustration`, `hadNearMiss`, `flowState`, `momentum`, `sessionPhase` |
+| 能力评估 | `playerAbilityModel.buildAbilityVector` | 5 维 ability：`confidence`, `planning`, `skill`, `risk`, `clearEff` |
+| 长期画像 | `playerProfile` + `backend/monetization_backend.py` | `whaleScore`, `segment3` / `segment5` |
+| 生命周期 | `lifecycle/lifecycleSignals.js` | `stage ∈ {S0..S4}`, `band`, `unifiedRisk` |
+| 广告体验 | `adTrigger.getAdGuardrailState` | `inFlow`, `experienceScore`, `ltvShielded` |
+
+### 15.3 决策模块
+
+| 模块 | 输出 | 控制 |
+|------|------|------|
+| `commercialModel.buildCommercialModelVector` | `iapPropensity`, `rewardedAdPropensity`, `interstitialPropensity`, `churnRisk`, `payerScore`, `adFatigueRisk` + 4 guardrail | `actionThresholds` + `guardrail` |
+| `strategyEngine.evaluate` | `rankedActions[]` + `whyLines[]` | `strategyConfig.rules`（9 条默认） |
+| `paymentManager.triggerOffer` | LIMITED_OFFERS 命中 → 折扣方案 | `dynamicPricing` flag + stage × risk 矩阵 |
+| `adTrigger._triggerInterstitial / _triggerRewarded` | 是否展示广告 | `AD_CONFIG` 频控 + commercialModel 护栏 |
+| `lifecycleOrchestrator.onSessionStart/End` | `lifecycle:*` 事件 | 内部 evaluator |
+
+### 15.4 算法层扩展
+
+| 主题 | 模块 | 默认 flag |
+|------|------|-----------|
+| 统一特征 | `commercialFeatureSnapshot` | 始终启用 |
+| 校准 | `propensityCalibrator` | `commercialCalibration=false` |
+| 质量监控 | `modelQualityMonitor` | `commercialModelQualityRecording=true` |
+| 行为-结果 | `actionOutcomeMatrix` | `actionOutcomeMatrix=true` |
+| 漂移监控 | `distributionDriftMonitor` | `distributionDriftMonitoring=true` |
+| 探索 | `epsilonGreedyExplorer` | `explorerEpsilonGreedy=false` |
+| 多任务 | `multiTaskEncoder` | `multiTaskEncoder=false` |
+| 弹性定价 | `priceElasticityModel` | 推理函数（注入式） |
+| 价值评估 | `zilnLtvModel` | 推理函数（注入式） |
+| 在线学习 | `contextualBandit` (LinUCB) | `adInsertionBandit=false` |
+| 推送时机 | `survivalPushTiming` | 推理函数（注入式） |
+
+### 15.5 关键路径监控
+
+**漏斗 KPI**：`IAP_FIRST_PURCHASE` 末段 ≥ 2% | `AD_WATCH` complete/show ≥ 80% | `OFFER_TOAST_CTR` 5–15% | `LIFECYCLE_INTERVENTION` trigger ≥ 0.1/DAU
+
+**流失/挽留指标**：`unifiedRisk` 三腿覆盖率、`lifecycle:early_winback` 触发率（比真 winback 提前 1–3 天）、winback offer 转化率
+
+**体验保护**：flow 护栏触发次数、高 LTV 玩家保护率、广告体验分 < 60 时整体抑制
+
+**模型质量**：PR-AUC / Brier / hit@10、各特征 KL（> 0.10 触发重训练）、action × outcome 矩阵、IPS-weighted 反事实
+
+### 15.6 演进方向
+
+1. **离线模型 bundle**：Python 训练管线统一打包为 model bundle JSON，通过 RemoteConfig 推送
+2. **OPS 看板**：暴露 `getModelQualityReport()` + `getDriftReport()` + `getPolicyGain()`
+3. **服务端事件管道**：`ad_show` / `ad_complete` 写本地 + `POST /api/enterprise/ad-events`
+4. **小程序对齐**：按 [`SYNC_CONTRACT.md`](../platform/SYNC_CONTRACT.md) 同步事件名与 payload
+5. **bandit 升级**：ε-greedy → LinUCB（`contextualBandit` 已就位）

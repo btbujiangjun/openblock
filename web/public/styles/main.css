@@ -89,6 +89,19 @@
     box-sizing: border-box;
 }
 
+html {
+    /* iOS / iPad 长按、触控笔轻点不弹出系统复制/查阅菜单 */
+    -webkit-touch-callout: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable='true'],
+[data-allow-browser-chrome] {
+    -webkit-touch-callout: default;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background:

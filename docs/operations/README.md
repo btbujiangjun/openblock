@@ -2,37 +2,51 @@
 
 商业化、运营策略、训练面板、合规、部署与可观测性文档。
 
-> 本目录在文档中心拆为两个分类：「商业化与运营」和「运维与部署」。
+> 本目录按角色拆为两个分类：「商业化与运营」和「运维与部署」。
+
+---
 
 ## 商业化与运营
 
-### 权威入口
+### 总——策略框架
 
-- [商业化策略](./MONETIZATION.md) —— 架构、数据流、策略配置、`CommercialModelVector`、API 与运维边界
-- [商业化系统综合报告](./COMMERCIAL_STRATEGY_REVIEW.md) —— 模块拓扑、关键能力、KPI、演进方向
-- [玩家生命周期与成熟度运营蓝图](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) —— S0–S4 × M0–M4 双轴模型、KPI 字典、能力与运营接入点、推荐实验
-- [留存信号跨平台分析与策略优化](./RETENTION_SIGNALS_CROSS_PLATFORM.md) —— iOS × Android 双平台留存相关性 + 区分度矩阵；6 项跨平台关键发现 + 8 项 P0/P1/P2 落地方案 + 实施路线图
-- [留存优化快赢清单](./RETENTION_QUICK_WINS.md) —— 上述策略的**工程落地层**：精确到文件 / 函数 / 行号 / 改动前后代码 / 测试 / 护栏指标的 10 项具体优化点（总计 9 人日）
-- [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md) —— `/ops` 是否接数据库、指标 SQL 口径、复核与建议
+- [商业化策略](./MONETIZATION.md) —— **权威入口**：IAA+IAP混合架构、用户分层（鲸鱼/海豚/小鱼）、信号→决策管线、`CommercialModelVector`、后端API、SQLite Schema、KPI基线、扩展边界；附录含商业化系统综合报告（模块拓扑、漏斗KPI、演进方向）
+- [商业运营参考分析](./COMMERCIAL_OPERATIONS.md) —— 商业化现状诊断、7项P0–P7改善优先级、集成路径（AdMob/AppLovin/Stripe IAP/Analytics）
+- [玩家生命周期与成熟度运营蓝图](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) —— S0–S4 × M0–M4双轴模型、北星指标（D30留存）、5×5决策矩阵、技能/价值评分公式、运营接入点与推荐实验
+- [Block Blast 商业化运营指南](../platform/MONETIZATION_GUIDE.md) —— 跨平台PWA/广告/IAP/签到/分享配置（位于 `docs/platform/`）
 
-### 配置与面板
+### 分——配置与面板
 
-- [商业化定制](./MONETIZATION_CUSTOMIZATION.md) —— 运营如何改配置、规则、动作类型
-- [商业化训练面板](./MONETIZATION_TRAINING_PANEL.md) —— MonPanel 的 Tab、字段与调试方式
-- [Block Blast 商业化运营指南](../platform/MONETIZATION_GUIDE.md) —— 跨平台 PWA / 广告 / IAP / 签到 / 分享配置（位于 `docs/platform/`）
-- [合规与 SOP](./COMPLIANCE_AND_SOPS.md) —— 隐私、数据导出删除、合规手册
+- [商业化定制](./MONETIZATION_CUSTOMIZATION.md) —— 三级细化：面板调参→`strategyConfig.js`规则修改→`registerStrategyRule()`新增动作类型，含L1–L4层次架构与热重载
+- [商业化训练面板](./MONETIZATION_TRAINING_PANEL.md) —— MonPanel的4个Tab（Overview/User Profile/Model Config/Feature Flags）、字段说明、AB测试流程、缓存机制与扩展指南
 
-### 能力对照
+### 分——留存与数据分析
 
-- [商业运营参考分析](./COMMERCIAL_OPERATIONS.md) —— 运营机会池与策略参考
-- [商业化与企业能力对照表](./COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) —— 仓库内置 / 部分内置 / 外部依赖 / 规划中
+- [留存信号跨平台分析](./RETENTION_SIGNALS_CROSS_PLATFORM.md) —— iOS×Android 16个行为信号与D7留存的Pearson-r相关矩阵，6项跨平台关键发现、8项P0/P1/P2落地策略
+- [留存优化快赢清单](./RETENTION_QUICK_WINS.md) —— 上述策略的工程落地方案：精确到文件/函数/行号/改动前后代码的10项优化（总计9人日）
+- [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md) —— `/ops` 数据库接入确认、指标SQL口径审计（DAU实际为WAU等）、写路径审计
+
+### 分——合规
+
+- [部署指南](./DEPLOYMENT.md) §8 —— 合规与运维SOP（隐私同意、数据导出删除、SQLite备份恢复、事故回滚）
+
+### 分——能力对照
+
+- [商业化与企业能力对照表](./COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) —— 54项能力的实现状态矩阵（仓库内置/部分内置/外部依赖/规划中），含验证路径与代码引用
+
+---
 
 ## 运维与部署
 
-- [部署指南](./DEPLOYMENT.md) —— Docker Compose、env 凭据、健康检查、备份恢复 Runbook
-- [百万 DAU 架构设计](./SCALE_1M_DAU.md) —— 容量测算、目标拓扑、P0/P1/P2 改造项、灰度路线与压测门槛
-- [Kubernetes 部署](./K8S_DEPLOYMENT.md) —— `k8s/base/` manifest、Helm chart 骨架、HPA
-- [可观测性](./OBSERVABILITY.md) —— Prometheus `/metrics` + OpenTelemetry 自动埋点接入
-- [安全加固](./SECURITY_HARDENING.md) —— Argon2id、Fernet、JWT 旋转、RateLimit Redis 后端
+### 总——部署总览
+
+- [部署指南](./DEPLOYMENT.md) —— Docker Compose + 微服务网格双拓扑，本地/Staging/Production完整Runbook
+- [百万DAU架构设计](./SCALE_1M_DAU.md) —— 容量测算（3M日游戏/8-12K峰值写QPS/20-30K峰值读QPS）、目标拓扑（读写分离/Kafka→ClickHouse/HPA）、P0–P2改造项与灰度路线
+
+### 分——运维细则
+
+- [Kubernetes部署](./K8S_DEPLOYMENT.md) —— `k8s/base/` manifest + Helm chart骨架，4个Flask Deployment + ClusterIP + Ingress + HPA，secret策略与数据库迁移
+- [可观测性](./OBSERVABILITY.md) —— 结构化日志（`common/` helpers）、Prometheus 4金信号（带自动埋点）、OpenTelemetry自动trace（W3C tracecontext传播），多进程gunicorn配置
+- [安全加固](./SECURITY_HARDENING.md) —— Argon2id密码哈希、Fernet AES-128-CBC+HMAC、JWT旋转、RateLimit Redis后端、CORS白名单，v1.14迁移Runbook
 
 适合运营、产品、商业化算法、平台工程、SRE 角色使用。

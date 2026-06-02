@@ -1,7 +1,7 @@
 /**
  * 小程序运行时数据模块 — 出块寻参 v2 策略 (离线包)
  * 来源: web/public/spawn-tuning-v2/policies.json
- * 同步: scripts/sync-spawn-bundle.mjs @ 2026-06-02T10:47:14.524Z
+ * 同步: scripts/sync-spawn-bundle.mjs @ 2026-06-02T12:26:34.771Z
  * model_id: 55
  * model_sha256: dc60d386f947168586f63b41df6be426774ecceeee7519fe178a71760a4e02a6
  * bundle_sha256: 71c256533c6d07a2fa478e0601a7dc83ed05c91835bb776e3bde53c1e08525cd

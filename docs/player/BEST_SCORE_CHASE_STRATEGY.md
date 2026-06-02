@@ -523,7 +523,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 - 跨局画像：[生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（S0–S4 × M0–M4）
 - 计分规则：[消行计分](../product/CLEAR_SCORING.md)（如何把"消行"转成 score）
 - 难度档：[难度模式](../product/DIFFICULTY_MODES.md)（Easy/Normal/Hard 与自适应协作）
-- 行业实证：[休闲游戏品类分析](../domain/CASUAL_GAME_ANALYSIS.md) §10、[领域知识](../domain/DOMAIN_KNOWLEDGE.md)
+- 行业实证：[休闲游戏品类分析](../domain/DOMAIN_KNOWLEDGE.md#13-休闲游戏品类分析与系统研究附录) §13、[领域知识](../domain/DOMAIN_KNOWLEDGE.md)
 
 *以仓库主分支为事实来源。*
 *维护者：策划组 + 体验算法组联合维护；改动需走 PR 评审并同步更新 §4 改进项编号与 §6 验证清单。*
