@@ -1,4 +1,4 @@
-# Security Hardening (v1.14)
+# Security Hardening
 
 This document is the canonical checklist of v1.14 security changes and
 how operators should configure deployments. It complements `SECURITY.md`

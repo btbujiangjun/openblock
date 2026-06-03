@@ -2,7 +2,7 @@
 
 > 本文是 OpenBlock **强化学习子系统**的统一算法手册。
 > 范围：RL 智能体的**算法选型 / 网络结构 / 状态-动作设计 / 奖励函数 / 训练流程 / 推理流程 / 数值稳定 / 演进路线**。
-> 与现有文档的关系：本文维护当前算法事实和公式；[`RL_README.md`](./RL_README.md) 维护栏目导航，其他 RL 文档只维护契约、服务、看板或历史实验专题。
+> 与现有文档的关系：本文维护当前算法事实和公式；[本手册 §21](#21-rl-契约与在线服务) §一维护栏目导航，其他 RL 文档只维护契约、服务、看板或历史实验专题。
 > 若需要横向理解 RL 与 Spawn、玩家画像、商业化、LTV、PCGRL 的契约关系，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)；若要对比启发式出块、生成式出块、PyTorch RL 与浏览器 RL，读 [`MODEL_SYSTEMS_FOUR_MODELS.md`](./MODEL_SYSTEMS_FOUR_MODELS.md)。
 
 ---
@@ -29,6 +29,9 @@
 18. [演进路线 v1 → v7](#18-演进路线-v1--v7)
 19. [常见问题诊断](#19-常见问题诊断)
 20. [附录：完整超参数表](#20-附录完整超参数表)
+21. [RL 契约与在线服务](#21-rl-契约与在线服务)
+22. [RL 训练监控与排障](#22-rl-训练监控与排障)
+23. [RL 研究：复杂度、瓶颈与文献对照](#23-rl-研究复杂度瓶颈与文献对照)
 
 ---
 
@@ -40,7 +43,7 @@ OpenBlock 的"放置 + 消行"是一个**有约束的离散 MDP**：
 
 | 维度 | 数值 | 影响 |
 |------|------|------|
-| 原始局面（离散直觉） | **棋盘 8×8**：观测中 **64 维为占用 0/1**，仅二元抽象时 **$\sim 2^{64}$**；若「空 + 8 色」则 **$\sim 9^{64}$**（详见 `RL_ANALYSIS.md` §2.1）。**Dock**：`shared/shapes.json` **28** 种块型，三块形状身份量级 **$\mathcal{O}(28^3)$**（粗略；未乘 **$8^3$** 颜色，也未单独计放置进度）。 | 巨大但稀疏 |
+| 原始局面（离散直觉） | **棋盘 8×8**：观测中 **64 维为占用 0/1**，仅二元抽象时 **$\sim 2^{64}$**；若「空 + 8 色」则 **$\sim 9^{64}$**（详见 本手册 §23 §1.1）。**Dock**：`shared/shapes.json` **28** 种块型，三块形状身份量级 **$\mathcal{O}(28^3)$**（粗略；未乘 **$8^3$** 颜色，也未单独计放置进度）。 | 巨大但稀疏 |
 | 观测编码（实现事实来源） | **`featureEncoding.stateDim = 181`**：42 维标量（含颜色摘要）+ 64 棋盘占用 + **75** dock 空间掩码（**3×5×5**）；策略输入 **$\psi\in\mathbb{R}^{181}$**（§3），与 **$2^{64}\!\times\!28^3$** 笛卡尔积**不等价**。 | 固定维度、可微近似 |
 | 单步合法动作数 | 0~120（典型 30~80） | 维度可变 |
 | 单局长度 | 平均 ~30 步，最长 ~120 步 | 短轨迹 |
@@ -1221,7 +1224,7 @@ Latency: ~5-50ms（CPU）/ ~2-10ms（MPS/CUDA）
 | `/api/rl/training_log` | GET | `?tail=N` | 最新 N 条训练记录 |
 | `/api/rl/checkpoint` | POST | `{ action: 'save' / 'load' }` | `{ ok }` |
 
-在线训练与离线评估对照、search replay、`npm run rl:eval` 详见 **[RL_PYTORCH_SERVICE.md](./RL_PYTORCH_SERVICE.md)**。
+在线训练与离线评估对照、search replay、`npm run rl:eval` 详见 **[本手册 §21](#21-rl-契约与在线服务)**。
 
 ### 14.3 模型加载
 
@@ -1259,7 +1262,7 @@ useBackend=false → trainer.js 用 LinearAgent
 
 ### 14.6 在线训练与贪心评估对照
 
-在侧栏 **勾选 1-step lookahead**（默认不勾选；`trainSelfPlay` / `runSelfPlayEpisode` 未传 **`useLookahead`** 时亦为 **`false`**）时，POST 可携带 **`q_teacher`**（每条合法动作的 `r + γ V(s')`），服务端映射为 `q_vals` 后 **Q 蒸馏**生效，**Teacher Q coverage** 可大于 0（弱 teacher，**不等价**于离线 beam/MCTS）。前端对 **`/api/rl/eval_values`** 响应做长度与类型校验，失败或非法时 **回退 `select_action`**。**visit_pi**（MCTS 访问分布）在线仍不传，除非扩展协议。判断策略是否进步应结合 **`python3 -m rl_pytorch.eval_cli`**（或 `POST /api/rl/eval_greedy`）的**固定协议贪心评估**，而非仅依赖滑动窗口胜率。完整说明见 [RL_PYTORCH_SERVICE.md](./RL_PYTORCH_SERVICE.md)。
+在侧栏 **勾选 1-step lookahead**（默认不勾选；`trainSelfPlay` / `runSelfPlayEpisode` 未传 **`useLookahead`** 时亦为 **`false`**）时，POST 可携带 **`q_teacher`**（每条合法动作的 `r + γ V(s')`），服务端映射为 `q_vals` 后 **Q 蒸馏**生效，**Teacher Q coverage** 可大于 0（弱 teacher，**不等价**于离线 beam/MCTS）。前端对 **`/api/rl/eval_values`** 响应做长度与类型校验，失败或非法时 **回退 `select_action`**。**visit_pi**（MCTS 访问分布）在线仍不传，除非扩展协议。判断策略是否进步应结合 **`python3 -m rl_pytorch.eval_cli`**（或 `POST /api/rl/eval_greedy`）的**固定协议贪心评估**，而非仅依赖滑动窗口胜率。完整说明见 [本手册 §21](#21-rl-契约与在线服务)。
 
 ---
 
@@ -1291,7 +1294,7 @@ useBackend=false → trainer.js 用 LinearAgent
 
 ## 16. 数值稳定性与裁剪
 
-详见 `RL_TRAINING_NUMERICAL_STABILITY.md`，本节做要点摘录：
+详见 本手册 §22（§三），本节做要点摘录：
 
 ### 16.1 logits 裁剪
 
@@ -1364,7 +1367,7 @@ def _safe_aux(t):
 
 ## 17. 训练观测与调参顺序
 
-### 17.1 核心看板指标（详见 `RL_TRAINING_DASHBOARD_TRENDS.md`）
+### 17.1 核心看板指标（详见 本手册 §22 §二）
 
 | 图 | 健康形态 | 异常形态 |
 |----|---------|---------|
@@ -1450,7 +1453,7 @@ def _safe_aux(t):
 ### 19.6 "浏览器训练日志看不到曲线"
 
 - 原因：未勾选 PyTorch 时用 localStorage；勾选后用 `/api/rl/training_log`
-- 解决：见 `RL_TRAINING_DASHBOARD_FLOW.md` § 数据源切换
+- 解决：见 本手册 §22 §1.1 数据源切换
 
 ---
 
@@ -1529,16 +1532,490 @@ def _safe_aux(t):
 
 ---
 
+## 21. RL 契约与在线服务
+
+> 当前定位：本文是 RL 栏目的总入口 + 维护 RL 与主玩法之间的契约边界 + Flask `/api/rl/*` 在线服务与离线评估说明。
+> 权威事实来源为 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)；若其他 RL 专题文档与其冲突，以 `ALGORITHMS_RL.md` 和代码为准。
+> RL 算法公式和训练流程见 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)。
+
+---
+
+### 一、阅读入口
+
+| 需求 | 先读 |
+|------|------|
+| 理解当前 RL 算法、状态/动作、奖励、网络、训练和推理 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) |
+| 理解 RL 与玩法边界 + 部署在线/离线服务 | 本文 · [本手册 §22](#22-rl-训练监控与排障) |
+| 看训练曲线、判断是否正常 + 排查数值异常 | [本手册 §22](#22-rl-训练监控与排障) |
+
+#### 1.1 文档分层
+
+| 分类 | 文档 | 维护内容 |
+|------|------|----------|
+| 权威 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | PPO/GAE/辅助头/search teacher/浏览器 fallback/服务化推理的统一说明 |
+| 契约与服务 | [本手册 §21](#21-rl-契约与在线服务) (本文) | RL 与玩法的解耦边界 + Flask 在线训练/离线评估/HTTP 评估/批量 PPO |
+| 训练观测与排障 | [本手册 §22](#22-rl-训练监控与排障) | 看板数据流/刷新机制 + 八图趋势解读 + 数值稳定与 loss 裁剪 |
+| 分析与实验记录 | [本手册 §23](#23-rl-研究复杂度瓶颈与文献对照) | 复杂度分析、瓶颈诊断、优化候选池、文献对照 |
+| 历史实验参考 | [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) | AlphaZero/MCTS 对比和搜索蒸馏思路 |
+
+#### 1.2 维护原则
+
+- 算法公式、网络结构、状态/动作维度、奖励口径只在 `ALGORITHMS_RL.md` 维护。
+- 玩法规则、得分、形状、特征维度以 `shared/game_rules.json` 和 `shared/shapes.json` 为准。
+- 看板字段和曲线口径只在 dashboard 相关文档维护。
+- 历史实验文档可以保留失败原因和取舍结论，但不要把旧版本号写成当前状态。
+
+---
+
+### 二、RL 契约：玩法边界与共享规则
+
+### 二、RL 契约：玩法边界与共享规则
+
+#### 1.1 单一数据源
+
+| 内容 | 文件 | 说明 |
+|------|------|------|
+| 难度、得分、棋盘宽高、胜局分、RL 训练用策略 id、特征维度与归一化常数、统一消行计分 `clearScoring`、RL 奖励塑形 `rlRewardShaping`、RL 与主局对齐的 bonus icon/染色 `rlBonusScoring` | `shared/game_rules.json` | 改玩法优先只改此处 |
+| 多连块几何 | `shared/shapes.json` | 与 `web` / `rl_pytorch` / `rl_mlx` 共用 |
+
+#### 1.2 分层
+
+1. **规则与数据**：上述 JSON。
+2. **环境（对局动力学）**：`web/src/bot/simulator.js`、`rl_pytorch/simulator.py`、`rl_mlx/simulator.py` 等实现落子、消除、得分、每轮 dock 三色采样；须与主游戏 `Grid` / `clearScoring` 逻辑一致。
+   - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → `clearScoring.iconBonusLineMult` 统一提供。训练路径不用玩家当前皮肤，icon 语义只读取 `rlBonusScoring.blockIcons`；为空时浏览器无头局、PyTorch、MLX 都退化为同色整线 bonus。
+   - **dock 染色偏置**：仅依据盘面可见的近满线几何 + 同一套 icon/同色规则调用 `monoNearFullLineColorWeights`，不是 adaptiveSpawn / spawnHints。
+   - **出块形状**：仍由 `block_spawn.generate_*` 与策略配置生成。
+3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（v9.2 181 维）。
+4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。
+
+#### 1.3 自适应出块（网页端）
+
+网页端真人主流程有两种可选出块模式：启发式（`adaptiveSpawn.js` + `blockSpawn.js`）与生成式（`spawnModel.js` 调用 SpawnPolicyNet）。两者共享同一份出块上下文。生成式必须通过前端 `validateSpawnTriplet()` 护栏；模型不可用、输出非法或不可解时回退启发式并记录原因。
+
+Python/MLX 训练仍使用固定策略与共享 `game_rules.json` / `shapes.json`，不读取真人网页的 `spawnHints`、V3 推理结果或玩家画像。
+
+#### 1.4 spawnIntent 单一口径
+
+`adaptiveSpawn` 输出 `spawnHints.spawnIntent ∈ { relief, engage, pressure, flow, harvest, maintain }`。拟人化叙事 / 商业化策略 / 回放标签都从 spawnIntent 派生。几何近满检测由 `boardTopology.detectNearClears()` 单一来源提供。
+
+#### 1.5 harvest / payoff 几何兜底 + 词义解耦
+
+`spawnIntent` 统一为 6 值枚举。`spawnIntent='harvest'` 要求 `nearFullLines ≥ 2 || (pcSetup ≥ 1 && fill ≥ PC_SETUP_MIN_FILL)`。UI 词义：`PlayerProfile.pacingPhase` 展示为 "Session 张弛"；`spawnHints.rhythmPhase` 称 "节奏相位"。
+
+#### 1.6 修改玩法时建议顺序
+
+- 只调难度/分数字段：编辑 `shared/game_rules.json`
+- 改方块集合：编辑 `shared/shapes.json`
+- 改观测或网络输入维度：改 `featureEncoding` + `features.js` / `features.py`
+
+#### 1.7 PyTorch 与浏览器线性模型：收敛速度差异
+
+| 因素 | 线性 `LinearAgent` | PyTorch `PolicyValueNet` / `SharedPolicyValueNet` |
+|------|---------------------|---------------------------------------------------|
+| 参数量 | 196 + 181 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准 |
+| 每局梯度步数 | 逐步更新 | 整局一次 `backward` |
+| 回报与价值 | MC 回报，无缩放 | `RL_RETURN_SCALE` + GAE + `smooth_l1` |
+| 探索 | 温度 softmax | 温度衰减 + Dirichlet + 熵 bonus |
+
+---
+
+### 三、PyTorch RL：在线服务与离线评估
+
+#### 2.1 两条训练路径
+
+| 路径 | 采样来源 | Teacher | Search replay | v11 闭环课程 |
+|------|-----------|---------|---------------|-------------|
+| **离线** `python -m rl_pytorch.train` | Python `OpenBlockSimulator` + `collect_episode` | MCTS / beam / 1-step | ✅ | ✅ `--adaptive-curriculum` |
+| **在线** 浏览器 → `/api/rl/train_episode` | 浏览器仿真 + POST 轨迹 | 可选：侧栏 `1-step lookahead` 时 Q 蒸馏 | ✅（批量 flush） | ❌ 仅 `rlCurriculum` |
+
+**一键启动离线训练**（v11.1 推荐，含 MCTS + Dirichlet + v11 闭环 + 3-ply beam）：
+
+```bash
+./scripts/train_full_mcts.sh
+RESUME=1 ./scripts/train_full_mcts.sh
+EPISODES=20000 ./scripts/train_full_mcts.sh
+```
+
+脚本内启用：`RL_MCTS=1`、`RL_ADAPTIVE_CURRICULUM=1`、`RL_MCTS_REUSE=1`、`RL_ZOBRIST_SHARED=1`、`DIRICHLET_EPSILON=0.20`。
+
+#### 2.2 两栈选择建议（v11.1）
+
+| 现象 | 建议 |
+|---|---|
+| teacher 覆盖率长期为 0 | 切换到离线训练（默认开 MCTS） |
+| win_rate ≥ 90% 且 mean_score 远高于阈值 | 离线 v11 四档闭环 |
+| Lv 高位震荡 + 不增长 | 多 worker GAE + Dirichlet |
+| 需要低延迟实时观察 | 浏览器（优先） |
+
+#### 2.3 侧栏 UI 与 POST 字段
+
+- `#rl-lookahead`：默认不勾选；勾选后训练/评估均启用 lookahead
+- `trainSelfPlay`/`runSelfPlayEpisode`：未传 `useLookahead` 时默认为 `false`
+- POST `q_teacher`：`number[]`，长度等于该步 `phi` 行数
+- `visit_pi`：在线默认不传
+
+#### 2.4 `/api/rl/eval_values` 前端校验与回退
+
+- `evalValuesRemote`：要求响应体含 `values` 且数组长度与请求的 `states` 条数一致
+- `_selectWithLookahead`：请求失败或返回值长度与合法动作数不一致时，回退 `select_action`
+
+#### 2.5 服务端 Q 蒸馏与单局日志
+
+`_convert_episode_for_ppo`：若某步含 `q_teacher` 且长度与 `phi` 行数一致，写入该步 `q_vals`。`training.jsonl` 的 `train_episode` 事件可含 `loss_q_distill`、`q_distill_coef`、`teacher_q_coverage`。
+
+#### 2.6 在线批量 PPO 与 search replay
+
+当 `RL_BATCH_SIZE`（默认 32）> 1 且轨迹攒满缓冲时，调用与离线相同的 `_reevaluate_and_update`。`shared/game_rules.json` → `rlRewardShaping.searchReplay` 控制启用、抽样比例等。服务端维护内存队列 `search_replay_buffer`。
+
+#### 2.7 独立评估
+
+**命令行**：`npm run rl:eval` / `python3 -m rl_pytorch.eval_cli`
+**HTTP**：`POST /api/rl/eval_greedy` 对当前内存权重跑评估并追加 `training.jsonl`
+
+#### 2.8 吞吐与批次
+
+- `RL_BATCH_SIZE`：在线攒批大小
+- `RL_PPO_EPOCHS_ONLINE`：每批 PPO epoch 数
+- `POST /api/rl/flush_buffer`：手动触发
+
+#### 2.9 推荐阅读
+
+1. [RL 算法手册 §14](./ALGORITHMS_RL.md#14-推理流程与服务化)
+2. [RL 训练监控](#22-rl-训练监控与排障)
+3. [测试指南](../engineering/TESTING.md)
+
+---
+
+## 22. RL 训练监控与排障
+
+> 当前定位：RL 训练看板的数据流与刷新机制 + 趋势解读与调优建议 + 数值稳定与指标诊断。
+> 配套看板代码：`web/src/bot/rlTrainingCharts.js`；算法总览见 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md)。
+
+---
+
+### 一、看板：数据流与刷新机制
+
+#### 1.1 数据来源
+
+| 模式 | 曲线与摘要 | 左侧统计 |
+|------|-----------|----------|
+| 未勾选 PyTorch | `browserTrainingLog.js`（localStorage 环形缓冲） | 本页会话内 `onEpisode` 累计 |
+| 勾选 PyTorch | `GET /api/rl/training_log?tail=5000` 读 `training.jsonl` | 与 `onEpisode` 取 max，刷新时与 `/api/rl/status` 对齐 |
+
+请求带 `cache: 'no-store'`。
+
+#### 1.2 自动刷新机制
+
+1. 每局结束 `onEpisode` → `scheduleDashRefresh()`：约 350ms 后 `refreshDashboardFull()`
+2. 定时轮询 `syncChartPoll()`：约 1.2s（浏览器）/ 1.8s（PyTorch）再调一次
+
+若关闭「训练中自动刷新」，则仅在点击「刷新图表」或改下拉时更新。
+
+#### 1.3 刷新图表流程
+
+1. `refreshTrainingCharts()`：拉日志 → `updateRlTrainingCharts` 重绘摘要条与 8 个面板
+2. 勾选 PyTorch 时：`refreshServerTrainingLog()` + `syncEpisodesFromServer()`
+
+#### 1.4 有效性自检
+
+- 勾选 PyTorch、启动训练：摘要末局序号与 `training.jsonl` 最新事件一起增长
+- 关闭自动刷新、手动刷新：曲线与摘要跳变为当前文件内容
+- 切换「最近 N 局」：立即重绘
+
+#### 1.5 PyTorch 在线训练：lookahead 与左侧统计
+
+`#rl-lookahead` 默认不勾选。勾选后首局可能长时间无日志。左侧局数与 `/api/rl/status` 取 max。`startBatch` 异常时 finally 解锁按钮。
+
+#### 1.6 面板布局与交互（v1.14）
+
+- 训练日志在训练时默认展开（`startBatch()` 自动 open）
+- 看板摘要去层级（`<details>` 直接挂载）
+- 「训练曲线」→「训练指标」统一命名
+- 训练指标自适应高度：JS 动态测量写 `maxHeight`，超长时内部滚动
+- 左侧画像默认展开更多 panel
+- 主题化细滚动条
+
+#### 1.7 面板收起 / 展开（v1.33–v1.34）
+
+RL 训练面板在不需要时占用 120~360px 右侧栏。收起态（`.rl-collapsed`）：
+
+| 维度 | 展开态 | 收起态 |
+|------|--------|--------|
+| `.rl-panel` 宽度 | `clamp(120px, …, 360px)` | 36px |
+| `--cell-px-max` | 80px | 88px |
+| 可见内容 | header-row + 全部 details | 仅收缩按钮 |
+
+状态持久化：`localStorage["openblock_rl_panel_collapsed_v1"]`。`index.html <head>` 中 inline 脚本防闪烁。
+
+---
+
+### 二、看板：趋势解读
+
+#### 2.1 八图各自回答的问题
+
+| 图表 | 粗线含义 | 健康形态 | 需警惕 |
+|------|----------|----------|--------|
+| Lπ 策略损失 | 近 20 局策略 surrogate 平滑 | 缓慢下行或窄幅横盘 | 持续上行且胜率不再涨 |
+| Lv 价值损失 | 近 20 局价值拟合误差平滑 | 有界、尖峰稀疏 | 阶跃上升或纵轴被撑爆 |
+| 策略熵 H(π) | 单序列 | 缓慢下降 | 长期贴 0 或剧烈反弹 |
+| 轨迹长度 | 单序列 | 随能力上升拉长 | 突然塌回极短 |
+| 近 40 局胜率 | 滑动平均 | 从低到高再平台化 | 持续下滑无恢复 |
+| 对局得分 | 滑动平均 | 与胜率、步长同向 | 与胜率背离 |
+
+**解读顺序**：胜率/得分/步数 → 熵/Lπ → Lv → 图 7/8
+
+#### 2.2 图 7：Teacher 覆盖与目标形态
+
+| 图例 | 颜色 | 日志字段 | 含义 |
+|------|------|----------|------|
+| Q coverage | 深绿 | `teacher_q_coverage` | 带 Q teacher 的步占比 |
+| visit coverage | 深蓝虚线 | `teacher_visit_coverage` | 带 MCTS visit_pi teacher 的步占比 |
+| q entropy norm | 紫 | `teacher_q_entropy_norm` | teacher Q softmax 分布熵归一化 |
+| q top margin | 橙红虚线 | `teacher_q_margin` | teacher Q 归一化后 top1 − top2 |
+
+#### 2.3 图 8：蒸馏吸收与 Replay 占比
+
+| 图例 | 颜色 | 含义 |
+|------|------|------|
+| Q distill | 青绿 | Q 蒸馏损失 |
+| visit_pi distill | 玫红虚线 | visit_pi 蒸馏损失 |
+| replay ratio | 棕 | search replay 混入步占比 |
+
+#### 2.4 训练日志字段解读
+
+##### `[adap ...]`（v11 adaptive 模式）
+
+`thr=180 [adap wr=42% vep=8000 act=hold] sc=145`
+
+| 字段 | 含义 | 健康范围 |
+|------|------|----------|
+| wr | 近 window 局滑动胜率 | 30%~60% |
+| vep | 虚拟课程局数 | 单调缓慢上升 |
+| act | 反馈决策 | hold / accel / pause / rollback / severe |
+
+##### `[quant ...]`（v11.2 quantile 模式，当前默认）
+
+`thr=287 [quant p70 tgt=295 ema=287.4 n=500 act=quantile] sc=312`
+
+win_rate 应数学上恒等于 `1 - p/100`（如 p=70 → 30%）。
+
+##### `[smooth ...]`（v11.2 方案 B 平滑奖励，opt-in）
+
+`smooth tgt=180 span=120 r=+18.3 act=smooth`
+
+##### `[rnd ...]`（v11.2 方案 C RND Curiosity，opt-in）
+
+`rnd ī=0.68 Lp=0.68 σ=0.11`
+
+#### 2.5 看板图 9：课程门槛与得分分位（v11.2）
+
+4 条曲线：`win threshold`（红）、`quantile target`（蓝虚线）、`quantile EMA`（青）、`win_rate × 100`（紫点线）。
+
+#### 2.6 典型案例研判
+
+**偏正常信号**：局数大、胜率曾爬升至 50%~70%、步数/得分粗线长期抬升、熵总体下行。
+
+**需关注信号**：Lv 粗线末端抬升（常见于课程阈值变化导致分布偏移）、胜率从峰值略回落（自博弈下常见、未必是 bug）。
+
+| 情形 | 建议结论 |
+|------|----------|
+| 胜/分/步粗线向上，Lv 偶发尖峰 | 整体正常 |
+| 胜/分粗线下行 + Lv/Lπ 同时恶化 | 可能异常 |
+| 仅 Lv 爆炸、外在指标仍涨 | 价值分支不稳 |
+
+#### 2.7 优化建议
+
+**已落地的数值裁剪**：`RL_RETURNS_CLIP`、`RL_VALUE_TARGET_CLIP`、`RL_GAE_DELTA_CLIP`、`RL_LOG_LOSS_CLIP`
+
+**训练策略层**：调 `RL_VALUE_COEF`、`RL_GRAD_CLIP` / `RL_LR`、熵系数、课程阈值、Teacher/Replay 指标。
+
+**工程与运维**：定期存盘与回滚 (`RL_SAVE_EVERY`)、双机对比超参。
+
+---
+
+### 三、排障：数值稳定与指标解读
+
+#### 3.1 根因归纳
+
+##### 单局 `train_episode` 路径
+
+价值目标为 MC 折扣回报与当前价值估计的 smooth L1。长局单步奖励大时 G_t 可达数百到数千，若价值头接近初始化量级，|G−V| 很大 → loss_value 数值高。
+
+##### 批量 PPO 路径
+
+使用 GAE 构造优势与回报；TD 误差在长局、大 r 时可累积放大。原 `rets_np` 使用 ±1e5 宽松裁剪，与 outcome 混合目标（约 [0,2]）尺度不一致时价值分支仍可能学在错误量级上。
+
+#### 3.2 代码侧优化
+
+| 位置 | 改动 |
+|------|------|
+| `backend/rl_backend.py` | `RL_RETURNS_CLIP`（±512）裁剪单局 MC 回报 |
+| `backend/rl_backend.py` | `_loss_scalar_for_log`：有限性检查 + `RL_LOG_LOSS_CLIP`（1e6） |
+| `rl_pytorch/train.py` | `RL_VALUE_TARGET_CLIP`（512）裁剪回报目标 |
+| `rl_pytorch/train.py` | `RL_GAE_DELTA_CLIP`（80）裁剪 TD 误差 |
+| `web/src/bot/rlTrainingCharts.js` | 异常点置 NaN 避免旧日志污染纵轴 |
+
+#### 3.3 环境变量参考
+
+| 变量 | 默认 | 作用 |
+|------|------|------|
+| `RL_RETURNS_CLIP` | 512 | 单局路径：\|G\| 逐元素上限 |
+| `RL_VALUE_TARGET_CLIP` | 512 | 批量 PPO：价值回归目标逐元素上限 |
+| `RL_GAE_DELTA_CLIP` | 80 | 批量 PPO：TD 误差裁剪 |
+| `RL_LOG_LOSS_CLIP` | 1e6 | 写入日志/API 的损失标量绝对值上限 |
+
+#### 3.4 看板解读建议
+
+- Lv：优先看粗线滑动平均；偶发尖峰对照是否旧 JSONL 或未重启后端
+- Lπ：高噪声常见；与熵、胜率同向则多为可接受
+- 胜率/得分/步数：外在指标，与 Lv 解耦判断
+
+---
+
+## 23. RL 研究：复杂度、瓶颈与文献对照
+
+> 当前定位：复杂度分析、瓶颈诊断、优化候选池与自博弈文献对照，作为 [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) 的背景材料。
+> 当前算法、维度、奖励和服务路径以 `ALGORITHMS_RL.md` 与代码为准。
+
+---
+
+### 一、复杂度、模型与优化候选池
+
+#### 1.1 游戏玩法机制
+
+| 属性 | 值 |
+|------|-----|
+| 棋盘 | 8×8 正方网格 |
+| 颜色 | 8 种（不影响消除判定） |
+| 候选区 | 每轮 3 个形状，放完才刷新 |
+| 消除 | 行或列整行满即消除 |
+| 终局 | 剩余块无合法位置 |
+| 胜利 | 分数达到阈值 |
+
+#### 1.2 计分
+
+Web/小程序消行得分由 `computeClearScore()` 统一计算。规则：
+- 基础分：`baseScore = baseUnit × c²`，`baseUnit = scoring.singleLine`（默认 20）
+- 同 icon/同色 bonus：`baseScore + baseUnit × c × b × 4`
+
+Python RL 模拟器盘面分数增量与上述公式对齐。
+
+#### 1.3 RL 即时奖励
+
+| 信号 | 值 | 触发 |
+|------|-----|------|
+| placeBonus | +0.12 | 每次放置 |
+| densePerClear | +2.5×c | 消除 c 行 |
+| multiClearBonus | +1.8×(c-1) | c≥2 |
+| survivalPerStep | +0.04 | 每步 |
+| winBonus | +50 | 首次达标 |
+| stuckPenalty | -2.0 | 终局未赢 |
+
+#### 1.4 状态/动作空间
+
+- 状态空间理论：9^64（每个格子 9 种状态），实际 181 维编码
+- 动作空间：单步最大 192，典型 30~80
+- 博弈树：~10^42（中等复杂度，围棋 ~10^170，国际象棋 ~10^47）
+
+#### 1.5 关键算法瓶颈
+
+1. `count_clears_if_placed`：每步调用 ~50 次，O(50 × 64) = 3200 次格子操作
+2. `get_legal_actions`：遍历 3×8×8=192 候选并检查 `can_place`
+3. 每步所有合法动作过策略网络 → GPU batch 大小~50
+
+#### 1.6 模型架构
+
+conv-shared（默认）：181 维 → 标量 42 + grid Conv2d→32 + dock attention→48 → concat 122 → h(s)[128] → value_head + policy_head + 辅助监督头。
+
+#### 1.7 特征工程评估
+
+| 组件 | 维度 | 评价 |
+|------|------|------|
+| 42 标量 | 填充率、行列极值、临消、空洞等 | ✅ 覆盖几何/拓扑/颜色统计 |
+| 64 棋盘 | 二值占用 0/1 | ⚠️ 丢失颜色和相对位置模式 |
+| 75 dock | 3×5×5 形状掩码 | ✅ 足够 |
+| 15 动作 | 坐标、形状、后果代理 | ✅ 含放置后棋盘质量代理 |
+
+#### 1.8 核心问题诊断
+
+1. **价值估计不准**：CNN 无法感知空洞结构，Value 头仅 2 层
+2. **特征信息瓶颈**：holes、lines_clearable 口径必须正确且与拓扑辅助监督头一致
+3. **采集效率低**：每步克隆棋盘占 70%+ 采集时间
+4. **奖励稀疏**：多数步只有 0.16，消行频率低
+
+#### 1.9 优化方案
+
+**特征增强（P0）**：holes_count/area、max_height、行/列跳变、井深度、fillable-aware 临消线、dock_mobility
+
+**动作特征增强（P1）**：holes_after、delta_transitions、new_almost_full、post_mobility、multi_clear、bonus_line、perfect_clear
+
+**超参调优（P1）**：lr 1e-3→3e-4, batch 16→32, γ 0.99→0.97, ppo_epochs 4→3, return_scale 0.1→0.05
+
+**模型架构微调（P2）**：加深价值头（3 层）、CNN 加残差连接、Dock 分支独立编码器
+
+**采集加速（P4）**：缓存 `can_place`、增量式 `would_clear`、并行采集 `--n-workers`
+
+#### 1.10 当前维度契约
+
+```
+stateScalarDim: 42  gridSpatialDim: 64  dockSpatialDim: 75
+stateDim: 181  actionDim: 15  phiDim: 196
+```
+
+---
+
+### 二、自博弈 RL 文献对照与 OpenBlock 适配
+
+> 来源：Canvas `rl-self-play-literature-comparison.canvas.tsx`
+
+#### 2.1 核心结论
+
+OpenBlock 已接近 AlphaZero / Expert Iteration 轻量工程版本。真正差距在：
+- Value / Q 归一化
+- 随机出块建模
+- 困难样本重放
+- Bonus-aware 表示
+
+#### 2.2 算法适配矩阵
+
+| 算法家族 | 核心思想 | OpenBlock 适配 | 对照结论 |
+|----------|----------|----------------|----------|
+| AlphaZero | MCTS + policy/value + visit CE + eval gate | 已有 visit_pi CE、EvalGate、MCTS；仍是 PPO 混合 | 已有部分 |
+| MuZero | 学习 dynamics/reward/value/policy | 低优先（有精确 simulator） | 暂缓 |
+| Ranked Reward | 滑动窗口分位奖励 | 已实现 p50→p70 | 后续关注背离 |
+| Single-player MCTS | 单人 value normalization | 关键缺口（分数上探的关键） | 高优先 |
+| Expert Iteration | 搜索专家→网络蒸馏 | 当前 q/visit 蒸馏是 ExIt-lite | 应加入 replay buffer |
+| Gumbel AlphaZero | 少模拟高效搜索 | 适合动作多、预算有限 | 高性价比 |
+| Policy/Search Distillation | MCTS/beam 蒸馏 | 已部分实现 | 需质量监控 |
+| Dreamer / World Models | latent world model | 中低优先 | 不划算 |
+
+#### 2.3 推荐路线
+
+| 优先级 | 优化 | 预期效果 |
+|--------|------|----------|
+| 1 | 单人搜索值归一化（z-score / rank / softmax 温度校准） | 减少 value 标度错位 |
+| 2 | ExIt 化训练缓存（search-improved targets replay） | 提升样本效率 |
+| 3 | Gumbel root improvement（采样 top actions 后小预算 Q 评估） | 少模拟下提升 root policy 质量 |
+| 4 | Chance-aware dock refill（spawn predictor 或多样本期望） | 降低对当前三块过拟合 |
+| 5 | Bonus-aware 表示升级（行列同色进度/颜色平面） | 提高同色 bonus 命中率 |
+| 6 | 稳健评估套件（固定 seed、分位数、bonus 率、gate A/B） | 避免指标好看但真实分不涨 |
+
+#### 2.4 评估注意事项
+
+- 同时看绝对分、分位排名、bonus 率、死局前可解叶子数
+- teacher entropy 太低可能过拟合，太高无指导性
+- replay buffer 需记录 teacher 版本和样本年龄
+- 单人分数任务的 value 不应简单照搬双人胜负 value 标度
+
 ## 关联文档
 
 | 文档 | 关系 |
 |------|------|
 | [`ALGORITHMS_HANDBOOK.md`](./ALGORITHMS_HANDBOOK.md) | 总索引 |
-| [`RL_AND_GAMEPLAY.md`](./RL_AND_GAMEPLAY.md) | 系统分层与单一数据源 |
-| [`RL_ANALYSIS.md`](./RL_ANALYSIS.md) | 早期评估与改进建议 |
-
-| [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) | 训练看板数据流 |
-| [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | 训练曲线判读 |
+| 本手册 §21 RL 契约与在线服务 | 系统分层与单一数据源 + 在线/离线服务（原 本手册 §21） |
+| 本手册 §22 RL 训练监控与排障 | 训练看板数据流 + 曲线判读 + 数值稳定（原 本手册 §22） |
+| 本手册 §23 RL 研究 | 复杂度/瓶颈/文献对照（原 本手册 §23） |
+| [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) | AlphaZero/MCTS 历史实验档案（v6–v8.3） |
 
 ---
 

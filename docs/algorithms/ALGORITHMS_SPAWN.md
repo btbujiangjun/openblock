@@ -2,7 +2,7 @@
 
 > 本文是 OpenBlock **出块子系统**的算法侧统一手册。
 > 范围：启发式与 SpawnPolicyNet 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
-> 与现有文档的关系：本文是 `SPAWN_ALGORITHM.md`（工程分层）/ `ADAPTIVE_SPAWN.md`（信号矩阵）/ `SPAWN_BLOCK_MODELING.md`（设计 rationale）的**算法 + 模型工程深化**——补充 ML 路径的网络结构、训练流程、与 RL 的接口。
+> 本手册是 OpenBlock 出块子系统的**统一权威文档**：在算法与模型工程主线（§1–§11）之外，已整合架构分层（§12）、出块建模与设计 rationale（§13）、难度调控与评估工具（§14）、参数寻优 SpawnParamTuner（§15）；运行时 10 信号融合与完整流水线深潜见 `ADAPTIVE_SPAWN.md`。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
@@ -28,6 +28,10 @@
    - 11.6 实测参数与性能
    - 11.7 仍开放的研究问题
    - 11.8 文件入口速查
+12. [出块算法架构总览（工程分层）](#12-出块算法架构总览工程分层)
+13. [出块建模：双轨实现与设计 rationale](#13-出块建模双轨实现与设计-rationale)
+14. [出块难度与评估](#14-出块难度与评估)
+15. [出块参数寻优（SpawnParamTuner）](#15-出块参数寻优spawnparamtuner)
 
 ---
 
@@ -139,7 +143,7 @@ Layer 2：局内体验（combo + 节奏 + 多样性）
 Layer 3：跨局/会话（热身 + 里程碑 + 冷却）
 ```
 
-详见 [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md)。
+详见 [本手册 §12](#12-出块算法架构总览工程分层)。
 
 ### 3.2 算法核心
 
@@ -1111,16 +1115,1140 @@ $$
 
 ---
 
+## 12. 出块算法架构总览（工程分层）
+
+> 整合：系统总览（L1/L2 双层叙事） + 三层架构算法（启发式规则） + 架构图生成 Prompt。
+> 出块建模（SpawnPolicyNet 生成式）见 [本手册 §13](#13-出块建模双轨实现与设计-rationale)，
+> 难度调控与评估见 [本手册 §14](#14-出块难度与评估)，
+> 参数寻优见 [本手册 §15](#15-出块参数寻优spawnparamtuner)。
+
+---
+
+### 一、出块算法系统总览
+
+> **定位**：出块算法的双层叙事入口，消除「神经版出块」与「参数寻优」的命名混淆。  
+> **维护要求**：任何新增/重命名 `SpawnPolicy*` 或 `SpawnParam*` 角色时，必须同步本文 §一表与 §一术语词典。
+
+#### 1.1 一图入门
+
+出块算法分两层，沿不同轴独立演进：
+
+```
+┌────────────────────── L1 · SpawnPolicy 层 ──────────────────────┐
+│  职责：给玩家产 dock triplet（3 个候选块）                        │
+│  契约：board + ctx + history → {shape_id × 3}                    │
+│                                                                  │
+│    ├── SpawnPolicyRules     ◆ 当前权威主路径                      │
+│    │     启发式规则 + 加权乘子 + 硬约束拒绝采样                    │
+│    │     web/src/bot/blockSpawn.js · adaptiveSpawn.js            │
+│    │                                                             │
+│    └── SpawnPolicyNet       ◇ 可切换分支，失败自动回退 Rules       │
+│          Transformer 学条件分布 P(s₁,s₂,s₃ | board, ctx₆₁, hist)  │
+│          rl_pytorch/spawn_model/ · web/src/spawnModel.js         │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ 消费 9 维 θ
+                           ▼
+┌────────────────────── L2 · SpawnParam 层 ──────────────────────┐
+│  职责：给 L1 挑参数 θ（不参与决策本身）                          │
+│  契约：(ctx₅, θ₉) → d_curve₂₀                                    │
+│                                                                  │
+│    ├── HandTuned            ◆ 当前权威                          │
+│    │     game_rules.json + DEFAULT_SPAWN_PARAMS_PB_CURVE 硬编码常数 │
+│    │                                                            │
+│    └── SpawnParamTuner      ◇ 工业化寻参                        │
+│          ResNet-MLP 拟合 (ctx, θ) → d_curve + 梯度上升搜 θ*      │
+│          rl_pytorch/spawn_tuning_v2/ · web/src/tuning/v2/        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 1.2 四个角色定义
+
+| 角色 | 层 | 输入契约 | 输出契约 | 当前文件入口 | 详细文档 |
+|------|-----|---------|---------|-------------|---------|
+| **SpawnPolicyRules** | L1 | `grid + strategyConfig + spawnContext` | `{shape_id × 3} + _spawnDiagnostics` | `web/src/bot/blockSpawn.js` | 本文 §二 |
+| **SpawnPolicyNet** | L1 | `board(64) + behaviorContext(61) + history(3×3)` | `{shape_id × 3}` | `rl_pytorch/spawn_model/` | 本手册 §13 §3 |
+| **HandTuned** | L2 | — | θ ∈ `game_rules.json + DEFAULT_SPAWN_PARAMS_PB_CURVE` | `web/src/adaptiveSpawn.js` | ADAPTIVE_SPAWN.md |
+| **SpawnParamTuner** | L2 | `(ctx₅, θ₉)` | `d_curve₂₀ + 4 辅助 head` → 反求 θ* | `rl_pytorch/spawn_tuning_v2/` | 本手册 §15 |
+
+#### 1.3 常见误读 vs 正读
+
+| ❌ 误读 | ✅ 正读 |
+|---------|---------|
+| SpawnParamTuner 是 SpawnPolicyNet 的下一代 | 二者层级不同，职责正交 |
+| SpawnPolicyNet 替代了 SpawnPolicyRules | 同层互斥；Net 以 Rules 为回退兜底 |
+| 调好 SpawnParamTuner 就能取代调 game_rules.json | 只搜 9 维 θ；其余参数仍需 HandTuned |
+
+#### 1.4 术语词典
+
+| 术语 | 中文 | 所属层 | 维度 |
+|------|------|--------|------|
+| SpawnPolicy | 出块策略 | L1 | Rules / Net |
+| SpawnParam (θ) | 出块参数 | L1 输入 / L2 输出 | 9 |
+| d_curve | 难度曲线 | L2 标签 | 20 |
+| behaviorContext | L1 神经版输入 | L1 | 61 |
+| spawnHints | L1 规则版软目标 | L1 | 字典 |
+| spawnTargets | stress 投影多轴目标 | L1 | 6 |
+
+#### 1.5 9 维 θ 契约
+
+**组 A：个性化 + 选拔 (5 维)** — `spawnExperiments.js` 消费
+- `personalizationStrength ∈ [0.05, 0.18]` 默认 0.10
+- `temperature ∈ [0.03, 0.08]` 默认 0.05
+- `surpriseBudgetGain ∈ [0.05, 0.10]` 默认 0.07
+- `surpriseCooldown ∈ [4, 10]` 默认 6
+- `maxEvaluatedTriplets ∈ {32,48,64,80,96,128}` 默认 80
+
+**组 B：PB 双 S 曲线 (4 维)** — `adaptiveSpawn.js·derivePbCurve` 消费
+- `pbTensionCenter ∈ [0.70, 0.92]` 默认 0.82
+- `pbTensionWidth ∈ [0.04, 0.15]` 默认 0.08
+- `pbBrakeCenter ∈ [0.98, 1.15]` 默认 1.05
+- `pbBrakeWidth ∈ [0.03, 0.12]` 默认 0.06
+
+#### 1.6 切换矩阵
+
+| L1 选择 | L2 来源 | 触发方式 |
+|---------|---------|----------|
+| SpawnPolicyRules | HandTuned | 默认 |
+| SpawnPolicyRules | SpawnParamTuner | policies.json 加载成功 |
+| SpawnPolicyNet | HandTuned | getSpawnPolicyMode() === 'model-v3' |
+| 任意失败 | — | 回退 Rules + HandTuned |
+
+---
+
+### 二、出块算法：三层架构
+
+> 📍 **本文档定位**：L1 · SpawnPolicyRules（出块策略·规则版）
+> 📐 **职责轴**：用启发式规则 + 加权乘子 + 硬约束直接产 3 块
+> ⚠️ **不是**：SpawnPolicyNet（神经版）的前身/后续；也不是 SpawnParamTuner
+
+#### 2.1 整体架构
+
+出块算法采用三层架构，从即时盘面到跨局体验逐层叠加：
+
+```
+Layer 3: 局间体验 (Cross-Game) — session 弧线 · 里程碑 · 回流玩家热身
+Layer 2: 局内体感 (Within-Game) — combo 链 · 爽感兑现 · 多消鼓励 · 节奏
+Layer 1: 即时出块 (Immediate) — 盘面拓扑 · 多消潜力 · 空洞修复 · 反死局
+```
+
+#### 2.2 数据流
+
+```
+game.js → adaptiveSpawn.js（Layer 2/3 → stress → shapeWeights → spawnHints）
+                    ↓
+         blockSpawn.js · generateDockShapes（Layer 1 → 5 阶段流水线）
+                    ↓
+         _commitSpawn()（颜色分配）
+```
+
+##### 颜色采样
+
+dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行列时，提升相关色在候选块中的出现概率。采用无放回加权抽样而非硬指定。
+
+#### 2.3 5 阶段出块流水线
+
+`generateDockShapes` 不是一个 argmax 选择器，而是一个概率分布塑形 + 多层过滤过程：
+
+```
+[阶段 0] 解包 hints / shapeWeights / spawnTargets / ctx
+[阶段 1] 候选池构建：28 个 shape 逐个评分，排序：清屏 > 多消 > 消行
+[阶段 2] 清屏/消行优先槽位：clearGuarantee + comboChain → 决定占几槽
+[阶段 3] 加权抽样补齐：30+ 条 hints 翻译为乘子，轮盘抽样
+[阶段 4] 硬约束校验循环（最多 22 次）：机动性 · 序贯可解性 · 解法数量 · 顺序刚性
+[阶段 5] 打乱顺序 → 写诊断 → 返回 3 个 Shape
+```
+
+#### 2.4 策略 → 出块翻译
+
+按出块层消费方式分 3 类：
+
+**A. 占位（阶段 2）**：clearGuarantee、perfectClearBoost、delightBoost、multiClearBonus
+
+**B. 加权乘子（阶段 3）**：30+ 条应力信号经 interpolateProfileWeights → shapeWeights → 14 维乘子链叠乘。抽样动作：pickWeighted 轮盘抽样（非 argmax）。
+
+**C. 硬约束（阶段 4）**：最低机动性、序贯可解性 (DFS)、targetSolutionRange、solutionSpacePressure、orderRigor
+
+#### 2.5 Layer 2：局内体感
+
+- **Combo 链催化**：comboChain → clearGuarantee 至少为 2
+- **多消鼓励**：multiClearBonus 分段常数，与 multiLineTarget 分工
+- **节奏相位**：setup/payoff/neutral，几何门控
+- **爽感兑现**：deriveDelightTuning → delightBoost / perfectClearBoost / delightMode
+
+#### 2.6 Layer 3：局间体验
+
+- **Session 弧线**：warmup/peak/cooldown
+- **分数里程碑**：50/100/150/200/300/500 分时庆祝出块
+- **局间热身**：无步可走终局后，下局前几轮友好出块
+- **跨局画像调制**：生命周期 S0-S4 + 成熟度 M0-M4 硬调制 stress cap/adj
+
+#### 2.7 策略解释面板同步
+
+投放区展示：连击、多消、多线、节奏、弧线、空洞、平整、近满、生命周期阶段、成熟度档位、stress 调制量。
+
+出块诊断 `_spawnDiagnostics`：每轮记录 layer1/layer2/layer3 指标 + chosen 块及原因。
+
+#### 2.8 难度调控杠杆（基于 SGAZ 实证）
+
+| 优先级 | 杠杆 | 强度 | OpenBlock 现状 |
+|--------|------|------|---------------|
+| 1 | 候选块数 dock | ★★★ 最强 | 固定 3，从未浮动 |
+| 2 | 形状库扩充 | ★★ 强 | 28→40 形状 |
+| 3 | shapeWeights 插值 | 中 | 现行主路径 |
+| 4 | 预览数 preview | ★ 弱 | 无 preview 机制 |
+
+#### 2.9 SpawnTransformerV2
+
+除了启发式规则，还提供基于 Transformer 的生成式模型架构（§9.1 - §9.9）。详见 本手册 §13。
+
+---
+
+### 三、架构图生成 Prompt
+
+> 可复用的「喂给大模型即生成出块算法架构图」的 Prompt 模板。
+> 已生成图片：`docs/algorithms/assets/spawn-architecture.png`
+
+#### 3.1 适用场景
+
+- 技术文档配图
+- 算法评审材料
+- 新成员 onboarding
+
+#### 3.2 设计原则
+
+1. 语义优先：使用语义化中文描述，不暴露原始代码标识符
+2. 八层流水线：从三路输入到三块输出+染色的完整 8 层
+3. 同花顺三层不变式可读
+4. 视觉层级清晰
+
+#### 3.3 八层流水线
+
+| 层 | 名称 | 职责 |
+|----|------|------|
+| 层 0 | 输入层 | 游戏棋盘 + 策略配置 + 出块调度参数 |
+| 层 1 | 盘面感知层 | 填充率/临满行/空洞/平整度 + 清屏机会 + 同花顺信号 |
+| 层 2 | 评分构建层 | 全形状 9 项指标真模拟打分 |
+| 层 3 | 优先选拔层 | 消行/爽感类形状填入 1-3 个席位 |
+| 层 4 | 加权补齐层 | 14 维权重乘法链加权抽样 |
+| 层 5 | 约束验证层 | 22 次循环硬约束 |
+| 层 6 | 注入优化层 | 救援/压力/多样化注入 |
+| 层 7 | 输出层 | 三块候选组 + 选择元数据 |
+| 染色层 | 颜色绑定 | 同花顺锁色 + 三色无放回抽样 |
+
+完整 Prompt 全文见 `docs/algorithms/本手册 §12`（搜索 `## Prompt 全文`）。派生用法包括子图提取、Mermaid/HTML 版本、算法评审材料等。
+
+---
+
+## 13. 出块建模：双轨实现与设计 rationale
+
+> 📍 **本文档定位**：`L1 · SpawnPolicy` 双轨建模 rationale（`SpawnPolicyRules` 与 `SpawnPolicyNet`）  
+> 📐 **职责轴**：仅覆盖「谁产 3 块」这一层；**不涉及**参数寻优（θ 寻参属于 `L2 · SpawnParamTuner`）  
+> ⚠️ **不是**：`SpawnParamTuner`（详见 [本手册 §15](#15-出块参数寻优spawnparamtuner)）的前身或子模块；二者沿不同层独立演进  
+> 🗺️ 双层总览与角色定义：[本手册 §12](#12-出块算法架构总览工程分层)
+
+> 内部版本：1.6 | 更新：2026-05-29  
+> 本文在实现细节之上，给出**可复用的设计 rationale**，并与 [本手册 §12](#12-出块算法架构总览工程分层)、[`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) 互补：后两者偏「模块说明与配置」，本文偏「问题形式化 + ML 侧数学结构」。  
+> **角色映射**：本文 §2「规则引擎」= `SpawnPolicyRules`；§3「SpawnPolicyNet」= `SpawnPolicyNet`（其内部权重版本号 v3.1 用于 checkpoint 管理，不参与产品命名）。
+
+---
+
+### 1. 总览：L1 双轨出块
+
+Open Block 的每轮出块要产出 **三个不重复形状**（dock triplet）。系统提供两条可切换路径：
+
+| 路线 | 核心思想 | 优点 | 典型失败/代价 |
+|------|----------|------|----------------|
+| **规则引擎** | 手工特征 + 多层启发式权重 + **硬约束过滤** | 可解释、可保证公平性与可解性 | 规则复杂、跨用户风格难极致拟合 |
+| **SpawnPolicyNet** | 从对局日志学习 **条件分布** \(P(s_1,s_2,s_3 \mid \text{board}, \text{behaviorContext}, \text{history})\) | 显式消费玩家行为、能力向量、盘面拓扑与策略意图 | 需数据、需防「分数膨胀」等捷径；权重与旧 V3 不兼容 |
+
+运行时：`game.js` 根据 `getSpawnPolicyMode()` 选择 `_spawnBlocksWithModel` 或 `generateDockShapes`；模型推理失败时 **自动回退** 到规则路径（见 `web/src/game.js`）。
+
+> **2026-05-23 代码事实补充**：规则主路径仍是线上权威；PB 双 S 曲线已进入 `adaptiveSpawn` 主规则轨并暴露诊断字段。P1/P2、个性化与惊喜预算当前先落在评估 / 优化器实验轨（`web/src/bot/spawnExperiments.js`、`web/src/bot/spawnEvaluation.js`、`web/spawn-eval.html`），不直接替换 `generateDockShapes()`。
+
+---
+
+### 2. 规则引擎路径（`blockSpawn.js` + `adaptiveSpawn.js`）
+
+#### 2.1 建模思路
+
+1. **问题分解（层次化贝叶斯式启发）**  
+将「给怎样三块」拆成与决策频率匹配的三层（与 本手册 §12 一致）：
+   - **Layer 1（盘面瞬时）**：当前网格上哪些形状「几何上可行」且「拓扑上有利」。
+   - **Layer 2（局内体验）**：combo、节奏、多样性——控制短期情绪曲线。
+   - **Layer 3（跨局/session）**：热身、里程碑、冷却——控制长期留存与挫败恢复。
+
+   各层不直接优化单一标量，而是输出 **乘性权重修正** 与 **离散策略开关**（如 `clearGuarantee`），便于策划调参与 A/B。
+
+2. **约束优先于偏好（Constrained sampling）**  
+   先构造候选与权重（偏好），再通过 **拒绝采样** 保证不变量：
+   - **机动性下限** `minMobilityTarget(fill, attempt)`：每块合法落点数下限随填充率升高；重试时逐步放宽。
+   - **序贯可解性** `tripletSequentiallySolvable`：当 `fill ≥ 0.52` 时，在三块的所有放置顺序（6 种排列）下 DFS，要求存在一种顺序使三块均能落下（预算 `SURVIVE_SEARCH_BUDGET`）。这是对「不公平死局」的硬约束，近似于竞品常用的可解性校验。
+   - **危险态严格校验**：当 `fill ≥ 0.68` 或 `roundsSinceClear ≥ 3` 时进入 danger zone；前 70% 重试尝试使用更高搜索预算，且预算耗尽**不再默认放行**，降低“看似可放、实际很快怼死”的三连块组合。
+
+ 因而规则路径在概念上是：**在可行域 \(\mathcal{F}\) 内对偏好分布 \(\pi(s_1,s_2,s_3)\) 做近似采样**，其中 \(\mathcal{F}\) 由上述约束隐式定义。
+
+3. **自适应层作为上下文映射**  
+   `adaptiveSpawn.js` 将玩家画像与实时状态映射为：
+   - 连续量：`stress` → 在10 档 `shapeWeights` 间插值；
+   - 离散/结构化量：`spawnHints`（`clearGuarantee`、`sizePreference`、`diversityBoost`、`comboChain`、`multiClearBonus`、`perfectClearBoost`、`iconBonusTarget`、`rhythmPhase`、session 相关字段等）。
+
+   规则出块层 **不直接读画像**，只读 `strategyConfig`（权重 + hints），保证单一数据契约。
+
+#### 2.2 优化目标（显式与隐式）
+
+规则路径没有单一损失函数，但可归纳为 **多目标在权重中折衷**：
+
+| 目标 | 含义 | 主要落实位置 |
+|------|------|----------------|
+| **公平 / 可玩** | 避免无解三连、高填充仍有一定落子自由度 | `minMobilityTarget`、`tripletSequentiallySolvable` |
+| **救场与修形** | 减空洞、利用多消窗口 | `bestHoleReduction`、`bestMultiClearPotential`、拓扑特征 |
+| **奖励兑现** | 提高玩家偏好的清屏、同 icon、多消概率 | `perfectClearBoost`、`iconBonusTarget`、`multiClearBonus` |
+| **心流与挫败恢复** | 无消行后的救济、里程碑正反馈 | `spawnHints`（Layer 2/3）+ `augmentPool` 乘子 |
+| **多样性** | 同轮去重、跨轮品类记忆、`diversityBoost` | `usedCategories`、`catFreq` 惩罚 |
+| **与策略档位一致** | 低 stress 偏线条、高 stress 偏不规则 | `shapeWeights`（`adaptiveSpawn` 输出） |
+| **多轴压力消费** | stress 不只映射块型，还映射到解空间、消行机会、空间压力、payoff 与新鲜度 | `spawnHints.spawnTargets` |
+
+#### 2.3 方法（算法结构）
+
+1. **形状级特征与先验排序**  
+   对每个可放置形状计算：`gapFills`（`findGapPositions`：行/列 **1～4** 空格上的补洞潜力）、`placements`、`multiClear`（**始终**用 `bestMultiClearPotential` 计算）、`pcPotential`（疏板或 `pcSetup` 时评估一手清屏）、`holeReduce`（高填充且空洞多）、以及 `weight`。默认按 `pcPotential`、`multiClear`、`gapFills` 排序。
+
+2. **两阶段构造 triplet**  
+   - **阶段 1**：从「消行相关」子集占坑：`gapFills>0` **或** `multiClear≥1` **或** `pcPotential===2`＼�，再按 `clearGuarantee` / `effectiveClearTarget`；高 `multiClearBonus` 时排序偏向「多消 + 缺口 + 清屏」综合分。  
+   - **阶段 2**：对剩余槽位做 **加权抽样** `pickWeighted(augmentPool(...))`，权重为多层乘子（机动性、空洞、多消、清屏、combo、节奏、`sizePreference`、多样性惩罚、里程碑等）。同 icon/同色 bonus 在 `game.js` 的 dock 染色层通过 `iconBonusTarget` 消费，不改变形状可解性判断。
+
+3. **拒绝采样循环**  
+   若 triplet 违反机动性或可解性，则 `attempt++` 重试，最多 `MAX_SPAWN_ATTEMPTS`；仍失败则走简化兜底路径。高填充区间的 `minMobilityTarget` 已提高（`0.68+`、`0.75+`、`0.88+` 三档更严格），优先选择合法落点更充足的组合。
+
+4. **顺序随机化**  
+   通过校验后对三块 **Fisher–Yates 打乱**，避免玩家从顺序推断内部「主块/辅块」优先级。
+
+#### 2.4 特征设计（规则侧）
+
+**A. 盘面拓扑（Layer 1标量）**
+
+| 特征 | 构造要点 | 设计意图 |
+|------|----------|----------|
+| `holes` | 列上「上方已有块且当前为空」的格数累计 | 识别结构恶化 |
+| `flatness` | \(1/(1+\mathrm{Var}(\text{colHeights}))\) | 表面起伏过大时倾向平衡型落子（通过形状权重间接作用） |
+| `nearFullLines` | 行/列缺 1～2 格即满的数量 | 多消/setup机会信号 |
+| `maxColHeight` | 列顶高度 | 危险度 |
+
+**B. 形状级特征（与 grid 耦合）**
+
+- `gapFills` / `countGapFills`：与即时消行强相关；阶段 1 与 `multiClear`、`pcPotential` **并列** gate（见 本手册 §12）。
+- `placements`：合法位置计数，进入 \(\log\) 型机动性奖励。
+- `multiClear`：`previewClearOutcome` 上的行列消除数上界（不再依赖 `gapFills` 才算）。
+- `holeReduce`：仅在 `fill>0.5 && holes>2` 时深算，权衡算力。
+
+**C. 上下文特征（`spawnContext` + hints）**  
+跨轮状态如 `lastClearCount`、`roundsSinceClear`、`recentCategories`、`totalRounds`、`scoreMilestone` 等进入 Layer 2/3 行为；具体字段见 本手册 §12。
+
+#### 2.5 降低怼死率的保命策略
+
+近期的保命优化主要集中在 `web/src/bot/blockSpawn.js` 与 `web/src/adaptiveSpawn.js`，并同步到小程序 `miniprogram/core/`：
+
+| 机制 | 触发 | 行为 |
+|------|------|------|
+| 危险态 `CRITICAL_FILL` | `fill ≥ 0.68` 或 `roundsSinceClear ≥ 3` | 提高三连块可解性搜索预算；严格模式下预算耗尽不再当作通过 |
+| 机动性阈值提升 | `fill ≥ 0.68 / 0.75 / 0.88` | 提高每块最低合法落点数，减少“只有一两个落点”的窄路组合 |
+| 连续无消行救援态 | `roundsSinceClear ≥ 2` | `clearGuarantee ≥ 2`，优先给可解压/可消行块 |
+| 强救援态 | `roundsSinceClear ≥ 4` | `clearGuarantee ≥ 3` 且 `sizePreference ≤ -0.35`，倾向小块与消行块 |
+
+这些机制不是降低全部难度，而是只在危险窗口内提高“可继续玩”的概率；正常低填充或心流阶段仍由原三层权重控制。
+
+#### 2.6 「网络结构」（规则路径）
+
+规则路径 **无神经网络**。其结构可类比为 **手工构建的浅层评分图（factor graph）**：节点为特征与张量乘子，边为「加权乘积 + 截断 + 约束过滤」。这与 ML 路径的 deep encoder 形成对照。
+
+#### 2.7 PB 双 S 曲线与体验预算实验轨（P2）
+
+OpenBlock 的核心长期目标是：**让玩家频繁接近个人最佳（PB），但不轻易突破；突破后给短暂释放，再快速防止分数膨胀**。因此压力更适合按 `score / bestScore` 的相对进度建模，而不是只看绝对分数。
+
+当前代码中，PB 追逐已有多条规则轨实现：
+
+- `adaptiveSpawn.js` 中的 `challengeBoost`、`farFromPBBoost`、`pbOvershootBoost`、`postPbReleaseWindow`；
+- `orderRigor / orderMaxValidPerms` 在 PB 临界段和超 PB 段会提高顺序规划要求；
+- `spawnHints` 会在远离 PB、突破后释放、超 PB 刹车等阶段调节 `clearGuarantee / sizePreference / multiClearBonus`。
+
+当前主规则轨已把这类设计抽象成双 S 曲线，并通过 `adaptiveSpawn.derivePbCurve()` 输出：
+
+```text
+pbRatio   = score / bestScore
+pbTension = sigmoid((pbRatio - 0.82) / 0.08)   # PB 前张力
+pbBrake   = sigmoid((pbRatio - 1.05) / 0.06)   # PB 后刹车
+pbRelease = postPbReleaseRemaining > 0 ? 1 : 0 # 突破释放窗口
+```
+
+这些曲线不直接选形状，而是映射到四类体验预算：
+
+```text
+survival  保活 / 可解性 / 首步自由
+payoff    消行 / 多消 / 清屏 / 同花
+pressure  形状复杂度 / 顺序刚性 / 空间压力
+novelty   品类变化 / 低重复 / 趣味
+```
+
+实验轨的组合评分形式为：
+
+```text
+score(triplet) =
+  survival * survivalScore(triplet)
++ payoff   * payoffScore(triplet)
++ pressure * pressureScore(triplet)
++ novelty  * noveltyScore(triplet)
+```
+
+其中：
+
+- `survivalScore` 主要来自 `firstMoveFreedom / firstMoveSurvivorRatio / meanEndFillRatio`；
+- `payoffScore` 来自消行潜力、精确卡入与奖励机会；
+- `pressureScore` 来自总占格、形状复杂度和可解排列收窄；
+- `noveltyScore` 来自品类多样性和复杂度。
+
+实现位置：
+
+- `web/src/bot/spawnExperiments.js`
+  - `triplet-p1`：组合级候选评分；
+  - `budget-p2`：在组合评分上叠加 `survival / payoff / pressure / novelty`；
+  - 两阶段评估：先廉价扫描最多 `maxEvaluatedTriplets` 个组合，再只对 Top 8 做完整解法评估。
+- `web/src/bot/spawnEvaluation.js`
+  - 批量评估 `baseline / triplet-p1 / budget-p2`；
+  - 输出 `budgetMean / evaluatedTripletsMean / deepEvaluatedTripletsMean / optimizerScore`。
+- `web/src/spawnEval.worker.js`
+  - Web Worker 执行评估，避免可视化工具阻塞 UI。
+
+#### 2.8 个性化、受控随机与惊喜预算
+
+P2 实验轨还支持轻量模型化参数，但仍遵守规则轨硬约束：
+
+```text
+personalizationStrength  个性化预算强度
+temperature              Top 合法组合内的受控随机温度
+surpriseBudgetGain       惊喜预算增长速度
+surpriseCooldown         惊喜预算冷却轮次
+```
+
+玩家偏好向量采用 5 维估算：
+
+```text
+clearSeeker   直消偏好
+comboPlanner  连锁偏好
+survivalist   生存偏好
+riskTaker     冒险偏好
+noveltyLover  新鲜偏好
+```
+
+偏好只微调体验预算，不直接改 shape，不绕过约束：
+
+```text
+clearSeeker   → payoff +
+comboPlanner  → payoff + novelty +
+survivalist   → survival +
+riskTaker     → pressure +
+noveltyLover  → novelty +
+```
+
+受控随机只发生在合法 Top 组合中：
+
+```text
+softmax((score + jitter) / temperature)
+```
+
+这保证“偶然性”来自安全候选集合内部，而不是随机发不可解释块。
+
+#### 2.9 DFV 与评估工具的解释口径
+
+当前 DFV 已同步展示：
+
+- baseline 主规则轨：玩家信号、压力、`spawnHints`、`spawnTargets`、调度参数、三块 `chosen` 与 `topDriver`；
+- P1/P2 实验轨：`triplet-p1 / budget-p2` reason 和 driver path；
+- P2 体验预算：`survival / payoff / pressure / novelty`、`personalizationStrength`、`surpriseBudget`、`evaluatedTriplets / deepEvaluatedTriplets`；
+- PB 曲线解释：`pbTension / pbBrake / pbRelease`；
+- 个性化偏好估算：`clearSeeker / comboPlanner / survivalist / riskTaker / noveltyLover`。
+
+重要边界：
+
+- DFV 中 PB 曲线来自主规则轨 `_lastAdaptiveInsight.pbCurve / pbTension / pbBrake / pbRelease / pbPhase`；
+- 个性化偏好向量目前仍是解释层重建 / 估算；
+- 若将 P2 切入主路径，应先把体验预算与偏好向量作为正式诊断字段输出，并同步更新小程序规则轨契约。
+
+---
+
+### 3. 学习路径：SpawnPolicyNet
+
+当前实现为 **V3.1**：网络 `rl_pytorch/spawn_model/model_v3.py`（`SpawnPolicyNet`）、训练 `train_v3.py`、数据/特征 `dataset.py`、可行性 `feasibility.py`、个性化 `lora.py` / `personalize.py`；前端推理契约见 `web/src/spawnModel.js`。旧 V2（`model.py` / `train.py`，`SpawnTransformer` 三槽独立 head、无 AR/可行性/风格/意图）仅作历史 lineage 保留。
+> **权威性**：线上默认仍是 `SpawnPolicyRules`（§2）；V3.1 是切换路径，推理失败 **自动回退** 规则轨（`web/src/game.js`）。`spawn_transformer_v3.pt` 与旧权重不兼容，扩形状池（28→40）后必须重训。
+
+#### 3.1 建模思路
+
+1. **行为克隆 + 自回归联合分布（U1）**  
+   训练标签来自真实对局：每一帧 `spawn` 事件记录 dock 三块形状 ID。V2 用三个 **独立** head 近似 \(P(s_0)P(s_1)P(s_2)\)，联合建模弱；V3.1 改为 **autoregressive 分解**：
+   \[
+   P(s_0,s_1,s_2 \mid \text{ctx}) = P(s_0\mid\text{ctx})\cdot P(s_1\mid\text{ctx},s_0)\cdot P(s_2\mid\text{ctx},s_0,s_1)
+   \]
+   训练用 **teacher forcing**（`prev_shapes=targets[:, :2]`），推理逐槽采样并回填已选形状 embedding。条件信号为 **8×8 棋盘二值矩阵**、**57 维行为上下文**、**历史三连形状**。
+
+2. **条件难度嵌入（Difficulty conditioning）**  
+   标量 `target_difficulty ∈ [0,1]` 经 `difficulty_proj` 升维成一个 token，使推理时可 **显式拨动压力**（易 ↔ 难），与规则里 `stress` 语义对齐但参数化方式不同。
+
+3. **风格条件 token（U2）**  
+   `playstyle_id` 经 `playstyle_embed` 注入一个风格 token（`balanced / perfect_hunter / multi_clear / combo / survival`），推理时可指定，训练时由 `_infer_playstyle_from_context` 给出弱标签自监督。
+
+4. **可行性辅助 + 软不可行约束（U3 + U4）**  
+   - **可行性头**：对每个形状预测「当前 board 是否至少有一个合法落点」（`NUM_SHAPES` 维 sigmoid），用 GT mask 做 BCE 监督，得到可在 **无外部规则** 的设备上内嵌过滤的轻量 predictor；
+   - **软不可行惩罚**：把 GT 可行性 mask 作为权重，惩罚主分布落在不可放集合上的概率质量，训练阶段就把概率从不可放区拉走（弥补 ML 路径不强保证 `tripletSequentiallySolvable`）。
+
+5. **多任务辅助头：抑制捷径学习**  
+   仅用 CE 模仿分布易导致 **捷径**（永远送易消块刷分）。因此叠加：
+   - **多样性头**：预测每槽形状所属 **品类**（7 类），逼迫 CLS 表征捕捉「三块品类如何搭配」；
+   - **难度回归头**：回归 `compute_target_difficulty(behavior_context)`，强化上下文与「挑战度」耦合；
+   - **意图头（自监督）**：预测 `spawnIntent`（`relief/engage/harvest/pressure/flow/maintain/sprint`，新增 sprint 共 7 类），让生成分布学习策略语义；
+   - **反膨胀损失**：在高技能且低填充时对「易形状」softmax 质量惩罚。
+
+6. **LoRA-ready（U5）**  
+   所有 `head_0/1/2`、`feasibility_head`、`style_head` 均为 `nn.Linear`，可被 `lora.inject_lora_into_model()` 识别，支撑 `userId` 维度的个性化微调路径。
+
+7. **与规则的关系**  
+   ML 路径 **不强保证** `tripletSequentiallySolvable`，靠数据分布 + 可行性损失塑形逼近；上线以规则为 **安全回退**，形成「探索（ML）+ 保险（规则）」产品策略。
+
+#### 3.2 优化目标与损失函数
+
+训练总损失为 **8 项多任务加权和**（`train_v3.py`）：
+
+\[
+\mathcal{L} =
+w_{\mathrm{ce}}\mathcal{L}_{\mathrm{ce}}
++ w_{\mathrm{div}}\mathcal{L}_{\mathrm{div}}
++ w_{\mathrm{anti}}\mathcal{L}_{\mathrm{anti}}
++ w_{\mathrm{diff}}\mathcal{L}_{\mathrm{diff}}
++ w_{\mathrm{feas}}\mathcal{L}_{\mathrm{feas}}
++ w_{\mathrm{si}}\mathcal{L}_{\mathrm{si}}
++ w_{\mathrm{st}}\mathcal{L}_{\mathrm{style}}
++ w_{\mathrm{intent}}\mathcal{L}_{\mathrm{intent}}
+\]
+
+默认权重（命令行可调）：
+
+| 权重 | 默认 | 损失项 | 作用 |
+|------|------|--------|------|
+| `w_ce` | **1.0** | \(\mathcal{L}_{\mathrm{ce}}\) | 自回归三槽分类（主目标） |
+| `w_div` | **0.3** | \(\mathcal{L}_{\mathrm{div}}\) | 品类多样性 |
+| `w_anti` | **0.5** | \(\mathcal{L}_{\mathrm{anti}}\) | 反分数膨胀 |
+| `w_diff` | **0.1** | \(\mathcal{L}_{\mathrm{diff}}\) | 难度回归 |
+| `w_feas` | **0.4** | \(\mathcal{L}_{\mathrm{feas}}\) | 可行性头 BCE 监督 |
+| `w_si` | **0.2** | \(\mathcal{L}_{\mathrm{si}}\) | 主分布软不可行惩罚 |
+| `w_st` | **0.15** | \(\mathcal{L}_{\mathrm{style}}\) | 风格自监督 CE |
+| `w_intent` | **0.10** | \(\mathcal{L}_{\mathrm{intent}}\) | 出块意图自监督 CE |
+
+> `w_feas > 0` 或 `w_si > 0` 才会在每个 batch 用 board 现算 GT 可行性 mask（`build_feasibility_batch`）；`w_st > 0` 才计算风格弱标签。
+
+**（1）主分类 \(\mathcal{L}_{\mathrm{ce}}\)（自回归）**  
+
+对三个槽位 logits \((l_0,l_1,l_2)\) 各做交叉熵后取均值，**再按样本权重 `weight` 加权**（`reduction='none'` 后 `(\cdot)\cdot\text{weight}` 再 `.mean()`）。其中 \(l_1\)、\(l_2\) 由 teacher forcing 的前序真值（`targets[:, :2]`）条件化，对应 §3.1 的 AR 分解。权重设计见 §3.3。  
+直觉：在「高分且高消行质量」的局上更信任标签，减轻纯刷分轨迹对梯度的支配。
+
+**（2）多样性 \(\mathcal{L}_{\mathrm{div}}\)**  
+
+`diversity_head` 输出 `(B, 3, NUM_CATEGORIES)`，对每一槽与真实品类 `categories[:, slot]` 做 CE，再对三槽平均。  
+直觉：迫使 CLS 表示捕获「这一轮三块在品类上如何搭配」，减少三槽独立 CE 带来的模式坍塌。
+
+**（3）反膨胀 \(\mathcal{L}_{\mathrm{anti}}\)**  
+
+令 `skill = context[:, 2]`，`fill = context[:, 1]`，触发强度：
+
+\[
+\text{trigger} =
+\mathrm{clamp}((\mathrm{skill}-0.6)\cdot 5,\,0,\,1)
+\cdot
+\mathrm{clamp}((0.4-\mathrm{fill})\cdot 5,\,0,\,1)
+\]
+
+对三个槽位的 softmax，将 **易形状集合**（实现中为 `2x2`、`1x4`、`4x1`）概率质量求和，与 `trigger` 相乘后平均。  
+直觉：在「高手 + 空板」区域压制「无脑送简单块」的捷径，与策划担心的分数膨胀一致。
+
+**（4）难度回归 \(\mathcal{L}_{\mathrm{diff}}\)**  
+
+目标由上下文解析（`compute_target_difficulty`）：
+
+\[
+d^\* = \mathrm{clamp}\bigl(
+0.3 + 0.5\,\mathrm{skill} - 0.2\,\mathrm{frustration} + 0.15\,\mathrm{stress}
++ 0.08\,\mathrm{boardDifficulty} - 0.1\,\mathrm{boardRisk}
++ 0.06\,\mathrm{nearClear},\, 0,\,1
+\bigr)
+\]
+
+其中 `boardDifficulty = clamp(fill + holePressure × 0.8, 0, 1)`，`holePressure = clamp(holes / 10, 0, 1)`。`stress` 在这里保持与规则轨一致：越高代表越强挑战目标；同样填充率下，holes 越多代表可修复性越差，因此目标难度上升。`boardRisk` 来自 `adaptiveSpawn._stressBreakdown.boardRisk`，仍作为保活护栏用于抵消过度挑战，避免模型轨在危险盘面继续硬加压。
+
+规则轨还会读取 `spawnTargets`：
+
+- `shapeComplexity`：控制品类复杂度，而不是只依赖 profile 形状权重。
+- `solutionSpacePressure`：调节解法数量过滤和首手自由度。
+- `clearOpportunity`：控制消行席位和 gap/multiClear 权重。
+- `spatialPressure`：控制占格压力和大块/小块倾向。
+- `payoffIntensity`：强化多消/清屏兑现。
+- `novelty`：提高品类多样性、降低重复疲劳。
+
+> 🔗 **与 L2 `SpawnParamTuner` 的唯一耦合通道**：当寻参 bundle（`policies.json`）部署后，B 组 4 个 PB 曲线 θ 经 `adaptiveSpawn.derivePbCurve()` 调制上面 `spawnTargets` 的 `solutionSpacePressure/clearOpportunity/spatialPressure/payoffIntensity/novelty`，而这 5 项正是 `behaviorContext[39–43]`——因此 **SpawnPolicyNet 的条件输入会随 θ 变化**（单向 L2→L1）。A 组 5 个 θ（personalization/temperature/surprise*/maxEvaluatedTriplets）只进规则实验轨，不进 Net。注意 `target_difficulty` 吃的 `stress` 在 `derivePbCurve` 之前已算定，**不携带 θ**，故耦合发生在 `spawnTargets` 而非难度回归目标。详见 [本手册 §12](#12-出块算法架构总览工程分层)。
+>
+
+对 `difficulty_head` 输出做 MSE，目标 `target_diff = compute_target_difficulty(behavior_context)`（57 维上下文走 `boardDifficulty=ctx[26] / boardRisk=ctx[37] / nearClear=clamp(ctx[29]+ctx[30])`；旧 24 维退化为裸 `fill`、risk=0）。推理时前端可用同一公式或手动指定 `targetDifficulty`。
+
+**（5）可行性 BCE \(\mathcal{L}_{\mathrm{feas}}\)**  
+
+每个 batch 用当前 board 现算 GT 可行性 mask \(m\in\{0,1\}^{\text{NUM\_SHAPES}}\)（`build_feasibility_mask`：形状在 board 上至少有 1 个合法落点则为 1），对 `feasibility_head` logits 做 `binary_cross_entropy_with_logits(feas\_logits, m)`。  
+直觉：训练一个 **内嵌的轻量可行性 predictor**，使无外部规则可调用的设备也能内部过滤不可放形状。
+
+**（6）软不可行 \(\mathcal{L}_{\mathrm{si}}\)**  
+
+把同一 GT mask 作为权重，对三槽主分布求
+
+\[
+\mathcal{L}_{\mathrm{si}} = \frac{1}{3}\sum_{i=0}^{2}\Bigl[-\log\bigl(\textstyle\sum_j \mathrm{softmax}(l_i)_j\cdot m_j\bigr)\Bigr]
+\]
+
+直觉：直接把主分布的概率质量 **拉向可行集合**，弥补 ML 路径不强保证 `tripletSequentiallySolvable`。注意训练期用 **GT board** 的 mask（无法对每个生成 shape 重算 board 后的可行性）。
+
+**（7）风格自监督 \(\mathcal{L}_{\mathrm{style}}\)**  
+
+`style_head` logits 与启发式弱标签 `playstyle_id` 做 CE。弱标签 `_infer_playstyle_from_context`：`clearRate≥0.6 且 comboRate<0.4 → perfect_hunter`；`comboRate≥0.4 或 clearRate≥0.5 → multi_clear`；`recentCombo≥0.5 → combo`；`clearRate<0.25 → survival`；否则 `balanced`。
+
+**（8）意图自监督 \(\mathcal{L}_{\mathrm{intent}}\)**  
+
+`intent_head` logits 与意图弱标签 `intent_id` 做 CE。弱标签 `_infer_intent_from_behavior_context` 取行为上下文 `[48:55]` 的 7 维 `spawnIntent` one-hot argmax（无信号回退 `maintain=5`）。
+
+**优化方法**
+
+- 优化器：**AdamW**（`lr=3e-4` 默认，`weight_decay=1e-4`）
+- 调度：**CosineAnnealingLR**，\(T_{\max}=\) `epochs`
+- 批量/划分：`batch_size=64`、`drop_last=True`、10% 随机 val 划分
+- 稳定技巧：**grad clip** 范数 1.0
+- checkpoint：按 **最优 val_loss** 保存到 `models/spawn_transformer_v3.pt`
+- 验证：仅监控 **无权重 CE**（AR，teacher forcing `prev_shapes=targets[:, :2]`；forward 不传 `target_difficulty` 用默认 0.5），同时统计三槽 argmax top-1 acc。
+
+#### 3.3 特征设计（学习侧）
+
+**（1）棋盘**  
+`8×8` 二值矩阵（有块为 1），与规则层 `Grid` 对齐；展平为 64 维后与 context 拼接进入 `board_proj`。
+
+**（2）61 维行为上下文向量**（`dataset._parse_behavior_context`）  
+
+V3.1 仍保留前 24 维基础画像（`_parse_context`），后 37 维显式纳入最新用户行为、能力向量、拓扑、策略意图与 PB 曲线 θ：
+
+| 索引 | 语义 | 说明 |
+|------|------|------|
+| 0–23 | 旧基础 context | 分数、填充率、技能、动量、情绪/认知、冷启动标志、窗口统计、长期能力、stress/flow/pacing/session |
+| 24–31 | 数据可信度 + 拓扑 | `coldStart`、活跃样本量、`boardDifficulty`、holes、nearFull/close1/close2/solutionCount |
+| 32–37 | `AbilityVector` | `skillScore`、`controlScore`、`clearEfficiency`、`boardPlanning`、`riskTolerance`、`riskLevel` |
+| 38–47 | `spawnTargets` + hints | 复杂度、解空间、清行机会、空间压力、payoff、新鲜度、`clearGuarantee`、`sizePreference`、`multiClearBonus`、`orderRigor` |
+| 48–54 | `spawnIntent` one-hot（**7 维**） | relief / engage / harvest / pressure / flow / maintain / **sprint** |
+| 55–56 | 额外策略上下文 | `multiLineTarget`、`sessionArc` |
+| 57–60 | **PB 曲线 θ 显式条件**＼� | `pbTensionCenter / pbTensionWidth / pbBrakeCenter / pbBrakeWidth`，按 `_PB_THETA_RANGES` 归一化；来源 `ps.adaptive.stressBreakdown.pbCurveParams`，缺省 → 默认 θ 域 |
+
+枚举映射：`_FLOW_MAP`（bored/flow/anxious）、`_PACING_MAP`、`_SESSION_MAP`。前 24 维保留旧索引，便于反膨胀、playstyle/intent 弱标签等训练 helper 复用基础字段；V3.1 模型实际输入维度为 **`BEHAVIOR_CONTEXT_DIM=61`**。
+
+> 🧭 **显式 θ 条件（把 L2→L1-Net 隐式耦合转为显式输入）**：把本帧实际生效的 4 个 PB 曲线 θ 直接喂进网络（[57–60]），让模型对 θ **泛化**而非把 θ 当作不可见的分布漂移源——这是消除「换 θ 不重训 → 行为克隆假设失效」退化的治本手段。配套样本元数据 `theta_regime`（int，不进网络）供**分层重训 / 漂移分组**；运行期分布漂移由 `rl_pytorch/spawn_model/drift.py`（`spawn_targets_drift / pb_theta_drift / assert_spawn_targets_drift`，PSI）做部署门禁兜底。
+
+> ✅ **前后端契约已对齐（2026-05-29，61 维）**：前端 `web/src/spawnModel.js` 的 `SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM=61`、`SPAWN_INTENT_VOCAB`（7 类含 `sprint`）、`SHAPE_VOCAB`（40）、`SPAWN_PB_THETA_RANGES`（4 维 θ 归一化区间）与 Python `dataset.py` 逐项一致，确保前端拼接维度与后端 `board_proj.in_features`（64+61=125）相符；服务端 `/api/spawn-model/v3/predict` 以 `BEHAVIOR_CONTEXT_DIM` 动态裁剪/补零。该契约由 `tests/spawnModelPythonParity.test.js` 静态钉死，任一侧漂移即测试失败。
+
+**（3）历史三连形状**  
+`history` 形状 `(3, 3)`：最近最多 `HISTORY_LEN=3` 轮，每轮3 个形状 ID；不足填0。嵌入为 `shape_embed` + **位置编码** `history_pos`（长度 `3×3=9`），使模型区分「上一轮第 2 块」与「上两轮第 1 块」等不同时间位置。
+
+**（4）样本权重**
+
+局级 `session_score` 与粗粒度 `clear_rate`（实现中用 place/spawn 计数比）：
+
+\[
+w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
+ + 0.4 \bigl(1 + \text{clearRate}\cdot 0.5\bigr)
+\]
+
+避免「高分但几乎不消行」的畸形局主导梯度。
+
+**（5）品类标签**  
+7 类：`lines/rects/squares/T/Z/L/J`，用于 `L_div`；与 `SHAPE_CATEGORY` 一致。
+
+#### 3.4 网络结构（张量流）
+
+**超参默认**：`d_model=128`，`nhead=4`，`num_layers=2`，`dim_ff=256`，`dropout=0.1`。
+
+**Token 构造**（序列长度 \(\underbrace{1}_{\text{CLS}}+\underbrace{1}_{\text{state}}+\underbrace{1}_{\text{diff}}+\underbrace{1}_{\text{style}}+\underbrace{9}_{\text{history}}=13\)）：
+
+1. **CLS**：可学习向量 `cls_token`，聚合全局表示。  
+2. **State token**：`[board_flat(64) ; behaviorContext(61)]` → `board_proj = Linear(125→d_model)` + GELU + LayerNorm。  
+3. **Difficulty token**：`target_difficulty (1)` → `difficulty_proj = Linear(1→d_model)` + GELU + LayerNorm；为 `None` 时填 0.5。  
+4. **Style token**：`playstyle_id` → `Embedding(NUM_PLAYSTYLES=5, d_model)` + `style_pos`；为 `None` 时填零向量。  
+5. **History tokens（9 个）**：每个 cell 为形状 ID → 共享 `shape_embed = Embedding(NUM_SHAPES+1, d_model, padding_idx=NUM_SHAPES)`，加 `history_pos`（长度 `3×3=9`）。注：`dataset` 对不足 3 轮的历史用 **0**（即 `1x4`）补位，而非 `padding_idx`；该 PAD 位仅在推理拼接 PAD 时生效。
+
+**编码器**：`nn.TransformerEncoder`（`num_layers=2`，`batch_first=True`，激活 GELU），输出经 `LayerNorm`，取 **CLS 位置** `encoded[:, 0]` 作为 `cls_out`。
+
+**输出头**（除 AR 形状头外均接在 `cls_out` 上）：
+
+| 头 | 输入 | 维度 | 作用 |
+|----|------|------|------|
+| `head_0` | `cls_out` | `NUM_SHAPES`（**40**） | 第 0 槽 logits |
+| `head_1` | `[cls_out ; emb(s_0)]`（`2·d_model`） | `NUM_SHAPES` | 第 1 槽 logits（AR 条件于 \(s_0\)） |
+| `head_2` | `[cls_out ; emb(s_0) ; emb(s_1)]`（`3·d_model`） | `NUM_SHAPES` | 第 2 槽 logits（AR 条件于 \(s_0,s_1\)） |
+| `diversity_head` | `cls_out` | `7 × 3` → reshape `(3, 7)` | 每槽品类 logits |
+| `difficulty_head` | `cls_out` | `1` | 难度回归 |
+| `feasibility_head` | `cls_out` | `NUM_SHAPES` | 每形状可放 logits（sigmoid→P(可放)） |
+| `style_head` | `cls_out` | `NUM_PLAYSTYLES=5` | 风格自监督 |
+| `intent_head` | `cls_out` | `NUM_SPAWN_INTENTS=7` | 出块意图自监督 |
+
+> 前序槽位 embedding 复用 `shape_embed` 并加 `slot_pos`（区分 slot0/slot1）；训练 teacher forcing 用真值，推理用已采样结果。
+
+**推理 `sample`（autoregressive）**：逐槽计算 logits → 可选 `feasibility_mask` 将不可放位置 logit 置 `-1e4` → 已选 ID 减 `1e4` 去重 → 除以 `temperature` → **top-k 多项式采样**（默认 `top_k=8`）。可指定 `playstyle` / `target_difficulty`。
+
+**参数量级**：约数十万级（`count_params()`），适合 CPU 推理与快速迭代。
+
+#### 3.5 数据管线与产物
+
+- **来源**：SQLite `sessions ⨝ move_sequences.frames`（JSON），筛选 `status='completed'` 且 `score ≥ min_score`，**按分降序**取 `max_sessions`（默认 500）；少于 5 帧的对局丢弃。  
+- **逐帧解析**（`extract_samples_from_session`）：`init`/`place` 维护 `last_grid`（`place` 用 `gridAfter` 更新），每个 `spawn` 帧产 1 条样本，标签为 dock 前 3 块形状 ID + 品类。  
+- **样本权重**：局级 `clearRate = place 帧数 / spawn 帧数`，与分数共同决定 `weight`（公式见 §3.3-(4)），避免「高分但几乎不消行」的畸形局主导梯度。  
+- **产物**：`models/spawn_transformer_v3.pt`（含 `model_state_dict`、`config` 超参、`model_version='v3.1-behavior'`、`context_dim=24`、`behavior_context_dim=61`、`num_shapes/num_categories/num_playstyles/num_spawn_intents`、`epoch/val_loss/val_acc`、还含 **`drift_reference`**（训练集 spawnTargets/PB θ 画像）与 **`theta_regimes`**（θ-regime 分布））；进度 JSON `models/spawn_train_status.json` 供训练面板展示。
+
+> 🧩 ��配合 `PLAYER_STATE_SNAPSHOT_VERSION=3`，把"出块算法优化"真正需要的标签补齐——
+> 1. **逐 triplet 因果结果** `outcome`（`OUTCOME_DIM=7`：消行数 / 得分增量 / 填充 delta / 空洞 delta / 落子数 / 单步最大消行 / 一手清屏），由 `_compute_spawn_outcome` 从 spawn→下一 spawn 间的 place 帧聚合；`weight` 叠加 `_outcome_weight_factor`（[0.5,1.8]）做因果微调，奖励消行/减洞、惩罚恶化盘面/弃块。`outcome` 已进 `SpawnDataset.__getitem__`，`train_v3` 可选作 reward/advantage 加权。
+> 2. **近消行拓扑落库**：`spawnGeo.nearFullLines/close1/close2/maxColHeight` 此前 snapshot 未写 → `behaviorContext[28-30]` 恒 0，现已真实填充（`detectNearClears` 同源，索引不变）。
+> 3. **PB 相对进度基线**：`ps.bestScore` / `ps.pbRatio`，让 `pbRatio=score/bestScore` 可离线重建。
+> 4. **逐 spawn provenance**：`ps.provenance`（`spawnSource` rule/model-v3/rule-fallback、`modelVersion`、`fallbackReason`、`thetaSource`、`policyBundleSha/Version`、`rolloutPct`）+ spawn 帧 dock 逐块 `feat`（规则侧形状特征）+ 帧级 `spawnMeta`（拒绝采样 `attempt`/`solutionRejects`），供反事实 / 分组对比与"何种组合在何盘面被判不可行"的学习。
+> 5. **终局 / 死亡标签**：`sessions.game_over_reason`（`jam` 被怼死 / `level_clear` / `level_fail` / `normal`）独立列 + `gameStats.finalBoard`/`deadDock` 死亡盘面，`load_training_data` 读出 `died` 元数据；保命 / 可解性优化与公平性回归用。
+> 6. **会话级留存**：`load_session_retention()` join `player_visits` 算 `returned_24h/7d`、`played_next_session`、`next_gap_sec`，对齐"出块策略→留存"的优化目标。
+>
+> 🎲 ��训练样本里 PB 若是常量，模型只能学该 PB 档位的出块分布、换 PB 即 OOD。采样时让 PB 围绕"指定数值"（本局 run-start `bestScore` / 打包行 `pb_baseline`）上下波动（`PB_JITTER_DEFAULT=0.15` 域随机化），并把 **reward 计算口径绑定到采样到的 PB**（`_pb_reward`，与 `pbTension` 中心 0.82 同口径）：`r = 0.5·(分增/采样PB) + 0.2·tanh((pbRatio−0.82)/0.12) + 0.15·消行 + 0.25·清屏 − 盘面恶化/弃块`。样本新增 `pb_sampled / pb_ratio_sampled / reward`（`reward`、`pb_ratio_sampled` 进 `__getitem__`）；`pb_jitter=0` 退化为常量旧行为。逐 session 用派生子 `rng` 保证可复现。
+>
+> 🗄️ ��新增 `spawn_dataset_samples` 表，作为与 `sessions/move_sequences` **去耦**的训练资产：
+> - **自动同步**：`put_move_sequence`（写帧）与会话结算（`patch_session` 完成 / `end_session`）经 `_sync_session_to_dataset` 幂等 `UPSERT`（`UNIQUE(session_id)`），随帧增长收敛到最终态；`/api/spawn-dataset/sync` 可回填存量，`/api/spawn-dataset/stats` 看概览。
+> - **不支持删除（WORM）**：`BEFORE DELETE` 触发器 `RAISE(ABORT)` 阻断任何 DELETE；且故意不被 `/api/replay-sessions/delete`、`/api/user/data` 擦除路径触及 —— 即使原始对局被删，样本集仍完整（`payload` 存 `frames` 独立副本）。
+> - **训练读取**：`load_packed_dataset()` 从该表抽样（删除安全，PB 中心优先取 `pb_baseline` 列）；`load_training_data(prefer_packed=True)` 默认优先样本集、回退 `sessions⨝move_sequences`。
+> - 回归：`rl_pytorch/spawn_model/test_dataset_v163.py`（PB 波动/ reward 口径 / WORM / 去耦 / 打包加载，server 侧 Flask 缺失自动跳过）。
+
+#### 3.6 个性化与可行性扩展（V3.1 配套）
+
+- **LoRA 个性化**（`lora.py` / `personalize.py`）：对 `nn.Linear` 头注入低秩适配，支持按 `userId` 训练/加载个性化增量；前端 `predictSpawnV3` 传 `userId` 时走该路径。
+- **可行性子系统**（`feasibility.py`）：`check_shape_feasibility` / `build_feasibility_mask` / `build_feasibility_weight` 既用于训练期 GT mask，也可在推理期由后端用 `board` 现算、屏蔽不可放形状（`enforceFeasibility`）。
+- **形状提案**（`shape_proposer.py`）：与 `SHAPE_VOCAB`（40）配套的候选生成/校验工具。
+- **分布漂移监控**：对 behaviorContext 的 `spawnTargets` 段（[38:44]）与 PB θ 段（[57:61]）计算 PSI（`population_stability_index`），`assert_spawn_targets_drift` 可作为重训/部署门禁（经验阈值 0.10 关注 / 0.25 重训）；配合显式 θ 条件防止 L2 换 θ 后 Net 的 OOD 退化。自检见 `test_drift.py`。
+- **部署门禁 CLI**：`python -m rl_pytorch.spawn_model.drift_check --db <db> --ckpt <pt>` 用 checkpoint 内 baked-in 的 `drift_reference` 对照线上 behaviorContext，漂移超阈值退出码 1。这是**数据漂移门禁**，需线上 DB + ckpt，属**部署期/发布前**检查（不进 CI，因 CI 无生产数据）；npm 别名 `npm run spawn:drift-check -- --db <db> --ckpt <pt>`。训练侧 `train_v3.py` 会打印 θ-regime 分布并与上一版 ckpt 的参考画像做非致命漂移对照。
+- **CI 回归门禁**：每次 push / PR 安装 CPU 版 torch + numpy 后跑 `test_drift`（PSI / θ 归一化 / 61 维契约 / 漂移参考构建）与 `test_v3`（61 维前向、`board_proj=125`、AR 头、LoRA 往返）。守护的是**逻辑与张量契约不回退**；web↔python 维度 parity 由 vitest 覆盖。本地等价命令：`npm run spawn:gate`。
+- **显式 θ 日志就绪度门禁**：`python -m rl_pytorch.spawn_model.theta_readiness --db <db>`（npm 别名 `spawn:theta-readiness`）。重训**前置**检查 `ps.adaptive.stressBreakdown.pbCurveParams` 的三项指标：覆盖率、θ-regime 数、归一化后跨度。任一不达标（默认 80% / ≥2 / ≥0.05）→ 退出码 3，说明显式 θ 那 4 列接近常数、重训学不到 θ→出块映射（此时显式 θ 仅为安全网，需先让 L2 tuner 产出有差异的 PB 曲线 θ 并累计新日志）。属数据相关的部署/重训前门禁，不进 CI。
+
+---
+
+### 4. 规则 vs学习：选型建议
+
+| 维度 | 规则 | SpawnPolicyNet |
+|------|------|---------------------|
+| 可解性保证 | 强（高填充 DFS） | 弱（数据+损失间接） |
+| 可解释性 | 强（`_spawnDiagnostics`） | 弱（需归因工具） |
+| 个性化 | 依赖画像→stress→权重 | 直接吃 57 维行为上下文 + 历史 + playstyle/LoRA |
+| 冷启动 | 无数据即可 | 需足够 `spawn` 样本 |
+| 运维 | 调 JSON与乘子 | 再训练、版本管理、回退 |
+
+**推荐策略**：默认规则保证体验底线；积累会话数据后训练模型，在 A/B 中对比 **留存、局时长、挫败率** 再扩大流量。
+
+---
+
+### 5. 代码与文档索引
+
+| 主题 | 路径 |
+|------|------|
+| 规则出块核心 | `web/src/bot/blockSpawn.js` |
+| 自适应与 hints | `web/src/adaptiveSpawn.js` |
+| 集成与模型分支 | `web/src/game.js` |
+| 三层架构说明 | [本手册 §12](#12-出块算法架构总览工程分层) |
+| 自适应系统设计 | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) |
+| 数据集与特征 | `rl_pytorch/spawn_model/dataset.py` |
+| 行为样本集（append-only/WORM） | `server.py`（`spawn_dataset_samples` 表 + `/api/spawn-dataset/sync\|stats`） |
+| B.2 样本集库展示（行为集注入） | `backend/spawn_tuning_v2_backend.py`（`BEHAVIOR_SET_ID` 合成集）、`web/src/tuning/v2/dashboardV2.js` |
+| 真实对局 → v2 寻参样本（转换器） | `rl_pytorch/spawn_tuning_v2/behavior_import.py`（`session_to_v2_sample`，复用 `extractor.extract_d_curve`）、端点 `POST /api/spawn-tuning-v2/import-behavior`、按钮「👤→📊 导入真实样本」 |
+| 网络定义（V3.1） | `rl_pytorch/spawn_model/model_v3.py` |
+| 训练（V3.1，8 项损失） | `rl_pytorch/spawn_model/train_v3.py` |
+| 损失 helper（anti/diff/div） | `rl_pytorch/spawn_model/train.py` |
+| 可行性子系统 | `rl_pytorch/spawn_model/feasibility.py` |
+| 分布漂移监控 / 门禁 | `rl_pytorch/spawn_model/drift.py`、`drift_check.py` |
+| LoRA 个性化 | `rl_pytorch/spawn_model/lora.py`、`personalize.py` |
+| 网络定义（V2，历史） | `rl_pytorch/spawn_model/model.py` |
+| 前端推理 | `web/src/spawnModel.js` |
+
+---
+
+### 附录：候选块概率图鉴
+
+> 来源：Canvas `candidate-blocks.canvas.tsx`。说明候选块池、基础抽样概率、难度档位权重和运行时动态因子。
+
+#### 基础概率公式
+
+**基础概率 = 类别权重 / Σ(类别权重 × 类别成员数)**
+
+| 类别 | 权重 | 成员数 | 占比含义 |
+|------|------|--------|----------|
+| 线条 | 1.40 | 4 | 一维延展块，填长缝和消线 |
+| 矩形 | 1.20 | 2 | 块面积较大，填补大空区 |
+| 方形 | 1.10 | 2 | 稳定填充，风险中等 |
+| T 形 | 0.95 | 4 | 需局部结构匹配 |
+| Z 形 | 0.90 | 4 | 依赖边缘和错位结构 |
+| L 形 | 1.20 | 8 | 成员最多，单形状概率被稀释 |
+| J 形 | 0.95 | 4 | 与 L 形互补 |
+
+#### 难度权重矩阵
+
+自适应引擎根据 stress ∈ [-0.2, 0.85] 在 10 档 profile 间插值；菜单难度 Easy/Normal/Hard 提供静态基线。
+
+#### 运行时 12+ 动态因子
+
+| 层级 | 因子 | 倍率 |
+|------|------|------|
+| Layer 1 | 完美清屏 | ×12.0 |
+| Layer 1 | 清屏准备 | ×1-7 |
+| Layer 1 | 多消潜力 | ×1.6-2.7 |
+| Layer 1 | 机动性 | ×log(1+P) |
+| Layer 1 | 空洞修复 | ×1-2 |
+| Layer 2 | Combo 链 | ×1-1.8 |
+| Layer 2 | 节奏 payoff | ×1.7 |
+| Layer 3 | 里程碑 | ×1.3 |
+
+#### 个性化影响
+
+| 信号 | 概率变化 |
+|------|----------|
+| 回归暖启动 | 小块/可消行/多消友好块上升 |
+| 可访问性负担 | 小块/高机动上升，复杂顺序下降 |
+| 高手挑战 | 多样性/多消/顺序规划上升 |
+
+### 6. 修订记录
+
+| 日期 | 说明 |
+|------|------|
+| 2026-05-29 | **下线合成「用户行为样本集 (自动同步)」哨兵集**(原 `BEHAVIOR_SET_ID=900000001`)。该集与 v2 寻参 `d_curve` schema 异构、不可参训也不可删, 在 B.2 里只是占位 → 直接移除(后端删除哨兵注入/详情/预览/下载/守卫与 `_behavior_*` 辅助, 前端删除其行渲染/专属预览/选择器过滤)。主库 `spawn_dataset_samples` WORM 原始档**保留**, 继续作为「用户行为样本集 (寻参可训)」的数据源。**寻参可训集删除后如何再生**:它是普通可变集, 整集可删; 删除后下次打开面板(`DOMContentLoaded` 静默 `import-behavior`)或点「👤→📊 同步用户行为样本」即按集名重建(新 `set_id`), 增量从主库回放转换, 质量门照常过滤废局 |
+| 2026-05-29 | 真实样本集**自动增量同步 + 无效数据质量门**。`import-behavior` 改增量(每样本 `seed=session_id` 去重, 默认 `rebuild=false`), 前端 `DOMContentLoaded` 后台静默同步 → 「用户行为样本集 (寻参可训)」自动出现在 B.2 与训练选择器(普通可变集, 可删/可训)。**两类用户行为集职责分离**:① `BEHAVIOR_SET_ID=900000001`「(自动同步)」= 主库 `spawn_dataset_samples` WORM 原始档(append-only, 不可删, 预览/下载)②「(寻参可训)」= 整理后的 v2 `samples`(可变, full CRUD)。无效数据质量门(`is_valid_real_sample`: `survived_steps<5` / `n_bins_filled<2` / `final_score<1` → 废局)在导入时过滤 + 已入库清理, 自动同步下一致跳过不复活(实测 970→921, 滤除 49 废局) |
+| 2026-05-29 | **真实对局作为 v2 寻参样本的「第二类数据源」**（构造样本 vs 玩家真实，本质同 schema）。新增转换器 `rl_pytorch/spawn_tuning_v2/behavior_import.py`：把主库 `spawn_dataset_samples` 的每局 frames → 1 条 v2 `samples` 行（5 维 context + 27 维 θ + 20 维 d_curve + 辅助标签）。d_curve **复用 `extractor.extract_d_curve`**（与 samplerV2/policyMetricsV2 同公式，跨语言一致）；`action_freedom` 未落库 → 由帧内 `grid.cells`+`dock`（`shared/shapes.json` 几何）**回放合法落子数/64** 重算；θ 取该局实际 `pbCurveParams`（4 维）叠默认 27 维；context 由 `provenance.spawnSource`→generator、`_v2_pb_bin(pb)`、`stressBreakdown.lifecycleStage`(S0–S4)→v2 四阶段 推导；死局补 `no_move` 步。端点 `POST /api/spawn-tuning-v2/import-behavior`（幂等全量重建）写入普通 sample_set（tag `real,field,behavior`，`algo_version=real-v1`），自动出现在 B.2 与训练选择器（标 👤真实），与构造样本无差别地进 d_curve 寻参训练/评估（实测 120 条真实样本可训，val_mae 0.15→0.11）。前端「👤→📊 导入真实样本」按钮。注：真实局多数 r=score/PB<0.5，高 r bin 由 `bin_counts` 置信加权 mask |
+| 2026-05-29 | 校准 §3 至 V3.1 实现：自回归联合分布、8 项损失（新增 feasibility BCE / soft-infeasible / style / intent，并给出默认权重）、57 维上下文（sprint）、`model_v3/train_v3` 网络与头、`spawn_transformer_v3.pt` 产物、§3.6 LoRA/可行性，并修复前端 56→57 维不一致 |
+| 2026-05-10 | V3.1：生成式模型升级为 56 维行为上下文，新增 `spawnIntent` 辅助头，旧 V3 权重不兼容 |
+| 2026-04-17 | 初版：双轨建模、规则目标/特征、V2 损失与网络、数据与索引 |
+
+---
+
+## 14. 出块难度与评估
+
+> 整合：解法数量难度 + 单步难度细化 + 评估与可视化工具。
+> 出块算法架构见 [本手册 §12](#12-出块算法架构总览工程分层)，
+> 自适应出块信号见 [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md)。
+
+---
+
+### 一、解法数量难度调控
+
+#### 1.1 背景
+
+`generateDockShapes` 在中高填充时仅靠两个信号：`tripletSequentiallySolvable`（bool，1 解或 100 解都「通过」）和 `countLegalPlacements`（单块局部），无法区分「唯一解」与「宽松解」局面。引入 **解法数量 (Solution Count)** 作为第三类难度信号。
+
+#### 1.2 定义
+
+三连块解法数：在当前盘面下，三连块的 6 种放置顺序中，能完整完成「逐块放下并应用消行」的位置组合叶子总数。
+
+#### 1.3 stress → 解法区间映射
+
+| 档位 | minStress | min | max | 体感 |
+|------|-----------|-----|-----|------|
+| 宽松 | -1.0 | 8 | ∞ | 起手/救场 |
+| 舒适 | 0.0 | 4 | ∞ | 心流核心区 |
+| 标准 | 0.35 | 2 | ∞ | 基本不限上限 |
+| 紧张 | 0.6 | 1 | 32 | 解空间收窄 |
+| 极限 | 0.8 | 1 | 12 | 唯一解附近 |
+
+#### 1.4 算法
+
+`dfsCountSolutions` 带剪枝枚举（leafCap=64, budget=8000）。
+`evaluateTripletSolutions` 返回 validPerms, solutionCount, capped, truncated, firstMoveFreedom。
+
+主循环集成：前 60% attempt 内软过滤，超过则降级；capped 视为通过 max，truncated 跳过过滤。
+
+#### 1.5 配置
+
+```json
+"solutionDifficulty": {
+  "enabled": true, "activationFill": 0.45,
+  "leafCap": 64, "budget": 8000,
+  "ranges": [ ... ]
+}
+```
+
+#### 1.6 顺序刚性 (orderRigor)
+
+把 `validPerms` 作为第二个软过滤维度，与 `solutionCount` 正交：
+- `solutionCount` 区间调控解空间体量
+- `validPerms` 上限调控顺序自由度
+
+**派生公式**：`orderRigor = clamp01(stressTerm + skillTerm + modeBoost)`
+**五重 bypass**：新手、救场、bottleneck、空洞>3、fill<0.5
+
+#### 1.7 玩家面板可视化
+
+4 个 Pill：解法 N[+] / 合法序 V/6 / 首手 K / 区间 标签 [min, max]
+
+#### 1.8 测试
+
+`tests/blockSpawn.test.js` — 解法计数 + 6 排列有效性；`tests/adaptiveSpawn.test.js` — 7 个 orderRigor 用例。
+
+---
+
+### 二、单步难度细化：指标提案 vs 系统现状与优化路线
+
+> 本节沉淀一份外部「难度指标构建」提案（客观 + 表现共 61 个指标）与 OpenBlock 现有指标体系的**逐维度对照分析**，并据此给出去题目化的优化路线。
+> 关联：盘面/组合几何见 [本手册 §13](#13-出块建模双轨实现与设计-rationale)，自适应 stress 信号见 [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md)，玩家行为遥测见 [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md)。
+
+#### 2.1 核心问题
+
+当前难度匹配在出块算法（strategy/policy）粒度调节，未细化到「盘面 × 三块组合」维度。同一算法产出的不同出块决策难度存在显著差异，但既未量化为统一难度分、也未落库、更未反向驱动匹配。
+
+#### 2.2 前提修正：本项目无「题目」概念
+
+外部提案以 `puzzle_id`（题目）为聚合主键，对「同题多次测量」求均值去噪。这一假设在 OpenBlock 不成立：
+
+- 无尽模式是**连续演化盘面**，`(盘面 × 候选三块)` 几乎不复现 → **无 `puzzle_id`、无法跨记录聚合去噪**。
+- 难度的最小单元应是**出块决策（spawn step）= 当前盘面 × 本轮候选三块**，由确定性特征**逐步算出**，而非"对同题求均值"。
+- 由此对提案指标做三处重定义：
+  - 客观 `avg_*`（题目级均值）→ **单步即时值**（确定性，无需均值）；
+  - 表现 `global_avg_*` / `algo_avg_*`（题目级聚合）→ **`(算法 × 难度桶)` 聚合**；
+  - 离散度 `think_cv` / `algo_score_spread` / `scd_range` → 本就是**算法产出难度分布的离散度**，无需题目即可计算。
+
+#### 2.3 难度指标提案全景
+
+**① 客观难度**（确定性、出题即可算）
+
+| 维度 | 代表指标 | 物理含义 |
+|------|----------|----------|
+| 牌面结构 | `init_complexity` / `holes_cnt` / `contiguous_regions` / `blocks_cnt` / `concave_corners` | 盘面混乱度、空洞、碎片化、水位、陷阱位 |
+| 方块组合 | `cell_count` / `is_killer` / `is_long_bar` / `shape_family` / `flexibility_score` / `combo_*` / `min_flexibility` | 体积、致命形状、长条刚性、家族同质、放置自由度（含短板） |
+| 空间约束 | `scd_score = combo_total_cells / (64 - avg_occupied + ε)` / `scd_level` / `scd_range` | 空间约束密度与档位、算法跨度 |
+
+**② 表现难度**（需玩家遥测）
+
+| 维度 | 代表指标 | 物理含义 |
+|------|----------|----------|
+| 时间成本 | `time_think` / `time_diff` / `time_action` | 认知负荷、整体时间压力、操作熟练度 |
+| 操作效率 | `block_step_cnt` / `is_exact_match` / `step4_plus_rate` / `exact_match_rate` | 步数效率、是否走设计最优解、挣扎信号 |
+| 结果质量 | `blast_cnt` / `is_clean_screen` / `revive_*` / `no_blast_rate` / `multi_blast_rate` | 即时反馈、爽感、失败压力、垃圾时间 |
+| 惩罚与偏离 | `think/steps/blast _exact·deviated` / `think_punish_index` / `max_punish_index` | 偏离最优解的认知与操作代价（陷阱深度） |
+| 综合 / 标签 | `composite_difficulty_score` / `difficulty_sub_label` / `punishment_label` / `chain_label` | 统一难度坐标、五档分级、陷阱型、策略链层 |
+| 离散度 | `think_cv` / `think_range` / `algo_score_spread` / `killer_range` / `scd_cv` | 算法内/跨算法的难度波动 |
+
+#### 2.4 提案 vs 系统现状对照（盘点）
+
+**总览（61 指标）**：已实现（口径基本一致）**12** · 部分对齐（命名/口径不同）**14** · 未实现（系统缺口）**35**。
+
+**三条结构性差异**（解释了为何大量指标落「未实现」）：
+
+1. **聚合维度缺失**：系统是**实时单局 / 滑窗**信号，没有 `puzzle_id × algo` 的跨记录聚合 → 所有 `avg_*` / `global_*` / `algo_*` / `*_range` / `*_cv` 无直接对应（按 §2.2 改为难度分桶聚合后可还原）。
+2. **缺「设计最优解」基线**：系统从不记录每步的设计/最优落点 → `is_exact_match` 及其派生的**整个惩罚与偏离族**（`*_exact·deviated`、`think_punish_index`）无法直接计算。
+3. **视角不同**：系统几何度量服务于**出块算法**（`spatialPressure` / `boardDifficulty` 由 stress 驱动），体验度量服务于**玩家能力/心流**（`skillLevel` / `cognitiveLoad`）；提案是**单步难度坐标**，三者目标不重合。
+
+**客观难度对照**
+
+| 关系 | 提案指标 → 系统对应 |
+|------|----------------------|
+| 强对齐 | `holes_cnt`（系统更细分三套口径）、`blocks_cnt` ＝ `fillRatio`、`cell_count`、`shape_family` |
+| 口径需注意 | `is_long_bar`：系统里 `lines` 品类被当作**最低复杂度（偏易）**，与提案「易制造死局」语义**相反** |
+| 近似替代 | `init_complexity` → `boardDifficulty`；`concave_corners` → `wells` + 小凹陷；`min_flexibility` → `firstMoveFreedom`（短板逻辑一致） |
+| 全缺 | `is_killer` / `combo_killer_cnt` / `scd_score` / `scd_range` 及全部题目级 `avg_*` |
+
+**表现难度对照**
+
+| 关系 | 提案指标 → 系统对应 |
+|------|----------------------|
+| 强对齐 | `time_think` ＝ `thinkMs`、`block_step_cnt` ＝ `placements`、`blast_cnt`、`clean_screen_rate` / `multi_blast_rate` / `no_blast_rate` |
+| 口径需注意 | `time_action` → `pickToPlaceMs`（含定位决策，非纯拖拽段）；`revive_*` 已实现但**生产默认关闭**（无样本） |
+| 全缺 | `is_exact_match` 及惩罚偏离族、`composite_difficulty_score`、五档 `difficulty_sub_label`、`think_cv` / `think_range`、各 `*_spread` |
+
+#### 2.5 系统现有单步难度原语
+
+系统其实**已有分散的单步难度原语**，只是没 consolidate 成统一难度分、没落库、没驱动匹配：
+
+| 原语 | 位置 | 现状用途 |
+|------|------|----------|
+| `boardDifficulty` | `adaptiveSpawn.js` | 仅作 `spatialPressure` 输入 |
+| DFS 解空间指标 | `blockSpawn.js` | 仅作软过滤 / 硬约束 |
+| `d_step` / `state_d` | tuning/v2 | 仅汇成整局 `d_curve` |
+
+#### 2.6 P0–P6 优化路线（去题目化）
+
+| 优先级 | 优化点 | 关键变化 / 改动量 |
+|:------:|--------|--------|
+| P0 | 单步难度特征化 + 落库 | **删除指纹/去重**，每条 spawn 独立带难度特征（中） |
+| P1 | 确定性单步难度评分器 `spawnStepDifficulty.js` | consolidate 现有原语为统一难度分（小） |
+| P2 | 难度分桶聚合（替代题目聚合） | 按 `难度桶 × 算法` 聚合，还原「高方差算法」判定（中） |
+| P3 | `is_exact_match` + 惩罚偏离族 | 离线回算最优解基线（中·离线） |
+| P4 | 单步难度驱动匹配下沉 | 收窄算法产出难度分布 + 对齐技能（中） |
+| P5 | v2 `d_step` 喂入 combo 特征 | v2 已有单步难度原语，让其同源（大） |
+| P6 | 五档标签统一 + 离散度看板 | 复用 §2.3 标签族（小） |
+
+按性价比的补齐顺序：`scd_score`（纯几何零依赖最易补）→ `is_killer`（规则化）→ `is_exact_match`（解锁惩罚族）→ 离线脚本一次性补难度桶聚合。
+
+#### 2.7 风险与注意事项
+
+1. **无题目概念**：难度的最小单元是 spawn step，确定性逐步算，不做"同题求均值"。
+2. **难点在数据归因而非特征**：单步难度信号已有充足原语，缺的是 consolidate + 落库 + 归因。
+3. **长条语义冲突**：提案视长条为高难，系统 `lines` 品类视为偏易——落地评分器需显式定义口径。
+4. **复活默认关闭**：`revive_*` 生产无样本，相关表现指标暂不可用。
+5. **最优解成本**：`is_exact_match` 依赖设计/最优落点，需离线 DFS 回算，非实时。
+6. **硬护栏不可破**：任何难度下沉都保留 `validateSpawnTriplet` 硬可解性护栏。
+7. **先观测后干预**：先落库观测难度分布，再开匹配下沉，避免盲调。
+
+---
+
+### 三、出块评估与可视化工具
+
+#### 3.1 CLI
+
+```bash
+npm run spawn:eval -- --sessions 120 --strategies easy,normal,hard --policies random,clear-greedy,survival
+```
+
+常用参数：`--sessions`, `--max-steps`, `--out`, `--spawn-generators` (baseline/triplet-p1/budget-p2)
+
+#### 3.2 可视化页面
+
+`http://localhost:3000/spawn-eval.html` — 策略参数优化器，含自动寻优、参数持久化（SQLite / localStorage 降级）。
+
+#### 3.3 Bot 分层
+
+- `random`：随机合法落子，代表低规划玩家
+- `clear-greedy`：优先消行，代表普通玩家
+- `survival`：保留机动性，代表高规划玩家
+
+#### 3.4 核心指标
+
+scoreMean/P50/P90, stepsMean, noMoveRate, terminalFillMean, clearInterval, multiClearRate, perfectClearRate, fallbackRate, firstMoveFreedomMean, solutionCountMean。
+
+派生指标：naturalFairnessGap, skillScoreLift, rewardAgencyGap
+
+#### 3.5 P1：组合级候选评分
+
+三块选择从单块评分后拼接推进到候选 triplet 组合级评分。枚举最多 max-triplets 组，用廉价特征筛 Top 8 再深度评估。仅在评估轨使用。
+
+#### 3.6 P2：体验预算模型
+
+出块意图拆为四类预算：survival / payoff / pressure / novelty，由 `personalizationStrength` + `temperature` + `surpriseBudgetGain` 调制。
+
+#### 3.7 切主路径门槛
+
+- noMoveRate 不高于 baseline
+- rewardAgencyGap 高于 baseline
+- 对移动端性能可接受
+
+---
+
+## 15. 出块参数寻优（SpawnParamTuner）
+
+> 整合：算法原理（全 ML 管线） + 用户操作手册。
+> 双层总览与角色定义见 [本手册 §12](#12-出块算法架构总览工程分层)。
+
+---
+
+### 一、算法原理
+
+> 定位：L2 · SpawnParamTuner（出块参数·寻优器）
+> 职责：给 L1 · SpawnPolicyRules 拟合 9 维 θ；不替换出块决策本身，不直接产 3 块
+> 不是：SpawnPolicyNet 的前身或替代品；二者层级正交、独立演进
+
+#### 1.1 核心命题
+
+| 命题 | 量化 |
+|------|------|
+| 接近 PB 时加压 | D(r≈0.95) - D(r≈0.5) ≥ 0.20 |
+| 破 PB 后持续加压 | D̄(r≥1.0) ≥ D̄(r∈[0.9, 1.0)) 单调非降 |
+| 甜区破 PB 率 | P(reach r=1.0) ≈ 18% (10-25%) |
+| 偶尔惊喜 | ~7% 步触发 d_step < 0.30 |
+
+#### 1.2 S 形难度曲线
+
+`target_S_curve(r)` 分段：gentle (0-0.5) → mid (0.5-0.7) → brake sigmoid (0.7-1.1) → overshoot exp (1.1-2.0)。跨度 0.90 (D=0.10 → 1.00) 是唯一 target。
+
+#### 1.3 系统架构
+
+四层闭环：**采样 → 训练 → 推断 → 部署 → 真实玩家反馈 → 调整**
+
+#### 1.4 特征与模型
+
+**5 维 ctx**：difficulty, generator, bot_policy, pb_bin, lifecycle_stage（共 360 场景）
+**9 维 θ**：A 组 5（个性化/选拔）+ B 组 4（PB 曲线）
+**模型**：ResNet-MLP (326K 参数) 或 Transformer (407K)，预测 `d_curve_20` + 4 辅助 head
+
+#### 1.5 损失函数
+
+`L = w_target·L_target_fit + w_endpoint·L_endpoint + w_var·L_var + w_anchor·L_anchor`
+
+#### 1.6 部署
+
+`build-and-export` — 对 360 ctx 跑 surrogate Adam 优化找 best θ* → PAVA 单调投影 → 输出 policies.json + policies.meta.json + 小程序 CJS。灰度比例可控。
+
+#### 1.7 闭环迭代
+
+1. 采集（围绕 deployed θ* 抖动加密）
+2. 训练新模型
+3. 导出 bundle（勾选优化 θ 寻参）
+4. 对比 baseline vs best θ* MAE
+
+收敛目标：val_ideal_mae < 0.05。
+
+---
+
+### 二、用户操作手册
+
+#### 2.1 启动
+
+```bash
+python server.py          # 后端 (端口 5000)
+npm run dev               # 前端 (vite)
+open http://localhost:5173/spawn-tuning-v2-dashboard.html
+```
+
+#### 2.2 看板 5-Tab 工作流
+
+| Tab | 功能 |
+|-----|------|
+| ① 总览 | 系统状态 + 当前 deployed model |
+| ② 样本构建 | 创建样本集 + chips 加权采集 + 质量分析 |
+| ③ 训练 | 提交训练任务 + 曲线 + 参数推荐 |
+| ④ 模型库 | 模型列表 + d_curve 推断 + 对比 |
+| ⑤ 部署 | 一键 build+export bundle + 灰度 |
+
+#### 2.3 端到端流程
+
+**Step 1 — 采集**：新建样本集 → 配置 5 维 chips → 5000+ 样本 → 质量分析（综合评分 > 0.7）
+**Step 2 — 训练**：选 ResNet/Transformer → 自动推荐参数 → 提交 → 关注 val_ideal_mae (< 0.05)
+**Step 3 — 对比**：≥2 模型叠加 d_curve 图 + metric 对比表
+**Step 4 — 部署**：勾选「训完自动部署」或手动 → 勾选「优化 θ 寻参」→ 导出 4 文件
+**Step 5 — 闭环**：围绕 deployed θ* 抖动采集 → 迭代精化
+
+#### 2.4 CLI 工具
+
+```bash
+python -m rl_pytorch.spawn_tuning_v2.train --db ... --sample-sets 6 --epochs 30
+python -m rl_pytorch.spawn_tuning_v2.repair_dcurves --db ... --set-id 6 --apply
+python -m rl_pytorch.spawn_tuning_v2.optimize_theta --checkpoint ... --output ...
+```
+
+#### 2.5 FAQ
+
+- **模型预测曲线水平** → 90% 数据问题，质量分析 < 0.4 需重采
+- **val_curve_mae 卡在 0.07-0.10** → 理论下界（label 含 state_offset 噪声），看 val_ideal_mae
+- **Transformer 退化解** → 降 lr，check val_curve_var > 0.1
+- **v3 方向**：RL bot 替代规则 bot、真实玩家数据 fine-tune、多步 lookahead
+
 ## 关联文档
 
 | 文档 | 关系 |
 |------|------|
 | [`ALGORITHMS_HANDBOOK.md`](./ALGORITHMS_HANDBOOK.md) | 总索引 |
-| [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) | 工程分层 |
+| 本手册 §12 出块算法架构总览 | 工程分层（原 本手册 §12） |
 | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) | 信号矩阵 |
-| [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | 设计 rationale |
+| 本手册 §13 出块建模 | 设计 rationale（原 本手册 §13） |
 | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) | 三档难度 |
-| [`PLAYSTYLE_DETECTION.md`](../player/PLAYSTYLE_DETECTION.md) | 玩法风格 → dock 调整 |
+| [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](../player/REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格 → dock 调整 |
 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | RL 与 SpawnPredictor 接口 |
 
 ---

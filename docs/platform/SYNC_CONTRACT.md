@@ -30,7 +30,7 @@
 
 - CI 中校验：`shared/game_rules.json` / `shared/shapes.json` 与小程序生成数据模块语义一致（见仓库脚本扩展位）。
 - 移动端发包前固定流程：`npm run build` → `npm run mobile:sync` → Android Studio / Xcode 构建。
-- 黄金事件：`docs/engineering/GOLDEN_EVENTS.md` 与小程序埋点名定期 diff。
+- 黄金事件：`docs/engineering/REFERENCE.md`（§一）与小程序埋点名定期 diff。
 
 ## 已知差异处理
 

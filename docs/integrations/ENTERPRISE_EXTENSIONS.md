@@ -1,4 +1,4 @@
-# 企业扩展 API（`backend/enterprise_extensions.py`）
+# 企业扩展 API
 
 > 与 Flask `server.py` 一并加载；数据库迁移在 `init_db()` 中执行。  
 > 环境变量：`OPENBLOCK_OPS_TOKEN`（敏感接口鉴权）、`OPENBLOCK_RATE_LIMIT_PER_MIN`（每分钟每 IP 上限，0=关闭）、`OPENBLOCK_REMOTE_CONFIG_JSON`（远程配置 JSON 合并）、`OPENBLOCK_ACTIVE_STRATEGY_VERSION`（策略版本标注）。

@@ -2,7 +2,7 @@
 
 > **定位**：可复用的"喂给大模型即生成完整 OpenBlock 架构图集合"的 prompt
 > 模板。其输出物登记在
-> [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](./SYSTEM_ARCHITECTURE_DIAGRAMS.md)。
+> [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)。
 > **使用方式**：复制 §"Prompt 全文"整段粘贴给具备长上下文 + Mermaid 输出
 > 能力的大模型（GPT-5 / Claude Opus 4 / Gemini 2.5 Pro 等），即可获得 6 张
 > Mermaid 图与解读。
@@ -11,7 +11,7 @@
 
 ## 适用场景
 
-- 重新生成 [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](./SYSTEM_ARCHITECTURE_DIAGRAMS.md)
+- 重新生成 [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)
   以反映架构变化
 - 给 AI 协作者一份"自包含的项目地图"以便其在不读源码时也能理解结构
 - 作为新贡献者的"项目结构介绍材料"
@@ -353,8 +353,8 @@ flowchart TB
 
 ## 关联文档
 
-- [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](./SYSTEM_ARCHITECTURE_DIAGRAMS.md) —— 本 prompt 的当前输出物
-- [`MONETIZATION_EVENT_BUS_CONTRACT.md`](./MONETIZATION_EVENT_BUS_CONTRACT.md) —— §2.4 事件契约的权威源
-- [`LIFECYCLE_DATA_STRATEGY_LAYERING.md`](./LIFECYCLE_DATA_STRATEGY_LAYERING.md) —— §3.3 三段式的权威源
+- [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md) —— 本 prompt 的当前输出物
+- [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) —— §2.4 事件契约的权威源
+- [`PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`（生命周期/成熟度策略架构（数据层+编排层+策略层））](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) —— §3.3 三段式的权威源
 - [`../engineering/PROJECT.md`](../engineering/PROJECT.md) —— §2.2 模块字典的权威源
 - [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) —— 文字版完整架构（含 ADR）

@@ -166,7 +166,7 @@ purchase_completed
 
 ## 7. 关联文档
 
-- [`LIFECYCLE_DATA_STRATEGY_LAYERING.md`](./LIFECYCLE_DATA_STRATEGY_LAYERING.md) —— 数据→信号→策略分层
+- [`PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`（生命周期/成熟度策略架构（数据层+编排层+策略层））](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) —— 数据→信号→策略分层
 - [`../algorithms/ALGORITHMS_MONETIZATION.md`](../algorithms/ALGORITHMS_MONETIZATION.md) —— 商业化算法手册
 - [`../algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md`](../algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md) —— 模型架构与决策包装
 - [`../operations/MONETIZATION.md`](../operations/MONETIZATION.md) —— 商业化系统全景与运行时 API

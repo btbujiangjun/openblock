@@ -5,7 +5,7 @@
  * 强 r(D7)=0.276 + 弱区分度 21% 的频次激励特征（普遍可达、越多越好），把高分
  * 达成做成日常 task，转化为留存抓手。
  *
- * **数据依据**：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.7 + RETENTION_QUICK_WINS.md §10
+ * **数据依据**：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.7 + §留存优化快赢清单
  *
  * **设计契约**
  *   - **仅 Android / 微信小程序启用**（isEnabled() 检查 platformProfile）；

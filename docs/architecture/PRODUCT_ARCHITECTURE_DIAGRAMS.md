@@ -294,7 +294,7 @@
 | **行为结果（动作结果矩阵）** | `web/src/monetization/quality/actionOutcomeMatrix.js`（opt-in） |
 | **留存分析** | `web/src/monetization/retentionAnalyzer.js`（本地化 cohort） |
 | **复盘分析** | `web/src/moveSequence.js` `buildReplayAnalysis`（**注**：仓库内无独立 `reviewPanel.js`，复盘 UI 由 `replayUI.js` + `replayAlbum.js` 承载） |
-| **事件总线** | `web/src/monetization/MonetizationBus.js` 是商业化与生命周期事件的**唯一总线**，事件全集见 [MonetizationBus 事件契约](./MONETIZATION_EVENT_BUS_CONTRACT.md) |
+| **事件总线** | `web/src/monetization/MonetizationBus.js` 是商业化与生命周期事件的**唯一总线**，事件全集见 [MonetizationBus 事件契约](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) |
 
 ---
 
@@ -369,11 +369,11 @@ OpenBlock 在产品层面与行业默认做法不同的 4 处具体选择：
    - [`BEST_SCORE_CHASE_STRATEGY.md`](../player/BEST_SCORE_CHASE_STRATEGY.md)（§4 改进项编号）
    - [`EXPERIENCE_DESIGN_FOUNDATIONS.md`](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md)（Part C 互抑表）
    - [`PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（25 格矩阵 + 6 项北极星）
-   - [`MONETIZATION_EVENT_BUS_CONTRACT.md`](./MONETIZATION_EVENT_BUS_CONTRACT.md)（lifecycle:* 事件）
+   - [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md)（lifecycle:* 事件）
    
    三者+1必须保持单向引用：本文档作为"产品视角伴随",上述四份契约作为单一事实源。
 4. **新增产品形态先扩展文档**：任何新增的外围系统 / 商业化触发 / 北极星指标都要先在本文档 + 上游契约里登记，再进入代码实现；避免"实现先行 / 文档追赶"的反模式。
-5. **图源**：`assets/product-architecture.png` 为评审 / 培训 / 对外宣讲使用的设计参考稿；如需调整结构，建议先在 [`ARCHITECTURE_DIAGRAM_PROMPT.md`](./ARCHITECTURE_DIAGRAM_PROMPT.md) 同源 prompt 模板里登记调整意图，再重渲染。
+5. **图源**：`assets/product-architecture.png` 为评审 / 培训 / 对外宣讲使用的设计参考稿；如需调整结构，建议先在 [`ARCHITECTURE_DIAGRAM_PROMPT.md`](../algorithms/ARCHITECTURE_DIAGRAM_PROMPT.md) 同源 prompt 模板里登记调整意图，再重渲染。
 
 ## 横向参照
 
@@ -383,5 +383,5 @@ OpenBlock 在产品层面与行业默认做法不同的 4 处具体选择：
 - [生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)：本图 §2 的**双轴契约**，25 格压力上限映射 + 6 项北极星指标的权威定义。
 - [体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md)：本图 §1 体验五轴的**心理学根据 + 跨轴互抑表**。
 - [实时策略系统](../player/REALTIME_STRATEGY.md)：本图 §4–§5 的**指标字典 + L1–L4 管线 + 策略卡生成**。
-- [MonetizationBus 事件契约](./MONETIZATION_EVENT_BUS_CONTRACT.md)：本图 §0 PB 事件总线与 §10 数据闭环的**事件全集与 payload 契约**。
-- [生命周期数据→策略分层](./LIFECYCLE_DATA_STRATEGY_LAYERING.md)：本图 §10 数据闭环的**三段式架构与单向依赖约束**。
+- [MonetizationBus 事件契约](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md)：本图 §0 PB 事件总线与 §10 数据闭环的**事件全集与 payload 契约**。
+- [生命周期数据→策略分层](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层)：本图 §10 数据闭环的**三段式架构与单向依赖约束**。

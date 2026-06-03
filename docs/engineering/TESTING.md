@@ -20,10 +20,10 @@ npm run lint
 npm run build
 ```
 
-PyTorch 策略 checkpoint 的**离线贪心评估**（与网页看板滑动统计独立）：`npm run rl:eval -- --checkpoint rl_checkpoints/bb_policy.pt --n-games 128 --rounds 3`。说明见 [RL_PYTORCH_SERVICE.md](../algorithms/RL_PYTORCH_SERVICE.md)。
+PyTorch 策略 checkpoint 的**离线贪心评估**（与网页看板滑动统计独立）：`npm run rl:eval -- --checkpoint rl_checkpoints/bb_policy.pt --n-games 128 --rounds 3`。说明见 [ALGORITHMS_RL.md（§21）](../algorithms/ALGORITHMS_RL.md#21-rl-契约与在线服务)。
 
 前端性能相关策略与回归清单见 [PERFORMANCE.md](./PERFORMANCE.md)，
-基线采集 / 回归检测命令（`npm run perf:check` / `perf:check:gpu`）见 [PERFORMANCE_BASELINE.md](./PERFORMANCE_BASELINE.md)。
+基线采集 / 回归检测命令（`npm run perf:check` / `perf:check:gpu`）见 [PERFORMANCE.md（性能基线与回归检测）](./PERFORMANCE.md#性能基线与回归检测)。
 
 按场景可补充：
 
@@ -82,7 +82,7 @@ npm run spawn:eval -- --sessions 1 --max-steps 20 --max-triplets 24 \
 - 看板摘要、趋势图、skip reason 与后端 `training.jsonl` 对齐。
 - 改 reward、feature、action 维度时，旧 checkpoint 默认视为不兼容。
 
-相关测试与文档：`tests/features.test.js`、`tests/simulator.test.js`、[RL 数值稳定](../algorithms/RL_TRAINING_NUMERICAL_STABILITY.md)、[训练看板趋势](../algorithms/RL_TRAINING_DASHBOARD_TRENDS.md)。
+相关测试与文档：`tests/features.test.js`、`tests/simulator.test.js`、[RL 训练监控](../algorithms/ALGORITHMS_RL.md#22-rl-训练监控与排障)。
 
 ### 3.5 商业化与运营
 

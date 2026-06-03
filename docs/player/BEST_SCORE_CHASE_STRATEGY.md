@@ -1,4 +1,4 @@
-# 最佳分追逐策略：挑战自我而不轻易超越（Best Score Chase Strategy）
+# 最佳分追逐策略：挑战自我而不轻易超越
 
 > **读者**：主策划人、策略设计师、运营策略负责人；二级读者：体验算法工程师、运营 QA。  
 > **定位**：本文以"挑战玩家**自己的**最佳得分（personal best）"为核心主策略，沉淀**当前实现的事实**、**玩家四维关系矩阵**与**改进/优化点**，是 OpenBlock 体验设计在"留存动力"维度上的策划契约文档。  
@@ -519,7 +519,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 - 系统通用模型：[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)（L1–L4 通用分层）
 - 同层实时管线：[实时策略系统](./REALTIME_STRATEGY.md)（指标字典、L4 卡片生成）
 - 算法事实：[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（多信号 stress 融合 / `spawnHints` 派生）
-- 出块机制：[出块算法：三层架构 §2.5 策略 → 出块翻译机制](../algorithms/SPAWN_ALGORITHM.md#25-策略--出块翻译机制)（`spawnHints` 如何变成具体 3 个块：5 阶段流水线 + 30+ 加权乘子 + 硬约束 + 场景跑步）
+- 出块机制：[出块架构 §二 §2.5](../algorithms/ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)（`spawnHints` 如何变成具体 3 个块：5 阶段流水线 + 30+ 加权乘子 + 硬约束 + 场景跑步）
 - 跨局画像：[生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（S0–S4 × M0–M4）
 - 计分规则：[消行计分](../product/CLEAR_SCORING.md)（如何把"消行"转成 score）
 - 难度档：[难度模式](../product/DIFFICULTY_MODES.md)（Easy/Normal/Hard 与自适应协作）

@@ -11,6 +11,6 @@
 ## 分——微信小程序
 
 - [微信小程序适配](./WECHAT_MINIPROGRAM.md) —— 结构（`miniprogram/`）、功能边界（排除RL/监控/运营看板）、本地开发与调试
-- [微信小程序发布流程](./WECHAT_RELEASE.md) —— 完整Runbook：账号注册 → AppID配置 → 隐私声明 → `scripts/sync-core.sh` → 开发者工具自检 → 上传审核 → 版本回退
+- [微信小程序发布流程](./WECHAT_MINIPROGRAM.md#微信小程序发布流程) —— 完整Runbook：账号注册 → AppID配置 → 隐私声明 → `scripts/sync-core.sh` → 开发者工具自检 → 上传审核 → 版本回退
 
 适合跨端工程、发布运营和 QA 使用。

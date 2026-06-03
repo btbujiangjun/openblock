@@ -2,7 +2,7 @@
 
 > 本文是 OpenBlock **商业化算法子系统**的统一手册。
 > 范围：分群（whale_score）/ 实时策略引擎 / CommercialModelVector / LTV 预测 / 与买量出价的接口。
-> 与现有文档的关系：本文维护商业化算法、公式、阈值默认值与代码事实；`MONETIZATION.md` 维护运营系统全景，`MONETIZATION_TRAINING_PANEL.md` 和 `MONETIZATION_CUSTOMIZATION.md` 只作为专题接入说明。
+> 与现有文档的关系：本文维护商业化算法、公式、阈值默认值与代码事实；`MONETIZATION.md` 维护运营系统全景，`MONETIZATION_TRAINING_PANEL.md` 和 `MONETIZATION.md`（商业化策略定制指南） 只作为专题接入说明。
 > 若需要横向理解 CommercialModelVector 与 PlayerProfile、AbilityVector、LTV、广告频控和 RL/Spawn 边界，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
@@ -985,11 +985,11 @@ allowRewarded     = !suppressAll
 | [`ALGORITHMS_HANDBOOK.md`](./ALGORITHMS_HANDBOOK.md) | 算法手册总索引 |
 | [`COMMERCIAL_MODEL_DESIGN_REVIEW.md`](./COMMERCIAL_MODEL_DESIGN_REVIEW.md) | 商业化模型架构设计（snapshot / 校准 / MTL / 漂移 / bandit / 决策包装） |
 | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | 实时信号与玩家画像上游 |
-| [`../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md`](../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md) | MonetizationBus 事件契约 |
-| [`../architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md`](../architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md) | 生命周期数据 → 策略分层 |
+| [`../operations/MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) | MonetizationBus 事件契约 |
+| [`../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md（生命周期/成熟度策略架构（数据层+编排层+策略层））`](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) | 生命周期数据 → 策略分层 |
 | [`../operations/MONETIZATION.md`](../operations/MONETIZATION.md) | 商业化系统全景与 API |
 | [`../operations/MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | MonPanel 字段、界面与调试 |
-| [`../operations/MONETIZATION_CUSTOMIZATION.md`](../operations/MONETIZATION_CUSTOMIZATION.md) | 策略定制指南 |
+| [`../operations/MONETIZATION.md（商业化策略定制指南）`](../operations/MONETIZATION.md#商业化策略定制指南) | 策略定制指南 |
 | [`../operations/MONETIZATION.md §15`](../operations/MONETIZATION.md#15-商业化系统综合报告附录) | 商业化系统能力总览 |
 | [`../operations/COMMERCIAL_OPERATIONS.md`](../operations/COMMERCIAL_OPERATIONS.md) | 运营视角参考分析 |
 | [`../domain/COMPETITOR_USER_ANALYSIS.md`](../domain/COMPETITOR_USER_ANALYSIS.md) | 竞品分群数据来源 |

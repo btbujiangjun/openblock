@@ -364,7 +364,7 @@ fallback 到默认参数并 `console.warn`。
 | 文档 | 关系 |
 |------|------|
 | [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | 商业化算法手册（whale_score / 规则引擎 / LTV 等基础层） |
-| [`../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md`](../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md) | MonetizationBus 事件契约 |
-| [`../architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md`](../architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md) | 数据→信号→策略分层 |
+| [`../operations/MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) | MonetizationBus 事件契约 |
+| [`../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md（生命周期/成熟度策略架构（数据层+编排层+策略层））`](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) | 数据→信号→策略分层 |
 | [`../operations/MONETIZATION.md`](../operations/MONETIZATION.md) | 商业化系统全景与 API |
 | [`../operations/MONETIZATION.md §15`](../operations/MONETIZATION.md#15-商业化系统综合报告附录) | 商业化系统能力总览 |

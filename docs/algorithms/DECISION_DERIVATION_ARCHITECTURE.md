@@ -1,4 +1,4 @@
-# 决策派生层架构（Decision Derivation Architecture）
+# 决策派生层架构
 
 > **版本：v1.59.17（2026-05）**
 > 适用范围：web 主端 UI 层（DFV / stressMeter / playerInsightPanel / algorithmDynamicsCard / 后续新 UI）

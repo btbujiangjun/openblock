@@ -60,10 +60,10 @@
 |---|---|---|
 | ① **数据输入层** | 玩家行为 / 环境状态 / 特征快照 / 历史数据等多源信号 | `playerProfile.js` · `commercialFeatureSnapshot.js` · [SQLITE_SCHEMA](../engineering/SQLITE_SCHEMA.md) |
 | ② **核心模型层** | 七大子模型协同：`PlayerProfile` · `AbilityVector` · `CommercialPolicy` · `AdTrigger` · `AdInsertionRL` · `LifecycleOrchestrator` · `ActionOutcomeMetrics`，外加居中的"融合决策引擎"做加权融合 / 规则约束 / 冲突协调 / 风险控制 | [ALGORITHMS_HANDBOOK](./ALGORITHMS_HANDBOOK.md) · [MODEL_SYSTEMS_FOUR_MODELS](./MODEL_SYSTEMS_FOUR_MODELS.md) · [COMMERCIAL_MODEL_DESIGN_REVIEW](./COMMERCIAL_MODEL_DESIGN_REVIEW.md) |
-| ③ **决策输出层** | 推荐行动集合 · 执行指令 · 策略解释 · 日志记录 | `commercialPolicy.js` · `strategyEngine.js` · [事件契约](../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md) |
-| ④ **训练与优化层** | 数据存储 → 离线训练 → 在线学习 → 评估与验证 → 模型更新；底部一条"奖励信号（多目标优化）"带：收益 / 留存 / 满意度 / 风险 / 生态健康 | [ALGORITHMS_RL](./ALGORITHMS_RL.md) · [RL_PYTORCH_SERVICE](./RL_PYTORCH_SERVICE.md) · `quality/modelQualityMonitor.js` |
+| ③ **决策输出层** | 推荐行动集合 · 执行指令 · 策略解释 · 日志记录 | `commercialPolicy.js` · `strategyEngine.js` · [事件契约](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) |
+| ④ **训练与优化层** | 数据存储 → 离线训练 → 在线学习 → 评估与验证 → 模型更新；底部一条"奖励信号（多目标优化）"带：收益 / 留存 / 满意度 / 风险 / 生态健康 | [ALGORITHMS_RL](./ALGORITHMS_RL.md) · [RL_CONTRACT_AND_SERVICE](./ALGORITHMS_RL.md#21-rl-契约与在线服务) · `quality/modelQualityMonitor.js` |
 | ⑤ **支撑层** | 特征工程平台 · 模型服务平台 · 实验平台 · 监控与告警，所有 ML 子系统的共享基座 | [PROJECT.md](../engineering/PROJECT.md) · [OBSERVABILITY](../operations/OBSERVABILITY.md) · `experimentPlatform.js` · `quality/distributionDriftMonitor.js` |
-| ⑥ **反馈闭环** | 效果反馈 → 归因分析 → 策略改进 → 模型迭代，把上线效果回灌到 ① 数据输入与 ④ 训练优化 | `actionOutcomeMatrix.js` · [LIFECYCLE_DATA_STRATEGY_LAYERING](../architecture/LIFECYCLE_DATA_STRATEGY_LAYERING.md) |
+| ⑥ **反馈闭环** | 效果反馈 → 归因分析 → 策略改进 → 模型迭代，把上线效果回灌到 ① 数据输入与 ④ 训练优化 | `actionOutcomeMatrix.js` · [LIFECYCLE_DATA_STRATEGY_LAYERING](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) |
 
 > **诚实标注**：图中"七大子模型"覆盖**已稳定上线**与**opt-in scaffolding**两类；
 > calibration / explorer ε / LinUCB bandit / MTL / ZILN / survival / drift 等仍以
@@ -907,7 +907,7 @@ block-beta
 - churn 是**三源 blend**：`predictor 0.45 + maturity 0.35 + commercial 0.20`（默认权重）；`commercial` 来自 `commercialModel.churnRisk`，权重最低，避免商业化倾向反向支配留存判断。
 - engagement 公式以"会话长度（封顶 5 分钟）"与"放置成功率"加权，体现"耗时 ≠ 体验"。
 - 事件全部走 `MonetizationBus`，订阅方零侵入；详细事件契约见
-  [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../architecture/MONETIZATION_EVENT_BUS_CONTRACT.md)。
+  [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md)。
 - 反馈环：用户对 offer 的反应 → analyticsTracker → 下一轮 churn blend 与 maturity 重算。
 
 ---
@@ -932,5 +932,5 @@ block-beta
 - [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) —— RL 训练栈权威源（图 3）
 - [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) —— 商业化算法手册（图 5 / 图 6 / 图 7）
 - [`COMMERCIAL_MODEL_DESIGN_REVIEW.md`](./COMMERCIAL_MODEL_DESIGN_REVIEW.md) —— 商业化模型架构设计
-- [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) —— 出块算法三层模型
+- [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) —— 出块算法三层模型
 - [`../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md) —— 系统架构图（系统侧的姊妹篇）

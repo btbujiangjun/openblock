@@ -24,7 +24,7 @@
 
 ## PyTorch RL（`rl_pytorch/`）
 
-- **规则与方块数据**：`shared/game_rules.json`、`shared/shapes.json` 为 Web / PyTorch / MLX 共用；Python 经 `game_rules.py`、`shapes_data.py` 加载。玩法与 RL 分层说明见 **`docs/RL_AND_GAMEPLAY.md`**。
+- **规则与方块数据**：`shared/game_rules.json`、`shared/shapes.json` 为 Web / PyTorch / MLX 共用；Python 经 `game_rules.py`、`shapes_data.py` 加载。玩法与 RL 分层说明见 **`docs/algorithms/ALGORITHMS_RL.md（§21）`**。
 - **动力学**：`grid.py`、`simulator.py` 实现铺块、出块、计分、终局判定（须与主游戏 `Grid` 一致）。
 - **特征**：`features.py` 与 `web/src/bot/features.js` 对齐；状态 ψ 为棋盘统计/颜色摘要 + 棋盘占用（maxGridWidth²）+ 待选块形状掩码（dockSlots×dockMaskSide²），动作特征含放置位置、消行、多消、同 icon/同色 bonus 和清屏潜力；维度见 `shared/game_rules.json` 的 `featureEncoding`。
 - **模型**：`model.py` 为策略/价值**残差 MLP**（Pre-LN + GELU）；split 双塔对 φ(s,a) 打分、shared 主干对 ψ(s) 与动作嵌入融合；对 ψ(s) 输出 V(s)。CLI/`RL_*` 默认隐层 **256**、深度 **4**、`--arch shared`（旧 checkpoint 可能为 384/双塔，以 meta 为准）；**旧 checkpoint（22 维 φ）与新版不兼容，须重训**。

@@ -13,21 +13,18 @@
 
 - [SQLite数据库模式](./SQLITE_SCHEMA.md) —— 全部表的用途、结构、HTTP入口、业务JSON格式
 - [前端性能优化](./PERFORMANCE.md) —— Dirty Rect追踪（`performanceOptimizer.js`）、对象池（`optimizedParticles.js`）、rAF分块、可见性定时器、progress缓存（v10.18）
-- [性能基线与回归检测](./PERFORMANCE_BASELINE.md) —— CPU自动（`npm run perf:check`）、GPU手动，性能敏感模块列表
-- [黄金事件字典](./GOLDEN_EVENTS.md) —— 权威事件常量（`PLACE`/`CLEAR`/`GAME_OVER`/`SPAWN_BLOCKS`）+ 商业化扩展事件
-- [国际化 i18n](./I18N.md) —— `t()`/`applyDom()`/`setLocale()` API、扁平key ES模块、`zh-CN` fallback、RTL支持、10+语言
+- [性能基线与回归检测](./PERFORMANCE.md#性能基线与回归检测) —— CPU自动（`npm run perf:check`）、GPU手动，性能敏感模块列表
+- [工程参考](./REFERENCE.md) —— 黄金事件字典（事件常量、`stressBreakdown`/`spawnGeo`字段）+ Web前端国际化i18n（19语言、API、DOM绑定、新增语言Checklist）
 
 ## 分——AI协作
 
-- [休闲游戏全栈构建 Skill](./CASUAL_GAME_BUILD_SKILL.md) —— AI编程前置：8条核心原则 + 5阶段开发流程（产品定义→核心循环→UI QA→模型/RL→商业化→CI）
-- [Cursor Skills 索引](./CURSOR_SKILLS.md) —— 项目级 `.cursor/skills/` 与全局 `~/.cursor/skills/` 注册方式、唯一注册项目Skill
-- [Canvas转换文档索引](./CANVAS_ARTIFACTS.md) —— Cursor Canvas产出的Markdown注册中心及溯源
+- [AI协作](./AI_COLLAB.md) —— 休闲游戏全栈构建Skill（8原则+10阶段+对照速查）+ Cursor Skills索引 + Canvas转换文档索引
 
 ## 分——跨端适配（参见 `docs/platform/`）
 
 - [四端同步契约](../platform/SYNC_CONTRACT.md) —— Web/微信小程序/Android/iOS同步规则
 - [Android/iOS客户端外壳](../platform/MOBILE_CLIENTS.md) —— Capacitor包装方案
 - [微信小程序适配](../platform/WECHAT_MINIPROGRAM.md) —— 结构/功能边界/本地开发
-- [微信小程序发布流程](../platform/WECHAT_RELEASE.md) —— 发布Runbook
+- [微信小程序发布流程](../platform/WECHAT_MINIPROGRAM.md#微信小程序发布流程) —— 发布Runbook
 
 适合架构、前端、后端、小程序适配、AI协作和开源贡献者首读。

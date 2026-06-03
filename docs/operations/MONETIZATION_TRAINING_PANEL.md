@@ -1,6 +1,6 @@
 # 商业化模型训练面板：设计 · 原理 · 策略 · 内容 · 工程
 
-> 配套文档：[`MONETIZATION.md`](./MONETIZATION.md)（商业化权威入口） · [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md)（策略定制）
+> 配套文档：[`MONETIZATION.md`](./MONETIZATION.md)（商业化权威入口） · [`MONETIZATION.md`（商业化策略定制指南）](./MONETIZATION.md#商业化策略定制指南)（策略定制）
 > 实现：`web/src/monetization/monPanel.js` + `backend/monetization_backend.py`
 > 策略层：`web/src/monetization/strategy/` (config / engine / help)
 > 当前定位：本文只维护 MonPanel 的界面、字段、调试和扩展说明；系统全景、模型公式、API 与上线边界以 `MONETIZATION.md` 为准。
@@ -1243,7 +1243,7 @@ behaviors                   -- 行为事件流（event_type）
 | 文档 | 关系 |
 |------|------|
 | [`MONETIZATION.md`](./MONETIZATION.md) | 系统全景；本文档详细化第 10 章「商业化模型训练面板」 |
-| [`MONETIZATION_CUSTOMIZATION.md`](./MONETIZATION_CUSTOMIZATION.md) | 三种定制粒度；本文档对应粒度 A（运营调参） |
+| [`MONETIZATION.md`（商业化策略定制指南）](./MONETIZATION.md#商业化策略定制指南) | 三种定制粒度；本文档对应粒度 A（运营调参） |
 
 | [`STRATEGY_GUIDE.md`](../engineering/STRATEGY_GUIDE.md) | 策略文件结构与项目级定制 |
 

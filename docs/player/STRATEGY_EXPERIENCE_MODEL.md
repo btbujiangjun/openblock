@@ -241,8 +241,8 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 |------|------|
 | [REALTIME_STRATEGY.md](./REALTIME_STRATEGY.md) | 指标字典、压力指标全表（§3.2 加压/减压/慢变量/派生痕迹）与作用机制（§3.6）、互抑（§3.7）、反向工程（§3.8）、L1–L4 管线、合理性评估清单 |
 | [ADAPTIVE_SPAWN.md](../algorithms/ADAPTIVE_SPAWN.md) | 自适应信号与 spawnHints 矩阵 |
-| [SPAWN_ALGORITHM.md](../algorithms/SPAWN_ALGORITHM.md) | 出块三层与 Layer1/2/3 语义 |
-| [SPAWN_SOLUTION_DIFFICULTY.md](../algorithms/SPAWN_SOLUTION_DIFFICULTY.md) | 解法空间与软过滤 |
+| [ALGORITHMS_SPAWN.md（§12）](../algorithms/ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) | 出块三层与 Layer1/2/3 语义 |
+| [ALGORITHMS_SPAWN.md（§14）](../algorithms/ALGORITHMS_SPAWN.md#14-出块难度与评估) | 解法空间与软过滤 |
 | [STRATEGY_GUIDE.md](../engineering/STRATEGY_GUIDE.md) | 策略与难度定制（工程扩展） |
 | [DOMAIN_KNOWLEDGE.md](../domain/DOMAIN_KNOWLEDGE.md) | 心流、挫败等产品语境 |
 

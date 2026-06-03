@@ -17,14 +17,19 @@
 
 ### 分——配置与面板
 
-- [商业化定制](./MONETIZATION_CUSTOMIZATION.md) —— 三级细化：面板调参→`strategyConfig.js`规则修改→`registerStrategyRule()`新增动作类型，含L1–L4层次架构与热重载
+- [商业化定制](./MONETIZATION.md#商业化策略定制指南) —— 三级细化：面板调参→`strategyConfig.js`规则修改→`registerStrategyRule()`新增动作类型，含L1–L4层次架构与热重载
 - [商业化训练面板](./MONETIZATION_TRAINING_PANEL.md) —— MonPanel的4个Tab（Overview/User Profile/Model Config/Feature Flags）、字段说明、AB测试流程、缓存机制与扩展指南
 
 ### 分——留存与数据分析
 
 - [留存信号跨平台分析](./RETENTION_SIGNALS_CROSS_PLATFORM.md) —— iOS×Android 16个行为信号与D7留存的Pearson-r相关矩阵，6项跨平台关键发现、8项P0/P1/P2落地策略
-- [留存优化快赢清单](./RETENTION_QUICK_WINS.md) —— 上述策略的工程落地方案：精确到文件/函数/行号/改动前后代码的10项优化（总计9人日）
+- [留存优化快赢清单](./RETENTION_SIGNALS_CROSS_PLATFORM.md#留存优化快赢清单) —— 上述策略的工程落地方案：精确到文件/函数/行号/改动前后代码的10项优化（总计9人日）
 - [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md) —— `/ops` 数据库接入确认、指标SQL口径审计（DAU实际为WAU等）、写路径审计
+
+### 分——架构参考
+
+- [MonetizationBus 事件契约](./MONETIZATION_EVENT_BUS_CONTRACT.md) —— `MonetizationBus.js` 的权威事件定义：5个API方法、事件表、设计约束
+- [生命周期/成熟度策略架构](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) —— 三层架构（数据层+编排层+策略层）解决生命周期信号碎片化问题
 
 ### 分——合规
 
@@ -32,7 +37,7 @@
 
 ### 分——能力对照
 
-- [商业化与企业能力对照表](./COMMERCIAL_IMPROVEMENTS_CHECKLIST.md) —— 54项能力的实现状态矩阵（仓库内置/部分内置/外部依赖/规划中），含验证路径与代码引用
+- [商业化与企业能力对照表](./COMMERCIAL_OPERATIONS.md#商业化与企业能力对照表) —— 54项能力的实现状态矩阵（仓库内置/部分内置/外部依赖/规划中），含验证路径与代码引用
 
 ---
 
@@ -45,7 +50,7 @@
 
 ### 分——运维细则
 
-- [Kubernetes部署](./K8S_DEPLOYMENT.md) —— `k8s/base/` manifest + Helm chart骨架，4个Flask Deployment + ClusterIP + Ingress + HPA，secret策略与数据库迁移
+- [Kubernetes部署](./DEPLOYMENT.md#kubernetes-部署) —— `k8s/base/` manifest + Helm chart骨架，4个Flask Deployment + ClusterIP + Ingress + HPA，secret策略与数据库迁移
 - [可观测性](./OBSERVABILITY.md) —— 结构化日志（`common/` helpers）、Prometheus 4金信号（带自动埋点）、OpenTelemetry自动trace（W3C tracecontext传播），多进程gunicorn配置
 - [安全加固](./SECURITY_HARDENING.md) —— Argon2id密码哈希、Fernet AES-128-CBC+HMAC、JWT旋转、RateLimit Redis后端、CORS白名单，v1.14迁移Runbook
 

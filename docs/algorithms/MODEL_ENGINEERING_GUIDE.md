@@ -736,7 +736,7 @@ rankedActions + whyLines
 4. `ALGORITHMS_SPAWN.md`，理解出块生成与规则/ML 双轨。
 5. `ALGORITHMS_PLAYER_MODEL.md`，理解能力和画像。
 6. `ALGORITHMS_MONETIZATION.md`，理解商业化模型与护栏。
-7. `RL_AND_GAMEPLAY.md`、`SPAWN_ALGORITHM.md`、`ADAPTIVE_SPAWN.md`，核对工程边界。
+7. `ALGORITHMS_RL.md`（§21）、`ALGORITHMS_SPAWN.md`（§12）、`ADAPTIVE_SPAWN.md`，核对工程边界。
 
 ---
 

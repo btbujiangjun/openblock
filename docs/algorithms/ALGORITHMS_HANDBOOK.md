@@ -1,4 +1,4 @@
-# 算法与模型手册（Algorithms & Models Handbook）
+# 算法与模型手册
 
 > 本手册是 OpenBlock 全部算法系统的**统一索引与导读**。  
 > 设计原则：**索引尽量短** + **分册尽量深**。本文不重复分册内容；只给读者**一页纸读懂"项目里有哪些算法、它们在哪、怎么读"**。  
@@ -10,11 +10,11 @@
 
 | 你的角色 | 必读 | 选读 | 跳过 |
 |---------|-----|------|------|
-| **算法工程师 · 新人** | 本手册 § 2~4 → [`MODEL_SYSTEMS_FOUR_MODELS.md`](./MODEL_SYSTEMS_FOUR_MODELS.md) → [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) / [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | 商业化（除非负责） |
-| **算法工程师 · 优化训练** | [`RL_README.md`](./RL_README.md) → [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) / [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | 历史实验记录 |
-| **算法工程师 · 商业化/CRM** | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) § 8~9 + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) + [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | [`MONETIZATION_CUSTOMIZATION.md`](../operations/MONETIZATION_CUSTOMIZATION.md) | RL |
-| **数据/分析** | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) + [`REALTIME_STATE_HISTORY_ANALYSIS.md`](./REALTIME_STATE_HISTORY_ANALYSIS.md) + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | KPI 章节于 [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | RL 训练细节 |
-| **游戏/玩法工程师** | [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) + [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) + [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | [`REALTIME_STATE_HISTORY_ANALYSIS.md`](./REALTIME_STATE_HISTORY_ANALYSIS.md) / [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | RL/商业化 |
+| **算法工程师 · 新人** | 本手册 § 2~4 → [`MODEL_SYSTEMS_FOUR_MODELS.md`](./MODEL_SYSTEMS_FOUR_MODELS.md) → [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) / [`ALGORITHMS_SPAWN.md`（§13）](./ALGORITHMS_SPAWN.md#13-出块建模双轨实现与设计-rationale) | 商业化（除非负责） |
+| **算法工程师 · 优化训练** | [`ALGORITHMS_RL.md`（§21）](./ALGORITHMS_RL.md#21-rl-契约与在线服务) §一 / [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`ALGORITHMS_RL.md`（§22）](./ALGORITHMS_RL.md#22-rl-训练监控与排障) | 历史实验记录 |
+| **算法工程师 · 商业化/CRM** | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) § 8~9 + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) + [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | [`MONETIZATION.md`（商业化策略定制指南）](../operations/MONETIZATION.md#商业化策略定制指南) | RL |
+| **数据/分析** | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) + [`ALGORITHMS_PLAYER_MODEL.md`（§18）](./ALGORITHMS_PLAYER_MODEL.md#18-实时状态历史序列分析) + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | KPI 章节于 [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | RL 训练细节 |
+| **游戏/玩法工程师** | [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) + [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) + [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | [`ALGORITHMS_PLAYER_MODEL.md`（§18）](./ALGORITHMS_PLAYER_MODEL.md#18-实时状态历史序列分析) / [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | RL/商业化 |
 | **运营** | [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | [`STRATEGY_GUIDE.md`](../engineering/STRATEGY_GUIDE.md) | 公式细节 |
 
 ---
@@ -129,7 +129,7 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 探索：    softmax(logits/T) 与 Dirichlet(α=0.28, ε=0.08) 混合采样
 推理：    POST /api/rl/select_action；侧栏可选 1-step lookahead → POST /api/rl/eval_values（默认关）
 训练：    python -m rl_pytorch.train（Python 自博弈）
-          或浏览器 → /api/rl/train_episode（在线 PPO；轨迹可含 q_teacher，见 RL_PYTORCH_SERVICE.md）
+           或浏览器 → /api/rl/train_episode（在线 PPO；轨迹可含 q_teacher，见 ALGORITHMS_RL.md（§21））
 ```
 
 ### 5.2 玩家画像 PlayerProfile（[`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md)）
@@ -338,10 +338,10 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 | 算法分册 | 关联实现文档 | 关联运营文档 |
 |---------|------------|------------|
 | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) | 全部模型的问题定义、假设、特征、结构、目标与应用机制总览 | — |
-| [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`RL_README.md`](./RL_README.md) / [`RL_AND_GAMEPLAY.md`](./RL_AND_GAMEPLAY.md) / [`RL_PYTORCH_SERVICE.md`](./RL_PYTORCH_SERVICE.md) / [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) / [`RL_TRAINING_DASHBOARD_FLOW.md`](./RL_TRAINING_DASHBOARD_FLOW.md) / [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) | [`RL_ANALYSIS.md`](./RL_ANALYSIS.md) / [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) |
-| [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | [`PLAYER_ABILITY_EVALUATION.md`](../player/PLAYER_ABILITY_EVALUATION.md) / [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) / [`REALTIME_STRATEGY.md`](../player/REALTIME_STRATEGY.md) / [`PLAYSTYLE_DETECTION.md`](../player/PLAYSTYLE_DETECTION.md) | — |
-| [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | [`MONETIZATION.md`](../operations/MONETIZATION.md) / [`MONETIZATION_CUSTOMIZATION.md`](../operations/MONETIZATION_CUSTOMIZATION.md) | [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) / [`COMMERCIAL_OPERATIONS.md`](../operations/COMMERCIAL_OPERATIONS.md) |
-| [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) | [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) / [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) / [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) |
+| [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`ALGORITHMS_RL.md`（§21）](./ALGORITHMS_RL.md#21-rl-契约与在线服务) / [`ALGORITHMS_RL.md`（§22）](./ALGORITHMS_RL.md#22-rl-训练监控与排障) | [`ALGORITHMS_RL.md`（§23）](./ALGORITHMS_RL.md#23-rl-研究复杂度瓶颈与文献对照) / [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) |
+| [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | [`PANEL_PARAMETERS.md 附录`](../player/PANEL_PARAMETERS.md#附录玩家能力评估产品语义与接入说明) / [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) / [`REALTIME_STRATEGY.md`](../player/REALTIME_STRATEGY.md) / [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](../player/REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | — |
+| [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | [`MONETIZATION.md`](../operations/MONETIZATION.md) / [`MONETIZATION.md`（商业化策略定制指南）](../operations/MONETIZATION.md#商业化策略定制指南) | [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) / [`COMMERCIAL_OPERATIONS.md`](../operations/COMMERCIAL_OPERATIONS.md) |
+| [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) | [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) / [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) / [`ALGORITHMS_SPAWN.md`（§13）](./ALGORITHMS_SPAWN.md#13-出块建模双轨实现与设计-rationale) | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) |
 | [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | — | — |
 
 ---

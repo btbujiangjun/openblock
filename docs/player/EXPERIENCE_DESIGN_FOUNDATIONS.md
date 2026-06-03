@@ -6,7 +6,7 @@
 > - 行业市场数据 / 竞品 / RL 进展 → [`docs/domain/DOMAIN_KNOWLEDGE.md §13`](../domain/DOMAIN_KNOWLEDGE.md#13-休闲游戏品类分析与系统研究附录)、[`docs/domain/DOMAIN_KNOWLEDGE.md`](../domain/DOMAIN_KNOWLEDGE.md)
 > - 通用 L1–L4 分层与 `spawnIntent` 单一口径 → [`STRATEGY_EXPERIENCE_MODEL.md`](./STRATEGY_EXPERIENCE_MODEL.md)
 > - 指标定义、压力管线、状态枚举与决策树 → [`REALTIME_STRATEGY.md`](./REALTIME_STRATEGY.md)
-> - 玩家能力评估细节 → [`PLAYER_ABILITY_EVALUATION.md`](./PLAYER_ABILITY_EVALUATION.md)
+> - 玩家能力评估细节 → [`PANEL_PARAMETERS.md 附录`](./PANEL_PARAMETERS.md#附录玩家能力评估产品语义与接入说明)
 >
 > **本文不重复以上内容**，只回答："**这些系统为何这样组织？背后的心理学和设计理念是什么？体验在 OpenBlock 中应如何整体结构化？**"
 
@@ -380,7 +380,7 @@ C-5 成长    sessionArc=warmup    sessionArc=peak       sessionArc=cooldown
 | 行业市场数据与竞品 | `domain/DOMAIN_KNOWLEDGE.md` §2、§13 | `operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md` |
 | 商业化分群与广告时机 | `domain/DOMAIN_KNOWLEDGE.md` §7-§8 | — |
 | 玩家面板上的每个指标 | `player/PANEL_PARAMETERS.md` | `player/REALTIME_STRATEGY.md` §5 |
-| 玩法风格识别与策略微调 | `player/PLAYSTYLE_DETECTION.md` | `algorithms/ALGORITHMS_PLAYER_MODEL.md` |
+| 玩法风格识别与策略微调 | `player/REALTIME_STRATEGY.md（玩法偏好识别与出块联动）` | `algorithms/ALGORITHMS_PLAYER_MODEL.md` |
 
 ---
 

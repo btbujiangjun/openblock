@@ -4,7 +4,7 @@
 >
 > **配套阅读**：本文聚焦"策略层"——`stress` 是如何由多信号合成的、`spawnHints` 各字段如何被派生。
 > 关于"策略层产出的 hints 如何**翻译到具体 3 个块的选择过程**"（5 阶段流水线、30+ 加权乘子、硬约束循环、实数跑步示例）
-> 请阅 [出块算法：三层架构 §2.5 策略 → 出块翻译机制](./SPAWN_ALGORITHM.md#25-策略--出块翻译机制v15516)。
+> 请阅 [出块架构 §二 §2.5](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)。
 
 ## 目录
 
@@ -1225,7 +1225,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 
 ### 局间热身（无步可走 → 下一局）
 
-与上表独立：`game.js` 在 `noMovesLoss` 结算时写入 `openblock_spawn_warmup_v1`，下一局 `start()` 读入 `warmupRemaining`、`warmupClearBoost` 至 `spawnContext`，`adaptiveSpawn` 在余轮内抬高 `clearGuarantee`、`multiClearBonus` 下限、`multiLineTarget`，并把 `setup` 夹成 `neutral`。详见 [SPAWN_ALGORITHM.md](./SPAWN_ALGORITHM.md) §5.3。
+与上表独立：`game.js` 在 `noMovesLoss` 结算时写入 `openblock_spawn_warmup_v1`，下一局 `start()` 读入 `warmupRemaining`、`warmupClearBoost` 至 `spawnContext`，`adaptiveSpawn` 在余轮内抬高 `clearGuarantee`、`multiClearBonus` 下限、`multiLineTarget`，并把 `setup` 夹成 `neutral`。详见 [ALGORITHMS_SPAWN.md（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) §二 §5.3。
 
 ### 爽感兑现（）
 
@@ -1269,7 +1269,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 - `roundsSinceClear ≥ 2`：提高到 `clearGuarantee ≥ 2`，让下一轮更容易出现消行/解压块。
 - `roundsSinceClear ≥ 4`：提高到 `clearGuarantee ≥ 3`，并将 `sizePreference` 压到 `≤ -0.35`，优先小块与可消行块。
 
-最终是否能出仍由 `blockSpawn.js` 的机动性与可解性约束把关；高填充或久未消行时还会进入严格可解性校验，详见 [SPAWN_ALGORITHM.md](./SPAWN_ALGORITHM.md) 与 [SPAWN_BLOCK_MODELING.md](./SPAWN_BLOCK_MODELING.md)。
+最终是否能出仍由 `blockSpawn.js` 的机动性与可解性约束把关；高填充或久未消行时还会进入严格可解性校验，详见 [ALGORITHMS_SPAWN.md（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) 与 [ALGORITHMS_SPAWN.md（§13）](./ALGORITHMS_SPAWN.md#13-出块建模双轨实现与设计-rationale)。
 
 ---
 
@@ -1364,7 +1364,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 - `adaptiveSpawn.enabled=false` → 完全回退到原有 `resolveLayeredStrategy`，零行为变化
 - `blockSpawn.js` 始终保持 solvability 检查（`tripletSequentiallySolvable`），无论 spawnHints 如何设置
 - `stress` 被钳制在 `[-0.2, 1.0]`，不会超出 profiles 范围
-- **orderRigor 安全边界**：(1) 五重 bypass（onboarding / needsRecovery / hasBottleneckSignal / `holes>3` / `boardFill<0.5`）任一成立即归 0；(2) blockSpawn 仅在前 ~55% attempt 内硬过滤，避免死循环；(3) `truncated=true`（DFS 不可信）按通过处理；(4) 完全关闭：`topologyDifficulty.orderRigorEnabled: false`。详见 [SPAWN_SOLUTION_DIFFICULTY §13](./SPAWN_SOLUTION_DIFFICULTY.md#13-v132-升级顺序刚性-orderrigor--高难度算法)。
+- **orderRigor 安全边界**：(1) 五重 bypass（onboarding / needsRecovery / hasBottleneckSignal / `holes>3` / `boardFill<0.5`）任一成立即归 0；(2) blockSpawn 仅在前 ~55% attempt 内硬过滤，避免死循环；(3) `truncated=true`（DFS 不可信）按通过处理；(4) 完全关闭：`topologyDifficulty.orderRigorEnabled: false`。详见 [出块难度 §一 §1.6](./ALGORITHMS_SPAWN.md#14-出块难度与评估)。
 
 ---
 
@@ -1401,7 +1401,7 @@ saveSession() → profile.save() // 持久化到 localStorage
 |------|------|
 | [策略体验栈](../player/STRATEGY_EXPERIENCE_MODEL.md) | 通用四层模型、`spawnIntent` 单一口径、几何门控、压力表与叙事职责分离、顾问规则索引 |
 | [实时策略系统](../player/REALTIME_STRATEGY.md) | 画像指标、stress 管线、策略卡生成、评审清单、时序与配置 |
-| [出块三层架构](./SPAWN_ALGORITHM.md) | Layer1/2/3 与 `blockSpawn` 管线 |
+| [出块架构与算法](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) | Layer1/2/3 与 `blockSpawn` 管线 |
 
 ---
 
@@ -1424,11 +1424,11 @@ saveSession() → profile.save() // 持久化到 localStorage
 
 ## 10.5 延伸阅读：策略 → 出块的具体翻译
 
-本文止于 `stress` 合成与 `spawnHints` 派生。**「`spawnHints` 如何作用到 `generateDockShapes` 内具体抽出 3 个块」** 的完整路径——5 阶段流水线、每条 hint 对应的加权乘子精确公式、阶段 4 硬约束循环、一个带实数计算的具体场景跑步、以及"概率偏好 / 数量保证 / 难度调控"三层结构设计哲学——见 [出块算法：三层架构 §2.5](./SPAWN_ALGORITHM.md#25-策略--出块翻译机制v15516)。
+本文止于 `stress` 合成与 `spawnHints` 派生。**「`spawnHints` 如何作用到 `generateDockShapes` 内具体抽出 3 个块」** 的完整路径——5 阶段流水线、每条 hint 对应的加权乘子精确公式、阶段 4 硬约束循环、一个带实数计算的具体场景跑步、以及"概率偏好 / 数量保证 / 难度调控"三层结构设计哲学——见 [出块架构 §二 §2.5](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)。
 
 简要对应关系：
 
-| 本文（策略层） | SPAWN_ALGORITHM.md §2.5（出块层） |
+| 本文（策略层） | ALGORITHMS_SPAWN.md（§12） §二 §2.5（出块层） |
 |---|---|
 | §5 `stress` 合成 | §2.5.2 表 B 第 1 行 `shapeWeights[category]` 由 `interpolateProfileWeights(stress)` 决定 |
 | §6 `spawnHints` 字典 | §2.5.2 表 A（占位）+ 表 B（30+ 加权乘子）+ 表 C（硬约束）三处消费 |
@@ -1870,7 +1870,7 @@ if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
 > 由 0.033 → **0.050**（+50%）、cap 0.10 → **0.15**；`multiClearBonus` Android 抬底 **0.15**；
 > iOS / web 维持现状。数据依据见
 > [留存信号跨平台分析 §2.2 / §4.2](../operations/RETENTION_SIGNALS_CROSS_PLATFORM.md#22-爽感时刻android-r-全面碾压-ios)。
-> 落地实施清单：[留存优化快赢清单 §2 / §3](../operations/RETENTION_QUICK_WINS.md#2-mono_flush_pick_probability-平台化android-combo-爽感加强)。
+> 落地实施清单：[留存优化快赢清单 §2 / §3](../operations/RETENTION_SIGNALS_CROSS_PLATFORM.md#留存优化快赢清单)。
 
 
 #### 设计目标
@@ -4813,7 +4813,7 @@ category 权重最高 → "XX权重XX%"
 | S11 | `nearMissAdjust` | 近失效应减压 | `hadRecentNearMiss ? −0.10 : 0` |
 | S12 | `feedbackBias` | 闭环反馈偏移 | 直接取 `profile.feedbackBias` ∈ [−0.15, +0.15] |
 | S12b | `feedbackBiasDampingAdjust` | 困境去偏 | 当 `feedbackBias>0` 且命中低消行/高板面挫败/认知负荷/高挫败困境时，按强度抵消一部分正向反馈，上限 −0.08 |
-| S12c | `preFrustrationRelief` / `boardFrustrationRelief` / `decisionLoadRelief` | 历史实时状态复合救济 | 低消行前置救济、高板面×挫败复合救济、anxious×高认知负荷减负；详见 [`REALTIME_STATE_HISTORY_ANALYSIS.md`](./REALTIME_STATE_HISTORY_ANALYSIS.md) |
+| S12c | `preFrustrationRelief` / `boardFrustrationRelief` / `decisionLoadRelief` | 历史实时状态复合救济 | 低消行前置救济、高板面×挫败复合救济、anxious×高认知负荷减负；详见 [`ALGORITHMS_PLAYER_MODEL.md`（§18）](./ALGORITHMS_PLAYER_MODEL.md#18-实时状态历史序列分析) |
 | S13 | `trendAdjust` | 技能趋势调节 | `trend × 0.08 × confidence`；正趋势轻微加压，退步轻微减压 |
 | S14 | `sessionArcAdjust` | 局内弧线调节 | warmup: −0.08；cooldown+momentum<−0.2: `−0.05 − min(0.4, |momentum|−0.2) × 0.375`（约 −0.05 ~ −0.20） |
 | S15 | `endSessionDistress` | 末段崩盘减压脉冲 | sessionPhase='late' && momentum ≤ −0.30：`−(0.05 + min(0.30, |momentum|−0.30) × 0.5)`；frustration≥4 再 −0.06；范围 [−0.25, 0] |

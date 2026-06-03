@@ -418,7 +418,7 @@ k8s/
 └── helm/openblock/      Chart.yaml + values.yaml + templates/（service / ingress / configmap）
 ```
 
-> 详见 `docs/operations/SECURITY_HARDENING.md`、`docs/operations/DEPLOYMENT.md`、`docs/operations/OBSERVABILITY.md`、`docs/operations/K8S_DEPLOYMENT.md`、`SECURITY.md`、`CHANGELOG.md`。
+> 详见 `docs/operations/SECURITY_HARDENING.md`、`docs/operations/DEPLOYMENT.md`（含 Kubernetes 部署章节）、`docs/operations/OBSERVABILITY.md`、`SECURITY.md`、`CHANGELOG.md`。
 
 ### SQLite 表结构
 

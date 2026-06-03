@@ -1,10 +1,10 @@
-# 百万 DAU 架构设计（OpenBlock）
+# 百万 DAU 架构设计
 
 本文给出把 OpenBlock 从「单机 Flask + SQLite」演进到**承载 100 万 DAU**的落地路径。
 所有改造项都基于仓库**已有**资产（`services/` 微服务、`k8s/`、`k8s/helm/`、`services/nginx.conf`、
 Postgres/Redis 开关、Prometheus/OTel），不是推倒重来。
 
-> 配套阅读：[部署指南](./DEPLOYMENT.md)、[K8s 部署](./K8S_DEPLOYMENT.md)、
+> 配套阅读：[部署指南](./DEPLOYMENT.md)、[K8s 部署](./DEPLOYMENT.md#kubernetes-部署)、
 > [可观测性](./OBSERVABILITY.md)、[安全加固](./SECURITY_HARDENING.md)。
 
 ---

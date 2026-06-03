@@ -11,8 +11,8 @@
 ## 分——实时策略与评估
 
 - [实时策略系统](./REALTIME_STRATEGY.md) —— L1指标字典（thinkMs/pickToPlaceMs/clearRate等20+滑动窗口）、stress管线公式、6档压力表、策略卡与决策树、合理性评估清单
-- [玩法风格检测](./PLAYSTYLE_DETECTION.md) —— 从滑动窗口推算多消率/清屏率/平均消除条数，`playstyle`枚举（`perfect_hunter` / `line_clearer` / `balanced`）与出块对齐轻推机制
-- [玩家能力评估](./PLAYER_ABILITY_EVALUATION.md) —— `AbilityVector` 7维输出字段的产品语义、消费方、作用机制（→stress修正→面板展示→回放快照）、调参与验证方式
+- [玩法风格检测](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) —— 从滑动窗口推算多消率/清屏率/平均消除条数，`playstyle`枚举（`perfect_hunter` / `line_clearer` / `balanced`）与出块对齐轻推机制
+- [玩家能力评估](./PANEL_PARAMETERS.md#附录玩家能力评估产品语义与接入说明) —— `AbilityVector` 7维输出字段的产品语义、消费方、作用机制（→stress修正→面板展示→回放快照）、调参与验证方式
 - [玩家面板参数手册](./PANEL_PARAMETERS.md) —— 面板5个功能区、每个参数的数学定义/物理含义/取值范围/系统作用/异常解读（694行完整参考）
 
 ## 分——下游算法参考

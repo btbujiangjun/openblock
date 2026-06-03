@@ -5,7 +5,7 @@
  *      ※ 也接受 `{ frames }` 列表（多局聚合）
  * 输出：结构化报告 + 优化建议 hints + 健康分
  *
- * 评估分四层（详见 docs/algorithms/PROFILE_AUDIT.md）：
+ * 评估分四层（详见 docs/algorithms/ALGORITHMS_PLAYER_MODEL.md §17 画像指标自评估与自我优化）：
  *   A. 单指标质量：覆盖率 / 冷启动占比 / 范围合规 / 跳变率 / 基础统计
  *   B. 指标对关系：Pearson / Spearman 相关，识别冗余对
  *   C. 时序行为：趋势 / 自相关 / 首次可信帧
@@ -1353,7 +1353,7 @@ function _actionForContract(c, priority) {
         },
     };
     const fix = FIX_MAP[c.id] || {
-        rootCauseHints: ['未知契约，请查阅 docs/algorithms/PROFILE_AUDIT.md'],
+        rootCauseHints: ['未知契约，请查阅 docs/algorithms/ALGORITHMS_PLAYER_MODEL.md §17 画像指标自评估与自我优化'],
         suggestedActions: ['1. 复现：跑单局 audit 找具体失败原因；2. 决定是改代码还是改契约'],
     };
     return {

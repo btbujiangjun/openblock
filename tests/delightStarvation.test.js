@@ -3,7 +3,7 @@
  *
  * v1.60.45 — 爽感饥渴闭环（roundsSinceLastDelight + isDelightStarved + delight_starved 规则）
  *
- * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5 + RETENTION_QUICK_WINS.md §5
+ * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5 + §留存优化快赢清单
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PlayerProfile } from '../web/src/playerProfile.js';

@@ -6,7 +6,7 @@
  *
  * 设计理由：
  *   - 把「字段含义 / 计算公式 / 调参影响」从 UI 代码里抽离，便于本地化与运营修改
- *   - 单一来源也供文档生成（docs/MONETIZATION_CUSTOMIZATION.md 中的字段表）
+ *   - 单一来源也供文档生成（docs/operations/MONETIZATION.md §商业化策略定制指南 中的字段表）
  *   - 任何新增可定制项必须先在此处登记，强制让作者写明含义与影响
  */
 
@@ -205,7 +205,7 @@ export function listHelpKeys() {
 
 /**
  * 把当前 strategyConfig 与 HELP_TEXTS 合并，生成一份「字段-默认值-说明」表。
- * 用于 docs/MONETIZATION_CUSTOMIZATION.md 自动生成或调试输出。
+ * 用于 docs/operations/MONETIZATION.md §商业化策略定制指南 自动生成或调试输出。
  */
 export function dumpConfigSchema() {
     const cfg = getStrategyConfig();

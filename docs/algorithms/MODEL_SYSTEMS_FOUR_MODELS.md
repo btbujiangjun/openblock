@@ -5,7 +5,7 @@
 > **文件名说明**：本文件历史名为 `MODEL_SYSTEMS_FOUR_MODELS.md`（彼时仅覆盖四类模型），现已扩展为含 `SpawnParamTuner` 的更全梳理；文件名因外部引用较多暂不重命名。  
 > **写作口径**：参考程序化内容生成（PCG）、Transformer、PPO/GAE、REINFORCE、LoRA 等学术路线，但以本仓库代码事实为准。  
 > **维护要求**：改 `shared/game_rules.json`、`web/src/bot/features.js`、`rl_pytorch/features.py`、`rl_pytorch/model.py`、`rl_pytorch/spawn_model/*`、`rl_pytorch/spawn_tuning_v2/*`、`web/src/adaptiveSpawn.js`、`web/src/bot/blockSpawn.js` 时同步核对本文。  
-> **命名规范**：出块相关角色统一使用 `SpawnPolicy*` / `SpawnParam*` 前缀（详见 [`SPAWN_OVERVIEW.md`](./SPAWN_OVERVIEW.md)）；裸名 `SpawnTransformer` / `Spawn Tuning` / `Spawn Generator` 已弃用。
+> **命名规范**：出块相关角色统一使用 `SpawnPolicy*` / `SpawnParam*` 前缀（详见 [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)）；裸名 `SpawnTransformer` / `Spawn Tuning` / `Spawn Generator` 已弃用。
 
 ---
 
@@ -1157,11 +1157,10 @@ RL 模型主要用于：
 
 - [模型工程总览](./MODEL_ENGINEERING_GUIDE.md)
 - [出块算法手册](./ALGORITHMS_SPAWN.md)
-- [出块建模](./SPAWN_BLOCK_MODELING.md)
+- [出块建模](./ALGORITHMS_SPAWN.md#13-出块建模双轨实现与设计-rationale)
 - [自适应出块](./ADAPTIVE_SPAWN.md)
 - [RL 算法手册](./ALGORITHMS_RL.md)
-- [PyTorch RL 服务与评估](./RL_PYTORCH_SERVICE.md)
-- [RL 与玩法契约](./RL_AND_GAMEPLAY.md)
+- [RL 契约与在线服务](./ALGORITHMS_RL.md#21-rl-契约与在线服务)
 
 - [实时策略系统](../player/REALTIME_STRATEGY.md)
 

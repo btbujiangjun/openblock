@@ -7,12 +7,12 @@
 > MonetizationBus 事件总线、出块 / RL 双轨、后端路由 / 数据持久化、四端
 > 同步与部署拓扑。
 > **生成方式**：技术分层视图与 6 张子图依据
-> [`ARCHITECTURE_DIAGRAM_PROMPT.md`](./ARCHITECTURE_DIAGRAM_PROMPT.md)
+> [`ARCHITECTURE_DIAGRAM_PROMPT.md`](../algorithms/ARCHITECTURE_DIAGRAM_PROMPT.md)
 > 的事实包与约束生成；如需重生成，按照该 prompt 喂给大模型即可。
 > **维护约定**：图中模块名必须能在
 > [`engineering/PROJECT.md`](../engineering/PROJECT.md)、
-> [`MONETIZATION_EVENT_BUS_CONTRACT.md`](./MONETIZATION_EVENT_BUS_CONTRACT.md) 或
-> [`LIFECYCLE_DATA_STRATEGY_LAYERING.md`](./LIFECYCLE_DATA_STRATEGY_LAYERING.md)
+> [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) 或
+> [`PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`（生命周期/成熟度策略架构（数据层+编排层+策略层））](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层)
 > 中找到原文；不允许出现已归档模块和 sprint / 版本号语言。
 
 ## 阅读顺序
@@ -45,10 +45,10 @@
 |---|---|---|---|
 | 🎮 **Games Engine** | 多端方块益智核心玩法 | Web / Android / iOS / 微信小程序四端体验一致 | [图 6: 四端同步与部署拓扑](#图-6四端同步与部署拓扑) · [MOBILE_CLIENTS](../platform/MOBILE_CLIENTS.md) |
 | 🧠 **Adaptive Spawning AI** | 心流 / 技能 / 节奏驱动的智能出块 | 双轨出块（启发式 + Transformer V3）+ 统一护栏 + 多样可玩三连块 | [图 4: 出块 / RL 双轨](#图-4出块双轨--rl-双轨融合) · [ALGORITHMS_SPAWN](../algorithms/ALGORITHMS_SPAWN.md) |
-| 🤖 **Reinforce Learning Trainer** | 神经网络训练平台 | PyTorch / MLX 双引擎 + PPO + GAE + EvalGate + 自博弈 | [ALGORITHMS_RL](../algorithms/ALGORITHMS_RL.md) · [RL_PYTORCH_SERVICE](../algorithms/RL_PYTORCH_SERVICE.md) |
+| 🤖 **Reinforce Learning Trainer** | 神经网络训练平台 | PyTorch / MLX 双引擎 + PPO + GAE + EvalGate + 自博弈 | [ALGORITHMS_RL](../algorithms/ALGORITHMS_RL.md) · [RL_CONTRACT_AND_SERVICE](../algorithms/ALGORITHMS_RL.md#21-rl-契约与在线服务) |
 | 💰 **Monetization Framework** | 可插拔商业化框架 | 广告 / IAP / 个性化推荐三类适配器 + MonetizationBus 零侵入接入 | [图 3: MonetizationBus](#图-3monetizationbus-事件总线) · [MONETIZATION](../operations/MONETIZATION.md) |
 | 🗄️ **Shared Data Source** | 单一数据源 / 共享配置 | `shared/game_rules.json` + `shapes.json` + SQLite 行为库四端共用 | [图 5: 后端路由 + 持久化](#图-5后端路由--数据持久化) · [SQLITE_SCHEMA](../engineering/SQLITE_SCHEMA.md) |
-| 🔁 **Unified Ecosystem** | 闭环正反馈 | 玩家行为 → 数据 → AI 决策 → 体验 → 行为 | [LIFECYCLE_DATA_STRATEGY_LAYERING](./LIFECYCLE_DATA_STRATEGY_LAYERING.md) |
+| 🔁 **Unified Ecosystem** | 闭环正反馈 | 玩家行为 → 数据 → AI 决策 → 体验 → 行为 | [LIFECYCLE_DATA_STRATEGY_LAYERING](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) |
 
 > **下一步**：业务上明白后，接着看下方"全栈分层"总览了解技术形态；
 > 主策划 / 玩法设计师可直接跳到
@@ -472,7 +472,7 @@ flowchart LR
 ## 图 3：MonetizationBus 事件总线
 
 > 谁发什么事件、谁订什么？事件契约的可视化版本，详细 payload 与触发时机见
-> [`MONETIZATION_EVENT_BUS_CONTRACT.md`](./MONETIZATION_EVENT_BUS_CONTRACT.md)。
+> [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md)。
 >
 > 布局：**三栏 LR（发布方 ｜ 总线 ｜ 订阅方）**——把扇入扇出全部拉直
 > 成水平流，事件名压成精简前缀（按事件家族归并），整体宽 > 高接近 4:3。
@@ -942,7 +942,7 @@ Prometheus/OTel + 全套安全加固。
 3. **不写中间态**：禁止在图标签里出现 `Phase X / v1.49.x / 已完成 /
    规划中` 等 sprint 节奏语言；状态信息进 [`CHANGELOG.md`](../../CHANGELOG.md)。
 4. **重生成流程**：架构发生结构性变化时，更新
-   [`ARCHITECTURE_DIAGRAM_PROMPT.md`](./ARCHITECTURE_DIAGRAM_PROMPT.md) 的事实
+   [`ARCHITECTURE_DIAGRAM_PROMPT.md`](../algorithms/ARCHITECTURE_DIAGRAM_PROMPT.md) 的事实
    包，再用大模型重生成本文档。
 5. **渲染验证**：所有 Mermaid 图须能在 mermaid.live 直接渲染；CI 可用
    [`scripts/check_docs_registered.py`](../../scripts/check_docs_registered.py)
@@ -951,8 +951,8 @@ Prometheus/OTel + 全套安全加固。
 ## 关联文档
 
 - [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) —— 文字版完整架构（含 ADR）
-- [`./ARCHITECTURE_DIAGRAM_PROMPT.md`](./ARCHITECTURE_DIAGRAM_PROMPT.md) —— 重生成本文档的 prompt 模板
-- [`./MONETIZATION_EVENT_BUS_CONTRACT.md`](./MONETIZATION_EVENT_BUS_CONTRACT.md) —— 事件总线 payload / 订阅方契约
-- [`./LIFECYCLE_DATA_STRATEGY_LAYERING.md`](./LIFECYCLE_DATA_STRATEGY_LAYERING.md) —— 数据 → 编排 → 策略三段式
+- [`../algorithms/ARCHITECTURE_DIAGRAM_PROMPT.md`](../algorithms/ARCHITECTURE_DIAGRAM_PROMPT.md) —— 重生成本文档的 prompt 模板
+- [`../operations/MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) —— 事件总线 payload / 订阅方契约
+- [`../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md（生命周期/成熟度策略架构（数据层+编排层+策略层））`](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) —— 数据 → 编排 → 策略三段式
 - [`../engineering/PROJECT.md`](../engineering/PROJECT.md) —— 模块字典与职责
 - [`../algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md`](../algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md) —— 商业化算法层设计

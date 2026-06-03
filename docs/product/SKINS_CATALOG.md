@@ -1,4 +1,4 @@
-# OpenBlock 皮肤目录（34 款全集）
+# OpenBlock 皮肤目录
 
 
 > 代码位置：`web/src/skins.js`、`miniprogram/core/skins.js`、`scripts/sync-miniprogram-skins.cjs`

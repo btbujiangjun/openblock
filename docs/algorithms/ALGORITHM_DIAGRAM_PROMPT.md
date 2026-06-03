@@ -523,8 +523,8 @@ flowchart TB
 - [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) —— 商业化算法手册
 - [`COMMERCIAL_MODEL_DESIGN_REVIEW.md`](./COMMERCIAL_MODEL_DESIGN_REVIEW.md)
   —— 商业化模型架构设计
-- [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) —— 出块算法三层模型
+- [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) —— 出块算法三层模型
 - [`../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)
   —— 系统架构图（系统侧的姊妹篇）
-- [`../architecture/ARCHITECTURE_DIAGRAM_PROMPT.md`](../architecture/ARCHITECTURE_DIAGRAM_PROMPT.md)
+- [`./ARCHITECTURE_DIAGRAM_PROMPT.md`](./ARCHITECTURE_DIAGRAM_PROMPT.md)
   —— 系统架构图 prompt（本 prompt 的姊妹篇）
