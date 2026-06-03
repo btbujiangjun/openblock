@@ -235,7 +235,7 @@ class RNDConfig:
     """RND 训练超参（与 game_rules.json -> rlRewardShaping.rndCuriosity 对齐）。"""
 
     enabled: bool = False
-    state_dim: int = 181  # = rl_pytorch.features.STATE_FEATURE_DIM
+    state_dim: int = 187  # = rl_pytorch.features.STATE_FEATURE_DIM
     hidden_dim: int = 64
     output_dim: int = 32
     beta: float = 0.1                 # 内在奖励权重

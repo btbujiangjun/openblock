@@ -69,7 +69,7 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 | 变量 | 唯一数据源 | 变更需要同步 |
 |------|----------|-------------|
 | 形状定义（28 个多连块） | `shared/shapes.json` | 浏览器 `shapes.js`、Python `simulator.py` |
-| 状态特征维度 (181) / 动作维度 (15) / φ 维度 (196) | `shared/game_rules.json` `featureEncoding` | `features.js` + `features.py` 同步；checkpoint **失效**需重训 |
+| 状态特征维度 (187) / 动作维度 (15) / φ 维度 (202) | `shared/game_rules.json` `featureEncoding` | `features.js` + `features.py` 同步；checkpoint **失效**需重训 |
 | 计分公式（`baseUnit · c²`） | `shared/game_rules.json` `scoring` | `clearScoring.js` + `simulator.py` `_clear_score_gain` |
 | 自适应出块 10 档 profile | `shared/game_rules.json` `adaptiveSpawn` | 仅 `adaptiveSpawn.js` 读取 |
 | AbilityVector 权重/分档/护栏 | `shared/game_rules.json` `playerAbilityModel` | `playerAbilityModel.js` + `adaptiveSpawn.js` 消费；回放 snapshot 字段同步 |
@@ -87,9 +87,9 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 
 | 符号 | 含义 | 取值 | 来源 |
 |------|------|------|------|
-| $s$ | 棋盘状态（特征向量，含颜色摘要） | $\mathbb{R}^{181}$ | `extract_state_features` |
+| $s$ | 棋盘状态（特征向量，含颜色摘要 + 单步难度 + 客观几何） | $\mathbb{R}^{187}$ | `extract_state_features` |
 | $\psi(a)$ | 动作特征 | $\mathbb{R}^{15}$ | `extract_action_features` |
-| $\phi(s,a)$ | 状态-动作联合特征 | $\mathbb{R}^{196}$ = $[s; \psi(a)]$ | `build_phi_batch` |
+| $\phi(s,a)$ | 状态-动作联合特征 | $\mathbb{R}^{202}$ = $[s; \psi(a)]$ | `build_phi_batch` |
 | $h(s)$ | 网络 trunk 输出 | $\mathbb{R}^{128}$（width） | `_encode_state` |
 | $\pi(a\mid s)$ | 策略分布 | softmax over legal actions | `policy_fuse` |
 | $V(s)$ | 状态价值 | 标量 | `value_head` |

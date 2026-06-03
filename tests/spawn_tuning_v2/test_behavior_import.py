@@ -158,6 +158,44 @@ class TestHelpers:
         assert b[1][0] is False
 
 
+class TestUnifiedDifficultySameSource:
+    """v1.66: spawn 帧落库统一难度分 → 经 StepInfo.state_difficulty 用作 state_d(同源化)。"""
+
+    def _single_bin_session(self, scd):
+        """所有 place 步同 score(同 r → 同 bin), 该 bin 观测充足(≥先验强度) → 反映纯观测 d_step,
+        从而隔离先验平滑, 让 scd 对该 bin 的影响可断言。"""
+        frames = [{"t": "init", "grid": _empty_grid()}]
+        frames.append({
+            "t": "spawn",
+            "dock": [{"id": "1x2"}, {"id": "2x2"}, {"id": "t-up"}],
+            "spawnMeta": {"stepDifficulty": {"stepDifficulty": scd}},
+            "ps": {"score": 0, "boardFill": 0.0, "bestScore": 1500,
+                   "adaptive": {"stressBreakdown": {"lifecycleStage": "S1"}}},
+        })
+        for _ in range(6):  # 6 obs 同 bin ≥ PB_AWARE_PRIOR_STRENGTH(3) → 纯观测
+            frames.append({
+                "t": "place",
+                "gridAfter": _empty_grid(),
+                "ps": {"score": 750, "boardFill": 0.3, "linesCleared": 0},  # r=750/1500=0.5
+            })
+        return frames
+
+    def test_scd_drives_bin_when_observation_dominates(self):
+        """同盘面信号、观测充足的 bin 上, 高 scd 局 d 值显著高于低 scd 局(同源化生效)。"""
+        s_lo = session_to_v2_sample(self._single_bin_session(0.1), {"pb_baseline": 1500})
+        s_hi = session_to_v2_sample(self._single_bin_session(0.9), {"pb_baseline": 1500})
+        dc_lo = json.loads(s_lo["d_curve_json"])
+        dc_hi = json.loads(s_hi["d_curve_json"])
+        # r=0.5 → bin 6 (bin 宽 1.5/20=0.075); 该 bin 观测充足
+        assert dc_hi[6] > dc_lo[6] + 0.3
+
+    def test_missing_scd_falls_back_to_proxy(self):
+        """无 spawnMeta.stepDifficulty → 回退 fillRate/freedom/trend 代理, 仍产出有效 d_curve。"""
+        s = session_to_v2_sample(_make_session(n_place=5), {"pb_baseline": 2000})
+        dc = json.loads(s["d_curve_json"])
+        assert len(dc) == 20 and all(0.0 <= v <= 1.0 for v in dc)
+
+
 class TestActionFreedomAffectsDifficulty:
     def test_tight_board_higher_difficulty(self):
         """盘面越满(action_freedom 越低) → d_step state 部分越高。"""

@@ -250,7 +250,7 @@ def rl_rnd_curiosity_config() -> dict:
     """
     base = {
         "enabled": False,
-        "stateDim": 181,
+        "stateDim": 187,
         "hiddenDim": 64,
         "outputDim": 32,
         "beta": 0.1,

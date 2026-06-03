@@ -70,7 +70,7 @@
    - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → **`clearScoring.iconBonusLineMult`** 统一提供。训练路径不用玩家当前皮肤，icon 语义只读取 **`rlBonusScoring.blockIcons`**；为空时浏览器无头局、PyTorch、MLX 都退化为**同色整线** bonus，不再从 canonical 皮肤回退。
    - **dock 染色偏置**：仅依据盘面可见的近满线几何 + 上述同一套 icon/同色规则调用 `monoNearFullLineColorWeights`，**不是** adaptiveSpawn / spawnHints；观测 φ 亦不得含出块算法内部状态。
    - **出块形状**：仍由 `block_spawn.generate_*` 与策略配置生成（训练侧不传网页自适应 hints）；Python/MLX 出块会识别一手清屏候选并提高其采样优先级，使训练环境保留主局的清屏机会偏置。
-3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（v9.2 为 181 维 state：42 维标量含颜色摘要 + 棋盘占用 + dock 形状掩码）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
+3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（v1.66 为 187 维 state：48 维标量[含颜色摘要 + 4 维单步难度 + 2 维客观几何] + 棋盘占用 + dock 形状掩码）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
 4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。
 
 ### 2.3 自适应出块（网页端）
@@ -109,7 +109,7 @@
 
 | 因素 | 线性 `LinearAgent` | PyTorch `PolicyValueNet` / `SharedPolicyValueNet` |
 |------|---------------------|---------------------------------------------------|
-| 参数量 | 196（策略）+181（价值），随 `featureEncoding` 变化 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准（可调 `--width` / `--*-depth`） |
+| 参数量 | 202（策略）+187（价值），随 `featureEncoding` 变化 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准（可调 `--width` / `--*-depth`） |
 | 每局梯度步数 | `reinforceUpdate` 对轨迹**逐步**更新 | `train.py` 默认对**整局**一次 `backward`（等价 batch 更大、步长相对小） |
 | 回报与价值 | 蒙特卡洛回报，无缩放 | `RL_RETURN_SCALE`（默认 **0.032**）+ GAE + `smooth_l1` 价值头 |
 | 探索 | 温度 softmax | 温度衰减 + Dirichlet + 熵 bonus，利于探索但有效策略更新更「钝」 |

@@ -1,0 +1,351 @@
+[
+  {
+    "input": {
+      "name": "empty-small",
+      "shapes": [
+        [
+          [
+            1
+          ]
+        ],
+        [
+          [
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      ],
+      "occupiedCount": 0,
+      "boardDifficulty": 0,
+      "solutionMetrics": {
+        "solutionCount": 40,
+        "truncated": false,
+        "capped": false
+      }
+    },
+    "expected": {
+      "version": 1,
+      "stepDifficulty": 0.14687426758956892,
+      "bucket": "trivial",
+      "scdScore": 0.09374853517913782,
+      "scdLevel": "ample",
+      "comboTotalCells": 6,
+      "comboKillerCnt": 0,
+      "comboLongBarCnt": 0,
+      "isHomogeneousFamily": false,
+      "minFlexibility": null,
+      "boardDifficulty": 0,
+      "solutionCount": 40,
+      "terms": {
+        "scd": 0.15624755863189638,
+        "board": 0,
+        "flexibility": 0.5,
+        "solution": 0,
+        "killer": 0
+      },
+      "features": [
+        0.15624755863189638,
+        0.4,
+        0,
+        0
+      ]
+    }
+  },
+  {
+    "input": {
+      "name": "mid-longbar",
+      "shapes": [
+        [
+          [
+            1,
+            1,
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1
+          ]
+        ]
+      ],
+      "occupiedCount": 32,
+      "boardDifficulty": 0.5,
+      "solutionMetrics": {
+        "solutionCount": 10,
+        "truncated": false,
+        "capped": false
+      }
+    },
+    "expected": {
+      "version": 1,
+      "stepDifficulty": 0.5031206056060747,
+      "bucket": "standard",
+      "scdScore": 0.2812412112121496,
+      "scdLevel": "ample",
+      "comboTotalCells": 9,
+      "comboKillerCnt": 1,
+      "comboLongBarCnt": 1,
+      "isHomogeneousFamily": false,
+      "minFlexibility": null,
+      "boardDifficulty": 0.5,
+      "solutionCount": 10,
+      "terms": {
+        "scd": 0.4687353520202494,
+        "board": 0.5,
+        "flexibility": 0.5,
+        "solution": 0.5833333333333333,
+        "killer": 0.5
+      },
+      "features": [
+        0.4687353520202494,
+        0.6,
+        0.3333333333333333,
+        0.3333333333333333
+      ]
+    }
+  },
+  {
+    "input": {
+      "name": "high-killer-scarce",
+      "shapes": [
+        [
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1,
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      ],
+      "occupiedCount": 50,
+      "boardDifficulty": 0.85,
+      "solutionMetrics": {
+        "solutionCount": 2,
+        "truncated": false,
+        "capped": false
+      }
+    },
+    "expected": {
+      "version": 1,
+      "stepDifficulty": 0.8324999999999999,
+      "bucket": "extreme",
+      "scdScore": 1.2141989857867295,
+      "scdLevel": "scarce",
+      "comboTotalCells": 17,
+      "comboKillerCnt": 2,
+      "comboLongBarCnt": 1,
+      "isHomogeneousFamily": false,
+      "minFlexibility": null,
+      "boardDifficulty": 0.85,
+      "solutionCount": 2,
+      "terms": {
+        "scd": 1,
+        "board": 0.85,
+        "flexibility": 0.5,
+        "solution": 0.9166666666666666,
+        "killer": 0.8333333333333334
+      },
+      "features": [
+        1,
+        1,
+        0.6666666666666666,
+        0.3333333333333333
+      ]
+    }
+  },
+  {
+    "input": {
+      "name": "capped-solutions",
+      "shapes": [
+        [
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ]
+        ]
+      ],
+      "occupiedCount": 40,
+      "boardDifficulty": 0.7,
+      "solutionMetrics": {
+        "capped": true
+      }
+    },
+    "expected": {
+      "version": 1,
+      "stepDifficulty": 0.69,
+      "bucket": "hard",
+      "scdScore": 1.1249531269530435,
+      "scdLevel": "scarce",
+      "comboTotalCells": 27,
+      "comboKillerCnt": 3,
+      "comboLongBarCnt": 0,
+      "isHomogeneousFamily": true,
+      "minFlexibility": null,
+      "boardDifficulty": 0.7,
+      "solutionCount": null,
+      "terms": {
+        "scd": 1,
+        "board": 0.7,
+        "flexibility": 0.5,
+        "solution": 0,
+        "killer": 1
+      },
+      "features": [
+        1,
+        1,
+        1,
+        0
+      ]
+    }
+  },
+  {
+    "input": {
+      "name": "no-solution-metrics",
+      "shapes": [
+        [
+          [
+            1,
+            1,
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1,
+            1,
+            1,
+            1
+          ]
+        ],
+        [
+          [
+            1
+          ]
+        ]
+      ],
+      "occupiedCount": 20,
+      "boardDifficulty": 0.3,
+      "solutionMetrics": null
+    },
+    "expected": {
+      "version": 1,
+      "stepDifficulty": 0.4872704029453876,
+      "bucket": "standard",
+      "scdScore": 0.20454080589077522,
+      "scdLevel": "ample",
+      "comboTotalCells": 9,
+      "comboKillerCnt": 2,
+      "comboLongBarCnt": 2,
+      "isHomogeneousFamily": true,
+      "minFlexibility": null,
+      "boardDifficulty": 0.3,
+      "solutionCount": null,
+      "terms": {
+        "scd": 0.34090134315129206,
+        "board": 0.3,
+        "flexibility": 0.5,
+        "solution": 0.5,
+        "killer": 1
+      },
+      "features": [
+        0.34090134315129206,
+        0.6,
+        0.6666666666666666,
+        0.6666666666666666
+      ]
+    }
+  }
+]

@@ -571,7 +571,27 @@
   //       loadList() fetch 极快返回时 katex 可能尚未就绪。
   // 方案：提取公式 → 替换为 data-* span → marked 处理其余内容 →
   //       DOM 插入后调用 renderPendingMath()，自动等待 KaTeX 就绪。
+  // ─── CJK 强调修复（先于 marked）───
+  // 问题：marked 遵循 CommonMark「flanking」规则——当 ** / * 定界符一侧紧贴全角标点、
+  //       另一侧紧贴 CJK 字符时（如「**A 层（叙事 / UI）**或」的收尾 ** 前为「）」后为「或」），
+  //       该定界符既非 right-flanking 也非 left-flanking，导致 **/＊ 不生效。
+  // 方案：在「定界符」与「相邻全角/CJK 标点」之间插入零宽空格 U+200B（不可见、不改变文案），
+  //       使该标点不再与定界符相邻，flanking 判定恢复正常。跳过代码块/行内代码以免破坏代码。
+  const _CJK_PUNCT = '\\u2014\\u2018\\u2019\\u201c\\u201d\\u2026'
+    + '\\u3001\\u3002\\u300a\\u300b\\u300c\\u300d\\u300e\\u300f\\u3010\\u3011\\u3014\\u3015'
+    + '\\uff01\\uff08\\uff09\\uff0c\\uff0e\\uff1a\\uff1b\\uff1f';
+  const _RE_DELIM_PUNCT = new RegExp('([*_])([' + _CJK_PUNCT + '])', 'g');
+  const _RE_PUNCT_DELIM = new RegExp('([' + _CJK_PUNCT + '])([*_])', 'g');
+  function fixCjkEmphasis(md) {
+    const fix = (t) => t.replace(_RE_DELIM_PUNCT, '$1\u200b$2').replace(_RE_PUNCT_DELIM, '$1\u200b$2');
+    // 拆出代码块(```/~~~)与行内代码(`...`)，捕获组使其落在奇数下标 → 仅修复偶数下标的非代码段
+    const parts = md.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g);
+    for (let i = 0; i < parts.length; i += 2) parts[i] = fix(parts[i]);
+    return parts.join('');
+  }
+
   function parseMdWithMath(md) {
+    md = fixCjkEmphasis(md);
     const stored = [];
     function stash(content, display) {
       // 用 data 属性保存公式，base64 避免 HTML 特殊字符干扰

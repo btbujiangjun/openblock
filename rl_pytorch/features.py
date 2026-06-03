@@ -10,6 +10,7 @@ import numpy as np
 
 from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
 from . import fast_grid as _fg
+from .spawn_step_difficulty import spawn_step_difficulty_features
 
 _ENC = FEATURE_ENCODING
 _AF = float(_ENC.get("almostFullLineRatio", 0.78))
@@ -143,6 +144,8 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     max_trans = float(_AN.get("maxTransitions", 64))
     max_wells = float(_AN.get("maxWellDepth", 24))
     max_mob = float(_AN.get("maxMobility", 192))
+    max_regions = float(_AN.get("maxEmptyRegions", 16))
+    max_concave = float(_AN.get("maxConcaveCorners", 32))
 
     base_scalars = [
             bf["filled"] / area,
@@ -167,9 +170,19 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
             min(bf["close1"] / n, 1.0),
             min(bf["close2"] / n, 1.0),
             min(bf["mobility"] / max_mob, 1.0),
-            bf["filled"] / area,
+            bf["height_std"],
+            min(bf["contiguous_regions"] / max_regions, 1.0),
+            min(bf["concave_corners"] / max_concave, 1.0),
         ]
-    scalars = np.array(base_scalars + _encode_color_summary(grid, dock).tolist(), dtype=np.float32)
+    # 单步难度子向量（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）——
+    # SSOT 来自 spawn_step_difficulty.py，与 web/src/bot/features.js 逐位一致。
+    unplaced_shapes = [b["shape"] for b in dock if not b.get("placed")]
+    diff_scalars = spawn_step_difficulty_features(unplaced_shapes, int(bf["filled"]))
+
+    scalars = np.array(
+        base_scalars + _encode_color_summary(grid, dock).tolist() + diff_scalars,
+        dtype=np.float32,
+    )
     if scalars.shape[0] != _SCALAR_DIM:
         raise ValueError(f"标量段长度 {scalars.shape[0]} != stateScalarDim {_SCALAR_DIM}")
 

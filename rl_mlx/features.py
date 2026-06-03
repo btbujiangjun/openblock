@@ -43,6 +43,109 @@ def _std_dev(arr: Sequence[float]) -> float:
     return math.sqrt(v)
 
 
+# 单步难度特征（与 web/src/spawnStepDifficulty.js spawnStepDifficultyFeatures 同口径）。
+# rl_mlx 为近似镜像，常数与模块默认值一致。
+_SSD_SCD_SAT = 0.6
+_SSD_COMBO_CELLS_NORM = 15.0
+_SSD_KILLER_MIN_CELLS = 5
+_SSD_LONG_BAR_MIN_LEN = 4
+
+
+def _ssd_clamp01(x: float) -> float:
+    return max(0.0, min(1.0, float(x)))
+
+
+def _ssd_shape_cells(shape: list[list[int]]) -> int:
+    return sum(1 for row in (shape or []) for v in row if v)
+
+
+def _ssd_is_long_bar(shape: list[list[int]]) -> bool:
+    cells = _ssd_shape_cells(shape)
+    if cells < _SSD_LONG_BAR_MIN_LEN:
+        return False
+    h = len(shape)
+    w = len(shape[0]) if h else 0
+    single_row = h == 1 and w >= _SSD_LONG_BAR_MIN_LEN and cells == w
+    single_col = w == 1 and h >= _SSD_LONG_BAR_MIN_LEN and cells == h
+    return single_row or single_col
+
+
+def _spawn_step_difficulty_features(dock: list[dict], filled: int) -> list[float]:
+    shapes = [b["shape"] for b in dock if not b.get("placed")]
+    combo_cells = 0
+    killer = 0
+    long_bar = 0
+    for s in shapes:
+        cells = _ssd_shape_cells(s)
+        combo_cells += cells
+        bar = _ssd_is_long_bar(s)
+        if bar:
+            long_bar += 1
+        if cells >= _SSD_KILLER_MIN_CELLS or bar:
+            killer += 1
+    free = max(0.0, 64.0 - float(filled))
+    scd = combo_cells / (free + 0.001)
+    return [
+        _ssd_clamp01(scd / _SSD_SCD_SAT),
+        _ssd_clamp01(combo_cells / _SSD_COMBO_CELLS_NORM),
+        _ssd_clamp01(killer / 3.0),
+        _ssd_clamp01(long_bar / 3.0),
+    ]
+
+
+def _mlx_contiguous_regions(grid) -> int:
+    """空白 4-连通分量数（与 web/src/boardTopology.js countEmptyRegions 同口径）。"""
+    n = grid.size
+    visited = [[False] * n for _ in range(n)]
+    regions = 0
+    for sy in range(n):
+        for sx in range(n):
+            if grid.cells[sy][sx] is not None or visited[sy][sx]:
+                continue
+            regions += 1
+            stack = [(sy, sx)]
+            visited[sy][sx] = True
+            while stack:
+                cy, cx = stack.pop()
+                for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                    if 0 <= ny < n and 0 <= nx < n and not visited[ny][nx] and grid.cells[ny][nx] is None:
+                        visited[ny][nx] = True
+                        stack.append((ny, nx))
+    return regions
+
+
+def _mlx_concave_corners(grid) -> int:
+    """凹角数（与 web/src/boardTopology.js countConcaveCorners 同口径，越界视为未占用）。"""
+    n = grid.size
+
+    def occ(y: int, x: int) -> bool:
+        return 0 <= y < n and 0 <= x < n and grid.cells[y][x] is not None
+
+    count = 0
+    for y in range(n):
+        for x in range(n):
+            if grid.cells[y][x] is not None:
+                continue
+            for dy, dx in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+                if occ(y + dy, x) and occ(y, x + dx):
+                    count += 1
+    return count
+
+
+def _mlx_height_std(grid) -> float:
+    """列高（top-profile）标准差，与 features.js heightStd 同口径。"""
+    n = grid.size
+    heights = []
+    for x in range(n):
+        h = 0
+        for y in range(n):
+            if grid.cells[y][x] is not None:
+                h = n - y
+                break
+        heights.append(h / n)
+    return _std_dev(heights)
+
+
 def _can_place_shape_at(grid, shape: list[list[int]], gx: int, gy: int) -> bool:
     for y, row in enumerate(shape):
         for x, v in enumerate(row):
@@ -197,9 +300,15 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
             0.0,  # close1 placeholder
             0.0,  # close2 placeholder
             0.0,  # mobility placeholder
-            filled / area,
+            _mlx_height_std(grid),
+            min(_mlx_contiguous_regions(grid) / float(_AN.get("maxEmptyRegions", 16)), 1.0),
+            min(_mlx_concave_corners(grid) / float(_AN.get("maxConcaveCorners", 32)), 1.0),
         ]
-    scalars = np.array(base_scalars + _encode_color_summary(grid, dock).tolist(), dtype=np.float32)
+    diff_scalars = _spawn_step_difficulty_features(dock, filled)
+    scalars = np.array(
+        base_scalars + _encode_color_summary(grid, dock).tolist() + diff_scalars,
+        dtype=np.float32,
+    )
     if scalars.shape[0] != _SCALAR_DIM:
         raise ValueError(f"标量段长度 {scalars.shape[0]} != stateScalarDim {_SCALAR_DIM}")
 

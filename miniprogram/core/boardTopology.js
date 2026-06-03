@@ -71,6 +71,81 @@ function computeCoverableCells(grid, shapes, opts) {
 }
 
 /**
+ * 空白连通块数 `contiguous_regions`（客观难度·几何）。
+ *
+ * 4-连通统计棋盘上「空格」组成的连通分量数量。值越大说明剩余空间越碎片化、
+ * 越分散，可用大块落点越少 —— 与 `holes` / `scd` 互补的几何难度强信号
+ * （holes 看「填不进」，regions 看「被切碎」）。
+ *
+ * 纯几何、无形状池依赖；与 rl_pytorch/fast_grid.py `_contiguous_regions` 同口径
+ * （4-邻接、空=cells===null）。
+ *
+ * @param {import('./grid.js').Grid} grid
+ * @returns {number}
+ */
+function countEmptyRegions(grid) {
+    if (!grid?.cells?.length) return 0;
+    const n = grid.size;
+    const visited = Array.from({ length: n }, () => new Array(n).fill(false));
+    const queue = new Array(n * n);
+    let regions = 0;
+    for (let sy = 0; sy < n; sy++) {
+        for (let sx = 0; sx < n; sx++) {
+            if (grid.cells[sy][sx] !== null || visited[sy][sx]) continue;
+            regions++;
+            let head = 0;
+            let tail = 0;
+            queue[tail++] = (sy << 8) | sx;
+            visited[sy][sx] = true;
+            while (head < tail) {
+                const packed = queue[head++];
+                const cx = packed & 0xff;
+                const cy = packed >>> 8;
+                const nbrs = [[cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]];
+                for (const [nx, ny] of nbrs) {
+                    if (nx < 0 || nx >= n || ny < 0 || ny >= n) continue;
+                    if (visited[ny][nx] || grid.cells[ny][nx] !== null) continue;
+                    visited[ny][nx] = true;
+                    queue[tail++] = (ny << 8) | nx;
+                }
+            }
+        }
+    }
+    return regions;
+}
+
+/**
+ * 凹角数 `concave_corners`（客观难度·几何）。
+ *
+ * 遍历每个「空格」的 4 个对角方向 (±1,±1)，若构成该角的两个正交邻居
+ * （竖直 (y+dy,x) 与水平 (y,x+dx)）**都被占用格**填充，则计为一个凹角。
+ * 越界视为「未占用」（只看界内方块结构形成的内凹缺口），因此凹角纯由
+ * 已落方块的轮廓决定 —— 是「陷阱位 / L 型缺口」温床，直接增加贴合难度，
+ * 与刚引入的「放置块吸附」软约束天然互补（凹角即吸附目标）。
+ *
+ * 与 rl_pytorch/fast_grid.py `_concave_corners` 同口径。
+ *
+ * @param {import('./grid.js').Grid} grid
+ * @returns {number}
+ */
+function countConcaveCorners(grid) {
+    if (!grid?.cells?.length) return 0;
+    const n = grid.size;
+    const occ = (y, x) => (y >= 0 && y < n && x >= 0 && x < n && grid.cells[y][x] !== null);
+    const corners = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+    let count = 0;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            if (grid.cells[y][x] !== null) continue;
+            for (const [dy, dx] of corners) {
+                if (occ(y + dy, x) && occ(y, x + dx)) count++;
+            }
+        }
+    }
+    return count;
+}
+
+/**
  * 「近完整行/列」检测的单一来源。
  *
  * 行/列只要剩余空格 ≤ `maxEmpty` 即视作「近满」，进一步要求所有空格都能被某个
@@ -337,11 +412,19 @@ function analyzeBoardTopology(grid, opts) {
         }
     }
 
+    /* 客观难度·几何（与 RL state 标量 / spawnMeta 落库同口径，详见 countEmptyRegions /
+     * countConcaveCorners）。纯几何、无形状池依赖，O(n²)。 */
+    const contiguousRegions = countEmptyRegions(grid);
+    const concaveCorners = countConcaveCorners(grid);
+
     return {
         holes,
         /* v1.60.1：被豁免的"邻接特殊块"空格数（仅 skipSpecialCells=true 时 >0）；
          * 供 DFV / 调试面板透视"特殊形状造成多少散点孤岛被豁免" */
         holesNearSpecial,
+        /* 空白连通块数 / 凹角数（客观难度·几何，DFV 与离线难度桶聚合复用） */
+        contiguousRegions,
+        concaveCorners,
         /* v1.60.3：玩家心智口径"孤洞"（4-邻全填）——与 bot.countIsolatedHoles 同口径。 */
         isolatedHoles,
         isolatedHolesNearSpecial,
@@ -363,4 +446,4 @@ function analyzeBoardTopology(grid, opts) {
     };
 }
 
-module.exports = { analyzeBoardTopology, computeCoverableCells, countUnfillableCells, detectNearClears };
+module.exports = { analyzeBoardTopology, computeCoverableCells, countConcaveCorners, countEmptyRegions, countUnfillableCells, detectNearClears };

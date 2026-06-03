@@ -145,7 +145,7 @@
   / `topology_aux_head` / `clear_pred_head`
 
 **状态 / 动作 / 奖励**
-- 状态维度：181
+- 状态维度：187
 - 动作：15 维 ψ(a)，合法动作数可变
 - 奖励：simulator + `shared/game_rules.json` shaping
 

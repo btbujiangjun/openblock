@@ -54,6 +54,32 @@ class TestStepDifficulty:
         # d = 0.6 * 0.5 + 0.4 * 0 = 0.30
         assert d == pytest.approx(0.30, abs=0.02)
 
+    def test_state_difficulty_overrides_proxy(self):
+        """v1.66 同源化: state_difficulty(统一 scd)存在时, 直接作 state_d, 忽略 fill/freedom 代理。"""
+        # 代理算出的 state_d 很高(满盘+无自由度), 但 scd=0.2 应主导 → 低 state_d
+        st = StepInfo(step_idx=0, score=100, fill_rate=1.0, action_freedom=0.0,
+                      no_move=False, clears=0, state_difficulty=0.2)
+        d = st.step_difficulty([], ratio=0.0)   # lift≈0 → d ≈ 0.6 * 0.2 = 0.12
+        assert d == pytest.approx(0.6 * 0.2, abs=0.02)
+
+    def test_state_difficulty_monotonic(self):
+        """同源 state_d 越大, d_step 越大(同 ratio)。"""
+        lo = StepInfo(0, 100, 0.5, 0.5, False, 0, state_difficulty=0.1)
+        hi = StepInfo(0, 100, 0.5, 0.5, False, 0, state_difficulty=0.9)
+        assert hi.step_difficulty([], ratio=0.0) > lo.step_difficulty([], ratio=0.0) + 0.4
+
+    def test_state_difficulty_none_uses_proxy(self):
+        """state_difficulty=None → 走 fill/freedom/trend 代理(回退路径不变)。"""
+        proxy = make_step(0, 100, fill=0.5, freedom=0.5)            # state_difficulty 默认 None
+        explicit = StepInfo(0, 100, 0.5, 0.5, False, 0, state_difficulty=None)
+        assert proxy.step_difficulty([], ratio=0.3) == explicit.step_difficulty([], ratio=0.3)
+
+    def test_state_difficulty_surprise_damping_still_applies(self):
+        """大消行(clears≥3)惊喜降难对同源 state_d 仍生效。"""
+        st = StepInfo(0, 100, 0.5, 0.5, False, clears=SURPRISE_MIN_CLEARS, state_difficulty=0.8)
+        st_no = StepInfo(0, 100, 0.5, 0.5, False, clears=0, state_difficulty=0.8)
+        assert st.step_difficulty([], ratio=0.0) < st_no.step_difficulty([], ratio=0.0)
+
     def test_v31_state_d_neutral_high_ratio(self):
         """state_d=0.5, r=1.5 (远大 center=0.82) → d_step ≈ 0.6*0.5 + 0.4*1 = 0.70."""
         st = make_step(0, 100, fill=0.5, freedom=0.5)

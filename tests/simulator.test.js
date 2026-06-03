@@ -153,6 +153,19 @@ describe('OpenBlockSimulator', () => {
             const pot = boardPotential(sim.grid, sim.dock);
             expect(Number.isFinite(pot)).toBe(true);
         });
+
+        it('吸附约束：贴边/贴块放置的势 高于 孤立悬空放置', async () => {
+            const { Grid } = await import('../web/src/grid.js');
+            // 同样 4 格的 2×2：贴左上角（贴两面墙） vs 居中悬空（四面临空）
+            const adhered = new Grid(8);
+            adhered.cells[0][0] = 1; adhered.cells[0][1] = 1;
+            adhered.cells[1][0] = 1; adhered.cells[1][1] = 1;
+            const isolated = new Grid(8);
+            isolated.cells[3][3] = 1; isolated.cells[3][4] = 1;
+            isolated.cells[4][3] = 1; isolated.cells[4][4] = 1;
+            // dock=[] 关闭机动性项，凸显结构/吸附差异
+            expect(boardPotential(adhered, [])).toBeGreaterThan(boardPotential(isolated, []));
+        });
     });
 
     describe('full game simulation', () => {

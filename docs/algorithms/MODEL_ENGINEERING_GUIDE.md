@@ -164,9 +164,9 @@ $$
 
 | 编码 | 维度 | 内容 |
 |------|------|------|
-| `s` | 181 | 42 维标量 + 64 棋盘占用 + 75 dock 5×5 mask |
+| `s` | 187 | 48 维标量（25 结构[含 heightStd + 客观几何 2 维] + 19 颜色 + 4 单步难度）+ 64 棋盘占用 + 75 dock 5×5 mask |
 | `ψ(a)` | 15 | block index、位置、形状尺寸、清行潜力、风险、多消、同 icon/同色 bonus、清屏潜力等动作特征 |
-| `φ(s,a)` | 196 | `[s; ψ(a)]` 拼接 |
+| `φ(s,a)` | 202 | `[s; ψ(a)]` 拼接 |
 
 拓扑扩展特征包括：
 
@@ -181,8 +181,8 @@ $$
 主干为 `ConvSharedPolicyValueNet`：
 
 ```text
-s[181]
-  ├─ scalars[42] ────────────────┐
+s[187]
+  ├─ scalars[48] ────────────────┐   （含 4 维单步难度 + 2 维客观几何）
   ├─ grid[64] → CNN + ResConv×2 ─┼─ concat → trunk[128]
   └─ dock[75] → DockBoardAttention / DockPointEncoder
                                       ↓

@@ -28,6 +28,8 @@ _POT_W_TRANS = float(_POT_CFG.get("transitionWeight", -0.08))
 _POT_W_WELL = float(_POT_CFG.get("wellWeight", -0.15))
 _POT_W_CLOSE = float(_POT_CFG.get("closeToFullWeight", 0.35))
 _POT_W_MOB = float(_POT_CFG.get("mobilityWeight", 0.12))
+# 吸附/贴合约束：暴露边惩罚权重（负值，|值|越大越鼓励落子贴边/贴块）。
+_POT_W_ADHESION = float(_POT_CFG.get("adhesionWeight", -0.12))
 _ACTION_NORM = dict(FEATURE_ENCODING.get("actionNorm") or {})
 
 _ICON_BONUS_LINE_MULT = float(CLEAR_SCORING.get("iconBonusLineMult") or 5)
@@ -64,6 +66,7 @@ def board_potential(grid: Grid, dock: list[dict]) -> float:
         + _POT_W_WELL * feats["wells"]
         + _POT_W_CLOSE * (feats["close1"] + feats["close2"])
         + _POT_W_MOB * (mob / 10.0)
+        + _POT_W_ADHESION * feats["edge_exposure"]
     )
 
 
@@ -77,6 +80,7 @@ def board_potential_np(grid_np: np.ndarray, dock: list[dict]) -> float:
         + _POT_W_WELL * feats["wells"]
         + _POT_W_CLOSE * (feats["close1"] + feats["close2"])
         + _POT_W_MOB * (mob / 10.0)
+        + _POT_W_ADHESION * feats["edge_exposure"]
     )
 
 

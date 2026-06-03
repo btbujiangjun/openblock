@@ -51,7 +51,7 @@
 | 角色 | 层 | 输入契约 | 输出契约 | 当前文件入口 | 详细文档 |
 |---|---|---|---|---|---|
 | **`SpawnPolicyRules`** | L1 | `grid + strategyConfig + spawnContext` | `{shape_id × 3} + _spawnDiagnostics` | `web/src/bot/blockSpawn.js · generateDockShapes()` | [`SPAWN_ALGORITHM.md`](./SPAWN_ALGORITHM.md) |
-| **`SpawnPolicyNet`** | L1 | `board(64) + behaviorContext(61) + history(3×3) + target_difficulty` | `{shape_id × 3}`（top-k 采样） | `rl_pytorch/spawn_model/model_v3.py · SpawnPolicyNet` | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3 |
+| **`SpawnPolicyNet`** | L1 | `board(64) + behaviorContext(63) + history(3×3) + target_difficulty` | `{shape_id × 3}`（top-k 采样） | `rl_pytorch/spawn_model/model_v3.py · SpawnPolicyNet` | [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3 |
 | **`HandTuned`** | L2 | — | θ ∈ `game_rules.json + DEFAULT_SPAWN_PARAMS_PB_CURVE` | `web/src/adaptiveSpawn.js` + `shared/game_rules.json` | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) |
 | **`SpawnParamTuner`** | L2 | `(ctx₅, θ₉)` | `d_curve₂₀ + 4 辅助 head` → 反求 θ* | `rl_pytorch/spawn_tuning_v2/model.py · SpawnParamTunerResNet` | [`SPAWN_TUNING_V2.md`](./SPAWN_TUNING_V2.md) |
 
@@ -73,7 +73,7 @@
 | `SpawnParam` (θ) | 出块参数 | L1 输入 / L2 输出 | 9 | `{personalizationStrength: 0.10, temperature: 0.05, pbTensionCenter: 0.82, ...}` |
 | `d_curve` | 难度曲线 | L2 标签 | 20 | 把 `r = score/PB ∈ [0, 2.0]` 等分 20 段的单步难度均值 |
 | `context_key` | L2 场景维度 | L2 输入 | 5 | `easy:budget-p2:survival:1500:growth` 形式（共 360 个场景） |
-| `behaviorContext` | L1 神经版输入 | L1 输入 | 61 | 见 `SPAWN_BLOCK_MODELING.md §3.3`（v1.61.0 含 4 维 PB θ 显式条件） |
+| `behaviorContext` | L1 神经版输入 | L1 输入 | 63 | 见 `SPAWN_BLOCK_MODELING.md §3.3`（v1.61.0 含 4 维 PB θ；v1.66 P7 含 2 维客观几何） |
 | `spawnHints` | L1 规则版软目标 | L1 内部 | 字典 | 见 `SPAWN_ALGORITHM.md §2.5.2` |
 | `spawnTargets` | stress 投影多轴目标 | L1 内部 | 6 | 见 `ADAPTIVE_SPAWN.md` |
 | `Policies bundle` | 部署包 | L2 → L1 | 360 条 | `web/public/spawn-tuning-v2/policies.json`（URL 保留 v2 历史路径） |
@@ -137,6 +137,8 @@ L1 与 L2 通过 θ 通信。`SpawnParamTuner` 输出 θ\*，`SpawnPolicyRules` 
 
 | 日期 | 改动 |
 |---|---|
+| 2026-06-03 | v1.66 P7：behaviorContext 61→63（尾部加 2 维客观几何 `contiguousRegions/concaveCorners`，与 RL state 同源）；`board_proj` 125→127；`PLAYER_STATE_SNAPSHOT_VERSION` 3→4（spawnGeo 增几何字段）；回放/DFV 同步外露几何 |
+| 2026-06-03 | v1.66 同源化：v2 `d_step` 真人局优先用统一难度分 scd_score 作 `state_d`（`StepInfo.state_difficulty`，缺则回退代理）；DFV chosen 块 tooltip 外露盘面几何（碎片/凹角/占盘） |
 | 2026-05-29 | v1.61.0：behaviorContext 56→61（含 4 维 PB θ 显式条件，把 L2→L1-Net 隐式耦合转显式）；澄清耦合通道为 `spawnTargets/behaviorContext`（非 `target_difficulty`）；新增 `drift.py` PSI 漂移门禁 |
 | 2026-05-26 | 初版：建立 L1/L2 双层叙事，定义 `SpawnPolicyRules / SpawnPolicyNet / HandTuned / SpawnParamTuner` 四角色与命名规范 |
 | 2026-05-26 | PR-4 彻底统一：物理重命名所有 class / 函数 / 常量为角色名（`SpawnTransformerV3 → SpawnPolicyNet` 等），删除全部 alias 与 shim，确立**零 alias 政策** |

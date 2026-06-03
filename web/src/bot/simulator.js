@@ -34,6 +34,8 @@ const _POT_W_TRANS = Number(_POT_CFG.transitionWeight) || -0.08;
 const _POT_W_WELL = Number(_POT_CFG.wellWeight) || -0.15;
 const _POT_W_CLOSE = Number(_POT_CFG.closeToFullWeight) || 0.35;
 const _POT_W_MOB = Number(_POT_CFG.mobilityWeight) || 0.12;
+// 吸附/贴合约束：暴露边惩罚权重（负值，|值|越大越鼓励落子贴边/贴块）。
+const _POT_W_ADHESION = Number.isFinite(Number(_POT_CFG.adhesionWeight)) ? Number(_POT_CFG.adhesionWeight) : -0.12;
 const _POT_COEF = Number(_POT_CFG.coef) || 0.5;
 const _POT_ENABLED = Boolean(_POT_CFG.enabled);
 const _BOARD_POT_NORM = 30.0;
@@ -46,6 +48,23 @@ function _rlBonusSkin() {
 
 function _countHoles(grid) {
     return countUnfillableCells(grid);
+}
+
+/**
+ * 暴露边（吸附/贴合约束用）：占用区朝向「界内空格」的 4-邻接边数（墙边不计 → 贴墙=吸附）。
+ * 与 rl_pytorch/fast_grid.py fast_board_features.edge_exposure 口径一致。
+ */
+function _edgeExposure(grid) {
+    const n = grid.size;
+    let e = 0;
+    for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+            const cur = grid.cells[y][x] !== null;
+            if (x + 1 < n && cur !== (grid.cells[y][x + 1] !== null)) e++;
+            if (y + 1 < n && cur !== (grid.cells[y + 1][x] !== null)) e++;
+        }
+    }
+    return e;
 }
 
 function _countTransitions(grid) {
@@ -174,6 +193,7 @@ export function boardPotential(grid, dock) {
         + _POT_W_WELL * _wellDepthSum(grid)
         + _POT_W_CLOSE * _closeToFullCount(grid)
         + _POT_W_MOB * (_dockMobility(grid, dock) / 10)
+        + _POT_W_ADHESION * _edgeExposure(grid)
     );
 }
 

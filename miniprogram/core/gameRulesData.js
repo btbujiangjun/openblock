@@ -321,12 +321,28 @@ module.exports = {
       }
     ],
     "pacing": {
-      "comment": "节奏张弛：每 cycleLength 轮出块为一个周期，前 tensionPhases 轮略加压，后面轮次释放。参考音乐副歌-间奏结构，避免单调递增的难度导致倦怠。",
+      "comment": "节奏张弛：每 cycleLength 轮出块为一个周期，前 tensionPhases 轮略加压，后面轮次释放。参考音乐副歌-间奏结构。v1.62.8：加 deadzoneEnabled=true + deadzoneFrames=2 —— pacing 刚切相的前 2 帧 pacingAdjust=0（让玩家先感受新节奏再叠加 ±0.12），把 pacingAdjust 平均绝对值从 ≈0.08 降到 ≈0.04，stress 主导分量从『50% 局是 pacingAdjust』下降。",
       "enabled": true,
       "cycleLength": 5,
       "tensionPhases": 3,
       "tensionBonus": 0.04,
-      "releaseBonus": -0.12
+      "releaseBonus": -0.12,
+      "deadzoneEnabled": true,
+      "deadzoneFrames": 2
+    },
+    "sessionArcCfg": {
+      "comment": "v1.62.5 优化建议 #3：peak 段加压补全半圆弧。profileAudit 巡检显示 session-arc-warm-to-cool 67% 违规——sessionArc 全程为负、peak 段 sessionArcAdjust=0 没有正向输出。peakBoostEnabled=true + peakBoost=0.05 让 mid-session（momentum 在 [-0.2, 0.3] 区间）的中段获得轻微加压，形成『开头负→中段正→收官略负』的标准半圆弧。",
+      "peakBoostEnabled": true,
+      "peakBoost": 0.05
+    },
+    "spawnIntentCfg": {
+      "comment": "v1.62.5 优化建议 #5：spawnIntent 滞回。v1.62.7 加 harvestStickyMode 后违规率仍 80%。v1.62.8 加 dwellFrames（最小停留帧数）—— 真实根因是多状态间小幅高频抖动（maintain↔flow↔engage↔harvest），仅靠边界扩展无法抑制。dwellFrames=3 表示进入某 intent 后 3 帧内不允许再切（relief/pressure 紧急路径除外）；强制系统消化完上次决策。预期把违规率从 80% 降到 ≤30%。可调 0 禁用、5+ 更激进。",
+      "hysteresisEnabled": true,
+      "sprintExpand": 0.05,
+      "sprintShrink": 0.05,
+      "reliefMargin": 0.05,
+      "harvestStickyMode": true,
+      "dwellFrames": 3
     },
     "engagement": {
       "comment": "参与度信号：首局保护、挫败回弹、差一点放大、新鲜感注入。",
@@ -369,7 +385,8 @@ module.exports = {
       "biasClamp": 0.22
     },
     "signals": {
-      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。",
+      "comment": "stress 合成信号的开关与缩放；enabled=false 时该信号不参与，scale 用于 A/B 或回放校准。v1.62.5 优化建议 #1：__normalizeBudget 把所有非豁免 *Adjust 分量统一钳制到 ±N，防止 pacingAdjust 等强势分量长期主导（巡检显示 67% 局 pacingAdjust 单独占主导，自适应未充分介入）。豁免列表见 adaptiveSpawn.js _NORMALIZE_EXEMPT（difficultyBias / challengeBoost / 救济类信号本就需要更大幅度）。",
+      "__normalizeBudget": 0.05,
       "scoreStress": {
         "enabled": true,
         "scale": 1
@@ -532,6 +549,28 @@ module.exports = {
       "orderRigorActivationFill": 0.5,
       "orderRigorMaxHolesAllow": 3
     },
+    "spawnStepDifficulty": {
+      "comment": "单步出块难度（spawn step difficulty）统一分。无尽模式无『题目』概念，难度最小单元是『当前盘面 × 本轮候选三块』，由确定性特征逐步算出。本块把分散的原语（boardDifficulty / DFS solutionMetrics / 几何 scd）consolidate 成 0~1 难度分 + 5 档桶（trivial/easy/standard/hard/extreme），随 spawn 帧 spawnMeta.stepDifficulty 落库，供离线『难度桶 × 算法』聚合与 RL 数据集标注。实现见 web/src/spawnStepDifficulty.js，Python 镜像 rl_pytorch/spawn_step_difficulty.py。详见 docs/algorithms/ALGORITHMS_SPAWN.md §14.二。",
+      "enabled": true,
+      "boardSize": 8,
+      "scdAmple": 0.3,
+      "scdTight": 0.5,
+      "scdSaturation": 0.6,
+      "killerMinCells": 5,
+      "killerMaxPlacements": 6,
+      "longBarMinLength": 4,
+      "solutionAbundant": 24,
+      "flexibilityFree": 24,
+      "comboCellsNorm": 15,
+      "rlStateFeatureComment": "spawnStepDifficultyFeatures 暴露 4 维（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）正式拼入 RL 落子 state（→187）。另 blockSpawn 在 stepDifficulty 落库对象上附挂客观几何 contiguousRegions/concaveCorners（来自 boardTopology），供 aggregate-step-difficulty.mjs 按难度桶聚合。",
+      "weights": {
+        "scd": 0.3,
+        "board": 0.2,
+        "flexibility": 0.2,
+        "solution": 0.15,
+        "killer": 0.15
+      }
+    },
     "flowZone": {
       "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",
       "thinkTimeLowMs": 1200,
@@ -546,7 +585,11 @@ module.exports = {
       "flowBoredAdjust": 0.08,
       "flowAnxiousAdjust": -0.12,
       "recoveryAdjust": -0.2,
-      "comboRewardAdjust": 0.05
+      "comboRewardAdjust": 0.05,
+      "flowSoftEdge_comment": "v1.62.8：flowAdjust 软边界。原行为只在 flow ∈ {bored, anxious} 时输出，neutral 区域硬置 0，与 flowDeviation 出现断层 → flowAdjust-tracks-flowDeviation 巡检 40% 违规。softEdgeEnabled=true 时，neutral 状态下 |flowDeviation| ≥ softEdgeMin 仍按 0.5× baseStep 线性外推，让 flowAdjust 连续跟踪 flowDeviation 方向。",
+      "softEdgeEnabled": true,
+      "softEdgeMin": 0.05,
+      "softEdgeMax": 0.2
     },
     "reactionAdjust": {
       "comment": "v1.46『反应』指标 → stress 微调：startDrag→落子的纯执行段（pickToPlaceMs）落入快/慢尾部区间时，对 stress 施加 ±maxAdjust 的轻微偏移；中段（fast~slow 之间）零作用。阈值按本地回放有效样本分布校准：p5≈929ms、p50≈1447ms、p95≈2140ms，因此 fastMs=900、slowMs=2200；fastFullMs/slowFullMs 定义饱和区，让极端快/慢反应能真正接近 ±maxAdjust。仅当 reactionSamples ≥ minSamples 时启用，避免冷启动单点噪声；钳值刻意比 flowAdjust 小一个量级，作为现有信号的一个轻量补充而非主导项。",
@@ -560,10 +603,28 @@ module.exports = {
     },
     "realtimeStateTuning": {
       "comment": "基于历史实时状态序列的复合早期救济：低消行+中高板面提前防挫败，高板面+挫败处理死局感合流，anxious+高认知负荷降低决策复杂度；同时在困境中削弱长期偏正的 feedbackBias。",
-      "preFrustrationRelief": { "enabled": true, "clearRateMax": 0.25, "boardFillMin": 0.45, "maxRelief": 0.06 },
-      "boardFrustrationRelief": { "enabled": true, "boardFillMin": 0.58, "frustrationMin": 3, "maxRelief": 0.12 },
-      "decisionLoadRelief": { "enabled": true, "cognitiveLoadMin": 0.60, "maxRelief": 0.07 },
-      "feedbackBiasDamping": { "enabled": true, "factor": 0.5, "maxDamping": 0.08 }
+      "preFrustrationRelief": {
+        "enabled": true,
+        "clearRateMax": 0.25,
+        "boardFillMin": 0.45,
+        "maxRelief": 0.06
+      },
+      "boardFrustrationRelief": {
+        "enabled": true,
+        "boardFillMin": 0.58,
+        "frustrationMin": 3,
+        "maxRelief": 0.12
+      },
+      "decisionLoadRelief": {
+        "enabled": true,
+        "cognitiveLoadMin": 0.6,
+        "maxRelief": 0.07
+      },
+      "feedbackBiasDamping": {
+        "enabled": true,
+        "factor": 0.5,
+        "maxDamping": 0.08
+      }
     },
     "solutionDifficulty": {
       "comment": "v9 新增·解法数量难度调控：在三连块通过 sequentiallySolvable 校验后，再用 DFS 估算 6 种放置顺序累计的「完整解叶子数」（截断到 leafCap），并按 stress 从 ranges 中挑选区间软过滤。stress 越高 → max 越小（解空间更窄、需精算）；stress 低 → 抬高 min（保证宽松度）。budget 用于截断 DFS 入栈次数以防爆炸；activationFill 以下不评估（性能门控）。truncated=true 时不参与过滤。v1.57.1 P1：在 0.35→0.6 之间补 '渐紧' 一档（minStress=0.5, max=64），让中段 stress 也有可感知难度差，消除 0.55 跨阈值前的'无感区'。v1.57.2：新增 holeIncrement.ranges——在解空间宽度之外引入'空洞强迫度'第二维度（详见 holeIncrement.comment）。",
@@ -1040,7 +1101,7 @@ module.exports = {
     "rndCuriosity": {
       "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
       "enabled": false,
-      "stateDim": 181,
+      "stateDim": 187,
       "hiddenDim": 64,
       "outputDim": 32,
       "beta": 0.1,
@@ -1071,14 +1132,15 @@ module.exports = {
     "feasibilityLossCoef": 0.3,
     "survivalLossCoef": 0.28,
     "potentialShaping": {
-      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。v6 增大系数以提供更强逐步信号。",
+      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。v6 增大系数以提供更强逐步信号。adhesionWeight 为『放置块吸附』软约束：惩罚占用区朝向界内空格的暴露边（墙边不计→贴墙=吸附），鼓励落子尽量与边或其他方块贴合；为势函数项故不改变最优策略，且中间贴块放置同样受益、只软性抑制孤立悬空。负值，|值|越大吸附越强。",
       "enabled": true,
       "coef": 0.8,
       "holeWeight": -0.4,
       "transitionWeight": -0.08,
       "wellWeight": -0.15,
       "closeToFullWeight": 0.35,
-      "mobilityWeight": 0.12
+      "mobilityWeight": 0.12,
+      "adhesionWeight": -0.12
     },
     "outcomeValueMix": {
       "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。v9.2 默认用 log1p(score)/log1p(threshold) 并放宽 clip，避免 400-500 分段 score/threshold 过早饱和。",
@@ -1201,16 +1263,16 @@ module.exports = {
     }
   },
   "featureEncoding": {
-    "comment": "state = 42 维标量（含 19 维颜色摘要）+ 64 棋盘占用 + 75 dock 形状 = 181；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 196。改维度须同步 features.js / features.py 并重训。",
+    "comment": "state = 48 维标量（25 结构 + 19 颜色摘要 + 4 单步难度）+ 64 棋盘占用 + 75 dock 形状 = 187；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 202。25 结构标量末 3 维为 heightStd + 客观几何难度 contiguousRegions/concaveCorners（空白连通块数 / 凹角数，见 boardTopology.js）；4 维单步难度由 spawnStepDifficulty.spawnStepDifficultyFeatures 计算（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）。改维度须同步 features.js / features.py / rl_mlx/features.py 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
-    "stateScalarDim": 42,
+    "stateScalarDim": 48,
     "colorCount": 8,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
-    "stateDim": 181,
+    "stateDim": 187,
     "actionDim": 15,
-    "phiDim": 196,
+    "phiDim": 202,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {
@@ -1223,6 +1285,8 @@ module.exports = {
       "maxWellDepth": 24,
       "maxMobility": 192,
       "maxAdjacent": 20,
+      "maxEmptyRegions": 16,
+      "maxConcaveCorners": 32,
       "nearFullThreshold": 0.75
     }
   },

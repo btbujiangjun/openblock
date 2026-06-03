@@ -54,7 +54,7 @@
 - 候选区：约 40 种形状中选 3 个 × 放置状态 → 组合极大
 - **有效状态空间**远小于理论值，但仍是天文数字
 
-当前实现状态编码以 `shared/game_rules.json` 的 `featureEncoding` 为准：**181 维** = 42 标量 + 64 棋盘占用 + 75 dock 掩码；动作特征 **15 维**，`φ(s,a)` 为 **196 维**。旧文档中的 154/162/193 维是早期编码版本，仅作为历史演进参考。
+当前实现状态编码以 `shared/game_rules.json` 的 `featureEncoding` 为准：**187 维** = 48 标量（25 结构[含 heightStd + 客观几何 2 维] + 19 颜色 + 4 单步难度）+ 64 棋盘占用 + 75 dock 掩码；动作特征 **15 维**，`φ(s,a)` 为 **202 维**。旧文档中的 154/162/181/185/193 维是早期编码版本，仅作为历史演进参考。
 
 #### 1.2.2 动作空间
 
@@ -95,15 +95,15 @@
 #### 1.3.1 架构（conv-shared，默认）
 
 ```
-状态 181 维 ─┬─ scalars[42] ───────────────────────────┐
+状态 187 维 ─┬─ scalars[48] ───────────────────────────┐
              ├─ grid[64] → reshape(1,8,8)               │
              │   → Conv2d + ResConv×2 + GELU            │
              │   ├─ 全局平均池化 → [32]                 │
              │   └─ 空间特征供 dock cross-attention     │
              └─ dock[75] → DockBoardAttention → [48] ───┤
                                                         ▼
-                              concat [42+32+48=122]
-                              → LayerNorm → Linear(122→128) + GELU
+                              concat [46+32+48=126]
+                              → LayerNorm → Linear(126→128) + GELU
                               → Linear(128→128) + residual ×2
                               → h(s) [128]
                                    │
@@ -121,7 +121,7 @@
 
 #### 1.3.2 特征工程评估
 
-**状态特征（181 维）** — 优缺点：
+**状态特征（187 维）** — 优缺点：
 
 | 维度 | 内容 | 评价 |
 |------|------|------|
@@ -169,7 +169,7 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 
 ##### 问题 2：特征信息瓶颈
 
-当前 181 维编码已经补入空洞、临消、跳变、井、mobility 等拓扑信号；后续瓶颈从“是否有特征”转向“特征口径是否正确”和“网络能否把特征与空间结构结合”：
+当前 187 维编码已经补入空洞、临消、跳变、井、mobility、单步出块难度、客观几何（连通块/凹角）等信号；后续瓶颈从“是否有特征”转向“特征口径是否正确”和“网络能否把特征与空间结构结合”：
 - `holes` 必须按“所有形状都无法覆盖”定义，避免传统包围空格误判。
 - `lines_clearable_1/2` 必须是 fillable-aware，不能只看空格数。
 - 放置后质量要与 `topology_aux_head` 的监督标签保持一致。
@@ -199,7 +199,7 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 | lines_clearable_2/n | 1 | 差 2 格且全部缺口可被合法形状覆盖的行列数 / n |
 | dock_mobility/max | 1 | 当前三块总合法位置数 / 理论最大 |
 
-当前契约：**stateScalarDim = 42**，**stateDim = 181**，**actionDim = 15**，**phiDim = 196**。
+当前契约：**stateScalarDim = 48**，**stateDim = 187**，**actionDim = 15**，**phiDim = 202**。
 
 这些特征在俄罗斯方块 AI 研究中被证明是最关键的状态描述子。
 
@@ -217,7 +217,7 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 | bonus_line | 1 | 本动作形成同 icon / 同色整线 bonus 的强度 |
 | perfect_clear | 1 | 本动作消行后是否清空整个棋盘 |
 
-当前契约：**actionDim = 15**，与状态拼接后的 **phiDim = 196**。
+当前契约：**actionDim = 15**，与状态拼接后的 **phiDim = 202**。
 
 `holes_after` 是最关键的动作质量信号之一：它不看传统列高，而是模拟落子和消行后，统计所有形状库仍无法覆盖的空格，更接近真实死角风险。
 
@@ -274,12 +274,12 @@ CNN 只处理棋盘占用，无法感知**空洞结构**。Value 头仅 2 层（
 
 ```
 featureEncoding:
-  stateScalarDim: 42
+  stateScalarDim: 48
   gridSpatialDim: 64
   dockSpatialDim: 75
-  stateDim:       181
+  stateDim:       187
   actionDim:      15
-  phiDim:         196
+  phiDim:         202
 ```
 
 需同步更新：`shared/game_rules.json`、`rl_pytorch/features.py`、`rl_pytorch/model.py`、`web/src/bot/features.js`、`web/src/bot/linearAgent.js`、`rl_mlx/features.py`。任何维度变化都意味着旧 checkpoint 不再兼容，必须重训或显式迁移。

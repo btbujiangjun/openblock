@@ -25,9 +25,13 @@ export const SPAWN_MODEL_V3_VERSION = 'v3.1-behavior';
 export const SPAWN_MODEL_CONTEXT_DIM = 24;
 /* v1.57.1：56 → 57，spawnIntent one-hot 6 → 7 维（新增 'sprint'）。
  * v1.61.0：57 → 61，尾部追加 4 维归一化 PB 曲线 θ 显式条件（见 SPAWN_PB_THETA_RANGES）。
+ * v1.66 P7：61 → 63，尾部追加 2 维客观几何（contiguousRegions/concaveCorners，与 RL state 同源）。
  * 必须与 rl_pytorch/spawn_model/dataset.py `BEHAVIOR_CONTEXT_DIM` 保持一致，
- * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+61=125）不符。 */
-export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 61;
+ * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+63=127）不符。 */
+export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 63;
+// 客观几何归一化分母（须与 rl_pytorch/spawn_model/dataset.py 与 game_rules.json actionNorm 一致）。
+const _GEO_REGIONS_MAX = 16;
+const _GEO_CONCAVE_MAX = 32;
 
 /* v1.61.0：4 维 PB 曲线 θ 的归一化区间与默认值（必须与 dataset.py `_PB_THETA_RANGES` 严格一致）。
  * 顺序固定：pbTensionCenter / pbTensionWidth / pbBrakeCenter / pbBrakeWidth。
@@ -296,6 +300,9 @@ function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability
         _SESSION_MAP[sessionArc] ?? 0.5,
         // [57-60] PB 曲线 θ（v1.61.0 显式条件，归一化；缺省 → 默认域）
         ..._normPbTheta(stressBreakdown.pbCurveParams),
+        // [61-62] 客观几何条件（v1.66 P7）：空白连通块数 / 凹角陷阱数，与 RL state 同源（boardTopology）。
+        _scaleUnit(topo.contiguousRegions ?? a.spawnGeo?.contiguousRegions, _GEO_REGIONS_MAX),
+        _scaleUnit(topo.concaveCorners ?? a.spawnGeo?.concaveCorners, _GEO_CONCAVE_MAX),
     ].slice(0, SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM);
 }
 

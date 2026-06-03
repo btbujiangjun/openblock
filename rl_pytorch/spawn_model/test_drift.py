@@ -11,7 +11,7 @@ import sys
 import numpy as np
 
 
-def _make_contexts(n, fill_targets=None, fill_theta=None, dim=61, seed=0):
+def _make_contexts(n, fill_targets=None, fill_theta=None, dim=63, seed=0):
     rng = np.random.default_rng(seed)
     ctx = np.zeros((n, dim), dtype=np.float64)
     if fill_targets is not None:
@@ -81,7 +81,7 @@ def test_dataset_dim_and_explicit_theta():
         _PB_THETA_DEFAULTS,
     )
 
-    assert BEHAVIOR_CONTEXT_DIM == 61, "v1.61.0：behaviorContext 应为 61 维"
+    assert BEHAVIOR_CONTEXT_DIM == 63, "v1.66 P7：behaviorContext 应为 63 维（61 + 2 维客观几何）"
 
     # 缺省 θ → 默认域归一化（pbTensionCenter 0.82 → (0.82-0.70)/0.22 ≈ 0.5455）。
     default_norm = _norm_pb_theta(None)
@@ -89,7 +89,7 @@ def test_dataset_dim_and_explicit_theta():
     assert abs(default_norm[0] - (0.82 - 0.70) / (0.92 - 0.70)) < 1e-6
 
     # 空 ps → 全 0（含 θ 尾段为 0，因为整体补零路径）。
-    assert _parse_behavior_context(None).shape[0] == 61
+    assert _parse_behavior_context(None).shape[0] == 63
 
     # 带 pbCurveParams 的 ps → θ 尾段反映显式值。
     ps = {
@@ -103,7 +103,7 @@ def test_dataset_dim_and_explicit_theta():
         }
     }
     vec = _parse_behavior_context(ps)
-    assert vec.shape[0] == 61
+    assert vec.shape[0] == 63
     # 全部取区间上界 → 归一化应为 1.0。
     assert np.allclose(vec[57:61], [1.0, 1.0, 1.0, 1.0]), f"上界 θ 应归一化为 1，实际 {vec[57:61]}"
 
@@ -115,7 +115,7 @@ def test_dataset_dim_and_explicit_theta():
     assert rid_a == rid_a2, "相同 θ 应得相同 regime id"
     assert rid_default == rid_default2, "缺省 θ 应与显式默认 θ 同 regime"
     assert rid_a != rid_default, "不同 θ 应得不同 regime id"
-    print("[OK] dataset 61 维 + 显式 θ + theta_regime_id")
+    print("[OK] dataset 63 维 + 显式 θ + 客观几何 + theta_regime_id")
 
 
 def test_reference_build_and_check():

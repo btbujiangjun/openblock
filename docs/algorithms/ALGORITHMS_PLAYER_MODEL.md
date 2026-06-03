@@ -1611,6 +1611,25 @@ audit 逻辑唯一来源在 `web/src/audit/profileAudit.js`（JS 库），server
 - `profileAudit` 回答"我们的指标体系本身可信吗？"（**评价指标**）
 - `SPAWN_DIFFICULTY_AND_EVALUATION` 回答"出块算法在多种玩家分布下表现如何？"（**评价算法**）
 
+#### 7.1 思考耗时离散度与单步难度分布（v1.64）
+
+`buildReplayAnalysis.metrics` 在均值类指标之外，新增**离散度 / 分布**字段，把「玩家随时间的
+认知波动」与「算法产出的单步难度分布」一并落入 `move_sequences.analysis`：
+
+| 字段 | 含义 | 计算口径 |
+|------|------|----------|
+| `think_cv` | 思考耗时变异系数（CV） | 非冷启动帧 `ps.metrics.thinkMs` 序列的 `stddev/mean`；`mean≤0` → null |
+| `think_range` | 思考耗时极差（ms） | `max − min` |
+| `stepDifficultyMean` / `Peak` / `Cv` | 本局单步出块难度均值 / 峰值 / 变异系数 | spawn 帧 `spawnMeta.stepDifficulty.stepDifficulty` 序列 |
+| `stepDifficultyBuckets` | 五档桶计数 | `{trivial,easy,standard,hard,extreme}` 计数 |
+
+物理含义：`think_cv` 高 = 本局难度起伏明显（时易时难，与"无题目下算法产出难度分布的离散度"
+同义）；`stepDifficultyPeak ≥ 0.8`（extreme 档）会触发复盘建议，提示核对突刺式加压。
+单步难度分由 `web/src/spawnStepDifficulty.js` 产出，详见
+[`ALGORITHMS_SPAWN.md` §14.二](./ALGORITHMS_SPAWN.md#14-出块难度与评估)。其确定性的 4 维子向量
+（`spawnStepDifficultyFeatures`）自 v1.65 起亦**直接进入 RL 落子 state（181→185→187，v1.66 再 +2 维客观几何）**，
+见 [`ALGORITHMS_RL.md` §3.6](./ALGORITHMS_RL.md#36-单步出块难度spawn-step-difficulty正式进入-statev165理想态)。
+
 ### 8. 扩展指南
 
 #### 加一条契约

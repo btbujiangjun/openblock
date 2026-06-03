@@ -423,7 +423,7 @@ RL_EVAL_GATE_HARD=1 python -m rl_pytorch.train
 
 ### 5.4.6 颜色与 payoff 可观测性增强
 
-- **颜色与 payoff 可观测性**：`stateScalarDim` 扩到 42，含 19 维颜色摘要（8 维棋盘颜色占比、8 维同色线潜力、3 维 dock 颜色）；动作特征加入多消、同 icon / 同色 bonus 与清屏潜力。`stateDim=181`、`actionDim=15`、`phiDim=196`。
+- **颜色与 payoff 可观测性**：`stateScalarDim` 扩到 42，含 19 维颜色摘要（8 维棋盘颜色占比、8 维同色线潜力、3 维 dock 颜色）；动作特征加入多消、同 icon / 同色 bonus 与清屏潜力。`stateDim=181`、`actionDim=15`、`phiDim=196`。（历史里程碑数值；v1.65 追加 4 维单步难度、v1.66 再追加 2 维客观几何 → 当前 `stateDim=187`、`phiDim=202`，见 `ALGORITHMS_RL.md` §3.6–3.7。）
 - **EvalGate 语义收紧**：candidate/baseline 使用同一批 seed，门控改为逐局配对分数比较，要求 `paired_score_win_rate >= winRatio` 且平均分差非负。
 - **PPO 行为分布对齐**：轨迹中的 `old_log_prob` 记录真实采样分布（含 `lookahead_mix` / teacher 与 Dirichlet 扰动）下的动作 log-prob。
 - **EvalGate 与课程门槛对齐**：门控评估使用与当前训练轮次一致的课程阈值。
@@ -776,7 +776,7 @@ $$
    - `compute_intrinsic_reward(target, predictor, states)`：返回 (reward_tensor, predictor_loss_tensor)
 2. `rl_pytorch/train.py` 主循环：
    - 启动时构造网络（仅 enabled=true）
-   - 每 batch 末提取所有 step 的 `state`（shape=(STATE_FEATURE_DIM=181,)） → 算 r_intrinsic → 注入 trajectory 每步 reward → 反传更新 predictor
+   - 每 batch 末提取所有 step 的 `state`（shape=(STATE_FEATURE_DIM=187,)） → 算 r_intrinsic → 注入 trajectory 每步 reward → 反传更新 predictor
    - 每 `triggerCheckEvery` 局（默认 2000）评估触发条件，触发但未启用时打 alert
 3. `rl_pytorch/game_rules.rl_rnd_curiosity_config`：JSON + env 双轨配置加载
 

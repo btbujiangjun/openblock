@@ -456,6 +456,11 @@ function _coreMetricsCard(core) {
     const delightRate = delight.coverageRate ?? 0;
     const delightThreshold = delight.threshold ?? 0.75;
     const delightCls = delightRate < delightThreshold ? 'ops-metric-value--warn' : '';
+    /* 失败压力 / 挣扎信号（难度归因）：struggle=濒死弹层占比，revive=实际复活占比。 */
+    const struggle = core.struggle || {};
+    const struggleRate = struggle.struggleRate ?? 0;
+    const reviveRate = struggle.reviveRate ?? 0;
+    const struggleCls = struggleRate > 0.35 ? 'ops-metric-value--warn' : '';
     c.innerHTML += `<div class="ops-metric-grid">
       ${_metricCell('获客·新增用户', _fmtNum(acq.newUsers, 0))}
       ${_metricCell('获客·成本', _fmtMoney(acq.cost))}
@@ -476,6 +481,8 @@ function _coreMetricsCard(core) {
       ${_metricCell('质量·卡顿率', _fmtPct(q.jankRate), (q.jankRate || 0) > 0.1 ? 'ops-metric-value--warn' : '')}
       ${_metricCell('质量·加载时长', _fmtNum(q.avgLoadMs, 1) + 'ms')}
       ${_metricCell(`体验·爽感覆盖率(7d, 目标≥${_fmtPct(delightThreshold)})`, _fmtPct(delightRate), delightCls)}
+      ${_metricCell('难度·挣扎率(7d, 濒死弹层占比)', _fmtPct(struggleRate), struggleCls)}
+      ${_metricCell('难度·复活率(7d, 实际复活占比)', _fmtPct(reviveRate))}
     </div>`;
     return c;
 }

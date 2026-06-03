@@ -1166,7 +1166,7 @@ $$
 | 角色 | 层 | 输入契约 | 输出契约 | 当前文件入口 | 详细文档 |
 |------|-----|---------|---------|-------------|---------|
 | **SpawnPolicyRules** | L1 | `grid + strategyConfig + spawnContext` | `{shape_id × 3} + _spawnDiagnostics` | `web/src/bot/blockSpawn.js` | 本文 §二 |
-| **SpawnPolicyNet** | L1 | `board(64) + behaviorContext(61) + history(3×3)` | `{shape_id × 3}` | `rl_pytorch/spawn_model/` | 本手册 §13 §3 |
+| **SpawnPolicyNet** | L1 | `board(64) + behaviorContext(63) + history(3×3)` | `{shape_id × 3}` | `rl_pytorch/spawn_model/` | 本手册 §13 §3 |
 | **HandTuned** | L2 | — | θ ∈ `game_rules.json + DEFAULT_SPAWN_PARAMS_PB_CURVE` | `web/src/adaptiveSpawn.js` | ADAPTIVE_SPAWN.md |
 | **SpawnParamTuner** | L2 | `(ctx₅, θ₉)` | `d_curve₂₀ + 4 辅助 head` → 反求 θ* | `rl_pytorch/spawn_tuning_v2/` | 本手册 §15 |
 
@@ -1185,7 +1185,7 @@ $$
 | SpawnPolicy | 出块策略 | L1 | Rules / Net |
 | SpawnParam (θ) | 出块参数 | L1 输入 / L2 输出 | 9 |
 | d_curve | 难度曲线 | L2 标签 | 20 |
-| behaviorContext | L1 神经版输入 | L1 | 61 |
+| behaviorContext | L1 神经版输入 | L1 | 63 |
 | spawnHints | L1 规则版软目标 | L1 | 字典 |
 | spawnTargets | stress 投影多轴目标 | L1 | 6 |
 
@@ -1732,7 +1732,7 @@ d^\* = \mathrm{clamp}\bigl(
 **（1）棋盘**  
 `8×8` 二值矩阵（有块为 1），与规则层 `Grid` 对齐；展平为 64 维后与 context 拼接进入 `board_proj`。
 
-**（2）61 维行为上下文向量**（`dataset._parse_behavior_context`）  
+**（2）63 维行为上下文向量**（`dataset._parse_behavior_context`）  
 
 V3.1 仍保留前 24 维基础画像（`_parse_context`），后 37 维显式纳入最新用户行为、能力向量、拓扑、策略意图与 PB 曲线 θ：
 
@@ -1746,11 +1746,11 @@ V3.1 仍保留前 24 维基础画像（`_parse_context`），后 37 维显式纳
 | 55–56 | 额外策略上下文 | `multiLineTarget`、`sessionArc` |
 | 57–60 | **PB 曲线 θ 显式条件**＼� | `pbTensionCenter / pbTensionWidth / pbBrakeCenter / pbBrakeWidth`，按 `_PB_THETA_RANGES` 归一化；来源 `ps.adaptive.stressBreakdown.pbCurveParams`，缺省 → 默认 θ 域 |
 
-枚举映射：`_FLOW_MAP`（bored/flow/anxious）、`_PACING_MAP`、`_SESSION_MAP`。前 24 维保留旧索引，便于反膨胀、playstyle/intent 弱标签等训练 helper 复用基础字段；V3.1 模型实际输入维度为 **`BEHAVIOR_CONTEXT_DIM=61`**。
+枚举映射：`_FLOW_MAP`（bored/flow/anxious）、`_PACING_MAP`、`_SESSION_MAP`。前 24 维保留旧索引，便于反膨胀、playstyle/intent 弱标签等训练 helper 复用基础字段；V3.1 模型实际输入维度为 **`BEHAVIOR_CONTEXT_DIM=63`**（v1.66 P7：尾部 [61-62] 追加 2 维客观几何 `contiguousRegions/concaveCorners`，归一化 16/32，与 RL state 同源 boardTopology；θ 段 [57:61] 不变）。
 
 > 🧭 **显式 θ 条件（把 L2→L1-Net 隐式耦合转为显式输入）**：把本帧实际生效的 4 个 PB 曲线 θ 直接喂进网络（[57–60]），让模型对 θ **泛化**而非把 θ 当作不可见的分布漂移源——这是消除「换 θ 不重训 → 行为克隆假设失效」退化的治本手段。配套样本元数据 `theta_regime`（int，不进网络）供**分层重训 / 漂移分组**；运行期分布漂移由 `rl_pytorch/spawn_model/drift.py`（`spawn_targets_drift / pb_theta_drift / assert_spawn_targets_drift`，PSI）做部署门禁兜底。
 
-> ✅ **前后端契约已对齐（2026-05-29，61 维）**：前端 `web/src/spawnModel.js` 的 `SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM=61`、`SPAWN_INTENT_VOCAB`（7 类含 `sprint`）、`SHAPE_VOCAB`（40）、`SPAWN_PB_THETA_RANGES`（4 维 θ 归一化区间）与 Python `dataset.py` 逐项一致，确保前端拼接维度与后端 `board_proj.in_features`（64+61=125）相符；服务端 `/api/spawn-model/v3/predict` 以 `BEHAVIOR_CONTEXT_DIM` 动态裁剪/补零。该契约由 `tests/spawnModelPythonParity.test.js` 静态钉死，任一侧漂移即测试失败。
+> ✅ **前后端契约已对齐（2026-06-03，63 维）**：前端 `web/src/spawnModel.js` 的 `SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM=63`、`SPAWN_INTENT_VOCAB`（7 类含 `sprint`）、`SHAPE_VOCAB`（40）、`SPAWN_PB_THETA_RANGES`（4 维 θ 归一化区间）+ 2 维客观几何与 Python `dataset.py` 逐项一致，确保前端拼接维度与后端 `board_proj.in_features`（64+63=127）相符；服务端 `/api/spawn-model/v3/predict` 以 `BEHAVIOR_CONTEXT_DIM` 动态裁剪/补零。该契约由 `tests/spawnModelPythonParity.test.js` 静态钉死，任一侧漂移即测试失败。
 
 **（3）历史三连形状**  
 `history` 形状 `(3, 3)`：最近最多 `HISTORY_LEN=3` 轮，每轮3 个形状 ID；不足填0。嵌入为 `shape_embed` + **位置编码** `history_pos`（长度 `3×3=9`），使模型区分「上一轮第 2 块」与「上两轮第 1 块」等不同时间位置。
@@ -1776,7 +1776,7 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 **Token 构造**（序列长度 \(\underbrace{1}_{\text{CLS}}+\underbrace{1}_{\text{state}}+\underbrace{1}_{\text{diff}}+\underbrace{1}_{\text{style}}+\underbrace{9}_{\text{history}}=13\)）：
 
 1. **CLS**：可学习向量 `cls_token`，聚合全局表示。  
-2. **State token**：`[board_flat(64) ; behaviorContext(61)]` → `board_proj = Linear(125→d_model)` + GELU + LayerNorm。  
+2. **State token**：`[board_flat(64) ; behaviorContext(63)]` → `board_proj = Linear(127→d_model)` + GELU + LayerNorm。  
 3. **Difficulty token**：`target_difficulty (1)` → `difficulty_proj = Linear(1→d_model)` + GELU + LayerNorm；为 `None` 时填 0.5。  
 4. **Style token**：`playstyle_id` → `Embedding(NUM_PLAYSTYLES=5, d_model)` + `style_pos`；为 `None` 时填零向量。  
 5. **History tokens（9 个）**：每个 cell 为形状 ID → 共享 `shape_embed = Embedding(NUM_SHAPES+1, d_model, padding_idx=NUM_SHAPES)`，加 `history_pos`（长度 `3×3=9`）。注：`dataset` 对不足 3 轮的历史用 **0**（即 `1x4`）补位，而非 `padding_idx`；该 PAD 位仅在推理拼接 PAD 时生效。
@@ -1807,9 +1807,9 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 - **来源**：SQLite `sessions ⨝ move_sequences.frames`（JSON），筛选 `status='completed'` 且 `score ≥ min_score`，**按分降序**取 `max_sessions`（默认 500）；少于 5 帧的对局丢弃。  
 - **逐帧解析**（`extract_samples_from_session`）：`init`/`place` 维护 `last_grid`（`place` 用 `gridAfter` 更新），每个 `spawn` 帧产 1 条样本，标签为 dock 前 3 块形状 ID + 品类。  
 - **样本权重**：局级 `clearRate = place 帧数 / spawn 帧数`，与分数共同决定 `weight`（公式见 §3.3-(4)），避免「高分但几乎不消行」的畸形局主导梯度。  
-- **产物**：`models/spawn_transformer_v3.pt`（含 `model_state_dict`、`config` 超参、`model_version='v3.1-behavior'`、`context_dim=24`、`behavior_context_dim=61`、`num_shapes/num_categories/num_playstyles/num_spawn_intents`、`epoch/val_loss/val_acc`、还含 **`drift_reference`**（训练集 spawnTargets/PB θ 画像）与 **`theta_regimes`**（θ-regime 分布））；进度 JSON `models/spawn_train_status.json` 供训练面板展示。
+- **产物**：`models/spawn_transformer_v3.pt`（含 `model_state_dict`、`config` 超参、`model_version='v3.1-behavior'`、`context_dim=24`、`behavior_context_dim=63`、`num_shapes/num_categories/num_playstyles/num_spawn_intents`、`epoch/val_loss/val_acc`、还含 **`drift_reference`**（训练集 spawnTargets/PB θ 画像）与 **`theta_regimes`**（θ-regime 分布））；进度 JSON `models/spawn_train_status.json` 供训练面板展示。
 
-> 🧩 ��配合 `PLAYER_STATE_SNAPSHOT_VERSION=3`，把"出块算法优化"真正需要的标签补齐——
+> 🧩 配合 `PLAYER_STATE_SNAPSHOT_VERSION=4`（v1.66 P7：spawnGeo 增 `contiguousRegions/concaveCorners`），把"出块算法优化"真正需要的标签补齐——
 > 1. **逐 triplet 因果结果** `outcome`（`OUTCOME_DIM=7`：消行数 / 得分增量 / 填充 delta / 空洞 delta / 落子数 / 单步最大消行 / 一手清屏），由 `_compute_spawn_outcome` 从 spawn→下一 spawn 间的 place 帧聚合；`weight` 叠加 `_outcome_weight_factor`（[0.5,1.8]）做因果微调，奖励消行/减洞、惩罚恶化盘面/弃块。`outcome` 已进 `SpawnDataset.__getitem__`，`train_v3` 可选作 reward/advantage 加权。
 > 2. **近消行拓扑落库**：`spawnGeo.nearFullLines/close1/close2/maxColHeight` 此前 snapshot 未写 → `behaviorContext[28-30]` 恒 0，现已真实填充（`detectNearClears` 同源，索引不变）。
 > 3. **PB 相对进度基线**：`ps.bestScore` / `ps.pbRatio`，让 `pbRatio=score/bestScore` 可离线重建。
@@ -1832,7 +1832,7 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 - **形状提案**（`shape_proposer.py`）：与 `SHAPE_VOCAB`（40）配套的候选生成/校验工具。
 - **分布漂移监控**：对 behaviorContext 的 `spawnTargets` 段（[38:44]）与 PB θ 段（[57:61]）计算 PSI（`population_stability_index`），`assert_spawn_targets_drift` 可作为重训/部署门禁（经验阈值 0.10 关注 / 0.25 重训）；配合显式 θ 条件防止 L2 换 θ 后 Net 的 OOD 退化。自检见 `test_drift.py`。
 - **部署门禁 CLI**：`python -m rl_pytorch.spawn_model.drift_check --db <db> --ckpt <pt>` 用 checkpoint 内 baked-in 的 `drift_reference` 对照线上 behaviorContext，漂移超阈值退出码 1。这是**数据漂移门禁**，需线上 DB + ckpt，属**部署期/发布前**检查（不进 CI，因 CI 无生产数据）；npm 别名 `npm run spawn:drift-check -- --db <db> --ckpt <pt>`。训练侧 `train_v3.py` 会打印 θ-regime 分布并与上一版 ckpt 的参考画像做非致命漂移对照。
-- **CI 回归门禁**：每次 push / PR 安装 CPU 版 torch + numpy 后跑 `test_drift`（PSI / θ 归一化 / 61 维契约 / 漂移参考构建）与 `test_v3`（61 维前向、`board_proj=125`、AR 头、LoRA 往返）。守护的是**逻辑与张量契约不回退**；web↔python 维度 parity 由 vitest 覆盖。本地等价命令：`npm run spawn:gate`。
+- **CI 回归门禁**：每次 push / PR 安装 CPU 版 torch + numpy 后跑 `test_drift`（PSI / θ 归一化 / 63 维契约 / 漂移参考构建）与 `test_v3`（63 维前向、`board_proj=127`、AR 头、LoRA 往返）。守护的是**逻辑与张量契约不回退**；web↔python 维度 parity 由 vitest 覆盖。本地等价命令：`npm run spawn:gate`。
 - **显式 θ 日志就绪度门禁**：`python -m rl_pytorch.spawn_model.theta_readiness --db <db>`（npm 别名 `spawn:theta-readiness`）。重训**前置**检查 `ps.adaptive.stressBreakdown.pbCurveParams` 的三项指标：覆盖率、θ-regime 数、归一化后跨度。任一不达标（默认 80% / ≥2 / ≥0.05）→ 退出码 3，说明显式 θ 那 4 列接近常数、重训学不到 θ→出块映射（此时显式 θ 仅为安全网，需先让 L2 tuner 产出有差异的 PB 曲线 θ 并累计新日志）。属数据相关的部署/重训前门禁，不进 CI。
 
 ---
@@ -2051,48 +2051,100 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 | 关系 | 提案指标 → 系统对应 |
 |------|----------------------|
 | 强对齐 | `holes_cnt`（系统更细分三套口径）、`blocks_cnt` ＝ `fillRatio`、`cell_count`、`shape_family` |
-| 口径需注意 | `is_long_bar`：系统里 `lines` 品类被当作**最低复杂度（偏易）**，与提案「易制造死局」语义**相反** |
-| 近似替代 | `init_complexity` → `boardDifficulty`；`concave_corners` → `wells` + 小凹陷；`min_flexibility` → `firstMoveFreedom`（短板逻辑一致） |
-| 全缺 | `is_killer` / `combo_killer_cnt` / `scd_score` / `scd_range` 及全部题目级 `avg_*` |
+| 口径需注意 | `is_long_bar`：系统里 `lines` 品类被当作**最低复杂度（偏易）**，与提案「易制造死局」语义**相反**。**已解决**：`spawnStepDifficulty.js` 把「生成多样性」与「难度约束」两套口径分离——生成侧 `categoryComplexity('lines')=0.15` 不变，难度侧 `isLongBar` 单独定义为约束抓手（见 §2.6 风险表） |
+| 近似替代 | `init_complexity` → `boardDifficulty`；`min_flexibility` → `firstMoveFreedom`（短板逻辑一致） |
+| ~~全缺~~ **已补齐** | `is_killer` / `combo_killer_cnt` / `is_long_bar` / `scd_score` 由 `spawnStepDifficulty.js` 实现并落库（见 §2.6 P0/P1）；**`contiguous_regions`（空白 4-连通分量数）/ `concave_corners`（凹角数）**由 `boardTopology.js` `countEmptyRegions`/`countConcaveCorners` 实现（Python 镜像 `fast_grid.py`），同时进 RL state（§3.7）、随 `spawnMeta.stepDifficulty` 落库、按难度桶聚合（P7）；题目级 `avg_*` 因无题目前提改为「难度桶 × 算法」聚合（P4） |
 
 **表现难度对照**
 
 | 关系 | 提案指标 → 系统对应 |
 |------|----------------------|
-| 强对齐 | `time_think` ＝ `thinkMs`、`block_step_cnt` ＝ `placements`、`blast_cnt`、`clean_screen_rate` / `multi_blast_rate` / `no_blast_rate` |
-| 口径需注意 | `time_action` → `pickToPlaceMs`（含定位决策，非纯拖拽段）；`revive_*` 已实现但**生产默认关闭**（无样本） |
-| 全缺 | `is_exact_match` 及惩罚偏离族、`composite_difficulty_score`、五档 `difficulty_sub_label`、`think_cv` / `think_range`、各 `*_spread` |
+| 强对齐 | `time_think` ＝ `thinkMs`、`block_step_cnt` ＝ `placements`、`blast_cnt`、`clean_screen_rate` / `multi_blast_rate` / `no_blast_rate`（均在 `aggregate-step-difficulty.mjs` 按难度桶产出，P7） |
+| 口径需注意 | `time_action` → `pickToPlaceMs`（含定位决策，非纯拖拽段） |
+| ~~全缺~~ **已补齐** | `is_exact_match` 及惩罚偏离族（P5 离线 `audit-exact-match.mjs`）；**`max_punish_index` / `punishment_label`（跨算法陷阱深度上限 + 三档标签）、`composite_difficulty_score` / `difficulty_sub_label`（表现×客观加权统一坐标 + 五档）、`chain_label`（策略链层分布）** 由 `audit-exact-match.mjs` 落地（P7）；`think_cv` / `think_range`（P3）；`*_spread` / `scd_cv` / `scd_range` / `killer_range`（P4/P7 离散度）；**`revive_show`→`struggle_rate` / `revive_rate`** 由 `revive.js` 打点 + `server.py /api/ops/dashboard` 聚合（P7）。仍未实现：题目级 `avg_*`（前提不符） |
 
 #### 2.5 系统现有单步难度原语
 
-系统其实**已有分散的单步难度原语**，只是没 consolidate 成统一难度分、没落库、没驱动匹配：
+系统**已有分散的单步难度原语**；本轮已由 `spawnStepDifficulty.js` consolidate 成统一难度分并落库（见 §2.6）：
 
-| 原语 | 位置 | 现状用途 |
-|------|------|----------|
-| `boardDifficulty` | `adaptiveSpawn.js` | 仅作 `spatialPressure` 输入 |
-| DFS 解空间指标 | `blockSpawn.js` | 仅作软过滤 / 硬约束 |
-| `d_step` / `state_d` | tuning/v2 | 仅汇成整局 `d_curve` |
+| 原语 | 位置 | 现状用途 | consolidate 后 |
+|------|------|----------|----------------|
+| `boardDifficulty` | `adaptiveSpawn.js` | 仅作 `spatialPressure` 输入 | 作 `stepDifficulty` 的 board 项（权重 0.20） |
+| DFS 解空间指标 | `blockSpawn.js` | 仅作软过滤 / 硬约束 | `solutionCount` 作 solution 稀缺项（权重 0.15）+ `firstMoveFreedom` 作 flexibility 项（0.20） |
+| `d_step` / `state_d` | tuning/v2 | 仅汇成整局 `d_curve` | 暂保持独立（同源化为后续项） |
+| `scd_score`（新） | `spawnStepDifficulty.js` | — | 空间约束密度项（权重 0.30） |
+| `combo_killer_cnt`（新） | `spawnStepDifficulty.js` | — | killer 压力项（权重 0.15） |
 
-#### 2.6 P0–P6 优化路线（去题目化）
+#### 2.6 P0–P5 优化路线（去题目化）—— 已落地
 
-| 优先级 | 优化点 | 关键变化 / 改动量 |
-|:------:|--------|--------|
-| P0 | 单步难度特征化 + 落库 | **删除指纹/去重**，每条 spawn 独立带难度特征（中） |
-| P1 | 确定性单步难度评分器 `spawnStepDifficulty.js` | consolidate 现有原语为统一难度分（小） |
-| P2 | 难度分桶聚合（替代题目聚合） | 按 `难度桶 × 算法` 聚合，还原「高方差算法」判定（中） |
-| P3 | `is_exact_match` + 惩罚偏离族 | 离线回算最优解基线（中·离线） |
-| P4 | 单步难度驱动匹配下沉 | 收窄算法产出难度分布 + 对齐技能（中） |
-| P5 | v2 `d_step` 喂入 combo 特征 | v2 已有单步难度原语，让其同源（大） |
-| P6 | 五档标签统一 + 离散度看板 | 复用 §2.3 标签族（小） |
+下表 P0–P5 已实现（✅）。统一难度分由确定性评分器 `web/src/spawnStepDifficulty.js`
+产出，随 spawn 帧 `spawnMeta.stepDifficulty` 落库（零 schema 变更），Python 镜像
+`rl_pytorch/spawn_step_difficulty.py` 供 RL 数据集标注（跨语言契约测试保证两侧一致）。
 
-按性价比的补齐顺序：`scd_score`（纯几何零依赖最易补）→ `is_killer`（规则化）→ `is_exact_match`（解锁惩罚族）→ 离线脚本一次性补难度桶聚合。
+> **P6 已落地（v1.65，理想态升级）**：单步难度的 4 维子向量
+> `spawnStepDifficultyFeatures`（scdNorm / comboCellsNorm / comboKillerNorm / comboLongBarNorm）
+> 已**正式拼入 RL 落子 state**（181 → 185，`features.js` / `features.py` 共同调用该 SSOT 函数）。
+> 不顾虑旧 checkpoint 失效（resume 时 size-mismatch 自动回退从头训练）。详见
+> [`ALGORITHMS_RL.md` §3.6](./ALGORITHMS_RL.md#36-单步出块难度spawn-step-difficulty正式进入-statev165理想态)。
+>
+> **P7 已落地（v1.66，11 项高 ROI 指标落地，理想态）**：按「干净、不顾虑兼容」一次性贯通
+> 模型 / 打点 / 离线 / 面板四层：
+> - **客观几何**：`contiguous_regions`（空白 4-连通分量数）、`concave_corners`（凹角数）由
+>   `boardTopology.js` `countEmptyRegions`/`countConcaveCorners`（Python 镜像 `fast_grid.py`
+>   `_contiguous_regions`/`_concave_corners`，跨语言逐位一致）产出；**进 RL state**（185 → 187，
+>   见 [`ALGORITHMS_RL.md` §3.7](./ALGORITHMS_RL.md)）、随 `spawnMeta.stepDifficulty` 落库、
+>   经 `analyzeBoardTopology` 进 DFV / 玩家洞察面板。
+> - **离线惩罚/标签**：`audit-exact-match.mjs` 新增**按算法分组** → `max_punish_index` +
+>   `punishment_label`（宽容/中等/致命）、`chain_label`（0 级并行 / 1 级单消 / 2 级多消嵌套 /
+>   3 级清屏）分布、`composite_difficulty_score` + `difficulty_sub_label`（五档，表现 think/match/
+>   punish/revive × 客观 killer/flex 加权；`--revive-rate` 注入复活率，缺省按 0 计）。
+> - **离散度（零成本）**：`aggregate-step-difficulty.mjs` 新增 `scd_cv` / `scd_range` /
+>   `killer_range` 与难度桶级 `cleanScreenRate` + 几何均值。
+> - **失败压力打点**：新增 `revive_show`（濒死弹层）打点 → `server.py /api/ops/dashboard`
+>   聚合 `struggle_rate` / `revive_rate`，运营看板新增对应指标卡。
+
+| 优先级 | 优化点 | 状态 | 落地位置 |
+|:------:|--------|:----:|----------|
+| P0 | `scd_score` 空间约束密度（纯几何） | ✅ | `spawnStepDifficulty.js` `scdScore`/`scdLevel` |
+| P1 | 统一 `is_killer`/`is_long_bar` 口径 + `combo_killer_cnt` | ✅ | `spawnStepDifficulty.js` `isKillerShape`/`isLongBar`/`classifyTriplet` |
+| P2 | 确定性单步难度评分器 + 落库 | ✅ | `computeSpawnStepDifficulty` → `blockSpawn.js` diagnostics → `game.js` `_spawnMetaForFrame` → `move_sequences.frames[].spawnMeta.stepDifficulty` |
+| P3 | `think_cv`/`think_range` + 难度分布 | ✅ | `moveSequence.js` `buildReplayAnalysis.metrics`（`think_cv`/`think_range`/`stepDifficulty{Mean,Peak,Cv,Buckets}`） |
+| P4 | 难度分桶聚合（替代题目聚合） | ✅ | `scripts/aggregate-step-difficulty.mjs`（`难度桶 × 算法`，含 `algoScoreSpread`）；`npm run spawn:difficulty-agg` |
+| P5 | `is_exact_match` + 惩罚偏离族 | ✅ | `scripts/audit-exact-match.mjs`（离线重建 + 贪心基线 → `exact_match_rate`/`think_punish_index`）；`npm run spawn:exact-match` |
+| P7 | 客观几何 + 跨算法惩罚/标签 + 离散度 + 失败压力打点 | ✅ | `boardTopology.js`（`contiguous_regions`/`concave_corners` → state §3.7 + 落库）；`audit-exact-match.mjs`（`max_punish_index`/`punishment_label`/`chain_label`/`composite_difficulty_score`/`difficulty_sub_label`）；`aggregate-step-difficulty.mjs`（`scd_cv`/`scd_range`/`killer_range`/`cleanScreenRate`）；`revive.js`+`server.py`（`struggle_rate`/`revive_rate`） |
+
+**配置**：`shared/game_rules.json` → `adaptiveSpawn.spawnStepDifficulty`（权重、scd 档位、killer 阈值等）；`featureEncoding.actionNorm.maxEmptyRegions`/`maxConcaveCorners`（几何归一化分母）。
+
+**难度分合成公式**（0~1，各项 clamp01 后加权，权重见配置）：
+
+```
+stepDifficulty = 0.30·scdNorm + 0.20·boardDifficulty + 0.20·(1−flexNorm)
+               + 0.15·solutionScarcity + 0.15·killerPressure
+bucket ∈ {trivial(≤0.2), easy(≤0.4), standard(≤0.6), hard(≤0.8), extreme(>0.8)}
+```
+
+其中 `boardDifficulty = clamp01(fill + holePressure·0.8)`（与 `adaptiveSpawn.js` /
+`spawn_model/dataset.py` 同源）；`solutionScarcity = 1 − solutionCount/solutionAbundant`
+（capped/truncated 视为解充裕=0）；`flexNorm = minFlexibility/flexibilityFree`。
+
+> **后续**：五档标签并入面板看板、单步难度驱动匹配下沉（收窄算法产出难度分布）。
+> v2 `d_step` 与本难度分**同源化已落地（v1.66）**：真人局若 spawn 帧落库统一难度分
+> `spawnMeta.stepDifficulty.stepDifficulty`（scd_score），`behavior_import` 经 `StepInfo.state_difficulty`
+> 优先用它作 `d_curve` 的 `state_d`，与 RL state / 离线难度桶 / 回放同尺；缺该字段回退 fillRate/freedom/trend 代理
+> （构造样本 / samplerV2.js 路径不变，跨语言 d_curve 契约不破）。统一难度分**接入 RL 落子 state 已完成**（181 → 185 → 187，见上 P6/P7）；
+> Spawn V3 behaviorContext **61 → 63（v1.66 P7 已落地）**——新增 2 维客观几何
+> `contiguousRegions/concaveCorners`（盘面**输入**属性，落子前可知，与 RL state 同源 boardTopology），
+> 让生成式出块显式感知碎片化 / 凹角陷阱；而 scd/killer/longbar 仍**不入**网络（它们是候选三块=出块模型
+> **输出**的属性，作为输入会泄漏标签），board 项 `board_difficulty[26]` 早已在位。
 
 #### 2.7 风险与注意事项
 
 1. **无题目概念**：难度的最小单元是 spawn step，确定性逐步算，不做"同题求均值"。
 2. **难点在数据归因而非特征**：单步难度信号已有充足原语，缺的是 consolidate + 落库 + 归因。
 3. **长条语义冲突**：提案视长条为高难，系统 `lines` 品类视为偏易——落地评分器需显式定义口径。
-4. **复活默认关闭**：`revive_*` 生产无样本，相关表现指标暂不可用。
+4. **复活信号**：`revive_show`（濒死弹层）与 `revive_used`（实际复活）均已打点，聚合为
+   `struggle_rate` / `revive_rate`（见 P7）；composite 的 revive 项需 `--revive-rate` 注入，
+   缺省按 0 计并在报告中标注。
 5. **最优解成本**：`is_exact_match` 依赖设计/最优落点，需离线 DFS 回算，非实时。
 6. **硬护栏不可破**：任何难度下沉都保留 `validateSpawnTriplet` 硬可解性护栏。
 7. **先观测后干预**：先落库观测难度分布，再开匹配下沉，避免盲调。

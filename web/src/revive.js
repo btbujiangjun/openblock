@@ -125,6 +125,13 @@ export class ReviveManager {
         document.querySelectorAll('.revive-overlay').forEach(el => el.remove());
         clearTimeout(this._autoSkipTimer);
 
+        /* struggle 信号打点：每次濒临死亡（弹出复活层）都计，比 revive_used 更敏感。
+         * 事件 id 'revive_show' 与 config.GAME_EVENTS.REVIVE_SHOW / server.py 聚合谓词一致。 */
+        this._game?.logBehavior?.('revive_show', {
+            showCount: this._usedCount + 1,
+            score: this._game?.score,
+        });
+
         const overlay = document.createElement('div');
         overlay.className = 'revive-overlay';
         overlay.setAttribute('role', 'alertdialog');

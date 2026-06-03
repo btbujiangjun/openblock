@@ -36,6 +36,7 @@
 const { getAllShapes, getShapeCategory, pickShapeByCategoryWeights, isSpecialShapeId } = require('../shapes');
 const { GAME_RULES } = require('../gameRules');
 const { analyzeBoardTopology, detectNearClears } = require('../boardTopology');
+const { computeSpawnStepDifficulty } = require('../spawnStepDifficulty');
 const { defaultRng, pickIndex, fisherYatesInPlace } = require('../lib/seededRng');
 const { pickByPlatform } = require('../config/platformProfile');
 
@@ -734,6 +735,11 @@ function getSolutionDifficultyCfg() {
         leafCap: cfg?.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT,
         budget: cfg?.budget ?? SOLUTION_BUDGET_DEFAULT
     };
+}
+
+function getStepDifficultyCfg() {
+    const cfg = GAME_RULES?.adaptiveSpawn?.spawnStepDifficulty || GAME_RULES?.spawnStepDifficulty;
+    return { enabled: cfg?.enabled !== false, ...(cfg && typeof cfg === 'object' ? cfg : {}) };
 }
 
 function minMobilityTarget(fill, attempt) {
@@ -2161,6 +2167,7 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const payoffTarget = Math.max(0, Math.min(1, spawnTargets.payoffIntensity ?? Math.max(multiClearBonus, delightBoost)));
     const noveltyTarget = Math.max(0, Math.min(1, spawnTargets.novelty ?? divBoost));
     const solutionCfg = getSolutionDifficultyCfg();
+    const stepDiffCfg = getStepDifficultyCfg();
 
     const allShapes = getAllShapes();
     const fill = grid.getFillRatio();
@@ -3208,6 +3215,33 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             spawnCtx:     m.spawnCtx,
         }));
         diagnostics.layer1.solutionMetrics = solutionMetrics;
+
+        /* P0–P2：单步出块难度统一分（确定性，随 spawnMeta 落库 → 离线难度桶聚合 / RL 数据集标注）。
+         * 复用本轮已算好的 topo.holes / occupied / solutionMetrics，避免重复扫描盘面。
+         * boardDifficulty 与 adaptiveSpawn / Python 镜像同源公式 clamp01(fill + holePressure*0.8)。 */
+        if (stepDiffCfg.enabled) {
+            try {
+                const holePressure = Math.max(0, Math.min(1, (topo.holes ?? 0) / 8));
+                const boardDifficulty = Math.max(0, Math.min(1, fill + holePressure * 0.8));
+                diagnostics.stepDifficulty = computeSpawnStepDifficulty({
+                    shapes: triplet,
+                    occupiedCount: occupied,
+                    boardDifficulty,
+                    solutionMetrics,
+                    countLegal: (data) => countLegalPlacements(grid, data),
+                    categoryOf: (shape) => getShapeCategory(shape?.id)
+                }, stepDiffCfg);
+                /* 附挂客观几何难度（空白连通块数 / 凹角数）——computeSpawnStepDifficulty 是
+                 * 纯三块+占用的跨语言 SSOT，不耦合盘面几何；这里 post-hoc 挂到落库对象上，
+                 * 供 aggregate-step-difficulty.mjs 按难度桶聚合、DFV 透视。 */
+                if (diagnostics.stepDifficulty) {
+                    diagnostics.stepDifficulty.contiguousRegions = topo.contiguousRegions ?? null;
+                    diagnostics.stepDifficulty.concaveCorners = topo.concaveCorners ?? null;
+                }
+            } catch {
+                diagnostics.stepDifficulty = null;
+            }
+        }
         _lastDiagnostics = diagnostics;
 
         return triplet;

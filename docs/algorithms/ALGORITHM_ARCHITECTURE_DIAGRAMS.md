@@ -379,7 +379,7 @@ flowchart LR
 
   subgraph NET["🧠 主干 · ConvSharedPolicyValueNet"]
     direction TB
-    n1["CNN 棋盘编码<br/>state dim = 181"]
+    n1["CNN 棋盘编码<br/>state dim = 187"]
     n2["DockBoardAttention<br/>Cross-attention"]
     n3["DockPointEncoder<br/>PointNet 风格"]
     n1 --> n2 --> n3

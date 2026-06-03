@@ -158,8 +158,8 @@ torch = pytest.importorskip("torch")
 class TestRNDNetworks:
     def test_build_networks(self):
         from rl_pytorch.intrinsic_rnd import build_rnd_networks
-        # 与 game_rules.json 默认值对齐（STATE_FEATURE_DIM=181）
-        cfg = RNDConfig(enabled=True, state_dim=181, hidden_dim=64, output_dim=32)
+        # 与 game_rules.json 默认值对齐（STATE_FEATURE_DIM=187）
+        cfg = RNDConfig(enabled=True, state_dim=187, hidden_dim=64, output_dim=32)
         target, predictor, opt = build_rnd_networks(cfg)
         # target 应被 freeze
         for p in target.parameters():
@@ -170,10 +170,10 @@ class TestRNDNetworks:
 
     def test_target_frozen_after_update(self):
         from rl_pytorch.intrinsic_rnd import build_rnd_networks, compute_intrinsic_reward
-        cfg = RNDConfig(enabled=True, state_dim=181, hidden_dim=64, output_dim=32)
+        cfg = RNDConfig(enabled=True, state_dim=187, hidden_dim=64, output_dim=32)
         target, predictor, opt = build_rnd_networks(cfg)
         target_sd_before = {k: v.clone() for k, v in target.state_dict().items()}
-        states = torch.randn(16, 181)
+        states = torch.randn(16, 187)
         _, loss = compute_intrinsic_reward(target, predictor, states)
         loss.backward()
         opt.step()
@@ -200,9 +200,9 @@ class TestRNDNetworks:
 
     def test_intrinsic_reward_shape(self):
         from rl_pytorch.intrinsic_rnd import build_rnd_networks, compute_intrinsic_reward
-        cfg = RNDConfig(enabled=True, state_dim=181, hidden_dim=64, output_dim=32)
+        cfg = RNDConfig(enabled=True, state_dim=187, hidden_dim=64, output_dim=32)
         target, predictor, _ = build_rnd_networks(cfg)
-        states = torch.randn(8, 181)
+        states = torch.randn(8, 187)
         rewards, loss = compute_intrinsic_reward(target, predictor, states)
         assert rewards.shape == (8,)
         assert loss.dim() == 0  # 标量

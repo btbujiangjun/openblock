@@ -3859,6 +3859,25 @@ def ops_dashboard():
         delight_coverage_rate = _safe_div(delight_users, active_users, 4)
         delight_coverage_threshold = 0.75
 
+        # ── 复活 / 挣扎信号（失败压力难度指标）──
+        # struggle_rate = 触发过 revive_show（濒临死亡弹层）的去重用户占比（更敏感）；
+        # revive_rate   = 实际 revive_used（已死一次并复活）的去重用户占比。
+        # 事件 id 与 web/src/config.js GAME_EVENTS.REVIVE_SHOW/REVIVE_USED 严格一致。
+        struggle_user_row = db.execute(
+            "SELECT COUNT(DISTINCT user_id) AS cnt FROM behaviors "
+            "WHERE timestamp >= ? AND event_type = 'revive_show'",
+            (since_ts,),
+        ).fetchone()
+        revive_user_row = db.execute(
+            "SELECT COUNT(DISTINCT user_id) AS cnt FROM behaviors "
+            "WHERE timestamp >= ? AND event_type = 'revive_used'",
+            (since_ts,),
+        ).fetchone()
+        struggle_users = struggle_user_row["cnt"] if struggle_user_row else 0
+        revive_users = revive_user_row["cnt"] if revive_user_row else 0
+        struggle_rate = _safe_div(struggle_users, active_users, 4)
+        revive_rate = _safe_div(revive_users, active_users, 4)
+
         # ── 玩家访问记录（近窗口） ──
         visit_sql = [
             """
@@ -3967,6 +3986,13 @@ def ops_dashboard():
                         "coverageRate": delight_coverage_rate,
                         "threshold": delight_coverage_threshold,
                         "delightUsers": delight_users,
+                    },
+                    # 失败压力 / 挣扎信号（难度归因）。
+                    "struggle": {
+                        "struggleRate": struggle_rate,
+                        "reviveRate": revive_rate,
+                        "struggleUsers": struggle_users,
+                        "reviveUsers": revive_users,
                     },
                 },
                 "businessMetrics": {

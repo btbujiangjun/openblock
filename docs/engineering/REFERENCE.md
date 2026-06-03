@@ -21,6 +21,11 @@
 | `SELECT_BLOCK` | `select_block` | `blockIndex`, `shape` |
 | `DRAG_START` | `drag_start` | `blockIndex` |
 | `DRAG_END` | `drag_end` | `placed` |
+| `REVIVE_SHOW` | `revive_show` | `showCount`, `score`（濒死弹层展示=挣扎信号，v1.66 P3） |
+| `REVIVE_USED` | `revive_used` | `score`, `reviveCount`（实际复活，难度过载信号） |
+
+> v1.66 P3：`revive_show`/`revive_used` 经 `server.py` ops/dashboard 聚合为 `struggleRate`/`reviveRate`，
+> 在运营面板（`opsDashboard.js`）按难度信号呈现；`struggleRate>0.35` 触发告警样式。
 
 权威源码：`web/src/config.js` 中 `GAME_EVENTS` 注释块。
 

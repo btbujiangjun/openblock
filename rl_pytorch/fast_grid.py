@@ -226,6 +226,25 @@ def fast_board_features(grid_np: np.ndarray) -> dict:
     right_nb = np.pad(occ, ((0, 0), (0, 1)), constant_values=1)[:, 1:].astype(bool)
     wells = int((~occ_bool & left_nb & right_nb).sum())
 
+    # 暴露边（吸附/贴合约束用）：占用区朝向「界内空格」的 4-邻接边数（墙边不计 → 贴墙=吸附）。
+    # = 不含墙 padding 的行列跳变；越小说明方块越贴边/贴块、悬空孤立越少。
+    edge_exposure = int(
+        np.sum(occ[:, :-1] != occ[:, 1:]) + np.sum(occ[:-1, :] != occ[1:, :])
+    )
+
+    # 客观难度·几何：空白连通块数 / 凹角数（与 web/src/boardTopology.js 同口径）。
+    contiguous_regions = _contiguous_regions(occ_bool)
+    concave_corners = _concave_corners(occ_bool)
+
+    # 列高标准差（top-profile）：与 web/src/bot/features.js heightStd 同口径——
+    # 每列从顶部数最低被占用行得到列高 (n - first_occupied_row)，空列高 0。
+    col_heights = np.zeros(n, dtype=np.float32)
+    for x in range(n):
+        occ_rows = np.where(occ_bool[:, x])[0]
+        if occ_rows.size:
+            col_heights[x] = n - int(occ_rows[0])
+    height_std = float((col_heights / n).std())
+
     # 差 1/2 格满
     af = 0.78
     almost_full_rows = 0
@@ -276,7 +295,51 @@ def fast_board_features(grid_np: np.ndarray) -> dict:
         "wells": wells,
         "close1": close1,
         "close2": close2,
+        "edge_exposure": edge_exposure,
+        "contiguous_regions": contiguous_regions,
+        "concave_corners": concave_corners,
+        "height_std": height_std,
     }
+
+
+def _contiguous_regions(occ_bool: np.ndarray) -> int:
+    """空白（~occ）4-连通分量数 —— 与 boardTopology.js countEmptyRegions 同口径。"""
+    n = occ_bool.shape[0]
+    visited = np.zeros((n, n), dtype=bool)
+    regions = 0
+    stack: list[tuple[int, int]] = []
+    for sy in range(n):
+        for sx in range(n):
+            if occ_bool[sy, sx] or visited[sy, sx]:
+                continue
+            regions += 1
+            stack.append((sy, sx))
+            visited[sy, sx] = True
+            while stack:
+                cy, cx = stack.pop()
+                for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                    if 0 <= ny < n and 0 <= nx < n and not visited[ny, nx] and not occ_bool[ny, nx]:
+                        visited[ny, nx] = True
+                        stack.append((ny, nx))
+    return int(regions)
+
+
+def _concave_corners(occ_bool: np.ndarray) -> int:
+    """凹角数 —— 与 boardTopology.js countConcaveCorners 同口径（越界视为未占用）。"""
+    n = occ_bool.shape[0]
+
+    def occ(y: int, x: int) -> bool:
+        return 0 <= y < n and 0 <= x < n and bool(occ_bool[y, x])
+
+    count = 0
+    for y in range(n):
+        for x in range(n):
+            if occ_bool[y, x]:
+                continue
+            for dy, dx in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+                if occ(y + dy, x) and occ(y, x + dx):
+                    count += 1
+    return int(count)
 
 
 def fast_dock_mobility(grid_np: np.ndarray, dock: list[dict]) -> int:

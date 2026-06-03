@@ -3,7 +3,7 @@
  *
  * PR6 (离线 bundle):
  *   启动时优先 fetch /spawn-tuning-v2/policies.json (Web/Android/iOS bundle)
- *   微信小程序由打包时 require miniprogram/core/tuning/spawnPoliciesV2.js
+ *   微信小程序由打包时 require miniprogram/core/tuning/v2/spawnPoliciesV2.js
  *
  * PR7 (灰度切量):
  *   bundle 含 rollout_pct ∈ [0, 100]

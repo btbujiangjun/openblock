@@ -12,10 +12,19 @@ v2 寻参样本历来只有「构造样本」(bot 自博弈 + θ 扫描, sampler
 ==========
 d_curve 的逐步难度公式直接复用 `extractor.extract_d_curve`(与 samplerV2.js /
 policyMetricsV2.js 跨语言一致, 由 test_cross_lang_dcurve 钉死):
-    state_d = 0.30*fillRate + 0.50*(1-actionFreedom) + 0.20*trend
-    d_step  = (1-0.40)*state_d + 0.40*sigmoid((r-θc)/θw)        # r = score/PB
+    state_d = 0.30*fillRate + 0.50*(1-actionFreedom) + 0.20*trend   # 代理(无 scd 落库时)
+    d_step  = (1-0.40)*state_d + 0.40*sigmoid((r-θc)/θw)            # r = score/PB
 其中 θc/θw 取该局**实际生效**的 pbCurveParams(从帧 ps.adaptive 读), 与真人当时
 体验的难度曲线一致。
+
+v1.66 难度同源化
+================
+真人局若 spawn 帧已落库统一单步难度分 `spawnMeta.stepDifficulty.stepDifficulty`
+(= spawnStepDifficulty.scd_score ∈ [0,1], 含 flexibility + combo 等单步原语),
+则**优先**用它作 `state_d`(经 StepInfo.state_difficulty 注入), 让 v2 d_curve 与
+RL 落子 state / 离线难度桶 / 回放使用**同一把难度尺子**; 缺该字段(老局/构造样本)
+自动回退上面的 fillRate/freedom/trend 代理。surprise 降难与 PB-aware lift 不变。
+注: 该 scd 是"逐 spawn 三元组"粒度, 故同一三元组内 ≤3 个 place 步共享同值。
 
 字段来源(真人局)
 ==================
@@ -217,6 +226,9 @@ def session_to_v2_sample(frames: List[dict], meta: Optional[dict] = None) -> Opt
     s_stage = None
     final_score = 0
     last_fill = 0.0
+    # v1.66 同源化: 当前三元组的统一单步难度分 (spawn 帧 spawnMeta.stepDifficulty.stepDifficulty),
+    #   传给该三元组内 place 步的 StepInfo.state_difficulty, 让 d_curve 与统一难度尺子一致。
+    pending_scd: Optional[float] = None
 
     for fr in frames:
         t = fr.get("t")
@@ -237,6 +249,10 @@ def session_to_v2_sample(frames: List[dict], meta: Optional[dict] = None) -> Opt
             ls = _ps_get(ps, "adaptive", "stressBreakdown", "lifecycleStage")
             if ls:
                 s_stage = ls
+            # v1.66 同源化: 取该三元组统一单步难度分 (scd_score), 供本组 place 步用作 state_d。
+            scd = (fr.get("spawnMeta") or {}).get("stepDifficulty")
+            scd_val = scd.get("stepDifficulty") if isinstance(scd, dict) else None
+            pending_scd = float(scd_val) if isinstance(scd_val, (int, float)) else None
         elif t == "place":
             ps = fr.get("ps") or {}
             score = _ps_get(ps, "score", default=0) or 0
@@ -248,6 +264,7 @@ def session_to_v2_sample(frames: List[dict], meta: Optional[dict] = None) -> Opt
             steps.append(StepInfo(
                 step_idx=step_idx, score=int(score), fill_rate=float(fill),
                 action_freedom=action_freedom, no_move=False, clears=clears,
+                state_difficulty=pending_scd,
             ))
             step_idx += 1
             final_score = int(score)

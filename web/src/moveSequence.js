@@ -43,7 +43,7 @@ export const MOVE_SEQUENCE_SCHEMA = 2;
  *      (d) spawn 帧 dock 内逐块 `feat`（形状级特征）+ 帧级 `spawnMeta`（拒绝采样 attempt / rejects）。
  *      全部为新增字段，旧 pv<3 读端按 null / 缺省自然兼容，无需回填。
  */
-export const PLAYER_STATE_SNAPSHOT_VERSION = 3;
+export const PLAYER_STATE_SNAPSHOT_VERSION = 4;
 /**
  * 至少多少次成功落子才写入 SQLite。
  * 注意：内部 frames 仍含 init / spawn / place，用于确定性回放；
@@ -80,6 +80,31 @@ function avg(values) {
 function maxFinite(values) {
     const xs = values.filter(finiteNumber);
     return xs.length ? Math.max(...xs) : null;
+}
+
+/** 样本标准差（总体口径，n 除）；样本数 < 2 → 0。 */
+function stddevOf(values) {
+    const xs = values.filter(finiteNumber);
+    if (xs.length < 2) return xs.length ? 0 : null;
+    const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const v = xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length;
+    return Math.sqrt(v);
+}
+
+/** 变异系数 CV = stddev / mean；mean ≤ 0 或无样本 → null。 */
+function coefVarOf(values) {
+    const xs = values.filter(finiteNumber);
+    if (xs.length < 2) return null;
+    const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+    if (!(m > 0)) return null;
+    return stddevOf(xs) / m;
+}
+
+/** 极差 max − min；无样本 → null。 */
+function rangeOf(values) {
+    const xs = values.filter(finiteNumber);
+    if (!xs.length) return null;
+    return Math.max(...xs) - Math.min(...xs);
 }
 
 function pct(v) {
@@ -326,7 +351,8 @@ export function extractFrameTimestamps(frames) {
  *   strategyId: string,
  *   phase: 'init'|'spawn'|'place',
  *   adaptiveInsight?: object | null,
- *   spawnGeo?: { holes?: number | null, solutionCount?: number | null } | null
+ *   spawnGeo?: { holes?: number | null, solutionCount?: number | null,
+ *     contiguousRegions?: number | null, concaveCorners?: number | null } | null
  * }} ctx
  */
 export function buildPlayerStateSnapshot(profile, ctx) {
@@ -420,7 +446,11 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             nearFullLines: _geoNum(geo.nearFullLines),
             close1: _geoNum(geo.close1),
             close2: _geoNum(geo.close2),
-            maxColHeight: _geoNum(geo.maxColHeight)
+            maxColHeight: _geoNum(geo.maxColHeight),
+            /* P7（pv=4）：客观几何难度——空白连通块数 / 凹角陷阱数，与 RL state 同源（boardTopology），
+             * 供生成式出块 behaviorContext 条件输入、DFV 与回放统一口径。旧 pv<4 无字段 → null 自动跳过。 */
+            contiguousRegions: _geoNum(geo.contiguousRegions),
+            concaveCorners: _geoNum(geo.concaveCorners)
         };
     }
     if (a && typeof a === 'object') {
@@ -551,6 +581,57 @@ export function buildReplayAnalysis(frames, ctx = {}) {
     const coldFramesRatio = psFrames.length ? coldFrames / psFrames.length : null;
     const firstWarmFrameIdx = psFrames.find((x) => !isColdPs(x.ps))?.idx ?? null;
 
+    /* P3：思考耗时离散度 —— 取非冷启动帧的 ps.metrics.thinkMs 序列，算变异系数(CV)与极差。
+     * 物理含义：think_cv 高 = 本局认知负荷波动大（时易时难）；think_range 高 = 绝对耗时跨度大。
+     * 与「无题目」前提一致：离散度本就是算法产出难度分布的离散度，无需题目级聚合即可计算。 */
+    const thinkSeries = psFrames
+        .filter((x) => !isColdPs(x.ps))
+        .map((x) => Number(x.ps.metrics?.thinkMs))
+        .filter(Number.isFinite);
+    const think_cv = coefVarOf(thinkSeries);
+    const think_range = rangeOf(thinkSeries);
+
+    /* P2/P4：本局单步出块难度分布（spawn 帧 spawnMeta.stepDifficulty）——
+     * 均值/峰值 + 5 档桶计数，供离线「难度桶 × 算法」聚合与本局难度画像。旧帧无此字段则全空。 */
+    const stepDiffSeries = (Array.isArray(frames) ? frames : [])
+        .filter((f) => f?.t === 'spawn' && f?.spawnMeta?.stepDifficulty && typeof f.spawnMeta.stepDifficulty === 'object')
+        .map((f) => f.spawnMeta.stepDifficulty);
+    const stepDiffScores = stepDiffSeries
+        .map((d) => Number(d.stepDifficulty))
+        .filter(Number.isFinite);
+    const stepDifficultyBuckets = {};
+    for (const d of stepDiffSeries) {
+        const b = typeof d.bucket === 'string' ? d.bucket : null;
+        if (b) stepDifficultyBuckets[b] = (stepDifficultyBuckets[b] || 0) + 1;
+    }
+    const stepDifficultyMean = avg(stepDiffScores);
+    const stepDifficultyPeak = maxFinite(stepDiffScores);
+    const stepDifficultyCv = coefVarOf(stepDiffScores);
+
+    /* P7：本局客观几何难度（空白连通块数 / 凹角数）均值——随 spawnMeta.stepDifficulty 落库，
+     * 与 RL state / 离线难度桶聚合同口径，旧帧无此字段则空。 */
+    const contiguousRegionsMean = avg(
+        stepDiffSeries.map((d) => Number(d.contiguousRegions)).filter(Number.isFinite)
+    );
+    const concaveCornersMean = avg(
+        stepDiffSeries.map((d) => Number(d.concaveCorners)).filter(Number.isFinite)
+    );
+
+    /* P7：本局结果质量分布（爽感 / 垃圾时间归因），与离线 aggregate 同口径：
+     * noBlast=本步无消行；multiBlast=≥2 行；cleanScreen=有消行且消完盘面归零（perfect clear 代理）。 */
+    const lineSeries = placeFrames
+        .map((f) => Number(f?.ps?.linesCleared))
+        .filter(Number.isFinite);
+    const noBlastRate = lineSeries.length ? lineSeries.filter((l) => l === 0).length / lineSeries.length : null;
+    const multiBlastRate = lineSeries.length ? lineSeries.filter((l) => l >= 2).length / lineSeries.length : null;
+    const cleanScreenRate = placeFrames.length
+        ? placeFrames.filter((f) => {
+            const l = Number(f?.ps?.linesCleared);
+            const fillAfter = Number(f?.ps?.boardFill);
+            return Number.isFinite(l) && l > 0 && Number.isFinite(fillAfter) && fillAfter <= 0;
+        }).length / placeFrames.length
+        : null;
+
     let rating = 3;
     if (score >= 2000) rating = 5;
     else if (score >= 800) rating = 4;
@@ -587,6 +668,12 @@ export function buildReplayAnalysis(frames, ctx = {}) {
             `本局有 ${coldFrames} 帧（占 ${(coldFramesRatio * 100).toFixed(0)}%）处于冷启动占位状态，` +
             `离线均值/分群对比时建议过滤 idx < ${firstWarmFrameIdx ?? '∞'} 的帧。`
         );
+    }
+    if (think_cv != null && think_cv > 0.6) {
+        recommendations.push('思考耗时波动较大（think_cv 偏高），本局难度起伏明显，可复盘高难步对应的候选三块是否过于陡峭。');
+    }
+    if (stepDifficultyPeak != null && stepDifficultyPeak >= 0.8) {
+        recommendations.push('存在 extreme 档单步出块，建议核对该步是否与玩家当前技能/心流匹配，避免突刺式加压。');
     }
     if (recommendations.length === 0) {
         recommendations.push('本局指标未触发明显异常，可作为常规样本进入分数/心流趋势对比。');
@@ -650,7 +737,21 @@ export function buildReplayAnalysis(frames, ctx = {}) {
             // v1.13：冷启动样本计数（pv≥2 直读 ps.coldStart；pv=1 启发式回填）
             coldFrames,
             coldFramesRatio,
-            firstWarmFrameIdx
+            firstWarmFrameIdx,
+            // P3：思考耗时离散度（变异系数 + 极差，单位 ms）
+            think_cv,
+            think_range,
+            // P2/P4：单步出块难度分布（均值 / 峰值 / 变异系数 / 5 档桶计数；旧帧无 spawnMeta.stepDifficulty 则空）
+            stepDifficultyMean,
+            stepDifficultyPeak,
+            stepDifficultyCv,
+            stepDifficultyBuckets,
+            // P7：客观几何难度均值 + 结果质量分布（爽感 / 垃圾时间）
+            contiguousRegionsMean,
+            concaveCornersMean,
+            noBlastRate,
+            multiBlastRate,
+            cleanScreenRate
         },
         interpretation: {
             headline: abstractRead[0],

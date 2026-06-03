@@ -448,6 +448,10 @@ export function snapshotInsightGeometry(grid, dockShapePool) {
             nearFullLines: Number.isFinite(topo?.nearFullLines) ? topo.nearFullLines : 0,
             multiClearCandidates: Number.isFinite(liveMcc) ? liveMcc : 0,
             pcSetup: Number.isFinite(pcSetup) ? pcSetup : 0,
+            /* v1.66 P7：客观几何（空白连通块数 / 凹角陷阱数）随实时几何快照外露，
+             * 供 DFV 决策数据流面板与 insight.spawnDiagnostics.layer1 统一口径展示。 */
+            contiguousRegions: Number.isFinite(topo?.contiguousRegions) ? topo.contiguousRegions : 0,
+            concaveCorners: Number.isFinite(topo?.concaveCorners) ? topo.concaveCorners : 0,
         };
     } catch {
         return null;

@@ -95,6 +95,10 @@ class StepInfo:
     action_freedom: float          # 可放置 / 总位置数 [0, 1]
     no_move: bool                  # 是否硬死局
     clears: int = 0                # 该步消行数
+    # v1.66 同源化: 统一单步难度分 (spawnStepDifficulty.stepDifficulty, scd_score ∈ [0,1])。
+    #   真人局从 spawn 帧 spawnMeta.stepDifficulty 落库读到时填入; None → 回退 fillRate/freedom/trend 代理。
+    #   提供时直接作为 state_d, 让 v2 d_curve 与 RL state / 离线难度桶 / 回放同一把"难度尺子"。
+    state_difficulty: Optional[float] = None
 
     def step_difficulty(
         self,
@@ -119,15 +123,21 @@ class StepInfo:
         if self.no_move:
             return 1.0   # 死局 = 最高难度
         # state_d: 真实棋盘压力 (无 target 泄露)
-        if prev_fills:
-            trend = self.fill_rate - (sum(prev_fills) / len(prev_fills))
+        if self.state_difficulty is not None:
+            # v1.66 同源化: 直接用统一单步难度分 (spawnStepDifficulty.scd_score) 作 state_d,
+            #   与 RL state / 离线难度桶 / 回放同一把尺子; 不再走 fillRate/freedom/trend 代理。
+            #   scd 已含 flexibility + combo 等单步原语, 仍叠加下方 surprise 降难 + PB-aware lift。
+            state_d = max(0.0, min(1.0, float(self.state_difficulty)))
         else:
-            trend = 0.0
-        trend_norm = max(0.0, min(1.0, 0.5 + trend))
-        state_d = (FILL_RATE_WEIGHT * self.fill_rate
-                   + ACTION_FREEDOM_WEIGHT * (1.0 - self.action_freedom)
-                   + TREND_WEIGHT * trend_norm)
-        state_d = max(0.0, min(1.0, state_d))
+            if prev_fills:
+                trend = self.fill_rate - (sum(prev_fills) / len(prev_fills))
+            else:
+                trend = 0.0
+            trend_norm = max(0.0, min(1.0, 0.5 + trend))
+            state_d = (FILL_RATE_WEIGHT * self.fill_rate
+                       + ACTION_FREEDOM_WEIGHT * (1.0 - self.action_freedom)
+                       + TREND_WEIGHT * trend_norm)
+            state_d = max(0.0, min(1.0, state_d))
         if self.clears >= SURPRISE_MIN_CLEARS:
             state_d *= SURPRISE_DAMPING   # 大消行 → 棋盘压力骤降 (惊喜事件)
 

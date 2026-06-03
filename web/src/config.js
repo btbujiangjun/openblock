@@ -228,6 +228,13 @@ export const GAME_EVENTS = {
     COMBO_HIGH: 'combo_high',
     /** 同花顺消除（×5 倍 iconBonus）触发 */
     MONO_FLUSH: 'mono_flush',
+    /* 复活信号 —— 用于服务端聚合 revive_rate / struggle_rate（濒死/失败压力）。
+     * revive_show 比 revive_used 更敏感：玩家每次濒临死亡（弹出复活层）都计，
+     * 不论是否真的复活。事件 id 与 server.py SQL 谓词严格一致，禁止重命名。 */
+    /** 复活层展示（濒临死亡，struggle 信号） */
+    REVIVE_SHOW: 'revive_show',
+    /** 成功复活（已死一次，failure 信号） */
+    REVIVE_USED: 'revive_used',
 };
 
 export function getStrategy(id) {

@@ -11,7 +11,9 @@ v5 核心改动（不收敛根因修复）：
     topology_aux_head:  回归落子后的拓扑分量
   - clear_pred_head（v4 保留）：4 类消行预测
 
-state=181 (42 scalars + 64 grid + 75 dock), action=15, phi=196。
+state=187 (48 scalars[25 结构+19 颜色+4 单步难度] + 64 grid + 75 dock), action=15, phi=202。
+（25 结构标量末 3 维 = heightStd + 客观几何 contiguousRegions/concaveCorners）
+段切分全部由 FEATURE_ENCODING 维度推导（_SCALAR_DIM/_GRID_FLAT），扩维自动生效。
 """
 
 from __future__ import annotations
@@ -172,12 +174,12 @@ class _ResConvBlock(nn.Module):
 class ConvSharedPolicyValueNet(nn.Module):
     """v5: CNN 棋盘编码 + DockBoardAttention 交叉注意力 + 直接监督三头。
 
-    从 STATE_FEATURE_DIM (181) 拆三段：
-      scalars[:42]     → 直连
-      grid[42:106]     → reshape(1,8,8) → Conv→ResConv×2 → 两路输出：
+    从 STATE_FEATURE_DIM (187) 拆三段（索引由 _SCALAR_DIM/_GRID_FLAT 推导）：
+      scalars[:48]     → 直连（含 4 维单步难度 + 2 维客观几何）
+      grid[48:112]     → reshape(1,8,8) → Conv→ResConv×2 → 两路输出：
                           (a) 全局池化 → conv_channels 维
                           (b) 空间特征 [C,8,8] 供 dock cross-attention
-      dock[106:181]    → reshape(3,5,5) → DockBoardAttention(grid_spatial) → 3×head_dim 维
+      dock[112:187]    → reshape(3,5,5) → DockBoardAttention(grid_spatial) → 3×head_dim 维
 
     三段拼合走 trunk → h(s)；策略 = h(s)⊕ψ(a)→logit；价值 = h(s)→MLP→V。
     直接监督三头（board_quality / feasibility / survival）从 h(s) 出发，

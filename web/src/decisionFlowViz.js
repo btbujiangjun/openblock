@@ -3193,7 +3193,14 @@ class DecisionFlowViz {
             };
             const driverSemantic = DRIVER_SEMANTIC[driverKey] ? `\n  ↳ ${DRIVER_SEMANTIC[driverKey]}` : '';
             const driverFull = meta.topDriver?.label ? `\n主因：${meta.topDriver.label}（${driverKey}）${driverSemantic}` : '';
-            const titleStr = `${meta.id || '?'} · ${tip}${driverFull}${injectExtra}${dupExtra}`;
+            /* v1.66 P7：本轮出块决策面对的客观几何上下文（与 RL state / behaviorContext 同源 boardTopology）——
+             * 碎片=空白 4-连通块数（越多越割裂）、凹角=凹角陷阱数（越多越难填）、占盘=实时填充率。
+             * 数据取 insight.spawnDiagnostics.layer1（由 snapshotInsightGeometry 落入），无则整行省略。 */
+            const _l1 = insight?.spawnDiagnostics?.layer1;
+            const _geoCtxLine = _l1 && (Number.isFinite(_l1.contiguousRegions) || Number.isFinite(_l1.concaveCorners))
+                ? `\n盘面几何：碎片 ${Number.isFinite(_l1.contiguousRegions) ? _l1.contiguousRegions : '-'} 块 · 凹角 ${Number.isFinite(_l1.concaveCorners) ? _l1.concaveCorners : '-'} · 占盘 ${typeof _l1.fill === 'number' ? (_l1.fill * 100).toFixed(0) + '%' : '-'}`
+                : '';
+            const titleStr = `${meta.id || '?'} · ${tip}${driverFull}${_geoCtxLine}${injectExtra}${dupExtra}`;
             if (slot.titleEl && slot.titleEl.textContent !== titleStr) {
                 slot.titleEl.textContent = titleStr;
             }
@@ -3793,6 +3800,9 @@ class DecisionFlowViz {
                     nearFullLines: insight.spawnDiagnostics?.layer1?.nearFullLines ?? 0,
                     pcSetup: insight.spawnDiagnostics?.layer1?.pcSetup ?? 0,
                     boardFill: insight.spawnDiagnostics?.layer1?.fill ?? 0,
+                    // v1.66 P7：客观几何（碎片化 / 凹角陷阱），与 RL state / behaviorContext 同源
+                    contiguousRegions: insight.spawnDiagnostics?.layer1?.contiguousRegions ?? 0,
+                    concaveCorners: insight.spawnDiagnostics?.layer1?.concaveCorners ?? 0,
                 },
             })
             : null;

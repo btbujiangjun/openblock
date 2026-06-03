@@ -71,9 +71,9 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
         });
     });
 
-    it('behaviorContext 维度与 dataset.py BEHAVIOR_CONTEXT_DIM 一致（61）', () => {
+    it('behaviorContext 维度与 dataset.py BEHAVIOR_CONTEXT_DIM 一致（63）', () => {
         const pyDim = pyInt('BEHAVIOR_CONTEXT_DIM');
-        expect(pyDim).toBe(61);
+        expect(pyDim).toBe(63);
         expect(SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM).toBe(pyDim);
     });
 
@@ -120,7 +120,7 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
                 },
             },
         });
-        expect(ctx.behaviorContext).toHaveLength(61);
+        expect(ctx.behaviorContext).toHaveLength(63);
         // [48..54] 为 7 维 intent one-hot；sprint=idx6 → 绝对位置 48+6=54。
         const oneHot = ctx.behaviorContext.slice(48, 55);
         expect(oneHot.reduce((a, b) => a + b, 0)).toBe(1);

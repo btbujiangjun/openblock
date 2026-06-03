@@ -1,13 +1,15 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
- * state=181 (42 scalars + 64 grid + 75 dock), action=15, phi=196。
+ * state=187 (48 scalars[25 结构+19 颜色+4 单步难度] + 64 grid + 75 dock), action=15, phi=202。
+ * 结构标量含 2 维客观几何难度（contiguousRegions / concaveCorners，见 boardTopology.js）。
  *
  * 不含 spawnHints / adaptiveSpawn / blockSpawn 内部权重或未来块信息——仅盘面与当前 dock 可见状态。
  */
 import { FEATURE_ENCODING } from '../gameRules.js';
-import { analyzeBoardTopology, countUnfillableCells } from '../boardTopology.js';
+import { analyzeBoardTopology, countUnfillableCells, countEmptyRegions, countConcaveCorners } from '../boardTopology.js';
 import { detectBonusLines } from '../clearScoring.js';
 import { getRlTrainingBonusLineSkin } from '../skins.js';
+import { spawnStepDifficultyFeatures } from '../spawnStepDifficulty.js';
 
 const enc = FEATURE_ENCODING;
 const AF = enc.almostFullLineRatio ?? 0.78;
@@ -35,6 +37,8 @@ const _MAX_HOLES = AN.maxHoles ?? 16;
 const _MAX_TRANS = AN.maxTransitions ?? 64;
 const _MAX_WELLS = AN.maxWellDepth ?? 24;
 const _MAX_MOB = AN.maxMobility ?? 192;
+const _MAX_REGIONS = AN.maxEmptyRegions ?? 16;
+const _MAX_CONCAVE = AN.maxConcaveCorners ?? 32;
 
 /**
  * @param {import('../grid.js').Grid} grid
@@ -233,7 +237,7 @@ function dockMobility(grid, dock) {
 }
 
 // ---------------------------------------------------------------------------
-// State features (181-dim)
+// State features (187-dim)
 // ---------------------------------------------------------------------------
 
 /**
@@ -293,6 +297,8 @@ export function extractStateFeatures(grid, dock) {
     const wells = wellDepthSum(grid);
     const { close1, close2 } = linesCloseToClear(grid);
     const mobility = dockMobility(grid, dock);
+    const contiguousRegions = countEmptyRegions(grid);
+    const concaveCorners = countConcaveCorners(grid);
 
     const colHeights = new Array(n);
     for (let x = 0; x < n; x++) {
@@ -328,11 +334,18 @@ export function extractStateFeatures(grid, dock) {
         Math.min(close2 / n, 1.0),
         Math.min(mobility / _MAX_MOB, 1.0),
         heightStd,
+        Math.min(contiguousRegions / _MAX_REGIONS, 1.0),
+        Math.min(concaveCorners / _MAX_CONCAVE, 1.0),
     ];
     const colorSummary = encodeColorSummary(grid, dock);
-    const scalars = new Float32Array(baseScalars.length + colorSummary.length);
+    // 单步难度子向量（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）——
+    // SSOT 来自 spawnStepDifficulty.js，与 rl_pytorch/features.py 逐位一致。
+    const unplacedShapes = dock.filter((b) => !b.placed).map((b) => b.shape);
+    const diffScalars = spawnStepDifficultyFeatures(unplacedShapes, filled);
+    const scalars = new Float32Array(baseScalars.length + colorSummary.length + diffScalars.length);
     scalars.set(baseScalars, 0);
     scalars.set(colorSummary, baseScalars.length);
+    scalars.set(diffScalars, baseScalars.length + colorSummary.length);
     if (scalars.length !== STATE_SCALAR_DIM) {
         throw new Error(`标量段长度 ${scalars.length} != stateScalarDim ${STATE_SCALAR_DIM}`);
     }

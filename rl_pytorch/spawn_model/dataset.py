@@ -41,6 +41,13 @@ v1.63 出块数据集补全（2026-05-29）：
     由 move-sequence 写入 / 会话结算自动同步；本模块 load_packed_dataset() 从该表读取（删除安全），
     load_training_data(prefer_packed=True) 默认优先样本集、回退 sessions⨝move_sequences。
 
+v1.66 P7 客观几何条件（2026-06-03）：
+  - BEHAVIOR_CONTEXT_DIM 61 → 63：尾部追加 2 维客观几何（contiguousRegions/concaveCorners，
+    归一化分母 16/32，与 shared/game_rules.json actionNorm 及 RL state 同源 boardTopology），
+    让生成式出块显式感知盘面碎片化与凹角陷阱；缺省 spawnGeo → 0。θ 切片 [57:61] 不变。
+  - board_proj.in_features 125 → 127；旧 checkpoint 需重训才能在 model-v3 下生效。
+  - 数据侧依赖 ps.spawnGeo.contiguousRegions/concaveCorners（PLAYER_STATE_SNAPSHOT_VERSION≥4）。
+
 v1.61.0 显式 θ 条件（2026-05-29）：
   - BEHAVIOR_CONTEXT_DIM 57 → 61：尾部追加 4 维归一化 PB 曲线 θ
     （pbTensionCenter/Width、pbBrakeCenter/Width），来源 ps.adaptive.stressBreakdown.pbCurveParams。
@@ -86,7 +93,12 @@ CONTEXT_DIM = 24
 # v1.57.1：56 → 57，spawnIntent one-hot 从 6 → 7 维（新增 sprint，与 web/src/adaptiveSpawn.js 同源）。
 # v1.61.0：57 → 61，显式追加 4 维 PB 曲线 θ（pbTensionCenter/Width、pbBrakeCenter/Width，归一化），
 #          把 L2 SpawnParamTuner → L1 SpawnPolicyNet 的隐式耦合转成显式条件，规避换 θ 不重训的分布漂移。
-BEHAVIOR_CONTEXT_DIM = 61
+# v1.66 P7：61 → 63，尾部追加 2 维客观几何条件（contiguousRegions/concaveCorners，归一化），
+#          与 RL state 同源（boardTopology），让生成式出块显式感知盘面碎片化 / 凹角陷阱。θ 切片 [57:61] 不变。
+BEHAVIOR_CONTEXT_DIM = 63
+# 客观几何归一化分母（必须与 shared/game_rules.json actionNorm.maxEmptyRegions/maxConcaveCorners 一致）。
+_GEO_REGIONS_MAX = 16
+_GEO_CONCAVE_MAX = 32
 HISTORY_LEN = 3
 
 # v1.61.0：4 维 PB 曲线 θ 的归一化区间与默认值（必须与 web/src/spawnModel.js SPAWN_PB_THETA_RANGES 严格一致）。
@@ -294,6 +306,10 @@ def _parse_behavior_context(ps):
         _SESSION_MAP.get(session_arc, 0.5),
         # [57-60] PB 曲线 θ（v1.61.0 显式条件，归一化；缺省 → 默认 θ 域）
         *_norm_pb_theta(breakdown.get('pbCurveParams')),
+        # [61-62] 客观几何条件（v1.66 P7）：空白连通块数 / 凹角陷阱数，归一化区间与 RL state 同源
+        #   （shared/game_rules.json actionNorm.maxEmptyRegions/maxConcaveCorners）。spawnGeo 缺省 → 0。
+        _scale_unit(geo.get('contiguousRegions'), _GEO_REGIONS_MAX),
+        _scale_unit(geo.get('concaveCorners'), _GEO_CONCAVE_MAX),
     ]
     return np.asarray(values[:BEHAVIOR_CONTEXT_DIM], dtype=np.float32)
 

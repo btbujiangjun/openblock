@@ -362,6 +362,22 @@
       "orderRigorActivationFill": 0.50,
       "orderRigorMaxHolesAllow": 3
     },
+    "spawnStepDifficulty": {
+      "comment": "单步出块难度（spawn step difficulty）统一分。无尽模式无『题目』概念，难度最小单元是『当前盘面 × 本轮候选三块』，由确定性特征逐步算出。本块把分散的原语（boardDifficulty / DFS solutionMetrics / 几何 scd）consolidate 成 0~1 难度分 + 5 档桶（trivial/easy/standard/hard/extreme），随 spawn 帧 spawnMeta.stepDifficulty 落库，供离线『难度桶 × 算法』聚合与 RL 数据集标注。实现见 web/src/spawnStepDifficulty.js，Python 镜像 rl_pytorch/spawn_step_difficulty.py。详见 docs/algorithms/ALGORITHMS_SPAWN.md §14.二。",
+      "enabled": true,
+      "boardSize": 8,
+      "scdAmple": 0.3,
+      "scdTight": 0.5,
+      "scdSaturation": 0.6,
+      "killerMinCells": 5,
+      "killerMaxPlacements": 6,
+      "longBarMinLength": 4,
+      "solutionAbundant": 24,
+      "flexibilityFree": 24,
+      "comboCellsNorm": 15,
+      "rlStateFeatureComment": "spawnStepDifficultyFeatures 暴露 4 维（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）正式拼入 RL 落子 state（→187）。另 blockSpawn 在 stepDifficulty 落库对象上附挂客观几何 contiguousRegions/concaveCorners（来自 boardTopology），供 aggregate-step-difficulty.mjs 按难度桶聚合。",
+      "weights": { "scd": 0.30, "board": 0.20, "flexibility": 0.20, "solution": 0.15, "killer": 0.15 }
+    },
     "flowZone": {
       "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",
       "thinkTimeLowMs": 1200,
@@ -623,7 +639,7 @@
     "rndCuriosity": {
       "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
       "enabled": false,
-      "stateDim": 181,
+      "stateDim": 187,
       "hiddenDim": 64,
       "outputDim": 32,
       "beta": 0.1,
@@ -654,14 +670,15 @@
     "feasibilityLossCoef": 0.3,
     "survivalLossCoef": 0.28,
     "potentialShaping": {
-      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。v6 增大系数以提供更强逐步信号。",
+      "comment": "势函数奖励塑形：r_shaped += coef * (Φ(s') − Φ(s))。v6 增大系数以提供更强逐步信号。adhesionWeight 为『放置块吸附』软约束：惩罚占用区朝向界内空格的暴露边（墙边不计→贴墙=吸附），鼓励落子尽量与边或其他方块贴合；为势函数项故不改变最优策略，且中间贴块放置同样受益、只软性抑制孤立悬空。负值，|值|越大吸附越强。",
       "enabled": true,
       "coef": 0.8,
       "holeWeight": -0.40,
       "transitionWeight": -0.08,
       "wellWeight": -0.15,
       "closeToFullWeight": 0.35,
-      "mobilityWeight": 0.12
+      "mobilityWeight": 0.12,
+      "adhesionWeight": -0.12
     },
     "outcomeValueMix": {
       "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。v9.2 默认用 log1p(score)/log1p(threshold) 并放宽 clip，避免 400-500 分段 score/threshold 过早饱和。",
@@ -784,16 +801,16 @@
     }
   },
   "featureEncoding": {
-    "comment": "state = 42 维标量（含 19 维颜色摘要）+ 64 棋盘占用 + 75 dock 形状 = 181；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 196。改维度须同步 features.js / features.py 并重训。",
+    "comment": "state = 48 维标量（25 结构 + 19 颜色摘要 + 4 单步难度）+ 64 棋盘占用 + 75 dock 形状 = 187；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 202。25 结构标量末 3 维为 heightStd + 客观几何难度 contiguousRegions/concaveCorners（空白连通块数 / 凹角数，见 boardTopology.js）；4 维单步难度由 spawnStepDifficulty.spawnStepDifficultyFeatures 计算（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）。改维度须同步 features.js / features.py / rl_mlx/features.py 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
-    "stateScalarDim": 42,
+    "stateScalarDim": 48,
     "colorCount": 8,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
-    "stateDim": 181,
+    "stateDim": 187,
     "actionDim": 15,
-    "phiDim": 196,
+    "phiDim": 202,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {
@@ -806,6 +823,8 @@
       "maxWellDepth": 24,
       "maxMobility": 192,
       "maxAdjacent": 20,
+      "maxEmptyRegions": 16,
+      "maxConcaveCorners": 32,
       "nearFullThreshold": 0.75
     }
   },

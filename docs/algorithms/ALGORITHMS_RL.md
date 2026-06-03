@@ -11,7 +11,7 @@
 
 1. [设计动机与算法选型](#一设计动机与算法选型)
 2. [系统总览与数据流](#二系统总览与数据流)
-3. [状态空间 $s$（181 维）](#三状态空间-s181-维)
+3. [状态空间 $s$（187 维）](#三状态空间-s187-维)
 4. [动作空间与 $\psi(a)$（15 维）](#四动作空间与-psia15-维)
 5. [奖励函数 $r_t$ 与塑形](#五奖励函数-r_t-与塑形)
 6. [网络结构 ConvSharedPolicyValueNet](#六网络结构-convsharedpolicyvaluenet)
@@ -44,7 +44,7 @@ OpenBlock 的"放置 + 消行"是一个**有约束的离散 MDP**：
 | 维度 | 数值 | 影响 |
 |------|------|------|
 | 原始局面（离散直觉） | **棋盘 8×8**：观测中 **64 维为占用 0/1**，仅二元抽象时 **$\sim 2^{64}$**；若「空 + 8 色」则 **$\sim 9^{64}$**（详见 本手册 §23 §1.1）。**Dock**：`shared/shapes.json` **28** 种块型，三块形状身份量级 **$\mathcal{O}(28^3)$**（粗略；未乘 **$8^3$** 颜色，也未单独计放置进度）。 | 巨大但稀疏 |
-| 观测编码（实现事实来源） | **`featureEncoding.stateDim = 181`**：42 维标量（含颜色摘要）+ 64 棋盘占用 + **75** dock 空间掩码（**3×5×5**）；策略输入 **$\psi\in\mathbb{R}^{181}$**（§3），与 **$2^{64}\!\times\!28^3$** 笛卡尔积**不等价**。 | 固定维度、可微近似 |
+| 观测编码（实现事实来源） | **`featureEncoding.stateDim = 187`**：48 维标量（25 结构[含 heightStd + 客观几何 2 维] + 19 颜色摘要 + 4 单步难度）+ 64 棋盘占用 + **75** dock 空间掩码（**3×5×5**）；策略输入 **$s\in\mathbb{R}^{187}$**（§3），与 **$2^{64}\!\times\!28^3$** 笛卡尔积**不等价**。 | 固定维度、可微近似 |
 | 单步合法动作数 | 0~120（典型 30~80） | 维度可变 |
 | 单局长度 | 平均 ~30 步，最长 ~120 步 | 短轨迹 |
 | 终局奖励稀疏度 | 高（许多步都不消行） | 信用分配难 |
@@ -202,19 +202,23 @@ _reevaluate_and_update
 
 ---
 
-## 三、状态空间 $s$（181 维）
+## 三、状态空间 $s$（187 维）
 
-`s ∈ ℝ^181`，由 `extract_state_features(grid, dock)` 产出，**双端一致**（`features.py` / `features.js`）。
+`s ∈ ℝ^187`，由 `extract_state_features(grid, dock)` 产出，**双端一致**（`features.py` / `features.js`）。
+组成：44 维标量[25 结构（含 heightStd + **2 维客观几何** §3.7）+ 19 颜色摘要] + **4 维单步出块难度**（§3.6）+ 64 棋盘占用 + 75 dock 空间掩码（合计标量段 48 维）。
 
 ### 3.1 拆分
 
 ```
-s = [scalars(42) ; grid_flat(64) ; dock_flat(75)]
+s = [scalars(48) ; grid_flat(64) ; dock_flat(75)]
             ↑              ↑              ↑
          手工特征      8×8 棋盘 occupancy  3 槽 × 5×5 形状 mask
 ```
 
-### 3.2 42 个标量特征（手工设计）
+> 标量段 48 = 核心 42（下表，结构 + 颜色摘要）+ 4 维单步难度（§3.6）+ 2 维客观几何（§3.7）。
+> 其中第 23 维起为 heightStd + `contiguousRegions` + `concaveCorners`，尾部 4 维为单步难度。
+
+### 3.2 核心标量特征（手工设计）
 
 | 编号 | 含义 | 计算 | 归一 |
 |-----|------|------|------|
@@ -273,14 +277,75 @@ dock[k] (5×5) → 展平 25 维
 ### 3.5 维度变更代价
 
 ```
-shared/game_rules.json featureEncoding.stateDim = 181
+shared/game_rules.json featureEncoding.stateDim = 187
                        ↓
    features.py:STATE_FEATURE_DIM 同步检查（启动时 assert）
                        ↓
        checkpoint 失效（width 不变也失效，因 input layer 维度不同）
 ```
 
-state 从 162 扩展到 181，主要是补上颜色可观测性：同色整线 bonus 是重要得分来源，单纯 occupancy 无法区分“能拿 bonus 的满线”和“普通满线”。
+演进：162 → 181（补颜色可观测性：同色整线 bonus 无法由纯 occupancy 区分）→ **185**（v1.65
+把单步出块难度的 4 维子向量正式拼入标量段，见 §3.6）→ **187**（v1.66 再拼 2 维客观几何难度
+`contiguousRegions / concaveCorners`，见 §3.7）。`model.py` 的段切分全部由
+`_SCALAR_DIM / _GRID_FLAT`（来自 `featureEncoding`）推导，扩维后 Linear/Conv 输入自动重建，
+无需改 `model.py` 代码；旧维度 checkpoint 在 `train.py` resume 时触发 size-mismatch
+`RuntimeError`，被捕获后**自动回退从头训练**（符合本轮「不顾虑废弃 checkpoint」的取舍）。
+
+### 3.6 单步出块难度（spawn step difficulty）正式进入 state（v1.65，理想态）
+
+单步出块难度统一分 `spawnStepDifficulty`（详见 [`ALGORITHMS_SPAWN.md` §14.二](./ALGORITHMS_SPAWN.md#14-出块难度与评估)）
+由 `web/src/spawnStepDifficulty.js` 产出，并有 Python 镜像 `rl_pytorch/spawn_step_difficulty.py`
+（公式逐项对齐，跨语言契约测试 `tests/test_spawn_step_difficulty.py` ↔
+`tests/spawnStepDifficulty.test.js` 共享 fixture `tests/fixtures/spawnStepDifficulty.cases.json`）。
+
+**理想态升级（不顾虑 checkpoint 失效）**：模块新增 SSOT 函数
+`spawnStepDifficultyFeatures(shapes, occupiedCount)`（JS / Python 同名同口径），输出**固定 4 维、
+均 clamp 到 [0,1]、确定性、无 DFS / 无落点扫描**，可在 MCTS 热路径每节点调用。`features.js` 与
+`features.py` 在标量段尾部（颜色摘要之后）**共同调用该函数**拼入，使 **stateScalarDim 42 → 46、
+stateDim 181 → 185、phiDim 196 → 200**（v1.66 再 +2 维几何 → 48 / 187 / 202，见 §3.7）：
+
+| 标量索引 | 名称 | 含义（归一化） |
+|---|---|---|
+| 42 | `scdNorm` | 空间约束密度 scd / `scdSaturation`（三块总格 ÷ 空格） |
+| 43 | `comboCellsNorm` | 三块总格 / `comboCellsNorm`(=15) |
+| 44 | `comboKillerNorm` | 致命块数（形状口径：≥`killerMinCells` 或长条）/ dockSlots |
+| 45 | `comboLongBarNorm` | 长条数 / dockSlots |
+
+- **为何放尾部**：保持原 0–41 索引不变，diff 最小；`model.py` 按 `_SCALAR_DIM` 切片自动适配。
+- **为何这 4 维**：它们是**盘面 × 候选三块的组合级几何难度**，原 75 维 dock 空间掩码只编码单块形状、
+  不显式给出「总格压力 / 致命块计数 / 空间约束密度」，作为显式标量是强且廉价的归纳偏置。
+- **flexibility / solution 不进 state**：min-flexibility 需逐块扫合法落点、solutionCount 需 DFS，
+  二者过重不适合 MCTS 热路径；且 mobility（idx 21）、holes（idx 15）已隐含同类信息。它们仍在
+  离线 `compute_spawn_step_difficulty` 的合成分里使用（落库 `spawnMeta.stepDifficulty`、难度分桶）。
+- **跨语言一致性**：fixture 每个 case 追加 `expected.features`，JS / Python 双侧断言逐位相等。
+- **RND**：`rlRewardShaping.rndCuriosity.stateDim` 同步至 187（RND 复用同一 state 空间）。
+
+### 3.7 客观几何难度进入 state（v1.66，理想态）
+
+在 §3.6 的 4 维单步难度之后、`features.js` / `features.py` 标量段尾部再拼 **2 维客观几何难度**，
+使 **stateScalarDim 46 → 48、stateDim 185 → 187、phiDim 200 → 202**。两值由
+`web/src/boardTopology.js` 的 `countEmptyRegions / countConcaveCorners`（Python 镜像
+`rl_pytorch/fast_grid.py` 的 `_contiguous_regions / _concave_corners`，跨语言逐位一致）产出：
+
+| 标量索引 | 名称 | 含义（归一化） |
+|---|---|---|
+| 46 | `contiguousRegionsNorm` | 空白 4-连通分量数 / `actionNorm.maxEmptyRegions`(=16) |
+| 47 | `concaveCornersNorm` | 凹角数 / `actionNorm.maxConcaveCorners`(=32) |
+
+- **为何这 2 维**：`contiguous_regions` 度量剩余空间的**碎片化程度**（被切成几块），`concave_corners`
+  度量已落方块轮廓形成的**内凹缺口/陷阱位数**。两者都是**全局拓扑量**——卷积核局部感受野难以
+  数出「连通分量数」与「跨格凹角」，作为显式标量是强且廉价（O(n²)）的归纳偏置；与 holes（填不进）、
+  wells（左右夹）口径互补，且 `concave_corners` 正是「放置块吸附」软约束（§ ΔΦ 势函数）的天然目标位。
+- **同口径复用**：同两值同时随 `spawnMeta.stepDifficulty.contiguousRegions / concaveCorners` 落库
+  （`bot/blockSpawn.js` post-hoc 附挂），供 `scripts/aggregate-step-difficulty.mjs` 按难度桶聚合、
+  并经 `analyzeBoardTopology` 进入 DFV / 玩家洞察面板，做到「同一几何量贯穿 模型 / 打点 / 离线 / 面板」。
+- **idx 22 修正**：本轮顺带把 `features.py` 第 23 个结构标量从重复的 `fill` 对齐为 `heightStd`
+  （列高 top-profile 标准差），与 `features.js` 逐位一致（此前为遗留跨语言偏差）。
+
+> Spawn V3 behaviorContext **61 → 63（v1.66 P7）**：`board_difficulty[26]`（= `clamp01(fill + holePressure·0.8)`）
+> 已在位，尾部 [61-62] 新增 2 维客观几何 `contiguousRegions/concaveCorners`（盘面**输入**属性，落子前可知，
+> 与 RL state 同源 boardTopology）；而 scd / killer / longbar 是**候选三块（即出块模型的输出）的属性**，
+> 不能作为出块模型的输入特征（会泄漏标签），故仍不入网。统一难度分作为出块模型的**条件目标**仍由 `target_difficulty` 承载。
 
 ---
 
@@ -316,7 +381,7 @@ state 从 162 扩展到 181，主要是补上颜色可观测性：同色整线 b
 
 ### 4.3 $\phi(s, a) = [s; \psi(a)]$
 
-- $\phi \in \mathbb{R}^{196}$
+- $\phi \in \mathbb{R}^{202}$（= state 187 + action 15）
 - `build_phi_batch` 一次性计算整批 $\phi$，用于策略 logit 输出
 
 ### 4.4 策略输出
@@ -360,7 +425,7 @@ gain = baseUnit · c² + bonus_lines_score
 
 ```
 Φ(s) = w_h·holes + w_t·transitions + w_w·wells 
-     + w_n·near_full_lines + w_m·mobility
+     + w_n·near_full_lines + w_m·mobility + w_a·edge_exposure
 ```
 
 各权重在 `shared/game_rules.json.rlRewardShaping.potentialShaping`：
@@ -368,12 +433,25 @@ gain = baseUnit · c² + bonus_lines_score
 | 项 | 默认权重 | 物理意义 |
 |----|---------|---------|
 | `holeWeight` | -0.4 | 空洞数（越多越糟） |
-| `transitionWeight` | -0.2 | 0↔1 边界（越多越乱） |
-| `wellWeight` | -0.3 | 井深（不可达的深沟） |
-| `nearFullWeight` | +0.5 | 近满线（鼓励攒大消） |
-| `mobilityWeight` | +0.3 | 可落子数 |
+| `transitionWeight` | -0.08 | 0↔1 边界（越多越乱） |
+| `wellWeight` | -0.15 | 井深（不可达的深沟） |
+| `closeToFullWeight` | +0.35 | 近满线（鼓励攒大消） |
+| `mobilityWeight` | +0.12 | 可落子数 |
+| `adhesionWeight` | **-0.12** | **吸附/贴合约束**：`edge_exposure`（占用区朝向界内空格的暴露边，墙边不计） |
 
 总权重 `coef = 0.8`（外层乘子）。
+
+##### 放置块吸附（贴合）软约束
+
+`adhesionWeight · edge_exposure` 是「放置块后尽量与边或其他方块贴合」的软约束。`edge_exposure`
+= 占用区朝向**界内空格**的 4-邻接边数(墙边不计 → 贴墙即视为吸附)，等价于不含墙 padding 的行列跳变；
+JS / Python 同口径(`web/src/bot/simulator.js` `_edgeExposure` ↔ `rl_pytorch/fast_grid.py`
+`fast_board_features.edge_exposure`)。
+
+- **越贴边/贴块 → 暴露边越少 → Φ 越高 → ΔΦ 奖励越高**，落子被引导贴合墙体与既有结构、减少孤立悬空。
+- **仍允许中间放置**：放在棋盘中部但**与既有方块相连**的落子同样降低暴露边、同样受益；只有「四面临空的孤立悬空」被软性抑制。
+- 作为**势函数项**(Potential-Based Shaping)，理论上**不改变最优策略**，仅引导更紧凑的探索；权重温和、得分增量(消行)仍主导，不会强迫只贴墙。
+- 落点：`board_potential` / `boardPotential`(`simulator.py` / `simulator.js`)；rl_mlx 简化奖励轨未含势函数，不受影响。
 
 > **势函数塑形 (Potential-Based Reward Shaping, Ng 1999)** 的关键性质：$r' = r + \gamma\Phi(s') - \Phi(s)$ **不改变最优策略**，只改变学习速度。
 
@@ -413,11 +491,11 @@ v5 简化为 **gain + ΔΦ + winBonus**，把细粒度信号转为**辅助监督
 ### 6.1 整体架构（v5 默认）
 
 ```
-Input s ∈ ℝ¹⁸¹
+Input s ∈ ℝ¹⁸⁷
   │
-  ├── scalars[:42] ────────────────┐
+  ├── scalars[:48] ────────────────┐   （含 4 维单步难度 §3.6 + 2 维客观几何 §3.7）
   │                                  │
-  ├── grid[42:106] reshape(1,8,8)   │
+  ├── grid[48:112] reshape(1,8,8)   │
   │     │                            │
   │     CNN(1→32) GELU              │
   │     ResConv(32) GELU            │
@@ -427,7 +505,7 @@ Input s ∈ ℝ¹⁸¹
   │     │                            │
   │     └─ keep [B,32,8,8] ────┐    │
   │                              │    │
-  └── dock[106:181] reshape(3,5,5)│   │
+  └── dock[112:187] reshape(3,5,5)│   │
         │                        │    │
         DockBoardAttention       │    │
           ┌────── Q ←────────────┘    │
@@ -1285,7 +1363,7 @@ useBackend=false → trainer.js 用 LinearAgent
 | 维度 | 浏览器线性 | PyTorch NN |
 |-----|----------|-----------|
 | 算法 | REINFORCE-baseline | PPO + GAE |
-| 状态编码 | 直接喂旧版低维状态 | CNN + Attention + 181 维颜色摘要状态 |
+| 状态编码 | 直接喂旧版低维状态 | CNN + Attention + 187 维状态（颜色摘要 + 单步难度 + 客观几何） |
 | 收敛局数 | ~5000 | ~40000 |
 | 收敛上限 | ~100 分 | ~220 分（理论） |
 | 推理延迟 | <1ms | 5-50ms |
@@ -1525,10 +1603,11 @@ def _safe_aux(t):
 |------|------|
 | `coef` (外层乘子) | 0.8 |
 | `holeWeight` | -0.4 |
-| `transitionWeight` | -0.2 |
-| `wellWeight` | -0.3 |
-| `nearFullWeight` | +0.5 |
-| `mobilityWeight` | +0.3 |
+| `transitionWeight` | -0.08 |
+| `wellWeight` | -0.15 |
+| `closeToFullWeight` | +0.35 |
+| `mobilityWeight` | +0.12 |
+| `adhesionWeight`（吸附/贴合） | -0.12 |
 
 ---
 
@@ -1585,7 +1664,7 @@ def _safe_aux(t):
    - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → `clearScoring.iconBonusLineMult` 统一提供。训练路径不用玩家当前皮肤，icon 语义只读取 `rlBonusScoring.blockIcons`；为空时浏览器无头局、PyTorch、MLX 都退化为同色整线 bonus。
    - **dock 染色偏置**：仅依据盘面可见的近满线几何 + 同一套 icon/同色规则调用 `monoNearFullLineColorWeights`，不是 adaptiveSpawn / spawnHints。
    - **出块形状**：仍由 `block_spawn.generate_*` 与策略配置生成。
-3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（v9.2 181 维）。
+3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（v1.66 起 187 维，含 4 维单步难度 + 2 维客观几何）。
 4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。
 
 #### 1.3 自适应出块（网页端）
@@ -1612,7 +1691,7 @@ Python/MLX 训练仍使用固定策略与共享 `game_rules.json` / `shapes.json
 
 | 因素 | 线性 `LinearAgent` | PyTorch `PolicyValueNet` / `SharedPolicyValueNet` |
 |------|---------------------|---------------------------------------------------|
-| 参数量 | 196 + 181 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准 |
+| 参数量 | 202 + 187 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准 |
 | 每局梯度步数 | 逐步更新 | 整局一次 `backward` |
 | 回报与价值 | MC 回报，无缩放 | `RL_RETURN_SCALE` + GAE + `smooth_l1` |
 | 探索 | 温度 softmax | 温度衰减 + Dirichlet + 熵 bonus |
@@ -1913,7 +1992,7 @@ Python RL 模拟器盘面分数增量与上述公式对齐。
 
 #### 1.4 状态/动作空间
 
-- 状态空间理论：9^64（每个格子 9 种状态），实际 181 维编码
+- 状态空间理论：9^64（每个格子 9 种状态），实际 187 维编码
 - 动作空间：单步最大 192，典型 30~80
 - 博弈树：~10^42（中等复杂度，围棋 ~10^170，国际象棋 ~10^47）
 
@@ -1925,13 +2004,13 @@ Python RL 模拟器盘面分数增量与上述公式对齐。
 
 #### 1.6 模型架构
 
-conv-shared（默认）：181 维 → 标量 42 + grid Conv2d→32 + dock attention→48 → concat 122 → h(s)[128] → value_head + policy_head + 辅助监督头。
+conv-shared（默认）：187 维 → 标量 48（含 4 维单步难度 + 2 维客观几何）+ grid Conv2d→32 + dock attention→48 → concat 126 → h(s)[128] → value_head + policy_head + 辅助监督头。
 
 #### 1.7 特征工程评估
 
 | 组件 | 维度 | 评价 |
 |------|------|------|
-| 42 标量 | 填充率、行列极值、临消、空洞等 | ✅ 覆盖几何/拓扑/颜色统计 |
+| 48 标量 | 填充率、行列极值、临消、空洞、颜色统计、**4 维单步出块难度**、**2 维客观几何（连通块/凹角）** | ✅ 覆盖几何/拓扑/颜色/组合难度 |
 | 64 棋盘 | 二值占用 0/1 | ⚠️ 丢失颜色和相对位置模式 |
 | 75 dock | 3×5×5 形状掩码 | ✅ 足够 |
 | 15 动作 | 坐标、形状、后果代理 | ✅ 含放置后棋盘质量代理 |
@@ -1958,8 +2037,8 @@ conv-shared（默认）：181 维 → 标量 42 + grid Conv2d→32 + dock attent
 #### 1.10 当前维度契约
 
 ```
-stateScalarDim: 42  gridSpatialDim: 64  dockSpatialDim: 75
-stateDim: 181  actionDim: 15  phiDim: 196
+stateScalarDim: 48  gridSpatialDim: 64  dockSpatialDim: 75
+stateDim: 187  actionDim: 15  phiDim: 202
 ```
 
 ---

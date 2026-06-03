@@ -39,6 +39,8 @@
     "profile:audit": "node scripts/audit-profile.mjs",
     "profile:auto-audit": "node scripts/auto-audit-all.mjs",
     "spawn:realtime-tune": "node scripts/tune-realtime-state.mjs",
+    "spawn:difficulty-agg": "node scripts/aggregate-step-difficulty.mjs",
+    "spawn:exact-match": "node scripts/audit-exact-match.mjs",
     "rl:eval": "python3 -m rl_pytorch.eval_cli",
     "spawn:gate": "python3 -m rl_pytorch.spawn_model.test_drift && python3 -m rl_pytorch.spawn_model.test_v3",
     "spawn:drift-check": "python3 -m rl_pytorch.spawn_model.drift_check",

@@ -376,6 +376,8 @@ export class Game {
             nearFullLines: geom.nearFullLines,
             multiClearCandidates: geom.multiClearCandidates,
             pcSetup: geom.pcSetup,
+            contiguousRegions: geom.contiguousRegions,
+            concaveCorners: geom.concaveCorners,
         };
         insight.spawnDiagnostics = {
             ...(insight.spawnDiagnostics ?? {}),
@@ -456,7 +458,12 @@ export class Game {
             nearFullLines: Number.isFinite(topo.nearFullLines) ? topo.nearFullLines : null,
             close1: Number.isFinite(topo.close1) ? topo.close1 : null,
             close2: Number.isFinite(topo.close2) ? topo.close2 : null,
-            maxColHeight: Number.isFinite(topo.maxColHeight) ? topo.maxColHeight : null
+            maxColHeight: Number.isFinite(topo.maxColHeight) ? topo.maxColHeight : null,
+            /* P7（pv=4）：客观几何难度落库——contiguousRegions=空白 4-连通分量数（碎片化），
+             * concaveCorners=凹角陷阱数。与 RL state 标量 / spawnMeta.stepDifficulty 同源（boardTopology），
+             * 供回放、DFV、生成式出块 behaviorContext 与离线难度桶聚合统一口径。 */
+            contiguousRegions: Number.isFinite(topo.contiguousRegions) ? topo.contiguousRegions : null,
+            concaveCorners: Number.isFinite(topo.concaveCorners) ? topo.concaveCorners : null
         };
     }
 
@@ -517,7 +524,10 @@ export class Game {
         return {
             attempt,
             fallback: diag.chosen?.[0]?.reason === 'fallback',
-            solutionRejects: rejects
+            solutionRejects: rejects,
+            /* P0–P2：单步出块难度统一分（确定性，随 spawn 帧落库供离线难度桶聚合）。旧帧无此字段。 */
+            stepDifficulty: diag.stepDifficulty && typeof diag.stepDifficulty === 'object'
+                ? diag.stepDifficulty : null
         };
     }
 
