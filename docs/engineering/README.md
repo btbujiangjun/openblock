@@ -13,7 +13,7 @@
 
 - [SQLite数据库模式](./SQLITE_SCHEMA.md) —— 全部表的用途、结构、HTTP入口、业务JSON格式
 - [前端性能优化](./PERFORMANCE.md) —— Dirty Rect追踪（`performanceOptimizer.js`）、对象池（`optimizedParticles.js`）、rAF分块、可见性定时器、progress缓存（v10.18）
-- [性能基线与回归检测](./PERFORMANCE.md#性能基线与回归检测) —— CPU自动（`npm run perf:check`）、GPU手动，性能敏感模块列表
+- [性能基线与回归检测](./PERFORMANCE.md#十三性能基线与回归检测) —— CPU自动（`npm run perf:check`）、GPU手动，性能敏感模块列表
 - [工程参考](./REFERENCE.md) —— 黄金事件字典（事件常量、`stressBreakdown`/`spawnGeo`字段）+ Web前端国际化i18n（19语言、API、DOM绑定、新增语言Checklist）
 
 ## 分——AI协作
@@ -25,6 +25,6 @@
 - [四端同步契约](../platform/SYNC_CONTRACT.md) —— Web/微信小程序/Android/iOS同步规则
 - [Android/iOS客户端外壳](../platform/MOBILE_CLIENTS.md) —— Capacitor包装方案
 - [微信小程序适配](../platform/WECHAT_MINIPROGRAM.md) —— 结构/功能边界/本地开发
-- [微信小程序发布流程](../platform/WECHAT_MINIPROGRAM.md#微信小程序发布流程) —— 发布Runbook
+- [微信小程序发布流程](../platform/WECHAT_MINIPROGRAM.md#七微信小程序发布流程) —— 发布Runbook
 
 适合架构、前端、后端、小程序适配、AI协作和开源贡献者首读。

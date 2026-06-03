@@ -7,7 +7,7 @@
 
 ---
 
-## 1. 总体结论
+## 一、总体结论
 
 当前运营看板 **已经接入 SQLite 数据库**，不是静态 mock 数据。后端服务启动时打印数据库路径，例如：
 
@@ -35,7 +35,7 @@ Open Block API — http://0.0.0.0:5000  (db: /Users/admin/Documents/work/opensou
 
 ---
 
-## 2. 数据链路
+## 二、数据链路
 
 ```text
 前端 /ops 或游戏内 Ops Screen
@@ -60,7 +60,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 
 ---
 
-## 3. 写入链路审计
+## 三、写入链路审计
 
 指标正确性不仅取决于读 SQL，还取决于写入事件是否完整、幂等、单位一致、结束态正确。当前写入链路如下：
 
@@ -97,7 +97,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 
 ---
 
-## 4. 本次本地数据核验
+## 四、本次本地数据核验
 
 本次审计读取当前本地数据库：
 
@@ -134,7 +134,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 
 ---
 
-## 5. 指标口径逐项说明
+## 五、指标口径逐项说明
 
 ### 5.1 活跃与局数
 
@@ -217,7 +217,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 
 ---
 
-## 6. 截图指标是否“正确”
+## 六、截图指标是否“正确”
 
 以当前代码与数据库状态判断：
 
@@ -232,7 +232,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 
 ---
 
-## 7. 建议修正优先级
+## 七、建议修正优先级
 
 | 优先级 | 建议 | 目的 |
 |--------|------|------|
@@ -246,7 +246,7 @@ JSON: activity / retention / coreMetrics / businessMetrics / trend / segments
 
 ---
 
-## 8. 验证命令
+## 八、验证命令
 
 后端服务运行后，可用以下命令复核：
 
@@ -274,7 +274,7 @@ PY
 
 ---
 
-## 9. 维护原则
+## 九、维护原则
 
 - 看板指标文案必须与 SQL 口径一致，尤其是 DAU/WAU/MAU、ARPU/ARPPU、完成率/人均次数。
 - 所有 0 值都要区分“真实为 0”和“未接入数据源”。

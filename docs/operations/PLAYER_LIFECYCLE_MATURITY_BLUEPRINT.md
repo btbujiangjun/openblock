@@ -11,7 +11,7 @@
 
 ---
 
-## 0. 北极星与护栏
+## 一、北极星与护栏
 
 | 角色 | 指标 | 目标 |
 |------|------|------|
@@ -26,7 +26,7 @@
 
 ---
 
-## 1. 双轴模型：生命周期 × 成熟度
+## 二、双轴模型：生命周期 × 成熟度
 
 > 生命周期回答"玩家当前在哪个阶段"；成熟度回答"玩家当前会不会玩、愿不愿深玩、
 > 愿不愿付费"。两个维度**解耦**建模，再在运营策略层合并。
@@ -66,7 +66,7 @@
 
 ---
 
-## 2. 成熟度建模
+## 三、成熟度建模
 
 ### 2.1 双分制（必须解耦）
 
@@ -105,7 +105,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 3. 指标体系
+## 四、指标体系
 
 ### 3.1 行业基准（用于校准）
 
@@ -140,7 +140,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 4. 系统能力与运营接入点
+## 五、系统能力与运营接入点
 
 ### 4.1 数据层
 
@@ -182,7 +182,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 5. 推荐实验模板（E1–E8 + E_TG）
+## 六、推荐实验模板（E1–E8 + E_TG）
 
 `web/src/monetization/lifecycleExperiments.js` 中 `LIFECYCLE_EXPERIMENT_TEMPLATES`
 共 9 项，全部默认 `defaultEnabled: false`。调用
@@ -202,7 +202,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 6. 维护规约
+## 七、维护规约
 
 1. **本文档先于代码改动同步**：增加新阶段 / 等级 / 实验时，先在本文增加表格条目
    并给出验收标准，再在 PR 中实现
@@ -219,7 +219,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 7. S/M 标签在玩家面板的展示机制
+## 八、S/M 标签在玩家面板的展示机制
 
 ### 7.1 数据源
 
@@ -255,7 +255,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 8. S/M 标签 → 出块难度调制
+## 九、S/M 标签 → 出块难度调制
 
 > **全仓唯一接线点（Single Source of Truth）**：调制矩阵抽到独立模块
 > `web/src/lifecycle/lifecycleStressCapMap.js`，导出 `LIFECYCLE_STRESS_CAP_MAP`、
@@ -304,14 +304,14 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 9. 关联文档
+## 十、关联文档
 
 - 顶层方法论：[体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md) ·
   [策略体验栈](../player/STRATEGY_EXPERIENCE_MODEL.md)
 - 局内策略与压力体系：[实时策略系统](../player/REALTIME_STRATEGY.md)
 - 商业化策略与分群：[商业化系统全景](./MONETIZATION.md) ·
   [商业化算法](../algorithms/ALGORITHMS_MONETIZATION.md)
-- 数据层架构：[生命周期数据→策略分层](#生命周期成熟度策略架构数据层编排层策略层)
+- 数据层架构：[生命周期数据→策略分层](#十一生命周期成熟度策略架构数据层编排层策略层)
 - 看板与指标审计：[运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md)
 - 事件字典：[黄金事件字典](../engineering/REFERENCE.md)（§一）
 - Canvas 转换登记：[AI 协作文档](../engineering/AI_COLLAB.md)（§三）
@@ -319,15 +319,15 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 ---
 
-## 生命周期/成熟度策略架构（数据层+编排层+策略层）
+## 十一、生命周期/成熟度策略架构（数据层+编排层+策略层）
 
-**适用**：Web 客户端 + 小程序（小程序按本文 §6 同步）
+**适用**：Web 客户端 + 小程序（小程序按本文 §11.6 同步）
 **关联模块**：`web/src/lifecycle/*`、`web/src/playerProfile.js`、`web/src/playerAbilityModel.js`、`web/src/adaptiveSpawn.js`、`web/src/monetization/*`、`web/src/retention/*`
 **配套蓝图**：[`operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)
 
 ---
 
-### 1. 背景：四套成熟度家族 + 三套流失风险并存
+### 11.1 背景：四套成熟度家族 + 三套流失风险并存
 
 历史上，"生命周期 / 成熟度"信号源散落在 4 个互不归一的实现里：
 
@@ -359,7 +359,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 | `vipSystem.updateVipScore`                              | 全仓 0 调用 → VIP 等级永远是初始 V0                                                         |
 | `playerAbilityModel.getPlayerAbilityModel`              | 4 个商业化模块 import 期望 `{getPersona, getRealtimeState, getLTV}`，但本文件从未导出      |
 
-### 2. 设计原则
+### 11.2 设计原则
 
 > 底层采用尽可能统一的数据层，数据层负责指标定义、数据采集和数据存储；
 > 在数据层之上，按照业务需求（如游戏体验出块、运营、商业化）进行策略设计和指标数据消费。
@@ -393,9 +393,9 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 2. **总线解耦**：策略层之间只通过 `MonetizationBus` 的 `lifecycle:*` 事件通信，不互相 import。
 3. **稳定契约**：数据层输出带 `schemaVersion`；字段集合扩展时单调升版。
 
-### 3. 数据层契约
+### 11.3 数据层契约
 
-#### 3.1 `getUnifiedLifecycleSnapshot(profile, options) -> UnifiedLifecycleSnapshot`
+#### 11.3.1 `getUnifiedLifecycleSnapshot(profile, options) -> UnifiedLifecycleSnapshot`
 
 ```ts
 {
@@ -441,7 +441,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 }
 ```
 
-#### 3.2 `getUnifiedChurnRisk(opts) -> { unifiedRisk, level, sources }`
+#### 11.3.2 `getUnifiedChurnRisk(opts) -> { unifiedRisk, level, sources }`
 
 | 来源                      | 默认权重 | 说明                                           |
 | ------------------------- | -------- | ---------------------------------------------- |
@@ -461,13 +461,13 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 [stable]   <  0.15
 ```
 
-#### 3.3 缓存
+#### 11.3.3 缓存
 
 `getCachedLifecycleSnapshot` 提供 300ms TTL，缓存 key 包含 `_installTs / _lastSessionEndTs / _totalLifetimeGames / predictorRisk01 / commercialChurnRisk01`。`recordSessionEnd` / `activateWinback` 后调用 `invalidateLifecycleSnapshotCache` 强制失效。
 
-### 4. 编排层契约
+### 11.4 编排层契约
 
-#### 4.1 `onSessionStart(profile, { tracker })`
+#### 11.4.1 `onSessionStart(profile, { tracker })`
 
 在 `web/src/game.js → start()` 内的 `recordNewGame()` 之后调用：
 
@@ -476,7 +476,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 3. 若 `snapshot.returning.isWinbackCandidate` → `winbackProtection.activateWinback()`
 4. emit `lifecycle:session_start` `{ snapshot, winback }`
 
-#### 4.2 `onSessionEnd(profile, sessionResult, { tracker })`
+#### 11.4.2 `onSessionEnd(profile, sessionResult, { tracker })`
 
 在 `web/src/game.js → endGame()` 内的 `recordSessionEnd()` 之后调用：
 
@@ -492,7 +492,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 4. **干预触发**：`shouldTriggerIntervention` 命中则按 trigger 列表 emit `lifecycle:intervention`
 5. emit `lifecycle:session_end` `{ snapshot, churnUpdate, churnLevel, winback, interventions }`
 
-#### 4.3 总线事件契约（`MonetizationBus`）
+#### 11.4.3 总线事件契约（`MonetizationBus`）
 
 | 事件                          | payload                                                        | 触发时机             | 期望订阅方                                         |
 | ----------------------------- | -------------------------------------------------------------- | -------------------- | -------------------------------------------------- |
@@ -508,7 +508,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 | `ad_show`                     | `{ type: 'rewarded' | 'interstitial', reason? }`               | 广告 UI 出现        | `analyticsTracker.funnels.AD_WATCH`、看板 |
 | `ad_complete`                 | `{ type, reason?, rewarded:boolean }`                          | 广告流程结束（含完播标记） | 同上 |
 
-#### 4.4 `getActiveWinbackPreset()`
+#### 11.4.4 `getActiveWinbackPreset()`
 
 给 `adaptiveSpawn` 的薄包装（避免 spawn 层直接 import retention 模块），返回当前激活的 preset 或 null：
 
@@ -522,16 +522,16 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 }
 ```
 
-### 5. 策略层
+### 11.5 策略层
 
-#### 5.1 出块体验：`adaptiveSpawn.js`
+#### 11.5.1 出块体验：`adaptiveSpawn.js`
 
 接入位置：
 
 - **stress cap**：在 `firstSessionStressOverride` 同位置之后，`stress = min(stress, preset.stressCap)`，并把 `winbackStressCap` 写入 `stressBreakdown` 供回放追踪。
 - **spawnHints 加固**：`clearGuarantee += preset.clearGuaranteeBoost`、`sizePreference += preset.sizePreferenceShift`，并把 `winbackProtectionActive: true` 写入 `spawnHints` + 私有诊断 `_winbackPreset`。
 
-#### 5.2 商业化：`monetization/lifecycleAwareOffers.js`
+#### 11.5.2 商业化：`monetization/lifecycleAwareOffers.js`
 
 | 订阅事件                  | 动作                                                                                 |
 | ------------------------- | ------------------------------------------------------------------------------------ |
@@ -541,11 +541,11 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 与 `commercialModel` 互补：前者管"现在能不能弹"（实时报价决策），后者管"会话结束后该不该送优惠券 / 累计 VIP 分"（跨日促销触发）。
 
-#### 5.3 运营 / 推送：`pushNotificationManager` + Dev Panel
+#### 11.5.3 运营 / 推送：`pushNotificationManager` + Dev Panel
 
 订阅 `lifecycle:intervention` / `lifecycle:offer_available` / `lifecycle:churn_high`。Dev Panel 也读取 `getCachedLifecycleSnapshot` 直接渲染。
 
-### 6. 实施清单 (P0-P3)
+### 11.6 实施清单 (P0-P3)
 
 | 优先级 | 改动                                                                                            | 涉及文件                                                                                |
 | ------ | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -556,7 +556,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 | P2     | `lifecycleAwareOffers` 接 firstPurchaseFunnel + vipSystem；三套 churnRisk 经数据层归一          | `web/src/monetization/lifecycleAwareOffers.js`、`web/src/monetization/index.js`          |
 | P3     | `playerAbilityModel` 末尾追加 `getPlayerAbilityModel` facade，修复 4 个商业化模块的 import 报错 | `web/src/playerAbilityModel.js`                                                         |
 
-### 7. 单测覆盖 (`tests/lifecycleSignals.test.js`)
+### 11.7 单测覆盖 (`tests/lifecycleSignals.test.js`)
 
 19 项端到端单测，按"数据层 → PlayerProfile getter → 编排层 → 策略层 → 死键修复"分组：
 
@@ -568,11 +568,11 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 6. `lifecycleAwareOffers` attach 后 emit `lifecycle:offer_available`
 7. `getMaturityBand` 死键修复：85→M3、90→M4、100→M4
 
-### 8. 小程序后续同步
+### 11.8 小程序后续同步
 
-`miniprogram/core/` 下没有 `lifecycle/` 目录，且 retention 模块未对应实现。后续按本文 §3-§5 在小程序侧建立同名层；为减少耦合，建议先把 `lifecycleSignals` 移植为纯函数模块（不依赖 `MonetizationBus`，事件总线可换成小程序 `wx.eventBus` 或自定义 emitter）。
+`miniprogram/core/` 下没有 `lifecycle/` 目录，且 retention 模块未对应实现。后续按本文 §11.3–§11.5 在小程序侧建立同名层；为减少耦合，建议先把 `lifecycleSignals` 移植为纯函数模块（不依赖 `MonetizationBus`，事件总线可换成小程序 `wx.eventBus` 或自定义 emitter）。
 
-### 9. 已知限制 / 待办
+### 11.9 已知限制 / 待办
 
 - `lifecycleAwareOffers._onSessionEnd` 取 `score` 时优先用 `data.churnUpdate.signals[0].value`（兼容历史 schema），新 churnPredictor 写入 `avgScore`，可在下个版本统一字段名。
 - `commercialModel.churnRisk` 输出 `0..1`，未在编排层接入；建议在 `commercialModel` 的实时计算入口暴露 `getCommercialChurnRisk01()`，再喂给 `getUnifiedChurnRisk` 的 `commercialChurnRisk01`，实现真正三源融合。

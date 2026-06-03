@@ -4,7 +4,7 @@
 
 ---
 
-## 一图入门
+## 一、一图入门
 
 ![OpenBlock 算法架构总览：六层 + 七子模型 + 反馈闭环](./assets/algorithm-architecture.png)
 
@@ -31,36 +31,36 @@
 
 | 图中层号 | 层名 | 对应文档章节 |
 |:---:|---|---|
-| 层 0 | 输入层 | [出块架构 §二](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) |
+| 层 0 | 输入层 | [出块架构 §二](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) |
 | 层 1 | 盘面感知层 | [自适应出块 §10.8.2](./ADAPTIVE_SPAWN.md#1082-阶段-0盘面感知) |
 | 层 2 | 评分构建层 | [自适应出块 §10.8.3](./ADAPTIVE_SPAWN.md#1083-阶段-1全形状池评分scored-构建) |
 | 层 3 | 优先选拔层 | [自适应出块 §10.8.4–§10.8.5](./ADAPTIVE_SPAWN.md#1084-阶段-2stage-1--消行优先席clearseats) |
-| 层 4 | 加权补齐层 | [出块架构 §二](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)（加权乘子表） |
-| 层 5 | 约束验证层 | [出块架构 §二](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)（硬约束表）· [出块难度 §一](./ALGORITHMS_SPAWN.md#14-出块难度与评估) |
+| 层 4 | 加权补齐层 | [出块架构 §二](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层)（加权乘子表） |
+| 层 5 | 约束验证层 | [出块架构 §二](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层)（硬约束表）· [出块难度 §一](./ALGORITHMS_SPAWN.md#十四出块难度与评估) |
 | 层 6 | 注入优化层 | [自适应出块 §10.8.7](./ADAPTIVE_SPAWN.md#1087-阶段-5l2-特殊形状注入_tryinjectspecial) |
 | 层 7 | 输出层 | [自适应出块 §10.8.9](./ADAPTIVE_SPAWN.md#1089-阶段-7输出与-dfv-标注) |
 | 层 8 | 染色层 | [自适应出块 §10.8.10](./ADAPTIVE_SPAWN.md#10810-阶段-8染色绑定gamejs) |
 
 - [**出块算法手册**](./ALGORITHMS_SPAWN.md) —— 出块子系统**统一权威文档**：问题形式化、双轨架构、SpawnTransformer 网络/训练/推理（§1–§11），并整合：
-  - [§12 架构总览（工程分层）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) —— L1/L2 四角色 + 三层架构 + 5 阶段流水线 + 30+ 加权乘子 + 架构图 Prompt
-  - [§13 出块建模与设计 rationale](./ALGORITHMS_SPAWN.md#13-出块建模双轨实现与设计-rationale) —— 规则引擎 + SpawnPolicyNet 双轨、PB 双 S 曲线、个性化与受控随机实验轨、候选块概率图鉴
-  - [§14 出块难度与评估](./ALGORITHMS_SPAWN.md#14-出块难度与评估) —— 解法数量难度 + 单步难度细化 + CLI/Web 评估工具
-  - [§15 出块参数寻优（SpawnParamTuner）](./ALGORITHMS_SPAWN.md#15-出块参数寻优spawnparamtuner) —— 工业化 L2 ResNet-MLP 寻参管线 + 操作手册
+  - [§12 架构总览（工程分层）](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) —— L1/L2 四角色 + 三层架构 + 5 阶段流水线 + 30+ 加权乘子 + 架构图 Prompt
+  - [§13 出块建模与设计 rationale](./ALGORITHMS_SPAWN.md#十三出块建模双轨实现与设计-rationale) —— 规则引擎 + SpawnPolicyNet 双轨、PB 双 S 曲线、个性化与受控随机实验轨、候选块概率图鉴
+  - [§14 出块难度与评估](./ALGORITHMS_SPAWN.md#十四出块难度与评估) —— 解法数量难度 + 单步难度细化 + CLI/Web 评估工具
+  - [§15 出块参数寻优（SpawnParamTuner）](./ALGORITHMS_SPAWN.md#十五出块参数寻优spawnparamtuner) —— 工业化 L2 ResNet-MLP 寻参管线 + 操作手册
 - [自适应出块](./ADAPTIVE_SPAWN.md) —— 运行时 **10 信号融合引擎深潜**：§10.8 完整流水线（v1.60.35 代码基准）+ §10.10.10 生命周期×成熟度 25 格调制矩阵
 - [出块算法信号透视仪](./spawn-signal-explorer.html) —— 交互式 HTML 工具：22 个 L1 原始信号 × 30 个 L2 派生信号 × 7 个 L3 管道阶段，含 Intent 优先级矩阵、Stress 分量全表、完整链路依赖图（代码口径精确至 v1.61）
 
 ## 分——玩家画像算法
 
 - [**玩家画像与能力评估手册**](./ALGORITHMS_PLAYER_MODEL.md) —— 玩家建模子系统**统一权威文档**：能力建模公式、特征、参数、`AbilityVector`、建模方法与评估指标（§1–§16），并整合：
-  - [§17 画像指标自评估与自我优化（profileAudit）](./ALGORITHMS_PLAYER_MODEL.md#17-画像指标自评估与自我优化profileaudit) —— 四层评估 + 预期关系契约 + 健康分 + 全库自闭环工具链
-  - [§18 实时状态历史序列分析](./ALGORITHMS_PLAYER_MODEL.md#18-实时状态历史序列分析) —— 基于 `move_sequences.frames[*].ps` 的历史实时状态分布、互操作关系与 stress 分量贡献
+  - [§17 画像指标自评估与自我优化（profileAudit）](./ALGORITHMS_PLAYER_MODEL.md#十七画像指标自评估与自我优化profileaudit) —— 四层评估 + 预期关系契约 + 健康分 + 全库自闭环工具链
+  - [§18 实时状态历史序列分析](./ALGORITHMS_PLAYER_MODEL.md#十八实时状态历史序列分析) —— 基于 `move_sequences.frames[*].ps` 的历史实时状态分布、互操作关系与 stress 分量贡献
 
 ## 分——强化学习专题
 
 - [**RL 训练与推理手册**](./ALGORITHMS_RL.md) —— RL 子系统**统一权威文档**：状态/动作/奖励、网络结构、训练/推理、探索/课程/搜索增强（§1–§20），并整合：
-  - [§21 RL 契约与在线服务](./ALGORITHMS_RL.md#21-rl-契约与在线服务) —— 玩法边界/共享 JSON/离线训练/HTTP 评估
-  - [§22 RL 训练监控与排障](./ALGORITHMS_RL.md#22-rl-训练监控与排障) —— 看板数据流/趋势解读/数值稳定与裁剪
-  - [§23 RL 研究：复杂度、瓶颈与文献对照](./ALGORITHMS_RL.md#23-rl-研究复杂度瓶颈与文献对照) —— 复杂度分析/瓶颈诊断/自博弈文献对照
+  - [§21 RL 契约与在线服务](./ALGORITHMS_RL.md#二十一rl-契约与在线服务) —— 玩法边界/共享 JSON/离线训练/HTTP 评估
+  - [§22 RL 训练监控与排障](./ALGORITHMS_RL.md#二十二rl-训练监控与排障) —— 看板数据流/趋势解读/数值稳定与裁剪
+  - [§23 RL 研究：复杂度、瓶颈与文献对照](./ALGORITHMS_RL.md#二十三rl-研究复杂度瓶颈与文献对照) —— 复杂度分析/瓶颈诊断/自博弈文献对照
 - [AlphaZero/MCTS 历史实验档案](./RL_ALPHAZERO_OPTIMIZATION.md) —— v6–v8.3 优化实验、消融矩阵与训练配方（独立档案，从手册交叉链接）
 
 ## 分——商业化算法

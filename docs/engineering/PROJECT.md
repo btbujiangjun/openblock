@@ -2,7 +2,7 @@
 
 本文描述当前实现与数据流，与根目录 `README.md` 配合使用。
 
-## 前端分层（`web/src`）
+## 一、前端分层（`web/src`）
 
 | 模块 | 职责 |
 |------|------|
@@ -22,7 +22,7 @@
 | `playerInsightPanel.js` | 左侧玩家画像 UI；投放区指标文案与悬停说明见 **[`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md)** §4 |
 | `difficulty.js` | 原有 score→stress 难度映射（被 `adaptiveSpawn.js` 内部调用） |
 
-## PyTorch RL（`rl_pytorch/`）
+## 二、PyTorch RL（`rl_pytorch/`）
 
 - **规则与方块数据**：`shared/game_rules.json`、`shared/shapes.json` 为 Web / PyTorch / MLX 共用；Python 经 `game_rules.py`、`shapes_data.py` 加载。玩法与 RL 分层说明见 **`docs/algorithms/ALGORITHMS_RL.md（§21）`**。
 - **动力学**：`grid.py`、`simulator.py` 实现铺块、出块、计分、终局判定（须与主游戏 `Grid` 一致）。
@@ -32,23 +32,23 @@
 - **训练**：REINFORCE + 价值基线（`smooth_l1`）；`train.py` 默认 GAE；checkpoint 含 `model`/`optimizer`/`episodes`。浏览器与 `rl_backend` 可用 **`RL_RETURN_SCALE`**（默认 `0.032`）缩放蒙特卡洛回报以稳定价值头、减弱 Lv 尖峰；**`RL_ENTROPY_DECAY_EPISODES` / `RL_ENTROPY_COEF_MIN`** 对熵系数做线性衰减。详见 `backend/rl_backend.py` 文件头与 `.env.example`。
 - **浏览器对接**：Flask `backend/rl_backend.py` 提供 `/api/rl/status`、`/api/rl/select_action`、`/api/rl/train_episode`、`/api/rl/save`、`/api/rl/load`、**`/api/rl/training_log`**（查询 `training.jsonl` 最近条目）。默认 **`RL_AUTOLOAD=1`**：若 `RL_CHECKPOINT_SAVE`（默认 `rl_checkpoints/bb_policy.pt`）已存在则**自动热加载**；`RL_SAVE_EVERY`（默认每 **100** 局）定期写回同路径，减少 I/O；**`RL_TRAINING_LOG`**（默认 `rl_checkpoints/training.jsonl`）追加 JSONL：服务启动、每局训练损失、每次 checkpoint。
 
-## 行为与后端契约
+## 三、行为与后端契约
 
 - 本地 `logBehavior` 使用 `GAME_EVENTS` 字符串。
 - 写入 Flask 时字段名为后端约定：`session_id`、`userId`、`eventType`、`data`、`gameState`、`timestamp`（毫秒；`/api/behavior/batch` 对小于 `1e12` 的值按秒兼容并乘 1000）。
 
-## 后端要点（`server.py`）
+## 四、后端要点（`server.py`）
 
 - `DATABASE` 由环境变量 `OPENBLOCK_DB_PATH` 覆盖。
 - 模块导入末尾调用 `init_db()`，便于 `gunicorn server:app` 首次即有表结构。
 - `GET /api/export` 已修复对 `user_stats` 的重复 `fetchone()` 问题。
 
-## 测试
+## 五、测试
 
 - `tests/grid.test.js`、`tests/config.test.js` 引用 `web/src/*`。
 - Vitest 通过 `define` 注入 `import.meta.env.VITE_*`，避免在 Node 中未定义。
 
-## 商业化子系统（`web/src/monetization/`）
+## 六、商业化子系统（`web/src/monetization/`）
 
 完整设计见 **[`docs/MONETIZATION.md`](../operations/MONETIZATION.md)**（v3，唯一事实来源）。
 
@@ -75,12 +75,12 @@
 
 ---
 
-## 文档索引
+## 七、文档索引
 
 完整文档中心、角色阅读路径、权威文档地图与维护规范见 **[`docs/README.md`](../README.md)**。
 
 ---
 
-## 历史说明
+## 八、历史说明
 
 早期 `index.html` 曾内嵌完整游戏脚本，已与 `web/src` 重复逻辑删除，避免双轨维护。

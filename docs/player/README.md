@@ -11,7 +11,7 @@
 ## 分——实时策略与评估
 
 - [实时策略系统](./REALTIME_STRATEGY.md) —— L1指标字典（thinkMs/pickToPlaceMs/clearRate等20+滑动窗口）、stress管线公式、6档压力表、策略卡与决策树、合理性评估清单
-- [玩法风格检测](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) —— 从滑动窗口推算多消率/清屏率/平均消除条数，`playstyle`枚举（`perfect_hunter` / `line_clearer` / `balanced`）与出块对齐轻推机制
+- [玩法风格检测](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) —— 从滑动窗口推算多消率/清屏率/平均消除条数，`playstyle` 枚举（`perfect_hunter` / `multi_clear` / `combo` / `survival` / `balanced`）与出块对齐轻推机制
 - [玩家能力评估](./PANEL_PARAMETERS.md#附录玩家能力评估产品语义与接入说明) —— `AbilityVector` 7维输出字段的产品语义、消费方、作用机制（→stress修正→面板展示→回放快照）、调参与验证方式
 - [玩家面板参数手册](./PANEL_PARAMETERS.md) —— 面板5个功能区、每个参数的数学定义/物理含义/取值范围/系统作用/异常解读（694行完整参考）
 
@@ -23,10 +23,10 @@
 
 | 角色 | 起点 | 后续 |
 |------|------|------|
-| **主策划 / 策略设计师** | [产品架构图](../architecture/PRODUCT_ARCHITECTURE_DIAGRAMS.md) → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §1–§3 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) → [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) → [生命周期蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) |
-| **新加入的设计师/产品** | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part A→C→D | [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) → [实时策略系统](./REALTIME_STRATEGY.md) → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) |
-| **算法工程师调参** | [实时策略系统](./REALTIME_STRATEGY.md) §3 + §5 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part C 互抑表 → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §3 |
-| **测试 / 质量** | [实时策略系统](./REALTIME_STRATEGY.md) §6 评审清单 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part D 审查清单 → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §6 验证清单 |
-| **运营 / 商业化** | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) Part B（B.7）| [`docs/domain/DOMAIN_KNOWLEDGE.md`](../domain/DOMAIN_KNOWLEDGE.md) §13 → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §4.12（PB事件总线对接） |
+| **主策划 / 策略设计师** | [产品架构图](../architecture/PRODUCT_ARCHITECTURE_DIAGRAMS.md) → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §二–§四 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) → [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) → [生命周期蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) |
+| **新加入的设计师/产品** | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) §一→§三→§四 | [策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md) → [实时策略系统](./REALTIME_STRATEGY.md) → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) |
+| **算法工程师调参** | [实时策略系统](./REALTIME_STRATEGY.md) §三 + §五 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) §三 互抑表 → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §四 |
+| **测试 / 质量** | [实时策略系统](./REALTIME_STRATEGY.md) §六 评审清单 | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) §四 审查清单 → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §六 验证清单 |
+| **运营 / 商业化** | [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md) §二（2.7）| [`docs/domain/DOMAIN_KNOWLEDGE.md`](../domain/DOMAIN_KNOWLEDGE.md) §13 → [最佳分追逐策略](./BEST_SCORE_CHASE_STRATEGY.md) §4.12（PB事件总线对接） |
 
 适合产品、算法、运营和测试角色理解玩家状态如何影响体验与策略。

@@ -5,7 +5,7 @@
 > 上交换的事件，包含**显式事件**与**通过 `attach(game)` 透传的游戏事件**两类。
 > 新模块订阅或 emit 时以本文档为单一权威源。
 
-## 1. 总线机制
+## 一、总线机制
 
 ```
 ┌─────────────────────────┐   emit    ┌──────────────────────┐   on    ┌──────────────────────┐
@@ -35,7 +35,7 @@
   订阅方仍应自行处理业务异常。
 - **追加只增不改**：删除字段需走废弃 → 1 个版本的过渡。
 
-## 2. 显式事件
+## 二、显式事件
 
 ### 2.1 生命周期编排（`lifecycle/lifecycleOrchestrator.js`）
 
@@ -104,7 +104,7 @@ purchase_completed
 | `daily_task_complete` | `{ task }` | `dailyTasks.markComplete` 触发任务通过 |
 | `season_tier_unlocked` | `{ tier, track: 'free' \| 'paid' }` | `seasonPass` 解锁新阶 |
 
-## 3. 通过 `attach(game)` 透传的游戏事件
+## 三、通过 `attach(game)` 透传的游戏事件
 
 `MonetizationBus.attach(game)` 会拦截 `game.logBehavior(eventType, data)`，把
 **任意** `eventType` 转发到总线。常见订阅点：
@@ -119,7 +119,7 @@ purchase_completed
 游戏侧未来新增 `logBehavior` 事件名时无需修改本契约，订阅方按需对接即可；但
 **新事件名一旦被任何商业化模块订阅，即应在本节登记**。
 
-## 4. 订阅方索引
+## 四、订阅方索引
 
 | 订阅方 | 关注事件 | 关键动作 |
 |---|---|---|
@@ -131,7 +131,7 @@ purchase_completed
 | `actionOutcomeMatrix` | `purchase_completed`、`ad_complete`、`lifecycle:session_end` | 推荐 action × 结果归因 |
 | `adTrigger` | `game_over`、`no_clear` | 插屏 + 激励广告频控 / 触发 |
 
-## 5. 测试覆盖
+## 五、测试覆盖
 
 | 测试文件 | 验证 |
 |---|---|
@@ -144,7 +144,7 @@ purchase_completed
 | [`tests/adTrigger.test.js`](../../tests/adTrigger.test.js) | 广告频控 / 护栏 |
 | [`tests/actionOutcomeMatrix.test.js`](../../tests/actionOutcomeMatrix.test.js) | Bus 自动接线 + 30 分钟 attribution |
 
-## 6. 与事件相关的 Feature Flag
+## 六、与事件相关的 Feature Flag
 
 下列 flag 直接影响**事件是否被 emit / 是否被订阅方处理**。完整 flag 清单见
 [`web/src/monetization/featureFlags.js`](../../web/src/monetization/featureFlags.js)。
@@ -164,9 +164,9 @@ purchase_completed
 | `commercialModelQualityRecording` | true | 是否在 commercial 决策时调用 `recordSample` |
 | `distributionDriftMonitoring` | true | 是否在 `buildCommercialModelVector` 时累积 KL 直方图 |
 
-## 7. 关联文档
+## 七、关联文档
 
-- [`PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`（生命周期/成熟度策略架构（数据层+编排层+策略层））](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) —— 数据→信号→策略分层
+- [`PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md`（生命周期/成熟度策略架构（数据层+编排层+策略层））](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#十一生命周期成熟度策略架构数据层编排层策略层) —— 数据→信号→策略分层
 - [`../algorithms/ALGORITHMS_MONETIZATION.md`](../algorithms/ALGORITHMS_MONETIZATION.md) —— 商业化算法手册
 - [`../algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md`](../algorithms/COMMERCIAL_MODEL_DESIGN_REVIEW.md) —— 模型架构与决策包装
 - [`../operations/MONETIZATION.md`](../operations/MONETIZATION.md) —— 商业化系统全景与运行时 API

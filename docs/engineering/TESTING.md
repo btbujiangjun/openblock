@@ -2,7 +2,7 @@
 
 > 面向贡献者、QA、算法和产品的验证入口。目标不是只“跑过测试”，而是证明玩法、算法、数据和体验没有回归。
 
-## 1. 测试分层
+## 一、测试分层
 
 | 层级 | 关注点 | 主要证据 |
 |------|--------|----------|
@@ -12,7 +12,7 @@
 | 算法回归 | 出块公平性、心流调节、RL 数值稳定、指标趋势 | 针对性测试 + 看板指标 |
 | 手动体验 | 拖拽、动效、面板、回放、移动端/小程序适配 | 测试清单与截图/录屏 |
 
-## 2. 本地验证命令
+## 二、本地验证命令
 
 ```bash
 npm test
@@ -23,7 +23,7 @@ npm run build
 PyTorch 策略 checkpoint 的**离线贪心评估**（与网页看板滑动统计独立）：`npm run rl:eval -- --checkpoint rl_checkpoints/bb_policy.pt --n-games 128 --rounds 3`。说明见 [ALGORITHMS_RL.md（§21）](../algorithms/ALGORITHMS_RL.md#21-rl-契约与在线服务)。
 
 前端性能相关策略与回归清单见 [PERFORMANCE.md](./PERFORMANCE.md)，
-基线采集 / 回归检测命令（`npm run perf:check` / `perf:check:gpu`）见 [PERFORMANCE.md（性能基线与回归检测）](./PERFORMANCE.md#性能基线与回归检测)。
+基线采集 / 回归检测命令（`npm run perf:check` / `perf:check:gpu`）见 [PERFORMANCE.md（性能基线与回归检测）](./PERFORMANCE.md#十三性能基线与回归检测)。
 
 按场景可补充：
 
@@ -35,7 +35,7 @@ npm run server:rl
 
 Python RL 或 spawn model 相关改动，应额外运行对应 Python 测试或最小训练/推理 smoke test。若改动涉及 MPS/CUDA，记录设备、环境变量和训练日志路径。
 
-## 3. 核心回归清单
+## 三、核心回归清单
 
 ### 3.1 玩法与棋盘
 
@@ -100,7 +100,7 @@ npm run spawn:eval -- --sessions 1 --max-steps 20 --max-triplets 24 \
 
 相关测试：`tests/i18n.test.js`、`tests/shapes.test.js`、`tests/blockPool.test.js`。
 
-## 4. 提交前检查
+## 四、提交前检查
 
 | 改动类型 | 最低验证 |
 |----------|----------|
@@ -112,7 +112,7 @@ npm run spawn:eval -- --sessions 1 --max-steps 20 --max-triplets 24 \
 | RL 训练 | feature/simulator 测试 + 最小训练 smoke test + 看板日志 |
 | 商业化 | monetization/adFreq 测试 + Stub 模式手动验证 |
 
-## 5. 缺陷报告模板
+## 五、缺陷报告模板
 
 提交 issue 或 PR 说明时，建议包含：
 
@@ -122,7 +122,7 @@ npm run spawn:eval -- --sessions 1 --max-steps 20 --max-triplets 24 \
 - 证据：控制台日志、测试输出、截图、回放 session id、训练日志片段。
 - 环境：OS、浏览器、Node、Python、是否启用 RL 后端。
 
-## 6. 测试设计原则
+## 六、测试设计原则
 
 - 优先覆盖不变量：棋盘合法性、可解性、配置维度、数据持久化格式。
 - 算法测试用“构造局面 + 预期趋势”，避免依赖完全随机的单次结果。

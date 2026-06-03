@@ -9,7 +9,7 @@
 > **维护要求**：当 `web/src/`、`shared/`、`services/`、`monetization/` 等
 > 顶层结构发生增减时，同步更新 §"Prompt 全文"中的事实包。
 
-## 适用场景
+## 一、适用场景
 
 - 重新生成 [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)
   以反映架构变化
@@ -17,7 +17,7 @@
 - 作为新贡献者的"项目结构介绍材料"
 - 派生定制：只生成单个子系统图（如只画 RL 或只画 Monetization）
 
-## 设计原则
+## 二、设计原则
 
 1. **事实包密度优先**：LLM 在没有源码访问时，输出准确性 100% 取决于 prompt
    的事实密度，故 §2 必须穷尽全部模块名 / 事件 / 路由。
@@ -31,7 +31,7 @@
 
 ---
 
-## Prompt 全文
+## 三、Prompt 全文
 
 ````markdown
 # 角色
@@ -341,7 +341,7 @@ flowchart TB
 
 ---
 
-## 派生用法
+## 四、派生用法
 
 | 场景 | 改动建议 |
 |---|---|
@@ -351,7 +351,7 @@ flowchart TB
 | 给 RL/商业化做专题 | 把 §2 的事实包按子系统切开，分别喂给模型 |
 | 自动校验输出 | 在 §7 后追加："输出 JSON 格式的 audit 结果，标注每张图节点数 / 边数 / 是否有反向依赖" |
 
-## 关联文档
+## 五、关联文档
 
 - [`SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md) —— 本 prompt 的当前输出物
 - [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md) —— §2.4 事件契约的权威源

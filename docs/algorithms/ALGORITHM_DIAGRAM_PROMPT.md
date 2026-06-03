@@ -12,7 +12,7 @@
 > 编排器的实现发生增减时，同步更新 §"Prompt 全文"中的事实包；行号变化
 > 不要求严格同步，但模块名、阈值、默认值、特性开关默认值必须与代码一致。
 
-## 适用场景
+## 一、适用场景
 
 - 重新生成 [`ALGORITHM_ARCHITECTURE_DIAGRAMS.md`](./ALGORITHM_ARCHITECTURE_DIAGRAMS.md)
   以反映算法栈变化
@@ -21,7 +21,7 @@
 - 派生用法：只画一个子系统（如只画"商业化 ML 栈"或"出块双轨"）
 - 算法评审材料：每个新模型 onboarding 时附此图谱
 
-## 设计原则
+## 二、设计原则
 
 1. **算法是策略不是工程**：图必须以"模型 / 输入 / 输出 / 阈值 / 反馈"为
    主线，而不是文件依赖；文件名只在节点尾部用作锚点。
@@ -34,7 +34,7 @@
 
 ---
 
-## Prompt 全文
+## 三、Prompt 全文
 
 ````markdown
 # 角色
@@ -503,7 +503,7 @@ flowchart TB
 
 ---
 
-## 派生用法
+## 四、派生用法
 
 | 场景 | 改动建议 |
 |---|---|
@@ -513,7 +513,7 @@ flowchart TB
 | 算法评审材料 | 在 §4 末尾追加："为每张图生成 SLI/SLO 卡片：输入分布、阈值、回退策略、漂移预警" |
 | 自动审查输出 | 在 §7 后追加："输出 JSON 形式的 audit：每张图节点数 / 边数 / 是否含 scaffolding / 反馈环条数" |
 
-## 关联文档
+## 五、关联文档
 
 - [`ALGORITHM_ARCHITECTURE_DIAGRAMS.md`](./ALGORITHM_ARCHITECTURE_DIAGRAMS.md)
   —— 本 prompt 的当前输出物
@@ -523,7 +523,7 @@ flowchart TB
 - [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) —— 商业化算法手册
 - [`COMMERCIAL_MODEL_DESIGN_REVIEW.md`](./COMMERCIAL_MODEL_DESIGN_REVIEW.md)
   —— 商业化模型架构设计
-- [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) —— 出块算法三层模型
+- [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) —— 出块算法三层模型
 - [`../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md)
   —— 系统架构图（系统侧的姊妹篇）
 - [`./ARCHITECTURE_DIAGRAM_PROMPT.md`](./ARCHITECTURE_DIAGRAM_PROMPT.md)

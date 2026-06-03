@@ -1,19 +1,19 @@
 # 运营文档
 
-商业化、运营策略、训练面板、合规、部署与可观测性文档。
+商业化策略、运营体系、训练面板、合规与部署可观测性文档。
 
-> 本目录按角色拆为两个分类：「商业化与运营」和「运维与部署」。
+> 本目录按角色分为「商业化与运营」和「运维与部署」两篇。
 
 ---
 
-## 商业化与运营
+## 一、商业化与运营
 
 ### 总——策略框架
 
-- [商业化策略](./MONETIZATION.md) —— **权威入口**：IAA+IAP混合架构、用户分层（鲸鱼/海豚/小鱼）、信号→决策管线、`CommercialModelVector`、后端API、SQLite Schema、KPI基线、扩展边界；附录含商业化系统综合报告（模块拓扑、漏斗KPI、演进方向）
+- [商业化策略](./MONETIZATION.md) —— **权威入口**：IAA+IAP 混合架构、用户分层（Whale/Dolphin/Minnow）、信号→决策管线、`CommercialModelVector`、后端 API、SQLite Schema、KPI 基线、扩展边界；附录含商业化系统综合报告（模块拓扑、漏斗 KPI、演进方向）
 - [商业运营参考分析](./COMMERCIAL_OPERATIONS.md) —— 商业化现状诊断、7项P0–P7改善优先级、集成路径（AdMob/AppLovin/Stripe IAP/Analytics）
 - [玩家生命周期与成熟度运营蓝图](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) —— S0–S4 × M0–M4双轴模型、北星指标（D30留存）、5×5决策矩阵、技能/价值评分公式、运营接入点与推荐实验
-- [Block Blast 商业化运营指南](../platform/MONETIZATION_GUIDE.md) —— 跨平台PWA/广告/IAP/签到/分享配置（位于 `docs/platform/`）
+- [商业化运营指南](../platform/MONETIZATION_GUIDE.md) —— 跨平台PWA/广告/IAP/签到/分享配置（位于 `docs/platform/`）
 
 ### 分——配置与面板
 
@@ -29,7 +29,7 @@
 ### 分——架构参考
 
 - [MonetizationBus 事件契约](./MONETIZATION_EVENT_BUS_CONTRACT.md) —— `MonetizationBus.js` 的权威事件定义：5个API方法、事件表、设计约束
-- [生命周期/成熟度策略架构](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) —— 三层架构（数据层+编排层+策略层）解决生命周期信号碎片化问题
+- [生命周期/成熟度策略架构](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#十一生命周期成熟度策略架构数据层编排层策略层) —— 三层架构（数据层+编排层+策略层）解决生命周期信号碎片化问题
 
 ### 分——合规
 
@@ -41,7 +41,7 @@
 
 ---
 
-## 运维与部署
+## 二、运维与部署
 
 ### 总——部署总览
 

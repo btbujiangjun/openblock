@@ -2,7 +2,7 @@
 
 > 降低四端并行维护成本：**规则数据单一来源**、**Web 构建产物复用**、**会话与归因字段一致**、**埋点字典一致**。
 
-## 端形态
+## 一、端形态
 
 | 端 | 运行形态 | 核心逻辑来源 |
 |----|----------|--------------|
@@ -11,7 +11,7 @@
 | iOS | `mobile/ios` Capacitor WKWebView 壳 | 打包后的 `dist`，由 `web/src` 构建 |
 | 微信小程序 | `miniprogram` 轻量包 | `shared` 数据 + `scripts/sync-core.sh` 生成的 `miniprogram/core` 模块 |
 
-## 必须对齐
+## 二、必须对齐
 
 | 项 | 权威位置 | 说明 |
 |----|----------|------|
@@ -26,13 +26,13 @@
 | 会话归因字段 | `sessions.attribution` JSON | Web/Android/iOS：`channelAttribution` → `getSessionAttributionSnapshot`；小程序：启动参数/onLaunch 写入同等键名 |
 | IAP/广告占位 | 后端 `/api/payment/verify`、`/api/enterprise/ad-impression` | 小程序和移动端使用各自 SDK，请求体字段保持一致 |
 
-## 建议自动化
+## 三、建议自动化
 
 - CI 中校验：`shared/game_rules.json` / `shared/shapes.json` 与小程序生成数据模块语义一致（见仓库脚本扩展位）。
 - 移动端发包前固定流程：`npm run build` → `npm run mobile:sync` → Android Studio / Xcode 构建。
 - 黄金事件：`docs/engineering/REFERENCE.md`（§一）与小程序埋点名定期 diff。
 
-## 已知差异处理
+## 四、已知差异处理
 
 - 小程序无浏览器 UTM：使用场景值、`query` 中的自定义参数映射到 `utm_source` / `utm_campaign`；Android/iOS 可沿用 Web URL 参数、安装渠道或后续原生桥接注入。
 - 小程序不包含 RL 训练、模型状态、后端同步和商业化运营看板；规则轨出块、棋盘、消行、计分与玩家画像闭环保持 Web 主端同语义，只保留本地离线核心对局体验。

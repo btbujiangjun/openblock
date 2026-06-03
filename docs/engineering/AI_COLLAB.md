@@ -99,7 +99,7 @@ Cursor Skills、Canvas 转换文档、休闲游戏全栈构建 Skill。
 |------|------|-------------|
 | 全球化 | [全球休闲游戏个性化策略](../domain/DOMAIN_KNOWLEDGE.md#全球休闲游戏个性化策略与调研) | `global-casual-game-research.canvas.tsx` |
 | 产品留存 | [玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) | `player-lifecycle-maturity-ops-blueprint.canvas.tsx` |
-| 出块 | [出块建模 §附录](../algorithms/ALGORITHMS_SPAWN.md#13-出块建模双轨实现与设计-rationale) | `candidate-blocks.canvas.tsx` |
+| 出块 | [出块建模 §附录](../algorithms/ALGORITHMS_SPAWN.md#十三出块建模双轨实现与设计-rationale) | `candidate-blocks.canvas.tsx` |
 | RL | [RL 研究](../algorithms/ALGORITHMS_RL.md#23-rl-研究复杂度瓶颈与文献对照)（§二） | `rl-self-play-literature-comparison.canvas.tsx` |
 
 ### 3.2 使用方式

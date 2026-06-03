@@ -60,7 +60,7 @@
 
 ---
 
-## 1. 领域知识基础
+## 一、领域知识基础
 
 系统设计基于以下休闲游戏领域的研究成果与行业实践：
 
@@ -130,7 +130,7 @@
 
 ---
 
-## 2. 系统架构
+## 二、系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -195,7 +195,7 @@
 
 ---
 
-## 3. 玩家能力画像（PlayerProfile）
+## 三、玩家能力画像（PlayerProfile）
 
 ### 3.1 数据录入接口
 
@@ -698,7 +698,7 @@ if (earlyAttempt && targetHoleIncrement && !solutionMetrics.truncated) {
 
 ---
 
-## 4. 策略候选库（10 档 Profiles）
+## 四、策略候选库（10 档 Profiles）
 
 10 档 profile 按 `stress` 值升序排列，引擎在相邻两档间做线性插值。
 
@@ -726,7 +726,7 @@ if (earlyAttempt && targetHoleIncrement && !solutionMetrics.truncated) {
 
 ---
 
-## 5. 自适应引擎（AdaptiveSpawn）
+## 五、自适应引擎（AdaptiveSpawn）
 
 ### 5.1 Stress 计算公式
 
@@ -1163,7 +1163,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 
 ---
 
-## 6. 出块提示（SpawnHints）
+## 六、出块提示（SpawnHints）
 
 自适应引擎输出 `spawnHints` 对象传给 `blockSpawn.js`，在权重之上提供更精细的控制。
 
@@ -1273,7 +1273,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 
 ---
 
-## 7. 配置参考（game_rules.json）
+## 七、配置参考（game_rules.json）
 
 所有参数位于 `shared/game_rules.json` 的 `adaptiveSpawn` 节，支持热修改（重启 Vite 生效）。
 
@@ -1340,7 +1340,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 
 ---
 
-## 8. 调优指南
+## 八、调优指南
 
 ### 8.1 常见调优场景
 
@@ -1368,7 +1368,7 @@ t = (stress - lower.stress) / (upper.stress - lower.stress)
 
 ---
 
-## 9. 数据流与集成点
+## 九、数据流与集成点
 
 ### 9.1 game.js 集成点
 
@@ -1405,7 +1405,7 @@ saveSession() → profile.save() // 持久化到 localStorage
 
 ---
 
-## 10. 全球化个性化策略层（已实现）
+## 十、全球化个性化策略层（已实现）
 
 `adaptiveSpawn.js` 现在在传统 stress 管线之外读取 `PlayerProfile.personalizationContext`，新增三类安全调节：
 
@@ -1478,7 +1478,7 @@ saveSession() → profile.save() // 持久化到 localStorage
 
 ---
 
-## 13. PB 段差异化机制（farFromPBBoost / pbExtremeOrderBoost）
+## 十三、PB 段差异化机制（farFromPBBoost / pbExtremeOrderBoost）
 
 > 与 [BEST_SCORE_CHASE_STRATEGY §5.α](../player/BEST_SCORE_CHASE_STRATEGY.md) 双向引用。本节聚焦算法侧实现细节；产品侧策略意图、用户故事与 KPI 参见策略文档。
 
@@ -5413,7 +5413,7 @@ game.js 染色层（§10.8.10）
 
 ---
 
-## 11. 后续迭代方向
+## 十一、后续迭代方向
 
 ### 11.1 短期（可直接在 JSON 配置层面调优）
 

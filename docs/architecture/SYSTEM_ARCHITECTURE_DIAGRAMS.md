@@ -19,18 +19,18 @@
 
 | 图 | 回答的问题 | 适合角色 |
 |---|---|---|
-| [业务架构](#业务架构总览四支柱--统一生态) | OpenBlock 是一个什么样的产品？四个能力如何串成一个生态？ | 全角色 / 对外宣讲 / 新人破冰 |
-| [总览图](#总览图全栈分层--设计原则) | 一图看懂从端到云的整体技术架构 | 全角色 / 新人入门 |
-| [图 1](#图-1宏观分层c4-容器视图) | 整个项目长什么样？ | 全角色 |
-| [图 2](#图-2l3-domain-services-组件图) | 前端业务子系统怎么拆？ | 算法、前端、商业化 |
-| [图 3](#图-3monetizationbus-事件总线) | 谁发什么事件、谁订什么？ | 商业化、生命周期、数据 |
-| [图 4](#图-4出块双轨--rl-双轨融合) | 算法系统怎么收敛？ | 算法、出块、RL |
-| [图 5](#图-5后端路由--数据持久化) | 接口与表怎么映射？ | 后端、SRE、数据 |
-| [图 6](#图-6四端同步与部署拓扑) | 一份代码怎么覆盖四端？ | 架构、平台、运维 |
+| [业务架构](#一业务架构总览四支柱--统一生态) | OpenBlock 是一个什么样的产品？四个能力如何串成一个生态？ | 全角色 / 对外宣讲 / 新人破冰 |
+| [总览图](#二总览图全栈分层--设计原则) | 一图看懂从端到云的整体技术架构 | 全角色 / 新人入门 |
+| [图 1](#三图-1宏观分层c4-容器视图) | 整个项目长什么样？ | 全角色 |
+| [图 2](#四图-2l3-domain-services-组件图) | 前端业务子系统怎么拆？ | 算法、前端、商业化 |
+| [图 3](#五图-3monetizationbus-事件总线) | 谁发什么事件、谁订什么？ | 商业化、生命周期、数据 |
+| [图 4](#六图-4出块双轨--rl-双轨融合) | 算法系统怎么收敛？ | 算法、出块、RL |
+| [图 5](#七图-5后端路由--数据持久化) | 接口与表怎么映射？ | 后端、SRE、数据 |
+| [图 6](#八图-6四端同步与部署拓扑) | 一份代码怎么覆盖四端？ | 架构、平台、运维 |
 
 ---
 
-## 业务架构总览：四支柱 + 统一生态
+## 一、业务架构总览：四支柱 + 统一生态
 
 > **回答的问题**：OpenBlock 作为一个"游戏 + AI + RL + 商业化"的开源平台，
 > 究竟由哪些产品能力组成？这些能力之间如何形成正反馈闭环？
@@ -43,11 +43,11 @@
 
 | 支柱 | 一句话定位 | 关键能力 | 对应技术文档 |
 |---|---|---|---|
-| 🎮 **Games Engine** | 多端方块益智核心玩法 | Web / Android / iOS / 微信小程序四端体验一致 | [图 6: 四端同步与部署拓扑](#图-6四端同步与部署拓扑) · [MOBILE_CLIENTS](../platform/MOBILE_CLIENTS.md) |
-| 🧠 **Adaptive Spawning AI** | 心流 / 技能 / 节奏驱动的智能出块 | 双轨出块（启发式 + Transformer V3）+ 统一护栏 + 多样可玩三连块 | [图 4: 出块 / RL 双轨](#图-4出块双轨--rl-双轨融合) · [ALGORITHMS_SPAWN](../algorithms/ALGORITHMS_SPAWN.md) |
+| 🎮 **Games Engine** | 多端方块益智核心玩法 | Web / Android / iOS / 微信小程序四端体验一致 | [图 6: 四端同步与部署拓扑](#八图-6四端同步与部署拓扑) · [MOBILE_CLIENTS](../platform/MOBILE_CLIENTS.md) |
+| 🧠 **Adaptive Spawning AI** | 心流 / 技能 / 节奏驱动的智能出块 | 双轨出块（启发式 + Transformer V3）+ 统一护栏 + 多样可玩三连块 | [图 4: 出块 / RL 双轨](#六图-4出块双轨--rl-双轨融合) · [ALGORITHMS_SPAWN](../algorithms/ALGORITHMS_SPAWN.md) |
 | 🤖 **Reinforce Learning Trainer** | 神经网络训练平台 | PyTorch / MLX 双引擎 + PPO + GAE + EvalGate + 自博弈 | [ALGORITHMS_RL](../algorithms/ALGORITHMS_RL.md) · [RL_CONTRACT_AND_SERVICE](../algorithms/ALGORITHMS_RL.md#21-rl-契约与在线服务) |
-| 💰 **Monetization Framework** | 可插拔商业化框架 | 广告 / IAP / 个性化推荐三类适配器 + MonetizationBus 零侵入接入 | [图 3: MonetizationBus](#图-3monetizationbus-事件总线) · [MONETIZATION](../operations/MONETIZATION.md) |
-| 🗄️ **Shared Data Source** | 单一数据源 / 共享配置 | `shared/game_rules.json` + `shapes.json` + SQLite 行为库四端共用 | [图 5: 后端路由 + 持久化](#图-5后端路由--数据持久化) · [SQLITE_SCHEMA](../engineering/SQLITE_SCHEMA.md) |
+| 💰 **Monetization Framework** | 可插拔商业化框架 | 广告 / IAP / 个性化推荐三类适配器 + MonetizationBus 零侵入接入 | [图 3: MonetizationBus](#五图-3monetizationbus-事件总线) · [MONETIZATION](../operations/MONETIZATION.md) |
+| 🗄️ **Shared Data Source** | 单一数据源 / 共享配置 | `shared/game_rules.json` + `shapes.json` + SQLite 行为库四端共用 | [图 5: 后端路由 + 持久化](#七图-5后端路由--数据持久化) · [SQLITE_SCHEMA](../engineering/SQLITE_SCHEMA.md) |
 | 🔁 **Unified Ecosystem** | 闭环正反馈 | 玩家行为 → 数据 → AI 决策 → 体验 → 行为 | [LIFECYCLE_DATA_STRATEGY_LAYERING](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层) |
 
 > **下一步**：业务上明白后，接着看下方"全栈分层"总览了解技术形态；
@@ -58,7 +58,7 @@
 
 ---
 
-## 总览图：全栈分层 + 设计原则
+## 二、总览图：全栈分层 + 设计原则
 
 > **回答的问题**：OpenBlock 由哪些层、各层做什么、有什么贯穿全局的约束？
 >
@@ -196,14 +196,14 @@ block-beta
 
 ---
 
-## 图 1：宏观分层（C4 容器视图）
+## 三、图 1：宏观分层（C4 容器视图）
 
 > 整个项目长什么样？四端形态、前端五层、后端、RL 训练、微服务的
 > 容器级关系。本节给出**两张紧凑视图**：上方"容器构成"用 block-beta
 > 网格强制 4:3 横向布局（一屏可视所有容器），下方"关键数据流"用
 > 小型 flowchart 保留 REST 调用方向。
 
-### 1.1 容器构成（紧凑横向）
+### 3.1 容器构成（紧凑横向）
 
 ```mermaid
 ---
@@ -273,7 +273,7 @@ block-beta
   class nginx,user,gameSvc,analytics,monitoring,pg svNode
 ```
 
-### 1.2 关键数据流（REST · 文件依赖）
+### 3.2 关键数据流（REST · 文件依赖）
 
 ```mermaid
 ---
@@ -331,13 +331,13 @@ flowchart LR
 
 ---
 
-## 图 2：L3 Domain Services 组件图
+## 四、图 2：L3 Domain Services 组件图
 
 > 前端业务子系统怎么拆？Player、Spawn、Monetization、Lifecycle / Retention
 > 四块如何协作。本节给出**两张紧凑视图**：上方 2.1 用 block-beta 网格
 > 列出所有模块，下方 2.2 用 flowchart 画跨子系统的关键协作关系。
 
-### 2.1 组件构成（紧凑横向）
+### 4.1 组件构成（紧凑横向）
 
 ```mermaid
 ---
@@ -395,7 +395,7 @@ block-beta
   class m1,m2,m3,m4,m5,m6,m7,m8,m9 mNode
 ```
 
-### 2.2 关键跨子系统协作（数据流）
+### 4.2 关键跨子系统协作（数据流）
 
 ```mermaid
 ---
@@ -469,7 +469,7 @@ flowchart LR
 
 ---
 
-## 图 3：MonetizationBus 事件总线
+## 五、图 3：MonetizationBus 事件总线
 
 > 谁发什么事件、谁订什么？事件契约的可视化版本，详细 payload 与触发时机见
 > [`MONETIZATION_EVENT_BUS_CONTRACT.md`](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md)。
@@ -545,7 +545,7 @@ flowchart LR
 
 ---
 
-## 图 4：出块双轨 + RL 双轨融合
+## 六、图 4：出块双轨 + RL 双轨融合
 
 > 算法系统怎么收敛？双轨出块如何 fallback、RL 双轨如何共享数据源。
 >
@@ -643,13 +643,13 @@ flowchart LR
 
 ---
 
-## 图 5：后端路由 + 数据持久化
+## 七、图 5：后端路由 + 数据持久化
 
 > 接口与表怎么映射？单体 Flask 与微服务两种部署形态如何并存。本节
 > 给出**两张紧凑视图**：5.1 用 block-beta 列出所有路由分组与表，
 > 5.2 用 flowchart 画"路由 → 表"的映射关系。
 
-### 5.1 单体路由 + 表 · 微服务（紧凑横向）
+### 7.1 单体路由 + 表 · 微服务（紧凑横向）
 
 ```mermaid
 ---
@@ -724,7 +724,7 @@ block-beta
   class nginx,userSvc,gameSvc,analyticsSvc,monSvc,pgRedis msNode
 ```
 
-### 5.2 路由 → 表映射（数据持久化路径）
+### 7.2 路由 → 表映射（数据持久化路径）
 
 ```mermaid
 ---
@@ -793,13 +793,13 @@ analytics / monitoring 拆开，统一过 nginx 网关，后端持久化 PG/Redi
 
 ---
 
-## 图 6：四端同步与部署拓扑
+## 八、图 6：四端同步与部署拓扑
 
 > 一份代码怎么覆盖四端？同步管道、能力边界与部署形态。本节给出**两张
 > 紧凑视图**：6.1 用 block-beta 列出"源 ｜ 四端形态 ｜ 部署形态"，
 > 6.2 用紧凑 LR flowchart 画"同步流水线 + 部署关系"。
 
-### 6.1 四端形态 + 部署形态（紧凑横向）
+### 8.1 四端形态 + 部署形态（紧凑横向）
 
 ```mermaid
 ---
@@ -859,10 +859,10 @@ block-beta
   class monoDeploy,k8sDeploy,obs,secHard dpNode
 ```
 
-### 6.2 同步流水线 + 部署关系
+### 8.2 同步流水线 + 部署关系
 
 > 本图本质是 TB 顺序流水线（源 → 构建 → 端 → 部署），自然偏纵向。
-> 想看四端 / 部署形态的横向构成对比，请回看 [§6.1](#61-四端形态--部署形态紧凑横向)。
+> 想看四端 / 部署形态的横向构成对比，请回看 [§8.1](#81-四端形态--部署形态紧凑横向)。
 
 ```mermaid
 ---

@@ -1,20 +1,20 @@
 # 最佳分追逐策略：挑战自我而不轻易超越
 
-> **读者**：主策划人、策略设计师、运营策略负责人；二级读者：体验算法工程师、运营 QA。  
-> **定位**：本文以"挑战玩家**自己的**最佳得分（personal best）"为核心主策略，沉淀**当前实现的事实**、**玩家四维关系矩阵**与**改进/优化点**，是 OpenBlock 体验设计在"留存动力"维度上的策划契约文档。  
-> **不是**：本文不是计分规则手册（详见 `docs/product/CLEAR_SCORING.md`），不是难度模式说明（详见 `docs/product/DIFFICULTY_MODES.md`），不是自适应出块算法手册（详见 `docs/algorithms/ADAPTIVE_SPAWN.md`）；本文聚焦"**最佳分这条主线**"在不同玩家身上**应该如何呈现、如何调控**。  
-> **维护**：改动 `getSpawnStressFromScore` / `deriveScoreMilestones` / `LIFECYCLE_STRESS_CAP_MAP` / `_maybeCelebrateNewBest` / `best.gap.*` 文案 / `dynamicDifficulty` / `runDifficulty` 配置时，必须同步更新本文的"当前事实"对应小节与改进项编号。
+> **读者**：主策划、策略设计师、运营策略负责人（二级：算法工程师、运营 QA）  
+> **定位**：以"挑战自身最佳得分（PB）"为核心主策略，沉淀当前实现事实、四维关系矩阵与改进点，是"留存动力"维度的策划契约。  
+> **非本文内容**：计分规则 → `docs/product/CLEAR_SCORING.md`；难度模式 → `docs/product/DIFFICULTY_MODES.md`；自适应出块 → `docs/algorithms/ADAPTIVE_SPAWN.md`。本文聚焦"最佳分主线"在不同玩家身上的呈现与调控。  
+> **维护**：修改 `getSpawnStressFromScore`、`deriveScoreMilestones`、`LIFECYCLE_STRESS_CAP_MAP`、`_maybeCelebrateNewBest`、`best.gap.*` 文案、`dynamicDifficulty`、`runDifficulty` 配置时，同步更新本文对应小节与改进项编号。
 >
 ---
 
-## 0. 一句话主张（One-liner Pitch）
+## 一、一句话主张（One-liner Pitch）
 
 > **"再差一点点，就能刷新自己。"**  
 > OpenBlock 把"打破个人最佳分"作为**单玩家、无尽模式、无关卡终局**下的**唯一长期目标**：所有自适应难度、节奏调控、叙事文案、奖励兑现都围绕**让玩家感到这件事很近但需要付出**展开——不轻易超越，又不至于绝望。
 
 ---
 
-## 1. 设计哲学：为什么以"挑战最佳分"为核心
+## 二、设计哲学：为什么以"挑战最佳分"为核心
 
 ### 1.1 品类背景（行业事实）
 
@@ -50,7 +50,7 @@
 
 ---
 
-## 2. 玩家关系矩阵：四维差异化
+## 三、玩家关系矩阵：四维差异化
 
 > 本节定义"差异化"的判据。同一个 PB 距离，对不同玩家应当呈现不同的体验。  
 > 矩阵维度：**生命周期阶段 S** × **成熟度档位 M** × **PB 距离档 D** × **本局阶段 P**。
@@ -113,7 +113,7 @@
 
 ---
 
-## 3. 当前策略详细陈述
+## 四、当前策略详细陈述
 
 > 本节按"数据 → 算法 → 反馈"自下而上展开。所有事实均能追到 `web/src/` 与 `shared/game_rules.json`。
 
@@ -283,7 +283,7 @@ Onboarding/Winback Bypass ───┘                       ├─► Occupancy
 
 ---
 
-## 4. 改进与优化点（编号 + 优先级 + 落地难度）
+## 五、改进与优化点（编号 + 优先级 + 落地难度）
 
 > 每个改进项都标注：触发的原因（"现实问题 / 玩家体验差距"）、改进方向、估计代价、风险。  
 > **本文只做规划，不在本次提交修改代码**。后续拆 PR 时按编号引用。
@@ -473,7 +473,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 **单测**：`§4.13 Hard 模式 PB UI` 2 条覆盖 hardScale=1.3 / normalScale=1.0 计算精度。
 
 
-## 6. 验证清单（用于评审 / QA）
+## 六、验证清单（用于评审 / QA）
 
 > 任何涉及 PB 主线的改动 PR，须自检以下清单。
 
@@ -502,7 +502,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 ---
 
-## 7. 数据指标（建议接入 ops 看板）
+## 七、数据指标（建议接入 ops 看板）
 
 | 指标 | 维度 | 期望区间 | 含义 |
 |------|------|------------|--------|
@@ -513,17 +513,17 @@ const isBClassChallenge = challengeBoostBypass === null;
 | **PB 异常分占比** | 全玩家 | ≤ 0.1% | 触发 §4.10 审核态的频次 |
 | **near-PB lifecycle 事件转化** | 商业化 | 推送转化率 ≥ 均值的 1.5× | 验证 §4.12 价值 |
 
-## 8. 文档关联
+## 八、文档关联
 
 - 上游方法论：[体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md)（5 轴体验结构）
 - 系统通用模型：[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)（L1–L4 通用分层）
 - 同层实时管线：[实时策略系统](./REALTIME_STRATEGY.md)（指标字典、L4 卡片生成）
 - 算法事实：[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（多信号 stress 融合 / `spawnHints` 派生）
-- 出块机制：[出块架构 §二 §2.5](../algorithms/ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)（`spawnHints` 如何变成具体 3 个块：5 阶段流水线 + 30+ 加权乘子 + 硬约束 + 场景跑步）
+- 出块机制：[出块架构 §二 §2.5](../algorithms/ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层)（`spawnHints` 如何变成具体 3 个块：5 阶段流水线 + 30+ 加权乘子 + 硬约束 + 场景跑步）
 - 跨局画像：[生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（S0–S4 × M0–M4）
 - 计分规则：[消行计分](../product/CLEAR_SCORING.md)（如何把"消行"转成 score）
 - 难度档：[难度模式](../product/DIFFICULTY_MODES.md)（Easy/Normal/Hard 与自适应协作）
-- 行业实证：[休闲游戏品类分析](../domain/DOMAIN_KNOWLEDGE.md#13-休闲游戏品类分析与系统研究附录) §13、[领域知识](../domain/DOMAIN_KNOWLEDGE.md)
+- 行业实证：[休闲游戏品类分析](../domain/DOMAIN_KNOWLEDGE.md#十三休闲游戏品类分析与系统研究附录) §13、[领域知识](../domain/DOMAIN_KNOWLEDGE.md)
 
 *以仓库主分支为事实来源。*
 *维护者：策划组 + 体验算法组联合维护；改动需走 PR 评审并同步更新 §4 改进项编号与 §6 验证清单。*

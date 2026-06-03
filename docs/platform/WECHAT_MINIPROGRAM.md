@@ -1,8 +1,8 @@
 # 微信小程序适配说明
 
-**发布与审核全流程**（账号、上传、提审、上线、回滚）见 **[本文「微信小程序发布流程」](#微信小程序发布流程)**。
+**发布与审核全流程**（账号、上传、提审、上线、回滚）见 **[本文「微信小程序发布流程」](#七微信小程序发布流程)**。
 
-## 1. 当前定位
+## 一、当前定位
 
 `miniprogram/` 是 Open Block 的微信小程序玩家端轻量版本，只包含：
 
@@ -13,7 +13,7 @@
 
 小程序包不包含模型训练、RL 自博弈、模型状态监控、训练看板、后端同步或运营监控入口。
 
-## 2. 目录结构
+## 二、目录结构
 
 ```text
 miniprogram/
@@ -53,7 +53,7 @@ miniprogram/
     └── game/
 ```
 
-## 3. 运行与预览
+## 三、运行与预览
 
 1. 安装并打开 [微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html)。
 2. 选择「导入项目」，目录选择 `miniprogram/`。
@@ -62,7 +62,7 @@ miniprogram/
 
 仓库内 `project.config.json` 当前未写入正式 AppID；如果本机未配置微信开发者工具 CLI 或未登录，命令行无法直接生成预览二维码。
 
-## 4. 功能边界
+## 四、功能边界
 
 | 保留 | 说明 |
 |------|------|
@@ -83,7 +83,7 @@ miniprogram/
 | 后端同步 | 不包含 `envConfig.js`、`network.js`、API Base URL 或 Flask 同步入口 |
 | 关卡实验 | 当前小程序只保留无尽游戏主体，不包含关卡包和星级目标 |
 
-## 5. 维护说明
+## 五、维护说明
 
 皮肤字段变化时运行：
 
@@ -108,7 +108,7 @@ bash scripts/sync-core.sh
 
 该脚本会生成 `gameRulesData.js` / `shapesData.js`，并把 Web 端纯逻辑模块转换为小程序可用的 CommonJS 形式。
 
-## 6. 验证
+## 六、验证
 
 小程序核心改动至少运行：
 
@@ -123,13 +123,13 @@ npm test -- tests/miniprogramCore.test.js
 
 ---
 
-## 微信小程序发布流程
+## 七、微信小程序发布流程
 
-本文档描述从本地开发到微信审核、正式发布及后续运维的**推荐流程**，并与本仓库 `miniprogram/` 目录对齐。微信官方规则以 [微信公众平台文档](https://developers.weixin.qq.com/miniprogram/dev/framework/) 为准；平台政策会变更，发布前请再核对一次后台提示。
+本文档描述从本地开发到微信审核、正式发布及后续运维的推荐流程，并与本仓库 `miniprogram/` 目录对齐。微信官方规则以 [微信公众平台文档](https://developers.weixin.qq.com/miniprogram/dev/framework/) 为准；平台政策会变更，发布前请再核对一次后台提示。
 
 ---
 
-### 一、前置条件与账号
+### 7.1 前置条件与账号
 
 1. **注册小程序账号**  
    在 [微信公众平台](https://mp.weixin.qq.com/) 注册「小程序」，完成邮箱验证、主体信息（个人 / 企业 / 其他组织）。企业主体通常可开通更多能力（支付、附近的小程序等）。
@@ -148,9 +148,9 @@ npm test -- tests/miniprogramCore.test.js
 
 ---
 
-### 二、本地代码与发布前检查
+### 7.2 本地代码与发布前检查
 
-#### 2.1 同步 Web 与共享核心逻辑
+#### 7.2.1 同步 Web 与共享核心逻辑
 
 仓库内 Web 与小程序共享 `shared/*.json` 及由脚本同步的 `web/src` 纯逻辑：
 
@@ -161,7 +161,7 @@ bash scripts/sync-core.sh
 
 同步完成后请阅读脚本末尾提示：`miniprogram/core/config.js` 仍依赖 `envConfig.js` / `adapters/storage.js`，**不在**自动脚本中覆盖。
 
-#### 2.2 小程序特有逻辑（人工对齐）
+#### 7.2.2 小程序特有逻辑（人工对齐）
 
 以下模块与 Web 非 1:1 文件对应，改玩法或 UI 后需人工对照：
 
@@ -172,12 +172,12 @@ bash scripts/sync-core.sh
 | 对局状态与顶栏 | `miniprogram/utils/gameController.js`、`pages/game/game.js` |
 | 顶栏布局样式 | `pages/game/game.wxml`、`game.wxss` |
 
-#### 2.3 环境与网络
+#### 7.2.3 环境与网络
 
 - 编辑 `miniprogram/envConfig.js`：`apiBaseUrl`、`syncBackend`、`usePytorchRl` 等。  
 - 若使用 `wx.request` 访问自有域名，必须在公众平台配置 **request 合法域名**（HTTPS，备案等要求见官方文档）。
 
-#### 2.4 开发者工具内自检
+#### 7.2.4 开发者工具内自检
 
 1. **导入项目**：目录选 `miniprogram/`，AppID 选已注册的小程序或测试号。  
 2. **编译**：确认无报错；关注 Skyline / 基础库与 `app.json` 中 `libVersion`、`renderer` 配置是否匹配目标用户群。  
@@ -186,7 +186,7 @@ bash scripts/sync-core.sh
 
 ---
 
-### 三、版本号与可审计信息
+### 7.3 版本号与可审计信息
 
 1. **用户可见版本**  
    在公众平台 **管理** → **版本管理** 中，每次上传会生成开发版本；提审时可填写版本说明（建议对应 Git tag 或 commit 摘要）。
@@ -199,7 +199,7 @@ bash scripts/sync-core.sh
 
 ---
 
-### 四、上传代码与体验版
+### 7.4 上传代码与体验版
 
 1. 在开发者工具右上角点击 **上传**。  
 2. 填写版本号、项目备注（给团队内部看）。  
@@ -208,7 +208,7 @@ bash scripts/sync-core.sh
 
 ---
 
-### 五、提交审核
+### 7.5 提交审核
 
 1. 在 **版本管理** 中，选择开发版本 → **提交审核**。  
 2. 按表单填写：  
@@ -220,7 +220,7 @@ bash scripts/sync-core.sh
 
 ---
 
-### 六、发布上线
+### 7.6 发布上线
 
 1. 审核通过后，版本进入 **审核通过、待发布**。  
 2. 由管理员在后台点击 **发布**，即可全量上线（具体按钮文案以平台为准）。  
@@ -229,14 +229,14 @@ bash scripts/sync-core.sh
 
 ---
 
-### 七、回滚与版本管理
+### 7.7 回滚与版本管理
 
 1. **紧急回滚**：若新版本有严重问题，在 **版本管理** 中查看是否支持回退到上一线上版本（以微信当前能力为准）；部分情况下需重新提交旧包审核。  
 2. **长期做法**：保留上一稳定版本的源码压缩包或 Git tag，必要时基于该 tag 重新上传并走审核。
 
 ---
 
-### 八、持续运维清单
+### 7.8 持续运维清单
 
 | 项 | 说明 |
 |----|------|
@@ -247,7 +247,7 @@ bash scripts/sync-core.sh
 
 ---
 
-### 九、参考链接（官方）
+### 7.9 参考链接
 
 - [小程序开发文档](https://developers.weixin.qq.com/miniprogram/dev/framework/)  
 - [微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/devtools.html)  
@@ -256,7 +256,7 @@ bash scripts/sync-core.sh
 
 ---
 
-### 十、与本仓库的对应关系
+### 7.10 与本仓库的对应关系
 
 | 步骤 | 仓库路径 / 命令 |
 |------|-----------------|

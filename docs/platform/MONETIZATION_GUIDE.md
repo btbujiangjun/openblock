@@ -1,21 +1,38 @@
-# Block Blast 商业化运营指南
+# 商业化运营指南
 
-本文档记录了游戏商业化运行所需的配置、功能和最佳实践。
+游戏商业化运行所需的配置、功能与最佳实践。
 
 ## 目录
 
-1. [商业化架构概览](#商业化架构概览)
-2. [PWA 离线支持](#pwa-离线支持)
-3. [广告系统](#广告系统)
-4. [IAP 内购系统](#iap-内购系统)
-5. [签到与每日任务](#签到与每日任务)
-6. [战绩分享](#战绩分享)
-7. [运营指标](#运营指标)
-8. [v1.12 新增模块入口与设计意图（变更说明）](#v112-新增模块入口与设计意图变更说明)
+1. [商业化架构概览](#一商业化架构概览)
+2. [PWA 离线支持](#二pwa-离线支持)
+3. [广告系统](#三广告系统)
+4. [IAP 内购系统](#四iap-内购系统)
+5. [签到与每日任务](#五签到与每日任务)
+6. [战绩分享](#六战绩分享)
+7. [运营指标](#七运营指标)
+8. [快速部署检查清单](#八快速部署检查清单)
+9. [扩展开发](#九扩展开发)
+10. [A/B 测试框架](#十ab-测试框架)
+11. [运营数据分析](#十一运营数据分析)
+12. [推送通知](#十二推送通知)
+13. [新手引导](#十三新手引导)
+14. [社交与分享](#十四社交与分享)
+15. [A/B 测试基础设施](#十五ab-测试基础设施)
+16. [运营数据分析平台](#十六运营数据分析平台)
+17. [增强版新手引导系统 (EnhancedFTUE)](#十七增强版新手引导系统-enhancedftue)
+18. [推送与召回系统](#十八推送与召回系统)
+19. [难度曲线与留存系统](#十九难度曲线与留存系统)
+20. [社交玩法系统](#二十社交玩法系统)
+21. [后端架构优化](#二十一后端架构优化)
+22. [监控与报警系统](#二十二监控与报警系统)
+23. [安全防护系统](#二十三安全防护系统)
+24. [v1.12 新增模块入口与设计意图（变更说明）](#二十四v112-新增模块入口与设计意图变更说明)
+25. [v1.13 玩家生命周期与成熟度系统](#二十五v113-玩家生命周期与成熟度系统)
 
 ---
 
-## 商业化架构概览
+## 一、商业化架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -40,9 +57,9 @@
 
 ---
 
-## PWA 离线支持
+## 二、PWA 离线支持
 
-### 功能说明
+### 2.1 功能说明
 
 - **Service Worker 缓存策略**：
   - 静态资源：`Stale-While-Revalidate`（快速响应，后台更新）
@@ -51,7 +68,7 @@
 - **IndexedDB 离线队列**：离线时缓存行为数据，联网后自动同步
 - **PWA 完整支持**：添加到主屏幕、快捷方式、分享目标
 
-### 缓存策略详情
+### 2.2 缓存策略详情
 
 | 资源类型 | 策略 | 缓存时间 |
 |----------|------|----------|
@@ -60,7 +77,7 @@
 | API POST/PUT 请求 | Network First + 离线队列 | - |
 | HTML 页面 | Network First | 0（不缓存） |
 
-### 配置清单
+### 2.3 配置清单
 
 | 文件 | 说明 |
 |------|------|
@@ -71,7 +88,7 @@
 | `web/assets/images/icon-192.svg` | 192px 图标 |
 | `web/assets/images/icon-512.svg` | 512px 图标 |
 
-### 使用方法
+### 2.4 使用方法
 
 **初始化：**
 ```javascript
@@ -113,7 +130,7 @@ if (window.pwaInstall) {
 }
 ```
 
-### 启用方式
+### 2.5 启用方式
 
 确保 `index.html` 中已引入：
 
@@ -129,9 +146,9 @@ Service Worker 会在页面加载时自动注册。
 
 ---
 
-## 广告系统
+## 三、广告系统
 
-### 广告决策引擎 (AdDecisionEngine)
+### 3.1 广告决策引擎 (AdDecisionEngine)
 
 统一入口，整合商业模型向量，智能决定是否展示广告。
 
@@ -155,7 +172,7 @@ const status = adEngine.getAdStatus();
 console.log('剩余激励广告:', status.rewardedRemaining);
 ```
 
-### 场景化触发
+### 3.2 场景化触发
 
 | 场景 | 触发条件 | 推荐广告类型 |
 |------|----------|--------------|
@@ -164,7 +181,7 @@ console.log('剩余激励广告:', status.rewardedRemaining);
 | STAMINA_EMPTY | 体力不足 | 激励广告 |
 | DAILY_REWARD | 每日奖励 | 激励广告 |
 
-### 频率控制
+### 3.3 频率控制
 
 - 每日激励广告上限：12 次
 - 每日插屏广告上限：6 次
@@ -172,9 +189,9 @@ console.log('剩余激励广告:', status.rewardedRemaining);
 
 ---
 
-## IAP 内购系统
+## 四、IAP 内购系统
 
-### 产品目录
+### 4.1 产品目录
 
 | SKU | 名称 | 价格 | 类型 |
 |-----|------|------|------|
@@ -185,7 +202,7 @@ console.log('剩余激励广告:', status.rewardedRemaining);
 | annual_pass | 年度通行证 | ¥88 | 订阅(365天) |
 | starter_pack | 新手礼包 | ¥3 | 首购限定 |
 
-### 使用示例
+### 4.2 使用示例
 
 ```javascript
 import { purchase, PRODUCTS, isPurchased, canPurchaseStarterPack } from './monetization/iapAdapter.js';
@@ -216,7 +233,7 @@ const status = pm.getPaymentStatus();
 console.log('可用优惠:', status.offers);
 ```
 
-### 后端 API
+### 4.3 后端 API
 
 ```
 POST /api/payment/verify    - 验证支付
@@ -225,9 +242,9 @@ GET  /api/payments          - 获取购买历史
 
 ---
 
-## 签到与每日任务
+## 五、签到与每日任务
 
-### 签到系统
+### 5.1 签到系统
 
 7日签到日历，每日首次进入游戏自动弹窗。
 
@@ -240,18 +257,18 @@ GET  /api/payments          - 获取购买历史
 - 第6天：+1 彩虹
 - 第7天：+2 提示 +1 炸弹 +1 彩虹 + 24h限定皮肤试穿券
 
-### 每日任务
+### 5.2 每日任务
 
-3个任务每日刷新，完成获得 XP 和道具奖励。
+3 个任务每日刷新，完成获得 XP 和道具奖励。
 
 **任务配置：**
-- 消行5次：+30 XP + 1 提示券
-- 完成1局：+20 XP
-- 一次消3行：+40 XP + 2 提示券
+- 消行 5 次：+30 XP + 1 提示券
+- 完成 1 局：+20 XP
+- 一次消 3 行：+40 XP + 2 提示券
 
 ---
 
-## 战绩分享
+## 六、战绩分享
 
 游戏结束后可分享成绩到社交平台。
 
@@ -268,9 +285,9 @@ await shareGameResult(score);
 
 ---
 
-## 运营指标
+## 七、运营指标
 
-### 核心指标监控
+### 7.1 核心指标监控
 
 | 指标 | 计算方式 | 目标值 |
 |------|----------|--------|
@@ -281,7 +298,7 @@ await shareGameResult(score);
 | 广告展示率 | 广告展示次数/游戏局数 | <30% |
 | 激励广告完播率 | 看完次数/展示次数 | >80% |
 
-### 商业化向量
+### 7.2 商业化向量
 
 `commercialModel.js` 输出的关键指标：
 
@@ -292,7 +309,7 @@ await shareGameResult(score);
 
 ---
 
-## 快速部署检查清单
+## 八、快速部署检查清单
 
 - [x] PWA manifest 和 service worker 已部署
 - [x] 离线行为队列已配置 (IndexedDB)
@@ -320,21 +337,21 @@ await shareGameResult(score);
 
 ---
 
-## 扩展开发
+## 九、扩展开发
 
-### 添加新广告位
+### 9.1 添加新广告位
 
 1. 在 `adDecisionEngine.js` 的 `AD_SCENES` 添加新场景
 2. 在 `_checkSceneSpecific` 添加场景逻辑
 3. 在游戏流程中调用 `requestAd(scene)`
 
-### 添加新产品
+### 9.2 添加新产品
 
 1. 在 `iapAdapter.js` 的 `PRODUCTS` 添加产品定义
 2. 在 `_applyPurchase` 添加发放逻辑
 3. （可选）在 `server.py` 添加服务端验证
 
-### 自定义商业化模型
+### 9.3 自定义商业化模型
 
 修改 `commercialModel.js` 中的权重配置：
 
@@ -348,13 +365,13 @@ const cfg = {
 
 ---
 
-## A/B 测试框架
+## 十、A/B 测试框架
 
-### 功能说明
+### 10.1 功能说明
 
-用户分组实验，支持远程配置下发，指标追踪。
+用户分组实验，支持远程配置下发与指标追踪。
 
-### 内置实验
+### 10.2 内置实验
 
 | 实验 | 说明 | 变体 |
 |------|------|------|
@@ -364,7 +381,7 @@ const cfg = {
 | checkin_rewards | 签到奖励 | 标准/丰厚 |
 | skin_unlock | 皮肤解锁 | 标准/简单 |
 
-### 使用方法
+### 10.3 使用方法
 
 ```javascript
 import { getABTestManager, initABTest } from './monetization/abTestManager.js';
@@ -383,13 +400,13 @@ abTest.recordMetric('ad_frequency', 'adRevenue', 1.5);
 
 ---
 
-## 运营数据分析
+## 十一、运营数据分析
 
-### 功能说明
+### 11.1 功能说明
 
 实时指标、漏斗分析、趋势图表。
 
-### 使用方法
+### 11.2 使用方法
 
 ```javascript
 import { getAnalyticsDashboard, initAnalyticsDashboard } from './monetization/analyticsDashboard.js';
@@ -416,22 +433,22 @@ const report = dashboard.generateReport();
 
 ---
 
-## 推送通知
+## 十二、推送通知
 
-### 功能说明
+### 12.1 功能说明
 
 事件触发通知、定时提醒、流失预警。
 
-### 支持的触发类型
+### 12.2 支持的触发类型
 
-- `DAILY_BONUS` - 每日奖励提醒
-- `STREAK_REMINDER` - 连签提醒
-- `CHURN_WARNING` - 流失预警
-- `FIRST_PURCHASE` - 首充优惠
-- `LIMITED_OFFER` - 限时优惠
-- `RETURNING_USER` - 回归用户
+- `DAILY_BONUS` — 每日奖励提醒
+- `STREAK_REMINDER` — 连签提醒
+- `CHURN_WARNING` — 流失预警
+- `FIRST_PURCHASE` — 首充优惠
+- `LIMITED_OFFER` — 限时优惠
+- `RETURNING_USER` — 回归用户
 
-### 使用方法
+### 12.3 使用方法
 
 ```javascript
 import { getPushNotificationManager, initPushNotificationManager } from './monetization/pushNotificationManager.js';
@@ -449,24 +466,24 @@ push.triggerEvent('limited_offer_available', {
 
 ---
 
-## 新手引导
+## 十三、新手引导
 
-### 功能说明
+### 13.1 功能说明
 
 多阶段引导、进度保存、奖励发放。
 
-### 引导步骤
+### 13.2 引导步骤
 
-1. welcome - 欢迎页
-2. drag_intro - 拖拽操作介绍
-3. place_first - 首次放置
-4. clear_intro - 消除介绍
-5. clear_first - 首次消除
-6. multi_line - 多行消除
-7. difficulty - 难度选择
-8. complete - 引导完成
+1. welcome — 欢迎页
+2. drag_intro — 拖拽操作介绍
+3. place_first — 首次放置
+4. clear_intro — 消除介绍
+5. clear_first — 首次消除
+6. multi_line — 多行消除
+7. difficulty — 难度选择
+8. complete — 引导完成
 
-### 使用方法
+### 13.3 使用方法
 
 ```javascript
 import { getFTUEManager, initFTUE } from './onboarding/ftueManager.js';
@@ -492,9 +509,9 @@ console.log('进度:', status.progress);
 
 ---
 
-## 社交与分享
+## 十四、社交与分享
 
-### 战绩分享卡片
+### 14.1 战绩分享卡片
 
 生成精美的游戏结果分享图片。
 
@@ -524,7 +541,7 @@ const shareLink = generator.generateShareLink({
 generator.exportAsFile(cardData, 'my-score.png');
 ```
 
-### 排行榜系统
+### 14.2 排行榜系统
 
 支持好友榜、全球榜、周榜等多种排行榜。
 
@@ -555,7 +572,7 @@ await leaderboard.addFriend(friendCode);
 const shareCode = leaderboard.generateShareCode();
 ```
 
-### 邀请奖励体系
+### 14.3 邀请奖励体系
 
 邀请好友获得奖励，被邀请者也有奖励。
 
@@ -601,9 +618,9 @@ console.log('进度:', progress.current, '/', progress.target);
 
 ---
 
-## A/B 测试基础设施
+## 十五、A/B 测试基础设施
 
-### 统一入口 (ExperimentPlatform)
+### 15.1 统一入口 (ExperimentPlatform)
 
 整合用户分群、远程配置、指标追踪和 A/B 测试的统一平台。
 
@@ -617,7 +634,7 @@ await initExperimentPlatform(userId);
 const platform = getExperimentPlatform();
 ```
 
-### 1. 用户分群 (CohortManager)
+### 15.2 用户分群 (CohortManager)
 
 用户属性自动跟踪和动态分群。
 
@@ -658,7 +675,7 @@ console.log('用户属性:', properties);
 | high_score | 高分玩家 | 最高分 ≥ 1000 |
 | churn_risk | 流失风险 | 7 天未登录或高风险 |
 
-### 2. 远程配置 (RemoteConfigManager)
+### 15.3 远程配置 (RemoteConfigManager)
 
 Feature Flags 控制和远程配置下发。
 
@@ -697,7 +714,7 @@ const fullConfig = config.getFullConfig();
 - pushNotifications - 推送通知
 - insightPanel / rlPanel - 面板开关
 
-### 3. 指标埋点与漏斗分析
+### 15.4 指标埋点与漏斗分析
 
 完整的事件追踪和漏斗分析系统。
 
@@ -740,7 +757,7 @@ console.log('最近20个事件:', journey);
 | invite | 邀请流程 | 查看→点击→分享→注册→完成 |
 | retention | 留存流程 | D1→D3→D7→D14→D30 |
 
-### 4. 完整实验平台使用
+### 15.5 完整实验平台使用
 
 ```javascript
 import { getExperimentPlatform, initExperimentPlatform } from './monetization/experimentPlatform.js';
@@ -778,7 +795,7 @@ const report = platform.getFullReport();
 console.log('完整报告:', report);
 ```
 
-### 后端 API 需求
+### 15.6 后端 API 需求
 
 ```
 GET  /api/config?version=1.0.0    - 获取远程配置
@@ -790,9 +807,9 @@ POST /api/ab-tests/metrics        - 上报实验指标
 
 ---
 
-## 运营数据分析平台
+## 十六、运营数据分析平台
 
-### 统一入口 (AnalyticsPlatform)
+### 16.1 统一入口 (AnalyticsPlatform)
 
 整合实时数据大屏、留存分析、转化预测的统一分析平台。
 
@@ -806,7 +823,7 @@ initAnalyticsPlatform(userId);
 const analytics = getAnalyticsPlatform();
 ```
 
-### 1. 实时数据大屏 (RealTimeDashboard)
+### 16.2 实时数据大屏 (RealTimeDashboard)
 
 实时核心指标展示和告警。
 
@@ -846,7 +863,7 @@ dashboard.onUpdate((metrics) => {
 - 最多数据点：60
 - 支持的告警阈值可配置
 
-### 2. 用户留存与转化漏斗 (RetentionAnalyzer)
+### 16.3 用户留存与转化漏斗 (RetentionAnalyzer)
 
 用户留存率计算和转化漏斗分析。
 
@@ -897,7 +914,7 @@ console.log('分析报告:', report);
 | engagement | 打开→开始→完成→分享 |
 | retention | D1→D3→D7→D14→D30 |
 
-### 3. 付费转化预测模型 (PaymentPredictionModel)
+### 16.4 付费转化预测模型 (PaymentPredictionModel)
 
 基于用户特征的付费倾向预测。
 
@@ -948,7 +965,7 @@ console.log('置信度:', userValue.confidence);
 | ≥0.3 | 低意向 | 红色 | 持续观察 |
 | <0.3 | 无意向 | 灰色 | 培养关系 |
 
-### 4. 完整分析平台使用
+### 16.5 完整分析平台使用
 
 ```javascript
 import { getAnalyticsPlatform, initAnalyticsPlatform } from './monetization/analyticsPlatform.js';
@@ -983,7 +1000,7 @@ console.log('导出数据:', exportData);
 
 ---
 
-## 增强版新手引导系统 (EnhancedFTUE)
+## 十七、增强版新手引导系统 (EnhancedFTUE)
 
 四阶段递进式引导：操作 → 策略 → 变现 → 社交
 
@@ -996,7 +1013,7 @@ initEnhancedFTUE(userId);
 const ftue = getEnhancedFTUE();
 ```
 
-### 1. 四阶段递进设计
+### 17.1 四阶段递进设计
 
 | 阶段 | 目标 | 时长 | 核心内容 |
 |------|------|------|----------|
@@ -1005,7 +1022,7 @@ const ftue = getEnhancedFTUE();
 | monetization | 付费引导 | 8-10关 | 道具解锁、优惠提示、商店初体验 |
 | social | 社交互动 | 11-12关 | 分享炫耀、邀请好友、排行榜 |
 
-### 2. 阶段管理
+### 17.2 阶段管理
 
 ```javascript
 // 获取当前阶段
@@ -1025,7 +1042,7 @@ if (ftue.isStageComplete('operation')) {
 ftue.skipCurrentStage();
 ```
 
-### 3. 任务与触发
+### 17.3 任务与触发
 
 ```javascript
 // 获取当前任务
@@ -1046,7 +1063,7 @@ gameBlock.on('cleared', () => ftue.checkTaskTrigger('block_cleared'));
 shop.on('opened', () => ftue.checkTaskTrigger('shop_opened'));
 ```
 
-### 4. 奖励系统
+### 17.4 奖励系统
 
 ```javascript
 // 获取阶段奖励
@@ -1070,7 +1087,7 @@ const rewardTypes = {
 };
 ```
 
-### 5. 引导覆盖层
+### 17.5 引导覆盖层
 
 ```javascript
 // 显示引导覆盖层
@@ -1087,7 +1104,7 @@ ftue.highlightElement('#place-button', '点击放置方块');
 ftue.hideOverlay();
 ```
 
-### 6. 事件监听
+### 17.6 事件监听
 
 ```javascript
 // 监听阶段变化
@@ -1110,7 +1127,7 @@ ftue.onStageComplete((stage) => {
 });
 ```
 
-### 7. 与原有 FTUE 集成
+### 17.7 与原有 FTUE 集成
 
 ```javascript
 // 初始化时检查是否需要引导
@@ -1131,7 +1148,7 @@ if (legacyFTUE.shouldStartFTUE()) {
 }
 ```
 
-### 8. 完整使用流程
+### 17.8 完整使用流程
 
 ```javascript
 // 初始化
@@ -1168,9 +1185,9 @@ console.log('FTUE状态:', status);
 
 ---
 
-## 推送与召回系统
+## 十八、推送与召回系统
 
-### 增强版推送通知系统 (PushNotificationSystem)
+### 18.1 增强版推送通知系统 (PushNotificationSystem)
 
 事件触发推送、内容模板化、效果追踪一体化系统。
 
@@ -1183,7 +1200,7 @@ initPushNotificationSystem();
 const pushSystem = getPushNotificationSystem();
 ```
 
-### 1. 事件触发推送
+### 18.2 事件触发推送
 
 自动响应用户行为和系统事件。
 
@@ -1231,7 +1248,7 @@ pushSystem.trigger(PUSH_TRIGGER_EVENTS.LIMITED_OFFER, {
 | SUBSCRIPTION_EXPIRE | 订阅过期 |
 | RETURNING_USER | 回归用户 |
 
-### 2. 推送内容模板
+### 18.3 推送内容模板
 
 基于模板自动生成内容，支持变量替换。
 
@@ -1254,7 +1271,7 @@ pushSystem.trigger(PUSH_TRIGGER_EVENTS.LIMITED_OFFER, {
 }
 ```
 
-### 3. 推送效果追踪
+### 18.4 推送效果追踪
 
 追踪推送的点击和转化。
 
@@ -1281,7 +1298,7 @@ pushSystem.trackConversion(PUSH_TRIGGER_EVENTS.LIMITED_OFFER, 'purchase');
 - clickRate: 点击率
 - conversionRate: 转化率
 
-### 4. 智能调度
+### 18.5 智能调度
 
 定时推送和智能建议。
 
@@ -1302,7 +1319,7 @@ const scheduled = pushSystem.getScheduledTasks();
 console.log('待推送:', scheduled.length);
 ```
 
-### 5. 完整使用示例
+### 18.6 完整使用示例
 
 ```javascript
 // 初始化
@@ -1336,9 +1353,9 @@ if (suggestions.length > 0) {
 
 ---
 
-## 难度曲线与留存系统
+## 十九、难度曲线与留存系统
 
-### 概述
+### 19.1 概述
 
 整合 ML 难度预测、关卡进度、目标系统，提供完整的留存优化方案。
 
@@ -1351,7 +1368,7 @@ const retention = getRetentionManager();
 
 ---
 
-### ML 难度预测模型 (DifficultyPredictor)
+### 19.2 ML 难度预测模型 (DifficultyPredictor)
 
 基于玩家行为信号动态预测最佳难度等级。
 
@@ -1415,7 +1432,7 @@ recordGameResult({
 
 ---
 
-### 目标系统 (GoalSystem)
+### 19.3 目标系统 (GoalSystem)
 
 短期目标（单局可达）与长期目标（跨局累积）。
 
@@ -1471,7 +1488,7 @@ console.log('总进度:', summary);
 
 ---
 
-### 关卡进度系统 (LevelProgression)
+### 19.4 关卡进度系统 (LevelProgression)
 
 关卡包、章节解锁、星级收集。
 
@@ -1526,7 +1543,7 @@ console.log('总进度:', summary);
 
 ---
 
-### 统一留存管理器 (RetentionManager)
+### 19.5 统一留存管理器 (RetentionManager)
 
 整合所有模块的统一 API。
 
@@ -1581,7 +1598,7 @@ retention.completeLevel('L06', { stars: 2, achieved: true, score: 800, clears: 1
 
 ---
 
-### 与现有系统集成
+### 19.6 与现有系统集成
 
 **与 adaptiveSpawn 集成：**
 
@@ -1619,9 +1636,9 @@ analytics.track('retention_insight', {
 
 ---
 
-## 社交玩法系统
+## 二十、社交玩法系统
 
-### 概述
+### 20.1 概述
 
 整合多人游戏、好友系统、公会系统的统一社交平台。
 
@@ -1634,7 +1651,7 @@ const social = getSocialManager();
 
 ---
 
-### 多人游戏模式 (MultiplayerGame)
+### 20.2 多人游戏模式 (MultiplayerGame)
 
 支持竞技、合作、挑战三种模式。
 
@@ -1724,7 +1741,7 @@ console.log('结果:', results);
 
 ---
 
-### 好友系统 (FriendSystem)
+### 20.3 好友系统 (FriendSystem)
 
 好友管理、状态追踪、对战系统。
 
@@ -1811,7 +1828,7 @@ console.log('战绩:', stats.battleCount, '胜率:', stats.winRate);
 
 ---
 
-### 公会系统 (GuildSystem)
+### 20.4 公会系统 (GuildSystem)
 
 公会创建、成员管理、任务活动。
 
@@ -1918,7 +1935,7 @@ guild.updateSettings({
 
 ---
 
-### 统一社交管理器 (SocialManager)
+### 20.5 统一社交管理器 (SocialManager)
 
 整合所有社交功能。
 
@@ -1957,7 +1974,7 @@ events.forEach(e => console.log('事件:', e.type));
 
 ---
 
-### 与现有系统集成
+### 20.6 与现有系统集成
 
 **与排行榜集成：**
 
@@ -1996,9 +2013,9 @@ analytics.track('guild_activity', {
 
 ---
 
-## 后端架构优化
+## 二十一、后端架构优化
 
-### 微服务架构
+### 21.1 微服务架构
 
 ```
 services/
@@ -2022,7 +2039,7 @@ services/
 
 ---
 
-### 服务配置
+### 21.2 服务配置
 
 **环境变量：**
 
@@ -2051,7 +2068,7 @@ USE_REDIS=false
 
 ---
 
-### 1. 用户服务 (User Service)
+### 21.3 用户服务 (User Service)
 
 端口：8001
 
@@ -2078,7 +2095,7 @@ app = create_user_service()
 
 ---
 
-### 2. 游戏服务 (Game Service)
+### 21.4 游戏服务 (Game Service)
 
 端口：8002
 
@@ -2114,7 +2131,7 @@ leaderboard = get_leaderboard(mode='global', period='weekly', limit=100)
 
 ---
 
-### 3. 分析服务 (Analytics Service)
+### 21.5 分析服务 (Analytics Service)
 
 端口：8003
 
@@ -2140,7 +2157,7 @@ app = create_analytics_service()
 
 ---
 
-### 4. CDN 静态资源
+### 21.6 CDN 静态资源
 
 ```python
 from services.common.cdn import get_cdn_url, get_versioned_cdn_url
@@ -2162,7 +2179,7 @@ CDN_ASSETS_PATH=/assets
 
 ---
 
-### 5. Docker 部署
+### 21.7 Docker 部署
 
 ```bash
 cd services
@@ -2182,7 +2199,7 @@ docker-compose up -d
 
 ---
 
-### 6. 数据库迁移
+### 21.8 数据库迁移
 
 ```bash
 # 初始化 PostgreSQL 数据库
@@ -2197,7 +2214,7 @@ python services/migrations/init_db.py
 
 ---
 
-### 与现有单体后端集成
+### 21.9 与现有单体后端集成
 
 ```python
 # 渐进式迁移策略
@@ -2219,15 +2236,15 @@ result = db.execute_one('SELECT * FROM users WHERE id = %s', (user_id,))
 
 ---
 
-## 监控与报警系统
+## 二十二、监控与报警系统
 
-### 概述
+### 22.1 概述
 
 整合前端错误监控、服务端指标、异常检测的完整监控体系。
 
 ---
 
-### 1. 前端错误监控 (ErrorTracker)
+### 22.2 前端错误监控 (ErrorTracker)
 
 自动捕获 JS 错误，支持 Sentry 兼容协议。
 
@@ -2275,7 +2292,7 @@ console.log('按级别:', stats.byLevel);
 
 ---
 
-### 2. 性能监控 (PerformanceMonitor)
+### 22.3 性能监控 (PerformanceMonitor)
 
 页面加载、FPS、交互延迟监控。
 
@@ -2305,7 +2322,7 @@ console.log('当前:', fps.current, 'avg:', fps.average);
 
 ---
 
-### 3. 服务端指标 (MetricsCollector)
+### 22.4 服务端指标 (MetricsCollector)
 
 Prometheus 兼容指标收集。
 
@@ -2337,7 +2354,7 @@ metrics = collector.get_json()
 
 ---
 
-### 4. 异常检测 (AnomalyDetector)
+### 22.5 异常检测 (AnomalyDetector)
 
 基于统计的实时异常检测。
 
@@ -2369,7 +2386,7 @@ alerts = detector.get_alerts(since=time.time() - 3600)
 
 ---
 
-### 5. 告警系统 (AlertManager)
+### 22.6 告警系统 (AlertManager)
 
 多渠道告警通知。
 
@@ -2417,7 +2434,7 @@ counts = alert_manager.get_counts()
 
 ---
 
-### 6. 监控服务
+### 22.7 监控服务
 
 端口：8004
 
@@ -2442,7 +2459,7 @@ python services/monitoring/app.py
 
 ---
 
-### 7. Docker 部署
+### 22.8 Docker 部署
 
 监控服务已集成到 docker-compose：
 
@@ -2457,15 +2474,15 @@ docker-compose up -d
 
 ---
 
-## 安全防护系统
+## 二十三、安全防护系统
 
-### 概述
+### 23.1 概述
 
 完整的安全防护体系：请求签名、频率限制、支付验签、数据加密。
 
 ---
 
-### 1. 请求签名 (RequestSigner)
+### 23.2 请求签名 (RequestSigner)
 
 防请求篡改，HMAC-SHA256 签名。
 
@@ -2507,7 +2524,7 @@ middleware = create_signature_middleware(secret_key='your_secret')
 
 ---
 
-### 2. 频率限制 (RateLimiter)
+### 23.3 频率限制 (RateLimiter)
 
 Token bucket 算法，支持自定义限制和封禁。
 
@@ -2553,7 +2570,7 @@ middleware = create_rate_limit_middleware('api')
 
 ---
 
-### 3. 支付回调验签 (PaymentVerifier)
+### 23.4 支付回调验签 (PaymentVerifier)
 
 验证支付回调签名，支持多种支付提供商。
 
@@ -2602,7 +2619,7 @@ middleware = create_payment_verification_middleware()
 
 ---
 
-### 4. 数据加密 (DataEncryptor)
+### 23.5 数据加密 (DataEncryptor)
 
 AES-GCM 加密，支持 dict/str/list。
 
@@ -2647,7 +2664,7 @@ masked = DataMasker.mask_dict({'email': 'test@test.com', 'password': 'secret'})
 
 ---
 
-### 5. 环境变量
+### 23.6 环境变量
 
 ```bash
 # 签名
@@ -2662,11 +2679,11 @@ ENCRYPTION_KEY=your_encryption_key_32byte
 
 ---
 
-## v1.12 新增模块入口与设计意图（变更说明）
+## 二十四、v1.12 新增模块入口与设计意图（变更说明）
 
 > 本节梳理本次合入的商业化/留存/社交/FTUE 模块的 **设计契约** 与 **关键 bug 修复**，便于后续接入与排错。
 
-### 1. `monetization/index.js` — 按需加载主入口
+### 24.1 `monetization/index.js` — 按需加载主入口
 
 **入口契约：** 业务代码只需 `initMonetization(game)` 与 `shutdownMonetization()`。
 
@@ -2684,7 +2701,7 @@ ENCRYPTION_KEY=your_encryption_key_32byte
 | `ReferenceError: injectMonStyles is not defined` | `_initCoreModules` 内调用未导入的全局符号 | 顶部 `import { injectMonStyles } from './styles.js'`，`initMonetization` 第一步同步注入样式 |
 | `LAZY_MODULES` 与 `_loadModule` 完全死代码 | `initMonetization` 自己硬编码每个模块 | 重构为统一驱动 `LAZY_MODULES`，新增模块只需追加一行配置 |
 
-### 2. `monetization/ad/adDecisionEngine.js` — 广告决策引擎
+### 24.2 `monetization/ad/adDecisionEngine.js` — 广告决策引擎
 
 **入口契约：** `getAdDecisionEngine().requestAd(scene, context)` 返回 `{ allowed, adType, reason, vector }`。
 
@@ -2703,7 +2720,7 @@ if (vector.payerScore < (thresholds.lowPayerTask ?? 0.35)) { ... }
 
 **导出：** `AD_TYPES` / `AD_SCENES` 通过统一的 `export { AD_TYPES, AD_SCENES };` 单次导出，避免与文件顶部 `const` 声明冲突。
 
-### 3. `onboarding/enhancedFTUE.js` — 增强版新手引导
+### 24.3 `onboarding/enhancedFTUE.js` — 增强版新手引导
 
 **入口契约：** `initEnhancedFTUE()` + `getEnhancedFTUE()`，对外消费 `FTUE_STAGES` / `FTUE_STEPS_V2` / `CONVERSION_GOALS` 三个常量。
 
@@ -2712,18 +2729,18 @@ if (vector.payerScore < (thresholds.lowPayerTask ?? 0.35)) { ... }
 
 > 注：本模块仅持有“引导阶段元数据”。真正调用 `applyGameEndProgression` 与 `getFeatureFlag` 的副作用集中在 `ftueManager.js`，因此 enhancedFTUE 不再依赖这两个工具。
 
-### 4. `monetization/realTimeDashboard.js`、`monetization/retentionAnalyzer.js`、`monetization/paymentManager.js` 等
+### 24.4 其他模块设计原则
 
 **设计原则：**
 
 - 这些模块**默认离线运行**，所有未来要接服务端的位置都用 `// 后续接入...` 注释占位，避免在未启用时也强行 `import` 后端配置（曾导致 `getApiBaseUrl` 在未配置环境下报 `no-undef`）。
 - `analyticsTracker._trySyncEvent(_event)` 等参数前缀 `_` 用于声明“接口预留参数”，符合本仓库 ESLint 约定 (`argsIgnorePattern: '^_'`)。
 
-### 5. ESLint 策略（`eslint.config.js`）
+### 24.5 ESLint 策略
 
 `no-empty` 调整为 `{ allowEmptyCatch: true }`：商业化/社交/推送等模块大量使用 `try { ... } catch {}` 来吞掉非关键 IO 错误（`localStorage`、analytics 上报、推送注册等）。该例外**仅适用于 catch 块**，普通 `if {}` / `while {}` 仍按默认规则报错。
 
-### 6. 验证清单
+### 24.6 验证清单
 
 执行下面三条命令应同时通过（lint **0 errors**；674/674 tests pass；vite 构建产物完成）：
 
@@ -2735,11 +2752,11 @@ npm run build
 
 ---
 
-## v1.13 玩家生命周期与成熟度系统
+## 二十五、v1.13 玩家生命周期与成熟度系统
 
 > 本节记录玩家生命周期管理、成熟度划分、流失预警和分层运营的核心模块。
 
-### 1. 玩家成熟度模型 (`retention/playerMaturity.js`)
+### 25.1 玩家成熟度模型
 
 **功能：** 基于玩家行为数据计算成熟度等级 L1-L4，为分层运营提供依据。
 
@@ -2778,7 +2795,7 @@ const insights = getMaturityInsights();
 // { level, score, scoreTrend, sessionTrend, churnRisk, totalSessions, ... }
 ```
 
-### 2. 生命周期阶段判定 (`retention/playerLifecycleDashboard.js`)
+### 25.2 生命周期阶段判定
 
 **功能：** 基于天数和游戏局数判定玩家所处生命周期阶段。
 
@@ -2809,7 +2826,7 @@ const triggers = shouldTriggerIntervention(playerData);
 // [{ type: 'churn_prevention', priority: 'high', reason: '...' }, ...]
 ```
 
-### 3. 流失预警模型 (`retention/churnPredictor.js`)
+### 25.3 流失预警模型
 
 **功能：** 基于玩家行为趋势预测流失风险，提供早期干预触发点。
 
@@ -2849,7 +2866,7 @@ const intervention = getChurnIntervention({ stage: 'exploration' });
 // { type: '激励召回', reward: [...], message: '...' }
 ```
 
-### 4. 智能难度适配 (`adaptiveSpawn.js` + `lifecycle/lifecycleStressCapMap.js`)
+### 25.4 智能难度适配
 
 **v1.50.x 起：** 旧的 `retention/difficultyAdapter.js` 已**移除**——它定义了一套
 基于成熟度 L1–L4 的 `stressOffset/maxStress` 平行实现，但全仓**没有任何生产
@@ -2876,7 +2893,7 @@ if (config) {
 （≥90→M4 / 80–89→M3 / 60–79→M2 / 40–59→M1 / <40→M0）派生，比 L1–L4 多一档
 分辨率（M4 顶端核心）。
 
-### 5. 社交引入节点 (`retention/socialIntroTrigger.js`)
+### 25.5 社交引入节点
 
 **功能：** 在玩家生命周期关键节点引入社交功能。
 
@@ -2912,7 +2929,7 @@ const progress = getSocialProgress();
 // { completed: 2, total: 5, progress: 40, friendCount: 3, hasGuild: true, milestones: [...] }
 ```
 
-### 6. 付费初体验漏斗 (`retention/firstPurchaseFunnel.js`)
+### 25.6 付费初体验漏斗
 
 **功能：** 追踪玩家付费转化路径，优化首充转化率。
 
@@ -2954,7 +2971,7 @@ const analytics = getFunnelAnalytics();
 // { currentStage, stageConversion: {...}, conversionRate: 15, firstPurchasePrice: 1, ... }
 ```
 
-### 7. VIP体系 (`retention/vipSystem.js`)
+### 25.7 VIP 体系
 
 **功能：** 为核心玩家提供专属VIP权益，提升长期价值。
 
@@ -2991,7 +3008,7 @@ const access = canAccessVipFeature('exclusive_shop');
 // { allowed: true, value: true } 或 { allowed: false, required: 'vip2' }
 ```
 
-### 8. 统一留存管理器 (`retention/retentionManager.js`)
+### 25.8 统一留存管理器
 
 **功能：** 整合所有留存模块，提供统一API。
 
@@ -3024,7 +3041,7 @@ const goals = retention.getActiveGoals();
 const level = retention.getLevelSummary();
 ```
 
-### 测试验证
+### 25.9 测试验证
 
 执行所有留存相关测试：
 
@@ -3034,7 +3051,7 @@ npm test -- tests/playerMaturity.test.js tests/playerLifecycleDashboard.test.js 
 
 应通过 **82 tests**。
 
-### 与《玩家生命周期与成熟度运营蓝图》双分制的关系
+### 25.10 与《玩家生命周期与成熟度运营蓝图》双分制的关系
 
 v1.13 引入的是 **单分制成熟度** `MaturityScore`（落在 L1–L4），同时承担"分群"与"运营决策权重"两个职责。后续的
 [玩家生命周期与成熟度运营蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) 在不破坏 v1.13 接口的

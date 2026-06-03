@@ -4,7 +4,7 @@
 
 > **stress 域口径**：本文存在**两种** stress 数值口径，请按上下文判断——
 >
-> - **对外口径 `[0, 1]` norm**：玩家面板、DFV、策略卡、stressMeter 6 档、`insight.stress` / `_adaptiveStress`、本文 §5 「策略卡 / 压力表」相关章节统一为归一化值；
+> - **对外口径 `[0, 1]` norm**：玩家面板、DFV、策略卡、stressMeter 6 档、`insight.stress` / `_adaptiveStress`、本文 §五 「策略卡 / 压力表」相关章节统一为归一化值；
 > - **对内口径 `[-0.2, 1]` raw**：算法源码阈值、`game_rules.json` 配置、`stressBreakdown.finalStress`、§3.1 stress 管线公式、§3.2 默认值列表、§3.6 信号→下游作用机制等"算法事实表"统一为 raw 域，与源码一致便于调参；
 > - **换算**：`norm = (raw + 0.2) / 1.2`，详见 [自适应出块 §3.5 stress 域口径](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径) 的完整对照表与例外说明。
 
@@ -14,18 +14,18 @@
 
 | 目标 | 建议阅读章节 |
 |------|----------------|
-| 搞清「这个数是什么意思」 | §2 指标字典（L1）、§3.2 压力指标体系、§3.3 `spawnTargets`、§3.4 `spawnHints` |
-| 搞清「系统何时加压/减压、为何出这块」 | §3.1 stress 管线、§3.6 信号→下游作用机制、§4 L3 与几何、§5 策略卡 |
+| 搞清「这个数是什么意思」 | §二 指标字典（L1）、§3.2 压力指标体系、§3.3 `spawnTargets`、§3.4 `spawnHints` |
+| 搞清「系统何时加压/减压、为何出这块」 | §3.1 stress 管线、§3.6 信号→下游作用机制、§四 L3 与几何、§五 策略卡 |
 | 搞清「压力表头像/标签/叙事是怎么生成的」 | §5.5 压力表状态体系（6 档 + 救济变体 + 趋势 + 故事线决策树 + 截图复现） |
-| 评审策略合理性 / 排查叙事冲突 | §3.7 互斥与互抑、§3.8 反向工程、§5.5.4 故事线决策树、§6 合理性评估清单 |
-| 做版本对比或回放分析 | §3.2.4 派生痕迹、§5.5.6 旧回放兜底、§7 数据流与时序、§8 配置与扩展 |
-| 查默认参数 | §8 配置速查（以 `shared/game_rules.json` 为准） |
+| 评审策略合理性 / 排查叙事冲突 | §3.7 互斥与互抑、§3.8 反向工程、§5.5.4 故事线决策树、§六 合理性评估清单 |
+| 做版本对比或回放分析 | §3.2.4 派生痕迹、§5.5.6 旧回放兜底、§七 数据流与时序、§八 配置与扩展 |
+| 查默认参数 | §八 配置速查（以 `shared/game_rules.json` 为准） |
 
 **核心文件**：`web/src/playerProfile.js`、`web/src/adaptiveSpawn.js`、`web/src/bot/blockSpawn.js`、`web/src/strategyAdvisor.js`、`web/src/stressMeter.js`、`web/src/playerInsightPanel.js`、`web/src/game.js`、`shared/game_rules.json`。
 
 ---
 
-## 1. 系统总览：从感知到呈现
+## 一、系统总览：从感知到呈现
 
 实时策略不是单条公式，而是**五条链路**在同一局内并行、在关键帧对齐：
 
@@ -46,7 +46,7 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 
 ---
 
-## 2. 指标字典（L1：PlayerProfile）
+## 二、指标字典（L1：PlayerProfile）
 
 下列指标均在**滑动窗口**内统计（窗口大小默认见 `game_rules.json → adaptiveSpawn.profileWindow`，常与 `PlayerProfile` 内 `_window` 一致）。**物理含义**指：在休闲方块语境下，该量增大/减小通常对应何种玩家状态。
 
@@ -131,7 +131,7 @@ L2 快照 + 历史 stress   →  L4b stressMeter → 档位 + 趋势 + 一句话
 
 ---
 
-## 3. L2：自适应出块（AdaptiveSpawn）
+## 三、L2：自适应出块（AdaptiveSpawn）
 
 ### 3.1 从输入到 `stress` 的管道（物理顺序）
 
@@ -390,7 +390,7 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 
 ---
 
-## 4. L3：出块与诊断（与策略可兑现性）
+## 四、L3：出块与诊断（与策略可兑现性）
 
 本节不重复 `blockSpawn` 全算法，只列**与「策略是否合理」直接相关的约束**。
 
@@ -402,7 +402,7 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 | 序贯可解 / 解法区间 | 高 fill 下 DFS/解空间过滤，避免无解三连 |
 | spawn 诊断 `spawnDiagnostics` | 出块瞬间快照；顾问优先 **当前 grid** 重算（`liveTopology` 等） |
 
-详细算法见 [出块架构与算法](../algorithms/ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层)、[出块难度与评估](../algorithms/ALGORITHMS_SPAWN.md#14-出块难度与评估)。
+详细算法见 [出块架构与算法](../algorithms/ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层)、[出块难度与评估](../algorithms/ALGORITHMS_SPAWN.md#十四出块难度与评估)。
 
 ### 4.5 生成式模型行为上下文（V3.1）
 
@@ -421,11 +421,11 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 
 ---
 
-## 5. 策略生成（L4a：StrategyAdvisor）
+## 五、策略生成（L4a：StrategyAdvisor）
 
 ### 5.1 输入契约
 
-- **profile**：`PlayerProfile`（§2 各 getter）。  
+- **profile**：`PlayerProfile`（§二 各 getter）。  
 - **insight**：上一拍出块时的 `_lastAdaptiveInsight`（含 `spawnHints`、`spawnDiagnostics`、`boardFill` 等快照）。  
 - **gridInfo**（由 `playerInsightPanel` 注入）：**当前** `fillRatio`、`holesCount`、`liveTopology`、`liveMultiClearCandidates`、`liveSolutionMetrics` 等。
 
@@ -456,7 +456,7 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 - **收获期·待兑现**：`rhythmPhase` 快照为 payoff，但 **live** 几何已不支持——诚实降级文案。  
 - **瓶颈块**：使用 `liveSolutionMetrics.firstMoveFreedom`（及合计可落位）优先，反映**当前 dock** 可下性。
 
-完整规则表见 [策略体验栈 §8](./STRATEGY_EXPERIENCE_MODEL.md#8-策略顾问规则索引l4)。
+完整规则表见 [策略体验栈 §八](./STRATEGY_EXPERIENCE_MODEL.md#八策略顾问规则索引l4)。
 
 ### 5.5 L4b：压力表状态体系（State Enumeration）
 
@@ -536,7 +536,7 @@ delta = current - avg
 
 ```
 1. boardRisk ≥ 0.60                                     → 「盘面很紧张，系统正在为你保活，候选块更易消行。」
-2. score-push 高压守卫（抢占 §3 / §4 的高压守卫）
+2. score-push 高压守卫（抢占 §三 / §四 的高压守卫）
    shouldUseScorePushHighStress(level, intent, geometry):
      intent ∈ {flow, harvest}
      ∧ level.id ∈ {tense, intense}
@@ -558,7 +558,7 @@ delta = current - avg
 **关键点**：
 
 - 第 1 条**先于** spawnIntent —— `boardRisk` 极高时**保活叙事**始终抢占。
-- 第 2 条 **先于** §3 / §4 高压守卫 —— "高压但盘面友好"（冲分诱发）和"高压且盘面紧张"（求生）需要不同语义；旧版守卫一律说"保活/确保可落位"，与 fill=20%、holes=0 的实际盘面错位。
+- 第 2 条 **先于** §三 / §四 高压守卫 —— "高压但盘面友好"（冲分诱发）和"高压且盘面紧张"（求生）需要不同语义；旧版守卫一律说"保活/确保可落位"，与 fill=20%、holes=0 的实际盘面错位。
 - 第 4b 条仅在显式传入 `geometry` 时启用密度分级；老回放保持原文案不变，避免改写历史叙事。
 
 #### 5.5.5 `spawnIntent` → 文案映射枚举
@@ -651,7 +651,7 @@ delta = current - avg
 
 #### 5.5.7 面板 pill 状态枚举（与压力表同源）
 
-`playerInsightPanel` 顶部 pill 与压力表读同一份 `_lastAdaptiveInsight`，状态枚举如下（**snapshot/live 标记**详见 §7）：
+`playerInsightPanel` 顶部 pill 与压力表读同一份 `_lastAdaptiveInsight`，状态枚举如下（**snapshot/live 标记**详见 §七）：
 
 | pill | 来源 | 取值与中文标签 |
 |------|------|----------------|
@@ -698,11 +698,11 @@ delta = current - avg
 
 **为什么 stress 这么低还是 flow 意图？** —— `delight.mode='flow_payoff'` 在低占用时也可触发 `intent='flow'`，与 `rhythmPhase='setup'` 共存；属于「心流体验稳定 + 仍在搭建」的合理叠态，不是 bug。
 
-> 完整体验栈映射、单一意图与互抑见 [策略体验栈 §4-§9](./STRATEGY_EXPERIENCE_MODEL.md)。
+> 完整体验栈映射、单一意图与互抑见 [策略体验栈 §四–§九](./STRATEGY_EXPERIENCE_MODEL.md)。
 
 ---
 
-## 6. 策略合理性评估清单（建议用于评审/改版）
+## 六、策略合理性评估清单（建议用于评审/改版）
 
 在改 `game_rules.json`、`adaptiveSpawn.js`、`strategyAdvisor.js` 或文案前，可按表自查：
 
@@ -719,7 +719,7 @@ delta = current - avg
 
 ---
 
-## 7. 数据流时序
+## 七、数据流时序
 
 ### 7.1 单次放置后（面板刷新）
 
@@ -744,7 +744,7 @@ spawnBlocks()
 
 ---
 
-## 8. 配置参数速查
+## 八、配置参数速查
 
 所有可调项以 **`shared/game_rules.json → adaptiveSpawn`** 为准；下列仅列常用键，**默认值若与 JSON 不一致，以 JSON 为权威**。
 
@@ -767,7 +767,7 @@ spawnBlocks()
 
 ### 8.3 心流、参与度、节奏
 
-见 JSON 中 `flowZone`、`engagement`、`pacing`；与 §2、§3 描述对应。
+见 JSON 中 `flowZone`、`engagement`、`pacing`；与 §二、§三 描述对应。
 
 ### 8.4 十档 profile
 
@@ -775,7 +775,7 @@ spawnBlocks()
 
 ---
 
-## 9. 扩展指南
+## 九、扩展指南
 
 ### 9.1 新策略卡
 
@@ -799,11 +799,11 @@ spawnBlocks()
 
 ### 9.3 调参不改代码
 
-优先改 `game_rules.json` 的 `signals.scale`、`flowZone`、`engagement`、`profiles`；大规模改权重建议配合 §6 清单与回放样本。
+优先改 `game_rules.json` 的 `signals.scale`、`flowZone`、`engagement`、`profiles`；大规模改权重建议配合 §六 清单与回放样本。
 
 ---
 
-## 10. 面板 UI 布局（参考）
+## 十、面板 UI 布局（参考）
 
 ```
 ┌──────────────────────────────────┐
@@ -1017,5 +1017,5 @@ metrics.clearRate < 0.25  ──► playstyle='survival' ─►     │
 |------|------|
 | [STRATEGY_EXPERIENCE_MODEL.md](./STRATEGY_EXPERIENCE_MODEL.md) | 四层通用模型、spawnIntent、几何门控、风险缓解 |
 | [ADAPTIVE_SPAWN.md](../algorithms/ADAPTIVE_SPAWN.md) | 自适应设计理念与配置详解 |
-| [ALGORITHMS_SPAWN.md（§12）](../algorithms/ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) | 出块三层与 blockSpawn |
+| [ALGORITHMS_SPAWN.md（§12）](../algorithms/ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) | 出块三层与 blockSpawn |
 | [PANEL_PARAMETERS.md](./PANEL_PARAMETERS.md) | 面板字段级说明 |

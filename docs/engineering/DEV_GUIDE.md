@@ -7,24 +7,24 @@
 
 ## 目录
 
-1. [开发环境搭建](#1-开发环境搭建)
-2. [新增商业化模块](#2-新增商业化模块)
-3. [接入真实广告 SDK](#3-接入真实广告-sdk)
-4. [接入真实 IAP SDK](#4-接入真实-iap-sdk)
-5. [新增 Feature Flag](#5-新增-feature-flag)
-6. [后端蓝图扩展](#6-后端蓝图扩展)
-7. [自定义 RL 奖励函数](#7-自定义-rl-奖励函数)
-8. [自定义课程学习](#8-自定义课程学习)
-9. [扩展玩家画像信号](#9-扩展玩家画像信号)
-10. [微信小程序适配](#10-微信小程序适配)
-11. [测试指南](#11-测试指南)
-12. [常见问题](#12-常见问题)
+1. [开发环境搭建](#一开发环境搭建)
+2. [新增商业化模块](#二新增商业化模块)
+3. [接入真实广告 SDK](#三接入真实广告-sdk)
+4. [接入真实 IAP SDK](#四接入真实-iap-sdk)
+5. [新增 Feature Flag](#五新增-feature-flag)
+6. [后端蓝图扩展](#六后端蓝图扩展)
+7. [自定义 RL 奖励函数](#七自定义-rl-奖励函数)
+8. [自定义课程学习](#八自定义课程学习)
+9. [扩展玩家画像信号](#九扩展玩家画像信号)
+10. [微信小程序适配](#十微信小程序适配)
+11. [测试指南](#十一测试指南)
+12. [常见问题](#十二常见问题)
 
 ---
 
-## 1. 开发环境搭建
+## 一、开发环境搭建
 
-### 基础安装
+### 1.1 基础安装
 
 ```bash
 git clone https://github.com/btbujiangjun/openblock.git
@@ -42,7 +42,7 @@ cp .env.example .env
 # 编辑 .env 中的端口、API 地址等
 ```
 
-### 开发模式
+### 1.2 开发模式
 
 ```bash
 # 双进程模式（推荐）
@@ -54,7 +54,7 @@ open http://localhost:3000/docs.html   # 通过 Vite 代理
 open http://localhost:5000/docs        # 直接访问 Flask
 ```
 
-### 目录约定
+### 1.3 目录约定
 
 | 用途 | 位置 | 说明 |
 |------|------|------|
@@ -67,11 +67,11 @@ open http://localhost:5000/docs        # 直接访问 Flask
 
 ---
 
-## 2. 新增商业化模块
+## 二、新增商业化模块
 
 商业化模块通过 `MonetizationBus` 订阅游戏事件，**完全不修改游戏核心代码**。
 
-### 最小模板
+### 2.1 最小模板
 
 ```js
 // web/src/monetization/myModule.js
@@ -119,7 +119,7 @@ export function initMyModule() {
 }
 ```
 
-### 注册到初始化流程
+### 2.2 注册到初始化流程
 
 在 `web/src/monetization/index.js` 的 `initMonetization` 函数中添加：
 
@@ -137,7 +137,7 @@ export function initMonetization(game) {
 }
 ```
 
-### 可订阅的游戏事件
+### 2.3 可订阅的游戏事件
 
 | 事件名 | 触发时机 | payload.data 包含 |
 |--------|---------|------------------|
@@ -153,9 +153,9 @@ export function initMonetization(game) {
 
 ---
 
-## 3. 接入真实广告 SDK
+## 三、接入真实广告 SDK
 
-### AdMob 示例
+### 3.1 AdMob 示例
 
 ```js
 // web/src/main.js 或初始化文件
@@ -208,7 +208,7 @@ function initRealAds() {
 initRealAds();
 ```
 
-### AppLovin MAX 示例
+### 3.2 AppLovin MAX 示例
 
 ```js
 setAdProvider({
@@ -234,7 +234,7 @@ setAdProvider({
 
 ---
 
-## 4. 接入真实 IAP SDK
+## 四、接入真实 IAP SDK
 
 ```js
 // web/src/main.js
@@ -278,7 +278,7 @@ setIapProvider({
 
 ---
 
-## 5. 新增 Feature Flag
+## 五、新增 Feature Flag
 
 在 `web/src/monetization/featureFlags.js` 的 `FLAG_DEFAULTS` 中添加：
 
@@ -314,7 +314,7 @@ setFlag('myNewFeature', true);
 
 ---
 
-## 6. 后端蓝图扩展
+## 六、后端蓝图扩展
 
 推荐将新后端功能封装为 Flask Blueprint，在 `server.py` 末尾注册：
 
@@ -379,7 +379,7 @@ except Exception as e:
 
 ---
 
-## 7. 自定义 RL 奖励函数
+## 七、自定义 RL 奖励函数
 
 在 `shared/game_rules.json` 中修改 `RL_REWARD_SHAPING` 节点，无需修改 Python 代码：
 
@@ -420,7 +420,7 @@ def custom_reward(state: dict, action: dict, next_state: dict) -> float:
 
 ---
 
-## 8. 自定义课程学习
+## 八、自定义课程学习
 
 在 `shared/game_rules.json` 中配置课程参数：
 
@@ -440,7 +440,7 @@ def custom_reward(state: dict, action: dict, next_state: dict) -> float:
 
 ---
 
-## 9. 扩展玩家画像信号
+## 九、扩展玩家画像信号
 
 在 `web/src/playerProfile.js` 的 `PlayerProfile` 类中添加新的信号 getter：
 
@@ -484,7 +484,7 @@ export function updateRealtimeSignals(profile) {
 
 ---
 
-## 10. 微信小程序适配
+## 十、微信小程序适配
 
 小程序核心逻辑与 Web 版共享（`miniprogram/core/` 镜像自 `web/src/`）。**提审与正式发布流程**见 [WECHAT_MINIPROGRAM.md（微信小程序发布流程）](../platform/WECHAT_MINIPROGRAM.md#微信小程序发布流程)。
 
@@ -518,9 +518,9 @@ node --check miniprogram/pages/game/game.js
 
 ---
 
-## 11. 测试指南
+## 十一、测试指南
 
-### 运行测试
+### 11.1 运行测试
 
 ```bash
 npm test                              # 全量测试
@@ -529,7 +529,7 @@ npm test -- --reporter=verbose       # 详细输出
 npm run lint                         # 代码检查
 ```
 
-### 测试商业化模块
+### 11.2 测试商业化模块
 
 ```js
 // tests/monetization.test.js
@@ -570,7 +570,7 @@ describe('MyModule', () => {
 });
 ```
 
-### Mock 网络请求
+### 11.3 Mock 网络请求
 
 ```js
 // 在测试中 mock fetch
@@ -582,7 +582,7 @@ global.fetch = vi.fn().mockResolvedValue({
 
 ---
 
-## 12. 常见问题
+## 十二、常见问题
 
 ### Q: 修改了 `game_rules.json`，为什么前端没有生效？
 

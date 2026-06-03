@@ -173,7 +173,7 @@ block-beta
 
 ---
 
-## 图 1：出块双轨决策架构
+## 图一、出块双轨决策架构
 
 > **回答的问题**：每一轮出块的两条轨道分别是怎么决策的？V3 失败怎么回退？
 > 切换是怎么发生的？
@@ -254,7 +254,7 @@ flowchart LR
 
 ---
 
-## 图 2：SpawnPolicyNet 网络与推理流
+## 图二、SpawnPolicyNet 网络与推理流
 
 > **回答的问题**：V3 的网络结构是什么？输入特征怎么组织？解码怎么保证可行性？
 > 怎么按用户做个性化（LoRA）？
@@ -346,7 +346,7 @@ block-beta
 
 ---
 
-## 图 3：Gameplay RL 训练栈（PPO + GAE + Eval Gate）
+## 图三、Gameplay RL 训练栈（PPO + GAE + Eval Gate）
 
 > **回答的问题**：RL 在训什么、用什么算法、怎么探索、怎么评估、怎么上线？
 >
@@ -445,7 +445,7 @@ flowchart LR
 
 ---
 
-## 图 4：玩家画像与能力评估
+## 图四、玩家画像与能力评估
 
 > **回答的问题**：技能与能力是怎么从原始行为算出来的？信号怎么回流？
 >
@@ -526,7 +526,7 @@ block-beta
 
 ---
 
-## 图 5：商业化核心决策（线性规则 + guardrail + abilityBias）
+## 图五、商业化核心决策（线性规则 + guardrail + abilityBias）
 
 > **回答的问题**：规则版商业化模型怎么从信号算出 `recommendedAction`？
 > Guardrail 是怎么压制激进决策的？
@@ -616,7 +616,7 @@ flowchart LR
 
 ---
 
-## 图 6：商业化 ML Scaffolding 栈（opt-in）
+## 图六、商业化 ML Scaffolding 栈（opt-in）
 
 > **回答的问题**：哪些 ML 能力已经入库为骨架？哪些默认开关？怎么注入离线
 > 训练好的参数？
@@ -735,7 +735,7 @@ flowchart LR
 
 ---
 
-## 图 7：决策与执行管线（rule + freq + policy + adInsertion）
+## 图七、决策与执行管线（rule + freq + policy + adInsertion）
 
 > **回答的问题**：从规则决策到广告 / IAP / 任务的最终落地，途中经过哪些
 > 层、有哪些频控？
@@ -821,7 +821,7 @@ flowchart LR
 
 ---
 
-## 图 8：生命周期信号 → 编排 → 策略
+## 图八、生命周期信号 → 编排 → 策略
 
 > **回答的问题**：留存运营是怎么从 5 阶段 + churn blend 编排到 winback /
 > 复购 / churn_high 的？
@@ -932,5 +932,5 @@ block-beta
 - [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) —— RL 训练栈权威源（图 3）
 - [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) —— 商业化算法手册（图 5 / 图 6 / 图 7）
 - [`COMMERCIAL_MODEL_DESIGN_REVIEW.md`](./COMMERCIAL_MODEL_DESIGN_REVIEW.md) —— 商业化模型架构设计
-- [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) —— 出块算法三层模型
+- [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) —— 出块算法三层模型
 - [`../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md`](../architecture/SYSTEM_ARCHITECTURE_DIAGRAMS.md) —— 系统架构图（系统侧的姊妹篇）

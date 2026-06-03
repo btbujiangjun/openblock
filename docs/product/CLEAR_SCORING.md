@@ -4,7 +4,7 @@
 
 ---
 
-## 1. 术语
+## 一、术语
 
 | 名称 | 含义 |
 |------|------|
@@ -18,7 +18,7 @@
 
 ---
 
-## 2. 基础分（多消力度随 `c` 放大）
+## 二、基础分（多消力度随 c 放大）
 
 \[
 \text{baseScore} = \text{baseUnit} \times c^2
@@ -37,7 +37,7 @@
 
 ---
 
-## 3. 同 icon / 同色 bonus
+## 三、同 icon / 同色 bonus
 
 每条被消除的线有一个**随多消规模增长**的基础价值：
 
@@ -101,7 +101,7 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 4. 出块颜色与 bonus 对齐
+## 四、出块颜色与 bonus 对齐
 
 为减少“分数规则和出块体感不一致”的感受，在**不改形状可解性约束**的前提下对 dock 三色做软引导：
 
@@ -126,7 +126,7 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 5. 理论最大消除数 `c_max`（与形状库一致）
+## 五、理论最大消除数 c_max（与形状库一致）
 
 单次落子能触发的消除行列数上限，由 **`shared/shapes.json`** 中各形状的占用行数 + 占用列数之和的最大值决定。当前形状库下 **`c_max = 6`**（例如 `1×5` / `5×1`、`3×3`、五连 L 等形状可达该上限）。
 
@@ -134,7 +134,7 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 6. 与 RL / 回放字段的关系
+## 六、与 RL / 回放字段的关系
 
 - **对局消行得分**：以本节 `computeClearScore` 为准。  
 - **无头模拟器**（`web/src/bot/simulator.js`）与 **RL 模拟器**（`rl_pytorch/simulator.py`、`rl_mlx/simulator.py`）：与主局相同使用 `baseUnit × c²`、bonus 公式和清屏 10× 公式；在消除前写入 `result.bonusLines`，消除后写入 `perfectClear` 再计分。
@@ -145,7 +145,7 @@ export function computeClearScore(strategyId, result) {
 
 ---
 
-## 7. 商业化策略「存储在哪里」（与消行计分分开）
+## 七、商业化策略存储位置（与消行计分分开）
 
 商业化策略分三层，不要与「消行得分」混淆：
 

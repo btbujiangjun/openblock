@@ -9,17 +9,17 @@
 
 ## 目录
 
-1. [问题形式化](#1-问题形式化)
-2. [双轨架构](#2-双轨架构)
-3. [规则引擎：约束 + 偏好分布](#3-规则引擎约束--偏好分布)
-4. [自适应映射：从画像到 stress](#4-自适应映射从画像到-stress)
-5. [SpawnTransformerV2 网络结构](#5-spawntransformerv2-网络结构)
-6. [SpawnTransformer 训练流程](#6-spawntransformer-训练流程)
-7. [SpawnTransformer 推理与回退](#7-spawntransformer-推理与回退)
-8. [SpawnPredictor：服务于 RL MCTS](#8-spawnpredictor服务于-rl-mcts)
-9. [完整公式速查](#9-完整公式速查)
-10. [完整参数表](#10-完整参数表)
-11. [演进与开放问题](#11-演进开放问题与-v3-落地)
+1. [问题形式化](#一问题形式化)
+2. [双轨架构](#二双轨架构)
+3. [规则引擎：约束 + 偏好分布](#三规则引擎约束-偏好分布)
+4. [自适应映射：从画像到 stress](#四自适应映射从画像到-stress)
+5. [SpawnTransformerV2 网络结构](#五spawntransformerv2-网络结构)
+6. [SpawnTransformer 训练流程](#六spawntransformer-训练流程)
+7. [SpawnTransformer 推理与回退](#七spawntransformer-推理与回退)
+8. [SpawnPredictor：服务于 RL MCTS](#八spawnpredictor服务于-rl-mcts)
+9. [完整公式速查](#九完整公式速查)
+10. [完整参数表](#十完整参数表)
+11. [演进与开放问题](#十一演进开放问题与-v3-落地)
    - 11.1 已识别的设计权衡
    - 11.2 候选改进 — 详细方案 × 实现（联合分布 / 风格化 / 真人接入 / PCGRL）
    - 11.3 开放研究点 — 实装方案（feasibility 嵌入 / LoRA / 多玩家迁移）
@@ -28,10 +28,10 @@
    - 11.6 实测参数与性能
    - 11.7 仍开放的研究问题
    - 11.8 文件入口速查
-12. [出块算法架构总览（工程分层）](#12-出块算法架构总览工程分层)
-13. [出块建模：双轨实现与设计 rationale](#13-出块建模双轨实现与设计-rationale)
-14. [出块难度与评估](#14-出块难度与评估)
-15. [出块参数寻优（SpawnParamTuner）](#15-出块参数寻优spawnparamtuner)
+12. [出块算法架构总览（工程分层）](#十二出块算法架构总览工程分层)
+13. [出块建模：双轨实现与设计 rationale](#十三出块建模双轨实现与设计-rationale)
+14. [出块难度与评估](#十四出块难度与评估)
+15. [出块参数寻优（SpawnParamTuner）](#十五出块参数寻优spawnparamtuner)
 
 ---
 
@@ -42,7 +42,7 @@
 >
 > 上图展示了 `generateDockShapes` 的 9 层全流水线：输入层（层 0）→ 盘面感知（层 1）→ 评分构建（层 2）→ 优先选拔（层 3）→ 加权补齐（层 4）→ 约束验证（层 5）→ 注入优化（层 6）→ 输出（层 7）→ 染色（层 8）。其中层 4 的 14 维权重链与 §3.2 的偏好分布函数直接对应；层 5 的约束校验与 §3.1 的硬约束集合完全吻合。
 
-## 1. 问题形式化
+## 一、问题形式化
 
 ### 1.1 任务
 
@@ -85,7 +85,7 @@ $$
 
 ---
 
-## 2. 双轨架构
+## 二、双轨架构
 
 ### 2.1 路线对比
 
@@ -131,7 +131,7 @@ function spawnNextBlocks() {
 
 ---
 
-## 3. 规则引擎：约束 + 偏好分布
+## 三、规则引擎：约束 + 偏好分布
 
 ### 3.1 三层架构
 
@@ -143,7 +143,7 @@ Layer 2：局内体验（combo + 节奏 + 多样性）
 Layer 3：跨局/会话（热身 + 里程碑 + 冷却）
 ```
 
-详见 [本手册 §12](#12-出块算法架构总览工程分层)。
+详见 [本手册 §12](#十二出块算法架构总览工程分层)。
 
 ### 3.2 算法核心
 
@@ -231,7 +231,7 @@ fill ∈ [0.88, ∞]   : budget × 3，danger zone，最严格
 
 ---
 
-## 4. 自适应映射：从画像到 stress
+## 四、自适应映射：从画像到 stress
 
 ### 4.1 stress 综合公式
 
@@ -362,7 +362,7 @@ if stress ∈ [a, b]:
 
 ---
 
-## 5. SpawnTransformerV2 网络结构
+## 五、SpawnTransformerV2 网络结构
 
 ### 5.1 整体架构（`rl_pytorch/spawn_model/model.py`）
 
@@ -462,7 +462,7 @@ difficulty_head:       128 × 1        =  128
 
 ---
 
-## 6. SpawnTransformer 训练流程
+## 六、SpawnTransformer 训练流程
 
 ### 6.1 训练数据来源
 
@@ -567,7 +567,7 @@ python -m rl_pytorch.spawn_model.train \
 
 ---
 
-## 7. SpawnTransformer 推理与回退
+## 七、SpawnTransformer 推理与回退
 
 ### 7.1 推理流程
 
@@ -622,7 +622,7 @@ Step 4: 多次回退后 → 标记降级（log + metric）
 
 ---
 
-## 8. SpawnPredictor：服务于 RL MCTS
+## 八、SpawnPredictor：服务于 RL MCTS
 
 ### 8.1 用途
 
@@ -703,7 +703,7 @@ RL_SPAWN_MODEL_PATH=path/to/spawn.pt  # 自定义路径
 
 ---
 
-## 9. 完整公式速查
+## 九、完整公式速查
 
 ### 9.1 stress 综合
 
@@ -737,7 +737,7 @@ $$
 
 ---
 
-## 10. 完整参数表
+## 十、完整参数表
 
 ### 10.1 规则引擎
 
@@ -787,7 +787,7 @@ $$
 
 ---
 
-## 11. 演进、开放问题与 V3 落地
+## 十一、演进、开放问题与 V3 落地
 
 下面表中的 4 个 V3 候选改进与 3 个开放研究点已全部完成第一版实装——汇总在 `SpawnPolicyNet` + `feasibility` + `lora` + `shape_proposer` 四组模块；本节给出深化设计 + 算法方案 + 实现路径。
 
@@ -1115,12 +1115,12 @@ $$
 
 ---
 
-## 12. 出块算法架构总览（工程分层）
+## 十二、出块算法架构总览（工程分层）
 
 > 整合：系统总览（L1/L2 双层叙事） + 三层架构算法（启发式规则） + 架构图生成 Prompt。
-> 出块建模（SpawnPolicyNet 生成式）见 [本手册 §13](#13-出块建模双轨实现与设计-rationale)，
-> 难度调控与评估见 [本手册 §14](#14-出块难度与评估)，
-> 参数寻优见 [本手册 §15](#15-出块参数寻优spawnparamtuner)。
+> 出块建模（SpawnPolicyNet 生成式）见 [本手册 §13](#十三出块建模双轨实现与设计-rationale)，
+> 难度调控与评估见 [本手册 §14](#十四出块难度与评估)，
+> 参数寻优见 [本手册 §15](#十五出块参数寻优spawnparamtuner)。
 
 ---
 
@@ -1339,15 +1339,15 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 ---
 
-## 13. 出块建模：双轨实现与设计 rationale
+## 十三、出块建模：双轨实现与设计 rationale
 
 > 📍 **本文档定位**：`L1 · SpawnPolicy` 双轨建模 rationale（`SpawnPolicyRules` 与 `SpawnPolicyNet`）  
 > 📐 **职责轴**：仅覆盖「谁产 3 块」这一层；**不涉及**参数寻优（θ 寻参属于 `L2 · SpawnParamTuner`）  
-> ⚠️ **不是**：`SpawnParamTuner`（详见 [本手册 §15](#15-出块参数寻优spawnparamtuner)）的前身或子模块；二者沿不同层独立演进  
-> 🗺️ 双层总览与角色定义：[本手册 §12](#12-出块算法架构总览工程分层)
+> ⚠️ **不是**：`SpawnParamTuner`（详见 [本手册 §15](#十五出块参数寻优spawnparamtuner)）的前身或子模块；二者沿不同层独立演进  
+> 🗺️ 双层总览与角色定义：[本手册 §12](#十二出块算法架构总览工程分层)
 
 > 内部版本：1.6 | 更新：2026-05-29  
-> 本文在实现细节之上，给出**可复用的设计 rationale**，并与 [本手册 §12](#12-出块算法架构总览工程分层)、[`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) 互补：后两者偏「模块说明与配置」，本文偏「问题形式化 + ML 侧数学结构」。  
+> 本文在实现细节之上，给出**可复用的设计 rationale**，并与 [本手册 §12](#十二出块算法架构总览工程分层)、[`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) 互补：后两者偏「模块说明与配置」，本文偏「问题形式化 + ML 侧数学结构」。  
 > **角色映射**：本文 §2「规则引擎」= `SpawnPolicyRules`；§3「SpawnPolicyNet」= `SpawnPolicyNet`（其内部权重版本号 v3.1 用于 checkpoint 管理，不参与产品命名）。
 
 ---
@@ -1690,7 +1690,7 @@ d^\* = \mathrm{clamp}\bigl(
 - `payoffIntensity`：强化多消/清屏兑现。
 - `novelty`：提高品类多样性、降低重复疲劳。
 
-> 🔗 **与 L2 `SpawnParamTuner` 的唯一耦合通道**：当寻参 bundle（`policies.json`）部署后，B 组 4 个 PB 曲线 θ 经 `adaptiveSpawn.derivePbCurve()` 调制上面 `spawnTargets` 的 `solutionSpacePressure/clearOpportunity/spatialPressure/payoffIntensity/novelty`，而这 5 项正是 `behaviorContext[39–43]`——因此 **SpawnPolicyNet 的条件输入会随 θ 变化**（单向 L2→L1）。A 组 5 个 θ（personalization/temperature/surprise*/maxEvaluatedTriplets）只进规则实验轨，不进 Net。注意 `target_difficulty` 吃的 `stress` 在 `derivePbCurve` 之前已算定，**不携带 θ**，故耦合发生在 `spawnTargets` 而非难度回归目标。详见 [本手册 §12](#12-出块算法架构总览工程分层)。
+> 🔗 **与 L2 `SpawnParamTuner` 的唯一耦合通道**：当寻参 bundle（`policies.json`）部署后，B 组 4 个 PB 曲线 θ 经 `adaptiveSpawn.derivePbCurve()` 调制上面 `spawnTargets` 的 `solutionSpacePressure/clearOpportunity/spatialPressure/payoffIntensity/novelty`，而这 5 项正是 `behaviorContext[39–43]`——因此 **SpawnPolicyNet 的条件输入会随 θ 变化**（单向 L2→L1）。A 组 5 个 θ（personalization/temperature/surprise*/maxEvaluatedTriplets）只进规则实验轨，不进 Net。注意 `target_difficulty` 吃的 `stress` 在 `derivePbCurve` 之前已算定，**不携带 θ**，故耦合发生在 `spawnTargets` 而非难度回归目标。详见 [本手册 §12](#十二出块算法架构总览工程分层)。
 >
 
 对 `difficulty_head` 输出做 MSE，目标 `target_diff = compute_target_difficulty(behavior_context)`（57 维上下文走 `boardDifficulty=ctx[26] / boardRisk=ctx[37] / nearClear=clamp(ctx[29]+ctx[30])`；旧 24 维退化为裸 `fill`、risk=0）。推理时前端可用同一公式或手动指定 `targetDifficulty`。
@@ -1858,7 +1858,7 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 | 规则出块核心 | `web/src/bot/blockSpawn.js` |
 | 自适应与 hints | `web/src/adaptiveSpawn.js` |
 | 集成与模型分支 | `web/src/game.js` |
-| 三层架构说明 | [本手册 §12](#12-出块算法架构总览工程分层) |
+| 三层架构说明 | [本手册 §12](#十二出块算法架构总览工程分层) |
 | 自适应系统设计 | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) |
 | 数据集与特征 | `rl_pytorch/spawn_model/dataset.py` |
 | 行为样本集（append-only/WORM） | `server.py`（`spawn_dataset_samples` 表 + `/api/spawn-dataset/sync\|stats`） |
@@ -1931,10 +1931,10 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 
 ---
 
-## 14. 出块难度与评估
+## 十四、出块难度与评估
 
 > 整合：解法数量难度 + 单步难度细化 + 评估与可视化工具。
-> 出块算法架构见 [本手册 §12](#12-出块算法架构总览工程分层)，
+> 出块算法架构见 [本手册 §12](#十二出块算法架构总览工程分层)，
 > 自适应出块信号见 [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md)。
 
 ---
@@ -1998,7 +1998,7 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 ### 二、单步难度细化：指标提案 vs 系统现状与优化路线
 
 > 本节沉淀一份外部「难度指标构建」提案（客观 + 表现共 61 个指标）与 OpenBlock 现有指标体系的**逐维度对照分析**，并据此给出去题目化的优化路线。
-> 关联：盘面/组合几何见 [本手册 §13](#13-出块建模双轨实现与设计-rationale)，自适应 stress 信号见 [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md)，玩家行为遥测见 [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md)。
+> 关联：盘面/组合几何见 [本手册 §13](#十三出块建模双轨实现与设计-rationale)，自适应 stress 信号见 [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md)，玩家行为遥测见 [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md)。
 
 #### 2.1 核心问题
 
@@ -2141,10 +2141,10 @@ scoreMean/P50/P90, stepsMean, noMoveRate, terminalFillMean, clearInterval, multi
 
 ---
 
-## 15. 出块参数寻优（SpawnParamTuner）
+## 十五、出块参数寻优（SpawnParamTuner）
 
 > 整合：算法原理（全 ML 管线） + 用户操作手册。
-> 双层总览与角色定义见 [本手册 §12](#12-出块算法架构总览工程分层)。
+> 双层总览与角色定义见 [本手册 §12](#十二出块算法架构总览工程分层)。
 
 ---
 

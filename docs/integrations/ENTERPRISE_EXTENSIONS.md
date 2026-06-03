@@ -3,21 +3,21 @@
 > 与 Flask `server.py` 一并加载；数据库迁移在 `init_db()` 中执行。  
 > 环境变量：`OPENBLOCK_OPS_TOKEN`（敏感接口鉴权）、`OPENBLOCK_RATE_LIMIT_PER_MIN`（每分钟每 IP 上限，0=关闭）、`OPENBLOCK_REMOTE_CONFIG_JSON`（远程配置 JSON 合并）、`OPENBLOCK_ACTIVE_STRATEGY_VERSION`（策略版本标注）。
 
-## 远程配置与策略
+## 一、远程配置与策略
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/enterprise/remote-config` | 合并 `shared/remote_config.default.json` 与环境变量 |
 | GET | `/api/enterprise/strategy-registry` | `shared/strategy_registry.json` + 当前 active |
 
-## 支付与广告占位
+## 二、支付与广告占位
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/payment/verify` | IAP 收据占位入库，`idempotency_key` 幂等 |
 | POST | `/api/enterprise/ad-impression` | 广告展示/收益占位（前端 `adAdapter` 已上报） |
 
-## 实验与 Live Ops
+## 三、实验与 Live Ops
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -26,7 +26,7 @@
 | GET | `/api/enterprise/live-ops` | 当前时间在窗内的活动条目 |
 | POST | `/api/enterprise/live-ops` | 需 Ops Token：upsert `live_ops_entries` |
 
-## 分析与合规
+## 四、分析与合规
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -37,7 +37,7 @@
 | GET | `/api/compliance/export-user` | Ops Token：导出单用户相关行 |
 | POST | `/api/compliance/delete-user` | Ops Token：删除单用户核心行 |
 
-## 新增 SQLite 表（摘要）
+## 五、新增 SQLite 表（摘要）
 
 - `iap_orders` — 订单与幂等键  
 - `experiment_configs` — 服务端实验定义  
