@@ -196,6 +196,21 @@ _stop_pid_file logs/server.pid
 _stop_pid_file logs/dev.pid
 sleep 0.2
 
+# ── 浏览器 RL 在线训练优化（后端 PPO 旋钮，全部可被外部 env 覆盖）─────────────
+# 针对「浏览器/后端在线路径」实测问题调参（teacher 覆盖=0 时的纯 PG + 辅助头训练）：
+#   · non_finite_grad 偏高（离群高分局 → 回报/梯度暴冲）：增大批稀释离群 + 收紧裁剪
+#   · 熵深谷（残局采样过度确定化）：抬熵系数与其衰减下限维持探索
+#   · 价值损失常年不降（baseline 欠拟合）：略增价值头损失权重
+# 想接弱 teacher 仍需在面板勾选「1-step lookahead」（本脚本不强制改默认）。
+export RL_RETURN_SCALE="${RL_RETURN_SCALE:-1.0}"          # 固定回报缩放，配 huber-beta=1
+export RL_RETURNS_CLIP="${RL_RETURNS_CLIP:-384}"         # 512→384：削离群局回报尾巴
+export RL_GRAD_CLIP="${RL_GRAD_CLIP:-0.5}"               # 1.0→0.5：更保守的梯度裁剪
+export RL_BATCH_SIZE="${RL_BATCH_SIZE:-64}"             # 32→64：稀释离群、降方差
+export RL_VALUE_COEF="${RL_VALUE_COEF:-1.25}"           # 1.0→1.25：价值头多吃梯度，加速拟合
+export RL_ENTROPY_COEF="${RL_ENTROPY_COEF:-0.03}"      # 0.025→0.03：维持探索
+export RL_ENTROPY_COEF_MIN="${RL_ENTROPY_COEF_MIN:-0.012}"  # 0.008→0.012：残局熵下限抬高，软化熵深谷
+echo "==> RL 在线训练旋钮: returns_clip=${RL_RETURNS_CLIP} grad_clip=${RL_GRAD_CLIP} batch=${RL_BATCH_SIZE} value_coef=${RL_VALUE_COEF} entropy=${RL_ENTROPY_COEF}->${RL_ENTROPY_COEF_MIN}"
+
 echo "==> 启动 Flask 后端 :${API_PORT} → logs/server.log"
 nohup npm run server > ./logs/server.log 2>&1 &
 SERVER_PID=$!

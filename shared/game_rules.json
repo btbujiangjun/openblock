@@ -26,7 +26,7 @@
     "maxGradNorm": 5.0,
     "policyLr": 0.02,
     "valueLr": 0.05,
-    "entropyCoef": 0.012,
+    "entropyCoef": 0.02,
     "temperatureLocal": {
       "comment": "trainSelfPlay 本地循环：temp = max(min, start - episodeIndex * decayPerEpisode)",
       "start": 1.0,
@@ -34,9 +34,9 @@
       "decayPerEpisode": 0.0015
     },
     "temperatureBackend": {
-      "comment": "useBackend 时按服务端已累计局数 globalEp 衰减",
+      "comment": "useBackend 时按服务端已累计局数 globalEp 衰减。min 从 0.35→0.45：高 ep 后温度长期贴底会让残局（合法落点少）采样过度确定化、整批熵骤降到 ~0.6 又回弹（熵深谷）；抬高下限维持残局探索、软化熵深谷。",
       "start": 1.0,
-      "min": 0.35,
+      "min": 0.45,
       "decayPerGlobalEpisode": 0.002
     }
   },
