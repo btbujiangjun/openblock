@@ -8,7 +8,7 @@ import {
     __test_only__,
 } from '../web/src/browserChromeGuards.js';
 
-const { shouldBlockKey } = __test_only__;
+const { shouldBlockKey, isTouchLikeClient, clearDisallowedSelection } = __test_only__;
 
 describe('browserChromeGuards', () => {
     let teardown = () => {};
@@ -45,5 +45,50 @@ describe('browserChromeGuards', () => {
         const ev = new Event('contextmenu', { bubbles: true, cancelable: true });
         document.getElementById('cv').dispatchEvent(ev);
         expect(ev.defaultPrevented).toBe(true);
+    });
+
+    it('selectstart / copy 在棋盘区域被拦截，输入框放行', () => {
+        const sel = new Event('selectstart', { bubbles: true, cancelable: true });
+        document.getElementById('cv').dispatchEvent(sel);
+        expect(sel.defaultPrevented).toBe(true);
+
+        const copy = new Event('copy', { bubbles: true, cancelable: true });
+        document.getElementById('cv').dispatchEvent(copy);
+        expect(copy.defaultPrevented).toBe(true);
+
+        const copyInp = new Event('copy', { bubbles: true, cancelable: true });
+        document.getElementById('inp').dispatchEvent(copyInp);
+        expect(copyInp.defaultPrevented).toBe(false);
+    });
+
+    it('isTouchLikeClient — native-client class 为 true', () => {
+        document.documentElement.classList.add('native-client');
+        expect(isTouchLikeClient()).toBe(true);
+        document.documentElement.classList.remove('native-client');
+    });
+
+    it('clearDisallowedSelection — 清除棋盘区选区，放行区保留', () => {
+        document.body.innerHTML = `
+            <div data-allow-browser-chrome id="allow"><span id="keep">keep</span></div>
+            <div id="game"><span id="txt">score</span></div>
+        `;
+        const txt = document.getElementById('txt');
+        const keep = document.getElementById('keep');
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(txt);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        expect(sel?.toString()).toBe('score');
+
+        clearDisallowedSelection();
+        expect(sel?.isCollapsed).toBe(true);
+
+        const rangeAllow = document.createRange();
+        rangeAllow.selectNodeContents(keep);
+        sel?.removeAllRanges();
+        sel?.addRange(rangeAllow);
+        clearDisallowedSelection();
+        expect(sel?.toString()).toBe('keep');
     });
 });

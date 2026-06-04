@@ -92,6 +92,100 @@
 html {
     /* iOS / iPad 长按、触控笔轻点不弹出系统复制/查阅菜单 */
     -webkit-touch-callout: none;
+    /* 点击候选块/按钮时不让 iOS 把灰色点击高亮投到整块容器（可继承，全局生效） */
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* 触控 / 原生 / 窄屏：禁用长按菜单、文本选中、捏合缩放、图片放大镜。
+ *
+ * 为何用 *:not(...) + !important 而非仅靠 html/body 继承：
+ *   user-select / -webkit-touch-callout 虽可继承，但任何文字元素一旦有「自己的」
+ *   user-select 声明（主题、HUD、组件库等），就会打断继承，长按又能选中。
+ *   因此对每个元素直接 !important 强制 none，杜绝被覆盖。
+ *
+ * 为何用简单 :not(input):not(textarea)... 链而不用 :not([attr] *)：
+ *   带后代组合的 :not() 在旧 Android WebView / 老 WKWebView 不支持时，会让整条
+ *   逗号分组规则被判非法整体丢弃；简单 :not() 链全平台安全。
+ *
+ * 表单控件被 :not() 排除（不被 none 命中），因此输入/选择不受影响。 */
+html.native-client *:not(input):not(textarea):not(select):not([contenteditable='true']),
+html.browser-chrome-guards-touch *:not(input):not(textarea):not(select):not([contenteditable='true']),
+html.browser-chrome-guards-native *:not(input):not(textarea):not(select):not([contenteditable='true']) {
+    -webkit-touch-callout: none !important;
+    -webkit-user-select: none !important;
+    -moz-user-select: none !important;
+    -ms-user-select: none !important;
+    user-select: none !important;
+}
+
+html.native-client,
+html.browser-chrome-guards-touch,
+html.browser-chrome-guards-native,
+html.native-client body,
+html.browser-chrome-guards-touch body,
+html.browser-chrome-guards-native body {
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
+}
+
+html.native-client canvas,
+html.native-client img,
+html.browser-chrome-guards-touch canvas,
+html.browser-chrome-guards-touch img,
+html.browser-chrome-guards-native canvas,
+html.browser-chrome-guards-native img {
+    -webkit-user-drag: none;
+    touch-action: none;
+}
+
+/* 放行区（输入框 / 标记区及其子树）恢复选中与系统菜单 */
+html.native-client input,
+html.native-client textarea,
+html.native-client select,
+html.native-client [contenteditable='true'],
+html.native-client [data-allow-browser-chrome],
+html.native-client [data-allow-browser-chrome] *,
+html.browser-chrome-guards-touch input,
+html.browser-chrome-guards-touch textarea,
+html.browser-chrome-guards-touch select,
+html.browser-chrome-guards-touch [contenteditable='true'],
+html.browser-chrome-guards-touch [data-allow-browser-chrome],
+html.browser-chrome-guards-touch [data-allow-browser-chrome] *,
+html.browser-chrome-guards-native input,
+html.browser-chrome-guards-native textarea,
+html.browser-chrome-guards-native select,
+html.browser-chrome-guards-native [contenteditable='true'],
+html.browser-chrome-guards-native [data-allow-browser-chrome],
+html.browser-chrome-guards-native [data-allow-browser-chrome] * {
+    -webkit-touch-callout: default !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+}
+
+/* 纯 CSS 兜底：任何触屏设备（无需 JS class 检测）都禁用长按选中/复制 */
+@media (hover: none) and (pointer: coarse) {
+    *:not(input):not(textarea):not(select):not([contenteditable='true']) {
+        -webkit-touch-callout: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+    }
+
+    input,
+    textarea,
+    select,
+    [contenteditable='true'],
+    [data-allow-browser-chrome],
+    [data-allow-browser-chrome] * {
+        -webkit-touch-callout: default !important;
+        -webkit-user-select: text !important;
+        -moz-user-select: text !important;
+        -ms-user-select: text !important;
+        user-select: text !important;
+    }
 }
 
 input,
@@ -100,6 +194,60 @@ select,
 [contenteditable='true'],
 [data-allow-browser-chrome] {
     -webkit-touch-callout: default;
+}
+
+/* 游戏 HUD / 核心交互区：所有平台（含桌面鼠标拖选）都不可选中、不弹长按菜单。
+ * 这些纯展示文字（分数、最佳、等级、标签、技能按钮等）永不需要被选中或复制。
+ * 不依赖 native-client class 或触屏媒体查询，避免桌面宽窗口下漏网。 */
+.header,
+.header *,
+.score-theme-row,
+.score-theme-row *,
+.progression-hud,
+.progression-hud *,
+.play-stack,
+.skill-bar,
+.skill-bar *,
+.stat-box,
+.stat-label,
+.stat-value,
+.stat-subline,
+#score,
+#best,
+.progression-level,
+.progression-title {
+    -webkit-touch-callout: none !important;
+    -webkit-user-select: none !important;
+    -moz-user-select: none !important;
+    -ms-user-select: none !important;
+    user-select: none !important;
+}
+
+/* 例外：HUD 内的真正输入控件（如主题下拉）仍允许交互所需的默认行为 */
+.score-theme-row input,
+.score-theme-row textarea,
+.score-theme-row select,
+.score-theme-row [contenteditable='true'],
+.score-theme-row [data-allow-browser-chrome] {
+    -webkit-touch-callout: default !important;
+}
+
+/* 盘面（canvas 各层）：所有平台都禁用长按 callout / 选择 / 拖拽 / 手势缩放。
+ * iOS WKWebView 上长按 canvas 会弹系统菜单/放大镜，必须在元素自身强制 none。 */
+#game-wrapper,
+#game-wrapper *,
+#game-grid,
+#game-grid-bg,
+#game-grid-wm,
+#game-grid-fx,
+.game-board-flow-bg {
+    -webkit-touch-callout: none !important;
+    -webkit-user-select: none !important;
+    -moz-user-select: none !important;
+    -ms-user-select: none !important;
+    user-select: none !important;
+    -webkit-user-drag: none !important;
+    touch-action: none !important;
 }
 
 body {

@@ -2,7 +2,7 @@
 <html lang="zh-CN" data-default-lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="description" content="Open Block — 空间与节奏的益智体验">
     <title>Open Block</title>
     <!-- 与 main.css 一致：全屏层不透明，避免透过菜单看到背后 HUD 发灰 -->
@@ -13,6 +13,100 @@
          这是兜底机制——任何检测逻辑都可能失败，但 CSS @media 永远生效。
          在 head 内联（高优先级），不被 SW 缓存的 main.css 覆盖。 */
       .app-side-left, #rl-panel { display: none !important; }
+      /* 点击候选块/按钮时不让 iOS 把灰色点击高亮投到整块容器（可继承，全局生效） */
+      html { -webkit-tap-highlight-color: transparent; }
+      /* 触控/原生：首屏即禁用长按菜单、文本选中、图片放大镜（主 CSS 加载前生效）。
+         对每个元素 !important 强制 none，避免文字元素自带 user-select 打断继承；
+         用简单 :not() 链而非后代 :not()，防旧 WebView 整条规则失效；表单控件被排除。
+         另用 @media(pointer:coarse) 作纯 CSS 兜底（不依赖 JS class）。 */
+      html.native-client *:not(input):not(textarea):not(select):not([contenteditable="true"]),
+      html.browser-chrome-guards-touch *:not(input):not(textarea):not(select):not([contenteditable="true"]) {
+        -webkit-touch-callout: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+      }
+      html.native-client,
+      html.browser-chrome-guards-touch,
+      html.native-client body,
+      html.browser-chrome-guards-touch body {
+        -webkit-text-size-adjust: 100%;
+        touch-action: manipulation;
+      }
+      html.native-client canvas,
+      html.native-client img,
+      html.browser-chrome-guards-touch canvas,
+      html.browser-chrome-guards-touch img {
+        -webkit-user-drag: none;
+        touch-action: none;
+      }
+      html.native-client input,
+      html.native-client textarea,
+      html.native-client select,
+      html.native-client [contenteditable="true"],
+      html.native-client [data-allow-browser-chrome],
+      html.native-client [data-allow-browser-chrome] *,
+      html.browser-chrome-guards-touch input,
+      html.browser-chrome-guards-touch textarea,
+      html.browser-chrome-guards-touch select,
+      html.browser-chrome-guards-touch [contenteditable="true"],
+      html.browser-chrome-guards-touch [data-allow-browser-chrome],
+      html.browser-chrome-guards-touch [data-allow-browser-chrome] * {
+        -webkit-touch-callout: default !important;
+        -webkit-user-select: text !important;
+        -moz-user-select: text !important;
+        -ms-user-select: text !important;
+        user-select: text !important;
+      }
+      @media (hover: none) and (pointer: coarse) {
+        *:not(input):not(textarea):not(select):not([contenteditable="true"]) {
+          -webkit-touch-callout: none !important;
+          -webkit-user-select: none !important;
+          -moz-user-select: none !important;
+          -ms-user-select: none !important;
+          user-select: none !important;
+        }
+        input, textarea, select, [contenteditable="true"],
+        [data-allow-browser-chrome], [data-allow-browser-chrome] * {
+          -webkit-touch-callout: default !important;
+          -webkit-user-select: text !important;
+          -moz-user-select: text !important;
+          -ms-user-select: text !important;
+          user-select: text !important;
+        }
+      }
+      /* 游戏 HUD 纯展示文字（分数/最佳/等级/标签/技能键）：所有平台都不可选中、
+         不弹长按菜单，含桌面鼠标拖选；不依赖 native-client class 或触屏媒体查询。 */
+      .header, .header *,
+      .score-theme-row, .score-theme-row *,
+      .progression-hud, .progression-hud *,
+      .play-stack, .skill-bar, .skill-bar *,
+      .stat-box, .stat-label, .stat-value, .stat-subline,
+      #score, #best, .progression-level, .progression-title {
+        -webkit-touch-callout: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+      }
+      .score-theme-row input, .score-theme-row textarea,
+      .score-theme-row select, .score-theme-row [contenteditable="true"],
+      .score-theme-row [data-allow-browser-chrome] {
+        -webkit-touch-callout: default !important;
+      }
+      /* 盘面 canvas 各层：所有平台禁用长按 callout / 选择 / 拖拽（iOS 长按弹菜单的关键） */
+      #game-wrapper, #game-wrapper *,
+      #game-grid, #game-grid-bg, #game-grid-wm, #game-grid-fx,
+      .game-board-flow-bg {
+        -webkit-touch-callout: none !important;
+        -webkit-user-select: none !important;
+        -moz-user-select: none !important;
+        -ms-user-select: none !important;
+        user-select: none !important;
+        -webkit-user-drag: none !important;
+        touch-action: none !important;
+      }
       @media (min-width: 1024px) {
         .app-side-left { display: flex !important; }
         #rl-panel      { display: flex !important; }
@@ -543,6 +637,7 @@
             }
             if (isNativeShell || isNarrow) {
               document.documentElement.classList.add('native-client');
+              document.documentElement.classList.add('browser-chrome-guards-touch');
             }
             window.__isNativeClient = (isNativeShell || isNarrow);
           } catch (_) { /* 静默忽略 */ }
@@ -561,18 +656,48 @@
           }
         } catch (_) { /* localStorage 不可用时退化为收起（与默认一致） */ }
 
-        /* 首屏即屏蔽右键/长按菜单（主模块加载前）——与 browserChromeGuards.js 规则一致 */
-        (function installEarlyContextMenuGuard() {
+        /* 首屏即屏蔽右键/长按/选中/复制/捏合放大（主模块加载前）——与 browserChromeGuards.js 一致 */
+        (function installEarlyBrowserChromeGuard() {
           function allowChrome(el) {
             if (!el || !el.closest) return false;
             return !!el.closest(
-              'input, textarea, select, [contenteditable="true"], [data-allow-browser-chrome]'
+              'input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"], [data-allow-browser-chrome]'
             );
           }
-          document.addEventListener('contextmenu', function (e) {
+          function blockUnlessAllowed(e) {
             if (allowChrome(e.target)) return;
             e.preventDefault();
-          }, true);
+          }
+          function clearSelection() {
+            try {
+              var sel = window.getSelection && window.getSelection();
+              if (!sel || sel.isCollapsed) return;
+              var n = sel.anchorNode;
+              var el = n && n.nodeType === 1 ? n : n && n.parentElement;
+              if (el && allowChrome(el)) return;
+              sel.removeAllRanges();
+            } catch (_) { /* ignore */ }
+          }
+          var cap = true;
+          var touchCap = { capture: true, passive: false };
+          document.addEventListener('contextmenu', blockUnlessAllowed, cap);
+          document.addEventListener('selectstart', function (e) {
+            blockUnlessAllowed(e);
+            clearSelection();
+          }, cap);
+          document.addEventListener('copy', blockUnlessAllowed, cap);
+          document.addEventListener('cut', blockUnlessAllowed, cap);
+          document.addEventListener('gesturestart', blockUnlessAllowed, touchCap);
+          document.addEventListener('gesturechange', blockUnlessAllowed, touchCap);
+          document.addEventListener('gestureend', blockUnlessAllowed, touchCap);
+          document.addEventListener('touchmove', function (e) {
+            if (allowChrome(e.target)) return;
+            if (e.touches && e.touches.length > 1) e.preventDefault();
+            clearSelection();
+          }, touchCap);
+          document.addEventListener('touchend', clearSelection, cap);
+          document.addEventListener('touchcancel', clearSelection, cap);
+          document.addEventListener('selectionchange', clearSelection);
         })();
       })();
     </script>

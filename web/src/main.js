@@ -88,16 +88,18 @@ import { hydrateCheckinFromServer } from './checkin/checkinSync.js';
 import { initLocalStorageStateSync } from './localStorageStateSync.js';
 import { initVisitTracker } from './visitTracker.js';
 import { initCursorHelpTooltip } from './helpTooltip.js';
-import { installBrowserChromeGuards } from './browserChromeGuards.js';
+import { installBrowserChromeGuards, isTouchLikeClient } from './browserChromeGuards.js';
 
 window.__openblockBootStage = 'main-module-loaded';
 
 document.addEventListener('DOMContentLoaded', async () => {
     installBrowserChromeGuards();
     window.__openblockBootStage = 'dom-ready';
-    // 统一 cursor:help 提示等待时长：1.5 秒。
-    window.__openblockBootStage = 'cursor-help-init';
-    initCursorHelpTooltip({ delayMs: 1500 });
+    // 触控/原生客户端不启用悬停 help（等同长按类非必须交互）。
+    if (!isTouchLikeClient()) {
+        window.__openblockBootStage = 'cursor-help-init';
+        initCursorHelpTooltip({ delayMs: 1500 });
+    }
 
     window.__openblockBootStage = 'i18n-init';
     initI18n();

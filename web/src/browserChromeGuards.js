@@ -69,8 +69,52 @@ function shouldBlockKey(e) {
     return false;
 }
 
+/** 触控/原生客户端：不启用悬停 help 等非必须交互 */
+export function isTouchLikeClient() {
+    try {
+        if (document.documentElement.classList.contains('native-client')) return true;
+        if (typeof window !== 'undefined' && window.__isNativeClient) return true;
+        if (isNativeClient()) return true;
+        return !!window.matchMedia?.('(pointer: coarse)')?.matches;
+    } catch {
+        return false;
+    }
+}
+
+function suppressBrowserChrome(e) {
+    if (shouldAllowBrowserChrome(e.target)) return;
+    e.preventDefault();
+}
+
+/** @param {Node|null|undefined} node */
+function _nodeToElement(node) {
+    if (node instanceof Element) return node;
+    if (node?.parentElement instanceof Element) return node.parentElement;
+    return null;
+}
+
+/** iOS / Android 常在 selectstart 之后仍留下选区，需主动清除 */
+export function clearDisallowedSelection() {
+    try {
+        const sel = document.getSelection?.();
+        if (!sel || sel.isCollapsed) return;
+        const anchor = _nodeToElement(sel.anchorNode);
+        const focus = _nodeToElement(sel.focusNode);
+        if (shouldAllowBrowserChrome(anchor) || shouldAllowBrowserChrome(focus)) return;
+        sel.removeAllRanges();
+    } catch {
+        /* ignore */
+    }
+}
+
+function markTouchGuardClass() {
+    if (isTouchLikeClient()) {
+        document.documentElement.classList.add('browser-chrome-guards-touch');
+    }
+}
+
 /**
- * @param {{ nativeStricter?: boolean }} [options]
+ * @param {{ nativeStricter?: boolean; touchGuards?: boolean }} [options]
  * @returns {() => void} teardown
  */
 export function installBrowserChromeGuards(options = {}) {
@@ -79,17 +123,34 @@ export function installBrowserChromeGuards(options = {}) {
     if (guardsDisabledByUrl()) return () => {};
 
     const nativeStricter = options.nativeStricter !== false && isNativeClient();
+    const touchGuards = options.touchGuards !== false && isTouchLikeClient();
 
-    const onContextMenu = (e) => {
-        if (!shouldAllowBrowserChrome(e.target)) e.preventDefault();
+    const onContextMenu = suppressBrowserChrome;
+
+    const onSelectStart = (e) => {
+        suppressBrowserChrome(e);
+        if (touchGuards) clearDisallowedSelection();
+    };
+
+    const onClipboard = (e) => {
+        if (e.type !== 'copy' && e.type !== 'cut') return;
+        suppressBrowserChrome(e);
     };
 
     const onDragStart = (e) => {
         if (shouldAllowBrowserChrome(e.target)) return;
         const el = e.target;
-        if (el instanceof HTMLImageElement || el instanceof HTMLCanvasElement) {
-            e.preventDefault();
-        }
+        const blockAll = nativeStricter
+            || touchGuards
+            || el instanceof HTMLImageElement
+            || el instanceof HTMLCanvasElement
+            || el instanceof SVGElement;
+        if (blockAll) e.preventDefault();
+    };
+
+    const onAuxClick = (e) => {
+        if (e.button === 0) return;
+        suppressBrowserChrome(e);
     };
 
     const onKeyDown = (e) => {
@@ -98,17 +159,82 @@ export function installBrowserChromeGuards(options = {}) {
         e.stopPropagation();
     };
 
-    document.addEventListener('contextmenu', onContextMenu, { capture: true });
-    document.addEventListener('dragstart', onDragStart, { capture: true });
-    document.addEventListener('keydown', onKeyDown, { capture: true });
+    const onGesture = suppressBrowserChrome;
+
+    const isBoardArea = (target) => {
+        if (!(target instanceof Element)) return false;
+        return !!target.closest(
+            '#game-wrapper, #game-grid, #game-grid-bg, #game-grid-wm, #game-grid-fx, .game-board-flow-bg',
+        );
+    };
+
+    /* iOS 盘面（canvas）长按会弹系统 callout / 选择放大镜。对盘面区 touchstart
+     * preventDefault 即可抑制长按手势；不 stopPropagation，故技能瞄准的 grid 监听、
+     * 候选区起手拖块（touchstart 在 dock 而非盘面）、按钮点击均不受影响。 */
+    const onTouchStart = (e) => {
+        if (!touchGuards) return;
+        if (shouldAllowBrowserChrome(e.target)) return;
+        if (isBoardArea(e.target) && e.cancelable) e.preventDefault();
+    };
+
+    const onTouchMove = (e) => {
+        if (!touchGuards) return;
+        if (shouldAllowBrowserChrome(e.target)) return;
+        if (e.touches && e.touches.length > 1) e.preventDefault();
+        clearDisallowedSelection();
+    };
+
+    const onTouchEnd = () => {
+        if (touchGuards) clearDisallowedSelection();
+    };
+
+    const onSelectionChange = () => {
+        if (touchGuards) clearDisallowedSelection();
+    };
+
+    const cap = { capture: true };
+    const touchCap = { capture: true, passive: false };
+    document.addEventListener('contextmenu', onContextMenu, cap);
+    document.addEventListener('selectstart', onSelectStart, cap);
+    document.addEventListener('copy', onClipboard, cap);
+    document.addEventListener('cut', onClipboard, cap);
+    document.addEventListener('dragstart', onDragStart, cap);
+    document.addEventListener('auxclick', onAuxClick, cap);
+    document.addEventListener('keydown', onKeyDown, cap);
+
+    if (touchGuards) {
+        document.addEventListener('gesturestart', onGesture, touchCap);
+        document.addEventListener('gesturechange', onGesture, touchCap);
+        document.addEventListener('gestureend', onGesture, touchCap);
+        document.addEventListener('touchstart', onTouchStart, touchCap);
+        document.addEventListener('touchmove', onTouchMove, touchCap);
+        document.addEventListener('touchend', onTouchEnd, cap);
+        document.addEventListener('touchcancel', onTouchEnd, cap);
+        document.addEventListener('selectionchange', onSelectionChange);
+    }
 
     document.documentElement.dataset.browserChromeGuards = '1';
+    markTouchGuardClass();
     if (nativeStricter) document.documentElement.classList.add('browser-chrome-guards-native');
 
     return () => {
-        document.removeEventListener('contextmenu', onContextMenu, { capture: true });
-        document.removeEventListener('dragstart', onDragStart, { capture: true });
-        document.removeEventListener('keydown', onKeyDown, { capture: true });
+        document.removeEventListener('contextmenu', onContextMenu, cap);
+        document.removeEventListener('selectstart', onSelectStart, cap);
+        document.removeEventListener('copy', onClipboard, cap);
+        document.removeEventListener('cut', onClipboard, cap);
+        document.removeEventListener('dragstart', onDragStart, cap);
+        document.removeEventListener('auxclick', onAuxClick, cap);
+        document.removeEventListener('keydown', onKeyDown, cap);
+        if (touchGuards) {
+            document.removeEventListener('gesturestart', onGesture, touchCap);
+            document.removeEventListener('gesturechange', onGesture, touchCap);
+            document.removeEventListener('gestureend', onGesture, touchCap);
+            document.removeEventListener('touchstart', onTouchStart, touchCap);
+            document.removeEventListener('touchmove', onTouchMove, touchCap);
+            document.removeEventListener('touchend', onTouchEnd, cap);
+            document.removeEventListener('touchcancel', onTouchEnd, cap);
+            document.removeEventListener('selectionchange', onSelectionChange);
+        }
         delete document.documentElement.dataset.browserChromeGuards;
         document.documentElement.classList.remove('browser-chrome-guards-native');
     };
@@ -118,5 +244,7 @@ export const __test_only__ = {
     shouldAllowBrowserChrome,
     shouldBlockKey,
     isNativeClient,
+    isTouchLikeClient,
     guardsDisabledByUrl,
+    clearDisallowedSelection,
 };
