@@ -4,7 +4,7 @@
  */
 import { RlGameplayEnvironment } from './gameEnvironment.js';
 import { countHoles } from './features.js';
-import { GAME_RULES, RL_TRAINING_STRATEGY_ID } from '../gameRules.js';
+import { GAME_RULES, RL_TRAINING_STRATEGY_ID, sampleRlTrainingStrategyId } from '../gameRules.js';
 import { rlWinThresholdForEpisode } from './rlCurriculum.js';
 import {
     fetchRlStatus,
@@ -84,7 +84,7 @@ async function _selectWithLookahead(env, legal, stateFeat, phiList, temperature)
         sim.restoreState(savedState);
         const r = sim.step(action.blockIdx, action.gx, action.gy);
         rewards.push(r);
-        const sf = extractStateFeatures(sim.grid, sim.dock);
+        const sf = extractStateFeatures(sim.grid, sim.dock, sim.strategyId);
         nextStates.push(sf);
         sim.restoreState(savedState);
     }
@@ -164,7 +164,8 @@ export async function runSelfPlayEpisode(agent, temperature = 1, hooks = {}, opt
     const winScoreThreshold = typeof wOpt === 'number' && Number.isFinite(wOpt)
         ? Math.max(1, Math.round(wOpt))
         : undefined;
-    const env = new RlGameplayEnvironment(RL_TRAINING_STRATEGY_ID, { winScoreThreshold });
+    const strategyId = opts.strategyId ?? sampleRlTrainingStrategyId();
+    const env = new RlGameplayEnvironment(strategyId, { winScoreThreshold });
     const trajectory = [];
 
     if (hooks.onEpisodeStart) await hooks.onEpisodeStart(env.simulator);

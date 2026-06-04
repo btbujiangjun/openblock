@@ -951,7 +951,7 @@ RL 模型主要用于：
 
 浏览器本地模型选择线性架构而非 MLP：
 
-- 参数少：`W[202] + Vw[187]`。
+- 参数少：`W[phiDim] + Vw[stateDim]`（当前 **205 + 190**）。
 - 更新稳定：单局 REINFORCE 下比深层网络更不容易发散。
 - 可序列化：直接存 localStorage / SQLite。
 - 可解释：每个特征对策略 logit 的影响线性可读。
@@ -977,8 +977,8 @@ RL 模型主要用于：
 
 | 参数 | 形状 | 作用 |
 |------|------|------|
-| `W` | `[202]` | 策略权重；每一维直接对应 `φ(s,a)` 的贡献 |
-| `Vw` | `[187]` | 价值权重；每一维直接对应 `s` 的贡献 |
+| `W` | `[205]` | 策略权重；每一维直接对应 `φ(s,a)` 的贡献 |
+| `Vw` | `[190]` | 价值权重；每一维直接对应 `s` 的贡献（含策略 one-hot） |
 | `temperature` | scalar | 控制探索，越高越随机 |
 | `entropyBeta` | scalar | 防止策略过早塌缩到单一动作 |
 
@@ -1045,6 +1045,19 @@ RL 模型主要用于：
 - 本地训练使用 `probs` 和 `chosenIdx` 做 REINFORCE。
 - 远端训练把同一 trajectory 上传到 `/api/rl/train_episode`。
 - 若启用 lookahead，浏览器对每个合法动作模拟一步并调用 `/api/rl/eval_values`，形成 `qTeacher`。
+
+### 7.5.1 训练机制：三条路径（与 PyTorch 对照）
+
+浏览器 RL（路径 **B**）只是 OpenBlock RL 子系统的一翼；完整机制（含离线 **MCTS 训练 A** 与线上 **C**）见 **[`RL_CONTRACT_AND_SERVICE.md` §2.6](./RL_CONTRACT_AND_SERVICE.md#26-rl-训练机制三条路径对照权威)**。摘要：
+
+| 维度 | PyTorch 离线 (A) | 浏览器 RL (B) | 线上 (C) |
+|------|------------------|---------------|----------|
+| 出块 | 默认 worker 同源 `blockSpawn` | `simulator.js` 内 adaptive 轨 | `game.js`，可加 spawn 模型 |
+| 落子 teacher | MCTS / beam 强蒸馏 | 默认仅策略网；可选 1-step Q | 玩家 |
+| 策略 ID | 训练随机 one-hot | 训练随机；评估用 `game.strategy` | UI 所选 |
+| 特征维 | state **190**，φ **205** | 与 A 共用 `features.js` | 不直接进 RL net |
+
+线性浏览器 agent 的 `W[205]`、`Vw[190]` 与当前 `featureEncoding` 对齐；旧 187/202 维权重已失效。
 
 ### 7.6 浏览器约束
 

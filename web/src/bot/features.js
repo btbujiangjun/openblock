@@ -1,6 +1,6 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
- * state=187 (48 scalars[25 结构+19 颜色+4 单步难度] + 64 grid + 75 dock), action=15, phi=202。
+ * state=190 (51 scalars[含 3 策略 one-hot] + 64 grid + 75 dock), action=15, phi=205。
  * 结构标量含 2 维客观几何难度（contiguousRegions / concaveCorners，见 boardTopology.js）。
  *
  * 不含 spawnHints / adaptiveSpawn / blockSpawn 内部权重或未来块信息——仅盘面与当前 dock 可见状态。
@@ -10,6 +10,7 @@ import { analyzeBoardTopology, countUnfillableCells, countEmptyRegions, countCon
 import { detectBonusLines } from '../clearScoring.js';
 import { getRlTrainingBonusLineSkin } from '../skins.js';
 import { spawnStepDifficultyFeatures } from '../spawnStepDifficulty.js';
+import { encodeStrategyOnehot } from './strategyFeatures.js';
 
 const enc = FEATURE_ENCODING;
 const AF = enc.almostFullLineRatio ?? 0.78;
@@ -244,7 +245,7 @@ function dockMobility(grid, dock) {
  * @param {import('../grid.js').Grid} grid
  * @param {{ shape: number[][], colorIdx: number, placed: boolean }[]} dock
  */
-export function extractStateFeatures(grid, dock) {
+export function extractStateFeatures(grid, dock, strategyId = 'normal') {
     const n = grid.size;
     const area = n * n;
     let filled = 0;
@@ -342,10 +343,14 @@ export function extractStateFeatures(grid, dock) {
     // SSOT 来自 spawnStepDifficulty.js，与 rl_pytorch/features.py 逐位一致。
     const unplacedShapes = dock.filter((b) => !b.placed).map((b) => b.shape);
     const diffScalars = spawnStepDifficultyFeatures(unplacedShapes, filled);
-    const scalars = new Float32Array(baseScalars.length + colorSummary.length + diffScalars.length);
+    const strategyVec = encodeStrategyOnehot(strategyId);
+    const scalars = new Float32Array(
+        baseScalars.length + colorSummary.length + diffScalars.length + strategyVec.length,
+    );
     scalars.set(baseScalars, 0);
     scalars.set(colorSummary, baseScalars.length);
     scalars.set(diffScalars, baseScalars.length + colorSummary.length);
+    scalars.set(strategyVec, baseScalars.length + colorSummary.length + diffScalars.length);
     if (scalars.length !== STATE_SCALAR_DIM) {
         throw new Error(`标量段长度 ${scalars.length} != stateScalarDim ${STATE_SCALAR_DIM}`);
     }
@@ -521,7 +526,7 @@ export function extractActionFeatures(
  */
 export function buildDecisionBatch(sim) {
     const legal = sim.getLegalActions();
-    const stateFeat = extractStateFeatures(sim.grid, sim.dock);
+    const stateFeat = extractStateFeatures(sim.grid, sim.dock, sim.strategyId);
     const phiList = [];
     for (const a of legal) {
         const wouldClear = sim.countClearsIfPlaced(a.blockIdx, a.gx, a.gy);

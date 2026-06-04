@@ -433,6 +433,19 @@ export default {
     /* v1.57.1 P3：sprint 触发原因（仅 DFV 开发者面板可见） */
     'dfv.reason.sprint': 'stress ∈ [0.45, 0.55) 渐紧过渡',
     'dfv.reason.harvest': '盘面具备消行机会',
+    'dfv.reason.pbChase': 'PB追击加压（priority 102）',
+    'dfv.reason.delightStarved': '爽感饥渴 → relief',
+
+    // intentResolver rule id（与 spawnIntent 可能不同）
+    'dfv.rule.pb_chase_pressure': 'PB追击加压',
+    'dfv.rule.relief': '挫败救济',
+    'dfv.rule.delight_starved': '爽感饥渴',
+    'dfv.rule.engage': 'AFK召回',
+    'dfv.rule.harvest': '收割机会',
+    'dfv.rule.pressure': 'B类挑战加压',
+    'dfv.rule.sprint': '渐紧过渡',
+    'dfv.rule.flow': '心流释放',
+    'dfv.rule.maintain': '中性维持',
 
     // 决策标志 chip
     'dfv.flag.forceRelief': '强制救济',
@@ -448,7 +461,38 @@ export default {
     'dfv.flag.lifecycleLateAccel': '生命周期末段加速',
     'dfv.flag.playerDistressFloor': 'distress 浮标',
     'dfv.flag.delightModeRelief': '愉悦模式·救济',
+    'dfv.flag.pbChase': 'PB追击',
+    'dfv.flag.delightStarved': '爽感饥渴',
     'dfv.conflicts.label': '跨维度信号冲突',
+
+    // v1.66/v1.67 压力阶段 · 构造式
+    'dfv.sec.phase': '压力阶段 · 构造式',
+    'dfv.sec.phaseSub': 'phaseFreq + constructive',
+    'dfv.hint.pressurePhase': '压力阶段',
+    'dfv.hint.orderSolutionBudget': '解算预算',
+    'dfv.hint.phaseHighPoolBoost': '高压块加权',
+    'dfv.hint.phaseLowPoolClearBoost': '低压清屏加权',
+    'dfv.val.pressurePhase.low': '低压',
+    'dfv.val.pressurePhase.mid': '中压',
+    'dfv.val.pressurePhase.high': '高压',
+    'dfv.phase.pressurePhase': '压力阶段',
+    'dfv.phase.constructKind': '构造类型',
+    'dfv.phase.constructDelivered': '构造交付',
+    'dfv.phase.constructCooldown': '构造冷却',
+    'dfv.phase.constructPending': '跨 dock 续接',
+    'dfv.phase.completerCount': '补全候选数',
+    'dfv.phase.setupCount': '造势候选数',
+    'dfv.phase.lowClearDelivered': '低压清屏达成',
+    'dfv.phase.highOrderApplied': '高压顺序生效',
+    'dfv.phase.tip.pressurePhase': 'stress+boardFill 划分 low/mid/high，不依赖 spawnIntent',
+    'dfv.construct.kind.completer': 'C1 补全',
+    'dfv.construct.kind.setup': 'C2 造势',
+    'dfv.construct.kind.order': 'C3 顺序锚',
+    'dfv.construct.cooldown': '冷却中',
+    'dfv.construct.fromPending': '续接 pending',
+    'dfv.val.yes': '是',
+    'dfv.val.no': '否',
+    'dfv.summary.empty': '等待首次出块…',
 
     // shape category 中文（与 shared/shapes.json categoryOrder 对齐）
     'dfv.shape.lines': '长条',
@@ -487,6 +531,7 @@ export default {
     'dfv.spark.clearRate': '消行率',
     'dfv.spark.boardFill': '占盘',
     'dfv.spark.frust': '挫败',
+    'dfv.spark.pressurePhase': '压力阶段',
 
     // 脚部图例
     'dfv.foot.relief': '救济',

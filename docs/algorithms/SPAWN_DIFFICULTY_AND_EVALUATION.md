@@ -259,7 +259,21 @@ P1/P2 进入主路径前至少需要满足：
 
 ### 3.9 决策数据流（DFV）展示口径
 
-DFV 已同步当前出块算法字段：baseline 主规则轨展示玩家信号、压力、`spawnHints`、`spawnTargets`、三块 `chosen` 与 `topDriver`；P1/P2 实验轨展示体验预算、个性化参数与评估指标。
+DFV（`web/src/decisionFlowViz.js`，面板版本 **v1.67**）与线上出块算法对齐，开发态 **Shift+D** 打开。
+
+**Baseline 主规则轨（已展示）**
+
+| 层级 | 内容 |
+|------|------|
+| 左列 | 10 路玩家信号 → 压力球 → 5 策略分量 → 6 `spawnTargets` → 4 调度参数 → `spawnIntent` → 3 `chosen`（含 mini 栅格、reason、topDriver） |
+| 右栏 | 意图 **rule trace**（`intentResolver` winner `reason`，区分 `pb_chase_pressure` vs `challengeBoost` 等）、压力贡献 Top4、决策 flags（含 **PB追击** / **爽感饥渴** chip）、形状权重、目标、调度 hints |
+| v1.66 | **`pressurePhase`**（low/mid/high）、`orderSolutionBudget`、`phaseHighPoolBoost` / `phaseLowPoolClearBoost`；底部 sparkline 第 6 路为压力阶段 |
+| v1.67 | 专段 **压力阶段 · 构造式**（`diagnostics.constructive`：kind / delivered / cooldown / fromPending / 候选计数）；`chosen[].constructed` 角标（构/势）；达成打点 `lowClearDelivered` / `highOrderApplied` |
+| 几何 | `spawnDiagnostics.layer1`：占盘、近满线、空洞、多消候选、碎片、凹角（与 `snapshotInsightGeometry` 同源） |
+
+**P1/P2 实验轨**：体验预算、PB/个性化卡、组合评/预算选 reason 与 `DRIVER_NODE_PATHS` 追溯仍保留。
+
+**数据源**：`game._lastAdaptiveInsight` + `getLastSpawnDiagnostics()`；意图重判用 `_intentInputs` + 实时 `layer1` 几何（与 `game._refreshIntentSnapshot` 同口径）。
 
 ### 3.10 四端一致性
 

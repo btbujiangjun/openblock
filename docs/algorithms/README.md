@@ -47,7 +47,7 @@
   - [§14 出块难度与评估](./ALGORITHMS_SPAWN.md#十四出块难度与评估) —— 解法数量难度 + 单步难度细化 + CLI/Web 评估工具
   - [§15 出块参数寻优（SpawnParamTuner）](./ALGORITHMS_SPAWN.md#十五出块参数寻优spawnparamtuner) —— 工业化 L2 ResNet-MLP 寻参管线 + 操作手册
 - [自适应出块](./ADAPTIVE_SPAWN.md) —— 运行时 **10 信号融合引擎深潜**：§10.8 完整流水线（v1.60.35 代码基准）+ §10.10.10 生命周期×成熟度 25 格调制矩阵
-- [出块算法信号透视仪](./spawn-signal-explorer.html) —— 交互式 HTML 工具：22 个 L1 原始信号 × 30 个 L2 派生信号 × 7 个 L3 管道阶段，含 Intent 优先级矩阵、Stress 分量全表、完整链路依赖图（代码口径精确至 v1.61）
+- [出块算法信号透视仪](./spawn-signal-explorer.html) —— 交互式 HTML 工具：L1/L2/L3 信号条目随代码自动计数，含 v1.66 `pressurePhase`/`phaseFreq`、v1.67 构造式预扫描（C1/C2/C3）、Intent 优先级矩阵、Stress 分量全表、完整链路依赖图（代码口径 v1.67）
 
 ## 分——玩家画像算法
 
@@ -58,7 +58,8 @@
 ## 分——强化学习专题
 
 - [**RL 训练与推理手册**](./ALGORITHMS_RL.md) —— RL 子系统**统一权威文档**：状态/动作/奖励、网络结构、训练/推理、探索/课程/搜索增强（§1–§20），并整合：
-  - [§21 RL 契约与在线服务](./ALGORITHMS_RL.md#二十一rl-契约与在线服务) —— 玩法边界/共享 JSON/离线训练/HTTP 评估
+  - [**RL 契约与在线服务**](./RL_CONTRACT_AND_SERVICE.md) —— 玩法边界、Flask `/api/rl/*`、离线 `train.py`；**[§2.6 三条路径对照](./RL_CONTRACT_AND_SERVICE.md#26-rl-训练机制三条路径对照权威)**（离线 MCTS / 浏览器 RL / 线上）为机制事实表唯一维护处
+  - [§21 RL 契约与在线服务](./ALGORITHMS_RL.md#二十一rl-契约与在线服务) —— 与上同文摘录（索引入口）
   - [§22 RL 训练监控与排障](./ALGORITHMS_RL.md#二十二rl-训练监控与排障) —— 看板数据流/趋势解读/数值稳定与裁剪
   - [§23 RL 研究：复杂度、瓶颈与文献对照](./ALGORITHMS_RL.md#二十三rl-研究复杂度瓶颈与文献对照) —— 复杂度分析/瓶颈诊断/自博弈文献对照
 - [AlphaZero/MCTS 历史实验档案](./RL_ALPHAZERO_OPTIMIZATION.md) —— v6–v8.3 优化实验、消融矩阵与训练配方（独立档案，从手册交叉链接）

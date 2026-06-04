@@ -646,6 +646,13 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
 }
 .sim-bool { margin-bottom: 5px; font-size: 11px; color: var(--text-2); }
 .sim-bool input { vertical-align: middle; margin-right: 6px; }
+.sim-phase-row { margin-bottom: 8px; font-size: 11px; color: var(--text-2); }
+.sim-phase-row label { display: block; margin-bottom: 4px; }
+.sim-phase-row select {
+  width: 100%; padding: 6px 8px; border-radius: 6px;
+  background: var(--card); border: 1px solid var(--border); color: var(--text);
+  font-size: 11px;
+}
 
 #sim-outputs { display: flex; flex-direction: column; gap: 12px; }
 .sim-output-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -801,12 +808,12 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
   <div id="header">
     <div class="header-title">
       <h1>出块算法信号透视仪</h1>
-      <p>以 adaptiveSpawn.js · blockSpawn.js · playerAbilityModel.js 为事实依据 · v1.61 代码基准</p>
+      <p>以 adaptiveSpawn.js · blockSpawn.js · constructiveSpawn.js 为事实依据 · v1.67 代码基准（含 v1.66 phaseFreq）</p>
     </div>
     <div class="stats-row">
-      <div class="stat-chip l1"><span class="val">22</span><span class="lbl">L1 原始信号</span></div>
-      <div class="stat-chip l2"><span class="val">30</span><span class="lbl">L2 派生信号</span></div>
-      <div class="stat-chip l3"><span class="val">7</span><span class="lbl">L3 管道阶段</span></div>
+      <div class="stat-chip l1"><span class="val" id="stat-l1">—</span><span class="lbl">L1 原始信号</span></div>
+      <div class="stat-chip l2"><span class="val" id="stat-l2">—</span><span class="lbl">L2 派生信号</span></div>
+      <div class="stat-chip l3"><span class="val" id="stat-l3">—</span><span class="lbl">L3 管道阶段</span></div>
     </div>
   </div>
 
@@ -881,7 +888,7 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
     <div id="view-stress" class="tab-view">
       <div class="view-title">Stress 分量全表</div>
       <div class="view-subtitle">
-        24 个基础分量 Σ → rawStress，再经 9 步后置调制 → finalStress ∈ [−0.2, 1.0]
+        24 个基础分量 Σ → rawStress，再经 10 步后置调制（含 v1.66 phaseFreq→pressurePhase）→ finalStress ∈ [−0.2, 1.0]
         → normalizeStress((s+0.2)/1.2) → [0,1] 展示
       </div>
       <div class="stress-flow" id="stress-flow-diagram"></div>
@@ -902,7 +909,7 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
     <!-- ── Tab: Flow ─────────────────────────────────────────── -->
     <div id="view-flow" class="tab-view">
       <div class="view-title">完整三层信号链路</div>
-      <div class="view-subtitle">L1 原始信号 → L2 派生计算 → L3 选拔管道 的完整依赖链</div>
+      <div class="view-subtitle">L1 原始信号 → L2 派生计算 → L3 选拔管道 的完整依赖链；v1.66 <code>pressurePhase</code> 与 v1.67 构造式预扫描（C1/C2/C3）已纳入</div>
       <div class="flow-grid">
         <div class="flow-col" id="flow-col-l1"></div>
         <div class="flow-arrow">→</div>
@@ -991,6 +998,23 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
             <div class="sim-bool"><label><input type="checkbox" data-key="delightStarved"> delightStarved（爽感饥渴）</label></div>
             <div class="sim-bool"><label><input type="checkbox" data-key="pbChasePressureActive"> pbChasePressureActive（v1.61）</label></div>
           </div>
+          <div class="sim-input-group">
+            <div class="sim-group-title">压力阶段 (v1.66)</div>
+            <div class="sim-input" data-key="simBoardFill"><label>boardFill（阶段判定用）</label>
+              <input type="range" min="0" max="1" step="0.01" value="0.55">
+              <span class="sim-value">0.55</span>
+            </div>
+            <div class="sim-phase-row">
+              <label>pressurePhase（派生预览）</label>
+              <select id="sim-phase-override">
+                <option value="auto">自动（由 stress+fill 推导）</option>
+                <option value="low">low</option>
+                <option value="mid">mid</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+            <div class="sim-bool"><label><input type="checkbox" data-key="constructCooldown"> constructCooldown&gt;0（跳过构造）</label></div>
+          </div>
         </div>
         <!-- 右：输出 -->
         <div id="sim-outputs">
@@ -1026,6 +1050,16 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
               <div class="sim-output-value sim-output-value--small" id="sim-diff-tier">中性</div>
               <div class="sim-output-hint">10 档 difficulty profile 插值</div>
             </div>
+          </div>
+          <div class="sim-output-card" style="margin-top:10px">
+            <div class="sim-output-label">pressurePhase（v1.66）</div>
+            <div class="sim-output-value sim-output-value--small" id="sim-pressure-phase" style="font-size:18px">mid</div>
+            <div class="sim-output-hint" id="sim-phase-hint">stress+boardFill → 形状池/构造式门控</div>
+          </div>
+          <div class="sim-output-card" style="margin-top:8px">
+            <div class="sim-output-label">构造式预扫描（v1.67 示意）</div>
+            <div class="sim-output-value sim-output-value--small" id="sim-constructive" style="font-size:14px;line-height:1.4">—</div>
+            <div class="sim-output-hint">需 spawnHints.pressurePhase 为 string；冷却中不触发</div>
           </div>
         </div>
       </div>
@@ -1075,7 +1109,7 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
 </div><!-- #app -->
 
 <script>
-// ─── Signal Data (code-verified v1.61) ────────────────────────────────────
+// ─── Signal Data (code-verified v1.67) ────────────────────────────────────
 
 const CAT_COLORS = {
   '盘面几何':              '#388bfd',
@@ -1087,8 +1121,11 @@ const CAT_COLORS = {
   'Stress分量·后置调制':   '#c87d12',
   '出块意图(IntentRules)': '#58a6ff',
   'SpawnHints':            '#56d364',
+  'SpawnHints·压力阶段':   '#06b6d4',
+  '构造式·诊断':           '#f778ba',
   '形状评分':              '#9b5de5',
   '形状选拔':              '#f15bb5',
+  '构造式预扫描':          '#ff7b72',
   '约束验证':              '#c07a38',
   '输出':                  '#6e7681',
 };
@@ -1215,6 +1252,18 @@ const SIGNALS = [
  range:'boolean  约3–5%命中率',
  source:'game.js :: _spawnContext.monoFlushRound',
  consumers:['_tryInjectSpecial allowMonoFlushLabel','clearGuarantee-1(让位monoFlush)']},
+{id:'constructCooldown',name:'constructCooldown',layer:1,cat:'跨轮上下文',sign:'-',
+ semantic:'构造式冷却计数：每 dock 递减；构造块交付后重置为 cooldownDocks，防连发喂解',
+ formula:'game.js::_spawnMetaForFrame 每 dock: cd=max(0,cd-1)\n构造 delivered → cd=cooldownDocks（默认 2）\nblockSpawn: cd>0 → 跳过 C1/C2/C3 强供',
+ range:'[0, cooldownDocks]  典型 0–2',
+ source:'game.js:2019-2034 · game_rules.constructiveSpawn.cooldownDocks',
+ consumers:['blockSpawn 构造预扫描门控','diagnostics.constructive.cooldownActive']},
+{id:'pendingClearTarget',name:'pendingClearTarget',layer:1,cat:'跨轮上下文',sign:'+',
+ semantic:'C2 setup 跨 dock 续接目标：记录上一 dock 造势的近满线，本 dock 优先检索补全块',
+ formula:'C2 setup 命中 → constructive.pendingClearTarget=setups[0].target\n落库后 game._spawnContext.pendingClearTarget 持久\n下一 dock: isClearTargetValid + findCompleterShapes 优先兑现\ncompleter 交付或失效 → 清空',
+ range:'{axis, index, emptyCells[]} | null',
+ source:'constructiveSpawn.js :: isClearTargetValid · game.js:2030-2034',
+ consumers:['blockSpawn C1 续接分支','diagnostics.constructive.fromPending']},
 
 // ─ L1: 局间历史 ─────────────────────────────────────────────────────────
 {id:'bestScore',name:'bestScore',layer:1,cat:'局间历史',sign:'?',
@@ -1679,9 +1728,9 @@ const SIGNALS = [
 // ─ L2: SpawnHints ────────────────────────────────────────────────────────
 {id:'clearGuarantee',name:'clearGuarantee',layer:2,cat:'SpawnHints',sign:'+',
  semantic:'消行槽位保证数：Stage1至少为N个槽位选消行候选',
- formula:'base=max(0,floor(stress×3-1))\nharvest/relief: +1  pressure: -1\nwinback: +1  scoreMilestone: +1  bottleneck: +1\nmonoFlushRound: -1(让位)\nclamp [0, 2]',
- range:'[0, 2]',source:'adaptiveSpawn.js :: deriveSpawnHints()',
- consumers:['Stage1 clearSeats选拔数','_tryInjectSpecial monoFlush预算']},
+ formula:'base=max(0,floor(stress×3-1))\nharvest/relief: +1  pressure: -1\nwinback: +1  scoreMilestone: +1  bottleneck: +1\nmonoFlushRound: -1(让位)\nv1.66 lowPhase: 若 pcSetup≥1∨nearFull≥1 → max(base, lowClearGuaranteeAt)\nclamp [0, 2]',
+ range:'[0, 2]',source:'adaptiveSpawn.js :: deriveSpawnHints() + phaseFreq',
+ consumers:['Stage1 clearSeats选拔数','_tryInjectSpecial monoFlush预算','phaseLowPoolClearBoost 协同']},
 {id:'sizePreference',name:'sizePreference',layer:2,cat:'SpawnHints',sign:'?',
  semantic:'形状大小偏向：负值偏小块(减压) 正值偏大块(加压)',
  formula:'base = -0.30×(1-stress) + stressAdjust\nrelief: -0.4  sprint: +0.10  pressure: +0.30\nwinback/bottleneck: 偏负',
@@ -1689,10 +1738,46 @@ const SIGNALS = [
  consumers:['M5/M6/M7 sizeWeight乘子(Stage2)']},
 {id:'orderRigor',name:'orderRigor',layer:2,cat:'SpawnHints',sign:'+',
  semantic:'顺序刚性：stress越高要求玩家越精确按顺序落置三块',
- formula:'0.35 + 0.65×stress²\n+ pbExtremeOrderBoost(D3段)\n+ pbOvershootOrderBoost(D4段)\norderMaxValidPerms = max(1, round((1-rigor)×8))',
- range:'[0.35, 1.0+]  perms∈[1,8]',
- source:'adaptiveSpawn:2410',
- consumers:['L3硬约束: 顺序可解性验证 (orderMaxValidPerms)']},
+ formula:'0.35 + 0.65×stress²\n+ pbExtremeOrderBoost(D3段)\n+ pbOvershootOrderBoost(D4段)\nv1.66 highPhase: +highOrderBoost（默认 0.20）\norderMaxValidPerms = max(highOrderMaxPermsFloor, round((1-rigor)×8))',
+ range:'[0.35, 1.0+]  perms∈[1,8]  高压 floor≥2',
+ source:'adaptiveSpawn:2009-2010,2410',
+ consumers:['L3硬约束: 顺序可解性验证 (orderMaxValidPerms)','evaluateTripletSolutions + orderSolutionBudget']},
+{id:'pressurePhase',name:'pressurePhase',layer:2,cat:'SpawnHints·压力阶段',sign:'?',
+ semantic:'压力阶段锚（v1.66）：与 spawnIntent 解耦，单一真相=raw stress + boardFill',
+ formula:'phaseFreq.enabled:\n  high: stress≥highStressMin(0.55) && boardFill≥orderRigorActivationFill(0.50)\n  low: stress≤lowStressMax(0.40) && !onboarding && !needsRecovery\n  else mid\nenabled=false → 仍写入 mid（blockSpawn 退化为旧行为）',
+ range:"'low'|'mid'|'high'",
+ source:'adaptiveSpawn:1994-2008,2951',
+ consumers:['blockSpawn 形状池预加权','构造式相位门控(_phaseExplicit)','orderSolutionBudget 仅 high']},
+{id:'orderSolutionBudget',name:'orderSolutionBudget',layer:2,cat:'SpawnHints·压力阶段',sign:'+',
+ semantic:'高压三连解评估预算：修复高 fill 截断导致顺序过滤被静默跳过',
+ formula:'highPhase ? floor(highOrderSolutionBudget) : null\n默认 16000；null 时用 evaluateTripletSolutions 默认预算',
+ range:'null | [1, ∞)',
+ source:'adaptiveSpawn:2952-2953 · game_rules.phaseFreq.highOrderSolutionBudget',
+ consumers:['blockSpawn evaluateTripletSolutions(solutionBudget)']},
+{id:'phaseLargeCells',name:'phaseLargeCells',layer:2,cat:'SpawnHints·压力阶段',sign:'+',
+ semantic:'高压「大块」阈值（格数）：用于形状池预加权与 C3 order 锚候选过滤',
+ formula:'Number(phaseFreq.highPoolLargeCells) 默认 6',
+ range:'[4, 9]  典型 6',
+ source:'adaptiveSpawn:2954 · game_rules.phaseFreq.highPoolLargeCells',
+ consumers:['blockSpawn augmentPool 大块乘子','C3 orderAnchor 候选 cells≥phaseLargeCells']},
+{id:'phaseHighPoolBoost',name:'phaseHighPoolBoost',layer:2,cat:'SpawnHints·压力阶段',sign:'+',
+ semantic:'高压形状池：大块（cells≥phaseLargeCells）额外加权，提高顺序块采样命中率',
+ formula:'highPhase ? max(0, highPoolBoost) : 0  默认 0.6',
+ range:'[0, 2]',
+ source:'adaptiveSpawn:2955 · blockSpawn:2945+',
+ consumers:['augmentPool size/大块乘子链']},
+{id:'phaseLowPoolClearBoost',name:'phaseLowPoolClearBoost',layer:2,cat:'SpawnHints·压力阶段',sign:'+',
+ semantic:'低压形状池：消行/近满线候选额外加权（仅在机会已存在时与 clearGuarantee 协同）',
+ formula:'lowPhase ? max(0, lowPoolClearBoost) : 0  默认 0.4',
+ range:'[0, 2]',
+ source:'adaptiveSpawn:2956 · blockSpawn:2945+',
+ consumers:['augmentPool clear/multiClear 乘子']},
+{id:'diag_constructive',name:'diagnostics.constructive',layer:2,cat:'构造式·诊断',sign:'?',
+ semantic:'构造式预扫描诊断包（v1.67）：落库 spawnMeta.construct + 训练聚合字段',
+ formula:'{enabled, kind, completerCount, setupCount, fromPending,\n pendingClearTarget, orderAnchorId, cooldownActive, delivered}\nkind: completer|setup|order|null\ndelivered: chosenMeta 含 _constructed',
+ range:'对象',
+ source:'blockSpawn:2522-2655,3436 · game.js:535-548',
+ consumers:['DFV/telemetry','aggregate-step-difficulty.mjs','game 跨轮 pending/cooldown 写回']},
 {id:'multiClearBonus',name:'multiClearBonus',layer:2,cat:'SpawnHints',sign:'+',
  semantic:'多消奖励系数：sprint/pressure/PB追击时提升多消候选权重',
  formula:'sprint floor=0.40 / pressure floor=0.30 / pbChase boost',
@@ -1817,16 +1902,21 @@ const SIGNALS = [
  semantic:'综合分排序 clearCandidates 降序，决定优先进 clearSeats 的候选',
  formula:'aScore = pcPotential × (15 + pcb × 15)\n      + monoFlush  × (2 + icon × 1.5)\n      + multiClear × (...)\n      + gapFills   × (0.5 + clearOpp)\n      （非透视仪先前写的 ×20/×12/×8）',
  range:'aScore∈[0,∞)',source:'blockSpawn.js:2273-2281',
- consumers:['clearCandidates 降序','Stage 1b clearSeats 优先选拔']},
+ consumers:['clearCandidates 降序','Stage 1a½ 构造式预扫描','Stage 1b clearSeats 优先选拔']},
+{id:'l3_constructive',name:'Stage 1a½: 构造式预扫描 (v1.67)',layer:3,cat:'构造式预扫描',
+ semantic:'在 clearSeats 前对 scored/clearCandidates 做有界几何检索：C1 补全 / C2 造势 / C3 顺序锚',
+ formula:'门控: constructiveSpawn.enabled && typeof hints.pressurePhase===string\n  (_phaseExplicit；裸 config 无 hints 不触发)\n低/中压 (≠high) && constructCooldown===0:\n  C1: findCompleterShapes(近满线缺口) → pCompleterLow/Mid → _constructed=completer → unshift\n  C2(仅 low 且无 C1): findSetupShapes(1步前瞻) → pSetupLow → pendingClearTarget\n  续接: ctx.pendingClearTarget 有效则优先 C1\n高压:\n  C3: 选 cells≥phaseLargeCells 且 placements 最少的大块 → pOrderHigh → orderAnchorId（augmentPool 加权，不占 clearSeat）\nconstructedSeatNeed → clearSeats 下限抬高',
+ range:'kind∈{completer,setup,order,null}',source:'constructiveSpawn.js · blockSpawn:2513-2655',
+ consumers:['clearCandidates 头部前置','constructedSeatNeed','diagnostics.constructive','game pending/cooldown']},
 {id:'l3_clearSeats',name:'Stage 1b: clearSeats 优先选拔',layer:3,cat:'形状选拔',
- semantic:'按 clearGuarantee 槽位填充：先 perfectClear → monoFlush → multiClear → 随机',
- formula:'seats = spawnHints.clearGuarantee\nfor ci in [0..seats):\n  ① 优先 perfectClear 候选\n  ② 其次 monoFlush（受预算限）\n  ③ 再 multiClear\n  ④ 兜底随机抽 clearCandidates',
- range:'填 0–seats 块',source:'blockSpawn.js:2293-2395',
+ semantic:'按 clearGuarantee + 构造席位下限填充：先 perfectClear → monoFlush → multiClear → 随机',
+ formula:'seats = spawnHints.clearGuarantee\nv1.67: clearSeats = max(seats, constructedSeatNeed) capped≤3\nfor ci in [0..clearSeats):\n  ① 优先 perfectClear 候选（含 _constructed completer/setup 前置）\n  ② 其次 monoFlush（受预算限）\n  ③ 再 multiClear\n  ④ 兜底随机抽 clearCandidates',
+ range:'填 0–3 块',source:'blockSpawn.js:2293-2654',
  consumers:['chosen[ci]','剩余 slot 转入 Stage 2 加权抽样']},
 {id:'l3_weighted',name:'Stage 2: 加权补齐 (augmentPool)',layer:3,cat:'形状选拔',
  semantic:'多维加权抽样：augmentPool() 内联乘子链 → pickWeighted(pool, rng) 随机抽取补齐到 3 块',
- formula:'augmentPool(scored, hints/targets) 对每个 shape 计算多维乘子：\n  ADAPTIVE_SPAWN §10.8.5 记 14 维（minMobility/pcPotential/multiClear/monoFlush/\n  sizePreference S/M/L/multiClearBonus/规划/空洞/exactFit/品类/novelty/diversity）\n→ pickWeighted(pool, ctx?.rng) 加权随机抽样',
- range:'随机抽样补齐',source:'blockSpawn.js:2398-2633',
+ formula:'augmentPool(scored, hints/targets) 对每个 shape 计算多维乘子：\n  ADAPTIVE_SPAWN §10.8.5 记 14 维 + v1.66 phaseHighPoolBoost/phaseLowPoolClearBoost\n  v1.67: orderAnchorId 匹配 → 额外顺序锚加权（非强制席位）\n→ pickWeighted(pool, ctx?.rng) 加权随机抽样',
+ range:'随机抽样补齐',source:'blockSpawn.js:2398-2633,2945+',
  consumers:['chosen[] 补齐','Stage 3 硬约束验证']},
 {id:'l3_fallback',name:'Stage 2b: Fallback 兜底',layer:3,cat:'形状选拔',
  semantic:'加权抽样失败时的安全兜底链：_pickFallbackSafe → 默认 RegularShapes 池',
@@ -1855,9 +1945,9 @@ const SIGNALS = [
  consumers:['Stage 7 输出','game.js 染色']},
 {id:'l3_output',name:'Stage 7: 形状输出 + 诊断',layer:3,cat:'输出',
  semantic:'返回 shape triplet（不含颜色）；写诊断快照，染色在 game.js 完成',
- formula:'return triplet → game.js::_commitSpawn\nchosenMeta:[{id,source,reason,monoFlush,pcPotential,aScore,...}]\n_lastDiagnostics 写入\nmem.categories.push（品类记忆）\nofflineStateCache.writeSpawnSignals(game)',
- range:'3 块形状',source:'blockSpawn.js:2992-3032',
- consumers:['game.dockBlocks (shape)','DFV出块标注','offlineStateCache快照']},
+ formula:'return triplet → game.js::_commitSpawn\nchosenMeta:[{id,source,reason,monoFlush,pcPotential,aScore,_constructed,...}]\n_lastDiagnostics 含 pressurePhase + diagnostics.constructive\nconstructive.delivered = chosen 含 _constructed\nmem.categories.push（品类记忆）\nofflineStateCache.writeSpawnSignals(game)',
+ range:'3 块形状',source:'blockSpawn.js:2992-3032,3436',
+ consumers:['game.dockBlocks (shape)','spawnMeta.construct','DFV出块标注','offlineStateCache快照']},
 {id:'l3_color',name:'Stage 8: 染色绑定（下游 game.js）',layer:3,cat:'输出',
  semantic:'⚠ 透视仪完全缺失：blockSpawn 只出形状，染色在 game._commitSpawn',
  formula:'game.js::_commitSpawn:\n  ① 读 monoFlushTargetCi → 锁色（同花顺需同色）\n  ② pickThreeDockColors(bonusBias) → 三色无放回\n  ③ 写入 game.dockBlocks[i].color',
@@ -1986,6 +2076,9 @@ const STRESS_POST = [
   {n:'P9','id':'normalizedStress(输出)',cn:'对外归一化展示',
    desc:'clamp01((finalStress+0.2)/1.2)  [-0.2,1]→[0,1]  DFV面板展示值',
    range:'[0,1]'},
+  {n:'P10','id':'phaseFreq→pressurePhase',cn:'压力阶段派生 (v1.66)',
+   desc:'deriveSpawnHints 内：stress+boardFill → low/mid/high；透传 orderSolutionBudget/phasePool*；不修改 raw stress 数值',
+   range:"pressurePhase + spawnHints 5 字段"},
 ];
 
 // ─── Flow data ────────────────────────────────────────────────────────────────
@@ -2005,6 +2098,12 @@ const FLOW_CHAINS = [
   ['pcSetup + nearFullLines','pcSetup≥1&&fill≥0.45 → harvestable','harvest intent(priority=80)','clearGuarantee++ → Stage1 clearSeats多一槽'],
   ['roundsSinceSpecial + monoFlushRound','≥5且抽签命中','allowMonoFlushLabel','_tryInjectSpecial同花顺注入门'],
   ['pickToPlaceMs (EMA≥3样本)','<900ms→+stress(500ms饱和) >2200ms→-stress(3200ms饱和)','reactionAdjust(弱信号±0.05)','stress Σ; nearMiss同向时让位为0'],
+  ['stress + boardFill','phaseFreq 阈值（不依赖 spawnIntent）','pressurePhase + orderSolutionBudget + phasePool*','blockSpawn 池预加权；构造式 C1/C2/C3 门控'],
+  ['nearFullLines + pcSetup','lowPhase 抬 clearGuarantee / nearFullDelta','clearGuarantee + phaseLowPoolClearBoost','Stage1 clearSeats + augmentPool 清屏加权'],
+  ['stress (high) + orderRigor','+highOrderBoost + perms floor','orderRigor + orderSolutionBudget','L3 顺序硬约束 + evaluateTripletSolutions 预算'],
+  ['grid 近满线缺口','findCompleterShapes / findSetupShapes','C1 completer / C2 setup + pendingClearTarget','clearCandidates 前置 → constructedSeatNeed → clearSeats'],
+  ['ctx.pendingClearTarget','isClearTargetValid 续接','C1 fromPending','跨 dock 补全优先；game 写回/清空'],
+  ['ctx.constructCooldown','每 dock 递减；交付后重置','cooldownActive 跳过构造','防连发喂解；与 pCompleter/pSetup/pOrder 概率并存'],
 ];
 
 // ─── App State ────────────────────────────────────────────────────────────────
@@ -2014,8 +2113,21 @@ let filterCat = '';
 let searchQuery = '';
 let selectedSignal = null;
 
+function refreshHeaderStats() {
+  const l1 = SIGNALS.filter(s => s.layer === 1).length;
+  const l2 = SIGNALS.filter(s => s.layer === 2).length;
+  const l3 = SIGNALS.filter(s => s.layer === 3).length;
+  const el1 = document.getElementById('stat-l1');
+  const el2 = document.getElementById('stat-l2');
+  const el3 = document.getElementById('stat-l3');
+  if (el1) el1.textContent = String(l1);
+  if (el2) el2.textContent = String(l2);
+  if (el3) el3.textContent = String(l3);
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  refreshHeaderStats();
   initBgCanvas();
   initTabs();
   initSidebar();
@@ -2375,7 +2487,7 @@ function renderStressTables() {
 function renderFlowView() {
   const L1_CATS = ['盘面几何','玩家状态','跨轮上下文','局间历史'];
   const L2_CATS = ['能力向量(AbilityVector)','Stress分量·基础','Stress分量·后置调制','出块意图(IntentRules)','SpawnHints'];
-  const L3_CATS = ['形状评分','形状选拔','约束验证','输出'];
+  const L3_CATS = ['形状评分','形状选拔','构造式预扫描','约束验证','输出'];
 
   function buildFlowCol(cats, colEl) {
     cats.forEach(cat => {
@@ -2655,13 +2767,16 @@ function renderSimulatorView() {
   const inputs = root.querySelectorAll('.sim-input input[type=range]');
   const bools = root.querySelectorAll('.sim-bool input[type=checkbox]');
   const valSpans = root.querySelectorAll('.sim-input .sim-value');
+  const phaseOverride = document.getElementById('sim-phase-override');
 
   function recompute() {
     const state = {};
-    inputs.forEach((el, i) => {
+    let spanIdx = 0;
+    inputs.forEach((el) => {
       const key = el.parentElement.dataset.key;
       state[key] = parseFloat(el.value);
-      valSpans[i].textContent = parseFloat(el.value).toFixed(2);
+      if (valSpans[spanIdx]) valSpans[spanIdx].textContent = parseFloat(el.value).toFixed(2);
+      spanIdx++;
     });
     bools.forEach(el => { state[el.dataset.key] = el.checked; });
 
@@ -2710,9 +2825,37 @@ function renderSimulatorView() {
     badge.textContent = intent;
     badge.dataset.intent = intent;
     document.getElementById('sim-intent-reason').textContent = reason;
+
+    const fill = state.simBoardFill ?? 0.55;
+    let phase = 'mid';
+    if (phaseOverride && phaseOverride.value !== 'auto') {
+      phase = phaseOverride.value;
+    } else if (stress >= 0.55 && fill >= 0.50) {
+      phase = 'high';
+    } else if (stress <= 0.40) {
+      phase = 'low';
+    }
+    document.getElementById('sim-pressure-phase').textContent = phase;
+    document.getElementById('sim-phase-hint').textContent =
+      phase === 'high' ? 'orderSolutionBudget + C3 order 锚 + 大块池加权'
+      : phase === 'low' ? 'clearGuarantee/清屏池加权 + C1/C2 构造（若未冷却）'
+      : 'C1 completer 概率= pCompleterMid；无 C2';
+
+    let consHint = '未触发（无显式 spawnHints 时生产路径恒有）';
+    if (state.constructCooldown) {
+      consHint = 'cooldownActive：本 dock 跳过 C1/C2/C3';
+    } else if (phase === 'high') {
+      consHint = 'C3：大块顺序锚（pOrderHigh 概率，augmentPool 加权）';
+    } else if (phase === 'low') {
+      consHint = 'C1 completer 或 C2 setup（pCompleterLow / pSetupLow）';
+    } else {
+      consHint = 'C1 completer（pCompleterMid）；无 C2 setup';
+    }
+    document.getElementById('sim-constructive').textContent = consHint;
   }
   inputs.forEach(el => el.addEventListener('input', recompute));
   bools.forEach(el => el.addEventListener('change', recompute));
+  if (phaseOverride) phaseOverride.addEventListener('change', recompute);
   recompute();
 }
 

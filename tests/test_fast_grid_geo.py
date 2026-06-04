@@ -65,9 +65,9 @@ def test_fast_board_features_exposes_new_keys():
         assert k in bf
 
 
-def test_state_dim_is_187():
-    assert F.STATE_FEATURE_DIM == 187
-    assert F.PHI_DIM == 202
+def test_state_dim_is_190():
+    assert F.STATE_FEATURE_DIM == 190
+    assert F.PHI_DIM == 205
     sim = OpenBlockSimulator("normal")
     st = F.extract_state_features(sim.grid, sim.dock)
-    assert st.shape[0] == 187
+    assert st.shape[0] == 190

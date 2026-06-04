@@ -694,6 +694,7 @@ export function initRLPanel(game) {
                         useBackend,
                         useLookahead: Boolean(chkLookahead?.checked),
                         winScoreThreshold: winThr,
+                        strategyId: game?.strategy || 'normal',
                     }
                 );
                 logLine(

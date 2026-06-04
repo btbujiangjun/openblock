@@ -650,6 +650,10 @@
     }
   },
   "rlTrainingStrategyId": "normal",
+  "rlTraining": {
+    "comment": "RL 训练随机采样策略 ID（顺序须与 featureEncoding.strategyIds one-hot 一致）；推理时以界面所选 difficulty 编码进 state。",
+    "strategyIds": ["easy", "normal", "hard"]
+  },
   "rlRewardShaping": {
     "comment": "v6 优化奖励：增大势函数系数与终局信号，降低 outcome 混合比例让 V 学会逐步评估。",
     "smoothWinBonus": {
@@ -668,7 +672,7 @@
     "rndCuriosity": {
       "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
       "enabled": false,
-      "stateDim": 187,
+      "stateDim": 190,
       "hiddenDim": 64,
       "outputDim": 32,
       "beta": 0.1,
@@ -830,16 +834,18 @@
     }
   },
   "featureEncoding": {
-    "comment": "state = 48 维标量（25 结构 + 19 颜色摘要 + 4 单步难度）+ 64 棋盘占用 + 75 dock 形状 = 187；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 202。25 结构标量末 3 维为 heightStd + 客观几何难度 contiguousRegions/concaveCorners（空白连通块数 / 凹角数，见 boardTopology.js）；4 维单步难度由 spawnStepDifficulty.spawnStepDifficultyFeatures 计算（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）。改维度须同步 features.js / features.py / rl_mlx/features.py 并重训。",
+    "comment": "state = 51 维标量（25 结构 + 19 颜色 + 4 单步难度 + 3 策略 one-hot）+ 64 棋盘 + 75 dock = 190；action = 15；phi = 205。策略维顺序见 strategyIds。Python 训练环境出块默认走 Node worker（scripts/rl-spawn-worker.mjs）与线上一致；RL_SPAWN_ONLINE=0 回退 block_spawn.py。改维度须同步 features 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
-    "stateScalarDim": 48,
+    "strategyIds": ["easy", "normal", "hard"],
+    "strategyDim": 3,
+    "stateScalarDim": 51,
     "colorCount": 8,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
-    "stateDim": 187,
+    "stateDim": 190,
     "actionDim": 15,
-    "phiDim": 202,
+    "phiDim": 205,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {

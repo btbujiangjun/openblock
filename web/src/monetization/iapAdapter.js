@@ -201,6 +201,7 @@ export function consumeOne(productId) {
 
 /* ── 美化购买确认弹窗 ── */
 (function _injectIapModalStyle() {
+    if (typeof document === 'undefined') return;
     if (document.getElementById('__openblock_iap_modal_style')) return;
     const s = document.createElement('style');
     s.id = '__openblock_iap_modal_style';

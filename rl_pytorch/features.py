@@ -1,6 +1,6 @@
 """与 web/src/bot/features.js 一致的数值特征（常数来自 shared/game_rules.json）。
 
-v6: 内部热路径使用 fast_grid numpy 加速，外部接口不变。
+v6: 内部热路径使用 fast_grid numpy 加速，外部接口不变。state 含策略 one-hot（190 维）。
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import numpy as np
 from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
 from . import fast_grid as _fg
 from .spawn_step_difficulty import spawn_step_difficulty_features
+from .strategy_features import encode_strategy_onehot
 
 _ENC = FEATURE_ENCODING
 _AF = float(_ENC.get("almostFullLineRatio", 0.78))
@@ -131,7 +132,11 @@ def _board_features_cached(grid, dock: list[dict]) -> dict:
 # 状态特征提取
 # ---------------------------------------------------------------------------
 
-def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
+def extract_state_features(
+    grid,
+    dock: list[dict],
+    strategy_id: str = "normal",
+) -> np.ndarray:
     n = grid.size
     area = n * n
     bf = _board_features_cached(grid, dock)
@@ -179,8 +184,12 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
     unplaced_shapes = [b["shape"] for b in dock if not b.get("placed")]
     diff_scalars = spawn_step_difficulty_features(unplaced_shapes, int(bf["filled"]))
 
+    strategy_vec = encode_strategy_onehot(strategy_id)
     scalars = np.array(
-        base_scalars + _encode_color_summary(grid, dock).tolist() + diff_scalars,
+        base_scalars
+        + _encode_color_summary(grid, dock).tolist()
+        + diff_scalars
+        + strategy_vec.tolist(),
         dtype=np.float32,
     )
     if scalars.shape[0] != _SCALAR_DIM:
@@ -346,7 +355,8 @@ def extract_action_features(
 
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     """v6: numpy 向量化批量特征提取，batch_count_clears 替代逐动作调用。"""
-    state = extract_state_features(sim.grid, sim.dock)
+    sid = getattr(sim, "strategy_id", "normal")
+    state = extract_state_features(sim.grid, sim.dock, sid)
     if not legal:
         return state, np.zeros((0, PHI_DIM), dtype=np.float32)
 

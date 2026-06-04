@@ -8,6 +8,7 @@ from typing import Sequence
 import numpy as np
 
 from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
+from .strategy_features import encode_strategy_onehot
 from .shapes_data import get_all_shapes
 
 _ENC = FEATURE_ENCODING
@@ -253,7 +254,11 @@ def _encode_color_summary(grid, dock: list[dict]) -> np.ndarray:
     return np.concatenate([color_counts / area, mono_line_potential, dock_colors], axis=0)
 
 
-def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
+def extract_state_features(
+    grid,
+    dock: list[dict],
+    strategy_id: str = "normal",
+) -> np.ndarray:
     n = grid.size
     area = n * n
     filled = 0
@@ -305,8 +310,12 @@ def extract_state_features(grid, dock: list[dict]) -> np.ndarray:
             min(_mlx_concave_corners(grid) / float(_AN.get("maxConcaveCorners", 32)), 1.0),
         ]
     diff_scalars = _spawn_step_difficulty_features(dock, filled)
+    strategy_vec = encode_strategy_onehot(strategy_id)
     scalars = np.array(
-        base_scalars + _encode_color_summary(grid, dock).tolist() + diff_scalars,
+        base_scalars
+        + _encode_color_summary(grid, dock).tolist()
+        + diff_scalars
+        + strategy_vec.tolist(),
         dtype=np.float32,
     )
     if scalars.shape[0] != _SCALAR_DIM:
@@ -414,7 +423,8 @@ def _clear_payoff_features(
 
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     """would_clear 与 web 端 countClearsIfPlaced 一致。sim: OpenBlockSimulator。"""
-    state = extract_state_features(sim.grid, sim.dock)
+    sid = getattr(sim, "strategy_id", "normal")
+    state = extract_state_features(sim.grid, sim.dock, sid)
     rows = []
     for a in legal:
         bi = a["block_idx"]

@@ -11,8 +11,10 @@ from .game_rules import CLEAR_SCORING, FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_
 from .block_spawn import generate_blocks_for_grid, generate_dock_shapes
 from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
-from .shapes_data import get_all_shapes
+from .player_profile_lite import PlayerProfileLite
+from .shapes_data import get_all_shapes, shape_category
 from . import fast_grid as _fg
+from . import spawn_online as _spawn_online
 
 __all__ = ["OpenBlockSimulator", "board_potential", "generate_blocks_for_grid", "generate_dock_shapes"]
 
@@ -85,13 +87,39 @@ def board_potential_np(grid_np: np.ndarray, dock: list[dict]) -> float:
 
 
 class OpenBlockSimulator:
-    def __init__(self, strategy_id: str = "normal"):
+    def __init__(self, strategy_id: str = "normal", *, best_score: int = 0, run_streak: int = 0):
         self.strategy_id = strategy_id
+        self.best_score = max(0, int(best_score))
+        self.run_streak = max(0, int(run_streak))
         self._holes_cache: int | None = None
         self._grid_np: np.ndarray | None = None
         self._last_clears: int = 0
         self._last_bonus_lines: int = 0
+        self._profile = PlayerProfileLite()
+        self._spawn_context: dict = {}
         self.reset()
+
+    @staticmethod
+    def _create_spawn_context(best_score: int) -> dict:
+        return {
+            "lastClearCount": 0,
+            "roundsSinceClear": 0,
+            "recentCategories": [],
+            "totalRounds": 0,
+            "scoreMilestone": False,
+            "bestScore": best_score,
+            "pbGrowthFast": False,
+            "bottleneckTrough": float("inf"),
+            "bottleneckSolutionTrough": float("inf"),
+            "bottleneckSamples": 0,
+            "specialShapeUsed": 0,
+            "specialReliefUsed": 0,
+            "specialPressureUsed": 0,
+            "totalClears": 0,
+            "roundsSinceSpecial": 0,
+            "dupInjectUsed": 0,
+            "roundsSinceDupInject": 0,
+        }
 
     def reset(self) -> None:
         cfg = strategy_python(self.strategy_id)
@@ -108,7 +136,59 @@ class OpenBlockSimulator:
         self._grid_np = None
         self._last_clears = 0
         self._last_bonus_lines = 0
+        self._profile = PlayerProfileLite()
+        self._profile.record_new_game()
+        self._spawn_context = self._create_spawn_context(self.best_score)
         self._spawn_dock()
+
+    def _cells_for_spawn_bridge(self) -> list[list[int | None]]:
+        return [list(row) for row in self.grid.cells]
+
+    def _spawn_dock_legacy(self) -> None:
+        shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
+        n_colors = int(self.strategy_config.get("color_count", 8))
+        bias = mono_near_full_line_color_weights(self.grid, _RL_BONUS_ICONS)
+        dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)
+        self.dock = []
+        all_shapes = get_all_shapes()
+        for i in range(3):
+            shape = shapes[i] if i < len(shapes) else all_shapes[0]
+            self.dock.append(
+                {
+                    "id": shape["id"],
+                    "shape": copy.deepcopy(shape["data"]),
+                    "color_idx": dock_colors[i],
+                    "placed": False,
+                }
+            )
+
+    def _apply_online_spawn_result(self, resp: dict) -> None:
+        shapes = resp.get("shapes") or []
+        dock_colors = resp.get("dockColors") or [0, 1, 2]
+        self.dock = []
+        all_shapes = get_all_shapes()
+        for i in range(3):
+            shape = shapes[i] if i < len(shapes) else all_shapes[0]
+            self.dock.append(
+                {
+                    "id": shape["id"],
+                    "shape": copy.deepcopy(shape["data"]),
+                    "color_idx": int(dock_colors[i]) if i < len(dock_colors) else i,
+                    "placed": False,
+                }
+            )
+        patch = resp.get("spawnContext")
+        if isinstance(patch, dict):
+            self._spawn_context.update(patch)
+        prof = resp.get("profileJson")
+        if isinstance(prof, dict):
+            self._profile = PlayerProfileLite.from_json(prof)
+
+    def _remember_recent_categories(self) -> None:
+        cats = [shape_category(b["id"]) for b in self.dock]
+        prev = list(self._spawn_context.get("recentCategories") or [])
+        self._spawn_context["recentCategories"] = (prev + cats)[-9:]
+        self._spawn_context["totalClears"] = self.total_clears
 
     def save_state(self) -> dict:
         """Snapshot for 1-step lookahead (no deep copy of Grid internals, just cells)."""
@@ -151,22 +231,30 @@ class OpenBlockSimulator:
         self._grid_np = None
 
     def _spawn_dock(self) -> None:
-        shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
-        n_colors = int(self.strategy_config.get("color_count", 8))
-        bias = mono_near_full_line_color_weights(self.grid, _RL_BONUS_ICONS)
-        dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)
-        self.dock: list[dict] = []
-        all_shapes = get_all_shapes()
-        for i in range(3):
-            shape = shapes[i] if i < len(shapes) else all_shapes[0]
-            self.dock.append(
-                {
-                    "id": shape["id"],
-                    "shape": copy.deepcopy(shape["data"]),
-                    "color_idx": dock_colors[i],
-                    "placed": False,
-                }
-            )
+        if _spawn_online.spawn_online_enabled():
+            try:
+                self._profile.record_spawn()
+                resp = _spawn_online.spawn_dock_online(
+                    {
+                        "strategyId": self.strategy_id,
+                        "winScoreThreshold": self.win_score_threshold,
+                        "bestScore": self.best_score,
+                        "runStreak": self.run_streak,
+                        "score": self.score,
+                        "totalClears": self.total_clears,
+                        "placements": self.placements,
+                        "steps": self.steps,
+                        "cells": self._cells_for_spawn_bridge(),
+                        "spawnContext": copy.deepcopy(self._spawn_context),
+                        "profileJson": self._profile.to_json(),
+                    }
+                )
+                self._apply_online_spawn_result(resp)
+                self._spawn_context["scoreMilestone"] = False
+                return
+            except Exception:
+                _spawn_online.warn_legacy_fallback_once()
+        self._spawn_dock_legacy()
 
     def _ensure_grid_np(self) -> np.ndarray:
         if self._grid_np is None:
@@ -297,17 +385,32 @@ class OpenBlockSimulator:
         gain = 0.0
         self._last_clears = 0
         self._last_bonus_lines = 0
+        clears = 0
         if result["count"] > 0:
             self._last_clears = int(result["count"])
-            c = self._last_clears
-            self.total_clears += c
+            clears = self._last_clears
+            self.total_clears += clears
             bonus_n = len(result.get("bonus_lines") or [])
             self._last_bonus_lines = int(bonus_n)
-            gain = _clear_score_gain(self.scoring, c, bonus_n, _is_perfect_clear(self.grid))
+            gain = _clear_score_gain(self.scoring, clears, bonus_n, _is_perfect_clear(self.grid))
             self.score += gain
+            self._spawn_context["lastClearCount"] = clears
+            self._spawn_context["roundsSinceClear"] = 0
+        else:
+            self._last_clears = 0
+            self._spawn_context["lastClearCount"] = 0
 
         b["placed"] = True
+        fill_after = sum(
+            1 for row in self.grid.cells for cell in row if cell is not None
+        ) / max(self.grid.size * self.grid.size, 1)
+        self._profile.record_place(clears > 0, clears, fill_after)
         if all(x["placed"] for x in self.dock):
+            if self._spawn_context.get("lastClearCount", 0) == 0:
+                self._spawn_context["roundsSinceClear"] = int(
+                    self._spawn_context.get("roundsSinceClear", 0)
+                ) + 1
+            self._remember_recent_categories()
             self._spawn_dock()
 
         self._invalidate_grid_np()

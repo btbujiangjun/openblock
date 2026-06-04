@@ -11,6 +11,7 @@
 |------|------|
 | 理解当前 RL 算法、状态/动作、奖励、网络、训练和推理 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) |
 | 理解 RL 与玩法规则、出块、计分的边界 | [`RL_AND_GAMEPLAY.md`](./RL_AND_GAMEPLAY.md) |
+| 搞清离线 MCTS / 浏览器训练 / 线上对局差在哪 | 本文 [§2.6](#26-rl-训练机制三条路径对照权威) |
 | 部署或排查 `/api/rl/*`、离线训练、贪心评估 | [`RL_PYTORCH_SERVICE.md`](./RL_PYTORCH_SERVICE.md) |
 | 看训练曲线、判断训练是否正常 | [`RL_TRAINING_DASHBOARD_TRENDS.md`](./RL_TRAINING_DASHBOARD_TRENDS.md) |
 | 排查 Lv 爆炸、loss 抖动、回报尺度异常 | [`RL_TRAINING_NUMERICAL_STABILITY.md`](./RL_TRAINING_NUMERICAL_STABILITY.md) |
@@ -48,6 +49,7 @@
 ### 1.3 维护原则
 
 - 算法公式、网络结构、状态/动作维度、奖励口径只在 `ALGORITHMS_RL.md` 维护。
+- **三条路径训练机制对照**（离线 / 浏览器 / 线上）只在本文 **§2.6** 维护；其他文档引用或摘要，不复制整张表。
 - 玩法规则、得分、形状、特征维度以 `shared/game_rules.json` 和 `shared/shapes.json` 为准。
 - 看板字段和曲线口径只在 dashboard 相关文档维护。
 - 历史实验文档可以保留失败原因和取舍结论，但不要把旧版本号写成当前状态。
@@ -68,16 +70,19 @@
 1. **规则与数据**：上述 JSON。
 2. **环境（对局动力学）**：`web/src/bot/simulator.js`、`rl_pytorch/simulator.py`、`rl_mlx/simulator.py` 等实现落子、消除、得分、**每轮 dock 三色采样**；须与主游戏 `Grid` / `clearScoring` 逻辑一致。
    - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → **`clearScoring.iconBonusLineMult`** 统一提供。训练路径不用玩家当前皮肤，icon 语义只读取 **`rlBonusScoring.blockIcons`**；为空时浏览器无头局、PyTorch、MLX 都退化为**同色整线** bonus，不再从 canonical 皮肤回退。
-   - **dock 染色偏置**：仅依据盘面可见的近满线几何 + 上述同一套 icon/同色规则调用 `monoNearFullLineColorWeights`，**不是** adaptiveSpawn / spawnHints；观测 φ 亦不得含出块算法内部状态。
-   - **出块形状**：仍由 `block_spawn.generate_*` 与策略配置生成（训练侧不传网页自适应 hints）；Python/MLX 出块会识别一手清屏候选并提高其采样优先级，使训练环境保留主局的清屏机会偏置。
-3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（v1.66 为 187 维 state：48 维标量[含颜色摘要 + 4 维单步难度 + 2 维客观几何] + 棋盘占用 + dock 形状掩码）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
+   - **dock 染色偏置**：依据盘面近满线几何 + `rlBonusScoring` 调用 `monoNearFullLineColorWeights` / `pickThreeDockColors`（与 `web/src/bot/simulator.js` 一致）；观测 φ **不得**含 spawnHints 等出块内部状态。
+   - **出块形状（v1.68+）**：
+     - **浏览器 RL**（`OpenBlockSimulator`）：`resolveAdaptiveStrategy` + `generateDockShapes`，与真人规则轨一致。
+     - **Python 离线训练**（默认）：`scripts/rl-spawn-worker.mjs`（Vite SSR）→ `web/src/bot/rlSpawnBridge.js`，与线上一致；维护 `spawnContext` + `PlayerProfileLite`。环境变量 **`RL_SPAWN_ONLINE=0`** 或 worker 不可用时回退 `rl_pytorch/block_spawn.py`（启发式，非线上分布）。
+     - **策略条件化**：`featureEncoding.strategyIds` 的 **3 维 one-hot** 拼入 state 标量尾；**训练**每局从 `rlTraining.strategyIds` 均匀采样；**推理**（面板「评估一局」等）使用界面所选 `game.strategy`。
+3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（**v1.68：190 维 state** = 51 标量[含 **3 维策略 one-hot**] + 64 棋盘 + 75 dock；**phi=205**）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
 4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。
 
 ### 2.3 自适应出块（网页端）
 
 网页端真人主流程现在有两种可选出块模式：`启发式`（`adaptiveSpawn.js` + `blockSpawn.js`）与 `生成式`（`spawnModel.js` 调用 SpawnPolicyNet）。两者共享同一份出块上下文：难度模式、`AbilityVector`、玩家实时状态、盘面拓扑、局内节奏、局间弧线、近期出块历史和启发式轨 `spawnHints`。生成式必须通过前端 `validateSpawnTriplet()` 护栏；模型不可用、输出非法或不可解时回退启发式并记录原因。
 
-这不改变 RL 训练环境契约：Python/MLX 训练仍使用固定策略与共享 `game_rules.json` / `shapes.json`，不读取真人网页的 `spawnHints`、V3 推理结果或玩家画像。Python/MLX 出块继续保留主局已同步的清屏候选优先级，使训练环境对清屏机会的偏置与规则轨保持一致。
+浏览器 RL 与 Python 离线训练（worker 开启时）均走 **adaptiveSpawn + blockSpawn**；观测向量仍**不**含 `spawnHints` 内部权重，仅含 **策略 ID one-hot** 与盘面/dock 可见量。生成式 spawn 模型（V3）与真人画像持久化**不**进入 RL 训练环境。
 
 #### 2.3.1 spawnIntent 单一口径
 
@@ -109,19 +114,128 @@
 
 | 因素 | 线性 `LinearAgent` | PyTorch `PolicyValueNet` / `SharedPolicyValueNet` |
 |------|---------------------|---------------------------------------------------|
-| 参数量 | 202（策略）+187（价值），随 `featureEncoding` 变化 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准（可调 `--width` / `--*-depth`） |
+| 参数量 | 205（策略 φ）+190（价值 state），随 `featureEncoding` 变化 | 默认以 `rl_pytorch/model.py` 和 checkpoint meta 为准（可调 `--width` / `--*-depth`） |
 | 每局梯度步数 | `reinforceUpdate` 对轨迹**逐步**更新 | `train.py` 默认对**整局**一次 `backward`（等价 batch 更大、步长相对小） |
-| 回报与价值 | 蒙特卡洛回报，无缩放 | `RL_RETURN_SCALE`（默认 **0.032**）+ GAE + `smooth_l1` 价值头 |
+| 回报与价值 | 蒙特卡洛回报，无缩放 | `RL_RETURN_SCALE`（代码默认 **1.0**；当前 `conv-shared` 离线栈用 **1.0 + 裁剪式稳定**，配 `--value-huber-beta=1`）+ GAE + `smooth_l1` 价值头 |
 | 探索 | 温度 softmax | 温度衰减 + Dirichlet + 熵 bonus，利于探索但有效策略更新更「钝」 |
 | 动作空间 | 同环境：每步大量合法放置 | 高方差策略梯度；**shared** 架构减轻重复编码 φ 的开销 |
 
-**调参建议**：新训默认已改为 `--arch shared --width 256 --policy-depth 4`、`--lr 3e-4`、环境变量 `RL_RETURN_SCALE=0.032`；旧 checkpoint 若用 384/双塔，加载时仍以 **checkpoint 内 meta** 为准，勿混用结构。需要与旧版行为一致时可显式 `RL_WIDTH=384` `RL_ARCH=split` `RL_LR=1.5e-4`。
+**调参建议**：当前一键离线栈（`train_full_mcts.sh`）默认 `--arch conv-shared --width 128`、`--lr 3e-4`，并显式 pin **`RL_RETURN_SCALE=1.0`** + 裁剪式稳定（`RL_VALUE_TARGET_CLIP=512`、`RL_GAE_DELTA_CLIP=80`、`--grad-clip 1.0`），与 `--value-huber-beta=1` 配套——**不要**沿用旧 `shared/width256` 时代的 `RL_RETURN_SCALE=0.032`（会把回报压扁 30×、advantage 退化、价值头失配）。旧 checkpoint 加载时仍以 **checkpoint 内 meta** 为准，勿混用结构。需要复现旧 `shared` 行为时可显式 `RL_ARCH=shared RL_WIDTH=256 RL_RETURN_SCALE=0.032`。
+
+### 2.6 RL 训练机制：三条路径对照（权威）
+
+> **维护口径**：以仓库当前代码为准；与「样本从哪来、环境如何出块、谁选落子、策略 ID 如何进网络」相关的**事实表只在本节维护**，`ALGORITHMS_RL.md` §2.1 为摘要并链回此处。  
+> **v1.68**：Python 离线默认经 `scripts/rl-spawn-worker.mjs` 走与线上一致的 `adaptiveSpawn` + `blockSpawn`；state **190 维**含策略 one-hot；训练每局随机 `strategyId`，推理用界面所选难度。
+
+#### 2.6.1 总览
+
+OpenBlock 与 RL 相关的运行形态可归纳为三条路径——**不是**三种独立算法，而是**同一套规则与特征契约**下的不同**采样与部署**入口：
+
+```mermaid
+flowchart LR
+  subgraph offline["路径 A：离线 PyTorch 训练"]
+    P1[rl_pytorch/simulator.py]
+    P2[spawn：worker → rlSpawnBridge]
+    P3[落子：MCTS / beam / 1-step]
+    P1 --> P2
+    P1 --> P3
+  end
+  subgraph browserRL["路径 B：浏览器 RL 自博弈"]
+    B1[web/bot/simulator.js]
+    B2[adaptiveSpawn + blockSpawn.js]
+    B3[网络采样 / 可选 1-step Q]
+    B1 --> B2
+    B1 --> B3
+  end
+  subgraph online["路径 C：线上玩家对局"]
+    G1[game.js]
+    G2[adaptiveSpawn + blockSpawn / spawnModel]
+    G3[玩家 / 规则 Bot]
+    G1 --> G2
+    G1 --> G3
+  end
+```
+
+| 路径 | 典型入口 | 是否更新 RL 权重 |
+|------|----------|------------------|
+| **A 离线** | `sh scripts/train_full_mcts.sh` → `python -m rl_pytorch.train` | ✅ 主训练栈 |
+| **B 浏览器 RL** | 训练面板 → `trainSelfPlay({ useBackend: true })` | ✅ 经 `/api/rl/train_episode` |
+| **C 线上** | `game.start()` → `spawnBlocks()` | ❌（行为日志可喂 spawn 模型等） |
+
+路径 A 与 B **共享** checkpoint（`rl_checkpoints/*.pt`），但**不应同时写盘**；路径 C 为产品真相源，RL 部署后在该环境上推理。
+
+#### 2.6.2 对照表（环境 · 出块 · 落子 · 样本）
+
+| 维度 | A 离线 MCTS 训练 | B 浏览器 RL 自博弈 | C 线上玩家对局 |
+|------|------------------|-------------------|----------------|
+| **入口** | `scripts/train_full_mcts.sh` | `trainer.js` + `rl_backend.py` | `game.js` 正常开局 |
+| **模拟器** | `rl_pytorch/simulator.py` | `web/src/bot/simulator.js`（同名类，实现不同） | `Grid` + `Game` 生命周期 |
+| **策略 ID** | 每局 `sample_rl_training_strategy_id()`；写入 state **3 维 one-hot** | 训练：同上随机；**评估一局**：`game.strategy` | 用户所选 `strategy`（easy/normal/hard） |
+| **开局盘面** | `Grid.init_board(fill_ratio, shape_weights)` | 同左（`getStrategy`） | 同左；关卡模式另有初始盘 |
+| **出块** | 默认 **Node worker** → `rlSpawnBridge`（与 B 同源）；`RL_SPAWN_ONLINE=0` → `block_spawn.py` 启发式回退 | `resolveAdaptiveStrategy` + `generateDockShapes` | 同 B；另可 `spawn_model` v3 |
+| **PlayerProfile** | `PlayerProfileLite` + worker 内 `PlayerProfile.fromJSON` | 完整 `PlayerProfile`，每局 `recordNewGame` | 持久化画像 + 会话/商业化钩子 |
+| **BlockPool 新鲜度** | 无 | 训练模拟器未包 `blockPool.wrap` | `main.js` 对 `generateDockShapes` 包装 |
+| **RL 落子** | 当前 net + **MCTS 优先**（脚本 `RL_MCTS=1`）；其次 beam3/2ply、1-step | 默认 **策略采样**；勾选 lookahead → **1-step Q**（`q_teacher`） | 玩家手动；Bot 走各自逻辑 |
+| **MCTS / 重搜索** | 有（`lightMCTS`、`visit_pi` 蒸馏） | **无**（服务端不做 MCTS） | 无 |
+| **SpawnPredictor** | 仅 `RL_MCTS_STOCHASTIC=1` 时参与 MCTS 展开；脚本默认关 | 无 | 可选 spawn 模型路径 |
+| **胜局门槛 / 课程** | `train_loop`：quantile / linear / adaptive（脚本默认 quantile） | `rlWinThresholdForEpisode` + 后端同一套 `rl_curriculum` | 固定或模式相关 |
+| **样本形态** | `collect_episode` → `trajectory`（`state`、`phi`、`reward`、`visit_pi`/`q_vals`、监督信号） | HTTP `train_episode`；可选 `q_teacher` | `frames` 行为日志（spawn/place） |
+| **参数更新** | 本地 PPO + searchReplay + rankedReward 等 | 浏览器攒批 → 服务端 PPO（`RL_BATCH_SIZE` 等） | 不直接更新 RL |
+| **与 C 一致性** | 出块≈线上（worker 开）；落子**强于**真人；无 BlockPool | 出块≈线上；落子**弱于** A；无 BlockPool | **产品真相源** |
+
+#### 2.6.3 分模块说明
+
+**出块（环境给谁块）**
+
+| | A 离线 Py | B 浏览器 RL / C 线上（规则轨） |
+|--|-----------|-------------------------------|
+| 调用链 | `_spawn_dock()` → `spawn_online.spawn_dock_online()` 或 `block_spawn.generate_*` | `_spawnDock()` → `resolveAdaptiveStrategy` → `generateDockShapes` |
+| 构造式 v1.67 等 | 经 worker 与 `blockSpawn.js` 一致 | 已接入 `constructiveSpawn.js` |
+| 观测是否含 spawnHints | **否**（仅策略 one-hot + 盘面/dock） | **否** |
+
+**落子（机器人怎么下）**
+
+| | A 离线 | B 浏览器 RL |
+|--|--------|-------------|
+| Teacher 强度 | MCTS `visit_pi` + Q/beam 蒸馏（覆盖率高） | 无 MCTS；可选弱 teacher：`q_teacher = r + γV(s')` |
+| 探索 | 前若干步无 lookahead + Dirichlet；MCTS 温度 | 温度衰减 + 熵 bonus（`RL_ENTROPY_*`） |
+| `train_full_mcts.sh` 默认 | `RL_MCTS=1`、`--mcts`、`--beam3ply`（MCTS 盖住 beam） | — |
+
+**训练目标（样本如何进 loss）**
+
+三者共享 **`shared/game_rules.json` → `rlRewardShaping`** 的主体设计（势函数、Q/`visit_pi` 蒸馏、searchReplay、辅助头等），但：
+
+- **仅 A** 在采集时稳定产出 **`visit_pi`** 与完整 beam Q；
+- **B** 默认无 search teacher；勾选 lookahead 且 `eval_values` 成功才有 `q_teacher`；
+- **C** 不进入 RL loss，仅用于产品与 spawn 模型数据。
+
+#### 2.6.4 结论（给产品与调参）
+
+1. **部署 Bot 时的环境**：推理应使用界面 **`game.strategy`**（已编码进 state one-hot）；出块分布仍由线上 adaptive 决定，与训练 worker **接近**，但与「无 BlockPool 的训练局」仍有细微差。
+2. **「浏览器训」≠「MCTS 训」**：B 与 A 出块可一致，但 **teacher 与课程能力不对等**；看板 `teacher_q_coverage` 长期为 0 时，应切 A 或开 B 的 lookahead。
+3. **`train_full_mcts.sh` 训的是什么**：在 **随机 strategyId × 线上同源出块（默认）× MCTS 落子 × quantile 课程** 下的策略；**旧 187 维 checkpoint 与当前 190 维不兼容**，须重训。
+4. **仍可能存在的分布差**：训练无 `blockPool`、Bot 无人类 `thinkMs` 画像、C 可走 spawn 模型 v3——若要对齐，需单独产品决策（非 RL 契约默认范围）。
+
+#### 2.6.5 代码锚点
+
+| 能力 | 路径 A | 路径 B / C |
+|------|--------|------------|
+| 采集主循环 | `rl_pytorch/train.py` → `collect_episode` | `web/src/bot/trainer.js` → `runSelfPlayEpisode` |
+| 模拟器 | `rl_pytorch/simulator.py` | `web/src/bot/simulator.js` |
+| 线上出块桥 | `scripts/rl-spawn-worker.mjs`、`web/src/bot/rlSpawnBridge.js` | `web/src/adaptiveSpawn.js`、`web/src/bot/blockSpawn.js` |
+| 特征 / 策略 one-hot | `rl_pytorch/features.py`、`strategy_features.py` | `web/src/bot/features.js`、`strategyFeatures.js` |
+| 环境包装 | — | `web/src/bot/gameEnvironment.js` |
+| 线上 spawn 主路径 | — | `web/src/game.js` → `spawnBlocks()` |
+| MCTS | `rl_pytorch/mcts.py` | — |
+| HTTP 服务 | — | `backend/rl_backend.py` |
 
 ## 三、PyTorch RL：在线服务与离线评估
 
 > 当前定位：维护 Flask `/api/rl/*` 在线训练、`python -m rl_pytorch.train` 离线训练和贪心评估的服务化说明。
 
 ### 3.1 两条训练路径
+
+> 环境出块、策略 ID、与线上对局的三者差异见 [§2.6](#26-rl-训练机制三条路径对照权威)；本节只对比 **A 离线** 与 **B 浏览器** 的 **训练服务与 teacher**。
 
 | 路径 | 采样来源 | Teacher（q_vals / visit_pi） | Search replay（困难局混合） | v11 闭环课程 |
 |------|-----------|------------------------------|-----------------------------|-----------------|

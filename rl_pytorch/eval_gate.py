@@ -64,7 +64,9 @@ def run_eval_games(
                 random.seed(seed)
                 np.random.seed(seed)
                 torch.manual_seed(seed)
-            sim = OpenBlockSimulator("normal")
+            from .strategy_features import sample_rl_training_strategy_id
+
+            sim = OpenBlockSimulator(sample_rl_training_strategy_id())
             sim.win_score_threshold = win_threshold
 
             while not sim.is_terminal():

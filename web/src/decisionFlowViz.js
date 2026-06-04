@@ -1,5 +1,5 @@
 /**
- * decisionFlowViz.js — v1.60.41 决策数据流实时可视化（增强版）
+ * decisionFlowViz.js — v1.67 决策数据流实时可视化（含 phaseFreq + 构造式诊断）
  *
  * 把"玩家信号 → stress 分解贡献 → 决策输出"三段管道用 SVG（连接线/节点）
  * + Canvas（粒子光流）+ HTML 详情区 + 时间序列 sparkline 渲染成炫酷可视面板。
@@ -41,7 +41,7 @@ import { t } from './i18n/i18n.js';
  * 让 DFV chip on 函数与 CHIP_DEFS 表唯一同源——未来新增 chip 只改 CHIP_DEFS 不改 DFV。
  * 每个 chip 高亮时 title 自动写 reason + 数值，治理"灯亮但无来源"。
  * conflicts 数组渲染在 chip 区底部一行，承认跨维度信号冲突。 */
-import { resolveIntent as _dfvResolveIntent, isSignalOverridden as _dfvIsSignalOverridden } from './derivation/intentResolver.js';
+import { resolveIntent as _dfvResolveIntent, isSignalOverridden as _dfvIsSignalOverridden, formatIntentTrace } from './derivation/intentResolver.js';
 import {
     deriveChipsFromCtx as _dfvDeriveChips,
     buildChipCtxFromInsight as _dfvBuildChipCtx,
@@ -146,8 +146,66 @@ const TARGET_TIP = {
     novelty:               '新奇度（novelty）= (bored?0.45:0) + stress×0.25 + session/80 − recoveryNeed×0.2',
 };
 
-const STRESS_TIP = '压力（stress）— delight + 5 派生分量加权合成 [0,1]，DFV 中央球大小映射；hover 决策动态可见 breakdown';
-const INTENT_TIP = '意图（spawnIntent）— intentResolver 根据 stress + 5 hints + delight + sessionArc 选出 harvest/relief/engage/flow/sprint/pressure/maintain 之一';
+const STRESS_TIP = '压力（stress）— 24 项基础分量求和 + 10 步后置调制（含 phaseFreq→pressurePhase，不改 stress 标量）→ normalize [0,1]；中央球映射 stressLevel；hover 决策动态可见 breakdown';
+const INTENT_TIP = '意图 — intentResolver 表驱动（pb_chase_pressure 102 > relief 100 > delight_starved 95 > … > maintain 0）；spawnIntent 为下游消费字段，与 rule id 可能不同（如 delight_starved→relief）';
+
+/** resolveIntent winner rule id → 中文（与 INTENT_RULES 同源） */
+const INTENT_RULE_CN = {
+    pb_chase_pressure: 'PB追击加压',
+    relief: '挫败救济',
+    delight_starved: '爽感饥渴',
+    engage: 'AFK召回',
+    harvest: '收割机会',
+    pressure: 'B类挑战加压',
+    sprint: '渐紧过渡',
+    flow: '心流释放',
+    maintain: '中性维持',
+};
+
+const PRESSURE_PHASE_CN = { low: '低压', mid: '中压', high: '高压' };
+
+const CONSTRUCT_KIND_CN = {
+    completer: 'C1补全',
+    setup: 'C2造势',
+    order: 'C3顺序锚',
+};
+
+const CONSTRUCT_KIND_COLOR = {
+    completer: '#22d3ee',
+    setup: '#a78bfa',
+    order: '#f59e0b',
+};
+
+/** sparkline：pressurePhase 编码 low=0 mid=0.5 high=1 */
+function _pressurePhaseToSpark(phase) {
+    if (phase === 'low') return 0;
+    if (phase === 'high') return 1;
+    if (phase === 'mid') return 0.5;
+    return NaN;
+}
+
+/** 从 resolveIntent 结果取展示用 reason（与 intentResolver.reason 同源） */
+function _dfvIntentReasonFromResolved(resolved, profile) {
+    if (!resolved?.trace?.length) return null;
+    const winner = resolved.trace.find((t) => t.isWinner);
+    if (winner?.reason) return winner.reason;
+    return null;
+}
+
+function _dfvResolveIntentFromInsight(insight) {
+    if (!insight?._intentInputs) return null;
+    const layer1 = insight.spawnDiagnostics?.layer1 ?? {};
+    return _dfvResolveIntent({
+        ...insight._intentInputs,
+        geometry: {
+            nearFullLines: layer1.nearFullLines ?? 0,
+            pcSetup: layer1.pcSetup ?? 0,
+            boardFill: layer1.fill ?? insight.boardFill ?? 0,
+            contiguousRegions: layer1.contiguousRegions ?? 0,
+            concaveCorners: layer1.concaveCorners ?? 0,
+        },
+    });
+}
 
 /** 决策输出节点定义（右列）spawnIntent 颜色映射（与 stressMeter 叙事同口径） */
 const SPAWN_INTENT_COLOR = {
@@ -295,6 +353,10 @@ const HINT_CN = {
     orderRigor:      '顺序刚性',
     diversityBoost:  '多样性',
     comboChain:      '连击链',
+    pressurePhase:   '压力阶段',
+    orderSolutionBudget: '解算预算',
+    phaseHighPoolBoost: '高压块加权',
+    phaseLowPoolClearBoost: '低压清屏加权',
     pacingPhase:     '松紧期',
     rhythmPhase:     '节奏相位',
     sessionArc:      '会话弧线',
@@ -312,6 +374,10 @@ const HINT_SHORT_CN = {
     orderRigor: '刚性',
     diversityBoost: '多样',
     comboChain: '连击',
+    pressurePhase: '阶段',
+    orderSolutionBudget: '预算',
+    phaseHighPoolBoost: '高压',
+    phaseLowPoolClearBoost: '清屏',
     pacingPhase: '松紧',
     rhythmPhase: '相位',
     sessionArc: '弧线',
@@ -324,6 +390,10 @@ const HINT_SHORT_CN = {
 };
 
 const HINT_TIP = {
+    pressurePhase: 'v1.66 phaseFreq：raw stress + boardFill → low/mid/high；驱动形状池预加权、orderSolutionBudget、构造式 C1/C2/C3 门控。',
+    orderSolutionBudget: '高压三连解评估步数上限；修复高 fill 截断导致顺序过滤静默跳过。',
+    phaseHighPoolBoost: '高压：cells≥phaseLargeCells 的大块 augmentPool 额外加权。',
+    phaseLowPoolClearBoost: '低压：清屏/近满线候选 augmentPool 额外加权（与 clearGuarantee 协同）。',
     pacingPhase: '松紧期：玩家体验节奏的张弛状态，影响压力调节。',
     rhythmPhase: '节奏相位：setup/payoff/neutral，决定当前更偏搭建还是兑现。',
     sessionArc: '会话弧线：warmup/peak/cooldown，控制局内阶段感。',
@@ -334,7 +404,7 @@ const HINT_TIP = {
 
 /** 压力驱动策略分量（基于 adaptiveSpawn spawnHints 实际字段） */
 const STRATEGY_COMPONENT_DEFS = [
-    { key: 'clearGuarantee', label: '保消', color: '#22d3ee', norm: (v) => Number.isFinite(v) ? _clamp(v / 3, 0, 1) : 0.2, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
+    { key: 'clearGuarantee', label: '保消', color: '#22d3ee', norm: (v) => Number.isFinite(v) ? _clamp(v / 2, 0, 1) : 0.2, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
     { key: 'sizePreference', label: '尺寸', color: '#a78bfa', norm: (v) => Number.isFinite(v) ? Math.min(1, Math.abs(v)) : 0.15, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
     { key: 'orderRigor', label: '刚性', color: '#f59e0b', norm: (v) => Number.isFinite(v) ? _clamp(v, 0, 1) : 0.1, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
     { key: 'diversityBoost', label: '多样', color: '#10b981', norm: (v) => Number.isFinite(v) ? _clamp(v, 0, 1) : 0.08, display: (v) => Number.isFinite(v) ? v.toFixed(2) : '—' },
@@ -535,6 +605,8 @@ const DRIVER_NODE_PATHS = {
      * 调度参数 iconBonusTarget 强化（×5 倍 iconBonus 得分）+ 染色阶段
      * monoNearFullLineColorWeights 双向锁定颜色匹配。 */
     monoFlush:   { strategy: ['clearGuarantee'],                            targets: ['clearOpportunity'],                                  schedule: ['iconBonusTarget'],                         intent: false },
+    /* v1.67：构造块仍走 clearSeats，topDriver 多为 clear/multiClear；追溯时点亮保消+消机 */
+    constructed: { strategy: ['clearGuarantee'],                            targets: ['clearOpportunity'],                                  schedule: [],                                          intent: false },
 };
 
 /* v1.59.15：内部安全 clamp（与 _clamp 同语义，常量定义时 _clamp 尚未引入作用域，用本地副本） */
@@ -692,6 +764,7 @@ const SPARK_LABEL_CN = {
     clearRate: '消行率',
     boardFill: '占盘',
     frust:     '挫败',
+    pressurePhase: '压力阶段',
 };
 
 /** stressBreakdown key → 视觉左列锚定的源节点 key（粗略归类） */
@@ -741,6 +814,8 @@ const SPARK_SERIES = [
     { key: 'clearRate',  label: 'clearRate', color: '#10b981', range: [0, 0.6],    format: (v) => v.toFixed(2) },
     { key: 'boardFill',  label: 'boardFill', color: '#fbbf24', range: [0, 1],      format: (v) => v.toFixed(2) },
     { key: 'frust',      label: 'frust',     color: '#ef4444', range: [0, 8],      format: (v) => Math.round(v).toString() },
+    { key: 'pressurePhase', label: 'pressurePhase', color: '#06b6d4', range: [0, 1],
+      format: (v) => (v <= 0.2 ? '低' : v >= 0.8 ? '高' : '中') },
 ];
 const SPARK_BUFFER_LEN = 240;
 
@@ -1272,7 +1347,10 @@ class DecisionFlowViz {
             flowStepSignalTip: _ti('dfv.flowStep.signalTip', '10 个玩家信号节点（左列）：技能 / 动量 / 心流 / 阶段 / 占盘 / 消行率 等'),
             flowStepStressTip: _ti('dfv.flowStep.stressTip', '17+ 信号经 adaptiveSpawn 聚合为单一 stress（中央球，[0,1] 归一化）'),
             flowStepStrategyTip: _ti('dfv.flowStep.strategyTip', 'stress + 上下文分解为 5 个策略分量：保消 / 尺寸 / 刚性 / 多样 / 连击'),
-            flowStepIntentTip: _ti('dfv.flowStep.intentTip', 'resolveIntent 综合策略选定本帧出块意图：harvest / relief / engage / flow / sprint / pressure / maintain'),
+            flowStepIntentTip: _ti('dfv.flowStep.intentTip', '派生⑤：resolveIntent 表（pb_chase 102 > relief 100 > delight_starved 95 …）；出块含 v1.66 pressurePhase + v1.67 构造式'),
+            secPhase: _ti('dfv.sec.phase', '压力阶段 · 构造式'),
+            secPhaseSub: _ti('dfv.sec.phaseSub', 'phaseFreq + constructive'),
+            summaryEmpty: _ti('dfv.summary.empty', '等待首次出块…'),
             footRelief:   _ti('dfv.foot.relief', '救济'),
             footPressure: _ti('dfv.foot.pressure', '加压'),
             footPulseHint:_ti('dfv.foot.pulseHint', '脉冲=新 spawn'),
@@ -1373,8 +1451,13 @@ class DecisionFlowViz {
                                 <span class="dfv-intent-title">${T.secIntent}</span>
                                 <span class="dfv-intent-pill" id="dfv-intent-pill">${T.empty}</span>
                                 <span class="dfv-intent-cn" id="dfv-intent-cn">${T.empty}</span>
+                                <span class="dfv-intent-rule" id="dfv-intent-rule"></span>
                                 <span class="dfv-sec-sub dfv-intent-reason" id="dfv-intent-reason">${T.empty}</span>
                             </div>
+                        </div>
+                        <div class="dfv-section dfv-section--phase">
+                            <div class="dfv-sec-title">${T.secPhase} <span class="dfv-sec-sub">${T.secPhaseSub}</span></div>
+                            <ul class="dfv-list dfv-list--two-col" id="dfv-phase-list"></ul>
                         </div>
                         <div class="dfv-section">
                             <div class="dfv-sec-title">${T.secContrib} <span class="dfv-sec-sub">${T.secContribSub}</span></div>
@@ -1404,7 +1487,7 @@ class DecisionFlowViz {
                     <span class="dfv-legend"><span class="dfv-dot dfv-dot--pos"></span>${T.footPressure}</span>
                     <span class="dfv-legend">${T.footPulseHint}</span>
                     <span class="dfv-legend dfv-legend--covary" title="${T.footCovaryHint ?? '虚线=派生共变·非因果'}：纵轴 stress / 5 向量 / intent 是 adaptiveSpawn 的 3 个并列输出，从同一底层信号集派生，彼此之间无直接读取——虚线连线表达共时共变，非因果传递"><span class="dfv-dot dfv-dot--covary"></span>${T.footCovaryHint ?? '虚线=派生共变·非因果'}</span>
-                    <span class="dfv-legend dfv-legend--ver">v1.60.41</span>
+                    <span class="dfv-legend dfv-legend--ver">v1.67</span>
                 </div>
                 <div class="dfv-foot dfv-foot--reason" title="出块行 3 个 chosen 节点上方的 reason 标签含义（hover 各项查看完整解释）">
                     <span class="dfv-legend dfv-legend--reason-title">出块原因：</span>
@@ -1467,6 +1550,7 @@ class DecisionFlowViz {
             shape:      host.querySelector('#dfv-shape-list'),
             target:     host.querySelector('#dfv-target-list'),
             hints:      host.querySelector('#dfv-hints-list'),
+            phase:      host.querySelector('#dfv-phase-list'),
             /* v1.59.20：顶部决策摘要叙事条（A+B 的 B 部分） */
             summary:    host.querySelector('#dfv-decision-summary'),
         };
@@ -2216,10 +2300,19 @@ class DecisionFlowViz {
                 }, group);
                 dupBadge.textContent = '⧈';
 
+                /* v1.67：构造式 badge — meta.constructed ∈ {completer, setup} */
+                const constructBadge = this._svgEl('text', {
+                    x: x - chosenR + 1, y: y + chosenR - 2,
+                    'text-anchor': 'middle',
+                    class: 'dfv-chosen-node-construct-badge',
+                    display: 'none',
+                }, group);
+                constructBadge.textContent = '构';
+
                 this._geom.set(`chosen:${idx}`, { x, y, r: chosenR });
                 this._chosenShapeEls.push({
                     idx, pos: n, baseR: chosenR, bg, glow, gridG, idText, reasonText, driverText, titleEl,
-                    injectBadge, dupBadge,
+                    injectBadge, dupBadge, constructBadge,
                     incoming,
                 });
             }
@@ -2534,12 +2627,15 @@ class DecisionFlowViz {
 
         /* 6) sparkline 采样 + 渲染：active 档 30fps 时全部走，idle 档自然降到 6fps */
         const stressVal = _dfvStress(insight);
+        const phaseRaw = insight?.spawnHints?.pressurePhase
+            ?? insight?.spawnDiagnostics?.pressurePhase;
         this._sampleSeries({
             stress: Number.isFinite(stressVal) ? stressVal : NaN,
             momentum: Number(ctx.profile.momentum) || 0,
             clearRate: liveClearRate,
             boardFill: liveBoardFill,
             frust: Number(ctx.profile.frustrationLevel) || 0,
+            pressurePhase: _pressurePhaseToSpark(phaseRaw),
         });
         this._frameCount++;
         /* v1.60.42 GPU 优化：sparkline 降频 %2→%6（active 档 30fps 时 ≈5Hz）。
@@ -3081,6 +3177,7 @@ class DecisionFlowViz {
                 if (slot.injectBadge) _setAttrIfChanged(slot.injectBadge, 'display', 'none');
                 /* v1.60.21：空 slot 同时隐藏 ⧈ dup badge */
                 if (slot.dupBadge) _setAttrIfChanged(slot.dupBadge, 'display', 'none');
+                if (slot.constructBadge) _setAttrIfChanged(slot.constructBadge, 'display', 'none');
                 continue;
             }
             const color = SHAPE_CATEGORY_COLOR[meta.category] || '#7dd3fc';
@@ -3197,10 +3294,13 @@ class DecisionFlowViz {
              * 碎片=空白 4-连通块数（越多越割裂）、凹角=凹角陷阱数（越多越难填）、占盘=实时填充率。
              * 数据取 insight.spawnDiagnostics.layer1（由 snapshotInsightGeometry 落入），无则整行省略。 */
             const _l1 = insight?.spawnDiagnostics?.layer1;
-            const _geoCtxLine = _l1 && (Number.isFinite(_l1.contiguousRegions) || Number.isFinite(_l1.concaveCorners))
-                ? `\n盘面几何：碎片 ${Number.isFinite(_l1.contiguousRegions) ? _l1.contiguousRegions : '-'} 块 · 凹角 ${Number.isFinite(_l1.concaveCorners) ? _l1.concaveCorners : '-'} · 占盘 ${typeof _l1.fill === 'number' ? (_l1.fill * 100).toFixed(0) + '%' : '-'}`
+            const _geoCtxLine = _l1
+                ? `\n盘面几何：占盘 ${typeof _l1.fill === 'number' ? (_l1.fill * 100).toFixed(0) + '%' : '-'} · 近满 ${_l1.nearFullLines ?? '-'} · 空洞 ${_l1.holes ?? '-'} · 多消候选 ${_l1.multiClearCandidates ?? '-'} · 碎片 ${Number.isFinite(_l1.contiguousRegions) ? _l1.contiguousRegions : '-'} · 凹角 ${Number.isFinite(_l1.concaveCorners) ? _l1.concaveCorners : '-'}`
                 : '';
-            const titleStr = `${meta.id || '?'} · ${tip}${driverFull}${_geoCtxLine}${injectExtra}${dupExtra}`;
+            const _consLine = meta.constructed
+                ? `\n构造式：${CONSTRUCT_KIND_CN[meta.constructed] || meta.constructed}（v1.67 几何预扫描占席/加权）`
+                : '';
+            const titleStr = `${meta.id || '?'} · ${tip}${driverFull}${_geoCtxLine}${_consLine}${injectExtra}${dupExtra}`;
             if (slot.titleEl && slot.titleEl.textContent !== titleStr) {
                 slot.titleEl.textContent = titleStr;
             }
@@ -3230,6 +3330,17 @@ class DecisionFlowViz {
                     _setAttrIfChanged(slot.dupBadge, 'fill-opacity', dupRole === 'main' ? '0.35' : '1.0');
                 } else {
                     _setAttrIfChanged(slot.dupBadge, 'display', 'none');
+                }
+            }
+            if (slot.constructBadge) {
+                const ck = meta.constructed;
+                if (ck === 'completer' || ck === 'setup') {
+                    const cColor = CONSTRUCT_KIND_COLOR[ck] || '#22d3ee';
+                    _setAttrIfChanged(slot.constructBadge, 'display', 'inline');
+                    _setAttrIfChanged(slot.constructBadge, 'fill', cColor);
+                    slot.constructBadge.textContent = ck === 'setup' ? '势' : '构';
+                } else {
+                    _setAttrIfChanged(slot.constructBadge, 'display', 'none');
                 }
             }
         }
@@ -3734,38 +3845,40 @@ class DecisionFlowViz {
         const els = this._detailEls;
         if (!els) return;
         const hints = insight?.spawnHints || {};
-        const intent = hints.spawnIntent ?? insight?.spawnIntent ?? '—';
-        const intentColor = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
+        const _intentResolved = _dfvResolveIntentFromInsight(insight);
+        const spawnIntent = _intentResolved?.spawnIntent
+            ?? hints.spawnIntent ?? insight?.spawnIntent ?? 'maintain';
+        const ruleId = _intentResolved?.intent ?? spawnIntent;
+        const intentColor = SPAWN_INTENT_COLOR[spawnIntent] || '#94a3b8';
 
-        /* —— 意图卡片 + Reason 推导（v1.51.4：i18n） —— */
-        els.intentPill.textContent = intent;
+        /* —— 意图卡片 + Reason（v1.67：与 intentResolver trace 同源） —— */
+        els.intentPill.textContent = spawnIntent;
         els.intentPill.style.background = `${intentColor}22`;
         els.intentPill.style.color = intentColor;
         els.intentPill.style.borderColor = `${intentColor}66`;
-        els.intentCn.textContent = _ti(`dfv.intent.${intent}`, SPAWN_INTENT_DESC[intent] || '');
+        els.intentPill.title = INTENT_TIP;
+        const intentCn = _ti(`dfv.intent.${spawnIntent}`, SPAWN_INTENT_DESC[spawnIntent] || spawnIntent);
+        els.intentCn.textContent = intentCn;
+        const ruleCn = _ti(`dfv.rule.${ruleId}`, INTENT_RULE_CN[ruleId] || ruleId);
+        if (els.intentRule) {
+            els.intentRule.textContent = ruleId !== spawnIntent ? `规则 ${ruleCn}` : '';
+            els.intentRule.title = _intentResolved ? formatIntentTrace(_intentResolved) : '';
+        }
 
-        const sessionPhase = profile?.sessionPhase;
-        const momentum = Number(profile?.momentum) || 0;
-        const frust = Number(profile?.frustrationLevel) || 0;
-        const endSessionDistressActive = sessionPhase === 'late' && momentum <= -0.30;
-        const frustrationCritical = frust >= 5;
-        const forceReliefIntent = endSessionDistressActive || frustrationCritical;
-        const lateCollapse = endSessionDistressActive;
-        /* v1.58.3 起：chip 渲染走 deriveChipsFromCtx + buildChipCtxFromInsight，
-         * 之前手写的 personalizationApplied / winbackActive / milestoneHit / afkEngage / onboarding
-         * 临时变量不再被 flags 渲染消费，已删除——CHIP_DEFS 在 reducer 内统一派生。 */
+        const traceReason = _dfvIntentReasonFromResolved(_intentResolved, profile);
+        if (traceReason) {
+            els.intentReason.textContent = traceReason;
+            els.intentReason.title = _intentResolved ? formatIntentTrace(_intentResolved) : '';
+        } else {
+            let reasonFb = _ti('dfv.reason.default', '常规决策');
+            if (spawnIntent === 'engage') reasonFb = _ti('dfv.reason.engage', '焦虑/挫败叠加 → 介入引导');
+            else if (spawnIntent === 'flow') reasonFb = _ti('dfv.reason.flow', '心流稳定 → 维持');
+            else if (spawnIntent === 'sprint') reasonFb = _ti('dfv.reason.sprint', 'stress ∈ [0.45, 0.55) 渐紧过渡');
+            else if (spawnIntent === 'harvest') reasonFb = _ti('dfv.reason.harvest', '盘面具备消行机会');
+            els.intentReason.textContent = reasonFb;
+        }
 
-        let reasonKey = 'dfv.reason.default';
-        let reasonFb = '常规决策';
-        if (forceReliefIntent) {
-            reasonKey = lateCollapse ? 'dfv.reason.lateCollapse' : 'dfv.reason.frustHigh';
-            reasonFb = lateCollapse ? '末段崩盘 → 强制 relief' : '高挫败 → 强制 relief';
-        } else if (intent === 'pressure') { reasonKey = 'dfv.reason.pressure'; reasonFb = '动量良好，可加压'; }
-        else if (intent === 'engage')   { reasonKey = 'dfv.reason.engage';   reasonFb = '焦虑/挫败叠加 → 介入引导'; }
-        else if (intent === 'flow')     { reasonKey = 'dfv.reason.flow';     reasonFb = '心流稳定 → 维持'; }
-        else if (intent === 'sprint')   { reasonKey = 'dfv.reason.sprint';   reasonFb = 'stress 进入 [0.45, 0.55) 渐紧过渡带（v1.57.1 P3）'; }
-        else if (intent === 'harvest')  { reasonKey = 'dfv.reason.harvest';  reasonFb = '盘面具备消行机会'; }
-        els.intentReason.textContent = _ti(reasonKey, reasonFb);
+        this._renderPhaseConstruct(insight, hints);
 
         /* —— stress contributors top 4 ——
          * v1.51.3：改用 stressMeter.summarizeContributors 复用其 skip 集合，
@@ -3793,26 +3906,13 @@ class DecisionFlowViz {
          * v1.58 §rewire：把硬编码替换为 `derivation/intentResolver.isSignalOverridden`
          * —— 优先级矩阵从 INTENT_RULES 表查询，新增 intent/signal 自动获得覆盖判定。
          * 行为完全等价（contractTest + property 锁定）；overridden 仍接 CSS 半透明 + 删除线。 */
-        const _intentResolved = (insight?._intentInputs)
-            ? _dfvResolveIntent({
-                ...insight._intentInputs,
-                geometry: {
-                    nearFullLines: insight.spawnDiagnostics?.layer1?.nearFullLines ?? 0,
-                    pcSetup: insight.spawnDiagnostics?.layer1?.pcSetup ?? 0,
-                    boardFill: insight.spawnDiagnostics?.layer1?.fill ?? 0,
-                    // v1.66 P7：客观几何（碎片化 / 凹角陷阱），与 RL state / behaviorContext 同源
-                    contiguousRegions: insight.spawnDiagnostics?.layer1?.contiguousRegions ?? 0,
-                    concaveCorners: insight.spawnDiagnostics?.layer1?.concaveCorners ?? 0,
-                },
-            })
-            : null;
         /* v1.58.3：chip 渲染走 deriveChipsFromCtx + buildChipCtxFromInsight，
          * chip on 函数从 CHIP_DEFS 表唯一派生（与 reducer 同源）。
          * 每个 chip 高亮时 title 自动写"触发源：...具体数值..."。 */
         const chipCtx = _dfvBuildChipCtx(insight, profile);
         const chips = _intentResolved
             ? _dfvDeriveChips(chipCtx, _intentResolved)
-            : _dfvDeriveChips(chipCtx, { intent: intent || 'maintain', overrides: new Set() });
+            : _dfvDeriveChips(chipCtx, { intent: spawnIntent || 'maintain', overrides: new Set() });
         const emptyTxt = _ti('dfv.foot.empty', '—');
         const chipHtml = chips.map((c) => {
             const onCls = c.on ? `dfv-flag--on dfv-flag--${c.kind}` : '';
@@ -3881,11 +3981,15 @@ class DecisionFlowViz {
 
         /* —— spawnHints（关键调度参数；v1.51.4：i18n） —— */
         const hintEntries = [
+            ['pressurePhase', hints.pressurePhase ?? insight?.spawnDiagnostics?.pressurePhase],
             ['clearGuarantee', hints.clearGuarantee],
             ['sizePreference', hints.sizePreference],
             ['orderRigor',     hints.orderRigor],
             ['diversityBoost', hints.diversityBoost],
             ['comboChain',     hints.comboChain],
+            ['orderSolutionBudget', hints.orderSolutionBudget],
+            ['phaseHighPoolBoost', hints.phaseHighPoolBoost],
+            ['phaseLowPoolClearBoost', hints.phaseLowPoolClearBoost],
             ['pacingPhase',    profile?.pacingPhase],
             ['rhythmPhase',    hints.rhythmPhase],
             ['sessionArc',     hints.sessionArc],
@@ -3894,6 +3998,7 @@ class DecisionFlowViz {
         /* v1.51.9：hint 的 key → i18n 中文标签；value 若为 enum string，亦走 dfv.val.<ns>.<v>
          * 翻译，让「松紧期 / 节奏相位 / 会话弧线 / 愉悦模式」显示中文枚举（如 紧绷 / 兑现 / 巅峰）。 */
         const HINT_VALUE_NS = {
+            pressurePhase: 'pressurePhase',
             pacingPhase: 'pacing',
             rhythmPhase: 'rhythm',
             sessionArc:  'arc',
@@ -3908,7 +4013,7 @@ class DecisionFlowViz {
          * 修复：在列表第一项插入高亮的"主导意图"标签（与 dfv.reason.* 同源 i18n），
          * 让玩家明白下面的 hints 是这个主导意图下的"各维度状态描述"，而不是 7 个并列决定。
          * 与 dfv-li-anchor 样式配套，颜色随 intent 变化（同 SPAWN_INTENT_COLOR 色板）。 */
-        const intentForAnchor = intent || 'maintain';
+        const intentForAnchor = spawnIntent || 'maintain';
         const intentLabel = _ti(`dfv.intent.${intentForAnchor}`, SPAWN_INTENT_DESC[intentForAnchor] || intentForAnchor);
         const intentAnchorTitle = _ti('dfv.hint.anchorTitle', '下方调香项是当前主导意图下的多维度状态描述，不是 N 个并列决定');
         const intentAnchorLabel = _ti('dfv.hint.anchorLabel', '当前主导意图');
@@ -3937,8 +4042,50 @@ class DecisionFlowViz {
          * 用一句自然语言把"压力 → 意图 → 偏好 → 3 块"翻译给玩家，与左侧球状图
          * 形成"视觉链路 + 文字叙事"双层解释，彻底消除"看图不懂"的认知 gap。 */
         if (els.summary) {
-            this._renderDecisionSummary(els.summary, insight, profile, intent);
+            this._renderDecisionSummary(els.summary, insight, profile, spawnIntent, _intentResolved);
         }
+    }
+
+    /**
+     * v1.67：压力阶段（phaseFreq）+ 构造式诊断（constructive）右栏专段。
+     */
+    _renderPhaseConstruct(insight, hints) {
+        const host = this._detailEls?.phase;
+        if (!host) return;
+        const emptyTxt = _ti('dfv.foot.empty', '—');
+        const diag = insight?.spawnDiagnostics;
+        const phase = hints?.pressurePhase ?? diag?.pressurePhase;
+        const cons = diag?.constructive;
+        const rows = [];
+
+        if (typeof phase === 'string') {
+            const phaseCn = _ti(`dfv.val.pressurePhase.${phase}`, PRESSURE_PHASE_CN[phase] || phase);
+            rows.push(['pressurePhase', phaseCn, phase]);
+        }
+        if (cons && typeof cons === 'object') {
+            const kind = cons.kind;
+            const kindCn = kind ? _ti(`dfv.construct.kind.${kind}`, CONSTRUCT_KIND_CN[kind] || kind) : '—';
+            rows.push(['constructKind', kindCn, kind ?? 'null']);
+            rows.push(['constructDelivered', cons.delivered ? _ti('dfv.val.yes', '是') : _ti('dfv.val.no', '否'), cons.delivered]);
+            if (cons.cooldownActive) rows.push(['constructCooldown', _ti('dfv.construct.cooldown', '冷却中'), true]);
+            if (cons.fromPending) rows.push(['constructPending', _ti('dfv.construct.fromPending', '续接 pending'), true]);
+            if (Number(cons.completerCount) > 0) rows.push(['completerCount', String(cons.completerCount), cons.completerCount]);
+            if (Number(cons.setupCount) > 0) rows.push(['setupCount', String(cons.setupCount), cons.setupCount]);
+        }
+        if (diag?.lowClearDelivered === true) {
+            rows.push(['lowClearDelivered', _ti('dfv.phase.lowClearOk', '低压清屏达成'), true]);
+        }
+        if (diag?.highOrderApplied === true) {
+            rows.push(['highOrderApplied', _ti('dfv.phase.highOrderOk', '高压顺序过滤生效'), true]);
+        }
+
+        host.innerHTML = rows.length === 0
+            ? `<li class="dfv-list-empty">${emptyTxt}</li>`
+            : rows.map(([k, dispV, raw]) => {
+                const fullLabel = _ti(`dfv.phase.${k}`, k);
+                const tip = _ti(`dfv.phase.tip.${k}`, HINT_TIP[k] || '') + `\n当前：${dispV}`;
+                return `<li title="${_escapeAttr(tip)}"><span class="dfv-li-key">${fullLabel}</span><span class="dfv-li-val">${dispV}</span></li>`;
+            }).join('');
     }
 
     /**
@@ -3955,7 +4102,7 @@ class DecisionFlowViz {
      *   - 偏好 top1-2: insight.spawnHints 五向量 + shapeWeights top1（取数值最大的非 0 项）
      *   - 3 块 topDriver: insight.spawnDiagnostics.chosen[].topDriver.label
      */
-    _renderDecisionSummary(host, insight, profile, intent) {
+    _renderDecisionSummary(host, insight, profile, intent, intentResolved) {
         if (!host || !insight) return;
         const stressLv = Number.isFinite(insight.stressLevel) ? insight.stressLevel : null;
         const diag = insight.spawnDiagnostics;
@@ -3979,8 +4126,19 @@ class DecisionFlowViz {
         /* —— 2) intent 档（intent + 中文描述） —— */
         const intentColor = SPAWN_INTENT_COLOR[intent] || '#94a3b8';
         const intentCn = _ti(`dfv.intent.${intent}`, SPAWN_INTENT_DESC[intent] || intent);
+        const ruleId = intentResolved?.intent;
+        const ruleSuffix = ruleId && ruleId !== intent
+            ? ` · ${_ti(`dfv.rule.${ruleId}`, INTENT_RULE_CN[ruleId] || ruleId)}`
+            : '';
+        const phase = insight?.spawnHints?.pressurePhase ?? insight?.spawnDiagnostics?.pressurePhase;
+        const phaseCn = typeof phase === 'string'
+            ? _ti(`dfv.val.pressurePhase.${phase}`, PRESSURE_PHASE_CN[phase] || phase)
+            : '';
+        const phaseTxt = phaseCn
+            ? `<span class="dfv-summary-seg dfv-summary-seg--phase" style="color:#06b6d4">${phaseCn}</span>`
+            : '';
         const intentTxt = intent
-            ? `<span class="dfv-summary-seg dfv-summary-seg--intent" style="color:${intentColor}">${intent}（${intentCn}）</span>`
+            ? `<span class="dfv-summary-seg dfv-summary-seg--intent" style="color:${intentColor}">${intent}（${intentCn}）${ruleSuffix}</span>`
             : '';
 
         /* —— 3) 偏好 top1-2（spawnHints 五向量 + shapeWeights top1） ——
@@ -4022,8 +4180,14 @@ class DecisionFlowViz {
         const arrow = '<span class="dfv-summary-arrow">→</span>';
         const segs = [];
         if (stressTxt) segs.push(stressTxt);
+        if (phaseTxt) segs.push(phaseTxt);
         if (intentTxt) segs.push(intentTxt);
         if (prefTxt) segs.push(prefTxt);
+        const cons = insight?.spawnDiagnostics?.constructive;
+        if (cons?.kind) {
+            const ck = _ti(`dfv.construct.kind.${cons.kind}`, CONSTRUCT_KIND_CN[cons.kind] || cons.kind);
+            segs.push(`<span class="dfv-summary-seg" style="color:${CONSTRUCT_KIND_COLOR[cons.kind] || '#22d3ee'}">${ck}${cons.delivered ? '✓' : ''}</span>`);
+        }
         const left = segs.join(sep);
         const html = driverTxt ? `${left} ${arrow} ${driverTxt}` : left;
         const tip = `决策摘要：[${stressBand} ${stressLv != null ? Math.round(stressLv * 100) + '%' : ''}] 触发 [${intent || '—'}] 意图，` +
@@ -4489,6 +4653,7 @@ class DecisionFlowViz {
     flex: 0 0 auto;
 }
 .dfv-intent-cn { color: #cbd5e1; font-size: 10px; flex: 0 0 auto; }
+.dfv-intent-rule { color: #94a3b8; font-size: 9px; flex: 0 0 auto; font-family: var(--mono, monospace); }
 .dfv-intent-reason {
     margin-left: auto;
     overflow: hidden;
@@ -5304,12 +5469,16 @@ export const __dfvTestables = {
     DFV_TRAIL_COUNT,
     setAttrIfChanged: _setAttrIfChanged,
     createInstance: () => new DecisionFlowViz(),
+    pressurePhaseToSpark: _pressurePhaseToSpark,
+    intentReasonFromResolved: _dfvIntentReasonFromResolved,
+    resolveIntentFromInsight: _dfvResolveIntentFromInsight,
     /* v1.60.13：暴露 driver 路径表 + 派生节点定义给 tests/decisionFlowVizDriverPaths.test.js，
      * 用于锁定"每个 chosenMeta.topDriver.key 都有显式 path"等不变式，防止以后回归。 */
     DRIVER_NODE_PATHS,
     STRATEGY_COMPONENT_DEFS,
     SPAWN_TARGET_DEFS,
     SCHEDULE_PARAM_DEFS,
+    clearGuaranteeNorm: STRATEGY_COMPONENT_DEFS.find((d) => d.key === 'clearGuarantee')?.norm,
 };
 
 export function initDecisionFlowViz(game) {

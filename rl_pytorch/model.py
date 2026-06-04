@@ -11,7 +11,7 @@ v5 核心改动（不收敛根因修复）：
     topology_aux_head:  回归落子后的拓扑分量
   - clear_pred_head（v4 保留）：4 类消行预测
 
-state=187 (48 scalars[25 结构+19 颜色+4 单步难度] + 64 grid + 75 dock), action=15, phi=202。
+state=190 (51 scalars[含 3 策略 one-hot] + 64 grid + 75 dock), action=15, phi=205。
 （25 结构标量末 3 维 = heightStd + 客观几何 contiguousRegions/concaveCorners）
 段切分全部由 FEATURE_ENCODING 维度推导（_SCALAR_DIM/_GRID_FLAT），扩维自动生效。
 """

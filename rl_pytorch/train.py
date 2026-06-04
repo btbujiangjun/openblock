@@ -64,6 +64,7 @@ from .model import (
     SharedPolicyValueNet,
 )
 from .simulator import OpenBlockSimulator, board_potential, _BOARD_POT_NORM, _SURVIVAL_NORM
+from .strategy_features import sample_rl_training_strategy_id
 
 # ---------------------------------------------------------------------------
 # 多进程 worker（CPU 推理采集，GPU 专做更新）
@@ -719,7 +720,7 @@ def _lookahead_q_values(
     for i, a in enumerate(legal):
         r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
         rewards[i] = r
-        next_states[i] = extract_state_features(sim.grid, sim.dock)
+        next_states[i] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
         sim.restore_state(saved)
 
     with torch.no_grad():
@@ -768,7 +769,7 @@ def _beam_2ply_q_values(
     next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
     for i, a in enumerate(legal):
         r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
-        next_states[i] = extract_state_features(sim.grid, sim.dock)
+        next_states[i] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
         sim.restore_state(saved)
 
     with torch.no_grad():
@@ -801,7 +802,7 @@ def _beam_2ply_q_values(
         ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
         for j, a2 in enumerate(legal2):
             r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
-            ns2[j] = extract_state_features(sim.grid, sim.dock)
+            ns2[j] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
             sim.restore_state(saved2)
 
         ply2_batches.append((int(i), r1, r2_arr, ns2))
@@ -860,7 +861,7 @@ def _beam_3ply_q_values(
     next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
     for i, a in enumerate(legal):
         r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
-        next_states[i] = extract_state_features(sim.grid, sim.dock)
+        next_states[i] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
         sim.restore_state(saved)
 
     with torch.no_grad():
@@ -893,7 +894,7 @@ def _beam_3ply_q_values(
         ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
         for j, a2 in enumerate(legal2):
             r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
-            ns2[j] = extract_state_features(sim.grid, sim.dock)
+            ns2[j] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
             sim.restore_state(saved2)
 
         ply2_best[int(i)] = (r1, r2_arr, ns2)
@@ -960,7 +961,7 @@ def _beam_3ply_q_values(
             ns3 = np.empty((n3, STATE_FEATURE_DIM), dtype=np.float32)
             for k, a3 in enumerate(legal3):
                 r3_arr[k] = float(sim.step(a3["block_idx"], a3["gx"], a3["gy"]))
-                ns3[k] = extract_state_features(sim.grid, sim.dock)
+                ns3[k] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
                 sim.restore_state(saved3)
             ply3_batches.append((i, r1, r2_val, r3_arr, ns3))
             sim.restore_state(saved2)
@@ -1052,7 +1053,8 @@ def collect_episode(
     新增参数 win_threshold_override：自适应课程时由 train_loop 动态传入，
     覆盖基于 global_ep 的线性计算结果。
     """
-    sim = OpenBlockSimulator("normal")
+    ep_strategy = sample_rl_training_strategy_id()
+    sim = OpenBlockSimulator(ep_strategy)
     if win_threshold_override is not None:
         sim.win_score_threshold = win_threshold_override
     else:

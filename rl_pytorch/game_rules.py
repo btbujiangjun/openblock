@@ -22,6 +22,13 @@ def training_strategy_id() -> str:
     return str(_DATA.get("rlTrainingStrategyId") or _DATA.get("defaultStrategyId") or "normal")
 
 
+def rl_training_strategy_ids() -> list[str]:
+    enc = _DATA.get("featureEncoding") or {}
+    rt = _DATA.get("rlTraining") or {}
+    raw = enc.get("strategyIds") or rt.get("strategyIds") or ["easy", "normal", "hard"]
+    return [str(x) for x in raw]
+
+
 def strategy_python(strategy_id: str | None = None) -> dict:
     sid = strategy_id or training_strategy_id()
     raw = _DATA["strategies"][sid]

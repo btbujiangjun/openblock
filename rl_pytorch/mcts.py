@@ -290,7 +290,7 @@ def _simulate(
             leaf_value = spawn_predictor.expected_value(sim, net, device, n_samples=3)
         else:
             with torch.no_grad():
-                s_np = extract_state_features(sim.grid, sim.dock)
+                s_np = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
                 s_t = tensor_to_device(torch.from_numpy(s_np).unsqueeze(0), device)
                 leaf_value = float(net.forward_value(s_t).item())
 
@@ -749,7 +749,7 @@ def _select_leaf_for_batch(
     is_term = sim.is_terminal() or not sim.get_legal_actions()
     if is_term:
         return path, None, True
-    leaf_feat = extract_state_features(sim.grid, sim.dock)
+    leaf_feat = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
     return path, leaf_feat, False
 
 

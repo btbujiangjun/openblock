@@ -173,6 +173,20 @@ export const CHIP_DEFS = Object.freeze([
       on: (c) => !!c.personalizationApplied,
       reason: () => 'personalizationApplied=true（应用了个性化策略层）',
       overrideSignal: null },
+    { id: 'pbChase', label: 'PB追击', kind: 'pos',
+      on: (c) => !!c.intentInputs?.pbChasePressureActive,
+      reason: (c) => {
+          const boost = Number(c.intentInputs?.challengeBoost ?? 0).toFixed(2);
+          return `pbChasePressureActive=true（challengeBoost=${boost}，接近/超越 PB）`;
+      },
+      overrideSignal: 'relief' },
+    { id: 'delightStarved', label: '爽感饥渴', kind: 'neg',
+      on: (c) => !!c.intentInputs?.delightStarved,
+      reason: (c) => {
+          const n = Number(c.intentInputs?.roundsSinceLastDelight) || 0;
+          return `delightStarved=true（连续 ${n} 轮无 multiClear/pcClear/monoFlush）`;
+      },
+      overrideSignal: null },
 ]);
 
 const CHIP_OVERRIDE_TITLE = '信号已激活，但本帧被更高优先级意图覆盖';

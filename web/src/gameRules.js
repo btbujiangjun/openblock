@@ -13,6 +13,20 @@ export const FEATURE_ENCODING = rawRules.featureEncoding;
 export const RL_TRAINING_STRATEGY_ID =
     rawRules.rlTrainingStrategyId || rawRules.defaultStrategyId || 'normal';
 
+const _RL_STRATEGY_IDS =
+    rawRules.featureEncoding?.strategyIds
+    || rawRules.rlTraining?.strategyIds
+    || ['easy', 'normal', 'hard'];
+
+export const RL_TRAINING_STRATEGY_IDS = _RL_STRATEGY_IDS;
+
+/** 训练自博弈：从 rlTraining.strategyIds 均匀随机采样。 */
+export function sampleRlTrainingStrategyId(rng = Math.random) {
+    const ids = RL_TRAINING_STRATEGY_IDS;
+    const i = Math.floor(rng() * ids.length);
+    return ids[Math.min(Math.max(0, i), ids.length - 1)];
+}
+
 /** RL 塑形系数（与 Python 模拟器一致）；缺省字段在 simulator 内按 0 处理 */
 export const RL_REWARD_SHAPING = rawRules.rlRewardShaping || {};
 

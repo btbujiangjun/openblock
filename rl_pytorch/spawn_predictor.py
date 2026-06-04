@@ -207,7 +207,7 @@ class SpawnPredictor:
         若未加载可用检查点，退化为当前确定性 dock 的 V(s)。
         """
         if not self.available:
-            s_np = extract_state_features(sim.grid, sim.dock)
+            s_np = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
             s_t = tensor_to_device(torch.from_numpy(s_np).unsqueeze(0), device)
             with torch.no_grad():
                 return float(policy_net.forward_value(s_t).item())
@@ -224,7 +224,7 @@ class SpawnPredictor:
                 sampled_dock = _build_dock_from_ids([s0, s1, s2], vocab, shape_map)
                 sim.restore_state(saved)
                 _override_sim_dock(sim, sampled_dock)
-                s_np = extract_state_features(sim.grid, sim.dock)
+                s_np = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
                 s_t = tensor_to_device(torch.from_numpy(s_np).unsqueeze(0), device)
                 with torch.no_grad():
                     v = float(policy_net.forward_value(s_t).item())
@@ -234,7 +234,7 @@ class SpawnPredictor:
 
         sim.restore_state(saved)
         if not values:
-            s_np = extract_state_features(sim.grid, sim.dock)
+            s_np = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
             s_t = tensor_to_device(torch.from_numpy(s_np).unsqueeze(0), device)
             with torch.no_grad():
                 return float(policy_net.forward_value(s_t).item())

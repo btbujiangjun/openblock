@@ -75,8 +75,8 @@ describe('v1.60.13 — DRIVER_NODE_PATHS 不变式', () => {
         }
     });
 
-    it('P1/P2 与 duplicate / clear driver key 在 DRIVER_NODE_PATHS 中有显式条目', () => {
-        for (const key of ['triplet-p1', 'budget-p2', 'duplicate', 'clear']) {
+    it('P1/P2 与 duplicate / clear / constructed driver key 在 DRIVER_NODE_PATHS 中有显式条目', () => {
+        for (const key of ['triplet-p1', 'budget-p2', 'duplicate', 'clear', 'constructed']) {
             expect(DRIVER_NODE_PATHS[key], `${key} 必须有显式 path，避免退化为 balanced`).toBeDefined();
         }
         expect(DRIVER_NODE_PATHS.duplicate.targets).toEqual(expect.arrayContaining(['novelty']));
