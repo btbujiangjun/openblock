@@ -36,28 +36,29 @@
 # （Linux 的 /bin/sh 多为 dash，macOS 为 bash 3.2 兼容模式，均不支持 pipefail）。
 # ─────────────────────────────────────────────────────────────────────────
 
-# ── 非 bash 启动时（sh/dash）自动切到 bash（macOS + Linux 常见路径）──
-_ob_find_bash() {
-    local b
-    b="$(command -v bash 2>/dev/null || true)"
-    if [[ -n "${b}" && -x "${b}" ]]; then
-        echo "${b}"
-        return 0
-    fi
-    for b in /usr/bin/bash /bin/bash /usr/local/bin/bash /opt/homebrew/bin/bash; do
-        if [[ -x "${b}" ]]; then
-            echo "${b}"
-            return 0
+# ── 非 bash 启动时（sh/dash/ash）自动切到 bash ──
+# 本段必须【仅 POSIX sh 语法】：Ubuntu/Debian 的 `sh`→dash 会从头解析整文件，
+# 若此处写 `[[` / `local` / `pipefail`，在 exec bash 之前就会报错。
+if [ -z "${BASH_VERSION:-}" ]; then
+    _OB_BASH=""
+    if command -v bash >/dev/null 2>&1; then
+        _OB_P="$(command -v bash)"
+        if [ -n "${_OB_P}" ] && [ -x "${_OB_P}" ]; then
+            _OB_BASH="${_OB_P}"
         fi
-    done
-    return 1
-}
-
-if [[ -z "${BASH_VERSION:-}" ]]; then
-    _OB_BASH="$(_ob_find_bash)" || {
-        echo "[error] 需要 bash（≥3.2）。macOS: brew install bash；Linux: apt install bash / yum install bash" >&2
+    fi
+    if [ -z "${_OB_BASH}" ]; then
+        for _OB_P in /usr/bin/bash /bin/bash /usr/local/bin/bash /opt/homebrew/bin/bash; do
+            if [ -x "${_OB_P}" ]; then
+                _OB_BASH="${_OB_P}"
+                break
+            fi
+        done
+    fi
+    if [ -z "${_OB_BASH}" ]; then
+        echo "[error] 需要 bash（≥3.2）。Ubuntu/Debian: apt install bash；macOS: brew install bash" >&2
         exit 1
-    }
+    fi
     exec "${_OB_BASH}" "$0" "$@"
 fi
 
