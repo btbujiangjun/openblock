@@ -25,13 +25,41 @@
 #   - 训练日志:    ./logs/rl/train_full_mcts.jsonl（看板可读）
 #   - 控制台日志:  ./logs/rl/train_full_mcts.log
 #
-# 用法
+# 用法（macOS / Linux 通用）
 # ────
 #   ./scripts/train_full_mcts.sh                  # 默认 50k ep, mps/cuda 自动
 #   EPISODES=20000 ./scripts/train_full_mcts.sh   # 自定义 ep 数
 #   DEVICE=cpu ./scripts/train_full_mcts.sh       # 强制 CPU（仅调试）
 #   RESUME=1 ./scripts/train_full_mcts.sh         # 从上次 checkpoint 续训
+#
+# 也可用 `sh scripts/train_full_mcts.sh`：脚本会自动查找 bash 并重新执行
+# （Linux 的 /bin/sh 多为 dash，macOS 为 bash 3.2 兼容模式，均不支持 pipefail）。
 # ─────────────────────────────────────────────────────────────────────────
+
+# ── 非 bash 启动时（sh/dash）自动切到 bash（macOS + Linux 常见路径）──
+_ob_find_bash() {
+    local b
+    b="$(command -v bash 2>/dev/null || true)"
+    if [[ -n "${b}" && -x "${b}" ]]; then
+        echo "${b}"
+        return 0
+    fi
+    for b in /usr/bin/bash /bin/bash /usr/local/bin/bash /opt/homebrew/bin/bash; do
+        if [[ -x "${b}" ]]; then
+            echo "${b}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+if [[ -z "${BASH_VERSION:-}" ]]; then
+    _OB_BASH="$(_ob_find_bash)" || {
+        echo "[error] 需要 bash（≥3.2）。macOS: brew install bash；Linux: apt install bash / yum install bash" >&2
+        exit 1
+    }
+    exec "${_OB_BASH}" "$0" "$@"
+fi
 
 set -euo pipefail
 
@@ -39,25 +67,65 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-# ── Python 3（rl_pytorch 要求 ≥3.9；macOS 默认 `python` 常为 2.7，禁止用裸 python）──
+_OB_OS="$(uname -s 2>/dev/null || echo unknown)"
+_OB_ARCH="$(uname -m 2>/dev/null || echo unknown)"
+
+# ── Python 3（≥3.9；macOS 勿用裸 python=2.7；Linux 优先 venv 再 PATH）──
+_ob_python_ok() {
+    local exe="$1"
+    [[ -n "${exe}" && -x "${exe}" ]] || return 1
+    "${exe}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' 2>/dev/null
+}
+
 _resolve_python() {
-    local d py
+    local d exe
     for d in "${REPO_ROOT}/.venv" "${REPO_ROOT}/venv" "${OPENBLOCK_VENV:-}"; do
-        [[ -n "${d}" && -x "${d}/bin/python" ]] || continue
-        py="$("${d}/bin/python" -c 'import sys; print(sys.version_info.major)' 2>/dev/null)" || continue
-        if [[ "${py}" == "3" ]]; then
-            echo "${d}/bin/python"
+        [[ -n "${d}" ]] || continue
+        exe="${d}/bin/python"
+        if _ob_python_ok "${exe}"; then
+            echo "${exe}"
+            return 0
+        fi
+        exe="${d}/bin/python3"
+        if _ob_python_ok "${exe}"; then
+            echo "${exe}"
             return 0
         fi
     done
-    if command -v python3 >/dev/null 2>&1; then
-        echo "python3"
-        return 0
-    fi
-    echo "[error] 未找到 Python 3。请安装 python3 或创建 .venv：python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+    local cmd
+    for cmd in python3 python3.12 python3.11 python3.10 python3.9; do
+        if command -v "${cmd}" >/dev/null 2>&1; then
+            exe="$(command -v "${cmd}")"
+            if _ob_python_ok "${exe}"; then
+                echo "${exe}"
+                return 0
+            fi
+        fi
+    done
+    echo "[error] 未找到 Python ≥3.9。macOS/Linux: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
     return 1
 }
 PYTHON="$(_resolve_python)"
+
+# 默认 worker 数：Linux nproc / macOS sysctl；未设置 N_WORKERS 时按 CPU 留 1 核，上限 8、下限 1
+_ob_default_workers() {
+    local n raw
+    raw=""
+    if command -v nproc >/dev/null 2>&1; then
+        raw="$(nproc 2>/dev/null || true)"
+    elif [[ "${_OB_OS}" == "Darwin" ]]; then
+        raw="$(sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || true)"
+    elif [[ -r /proc/cpuinfo ]]; then
+        raw="$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || true)"
+    fi
+    n="${raw//[^0-9]/}"
+    [[ -z "${n}" || "${n}" -lt 1 ]] && n=3
+    [[ "${n}" -gt 8 ]] && n=8
+    if [[ "${n}" -gt 1 ]]; then
+        n=$((n - 1))
+    fi
+    echo "${n}"
+}
 
 # ── 用户可覆盖的参数（环境变量优先）───────────────────────────────────────
 EPISODES="${EPISODES:-50000}"
@@ -69,7 +137,7 @@ PPO_EPOCHS="${PPO_EPOCHS:-4}"
 GAE_LAMBDA="${GAE_LAMBDA:-0.85}"
 DIRICHLET_EPSILON="${DIRICHLET_EPSILON:-0.20}"        # v11.1 上调 0.15 → 0.20
 DIRICHLET_ALPHA="${DIRICHLET_ALPHA:-0.28}"
-N_WORKERS="${N_WORKERS:-3}"
+N_WORKERS="${N_WORKERS:-$(_ob_default_workers)}"
 EVAL_GATE_EVERY="${EVAL_GATE_EVERY:-2000}"
 EVAL_GATE_GAMES="${EVAL_GATE_GAMES:-50}"
 SAVE_PATH="${SAVE_PATH:-rl_checkpoints/full_mcts.pt}"
@@ -107,8 +175,9 @@ LOG_FILE="logs/rl/train_full_mcts.log"
 echo "═══════════════════════════════════════════════════════════════"
 echo " Open Block · 完整 MCTS 训练启动"
 echo "───────────────────────────────────────────────────────────────"
+echo "  platform     : ${_OB_OS} / ${_OB_ARCH}"
 echo "  episodes     : ${EPISODES}"
-echo "  python       : ${PYTHON} ($("${PYTHON}" --version 2>&1 | head -1))"
+echo "  python       : ${PYTHON} ($("${PYTHON}" --version 2>&1 | head -n 1))"
 echo "  device       : ${DEVICE}"
 echo "  arch / width : ${ARCH} / ${WIDTH}"
 echo "  batch / ppo  : ${BATCH_EPISODES} / ${PPO_EPOCHS}"
@@ -120,7 +189,7 @@ echo "  env"
 echo "    RL_MCTS                       = ${RL_MCTS}"
 echo "    RL_CURRICULUM_MODE            = ${RL_CURRICULUM_MODE}"
 echo "    RL_ZOBRIST_SHARED             = ${RL_ZOBRIST_SHARED}"
-echo "    winThresholdEnd (linear only) = $("${PYTHON}" -c 'import json;print(json.load(open("shared/game_rules.json"))["rlCurriculum"]["winThresholdEnd"])')"
+echo "    winThresholdEnd (linear only) = $("${PYTHON}" -c "import json; print(json.load(open('${REPO_ROOT}/shared/game_rules.json'))['rlCurriculum']['winThresholdEnd'])")"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
