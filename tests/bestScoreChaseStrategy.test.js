@@ -670,6 +670,7 @@ describe('§4.12 PB 事件总线：lifecycle:new_personal_best / near_personal_b
             score: 950,
             strategy: 'normal',
             gameStats: { placements: 10 },
+            _getRunPbBaseline: Game.prototype._getRunPbBaseline,
         };
         Game.prototype._maybeEmitNearPersonalBest.call(game);
         expect(busEvents.length).toBe(1);
@@ -689,6 +690,7 @@ describe('§4.12 PB 事件总线：lifecycle:new_personal_best / near_personal_b
             score: 800,
             strategy: 'normal',
             gameStats: { placements: 10 },
+            _getRunPbBaseline: Game.prototype._getRunPbBaseline,
         };
         Game.prototype._maybeEmitNearPersonalBest.call(game);
         expect(busEvents.length).toBe(0);
@@ -703,6 +705,7 @@ describe('§4.12 PB 事件总线：lifecycle:new_personal_best / near_personal_b
             score: 500,
             strategy: 'normal',
             gameStats: { placements: 10 },
+            _getRunPbBaseline: Game.prototype._getRunPbBaseline,
         };
         Game.prototype._maybeEmitNearPersonalBest.call(game);
         expect(busEvents.length).toBe(0);

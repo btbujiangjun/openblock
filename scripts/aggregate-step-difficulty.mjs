@@ -135,6 +135,7 @@ function collectStepRows(sessions) {
         for (const f of frames) {
             if (f?.t === 'spawn') {
                 const sd = f?.spawnMeta?.stepDifficulty;
+                const sm = f?.spawnMeta;
                 if (sd && typeof sd === 'object' && typeof sd.bucket === 'string') {
                     pending = {
                         bucket: sd.bucket,
@@ -145,6 +146,13 @@ function collectStepRows(sessions) {
                         /* 客观几何（blockSpawn 在 stepDifficulty 落库对象上 post-hoc 附挂） */
                         contiguousRegions: num(sd.contiguousRegions),
                         concaveCorners: num(sd.concaveCorners),
+                        /* v1.66 达成率打点：压力阶段 + 两条策略的达成标记（旧帧缺省 mid/false） */
+                        pressurePhase: typeof sm?.pressurePhase === 'string' ? sm.pressurePhase : 'mid',
+                        lowClearDelivered: sm?.lowClearDelivered === true,
+                        highOrderApplied: sm?.highOrderApplied === true,
+                        /* v1.67 构造式归因（旧帧缺省 null/false） */
+                        constructKind: typeof sm?.construct?.kind === 'string' ? sm.construct.kind : null,
+                        constructDelivered: sm?.construct?.delivered === true,
                         fillAtSpawn: num(f?.ps?.boardFill)
                     };
                 } else {
@@ -164,6 +172,11 @@ function collectStepRows(sessions) {
                     comboKillerCnt: pending.comboKillerCnt,
                     contiguousRegions: pending.contiguousRegions,
                     concaveCorners: pending.concaveCorners,
+                    pressurePhase: pending.pressurePhase,
+                    lowClearDelivered: pending.lowClearDelivered,
+                    highOrderApplied: pending.highOrderApplied,
+                    constructKind: pending.constructKind,
+                    constructDelivered: pending.constructDelivered,
                     thinkMs: think,
                     lines,
                     cleanScreen,
@@ -233,6 +246,36 @@ function aggregate(rows) {
         algoScoreSpread
     };
 
+    /* v1.66 达成率（closed-loop 度量）：
+     *   lowPhaseClearDeliveredRate  低压步里"入选三连含清屏潜力块"的比例（清屏强化达成率）
+     *   highPhaseOrderAppliedRate   高压步里"顺序刚性硬过滤实际触发"的比例（顺序方块达成率）
+     *   *CleanScreenRate            两阶段实际清屏发生率，与设计意图对照。 */
+    const lowRows = rows.filter((r) => r.pressurePhase === 'low');
+    const highRows = rows.filter((r) => r.pressurePhase === 'high');
+    const midRows = rows.filter((r) => r.pressurePhase === 'mid');
+    /* v1.67 构造式达成率（closed-loop）：
+     *   completerDeliveredRate  低压步里"C1 补全块真正交付进 dock"的比例
+     *   setupDeliveredRate      低压步里"C2 造势块交付"的比例（先铺后清第一拍）
+     *   orderAnchorDeliveredRate 高压步里"C3 顺序锚命中 dock"的比例 */
+    const phaseStats = {
+        low: {
+            samples: lowRows.length,
+            clearDeliveredRate: rate(lowRows, (r) => r.lowClearDelivered === true),
+            cleanScreenRate: rate(lowRows, (r) => r.cleanScreen === 1),
+            multiBlastRate: rate(lowRows, (r) => (r.lines ?? 0) >= 2),
+            completerDeliveredRate: rate(lowRows, (r) => r.constructKind === 'completer' && r.constructDelivered === true),
+            setupDeliveredRate: rate(lowRows, (r) => r.constructKind === 'setup' && r.constructDelivered === true)
+        },
+        high: {
+            samples: highRows.length,
+            orderAppliedRate: rate(highRows, (r) => r.highOrderApplied === true),
+            cleanScreenRate: rate(highRows, (r) => r.cleanScreen === 1),
+            noBlastRate: rate(highRows, (r) => (r.lines ?? 0) === 0),
+            orderAnchorDeliveredRate: rate(highRows, (r) => r.constructKind === 'order' && r.constructDelivered === true)
+        },
+        mid: { samples: midRows.length }
+    };
+
     return {
         totalSteps: rows.length,
         algos: [...algos],
@@ -240,7 +283,8 @@ function aggregate(rows) {
         byBucketAlgo: cells,
         algoMeanDifficulty: algoMeanDiff,
         algoScoreSpread,
-        spread
+        spread,
+        phaseStats
     };
 }
 
@@ -266,6 +310,19 @@ function prettyPrint(agg) {
     lines.push(`algoScoreSpread (算法间平均难度跨度): ${g(sp.algoScoreSpread)}`);
     lines.push(`scd_cv / scd_range (空间约束密度 变异系数 / 跨度): ${g(sp.scdCv, 3)} / ${g(sp.scdRange, 3)}`);
     lines.push(`killer_range (杀手块数量跨度): ${g(sp.killerRange, 1)}`);
+
+    /* v1.66 压力阶段达成率 */
+    const ph = agg.phaseStats;
+    if (ph) {
+        lines.push('');
+        lines.push('压力阶段达成率 (v1.66 清屏 / 顺序方块强化):');
+        lines.push(`  低压  n=${ph.low.samples}  清屏块达成率=${g(ph.low.clearDeliveredRate, 3)}  实际清屏率=${g(ph.low.cleanScreenRate, 3)}  多消率=${g(ph.low.multiBlastRate, 3)}`);
+        lines.push(`  高压  n=${ph.high.samples}  顺序刚性触发率=${g(ph.high.orderAppliedRate, 3)}  实际清屏率=${g(ph.high.cleanScreenRate, 3)}  零消率=${g(ph.high.noBlastRate, 3)}`);
+        lines.push(`  中压  n=${ph.mid.samples}`);
+        lines.push('构造式交付率 (v1.67 有界构造):');
+        lines.push(`  低压  C1补全交付率=${g(ph.low.completerDeliveredRate, 3)}  C2造势交付率=${g(ph.low.setupDeliveredRate, 3)}`);
+        lines.push(`  高压  C3顺序锚交付率=${g(ph.high.orderAnchorDeliveredRate, 3)}`);
+    }
     return lines.join('\n');
 }
 

@@ -547,7 +547,36 @@ module.exports = {
       "orderRigorMaxPermsTight": 2,
       "orderRigorMaxPermsLoose": 4,
       "orderRigorActivationFill": 0.5,
-      "orderRigorMaxHolesAllow": 3
+      "orderRigorMaxHolesAllow": 3,
+      "phaseFreq": {
+        "comment": "v1.66 达成率提升：按 stress 划分压力阶段（low/mid/high，单一真相=raw stress + boardFill，不依赖晚到的 spawnIntent），分别强化两条既有策略的『达成率』而非新增机制——低压强化清屏（只在 pcSetup≥1∨nearFullLines≥1 机会已存在时抬 clearGuarantee + 抬 nearFullDelta 下限做跨轮造势），高压强化顺序方块（orderRigor 加 boost + 抬 solutionBudget 修截断静默失效 + MaxPerms 下限护栏 + 大块预加权提高拒绝采样命中率）。所有调整均为 Math.max/加和单调上抬，enabled=false 时与旧行为逐字段等价。highOrderBudget 仅在高压传给 evaluateTripletSolutions，避免高 fill 截断导致顺序过滤被跳过。",
+        "enabled": true,
+        "lowStressMax": 0.4,
+        "highStressMin": 0.55,
+        "lowClearGuaranteeAt": 2,
+        "lowNearFullDeltaMin": 1,
+        "highOrderBoost": 0.2,
+        "highOrderMaxPermsFloor": 2,
+        "highOrderSolutionBudget": 16000,
+        "highPoolLargeCells": 6,
+        "highPoolBoost": 0.6,
+        "lowPoolClearBoost": 0.4
+      }
+    },
+    "constructiveSpawn": {
+      "comment": "v1.67 构造式出块（有界·概率式保难度）：在固定 40 形状词表内补两层构造能力，解决选择式『clearCandidates 为空时无法重塑盘面』的达成率瓶颈。C1 逆向缺口→形状补全检索（补全块存在但采样错过时，按概率强制占 clearSeat）；C2 先铺后清 1 步前瞻造势（无单形状可补全时，放 setup 形状制造可补全的近满线，跨 dock 续接）。全部概率式触发（概率<1）+ 冷却（连续 N dock 不重复强供）防『系统喂解』脚本感，未命中全量回退现有采样。相位门控复用 spawnHints.pressurePhase（low/mid/high）。enabled=false 时与旧行为逐字段等价。实现见 web/src/bot/constructiveSpawn.js + blockSpawn.js 构造预扫描。",
+      "enabled": true,
+      "maxEmpty": 2,
+      "pCompleterLow": 0.7,
+      "pCompleterMid": 0.35,
+      "pSetupLow": 0.5,
+      "pOrderHigh": 0.4,
+      "maxConstructedPerDock": 1,
+      "cooldownDocks": 2,
+      "lookaheadDepth": 1,
+      "completerBudget": 4000,
+      "setupBudget": 6000,
+      "setupPerShapePlacementCap": 40
     },
     "spawnStepDifficulty": {
       "comment": "单步出块难度（spawn step difficulty）统一分。无尽模式无『题目』概念，难度最小单元是『当前盘面 × 本轮候选三块』，由确定性特征逐步算出。本块把分散的原语（boardDifficulty / DFS solutionMetrics / 几何 scd）consolidate 成 0~1 难度分 + 5 档桶（trivial/easy/standard/hard/extreme），随 spawn 帧 spawnMeta.stepDifficulty 落库，供离线『难度桶 × 算法』聚合与 RL 数据集标注。实现见 web/src/spawnStepDifficulty.js，Python 镜像 rl_pytorch/spawn_step_difficulty.py。详见 docs/algorithms/ALGORITHMS_SPAWN.md §14.二。",

@@ -37,6 +37,7 @@ import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights, isSpecialSh
 import { GAME_RULES } from '../gameRules.js';
 import { analyzeBoardTopology, detectNearClears } from '../boardTopology.js';
 import { computeSpawnStepDifficulty } from '../spawnStepDifficulty.js';
+import { findCompleterShapes, findSetupShapes, isClearTargetValid } from './constructiveSpawn.js';
 import { defaultRng, pickIndex, fisherYatesInPlace } from '../lib/seededRng.js';
 import { pickByPlatform } from '../config/platformProfile.js';
 
@@ -740,6 +741,12 @@ function getSolutionDifficultyCfg() {
 function getStepDifficultyCfg() {
     const cfg = GAME_RULES?.adaptiveSpawn?.spawnStepDifficulty || GAME_RULES?.spawnStepDifficulty;
     return { enabled: cfg?.enabled !== false, ...(cfg && typeof cfg === 'object' ? cfg : {}) };
+}
+
+/** v1.67：构造式出块配置（缺失时 enabled:false → 全量回退选择式）。 */
+function getConstructiveCfg() {
+    const cfg = GAME_RULES?.adaptiveSpawn?.constructiveSpawn;
+    return (cfg && typeof cfg === 'object') ? cfg : { enabled: false };
 }
 
 function minMobilityTarget(fill, attempt) {
@@ -2153,6 +2160,22 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
      * 默认 orderMaxValidPerms=6 即不约束，bypass 路径全部走默认值。 */
     const orderRigor = Math.max(0, Math.min(1, hints.orderRigor ?? 0));
     const orderMaxValidPerms = Math.max(1, Math.min(6, hints.orderMaxValidPerms ?? 6));
+    /* v1.66：压力阶段（low/mid/high，源自 adaptiveSpawn raw stress + boardFill）。
+     *   highBand → 强化「顺序方块」达成率：大块预加权（提高拒绝采样命中率）+
+     *              透传更大 solutionBudget（修高 fill 下三连解评估截断导致顺序过滤静默跳过）。
+     *   lowBand  → 强化「清屏」达成率：清屏潜力块（多消 / 临满兜满）预加权。
+     * hints 缺失（旧上游 / bypass）时 pressurePhase='mid'，全部退化为旧行为。 */
+    const pressurePhase = hints.pressurePhase ?? 'mid';
+    const highBand = pressurePhase === 'high';
+    const lowBand = pressurePhase === 'low';
+    /* v1.67：构造式仅在自适应引擎显式给出 pressurePhase 时启用——保证只有生产/自适应
+     * 路径（adaptiveSpawn 恒设置 spawnHints.pressurePhase）触发构造，裸 config（无 spawnHints）
+     * 的 legacy/单测路径逐字段等价于旧行为（不注入、不改 clearSeats）。 */
+    const _phaseExplicit = typeof hints.pressurePhase === 'string';
+    const orderSolutionBudget = Number.isFinite(hints.orderSolutionBudget) ? hints.orderSolutionBudget : null;
+    const phaseLargeCells = Number.isFinite(hints.phaseLargeCells) ? hints.phaseLargeCells : 6;
+    const phaseHighPoolBoost = Math.max(0, hints.phaseHighPoolBoost ?? 0);
+    const phaseLowPoolClearBoost = Math.max(0, hints.phaseLowPoolClearBoost ?? 0);
     const motivationIntent = hints.motivationIntent ?? 'balanced';
     const behaviorSegment = hints.behaviorSegment ?? 'balanced';
     const personalizationApplied = hints.personalizationApplied === true;
@@ -2427,8 +2450,17 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             // v1.57.3 ⑧ — 视觉杂乱 delta
             clutterTooHigh: 0, clutterTooLow: 0
         },
-        /* v1.32：顺序刚性应用记录（上游 hints 透传 + 最终是否触发了硬过滤） */
-        orderRigor: { rigor: orderRigor, maxValidPerms: orderMaxValidPerms, applied: false }
+        /* v1.32：顺序刚性应用记录（上游 hints 透传 + 最终是否触发了硬过滤）
+         * v1.66：appliedTruncated 记录"截断兜底"触发次数（高压下用 validPerms 下界仍判超阈而拒绝）。 */
+        orderRigor: { rigor: orderRigor, maxValidPerms: orderMaxValidPerms, applied: false, appliedTruncated: 0 },
+        /* v1.66 达成率打点：压力阶段 + 两条策略的"达成"标记。
+         *   pressurePhase：本次出块的压力阶段（low/mid/high）
+         *   lowClearDelivered：低压 + 机会存在时，最终入选三连里是否含清屏潜力块（多消 / 兜满）
+         *   highOrderApplied：高压 + 顺序刚性硬过滤（含截断兜底）是否实际触发
+         * 供 aggregate-step-difficulty.mjs 按阶段聚合达成率（lowPhaseClearDeliveredRate / highPhaseOrderAppliedRate）。 */
+        pressurePhase,
+        lowClearDelivered: false,
+        highOrderApplied: false
     };
 
     /* -- 阶段 1 基础集合（attempt 循环外预计算）--
@@ -2442,9 +2474,16 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
      * 与普通消行同属"消行/消除"语义，必须享受"消行 seat"的优先选拔通道，
      * 否则即使 v1.60.19 `scoreShape × monoFlush` 在 augmentPool 加权也会被
      * `pcPotential / multiClear / gapFills` 等更高 base weight 的形状抢走 chosen 槽。 */
-    const clearCandidates = scored.filter(
-        (s) => s.gapFills > 0 || s.multiClear >= 1 || s.pcPotential === 2 || (s.monoFlush ?? 0) >= 1
-    );
+    /* §10.7 契约：special 形状仅由 _tryInjectSpecial 事件注入（以及 monoFlush「同花顺彩蛋」
+     * 这一既定例外——1×2/2×1 绕过 _passesShapeGate 走 monoFlush 路径）。此前 clearCandidates
+     * 直接 filter scored（含 12 个 special），当 special 恰好 gapFills/multiClear/pcPotential>0
+     * 时会被当成普通清屏块选进 clearSeat → dock 泄漏 special（主路径未守，v1.67 构造层扰动采样
+     * 序列后暴露）。修正：special 仅在其为 monoFlush 候选时保留（彩蛋），否则一律排除。 */
+    const clearCandidates = scored.filter((s) => {
+        const isMono = (s.monoFlush ?? 0) >= 1;
+        if (isSpecialShapeId(s.shape.id) && !isMono) return false;
+        return s.gapFills > 0 || s.multiClear >= 1 || s.pcPotential === 2 || isMono;
+    });
 
     // 排序：清屏潜力 > 同花顺(×5) > 多消 > combo 加权 > gap 数
     // v1.60.24：clearCandidates 中存在 monoFlush 时也必须走排序——否则按默认顺序
@@ -2471,6 +2510,129 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         });
     }
 
+    /* ---------- v1.67 构造式预扫描（有界 · 概率式保难度）----------
+     * 在固定词表内补「逆向缺口→形状补全」(C1) 与「先铺后清造势」(C2)，解决选择式
+     * 「clearCandidates 为空 / 补全块被采样错过」的达成率瓶颈。仅低/中压清屏向启用
+     * （高压顺序方块由 phaseFreq orderBoost / 截断兜底覆盖）。命中后把构造块前置进
+     * clearCandidates 并占用一个 clearSeat，未命中全量回退现有采样。
+     *   - 跨 dock 续接：ctx.pendingClearTarget（上一 dock setup 写入，本 dock 优先兑现）
+     *   - 冷却：ctx.constructCooldown>0 时本 dock 不强供，防「系统连发喂解」脚本感 */
+    const _consCfg = getConstructiveCfg();
+    const _consRng = (ctx && typeof ctx.rng === 'function') ? ctx.rng : Math.random;
+    const constructive = {
+        enabled: !!_consCfg.enabled,
+        kind: null,
+        completerCount: 0,
+        setupCount: 0,
+        cooldownActive: false,
+        fromPending: false,
+        pendingClearTarget: null,
+        delivered: false
+    };
+    let constructedSeatNeed = 0;
+    if (_consCfg.enabled && _phaseExplicit && pressurePhase !== 'high') {
+        const _cd = Math.max(0, Number(ctx?.constructCooldown) || 0);
+        if (_cd > 0) {
+            constructive.cooldownActive = true;
+        } else {
+            /* catalog 必须排除 special 形状——special 仅由 _tryInjectSpecial 事件注入（§10.7），
+             * 构造层若强占 clearSeat 选到 special 会让 dock 泄漏特殊块（违反契约）。 */
+            const _catalog = scored.filter((s) => !isSpecialShapeId(s.shape.id)).map((s) => ({ id: s.shape.id, data: s.shape.data }));
+            const _maxEmpty = Number.isFinite(_consCfg.maxEmpty) ? _consCfg.maxEmpty : 2;
+            const _completerIds = new Set();
+
+            /* 跨 dock 续接：上一 dock 的 setup 目标若仍有效，本 dock 优先兑现其补全块。 */
+            const _pending = ctx?.pendingClearTarget;
+            if (_pending && isClearTargetValid(grid, _pending, _catalog, { maxEmpty: _maxEmpty })) {
+                for (const c of findCompleterShapes(grid, _pending.emptyCells, _catalog, { maxResults: 4, budget: _consCfg.completerBudget })) {
+                    _completerIds.add(c.shapeId);
+                }
+                if (_completerIds.size > 0) constructive.fromPending = true;
+            }
+
+            /* C1：当前所有近满线的补全块（覆盖该线全部残缺格 → 放下即消行）。 */
+            if (_completerIds.size === 0) {
+                const _near = detectNearClears(grid, { maxEmpty: _maxEmpty });
+                for (const line of [..._near.rows, ..._near.cols]) {
+                    for (const c of findCompleterShapes(grid, line.emptyCells, _catalog, { maxResults: 4, budget: _consCfg.completerBudget })) {
+                        _completerIds.add(c.shapeId);
+                    }
+                }
+            }
+            constructive.completerCount = _completerIds.size;
+
+            const _pComp = pressurePhase === 'low'
+                ? (Number.isFinite(_consCfg.pCompleterLow) ? _consCfg.pCompleterLow : 0.7)
+                : (Number.isFinite(_consCfg.pCompleterMid) ? _consCfg.pCompleterMid : 0.35);
+
+            if (_completerIds.size > 0 && _consRng() < _pComp) {
+                constructive.kind = 'completer';
+                for (const sc of scored) {
+                    if (_completerIds.has(sc.shape.id)) {
+                        sc._constructed = 'completer';
+                        if (!clearCandidates.includes(sc)) clearCandidates.unshift(sc);
+                    }
+                }
+            } else if (pressurePhase === 'low' && _completerIds.size === 0) {
+                /* C2：无任何补全块 → 先铺后清造势（1 步前瞻），写目标供跨 dock 续接。 */
+                const setups = findSetupShapes(grid, _catalog, {
+                    maxEmpty: _maxEmpty,
+                    maxResults: 3,
+                    budget: _consCfg.setupBudget,
+                    perShapePlacementCap: _consCfg.setupPerShapePlacementCap
+                });
+                constructive.setupCount = setups.length;
+                const _pSetup = Number.isFinite(_consCfg.pSetupLow) ? _consCfg.pSetupLow : 0.5;
+                if (setups.length > 0 && _consRng() < _pSetup) {
+                    const _setupIds = new Set(setups.map((s) => s.shapeId));
+                    constructive.kind = 'setup';
+                    constructive.pendingClearTarget = setups[0].target;
+                    for (const sc of scored) {
+                        if (_setupIds.has(sc.shape.id)) {
+                            sc._constructed = 'setup';
+                            if (!clearCandidates.includes(sc)) clearCandidates.unshift(sc);
+                        }
+                    }
+                }
+            }
+
+            if (constructive.kind) {
+                /* 稳定前移：把已打标的构造块移到 clearCandidates 头部（保留其余相对序）。 */
+                clearCandidates.sort((a, b) => (b._constructed ? 1 : 0) - (a._constructed ? 1 : 0));
+                constructedSeatNeed = Math.min(
+                    Math.max(1, Number(_consCfg.maxConstructedPerDock) || 1),
+                    clearCandidates.filter((s) => s._constructed).length
+                );
+            }
+        }
+    }
+
+    /* v1.67 C3：高压「强制顺序」构造（概率式权重偏置，非强制席位——避免占座后整组三连
+     * 被解/顺序过滤反复拒绝、22 次 attempt 耗尽回退）。选最具顺序约束力的大块（cells 大、
+     * 合法落点最少）以 pOrderHigh 概率标记为顺序锚，在 augmentPool 额外加权，让顺序刚性
+     * 更易在解空间命中。高压顺序主力仍是 phaseFreq orderBoost + 截断兜底（上版已落地），本层为补充。 */
+    let orderAnchorId = null;
+    if (_consCfg.enabled && _phaseExplicit && pressurePhase === 'high') {
+        const _cdHigh = Math.max(0, Number(ctx?.constructCooldown) || 0);
+        const _pOrder = Number.isFinite(_consCfg.pOrderHigh) ? _consCfg.pOrderHigh : 0.4;
+        if (_cdHigh === 0 && _pOrder > 0 && _consRng() < _pOrder) {
+            let best = null;
+            for (const s of scored) {
+                if (isSpecialShapeId(s.shape.id)) continue; // special 不参与构造（仅事件注入）
+                const cells = shapeCellCount(s.shape.data);
+                if (cells < phaseLargeCells) continue;
+                const pl = s.placements ?? 0;
+                if (pl <= 0) continue;
+                if (best === null || pl < best.pl) best = { id: s.shape.id, pl };
+            }
+            if (best) {
+                orderAnchorId = best.id;
+                constructive.kind = 'order';
+                constructive.orderAnchorId = best.id;
+            }
+        }
+    }
+
     const effectiveClearTarget = Math.min(
         3,
         clearTarget + (comboChain > 0.5 ? 1 : 0) + (clearOpportunityTarget >= 0.72 ? 1 : 0)
@@ -2479,13 +2641,18 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     // 清屏机会（pcSetup=2）或临消行≥4 时：允许 3 个槽全放消行块
     const maxClearSeats = (pcSetup >= 2 || topo.nearFullLines >= 4 || delightBoost > 0.65) ? 3 : 2;
     // 精确清屏机会：强制 3 槽全部用于消行（不再受 clearTarget 约束）
-    const clearSeats = pcSetup >= 2 || perfectClearBoost >= 0.9
+    let clearSeats = pcSetup >= 2 || perfectClearBoost >= 0.9
         ? Math.min(3, clearCandidates.length)
         : Math.min(
             Math.max(hasDirectPerfectClear ? 1 : 0, effectiveClearTarget),
             clearCandidates.length,
             maxClearSeats
         );
+    /* v1.67：确保为构造块预留至少 constructedSeatNeed 个 clearSeat（不超过候选数 / 3）。 */
+    if (constructedSeatNeed > 0) {
+        clearSeats = Math.min(3, clearCandidates.length, Math.max(clearSeats, constructedSeatNeed));
+    }
+    diagnostics.constructive = constructive;
 
     /* v1.60.29 + v1.60.31：限制单 dock 中 monoFlush 块 ≤ 1。
      *
@@ -2529,6 +2696,10 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             if (avail.some(s => s.pcPotential === 2)) {
                 const perfectPicks = avail.filter(s => s.pcPotential === 2);
                 pick = perfectPicks[Math.floor(Math.random() * Math.min(3, perfectPicks.length))];
+            } else if (avail.some(s => s._constructed)) {
+                /* v1.67：构造块（C1 补全 / C2 造势）已前置到 clearCandidates 头部——确定性选取，
+                 * 优先级仅次于完美清屏，保证概率命中的构造供给真正落入 dock。 */
+                pick = avail.filter(s => s._constructed)[0];
             } else if (monoFlushRound && currentMonoFlushCount < MAX_MONO_FLUSH_PER_DOCK
                        && avail.some(s => (s.monoFlush ?? 0) >= 1)) {
                 /* v1.60.30：Stage 1 monoFlush 分支由 monoFlushRound 控制 */
@@ -2579,6 +2750,8 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 monoFlush:   monoFlushAllowed ? (pick.monoFlush ?? 0) : 0,
                 monoFlushTargetCi: monoFlushAllowed ? (pick.monoFlushTargetCi ?? null) : null,
                 monoFlushBuildup: pick.monoFlushBuildup ?? 0,
+                /* v1.67：构造归因（'completer' | 'setup' | null），供达成率打点 + DFV。 */
+                _constructed: pick._constructed ?? null,
             });
             clearCount++;
         }
@@ -2769,6 +2942,25 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     w *= 1.3;
                 }
 
+                /* v1.66 压力阶段形状池预加权（达成率强化，与 adaptiveSpawn pressurePhase 同源）：
+                 *   highBand：大块（cells ≥ phaseLargeCells）×(1+phaseHighPoolBoost)——抬高大块密度，
+                 *             让顺序刚性（orderRigor）的拒绝采样更容易命中"仅 ≤N 排列可解"的强约束三连，
+                 *             把"高压顺序方块"从概率事件变成更确定的供给；
+                 *   lowBand ：清屏潜力块（多消 / 临满兜满）×(1+phaseLowPoolClearBoost)——抬高清屏块密度，
+                 *             让低压期"该送的清屏"更确定地出现在候选池里。
+                 * 均为乘性加权且仅在对应 band 生效，mid / 旧上游退化为无操作。 */
+                if (highBand && phaseHighPoolBoost > 0 && cells >= phaseLargeCells) {
+                    w *= 1 + phaseHighPoolBoost;
+                }
+                if (lowBand && phaseLowPoolClearBoost > 0 && (s.gapFills > 0 || s.multiClear >= 1)) {
+                    w *= 1 + phaseLowPoolClearBoost;
+                }
+                /* v1.67 C3：高压顺序锚——构造选定的「最具顺序约束力大块」额外加权，
+                 * 概率式提高其在解空间命中率（非强制席位，保留难度不确定性）。 */
+                if (orderAnchorId && s.shape.id === orderAnchorId) {
+                    w *= 1.8;
+                }
+
                 /* v1.56 §2.5：远征段额外偏向"多消潜力大块"
                  * 触发条件：上游 farFromPBBoostActive=true（即 D0 段 pct < 0.30）
                  * 仅对 multiClear >= 2 的块加权 ×1.15，让送爽落到形状层面：
@@ -2905,7 +3097,9 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             const datas = triplet.map((s) => s.data);
             solutionMetrics = evaluateTripletSolutions(grid, datas, {
                 leafCap: solutionCfg.leafCap,
-                budget: solutionCfg.budget
+                /* v1.66：高压阶段透传更大 budget（orderSolutionBudget），降低高 fill 下三连解
+                 * 评估被预算截断（truncated）的概率——截断会让下方 orderRigor 顺序过滤静默跳过。 */
+                budget: orderSolutionBudget != null ? Math.max(solutionCfg.budget ?? 0, orderSolutionBudget) : solutionCfg.budget
             });
 
             const earlyAttempt = attempt < Math.floor(MAX_SPAWN_ATTEMPTS * SOLUTION_FILTER_ATTEMPT_RATIO);
@@ -3120,6 +3314,22 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 && solutionMetrics.validPerms > orderMaxValidPerms) {
                 diagnostics.solutionRejects.orderTooLoose++;
                 diagnostics.orderRigor.applied = true;
+                diagnostics.highOrderApplied = true;
+                continue;
+            }
+            /* v1.66 截断兜底（修高压顺序方块静默失效）：
+             * 即便 truncated=true，validPerms 也是"真实可解排列数"的【下界】——截断会让
+             * 部分排列被提前判负（欠计数），绝不会高估。因此当 validPerms 已经 > 阈值时，
+             * 真实值必然也 > 阈值，拒绝无假阳性。仅在 highBand 启用以收敛影响面。 */
+            if (highBand
+                && orderEarly
+                && solutionMetrics.truncated
+                && orderMaxValidPerms < 6
+                && solutionMetrics.validPerms > orderMaxValidPerms) {
+                diagnostics.solutionRejects.orderTooLoose++;
+                diagnostics.orderRigor.applied = true;
+                diagnostics.orderRigor.appliedTruncated++;
+                diagnostics.highOrderApplied = true;
                 continue;
             }
         }
@@ -3213,7 +3423,18 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             injectedAt:   m.injectedAt,
             subType:      m.subType,
             spawnCtx:     m.spawnCtx,
+            /* v1.67：构造归因（'completer' | 'setup' | null）—— DFV / 达成率聚合可读 */
+            constructed:  m._constructed ?? null,
         }));
+        /* v1.66 达成率打点：低压 + 机会存在时，入选三连里是否含清屏潜力块（多消 / 兜满 / pc 潜力）。 */
+        if (lowBand && ((topo?.nearFullLines ?? 0) >= 1 || clearTarget > 0)) {
+            diagnostics.lowClearDelivered = chosenMeta.slice(0, 3).some(m =>
+                (m.multiClear ?? 0) >= 1 || (m.gapFills ?? 0) > 0 || (m.pcPotential ?? 0) >= 1);
+        }
+        /* v1.67：构造交付定稿——入选三连里是否含构造块（completer/setup 占席，或 C3 顺序锚命中），
+         * 供跨 dock 状态机 + 闭环度量。 */
+        diagnostics.constructive.delivered = chosenMeta.slice(0, 3).some(m => m._constructed != null)
+            || (orderAnchorId != null && chosenMeta.slice(0, 3).some(m => m.shape?.id === orderAnchorId));
         diagnostics.layer1.solutionMetrics = solutionMetrics;
 
         /* P0–P2：单步出块难度统一分（确定性，随 spawnMeta 落库 → 离线难度桶聚合 / RL 数据集标注）。

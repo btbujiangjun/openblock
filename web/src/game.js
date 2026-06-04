@@ -228,6 +228,8 @@ export class Game {
              *   - roundsSinceDupInject：距上次注入轮数（> MIN_ROUND_GAP=10 才允许下一次）；
              *     局首初始化 0 → 自然要求"局内前 11 轮"不会注入（与节流契约一致） */
             dupInjectUsed: 0, roundsSinceDupInject: 0,
+            /* v1.67 构造式出块跨 dock 状态：冷却计数 + 先铺后清待兑现目标线。 */
+            constructCooldown: 0, pendingClearTarget: null,
         };
 
         this.behaviors = [];
@@ -527,7 +529,24 @@ export class Game {
             solutionRejects: rejects,
             /* P0–P2：单步出块难度统一分（确定性，随 spawn 帧落库供离线难度桶聚合）。旧帧无此字段。 */
             stepDifficulty: diag.stepDifficulty && typeof diag.stepDifficulty === 'object'
-                ? diag.stepDifficulty : null
+                ? diag.stepDifficulty : null,
+            /* v1.66 达成率打点：压力阶段 + 两条策略的达成标记，供 aggregate-step-difficulty.mjs
+             * 按阶段聚合 lowPhaseClearDeliveredRate / highPhaseOrderAppliedRate。旧帧无此字段。 */
+            pressurePhase: typeof diag.pressurePhase === 'string' ? diag.pressurePhase : 'mid',
+            lowClearDelivered: diag.lowClearDelivered === true,
+            highOrderApplied: diag.highOrderApplied === true,
+            orderRigorApplied: diag.orderRigor?.applied === true,
+            orderRigorTruncated: Number(diag.orderRigor?.appliedTruncated) || 0,
+            /* v1.67 构造式归因：kind（completer/setup/order/null）+ 是否真正交付进 dock +
+             * 命中候选计数 + 冷却态，供 aggregate-step-difficulty.mjs 按阶段聚合构造达成率。旧帧无此字段。 */
+            construct: diag.constructive && typeof diag.constructive === 'object' ? {
+                kind: typeof diag.constructive.kind === 'string' ? diag.constructive.kind : null,
+                delivered: diag.constructive.delivered === true,
+                completerCount: Number(diag.constructive.completerCount) || 0,
+                setupCount: Number(diag.constructive.setupCount) || 0,
+                fromPending: diag.constructive.fromPending === true,
+                cooldownActive: diag.constructive.cooldownActive === true
+            } : null
         };
     }
 
@@ -1388,6 +1407,8 @@ export class Game {
             totalClears: 0, roundsSinceSpecial: 0,
             /* v1.60.21：dup 注入节流（与 game 构造同步） */
             dupInjectUsed: 0, roundsSinceDupInject: 0,
+            /* v1.67 构造式出块跨 dock 状态（与 game 构造同步） */
+            constructCooldown: 0, pendingClearTarget: null,
             };
             try {
                 if (typeof localStorage !== 'undefined') {
@@ -1993,6 +2014,28 @@ export class Game {
          *   3. 剩余 slots 按 bias 抽，**严格无放回**保证 3 块绝不同色（除非彩蛋同色已锁）
          *   4. fallback 路径强制选未用色，避免 `Math.floor(Math.random()*8)` 引入重复 */
         const spawnDiag = getLastSpawnDiagnostics();
+
+        /* v1.67 构造式跨 dock 状态机（防脚本护栏 + 先铺后清续接）：
+         *   - constructCooldown：每 dock 递减；构造块交付后置为 cooldownDocks，
+         *     接下来 N dock 不再强供，避免「系统连发喂解」的脚本感。
+         *   - pendingClearTarget：C2 setup 交付则记录目标线（下一 dock 由 blockSpawn 优先兑现）；
+         *     completer 交付（已兑现）或本 dock 未续接则清空，由 blockSpawn 端 isClearTargetValid 兜底失效。 */
+        if (this._spawnContext) {
+            const cons = spawnDiag?.constructive || null;
+            const cd = Math.max(0, Number(this._spawnContext.constructCooldown) || 0);
+            this._spawnContext.constructCooldown = cd > 0 ? cd - 1 : 0;
+            if (cons?.delivered) {
+                const cdSet = Math.max(0, Number(GAME_RULES.adaptiveSpawn?.constructiveSpawn?.cooldownDocks) || 0);
+                this._spawnContext.constructCooldown = cdSet;
+                if (cons.kind === 'setup' && cons.pendingClearTarget) {
+                    this._spawnContext.pendingClearTarget = cons.pendingClearTarget;
+                } else {
+                    /* completer 交付 = 目标已兑现；清空待办，避免对已消除的线反复续接。 */
+                    this._spawnContext.pendingClearTarget = null;
+                }
+            }
+        }
+
         const chosenMetas = spawnDiag?.chosen || [];
         const dockColors = new Array(3).fill(null);
         const lockedSlots = new Set();

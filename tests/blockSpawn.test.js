@@ -2502,3 +2502,61 @@ describe('v1.60.47 契约B：加压·制造空洞主动选择', () => {
         expect(result.injected.startsWith('diag-3')).toBe(true);
     });
 });
+
+/**
+ * v1.67 构造式出块（有界 · 概率式保难度）：相位门控 + 概率 + 冷却 + 交付归因。
+ * 核心契约：
+ *   1. 仅当 spawnHints.pressurePhase 显式给出时启用（裸 config 逐字段回退旧行为）；
+ *   2. 低压 + 存在补全块 + 概率命中 → C1 标记 completer 并占 clearSeat 交付；
+ *   3. 冷却期内（ctx.constructCooldown>0）不强供；概率未命中不注入。
+ */
+describe('v1.67 构造式出块', () => {
+    beforeEach(() => resetSpawnMemory());
+
+    /** 第 0 行除 xs 外全部填满（制造近满行；rows1-7 全空，保证低压可解）。 */
+    function nearFullRow0Gap(xs) {
+        const g = new Grid(8);
+        const empty = new Set(xs);
+        for (let x = 0; x < 8; x++) if (!empty.has(x)) g.cells[0][x] = 1;
+        return g;
+    }
+    const lowCfg = () => ({ ...getStrategy('normal'), spawnHints: { pressurePhase: 'low' } });
+
+    it('裸 config（无 spawnHints.pressurePhase）不触发构造', () => {
+        const g = nearFullRow0Gap([7]);
+        const shapes = generateDockShapes(g, getStrategy('normal'));
+        const diag = getLastSpawnDiagnostics();
+        expect(shapes.length).toBe(3);
+        expect(diag.constructive?.kind ?? null).toBe(null);
+    });
+
+    it('低压 + 存在补全块 + rng 命中 → C1 标记 completer 并交付进 dock', () => {
+        const g = nearFullRow0Gap([7]);
+        const ctx = { rng: () => 0, constructCooldown: 0, pendingClearTarget: null };
+        const shapes = generateDockShapes(g, lowCfg(), ctx);
+        const diag = getLastSpawnDiagnostics();
+        expect(shapes.length).toBe(3);
+        expect(diag.constructive.completerCount).toBeGreaterThanOrEqual(1);
+        expect(diag.constructive.kind).toBe('completer');
+        expect(diag.constructive.delivered).toBe(true);
+        /* 交付的构造块在 chosen 里被打 constructed 标 */
+        expect((diag.chosen || []).some(m => m.constructed === 'completer')).toBe(true);
+    });
+
+    it('低压 + 冷却中（constructCooldown>0）→ 不强供（cooldownActive，kind=null）', () => {
+        const g = nearFullRow0Gap([7]);
+        const ctx = { rng: () => 0, constructCooldown: 2, pendingClearTarget: null };
+        generateDockShapes(g, lowCfg(), ctx);
+        const diag = getLastSpawnDiagnostics();
+        expect(diag.constructive.cooldownActive).toBe(true);
+        expect(diag.constructive.kind).toBe(null);
+    });
+
+    it('低压 + 概率未命中（rng≈0.99 ≥ pCompleterLow）→ 不注入', () => {
+        const g = nearFullRow0Gap([7]);
+        const ctx = { rng: () => 0.99, constructCooldown: 0, pendingClearTarget: null };
+        generateDockShapes(g, lowCfg(), ctx);
+        const diag = getLastSpawnDiagnostics();
+        expect(diag.constructive.kind).toBe(null);
+    });
+});

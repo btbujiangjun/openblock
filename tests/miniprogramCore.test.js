@@ -341,14 +341,19 @@ describe('miniprogram core parity', () => {
    * 根因：旧版 _spawnDock fallback 使用 getAllShapes() 包含全部 40 个形状
    * （含 12 special）。修正为 getRegularShapes() + isSpecialShapeId 双校验。
    */
-  it('v1.60.46 — _spawnDock fallback 永不返回 special 形状（getRegularShapes 路径）', () => {
+  it('v1.60.46 — _spawnDock 不批量倾倒 special；唯一允许的 special 是 monoFlush 彩蛋（1×2/2×1）', () => {
     const { isSpecialShapeId } = requireCjs('../miniprogram/core/shapes.js');
-    /* 50 次随机初始化 → 校验每次 dock 三块均为 regular。
+    /* 50 次随机初始化 → 校验 dock 不出现「3 special 倾倒」契约违例（用户截图复盘根因）。
      *
-     * v2.2 修复 flakiness: 临时锁定 Math.random 为可重放序列, 否则 50×3=150 次
-     * 抽样下偶尔 (~3%) 会撞到 special 池(若上游代码有 bug 后才暴露的概率漏洞)。
-     * 用一个固定 LCG 序列让这个 fallback 契约的覆盖率确定 = 100%, 同时仍
-     * 探测 150 个独立位置。 */
+     * §10.7 例外：monoFlush「同花顺彩蛋」会让 1×2/2×1 绕过 _passesShapeGate 经
+     * monoFlush 路径进入 dock（见 blockSpawn.test.js monoFlush 用例）。_initPlayableBoard
+     * 以 normal fillRatio(~0.2) 预填盘面，可能出现同色近满线 → 彩蛋合法触发。因此断言为：
+     *   ① 每个 dock special 数 ≤1（杜绝原 bug 的「3 连 special」）；
+     *   ② 任何出现的 special 必须是 monoFlush 彩蛋形状（1×2/2×1），其余 10 个 special
+     *      （1×3 / 3×1 / l3 / diag 系列）仍绝不可经采样/fallback 进入。
+     *
+     * v2.2 锁定 Math.random 为可重放 LCG，确定性覆盖 150 个独立抽样位置。 */
+    const MONO_EGG_IDS = new Set(['1x2', '2x1']);
     const originalRandom = Math.random;
     let lcg = 1234567;
     Math.random = () => {
@@ -359,8 +364,10 @@ describe('miniprogram core parity', () => {
       for (let trial = 0; trial < 50; trial++) {
         const game = new GameController('normal');
         expect(game.dock).toHaveLength(3);
-        for (const slot of game.dock) {
-          expect(isSpecialShapeId(slot.id), `trial ${trial} 出现 special: ${slot.id}`).toBe(false);
+        const specials = game.dock.filter((slot) => isSpecialShapeId(slot.id)).map((slot) => slot.id);
+        expect(specials.length, `trial ${trial} 出现批量 special: ${specials.join(',')}`).toBeLessThanOrEqual(1);
+        for (const id of specials) {
+          expect(MONO_EGG_IDS.has(id), `trial ${trial} 出现非彩蛋 special: ${id}`).toBe(true);
         }
       }
     } finally {

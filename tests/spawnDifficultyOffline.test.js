@@ -50,6 +50,55 @@ describe('P4 — 难度分桶聚合', () => {
     });
 });
 
+describe('v1.67 — 构造式归因聚合（phaseStats 闭环）', () => {
+    function lowPhaseConstructFrames(construct) {
+        return [
+            { t: 'init', grid: empty(), ps: { strategyId: 'normal' } },
+            {
+                t: 'spawn', dock: [{ id: 'a', shape: BAR }, { id: 'b', shape: S1 }, { id: 'c', shape: S1 }],
+                ps: { strategyId: 'normal', boardFill: 0.1, metrics: { thinkMs: 500 } },
+                spawnMeta: {
+                    attempt: 0,
+                    stepDifficulty: { stepDifficulty: 0.2, bucket: 'easy', scdScore: 0.1 },
+                    pressurePhase: 'low',
+                    lowClearDelivered: true,
+                    construct
+                }
+            },
+            { t: 'place', i: 0, x: 0, y: 0, ps: { strategyId: 'normal', boardFill: 0.0, metrics: { thinkMs: 100 }, linesCleared: 2 } }
+        ];
+    }
+
+    it('collectStepRows 透传 constructKind/constructDelivered', () => {
+        const rows = collectStepRows([{ frames: lowPhaseConstructFrames({ kind: 'completer', delivered: true, completerCount: 2 }) }]);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].pressurePhase).toBe('low');
+        expect(rows[0].constructKind).toBe('completer');
+        expect(rows[0].constructDelivered).toBe(true);
+    });
+
+    it('aggregate.phaseStats.low 暴露 C1 补全 / C2 造势交付率', () => {
+        const rows = collectStepRows([{ frames: lowPhaseConstructFrames({ kind: 'completer', delivered: true, completerCount: 2 }) }]);
+        const agg = aggBucket(rows);
+        expect(agg.phaseStats.low.completerDeliveredRate).toBeCloseTo(1, 6);
+        expect(agg.phaseStats.low.setupDeliveredRate).toBeCloseTo(0, 6);
+    });
+
+    it('未交付的构造（delivered=false）不计入交付率', () => {
+        const rows = collectStepRows([{ frames: lowPhaseConstructFrames({ kind: 'setup', delivered: false, setupCount: 1 }) }]);
+        const agg = aggBucket(rows);
+        expect(agg.phaseStats.low.setupDeliveredRate).toBeCloseTo(0, 6);
+        expect(agg.phaseStats.low.completerDeliveredRate).toBeCloseTo(0, 6);
+    });
+
+    it('旧帧（无 construct 字段）安全缺省，交付率为 0', () => {
+        const rows = collectStepRows([{ frames: syntheticFrames() }]);
+        const agg = aggBucket(rows);
+        // syntheticFrames 为 mid 相位、无 construct → low 桶无样本
+        expect(agg.phaseStats.low.samples).toBe(0);
+    });
+});
+
 describe('P5 — is_exact_match 回算', () => {
     it('countIsolatedHoles 识别四面围住的空格', () => {
         const b = { size: 3, cells: [[1, 1, 1], [1, null, 1], [1, 1, 1]] };

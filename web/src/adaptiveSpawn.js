@@ -1991,6 +1991,24 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
      * blockSpawn 端只在 attempt < ratio * MAX 时硬过滤，避免无解死循环。
      * truncated=true 时跳过过滤（结果不可信，按通过处理），与 v9 同口径。
      */
+    /* ---------- v1.66：压力阶段（phaseFreq）—— 达成率强化的统一锚 ----------
+     * 单一真相 = raw stress + boardFill（不依赖晚到的 spawnIntent，规避派生顺序风险）。
+     *   high：stress ≥ highStressMin 且 boardFill ≥ orderRigorActivationFill（与 orderRigor 同门槛）
+     *         → 强化「顺序方块」达成率（下方 orderRigor 加 boost + 透传更大 solutionBudget 修截断失效）
+     *   low ：stress ≤ lowStressMax 且非 onboarding / recovery
+     *         → 强化「清屏」达成率（仅在机会已存在时抬 clearGuarantee + 抬 nearFullDelta 下限做跨轮造势）
+     * enabled=false（或配置缺失）时全部回退、与旧行为逐字段等价。 */
+    const _pf = topoCfg.phaseFreq ?? {};
+    const _pfEnabled = _pf.enabled === true;
+    const _pfLowMax = Number.isFinite(_pf.lowStressMax) ? _pf.lowStressMax : 0.40;
+    const _pfHighMin = Number.isFinite(_pf.highStressMin) ? _pf.highStressMin : 0.55;
+    const _pfActivFill = Number.isFinite(topoCfg.orderRigorActivationFill) ? topoCfg.orderRigorActivationFill : 0.50;
+    const highPhase = _pfEnabled && stress >= _pfHighMin && (_boardFill ?? 0) >= _pfActivFill;
+    const lowPhase = _pfEnabled && stress <= _pfLowMax && !inOnboarding && profile.needsRecovery !== true;
+    const pressurePhase = highPhase ? 'high' : (lowPhase ? 'low' : 'mid');
+    const _pfHighOrderBoost = highPhase && Number.isFinite(_pf.highOrderBoost) ? Math.max(0, _pf.highOrderBoost) : 0;
+    const _pfHighOrderPermsFloor = Number.isFinite(_pf.highOrderMaxPermsFloor) ? _pf.highOrderMaxPermsFloor : 2;
+
     let orderRigor = 0;
     let orderMaxValidPerms = 6;
     let pbOvershootOrderBoostApplied = 0;
@@ -2073,11 +2091,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             orderRigor = Math.max(0, Math.min(1,
                 stressTerm + skillTerm + modeBoost + motivationBoost
                 + pbExtremeOrderBoost + pbOvershootOrderBoostApplied
+                /* v1.66：高压阶段统一加权，提高顺序方块达成率（与上方 highPhase 同源 stress+fill 门控） */
+                + _pfHighOrderBoost
             ));
             orderMaxValidPerms = Math.max(
                 tight,
                 Math.min(loose, Math.round(loose - (loose - tight) * orderRigor))
             );
+            /* v1.66：高压 perms 下限护栏——即便未来 tight 调到 1，也不让顺序约束越过配置下限。 */
+            if (highPhase && _pfHighOrderPermsFloor > orderMaxValidPerms) {
+                orderMaxValidPerms = Math.min(6, _pfHighOrderPermsFloor);
+            }
         }
     }
     stressBreakdown.orderRigor = orderRigor;
@@ -2346,6 +2370,16 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         multiLineTarget = Math.max(multiLineTarget, 1);
         multiClearBonus = Math.max(multiClearBonus, 0.6);
         if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+    }
+
+    /* --- v1.66：低压阶段强化「清屏」达成率 ---
+     * 只在机会已存在（pcSetup≥1 ∨ nearFullLines≥1）时抬 clearGuarantee 到配置地板，
+     * 让低压期"该送的清屏更确定地送出"。机会不存在时不做任何事——不凭空制造清屏块，
+     * 与 perfectClearBoost 的几何门控（deriveDelightSignals）保持同一哲学。 */
+    if (lowPhase && (pcSetup >= 1 || nearFullLines >= 1)) {
+        const _lowCg = Number.isFinite(_pf.lowClearGuaranteeAt) ? _pf.lowClearGuaranteeAt : 2;
+        clearGuarantee = Math.max(clearGuarantee, _lowCg);
+        multiClearBonus = Math.max(multiClearBonus, 0.6);
     }
 
     /* --- Layer 2: payoff 节奏期提高多样性 --- */
@@ -2733,7 +2767,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const targetMaxHoleIncrement       = deriveTargetMaxHoleIncrement(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
     const targetHoleIncrementGap       = deriveTargetHoleIncrementGap(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
     const targetEndFillRatio           = deriveTargetEndFillRatio(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
-    const targetNearFullDelta          = deriveTargetNearFullDelta(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    let targetNearFullDelta            = deriveTargetNearFullDelta(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
+    /* v1.66：低压阶段「清屏造势」——把近满 delta 下限温和上抬到 lowNearFullDeltaMin，
+     * 引导生成式/规则轨在玩家舒适期主动堆出"快满线"，为后续清屏铺路（跨轮动量）。
+     * 仅 Math.max 单调上抬、且 blockSpawn 端为带 fallback 的软过滤，不会造成死锁。 */
+    if (lowPhase && Number.isFinite(_pf.lowNearFullDeltaMin) && targetNearFullDelta) {
+        const _curMin = Number.isFinite(targetNearFullDelta.min) ? targetNearFullDelta.min : -Infinity;
+        targetNearFullDelta = { ...targetNearFullDelta, min: Math.max(_curMin, _pf.lowNearFullDeltaMin) };
+    }
     const targetFirstMoveSurvivorRatio = deriveTargetFirstMoveSurvivorRatio(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
     const targetSolutionDiversity      = deriveTargetSolutionDiversity(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
     const targetEndFlatness            = deriveTargetEndFlatness(solutionStress, cfg.solutionDifficulty, _boardFill ?? 0);
@@ -2905,6 +2946,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
              * blockSpawn.js 消费 orderMaxValidPerms 作为硬性上限。 */
             orderRigor: Math.max(0, Math.min(1, orderRigor)),
             orderMaxValidPerms: Math.max(1, Math.min(6, orderMaxValidPerms)),
+            /* v1.66：压力阶段（low/mid/high）—— blockSpawn 据此做形状池预加权 + 截断兜底；
+             * orderSolutionBudget 仅高压透传，修复高 fill 下三连解评估被截断导致顺序过滤静默跳过。 */
+            pressurePhase,
+            orderSolutionBudget: highPhase && Number.isFinite(_pf.highOrderSolutionBudget)
+                ? Math.max(1, Math.floor(_pf.highOrderSolutionBudget)) : null,
+            phaseLargeCells: Number.isFinite(_pf.highPoolLargeCells) ? _pf.highPoolLargeCells : 6,
+            phaseHighPoolBoost: highPhase && Number.isFinite(_pf.highPoolBoost) ? Math.max(0, _pf.highPoolBoost) : 0,
+            phaseLowPoolClearBoost: lowPhase && Number.isFinite(_pf.lowPoolClearBoost) ? Math.max(0, _pf.lowPoolClearBoost) : 0,
             /* v1.48：winback 保护标识；UI / 商业化 / 推送可据此判断"是否在回流前 3 局"。 */
             winbackProtectionActive: !!winbackPreset,
             /* v1.56 §2.1：远征送爽激活态；blockSpawn / stressMeter / DFV 都可据此联动。
@@ -2997,6 +3046,8 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         /* v1.32：顺序刚性诊断字段（与 spawnHints 同源，便于 panel/replay 直接读取）。 */
         _orderRigor: orderRigor,
         _orderMaxValidPerms: orderMaxValidPerms,
+        /* v1.66：压力阶段诊断字段（DFV / replay / 达成率聚合脚本读取）。 */
+        _pressurePhase: pressurePhase,
         /* v1.48：winback 保护包诊断字段（供 panel / 回放追踪"为何这一帧 stress 被压低"）。 */
         _winbackPreset: winbackPreset,
     };

@@ -55,6 +55,7 @@ FILES=(
   "adaptiveSpawn.js"
   "playerProfile.js"
   "spawnStepDifficulty.js"
+  "bot/constructiveSpawn.js"
   "bot/blockSpawn.js"
   "tuning/v2/clientPolicyV2.js"
 )
