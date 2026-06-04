@@ -162,6 +162,38 @@ def maybe_mps_synchronize(device) -> None:
         torch.mps.synchronize()
 
 
+def disable_cpu_conv_backends() -> None:
+    """关闭 NNPACK / oneDNN(MKLDNN) 卷积后端（旧 CPU / 虚拟机兜底）。
+
+    在部分仅支持 x86-64-v1（无 SSE4.1/SSE4.2 等）的 CPU 或容器上，oneDNN 创建
+    Conv2d 原语会抛 ``RuntimeError: could not create a primitive``，NNPACK 则报
+    ``Unsupported hardware``。关闭后 PyTorch 回退到原生卷积实现，任何 CPU 均可运行。
+
+    幂等、无异常逃逸：可在主进程与每个多进程 worker（spawn 不继承主进程的
+    ``torch.backends`` 状态）中各调用一次。设 ``RL_CPU_DISABLE_MKLDNN=0`` 可恢复
+    oneDNN 加速；设 ``TORCH_NNPACK_ENABLED=1`` 可恢复 NNPACK。
+    """
+    import torch
+
+    # NNPACK（env 已在 torch_env 中设置；此处为运行期兜底）
+    try:
+        nnpack = getattr(torch.backends, "nnpack", None)
+        if nnpack is not None and hasattr(nnpack, "enabled"):
+            if os.environ.get("TORCH_NNPACK_ENABLED", "0").lower() in ("0", "false", "no"):
+                nnpack.enabled = False  # type: ignore[misc]
+    except Exception:
+        pass
+
+    # oneDNN/MKLDNN：部分 CPU/容器上会报 could not create a primitive（Conv2d）；默认关闭，需加速时设 RL_CPU_DISABLE_MKLDNN=0
+    try:
+        if os.environ.get("RL_CPU_DISABLE_MKLDNN", "1").lower() not in ("0", "false", "no"):
+            mkldnn = getattr(torch.backends, "mkldnn", None)
+            if mkldnn is not None and hasattr(mkldnn, "enabled"):
+                mkldnn.enabled = False  # type: ignore[misc]
+    except Exception:
+        pass
+
+
 def apply_cpu_training_tuning(device) -> None:
     """
     在 **CPU** 设备上优化训练吞吐：线程数、matmul 精度；须在 ``import torch`` 之后、首轮大计算前调用一次。
@@ -203,23 +235,7 @@ def apply_cpu_training_tuning(device) -> None:
     except Exception:
         pass
 
-    # 部分构建上可显式关闭 NNPACK 后端（env 已在 torch_env 中设置；此处为兜底）
-    try:
-        nnpack = getattr(torch.backends, "nnpack", None)
-        if nnpack is not None and hasattr(nnpack, "enabled"):
-            if os.environ.get("TORCH_NNPACK_ENABLED", "0").lower() in ("0", "false", "no"):
-                nnpack.enabled = False  # type: ignore[misc]
-    except Exception:
-        pass
-
-    # oneDNN/MKLDNN：部分 CPU/容器上会报 could not create a primitive（Conv2d）；默认关闭，需加速时设 RL_CPU_DISABLE_MKLDNN=0
-    try:
-        if os.environ.get("RL_CPU_DISABLE_MKLDNN", "1").lower() not in ("0", "false", "no"):
-            mkldnn = getattr(torch.backends, "mkldnn", None)
-            if mkldnn is not None and hasattr(mkldnn, "enabled"):
-                mkldnn.enabled = False  # type: ignore[misc]
-    except Exception:
-        pass
+    disable_cpu_conv_backends()
 
 
 def apply_throughput_tuning(device) -> None:

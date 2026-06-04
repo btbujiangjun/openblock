@@ -49,6 +49,7 @@ from .device import (
     adam_for_training,
     apply_cpu_training_tuning,
     apply_throughput_tuning,
+    disable_cpu_conv_backends,
     device_summary_line,
     maybe_mps_synchronize,
     resolve_cuda_device_ids_for_data_parallel,
@@ -90,6 +91,9 @@ def _pool_worker_init(
     使跨进程 Zobrist 缓存生效。
     """
     global _pool_net, _pool_device, _pool_shared_table
+    # spawn 子进程不继承主进程的 torch.backends 状态，须在此各自关闭
+    # NNPACK / oneDNN，否则旧 CPU 上 Conv2d 会抛 could not create a primitive。
+    disable_cpu_conv_backends()
     _pool_net = build_policy_net(arch, width, pd, vd, mr, _pool_device, conv_channels=cc)
     _pool_net.eval()
     if shm_name and shm_slots > 0:
@@ -1450,7 +1454,8 @@ def _reevaluate_and_update(
     chosen_t = torch.tensor(all_chosen, device=device, dtype=torch.long).unsqueeze(1)
     old_lp_t = tensor_to_device(torch.tensor(all_old_lp, dtype=torch.float32), device)
     pg_weight_t = tensor_to_device(torch.tensor(all_pg_weights, dtype=torch.float32), device)
-    pg_weight_sum = pg_weight_t.sum().clamp_min(1.0)
+    # 用 Python 端计数（pg_weight 仅 0/1），避免 MPS 上 .sum() 偶发返回 inf/nan
+    pg_weight_sum = max(1.0, float(sum(all_pg_weights)))
 
     hole_coef, hole_denom = _hole_aux_coef_and_denom()
     clear_pred_coef = _clear_pred_coef()
@@ -1881,7 +1886,9 @@ def _reevaluate_and_update(
             if not skip_reason:
                 skip_reason = "optimizer_step_skipped"
 
-        pg_steps_num = int(round(float(pg_weight_t.detach().sum().cpu().item())))
+        # 直接用 Python 端计数，避开 MPS .sum()/.item() 偶发 inf（曾导致
+        # OverflowError: cannot convert float infinity to integer）
+        pg_steps_num = int(round(float(sum(all_pg_weights))))
         pg_steps_num = max(0, min(int(total_steps), pg_steps_num))
         replay_steps_num = max(0, int(total_steps) - pg_steps_num)
 
