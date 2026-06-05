@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Label, UITransform, Color, Graphics } from 'cc';
 import { SKILL_ORDER, SKILLS, SkillId } from '../../core';
-import { TapBus } from '../ui/uiKit';
+import { TapBus, bindEngineClick, inheritLayer } from '../ui/uiKit';
 
 const { ccclass } = _decorator;
 
@@ -39,6 +39,7 @@ export class SkillBar extends Component {
             const def = SKILLS[id];
             const n = new Node(`skill-${id}`);
             n.parent = this.node;
+            inheritLayer(n, this.node);
             const uit = n.addComponent(UITransform);
             uit.setContentSize(84, 84);
             uit.setAnchorPoint(0.5, 0.5);
@@ -64,9 +65,9 @@ export class SkillBar extends Component {
             cost.fontSize = 18;
             cost.color = new Color(255, 215, 120, 255);
 
-            this._unregs.push(TapBus.add(n, () => {
-                if (this.onActivate) this.onActivate(id);
-            }));
+            const fire = () => { if (this.onActivate) this.onActivate(id); };
+            this._unregs.push(TapBus.add(n, fire));
+            this._unregs.push(bindEngineClick(n, fire));
 
             this.slots.push({ id, node: n, label: icon, bg });
         });

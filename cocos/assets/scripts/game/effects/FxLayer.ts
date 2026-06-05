@@ -1,4 +1,4 @@
-import { _decorator, Component, Graphics, UITransform, Color, Node, Label, tween, Vec3, v3 } from 'cc';
+import { _decorator, Component, Graphics, UITransform, Color, Node, Label, tween, Vec3, v3, Sprite, SpriteFrame, UIOpacity, resources } from 'cc';
 import { ClearResult, Skin } from '../../core';
 import { blockColor } from '../skin/palette';
 
@@ -29,12 +29,62 @@ export class FxLayer extends Component {
 
     private _g: Graphics | null = null;
     private _particles: Particle[] = [];
+    // 季节环境粒子（缓慢飘落）：独立 Graphics 层，避免与消行碎屑互相清屏。
+    private _ambG: Graphics | null = null;
+    private _ambient: Particle[] = [];
+    private _ambColor = new Color(180, 210, 255, 255);
+    private _ambActive = false;
+    // 可选柔光粒子贴图（art/particle）：消行时叠加一层染色光晕；未导入则跳过（碎屑仍为 Graphics）。
+    private _glowFrame: SpriteFrame | null = null;
 
     onLoad(): void {
         const uit = this.node.getComponent(UITransform) || this.node.addComponent(UITransform);
         uit.setContentSize(this.boardPx, this.boardPx);
         uit.setAnchorPoint(0.5, 0.5);
+        // 环境层置于碎屑层之下（先建的子节点 sibling index 更小、渲染更靠后）。
+        const ambNode = new Node('ambient');
+        ambNode.parent = this.node;
+        ambNode.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        this._ambG = ambNode.addComponent(Graphics);
         this._g = this.node.getComponent(Graphics) || this.node.addComponent(Graphics);
+        resources.load('art/particle/spriteFrame', SpriteFrame, (err: unknown, sf: SpriteFrame) => {
+            if (err || !sf || !this.node.isValid) return;
+            this._glowFrame = sf;
+        });
+    }
+
+    /** 在 (x,y) 处弹出一枚自销毁的染色柔光（scale 弹大 + 淡出）。仅在贴图就绪时调用。 */
+    private spawnGlow(x: number, y: number, color: Color, size: number): void {
+        const frame = this._glowFrame;
+        if (!frame) return;
+        const n = new Node('glow');
+        n.parent = this.node;
+        const ut = n.addComponent(UITransform);
+        ut.setAnchorPoint(0.5, 0.5);
+        ut.setContentSize(size, size);
+        n.setPosition(x, y, 0);
+        const sp = n.addComponent(Sprite);
+        if (Sprite.SizeMode) sp.sizeMode = Sprite.SizeMode.CUSTOM;
+        sp.spriteFrame = frame;
+        sp.color = new Color(color.r, color.g, color.b, 255);
+        const op = n.addComponent(UIOpacity);
+        op.opacity = 210;
+        n.setScale(0.4, 0.4, 1);
+        tween(n).to(0.4, { scale: new Vec3(1.5, 1.5, 1) }, { easing: 'quadOut' }).start();
+        tween(op).to(0.4, { opacity: 0 }).call(() => n.destroy()).start();
+    }
+
+    /**
+     * 开启季节环境氛围（对齐 web 的「节令感」意图，超出 web weather stub）：
+     * 按季节强调色缓慢飘落柔光粒子。color 取 seasonalAccent()。
+     */
+    startAmbience(color: [number, number, number]): void {
+        this._ambColor = new Color(color[0], color[1], color[2], 255);
+        this._ambActive = true;
+    }
+
+    stopAmbience(): void {
+        this._ambActive = false;
     }
 
     /** 与盘面同步边长，保证粒子/高光坐标对齐。 */
@@ -53,9 +103,15 @@ export class FxLayer extends Component {
     /** 消行碎屑：每个被消格喷几枚小方块 */
     burstClear(result: ClearResult, skin: Skin): void {
         const perCell = 4;
+        const cell = this.boardPx / this.size;
+        let glowBudget = 16;
         for (const c of result.cells) {
             const center = this.cellCenter(c.x, c.y);
             const base = c.color === null ? new Color(255, 255, 255) : blockColor(skin, c.color);
+            if (glowBudget > 0 && Math.random() < 0.5) {
+                this.spawnGlow(center.x, center.y, base, cell * 1.6);
+                glowBudget--;
+            }
             for (let i = 0; i < perCell; i++) {
                 const ang = Math.random() * Math.PI * 2;
                 const spd = 60 + Math.random() * 160;
@@ -159,7 +215,50 @@ export class FxLayer extends Component {
             .start();
     }
 
+    /** 季节环境粒子积分 + 重绘（低密度、缓慢飘落、靠近边缘淡出）。 */
+    private updateAmbience(dt: number): void {
+        const ag = this._ambG;
+        if (!ag) return;
+        if (!this._ambActive && this._ambient.length === 0) return;
+        const half = this.boardPx / 2;
+        const target = Math.max(8, Math.round(this.boardPx / 42));
+        // 按需补充：从盘面顶部随机位置生成，向下缓慢飘落带轻微横向漂移。
+        if (this._ambActive && this._ambient.length < target && Math.random() < 0.35) {
+            const maxLife = 3.2 + Math.random() * 2.6;
+            this._ambient.push({
+                x: (Math.random() - 0.5) * this.boardPx,
+                y: half + 8,
+                vx: (Math.random() - 0.5) * 16,
+                vy: -(18 + Math.random() * 26),
+                life: 0,
+                maxLife,
+                size: 3 + Math.random() * 4,
+                color: this._ambColor,
+            });
+        }
+        ag.clear();
+        const alive: Particle[] = [];
+        for (const p of this._ambient) {
+            p.life += dt;
+            p.y += p.vy * dt;
+            p.x += p.vx * dt + Math.sin(p.life * 2) * 6 * dt;
+            if (p.life >= p.maxLife || p.y < -half - 8) continue;
+            // 进入/离开两端各做 0.6s 淡入淡出，整体压到很低透明度（氛围而非干扰）。
+            const fadeIn = Math.min(1, p.life / 0.6);
+            const fadeOut = Math.min(1, (p.maxLife - p.life) / 0.6);
+            const a = Math.round(70 * Math.min(fadeIn, fadeOut));
+            if (a > 0) {
+                ag.fillColor = new Color(this._ambColor.r, this._ambColor.g, this._ambColor.b, a);
+                ag.circle(p.x, p.y, p.size);
+                ag.fill();
+            }
+            alive.push(p);
+        }
+        this._ambient = alive;
+    }
+
     update(dt: number): void {
+        this.updateAmbience(dt);
         const g = this._g;
         if (!g) return;
         if (this._particles.length === 0) {

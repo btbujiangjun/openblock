@@ -19,6 +19,9 @@ declare module 'cc' {
     export type input = any; export const input: any;
     export type Input = any; export const Input: any;
     export type Sprite = any; export const Sprite: any;
+    export type SpriteFrame = any; export const SpriteFrame: any;
+    export type UIOpacity = any; export const UIOpacity: any;
+    export type resources = any; export const resources: any;
     export type Layers = any; export const Layers: any;
     export type view = any; export const view: any;
     export type screen = any; export const screen: any;

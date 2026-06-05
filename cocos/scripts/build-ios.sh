@@ -116,11 +116,16 @@ if [[ "$DO_RUN" -eq 1 ]]; then
         exit 1
     fi
 
+    # Cocos 的 CMake 生成工程常把产物落在 proj/Debug-iphoneos 而非 derivedDataPath，
+    # 两处都找一遍，避免「BUILD SUCCEEDED 却报未找到 .app」。
     APP="$(ls -d "$DERIVED/Build/Products/Debug-iphoneos/"*.app 2>/dev/null | head -1)"
+    [[ -z "$APP" ]] && APP="$(ls -d "$COCOS_DIR/build/ios/proj/Debug-iphoneos/"*.app 2>/dev/null | head -1)"
+    [[ -z "$APP" ]] && APP="$(ls -dt "$COCOS_DIR/build/ios/proj/"*"/openblock.app" 2>/dev/null | head -1)"
     if [[ -z "$APP" ]]; then
-        echo "✗ 未找到编译产物 .app。" >&2
+        echo "✗ 未找到编译产物 .app（已在 derivedData 与 build/ios/proj 下查找）。" >&2
         exit 1
     fi
+    echo "  产物：$APP"
 
     # 取第一台已连接的真机 UDID（Xcode 15+ 的 devicectl）
     DEV_ID=""

@@ -6,6 +6,8 @@
  */
 
 export interface GameConfig {
+    /** 全平台统一应用 id（与 mobile 套壳 capacitor.config.json appId 一致，用于变现/统计归因）。 */
+    appId: string;
     /** 复活花费金币（随复活次数递增：cost * (n+1)） */
     reviveCostCoins: number;
     /** 每局最多复活次数 */
@@ -42,9 +44,12 @@ export interface FeatureFlags {
     analytics: boolean;
     bgm: boolean;
     rlSpawn: boolean;
+    /** 方块用 sprite 贴图渲染（art/block）；关闭或贴图缺失时回退纯代码 Graphics 渲染。 */
+    spriteBlocks: boolean;
 }
 
 const DEFAULT_CONFIG: GameConfig = {
+    appId: 'com.openblock.game',
     reviveCostCoins: 30,
     reviveMaxPerGame: 3,
     chestBaseCoins: 15,
@@ -72,7 +77,8 @@ const DEFAULT_FLAGS: FeatureFlags = {
     revive: true,
     rewards: true,
     wheel: true,
-    modes: true,
+    /** 玩法模式切换（禅/闪电等）：web 主菜单无入口，Cocos 休闲壳默认关闭。 */
+    modes: false,
     share: true,
     leaderboard: true,
     seasonPass: true,
@@ -80,6 +86,7 @@ const DEFAULT_FLAGS: FeatureFlags = {
     analytics: true,
     bgm: true,
     rlSpawn: false,
+    spriteBlocks: true,
 };
 
 let _config: GameConfig = { ...DEFAULT_CONFIG };

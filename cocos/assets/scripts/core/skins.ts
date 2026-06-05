@@ -611,3 +611,82 @@ export function getSkin(id?: string | null): Skin {
 export function listSkinIds(): string[] {
     return Object.keys(SKINS);
 }
+
+/** 盘面水印（对齐 web `skin.boardWatermark`）：盘面 5 锚点上的低透明度浮层 emoji。 */
+export interface BoardWatermark {
+    icons: string[];
+    opacity: number;
+    /** 字号缩放（相对默认）。缺省按默认。 */
+    scale?: number;
+}
+
+/** 各皮肤盘面水印（icons/opacity/scale 与 web `skins.js` boardWatermark 基础值对齐）。 */
+const WATERMARKS: Record<string, BoardWatermark> = {
+    classic: { icons: ['🎮', '⭐'], opacity: 0.07 },
+    titanium: { icons: ['💠', '🔷'], opacity: 0.07 },
+    aurora: { icons: ['🐧', '🐻‍❄️', '❄️', '🌌'], opacity: 0.08 },
+    neonCity: { icons: ['🌃', '🏙️'], opacity: 0.07 },
+    ocean: { icons: ['🦈', '🐠'], opacity: 0.07 },
+    sunset: { icons: ['🌅', '🔆'], opacity: 0.08 },
+    sakura: { icons: ['🌸', '🌺'], opacity: 0.09 },
+    koi: { icons: ['🎏', '🐟'], opacity: 0.08 },
+    candy: { icons: ['🍭', '🍬'], opacity: 0.09 },
+    bubbly: { icons: ['🫧', '🐡'], opacity: 0.09 },
+    toon: { icons: ['🎪', '🎠'], opacity: 0.08 },
+    pixel8: { icons: ['👾', '🎮', '🍄', '🥊'], opacity: 0.10, scale: 0.72 },
+    dawn: { icons: ['🌄', '🌻', '🕊️', '🍃'], opacity: 0.12, scale: 0.6 },
+    food: { icons: ['🍕', '🍔'], opacity: 0.08 },
+    music: { icons: ['🎹', '🎸'], opacity: 0.08 },
+    pets: { icons: ['🐶', '🐾'], opacity: 0.09 },
+    universe: { icons: ['🪐', '⭐'], opacity: 0.07 },
+    fantasy: { icons: ['🔮', '✨'], opacity: 0.08 },
+    beast: { icons: ['🦁', '🐯'], opacity: 0.08 },
+    greece: { icons: ['🏛️', '⚡'], opacity: 0.08 },
+    demon: { icons: ['😈', '💀'], opacity: 0.08 },
+    jurassic: { icons: ['🦕', '🦖'], opacity: 0.08 },
+    fairy: { icons: ['🧚', '🌸'], opacity: 0.08 },
+    industrial: { icons: ['🏭', '⚙️'], opacity: 0.08 },
+    forbidden: { icons: ['👑', '🐲'], opacity: 0.08 },
+    mahjong: { icons: ['🀅', '🀀'], opacity: 0.10 },
+    boardgame: { icons: ['🃏', '♠️'], opacity: 0.055 },
+    sports: { icons: ['⚽', '🏆'], opacity: 0.08 },
+    outdoor: { icons: ['🥾', '⛺'], opacity: 0.10 },
+    vehicles: { icons: ['🏎️', '✈️'], opacity: 0.08 },
+    forest: { icons: ['🌳', '🍁'], opacity: 0.08 },
+    pirate: { icons: ['🦜', '🏴‍☠️'], opacity: 0.08 },
+    farm: { icons: ['🐄', '🌽'], opacity: 0.055 },
+    desert: { icons: ['🐫', '🌵'], opacity: 0.055 },
+};
+
+/** 取皮肤盘面水印（含已下线皮肤别名映射）；无则返回 null。 */
+export function getWatermark(id: string): BoardWatermark | null {
+    const mapped = REMOVED_SKIN_ALIASES[id] || id;
+    return WATERMARKS[mapped] || null;
+}
+
+/** 4 月 1 日限定 emoji 集（覆盖所有皮肤的 blockIcons，与 web seasonalSkin.APRIL_FOOLS_ICONS 一致）。 */
+const APRIL_FOOLS_ICONS = ['😀', '😎', '🤩', '😜', '🥳', '🤖', '👻', '🎭'];
+
+/** 是否处于愚人节（4/1）。date 可注入便于测试。 */
+export function isAprilFools(date: Date = new Date()): boolean {
+    return date.getMonth() === 3 && date.getDate() === 1;
+}
+
+/**
+ * 节日彩蛋（对齐 web `applyAprilFoolsIfActive`）：4 月 1 日把所有皮肤的 blockIcons 临时换成表情 emoji，
+ * 原本无 icon 的皮肤也补上节日表情。需在渲染前调用（直接就地改 SKINS，模型/视图随后读到的即为覆盖值）。
+ * core 保持引擎无关：是否退订由调用方（各端壳）从本地存储读出后以 `optOut` 传入。
+ */
+export function applyAprilFoolsIfActive(opts?: { date?: Date; optOut?: boolean }): boolean {
+    if (opts?.optOut) return false;
+    if (!isAprilFools(opts?.date)) return false;
+    for (const id of Object.keys(SKINS)) {
+        const s = SKINS[id];
+        if (Array.isArray(s.blockIcons) && s.blockIcons.length) {
+            s.blockIcons = APRIL_FOOLS_ICONS.slice(0, s.blockIcons.length);
+        } else if (Array.isArray(s.blockColors) && s.blockColors.length) {
+            s.blockIcons = APRIL_FOOLS_ICONS.slice(0, s.blockColors.length);
+        }
+    }
+    return true;
+}

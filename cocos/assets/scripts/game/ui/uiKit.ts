@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, UITransform, Graphics, Label, Color, Vec3, tween } from 'cc';
+import { _decorator, Component, Node, UITransform, Graphics, Label, Color, Vec2, Vec3, tween, Button, Camera, Canvas, director } from 'cc';
 
 const { ccclass } = _decorator;
 
@@ -25,6 +25,73 @@ export interface TapTarget {
 
 const _tapTargets: TapTarget[] = [];
 
+/** 代码创建的 UI 节点默认 layer=DEFAULT，需与父级（UI_2D）对齐 camera.hitTest 才可靠。 */
+export function inheritLayer(child: Node, parent: Node): void {
+    child.layer = parent.layer;
+}
+
+/**
+ * EventTouch.getUILocation 经引擎 _convertToUISpace 后已是「中心原点」UI 坐标（与节点 setPosition 同系）。
+ * 切勿再减 visibleSize/2——FIXED_WIDTH 超高屏（如 720×1558）上会整体偏移导致完全点不中。
+ */
+export function uiToDesign(uiX: number, uiY: number): Vec2 {
+    return new Vec2(uiX, uiY);
+}
+
+let _uiCam: Camera | null = null;
+
+/** Canvas 上的 UI 相机（与引擎 hitTest / screenToWorld 同路径）。 */
+export function getUICamera(): Camera {
+    if (_uiCam?.node?.isValid) return _uiCam;
+    const scene = director.getScene();
+    const canvas = scene?.getComponentInChildren(Canvas);
+    _uiCam = canvas?.cameraComponent ?? null;
+    if (!_uiCam && scene) {
+        for (const c of scene.getComponentsInChildren(Camera)) {
+            _uiCam = c;
+            break;
+        }
+    }
+    return _uiCam as Camera;
+}
+
+/**
+ * 屏幕坐标 → 节点局部坐标（AR）。
+ * getUILocation 是 UI 空间，不能直接喂 convertToNodeSpaceAR（它需要世界坐标）——
+ * 候选区/盘面拖拽必须走 screenToWorld，否则 FIXED_WIDTH 超高屏上整块候选区点不动。
+ */
+export function screenToLocal(node: Node, screenX: number, screenY: number): Vec3 {
+    const uit = node.getComponent(UITransform);
+    if (!uit) return new Vec3();
+    const cam = getUICamera();
+    if (!cam) return new Vec3();
+    const world = new Vec3();
+    cam.screenToWorld(new Vec3(screenX, screenY, 0), world);
+    return uit.convertToNodeSpaceAR(world);
+}
+
+function nodeHit(node: Node, uit: UITransform, screenPt: Vec2, uiPt: Vec2): boolean {
+    const isHitFn = (uit as UITransform & { isHit?: (p: Vec2) => boolean }).isHit;
+    if (isHitFn?.(uiPt)) return true;
+    if (uit.hitTest(screenPt)) return true;
+    // 兜底：screenToWorld → local AABB（原生 FIXED_WIDTH 屏上 isHit/hitTest 偶发失效）。
+    const p = screenToLocal(node, screenPt.x, screenPt.y);
+    const hw = uit.contentSize.width / 2;
+    const hh = uit.contentSize.height / 2;
+    return hw > 0 && hh > 0 && Math.abs(p.x) <= hw && Math.abs(p.y) <= hh;
+}
+
+/** 引擎 Button.CLICK（节点级命中），原生 iOS 比纯 TapBus 更可靠；与 TapBus 可并存。 */
+export function bindEngineClick(node: Node, onClick: () => void): () => void {
+    const btn = node.getComponent(Button) || node.addComponent(Button);
+    btn.transition = Button.Transition.NONE;
+    btn.interactable = true;
+    btn.target = node;
+    const handler = () => onClick();
+    node.on(Button.EventType.CLICK, handler, node);
+    return () => node.off(Button.EventType.CLICK, handler, node);
+}
+
 export const TapBus = {
     /** 注册一个可点节点，返回取消注册函数。 */
     add(node: Node, onTap: () => void): () => void {
@@ -35,18 +102,19 @@ export const TapBus = {
             if (i >= 0) _tapTargets.splice(i, 1);
         };
     },
-    /** 命中分发（UI 设计坐标）。命中并触发返回 true。 */
-    hit(uiX: number, uiY: number): boolean {
+    /**
+     * 命中分发：`isHit(ui)` / `hitTest(screen)` / 手算 AABB 任一命中即触发（原生端坐标系差异大）。
+     */
+    hit(screenX: number, screenY: number, uiX: number, uiY: number): boolean {
+        const screenPt = new Vec2(screenX, screenY);
+        const uiPt = new Vec2(uiX, uiY);
         for (let i = _tapTargets.length - 1; i >= 0; i--) {
             const t = _tapTargets[i];
             const node = t.node;
             if (!node || !node.isValid || !node.activeInHierarchy) continue;
             const uit = node.getComponent(UITransform);
             if (!uit) continue;
-            const p = uit.convertToNodeSpaceAR(new Vec3(uiX, uiY, 0));
-            const hw = uit.contentSize.width / 2;
-            const hh = uit.contentSize.height / 2;
-            if (Math.abs(p.x) <= hw && Math.abs(p.y) <= hh) {
+            if (nodeHit(node, uit, screenPt, uiPt)) {
                 t.onTap();
                 return true;
             }
@@ -59,6 +127,7 @@ export const TapBus = {
 export function dimBg(parent: Node, w = 1400, h = 2200, alpha = 170): Node {
     const n = new Node('dim');
     n.parent = parent;
+    inheritLayer(n, parent);
     n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
     const g = n.addComponent(Graphics);
     g.fillColor = new Color(0, 0, 0, alpha);
@@ -70,6 +139,7 @@ export function dimBg(parent: Node, w = 1400, h = 2200, alpha = 170): Node {
 export function card(parent: Node, w: number, h: number, y = 0): Node {
     const n = new Node('card');
     n.parent = parent;
+    inheritLayer(n, parent);
     n.setPosition(0, y, 0);
     n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
     const g = n.addComponent(Graphics);
@@ -87,6 +157,7 @@ export function card(parent: Node, w: number, h: number, y = 0): Node {
 export function closeX(parent: Node, x: number, y: number, onTap: () => void): () => void {
     const n = new Node('closeX');
     n.parent = parent;
+    inheritLayer(n, parent);
     n.setPosition(x, y, 0);
     const uit = n.addComponent(UITransform);
     uit.setAnchorPoint(0.5, 0.5);
@@ -110,12 +181,15 @@ export function closeX(parent: Node, x: number, y: number, onTap: () => void): (
     l.lineHeight = 30;
     l.color = new Color(225, 230, 240, 255);
 
-    return TapBus.add(n, onTap);
+    const unTap = TapBus.add(n, onTap);
+    const unBtn = bindEngineClick(n, onTap);
+    return () => { unTap(); unBtn(); };
 }
 
 export function label(parent: Node, text: string, size: number, x: number, y: number, color = new Color(235, 240, 250, 255)): Label {
     const n = new Node('label');
     n.parent = parent;
+    inheritLayer(n, parent);
     n.setPosition(x, y, 0);
     n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
     const l = n.addComponent(Label);
@@ -155,6 +229,7 @@ export class PillButton extends Component {
     private lbl!: Label;
     private onClick: (() => void) | null = null;
     private _unreg: (() => void) | null = null;
+    private _onBtnClick: (() => void) | null = null;
     private w = 200;
     private h = 56;
     private radius = 22;
@@ -190,7 +265,12 @@ export class PillButton extends Component {
         this.lbl.string = text;
 
         this.redraw();
+        // 双通道：TapBus（全局 input）+ Button.CLICK（引擎节点级命中，原生 iOS 更稳）。
         this._unreg = TapBus.add(this.node, () => this.fire());
+        this._onBtnClick = () => this.fire();
+        const unbind = bindEngineClick(this.node, this._onBtnClick);
+        const prevUnreg = this._unreg;
+        this._unreg = () => { prevUnreg(); unbind(); };
         return this;
     }
 
@@ -201,6 +281,8 @@ export class PillButton extends Component {
     setDisabled(disabled: boolean): void {
         if (this._disabled === disabled) return;
         this._disabled = disabled;
+        const btn = this.node.getComponent(Button);
+        if (btn) btn.interactable = !disabled;
         this.redraw();
     }
 
@@ -238,6 +320,7 @@ export class PillButton extends Component {
     }
 
     onDestroy(): void {
+        this._onBtnClick = null;
         if (this._unreg) this._unreg();
         this._unreg = null;
     }
@@ -255,6 +338,7 @@ export function button(
 ): PillButton {
     const n = new Node('btn');
     n.parent = parent;
+    inheritLayer(n, parent);
     n.setPosition(x, y, 0);
     return n.addComponent(PillButton).init(text, size, onClick, { color, ...style });
 }

@@ -64,4 +64,8 @@ export const STORAGE_KEYS = {
     sound: 'openblock_cocos_sound_v1',
     locale: 'openblock_cocos_locale_v1',
     stats: 'openblock_cocos_stats_v1',
+    chest: 'openblock_cocos_chest_v1',
+    aprilFoolsOptout: 'openblock_cocos_aprilfools_optout_v1',
+    companion: 'openblock_cocos_companion_v1',
+    replays: 'openblock_cocos_replays_v1',
 };

@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Color, UITransform, Label, Graphics } from 'cc';
-import { Modal, dimBg, card, label, button, closeX, TapBus } from './uiKit';
+import { Modal, dimBg, card, label, button, closeX, TapBus, inheritLayer } from './uiKit';
 import { SKINS, listSkinIds, getSkin, Skin } from '../../core';
 import { blockMetrics, gridOuterColor, cellEmptyColor, blockIcon } from '../skin/palette';
 import { paintBlockFace, iconFontSize } from '../skin/blockPaint';
@@ -20,6 +20,7 @@ export class SkinPanel extends Component {
     static show(parent: Node, currentId: string, onPick: (id: string) => void): SkinPanel {
         const root = new Node('SkinPanel');
         root.parent = parent;
+        inheritLayer(root, parent);
         root.setSiblingIndex(9999);
         root.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
         const p = root.addComponent(SkinPanel);
@@ -72,6 +73,7 @@ export class SkinPanel extends Component {
     private makeSwatch(parent: Node, skin: Skin, x: number, y: number, w: number, h: number): void {
         const n = new Node(`sk-${skin.id}`);
         n.parent = parent;
+        inheritLayer(n, parent);
         n.setPosition(x, y, 0);
         n.addComponent(UITransform).setContentSize(w, h);
         n.getComponent(UITransform)!.setAnchorPoint(0.5, 0.5);

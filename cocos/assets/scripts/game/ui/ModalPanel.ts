@@ -18,10 +18,14 @@ export interface ModalButton {
 
 export interface ModalOptions {
     title: string;
+    /** 标题下方的大号强调值（如结束卡的本局得分，对齐 web `.game-over-score`）。 */
+    bigValue?: string;
     lines?: string[];
     buttons: ModalButton[];
     /** 点背景关闭（默认 false） */
     dismissable?: boolean;
+    /** 隐藏右上角 × （如结束卡：背景即「再来一局」，不需要额外关闭键）。 */
+    noCloseX?: boolean;
     onClose?: () => void;
 }
 
@@ -35,6 +39,7 @@ export class ModalPanel extends Component {
     static show(parent: Node, opts: ModalOptions): ModalPanel {
         const root = new Node('Modal');
         root.parent = parent;
+        root.layer = parent.layer;
         root.setSiblingIndex(9999);
         root.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
         const panel = root.addComponent(ModalPanel);
@@ -47,17 +52,22 @@ export class ModalPanel extends Component {
         this.onCloseCb = opts.onClose ?? null;
 
         const lines = opts.lines ?? [];
-        const h = 240 + lines.length * 42 + opts.buttons.length * 84;
+        const bigH = opts.bigValue ? 96 : 0;
+        const h = 240 + bigH + lines.length * 42 + opts.buttons.length * 84;
         const w = 600;
         const dim = dimBg(this.node);
-        if (opts.dismissable) {
-            dim.getComponent(UITransform)!.setContentSize(2000, 3000);
-            this._unregDim = TapBus.add(dim, () => this.close());
-        }
+        dim.getComponent(UITransform)!.setContentSize(2000, 3000);
+        // 遮罩先注册（低优先级）：非 dismissable 仅吸收点击防点穿；dismissable 点空白关闭。
+        // 按钮在下方循环里后注册，逆序命中时按钮优先（对齐 MetaPanel / SkinPanel 约定）。
+        this._unregDim = TapBus.add(dim, () => { if (opts.dismissable) this.close(); });
         const c = card(this.node, w, h);
         let y = h / 2 - 72;
         label(c, opts.title, 40, 0, y, new Color(255, 220, 130, 255));
         y -= 74;
+        if (opts.bigValue) {
+            label(c, opts.bigValue, 88, 0, y - 18, new Color(255, 255, 255, 255));
+            y -= bigH;
+        }
         for (const ln of lines) {
             label(c, ln, 26, 0, y);
             y -= 42;
@@ -71,8 +81,8 @@ export class ModalPanel extends Component {
             y -= 84;
         }
 
-        // 可点背景关闭的弹窗，右上角补一个 × 关闭按钮（对齐 web）。
-        if (opts.dismissable) {
+        // 可点背景关闭的弹窗，右上角补一个 × 关闭按钮（对齐 web）；noCloseX 时省略。
+        if (opts.dismissable && !opts.noCloseX) {
             this._unregClose = closeX(c, w / 2 - 44, h / 2 - 44, () => this.close());
         }
     }

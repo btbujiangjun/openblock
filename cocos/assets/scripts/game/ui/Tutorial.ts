@@ -18,7 +18,13 @@ export class Tutorial extends Component {
         uit.setContentSize(2000, 3000);
         uit.setAnchorPoint(0.5, 0.5);
 
-        const g = this.node.addComponent(Graphics);
+        // 全屏遮罩单独成节点：先注册 TapBus（低优先级），卡片内按钮后注册可正常命中。
+        const blocker = new Node('blocker');
+        blocker.parent = this.node;
+        const bu = blocker.addComponent(UITransform);
+        bu.setAnchorPoint(0.5, 0.5);
+        bu.setContentSize(2000, 3000);
+        const g = blocker.addComponent(Graphics);
         g.fillColor = new Color(0, 0, 0, 190);
         g.rect(-1000, -1500, 2000, 3000);
         g.fill();
@@ -51,9 +57,9 @@ export class Tutorial extends Component {
         });
         button(c, '开始游戏', 0, -cardH / 2 + 64, 30, () => this.dismiss(), new Color(70, 130, 90, 255), { primary: true, minWidth: 240 });
 
-        // 引导期视为模态，暂停盘面输入；点击卡片外任意处也可关闭（全局 TapBus 命中分发）。
+        // 引导期视为模态，暂停盘面输入；点遮罩空白处关闭（按钮命中优先于遮罩）。
         Modal.open();
-        this._unreg = TapBus.add(this.node, () => this.dismiss());
+        this._unreg = TapBus.add(blocker, () => this.dismiss());
     }
 
     private dismiss(): void {
