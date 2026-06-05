@@ -1,0 +1,25 @@
+{
+  "platform": "ios",
+  "debug": false,
+  "md5Cache": false,
+  "packages": {
+    "ios": {
+      "packageName": "com.ceshi.game.zy3",
+      "orientation": {
+        "portrait": true,
+        "upsideDown": false,
+        "landscapeLeft": false,
+        "landscapeRight": false
+      },
+      "osTarget": {
+        "iphoneos": true,
+        "simulator": false
+      },
+      "developerTeam": "J4SK4U9Z2P",
+      "targetVersion": "12.0",
+      "skipUpdateXcodeProject": false,
+      "executableName": "openblock",
+      "displayName": "OpenBlock"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "openblock-cocos",
+  "version": "0.1.0",
+  "description": "OpenBlock Cocos Creator client (TS) sharing the engine-agnostic core with the web kernel.",
+  "creator": {
+    "version": "3.8.8"
+  },
+  "type": "2d",
+  "uuid": "8559dfc5-4bbf-445c-844e-f175e15e2e7d"
+}

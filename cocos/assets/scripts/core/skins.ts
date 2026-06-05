@@ -1,0 +1,613 @@
+/**
+ * 皮肤/调色板 —— 与 web/src/skins.js 同源（颜色 / icon / 盘面色板对齐）。
+ *
+ * 移植范围：cocos 渲染所需的数据字段（blockColors / blockIcons / gridOuter / gridCell /
+ * gridLine / gridGap / blockInset / blockRadius / blockStyle / clearFlash / cssBg / uiDark）。
+ * 未移植 web 专属字段（boardWatermark / cssVars）—— 它们属于 DOM/HUD 主题，cocos 端不消费。
+ *
+ * 默认皮肤与 web 一致：titanium。
+ */
+import { Skin } from './types';
+
+export const SKINS: Record<string, Skin> = {
+    /** 经典：高饱和六色积木 + 立体梯形浮雕 */
+    classic: {
+        id: 'classic',
+        name: '✨ 极简经典',
+        blockColors: ['#3F6DD8', '#4FB8E8', '#52BC4B', '#FFC428', '#F5851E', '#A848E0', '#65C4F0', '#E84D5C'],
+        gridOuter: '#1C2630',
+        gridCell: '#2E3E50',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 4,
+        blockStyle: 'bevel3d',
+        clearFlash: 'rgba(220,240,255,0.90)',
+        cssBg: '#141C24',
+        uiDark: true,
+    },
+
+    /** 钛晶：蓝灰金属质感（默认皮肤） */
+    titanium: {
+        id: 'titanium',
+        name: '💎 钛晶矩阵',
+        blockColors: ['#6AAEE8', '#94BDDF', '#78B8EB', '#A8CCF0', '#88D0F0', '#7DBAE2', '#B4D8EC', '#8DB6D8'],
+        gridOuter: '#0A1020',
+        gridCell: '#182030',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'metal',
+        clearFlash: 'rgba(200,220,245,0.42)',
+        cssBg: '#080C18',
+        uiDark: true,
+    },
+
+    /** 极光：冰川极光玻璃感 */
+    aurora: {
+        id: 'aurora',
+        name: '🌌 冰川极光',
+        blockIcons: ['🦌', '🐧', '🐋', '❄️', '🌌', '🐻‍❄️', '🦭', '🏔️'],
+        blockColors: ['#5AD8CC', '#8070F0', '#AA90FA', '#38D89E', '#28D8F0', '#8590F8', '#C488FC', '#60C8FF'],
+        gridOuter: '#04101C',
+        gridCell: '#0C1C2E',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(170,245,210,0.38)',
+        cssBg: '#020C18',
+        uiDark: true,
+    },
+
+    /** 霓虹都市：RGB 霓虹灯光压近黑底 */
+    neonCity: {
+        id: 'neonCity',
+        name: '🌃 霓虹都市',
+        blockColors: ['#FF2DAA', '#9B72FF', '#00E5FF', '#76FF03', '#FFAB40', '#FF4081', '#448AFF', '#18FFFF'],
+        gridOuter: '#0B0F1A',
+        gridCell: '#151C2E',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(0,229,255,0.35)',
+        cssBg: '#080C16',
+        uiDark: true,
+    },
+
+    /** 深海：珊瑚 / 荧光鱼 / 海水青 */
+    ocean: {
+        id: 'ocean',
+        name: '🌊 深海幽域',
+        blockIcons: ['🐙', '🦞', '🐡', '🪸', '🐚', '🐳', '🦈', '🦑'],
+        blockColors: ['#00C8F0', '#0098C8', '#48D4E4', '#90F0FF', '#00E4C0', '#FFB347', '#FF7878', '#20E8FF'],
+        gridOuter: '#040E18',
+        gridCell: '#081C28',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(144,224,239,0.35)',
+        cssBg: '#020A14',
+        uiDark: true,
+    },
+
+    /** 琥珀流光：暖色宝石谱 + glass 渲染 */
+    sunset: {
+        id: 'sunset',
+        name: '🌅 琥珀流光',
+        blockColors: ['#FF6A50', '#FF8E3A', '#FFB230', '#FFD638', '#FF7090', '#E04098', '#A858DC', '#FFAE6A'],
+        gridOuter: '#241019',
+        gridCell: '#341628',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(255,200,140,0.50)',
+        cssBg: '#1A0810',
+        uiDark: true,
+    },
+
+    /** 樱花：夜樱粉紫胭脂 */
+    sakura: {
+        id: 'sakura',
+        name: '🌸 樱花飞雪',
+        blockColors: ['#FF4490', '#FF2870', '#FFB0D8', '#78D860', '#78B8F0', '#CC60E8', '#FFBA30', '#58D890'],
+        gridOuter: '#241018',
+        gridCell: '#321628',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(255,180,220,0.52)',
+        cssBg: '#1A0810',
+        uiDark: true,
+    },
+
+    /** 锦鲤：朱红/金黄/橙橘/樱粉 */
+    koi: {
+        id: 'koi',
+        name: '🎏 锦鲤跃龙',
+        blockIcons: ['🎋', '🌊', '🪷', '⛩️', '🐟', '🏮', '🎐', '🎏'],
+        blockColors: ['#FF5040', '#F07828', '#F0C820', '#4070D8', '#E880A8', '#38A8B8', '#F05888', '#D0A858'],
+        gridOuter: '#040E18',
+        gridCell: '#081C2C',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 9,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(80,200,255,0.38)',
+        cssBg: '#020A14',
+        uiDark: true,
+    },
+
+    /** 糖果：超饱和纯色糖块 */
+    candy: {
+        id: 'candy',
+        name: '🍭 糖果甜心',
+        blockIcons: ['🍪', '🎀', '🍫', '🍰', '🍩', '🍬', '🍭', '🧁'],
+        blockColors: ['#FF4466', '#FF8820', '#FFD020', '#44E848', '#22AAFF', '#CC66FF', '#FF44BB', '#22E8CC'],
+        gridOuter: '#22082A',
+        gridCell: '#321048',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,200,255,0.88)',
+        cssBg: '#1A0628',
+        uiDark: true,
+    },
+
+    /** 泡泡糖：Q 弹果冻海洋生物 */
+    bubbly: {
+        id: 'bubbly',
+        name: '🫧 元气泡泡',
+        blockColors: ['#FF72BB', '#4898F8', '#42C442', '#FFAA18', '#22C87A', '#E060FF', '#FF8848', '#12C4E8'],
+        blockIcons: ['🐬', '🦦', '🪼', '🏖️', '🦀', '🐢', '🫧', '🦐'],
+        gridOuter: '#2A1048',
+        gridCell: '#401870',
+        gridGap: 1,
+        blockInset: 1,
+        blockRadius: 14,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,160,240,0.82)',
+        cssBg: '#1C0838',
+        uiDark: true,
+    },
+
+    /** 卡通乐园：原色积木 + 萌物图标 */
+    toon: {
+        id: 'toon',
+        name: '🎨 卡通乐园',
+        blockColors: ['#FF5570', '#FF7F11', '#FFD600', '#00C853', '#5590FF', '#DD60FF', '#B85828', '#00BCD4'],
+        blockIcons: ['🐼', '🐨', '🐘', '🦒', '🦛', '🦔', '🦘', '🦄'],
+        gridOuter: '#2A1860',
+        gridCell: '#3A2478',
+        gridGap: 2,
+        blockInset: 1,
+        blockRadius: 10,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,255,130,0.90)',
+        cssBg: '#1A1040',
+        uiDark: true,
+    },
+
+    /** 街机格斗：NES/SNK 鲜艳配色 */
+    pixel8: {
+        id: 'pixel8',
+        name: '👾 街机格斗',
+        blockIcons: ['💣', '🪙', '🥊', '🎮', '👊', '🍄', '🕹️', '👾'],
+        blockColors: ['#FF2050', '#1E78FF', '#00C030', '#F8C000', '#CC00CC', '#00B8C8', '#FF5800', '#90E000'],
+        gridOuter: '#0D0400',
+        gridCell: '#1E1008',
+        gridGap: 1,
+        blockInset: 2,
+        blockStyle: 'cartoon',
+        blockRadius: 4,
+        clearFlash: '#FFFFF0',
+        cssBg: '#080200',
+        uiDark: true,
+    },
+
+    /** 晨光：低饱和暖米盘面（浅色系） */
+    dawn: {
+        id: 'dawn',
+        name: '☀️ 晨光微曦',
+        blockColors: ['#E06E62', '#5A92D6', '#D8A84E', '#55A873', '#8D75CE', '#42A7A8', '#D46282', '#6B7DDD'],
+        gridOuter: '#F1E3C5',
+        gridCell: '#FFF3D8',
+        gridLine: 'rgba(130,96,48,0.13)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,210,130,0.72)',
+        cssBg: '#F7F0DC',
+        uiDark: false,
+    },
+
+    /** 美食：食材原色方块 + 美食 emoji */
+    food: {
+        id: 'food',
+        name: '🍕 美食盛宴',
+        blockColors: ['#FF5040', '#F09020', '#F8D020', '#60B830', '#E09050', '#B05028', '#F05878', '#C068F0'],
+        blockIcons: ['🥑', '🍣', '🍞', '🍕', '🌮', '🍔', '🥩', '🍜'],
+        gridOuter: '#18100A',
+        gridCell: '#281808',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,200,100,0.88)',
+        cssBg: '#100A04',
+        uiDark: true,
+    },
+
+    /** 音乐律动：舞台追光色 + 乐器 emoji */
+    music: {
+        id: 'music',
+        name: '🎹 音乐律动',
+        blockColors: ['#FF3060', '#FF9020', '#FFE820', '#40E840', '#3088FF', '#E040FF', '#FF60A0', '#40E8E8'],
+        blockIcons: ['🎤', '🎹', '🎧', '🎺', '🥁', '🎸', '🎷', '🎻'],
+        gridOuter: '#100818',
+        gridCell: '#1C0C28',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(255,100,200,0.40)',
+        cssBg: '#08040F',
+        uiDark: true,
+    },
+
+    /** 萌宠：卡通风格 + 宠物 emoji（浅色系） */
+    pets: {
+        id: 'pets',
+        name: '🐶 萌宠天地',
+        blockColors: ['#C89088', '#B8A090', '#A8A878', '#78A890', '#98B0A8', '#C8B8A0', '#A898B8', '#B8B090'],
+        blockIcons: ['🐰', '🐠', '🐦', '🐱', '🦎', '🐹', '🐭', '🐶'],
+        gridOuter: '#C0B090',
+        gridCell: '#F5EDDC',
+        gridGap: 1,
+        blockInset: 1,
+        blockRadius: 10,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,240,180,0.88)',
+        cssBg: '#EDE4CE',
+        uiDark: false,
+    },
+
+    /** 宇宙：八大行星 + 天体 emoji */
+    universe: {
+        id: 'universe',
+        name: '🪐 宇宙星际',
+        blockColors: ['#E84020', '#F09030', '#D8C820', '#3898D0', '#D040D0', '#20B0C0', '#D88020', '#9070F0'],
+        blockIcons: ['🛸', '🌍', '🔭', '🌙', '⭐', '🪐', '☄️', '🌠'],
+        gridOuter: '#04020E',
+        gridCell: '#0A0618',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(100,80,200,0.40)',
+        cssBg: '#020108',
+        uiDark: true,
+    },
+
+    /** 魔幻：宝石矿物配色 */
+    fantasy: {
+        id: 'fantasy',
+        name: '🔮 魔幻秘境',
+        blockColors: ['#CC48FF', '#5080F0', '#18B848', '#E82020', '#E8B820', '#20B0D8', '#E020A0', '#9060E0'],
+        gridOuter: '#0E0428',
+        gridCell: '#1A0838',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(160,80,255,0.42)',
+        cssBg: '#0A0420',
+        uiDark: true,
+    },
+
+    /** 冒险奇境：凶猛野兽 icon */
+    beast: {
+        id: 'beast',
+        name: '🗺️ 冒险奇境',
+        blockIcons: ['🐺', '🦏', '🐯', '🦁', '🐗', '🦅', '🐆', '🐻'],
+        blockColors: ['#6878A0', '#A82820', '#3878C8', '#5C2880', '#2A6028', '#D4A028', '#4A6020', '#7C5028'],
+        gridOuter: '#150C04',
+        gridCell: '#221608',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,180,30,0.50)',
+        cssBg: '#0E0802',
+        uiDark: true,
+    },
+
+    /** 希腊神话：奥林匹斯诸神 icon */
+    greece: {
+        id: 'greece',
+        name: '🏛️ 希腊神话',
+        blockIcons: ['🔱', '☀️', '🍷', '🦚', '⚡', '🏹', '💘', '🦉'],
+        blockColors: ['#E8C030', '#4898E8', '#90C040', '#F07828', '#90B8D8', '#D050E8', '#20A8B8', '#7860E0'],
+        gridOuter: '#040A18',
+        gridCell: '#0A1228',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(230,195,40,0.52)',
+        cssBg: '#020812',
+        uiDark: true,
+    },
+
+    /** 恶魔冥界：硫磺地狱火 */
+    demon: {
+        id: 'demon',
+        name: '😈 恶魔冥界',
+        blockIcons: ['👁️', '⚔️', '💀', '🕷️', '🦇', '👹', '☠️', '😈'],
+        blockColors: ['#F03030', '#F0A020', '#CC40FF', '#FF5030', '#E8A0D8', '#9870D8', '#E03060', '#20D848'],
+        gridOuter: '#160408',
+        gridCell: '#341018',
+        gridLine: 'rgba(255,112,136,0.24)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(220,30,40,0.48)',
+        cssBg: '#0E0408',
+        uiDark: true,
+    },
+
+    /** 恐龙世界：史前爬行类 + 化石 + 火山 */
+    jurassic: {
+        id: 'jurassic',
+        name: '🦕 恐龙世界',
+        blockIcons: ['🥚', '🌋', '🦕', '🦴', '🐉', '🦖', '🐊', '🐍'],
+        blockColors: ['#50C030', '#F05030', '#9060F0', '#A8D840', '#80B850', '#30A8B8', '#D0A030', '#F0C840'],
+        gridOuter: '#0E1A06',
+        gridCell: '#1A2A0E',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(160,220,60,0.50)',
+        cssBg: '#0A1408',
+        uiDark: true,
+    },
+
+    /** 花仙梦境：精灵·花卉·魔法 */
+    fairy: {
+        id: 'fairy',
+        name: '🧚 花仙梦境',
+        blockIcons: ['🌻', '🦋', '🌹', '🍃', '🪄', '🌷', '🌈', '🧚'],
+        blockColors: ['#D060F0', '#F060A0', '#60A0F8', '#F07060', '#F040A0', '#9B72F0', '#F09040', '#40D0E8'],
+        gridOuter: '#1F0E2C',
+        gridCell: '#2C1640',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 9,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(240,150,240,0.52)',
+        cssBg: '#150A24',
+        uiDark: true,
+    },
+
+    /** 古典工业：蒸汽朋克金属 */
+    industrial: {
+        id: 'industrial',
+        name: '🏭 古典工业',
+        blockIcons: ['⚙️', '🔧', '🔩', '🛠️', '⛓️', '🚂', '🏭', '⚒️'],
+        blockColors: ['#D49640', '#C04030', '#B86838', '#4F9080', '#5C2820', '#B89060', '#6878A0', '#3A4048'],
+        gridOuter: '#0E0904',
+        gridCell: '#1A140C',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 4,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(232,176,80,0.50)',
+        cssBg: '#080503',
+        uiDark: true,
+    },
+
+    /** 北京皇城：紫禁城中式皇家配色 */
+    forbidden: {
+        id: 'forbidden',
+        name: '👑 北京皇城',
+        blockIcons: ['🐲', '👑', '🪭', '🧧', '🥮', '🀄', '📜', '🍵'],
+        blockColors: ['#C8222C', '#1B7E5C', '#1F4FA0', '#D8CCB0', '#E8B83C', '#2E7088', '#B8732C', '#E84068'],
+        gridOuter: '#1C0608',
+        gridCell: '#2A0E12',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(232,184,60,0.52)',
+        cssBg: '#160406',
+        uiDark: true,
+    },
+
+    /** 麻将牌局：绿呢牌桌 + 麻将牌 */
+    mahjong: {
+        id: 'mahjong',
+        name: '🀄 麻将牌局',
+        blockIcons: ['🀀', '🀁', '🀂', '🀃', '🀅', '🀇', '🀙', '🀐'],
+        blockColors: ['#3DA88C', '#C4424C', '#D4C4A0', '#404858', '#2A8870', '#E0A040', '#3070C0', '#A8A040'],
+        gridOuter: '#3D2818',
+        gridCell: '#2A4A38',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(180,220,150,0.50)',
+        cssBg: '#1F1810',
+        uiDark: true,
+    },
+
+    /** 扑克博弈：赌场牌桌 */
+    boardgame: {
+        id: 'boardgame',
+        name: '🃏 扑克博弈',
+        blockIcons: ['♠️', '♥️', '♦️', '♣️', '🃏', '🎴', '🎰', '🎲'],
+        blockColors: ['#C89642', '#23866A', '#3E65B8', '#A8B3C2', '#A84A52', '#4F765C', '#6542A0', '#6E7486'],
+        gridOuter: '#050711',
+        gridCell: '#111628',
+        gridLine: 'rgba(180,205,255,0.18)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(212,152,48,0.46)',
+        cssBg: '#0E0410',
+        uiDark: true,
+    },
+
+    /** 运动竞技：八大球类 + 奖杯 */
+    sports: {
+        id: 'sports',
+        name: '⚽ 运动竞技',
+        blockIcons: ['⚽', '🏀', '⚾', '🎾', '🏐', '🏈', '🥎', '🏆'],
+        blockColors: ['#4F9050', '#2858B0', '#C04848', '#905028', '#2090C8', '#587830', '#6038A0', '#C82838'],
+        gridOuter: '#0A1408',
+        gridCell: '#0F1C0A',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,235,80,0.55)',
+        cssBg: '#06100A',
+        uiDark: true,
+    },
+
+    /** 户外运动：山野/水域/雪道 */
+    outdoor: {
+        id: 'outdoor',
+        name: '🥾 户外运动',
+        blockIcons: ['🥾', '⛺', '🧗', '🚴', '🏄', '🏂', '🛶', '🎣'],
+        blockColors: ['#3878B8', '#3E7848', '#7E6048', '#E0B040', '#E08858', '#4FA8C8', '#2A8888', '#7068A8'],
+        gridOuter: '#0A1420',
+        gridCell: '#101C2C',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(140,200,255,0.50)',
+        cssBg: '#06101C',
+        uiDark: true,
+    },
+
+    /** 极速引擎：八大现代交通工具 */
+    vehicles: {
+        id: 'vehicles',
+        name: '🏎️ 极速引擎',
+        blockIcons: ['🏎️', '✈️', '🚀', '🚁', '🚢', '🛵', '🚗', '🚌'],
+        blockColors: ['#8090A0', '#2860C8', '#E84020', '#3E7E40', '#1E70A8', '#E8C828', '#5080A8', '#6840B0'],
+        gridOuter: '#0E1218',
+        gridCell: '#161E2C',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,180,40,0.45)',
+        cssBg: '#080C12',
+        uiDark: true,
+    },
+
+    /** 山林秘境：树木 / 落叶 / 麦穗 */
+    forest: {
+        id: 'forest',
+        name: '🌳 山林秘境',
+        blockIcons: ['🌳', '🌲', '🌴', '🍁', '🍂', '🌾', '🪵', '🪺'],
+        blockColors: ['#8B5828', '#D87838', '#D4A848', '#4F8048', '#2A6038', '#B0386D', '#38A878', '#5090C8'],
+        gridOuter: '#06140A',
+        gridCell: '#0E2010',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(180,255,160,0.45)',
+        cssBg: '#040E06',
+        uiDark: true,
+    },
+
+    /** 海盗航行：罗盘 / 宝藏 / 鹦鹉 */
+    pirate: {
+        id: 'pirate',
+        name: '🦜 海盗航行',
+        blockIcons: ['⚓', '🏴‍☠️', '🪝', '🦜', '⛵', '🗺️', '🧭', '💎'],
+        blockColors: ['#B02020', '#D8C4A0', '#2A6890', '#6E4828', '#14406F', '#2E6F45', '#8C2858', '#C8923C'],
+        gridOuter: '#04101F',
+        gridCell: '#0A1F32',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,200,80,0.45)',
+        cssBg: '#020812',
+        uiDark: true,
+    },
+
+    /** 田园农场：家畜 + 蔬果 */
+    farm: {
+        id: 'farm',
+        name: '🐄 田园农场',
+        blockIcons: ['🐄', '🐖', '🐑', '🐔', '🐣', '🌽', '🥕', '🍎'],
+        blockColors: ['#B85A50', '#4E84B8', '#4E8A58', '#3C98B8', '#9A66B8', '#C89438', '#B06A38', '#C04E64'],
+        gridOuter: '#07140A',
+        gridCell: '#102414',
+        gridLine: 'rgba(190,230,185,0.18)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(170,230,150,0.45)',
+        cssBg: '#061006',
+        uiDark: true,
+    },
+
+    /** 沙漠绿洲：骆驼 / 仙人掌 / 古寺 */
+    desert: {
+        id: 'desert',
+        name: '🐫 沙漠绿洲',
+        blockIcons: ['🐫', '🦂', '🌵', '🏜️', '🪨', '🏺', '🛕', '🌅'],
+        blockColors: ['#4E8EB8', '#B86A48', '#5C9A58', '#B89648', '#8A7A68', '#4E9A98', '#B85E58', '#8A6BB8'],
+        gridOuter: '#130D08',
+        gridCell: '#24190E',
+        gridLine: 'rgba(230,190,120,0.20)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(230,180,80,0.45)',
+        cssBg: '#0E0804',
+        uiDark: true,
+    },
+};
+
+/** 默认皮肤与 web 一致：titanium。 */
+export const DEFAULT_SKIN_ID = 'titanium';
+
+/** 已下线皮肤 id → 迁移目标（与 web REMOVED_SKIN_ALIASES 对齐）。 */
+const REMOVED_SKIN_ALIASES: Record<string, string> = {
+    cyber: 'neonCity',
+    macaroon: 'dawn',
+    neural: 'neonCity',
+    lava: 'sunset',
+    midnight: 'neonCity',
+    pastel: 'candy',
+    retro: 'pixel8',
+    jungle: 'toon',
+};
+
+export function getSkin(id?: string | null): Skin {
+    if (!id) return SKINS[DEFAULT_SKIN_ID];
+    const mapped = REMOVED_SKIN_ALIASES[id] || id;
+    return SKINS[mapped] || SKINS[DEFAULT_SKIN_ID];
+}
+
+export function listSkinIds(): string[] {
+    return Object.keys(SKINS);
+}

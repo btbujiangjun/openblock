@@ -155,5 +155,12 @@ done
 # --- Spawn tuning v2: 同步寻参离线 bundle 给小程序 ----------------------
 node "$ROOT/scripts/sync-spawn-bundle.mjs"
 
+# --- Cocos 客户端：从 shared/ 生成形状数据（单一真源） -------------------
+node "$ROOT/scripts/sync-cocos-core.mjs"
+
+# --- Cocos 客户端：从 web/src 生成「与 web 完全同源」的真实出块引擎闭包 -----
+# （bot/blockSpawn.generateDockShapes + adaptiveSpawn + boardTopology … → engine/*.js）
+node "$ROOT/scripts/sync-cocos-engine.mjs"
+
 echo ""
 echo "=== 同步完成。请手动检查 miniprogram/core/config.js 的 localStorage / import.meta.env 替换 ==="

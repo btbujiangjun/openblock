@@ -1,0 +1,15 @@
+# Cocos Creator generated / local
+/library/
+/temp/
+/local/
+/build/
+/profiles/
+/native/
+*.log
+
+# editor caches
+.DS_Store
+.cocos-creator/
+
+# local typecheck deps
+/node_modules/

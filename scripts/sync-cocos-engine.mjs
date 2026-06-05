@@ -1,0 +1,219 @@
+#!/usr/bin/env node
+/**
+ * sync-cocos-engine.mjs
+ *
+ * 把 web/src 中「引擎无关纯逻辑闭包」（与 sync-core.sh 同名单）生成到
+ * cocos/assets/scripts/engine/，保持 ESM，使 Cocos 客户端复用与 web 完全同源的
+ * 真实出块算法（bot/blockSpawn.generateDockShapes + adaptiveSpawn + boardTopology …），
+ * 而非手写副本。
+ *
+ * 规则：
+ *  - 数据真源 shared/*.json → 生成 engine/shapesData.js / gameRulesData.js（export default）。
+ *  - config.js（浏览器耦合）→ 生成极简 shim（仅 getStrategy / STRATEGIES，引擎唯一所需）。
+ *  - config/platformProfile.js → 原样复制（纯逻辑，typeof 守卫）。
+ *  - 对未分发到 cocos 的子系统（monetization/ retention/ lifecycle/）的 import →
+ *    自动生成「具名导出返回 null 的函数 + 空命名空间」桩，配合调用点既有 ?./if/try 守卫软失败。
+ *
+ * 用法：node scripts/sync-cocos-engine.mjs [--verify]
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..');
+const SRC = path.join(ROOT, 'web', 'src');
+const SHARED = path.join(ROOT, 'shared');
+const OUT = path.join(ROOT, 'cocos', 'assets', 'scripts', 'engine');
+
+const verify = process.argv.includes('--verify');
+
+/** 与 scripts/sync-core.sh 一致的纯逻辑文件名单（cocos 复用同一闭包）。 */
+const FILES = [
+    'lib/seededRng.js',
+    'lib/math.js',
+    'grid.js',
+    'shapes.js',
+    'gameRules.js',
+    'difficulty.js',
+    'boardTopology.js',
+    'playerAbilityModel.js',
+    'adaptiveSpawn.js',
+    'playerProfile.js',
+    'spawnStepDifficulty.js',
+    'bot/constructiveSpawn.js',
+    'bot/blockSpawn.js',
+    'tuning/v2/clientPolicyV2.js',
+    'config/platformProfile.js',
+];
+const COPY_SET = new Set(FILES);
+
+const GEN_HEADER = (src) =>
+    `/* 自动生成 —— 请勿手改。源：${src}\n * 重新生成：node scripts/sync-cocos-engine.mjs（npm run sync:cocos-core 已包含）\n */\n`;
+
+const writes = [];
+function emit(rel, content) {
+    writes.push([rel, content]);
+}
+
+/* ---- 1. 数据模块（shared → engine，export default） ---- */
+function genData() {
+    const shapes = JSON.parse(fs.readFileSync(path.join(SHARED, 'shapes.json'), 'utf8'));
+    const rules = JSON.parse(fs.readFileSync(path.join(SHARED, 'game_rules.json'), 'utf8'));
+    emit('shapesData.js', GEN_HEADER('shared/shapes.json') + 'export default ' + JSON.stringify(shapes, null, 2) + ';\n');
+    emit('gameRulesData.js', GEN_HEADER('shared/game_rules.json') + 'export default ' + JSON.stringify(rules, null, 2) + ';\n');
+}
+
+/* ---- 2. config shim（引擎仅需 getStrategy / STRATEGIES） ---- */
+function genConfigShim() {
+    emit(
+        'config.js',
+        GEN_HEADER('web/src/config.js（精简：去浏览器耦合，仅保留引擎所需）') +
+            "import { buildDefaultStrategiesMap } from './gameRules.js';\n\n" +
+            'const DEFAULT_STRATEGIES = buildDefaultStrategiesMap();\n' +
+            'export const STRATEGIES = DEFAULT_STRATEGIES;\n' +
+            'export function getStrategy(id) {\n' +
+            '    return DEFAULT_STRATEGIES[id] || DEFAULT_STRATEGIES.normal;\n' +
+            '}\n',
+    );
+}
+
+/* ---- 3. 复制 FILES + 重写 shared json import + 收集外部依赖 ---- */
+const importRe = /import\s+(?:([A-Za-z_$][\w$]*)\s*,\s*)?(?:\{([^}]*)\}|\*\s+as\s+([A-Za-z_$][\w$]*)|([A-Za-z_$][\w$]*))?\s*from\s*['"]([^'"]+)['"]/g;
+const sideEffectRe = /import\s*['"]([^'"]+)['"]/g;
+
+/** target rel path (under engine, posix) → { named:Set, default:bool } */
+const stubs = new Map();
+
+function depthPrefix(rel) {
+    const d = rel.split('/').length - 1;
+    return d === 0 ? './' : '../'.repeat(d);
+}
+
+function rewriteShared(content, rel) {
+    const pfx = depthPrefix(rel);
+    return content
+        .replace(/(['"])(?:\.\.\/)*shared\/shapes\.json\1/g, `'${pfx}shapesData.js'`)
+        .replace(/(['"])(?:\.\.\/)*shared\/game_rules\.json\1/g, `'${pfx}gameRulesData.js'`);
+}
+
+function resolveRel(fromRel, spec) {
+    if (!spec.startsWith('.')) return null;
+    const dir = path.posix.dirname(fromRel);
+    let p = path.posix.normalize(path.posix.join(dir, spec));
+    if (!p.endsWith('.js')) p += '.js';
+    return p;
+}
+
+function stripComments(src) {
+    return src
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[^:'"\\])\/\/[^\n]*/g, '$1');
+}
+
+function scanForStubs(rawContent, rel) {
+    const content = stripComments(rawContent);
+    let m;
+    importRe.lastIndex = 0;
+    while ((m = importRe.exec(content))) {
+        const def = m[1];
+        const named = m[2];
+        const ns = m[3];
+        const bareDefault = m[4];
+        const spec = m[5];
+        const target = resolveRel(rel, spec);
+        if (!target) continue;
+        if (COPY_SET.has(target)) continue;
+        if (['shapesData.js', 'gameRulesData.js', 'config.js'].includes(target)) continue;
+        const entry = stubs.get(target) || { named: new Set(), default: false };
+        if (def) entry.default = true;
+        if (bareDefault) entry.default = true;
+        if (ns) entry.default = true; // namespace 桩同时给 default，安全
+        if (named) {
+            for (const part of named.split(',')) {
+                const name = part.trim().split(/\s+as\s+/)[0].trim();
+                if (name) entry.named.add(name);
+            }
+        }
+        stubs.set(target, entry);
+    }
+    sideEffectRe.lastIndex = 0;
+    while ((m = sideEffectRe.exec(content))) {
+        const target = resolveRel(rel, m[1]);
+        if (target && !COPY_SET.has(target) && !stubs.has(target) &&
+            !['shapesData.js', 'gameRulesData.js', 'config.js'].includes(target)) {
+            stubs.set(target, { named: new Set(), default: false });
+        }
+    }
+}
+
+function copyFiles() {
+    for (const rel of FILES) {
+        const srcFile = path.join(SRC, rel);
+        if (!fs.existsSync(srcFile)) {
+            console.error(`[sync-cocos-engine] MISSING source: web/src/${rel}`);
+            process.exit(1);
+        }
+        let content = fs.readFileSync(srcFile, 'utf8');
+        content = rewriteShared(content, rel);
+        scanForStubs(content, rel);
+        emit(rel, GEN_HEADER(`web/src/${rel}`) + content);
+    }
+}
+
+/* ---- 4. 生成桩 ---- */
+function genStubs() {
+    for (const [target, info] of stubs) {
+        let body = GEN_HEADER(`软依赖桩（cocos 不分发该子系统）：原 web/src/${target}`);
+        for (const name of info.named) {
+            body += `export function ${name}() { return null; }\n`;
+        }
+        if (info.default || info.named.size === 0) {
+            body += 'export default {};\n';
+        }
+        emit(target, body);
+    }
+}
+
+/* ---- run ---- */
+genData();
+genConfigShim();
+copyFiles();
+genStubs();
+
+/* ---- 输出为 .mjs（Cocos Creator 将 .js 视为 CommonJS 并套 cjs-interop 导致打包失败；
+ *      .mjs/.ts 才按 ESM 处理）。重命名输出并把相对 import 的 .js 后缀改写为 .mjs。 ---- */
+function toMjs(rel) {
+    return rel.replace(/\.js$/, '.mjs');
+}
+function rewriteSpecifiersToMjs(content) {
+    return content
+        .replace(/(from\s*['"])(\.\.?\/[^'"]*?)\.js(['"])/g, '$1$2.mjs$3')
+        .replace(/(import\s*['"])(\.\.?\/[^'"]*?)\.js(['"])/g, '$1$2.mjs$3');
+}
+const mjsWrites = writes.map(([rel, content]) => [toMjs(rel), rewriteSpecifiersToMjs(content)]);
+
+let outOfDate = 0;
+for (const [rel, content] of mjsWrites) {
+    const target = path.join(OUT, rel);
+    if (verify) {
+        const cur = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
+        if (cur !== content) {
+            console.error(`[sync-cocos-engine] OUT OF DATE: ${rel}`);
+            outOfDate++;
+        }
+        continue;
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+}
+
+if (verify) {
+    if (outOfDate) {
+        console.error(`[sync-cocos-engine] ${outOfDate} file(s) stale — run npm run sync:cocos-core`);
+        process.exit(1);
+    }
+    console.log('[sync-cocos-engine] OK (up to date)');
+} else {
+    console.log(`[sync-cocos-engine] wrote ${mjsWrites.length} .mjs files to engine/ (stubs: ${stubs.size})`);
+}

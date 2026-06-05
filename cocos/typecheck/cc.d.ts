@@ -1,0 +1,26 @@
+/* 离线 tsc 完整性校验用的 cc 类型桩（不参与 Cocos 构建；编辑器使用引擎自带类型）。 */
+declare module 'cc' {
+    export type _decorator = any; export const _decorator: any;
+    export type Component = any; export const Component: any;
+    export type Node = any; export const Node: any;
+    export type Vec3 = any; export const Vec3: any;
+    export type tween = any; export const tween: any;
+    export type Tween = any; export const Tween: any;
+    export type Label = any; export const Label: any;
+    export type UITransform = any; export const UITransform: any;
+    export type Color = any; export const Color: any;
+    export type Graphics = any; export const Graphics: any;
+    export type EventTouch = any; export const EventTouch: any;
+    export type v3 = any; export const v3: any;
+    export type AudioClip = any; export const AudioClip: any;
+    export type AudioSource = any; export const AudioSource: any;
+    export type director = any; export const director: any;
+    export type sys = any; export const sys: any;
+    export type input = any; export const input: any;
+    export type Input = any; export const Input: any;
+    export type Sprite = any; export const Sprite: any;
+    export type Layers = any; export const Layers: any;
+    export type view = any; export const view: any;
+    export type screen = any; export const screen: any;
+    export type ResolutionPolicy = any; export const ResolutionPolicy: any;
+}

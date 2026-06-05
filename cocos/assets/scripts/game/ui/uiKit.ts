@@ -1,0 +1,260 @@
+import { _decorator, Component, Node, UITransform, Graphics, Label, Color, Vec3, tween } from 'cc';
+
+const { ccclass } = _decorator;
+
+/** 模态状态：任一全屏面板打开时，GameController 暂停盘面输入。 */
+export const Modal = {
+    _count: 0,
+    open(): void { this._count++; },
+    close(): void { this._count = Math.max(0, this._count - 1); },
+    isOpen(): boolean { return this._count > 0; },
+    reset(): void { this._count = 0; },
+};
+
+/**
+ * 全局点击总线 —— 原生 iOS 端 node.on(TOUCH_*) 节点级触摸不稳定（拖拽走全局 input 才可靠），
+ * 故所有按钮/可点区域统一注册到这里，由 GameController 的全局 input 命中分发，保证按钮可点。
+ *
+ * 命中规则：按注册逆序（后注册=更靠上，如弹窗在游戏之上）取第一个命中的 active 目标；
+ * 节点锚点按 0.5 处理，命中域 = contentSize。点击即触发（按下即响应）。
+ */
+export interface TapTarget {
+    node: Node;
+    onTap: () => void;
+}
+
+const _tapTargets: TapTarget[] = [];
+
+export const TapBus = {
+    /** 注册一个可点节点，返回取消注册函数。 */
+    add(node: Node, onTap: () => void): () => void {
+        const t: TapTarget = { node, onTap };
+        _tapTargets.push(t);
+        return () => {
+            const i = _tapTargets.indexOf(t);
+            if (i >= 0) _tapTargets.splice(i, 1);
+        };
+    },
+    /** 命中分发（UI 设计坐标）。命中并触发返回 true。 */
+    hit(uiX: number, uiY: number): boolean {
+        for (let i = _tapTargets.length - 1; i >= 0; i--) {
+            const t = _tapTargets[i];
+            const node = t.node;
+            if (!node || !node.isValid || !node.activeInHierarchy) continue;
+            const uit = node.getComponent(UITransform);
+            if (!uit) continue;
+            const p = uit.convertToNodeSpaceAR(new Vec3(uiX, uiY, 0));
+            const hw = uit.contentSize.width / 2;
+            const hh = uit.contentSize.height / 2;
+            if (Math.abs(p.x) <= hw && Math.abs(p.y) <= hh) {
+                t.onTap();
+                return true;
+            }
+        }
+        return false;
+    },
+    reset(): void { _tapTargets.length = 0; },
+};
+
+export function dimBg(parent: Node, w = 1400, h = 2200, alpha = 170): Node {
+    const n = new Node('dim');
+    n.parent = parent;
+    n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+    const g = n.addComponent(Graphics);
+    g.fillColor = new Color(0, 0, 0, alpha);
+    g.rect(-w / 2, -h / 2, w, h);
+    g.fill();
+    return n;
+}
+
+export function card(parent: Node, w: number, h: number, y = 0): Node {
+    const n = new Node('card');
+    n.parent = parent;
+    n.setPosition(0, y, 0);
+    n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+    const g = n.addComponent(Graphics);
+    g.fillColor = new Color(28, 32, 44, 250);
+    g.roundRect(-w / 2, -h / 2, w, h, 24);
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeColor = new Color(90, 110, 150, 255);
+    g.roundRect(-w / 2, -h / 2, w, h, 24);
+    g.stroke();
+    return n;
+}
+
+/** 右上角圆形 × 关闭按钮（对齐 web `.popup-close-btn`）。返回取消注册函数。 */
+export function closeX(parent: Node, x: number, y: number, onTap: () => void): () => void {
+    const n = new Node('closeX');
+    n.parent = parent;
+    n.setPosition(x, y, 0);
+    const uit = n.addComponent(UITransform);
+    uit.setAnchorPoint(0.5, 0.5);
+    uit.setContentSize(56, 56);
+    const g = n.addComponent(Graphics);
+    g.fillColor = new Color(255, 255, 255, 26);
+    g.circle(0, 0, 22);
+    g.fill();
+    g.lineWidth = 2;
+    g.strokeColor = new Color(200, 210, 230, 150);
+    g.circle(0, 0, 22);
+    g.stroke();
+
+    const t = new Node('x');
+    t.parent = n;
+    t.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+    t.setPosition(0, 1, 0);
+    const l = t.addComponent(Label);
+    l.string = '✕';
+    l.fontSize = 28;
+    l.lineHeight = 30;
+    l.color = new Color(225, 230, 240, 255);
+
+    return TapBus.add(n, onTap);
+}
+
+export function label(parent: Node, text: string, size: number, x: number, y: number, color = new Color(235, 240, 250, 255)): Label {
+    const n = new Node('label');
+    n.parent = parent;
+    n.setPosition(x, y, 0);
+    n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+    const l = n.addComponent(Label);
+    l.string = text;
+    l.fontSize = size;
+    l.lineHeight = size + 4;
+    l.color = color;
+    return l;
+}
+
+export interface PillStyle {
+    /** 主操作（强调态：accent 底色 + 更亮高光）。 */
+    primary?: boolean;
+    /** 自定义底色（不传时按 primary 取默认 accent / 中性蓝）。 */
+    color?: Color;
+    /** 禁用态：去高光、降饱和、文字变灰，点击无响应。 */
+    disabled?: boolean;
+    /** 最小宽度（默认 200）。 */
+    minWidth?: number;
+    /** 固定宽度（图标按钮用：不按文字长度推算）。 */
+    width?: number;
+    /** 固定高度（图标按钮用）。 */
+    height?: number;
+    /** 圆角半径（默认按胶囊取 min(h/2,22)）。 */
+    radius?: number;
+}
+
+/**
+ * 通用胶囊按钮（对齐 web `.btn` pill 样式）：
+ * 单一可点节点（命中域 = 可见胶囊，修正旧实现「背板与文字命中区不一致」），
+ * 背板 + 文字分属两个子节点（同节点不可并存两个 UI 渲染器），
+ * 按压时整体缩放（旧实现只缩放文字、背板不动，观感「按了没反应」）。
+ */
+@ccclass('PillButton')
+export class PillButton extends Component {
+    private g!: Graphics;
+    private lbl!: Label;
+    private onClick: (() => void) | null = null;
+    private _unreg: (() => void) | null = null;
+    private w = 200;
+    private h = 56;
+    private radius = 22;
+    private base = new Color(58, 78, 120, 255);
+    private primary = false;
+    private _disabled = false;
+
+    init(text: string, size: number, onClick: () => void, style?: PillStyle): PillButton {
+        this.onClick = onClick;
+        this.primary = !!style?.primary;
+        this.base = style?.color ?? (this.primary ? new Color(45, 120, 210, 255) : new Color(58, 78, 120, 255));
+        this._disabled = !!style?.disabled;
+        const minW = style?.minWidth ?? 200;
+        this.w = style?.width ?? Math.max(minW, size * Math.max(3.2, text.length * 1.05) + 36);
+        this.h = style?.height ?? size + 30;
+        this.radius = style?.radius ?? Math.min(this.h / 2, 22);
+
+        const uit = this.node.getComponent(UITransform) || this.node.addComponent(UITransform);
+        uit.setAnchorPoint(0.5, 0.5);
+        uit.setContentSize(this.w, this.h);
+
+        const bgNode = new Node('bg');
+        bgNode.parent = this.node;
+        bgNode.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        this.g = bgNode.addComponent(Graphics);
+
+        const lblNode = new Node('lbl');
+        lblNode.parent = this.node;
+        lblNode.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        this.lbl = lblNode.addComponent(Label);
+        this.lbl.fontSize = size;
+        this.lbl.lineHeight = size + 4;
+        this.lbl.string = text;
+
+        this.redraw();
+        this._unreg = TapBus.add(this.node, () => this.fire());
+        return this;
+    }
+
+    setText(text: string): void {
+        if (this.lbl) this.lbl.string = text;
+    }
+
+    setDisabled(disabled: boolean): void {
+        if (this._disabled === disabled) return;
+        this._disabled = disabled;
+        this.redraw();
+    }
+
+    private redraw(): void {
+        const { w, h } = this;
+        const r = this.radius;
+        const g = this.g;
+        g.clear();
+        const base = this._disabled ? new Color(52, 58, 74, 220) : this.base;
+        g.fillColor = base;
+        g.roundRect(-w / 2, -h / 2, w, h, r);
+        g.fill();
+        if (!this._disabled) {
+            // 顶部一抹高光，模拟 web 渐变按钮的玻璃质感
+            g.fillColor = new Color(255, 255, 255, this.primary ? 46 : 28);
+            g.roundRect(-w / 2 + 3, 1, w - 6, h / 2 - 2, Math.max(2, r - 2));
+            g.fill();
+        }
+        g.lineWidth = 2;
+        g.strokeColor = this._disabled
+            ? new Color(80, 88, 104, 160)
+            : new Color(Math.min(255, base.r + 60), Math.min(255, base.g + 60), Math.min(255, base.b + 60), 255);
+        g.roundRect(-w / 2, -h / 2, w, h, r);
+        g.stroke();
+        this.lbl.color = this._disabled ? new Color(150, 156, 170, 180) : new Color(245, 248, 255, 255);
+    }
+
+    private fire(): void {
+        if (this._disabled) return;
+        tween(this.node)
+            .to(0.06, { scale: new Vec3(0.94, 0.94, 1) })
+            .to(0.1, { scale: new Vec3(1, 1, 1) })
+            .start();
+        if (this.onClick) this.onClick();
+    }
+
+    onDestroy(): void {
+        if (this._unreg) this._unreg();
+        this._unreg = null;
+    }
+}
+
+export function button(
+    parent: Node,
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    onClick: () => void,
+    color?: Color,
+    style?: Omit<PillStyle, 'color'>,
+): PillButton {
+    const n = new Node('btn');
+    n.parent = parent;
+    n.setPosition(x, y, 0);
+    return n.addComponent(PillButton).init(text, size, onClick, { color, ...style });
+}
