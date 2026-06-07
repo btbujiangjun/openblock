@@ -1,6 +1,6 @@
 import { _decorator, Component, Graphics, UITransform, Color, tween, Node } from 'cc';
 import { ClearResult, Skin } from '../../core';
-import { blockColor, clearFlashColor } from '../skin/palette';
+import { blockFaceColor, clearFlashColor } from '../skin/palette';
 
 const { ccclass } = _decorator;
 
@@ -44,7 +44,8 @@ export class LineClearFx extends Component {
             for (const c of result.cells) {
                 const px = -half + c.x * cell + this.gap / 2;
                 const py = half - (c.y + 1) * cell + this.gap / 2;
-                const base = c.color === null ? new Color(255, 255, 255) : blockColor(skin, c.color);
+                // 用 face color（带 icon 皮肤已降饱和），与盘面方块同质感，避免闪光"偏鲜艳"。
+                const base = c.color === null ? new Color(255, 255, 255) : blockFaceColor(skin, c.color);
                 g.fillColor = new Color(base.r, base.g, base.b, alpha);
                 g.roundRect(px, py, inner, inner, Math.min(6, inner * 0.18));
                 g.fill();

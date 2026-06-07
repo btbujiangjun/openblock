@@ -178,6 +178,8 @@ export default {
     /* v1.55 §4.6: in-run subsequent PB breaks; first break still uses newRecord. */
     'effect.newRecord.second': 'Again +{{delta}}',
     'effect.streakCombo': '{{fires}} {{n}} Combo',
+    'effect.comboMultiplier': 'Combo {{mult}}',
+    'effect.comboHeartAria': 'Combo active (heart shows combo is alive)',
     'effect.achievementUnlocked': '🏆 Achievement Unlocked!',
     'effect.runStreakHint': 'Run streak #{{n}}: tighter board, harder spawns (back to menu to reset)',
     'effect.levelFailHintWithStreak': 'Failed {{n}} times in a row · {{hint}}',

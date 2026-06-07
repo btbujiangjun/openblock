@@ -21,6 +21,7 @@ import {
 } from './spawnExperiments.js';
 import {
     computeClearScore,
+    deriveNextComboCount,
     detectBonusLines,
     monoNearFullLineColorWeights,
     pickThreeDockColors
@@ -231,6 +232,9 @@ export class OpenBlockSimulator {
         this.totalClears = 0;
         this.steps = 0;
         this.placements = 0;
+        /* Combo 链（grace 窗口）状态 —— 与 web 主局 _comboCount / _roundsSinceLastClear 同口径 */
+        this._comboCount = 0;
+        this._roundsSinceLastClear = Number.POSITIVE_INFINITY;
         this._spawnDock();
     }
 
@@ -514,7 +518,12 @@ export class OpenBlockSimulator {
             result.perfectClear = this.grid.getFillRatio() === 0;
             clears = result.count;
             this.totalClears += clears;
-            gain = computeClearScore(this.strategyId, result, this.scoring).clearScore;
+            /* Combo（grace 窗口模型）—— 与 web 主局 deriveNextComboCount 同口径：
+             *   清线 → 若距上次清线步数 < grace：combo+=1；否则重启 = 1。
+             * 保持 RL / 评估 / 浏览器主局/小程序/Cocos 完全同源。 */
+            this._comboCount = deriveNextComboCount(this._comboCount, this._roundsSinceLastClear, true);
+            this._roundsSinceLastClear = 0;
+            gain = computeClearScore(this.strategyId, result, this.scoring, this._comboCount).clearScore;
             this.score += gain;
             this._spawnContext.lastClearCount = result.count;
             this._spawnContext.roundsSinceClear = 0;
@@ -527,6 +536,11 @@ export class OpenBlockSimulator {
             }
         } else {
             this._spawnContext.lastClearCount = 0;
+            /* 未清线 → 累加 grace 计数；_comboCount 自身不在此归零，
+             * 等到下次清线由 deriveNextComboCount 决定（gap≥grace → 重置为 1）。 */
+            this._roundsSinceLastClear = (this._roundsSinceLastClear === Number.POSITIVE_INFINITY)
+                ? Number.POSITIVE_INFINITY
+                : this._roundsSinceLastClear + 1;
         }
         this._lastClears = clears;
         this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());

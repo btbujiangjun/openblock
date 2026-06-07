@@ -361,7 +361,7 @@ export class Grid {
         }
 
         const lines = fullRows.length + fullCols.length;
-        return { count: lines, cells: clearedCells, bonusLines };
+        return { count: lines, cells: clearedCells, bonusLines, rows: fullRows, cols: fullCols };
     }
 
     hasAnyMove(blocks) {

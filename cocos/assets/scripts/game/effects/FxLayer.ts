@@ -1,6 +1,7 @@
-import { _decorator, Component, Graphics, UITransform, Color, Node, Label, tween, Vec3, v3, Sprite, SpriteFrame, UIOpacity, resources } from 'cc';
-import { ClearResult, Skin } from '../../core';
+import { _decorator, Component, Graphics, UITransform, Color, Node, Label, tween, Tween, Vec3, v3, Sprite, SpriteFrame, UIOpacity, resources } from 'cc';
+import { ClearResult, Skin, t } from '../../core';
 import { blockColor } from '../skin/palette';
+import { Motion } from '../platform/Motion';
 
 const { ccclass } = _decorator;
 
@@ -34,8 +35,12 @@ export class FxLayer extends Component {
     private _ambient: Particle[] = [];
     private _ambColor = new Color(180, 210, 255, 255);
     private _ambActive = false;
+    /** 复用绘制 Color（每帧逐粒子重设 r/g/b/a；Graphics.fillColor setter 内部拷贝值 → 复用安全）。 */
+    private _drawCol = new Color(255, 255, 255, 255);
     // 可选柔光粒子贴图（art/particle）：消行时叠加一层染色光晕；未导入则跳过（碎屑仍为 Graphics）。
     private _glowFrame: SpriteFrame | null = null;
+    /** glow 节点对象池：消行时一次最多 16 个 glow，复用避免每次 new Node + destroy 的开销与 GC。 */
+    private _glowPool: Node[] = [];
 
     onLoad(): void {
         const uit = this.node.getComponent(UITransform) || this.node.addComponent(UITransform);
@@ -53,38 +58,70 @@ export class FxLayer extends Component {
         });
     }
 
-    /** 在 (x,y) 处弹出一枚自销毁的染色柔光（scale 弹大 + 淡出）。仅在贴图就绪时调用。 */
+    /** 在 (x,y) 处弹出一枚自回收的染色柔光（scale 弹大 + 淡出）。仅在贴图就绪时调用。 */
     private spawnGlow(x: number, y: number, color: Color, size: number): void {
         const frame = this._glowFrame;
         if (!frame) return;
-        const n = new Node('glow');
+        let n = this._glowPool.pop();
+        let sp: Sprite;
+        let op: UIOpacity;
+        let ut: UITransform;
+        if (n && n.isValid) {
+            // 复用：停掉上一轮残留 tween，避免 scale/opacity 动画叠加导致闪烁。
+            Tween.stopAllByTarget(n);
+            ut = n.getComponent(UITransform)!;
+            sp = n.getComponent(Sprite)!;
+            op = n.getComponent(UIOpacity)!;
+            Tween.stopAllByTarget(op);
+        } else {
+            n = new Node('glow');
+            ut = n.addComponent(UITransform);
+            ut.setAnchorPoint(0.5, 0.5);
+            sp = n.addComponent(Sprite);
+            if (Sprite.SizeMode) sp.sizeMode = Sprite.SizeMode.CUSTOM;
+            op = n.addComponent(UIOpacity);
+        }
         n.parent = this.node;
-        const ut = n.addComponent(UITransform);
-        ut.setAnchorPoint(0.5, 0.5);
+        n.active = true;
         ut.setContentSize(size, size);
         n.setPosition(x, y, 0);
-        const sp = n.addComponent(Sprite);
-        if (Sprite.SizeMode) sp.sizeMode = Sprite.SizeMode.CUSTOM;
         sp.spriteFrame = frame;
         sp.color = new Color(color.r, color.g, color.b, 255);
-        const op = n.addComponent(UIOpacity);
         op.opacity = 210;
         n.setScale(0.4, 0.4, 1);
+        const node = n;
         tween(n).to(0.4, { scale: new Vec3(1.5, 1.5, 1) }, { easing: 'quadOut' }).start();
-        tween(op).to(0.4, { opacity: 0 }).call(() => n.destroy()).start();
+        tween(op).to(0.4, { opacity: 0 }).call(() => this.recycleGlow(node)).start();
+    }
+
+    /** glow 动画结束回收进池（上限 24，超出则销毁），替代 destroy 以省掉 Node 创建/GC。 */
+    private recycleGlow(n: Node): void {
+        if (!n?.isValid) return;
+        n.active = false;
+        n.removeFromParent();
+        if (this._glowPool.length < 24) this._glowPool.push(n);
+        else n.destroy();
     }
 
     /**
      * 开启季节环境氛围（对齐 web 的「节令感」意图，超出 web weather stub）：
      * 按季节强调色缓慢飘落柔光粒子。color 取 seasonalAccent()。
+     * 切肤时换 color：清掉残留的旧氛围粒子，避免新旧调色短时段混色。
      */
     startAmbience(color: [number, number, number]): void {
-        this._ambColor = new Color(color[0], color[1], color[2], 255);
+        const next = new Color(color[0], color[1], color[2], 255);
+        if (this._ambActive && (next.r !== this._ambColor.r || next.g !== this._ambColor.g || next.b !== this._ambColor.b)) {
+            this._ambient.length = 0;
+            this._ambG?.clear();
+        }
+        this._ambColor = next;
         this._ambActive = true;
     }
 
     stopAmbience(): void {
         this._ambActive = false;
+        this._ambient.length = 0;
+        this._ambG?.clear();
     }
 
     /** 与盘面同步边长，保证粒子/高光坐标对齐。 */
@@ -102,9 +139,11 @@ export class FxLayer extends Component {
 
     /** 消行碎屑：每个被消格喷几枚小方块 */
     burstClear(result: ClearResult, skin: Skin): void {
-        const perCell = 4;
+        // Reduce Motion：碎屑减为 1 颗 + glow 限到 4，避免大幅速度的粒子飞溅刺激前庭。
+        const reduced = Motion.reduced;
+        const perCell = reduced ? 1 : 4;
         const cell = this.boardPx / this.size;
-        let glowBudget = 16;
+        let glowBudget = reduced ? 4 : 16;
         for (const c of result.cells) {
             const center = this.cellCenter(c.x, c.y);
             const base = c.color === null ? new Color(255, 255, 255) : blockColor(skin, c.color);
@@ -158,6 +197,102 @@ export class FxLayer extends Component {
             .call(() => n.destroy())
             .start();
         void color;
+    }
+
+    /**
+     * 对齐 web `main.css .is-rejected` 抖动动画：在指定节点（ghost）上做 240ms 水平抖+淡出。
+     * 比直接 cancelDrag 更明确地告诉玩家"这一格不能落"。240ms 内禁止操作（由调用方安排）。
+     * 调用方需传入 ghost 节点；本函数不修改 ghost 内部内容，仅做容器位移+UIOpacity 淡出，结束后回零。
+     */
+    ghostRejectShake(target: Node): void {
+        if (!target?.isValid) return;
+        const op = target.getComponent(UIOpacity) || target.addComponent(UIOpacity);
+        const startPos = target.position.clone();
+        // 抖动序列：4 段 60ms 水平位移，振幅 12→6→3px 衰减。
+        const seq: Array<{ dx: number; dur: number }> = [
+            { dx: -12, dur: 0.05 },
+            { dx: 12, dur: 0.06 },
+            { dx: -6, dur: 0.05 },
+            { dx: 6, dur: 0.04 },
+            { dx: 0, dur: 0.04 },
+        ];
+        let chain = tween(target);
+        for (const s of seq) {
+            chain = chain.to(s.dur, { position: v3(startPos.x + s.dx, startPos.y, startPos.z) }, { easing: 'sineInOut' });
+        }
+        chain.start();
+        // 同时淡出（与 web 0.24s 透明度过渡对齐）。
+        op.opacity = 255;
+        tween(op).to(0.24, { opacity: 0 }).start();
+    }
+
+    /**
+     * 对齐 web `showFloatScore` 简化版：在指定盘面格 (gx, gy) 上方飘出 `+N` 数字。
+     * 颜色按等级（normal/combo/perfect/bonus）。若不指定坐标，落到盘面中央偏上。
+     * 字号按 kind 分级：perfect 最大，bonus 次之，combo 次之，normal 基准；起手弹大回弹+上浮+淡出。
+     */
+    showScoreFloat(amount: number, kind: 'normal' | 'combo' | 'perfect' | 'bonus' = 'normal', gx?: number, gy?: number, label?: string): void {
+        if (amount <= 0) return;
+        const color = kind === 'perfect' ? new Color(255, 230, 130, 255)
+            : kind === 'bonus' ? new Color(255, 170, 80, 255)
+            : kind === 'combo' ? new Color(255, 200, 120, 255)
+            : new Color(220, 240, 255, 255);
+        // 锚位：传了 (gx,gy) 用格中心；否则盘面中心稍上。
+        const cell = this.boardPx / this.size;
+        const half = this.boardPx / 2;
+        const baseX = gx != null && gy != null ? -half + (gx + 0.5) * cell : 0;
+        const baseY = gx != null && gy != null ? half - (gy + 0.5) * cell + cell * 0.6 : 30;
+        const n = new Node('scoreFloat');
+        n.parent = this.node;
+        n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        n.setPosition(baseX, baseY, 0);
+        const fontSize = kind === 'perfect' ? 64 : kind === 'bonus' ? 56 : kind === 'combo' ? 52 : 44;
+        const labels: Label[] = [];
+        // 对齐 web `showFloatScore`：消行分级（双消/N消/清屏）时，上方叠一行标签，下方 `+N`。
+        if (label) {
+            const tag = new Node('floatTag');
+            tag.parent = n;
+            tag.addComponent(UITransform).setAnchorPoint(0.5, 0);
+            tag.setPosition(0, fontSize * 0.5, 0);
+            const tl = tag.addComponent(Label);
+            tl.string = label;
+            tl.fontSize = Math.round(fontSize * 0.62);
+            tl.lineHeight = tl.fontSize + 4;
+            tl.color = color;
+            labels.push(tl);
+        }
+        const valNode = label ? new Node('floatVal') : n;
+        if (label) {
+            valNode.parent = n;
+            valNode.addComponent(UITransform).setAnchorPoint(0.5, 1);
+            valNode.setPosition(0, fontSize * 0.35, 0);
+        }
+        const l = valNode.addComponent(Label);
+        l.string = `+${amount}`;
+        l.fontSize = fontSize;
+        l.lineHeight = l.fontSize + 6;
+        l.color = color;
+        labels.push(l);
+        n.setScale(1.25, 1.25, 1);
+        tween(n).to(0.18, { scale: v3(1, 1, 1) }, { easing: 'backOut' }).start();
+        tween(n).to(0.9, { position: v3(baseX, baseY + 130, 0) }, { easing: 'quadOut' }).start();
+        const fadeTo = new Color(color.r, color.g, color.b, 0);
+        for (const lab of labels) tween(lab).delay(0.45).to(0.45, { color: fadeTo }).start();
+        tween(n).delay(0.9).call(() => n.destroy()).start();
+    }
+
+    /**
+     * 连续消行 streak 徽章（对齐 web `.streak-badge`）：在盘面顶部弹出一个金色徽章，
+     * 显示 `STREAK xN`；3 行连续起步，颜色随 streak 升级。
+     */
+    showStreakBadge(streak: number): void {
+        if (streak < 3) return;
+        const intensity = Math.min(1, (streak - 3) / 4);
+        const r = Math.round(255);
+        const g = Math.round(200 - intensity * 80);
+        const b = Math.round(80 - intensity * 60);
+        // 对齐 web `.streak-badge` 文案「🔥 N 连消」（本地化）。
+        this.floatText(t('effect.streak', { n: streak }), new Color(r, g, b, 255), 100);
     }
 
     /** 连击 / 完美清屏 飘字 */
@@ -248,7 +383,9 @@ export class FxLayer extends Component {
             const fadeOut = Math.min(1, (p.maxLife - p.life) / 0.6);
             const a = Math.round(70 * Math.min(fadeIn, fadeOut));
             if (a > 0) {
-                ag.fillColor = new Color(this._ambColor.r, this._ambColor.g, this._ambColor.b, a);
+                const col = this._drawCol;
+                col.r = this._ambColor.r; col.g = this._ambColor.g; col.b = this._ambColor.b; col.a = a;
+                ag.fillColor = col;
                 ag.circle(p.x, p.y, p.size);
                 ag.fill();
             }
@@ -274,7 +411,9 @@ export class FxLayer extends Component {
             p.x += p.vx * dt;
             p.y += p.vy * dt;
             const t = 1 - p.life / p.maxLife;
-            g.fillColor = new Color(p.color.r, p.color.g, p.color.b, Math.round(255 * t));
+            const col = this._drawCol;
+            col.r = p.color.r; col.g = p.color.g; col.b = p.color.b; col.a = Math.round(255 * t);
+            g.fillColor = col;
             const s = p.size * t + 1;
             g.rect(p.x - s / 2, p.y - s / 2, s, s);
             g.fill();

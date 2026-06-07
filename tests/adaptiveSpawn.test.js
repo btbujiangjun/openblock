@@ -333,9 +333,58 @@ describe('resolveAdaptiveStrategy', () => {
         const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
         const noBest = resolveAdaptiveStrategy('normal', p, 1440, 0, 0.30, { totalRounds: 8 });
         const withBest = resolveAdaptiveStrategy('normal', p, 1440, 0, 0.30, { totalRounds: 8, bestScore: 5000 });
-        // 个人最佳 5000，分数 1440 → pct≈0.288 → 走衰减
+        // 个人最佳 5000，分数 1440。effectivePB 压缩后高手更快进挑战区，但仍明显低于
+        // 无 bestScore 时的「绝对末档锁死」（noBest≈0.78），即不会锁死最高压。
         expect(withBest._stressBreakdown.scoreStress).toBeLessThan(noBest._stressBreakdown.scoreStress);
-        expect(withBest._stressBreakdown.scoreStress).toBeLessThan(0.4);
+        expect(withBest._stressBreakdown.scoreStress).toBeLessThan(0.6);
+    });
+
+    it('pbProgress 高手 corner：高 PB 玩家在远低于真实 PB 处即进入挑战爬坡（effectivePB 压缩）', () => {
+        const p = makeProfile({ smoothSkill: 0.55, lifetimeGames: 6, lifetimePlacements: 120 });
+        // 真实 PB=5000，score=1800（仅 36% 真实 PB）。旧坐标会被 decay 压到很低；
+        // 压缩后 effectivePB≈2400 → pct≈0.75 → scoreStress 进入挑战区。
+        const expertEarly = resolveAdaptiveStrategy('normal', p, 1800, 0, 0.30, { totalRounds: 8, bestScore: 5000 });
+        expect(expertEarly._stressBreakdown.scoreStress).toBeGreaterThan(0.5);
+    });
+
+    it('pbProgress 新手 corner：低 PB 玩家不会在几十分就被推入高压（effectivePB 抬下限）', () => {
+        const p = makeProfile({ smoothSkill: 0.5, lifetimeGames: 2, lifetimePlacements: 30 });
+        // 真实 PB=60 的新手打到 120 分：抬分母到 noviceFloor 后压力明显低于满档。
+        const noviceMid = resolveAdaptiveStrategy('normal', p, 120, 0, 0.20, { totalRounds: 4, bestScore: 60 });
+        expect(noviceMid._stressBreakdown.scoreStress).toBeLessThan(0.5);
+    });
+
+    /* ===== expertEarlyBoost：高手早期「得分机会」加速 ===== */
+
+    it('expertEarlyBoost：高手早期（peak 段、远低于 PB）触发得分机会加成', () => {
+        const p = makeProfile({ smoothSkill: 0.6, lifetimeGames: 30, lifetimePlacements: 600 });
+        // best=5000（高手）、score=600（effectivePB≈2400 → rDifficulty≈0.25 < 0.45）、totalRounds=8（非 warmup）
+        const s = resolveAdaptiveStrategy('normal', p, 600, 0, 0.20, { totalRounds: 8, bestScore: 5000 });
+        expect(s._stressBreakdown.expertEarlyBoostActive).toBe(true);
+        expect(s.spawnHints.multiClearBonus).toBeGreaterThanOrEqual(0.5);
+        expect(s.spawnHints.perfectClearBoost).toBeGreaterThanOrEqual(0.5);
+    });
+
+    it('expertEarlyBoost：非高手（低 PB）不触发（bypass=not_expert）', () => {
+        const p = makeProfile({ smoothSkill: 0.6, lifetimeGames: 30, lifetimePlacements: 600 });
+        const s = resolveAdaptiveStrategy('normal', p, 60, 0, 0.20, { totalRounds: 8, bestScore: 300 });
+        expect(s._stressBreakdown.expertEarlyBoostActive).toBe(false);
+        expect(s._stressBreakdown.expertEarlyBoostBypass).toBe('not_expert');
+    });
+
+    it('expertEarlyBoost：高手已过早期相位（rDifficulty≥earlyRampUntil）不触发', () => {
+        const p = makeProfile({ smoothSkill: 0.6, lifetimeGames: 30, lifetimePlacements: 600 });
+        // best=5000 → effectivePB≈2400；score=2000 → rDifficulty≈0.83 ≥ 0.45
+        const s = resolveAdaptiveStrategy('normal', p, 2000, 0, 0.30, { totalRounds: 8, bestScore: 5000 });
+        expect(s._stressBreakdown.expertEarlyBoostActive).toBe(false);
+        expect(s._stressBreakdown.expertEarlyBoostBypass).toBe('past_early_phase');
+    });
+
+    it('expertEarlyBoost：warmup 段让位（救济/友好化优先）', () => {
+        const p = makeProfile({ smoothSkill: 0.6, lifetimeGames: 30, lifetimePlacements: 600 });
+        const s = resolveAdaptiveStrategy('normal', p, 600, 0, 0.20, { totalRounds: 2, bestScore: 5000 });
+        expect(s._stressBreakdown.expertEarlyBoostActive).toBe(false);
+        expect(s._stressBreakdown.expertEarlyBoostBypass).toBe('warmup');
     });
 
     it('v1.13 friendlyBoardRelief：清爽盘面 + 多消机会 + payoff 时注入减压', () => {

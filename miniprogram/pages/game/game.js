@@ -20,18 +20,18 @@ const { createFeedbackToggles } = require('../../utils/feedbackToggles');
 const { loadProgress, getLevelProgress, titleForLevel, applyGameEndProgression } = require('../../core/progression');
 
 /* v1.46 触屏速度感知曲线（与 web/src/config.js 对齐，参考桌面 OS pointer ballistics）：
- *   speed ≤ TOUCH_DRAG_SPEED_SLOW (px/ms) → TOUCH_DRAG_GAIN_MIN（1.05，对位精准不抢跑）
- *   speed ≥ TOUCH_DRAG_SPEED_FAST (px/ms) → TOUCH_DRAG_GAIN（1.7，快速一甩到对岸省力）
+ *   speed ≤ TOUCH_DRAG_SPEED_SLOW (px/ms) → TOUCH_DRAG_GAIN_MIN（1.6，对位精准不抢跑）
+ *   speed ≥ TOUCH_DRAG_SPEED_FAST (px/ms) → TOUCH_DRAG_GAIN（2.8，快速一甩到对岸省力）
  *   中间段线性插值
  *
  * 旧的恒定 1.12 增益太弱，玩家从 dock 拖到盘面对岸要走完整物理距离；调高就毁掉
  * 对位手感。速度感知曲线把"精准 / 省力"两个目标解耦，再叠加 startBoost 与
  * 累计偏移上限上调，让小幅手势即可完成落子。 */
-const TOUCH_DRAG_GAIN = 1.7;
-const TOUCH_DRAG_GAIN_MIN = 1.05;
+const TOUCH_DRAG_GAIN = 2.8;
+const TOUCH_DRAG_GAIN_MIN = 1.6;
 const TOUCH_DRAG_SPEED_SLOW_PX_MS = 0.10;
 const TOUCH_DRAG_SPEED_FAST_PX_MS = 0.80;
-const TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS = 6.0;
+const TOUCH_DRAG_GAIN_MAX_OFFSET_CELLS = 12.0;
 /* 触屏起手 boost：抓起候选块时给 preview 一次性向上偏移 N 格，把"dock→盘面下缘"
  * 这段固定物理距离免掉。0 = 关闭。 */
 const TOUCH_DRAG_BOOST_CELLS = 1.4;
@@ -39,12 +39,8 @@ const TOUCH_DRAG_LIFT_GAP_CELLS = 0.35;
 const TOUCH_DRAG_LIFT_MAX_CELLS = 2.4;
 /* 悬停（移动中）snap 半径：保守，避免 preview 跳到太远的"全局好点" */
 const PLACE_HOVER_SNAP_RADIUS = 2;
-/* 释放（touchend）snap 半径：更宽容，"既然已经放手，就尽量帮忙落成"。
- * v1.46：3 → 4 格，配合速度感知 + 起手 boost 让"小幅拖动即可落子"。 */
-const PLACE_RELEASE_SNAP_RADIUS = 4;
-/* 落子失败时 preview 抖动 + 隐藏的总时长（与 wxss keyframes 对齐） */
-const REJECT_ANIM_MS = 240;
-
+/* 释放容错半径：只允许 1 格内微调，避免必须精准卡位，也避免吸到远处合法点。 */
+const PLACE_RELEASE_SNAP_RADIUS = 1;
 Page({
   data: {
     score: 0,
@@ -853,10 +849,6 @@ Page({
       clearTimeout(this._previewRejectTimer);
       this._previewRejectTimer = null;
     }
-    if (this.data.dragPreviewRejected) {
-      this.setData({ dragPreviewRejected: false });
-    }
-
     this._dragging = true;
     this._dragBlockIdx = idx;
     this._dragGx = -1;
@@ -889,9 +881,7 @@ Page({
   },
 
   _finishDrag(e) {
-    /* 释放时使用更宽 snap 半径（PLACE_RELEASE_SNAP_RADIUS = 3 vs hover 时 2），
-     * 让"差一点点"的释放也能放成功——只要用户表达了"我要放在这附近"，就尽量挽救。 */
-    const placedPos = this._smartPlacementFromEvent(e, PLACE_RELEASE_SNAP_RADIUS);
+    const placedPos = this._previewClearPlacement() || this._smartPlacementFromEvent(e, PLACE_RELEASE_SNAP_RADIUS);
     const idx = this._dragBlockIdx;
 
     this._dragging = false;
@@ -918,18 +908,12 @@ Page({
       });
       this._redraw();
     } else {
-      /* 失败：preview 在原位"抖动 + 红光淡出"，配 tick 音 + 'select' 触感作为负反馈
-       * —— 让玩家立刻明白"刚刚那个位置不行"，而不是疑惑游戏出 bug 了。 */
+      /* 失败：立即收掉 preview 并恢复候选槽，避免 ghost 停在非法盘面位置造成"像是放上去了"的误读。 */
       this._audio?.play('tick', { force: true });
       this._audio?.vibrate('select');
       if (this._previewRejectTimer) clearTimeout(this._previewRejectTimer);
-      this.setData({ dragPreviewRejected: true });
-      this._previewRejectTimer = setTimeout(() => {
-        this._previewRejectTimer = null;
-        if (this._dragging) return;   // 抖动期间用户已开始下一次拖拽 → 由 onDockTouchStart 接管
-        this._hideDragPreview();
-        this.setData({ dragPreviewRejected: false });
-      }, REJECT_ANIM_MS);
+      this._previewRejectTimer = null;
+      this._hideDragPreview();
       this.setData({
         dragIdx: -1,
         dock: this._dockViewData(this._controller.dock, -1),
@@ -938,6 +922,16 @@ Page({
       });
       this._redraw();
     }
+  },
+
+  _previewClearPlacement() {
+    if (!this._controller || !this._dragging || this._dragBlockIdx < 0) return null;
+    if (this._dragGx < 0 || this._dragGy < 0) return null;
+    const block = this._controller.dock[this._dragBlockIdx];
+    if (!block || block.placed) return null;
+    if (!this._controller.grid.canPlace(block.shape, this._dragGx, this._dragGy)) return null;
+    const preview = this._controller.grid.previewClearOutcome(block.shape, this._dragGx, this._dragGy, block.colorIdx);
+    return preview?.cells?.length ? { x: this._dragGx, y: this._dragGy } : null;
   },
 
   _lineFeedbackType({ perfectClear = false, bonusCount = 0, clears = 0 } = {}) {

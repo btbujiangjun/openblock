@@ -38,19 +38,77 @@ _ICON_BONUS_LINE_MULT = float(CLEAR_SCORING.get("iconBonusLineMult") or 5)
 _PERFECT_CLEAR_MULT = float(CLEAR_SCORING.get("perfectClearMult") or 10)
 
 
-def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int, perfect_clear: bool = False) -> float:
-    """与 web/src/clearScoring.js computeClearScore 一致；bonus 线数来自 grid.check_lines(icon 规则由 rlBonusScoring.blockIcons 控制)。"""
+# Combo 倍数 + grace 窗口默认配置（与 shared/game_rules.json → clearScoring.comboMultiplier 同源）
+_COMBO_CFG_RAW = CLEAR_SCORING.get("comboMultiplier") or {}
+_COMBO_ENABLED = bool(_COMBO_CFG_RAW.get("enabled", True))
+_COMBO_GRACE = max(1, int(_COMBO_CFG_RAW.get("gracePlacements") or 3))
+_COMBO_ACTIVATION = max(
+    1, int(_COMBO_CFG_RAW.get("activationCount") or _COMBO_CFG_RAW.get("activationStreak") or 3)
+)
+_COMBO_STEP = max(0.0, float(_COMBO_CFG_RAW.get("stepBonus") or 0.0))
+_COMBO_MAX = max(1.0, float(_COMBO_CFG_RAW.get("maxMultiplier") or 1.0))
+
+
+def _derive_combo_multiplier(combo_count: int) -> float:
+    """由 combo 链累计清线次数推导得分倍数（与 web/src/clearScoring.js deriveComboMultiplier 同公式）。
+    mult = clamp(1 + max(0, comboCount - activationCount + 1) * stepBonus, 1, maxMultiplier)
+    """
+    if not _COMBO_ENABLED:
+        return 1.0
+    n = max(0, int(combo_count or 0))
+    if n < _COMBO_ACTIVATION:
+        return 1.0
+    raw = 1.0 + (n - _COMBO_ACTIVATION + 1) * _COMBO_STEP
+    return min(_COMBO_MAX, max(1.0, raw))
+
+
+def _derive_next_combo_count(
+    prev_combo_count: int, rounds_since_last_clear: float, cleared_this_placement: bool
+) -> int:
+    """按 grace 窗口推导下一个 _combo_count（与 web/src/clearScoring.js deriveNextComboCount 同公式）。
+    - 未清 → 返回 prev（不变）
+    - 清线且 prev=0 → 1（首次启动）
+    - 清线且 gap < grace → prev+1（combo 延续）
+    - 清线且 gap ≥ grace → 1（grace 已过，重启）
+    """
+    if not _COMBO_ENABLED:
+        return 0
+    if not cleared_this_placement:
+        return max(0, int(prev_combo_count or 0))
+    prev = max(0, int(prev_combo_count or 0))
+    if prev == 0:
+        return 1
+    if rounds_since_last_clear is None or rounds_since_last_clear == float("inf"):
+        return 1
+    gap = max(0, int(rounds_since_last_clear or 0))
+    return 1 if gap >= _COMBO_GRACE else prev + 1
+
+
+def _clear_score_gain(
+    scoring: dict,
+    clear_count: int,
+    bonus_line_count: int,
+    perfect_clear: bool = False,
+    combo_count: int = 0,
+) -> float:
+    """与 web/src/clearScoring.js computeClearScore 一致；bonus 线数来自 grid.check_lines(icon 规则由 rlBonusScoring.blockIcons 控制)。
+
+    v1.66+: 增加 combo_count 参数 → comboMultiplier，与浏览器主局/小程序/Cocos 同源。
+    """
     if clear_count <= 0:
         return 0.0
     base_unit = float(scoring.get("single_line") or 20)
     base_score = base_unit * clear_count * clear_count
     b = min(int(bonus_line_count), int(clear_count))
     if b <= 0:
-        return base_score
-    line_score = base_unit * clear_count
-    icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
-    subtotal = base_score + icon_bonus
-    return subtotal * (_PERFECT_CLEAR_MULT if perfect_clear else 1.0)
+        subtotal = base_score
+    else:
+        line_score = base_unit * clear_count
+        icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
+        subtotal = base_score + icon_bonus
+    perfect_mult = _PERFECT_CLEAR_MULT if perfect_clear else 1.0
+    combo_mult = _derive_combo_multiplier(combo_count)
+    return subtotal * perfect_mult * combo_mult
 
 
 def _is_perfect_clear(grid: Grid) -> bool:
@@ -95,6 +153,12 @@ class OpenBlockSimulator:
         self._grid_np: np.ndarray | None = None
         self._last_clears: int = 0
         self._last_bonus_lines: int = 0
+        # Combo 链（**时间维度** combo with grace window）：当前 combo 累计清线次数；与 web _comboCount 同口径。
+        # 清线 → 按 grace 窗口推导（gap<grace → +1；gap≥grace → 重启=1）；未清 → 累加 _rounds_since_last_clear。
+        # 与「空间维度单手多消」result["count"] 完全独立；进入 _clear_score_gain → comboMultiplier。
+        # 术语权威：docs/product/CLEAR_SCORING.md §〇。
+        self._combo_count: int = 0
+        self._rounds_since_last_clear: float = float("inf")
         self._profile = PlayerProfileLite()
         self._spawn_context: dict = {}
         self.reset()
@@ -136,6 +200,8 @@ class OpenBlockSimulator:
         self._grid_np = None
         self._last_clears = 0
         self._last_bonus_lines = 0
+        self._combo_count = 0
+        self._rounds_since_last_clear = float("inf")
         self._profile = PlayerProfileLite()
         self._profile.record_new_game()
         self._spawn_context = self._create_spawn_context(self.best_score)
@@ -392,12 +458,26 @@ class OpenBlockSimulator:
             self.total_clears += clears
             bonus_n = len(result.get("bonus_lines") or [])
             self._last_bonus_lines = int(bonus_n)
-            gain = _clear_score_gain(self.scoring, clears, bonus_n, _is_perfect_clear(self.grid))
+            # Combo (grace 窗口推导)；与 web 主局 deriveNextComboCount 同公式。
+            self._combo_count = _derive_next_combo_count(
+                self._combo_count, self._rounds_since_last_clear, True
+            )
+            self._rounds_since_last_clear = 0
+            gain = _clear_score_gain(
+                self.scoring,
+                clears,
+                bonus_n,
+                _is_perfect_clear(self.grid),
+                combo_count=self._combo_count,
+            )
             self.score += gain
             self._spawn_context["lastClearCount"] = clears
             self._spawn_context["roundsSinceClear"] = 0
         else:
             self._last_clears = 0
+            # 未清线 → 累加 grace 计数；_combo_count 不归零（由下次清线判定）
+            if self._rounds_since_last_clear != float("inf"):
+                self._rounds_since_last_clear += 1
             self._spawn_context["lastClearCount"] = 0
 
         b["placed"] = True

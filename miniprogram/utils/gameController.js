@@ -12,6 +12,7 @@ const { getAllShapes, getRegularShapes, getShapeCategory, isSpecialShapeId } = r
 const { getStrategy } = require('../core/config');
 const {
   computeClearScore,
+  deriveNextComboCount,
   detectBonusLines,
   monoNearFullLineColorWeights,
   pickThreeDockColors,
@@ -45,8 +46,15 @@ class GameController {
       try { this._profile.ingestHistoricalStats(opts.historicalStats); } catch (_) {}
     }
 
+    /* ⚠️ 历史字段名 _maxCombo —— 实际是「本局最大单手 result.count（空间维度多消）」，
+     * 不是 combo 链长度；与 web 端 gameStats.maxCombo 同语义。
+     * 时间维度的 combo 链长度见 _comboCount。术语权威：docs/product/CLEAR_SCORING.md §〇。 */
     this._maxCombo = 0;
     this._missCount = 0;
+    /** Combo 链（grace 窗口）：清线启动；连续 ≥ gracePlacements 步未清进入"待断"。
+     *  进入 computeClearScore → comboMultiplier；与 web 主局 _comboCount / _roundsSinceLastClear 同口径。 */
+    this._comboCount = 0;
+    this._roundsSinceLastClear = Number.POSITIVE_INFINITY;
     this._lastSpawnIntent = null;
     this._lastSpawnIntentAge = 0;
 
@@ -66,6 +74,8 @@ class GameController {
     this._roundClearCount = 0;
     this._maxCombo = 0;
     this._missCount = 0;
+    this._comboCount = 0;
+    this._roundsSinceLastClear = Number.POSITIVE_INFINITY;
     this._lastSpawnIntent = null;
     this._lastSpawnIntentAge = 0;
     if (this._profile && typeof this._profile.recordNewGame === 'function') {
@@ -379,13 +389,19 @@ class GameController {
     result.perfectClear = result.count > 0 && this.grid.getFillRatio() === 0;
     let gain = 0;
     let clears = 0;
+    let comboMultiplier = 1;
     if (result.count > 0) {
       clears = result.count;
       this._roundClearCount += clears;
       this.totalClears += clears;
       this._maxCombo = Math.max(this._maxCombo, clears);
-      const { clearScore } = computeClearScore(this.strategyId, result);
-      gain = clearScore;
+      /* Combo (grace 窗口) 推导（与 web 主局 deriveNextComboCount 同公式）：
+       *   gap < grace → combo+=1；gap ≥ grace → 重启 = 1。 */
+      this._comboCount = deriveNextComboCount(this._comboCount, this._roundsSinceLastClear, true);
+      this._roundsSinceLastClear = 0;
+      const scoreOut = computeClearScore(this.strategyId, result, undefined, this._comboCount);
+      gain = scoreOut.clearScore;
+      comboMultiplier = scoreOut.comboMultiplier || 1;
       this.score += gain;
       vibrateShort();
 
@@ -414,7 +430,14 @@ class GameController {
         rows: result.rows || [],
         cols: result.cols || [],
         bonusLines: result.bonusLines || [],
+        comboCount: this._comboCount,
+        comboMultiplier,
       });
+    } else {
+      /* 未清线 → 累加 grace 计数；_comboCount 不在此归零（由下次清线时按 grace 判定） */
+      this._roundsSinceLastClear = (this._roundsSinceLastClear === Number.POSITIVE_INFINITY)
+        ? Number.POSITIVE_INFINITY
+        : this._roundsSinceLastClear + 1;
     }
     if (this._profile && typeof this._profile.recordPlace === 'function') {
       this._profile.recordPlace(clears > 0, clears, this.grid.getFillRatio());

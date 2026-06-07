@@ -112,7 +112,7 @@
     wx:if="{{dragPreviewVisible}}"
     type="2d"
     id="drag-preview-canvas"
-    class="drag-preview-canvas {{dragPreviewRejected ? 'drag-preview-canvas--rejected' : ''}}"
+    class="drag-preview-canvas"
     style="{{dragPreviewStyle}}"
   />
 

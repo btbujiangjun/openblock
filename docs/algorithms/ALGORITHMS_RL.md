@@ -1681,7 +1681,7 @@ def _safe_aux(t):
 
 1. **规则与数据**：上述 JSON。
 2. **环境（对局动力学）**：`web/src/bot/simulator.js`、`rl_pytorch/simulator.py`、`rl_mlx/simulator.py` 等实现落子、消除、得分、每轮 dock 三色采样；须与主游戏 `Grid` / `clearScoring` 逻辑一致。
-   - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → `clearScoring.iconBonusLineMult` 统一提供。训练路径不用玩家当前皮肤，icon 语义只读取 `rlBonusScoring.blockIcons`；为空时浏览器无头局、PyTorch、MLX 都退化为同色整线 bonus。
+   - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → `clearScoring.iconBonusLineMult` 统一提供。**连击倍数 v1.66+** 由 `clearScoring.comboMultiplier`（默认 ≥ 3 连 ×2 cap）累乘，与 web 主局完全同源（见 [CLEAR_SCORING.md §3bis](../product/CLEAR_SCORING.md#三-bis连击倍数combo-multiplier--v166)）。训练路径不用玩家当前皮肤，icon 语义只读取 `rlBonusScoring.blockIcons`；为空时浏览器无头局、PyTorch、MLX 都退化为同色整线 bonus。
    - **dock 染色偏置**：仅依据盘面可见的近满线几何 + 同一套 icon/同色规则调用 `monoNearFullLineColorWeights`，不是 adaptiveSpawn / spawnHints。
    - **出块形状**：v1.68 起 Python 默认经 Node worker 与线上一致；`RL_SPAWN_ONLINE=0` 时回退 `block_spawn.generate_*`。详见 [`RL_CONTRACT_AND_SERVICE.md` §2.6](./RL_CONTRACT_AND_SERVICE.md#26-rl-训练机制三条路径对照权威)。
 3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；**v1.68：190 维 state**（含 3 维策略 one-hot）、**phi=205**。
@@ -1995,7 +1995,8 @@ win_rate 应数学上恒等于 `1 - p/100`（如 p=70 → 30%）。
 
 Web/小程序消行得分由 `computeClearScore()` 统一计算。规则：
 - 基础分：`baseScore = baseUnit × c²`，`baseUnit = scoring.singleLine`（默认 20）
-- 同 icon/同色 bonus：`baseScore + baseUnit × c × b × 4`
+- 同 icon/同色 bonus：`subtotal = baseScore + baseUnit × c × b × 4`
+- **连击倍数 v1.66+**：`clearScore = subtotal × perfectMult × comboMult`，`comboMult` 由 `_clearStreak`（连续消行落子计数）经 `clearScoring.comboMultiplier` 推导，默认 ≥ 3 连 ×2 cap
 
 Python RL 模拟器盘面分数增量与上述公式对齐。
 

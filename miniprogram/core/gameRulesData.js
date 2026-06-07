@@ -30,7 +30,7 @@ module.exports = {
     "maxGradNorm": 5,
     "policyLr": 0.02,
     "valueLr": 0.05,
-    "entropyCoef": 0.012,
+    "entropyCoef": 0.02,
     "temperatureLocal": {
       "comment": "trainSelfPlay 本地循环：temp = max(min, start - episodeIndex * decayPerEpisode)",
       "start": 1,
@@ -38,16 +38,25 @@ module.exports = {
       "decayPerEpisode": 0.0015
     },
     "temperatureBackend": {
-      "comment": "useBackend 时按服务端已累计局数 globalEp 衰减",
+      "comment": "useBackend 时按服务端已累计局数 globalEp 衰减。min 从 0.35→0.45：高 ep 后温度长期贴底会让残局（合法落点少）采样过度确定化、整批熵骤降到 ~0.6 又回弹（熵深谷）；抬高下限维持残局探索、软化熵深谷。",
       "start": 1,
-      "min": 0.35,
+      "min": 0.45,
       "decayPerGlobalEpisode": 0.002
     }
   },
   "clearScoring": {
     "comment": "人工主局、浏览器无头模拟器、Python RL 训练/评估共用的消行计分参数。修改这里必须同步验证 clearScoring / simulator 测试。",
     "iconBonusLineMult": 5,
-    "perfectClearMult": 10
+    "perfectClearMult": 10,
+    "comboMultiplier": {
+      "comment": "连击得分倍数 —— combo 采用「带 grace 窗口的 chain 模型」（粉色爱心 ♥N 提示）：清线启动 combo（_comboCount=1），随后任意 0~gracePlacements-1 步未清线都不打断；当连续 ≥gracePlacements 步未清线时 combo 进入「待断」态，下次清线重置为 1。公式：mult = clamp(1 + max(0, comboCount - activationCount + 1) × stepBonus, 1, maxMultiplier)。默认 grace=3 / activation=3 / step=1 / max=2 → 缓冲 2 步、♥≥3 时清线得分 ×2（cap）。grace=1 即退化为「严格连击」（与旧 _clearStreak 同义）。调 max=4 / step=1 可放大为「♥3 ×2、♥4 ×3、♥5+ ×4」线性递增。enabled=false 或配置缺失即关闭加成与爱心徽章。activationStreak 是 activationCount 的向后兼容别名。与 perfectClearMult / iconBonusLineMult 串行累乘：clearScore = (baseScore + iconBonusScore) × perfectMult × comboMult。",
+      "enabled": true,
+      "gracePlacements": 3,
+      "activationCount": 3,
+      "activationStreak": 3,
+      "stepBonus": 1,
+      "maxMultiplier": 2
+    }
   },
   "rlBonusScoring": {
     "comment": "RL / PyTorch 无头局与主局计分对齐：整线加分判定与 dock 染色软偏置共用同一套「可见规则」（detectBonusLines / monoNearFullLine）。为避免 JS/Python 读取皮肤实现不一致，RL 只读取本节点 blockIcons；为空时按同色判定，不从玩家当前皮肤或 canonical 皮肤回退。",
@@ -81,7 +90,13 @@ module.exports = {
     "scoreFloor": 180,
     "percentileDecayThreshold": 0.5,
     "percentileDecayFactor": 0.4,
-    "percentileMaxOver": 0.5
+    "percentileMaxOver": 0.5,
+    "pbProgress": {
+      "comment": "难度进度坐标（effectivePB）—— 主线 S 曲线 r=score/PB 不动，仅用同一条单调连续变换修两端 corner：新手 PB<noviceFloor 时抬到下限（避免几十分就被推入挑战区→早熟挫败）；高手 PB>expertSoftCap 时按 eff=softCap+scale·ln(1+(pb-softCap)/scale) 对数软压缩（缩短前期无聊铺垫，更快进挑战区，越高压得越狠且单调无跳变）。仅作用于出块难度坐标；纪录追逐（derivePbCurve/challengeBoost/破纪录庆祝/overshoot）仍用真实 PB，两坐标解耦。配置移除即退化为旧 max(personalBest, scoreFloor) 行为。",
+      "noviceFloor": 240,
+      "expertSoftCap": 1200,
+      "expertScale": 600
+    }
   },
   "runDifficulty": {
     "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
@@ -137,6 +152,15 @@ module.exports = {
         "comment": "v1.56.6 §5.α.9 P2：破 PB 释放窗口配置化 —— v1.55 硬编码 3 spawn（约 5~10s）偏短，玩家'破纪录爽感'通常持续 10~20s 就被 D4 加压机制接管，体感'突兀变难'。默认 5 spawn，运营可调。与 overshoot bypass 链对齐：释放期内 pbOvershootBoost / pbExtremeOrderBoost / D4 spawnHints 收紧全部 bypass。",
         "spawns": 5,
         "stressReleaseFactor": 0.7,
+        "clearGuaranteeBoost": 1
+      },
+      "expertEarlyBoost": {
+        "comment": "高手早期得分机会加速 —— 与 dynamicDifficulty.pbProgress（effectivePB 压缩）配套：压缩在「难度坐标」上让高手更快进挑战区，本机制在「得分机会」维度让其早期盘面多产出多消/清屏/续消，使真实分数上升更快、更早穿过铺垫区（分数玩家自己打出来，非系统改进度）。仅对 bestScore≥expertThreshold 的高手，按 effectivePB 定义的早期相位 rDifficulty<earlyRampUntil 触发；与 farFromPBBoost（按 raw pct<0.30 对所有玩家送爽）互补，覆盖其顾不到的 raw 30%~挑战区真空。救济优先：warmup/recovery/nearMiss/postPbRelease 让位。仅作用于 spawnHints，纪录线不受影响。移除或 enabled=false 即关闭。expertThreshold 建议与 dynamicDifficulty.pbProgress.expertSoftCap 对齐。",
+        "enabled": true,
+        "expertThreshold": 1200,
+        "earlyRampUntil": 0.45,
+        "multiClearBonusFloor": 0.5,
+        "perfectClearBoostFloor": 0.5,
         "clearGuaranteeBoost": 1
       }
     },
@@ -1112,6 +1136,14 @@ module.exports = {
     }
   },
   "rlTrainingStrategyId": "normal",
+  "rlTraining": {
+    "comment": "RL 训练随机采样策略 ID（顺序须与 featureEncoding.strategyIds one-hot 一致）；推理时以界面所选 difficulty 编码进 state。",
+    "strategyIds": [
+      "easy",
+      "normal",
+      "hard"
+    ]
+  },
   "rlRewardShaping": {
     "comment": "v6 优化奖励：增大势函数系数与终局信号，降低 outcome 混合比例让 V 学会逐步评估。",
     "smoothWinBonus": {
@@ -1130,7 +1162,7 @@ module.exports = {
     "rndCuriosity": {
       "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
       "enabled": false,
-      "stateDim": 187,
+      "stateDim": 190,
       "hiddenDim": 64,
       "outputDim": 32,
       "beta": 0.1,
@@ -1292,16 +1324,22 @@ module.exports = {
     }
   },
   "featureEncoding": {
-    "comment": "state = 48 维标量（25 结构 + 19 颜色摘要 + 4 单步难度）+ 64 棋盘占用 + 75 dock 形状 = 187；action = 15 维（原 12 + 多消、同 icon/同色 bonus、清屏潜力）；phi = 202。25 结构标量末 3 维为 heightStd + 客观几何难度 contiguousRegions/concaveCorners（空白连通块数 / 凹角数，见 boardTopology.js）；4 维单步难度由 spawnStepDifficulty.spawnStepDifficultyFeatures 计算（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）。改维度须同步 features.js / features.py / rl_mlx/features.py 并重训。",
+    "comment": "state = 51 维标量（25 结构 + 19 颜色 + 4 单步难度 + 3 策略 one-hot）+ 64 棋盘 + 75 dock = 190；action = 15；phi = 205。策略维顺序见 strategyIds。Python 训练环境出块默认走 Node worker（scripts/rl-spawn-worker.mjs）与线上一致；RL_SPAWN_ONLINE=0 回退 block_spawn.py。改维度须同步 features 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
-    "stateScalarDim": 48,
+    "strategyIds": [
+      "easy",
+      "normal",
+      "hard"
+    ],
+    "strategyDim": 3,
+    "stateScalarDim": 51,
     "colorCount": 8,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
-    "stateDim": 187,
+    "stateDim": 190,
     "actionDim": 15,
-    "phiDim": 202,
+    "phiDim": 205,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {

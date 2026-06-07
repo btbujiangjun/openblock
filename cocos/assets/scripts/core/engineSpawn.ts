@@ -18,6 +18,7 @@ import { monoNearFullLineColorWeights, pickThreeDockColors } from './scoring';
 import { DOCK_SLOTS } from './config';
 import { flag } from './remoteConfig';
 import { getSpawnModel, getSpawnContextExtra } from './spawnModel';
+import { buildTuningV2Context } from './spawnTuning';
 
 // @ts-ignore 生成的纯逻辑引擎（未类型化）；用 .mjs 以保证 Cocos 按 ESM 打包（.js 会被当 CommonJS）
 import { Grid as EngineGrid } from '../engine/grid.mjs';
@@ -25,6 +26,8 @@ import { Grid as EngineGrid } from '../engine/grid.mjs';
 import { getStrategy } from '../engine/config.mjs';
 // @ts-ignore
 import { generateDockShapes } from '../engine/bot/blockSpawn.mjs';
+// @ts-ignore 自适应策略解析（与 web/小程序同源）：内部 resolveThetaV2 注入寻参 θ → PB 曲线/spawnTargets。
+import { resolveAdaptiveStrategy } from '../engine/adaptiveSpawn.mjs';
 
 export interface EngineSpawnerOptions {
     /** 策略 id（默认 normal）。对应 shared/game_rules.json 的 strategies。 */
@@ -34,6 +37,16 @@ export interface EngineSpawnerOptions {
     getSkin?: () => Skin | null;
     /** 每次出块一轮的回调（用于玩家画像 PlayerContext.onRound 节奏推进）。 */
     onRound?: () => void;
+    /** 取真实 PlayerProfile（喂给 resolveAdaptiveStrategy；为空则退化为非自适应分支，θ 不生效）。 */
+    getProfile?: () => unknown;
+    /** 取当前分数（自适应 scoreStress 输入）。 */
+    getScore?: () => number;
+    /** 取个人最佳分（寻参 pb_bin 维度）。 */
+    getBest?: () => number;
+    /** 取连胜计数（runStreak 难度修正；默认 0）。 */
+    getRunStreak?: () => number;
+    /** 取稳定用户 id（寻参灰度门控 hash；默认 ''）。 */
+    getUserId?: () => string;
 }
 
 interface EngineShape {
@@ -52,6 +65,11 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
     const strategyId = opts.strategyId ?? 'normal';
     const getSkin = opts.getSkin ?? (() => null);
     const onRound = opts.onRound;
+    const getProfile = opts.getProfile ?? (() => null);
+    const getScore = opts.getScore ?? (() => 0);
+    const getBest = opts.getBest ?? (() => 0);
+    const getRunStreak = opts.getRunStreak ?? (() => 0);
+    const getUserId = opts.getUserId ?? (() => '');
     const ctx: Record<string, unknown> = {};
 
     let strat: unknown;
@@ -91,16 +109,49 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
 
         // 快照当前棋盘到 engine Grid（generateDockShapes 只读 + 内部 clone 模拟，安全）。
         // 两端 cells 表示一致：cells[y][x] = null（空）| colorIdx。
-        const eg = new EngineGrid(grid.size) as { cells: (number | null)[][] };
+        const eg = new EngineGrid(grid.size) as { cells: (number | null)[][]; getFillRatio?: () => number };
         for (let y = 0; y < grid.size; y++) {
             for (let x = 0; x < grid.size; x++) {
                 eg.cells[y][x] = grid.cells[y][x];
             }
         }
 
+        /* 自适应策略解析（与 web game.js / 小程序 gameController 同源）：
+         * 把寻参 θ（SpawnParamTuner v2）经 resolveThetaV2 注入 PB 曲线 / spawnTargets，再产出
+         * layered 策略喂给 generateDockShapes。需要真实 PlayerProfile（否则 resolveAdaptiveStrategy
+         * 在 !profile 处早退到非自适应分支 → θ 不生效）。任何异常回退静态策略 strat，保证可玩。 */
+        let strategyConfig: unknown = strat;
+        try {
+            const profile = getProfile();
+            if (profile) {
+                // 推进闭环反馈窗口（与 web 每轮 spawn 的 recordSpawn 对齐）。
+                const p = profile as { recordSpawn?: () => void; tickRoundForDelight?: () => void };
+                if (typeof p.recordSpawn === 'function') p.recordSpawn();
+                if (typeof p.tickRoundForDelight === 'function') p.tickRoundForDelight();
+
+                const fill = (typeof eg.getFillRatio === 'function') ? eg.getFillRatio() : grid.getFillRatio();
+                const tuningV2Context = buildTuningV2Context({
+                    strategyId,
+                    bestScore: getBest() || (ctx.bestScore as number) || 0,
+                    totalRounds: (ctx.totalRounds as number) || 0,
+                    userId: getUserId(),
+                });
+                const layered = resolveAdaptiveStrategy(
+                    strategyId, profile, getScore(), getRunStreak(), fill,
+                    { ...ctx, tuningV2Context, _gridRef: eg },
+                );
+                if (layered) {
+                    strategyConfig = layered;
+                    // 与 web 一致：把里程碑命中信号桥接回 ctx，blockSpawn 据此对 gapFill 形状加权。
+                    const hints = (layered as { spawnHints?: { scoreMilestone?: boolean } }).spawnHints;
+                    ctx.scoreMilestone = hints?.scoreMilestone === true;
+                }
+            }
+        } catch { /* 回退静态策略 strat */ }
+
         let shapes: EngineShape[];
         try {
-            shapes = generateDockShapes(eg, strat, ctx) as EngineShape[];
+            shapes = generateDockShapes(eg, strategyConfig, ctx) as EngineShape[];
         } catch {
             return [];
         }

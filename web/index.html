@@ -736,6 +736,13 @@
             <div class="stat-box">
                 <div class="stat-label" data-i18n="ui.stat.score">得分</div>
                 <div class="stat-value" id="score">0</div>
+                <!-- Combo 链 · 粉色爱心徽章（清线启动；连续 ≥ gracePlacements 步未清淡出）。
+                     语义见 docs/product/CLEAR_SCORING.md §〇 时间维度。 -->
+                <div class="combo-heart" id="combo-heart" hidden aria-live="polite"
+                     data-i18n-aria-label="effect.comboHeartAria" aria-label="连击">
+                    <span class="combo-heart-icon" aria-hidden="true">♥</span>
+                    <span class="combo-heart-count">0</span>
+                </div>
                 <div class="stat-subline stat-subline--spacer" aria-hidden="true"></div>
             </div>
             <div class="stat-box stat-box--best">

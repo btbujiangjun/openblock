@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, UITransform, Graphics, Color, BlockInputEvents } from 'cc';
-import { GameMode, t, flag } from '../../core';
+import { GameMode, t, flag, availableLocales, getLocale, setLocale } from '../../core';
 import { Modal, TapBus, button, label, inheritLayer } from './uiKit';
+import { Wordmark } from './Wordmark';
 
 const { ccclass } = _decorator;
 
@@ -58,6 +59,9 @@ export class MainMenu extends Component {
         g.fill();
 
         // 吸收层：先注册 TapBus（逆序命中时按钮优先于本层）。
+        // 也直接绘制一层暗底：iOS 原生端偶发 menuBg 层未正确压住 Play/Board，
+        // 会导致主菜单文字和棋盘/按钮叠在一起“一团糊”。把可见遮罩放到 blocker
+        // 这个必定活跃且全屏命中的节点上，作为视觉与输入的双保险。
         this.blocker = new Node('blocker');
         this.blocker.parent = this.node;
         inheritLayer(this.blocker, this.node);
@@ -65,6 +69,10 @@ export class MainMenu extends Component {
         const bu = this.blocker.addComponent(UITransform);
         bu.setAnchorPoint(0.5, 0.5);
         bu.setContentSize(2000, 3000);
+        const dim = this.blocker.addComponent(Graphics);
+        dim.fillColor = new Color(0, 0, 0, 226);
+        dim.rect(-1000, -1500, 2000, 3000);
+        dim.fill();
 
         this.node.active = false;
     }
@@ -102,7 +110,10 @@ export class MainMenu extends Component {
         }
 
         const root = this.node;
-        label(root, 'OPEN BLOCK', 72, 0, 430, new Color(120, 220, 255, 255));
+        this.paintMenuCard(root);
+        // 主标题：与局内 HUD / 启动屏共用同一像素字标（cool→warm 渐变 + ✦ 星号）。
+        const wm = Wordmark.mount(root, { cellW: 9, cellH: 11 });
+        wm.node.setPosition(0, 430, 0);
         label(root, t('menu.tagline'), 26, 0, 362, new Color(150, 170, 200, 255));
         label(root, t('hud.best', { n: this.opts.best }), 30, 0, 292, new Color(220, 228, 240, 255));
 
@@ -127,5 +138,41 @@ export class MainMenu extends Component {
         defs.forEach((d, i) => {
             button(root, d.label, sStart + i * sStep, -110, 24, d.cb, new Color(40, 48, 66, 255), { minWidth: 150 });
         });
+
+        // 语言切换（与 web `i18n` 切换按钮对齐）：环形遍历已注册语言，落 Storage + 立即重绘菜单。
+        const locales = availableLocales();
+        if (locales.length > 1) {
+            const cur = getLocale();
+            const idx = Math.max(0, locales.indexOf(cur));
+            const next = locales[(idx + 1) % locales.length];
+            button(root, `🌐 ${cur} → ${next}`, 0, -260, 20, () => {
+                setLocale(next);
+                this.rebuild();
+            }, new Color(40, 48, 66, 255), { minWidth: 220 });
+        }
+    }
+
+    /** 菜单内容实体背板：确保手动从局内打开菜单时，文字/按钮不与盘面混在一起。 */
+    private paintMenuCard(root: Node): void {
+        const card = new Node('menuCard');
+        card.parent = root;
+        inheritLayer(card, root);
+        card.setSiblingIndex(2);
+        card.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        const g = card.addComponent(Graphics);
+        const w = 650;
+        const h = 900;
+        const y = 80;
+        g.fillColor = new Color(13, 18, 32, 248);
+        g.roundRect(-w / 2, y - h / 2, w, h, 28);
+        g.fill();
+        g.lineWidth = 3;
+        g.strokeColor = new Color(92, 108, 150, 210);
+        g.roundRect(-w / 2, y - h / 2, w, h, 28);
+        g.stroke();
+        // 顶部轻微内发光，避免纯黑卡片显得压抑；不影响按钮命中。
+        g.fillColor = new Color(255, 255, 255, 14);
+        g.roundRect(-w / 2 + 10, y + h / 2 - 110, w - 20, 90, 22);
+        g.fill();
     }
 }

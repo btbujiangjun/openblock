@@ -3,7 +3,28 @@ import { sys } from 'cc';
 /**
  * 跨平台持久化适配（Phase 4）。sys.localStorage 在 Web / iOS / Android / 微信小游戏
  * 均可用，屏蔽各端差异。后续可在此接 SQLite / 云存档。
+ *
+ * 写失败时（配额满 / 存档被禁 / 微信沙箱异常）会通过 onWriteError hook 上抛一次，
+ * 让 UI 层（GameController）通过 fx.floatText 提示玩家"存档失败"，避免静默丢档。
  */
+type WriteErrorHandler = (key: string, err: unknown) => void;
+let _onWriteError: WriteErrorHandler | null = null;
+/** 简单去抖：30 秒内同一 key 的多次失败只通知一次，避免事件 spam。 */
+const _lastErrTs: Record<string, number> = {};
+const ERR_NOTIFY_THROTTLE_MS = 30000;
+
+function notifyWriteError(key: string, err: unknown): void {
+    if (!_onWriteError) return;
+    const now = Date.now();
+    if (now - (_lastErrTs[key] || 0) < ERR_NOTIFY_THROTTLE_MS) return;
+    _lastErrTs[key] = now;
+    try { _onWriteError(key, err); } catch { /* ignore */ }
+}
+
+export function setStorageWriteErrorHandler(fn: WriteErrorHandler | null): void {
+    _onWriteError = fn;
+}
+
 export const Storage = {
     get(key: string, fallback: string | null = null): string | null {
         try {
@@ -13,11 +34,13 @@ export const Storage = {
             return fallback;
         }
     },
-    set(key: string, value: string): void {
+    set(key: string, value: string): boolean {
         try {
             sys.localStorage.setItem(key, value);
-        } catch {
-            /* ignore */
+            return true;
+        } catch (err) {
+            notifyWriteError(key, err);
+            return false;
         }
     },
     getNumber(key: string, fallback = 0): number {
@@ -25,8 +48,8 @@ export const Storage = {
         const n = v == null ? NaN : Number(v);
         return Number.isFinite(n) ? n : fallback;
     },
-    setNumber(key: string, value: number): void {
-        this.set(key, String(value));
+    setNumber(key: string, value: number): boolean {
+        return this.set(key, String(value));
     },
     getJSON<T>(key: string, fallback: T): T {
         const v = this.get(key);
@@ -37,11 +60,12 @@ export const Storage = {
             return fallback;
         }
     },
-    setJSON(key: string, value: unknown): void {
+    setJSON(key: string, value: unknown): boolean {
         try {
-            this.set(key, JSON.stringify(value));
-        } catch {
-            /* ignore */
+            return this.set(key, JSON.stringify(value));
+        } catch (err) {
+            notifyWriteError(key, err);
+            return false;
         }
     },
 };
@@ -65,7 +89,12 @@ export const STORAGE_KEYS = {
     locale: 'openblock_cocos_locale_v1',
     stats: 'openblock_cocos_stats_v1',
     chest: 'openblock_cocos_chest_v1',
+    seasonChest: 'openblock_cocos_season_chest_v1',
     aprilFoolsOptout: 'openblock_cocos_aprilfools_optout_v1',
     companion: 'openblock_cocos_companion_v1',
     replays: 'openblock_cocos_replays_v1',
+    wheelFreeUsedDate: 'openblock_cocos_wheel_free_date_v1',
+    haptics: 'openblock_cocos_haptics_v1',
+    visualFx: 'openblock_visualfx_v1',
+    reduceMotion: 'openblock_cocos_reduce_motion_v1',
 };

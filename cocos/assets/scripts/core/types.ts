@@ -28,6 +28,9 @@ export interface ClearResult {
     count: number;
     cells: ClearedCell[];
     bonusLines: Array<{ type: 'row' | 'col'; idx: number; colorIdx: number }>;
+    /** 本次消除的整行 / 整列索引（对齐 web checkLines 追加字段；供 double-wave 等动效用，可选）。 */
+    rows?: number[];
+    cols?: number[];
 }
 
 export interface PreviewOutcome {
@@ -72,14 +75,14 @@ export interface NearMissLine {
 /** GameModel 对外抛出的事件（渲染端据此播放动画/音效/特效） */
 export type GameEvent =
     | { type: 'place'; index: number; gx: number; gy: number; colorIdx: number; shape: ShapeMatrix }
-    | { type: 'clear'; result: ClearResult; clearScore: number; perfectClear: boolean; reason: ClearReason }
+    | { type: 'clear'; result: ClearResult; clearScore: number; perfectClear: boolean; reason: ClearReason; comboCount?: number; comboMultiplier?: number }
     | { type: 'score'; score: number; delta: number }
     | { type: 'dock'; blocks: DockBlock[] }
     | { type: 'gameover'; score: number; best: number }
     | { type: 'wallet'; coins: number; delta: number }
     | { type: 'skill'; id: string; ok: boolean }
     | { type: 'freeze'; active: boolean; used: boolean }
-    | { type: 'nearmiss'; lines: NearMissLine[] }
+    | { type: 'nearmiss'; lines: NearMissLine[]; placedCells: Array<{ x: number; y: number }>; maxLineFill: number }
     | { type: 'revive' }
     | { type: 'newgame' };
 

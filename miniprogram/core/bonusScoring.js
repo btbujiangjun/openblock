@@ -61,12 +61,65 @@ function detectBonusLines(grid, skin) {
   return result;
 }
 
+/** Combo 倍数与 grace 窗口默认配置（与 shared/game_rules.json → clearScoring.comboMultiplier 同源） */
+const COMBO_MULTIPLIER_CFG = (() => {
+  const raw = GAME_RULES.clearScoring && GAME_RULES.clearScoring.comboMultiplier;
+  if (!raw || typeof raw !== 'object') return null;
+  const activation = Number(raw.activationCount != null ? raw.activationCount : (raw.activationStreak || 3));
+  return {
+    enabled: raw.enabled !== false,
+    gracePlacements: Math.max(1, Math.floor(Number(raw.gracePlacements) || 3)),
+    activationCount: Math.max(1, Math.floor(activation)),
+    activationStreak: Math.max(1, Math.floor(activation)),
+    stepBonus: Math.max(0, Number(raw.stepBonus) || 0),
+    maxMultiplier: Math.max(1, Number(raw.maxMultiplier) || 1)
+  };
+})();
+
+/**
+ * 由「combo 链累计清线次数」推导得分倍数。
+ * mult = clamp(1 + max(0, comboCount - activationCount + 1) × stepBonus, 1, maxMultiplier)
+ */
+function deriveComboMultiplier(comboCount, cfgOverride) {
+  const cfg = cfgOverride === undefined ? COMBO_MULTIPLIER_CFG : cfgOverride;
+  if (!cfg || cfg.enabled === false) return 1;
+  const n = Math.max(0, Math.floor(Number(comboCount) || 0));
+  const activation = cfg.activationCount != null ? cfg.activationCount : (cfg.activationStreak || 3);
+  if (n < activation) return 1;
+  const max = Math.max(1, Number(cfg.maxMultiplier) || 1);
+  const step = Math.max(0, Number(cfg.stepBonus) || 0);
+  const raw = 1 + (n - activation + 1) * step;
+  return Math.min(max, Math.max(1, raw));
+}
+
+/** 按 grace 窗口推导下一个 _comboCount（与 web/src/clearScoring.js deriveNextComboCount 同公式） */
+function deriveNextComboCount(prevComboCount, roundsSinceLastClear, clearedThisPlacement, cfgOverride) {
+  const cfg = cfgOverride === undefined ? COMBO_MULTIPLIER_CFG : cfgOverride;
+  if (!cfg || cfg.enabled === false) return 0;
+  if (!clearedThisPlacement) return Math.max(0, Math.floor(Number(prevComboCount) || 0));
+  const prev = Math.max(0, Math.floor(Number(prevComboCount) || 0));
+  const gap = Math.max(0, Math.floor(Number(roundsSinceLastClear) || 0));
+  const grace = Math.max(1, Math.floor(Number(cfg.gracePlacements) || 3));
+  if (prev === 0) return 1;
+  return gap >= grace ? 1 : prev + 1;
+}
+
+function isComboBroken(roundsSinceLastClear, cfgOverride) {
+  const cfg = cfgOverride === undefined ? COMBO_MULTIPLIER_CFG : cfgOverride;
+  if (!cfg || cfg.enabled === false) return true;
+  const gap = Math.max(0, Math.floor(Number(roundsSinceLastClear) || 0));
+  const grace = Math.max(1, Math.floor(Number(cfg.gracePlacements) || 3));
+  return gap >= grace;
+}
+
 /**
  * @param {string} strategyId
  * @param {{ count: number, bonusLines?: Array<unknown>, perfectClear?: boolean }} result
- * @returns {{ baseScore: number, iconBonusScore: number, clearScore: number }}
+ * @param {{ singleLine?: number, comboMultiplier?: object }|null} [scoringOverride]
+ * @param {number} [comboStreak=0] 连续触发消行的落子数（含本次）
+ * @returns {{ baseScore: number, iconBonusScore: number, clearScore: number, comboMultiplier: number }}
  */
-function computeClearScore(strategyId, result, scoringOverride) {
+function computeClearScore(strategyId, result, scoringOverride, comboCount) {
   const scoring = scoringOverride && typeof scoringOverride === 'object'
     ? scoringOverride
     : getStrategy(strategyId).scoring;
@@ -76,7 +129,7 @@ function computeClearScore(strategyId, result, scoringOverride) {
 
   const bonusLines = result?.bonusLines || [];
   const bonusCount = bonusLines.length;
-  if (c <= 0) return { baseScore, iconBonusScore: 0, clearScore: baseScore };
+  if (c <= 0) return { baseScore, iconBonusScore: 0, clearScore: baseScore, comboMultiplier: 1 };
   // 每条消除线价值随总消除数增长：lineScore = baseUnit * c。
   // bonus 只放大相同 icon/同色的线，公式本身保证整十，且全 bonus 等价于 baseScore × MULT。
   const effectiveBonusCount = Math.min(bonusCount, c);
@@ -84,7 +137,16 @@ function computeClearScore(strategyId, result, scoringOverride) {
   const iconBonusScore = lineScore * effectiveBonusCount * (ICON_BONUS_LINE_MULT - 1);
   const subtotal = baseScore + iconBonusScore;
   const perfectMult = result?.perfectClear ? PERFECT_CLEAR_MULT : 1;
-  return { baseScore, iconBonusScore, clearScore: subtotal * perfectMult };
+  const comboCfg = scoringOverride && typeof scoringOverride.comboMultiplier === 'object'
+    ? scoringOverride.comboMultiplier
+    : COMBO_MULTIPLIER_CFG;
+  const comboMultiplier = deriveComboMultiplier(comboCount, comboCfg);
+  return {
+    baseScore,
+    iconBonusScore,
+    clearScore: subtotal * perfectMult * comboMultiplier,
+    comboMultiplier
+  };
 }
 
 /**
@@ -177,10 +239,14 @@ function pickThreeDockColors(biasWeights, rnd = Math.random) {
 module.exports = {
   ICON_BONUS_LINE_MULT,
   PERFECT_CLEAR_MULT,
+  COMBO_MULTIPLIER_CFG,
   MONO_NEAR_FULL_COLOR_WEIGHT,
   bonusEffectHoldMs,
   detectBonusLines,
   computeClearScore,
+  deriveComboMultiplier,
+  deriveNextComboCount,
+  isComboBroken,
   monoNearFullLineColorWeights,
   pickThreeDockColors,
 };

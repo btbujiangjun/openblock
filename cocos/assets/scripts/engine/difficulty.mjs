@@ -33,6 +33,49 @@ function _interpolateStressCurve(milestones, stress, s) {
 }
 
 /**
+ * 由「真实个人最佳」派生出「难度进度坐标」专用的有效分母 effectivePB。
+ *
+ * 设计动机（详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md「难度进度坐标 vs 纪录坐标」）：
+ * 主线难度沿 r = score / PB 的 S 曲线展开，但直接用真实 PB 当分母会在两端失真——
+ *   1) 新手 PB 很低（30~80）：r 增长过快，几十分就被推入挑战区 → 早熟挫败、失去兴趣。
+ *   2) 高手 PB 很高（数千）：r 长期贴近 0，前期需要漫长铺垫才进挑战区 → 前期无趣。
+ *
+ * 这里用「同一条单调连续变换」同时修两端，S 曲线本身完全不动：
+ *   - 新手：抬到 noviceFloor 下限（低于此的 PB 不足以代表稳定水平）。
+ *   - 高手：超过 expertSoftCap 后对数软压缩（越高压得越狠，但永远单调递增、无跳变），
+ *     让其更快进入挑战区，缩短无聊铺垫。
+ *
+ * 注意：本函数只服务「出块难度坐标」。纪录追逐情绪（derivePbCurve / challengeBoost /
+ * 破纪录庆祝 / overshoot）仍使用真实 PB（score / bestScore），两条坐标解耦，
+ * 避免高手被压缩后误触发「快破纪录了」之类与真实进度不符的叙事。
+ *
+ * 任一 corner 配置缺失即自动退化为旧行为（noviceFloor 回退 scoreFloor、不做压缩），
+ * 保持完全向后兼容。
+ *
+ * @param {number} personalBest 真实个人最佳分
+ * @param {object} [dd] dynamicDifficulty 配置（含 pbProgress / scoreFloor / milestones）
+ * @returns {number} 难度进度分母（≥ noviceFloor）
+ */
+export function deriveEffectivePb(personalBest, dd = {}) {
+    const pb = Math.max(0, Number(personalBest) || 0);
+    const milestones = dd.milestones || [1];
+    const lastMilestone = milestones[milestones.length - 1] || 1;
+    const pp = dd.pbProgress || {};
+    const noviceFloor = Math.max(1, Number(pp.noviceFloor ?? dd.scoreFloor ?? lastMilestone) || 1);
+
+    // 新手：抬到可信下限。
+    let eff = Math.max(pb, noviceFloor);
+
+    // 高手：超过软上限后对数压缩（连续、单调、边际递减）。
+    const softCap = Number(pp.expertSoftCap);
+    const scale = Number(pp.expertScale);
+    if (Number.isFinite(softCap) && softCap > 0 && Number.isFinite(scale) && scale > 0 && eff > softCap) {
+        eff = softCap + scale * Math.log1p((eff - softCap) / scale);
+    }
+    return eff;
+}
+
+/**
  * 把当前分数转化为「分数档驱动的基础压力」。
  *
  * v1.13 起：当外部传入历史最佳分（`opts.bestScore`）时，使用「个人百分位」映射，
@@ -40,7 +83,7 @@ function _interpolateStressCurve(milestones, stress, s) {
  * stress 与玩家直觉脱节（例如分数仅 ≈ 28% 个人最佳却显示「🥵 高压」）的根因。
  *
  * 处理流程：
- *   pct = score / max(personalBest, scoreFloor)
+ *   pct = score / deriveEffectivePb(personalBest)   （effectivePB 修两端 corner，见上）
  *   projected = clamp(pct * milestonesLast, …)
  *   stress = interpolate(milestones → spawnStress, projected)
  *   if pct < percentileDecayThreshold → stress *= percentileDecayFactor
@@ -72,8 +115,9 @@ export function getSpawnStressFromScore(score, opts = {}) {
         return _interpolateStressCurve(milestones, stress, s);
     }
 
-    const scoreFloor = Math.max(1, dd.scoreFloor ?? lastMilestone);
-    const denom = Math.max(personalBest, scoreFloor);
+    // 难度进度分母：deriveEffectivePb 在新手端抬分母下限、在高手端做对数软压缩，
+    // 统一修两端 corner case；配置缺失时等价于旧的 max(personalBest, scoreFloor)。
+    const denom = deriveEffectivePb(personalBest, dd);
     const pct = denom > 0 ? s / denom : 0;
     // 允许 pct > 1（玩家正在突破历史最佳），但折算到 milestones 末档外的部分仍按线性外推（被 _interpolate 钳制到末档）
     const cap = Math.max(0, dd.percentileMaxOver ?? 0.2);

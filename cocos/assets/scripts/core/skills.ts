@@ -4,6 +4,7 @@
  */
 import { Grid } from './grid';
 import { DockBlock } from './types';
+import { WalletKind } from './economy';
 
 export type SkillId = 'hint' | 'undo' | 'bomb' | 'rainbow' | 'freeze' | 'reroll' | 'preview' | 'aim';
 
@@ -16,17 +17,22 @@ export interface SkillDef {
     cost: number;
     /** 是否需要在盘面上点选目标（bomb） */
     needsTarget: boolean;
+    /**
+     * 关联钱包通货（对齐 web skillBar `kind`）：每次使用消耗 1 个对应道具。
+     * null 表示无消耗（aim 仅本地开关，免费）。
+     */
+    tokenKind: WalletKind | null;
 }
 
 export const SKILLS: Record<SkillId, SkillDef> = {
-    hint: { id: 'hint', name: '提示', nameKey: 'skill.hint', icon: '💡', cost: 5, needsTarget: false },
-    undo: { id: 'undo', name: '撤销', nameKey: 'skill.undo', icon: '↩️', cost: 15, needsTarget: false },
-    bomb: { id: 'bomb', name: '炸弹', nameKey: 'skill.bomb', icon: '💣', cost: 25, needsTarget: true },
-    rainbow: { id: 'rainbow', name: '彩虹', nameKey: 'skill.rainbow', icon: '🌈', cost: 30, needsTarget: false },
-    freeze: { id: 'freeze', name: '冻结', nameKey: 'skill.freeze', icon: '❄️', cost: 20, needsTarget: false },
-    reroll: { id: 'reroll', name: '换一批', nameKey: 'skill.reroll', icon: '🔄', cost: 10, needsTarget: false },
-    preview: { id: 'preview', name: '预览', nameKey: 'skill.preview', icon: '👁️', cost: 8, needsTarget: false },
-    aim: { id: 'aim', name: '瞄准', nameKey: 'skill.aim', icon: '🎯', cost: 0, needsTarget: false },
+    hint: { id: 'hint', name: '提示', nameKey: 'skill.hint', icon: '💡', cost: 5, needsTarget: false, tokenKind: 'hintToken' },
+    undo: { id: 'undo', name: '撤销', nameKey: 'skill.undo', icon: '↩️', cost: 15, needsTarget: false, tokenKind: 'undoToken' },
+    bomb: { id: 'bomb', name: '炸弹', nameKey: 'skill.bomb', icon: '💣', cost: 25, needsTarget: true, tokenKind: 'bombToken' },
+    rainbow: { id: 'rainbow', name: '彩虹', nameKey: 'skill.rainbow', icon: '🌈', cost: 30, needsTarget: false, tokenKind: 'rainbowToken' },
+    freeze: { id: 'freeze', name: '冻结', nameKey: 'skill.freeze', icon: '❄️', cost: 20, needsTarget: false, tokenKind: 'freezeToken' },
+    reroll: { id: 'reroll', name: '换一批', nameKey: 'skill.reroll', icon: '🔄', cost: 10, needsTarget: false, tokenKind: 'rerollToken' },
+    preview: { id: 'preview', name: '预览', nameKey: 'skill.preview', icon: '👁️', cost: 8, needsTarget: false, tokenKind: 'previewToken' },
+    aim: { id: 'aim', name: '瞄准', nameKey: 'skill.aim', icon: '🎯', cost: 0, needsTarget: false, tokenKind: null },
 };
 
 export const SKILL_ORDER: SkillId[] = ['hint', 'undo', 'reroll', 'bomb', 'rainbow', 'freeze', 'preview', 'aim'];

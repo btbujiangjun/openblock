@@ -113,6 +113,9 @@ function stripComments(src) {
 
 function scanForStubs(rawContent, rel) {
     const content = stripComments(rawContent);
+    // 第一遍：解析 import，登记 alias → 目标桩。
+    /** local alias (default / ns / 重命名) → target rel */
+    const aliasToTarget = new Map();
     let m;
     importRe.lastIndex = 0;
     while ((m = importRe.exec(content))) {
@@ -126,9 +129,9 @@ function scanForStubs(rawContent, rel) {
         if (COPY_SET.has(target)) continue;
         if (['shapesData.js', 'gameRulesData.js', 'config.js'].includes(target)) continue;
         const entry = stubs.get(target) || { named: new Set(), default: false };
-        if (def) entry.default = true;
-        if (bareDefault) entry.default = true;
-        if (ns) entry.default = true; // namespace 桩同时给 default，安全
+        if (def) { entry.default = true; aliasToTarget.set(def, target); }
+        if (bareDefault) { entry.default = true; aliasToTarget.set(bareDefault, target); }
+        if (ns) { entry.default = true; aliasToTarget.set(ns, target); }
         if (named) {
             for (const part of named.split(',')) {
                 const name = part.trim().split(/\s+as\s+/)[0].trim();
@@ -143,6 +146,24 @@ function scanForStubs(rawContent, rel) {
         if (target && !COPY_SET.has(target) && !stubs.has(target) &&
             !['shapesData.js', 'gameRulesData.js', 'config.js'].includes(target)) {
             stubs.set(target, { named: new Set(), default: false });
+        }
+    }
+    // 第二遍：扫描 `<alias>.<member>` 模式，把成员补到对应桩的 named 集合里。
+    // 这是关键修复 —— `import * as X from './stub.mjs'` 后用 `X.foo` 访问时，Rollup 会
+    // 在打包阶段告警「'foo' is not exported by ...」，导致构建日志里持续出现成排告警。
+    // 之前只对 `import { foo }` 形态收集，对 namespace 成员访问完全无感知。
+    if (aliasToTarget.size > 0) {
+        const memberRe = /([A-Za-z_$][\w$]*)\s*\??\.\s*([A-Za-z_$][\w$]*)/g;
+        let mm;
+        while ((mm = memberRe.exec(content))) {
+            const alias = mm[1];
+            const member = mm[2];
+            const target = aliasToTarget.get(alias);
+            if (!target) continue;
+            // 跳过 JS 内建属性（default/length 等）以免污染桩。
+            if (member === 'default' || member === 'length' || member === 'name' || member === 'prototype') continue;
+            const entry = stubs.get(target);
+            if (entry) entry.named.add(member);
         }
     }
 }

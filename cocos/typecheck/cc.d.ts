@@ -3,6 +3,7 @@ declare module 'cc' {
     export type _decorator = any; export const _decorator: any;
     export type Component = any; export const Component: any;
     export type Node = any; export const Node: any;
+    export type Vec2 = any; export const Vec2: any;
     export type Vec3 = any; export const Vec3: any;
     export type tween = any; export const tween: any;
     export type Tween = any; export const Tween: any;
@@ -14,6 +15,11 @@ declare module 'cc' {
     export type v3 = any; export const v3: any;
     export type AudioClip = any; export const AudioClip: any;
     export type AudioSource = any; export const AudioSource: any;
+    export type assetManager = any; export const assetManager: any;
+    export type BlockInputEvents = any; export const BlockInputEvents: any;
+    export type Button = any; export const Button: any;
+    export type Camera = any; export const Camera: any;
+    export type Canvas = any; export const Canvas: any;
     export type director = any; export const director: any;
     export type sys = any; export const sys: any;
     export type input = any; export const input: any;

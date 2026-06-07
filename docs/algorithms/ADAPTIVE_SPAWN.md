@@ -1478,19 +1478,32 @@ saveSession() → profile.save() // 持久化到 localStorage
 
 ---
 
-## 十三、PB 段差异化机制（farFromPBBoost / pbExtremeOrderBoost）
+## 十三、PB 段差异化机制（farFromPBBoost / pbExtremeOrderBoost / expertEarlyBoost / effectivePB）
 
-> 与 [BEST_SCORE_CHASE_STRATEGY §5.α](../player/BEST_SCORE_CHASE_STRATEGY.md) 双向引用。本节聚焦算法侧实现细节；产品侧策略意图、用户故事与 KPI 参见策略文档。
+> 与 [BEST_SCORE_CHASE_STRATEGY §5.α / §4.14-§4.15](../player/BEST_SCORE_CHASE_STRATEGY.md) 双向引用。本节聚焦算法侧实现细节；产品侧策略意图、用户故事与 KPI 参见策略文档。
 
-### 13.1 PB 距离段五分（D0 ~ D4）
+### 13.0 双坐标速览：raw PB vs effectivePB（自 起）
 
-| 段位 | `pct = score / bestScore` | 主导机制 | spawnHints / breakdown 字段 |
-|------|----------------------------|---------|------------------------------|
-| **D0** 远征 | `[0, 0.30)` | `farFromPBBoostActive` 主动送爽 | `clearGuarantee ≥ 2`、`multiClearBonus ≥ 0.45`、`iconBonusTarget ≥ 0.30`、`sizePreference ≤ -0.12` |
-| **D1** 跟随 | `[0.30, 0.80)` | 默认路径（无 PB 段加成） | — |
-| **D2** 临近 | `[0.80, 0.95)` | `challengeBoost` | `stressBreakdown.challengeBoost ∈ (0, 0.15]` |
-| **D3** 决战 | `[0.95, 1.00)` | `pbExtremeOrderBoost` 顺序刚性 | `stressBreakdown.pbExtremeOrderBoost = 0.20`，orderRigor +0.20 |
-| **D4** 突破 | `[1.00, ∞)` | `postPbReleaseStressAdjust` | stress×0.7 共 3 个 spawn |
+> **设计原则**：主线难度沿 S 曲线 `r = score / PB` 展开，但**出块难度坐标**与 **PB 纪录坐标**必须解耦——见 §13.11 effectivePB。下表按"机制 → 用哪个坐标"作为本章节查阅入口。
+
+| 坐标 | 公式 | 消费者 | 服务什么 |
+|------|------|--------|----------|
+| **`r_record`**（真实 PB） | `score / ctx.bestScore` | `derivePbCurve` / `challengeBoost` / `pbExtremeOrderBoost` / `pbOvershootBoost` / `postPbReleaseWindow` / `farFromPBBoost` / `best.gap.*` | **纪录情绪与事件**：庆祝、追逐、超 PB 加压、远征送爽。叙事必须按真实进度。 |
+| **`r_difficulty`**（effectivePB） | `score / deriveEffectivePb(ctx.bestScore, dd)` | `getSpawnStressFromScore` / `expertEarlyBoost`（§13.12）/ `spawnStepDifficulty` | **难度节奏**。两端 corner（新手早熟 / 高手长铺垫）由 `effectivePB` 同一条单调连续变换修。 |
+
+`farFromPBBoost`（§13.2，raw 坐标）与 `expertEarlyBoost`（§13.12，effective 坐标）**互补、非替代**：前者 D0 段对所有玩家送爽，后者覆盖高手在 raw 30%~80% 段的真空。详细对比见 [§13.12 末尾矩阵](#1312-experteearlyboost-高手早期得分机会加速)。
+
+### 13.1 PB 距离段五分（D0 ~ D4，按 raw PB）
+
+> **本表段位定义均按 `r_record = score / ctx.bestScore`（真实 PB），与 `best.gap.*` HUD、`_maybeCelebrateNewBest`、`challengeBoost` 等纪录线机制对齐**。难度系统按 `r_difficulty` 走另一条路径（§13.11）。
+
+| 段位 | `pct = score / bestScore`（raw） | 主导机制 | 坐标 | spawnHints / breakdown 字段 |
+|------|----------------------------|---------|------|------------------------------|
+| **D0** 远征 | `[0, 0.30)` | `farFromPBBoostActive` 主动送爽 | raw | `clearGuarantee ≥ 2`、`multiClearBonus ≥ 0.45`、`iconBonusTarget ≥ 0.30`、`sizePreference ≤ -0.12` |
+| **D1** 跟随 | `[0.30, 0.80)` | 默认路径（高手段叠加 `expertEarlyBoost`，见 §13.12） | raw / effective | — |
+| **D2** 临近 | `[0.80, 0.95)` | `challengeBoost` | raw | `stressBreakdown.challengeBoost ∈ (0, 0.18]` |
+| **D3** 决战 | `[0.95, 1.00)` | `pbExtremeOrderBoost` 顺序刚性 | raw | `stressBreakdown.pbExtremeOrderBoost = 0.20`，orderRigor +0.20 |
+| **D4** 突破 | `[1.00, ∞)` | `postPbReleaseStressAdjust` + `pbOvershootBoost`（§13.9.1）| raw | stress×0.7 共 5 个 spawn + 对数加压 |
 
 **段位边界设计依据**：
 
@@ -1861,6 +1874,195 @@ if (pbOvershootActive && Number.isFinite(_ohSmoothMaxStepUp)) {
 → D4 段与 D2 段 finalStress **落差从 ~0.10 提升到 ~0.45**，玩家可清晰感知"超 PB 后越来越紧"。
 
 详见 [BEST_SCORE_CHASE_STRATEGY §5.α.9](../player/BEST_SCORE_CHASE_STRATEGY.md#5α9-d4-段加压链路-4-处冲突完整修复v1566)。
+
+### 13.11 `deriveEffectivePb` 难度进度坐标：两端 corner 一并优雅修
+
+> **定位**：把"难度坐标"与"纪录坐标"解耦。S 曲线主公式 `r = score / PB` 完全不动，但 PB 在两端做单调连续变换，让新手不早熟、高手不长铺垫。
+> **代码入口**：`web/src/difficulty.js → deriveEffectivePb(personalBest, dd)`，由 `getSpawnStressFromScore` 唯一调用。
+
+#### 13.11.1 corner 问题
+
+| corner | 表象 | 根因 |
+|--------|------|------|
+| **新手早熟** | PB=60 玩家打到 45 分就被推入 0.78 高压 | `pct = score / 60 = 0.75`，60 是不稳定 PB（一局走运打出来的），用做分母过度敏感 |
+| **高手长铺垫** | PB=5000 玩家打到 3750 分才进入挑战区 | `pct = score / 5000` 长期贴近 0，前期无任何 PB 段调控介入，与"挑战自身"叙事脱节 |
+
+#### 13.11.2 算法实现
+
+```js
+export function deriveEffectivePb(personalBest, dd = {}) {
+    const pb = Math.max(0, Number(personalBest) || 0);
+    const pp = dd.pbProgress ?? {};
+    const noviceFloor = Math.max(1,
+        Number(pp.noviceFloor ?? dd.scoreFloor ?? lastMilestone) || 1);
+
+    // ① 新手抬到可信下限
+    let eff = Math.max(pb, noviceFloor);
+
+    // ② 高手超 softCap 后对数压缩（连续、单调、边际递减）
+    if (eff > pp.expertSoftCap) {
+        eff = pp.expertSoftCap
+            + pp.expertScale * Math.log1p((eff - pp.expertSoftCap) / pp.expertScale);
+    }
+    return eff;
+}
+```
+
+#### 13.11.3 关键数学性质
+
+- **C⁰ 连续**：`noviceFloor=240` / `expertSoftCap=1200` 两个分段点都连续无跳变（`expertSoftCap` 邻域差值 < 2，被单测钉死）。
+- **严格单调**：`pb₁ < pb₂ ⇒ eff(pb₁) ≤ eff(pb₂)`，PB 上涨永远不会让难度反向下降。
+- **边际递减**：`d(eff)/d(pb)` 在 `pb > expertSoftCap` 后随 `pb` 增大而减小，越高的高手压缩比越大——避免"PB 越高，前期越无聊"无上界发散。
+- **退化兼容**：移除 `pbProgress` 配置即等价旧 `max(pb, scoreFloor)`。
+
+#### 13.11.4 净效果（以 `r=0.75` 进挑战区为锚点）
+
+| 玩家 | 真实 PB | effectivePB | 进挑战区所需 score | 旧实现 | 改善 |
+|------|---------|-------------|----------------------|--------|------|
+| 新手 | 60 | **240** | 180 | 45（早熟）| 不再几十分就被推入挑战区 |
+| 普通 | 800 | 800 | 600 | 600 | 完全等价 |
+| 高手 | 5000 | **~2400** | ~1800 | 3750 | 提前 ~52% 进挑战区 |
+| 顶尖 | 10000 | **~2850** | ~2138 | 7500 | 提前 ~71% 进挑战区 |
+
+#### 13.11.5 配置化
+
+```json
+// shared/game_rules.json → dynamicDifficulty
+"pbProgress": {
+  "noviceFloor": 240,
+  "expertSoftCap": 1200,
+  "expertScale": 600
+}
+```
+
+`expertThreshold` 在 `expertEarlyBoost`（§13.12）侧默认与 `expertSoftCap=1200` 同值对齐——**压缩从哪开始，加速也从哪开始**。
+
+#### 13.11.6 与纪录线绝对解耦的护栏
+
+| 机制 | 用哪个坐标 | 为什么不能换 |
+|------|-----------|--------------|
+| `derivePbCurve` | raw PB | pbTension/pbBrake 的中心点 0.82/1.05 是按"快破纪录/已破纪录"的真实进度设计 |
+| `challengeBoost` | raw PB | 0.8 是"明确接近纪录"的体感锚点，与 `best.gap.close` 文案同源 |
+| `pbOvershootBoost` | raw PB | overshoot=score/PB-1，定义于真实进度 |
+| `_maybeCelebrateNewBest` | raw PB | 必须 `score > _bestScoreAtRunStart`，否则就是诈胡 |
+| `best.gap.*` HUD | raw PB | 与玩家心智锚点（"我离纪录还差 N 分"）一致 |
+
+如果让纪录线吃 effectivePB，会出现 "score=1800 / PB=5000 → 误触发'即将刷新最佳！'" 的灾难性认知失谐。**两套数字独立存在、独立消费、互不污染**，是本方案优雅的根因。
+
+#### 13.11.7 验证测试
+
+`tests/difficulty.test.js → describe('deriveEffectivePb …')` 8 条：
+
+- 新手抬 `noviceFloor` 下限
+- 中档原样透传
+- 高手对数软压缩（`effectivePB < 真实 PB`）
+- 单调非减且连续（`expertSoftCap` 邻域差值 < 2）
+- 压缩边际递减（`r(10000) < r(5000)`）
+- 配置缺失退化兼容
+- corner 修复实证：高手 score=1800/PB=5000 进入挑战爬坡、新手 score=120/PB=60 不被推入高压
+
+### 13.12 `expertEarlyBoost`：高手早期"得分机会"加速
+
+> **定位**：§13.11 在「难度坐标」上让高手更快进挑战区，本节在「得分机会」维度配套——让真实分数也加速上升，分数是玩家自己打出来的。
+> **代码入口**：`web/src/adaptiveSpawn.js`（紧跟 `farFromPBBoost` 段）。
+
+#### 13.12.1 输入与触发条件
+
+**输入**：
+
+- `score`、`ctx.bestScore`（真实 PB 快照）
+- `cfg.pbChase.expertEarlyBoost`（`game_rules.json adaptiveSpawn.pbChase.expertEarlyBoost`）
+- 上下文：`sessionArc / profile.needsRecovery / profile.hadRecentNearMiss / ctx.postPbReleaseActive`
+
+**bypass 优先级链**（与 `farFromPBBoost` 同 6 路守护）：
+
+```
+1. !eebCfg.enabled                                  → 'config_disabled'
+2. !(ctx.bestScore > 0)                             → 'no_best_score'
+3. ctx.bestScore < expertThreshold                  → 'not_expert'
+4. rDifficulty >= earlyRampUntil                    → 'past_early_phase'
+5. sessionArc === 'warmup'                          → 'warmup'
+6. profile.needsRecovery                            → 'recovery'
+7. profile.hadRecentNearMiss                        → 'near_miss'
+8. ctx.postPbReleaseActive                          → 'post_pb_release'
+9. 全部通过                                          → expertEarlyBoostActive=true
+```
+
+其中 `rDifficulty = score / deriveEffectivePb(ctx.bestScore, GAME_RULES.dynamicDifficulty)`，**与 §13.11 同口径**。
+
+#### 13.12.2 注入字段
+
+```js
+multiClearBonus   = Math.max(multiClearBonus,   multiClearBonusFloor=0.5);
+perfectClearBoost = Math.max(perfectClearBoost, perfectClearBoostFloor=0.5);
+clearGuarantee    = Math.min(3, clearGuarantee + clearGuaranteeBoost=1);
+```
+
+floor / shift 都用 `max` / `min`：不会覆盖更强的上游加成（如 `pcSetup ≥ 1` 已经把 `multiClearBonus` 推到 0.9，本节不会回退到 0.5），与 `farFromPBBoost` 同等优雅。
+
+#### 13.12.3 配置化
+
+```json
+// shared/game_rules.json → adaptiveSpawn.pbChase
+"expertEarlyBoost": {
+  "enabled": true,
+  "expertThreshold": 1200,       // 与 dynamicDifficulty.pbProgress.expertSoftCap 对齐
+  "earlyRampUntil": 0.45,        // r_difficulty 阈值，对应 effectivePB 的早期相位
+  "multiClearBonusFloor": 0.5,
+  "perfectClearBoostFloor": 0.5,
+  "clearGuaranteeBoost": 1
+}
+```
+
+`enabled: false` 即关闭，所有 `bypass='config_disabled'`，等价旧行为。
+
+#### 13.12.4 与 `farFromPBBoost` 的互补关系
+
+| 机制 | 坐标 | 触发段 | 服务的玩家段 |
+|------|------|--------|--------------|
+| `farFromPBBoost`（§13.2） | raw `pct=score/bestScore` | D0 `pct < 0.30` | 所有有 PB 的玩家 |
+| `expertEarlyBoost`（本节） | `r_difficulty=score/effectivePB` | 早期相位 `r_difficulty < 0.45` | 仅 `bestScore ≥ 1200` 高手 |
+
+**为什么需要两个**：
+
+- 普通玩家（`bestScore ∈ [200, 1200)`）：raw 与 effective 坐标几乎一致，`farFromPBBoost` 在 D0 段已足够；
+- 高手（`bestScore ≥ 1200`）：raw `pct ∈ [0.30, 0.80)` 是"D1 跟随段"，`farFromPBBoost` 已退出、`challengeBoost` 还没启动；如不补 `expertEarlyBoost`，这段就是"赶路真空"，与 §13.11 压缩坐标承诺的"早期就有挑战感"冲突。
+
+具体对照（PB=5000 高手）：
+
+```
+score      raw_pct  r_difficulty  farFromPBBoost  expertEarlyBoost  净效果
+─────────────────────────────────────────────────────────────────────────
+  300      0.06     0.13           ✅ active        ✅ active         双重送爽
+  900      0.18     0.38           ✅ active        ✅ active         双重送爽
+ 1200      0.24     0.50           ✅ active        ❌ past_early    farFromPBBoost only
+ 1800      0.36     0.75           ❌ pct≥0.30      ❌ past_early    [旧实现真空] 进入主线挑战
+ 2400      0.48     1.00 (满档)    ❌                ❌                主线挑战 + challengeBoost
+```
+
+旧实现下 `score=1800` 时双机制都不在线（farFromPBBoost 已退出，effectivePB 概念不存在），玩家只能"赶路"；新实现下 `expertEarlyBoost` 在 `score=1800` 之前覆盖了 raw 30%~挑战区这段空窗，让铺垫期持续送爽。
+
+#### 13.12.5 接力链：warmup → expertEarly → 挑战区
+
+```
+totalRounds ≤ 3       ← warmup 友好化（clearGuarantee+2、sizePreference-0.2）
+totalRounds > 3,
+r_difficulty < 0.45   ← expertEarlyBoost 送爽（仅高手）
+r_difficulty ≥ 0.45   ← 主线挑战曲线
+```
+
+warmup 段 expertEarlyBoost bypass='warmup' 让位；这是与既有 `farFromPBBoost`/`challengeBoost`/`pbExtremeOrderBoost` 完全一致的守护哲学。
+
+#### 13.12.6 验证测试
+
+`tests/adaptiveSpawn.test.js → expertEarlyBoost` 4 条：
+
+- 高手早期触发：`expertEarlyBoostActive=true` + `multiClearBonus≥0.5` + `perfectClearBoost≥0.5`
+- 低 PB 玩家 `bypass='not_expert'`
+- 高手已过早期相位 `bypass='past_early_phase'`
+- warmup 段 `bypass='warmup'`
+
+详见 [BEST_SCORE_CHASE_STRATEGY §4.14 / §4.15](../player/BEST_SCORE_CHASE_STRATEGY.md#414-effectivepb-难度进度坐标新手早熟--高手长铺垫的同时修复p0)。
 
 ---
 

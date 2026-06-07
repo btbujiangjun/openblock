@@ -85,7 +85,7 @@
 | **D1** | 跟随 | 0.50 ≤ pct < 0.80 | scoreStress 按插值直通；UI `best.gap.neutral`（"差 N 分"）。 |
 | **D2** | 临近 | 0.80 ≤ pct < 0.95 | **触发 B 类挑战加压**（challengeBoost ≤ 0.15）；UI `best.gap.neutral`。 |
 | **D3** | 决战 | 0.95 ≤ pct ≤ 1.02 | UI `best.gap.close`（≤0.05）/ `best.gap.victory`（≤0.02）；challengeBoost ≈ 0.15 上限；score-push 守卫激活叙事。 |
-| **D4** | 突破段 | pct > 1.02 | scoreStress 按 `percentileMaxOver=0.2` 外推；触发 `_maybeCelebrateNewBest`；之后进入"破纪录后释放窗口"。 |
+| **D4** | 突破段 | pct > 1.02 | scoreStress 按 `percentileMaxOver=0.5` 外推；与 `pbOvershootBoost` 协同形成「超 PB 越来越难」；触发 `_maybeCelebrateNewBest`；之后进入"破纪录后释放窗口"。 |
 
 ### 2.4 维度 4：本局阶段 P（参考 `sessionArc`）
 
@@ -128,19 +128,21 @@
 
 **已知边界**：`bestScore` 当前不区分难度档（Easy/Normal/Hard 共用同一字段）；改进项 §4.4 提议分桶。
 
-### 3.2 scoreStress：个人百分位映射
+### 3.2 scoreStress：个人百分位映射（基于 effectivePB）
 
 **入口**：`web/src/difficulty.js → getSpawnStressFromScore(score, { bestScore })`，由 `adaptiveSpawn.resolveAdaptiveStrategy` 调用。
 
 **关键算法**：
 
 ```
-denom = max(bestScore, dynamicDifficulty.scoreFloor=180)
-pct   = score / denom
-projected = min(milestonesLast × (1 + percentileMaxOver=0.2), pct × milestonesLast)
-stress = interpolate(milestones [0,45,90,135,180] → spawnStress [0,0.18,0.38,0.58,0.78], projected)
+denom     = deriveEffectivePb(bestScore, dynamicDifficulty)      // ★ 见 §3.2.1 双坐标设计
+pct       = score / denom                                         // 「难度进度坐标 r_difficulty」
+projected = min(milestonesLast × (1 + percentileMaxOver=0.5), pct × milestonesLast)
+stress    = interpolate(milestones [0,45,90,135,180] → spawnStress [0,0.18,0.38,0.58,0.78], projected)
 if pct < percentileDecayThreshold=0.5  →  stress *= percentileDecayFactor=0.4
 ```
+
+**`deriveEffectivePb` 与旧式 `max(bestScore, scoreFloor)` 的关系**：当 `pbProgress` 配置缺失时，`deriveEffectivePb` 自动退化为 `max(bestScore, scoreFloor=180)`，行为完全等价旧版本；启用 `pbProgress` 后才在两端注入下限/压缩，主线 S 曲线本身**完全不动**。详见 §3.2.1。
 
 **策略语义**：
 
@@ -149,9 +151,80 @@ if pct < percentileDecayThreshold=0.5  →  stress *= percentileDecayFactor=0.4
 | `bestScore = 0` | 退回旧绝对档位（首次开局） | 新装机玩家用绝对节奏 |
 | `pct < 0.5` | stress × 0.4 | **前半程放心冲**，不要让老玩家在低分段就被加压 |
 | `0.5 ≤ pct < 1.0` | 直接插值到曲线 | "进入冲刺区"；与 D1/D2 区段对齐 |
-| `pct ≥ 1.0` | 按 `percentileMaxOver=0.2` 外推 | **允许突破段比上次 PB 多 20% 内仍可调控难度**，之后不再加压（防破纪录后断崖） |
+| `pct ≥ 1.0` | 按 `percentileMaxOver=0.5` 外推 | **允许突破段比上次 PB 多 50% 内仍可调控难度**，与 `pbOvershootBoost` 协同形成「超 PB 越来越难」的完整曲线 |
 
-**配置位**：`shared/game_rules.json → dynamicDifficulty.{milestones, spawnStress, scoreFloor, percentileDecayThreshold, percentileDecayFactor, percentileMaxOver}`。
+**配置位**：`shared/game_rules.json → dynamicDifficulty.{milestones, spawnStress, scoreFloor, percentileDecayThreshold, percentileDecayFactor, percentileMaxOver, pbProgress}`。
+
+### 3.2.1 难度坐标 vs 纪录坐标：双坐标设计（effectivePB）
+
+> **设计动机**：主线难度沿 `r = score / PB` 的 S 曲线展开，但直接用真实 PB 当分母会在两端失真。`pbProgress` 引入 `effectivePB` 解耦「出块难度坐标」与「PB 纪录坐标」，让一条主公式同时优雅服务新手与高手，而不引入分支判断或阈值跳变。
+
+**两个坐标各司其职**：
+
+| 坐标 | 公式 | 服务谁 | 修什么 |
+|------|------|--------|--------|
+| **`r_difficulty`** | `score / deriveEffectivePb(bestScore)` | `scoreStress` / `spawnHints` / `expertEarlyBoost`（§4.15）/ `spawnStepDifficulty` | **出块难度节奏**。新手抬下限防早熟、高手压上限缩铺垫，两端 corner 一并优雅修。 |
+| **`r_record`** | `score / bestScore`（真实 PB） | `derivePbCurve` / `challengeBoost`（§3.4）/ `pbOvershootBoost`（§13.9.1）/ `postPbReleaseWindow`（§4.9）/ `best.gap.*` HUD / `_maybeCelebrateNewBest`（§3.7.3） | **纪录情绪与事件**。高手被难度压缩后不会误触发"快破纪录"叙事，破纪录的稀有性绝对保留。 |
+
+**`deriveEffectivePb` 的单调连续变换**：
+
+```js
+function deriveEffectivePb(pb, dd) {
+    const pp = dd.pbProgress ?? {};
+    const noviceFloor = pp.noviceFloor ?? dd.scoreFloor ?? 180;   // ① 新手抬下限
+    let eff = Math.max(pb, noviceFloor);
+    if (eff > pp.expertSoftCap) {                                  // ② 高手对数压缩
+        eff = pp.expertSoftCap
+            + pp.expertScale * Math.log1p((eff - pp.expertSoftCap) / pp.expertScale);
+    }
+    return eff;
+}
+```
+
+**当前生产值**（`shared/game_rules.json → dynamicDifficulty.pbProgress`）：
+
+```json
+{
+  "noviceFloor": 240,
+  "expertSoftCap": 1200,
+  "expertScale": 600
+}
+```
+
+**效果矩阵**（以 `r=0.75` 进挑战区为锚点）：
+
+| 玩家画像 | 真实 PB | effectivePB | 进挑战区所需 score | 旧实现下所需 score | 改善 |
+|----------|---------|-------------|---------------------|---------------------|------|
+| 新手 | 60 | **240** | 180 | 45（早熟） | 不再几十分就被推入挑战区 |
+| 普通 | 800 | 800 | 600 | 600 | 完全等价 |
+| 中阶 | 1200 | 1200 | 900 | 900 | 完全等价 |
+| 高手 | 5000 | **~2400** | ~1800 | 3750（铺垫过长） | 提前 ~52% 进挑战区 |
+| 顶尖 | 10000 | **~2850** | ~2138 | 7500 | 提前 ~71% 进挑战区 |
+
+**关键设计性质**（用一条连续变换同时修两端,代替阈值分支）：
+
+- **连续无跳变**：`noviceFloor=240` / `expertSoftCap=1200` 两个分段点都是 C⁰ 连续，PB 从 60 长到 240、从 1200 长到 5000 的过程中，`effectivePB` 不会出现任何跳变。
+- **严格单调**：`pb₁ < pb₂ ⇒ eff(pb₁) ≤ eff(pb₂)`，玩家 PB 上涨永远不会让难度反向下降。
+- **边际递减**：`d(eff)/d(pb)` 在 `pb > expertSoftCap` 后随 `pb` 增大而减小，越高的高手压缩比越大（避免"PB 越高，前期越无聊"无上界发散）。
+- **退化兼容**：移除 `pbProgress` 配置即等价旧 `max(pb, scoreFloor)`，向后完全兼容。
+
+**为什么必须解耦两坐标（不直接覆盖真实 PB）**：
+
+如果直接把"压缩后的 effectivePB"当真实 PB 用，会出现"score 仅 1800、effectivePB 2400 时 `r=0.75` → 触发 best.gap.close → 弹'即将刷新最佳！'"，但玩家明白自己 PB 是 5000、远未接近——叙事撒谎，灾难性认知失谐。所以：
+
+- **难度系统**：吃 `r_difficulty`，让难度按"主观可达感"演进。
+- **纪录系统**：吃 `r_record`，让叙事与事件按"客观真实进度"演进。
+
+两套数字独立存在、独立消费、互不污染，是本方案优雅的根因。
+
+**与 `farFromPBBoost`（§13.2）的互补关系**：
+
+| 机制 | 坐标 | 触发条件 | 服务的玩家段 |
+|------|------|----------|--------------|
+| `farFromPBBoost` | `r_record` | `pct < 0.30` | 所有有 PB 的玩家在 D0 远征段 |
+| `expertEarlyBoost`（§4.15） | `r_difficulty` | `bestScore ≥ 1200 ∧ r_difficulty < 0.45` | 仅高手在 effectivePB 定义的早期相位 |
+
+高手在 raw `pct ∈ [0.30, 0.80)` 这段（D1 跟随段），`farFromPBBoost` 已退出而 `challengeBoost` 还没启动，旧实现下是纯"赶路"的无聊真空；`expertEarlyBoost` 用 `r_difficulty` 把"挑战区之前"重新对齐到这段空窗，让分数自然加速跨越。两机制处于同一 `spawnHints` 段（`adaptiveSpawn.js` 同源代码相邻），可并存可单触发。
 
 ### 3.3 分数里程碑：绝对/相对双制
 
@@ -472,6 +545,120 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 **单测**：`§4.13 Hard 模式 PB UI` 2 条覆盖 hardScale=1.3 / normalScale=1.0 计算精度。
 
+### 4.14 effectivePB 难度进度坐标：新手早熟 + 高手长铺垫的同时修复（P0）
+
+**问题**：S 曲线 `r = score / PB` 是主线难度公式，但直接用真实 PB 当分母在两端失真——
+
+- **新手 corner**：PB 很低（30~80），`r` 增长过快，几十分就被推入挑战区 → 早熟挫败、失去兴趣。  
+  早期"`scoreFloor=180` 兜底"虽缓解了新手早熟，但只是单端修复，且与"挑战区起点"挂钩不清晰；
+- **高手 corner**：PB 很高（数千），`r` 长期贴近 0，前期需漫长铺垫才进挑战区 → 前期无趣放弃。  
+  旧实现下 PB=5000 玩家要打到 3750 分才进 `r=0.75` 挑战区，过程中几乎无 PB 段调控介入。
+
+**改进**（已落地）：
+
+1. ✅ `web/src/difficulty.js` 新增 `deriveEffectivePb(pb, dd)`：用**同一条单调连续变换**同时修两端（设计与性质详见 §3.2.1）：
+
+   ```js
+   eff = max(pb, noviceFloor)                                       // 新手抬下限
+   if (eff > expertSoftCap) {                                       // 高手对数压缩
+       eff = expertSoftCap + expertScale * ln(1 + (eff - expertSoftCap) / expertScale);
+   }
+   ```
+
+2. ✅ `getSpawnStressFromScore` 的分母从 `max(personalBest, scoreFloor)` 改为 `deriveEffectivePb(personalBest, dd)`；其余流程（百分位、衰减、外推）保持不变。
+
+3. ✅ `shared/game_rules.json → dynamicDifficulty.pbProgress` 配置化：`noviceFloor=240 / expertSoftCap=1200 / expertScale=600`。**移除配置即自动退化为旧 `max(personalBest, scoreFloor)` 行为**，完全向后兼容。
+
+4. ✅ **纪录线不动**：`derivePbCurve` / `challengeBoost` / `pbOvershootBoost` / `postPbReleaseWindow` / `best.gap.*` / `_maybeCelebrateNewBest` 全部仍用真实 PB，叙事与事件不受难度坐标压缩影响。详见 §3.2.1 双坐标解耦说明。
+
+5. ✅ 各端同源：通过 `npm run sync:core` 同步到 `cocos/assets/scripts/engine/difficulty.mjs` 与 `miniprogram/core/difficulty.js`。
+
+**风险与护栏**：
+
+- **救济优先级不变**：`effectivePB` 只改 `scoreStress` 基础输入，frustration / recovery / nearMiss / 临满盘面的减压信号仍在其后叠加并能压过它。压缩绝不能 bypass relief。
+- **PB 噪声**：新手 PB 可能是一局走运打出来的。当前仅用常数 `noviceFloor`；后续可演进为 `max(noviceFloor, 近 N 局得分中位数)` 之类的稳健估计，避免一次手气把难度永久抬高。
+- **看板监控**：`stressBreakdown` 中可读 `scoreStress` 实际值，看板增加 `effectivePB / r_difficulty / r_record` 三字段曲线，验证"新手不再早熟、高手铺垫缩短"。
+
+**单测**：`tests/difficulty.test.js → describe('deriveEffectivePb …')` 8 条覆盖：
+
+- 新手抬 `noviceFloor` 下限
+- 中档原样透传
+- 高手对数软压缩（`effectivePB < 真实 PB`）
+- 单调非减且连续（`expertSoftCap` 邻域差值 < 2）
+- 压缩边际递减（`r(10000) < r(5000)`）
+- 配置缺失退化兼容
+- corner 修复实证：高手 score=1800/PB=5000 进入挑战爬坡、新手 score=120/PB=60 不被推入高压
+
+### 4.15 expertEarlyBoost：高手早期"得分机会"加速（P0）
+
+**问题**：§4.14 的 `effectivePB` 在「难度坐标」上让高手更快进入挑战区，但要让"分数是玩家真打出来的"——光压缩坐标不够，前期盘面也需要主动产出更多多消/清屏/续 combo 机会，使真实 score 上升更快、更早穿过铺垫区。
+
+否则高手会感受到"难度系统认识我了（节奏紧凑），但盘面机会没变"，仍需打 raw 30%~80% 这段"赶路"过程。
+
+**改进**（已落地）：
+
+1. ✅ `web/src/adaptiveSpawn.js` 紧接 `farFromPBBoost` 之后注入 `expertEarlyBoost` 段，仅对**高手早期**触发：
+
+   ```js
+   const effPb = deriveEffectivePb(ctx.bestScore, GAME_RULES.dynamicDifficulty);
+   const rDifficulty = score / effPb;
+   if (ctx.bestScore >= expertThreshold && rDifficulty < earlyRampUntil) {
+       // 抬高得分机会 floor / boost
+       multiClearBonus  = max(multiClearBonus,  multiClearBonusFloor=0.5);
+       perfectClearBoost = max(perfectClearBoost, perfectClearBoostFloor=0.5);
+       clearGuarantee   = min(3, clearGuarantee + clearGuaranteeBoost=1);
+   }
+   ```
+
+2. ✅ **救济优先 bypass 链**（6 路，与 `farFromPBBoost` 同样守护）：
+
+   ```
+   not_expert / past_early_phase / warmup / recovery / near_miss / post_pb_release
+   ```
+
+   `stressBreakdown.expertEarlyBoostActive` + `expertEarlyBoostBypass` 持久化，DFV / 单测可见。
+
+3. ✅ `shared/game_rules.json → adaptiveSpawn.pbChase.expertEarlyBoost` 配置化：
+
+   ```json
+   {
+     "enabled": true,
+     "expertThreshold": 1200,
+     "earlyRampUntil": 0.45,
+     "multiClearBonusFloor": 0.5,
+     "perfectClearBoostFloor": 0.5,
+     "clearGuaranteeBoost": 1
+   }
+   ```
+
+   `expertThreshold` 与 `dynamicDifficulty.pbProgress.expertSoftCap` 同值对齐——压缩从哪开始，加速也从哪开始。
+
+4. ✅ **与 `farFromPBBoost` 互补、非替代**：详细对比见 §3.2.1 末尾矩阵。简言之：
+
+   - `farFromPBBoost`：按 raw `pct=score/bestScore<0.30` 对**所有**有 PB 的玩家送爽；高 PB 玩家在 raw 30%~挑战区之间会失去该加成。
+   - `expertEarlyBoost`：仅对 `bestScore≥1200` 高手，按 `r_difficulty<0.45` 触发；正好覆盖前者顾不到的 raw 30%~挑战区真空。
+
+5. ✅ **形成"warmup 友好 → expertEarly 送爽 → 挑战区"的平滑接力**：warmup 段（`totalRounds≤3`）本就有专属友好化（`clearGuarantee+2` 等），让位给 warmup；前 3 轮过后 expertEarlyBoost 接力，直到 `r_difficulty≥0.45` 退出。
+
+6. ✅ 各端同源：通过 `npm run sync:core` 同步到 cocos / miniprogram。
+
+**关键差异**（与现有 spawnHints 加成的语义边界）：
+
+| 机制 | 性质 | 触发 |
+|------|------|------|
+| `postPbRelease`（§4.9） | **奖励性减压**：刚破 PB | `postPbReleaseActive=true` |
+| `recovery / nearMiss` | **救济性减压**：玩家陷入困境 | `needsRecovery / hadRecentNearMiss` |
+| `farFromPBBoost`（§13.2） | **送爽性减压**：D0 远征段所有玩家 | `raw pct<0.30` |
+| `expertEarlyBoost`（§4.15） | **加速性送爽**：高手早期 | `bestScore≥1200 ∧ r_difficulty<0.45` |
+
+**单测**：`tests/adaptiveSpawn.test.js → expertEarlyBoost ===` 4 条覆盖：
+
+- 高手早期触发（`expertEarlyBoostActive=true`、`multiClearBonus≥0.5`、`perfectClearBoost≥0.5`）
+- 低 PB 玩家 bypass=`not_expert`
+- 高手已过早期相位 bypass=`past_early_phase`
+- warmup 段 bypass=`warmup`
+
+---
 
 ## 六、验证清单（用于评审 / QA）
 
@@ -481,6 +668,9 @@ const isBClassChallenge = challengeBoostBypass === null;
 - [x] `bestScore = 0` 时 `scoreStress` 走旧绝对档位，行为与首次开局玩家一致。
 - [x] `pct < 0.5` 时 stress 必然被 `×0.4` 衰减（远征陪伴）。
 - [x] `pct > 1.02` 时 stress 不再继续上升（突破段不加压）。
+- [x] `deriveEffectivePb` 单调非减且连续；`expertSoftCap` 邻域差值 < 2；`pbProgress` 缺失时退化为 `max(personalBest, scoreFloor)`。
+- [x] 双坐标解耦：高手 PB=5000 在 score=1800 时 `r_difficulty≈0.75` 已进入挑战区，但 `r_record=0.36` 远未触发任何 `best.gap.*` / `_maybeCelebrateNewBest` 叙事。
+- [x] `expertEarlyBoost` 仅在 `bestScore≥expertThreshold ∧ r_difficulty<earlyRampUntil` 同时满足时 active；warmup / recovery / nearMiss / postPbRelease 期间 bypass，原因写入 `stressBreakdown.expertEarlyBoostBypass`。
 - [x] `_bestScoreAtRunStart` 在本局开始时被快照，本局新刷的 PB 不会让 challengeBoost / new-best 触发陷入循环。
 - [x] `_newBestCelebrated` + `_newBestCelebrationCount` 单局上限 **1 次**（2+ 次起静默更新）。
 - [x] `S·M` 调制表 25 格全覆盖。

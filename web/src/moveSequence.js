@@ -14,7 +14,7 @@
  *   3. 跨设备/时区可比：用于「操作节奏 / 时长 X 轴」语义稳定。
  */
 import { Grid } from './grid.js';
-import { computeClearScore } from './clearScoring.js';
+import { computeClearScore, deriveNextComboCount } from './clearScoring.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { isSpecialShapeId } from './shapes.js';
 
@@ -866,6 +866,9 @@ export function replayStateAt(frames, lastInclusive) {
     };
 
     let score = 0;
+    /* Combo 链回放状态（grace 窗口模型，与 web 主局同口径） */
+    let replayComboCount = 0;
+    let replayRoundsSinceLastClear = Number.POSITIVE_INFINITY;
     /** @type {Array<{ id: string, shape: number[][], colorIdx: number, placed: boolean }> | null} */
     let dock = null;
 
@@ -903,7 +906,18 @@ export function replayStateAt(frames, lastInclusive) {
             const result = grid.checkLines();
             result.perfectClear = result.count > 0 && grid.getFillRatio() === 0;
             const strategyId = first.strategy || 'normal';
-            score += computeClearScore(strategyId, result, scoring).clearScore;
+            /* Combo（grace 窗口模型）回放同口径：清线 → deriveNextComboCount 按 gap 判定延续/重启；
+             * 未清 → _roundsSinceLastClear 累加。bonusLines 在回放帧多数缺失（与 §六 best-effort 一致），
+             * comboMultiplier 仍能按 combo count 正确累乘。 */
+            if (result.count > 0) {
+                replayComboCount = deriveNextComboCount(replayComboCount, replayRoundsSinceLastClear, true);
+                replayRoundsSinceLastClear = 0;
+            } else {
+                replayRoundsSinceLastClear = (replayRoundsSinceLastClear === Number.POSITIVE_INFINITY)
+                    ? Number.POSITIVE_INFINITY
+                    : replayRoundsSinceLastClear + 1;
+            }
+            score += computeClearScore(strategyId, result, scoring, replayComboCount).clearScore;
             b.placed = true;
         }
     }

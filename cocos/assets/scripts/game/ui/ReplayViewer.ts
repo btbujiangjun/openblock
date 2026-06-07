@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Color, UITransform } from 'cc';
-import { ReplayData, Grid, getSkin, t } from '../../core';
+import { ReplayData, Grid, getSkin, t, normalizeReplayMove, ReplayMove } from '../../core';
 import { BoardView } from '../BoardView';
 import { Modal, dimBg, label, button, closeX, TapBus, PillButton } from './uiKit';
 
@@ -22,6 +22,7 @@ export class ReplayViewer extends Component {
     private playing = false;
     private _unregDim: (() => void) | null = null;
     private _unregClose: (() => void) | null = null;
+    private _closed = false;
 
     static show(parent: Node, data: ReplayData): ReplayViewer {
         const root = new Node('ReplayViewer');
@@ -63,13 +64,20 @@ export class ReplayViewer extends Component {
         this.scheduleOnce(() => this.setStep(0), 0);
     }
 
-    /** 用 Grid 逐帧确定性重建到第 step 步后的盘面。 */
+    /** 用 Grid 逐帧确定性重建到第 step 步后的盘面（兼容旧落子帧与新版 snapshot/place 联合帧）。 */
     private gridAt(step: number): Grid {
         const g = new Grid(this.data.size);
         const icons = getSkin(this.data.skinId).blockIcons;
         const n = Math.max(0, Math.min(step, this.data.moves.length));
         for (let i = 0; i < n; i++) {
-            const m = this.data.moves[i];
+            const m: ReplayMove | null = normalizeReplayMove(this.data.moves[i] as unknown);
+            if (!m) continue;
+            if (m.kind === 'snapshot') {
+                // 技能引发的非落子状态变化：直接覆盖盘面，避免后续 place 在错误状态上回放放大误差。
+                g.fromJSON({ size: this.data.size, cells: m.cells });
+                continue;
+            }
+            // place（含旧版无 kind 字段）
             if (g.canPlace(m.shape, m.gx, m.gy)) {
                 g.place(m.shape, m.colorIdx, m.gx, m.gy);
                 g.checkLines(icons);
@@ -109,10 +117,12 @@ export class ReplayViewer extends Component {
     };
 
     close(): void {
+        if (this._closed) return;
+        this._closed = true;
         this.pause();
         Modal.close();
         if (this._unregDim) { this._unregDim(); this._unregDim = null; }
         if (this._unregClose) { this._unregClose(); this._unregClose = null; }
-        this.node.destroy();
+        if (this.node?.isValid) this.node.destroy();
     }
 }

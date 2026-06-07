@@ -30,6 +30,15 @@ export interface GameConfig {
     adUnitIds: Record<string, string>;
     /** IAP 商品表 */
     iapProducts: Record<string, { coins: number; priceCNY: number }>;
+    /** 可选：非微信端的云存档 HTTP 适配器配置。设置 base 即启用，否则保持纯本地。
+     *  服务端约定见 CloudSync.configureHttp 的 JSDoc。 */
+    cloudHttp?: {
+        base: string;
+        /** 用户标识（推荐传一个匿名稳定 id；本地首启时随机生成并落盘）。 */
+        userId: string;
+        headers?: Record<string, string>;
+        timeoutMs?: number;
+    };
 }
 
 export interface FeatureFlags {
@@ -44,7 +53,9 @@ export interface FeatureFlags {
     analytics: boolean;
     bgm: boolean;
     rlSpawn: boolean;
-    /** 方块用 sprite 贴图渲染（art/block）；关闭或贴图缺失时回退纯代码 Graphics 渲染。 */
+    /** 方块用 sprite 贴图渲染（art/block）；关闭或贴图缺失时回退纯代码 Graphics 渲染。
+     *  默认 false：保持与 mobile/ios web 端 `paintBlockCell`（高光带 + 内描边 + 圆角 + 图标）一致；
+     *  Dock/Ghost 始终走 Graphics 路径，开启此 flag 后盘面会与候选/拖拽 ghost 视觉风格不一致。 */
     spriteBlocks: boolean;
 }
 
@@ -86,7 +97,9 @@ const DEFAULT_FLAGS: FeatureFlags = {
     analytics: true,
     bgm: true,
     rlSpawn: false,
-    spriteBlocks: true,
+    // 默认关，让盘面与 Dock/Ghost 共用 Graphics paintBlockFace，外观一致；
+    // 远程或测试需要时可 applyRemote({ flags: { spriteBlocks: true } }) 切换。
+    spriteBlocks: false,
 };
 
 let _config: GameConfig = { ...DEFAULT_CONFIG };

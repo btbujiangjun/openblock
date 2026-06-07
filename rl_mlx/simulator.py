@@ -15,19 +15,64 @@ _ICON_BONUS_LINE_MULT = float(CLEAR_SCORING.get("iconBonusLineMult") or 5)
 _PERFECT_CLEAR_MULT = float(CLEAR_SCORING.get("perfectClearMult") or 10)
 _RL_BONUS_ICONS: list[str] | None = rl_bonus_block_icons()
 
+# Combo 倍数 + grace 窗口（与 shared/game_rules.json → clearScoring.comboMultiplier 同源）
+_COMBO_CFG_RAW = CLEAR_SCORING.get("comboMultiplier") or {}
+_COMBO_ENABLED = bool(_COMBO_CFG_RAW.get("enabled", True))
+_COMBO_GRACE = max(1, int(_COMBO_CFG_RAW.get("gracePlacements") or 3))
+_COMBO_ACTIVATION = max(
+    1, int(_COMBO_CFG_RAW.get("activationCount") or _COMBO_CFG_RAW.get("activationStreak") or 3)
+)
+_COMBO_STEP = max(0.0, float(_COMBO_CFG_RAW.get("stepBonus") or 0.0))
+_COMBO_MAX = max(1.0, float(_COMBO_CFG_RAW.get("maxMultiplier") or 1.0))
 
-def _clear_score_gain(scoring: dict, clear_count: int, bonus_line_count: int, perfect_clear: bool = False) -> float:
+
+def _derive_combo_multiplier(combo_count: int) -> float:
+    if not _COMBO_ENABLED:
+        return 1.0
+    n = max(0, int(combo_count or 0))
+    if n < _COMBO_ACTIVATION:
+        return 1.0
+    raw = 1.0 + (n - _COMBO_ACTIVATION + 1) * _COMBO_STEP
+    return min(_COMBO_MAX, max(1.0, raw))
+
+
+def _derive_next_combo_count(
+    prev_combo_count: int, rounds_since_last_clear: float, cleared_this_placement: bool
+) -> int:
+    if not _COMBO_ENABLED:
+        return 0
+    if not cleared_this_placement:
+        return max(0, int(prev_combo_count or 0))
+    prev = max(0, int(prev_combo_count or 0))
+    if prev == 0:
+        return 1
+    if rounds_since_last_clear is None or rounds_since_last_clear == float("inf"):
+        return 1
+    gap = max(0, int(rounds_since_last_clear or 0))
+    return 1 if gap >= _COMBO_GRACE else prev + 1
+
+
+def _clear_score_gain(
+    scoring: dict,
+    clear_count: int,
+    bonus_line_count: int,
+    perfect_clear: bool = False,
+    combo_count: int = 0,
+) -> float:
     if clear_count <= 0:
         return 0.0
     base_unit = float(scoring.get("single_line") or 20)
     base_score = base_unit * clear_count * clear_count
     b = min(int(bonus_line_count), int(clear_count))
     if b <= 0:
-        return base_score
-    line_score = base_unit * clear_count
-    icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
-    subtotal = base_score + icon_bonus
-    return subtotal * (_PERFECT_CLEAR_MULT if perfect_clear else 1.0)
+        subtotal = base_score
+    else:
+        line_score = base_unit * clear_count
+        icon_bonus = line_score * b * (_ICON_BONUS_LINE_MULT - 1)
+        subtotal = base_score + icon_bonus
+    perfect_mult = _PERFECT_CLEAR_MULT if perfect_clear else 1.0
+    combo_mult = _derive_combo_multiplier(combo_count)
+    return subtotal * perfect_mult * combo_mult
 
 
 def _is_perfect_clear(grid: Grid) -> bool:
@@ -50,6 +95,9 @@ class OpenBlockSimulator:
         self.total_clears = 0
         self.steps = 0
         self.placements = 0
+        # Combo 链（grace 窗口）—— 与 web 主局 _comboCount / _roundsSinceLastClear 同口径
+        self._combo_count = 0
+        self._rounds_since_last_clear: float = float("inf")
         self._spawn_dock()
 
     def _spawn_dock(self) -> None:
@@ -111,8 +159,21 @@ class OpenBlockSimulator:
             self.total_clears += clears
             c = clears
             bonus_n = len(result.get("bonus_lines") or [])
-            gain = _clear_score_gain(self.scoring, c, bonus_n, _is_perfect_clear(self.grid))
+            self._combo_count = _derive_next_combo_count(
+                self._combo_count, self._rounds_since_last_clear, True
+            )
+            self._rounds_since_last_clear = 0
+            gain = _clear_score_gain(
+                self.scoring,
+                c,
+                bonus_n,
+                _is_perfect_clear(self.grid),
+                combo_count=self._combo_count,
+            )
             self.score += gain
+        else:
+            if self._rounds_since_last_clear != float("inf"):
+                self._rounds_since_last_clear += 1
 
         b["placed"] = True
         if all(x["placed"] for x in self.dock):

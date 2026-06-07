@@ -1467,14 +1467,16 @@ OpenBlock 的核心长期目标是：**让玩家频繁接近个人最佳（PB）
 
 当前代码中，PB 追逐已有多条规则轨实现：
 
-- `adaptiveSpawn.js` 中的 `challengeBoost`、`farFromPBBoost`、`pbOvershootBoost`、`postPbReleaseWindow`；
+- `adaptiveSpawn.js` 中的 `challengeBoost`、`farFromPBBoost`、`pbOvershootBoost`、`postPbReleaseWindow`、`expertEarlyBoost`；
 - `orderRigor / orderMaxValidPerms` 在 PB 临界段和超 PB 段会提高顺序规划要求；
 - `spawnHints` 会在远离 PB、突破后释放、超 PB 刹车等阶段调节 `clearGuarantee / sizePreference / multiClearBonus`。
 
-当前主规则轨已把这类设计抽象成双 S 曲线，并通过 `adaptiveSpawn.derivePbCurve()` 输出：
+> **双坐标设计**（自 起）：PB 追逐机制按"语义"分两套坐标——纪录线机制（`challengeBoost / pbOvershootBoost / postPbRelease / farFromPBBoost / derivePbCurve` 与 `best.gap.*`）吃 raw `score / bestScore`；难度线机制（`getSpawnStressFromScore / expertEarlyBoost`）吃 `score / deriveEffectivePb(bestScore)`。`effectivePB` 在新手抬 `noviceFloor=240`、在高手对数压 `expertSoftCap=1200` / `expertScale=600`，把"新手早熟"与"高手长铺垫"两端 corner 用同一条单调连续变换优雅修。详见 [ADAPTIVE_SPAWN §13.0 / §13.11 / §13.12](./ADAPTIVE_SPAWN.md#130-双坐标速览raw-pb-vs-effectivepb自-起) 与 [BEST_SCORE_CHASE_STRATEGY §3.2.1](../player/BEST_SCORE_CHASE_STRATEGY.md#321-难度坐标-vs-纪录坐标双坐标设计effectivepb)。
+
+当前主规则轨已把这类设计抽象成双 S 曲线，并通过 `adaptiveSpawn.derivePbCurve()` 输出（**注意：`derivePbCurve` 用真实 PB，不走 effectivePB**——纪录线必须按真实进度演进，否则会出现"score=1800/PB=5000 误触发'接近最佳！'"的认知失谐）：
 
 ```text
-pbRatio   = score / bestScore
+pbRatio   = score / bestScore                  # ← raw PB（纪录坐标）
 pbTension = sigmoid((pbRatio - 0.82) / 0.08)   # PB 前张力
 pbBrake   = sigmoid((pbRatio - 1.05) / 0.06)   # PB 后刹车
 pbRelease = postPbReleaseRemaining > 0 ? 1 : 0 # 突破释放窗口

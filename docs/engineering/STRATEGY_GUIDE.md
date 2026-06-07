@@ -109,7 +109,7 @@ Stress 在 `web/src/adaptiveSpawn.js` 中合成，配置来源是 `shared/game_r
 
 | # | 信号 | 变量名 | 典型范围 | 作用 |
 |---|------|--------|---------|------|
-| 1 | 分数压力 | `scoreStress` | [0, 0.78] | 起按「个人百分位」映射：`pct = score / max(bestScore, scoreFloor)`，pct < 50% 段额外 ×0.4 衰减；`bestScore=0`/缺省时回退到旧的绝对分段 |
+| 1 | 分数压力 | `scoreStress` | [0, 0.78] | 起按「个人百分位」映射：`pct = score / deriveEffectivePb(bestScore)`（双坐标：新手抬 `noviceFloor`、高手对数压 `expertSoftCap`，配置缺失退化为旧 `max(bestScore, scoreFloor)`，详见 [ADAPTIVE_SPAWN §13.11](../algorithms/ADAPTIVE_SPAWN.md#1311-deriveeffectivepb-难度进度坐标两端-corner-一并优雅修)），pct < 50% 段额外 ×0.4 衰减；`bestScore=0`/缺省时回退到旧的绝对分段 |
 | 2 | 连胜加成 | `runStreakStress` | [0, 0.3] | 连续多局加压 |
 | 3 | 技能调节 | `skillAdjust` | [−0.15, 0.15] | 高手加压/新手减压 |
 | 4 | 心流调节 | `flowAdjust` | [−0.24, 0.16] | 无聊+/焦虑−/心流0 |

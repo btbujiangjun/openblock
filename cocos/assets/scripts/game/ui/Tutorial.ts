@@ -1,6 +1,8 @@
-import { _decorator, Component, Node, Label, UITransform, Color, Graphics } from 'cc';
+import { _decorator, Component, Node, Label, UITransform, Color, Graphics, UIOpacity, tween } from 'cc';
 import { Storage } from '../platform/Storage';
 import { Modal, TapBus, card, button } from './uiKit';
+import { t } from '../../core';
+import { Motion } from '../platform/Motion';
 
 const { ccclass } = _decorator;
 
@@ -30,12 +32,12 @@ export class Tutorial extends Component {
         g.fill();
 
         const lines = [
-            '欢迎来到 OpenBlock',
+            t('tutorial.title'),
             '',
-            '· 从底部候选区拖动方块到棋盘',
-            '· 填满整行或整列即可消除得分',
-            '· 同色整行/列有额外加成',
-            '· 用金币施放技能：提示/撤销/炸弹/彩虹/冻结',
+            t('tutorial.line1'),
+            t('tutorial.line2'),
+            t('tutorial.line3'),
+            t('tutorial.line4'),
         ];
         // 文案落在卡片内（对齐 web FTUE 卡片样式），底部一个主操作按钮开始。
         const cardW = 700;
@@ -55,19 +57,29 @@ export class Tutorial extends Component {
             l.color = isTitle ? new Color(255, 220, 130, 255) : new Color(235, 240, 250, 255);
             y -= isTitle ? 66 : 52;
         });
-        button(c, '开始游戏', 0, -cardH / 2 + 64, 30, () => this.dismiss(), new Color(70, 130, 90, 255), { primary: true, minWidth: 240 });
+        button(c, t('tutorial.start'), 0, -cardH / 2 + 64, 30, () => this.dismiss(), new Color(70, 130, 90, 255), { primary: true, minWidth: 240 });
 
         // 引导期视为模态，暂停盘面输入；点遮罩空白处关闭（按钮命中优先于遮罩）。
         Modal.open();
         this._unreg = TapBus.add(blocker, () => this.dismiss());
+
+        // 入场 fade（Tutorial 是首启第一感受，柔和淡入对玩家更友好；Motion.reduced 时直显）。
+        if (!Motion.reduced) {
+            const op = this.node.getComponent(UIOpacity) || this.node.addComponent(UIOpacity);
+            op.opacity = 0;
+            tween(op).to(0.22, { opacity: 255 }, { easing: 'cubicOut' }).start();
+        }
     }
 
     private dismiss(): void {
+        if (this._dismissed) return;
+        this._dismissed = true;
         Storage.set(TUTORIAL_KEY, '1');
         if (this._unreg) { this._unreg(); this._unreg = null; }
         Modal.close();
-        this.node.destroy();
+        if (this.node?.isValid) this.node.destroy();
     }
+    private _dismissed = false;
 
     static shouldShow(): boolean {
         return Storage.get(TUTORIAL_KEY) !== '1';

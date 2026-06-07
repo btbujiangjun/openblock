@@ -25,6 +25,12 @@ export class PlayerContext {
     private bestScore = 0;
     /** 近若干轮每轮消行数窗口（动量估计）。 */
     private recentClears: number[] = [];
+    /** 上个 dock 周期内首手自由度最低点（web _spawnContext.bottleneckTrough）。 */
+    private bottleneckTrough = Infinity;
+    /** 上个 dock 周期内合法落点总数最低点（web _spawnContext.bottleneckSolutionTrough）。 */
+    private bottleneckSolutionTrough = Infinity;
+    /** 采样次数；0 表示本周期尚无瓶颈样本。 */
+    private bottleneckSamples = 0;
 
     /** 分数里程碑步长（每跨过一档触发一次 scoreMilestone）。 */
     private readonly milestoneStep = 500;
@@ -43,6 +49,7 @@ export class PlayerContext {
         this.scoreMilestone = false;
         this.lastMilestone = 0;
         this.recentClears = [];
+        this.resetBottleneck();
         this.setBest(best);
     }
 
@@ -53,6 +60,32 @@ export class PlayerContext {
         this.scoreMilestone = false;
         this.recentClears.push(0);
         if (this.recentClears.length > this.window) this.recentClears.shift();
+    }
+
+    /** 新 dock 周期开始时重置瓶颈采样。 */
+    resetBottleneck(): void {
+        this.bottleneckTrough = Infinity;
+        this.bottleneckSolutionTrough = Infinity;
+        this.bottleneckSamples = 0;
+    }
+
+    /**
+     * 记录当前 dock 周期内的瓶颈低谷。
+     * @param solutionCount 当前未放置候选块的合法落点总和
+     * @param firstMoveFreedom 当前未放置候选块中最小合法落点数
+     */
+    updateBottleneck(solutionCount: number, firstMoveFreedom: number): void {
+        if (Number.isFinite(firstMoveFreedom)) {
+            this.bottleneckTrough = Number.isFinite(this.bottleneckTrough)
+                ? Math.min(this.bottleneckTrough, firstMoveFreedom)
+                : firstMoveFreedom;
+        }
+        if (Number.isFinite(solutionCount)) {
+            this.bottleneckSolutionTrough = Number.isFinite(this.bottleneckSolutionTrough)
+                ? Math.min(this.bottleneckSolutionTrough, solutionCount)
+                : solutionCount;
+        }
+        this.bottleneckSamples++;
     }
 
     /** 消行：记录行数、清零间隔、累计，并并入当前轮窗口。 */
@@ -103,6 +136,9 @@ export class PlayerContext {
             skill: this.skill(),
             momentum: this.momentum(),
             frustration: this.frustration(),
+            bottleneckTrough: this.bottleneckTrough,
+            bottleneckSolutionTrough: this.bottleneckSolutionTrough,
+            bottleneckSamples: this.bottleneckSamples,
         };
     }
 }

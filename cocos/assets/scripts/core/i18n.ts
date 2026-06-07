@@ -17,6 +17,16 @@ const DICTS: Record<LocaleId, Dict> = {
         'hud.gameover': '游戏结束 · 点击重开',
         'gameover.title': '游戏结束',
         'gameover.newbest': '🏆 新纪录！',
+        'gameover.encourage': '棋盘填满，再来一局！',
+        'gameover.xpGain': '+{n} 经验',
+        'game.summary.title': '本局战报',
+        'game.summary.clears': '消行',
+        'game.summary.clearsValue': '{n} 行',
+        'game.summary.maxCombo': '最高连击',
+        'game.summary.hitRate': '命中率',
+        'game.summary.duration': '用时',
+        'game.menu': '菜单',
+        'game.actions.replay': '回放',
         'btn.again': '🔄 再来一局',
         'hud.combo': '{n} 连!',
         'hud.perfect': '完美清屏!',
@@ -83,10 +93,23 @@ const DICTS: Record<LocaleId, Dict> = {
         'chest.common': '普通宝箱',
         'chest.rare': '稀有宝箱',
         'chest.epic': '史诗宝箱',
+        'chest.hint': '点击下方按钮或空白处关闭，奖励将发放至钱包',
+        'chest.item.hint': '+{n} 提示券',
+        'chest.item.undo': '+{n} 撤销',
+        'chest.item.bomb': '+{n} 炸弹',
+        'chest.item.rainbow': '+{n} 彩虹',
+        'chest.item.freeze': '+{n} 冻结',
+        'chest.item.preview': '+{n} 预览',
+        'chest.item.reroll': '+{n} 换一批',
+        'chest.item.coin': '+{n} 金币',
+        'chest.item.trial': '{h}h 随机试穿',
+        'chest.item.trialNamed': '{h}h 试穿 {name}',
         'gameover.xp': '本局经验 +{n}',
         'wheel.title': '幸运转盘',
         'wheel.spin': '免费转',
         'wheel.adSpin': '📺 看广告再转',
+        'reward.luckyWheel.spinning': '抽奖中…',
+        'reward.luckyWheel.usedToday': '今日已抽',
         'level.up': '升级! Lv.{n}',
         'level.label': 'Lv.{n}',
         'ach.unlocked': '成就达成：{name}',
@@ -101,8 +124,72 @@ const DICTS: Record<LocaleId, Dict> = {
         'welcome.gift': '回归礼包',
         'rank.title': '排行榜',
         'rank.you': '你',
+        'rank.empty': '今日暂无记录，快来上榜！',
         'mission.title': '任务',
+        'mission.inProgress': '进行中',
+        'mission.claimed': '已领',
         'share.text': '我在 OpenBlock 拿到了 {n} 分，来挑战！',
+        'share.started': '📤 已打开分享',
+        'share.copied': '📋 分享文案已复制',
+        'share.unavailable': '⚠️ 当前平台暂不支持分享',
+        'hud.caption.power': '能力',
+        'hud.caption.score': '得分',
+        'hud.caption.best': '最佳',
+        'hud.caption.theme': '主题',
+        'progress.rank.novice': '新手',
+        'progress.rank.apprentice': '学徒',
+        'progress.rank.adept': '行家',
+        'progress.rank.expert': '专家',
+        'progress.rank.master': '大师',
+        'progress.rank.legend': '传奇',
+        'progress.streakDays': '连续 {n} 天',
+        'meta.title': '每日 / 赛季',
+        'meta.todayMissions': '今日任务',
+        'skin.title': '🎨 选择皮肤',
+        'tutorial.title': '欢迎来到 OpenBlock',
+        'tutorial.line1': '· 从底部候选区拖动方块到棋盘',
+        'tutorial.line2': '· 填满整行或整列即可消除得分',
+        'tutorial.line3': '· 同色整行/列有额外加成',
+        'tutorial.line4': '· 用金币施放技能：提示/撤销/炸弹/彩虹/冻结',
+        'tutorial.start': '开始游戏',
+        'freeze.on': '❄️ 冻结',
+        'freeze.triggered': '❄️ 触发冻结',
+        'skill.needCoins': '🪙 金币不足',
+        'skill.needToken': '🎒 道具不足',
+        'storage.failed': '⚠️ 存档写入失败',
+        'cloud.queued': '☁️ 已暂存，待联网同步',
+        'motion.full': '✨ 视觉特效：开',
+        'motion.reduced': '✦ 视觉特效：关',
+        'effect.double': '双消',
+        'effect.multi': '{n} 消',
+        'effect.perfectFloat': '清屏 ×10',
+        'effect.newRecord': '🏆 刷新最佳！',
+        'effect.nearMiss': '再一格就消行 🎯',
+        'effect.streak': '🔥 {n} 连消',
+        'hud.bestGap': '差 {n} 分',
+        'hud.bestOver': '本局 +{n}',
+        'hud.comboHeart': '♥ ×{n}',
+        'checkin.title': '每日签到',
+        'checkin.sub': '连续打卡 {n} 天',
+        'checkin.day': '第 {n} 天',
+        'checkin.grandTag': '🎁 24h 试穿',
+        'checkin.claimToday': '领取今日奖励',
+        'checkin.claimed': '今日已签',
+        'season.daysReward': '免费',
+        'season.premiumReward': '高级',
+        'season.points': '积分 {n}',
+        'season.progress': 'Lv.{cur} → Lv.{next}',
+        'season.xpProgress': 'XP {cur}/{next}',
+        'season.claimAll': '一键领取',
+        'season.buyPremium': '💎 升级高级通行证',
+        'season.premiumOn': '💎 高级通行证已解锁',
+        'season.locked': '🔒 未解锁',
+        'season.maxed': '已满级',
+        'seasonChest.common': '普通季终宝箱',
+        'seasonChest.rare': '稀有季终宝箱',
+        'seasonChest.epic': '史诗季终宝箱',
+        'seasonChest.legend': '传说季终宝箱',
+        'seasonChest.unlocked': '🏆 {label} 已解锁',
     },
     en: {
         'hud.score': 'Score {n}',
@@ -111,6 +198,16 @@ const DICTS: Record<LocaleId, Dict> = {
         'hud.gameover': 'Game Over · Tap to restart',
         'gameover.title': 'Game Over',
         'gameover.newbest': '🏆 New Best!',
+        'gameover.encourage': 'Board full — play again!',
+        'gameover.xpGain': '+{n} XP',
+        'game.summary.title': 'This Round',
+        'game.summary.clears': 'Lines',
+        'game.summary.clearsValue': '{n}',
+        'game.summary.maxCombo': 'Max Combo',
+        'game.summary.hitRate': 'Accuracy',
+        'game.summary.duration': 'Time',
+        'game.menu': 'Menu',
+        'game.actions.replay': 'Replay',
         'btn.again': '🔄 Play Again',
         'hud.combo': '{n} Combo!',
         'hud.perfect': 'Perfect Clear!',
@@ -177,10 +274,23 @@ const DICTS: Record<LocaleId, Dict> = {
         'chest.common': 'Common Chest',
         'chest.rare': 'Rare Chest',
         'chest.epic': 'Epic Chest',
+        'chest.hint': 'Tap the button or background to close — reward will be added to your wallet',
+        'chest.item.hint': '+{n} Hint',
+        'chest.item.undo': '+{n} Undo',
+        'chest.item.bomb': '+{n} Bomb',
+        'chest.item.rainbow': '+{n} Rainbow',
+        'chest.item.freeze': '+{n} Freeze',
+        'chest.item.preview': '+{n} Preview',
+        'chest.item.reroll': '+{n} Reroll',
+        'chest.item.coin': '+{n} Coins',
+        'chest.item.trial': '{h}h random trial',
+        'chest.item.trialNamed': '{h}h trial: {name}',
         'gameover.xp': 'XP +{n}',
         'wheel.title': 'Lucky Wheel',
         'wheel.spin': 'Free Spin',
         'wheel.adSpin': '📺 Spin by Ad',
+        'reward.luckyWheel.spinning': 'Spinning…',
+        'reward.luckyWheel.usedToday': 'Spun today',
         'level.up': 'Level Up! Lv.{n}',
         'level.label': 'Lv.{n}',
         'ach.unlocked': 'Achievement: {name}',
@@ -195,12 +305,86 @@ const DICTS: Record<LocaleId, Dict> = {
         'welcome.gift': 'Comeback gift',
         'rank.title': 'Leaderboard',
         'rank.you': 'You',
+        'rank.empty': 'No records yet. Be the first!',
         'mission.title': 'Missions',
+        'mission.inProgress': 'In progress',
+        'mission.claimed': 'Claimed',
         'share.text': 'I scored {n} on OpenBlock, beat me!',
+        'share.started': '📤 Share opened',
+        'share.copied': '📋 Share text copied',
+        'share.unavailable': '⚠️ Sharing unavailable',
+        'hud.caption.power': 'Power',
+        'hud.caption.score': 'Score',
+        'hud.caption.best': 'Best',
+        'hud.caption.theme': 'Theme',
+        'progress.rank.novice': 'Novice',
+        'progress.rank.apprentice': 'Apprentice',
+        'progress.rank.adept': 'Adept',
+        'progress.rank.expert': 'Expert',
+        'progress.rank.master': 'Master',
+        'progress.rank.legend': 'Legend',
+        'progress.streakDays': '{n}-day streak',
+        'meta.title': 'Daily / Season',
+        'meta.todayMissions': "Today's Missions",
+        'skin.title': '🎨 Choose Skin',
+        'tutorial.title': 'Welcome to OpenBlock',
+        'tutorial.line1': '· Drag blocks from the dock onto the board',
+        'tutorial.line2': '· Fill a full row or column to clear it',
+        'tutorial.line3': '· Same-color rows/cols grant extra bonus',
+        'tutorial.line4': '· Spend coins on skills: hint / undo / bomb / rainbow / freeze',
+        'tutorial.start': 'Start',
+        'freeze.on': '❄️ Freeze',
+        'freeze.triggered': '❄️ Freeze triggered',
+        'skill.needCoins': '🪙 Not enough coins',
+        'skill.needToken': '🎒 Not enough items',
+        'storage.failed': '⚠️ Save failed',
+        'cloud.queued': '☁️ Queued, will sync when online',
+        'motion.full': '✨ Visual FX: On',
+        'motion.reduced': '✦ Visual FX: Off',
+        'effect.double': 'Double',
+        'effect.multi': '{n} Lines',
+        'effect.perfectFloat': 'Clear ×10',
+        'effect.newRecord': '🏆 New Best!',
+        'effect.nearMiss': 'One more cell! 🎯',
+        'effect.streak': '🔥 {n} streak',
+        'hud.bestGap': '{n} to best',
+        'hud.bestOver': '+{n} this run',
+        'hud.comboHeart': '♥ ×{n}',
+        'checkin.title': 'Daily Check-in',
+        'checkin.sub': '{n}-day streak',
+        'checkin.day': 'Day {n}',
+        'checkin.grandTag': '🎁 24h trial',
+        'checkin.claimToday': 'Claim today',
+        'checkin.claimed': 'Checked in',
+        'season.daysReward': 'Free',
+        'season.premiumReward': 'Premium',
+        'season.points': 'Points {n}',
+        'season.progress': 'Lv.{cur} → Lv.{next}',
+        'season.xpProgress': 'XP {cur}/{next}',
+        'season.claimAll': 'Claim All',
+        'season.buyPremium': '💎 Upgrade Premium',
+        'season.premiumOn': '💎 Premium unlocked',
+        'season.locked': '🔒 Locked',
+        'season.maxed': 'Maxed',
+        'seasonChest.common': 'Common Season Chest',
+        'seasonChest.rare': 'Rare Season Chest',
+        'seasonChest.epic': 'Epic Season Chest',
+        'seasonChest.legend': 'Legend Season Chest',
+        'seasonChest.unlocked': '🏆 {label} unlocked',
     },
 };
 
 let _locale: LocaleId = 'zh-CN';
+
+/** 持久化语言偏好 hook：由壳工程在 initLocale 之前注入读/写函数。
+ *  cocos/web 端用 `Storage.get('locale')` / `Storage.set('locale', id)`；
+ *  无 hook 时纯按浏览器/微信侦测，与历史行为一致。 */
+let _readPersistedLocale: (() => string | null) | null = null;
+let _writePersistedLocale: ((id: string) => void) | null = null;
+export function configureLocalePersistence(read: () => string | null, write: (id: string) => void): void {
+    _readPersistedLocale = read;
+    _writePersistedLocale = write;
+}
 
 function detect(): LocaleId {
     const g = globalThis as unknown as {
@@ -208,6 +392,12 @@ function detect(): LocaleId {
         navigator?: { language?: string };
         wx?: { getSystemInfoSync?: () => { language?: string } };
     };
+    if (_readPersistedLocale) {
+        try {
+            const saved = _readPersistedLocale();
+            if (saved && DICTS[saved]) return saved;
+        } catch { /* ignore */ }
+    }
     let raw = g.__OPENBLOCK_LOCALE__;
     if (!raw && g.wx?.getSystemInfoSync) {
         try { raw = g.wx.getSystemInfoSync().language; } catch { /* ignore */ }
@@ -227,8 +417,28 @@ export function initLocale(): LocaleId {
     return _locale;
 }
 
+type LocaleListener = (id: LocaleId) => void;
+const _localeListeners: LocaleListener[] = [];
+
+/** 注册语言变化回调；返回反注册函数。供 UI 层（HUD/MainMenu/Hud captions）在切换语言后即时刷新。 */
+export function onLocaleChange(fn: LocaleListener): () => void {
+    _localeListeners.push(fn);
+    return () => {
+        const i = _localeListeners.indexOf(fn);
+        if (i >= 0) _localeListeners.splice(i, 1);
+    };
+}
+
 export function setLocale(id: LocaleId): void {
-    if (DICTS[id]) _locale = id;
+    if (!DICTS[id]) return;
+    if (_locale === id) return;
+    _locale = id;
+    if (_writePersistedLocale) {
+        try { _writePersistedLocale(id); } catch { /* ignore */ }
+    }
+    for (const fn of _localeListeners.slice()) {
+        try { fn(id); } catch { /* swallow listener errors to not break siblings */ }
+    }
 }
 
 export function getLocale(): LocaleId {

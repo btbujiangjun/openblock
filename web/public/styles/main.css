@@ -1385,6 +1385,7 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
 }
 
 .stat-box {
+    position: relative; /* 承载 .combo-heart 等绝对定位的徽章 */
     background:
         linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, transparent 48%),
         linear-gradient(180deg, var(--stat-surface, #fff) 0%, color-mix(in srgb, var(--stat-surface, #fff) 88%, #e2e8f0) 100%);
@@ -5023,6 +5024,118 @@ html[data-visibility="hidden"] *::after {
     text-shadow:
         0 0 10px rgba(255, 107, 53, 0.7),
         0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ── Combo 链 · 粉色爱心徽章（HUD 得分附近常驻；清线启动、grace 窗口失效淡出） ── */
+
+.combo-heart {
+    position: absolute;
+    top: -6px;
+    right: -8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 8px 2px 6px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #ff6b9d 0%, #ff8fb1 60%, #ffb4c8 100%);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    box-shadow:
+        0 0 12px rgba(255, 107, 157, 0.55),
+        0 2px 6px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+    z-index: 5;
+    /* 入场弹跳；JS 每次清线 bump _showComboHeart 时通过 reflow 重启动画 */
+    animation: comboHeartPop 0.42s cubic-bezier(0.22, 0.85, 0.4, 1.4) both;
+    transition: opacity 0.45s ease, transform 0.45s ease;
+}
+
+.combo-heart[hidden] {
+    display: none !important;
+}
+
+/* "待断" 态：grace 窗口已过、爱心淡出但 DOM 留位（下次清线立即复活） */
+.combo-heart.combo-heart--fading {
+    opacity: 0;
+    transform: scale(0.92) translateY(-2px);
+}
+
+.combo-heart-icon {
+    font-size: 14px;
+    line-height: 1;
+    transform: translateY(-0.5px);
+    filter: drop-shadow(0 0 4px rgba(255, 180, 200, 0.9));
+}
+
+.combo-heart-count::before { content: '×'; opacity: 0.85; margin-right: 1px; }
+
+/* 高 combo（≥ 4）额外的金边光晕 */
+.combo-heart.combo-heart--high {
+    background: linear-gradient(135deg, #ff5b8d 0%, #ff8fb1 50%, #ffd76b 100%);
+    box-shadow:
+        0 0 16px rgba(255, 215, 107, 0.7),
+        0 0 24px rgba(255, 107, 157, 0.55),
+        0 2px 6px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+@keyframes comboHeartPop {
+    0%   { opacity: 0; transform: scale(0.4) rotate(-12deg); }
+    55%  { opacity: 1; transform: scale(1.25) rotate(6deg); }
+    78%  { transform: scale(0.95) rotate(-2deg); }
+    100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+/* ── 连击倍数徽章（streak ≥ activationStreak 时叠加 ×N 提示） ── */
+
+.streak-badge--mult {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    animation: streakMultPop 2s ease-out forwards;
+    color: #fff5e6;
+    text-shadow:
+        0 0 14px rgba(255, 180, 60, 0.95),
+        0 0 28px rgba(255, 110, 30, 0.6),
+        0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.streak-badge--mult .streak-badge-main {
+    font-size: 0.7em;
+    letter-spacing: 0.08em;
+    opacity: 0.92;
+}
+
+.streak-badge--mult .streak-badge-mult {
+    font-size: clamp(20px, 4.5vw, 32px);
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    background: linear-gradient(180deg, #fff7d6 0%, #ffce4f 55%, #ff8a2c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 6px rgba(255, 200, 60, 0.55));
+}
+
+/* float-score 触发 combo 倍数时的小幅放大,与基础浮分协调 */
+.float-score.float-has-combo-mult {
+    text-shadow:
+        0 0 12px rgba(255, 200, 80, 0.7),
+        0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+@keyframes streakMultPop {
+    0% { opacity: 0; transform: translate(-50%, 8px) scale(0.6); }
+    18% { opacity: 1; transform: translate(-50%, -4px) scale(1.18); }
+    32% { transform: translate(-50%, -6px) scale(1.05); }
+    78% { opacity: 1; transform: translate(-50%, -8px) scale(1.02); }
+    100% { opacity: 0; transform: translate(-50%, -22px) scale(0.98); }
 }
 
 /* ── 动画定义 ───────────────────────────────────── */

@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Color, UITransform, Label, Graphics } from 'cc';
-import { Modal, dimBg, card, label, button, closeX, TapBus, inheritLayer } from './uiKit';
-import { SKINS, listSkinIds, getSkin, Skin } from '../../core';
+import { _decorator, Component, Node, Color, UITransform, Label, Graphics, UIOpacity, Vec3, tween } from 'cc';
+import { Modal, dimBg, card, label, closeX, TapBus, bindEngineClick, inheritLayer } from './uiKit';
+import { SKINS, listSkinIds, Skin, t } from '../../core';
 import { blockMetrics, gridOuterColor, cellEmptyColor, blockIcon } from '../skin/palette';
 import { paintBlockFace, iconFontSize } from '../skin/blockPaint';
+import { Motion } from '../platform/Motion';
 
 const { ccclass } = _decorator;
 
@@ -15,7 +16,8 @@ export class SkinPanel extends Component {
     private onPick: ((id: string) => void) | null = null;
     private currentId = '';
     private _unregs: Array<() => void> = [];
-    private cards: Map<string, Graphics> = new Map();
+    private swatches: Map<string, { g: Graphics; skin: Skin; w: number; h: number; node: Node }> = new Map();
+    private closed = false;
 
     static show(parent: Node, currentId: string, onPick: (id: string) => void): SkinPanel {
         const root = new Node('SkinPanel');
@@ -27,21 +29,29 @@ export class SkinPanel extends Component {
         p.onPick = onPick;
         p.currentId = currentId;
         p.build();
+        if (!Motion.reduced) {
+            const op = root.getComponent(UIOpacity) || root.addComponent(UIOpacity);
+            op.opacity = 0;
+            root.setScale(new Vec3(0.92, 0.92, 1));
+            tween(op).to(0.18, { opacity: 255 }, { easing: 'cubicOut' }).start();
+            tween(root).to(0.18, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+        }
         return p;
     }
 
     private build(): void {
         Modal.open();
         const ids = listSkinIds();
-        const cols = 5;
-        const swatch = 126;        // 单元宽
-        const swatchH = 150;       // 单元高（含名字）
-        const gapX = 6;
-        const gapY = 8;
+        // 移动端优先：4 列紧凑卡片，避免列表压到底部并被关闭按钮遮挡。
+        const cols = 4;
+        const swatch = 136;        // 单元宽
+        const swatchH = 132;       // 单元高（含名字）
+        const gapX = 10;
+        const gapY = 10;
         const rows = Math.ceil(ids.length / cols);
         const gridW = cols * swatch + (cols - 1) * gapX;
         const gridH = rows * swatchH + (rows - 1) * gapY;
-        const h = gridH + 200;
+        const h = gridH + 150;
         const w = gridW + 60;
 
         // 点背景关闭
@@ -50,13 +60,13 @@ export class SkinPanel extends Component {
         this._unregs.push(TapBus.add(dim, () => this.close()));
 
         const c = card(this.node, w, h);
-        const topY = h / 2 - 60;
-        label(c, '🎨 选择皮肤', 38, 0, topY, new Color(255, 220, 130, 255));
+        const topY = h / 2 - 54;
+        label(c, t('skin.title'), 38, 0, topY, new Color(255, 220, 130, 255));
         // 右上角 × 关闭（对齐 web 弹窗）
         this._unregs.push(closeX(c, w / 2 - 44, h / 2 - 44, () => this.close()));
 
         const startX = -gridW / 2 + swatch / 2;
-        const startY = topY - 80 - swatchH / 2;
+        const startY = topY - 72 - swatchH / 2;
         ids.forEach((id, i) => {
             const r = Math.floor(i / cols);
             const col = i % cols;
@@ -64,10 +74,6 @@ export class SkinPanel extends Component {
             const y = startY - r * (swatchH + gapY);
             this.makeSwatch(c, SKINS[id], x, y, swatch, swatchH);
         });
-
-        // 底部关闭按钮（统一胶囊样式）
-        const closeBtnY = -h / 2 + 52;
-        button(c, '关闭', 0, closeBtnY, 28, () => this.close(), new Color(74, 80, 100, 255), { minWidth: 200 });
     }
 
     private makeSwatch(parent: Node, skin: Skin, x: number, y: number, w: number, h: number): void {
@@ -79,13 +85,11 @@ export class SkinPanel extends Component {
         n.getComponent(UITransform)!.setAnchorPoint(0.5, 0.5);
 
         const g = n.addComponent(Graphics);
-        this.cards.set(skin.id, g);
+        this.swatches.set(skin.id, { g, skin, w, h, node: n });
         this.drawSwatchFrame(g, skin, w, h);
 
         // 迷你盘面预览（4×4），画在卡片上半部
-        const previewSize = w - 28;
-        const px0 = -previewSize / 2;
-        const py0 = h / 2 - 22 - previewSize;
+        const { previewSize, px0, py0 } = this.previewGeom(w, h);
         this.drawMiniBoard(g, skin, px0, py0, previewSize);
 
         // 迷你预览里的 emoji（如有）用 Label 叠加
@@ -102,19 +106,30 @@ export class SkinPanel extends Component {
         nl.lineHeight = 20;
         nl.color = new Color(225, 230, 240, 255);
 
-        this._unregs.push(TapBus.add(n, () => {
-            this.currentId = skin.id;
-            // 重绘全部边框高亮态
-            for (const [id, gg] of this.cards) this.drawSwatchFrame(gg, getSkin(id), w, h, true);
-            if (this.onPick) this.onPick(skin.id);
-        }));
+        // 选中即生效并关闭面板（对齐 web 主端「点皮肤直接切换并收起」体感）：
+        //   - 点击当前皮肤：仅关闭面板（视为"确认当前选择"，无须再触发 onPick 重渲染整个游戏）
+        //   - 点击其它皮肤：先触发 onPick 让宿主立即应用（背景能在面板淡出过程中已切到新皮肤，
+        //     形成"皮肤跟着面板一起换"的连贯感），然后关闭。
+        // 不再在面板内重绘 selected 描边 —— 面板马上消失，描边动画反而显得拖沓。
+        const pick = () => {
+            if (this.closed) return; // 防双击重入（连点两下避免触发两次 close + 双重 onPick）
+            if (this.currentId !== skin.id && this.onPick) {
+                this.onPick(skin.id);
+            }
+            this.close();
+        };
+        this._unregs.push(TapBus.add(n, pick));
+        this._unregs.push(bindEngineClick(n, pick));
     }
 
-    private drawSwatchFrame(g: Graphics, skin: Skin, w: number, h: number, redraw = false): void {
-        if (redraw) {
-            // 仅重画边框层会与预览叠加错乱，这里整卡重绘：清空后补预览。
-            g.clear();
-        }
+    private previewGeom(w: number, h: number): { previewSize: number; px0: number; py0: number } {
+        const previewSize = Math.min(w - 36, h - 58);
+        const px0 = -previewSize / 2;
+        const py0 = h / 2 - 18 - previewSize;
+        return { previewSize, px0, py0 };
+    }
+
+    private drawSwatchFrame(g: Graphics, skin: Skin, w: number, h: number): void {
         const selected = skin.id === this.currentId;
         g.fillColor = new Color(24, 28, 40, 255);
         g.roundRect(-w / 2, -h / 2, w, h, 14);
@@ -123,12 +138,6 @@ export class SkinPanel extends Component {
         g.strokeColor = selected ? new Color(120, 200, 255, 255) : new Color(70, 84, 110, 255);
         g.roundRect(-w / 2, -h / 2, w, h, 14);
         g.stroke();
-        if (redraw) {
-            const previewSize = w - 28;
-            const px0 = -previewSize / 2;
-            const py0 = h / 2 - 22 - previewSize;
-            this.drawMiniBoard(g, skin, px0, py0, previewSize);
-        }
     }
 
     /** 画 4×4 迷你盘面：外框 + 交错填充几块方块，呈现该皮肤的底色/方块风格。 */
@@ -199,10 +208,24 @@ export class SkinPanel extends Component {
     }
 
     close(): void {
+        if (this.closed) return;
+        this.closed = true;
+        // 立即解绑所有点击回调，避免淡出过程中再触发 pick / dim / closeX
         for (const u of this._unregs) u();
         this._unregs = [];
+        // Modal 状态立即释放，让宿主（GameController）感知到模态已关，不阻塞拖拽等输入
         Modal.close();
-        this.node.destroy();
+        // 与 show() 的开屏动画对称的关屏动画：0.14s 比开屏稍快，让"切换皮肤"的反馈紧凑
+        if (Motion.reduced || !this.node.isValid) {
+            this.node.destroy();
+            return;
+        }
+        const op = this.node.getComponent(UIOpacity) || this.node.addComponent(UIOpacity);
+        const self = this.node;
+        tween(op).to(0.14, { opacity: 0 }, { easing: 'cubicIn' }).start();
+        tween(self).to(0.14, { scale: new Vec3(0.94, 0.94, 1) }, { easing: 'cubicIn' })
+            .call(() => { if (self.isValid) self.destroy(); })
+            .start();
     }
 
     onDestroy(): void {

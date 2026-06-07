@@ -9,7 +9,7 @@ import { DockBlock, GameEvent, Skin, ClearResult, ClearReason, GameMode, NearMis
 import { getMode, ModeDef } from './modes';
 import { Rng, defaultRng } from './rng';
 import { generateDock, SpawnOptions } from './spawn';
-import { computeClearScore } from './scoring';
+import { computeClearScore, deriveNextComboCount } from './scoring';
 import { getSkin, DEFAULT_SKIN_ID } from './skins';
 import { BOARD_SIZE, DEFAULT_SCORING, ScoringConfig } from './config';
 import { Wallet } from './economy';
@@ -57,6 +57,17 @@ export class GameModel {
     modeDef: ModeDef;
     /** 本局已复活次数（供变现/难度调控参考） */
     reviveCount = 0;
+    /** Combo 链（时间维度，**带 grace 窗口**）—— 当前 combo 已累计的清线次数（粉色爱心 ♥N）。
+     *  - 清线 → 按 grace 窗口判定：gap<grace → +1；gap≥grace → 重启=1
+     *  - 未清 → 不变（仅累加 roundsSinceLastClear；下次清线判定）
+     *  与「空间维度单手多消」`result.count` 完全独立。详见
+     *  docs/product/CLEAR_SCORING.md §〇 术语权威。 */
+    comboCount = 0;
+    /** 距上次清线的未清步数（Infinity 表示尚未启动 combo 或 reset 后）。 */
+    roundsSinceLastClear = Number.POSITIVE_INFINITY;
+    /** @deprecated 旧字段名 clearStreak —— 现已等同 comboCount（grace 窗口模型）。 */
+    get clearStreak(): number { return this.comboCount; }
+    set clearStreak(v: number) { this.comboCount = Math.max(0, Math.floor(Number(v) || 0)); }
 
     private rng: Rng;
     private scoring: ScoringConfig;
@@ -126,6 +137,16 @@ export class GameModel {
         };
     }
 
+    /**
+     * 开新局（重新初始化）—— 强契约：
+     *   - `score` 必为 0；
+     *   - `best` 保持不变（持久 PB，跨局延续）；
+     *   - 所有派生态（gameOver / freeze / reviveCount / undoStack）清零；
+     *   - 候选区 refill 后广播一次 'dock' + 一次 score=0 的 'score'，UI 据此重置。
+     *
+     * 注意：'score' 事件即便 delta=0 也必须广播一次（绕过 addScore 的早返），
+     * 否则 HUD 中可能残留上一局的 tween 末态分数（"重新初始化时得分不为 0"的常见根因之一）。
+     */
     newGame(): void {
         this.grid.clear();
         this.score = 0;
@@ -176,13 +197,30 @@ export class GameModel {
         const result = this.grid.checkLines(this.skin.blockIcons);
         if (result.count > 0) {
             const perfectClear = this.grid.getFillRatio() === 0;
-            const { clearScore } = computeClearScore(
+            /* Combo (grace 窗口模型) —— 按 deriveNextComboCount 推导；与 web 主局完全同源。 */
+            this.comboCount = deriveNextComboCount(
+                this.comboCount,
+                this.roundsSinceLastClear,
+                true,
+                this.scoring.comboMultiplier,
+            );
+            this.roundsSinceLastClear = 0;
+            const { clearScore, comboMultiplier } = computeClearScore(
                 { count: result.count, bonusLines: result.bonusLines, perfectClear },
                 this.scoring,
+                this.comboCount,
             );
             this.addScore(clearScore);
             this.wallet.earn(result.count * COINS_PER_LINE + (perfectClear ? COINS_PERFECT : 0));
-            this.emit({ type: 'clear', result, clearScore, perfectClear, reason: 'line' });
+            this.emit({
+                type: 'clear', result, clearScore, perfectClear, reason: 'line',
+                comboCount: this.comboCount, comboMultiplier,
+            });
+        } else {
+            /* 未清线 → 累加 grace 计数；comboCount 不归零（由下次清线判定） */
+            this.roundsSinceLastClear = (this.roundsSinceLastClear === Number.POSITIVE_INFINITY)
+                ? Number.POSITIVE_INFINITY
+                : this.roundsSinceLastClear + 1;
         }
 
         if (this.dock.every((b) => b.placed)) {
@@ -190,12 +228,26 @@ export class GameModel {
             this.emit({ type: 'dock', blocks: this.dock });
         }
 
-        if (result.count === 0) this.detectNearMiss();
+        if (result.count === 0) {
+            const placedCells: Array<{ x: number; y: number }> = [];
+            for (let r = 0; r < block.shape.length; r++) {
+                for (let c = 0; c < block.shape[r].length; c++) {
+                    if (block.shape[r][c]) placedCells.push({ x: gx + c, y: gy + r });
+                }
+            }
+            this.detectNearMiss(placedCells);
+        }
         this.checkGameOver();
         return true;
     }
 
-    /** 撤销上一步（消耗由调用方扣费）。返回是否成功。 */
+    /**
+     * 撤销上一步（消耗由调用方扣费）。返回是否成功。
+     *
+     * 仅回滚 `grid` / `dock` / `score` / `gameOver`，**不** 回滚 `best`：
+     *   - 新语义下 `best` 本来就只在结算时提交，run 内不会被抬升 → 撤销时 best 仍是上局的真 PB；
+     *   - 历史上若 best 已被错误抬升的旧存档，撤销保留旧 best 也是符合"PB 单调不降"惯例的稳态。
+     */
     undo(): boolean {
         const snap = this.undoStack.pop();
         if (!snap) return false;
@@ -204,6 +256,7 @@ export class GameModel {
         this.score = snap.score;
         this.gameOver = false;
         this.emit({ type: 'dock', blocks: this.dock });
+        // 必须广播（即便 delta=0）：HUD 据此把"score 数字 + 滚动 tween"回滚到撤销后的真值。
         this.emit({ type: 'score', score: this.score, delta: 0 });
         return true;
     }
@@ -298,33 +351,57 @@ export class GameModel {
             return;
         }
         this.gameOver = true;
-        if (this.score > this.best) this.best = this.score;
+        this.commitBestOnGameOver();
         this.emit({ type: 'gameover', score: this.score, best: this.best });
+    }
+
+    /**
+     * PB 提交时机（对齐 web `endGame`）：只在真正"本局结算"那一刻把 `best` 与 `score` 比较抬升。
+     *
+     * 历史 bug：旧实现把 `if (score > best) best = score` 放到 `addScore` 里 → 每次落子/消行
+     * 都实时抬升 best；配合 `save()` 把 `Storage.best` 也同步刷新，导致：
+     *   1) 冲到 200 → 用"撤销"回到 100 → 临终 100 但 PB 永久记 200（撤销可刷分）
+     *   2) 冲到 200 → bomb/rainbow 一通操作后又被消耗回低分 → PB 同样虚高
+     *   3) 跨设备 cloudSync 推上去的 best 也是这种虚高值
+     *
+     * 现行语义：在 run 内 `best` 始终保持"上局结束时的真 PB"，HUD 也据此显示；只有 `gameover`/
+     * `endByTime` 真正结算时才比较 `score`→`best` 并落 Storage。这与 `prevBest`（startGame 时
+     * 抓拍）+ `score > prevBest && score > 0 → newBest` 的庆祝逻辑严格自洽。
+     */
+    private commitBestOnGameOver(): void {
+        if (this.score > this.best) this.best = this.score;
     }
 
     private addScore(delta: number): void {
         if (delta === 0) return;
         const scaled = Math.round(delta * this.modeDef.scoreMul);
         this.score += scaled;
-        if (this.score > this.best) this.best = this.score;
+        // 注意：这里不再 ratchet `best`。PB 只在 commitBestOnGameOver / endByTime 一次性结算时提交。
         this.emit({ type: 'score', score: this.score, delta: scaled });
     }
 
-    /** 探测「差一格即可消行」的近满线（near-miss 体感反馈）。 */
-    private detectNearMiss(): void {
+    /**
+     * 探测「差一格即可消行」的近满线，连同本次落子格子与最大填充率抛给渲染端。
+     * 展示与否的体感/控频判定（落子绑定、挫败门槛、单局上限、冷却等）由 GameController
+     * 用 `shouldShowNearMiss` 决策，严格对齐 web `shouldShowNearMissPlaceFeedback`。
+     */
+    private detectNearMiss(placedCells: Array<{ x: number; y: number }>): void {
         const n = this.grid.size;
         const lines: NearMissLine[] = [];
+        let maxLineFill = 0;
         for (let y = 0; y < n; y++) {
             let filled = 0;
             for (let x = 0; x < n; x++) if (this.grid.cells[y][x] !== null) filled++;
+            if (filled / n > maxLineFill) maxLineFill = filled / n;
             if (filled === n - 1) lines.push({ kind: 'row', idx: y });
         }
         for (let x = 0; x < n; x++) {
             let filled = 0;
             for (let y = 0; y < n; y++) if (this.grid.cells[y][x] !== null) filled++;
+            if (filled / n > maxLineFill) maxLineFill = filled / n;
             if (filled === n - 1) lines.push({ kind: 'col', idx: x });
         }
-        if (lines.length > 0) this.emit({ type: 'nearmiss', lines });
+        if (lines.length > 0) this.emit({ type: 'nearmiss', lines, placedCells, maxLineFill });
     }
 
     /**
@@ -387,11 +464,11 @@ export class GameModel {
         return true;
     }
 
-    /** 限时模式时间到：强制结束本局。 */
+    /** 限时模式时间到：强制结束本局。PB 在此一次性提交（与 checkGameOver 同走 commitBestOnGameOver）。 */
     endByTime(): void {
         if (this.gameOver) return;
         this.gameOver = true;
-        if (this.score > this.best) this.best = this.score;
+        this.commitBestOnGameOver();
         this.emit({ type: 'gameover', score: this.score, best: this.best });
     }
 
@@ -416,7 +493,7 @@ export class GameModel {
         best?: number;
         skinId?: string;
         gameOver?: boolean;
-        wallet?: { coins?: number };
+        wallet?: object;
         freezeActive?: boolean;
     } | null): boolean {
         if (!data || !data.grid || !Array.isArray(data.dock)) return false;
@@ -426,7 +503,7 @@ export class GameModel {
         this.best = Math.max(this.best, data.best ?? 0);
         if (data.skinId) this.skin = getSkin(data.skinId);
         this.gameOver = data.gameOver ?? false;
-        this.wallet.fromJSON(data.wallet ?? null);
+        this.wallet.fromJSON((data.wallet as never) ?? null);
         this.freezeActive = data.freezeActive ?? false;
         this.undoStack = [];
         return true;

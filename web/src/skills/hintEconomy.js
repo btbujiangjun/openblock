@@ -32,6 +32,32 @@ import { enterAim, exitAim, isAiming } from './aimManager.js';
 
 const SKILL_ID = 'hint-quick';
 
+/* v10.16.7：暴露给 game.js startDrag 直接探测的"是否处于 hint 瞄准模式 + 触发"接口。
+ *
+ * 为什么不能只依赖 dock 上的 capture 监听？
+ *   - `game.js` 在支持 PointerEvent 的浏览器/触屏上把 startDrag 注册成
+ *     **dock-block 子元素 canvas 的 `pointerdown` listener**。
+ *   - 现实中事件传播顺序受到 PointerCapture / passive listener / Capacitor
+ *     WebView 等因素干扰，dock 上的 capture pointerdown 偶发性"晚于" canvas
+ *     上的 pointerdown 直接触发，导致 startDrag 抢先执行，候选区随即进入
+ *     拖拽态（canvas 透明度 0.3，body.block-drag-active），随后晚到的 capture
+ *     处理器又 exitAim + block-drag-active 立刻隐藏高亮，外观上表现为
+ *     「点击候选块没推荐、反而失去激活」。
+ *   - 把判定逻辑下沉到 startDrag 入口，是釜底抽薪的写法：startDrag 看到
+ *     正在 hint 瞄准就转交给 hintEconomy 处理，不再启动拖拽。
+ */
+export function isHintAiming() {
+    return isAiming(SKILL_ID);
+}
+
+export function consumeHintAimAt(blockIdx) {
+    if (!isAiming(SKILL_ID)) return false;
+    _triggerHint(blockIdx);
+    exitAim(SKILL_ID);
+    refreshSkillBar();
+    return true;
+}
+
 let _game = null;
 let _audio = null;
 let _hintActive = null;     // { gx, gy, shape, color, ttl }
@@ -46,6 +72,12 @@ export function initHintEconomy({ game, audio = null } = {}) {
 
     _installAimListener();
     _installRendererHook(game);
+
+    /* v10.16.7：暴露到 window，供 game.js 的 startDrag 探测瞄准状态并截留点击。
+     * 避免 game.js 反向 import hintEconomy 造成循环依赖。 */
+    if (typeof window !== 'undefined') {
+        window.__hintEconomy = { isHintAiming, consumeHintAimAt };
+    }
 
     registerSkill({
         id: SKILL_ID,
@@ -235,26 +267,82 @@ function _drawHintOverlay(r) {
     if (performance.now() > _hintActive.ttl) return;
     const cs = r.cellSize;
     const ctx = r.fxCtx;
-    ctx.save();
-    const phase = (performance.now() / 350) % 1;
-    const alpha = 0.30 + 0.20 * Math.sin(phase * Math.PI * 2);
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#FFD160';
-    ctx.strokeStyle = '#FFA000';
-    ctx.lineWidth = 2.5;
     const sh = _hintActive.shape;
     const gx = _hintActive.gx;
     const gy = _hintActive.gy;
+    const pad = Math.max(2, Math.round(cs * 0.08));
+    const radius = Math.max(3, Math.round(cs * 0.18));
+    const phase = (performance.now() / 600) % 1;
+    const pulse = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2);   // 0..1
+
+    const roundRect = (x, y, w, h, rad) => {
+        const rr = Math.min(rad, w / 2, h / 2);
+        if (typeof ctx.roundRect === 'function') {
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, rr);
+            return;
+        }
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+    };
+
+    const cells = [];
     for (let y = 0; y < sh.length; y++) {
-        for (let x = 0; x < sh[y].length; x++) {
+        for (let x = 0; x < (sh[y] ? sh[y].length : 0); x++) {
             if (sh[y][x]) {
-                const px = (gx + x) * cs + 2;
-                const py = (gy + y) * cs + 2;
-                ctx.fillRect(px, py, cs - 4, cs - 4);
-                ctx.strokeRect(px, py, cs - 4, cs - 4);
+                cells.push({
+                    px: (gx + x) * cs + pad,
+                    py: (gy + y) * cs + pad,
+                    w: cs - pad * 2,
+                    h: cs - pad * 2,
+                });
             }
         }
     }
+    if (!cells.length) return;
+
+    ctx.save();
+
+    /* 1) 外发光底：脉动的金色光晕，强对比兜底——任何皮肤背景下都能跳出来 */
+    ctx.save();
+    ctx.shadowColor = '#FFC107';
+    ctx.shadowBlur = (cs * 0.55) * (0.6 + 0.4 * pulse);
+    ctx.fillStyle = `rgba(255, 193, 7, ${0.85})`;
+    for (const c of cells) {
+        roundRect(c.px, c.py, c.w, c.h, radius);
+        ctx.fill();
+    }
+    ctx.restore();
+
+    /* 2) 实心金色填充（近不透明，确保肉眼可见，不再依赖弱 alpha） */
+    ctx.globalAlpha = 0.62 + 0.20 * pulse;   // 0.62..0.82
+    ctx.fillStyle = '#FFD54A';
+    for (const c of cells) {
+        roundRect(c.px, c.py, c.w, c.h, radius);
+        ctx.fill();
+    }
+
+    /* 3) 双层描边：深色外缘 + 高亮内缘，强化与背景的边界 */
+    ctx.globalAlpha = 1;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(120, 72, 0, 0.95)';
+    ctx.lineWidth = Math.max(3, cs * 0.10);
+    for (const c of cells) {
+        roundRect(c.px, c.py, c.w, c.h, radius);
+        ctx.stroke();
+    }
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.75 + 0.25 * pulse})`;
+    ctx.lineWidth = Math.max(1.5, cs * 0.045);
+    for (const c of cells) {
+        roundRect(c.px, c.py, c.w, c.h, radius);
+        ctx.stroke();
+    }
+
     ctx.restore();
 }
 

@@ -28,7 +28,8 @@
 **Web / 微信小程序对局**的消行得分由 `computeClearScore()` 统一计算；实现见 `web/src/clearScoring.js`，`web/src/game.js` 再导出，小程序镜像为 `miniprogram/core/bonusScoring.js`。规则见 **[消行计分规则](../product/CLEAR_SCORING.md)**：
 
 - 基础分：`baseScore = baseUnit × c²`，其中 `baseUnit = scoring.singleLine`，默认 20；`c` 为本次消除行列总数。
-- 同 icon / 同色 bonus：`clearScore = baseScore + baseUnit × c × b × 4`；`b` 为 bonus 线条数；若所有消除线均为 bonus，则等价于 `5 × baseScore`。
+- 同 icon / 同色 bonus：`subtotal = baseScore + baseUnit × c × b × 4`；`b` 为 bonus 线条数；若所有消除线均为 bonus，则等价于 `5 × baseScore`。
+- 连击倍数（v1.66+）：`clearScore = subtotal × perfectMult × comboMult`；`comboMult` 由 `_clearStreak`（连续触发消行的落子数）推导，默认 ≥ 3 连 ×2 cap。RL/无头模拟器同步累乘，奖励信号无需额外 shaping。详见 [§3bis](../product/CLEAR_SCORING.md#三-bis连击倍数combo-multiplier--v166)。
 
 **Python RL 模拟器** `rl_pytorch/simulator.py`、`rl_mlx/simulator.py` 的**盘面分数增量**与上述公式对齐：`baseUnit` 取 `scoring.singleLine`；bonus 线由 `Grid.check_lines()` 返回的 `bonus_lines` 计数，与 Web `Grid.checkLines()` 的 `bonusLines` 语义一致。`multiLine` / `combo` 仍保留在 `shared/game_rules.json` 中以便兼容旧配置，但**不再用于**消行得分计算。
 

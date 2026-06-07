@@ -81,15 +81,33 @@ function nodeHit(node: Node, uit: UITransform, screenPt: Vec2, uiPt: Vec2): bool
     return hw > 0 && hh > 0 && Math.abs(p.x) <= hw && Math.abs(p.y) <= hh;
 }
 
-/** 引擎 Button.CLICK（节点级命中），原生 iOS 比纯 TapBus 更可靠；与 TapBus 可并存。 */
+/** 引擎 Button.CLICK（节点级命中），原生 iOS 比纯 TapBus 更可靠；与 TapBus 可并存。
+ *  与 TapBus 共用 `shouldDedupeTap`，避免同一次点击被双通道分发两次。 */
 export function bindEngineClick(node: Node, onClick: () => void): () => void {
     const btn = node.getComponent(Button) || node.addComponent(Button);
     btn.transition = Button.Transition.NONE;
     btn.interactable = true;
     btn.target = node;
-    const handler = () => onClick();
+    const handler = () => { if (!shouldDedupeTap(node)) onClick(); };
     node.on(Button.EventType.CLICK, handler, node);
     return () => node.off(Button.EventType.CLICK, handler, node);
+}
+
+/**
+ * 命中后跨"通道"去重：同一节点在 TAP_DEDUPE_MS 内重复触发只算一次。
+ * 避免 TapBus(global input) + Button.CLICK(engine) 双通道叠加，
+ * 或 START+END 两阶段同时分发，导致技能扣两次币 / 按钮触发两次。
+ */
+const TAP_DEDUPE_MS = 320;
+const _lastFireTs = new WeakMap<Node, number>();
+
+/** 仅供 PillButton / TapBus 等内部使用：判定本次触发是否需要被去重忽略。 */
+export function shouldDedupeTap(node: Node): boolean {
+    const now = Date.now();
+    const last = _lastFireTs.get(node) ?? 0;
+    if (now - last < TAP_DEDUPE_MS) return true;
+    _lastFireTs.set(node, now);
+    return false;
 }
 
 export const TapBus = {
@@ -104,6 +122,7 @@ export const TapBus = {
     },
     /**
      * 命中分发：`isHit(ui)` / `hitTest(screen)` / 手算 AABB 任一命中即触发（原生端坐标系差异大）。
+     * 命中后做"短时去重"，避免 START+END 双阶段或 TapBus+Button 双通道导致同一次点击执行两次。
      */
     hit(screenX: number, screenY: number, uiX: number, uiY: number): boolean {
         const screenPt = new Vec2(screenX, screenY);
@@ -115,16 +134,43 @@ export const TapBus = {
             const uit = node.getComponent(UITransform);
             if (!uit) continue;
             if (nodeHit(node, uit, screenPt, uiPt)) {
+                if (shouldDedupeTap(node)) return true;
                 t.onTap();
                 return true;
             }
         }
         return false;
     },
+    /**
+     * 纯命中探测：与 `hit` 用同一套命中测试，但**不触发 onTap、不去重**——仅回答
+     * 「这次点击是否落在某个可交互目标上」。供 GameController 的「泄漏守卫兜底」判断
+     * 一次被守卫拦住的点击究竟是落在合法弹窗按钮/遮罩上（合法交互、不该恢复），
+     * 还是落在死区（疑似僵尸守卫态、可恢复）。
+     */
+    probe(screenX: number, screenY: number, uiX: number, uiY: number): boolean {
+        const screenPt = new Vec2(screenX, screenY);
+        const uiPt = new Vec2(uiX, uiY);
+        for (let i = _tapTargets.length - 1; i >= 0; i--) {
+            const t = _tapTargets[i];
+            const node = t.node;
+            if (!node || !node.isValid || !node.activeInHierarchy) continue;
+            const uit = node.getComponent(UITransform);
+            if (!uit) continue;
+            if (nodeHit(node, uit, screenPt, uiPt)) return true;
+        }
+        return false;
+    },
     reset(): void { _tapTargets.length = 0; },
 };
 
-export function dimBg(parent: Node, w = 1400, h = 2200, alpha = 170): Node {
+/**
+ * 模态遮罩：全屏暗底，挡住盘面，避免弹窗背后盘面透出造成画面混乱。
+ * web 标准弹窗用 `rgba(0,0,0,0.55)`，但 web 盘面是浅色棋盘，0.55 已足够「压住」背景；
+ * cocos 盘面是深色 + 高饱和方块，0.55 下亮色方块仍会透出 → 视觉混乱，故这里用更高不透明度
+ * （alpha 230 ≈ 0.9）以达到与 web 一致的「弹窗时盘面不干扰」观感。
+ * 默认尺寸 2000×3000，确保 FIXED_WIDTH 超高屏上也铺满，避免盘面从遮罩边缘透出。
+ */
+export function dimBg(parent: Node, w = 2000, h = 3000, alpha = 230): Node {
     const n = new Node('dim');
     n.parent = parent;
     inheritLayer(n, parent);

@@ -65,6 +65,32 @@ export class Grid {
         return { x: sxa / n, y: sya / n };
     }
 
+    /**
+     * 由 ghost **视觉中心**在棋盘的浮点格坐标 `(aimCx, aimCy)` 推算形状的左上角锚点 `(anchorX, anchorY)`。
+     *
+     * ⚠️ cocos vs web 架构差异（必读，避免再次踩坑回归到 floor 公式）：
+     *   - web 端：ghost（DOM canvas 跟手）与落点 preview（grid 上画的半透明）解耦渲染。
+     *     用户看 preview 决定 release 位置，所以 ghost 视觉是否与 cell 对齐不要紧 → floor 公式 OK。
+     *   - cocos 端：ghost **就是** preview（单层渲染，避免「两个方块」视觉撕裂）→ 必须严格一致：
+     *     ghost 视觉覆盖哪些 cell，release 就必须落到那些 cell。否则用户"明明对准了"却 canPlace 失败。
+     *
+     * 正确公式：`round(aim - w/2)` —— 把 ghost 的左边缘 round 到最近整格边界。等价于 `Math.round`。
+     *   例（w=2, aim=4.5, ghost 视觉覆盖列 4-5）：round(3.5) = 4 → block 落 4,5 ✓ 与 ghost 视觉一致
+     *   例（w=2, aim=4.0）：round(3.0) = 3 → block 落 3,4（左偏定锚，与 ghost 中心刚好重合）
+     *   例（w=3, aim=4.5, ghost 视觉覆盖列 3-5）：round(3.0) = 3 → block 落 3,4,5 ✓
+     *
+     * 历史教训：曾试图用 floor 公式对齐 web，但 cocos 单层渲染下导致偶宽块在 .5 小数时
+     * ghost 视觉 vs 落点错位 1 格 —— 用户拖到"目标位置"释放却失败（canPlace=false）。
+     */
+    static naiveAnchorFromAim(shape: ShapeMatrix, aimCx: number, aimCy: number): { anchorX: number; anchorY: number } {
+        const w = shape[0]?.length ?? 0;
+        const h = shape.length;
+        return {
+            anchorX: Math.round(aimCx - w / 2),
+            anchorY: Math.round(aimCy - h / 2),
+        };
+    }
+
     place(shape: ShapeMatrix, colorIdx: number, gx: number, gy: number): void {
         for (let y = 0; y < shape.length; y++) {
             for (let x = 0; x < shape[y].length; x++) {
@@ -142,7 +168,7 @@ export class Grid {
         for (const y of fullRows) for (let x = 0; x < this.size; x++) this.cells[y][x] = null;
         for (const x of fullCols) for (let y = 0; y < this.size; y++) this.cells[y][x] = null;
 
-        return { count: fullRows.length + fullCols.length, cells: clearedCells, bonusLines };
+        return { count: fullRows.length + fullCols.length, cells: clearedCells, bonusLines, rows: fullRows, cols: fullCols };
     }
 
     hasAnyMove(blocks: DockBlock[]): boolean {
@@ -166,35 +192,70 @@ export class Grid {
         return false;
     }
 
+    /**
+     * 零分配地判定「在 (gx,gy) 落下 shape 后变满的整行/整列」，结果写入实例级 scratch 数组。
+     *
+     * 性能要点（拖拽热路径，pickSmartHoverPlacement 每 move 调用 25-49 次）：
+     *   - 不再 `this.cells.map((row) => [...row])` 复制整盘（旧实现每候选一次 8×8 深拷贝）；
+     *   - 「某格落子后是否被填」= 原本非空 OR 被 shape 覆盖，inline 判定，无临时棋盘；
+     *   - 与旧实现严格等价：对每行/每列逐格检查 `cells[y][x] !== null || shapeCovers(x,y)`。
+     * 调用方需在下一次调用前消费完 `_clRows` / `_clCols`（单线程同步，天然安全）。
+     */
+    private _clRows: number[] = [];
+    private _clCols: number[] = [];
+    private fillFullLines(shape: ShapeMatrix, gx: number, gy: number): void {
+        const size = this.size;
+        const cells = this.cells;
+        const rows = this._clRows; rows.length = 0;
+        const cols = this._clCols; cols.length = 0;
+        const sh = shape.length;
+        for (let y = 0; y < size; y++) {
+            const sy = y - gy;
+            const srow = sy >= 0 && sy < sh ? shape[sy] : null;
+            let full = true;
+            for (let x = 0; x < size; x++) {
+                if (cells[y][x] !== null) continue;
+                if (srow && srow[x - gx]) continue;
+                full = false; break;
+            }
+            if (full) rows.push(y);
+        }
+        for (let x = 0; x < size; x++) {
+            let full = true;
+            for (let y = 0; y < size; y++) {
+                if (cells[y][x] !== null) continue;
+                const sy = y - gy;
+                const srow = sy >= 0 && sy < sh ? shape[sy] : null;
+                if (srow && srow[x - gx]) continue;
+                full = false; break;
+            }
+            if (full) cols.push(x);
+        }
+    }
+
     previewClearOutcome(shape: ShapeMatrix, gx: number, gy: number, colorIdx: number): PreviewOutcome | null {
         if (!this.canPlace(shape, gx, gy)) return null;
-        const temp = this.cells.map((row) => [...row]);
-        for (let y = 0; y < shape.length; y++) {
-            for (let x = 0; x < shape[y].length; x++) {
-                if (shape[y][x]) temp[gy + y][gx + x] = colorIdx;
-            }
-        }
-        const rows: number[] = [];
-        const cols: number[] = [];
-        for (let y = 0; y < this.size; y++) {
-            if (temp[y].every((c) => c !== null)) rows.push(y);
-        }
-        for (let x = 0; x < this.size; x++) {
-            let colFull = true;
-            for (let y = 0; y < this.size; y++) {
-                if (temp[y][x] === null) { colFull = false; break; }
-            }
-            if (colFull) cols.push(x);
-        }
-        const set: Record<string, boolean> = {};
+        this.fillFullLines(shape, gx, gy);
+        const rows = this._clRows.slice();
+        const cols = this._clCols.slice();
+        const size = this.size;
+        // 受影响格颜色 = 原本非空取原值，否则为本次落子色（covered 格）。
+        const colorAt = (x: number, y: number): number => {
+            const v = this.cells[y][x];
+            return v !== null ? v : colorIdx;
+        };
+        // 用小布尔表标记满行，避免字符串 key Set 做行列交集去重（size≤8，开销可忽略）。
+        const rowFull: boolean[] = [];
+        for (const y of rows) rowFull[y] = true;
         const cells: PreviewOutcome['cells'] = [];
-        for (const y of rows) for (let x = 0; x < this.size; x++) {
-            const k = `${x},${y}`;
-            if (!set[k]) { set[k] = true; cells.push({ x, y, color: temp[y][x] }); }
+        for (const y of rows) {
+            for (let x = 0; x < size; x++) cells.push({ x, y, color: colorAt(x, y) });
         }
-        for (const x of cols) for (let y = 0; y < this.size; y++) {
-            const k = `${x},${y}`;
-            if (!set[k]) { set[k] = true; cells.push({ x, y, color: temp[y][x] }); }
+        for (const x of cols) {
+            for (let y = 0; y < size; y++) {
+                if (rowFull[y]) continue;
+                cells.push({ x, y, color: colorAt(x, y) });
+            }
         }
         return { rows, cols, cells };
     }
@@ -226,9 +287,14 @@ export class Grid {
                 if (!this.canPlace(shape, gx, gy)) continue;
                 const com = Grid.shapeCenterOnBoard(shape, gx, gy);
                 const distSq = (com.x - aimCx) ** 2 + (com.y - aimCy) ** 2;
-                const outcome = this.previewClearOutcome(shape, gx, gy, opts.colorIdx ?? 0);
-                const clearLines = (outcome?.rows?.length || 0) + (outcome?.cols?.length || 0);
-                const clearCells = outcome?.cells?.length || 0;
+                // 零分配计数：满行 rl + 满列 cl；受影响格数按容斥 = rl*size + cl*size - rl*cl
+                // （满行满列交点被两次计入，交点数 = rl*cl）。等价于旧 previewClearOutcome 的 cells.length，
+                // 但无 8×8 深拷贝、无字符串 key Set —— 这是拖拽 hover 每帧 25-49 次调用的关键省点。
+                this.fillFullLines(shape, gx, gy);
+                const rl = this._clRows.length;
+                const cl = this._clCols.length;
+                const clearLines = rl + cl;
+                const clearCells = rl * this.size + cl * this.size - rl * cl;
                 candidates.push({ x: gx, y: gy, distSq, clearLines, clearCells });
                 if (distSq < nearestDist) nearestDist = distSq;
             }

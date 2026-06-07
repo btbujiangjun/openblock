@@ -55,6 +55,9 @@ const {
   ICON_BONUS_LINE_MULT,
   PERFECT_CLEAR_MULT,
   computeClearScore,
+  deriveComboMultiplier,
+  deriveNextComboCount,
+  isComboBroken,
   detectBonusLines,
   monoNearFullLineColorWeights,
   pickThreeDockColors,
@@ -101,11 +104,13 @@ describe('miniprogram core parity', () => {
       baseScore: 20,
       iconBonusScore: 0,
       clearScore: 20,
+      comboMultiplier: 1,
     });
     expect(computeClearScore('normal', { count: 2, bonusLines: [{ type: 'row', idx: 0 }] })).toEqual({
       baseScore: 80,
       iconBonusScore: 160,
       clearScore: 240,
+      comboMultiplier: 1,
     });
     expect(computeClearScore('normal', {
       count: 2,
@@ -115,7 +120,39 @@ describe('miniprogram core parity', () => {
       baseScore: 80,
       iconBonusScore: 160,
       clearScore: 2400,
+      comboMultiplier: 1,
     });
+  });
+
+  it('combo multiplier parity: comboCount=3 ×2 与 web 主局公式一致（小程序镜像）', () => {
+    expect(deriveComboMultiplier(2)).toBe(1);
+    expect(deriveComboMultiplier(3)).toBe(2);
+    expect(deriveComboMultiplier(5)).toBe(2);
+    const r = computeClearScore('normal', { count: 2, bonusLines: [{ type: 'row', idx: 0 }] }, undefined, 3);
+    expect(r.clearScore).toBe(480);
+    expect(r.comboMultiplier).toBe(2);
+  });
+
+  it('combo grace 窗口 parity: 用户示例与 web 主局完全同口径（小程序镜像）', () => {
+    // 100 清 → 1; 101/102 未清; 103 清 → 2; 104/105 未清; 106 清 → 3
+    let combo = 0, gap = Number.POSITIVE_INFINITY;
+    combo = deriveNextComboCount(combo, gap, true); gap = 0;
+    expect(combo).toBe(1);
+    combo = deriveNextComboCount(combo, gap, false); gap++;
+    combo = deriveNextComboCount(combo, gap, false); gap++;
+    combo = deriveNextComboCount(combo, gap, true); gap = 0;
+    expect(combo).toBe(2);
+    combo = deriveNextComboCount(combo, gap, false); gap++;
+    combo = deriveNextComboCount(combo, gap, false); gap++;
+    combo = deriveNextComboCount(combo, gap, true); gap = 0;
+    expect(combo).toBe(3);
+
+    // 4 步未清 → 待断；下次清线重置为 1
+    let combo2 = 1, gap2 = 0;
+    for (let i = 0; i < 4; i++) { combo2 = deriveNextComboCount(combo2, gap2, false); gap2++; }
+    expect(isComboBroken(gap2)).toBe(true);
+    combo2 = deriveNextComboCount(combo2, gap2, true);
+    expect(combo2).toBe(1);
   });
 
   it('detects same icon bonus lines before clearing', () => {

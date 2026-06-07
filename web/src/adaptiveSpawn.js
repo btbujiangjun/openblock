@@ -40,7 +40,8 @@ import { pickByPlatform } from './config/platformProfile.js';
 import {
     getSpawnStressFromScore,
     getRunDifficultyModifiers,
-    resolveLayeredStrategy
+    resolveLayeredStrategy,
+    deriveEffectivePb
 } from './difficulty.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { analyzeBoardTopology } from './boardTopology.js';
@@ -2116,8 +2117,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     let _tuningTheta = null, _tuningSource = 'skipped';
     if (ctx.tuningV2Context) {
         try {
-            // 动态 import 避免循环 (adaptiveSpawn 是底层, clientPolicyV2 是上层)
-            const mod = (typeof window !== 'undefined') ? window.__openblockClientPolicyV2 : null;
+            // 动态 import 避免循环 (adaptiveSpawn 是底层, clientPolicyV2 是上层)。
+            // globalThis 优先：Web/小程序设 window 也设 globalThis；Cocos 原生(jsb)/部分小游戏
+            // 运行时无 window，但 globalThis 恒可用，故以 globalThis 兜底保证各端都能取到策略模块。
+            const _g = (typeof globalThis !== 'undefined') ? globalThis
+                : (typeof window !== 'undefined') ? window : null;
+            const mod = _g ? _g.__openblockClientPolicyV2 : null;
             if (mod && typeof mod.resolveThetaV2 === 'function') {
                 const r = mod.resolveThetaV2(ctx.tuningV2Context);
                 _tuningTheta = r.theta;
@@ -2491,6 +2496,61 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     }
     stressBreakdown.farFromPBBoostActive = farFromPBBoostActive;
     stressBreakdown.farFromPBBoostBypass = farFromPBBoostBypass;
+
+    /* --- expertEarlyBoost：高手早期「得分机会」加速 spawnHints 加成 ---
+     *
+     * corner case：高 PB 玩家（best 很高）前期 r=score/PB 长期贴近 0，需要漫长铺垫才进
+     * 挑战区 → 前期无趣。effectivePB 压缩已在「难度坐标」上让其更快进挑战区；本块在
+     * 「得分机会」维度配套——让高手早期盘面主动多产出多消/清屏/续消机会，使真实分数
+     * 上升更快、更早穿过铺垫区，且分数是玩家自己打出来的（非系统改进度坐标）。
+     *
+     * 关键差异（与 farFromPBBoost 互补、非替代）：
+     *   - farFromPBBoost：按 raw pct=score/bestScore 在远征段（<0.30）对「所有」有 PB 的
+     *     玩家送爽；不区分 PB 高低，且高 PB 玩家在 raw 30%~挑战区之间会失去该加成。
+     *   - expertEarlyBoost：仅对高手（bestScore ≥ expertThreshold），按 effectivePB 定义的
+     *     「早期相位」（rDifficulty < earlyRampUntil）追加一档放大，把送爽窗口对齐到压缩后
+     *     的「进挑战区之前」，覆盖 raw 30%~挑战区这段 farFromPBBoost 顾不到的真空。
+     *
+     * 救济优先级与 farFromPBBoost 一致：warmup / recovery / nearMiss / postPbRelease 让位。
+     * warmup 段本就有专属友好化（clearGuarantee+2 等），形成「warmup 友好 → expertEarly
+     * 送爽 → 挑战区」的平滑接力。仅作用于 spawnHints；纪录线（derivePbCurve / challengeBoost）
+     * 不受影响。配置位于 game_rules.json adaptiveSpawn.pbChase.expertEarlyBoost。 */
+    const eebCfg = cfg.pbChase?.expertEarlyBoost ?? null;
+    let expertEarlyBoostActive = false;
+    let expertEarlyBoostBypass = null;
+    if (eebCfg && eebCfg.enabled !== false && ctx.bestScore > 0) {
+        const expertThreshold = Number.isFinite(eebCfg.expertThreshold) ? eebCfg.expertThreshold : 1200;
+        const earlyUntil = Number.isFinite(eebCfg.earlyRampUntil) ? eebCfg.earlyRampUntil : 0.45;
+        const effPb = deriveEffectivePb(ctx.bestScore, GAME_RULES.dynamicDifficulty);
+        const rDifficulty = effPb > 0 ? score / effPb : 0;
+        if (ctx.bestScore < expertThreshold) {
+            expertEarlyBoostBypass = 'not_expert';
+        } else if (rDifficulty >= earlyUntil) {
+            expertEarlyBoostBypass = 'past_early_phase';
+        } else if (sessionArc === 'warmup') {
+            expertEarlyBoostBypass = 'warmup';
+        } else if (profile.needsRecovery === true) {
+            expertEarlyBoostBypass = 'recovery';
+        } else if (profile.hadRecentNearMiss) {
+            expertEarlyBoostBypass = 'near_miss';
+        } else if (ctx.postPbReleaseActive === true) {
+            expertEarlyBoostBypass = 'post_pb_release';
+        } else {
+            expertEarlyBoostActive = true;
+            const mcbFloor = Math.max(0, Math.min(1, Number(eebCfg.multiClearBonusFloor) || 0.5));
+            const pcFloor = Math.max(0, Math.min(1, Number(eebCfg.perfectClearBoostFloor) || 0.5));
+            const cgBoost = Math.max(0, Math.min(2, Number(eebCfg.clearGuaranteeBoost) || 1));
+            multiClearBonus = Math.max(multiClearBonus, mcbFloor);
+            perfectClearBoost = Math.max(perfectClearBoost, pcFloor);
+            clearGuarantee = Math.min(3, clearGuarantee + cgBoost);
+        }
+    } else if (eebCfg && eebCfg.enabled === false) {
+        expertEarlyBoostBypass = 'config_disabled';
+    } else if (!(ctx.bestScore > 0)) {
+        expertEarlyBoostBypass = 'no_best_score';
+    }
+    stressBreakdown.expertEarlyBoostActive = expertEarlyBoostActive;
+    stressBreakdown.expertEarlyBoostBypass = expertEarlyBoostBypass;
 
     /* v1.56.4 §5.α.8 D4 spawnHints 收紧 ——
      *

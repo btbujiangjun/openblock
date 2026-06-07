@@ -28,6 +28,27 @@ export function blockColor(skin: Skin, colorIdx: number, alpha = 255): Color {
     return hexToColor(hex, alpha);
 }
 
+/**
+ * 皮肤强调色（与 web `cssVars['--accent-color']` 同源）—— 用于 HUD 得分/最佳数值上色，
+ * 让顶栏数字随皮肤主题变化（如恐龙世界=草绿、海洋=湖蓝），严格对齐 web PC 主端。
+ * cocos skins.ts 未移植 cssVars（属 DOM 主题），故在此维护一份 id→accent 映射，缺省回退 web 默认天蓝。
+ */
+const SKIN_ACCENT: Record<string, string> = {
+    classic: '#4FB8E8', titanium: '#7eb8ff', aurora: '#38D89E', neonCity: '#00E5FF',
+    ocean: '#48CAE4', sunset: '#FF8E3A', sakura: '#FF4490', koi: '#38A8B8',
+    candy: '#FF44BB', bubbly: '#CC3EF0', toon: '#AA00FF', pixel8: '#FF2050',
+    dawn: '#D98232', food: '#F09020', music: '#E040FF', pets: '#C05820',
+    universe: '#6040C8', fantasy: '#9828D8', beast: '#D8900A', greece: '#C8A010',
+    demon: '#CC1830', jurassic: '#5AC030', fairy: '#D060F0', industrial: '#D49640',
+    forbidden: '#E8B83C', mahjong: '#E0A040', boardgame: '#D49830', sports: '#4F9050',
+    outdoor: '#4FA8C8', vehicles: '#E84020', forest: '#38A878', pirate: '#C8923C',
+    farm: '#78B860', desert: '#C89438',
+};
+
+export function accentColor(skin: Skin, alpha = 255): Color {
+    return hexToColor(SKIN_ACCENT[skin.id] || '#38bdf8', alpha);
+}
+
 /** 向白色插值（对齐 web lightenColor）。 */
 export function lighten(c: Color, p: number): Color {
     return new Color(
@@ -46,6 +67,27 @@ export function darken(c: Color, p: number): Color {
         Math.max(0, Math.round(c.b * (1 - p))),
         c.a,
     );
+}
+
+/**
+ * `lighten` 的零分配变体：把结果写入 `out` 并返回 `out`，供逐格高频绘制（blockPaint）复用 scratch。
+ * 与 `lighten` 数值完全一致。
+ */
+export function lightenInto(out: Color, c: Color, p: number): Color {
+    out.r = Math.min(255, Math.round(c.r + (255 - c.r) * p));
+    out.g = Math.min(255, Math.round(c.g + (255 - c.g) * p));
+    out.b = Math.min(255, Math.round(c.b + (255 - c.b) * p));
+    out.a = c.a;
+    return out;
+}
+
+/** `darken` 的零分配变体（写入 `out` 并返回）。与 `darken` 数值完全一致。 */
+export function darkenInto(out: Color, c: Color, p: number): Color {
+    out.r = Math.max(0, Math.round(c.r * (1 - p)));
+    out.g = Math.max(0, Math.round(c.g * (1 - p)));
+    out.b = Math.max(0, Math.round(c.b * (1 - p)));
+    out.a = c.a;
+    return out;
 }
 
 /** sRGB 相对亮度（用于判定浅色盘面，对齐 web gridCellRelativeLuminance）。 */
@@ -137,12 +179,43 @@ export function blockMetrics(skin: Skin, cell: number): { inset: number; radius:
 }
 
 export function cellEmptyColor(skin: Skin, alpha = 255): Color {
-    return hexToColor(skin.gridCell, alpha);
+    // 严格对齐 web `_paintBackgroundUnder`：cell 以 `gridCell` 在 `gridOuter` 上 0.96 alpha 叠加。
+    // 由于 Cocos Graphics 不便实现"每格独立 alpha 混合"，这里把 web 的混色结果预先解算出来：
+    //   result = 0.96 * gridCell + 0.04 * gridOuter
+    // 对于 pets(浅盘) 等结果≈gridCell，几乎无可见变化；对于 universe(深盘) 同样保留接近 gridCell 的暗色。
+    // 不再用粗暴的 lighten/darken hack——黑乎乎的边由 BoardView 改成"块下垫 cellEmpty"解决，
+    // 这里只负责把颜色配置忠实地搬过来，避免和 web 端的视觉差异。
+    const cell = hexToColor(skin.gridCell, alpha);
+    const outer = hexToColor(skin.gridOuter || skin.cssBg || '#000000', alpha);
+    return new Color(
+        Math.round(cell.r * 0.96 + outer.r * 0.04),
+        Math.round(cell.g * 0.96 + outer.g * 0.04),
+        Math.round(cell.b * 0.96 + outer.b * 0.04),
+        alpha,
+    );
 }
 
 /** 盘面外框底色（对齐 web skin.gridOuter；缺省回退到背景色）。 */
-export function gridOuterColor(skin: Skin): Color {
-    return hexToColor(skin.gridOuter || skin.cssBg, 255);
+export function gridOuterColor(skin: Skin, alpha = 255): Color {
+    return hexToColor(skin.gridOuter || skin.cssBg, alpha);
+}
+
+/**
+ * 网格线颜色 —— 对齐 web renderer._paintBackgroundOver：
+ *   - skin.gridLine === false        → 该皮肤显式关闭网格线
+ *   - skin.gridLine 是字符串         → 用皮肤指定值（支持 'rgba(...)'）
+ *   - 缺省                            → 深盘更亮白线，浅盘深线；保证移动端原生屏幕上清晰分格
+ * 返回 null 表示「不要画」。
+ */
+export function gridLineColor(skin: Skin): Color | null {
+    const v = skin.gridLine;
+    if (v === false) return null;
+    if (typeof v === 'string' && v) {
+        return parseColor(v);
+    }
+    return skin.uiDark === false
+        ? new Color(15, 23, 42, 88)
+        : new Color(255, 255, 255, 118);
 }
 
 export function bgColor(skin: Skin): Color {

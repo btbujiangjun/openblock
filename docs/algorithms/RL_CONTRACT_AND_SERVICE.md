@@ -69,7 +69,7 @@
 
 1. **规则与数据**：上述 JSON。
 2. **环境（对局动力学）**：`web/src/bot/simulator.js`、`rl_pytorch/simulator.py`、`rl_mlx/simulator.py` 等实现落子、消除、得分、**每轮 dock 三色采样**；须与主游戏 `Grid` / `clearScoring` 逻辑一致。
-   - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → **`clearScoring.iconBonusLineMult`** 统一提供。训练路径不用玩家当前皮肤，icon 语义只读取 **`rlBonusScoring.blockIcons`**；为空时浏览器无头局、PyTorch、MLX 都退化为**同色整线** bonus，不再从 canonical 皮肤回退。
+   - **得分**：消行前 `detectBonusLines` → `computeClearScore`，与主局公式相同；bonus 倍率由 `shared/game_rules.json` → **`clearScoring.iconBonusLineMult`** 统一提供。**连击倍数 v1.66+**：`clearScoring.comboMultiplier`（默认 ≥ 3 连 ×2 cap）也由同一 JSON 提供，浏览器主局 / 无头模拟器 / PyTorch / MLX 用同公式 `_clear_score_gain(... combo_streak=_clear_streak)` 累乘到 `clearScore`，RL 奖励信号天然包含 combo 倍数。训练路径不用玩家当前皮肤，icon 语义只读取 **`rlBonusScoring.blockIcons`**；为空时浏览器无头局、PyTorch、MLX 都退化为**同色整线** bonus，不再从 canonical 皮肤回退。
    - **dock 染色偏置**：依据盘面近满线几何 + `rlBonusScoring` 调用 `monoNearFullLineColorWeights` / `pickThreeDockColors`（与 `web/src/bot/simulator.js` 一致）；观测 φ **不得**含 spawnHints 等出块内部状态。
    - **出块形状（v1.68+）**：
      - **浏览器 RL**（`OpenBlockSimulator`）：`resolveAdaptiveStrategy` + `generateDockShapes`，与真人规则轨一致。

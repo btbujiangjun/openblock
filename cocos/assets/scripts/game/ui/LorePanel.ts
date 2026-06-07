@@ -23,6 +23,7 @@ export class LorePanel extends Component {
     private onUse: ((id: string) => void) | null = null;
     private _unregDim: (() => void) | null = null;
     private _unregClose: (() => void) | null = null;
+    private _closed = false;
 
     static show(parent: Node, currentId: string, onUse: (id: string) => void): LorePanel {
         const root = new Node('LorePanel');
@@ -128,9 +129,11 @@ export class LorePanel extends Component {
     }
 
     close(): void {
+        if (this._closed) return;
+        this._closed = true;
         Modal.close();
         if (this._unregDim) { this._unregDim(); this._unregDim = null; }
         if (this._unregClose) { this._unregClose(); this._unregClose = null; }
-        this.node.destroy();
+        if (this.node?.isValid) this.node.destroy();
     }
 }

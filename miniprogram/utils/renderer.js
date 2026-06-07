@@ -56,6 +56,53 @@ function lighten(hex, pct) {
   return `rgb(${Math.min(255, Math.floor(c.r + (255 - c.r) * pct))},${Math.min(255, Math.floor(c.g + (255 - c.g) * pct))},${Math.min(255, Math.floor(c.b + (255 - c.b) * pct))})`;
 }
 
+/** RGB→HSL（与 web/src/renderer.js `_rgbToHsl` 同源）。 */
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  let h, s; const l = (mx + mn) / 2;
+  if (mx === mn) { h = 0; s = 0; } else {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    switch (mx) {
+      case r: h = ((g - b) / d) + (g < b ? 6 : 0); break;
+      case g: h = ((b - r) / d) + 2; break;
+      default: h = ((r - g) / d) + 4;
+    }
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+/** HSL→RGB（与 web/src/renderer.js `_hslToRgb` 同源）。 */
+function hslToRgb(h, s, l) {
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [
+    Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+    Math.round(hue2rgb(p, q, h) * 255),
+    Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+  ];
+}
+
+/** HSL 空间降饱和（与 web/src/renderer.js `desaturateColor` 同源，保留色相/明度）。 */
+function desaturateColor(hex, factor) {
+  const c = hexToRgb(hex);
+  if (!c) return hex;
+  const [h, s, l] = rgbToHsl(c.r, c.g, c.b);
+  const ns = Math.max(0, Math.min(1, s * factor));
+  const [r, g, b] = hslToRgb(h, ns, l);
+  return `rgb(${r},${g},${b})`;
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -170,7 +217,15 @@ class GameRenderer {
     this._ctx.clearRect(0, 0, c.width / this._dpr, c.height / this._dpr);
   }
 
-  /** 绘制棋盘网格背景 */
+  /**
+   * 绘制棋盘网格背景（严格对齐 web `_paintBackgroundUnder` + `_paintBackgroundOver`）：
+   *   Pass 1：outer 全屏铺底
+   *   Pass 2：对全部 8×8 格子（包括已放块的）都铺 cellEmpty 底色 —— 这一步是关键，避免
+   *           已放块的 inset 留白处露出深色 gridOuter，出现"方块四周黑乎乎一片"的观感。
+   *   Pass 3：水印
+   *   Pass 4：网格线（只画内部 7 横 7 竖，外框由 outer 圆角承担）
+   *   Pass 5：在 cellEmpty 上画方块（块默认带 blockInset 留白 → 周围正好露出 cellEmpty 色）
+   */
   drawGrid(grid, cellSize, offsetX = 0, offsetY = 0) {
     const ctx = this._ctx;
     const skin = this._skin;
@@ -179,40 +234,68 @@ class GameRenderer {
     this._cellSizeForFx = cellSize;
     this._gridLogicalSize = total;
 
-    ctx.fillStyle = skin.gridOuter || '#f2f4f1';
+    const gridCellColor = skin.gridCell || '#fbfbf7';
+    const gridOuterColor = skin.gridOuter || '#f2f4f1';
+    const gridCellRgb = hexToRgb(gridCellColor) || { r: 255, g: 255, b: 255 };
+    const gridOuterRgb = hexToRgb(gridOuterColor) || gridCellRgb;
+    const gridCellLuma = gridCellRgb.r * 0.2126 + gridCellRgb.g * 0.7152 + gridCellRgb.b * 0.0722;
+    // 严格对齐 web `isLightBoardSkin`：gridCell 相对亮度 ≥ 0.78 视为浅盘。
+    const lightBoard = (gridCellLuma / 255) >= 0.78 || skin.uiDark === false;
+    // 严格对齐 web `_paintBackgroundUnder`：cellEmpty = 0.96 * gridCell + 0.04 * gridOuter。
+    const emptyR = Math.round(gridCellRgb.r * 0.96 + gridOuterRgb.r * 0.04);
+    const emptyG = Math.round(gridCellRgb.g * 0.96 + gridOuterRgb.g * 0.04);
+    const emptyB = Math.round(gridCellRgb.b * 0.96 + gridOuterRgb.b * 0.04);
+    const emptyCellColor = `rgb(${emptyR},${emptyG},${emptyB})`;
+
+    // Pass 1：outer 圆角铺满
+    ctx.fillStyle = gridOuterColor;
     roundRect(ctx, offsetX, offsetY, total, total, 6);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.96)';
-    ctx.lineWidth = 1;
-    roundRect(ctx, offsetX + 0.5, offsetY + 0.5, total - 1, total - 1, 6);
-    ctx.stroke();
 
+    // Pass 2：所有格子都铺 cellEmpty 底色（包括已放块的）—— 消除"块周围黑边"
+    const gap = skin.gridGap ?? 1;
+    const cs = cellSize - gap * 2;
+    ctx.fillStyle = emptyCellColor;
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
-        const cx = offsetX + x * cellSize + skin.gridGap;
-        const cy = offsetY + y * cellSize + skin.gridGap;
-        const cs = cellSize - skin.gridGap * 2;
-
-        if (grid.cells[y][x] === null) {
-          ctx.fillStyle = skin.gridCell || '#fbfbf7';
-          roundRect(ctx, cx, cy, cs, cs, this._cellRadius(cs));
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(255,255,255,0.88)';
-          ctx.lineWidth = 1;
-          roundRect(ctx, cx + 0.5, cy + 0.5, cs - 1, cs - 1, Math.max(0, this._cellRadius(cs) - 0.5));
-          ctx.stroke();
-        }
+        ctx.fillRect(offsetX + x * cellSize + gap, offsetY + y * cellSize + gap, cs, cs);
       }
     }
 
+    // Pass 3：盘面水印（在底色之上、网格线/方块之下）
     this._renderBoardWatermark(offsetX, offsetY, total, skin);
 
+    // Pass 4：网格线（对齐 web `_paintBackgroundOver`：只画内部线条；
+    //          深盘白线 alpha 0.46 / 浅盘深线 alpha 0.34；外框由 outer 圆角承担，不再画矩形描边）
+    if (skin.gridLine !== false) {
+      ctx.strokeStyle = (typeof skin.gridLine === 'string' && skin.gridLine)
+        ? skin.gridLine
+        : (lightBoard ? 'rgba(15,23,42,0.34)' : 'rgba(255,255,255,0.46)');
+      ctx.lineWidth = 1;
+      ctx.lineCap = 'butt';
+      for (let i = 1; i < n; i++) {
+        const p = offsetX + i * cellSize + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(p, offsetY);
+        ctx.lineTo(p, offsetY + total);
+        ctx.stroke();
+      }
+      for (let j = 1; j < n; j++) {
+        const p = offsetY + j * cellSize + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(offsetX, p);
+        ctx.lineTo(offsetX + total, p);
+        ctx.stroke();
+      }
+    }
+
+    // Pass 5：在 cellEmpty 上画方块（_paintCell 内部按 blockInset 留白，
+    //          inset 圈正好露出 cellEmpty 颜色，对齐 web "奶油色边" 视觉）
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
         if (grid.cells[y][x] === null) continue;
-        const cx = offsetX + x * cellSize + skin.gridGap;
-        const cy = offsetY + y * cellSize + skin.gridGap;
-        const cs = cellSize - skin.gridGap * 2;
+        const cx = offsetX + x * cellSize + gap;
+        const cy = offsetY + y * cellSize + gap;
         const colorIdx = grid.cells[y][x];
         const color = skin.blockColors[colorIdx % skin.blockColors.length];
         this._paintCell(cx, cy, cs, color);
@@ -275,92 +358,296 @@ class GameRenderer {
     return Math.max(3, Math.min(skinRadius, paintedSize * 0.16));
   }
 
-  /** 绘制单个方块格子 */
+  /**
+   * 按 `skin.blockStyle` 路由到与 web/src/renderer.js 同款的渲染分支。
+   * 与 web 对齐的分支：
+   *   - cartoon (默认，覆盖 25+ 皮肤)：主色弱渐变 + 弱底部暗角 + 暗外描边 + 浅亮内描边
+   *   - bevel3d (classic)：4 梯形浮雕 + 中心面
+   *   - neon (neonCity / dawn)：主色横向渐变 + 亮色外描边 + 顶部高光
+   *   - metal (titanium)：7 段拉丝纵向渐变
+   *   - glass (halo / koi)：主色纵向渐变 + 顶部白光高光 + 双描边
+   *   - jelly：主色渐变 + 顶部磨砂 + 径向白光斑
+   *   - pixel8：8-bit 凸起瓦片
+   *   - flat：纯色 + 极弱描边
+   */
   _paintCell(x, y, size, color) {
-    const ctx = this._ctx;
     const skin = this._skin;
     const ins = this._cellInset(size);
     const s = Math.max(1, size - ins * 2);
     const bx = x + ins;
     const by = y + ins;
     const r = this._cellRadius(s);
+    const style = skin.blockStyle || 'cartoon';
 
-    // bevel3d：四向梯形浮雕（与 web/src/renderer.js 一致 — 圆润按钮光照模型）
-    if (skin.blockStyle === 'bevel3d') {
-      const bevel = Math.max(2, Math.round(s * 0.13));
-      const ix = bx + bevel;
-      const iy = by + bevel;
-      const is = s - bevel * 2;
-
-      ctx.save();
-      if (r > 0) {
-        roundRect(ctx, bx, by, s, s, r);
-        ctx.clip();
-      }
-
-      ctx.fillStyle = lighten(color, 0.18);
-      ctx.beginPath();
-      ctx.moveTo(bx, by);
-      ctx.lineTo(bx + s, by);
-      ctx.lineTo(ix + is, iy);
-      ctx.lineTo(ix, iy);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = lighten(color, 0.06);
-      ctx.beginPath();
-      ctx.moveTo(bx, by);
-      ctx.lineTo(ix, iy);
-      ctx.lineTo(ix, iy + is);
-      ctx.lineTo(bx, by + s);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = darken(color, 0.16);
-      ctx.beginPath();
-      ctx.moveTo(bx + s, by);
-      ctx.lineTo(bx + s, by + s);
-      ctx.lineTo(ix + is, iy + is);
-      ctx.lineTo(ix + is, iy);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = darken(color, 0.32);
-      ctx.beginPath();
-      ctx.moveTo(bx, by + s);
-      ctx.lineTo(ix, iy + is);
-      ctx.lineTo(ix + is, iy + is);
-      ctx.lineTo(bx + s, by + s);
-      ctx.closePath();
-      ctx.fill();
-
-      // 中心面：左上提亮（lighten 12%）→ 右下主色，对角渐变保留饱和度
-      ctx.fillStyle = lighten(color, 0.10);
-      ctx.fillRect(ix, iy, is, is);
-
-      ctx.restore();
-      return;
+    // 带 icon 皮肤的方块色降饱和（对齐 web `paintBlockCell`：深盘 ×0.55 / 浅盘 ×0.92），
+    // 让中心 emoji 在哑光底色上更清晰。在此入口统一处理，盘面/候选/ghost 三处一致。
+    if (skin.blockIcons && skin.blockIcons.length) {
+      color = desaturateColor(color, this._isLightBoard() ? 0.92 : 0.55);
     }
 
+    if (style === 'bevel3d') return this._paintBevel3d(bx, by, s, r, color);
+    if (style === 'neon') return this._paintNeon(bx, by, s, r, color);
+    if (style === 'metal') return this._paintMetal(bx, by, s, r, color);
+    if (style === 'glass') return this._paintGlass(bx, by, s, r, color);
+    if (style === 'jelly') return this._paintJelly(bx, by, s, r, color);
+    if (style === 'pixel8') return this._paintPixel8(bx, by, s, color);
+    if (style === 'flat') return this._paintFlat(bx, by, s, r, color);
+    return this._paintCartoon(bx, by, s, r, color);
+  }
+
+  /** cartoon —— 哑光磨砂瓷砖。完全对齐 web 同名分支的 alpha 与 lift 数值（lightBoard 差异化）。 */
+  _paintCartoon(bx, by, s, r, color) {
+    const ctx = this._ctx;
+    const skin = this._skin;
+    const lightBoard = this._isLightBoard();
+    const topLift = lightBoard ? 0.08 : 0.16;
+    const botDark = lightBoard ? 0.04 : 0.12;
+    const botShadeAlpha = lightBoard ? 0.05 : 0.14;
+    const innerStroke = lightBoard ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.34)';
+    const outerStroke = lightBoard ? 'rgba(68,56,40,0.42)' : 'rgba(0,0,0,0.48)';
+
+    // 1. 主色弱渐变
+    const baseG = ctx.createLinearGradient(bx, by, bx, by + s);
+    baseG.addColorStop(0, lighten(color, topLift));
+    baseG.addColorStop(0.5, color);
+    baseG.addColorStop(1, darken(color, botDark));
+    ctx.fillStyle = baseG;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    // 2. 底部黑色暗角（弱）
+    const btG = ctx.createLinearGradient(bx, by, bx, by + s);
+    btG.addColorStop(0.78, 'rgba(0,0,0,0.00)');
+    btG.addColorStop(1, `rgba(0,0,0,${botShadeAlpha})`);
+    ctx.fillStyle = btG;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    // 3. 暗外描边
+    ctx.strokeStyle = outerStroke;
+    ctx.lineWidth = 1.35;
+    roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
+    ctx.stroke();
+
+    // 4. 浅亮内描边（白色 bevel 高光）
+    ctx.strokeStyle = innerStroke;
+    ctx.lineWidth = 1;
+    roundRect(ctx, bx + 1, by + 1, s - 2, s - 2, Math.max(0, r - 1));
+    ctx.stroke();
+    void skin;
+  }
+
+  /** bevel3d —— 4 梯形浮雕（与 web bevel3d 同光照模型；零描边）。 */
+  _paintBevel3d(bx, by, s, r, color) {
+    const ctx = this._ctx;
+    const bevel = Math.max(2, Math.round(s * 0.13));
+    const ix = bx + bevel;
+    const iy = by + bevel;
+    const is = s - bevel * 2;
+
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.20)';
-    ctx.shadowBlur = Math.max(0, size * 0.065);
-    ctx.shadowOffsetY = Math.max(1, size * 0.032);
+    if (r > 0) {
+      roundRect(ctx, bx, by, s, s, r);
+      ctx.clip();
+    }
+    // 顶斜切
+    ctx.fillStyle = lighten(color, 0.18);
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + s, by);
+    ctx.lineTo(ix + is, iy);
+    ctx.lineTo(ix, iy);
+    ctx.closePath();
+    ctx.fill();
+    // 左斜切
+    ctx.fillStyle = lighten(color, 0.06);
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(ix, iy);
+    ctx.lineTo(ix, iy + is);
+    ctx.lineTo(bx, by + s);
+    ctx.closePath();
+    ctx.fill();
+    // 右斜切
+    ctx.fillStyle = darken(color, 0.16);
+    ctx.beginPath();
+    ctx.moveTo(bx + s, by);
+    ctx.lineTo(bx + s, by + s);
+    ctx.lineTo(ix + is, iy + is);
+    ctx.lineTo(ix + is, iy);
+    ctx.closePath();
+    ctx.fill();
+    // 底斜切
+    ctx.fillStyle = darken(color, 0.32);
+    ctx.beginPath();
+    ctx.moveTo(bx, by + s);
+    ctx.lineTo(ix, iy + is);
+    ctx.lineTo(ix + is, iy + is);
+    ctx.lineTo(bx + s, by + s);
+    ctx.closePath();
+    ctx.fill();
+    // 中心面（对角渐变近似）
+    const fg = ctx.createLinearGradient(ix, iy, ix + is, iy + is);
+    fg.addColorStop(0, lighten(color, 0.18));
+    fg.addColorStop(0.55, lighten(color, 0.06));
+    fg.addColorStop(1, color);
+    ctx.fillStyle = fg;
+    ctx.fillRect(ix, iy, is, is);
+    ctx.restore();
+  }
+
+  /** neon —— 主色横向渐变 + 亮色加宽描边 + 顶部高光（仅无 icon 皮肤）。 */
+  _paintNeon(bx, by, s, r, color) {
+    const ctx = this._ctx;
+    const skin = this._skin;
+    const g = ctx.createLinearGradient(bx, by, bx + s, by);
+    g.addColorStop(0, lighten(color, 0.10));
+    g.addColorStop(0.45, color);
+    g.addColorStop(1, darken(color, 0.18));
+    ctx.fillStyle = g;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    ctx.strokeStyle = lighten(color, 0.22);
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
+    ctx.stroke();
+
+    if (!skin.blockIcons || !skin.blockIcons.length) {
+      const hl = ctx.createLinearGradient(bx, by, bx, by + s);
+      hl.addColorStop(0, 'rgba(255,255,255,0.28)');
+      hl.addColorStop(0.48, 'rgba(255,255,255,0.00)');
+      hl.addColorStop(1, 'rgba(255,255,255,0.00)');
+      ctx.fillStyle = hl;
+      roundRect(ctx, bx, by, s, s, r);
+      ctx.fill();
+    }
+  }
+
+  /** metal —— 7 段拉丝纵向渐变 + 白边/黑内框。 */
+  _paintMetal(bx, by, s, r, color) {
+    const ctx = this._ctx;
+    const mg = ctx.createLinearGradient(bx, by, bx, by + s);
+    mg.addColorStop(0, lighten(color, 0.32));
+    mg.addColorStop(0.12, darken(color, 0.08));
+    mg.addColorStop(0.42, lighten(color, 0.18));
+    mg.addColorStop(0.48, lighten(color, 0.38));
+    mg.addColorStop(0.54, darken(color, 0.06));
+    mg.addColorStop(0.78, lighten(color, 0.08));
+    mg.addColorStop(1, darken(color, 0.28));
+    ctx.fillStyle = mg;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.32)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, bx + 1.2, by + 1.2, s - 2.4, s - 2.4, Math.max(0, r - 1));
+    ctx.stroke();
+  }
+
+  /** glass —— 主色纵向渐变 + 顶部白光高光 + 双描边。 */
+  _paintGlass(bx, by, s, r, color) {
+    const ctx = this._ctx;
+    const skin = this._skin;
+    const vg = ctx.createLinearGradient(bx, by, bx, by + s);
+    vg.addColorStop(0, lighten(color, 0.22));
+    vg.addColorStop(0.4, color);
+    vg.addColorStop(1, darken(color, 0.06));
+    ctx.fillStyle = vg;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    const hl = ctx.createLinearGradient(bx, by, bx, by + s);
+    hl.addColorStop(0, 'rgba(255,255,255,0.50)');
+    hl.addColorStop(0.28, 'rgba(255,255,255,0.14)');
+    hl.addColorStop(0.58, 'rgba(255,255,255,0.00)');
+    hl.addColorStop(1, 'rgba(255,255,255,0.00)');
+    ctx.fillStyle = hl;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    ctx.strokeStyle = skin.uiDark ? 'rgba(255,255,255,0.42)' : 'rgba(255,255,255,0.32)';
+    ctx.lineWidth = 1.15;
+    roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
+    ctx.stroke();
+
+    ctx.strokeStyle = skin.uiDark ? 'rgba(0,0,0,0.10)' : 'rgba(15,23,42,0.20)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, bx + 1, by + 1, s - 2, s - 2, Math.max(0, r - 1));
+    ctx.stroke();
+  }
+
+  /** jelly —— 主色渐变 + 顶部磨砂 + 径向珠光（简化版）。 */
+  _paintJelly(bx, by, s, r, color) {
+    const ctx = this._ctx;
+    const baseG = ctx.createLinearGradient(bx, by, bx, by + s);
+    baseG.addColorStop(0, lighten(color, 0.18));
+    baseG.addColorStop(0.5, color);
+    baseG.addColorStop(1, darken(color, 0.08));
+    ctx.fillStyle = baseG;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    const hlG = ctx.createLinearGradient(bx, by, bx, by + s);
+    hlG.addColorStop(0, 'rgba(255,255,255,0.60)');
+    hlG.addColorStop(0.38, 'rgba(255,255,255,0.20)');
+    hlG.addColorStop(0.52, 'rgba(255,255,255,0.00)');
+    hlG.addColorStop(1, 'rgba(255,255,255,0.00)');
+    ctx.fillStyle = hlG;
+    roundRect(ctx, bx, by, s, s, r);
+    ctx.fill();
+
+    ctx.strokeStyle = lighten(color, 0.55);
+    ctx.lineWidth = 1.8;
+    roundRect(ctx, bx + 0.9, by + 0.9, s - 1.8, s - 1.8, Math.max(0, r - 0.9));
+    ctx.stroke();
+    ctx.strokeStyle = darken(color, 0.30);
+    ctx.lineWidth = 1;
+    roundRect(ctx, bx + 1.5, by + 1.5, s - 3, s - 3, Math.max(0, r - 1.5));
+    ctx.stroke();
+  }
+
+  /** pixel8 —— 8-bit 凸起瓦片：4 边亮/暗边 + 内陷主面。 */
+  _paintPixel8(bx, by, s, color) {
+    const ctx = this._ctx;
+    const ew = Math.max(1, Math.round(s * 0.14));
+    ctx.fillStyle = color;
+    ctx.fillRect(bx, by, s, s);
+    ctx.fillStyle = darken(color, 0.10);
+    ctx.fillRect(bx + ew, by + ew, s - ew * 2, s - ew * 2);
+    ctx.fillStyle = lighten(color, 0.55);
+    ctx.fillRect(bx + ew, by, s - ew * 2, ew);
+    ctx.fillStyle = lighten(color, 0.32);
+    ctx.fillRect(bx, by + ew, ew, s - ew * 2);
+    ctx.fillStyle = darken(color, 0.32);
+    ctx.fillRect(bx + s - ew, by + ew, ew, s - ew * 2);
+    ctx.fillStyle = darken(color, 0.55);
+    ctx.fillRect(bx + ew, by + s - ew, s - ew * 2, ew);
+  }
+
+  /** flat —— 纯色 + 极弱描边。 */
+  _paintFlat(bx, by, s, r, color) {
+    const ctx = this._ctx;
     ctx.fillStyle = color;
     roundRect(ctx, bx, by, s, s, r);
     ctx.fill();
-    ctx.restore();
-
-    // 只保留轻量边界，避免方块本身过度立体化。
-    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.14)';
     ctx.lineWidth = 1;
     roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
     ctx.stroke();
+  }
 
-    ctx.strokeStyle = 'rgba(0,0,0,0.28)';
-    ctx.lineWidth = 1;
-    roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
-    ctx.stroke();
+  /** isLightBoardSkin 复刻（对齐 web）：gridCell 相对亮度 ≥ 0.78 视为浅盘。 */
+  _isLightBoard() {
+    const skin = this._skin;
+    const rgb = hexToRgb(skin.gridCell || '#000000');
+    if (!rgb) return skin.uiDark === false;
+    const luma = (rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722) / 255;
+    return luma >= 0.78;
   }
 
   _drawCellIcon(x, y, size, colorIdx) {
@@ -383,11 +670,25 @@ class GameRenderer {
       ctx.clip();
       paintMahjongTileIcon(ctx, bx, by, s, canvasIcon, colorIdx);
     } else {
+      // 严格对齐 web `_paintIcon`：face×0.56 字号 + cy 偏移 0.53 + 三层阴影（深/浅盘差异化），
+      // clip 到方块圆角内。emoji 字体栈一致 → emoji 字形与 web 同步。
+      roundRect(ctx, bx, by, s, s, r);
+      ctx.clip();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `${Math.max(10, Math.floor(safeSize * 0.58))}px ${ICON_FONT_STACK}`;
-      ctx.fillStyle = 'rgba(255,255,255,0.94)';
-      ctx.fillText(canvasIcon, x + safeSize / 2, y + safeSize / 2 + 0.5);
+      ctx.font = `${Math.max(10, Math.round(s * 0.56))}px ${ICON_FONT_STACK}`;
+      const ccx = bx + s * 0.5;
+      const ccy = by + s * 0.53;
+      ctx.globalAlpha = 1.0;
+      const sh = this._isLightBoard()
+        ? ['rgba(0,0,0,0.14)', 'rgba(0,0,0,0.08)', '#2C2418']
+        : ['rgba(0,0,0,0.34)', 'rgba(0,0,0,0.20)', '#000000'];
+      ctx.fillStyle = sh[0];
+      ctx.fillText(canvasIcon, ccx + 0.6, ccy + 0.8);
+      ctx.fillStyle = sh[1];
+      ctx.fillText(canvasIcon, ccx + 1.0, ccy + 1.4);
+      ctx.fillStyle = sh[2];
+      ctx.fillText(canvasIcon, ccx, ccy);
     }
     ctx.restore();
   }
@@ -503,23 +804,67 @@ class GameRenderer {
     this.previewClearCells = cells || [];
   }
 
+  /**
+   * 待消除高亮 —— 严格复刻 web/src/renderer.js `renderPreviewClearHint`（under fill + over stroke 二合一）：
+   *
+   *   pulse = 0.55 + 0.45 * |sin(now * 0.007)|       周期 ~900ms 柔和呼吸
+   *   inset = skin.blockInset ?? 2                    高亮 = 块面大小（不是全格）
+   *   br    = skin.blockRadius ?? 5                   圆角 = 皮肤方块圆角
+   *
+   *   under (fill)  : rgba(255, 210, 90, 0.12 + 0.18*pulse), globalAlpha = 1
+   *   over  (stroke): rgba(255, 200, 60, 0.55 + 0.40*pulse), globalAlpha = 0.92,
+   *                   lineWidth = 2.25,
+   *                   shadowColor = rgba(255, 220, 120, 0.65), shadowBlur = 5 + 4*pulse
+   *
+   * 小程序 Canvas2D 支持 shadowBlur，可与 web 完全等价。
+   */
   renderPreviewClearCells(offsetX = 0, offsetY = 0) {
     if (!this.previewClearCells || this.previewClearCells.length === 0 || this._cellSizeForFx <= 0) return;
     const ctx = this._ctx;
+    const skin = this._skin || {};
     const cs = this._cellSizeForFx;
+    const inset = skin.blockInset != null ? skin.blockInset : 2;
+    const br = skin.blockRadius != null ? skin.blockRadius : 5;
+    const size = Math.max(1, cs - inset * 2);
+    const pulse = 0.55 + 0.45 * Math.abs(Math.sin(Date.now() * 0.007));
+
     ctx.save();
-    ctx.globalAlpha = 0.68;
-    ctx.fillStyle = 'rgba(255, 238, 120, 0.26)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
-    ctx.lineWidth = Math.max(1, cs * 0.045);
+
+    // === Pass 1: under-fill ===
+    ctx.fillStyle = `rgba(255, 210, 90, ${0.12 + 0.18 * pulse})`;
+    ctx.globalAlpha = 1;
     for (const c of this.previewClearCells) {
-      const x = c.x ?? c[0];
-      const y = c.y ?? c[1];
-      const px = offsetX + x * cs;
-      const py = offsetY + y * cs;
-      ctx.fillRect(px, py, cs, cs);
-      ctx.strokeRect(px + 2, py + 2, cs - 4, cs - 4);
+      const x = c.x != null ? c.x : c[0];
+      const y = c.y != null ? c.y : c[1];
+      const px = offsetX + x * cs + inset;
+      const py = offsetY + y * cs + inset;
+      if (br > 0) {
+        roundRect(ctx, px, py, size, size, br);
+        ctx.fill();
+      } else {
+        ctx.fillRect(px, py, size, size);
+      }
     }
+
+    // === Pass 2: over-stroke + shadowBlur 柔光 ===
+    ctx.strokeStyle = `rgba(255, 200, 60, ${0.55 + 0.4 * pulse})`;
+    ctx.lineWidth = 2.25;
+    ctx.globalAlpha = 0.92;
+    ctx.shadowColor = 'rgba(255, 220, 120, 0.65)';
+    ctx.shadowBlur = 5 + 4 * pulse;
+    for (const c of this.previewClearCells) {
+      const x = c.x != null ? c.x : c[0];
+      const y = c.y != null ? c.y : c[1];
+      const px = offsetX + x * cs + inset;
+      const py = offsetY + y * cs + inset;
+      if (br > 0) {
+        roundRect(ctx, px + 0.5, py + 0.5, size - 1, size - 1, Math.max(0, br - 0.5));
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1);
+      }
+    }
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 

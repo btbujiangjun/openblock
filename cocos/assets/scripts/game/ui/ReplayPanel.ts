@@ -14,6 +14,7 @@ const { ccclass } = _decorator;
 export class ReplayPanel extends Component {
     private _unregDim: (() => void) | null = null;
     private _unregClose: (() => void) | null = null;
+    private _closed = false;
 
     static show(parent: Node): ReplayPanel {
         const root = new Node('ReplayPanel');
@@ -55,9 +56,11 @@ export class ReplayPanel extends Component {
     }
 
     close(): void {
+        if (this._closed) return;
+        this._closed = true;
         Modal.close();
         if (this._unregDim) { this._unregDim(); this._unregDim = null; }
         if (this._unregClose) { this._unregClose(); this._unregClose = null; }
-        this.node.destroy();
+        if (this.node?.isValid) this.node.destroy();
     }
 }

@@ -7,10 +7,12 @@
 import { describe, it, expect } from 'vitest';
 import {
     getSpawnStressFromScore,
+    deriveEffectivePb,
     blendShapeWeightsTowardHard,
     getRunDifficultyModifiers,
     resolveLayeredStrategy
 } from '../web/src/difficulty.js';
+import { GAME_RULES } from '../web/src/gameRules.js';
 
 describe('difficulty', () => {
     describe('getSpawnStressFromScore', () => {
@@ -58,9 +60,11 @@ describe('difficulty', () => {
         });
 
         it('百分位映射：50%~100% 之间不衰减、与百分位单调', () => {
-            const s50 = getSpawnStressFromScore(2500, { bestScore: 5000 });
-            const s75 = getSpawnStressFromScore(3750, { bestScore: 5000 });
-            const s100 = getSpawnStressFromScore(5000, { bestScore: 5000 });
+            // 用未触发 expert 压缩的中档 best（< expertSoftCap），验证 S 曲线主线在
+            // 50%~100% 区间严格单调。高 best（会被压缩）的 corner 行为见 pbProgress 用例。
+            const s50 = getSpawnStressFromScore(400, { bestScore: 800 });
+            const s75 = getSpawnStressFromScore(600, { bestScore: 800 });
+            const s100 = getSpawnStressFromScore(800, { bestScore: 800 });
             expect(s50).toBeLessThan(s75);
             expect(s75).toBeLessThan(s100);
             expect(s50).toBeGreaterThan(0);
@@ -70,6 +74,73 @@ describe('difficulty', () => {
             const sNew = getSpawnStressFromScore(1440, { bestScore: 0 });
             const sOld = getSpawnStressFromScore(1440);
             expect(sNew).toBeCloseTo(sOld, 6);
+        });
+    });
+
+    // 难度进度坐标 effectivePB —— 两端 corner case（新手抬下限 / 高手软压缩）
+    describe('deriveEffectivePb（难度进度坐标，主线 S 曲线不动）', () => {
+        const dd = GAME_RULES.dynamicDifficulty;
+        const pp = dd.pbProgress;
+
+        it('生产配置已启用 pbProgress', () => {
+            expect(pp).toBeTruthy();
+            expect(pp.noviceFloor).toBeGreaterThan(0);
+            expect(pp.expertSoftCap).toBeGreaterThan(pp.noviceFloor);
+            expect(pp.expertScale).toBeGreaterThan(0);
+        });
+
+        it('新手低 PB 抬到 noviceFloor 下限', () => {
+            expect(deriveEffectivePb(0, dd)).toBe(pp.noviceFloor);
+            expect(deriveEffectivePb(60, dd)).toBe(pp.noviceFloor);
+            expect(deriveEffectivePb(pp.noviceFloor - 1, dd)).toBe(pp.noviceFloor);
+        });
+
+        it('中档 PB（floor~softCap）原样透传，不压缩', () => {
+            expect(deriveEffectivePb(800, dd)).toBe(800);
+            expect(deriveEffectivePb(pp.expertSoftCap, dd)).toBe(pp.expertSoftCap);
+        });
+
+        it('高手高 PB 被对数软压缩（effectivePB < 真实 PB）', () => {
+            const eff = deriveEffectivePb(5000, dd);
+            expect(eff).toBeLessThan(5000);
+            expect(eff).toBeGreaterThan(pp.expertSoftCap);
+        });
+
+        it('单调非减且连续（无跳变）', () => {
+            let prev = -Infinity;
+            for (let pb = 0; pb <= 12000; pb += 50) {
+                const eff = deriveEffectivePb(pb, dd);
+                expect(eff).toBeGreaterThanOrEqual(prev - 1e-9);
+                prev = eff;
+            }
+            // softCap 邻域连续：左右极限差极小
+            const lo = deriveEffectivePb(pp.expertSoftCap - 1, dd);
+            const hi = deriveEffectivePb(pp.expertSoftCap + 1, dd);
+            expect(Math.abs(hi - lo)).toBeLessThan(2);
+        });
+
+        it('压缩边际递减：PB 越高，压缩比越大', () => {
+            const r5000 = deriveEffectivePb(5000, dd) / 5000;
+            const r10000 = deriveEffectivePb(10000, dd) / 10000;
+            expect(r10000).toBeLessThan(r5000);
+        });
+
+        it('配置缺失时退化为旧 max(personalBest, scoreFloor) 行为', () => {
+            const legacy = { milestones: dd.milestones, scoreFloor: 180 };
+            expect(deriveEffectivePb(60, legacy)).toBe(180);
+            expect(deriveEffectivePb(5000, legacy)).toBe(5000);
+        });
+
+        it('corner 修复：高手在远低于真实 PB 处即进入挑战区', () => {
+            // score 仅为真实 PB 的 ~36%，旧坐标会被 decay 压到很低；新坐标已进入挑战区
+            const s = getSpawnStressFromScore(1800, { bestScore: 5000 });
+            expect(s).toBeGreaterThan(0.5);
+        });
+
+        it('corner 修复：新手不会在几十分就被推入高压', () => {
+            // PB=60 的新手打到 120 分：抬分母后压力明显低于满档
+            const s = getSpawnStressFromScore(120, { bestScore: 60 });
+            expect(s).toBeLessThan(0.5);
         });
     });
 

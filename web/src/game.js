@@ -105,6 +105,9 @@ import { notePopupShown } from './popupCoordinator.js';
 import {
     detectBonusLines,
     computeClearScore,
+    deriveNextComboCount,
+    isComboBroken,
+    COMBO_MULTIPLIER_CFG,
     ICON_BONUS_LINE_MULT,
     PERFECT_CLEAR_MULT,
     bonusEffectHoldMs,
@@ -115,6 +118,9 @@ import {
 export {
     detectBonusLines,
     computeClearScore,
+    deriveNextComboCount,
+    isComboBroken,
+    COMBO_MULTIPLIER_CFG,
     ICON_BONUS_LINE_MULT,
     PERFECT_CLEAR_MULT,
     bonusEffectHoldMs,
@@ -212,8 +218,21 @@ export class Game {
             misses: 0,
             startTime: 0
         };
-        /** 连续消行落子计数，未消行的落子重置为 0 */
-        this._clearStreak = 0;
+    /** Combo 链 · 时间维度（**带 grace 窗口**，≡ HUD 粉色爱心 ♥N）。
+     *  - `_comboCount` = 当前 combo 链已累计清线次数（首次清线 = 1）
+     *  - `_roundsSinceLastClear` = 距上次清线的未清步数（清线时归零，每次落子前 +1）
+     *  - 连续 ≥ gracePlacements 步未清 → combo 待断（爱心淡出），下次清线重置为 1
+     *  - 计入 computeClearScore 第 4 参 → comboMultiplier
+     *  与 result.count = "空间维度单手多消"是两个独立维度。
+     *  术语权威：docs/product/CLEAR_SCORING.md §〇。 */
+    this._comboCount = 0;
+    this._roundsSinceLastClear = Number.POSITIVE_INFINITY;
+    /** @deprecated 向后兼容：旧名 `_clearStreak`（严格连击）已并入 _comboCount + grace 窗口。
+     *  保留 getter/setter 仍指向 _comboCount，避免外部读取出空指针。 */
+    Object.defineProperty(this, '_clearStreak', {
+        get: () => this._comboCount,
+        set: (v) => { this._comboCount = Math.max(0, Math.floor(Number(v) || 0)); }
+    });
 
         /** 跨轮出块上下文：传给 adaptiveSpawn + blockSpawn 的三层信号 */
         this._spawnContext = {
@@ -1380,7 +1399,9 @@ export class Game {
                 misses: 0,
                 startTime: Date.now()
             };
-            this._clearStreak = 0;
+            this._comboCount = 0;
+            this._roundsSinceLastClear = Number.POSITIVE_INFINITY;
+            this._updateComboHeart?.();
             this._nearMissPlaceToastCount = 0;
             this._nearMissPlaceLastAt = null;
             this._nearMissPlaceLastPlacement = null;
@@ -1603,6 +1624,20 @@ export class Game {
             const idx = i;
             const blk = block;
             const startDrag = (e) => {
+                /* v10.16.7：hint 瞄准模式下，把点击交给 hintEconomy 处理，
+                 * 不启动拖拽（避免候选块因 pointerdown 进入 drag 抢走 hint，
+                 * 表现为「点击候选块没推荐、反而失去激活」）。 */
+                if (typeof window !== 'undefined' && window.__hintEconomy?.isHintAiming?.()) {
+                    e.preventDefault();
+                    if (typeof e.stopPropagation === 'function') e.stopPropagation();
+                    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+                    try {
+                        window.__hintEconomy.consumeHintAimAt(idx);
+                    } catch (err) {
+                        console.warn('[hint] consumeHintAimAt failed', err);
+                    }
+                    return;
+                }
                 e.preventDefault();
                 /* v1.61：不再因 this.isAnimating 阻塞——消行视觉特效期间盘面状态已结算，
                  * 允许玩家立即抓取候选区剩余块继续放置，保住连续消行的爽感。 */
@@ -1611,9 +1646,8 @@ export class Game {
                 }
                 const touch = e.touches ? e.touches[0] : e;
                 const inputType = e.pointerType === 'touch' || e.touches ? 'touch' : 'mouse';
-                /* v1.61.16：起拖热区收紧为 shape 实体格——5×5 预览槽内空白、槽位 padding、
-                 * 块间空隙均不触发，减少误触拖放。 */
-                if (!this._dockPointerHitsBlockShape(canvas, touch.clientX, touch.clientY, blk)) {
+                /* 起拖热区：shape 实体格 + 小幅外扩。细小/异形块更容易点中，但不把整个 5×5 槽位都变成热区。 */
+                if (!this._dockPointerHitsBlockShape(canvas, touch.clientX, touch.clientY, blk, inputType)) {
                     return;
                 }
                 if (e.pointerId != null && canvas.setPointerCapture) {
@@ -2197,13 +2231,13 @@ export class Game {
     }
 
     /**
-     * 指针是否落在候选块 shape 的实体格上（不含 5×5 预览槽内留白）。
+     * 指针是否落在候选块 shape 的实体格附近（不含 5×5 预览槽的大面积留白）。
      * @param {HTMLCanvasElement} canvas
      * @param {number} clientX
      * @param {number} clientY
      * @param {{ shape: number[][], width: number, height: number }} block
      */
-    _dockPointerHitsBlockShape(canvas, clientX, clientY, block) {
+    _dockPointerHitsBlockShape(canvas, clientX, clientY, block, inputType = 'mouse') {
         if (!canvas || !block?.shape?.length) return false;
         const rect = canvas.getBoundingClientRect();
         if (!rect.width || !rect.height) return false;
@@ -2213,11 +2247,31 @@ export class Game {
         const oy = (slotPx - block.height * cell) / 2;
         const lx = (clientX - rect.left) * (slotPx / rect.width);
         const ly = (clientY - rect.top) * (slotPx / rect.height);
-        if (lx < ox || ly < oy) return false;
+        const pad = inputType === 'touch'
+            ? Math.max(10, cell * 0.35)
+            : Math.max(4, cell * 0.18);
+        const blockLeft = ox - pad;
+        const blockRight = ox + block.width * cell + pad;
+        const blockTop = oy - pad;
+        const blockBottom = oy + block.height * cell + pad;
+        if (lx < blockLeft || lx > blockRight || ly < blockTop || ly > blockBottom) return false;
+
         const gx = Math.floor((lx - ox) / cell);
         const gy = Math.floor((ly - oy) / cell);
-        if (gx < 0 || gy < 0 || gy >= block.height || gx >= block.width) return false;
-        return !!block.shape[gy][gx];
+        if (gx >= 0 && gy >= 0 && gy < block.height && gx < block.width && block.shape[gy][gx]) return true;
+
+        // 外扩命中：只接受离任一实体格足够近的位置，避免点到槽位大空白也起拖。
+        for (let y = 0; y < block.height; y++) {
+            for (let x = 0; x < block.width; x++) {
+                if (!block.shape[y][x]) continue;
+                const left = ox + x * cell - pad;
+                const right = ox + (x + 1) * cell + pad;
+                const top = oy + y * cell - pad;
+                const bottom = oy + (y + 1) * cell + pad;
+                if (lx >= left && lx <= right && ly >= top && ly <= bottom) return true;
+            }
+        }
+        return false;
     }
 
     startDrag(index, x, y, inputType = 'mouse') {
@@ -2295,7 +2349,7 @@ export class Game {
 
     /**
      * 拖拽虚拟指针，两套互斥手感：
-     *   - 触摸（安卓 / iOS / 任意触屏）：1:1 直接跟手（相对抓取点缩放，track 默认 1.0），
+     *   - 触摸（安卓 / iOS / 任意触屏）：相对抓取点温和放大（track 默认 > 1），
      *     并把幽灵块抬到手指上方避免遮挡。不套用指针加速——见下方 isTouch 分支注释。
      *   - 鼠标：保留"速度感知"动态增益（慢速 1:1 精准、快速放大省力，类似桌面 OS 的
      *     pointer ballistics），因为鼠标是相对定位设备且有可视光标参考。
@@ -2307,8 +2361,8 @@ export class Game {
      *   speed ≥ FAST  → DRAG_MOUSE_GAIN（1.32）     → 本帧增量额外贡献 32% 到 _extraOffset
      *   中间段在二者之间线性插值
      */
-    /** 是否安卓客户端（含鸿蒙自带 WebView）。注意：拖拽手感已不再依赖此探测——所有触摸
-     * 统一走 1:1；此方法仍用于音频滤波 / 触感 / dock DPR 等其它安卓特化路径。 */
+    /** 是否安卓客户端（含鸿蒙自带 WebView）。注意：拖拽手感已不再依赖此探测；
+     * 此方法仍用于音频滤波 / 触感 / dock DPR 等其它安卓特化路径。 */
     _isAndroidClient() {
         try {
             if (typeof document !== 'undefined'
@@ -2334,14 +2388,14 @@ export class Game {
             this.drag._extraOffset = { x: 0, y: 0 };
         }
 
-        /* 触摸是绝对定位的「直接操控」，必须 1:1 跟手——指针加速（pointer ballistics）是
+        /* 触摸是绝对定位的「直接操控」，使用稳定的相对抓取点缩放——指针加速（pointer ballistics）是
          * 「相对定位设备」（鼠标 / 触控板）才有的概念，套到触摸上会让幽灵块随采样噪声放大、
          * 漂在手指前方且忽远忽近，表现为「拖动过于敏感 / 乱飘 / 几乎无法操作」，在安卓 / 鸿蒙
          * 高 DPR WebView 上尤其严重。
          *
          * 因此：所有触摸输入（安卓 / iOS / 任意触屏，不依赖平台探测）一律走「相对抓取点缩放」
-         * 的稳定跟手——幽灵块相对起手点的位移 = 手指位移 × track（默认 1.0 即标准休闲游戏的
-         * 1:1 直接跟手）。不做逐帧速度增益累加，因此不随距离漂移、轨迹完全可预测；配合下游
+         * 的稳定跟手——幽灵块相对起手点的位移 = 手指位移 × track（当前为温和放大）。
+         * 不做逐帧速度增益累加，因此不随距离漂移、轨迹完全可预测；配合下游
          * 网格吸附（ghostAimOnGrid / naiveAnchorFromAim），亚格级手抖不会改变落点。
          * 仅鼠标保留速度感知 ballistics（见下方）。 */
         if (isTouch) {
@@ -2631,26 +2685,28 @@ export class Game {
             this._pendingDragPoint = null;
             this._applyDragMoveFrame(p.x, p.y);
         }
+        const previewClear = this._getPreviewClearCells();
+        const previewClearPos = previewClear?.cells?.length && this.previewBlock === this.dragBlock && this.previewPos
+            ? { x: this.previewPos.x, y: this.previewPos.y }
+            : null;
         this._cancelPreviewClearAnim();
 
         const { aimCx, aimCy, overBoard } = this.ghostAimOnGrid();
-        let placedPos = null;
-        if (overBoard && this.drag.hasEnteredBoard) {
+        let placedPos = previewClearPos;
+        if (!placedPos && overBoard && this.drag.hasEnteredBoard) {
             const { anchorX, anchorY } = this.naiveAnchorFromAim(
                 this.dragBlock.shape,
                 aimCx,
                 aimCy
             );
-            // 释放时使用更宽的 snap 半径（PLACE_RELEASE_SNAP_RADIUS），让"差一点点"的释放也能放成功，
-            // 避免玩家盘面区域内大幅快速拖拽时偶尔的"鸽子掉地"——只要用户表达了"我要放在这附近"，就尽量挽救。
-            const releaseRadius = Number(CONFIG.PLACE_RELEASE_SNAP_RADIUS) || CONFIG.PLACE_SNAP_RADIUS;
+            // 释放只做小半径容错：1 格内微调可落，明显不可放则回候选区，不再吸到远处合法点。
             placedPos = this.grid.pickSmartHoverPlacement(
                 this.dragBlock.shape,
                 aimCx,
                 aimCy,
                 anchorX,
                 anchorY,
-                releaseRadius,
+                Number(CONFIG.PLACE_RELEASE_SNAP_RADIUS) || 1,
                 {
                     colorIdx: this.dragBlock.colorIdx,
                     previous: this.previewPos,
@@ -2681,24 +2737,17 @@ export class Game {
             try { window.__audioFx?.vibrate?.([8]); } catch { /* ignore */ }
             // shake removed: 盘面固定
         } else {
-            // 失败：ghost 在原位"抖动+淡出"，并配 tick 音 + 较强触感作为负反馈
-            // —— 让玩家立刻明白"刚刚那个位置不行"，而不是疑惑"游戏出 bug 了"
+            // 失败：立即把 ghost 收回候选区，避免它在非法盘面位置停留造成"像是放上去了"的误读。
             const ghost = this.ghostCanvas;
             const ctx = this.ghostCtx;
             if (this._ghostHideTimer) {
                 clearTimeout(this._ghostHideTimer);
                 this._ghostHideTimer = null;
             }
-            ghost.classList.add('is-rejected');
-            this._ghostHideTimer = setTimeout(() => {
-                this._ghostHideTimer = null;
-                if (this.drag) return;   // 240ms 内用户已开始下一次拖拽 → 由新 startDrag 接管
-                ghost.classList.remove('is-rejected');
-                ghost.style.display = 'none';
-                ghost.style.width = '';
-                ghost.style.height = '';
-                ctx.clearRect(0, 0, ghost.width / _eDpr, ghost.height / _eDpr);
-            }, 240);
+            ghost.classList.remove('is-rejected');
+            this._resetGhostDomStyles();
+            ghost.style.display = 'none';
+            ctx.clearRect(0, 0, ghost.width / _eDpr, ghost.height / _eDpr);
             try { window.__audioFx?.play?.('tick', { force: true }); } catch { /* ignore */ }
             try { window.__audioFx?.vibrate?.([20, 30, 20]); } catch { /* ignore */ }
         }
@@ -2790,7 +2839,13 @@ export class Game {
                 }
             } else {
                 this._spawnContext.lastClearCount = 0;
-                this._clearStreak = 0;
+                /* Combo 未清线 → 累加 grace 计数；当达到 gracePlacements 时 combo 进入"待断"，
+                 * 爱心徽章在 _updateComboHeart() 内淡出；_comboCount 本身不在此处归零，
+                 * 而是等到下一次清线时由 deriveNextComboCount 决定（gap≥grace → 重置为 1）。 */
+                this._roundsSinceLastClear = (this._roundsSinceLastClear === Number.POSITIVE_INFINITY)
+                    ? Number.POSITIVE_INFINITY
+                    : this._roundsSinceLastClear + 1;
+                this._updateComboHeart();
                 this.logBehavior(GAME_EVENTS.NO_CLEAR, {
                     blockIndex: this.drag.index,
                     blockId: this.dragBlock.id
@@ -2878,21 +2933,40 @@ export class Game {
         /* v1.61：代际令牌——动画期间若再次消行（玩家在火花未散时继续放块），会 bump 代际，
          * 让旧的视觉 loop 末尾跳过清理，避免提前抹掉新一轮高亮/粒子或把 isAnimating 误置回 false。 */
         const fxGen = (this._clearFxGen = (this._clearFxGen || 0) + 1);
-        this._clearStreak++;
+
+        /* === Combo 链 · grace 窗口推导 ===
+         * 本步清线 → 根据「上次清线之后已未清步数」(_roundsSinceLastClear) 决定:
+         *   - gap < gracePlacements → combo 延续，_comboCount += 1
+         *   - gap ≥ gracePlacements → combo 已断，本步重启 _comboCount = 1
+         * 首次启动同样命中 "重启" 分支（prev=0），返回 1。
+         * deriveNextComboCount 是纯函数，5 端同源调用。 */
+        this._comboCount = deriveNextComboCount(
+            this._comboCount,
+            this._roundsSinceLastClear,
+            true
+        );
+        this._roundsSinceLastClear = 0;
 
         /* v1.60.45：comboHigh ≥ 4 → 爽感事件（'comboHigh' kind）+ 行为打点。
          * 与 result.count / perfectClear 路径互补（前一处处理 pcClear / multiClear / monoFlush），
-         * 这里处理连续消行高度——单局任意 4+ 连击都触发清零。 */
-        if (this._clearStreak >= 4) {
+         * 这里按「combo 链累计清线 ≥ 4」触发——含 grace 窗口的延续，更符合"节奏型选手"画像。
+         *
+         * ⚠️ 这里的 'comboHigh' / COMBO_HIGH 严格指**时间维度** _comboCount ≥ 4，
+         * 与「空间维度单手多消」（result.count ≥ 3 → effectType='combo'）是两个独立信号。
+         * 术语权威：docs/product/CLEAR_SCORING.md §〇。 */
+        if (this._comboCount >= 4) {
             this.playerProfile.recordDelight?.('comboHigh');
-            this.logBehavior(GAME_EVENTS.COMBO_HIGH, { combo: this._clearStreak });
+            this.logBehavior(GAME_EVENTS.COMBO_HIGH, { combo: this._comboCount });
         }
 
         const bonusLines = result.bonusLines || [];
         const bonusCount = bonusLines.length;
         const perfectClear = this.grid.getFillRatio() === 0;
         result.perfectClear = perfectClear;
-        const { clearScore, iconBonusScore } = computeClearScore(this.strategy, result);
+        /* combo 倍数：_comboCount 已按 grace 窗口更新，含本次清线；与 perfectMult / iconBonus
+         * 串行累乘。详见 shared/game_rules.json → clearScoring.comboMultiplier 及 §〇 术语。 */
+        const { clearScore, iconBonusScore, comboMultiplier } = computeClearScore(
+            this.strategy, result, undefined, this._comboCount);
 
         this.score += clearScore;
         /* v1.49：字段更名 milestoneHit → scoreMilestoneHit，把跨过的具体分数档传给下游。
@@ -2908,6 +2982,10 @@ export class Game {
         this.gameStats.clears += result.count;
         this._spawnContext.totalClears = this.gameStats.clears;
         this.gameStats.maxLinesCleared = Math.max(this.gameStats.maxLinesCleared, result.count);
+        /* ⚠️ 历史字段名 maxCombo —— 实际语义是「本局最大单手 linesCleared」（空间维度），
+         * 不是连击 streak 的最大值。保留以兼容 localStorage/后端 user_stats.max_combo 字段。
+         * 时间维度的最大 streak 见 _clearStreak / playerProfile.recentComboStreak。
+         * 术语权威定义见 docs/product/CLEAR_SCORING.md §〇。 */
         this.gameStats.maxCombo = Math.max(this.gameStats.maxCombo, result.count);
 
         this.logBehavior(GAME_EVENTS.CLEAR, {
@@ -2919,6 +2997,9 @@ export class Game {
 
         const madeNewBest = this._maybeCelebrateNewBest();
 
+        /* isCombo / isDouble 这里指「空间维度的单手多消」（c≥3 / c==2）—— 是 UI 飘字与特效时长用的局部判定，
+         * 与时间维度的 _clearStreak（连击节奏）无关。后者通过 comboMultiplier 进入计分，
+         * 通过 _showStreakBadge 出独立徽章。术语权威：docs/product/CLEAR_SCORING.md §〇。 */
         const isCombo = result.count >= 3;
         const isDouble = result.count === 2;
         const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
@@ -2983,6 +3064,20 @@ export class Game {
 
         // shake removed: 盘面固定不动, 仅 HUD 得分动效
 
+        /* 全屏闪光层（fxCanvas 上叠加，与粒子/高亮共存）：
+         *   - perfect：彩虹径向脉冲 + 冲击波环
+         *   - combo（≥3 同手多消）：暖金径向光晕
+         *   - double（==2）：沿消除行扩散的水平绿色涟漪
+         * 单线消行不出全屏闪光（避免频繁打扰），保持与 web 主端节奏一致。
+         * 决战段单线弱化（_isSingleLineMinimal）本就不进入这些分支。 */
+        if (perfectClear) {
+            this.renderer.triggerPerfectFlash();
+        } else if (isCombo) {
+            this.renderer.triggerComboFlash(Math.round(result.count * farBoost));
+        } else if (isDouble) {
+            this.renderer.triggerDoubleWave(result.rows || []);
+        }
+
         let effectType = '';
         if (perfectClear) effectType = 'perfect';
         else if (isCombo) effectType = 'combo';
@@ -2993,12 +3088,15 @@ export class Game {
             madeNewBest ? 'new-best' : effectType,
             result.count,
             bonusCount > 0 ? iconBonusScore : 0,
-            bonusCount > 0 ? animDuration : 0
+            bonusCount > 0 ? animDuration : 0,
+            comboMultiplier
         );
 
-        if (this._clearStreak >= 3) {
-            this._showStreakBadge(this._clearStreak);
+        /* 高 combo 庆祝徽章（≥3 → 火焰 + ×N）；常驻爱心徽章独立同步 */
+        if (this._comboCount >= 3) {
+            this._showStreakBadge(this._comboCount, comboMultiplier);
         }
+        this._updateComboHeart?.();
 
         /* === 逻辑结算：放块当帧立即执行（不再等动画播完）===
          * v1.61（用户反馈："消行动效期间无法放置新块，影响爽感"）：
@@ -3113,14 +3211,60 @@ export class Game {
         el.style.transform = 'translate(-50%, -50%)';
     }
 
-    _showStreakBadge(streak) {
+    /**
+     * 同步 HUD 粉色爱心徽章 ♥N 的可见态。
+     *   - _comboCount > 0 且 grace 窗口未过 → 显示，count = _comboCount
+     *   - _comboCount > 0 但 _roundsSinceLastClear ≥ gracePlacements → "待断"，CSS 淡出
+     *   - _comboCount === 0 → 完全隐藏
+     * 每次清线（_comboCount 自增后）调用一次重启 pop 动画；每次未清线也调用一次以更新淡出态。
+     */
+    _updateComboHeart() {
+        const el = this._comboHeartEl
+            || (this._comboHeartEl = document.getElementById('combo-heart'));
+        if (!el) return;
+        const cfg = COMBO_MULTIPLIER_CFG;
+        const enabled = !!cfg && cfg.enabled !== false;
+        if (!enabled || (this._comboCount | 0) <= 0) {
+            el.hidden = true;
+            el.classList.remove('combo-heart--fading', 'combo-heart--high');
+            return;
+        }
+        const countEl = el.querySelector('.combo-heart-count');
+        if (countEl) countEl.textContent = String(this._comboCount);
+        el.classList.toggle('combo-heart--high', this._comboCount >= 4);
+        const broken = isComboBroken(this._roundsSinceLastClear);
+        el.hidden = false;
+        if (broken) {
+            /* grace 已过：保留 DOM 但视觉淡出，下次清线自动复活 */
+            el.classList.add('combo-heart--fading');
+        } else {
+            el.classList.remove('combo-heart--fading');
+            /* 强制 reflow 重启 pop 动画 —— 便于每次清线时玩家看到一次"心跳" */
+            const prev = el.style.animation;
+            el.style.animation = 'none';
+            void el.offsetWidth;
+            el.style.animation = prev || '';
+        }
+    }
+
+    _showStreakBadge(streak, comboMultiplier = 1) {
         const el = document.createElement('div');
-        el.className = 'streak-badge';
+        const hasMult = Number(comboMultiplier) > 1;
+        el.className = hasMult ? 'streak-badge streak-badge--mult' : 'streak-badge';
         const fires = streak >= 5 ? '🔥🔥🔥' : streak >= 4 ? '🔥🔥' : '🔥';
-        el.textContent = t('effect.streakCombo', { fires, n: streak });
+        /* 倍数 ×N 提示：×2 整数时省略小数，×2.5 等保留 1 位 */
+        const multTxt = hasMult
+            ? (Number.isInteger(comboMultiplier)
+                ? `×${comboMultiplier}`
+                : `×${Number(comboMultiplier).toFixed(1)}`)
+            : '';
+        el.innerHTML = hasMult
+            ? `<span class="streak-badge-main">${t('effect.streakCombo', { fires, n: streak })}</span>`
+                + `<span class="streak-badge-mult">${t('effect.comboMultiplier', { mult: multTxt })}</span>`
+            : t('effect.streakCombo', { fires, n: streak });
         document.body.appendChild(el);
         this._anchorOnBoard(el);
-        setTimeout(() => el.remove(), 1600);
+        setTimeout(() => el.remove(), hasMult ? 2000 : 1600);
     }
 
     /**
@@ -3805,7 +3949,12 @@ export class Game {
             return;
         }
         const c = lineResult?.count ?? 0;
-        const { clearScore: lineScore } = computeClearScore(this.strategy, lineResult);
+        /* 回放快照需与实际 playClearEffect 路径同口径——后者用 grace 窗口推导新 combo。
+         * 此处 _comboCount / _roundsSinceLastClear 是本步落子前的状态，predictedCombo 走同一纯函数。 */
+        const predictedCombo = c > 0
+            ? deriveNextComboCount(this._comboCount, this._roundsSinceLastClear, true)
+            : 0;
+        const { clearScore: lineScore } = computeClearScore(this.strategy, lineResult, undefined, predictedCombo);
         const scoreAfterStep = this.score + lineScore;
 
         const ps = buildPlayerStateSnapshot(this.playerProfile, {
@@ -4221,8 +4370,9 @@ export class Game {
 
     /**
      * @param {number} [bonusUiHoldMs=0]  有同色 bonus 时传入与粒子阶段相同的 hold（ms），用于顶栏分数与粒子同步消失
+     * @param {number} [comboMultiplier=1] 连击倍数 >1 时在标签后追加 ×N 提示
      */
-    showFloatScore(score, type, linesCleared = 0, iconBonus = 0, bonusUiHoldMs = 0) {
+    showFloatScore(score, type, linesCleared = 0, iconBonus = 0, bonusUiHoldMs = 0, comboMultiplier = 1) {
         const el = document.createElement('div');
         const isNewBest = type === 'new-best';
         const isCombo = type === 'combo';
@@ -4231,6 +4381,14 @@ export class Game {
          * 新代码统一传 'scoreMilestone'，区别于跨局的"成熟度里程碑"。 */
         const isScoreMilestone = type === 'scoreMilestone' || type === 'milestone';
         const hasIconBonus = iconBonus > 0;
+        /* 连击倍数标记：×N 整数省略小数，×2.5 等保留 1 位；与 perfectClearMult / iconBonusMult
+         * 串行展示，避免视觉拥挤。仅在 >1 时追加。 */
+        const hasComboMult = Number(comboMultiplier) > 1;
+        const comboMultTxt = hasComboMult
+            ? (Number.isInteger(comboMultiplier)
+                ? ` · combo ×${comboMultiplier}`
+                : ` · combo ×${Number(comboMultiplier).toFixed(1)}`)
+            : '';
 
         if (hasIconBonus) {
             el.className = 'float-score float-icon-bonus';
@@ -4245,7 +4403,7 @@ export class Game {
             const mult = isPerfect ? ` ×${PERFECT_CLEAR_MULT}` : '';
             el.innerHTML =
                 `<span class="float-bonus-art" role="status">` +
-                `<span class="float-label">${label}${mult}</span>` +
+                `<span class="float-label">${label}${mult}${comboMultTxt}</span>` +
                 `<span class="float-bonus-score-row">` +
                 `<span class="float-bonus-num">${score}</span>` +
                 `<span class="float-bonus-mult-wrap">(${ICON_BONUS_LINE_MULT}x)</span>` +
@@ -4259,16 +4417,19 @@ export class Game {
         }
 
         const cls = isNewBest ? ' float-new-best' : isPerfect ? ' float-perfect' : isCombo ? ' float-combo' : type === 'multi' ? ' float-multi' : '';
-        el.className = 'float-score' + cls;
+        el.className = 'float-score' + cls + (hasComboMult ? ' float-has-combo-mult' : '');
 
         if (isNewBest) {
-            el.innerHTML = `<span class="float-label">${t('effect.newRecord')}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.newRecord')}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
         } else if (isPerfect) {
-            el.innerHTML = `<span class="float-label">${t('effect.perfectClear')} ×${PERFECT_CLEAR_MULT}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.perfectClear')} ×${PERFECT_CLEAR_MULT}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
         } else if (isCombo && linesCleared >= 3) {
-            el.innerHTML = `<span class="float-label">${t('effect.multiClear', { n: linesCleared })}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.multiClear', { n: linesCleared })}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
-            el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
+        } else if (hasComboMult) {
+            /* 单消但触发了 combo 倍数：把 ×N 直接拼到分数前 */
+            el.innerHTML = `<span class="float-label">${t('effect.comboMultiplier', { mult: `×${Number.isInteger(comboMultiplier) ? comboMultiplier : Number(comboMultiplier).toFixed(1)}` })}</span><span class="float-pts">+${score}</span>`;
         } else if (isScoreMilestone) {
             /* v1.55.11（用户反馈："已达最佳 N% 不触发特效"）：分数里程碑 toast 已撤销渲染。
              * 调用方 playClearEffect（line 2037 一带）已不再以 'scoreMilestone' / 'milestone' type

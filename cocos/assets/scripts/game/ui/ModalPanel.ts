@@ -1,5 +1,6 @@
-import { _decorator, Component, Node, Color, UITransform } from 'cc';
+import { _decorator, Component, Node, Color, UITransform, UIOpacity, Vec3, tween } from 'cc';
 import { Modal, dimBg, card, label, button, closeX, TapBus } from './uiKit';
+import { Motion } from '../platform/Motion';
 
 const { ccclass } = _decorator;
 
@@ -35,6 +36,10 @@ export class ModalPanel extends Component {
     private onCloseCb: (() => void) | null = null;
     private _unregDim: (() => void) | null = null;
     private _unregClose: (() => void) | null = null;
+    /** 防双触发关闭：button onClick → close 与 dim TapBus → close 可能在同一帧叠加，
+     *  若不守卫会导致 Modal.close 重复扣减 → Modal._count 偏负 → 后续 open 抬到 1 但场景空 →
+     *  全局 onTouchStart 永远命中 `Modal.isOpen() return` → 候选块无法激活的「假性僵尸」。 */
+    private _closed = false;
 
     static show(parent: Node, opts: ModalOptions): ModalPanel {
         const root = new Node('Modal');
@@ -43,7 +48,24 @@ export class ModalPanel extends Component {
         root.setSiblingIndex(9999);
         root.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
         const panel = root.addComponent(ModalPanel);
-        panel.build(opts);
+        try {
+            panel.build(opts);
+        } catch (err) {
+            // build 在 Modal.open() 之后任一步抛错（dimBg / card / label / button / closeX 失败），
+            // 会留下「计数 +1 但屏幕无 modal」的永久泄漏 → onTouchStart 全局拦截。
+            // 这里强制走 close() 路径回滚 + 销毁残骸，避免漏发奖励/卡死交互。
+            console.warn('[OpenBlock] ModalPanel.build failed', err);
+            try { panel.close(); } catch { /* 已尽力 */ }
+            throw err;
+        }
+        // 入场补粒：fade + 轻微 scale-up（180ms cubicOut）。Motion.reduced 时跳过，直接显示。
+        if (!Motion.reduced) {
+            const op = root.getComponent(UIOpacity) || root.addComponent(UIOpacity);
+            op.opacity = 0;
+            root.setScale(new Vec3(0.92, 0.92, 1));
+            tween(op).to(0.18, { opacity: 255 }, { easing: 'cubicOut' }).start();
+            tween(root).to(0.18, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+        }
         return panel;
     }
 
@@ -88,10 +110,18 @@ export class ModalPanel extends Component {
     }
 
     close(): void {
+        // 双触发守卫：button onClick + dim TapBus + closeX 任一组合都可能在同一帧/连贯帧内触发 close，
+        // 重复扣 Modal._count 会让计数器陷入「负偏移」（被 Math.max(0, ...) 钳到 0），
+        // 然后任一正常 Modal.open 都会让 isOpen() 永远为 true → 全局触摸被错误拦截。
+        if (this._closed) return;
+        this._closed = true;
         Modal.close();
         if (this._unregDim) { this._unregDim(); this._unregDim = null; }
         if (this._unregClose) { this._unregClose(); this._unregClose = null; }
-        if (this.onCloseCb) this.onCloseCb();
-        this.node.destroy();
+        // onCloseCb 的副作用（重开 / 发奖 / 自身再开新 modal）若抛错，也必须把节点销毁兜底，
+        // 否则屏幕上会残留空白透明 modal 同时计数已扣减 → 视觉无东西但事实上没有，
+        // 反而是「计数正确 + 节点泄露」更糟。
+        try { if (this.onCloseCb) this.onCloseCb(); } catch (err) { console.warn('[OpenBlock] ModalPanel onClose', err); }
+        if (this.node?.isValid) this.node.destroy();
     }
 }

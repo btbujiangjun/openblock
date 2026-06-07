@@ -63,7 +63,11 @@ echo "▶ 构建 iOS：project=$COCOS_DIR"
 echo "  config=$CONFIG"
 
 # 过滤退出噪音的正则
-NOISE='mach_port_rendezvous|shared_memory_switch|No rendezvous client'
+# - mach_port_rendezvous / shared_memory_switch / No rendezvous client：CLI 退出时的 Electron IPC 拆除噪音
+# - Recovery window failed / window\.json: Unexpected end of JSON / 紧随其后的 SyntaxError 栈：
+#   CLI 模式下 Creator 仍会尝试初始化 GUI「恢复窗口」，读到空的 ~/.CocosCreator/editor/window.json.backup
+#   会抛 SyntaxError 并把进程退码搞成 36；与构建产物无关，整段栈一并屏蔽。
+NOISE='mach_port_rendezvous|shared_memory_switch|No rendezvous client|Recovery window failed|window\.json: Unexpected end of JSON|^SyntaxError:|^\s+at (JSON\.parse|_readFile|Object\.(startup|window)|async Promise\.all|launch|/Applications/Cocos/)'
 
 # 用临时文件留存完整日志，便于据「Finished」判定成功（管道里 $? 是 grep 的码，不可靠）。
 LOG="$(mktemp -t cocos-build-ios)"

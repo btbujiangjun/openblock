@@ -1759,8 +1759,8 @@ export class Renderer {
         const g = skin.gridGap ?? 1;
         const lightBoard = skin.uiDark === false;
         const highQualityBackdrop = this._qualityMode === 'high';
-        const outerA = lightBoard ? 0.93 : highQualityBackdrop ? 0.78 : 0.86;
-        const cellA = lightBoard ? 0.84 : highQualityBackdrop ? 0.54 : 0.70;
+        const outerA = 1;
+        const cellA = lightBoard ? 0.96 : highQualityBackdrop ? 0.96 : 0.96;
 
         ctx.fillStyle = hexToRgba(skin.gridOuter, outerA);
         ctx.fillRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
@@ -1796,7 +1796,7 @@ export class Renderer {
         const w = this.gridSize * this.cellSize;
         let lineStyle = skin.gridLine;
         if (!lineStyle) {
-            lineStyle = skin.uiDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.16)';
+            lineStyle = skin.uiDark ? 'rgba(255,255,255,0.46)' : 'rgba(15,23,42,0.34)';
         }
         ctx.strokeStyle = lineStyle;
         ctx.lineWidth = 1;
@@ -2176,16 +2176,12 @@ export class Renderer {
         }
     }
 
-    /** Perfect Clear 彩虹脉冲特效 */
+    /** Perfect Clear 彩虹脉冲特效（全屏径向脉冲 + 冲击波环） */
     triggerPerfectFlash() {
         if (!this._effectsEnabled) return;
-        /*
-         * 旧版会绘制全屏径向闪光 + 同心冲击波，在多套皮肤下像一个突兀的大圆圈。
-         * Perfect Clear 仍保留粒子爆发；这里不再启用圆形覆盖层。
-         */
-        this._perfectFlash = 0;
-        this._perfectShockwave = 0;
-        this._perfectHue = 0;
+        this._perfectFlash = 1.0;
+        this._perfectShockwave = 1.0;
+        // _perfectHue 由 decayPerfectFlash 持续推进，形成彩虹流动
     }
 
     decayPerfectFlash() {
@@ -2203,7 +2199,37 @@ export class Renderer {
 
     renderPerfectFlash() {
         if (!this._effectsEnabled) return;
-        // 大圆形 Perfect Clear 覆盖层已移除，避免遮挡主题水印和棋盘内容。
+        if ((this._perfectFlash || 0) <= 0) return;
+        const a = this._perfectFlash;
+        const cx = this.logicalW * 0.5;
+        const cy = this.logicalH * 0.5;
+        const r = Math.max(this.logicalW, this.logicalH) * 0.78;
+        const ec = this._effectCtx();
+        const m = this._paintMargin || 0;
+        const hue = this._perfectHue || 0;
+        ec.save();
+        ec.translate(this.shakeOffset.x, this.shakeOffset.y);
+        // 彩虹径向脉冲（柔和、不喧宾夺主）
+        const g = ec.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, `hsla(${hue}, 90%, 66%, ${0.20 * a})`);
+        g.addColorStop(0.35, `hsla(${(hue + 60) % 360}, 90%, 60%, ${0.13 * a})`);
+        g.addColorStop(0.65, `hsla(${(hue + 140) % 360}, 85%, 56%, ${0.06 * a})`);
+        g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ec.fillStyle = g;
+        ec.fillRect(-m - this.shakeOffset.x, -m - this.shakeOffset.y,
+            this.logicalW + 2 * m, this.logicalH + 2 * m);
+        // 扩散冲击波环
+        if ((this._perfectShockwave || 0) > 0) {
+            const sw = this._perfectShockwave;
+            const ringR = r * (1 - sw) * 1.05 + this.cellSize * 0.3;
+            ec.globalAlpha = 0.6 * sw;
+            ec.strokeStyle = `hsla(${(hue + 200) % 360}, 95%, 72%, 0.85)`;
+            ec.lineWidth = Math.max(2, this.cellSize * 0.16) * (0.4 + 0.6 * sw);
+            ec.beginPath();
+            ec.arc(cx, cy, ringR, 0, Math.PI * 2);
+            ec.stroke();
+        }
+        ec.restore();
     }
 
     /** Double 消除涟漪：沿消除行扩散的水平光波 */

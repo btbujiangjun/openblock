@@ -634,7 +634,7 @@ const WATERMARKS: Record<string, BoardWatermark> = {
     bubbly: { icons: ['🫧', '🐡'], opacity: 0.09 },
     toon: { icons: ['🎪', '🎠'], opacity: 0.08 },
     pixel8: { icons: ['👾', '🎮', '🍄', '🥊'], opacity: 0.10, scale: 0.72 },
-    dawn: { icons: ['🌄', '🌻', '🕊️', '🍃'], opacity: 0.12, scale: 0.6 },
+    dawn: { icons: ['🌄', '🌻', '🕊️', '🍃'], opacity: 0.12, scale: 0.28 },
     food: { icons: ['🍕', '🍔'], opacity: 0.08 },
     music: { icons: ['🎹', '🎸'], opacity: 0.08 },
     pets: { icons: ['🐶', '🐾'], opacity: 0.09 },
