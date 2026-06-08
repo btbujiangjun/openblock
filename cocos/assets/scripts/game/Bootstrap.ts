@@ -300,64 +300,8 @@ export class Bootstrap extends Component {
         // 1.5s 给足三次延迟 relayout 把分辨率/相机收敛到正确值，之后游戏期 resize 不再踩 swapchain 雷。
         this.scheduleOnce(() => { this._resolutionLocked = true; console.log('[OpenBlock] resolution locked (no more canvas-resize)'); }, 1.5);
 
-        // 心跳诊断：确认 boot 跑完 + 帧循环是否推进（区分「卡死」与「画了但不可见」）。
-        // Cocos 3.x 的 totalFrames 是私有字段（实际为 _totalFrames），公共 API 是 getTotalFrames()。
-        // 之前直接读 director.totalFrames 拿到 undefined，相当于心跳诊断永远报 undefined → 失去监测价值。
+        // 心跳日志：确认 boot 跑完、场景已就绪（区分「卡死」与「画了但不可见」）。
         console.log(`[OpenBlock] boot() done. children=${this.node.children.length} scene=${director.getScene()?.name}`);
-        const readFrames = (): number | string => {
-            try {
-                const d = director as unknown as { getTotalFrames?: () => number; _totalFrames?: number; totalFrames?: number };
-                if (typeof d.getTotalFrames === 'function') return d.getTotalFrames();
-                if (typeof d._totalFrames === 'number') return d._totalFrames;
-                if (typeof d.totalFrames === 'number') return d.totalFrames;
-            } catch { /* ignore */ }
-            return 'n/a';
-        };
-        // 分钟级诊断采样：每 2s 打印 帧增量(测 fps/卡死) + 场景节点总数(测节点泄漏) + JS堆(若可用)，
-        // 持续 ~90s。复现「~1 分钟无响应/黑屏」时对照日志即可一锤定音定位泄漏类别：
-        //   · dframes 在某段骤降到 ~0 → 主线程/渲染线程卡死（ANR 类，查长任务 / resize / EGL）；
-        //   · nodes 单调持续上升        → 节点泄漏（瞬态特效/Label 未回收 → 原生内存增长 → OOM）；
-        //   · heapMB 持续上升           → JS 堆泄漏（数组/闭包累积）。
-        // 关闭：把下方 schedule 注释掉即可（纯诊断，不影响逻辑）。
-        let prevFrames = Number(readFrames()) || 0;
-        let diagN = 0;
-        const sampler = (): void => {
-            if (!this.node?.isValid) { this.unschedule(sampler); return; }
-            const f = Number(readFrames()) || 0;
-            const dframes = f - prevFrames;
-            prevFrames = f;
-            const nodes = this.countSceneNodes();
-            const heap = this.readJsHeapMB();
-            console.log(`[OpenBlock][diag] t=${(++diagN) * 2}s dframes=${dframes} nodes=${nodes}${heap != null ? ` heapMB=${heap}` : ''}`);
-            if (diagN >= 45) this.unschedule(sampler);
-        };
-        this.schedule(sampler, 2);
-    }
-
-    /** 递归统计当前场景节点总数——节点泄漏（瞬态特效/Label 未回收）会让该值随时间单调上升。 */
-    private countSceneNodes(): number {
-        try {
-            const scene = director.getScene();
-            if (!scene) return -1;
-            let n = 0;
-            const walk = (node: { children?: unknown[] } | null): void => {
-                if (!node) return;
-                n++;
-                const kids = node.children as Array<{ children?: unknown[] }> | undefined;
-                if (kids) for (const k of kids) walk(k);
-            };
-            walk(scene as unknown as { children?: unknown[] });
-            return n;
-        } catch { return -1; }
-    }
-
-    /** JS 堆占用(MB)，仅浏览器/部分引擎暴露 performance.memory；原生 JSB 通常取不到 → 返回 null。 */
-    private readJsHeapMB(): number | null {
-        try {
-            const mem = (globalThis as unknown as { performance?: { memory?: { usedJSHeapSize?: number } } }).performance?.memory;
-            if (mem?.usedJSHeapSize != null) return Math.round(mem.usedJSHeapSize / 1048576);
-        } catch { /* ignore */ }
-        return null;
     }
 
     private attach<T extends Component>(
