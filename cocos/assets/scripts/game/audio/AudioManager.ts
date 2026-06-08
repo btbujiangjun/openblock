@@ -561,6 +561,14 @@ class AudioManagerImpl {
         this.bgmTimer = setInterval(tick, 380);
     }
 
+    /**
+     * 仅在「此前用户主动开过 BGM」时恢复播放（用于 app 切回前台）。
+     * 不改变 bgmWanted 意愿位——若用户从未开启或已主动关闭，则保持静默，不会被前后台切换强行打开。
+     */
+    resumeBgmIfWanted(): void {
+        if (this.bgmWanted) this.startBgm();
+    }
+
     /** 主动停止 BGM；保留 bgmWanted=true 让静音→开声时能自动恢复（仅 forget=true 才会清意愿）。 */
     stopBgm(forget = false): void {
         this.bgmOn = false;

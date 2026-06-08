@@ -85,10 +85,17 @@ const POP_GHOST_DURATION_S = 0.05;
  *  确认无误后改回 false 关闭日志。 */
 const DEBUG_TOUCH = false;
 
-/** 拖拽心跳超时（毫秒）：超过此时长无 TOUCH_MOVE / TOUCH_END，update() 看门狗会强制 cancelDrag。
- *  常见触发：iOS WKWebView 系统手势接管 / 控制中心下拉吞掉 END / Mobile Safari 滑动让出触摸 …
- *  这是「候选块再也激活不了」最常见的隐藏成因 —— END/CANCEL 被吞而 dragIndex 残留。 */
+/** 拖拽心跳超时（毫秒）：进行中拖拽（手指应仍按住）超过此时长无 TOUCH_MOVE / TOUCH_END，
+ *  update() 看门狗会强制 cancelDrag。常见触发：iOS WKWebView 系统手势接管 / 控制中心下拉吞掉 END /
+ *  安卓沉浸式 surfaceChanged / 边缘手势让出触摸 … 这是「候选块再也激活不了」最常见的隐藏成因，
+ *  也是「触摸事件风暴」的源头前兆 —— END/CANCEL 被平台吞掉而 dragIndex 永久残留。 */
 const DRAG_STALE_TIMEOUT_MS = 3500;
+
+/** 悬浮选中（tap-select）僵尸上限（毫秒）：点选候选块后 ghost 悬停、手指已抬起，等待下一次点击落子，
+ *  这是合法的长驻态（玩家在思考落点，对齐 Block Blast 类「点选不需一直按住」的范式）。此态下没有任何
+ *  TOUCH_MOVE 刷新心跳，故绝不能按 DRAG_STALE_TIMEOUT_MS 误清；仅用这个很大的上限兜底极端僵尸态，
+ *  防止 dragIndex 永久占用而后续无法激活其它候选块。 */
+const DRAG_HOVER_STALE_MS = 30000;
 
 /** Modal 假性打开自愈窗（毫秒）：onTouchStart 拦截在 Modal.isOpen 上累计达到此时长，
  *  且场景内确实没有 modal 节点 → 视为计数泄漏，强制 Modal.reset 让交互恢复。 */
@@ -242,6 +249,10 @@ export class GameController extends Component {
     private _lastTouchEndY = -1;
     private _lastTouchEndAtMs = 0;
     private _dupTouchEndCount = 0;
+    /** 坐标无关的 touch-end 速率守卫：引擎卡死时会在多个坐标间交替高频重发，同坐标去重抓不到，
+     *  改用"滚动 1s 窗内总次数"判定风暴 → 超阈值直接丢弃 + 自愈，根治 UI 假死（见 onTouchEnd）。 */
+    private _touchEndWindowStartMs = 0;
+    private _touchEndWindowCount = 0;
     private pendingSkill: SkillId | null = null;
     private aimAssist = false;
     private timeLeft = 0;
@@ -585,15 +596,35 @@ export class GameController extends Component {
         this.repositionGhost(this._lastTouchScreenX, this._lastTouchScreenY);
     }
 
-    /** 周期性检查：dragIndex 已激活但 dragLastSeenAtMs 太久没刷新 → 平台吞了 END/CANCEL。
-     *  对玩家而言，等到看门狗触发前的窗口内 dock 看上去就是"激活不了"。 */
+    /**
+     * 拖拽看门狗（源头防线）：周期性检查 dragIndex 已激活但 dragLastSeenAtMs 太久没刷新的僵尸态。
+     *
+     * 必须区分两种 dragIndex>=0 的语义，否则会误伤合法交互：
+     *  · 进行中拖拽（手指应仍按住，dragMoved 或处于 deferred-tap 待定）：idle 超时几乎一定是平台
+     *    吞掉了 END/CANCEL（iOS 边缘手势 / 安卓沉浸式 surfaceChanged / WebView 接管触摸）。这种残留态
+     *    若拖到下一次 touch-start 才被 heal，正是「候选块激活不了」「触摸 END 风暴」的源头前兆，
+     *    故用较短的 DRAG_STALE_TIMEOUT_MS 主动回收，把僵尸态存活时间从源头压上限。
+     *  · 悬浮选中（_tapSelected 且无待定动作、未发生位移）：手指已抬起、方块悬停等下一次点击，是合法
+     *    长驻态（玩家在思考落点）。此态天然没有 TOUCH_MOVE 刷新心跳，若沿用 3.5s 会把玩家选中的方块
+     *    无故取消 —— 因此只用很大的 DRAG_HOVER_STALE_MS 兜底极端僵尸，正常思考时间内绝不打扰。
+     *
+     * 注意：本看门狗是「JS 侧」防线，只在 update() 还能跑（主线程未冻）时生效。安卓原生渲染线程被
+     * 交换链/EGL surface 重建顶死那条故障链，由 Bootstrap 的分辨率锁定 + onTouchEnd 的事件风暴速率
+     * 守卫从原生侧兜底，二者互补。
+     */
     private dragWatchdogTick(): void {
         if (this.dragIndex < 0) return;
         if (this.dragLastSeenAtMs <= 0) return;
         const idle = Date.now() - this.dragLastSeenAtMs;
-        if (idle < DRAG_STALE_TIMEOUT_MS) return;
-        console.warn(`[OpenBlock] drag watchdog reset (idle=${idle}ms idx=${this.dragIndex} touchId=${this.dragTouchId})`);
+        const isHoverSelect = this._tapSelected && this._pendingTapAction == null && !this.dragMoved;
+        const limit = isHoverSelect ? DRAG_HOVER_STALE_MS : DRAG_STALE_TIMEOUT_MS;
+        if (idle < limit) return;
+        console.warn(`[OpenBlock] drag watchdog reset (idle=${idle}ms idx=${this.dragIndex} touchId=${this.dragTouchId} hover=${isHoverSelect ? 1 : 0} moved=${this.dragMoved ? 1 : 0})`);
         this.cancelDrag();
+        // 悬浮选中被回收后，dock 槽需重绘回「未选中」态，避免残留高亮/缺块视觉。
+        if (isHoverSelect) {
+            try { this.dock.render(this.model.dock, this.model.skin); } catch { /* ignore */ }
+        }
     }
 
     /**
@@ -2128,6 +2159,25 @@ export class GameController extends Component {
         const now = Date.now();
         const lx = loc.x | 0;
         const ly = loc.y | 0;
+        // ⭐ 坐标无关的事件风暴守卫（修复「激活候选块未放置 → 整个界面无响应」）：
+        // 引擎在 iOS/安卓输入卡死或边缘手势冲突时，会在【多个坐标间交替】高频重发 touch-end
+        // （日志可见 (611,262)/(247,431) 两点每数毫秒交替刷屏），同坐标 60ms 去重完全抓不到，
+        // 每个事件还各跑一次 dispatchTap + console.log（原生端 log 是昂贵 IPC）→ 主线程被打满假死。
+        // 这里按"滚动 1s 窗内 touch-end 总次数"判定：真实玩家每秒至多数次，超 25 次必为引擎风暴 →
+        // 直接丢弃（不分发、不打日志）并周期性自愈（cancel 残留 drag + reset Modal），让交互恢复。
+        if (now - this._touchEndWindowStartMs > 1000) {
+            this._touchEndWindowStartMs = now;
+            this._touchEndWindowCount = 0;
+        }
+        this._touchEndWindowCount++;
+        if (this._touchEndWindowCount > 25) {
+            if (this._touchEndWindowCount % 120 === 26) {
+                console.warn(`[OpenBlock] touch-end FLOOD (rate>25/s) suppressing + self-heal; drag=${this.dragIndex} modalOpen=${Modal.isOpen() ? 1 : 0}`);
+                try { if (this.dragIndex >= 0) this.cancelDrag(); } catch { /* ignore */ }
+                try { Modal.reset(); } catch { /* ignore */ }
+            }
+            return;
+        }
         if (
             this._lastTouchEndTouchId === tid
             && this._lastTouchEndX === lx

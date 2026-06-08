@@ -1,7 +1,8 @@
 import {
     _decorator, Component, Node, Graphics, UITransform, Color, view, screen, sys, ResolutionPolicy,
-    Sprite, SpriteFrame, UIOpacity, tween, resources, director,
+    Sprite, SpriteFrame, UIOpacity, tween, resources, director, game, Game,
 } from 'cc';
+import { AudioManager } from './audio/AudioManager';
 import {
     GameModel, MetaState, createEngineSpawner, initLocale, getConfig, flag, Analytics,
     applyAprilFoolsIfActive, PlayerContext, setSpawnContextProvider, configureLocalePersistence, t,
@@ -61,6 +62,11 @@ export class Bootstrap extends Component {
     private _ctrl: GameController | null = null;
     /** 上次实际应用的分辨率/窗口尺寸键，用于跳过冗余的 setDesignResolutionSize/canvas-resize。 */
     private _lastViewKey = '';
+    // 首帧布局稳定后置 true：之后任何 relayout 都只在 JS 重排节点，绝不再
+    // setDesignResolutionSize / emit('canvas-resize') → 杜绝交换链/表面在渲染线程重建。
+    //   · iOS：CCMTLSwapchain::doInit 跑在 consumer 线程里非法访问 -[UIView layer] → 主线程检查器冻屏；
+    //   · Android：沉浸式 surfaceChanged 风暴 → EGL surface 反复重配 → 渲染线程顶死 / 黑屏（稳定复现端）。
+    private _resolutionLocked = false;
 
     onLoad(): void {
         // 最早注册兜底根：之后任何启动异常都画到屏幕（原生黑屏 → 可读报错）。
@@ -290,6 +296,9 @@ export class Bootstrap extends Component {
         this.scheduleOnce(() => this.relayout(), 0);
         this.scheduleOnce(() => this.relayout(), 0.3);
         this.scheduleOnce(() => this.relayout(), 0.8);
+        // 启动期 safe-area 稳定后锁定分辨率：此后 relayout 只重排节点、不再重建交换链。
+        // 1.5s 给足三次延迟 relayout 把分辨率/相机收敛到正确值，之后游戏期 resize 不再踩 swapchain 雷。
+        this.scheduleOnce(() => { this._resolutionLocked = true; console.log('[OpenBlock] resolution locked (no more canvas-resize)'); }, 1.5);
 
         // 心跳诊断：确认 boot 跑完 + 帧循环是否推进（区分「卡死」与「画了但不可见」）。
         // Cocos 3.x 的 totalFrames 是私有字段（实际为 _totalFrames），公共 API 是 getTotalFrames()。
@@ -304,13 +313,51 @@ export class Bootstrap extends Component {
             } catch { /* ignore */ }
             return 'n/a';
         };
-        // 启动期密集心跳：t=1/3/5/...29s，把"app 在哪一段时间停止 tick"映射成"哪个心跳没打"。
-        // 帮助定位 iOS 真机上的"页面无响应"是引擎 GPU 线程问题、JS 长任务还是外部信号（电话/通知）。
-        this.scheduleOnce(() => console.log(`[OpenBlock] heartbeat t=1s frames=${readFrames()}`), 1);
-        for (let s = 3; s <= 29; s += 2) {
-            const at = s;
-            this.scheduleOnce(() => console.log(`[OpenBlock] heartbeat t=${at}s frames=${readFrames()}`), at);
-        }
+        // 分钟级诊断采样：每 2s 打印 帧增量(测 fps/卡死) + 场景节点总数(测节点泄漏) + JS堆(若可用)，
+        // 持续 ~90s。复现「~1 分钟无响应/黑屏」时对照日志即可一锤定音定位泄漏类别：
+        //   · dframes 在某段骤降到 ~0 → 主线程/渲染线程卡死（ANR 类，查长任务 / resize / EGL）；
+        //   · nodes 单调持续上升        → 节点泄漏（瞬态特效/Label 未回收 → 原生内存增长 → OOM）；
+        //   · heapMB 持续上升           → JS 堆泄漏（数组/闭包累积）。
+        // 关闭：把下方 schedule 注释掉即可（纯诊断，不影响逻辑）。
+        let prevFrames = Number(readFrames()) || 0;
+        let diagN = 0;
+        const sampler = (): void => {
+            if (!this.node?.isValid) { this.unschedule(sampler); return; }
+            const f = Number(readFrames()) || 0;
+            const dframes = f - prevFrames;
+            prevFrames = f;
+            const nodes = this.countSceneNodes();
+            const heap = this.readJsHeapMB();
+            console.log(`[OpenBlock][diag] t=${(++diagN) * 2}s dframes=${dframes} nodes=${nodes}${heap != null ? ` heapMB=${heap}` : ''}`);
+            if (diagN >= 45) this.unschedule(sampler);
+        };
+        this.schedule(sampler, 2);
+    }
+
+    /** 递归统计当前场景节点总数——节点泄漏（瞬态特效/Label 未回收）会让该值随时间单调上升。 */
+    private countSceneNodes(): number {
+        try {
+            const scene = director.getScene();
+            if (!scene) return -1;
+            let n = 0;
+            const walk = (node: { children?: unknown[] } | null): void => {
+                if (!node) return;
+                n++;
+                const kids = node.children as Array<{ children?: unknown[] }> | undefined;
+                if (kids) for (const k of kids) walk(k);
+            };
+            walk(scene as unknown as { children?: unknown[] });
+            return n;
+        } catch { return -1; }
+    }
+
+    /** JS 堆占用(MB)，仅浏览器/部分引擎暴露 performance.memory；原生 JSB 通常取不到 → 返回 null。 */
+    private readJsHeapMB(): number | null {
+        try {
+            const mem = (globalThis as unknown as { performance?: { memory?: { usedJSHeapSize?: number } } }).performance?.memory;
+            if (mem?.usedJSHeapSize != null) return Math.round(mem.usedJSHeapSize / 1048576);
+        } catch { /* ignore */ }
+        return null;
     }
 
     private attach<T extends Component>(
@@ -398,9 +445,75 @@ export class Bootstrap extends Component {
      */
     private setupViewport(): void {
         this.applyResolutionPolicy(720, 1280);
-        // 尺寸/旋转变化时重新铺满并重排布局（不仅仅是重设分辨率）
-        screen.on('window-resize', () => this.relayout(), this);
-        screen.on('orientation-change', () => this.relayout(), this);
+        // 尺寸/旋转变化时重新铺满并重排布局（不仅仅是重设分辨率）。
+        // ⚠️ 必须防抖：iOS 在「状态栏弹出 / 分屏拖拽 / 旋转」过渡期会以动画形式连发多个 window-resize，
+        //   每个中间尺寸都是一个新 viewport key → 各触发一次 applyResolutionPolicy 的 `canvas-resize`
+        //   → Metal swapchain 在渲染线程反复重建（碰 CAMetalLayer，Cocos 3.x 已知主线程违例）。
+        //   过渡期高频重建会把渲染线程顶死 → 表现为「顶部系统栏弹出后全屏无响应 / 黑屏」。
+        //   防抖把这串中间态收敛为「停稳 ~180ms 后只重建一次」，根治该 freeze。
+        screen.on('window-resize', this.onViewportChanged, this);
+        screen.on('orientation-change', this.onViewportChanged, this);
+        // App 前后台生命周期：Cocos 在切后台时暂停主循环，切回前台时若不主动「重发绘制指令」，
+        // 基于 Graphics 的静态内容（盘面/候选区/HUD 都是一次性绘制后缓存的 draw command）在
+        // GL/Metal 表面被系统回收后不会自动重画 → 回前台黑屏。这里在 EVENT_SHOW 强制重排+重绘恢复。
+        game.on(Game.EVENT_HIDE, this.onAppHide, this);
+        game.on(Game.EVENT_SHOW, this.onAppShow, this);
+    }
+
+    /** 防抖后的视口重排：连续 resize 事件停稳后只跑一次，避免过渡期反复重建 GPU swapchain。 */
+    private onViewportChanged(): void {
+        this.unschedule(this._debouncedRelayout);
+        this.scheduleOnce(this._debouncedRelayout, 0.18);
+    }
+
+    private _debouncedRelayout = (): void => {
+        if (!this.node?.isValid) return;
+        this.relayout();
+    };
+
+    /** 切后台：停 BGM（保留意愿，回前台自动恢复）+ 取消进行中的拖拽，避免后台残留 setInterval / 僵尸拖拽态。 */
+    private onAppHide(): void {
+        try { AudioManager.stopBgm(); } catch { /* ignore */ }
+        try { this._ctrl?.cancelActiveDrag(); } catch { /* ignore */ }
+    }
+
+    /**
+     * 切回前台：恢复渲染与音频。
+     *   1) relayout()：重新计算布局并对盘面/候选区/HUD 全量重绘——重发 Graphics draw command，
+     *      修复「GL/Metal 表面被系统回收后静态内容不自动重画」导致的回前台黑屏；
+     *      其中 applyResolutionPolicy 按 viewport key 去重，回前台尺寸通常不变 → 不会触发
+     *      脆弱的 canvas-resize/swapchain 重建，仅做安全的内容重绘。
+     *   2) 恢复 BGM 开启意愿；重新 arm 音频解锁（iOS 切后台会 suspend AudioContext）。
+     */
+    private onAppShow(): void {
+        if (!this.node?.isValid) return;
+        // 立即重绘一次。但安卓回前台时 GLSurfaceView 的 EGL surface 往往要到下一渲染帧才重建完成，
+        // 此刻同步 relayout 的 draw command 可能打在尚未就绪的 surface 上 → 仍黑屏到下次真实绘制。
+        // 故再补「下一帧」与「~0.35s 后」两次延迟重绘兜底（relayout 幂等、viewport-key 去重，开销极低），
+        // 与启动期「首帧后多次延迟 relayout」同一思路，稳定根治回前台黑屏。
+        try { this.relayout(); } catch (e) { console.warn('[OpenBlock] onAppShow relayout', e); }
+        this.unschedule(this._resumeRedraw);
+        this.scheduleOnce(this._resumeRedraw, 0);
+        this.scheduleOnce(this._resumeRedraw, 0.35);
+        try { AudioManager.armUnlock(); } catch { /* ignore */ }
+        // 仅恢复「此前主动开过」的 BGM，切后台不改变用户的开关意愿。
+        try { AudioManager.resumeBgmIfWanted(); } catch { /* ignore */ }
+    }
+
+    /** 回前台延迟兜底重绘：等 EGL/Metal 表面真正重建后再发一次 draw command，避免黑屏残留。 */
+    private _resumeRedraw = (): void => {
+        if (!this.node?.isValid) return;
+        try { this.relayout(); } catch { /* ignore */ }
+    };
+
+    /** 组件销毁时摘除全局监听 + 取消挂起的防抖重排，避免悬挂回调访问已失效节点。 */
+    onDestroy(): void {
+        try { screen.off('window-resize', this.onViewportChanged, this); } catch { /* ignore */ }
+        try { screen.off('orientation-change', this.onViewportChanged, this); } catch { /* ignore */ }
+        try { game.off(Game.EVENT_HIDE, this.onAppHide, this); } catch { /* ignore */ }
+        try { game.off(Game.EVENT_SHOW, this.onAppShow, this); } catch { /* ignore */ }
+        try { this.unschedule(this._debouncedRelayout); } catch { /* ignore */ }
+        try { this.unschedule(this._resumeRedraw); } catch { /* ignore */ }
     }
 
     /**
@@ -491,6 +604,12 @@ export class Bootstrap extends Component {
      * 会误选 FIXED_HEIGHT，导致可见宽变窄、盘面"横向铺满"，故此处固定为 FIXED_WIDTH。
      */
     private applyResolutionPolicy(designW: number, designH: number): void {
+        // 🔒 首帧布局稳定后锁定：游戏期的 window-resize（系统栏/导航栏弹出、安全区变化、来电横幅、
+        //    安卓沉浸式 surfaceChanged）一律不重设分辨率、不 emit('canvas-resize')，从根上消除
+        //    「交换链/EGL surface 在渲染线程重建」这条故障链（iOS 报 -[UIView layer] 越线冻屏，
+        //    安卓表现为沉浸式 resize 风暴顶死渲染线程 / 黑屏）。竖屏锁定游戏的 drawable 在系统栏
+        //    切换时并不真正改变尺寸，跳过重建安全；布局自适应交给 relayoutImpl 的节点重排完成。
+        if (this._resolutionLocked) return;
         let fw = 0;
         let fh = 0;
         try {

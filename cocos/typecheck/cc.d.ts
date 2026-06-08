@@ -21,6 +21,9 @@ declare module 'cc' {
     export type Camera = any; export const Camera: any;
     export type Canvas = any; export const Canvas: any;
     export type director = any; export const director: any;
+    export type Director = any; export const Director: any;
+    export type game = any; export const game: any;
+    export type Game = any; export const Game: any;
     export type sys = any; export const sys: any;
     export type input = any; export const input: any;
     export type Input = any; export const Input: any;
