@@ -47,6 +47,12 @@ export interface EngineSpawnerOptions {
     getRunStreak?: () => number;
     /** 取稳定用户 id（寻参灰度门控 hash；默认 ''）。 */
     getUserId?: () => string;
+    /**
+     * 每日大师题种子源（移植 web dailyMaster）：返回一个确定性 PRNG 时，本次出块体内临时把 `Math.random`
+     * 替换为它（含引擎几何选择 + defaultRng 配色，二者都走 Math.random → 全确定）；返回 null 走正常随机。
+     * 仅在 spawn 调用期替换、用 try/finally 还原，不影响出块之外的随机（粒子等）。
+     */
+    getSeedRandom?: () => (() => number) | null;
 }
 
 interface EngineShape {
@@ -70,6 +76,7 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
     const getBest = opts.getBest ?? (() => 0);
     const getRunStreak = opts.getRunStreak ?? (() => 0);
     const getUserId = opts.getUserId ?? (() => '');
+    const getSeedRandom = opts.getSeedRandom;
     const ctx: Record<string, unknown> = {};
 
     let strat: unknown;
@@ -79,7 +86,7 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
         strat = null;
     }
 
-    return function engineSpawn(grid: Grid): DockBlock[] {
+    function spawnCore(grid: Grid): DockBlock[] {
         if (!strat) return [];
 
         // RL/模型路径（默认关闭）：开启且注入策略时优先；返回 null 回退规则引擎。
@@ -179,5 +186,18 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
             });
         }
         return blocks;
+    }
+
+    // 每日大师题：若注入了日固定 PRNG，则本次出块体内临时替换 Math.random（含几何 + 配色），用完即还原。
+    return function engineSpawn(grid: Grid): DockBlock[] {
+        const seedRandom = getSeedRandom ? getSeedRandom() : null;
+        if (!seedRandom) return spawnCore(grid);
+        const orig = Math.random;
+        Math.random = seedRandom;
+        try {
+            return spawnCore(grid);
+        } finally {
+            Math.random = orig;
+        }
     };
 }

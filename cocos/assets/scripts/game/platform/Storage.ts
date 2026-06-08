@@ -97,4 +97,18 @@ export const STORAGE_KEYS = {
     haptics: 'openblock_cocos_haptics_v1',
     visualFx: 'openblock_visualfx_v1',
     reduceMotion: 'openblock_cocos_reduce_motion_v1',
+    // 季节推荐 toast 反打扰状态（对齐 web openblock_seasonal_v1）：{ lastShown: ymd, birthdayClaimedYear }
+    seasonal: 'openblock_cocos_seasonal_v1',
+    // 周末试穿券按 ISO 周记录（对齐 web openblock_weekend_trial_v1）：{ '2026-W23': skinId }
+    weekendTrial: 'openblock_cocos_weekend_trial_v1',
+    // 用户生日 'MM-DD'（对齐 web openblock_user_birthday_v1，不存年份避免隐私）
+    birthday: 'openblock_cocos_birthday_v1',
+    // 用户是否主动选过皮肤（选过则关闭时段动态切换，对齐 web openblock_skin_user_chosen）
+    skinUserChosen: 'openblock_cocos_skin_user_chosen_v1',
+    // 每日大师题战绩（对齐 web openblock_daily_master_v1）：{ 'YYYY-MM-DD': { played, score, ts } }
+    dailyMaster: 'openblock_cocos_daily_master_v1',
+    // 流失预警会话指标 + 召回干预发放记录（对齐 web openblock_churn_data_v1）
+    churnData: 'openblock_cocos_churn_data_v1',
+    // 生命周期策略意图提示「每日一次」去重（存 ymd）
+    strategyHint: 'openblock_cocos_strategy_hint_v1',
 };

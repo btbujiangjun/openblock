@@ -15,12 +15,15 @@ import { LineClearFx } from './effects/LineClearFx';
 import { FxLayer } from './effects/FxLayer';
 import { AmbientFx } from './effects/AmbientFx';
 import { OverlayFx } from './effects/OverlayFx';
+import { SeasonalBorder } from './effects/SeasonalBorder';
 import { GameController } from './GameController';
 import { SkillBar } from './skills/SkillBar';
 import { MetaPanel } from './ui/MetaPanel';
 import { MainMenu } from './ui/MainMenu';
 import { Tutorial } from './ui/Tutorial';
 import { Modal, TapBus, button, PillButton } from './ui/uiKit';
+import { Toast } from './ui/Toast';
+import { DailyMaster } from './social/DailyMaster';
 import { Wordmark } from './ui/Wordmark';
 import { setFatalRoot, guard } from './ui/Fatal';
 import { Storage, STORAGE_KEYS, setStorageWriteErrorHandler } from './platform/Storage';
@@ -59,6 +62,7 @@ export class Bootstrap extends Component {
     private _lineFx: LineClearFx | null = null;
     private _fx: FxLayer | null = null;
     private _overlayFx: OverlayFx | null = null;
+    private _seasonalBorder: SeasonalBorder | null = null;
     private _ctrl: GameController | null = null;
     /** 上次实际应用的分辨率/窗口尺寸键，用于跳过冗余的 setDesignResolutionSize/canvas-resize。 */
     private _lastViewKey = '';
@@ -140,6 +144,8 @@ export class Bootstrap extends Component {
                 getScore: () => model.score,
                 getBest: () => model.best,
                 getUserId: () => userId,
+                // 每日大师题：挑战进行时返回日固定 PRNG，使出块（几何+配色）全确定，与 web 同盘比拼。
+                getSeedRandom: () => DailyMaster.activeRandom(),
             }),
         });
         const meta = new MetaState();
@@ -171,6 +177,8 @@ export class Bootstrap extends Component {
         play.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
 
         const board = this.attach(play, 'Board', 0, 0, BoardView, (v) => { v.boardPx = boardPx; });
+        // 节日盘面外光晕（移植 web seasonalBorder）：绘制在盘面四周外框区域，置于盘面之上、其它特效之下。
+        const seasonalBorder = this.attach(play, 'BoardSeasonalBorder', 0, 0, SeasonalBorder, (v) => { v.boardPx = boardPx; });
         // 环境粒子层（皮肤主题：樱花/落叶/气泡…）置于盘面之上、消行特效之下，
         // 对齐 web fxCanvas 中 renderAmbient → 消行粒子的绘制顺序。
         const ambientFx = this.attach(play, 'BoardAmbient', 0, 0, AmbientFx, (v) => { v.boardPx = boardPx; });
@@ -195,6 +203,11 @@ export class Bootstrap extends Component {
         this._lineFx = lineFx;
         this._fx = fx;
         this._overlayFx = overlayFx;
+        this._seasonalBorder = seasonalBorder;
+        // 非模态浮条（对齐 web #seasonal-toast / #easter-egg-toast）：bar 置于盘面下部、celebrate 居盘面上部，
+        // 两者都在盘面区域内（与 web 在盘面上方/中心弹 toast 的观感一致），且避开顶部 HUD 与底部 dock。
+        Toast.reset();
+        Toast.configure(this.node, boardCenterY - boardPx * 0.30, boardCenterY + boardPx * 0.15);
 
         const ghost = new Node('Ghost');
         ghost.parent = this.node;
@@ -273,10 +286,11 @@ export class Bootstrap extends Component {
                 const pb = this.iconButton(d.name, x, buttonsY, d.icon, btnW, () => {
                     const enabled = VisualFx.toggle();
                     pb.setText(enabled ? '✨' : '✦');
-                    // 切换即时反馈：用 floatText 提示当前状态（i18n motion.full/reduced）。
+                    // 切换即时反馈：此按钮控制的是 VisualFx（视觉特效开关），与 Motion.reduced 无关，
+                    // 故用语义对齐的 i18n visualfx.on/off（文案即「视觉特效：开/关」）。
                     // floatText 签名 (text, color, yOffset)，颜色按状态区分以提升可识别度。
                     ctrl.fx.floatText(
-                        enabled ? t('motion.full') : t('motion.reduced'),
+                        enabled ? t('visualfx.on') : t('visualfx.off'),
                         enabled ? new Color(255, 220, 130, 255) : new Color(180, 200, 220, 255),
                         80,
                     );
@@ -538,6 +552,7 @@ export class Bootstrap extends Component {
         if (this._lineFx) this._lineFx.setBoardPx(m.boardPx);
         if (this._fx) this._fx.setBoardPx(m.boardPx);
         if (this._overlayFx) this._overlayFx.setBoardPx(m.boardPx);
+        if (this._seasonalBorder) this._seasonalBorder.setBoardPx(m.boardPx);
         this._ctrl?.redrawBoard();
         this._ctrl?.refreshDock();
     }
@@ -709,6 +724,7 @@ export class Bootstrap extends Component {
             onMeta: () => ctrl.toggleMeta(),
             onLeaderboard: flag('leaderboard') ? () => ctrl.showLeaderboard() : null,
             onWheel: flag('wheel') ? () => ctrl.openWheel() : null,
+            onDailyMaster: flag('dailyMaster') ? () => ctrl.startDailyMaster() : null,
         });
         // 手动菜单立即显示；若调用方传 delay，则等 viewport/Splash 稳定后显示。
         this.scheduleOnce(() => menu.show(), delay);

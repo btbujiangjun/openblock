@@ -53,6 +53,8 @@ export interface FeatureFlags {
     analytics: boolean;
     bgm: boolean;
     rlSpawn: boolean;
+    /** 每日大师题（同种子专题局）：主菜单入口，默认开启。 */
+    dailyMaster: boolean;
     /** 方块用 sprite 贴图渲染（art/block）；关闭或贴图缺失时回退纯代码 Graphics 渲染。
      *  默认 false：保持与 mobile/ios web 端 `paintBlockCell`（高光带 + 内描边 + 圆角 + 图标）一致；
      *  Dock/Ghost 始终走 Graphics 路径，开启此 flag 后盘面会与候选/拖拽 ghost 视觉风格不一致。 */
@@ -97,6 +99,7 @@ const DEFAULT_FLAGS: FeatureFlags = {
     analytics: true,
     bgm: true,
     rlSpawn: false,
+    dailyMaster: true,
     // 默认关，让盘面与 Dock/Ghost 共用 Graphics paintBlockFace，外观一致；
     // 远程或测试需要时可 applyRemote({ flags: { spriteBlocks: true } }) 切换。
     spriteBlocks: false,

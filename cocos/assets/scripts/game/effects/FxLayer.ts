@@ -2,6 +2,7 @@ import { _decorator, Component, Graphics, UITransform, Color, Node, Label, tween
 import { ClearResult, Skin, t } from '../../core';
 import { blockColor } from '../skin/palette';
 import { Motion } from '../platform/Motion';
+import { VisualFx } from '../platform/VisualFx';
 
 const { ccclass } = _decorator;
 
@@ -139,6 +140,8 @@ export class FxLayer extends Component {
 
     /** 消行碎屑：每个被消格喷几枚小方块 */
     burstClear(result: ClearResult, skin: Skin): void {
+        // 视觉特效总开关（对齐 web renderer.setEffectsEnabled）：关闭时不喷碎屑/高光（连击飘字属玩法反馈、不受此约束）。
+        if (!VisualFx.enabled) return;
         // Reduce Motion：碎屑减为 1 颗 + glow 限到 4，避免大幅速度的粒子飞溅刺激前庭。
         const reduced = Motion.reduced;
         const perCell = reduced ? 1 : 4;
@@ -354,6 +357,12 @@ export class FxLayer extends Component {
     private updateAmbience(dt: number): void {
         const ag = this._ambG;
         if (!ag) return;
+        // 视觉特效总开关关 / 减少动效：清掉残留氛围粒子并停更（持续飘落属减动效要规避的刺激，
+        // 与 AmbientFx 的 `Motion.reduced || !VisualFx.enabled` 门控保持一致）。
+        if (!VisualFx.enabled || Motion.reduced) {
+            if (this._ambient.length) { this._ambient.length = 0; ag.clear(); }
+            return;
+        }
         if (!this._ambActive && this._ambient.length === 0) return;
         const half = this.boardPx / 2;
         const target = Math.max(8, Math.round(this.boardPx / 42));

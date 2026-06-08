@@ -81,13 +81,18 @@ export class DailyState {
         return getConfig().firstWinMultiplier;
     }
 
-    /** 取/建今日菜单（每日确定性目标）。 */
-    getDish(today = dateKey()): DailyDish {
+    /**
+     * 取/建今日菜单（每日确定性目标）。
+     * densityBonus 0..2 来自 lifecyclePlaybook.taskDensityBonus（阶段×成熟度）：每点 +2 目标行 +20 奖励，
+     * 让成熟/挑战型玩家拿到更密集的每日目标。仅在「当天首次创建」时生效（已存在则沿用，保持当日稳定）。
+     */
+    getDish(today = dateKey(), densityBonus = 0): DailyDish {
         if (this.dish && this.dish.key === today) return this.dish;
-        // 由日期派生确定性目标
+        // 由日期派生确定性基线，再叠加成熟度密度加成。
         const seed = today.split('-').reduce((a, b) => a + Number(b), 0);
-        const targetLines = 8 + (seed % 5) * 2; // 8..16
-        this.dish = { key: today, targetLines, reward: 60, progress: 0, claimed: false };
+        const bonus = Math.max(0, Math.min(2, Math.round(densityBonus)));
+        const targetLines = 8 + (seed % 5) * 2 + bonus * 2; // 基线 8..16，+0..4
+        this.dish = { key: today, targetLines, reward: 60 + bonus * 20, progress: 0, claimed: false };
         return this.dish;
     }
 

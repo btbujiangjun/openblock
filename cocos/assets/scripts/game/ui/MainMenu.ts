@@ -20,6 +20,8 @@ export interface MainMenuOpts {
     onReplay: () => void;
     onLeaderboard?: (() => void) | null;
     onWheel?: (() => void) | null;
+    /** 每日大师题（同种子专题局）入口；点击后隐藏菜单并开局。 */
+    onDailyMaster?: (() => void) | null;
 }
 
 /**
@@ -131,6 +133,7 @@ export class MainMenu extends Component {
         defs.push({ label: '📖 ' + t('btn.lore'), cb: () => this.opts.onLore() });
         defs.push({ label: '📺 ' + t('btn.replay'), cb: () => this.opts.onReplay() });
         defs.push({ label: '📅 ' + t('btn.daily'), cb: () => this.opts.onMeta() });
+        if (this.opts.onDailyMaster) defs.push({ label: t('menu.dailyMaster'), cb: () => { this.hide(); this.opts.onDailyMaster!(); } });
         if (this.opts.onLeaderboard) defs.push({ label: '🏆', cb: () => this.opts.onLeaderboard!() });
         if (this.opts.onWheel) defs.push({ label: '🎡', cb: () => this.opts.onWheel!() });
         const sStep = 180;

@@ -30,5 +30,6 @@ export * from './playerContext';
 export * from './companion';
 export * from './skinLore';
 export * from './replay';
+export * from './lifecyclePlaybook';
 export * from './social';
 export * from './gameModel';

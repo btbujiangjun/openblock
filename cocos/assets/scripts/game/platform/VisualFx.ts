@@ -13,7 +13,29 @@ import { Storage, STORAGE_KEYS } from './Storage';
 let _enabled = true;
 const _listeners: Array<(enabled: boolean) => void> = [];
 
+/**
+ * OS「减少动效」偏好（prefers-reduced-motion）。
+ *
+ * 严格对齐 web `feedbackToggles.loadVisualPrefs()`：装饰性视觉特效（盘面环境粒子 / 流光 /
+ * 水印漂移 / 消行闪光）在系统开启「减少动效」时默认且强制关闭。
+ *
+ * 注意：这里**直接**读 matchMedia，不复用 `Motion.reduced`——后者在 iOS native 上被刻意跳过
+ * 以保留振屏（重要操作反馈），但持续运动的装饰性粒子恰是减动效要规避的前庭刺激，应与 web 一样
+ * 跟随 OS 减动效关闭。两条语义轴由此正交：Motion=振屏/UI 入场，VisualFx=盘面装饰动效。
+ */
+function prefersReducedMotion(): boolean {
+    try {
+        const mm = (globalThis as unknown as { matchMedia?: (q: string) => { matches: boolean } }).matchMedia;
+        return !!(mm && mm('(prefers-reduced-motion: reduce)').matches);
+    } catch {
+        return false;
+    }
+}
+
 export function initVisualFx(): void {
+    // 对齐 web loadVisualPrefs：减动效偏好优先于持久化设置——直接强制关闭，并使 ✨ 按钮显示为「关」。
+    // （web 还会对低端机 isLowEndClient 默认关，但 cocos 原生缺少可靠的内存/核数 API，此处仅落地可检测的减动效轴。）
+    if (prefersReducedMotion()) { _enabled = false; return; }
     const raw = Storage.get(STORAGE_KEYS.visualFx, '');
     if (!raw) { _enabled = true; return; }
     try {

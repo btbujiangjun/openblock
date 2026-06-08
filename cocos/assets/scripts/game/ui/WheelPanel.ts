@@ -92,6 +92,13 @@ export class WheelPanel extends Component {
         return this.loadState().lastSpinDate !== WheelPanel.ymd();
     }
 
+    /** 静态查询：今天是否可免费抽（周一/周五且今日未抽）。供启动期「转盘可用」toast 判定，避免实例化面板。 */
+    static canSpinToday(): boolean {
+        if (!WheelPanel.isWheelDay()) return false;
+        const st = Storage.getJSON<WheelState>(STORAGE_KEYS.wheelFreeUsedDate, {});
+        return st.lastSpinDate !== WheelPanel.ymd();
+    }
+
     private build(opts: WheelOptions): void {
         Modal.open();
         this.opts = opts;
@@ -99,7 +106,7 @@ export class WheelPanel extends Component {
         this._unregs.push(TapBus.add(dim, () => { if (!this.spinning) this.close(); }));
 
         const card = this.card(this.node);
-        label(card, '周末幸运转盘', 32, 0, WheelPanel.CARD_H / 2 - 48, new Color(255, 220, 130, 255));
+        label(card, '幸运转盘', 32, 0, WheelPanel.CARD_H / 2 - 48, new Color(255, 220, 130, 255));
 
         const discWrap = new Node('wheelDiscWrap');
         discWrap.parent = card;
@@ -154,15 +161,18 @@ export class WheelPanel extends Component {
     private paintDisc(parent: Node, prizes: WheelPrize[]): void {
         const g = parent.addComponent(Graphics);
         const r = WheelPanel.DISC_R;
-        const seg = Math.PI * 2 / prizes.length;
-        const start = -Math.PI / 2; // 第 0 段从顶部开始，和 web conic-gradient 视觉一致。
+        const segDeg = 360 / prizes.length;
+        const DEG = Math.PI / 180;
         // 阴影底圈：模拟 web wheel-disc-inner 的 box-shadow 外投影。
         g.fillColor = new Color(0, 0, 0, 78);
         g.circle(0, -8, r + 16);
         g.fill();
         for (let i = 0; i < prizes.length; i++) {
-            const a0 = start + i * seg;
-            const a1 = a0 + seg;
+            // 严格对齐 web conic-gradient（from 0deg、顺时针）：第 i 段占据「从顶部顺时针 [i·seg, (i+1)·seg]」。
+            // 顺时针角 cw → Cocos 数学角（0=右、逆时针为正、+y 向上）换算：mathDeg = 90 − cw。
+            // 故第 i 段两条边：a0 = 90 − (i+1)·seg（顺时针边/较小角），a1 = 90 − i·seg（逆时针边/较大角），升序、跨度 seg。
+            const a0 = (90 - (i + 1) * segDeg) * DEG;
+            const a1 = (90 - i * segDeg) * DEG;
             const mid = (a0 + a1) / 2;
             g.fillColor = WheelPanel.SEG_COLORS[i % WheelPanel.SEG_COLORS.length];
             g.moveTo(0, 0);
@@ -224,7 +234,8 @@ export class WheelPanel extends Component {
     }
 
     private wedgeLabel(parent: Node, prize: WheelPrize, i: number, total: number): void {
-        const angle = -Math.PI / 2 + (i + 0.5) * (Math.PI * 2 / total);
+        // 对齐 web：第 i 段中心在「从顶部顺时针 (i+0.5)·seg」→ Cocos 数学角 90 − (i+0.5)·seg。
+        const angle = (90 - (i + 0.5) * (360 / total)) * Math.PI / 180;
         // 披萨块文字放在中外圈，保持水平可读，避免相邻扇区文字相互遮挡。
         const rr = WheelPanel.DISC_R * 0.78;
         const x = Math.cos(angle) * rr;
@@ -301,9 +312,12 @@ export class WheelPanel extends Component {
         Haptics.light();
 
         const result = this.opts.spin();
+        // 严格对齐 web luckyWheel：targetAngle = 4 整圈 + 命中段中心角。Cocos node.angle 正值为逆时针，
+        // 取 +targetAngle 即与 web 的 rotate(-deg) 同向（逆时针旋转），使第 result.index 段中心恰停到顶部
+        // 固定指针下 —— 由此保证「视觉停的格子 == 实际发奖」，修复此前 180°（4 段）偏移导致的奖励不符。
         const wedgeAngle = 360 / this.opts.prizes.length;
         const targetAngle = 360 * 4 + result.index * wedgeAngle + wedgeAngle / 2;
-        const endAngle = -targetAngle;
+        const endAngle = targetAngle;
         const finish = () => {
             this.spinning = false;
             this.grantResult(result);

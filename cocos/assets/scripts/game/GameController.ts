@@ -1,10 +1,11 @@
 import { _decorator, Component, Node, Graphics, UITransform, Vec3, Color, Label, input, Input, EventTouch, view, sys, UIOpacity, Tween, tween } from 'cc';
 import {
     GameModel, GameEvent, ShapeMatrix, MetaState, grantCheckinReward, findHint, listBestPlacements, SKILLS, SkillId,
-    Progression, AchievementState, SeasonPass, SeasonTask, SeasonTaskType, SeasonChestState, DailyState, listSkinIds, getSkin, t,
+    Progression, AchievementState, SeasonPass, SeasonTask, SeasonTaskType, SeasonChestState, DailyState, dateKey, listSkinIds, getSkin, t,
     WalletKind,
     getConfig, flag, Analytics, ANALYTICS_EVENTS, spinWheel, WHEEL_PRIZES, WHEEL_TRIAL_POOL, WheelPrize, GameMode, MODE_ORDER, getMode,
     PlayerContext, CompanionState, getCompanion, ReplayRecorder, Grid, AdaptiveProfile, shouldShowNearMiss,
+    primaryIntent, toneFor, intentNarrative, taskDensityBonus, type Tone, type Band,
 } from '../core';
 import { BoardView } from './BoardView';
 import { DockView } from './DockView';
@@ -25,6 +26,9 @@ import { ReplayPanel } from './ui/ReplayPanel';
 import { CheckInPanel } from './ui/CheckInPanel';
 import { SeasonPassPanel } from './ui/SeasonPassPanel';
 import { LeaderboardPanel } from './ui/LeaderboardPanel';
+import { Toast } from './ui/Toast';
+import { DailyMaster } from './social/DailyMaster';
+import { ChurnPredictor, type LifecycleStage } from './social/ChurnPredictor';
 import { ReplayStore } from './platform/ReplayStore';
 import { CompanionView } from './companion/CompanionView';
 import { playSkinTransition } from './effects/SkinTransition';
@@ -33,6 +37,7 @@ import { guard, reportFatal } from './ui/Fatal';
 import { blockColor, bgColor, accentColor, blockIcon, blockMetrics } from './skin/palette';
 import { drawShapeFaces, iconFontSize, ICON_FONT_FAMILY } from './skin/blockPaint';
 import { seasonalAccent } from './skin/seasonalSkin';
+import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift } from './skin/seasonalRecommend';
 import { Storage, STORAGE_KEYS } from './platform/Storage';
 import { AudioManager } from './audio/AudioManager';
 import { Haptics } from './platform/Haptics';
@@ -153,6 +158,8 @@ const SNAP = {
     clearAssistWindow: 1.35,
     stickyBonus: 0.32,
     stickyWindow: 0.75,
+    /** 落地虚影 alpha：拖拽时在真实吸附落点画候选块（比指尖跟手块更淡，读作「会落在这里」的影子）。 */
+    landingGhostAlpha: 96,
 } as const;
 
 /** 核心循环编排：连接 GameModel 与所有视图/特效/技能/元系统/存档。 */
@@ -257,6 +264,8 @@ export class GameController extends Component {
     private aimAssist = false;
     private timeLeft = 0;
     private settled = false;
+    /** 是否正处于「启动每日大师题」的开局调用中（用于让 startGameImpl 不清掉刚建立的日固定种子）。 */
+    private _dailyMasterStarting = false;
     /** 结算卡展示参数缓存（settle 时算好）：用于「gameOver 无面板」自愈时安全重弹结算卡，
      *  不重跑 settle 的经济副作用（经验/宝箱等已由 settled 守卫）。 */
     private _settleDisplay: { xpGain: number; leveledUp: boolean; level: number } | null = null;
@@ -399,10 +408,205 @@ export class GameController extends Component {
         this.hud.setLevel(this.progression.level);
         this.refreshHudSkin();
         this.skillBar.refresh();
+        // 落地 lifecyclePlaybook 的「任务密度」侧：按 阶段×成熟度 给今日 dish 注入密度加成（早于任何消行进度写入，保证当日稳定）。
+        this.daily.getDish(dateKey(), taskDensityBonus(this.deriveLifecycleStage(), this.deriveMaturityBand()));
         this.renderAll();
         console.log('[OpenBlock] GameController.start done (renderAll ok)');
-        // 回归礼包等入场流程改由主菜单「开始/继续」后触发（见 enterFromMenu），
+        // 回归礼包等模态入场流程仍由主菜单「开始/继续」后触发（见 enterFromMenu），
         // 避免在菜单之下先弹浮层（与 web「先菜单后入场」一致）。
+        // 但「非模态」启动提示（转盘可用等，对齐 web luckyWheel ~2.2s toast）改为直达对局后
+        // 用 Toast 浮条呈现 —— 既给到入场信息又不引入会卡死的模态。
+        // 入场福利链（首日礼包/回流/签到提醒/FTUE）：~1.5s 先入队（对齐 web 首日 1.5s），转盘 ~2.2s 随后排队。
+        this.scheduleOnce(() => this.maybeShowEntryToasts(), 1.5);
+        this.scheduleOnce(() => this.maybeShowStartupToasts(), 2.2);
+    }
+
+    /**
+     * 冷启动入场福利链（D 的「非模态」实现，对齐 web popupCoordinator 入场弹窗的意图，但保持「直达对局、不弹模态」）：
+     *  - 首启动：自动入账首日礼包金币 + celebrate toast 告知；并附 FTUE 拖拽/消行 bar 提示（对齐 web FTUE）。
+     *  - 回流：按离线天数自动入账回归金币 + celebrate toast 告知（对齐 web welcomeBack）。
+     *  - 老用户当日未签：签到提醒 bar toast（带「签到」按钮 → 打开签到面板）。
+     *
+     * 复用 web 同款存储键（firstLaunch / lastSeen），与菜单路径 `maybeWelcomeBack` 互斥去重：
+     * 本方法已把 lastSeen 推进到 now、首启已写 firstLaunch，故玩家随后经菜单返回时 maybeWelcomeBack 不会重复发放。
+     */
+    private maybeShowEntryToasts(): void {
+        if (!this.node?.isValid) return;
+        const now = Date.now();
+        const first = Storage.get(STORAGE_KEYS.firstLaunch, null);
+        const last = Storage.getNumber(STORAGE_KEYS.lastSeen, 0);
+        Storage.setNumber(STORAGE_KEYS.lastSeen, now);
+        if (!first) {
+            Storage.set(STORAGE_KEYS.firstLaunch, String(now));
+            const gift = 50;
+            this.model.wallet.earn(gift);
+            this.hud.setCoins(this.model.wallet.coins);
+            this.save();
+            Toast.show({ text: t('toast.firstDayPack', { n: gift }), tier: 'celebrate', durationMs: 4000 });
+            Toast.show({ text: t('toast.ftueDrag'), tier: 'bar', durationMs: 5000 });
+            Toast.show({ text: t('toast.ftueClear'), tier: 'bar', durationMs: 5000 });
+            return;
+        }
+        if (last > 0) {
+            const days = Math.floor((now - last) / 86400000);
+            if (days >= 1) {
+                const gift = Math.min(200, 30 * days);
+                this.model.wallet.earn(gift);
+                this.hud.setCoins(this.model.wallet.coins);
+                this.save();
+                Toast.show({ text: t('toast.welcomeBack', { days, gift }), tier: 'celebrate', durationMs: 4000 });
+                return;
+            }
+        }
+        // 老用户、当日未签到：给一个带「签到」按钮的提醒（对齐 web checkIn 入场提示，但非模态）。
+        if (this.meta.canCheckin()) {
+            Toast.show({
+                text: t('toast.checkinReminder'),
+                tier: 'bar',
+                durationMs: 5000,
+                actionLabel: t('daily.checkin'),
+                onAction: () => this.openCheckin(),
+            });
+        }
+    }
+
+    /**
+     * 启动期非模态提示（对齐 web 启动后延时 toast；保持 cocos「直达对局」不弹模态）：
+     * 目前接入「今日免费转盘可领取」（周一/周五，对齐 web luckyWheel.js ~2.2s，时长 7s，带「去抽」按钮）。
+     * 季节/周末/生日推荐 toast 依赖季节推荐引擎，待该模块移植后在此追加。
+     */
+    private maybeShowStartupToasts(): void {
+        if (!this.node?.isValid) return;
+        if (flag('wheel') && WheelPanel.canSpinToday()) {
+            Toast.show({
+                text: t('toast.wheelReady'),
+                tier: 'bar',
+                durationMs: 7000,
+                actionLabel: t('toast.wheelAction'),
+                onAction: () => this.openWheel(),
+            });
+        }
+        this.maybeShowSeasonalToasts();
+        this.maybeShowChurnIntervention();
+        this.maybeShowStrategyHint();
+    }
+
+    /** 由累计局数推导生命周期阶段（粗粒度，喂给 churn 干预；对齐 web 仅对 onboarding 特殊处理）。 */
+    private deriveLifecycleStage(): LifecycleStage {
+        const g = this.stats.totalGames;
+        if (g < 3) return 'onboarding';
+        if (g < 20) return 'exploration';
+        return 'growth';
+    }
+
+    /** 由等级推导成熟度 band（喂给 lifecyclePlaybook 矩阵）。 */
+    private deriveMaturityBand(): Band {
+        const lv = this.progression.level;
+        if (lv < 3) return 'M0';
+        if (lv < 8) return 'M1';
+        if (lv < 15) return 'M2';
+        if (lv < 25) return 'M3';
+        return 'M4';
+    }
+
+    /** tone → 提示强调色（统一各类 toast 的「语气」视觉，对齐矩阵 intent 的情绪基调）。 */
+    private toneAccent(tone: Tone): Color {
+        switch (tone) {
+            case 'supportive': return new Color(120, 200, 150, 255);
+            case 'inviting': return new Color(110, 170, 255, 255);
+            case 'challenge': return new Color(255, 150, 90, 255);
+            case 'steady': return new Color(110, 210, 210, 255);
+            case 'rising': return new Color(255, 190, 90, 255);
+            case 'rewarding': return new Color(255, 215, 120, 255);
+            default: return new Color(170, 190, 210, 255);
+        }
+    }
+
+    /**
+     * 生命周期策略意图提示（落地 lifecyclePlaybook 矩阵的「提示语气」侧）：
+     * 由 (stage, band) 经矩阵取主导 intent 的局内叙事，按其 tone 上色，每日一次 bar toast。
+     * 对齐 web strategyAdvisor #14「S/M 生命周期策略」把矩阵意图呈现给玩家——非新手才显（S0 阶段不打扰）。
+     */
+    private maybeShowStrategyHint(): void {
+        if (!this.node?.isValid) return;
+        const stage = this.deriveLifecycleStage();
+        if (stage === 'onboarding') return;
+        const today = dateKey();
+        if (Storage.get(STORAGE_KEYS.strategyHint, '') === today) return;
+        const band = this.deriveMaturityBand();
+        const intent = primaryIntent(stage, band);
+        const text = intentNarrative(intent);
+        if (!text) return;
+        Storage.set(STORAGE_KEYS.strategyHint, today);
+        Toast.show({ text, tier: 'bar', durationMs: 6000, accent: this.toneAccent(toneFor(stage, band)) });
+    }
+
+    /**
+     * 流失召回干预（移植 web churnPredictor.getChurnIntervention 的玩家可见面）：
+     * 当流失风险达 medium 以上且当日未发过 → 自动发放召回礼包（token + 金币）并 celebrate/bar toast 告知。
+     * 风险数据来自每局结束写入的会话指标（见 settle → ChurnPredictor.recordSession），新装/活跃玩家风险为 0、不会打扰。
+     */
+    private maybeShowChurnIntervention(): void {
+        if (!this.node?.isValid) return;
+        const plan = ChurnPredictor.consumeIntervention(this.deriveLifecycleStage());
+        if (!plan) return;
+        const wallet = this.model.wallet;
+        for (const k of Object.keys(plan.tokens) as (keyof typeof plan.tokens)[]) {
+            const v = plan.tokens[k];
+            if (v) wallet.addBalance(k as WalletKind, v, `churn-${plan.level}`);
+        }
+        if (plan.coins > 0) wallet.earn(plan.coins);
+        this.hud.setCoins(wallet.coins);
+        this.skillBar.refresh();
+        this.save();
+        // critical/high 用 celebrate（更显眼的召回），medium 用 bar 轻提示。
+        const tier = plan.level === 'medium' ? 'bar' : 'celebrate';
+        // 召回属 winback(S4) 段：用矩阵该段主导语气上色，使提示语气与运营意图一致。
+        const accent = this.toneAccent(toneFor('winback', this.deriveMaturityBand()));
+        Toast.show({ text: t(plan.messageKey), tier, durationMs: tier === 'celebrate' ? 5000 : 6000, accent });
+    }
+
+    /**
+     * 季节推荐 toast（移植 web seasonalSkin.js：节日 / 周末 / 生日）。判定 + 反打扰持久化在 seasonalRecommend 模块，
+     * 这里执行副作用：节日 → 带「切换」按钮（celebrate，8s，对齐 web）；周末/生日 → 发放试穿券后 celebrate 告知。
+     */
+    private maybeShowSeasonalToasts(): void {
+        // 节日推荐（每日一次；已是该皮肤则不显切换按钮）。
+        // 节日推荐走 bar tier（对齐 web #seasonal-toast：顶部条 + 可选「切换」按钮）。
+        const fest = consumeFestivalRecommendation();
+        if (fest) {
+            const sameSkin = this.model.skin.id === fest.skin;
+            Toast.show({
+                text: t('toast.seasonalRecommend', { msg: fest.msg }),
+                tier: 'bar',
+                durationMs: 8000,
+                actionLabel: sameSkin ? undefined : t('toast.seasonalAction'),
+                onAction: sameSkin ? undefined : () => this.applySkin(fest.skin),
+            });
+        }
+        // 周末试穿券（本周一次）；bar tier 信息提示（对齐 web #seasonal-toast 周末文案）。
+        const weekend = consumeWeekendTrial();
+        if (weekend && listSkinIds().includes(weekend.skinId)) {
+            this.model.wallet.addTrial(weekend.skinId, weekend.hours);
+            this.skillBar.refresh();
+            this.save();
+            Toast.show({
+                text: t('toast.weekendTrial', { name: getSkin(weekend.skinId).name }),
+                tier: 'bar',
+                durationMs: 7000,
+            });
+        }
+        // 生日礼包（本年一次）。
+        const bday = consumeBirthdayGift();
+        if (bday && listSkinIds().includes(bday.skinId)) {
+            this.model.wallet.addTrial(bday.skinId, bday.hours);
+            this.model.wallet.addBalance('hintToken', bday.hintTokens, 'birthday');
+            this.model.wallet.addBalance('rainbowToken', bday.rainbowTokens, 'birthday');
+            this.hud.setCoins(this.model.wallet.coins);
+            this.skillBar.refresh();
+            this.save();
+            Toast.show({ text: t('toast.birthday'), tier: 'celebrate', durationMs: 6000 });
+        }
     }
 
     /**
@@ -433,9 +637,35 @@ export class GameController extends Component {
         guard('GameController.startGame', () => this.startGameImpl(mode));
     }
 
+    /**
+     * 每日大师题（移植 web dailyMaster.startChallenge）：建立日固定种子后开一局专题局，结算时记录战绩。
+     * 每日仅可挑战一次；已完成则给提示不再开局。由主菜单「每日大师题」入口触发。
+     */
+    startDailyMaster(): void {
+        if (DailyMaster.isPlayedToday()) {
+            Toast.show({ text: t('dailyMaster.alreadyPlayed'), tier: 'bar', durationMs: 4500 });
+            return;
+        }
+        const seed = DailyMaster.begin();
+        AudioManager.sfxUnlock();
+        Haptics.medium();
+        this._dailyMasterStarting = true;
+        this.startGame(this.model.mode);
+        this._dailyMasterStarting = false;
+        Toast.show({
+            text: t('dailyMaster.toastSeed', { seed: seed.toString(36).toUpperCase() }),
+            tier: 'celebrate',
+            durationMs: 4500,
+        });
+    }
+
     private startGameImpl(mode: GameMode): void {
         // 开新局前清掉残留拖拽，避免 ghost / 选中槽残影。
         this.cancelDrag();
+        // 作废上一局仍在排队、尚未播放的非模态浮条，避免跨局串台（对齐 web _toastGeneration）。
+        Toast.bumpGeneration();
+        // 非「每日大师题」开局：撤销可能残留的日固定种子，避免普通局被上一次挑战的 PRNG 污染出块。
+        if (!this._dailyMasterStarting) DailyMaster.end();
         // 新局兜底：Modal 计数器漂移 / 因弹窗异常残留 → 玩家进入新局后会立刻发现「点啥都没反应」。
         // 这里在所有合法 modal 都应该已关闭的时机（新局开始）强制清零，给玩家干净的起点。
         // 注意：仅当此时 GameController.node 下确实没有 modal-like 节点时才 reset，避免误关合法弹窗。
@@ -546,7 +776,9 @@ export class GameController extends Component {
         const base = this.game.pbBaseline;
         if (this._celebratedNewBest || base <= 0 || score <= base) return;
         this._celebratedNewBest = true;
-        this.fx.floatText(t('effect.newRecord'), new Color(255, 215, 120, 255), 60);
+        // 对齐 web `new-best-popup`：局内破纪录用中心庆贺 popup（celebrate Toast，hold 2300ms，每局一次），
+        // 取代原裸 floatText —— 走统一队列，避免与其它庆贺浮条视觉黏连。
+        Toast.show({ text: t('effect.newRecord'), tier: 'celebrate', durationMs: 2300, accent: new Color(255, 215, 120, 255) });
         ScreenShake.shake(this.shakeTarget, 10, 0.3);
         Haptics.heavy();
         AudioManager.sfxBonus();
@@ -954,6 +1186,12 @@ export class GameController extends Component {
         this.stats.totalGames++;
 
         const score = this.model.score;
+        // 每日大师题收尾（移植 web _onChallengeEnd）：记录战绩（每日一次去重依据）+ 撤销种子 + 完成提示。
+        if (DailyMaster.isActive()) {
+            DailyMaster.markPlayed(score);
+            DailyMaster.end();
+            Toast.show({ text: t('dailyMaster.toastComplete', { score }), tier: 'celebrate', durationMs: 4500 });
+        }
         this.recordSeasonEvent('games');
         if (score > 0) this.recordSeasonEvent('score_once', score);
         const xpGain = Math.floor(score / 10) + 5;
@@ -985,6 +1223,15 @@ export class GameController extends Component {
                 this.model.wallet.earn(bonus);
                 this.fx.floatText(t('daily.firstwin', { n: this.daily.firstWinMultiplier() }), new Color(255, 220, 130, 255));
             }
+        }
+        // 流失预警写入会话指标（移植 web lifecycleOrchestrator.onSessionEnd 的唯一写入点）：
+        // engagement = 时长(5 分钟饱和) 与 命中率(落子/(落子+误放)) 的等权综合，落入 [0,1]。
+        {
+            const tries = this.game.placements + this.game.misses;
+            const hitRate = tries > 0 ? this.game.placements / tries : 1;
+            const durMs = this.game.startMs > 0 ? Date.now() - this.game.startMs : 0;
+            const durSaturated = Math.min(1, durMs / 300000);
+            ChurnPredictor.recordSession({ duration: durMs, score, engagement: 0.5 * durSaturated + 0.5 * hitRate });
         }
         // 保存本局回放（无落子则不存）。
         ReplayStore.save(this.replay.finish(score));
@@ -1387,7 +1634,11 @@ export class GameController extends Component {
                     const dailyRes = this.daily.checkin();
                     this.recordSeasonEvent('streak_days', dailyRes.streak);
                     const milestone = this.daily.monthlyMilestone();
-                    if (milestone > 0) this.model.wallet.earn(milestone);
+                    if (milestone > 0) {
+                        this.model.wallet.earn(milestone);
+                        // 月度里程碑达成（对齐 web monthlyMilestone celebrate toast，~4s）。
+                        Toast.show({ text: t('toast.milestone', { n: milestone }), tier: 'celebrate', durationMs: 4000 });
+                    }
                 }
                 // 同步 HUD 金币 + 技能栏道具余额。
                 this.hud.setCoins(this.model.wallet.coins);
@@ -1410,8 +1661,8 @@ export class GameController extends Component {
     private showSeasonTaskToast(tasks: SeasonTask[]): void {
         let y = 80;
         for (const task of tasks) {
-            this.fx.floatText(`赛季任务完成：${task.label}`, new Color(255, 210, 110, 255), y);
-            this.fx.floatText(`奖励：${task.reward}`, new Color(245, 176, 32, 255), y - 44);
+            this.fx.floatText(t('season.taskDone', { label: task.label }), new Color(255, 210, 110, 255), y);
+            this.fx.floatText(t('season.taskReward', { reward: task.reward }), new Color(245, 176, 32, 255), y - 44);
             y += 72;
         }
         AudioManager.sfxUnlock();
@@ -2361,13 +2612,17 @@ export class GameController extends Component {
                 },
             );
             this.snap = best ? { gx: best.x, gy: best.y } : null;
+            // 智能吸附落地虚影：hover 时在真实吸附落点画候选块（落点常因 smart-snap ≠ 指尖跟手块位置），
+            // 让玩家除了「待消行高亮」外，也能直接看到方块会被放入的位置。
+            this.renderLandingGhost();
         }
         // ⚡ 拖拽期不再每帧全量 board.render()：盘面格数据在拖拽中不变（落子只发生在 touch-end），
         //   跟手块是独立的 `Ghost` 节点（moveGhost 驱动），落点高亮在独立的 L7 层（updatePreviewClearHint
         //   自行 clear+重画）。旧实现每 touch-move 全清重画 64 格底色 + 水印 + 网格线 + 全部已放方块
         //   （paintBlockFace 每格 6+ 次 Graphics 指令），60fps 拖拽 = 每秒数千条多余绘制指令。
-        //   不再叠加 snap ghost 副本（避免「两个候选块」视觉），落子判定仍用 this.snap，无功能损失。
-        //   release 分支由 onTouchEnd 紧随的 board.render() 收口，盘面状态最终一定刷新。
+        //   落子判定用 this.snap；盘面落点处由 renderLandingGhost() 画一层更淡的「落地虚影」（独立 L6，自带 clear），
+        //   它与指尖跟手块（全不透明）通过 alpha 区分——smart-snap 落点≠指尖时尤其有用，让玩家看清会放入哪。
+        //   release 分支由 onTouchEnd 紧随的 board.render() 收口，盘面状态（含 L6）最终一定刷新。
         // ⭐ 潜在消行高亮（对齐 web `_getPreviewClearCells` + `renderPreviewClearHint`）：
         //   snap 存在 + canPlace + 计算后有 cells → 把整行/整列的高亮喂给 BoardView，自带 30Hz 脉冲；
         //   其余情况一律清空。BoardView 内部按 cells 引用 + 状态翻转去重，零开销路径不重画。
@@ -2406,6 +2661,27 @@ export class GameController extends Component {
         this._lastPreviewClearKey = key;
         const outcome = this.model.grid.previewClearOutcome(this.dragShape, gx, gy, this.dragColor);
         this.board.setPreviewClearHint(outcome?.cells?.length ? outcome.cells : null);
+    }
+
+    /**
+     * 智能吸附落地虚影（L6 ghost）：在真实吸附落点 `this.snap` 处以更低 alpha 画候选块。
+     *
+     * 指尖跟手块（this.ghost）跟随手指（touch+lift），而 smart-snap 的实际落点由
+     * `pickSmartHoverPlacement` 在半径内择优，二者常不重合——此前盘面落点处没有任何方块、
+     * 只剩「待消行高亮」悬空，玩家无法直观看到方块会被放到哪。此虚影补齐落点候选块显示。
+     *
+     * 仅 hover（非 release）调用；落子/取消后由 board.render() 自动清掉 L6。
+     */
+    private renderLandingGhost(): void {
+        if (this.snap && this.dragShape && this.dragIndex >= 0
+            && this.model.canPlaceBlock(this.dragIndex, this.snap.gx, this.snap.gy)) {
+            this.board.renderGhost(
+                this.model.grid, this.model.skin, this.dragShape,
+                this.snap.gx, this.snap.gy, this.dragColor, SNAP.landingGhostAlpha,
+            );
+        } else {
+            this.board.clearGhost();
+        }
     }
 
     private drawGhost(): void {
