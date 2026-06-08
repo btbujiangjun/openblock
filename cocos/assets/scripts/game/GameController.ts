@@ -41,6 +41,7 @@ import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift
 import { Storage, STORAGE_KEYS } from './platform/Storage';
 import { AudioManager } from './audio/AudioManager';
 import { Haptics } from './platform/Haptics';
+import { FrameRate } from './platform/FrameRate';
 import { Ads } from './platform/Ads';
 import { Share } from './platform/Share';
 import { Leaderboard } from './platform/Leaderboard';
@@ -785,6 +786,8 @@ export class GameController extends Component {
     }
 
     update(dt: number): void {
+        // 自适应帧率：空闲(无交互/动画)时降到 30fps 散热省电，交互/消行期由 poke() 顶到 60fps。
+        FrameRate.tick();
         // 拖拽看门狗：任何被吞的 TOUCH_END / TOUCH_CANCEL 都会让 dragIndex 永久 >=0，
         // 后续 onTouchStart 虽然能 heal，但用户首次报错"为什么按一下没反应"已发生。
         // 这里在心跳超时（无 MOVE/END）时主动清，确保僵尸态最长存活时间有上限。
@@ -1009,8 +1012,10 @@ export class GameController extends Component {
                 this.fx.floatText(t('revive.done'), new Color(140, 255, 180, 255));
                 break;
             case 'clear': {
+                // 消行高亮 + 碎屑粒子要在 60fps 下播放，维持高帧覆盖整个特效余韵窗口。
+                FrameRate.poke();
                 this.lineFx.play(e.result, this.model.skin);
-                this.fx.burstClear(e.result, this.model.skin);
+                this.fx.burstClear(e.result, this.model.skin, { perfectClear: e.perfectClear });
                 // 全屏闪光层（对齐 web playClearEffect 主路径）：
                 //   bonus 同色/同 icon → 紫金光晕 + icon 喷涌；perfect → 彩虹脉冲；
                 //   combo(≥3) → 暖金光晕；double(==2) → 沿消除行水平涟漪。
@@ -1940,6 +1945,8 @@ export class GameController extends Component {
     private _touchStartCount = 0;
 
     private onTouchStart(e: EventTouch): void {
+        // 任何触摸都顶到高帧：拖拽跟手、按钮反馈都需要 60fps（空闲窗口过后自动回落 30fps）。
+        FrameRate.poke();
         const loc = e.getLocation();
         this._touchStartCount++;
         // 入口探针：只要 input 监听器注册成功且事件分发到位，这条就会打。
@@ -2381,6 +2388,8 @@ export class GameController extends Component {
         if (this.dragIndex < 0) return;
         if (!this.isOwnTouch(e)) return;
         if (this.shouldAbortDragNow()) { this.cancelDrag(); return; }
+        // 拖拽全程维持 60fps 跟手（poke 窗口短，靠 move 持续续期）。
+        FrameRate.poke();
         this.dragLastSeenAtMs = Date.now();
         this.moveGhost(e);
         // 起手即视为「跟手位移」：updateSnap 用真实指位 + lift 计算落点（与 web 一致）。

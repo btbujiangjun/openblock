@@ -88,7 +88,7 @@ export function bindEngineClick(node: Node, onClick: () => void): () => void {
     btn.transition = Button.Transition.NONE;
     btn.interactable = true;
     btn.target = node;
-    const handler = () => { if (!shouldDedupeTap(node)) onClick(); };
+    const handler = () => { if (!shouldDedupeTap(node)) safeInvokeTap(node.name, onClick); };
     node.on(Button.EventType.CLICK, handler, node);
     return () => node.off(Button.EventType.CLICK, handler, node);
 }
@@ -108,6 +108,19 @@ export function shouldDedupeTap(node: Node): boolean {
     if (now - last < TAP_DEDUPE_MS) return true;
     _lastFireTs.set(node, now);
     return false;
+}
+
+/**
+ * 安全调用点击处理器：任何处理器抛错都就地吞掉并打日志，绝不让异常冒泡到引擎的
+ * 原生→JS 事件分发层。原生（iOS JSB）上未捕获异常会被记为 SE_ERROR `Invoking function failed`，
+ * 可能使引擎处于不一致态（残留触摸态 / 渲染异常）。这里把单个按钮的失败隔离成一条可定位日志。
+ */
+function safeInvokeTap(label: string, fn: () => void): void {
+    try {
+        fn();
+    } catch (err) {
+        console.error(`[OpenBlock] tap handler threw (${label}); contained to avoid native crash`, err);
+    }
 }
 
 export const TapBus = {
@@ -135,7 +148,7 @@ export const TapBus = {
             if (!uit) continue;
             if (nodeHit(node, uit, screenPt, uiPt)) {
                 if (shouldDedupeTap(node)) return true;
-                t.onTap();
+                safeInvokeTap(node.name, t.onTap);
                 return true;
             }
         }

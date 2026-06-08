@@ -101,6 +101,9 @@ export class BoardView extends Component {
     private _previewClearCells: ClearedCell[] | null = null;
     /** 节流：30Hz 重画（~33ms）。脉冲频率与 web `Date.now()*0.007` 等价，跨 60/120Hz 屏一致。 */
     private _previewClearLastPaintMs = 0;
+    /** 水印漂移节流时间戳：漂移是 wall-time 的解析函数，30Hz 取样足够顺滑（icon 段时长 8-14s），
+     *  无需每帧（60fps）推进 → active 期也省一半 setPosition + Catmull-Rom 计算。 */
+    private _wmDriftLastMs = 0;
     /** 复用 Color 实例（避免 paintPreviewClearHint 每帧 4 次 new Color：30Hz × 拖拽全程的 GC 压力）。 */
     private _pcFill: Color | null = null;
     private _pcGlow1: Color | null = null;
@@ -179,10 +182,13 @@ export class BoardView extends Component {
     }
 
     update(): void {
-        // 水印漂移每帧推进（轨迹为解析函数，逐帧取样更顺滑；成本 ≤5 个 setPosition）。
-        this.updateWatermarkDrift();
-        if (!this._previewClearCells?.length) return;
         const now = Date.now();
+        // 水印漂移节流到 ~30Hz（轨迹为 wall-time 解析函数，30Hz 取样已足够顺滑）。
+        if (now - this._wmDriftLastMs >= 33) {
+            this._wmDriftLastMs = now;
+            this.updateWatermarkDrift();
+        }
+        if (!this._previewClearCells?.length) return;
         // 30Hz 节流：脉冲周期 ~900ms（与 web `Date.now()*0.007` 同步），30Hz 已足够流畅，
         // 60/120Hz 会浪费 CPU 在不必要的重画上（cells 一般 8-16 个，单帧成本极低，但累积也是耗）。
         if (now - this._previewClearLastPaintMs < 33) return;

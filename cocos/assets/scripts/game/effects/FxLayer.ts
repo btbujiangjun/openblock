@@ -15,7 +15,29 @@ interface Particle {
     maxLife: number;
     size: number;
     color: Color;
+    // ── 消行碎屑（web addParticles 同款物理）字段；季节氛围粒子不含、走旧式 life+=dt 路径 ──
+    // life 起始为 baseLife（可 >1），每 60fps 帧按 decay 递减；渲染 alpha=min(1,life)、半径=size*life。
+    decay?: number;      // 每 60fps 帧的 life 衰减（web lifeDecay）
+    damping?: number;    // 每帧速度阻尼（web damping，<1 → 炸开后渐慢）
+    gravityMul?: number; // 重力系数（web gravityMul）
 }
+
+/** Perfect Clear 彩虹色板（对齐 web addParticles rainbowColors）。 */
+const RAINBOW: Array<[number, number, number]> = [
+    [255, 68, 68], [255, 136, 0], [255, 221, 0], [68, 221, 68], [68, 136, 255], [170, 68, 255],
+];
+
+/**
+ * 同时存活的消行碎屑上限（cocos 侧安全阀）。
+ *
+ * web 用 canvas `arc` 画粒子近乎零成本、对数量无上限；cocos 的 `Graphics.circle` 每帧把所有圆
+ * 重新三角化进同一 mesh，成本随存活粒子数线性上升。一次完美清屏（~20 格 ×(24+10)）已 ~680 个，
+ * 若连击密集时多次爆发叠加，会长时间维持上千圆/帧 → 在移动 WebView 上累积压垮 GPU / 触发上下文丢失（黑屏）。
+ *
+ * 取 480：足够容纳「单次最大爆发」的完整观感，仅当多次爆发重叠逼近上限时按比例削减新增，
+ * 正常对局碰不到，因此不削弱手感、只杜绝失控。
+ */
+const MAX_CLEAR_PARTICLES = 480;
 
 /**
  * Phase 2 综合特效层（与盘面共享坐标系，挂在盘面同位置的 overlay 节点）。
@@ -36,6 +58,8 @@ export class FxLayer extends Component {
     private _ambient: Particle[] = [];
     private _ambColor = new Color(180, 210, 255, 255);
     private _ambActive = false;
+    /** 季节 ambience 节流累加器（~30Hz 重绘）。 */
+    private _ambAcc = 0;
     /** 复用绘制 Color（每帧逐粒子重设 r/g/b/a；Graphics.fillColor setter 内部拷贝值 → 复用安全）。 */
     private _drawCol = new Color(255, 255, 255, 255);
     // 可选柔光粒子贴图（art/particle）：消行时叠加一层染色光晕；未导入则跳过（碎屑仍为 Graphics）。
@@ -139,14 +163,37 @@ export class FxLayer extends Component {
     }
 
     /** 消行碎屑：每个被消格喷几枚小方块 */
-    burstClear(result: ClearResult, skin: Skin): void {
+    burstClear(result: ClearResult, skin: Skin, opts: { perfectClear?: boolean } = {}): void {
         // 视觉特效总开关（对齐 web renderer.setEffectsEnabled）：关闭时不喷碎屑/高光（连击飘字属玩法反馈、不受此约束）。
         if (!VisualFx.enabled) return;
-        // Reduce Motion：碎屑减为 1 颗 + glow 限到 4，避免大幅速度的粒子飞溅刺激前庭。
         const reduced = Motion.reduced;
-        const perCell = reduced ? 1 : 4;
+        const count = result.count || 1;
+        // 分级（对齐 web addParticles）：perfect > combo(≥3) > double(==2) > single。
+        const isPerfect = !!opts.perfectClear;
+        const isCombo = !isPerfect && count >= 3;
+        const isDouble = !isPerfect && count === 2;
+        let perCell = isPerfect ? 24 : isCombo ? 17 : isDouble ? 13 : 10;
+        const speed = isPerfect ? 2.55 : isCombo ? 2.0 : isDouble ? 1.6 : 1.28;
+        // 衰减比 web 快约 1.8×（web 0.0085/0.012/0.016/0.020）：保留爆发瞬间的视觉冲击，但砍掉
+        // 长达 2-3s 的「余韵尾巴」——尾巴对手感增益小却让 cocos 每帧持续重画上百圆、是移动端发热的主因。
+        const lifeDecay = isPerfect ? 0.018 : isCombo ? 0.022 : isDouble ? 0.028 : 0.036;
+        const baseLife = isPerfect ? 1.65 : isCombo ? 1.42 : isDouble ? 1.26 : 1.18;
+        const damping = isPerfect ? 0.972 : isCombo ? 0.968 : isDouble ? 0.962 : 0.958;
+        const gravityMul = isPerfect ? 0.55 : isCombo ? 0.65 : isDouble ? 0.78 : 0.9;
+        // Reduce Motion：密度压到 ~30%（仍保留分级强度的层次），避免大批高速粒子飞溅刺激前庭。
+        if (reduced) perCell = Math.max(1, Math.round(perCell * 0.3));
+        // cocos 侧安全阀：若本次爆发会把存活粒子推过上限，按剩余预算等比削减新增（含火花），
+        // 避免连击密集时多次爆发叠加维持上千圆/帧拖垮 GPU。正常对局预算充足、不触发削减。
+        const cellCount = result.cells.length || 1;
+        const sparkPerCell = (!reduced && (isCombo || isPerfect)) ? (isPerfect ? 10 : 6) : 0;
+        const intended = cellCount * (perCell + sparkPerCell);
+        const budget = MAX_CLEAR_PARTICLES - this._particles.length;
+        if (budget <= 0) return;
+        const scale = intended > budget ? budget / intended : 1;
+        if (scale < 1) perCell = Math.max(1, Math.floor(perCell * scale));
         const cell = this.boardPx / this.size;
         let glowBudget = reduced ? 4 : 16;
+
         for (const c of result.cells) {
             const center = this.cellCenter(c.x, c.y);
             const base = c.color === null ? new Color(255, 255, 255) : blockColor(skin, c.color);
@@ -156,48 +203,94 @@ export class FxLayer extends Component {
             }
             for (let i = 0; i < perCell; i++) {
                 const ang = Math.random() * Math.PI * 2;
-                const spd = 60 + Math.random() * 160;
+                const sp = (3.5 + Math.random() * 11) * speed; // px/帧（web 口径）
+                const jump = 7 + Math.random() * 9;             // 先向上「跳」再受重力下落
+                // web canvas y 向下：vy = sin*sp*0.95 - jump（负=向上）。cocos y 向上 → 取负、并 ×60 转 px/秒。
+                const vxFrame = Math.cos(ang) * sp * 1.55 + (Math.random() - 0.5) * 5;
+                const vyFrame = Math.sin(ang) * sp * 0.95 - jump;
+                const rgb = isPerfect ? RAINBOW[(Math.random() * RAINBOW.length) | 0] : [base.r, base.g, base.b] as [number, number, number];
                 this._particles.push({
                     x: center.x,
                     y: center.y,
-                    vx: Math.cos(ang) * spd,
-                    vy: Math.sin(ang) * spd + 40,
-                    life: 0,
-                    maxLife: 0.45 + Math.random() * 0.35,
-                    size: 4 + Math.random() * 5,
-                    color: new Color(base.r, base.g, base.b, 255),
+                    vx: vxFrame * 60,
+                    vy: -vyFrame * 60,
+                    life: baseLife,
+                    maxLife: baseLife,
+                    size: (isCombo ? 3 : 4) + Math.random() * (isCombo ? 5 : 4),
+                    color: new Color(rgb[0], rgb[1], rgb[2], 255),
+                    decay: lifeDecay,
+                    damping,
+                    gravityMul,
                 });
+            }
+            // combo / perfect 额外火花（金/奶白；perfect 走彩虹），更快更亮、寿命更长。
+            if (sparkPerCell > 0) {
+                const sparkCount = scale < 1 ? Math.max(1, Math.floor(sparkPerCell * scale)) : sparkPerCell;
+                for (let j = 0; j < sparkCount; j++) {
+                    const vxFrame = (Math.random() - 0.5) * (isPerfect ? 30 : 24);
+                    const vyFrame = (Math.random() - 0.5) * (isPerfect ? 30 : 24) - (9 + Math.random() * 7);
+                    const rgb = isPerfect
+                        ? RAINBOW[j % RAINBOW.length]
+                        : (j % 2 === 0 ? [255, 215, 0] as [number, number, number] : [255, 248, 220] as [number, number, number]);
+                    this._particles.push({
+                        x: center.x,
+                        y: center.y,
+                        vx: vxFrame * 60,
+                        vy: -vyFrame * 60,
+                        life: isPerfect ? 1.75 : 1.48,
+                        maxLife: isPerfect ? 1.75 : 1.48,
+                        size: 2 + Math.random() * (isPerfect ? 4 : 3),
+                        color: new Color(rgb[0], rgb[1], rgb[2], 255),
+                        decay: isPerfect ? 0.014 : 0.018,
+                        damping: isPerfect ? 0.974 : 0.968,
+                        gravityMul: 0.45,
+                    });
+                }
             }
         }
     }
 
-    /** 落子确认：在放置的格上做一层白色高光快速淡出（transient 节点，独立于粒子层） */
+    /** 落子高光复用：单个持久节点 + Graphics（落子串行，同时至多一个高光），避免每次落子 new Node/Graphics 的创建销毁churn。 */
+    private _placeFlashNode: Node | null = null;
+    private _placeFlashG: Graphics | null = null;
+    private _placeFlashState = { a: 0 };
+
+    /** 落子确认：在放置的格上做一层白色高光快速淡出（复用持久层，独立于粒子层） */
     flashPlacement(shape: number[][], gx: number, gy: number, color: Color): void {
         const cell = this.boardPx / this.size;
         const inner = cell - this.gap;
         const half = this.boardPx / 2;
-        const n = new Node('placeFlash');
-        n.parent = this.node;
-        n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
-        const g = n.addComponent(Graphics);
-        const draw = (alpha: number) => {
+        if (!this._placeFlashNode || !this._placeFlashNode.isValid) {
+            const n = new Node('placeFlash');
+            n.parent = this.node;
+            n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+            this._placeFlashG = n.addComponent(Graphics);
+            this._placeFlashNode = n;
+        }
+        const g = this._placeFlashG!;
+        const col = this._drawCol;
+        const draw = (alpha: number): void => {
             g.clear();
+            if (alpha <= 0) return;
+            col.r = 255; col.g = 255; col.b = 255; col.a = alpha;
+            g.fillColor = col;
             for (let y = 0; y < shape.length; y++) {
                 for (let x = 0; x < shape[y].length; x++) {
                     if (!shape[y][x]) continue;
                     const px = -half + (gx + x) * cell + this.gap / 2;
                     const py = half - (gy + y + 1) * cell + this.gap / 2;
-                    g.fillColor = new Color(255, 255, 255, alpha);
                     g.roundRect(px, py, inner, inner, Math.min(6, inner * 0.18));
                     g.fill();
                 }
             }
         };
-        const st = { a: 150 };
+        // 复用 state：停掉上一轮 tween（若仍在播），从满强重新淡出。
+        Tween.stopAllByTarget(this._placeFlashState);
+        this._placeFlashState.a = 150;
         draw(150);
-        tween(st)
-            .to(0.18, { a: 0 }, { onUpdate: () => draw(Math.max(0, Math.round(st.a))) })
-            .call(() => n.destroy())
+        tween(this._placeFlashState)
+            .to(0.18, { a: 0 }, { onUpdate: () => draw(Math.max(0, Math.round(this._placeFlashState.a))) })
+            .call(() => g.clear())
             .start();
         void color;
     }
@@ -331,9 +424,11 @@ export class FxLayer extends Component {
         n.parent = this.node;
         n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
         const g = n.addComponent(Graphics);
+        const col = new Color(255, 215, 96, 70);
         const draw = (alpha: number) => {
             g.clear();
-            g.fillColor = new Color(255, 215, 96, alpha);
+            col.a = alpha;
+            g.fillColor = col;
             for (const ln of lines) {
                 if (ln.kind === 'row') {
                     const py = half - (ln.idx + 1) * cell;
@@ -361,9 +456,15 @@ export class FxLayer extends Component {
         // 与 AmbientFx 的 `Motion.reduced || !VisualFx.enabled` 门控保持一致）。
         if (!VisualFx.enabled || Motion.reduced) {
             if (this._ambient.length) { this._ambient.length = 0; ag.clear(); }
+            this._ambAcc = 0;
             return;
         }
         if (!this._ambActive && this._ambient.length === 0) return;
+        // ~30Hz 节流：缓慢飘落的氛围粒子，30Hz 取样肉眼无差，active 期也省一半积分+重绘。
+        this._ambAcc += dt;
+        if (this._ambAcc < 1 / 34) return;
+        dt = this._ambAcc;
+        this._ambAcc = 0;
         const half = this.boardPx / 2;
         const target = Math.max(8, Math.round(this.boardPx / 42));
         // 按需补充：从盘面顶部随机位置生成，向下缓慢飘落带轻微横向漂移。
@@ -411,20 +512,29 @@ export class FxLayer extends Component {
             return;
         }
         g.clear();
-        const gravity = -520;
+        // web addParticles 同款积分（帧率无关化）：web 是 60fps 逐帧；这里把每帧量换算到 dt。
+        //   位移：vx/vy 已存为 px/秒 → ×dt。
+        //   阻尼：web 每帧 v*=damping → 这里 v*=pow(damping, dt*60)。
+        //   重力：web 每帧 vy+=0.35*gravityMul（canvas y下）→ cocos y上为向下负，0.35×3600=1260 px/秒²。
+        //   寿命：web 每帧 life-=decay → 这里 life-=decay*(dt*60)；渲染 alpha=min(1,life)、半径=size*life。
+        const frames = dt * 60;
         const alive: Particle[] = [];
+        const col = this._drawCol;
         for (const p of this._particles) {
-            p.life += dt;
-            if (p.life >= p.maxLife) continue;
-            p.vy += gravity * dt;
             p.x += p.vx * dt;
             p.y += p.vy * dt;
-            const t = 1 - p.life / p.maxLife;
-            const col = this._drawCol;
-            col.r = p.color.r; col.g = p.color.g; col.b = p.color.b; col.a = Math.round(255 * t);
+            if (p.damping != null) {
+                const f = Math.pow(p.damping, frames);
+                p.vx *= f; p.vy *= f;
+            }
+            p.vy -= 1260 * (p.gravityMul ?? 1) * dt;
+            p.life -= (p.decay ?? 0.03) * frames;
+            if (p.life <= 0) continue;
+            const alpha = Math.min(1, p.life);
+            const rad = Math.max(0.5, p.size * p.life);
+            col.r = p.color.r; col.g = p.color.g; col.b = p.color.b; col.a = Math.round(255 * alpha);
             g.fillColor = col;
-            const s = p.size * t + 1;
-            g.rect(p.x - s / 2, p.y - s / 2, s, s);
+            g.circle(p.x, p.y, rad);
             g.fill();
             alive.push(p);
         }

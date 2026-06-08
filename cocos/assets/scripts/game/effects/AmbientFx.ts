@@ -84,6 +84,7 @@ export class AmbientFx extends Component {
     private _preset: Preset | null = null;
     private _particles: AmbientParticle[] = [];
     private _time = 0;            // 累计秒，驱动 aurora/ripple 相位
+    private _acc = 0;             // 节流累加器：~30Hz 重绘（慢速装饰粒子肉眼无差，active 期也省一半）
     private _rgb: [number, number, number] = [255, 255, 255];
     private _rgb2: [number, number, number] = [255, 255, 255];
     private _rgb3: [number, number, number] = [255, 255, 255];
@@ -138,10 +139,16 @@ export class AmbientFx extends Component {
         if (!g) return;
         if (!p || Motion.reduced || !VisualFx.enabled) {
             if (this._particles.length) { this._particles.length = 0; g.clear(); }
+            this._acc = 0;
             return;
         }
-        this._time += dt;
-        const dtUnit = Math.min(48, dt * 1000) / 16;
+        // ~30Hz 节流：累计 dt，不足一帧间隔就跳过本帧重绘（用累计 dt 步进 → 运动总速度不变）。
+        this._acc += dt;
+        if (this._acc < 1 / 34) return;
+        const fdt = this._acc;
+        this._acc = 0;
+        this._time += fdt;
+        const dtUnit = Math.min(48, fdt * 1000) / 16;
         const lw = this.boardPx;
         const lh = this.boardPx;
         const m = this.margin;

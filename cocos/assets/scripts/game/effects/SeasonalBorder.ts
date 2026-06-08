@@ -47,6 +47,14 @@ export class SeasonalBorder extends Component {
     private _active = false;
     private _time = 0;
     private _drewStatic = false;
+    /** 复用绘制 Color：流动期每帧绘制 baseEdges + 多条 band（各 1-2 次 fillColor），避免逐帧 new Color 的 GC。 */
+    private _col = new Color(255, 255, 255, 255);
+
+    private col(r: number, g: number, b: number, a: number): Color {
+        const c = this._col;
+        c.r = r; c.g = g; c.b = b; c.a = a;
+        return c;
+    }
 
     onLoad(): void {
         const uit = this.node.getComponent(UITransform) || this.node.addComponent(UITransform);
@@ -119,7 +127,7 @@ export class SeasonalBorder extends Component {
         const half = this.boardPx / 2;
         const outer = half + this.margin;
         const span = outer * 2;
-        g.fillColor = new Color(c.r, c.g, c.b, alpha);
+        g.fillColor = this.col(c.r, c.g, c.b, alpha);
         g.rect(-outer, -outer, 5, span);          // 左
         g.rect(outer - 5, -outer, 5, span);        // 右
         g.rect(-outer, outer - 5, span, 5);        // 上
@@ -135,22 +143,22 @@ export class SeasonalBorder extends Component {
             const y0 = Math.max(-outer, y - h / 2);
             const y1 = Math.min(outer, y + h / 2);
             if (y1 <= y0) return;
-            g.fillColor = new Color(c.r, c.g, c.b, 50);
+            g.fillColor = this.col(c.r, c.g, c.b, 50);
             g.rect(x, y0, w, y1 - y0);
             g.fill();
             const iy0 = Math.max(-outer, y - h / 4);
             const iy1 = Math.min(outer, y + h / 4);
-            if (iy1 > iy0) { g.fillColor = new Color(c.r, c.g, c.b, 95); g.rect(x, iy0, w, iy1 - iy0); g.fill(); }
+            if (iy1 > iy0) { g.fillColor = this.col(c.r, c.g, c.b, 95); g.rect(x, iy0, w, iy1 - iy0); g.fill(); }
         } else {
             const x0 = Math.max(-outer, x - w / 2);
             const x1 = Math.min(outer, x + w / 2);
             if (x1 <= x0) return;
-            g.fillColor = new Color(c.r, c.g, c.b, 50);
+            g.fillColor = this.col(c.r, c.g, c.b, 50);
             g.rect(x0, y, x1 - x0, h);
             g.fill();
             const ix0 = Math.max(-outer, x - w / 4);
             const ix1 = Math.min(outer, x + w / 4);
-            if (ix1 > ix0) { g.fillColor = new Color(c.r, c.g, c.b, 95); g.rect(ix0, y, ix1 - ix0, h); g.fill(); }
+            if (ix1 > ix0) { g.fillColor = this.col(c.r, c.g, c.b, 95); g.rect(ix0, y, ix1 - ix0, h); g.fill(); }
         }
     }
 

@@ -16,6 +16,7 @@ import { FxLayer } from './effects/FxLayer';
 import { AmbientFx } from './effects/AmbientFx';
 import { OverlayFx } from './effects/OverlayFx';
 import { SeasonalBorder } from './effects/SeasonalBorder';
+import { PerfMonitor } from './effects/PerfMonitor';
 import { GameController } from './GameController';
 import { SkillBar } from './skills/SkillBar';
 import { MetaPanel } from './ui/MetaPanel';
@@ -34,6 +35,7 @@ import { makeAnalyticsSink } from './platform/AnalyticsSink';
 import { CloudSync } from './platform/CloudSync';
 import { Motion, initMotion } from './platform/Motion';
 import { VisualFx, initVisualFx } from './platform/VisualFx';
+import { FrameRate } from './platform/FrameRate';
 import { bgColor } from './skin/palette';
 import { seasonalSkinId } from './skin/seasonalSkin';
 import { GameMode } from '../core';
@@ -313,6 +315,11 @@ export class Bootstrap extends Component {
         // 启动期 safe-area 稳定后锁定分辨率：此后 relayout 只重排节点、不再重建交换链。
         // 1.5s 给足三次延迟 relayout 把分辨率/相机收敛到正确值，之后游戏期 resize 不再踩 swapchain 雷。
         this.scheduleOnce(() => { this._resolutionLocked = true; console.log('[OpenBlock] resolution locked (no more canvas-resize)'); }, 1.5);
+
+        // 性能 / 泄漏监控：每 5s 打一行 fps/堆内存/节点数（诊断「越玩越卡 → 黑屏」）。挂在根节点随场景存活。
+        if (PerfMonitor.ENABLED && !this.node.getComponent(PerfMonitor)) this.node.addComponent(PerfMonitor);
+        // 启动期维持高帧覆盖启动屏 / 字标淡入等动画；之后 GameController.tick() 接管，空闲降 30fps 散热。
+        FrameRate.poke(5000);
 
         // 心跳日志：确认 boot 跑完、场景已就绪（区分「卡死」与「画了但不可见」）。
         console.log(`[OpenBlock] boot() done. children=${this.node.children.length} scene=${director.getScene()?.name}`);
