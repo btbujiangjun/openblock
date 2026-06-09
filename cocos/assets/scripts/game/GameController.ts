@@ -1934,11 +1934,19 @@ export class GameController extends Component {
 
     /** 供 Bootstrap 在 start 阶段兜底转发触摸（确保场景就绪后 TapBus 可响应）。 */
     dispatchTap(e: EventTouch): boolean {
-        const ui = e.getUILocation();
-        const loc = e.getLocation();
-        const hit = TapBus.hit(loc.x, loc.y, ui.x, ui.y);
-        if (hit) console.log(`[OpenBlock] tap ok ui=(${ui.x | 0},${ui.y | 0})`);
-        return hit;
+        // 整体 try/catch：原生 JSB 端任何 UITransform.hitTest / onTap 内的 native 异常
+        // 都会被引擎记为 `Invoking function failed` 并在每次后续 touch-end 上重放 →
+        // UI 假死 + logcat 刷屏。安卓系统下拉通知中心截断 touch 序列时偶发触发。
+        try {
+            const ui = e.getUILocation();
+            const loc = e.getLocation();
+            const hit = TapBus.hit(loc.x, loc.y, ui.x, ui.y);
+            if (hit) console.log(`[OpenBlock] tap ok ui=(${ui.x | 0},${ui.y | 0})`);
+            return hit;
+        } catch (err) {
+            console.error('[OpenBlock] dispatchTap threw; contained', err);
+            return false;
+        }
     }
 
     /** onTouchStart 累计调用次数；用于排查"input 是否真的进入了我们的 handler"。 */

@@ -71,14 +71,23 @@ export function screenToLocal(node: Node, screenX: number, screenY: number): Vec
 }
 
 function nodeHit(node: Node, uit: UITransform, screenPt: Vec2, uiPt: Vec2): boolean {
-    const isHitFn = (uit as UITransform & { isHit?: (p: Vec2) => boolean }).isHit;
-    if (isHitFn?.(uiPt)) return true;
-    if (uit.hitTest(screenPt)) return true;
-    // 兜底：screenToWorld → local AABB（原生 FIXED_WIDTH 屏上 isHit/hitTest 偶发失效）。
-    const p = screenToLocal(node, screenPt.x, screenPt.y);
-    const hw = uit.contentSize.width / 2;
-    const hh = uit.contentSize.height / 2;
-    return hw > 0 && hh > 0 && Math.abs(p.x) <= hw && Math.abs(p.y) <= hh;
+    // 整体 try/catch：原生端（JSB v8 binding）当 UITransform 所属节点的 Camera/Scene 处于
+    // 半销毁中间态时，`uit.isHit / uit.hitTest` 会抛 native 异常（Object.cpp:821
+    // `Invoking function failed`），导致 onTouchEnd → dispatchTap 整条调用栈每次都炸，
+    // UI 出现"点击无响应"的假死。安卓上系统手势（顶部下拉通知中心）截断 touch 序列时
+    // 触发该路径，且引擎随后会以 ~80ms 频率重发 fake touch-end 让现象持续刷屏。
+    // 任何异常视为不命中，让上层继续遍历下一个 target。
+    try {
+        const isHitFn = (uit as UITransform & { isHit?: (p: Vec2) => boolean }).isHit;
+        if (isHitFn?.(uiPt)) return true;
+        if (uit.hitTest(screenPt)) return true;
+        const p = screenToLocal(node, screenPt.x, screenPt.y);
+        const hw = uit.contentSize.width / 2;
+        const hh = uit.contentSize.height / 2;
+        return hw > 0 && hh > 0 && Math.abs(p.x) <= hw && Math.abs(p.y) <= hh;
+    } catch {
+        return false;
+    }
 }
 
 /** 引擎 Button.CLICK（节点级命中），原生 iOS 比纯 TapBus 更可靠；与 TapBus 可并存。
