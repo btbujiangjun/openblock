@@ -74,7 +74,14 @@ export interface NearMissLine {
 
 /** GameModel 对外抛出的事件（渲染端据此播放动画/音效/特效） */
 export type GameEvent =
-    | { type: 'place'; index: number; gx: number; gy: number; colorIdx: number; shape: ShapeMatrix }
+    | { type: 'place'; index: number; gx: number; gy: number; colorIdx: number; shape: ShapeMatrix;
+        /**
+         * 「妙手」激励（对齐 web `_checkToughPlacement`）：本次落子是否被判为窄位高难手，
+         *  在落子前评估（fillBefore / validsBefore 都是放下本块**之前**的快照）。GameController 据此弹 👍 toast。
+         *  字段同时携带原始指标，便于后续埋点 / 数据回灌；undefined 表示未达"妙手"门槛。
+         */
+        praise?: { brilliant: true; fillBefore: number; validsBefore: number };
+      }
     | { type: 'clear'; result: ClearResult; clearScore: number; perfectClear: boolean; reason: ClearReason; comboCount?: number; comboMultiplier?: number }
     | { type: 'score'; score: number; delta: number }
     | { type: 'dock'; blocks: DockBlock[] }

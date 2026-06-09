@@ -10,6 +10,8 @@ export const ANALYTICS_EVENTS = {
     multiClear: 'multi_clear',
     perfectClear: 'perfect_clear',
     comboHigh: 'combo_high',
+    /** 妙手：窄位 + 高填充下成功落子（对齐 web `_checkToughPlacement` 触发的 👍 toast）。 */
+    toughPlacement: 'tough_placement',
     gameOver: 'game_over',
     spawnBlocks: 'spawn_blocks',
     reviveShow: 'revive_show',

@@ -1,8 +1,92 @@
 import { _decorator, Component, Graphics, UITransform, Color, Node, Label, tween, Tween, Vec3, v3, Sprite, SpriteFrame, UIOpacity, resources } from 'cc';
+import * as cc from 'cc';
 import { ClearResult, Skin, t } from '../../core';
 import { blockColor } from '../skin/palette';
 import { Motion } from '../platform/Motion';
 import { VisualFx } from '../platform/VisualFx';
+
+/**
+ * 与 web 主端 `.thumbs-up-toast` / `.float-near-miss` / `.float-pts` 一致的彩色 emoji 字体栈。
+ * Cocos Label 默认 fontFamily='Arial'，Arial 不含彩色 emoji glyph → emoji 渲染为方框；必须显式回退到系统彩色字体栈。
+ * 与 `skin/blockPaint.ts` 的 `ICON_FONT_FAMILY` 同源，避免维护两份。
+ */
+const EMOJI_FONT_FAMILY = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif';
+/** Web 主端通用文字栈 —— 与 `body { font-family }` 严格对齐。 */
+const UI_FONT_FAMILY = '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+
+/**
+ * 运行时按需获取 Cocos 的 LabelOutline / LabelShadow 组件类（不同 cocos 版本可能挪位或废弃）。
+ * 存在则附加 → 模拟 web 的 `text-shadow` 多层光晕；不存在静默跳过，文字仍可见。
+ */
+function tryAddOutline(node: Node, color: Color, width: number): void {
+    const Ctor = (cc as unknown as Record<string, unknown>).LabelOutline as { new(): unknown } | undefined;
+    if (!Ctor) return;
+    try {
+        const c = node.addComponent(Ctor as unknown as new () => Component) as unknown as { color: Color; width: number };
+        c.color = color;
+        c.width = width;
+    } catch { /* ignore */ }
+}
+function tryAddShadow(node: Node, color: Color, offsetX: number, offsetY: number, blur: number): void {
+    const Ctor = (cc as unknown as Record<string, unknown>).LabelShadow as { new(): unknown } | undefined;
+    if (!Ctor) return;
+    try {
+        const c = node.addComponent(Ctor as unknown as new () => Component) as unknown as {
+            color: Color; offset: { x: number; y: number; set?: (x: number, y: number) => void }; blur: number;
+        };
+        c.color = color;
+        if (c.offset && typeof c.offset.set === 'function') c.offset.set(offsetX, offsetY);
+        else c.offset = { x: offsetX, y: offsetY };
+        c.blur = blur;
+    } catch { /* ignore */ }
+}
+
+/**
+ * 应用 web `.float-*` 通用文字样式：粗体 / 字间距 / 字体栈。
+ * 与 `applyIconLabel` 关注点不同：那里只关心 emoji glyph 烘焙；这里关心**字形样式**对齐。
+ */
+function applyTextStyle(l: Label, opts: {
+    fontFamily?: string;
+    fontSize: number;
+    lineHeight: number;
+    color: Color;
+    bold?: boolean;
+    /** CSS letter-spacing → Cocos Label.letterSpacing（3.7+），低版本字段缺失则忽略。 */
+    letterSpacing?: number;
+}): void {
+    const anyL = l as unknown as {
+        useSystemFont: boolean;
+        fontFamily: string;
+        fontSize: number;
+        lineHeight: number;
+        isBold: boolean;
+        color: Color;
+        letterSpacing?: number;
+        cacheMode?: unknown;
+        node?: Node;
+        markForUpdateRenderData?: (force?: boolean) => void;
+    };
+    try {
+        anyL.useSystemFont = true;
+        if (opts.fontFamily) anyL.fontFamily = opts.fontFamily;
+        anyL.fontSize = opts.fontSize;
+        anyL.lineHeight = opts.lineHeight;
+        if (opts.bold != null) anyL.isBold = opts.bold;
+        if (opts.letterSpacing != null) {
+            try { anyL.letterSpacing = opts.letterSpacing; } catch { /* ignore */ }
+        }
+        // 系统字体直渲，关闭 BITMAP/CHAR 缓存，避免 fontSize/string 变更后的过期 glyph 纹理（iOS 短路问题，详见 blockPaint.applyIconLabel）。
+        const CacheModeEnum = (Label as unknown as { CacheMode?: { NONE?: unknown } })?.CacheMode;
+        if (CacheModeEnum && CacheModeEnum.NONE != null) anyL.cacheMode = CacheModeEnum.NONE;
+        /* 颜色：Cocos 3.x Label 的最终顶点色由所在 Node 的 color 与 UIRenderer 合成 ——
+         * 直接写 Label.color 在 useSystemFont=true + cacheMode 切换的几帧里会被 Canvas2D fillStyle
+         * 默认值（白）覆盖（已被多名用户反馈"消行飘字全白"）。
+         * 同时写 Node.color + Label.color，保证两条路径都拿到指定主色，与 web `.float-X { color }` 一致。 */
+        try { (l.node as unknown as { color: Color }).color = opts.color; } catch { /* ignore */ }
+        anyL.color = opts.color;
+        anyL.markForUpdateRenderData?.(true);
+    } catch { /* ignore */ }
+}
 
 const { ccclass } = _decorator;
 
@@ -37,7 +121,7 @@ const RAINBOW: Array<[number, number, number]> = [
  * 取 480：足够容纳「单次最大爆发」的完整观感，仅当多次爆发重叠逼近上限时按比例削减新增，
  * 正常对局碰不到，因此不削弱手感、只杜绝失控。
  */
-const MAX_CLEAR_PARTICLES = 480;
+const MAX_CLEAR_PARTICLES = 1200;
 
 /**
  * Phase 2 综合特效层（与盘面共享坐标系，挂在盘面同位置的 overlay 节点）。
@@ -174,9 +258,12 @@ export class FxLayer extends Component {
         const isDouble = !isPerfect && count === 2;
         let perCell = isPerfect ? 24 : isCombo ? 17 : isDouble ? 13 : 10;
         const speed = isPerfect ? 2.55 : isCombo ? 2.0 : isDouble ? 1.6 : 1.28;
-        // 衰减比 web 快约 1.8×（web 0.0085/0.012/0.016/0.020）：保留爆发瞬间的视觉冲击，但砍掉
-        // 长达 2-3s 的「余韵尾巴」——尾巴对手感增益小却让 cocos 每帧持续重画上百圆、是移动端发热的主因。
-        const lifeDecay = isPerfect ? 0.018 : isCombo ? 0.022 : isDouble ? 0.028 : 0.036;
+        // 严格对齐 web `renderer.addParticles` 的 lifeDecay：
+        //   60fps 下粒子余韵长度 single ≈0.98s / double ≈1.31s / combo ≈1.97s / perfect ≈3.23s。
+        // 之前为省电压到 1.8× 加速衰减，粒子刚一爆就消失 → 缺氛围感。还原 web 原值后,
+        // MAX_CLEAR_PARTICLES 提到 1200 兜底 perfect 满盘的瞬时高峰（理论 64×24=1536，会被等比削减），
+        // 移动端单局 perfect 仅偶发，长期负载与「single+combo」无差异，可承受。
+        const lifeDecay = isPerfect ? 0.0085 : isCombo ? 0.012 : isDouble ? 0.016 : 0.020;
         const baseLife = isPerfect ? 1.65 : isCombo ? 1.42 : isDouble ? 1.26 : 1.18;
         const damping = isPerfect ? 0.972 : isCombo ? 0.968 : isDouble ? 0.962 : 0.958;
         const gravityMul = isPerfect ? 0.55 : isCombo ? 0.65 : isDouble ? 0.78 : 0.9;
@@ -241,7 +328,8 @@ export class FxLayer extends Component {
                         maxLife: isPerfect ? 1.75 : 1.48,
                         size: 2 + Math.random() * (isPerfect ? 4 : 3),
                         color: new Color(rgb[0], rgb[1], rgb[2], 255),
-                        decay: isPerfect ? 0.014 : 0.018,
+                        // web 原值 perfect 0.0075 / combo 0.010 → 余韵 ≈3.7s/2.5s，与主粒子节奏一致。
+                        decay: isPerfect ? 0.0075 : 0.010,
                         damping: isPerfect ? 0.974 : 0.968,
                         gravityMul: 0.45,
                     });
@@ -323,75 +411,574 @@ export class FxLayer extends Component {
     }
 
     /**
-     * 对齐 web `showFloatScore` 简化版：在指定盘面格 (gx, gy) 上方飘出 `+N` 数字。
-     * 颜色按等级（normal/combo/perfect/bonus）。若不指定坐标，落到盘面中央偏上。
-     * 字号按 kind 分级：perfect 最大，bonus 次之，combo 次之，normal 基准；起手弹大回弹+上浮+淡出。
+     * 对齐 web `showFloatScore` —— 消行档位完整规格（颜色/字号/动画/时长全部按 CSS 取值）。
+     *
+     * 锚位：**严格对齐 web `_anchorOnBoard` 默认行为 — 盘面正中央**（不再使用落子格上方偏移）。
+     *   原 (gx, gy) 入参保留但不再用作锚位，仅作向后兼容；底层位移完全由各档位关键帧驱动。
+     *
+     * 档位对照表（与 web `.float-score` / `.float-multi` / `.float-combo` / `.float-perfect` /
+     * `.float-new-best` / `.float-icon-bonus` 一一对应）：
+     *
+     *   normal   单消 +N        | #70AD47（var(--success)）            | 22px         | floatUp 0.7s        | hold 600ms
+     *   multi    双消（==2）    | #27ae60 容器 / #2ecc71 label         | 24px (base)  | multiPop 0.9s       | hold 1450ms
+     *   combo    多消（≥3）     | #e67e22 容器                         | 30px (base)  | comboScorePop 1.5s  | hold 1450ms
+     *   perfect  清屏           | 彩虹渐变（取金黄主色 #ffd166 近似）  | 36px (base)  | perfectPop 2.2s     | hold 2200ms
+     *   new-best 新最佳         | 金粉蓝渐变（取金主色 #ffd166）       | 38px (base)  | newBestFloat 2.3s   | hold 2300ms
+     *   bonus    同花顺大消除   | 金粉紫渐变（取金主色 #f59e0b）       | 47px (base)  | bonusScoreArtPop 4s | hold 4000ms
+     *
+     * CSS 多色渐变 Cocos Label 无原生支持 → 用主色 + 强 LabelShadow + LabelOutline 近似，
+     * 视觉权重档位差异（小 → 大）严格保留。
      */
-    showScoreFloat(amount: number, kind: 'normal' | 'combo' | 'perfect' | 'bonus' = 'normal', gx?: number, gy?: number, label?: string): void {
+    showScoreFloat(amount: number, kind: 'normal' | 'combo' | 'multi' | 'perfect' | 'new-best' | 'bonus' = 'normal', _gx?: number, _gy?: number, label?: string): void {
         if (amount <= 0) return;
-        const color = kind === 'perfect' ? new Color(255, 230, 130, 255)
-            : kind === 'bonus' ? new Color(255, 170, 80, 255)
-            : kind === 'combo' ? new Color(255, 200, 120, 255)
-            : new Color(220, 240, 255, 255);
-        // 锚位：传了 (gx,gy) 用格中心；否则盘面中心稍上。
-        const cell = this.boardPx / this.size;
-        const half = this.boardPx / 2;
-        const baseX = gx != null && gy != null ? -half + (gx + 0.5) * cell : 0;
-        const baseY = gx != null && gy != null ? half - (gy + 0.5) * cell + cell * 0.6 : 30;
+        void _gx; void _gy; // 旧入参，与 web 统一为「盘面中央」锚位后不再用作位移；仅作 API 向后兼容。
+
+        // ── 档位规格表（与 CSS 1:1）────────────────────────────────────────────
+        // 每行严格对应 main.css 中的 `.float-<kind>` 规则集 + 共享的 `.float-label` / `.float-pts` 默认值。
+        // 视觉权重档位差异（小 → 大）= baseSize × {ptsEm × ptsColor × shadow blur} 三者协同；
+        // 渐变文字（perfect/new-best/bonus）取 CSS 渐变中段主色作 LabelShadow 单层近似。
+        type Spec = {
+            /** label 行颜色 — CSS `.float-<kind> .float-label { color }`（或继承容器色） */
+            labelColor: Color;
+            /** label 阴影 — CSS `.float-<kind> .float-label { text-shadow }`，缺省走 spec.shadowColor */
+            labelShadowColor?: Color;
+            /** pts 行颜色 — CSS `.float-<kind> { color }`（pts 默认继承容器色） */
+            ptsColor: Color;
+            /** pts/容器阴影主色 — CSS `text-shadow` 主光晕 */
+            shadowColor: Color;
+            /** 容器 base font-size — CSS `.float-<kind> { font-size: clamp() }` 取中位 */
+            baseSize: number;
+            /** label 字号 / base 比例 — CSS `.float-<kind> .float-label { font-size: Xem }` */
+            labelEm: number;
+            /** pts 字号 / base 比例 — CSS `.float-<kind> .float-pts { font-size: Xem }` */
+            ptsEm: number;
+            /** 容器级 letter-spacing（em），CSS `.float-<kind> { letter-spacing }` */
+            containerLetterEm: number;
+            /** label 专属 letter-spacing（em），CSS `.float-<kind> .float-label { letter-spacing }` */
+            labelLetterEm: number;
+            /** 总动画时长（s），与 CSS animation-duration 一致 */
+            animMs: number;
+            /** DOM 留存时长（ms），与 web `floatHoldMs` 一致 */
+            holdMs: number;
+            /** 关键帧档位 id，driveKeyframes 据此驱动 */
+            anim: 'floatUp' | 'multiPop' | 'comboScorePop' | 'perfectPop' | 'newBestFloat' | 'bonusScoreArtPop';
+        };
+        const specs: Record<typeof kind, Spec> = {
+            // .float-score: color var(--success)=#70AD47, 22px, label 0.72em letter 0.1em, pts 1.12em letter 0.02em, floatUp 0.7s, hold 600
+            normal: {
+                labelColor: new Color(112, 173, 71, 255), ptsColor: new Color(112, 173, 71, 255),
+                shadowColor: new Color(46, 204, 113, 180),
+                baseSize: 22, labelEm: 0.72, ptsEm: 1.12,
+                containerLetterEm: 0, labelLetterEm: 0.10,
+                animMs: 700, holdMs: 600, anim: 'floatUp',
+            },
+            // .float-multi: color #27ae60, 24px, text-shadow 8px 绿光；label color #2ecc71 text-shadow 10px 绿；multiPop 0.9s
+            multi: {
+                labelColor: new Color(46, 204, 113, 255), labelShadowColor: new Color(46, 204, 113, 180),
+                ptsColor: new Color(39, 174, 96, 255),
+                shadowColor: new Color(39, 174, 96, 200),
+                baseSize: 24, labelEm: 0.72, ptsEm: 1.12,
+                containerLetterEm: 0, labelLetterEm: 0.10,
+                animMs: 900, holdMs: 1450, anim: 'multiPop',
+            },
+            // .float-combo: color #e67e22, 30px, letter 0.04em, text-shadow 14/28px 暖金；label 0.6em letter 0.14em；comboScorePop 1.5s
+            combo: {
+                labelColor: new Color(230, 126, 34, 255), ptsColor: new Color(230, 126, 34, 255),
+                shadowColor: new Color(255, 200, 80, 240),
+                baseSize: 30, labelEm: 0.60, ptsEm: 1.12,
+                containerLetterEm: 0.04, labelLetterEm: 0.14,
+                animMs: 1500, holdMs: 1450, anim: 'comboScorePop',
+            },
+            // .float-perfect: 彩虹渐变(红/橙/黄/绿/蓝/紫)→ 取金黄 #ffd166 主色；36px 容器 letter 0.06em；label 0.55em letter 0.18em；perfectPop 2.2s
+            perfect: {
+                labelColor: new Color(255, 209, 102, 255), ptsColor: new Color(255, 209, 102, 255),
+                shadowColor: new Color(255, 200, 100, 240),
+                baseSize: 36, labelEm: 0.55, ptsEm: 1.12,
+                containerLetterEm: 0.06, labelLetterEm: 0.18,
+                animMs: 2200, holdMs: 2200, anim: 'perfectPop',
+            },
+            // .float-new-best: 金粉蓝渐变 → 主色 #ffd166；38px 容器 letter 0.08em；label 0.5em letter 0.20em；newBestFloat 2.3s
+            'new-best': {
+                labelColor: new Color(255, 209, 102, 255), ptsColor: new Color(255, 209, 102, 255),
+                shadowColor: new Color(255, 122, 217, 220),
+                baseSize: 38, labelEm: 0.50, ptsEm: 1.12,
+                containerLetterEm: 0.08, labelLetterEm: 0.20,
+                animMs: 2300, holdMs: 2300, anim: 'newBestFloat',
+            },
+            // .float-icon-bonus / .float-bonus-art: 金粉紫渐变 → 主色 #f59e0b；47px 容器 letter 0.018em；label 0.34em letter 0.12em；bonusScoreArtPop 4s
+            bonus: {
+                labelColor: new Color(253, 230, 138, 255), ptsColor: new Color(245, 158, 11, 255),
+                shadowColor: new Color(192, 38, 211, 220),
+                baseSize: 47, labelEm: 0.34, ptsEm: 1.00,
+                containerLetterEm: 0.018, labelLetterEm: 0.12,
+                animMs: 4000, holdMs: 4000, anim: 'bonusScoreArtPop',
+            },
+        };
+        const spec = specs[kind] ?? specs.normal;
+
+        // ── 节点骨架 ─────────────────────────────────────────────────────────
+        // web `_anchorOnBoard({ dyRatio: 0 })` —— 盘面正中央，所有消行飘字共用同一位置；
+        // 多档位时间错位 / 视觉权重差异由动画 + 字号自己承担，不靠空间区隔。
         const n = new Node('scoreFloat');
         n.parent = this.node;
         n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
-        n.setPosition(baseX, baseY, 0);
-        const fontSize = kind === 'perfect' ? 64 : kind === 'bonus' ? 56 : kind === 'combo' ? 52 : 44;
+        n.setPosition(0, 0, 0);
+        const op = n.addComponent(UIOpacity);
+        op.opacity = 0;
+
+        // CSS `.float-score { gap: 2px }` —— label 与 pts 之间的间距严格按 2px。
+        const GAP_PX = 2;
         const labels: Label[] = [];
-        // 对齐 web `showFloatScore`：消行分级（双消/N消/清屏）时，上方叠一行标签，下方 `+N`。
+
         if (label) {
             const tag = new Node('floatTag');
             tag.parent = n;
+            // label 顶部锚点：以容器中心为 0，label 上半部分位于 +y，所以锚点 (0.5, 0)
             tag.addComponent(UITransform).setAnchorPoint(0.5, 0);
-            tag.setPosition(0, fontSize * 0.5, 0);
+            tag.setPosition(0, GAP_PX / 2, 0);
             const tl = tag.addComponent(Label);
             tl.string = label;
-            tl.fontSize = Math.round(fontSize * 0.62);
-            tl.lineHeight = tl.fontSize + 4;
-            tl.color = color;
+            const tlSize = Math.max(10, Math.round(spec.baseSize * spec.labelEm));
+            // 总字距 = 容器级 + label 级（CSS 自然继承叠加）
+            const letterEm = spec.containerLetterEm + spec.labelLetterEm;
+            applyTextStyle(tl, {
+                fontFamily: UI_FONT_FAMILY,
+                fontSize: tlSize,
+                lineHeight: tlSize + 4,
+                color: spec.labelColor,
+                bold: true, // CSS `.float-label { font-weight: 800 }`
+                letterSpacing: Math.max(1, Math.round(tlSize * letterEm)),
+            });
+            // label 专属阴影色（multi 是亮绿、其他档位走容器主光晕）
+            tryAddShadow(tag, spec.labelShadowColor ?? spec.shadowColor, 0, 0, 10);
+            // CSS `.float-label { opacity: 0.92 }` —— 仅 .float-score 默认值，此处按 web 自然继承统一应用。
+            const labelOp = tag.addComponent(UIOpacity);
+            labelOp.opacity = 235; // ≈ 0.92 × 255
             labels.push(tl);
         }
+
+        // ── pts/+N 行（bonus 走艺术字双 span 结构，其余走单 label）────────────
         const valNode = label ? new Node('floatVal') : n;
         if (label) {
             valNode.parent = n;
             valNode.addComponent(UITransform).setAnchorPoint(0.5, 1);
-            valNode.setPosition(0, fontSize * 0.35, 0);
+            valNode.setPosition(0, -GAP_PX / 2, 0);
         }
-        const l = valNode.addComponent(Label);
-        l.string = `+${amount}`;
-        l.fontSize = fontSize;
-        l.lineHeight = l.fontSize + 6;
-        l.color = color;
-        labels.push(l);
-        n.setScale(1.25, 1.25, 1);
-        tween(n).to(0.18, { scale: v3(1, 1, 1) }, { easing: 'backOut' }).start();
-        tween(n).to(0.9, { position: v3(baseX, baseY + 130, 0) }, { easing: 'quadOut' }).start();
-        const fadeTo = new Color(color.r, color.g, color.b, 0);
-        for (const lab of labels) tween(lab).delay(0.45).to(0.45, { color: fadeTo }).start();
-        tween(n).delay(0.9).call(() => n.destroy()).start();
+
+        if (kind === 'bonus') {
+            /* CSS `.float-bonus-score-row > .float-bonus-num + .float-bonus-mult-wrap`：
+             *   .float-bonus-num: 1em（继承容器 47px）, 渐变金粉紫主色 #f59e0b, letter 0.02em
+             *   .float-bonus-mult-wrap: 0.4em ≈ 19px, color #fef3c7（米黄）, letter 0.03em, font-weight 800
+             * 水平 row 排列；num 在左、`(5x)` 在右。
+             */
+            const rowNode = valNode;
+            // num 主分数
+            const numNode = new Node('bonusNum');
+            numNode.parent = rowNode;
+            numNode.addComponent(UITransform).setAnchorPoint(1, 0.5);
+            const numSize = Math.round(spec.baseSize * 1.0);
+            const numLabel = numNode.addComponent(Label);
+            numLabel.string = `+${amount}`;
+            applyTextStyle(numLabel, {
+                fontFamily: UI_FONT_FAMILY,
+                fontSize: numSize,
+                lineHeight: numSize + 6,
+                color: spec.ptsColor, // 金主色 #f59e0b
+                bold: true,
+                letterSpacing: Math.max(1, Math.round(numSize * (spec.containerLetterEm + 0.02))),
+            });
+            tryAddShadow(numNode, spec.shadowColor, 0, 0, 14);
+            tryAddOutline(numNode, new Color(120, 53, 15, 60), 1); // -webkit-text-stroke 1px rgba(120,53,15,.24)
+            // (5x) 副字 — 严格对齐 CSS `.float-bonus-mult-wrap`
+            const multNode = new Node('bonusMult');
+            multNode.parent = rowNode;
+            multNode.addComponent(UITransform).setAnchorPoint(0, 0.5);
+            const multSize = Math.max(12, Math.round(spec.baseSize * 0.4));
+            const multLabel = multNode.addComponent(Label);
+            multLabel.string = '(5x)';
+            applyTextStyle(multLabel, {
+                fontFamily: UI_FONT_FAMILY,
+                fontSize: multSize,
+                lineHeight: multSize + 2,
+                color: new Color(254, 243, 199, 255), // #fef3c7 米黄
+                bold: true,
+                letterSpacing: Math.max(1, Math.round(multSize * 0.03)),
+            });
+            // CSS `text-shadow: 0 0 10px rgba(251,191,36,.75), 0 1px 2px rgba(0,0,0,.45)` → 金色光晕
+            tryAddShadow(multNode, new Color(251, 191, 36, 190), 0, -1, 10);
+            // 水平布局：用 baseSize × ptsEm 的 ~50% 估算 +N 宽度（系统 Label 自适应宽，cocos 没有 inline-flex，
+            // 这里取一个保守的水平偏移让两段不重叠也不分裂）。CSS gap 0.03em ≈ 1-2px。
+            const NUM_HALF_W = Math.round(numSize * 1.0); // 粗估 +N 半宽（数字 + 加号最多 3-4 字符）
+            numNode.setPosition(-2, 0, 0);
+            multNode.setPosition(NUM_HALF_W + 4, -Math.round(multSize * 0.04), 0);
+            labels.push(numLabel, multLabel);
+        } else {
+            const l = valNode.addComponent(Label);
+            l.string = `+${amount}`;
+            const ptsSize = Math.round(spec.baseSize * spec.ptsEm);
+            // 总字距 = 容器级 + pts 级（CSS `.float-pts { letter-spacing: 0.02em }` 自然继承叠加）
+            const letterEm = spec.containerLetterEm + 0.02;
+            applyTextStyle(l, {
+                fontFamily: UI_FONT_FAMILY,
+                fontSize: ptsSize,
+                lineHeight: ptsSize + 6,
+                color: spec.ptsColor,
+                bold: true, // CSS `.float-pts { font-weight: 950 }`
+                letterSpacing: Math.max(1, Math.round(ptsSize * letterEm)),
+            });
+            /* 阴影：perfect/new-best 主色已是高饱和金/粉，给同色光晕模拟 CSS 多层 drop-shadow；
+             *      normal/multi/combo 用浅暗投影模拟 `text-shadow: 0 2px Xpx rgba(0,0,0,.3)`。
+             * ⚠️ 不挂 LabelOutline —— 中等字号 1px 描边会涂满 glyph 让主色失真（已被反馈"字变白"）。 */
+            tryAddShadow(valNode === n ? n : valNode, spec.shadowColor, 0, 2, kind === 'perfect' || kind === 'new-best' ? 14 : 8);
+            labels.push(l);
+        }
+
+        // ── 关键帧驱动（按档位精确还原 CSS 6 套 @keyframes）─────────────────
+        this.driveScoreFloatKeyframes(n, op, spec.anim, spec.animMs / 1000);
+
+        // ── 兜底销毁（与 web `setTimeout(() => el.remove(), floatHoldMs)` 同步）────
+        // 关键帧自带末段 opacity 0，但显式 hold 兜底防止某些 cocos 版本 tween 残留。
+        const destroyDelay = Math.max(spec.animMs, spec.holdMs) / 1000;
+        tween(n).delay(destroyDelay).call(() => n.destroy()).start();
+        void labels;
     }
 
     /**
-     * 连续消行 streak 徽章（对齐 web `.streak-badge`）：在盘面顶部弹出一个金色徽章，
-     * 显示 `STREAK xN`；3 行连续起步，颜色随 streak 升级。
+     * 按档位精确还原 CSS 6 套消行飘字关键帧。
+     * 每套关键帧的百分比时间点 + scale/translate/opacity 取值与 main.css `@keyframes` 1:1 对应；
+     * 此处不近似——任何偏差都会让 web/cocos 双端对账显出落差。
      */
-    showStreakBadge(streak: number): void {
+    private driveScoreFloatKeyframes(
+        n: Node,
+        op: UIOpacity,
+        anim: 'floatUp' | 'multiPop' | 'comboScorePop' | 'perfectPop' | 'newBestFloat' | 'bonusScoreArtPop',
+        durationS: number,
+    ): void {
+        // 各关键帧通用单位转换：web CSS y+ 向下 → cocos y+ 向上，需取负。
+        const s = (v: number) => v3(v, v, 1);
+        const y = (py: number) => v3(0, -py, 0);
+
+        switch (anim) {
+            case 'floatUp': {
+                // 0%   opacity 1, y 0, scale 1
+                // 70%  opacity 0.8
+                // 100% opacity 0, y -36, scale 1.15
+                op.opacity = 255;
+                n.setScale(1, 1, 1);
+                n.setPosition(0, 0, 0);
+                tween(n)
+                    .to(durationS, { position: y(-36), scale: s(1.15) }, { easing: 'quadOut' })
+                    .start();
+                tween(op)
+                    .delay(durationS * 0.7).to(durationS * 0.3, { opacity: 0 }, { easing: 'quadOut' })
+                    .start();
+                break;
+            }
+            case 'multiPop': {
+                // 0%   α 0, y +6, scale 0.7
+                // 16%  α 1, y  0, scale 1.08
+                // 40%  α 1, y -2, scale 1.0
+                // 100% α 0, y -30, scale 1.04
+                n.setScale(0.7, 0.7, 1);
+                n.setPosition(0, -6, 0);
+                op.opacity = 0;
+                tween(n)
+                    .to(durationS * 0.16, { position: y(0), scale: s(1.08) }, { easing: 'cubicOut' })
+                    .to(durationS * 0.24, { position: y(-2), scale: s(1.00) }, { easing: 'cubicInOut' })
+                    .to(durationS * 0.60, { position: y(-30), scale: s(1.04) }, { easing: 'cubicOut' })
+                    .start();
+                tween(op)
+                    .to(durationS * 0.16, { opacity: 255 }, { easing: 'quadOut' })
+                    .delay(durationS * 0.44)
+                    .to(durationS * 0.40, { opacity: 0 }, { easing: 'quadOut' })
+                    .start();
+                break;
+            }
+            case 'comboScorePop': {
+                // 0%   α 0, y +8, scale 0.65
+                // 12%  α 1, y  0, scale 1.15
+                // 50%  α 1, y -4, scale 1.00
+                // 100% α 0, y -36, scale 1.05
+                n.setScale(0.65, 0.65, 1);
+                n.setPosition(0, -8, 0);
+                op.opacity = 0;
+                tween(n)
+                    .to(durationS * 0.12, { position: y(0), scale: s(1.15) }, { easing: 'cubicOut' })
+                    .to(durationS * 0.38, { position: y(-4), scale: s(1.00) }, { easing: 'cubicInOut' })
+                    .to(durationS * 0.50, { position: y(-36), scale: s(1.05) }, { easing: 'cubicOut' })
+                    .start();
+                tween(op)
+                    .to(durationS * 0.12, { opacity: 255 }, { easing: 'quadOut' })
+                    .delay(durationS * 0.58)
+                    .to(durationS * 0.30, { opacity: 0 }, { easing: 'quadOut' })
+                    .start();
+                break;
+            }
+            case 'perfectPop': {
+                // 0%   α 0, y +12, scale 0.40
+                // 10%  α 1, y   0, scale 1.25
+                // 20%       y  -2, scale 1.00
+                // 60%  α 1, y  -6, scale 1.02
+                // 100% α 0, y -44, scale 1.08
+                n.setScale(0.40, 0.40, 1);
+                n.setPosition(0, -12, 0);
+                op.opacity = 0;
+                tween(n)
+                    .to(durationS * 0.10, { position: y(0), scale: s(1.25) }, { easing: 'cubicOut' })
+                    .to(durationS * 0.10, { position: y(-2), scale: s(1.00) }, { easing: 'cubicInOut' })
+                    .to(durationS * 0.40, { position: y(-6), scale: s(1.02) }, { easing: 'cubicInOut' })
+                    .to(durationS * 0.40, { position: y(-44), scale: s(1.08) }, { easing: 'cubicOut' })
+                    .start();
+                tween(op)
+                    .to(durationS * 0.10, { opacity: 255 }, { easing: 'quadOut' })
+                    .delay(durationS * 0.50)
+                    .to(durationS * 0.40, { opacity: 0 }, { easing: 'quadOut' })
+                    .start();
+                break;
+            }
+            case 'newBestFloat': {
+                // 0%   α 0, y +14, scale 0.72
+                // 18%  α 1, y   0, scale 1.14
+                // 55%  α 1, y  -8, scale 1.00
+                // 100% α 0, y -46, scale 0.92
+                n.setScale(0.72, 0.72, 1);
+                n.setPosition(0, -14, 0);
+                op.opacity = 0;
+                tween(n)
+                    .to(durationS * 0.18, { position: y(0), scale: s(1.14) }, { easing: 'cubicOut' })
+                    .to(durationS * 0.37, { position: y(-8), scale: s(1.00) }, { easing: 'cubicInOut' })
+                    .to(durationS * 0.45, { position: y(-46), scale: s(0.92) }, { easing: 'cubicOut' })
+                    .start();
+                tween(op)
+                    .to(durationS * 0.18, { opacity: 255 }, { easing: 'quadOut' })
+                    .delay(durationS * 0.37)
+                    .to(durationS * 0.45, { opacity: 0 }, { easing: 'quadOut' })
+                    .start();
+                break;
+            }
+            case 'bonusScoreArtPop': {
+                // 同花顺艺术字：8 段（0/14/24/38/52/68/100），最戏剧的爆发。
+                // 0%   α 0, y +18, scale 0.06
+                // 14%  α 1,        scale ?  （此处插值到 1.0）
+                // 24%       y  -6, scale 1.28
+                // 38%       y  +2, scale 0.94
+                // 52%       y  -4, scale 1.06
+                // 68%  α 1, y   0, scale 1.00
+                // 100% α 0, y -16, scale 0.88
+                n.setScale(0.06, 0.06, 1);
+                n.setPosition(0, -18, 0);
+                op.opacity = 0;
+                tween(n)
+                    .to(durationS * 0.14, { position: y(0), scale: s(1.00) }, { easing: 'cubicOut' })  // 0→14% 爆入
+                    .to(durationS * 0.10, { position: y(-6), scale: s(1.28) }, { easing: 'cubicOut' }) // 14→24% 弹大
+                    .to(durationS * 0.14, { position: y(2),  scale: s(0.94) }, { easing: 'cubicInOut' })// 24→38% 回弹
+                    .to(durationS * 0.14, { position: y(-4), scale: s(1.06) }, { easing: 'cubicInOut' })// 38→52% 二次弹
+                    .to(durationS * 0.16, { position: y(0),  scale: s(1.00) }, { easing: 'cubicInOut' })// 52→68% 稳态
+                    .to(durationS * 0.32, { position: y(-16),scale: s(0.88) }, { easing: 'cubicOut' }) // 68→100% 上浮淡出
+                    .start();
+                tween(op)
+                    .to(durationS * 0.14, { opacity: 255 }, { easing: 'quadOut' })
+                    .delay(durationS * 0.54)
+                    .to(durationS * 0.32, { opacity: 0 }, { easing: 'quadOut' })
+                    .start();
+                break;
+            }
+        }
+    }
+
+    /**
+     * 连续消行 streak 徽章（对齐 web `.streak-badge` 及 `_showStreakBadge`）：
+     * 在盘面顶部弹出一个金色徽章，3 行连续起步、颜色随 streak 升级；
+     * 当 comboMultiplier > 1 时，下方追加一行 `Combo ×N`（对齐 web `.streak-badge--mult` 双行布局）。
+     * fires 数量随 streak 升级：≥5 三只、≥4 两只、其余一只。
+     */
+    showStreakBadge(streak: number, comboMultiplier: number = 1): void {
         if (streak < 3) return;
         const intensity = Math.min(1, (streak - 3) / 4);
         const r = Math.round(255);
         const g = Math.round(200 - intensity * 80);
         const b = Math.round(80 - intensity * 60);
-        // 对齐 web `.streak-badge` 文案「🔥 N 连消」（本地化）。
-        this.floatText(t('effect.streak', { n: streak }), new Color(r, g, b, 255), 100);
+        const color = new Color(r, g, b, 255);
+        const fires = streak >= 5 ? '🔥🔥🔥' : streak >= 4 ? '🔥🔥' : '🔥';
+        const main = t('effect.streakCombo', { fires, n: streak });
+        const hasMult = Number(comboMultiplier) > 1;
+        if (!hasMult) {
+            this.floatText(main, color, 100);
+            return;
+        }
+        const multTxt = Number.isInteger(comboMultiplier)
+            ? `×${comboMultiplier}`
+            : `×${Number(comboMultiplier).toFixed(1)}`;
+        const sub = t('effect.comboMultiplier', { mult: multTxt });
+        // 双行：主标签在上、Combo 倍数在下；两条独立浮字共享同一颜色，错开 y 防重叠。
+        this.floatText(main, color, 116);
+        this.floatText(sub, color, 72);
     }
 
-    /** 连击 / 完美清屏 飘字 */
+    /**
+     * 「妙手」👍 toast — 严格对齐 web `.thumbs-up-toast` + `@keyframes thumbsPop` (1.5s ease-out)：
+     *   - 定位：盘面右下角（CSS `bottom: 12%; right: 6%` → 取盘面坐标 0.44/-0.38 倍 half）
+     *   - 字号：emoji ≈48px（与 web 移动端 clamp(36, 7vw, 56) 中位对应）
+     *   - 阴影：emoji 自带颜色 + 单层 drop-shadow 由 Cocos Label 暂不支持，
+     *     视觉权重靠"摆动 + 缩放回弹"完整复现 thumbsPop 6 段关键帧。
+     *
+     *   关键帧（与 web 1:1 对照）：
+     *     0%   scale 0.30 rotate -20°  α 0
+     *     15%  scale 1.25 rotate  +6°  α 1
+     *     30%  scale 0.95 rotate  -3°
+     *     45%  scale 1.05 rotate  +2°
+     *     60%  scale 1.00 rotate   0°  α 1
+     *     100% scale 1.10 translateY -20px α 0
+     *
+     * Tween 段时长：0.225s / 0.225s / 0.225s / 0.225s / 0.600s = 1.500s 总长，
+     * 与 CSS animation-duration: 1.5s 严格一致。
+     */
+    showThumbsUp(): void {
+        const half = this.boardPx / 2;
+        const n = new Node('thumbsUp');
+        n.parent = this.node;
+        n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        // web CSS: bottom 12% + right 6% → 盘面坐标 (right=half-6%*boardPx, bottom=-half+12%*boardPx)
+        const startX = half - this.boardPx * 0.06;
+        const startY = -half + this.boardPx * 0.12;
+        n.setPosition(startX, startY, 0);
+        const op = n.addComponent(UIOpacity);
+        op.opacity = 0;
+        const l = n.addComponent(Label);
+        l.string = '👍';
+        // 关键：emoji 字体栈（Apple Color Emoji / Segoe UI Emoji / Noto Color Emoji），
+        // 与 web `body` 系统字体回退一致，避免 Arial 缺 emoji glyph → 渲染方框。
+        applyTextStyle(l, {
+            fontFamily: EMOJI_FONT_FAMILY,
+            fontSize: 48,
+            lineHeight: 52,
+            color: new Color(255, 255, 255, 255),
+            bold: false,
+        });
+        // web `filter: drop-shadow(0 2px 6px rgba(0,0,0,.35))` → LabelShadow 近似。
+        tryAddShadow(n, new Color(0, 0, 0, 90), 0, -2, 6);
+        n.setScale(0.30, 0.30, 1);
+        n.angle = -20;
+        // 序列化六段关键帧（rotation 用 angle 字段；Cocos tween 支持 angle 插值）。
+        tween(n)
+            .to(0.225, { scale: v3(1.25, 1.25, 1), angle: 6 }, { easing: 'cubicOut' })
+            .to(0.225, { scale: v3(0.95, 0.95, 1), angle: -3 }, { easing: 'cubicInOut' })
+            .to(0.225, { scale: v3(1.05, 1.05, 1), angle: 2 }, { easing: 'cubicInOut' })
+            .to(0.225, { scale: v3(1.00, 1.00, 1), angle: 0 }, { easing: 'cubicInOut' })
+            .to(0.600, { scale: v3(1.10, 1.10, 1), position: v3(startX, startY + 20, 0) }, { easing: 'cubicOut' })
+            .call(() => n.destroy())
+            .start();
+        // opacity 包络：0→1（前 15%≈0.225s 快速淡入）→ 1（保持到 60%≈0.9s）→ 0（最后 40%≈0.6s 淡出）
+        tween(op)
+            .to(0.225, { opacity: 255 }, { easing: 'quadOut' })
+            .delay(0.675)
+            .to(0.600, { opacity: 0 }, { easing: 'quadOut' })
+            .start();
+    }
+
+    /**
+     * 「差一格就消行」near-miss 飘字 — 严格对齐 web `.float-near-miss` + `@keyframes nearMissFloat` (2.8s ease-out)：
+     *   - DOM 结构：单容器垂直堆叠 `<label>` 文案 + `<pts>` emoji，gap 2px（CSS `flex-direction: column`）；
+     *     这里用一个父 Node 子 Node 直接还原。
+     *   - 颜色：容器主色 #c0392b（深红），label #ff6b6b（亮红），letter-spacing 文字端在 cocos 无对应字段→用字号差替代。
+     *   - 字号：容器 base ≈ 32px（对应 clamp(26, 5.5vw, 38) 中位），label 0.72em ≈ 23px，pts 1.05em ≈ 34px。
+     *   - 关键帧（与 web 1:1 对照，5 段）：
+     *     0%   y+12, scale 0.78, α 0
+     *     8%   y 0,  scale 1.16, α 1
+     *     20%  y-2,  scale 1.05, α 1
+     *     78%  y-6,  scale 1.00, α 1
+     *     100% y-44, scale 0.94, α 0
+     *   - 总时长 2.8s；ease-out（对应 cubicOut）。
+     *
+     * 调用方需保证已通过 `shouldShowNearMiss` 控频；与 web 一致，本函数不做去重。
+     */
+    showNearMiss(text: string): void {
+        const n = new Node('floatNearMiss');
+        n.parent = this.node;
+        n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        // 默认锚位：盘面中央偏下（与 web `_anchorOnBoard` 居中规则对齐；垂直位移由动画驱动）。
+        const baseY = -20;
+        n.setPosition(0, baseY, 0);
+        const op = n.addComponent(UIOpacity);
+        op.opacity = 0;
+
+        // CSS 颜色一一对应 —— 容器色 #c0392b 用作 LabelShadow 外发光，label/pts 各自字色独立。
+        const containerColor = new Color(192, 57, 43, 255);   // #c0392b（容器主红，用作 shadow 主色）
+        const labelColor = new Color(255, 107, 107, 255);     // #ff6b6b（label 亮红）
+        // 🎯 是彩色 emoji，Cocos Label.color 仅作灰度调制 → 设白色让 emoji 自带真彩完整呈现。
+        const ptsColor = new Color(255, 255, 255, 255);
+
+        // <label> 文案行（上方）
+        const labelNode = new Node('nmLabel');
+        labelNode.parent = n;
+        labelNode.addComponent(UITransform).setAnchorPoint(0.5, 0);
+        labelNode.setPosition(0, 2, 0);
+        const lab = labelNode.addComponent(Label);
+        lab.string = text;
+        applyTextStyle(lab, {
+            fontFamily: UI_FONT_FAMILY,
+            fontSize: 23,            // base ≈32px × 0.72em
+            lineHeight: 28,
+            color: labelColor,
+            bold: true,              // CSS `.float-score { font-weight: 900 }`
+            letterSpacing: 3,        // CSS `letter-spacing: 0.15em` ≈ 0.15 × 23 ≈ 3.5（取整）
+        });
+        // CSS `text-shadow:
+        //   0 0 14px rgba(255,80,80,.85),
+        //   0 0 28px rgba(255,60,30,.5),
+        //   0 2px 5px rgba(0,0,0,.3)`
+        // → Cocos 只能挂一个 LabelShadow，取最亮的近似（红色光晕 14px blur）。
+        tryAddShadow(labelNode, new Color(255, 80, 80, 220), 0, 0, 14);
+        // ⚠️ 不挂 LabelOutline —— 23px 字号 + 2px outline 会把整字涂成描边色，让 #ff6b6b 看起来发暗发白。
+        // CSS 多层 text-shadow 的"亮红 + 深红边"层级感，由 LabelShadow 单层 + 容器同色 14px blur 已足够近似。
+
+        // <pts> emoji 行（下方，gap 2px 由两节点锚点 + 偏移自然形成）
+        const ptsNode = new Node('nmPts');
+        ptsNode.parent = n;
+        ptsNode.addComponent(UITransform).setAnchorPoint(0.5, 1);
+        ptsNode.setPosition(0, -2, 0);
+        const pts = ptsNode.addComponent(Label);
+        pts.string = '🎯';
+        // pts: CSS `font-size: 1.05em` ≈ 34px，必须用 EMOJI_FONT_FAMILY，否则 🎯 渲染为方框。
+        applyTextStyle(pts, {
+            fontFamily: EMOJI_FONT_FAMILY,
+            fontSize: 34,
+            lineHeight: 38,
+            color: ptsColor,
+            bold: false,             // emoji 不需要 bold（部分系统会渲染失真）
+        });
+        // emoji 不加 outline（彩色字符 outline 视觉混乱），仅给一层暗投影增立体感。
+        tryAddShadow(ptsNode, new Color(0, 0, 0, 80), 0, -2, 5);
+
+        // 容器初始态：0% scale 0.78, y+12, α 0
+        n.setScale(0.78, 0.78, 1);
+        n.setPosition(0, baseY + 12, 0);
+
+        // 关键帧 → tween 段（按 web 百分比换算时长，总 2.8s）：
+        //   0→8%   (0.224s)  弹大入场 0.78→1.16，y+12→0，α 0→1
+        //   8→20%  (0.336s)  轻微回弹 1.16→1.05，y 0→-2
+        //   20→78% (1.624s)  缓慢停留 1.05→1.00，y -2→-6
+        //   78→100%(0.616s)  上浮淡出 1.00→0.94，y -6→-44，α 1→0
+        tween(n)
+            .to(0.224, { scale: v3(1.16, 1.16, 1), position: v3(0, baseY, 0) }, { easing: 'cubicOut' })
+            .to(0.336, { scale: v3(1.05, 1.05, 1), position: v3(0, baseY - 2, 0) }, { easing: 'cubicInOut' })
+            .to(1.624, { scale: v3(1.00, 1.00, 1), position: v3(0, baseY - 6, 0) }, { easing: 'cubicInOut' })
+            .to(0.616, { scale: v3(0.94, 0.94, 1), position: v3(0, baseY - 44, 0) }, { easing: 'cubicOut' })
+            .call(() => n.destroy())
+            .start();
+        tween(op)
+            .to(0.224, { opacity: 255 }, { easing: 'quadOut' })
+            .delay(2.176)
+            .to(0.4, { opacity: 0 }, { easing: 'quadOut' })
+            .start();
+    }
+
+    /**
+     * 通用浮字（streak 徽章 / 升级提示 / 系统反馈）。
+     * 文字样式严格对齐 web `.streak-badge` / `.float-score` 共性：粗体 900 + 字间距 + 暖色光晕 + 暗投影。
+     * emoji 与文字混排：调用方传入的字符串若含 emoji，由 EMOJI_FONT_FAMILY fallback 渲染（fontFamily 选 UI 优先栈，
+     * 系统找不到字符再依次回退到 emoji 字体）。
+     */
     floatText(text: string, color: Color, yOffset = 0): void {
         const n = new Node('floatText');
         n.parent = this.node;
@@ -399,10 +986,17 @@ export class FxLayer extends Component {
         n.setPosition(0, yOffset, 0);
         const l = n.addComponent(Label);
         l.string = text;
-        l.fontSize = 44;
-        l.lineHeight = 48;
-        l.color = color;
-        const start = v3(0, yOffset, 0);
+        // 文字栈以 UI 字体优先，emoji 字体在末尾兜底（无字距字段时 letterSpacing 静默忽略）。
+        applyTextStyle(l, {
+            fontFamily: `${UI_FONT_FAMILY},${EMOJI_FONT_FAMILY}`,
+            fontSize: 44,
+            lineHeight: 48,
+            color,
+            bold: true,
+            letterSpacing: 2,
+        });
+        // 双层视觉：同色光晕 + 黑色暗投影（与 web `text-shadow: 0 0 10px <accent>, 0 2px 5px rgba(0,0,0,.3)` 近似）。
+        tryAddShadow(n, new Color(color.r, color.g, color.b, 200), 0, 0, 10);
         const end = v3(0, yOffset + 90, 0);
         tween(n)
             .to(0.7, { position: end }, { easing: 'quadOut' })
@@ -412,7 +1006,6 @@ export class FxLayer extends Component {
             .to(0.4, { color: new Color(color.r, color.g, color.b, 0) })
             .call(() => n.destroy())
             .start();
-        void start;
     }
 
     /** 近失反馈：在「差一格即可消除」的行/列上闪一道金色提示。 */

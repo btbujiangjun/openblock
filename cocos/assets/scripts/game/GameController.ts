@@ -6,6 +6,7 @@ import {
     getConfig, flag, Analytics, ANALYTICS_EVENTS, spinWheel, WHEEL_PRIZES, WHEEL_TRIAL_POOL, WheelPrize, GameMode, MODE_ORDER, getMode,
     PlayerContext, CompanionState, getCompanion, ReplayRecorder, Grid, AdaptiveProfile, shouldShowNearMiss,
     primaryIntent, toneFor, intentNarrative, taskDensityBonus, type Tone, type Band,
+    bonusEffectHoldMs,
 } from '../core';
 import { BoardView } from './BoardView';
 import { DockView } from './DockView';
@@ -41,11 +42,25 @@ import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift
 import { Storage, STORAGE_KEYS } from './platform/Storage';
 import { AudioManager } from './audio/AudioManager';
 import { Haptics } from './platform/Haptics';
+import { VisualFx } from './platform/VisualFx';
 import { FrameRate } from './platform/FrameRate';
 import { Ads } from './platform/Ads';
 import { Share } from './platform/Share';
 import { Leaderboard } from './platform/Leaderboard';
 import { CloudSync } from './platform/CloudSync';
+
+/* v1.69 evaluation host：ESM 闭包来自 engine/evaluation/*.mjs（sync-cocos-engine.mjs 自动生成）。
+ * 端无关 host 契约见 web/src/evaluation/evaluationHost.js JSDoc。
+ *
+ * Cocos 端 **Phase 1** 仅启用 spawn / gameOver 两层 evaluation：
+ *   - per-place 评估（placementQuality）需要"放置前盘面快照"，会要求重构 GameModel
+ *     的 place 事件发出顺序（boardBefore → place → boardAfter），暂未做。
+ *   - session-level / RoR 报告仍可输出，只是 components.usagePerm 等会缺。
+ * 详见 docs/algorithms/SESSION_EVALUATION.md §"端侧覆盖阶段表"。 */
+// @ts-ignore: .mjs 在 Cocos 构建时按 ESM 解析
+import { evalOnSessionStart, evalOnSpawn, evalOnGameOver } from '../engine/evaluation/evaluationHost.mjs';
+// @ts-ignore: .mjs 数据导出
+import GAME_RULES_DATA from '../engine/gameRulesData.mjs';
 
 const { ccclass } = _decorator;
 
@@ -147,13 +162,19 @@ const CHEST_TRIAL_SKIN_POOL = ['forbidden', 'demon', 'fairy', 'aurora', 'industr
  *   stickyBonus        ← web CONFIG.HOVER_STICKY_BONUS  （拖拽时再 ×0.35 降权，避免过粘）
  *   stickyWindow       ← web CONFIG.HOVER_STICKY_WINDOW （拖拽时再 ×0.55 降权）
  *
- * 释放路径：先严格匹配 ghost 当前锚点（所见即所得）；失败时仅在 ±1 格 4 邻域内救活一次。
- *    - 半径锁死 1：避免"远跳"破坏可预期性，对齐主流休闲游戏体验。
- *    - 4 邻域（不含对角）：避免对角线吸附"窜两格"。
+ * 释放路径：走 `pickSmartHoverPlacement(radius=placeReleaseRadius)`，严格 anchor 命中（d=0）由
+ *    距离权重天然胜出；失败时在 placeReleaseRadius 内择优救活（消行点优先，其次最近）。
+ *    - placeReleaseRadius = 2（与 web/miniprogram `PLACE_RELEASE_SNAP_RADIUS` 同名同值）。
+ *    - 释放路径不带 sticky，避免「拖偏后松手仍粘在上一帧 hover 预览」造成不可预期落点。
  *    - 兜底场景：浮点取整在格边界 ±0.01 抖动 / 用户视觉对准但手指略偏邻格中心。
  */
 const SNAP = {
     placeRadius: 2,
+    /** 释放容错半径（曼哈顿格）：拖拽松手时若严格 anchor 不合法，在该半径内择优救活。
+     *  与 web `CONFIG.PLACE_RELEASE_SNAP_RADIUS` / miniprogram `PLACE_RELEASE_SNAP_RADIUS` 同名对齐。
+     *  1 → 2：轻微增加容差，进一步减少「明明拖到了目标格却释放失败」的边界抖动 miss；
+     *  仍走 4 邻域曼哈顿（非对角），保留可预期性，不会"窜两格"。 */
+    placeReleaseRadius: 2,
     clearLineBonus: 0.9,
     clearCellBonus: 0.015,
     clearAssistWindow: 1.35,
@@ -184,6 +205,8 @@ export class GameController extends Component {
     playerCtx!: PlayerContext;
     /** 真实 PlayerProfile（喂给 resolveAdaptiveStrategy 使寻参 θ 生效；本控制器在落子/消行处驱动）。 */
     profile?: AdaptiveProfile;
+    /** 出块器引用：新局开始时 resetForNewGame() 清掉跨局 _prevScoreMilestone / specialShapeUsed 等。 */
+    spawner?: { resetForNewGame: () => void };
     /** 本次落子后的盘面填充率快照（在 'place' 记录，微任务里连同消行结果喂 profile.recordPlace）。 */
     private _pendingPlaceFill = -1;
     /** 本次落子是否触发消行 + 行数（'clear' reason='line' 时更新，微任务 flush 后归零）。 */
@@ -309,7 +332,7 @@ export class GameController extends Component {
     /** 最近一次落子的盘面中心格（用于 score 飘字定位到玩家视线焦点附近）。 */
     private _lastPlaceCenter: { gx: number; gy: number } | null = null;
     /** 最近一次消行的 kind（normal/combo/perfect），影响 score 飘字字号与颜色。下次 score 事件消费后清零。 */
-    private _nextScoreKind: 'normal' | 'combo' | 'perfect' | 'bonus' = 'normal';
+    private _nextScoreKind: 'normal' | 'multi' | 'combo' | 'perfect' | 'new-best' | 'bonus' = 'normal';
     /** 最近一次消行的飘字标签（双消/N消/清屏，对齐 web float-score 分级文案）。下次 score 事件消费后清空。 */
     private _nextScoreLabel: string | null = null;
 
@@ -330,6 +353,8 @@ export class GameController extends Component {
         bgNode: Node;
         playerCtx: PlayerContext;
         profile?: AdaptiveProfile;
+        /** 出块器引用：新局开始时调 resetForNewGame() 清掉跨局态。可选（缺省时回退为 no-op，老路径仍兼容）。 */
+        spawner?: { resetForNewGame: () => void };
     }): void {
         Object.assign(this, parts);
     }
@@ -622,6 +647,9 @@ export class GameController extends Component {
 
     /** 从主菜单进入：所选模式与当前不同（或已结束）则开新局，否则继续；随后跑入场流程。 */
     enterFromMenu(mode: GameMode, onDone?: () => void): void {
+        // 「从主菜单进入」= web 主菜单按钮路径：runStreak 归零（连战链断开）。
+        // 即便 mode 与当前一致、不走 startGame 分支，回菜单的语义也已断链，故无条件清零。
+        this.playerCtx.resetRunStreak();
         if (mode !== this.model.mode || this.model.gameOver) {
             this.startGame(mode);
         }
@@ -686,6 +714,16 @@ export class GameController extends Component {
         this.playerCtx.reset(this.model.best);
         // 真实 PlayerProfile 也开新局（清局内派生计数，保留跨局技能/会话历史）。
         this.profile?.recordNewGame?.();
+        if (GAME_RULES_DATA?.sessionEvaluation?.enabled !== false) {
+            try { evalOnSessionStart(this as any); } catch { /* evaluation 失败不阻塞 */ }
+        }
+        /* 出块引擎跨局态清理（与 web `game.js` line 1450-1451 严格同址）：
+         *   - 清掉模块级 `_prevScoreMilestone` —— 否则上一局到 5000 分留下的"已触发到 5000 档"残值
+         *     会让新局 0~5000 区间所有里程碑全部 miss，blockSpawn gapFill ×1.3 加权失效；
+         *   - 清掉 blockSpawn `_spawnMemory.categories` —— 否则新局首副 dock 的新鲜度带偏；
+         *   - 清掉本闭包 `ctx` —— 否则 specialShapeUsed / dupInjectUsed / _lastSpawnIntent 跨局污染。
+         * 必须在 model.newGame() 触发首副 dock 出块之前调用。 */
+        this.spawner?.resetForNewGame();
         this._pendingPlaceFill = -1;
         this._pendingClearLines = 0;
         this.timeLeft = getMode(mode).timeLimitSec;
@@ -777,6 +815,10 @@ export class GameController extends Component {
         const base = this.game.pbBaseline;
         if (this._celebratedNewBest || base <= 0 || score <= base) return;
         this._celebratedNewBest = true;
+        // 破纪录释放窗口（对齐 web `_startPostPbReleaseWindow`，v1.55 §4.9）：
+        // 接下来 5 次 spawn stress×0.7 + clearGuarantee+1 + challengeBoost 禁用，留出"我赢了"情绪释放时间；
+        // 局内只激活一次（PlayerContext 内 used cooldown）。
+        this.playerCtx.triggerPostPbRelease();
         // 对齐 web `new-best-popup`：局内破纪录用中心庆贺 popup（celebrate Toast，hold 2300ms，每局一次），
         // 取代原裸 floatText —— 走统一队列，避免与其它庆贺浮条视觉黏连。
         Toast.show({ text: t('effect.newRecord'), tier: 'celebrate', durationMs: 2300, accent: new Color(255, 215, 120, 255) });
@@ -919,10 +961,24 @@ export class GameController extends Component {
             case 'dock':
                 this.dock.render(this.model.dock, this.model.skin);
                 this.playerCtx.resetBottleneck();
+                try {
+                    evalOnSpawn(this as any, this.model.dock.map((b: any) => ({ shape: b?.shape, data: b?.shape })));
+                } catch { /* ignore */ }
                 break;
             case 'place': {
                 this.game.placements++;
                 this.fx.flashPlacement(e.shape, e.gx, e.gy, blockColor(this.model.skin, e.colorIdx));
+                // 「妙手」激励 👍（对齐 web `_checkToughPlacement` / `_showThumbsUp`）：
+                // 由 GameModel 在落子前评估 fillBefore/validsBefore + 死局守卫后挂在 'place' 事件上。
+                // 视觉特效总开关关闭时不弹（与 web 一致——属玩法外的"装饰性赞美"）。
+                if (e.praise?.brilliant && VisualFx.enabled) {
+                    this.fx.showThumbsUp();
+                    Haptics.light();
+                    Analytics.track(ANALYTICS_EVENTS.toughPlacement, {
+                        fill: Math.round(e.praise.fillBefore * 100) / 100,
+                        valids: e.praise.validsBefore,
+                    });
+                }
                 // 回放录制：记一帧落子（确定性重建用）。
                 this.replay.recordPlace(e.shape, e.colorIdx, e.gx, e.gy);
                 AudioManager.sfxPlace();
@@ -1004,7 +1060,9 @@ export class GameController extends Component {
                     this._nearMissLastShownMs = now;
                     this.fx.flashNearMiss([decision.line]);
                     Haptics.light();
-                    this.fx.floatText(t('effect.nearMiss'), new Color(255, 120, 120, 255), -40);
+                    // 对齐 web `_triggerNearMissFeedback` 渲染：单容器内含 `<label>` 文案 + `<pts>` emoji 双行，
+                    // 共享同一组缩放/位移关键帧（nearMissFloat 2.8s）。详见 FxLayer.showNearMiss。
+                    this.fx.showNearMiss(t('effect.nearMissPlace'));
                 }
                 break;
             }
@@ -1014,7 +1072,7 @@ export class GameController extends Component {
             case 'clear': {
                 // 消行高亮 + 碎屑粒子要在 60fps 下播放，维持高帧覆盖整个特效余韵窗口。
                 FrameRate.poke();
-                this.lineFx.play(e.result, this.model.skin);
+                this.lineFx.play(e.result, this.model.skin, { perfectClear: e.perfectClear });
                 this.fx.burstClear(e.result, this.model.skin, { perfectClear: e.perfectClear });
                 // 全屏闪光层（对齐 web playClearEffect 主路径）：
                 //   bonus 同色/同 icon → 紫金光晕 + icon 喷涌；perfect → 彩虹脉冲；
@@ -1026,7 +1084,9 @@ export class GameController extends Component {
                         const iconSpecs = bonusLines
                             .map((bl) => ({ type: bl.type, idx: bl.idx, icon: blockIcon(this.model.skin, bl.colorIdx) || '' }))
                             .filter((s) => !!s.icon);
-                        if (iconSpecs.length) this.overlayFx.bonusIconGush(iconSpecs);
+                        // 持续喷涌时长 = web bonusEffectHoldMs(bonusCount)：3000-5000ms。
+                        // 与 LineClearFx 主消行特效 baseDuration 协同；overlayFx 内部会取 max(520, durationMs)。
+                        if (iconSpecs.length) this.overlayFx.bonusIconGush(iconSpecs, bonusEffectHoldMs(bonusLines.length));
                     }
                     if (e.perfectClear) this.overlayFx.triggerPerfectFlash();
                     else if (e.result.count >= 3) this.overlayFx.triggerComboFlash(e.result.count);
@@ -1064,6 +1124,13 @@ export class GameController extends Component {
                     // combo 心形 HUD（对齐 web `#combo-heart`）：连续消行计数 ≥2 时常驻显示。
                     this.hud.setCombo(this._clearStreak);
                 }
+                // combo 倍数后缀（对齐 web showFloatScore 的 `· combo ×N` 拼接）：>1 时统一追加，
+                // 任何档位（普通/双消/多消/清屏/同花顺）都会带上，提示玩家本次得分被 combo 加成。
+                const comboMult = Number(e.comboMultiplier ?? 1) || 1;
+                const comboMultTxt = comboMult > 1
+                    ? (Number.isInteger(comboMult) ? ` · combo ×${comboMult}` : ` · combo ×${comboMult.toFixed(1)}`)
+                    : '';
+                const bonusLineCount = (e.result.bonusLines || []).length;
                 if (e.perfectClear) {
                     AudioManager.sfxPerfect();
                     // 飘字标签合并进 `+N`（清屏 ×10 / +N），与 web float-perfect 一致。
@@ -1073,27 +1140,41 @@ export class GameController extends Component {
                     this.stats.perfectClears++;
                     Analytics.track(ANALYTICS_EVENTS.perfectClear, {});
                     this._nextScoreKind = 'perfect';
-                    this._nextScoreLabel = t('effect.perfectFloat');
+                    this._nextScoreLabel = t('effect.perfectFloat') + comboMultTxt;
                 } else if (e.reason === 'line') {
                     AudioManager.sfxClear(e.result.count);
                     const lines = e.result.count;
                     if (lines >= 2) {
-                        // 双消「双消」/ 三消及以上「N 消」标签（对齐 web float-multi / float-combo）。
-                        this._nextScoreLabel = lines === 2 ? t('effect.double') : t('effect.multi', { n: lines });
+                        // 双消走 multi 档位（CSS .float-multi 绿色 0.9s），多消走 combo（CSS .float-combo 橙色 1.5s）。
+                        const base = lines === 2 ? t('effect.double') : t('effect.multi', { n: lines });
+                        this._nextScoreLabel = base + comboMultTxt;
                         AudioManager.sfxCombo(lines);
                         ScreenShake.shake(this.shakeTarget, 8 + lines * 2, 0.3);
                         this.profile?.recordDelight?.('multiClear');
                         Analytics.track(ANALYTICS_EVENTS.comboHigh, { count: lines });
+                        this._nextScoreKind = lines === 2 ? 'multi' : 'combo';
+                    } else if (comboMult > 1) {
+                        // 单消但 combo 倍数生效：标签退化为 `Combo ×N`（对齐 web `hasComboMult` 单消分支）。
+                        const multTxt = Number.isInteger(comboMult) ? `×${comboMult}` : `×${comboMult.toFixed(1)}`;
+                        this._nextScoreLabel = t('effect.comboMultiplier', { mult: multTxt });
                         this._nextScoreKind = 'combo';
                     }
-                    // 连续 ≥3 次消行：弹 streak 徽章 + bonus 音（对齐 web `streak-badge`）。
+                    // 同色 / 同 icon 行（bonusLines）：覆盖标签为「同花顺大消除」，配 bonus 档位字号。
+                    // 对齐 web hasIconBonus 分支 —— bonus 是金色专属档位，盖过 combo/multi 标签。
+                    if (bonusLineCount > 0) {
+                        this._nextScoreLabel = t('effect.iconBonus') + comboMultTxt;
+                        this._nextScoreKind = 'bonus';
+                        AudioManager.sfxBonus();
+                        Haptics.heavy();
+                    }
+                    // 连续 ≥3 次消行：弹 streak 徽章 + bonus 音（对齐 web `streak-badge`），>1 时同时显示 Combo ×N。
                     if (this._clearStreak >= 3) {
-                        this.fx.showStreakBadge(this._clearStreak);
+                        this.fx.showStreakBadge(this._clearStreak, comboMult);
                         AudioManager.sfxBonus();
                         Haptics.heavy();
                         if (this._clearStreak >= 4) this.profile?.recordDelight?.('comboHigh');
                     }
-                    if ((e.result.bonusLines || []).length > 0) this.profile?.recordDelight?.('monoFlush');
+                    if (bonusLineCount > 0) this.profile?.recordDelight?.('monoFlush');
                     Haptics.medium();
                 }
                 this.save();
@@ -1129,6 +1210,18 @@ export class GameController extends Component {
         Analytics.track(ANALYTICS_EVENTS.gameOver, { score: this.model.score, mode: this.model.mode });
         Leaderboard.submit(this.model.best);
         this.save();
+        try {
+            evalOnGameOver(this as any, {
+                finalScore: this.model.score,
+                survivedSteps: this.game.placements,
+                placedCount: this.game.placements,
+                linesCleared: this.game.clears,
+                maxCombo: this.game.maxCombo,
+                runDurationMs: Date.now() - this.game.startMs,
+                endCause: 'normal',
+                pbAfter: this.model.best,
+            });
+        } catch { /* ignore */ }
 
         const cfg = getConfig();
         if (flag('revive') && this.model.reviveCount < cfg.reviveMaxPerGame) {
@@ -1392,6 +1485,10 @@ export class GameController extends Component {
         const chest = this._pendingChest;
         // 先清掉 pending，避免 startGame 失败时 chest 残留到下一轮。
         this._pendingChest = null;
+        // 「再来一局」= web `start({ fromChain: true })`：runStreak +1，启用 runStreakStress 累积加压。
+        // 必须在 startGame() 之前，因为 startGame → playerCtx.reset() 不会触碰 runStreak（刻意），
+        // 此处显式 +1 才能让本轮 spawn 拿到正确值。
+        this.playerCtx.incrementRunStreak();
         // startGame 包了 guard，失败也不会抛出来 —— 但即便失败，宝箱也应该展示给玩家（奖励不能漏发）。
         this.startGame(this.model.mode);
         if (!chest) return;
@@ -2584,32 +2681,24 @@ export class GameController extends Component {
         const { anchorX, anchorY } = Grid.naiveAnchorFromAim(this.dragShape, fx, fy);
 
         if (release) {
-            // ⭐ 释放策略：先严格匹配 ghost 当前锚点（所见即所得，对齐 web `Game.onEnd`）；
-            //    若 canPlace=false，再在 ±1 格邻域内救活一次 —— 半径锁死 1，避免"远跳"破坏可预期性。
-            //    这一兜底解决用户反馈「候选块明明拖到了目标区却释放失败」的常见场景：
-            //      - 浮点取整在格边界 ±0.01 抖动 → anchor 偏 1 格
-            //      - 玩家视觉对准 cell 中心但手指实际略偏邻格中心 → 同上
-            //    救活仅在严格失败时触发，且只看 4 邻域 + 同位（共 5 个候选），不会"莫名其妙吸走"。
-            const shape = this.dragShape; // snapshot 让 TS 闭包收口非空（顶部已 guard）
-            const tryPlace = (x: number, y: number) => this.model.grid.canPlace(shape, x, y);
-            if (tryPlace(anchorX, anchorY)) {
-                this.snap = { gx: anchorX, gy: anchorY };
-            } else {
-                // 邻域救活：按"离 ghost 实际锚点最近"排序 4 邻域，命中即落。
-                // 不引入 diag 邻域是为了避免对角线吸附（容易"窜两格"）。
-                const candidates: Array<{ x: number; y: number; d: number }> = [];
-                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-                    const nx = anchorX + dx;
-                    const ny = anchorY + dy;
-                    if (tryPlace(nx, ny)) candidates.push({ x: nx, y: ny, d: Math.abs(dx) + Math.abs(dy) });
-                }
-                if (candidates.length) {
-                    candidates.sort((a, b) => a.d - b.d);
-                    this.snap = { gx: candidates[0].x, gy: candidates[0].y };
-                } else {
-                    this.snap = null;
-                }
-            }
+            // ⭐ 释放策略（严格对齐 web `Game.onEnd` / miniprogram `_finishDrag`）：走 pickSmartHoverPlacement
+            //    在 `placeReleaseRadius` 半径内择优——优先消行点，其次最近，**不附带 sticky**（释放不应受
+            //    上一帧预览粘滞影响）。半径轻微增加（1→2）以减少边界抖动 miss，仍走曼哈顿距离权重，
+            //    避免对角"窜两格"。anchor 严格命中（d=0）时被距离权重天然排在最前，所见即所得不打折扣。
+            const placed = this.model.grid.pickSmartHoverPlacement(
+                this.dragShape, fx, fy, anchorX, anchorY, SNAP.placeReleaseRadius,
+                {
+                    colorIdx: this.dragColor,
+                    previous: this.snap ? { x: this.snap.gx, y: this.snap.gy } : null,
+                    clearLineBonus: SNAP.clearLineBonus,
+                    clearCellBonus: SNAP.clearCellBonus,
+                    clearAssistWindow: SNAP.clearAssistWindow,
+                    // 释放路径不要 sticky：避免「拖偏后松手仍粘在上一帧 hover 预览」造成不可预期落点。
+                    stickyBonus: 0,
+                    stickyWindow: 0,
+                },
+            );
+            this.snap = placed ? { gx: placed.x, gy: placed.y } : null;
         } else {
             // 拖拽中保留 hover smart-snap：±placeRadius 内取最优（消行加权 + 距离 + 粘滞）。
             // aimAssist 开启时半径 +1，扩大消行候选搜索范围（cocos 端独有 QoL，web 端无此功能）。
@@ -3033,5 +3122,49 @@ export class GameController extends Component {
         if (flag('cloudSave')) {
             CloudSync.push({ best: this.model.best, coins: this.model.wallet.coins, save: this.model.toJSON(), ts: Date.now() });
         }
+    }
+
+    /* ───────────── evaluationHost 契约（v1.69 Phase 1，仅 spawn + gameOver） ───────────── */
+
+    getGridCells(): any { return (this.model?.grid as any)?.toJSON?.()?.cells || null; }
+    getDockBlocks(): any { return this.model?.dock || []; }
+    getAdaptiveInsight(): any { return (this as any)._lastSpawnInsight || null; }
+    getSpawnDiagnostics(): any { return (this as any)._lastSpawnDiagnostics || null; }
+    getStress(): number {
+        const ins: any = (this as any)._lastSpawnInsight;
+        return Number(ins?._adaptiveStress) || 0;
+    }
+    getRulesConfig(section: string, fallback: any): any {
+        return (GAME_RULES_DATA as any)?.[section] || fallback || {};
+    }
+    getPlayerProfileRef(): any { return this.profile || null; }
+    getUserId(): string | null { return (this.profile as any)?.userId || null; }
+    getStrategy(): string | null { return this.model?.mode || null; }
+    getPlayerProfileSnapshot(): any {
+        const p: any = this.profile;
+        if (!p) return {};
+        return {
+            lifecycleStage: p.lifecycleStage || null,
+            maturityBand: p.maturityBand || null,
+            flowState: p.flowState || null,
+        };
+    }
+    postSessionEvalRecord(record: any): Promise<void> {
+        return new Promise<void>((resolve) => {
+            try {
+                /* Cocos 端走 globalThis.fetch（与 CloudSync.ts 同源），无 fetch 时静默 skip。 */
+                const f = (globalThis as any).fetch;
+                if (typeof f !== 'function') { resolve(); return; }
+                const base = (getConfig() as any)?.apiBase || '';
+                if (!base) { resolve(); return; }
+                f(`${base}/api/evaluation/session`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(record),
+                })
+                    .catch(() => undefined)
+                    .finally(() => resolve());
+            } catch { resolve(); }
+        });
     }
 }

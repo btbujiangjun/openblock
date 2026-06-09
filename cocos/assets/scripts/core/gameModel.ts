@@ -186,13 +186,60 @@ export class GameModel {
         if (!block || block.placed) return false;
         if (!this.grid.canPlace(block.shape, gx, gy)) return false;
 
+        /* 「妙手」激励评估（对齐 web `_checkToughPlacement`，必须用落子**之前**的快照）：
+         *   - blockCells ≥ 3、fillBefore ≥ 0.55、validsBefore ≤ 3
+         *   - brilliant 进一步：validsBefore ≤ 2 或（fillBefore ≥ 0.68 且 validsBefore ≤ 3）
+         *   - dock 其他未落块在本手之后必须仍有解（否则属"挤死自己"，不点赞）
+         * 命中即在 'place' 事件附 praise 字段，GameController 据此弹 👍 toast。
+         */
+        const placedCellsCount = block.shape.flat().filter(Boolean).length;
+        let praise: { brilliant: true; fillBefore: number; validsBefore: number } | undefined;
+        if (placedCellsCount >= 3) {
+            const fillBefore = this.grid.getFillRatio();
+            if (fillBefore >= 0.55) {
+                // 统计本块在当前盘面上的全部合法落点数，封顶到 4（≥4 即可视为非"窄位"）。
+                let validsBefore = 0;
+                const size = this.grid.size;
+                outer: for (let yy = 0; yy < size; yy++) {
+                    for (let xx = 0; xx < size; xx++) {
+                        if (this.grid.canPlace(block.shape, xx, yy)) {
+                            validsBefore++;
+                            if (validsBefore >= 4) break outer;
+                        }
+                    }
+                }
+                if (validsBefore <= 3) {
+                    const brilliant = validsBefore <= 2 || (fillBefore >= 0.68 && validsBefore <= 3);
+                    if (brilliant) {
+                        const others = this.dock.filter((b) => b && !b.placed && b !== block);
+                        // 死局守卫：只有当 dock 其余块在「本手落下后」仍可走时才点赞，
+                        // 与 web `if (others.length > 0 && !this.grid.hasAnyMove(others)) return;` 同源。
+                        let othersAliveAfter = true;
+                        if (others.length > 0) {
+                            // 复用当前 grid 做模拟落子 → 评估 → 回滚的廉价路径。
+                            this.grid.place(block.shape, block.colorIdx, gx, gy);
+                            othersAliveAfter = this.grid.hasAnyMove(others);
+                            // 回滚：清掉刚落下的本块单元格。
+                            for (let r = 0; r < block.shape.length; r++) {
+                                for (let c = 0; c < block.shape[r].length; c++) {
+                                    if (block.shape[r][c]) this.grid.cells[gy + r][gx + c] = null;
+                                }
+                            }
+                        }
+                        if (othersAliveAfter) {
+                            praise = { brilliant: true, fillBefore, validsBefore };
+                        }
+                    }
+                }
+            }
+        }
+
         this.pushSnapshot();
         this.grid.place(block.shape, block.colorIdx, gx, gy);
         block.placed = true;
 
-        const placedCells = block.shape.flat().filter(Boolean).length;
-        this.addScore(placedCells * this.scoring.placeUnit);
-        this.emit({ type: 'place', index, gx, gy, colorIdx: block.colorIdx, shape: block.shape });
+        this.addScore(placedCellsCount * this.scoring.placeUnit);
+        this.emit({ type: 'place', index, gx, gy, colorIdx: block.colorIdx, shape: block.shape, praise });
 
         const result = this.grid.checkLines(this.skin.blockIcons);
         if (result.count > 0) {
@@ -210,12 +257,20 @@ export class GameModel {
                 this.scoring,
                 this.comboCount,
             );
-            this.addScore(clearScore);
             this.wallet.earn(result.count * COINS_PER_LINE + (perfectClear ? COINS_PERFECT : 0));
+            /* ⚠️ 事件顺序非常关键（修复"消行飘字永远走 normal 档位"问题）：
+             *   原顺序  addScore(clearScore) → emit clear
+             *           addScore 内部 emit 'score'(delta=clearScore) 时，GameController 还没收到 'clear'，
+             *           _nextScoreKind 仍为 'normal' → 永远弹绿色单消飘字，不会出 perfect/combo/bonus 档位。
+             *   新顺序  先 emit 'clear'（GameController 把 _nextScoreKind / _nextScoreLabel 设为对应档位）
+             *           → 再 addScore(clearScore)（此时 'score' 事件被消费，弹对应档位飘字）。
+             * 与 web `playClearEffect` 内 `this.score += clearScore; showFloatScore(clearScore, effectType, ...)`
+             * 的"先计算 effectType 再展示分数"先后顺序一致。 */
             this.emit({
                 type: 'clear', result, clearScore, perfectClear, reason: 'line',
                 comboCount: this.comboCount, comboMultiplier,
             });
+            this.addScore(clearScore);
         } else {
             /* 未清线 → 累加 grace 计数；comboCount 不归零（由下次清线判定） */
             this.roundsSinceLastClear = (this.roundsSinceLastClear === Number.POSITIVE_INFINITY)
