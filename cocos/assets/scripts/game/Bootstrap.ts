@@ -434,6 +434,15 @@ export class Bootstrap extends Component {
     private _debouncedRelayout = (): void => {
         if (!this.node?.isValid) return;
         this.relayout();
+        // Android 关键修复：即使 _resolutionLocked 短路了 canvas-resize（避免 swapchain 重建风暴），
+        // 系统栏弹出/收起仍可能让 EGLSurface 在原生侧重建。此时 JS 主循环未停，但所有 Graphics
+        // draw command 会落在「过渡期的旧 surface」→ 表现为顶部工具栏弹出后画面冻在某帧、看似无响应。
+        // 防抖窗口结束后再补一组延迟重画（同 onAppShow 兜底序列），把 draw command 重发到新 surface。
+        try { FrameRate.poke(3000); } catch { /* ignore */ }
+        this.unschedule(this._resumeRedraw);
+        this.scheduleOnce(this._resumeRedraw, 0);
+        this.scheduleOnce(this._resumeRedraw, 0.35);
+        this.scheduleOnce(this._resumeRedraw, 1.0);
     };
 
     /** 切后台：停 BGM（保留意愿，回前台自动恢复）+ 取消进行中的拖拽，避免后台残留 setInterval / 僵尸拖拽态。 */
@@ -457,9 +466,16 @@ export class Bootstrap extends Component {
         // 故再补「下一帧」与「~0.35s 后」两次延迟重绘兜底（relayout 幂等、viewport-key 去重，开销极低），
         // 与启动期「首帧后多次延迟 relayout」同一思路，稳定根治回前台黑屏。
         try { this.relayout(); } catch (e) { console.warn('[OpenBlock] onAppShow relayout', e); }
+        // 切回前台后维持 5s 高帧，确保兜底重画都在 60fps 下进行（避免落在 idle 30fps 的下一帧间隔）。
+        try { FrameRate.poke(5000); } catch { /* ignore */ }
         this.unschedule(this._resumeRedraw);
+        // 兜底重画时序：0(立即) / 下一帧 / 0.35s / 1.0s。
+        //   - Android EGL surface 在 onResume → 下一渲染帧之间真正完成重建，0.35s 已能覆盖多数机型；
+        //   - 部分低端机 / 厂商 ROM（沉浸式过渡 + 主题切换叠加）会延迟到 ~800ms-1s 才稳定 → 补 1.0s 一帧；
+        //   - relayout 幂等 + viewport-key 去重，多次调用零额外开销，但能稳定根治回前台残留黑屏。
         this.scheduleOnce(this._resumeRedraw, 0);
         this.scheduleOnce(this._resumeRedraw, 0.35);
+        this.scheduleOnce(this._resumeRedraw, 1.0);
         try { AudioManager.armUnlock(); } catch { /* ignore */ }
         // 仅恢复「此前主动开过」的 BGM，切后台不改变用户的开关意愿。
         try { AudioManager.resumeBgmIfWanted(); } catch { /* ignore */ }

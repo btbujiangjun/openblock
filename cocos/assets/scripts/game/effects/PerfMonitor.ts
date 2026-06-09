@@ -1,17 +1,21 @@
-import { _decorator, Component, director, Node } from 'cc';
+import { _decorator, Component, director, input, Input, Node } from 'cc';
 
 const { ccclass } = _decorator;
 
 /**
- * 轻量运行时性能 / 泄漏监控（诊断「越玩越卡 → 黑屏」专用）。
+ * 轻量运行时性能 / 冻屏 / 泄漏监控（诊断「越玩越卡 → 黑屏 / 触摸无响应」专用）。
  *
  * 每 WINDOW_MS 打一行汇总日志（Xcode / logcat / devtools 可见）：
- *   [OpenBlock][Perf] t=120s fps=58 heapMB=86(+12) nodes=742(+30) lowFps=0
+ *   [OpenBlock][Perf] t=120s fps=58 heapMB=86(+12) nodes=742(+30) touches=4 lowFps=0
  *
  * 关注点：
  *   - fps 是否随时长单调下滑（持续高强度绘制 / 主线程渐重）；
  *   - heapMB 是否单调上涨且不回落（JS 侧内存泄漏：节点/闭包/数组未释放）；
- *   - nodes 是否单调上涨（场景节点泄漏：创建未销毁/未回收进池）。
+ *   - nodes 是否单调上涨（场景节点泄漏：创建未销毁/未回收进池）；
+ *   - touches：本窗口的全局触摸事件计数。
+ *     ⭐ 「fps 正常 + 连续多个窗口 touches=0」= 冻屏指纹：Activity 已被系统重建 / EGL surface 失效，
+ *        JS 主循环仍在跑（看似一切正常），但所有触摸事件被原生层丢弃 → 玩家看到「全屏无响应」。
+ *        此态下日志升级为 `[Frozen?]` warn，便于在长日志中检索冻屏的精确开始时刻。
  *   ＋ 字段 = 相对「基线（第 2 个窗口，跳过启动抖动）」的增量；持续为正且增大即为泄漏信号。
  *
  * 设计为零依赖、低噪音（每 5s 一行），定位完问题后把 ENABLED 置 false 即可彻底静默。
@@ -35,11 +39,30 @@ export class PerfMonitor extends Component {
     private _baseHeapMB = -1;
     private _baseNodes = -1;
     private _baselined = false;
+    /** 本窗口触摸事件计数（任一通道：start/move/end/cancel）。 */
+    private _touches = 0;
+    /** 连续无触摸的窗口数；≥ FROZEN_THRESHOLD_WINDOWS 时升级冻屏告警。 */
+    private _idleTouchWindows = 0;
+    /** 连续多少个窗口（5s/窗口）「fps 正常 + 0 触摸」判定为冻屏；3 ≈ 15s 静默，对玩家无干扰但能稳定捕捉。 */
+    private static readonly FROZEN_THRESHOLD_WINDOWS = 3;
+
+    private _onTouch = (): void => { this._touches++; };
 
     onLoad(): void {
         const now = Date.now();
         this._windowStartMs = now;
         this._bootMs = now;
+        // 在全局 input 通道注册轻量计数器：与 GameController 的触摸处理是同一通道，
+        // 若这里收不到事件 = 原生层就根本没派发上来（surface/Activity 异常的指纹）。
+        input.on(Input.EventType.TOUCH_START, this._onTouch);
+        input.on(Input.EventType.TOUCH_END, this._onTouch);
+        input.on(Input.EventType.TOUCH_CANCEL, this._onTouch);
+    }
+
+    onDestroy(): void {
+        input.off(Input.EventType.TOUCH_START, this._onTouch);
+        input.off(Input.EventType.TOUCH_END, this._onTouch);
+        input.off(Input.EventType.TOUCH_CANCEL, this._onTouch);
     }
 
     update(dt: number): void {
@@ -69,13 +92,26 @@ export class PerfMonitor extends Component {
         const nodeDelta = this._baseNodes >= 0 ? nodes - this._baseNodes : 0;
         const heapStr = heapMB >= 0 ? `${heapMB}(${heapDelta >= 0 ? '+' : ''}${heapDelta})` : 'n/a';
 
-        const line = `[OpenBlock][Perf] t=${tSec}s fps=${fps} heapMB=${heapStr} nodes=${nodes}(${nodeDelta >= 0 ? '+' : ''}${nodeDelta}) lowFps=${lowFps}`;
-        // 明显劣化（fps 低 / 堆涨 >64MB / 节点涨 >300）升级为 warn，便于在长日志里检索。
-        if (fps < 30 || heapDelta > 64 || nodeDelta > 300) console.warn(`${line} ⚠️`);
-        else console.log(line);
+        // 冻屏检测：fps 正常但本窗口 0 触摸 → idleWindows+1；任一触摸 → 清零。
+        if (this._touches === 0 && fps >= 20) this._idleTouchWindows++;
+        else this._idleTouchWindows = 0;
+        const frozen = this._idleTouchWindows >= PerfMonitor.FROZEN_THRESHOLD_WINDOWS;
+
+        const line = `[OpenBlock][Perf] t=${tSec}s fps=${fps} heapMB=${heapStr} nodes=${nodes}(${nodeDelta >= 0 ? '+' : ''}${nodeDelta}) touches=${this._touches} lowFps=${lowFps}`;
+        if (frozen) {
+            // 冻屏指纹：JS 心跳健康但触摸不可达。多在 Activity 被系统重建 / EGL surface 失效后出现，
+            // 是 Android 「玩一会儿后顶部工具栏弹出 → 全屏无响应」/ iOS 系统中断态的稳定标识。
+            // 注意：玩家正常思考也会触发 0 触摸窗口；阈值 3×5s=15s 排除了思考态，仅在真正冻屏时报警。
+            console.warn(`${line} [Frozen?] idleWindows=${this._idleTouchWindows} ⚠️`);
+        } else if (fps < 30 || heapDelta > 64 || nodeDelta > 300) {
+            console.warn(`${line} ⚠️`);
+        } else {
+            console.log(line);
+        }
 
         this._frames = 0;
         this._lowFrames = 0;
+        this._touches = 0;
         this._windowStartMs = now;
     }
 
