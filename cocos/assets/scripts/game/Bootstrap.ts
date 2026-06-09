@@ -437,7 +437,7 @@ export class Bootstrap extends Component {
         // Android 关键修复：即使 _resolutionLocked 短路了 canvas-resize（避免 swapchain 重建风暴），
         // 系统栏弹出/收起仍可能让 EGLSurface 在原生侧重建。此时 JS 主循环未停，但所有 Graphics
         // draw command 会落在「过渡期的旧 surface」→ 表现为顶部工具栏弹出后画面冻在某帧、看似无响应。
-        // 防抖窗口结束后再补一组延迟重画（同 onAppShow 兜底序列），把 draw command 重发到新 surface。
+        // 防抖窗口结束后再补一组延迟重画（safeRedraw 不取消拖拽、不动布局，仅重发 draw command）。
         try { FrameRate.poke(3000); } catch { /* ignore */ }
         this.unschedule(this._resumeRedraw);
         this.scheduleOnce(this._resumeRedraw, 0);
@@ -481,11 +481,25 @@ export class Bootstrap extends Component {
         try { AudioManager.resumeBgmIfWanted(); } catch { /* ignore */ }
     }
 
-    /** 回前台延迟兜底重绘：等 EGL/Metal 表面真正重建后再发一次 draw command，避免黑屏残留。 */
+    /**
+     * 回前台 / window-resize 延迟兜底重绘。⚠️ 必须用 safeRedraw 而非 relayout：
+     *
+     * relayout 会调 cancelActiveDrag()（尺寸真变时 ghost 位置失效，理应取消）；但延迟兜底重画
+     * 触发时（如 onAppShow 后 0.35/1.0s），玩家可能已开始新一次拖拽 —— 此时取消拖拽会让
+     * 「第一次点候选块就卡死」（候选块刚激活就被这条延迟回调把 dragIndex 清零）。
+     *
+     * safeRedraw 只重发 Graphics draw command（盘面 + 候选区），不动布局、不取消拖拽。
+     */
     private _resumeRedraw = (): void => {
         if (!this.node?.isValid) return;
-        try { this.relayout(); } catch { /* ignore */ }
+        try { this.safeRedraw(); } catch { /* ignore */ }
     };
+
+    /** 轻量重画：仅强制盘面 + 候选区重发 draw command，不调 cancelActiveDrag / 不重算布局 / 不动节点位置。 */
+    private safeRedraw(): void {
+        try { this._ctrl?.redrawBoard(); } catch { /* ignore */ }
+        try { this._ctrl?.refreshDock(); } catch { /* ignore */ }
+    }
 
     /** 组件销毁时摘除全局监听 + 取消挂起的防抖重排，避免悬挂回调访问已失效节点。 */
     onDestroy(): void {
