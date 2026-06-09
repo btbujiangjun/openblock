@@ -322,15 +322,31 @@ def _shape_id_to_cat(shape_id):
     return SHAPE_CATEGORY.get(shape_id, 0)
 
 
-# v1.63（出块数据集补全）：逐 triplet 结果标签向量维度。
-#   [0] linesClearedSum  本轮三块累计消行数
-#   [1] scoreDelta       本轮得分增量（归一化前的原始差）
-#   [2] fillDelta        盘面填充率变化（after - before，负=被改善）
-#   [3] holesDelta       空洞数变化（after - before，负=被改善）
-#   [4] placedCount      本轮实际落子数（0~3；<3 说明有块被弃用/卡住）
-#   [5] maxSingleClear   单步最大消行（≥2 即多消）
-#   [6] perfectClear     是否一手清屏（0/1）
-OUTCOME_DIM = 7
+# v1.69 起逐 triplet 结果向量扩展到 15 维。下标 0..6 与 v1.63 完全兼容；7..14
+# 由端侧 evaluation 系统（PLACEMENT_QUALITY / SESSION_EVALUATION）直接写入
+# move-sequence 的 ps.evalMetrics（最后一步 place 帧）与 ps.evalRound（下一个
+# spawn 帧），离线在此处直接读取，**不做重算**，避免口径漂移。
+#
+# 旧数据（pv<5 或缺 evalMetrics/evalRound 字段）退化为 0/中性值，向后兼容。
+#
+#   [0] linesClearedSum     本轮三块累计消行数
+#   [1] scoreDelta          本轮得分增量
+#   [2] fillDelta           填充率变化（after - before）
+#   [3] holesDelta          空洞数变化
+#   [4] placedCount         本轮实际落子数（0~3）
+#   [5] maxSingleClear      单步最大消行
+#   [6] perfectClear        是否一手清屏（0/1）
+#   --- v1.69 端侧 evaluation 派生维度（move_sequences 直读） ---
+#   [7] meanMoveRegret      本轮三步 placementQuality.regret 均值        [0,1]
+#   [8] meanMoveOptimality  本轮三步 placementQuality.optimality 均值    [0,1]
+#   [9] forcedBadFlag       roundQuality.classification == 'forced_bad'  {0,1}
+#   [10] salvageFlag        roundQuality.classification == 'salvage'     {0,1}
+#   [11] roundAbsScore      roundQuality.absScore                        [0,1]
+#   [12] roundOrderRegret   roundQuality.regrets.order                   [0,1]
+#   [13] roundPathRegret    roundQuality.regrets.path                    [0,1]
+#   [14] roundPayoffRegret  roundQuality.regrets.payoff                  [0,1]
+OUTCOME_DIM = 15
+OUTCOME_DIM_LEGACY = 7
 
 
 def _ps_num(ps, *path, default=0.0):
@@ -359,10 +375,20 @@ def _compute_spawn_outcome(frames, spawn_idx):
     max_single = 0.0
     perfect = 0.0
     last_place_ps = None
+    # v1.69 端侧 evaluation 派生维度累加器（下标 7..14）。
+    move_regret_sum = 0.0
+    move_optimality_sum = 0.0
+    move_eval_count = 0
+    next_spawn_eval_round = None
     for j in range(spawn_idx + 1, len(frames)):
         fr = frames[j]
         t = fr.get('t')
         if t == 'spawn':
+            # 下一个 spawn 帧的 ps.evalRound 是上一轮（当前 triplet）的轮级评估结果。
+            next_ps = fr.get('ps') or {}
+            er = next_ps.get('evalRound') if isinstance(next_ps, dict) else None
+            if isinstance(er, dict):
+                next_spawn_eval_round = er
             break
         if t == 'place':
             placed += 1
@@ -374,11 +400,37 @@ def _compute_spawn_outcome(frames, spawn_idx):
             if lc > 0 and _ps_num(pps, 'boardFill') <= 1e-6:
                 perfect = 1.0
             last_place_ps = pps
+            em = pps.get('evalMetrics') if isinstance(pps, dict) else None
+            if isinstance(em, dict):
+                move_regret_sum += float(_safe(em.get('regret'), 0.0))
+                move_optimality_sum += float(_safe(em.get('optimality'), 0.0))
+                move_eval_count += 1
 
     after = last_place_ps if last_place_ps is not None else spawn_ps
     score_after = _ps_num(after, 'score', default=score_before)
     fill_after = _ps_num(after, 'boardFill', default=fill_before)
     holes_after = _ps_num(after, 'spawnGeo', 'holes', default=holes_before)
+
+    # 缺 evalMetrics 时全部退化为 0（与其他派生维度一致，标记"未评估"）。
+    mean_regret = (move_regret_sum / move_eval_count) if move_eval_count > 0 else 0.0
+    mean_optim = (move_optimality_sum / move_eval_count) if move_eval_count > 0 else 0.0
+
+    if next_spawn_eval_round is not None:
+        classification = str(next_spawn_eval_round.get('classification') or 'incomplete')
+        forced_bad = 1.0 if classification == 'forced_bad' else 0.0
+        salvage = 1.0 if classification == 'salvage' else 0.0
+        round_abs = float(_safe(next_spawn_eval_round.get('absScore'), 0.0))
+        regrets = next_spawn_eval_round.get('regrets') or {}
+        order_regret = float(_safe(regrets.get('order'), 0.0)) if isinstance(regrets, dict) else 0.0
+        path_regret = float(_safe(regrets.get('path'), 0.0)) if isinstance(regrets, dict) else 0.0
+        payoff_regret = float(_safe(regrets.get('payoff'), 0.0)) if isinstance(regrets, dict) else 0.0
+    else:
+        forced_bad = 0.0
+        salvage = 0.0
+        round_abs = 0.0
+        order_regret = 0.0
+        path_regret = 0.0
+        payoff_regret = 0.0
 
     return np.array([
         lines_sum,
@@ -388,6 +440,14 @@ def _compute_spawn_outcome(frames, spawn_idx):
         float(placed),
         max_single,
         perfect,
+        mean_regret,
+        mean_optim,
+        forced_bad,
+        salvage,
+        round_abs,
+        order_regret,
+        path_regret,
+        payoff_regret,
     ], dtype=np.float32)
 
 
@@ -427,41 +487,67 @@ def _sample_pb(pb_center, pb_jitter, rng):
 
 
 def _pb_reward(outcome, score_before, pb_sampled):
-    """逐 triplet reward，口径**按采样的 PB 为准**（需求1）。
+    """逐 triplet reward，口径**按采样的 PB 为准**。
 
-    = 0.5·进度(本轮分增/采样PB) + 0.2·PB邻近塑形(tanh, 中心0.82)
-      + 0.15·消行 + 0.25·一手清屏 − 盘面恶化/弃块惩罚。
-    PB 越小，同样分增量"越接近突破"→ reward 越高；故波动 PB 直接驱动 reward 波动。
+    v1.69：在原 PB-progress 项之外引入端侧 evaluation 派生信号：
+      - +0.10 · roundAbsScore            （客观放法质量）
+      - −0.20 · totalRoundRegret         （三类 regret 加权后的总后悔）
+      - +0.05 · salvageFlag              （不利场景救场，正向激励）
+      - −0.10 · forcedBadFlag            （算法责任，先降 reward，再由 weight 降权）
+    旧数据缺这些字段时退化为 0（reward 与 v1.63 完全一致）。
     """
-    lines_sum, score_d, fill_d, holes_d, placed, _max_single, perfect = (float(x) for x in outcome)
+    o = [float(x) for x in outcome]
+    lines_sum, score_d, fill_d, holes_d, placed, _max_single, perfect = o[:7]
+    if len(o) >= 15:
+        _mean_regret, _mean_optim, forced_bad, salvage, round_abs, ord_r, path_r, pay_r = o[7:15]
+    else:
+        forced_bad = salvage = round_abs = ord_r = path_r = pay_r = 0.0
     pb = max(PB_FLOOR, float(pb_sampled))
     progress = score_d / pb
     pb_ratio_after = (float(score_before) + score_d) / pb
     proximity = float(np.tanh((pb_ratio_after - 0.82) / 0.12))
+    total_round_regret = 0.4 * ord_r + 0.4 * path_r + 0.2 * pay_r
     r = (0.5 * progress
          + 0.2 * proximity
          + 0.15 * min(lines_sum, 4.0)
          + 0.25 * perfect
          - 0.15 * max(0.0, fill_d)
          - 0.10 * max(0.0, holes_d)
-         - 0.05 * max(0.0, 3.0 - placed))
+         - 0.05 * max(0.0, 3.0 - placed)
+         + 0.10 * round_abs
+         - 0.20 * total_round_regret
+         + 0.05 * salvage
+         - 0.10 * forced_bad)
     return float(r)
 
 
 def _outcome_weight_factor(outcome):
-    """由逐 triplet 结果派生 [0.5, 1.8] 的温和加权因子（避免压制主模仿信号）。
+    """由逐 triplet 结果派生 [0.4, 2.0] 的温和加权因子（避免压制主模仿信号）。
 
-    奖励"消行 / 减洞 / 减填充"，惩罚"恶化盘面 / 弃块（placed<3）"。
-    纯模仿权重仍由 session 级 score+clearRate 决定，这里是叠加的因果微调。
+    v1.69：在原 outcome 基础上引入 evaluation 派生信号——
+      - salvage 样本 ×1.25（高质量正样本：不利场景下打出近最优）；
+      - forced_bad 样本 ×0.60（算法责任，降权但不归 0，保留少量反向梯度）；
+      - meanMoveRegret 高的样本（玩家失误为主）按线性降权，最高扣 0.35。
+    旧数据（OUTCOME_DIM_LEGACY=7）缺这些字段时退化为常量 1（与 v1.63 一致）。
     """
-    lines_sum, _score_d, fill_d, holes_d, placed, _max_single, perfect = (float(x) for x in outcome)
+    o = [float(x) for x in outcome]
+    lines_sum, _score_d, fill_d, holes_d, placed, _max_single, perfect = o[:7]
+    if len(o) >= 15:
+        mean_regret, _mean_optim, forced_bad, salvage, _round_abs, _o, _p, _y = o[7:15]
+    else:
+        mean_regret = forced_bad = salvage = 0.0
     f = 1.0
-    f += 0.12 * min(lines_sum, 4.0)        # 消行越多越可信
-    f += 0.30 * perfect                     # 一手清屏强正向
-    f -= 0.20 * max(0.0, fill_d)            # 填充上升=盘面恶化
-    f -= 0.15 * max(0.0, holes_d)           # 空洞增加=结构恶化
-    f -= 0.10 * max(0.0, 3.0 - placed)      # 有块被弃用/卡住
-    return float(np.clip(f, 0.5, 1.8))
+    f += 0.12 * min(lines_sum, 4.0)
+    f += 0.30 * perfect
+    f -= 0.20 * max(0.0, fill_d)
+    f -= 0.15 * max(0.0, holes_d)
+    f -= 0.10 * max(0.0, 3.0 - placed)
+    if salvage > 0.5:
+        f *= 1.25
+    if forced_bad > 0.5:
+        f *= 0.60
+    f -= 0.35 * min(1.0, max(0.0, mean_regret))
+    return float(np.clip(f, 0.4, 2.0))
 
 
 def extract_samples_from_session(frames, session_score, session_clear_rate=0.0,

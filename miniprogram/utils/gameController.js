@@ -30,6 +30,13 @@ const {
   validateSpawnTriplet,
 } = require('../core/bot/blockSpawn');
 const { PlayerProfile } = require('../core/playerProfile');
+const {
+  evalOnSessionStart,
+  evalOnSpawn,
+  evalOnPlace,
+  evalOnGameOver,
+} = require('../core/evaluation/evaluationHost');
+const { GAME_RULES } = require('../core/gameRules');
 
 class GameController {
   constructor(strategyId = 'normal', opts = {}) {
@@ -101,6 +108,11 @@ class GameController {
     };
     resetSpawnMemory();
     resetAdaptiveMilestone();
+    /* v1.69：开启端无关 evaluation host；必须在 _initPlayableBoard 之前完成 ledger
+     * 创建，否则首个 spawn 帧的 evalOnSpawn 会因为 host.evalLedger=null 静默跳过。 */
+    if (GAME_RULES?.sessionEvaluation?.enabled !== false) {
+      evalOnSessionStart(this);
+    }
     this._initPlayableBoard();
     this.onStateChange(this._snapshot());
   }
@@ -125,6 +137,7 @@ class GameController {
 
   _spawnDock({ ensureMove = false } = {}) {
     const layered = this._resolveSpawnStrategy();
+    this._lastInsight = layered;
     this._captureSpawnIntent(layered);
     /* 与 Web Game.spawnBlocks 对齐：adaptiveSpawn 产出 scoreMilestone 后，
      * 在传入 generateDockShapes 前桥接到 spawnContext；special / duplicate
@@ -201,6 +214,7 @@ class GameController {
     if (this._profile && typeof this._profile.tickRoundForDelight === 'function') {
       this._profile.tickRoundForDelight();
     }
+    evalOnSpawn(this, shapes);
   }
 
   _sanitizeDockShapes(shapes) {
@@ -373,6 +387,14 @@ class GameController {
     const b = this.dock[blockIdx];
     if (!b || b.placed || !this.grid.canPlace(b.shape, gx, gy)) return null;
 
+    /* v1.69：评估需要 grid.place 之前的盘面（pristine before）；clone 一次塞到
+     * host 临时槽，evalOnPlace 内会读取并清空。开销 O(rows·cols)，8x8 ≈ 64 次
+     * 数组操作，远低于 60fps 预算单帧 16.6ms 的安全裕度。 */
+    if (this.evalLedger) {
+      const cells = this.grid?.toJSON ? this.grid.toJSON().cells : null;
+      if (cells) this.evalPendingBoardBefore = cells.map((row) => row.slice());
+    }
+
     this.grid.place(
       b.shape,
       b.colorIdx,
@@ -442,6 +464,7 @@ class GameController {
     if (this._profile && typeof this._profile.recordPlace === 'function') {
       this._profile.recordPlace(clears > 0, clears, this.grid.getFillRatio());
     }
+    evalOnPlace(this, blockIdx, { x: gx, y: gy }, clears);
     this._updateBottleneckTrough();
 
     if (this.dock.every((d) => d.placed)) {
@@ -487,6 +510,18 @@ class GameController {
     } catch (_) {
       // 持久化失败（隐私模式 / 存储满）不阻塞游戏流程
     }
+    /* fire-and-forget：evaluation 上报失败已有 host 内 try/catch；
+     * 不 await 是为了保持 onGameOver 主路径 0 ms 阻塞。 */
+    evalOnGameOver(this, {
+      finalScore: this.score,
+      survivedSteps: this.steps,
+      placedCount: this.steps,
+      linesCleared: this.totalClears,
+      maxCombo: this._maxCombo,
+      runDurationMs: 0,
+      endCause: 'normal',
+      pbAfter: Math.max(this._bestScore, this.score),
+    });
   }
 
   /** 供 page 在用户主动结束（弃局、退出）时调用，确保画像与持久化收口。 */
@@ -504,6 +539,50 @@ class GameController {
       dock: this.dock,
       gameOver: this.gameOver,
     };
+  }
+
+  /* ─────────── evaluationHost 契约实现（v1.69） ─────────── */
+
+  getGridCells() {
+    return this.grid?.toJSON ? this.grid.toJSON().cells : null;
+  }
+  getDockBlocks() { return this.dock || []; }
+  getAdaptiveInsight() { return this._lastInsight || null; }
+  getSpawnDiagnostics() { return getLastSpawnDiagnostics() || null; }
+  getStress() {
+    return Number(this._lastInsight?._adaptiveStress) || 0;
+  }
+  getRulesConfig(section, fallback) {
+    return (GAME_RULES && GAME_RULES[section]) || fallback || {};
+  }
+  getPlayerProfileRef() { return this._profile || null; }
+  getUserId() { return this._profile?.userId || null; }
+  getStrategy() { return this.strategyId || null; }
+  getPlayerProfileSnapshot() {
+    if (!this._profile) return {};
+    return {
+      lifecycleStage: this._profile.lifecycleStage || null,
+      maturityBand: this._profile.maturityBand || null,
+      flowState: this._profile.flowState || null,
+    };
+  }
+  postSessionEvalRecord(record) {
+    /* 小程序 wx.request 包装：失败 fallback 到本地暂存（与 web 同思路）。
+     * 同时支持 jest/vitest 环境（无 wx）：silent skip。 */
+    return new Promise((resolve) => {
+      if (typeof wx === 'undefined' || typeof wx.request !== 'function') {
+        resolve();
+        return;
+      }
+      const apiBase = (typeof getApp === 'function' && getApp()?.globalData?.apiBase) || '';
+      if (!apiBase) { resolve(); return; }
+      wx.request({
+        url: `${apiBase}/api/evaluation/session`,
+        method: 'POST',
+        data: record,
+        complete: () => resolve(),
+      });
+    });
   }
 }
 

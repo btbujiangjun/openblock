@@ -34,10 +34,43 @@ export const D_CAP = 1.00;
 export const BRAKE_SIGMOID_K = 10.5;
 export const OVERSHOOT_DECAY = 6.0;
 
+// ─────────── v1.68（PR3）arc-aware 形变常量 ───────────
+//
+// 把"局间 RunOverRunArc"作为乘性形变层叠加在基线 S 曲线之上。每档 arc 给
+// (dScale, dShift, brakeShift) 三元组：
+//   dScale     ：基线 D 的乘性因子（≤1 整体压低）
+//   dShift     ：在 dScale 之后的加性偏移
+//   brakeShift ：brake 段拐点 r 的右移量（让"接近 PB 才感到压力"语义生效）
+//
+// 与 Python rl_pytorch/spawn_tuning_v2/target_curve.py 的 ARC_MODIFIERS 1:1 对齐；
+// 任何修改必须同步更新两端 + 跨语言测试。
 
-function _brakeSmooth(r) {
-    // 重缩放的 logistic sigmoid: 在 [SEG_MID_END, SEG_BRAKE_END] 上端点严格 0/1
-    const t = (r - SEG_MID_END) / (SEG_BRAKE_END - SEG_MID_END);
+/** @typedef {'opener'|'momentum'|'peak'|'fatigue'|'cooldown'} RunOverRunArc */
+
+export const ARC_MODIFIERS = Object.freeze({
+    opener:   { dScale: 0.90, dShift:  0.00, brakeShift: 0.00 },
+    momentum: { dScale: 1.00, dShift:  0.00, brakeShift: 0.00 },
+    peak:     { dScale: 1.00, dShift:  0.00, brakeShift: 0.00 },
+    fatigue:  { dScale: 0.85, dShift: -0.03, brakeShift: 0.15 },
+    cooldown: { dScale: 0.75, dShift: -0.05, brakeShift: 0.20 },
+});
+
+const _IDENTITY_MOD = { dScale: 1, dShift: 0, brakeShift: 0 };
+
+/**
+ * 取出某档 arc 的修饰；未知 arc 返回恒等修饰（向后兼容）。
+ * @param {RunOverRunArc|null|undefined} arc
+ * @returns {{dScale:number, dShift:number, brakeShift:number}}
+ */
+export function getArcModifier(arc) {
+    if (!arc) return _IDENTITY_MOD;
+    return ARC_MODIFIERS[arc] || _IDENTITY_MOD;
+}
+
+
+function _brakeSmoothAt(r, midEnd, brakeEnd) {
+    // 重缩放的 logistic sigmoid: 在 [midEnd, brakeEnd] 上端点严格 0/1
+    const t = (r - midEnd) / (brakeEnd - midEnd);
     const k = BRAKE_SIGMOID_K;
     const raw = 1 / (1 + Math.exp(-k * (t - 0.5)));
     const s0 = 1 / (1 + Math.exp(k * 0.5));
@@ -47,13 +80,13 @@ function _brakeSmooth(r) {
 
 
 /**
- * 计算单点目标难度 D(r) ∈ [0, 1]。
- * @param {number} r - 归一化进度 = score / PB
- * @returns {number} - 难度 ∈ [D_BASE, D_CAP]
+ * 基线 D 曲线（不带 arc 形变）；v1.68 之前为 targetSCurve 的唯一实现。
+ * 内部为 arc-aware 版本提供"无 brakeShift"路径，避免每次调用都走完整管线。
+ * @param {number} r
+ * @returns {number}
  */
-export function targetSCurve(r) {
+function _targetSCurveBase(r) {
     r = Math.max(0, Math.min(CURVE_R_MAX, Number(r) || 0));
-
     if (r < SEG_GENTLE_END) {
         const slope = (D_GENTLE_END - D_BASE) / SEG_GENTLE_END;
         return D_BASE + slope * r;
@@ -63,12 +96,74 @@ export function targetSCurve(r) {
         return D_GENTLE_END + slope * (r - SEG_GENTLE_END);
     }
     if (r < SEG_BRAKE_END) {
-        const s = _brakeSmooth(r);
+        const s = _brakeSmoothAt(r, SEG_MID_END, SEG_BRAKE_END);
         return D_MID_END + s * (D_BRAKE_END - D_MID_END);
     }
     // 超越段: 指数收敛
     const extra = D_CAP - D_BRAKE_END;
     return D_BRAKE_END + extra * (1 - Math.exp(-OVERSHOOT_DECAY * (r - SEG_BRAKE_END)));
+}
+
+
+/**
+ * 计算单点目标难度 D(r) ∈ [0, 1]。
+ *
+ * v1.68 保持完全的语义稳定：对原 targetSCurve(r) 的调用方完全透明，不会因
+ * RunOverRunArc 注入而产生静默漂移；调用方需要 arc 行为时显式走 targetSCurveByArc。
+ *
+ * @param {number} r - 归一化进度 = score / PB
+ * @returns {number} - 难度 ∈ [D_BASE, D_CAP]
+ */
+export function targetSCurve(r) {
+    return _targetSCurveBase(r);
+}
+
+
+/**
+ * v1.68 arc-aware 形变 D 曲线。
+ *
+ * 把基线 S 曲线套上 (dScale, dShift, brakeShift) 三参数：
+ *   1. brakeShift 把 SEG_MID_END / SEG_BRAKE_END 同步右移，让 fatigue/cooldown
+ *      下"接近 PB 才感到压力"语义生效；左侧 gentle 段端点保持不变，brake 段
+ *      被压缩在更窄的 r 区间内，斜率自然变陡（与设计意图一致）。
+ *   2. dScale 乘性压低输出（fatigue ×0.85 / cooldown ×0.75）。
+ *   3. dShift 加性下移并最终 clip 到 [0, D_CAP]。
+ *
+ * 出现 brakeEnd > CURVE_R_MAX 时直接 clip 到 CURVE_R_MAX，并把 overshoot 起点
+ * 平移到 brakeEnd（让顶部依旧收敛到 D_CAP·dScale + dShift）。
+ *
+ * 跨语言契约：与 Python target_curve.py 的 target_S_curve_by_arc 严格一致。
+ *
+ * @param {number} r
+ * @param {RunOverRunArc|null|undefined} arc
+ * @returns {number}
+ */
+export function targetSCurveByArc(r, arc) {
+    const mod = getArcModifier(arc);
+    if (mod === _IDENTITY_MOD || (mod.dScale === 1 && mod.dShift === 0 && mod.brakeShift === 0)) {
+        return _targetSCurveBase(r);
+    }
+    r = Math.max(0, Math.min(CURVE_R_MAX, Number(r) || 0));
+    const midEnd = Math.min(CURVE_R_MAX, SEG_MID_END + mod.brakeShift);
+    const brakeEnd = Math.min(CURVE_R_MAX, SEG_BRAKE_END + mod.brakeShift);
+
+    let d;
+    if (r < SEG_GENTLE_END) {
+        const slope = (D_GENTLE_END - D_BASE) / SEG_GENTLE_END;
+        d = D_BASE + slope * r;
+    } else if (r < midEnd) {
+        const slope = (D_MID_END - D_GENTLE_END) / Math.max(1e-9, midEnd - SEG_GENTLE_END);
+        d = D_GENTLE_END + slope * (r - SEG_GENTLE_END);
+    } else if (r < brakeEnd) {
+        const s = _brakeSmoothAt(r, midEnd, brakeEnd);
+        d = D_MID_END + s * (D_BRAKE_END - D_MID_END);
+    } else {
+        const extra = D_CAP - D_BRAKE_END;
+        d = D_BRAKE_END + extra * (1 - Math.exp(-OVERSHOOT_DECAY * (r - brakeEnd)));
+    }
+    /* 乘性 + 加性形变后 clip 到 [0, D_CAP]，保证下游消费端语义不变。 */
+    const out = d * mod.dScale + mod.dShift;
+    return Math.max(0, Math.min(D_CAP, out));
 }
 
 

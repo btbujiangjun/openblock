@@ -53,7 +53,7 @@ Cursor Skills、Canvas 转换文档、休闲游戏全栈构建 Skill。
 | 二次开发 | `docs/engineering/DEV_GUIDE.md` |
 | 数据库与 API | `docs/engineering/SQLITE_SCHEMA.md`、`docs/integrations/ENTERPRISE_EXTENSIONS.md` |
 | 体验策略 | `docs/player/EXPERIENCE_DESIGN_FOUNDATIONS.md`、`docs/player/STRATEGY_EXPERIENCE_MODEL.md` |
-| 实时策略链路 | `docs/player/REALTIME_STRATEGY.md` |
+| 实时策略链路 | `docs/algorithms/REALTIME_STRATEGY.md` |
 | 四模型系统 | `docs/algorithms/MODEL_SYSTEMS_FOUR_MODELS.md` |
 
 ---

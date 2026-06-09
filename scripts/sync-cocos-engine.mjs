@@ -45,6 +45,13 @@ const FILES = [
     'bot/blockSpawn.js',
     'tuning/v2/clientPolicyV2.js',
     'config/platformProfile.js',
+    'evaluation/gridAdapter.js',
+    'evaluation/placementQuality.js',
+    'evaluation/roundQuality.js',
+    'evaluation/sessionEvaluator.js',
+    'evaluation/runToRunEvaluator.js',
+    'evaluation/evaluationLedger.js',
+    'evaluation/evaluationHost.js',
 ];
 const COPY_SET = new Set(FILES);
 

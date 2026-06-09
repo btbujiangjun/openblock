@@ -20,6 +20,7 @@ echo "=== sync-core: $SRC → $DST ==="
 mkdir -p "$DST/bot"
 mkdir -p "$DST/lib"
 mkdir -p "$DST/tuning/v2"
+mkdir -p "$DST/evaluation"
 
 # 小程序包不直接携带 JSON，避免开发工具把 JSON 解析成 .json.js 或提示未上传。
 # 共享数据以 CommonJS 数据模块形式进入运行时。
@@ -58,6 +59,13 @@ FILES=(
   "bot/constructiveSpawn.js"
   "bot/blockSpawn.js"
   "tuning/v2/clientPolicyV2.js"
+  "evaluation/gridAdapter.js"
+  "evaluation/placementQuality.js"
+  "evaluation/roundQuality.js"
+  "evaluation/sessionEvaluator.js"
+  "evaluation/runToRunEvaluator.js"
+  "evaluation/evaluationLedger.js"
+  "evaluation/evaluationHost.js"
 )
 
 for f in "${FILES[@]}"; do
@@ -89,8 +97,10 @@ for f in "${FILES[@]}"; do
   # 4. export class X  →  class X
   content=$(echo "$content" | sed -E 's/^export class /class /g')
 
-  # 5. export function X  →  function X
+  # 5. export function X  →  function X (含 async/generator 变体)
   content=$(echo "$content" | sed -E 's/^export function /function /g')
+  content=$(echo "$content" | sed -E 's/^export async function /async function /g')
+  content=$(echo "$content" | sed -E 's/^export function\* /function* /g')
 
   # 6. export const X  →  const X
   content=$(echo "$content" | sed -E 's/^export const /const /g')
@@ -100,8 +110,8 @@ for f in "${FILES[@]}"; do
 
   # 8. 收集所有被导出的符号名，生成 module.exports
   #    从原始文件找 export 的名字
-  exports=$(grep -oE '^export (const|function|class) ([A-Za-z_][A-Za-z0-9_]*)' "$src_file" \
-    | sed -E 's/^export (const|function|class) //' || true)
+  exports=$(grep -oE '^export (const|function|class|async function) ([A-Za-z_][A-Za-z0-9_]*)' "$src_file" \
+    | sed -E 's/^export (const|function|class|async function) //' || true)
   re_exports=$(grep -oE "^export \{([^}]+)\}" "$src_file" \
     | sed -E 's/export \{//; s/\}//' | tr ',' '\n' | sed 's/^ *//; s/ *$//' || true)
 
@@ -117,7 +127,7 @@ module.exports = { $exports_obj };"
   # 9. 修复 JSON/模块路径（shared/ 文件已复制到 core/）
   #    bot/ 与 lib/ 下的子目录文件引用 ../../shared/ → ../  (即 core/)
   #    core/ 根下的文件引用 ../shared/ → ./  (同目录)
-  if [[ "$f" == bot/* || "$f" == lib/* ]]; then
+  if [[ "$f" == bot/* || "$f" == lib/* || "$f" == evaluation/* ]]; then
     content=$(echo "$content" | sed "s|require('../../shared/|require('../|g")
     content=$(echo "$content" | sed "s|require('../shared/|require('../|g")
   elif [[ "$f" == tuning/v2/* ]]; then

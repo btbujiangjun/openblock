@@ -378,6 +378,8 @@ export default {
     'dfv.signal.boardFill': 'boardFill',
     'dfv.signal.combo': 'combo',
     'dfv.signal.missRate': 'missRate',
+    'dfv.signal.regret': 'regret',
+    'dfv.signal.forcedBad': 'algoStuck',
 
     // Section titles
     'dfv.sec.intent': 'Spawn Intent',

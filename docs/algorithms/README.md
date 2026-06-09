@@ -47,6 +47,7 @@
   - [§14 出块难度与评估](./ALGORITHMS_SPAWN.md#十四出块难度与评估) —— 解法数量难度 + 单步难度细化 + CLI/Web 评估工具
   - [§15 出块参数寻优（SpawnParamTuner）](./ALGORITHMS_SPAWN.md#十五出块参数寻优spawnparamtuner) —— 工业化 L2 ResNet-MLP 寻参管线 + 操作手册
 - [自适应出块](./ADAPTIVE_SPAWN.md) —— 运行时 **10 信号融合引擎深潜**：§10.8 完整流水线（v1.60.35 代码基准）+ §10.10.10 生命周期×成熟度 25 格调制矩阵
+- [局间难度（RoR）](./ALGORITHMS_SPAWN.md#十六局间难度ror) —— 5 档 arc × humped 连战曲线 × arc-aware D 曲线形变；含 5×5×5 立方矩阵与跨语言契约
 - [出块算法信号透视仪](./spawn-signal-explorer.html) —— 交互式 HTML 工具：L1/L2/L3 信号条目随代码自动计数，含 v1.66 `pressurePhase`/`phaseFreq`、v1.67 构造式预扫描（C1/C2/C3）、Intent 优先级矩阵、Stress 分量全表、完整链路依赖图（代码口径 v1.67）
 
 ## 分——玩家画像算法

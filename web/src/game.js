@@ -33,6 +33,22 @@ import { onSessionStart, onSessionEnd } from './lifecycle/lifecycleOrchestrator.
  * 4 列；运营从 SQL 即可按"阶段·成熟度"分群查留存 / ARPU。 */
 import { getCachedLifecycleSnapshot } from './lifecycle/lifecycleSignals.js';
 import { getLifecycleMaturitySnapshot } from './retention/playerLifecycleDashboard.js';
+import { deriveRunOverRunArc, resolveArcThresholds } from './retention/runOverRunArc.js';
+import { evaluatePlacement } from './evaluation/placementQuality.js';
+import { evaluateRound } from './evaluation/roundQuality.js';
+import { buildSessionEvalRecord } from './evaluation/sessionEvaluator.js';
+import {
+    createEvaluationLedger,
+    recordStressSample,
+    recordFlowSample,
+    recordBoardSample,
+    recordMoveQuality,
+    recordRoundQuality,
+    recordSpawnEvent,
+    finalizeSpawnEvent,
+    setLedgerOutcome,
+    patchLedgerMeta,
+} from './evaluation/evaluationLedger.js';
 import {
     applyGameEndProgression,
     loadProgress,
@@ -191,6 +207,29 @@ export class Game {
         this.strategy = localStorage.getItem('openblock_strategy') || 'normal';
         /** 连战计数：主菜单「开始游戏」清零；再来一局 / 死局重开 +1 */
         this.runStreak = 0;
+        /** v1.68 局间难度弧线（RunOverRunArc）观测字段；PR1 仅埋点不调难。
+         *  - dailyRunIndex：今日已开始的第几局（含当前）
+         *  - lastGameOver：{ ts, score } 上一局结束快照
+         *  - recentRunScores：最近 N 局 score（按时间升序）
+         *  - rageChainLen：连续赌气重开链长（外部累加更准）
+         *  - runOverRunArc：本局开局时派生的 arc 标签 */
+        this._dailyRunState = this._loadDailyRunState();
+        this.runOverRunArc = null;
+        this.runOverRunArcDebug = null;
+
+        /* 单局评估账本（per-move / per-round / spawn 自洽审计）。每次 start() 重建，
+         * 局尾 endGame() 交给 buildSessionEvalRecord 聚合并 POST 到 /api/evaluation/session。
+         * 详细字段表见 web/src/evaluation/evaluationLedger.js。 */
+        this._evalLedger = null;
+        this._evalActiveSpawnIdx = -1;          // 当前轮的 spawn 事件下标
+        this._evalRoundStartCells = null;       // 当前轮 spawn 后、第一步前的盘面快照
+        this._evalRoundMoves = [];              // 当前轮玩家三步序列
+        this._evalRoundDockShapes = null;       // 当前轮 dock 形状
+        this._evalRoundLines = 0;               // 当前轮累计消行数
+        this._evalRoundStressAtSpawn = 0;       // 用于回填 intent 兑现
+        this._lastMoveEvalMetrics = null;       // ps.evalMetrics 临时槽
+        this._lastRoundEvalMetrics = null;      // ps.evalRound  临时槽
+        this._lastMoveEvalSnapshot = null;      // strategyAdvisor 复盘卡用
 
         this.drag = null;
         this.dragBlock = null;
@@ -1148,6 +1187,310 @@ export class Game {
         }
     }
 
+    /* ───── v1.68 局间难度弧线（RunOverRunArc）持久化辅助 ─────
+     *
+     * dailyRunIndex 用"玩家本地日历日"统计（Date#getFullYear/Month/Date），
+     * 与服务端 UTC 不一致以体感为先。空闲 30min 软重置由 runOverRunArc.js 内部判定，
+     * 这里只持久化原始计数 + 最近 5 局得分 + 上局结束快照 + 赌气链长。
+     *
+     * 兼容：localStorage 缺失或 JSON 损坏时回落空状态，永不抛错。
+     */
+    _loadDailyRunState() {
+        const empty = {
+            dateKey: this._localDateKey(),
+            dailyRunIndex: 0,
+            lastGameOver: null,
+            recentRunScores: [],
+            rageChainLen: 0,
+        };
+        try {
+            if (typeof localStorage === 'undefined') return empty;
+            const raw = localStorage.getItem('openblock_daily_run_state_v1');
+            if (!raw) return empty;
+            const obj = JSON.parse(raw);
+            if (!obj || typeof obj !== 'object') return empty;
+            const today = this._localDateKey();
+            if (obj.dateKey !== today) {
+                /* 跨日：dailyRunIndex/rageChainLen 重置；最近 5 局保留以让 fatigue
+                 * 的"连败检测"能跨越自然日边界，避免"昨晚连败 4 局，今早第 1 局即开火"。 */
+                return {
+                    dateKey: today,
+                    dailyRunIndex: 0,
+                    lastGameOver: obj.lastGameOver || null,
+                    recentRunScores: Array.isArray(obj.recentRunScores) ? obj.recentRunScores.slice(-5) : [],
+                    rageChainLen: 0,
+                };
+            }
+            return {
+                dateKey: today,
+                dailyRunIndex: Math.max(0, Math.floor(Number(obj.dailyRunIndex) || 0)),
+                lastGameOver: obj.lastGameOver || null,
+                recentRunScores: Array.isArray(obj.recentRunScores) ? obj.recentRunScores.slice(-5) : [],
+                rageChainLen: Math.max(0, Math.floor(Number(obj.rageChainLen) || 0)),
+            };
+        } catch { return empty; }
+    }
+
+    _saveDailyRunState() {
+        try {
+            if (typeof localStorage === 'undefined') return;
+            if (!this._dailyRunState) return;
+            localStorage.setItem('openblock_daily_run_state_v1', JSON.stringify(this._dailyRunState));
+        } catch { /* 配额满或隐私模式：忽略 */ }
+    }
+
+    _localDateKey(now) {
+        const d = now instanceof Date ? now : new Date(Number.isFinite(now) ? now : Date.now());
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+
+    /* ───── 单局评估事件钩子 ─────
+     * 三个 hook 由游戏主循环统一调用：spawn 完成、玩家落子完成、局结束。
+     * 任意一步失败都不应影响主玩法 —— 顶层 try/catch 兜底，evaluation 是侧支。 */
+
+    _evalOnSpawn(layered, shapes) {
+        const ledger = this._evalLedger;
+        if (!ledger) return;
+        // 先 finalize 上一轮（如有）。
+        if (this._evalActiveSpawnIdx >= 0) {
+            this._evalCloseRound();
+        }
+        try {
+            const hints = layered?.spawnHints || {};
+            const stress = layered?._adaptiveStress ?? 0;
+            this._evalRoundStressAtSpawn = stress;
+            /* spawn 审计字段全部走"决策真值"通道：
+             *   - hints.* 由 adaptiveSpawn.resolveAdaptiveStrategy 直接返回
+             *   - spawnTargets 在 hints.spawnTargets（不在顶层 layered.spawnTargets）
+             *   - solutionMetrics / 软滤拒收数 由 blockSpawn 的 lastDiagnostics 提供
+             *     （选中后才填，所以在 _commitSpawn 调用此 hook 时已稳定可读）
+             * 详见 docs/algorithms/PLACEMENT_QUALITY.md §"决策真值快照"。 */
+            const diag = getLastSpawnDiagnostics() || {};
+            const solutionMetrics = diag.layer1?.solutionMetrics || null;
+            const rejects = diag.solutionRejects || {};
+            const rejectTotal = Object.values(rejects)
+                .reduce((s, v) => s + (Number(v) || 0), 0);
+            this._evalActiveSpawnIdx = recordSpawnEvent(ledger, {
+                ts: Date.now(),
+                spawnIntent: hints.spawnIntent || 'maintain',
+                clearGuarantee: hints.clearGuarantee || 0,
+                payoffIntensity: hints.spawnTargets?.payoffIntensity ?? 0,
+                solutionCount: Number.isFinite(solutionMetrics?.solutionCount)
+                    ? solutionMetrics.solutionCount : null,
+                targetSolutionRange: hints.targetSolutionRange || null,
+                softFilterRejects: rejectTotal,
+                softFilterResamples: Number(diag.attempt) || 0,
+                stressAtSpawn: stress,
+            });
+            this._evalRoundStartCells = this.grid?.toJSON ? this.grid.toJSON().cells : null;
+            this._evalRoundDockShapes = Array.isArray(shapes)
+                ? shapes.map((s) => (s && s.data ? s.data : s?.shape || null))
+                : null;
+            this._evalRoundMoves = [];
+            this._evalRoundLines = 0;
+            recordStressSample(ledger, stress, Date.now());
+            recordFlowSample(ledger, this._lastAdaptiveInsight?.flowState || this.playerProfile?.flowState);
+            const layer1 = diag.layer1 || {};
+            recordBoardSample(ledger, {
+                holes: layer1.holes ?? 0,
+                flatness: layer1.flatness ?? 1,
+                firstMoveFreedom: solutionMetrics?.firstMoveFreedom ?? 0,
+            });
+        } catch (e) {
+            console.warn('[evaluation] onSpawn failed:', e?.message || e);
+        }
+    }
+
+    _evalOnPlace(boardBeforeCells, dockIndex, pos, lines) {
+        const ledger = this._evalLedger;
+        if (!ledger) return;
+        try {
+            const shape = this._evalRoundDockShapes?.[dockIndex];
+            if (!shape || !boardBeforeCells || !pos) return;
+            const remaining = this._remainingDockShapesForEval(dockIndex);
+            const cfg = (window.GAME_RULES?.placementEvaluation) || {};
+            const mq = evaluatePlacement({
+                boardBefore: boardBeforeCells,
+                shape,
+                pos: { x: pos.x | 0, y: pos.y | 0 },
+                remainingShapes: remaining,
+                config: cfg,
+            });
+            recordMoveQuality(ledger, mq);
+            /* v1.69.2：回灌 playerProfile 滑窗，adaptiveSpawn 下一帧即可读 evalMetrics
+             * 做 relief / clearGuarantee 反馈闭环。详见 PLACEMENT_QUALITY.md §"反馈闭环"。 */
+            try { this.playerProfile?.recordMoveQuality?.(mq); } catch (_e) { /* 滑窗失败不阻塞 */ }
+            this._evalRoundMoves.push({
+                dockIndex,
+                pos: { x: pos.x | 0, y: pos.y | 0 },
+                linesCleared: Number(lines) || 0,
+                ts: Date.now(),
+            });
+            this._evalRoundLines += Number(lines) || 0;
+            /* 把"端侧已算好的步级评估"塞到下一帧 ps.evalMetrics，与 move_sequences 一起
+             * 持久化；后端 dataset.py 读 ps.evalMetrics → 写入 OUTCOME_DIM[7..] 派生维度，
+             * 不必离线重算（昂贵且口径漂移）。详见 docs/algorithms/PLACEMENT_QUALITY.md
+             * §"RL 训练样本注入"。 */
+            const evalSnap = {
+                absScore: Number(mq.absScore) || 0,
+                regret: Number(mq.regret) || 0,
+                optimality: Number(mq.optimality) || 0,
+                badnessTag: mq.badnessTag || 'fine',
+                components: mq.components || null,
+                optimalPos: mq.optimalPos || null,
+                evaluated: mq.evaluated !== false,
+            };
+            /* v1.69.2 修复（P2）：节流步不写入 ps.evalMetrics，否则 RL 离线 dataset.py
+             * 会把 regret=0 / optimality=1 当作真实评估纳入 mean，与 session 端
+             * evaluated-only 口径漂移；advisor 复盘卡也会被节流步的中性 tag 干扰。
+             * sessionEvaluator 仍会通过 ledger.moveQualities 收到完整记录（含 evaluated
+             * 标志），不影响 badnessTagDist 等分桶统计。 */
+            if (evalSnap.evaluated) {
+                this._lastMoveEvalMetrics = evalSnap;
+                this._lastMoveEvalSnapshot = evalSnap;
+            } else {
+                this._lastMoveEvalMetrics = null;
+                // 保留上一步的 snapshot 给 advisor，节流步不刷新
+            }
+            // 同步 trajectory 采样
+            recordStressSample(ledger, this._lastAdaptiveInsight?.normalizedStress
+                ?? this._lastAdaptiveInsight?.stressNorm
+                ?? this._adaptiveStress
+                ?? 0, Date.now());
+            recordFlowSample(ledger, this._lastAdaptiveInsight?.flowState || this.playerProfile?.flowState);
+        } catch (e) {
+            console.warn('[evaluation] onPlace failed:', e?.message || e);
+        }
+    }
+
+    _remainingDockShapesForEval(currentIdx) {
+        if (!this._evalRoundDockShapes || !this.dockBlocks) return [];
+        const out = [];
+        for (let i = 0; i < this._evalRoundDockShapes.length; i++) {
+            if (i === currentIdx) continue;
+            const placed = this.dockBlocks[i]?.placed;
+            if (placed) continue;
+            const s = this._evalRoundDockShapes[i];
+            if (s) out.push(s);
+        }
+        return out;
+    }
+
+    _evalCloseRound() {
+        const ledger = this._evalLedger;
+        if (!ledger) return;
+        try {
+            if (this._evalRoundStartCells && this._evalRoundDockShapes
+                && this._evalRoundMoves.length === 3) {
+                const cfg = (window.GAME_RULES?.roundEvaluation) || {};
+                const rq = evaluateRound({
+                    boardBefore: this._evalRoundStartCells,
+                    dockShapes: this._evalRoundDockShapes,
+                    moves: this._evalRoundMoves,
+                    config: cfg,
+                });
+                recordRoundQuality(ledger, rq);
+                /* v1.69.2：回灌 playerProfile.recordRoundQuality —— 让 adaptiveSpawn
+                 * 在下一次 resolveAdaptiveStrategy 时通过 profile.evalMetrics 读到最新
+                 * 的 classification / consecutiveForcedBad，触发 reliefBoost。 */
+                try { this.playerProfile?.recordRoundQuality?.(rq); } catch (_e) { /* 滑窗失败不阻塞 */ }
+                /* 与 _lastMoveEvalMetrics 同思路：把"端侧已算好的轮级评估"挂到下一个
+                 * spawn 帧 ps.evalRound，离线 RL 训练直接使用。 */
+                this._lastRoundEvalMetrics = {
+                    absScore: Number(rq.absScore) || 0,
+                    classification: rq.classification || 'incomplete',
+                    regrets: rq.regrets || null,
+                    bestRoundAbs: Number(rq.bestRoundAbs) || 0,
+                    payoffRealized: Number(rq.components?.payoffRealized) || 0,
+                };
+                if (this._evalActiveSpawnIdx >= 0) {
+                    finalizeSpawnEvent(ledger, this._evalActiveSpawnIdx, {
+                        stressAfter: this._lastAdaptiveInsight?.normalizedStress
+                            ?? this._lastAdaptiveInsight?.stressNorm
+                            ?? 0,
+                        linesInRound: this._evalRoundLines,
+                        dockPermUsed: this._evalRoundMoves.map((m) => m.dockIndex),
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('[evaluation] closeRound failed:', e?.message || e);
+        }
+        this._evalActiveSpawnIdx = -1;
+        this._evalRoundStartCells = null;
+        this._evalRoundDockShapes = null;
+        this._evalRoundMoves = [];
+        this._evalRoundLines = 0;
+    }
+
+    async _evalOnGameOver(reason) {
+        const ledger = this._evalLedger;
+        if (!ledger) return;
+        try {
+            // finalize 最后一轮（玩家未必凑齐 3 块，但 finalize 仍记 spawn 兑现）。
+            if (this._evalActiveSpawnIdx >= 0) {
+                finalizeSpawnEvent(ledger, this._evalActiveSpawnIdx, {
+                    stressAfter: this._lastAdaptiveInsight?.normalizedStress
+                        ?? this._lastAdaptiveInsight?.stressNorm
+                        ?? 0,
+                    linesInRound: this._evalRoundLines,
+                    dockPermUsed: this._evalRoundMoves.map((m) => m.dockIndex),
+                });
+            }
+            patchLedgerMeta(ledger, {
+                pbAfter: Number(this.bestScore) || 0,
+                runId: this.sessionId || null,
+            });
+            setLedgerOutcome(ledger, {
+                finalScore: Number(this.score) || 0,
+                survivedSteps: Number(this.gameStats?.placements) || 0,
+                placedCount: Number(this.gameStats?.placements) || 0,
+                linesCleared: Number(this.gameStats?.clears) || 0,
+                multiClears: Number(this.gameStats?.maxLinesCleared || 0) >= 2
+                    ? Number(this.gameStats?.maxLinesCleared) : 0,
+                perfectClears: Number(this.gameStats?.perfectClears) || 0,
+                maxCombo: Number(this.gameStats?.maxCombo) || 0,
+                runDurationMs: Date.now() - (this.gameStats?.startTime || Date.now()),
+                endCause: String(reason || 'normal'),
+            });
+            const record = buildSessionEvalRecord(ledger);
+            await this._postSessionEvalRecord(record);
+        } catch (e) {
+            console.warn('[evaluation] onGameOver failed:', e?.message || e);
+        } finally {
+            this._evalLedger = null;
+        }
+    }
+
+    async _postSessionEvalRecord(record) {
+        const base = (typeof import.meta !== 'undefined' && import.meta.env)
+            ? (import.meta.env.VITE_API_BASE_URL || '') : '';
+        const url = `${base.replace(/\/$/, '')}/api/evaluation/session`;
+        try {
+            await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: this.sessionId || null,
+                    userId: this.playerProfile?.userId || null,
+                    record,
+                }),
+                keepalive: true,
+            });
+        } catch (e) {
+            /* 离线降级：把最近一条 record 暂存 localStorage，server 上线后由 sync 流补传。
+             * 这里只保留最近一条，避免 quota 爆炸。 */
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('openblock_pending_eval_v1', JSON.stringify({ record, ts: Date.now() }));
+                }
+            } catch { /* ignore */ }
+        }
+    }
+
     _updateRunStreakHint() {
         const el = document.getElementById('strategy-run-hint');
         if (!el) return;
@@ -1452,11 +1795,92 @@ export class Game {
 
             this.playerProfile.recordNewGame();
 
+            /* v1.68 局间难度弧线（RoR）：每次 start 时 dailyRunIndex+1，派生 arc 写入
+             * this.runOverRunArc / this._spawnContext，供 PR2 下游 lifecycleStressCap
+             * 与 PR3 targetSCurveByArc 消费；PR1 阶段仅做埋点观测，不影响出块。
+             *
+             * 顺序考虑：必须在 _spawnContext 初始化后、layeredOpen 解析前完成派生，
+             * 否则首块出块时 ctx.runOverRunArc 缺失。 */
+            try {
+                if (!this._dailyRunState) this._dailyRunState = this._loadDailyRunState();
+                /* 跨日重置：以本地日历日切换为锚（与 _loadDailyRunState 同口径）。 */
+                const todayKey = this._localDateKey();
+                if (this._dailyRunState.dateKey !== todayKey) {
+                    this._dailyRunState.dateKey = todayKey;
+                    this._dailyRunState.dailyRunIndex = 0;
+                    this._dailyRunState.rageChainLen = 0;
+                }
+                this._dailyRunState.dailyRunIndex += 1;
+                const arcInfo = deriveRunOverRunArc({
+                    dailyRunIndex: this._dailyRunState.dailyRunIndex,
+                    now: Date.now(),
+                    lastGameOver: this._dailyRunState.lastGameOver,
+                    bestScore: Number(this.bestScore) || 0,
+                    recentScores: this._dailyRunState.recentRunScores,
+                    rageChainLen: this._dailyRunState.rageChainLen,
+                    thresholds: resolveArcThresholds(GAME_RULES.runOverRunArc),
+                });
+                this.runOverRunArc = arcInfo.arc;
+                this.runOverRunArcDebug = arcInfo;
+                /* cooldown 命中时累加 rageChainLen，避免单次累加丢失。 */
+                if (arcInfo.arc === 'cooldown') {
+                    this._dailyRunState.rageChainLen = arcInfo.debug?.rageChainLen
+                        ?? (this._dailyRunState.rageChainLen + 1);
+                } else if (arcInfo.reason !== 'rage_restart_chain') {
+                    /* 非赌气路径：连击链衰减为 0（玩家已"冷静下来"）。 */
+                    this._dailyRunState.rageChainLen = 0;
+                }
+                this._saveDailyRunState();
+                /* 注入 spawnContext，供下游算法（PR2/PR3）按需读取 */
+                this._spawnContext.runOverRunArc = arcInfo.arc;
+                this._spawnContext.dailyRunIndex = this._dailyRunState.dailyRunIndex;
+                this._spawnContext.runOverRunArcReason = arcInfo.reason;
+                /* analytics 埋点：observation only，不改行为 */
+                try {
+                    this.analyticsTracker?.track?.('run_over_run_arc_observed', {
+                        arc: arcInfo.arc,
+                        reason: arcInfo.reason,
+                        dailyRunIndex: this._dailyRunState.dailyRunIndex,
+                        sinceLastBreakMs: Number.isFinite(arcInfo.sinceLastBreakMs)
+                            ? arcInfo.sinceLastBreakMs : -1,
+                        runStreak: this.runStreak,
+                        strategy: this.strategy,
+                    });
+                } catch { /* tracker 缺失即跳过 */ }
+            } catch (e) {
+                console.warn('[runOverRunArc] derive failed:', e?.message || e);
+                this.runOverRunArc = null;
+            }
+
             /* v1.48：生命周期编排会话开始钩子 —— 检查 winback 触发（≥7 天未活跃则
              * 自动激活保护包）+ 广播 lifecycle:session_start 让商业化 / 推送等订阅。 */
             try { onSessionStart(this.playerProfile, { tracker: this.analyticsTracker || null }); } catch (e) {
                 console.warn('[lifecycle] onSessionStart failed:', e?.message || e);
             }
+
+            /* 评估账本初始化：捕获开局元数据，后续每步/每轮/每次 spawn 写入。
+             * 详细字段与聚合规则见 docs/algorithms/SESSION_EVALUATION.md。 */
+            this._evalLedger = createEvaluationLedger({
+                userId: this.playerProfile?.userId || null,
+                strategy: this.strategy,
+                spawnPolicyMode: getSpawnPolicyMode(),
+                dailyRunIndex: this._dailyRunState?.dailyRunIndex ?? null,
+                runOverRunArc: this.runOverRunArc,
+                runOverRunArcReason: this._dailyRunState && this.runOverRunArcDebug?.reason,
+                runStreak: this.runStreak,
+                pbBefore: Number(this.bestScore) || 0,
+                lifecycleStage: this.playerProfile?.lifecycleStage || null,
+                maturityBand: this.playerProfile?.maturityBand || null,
+            });
+            this._evalActiveSpawnIdx = -1;
+            this._evalRoundStartCells = null;
+            this._evalRoundMoves = [];
+            this._evalRoundDockShapes = null;
+            this._evalRoundLines = 0;
+            this._evalRoundStressAtSpawn = 0;
+            this._lastMoveEvalMetrics = null;
+            this._lastRoundEvalMetrics = null;
+            this._lastMoveEvalSnapshot = null;
 
             const baseStrategy = getStrategy(this.strategy);
             const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, {
@@ -2011,6 +2435,7 @@ export class Game {
      * @private
      */
     _commitSpawn(shapes, layered, opts, source) {
+        this._evalOnSpawn(layered, shapes);
         this._spawnContext.totalRounds++;
         /* v1.60.1（Issue 2）：roundsSinceSpecial 在 spawnBlocks 入口已 +1，这里仅负责"本轮
          * 若注入特殊形状则归 0"，下一轮 spawnBlocks 顶部再 +1，gate 看到 1（== 间隔 1 轮）。
@@ -2755,6 +3180,8 @@ export class Game {
         if (placedPos) {
             const fillBefore = this.grid.getFillRatio();
             const validsBefore = this.grid.countValidPlacements(this.dragBlock.shape);
+            const _evalBoardBefore = this.grid?.toJSON ? this.grid.toJSON().cells : null;
+            const _evalDockIdx = this.drag.index;
             /* v1.60.1（新需求 3）：传 shapeId + isSpecial 给 Grid，让 cellMeta 记录"该格由
              * 独立库块放置"。下游 boardTopology({skipSpecialCells:true}) 据此豁免散点孤岛。 */
             this.grid.place(
@@ -2787,6 +3214,7 @@ export class Game {
             result.bonusLines = result.count > 0 ? _bonusLinesSnap : [];
             result.perfectClear = result.count > 0 && this.grid.getFillRatio() === 0;
             this.playerProfile.recordPlace(result.count > 0, result.count, this.grid.getFillRatio());
+            this._evalOnPlace(_evalBoardBefore, _evalDockIdx, placedPos, result.count);
             this._updateBottleneckTrough();
             /* v1.57.4：玩家落子后 grid 已变（消行也已 apply），先增量重判 spawnIntent +
              * 几何快照，再触发 panel 渲染，这样 stressMeter buildStoryLine / DFV reason
@@ -3500,6 +3928,23 @@ export class Game {
                     console.warn('[lifecycle] onSessionEnd failed:', e?.message || e);
                 }
 
+                /* v1.68 局间难度弧线（RoR）：写入本局结束快照，供下一局 deriveRunOverRunArc
+                 * 判定 cooldown / fatigue。recentRunScores 保留最近 5 局；超出滑动丢弃。
+                 * 即便整段 try/catch 因 localStorage 异常被吞掉，也不影响主流程。 */
+                try {
+                    if (this._dailyRunState) {
+                        const sc = Math.max(0, Math.floor(Number(this.score) || 0));
+                        this._dailyRunState.lastGameOver = { ts: Date.now(), score: sc };
+                        const list = Array.isArray(this._dailyRunState.recentRunScores)
+                            ? this._dailyRunState.recentRunScores : [];
+                        list.push(sc);
+                        this._dailyRunState.recentRunScores = list.slice(-5);
+                        this._saveDailyRunState();
+                    }
+                } catch (e) {
+                    console.warn('[runOverRunArc] save lastGameOver failed:', e?.message || e);
+                }
+
                 /* v1.61.14 离线优先：会话落库走服务端，离线必失败。这里 fail-soft，
                  * 避免抛错跳过后面「本地分桶 PB 持久化」(submitScoreToBucket) ——
                  * 否则离线时 PB 永远写不进 localStorage，难度也就无从随接近 PB 加压。 */
@@ -3508,6 +3953,9 @@ export class Game {
                 } catch (e) {
                     console.warn('[endGame] saveSession 失败（离线降级，不阻塞本地 PB 持久化）:', e?.message || e);
                 }
+
+                /* 单局评估聚合并上报。失败软降级（已在 _evalOnGameOver 内 try/catch）。 */
+                try { await this._evalOnGameOver(this.gameStats?.gameOverReason || 'normal'); } catch { /* ignore */ }
 
                 const persistedBestBase = this._getRunPbBaseline();
                 if (this.score > persistedBestBase) {
@@ -3931,6 +4379,10 @@ export class Game {
             adaptiveInsight: this._lastAdaptiveInsight,
             spawnGeo: this._spawnGeoForSnapshot()
         });
+        if (this._lastRoundEvalMetrics) {
+            ps.evalRound = this._lastRoundEvalMetrics;
+            this._lastRoundEvalMetrics = null;
+        }
         this.moveSequence.push(buildSpawnFrame(descriptors, ps, {
             ts: this._frameTs(),
             spawnMeta: this._spawnMetaForFrame()
@@ -3968,6 +4420,10 @@ export class Game {
             spawnGeo: this._spawnGeoForSnapshot()
         });
         ps.linesCleared = c;
+        if (this._lastMoveEvalMetrics) {
+            ps.evalMetrics = this._lastMoveEvalMetrics;
+            this._lastMoveEvalMetrics = null;
+        }
 
         this.moveSequence.push(buildPlaceFrame(dockIndex, gx, gy, ps, { ts: this._frameTs() }));
         this._schedulePersistMoves();

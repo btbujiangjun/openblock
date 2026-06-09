@@ -57,22 +57,72 @@ BRAKE_SIGMOID_K = 10.5
 OVERSHOOT_DECAY = 6.0
 
 
-def _brake_smooth(r: float) -> float:
-    """重缩放的 logistic sigmoid: 在 [SEG_MID_END, SEG_BRAKE_END] 上严格端点 0/1。
+# ─────────── v1.68 (PR3) arc-aware 形变常量 ───────────
+#
+# 把"局间 RunOverRunArc"作为乘性形变层叠加在基线 S 曲线之上。
+# 每档 arc 给 (dScale, dShift, brakeShift) 三元组：
+#   dScale     ：基线 D 的乘性因子（≤1 整体压低）
+#   dShift     ：在 dScale 之后的加性偏移
+#   brakeShift ：brake 段拐点 r 的右移量（让"接近 PB 才感到压力"语义生效）
+#
+# 与 web/src/tuning/v2/targetSCurve.js 的 ARC_MODIFIERS 1:1 对齐；
+# 任何修改必须同步更新两端 + 跨语言测试 test_cross_lang_dcurve.py。
+ARC_MODIFIERS = {
+    "opener":   {"dScale": 0.90, "dShift":  0.00, "brakeShift": 0.00},
+    "momentum": {"dScale": 1.00, "dShift":  0.00, "brakeShift": 0.00},
+    "peak":     {"dScale": 1.00, "dShift":  0.00, "brakeShift": 0.00},
+    "fatigue":  {"dScale": 0.85, "dShift": -0.03, "brakeShift": 0.15},
+    "cooldown": {"dScale": 0.75, "dShift": -0.05, "brakeShift": 0.20},
+}
+_IDENTITY_MOD = {"dScale": 1.0, "dShift": 0.0, "brakeShift": 0.0}
+
+
+def get_arc_modifier(arc):
+    """取出某档 arc 的修饰；未知 arc 返回恒等修饰（向后兼容）。"""
+    if not arc:
+        return _IDENTITY_MOD
+    return ARC_MODIFIERS.get(arc, _IDENTITY_MOD)
+
+
+def _brake_smooth_at(r: float, mid_end: float, brake_end: float) -> float:
+    """重缩放的 logistic sigmoid: 在 [mid_end, brake_end] 上严格端点 0/1。
 
     比 smoothstep (3t² - 2t³) 更光滑 (C∞ vs C¹), 视觉更柔和。
     """
-    t = (r - SEG_MID_END) / (SEG_BRAKE_END - SEG_MID_END)  # t ∈ [0, 1]
+    t = (r - mid_end) / (brake_end - mid_end)
     k = BRAKE_SIGMOID_K
     raw = 1.0 / (1.0 + math.exp(-k * (t - 0.5)))
-    # 边界值 (raw 在 t=0 / t=1 时的值, 用于重缩放)
     s0 = 1.0 / (1.0 + math.exp(k * 0.5))
     s1 = 1.0 / (1.0 + math.exp(-k * 0.5))
     return (raw - s0) / (s1 - s0)
 
 
+def _brake_smooth(r: float) -> float:
+    """旧接口保留：基线 brake 平滑函数（无 brakeShift），供历史调用方使用。"""
+    return _brake_smooth_at(r, SEG_MID_END, SEG_BRAKE_END)
+
+
+def _target_S_curve_base(r: float) -> float:
+    """基线 D 曲线（不带 arc 形变）；v1.68 之前为 target_S_curve 的唯一实现。"""
+    r = max(0.0, min(CURVE_R_MAX, float(r)))
+    if r < SEG_GENTLE_END:
+        slope = (D_GENTLE_END - D_BASE) / SEG_GENTLE_END
+        return D_BASE + slope * r
+    if r < SEG_MID_END:
+        slope = (D_MID_END - D_GENTLE_END) / (SEG_MID_END - SEG_GENTLE_END)
+        return D_GENTLE_END + slope * (r - SEG_GENTLE_END)
+    if r < SEG_BRAKE_END:
+        s = _brake_smooth_at(r, SEG_MID_END, SEG_BRAKE_END)
+        return D_MID_END + s * (D_BRAKE_END - D_MID_END)
+    extra = D_CAP - D_BRAKE_END
+    return D_BRAKE_END + extra * (1.0 - math.exp(-OVERSHOOT_DECAY * (r - SEG_BRAKE_END)))
+
+
 def target_S_curve(r: float) -> float:
     """计算单点目标难度 D(r) ∈ [0, 1]。
+
+    v1.68 保持完全的语义稳定：对原 target_S_curve(r) 的调用方完全透明，不会因
+    RunOverRunArc 注入而产生静默漂移；需要 arc 行为时显式走 target_S_curve_by_arc。
 
     Args:
         r: 归一化进度 = score / PB; 函数会 clip 到 [0, CURVE_R_MAX]。
@@ -80,26 +130,44 @@ def target_S_curve(r: float) -> float:
     Returns:
         D ∈ [D_BASE, D_CAP] (主要在 [0.10, 1.00])
     """
+    return _target_S_curve_base(r)
+
+
+def target_S_curve_by_arc(r: float, arc) -> float:
+    """v1.68 arc-aware 形变 D 曲线（与 web/src/tuning/v2/targetSCurve.js 1:1 一致）。
+
+    把基线 S 曲线套上 (dScale, dShift, brakeShift) 三参数：
+      1. brakeShift 把 SEG_MID_END / SEG_BRAKE_END 同步右移，让 fatigue/cooldown 下
+         "接近 PB 才感到压力"语义生效；左侧 gentle 段端点保持不变，brake 段被压缩
+         在更窄的 r 区间内，斜率自然变陡（与设计意图一致）。
+      2. dScale 乘性压低输出（fatigue ×0.85 / cooldown ×0.75）。
+      3. dShift 加性下移并最终 clip 到 [0, D_CAP]。
+
+    出现 brakeEnd > CURVE_R_MAX 时直接 clip 到 CURVE_R_MAX，让顶部仍收敛。
+    """
+    mod = get_arc_modifier(arc)
+    if (mod is _IDENTITY_MOD) or (mod["dScale"] == 1 and mod["dShift"] == 0 and mod["brakeShift"] == 0):
+        return _target_S_curve_base(r)
+
     r = max(0.0, min(CURVE_R_MAX, float(r)))
+    mid_end = min(CURVE_R_MAX, SEG_MID_END + mod["brakeShift"])
+    brake_end = min(CURVE_R_MAX, SEG_BRAKE_END + mod["brakeShift"])
 
     if r < SEG_GENTLE_END:
-        # 平缓上升: D_BASE + slope·r
         slope = (D_GENTLE_END - D_BASE) / SEG_GENTLE_END
-        return D_BASE + slope * r
+        d = D_BASE + slope * r
+    elif r < mid_end:
+        slope = (D_MID_END - D_GENTLE_END) / max(1e-9, mid_end - SEG_GENTLE_END)
+        d = D_GENTLE_END + slope * (r - SEG_GENTLE_END)
+    elif r < brake_end:
+        s = _brake_smooth_at(r, mid_end, brake_end)
+        d = D_MID_END + s * (D_BRAKE_END - D_MID_END)
+    else:
+        extra = D_CAP - D_BRAKE_END
+        d = D_BRAKE_END + extra * (1.0 - math.exp(-OVERSHOOT_DECAY * (r - brake_end)))
 
-    if r < SEG_MID_END:
-        # 中速上升
-        slope = (D_MID_END - D_GENTLE_END) / (SEG_MID_END - SEG_GENTLE_END)
-        return D_GENTLE_END + slope * (r - SEG_GENTLE_END)
-
-    if r < SEG_BRAKE_END:
-        # 刹车段: 重缩放 logistic sigmoid 平滑过渡
-        s = _brake_smooth(r)
-        return D_MID_END + s * (D_BRAKE_END - D_MID_END)
-
-    # 超越 PB: 指数收敛到 D_CAP
-    extra = D_CAP - D_BRAKE_END
-    return D_BRAKE_END + extra * (1.0 - math.exp(-OVERSHOOT_DECAY * (r - SEG_BRAKE_END)))
+    out = d * mod["dScale"] + mod["dShift"]
+    return max(0.0, min(D_CAP, out))
 
 
 def target_curve_vector(n_bins: int = CURVE_N_BINS, r_max: float = CURVE_R_MAX) -> List[float]:

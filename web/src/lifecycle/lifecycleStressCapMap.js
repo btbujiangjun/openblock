@@ -157,13 +157,53 @@ export const LIFECYCLE_BAND_COLOR = Object.freeze({
  * 查找 (stage, band) 对应的 cap/adjust。返回 null 表示该组合不在调制表内，
  * 调用方应跳过 stress cap/adjust，避免引入硬编码兜底。
  *
+ * v1.68（PR2）：新增可选的 `arcModifier` 参数，把 RunOverRunArc 推导出的 arc
+ * 标签转换成乘性 modifier 叠加在 (stage·band) 的 cap/adjust 之上：
+ *   capOut    = clamp(capRaw * capScale, 0, 1)
+ *   adjustOut = clamp(adjustRaw + adjustDelta, -0.3, 0.3)
+ *
+ * 入参 arcModifier 形如 { capScale: 0.85, adjustDelta: -0.05 }；
+ * 缺失/非法字段按 1.0 / 0 处理（即不调制，向后兼容）。这一层把"局间疲劳/赌气"
+ * 信号注入 lifecycle 调制表，让原 5×5=25 格自动扩展为 5×5×5=125 格逻辑视图，
+ * 而无需手动维护立方表。
+ *
  * @param {string|null|undefined} stageCode  S0..S4
  * @param {string|null|undefined} band       M0..M4
+ * @param {LifecycleStressCapEntry|null} [arcModifier]
  * @returns {LifecycleStressCapEntry | null}
  */
-export function getLifecycleStressCap(stageCode, band) {
+export function getLifecycleStressCap(stageCode, band, arcModifier) {
     if (!stageCode || !band) return null;
-    return LIFECYCLE_STRESS_CAP_MAP[`${stageCode}·${band}`] || null;
+    const raw = LIFECYCLE_STRESS_CAP_MAP[`${stageCode}·${band}`];
+    if (!raw) return null;
+    if (!arcModifier || typeof arcModifier !== 'object') return raw;
+    const scale = Number.isFinite(arcModifier.capScale) ? arcModifier.capScale : 1;
+    const delta = Number.isFinite(arcModifier.adjustDelta) ? arcModifier.adjustDelta : 0;
+    if (scale === 1 && delta === 0) return raw;
+    const capOut = Math.max(0, Math.min(1, raw.cap * scale));
+    const adjustOut = Math.max(-0.3, Math.min(0.3, raw.adjust + delta));
+    return { cap: capOut, adjust: adjustOut };
+}
+
+/**
+ * 从 GAME_RULES.runOverRunArc.lifecycleCapModifier[arc] 读出乘性 modifier。
+ * arc 缺失或配置缺失即返回 null（getLifecycleStressCap 收到 null 即不调制）。
+ *
+ * 把读 config 的细节封装在本模块，让 adaptiveSpawn 调用方只关心 arc 字符串即可。
+ *
+ * @param {string|null|undefined} arc  'opener'|'momentum'|'peak'|'fatigue'|'cooldown'
+ * @param {object} [runOverRunArcCfg]  GAME_RULES.runOverRunArc
+ * @returns {{capScale:number, adjustDelta:number} | null}
+ */
+export function resolveArcLifecycleModifier(arc, runOverRunArcCfg) {
+    if (!arc || !runOverRunArcCfg || typeof runOverRunArcCfg !== 'object') return null;
+    const map = runOverRunArcCfg.lifecycleCapModifier;
+    if (!map || typeof map !== 'object') return null;
+    const entry = map[arc];
+    if (!entry || typeof entry !== 'object') return null;
+    const capScale = Number.isFinite(entry.capScale) ? entry.capScale : 1;
+    const adjustDelta = Number.isFinite(entry.adjustDelta) ? entry.adjustDelta : 0;
+    return { capScale, adjustDelta };
 }
 
 /**

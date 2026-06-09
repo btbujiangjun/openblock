@@ -2,7 +2,7 @@
 
 > 本文是 OpenBlock **出块子系统**的算法侧统一手册。
 > 范围：启发式与 SpawnPolicyNet 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
-> 本手册是 OpenBlock 出块子系统的**统一权威文档**：在算法与模型工程主线（§1–§11）之外，已整合架构分层（§12）、出块建模与设计 rationale（§13）、难度调控与评估工具（§14）、参数寻优 SpawnParamTuner（§15）；运行时 10 信号融合与完整流水线深潜见 `ADAPTIVE_SPAWN.md`。
+> 本手册是 OpenBlock 出块子系统的**统一权威文档**：在算法与模型工程主线（§1–§11）之外，已整合架构分层（§12）、出块建模与设计 rationale（§13）、难度调控与评估工具（§14）、参数寻优 SpawnParamTuner（§15）、局间难度 RoR（§十六）；运行时 10 信号融合与完整流水线深潜见 `ADAPTIVE_SPAWN.md`。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
@@ -32,6 +32,15 @@
 13. [出块建模：双轨实现与设计 rationale](#十三出块建模双轨实现与设计-rationale)
 14. [出块难度与评估](#十四出块难度与评估)
 15. [出块参数寻优（SpawnParamTuner）](#十五出块参数寻优spawnparamtuner)
+16. [局间难度（RoR）](#十六局间难度ror)
+   - 16.1 为什么需要局间难度
+   - 16.2 理论支撑与行业共识
+   - 16.3 设计方案
+   - 16.4 实现拆分
+   - 16.5 模块契约与代码索引
+   - 16.6 运营调参指南
+   - 16.7 监控与回归
+   - 16.8 回滚与降级策略
 
 ---
 
@@ -2293,6 +2302,299 @@ python -m rl_pytorch.spawn_tuning_v2.optimize_theta --checkpoint ... --output ..
 - **Transformer 退化解** → 降 lr，check val_curve_var > 0.1
 - **v3 方向**：RL bot 替代规则 bot、真实玩家数据 fine-tune、多步 lookahead
 
+## 十六、局间难度（RoR）
+
+> v1.68 引入。把"今天第几局/距离上次休息多久"作为独立维度叠加在原"单局 S 曲线"
+> 与"S×M 生命周期表"之上，让休闲方块游戏的难度系统从**单局形态**升级为
+> **局间 × 局内 × 生命周期** 三层立方。
+> 架构分层见 [本手册 §12](#十二出块算法架构总览工程分层)，自适应出块信号见 [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md)。
+
+### 16.1 为什么需要局间难度
+
+OpenBlock 在 v1.68 之前的难度体系如下：
+
+| 维度 | 实现 | 文件 |
+|---|---|---|
+| 单局 S 曲线 | `targetSCurve(r = score/PB)`，gentle→mid→brake→overshoot | `web/src/tuning/v2/targetSCurve.js` |
+| 生命周期×成熟度 | 25 格 `(stage·band)` stress cap/adjust 表 | `web/src/lifecycle/lifecycleStressCapMap.js` |
+| 跨局连战 | `runDifficulty`：每局 +0.045 stress、+1% fill，cap=6 | `shared/game_rules.json` |
+| 首局保护 | `firstSessionStressOverride = −0.15` | `adaptiveSpawn.js` |
+| 末段救济 | `endSessionDistress`（cooldown × 强负 momentum） | `adaptiveSpawn.js` |
+
+**问题**：原系统假设"再来一局就该更难"，但没有区分
+
+- 主动挑战回合 vs 被坏盘 KO 后的赌气回合；
+- 今天第 1 局 vs 今天第 8 局；
+- 5 分钟一局的休闲玩家 vs 不间断爆肝 1 小时的耐力玩家。
+
+业界共识（详见 §二）：**首局必须易、第 2–3 局是黄金窗口、第 N≥5 局必须给 breather**。
+原 `runStreak` 单调线性加压恰好与之相反 —— 越打越累、越累越压、越压越死，违反 King
+长达十年的 A/B 沉淀（"retention always wins"）。
+
+### 16.2 理论支撑与行业共识
+
+| 来源 | 核心结论 | 对 RoR 的影响 |
+|---|---|---|
+| King / Candy Crush A/B（mobilegamer.biz 2024） | "crazy hard levels never pay off, at least in the long term" | 第 ≥5 局强制 breather，禁止单调加压 |
+| RMH Research 2025（"Adaptive Difficulty & Retention"，n=240） | Predictive DDA D7 留存 **78%** vs reactive **64%** vs static-easy 46% | RoR 由"反应式"升级为"今日累计形态预测式" |
+| MDPI 2025 *Engagement-Oriented DDA* | 用"单位时间内的 churn 倾向"反向调难 | 引入 `cooldown` arc：5s 内崩盘重开链 ≥2 → 强保护 |
+| Deconstructor of Fun 2025（hybrid-casual puzzle） | 难度过山车：每 3-4 局必有 breather | 驼峰曲线 `stressBonusByStreak = [0, 0.03, 0.05, 0.05, 0.02, -0.05, -0.10]` |
+| AAAI Tetris CBR (Romero et al.) | 前 10 步聚类（新手/普通/专家），但单局保持档位 | `dailyRunIndex` 让聚类按"今天的累计形态"重置，而非全生涯 |
+| Supersonic blog "Cracking the Puzzle" | 难度循环：mechanic→test→breather→mid-test | 5 档 arc `opener / momentum / peak / fatigue / cooldown` 即一个完整循环 |
+
+### 16.3 设计方案
+
+#### 16.3.1 维度立方
+
+```
+单局 r (score/PB)  ─┐
+                    │       ┌── 单局 S 曲线（v2.6 红线，4 段分段）
+RoR arc            ─┼──────┤   × dScale, +dShift, brakeShift
+(opener/momentum/  │       │
+ peak/fatigue/     │       └── runStreak humped 曲线 [0,+0.03,+0.05,+0.05,+0.02,-0.05,-0.10]
+ cooldown)         │
+                    │       ┌── lifecycleStressCapMap (S×M 25 格)
+生命周期×成熟度    ─┘       └── × ARC capScale / + adjustDelta
+```
+
+三层独立可关，每层都有 fallback：
+
+- 关 `runOverRunArc.enabled` → 退化为 v1.67 行为
+- `runDifficulty.curve` 改回 `'linear'` → 走旧 `maxStreak / fillBonusPerGame`
+- arc 字段为 `null` → `getLifecycleStressCap` / `targetSCurveByArc` 透明降级
+
+#### 16.3.2 RoR 五档 arc 推导规则（优先级从高到低）
+
+```mermaid
+flowchart TD
+    Start["deriveRunOverRunArc(best, lastGameOver, rageChainLen, recentScores, dailyRunIndex)"]
+    Start --> Q1{"best &gt; 0 且 上局 5s 内崩盘"}
+    Q1 -->|rageChainLen ≥ 2| Cooldown["cooldown · 赌气保护"]
+    Q1 -->|else| Q2{"最近 3 局 score &lt; 0.6·PB"}
+    Q2 -->|yes| FatigueLoss["fatigue · loss_streak"]
+    Q2 -->|else| Q3{"空闲 ≥ 30min 或 dailyRunIndex == 1"}
+    Q3 -->|yes| Opener["opener · 今日首局"]
+    Q3 -->|else| Q4{"dailyRunIndex ≥ 6"}
+    Q4 -->|yes| FatigueIdx["fatigue · daily_index"]
+    Q4 -->|else| Q5{"dailyRunIndex in 4-5"}
+    Q5 -->|yes| Peak["peak · 挑战巅峰"]
+    Q5 -->|else| Momentum["momentum · 第 2-3 局 黄金窗口"]
+```
+
+#### 16.3.3 三层调制矩阵（含数值）
+
+##### 16.3.3.1 `runDifficulty` humped 曲线
+
+| runStreak | 0 | 1 | 2 | 3 | 4 | 5 | 6+ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `stressBonus` | 0 | +0.03 | **+0.05** | **+0.05** | +0.02 | −0.05 | −0.10 |
+| `fillDelta` | 0 | +0.01 | **+0.02** | **+0.02** | +0.01 | −0.01 | −0.03 |
+| 玩家体感 | 起步 | 升温 | 峰值挑战 | 峰值挑战 | 缓降 | breather | 强 breather |
+
+##### 16.3.3.2 lifecycleStressCap arc 乘性调制
+
+| arc | `capScale` | `adjustDelta` | 语义 |
+|---|---:|---:|---|
+| `opener` | 0.85 | −0.05 | 今日第 1 局或久未玩，整体 ×0.85 防"开局就被按头"
+| `momentum` | 1.00 | 0.00 | 第 2-3 局黄金窗口，原 S×M 表原值
+| `peak` | 1.00 | 0.00 | 第 4-5 局挑战巅峰，允许触顶
+| `fatigue` | 0.80 | −0.10 | 第 6+ 局或连败 3 次，cap 砍 20% + 整体减压
+| `cooldown` | 0.70 | −0.15 | 5s 内崩盘重开链 ≥2，最强保护
+
+例：`S3·M3` 原 `cap=0.85, adjust=+0.10`。叠加 `cooldown` modifier：
+- `capOut = 0.85 × 0.70 = 0.595`
+- `adjustOut = 0.10 + (−0.15) = −0.05`
+
+##### 16.3.3.3 D 曲线 arc-aware 形变
+
+| arc | `dScale` | `dShift` | `brakeShift` | r=1 时的 D 值（基线 0.896） |
+|---|---:|---:|---:|---:|
+| `opener` | 0.90 | 0.00 | 0.00 | ~0.806（封顶 0.9）
+| `momentum` | 1.00 | 0.00 | 0.00 | 0.896
+| `peak` | 1.00 | 0.00 | 0.00 | 0.896
+| `fatigue` | 0.85 | −0.03 | 0.15 | ~0.15（brake 右移到 [0.80, 1.30]，r=1 仍在 mid 段）
+| `cooldown` | 0.75 | −0.05 | 0.20 | ~0.085（brake 右移到 [0.85, 1.35]，全段强压低）
+
+#### 16.3.4 D 曲线五档可视化
+
+```
+D = target_S_curve_by_arc(r, arc)
+
+D
+1.0 ┤            ╭───── momentum / peak ─── opener ──    (基线 + 0.9 封顶)
+0.9 ┤           ╱      ╱─                              
+0.8 ┤          ╱      ╱     
+0.7 ┤         ╱      ╱           ╭────── fatigue ──
+0.6 ┤        ╱      ╱           ╱             
+0.5 ┤       ╱      ╱           ╱                       
+0.4 ┤      ╱      ╱           ╱       ╭── cooldown ──
+0.3 ┤     ╱      ╱           ╱       ╱
+0.2 ┤────╱──────╱───────────╱───────╱
+0.1 ┤──────────────────────────────
+    └────┬──────┬──────┬───────┬──────┬──── r = score/PB
+       0.45    0.65   1.0     1.3    1.5
+
+         gentle  mid   brake     brake右移
+```
+
+要点：
+- **fatigue/cooldown**：brake 段右移 0.15/0.20，让"接近 PB 才感到压力"语义生效；
+  在 r=1.0（玩家以为快破纪录了）时 D 仍很低，**让破 PB 体验本身成为奖励**。
+- **opener**：纯 dScale=0.90，曲线形状不变只是整体压低，避免今日首局即遭遇 D≥0.9 高压。
+
+#### 16.3.5 端到端调用顺序
+
+```mermaid
+sequenceDiagram
+    participant UI as Game.start()
+    participant DRS as _loadDailyRunState
+    participant ARC as deriveRunOverRunArc
+    participant CTX as _spawnContext
+    participant ADP as resolveAdaptiveStrategy
+    participant LCM as getLifecycleStressCap
+    participant DC as targetSCurveByArc
+
+    UI->>DRS: 读 localStorage dailyRunIndex
+    DRS-->>UI: { dailyRunIndex+1, lastGameOver, ... }
+    UI->>ARC: 输入 ctx + thresholds
+    ARC-->>UI: { arc, reason, sinceLastBreakMs }
+    UI->>CTX: ctx.runOverRunArc = arc
+    UI->>ADP: resolveAdaptiveStrategy(strategy, profile, score, runStreak, fill, ctx)
+    ADP->>LCM: (stage, band, arcModifier)
+    LCM-->>ADP: capOut, adjustOut（已含 arc 调制）
+    ADP->>DC: targetSCurveByArc(r, arc)
+    DC-->>ADP: D ∈ [0, 1]
+    ADP-->>UI: shapeWeights / spawnHints
+```
+
+### 16.4 实现拆分
+
+#### 派生模块 + 上下文埋点（零行为变更）
+
+| 改动 | 文件 |
+|---|---|
+| 新增 RoR 派生函数与默认阈值 | `web/src/retention/runOverRunArc.js` |
+| 在 `game.js` 注入 `dailyRunIndex` / `lastGameOver` 持久化 | `web/src/game.js` `_loadDailyRunState` / `_saveDailyRunState` |
+| `start()` 时派生 arc 写入 `_spawnContext` | `web/src/game.js` `start()` |
+| `endGame()` 时落 `lastGameOver` + recentRunScores | `web/src/game.js` `endGame()` |
+| `analyticsTracker.track('run_over_run_arc_observed', ...)` | `web/src/game.js` |
+| 单测 | `tests/runOverRunArc.test.js`（16 用例） |
+
+#### humped runDifficulty + arc-modulated lifecycleStressCap
+
+| 改动 | 文件 |
+|---|---|
+| `runDifficulty.curve='humped'` + `stressBonusByStreak` / `fillBonusByStreak` 表 | `shared/game_rules.json` |
+| 新建 `runOverRunArc` 配置块（阈值 + `lifecycleCapModifier`） | `shared/game_rules.json` |
+| `getRunDifficultyModifiers` 支持双曲线（向后兼容） | `web/src/difficulty.js` |
+| `resolveLayeredStrategy` 的 fillRatio / stress 加 `Math.max(0, …)` 下界 | `web/src/difficulty.js` |
+| `getLifecycleStressCap` 增加可选 `arcModifier` 参数 | `web/src/lifecycle/lifecycleStressCapMap.js` |
+| 新建 `resolveArcLifecycleModifier(arc, cfg)` | 同上 |
+| `adaptiveSpawn.js` 调用点改为传入 arcMod | `web/src/adaptiveSpawn.js` |
+| stressBreakdown 暴露 `runOverRunArc / capScale / adjustDelta` | 同上 |
+| 单测：humped 表 + 5×5×5 立方 | `tests/runOverRunDifficulty.test.js`（18 用例） |
+
+#### `targetSCurveByArc` 跨语言
+
+| 改动 | 文件 |
+|---|---|
+| JS：`ARC_MODIFIERS`、`getArcModifier`、`targetSCurveByArc` | `web/src/tuning/v2/targetSCurve.js` |
+| Python：`ARC_MODIFIERS`、`get_arc_modifier`、`target_S_curve_by_arc` | `rl_pytorch/spawn_tuning_v2/target_curve.py` |
+| JS 单测扩展 | `tests/tuning/v2/targetSCurve.test.js`（新增 7 用例） |
+| Python 单测扩展 | `tests/spawn_tuning_v2/test_target_curve.py`（新增 8 用例） |
+| 跨语言锚点 grep 测试 | `tests/spawn_tuning_v2/test_cross_lang_arc_curve.py`（新增） |
+| 顺手修复 v2.3 → v2.6 旧锚点 | `tests/spawn_tuning_v2/test_cross_lang.py`（7 用例修复） |
+
+#### 多端同步
+
+| 端 | 同步方式 | 行为 |
+|---|---|---|
+| miniprogram | `bash scripts/sync-core.sh` → `miniprogram/core/difficulty.js` | 自动获得 humped 曲线；lifecycleStressCap 走 stub（返回 null，等价旧行为） |
+| cocos creator | 同步脚本生成 `cocos/assets/scripts/engine/*.mjs` | 同上 |
+| cocos lifecycle 子系统 | 不分发 → 生成 stub `getLifecycleStressCap() { return null; }` | arc 调制层透明降级，humped 曲线照样生效 |
+
+### 16.5 模块契约与代码索引
+
+| 模块 | 公开 API | 跨语言对齐 |
+|---|---|---|
+| `web/src/retention/runOverRunArc.js` | `deriveRunOverRunArc(ctx)` / `resolveArcThresholds(cfg)` / `describeRunOverRunArc(info)` / `RUN_OVER_RUN_ARCS` / `DEFAULT_ARC_THRESHOLDS` | — (Python 端目前不需要，未来 RL 训练若需感知 arc 再补) |
+| `web/src/lifecycle/lifecycleStressCapMap.js` | `getLifecycleStressCap(stage, band, arcModifier?)` / `resolveArcLifecycleModifier(arc, cfg)` | — |
+| `web/src/tuning/v2/targetSCurve.js` | `targetSCurve(r)` / `targetSCurveByArc(r, arc)` / `ARC_MODIFIERS` / `getArcModifier(arc)` | `rl_pytorch/spawn_tuning_v2/target_curve.py` 同名/snake_case |
+| `shared/game_rules.json` | `runDifficulty.curve / stressBonusByStreak / fillBonusByStreak` + `runOverRunArc.*` | 单一真源；sync-core.sh / sync-cocos-engine.mjs 自动分发 |
+
+### 16.6 运营调参指南
+
+所有可调参数均落在 `shared/game_rules.json`：
+
+```json
+"runDifficulty": {
+  "curve": "humped",
+  "stressBonusByStreak": [0, 0.03, 0.05, 0.05, 0.02, -0.05, -0.10],
+  "fillBonusByStreak":   [0, 0.01, 0.02, 0.02, 0.01, -0.01, -0.03]
+},
+"runOverRunArc": {
+  "enabled": true,
+  "openerIdleMs": 1800000,
+  "fatigueLossStreak": 3,
+  "rageMinChainLen": 2,
+  "lifecycleCapModifier": {
+    "opener":   { "capScale": 0.85, "adjustDelta": -0.05 },
+    "fatigue":  { "capScale": 0.80, "adjustDelta": -0.10 },
+    "cooldown": { "capScale": 0.70, "adjustDelta": -0.15 }
+  }
+}
+```
+
+常见调参场景：
+
+| 目标 | 改哪 |
+|---|---|
+| 让 "breather 局" 来得更早（核心玩家爆肝场景） | `runDifficulty.stressBonusByStreak[4]` 调为负 |
+| 关闭 RoR 但保留 humped 曲线 | `runOverRunArc.enabled = false`（adaptiveSpawn 收到 null modifier） |
+| 完全回滚到 v1.67 | `runDifficulty.curve = "linear"` + 同上 |
+| 让 cooldown 来得更敏感 | `runOverRunArc.rageMinChainLen = 1` |
+
+### 16.7 监控与回归
+
+#### 16.7.1 推荐黄金指标
+
+| 指标 | 期望 | 实现位置 |
+|---|---|---|
+| `dailyRun_1_endRate` | 今日首局 game-over 率 ≤ 今日平均 × 0.8 | `run_over_run_arc_observed` 事件 + 后端聚合 |
+| `dailyRun_breather_quitRate` | breather 局后立即退出比例 ↓ | 同上 |
+| `rageRestart_chain_len` | 赌气重开链中位数 ≤ 2 | 同上 |
+| `arc_transition_heatmap` | `opener→momentum→peak→fatigue→cooldown` 单调性 | dashboard B.3 新增 tab |
+
+#### 16.7.2 已有单测覆盖（共 60 用例）
+
+- `tests/runOverRunArc.test.js` — 派生表 / 阈值覆写 / 五档全枚举 / 优先级矩阵
+- `tests/runOverRunDifficulty.test.js` — humped 曲线 / fillRatio 双夹紧 / arcModifier / 5×5×5 立方
+- `tests/tuning/v2/targetSCurve.test.js` — arc-aware 形变 / 五档单调 / null 透明 / 锚点
+- `tests/spawn_tuning_v2/test_target_curve.py` — Python 端镜像（同上）
+- `tests/spawn_tuning_v2/test_cross_lang_arc_curve.py` — `ARC_MODIFIERS` JS↔Python 文本级 grep 对齐
+
+#### 16.7.3 profileAudit 契约（建议后续添加）
+
+```js
+// scripts/audit-profile.mjs 新契约
+{
+  id: 'daily-fatigue-breather',
+  expect: (events) => {
+    // fatigue 局必须出现 ≥1 个 stress 显著回落事件（lifecycleCapAdjust < -0.05）
+  }
+}
+```
+
+### 16.8 回滚与降级策略
+
+| 故障 | 自动行为 | 手动止血 |
+|---|---|---|
+| `runOverRunArc.js` 抛错 | `try/catch` 吞掉，`runOverRunArc = null`，adaptiveSpawn 走 null modifier（即旧行为） | 无需操作 |
+| `localStorage` 被禁/满 | `_loadDailyRunState` 返回空状态，每局都按 `opener` 处理（保守） | 无需操作 |
+| `lifecycleCapModifier` JSON 字段缺失 | `resolveArcLifecycleModifier` 返回 null，`getLifecycleStressCap` 仍返回原值 | 无需操作 |
+| humped 曲线导致体验异常 | — | `runDifficulty.curve = "linear"` 一行回退 |
+| arc 形变曲线导致训练异常 | — | `ARC_MODIFIERS` 五档全部改为 `{1, 0, 0}` 等价基线 |
+
 ## 关联文档
 
 | 文档 | 关系 |
@@ -2302,7 +2604,7 @@ python -m rl_pytorch.spawn_tuning_v2.optimize_theta --checkpoint ... --output ..
 | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) | 信号矩阵 |
 | 本手册 §13 出块建模 | 设计 rationale（原 本手册 §13） |
 | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) | 三档难度 |
-| [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](../player/REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格 → dock 调整 |
+| [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格 → dock 调整 |
 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | RL 与 SpawnPredictor 接口 |
 
 ---

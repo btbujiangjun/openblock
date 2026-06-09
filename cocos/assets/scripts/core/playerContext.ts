@@ -31,6 +31,20 @@ export class PlayerContext {
     private bottleneckSolutionTrough = Infinity;
     /** 采样次数；0 表示本周期尚无瓶颈样本。 */
     private bottleneckSamples = 0;
+    /** 暖局剩余轮数（开局前 N 轮减压 clearBoost；与 web `_spawnContext.warmupRemaining` 对齐）。 */
+    private warmupRemaining = 0;
+    /** 暖局 clearBoost 强度（与 web `_spawnContext.warmupClearBoost` 对齐）。 */
+    private warmupClearBoost = 0;
+    /** 「连续重玩」计数 —— 不是连胜，是 game over→retry 的会话内连战次数（与 web `runStreak` 同义）。
+     *  仅进程内有效，刻意不持久化：菜单/换难度/换模式回到 enterFromMenu 应清零；从结算卡 onAgain
+     *  再开局应 +1。喂给 adaptiveSpawn 的第 4 参数，影响 runStreakStress 信号。 */
+    private runStreak = 0;
+    /** 破纪录释放窗口 —— 与 web `_spawnContext.postPbReleaseActive/Remaining` + `_postPbReleaseUsed` 严格同义。
+     *  局内首次破 PB 时触发，接下来 N (默认 5) 次 spawn 内 stress×0.7 + clearGuarantee +1 + challengeBoost 完全禁用；
+     *  同一局内 used 标记保证只激活一次。新局通过 reset() 清空。 */
+    private postPbReleaseRemaining = 0;
+    private postPbReleaseActive = false;
+    private postPbReleaseUsed = false;
 
     /** 分数里程碑步长（每跨过一档触发一次 scoreMilestone）。 */
     private readonly milestoneStep = 500;
@@ -40,8 +54,8 @@ export class PlayerContext {
         this.bestScore = Math.max(0, best | 0);
     }
 
-    /** 新开局重置（保留 best 作为 PB 基线）。 */
-    reset(best: number): void {
+    /** 新开局重置（保留 best 作为 PB 基线；默认启用 3 轮暖局减压，与 web 节奏一致）。 */
+    reset(best: number, warmup: { rounds?: number; clearBoost?: number } = {}): void {
         this.roundsSinceClear = 0;
         this.lastClearCount = 0;
         this.totalClears = 0;
@@ -51,6 +65,69 @@ export class PlayerContext {
         this.recentClears = [];
         this.resetBottleneck();
         this.setBest(best);
+        this.warmupRemaining = Math.max(0, warmup.rounds ?? 3);
+        this.warmupClearBoost = Math.max(0, warmup.clearBoost ?? 0.4);
+        // 新局：破纪录释放窗口的"局内 used cooldown"也重置（与 web `_postPbReleaseUsed` 重置时机一致）。
+        this.postPbReleaseRemaining = 0;
+        this.postPbReleaseActive = false;
+        this.postPbReleaseUsed = false;
+    }
+
+    /** 取当前暖局剩余轮数（engineSpawn 每轮拉取并自然 −−）。 */
+    getWarmupRemaining(): number {
+        return this.warmupRemaining;
+    }
+
+    /** 取当前暖局 clearBoost 强度。 */
+    getWarmupClearBoost(): number {
+        return this.warmupClearBoost;
+    }
+
+    /** 消费一个暖局轮（engineSpawn 在出块成功后调用一次）。 */
+    consumeWarmup(): void {
+        if (this.warmupRemaining > 0) this.warmupRemaining--;
+    }
+
+    /** 取「连续重玩」计数（喂给 adaptiveSpawn 的 runStreak 参数）。 */
+    getRunStreak(): number {
+        return this.runStreak;
+    }
+
+    /** 「再来一局」(GameOver onAgain) 时调用：+1，启用 runStreakStress 累积加压。 */
+    incrementRunStreak(): void {
+        this.runStreak++;
+    }
+
+    /** 「回菜单 / 换模式 / 换难度」时调用：归零。 */
+    resetRunStreak(): void {
+        this.runStreak = 0;
+    }
+
+    /** 破纪录释放窗口是否激活（engineSpawn 注入 `ctx.postPbReleaseActive`）。 */
+    isPostPbReleaseActive(): boolean {
+        return this.postPbReleaseActive;
+    }
+
+    /**
+     * 局内首次破纪录时调用（GameController.maybeCelebrateNewBest 内）。
+     * 与 web `_startPostPbReleaseWindow` 严格同语义：局内 used → 静默 no-op，保证只激活一次。
+     * @param spawns 释放窗口长度（默认 5；与 game_rules.adaptiveSpawn.pbChase.postPbReleaseWindow.spawns 对齐）
+     */
+    triggerPostPbRelease(spawns = 5): void {
+        if (this.postPbReleaseUsed) return;
+        this.postPbReleaseRemaining = Math.max(0, spawns | 0);
+        this.postPbReleaseActive = this.postPbReleaseRemaining > 0;
+        this.postPbReleaseUsed = true;
+    }
+
+    /**
+     * engineSpawn 每轮出块后调用一次：剩余轮数 −−，归零后关闭 active 标记。
+     * 与 web `spawnBlocks` 末尾「postPbReleaseRemaining−−；≤0 时关 active」一致。
+     */
+    tickPostPbRelease(): void {
+        if (!this.postPbReleaseActive) return;
+        if (this.postPbReleaseRemaining > 0) this.postPbReleaseRemaining--;
+        if (this.postPbReleaseRemaining <= 0) this.postPbReleaseActive = false;
     }
 
     /** 每次新 dock（出块一轮）：推进节奏计数，开窗，清里程碑标记。 */
@@ -139,6 +216,7 @@ export class PlayerContext {
             bottleneckTrough: this.bottleneckTrough,
             bottleneckSolutionTrough: this.bottleneckSolutionTrough,
             bottleneckSamples: this.bottleneckSamples,
+            postPbReleaseActive: this.postPbReleaseActive,
         };
     }
 }

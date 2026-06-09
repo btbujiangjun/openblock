@@ -16,6 +16,7 @@ import pytest
 from rl_pytorch.spawn_tuning_v2.target_curve import (
     target_S_curve, target_curve_vector, r_to_bin,
     is_monotonic_non_decreasing, get_target_metadata,
+    target_S_curve_by_arc, get_arc_modifier, ARC_MODIFIERS,
     CURVE_N_BINS, CURVE_R_MAX,
     SEG_GENTLE_END, SEG_MID_END, SEG_BRAKE_END,
     D_BASE, D_GENTLE_END, D_MID_END, D_BRAKE_END, D_CAP,
@@ -132,3 +133,63 @@ class TestMetadata:
             assert seg["r_range"][0] == pytest.approx(prev_end)
             prev_end = seg["r_range"][1]
         assert prev_end == pytest.approx(CURVE_R_MAX)
+
+
+# ─────────── v1.68 PR3：arc-aware 形变曲线 ───────────
+class TestArcAwareCurve:
+    """与 JS 端 web/src/tuning/v2/targetSCurve.js 1:1 对齐的形变层。"""
+
+    def test_arc_constants_match_js(self):
+        # 锚点；与 JS ARC_MODIFIERS 严格一致
+        assert sorted(ARC_MODIFIERS.keys()) == ["cooldown", "fatigue", "momentum", "opener", "peak"]
+        assert ARC_MODIFIERS["opener"]["dScale"] == pytest.approx(0.90)
+        assert ARC_MODIFIERS["fatigue"]["brakeShift"] == pytest.approx(0.15)
+        assert ARC_MODIFIERS["cooldown"]["dShift"] == pytest.approx(-0.05)
+
+    def test_momentum_peak_null_identity(self):
+        for r in [i * 0.07 for i in range(int(CURVE_R_MAX / 0.07) + 1)]:
+            assert target_S_curve_by_arc(r, "momentum") == pytest.approx(target_S_curve(r), abs=1e-9)
+            assert target_S_curve_by_arc(r, "peak") == pytest.approx(target_S_curve(r), abs=1e-9)
+            assert target_S_curve_by_arc(r, None) == pytest.approx(target_S_curve(r), abs=1e-9)
+            assert target_S_curve_by_arc(r, "unknown_arc") == pytest.approx(target_S_curve(r), abs=1e-9)
+
+    def test_opener_caps_at_0_9(self):
+        for r in [i * 0.1 for i in range(1, int(CURVE_R_MAX * 10) + 1)]:
+            o = target_S_curve_by_arc(r, "opener")
+            assert o <= target_S_curve(r) + 1e-9
+        assert target_S_curve_by_arc(CURVE_R_MAX, "opener") <= 0.9 + 1e-9
+
+    def test_fatigue_cooldown_below_base(self):
+        for r in [i * 0.1 for i in range(3, 16)]:
+            base = target_S_curve(r)
+            f = target_S_curve_by_arc(r, "fatigue")
+            c = target_S_curve_by_arc(r, "cooldown")
+            assert f <= base + 1e-9
+            assert c <= f + 1e-9
+
+    def test_fatigue_brake_shift_semantics(self):
+        # r=0.85 时基线已进入 brake；fatigue 应仍很低
+        base_at_pb = target_S_curve(0.85)
+        fat_at_pb = target_S_curve_by_arc(0.85, "fatigue")
+        assert fat_at_pb < base_at_pb * 0.6
+        assert target_S_curve_by_arc(1.3, "fatigue") > 0.6
+
+    def test_all_arcs_in_bounds(self):
+        for arc in ARC_MODIFIERS.keys():
+            for k in range(-50, int(CURVE_R_MAX * 100) + 51):
+                v = target_S_curve_by_arc(k / 100.0, arc)
+                assert 0.0 <= v <= D_CAP + 1e-9
+
+    def test_all_arcs_monotonic(self):
+        for arc in ARC_MODIFIERS.keys():
+            rs = [i / 100 for i in range(0, int(CURVE_R_MAX * 100) + 1)]
+            ds = [target_S_curve_by_arc(r, arc) for r in rs]
+            assert is_monotonic_non_decreasing(ds, tol=1e-4)
+
+    def test_arc_modifier_identity_for_unknown(self):
+        m = get_arc_modifier(None)
+        assert m["dScale"] == 1
+        assert m["dShift"] == 0
+        assert m["brakeShift"] == 0
+        m2 = get_arc_modifier("nonexistent")
+        assert m2["dScale"] == 1

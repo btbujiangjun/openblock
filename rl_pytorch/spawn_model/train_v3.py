@@ -276,6 +276,13 @@ def train(args):
             targets = batch['targets'].to(device)
             categories = batch['categories'].to(device)
             weights = batch['weight'].to(device)
+            # v1.69：可选 reward 微调权重（端侧 evaluation 派生），由 args.reward_blend
+            # 控制混入比例；0 表示完全沿用原 weight（向后兼容）。
+            if getattr(args, 'reward_blend', 0.0) > 0 and 'reward' in batch:
+                rewards = batch['reward'].to(device)
+                # 把 reward 归一到 ≈[0,2] 之后与 weight 线性混合；clamp 防异常样本爆裂。
+                reward_norm = torch.clamp(1.0 + 0.5 * rewards, 0.4, 2.0)
+                weights = (1.0 - args.reward_blend) * weights + args.reward_blend * reward_norm
 
             target_diff = compute_target_difficulty(behavior_context).to(device)
             playstyle_id = (
@@ -469,6 +476,9 @@ def main():
                    help='style 自监督交叉熵权重')
     p.add_argument('--w-intent', type=float, default=0.10,
                    help='spawnIntent 自监督交叉熵权重')
+    p.add_argument('--reward-blend', type=float, default=0.0,
+                   help='v1.69 端侧 evaluation 派生 reward 混入权重系数 ∈ [0,1]；'
+                        '0=完全沿用原 weight（向后兼容），0.3=温和接入，1.0=纯 reward 加权')
     args = p.parse_args()
     train(args)
 

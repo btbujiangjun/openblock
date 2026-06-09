@@ -7,6 +7,213 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — v1.69.2 评估系统：正确性修复 + adaptiveSpawn 反馈闭环 + DFV/玩家解释接入
+
+继 v1.69.1 完成多端 ledger 写入与 RL outcome 离线消费后，本次完成端侧 evaluation
+信号的**实时下游接入**与**正确性审计修复**：
+
+1. **正确性修复（P0/P1/P2，详见 `docs/algorithms/PLACEMENT_QUALITY.md §12.5`）**：
+   - **P0**：`roundQuality.classify` 的 `forced_bad` 门控误用 `roundAbs`（玩家实际放法
+     5 维加权分），应为 `bestRoundAbs`（全局枚举上界）。修复前"玩家放得差导致
+     roundAbs 低"被错判为算法死局，RL `_outcome_weight_factor` ×0.6 / `_pb_reward`
+     -0.10 长期收到错误信号。
+   - **P1**：`placementQuality.deriveBadnessTag` 改用 `max(holesΔ, enclosedDelta)`，
+     让玩家视觉敏感的 `enclosedVoidCells` 也能触发 `created_hole` 提示，与 spawnGeo
+     UI 口径一致。
+   - **P2**：节流步不再写入 `ps.evalMetrics`（RL 离线侧 mean_regret 与 session 端
+     `regretPerStep` 口径统一，都按 evaluated 步聚合）。
+   - **P2**：`roundQuality.enumerateBest` 直接读 `placementQuality.q.lines`，不再
+     从 PAYOFF_LADDER 阶梯反推（自定义权重场景不再失真）。
+
+2. **adaptiveSpawn 实时反馈闭环（v1.69.2 主线）**：
+   - 新增 `playerProfile.recordMoveQuality(mq)` / `recordRoundQuality(rq)` 与
+     `evalMetrics` getter：滑窗维护 `recentMeanRegret` / `recentForcedBadRate` /
+     `recentSalvageRate` / `consecutiveForcedBad` / `lastRoundClassification`。
+   - `resolveAdaptiveStrategy` 注入 evaluation 派生到 `_intentInputs`：
+     - `consecutiveForcedBad ≥ 2` 或 `recentForcedBadRate > 0.3` → 强制 relief 意图
+     - `clearGuarantee`: forced_bad 历史 → +1~+2（救场）
+     - `targetSolutionRange.max`: forced_bad 历史 → +2（软滤放宽）
+     - `recentSalvageRate > 0.3` 且无 forced_bad → `sizePreference += 0.05`（强玩家维持难度）
+   - `_evalOnPlace` / `_evalCloseRound` 同步回灌 profile 滑窗，下一帧 spawn 即可读到。
+   - **设计原则**："算法责任"（forced_bad）→ 强 relief；"玩家责任"（mean_regret 高
+     但无 forced_bad）→ advisor 文案提示，spawn 不下放。
+   - **模型契约保护**：evaluation 信号**不进** behavior_context（保持 63 维 + 旧
+     checkpoint 兼容），通过 `clearGuarantee` / `targetSolutionRange.max` /
+     `spawnIntent` 间接生效——"高阶反馈优于低阶 state 扩维"。
+
+3. **DFV 决策流面板新增 evaluation 节点**：
+   - `SIGNAL_NODES` 新增 `regret`（后悔）/ `forcedBad`（算法死局）2 个节点，
+     数据源 = `profile.evalMetrics`，与 adaptiveSpawn 反馈闭环同源。
+   - `SIGNAL_TIP` 字典 + zh-CN/en i18n keys 补齐（`dfv.signal.regret` / `dfv.signal.forcedBad`）。
+
+4. **playerInsightPanel 玩家解释接入**：
+   - 新增"🧠 放块评估"解释组（`_buildEvalWhyLines`），把 `evalMetrics` 翻译成 1-3 条
+     玩家可读 bullet（连续算法死局补救、救场识别、后悔度提示、最优节奏鼓励）。
+   - 静默原则：滑窗 `samples < 3` 时完全不输出，避免冷启动期噪声。
+
+5. **多端 sync**：
+   - `playerProfile.recordMoveQuality` / `recordRoundQuality` / `evalMetrics` 通过
+     `sync-core.sh` 同步到 `miniprogram/core/playerProfile.js` 与 Cocos
+     `engine/playerProfile.mjs`，adaptiveSpawn 同步获得反馈闭环。
+   - `evaluationHost` 增加 `getPlayerProfileRef()` host 契约，让 miniprogram / Cocos
+     端的 ledger 回灌也走同一接口。
+
+6. **测试覆盖**：
+   - 新增 `tests/evaluation/feedbackLoop.test.js`（8 个测试，覆盖 evalMetrics 派生
+     正确性、滑窗清零、adaptiveSpawn 三路反馈生效、salvage 不下放）。
+   - 既有 140 个 evaluation/adaptiveSpawn 测试全过；Python `test_dataset_v169.py`
+     7/7 全过。
+
+### Added — v1.69.1 评估系统：多端落地 + RL outcome 扩展 + advisor 接入
+
+继 v1.69 评估系统首版上线后，本次把所有"Phase 1 跳过项"全部补齐：
+
+1. **spawn audit 字段路径修正**：之前 `_evalOnSpawn` 读 `layered.spawnTargets.payoffIntensity` /
+   `layered._solutionMetrics` / `layered._spawnDiagnostics` 都是**不存在的路径**，
+   导致 ledger 写入的全是 null/0。修正为：
+   - `hints.spawnTargets.payoffIntensity`（嵌套在 spawnHints 下）
+   - `getLastSpawnDiagnostics().layer1.solutionMetrics.solutionCount`
+   - `Object.values(diag.solutionRejects).sum()` / `diag.attempt`
+   完整字段权威见 `PLACEMENT_QUALITY.md §9 决策真值快照`。
+
+2. **strategyAdvisor 接入 evaluation 复盘卡**：`generateStrategyTips()` 新增
+   `lastMoveEval` 参数，按 `badnessTag` 输出：
+   - 🕳️ 注意空洞（created_hole）
+   - 🏔️ 堆叠偏高（top_stacking）
+   - 🎯 错过清行（wasted_payoff）
+   触发条件：`regret ≥ 0.10` 且 `flowState !== 'anxious'`（不打扰焦虑玩家）。
+   优先级 0.78，与 `applyTipCategoryDiversity` 兼容。
+
+3. **RL outcome 契约扩展（7 → 15）**：`rl_pytorch/spawn_model/dataset.py`
+   `OUTCOME_DIM = 15`，新增 8 维端侧 evaluation 派生维度：
+   - `[7] meanMoveRegret`、`[8] meanMoveOptimality`
+   - `[9] forcedBadFlag`、`[10] salvageFlag`
+   - `[11] roundAbsScore`、`[12..14] order/path/payoffRegret`
+
+   端侧 `_pushPlaceToSequence` 把 placementQuality 挂到 `ps.evalMetrics`，
+   `_pushSpawnToSequence` 把 roundQuality 挂到下一帧 `ps.evalRound`，Python
+   离线**直接读取不重算**。
+
+   `_pb_reward` / `_outcome_weight_factor` 同步引入新信号：
+   - salvage 样本 ×1.25（高质量正样本）
+   - forced_bad 样本 ×0.60（算法责任降权）
+   - 高 meanMoveRegret 线性扣 0.35（玩家失误降权）
+   - 旧 7 维 outcome 通过 `len(o)==7` 检查自动退化（向后兼容）
+
+   `train_v3.py` 新增 `--reward-blend ∈ [0,1]`，默认 0 完全兼容，灰度 0.3，
+   Phase 4 切到 1.0。
+
+4. **小程序端 hook 落地**：新增 `web/src/evaluation/evaluationHost.js` 端无关
+   host 契约，sync 后小程序 `gameController.js` 实现 getter + `wx.request`
+   上报通道，per-place / per-round / session 全套生效。
+
+5. **Cocos 端 hook 落地（Phase 1 局部）**：`GameController.ts` 接入 spawn /
+   gameOver 两层 + `globalThis.fetch` 上报。per-place 因需 GameModel API
+   改造（暴露 boardBefore），规划在 Phase 2 补齐。详见 `SESSION_EVALUATION.md §8.1`。
+
+6. **共享 host 抽象**：`evaluationHost.js` 经 `sync-core.sh` + `sync-cocos-engine.mjs`
+   自动产出三端副本（Web ESM / 小程序 CJS / Cocos ESM）。三端 controller 只需实现
+   contract getters + 上报 promise，避免散落 try/catch 与字段路径漂移。
+   sync-core.sh 顺手修复 `export async function` 未被识别导致的 module.exports 漏导。
+
+7. **配置 / schema 版本化**：`shared/game_rules.json` 新增 `evaluationRuntime`
+   节，包含 `platforms.{web|miniprogram|cocos}` 子开关、`perPlaceSampling`
+   节流系数、`rlOutcomeSchema.version = "v1.69.0"`。Bump 规则：维度/字段顺序
+   动 → patch；语义破坏 → minor。
+
+8. **测试**：新增 `tests/evaluation/evaluationHost.test.js`（3 例：完整流程 /
+   noop / getter 抛错隔离）、`tests/evaluation/advisorIntegration.test.js`
+   （7 例：各 badnessTag 触发 + 抑制条件）、`rl_pytorch/spawn_model/test_dataset_v169.py`
+   （8 例：15 维契约 / 端侧字段聚合 / weight uplift / reward 加权）。
+   evaluation 总计 31 例（v1.69 21 例 + 本轮 10 例）。
+
+9. **文档**：`SESSION_EVALUATION.md` 新增 §8.1 端侧覆盖阶段表 + §9 RL outcome
+   契约（OUTCOME_DIM 15 字段表 + reward shaping + train_v3 接入）；
+   `PLACEMENT_QUALITY.md` 新增 §9 决策真值快照 + §10 RL 注入 + §11 advisor 文案接入。
+
+### Added — v1.69 评估系统（步/轮/局/局间四层）
+
+**问题**：v1.68 之前所有评估口径只到"局后回放分析"（`buildReplayAnalysis`），
+对**每一步是否最优、玩家失误来自哪一类**没有客观刻度。这造成 spawn 模型训练
+的负样本被"玩家失误"和"算法不友好"混淆，灰度回滚误判率高；strategyAdvisor
+也无法给出"本可以这样更好"的精确建议。
+
+**改造**：新建 `web/src/evaluation/` 6 个**纯函数**模块：
+
+- `placementQuality.js` → `evaluatePlacement`：5 维分量（contact / tidiness /
+  holeSafety / payoff / unlocking），regret + badnessTag（optimal /
+  created_hole / top_stacking / wasted_payoff / fine）；开局极松自动节流；
+- `roundQuality.js` → `evaluateRound`：枚举 6 个 dock 排列，三类 regret 拆解
+  （order / path / payoff），分类 forced_bad / salvage / optimal /
+  payoff_missed / order_wrong / placement_wrong；
+- `sessionEvaluator.js` → `buildSessionEvalRecord`：聚合 outcome / trajectory /
+  spawnAudit（intent/guarantee/payoff 兑现率 + dock 熵）/ cross / guard
+  （rageQuit / topOutBeforeFlow / flowStarvation）/ arcContext；
+- `runToRunEvaluator.js`：`buildIntraDayReport`（含 v1.68 RoR 验收：60s vs 5s
+  rage 窗口对比、cooldown 恢复率、arc cap adherence）、`buildMultiDayReport`、
+  `compareModelVersions`（A/B 与灰度回滚自动门）；
+- `evaluationLedger.js`：Game 实例持有的轻量累计器；
+- `gridAdapter.js`：cells 二维数组 → boardTopology grid-like 适配器。
+
+**Game 集成（web 端）**：在 `start() / _commitSpawn / onEnd / endGame` 注入
+`_evalOnSpawn / _evalOnPlace / _evalCloseRound / _evalOnGameOver` 钩子，全部
+try/catch 兜底；离线时 record 暂存 `localStorage.openblock_pending_eval_v1`。
+
+**后端**：新增 `evaluation_session` 表（14 个直查列 + payload JSON）+ 三个
+路由 `/api/evaluation/{session, sessions, ror_audit}`。
+
+**配置**：`shared/game_rules.json` 新增 `placementEvaluation` / `roundEvaluation`
+/ `sessionEvaluation` 三块，跨端同步。
+
+**测试**：`tests/evaluation/` 21 个新 vitest 用例，全量套件 146 文件 / 2696
+测试全绿。
+
+**文档**：`docs/algorithms/PLACEMENT_QUALITY.md` + `docs/algorithms/SESSION_EVALUATION.md`
+（含与 v1.68 RoR 系统的"验证矩阵"）。注册到 `server.py` 文档门户与
+`docs/README.md`、`ALGORITHMS_HANDBOOK.md`。
+
+**当前阶段**：Phase 1（Web 端启用，移动端配置同步但运行时不调用，保留 60fps
+预算）。后续 Phase 2/3/4 见 `SESSION_EVALUATION.md §8`。
+
+### Added — v1.68 局间难度（Run-over-Run Difficulty）：单局 S 曲线之上的 5 档 arc 形变
+
+**问题**：原难度系统的 `runStreak` 假设"再来一局就该更难"，单调线性加压；
+没有区分"今天第几局/距离上次休息多久"，与 King/RMH 2025/EDDA 2025 的
+"retention always wins" / "首局必须易、5 局后必 breather" 共识相反。
+
+**改造（3 个独立 PR，每个可独立回滚）**：
+
+- **PR1 — 派生层（零行为变更）**：新建 `web/src/retention/runOverRunArc.js`，从
+  `dailyRunIndex / lastGameOver / recentScores / rageChainLen` 派生 5 档 arc
+  （opener / momentum / peak / fatigue / cooldown）；优先级：cooldown > fatigueLossStreak
+  > opener > fatigueIndex > peak > momentum。在 `game.js` 注入 localStorage
+  持久化 + analytics 埋点 `run_over_run_arc_observed`，不影响出块。
+- **PR2 — `runDifficulty` humped 曲线 + lifecycleStressCap arc modifier**：
+  `shared/game_rules.json` 新增 `curve='humped'` + `stressBonusByStreak=[0,+0.03,+0.05,+0.05,+0.02,-0.05,-0.10]`
+  让第 2-3 局达峰、第 5 局后强制 breather；同时把 arc 转成 `(capScale, adjustDelta)`
+  乘性 modifier 叠加在原 5×5 `S×M` 表之上，逻辑视图扩展到 5×5×5；
+  旧 `curve='linear'` 保留为 fallback。
+- **PR3 — `targetSCurveByArc` 跨语言**：JS (`web/src/tuning/v2/targetSCurve.js`) +
+  Python (`rl_pytorch/spawn_tuning_v2/target_curve.py`) 同步新增 5 档形变
+  常量 `ARC_MODIFIERS = {opener:0.90, momentum:1, peak:1, fatigue:(×0.85, brake右移0.15), cooldown:(×0.75, brake右移0.20)}`，
+  确保规则出块与 RL 训练目标一致。
+
+**多端同步**：
+- `bash scripts/sync-core.sh` 把 humped 曲线分发到 miniprogram 与 cocos；
+- cocos 不分发 lifecycle 子系统 → arc modifier 走 stub 软降级（等价旧行为），humped 曲线仍生效。
+
+**测试**：60 新 JS 用例 + 8 新 Python 用例 + 跨语言 grep 锚点；全量套件 142 文件 / 2667
+JS 测试 + 367 Python 测试全部通过；顺手修复了 `test_cross_lang.py` 的 v2.3 → v2.6 旧锚点。
+
+**文档**：
+- 主文档：`docs/algorithms/RUN_OVER_RUN_DIFFICULTY.md`（含 mermaid 流程图、5×5×5
+  立方矩阵、D 曲线五档 ASCII 可视化、调用时序图、回滚策略）
+- 链接更新：`DIFFICULTY_MODES.md §九`、`BEST_SCORE_CHASE_STRATEGY.md §3.7.4/3.7.5`、
+  `docs/algorithms/README.md`
+
+**回滚**：`runOverRunArc.enabled = false`（关 arc 调制）或 `runDifficulty.curve = "linear"`
+（关 humped 曲线），各自独立可关。
+
 ### Changed — v1.51.9 决策数据流面板：所有指标名全中文 + 完整 i18n
 
 **用户反馈**：v1.51.8 截图右栏 section title 仍是「stress 贡献 / shapeWeights / spawnTargets / spawnHints」半中半英；spawnHints 第二列的枚举值（如 `tension / payoff / peak / flow_payoff / setup`）也是英文；`stress 贡献` 项的中文 label（来自 stressMeter.js 的 SIGNAL_LABELS）虽然已是中文但**不可 i18n**（en 时仍中文）。

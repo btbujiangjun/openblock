@@ -287,7 +287,7 @@ function resolveThetaV2(playerCtx = {}) {
  * 表现为「dashboard 已显示 100% rollout 但启发式 badge 仍显示规则」的状态不一致。
  * 'no-cache' 强制 revalidate（带 If-None-Match，命中走 304，开销很小）。
  */
-export async function loadPoliciesFromBundleV2(url = '/spawn-tuning-v2/policies.json') {
+async function loadPoliciesFromBundleV2(url = '/spawn-tuning-v2/policies.json') {
     try {
         const r = await fetch(url, { cache: 'no-cache' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -305,7 +305,7 @@ export async function loadPoliciesFromBundleV2(url = '/spawn-tuning-v2/policies.
 
 
 /** 加载 server-side bundle (优先, 拿最新灰度比例)。 */
-export async function loadPoliciesFromServerV2(apiBaseUrl = '') {
+async function loadPoliciesFromServerV2(apiBaseUrl = '') {
     try {
         const base = (apiBaseUrl || '').replace(/\/+$/, '');
         const r = await fetch(`${base}/api/spawn-tuning-v2/policies/active`);
@@ -330,7 +330,7 @@ export async function loadPoliciesFromServerV2(apiBaseUrl = '') {
  *   bundleData? — 微信小程序 require 进来的对象 (优先级最高)
  *   apiBaseUrl? — server fetch 基址
  */
-export async function initClientPolicyV2(opts = {}) {
+async function initClientPolicyV2(opts = {}) {
     // v2.10.10: 订阅跨 tab BroadcastChannel — dashboard D.1 导出 bundle 后
     // 立即重新 fetch + install，让游戏页 badge 实时翻为「寻参」，无需手工刷新。
     // 兼容 fallback：旧浏览器无 BroadcastChannel 时跳过（用户刷新页面仍能拉到新 bundle）。
@@ -504,4 +504,4 @@ function getStatsV2() {
     };
 }
 
-module.exports = { _uninstallBundleUpdateChannelForTest, _uninstallMetaPollingForTest, buildContextKeyV2, DEFAULT_THETA_V2, getStatsV2, hashUserToBucket, installPoliciesV2, resolveThetaV2, THETA_RANGES, uninstallPoliciesV2 };
+module.exports = { _uninstallBundleUpdateChannelForTest, _uninstallMetaPollingForTest, buildContextKeyV2, DEFAULT_THETA_V2, getStatsV2, hashUserToBucket, initClientPolicyV2, installPoliciesV2, loadPoliciesFromBundleV2, loadPoliciesFromServerV2, resolveThetaV2, THETA_RANGES, uninstallPoliciesV2 };

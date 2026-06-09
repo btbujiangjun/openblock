@@ -117,6 +117,13 @@ export class PlayerProfile {
         this._feedbackStepsLeft = 0;
         this._feedbackClearsInWindow = 0;
 
+        /* v1.69.2：evaluation 滑窗（详见 recordMoveQuality / evalMetrics）。
+         * constructor 已显式初始化，避免下游 getter 在零调用情况下读 undefined。 */
+        this._evalWindow = [];
+        this._roundEvalWindow = [];
+        this._consecutiveForcedBad = 0;
+        this._lastEvalMoveAt = 0;
+
         /* ---- 长周期评估 ---- */
         /** @type {SessionSummary[]} 最近 SESSION_HISTORY_CAP 局的摘要（按时间升序） */
         this._sessionHistory = [];
@@ -307,6 +314,103 @@ export class PlayerProfile {
         this._consecutiveNonClears++;
     }
 
+    /* ================================================================== */
+    /*  v1.69.2：evaluation 信号滑窗（供 adaptiveSpawn / DFV 实时消费）       */
+    /* ================================================================== */
+
+    /**
+     * 端侧 evaluation 计算出步级质量后调用本方法。Game._evalOnPlace 在 recordMoveQuality
+     * 之后立刻调用一次；节流步（evaluated=false）也会调用但 regret/optimality 用中性值，
+     * 滑窗按 evaluated 标志过滤，保证 derivative metrics（recentMeanRegret 等）只反映
+     * 真实评估样本。
+     *
+     * @param {{regret:number, optimality:number, badnessTag:string, evaluated?:boolean}} mq
+     */
+    recordMoveQuality(mq) {
+        if (!mq) return;
+        if (!this._evalWindow) this._evalWindow = [];
+        this._evalWindow.push({
+            ts: Date.now(),
+            regret: Number(mq.regret) || 0,
+            optimality: Number(mq.optimality) || 1,
+            badnessTag: mq.badnessTag || 'fine',
+            evaluated: mq.evaluated !== false,
+        });
+        // 与玩家行为窗口同尺度（默认 15）；超出截断保 O(1) 写入。
+        const cap = Math.max(20, this._window * 2);
+        if (this._evalWindow.length > cap) {
+            this._evalWindow.splice(0, this._evalWindow.length - cap);
+        }
+        this._lastEvalMoveAt = Date.now();
+    }
+
+    /**
+     * 端侧 evaluation 关轮后调用一次。本方法是 adaptiveSpawn 决定 relief / clearGuarantee
+     * 提升的"算法责任反馈"输入：连续 ≥2 轮 forced_bad 即视为算法失衡，应在下一轮 spawn
+     * 强制 relief。详见 docs/algorithms/PLACEMENT_QUALITY.md §"adaptiveSpawn 反馈闭环"。
+     *
+     * @param {{classification:string, absScore:number, bestRoundAbs:number, regrets?:object}} rq
+     */
+    recordRoundQuality(rq) {
+        if (!rq) return;
+        if (!this._roundEvalWindow) this._roundEvalWindow = [];
+        const cls = String(rq.classification || 'incomplete');
+        this._roundEvalWindow.push({
+            ts: Date.now(),
+            classification: cls,
+            absScore: Number(rq.absScore) || 0,
+            bestRoundAbs: Number(rq.bestRoundAbs) || 0,
+            totalRegret: Number(rq.regrets?.total) || 0,
+        });
+        // 局间记忆窗：默认 10 轮（≈30 次落子），足以触发 N 连 forced_bad 检测。
+        if (this._roundEvalWindow.length > 12) {
+            this._roundEvalWindow.splice(0, this._roundEvalWindow.length - 12);
+        }
+        if (cls === 'forced_bad') {
+            this._consecutiveForcedBad = (this._consecutiveForcedBad || 0) + 1;
+        } else {
+            this._consecutiveForcedBad = 0;
+        }
+    }
+
+    /**
+     * adaptiveSpawn 实时消费的 evaluation 派生摘要。所有字段在没有 evaluation 数据时
+     * 退化为中性值（regret=0 / forcedBad=0 / salvage=0），下游门控写为软规则即可。
+     *
+     * @returns {{
+     *   recentMeanRegret:number,         // 最近滑窗内 evaluated 步的 regret 均值 ∈ [0,1]
+     *   recentMeanOptimality:number,     // 同上 optimality 均值（中性=1）
+     *   recentForcedBadRate:number,      // 最近 roundEvalWindow 中 forced_bad 占比
+     *   recentSalvageRate:number,        // 同上 salvage 占比
+     *   consecutiveForcedBad:number,     // 连续 forced_bad 轮数（断流即归 0）
+     *   lastRoundClassification:string,  // 最近一轮分类，缺失=null
+     *   samples:number, roundSamples:number,
+     * }}
+     */
+    get evalMetrics() {
+        const moves = (this._evalWindow || []).filter((m) => m.evaluated);
+        const n = moves.length;
+        const meanR = n ? moves.reduce((s, m) => s + m.regret, 0) / n : 0;
+        const meanO = n ? moves.reduce((s, m) => s + m.optimality, 0) / n : 1;
+        const rounds = this._roundEvalWindow || [];
+        const rn = rounds.length;
+        let fb = 0; let sv = 0;
+        for (const r of rounds) {
+            if (r.classification === 'forced_bad') fb++;
+            else if (r.classification === 'salvage') sv++;
+        }
+        return {
+            recentMeanRegret: meanR,
+            recentMeanOptimality: meanO,
+            recentForcedBadRate: rn ? fb / rn : 0,
+            recentSalvageRate: rn ? sv / rn : 0,
+            consecutiveForcedBad: this._consecutiveForcedBad || 0,
+            lastRoundClassification: rn ? rounds[rn - 1].classification : null,
+            samples: n,
+            roundSamples: rn,
+        };
+    }
+
     /** 新局开始时调用：重置局内计数器 */
     recordNewGame() {
         this._spawnCounter = 0;
@@ -337,6 +441,11 @@ export class PlayerProfile {
         this._feedbackStepsLeft = 0;
         this._feedbackClearsInWindow = 0;
         this._cachedHistorical = null;
+        // v1.69.2：evaluation 滑窗与连续 forced_bad 计数同步清零（避免跨局污染）。
+        this._evalWindow = [];
+        this._roundEvalWindow = [];
+        this._consecutiveForcedBad = 0;
+        this._lastEvalMoveAt = 0;
     }
 
     /**

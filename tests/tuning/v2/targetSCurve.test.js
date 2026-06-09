@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
     targetSCurve, targetCurveVector, rToBin,
     isMonotonicNonDecreasing, getTargetMetadata,
+    targetSCurveByArc, getArcModifier, ARC_MODIFIERS,
     CURVE_N_BINS, CURVE_R_MAX,
     SEG_GENTLE_END, SEG_MID_END, SEG_BRAKE_END,
     D_BASE, D_GENTLE_END, D_MID_END, D_BRAKE_END, D_CAP,
@@ -127,5 +128,80 @@ describe('getTargetMetadata', () => {
             prev = seg.r_range[1];
         }
         expect(prev).toBeCloseTo(CURVE_R_MAX, 9);
+    });
+});
+
+// ─────────── v1.68 PR3：arc-aware 形变曲线 ───────────
+describe('targetSCurveByArc（局间难度弧线形变）', () => {
+    it('五档常量与文档锚点一致', () => {
+        expect(Object.keys(ARC_MODIFIERS).sort()).toEqual(
+            ['cooldown', 'fatigue', 'momentum', 'opener', 'peak'].sort(),
+        );
+        expect(ARC_MODIFIERS.opener.dScale).toBeCloseTo(0.90, 6);
+        expect(ARC_MODIFIERS.fatigue.brakeShift).toBeCloseTo(0.15, 6);
+        expect(ARC_MODIFIERS.cooldown.dShift).toBeCloseTo(-0.05, 6);
+    });
+
+    it('momentum / peak / null → 与基线 targetSCurve 恒等', () => {
+        for (let r = 0; r <= CURVE_R_MAX; r += 0.07) {
+            expect(targetSCurveByArc(r, 'momentum')).toBeCloseTo(targetSCurve(r), 9);
+            expect(targetSCurveByArc(r, 'peak')).toBeCloseTo(targetSCurve(r), 9);
+            expect(targetSCurveByArc(r, null)).toBeCloseTo(targetSCurve(r), 9);
+            expect(targetSCurveByArc(r, 'unknown_arc')).toBeCloseTo(targetSCurve(r), 9);
+        }
+    });
+
+    it('opener 在所有 r 上 ≤ 基线（封顶 ~0.9）', () => {
+        for (let r = 0.1; r <= CURVE_R_MAX; r += 0.1) {
+            const base = targetSCurve(r);
+            const o = targetSCurveByArc(r, 'opener');
+            expect(o).toBeLessThanOrEqual(base + 1e-9);
+        }
+        // 顶部封顶接近 0.9
+        expect(targetSCurveByArc(CURVE_R_MAX, 'opener')).toBeLessThanOrEqual(0.9 + 1e-9);
+    });
+
+    it('fatigue / cooldown 严格压低基线，且 cooldown ≤ fatigue ≤ 基线', () => {
+        for (let r = 0.3; r <= 1.5; r += 0.1) {
+            const base = targetSCurve(r);
+            const f = targetSCurveByArc(r, 'fatigue');
+            const c = targetSCurveByArc(r, 'cooldown');
+            expect(f).toBeLessThanOrEqual(base + 1e-9);
+            expect(c).toBeLessThanOrEqual(f + 1e-9);
+        }
+    });
+
+    it('fatigue/cooldown 的 brakeShift 让"接近 PB 才陡升"', () => {
+        // r=0.85 时基线已进入 brake 段（≈ 0.6+），fatigue 应仍在 mid 段（≤0.3）
+        const baseAtPB = targetSCurve(0.85);
+        const fatigueAtPB = targetSCurveByArc(0.85, 'fatigue');
+        expect(fatigueAtPB).toBeLessThan(baseAtPB * 0.6);
+        // r=1.3（已在右移后的 brake 段）fatigue 应明显上升超过 0.6
+        expect(targetSCurveByArc(1.3, 'fatigue')).toBeGreaterThan(0.6);
+    });
+
+    it('所有 arc 的输出仍 ∈ [0, D_CAP]', () => {
+        for (const arc of Object.keys(ARC_MODIFIERS)) {
+            for (let r = -0.5; r <= CURVE_R_MAX + 0.5; r += 0.05) {
+                const v = targetSCurveByArc(r, arc);
+                expect(v).toBeGreaterThanOrEqual(0);
+                expect(v).toBeLessThanOrEqual(D_CAP + 1e-9);
+            }
+        }
+    });
+
+    it('所有 arc 的曲线单调非降', () => {
+        for (const arc of Object.keys(ARC_MODIFIERS)) {
+            const n = Math.round(CURVE_R_MAX * 100) + 1;
+            const ds = Array.from({ length: n }, (_, i) => targetSCurveByArc(i / 100, arc));
+            expect(isMonotonicNonDecreasing(ds, 1e-4)).toBe(true);
+        }
+    });
+
+    it('getArcModifier 兜底未知 arc / null', () => {
+        const id = getArcModifier(null);
+        expect(id.dScale).toBe(1);
+        expect(id.dShift).toBe(0);
+        expect(id.brakeShift).toBe(0);
     });
 });

@@ -512,7 +512,7 @@ afkCount = 窗口内 thinkMs ≥ 15000ms 的放置操作数
 | **取值范围** | -0.2~1.0 |
 | **数据源** | `resolveAdaptiveStrategy()._adaptiveStress` |
 
-**数学定义**（详见 [REALTIME_STRATEGY.md](./REALTIME_STRATEGY.md)）：
+**数学定义**（详见 [REALTIME_STRATEGY.md](../algorithms/REALTIME_STRATEGY.md)）：
 
 ```
 stress = scoreStress + runStreakStress + skillAdjust + flowAdjust
@@ -628,7 +628,7 @@ fill = 棋盘上已被占据的格子数 / 总格子数(64)
 - **标题**：≤6 字的行动指令
 - **说明**：一句话策略解释
 
-详见 [REALTIME_STRATEGY.md → §五 策略生成（StrategyAdvisor）](./REALTIME_STRATEGY.md)。
+详见 [REALTIME_STRATEGY.md → §五 策略生成（StrategyAdvisor）](../algorithms/REALTIME_STRATEGY.md)。
 
 ---
 

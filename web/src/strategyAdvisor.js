@@ -73,7 +73,12 @@ function applyTipCategoryDiversity(sortedDesc, max = 3) {
     return out.slice(0, max);
 }
 
-export function generateStrategyTips(profile, insight, gridInfo) {
+/**
+ * @param {object} [lastMoveEval] v1.69 端侧 evaluation 上一步的 moveQuality 快照：
+ *   { badnessTag, regret, optimality, optimalPos:{x,y}, components }；缺则该层 silent。
+ *   详见 web/src/evaluation/placementQuality.js + docs/algorithms/PLACEMENT_QUALITY.md。
+ */
+export function generateStrategyTips(profile, insight, gridInfo, lastMoveEval) {
     /** @type {StrategyTip[]} */
     const tips = [];
 
@@ -440,6 +445,33 @@ export function generateStrategyTips(profile, insight, gridInfo) {
             detail: '尽量从底部开始整齐堆叠，避免中间留空。点击「求助」可查看推荐落子。',
             priority: 0.45, category: 'explore'
         });
+    }
+
+    /* ── 13.5 即时落子复盘（v1.69 evaluation 接入） ──
+     * 当上一步 evaluation 标签为非 'optimal/fine' 时，给出**具体可执行**的复盘建议：
+     *   - created_hole  → 提醒"该位会造成新空洞，下一步优先封顶或填底"
+     *   - top_stacking  → 提醒"已经堆得很高，先找平再继续"
+     *   - wasted_payoff → 提醒"差一行即清，避免错过"
+     * 仅当 regret 显著（≥ 0.10）且当前心流不在 anxious（防止打扰焦虑玩家）时插入。
+     * 优先级 0.78 高于一般生命周期卡（0.55-0.92）以保证刚发生的失误能被看到。 */
+    if (lastMoveEval
+        && lastMoveEval.badnessTag && lastMoveEval.badnessTag !== 'optimal'
+        && lastMoveEval.badnessTag !== 'fine'
+        && (Number(lastMoveEval.regret) || 0) >= 0.10
+        && flow !== 'anxious'
+        && tips.length < 3) {
+        const map = {
+            created_hole:  { icon: '🕳️', title: '注意空洞', detail: '上一步形成了新的空洞；下一步尝试封顶或从底层补齐，避免后续可解空间被进一步压缩。' },
+            top_stacking:  { icon: '🏔️', title: '堆叠偏高', detail: '盘面顶部已比较高，建议优先选择能让最高列降下来的落点，争取拉平节奏。' },
+            wasted_payoff: { icon: '🎯', title: '错过清行', detail: '上一步距离整行/整列只差 1~2 格未消，下一手优先放能补齐该缺口的形状。' },
+        };
+        const tip = map[lastMoveEval.badnessTag];
+        if (tip) {
+            tips.push({
+                icon: tip.icon, title: tip.title, detail: tip.detail,
+                priority: 0.78, category: 'evaluation',
+            });
+        }
     }
 
     /* ── 13. 会话疲劳 ── */

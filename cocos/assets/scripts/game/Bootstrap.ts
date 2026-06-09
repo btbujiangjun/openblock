@@ -133,22 +133,41 @@ export class Bootstrap extends Component {
         const userId = getConfig().cloudHttp?.userId || '';
 
         // 接入与 web 完全同源的真实出块闭包；引擎异常时 GameModel 自动回退内置自适应。
-        const model: GameModel = new GameModel({
-            best,
-            coins,
-            skinId,
-            mode,
-            spawnFn: createEngineSpawner({
-                strategyId: 'normal',
+        // 单独持有出块器引用，新局开始时调 spawner.resetForNewGame() 清掉闭包态 + 引擎模块态，
+        // 避免 _prevScoreMilestone / specialShapeUsed / _lastSpawnIntent 等跨局污染。
+        // 注：spawner 的所有 getter 回调延迟求值（在每次 spawn 时才读 model.x），所以即便此处
+        // 构造时 `model` 尚未声明，runtime 也安全；下面用 let 预声明以让 TS 静态检查通过。
+        let model!: GameModel;
+        const spawner = createEngineSpawner({
+            strategyId: 'normal',
                 getSkin: () => model.skin,
-                onRound: () => playerCtx.onRound(),
+                onRound: () => {
+                    playerCtx.onRound();
+                    // 暖局消费一轮：与 web `warmupRemaining --` 时机一致（每次 spawnBlocks 体内）。
+                    playerCtx.consumeWarmup();
+                },
                 getProfile: () => profile,
                 getScore: () => model.score,
                 getBest: () => model.best,
                 getUserId: () => userId,
+                getRunStreak: () => playerCtx.getRunStreak(),
+                getWarmupRemaining: () => playerCtx.getWarmupRemaining(),
+                getWarmupClearBoost: () => playerCtx.getWarmupClearBoost(),
+                /* 当前未放置的 dock 候选，供 adaptiveSpawn 评估 noFitRescue 等救援场景。
+                 * 取 model.dock 过滤掉 placed + 非数组 shape 的项目；保持与 web 同款契约 `{ data }`。 */
+                getDockShapePool: () => (model.dock || [])
+                    .filter((b) => b && !b.placed && Array.isArray(b.shape))
+                    .map((b) => ({ data: b.shape })),
+                onSpawned: () => playerCtx.tickPostPbRelease(),
                 // 每日大师题：挑战进行时返回日固定 PRNG，使出块（几何+配色）全确定，与 web 同盘比拼。
                 getSeedRandom: () => DailyMaster.activeRandom(),
-            }),
+        });
+        model = new GameModel({
+            best,
+            coins,
+            skinId,
+            mode,
+            spawnFn: spawner,
         });
         const meta = new MetaState();
         meta.fromJSON(Storage.getJSON(STORAGE_KEYS.meta, null));
@@ -224,7 +243,7 @@ export class Bootstrap extends Component {
         const metaPanel = this.attach(this.node, 'MetaPanel', 0, 0, MetaPanel);
 
         const ctrl = this.node.addComponent(GameController);
-        ctrl.wire({ model, meta, board, ambientFx, lineFx, fx, overlayFx, dock, hud, ghost, skillBar, metaPanel, shakeTarget: play, bgNode, playerCtx, profile });
+        ctrl.wire({ model, meta, board, ambientFx, lineFx, fx, overlayFx, dock, hud, ghost, skillBar, metaPanel, shakeTarget: play, bgNode, playerCtx, profile, spawner });
         // 结束结算卡「菜单」链接 → 回主菜单（对齐 web `.game-over-links` 菜单项）。
         ctrl.onRequestMenu = () => this.showMainMenu(ctrl, model, model.mode, 0);
         this._ctrl = ctrl;

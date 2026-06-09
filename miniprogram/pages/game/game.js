@@ -39,8 +39,10 @@ const TOUCH_DRAG_LIFT_GAP_CELLS = 0.35;
 const TOUCH_DRAG_LIFT_MAX_CELLS = 2.4;
 /* 悬停（移动中）snap 半径：保守，避免 preview 跳到太远的"全局好点" */
 const PLACE_HOVER_SNAP_RADIUS = 2;
-/* 释放容错半径：只允许 1 格内微调，避免必须精准卡位，也避免吸到远处合法点。 */
-const PLACE_RELEASE_SNAP_RADIUS = 1;
+/* 释放容错半径（曼哈顿格）：允许 2 格内微调，进一步减少「明明拖到了目标格却释放失败」的
+ * 边界抖动 miss；曼哈顿距离权重避免对角"窜两格"。
+ * 与 web `CONFIG.PLACE_RELEASE_SNAP_RADIUS` / cocos `SNAP.placeReleaseRadius` 同名同值。 */
+const PLACE_RELEASE_SNAP_RADIUS = 2;
 Page({
   data: {
     score: 0,

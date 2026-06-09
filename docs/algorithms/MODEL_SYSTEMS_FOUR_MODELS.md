@@ -1179,7 +1179,7 @@ RL 模型主要用于：
 - [RL 算法手册](./ALGORITHMS_RL.md)
 - [RL 契约与在线服务](./ALGORITHMS_RL.md#21-rl-契约与在线服务)
 
-- [实时策略系统](../player/REALTIME_STRATEGY.md)
+- [实时策略系统](./REALTIME_STRATEGY.md)
 
 ---
 

@@ -308,7 +308,7 @@ MatureIndex(展示用) = α * SkillScore + (1-α) * ValueScore   // 默认 α = 
 
 - 顶层方法论：[体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md) ·
   [策略体验栈](../player/STRATEGY_EXPERIENCE_MODEL.md)
-- 局内策略与压力体系：[实时策略系统](../player/REALTIME_STRATEGY.md)
+- 局内策略与压力体系：[实时策略系统](../algorithms/REALTIME_STRATEGY.md)
 - 商业化策略与分群：[商业化系统全景](./MONETIZATION.md) ·
   [商业化算法](../algorithms/ALGORITHMS_MONETIZATION.md)
 - 数据层架构：[生命周期数据→策略分层](#十一生命周期成熟度策略架构数据层编排层策略层)

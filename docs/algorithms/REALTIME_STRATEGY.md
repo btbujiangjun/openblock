@@ -1,12 +1,12 @@
 # 实时策略系统：信号流与出块链路
 
-> **读者**：产品、算法、策划复盘、策略合理性评审；与 **[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)**（通用模型与风险缓解）互为补充——本文是**可操作的指标与管线手册**，策略体验栈是**架构与一致性原则**。
+> **读者**：产品、算法、策划复盘、策略合理性评审；与 **[策略体验栈](../player/STRATEGY_EXPERIENCE_MODEL.md)**（通用模型与风险缓解）互为补充——本文是**可操作的指标与管线手册**，策略体验栈是**架构与一致性原则**。
 
 > **stress 域口径**：本文存在**两种** stress 数值口径，请按上下文判断——
 >
 > - **对外口径 `[0, 1]` norm**：玩家面板、DFV、策略卡、stressMeter 6 档、`insight.stress` / `_adaptiveStress`、本文 §五 「策略卡 / 压力表」相关章节统一为归一化值；
 > - **对内口径 `[-0.2, 1]` raw**：算法源码阈值、`game_rules.json` 配置、`stressBreakdown.finalStress`、§3.1 stress 管线公式、§3.2 默认值列表、§3.6 信号→下游作用机制等"算法事实表"统一为 raw 域，与源码一致便于调参；
-> - **换算**：`norm = (raw + 0.2) / 1.2`，详见 [自适应出块 §3.5 stress 域口径](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径) 的完整对照表与例外说明。
+> - **换算**：`norm = (raw + 0.2) / 1.2`，详见 [自适应出块 §3.5 stress 域口径](./ADAPTIVE_SPAWN.md#35-stress-域口径) 的完整对照表与例外说明。
 
 ---
 
@@ -402,7 +402,7 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 | 序贯可解 / 解法区间 | 高 fill 下 DFS/解空间过滤，避免无解三连 |
 | spawn 诊断 `spawnDiagnostics` | 出块瞬间快照；顾问优先 **当前 grid** 重算（`liveTopology` 等） |
 
-详细算法见 [出块架构与算法](../algorithms/ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层)、[出块难度与评估](../algorithms/ALGORITHMS_SPAWN.md#十四出块难度与评估)。
+详细算法见 [出块架构与算法](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层)、[出块难度与评估](./ALGORITHMS_SPAWN.md#十四出块难度与评估)。
 
 ### 4.5 生成式模型行为上下文（V3.1）
 
@@ -456,7 +456,7 @@ novelty             = clamp01((bored?0.45:0) + stress01·0.25 + rounds/80 − re
 - **收获期·待兑现**：`rhythmPhase` 快照为 payoff，但 **live** 几何已不支持——诚实降级文案。  
 - **瓶颈块**：使用 `liveSolutionMetrics.firstMoveFreedom`（及合计可落位）优先，反映**当前 dock** 可下性。
 
-完整规则表见 [策略体验栈 §八](./STRATEGY_EXPERIENCE_MODEL.md#八策略顾问规则索引l4)。
+完整规则表见 [策略体验栈 §八](../player/STRATEGY_EXPERIENCE_MODEL.md#八策略顾问规则索引l4)。
 
 ### 5.5 L4b：压力表状态体系（State Enumeration）
 
@@ -698,7 +698,7 @@ delta = current - avg
 
 **为什么 stress 这么低还是 flow 意图？** —— `delight.mode='flow_payoff'` 在低占用时也可触发 `intent='flow'`，与 `rhythmPhase='setup'` 共存；属于「心流体验稳定 + 仍在搭建」的合理叠态，不是 bug。
 
-> 完整体验栈映射、单一意图与互抑见 [策略体验栈 §四–§九](./STRATEGY_EXPERIENCE_MODEL.md)。
+> 完整体验栈映射、单一意图与互抑见 [策略体验栈 §四–§九](../player/STRATEGY_EXPERIENCE_MODEL.md)。
 
 ---
 
@@ -1015,7 +1015,7 @@ metrics.clearRate < 0.25  ──► playstyle='survival' ─►     │
 
 | 文档 | 内容 |
 |------|------|
-| [STRATEGY_EXPERIENCE_MODEL.md](./STRATEGY_EXPERIENCE_MODEL.md) | 四层通用模型、spawnIntent、几何门控、风险缓解 |
-| [ADAPTIVE_SPAWN.md](../algorithms/ADAPTIVE_SPAWN.md) | 自适应设计理念与配置详解 |
-| [ALGORITHMS_SPAWN.md（§12）](../algorithms/ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) | 出块三层与 blockSpawn |
-| [PANEL_PARAMETERS.md](./PANEL_PARAMETERS.md) | 面板字段级说明 |
+| [STRATEGY_EXPERIENCE_MODEL.md](../player/STRATEGY_EXPERIENCE_MODEL.md) | 四层通用模型、spawnIntent、几何门控、风险缓解 |
+| [ADAPTIVE_SPAWN.md](./ADAPTIVE_SPAWN.md) | 自适应设计理念与配置详解 |
+| [ALGORITHMS_SPAWN.md（§12）](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) | 出块三层与 blockSpawn |
+| [PANEL_PARAMETERS.md](../player/PANEL_PARAMETERS.md) | 面板字段级说明 |

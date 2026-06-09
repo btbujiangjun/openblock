@@ -102,6 +102,13 @@ const SIGNAL_NODES = [
     { key: 'boardFill',  i18nKey: 'dfv.signal.boardFill', label: '占盘',   readPath: ['profile', 'boardFill'],            range: [0, 1], baseColor: '#22d3ee' },
     { key: 'combo',      i18nKey: 'dfv.signal.combo',     label: '连击',   readPath: ['profile', 'recentComboStreak'],    range: [0, 6],  format: 'int', baseColor: '#f472b6' },
     { key: 'missRate',   i18nKey: 'dfv.signal.missRate',  label: '失放率', readPath: ['profile', 'metrics', 'missRate'],  range: [0, 0.4], baseColor: '#f87171' },
+    /* v1.69.2：evaluation 派生信号节点（数据源 = playerProfile.evalMetrics 滑窗）。
+     * 详见 docs/algorithms/PLACEMENT_QUALITY.md §"adaptiveSpawn 反馈闭环"。
+     *   - regret    ：最近 evaluated 步的 placementQuality.regret 均值 ∈ [0,1]
+     *   - forcedBad：最近 12 轮 roundQuality 中 forced_bad 占比 ∈ [0,1]
+     * adaptiveSpawn 用前者判断"玩家是否高频失误"，用后者判断"算法是否给死局"。 */
+    { key: 'regret',     i18nKey: 'dfv.signal.regret',    label: '后悔',   readPath: ['profile', 'evalMetrics', 'recentMeanRegret'],  range: [0, 0.6], baseColor: '#fbbf24' },
+    { key: 'forcedBad',  i18nKey: 'dfv.signal.forcedBad', label: '算法死局', readPath: ['profile', 'evalMetrics', 'recentForcedBadRate'], range: [0, 0.5], baseColor: '#dc2626' },
 ];
 
 /**
@@ -127,6 +134,8 @@ const SIGNAL_TIP = {
     boardFill: '占盘（profile.boardFill）— 当前实时填充率 [0,1]，主导加压/减压判定',
     combo:     '连击（recentComboStreak）— 最近连击次数 [0,6]，驱动 comboChain 派生节点',
     missRate:  '失放率（metrics.missRate）— 最近 N 步未消行频率 [0,0.4]，高值升 clearGuarantee',
+    regret:    '后悔（evalMetrics.recentMeanRegret）— 玩家步级 placement 平均后悔度 [0,0.6]，反映"距离最优放法的差距"，高值即玩家高频失误',
+    forcedBad: '算法死局（evalMetrics.recentForcedBadRate）— 最近 12 轮中 forced_bad 占比 [0,0.5]，超过 0.3 触发 adaptiveSpawn 强 relief + clearGuarantee +1，超过 0.4 再 +1',
 };
 
 const STRATEGY_TIP = {

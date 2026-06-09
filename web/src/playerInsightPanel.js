@@ -1789,7 +1789,9 @@ function _render(game) {
             celebrationCount: game._newBestCelebrationCount ?? 0,
         }
     } : undefined;
-    const tips = generateStrategyTips(p, ins, gridInfo);
+    /* v1.69：把端侧 evaluation 最近一步快照传给 advisor，让"刚才那一步是空洞/堆顶/
+     * 错过清行"能直接被点出（详见 docs/algorithms/PLACEMENT_QUALITY.md §strategyAdvisor）。 */
+    const tips = generateStrategyTips(p, ins, gridInfo, game?._lastMoveEvalSnapshot || null);
 
     if (elStrategy) {
         elStrategy.style.textAlign = 'left';
@@ -1846,9 +1848,45 @@ function _render(game) {
         if (lifecycleBullets.length) {
             htmlParts.push(`<div class="why-group"><div class="why-group-label">📱 生命周期</div><ul class="insight-why-list">${lifecycleBullets.map(t => `<li>${_stripTrailingSentencePunct(t)}</li>`).join('')}</ul></div>`);
         }
+        /* v1.69.2：evaluation 解释组 —— 把端侧步/轮级评估写成"算法层面发生了什么"
+         * 的玩家可读语言。数据源：playerProfile.evalMetrics（adaptiveSpawn 闭环同源）。
+         * 详见 docs/algorithms/PLACEMENT_QUALITY.md §"玩家解释"。 */
+        const evalBullets = _buildEvalWhyLines(p);
+        if (evalBullets.length) {
+            htmlParts.push(`<div class="why-group"><div class="why-group-label">🧠 放块评估</div><ul class="insight-why-list">${evalBullets.map(t => `<li>${_stripTrailingSentencePunct(t)}</li>`).join('')}</ul></div>`);
+        }
 
         elWhy.innerHTML = htmlParts.length ? htmlParts.join('') : '';
     }
+}
+
+/**
+ * v1.69.2：把 evaluation 滑窗摘要翻译成 1-3 条玩家可读 bullet。
+ * 静默原则：滑窗数据不足（samples<3）时返回空数组，避免冷启动期噪声打扰。
+ * @param {object} profile
+ * @returns {string[]}
+ */
+function _buildEvalWhyLines(profile) {
+    if (!profile || typeof profile.evalMetrics !== 'object') return [];
+    const m = profile.evalMetrics;
+    if (!m || m.samples < 3) return [];
+    const lines = [];
+    if (m.consecutiveForcedBad >= 2) {
+        lines.push(`检测到连续 ${m.consecutiveForcedBad} 轮"算法死局"（即使最优放法也难打出好局），下一轮已自动补救：保消档位 +2，区间放宽。`);
+    } else if (m.lastRoundClassification === 'forced_bad') {
+        lines.push('上一轮被判定为"算法死局"（最优放法 absScore < 0.4），本轮自动提高保消档位。');
+    } else if (m.recentForcedBadRate > 0.3) {
+        lines.push(`最近 ${m.roundSamples} 轮中 ${(m.recentForcedBadRate * 100).toFixed(0)}% 被判算法死局，已持续抬高保消档位。`);
+    }
+    if (m.recentSalvageRate > 0.3) {
+        lines.push(`你最近 ${(m.recentSalvageRate * 100).toFixed(0)}% 的轮次在不利局面打出近最优（救场），算法因此维持当前难度并轻微鼓励中大块。`);
+    }
+    if (m.recentMeanRegret >= 0.25) {
+        lines.push(`最近 ${m.samples} 步平均后悔度 ${m.recentMeanRegret.toFixed(2)}（满分 1），距离最优放法有较大差距；点击"求助"可查看推荐落子。`);
+    } else if (m.recentMeanRegret <= 0.05 && m.recentMeanOptimality >= 0.95) {
+        lines.push('放块质量接近最优（regret < 0.05），保持当前节奏。');
+    }
+    return lines.slice(0, 3);
 }
 
 function _blockLabel(idx) {

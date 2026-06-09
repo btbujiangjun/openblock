@@ -324,7 +324,30 @@ stress = min(0.85, stress + challengeBoost)
 
 #### 3.7.4 `runDifficulty`（连战局间）
 
-仅在"再来一局"连续路径生效：`maxStreak=6` × `fillBonusPerGame=0.01` + `spawnStressBonusPerGame=0.045`；回菜单即清零。  
+仅在"再来一局"连续路径生效。**v1.68 起**默认走 **`curve='humped'`** 驼峰曲线：
+
+| runStreak | 0 | 1 | 2 | 3 | 4 | 5 | 6+ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `stressBonus` | 0 | +0.03 | **+0.05** | **+0.05** | +0.02 | −0.05 | −0.10 |
+| `fillDelta` | 0 | +0.01 | +0.02 | +0.02 | +0.01 | −0.01 | −0.03 |
+
+第 2-3 局达峰（黄金挑战窗口），第 5 局后**强制 breather**（与 Candy Crush "easier level after hard" 同源）。
+回菜单即重置。旧 `linear` 曲线（`maxStreak=6` × `fillBonusPerGame=0.01` + `spawnStressBonusPerGame=0.045`）
+作为 fallback 保留，由 `runDifficulty.curve` 字段切换。
+
+#### 3.7.5 `runOverRunArc`（v1.68 局间难度弧线）
+
+新增"今日第几局/距离上次休息多久"维度，派生五档 arc：
+
+| arc | 触发 | 调制 |
+|---|---|---|
+| `opener` | 今日首局 或 空闲 ≥30min | lifecycle cap ×0.85，D 曲线封顶 0.9 |
+| `momentum` | 今日第 2-3 局 | 无调制（基线） |
+| `peak` | 今日第 4-5 局 | 无调制（基线） |
+| `fatigue` | 今日 ≥6 局 或 连续 3 局 score < 0.6·PB | lifecycle cap ×0.80, adjust −0.10；D 曲线 brake 段右移 0.15 |
+| `cooldown` | 60s 内崩盘重开链 ≥2（赌气保护） | lifecycle cap ×0.70, adjust −0.15；D 曲线 brake 段右移 0.20 |
+
+完整设计见 [`ALGORITHMS_SPAWN.md §十六`](../algorithms/ALGORITHMS_SPAWN.md#十六局间难度ror)。  
 **对 PB 主线的意义**：玩家连战时初始填充与压力都略高，更难"凭运气"刷新 PB；间接保护"PB 是真实能力的标定"。
 
 ### 3.8 当前策略事实清单一图速查
@@ -707,7 +730,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 - 上游方法论：[体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md)（5 轴体验结构）
 - 系统通用模型：[策略体验栈](./STRATEGY_EXPERIENCE_MODEL.md)（L1–L4 通用分层）
-- 同层实时管线：[实时策略系统](./REALTIME_STRATEGY.md)（指标字典、L4 卡片生成）
+- 同层实时管线：[实时策略系统](../algorithms/REALTIME_STRATEGY.md)（指标字典、L4 卡片生成）
 - 算法事实：[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（多信号 stress 融合 / `spawnHints` 派生）
 - 出块机制：[出块架构 §二 §2.5](../algorithms/ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层)（`spawnHints` 如何变成具体 3 个块：5 阶段流水线 + 30+ 加权乘子 + 硬约束 + 场景跑步）
 - 跨局画像：[生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)（S0–S4 × M0–M4）

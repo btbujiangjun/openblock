@@ -357,3 +357,18 @@ RL 训练模拟器（`web/src/bot/simulator.js`）使用静态策略配置（`ge
 3. **模拟器自适应支持**：可选地让模拟器走自适应路径，使 RL 训练更贴近真机分布
 4. **难度自适应推荐**：根据玩家历史表现自动推荐合适的难度档位
 5. **分数归一化**：引入难度系数归一化分数，支持跨难度排行榜公平比较
+6. ✅ **局间难度（v1.68 已实现）**：把"今天第几局/距离上次休息多久"作为独立维度叠加在
+   单局 S 曲线与生命周期表之上，详见 [ALGORITHMS_SPAWN.md §十六](../algorithms/ALGORITHMS_SPAWN.md#十六局间难度ror)。
+
+---
+
+## 九、v1.68 局间难度（Run-over-Run Difficulty）新增
+
+| 旋钮 | 现状 | 变化 |
+|---|---|---|
+| `runDifficulty.curve` | `humped`（驼峰曲线，第 2-3 局达峰、第 5 局后转 breather） | 旧 `linear` 曲线保留作为 fallback |
+| `runOverRunArc.enabled` | `true`（五档 arc：opener / momentum / peak / fatigue / cooldown） | 用 `dailyRunIndex` + `lastGameOver` 派生 |
+| `lifecycleCapModifier` | arc 乘性 modifier 叠加在 5×5 `S×M` 表之上，逻辑视图扩展到 5×5×5 | 不修改原 25 格历史值，仅做乘加 |
+| `targetSCurveByArc` | 单局 D 曲线按 arc 形变（fatigue/cooldown 的 brake 段右移 0.15/0.20） | 与 Python 端 `target_S_curve_by_arc` 跨语言 1:1 |
+
+**完整文档**：[`ALGORITHMS_SPAWN.md §十六`](../algorithms/ALGORITHMS_SPAWN.md#十六局间难度ror)

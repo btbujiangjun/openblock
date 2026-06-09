@@ -249,6 +249,27 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 - 训练：`rl_pytorch/train.py` → `train_loop()` / `collect_episode()`
 - 网络：`rl_pytorch/model.py` → `ConvSharedPolicyValueNet`
 - 特征：`rl_pytorch/features.py` + `web/src/bot/features.js`
+
+### F. 评估系统（v1.69 / v1.69.2 反馈闭环）
+- 单步：`web/src/evaluation/placementQuality.js` → `evaluatePlacement()`
+- 单轮：`web/src/evaluation/roundQuality.js` → `evaluateRound()`
+- 单局：`web/src/evaluation/sessionEvaluator.js` → `buildSessionEvalRecord()`
+- 局间：`web/src/evaluation/runToRunEvaluator.js` → `buildIntraDayReport` / `buildMultiDayReport` / `compareModelVersions`
+- 累计器：`web/src/evaluation/evaluationLedger.js`
+- 平台无关 host：`web/src/evaluation/evaluationHost.js`（Web/miniprogram/Cocos 共用）
+- 后端表：`evaluation_session` + 路由 `/api/evaluation/{session,sessions,ror_audit}`
+- **下游消费方索引（v1.69.2）**：
+
+| 信号 | 写入方 | 实时消费方 | 离线消费方 |
+|------|--------|------------|------------|
+| `placementQuality.regret` | `_evalOnPlace` | `playerProfile.evalMetrics.recentMeanRegret` → `playerInsightPanel`（解释 bullet）+ `decisionFlowViz`（`regret` 节点） | `dataset.py` outcome[7] mean_regret → `_pb_reward` / `_outcome_weight_factor` |
+| `placementQuality.optimality` | 同上 | `evalMetrics.recentMeanOptimality` | outcome[8] mean_optim |
+| `placementQuality.badnessTag` | 同上 | `strategyAdvisor` 复盘卡（'evaluation' 类别） | — |
+| `roundQuality.classification = 'forced_bad'` | `_evalCloseRound` | `evalMetrics.consecutiveForcedBad` / `recentForcedBadRate` → `adaptiveSpawn` 强 relief + `clearGuarantee +1~+2` + `targetSolutionRange.max +2` + DFV `forcedBad` 节点 + 解释 bullet | outcome[9] forced_bad → `_pb_reward -0.10`/`_outcome_weight_factor ×0.6` |
+| `roundQuality.classification = 'salvage'` | 同上 | `evalMetrics.recentSalvageRate` → `adaptiveSpawn` `sizePreference +0.05` + 解释 bullet | outcome[10] salvage → `_pb_reward +0.05`/`_outcome_weight_factor ×1.25` |
+| `roundQuality.absScore` / `regrets.{order,path,payoff}` | 同上 | — | outcome[11..14] → `_pb_reward` 中 `0.10·roundAbs - 0.20·totalRegret` |
+
+- 详见 [PLACEMENT_QUALITY.md](./PLACEMENT_QUALITY.md)（§12 adaptiveSpawn 反馈闭环 + §12.5 v1.69.2 正确性修复）与 [SESSION_EVALUATION.md](./SESSION_EVALUATION.md)
 - 模拟器：`rl_pytorch/simulator.py` + `web/src/bot/simulator.js`
 - HTTP 推理：`backend/rl_backend.py` → `/api/rl/*`
 - 浏览器自博弈：`web/src/bot/trainer.js`
@@ -335,9 +356,9 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 |---------|------------|------------|
 | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) | 全部模型的问题定义、假设、特征、结构、目标与应用机制总览 | — |
 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`ALGORITHMS_RL.md`（§21）](./ALGORITHMS_RL.md#21-rl-契约与在线服务) / [`ALGORITHMS_RL.md`（§22）](./ALGORITHMS_RL.md#22-rl-训练监控与排障) | [`ALGORITHMS_RL.md`（§23）](./ALGORITHMS_RL.md#23-rl-研究复杂度瓶颈与文献对照) / [`RL_ALPHAZERO_OPTIMIZATION.md`](./RL_ALPHAZERO_OPTIMIZATION.md) |
-| [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | [`PANEL_PARAMETERS.md 附录`](../player/PANEL_PARAMETERS.md#附录玩家能力评估产品语义与接入说明) / [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) / [`REALTIME_STRATEGY.md`](../player/REALTIME_STRATEGY.md) / [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](../player/REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | — |
+| [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | [`PANEL_PARAMETERS.md 附录`](../player/PANEL_PARAMETERS.md#附录玩家能力评估产品语义与接入说明) / [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) / [`REALTIME_STRATEGY.md`](./REALTIME_STRATEGY.md) / [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | — |
 | [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | [`MONETIZATION.md`](../operations/MONETIZATION.md) / [`MONETIZATION.md`（商业化策略定制指南）](../operations/MONETIZATION.md#商业化策略定制指南) | [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) / [`COMMERCIAL_OPERATIONS.md`](../operations/COMMERCIAL_OPERATIONS.md) |
-| [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) | [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#12-出块算法架构总览工程分层) / [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) / [`ALGORITHMS_SPAWN.md`（§13）](./ALGORITHMS_SPAWN.md#十三出块建模双轨实现与设计-rationale) | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) |
+| [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) | [`ALGORITHMS_SPAWN.md`（§12）](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) / [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) / [`ALGORITHMS_SPAWN.md`（§13）](./ALGORITHMS_SPAWN.md#十三出块建模双轨实现与设计-rationale) / [`ALGORITHMS_SPAWN.md`（§16）](./ALGORITHMS_SPAWN.md#十六局间难度ror) | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) |
 | [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | — | — |
 
 ---

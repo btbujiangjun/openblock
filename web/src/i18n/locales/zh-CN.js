@@ -384,6 +384,8 @@ export default {
     'dfv.signal.boardFill': '占盘',
     'dfv.signal.combo': '连击',
     'dfv.signal.missRate': '失放率',
+    'dfv.signal.regret': '后悔',
+    'dfv.signal.forcedBad': '算法死局',
 
     // section 标题（v1.51.9：全中文 + 副标题统一"前 N 项"句式）
     'dfv.sec.intent': '出块意图',

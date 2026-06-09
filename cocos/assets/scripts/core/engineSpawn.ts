@@ -25,9 +25,11 @@ import { Grid as EngineGrid } from '../engine/grid.mjs';
 // @ts-ignore
 import { getStrategy } from '../engine/config.mjs';
 // @ts-ignore
-import { generateDockShapes } from '../engine/bot/blockSpawn.mjs';
+import { generateDockShapes, getLastSpawnDiagnostics, resetSpawnMemory } from '../engine/bot/blockSpawn.mjs';
 // @ts-ignore 自适应策略解析（与 web/小程序同源）：内部 resolveThetaV2 注入寻参 θ → PB 曲线/spawnTargets。
-import { resolveAdaptiveStrategy } from '../engine/adaptiveSpawn.mjs';
+import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from '../engine/adaptiveSpawn.mjs';
+// @ts-ignore 寻参 v2 客户端策略：把 19 维 θ（B/C/D/E 组）注入 ctx.modelConfig，与 web v3.0.8 保持一致。
+import { resolveThetaV2 } from '../engine/tuning/v2/clientPolicyV2.mjs';
 
 export interface EngineSpawnerOptions {
     /** 策略 id（默认 normal）。对应 shared/game_rules.json 的 strategies。 */
@@ -43,8 +45,24 @@ export interface EngineSpawnerOptions {
     getScore?: () => number;
     /** 取个人最佳分（寻参 pb_bin 维度）。 */
     getBest?: () => number;
-    /** 取连胜计数（runStreak 难度修正；默认 0）。 */
+    /** 取连胜计数（runStreak 难度修正；默认 0）。需要跨局持久化才有意义；缺省 0 退化为非连战分支。 */
     getRunStreak?: () => number;
+    /**
+     * 取开局首 N 轮的暖局减压剩余轮数（与 web `_spawnContext.warmupRemaining` 对齐）。
+     * 缺省 0 → 不暖局；新局开始时由调用方注入正整数（如 3）启用首三轮 clearBoost。
+     */
+    getWarmupRemaining?: () => number;
+    getWarmupClearBoost?: () => number;
+    /**
+     * 取当前未放置的 dock 候选(用于 adaptiveSpawn.dockPool 检查与 noFitRescue 救援判定)。
+     * 形如 [{ data: number[][] }, ...]；缺省/空数组 → 引擎自然走非 dockPool 分支(无救援增强,等价历史行为)。
+     */
+    getDockShapePool?: () => Array<{ data: number[][] }>;
+    /**
+     * 出块后调用一次：tick 破纪录释放窗口 / 暖局等需要"出块后递减"的计数。
+     * 与 web `_commitSpawn` 内 `postPbReleaseRemaining −−` + 主消费方一致。
+     */
+    onSpawned?: () => void;
     /** 取稳定用户 id（寻参灰度门控 hash；默认 ''）。 */
     getUserId?: () => string;
     /**
@@ -63,10 +81,39 @@ interface EngineShape {
 }
 
 /**
+ * 新局开始时调用一次：清掉引擎的模块级状态，避免跨局污染。
+ *
+ * 1. `resetAdaptiveMilestone` —— 把 `_prevScoreMilestone` 清 0。否则上一局到 5000 分留下的
+ *    "已触发到 5000 档"残值会让新局 0~5000 区间所有里程碑全部 miss，blockSpawn 的 gapFill ×1.3
+ *    加权完全失效；同时 `_milestoneToastBaseFiredThisRun` 也归零。
+ * 2. `resetSpawnMemory` —— 清掉 blockSpawn 内部的 `_spawnMemory.categories/recent` 等新鲜度
+ *    缓存。否则上一局尾部的类别记忆会让新局首副 dock 的新鲜度判定带偏。
+ *
+ * 与 web `game.js` line 1450-1451 严格同址同义；cocos 之前从未调用 → 跨局 milestone/新鲜度
+ * 全链路污染（最显眼的现象：连开 2 局后里程碑加权几乎不触发）。
+ */
+export function resetEngineForNewGame(): void {
+    try { (resetAdaptiveMilestone as undefined | (() => void))?.(); } catch { /* 容错 */ }
+    try { (resetSpawnMemory as undefined | (() => void))?.(); } catch { /* 容错 */ }
+}
+
+/** 出块器函数 + 重置钩子（新局调用，与 web `_spawnContext` 重新赋值新对象同义）。 */
+export interface EngineSpawner {
+    (grid: Grid): DockBlock[];
+    /**
+     * 新局开始时调用：除引擎模块级状态由 `resetEngineForNewGame` 单独处理外，
+     * 还要清掉本闭包跨轮持有的 spawnContext —— `totalRounds / specialShapeUsed / dupInjectUsed /
+     * recentCategories / prevAdaptiveStress / _lastSpawnIntent ...`。
+     * 跨局不清会让 cocos 上一局的「已用特殊形状配额」「上轮 intent」直接污染新局头几轮出块。
+     */
+    resetForNewGame: () => void;
+}
+
+/**
  * 构造一个出块函数，签名匹配 GameModel.spawnFn：(grid) => DockBlock[]。
  * 内部维护跨回合的 spawnContext（与 web game.js 的 _spawnContext 等价的累积上下文）。
  */
-export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Grid) => DockBlock[] {
+export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpawner {
     const rng = opts.rng ?? defaultRng;
     const strategyId = opts.strategyId ?? 'normal';
     const getSkin = opts.getSkin ?? (() => null);
@@ -76,8 +123,28 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
     const getBest = opts.getBest ?? (() => 0);
     const getRunStreak = opts.getRunStreak ?? (() => 0);
     const getUserId = opts.getUserId ?? (() => '');
+    const getWarmupRemaining = opts.getWarmupRemaining ?? (() => 0);
+    const getWarmupClearBoost = opts.getWarmupClearBoost ?? (() => 0);
+    const getDockShapePool = opts.getDockShapePool ?? (() => []);
+    const onSpawned = opts.onSpawned;
     const getSeedRandom = opts.getSeedRandom;
-    const ctx: Record<string, unknown> = {};
+    /* 跨回合累积上下文，等价 web `game.js._spawnContext`：维护 totalRounds / 各类配额 /
+     * prevAdaptiveStress / prevSpawnIntent 等需要跨 spawn 持久的状态。
+     * snapshot/L1 等单帧字段由本函数体内每次重写。 */
+    const initialCtx = (): Record<string, unknown> => ({
+        specialShapeUsed: 0,
+        specialReliefUsed: 0,
+        specialPressureUsed: 0,
+        dupInjectUsed: 0,
+        constructCooldown: 0,
+        pendingClearTarget: null,
+        recentCategories: [],
+    });
+    let ctx: Record<string, unknown> = initialCtx();
+    /* 上一轮 spawn 决策快照（用于 hysteresis 与 stress 平滑），与 web `_lastSpawnIntent /
+     * _lastSpawnIntentAge / _spawnContext.prevAdaptiveStress` 严格对齐。 */
+    let _lastSpawnIntent: string | null = null;
+    let _lastSpawnIntentAge = 0;
 
     let strat: unknown;
     try {
@@ -103,16 +170,41 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
         // 节奏推进（玩家画像）：通知一轮新出块。
         if (onRound) { try { onRound(); } catch { /* 容错 */ } }
 
-        // 玩家画像 context 下沉（web game.js._spawnContext 的逐步迁移）：合并消行/分数/画像信号。
+        /* 玩家画像 context 下沉（web game.js._spawnContext 的逐步迁移）：合并消行/分数/画像信号。
+         *
+         * 时序关键点：
+         *   1. PlayerContext.snapshot 提供 lastClearCount/totalClears/bestScore/postPbReleaseActive 等
+         *      跨轮"事实"字段 —— 都是 PlayerContext 单一权威源；
+         *   2. snapshot 的 scoreMilestone 在 `onRound()` 入口已被清为 false，对生效路径无影响：
+         *      blockSpawn 实际读取的是引擎 derive 出的 hits（layered.spawnHints.scoreMilestone），
+         *      下方在调 generateDockShapes 之前会把它桥回 ctx.scoreMilestone 覆盖此处的 false；
+         *   3. snapshot 不包含 prevAdaptiveStress / prevSpawnIntent / specialShapeUsed 等闭包跨轮态，
+         *      故不会覆盖它们；这些保留在 ctx 中等待引擎读取或本端在出块后回写。 */
         Object.assign(ctx, getSpawnContextExtra());
 
-        // 每轮出块节流计数（对齐 web spawnBlocks 入口的 ++）：引擎据此 gate 特殊形状 / 双胞胎注入；
-        // 引擎在注入时会把对应计数清 0。此前 cocos 从不自增 → roundsSinceSpecial 恒 0 → 特殊形状从不触发。
-        ctx.totalRounds = ((ctx.totalRounds as number) ?? 0) + 1;
+        /* 节流计数（与 web `spawnBlocks` 入口 ++ 行为一致）：
+         * 引擎据此 gate 特殊形状 / 双胞胎注入；引擎在注入时会把对应计数清 0。
+         * 这两个失败也消费，与 web 同语义 —— 失败重试不应让 gate 推迟。 */
         ctx.roundsSinceSpecial = ((ctx.roundsSinceSpecial as number) ?? 0) + 1;
         ctx.roundsSinceDupInject = ((ctx.roundsSinceDupInject as number) ?? 0) + 1;
+        /* totalRounds 不在入口 ++（与 web `_commitSpawn` 一致）：仅当出块成功后才推进。
+         * 在入口 ++ 会让 generateDockShapes 抛异常的重试链也被记为一轮 → lifecycle_stage 计数偏高、
+         * 进而 resolveThetaV2 命中的 context_key 会比 web 多走一步 → 寻参分桶在边界值附近漂移。 */
         // 当前皮肤（引擎评估同花顺潜力时只读使用）。
         ctx.skin = getSkin();
+        /* 暖局信号（开局首 N 轮 clearBoost；与 web `_spawnContext.warmupRemaining/warmupClearBoost` 一致）：
+         * 由调用方提供剩余轮数；引擎内消费后会自然失效，本端每轮再次拉取最新值（调用方按需 −−）。 */
+        const _warmupRem = getWarmupRemaining() | 0;
+        if (_warmupRem > 0) {
+            ctx.warmupRemaining = _warmupRem;
+            ctx.warmupClearBoost = getWarmupClearBoost() || 0;
+        } else {
+            delete ctx.warmupRemaining;
+            delete ctx.warmupClearBoost;
+        }
+        /* 上一帧 intent → hysteresis（与 web 一致）：让 deriveSpawnIntent 根据 dwell time 抑制抖动。 */
+        ctx.prevSpawnIntent = _lastSpawnIntent;
+        ctx.prevSpawnIntentAge = _lastSpawnIntentAge;
 
         // 快照当前棋盘到 engine Grid（generateDockShapes 只读 + 内部 clone 模拟，安全）。
         // 两端 cells 表示一致：cells[y][x] = null（空）| colorIdx。
@@ -128,6 +220,28 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
          * layered 策略喂给 generateDockShapes。需要真实 PlayerProfile（否则 resolveAdaptiveStrategy
          * 在 !profile 处早退到非自适应分支 → θ 不生效）。任何异常回退静态策略 strat，保证可玩。 */
         let strategyConfig: unknown = strat;
+        type LayeredRef = { _adaptiveStressRaw?: number; _spawnIntent?: string; _occupancyFillAnchor?: number; spawnHints?: { spawnIntent?: string; scoreMilestone?: boolean } };
+        let layeredRef: LayeredRef | null = null;
+        const tuningV2Context = buildTuningV2Context({
+            strategyId,
+            bestScore: getBest() || (ctx.bestScore as number) || 0,
+            // 与 web 一致：本轮 spawnBlocks 入口读到的是「上一轮 _commitSpawn 后」的 totalRounds（未 +1）。
+            totalRounds: (ctx.totalRounds as number) || 0,
+            userId: getUserId(),
+        });
+        /* ★ 寻参 θ → ctx.modelConfig 桥接（与 web `game.js` v3.0.8 修复一一对齐）：
+         * 引擎内 derivePbCurve 自查 globalThis.__openblockClientPolicyV2 只接通了 B 组 4 维 PB 曲线；
+         * 而 C 组 augmentPool 乘性加权（blockSpawn）/ D 组 spawnTargets 翻译矩阵 / E 组 PB 段弯折
+         * 全部读取 ctx.modelConfig。此前 cocos 端从不注入 → 15/19 维 θ 全部 dead，部署的 360 条策略
+         * 仅 21% 生效。仅在「真实命中策略」(exact / fuzzy-lifecycle / coarse-gen) 时写入；其他情况
+         * 显式清为 null，让各 consumer 沿用历史硬默认（与 fallback 多数局行为对齐）。 */
+        try {
+            const _r = (resolveThetaV2 as ((c: Record<string, unknown>) => { theta: Record<string, number>; source: string }) | undefined)?.(tuningV2Context as unknown as Record<string, unknown>);
+            const _hit = _r && (_r.source === 'exact' || _r.source === 'fuzzy-lifecycle' || _r.source === 'coarse-gen');
+            ctx.modelConfig = _hit ? _r!.theta : null;
+        } catch {
+            ctx.modelConfig = null;
+        }
         try {
             const profile = getProfile();
             if (profile) {
@@ -137,20 +251,18 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
                 if (typeof p.tickRoundForDelight === 'function') p.tickRoundForDelight();
 
                 const fill = (typeof eg.getFillRatio === 'function') ? eg.getFillRatio() : grid.getFillRatio();
-                const tuningV2Context = buildTuningV2Context({
-                    strategyId,
-                    bestScore: getBest() || (ctx.bestScore as number) || 0,
-                    totalRounds: (ctx.totalRounds as number) || 0,
-                    userId: getUserId(),
-                });
+                /* `_dockShapePool` 仅在本次调用窗口内有意义（adaptiveSpawn 用它估当前 dock 剩余可放性），
+                 *  与 web 一致只通过参数对象传递，不持久到 ctx，避免上一轮残值污染下一轮。 */
+                const dockPool = getDockShapePool();
                 const layered = resolveAdaptiveStrategy(
                     strategyId, profile, getScore(), getRunStreak(), fill,
-                    { ...ctx, tuningV2Context, _gridRef: eg },
+                    { ...ctx, tuningV2Context, _gridRef: eg, _dockShapePool: dockPool },
                 );
                 if (layered) {
                     strategyConfig = layered;
+                    layeredRef = layered as LayeredRef;
                     // 与 web 一致：把里程碑命中信号桥接回 ctx，blockSpawn 据此对 gapFill 形状加权。
-                    const hints = (layered as { spawnHints?: { scoreMilestone?: boolean } }).spawnHints;
+                    const hints = layeredRef?.spawnHints;
                     ctx.scoreMilestone = hints?.scoreMilestone === true;
                 }
             }
@@ -163,6 +275,40 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
             return [];
         }
         if (!Array.isArray(shapes) || shapes.length === 0) return [];
+
+        /* 出块后回写跨轮状态（与 web `_commitSpawn` 同址同义）：
+         *   - prevAdaptiveStress: smoothStress 的 raw 域基线，让下一轮 stress 平滑过渡而非每轮重置
+         *   - _lastSpawnIntent / _lastSpawnIntentAge: hysteresis dwell time，防止 intent 抖动
+         *   - L1 棋盘特征（holes / nearFullLines / pcSetup / multi/perfect Candidates）:
+         *     来自 blockSpawn 内部 lastSpawnDiagnostics，供下一轮 friendlyBoardRelief / frustrationRelief 等信号读取。
+         *   - roundsSinceSpecial 在引擎注入特殊形状时已自身清 0，这里同步它的"已用次数"统计。 */
+        if (layeredRef && Number.isFinite(layeredRef._adaptiveStressRaw)) {
+            ctx.prevAdaptiveStress = layeredRef._adaptiveStressRaw;
+        }
+        /* 占用衰减锚点（与 web `game.js:713`/mini `gameController.js:298` 同步）：
+         * 当 layered 算出 `_occupancyFillAnchor`（低 fill 场景下的"沿用历史高占用锚点"信号）时
+         * 持久化到 ctx，下一轮 adaptiveSpawn 内 occupancyDamping 据此延迟撤销减压。 */
+        if (layeredRef && Number.isFinite(layeredRef._occupancyFillAnchor)) {
+            ctx._occupancyFillAnchor = layeredRef._occupancyFillAnchor;
+        }
+        const _newIntent = layeredRef?._spawnIntent ?? layeredRef?.spawnHints?.spawnIntent ?? null;
+        if (_newIntent && _lastSpawnIntent === _newIntent) {
+            _lastSpawnIntentAge++;
+        } else {
+            _lastSpawnIntentAge = 0;
+        }
+        _lastSpawnIntent = _newIntent ?? null;
+        try {
+            const _diag = (getLastSpawnDiagnostics as (() => { layer1?: Record<string, number> }) | undefined)?.();
+            const l1 = _diag?.layer1;
+            if (l1) {
+                ctx.nearFullLines = l1.nearFullLines ?? 0;
+                ctx.pcSetup = l1.pcSetup ?? 0;
+                ctx.holes = l1.holes ?? 0;
+                ctx.multiClearCandidates = l1.multiClearCandidates ?? 0;
+                ctx.perfectClearCandidates = l1.perfectClearCandidates ?? 0;
+            }
+        } catch { /* diagnostics 可选，缺失不致命 */ }
 
         // 记录本轮产出的形状类别，供「下一轮」引擎做新鲜度/重复规避（web 同款 recentCategories 输入）。
         const cats = shapes.map((s) => s.category).filter((c): c is string => !!c);
@@ -185,11 +331,20 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
                 placed: false,
             });
         }
+        /* 出块成功后的「commit 段」（与 web `_commitSpawn` 同址）：
+         *   1) totalRounds++ —— 与 web 严格对齐：失败重试不消费这个计数。
+         *      重要：放在 ctx 中的 scoreMilestone 已在前面被 layered.spawnHints 桥回，
+         *      此处不再做 web 的「scoreMilestone=false 栈底重置」—— 因为 cocos 的 scoreMilestone
+         *      权威源是 PlayerContext.scoreMilestone（snapshot 每轮提供），由 PlayerContext.onRound()
+         *      在下一轮入口自动清零，无需在此手动重置 ctx 字段。
+         *   2) onSpawned 回调 —— 调用方按需 tick `postPbReleaseRemaining` 等"出块后递减"计数。 */
+        ctx.totalRounds = ((ctx.totalRounds as number) ?? 0) + 1;
+        if (onSpawned) { try { onSpawned(); } catch { /* 容错 */ } }
         return blocks;
     }
 
     // 每日大师题：若注入了日固定 PRNG，则本次出块体内临时替换 Math.random（含几何 + 配色），用完即还原。
-    return function engineSpawn(grid: Grid): DockBlock[] {
+    const engineSpawn = function engineSpawn(grid: Grid): DockBlock[] {
         const seedRandom = getSeedRandom ? getSeedRandom() : null;
         if (!seedRandom) return spawnCore(grid);
         const orig = Math.random;
@@ -199,5 +354,14 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): (grid: Gri
         } finally {
             Math.random = orig;
         }
+    } as EngineSpawner;
+    engineSpawn.resetForNewGame = (): void => {
+        // 闭包态：与 web 新局把 `_spawnContext` 重赋新对象 + `_lastSpawnIntent=null` 等同源。
+        ctx = initialCtx();
+        _lastSpawnIntent = null;
+        _lastSpawnIntentAge = 0;
+        // 引擎模块级态：清掉 _prevScoreMilestone / _spawnMemory。
+        resetEngineForNewGame();
     };
+    return engineSpawn;
 }

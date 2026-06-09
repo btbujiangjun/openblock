@@ -649,7 +649,7 @@ sessionArcAdjust = {
 
 ## 九、玩法风格 (Playstyle) 检测
 
-详见 [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](../player/REALTIME_STRATEGY.md#玩法偏好识别与出块联动)。本节只做算法摘要。
+详见 [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动)。本节只做算法摘要。
 
 ### 9.1 五分群
 
@@ -2095,8 +2095,8 @@ npm run spawn:realtime-tune -- --sqlite openblock.db --apply --pretty
 | [`ALGORITHMS_HANDBOOK.md`](./ALGORITHMS_HANDBOOK.md) | 总索引 |
 | [`PANEL_PARAMETERS.md 附录`](../player/PANEL_PARAMETERS.md#附录玩家能力评估产品语义与接入说明) | 产品语义与接入说明 |
 | [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) | UI 指标解释 |
-| [`REALTIME_STRATEGY.md`](../player/REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn 全链路 |
-| [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](../player/REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格分类 |
+| [`REALTIME_STRATEGY.md`](./REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn 全链路 |
+| [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格分类 |
 | [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) | 出块系统的画像消费 |
 | [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | 商业化对画像的消费 |
 

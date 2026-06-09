@@ -98,7 +98,7 @@ function _isInRecoveryPeriod(freq) {
  *   - 反应已经退化到基线 1.5× 的玩家继续被激励广告"邀请"，进一步加剧疲劳
  *
  * 这两条新护栏只硬阻拦"插屏"，对"激励视频"采用降频（实际上 _isCognitivelyFatigued
- * 时把 rewarded 也跳过）。阈值取自 docs/player/REALTIME_STRATEGY.md 的 baseline。 */
+ * 时把 rewarded 也跳过）。阈值取自 docs/algorithms/REALTIME_STRATEGY.md 的 baseline。 */
 const FLOW_GUARD_FRUSTRATION_MAX = 2;
 const COGNITIVE_FATIGUE_REACTION_X = 1.5; // 反应时长 ≥ baseline*1.5 → 疲劳
 const COGNITIVE_FATIGUE_BASELINE_MS = 1500;

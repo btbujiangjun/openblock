@@ -83,11 +83,106 @@
     }
   },
   "runDifficulty": {
-    "comment": "连战（菜单「再来一局」链）：每局略提高初始填充与出块压力，回主菜单重置。",
+    "comment": "连战（菜单「再来一局」链）：v1.68 起支持两种曲线，curve='linear'（旧默认，向后兼容）或 'humped'（驼峰，配合 PR2 RunOverRunArc）。humped 曲线让难度先升后降：第 2-3 局达峰（黄金窗口）、第 5 局后转为 breather（强制喘息），由 Candy Crush/RMH 2025 'retention always wins' 原则驱动。stressBonusByStreak[i] / fillBonusByStreak[i] 索引 i = min(runStreak, length-1)，越界裁剪到末档。回主菜单重置；空闲 resetOnIdleMs 后下一局当冷启动局（仅记日志，不强制重置 runStreak，保留旧行为兼容）。",
     "enabled": true,
+    "curve": "humped",
     "maxStreak": 6,
     "fillBonusPerGame": 0.01,
-    "spawnStressBonusPerGame": 0.045
+    "spawnStressBonusPerGame": 0.045,
+    "stressBonusByStreak": [0, 0.03, 0.05, 0.05, 0.02, -0.05, -0.10],
+    "fillBonusByStreak":   [0, 0.01, 0.02, 0.02, 0.01, -0.01, -0.03],
+    "breatherAfter": 5,
+    "resetOnIdleMs": 1800000
+  },
+  "runOverRunArc": {
+    "comment": "v1.68 局间难度弧线（Run-over-Run Arc）阈值配置；空字段回落 runOverRunArc.js 的 DEFAULT_ARC_THRESHOLDS。详细派生规则与可视化见 docs/algorithms/RUN_OVER_RUN_DIFFICULTY.md。",
+    "enabled": true,
+    "openerIdleMs": 1800000,
+    "openerMaxDailyIndex": 1,
+    "momentumMin": 2,
+    "momentumMax": 3,
+    "peakMin": 4,
+    "peakMax": 5,
+    "fatigueMinIndex": 6,
+    "fatigueLossStreak": 3,
+    "fatigueLossRatio": 0.6,
+    "rageRestartMs": 60000,
+    "rageMinChainLen": 2,
+    "rageLowScoreRatio": 0.3,
+    "resetOnIdleMs": 1800000,
+    "lifecycleCapModifier": {
+      "comment": "Arc → (capScale, adjustDelta) 乘性 modifier，应用在 lifecycleStressCapMap 已有 cap/adjust 之上。capScale ∈ [0.5, 1.2]、adjustDelta ∈ [-0.15, 0.10]；缺失或非法时按 1.0 / 0 处理（即不调制）。",
+      "opener":   { "capScale": 0.85, "adjustDelta": -0.05 },
+      "momentum": { "capScale": 1.00, "adjustDelta":  0.00 },
+      "peak":     { "capScale": 1.00, "adjustDelta":  0.00 },
+      "fatigue":  { "capScale": 0.80, "adjustDelta": -0.10 },
+      "cooldown": { "capScale": 0.70, "adjustDelta": -0.15 }
+    }
+  },
+  "placementEvaluation": {
+    "comment": "v1.69 单步放块质量评估（per-move）。详见 docs/algorithms/PLACEMENT_QUALITY.md。weights 5 维和恒等于 1；throttle 在开局极松场景跳过枚举，避免 µs 级开销在中老局累计。badness 阈值控制 'created_hole / top_stacking / wasted_payoff' 标签触发。",
+    "enabled": true,
+    "weights": {
+      "contact":    0.20,
+      "tidiness":   0.20,
+      "holeSafety": 0.30,
+      "payoff":     0.20,
+      "unlocking":  0.10
+    },
+    "throttle": {
+      "skipWhenFillBelow":       0.25,
+      "skipWhenCandidatesAbove": 500
+    },
+    "badness": {
+      "createdHoleDelta":          2,
+      "topStackingHeightDelta":    2,
+      "wastedPayoffNearFullLines": 2
+    }
+  },
+  "roundEvaluation": {
+    "comment": "v1.69 一轮（三块 triplet）放块质量评估。components 5 维和恒等于 1；regretBlend 控制 order/path/payoff 三类 regret 在 totalRoundRegret 中的占比；salvage/forcedBad 阈值是公平性门控：bestRoundAbs < forcedBadThreshold 直接归类 'forced_bad'，不计玩家头上。",
+    "enabled": true,
+    "weights": {
+      "solutionUsage":  0.25,
+      "pathQuality":    0.25,
+      "payoffRealized": 0.20,
+      "endFlatness":    0.15,
+      "continuity":     0.15
+    },
+    "regretBlend":    { "order": 0.4, "path": 0.4, "payoff": 0.2 },
+    "thresholds": {
+      "salvageThreshold":       0.5,
+      "forcedBadThreshold":     0.4,
+      "optimalRegret":          0.05,
+      "classifyDominantDelta":  0.15
+    }
+  },
+  "sessionEvaluation": {
+    "comment": "v1.69 单局评估聚合。详见 docs/algorithms/SESSION_EVALUATION.md。guard 三个标志位（rageQuit / topOutBeforeFlow / flowStarvation）用作灰度回滚的兜底告警源。",
+    "enabled": true,
+    "guard": {
+      "rageQuitDurationMs":       30000,
+      "rageQuitScoreRatio":       0.3,
+      "topOutMeanStressMax":      0.3,
+      "flowStarvationRatioMin":   0.15
+    }
+  },
+  "evaluationRuntime": {
+    "comment": "v1.69 evaluation 端侧运行时开关。Web=Phase 1（全套）/ 小程序=Phase 1 / Cocos=Phase 1（仅 spawn+gameOver，per-place 受限）。设 enabled=false 可整体停用 evaluation 上报，不影响主玩法。perPlaceSampling=1 表示每步都评估；可降到 0.5 在低端机做采样降本。",
+    "enabled": true,
+    "perPlaceSampling": 1.0,
+    "platforms": {
+      "web":         { "enabled": true, "perPlace": true,  "perRound": true, "session": true, "ror": true },
+      "miniprogram": { "enabled": true, "perPlace": true,  "perRound": true, "session": true, "ror": true },
+      "cocos":       { "enabled": true, "perPlace": false, "perRound": false, "session": true, "ror": true }
+    },
+    "rlOutcomeSchema": {
+      "comment": "v1.69 RL outcome 向量契约版本号。当 OUTCOME_DIM / 字段顺序改动时 bump version；dataset.py 与端侧 evaluation 上报均需引用同一版本。",
+      "version": "v1.69.0",
+      "outcomeDim": 15,
+      "outcomeDimLegacy": 7,
+      "psSnapshotVersionMin": 4
+    }
   },
   "adaptiveSpawn": {
     "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",

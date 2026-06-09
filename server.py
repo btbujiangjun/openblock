@@ -689,6 +689,53 @@ def init_db():
             ON user_state_dropped_keys_log(dropped_key)
         """)
 
+        # v1.69 单局评估表（per-session）—— sessionEvalRecord 持久化。
+        # 关键聚合列冗余出来便于 SQL 直查（dashboard / A/B），其余字段以 JSON 落入 payload。
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS evaluation_session (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                user_id TEXT NOT NULL,
+                schema_version INTEGER DEFAULT 1,
+                model_version TEXT,
+                spawn_policy_mode TEXT,
+                strategy TEXT,
+                started_at INTEGER,
+                ended_at INTEGER,
+                final_score INTEGER,
+                survived_steps INTEGER,
+                run_duration_ms INTEGER,
+                end_cause TEXT,
+                board_stress_auc REAL,
+                peak_stress REAL,
+                regret_per_step REAL,
+                forced_bad_ratio REAL,
+                salvage_ratio REAL,
+                guarantee_breach_rate REAL,
+                payoff_realization_rate REAL,
+                rage_quit_flag INTEGER DEFAULT 0,
+                flow_starvation_flag INTEGER DEFAULT 0,
+                daily_run_index INTEGER,
+                run_over_run_arc TEXT,
+                payload TEXT NOT NULL,
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_eval_session_user_time
+            ON evaluation_session(user_id, started_at DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_eval_session_model
+            ON evaluation_session(model_version, started_at DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_eval_session_arc
+            ON evaluation_session(run_over_run_arc, started_at DESC)
+        """)
+
         _migrate_behaviors_columns(cursor)
         _migrate_schema(cursor)
 
@@ -1024,6 +1071,153 @@ def record_behavior():
     db.commit()
 
     return jsonify({"success": True, "id": cursor.lastrowid})
+
+
+@app.route("/api/evaluation/session", methods=["POST"])
+def record_evaluation_session():
+    """v1.69 单局评估上报。
+
+    入参：{ sessionId, userId, record: sessionEvalRecord }
+    sessionEvalRecord 完整结构见 docs/algorithms/SESSION_EVALUATION.md §2。
+    把若干关键 KPI 平铺到列上便于 SQL 直查，其余字段以 JSON 落 payload 列。
+    """
+    data = request.get_json() or {}
+    rec = data.get("record") or {}
+    if not isinstance(rec, dict) or not rec:
+        return jsonify({"success": False, "error": "record required"}), 400
+
+    meta = rec.get("meta", {}) or {}
+    outcome = rec.get("outcome", {}) or {}
+    trajectory = rec.get("trajectory", {}) or {}
+    cross = rec.get("cross", {}) or {}
+    spawn_audit = rec.get("spawnAudit", {}) or {}
+    guard = rec.get("guard", {}) or {}
+    arc_ctx = rec.get("arcContext", {}) or {}
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        """
+        INSERT INTO evaluation_session (
+            session_id, user_id, schema_version,
+            model_version, spawn_policy_mode, strategy,
+            started_at, ended_at,
+            final_score, survived_steps, run_duration_ms, end_cause,
+            board_stress_auc, peak_stress,
+            regret_per_step, forced_bad_ratio, salvage_ratio,
+            guarantee_breach_rate, payoff_realization_rate,
+            rage_quit_flag, flow_starvation_flag,
+            daily_run_index, run_over_run_arc,
+            payload, client_ip
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data.get("sessionId"),
+            data.get("userId") or meta.get("userId") or "anon",
+            int(rec.get("schemaVersion") or 1),
+            meta.get("modelVersion"),
+            meta.get("spawnPolicyMode"),
+            meta.get("strategy"),
+            int(meta.get("startedAt") or 0),
+            int(meta.get("endedAt") or 0),
+            int(outcome.get("finalScore") or 0),
+            int(outcome.get("survivedSteps") or 0),
+            int(outcome.get("runDurationMs") or 0),
+            str(outcome.get("endCause") or ""),
+            float(trajectory.get("boardStressAUC") or 0.0),
+            float(trajectory.get("peakStress") or 0.0),
+            float(cross.get("regretPerStep") or 0.0),
+            float(cross.get("forcedBadRatio") or 0.0),
+            float(cross.get("salvageRatio") or 0.0),
+            float(spawn_audit.get("guaranteeBreachRate") or 0.0),
+            float(spawn_audit.get("payoffRealizationRate") or 0.0),
+            1 if guard.get("rageQuitFlag") else 0,
+            1 if guard.get("flowStarvationFlag") else 0,
+            arc_ctx.get("dailyRunIndex"),
+            arc_ctx.get("runOverRunArc"),
+            json.dumps(rec, ensure_ascii=False),
+            _client_ip(),
+        ),
+    )
+    db.commit()
+    return jsonify({"success": True, "id": cursor.lastrowid})
+
+
+@app.route("/api/evaluation/sessions", methods=["GET"])
+def list_evaluation_sessions():
+    """按 user / model / arc / 时间窗口查询单局评估记录（列模式 + payload 详）。"""
+    user_id = request.args.get("user_id")
+    model_version = request.args.get("model_version")
+    arc = request.args.get("arc")
+    limit = min(max(int(request.args.get("limit", 50)), 1), 500)
+    since = int(request.args.get("since", 0))
+    db = get_db()
+    cursor = db.cursor()
+    query = "SELECT * FROM evaluation_session WHERE 1=1"
+    params = []
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    if model_version:
+        query += " AND model_version = ?"
+        params.append(model_version)
+    if arc:
+        query += " AND run_over_run_arc = ?"
+        params.append(arc)
+    if since:
+        query += " AND started_at >= ?"
+        params.append(since)
+    query += " ORDER BY started_at DESC LIMIT ?"
+    params.append(limit)
+    cursor.execute(query, params)
+    out = []
+    for row in cursor.fetchall():
+        d = dict(row)
+        try:
+            d["payload"] = json.loads(d.get("payload") or "{}")
+        except Exception:
+            d["payload"] = {}
+        out.append(d)
+    return jsonify({"success": True, "count": len(out), "items": out})
+
+
+@app.route("/api/evaluation/ror_audit", methods=["GET"])
+def evaluation_ror_audit():
+    """v1.68 RoR 系统验收聚合：按 arc 分桶给出关键 KPI。
+
+    返回每个 arc 的：均值 boardStressAUC / regretPerStep / forcedBadRatio /
+    salvageRatio / payoffRealizationRate / guaranteeBreachRate / count。
+    用于 dashboard 「RoR 健康面板」。
+    """
+    user_id = request.args.get("user_id")
+    window_days = max(1, int(request.args.get("window_days", 7)))
+    cutoff = int(time.time() * 1000) - window_days * 24 * 3600 * 1000
+    db = get_db()
+    cursor = db.cursor()
+    query = (
+        "SELECT run_over_run_arc AS arc, COUNT(*) AS n, "
+        "AVG(board_stress_auc) AS mean_stress_auc, "
+        "AVG(peak_stress) AS mean_peak_stress, "
+        "AVG(regret_per_step) AS mean_regret, "
+        "AVG(forced_bad_ratio) AS mean_forced_bad, "
+        "AVG(salvage_ratio) AS mean_salvage, "
+        "AVG(payoff_realization_rate) AS mean_payoff_realize, "
+        "AVG(guarantee_breach_rate) AS mean_guarantee_breach, "
+        "SUM(rage_quit_flag) AS rage_quit_count, "
+        "SUM(flow_starvation_flag) AS flow_starvation_count "
+        "FROM evaluation_session WHERE started_at >= ?"
+    )
+    params = [cutoff]
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    query += " GROUP BY run_over_run_arc"
+    cursor.execute(query, params)
+    return jsonify({
+        "success": True,
+        "window_days": window_days,
+        "groups": [dict(row) for row in cursor.fetchall()],
+    })
 
 
 @app.route("/api/behavior/batch", methods=["POST"])
@@ -4908,7 +5102,6 @@ _DOC_CATEGORIES = [
             "player/STRATEGY_EXPERIENCE_MODEL.md",
             "product/DIFFICULTY_MODES.md",
             "product/CLEAR_SCORING.md",
-            "player/REALTIME_STRATEGY.md",
             "product/SKINS_CATALOG.md",
             "product/CHEST_AND_WALLET.md",
             "product/EASTER_EGGS_AND_DELIGHT.md",
@@ -4921,6 +5114,10 @@ _DOC_CATEGORIES = [
             "algorithms/ALGORITHMS_HANDBOOK.md",
             "algorithms/ALGORITHMS_SPAWN.md",
             "algorithms/ADAPTIVE_SPAWN.md",
+            "algorithms/RUN_OVER_RUN_DIFFICULTY.md",
+            "algorithms/REALTIME_STRATEGY.md",
+            "algorithms/PLACEMENT_QUALITY.md",
+            "algorithms/SESSION_EVALUATION.md",
             "algorithms/ALGORITHMS_PLAYER_MODEL.md",
             "algorithms/ALGORITHMS_RL.md",
             "algorithms/RL_ALPHAZERO_OPTIMIZATION.md",

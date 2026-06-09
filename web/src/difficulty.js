@@ -151,17 +151,55 @@ export function blendShapeWeightsTowardHard(baseStrategyId, t) {
 }
 
 /**
+ * v1.68：从 stress/fill 表中按 runStreak 取值。
+ * 越界裁剪到末档（实现"5 局后持续 breather"语义）。
+ * @param {number[]} table
+ * @param {number} runStreak
+ * @returns {number}
+ */
+function _lookupHumpedTable(table, runStreak) {
+    if (!Array.isArray(table) || table.length === 0) return 0;
+    const idx = Math.max(0, Math.min(table.length - 1, Math.floor(runStreak)));
+    const v = Number(table[idx]);
+    return Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * 派生连战难度修饰量。
+ *
+ * 两种曲线（由 `runDifficulty.curve` 字段决定）：
+ *  - 'linear'（旧默认）：cap = min(runStreak, maxStreak)，stress/fill 线性叠加；
+ *    runStreak=0 即无修饰。
+ *  - 'humped'（v1.68 新增）：直接查表 stressBonusByStreak[i] / fillBonusByStreak[i]，
+ *    其中 i = runStreak（越界裁到末档）。允许"先升后降"曲线，让第 5 局后进入
+ *    breather（fillDelta/stressBonus 可为负），与 RunOverRunArc 的 fatigue 档协同。
+ *
+ * 任一字段（curve/stressBonusByStreak/...）缺失即降级到 linear 曲线，保持向后兼容。
+ *
  * @param {number} runStreak 连战局数：菜单开局为 0，每局「再来一局」+1
+ * @returns {{fillDelta:number, stressBonus:number, curve:string}}
  */
 export function getRunDifficultyModifiers(runStreak) {
     const rd = GAME_RULES.runDifficulty;
-    if (!rd?.enabled || runStreak <= 0) {
-        return { fillDelta: 0, stressBonus: 0 };
+    if (!rd?.enabled) {
+        return { fillDelta: 0, stressBonus: 0, curve: 'disabled' };
+    }
+    const curve = rd.curve === 'humped' ? 'humped' : 'linear';
+    if (curve === 'humped' && Array.isArray(rd.stressBonusByStreak) && rd.stressBonusByStreak.length > 0) {
+        return {
+            fillDelta: _lookupHumpedTable(rd.fillBonusByStreak ?? [], runStreak),
+            stressBonus: _lookupHumpedTable(rd.stressBonusByStreak, runStreak),
+            curve: 'humped',
+        };
+    }
+    if (runStreak <= 0) {
+        return { fillDelta: 0, stressBonus: 0, curve: 'linear' };
     }
     const cap = Math.min(runStreak, Math.max(1, rd.maxStreak ?? 6));
     return {
         fillDelta: cap * (rd.fillBonusPerGame ?? 0),
-        stressBonus: cap * (rd.spawnStressBonusPerGame ?? 0)
+        stressBonus: cap * (rd.spawnStressBonusPerGame ?? 0),
+        curve: 'linear',
     };
 }
 
@@ -177,13 +215,17 @@ export function resolveLayeredStrategy(baseStrategyId, score, runStreak, opts = 
     const base = getStrategy(baseStrategyId);
     const scoreStress = getSpawnStressFromScore(score, opts);
     const run = getRunDifficultyModifiers(runStreak);
-    const totalStress = Math.min(1, scoreStress + run.stressBonus);
+    /* v1.68：humped 曲线允许 stressBonus 为负（breather 期降压），所以总压力下界改为 0
+     * 而非旧的 max(0, x)；上界仍为 1。Math.max/min 双夹紧确保单测期望仍然成立。 */
+    const totalStress = Math.max(0, Math.min(1, scoreStress + run.stressBonus));
     const shapeWeights = blendShapeWeightsTowardHard(baseStrategyId, totalStress);
     // fillRatio=0（如简单模式空盘）不叠加连战加成，保持纯净空盘开局
     const baseFill = base.fillRatio ?? 0.2;
+    /* v1.68：humped 曲线允许 fillDelta 为负（breather 期减填充率），所以这里改用双
+     * 夹紧 [0, 0.36]。旧线性曲线由于始终 ≥0，行为完全不变。 */
     const fillRatio = baseFill === 0
         ? 0
-        : Math.min(0.36, baseFill + run.fillDelta);
+        : Math.max(0, Math.min(0.36, baseFill + run.fillDelta));
     return {
         ...base,
         shapeWeights,

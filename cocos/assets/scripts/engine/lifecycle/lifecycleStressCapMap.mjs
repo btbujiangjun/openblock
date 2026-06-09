@@ -2,3 +2,4 @@
  * 重新生成：node scripts/sync-cocos-engine.mjs（npm run sync:cocos-core 已包含）
  */
 export function getLifecycleStressCap() { return null; }
+export function resolveArcLifecycleModifier() { return null; }

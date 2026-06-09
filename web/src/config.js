@@ -16,8 +16,10 @@ export const CONFIG = {
     CELL_SIZE: 38,
     /** 落点吸附：悬停预览半径（切比雪夫，格）。保守值避免预览跳到太远的"全局好点" */
     PLACE_SNAP_RADIUS: 2,
-    /** 释放容错半径：只允许 1 格内微调，避免必须精准卡位，也避免吸到远处合法点。 */
-    PLACE_RELEASE_SNAP_RADIUS: 1,
+    /** 释放容错半径（曼哈顿格）：允许 2 格内微调，进一步减少「明明拖到了目标格却释放失败」的
+     *  边界抖动 miss；曼哈顿距离权重避免对角"窜两格"，仍保留可预期性。
+     *  与 cocos `SNAP.placeReleaseRadius` / miniprogram `PLACE_RELEASE_SNAP_RADIUS` 同名同值。 */
+    PLACE_RELEASE_SNAP_RADIUS: 2,
     /**
      * 鼠标拖拽最大增益（高速时）：幽灵块相对起点放大移动，减少从候选区拖到盘面的手腕距离。
      * 与 DRAG_MOUSE_GAIN_MIN 配合形成"低速 1:1、高速加速"的动态曲线（参考桌面操作系统的

@@ -2,7 +2,7 @@
 
 > **定位**：描述「玩家状态 → 系统决策 → 内容生成 → 界面叙事」的**通用分层模型**（系统结构入口），并给出本仓库的实现入口。  
 > **上游方法论**：心理学根基与 5 轴体验结构见 [体验设计基石](./EXPERIENCE_DESIGN_FOUNDATIONS.md)（顶层方法论入口）；本文是其在"系统分层"维度的展开。  
-> **读者**：产品、算法、架构、测试；需与 [实时策略系统](./REALTIME_STRATEGY.md)（**指标字典、物理含义、L1–L4 管线、策略生成与合理性评估清单**）、[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（参数矩阵）配合阅读。  
+> **读者**：产品、算法、架构、测试；需与 [实时策略系统](../algorithms/REALTIME_STRATEGY.md)（**指标字典、物理含义、L1–L4 管线、策略生成与合理性评估清单**）、[自适应出块](../algorithms/ADAPTIVE_SPAWN.md)（参数矩阵）配合阅读。  
 > **维护**：改 `adaptiveSpawn.js` / `blockSpawn.js` / `stressMeter.js` / `strategyAdvisor.js` 时，同步核对本文「实现映射」与「顾问规则」表。
 
 ---
@@ -70,7 +70,7 @@ OpenBlock 中该枚举为 **`spawnIntent`**：`relief | engage | harvest | press
 
 这样「紧张 + 正在投放促清形状」可以同时成立：**体感紧张**（分数、挑战、填充等综合结果）与**系统正在帮你兑现几何**（`harvest`）是两条正交信息，合并成一句对话式 UI。
 
-OpenBlock 档位：`web/src/stressMeter.js` → `STRESS_LEVELS`（放松～高压）；趋势：`computeTrend`；故事：`buildStoryLine`。规范化渲染契约（头像/标题/数值/趋势/进度条/一句话分别传递什么信息）见 [实时策略系统 §5.5.0](./REALTIME_STRATEGY.md#550-渲染契约截图区域)。
+OpenBlock 档位：`web/src/stressMeter.js` → `STRESS_LEVELS`（放松～高压）；趋势：`computeTrend`；故事：`buildStoryLine`。规范化渲染契约（头像/标题/数值/趋势/进度条/一句话分别传递什么信息）见 [实时策略系统 §5.5.0](../algorithms/REALTIME_STRATEGY.md#550-渲染契约截图区域)。
 
 ---
 
@@ -102,11 +102,11 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 
 | 通用层 | 主要文件 | 配置入口 |
 |--------|----------|----------|
-| L1 画像 | `web/src/playerProfile.js` | `adaptiveSpawn` 与画像相关键（见 [REALTIME_STRATEGY](./REALTIME_STRATEGY.md)） |
+| L1 画像 | `web/src/playerProfile.js` | `adaptiveSpawn` 与画像相关键（见 [REALTIME_STRATEGY](../algorithms/REALTIME_STRATEGY.md)） |
 | L2 自适应 | `web/src/adaptiveSpawn.js` | `shared/game_rules.json → adaptiveSpawn` |
 | L2 关闭时回退 | `web/src/difficulty.js` | `strategies.*` |
 | L3 出块 | `web/src/bot/blockSpawn.js` | 同上 + `solutionDifficulty` |
-| L4 压力表 | `web/src/stressMeter.js` | `STRESS_LEVELS`（6 档放松～高压）；状态枚举 / 救济变体 / 趋势 / 故事线决策树详见 [REALTIME_STRATEGY §5.5](./REALTIME_STRATEGY.md#55-l4b压力表状态体系state-enumeration) |
+| L4 压力表 | `web/src/stressMeter.js` | `STRESS_LEVELS`（6 档放松～高压）；状态枚举 / 救济变体 / 趋势 / 故事线决策树详见 [REALTIME_STRATEGY §5.5](../algorithms/REALTIME_STRATEGY.md#55-l4b压力表状态体系state-enumeration) |
 | L4 策略卡 | `web/src/strategyAdvisor.js` | 无独立配置，改代码或后续抽表 |
 | L4 面板聚合 | `web/src/playerInsightPanel.js` | — |
 | 对局快照 | `web/src/game.js` | `_captureAdaptiveInsight`、`spawnGeo`；`layered._occupancyFillAnchor` → `_spawnContext._occupancyFillAnchor`（占用阻尼锚点） |
@@ -239,7 +239,7 @@ OpenBlock：`deriveSpawnTargets` in `web/src/adaptiveSpawn.js`；分解项标签
 
 | 文档 | 内容 |
 |------|------|
-| [REALTIME_STRATEGY.md](./REALTIME_STRATEGY.md) | 指标字典、压力指标全表（§3.2 加压/减压/慢变量/派生痕迹）与作用机制（§3.6）、互抑（§3.7）、反向工程（§3.8）、L1–L4 管线、合理性评估清单 |
+| [REALTIME_STRATEGY.md](../algorithms/REALTIME_STRATEGY.md) | 指标字典、压力指标全表（§3.2 加压/减压/慢变量/派生痕迹）与作用机制（§3.6）、互抑（§3.7）、反向工程（§3.8）、L1–L4 管线、合理性评估清单 |
 | [ADAPTIVE_SPAWN.md](../algorithms/ADAPTIVE_SPAWN.md) | 自适应信号与 spawnHints 矩阵 |
 | [ALGORITHMS_SPAWN.md（§12）](../algorithms/ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) | 出块三层与 Layer1/2/3 语义 |
 | [ALGORITHMS_SPAWN.md（§14）](../algorithms/ALGORITHMS_SPAWN.md#十四出块难度与评估) | 解法空间与软过滤 |

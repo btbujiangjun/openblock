@@ -54,7 +54,7 @@ let _softDeps_lifecycleSignals = {}; try { _softDeps_lifecycleSignals = require(
 let _softDeps_lifecycleOrchestrator = {}; try { _softDeps_lifecycleOrchestrator = require('./lifecycle/lifecycleOrchestrator'); } catch (_e) { /* miniprogram 不分发 lifecycle/ 子目录，软依赖回退空骨架 */ } const { getActiveWinbackPreset } = _softDeps_lifecycleOrchestrator;
 /* v1.50：lifecycleStressCapMap 抽到独立模块，与 playerInsightPanel /
  * 文档共用 single source of truth；本地不再保留副本，避免漂移。 */
-let _softDeps_lifecycleStressCapMap = {}; try { _softDeps_lifecycleStressCapMap = require('./lifecycle/lifecycleStressCapMap'); } catch (_e) { /* miniprogram 不分发 lifecycle/ 子目录，软依赖回退空骨架 */ } const { getLifecycleStressCap } = _softDeps_lifecycleStressCapMap;
+let _softDeps_lifecycleStressCapMap = {}; try { _softDeps_lifecycleStressCapMap = require('./lifecycle/lifecycleStressCapMap'); } catch (_e) { /* miniprogram 不分发 lifecycle/ 子目录，软依赖回退空骨架 */ } const { getLifecycleStressCap, resolveArcLifecycleModifier } = _softDeps_lifecycleStressCapMap;
 let _softDeps_math = {}; try { _softDeps_math = require('./lib/math'); } catch (_e) { /* miniprogram 不分发 lib/ 子目录，软依赖回退空骨架 */ } const { clamp01 } = _softDeps_math;
 
 /* ------------------------------------------------------------------ */
@@ -74,7 +74,7 @@ const PC_SETUP_MIN_FILL = 0.45;
  * 但 [-0.2, 1] 对外暴露给玩家面板 / 运营看板 / 策略卡 / DFV / 文档时不直观
  * （"-0.20 表示什么？"），且与"压力指数"通常的 [0,1] 心智模型不一致。
  *
- * 决策（详见 docs/algorithms/ADAPTIVE_SPAWN.md §3.5 与 docs/player/REALTIME_STRATEGY.md
+ * 决策（详见 docs/algorithms/ADAPTIVE_SPAWN.md §3.5 与 docs/algorithms/REALTIME_STRATEGY.md
  * 的「stress 域口径」章节）：
  *   - 算法内部全过程保持 raw 域 [-0.2, 1] 不变（不动 17 个 delta 常数、25+ 比较阈值、
  *     profile 锚点、lifecycle cap 表、game_rules.json 配置等）；
@@ -1626,8 +1626,13 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             band = cached.maturity?.band ?? band;
         }
         /* v1.50：调制表抽到 lifecycle/lifecycleStressCapMap.js（单一来源），
-         * 此处仅查表 + 应用；详细 (S·M) → cap/adjust 字典见该模块。 */
-        const config = getLifecycleStressCap(stage, band);
+         * 此处仅查表 + 应用；详细 (S·M) → cap/adjust 字典见该模块。
+         *
+         * v1.68（PR2）：把 RunOverRunArc（today's run number → opener/momentum/peak/
+         * fatigue/cooldown）作为乘性 modifier 叠加进来；arc 缺失或配置缺失即不调制，
+         * 保持向后兼容。这样 25 格 S×M 表自动派生出 125 格"日内疲劳/赌气"语义视图。 */
+        const arcMod = resolveArcLifecycleModifier(ctx.runOverRunArc, GAME_RULES.runOverRunArc);
+        const config = getLifecycleStressCap(stage, band, arcMod);
         if (config) {
             /* 1. 应用压力上限：当前 stress 超过上限时压低 */
             if (stress > config.cap) {
@@ -1645,6 +1650,11 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         stressBreakdown.lifecycleCapAdjust = lifecycleCapAdjust;
         stressBreakdown.lifecycleBandAdjust = lifecycleBandAdjust;
         stressBreakdown.lifecycleStressAdjust = lifecycleStressAdjust;
+        /* v1.68：暴露 arc 标签和 modifier，让 advisor/insight 面板能解释"为什么今天
+         * 这局 stress cap 比平时低 X%"。无 arc 时字段为 null，下游应作 fallback。 */
+        stressBreakdown.runOverRunArc = ctx.runOverRunArc ?? null;
+        stressBreakdown.runOverRunArcCapScale = arcMod?.capScale ?? 1;
+        stressBreakdown.runOverRunArcAdjustDelta = arcMod?.adjustDelta ?? 0;
     } catch { /* lifecycle 数据缺失不影响主流程 */ }
 
     /* ---------- 特殊覆写：新手保护 ---------- */
@@ -2895,9 +2905,28 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* v1.62.5（优化建议 #5）：spawnIntent 滞回配置 + 上一帧 intent。
      * prevSpawnIntent 由 game.js 通过 ctx 传入；未传时 hysteresis 在 deriveSpawnIntent 内 noop。 */
     const _spawnIntentCfg = cfg.spawnIntentCfg ?? {};
+    /* v1.69.2：evaluation 派生信号 —— 把 playerProfile.evalMetrics（步/轮级评估的
+     * 滑窗摘要）注入意图决策。这是 evaluation 系统对 adaptiveSpawn 的"反馈闭环"：
+     *   - consecutiveForcedBad ≥ 2 → forceRelief（算法连续给死局，下一轮立刻减压）
+     *   - recentForcedBadRate > 0.3 → reliefBoost（最近 1/3 轮被判 forced_bad）
+     *   - lastRoundClassification === 'forced_bad' → 单轮信号（轻度）
+     *   - recentMeanRegret > 0.4 + recentSalvageRate < 0.1 → 玩家持续高 regret 且救场
+     *     率低 → engageBoost（盘面太难且玩家无能力救场，需 relief + 简化）
+     * 详见 docs/algorithms/PLACEMENT_QUALITY.md §"adaptiveSpawn 反馈闭环"。 */
+    const evalSnapshot = (typeof profile?.evalMetrics === 'object' && profile.evalMetrics)
+        || { recentMeanRegret: 0, recentForcedBadRate: 0, recentSalvageRate: 0,
+            consecutiveForcedBad: 0, lastRoundClassification: null,
+            samples: 0, roundSamples: 0 };
+    const evalReliefForced = evalSnapshot.consecutiveForcedBad >= 2
+        || evalSnapshot.recentForcedBadRate > 0.3;
+
     const _intentInputs = {
         playerDistress,
-        forceReliefIntent,
+        /* v1.69.2：evaluation 反馈进入 forceReliefIntent —— 连续 forced_bad ≥ 2 或
+         * 最近 forcedBadRate > 0.3 时强制 relief 意图。deriveSpawnIntent 不需要知道
+         * "为什么" force，只看 boolean；evaluation 派生的明细在 clearGuarantee /
+         * targetSolutionRange.max 反馈处单独消费（见本函数 return 之前）。 */
+        forceReliefIntent: forceReliefIntent || evalReliefForced,
         /* v1.60.45：爽感饥渴（profile.isDelightStarved() 在新一轮 spawn 时读取）。
          * 注意 _intentInputs 是 snapshot——只在 spawn 决策那一刻取值；
          * _refreshIntentSnapshot 在玩家放置后只重判 intent 不重算 delightStarved，
@@ -2945,6 +2974,35 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         multiClearBonus = Math.max(multiClearBonus, _sprintMCFloor);
     }
 
+    /* v1.69.2：evaluation 反馈闭环 —— 在 spawnHints clamp 前给 clearGuarantee 加一档
+     * 救场。原则：宁可"算法过度友善"也不要让玩家在 forced_bad 局连续受挫。
+     *   - consecutiveForcedBad ≥ 2     → +2 档（强抢救）
+     *   - lastRoundClassification=='forced_bad' → +1 档（即时补偿）
+     *   - recentForcedBadRate > 0.4    → +1 档（持续高 forced_bad）
+     * targetSolutionRange.max 同步放宽 +2，避免软滤继续按"窄区间"拒收应急样本。 */
+    if (evalSnapshot.consecutiveForcedBad >= 2) {
+        clearGuarantee += 2;
+    } else if (evalSnapshot.lastRoundClassification === 'forced_bad') {
+        clearGuarantee += 1;
+    } else if (evalSnapshot.recentForcedBadRate > 0.4) {
+        clearGuarantee += 1;
+    }
+    /* salvage 玩家高频救场说明算法可以维持当前难度；不下放，但记 1 阶
+     * sizePreference 微调让用户能继续表达技术（避免一直 relief 让强玩家枯燥）。 */
+    if (evalSnapshot.recentSalvageRate > 0.3 && evalSnapshot.consecutiveForcedBad === 0) {
+        sizePreference = Math.min(1, sizePreference + 0.05);
+    }
+    /* targetSolutionRange.max 放宽阶梯：与 clearGuarantee 同档位匹配，避免上面三个
+     * 反馈分支只抬 guarantee 不放宽软滤区间，导致 blockSpawn earlyAttempt 仍按
+     * 窄区间拒收应急样本（详见 blockSpawn.js solutionRejects 路径）。 */
+    let _evalTargetSolutionRelax = 0;
+    if (evalSnapshot.consecutiveForcedBad >= 2) {
+        _evalTargetSolutionRelax = 2;
+    } else if (evalSnapshot.lastRoundClassification === 'forced_bad'
+        || evalSnapshot.recentForcedBadRate > 0.4) {
+        _evalTargetSolutionRelax = 1;
+    }
+
     return {
         ...base,
         shapeWeights,
@@ -2971,7 +3029,14 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             sessionArc,
             scoreMilestone: scoreMilestoneCheck.hit,
             scoreMilestoneValue: scoreMilestoneCheck.hit ? scoreMilestoneCheck.milestone : null,
-            targetSolutionRange,
+            targetSolutionRange: _evalTargetSolutionRelax > 0 && targetSolutionRange
+                ? {
+                    ...targetSolutionRange,
+                    max: targetSolutionRange.max != null
+                        ? targetSolutionRange.max + _evalTargetSolutionRelax
+                        : targetSolutionRange.max,
+                }
+                : targetSolutionRange,
             /* v1.57.2：新空洞难度区间，与 targetSolutionRange 并列双轴：
              * - targetSolutionRange 控制"解空间宽度"（多少种可解放法）
              * - targetHoleIncrement 控制"空洞强迫度"（最干净放法也带几个空洞）

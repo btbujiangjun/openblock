@@ -94,7 +94,7 @@
 | 💖 **情感·记忆**（爽点与近失） | 五轴 ④ | `nearMissAdjust` / `_maybeCelebrateNewBest` / `buildStoryLine` | `web/src/adaptiveSpawn.js` `nearMissAdjust`、`web/src/nearMissPlaceFeedback.js` `shouldShowNearMissPlaceFeedback`、`web/src/game.js` `_maybeCelebrateNewBest` / `playClearEffect` / `showFloatScore`、`web/src/stressMeter.js` `buildStoryLine`（**注**：图中"叙事"概念未对应单一 `narrationBus` 模块，由 `buildStoryLine` 与 i18n 文案池承载） |
 | 🌱 **成长·身份**（我在变强） | 五轴 ⑤ | `segment5` / `playstyle` / SkillScore / M-band | `web/src/playerProfile.js` `segment5` / `playstyle`、`web/src/retention/playerMaturity.js` `SkillScore` 与 `getMaturityBand`（阈值 ≥90→M4 / 80→M3 / 60→M2 / 40→M1 / 其余 M0）（**注**：图中"身份"概念未对应单一 `identityMetrics` 符号，由 `segment5` + `playstyle` + `M-band` 三件套承载） |
 
-**跨轴互抑**：高风险抑制冲分加压、收获期避免高压叙事冲突。文档锚点 [体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md) Part C / C.2 + [实时策略系统](../player/REALTIME_STRATEGY.md) §3.7。代码示例：
+**跨轴互抑**：高风险抑制冲分加压、收获期避免高压叙事冲突。文档锚点 [体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md) Part C / C.2 + [实时策略系统](../algorithms/REALTIME_STRATEGY.md) §3.7。代码示例：
 
 - `web/src/adaptiveSpawn.js` 内 `challengeBoost` × `friendlyBoardRelief`、`reactionAdjust` × `nearMissAdjust`、`bottleneckRelief` × `challengeBoost` 折扣等。
 - 新增 `postPbReleaseStressAdjust`：破 PB 后 3 个 spawn 内 stress × 0.7（**raw 域系数**；对外 stress 口径见 [自适应出块 §3.5](../algorithms/ADAPTIVE_SPAWN.md#35-stress-域口径v15517)）+ clearGuarantee+1，破纪录与情感释放轴不与下一轮挑战加压冲突。
@@ -177,7 +177,7 @@
 
 **双面板同步**：`web/src/stressMeter.js` `getStressDisplay` / `buildStressBreakdownPills` / `buildStoryLine`；`web/src/decisionFlowViz.js` 把 `stressBreakdown` / `spawnHints` / `spawnIntent` 全量字段映射到 DFV 节点字典。
 
-**文档锚点**：[自适应出块](../algorithms/ADAPTIVE_SPAWN.md) + [实时策略系统](../player/REALTIME_STRATEGY.md)。
+**文档锚点**：[自适应出块](../algorithms/ADAPTIVE_SPAWN.md) + [实时策略系统](../algorithms/REALTIME_STRATEGY.md)。
 
 ---
 
@@ -382,6 +382,6 @@ OpenBlock 在产品层面与行业默认做法不同的 4 处具体选择：
 - [最佳分追逐策略](../player/BEST_SCORE_CHASE_STRATEGY.md)：本图核心主线 §0 的**主策划契约**，13 项改进项（§4.1–§4.13）已在 全部交付。
 - [生命周期与成熟度蓝图](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md)：本图 §2 的**双轴契约**，25 格压力上限映射 + 6 项北极星指标的权威定义。
 - [体验设计基石](../player/EXPERIENCE_DESIGN_FOUNDATIONS.md)：本图 §1 体验五轴的**心理学根据 + 跨轴互抑表**。
-- [实时策略系统](../player/REALTIME_STRATEGY.md)：本图 §4–§5 的**指标字典 + L1–L4 管线 + 策略卡生成**。
+- [实时策略系统](../algorithms/REALTIME_STRATEGY.md)：本图 §4–§5 的**指标字典 + L1–L4 管线 + 策略卡生成**。
 - [MonetizationBus 事件契约](../operations/MONETIZATION_EVENT_BUS_CONTRACT.md)：本图 §0 PB 事件总线与 §10 数据闭环的**事件全集与 payload 契约**。
 - [生命周期数据→策略分层](../operations/PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#生命周期成熟度策略架构数据层编排层策略层)：本图 §10 数据闭环的**三段式架构与单向依赖约束**。
