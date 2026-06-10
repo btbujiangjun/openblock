@@ -1,4 +1,4 @@
-import { _decorator, Component, Label, Node, UITransform, Color, Graphics, tween, Vec3 } from 'cc';
+import { _decorator, Component, Label, Node, UITransform, Color, Graphics, tween, Tween, UIOpacity, Vec3 } from 'cc';
 import { t, onLocaleChange } from '../core';
 import { Wordmark } from './ui/Wordmark';
 
@@ -220,15 +220,24 @@ export class Hud extends Component {
         this.overLabel.string = over ? t('hud.gameover') : '';
     }
 
-    /** combo 心形（对齐 web `#combo-heart`）：连消计数 <2 淡出隐藏，≥2 显示「♥ ×N」并弹一下，≥4 转金。 */
-    setCombo(combo: number): void {
+    /** combo 心形（对齐 web `#combo-heart` / `_updateComboHeart`）：
+     *   - combo<=0 → 完全隐藏
+     *   - combo>0 且 fading=false → 显示「♥ ×N」并弹一下，combo≥4 转金
+     *   - combo>0 且 fading=true → "待断" 视觉淡出（透明度降到 ~35%），但 DOM/数值保留，
+     *     下次清线（fading=false）立即复活弹一下
+     *
+     *   ⚠️ combo 计数源是 model.comboCount（grace 窗口模型），不再用旧的"严格连击"阈值（>=2）；
+     *   ♥1 也要显示，让玩家从第一次清线起就有 combo 链可视反馈。
+     */
+    setCombo(combo: number, fading: boolean = false): void {
         const heart = this.comboHeart;
         if (!heart?.node?.isValid) return;
-        if (combo < 2) {
+        const op = heart.node.getComponent(UIOpacity) ?? heart.node.addComponent(UIOpacity);
+        if (combo <= 0) {
             if (heart.node.active) {
                 tween(heart.node)
                     .to(0.16, { scale: new Vec3(0.6, 0.6, 1) })
-                    .call(() => { heart.node.active = false; heart.node.setScale(1, 1, 1); })
+                    .call(() => { heart.node.active = false; heart.node.setScale(1, 1, 1); op.opacity = 255; })
                     .start();
             }
             return;
@@ -249,7 +258,18 @@ export class Hud extends Component {
         g.fillColor = Hud.HEART_HI;
         g.roundRect(-w / 2 + 3, h / 2 - h * 0.42, w - 6, h * 0.30, r * 0.6);
         g.fill();
+        const wasActive = heart.node.active;
         heart.node.active = true;
+        if (fading) {
+            // 待断态：保留数值与 DOM，透明度淡出（与 CSS .combo-heart--fading opacity:0/transform 类比）。
+            Tween.stopAllByTarget(op);
+            tween(op).to(0.18, { opacity: 90 }, { easing: 'quadOut' }).start();
+            return;
+        }
+        // 复活/新清线：透明度恢复 + 弹一下（与 CSS comboHeartPop 一致）。
+        Tween.stopAllByTarget(op);
+        op.opacity = 255;
+        if (!wasActive) heart.node.setScale(0.6, 0.6, 1);
         heart.node.setScale(1.25, 1.25, 1);
         tween(heart.node).to(0.18, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
     }

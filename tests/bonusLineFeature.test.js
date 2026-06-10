@@ -204,18 +204,19 @@ describe('bonus line feature', () => {
     /* === Combo 链（grace 窗口模型） === */
 
     describe('combo multiplier (deriveComboMultiplier + computeClearScore × comboCount)', () => {
-        it('默认配置 grace=3 / activation=3 / step=1 / max=2：1~2 连无加成，3 连起 ×2 cap', () => {
+        it('默认配置 grace=3 / activation=3 / step=1 / max=4：1~2 连无加成，3/4/5+ 连 ×2/×3/×4 线性递增', () => {
             const cfg = COMBO_MULTIPLIER_CFG;
             expect(cfg).not.toBeNull();
             expect(cfg.gracePlacements).toBe(3);
             expect(cfg.activationCount).toBe(3);
-            expect(cfg.maxMultiplier).toBe(2);
+            expect(cfg.maxMultiplier).toBe(4);
             expect(deriveComboMultiplier(0)).toBe(1);
             expect(deriveComboMultiplier(1)).toBe(1);
             expect(deriveComboMultiplier(2)).toBe(1);
             expect(deriveComboMultiplier(3)).toBe(2);
-            expect(deriveComboMultiplier(4)).toBe(2);
-            expect(deriveComboMultiplier(10)).toBe(2);
+            expect(deriveComboMultiplier(4)).toBe(3);
+            expect(deriveComboMultiplier(5)).toBe(4);
+            expect(deriveComboMultiplier(10)).toBe(4);
         });
 
         it('cfg.enabled=false 时全部退化为 ×1（向后兼容）', () => {
@@ -443,12 +444,14 @@ describe('bonus line feature', () => {
             expect(expectedCombos[15]).toBe(6);   // 后段持续累加
             /* 后段 idx 16~19 = 1,1,1,1 → 持续递增 */
             expect(expectedCombos[19]).toBe(10);
-            /* 高 combo 时单消得分 = 20 × 2 (cap) = 40；低 combo (1,2) = 20 */
+            /* combo 倍数（新规则 max=4 / step=1 / activation=3）：c=3→×2 / c=4→×3 / c≥5→×4 cap；
+             * c<3→×1。单消基础分 = 20，所以期望得分 = 20 × mult。 */
             for (let i = 0; i < expectedCombos.length; i++) {
                 const c = expectedCombos[i];
                 if (c == null) continue;
                 const score = computeClearScore('normal', { count: 1 }, undefined, c).clearScore;
-                expect(score).toBe(c >= 3 ? 40 : 20);
+                const expectedMult = c < 3 ? 1 : c === 3 ? 2 : c === 4 ? 3 : 4;
+                expect(score).toBe(20 * expectedMult);
             }
         });
     });

@@ -124,12 +124,14 @@ describe('miniprogram core parity', () => {
     });
   });
 
-  it('combo multiplier parity: comboCount=3 ×2 与 web 主局公式一致（小程序镜像）', () => {
+  it('combo multiplier parity: ×N 跟随 _comboCount 递增（max=4 / step=1，与 web 主局公式一致）', () => {
     expect(deriveComboMultiplier(2)).toBe(1);
     expect(deriveComboMultiplier(3)).toBe(2);
-    expect(deriveComboMultiplier(5)).toBe(2);
+    expect(deriveComboMultiplier(4)).toBe(3);
+    expect(deriveComboMultiplier(5)).toBe(4);
+    expect(deriveComboMultiplier(10)).toBe(4); // cap
     const r = computeClearScore('normal', { count: 2, bonusLines: [{ type: 'row', idx: 0 }] }, undefined, 3);
-    expect(r.clearScore).toBe(480);
+    expect(r.clearScore).toBe(480); // baseScore=80 + iconBonus=160 = 240, ×2 = 480
     expect(r.comboMultiplier).toBe(2);
   });
 

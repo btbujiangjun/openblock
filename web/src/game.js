@@ -3205,8 +3205,11 @@ export class Game {
             this._levelManager?.recordPlacement();
             if (result.count > 0) {
                 this._levelManager?.recordClear(result.count);
-                // 小目标：上报消行和 combo
-                try { window.__miniGoals?.onClear(result.count, this.gameStats?.maxCombo ?? 0); } catch { /* ignore */ }
+                // 小目标：上报消行（result.count = 本手单次消行数）和 combo 链累计计数（_comboCount，
+                // 时间维度 grace 窗口模型，与 HUD ♥N / 顶部徽章 `🔥 N 连消` / 计分倍数 `Combo ×N`
+                // 共用同一权威源）。修复历史 bug：原本错传 gameStats.maxCombo（本局最大单手消行数，
+                // 空间维度），导致"清一个 3 消立刻把『3 连消』小目标进度顶满"，与 HUD ♥N 显示不一致。
+                try { window.__miniGoals?.onClear(result.count, this._comboCount | 0); } catch { /* ignore */ }
             }
 
             if (result.count > 0) {
@@ -3656,11 +3659,13 @@ export class Game {
         const hasMult = Number(comboMultiplier) > 1;
         el.className = hasMult ? 'streak-badge streak-badge--mult' : 'streak-badge';
         const fires = streak >= 5 ? '🔥🔥🔥' : streak >= 4 ? '🔥🔥' : '🔥';
-        /* 倍数 ×N 提示：×2 整数时省略小数，×2.5 等保留 1 位 */
+        /* 倍数提示数字部分：整数省略小数，2.5 等保留 1 位。
+         * 模板 `effect.comboMultiplier` 形如 `Combo {{mult}}×`，调用方只传数字，
+         * × 后缀由 i18n 模板统一拼接，避免「`Combo ×4` vs `4×`」两套格式漂移。 */
         const multTxt = hasMult
             ? (Number.isInteger(comboMultiplier)
-                ? `×${comboMultiplier}`
-                : `×${Number(comboMultiplier).toFixed(1)}`)
+                ? `${comboMultiplier}`
+                : `${Number(comboMultiplier).toFixed(1)}`)
             : '';
         el.innerHTML = hasMult
             ? `<span class="streak-badge-main">${t('effect.streakCombo', { fires, n: streak })}</span>`
@@ -4813,14 +4818,11 @@ export class Game {
          * 新代码统一传 'scoreMilestone'，区别于跨局的"成熟度里程碑"。 */
         const isScoreMilestone = type === 'scoreMilestone' || type === 'milestone';
         const hasIconBonus = iconBonus > 0;
-        /* 连击倍数标记：×N 整数省略小数，×2.5 等保留 1 位；与 perfectClearMult / iconBonusMult
-         * 串行展示，避免视觉拥挤。仅在 >1 时追加。 */
+        /* combo 倍数提示统一收敛到 streak 徽章（`.streak-badge--mult .streak-badge-mult` 大字
+         * `Combo ×N`）。飘字 label 不再追加 `· combo ×N` 后缀，单消 + comboMult>1 也不再以
+         * `combo ×N` 作为 label —— 修复"消行时盘面同时出现绿色小字 `· combo ×N` 与红色大字
+         * `Combo ×N` 两份 combo 字样"。计分规则与 _comboCount 推导逻辑均未变。 */
         const hasComboMult = Number(comboMultiplier) > 1;
-        const comboMultTxt = hasComboMult
-            ? (Number.isInteger(comboMultiplier)
-                ? ` · combo ×${comboMultiplier}`
-                : ` · combo ×${Number(comboMultiplier).toFixed(1)}`)
-            : '';
 
         if (hasIconBonus) {
             el.className = 'float-score float-icon-bonus';
@@ -4832,10 +4834,10 @@ export class Game {
                 : isCombo
                     ? t('effect.multiClear', { n: linesCleared })
                     : t('effect.iconBonus');
-            const mult = isPerfect ? ` ×${PERFECT_CLEAR_MULT}` : '';
+            const mult = isPerfect ? ` ${PERFECT_CLEAR_MULT}×` : '';
             el.innerHTML =
                 `<span class="float-bonus-art" role="status">` +
-                `<span class="float-label">${label}${mult}${comboMultTxt}</span>` +
+                `<span class="float-label">${label}${mult}</span>` +
                 `<span class="float-bonus-score-row">` +
                 `<span class="float-bonus-num">${score}</span>` +
                 `<span class="float-bonus-mult-wrap">(${ICON_BONUS_LINE_MULT}x)</span>` +
@@ -4852,16 +4854,13 @@ export class Game {
         el.className = 'float-score' + cls + (hasComboMult ? ' float-has-combo-mult' : '');
 
         if (isNewBest) {
-            el.innerHTML = `<span class="float-label">${t('effect.newRecord')}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.newRecord')}</span><span class="float-pts">+${score}</span>`;
         } else if (isPerfect) {
-            el.innerHTML = `<span class="float-label">${t('effect.perfectClear')} ×${PERFECT_CLEAR_MULT}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.perfectClear')} ${PERFECT_CLEAR_MULT}×</span><span class="float-pts">+${score}</span>`;
         } else if (isCombo && linesCleared >= 3) {
-            el.innerHTML = `<span class="float-label">${t('effect.multiClear', { n: linesCleared })}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.multiClear', { n: linesCleared })}</span><span class="float-pts">+${score}</span>`;
         } else if (type === 'multi') {
-            el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}${comboMultTxt}</span><span class="float-pts">+${score}</span>`;
-        } else if (hasComboMult) {
-            /* 单消但触发了 combo 倍数：把 ×N 直接拼到分数前 */
-            el.innerHTML = `<span class="float-label">${t('effect.comboMultiplier', { mult: `×${Number.isInteger(comboMultiplier) ? comboMultiplier : Number(comboMultiplier).toFixed(1)}` })}</span><span class="float-pts">+${score}</span>`;
+            el.innerHTML = `<span class="float-label">${t('effect.doubleClear')}</span><span class="float-pts">+${score}</span>`;
         } else if (isScoreMilestone) {
             /* v1.55.11（用户反馈："已达最佳 N% 不触发特效"）：分数里程碑 toast 已撤销渲染。
              * 调用方 playClearEffect（line 2037 一带）已不再以 'scoreMilestone' / 'milestone' type

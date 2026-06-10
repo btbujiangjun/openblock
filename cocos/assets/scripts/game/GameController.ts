@@ -6,7 +6,7 @@ import {
     getConfig, flag, Analytics, ANALYTICS_EVENTS, spinWheel, WHEEL_PRIZES, WHEEL_TRIAL_POOL, WheelPrize, GameMode, MODE_ORDER, getMode,
     PlayerContext, CompanionState, getCompanion, ReplayRecorder, Grid, AdaptiveProfile, shouldShowNearMiss,
     primaryIntent, toneFor, intentNarrative, taskDensityBonus, type Tone, type Band,
-    bonusEffectHoldMs,
+    bonusEffectHoldMs, isComboBroken,
 } from '../core';
 import { BoardView } from './BoardView';
 import { DockView } from './DockView';
@@ -312,8 +312,11 @@ export class GameController extends Component {
     private prevBest = 0;
     /** 本局命中的局末宝箱（对齐 web：结算卡关闭后再弹），未命中为 null。 */
     private _pendingChest: { tier: ChestTier; reward: ChestReward } | null = null;
-    /** 连续消行 streak（对齐 web `_clearStreak`）：每次落子若消行则 +1，否则归零。≥3 触发 streak 徽章。 */
-    private _clearStreak = 0;
+    /* combo 计次的唯一权威源是 `this.model.comboCount`（带 grace 窗口模型，与 web 主局完全同源）：
+     *   - HUD 心形 ♥N、顶部徽章主文 `🔥 N 连消`、`Combo ×N` 的 N 与计分倍数全部读这一个值，
+     *     避免出现"HUD 显示 ♥0 已隐藏但徽章还在弹 Combo ×3"的口径漂移。
+     *   - "待断"视觉态由 `isComboBroken(model.roundsSinceLastClear)` 推导（grace 已过 → HUD 心形淡出）。
+     *   - 历史 `_clearStreak`（严格连击：未消立即归 0）已废弃；旧 web `_clearStreak` 同样被合并进 _comboCount。 */
     /**
      * 本局战报统计（对齐 web `gameStats`）—— 仅当局可观测量，新开局/重开时重置。
      * clears=本局总消行数；maxCombo=本局单手最大消行数；placements=成功落子数；
@@ -801,6 +804,17 @@ export class GameController extends Component {
         this.hud.setBestGap('', 'none');
     }
 
+    /** 将 HUD combo 心形 ♥N 同步到 model 的权威计数（grace 窗口模型）。
+     *  对齐 web `_updateComboHeart`：comboCount>0 即显示，grace 已过时叠加"待断"淡出态。
+     *  每次清线（case 'clear'）+ 每次未消落子（case 'place' 末尾）都调用一次以保持同步。 */
+    private syncComboHud(): void {
+        const c = Math.max(0, Math.floor(Number(this.model.comboCount) || 0));
+        if (c <= 0) { this.hud.setCombo(0); return; }
+        // isComboBroken 默认使用 DEFAULT_COMBO_MULTIPLIER（与 model 同源 grace=3），无需私有字段。
+        const fading = isComboBroken(this.model.roundsSinceLastClear);
+        this.hud.setCombo(c, fading);
+    }
+
     /** 重置「差一行」近失鼓励的单局控频状态（新开局 / 重开调用）。 */
     private resetNearMiss(): void {
         this._nearMissToastCount = 0;
@@ -1037,18 +1051,10 @@ export class GameController extends Component {
                     gy: e.gy + e.shape.length / 2 - 0.5,
                 };
                 this._nextScoreKind = 'normal';
-                // 连续消行 streak 终止判定：本次落子后下一帧若未触发 'clear'（reason='line'），
-                // 说明 streak 中断（落子无消），归零。'clear' handler 会先将 streak +1，故此处用快照对比。
-                {
-                    const before = this._clearStreak;
-                    this.scheduleOnce(() => {
-                        if (this._clearStreak === before) {
-                            this._clearStreak = 0;
-                            // 落子未消行 → combo 链中断，淡出 combo 心形（对齐 web combo-heart fading）。
-                            this.hud.setCombo(0);
-                        }
-                    }, 0);
-                }
+                // 落子未消时：model.comboCount 不归零（grace 窗口模型），但需要按 isComboBroken
+                // 更新 HUD 心形"待断"淡出态（gap≥grace → 视觉淡出但 DOM 保留，下次清线立即复活）。
+                // 'clear' 事件已经在 case 'clear' 末尾刷新过 HUD，本帧未消时由此处兜底。
+                this.scheduleOnce(() => this.syncComboHud(), 0);
                 break;
             }
             case 'score':
@@ -1163,64 +1169,68 @@ export class GameController extends Component {
                     Analytics.track(ANALYTICS_EVENTS.clear, { count: e.result.count });
                     if (e.result.count >= 2) Analytics.track(ANALYTICS_EVENTS.multiClear, { count: e.result.count });
                 }
-                if (e.reason === 'line') {
-                    // 连续消行 streak：本次有消则 +1，落子未消会在 case 'place' 末尾归零。
-                    this._clearStreak++;
-                    // combo 心形 HUD（对齐 web `#combo-heart`）：连续消行计数 ≥2 时常驻显示。
-                    this.hud.setCombo(this._clearStreak);
-                }
-                // combo 倍数后缀（对齐 web showFloatScore 的 `· combo ×N` 拼接）：>1 时统一追加，
-                // 任何档位（普通/双消/多消/清屏/同花顺）都会带上，提示玩家本次得分被 combo 加成。
+                /* ============================================================
+                 * 消行 combo 展示链路（严格对齐 web showFloatScore + _showStreakBadge）
+                 * 唯一权威源：
+                 *   - 飘字 label / kind：本手单次消行类型（perfect / bonus / multi(==2) / combo(≥3) / 单消）
+                 *     —— 空间维度，i18n key 与 web 同名（effect.perfectClear / .doubleClear /
+                 *     .multiClear / .iconBonus）。
+                 *   - 顶部 streak 徽章主文 `🔥 N 连消` 与 HUD ♥N 的 N：model.comboCount —— 时间维度，
+                 *     带 grace 窗口，与计分倍数 deriveComboMultiplier 同一个变量。
+                 *   - 顶部徽章子文案 `Combo ×N` 的 N：comboMultiplier —— 由 model 在 clear 事件中携带。
+                 * 飘字 label 不再追加 `· combo ×N` 后缀（修复"盘面同时出现绿色小字 `· combo ×N`
+                 *   与红色大字 `Combo ×N` 两份 combo 字样"）；combo 倍数提示由顶部徽章独占。
+                 * ============================================================ */
+                const comboCount = Number(e.comboCount ?? this.model.comboCount) || 0;
+                if (e.reason === 'line') this.syncComboHud();
                 const comboMult = Number(e.comboMultiplier ?? 1) || 1;
-                const comboMultTxt = comboMult > 1
-                    ? (Number.isInteger(comboMult) ? ` · combo ×${comboMult}` : ` · combo ×${comboMult.toFixed(1)}`)
-                    : '';
                 const bonusLineCount = (e.result.bonusLines || []).length;
+                // ── 飘字 label / kind：与 web showFloatScore 分支顺序严格 1:1 对齐 ──────
+                // web: hasIconBonus → new-best → perfect → combo(≥3) → multi(==2) → 单消(纯 +N)
                 if (e.perfectClear) {
                     AudioManager.sfxPerfect();
-                    // 飘字标签合并进 `+N`（清屏 ×10 / +N），与 web float-perfect 一致。
                     ScreenShake.shake(this.shakeTarget, 18, 0.4);
                     Haptics.heavy();
                     this.profile?.recordDelight?.('pcClear');
                     this.stats.perfectClears++;
                     Analytics.track(ANALYTICS_EVENTS.perfectClear, {});
                     this._nextScoreKind = 'perfect';
-                    this._nextScoreLabel = t('effect.perfectFloat') + comboMultTxt;
+                    // web: `${t('effect.perfectClear')} ${PERFECT_CLEAR_MULT}×` = `清屏 10×`
+                    // 数字在前 × 在后，与 `Combo N×` 全端统一。
+                    this._nextScoreLabel = `${t('effect.perfectClear')} 10×`;
                 } else if (e.reason === 'line') {
                     AudioManager.sfxClear(e.result.count);
                     const lines = e.result.count;
-                    if (lines >= 2) {
-                        // 双消走 multi 档位（CSS .float-multi 绿色 0.9s），多消走 combo（CSS .float-combo 橙色 1.5s）。
-                        const base = lines === 2 ? t('effect.double') : t('effect.multi', { n: lines });
-                        this._nextScoreLabel = base + comboMultTxt;
+                    if (lines >= 3) {
+                        // combo (≥3 同手多消)：橙色 .float-combo
+                        this._nextScoreLabel = t('effect.multiClear', { n: lines });
+                        this._nextScoreKind = 'combo';
                         AudioManager.sfxCombo(lines);
                         ScreenShake.shake(this.shakeTarget, 8 + lines * 2, 0.3);
                         this.profile?.recordDelight?.('multiClear');
                         Analytics.track(ANALYTICS_EVENTS.comboHigh, { count: lines });
-                        this._nextScoreKind = lines === 2 ? 'multi' : 'combo';
-                    } else if (comboMult > 1) {
-                        // 单消但 combo 倍数生效：标签退化为小写 `combo ×N`（对齐 web `hasComboMult` 单消分支
-                        // 4864 行的硬编码模板 `effect.comboMultiplier` 仅供 streak 徽章使用，
-                        // 是大写 `Combo ×N` 大字徽章），飘字 label 与徽章字串/字号分离避免视觉"combo
-                        // 字样重复"。
-                        const multTxt = Number.isInteger(comboMult) ? `×${comboMult}` : `×${comboMult.toFixed(1)}`;
-                        this._nextScoreLabel = `combo ${multTxt}`;
-                        this._nextScoreKind = 'combo';
+                    } else if (lines === 2) {
+                        // multi (==2)：绿色 .float-multi
+                        this._nextScoreLabel = t('effect.doubleClear');
+                        this._nextScoreKind = 'multi';
+                        AudioManager.sfxCombo(lines);
+                        ScreenShake.shake(this.shakeTarget, 12, 0.3);
+                        this.profile?.recordDelight?.('multiClear');
                     }
-                    // 同色 / 同 icon 行（bonusLines）：覆盖标签为「同花顺大消除」，配 bonus 档位字号。
-                    // 对齐 web hasIconBonus 分支 —— bonus 是金色专属档位，盖过 combo/multi 标签。
+                    // 单消（lines==1）：不设 label，飘字仅显示 `+N`（与 web `el.textContent = '+'+score` 一致）
+                    // 同花顺（bonusLines）：覆盖前面的 label/kind，金粉紫 .float-icon-bonus 档位
                     if (bonusLineCount > 0) {
-                        this._nextScoreLabel = t('effect.iconBonus') + comboMultTxt;
+                        this._nextScoreLabel = t('effect.iconBonus');
                         this._nextScoreKind = 'bonus';
                         AudioManager.sfxBonus();
                         Haptics.heavy();
                     }
-                    // 连续 ≥3 次消行：弹 streak 徽章 + bonus 音（对齐 web `streak-badge`），>1 时同时显示 Combo ×N。
-                    if (this._clearStreak >= 3) {
-                        this.fx.showStreakBadge(this._clearStreak, comboMult);
+                    // ── 顶部 streak 徽章：与 web `if (this._comboCount >= 3) _showStreakBadge(...)` 一致 ──
+                    if (comboCount >= 3) {
+                        this.fx.showStreakBadge(comboCount, comboMult);
                         AudioManager.sfxBonus();
                         Haptics.heavy();
-                        if (this._clearStreak >= 4) this.profile?.recordDelight?.('comboHigh');
+                        if (comboCount >= 4) this.profile?.recordDelight?.('comboHigh');
                     }
                     if (bonusLineCount > 0) this.profile?.recordDelight?.('monoFlush');
                     Haptics.medium();

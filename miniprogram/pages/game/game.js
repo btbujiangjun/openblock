@@ -1130,10 +1130,10 @@ Page({
   _showFloatScore(score, { linesCleared = 0, bonusCount = 0, newBest = false, perfectClear = false } = {}) {
     const tags = [];
     if (newBest) tags.push(t('effectNewRecord'));
-    if (perfectClear) tags.push(`${t('effectPerfectClear')} ×${PERFECT_CLEAR_MULT}`);
+    if (perfectClear) tags.push(`${t('effectPerfectClear')} ${PERFECT_CLEAR_MULT}×`);
     else if (linesCleared >= 3) tags.push(t('effectMultiClear', { n: linesCleared }));
     else if (linesCleared === 2) tags.push(t('effectDoubleClear'));
-    if (bonusCount > 0) tags.push(`${t('effectIconBonus')} ×${bonusCount}`);
+    if (bonusCount > 0) tags.push(`${t('effectIconBonus')} ${bonusCount}×`);
     const suffix = tags.length ? ` (${tags.join(' · ')})` : '';
     const cls = newBest ? 'float-score--new-best' : perfectClear || linesCleared >= 3 ? 'float-score--combo' : bonusCount > 0 ? 'float-score--bonus' : '';
     this.setData({

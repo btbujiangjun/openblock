@@ -1067,9 +1067,11 @@ export class FxLayer extends Component {
         tryAddShadow(mainNode, new Color(255, 107, 53, 200), 0, 0, 10);
 
         if (hasMult) {
+            // i18n 模板 `effect.comboMultiplier` 形如 `Combo {mult}×` —— 调用方只传数字，
+            // × 后缀由模板统一加，与 web `_showStreakBadge` 同口径，避免格式漂移。
             const multTxt = Number.isInteger(comboMultiplier)
-                ? `×${comboMultiplier}`
-                : `×${Number(comboMultiplier).toFixed(1)}`;
+                ? `${comboMultiplier}`
+                : `${Number(comboMultiplier).toFixed(1)}`;
             const sub = t('effect.comboMultiplier', { mult: multTxt });
             const multSize = Math.round(32 * sizeScale); // CSS clamp(20, 4.5vw, 32) → 桌面上限 32
             const subNode = new Node('streakMult');

@@ -30,7 +30,9 @@ export const DEFAULT_COMBO_MULTIPLIER: ComboMultiplierConfig = {
     activationCount: 3,
     activationStreak: 3,
     stepBonus: 1.0,
-    maxMultiplier: 2.0,
+    /* max=4 与 shared/game_rules.json 同源：♥3 ×2 / ♥4 ×3 / ♥5+ ×4 线性递增，
+     * 避免旧 max=2 在 ♥≥3 后倍数永远封顶 ×2 的"看似没变化"现象。 */
+    maxMultiplier: 4.0,
 };
 
 export const DEFAULT_SCORING: ScoringConfig = {

@@ -72,13 +72,13 @@ module.exports = {
     "iconBonusLineMult": 5,
     "perfectClearMult": 10,
     "comboMultiplier": {
-      "comment": "连击得分倍数 —— combo 采用「带 grace 窗口的 chain 模型」（粉色爱心 ♥N 提示）：清线启动 combo（_comboCount=1），随后任意 0~gracePlacements-1 步未清线都不打断；当连续 ≥gracePlacements 步未清线时 combo 进入「待断」态，下次清线重置为 1。公式：mult = clamp(1 + max(0, comboCount - activationCount + 1) × stepBonus, 1, maxMultiplier)。默认 grace=3 / activation=3 / step=1 / max=2 → 缓冲 2 步、♥≥3 时清线得分 ×2（cap）。grace=1 即退化为「严格连击」（与旧 _clearStreak 同义）。调 max=4 / step=1 可放大为「♥3 ×2、♥4 ×3、♥5+ ×4」线性递增。enabled=false 或配置缺失即关闭加成与爱心徽章。activationStreak 是 activationCount 的向后兼容别名。与 perfectClearMult / iconBonusLineMult 串行累乘：clearScore = (baseScore + iconBonusScore) × perfectMult × comboMult。",
+      "comment": "连击得分倍数 —— combo 采用「带 grace 窗口的 chain 模型」（粉色爱心 ♥N 提示）：清线启动 combo（_comboCount=1），随后任意 0~gracePlacements-1 步未清线都不打断；当连续 ≥gracePlacements 步未清线时 combo 进入「待断」态，下次清线重置为 1。公式：mult = clamp(1 + max(0, comboCount - activationCount + 1) × stepBonus, 1, maxMultiplier)。当前 grace=3 / activation=3 / step=1 / max=4 → 缓冲 2 步、♥3 ×2 / ♥4 ×3 / ♥5+ ×4（cap），用户在徽章上能真切看到「×N 跟着连消增长」。旧值 max=2 会让 ♥3 起立刻封顶 ×2 而后永远不再变化（视觉与计分均「死掉」），已废弃。grace=1 即退化为「严格连击」（与旧 _clearStreak 同义）。enabled=false 或配置缺失即关闭加成与爱心徽章。activationStreak 是 activationCount 的向后兼容别名。与 perfectClearMult / iconBonusLineMult 串行累乘：clearScore = (baseScore + iconBonusScore) × perfectMult × comboMult。",
       "enabled": true,
       "gracePlacements": 3,
       "activationCount": 3,
       "activationStreak": 3,
       "stepBonus": 1,
-      "maxMultiplier": 2
+      "maxMultiplier": 4
     }
   },
   "rlBonusScoring": {

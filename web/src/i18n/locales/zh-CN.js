@@ -184,7 +184,7 @@ export default {
     /* v1.55 §4.6：同一局连续刷新 PB 的二度（或更多）庆祝文案；首次仍走 newRecord。 */
     'effect.newRecord.second': '再破纪录 +{{delta}}',
     'effect.streakCombo': '{{fires}} {{n}} 连消',
-    'effect.comboMultiplier': 'Combo {{mult}}',
+    'effect.comboMultiplier': 'Combo {{mult}}×',
     'effect.comboHeartAria': '连击中（爱心代表 combo 进行中）',
     'effect.achievementUnlocked': '🏆 成就解锁！',
     'effect.runStreakHint': '连战第 {{n}} 局：初始更挤、出块略难（回菜单重置）',
