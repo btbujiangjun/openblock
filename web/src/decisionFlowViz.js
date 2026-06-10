@@ -2397,7 +2397,7 @@ class DecisionFlowViz {
                     class: 'dfv-chosen-node-construct-badge',
                     display: 'none',
                 }, group);
-                constructBadge.textContent = '构';
+                constructBadge.textContent = '补消';
 
                 this._geom.set(`chosen:${idx}`, { x, y, r: chosenR });
                 this._chosenShapeEls.push({
@@ -3428,7 +3428,7 @@ class DecisionFlowViz {
                     const cColor = CONSTRUCT_KIND_COLOR[ck] || '#22d3ee';
                     _setAttrIfChanged(slot.constructBadge, 'display', 'inline');
                     _setAttrIfChanged(slot.constructBadge, 'fill', cColor);
-                    slot.constructBadge.textContent = ck === 'setup' ? '势' : '构';
+                    slot.constructBadge.textContent = ck === 'setup' ? '造势' : '补消';
                 } else {
                     _setAttrIfChanged(slot.constructBadge, 'display', 'none');
                 }
@@ -5395,6 +5395,19 @@ class DecisionFlowViz {
 }
 @media (prefers-reduced-motion: reduce) {
     .dfv-svg .dfv-chosen-node-dup-badge { animation: none; }
+}
+
+/* v1.67：补消/造势 badge —— 2 字文案，比 ⚡ ⧈ 单字 badge 略小以协调宽度；
+ * cyan/purple 配色由 JS fill 驱动；text-anchor 由 SVG 属性控制（默认 middle）。 */
+.dfv-svg .dfv-chosen-node-construct-badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    paint-order: stroke fill;
+    stroke: rgba(15, 23, 42, 0.92);
+    stroke-width: 2.2;
+    stroke-linejoin: round;
+    pointer-events: none;
 }
 
 /* v1.59.21 方案 C：决策摘要在 hover 反向高亮期间动态显示"追溯：因·XXX"小徽章。
