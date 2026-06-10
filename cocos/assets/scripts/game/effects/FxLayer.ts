@@ -722,13 +722,14 @@ export class FxLayer extends Component {
         // ── boardPx 适配（cocos 全屏沉浸 vs web 浏览器内嵌）──────────────────
         // web 用 `clamp(min, X vw, max)`，移动端 (375px 视口) combo 仅 ~21px；cocos 是全屏
         // 占位 (没有侧栏/导航/HUD 抢占视觉)，飘字必须比"等宽度移动端 web"更大才能撑住氛围。
-        // 因此把 spec.baseSize 视为"web 桌面上限"基准，再按 boardPx/480 等比放大（不缩小）：
-        //   boardPx=480 (典型 6.x 寸全屏) → 1.0× → 与 web 桌面上限一致
-        //   boardPx=600+ (平板/折叠屏)    → 等比变大
-        //   boardPx<480 (低端小屏)        → 维持桌面上限，宁可大一点也不能瘦小
-        // 这同时回应用户反馈"combo 在 web 主端字体很大，在 cocos 上很小"——
-        // 锁定 web 桌面上限即是"看起来与 web 主端等量"的最低保障。
-        const sizeScale = Math.max(1.0, this.boardPx / 480);
+        // 把 spec.baseSize 视为"web 桌面上限"基准，再按 boardPx/420 等比放大（不缩小）：
+        //   boardPx<420 (低端小屏)        → 维持桌面上限，宁可大一点也不能瘦小
+        //   boardPx=420 (典型 5.5 寸全屏) → 1.0× → 与 web 桌面上限一致
+        //   boardPx=480 (典型 6.x 寸全屏) → 1.14× → combo 41px / pts 46px
+        //   boardPx=600+ (平板/折叠屏)    → 1.43× → combo 51px / pts 58px
+        // 把基准从 480 下调到 420：用户反馈"中等盘面也偏小"，相同 boardPx 下统一再大 ~14%，
+        // 既补足"cocos 默认中盘"的视觉权重，也避免大盘面下飘字撑不起氛围。
+        const sizeScale = Math.max(1.0, this.boardPx / 420);
         const spec: Spec = {
             ...rawSpec,
             baseSize: Math.round(rawSpec.baseSize * sizeScale),

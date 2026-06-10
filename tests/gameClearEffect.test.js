@@ -88,6 +88,38 @@ describe('Game playClearEffect fallback', () => {
         expect(game.checkGameOver).toHaveBeenCalledOnce();
     });
 
+    it('同花顺消除触发三层粒子契约：icon gush + 色块爆发 + 色块持续涌出', () => {
+        // 这是 web 主端 "同花顺绚丽感" 的契约（cocos / miniprogram 必须 1:1 对齐）：
+        //   1. triggerBonusMatchFlash —— 紫金全屏光晕
+        //   2. beginBonusIconGush     —— emoji icon 持续飞出
+        //   3. addBonusLineBurst       —— 每条 bonusLine 一次性 64+36+36=136 色块爆发
+        //   4. beginBonusColorGush     —— 色块按时间窗节奏持续涌出
+        // 上述任何一项缺失都会让"同花顺消除"明显缺氛围；过去 cocos 端就因为缺 3、4
+        // 两层导致整体观感与 web 主端落差。
+        vi.useFakeTimers();
+        vi.stubGlobal('requestAnimationFrame', vi.fn());
+
+        const game = makeClearEffectGame();
+        Game.prototype.playClearEffect.call(game, {
+            count: 1,
+            cells: [{ x: 0, y: 0 }],
+            bonusLines: [{ type: 'row', idx: 0, colorIdx: 0, icon: '🍓' }],
+            perfectClear: false,
+        });
+
+        expect(game.renderer.triggerBonusMatchFlash).toHaveBeenCalledTimes(1);
+        expect(game.renderer.beginBonusIconGush).toHaveBeenCalledTimes(1);
+        // 色块爆发：每条 bonusLine 一次（这里只有 1 条）
+        expect(game.renderer.addBonusLineBurst).toHaveBeenCalledTimes(1);
+        // 色块持续涌出：整批一次（接收 lineSpecs 数组）
+        expect(game.renderer.beginBonusColorGush).toHaveBeenCalledTimes(1);
+        const colorGushArgs = game.renderer.beginBonusColorGush.mock.calls[0];
+        expect(Array.isArray(colorGushArgs[0])).toBe(true);
+        expect(colorGushArgs[0].length).toBe(1);
+        expect(typeof colorGushArgs[1]).toBe('number'); // holdMs
+        expect(colorGushArgs[1]).toBeGreaterThan(0);
+    });
+
     it('rAF 尾帧未执行时，定时兜底会复位特效态', () => {
         vi.useFakeTimers();
         vi.stubGlobal('requestAnimationFrame', vi.fn());

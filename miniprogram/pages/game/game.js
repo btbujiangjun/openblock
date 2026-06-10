@@ -645,10 +645,16 @@ Page({
       const palette = r._skin.blockColors;
       const n = g.grid.size;
       const cs = this._cellSize;
+      const colorSpecs = [];
       for (const bl of bls) {
         const css = palette[bl.colorIdx % palette.length] || '#FFD700';
         r.addBonusLineBurst(bl, css, 64, n, cs);
+        colorSpecs.push({ bonusLine: bl, cssColor: css });
       }
+      // 严格对齐 web 主端 playClearEffect：除一次性色块爆发外，还要叠加按
+      // 时间窗节奏持续涌出的 strongBurst 色块层（首帧 42/条），与 icon 喷涌同期，
+      // 构成"同花顺三层喷涌"的绚丽感。缺此层 cocos/miniprogram 整体氛围会明显落差。
+      r.beginBonusColorGush(colorSpecs, bonusEffectHoldMs(bls.length), n, cs);
     }
     this._audio?.feedback(this._lineFeedbackType({ perfectClear, bonusCount: bls.length, clears: info.clears }));
     const madeNewBest = this._maybeCelebrateNewBest(info.score || g.score || 0);

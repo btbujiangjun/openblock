@@ -139,6 +139,12 @@ class GameRenderer {
     this._skin = DEFAULT_SKIN;
     /** @type {Array<{x:number,y:number,vx:number,vy:number,color:string,life:number,lifeMax?:number,lifeDecay?:number,size:number,gravityMul?:number}>} */
     this.particles = [];
+    // beginBonusColorGush 状态（与 web `_colorGushLines/_colorGushStart/_colorGushEnd` 对齐）
+    this._colorGushLines = [];
+    this._colorGushStart = 0;
+    this._colorGushEnd = 0;
+    this._colorGushCs = 0;
+    this._colorGushN = 0;
     this.clearCells = [];
     this.previewClearCells = [];
     this.shakeOffset = { x: 0, y: 0 };
@@ -1040,20 +1046,28 @@ class GameRenderer {
   }
 
   /**
-   * 同色整行/列消除：沿行或列喷射粒子（与 web/src/renderer.js addBonusLineBurst 对齐）
+   * 同花顺色块爆发 —— 严格对齐 web 主端 `addBonusLineBurst(bonusLine, cssColor, count=64)`：
+   *
+   *   主粒子 N=count：spread 3.20 / speed 4.5-22 px/帧 / life 1.45-2.10 / size 7-25 / 金·cssColor·白 轮转
+   *   内圈高速 36 ：  全方位 angle / speed 8-28 / life 1.25-1.70 / size 3.5-10.5 / 白·cssColor 交替
+   *   金色火花 36 ：  水平 ±18 / 强烈向上 12-28 / life 1.75-2.20 / size 3-9 / 纯金 #FFD700
+   *
+   * 之前 miniprogram 用的是 web 旧 spec（count=48 / spread 2.75 / speed 12 / sideCount 22），
+   * 已落后于主端最新数值，导致同花顺粒子明显不如 web 主端绚烂。本轮严格回归 1:1。
    * @param {{ type:'row'|'col', idx:number }} bonusLine
    * @param {string} cssColor
-   * @param {number} [count=48]
+   * @param {number} [count=64]
    * @param {number} gridSize
    * @param {number} cellSize
    */
-  addBonusLineBurst(bonusLine, cssColor, count = 48, gridSize, cellSize) {
+  addBonusLineBurst(bonusLine, cssColor, count = 64, gridSize, cellSize) {
     if (!this._effectsEnabled) return;
     const n = gridSize;
     const cs = cellSize;
     const qScale = this._qualityParticleScale();
     count = Math.max(8, Math.round(count * qScale));
-    const sideCount = Math.max(4, Math.round(22 * qScale));
+    const side2 = Math.max(6, Math.round(36 * qScale));
+    const side3 = Math.max(6, Math.round(36 * qScale));
     const gold = '#FFD700';
     const white = '#FFFFFF';
     const pushBurst = (x, y, angle, speed, color, life, decay, sz, gMul) => {
@@ -1080,16 +1094,16 @@ class GameRenderer {
         x = cs * (bonusLine.idx + 0.5);
         y = cs * (Math.random() * n);
       }
-      const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.75;
-      const speed = 3.5 + Math.random() * 12;
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * 3.20;
+      const speed = 4.5 + Math.random() * 17.5;
       const color = i % 3 === 0 ? gold : i % 3 === 1 ? cssColor : white;
       pushBurst(x, y, angle, speed, color,
-        1.15 + Math.random() * 0.55,
-        0.0055 + Math.random() * 0.0045,
-        6 + Math.random() * 12,
-        0.52);
+        1.45 + Math.random() * 0.65,
+        0.0042 + Math.random() * 0.0035,
+        7 + Math.random() * 18,
+        0.48);
     }
-    for (let k = 0; k < sideCount; k++) {
+    for (let k = 0; k < side2; k++) {
       let x;
       let y;
       if (bonusLine.type === 'row') {
@@ -1100,14 +1114,14 @@ class GameRenderer {
         y = cs * (Math.random() * n);
       }
       const angle = Math.random() * Math.PI * 2;
-      const speed = 6 + Math.random() * 14;
+      const speed = 8 + Math.random() * 20;
       pushBurst(x, y, angle, speed, k % 2 ? white : cssColor,
-        1.0 + Math.random() * 0.35,
-        0.007 + Math.random() * 0.006,
-        3 + Math.random() * 5,
-        0.38);
+        1.25 + Math.random() * 0.45,
+        0.0055 + Math.random() * 0.0048,
+        3.5 + Math.random() * 7,
+        0.34);
     }
-    for (let j = 0; j < sideCount; j++) {
+    for (let j = 0; j < side3; j++) {
       let x;
       let y;
       if (bonusLine.type === 'row') {
@@ -1117,23 +1131,119 @@ class GameRenderer {
         x = cs * (bonusLine.idx + 0.5);
         y = cs * (Math.random() * n);
       }
-      const lj = 1.45 + Math.random() * 0.35;
+      const lj = 1.75 + Math.random() * 0.45;
       this.particles.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 26,
-        vy: -(9 + Math.random() * 12),
+        vx: (Math.random() - 0.5) * 36,
+        vy: -(12 + Math.random() * 16),
         color: gold,
         life: lj,
         lifeMax: lj,
-        lifeDecay: 0.0075 + Math.random() * 0.004,
-        size: 2.5 + Math.random() * 4.5,
-        gravityMul: 0.45,
+        lifeDecay: 0.0058 + Math.random() * 0.004,
+        size: 3 + Math.random() * 6,
+        gravityMul: 0.40,
       });
     }
   }
 
+  /**
+   * 同花顺色块持续涌出 —— 严格对齐 web 主端 `beginBonusColorGush(lineSpecs, durationMs)`：
+   *
+   *   首帧每条 bonusLine 强爆发 42 个 strongBurst 色块；
+   *   整段 durationMs 内 _tickColorGushSpawn 按时间窗节奏 spawn：
+   *     t < 0.36：82% × 3 / 18% × 2
+   *     t < 0.76：62% × 2 / 38% × 1
+   *     末段    ：40% × 1 / 60% × 0
+   *
+   * 单次粒子参数同 `_pushBonusColorParticle`：spread strong 3.15 / 常规 2.85；
+   * speed strong 4.8-20.3 / 常规 3.4-14.4；life 1.20-1.82；size 2.8-13.8（strong）/2.8-10.3（常规）；
+   * 颜色 34% 金 / 34% cssColor / 32% 白。
+   *
+   * 缺失此层会让"同花顺消除"明显缺氛围；miniprogram 之前完全没接，现补齐。
+   * @param {Array<{bonusLine:{type:'row'|'col',idx:number}, cssColor:string}>} lineSpecs
+   * @param {number} durationMs
+   * @param {number} gridSize
+   * @param {number} cellSize
+   */
+  beginBonusColorGush(lineSpecs, durationMs, gridSize, cellSize) {
+    if (!this._effectsEnabled) return;
+    if (!lineSpecs || !lineSpecs.length) return;
+    this._colorGushLines = lineSpecs.map((s) => ({ bonusLine: s.bonusLine, cssColor: s.cssColor }));
+    this._colorGushCs = cellSize;
+    this._colorGushN = gridSize;
+    const now = Date.now();
+    this._colorGushStart = now;
+    this._colorGushEnd = now + Math.max(520, durationMs);
+    for (const spec of this._colorGushLines) {
+      for (let i = 0; i < 42; i++) {
+        this._pushBonusColorParticle(spec.bonusLine, spec.cssColor, true);
+      }
+    }
+  }
+
+  /** 单个色块粒子生成（与 web `_pushBonusColorParticle` 1:1）。 */
+  _pushBonusColorParticle(bonusLine, cssColor, strong) {
+    const n = this._colorGushN;
+    const cs = this._colorGushCs;
+    if (!n || !cs) return;
+    let x;
+    let y;
+    if (bonusLine.type === 'row') {
+      x = cs * (Math.random() * n);
+      y = cs * (bonusLine.idx + 0.5);
+    } else {
+      x = cs * (bonusLine.idx + 0.5);
+      y = cs * (Math.random() * n);
+    }
+    const gold = '#FFD700';
+    const white = '#FFFFFF';
+    const roll = Math.random();
+    const color = roll < 0.34 ? gold : roll < 0.68 ? cssColor : white;
+    const spread = strong ? 3.15 : 2.85;
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * spread;
+    const speed = (strong ? 4.8 : 3.4) + Math.random() * (strong ? 15.5 : 11.0);
+    const life0 = 1.20 + Math.random() * 0.62;
+    this.particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - (1.4 + Math.random() * 3.0),
+      color,
+      life: life0,
+      lifeMax: life0,
+      lifeDecay: 0.0036 + Math.random() * 0.0036,
+      size: 2.8 + Math.random() * (strong ? 11 : 7.5),
+      gravityMul: 0.42 + Math.random() * 0.14,
+    });
+  }
+
+  /** 在 updateParticles 内 tick：按 web 时间窗节奏持续 spawn。 */
+  _tickColorGushSpawn() {
+    if (!this._colorGushLines || !this._colorGushLines.length) return;
+    const now = Date.now();
+    if (now >= this._colorGushEnd) {
+      this._colorGushLines = [];
+      return;
+    }
+    // web 上限 particles.length > 620 直接套用
+    if (this.particles.length > 620) return;
+    const span = Math.max(1, this._colorGushEnd - this._colorGushStart);
+    const t = (now - this._colorGushStart) / span;
+    let rolls = 0;
+    if (t < 0.36) rolls = Math.random() < 0.82 ? 3 : 2;
+    else if (t < 0.76) rolls = Math.random() < 0.62 ? 2 : 1;
+    else rolls = Math.random() < 0.40 ? 1 : 0;
+    const strong = t < 0.15;
+    for (const spec of this._colorGushLines) {
+      for (let k = 0; k < rolls; k++) {
+        this._pushBonusColorParticle(spec.bonusLine, spec.cssColor, strong);
+      }
+    }
+  }
+
   updateParticles() {
+    this._tickColorGushSpawn();
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.x += p.vx;
@@ -1182,6 +1292,7 @@ class GameRenderer {
 
   clearParticles() {
     this.particles = [];
+    this._colorGushLines = [];
     this.previewClearCells = [];
     this._comboFlash = 0;
     this._perfectFlash = 0;
