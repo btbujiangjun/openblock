@@ -36,7 +36,7 @@ const HIDDEN_SKIN_ID = 'og_geometry';
 /** 第 37 款隐藏皮肤定义（黑底白方，致敬 Tetris 1984） */
 const HIDDEN_SKIN_DEF = {
     id: HIDDEN_SKIN_ID,
-    name: 'OG 几何',
+    name: '🕹️ 像素幽灵',
     description: 'Konami Code 解锁的第 37 款隐藏皮肤——致敬 1984',
     blockColors: ['#FFFFFF', '#E0E0E0', '#C8C8C8', '#A8A8A8', '#888888', '#686868', '#484848', '#282828'],
     cssBg: '#000000',

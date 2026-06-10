@@ -41,7 +41,7 @@ const SKINS = {
   },
   "titanium": {
     "id": "titanium",
-    "name": "💎 钛晶矩阵",
+    "name": "💎 钛晶凝光",
     "blockColors": [
       "#6AAEE8",
       "#94BDDF",
@@ -62,7 +62,7 @@ const SKINS = {
   },
   "aurora": {
     "id": "aurora",
-    "name": "🌌 冰川极光",
+    "name": "🌌 极光幻梦",
     "blockColors": [
       "#5AD8CC",
       "#8070F0",
@@ -93,7 +93,7 @@ const SKINS = {
   },
   "neonCity": {
     "id": "neonCity",
-    "name": "🌃 霓虹都市",
+    "name": "🌃 霓虹未眠",
     "blockColors": [
       "#FF2DAA",
       "#9B72FF",
@@ -114,7 +114,7 @@ const SKINS = {
   },
   "ocean": {
     "id": "ocean",
-    "name": "🌊 深海幽域",
+    "name": "🌊 深海之瞳",
     "blockColors": [
       "#00C8F0",
       "#0098C8",
@@ -166,7 +166,7 @@ const SKINS = {
   },
   "sakura": {
     "id": "sakura",
-    "name": "🌸 樱花飞雪",
+    "name": "🌸 樱落无声",
     "blockColors": [
       "#FF4490",
       "#FF2870",
@@ -187,7 +187,7 @@ const SKINS = {
   },
   "koi": {
     "id": "koi",
-    "name": "🎏 锦鲤跃龙",
+    "name": "🎏 锦鲤戏月",
     "blockColors": [
       "#FF5040",
       "#F07828",
@@ -218,7 +218,7 @@ const SKINS = {
   },
   "candy": {
     "id": "candy",
-    "name": "🍭 糖果甜心",
+    "name": "🍭 糖心蜜语",
     "blockColors": [
       "#FF4466",
       "#FF8820",
@@ -249,7 +249,7 @@ const SKINS = {
   },
   "bubbly": {
     "id": "bubbly",
-    "name": "🫧 元气泡泡",
+    "name": "🫧 泡沫之夏",
     "blockColors": [
       "#FF72BB",
       "#4898F8",
@@ -280,7 +280,7 @@ const SKINS = {
   },
   "toon": {
     "id": "toon",
-    "name": "🎨 卡通乐园",
+    "name": "🎨 童画世界",
     "blockColors": [
       "#FF5570",
       "#FF7F11",
@@ -311,7 +311,7 @@ const SKINS = {
   },
   "pixel8": {
     "id": "pixel8",
-    "name": "👾 街机格斗",
+    "name": "👾 像素纪元",
     "blockColors": [
       "#FF2050",
       "#1E78FF",
@@ -361,9 +361,40 @@ const SKINS = {
     "blockStyle": "cartoon",
     "clearFlash": "rgba(255,210,130,0.72)"
   },
+  "summer": {
+    "id": "summer",
+    "name": "☀️ 夏日海风",
+    "blockColors": [
+      "#E84B5C",
+      "#D4A030",
+      "#6AB82C",
+      "#3A80C8",
+      "#2AB898",
+      "#C8A820",
+      "#E85A5A",
+      "#8B44B0"
+    ],
+    "blockIcons": [
+      "🍉",
+      "🍦",
+      "🥥",
+      "🏝️",
+      "🧊",
+      "🍹",
+      "🪁",
+      "🏓"
+    ],
+    "gridOuter": "#A8C4D8",
+    "gridCell": "#C8DCEA",
+    "gridGap": 0,
+    "blockInset": 2,
+    "blockRadius": 8,
+    "blockStyle": "cartoon",
+    "clearFlash": "rgba(255,248,180,0.72)"
+  },
   "food": {
     "id": "food",
-    "name": "🍕 美食盛宴",
+    "name": "🍕 烟火食光",
     "blockColors": [
       "#FF5040",
       "#F09020",
@@ -394,7 +425,7 @@ const SKINS = {
   },
   "music": {
     "id": "music",
-    "name": "🎹 音乐律动",
+    "name": "🎹 音律星河",
     "blockColors": [
       "#FF3060",
       "#FF9020",
@@ -425,7 +456,7 @@ const SKINS = {
   },
   "pets": {
     "id": "pets",
-    "name": "🐶 萌宠天地",
+    "name": "🐶 萌宠时光",
     "blockColors": [
       "#C89088",
       "#B8A090",
@@ -456,7 +487,7 @@ const SKINS = {
   },
   "universe": {
     "id": "universe",
-    "name": "🪐 宇宙星际",
+    "name": "🪐 星河漫游",
     "blockColors": [
       "#E84020",
       "#F09030",
@@ -487,7 +518,7 @@ const SKINS = {
   },
   "fantasy": {
     "id": "fantasy",
-    "name": "🔮 魔幻秘境",
+    "name": "🔮 幻梦之境",
     "blockColors": [
       "#CC48FF",
       "#5080F0",
@@ -508,7 +539,7 @@ const SKINS = {
   },
   "beast": {
     "id": "beast",
-    "name": "🗺️ 冒险奇境",
+    "name": "🗺️ 荒野之歌",
     "blockColors": [
       "#6878A0",
       "#A82820",
@@ -539,7 +570,7 @@ const SKINS = {
   },
   "greece": {
     "id": "greece",
-    "name": "🏛️ 希腊神话",
+    "name": "🏛️ 众神之诗",
     "blockColors": [
       "#E8C030",
       "#4898E8",
@@ -570,7 +601,7 @@ const SKINS = {
   },
   "demon": {
     "id": "demon",
-    "name": "😈 恶魔冥界",
+    "name": "😈 永夜咏叹",
     "blockColors": [
       "#F03030",
       "#F0A020",
@@ -601,7 +632,7 @@ const SKINS = {
   },
   "jurassic": {
     "id": "jurassic",
-    "name": "🦕 恐龙世界",
+    "name": "🦕 远古之息",
     "blockColors": [
       "#50C030",
       "#F05030",
@@ -632,7 +663,7 @@ const SKINS = {
   },
   "fairy": {
     "id": "fairy",
-    "name": "🧚 花仙梦境",
+    "name": "🧚 花语星梦",
     "blockColors": [
       "#D060F0",
       "#F060A0",
@@ -663,7 +694,7 @@ const SKINS = {
   },
   "industrial": {
     "id": "industrial",
-    "name": "🏭 古典工业",
+    "name": "🏭 蒸汽回响",
     "blockColors": [
       "#D49640",
       "#C04030",
@@ -694,7 +725,7 @@ const SKINS = {
   },
   "forbidden": {
     "id": "forbidden",
-    "name": "👑 北京皇城",
+    "name": "👑 紫禁浮光",
     "blockColors": [
       "#C8222C",
       "#1B7E5C",
@@ -725,7 +756,7 @@ const SKINS = {
   },
   "mahjong": {
     "id": "mahjong",
-    "name": "🀄 麻将牌局",
+    "name": "🀄 牌影江湖",
     "blockColors": [
       "#3DA88C",
       "#C4424C",
@@ -756,7 +787,7 @@ const SKINS = {
   },
   "boardgame": {
     "id": "boardgame",
-    "name": "🃏 扑克博弈",
+    "name": "🃏 牌局风云",
     "blockColors": [
       "#C89642",
       "#23866A",
@@ -787,7 +818,7 @@ const SKINS = {
   },
   "sports": {
     "id": "sports",
-    "name": "⚽ 运动竞技",
+    "name": "⚽ 热血赛场",
     "blockColors": [
       "#4F9050",
       "#2858B0",
@@ -818,7 +849,7 @@ const SKINS = {
   },
   "outdoor": {
     "id": "outdoor",
-    "name": "🥾 户外运动",
+    "name": "🥾 山野之风",
     "blockColors": [
       "#3878B8",
       "#3E7848",
@@ -849,7 +880,7 @@ const SKINS = {
   },
   "vehicles": {
     "id": "vehicles",
-    "name": "🏎️ 极速引擎",
+    "name": "🏎️ 流光速影",
     "blockColors": [
       "#8090A0",
       "#2860C8",
@@ -880,7 +911,7 @@ const SKINS = {
   },
   "forest": {
     "id": "forest",
-    "name": "🌳 山林秘境",
+    "name": "🌳 森林物语",
     "blockColors": [
       "#8B5828",
       "#D87838",
@@ -911,7 +942,7 @@ const SKINS = {
   },
   "pirate": {
     "id": "pirate",
-    "name": "🦜 海盗航行",
+    "name": "🦜 海盗诗篇",
     "blockColors": [
       "#B02020",
       "#D8C4A0",
@@ -942,7 +973,7 @@ const SKINS = {
   },
   "farm": {
     "id": "farm",
-    "name": "🐄 田园农场",
+    "name": "🐄 田园牧歌",
     "blockColors": [
       "#B85A50",
       "#4E84B8",
@@ -973,7 +1004,7 @@ const SKINS = {
   },
   "desert": {
     "id": "desert",
-    "name": "🐫 沙漠绿洲",
+    "name": "🐫 大漠孤烟",
     "blockColors": [
       "#4E8EB8",
       "#B86A48",
@@ -1001,6 +1032,27 @@ const SKINS = {
     "blockRadius": 5,
     "blockStyle": "cartoon",
     "clearFlash": "rgba(230,180,80,0.45)"
+  },
+  "apple": {
+    "id": "apple",
+    "name": "🍎 果韵匠心",
+    "blockColors": [
+      "#C8C8CC",
+      "#8E8E93",
+      "#D4B88C",
+      "#E8B4B8",
+      "#4A5A6A",
+      "#A8BCC8",
+      "#5E5CE6",
+      "#E55934"
+    ],
+    "gridOuter": "#0E0E12",
+    "gridCell": "#1A1A20",
+    "gridGap": 1,
+    "blockInset": 2,
+    "blockRadius": 7,
+    "blockStyle": "glass",
+    "clearFlash": "rgba(200,200,220,0.30)"
   }
 };
 
@@ -1134,6 +1186,8 @@ const BOARD_WATERMARKS = {
   pirate: { icons: ['🦜', '🏴‍☠️'], opacity: 0.048, hdIcons: ['⚓', '🗺️', '💰', '🛶', '🚣'] },
   farm: { icons: ['🐄', '🌽'], opacity: 0.04, hdIcons: ['🐔', '🥕', '🐑', '🐖', '🥬'] },
   desert: { icons: ['🐫', '🌵'], opacity: 0.04, hdIcons: ['🦂', '🌴', '🏜️', '🐍', '🌶️'] },
+  summer: { icons: ['☀️', '🏝️'], opacity: 0.06, hdIcons: ['🍉', '🍹', '🪁', '🧊', '🥥'] },
+  apple: { icons: ['🍎', '✨'], opacity: 0.04, hdIcons: ['⚪', '⬜', '🔘', '◻️', '🔲'] },
 };
 
 function _optimizeSkinForMobile(skin) {

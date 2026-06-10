@@ -222,6 +222,8 @@ const BOARD_WATERMARKS = {
   pirate: { icons: ['🦜', '🏴‍☠️'], opacity: 0.048, hdIcons: ['⚓', '🗺️', '💰', '🛶', '🚣'] },
   farm: { icons: ['🐄', '🌽'], opacity: 0.04, hdIcons: ['🐔', '🥕', '🐑', '🐖', '🥬'] },
   desert: { icons: ['🐫', '🌵'], opacity: 0.04, hdIcons: ['🦂', '🌴', '🏜️', '🐍', '🌶️'] },
+  summer: { icons: ['☀️', '🏝️'], opacity: 0.06, hdIcons: ['🍉', '🍹', '🪁', '🧊', '🥥'] },
+  apple: { icons: ['🍎', '✨'], opacity: 0.04, hdIcons: ['⚪', '⬜', '🔘', '◻️', '🔲'] },
 };
 
 function _optimizeSkinForMobile(skin) {
