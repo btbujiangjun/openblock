@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, UITransform, Graphics, Color, BlockInputEvents } from 'cc';
-import { GameMode, t, flag, availableLocales, getLocale, setLocale } from '../../core';
+import { GameMode, t, flag, availableLocales, getLocale, setLocale, onLocaleChange } from '../../core';
 import { Modal, TapBus, button, label, inheritLayer } from './uiKit';
 import { Wordmark } from './Wordmark';
 
@@ -34,6 +34,7 @@ export class MainMenu extends Component {
     private opts!: MainMenuOpts;
     private blocker!: Node;
     private _unregBlocker: (() => void) | null = null;
+    private _unsubLocale: (() => void) | null = null;
     private selected: GameMode = 'classic';
     private visible = false;
 
@@ -92,13 +93,27 @@ export class MainMenu extends Component {
         }
         Modal.open();
         this._unregBlocker = TapBus.add(this.blocker, () => { /* 吸收，不关闭 */ });
+        // 切语言后立即重建菜单（按钮/标题/标签全是即时 t() 拼出），避免用户切到 EN
+        // 后菜单仍显示中文的"卡住感"。MainMenu 是 web `i18n` 切换按钮唯一直接入口，
+        // 自身订阅最自然，无需 Bootstrap 统一调度。
+        if (!this._unsubLocale) {
+            this._unsubLocale = onLocaleChange(() => {
+                if (this.visible && this.node?.isValid) this.rebuild();
+            });
+        }
         this.rebuild();
+    }
+
+    onDestroy(): void {
+        if (this._unsubLocale) { this._unsubLocale(); this._unsubLocale = null; }
+        if (this._unregBlocker) { this._unregBlocker(); this._unregBlocker = null; }
     }
 
     hide(): void {
         if (!this.visible) return;
         this.visible = false;
         if (this._unregBlocker) { this._unregBlocker(); this._unregBlocker = null; }
+        if (this._unsubLocale) { this._unsubLocale(); this._unsubLocale = null; }
         Modal.close();
         // 销毁菜单节点，彻底注销 TapBus 注册，避免隐藏后仍拦截顶栏/弹窗点击。
         this.node.destroy();
