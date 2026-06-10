@@ -1011,31 +1011,117 @@ export class FxLayer extends Component {
 
     /**
      * 连续消行 streak 徽章（对齐 web `.streak-badge` 及 `_showStreakBadge`）：
-     * 在盘面顶部弹出一个金色徽章，3 行连续起步、颜色随 streak 升级；
-     * 当 comboMultiplier > 1 时，下方追加一行 `Combo ×N`（对齐 web `.streak-badge--mult` 双行布局）。
+     *
+     * 关键定位与字号设计（修复"cocos 端 combo 字样重复"）：
+     *   - 位置：盘面 **顶部**（y = +half × 0.78），与 floatScore（盘面正中央）完全错开，
+     *     不再用 floatText 默认中央位（之前 sub 行 y=72、main 行 y=116 几乎与 pts 重叠，
+     *     用户看到飘字小标签里的 `· combo ×N` 和 streak 徽章里的 `Combo ×N` 紧挨着出现）。
+     *   - 字号：web `.streak-badge` 是 clamp(14, 3vw, 20)，明显小于 floatScore（22-46px），
+     *     这是 web 视觉上"两处都有 combo 但不显重复"的关键。cocos 同步把徽章字号压到 ~20px
+     *     基础 + sizeScale 缩放，与 floatScore 拉开权重差。
+     *   - 颜色：web `.streak-badge` 主色 #ff6b35（暖橙），由 streak 强度过渡到金；
+     *     `.streak-badge--mult` 的 ×N 子文案是金渐变 → cocos 取金色单色近似。
+     *
      * fires 数量随 streak 升级：≥5 三只、≥4 两只、其余一只。
      */
     showStreakBadge(streak: number, comboMultiplier: number = 1): void {
         if (streak < 3) return;
+        if (!VisualFx.enabled) return;
+        const sizeScale = Math.max(1.0, this.boardPx / 420);
         const intensity = Math.min(1, (streak - 3) / 4);
         const r = Math.round(255);
-        const g = Math.round(200 - intensity * 80);
-        const b = Math.round(80 - intensity * 60);
-        const color = new Color(r, g, b, 255);
+        const g = Math.round(107 + intensity * 93);   // 107→200（暖橙→金黄）
+        const b = Math.round(53 + intensity * 27);    // 53→80
+        const mainColor = new Color(r, g, b, 255);
         const fires = streak >= 5 ? '🔥🔥🔥' : streak >= 4 ? '🔥🔥' : '🔥';
-        const main = t('effect.streakCombo', { fires, n: streak });
+        const mainTxt = t('effect.streakCombo', { fires, n: streak });
         const hasMult = Number(comboMultiplier) > 1;
-        if (!hasMult) {
-            this.floatText(main, color, 100);
-            return;
+
+        // 盘面顶部锚位：CSS `_anchorOnBoard` 默认在盘面中央，web 用 `.streak-badge` 的
+        // streakSlide 关键帧 translateY(-24px) 上浮，整体仍偏盘面中央。cocos 改为顶部偏上
+        // 显式让位 floatScore；视觉权重靠"小字 + 暖色"区分，不靠位置错开（与 web 一致）。
+        const half = this.boardPx / 2;
+        const baseY = half * 0.78; // 盘面顶部 ~78% 高度
+        const container = new Node('streakBadge');
+        container.parent = this.node;
+        container.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        container.setPosition(0, baseY, 0);
+        const op = container.addComponent(UIOpacity);
+        op.opacity = 0;
+
+        const mainSize = Math.round(20 * sizeScale); // CSS clamp(14, 3vw, 20) → 桌面上限 20
+        const mainNode = new Node('streakMain');
+        mainNode.parent = container;
+        mainNode.addComponent(UITransform).setAnchorPoint(0.5, hasMult ? 0 : 0.5);
+        mainNode.setPosition(0, hasMult ? 2 : 0, 0);
+        const mainLabel = mainNode.addComponent(Label);
+        mainLabel.string = mainTxt;
+        applyTextStyle(mainLabel, {
+            fontFamily: `${UI_FONT_FAMILY},${EMOJI_FONT_FAMILY}`,
+            fontSize: hasMult ? Math.round(mainSize * 0.7) : mainSize, // .streak-badge--mult .streak-badge-main 0.7em
+            lineHeight: (hasMult ? Math.round(mainSize * 0.7) : mainSize) + 4,
+            color: hasMult ? new Color(255, 245, 230, 235) : mainColor, // mult 模式下用 #fff5e6
+            bold: true,
+            letterSpacing: Math.max(1, Math.round(mainSize * 0.06)),
+        });
+        tryAddShadow(mainNode, new Color(255, 107, 53, 200), 0, 0, 10);
+
+        if (hasMult) {
+            const multTxt = Number.isInteger(comboMultiplier)
+                ? `×${comboMultiplier}`
+                : `×${Number(comboMultiplier).toFixed(1)}`;
+            const sub = t('effect.comboMultiplier', { mult: multTxt });
+            const multSize = Math.round(32 * sizeScale); // CSS clamp(20, 4.5vw, 32) → 桌面上限 32
+            const subNode = new Node('streakMult');
+            subNode.parent = container;
+            subNode.addComponent(UITransform).setAnchorPoint(0.5, 1);
+            subNode.setPosition(0, -2, 0);
+            const subLabel = subNode.addComponent(Label);
+            subLabel.string = sub;
+            applyTextStyle(subLabel, {
+                fontFamily: UI_FONT_FAMILY,
+                fontSize: multSize,
+                lineHeight: multSize + 4,
+                color: new Color(255, 206, 79, 255), // 金渐变 → 单色近似 #ffce4f
+                bold: true,
+                letterSpacing: Math.max(1, Math.round(multSize * 0.06)),
+            });
+            tryAddShadow(subNode, new Color(255, 200, 60, 200), 0, 0, 8);
         }
-        const multTxt = Number.isInteger(comboMultiplier)
-            ? `×${comboMultiplier}`
-            : `×${Number(comboMultiplier).toFixed(1)}`;
-        const sub = t('effect.comboMultiplier', { mult: multTxt });
-        // 双行：主标签在上、Combo 倍数在下；两条独立浮字共享同一颜色，错开 y 防重叠。
-        this.floatText(main, color, 116);
-        this.floatText(sub, color, 72);
+
+        // streakSlide / streakMultPop 关键帧：
+        //   streakSlide 1.6s：scale 0.7→1.1→1→...→0.95，translateY +10→0→-2→-24
+        //   streakMultPop 2.0s：scale 0.6→1.18→1.05→1.02→0.98，translateY +8→-4→-6→-8→-22
+        const dur = hasMult ? 2.0 : 1.6;
+        container.setScale(hasMult ? 0.6 : 0.7, hasMult ? 0.6 : 0.7, 1);
+        container.setPosition(0, baseY - 10 * sizeScale, 0);
+        op.opacity = 0;
+        if (hasMult) {
+            tween(container)
+                .to(dur * 0.18, { position: v3(0, baseY + 4 * sizeScale, 0), scale: v3(1.18, 1.18, 1) }, { easing: 'cubicOut' })
+                .to(dur * 0.14, { position: v3(0, baseY + 6 * sizeScale, 0), scale: v3(1.05, 1.05, 1) }, { easing: 'cubicInOut' })
+                .to(dur * 0.46, { position: v3(0, baseY + 8 * sizeScale, 0), scale: v3(1.02, 1.02, 1) }, { easing: 'cubicInOut' })
+                .to(dur * 0.22, { position: v3(0, baseY + 22 * sizeScale, 0), scale: v3(0.98, 0.98, 1) }, { easing: 'cubicOut' })
+                .start();
+            tween(op)
+                .to(dur * 0.18, { opacity: 255 }, { easing: 'quadOut' })
+                .delay(dur * 0.60)
+                .to(dur * 0.22, { opacity: 0 }, { easing: 'quadOut' })
+                .start();
+        } else {
+            tween(container)
+                .to(dur * 0.14, { position: v3(0, baseY, 0), scale: v3(1.1, 1.1, 1) }, { easing: 'cubicOut' })
+                .to(dur * 0.16, { position: v3(0, baseY + 2 * sizeScale, 0), scale: v3(1.0, 1.0, 1) }, { easing: 'cubicInOut' })
+                .to(dur * 0.70, { position: v3(0, baseY + 24 * sizeScale, 0), scale: v3(0.95, 0.95, 1) }, { easing: 'cubicOut' })
+                .start();
+            tween(op)
+                .to(dur * 0.14, { opacity: 255 }, { easing: 'quadOut' })
+                .delay(dur * 0.56)
+                .to(dur * 0.30, { opacity: 0 }, { easing: 'quadOut' })
+                .start();
+        }
+        // 兜底销毁
+        tween(container).delay(dur + 0.1).call(() => container.destroy()).start();
     }
 
     /**

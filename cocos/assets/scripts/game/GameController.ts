@@ -1195,9 +1195,12 @@ export class GameController extends Component {
                         Analytics.track(ANALYTICS_EVENTS.comboHigh, { count: lines });
                         this._nextScoreKind = lines === 2 ? 'multi' : 'combo';
                     } else if (comboMult > 1) {
-                        // 单消但 combo 倍数生效：标签退化为 `Combo ×N`（对齐 web `hasComboMult` 单消分支）。
+                        // 单消但 combo 倍数生效：标签退化为小写 `combo ×N`（对齐 web `hasComboMult` 单消分支
+                        // 4864 行的硬编码模板 `effect.comboMultiplier` 仅供 streak 徽章使用，
+                        // 是大写 `Combo ×N` 大字徽章），飘字 label 与徽章字串/字号分离避免视觉"combo
+                        // 字样重复"。
                         const multTxt = Number.isInteger(comboMult) ? `×${comboMult}` : `×${comboMult.toFixed(1)}`;
-                        this._nextScoreLabel = t('effect.comboMultiplier', { mult: multTxt });
+                        this._nextScoreLabel = `combo ${multTxt}`;
                         this._nextScoreKind = 'combo';
                     }
                     // 同色 / 同 icon 行（bonusLines）：覆盖标签为「同花顺大消除」，配 bonus 档位字号。
