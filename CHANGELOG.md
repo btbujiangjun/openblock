@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — v1.69.3 移动端隐藏算法决策叙事文案（web debug 专属）
+
+- **Cocos**：`GameController.maybeShowStrategyHint`（每日策略意图 Toast）默认不显示。
+  `lifecyclePlaybook.intentNarrative` 含「投放促清形状 / 识别到密集消行机会 / 系统略加压」
+  等算法泄露式描述，仅适合 web 主端 debug 面板；终端用户不应感知"系统在投放什么"。
+  调试需要时可在 Bootstrap 注入 `globalThis.__OB_COCOS_STRATEGY_HINT__ = true` 恢复显示。
+- **小程序**：经追溯确认本就没有 sync `displayContracts` / `stressMeter` / `playerInsightPanel`、
+  也无任何 UI 订阅，**无需改动**——但加静态测试守住边界，防止未来误回归。
+- **web 主端**：零改动，DFV / 算法动态卡 / playerInsightPanel 调试体验完全保留。
+- **静态隔离测试** `tests/narrativeIsolation.test.js`（5 项 CI 检查）：
+  - miniprogram/ 与 cocos/assets/scripts/ 不得 import 五个 web debug 叙事模块
+    （displayContracts / stressMeter / playerInsightPanel / decisionFlowViz / strategyAdvisor）
+  - sync-core.sh / sync-cocos-engine.mjs 同步清单不得包含上述五个文件名
+  - `maybeShowStrategyHint` 方法体必须含 `__OB_COCOS_STRATEGY_HINT__` 门控关键字
+- **文档**：`docs/algorithms/REALTIME_STRATEGY.md` 新增附录"叙事文案的平台可见性约束"，
+  含平台可见性矩阵 + 约束实现说明 + 设计选型解释。
+
 ### Added — v1.69.2 评估系统：正确性修复 + adaptiveSpawn 反馈闭环 + DFV/玩家解释接入
 
 继 v1.69.1 完成多端 ledger 写入与 RL outcome 离线消费后，本次完成端侧 evaluation

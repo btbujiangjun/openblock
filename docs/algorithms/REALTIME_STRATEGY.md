@@ -1019,3 +1019,47 @@ metrics.clearRate < 0.25  ──► playstyle='survival' ─►     │
 | [ADAPTIVE_SPAWN.md](./ADAPTIVE_SPAWN.md) | 自适应设计理念与配置详解 |
 | [ALGORITHMS_SPAWN.md（§12）](./ALGORITHMS_SPAWN.md#十二出块算法架构总览工程分层) | 出块三层与 blockSpawn |
 | [PANEL_PARAMETERS.md](../player/PANEL_PARAMETERS.md) | 面板字段级说明 |
+
+---
+
+## 附录 · 叙事文案的平台可见性约束（v1.69.3）
+
+### 背景
+
+实时策略系统会把决策结果翻译成自然语言叙事（例：
+*「识别到密集消行机会，正在投放促清的形状。」*、*「正在投放更友好的组合，悄悄给你减压。」*）。
+这类文案对调试**有价值**——能让算法/产品在 web debug 面板上一眼看清"算法此刻在做什么"，
+但对**终端用户**而言是"算法泄露"：玩家本应感受到难度的起伏，而非看到系统在"投放"什么。
+
+### 平台可见性矩阵
+
+| 文案源 | web 主端 debug 面板 | 小程序 | Cocos 原生包 |
+|--------|---------------------|--------|--------------|
+| `displayContracts.js` (`selectNarrative` / `NARRATIVE_CONTRACTS`) | ✅ 可见（DFV / 算法动态卡） | ❌ 不显示（**未** 同步、无 UI 订阅） | ❌ 不显示（**未** 同步、无 UI 订阅） |
+| `stressMeter.js` (`buildStoryLine` / `renderStressMeter`) | ✅ 可见（playerInsightPanel） | ❌ 不显示 | ❌ 不显示 |
+| `playerInsightPanel.js`（5 处 tooltip / 模式介绍） | ✅ 可见 | ❌ 无等价面板 | ❌ 无等价面板 |
+| Cocos `lifecyclePlaybook.intentNarrative`（每日策略 Toast） | — | — | ⚠️ **默认隐藏**（需 `globalThis.__OB_COCOS_STRATEGY_HINT__ = true` 才显示） |
+
+### 约束实现
+
+1. **`sync-core.sh` / `sync-cocos-engine.mjs` 同步白名单**：上述三个 web debug 文件
+   不在同步清单内，从源头切断到移动端的代码传播。
+2. **Cocos `GameController.maybeShowStrategyHint`**：方法体首句即 platform gate
+   `if (!(globalThis as any).__OB_COCOS_STRATEGY_HINT__) return;`，默认 Cocos 包
+   不显示该 toast；如需 debug 显示，在 Bootstrap 注入 `true`。
+3. **静态隔离测试** `tests/narrativeIsolation.test.js`（CI 拦截）：
+   - miniprogram/ 与 cocos/assets/scripts/ 不得 import 五个禁用模块
+     （`displayContracts` / `stressMeter` / `playerInsightPanel` / `decisionFlowViz` / `strategyAdvisor`）
+   - 两个 sync 脚本不得把这五个文件加入清单
+   - `maybeShowStrategyHint` 方法体必须含 `__OB_COCOS_STRATEGY_HINT__` 门控关键字
+   任何回归会让 CI 红灯，必须显式声明意图才能改动。
+
+### 为什么用"sync 不同步 + 静态检查"而不是"运行时 gate"？
+
+历史上考虑过 `narrativeGate.isNarrativeAllowed()` 运行时探测方案，但：
+- 移动端 web debug 文件**根本就没出现在打包结果里**，运行时探测纯属浪费 CPU；
+- 静态检查在 CI 阶段就能发现回归，比运行时门控更早、更可靠；
+- 让代码"在该出现的地方出现、在不该出现的地方编译期就缺席"更符合洁癖工程审美。
+
+唯一例外是 Cocos 的 `lifecyclePlaybook.ts`——它是 Cocos 手写文件、本来就在 Cocos 包里，
+所以用运行时 `globalThis` 标志位作为 debug 逃生门。

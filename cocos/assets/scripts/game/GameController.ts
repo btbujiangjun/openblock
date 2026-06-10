@@ -552,9 +552,17 @@ export class GameController extends Component {
      * 生命周期策略意图提示（落地 lifecyclePlaybook 矩阵的「提示语气」侧）：
      * 由 (stage, band) 经矩阵取主导 intent 的局内叙事，按其 tone 上色，每日一次 bar toast。
      * 对齐 web strategyAdvisor #14「S/M 生命周期策略」把矩阵意图呈现给玩家——非新手才显（S0 阶段不打扰）。
+     *
+     * v1.69.3：移动端（含 Cocos iOS / Android 原生包、微信小程序）**默认不显示**算法
+     * 决策类叙事文案。INTENT_LEXICON 中的 narrativeZh 含「投放促清/识别到密集消行机会/
+     * 系统略加压」等算法泄露式描述，仅适合 web 主端 debug 面板；对终端用户应隐藏。
+     *
+     * 启用方式（如需在 Cocos 上恢复显示用于调试）：构建期注入
+     * `globalThis.__OB_COCOS_STRATEGY_HINT__ = true`。
      */
     private maybeShowStrategyHint(): void {
         if (!this.node?.isValid) return;
+        if (!(globalThis as any).__OB_COCOS_STRATEGY_HINT__) return;
         const stage = this.deriveLifecycleStage();
         if (stage === 'onboarding') return;
         const today = dateKey();
