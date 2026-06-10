@@ -124,67 +124,19 @@ public class AppActivity extends CocosActivity {
         if (hasFocus) {
             applyImmersive();
             applyGestureExclusion();
-            disableHuaweiHiTouch();
         }
     }
 
-    /**
-     * 关闭华为 HiTouch 全局手势注入。
-     *
-     * 实测华为 EMUI 在 logcat 中看到的 `HiTouch_PressGestureDetector: Touch pointer move a lot`
-     * 是系统全局手势识别器，它会拦截 app 内手势并误判为「下拉状态栏 / 截屏」等系统操作，
-     * 表现为：玩家拖候选块时状态栏自动滑出 / 截屏触发。
-     *
-     * 这条管道在 IMMERSIVE_STICKY 和 setSystemGestureExclusionRects 之外，必须用华为私有
-     * SDK 的 setHwFlags 显式关闭。
-     *
-     * 我们用反射调，原因是 EMUI SDK 不开放给 AOSP 编译，且不同机型类路径可能不同：
-     *   - 优先尝试 LayoutParams.hwFlags 字段（dumpsys window 显示 hwFlags=#0 证明该字段存在）
-     *     位 0x80000000 = HW_FLAG_HW_HITOUCH_DISABLE（基于华为开发者论坛公开案例）
-     *   - 失败则尝试 com.huawei.android.view.HwWindowManager.setHiTouchDisabled
-     *
-     * 反射失败完全无害：在非华为机型上整段会静默 catch 掉。
-     */
-    private static boolean sHiTouchDisabled = false;
-    private void disableHuaweiHiTouch() {
-        if (sHiTouchDisabled) return; // 只需要设一次，状态会跟着 Window 生命周期
-        try {
-            final WindowManager.LayoutParams lp = getWindow().getAttributes();
-            // 华为 LayoutParams 子类有 hwFlags / hwExtFlags 两个 int 字段；
-            // 0x80000000 这一位在多数 EMUI 版本对应 HiTouch 屏蔽。
-            // 注意：用 setLong/setInt 直接反射赋值，避免依赖编译期类型。
-            java.lang.reflect.Field hwFlags;
-            try {
-                hwFlags = lp.getClass().getField("hwFlags");
-            } catch (NoSuchFieldException nfe) {
-                hwFlags = lp.getClass().getDeclaredField("hwFlags");
-                hwFlags.setAccessible(true);
-            }
-            int curr = hwFlags.getInt(lp);
-            int next = curr | 0x80000000;
-            hwFlags.setInt(lp, next);
-            getWindow().setAttributes(lp);
-            Log.w(TAG, "disableHuaweiHiTouch: hwFlags 0x" + Integer.toHexString(curr)
-                + " -> 0x" + Integer.toHexString(next));
-            sHiTouchDisabled = true;
-        } catch (Throwable t) {
-            // 字段不存在（非华为）或其他原因——这是正常的，不报错。
-            Log.i(TAG, "disableHuaweiHiTouch via hwFlags failed (likely non-Huawei): " + t.getMessage());
-        }
-
-        // 备用通道：尝试 com.huawei.android.view.HwWindowManager
-        if (!sHiTouchDisabled) {
-            try {
-                Class<?> hwWm = Class.forName("com.huawei.android.view.HwWindowManager");
-                java.lang.reflect.Method m = hwWm.getMethod("setHiTouchDisabled", android.view.Window.class, boolean.class);
-                m.invoke(null, getWindow(), true);
-                Log.w(TAG, "disableHuaweiHiTouch via HwWindowManager.setHiTouchDisabled OK");
-                sHiTouchDisabled = true;
-            } catch (Throwable t) {
-                Log.i(TAG, "disableHuaweiHiTouch via HwWindowManager failed: " + t.getMessage());
-            }
-        }
-    }
+    // ⚠️ 已移除 disableHuaweiHiTouch()。
+    //
+    // 原本试图通过反射给 LayoutParams.hwFlags 设 0x80000000 来关华为 HiTouch 手势误识别，
+    // 但 ADB dumpsys 实测发现 hwFlags=#80000000 在 EMUI（至少在 game_gesture_disabled_mode=1
+    // 的华为手机上）真实含义是「禁用所有系统手势」—— 不只是关 HiTouch，连 HOME 上滑、
+    // 多任务上滑、侧边返回这些 OS 级手势都被屏蔽，直接症状：「按 HOME 退不出 app」。
+    //
+    // HiTouch 误识别的问题用 installSystemUiReassertListener + setSystemGestureExclusionRects
+    // 已经够用 —— 状态栏即便被召出也会被毫秒级藏回去。0x80000000 的副作用代价远大于收益，
+    // 不再启用此 hack。
 
     /**
      * 重设全屏 immersive sticky flags。值 0x1706 + IMMERSIVE_STICKY (0x1000) = 0x2706
