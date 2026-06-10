@@ -92,6 +92,23 @@ rm -f "$LOG"
 echo ""
 echo "✔ Cocos 构建成功。"
 
+# 关闭开机 splash（详见 patch-splash.sh）。在 Cocos 输出后修改 data/src/settings.json，
+# Xcode 工程会把它作为 bundle resource 拷进 ipa。失败不致命，仅 warning。
+if [[ -x "$SCRIPT_DIR/patch-splash.sh" ]]; then
+    "$SCRIPT_DIR/patch-splash.sh" "$COCOS_DIR/build/ios/data" || true
+fi
+
+# 覆盖 iOS LaunchScreen 启动图（详见 patch-ios-launch.sh）。Cocos Creator 每次 build 都会从
+# 内置 splash 模板重新生成 native/engine/ios/LaunchScreenBackground{,Portrait,Landscape}.png
+# （Cocos 官方 logo），所以必须在 Creator 后、xcodebuild 前把它们覆盖成我们的图。
+# 同时把上一次 xcodebuild 缓存到 .app 里的旧图删掉，强制 Xcode 重拷。
+if [[ -x "$SCRIPT_DIR/patch-ios-launch.sh" ]]; then
+    "$SCRIPT_DIR/patch-ios-launch.sh" "$COCOS_DIR" || true
+    find "$COCOS_DIR/build/ios/proj" -name "LaunchScreenBackground.png" -path "*/Debug-iphoneos/*" -delete 2>/dev/null || true
+    find "$COCOS_DIR/build/ios/proj" -name "LaunchScreenBackground.png" -path "*/Release-iphoneos/*" -delete 2>/dev/null || true
+    find "$COCOS_DIR/build/ios/proj" -name "LaunchScreen.storyboardc" -type d -exec rm -rf {} + 2>/dev/null || true
+fi
+
 # 定位生成的 Xcode 工程
 PROJ="$(ls -d "$COCOS_DIR/build/ios/proj/"*.xcodeproj 2>/dev/null | head -1)"
 if [[ -z "$PROJ" ]]; then

@@ -7,6 +7,9 @@
 /native/
 *.log
 
+# 本地启动图备份，仅用于回滚参考，不入库
+/.launch-screen-backup/
+
 # editor caches
 .DS_Store
 .cocos-creator/

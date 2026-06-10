@@ -37,7 +37,6 @@ import { Modal, TapBus, screenToLocal, inheritLayer } from './ui/uiKit';
 import { guard, reportFatal } from './ui/Fatal';
 import { blockColor, bgColor, accentColor, blockIcon, blockMetrics } from './skin/palette';
 import { drawShapeFaces, iconFontSize, ICON_FONT_FAMILY } from './skin/blockPaint';
-import { seasonalAccent } from './skin/seasonalSkin';
 import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift } from './skin/seasonalRecommend';
 import { Storage, STORAGE_KEYS } from './platform/Storage';
 import { AudioManager } from './audio/AudioManager';
@@ -401,9 +400,14 @@ export class GameController extends Component {
         Haptics.enabled = Storage.get(STORAGE_KEYS.haptics, '1') !== '0';
         Analytics.track(ANALYTICS_EVENTS.sessionStart, { mode: this.model.mode });
         if (flag('bgm') && soundOn) AudioManager.startBgm();
-        // 季节环境氛围（按当月强调色缓慢飘落柔光，营造节令感）。
-        this.fx.startAmbience(seasonalAccent());
         // 皮肤主题环境粒子（樱花/落叶/气泡/萤火虫/流星/极光/涟漪），对齐 web ambientParticles。
+        // 仅 7 款皮肤（sakura/forest/ocean/fairy/universe/aurora/koi）有粒子预设，
+        // 其余皮肤（titanium / cyber / candy ...）零粒子，与 web 完全一致。
+        //
+        // ⚠️ 故意不再调 fx.startAmbience()：web 主端没有这层「季节柔光飘落粒子」，cocos 之前
+        // 多挂了一份，导致 titanium 等无主题粒子的皮肤上仍能看到飘动颗粒，与 web 行为不一致。
+        // FxLayer.updateAmbience/startAmbience/stopAmbience 代码保留，便于未来若想恢复季节氛围
+        // 时只需在此放回一行 startAmbience。
         this.ambientFx.applySkin(this.model.skin.id);
         Share.registerShareMenu(() => this.model.best);
 
@@ -3146,7 +3150,7 @@ export class GameController extends Component {
             g.rect(-1000, -1500, 2000, 3000);
             g.fill();
         }
-        this.fx.startAmbience(seasonalAccent());
+        // 与 start() 同步：不再启动 fx.startAmbience（web 主端无此层粒子）。
         this.ambientFx.applySkin(id);
         this.renderAll();
         this.refreshHudSkin();
