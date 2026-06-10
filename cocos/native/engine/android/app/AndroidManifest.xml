@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  ⚠️ 构建模板（Cocos Creator 3.x）：本文件在「构建 Android」时由构建器拷贝到
+     `build/android/proj/app/src/main/AndroidManifest.xml`，覆盖编辑器自动生成的版本。
+     如需调整 Android 原生层（权限/Activity 属性/configChanges 等），改这里即可，
+     不要改 `native/engine/android/app/AndroidManifest.xml` —— 那个文件被 .gitignore，
+     且每次重生原生工程都会被 Cocos 编辑器从内部模板覆盖。
+
+  本模板修复的故障（Android 端）：
+    · 玩 1-2 分钟后顶部工具栏弹出 → 全屏无响应；
+    · 切后台再回前台后黑屏。
+  根因：Activity 未接管 uiMode/density/locale 等 configChange → 系统在沉浸式过渡 / 主题切换
+        时【销毁并重建 Activity】→ GLSurfaceView + EGL surface 重建，JS draw command 落空。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:installLocation="auto">
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+  <!--
+    VIBRATE：缺这个权限时，Cocos Native 的 Device.vibrate() 在 native 侧抛 SecurityException →
+    JSB 桥每次落子/消行都喷 `E/error: an exception was thrown by the invoked method when invoking vibrate`
+    到 logcat。每条 E/ 级日志都走 binder IPC，长时间高频喷发会增加主线程压力且污染日志。
+    Android 13+ 起 VIBRATE 仍是 normal 权限，安装即授予，无需 runtime request；
+    安全风险极低（仅震动 marker），声明后玩家也能正常感受到触感反馈。
+  -->
+  <uses-permission android:name="android.permission.VIBRATE"/>
+  <!--
+    resizeableActivity=false：竖屏锁定的休闲游戏不支持分屏/自由窗口；保留 true 时系统会把 Activity
+      置于 multi-window 候选 → 玩家偶然手势触发分屏过渡，Activity 被重建 → Cocos GLSurfaceView/EGL
+      重建 → 黑屏/全屏无响应。明确关掉以从源头消除该路径。
+    hardwareAccelerated=true：显式声明硬件加速（Android 默认开启，但部分 OEM ROM 在低电量/性能模式下
+      会按 manifest 配置回退；显式声明可保证 GLSurfaceView 始终走 GPU 渲染）。
+  -->
+  <application android:allowBackup="true" android:label="@string/app_name" android:usesCleartextTraffic="true" android:icon="@mipmap/ic_launcher" android:resizeableActivity="false" android:hardwareAccelerated="true">
+    <meta-data android:name="android.app.lib_name" android:value="cocos"/>
+    <!--
+      configChanges 关键修复（顶部工具栏弹出 → 全屏无响应 / 回前台黑屏的根因之一）：
+        · 必须额外接管 uiMode（夜间模式切换）/ density（系统字体大小变化）/ navigation / touchscreen /
+          fontScale / locale —— 任一未声明的变化都会让系统【销毁并重建 Activity】，进而重建
+          GLSurfaceView 与 EGL surface。重建窗口期 JS 主循环已停、原生绘制 surface 失效 →
+          表现为「全屏无响应」与「切后台再回前台黑屏」（surface 已不是当初的那个）。
+        · Android 偶发在系统栏弹出/收起时下发 uiMode/density 级别的 configChange，
+          原 manifest 缺这些键，正是用户「玩一会儿顶部工具栏弹出后冻屏」的稳定复现路径。
+      windowSoftInputMode=stateAlwaysHidden|adjustNothing：避免输入法/系统栏交互 resize 窗口
+        触发 surface 重建（本游戏全程无文本输入需求）。
+    -->
+    <activity android:name="com.cocos.game.AppActivity"
+      android:screenOrientation="portrait"
+      android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density|navigation|touchscreen|fontScale|locale|mcc|mnc"
+      android:label="@string/app_name"
+      android:theme="@style/AppTheme.Launcher"
+      android:launchMode="singleTask"
+      android:windowSoftInputMode="stateAlwaysHidden|adjustNothing"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+    <activity android:name="com.cocos.lib.CocosEditBoxActivity" android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize" android:screenOrientation="behind" android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"/>
+  </application>
+</manifest>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    启动占位图：纯色背景 + 居中 ic_launcher。Activity 创建到 Cocos 首帧之间，
+    系统 windowBackground 显示这张图，玩家看到「立刻打开了 app」而不是黑屏。
+
+    颜色 #0A1F3F：与游戏整体冷色调风格一致（来自 settings.json 中
+    background.color = (0.016, 0.035, 0.039) 转 sRGB 后的近似深蓝黑）。
+    实测视觉接近游戏首屏背景，过渡平滑无突兀感。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#0A1F3F"/>
+        </shape>
+    </item>
+    <item
+        android:width="120dp"
+        android:height="120dp"
+        android:gravity="center">
+        <bitmap android:src="@mipmap/ic_launcher"/>
+    </item>
+</layer-list>
